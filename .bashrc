@@ -71,7 +71,6 @@ mkdir -p ~/.marks
 mark() { ln -sfn "$(pwd)" ~/.marks/"$1"; }
 jump() { cd -P ~/.marks/"$1" 2>/dev/null || echo "No such mark"; }
 
-
 # Plain tmux session (delegates to ds with bare profile)
 def() { ds -p bare ${1:+--name "$1"}; }
 
