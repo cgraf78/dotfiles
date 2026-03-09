@@ -94,6 +94,7 @@ _backup_and_checkout() {
 
 echo "==> Setting up $MACHINE_TYPE machine..."
 
+# Personal repo: clone/checkout
 if [[ -d "$DOTFILES" ]]; then
   # Fetch latest
   echo "==> Fetching from origin..."
