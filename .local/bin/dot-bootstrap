@@ -68,7 +68,9 @@ echo "==> Setting up $MACHINE_TYPE machine..."
 if [[ -d "$DOTFILES" ]]; then
   # Fetch latest
   echo "==> Fetching from origin..."
-  $GIT fetch origin &>/dev/null || true
+  if ! $GIT fetch origin; then
+    echo "warning: fetch failed (continuing with existing local state)" >&2
+  fi
 
   # Ensure clean full checkout. The quickstart one-liner does a sparse checkout
   # of just dot-bootstrap, which leaves the index with staged deletions of all
@@ -78,9 +80,48 @@ else
   echo "==> Cloning dotfiles..."
   git clone --bare "$REPO" "$DOTFILES"
   # Fetch to populate refs
-  $GIT fetch origin &>/dev/null || true
+  if ! $GIT fetch origin; then
+    echo "warning: fetch failed after clone" >&2
+  fi
   _backup_and_checkout
 fi
+
+# ---------------------------------------------------------------------------
+# Dependency checks (best-effort)
+# ---------------------------------------------------------------------------
+
+_install_hint() {
+  # $1 = package name (best guess)
+  local pkg="$1"
+  if command -v brew &>/dev/null; then
+    echo "  brew install $pkg"
+  elif command -v apt-get &>/dev/null; then
+    echo "  sudo apt-get update && sudo apt-get install -y $pkg"
+  elif command -v dnf &>/dev/null; then
+    echo "  sudo dnf install -y $pkg"
+  elif command -v pacman &>/dev/null; then
+    echo "  sudo pacman -S --needed $pkg"
+  else
+    echo "  (install '$pkg' with your system package manager)"
+  fi
+}
+
+_check_dep() {
+  # $1=command $2=pkg-name
+  local cmd="$1" pkg="$2"
+  if ! command -v "$cmd" &>/dev/null; then
+    echo "warning: missing dependency: $cmd"
+    _install_hint "$pkg"
+    return 1
+  fi
+  return 0
+}
+
+echo "==> Checking dependencies..."
+_check_dep git git || true
+_check_dep jq jq || true
+_check_dep tmux tmux || true
+_check_dep fzf fzf || true
 
 # ---------------------------------------------------------------------------
 # Configure git
@@ -97,7 +138,9 @@ $GIT config filter.json-sort.smudge "jq --sort-keys . 2>/dev/null || cat"
 CURRENT_FETCH=$($GIT config --get remote.origin.fetch 2>/dev/null || true)
 if [[ "$CURRENT_FETCH" != "+refs/heads/*:refs/remotes/origin/*" ]]; then
   $GIT config remote.origin.fetch "+refs/heads/*:refs/remotes/origin/*"
-  $GIT fetch origin &>/dev/null || true
+  if ! $GIT fetch origin; then
+    echo "warning: fetch failed after updating remote.origin.fetch" >&2
+  fi
 fi
 
 # Set push URL to SSH (HTTPS clone is read-only for public repos)
@@ -108,7 +151,9 @@ $GIT config "branch.$BRANCH.remote" origin
 $GIT config "branch.$BRANCH.merge" "refs/heads/$BRANCH"
 
 # Pull latest.
-$GIT pull || true
+if ! $GIT pull; then
+  echo "warning: pull failed (you may need to resolve conflicts or authenticate)" >&2
+fi
 
 # ---------------------------------------------------------------------------
 # Work repo (work machines only)
@@ -117,10 +162,14 @@ $GIT pull || true
 if [[ "$MACHINE_TYPE" == "work" ]]; then
   if [[ -d "$WORK_DIR" ]]; then
     echo "==> Updating work dotfiles..."
-    git -C "$WORK_DIR" pull || true
+    if ! git -C "$WORK_DIR" pull; then
+      echo "warning: work dotfiles pull failed" >&2
+    fi
   else
     echo "==> Cloning work dotfiles..."
-    git clone "$WORK_REPO" "$WORK_DIR"
+    if ! git clone "$WORK_REPO" "$WORK_DIR"; then
+      echo "warning: work dotfiles clone failed" >&2
+    fi
   fi
   # Run work bootstrap (symlinks, app config merges, etc.)
   if [[ -x "$WORK_DIR/bootstrap" ]]; then
