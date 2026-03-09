@@ -25,7 +25,8 @@ WORK_REPO="git@github.com:cgraf78/dotfiles-work.git"
 DOTFILES="$HOME/.dotfiles"
 WORK_DIR="$HOME/.dotfiles-work"
 BACKUP="$HOME/.dotfiles-backup-$(date +%Y%m%d%H%M%S)"
-BRANCH="main"
+# Optional: DOTFILES_BRANCH=<branch> to override detected branch.
+BRANCH=""
 
 case "$MACHINE_TYPE" in
   work|personal) ;;
@@ -40,6 +41,34 @@ GIT="git --git-dir=$DOTFILES --work-tree=$HOME"
 # ---------------------------------------------------------------------------
 # Functions
 # ---------------------------------------------------------------------------
+
+# Determine which branch to check out.
+# Priority:
+#   1) DOTFILES_BRANCH env var (explicit override)
+#   2) current local branch in the bare repo (if it exists)
+#   3) origin/HEAD (default branch)
+#   4) main (fallback)
+_detect_branch() {
+  if [[ -n "${DOTFILES_BRANCH:-}" ]]; then
+    BRANCH="$DOTFILES_BRANCH"
+    return 0
+  fi
+
+  # If repo exists and has a current branch, prefer it (useful for testing).
+  if [[ -d "$DOTFILES" ]]; then
+    local cur
+    cur=$($GIT symbolic-ref -q --short HEAD 2>/dev/null || true)
+    if [[ -n "$cur" ]]; then
+      BRANCH="$cur"
+      return 0
+    fi
+  fi
+
+  local origin_head
+  origin_head=$($GIT symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null || true)
+  origin_head=${origin_head#origin/}
+  BRANCH="${origin_head:-main}"
+}
 
 # Move any existing files out of the way, then force-checkout.
 # Uses checkout -f because a normal checkout treats missing worktree files
@@ -70,6 +99,9 @@ if [[ -d "$DOTFILES" ]]; then
   echo "==> Fetching from origin..."
   $GIT fetch origin &>/dev/null || true
 
+  _detect_branch
+  echo "==> Using branch: $BRANCH"
+
   # Ensure clean full checkout. The quickstart one-liner does a sparse checkout
   # of just dot-bootstrap, which leaves the index with staged deletions of all
   # other files. Force checkout resets the index and working tree to match HEAD.
@@ -79,6 +111,10 @@ else
   git clone --bare "$REPO" "$DOTFILES"
   # Fetch to populate refs
   $GIT fetch origin &>/dev/null || true
+
+  _detect_branch
+  echo "==> Using branch: $BRANCH"
+
   _backup_and_checkout
 fi
 
