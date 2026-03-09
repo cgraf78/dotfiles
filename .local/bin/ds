@@ -196,22 +196,37 @@ _remote() {
     lookup_host "$HOST"
     [[ -n "$PROFILE_OVERRIDE" ]] && PROFILE="$PROFILE_OVERRIDE"
     [[ -n "$CONNECT_OVERRIDE" ]] && CONNECT="$CONNECT_OVERRIDE"
-    local remote_cmd="\$HOME/.local/bin/ds"
+
+    # Build a safely-quoted remote command. Avoids word-splitting/injection when
+    # args contain spaces or special chars.
+    local tokens=()
+    tokens+=("\$HOME/.local/bin/ds")
+
     case "$ACTION" in
-        list) remote_cmd="$remote_cmd -l" ;;
-        kill) if [[ -n "$KILL_TARGET" ]]; then
-                  remote_cmd="$remote_cmd -k $KILL_TARGET"
-              else
-                  remote_cmd="$remote_cmd -k -p $PROFILE"
-                  [[ -n "$NAME_OVERRIDE" ]] && remote_cmd="$remote_cmd -n $NAME_OVERRIDE"
-              fi ;;
+        list)
+            tokens+=("-l")
+            ;;
+        kill)
+            tokens+=("-k")
+            if [[ -n "$KILL_TARGET" ]]; then
+                tokens+=("$KILL_TARGET")
+            else
+                tokens+=("-p" "$PROFILE")
+                [[ -n "$NAME_OVERRIDE" ]] && tokens+=("-n" "$NAME_OVERRIDE")
+            fi
+            ;;
         session)
             [[ -n "$CHATBOT_OVERRIDE" ]] && CHATBOT="$CHATBOT_OVERRIDE"
             [[ -n "$DIR_OVERRIDE" ]] && DIR="$DIR_OVERRIDE"
             REMOTE_DIR="${DIR/#$HOME/\$HOME}"
-            remote_cmd="$remote_cmd -p $PROFILE -b $CHATBOT -d $REMOTE_DIR"
-            [[ -n "$NAME_OVERRIDE" ]] && remote_cmd="$remote_cmd -n $NAME_OVERRIDE" ;;
+            tokens+=("-p" "$PROFILE" "-b" "$CHATBOT" "-d" "$REMOTE_DIR")
+            [[ -n "$NAME_OVERRIDE" ]] && tokens+=("-n" "$NAME_OVERRIDE")
+            ;;
     esac
+
+    local remote_cmd
+    remote_cmd=$(printf '%q ' "${tokens[@]}")
+
     case "$CONNECT" in
         -)       echo "ds: host '$HOST' is local-only (no remote connections)" >&2; exit 1 ;;
         ssh)     exec ssh "$HOST" -t "$remote_cmd" ;;
