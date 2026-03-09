@@ -22,6 +22,8 @@ fi
 MACHINE_TYPE="$1"
 REPO="https://github.com/cgraf78/dotfiles.git"
 WORK_REPO="git@github.com:cgraf78/dotfiles-work.git"
+VIMRC_REPO="https://github.com/cgraf78/vimrc.git"
+VIM_RUNTIME_DIR="$HOME/.vim_runtime"
 DOTFILES="$HOME/.dotfiles"
 WORK_DIR="$HOME/.dotfiles-work"
 BACKUP="$HOME/.dotfiles-backup-$(date +%Y%m%d%H%M%S)"
@@ -186,12 +188,12 @@ fi
 # ---------------------------------------------------------------------------
 
 # Vim runtime (cgraf78/vimrc). Skipped if already installed.
-if [[ ! -d "/.vim_runtime" ]]; then
+if [[ ! -d "$VIM_RUNTIME_DIR" ]]; then
   echo "==> Installing vim runtime (cgraf78/vimrc)..."
-  if ! git clone --depth 1 https://github.com/cgraf78/vimrc.git "/.vim_runtime"; then
+  if ! git clone --depth 1 "$VIMRC_REPO" "$VIM_RUNTIME_DIR"; then
     echo "warning: failed to clone vimrc (skipping)" >&2
   else
-    if ! sh "/.vim_runtime/install_awesome_vimrc.sh"; then
+    if ! sh "$VIM_RUNTIME_DIR/install_awesome_vimrc.sh"; then
       echo "warning: vimrc install script failed (skipping)" >&2
     fi
   fi
