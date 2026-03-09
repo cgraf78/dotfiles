@@ -48,9 +48,9 @@ Work repo files are managed with plain `git` in `~/.dotfiles-work/`.
 
 ```
 .bashrc
-├── .bashrc_linux     (Linux/WSL/MINGW — placeholder for future config)
+├── .bashrc_work      (work-only — sourced first, symlinked from work repo if present)
+├── .bashrc_linux     (Linux/WSL/MINGW)
 ├── .bashrc_mac       (macOS — Homebrew, iTerm2)
-├── .bashrc_work      (work-only — symlinked from work repo if present)
 └── .bashrc_extra     (machine-local, not tracked)
 ```
 
@@ -96,6 +96,7 @@ ds -p dev             # chatbot + bash layout
 ds myserver           # remote session
 ds -l                 # list active sessions
 ds -k ds-dev          # kill a session
+ds --killall          # kill all ds sessions
 def                   # alias for ds -p bare
 ```
 
