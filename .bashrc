@@ -71,9 +71,6 @@ mkdir -p ~/.marks
 mark() { ln -sfn "$(pwd)" ~/.marks/"$1"; }
 jump() { cd -P ~/.marks/"$1" 2>/dev/null || echo "No such mark"; }
 
-# Vim
-[[ ! -d ~/.vim_runtime ]] && git clone --depth 1 https://github.com/cgraf78/vimrc.git ~/.vim_runtime && sh ~/.vim_runtime/install_awesome_vimrc.sh
-
 # Plain tmux session (delegates to ds with bare profile)
 def() { ds -p bare ${1:+--name "$1"}; }
 
