@@ -1,0 +1,14 @@
+# Arrow keys search history by prefix
+"\e[A": history-search-backward
+"\e[B": history-search-forward
+
+# Ignore Shift+arrow sequences (terminals can't do cursor-based selection)
+"\e[1;2A": ""
+"\e[1;2B": ""
+"\e[1;2C": ""
+"\e[1;2D": ""
+
+# Visual aids
+set blink-matching-paren on
+set colored-completion-prefix on
+set enable-bracketed-paste on

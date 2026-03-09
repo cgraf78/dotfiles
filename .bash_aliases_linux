@@ -1,0 +1,19 @@
+# GNU coreutils
+alias ls='ls --color=auto'
+alias cp='cp --backup=numbered'
+alias ln='ln --backup=numbered'
+alias mv='mv -f --backup=numbered'
+
+# Windows interop (WSL and MINGW/MSYS)
+if [[ -n "${WSL_DISTRO_NAME:-}" || "$(uname -s)" == MINGW* || "$(uname -s)" == MSYS* ]]; then
+    alias e.='explorer.exe .'
+    alias np='"c:/program files/notepad++/notepad++.exe"'
+    alias rufus='rufus-4.6p.exe -g'
+    alias cpuz='cpuz_x64.exe'
+    alias wireshark='"c:/Program Files/Wireshark/Wireshark.exe"'
+    alias wireshark.rdma='ssh cgraf@ubuntu tcpdump -ni mlx5_0 --immediate-mode -Uw - | "c:/Program Files/Wireshark/Wireshark.exe" -k -i -'
+    alias rebootusb='python "$CMDER_ROOT/bin/usbtools/rebootusb.py"'
+    alias setusbhost='python "$CMDER_ROOT/bin/usbtools/setusbhost.py"'
+    alias pbcopy='clip.exe'
+    alias pbpaste='powershell.exe -NoProfile -Command Get-Clipboard'
+fi

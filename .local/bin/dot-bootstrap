@@ -1,0 +1,144 @@
+#!/bin/bash
+# Bootstrap dotfiles on a new machine or reconfigure an existing one.
+#
+# Two repos:
+#   ~/.dotfiles      — bare repo, personal dotfiles (public)
+#   ~/.dotfiles-work — regular clone, work dotfiles (private, optional)
+#
+# Usage (private repo — can't curl, so clone first):
+#   git clone --bare git@github.com:cgraf78/dotfiles.git ~/.dotfiles
+#   git --git-dir=$HOME/.dotfiles --work-tree=$HOME checkout main -- .local/bin/dot-bootstrap
+#   ~/.local/bin/dot-bootstrap <personal|work>
+
+set -euo pipefail
+
+if [[ $# -lt 1 ]]; then
+  echo "Usage: dot-bootstrap <personal|work>" >&2
+  echo "  personal  Personal dotfiles only" >&2
+  echo "  work      Personal + work dotfiles" >&2
+  exit 1
+fi
+
+MACHINE_TYPE="$1"
+REPO="git@github.com:cgraf78/dotfiles.git"
+WORK_REPO="git@github.com:cgraf78/dotfiles-work.git"
+DOTFILES="$HOME/.dotfiles"
+WORK_DIR="$HOME/.dotfiles-work"
+BACKUP="$HOME/.dotfiles-backup-$(date +%Y%m%d%H%M%S)"
+BRANCH="main"
+
+case "$MACHINE_TYPE" in
+  work|personal) ;;
+  *)
+    echo "error: argument must be 'personal' or 'work'" >&2
+    exit 1
+    ;;
+esac
+
+GIT="git --git-dir=$DOTFILES --work-tree=$HOME"
+
+# ---------------------------------------------------------------------------
+# Functions
+# ---------------------------------------------------------------------------
+
+# Move any existing files out of the way, then force-checkout.
+# Uses checkout -f because a normal checkout treats missing worktree files
+# (from the backup) as local deletions and skips recreating them.
+_backup_and_checkout() {
+  echo "==> Backing up conflicting files to $BACKUP..."
+  mkdir -p "$BACKUP"
+  $GIT ls-tree -r "$BRANCH" --name-only \
+    | while IFS= read -r f || [[ -n "$f" ]]; do
+        if [[ -e "$HOME/$f" ]]; then
+          mkdir -p "$BACKUP/$(dirname "$f")"
+          mv "$HOME/$f" "$BACKUP/$f"
+        fi
+      done
+  echo "==> Checking out $BRANCH..."
+  $GIT checkout -f "$BRANCH"
+  rmdir "$BACKUP" 2>/dev/null || true
+}
+
+# ---------------------------------------------------------------------------
+# Personal repo: clone/checkout
+# ---------------------------------------------------------------------------
+
+echo "==> Setting up $MACHINE_TYPE machine..."
+
+if [[ -d "$DOTFILES" ]]; then
+  # Fetch latest
+  echo "==> Fetching from origin..."
+  $GIT fetch origin &>/dev/null || true
+
+  # Ensure clean full checkout. The quickstart one-liner does a sparse checkout
+  # of just dot-bootstrap, which leaves the index with staged deletions of all
+  # other files. Force checkout resets the index and working tree to match HEAD.
+  _backup_and_checkout
+else
+  echo "==> Cloning dotfiles..."
+  git clone --bare "$REPO" "$DOTFILES"
+  # Fetch to populate refs
+  $GIT fetch origin &>/dev/null || true
+  _backup_and_checkout
+fi
+
+# ---------------------------------------------------------------------------
+# Configure git
+# ---------------------------------------------------------------------------
+
+$GIT config status.showUntrackedFiles no
+$GIT config pull.rebase true
+
+# json-sort filter: normalizes JSON on commit AND checkout (sorted keys).
+$GIT config filter.json-sort.clean "jq --sort-keys . 2>/dev/null || cat"
+$GIT config filter.json-sort.smudge "jq --sort-keys . 2>/dev/null || cat"
+
+# Ensure standard fetch refspec.
+CURRENT_FETCH=$($GIT config --get remote.origin.fetch 2>/dev/null || true)
+if [[ "$CURRENT_FETCH" != "+refs/heads/*:refs/remotes/origin/*" ]]; then
+  $GIT config remote.origin.fetch "+refs/heads/*:refs/remotes/origin/*"
+  $GIT fetch origin &>/dev/null || true
+fi
+
+# Set branch tracking.
+$GIT config "branch.$BRANCH.remote" origin
+$GIT config "branch.$BRANCH.merge" "refs/heads/$BRANCH"
+
+# Pull latest.
+$GIT pull || true
+
+# ---------------------------------------------------------------------------
+# Work repo (work machines only)
+# ---------------------------------------------------------------------------
+
+if [[ "$MACHINE_TYPE" == "work" ]]; then
+  if [[ -d "$WORK_DIR" ]]; then
+    echo "==> Updating work dotfiles..."
+    git -C "$WORK_DIR" pull || true
+  else
+    echo "==> Cloning work dotfiles..."
+    git clone "$WORK_REPO" "$WORK_DIR"
+  fi
+  # Run work bootstrap (symlinks, app config merges, etc.)
+  if [[ -x "$WORK_DIR/bootstrap" ]]; then
+    "$WORK_DIR/bootstrap"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# App config merges
+# ---------------------------------------------------------------------------
+
+# VS Code
+if [[ -f "$HOME/.config/dot/merge-vscode.sh" ]]; then
+  . "$HOME/.config/dot/merge-vscode.sh"
+  merge_vscode || true
+fi
+
+# iTerm2
+if [[ -f "$HOME/.config/dot/merge-iterm2.sh" ]]; then
+  . "$HOME/.config/dot/merge-iterm2.sh"
+  merge_iterm2 || true
+fi
+
+echo "==> Done! Run 'source ~/.bashrc' to activate."

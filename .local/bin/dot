@@ -1,0 +1,71 @@
+#!/bin/bash
+# Smart dotfiles manager.
+#
+# Two repos:
+#   ~/.dotfiles      — bare repo, personal dotfiles (public)
+#   ~/.dotfiles-work — regular clone, work dotfiles (private, optional)
+#
+# Commands:
+#   dot pull/push    Operates on both repos (if work repo exists)
+#   dot <anything>   Passes through to git (personal repo)
+
+set -euo pipefail
+
+GIT="git --git-dir=$HOME/.dotfiles --work-tree=$HOME"
+WORK_DIR="$HOME/.dotfiles-work"
+
+# Re-checkout files that are byte-different but identical after clean filter.
+# Fixes phantom dirty status from tools rewriting JSON with different key order.
+_normalize_filtered() {
+  local dirty
+  dirty=$($GIT diff-files --name-only 2>/dev/null) || true
+  [[ -n "$dirty" ]] || return 0
+  echo "$dirty" | while IFS= read -r f; do
+    if $GIT diff --quiet -- "$f" 2>/dev/null; then
+      $GIT checkout -- "$f" 2>/dev/null || true
+    fi
+  done
+}
+
+case "${1:-}" in
+  push)
+    shift
+    _normalize_filtered
+    $GIT push "$@"
+    # Push work repo too (if present)
+    if [[ -d "$WORK_DIR" ]]; then
+      git -C "$WORK_DIR" push "$@" || true
+    fi
+    ;;
+  pull)
+    shift
+    _normalize_filtered
+    $GIT pull "$@"
+    # Pull work repo and re-run its bootstrap (if present)
+    if [[ -d "$WORK_DIR" ]]; then
+      git -C "$WORK_DIR" pull "$@" || true
+      [[ -x "$WORK_DIR/bootstrap" ]] && "$WORK_DIR/bootstrap" || true
+    fi
+    # Merge app configs from pulled dotfiles
+    if [[ -f "$HOME/.config/dot/merge-vscode.sh" ]]; then
+      . "$HOME/.config/dot/merge-vscode.sh"
+      merge_vscode || true
+    fi
+    if [[ -f "$HOME/.config/dot/merge-iterm2.sh" ]]; then
+      . "$HOME/.config/dot/merge-iterm2.sh"
+      merge_iterm2 || true
+    fi
+    _normalize_filtered
+    ;;
+  refresh)
+    _normalize_filtered
+    ;;
+  status)
+    _normalize_filtered
+    shift
+    $GIT status "$@"
+    ;;
+  *)
+    $GIT "$@"
+    ;;
+esac

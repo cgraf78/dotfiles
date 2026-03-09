@@ -1,0 +1,120 @@
+// macOS-specific VS Code keybindings.
+// Common keybindings are in keybindings.json.
+[
+    // Remap redo to Cmd+Y (Windows-style), move omni-search to Alt+Y
+    {
+        "key": "alt+y",
+        "command": "omni-search-ui:quick-search"
+    },
+    {
+        "key": "cmd+y",
+        "command": "-omni-search-ui:quick-search"
+    },
+    {
+        "key": "cmd+y",
+        "command": "redo"
+    },
+    {
+        "key": "shift+cmd+z",
+        "command": "-redo"
+    },
+
+    // Remove default reopen-closed-editor, use for new terminal
+    {
+        "key": "shift+cmd+t",
+        "command": "-workbench.action.reopenClosedEditor"
+    },
+    {
+        "key": "shift+cmd+t",
+        "command": "workbench.action.terminal.new",
+        "when": "terminalProcessSupported || terminalWebExtensionContributedProfile"
+    },
+
+    {
+        "key": "f11",
+        "command": "workbench.action.toggleFullScreen",
+        "when": "!isIOS"
+    },
+
+    // Cmd+R → Ctrl+R in terminal (bash reverse-search)
+    {
+        "key": "cmd+r",
+        "command": "workbench.action.terminal.sendSequence",
+        "args": { "text": "\u0012" },
+        "when": "terminalFocus"
+    },
+
+    // Find prev/next (Cmd variants)
+    {
+        "key": "cmd+shift+g",
+        "command": "-workbench.view.scm"
+    },
+    {
+        "key": "cmd+shift+g",
+        "command": "editor.action.previousMatchFindAction",
+        "when": "editorFocus"
+    },
+
+    // Remove Cmd+B sidebar toggle (repurposed for terminal Ctrl+B via Karabiner)
+    {
+        "key": "cmd+b",
+        "command": "-workbench.action.toggleSidebarVisibility"
+    },
+
+    // Terminal passthrough: Karabiner remaps Ctrl+key -> Cmd+key,
+    // so we catch Cmd+key in the terminal and send the raw Ctrl character.
+    {
+        "key": "cmd+b",
+        "command": "workbench.action.terminal.sendSequence",
+        "args": { "text": "\u0002" },
+        "when": "terminalFocus"
+    },
+    {
+        "key": "cmd+a",
+        "command": "workbench.action.terminal.sendSequence",
+        "args": { "text": "\u0001" },
+        "when": "terminalFocus"
+    },
+    {
+        "key": "cmd+c",
+        "command": "workbench.action.terminal.sendSequence",
+        "args": { "text": "\u0003" },
+        "when": "terminalFocus && !terminalTextSelected"
+    },
+    {
+        "key": "cmd+l",
+        "command": "workbench.action.terminal.sendSequence",
+        "args": { "text": "\u000c" },
+        "when": "terminalFocus"
+    },
+    {
+        "key": "cmd+n",
+        "command": "workbench.action.terminal.sendSequence",
+        "args": { "text": "\u000e" },
+        "when": "terminalFocus"
+    },
+    {
+        "key": "cmd+p",
+        "command": "workbench.action.terminal.sendSequence",
+        "args": { "text": "\u0010" },
+        "when": "terminalFocus"
+    },
+    {
+        "key": "cmd+u",
+        "command": "workbench.action.terminal.sendSequence",
+        "args": { "text": "\u0015" },
+        "when": "terminalFocus"
+    },
+    {
+        "key": "cmd+w",
+        "command": "workbench.action.terminal.sendSequence",
+        "args": { "text": "\u0017" },
+        "when": "terminalFocus"
+    },
+    {
+        "key": "cmd+z",
+        "command": "workbench.action.terminal.sendSequence",
+        "args": { "text": "\u001a" },
+        "when": "terminalFocus"
+    }
+]

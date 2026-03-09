@@ -1,0 +1,2 @@
+# macOS ls uses -G for color
+alias ls='ls -G'
