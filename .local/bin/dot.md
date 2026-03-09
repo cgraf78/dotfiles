@@ -12,12 +12,12 @@ Work files are symlinked into `$HOME` by the work repo's bootstrap script. Perso
 
 Personal machine:
 ```bash
-git clone --bare git@github.com:cgraf78/dotfiles.git ~/.dotfiles && git --git-dir=$HOME/.dotfiles --work-tree=$HOME checkout main -- .local/bin/dot-bootstrap && ~/.local/bin/dot-bootstrap personal && source ~/.bashrc
+git clone --bare https://github.com/cgraf78/dotfiles.git ~/.dotfiles && git --git-dir=$HOME/.dotfiles --work-tree=$HOME checkout main -- .local/bin/dot-bootstrap && ~/.local/bin/dot-bootstrap personal && source ~/.bashrc
 ```
 
 Work machine (also clones work repo):
 ```bash
-git clone --bare git@github.com:cgraf78/dotfiles.git ~/.dotfiles && git --git-dir=$HOME/.dotfiles --work-tree=$HOME checkout main -- .local/bin/dot-bootstrap && ~/.local/bin/dot-bootstrap work && source ~/.bashrc
+git clone --bare https://github.com/cgraf78/dotfiles.git ~/.dotfiles && git --git-dir=$HOME/.dotfiles --work-tree=$HOME checkout main -- .local/bin/dot-bootstrap && ~/.local/bin/dot-bootstrap work && source ~/.bashrc
 ```
 
 The bootstrap script automatically backs up any conflicting files to `~/.dotfiles-backup-<timestamp>/`.

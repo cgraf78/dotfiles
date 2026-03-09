@@ -5,8 +5,8 @@
 #   ~/.dotfiles      — bare repo, personal dotfiles (public)
 #   ~/.dotfiles-work — regular clone, work dotfiles (private, optional)
 #
-# Usage (private repo — can't curl, so clone first):
-#   git clone --bare git@github.com:cgraf78/dotfiles.git ~/.dotfiles
+# Usage:
+#   git clone --bare https://github.com/cgraf78/dotfiles.git ~/.dotfiles
 #   git --git-dir=$HOME/.dotfiles --work-tree=$HOME checkout main -- .local/bin/dot-bootstrap
 #   ~/.local/bin/dot-bootstrap <personal|work>
 
@@ -20,7 +20,7 @@ if [[ $# -lt 1 ]]; then
 fi
 
 MACHINE_TYPE="$1"
-REPO="git@github.com:cgraf78/dotfiles.git"
+REPO="https://github.com/cgraf78/dotfiles.git"
 WORK_REPO="git@github.com:cgraf78/dotfiles-work.git"
 DOTFILES="$HOME/.dotfiles"
 WORK_DIR="$HOME/.dotfiles-work"
@@ -99,6 +99,9 @@ if [[ "$CURRENT_FETCH" != "+refs/heads/*:refs/remotes/origin/*" ]]; then
   $GIT config remote.origin.fetch "+refs/heads/*:refs/remotes/origin/*"
   $GIT fetch origin &>/dev/null || true
 fi
+
+# Set push URL to SSH (HTTPS clone is read-only for public repos)
+$GIT config remote.origin.pushUrl "git@github.com:cgraf78/dotfiles.git"
 
 # Set branch tracking.
 $GIT config "branch.$BRANCH.remote" origin
