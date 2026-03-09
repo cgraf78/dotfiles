@@ -28,7 +28,7 @@ _usage() {
     echo "Usage: ds [-p <profile>] [-n <name>] [-b <chatbot>] [-c <method>] [-d <path>] [<hostname>]"
     echo "       ds -l [<hostname>]          list active ds sessions"
     echo "       ds -k [<session>] [<host>]  kill a ds session"
-    echo "       ds --killall               kill all ds sessions"
+    echo "       ds --killall                kill all ds sessions"
 }
 
 while [[ $# -gt 0 ]]; do
