@@ -72,16 +72,7 @@ mark() { ln -sfn "$(pwd)" ~/.marks/"$1"; }
 jump() { cd -P ~/.marks/"$1" 2>/dev/null || echo "No such mark"; }
 
 # Vim
-# NOTE: no auto-networking on shell startup. Install on-demand:
-#   install_vim_runtime
-install_vim_runtime() {
-    if [[ -d "$HOME/.vim_runtime" ]]; then
-        echo "~/.vim_runtime already exists"
-        return 0
-    fi
-    git clone --depth 1 https://github.com/cgraf78/vimrc.git "$HOME/.vim_runtime" \
-        && sh "$HOME/.vim_runtime/install_awesome_vimrc.sh"
-}
+# Vim runtime is installed by dot-bootstrap (no auto-network calls on shell startup).
 
 # Plain tmux session (delegates to ds with bare profile)
 def() { ds -p bare ${1:+--name "$1"}; }

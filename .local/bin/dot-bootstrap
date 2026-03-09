@@ -180,4 +180,21 @@ if [[ -f "$HOME/.config/dot/merge-iterm2.sh" ]]; then
   merge_iterm2 || true
 fi
 
+
+# ---------------------------------------------------------------------------
+# Optional one-time installs
+# ---------------------------------------------------------------------------
+
+# Vim runtime (cgraf78/vimrc). Skipped if already installed.
+if [[ ! -d "/.vim_runtime" ]]; then
+  echo "==> Installing vim runtime (cgraf78/vimrc)..."
+  if ! git clone --depth 1 https://github.com/cgraf78/vimrc.git "/.vim_runtime"; then
+    echo "warning: failed to clone vimrc (skipping)" >&2
+  else
+    if ! sh "/.vim_runtime/install_awesome_vimrc.sh"; then
+      echo "warning: vimrc install script failed (skipping)" >&2
+    fi
+  fi
+fi
+
 echo "==> Done! Run 'source ~/.bashrc' to activate."
