@@ -218,7 +218,12 @@ _remote() {
         session)
             [[ -n "$CHATBOT_OVERRIDE" ]] && CHATBOT="$CHATBOT_OVERRIDE"
             [[ -n "$DIR_OVERRIDE" ]] && DIR="$DIR_OVERRIDE"
-            REMOTE_DIR="${DIR/#$HOME/\$HOME}"
+            # Convert local $HOME prefix to remote ~ for safe expansion on the remote shell
+            if [[ "$DIR" == "$HOME"* ]]; then
+                REMOTE_DIR="~${DIR#$HOME}"
+            else
+                REMOTE_DIR="$DIR"
+            fi
             tokens+=("-p" "$PROFILE" "-b" "$CHATBOT" "-d" "$REMOTE_DIR")
             [[ -n "$NAME_OVERRIDE" ]] && tokens+=("-n" "$NAME_OVERRIDE")
             ;;
