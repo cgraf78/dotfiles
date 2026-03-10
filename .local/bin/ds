@@ -216,7 +216,7 @@ _remote() {
             ;;
         session)
             [[ -n "$CHATBOT_OVERRIDE" ]] && CHATBOT="$CHATBOT_OVERRIDE"
-            [[ -n "$DIR_OVERRIDE" ]] && DIR="$DIR_OVERRIDE"
+            [[ -n "$DIR_OVERRIDE" ]] && DIR="${DIR_OVERRIDE/#\~/$HOME}"
             # Convert local $HOME prefix to remote ~ for safe expansion on the remote shell
             if [[ "$DIR" == "$HOME"* ]]; then
                 REMOTE_DIR="~${DIR#$HOME}"
@@ -260,7 +260,7 @@ case "$ACTION" in
     lookup_host "$(hostname -s 2>/dev/null || hostname)"
     [[ -n "$PROFILE_OVERRIDE" ]] && PROFILE="$PROFILE_OVERRIDE"
     [[ -n "$CHATBOT_OVERRIDE" ]] && CHATBOT="$CHATBOT_OVERRIDE"
-    [[ -n "$DIR_OVERRIDE" ]] && DIR="$DIR_OVERRIDE"
+    [[ -n "$DIR_OVERRIDE" ]] && DIR="${DIR_OVERRIDE/#\~/$HOME}"
     _validate_profile
     _do_session
     ;;
