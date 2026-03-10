@@ -31,7 +31,7 @@ merge_karabiner() {
   # No existing file — just copy
   if [[ ! -f "$dst" ]]; then
     cp "$src" "$dst"
-    return
+    return 0
   fi
 
   # Warn about profiles being overwritten
