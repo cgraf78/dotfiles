@@ -191,6 +191,7 @@ $GIT config "branch.$BRANCH.remote" origin
 $GIT config "branch.$BRANCH.merge" "refs/heads/$BRANCH"
 
 # Pull latest.
+echo "==> Pulling personal dotfiles..."
 if ! $GIT pull; then
   echo "warning: pull failed (you may need to resolve conflicts or authenticate)" >&2
 fi
@@ -201,7 +202,7 @@ fi
 
 if [[ "$MACHINE_TYPE" == "work" ]]; then
   if [[ -d "$WORK_DIR" ]]; then
-    echo "==> Updating work dotfiles..."
+    echo "==> Pulling work dotfiles..."
     if ! git -C "$WORK_DIR" pull; then
       echo "warning: work dotfiles pull failed" >&2
     fi

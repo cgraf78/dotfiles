@@ -31,18 +31,22 @@ case "${1:-}" in
   push)
     shift
     _normalize_filtered
+    echo "==> Pushing personal dotfiles..."
     $GIT push "$@"
     # Push work repo too (if present)
     if [[ -d "$WORK_DIR" ]]; then
+      echo "==> Pushing work dotfiles..."
       git -C "$WORK_DIR" push "$@" || true
     fi
     ;;
   pull)
     shift
     _normalize_filtered
+    echo "==> Pulling personal dotfiles..."
     $GIT pull "$@"
     # Pull work repo and re-run its bootstrap (if present)
     if [[ -d "$WORK_DIR" ]]; then
+      echo "==> Pulling work dotfiles..."
       git -C "$WORK_DIR" pull "$@" || true
       [[ -x "$WORK_DIR/bootstrap" ]] && "$WORK_DIR/bootstrap" || true
     fi
