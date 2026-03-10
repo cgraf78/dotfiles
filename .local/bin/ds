@@ -200,7 +200,7 @@ _remote() {
     # Build a safely-quoted remote command. Avoids word-splitting/injection when
     # args contain spaces or special chars.
     local tokens=()
-    tokens+=("\$HOME/.local/bin/ds")
+    tokens+=("~/.local/bin/ds")
 
     case "$ACTION" in
         list)
