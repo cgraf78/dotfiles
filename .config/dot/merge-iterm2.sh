@@ -50,13 +50,9 @@ merge_iterm2() {
   local dst="$dst_dir/dotfiles.json"
 
   [[ -f "$src" ]] || return 0
+  [[ -d "$dst_dir" ]] || return 0
 
   echo "Merging iTerm2 config..."
-
-  if [[ ! -d "$dst_dir" ]]; then
-    echo "==> Skipping iTerm2 (launch iTerm2 once, then re-run to link profile)"
-    return 0
-  fi
 
   # Dynamic profile symlink
   if [[ ! -L "$dst" || "$(readlink "$dst")" != "$src" ]]; then
