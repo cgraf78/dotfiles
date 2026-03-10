@@ -92,39 +92,32 @@ _backup_and_checkout() {
 }
 
 # ---------------------------------------------------------------------------
-# Personal repo: clone/checkout
+# Personal repo: clone or configure
 # ---------------------------------------------------------------------------
 
 echo "==> Setting up $MACHINE_TYPE machine..."
 
-# Personal repo: clone/checkout
-if [[ -d "$DOTFILES" ]]; then
-  # Fetch latest
-  echo "==> Fetching from origin..."
-  if ! $GIT fetch origin; then
-    echo "warning: fetch failed (continuing with existing local state)" >&2
-  fi
-
-  _detect_branch
-  echo "==> Using branch: $BRANCH"
-
-  # Ensure clean full checkout. The quickstart one-liner does a sparse checkout
-  # of just dot-bootstrap, which leaves the index with staged deletions of all
-  # other files. Force checkout resets the index and working tree to match HEAD.
-  _backup_and_checkout
-else
-  echo "==> Cloning dotfiles..."
+if [[ ! -d "$DOTFILES" ]]; then
+  echo "==> Cloning personal dotfiles..."
   git clone --bare "$REPO" "$DOTFILES"
-  # Fetch to populate refs
-  if ! $GIT fetch origin; then
-    echo "warning: fetch failed after clone" >&2
-  fi
-
-  _detect_branch
-  echo "==> Using branch: $BRANCH"
-
-  _backup_and_checkout
 fi
+
+# ---------------------------------------------------------------------------
+# Configure git (before fetch so refspec and filters are correct)
+# ---------------------------------------------------------------------------
+
+$GIT config status.showUntrackedFiles no
+$GIT config pull.rebase true
+
+# json-sort filter: normalizes JSON on commit AND checkout (sorted keys).
+$GIT config filter.json-sort.clean "jq --sort-keys . 2>/dev/null || cat"
+$GIT config filter.json-sort.smudge "jq --sort-keys . 2>/dev/null || cat"
+
+# Ensure standard fetch refspec.
+$GIT config remote.origin.fetch "+refs/heads/*:refs/remotes/origin/*"
+
+# Set push URL to SSH (HTTPS clone is read-only for public repos)
+$GIT config remote.origin.pushUrl "git@github.com:cgraf78/dotfiles.git"
 
 # ---------------------------------------------------------------------------
 # Dependency checks (best-effort)
@@ -164,33 +157,25 @@ _check_dep tmux tmux || true
 _check_dep fzf fzf || true
 
 # ---------------------------------------------------------------------------
-# Configure git
+# Fetch, detect branch, checkout
 # ---------------------------------------------------------------------------
 
-$GIT config status.showUntrackedFiles no
-$GIT config pull.rebase true
-
-# json-sort filter: normalizes JSON on commit AND checkout (sorted keys).
-$GIT config filter.json-sort.clean "jq --sort-keys . 2>/dev/null || cat"
-$GIT config filter.json-sort.smudge "jq --sort-keys . 2>/dev/null || cat"
-
-# Ensure standard fetch refspec.
-CURRENT_FETCH=$($GIT config --get remote.origin.fetch 2>/dev/null || true)
-if [[ "$CURRENT_FETCH" != "+refs/heads/*:refs/remotes/origin/*" ]]; then
-  $GIT config remote.origin.fetch "+refs/heads/*:refs/remotes/origin/*"
-  if ! $GIT fetch origin; then
-    echo "warning: fetch failed after updating remote.origin.fetch" >&2
-  fi
+echo "==> Pulling personal dotfiles..."
+if ! $GIT fetch origin; then
+  echo "warning: fetch failed (continuing with existing local state)" >&2
 fi
 
-# Set push URL to SSH (HTTPS clone is read-only for public repos)
-$GIT config remote.origin.pushUrl "git@github.com:cgraf78/dotfiles.git"
+_detect_branch
+echo "==> Using branch: $BRANCH"
 
 # Set branch tracking.
 $GIT config "branch.$BRANCH.remote" origin
 $GIT config "branch.$BRANCH.merge" "refs/heads/$BRANCH"
 
-# fetch + checkout -f above already ensures we're up to date.
+# Ensure clean full checkout. The quickstart one-liner does a sparse checkout
+# of just dot-bootstrap, which leaves the index with staged deletions of all
+# other files. Force checkout resets the index and working tree to match HEAD.
+_backup_and_checkout
 
 # ---------------------------------------------------------------------------
 # Work repo (work machines only)
