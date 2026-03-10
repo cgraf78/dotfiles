@@ -83,6 +83,7 @@ _backup_and_checkout() {
         if [[ -e "$HOME/$f" ]]; then
           mkdir -p "$BACKUP/$(dirname "$f")"
           mv "$HOME/$f" "$BACKUP/$f"
+          echo "  backed up: $f"
         fi
       done
   echo "==> Checking out $BRANCH..."
