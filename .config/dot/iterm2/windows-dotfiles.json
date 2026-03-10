@@ -1,8 +1,8 @@
 {
   "Profiles": [
     {
-      "Name": "Dotfiles",
-      "Guid": "dotfiles-synced-profile-001",
+      "Name": "Windows (Dotfiles)",
+      "Guid": "windows-dotfiles-synced-profile-001",
       "Dynamic Profile Parent Name": "Default",
       "Normal Font": "Menlo-Regular 10",
       "Non Ascii Font": "Monaco 12",

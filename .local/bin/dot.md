@@ -80,7 +80,7 @@ Merge policy: dotfiles win on conflicts, local-only settings/keybindings are pre
 
 ### iTerm2 config (macOS)
 
-Dynamic Profile in `~/.config/dot/iterm2/dynamic-profile.json` is symlinked into iTerm2's DynamicProfiles dir. Set it as default in Preferences.
+Dynamic Profile in `~/.config/dot/iterm2/windows-dotfiles.json` is copied into iTerm2's DynamicProfiles dir. Set it as default in Preferences.
 
 ### Karabiner config (macOS)
 

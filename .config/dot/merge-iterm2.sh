@@ -4,7 +4,7 @@
 # macOS only — no-ops silently on other platforms.
 #
 # Two layers:
-#   1. Dynamic Profile — ~/.config/dot/iterm2/dynamic-profile.json is copied
+#   1. Dynamic Profile — ~/.config/dot/iterm2/windows-dotfiles.json is copied
 #      into ~/Library/Application Support/iTerm2/DynamicProfiles/. This creates
 #      a "Dotfiles" profile with key mappings, font, colors, and terminal
 #      settings. Set it as default in Preferences → Profiles → Other Actions.
@@ -45,9 +45,9 @@ _iterm2_defaults() {
 merge_iterm2() {
   [[ "$(uname)" == "Darwin" ]] || return 0
 
-  local src="$HOME/.config/dot/iterm2/dynamic-profile.json"
+  local src="$HOME/.config/dot/iterm2/windows-dotfiles.json"
   local dst_dir="$HOME/Library/Application Support/iTerm2/DynamicProfiles"
-  local dst="$dst_dir/dotfiles.json"
+  local dst="$dst_dir/windows-dotfiles.json"
 
   [[ -f "$src" ]] || return 0
   if [[ ! -d "$dst_dir" ]]; then
