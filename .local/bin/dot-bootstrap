@@ -190,11 +190,7 @@ $GIT config remote.origin.pushUrl "git@github.com:cgraf78/dotfiles.git"
 $GIT config "branch.$BRANCH.remote" origin
 $GIT config "branch.$BRANCH.merge" "refs/heads/$BRANCH"
 
-# Pull latest.
-echo "==> Pulling personal dotfiles..."
-if ! $GIT pull; then
-  echo "warning: pull failed (you may need to resolve conflicts or authenticate)" >&2
-fi
+# fetch + checkout -f above already ensures we're up to date.
 
 # ---------------------------------------------------------------------------
 # Work repo (work machines only)
