@@ -4,7 +4,7 @@
 # macOS only — no-ops silently on other platforms.
 #
 # Two layers:
-#   1. Dynamic Profile — ~/.config/dot/iterm2/dynamic-profile.json is symlinked
+#   1. Dynamic Profile — ~/.config/dot/iterm2/dynamic-profile.json is copied
 #      into ~/Library/Application Support/iTerm2/DynamicProfiles/. This creates
 #      a "Dotfiles" profile with key mappings, font, colors, and terminal
 #      settings. Set it as default in Preferences → Profiles → Other Actions.
@@ -41,7 +41,7 @@ _iterm2_defaults() {
   }'
 }
 
-# Main: symlink dynamic profile and apply global preferences.
+# Main: copy dynamic profile and apply global preferences.
 merge_iterm2() {
   [[ "$(uname)" == "Darwin" ]] || return 0
 
@@ -57,10 +57,9 @@ merge_iterm2() {
 
   echo "Merging iTerm2 config..."
 
-  # Dynamic profile symlink
-  if [[ ! -L "$dst" || "$(readlink "$dst")" != "$src" ]]; then
-    ln -sf "$src" "$dst"
-    echo "==> Linked iTerm2 dynamic profile"
+  # Dynamic profile copy (iTerm2 doesn't follow symlinks)
+  if ! cmp -s "$src" "$dst"; then
+    cp "$src" "$dst"
   fi
 
   # Global preferences
