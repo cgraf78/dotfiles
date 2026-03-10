@@ -6,7 +6,7 @@
 # Two layers:
 #   1. Dynamic Profile — ~/.config/dot/iterm2/windows-dotfiles.json is copied
 #      into ~/Library/Application Support/iTerm2/DynamicProfiles/. This creates
-#      a "Dotfiles" profile with key mappings, font, colors, and terminal
+#      a "Windows (Dotfiles)" profile with key mappings, font, colors, and terminal
 #      settings. Set it as default in Preferences → Profiles → Other Actions.
 #   2. Global preferences — `defaults write` applies settings that live outside
 #      profiles: tab style, key repeat, quit behavior, pointer actions, etc.
