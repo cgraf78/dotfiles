@@ -11,8 +11,10 @@
 merge_karabiner() {
   [[ "$(uname)" == "Darwin" ]] || return 0
 
+  echo "==> Merging Karabiner config..."
+
   if ! command -v jq &>/dev/null; then
-    echo "warning: jq not installed — skipping Karabiner config merge"
+    echo "  skipped (jq not installed)"
     return 0
   fi
 
@@ -22,11 +24,9 @@ merge_karabiner() {
 
   [[ -f "$src" ]] || return 0
   if [[ ! -d "$dst_dir" ]]; then
-    echo "Skipping Karabiner (config dir not found)"
+    echo "  skipped (config dir not found)"
     return 0
   fi
-
-  echo "==> Merging Karabiner config..."
 
   # No existing file — just copy
   if [[ ! -f "$dst" ]]; then

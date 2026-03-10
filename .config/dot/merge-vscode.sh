@@ -141,16 +141,15 @@ _merge_vscode_config() {
 
 # Main: determine VS Code config dirs and merge.
 merge_vscode() {
+  echo "==> Merging VS Code config..."
   if ! command -v jq &>/dev/null; then
-    echo "warning: jq not installed — skipping VS Code config merge"
+    echo "  skipped (jq not installed)"
     return 0
   fi
   if ! command -v code &>/dev/null; then
-    echo "Skipping VS Code (code not found)"
+    echo "  skipped (code not found)"
     return 0
   fi
-
-  echo "==> Merging VS Code config..."
   case "$(uname -s)" in
     Darwin)
       _merge_vscode_config "$HOME/Library/Application Support/Code/User"
