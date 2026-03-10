@@ -26,7 +26,7 @@ merge_karabiner() {
     return 0
   fi
 
-  echo "Merging Karabiner config..."
+  echo "==> Merging Karabiner config..."
 
   # No existing file — just copy
   if [[ ! -f "$dst" ]]; then

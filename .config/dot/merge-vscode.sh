@@ -150,7 +150,7 @@ merge_vscode() {
     return 0
   fi
 
-  echo "Merging VS Code config..."
+  echo "==> Merging VS Code config..."
   case "$(uname -s)" in
     Darwin)
       _merge_vscode_config "$HOME/Library/Application Support/Code/User"

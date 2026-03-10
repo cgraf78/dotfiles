@@ -55,7 +55,7 @@ merge_iterm2() {
     return 0
   fi
 
-  echo "Merging iTerm2 config..."
+  echo "==> Merging iTerm2 config..."
 
   # Dynamic profile copy (iTerm2 doesn't follow symlinks)
   if ! cmp -s "$src" "$dst"; then
