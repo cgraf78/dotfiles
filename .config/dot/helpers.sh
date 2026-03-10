@@ -9,7 +9,7 @@ WORK_DIR="$HOME/.dotfiles-work"
 _pull_work_repo() {
   [[ -d "$WORK_DIR" ]] || return 0
   echo "==> Pulling work dotfiles..."
-  git -C "$WORK_DIR" pull || echo "warning: work dotfiles pull failed" >&2
+  git -C "$WORK_DIR" pull || echo "  warning: work dotfiles pull failed" >&2
   [[ -x "$WORK_DIR/bootstrap" ]] && "$WORK_DIR/bootstrap" || true
 }
 
@@ -17,7 +17,7 @@ _pull_work_repo() {
 _push_work_repo() {
   [[ -d "$WORK_DIR" ]] || return 0
   echo "==> Pushing work dotfiles..."
-  git -C "$WORK_DIR" push || echo "warning: work dotfiles push failed" >&2
+  git -C "$WORK_DIR" push || echo "  warning: work dotfiles push failed" >&2
 }
 
 # Run all app config merge scripts (iTerm2, Karabiner, VS Code, etc.).

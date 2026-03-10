@@ -143,7 +143,7 @@ _check_dep() {
   # $1=command $2=pkg-name
   local cmd="$1" pkg="$2"
   if ! command -v "$cmd" &>/dev/null; then
-    echo "warning: missing dependency: $cmd"
+    echo "  warning: missing dependency: $cmd"
     _install_hint "$pkg"
     return 1
   fi
@@ -162,7 +162,7 @@ _check_dep fzf fzf || true
 
 echo "==> Pulling personal dotfiles..."
 if ! $GIT fetch origin; then
-  echo "warning: fetch failed (continuing with existing local state)" >&2
+  echo "  warning: fetch failed (continuing with existing local state)" >&2
 fi
 
 _detect_branch
@@ -190,7 +190,7 @@ if [[ "$MACHINE_TYPE" == "work" ]]; then
   else
     echo "==> Cloning work dotfiles..."
     if ! git clone "$WORK_REPO" "$WORK_DIR"; then
-      echo "warning: work dotfiles clone failed" >&2
+      echo "  warning: work dotfiles clone failed" >&2
     fi
     [[ -x "$WORK_DIR/bootstrap" ]] && "$WORK_DIR/bootstrap" || true
   fi
@@ -210,10 +210,10 @@ _run_merges
 if [[ ! -d "$VIM_RUNTIME_DIR" ]]; then
   echo "==> Installing vim runtime (cgraf78/vimrc)..."
   if ! git clone --depth 1 "$VIMRC_REPO" "$VIM_RUNTIME_DIR"; then
-    echo "warning: failed to clone vimrc (skipping)" >&2
+    echo "  warning: failed to clone vimrc (skipping)" >&2
   else
     if ! sh "$VIM_RUNTIME_DIR/install_awesome_vimrc.sh"; then
-      echo "warning: vimrc install script failed (skipping)" >&2
+      echo "  warning: vimrc install script failed (skipping)" >&2
     fi
   fi
 fi
