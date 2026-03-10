@@ -232,6 +232,12 @@ if [[ -f "$HOME/.config/dot/merge-iterm2.sh" ]]; then
   merge_iterm2 || true
 fi
 
+# Karabiner-Elements
+if [[ -f "$HOME/.config/dot/merge-karabiner.sh" ]]; then
+  . "$HOME/.config/dot/merge-karabiner.sh"
+  merge_karabiner || true
+fi
+
 
 # ---------------------------------------------------------------------------
 # Optional one-time installs

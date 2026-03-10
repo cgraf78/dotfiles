@@ -55,6 +55,10 @@ case "${1:-}" in
       . "$HOME/.config/dot/merge-iterm2.sh"
       merge_iterm2 || true
     fi
+    if [[ -f "$HOME/.config/dot/merge-karabiner.sh" ]]; then
+      . "$HOME/.config/dot/merge-karabiner.sh"
+      merge_karabiner || true
+    fi
     _normalize_filtered
     ;;
   refresh)

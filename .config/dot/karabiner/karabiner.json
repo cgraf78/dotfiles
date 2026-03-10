@@ -1,12 +1,6 @@
 {
     "profiles": [
         {
-            "name": "Default profile",
-            "virtual_hid_keyboard": {
-                "keyboard_type_v2": "ansi"
-            }
-        },
-        {
             "complex_modifications": {
                 "rules": [
                     {
@@ -3001,7 +2995,7 @@
                         ]
                     },
                     {
-                        "description": "Tab (Cmd) [Only Remote Desktop] \u2192 Alt+Tab on remote",
+                        "description": "Tab (Cmd) [Only Remote Desktop] → Alt+Tab on remote",
                         "manipulators": [
                             {
                                 "conditions": [
@@ -3166,7 +3160,7 @@
                     "ignore": false
                 }
             ],
-            "name": "Windows",
+            "name": "Windows (Dotfiles)",
             "selected": true,
             "virtual_hid_keyboard": {
                 "keyboard_type_v2": "ansi"
