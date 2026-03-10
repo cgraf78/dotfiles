@@ -185,13 +185,15 @@ _backup_and_checkout
 # ---------------------------------------------------------------------------
 
 if [[ "$MACHINE_TYPE" == "work" ]]; then
-  if [[ ! -d "$WORK_DIR" ]]; then
+  if [[ -d "$WORK_DIR" ]]; then
+    _pull_work_repo
+  else
     echo "==> Cloning work dotfiles..."
     if ! git clone "$WORK_REPO" "$WORK_DIR"; then
       echo "warning: work dotfiles clone failed" >&2
     fi
+    [[ -x "$WORK_DIR/bootstrap" ]] && "$WORK_DIR/bootstrap" || true
   fi
-  _pull_work_repo
 fi
 
 # ---------------------------------------------------------------------------
