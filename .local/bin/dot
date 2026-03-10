@@ -42,6 +42,7 @@ case "${1:-}" in
     _pull_work_repo
     _run_merges
     _normalize_filtered
+    echo "==> Done! Run 'source ~/.bashrc' to activate."
     ;;
   refresh)
     _normalize_filtered
