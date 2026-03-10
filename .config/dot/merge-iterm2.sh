@@ -50,7 +50,10 @@ merge_iterm2() {
   local dst="$dst_dir/dotfiles.json"
 
   [[ -f "$src" ]] || return 0
-  [[ -d "$dst_dir" ]] || return 0
+  if [[ ! -d "$dst_dir" ]]; then
+    echo "Skipping iTerm2 (not installed)"
+    return 0
+  fi
 
   echo "Merging iTerm2 config..."
 

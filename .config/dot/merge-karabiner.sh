@@ -21,7 +21,10 @@ merge_karabiner() {
   local dst="$dst_dir/karabiner.json"
 
   [[ -f "$src" ]] || return 0
-  [[ -d "$dst_dir" ]] || return 0
+  if [[ ! -d "$dst_dir" ]]; then
+    echo "Skipping Karabiner (not installed)"
+    return 0
+  fi
 
   echo "Merging Karabiner config..."
 

@@ -145,7 +145,10 @@ merge_vscode() {
     echo "warning: jq not installed — skipping VS Code config merge"
     return 0
   fi
-  command -v code &>/dev/null || return 0
+  if ! command -v code &>/dev/null; then
+    echo "Skipping VS Code (not installed)"
+    return 0
+  fi
 
   echo "Merging VS Code config..."
   case "$(uname -s)" in
