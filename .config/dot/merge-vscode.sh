@@ -111,28 +111,28 @@ _merge_vscode_settings() {
 # $1 = target config dir (e.g., ~/Library/Application Support/Code/User)
 _merge_vscode_config() {
   # Settings (cross-platform)
-  local settings_src="$HOME/.config/vscode/settings.json"
+  local settings_src="$HOME/.config/dot/vscode/settings.json"
   if [[ -f "$settings_src" ]]; then
     _merge_vscode_settings "$settings_src" "$1/settings.json"
   fi
 
   # Keybindings: merge common first, then platform-specific
-  local kb_common="$HOME/.config/vscode/keybindings.json"
+  local kb_common="$HOME/.config/dot/vscode/keybindings.json"
   if [[ -f "$kb_common" ]]; then
     _merge_vscode_keybindings "$kb_common" "$1/keybindings.json"
   fi
 
   local kb_platform=""
   case "$(uname -s)" in
-    Darwin)       kb_platform="$HOME/.config/vscode/keybindings-mac.json" ;;
+    Darwin)       kb_platform="$HOME/.config/dot/vscode/keybindings-mac.json" ;;
     Linux)
       if [[ -n "${WSL_DISTRO_NAME:-}" ]]; then
-        kb_platform="$HOME/.config/vscode/keybindings-windows.json"
+        kb_platform="$HOME/.config/dot/vscode/keybindings-windows.json"
       else
-        kb_platform="$HOME/.config/vscode/keybindings-linux.json"
+        kb_platform="$HOME/.config/dot/vscode/keybindings-linux.json"
       fi
       ;;
-    MINGW*|MSYS*) kb_platform="$HOME/.config/vscode/keybindings-windows.json" ;;
+    MINGW*|MSYS*) kb_platform="$HOME/.config/dot/vscode/keybindings-windows.json" ;;
   esac
   if [[ -n "$kb_platform" && -f "$kb_platform" ]]; then
     _merge_vscode_keybindings "$kb_platform" "$1/keybindings.json"

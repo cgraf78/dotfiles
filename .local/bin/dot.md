@@ -65,10 +65,10 @@ Work repo files are managed with plain `git` in `~/.dotfiles-work/`.
 
 ### VS Code config
 
-Settings and keybindings in `~/.config/vscode/` are merged into VS Code's config dirs by `dot-bootstrap` and `dot pull`:
+Settings and keybindings in `~/.config/dot/vscode/` are merged into VS Code's config dirs by `dot-bootstrap` and `dot pull`:
 
 ```
-~/.config/vscode/
+~/.config/dot/vscode/
 ├── settings.json             (cross-platform)
 ├── keybindings.json          (common keybindings, all platforms)
 ├── keybindings-mac.json      (macOS-specific)
@@ -80,7 +80,7 @@ Merge policy: dotfiles win on conflicts, local-only settings/keybindings are pre
 
 ### iTerm2 config (macOS)
 
-Dynamic Profile in `~/.config/iterm2/dynamic-profile.json` is symlinked into iTerm2's DynamicProfiles dir. Set it as default in Preferences.
+Dynamic Profile in `~/.config/dot/iterm2/dynamic-profile.json` is symlinked into iTerm2's DynamicProfiles dir. Set it as default in Preferences.
 
 ### Karabiner config (macOS)
 
