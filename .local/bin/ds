@@ -199,20 +199,19 @@ _remote() {
 
     # Build a safely-quoted remote command. Avoids word-splitting/injection when
     # args contain spaces or special chars.
-    local tokens=()
-    tokens+=("~/.local/bin/ds")
+    local args=()
 
     case "$ACTION" in
         list)
-            tokens+=("-l")
+            args+=("-l")
             ;;
         kill)
-            tokens+=("-k")
+            args+=("-k")
             if [[ -n "$KILL_TARGET" ]]; then
-                tokens+=("$KILL_TARGET")
+                args+=("$KILL_TARGET")
             else
-                tokens+=("-p" "$PROFILE")
-                [[ -n "$NAME_OVERRIDE" ]] && tokens+=("-n" "$NAME_OVERRIDE")
+                args+=("-p" "$PROFILE")
+                [[ -n "$NAME_OVERRIDE" ]] && args+=("-n" "$NAME_OVERRIDE")
             fi
             ;;
         session)
@@ -224,13 +223,14 @@ _remote() {
             else
                 REMOTE_DIR="$DIR"
             fi
-            tokens+=("-p" "$PROFILE" "-b" "$CHATBOT" "-d" "$REMOTE_DIR")
-            [[ -n "$NAME_OVERRIDE" ]] && tokens+=("-n" "$NAME_OVERRIDE")
+            args+=("-p" "$PROFILE" "-b" "$CHATBOT" "-d" "$REMOTE_DIR")
+            [[ -n "$NAME_OVERRIDE" ]] && args+=("-n" "$NAME_OVERRIDE")
             ;;
     esac
 
+    # Keep ~/ unescaped so the remote shell expands it; only escape the args
     local remote_cmd
-    remote_cmd=$(printf '%q ' "${tokens[@]}")
+    remote_cmd="~/.local/bin/ds $(printf '%q ' "${args[@]}")"
 
     case "$CONNECT" in
         -)       echo "ds: host '$HOST' is local-only (no remote connections)" >&2; exit 1 ;;
