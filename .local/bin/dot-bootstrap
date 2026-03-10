@@ -177,39 +177,28 @@ $GIT config "branch.$BRANCH.merge" "refs/heads/$BRANCH"
 # other files. Force checkout resets the index and working tree to match HEAD.
 _backup_and_checkout
 
+# Shared helpers (now available after full checkout).
+. "$HOME/.config/dot/helpers.sh"
+
 # ---------------------------------------------------------------------------
 # Work repo (work machines only)
 # ---------------------------------------------------------------------------
 
 if [[ "$MACHINE_TYPE" == "work" ]]; then
-  if [[ -d "$WORK_DIR" ]]; then
-    echo "==> Pulling work dotfiles..."
-    if ! git -C "$WORK_DIR" pull; then
-      echo "warning: work dotfiles pull failed" >&2
-    fi
-  else
+  if [[ ! -d "$WORK_DIR" ]]; then
     echo "==> Cloning work dotfiles..."
     if ! git clone "$WORK_REPO" "$WORK_DIR"; then
       echo "warning: work dotfiles clone failed" >&2
     fi
   fi
-  # Run work bootstrap (symlinks, app config merges, etc.)
-  if [[ -x "$WORK_DIR/bootstrap" ]]; then
-    "$WORK_DIR/bootstrap"
-  fi
+  _pull_work_repo
 fi
 
 # ---------------------------------------------------------------------------
 # App config merges
 # ---------------------------------------------------------------------------
 
-# Convention: merge-<name>.sh defines merge_<name>()
-for _script in "$HOME/.config/dot"/merge-*.sh; do
-  [[ -f "$_script" ]] || continue
-  . "$_script"
-  _fn="merge_${_script##*merge-}"; _fn="${_fn%.sh}"
-  "$_fn" || true
-done
+_run_merges
 
 # ---------------------------------------------------------------------------
 # Optional one-time installs
