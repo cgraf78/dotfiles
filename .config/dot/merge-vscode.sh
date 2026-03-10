@@ -146,7 +146,7 @@ merge_vscode() {
     return 0
   fi
   if ! command -v code &>/dev/null; then
-    echo "Skipping VS Code (not installed)"
+    echo "Skipping VS Code (code not found)"
     return 0
   fi
 
