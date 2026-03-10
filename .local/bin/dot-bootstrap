@@ -76,7 +76,7 @@ _detect_branch() {
 # Uses checkout -f because a normal checkout treats missing worktree files
 # (from the backup) as local deletions and skips recreating them.
 _backup_and_checkout() {
-  echo "==> Backing up conflicting files to $BACKUP..."
+  echo "  backing up conflicting files to $BACKUP..."
   mkdir -p "$BACKUP"
   $GIT ls-tree -r "$BRANCH" --name-only \
     | while IFS= read -r f || [[ -n "$f" ]]; do
@@ -86,7 +86,7 @@ _backup_and_checkout() {
           echo "  backed up: $f"
         fi
       done
-  echo "==> Checking out $BRANCH..."
+  echo "  checking out $BRANCH..."
   $GIT checkout -f "$BRANCH"
   rmdir "$BACKUP" 2>/dev/null || true
 }
@@ -166,7 +166,7 @@ if ! $GIT fetch origin; then
 fi
 
 _detect_branch
-echo "==> Using branch: $BRANCH"
+echo "  branch: $BRANCH"
 
 # Set branch tracking.
 $GIT config "branch.$BRANCH.remote" origin
