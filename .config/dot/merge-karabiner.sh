@@ -17,13 +17,13 @@ merge_karabiner() {
   fi
 
   local src="$HOME/.config/dot/karabiner/karabiner.json"
-  local dst="$HOME/.config/karabiner/karabiner.json"
+  local dst_dir="$HOME/.config/karabiner"
+  local dst="$dst_dir/karabiner.json"
 
   [[ -f "$src" ]] || return 0
+  [[ -d "$dst_dir" ]] || return 0
 
   echo "Merging Karabiner config..."
-
-  mkdir -p "$(dirname "$dst")"
 
   # No existing file — just copy
   if [[ ! -f "$dst" ]]; then
