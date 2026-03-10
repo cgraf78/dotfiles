@@ -84,7 +84,7 @@ Dynamic Profile in `~/.config/dot/iterm2/dynamic-profile.json` is symlinked into
 
 ### Karabiner config (macOS)
 
-`~/.config/karabiner/karabiner.json` is tracked directly — Karabiner reads from this path natively.
+Profiles in `~/.config/dot/karabiner/karabiner.json` are merged into Karabiner's config by `dot-bootstrap` and `dot pull`. Merge policy: dotfiles profiles replace local profiles with the same name, local-only profiles are preserved.
 
 ### Dev sessions (`ds`)
 
