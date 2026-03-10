@@ -47,18 +47,13 @@ case "${1:-}" in
       [[ -x "$WORK_DIR/bootstrap" ]] && "$WORK_DIR/bootstrap" || true
     fi
     # Merge app configs from pulled dotfiles
-    if [[ -f "$HOME/.config/dot/merge-vscode.sh" ]]; then
-      . "$HOME/.config/dot/merge-vscode.sh"
-      merge_vscode || true
-    fi
-    if [[ -f "$HOME/.config/dot/merge-iterm2.sh" ]]; then
-      . "$HOME/.config/dot/merge-iterm2.sh"
-      merge_iterm2 || true
-    fi
-    if [[ -f "$HOME/.config/dot/merge-karabiner.sh" ]]; then
-      . "$HOME/.config/dot/merge-karabiner.sh"
-      merge_karabiner || true
-    fi
+    # Convention: merge-<name>.sh defines merge_<name>()
+    for _script in "$HOME/.config/dot"/merge-*.sh; do
+      [[ -f "$_script" ]] || continue
+      . "$_script"
+      _fn="merge_${_script##*merge-}"; _fn="${_fn%.sh}"
+      "$_fn" || true
+    done
     _normalize_filtered
     ;;
   refresh)
