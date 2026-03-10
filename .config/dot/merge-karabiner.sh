@@ -22,7 +22,7 @@ merge_karabiner() {
 
   [[ -f "$src" ]] || return 0
   if [[ ! -d "$dst_dir" ]]; then
-    echo "Skipping Karabiner (not installed)"
+    echo "Skipping Karabiner (config dir not found)"
     return 0
   fi
 

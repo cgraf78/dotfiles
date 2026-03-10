@@ -51,7 +51,7 @@ merge_iterm2() {
 
   [[ -f "$src" ]] || return 0
   if [[ ! -d "$dst_dir" ]]; then
-    echo "Skipping iTerm2 (not installed)"
+    echo "Skipping iTerm2 (DynamicProfiles dir not found)"
     return 0
   fi
 
