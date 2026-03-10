@@ -39,7 +39,7 @@ merge_karabiner() {
   conflicts=$(jq -rn --slurpfile s "$src" --slurpfile d "$dst" '
     ($s[0].profiles | map(.name)) as $src_names |
     [$d[0].profiles[] | select(.name as $n | $src_names | index($n)) | .name] |
-    if length > 0 then .[] | "  profile: \(.)" else empty end
+    if length > 0 then .[] | "    profile: \(.)" else empty end
   ' 2>/dev/null) || true
   if [[ -n "$conflicts" ]]; then
     echo "  overwriting local Karabiner profiles:"

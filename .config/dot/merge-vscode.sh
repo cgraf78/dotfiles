@@ -37,7 +37,7 @@ _merge_vscode_keybindings() {
     [$s[0][] as $sb | $d[0][] as $db |
      select($sb.key == $db.key and ($sb.when // "") == ($db.when // "") and ($sb.command != $db.command or $sb.args != $db.args)) |
      select([$s[0][] | select(.key == $db.key and (.when // "") == ($db.when // "") and .command == $db.command and .args == $db.args)] | length == 0) |
-     "  \($sb.key)\(if $sb.when then " (when: \($sb.when))" else "" end): \($db.command) -> \($sb.command)"] |
+     "    \($sb.key)\(if $sb.when then " (when: \($sb.when))" else "" end): \($db.command) -> \($sb.command)"] |
     unique | .[]' 2>/dev/null) || true
   if [[ -n "$conflicts" ]]; then
     echo "  overwriting local keybindings in $(basename "$(dirname "$(dirname "$dst")")"):"
@@ -86,7 +86,7 @@ _merge_vscode_settings() {
     ($d[0] * $s[0]) as $merged |
     [$merged | to_entries[] |
      select($d[0][.key] != null and $d[0][.key] != .value) |
-     "  \(.key): \($d[0][.key] | tostring) -> \(.value | tostring)"] |
+     "    \(.key): \($d[0][.key] | tostring) -> \(.value | tostring)"] |
     .[]' 2>/dev/null) || true
   if [[ -n "$conflicts" ]]; then
     echo "  overwriting local settings in $(basename "$(dirname "$(dirname "$dst")")"):"
