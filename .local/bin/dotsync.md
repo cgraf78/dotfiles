@@ -71,13 +71,15 @@ dotsync push -n dev2            # show what push would transfer
 
 ## Manifests
 
-Three tiers, merged additively:
+Three tiers, merged based on host tier:
 
-| Tier | File | Tracked in |
-|------|------|-----------|
-| Personal | `dotsync-paths` | `~/.dotfiles` |
-| Work | `dotsync-paths-work` | `~/.dotfiles-work` |
-| Extra | `dotsync-paths-extra` | Nothing (per-machine) |
+| Tier | File | Tracked in | Synced to |
+|------|------|-----------|-----------|
+| Personal | `dotsync-paths` | `~/.dotfiles` | All hosts |
+| Work | `dotsync-paths-work` | `~/.dotfiles-work` | Work hosts only |
+| Extra | `dotsync-paths-extra` | Nothing (per-machine) | All hosts |
+
+Work paths are **never** synced to personal-tier hosts. This prevents work content from leaking to personal machines.
 
 Format: one path per line, relative to `$HOME`. Blank lines and `#` comments allowed. Entries can be files or directories (directories are synced recursively).
 
@@ -89,12 +91,12 @@ Format: one path per line, relative to `$HOME`. Blank lines and `#` comments all
 
 ## Hosts
 
-Two tiers, merged additively:
+Two tiers, merged additively. The host's tier determines which manifest paths it receives:
 
-| Tier | File | Tracked in |
-|------|------|-----------|
-| Personal | `dotsync-hosts` | `~/.dotfiles` |
-| Work | `dotsync-hosts-work` | `~/.dotfiles-work` |
+| Tier | File | Tracked in | Receives |
+|------|------|-----------|----------|
+| Personal | `dotsync-hosts` | `~/.dotfiles` | Personal + extra paths |
+| Work | `dotsync-hosts-work` | `~/.dotfiles-work` | Personal + work + extra paths |
 
 Format: `alias ssh-destination`, one per line. SSH ports, keys, and proxy settings are handled via `~/.ssh/config`.
 

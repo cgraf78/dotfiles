@@ -1,2 +1,1 @@
-# Files to sync across hosts (one path per line, relative to $HOME)
-.bashrc_extra
+# Personal files to sync (one path per line, relative to $HOME)

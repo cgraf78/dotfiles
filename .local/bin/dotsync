@@ -109,18 +109,27 @@ REMOTESCRIPT
 # Config loading
 # ---------------------------------------------------------------------------
 
-# Load and merge manifest paths from all tiers (personal, work, extra).
+# Load and merge manifest paths, filtered by host tier.
+# Args: $1 - host tier: "work" includes all paths, "personal" excludes work paths.
 # Returns a deduplicated list of paths, one per line.
 # Paths are relative to $HOME. Comments (#) and blank lines are stripped.
 # Rejects absolute paths, tilde paths, and parent traversals for safety.
+#
+# Tier filtering prevents work content from leaking to personal machines:
+#   personal host → personal + extra paths only
+#   work host     → personal + work + extra paths
 _load_paths() {
+    local tier="${1:-personal}"
     local paths=()
     local seen=()
     local conf_files=(
         "$CONF_DIR/dotsync-paths"
-        "$CONF_DIR/dotsync-paths-work"
         "$CONF_DIR/dotsync-paths-extra"
     )
+    # Only include work paths when syncing with a work-tier host
+    if [[ "$tier" == "work" ]]; then
+        conf_files+=("$CONF_DIR/dotsync-paths-work")
+    fi
     for f in "${conf_files[@]}"; do
         [[ -f "$f" ]] || continue
         while IFS= read -r line || [[ -n "$line" ]]; do
@@ -166,6 +175,22 @@ _load_hosts() {
             echo "$alias $dest"
         done < "$f"
     done
+}
+
+# Determine the tier of a host alias: "work" or "personal".
+# Checks dotsync-hosts-work first. If not found there, defaults to "personal".
+# Unknown hosts (literal SSH destinations not in any config) default to
+# "personal" for safety — work content is never sent to unrecognized hosts.
+_host_tier() {
+    local target="$1"
+    local work_file="$CONF_DIR/dotsync-hosts-work"
+    if [[ -f "$work_file" ]]; then
+        while read -r alias dest rest; do
+            [[ -z "$alias" || "$alias" == \#* ]] && continue
+            [[ "$alias" == "$target" ]] && { echo "work"; return 0; }
+        done < "$work_file"
+    fi
+    echo "personal"
 }
 
 # Resolve a host argument (alias or literal) to an SSH destination.
@@ -355,7 +380,7 @@ _is_binary() {
 # Print all manifest paths (merged from all tiers).
 _do_list() {
     local paths
-    paths=$(_load_paths)
+    paths=$(_load_paths "work")
     if [[ -z "$paths" ]]; then
         echo "(no paths configured)"
     else
@@ -379,17 +404,19 @@ _do_hosts() {
 # One-way push: rsync all manifest files from local to remote.
 # Does not propagate deletions — only transfers existing files.
 # Updates stored state on success so subsequent syncs have correct baselines.
+# Respects tier filtering: work paths are only pushed to work-tier hosts.
 _do_push() {
     local host_arg="$1"
-    local dest
+    local dest tier
     dest=$(_resolve_host "$host_arg")
+    tier=$(_host_tier "$host_arg")
     _acquire_lock
     trap '_release_lock' RETURN
 
     local paths_arr=()
     while IFS= read -r p; do
         [[ -n "$p" ]] && paths_arr+=("$p")
-    done < <(_load_paths)
+    done < <(_load_paths "$tier")
 
     if [[ ${#paths_arr[@]} -eq 0 ]]; then
         echo "dotsync: no paths configured"
@@ -435,18 +462,19 @@ _do_push() {
 }
 
 # One-way pull: rsync all manifest files from remote to local.
-# Mirror of _do_push — same safety guarantees.
+# Mirror of _do_push — same safety guarantees and tier filtering.
 _do_pull() {
     local host_arg="$1"
-    local dest
+    local dest tier
     dest=$(_resolve_host "$host_arg")
+    tier=$(_host_tier "$host_arg")
     _acquire_lock
     trap '_release_lock' RETURN
 
     local paths_arr=()
     while IFS= read -r p; do
         [[ -n "$p" ]] && paths_arr+=("$p")
-    done < <(_load_paths)
+    done < <(_load_paths "$tier")
 
     if [[ ${#paths_arr[@]} -eq 0 ]]; then
         echo "dotsync: no paths configured"
@@ -540,18 +568,18 @@ _do_pull() {
 #   5. Handle merges individually (need per-file diff3 + conditional push)
 #   6. Handle delete/modify conflicts individually
 #
-# Args: host_alias, ssh_destination, dry_run (0=execute, 1=report only)
+# Args: host_alias, ssh_destination, host_tier, dry_run (0=execute, 1=report only)
 # Returns: 0=success, 1=conflicts occurred, 2=transfer errors
 # ---------------------------------------------------------------------------
 _sync_host() {
-    local host_alias="$1" dest="$2" dry_run="${3:-0}"
+    local host_alias="$1" dest="$2" host_tier="${3:-personal}" dry_run="${4:-0}"
 
     # --- Phase 1: Discover files ---
 
     local paths_arr=()
     while IFS= read -r p; do
         [[ -n "$p" ]] && paths_arr+=("$p")
-    done < <(_load_paths)
+    done < <(_load_paths "$host_tier")
 
     [[ ${#paths_arr[@]} -eq 0 ]] && return 0
 
@@ -878,8 +906,9 @@ _sync_host() {
 # Dry-run sync for a single host. Shows what _sync_host would do.
 _do_diff() {
     local host_arg="$1"
-    local dest
+    local dest tier
     dest=$(_resolve_host "$host_arg")
+    tier=$(_host_tier "$host_arg")
 
     if _is_self "$dest"; then
         echo "dotsync: $host_arg is the current machine, skipping"
@@ -892,7 +921,7 @@ _do_diff() {
     fi
 
     echo "$host_arg ($dest):"
-    _sync_host "$host_arg" "$dest" 1
+    _sync_host "$host_arg" "$dest" "$tier" 1
 }
 
 # Bidirectional sync across all configured hosts.
@@ -914,8 +943,9 @@ _do_sync() {
             continue
         fi
         echo "$alias ($dest):"
-        local rc=0
-        _sync_host "$alias" "$dest" "$DRY_RUN" || rc=$?
+        local tier rc=0
+        tier=$(_host_tier "$alias")
+        _sync_host "$alias" "$dest" "$tier" "$DRY_RUN" || rc=$?
         if [[ $rc -eq 0 ]]; then
             synced+=("$alias")
         elif [[ $rc -eq 1 ]]; then
