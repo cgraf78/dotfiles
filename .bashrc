@@ -64,6 +64,9 @@ esac
 if [ -f ~/.bashrc_extra ]; then
     . ~/.bashrc_extra
 fi
+if [ -f ~/.bashrc_extra_work ]; then
+    . ~/.bashrc_extra_work
+fi
 
 # Stop here for non-interactive shells
 case $- in

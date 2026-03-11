@@ -48,10 +48,11 @@ Work repo files are managed with plain `git` in `~/.dotfiles-work/`.
 
 ```
 .bashrc
-├── .bashrc_work      (work-only — sourced first, symlinked from work repo if present)
-├── .bashrc_linux     (Linux/WSL/MINGW)
-├── .bashrc_mac       (macOS — Homebrew, iTerm2)
-└── .bashrc_extra     (machine-local, not tracked)
+├── .bashrc_work        (work-only — sourced first, symlinked from work repo if present)
+├── .bashrc_linux       (Linux/WSL/MINGW)
+├── .bashrc_mac         (macOS — Homebrew, iTerm2)
+├── .bashrc_extra       (machine-local, not tracked)
+└── .bashrc_extra_work  (machine-local work-only, not tracked)
 ```
 
 `.bash_aliases` is the entry point for all aliases:
