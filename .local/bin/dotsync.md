@@ -83,7 +83,7 @@ Work paths are **never** synced to personal-tier hosts. This prevents work conte
 
 Format: one path per line, relative to `$HOME`. Blank lines and `#` comments allowed. Entries can be files or directories (directories are synced recursively).
 
-Lines starting with `!` are excludes. Excludes take priority and support glob wildcards (`*` matches any string including `/`, `?` matches one character).
+Lines starting with `!` are excludes. Excludes filter files found during directory expansion, not explicit includes. Supports glob wildcards (`*` matches any string including `/`, `?` matches one character).
 
 ```
 # Example manifest

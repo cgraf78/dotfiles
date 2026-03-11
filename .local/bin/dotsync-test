@@ -163,7 +163,7 @@ _assert_contains "includes extra file" ".extra_file" "$result"
 # Cleanup manifests for next tests
 rm -f "$CONF_DIR/dotsync-paths-work" "$CONF_DIR/dotsync-paths-extra"
 
-# Test: excludes
+# Test: excludes only filter expansion, not explicit includes
 cat > "$CONF_DIR/dotsync-paths" <<'EOF'
 .config/dot
 !.config/dot/dotsync-paths
@@ -171,9 +171,15 @@ cat > "$CONF_DIR/dotsync-paths" <<'EOF'
 !.local/bin/dotsync
 EOF
 result=$(_load_paths)
-_assert_contains "include passes through" ".config/dot" "$result"
-_assert_not_contains "exclude removes exact match" ".local/bin/dotsync" "$result"
-_assert_not_contains "exclude removes child of dir" ".config/dot/dotsync-paths" "$result"
+_assert_contains "explicit include passes through" ".config/dot" "$result"
+_assert_contains "explicit include survives matching exclude" ".local/bin/dotsync" "$result"
+
+# Excludes DO filter during expansion (tested via _is_excluded)
+if _is_excluded ".config/dot/dotsync-paths" ".config/dot/dotsync-paths"; then
+    _pass "exclude filters during expansion: exact match"
+else
+    _fail "exclude filters during expansion: exact match"
+fi
 
 # Test: _is_excluded helper
 if _is_excluded ".config/dot/dotsync-paths" ".config/dot/dotsync-paths"; then
