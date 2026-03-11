@@ -86,22 +86,6 @@ Dynamic Profile in `~/.config/dot/iterm2/dotfiles-dyn-profile.json` is copied in
 
 Profiles in `~/.config/dot/karabiner/karabiner.json` are merged into Karabiner's config by `dot-bootstrap` and `dot pull`. Merge policy: dotfiles profiles replace local profiles with the same name, local-only profiles are preserved.
 
-### Dev sessions (`ds`)
-
-`ds` creates tmux sessions locally or on remote hosts with configurable profiles and per-host defaults:
-
-```bash
-ds                    # bare session (default profile)
-ds -p dev             # chatbot + bash layout
-ds myserver           # remote session
-ds -l                 # list active sessions
-ds -k ds-dev          # kill a session
-ds --killall          # kill all ds sessions
-def                   # alias for ds -p bare
-```
-
-Host config in `~/.config/ds/hosts*.conf` (additive — personal and work hosts in separate files). See [`ds.md`](/.local/bin/ds.md) for full docs.
-
 ## Adding a Work-Only File
 
 Add the file to `~/.dotfiles-work/home/<path>`, commit, and push. The work bootstrap will symlink it on the next `dot pull`.
@@ -111,3 +95,33 @@ Add the file to `~/.dotfiles-work/home/<path>`, commit, and push. The work boots
 ```bash
 dot add <file> && dot commit -m "add <file>" && dot push
 ```
+
+## Additional Tools
+
+### `ds` — Dev Session Launcher
+
+Creates tmux sessions locally or on remote hosts with configurable profiles and per-host defaults:
+
+```bash
+ds                    # bare session (default profile)
+ds -p dev             # chatbot + bash layout
+ds myserver           # remote session
+ds -l                 # list active sessions
+ds -k ds-dev          # kill a session
+def                   # alias for ds -p bare
+```
+
+Host config in `~/.config/ds/hosts*.conf` (additive — personal and work in separate files). See [`ds.md`](/.local/bin/ds.md) for full docs.
+
+### `dotsync` — Bidirectional File Sync
+
+Syncs untracked files (`.bashrc_extra`, machine-local config) across hosts via rsync + SSH. The companion to `dot` for files that live outside version control.
+
+```bash
+dotsync push dev2     # one-way push to a host
+dotsync pull dev1     # one-way pull from a host
+dotsync sync          # bidirectional sync with all reachable hosts
+dotsync diff dev2     # preview what sync would do
+```
+
+Config in `~/.config/dot/dotsync-{paths,hosts}` (personal + work tiers). See [`dotsync.md`](/.local/bin/dotsync.md) for full docs.
