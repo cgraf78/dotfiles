@@ -27,6 +27,8 @@
 !*.tmp
 !*.log
 !*.DS_Store
+!*/.git
+!.vim_runtime/temp_dirs
 !*_work
 !*-work
 !.local/bin/dot-bootstrap
