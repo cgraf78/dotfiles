@@ -13,6 +13,8 @@
 .local/bin/dot*
 .local/bin/ds*
 .tmux.conf
+.vim_runtime
+.vimrc
 
 # Excludes
 !*/__pycache__
@@ -27,3 +29,5 @@
 !*.DS_Store
 !*_work
 !*-work
+!.local/bin/dot-bootstrap
+!.local/bin/dotsync-test
