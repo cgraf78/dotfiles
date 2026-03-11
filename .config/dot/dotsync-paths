@@ -25,3 +25,5 @@
 !*.tmp
 !*.log
 !*.DS_Store
+!*_work
+!*-work
