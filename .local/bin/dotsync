@@ -467,7 +467,7 @@ _is_binary() {
 
 # Resolve manifest paths to individual local files for a given tier.
 # Expands globs and directories, applies excludes, returns one file per line.
-# Used by list, push, and pull (for local expansion).
+# Explicit file includes bypass excludes — only expanded contents are filtered.
 _resolve_local_files() {
     local tier="$1"
     local paths_arr=()
@@ -482,13 +482,22 @@ _resolve_local_files() {
         [[ -n "$e" ]] && excludes_arr+=("$e")
     done < <(_load_excludes "$tier")
 
-    while IFS= read -r f; do
-        [[ -n "$f" ]] || continue
-        _is_excluded "$f" "${excludes_arr[@]+"${excludes_arr[@]}"}" || echo "$f"
-    done < <(_expand_paths_local "$HOME" "${paths_arr[@]}")
+    for p in "${paths_arr[@]}"; do
+        if [[ "$p" == *[\*\?]* || -d "$HOME/$p" ]]; then
+            # Glob or directory: expand and apply excludes
+            while IFS= read -r f; do
+                [[ -n "$f" ]] || continue
+                _is_excluded "$f" "${excludes_arr[@]+"${excludes_arr[@]}"}" || echo "$f"
+            done < <(_expand_paths_local "$HOME" "$p")
+        elif [[ -f "$HOME/$p" ]]; then
+            # Explicit file: output directly, excludes don't apply
+            echo "$p"
+        fi
+    done
 }
 
 # Same as _resolve_local_files but expands on a remote host via SSH.
+# Remote explicit file checks are deferred to the expansion function.
 _resolve_remote_files() {
     local tier="$1" dest="$2"
     local paths_arr=()
@@ -503,9 +512,25 @@ _resolve_remote_files() {
         [[ -n "$e" ]] && excludes_arr+=("$e")
     done < <(_load_excludes "$tier")
 
+    # For remote, we can't check -f/-d locally. Send all paths to the remote
+    # for expansion, then filter. Explicit files that match an exclude will
+    # be included because _expand_paths_remote outputs them as-is (not as
+    # children of a directory), but _is_excluded would filter them.
+    # To preserve the "explicit includes bypass excludes" rule, we track
+    # which paths are non-glob, non-directory (i.e., explicit file candidates).
+    declare -A explicit_paths=()
+    for p in "${paths_arr[@]}"; do
+        [[ "$p" != *[\*\?]* ]] && explicit_paths["$p"]=1
+    done
+
     while IFS= read -r f; do
         [[ -n "$f" ]] || continue
-        _is_excluded "$f" "${excludes_arr[@]+"${excludes_arr[@]}"}" || echo "$f"
+        # If the file matches an explicit include path, bypass excludes
+        if [[ -n "${explicit_paths[$f]:-}" ]]; then
+            echo "$f"
+        else
+            _is_excluded "$f" "${excludes_arr[@]+"${excludes_arr[@]}"}" || echo "$f"
+        fi
     done < <(_expand_paths_remote "$dest" "${paths_arr[@]}")
 }
 

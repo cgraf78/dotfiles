@@ -526,6 +526,27 @@ echo "test" > "$TEST_HOME/.config/foo/bar"
 result=$(_do_list)
 _assert_contains "list shows .bashrc_extra" ".bashrc_extra" "$result"
 _assert_contains "list shows expanded dir contents" ".config/foo/bar" "$result"
+# Explicit includes bypass excludes, expanded dir contents are filtered
+cat > "$CONF_DIR/dotsync-paths" <<'EOF'
+.config/mydir
+.config/mydir/secret_work
+!*_work
+EOF
+mkdir -p "$TEST_HOME/.config/mydir"
+echo "a" > "$TEST_HOME/.config/mydir/file1"
+echo "b" > "$TEST_HOME/.config/mydir/stuff_work"
+echo "c" > "$TEST_HOME/.config/mydir/secret_work"
+result=$(_resolve_local_files "personal")
+_assert_contains "explicit include bypasses exclude" "secret_work" "$result"
+_assert_contains "non-excluded expansion passes" "file1" "$result"
+_assert_not_contains "excluded expansion filtered" "stuff_work" "$result"
+rm -rf "$TEST_HOME/.config/mydir"
+
+# Restore manifest for remaining tests
+cat > "$CONF_DIR/dotsync-paths" <<'EOF'
+.bashrc_extra
+.config/foo
+EOF
 rm -f "$TEST_HOME/.bashrc_extra"
 rm -rf "$TEST_HOME/.config/foo"
 
