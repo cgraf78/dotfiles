@@ -111,9 +111,14 @@ REMOTESCRIPT
 
 # Load and merge manifest paths, filtered by host tier.
 # Args: $1 - host tier: "work" includes all paths, "personal" excludes work paths.
-# Returns a deduplicated list of paths, one per line.
+# Returns a deduplicated list of included paths (excludes removed), one per line.
 # Paths are relative to $HOME. Comments (#) and blank lines are stripped.
 # Rejects absolute paths, tilde paths, and parent traversals for safety.
+#
+# Lines starting with ! are excludes. Excludes take priority over includes.
+# An exclude matches if the included path starts with the exclude pattern,
+# so !.config/dot/dotsync-paths excludes that file even when .config/dot
+# (the parent directory) is included.
 #
 # Tier filtering prevents work content from leaking to personal machines:
 #   personal host → personal + extra paths only
@@ -121,15 +126,16 @@ REMOTESCRIPT
 _load_paths() {
     local tier="${1:-personal}"
     local paths=()
+    local excludes=()
     local seen=()
     local conf_files=(
         "$CONF_DIR/dotsync-paths"
         "$CONF_DIR/dotsync-paths-extra"
     )
-    # Only include work paths when syncing with a work-tier host
     if [[ "$tier" == "work" ]]; then
         conf_files+=("$CONF_DIR/dotsync-paths-work")
     fi
+    # First pass: collect includes and excludes from all manifest files.
     for f in "${conf_files[@]}"; do
         [[ -f "$f" ]] || continue
         while IFS= read -r line || [[ -n "$line" ]]; do
@@ -137,6 +143,13 @@ _load_paths() {
             line="${line%"${line##*[![:space:]]}"}"  # trim trailing whitespace
             line="${line#"${line%%[![:space:]]*}"}"   # trim leading whitespace
             [[ -z "$line" ]] && continue
+            # Excludes: lines starting with !
+            if [[ "$line" == !* ]]; then
+                local excl="${line#!}"
+                excl="${excl#"${excl%%[![:space:]]*}"}"  # trim leading whitespace after !
+                [[ -n "$excl" ]] && excludes+=("$excl")
+                continue
+            fi
             if [[ "$line" == /* || "$line" == ~* || "$line" == ../* || "$line" == */../* ]]; then
                 echo "dotsync: ignoring invalid path: $line" >&2
                 continue
@@ -150,7 +163,58 @@ _load_paths() {
             paths+=("$line")
         done < "$f"
     done
-    printf '%s\n' "${paths[@]+"${paths[@]}"}"
+    # Second pass: emit paths that aren't excluded.
+    for p in "${paths[@]+"${paths[@]}"}"; do
+        local excluded=0
+        for excl in "${excludes[@]+"${excludes[@]}"}"; do
+            if [[ "$p" == "$excl" || "$p" == "$excl"/* ]]; then
+                excluded=1
+                break
+            fi
+        done
+        [[ $excluded -eq 0 ]] && echo "$p"
+    done
+    return 0
+}
+
+# Load exclude patterns from all manifest files for the given tier.
+# Returns one exclude pattern per line. Used to filter expanded directory contents.
+_load_excludes() {
+    local tier="${1:-personal}"
+    local excludes=()
+    local conf_files=(
+        "$CONF_DIR/dotsync-paths"
+        "$CONF_DIR/dotsync-paths-extra"
+    )
+    if [[ "$tier" == "work" ]]; then
+        conf_files+=("$CONF_DIR/dotsync-paths-work")
+    fi
+    for f in "${conf_files[@]}"; do
+        [[ -f "$f" ]] || continue
+        while IFS= read -r line || [[ -n "$line" ]]; do
+            line="${line%%#*}"
+            line="${line%"${line##*[![:space:]]}"}"
+            line="${line#"${line%%[![:space:]]*}"}"
+            [[ -z "$line" ]] && continue
+            if [[ "$line" == !* ]]; then
+                local excl="${line#!}"
+                excl="${excl#"${excl%%[![:space:]]*}"}"
+                [[ -n "$excl" ]] && echo "$excl"
+            fi
+        done < "$f"
+    done
+}
+
+# Check if a path matches any exclude pattern. A pattern matches if the
+# path equals it or is a child of it (prefix match with / boundary).
+_is_excluded() {
+    local path="$1"; shift
+    for excl in "$@"; do
+        if [[ "$path" == "$excl" || "$path" == "$excl"/* ]]; then
+            return 0
+        fi
+    done
+    return 1
 }
 
 # Load and merge host configs from all tiers (personal, work).
@@ -423,9 +487,16 @@ _do_push() {
         return 0
     fi
 
+    # Load excludes and filter expanded files.
+    local excludes_arr=()
+    while IFS= read -r e; do
+        [[ -n "$e" ]] && excludes_arr+=("$e")
+    done < <(_load_excludes "$tier")
+
     local files_arr=()
     while IFS= read -r f; do
-        [[ -n "$f" ]] && files_arr+=("$f")
+        [[ -n "$f" ]] || continue
+        _is_excluded "$f" "${excludes_arr[@]+"${excludes_arr[@]}"}" || files_arr+=("$f")
     done < <(_expand_paths_local "$HOME" "${paths_arr[@]}")
 
     if [[ ${#files_arr[@]} -eq 0 ]]; then
@@ -481,9 +552,16 @@ _do_pull() {
         return 0
     fi
 
+    # Load excludes and filter expanded files.
+    local excludes_arr=()
+    while IFS= read -r e; do
+        [[ -n "$e" ]] && excludes_arr+=("$e")
+    done < <(_load_excludes "$tier")
+
     local files_arr=()
     while IFS= read -r f; do
-        [[ -n "$f" ]] && files_arr+=("$f")
+        [[ -n "$f" ]] || continue
+        _is_excluded "$f" "${excludes_arr[@]+"${excludes_arr[@]}"}" || files_arr+=("$f")
     done < <(_expand_paths_remote "$dest" "${paths_arr[@]}")
 
     if [[ ${#files_arr[@]} -eq 0 ]]; then
@@ -583,8 +661,15 @@ _sync_host() {
 
     [[ ${#paths_arr[@]} -eq 0 ]] && return 0
 
+    # Load excludes for filtering expanded directory contents.
+    local excludes_arr=()
+    while IFS= read -r e; do
+        [[ -n "$e" ]] && excludes_arr+=("$e")
+    done < <(_load_excludes "$host_tier")
+
     # Expand directories to individual files on both sides, merge and dedup.
     # A file only needs to exist on ONE side to enter the comparison.
+    # Filter out excluded paths after expansion.
     local all_files_arr=()
     local tmpfile_expand
     tmpfile_expand=$(mktemp)
@@ -592,7 +677,10 @@ _sync_host() {
         _expand_paths_local "$HOME" "${paths_arr[@]}"
         _expand_paths_remote "$dest" "${paths_arr[@]}"
     } | _merge_file_lists > "$tmpfile_expand"
-    mapfile -t all_files_arr < "$tmpfile_expand"
+    while IFS= read -r f; do
+        [[ -n "$f" ]] || continue
+        _is_excluded "$f" "${excludes_arr[@]+"${excludes_arr[@]}"}" || all_files_arr+=("$f")
+    done < "$tmpfile_expand"
     rm -f "$tmpfile_expand"
 
     [[ ${#all_files_arr[@]} -eq 0 ]] && return 0

@@ -83,10 +83,13 @@ Work paths are **never** synced to personal-tier hosts. This prevents work conte
 
 Format: one path per line, relative to `$HOME`. Blank lines and `#` comments allowed. Entries can be files or directories (directories are synced recursively).
 
+Lines starting with `!` are excludes. Excludes take priority — useful for including a directory but skipping specific files within it.
+
 ```
 # Example manifest
 .bashrc_extra
-.config/some-tool/
+.config/dot
+!.config/dot/dotsync-paths
 ```
 
 ## Hosts

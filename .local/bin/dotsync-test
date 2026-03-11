@@ -163,6 +163,41 @@ _assert_contains "includes extra file" ".extra_file" "$result"
 # Cleanup manifests for next tests
 rm -f "$CONF_DIR/dotsync-paths-work" "$CONF_DIR/dotsync-paths-extra"
 
+# Test: excludes
+cat > "$CONF_DIR/dotsync-paths" <<'EOF'
+.config/dot
+!.config/dot/dotsync-paths
+.local/bin/dotsync
+!.local/bin/dotsync
+EOF
+result=$(_load_paths)
+_assert_contains "include passes through" ".config/dot" "$result"
+_assert_not_contains "exclude removes exact match" ".local/bin/dotsync" "$result"
+_assert_not_contains "exclude removes child of dir" ".config/dot/dotsync-paths" "$result"
+
+# Test: _is_excluded helper
+if _is_excluded ".config/dot/dotsync-paths" ".config/dot/dotsync-paths"; then
+    _pass "is_excluded: exact match"
+else
+    _fail "is_excluded: exact match"
+fi
+if _is_excluded ".config/dot/sub/file" ".config/dot"; then
+    _pass "is_excluded: child of excluded dir"
+else
+    _fail "is_excluded: child of excluded dir"
+fi
+if _is_excluded ".config/ds/hosts.conf" ".config/dot"; then
+    _fail "is_excluded: false positive on sibling"
+else
+    _pass "is_excluded: no false positive on sibling"
+fi
+
+# Restore manifest for remaining tests
+cat > "$CONF_DIR/dotsync-paths" <<'EOF'
+.bashrc_extra
+.config/foo
+EOF
+
 # ---------------------------------------------------------------------------
 # Tests: Path validation
 # ---------------------------------------------------------------------------
