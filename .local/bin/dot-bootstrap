@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Bootstrap dotfiles on a new machine or reconfigure an existing one.
 #
 # Two repos:

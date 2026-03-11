@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # ds — connect to (or create) a tmux dev session, locally or on a remote host.
 #
 # Usage: ds [-p <profile>] [-n <name>] [-b <chatbot>] [-c <method>] [-d <path>] [<hostname>]
