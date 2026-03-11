@@ -159,7 +159,7 @@ When a file is deleted on one side and unchanged on the other, the deletion prop
 
 ## Unreachable Hosts
 
-`dotsync sync` probes each host before syncing (3-second SSH timeout). Unreachable hosts are skipped silently with a summary at the end:
+`dotsync sync` probes each host before syncing (1-second SSH timeout). Unreachable hosts are skipped silently with a summary at the end:
 
 ```
 synced: dev1, dev2
@@ -187,7 +187,7 @@ dotsync-test --integration    # full suite including sync/push/pull via localhos
 
 ## Dependencies
 
-**Required**: `rsync`, `ssh`, `md5sum` (or `md5` on macOS), `file`
+**Required**: `rsync`, `ssh`, `stat`, `file`
 **Optional**: `diff3` (for 3-way merge; falls back to conflict-copy if missing)
 
-Remote hosts need `rsync` and `md5sum`/`md5`. Missing dependencies are reported at startup.
+Remote hosts need `rsync` and `stat`. Missing dependencies are reported at startup.
