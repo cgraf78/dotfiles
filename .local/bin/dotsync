@@ -931,7 +931,7 @@ _do_sync() {
     _acquire_lock
     trap '_release_lock' RETURN
 
-    local synced=() skipped=() conflicted=()
+    local synced=() skipped=() conflicted=() errored=()
     local exit_code=0
 
     while read -r alias dest; do
@@ -953,6 +953,7 @@ _do_sync() {
             conflicted+=("$alias")
             [[ $exit_code -lt 1 ]] && exit_code=1
         elif [[ $rc -eq 2 ]]; then
+            errored+=("$alias")
             [[ $exit_code -lt 2 ]] && exit_code=2
         fi
     done < <(_load_hosts)
@@ -960,6 +961,7 @@ _do_sync() {
     echo ""
     [[ ${#synced[@]} -gt 0 ]] && echo "synced: ${synced[*]}"
     [[ ${#skipped[@]} -gt 0 ]] && echo "skipped: ${skipped[*]} (unreachable)"
+    [[ ${#errored[@]} -gt 0 ]] && echo "errors: ${errored[*]}" >&2
     [[ ${#conflicted[@]} -gt 0 ]] && echo "conflicts: ${conflicted[*]}" >&2
 
     return $exit_code
