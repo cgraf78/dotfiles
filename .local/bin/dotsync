@@ -36,7 +36,7 @@ set -euo pipefail
 CONF_DIR="$HOME/.config/dot"
 STATE_DIR="$HOME/.local/share/dot/dotsync"
 LOCK_FILE="$STATE_DIR/.lock"
-SSH_TIMEOUT=3
+SSH_TIMEOUT=1
 DRY_RUN=0
 
 # ---------------------------------------------------------------------------
