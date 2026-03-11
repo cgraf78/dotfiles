@@ -157,6 +157,12 @@ _load_paths() {
                 echo "dotsync: ignoring invalid path: $line" >&2
                 continue
             fi
+            # Reject paths with shell metacharacters (prevents injection in
+            # remote SSH commands). Glob chars * and ? are allowed.
+            if [[ "$line" =~ [\$\`\|\;\&\<\>\'\"] ]]; then
+                echo "dotsync: ignoring path with shell metacharacters: $line" >&2
+                continue
+            fi
             local dup=0
             for s in "${seen[@]+"${seen[@]}"}"; do
                 [[ "$s" == "$line" ]] && { dup=1; break; }
@@ -658,8 +664,7 @@ _do_pull() {
 #
 #   FIRST SYNC (no stored state):
 #     - File on one side only → propagate to the other side
-#     - File on both sides, same content → establish baseline (no transfer)
-#     - File on both sides, different → LOCAL WINS (push to remote)
+#     - File on both sides → LOCAL WINS (push to remote)
 #       This is a deliberate policy choice: on first contact with a new host,
 #       the machine running the sync is treated as the source of truth.
 #
@@ -667,8 +672,7 @@ _do_pull() {
 #     - Neither changed → skip
 #     - Only local changed → push to remote
 #     - Only remote changed → pull from remote
-#     - Both changed, same content → update state only (convergent edit)
-#     - Both changed, different content (text) → 3-way merge via diff3
+#     - Both changed (text) → 3-way merge via diff3
 #       On merge success: push merged result to both sides
 #       On merge failure: keep local, save remote as .conflict.<host>
 #     - Both changed, different content (binary) → save .conflict copy
@@ -772,13 +776,8 @@ _sync_host() {
                 push_files+=("$f")                  # local only → push
             elif [[ $local_exists -eq 0 && $remote_exists -eq 1 ]]; then
                 pull_files+=("$f")                  # remote only → pull
-            elif [[ "$local_stat" == "$rem_stat" ]]; then
-                # Both exist with identical content — just establish baseline
-                if [[ $dry_run -eq 0 ]]; then
-                    _save_state "$host_alias" "$f" "$HOME/$f" "$local_stat"
-                fi
             else
-                push_files+=("$f")                  # both exist, different → local wins
+                push_files+=("$f")                  # both exist → local wins
             fi
             continue
         fi
@@ -819,11 +818,6 @@ _sync_host() {
             push_files+=("$f")                      # only local changed
         elif [[ $local_changed -eq 0 && $remote_changed -eq 1 ]]; then
             pull_files+=("$f")                      # only remote changed
-        elif [[ "$local_stat" == "$rem_stat" ]]; then
-            # Both changed to the same content (convergent edit) — update baseline
-            if [[ $dry_run -eq 0 ]]; then
-                _save_state "$host_alias" "$f" "$HOME/$f" "$local_stat"
-            fi
         else
             merge_files+=("$f")                     # both changed differently → attempt merge
         fi
