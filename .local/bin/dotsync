@@ -377,7 +377,7 @@ _is_binary() {
 # Actions
 # ---------------------------------------------------------------------------
 
-# Print all manifest paths (merged from all tiers).
+# Print all manifest paths from all tiers (display only, no transfer).
 _do_list() {
     local paths
     paths=$(_load_paths "work")
