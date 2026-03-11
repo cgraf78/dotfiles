@@ -23,8 +23,9 @@ ds -l myserver            # list active ds sessions on remote
 ds -k ds-dev              # kill session by name
 ds -k -p dev -n 2         # kill ds-dev-2
 ds -k ds-dev myserver     # kill session on remote
-def                       # alias for ds -p bare
-def 2                     # alias for ds -p bare -n 2
+ds --killall              # kill all ds sessions
+dsdev                     # shortcut for ds -p dev
+dsorc                     # shortcut for ds -p orc
 ```
 
 ## Profiles
@@ -39,19 +40,19 @@ Profiles define the tmux window/pane layout. Add new profiles by defining `_layo
 
 ## hosts.conf Format
 
-All `~/.config/ds/hosts*.conf` files are read (additive). This allows personal and work hosts to live in separate files. Five columns: hostname, connect method, chatbot, working directory, profile. Hostnames support glob patterns. First match wins across all files.
+All `~/.config/ds/hosts*.conf` files are read (additive). This allows personal and work hosts to live in separate files. Four columns: hostname, connect method, chatbot, working directory. Hostnames support glob patterns. First match wins across all files.
 
 Personal hosts (`~/.config/ds/hosts.conf`):
 ```
-# hostname    connect   chatbot   dir    profile
-nas           autossh   argus     ~      bare
-clark2        -         argus     ~      bare
+# hostname    connect   chatbot   dir
+nas           autossh   argus     ~
+clark2        -         argus     ~
 ```
 
 Work hosts (`~/.config/ds/hosts-work.conf`, symlinked from work repo):
 ```
-# hostname    connect   chatbot   dir        profile
-myserver      ssh       claude    ~/code     dev
+# hostname    connect   chatbot   dir
+myserver      ssh       claude    ~/code
 ```
 
 ## Resolution Priority
@@ -75,9 +76,9 @@ CLI flags (`-p`, `-b`, `-c`, `-d`, `-n`) override resolved values at any level.
 Sessions are named `ds-<profile>[-<name>]`:
 
 ```
-ds              → ds-bare
+ds              → ds
 ds -p dev       → ds-dev
-ds -n work      → ds-bare-work
+ds -n work      → ds-work
 ds -p dev -n 2  → ds-dev-2
 ```
 
