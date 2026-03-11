@@ -83,27 +83,29 @@ _md5() {
     fi
 }
 
-# Generate a shell script to compute md5 checksums on a remote host.
-# The script auto-detects md5sum vs md5 and outputs one line per file:
+# Fixed-size remote script that reads file paths from stdin and outputs
+# one line per file:
 #   "EXISTS <32-char-hash> <path>"  — file exists, hash first for safe parsing
 #   "MISSING <path>"               — file does not exist
 #
-# Quoting strategy: uses \$HOME in the local echo so the local shell strips
-# the backslash, leaving $HOME for the remote shell to expand. This avoids
-# the printf '%q' pitfall where $HOME gets over-escaped and treated as literal.
-_remote_md5_cmd() {
-    local files=("$@")
-    cat <<'REMOTESCRIPT'
+# The file list is piped through stdin instead of embedded in the command,
+# so this works for any number of files without hitting command length limits.
+REMOTE_MD5_SCRIPT='
 if command -v md5sum >/dev/null 2>&1; then
     MD5CMD="md5sum"
 else
     MD5CMD="md5 -r"
 fi
-REMOTESCRIPT
-    for f in "${files[@]}"; do
-        echo "if [ -f \"\$HOME/$f\" ]; then echo \"EXISTS \$(\$MD5CMD \"\$HOME/$f\" | cut -d' ' -f1) $f\"; else echo \"MISSING $f\"; fi"
-    done
-}
+while IFS= read -r f; do
+    [ -z "$f" ] && continue
+    p="$HOME/$f"
+    if [ -f "$p" ]; then
+        echo "EXISTS $($MD5CMD "$p" | cut -d" " -f1) $f"
+    else
+        echo "MISSING $f"
+    fi
+done
+'
 
 # ---------------------------------------------------------------------------
 # Config loading
@@ -727,9 +729,8 @@ _sync_host() {
     # would appear "missing" and the sync would wrongly delete local files.
 
     declare -A remote_md5=()
-    local remote_script remote_output
-    remote_script=$(_remote_md5_cmd "${all_files_arr[@]}")
-    if ! remote_output=$(ssh -o ConnectTimeout=$SSH_TIMEOUT -o BatchMode=yes "$dest" "$remote_script" 2>/dev/null); then
+    local remote_output
+    if ! remote_output=$(printf '%s\n' "${all_files_arr[@]}" | ssh -o ConnectTimeout=$SSH_TIMEOUT -o BatchMode=yes "$dest" "$REMOTE_MD5_SCRIPT" 2>/dev/null); then
         echo "  error: failed to fetch remote checksums" >&2
         return 2
     fi
