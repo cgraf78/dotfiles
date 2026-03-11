@@ -540,6 +540,8 @@ _resolve_remote_files() {
 
 # Print the fully resolved file list: expands globs and directories,
 # applies excludes, deduplicates. Shows exactly what would be synced.
+# Uses "work" tier to show all paths (display only — actual sync uses
+# the host's tier to determine what gets transferred).
 _do_list() {
     local result
     result=$(_resolve_local_files "work")
@@ -591,12 +593,8 @@ _do_push() {
         return 0
     fi
 
-    local tmpfile
-    tmpfile=$(mktemp)
-    printf '%s\n' "${files_arr[@]}" > "$tmpfile"
-
     echo "pushing ${#files_arr[@]} file(s) to $host_arg ($dest)..."
-    if rsync -avzLc --no-owner --no-group --files-from="$tmpfile" "$HOME/" "$dest:~/" 2>&1; then
+    if rsync -avzLc --no-owner --no-group --files-from=<(printf '%s\n' "${files_arr[@]}") "$HOME/" "$dest:~/" 2>&1; then
         for f in "${files_arr[@]}"; do
             local md5hash
             md5hash=$(_md5 "$HOME/$f")
@@ -607,10 +605,8 @@ _do_push() {
         echo "done."
     else
         echo "push failed" >&2
-        rm -f "$tmpfile"
         return 2
     fi
-    rm -f "$tmpfile"
 }
 
 # One-way pull: rsync all manifest files from remote to local.
@@ -639,12 +635,8 @@ _do_pull() {
         return 0
     fi
 
-    local tmpfile
-    tmpfile=$(mktemp)
-    printf '%s\n' "${files_arr[@]}" > "$tmpfile"
-
     echo "pulling ${#files_arr[@]} file(s) from $host_arg ($dest)..."
-    if rsync -avzLc --no-owner --no-group --files-from="$tmpfile" "$dest:~/" "$HOME/" 2>&1; then
+    if rsync -avzLc --no-owner --no-group --files-from=<(printf '%s\n' "${files_arr[@]}") "$dest:~/" "$HOME/" 2>&1; then
         for f in "${files_arr[@]}"; do
             local md5hash
             md5hash=$(_md5 "$HOME/$f")
@@ -655,10 +647,8 @@ _do_pull() {
         echo "done."
     else
         echo "pull failed" >&2
-        rm -f "$tmpfile"
         return 2
     fi
-    rm -f "$tmpfile"
 }
 
 # ---------------------------------------------------------------------------
@@ -863,14 +853,11 @@ _sync_host() {
     fi
 
     # --- Phase 5: Execute batch transfers ---
-    # Push and pull are batched into one rsync call each for efficiency.
-    # State is only saved if rsync succeeds (exit 0 = all files transferred).
+    # Push and pull use process substitution for --files-from to avoid temp
+    # file leaks on unexpected exit. State only saved if rsync succeeds.
 
     if [[ ${#push_files[@]} -gt 0 ]]; then
-        local tmpfile
-        tmpfile=$(mktemp)
-        printf '%s\n' "${push_files[@]}" > "$tmpfile"
-        if rsync -azLc --no-owner --no-group --files-from="$tmpfile" "$HOME/" "$dest:~/" 2>/dev/null; then
+        if rsync -azLc --no-owner --no-group --files-from=<(printf '%s\n' "${push_files[@]}") "$HOME/" "$dest:~/" 2>/dev/null; then
             for f in "${push_files[@]}"; do
                 local md5hash
                 md5hash=$(_md5 "$HOME/$f")
@@ -881,14 +868,10 @@ _sync_host() {
             had_errors=1
             echo "  push failed" >&2
         fi
-        rm -f "$tmpfile"
     fi
 
     if [[ ${#pull_files[@]} -gt 0 ]]; then
-        local tmpfile
-        tmpfile=$(mktemp)
-        printf '%s\n' "${pull_files[@]}" > "$tmpfile"
-        if rsync -azLc --no-owner --no-group --files-from="$tmpfile" "$dest:~/" "$HOME/" 2>/dev/null; then
+        if rsync -azLc --no-owner --no-group --files-from=<(printf '%s\n' "${pull_files[@]}") "$dest:~/" "$HOME/" 2>/dev/null; then
             for f in "${pull_files[@]}"; do
                 local md5hash
                 md5hash=$(_md5 "$HOME/$f")
@@ -899,7 +882,6 @@ _sync_host() {
             had_errors=1
             echo "  pull failed" >&2
         fi
-        rm -f "$tmpfile"
     fi
 
     # --- Phase 6: Clean up stale state ---
