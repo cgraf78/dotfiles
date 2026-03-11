@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # dotsync-test — unit and integration tests for dotsync.
 #
 # Creates temp directories to simulate $HOME and tests internal functions

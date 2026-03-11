@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # dotsync — bidirectional file sync across hosts via rsync + SSH.
 #
 # Syncs files listed in manifest files across configured hosts. Designed for
