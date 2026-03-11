@@ -87,7 +87,7 @@ _profiles() {
 # --- Host config ---
 
 # Look up a hostname in all ~/.config/ds/hosts*.conf files (additive).
-# Sets CONNECT, CHATBOT, DIR, and PROFILE from the first matching entry.
+# Sets CONNECT, CHATBOT, and DIR from the first matching entry.
 # Returns 1 if no match was found (script defaults apply).
 # Hostnames support glob patterns (e.g., server* matches server1, server2).
 # CLI overrides (-p, -b, -c, -d) take precedence.
@@ -98,13 +98,12 @@ lookup_host() {
     # Search all hosts*.conf files (additive) for a match
     local f
     for f in "${conf_files[@]}"; do
-        while read -r name connect chatbot dir profile; do
+        while read -r name connect chatbot dir; do
             [[ -z "$name" || "$name" == \#* ]] && continue
             if [[ "$target" == $name ]]; then
                 CONNECT="$connect"
                 CHATBOT="$chatbot"
                 [[ -n "$dir" ]] && DIR="${dir/#\~/$HOME}"
-                [[ -n "$profile" ]] && PROFILE="$profile"
                 return 0
             fi
         done < "$f"
@@ -139,7 +138,7 @@ _validate_profile() {
 
 _do_list() {
     tmux ls -F '#{session_name}: #{session_windows} windows (#{?session_attached,attached,detached})' 2>/dev/null \
-        | grep '^ds-' || echo "(no active ds sessions)"
+        | grep -E '^ds(-|:)' || echo "(no active ds sessions)"
 }
 
 _do_kill() {
@@ -147,7 +146,8 @@ _do_kill() {
     if [[ -n "$KILL_TARGET" ]]; then
         session="$KILL_TARGET"
     else
-        session="ds-$PROFILE"
+        session="ds"
+        [[ "$PROFILE" != "bare" ]] && session="$session-$PROFILE"
         [[ -n "$NAME_OVERRIDE" ]] && session="$session-$NAME_OVERRIDE"
     fi
     if tmux has-session -t "$session" 2>/dev/null; then
@@ -162,7 +162,7 @@ _do_kill() {
 
 _do_killall() {
     local sessions
-    sessions=$(tmux ls -F '#{session_name}' 2>/dev/null | grep '^ds-') || true
+    sessions=$(tmux ls -F '#{session_name}' 2>/dev/null | grep -E '^ds(-|$)') || true
     if [[ -z "$sessions" ]]; then
         echo "(no active ds sessions)"
         return
@@ -174,7 +174,8 @@ _do_killall() {
 }
 
 _do_session() {
-    local session="ds-$PROFILE"
+    local session="ds"
+    [[ "$PROFILE" != "bare" ]] && session="$session-$PROFILE"
     [[ -n "$NAME_OVERRIDE" ]] && session="$session-$NAME_OVERRIDE"
 
     # Attach if session already exists

@@ -71,11 +71,12 @@ mkdir -p ~/.marks
 mark() { ln -sfn "$(pwd)" ~/.marks/"$1"; }
 jump() { cd -P ~/.marks/"$1" 2>/dev/null || echo "No such mark"; }
 
-# Plain tmux session (delegates to ds with bare profile)
-def() { ds -p bare ${1:+--name "$1"}; }
+# ds profile shortcuts
+dsdev() { ds -p dev "$@"; }
+dsorc() { ds -p orc "$@"; }
 
 # Auto-attach to tmux on SSH (sshn() bypasses this via NO_TMUX)
 # exec so the SSH session ends when tmux detaches.
 if [[ -z "$TMUX" && $- == *i* && -n "$SSH_CONNECTION" && -z "$NO_TMUX" ]] && command -v tmux &>/dev/null; then
-    exec ds -p bare
+    exec ds
 fi
