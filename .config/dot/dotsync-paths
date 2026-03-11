@@ -19,3 +19,15 @@
 .local/bin/ds
 .local/bin/ds.md
 .tmux.conf
+
+# Excludes
+!*/__pycache__
+!*.pyc
+!*.pyo
+!*.swp
+!*.swo
+!*~
+!*.bak
+!*.tmp
+!*.log
+!*.DS_Store
