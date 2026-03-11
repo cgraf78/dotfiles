@@ -519,8 +519,15 @@ rm -rf "$TEST_HOME/.config/testdir" "$TEST_HOME/standalone" "$TEST_HOME/dangling
 echo ""
 echo "=== Commands ==="
 
+# Create files so _do_list can find them via expansion
+echo "test" > "$TEST_HOME/.bashrc_extra"
+mkdir -p "$TEST_HOME/.config/foo"
+echo "test" > "$TEST_HOME/.config/foo/bar"
 result=$(_do_list)
 _assert_contains "list shows .bashrc_extra" ".bashrc_extra" "$result"
+_assert_contains "list shows expanded dir contents" ".config/foo/bar" "$result"
+rm -f "$TEST_HOME/.bashrc_extra"
+rm -rf "$TEST_HOME/.config/foo"
 
 result=$(_do_hosts)
 _assert_contains "hosts shows nas" "nas" "$result"

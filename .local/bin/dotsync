@@ -465,14 +465,34 @@ _is_binary() {
 # Actions
 # ---------------------------------------------------------------------------
 
-# Print all manifest paths from all tiers (display only, no transfer).
+# Print the fully resolved file list: expands globs and directories,
+# applies excludes, deduplicates. Shows exactly what would be synced.
 _do_list() {
-    local paths
-    paths=$(_load_paths "work")
-    if [[ -z "$paths" ]]; then
+    local paths_arr=()
+    while IFS= read -r p; do
+        [[ -n "$p" ]] && paths_arr+=("$p")
+    done < <(_load_paths "work")
+
+    if [[ ${#paths_arr[@]} -eq 0 ]]; then
         echo "(no paths configured)"
+        return 0
+    fi
+
+    local excludes_arr=()
+    while IFS= read -r e; do
+        [[ -n "$e" ]] && excludes_arr+=("$e")
+    done < <(_load_excludes "work")
+
+    local files_arr=()
+    while IFS= read -r f; do
+        [[ -n "$f" ]] || continue
+        _is_excluded "$f" "${excludes_arr[@]+"${excludes_arr[@]}"}" || files_arr+=("$f")
+    done < <(_expand_paths_local "$HOME" "${paths_arr[@]}")
+
+    if [[ ${#files_arr[@]} -eq 0 ]]; then
+        echo "(no files found)"
     else
-        echo "$paths"
+        printf '%s\n' "${files_arr[@]}" | sort
     fi
 }
 
