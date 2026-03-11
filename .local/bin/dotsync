@@ -116,9 +116,12 @@ REMOTESCRIPT
 # Rejects absolute paths, tilde paths, and parent traversals for safety.
 #
 # Lines starting with ! are excludes. Excludes take priority over includes.
-# An exclude matches if the included path starts with the exclude pattern,
-# so !.config/dot/dotsync-paths excludes that file even when .config/dot
-# (the parent directory) is included.
+# Excludes support glob wildcards (* matches any string including /, ? matches
+# one char). An exclude also matches children, so !dir excludes dir/*.
+# Examples:
+#   !.config/dot/dotsync-paths   exclude a specific file
+#   !*/__pycache__               exclude __pycache__ dirs anywhere
+#   !*.pyc                       exclude all .pyc files
 #
 # Tier filtering prevents work content from leaking to personal machines:
 #   personal host → personal + extra paths only
@@ -163,11 +166,11 @@ _load_paths() {
             paths+=("$line")
         done < "$f"
     done
-    # Second pass: emit paths that aren't excluded.
+    # Second pass: emit paths that aren't excluded (supports glob patterns).
     for p in "${paths[@]+"${paths[@]}"}"; do
         local excluded=0
         for excl in "${excludes[@]+"${excludes[@]}"}"; do
-            if [[ "$p" == "$excl" || "$p" == "$excl"/* ]]; then
+            if [[ "$p" == $excl || "$p" == $excl/* ]]; then
                 excluded=1
                 break
             fi
@@ -205,12 +208,15 @@ _load_excludes() {
     done
 }
 
-# Check if a path matches any exclude pattern. A pattern matches if the
-# path equals it or is a child of it (prefix match with / boundary).
+# Check if a path matches any exclude pattern. Supports glob wildcards:
+#   *  matches any string (including across / boundaries)
+#   ?  matches any single character
+# A pattern also matches children (e.g., !dir excludes dir and dir/*).
 _is_excluded() {
     local path="$1"; shift
     for excl in "$@"; do
-        if [[ "$path" == "$excl" || "$path" == "$excl"/* ]]; then
+        # Unquoted $excl enables bash glob matching in [[ == ]]
+        if [[ "$path" == $excl || "$path" == $excl/* ]]; then
             return 0
         fi
     done

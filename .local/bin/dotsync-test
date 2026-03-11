@@ -192,6 +192,33 @@ else
     _pass "is_excluded: no false positive on sibling"
 fi
 
+# Glob patterns
+if _is_excluded ".config/dot/__pycache__" "*/__pycache__"; then
+    _pass "is_excluded: glob */__pycache__"
+else
+    _fail "is_excluded: glob */__pycache__"
+fi
+if _is_excluded ".config/dot/__pycache__/module.cpython.pyc" "*/__pycache__"; then
+    _pass "is_excluded: glob */__pycache__ matches children"
+else
+    _fail "is_excluded: glob */__pycache__ matches children"
+fi
+if _is_excluded "deep/nested/dir/__pycache__/file" "*/__pycache__"; then
+    _pass "is_excluded: glob matches across directories"
+else
+    _fail "is_excluded: glob matches across directories"
+fi
+if _is_excluded ".config/dot/file.pyc" "*.pyc"; then
+    _pass "is_excluded: glob *.pyc"
+else
+    _fail "is_excluded: glob *.pyc"
+fi
+if _is_excluded ".config/dot/file.txt" "*.pyc"; then
+    _fail "is_excluded: glob *.pyc false positive"
+else
+    _pass "is_excluded: glob *.pyc no false positive"
+fi
+
 # Restore manifest for remaining tests
 cat > "$CONF_DIR/dotsync-paths" <<'EOF'
 .bashrc_extra
