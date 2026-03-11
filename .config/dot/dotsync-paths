@@ -9,5 +9,13 @@
 .config/dot
 .config/ds
 .inputrc
-.local/bin
+.local/bin/argus
+.local/bin/dot
+.local/bin/dot-bootstrap
+.local/bin/dot.md
+.local/bin/dotsync
+.local/bin/dotsync-test
+.local/bin/dotsync.md
+.local/bin/ds
+.local/bin/ds.md
 .tmux.conf
