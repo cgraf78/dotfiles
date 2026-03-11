@@ -112,7 +112,7 @@ ds -k ds-dev          # kill a session
 def                   # alias for ds -p bare
 ```
 
-Host config in `~/.config/ds/hosts*.conf` (additive — personal and work in separate files). See [`ds.md`](/.local/bin/ds.md) for full docs.
+Host config in `~/.config/ds/hosts*` (additive — personal and work in separate files). See [`ds.md`](/.local/bin/ds.md) for full docs.
 
 ### `dotsync` — Bidirectional File Sync
 

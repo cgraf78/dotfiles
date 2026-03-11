@@ -38,18 +38,18 @@ Profiles define the tmux window/pane layout. Add new profiles by defining `_layo
 | `dev` | Chatbot in top pane, bash below, separate bash window |
 | `orc` | Orc in top pane, bash below |
 
-## hosts.conf Format
+## Hosts Format
 
-All `~/.config/ds/hosts*.conf` files are read (additive). This allows personal and work hosts to live in separate files. Four columns: hostname, connect method, chatbot, working directory. Hostnames support glob patterns. First match wins across all files.
+All `~/.config/ds/hosts*` files are read (additive). This allows personal and work hosts to live in separate files. Four columns: hostname, connect method, chatbot, working directory. Hostnames support glob patterns. First match wins across all files.
 
-Personal hosts (`~/.config/ds/hosts.conf`):
+Personal hosts (`~/.config/ds/hosts`):
 ```
 # hostname    connect   chatbot   dir
 nas           autossh   argus     ~
 clark2        -         argus     ~
 ```
 
-Work hosts (`~/.config/ds/hosts-work.conf`, symlinked from work repo):
+Work hosts (`~/.config/ds/hosts-work`, symlinked from work repo):
 ```
 # hostname    connect   chatbot   dir
 myserver      ssh       claude    ~/code

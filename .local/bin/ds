@@ -86,16 +86,16 @@ _profiles() {
 
 # --- Host config ---
 
-# Look up a hostname in all ~/.config/ds/hosts*.conf files (additive).
+# Look up a hostname in all ~/.config/ds/hosts* files (additive).
 # Sets CONNECT, CHATBOT, and DIR from the first matching entry.
 # Returns 1 if no match was found (script defaults apply).
 # Hostnames support glob patterns (e.g., server* matches server1, server2).
 # CLI overrides (-p, -b, -c, -d) take precedence.
 lookup_host() {
     local target="$1"
-    local conf_files=("$CONF_DIR"/hosts*.conf)
+    local conf_files=("$CONF_DIR"/hosts*)
     [[ -e "${conf_files[0]}" ]] || return 1
-    # Search all hosts*.conf files (additive) for a match
+    # Search all hosts* files (additive) for a match
     local f
     for f in "${conf_files[@]}"; do
         while read -r name connect chatbot dir; do
