@@ -462,37 +462,66 @@ _is_binary() {
 }
 
 # ---------------------------------------------------------------------------
+# File resolution
+# ---------------------------------------------------------------------------
+
+# Resolve manifest paths to individual local files for a given tier.
+# Expands globs and directories, applies excludes, returns one file per line.
+# Used by list, push, and pull (for local expansion).
+_resolve_local_files() {
+    local tier="$1"
+    local paths_arr=()
+    while IFS= read -r p; do
+        [[ -n "$p" ]] && paths_arr+=("$p")
+    done < <(_load_paths "$tier")
+
+    [[ ${#paths_arr[@]} -eq 0 ]] && return 0
+
+    local excludes_arr=()
+    while IFS= read -r e; do
+        [[ -n "$e" ]] && excludes_arr+=("$e")
+    done < <(_load_excludes "$tier")
+
+    while IFS= read -r f; do
+        [[ -n "$f" ]] || continue
+        _is_excluded "$f" "${excludes_arr[@]+"${excludes_arr[@]}"}" || echo "$f"
+    done < <(_expand_paths_local "$HOME" "${paths_arr[@]}")
+}
+
+# Same as _resolve_local_files but expands on a remote host via SSH.
+_resolve_remote_files() {
+    local tier="$1" dest="$2"
+    local paths_arr=()
+    while IFS= read -r p; do
+        [[ -n "$p" ]] && paths_arr+=("$p")
+    done < <(_load_paths "$tier")
+
+    [[ ${#paths_arr[@]} -eq 0 ]] && return 0
+
+    local excludes_arr=()
+    while IFS= read -r e; do
+        [[ -n "$e" ]] && excludes_arr+=("$e")
+    done < <(_load_excludes "$tier")
+
+    while IFS= read -r f; do
+        [[ -n "$f" ]] || continue
+        _is_excluded "$f" "${excludes_arr[@]+"${excludes_arr[@]}"}" || echo "$f"
+    done < <(_expand_paths_remote "$dest" "${paths_arr[@]}")
+}
+
+# ---------------------------------------------------------------------------
 # Actions
 # ---------------------------------------------------------------------------
 
 # Print the fully resolved file list: expands globs and directories,
 # applies excludes, deduplicates. Shows exactly what would be synced.
 _do_list() {
-    local paths_arr=()
-    while IFS= read -r p; do
-        [[ -n "$p" ]] && paths_arr+=("$p")
-    done < <(_load_paths "work")
-
-    if [[ ${#paths_arr[@]} -eq 0 ]]; then
-        echo "(no paths configured)"
-        return 0
-    fi
-
-    local excludes_arr=()
-    while IFS= read -r e; do
-        [[ -n "$e" ]] && excludes_arr+=("$e")
-    done < <(_load_excludes "work")
-
-    local files_arr=()
-    while IFS= read -r f; do
-        [[ -n "$f" ]] || continue
-        _is_excluded "$f" "${excludes_arr[@]+"${excludes_arr[@]}"}" || files_arr+=("$f")
-    done < <(_expand_paths_local "$HOME" "${paths_arr[@]}")
-
-    if [[ ${#files_arr[@]} -eq 0 ]]; then
+    local result
+    result=$(_resolve_local_files "work")
+    if [[ -z "$result" ]]; then
         echo "(no files found)"
     else
-        printf '%s\n' "${files_arr[@]}" | sort
+        echo "$result" | sort
     fi
 }
 
@@ -521,27 +550,10 @@ _do_push() {
     _acquire_lock
     trap '_release_lock' RETURN
 
-    local paths_arr=()
-    while IFS= read -r p; do
-        [[ -n "$p" ]] && paths_arr+=("$p")
-    done < <(_load_paths "$tier")
-
-    if [[ ${#paths_arr[@]} -eq 0 ]]; then
-        echo "dotsync: no paths configured"
-        return 0
-    fi
-
-    # Load excludes and filter expanded files.
-    local excludes_arr=()
-    while IFS= read -r e; do
-        [[ -n "$e" ]] && excludes_arr+=("$e")
-    done < <(_load_excludes "$tier")
-
     local files_arr=()
     while IFS= read -r f; do
-        [[ -n "$f" ]] || continue
-        _is_excluded "$f" "${excludes_arr[@]+"${excludes_arr[@]}"}" || files_arr+=("$f")
-    done < <(_expand_paths_local "$HOME" "${paths_arr[@]}")
+        [[ -n "$f" ]] && files_arr+=("$f")
+    done < <(_resolve_local_files "$tier")
 
     if [[ ${#files_arr[@]} -eq 0 ]]; then
         echo "dotsync: no files to push (all paths missing locally)"
@@ -586,27 +598,10 @@ _do_pull() {
     _acquire_lock
     trap '_release_lock' RETURN
 
-    local paths_arr=()
-    while IFS= read -r p; do
-        [[ -n "$p" ]] && paths_arr+=("$p")
-    done < <(_load_paths "$tier")
-
-    if [[ ${#paths_arr[@]} -eq 0 ]]; then
-        echo "dotsync: no paths configured"
-        return 0
-    fi
-
-    # Load excludes and filter expanded files.
-    local excludes_arr=()
-    while IFS= read -r e; do
-        [[ -n "$e" ]] && excludes_arr+=("$e")
-    done < <(_load_excludes "$tier")
-
     local files_arr=()
     while IFS= read -r f; do
-        [[ -n "$f" ]] || continue
-        _is_excluded "$f" "${excludes_arr[@]+"${excludes_arr[@]}"}" || files_arr+=("$f")
-    done < <(_expand_paths_remote "$dest" "${paths_arr[@]}")
+        [[ -n "$f" ]] && files_arr+=("$f")
+    done < <(_resolve_remote_files "$tier" "$dest")
 
     if [[ ${#files_arr[@]} -eq 0 ]]; then
         echo "dotsync: no files to pull (all paths missing on remote)"
@@ -697,34 +692,17 @@ _sync_host() {
     local host_alias="$1" dest="$2" host_tier="${3:-personal}" dry_run="${4:-0}"
 
     # --- Phase 1: Discover files ---
-
-    local paths_arr=()
-    while IFS= read -r p; do
-        [[ -n "$p" ]] && paths_arr+=("$p")
-    done < <(_load_paths "$host_tier")
-
-    [[ ${#paths_arr[@]} -eq 0 ]] && return 0
-
-    # Load excludes for filtering expanded directory contents.
-    local excludes_arr=()
-    while IFS= read -r e; do
-        [[ -n "$e" ]] && excludes_arr+=("$e")
-    done < <(_load_excludes "$host_tier")
-
-    # Expand directories to individual files on both sides, merge and dedup.
+    # Merge local and remote file lists, deduplicate, and filter excludes.
     # A file only needs to exist on ONE side to enter the comparison.
-    # Filter out excluded paths after expansion.
+
     local all_files_arr=()
     local tmpfile_expand
     tmpfile_expand=$(mktemp)
     {
-        _expand_paths_local "$HOME" "${paths_arr[@]}"
-        _expand_paths_remote "$dest" "${paths_arr[@]}"
+        _resolve_local_files "$host_tier"
+        _resolve_remote_files "$host_tier" "$dest"
     } | _merge_file_lists > "$tmpfile_expand"
-    while IFS= read -r f; do
-        [[ -n "$f" ]] || continue
-        _is_excluded "$f" "${excludes_arr[@]+"${excludes_arr[@]}"}" || all_files_arr+=("$f")
-    done < "$tmpfile_expand"
+    mapfile -t all_files_arr < "$tmpfile_expand"
     rm -f "$tmpfile_expand"
 
     [[ ${#all_files_arr[@]} -eq 0 ]] && return 0
