@@ -29,12 +29,19 @@ shopt -s histappend
 shopt -s checkwinsize
 
 # Prompt
-PS1='\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '
-case "$TERM" in
-xterm*|rxvt*)
-    PS1="\[\e]0;\u@\h: \w\a\]$PS1"
-    ;;
-esac
+# Set PS1 with colored user@host:path format.
+# Args: $1 - hostname to display (default: \h, the system hostname).
+#        Override via _set_prompt "alias" in ~/.bashrc_extra.
+_set_prompt() {
+    local host="${1:-\\h}"
+    PS1='\[\033[01;32m\]\u@'"$host"'\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '
+    case "$TERM" in
+    xterm*|rxvt*)
+        PS1="\[\e]0;\u@$host: \w\a\]$PS1"
+        ;;
+    esac
+}
+_set_prompt
 
 # Platform-specific config
 case "$(uname -s)" in
