@@ -490,6 +490,20 @@ ln -sf "$TEST_HOME/no_target" "$TEST_HOME/dangling_link"
 result=$(_expand_paths_local "$TEST_HOME" "dangling_link")
 _assert_eq "dangling symlink excluded" "" "$result"
 
+# Glob expansion in includes
+echo "x" > "$TEST_HOME/.bashrc_extra"
+echo "y" > "$TEST_HOME/.bashrc_linux"
+echo "z" > "$TEST_HOME/.bashrc_mac"
+result=$(_expand_paths_local "$TEST_HOME" ".bashrc_*")
+_assert_contains "glob expands .bashrc_extra" ".bashrc_extra" "$result"
+_assert_contains "glob expands .bashrc_linux" ".bashrc_linux" "$result"
+_assert_contains "glob expands .bashrc_mac" ".bashrc_mac" "$result"
+
+# Glob with no matches produces no output
+result=$(_expand_paths_local "$TEST_HOME" ".no_match_*")
+_assert_eq "glob no match produces empty" "" "$result"
+
+rm -f "$TEST_HOME/.bashrc_extra" "$TEST_HOME/.bashrc_linux" "$TEST_HOME/.bashrc_mac"
 rm -rf "$TEST_HOME/.config/testdir" "$TEST_HOME/standalone" "$TEST_HOME/dangling_link"
 
 # ---------------------------------------------------------------------------

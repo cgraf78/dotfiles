@@ -316,11 +316,28 @@ _ssh_probe() {
 
 # Expand manifest entries to individual files on the local filesystem.
 # Files pass through as-is. Directories are recursively expanded.
+# Glob patterns (containing * or ?) are expanded via bash globbing.
 # Dangling symlinks and missing paths are silently skipped (-f only, not -L).
 # Returns paths relative to $base.
 _expand_paths_local() {
     local base="$1"; shift
     for p in "$@"; do
+        # Glob expansion for patterns containing * or ?
+        if [[ "$p" == *[\*\?]* ]]; then
+            local match
+            for match in "$base/"$p; do
+                [[ -e "$match" ]] || continue
+                local rel="${match#$base/}"
+                if [[ -d "$match" ]]; then
+                    find "$match" -type f 2>/dev/null | while IFS= read -r fpath; do
+                        echo "${fpath#$base/}"
+                    done
+                elif [[ -f "$match" ]]; then
+                    echo "$rel"
+                fi
+            done
+            continue
+        fi
         if [[ -d "$base/$p" ]]; then
             find "$base/$p" -type f 2>/dev/null | while IFS= read -r fpath; do
                 echo "${fpath#$base/}"
@@ -333,13 +350,19 @@ _expand_paths_local() {
 
 # Expand manifest entries to individual files on a remote host via SSH.
 # Same logic as _expand_paths_local but runs remotely.
+# Glob patterns are expanded by the remote shell.
 # Returns paths relative to remote $HOME.
 _expand_paths_remote() {
     local dest="$1"; shift
     local paths=("$@")
     local cmds=""
     for p in "${paths[@]}"; do
-        cmds+="if [ -d \"\$HOME/$p\" ]; then find \"\$HOME/$p\" -type f 2>/dev/null | while IFS= read -r fpath; do echo \"\${fpath#\$HOME/}\"; done; elif [ -f \"\$HOME/$p\" ]; then echo \"$p\"; fi; "
+        if [[ "$p" == *[\*\?]* ]]; then
+            # Glob: let the remote shell expand it, then check each match
+            cmds+="for _m in \"\$HOME/\"$p; do [ -e \"\$_m\" ] || continue; if [ -d \"\$_m\" ]; then find \"\$_m\" -type f 2>/dev/null | while IFS= read -r fpath; do echo \"\${fpath#\$HOME/}\"; done; elif [ -f \"\$_m\" ]; then echo \"\${_m#\$HOME/}\"; fi; done; "
+        else
+            cmds+="if [ -d \"\$HOME/$p\" ]; then find \"\$HOME/$p\" -type f 2>/dev/null | while IFS= read -r fpath; do echo \"\${fpath#\$HOME/}\"; done; elif [ -f \"\$HOME/$p\" ]; then echo \"$p\"; fi; "
+        fi
     done
     ssh -o ConnectTimeout=$SSH_TIMEOUT -o BatchMode=yes "$dest" "$cmds" 2>/dev/null || true
 }
