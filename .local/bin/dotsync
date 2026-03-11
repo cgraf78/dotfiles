@@ -934,7 +934,16 @@ _do_sync() {
     local synced=() skipped=() conflicted=() errored=()
     local exit_code=0
 
-    while read -r alias dest; do
+    # Read hosts into array first — avoids the classic bash pitfall where
+    # SSH inside a while-read loop consumes stdin from the pipe, eating
+    # remaining host entries and silently skipping hosts.
+    local hosts_lines=()
+    while IFS= read -r line; do
+        hosts_lines+=("$line")
+    done < <(_load_hosts)
+
+    for line in "${hosts_lines[@]}"; do
+        read -r alias dest <<< "$line"
         if _is_self "$dest"; then
             continue
         fi
@@ -956,7 +965,7 @@ _do_sync() {
             errored+=("$alias")
             [[ $exit_code -lt 2 ]] && exit_code=2
         fi
-    done < <(_load_hosts)
+    done
 
     echo ""
     [[ ${#synced[@]} -gt 0 ]] && echo "synced: ${synced[*]}"
