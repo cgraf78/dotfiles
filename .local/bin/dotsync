@@ -934,20 +934,37 @@ _do_sync() {
     local synced=() skipped=() conflicted=() errored=()
     local exit_code=0
 
-    # Read hosts into array first — avoids the classic bash pitfall where
-    # SSH inside a while-read loop consumes stdin from the pipe, eating
-    # remaining host entries and silently skipping hosts.
-    local hosts_lines=()
+    # Read hosts into array, filtering out self.
+    local hosts_aliases=() hosts_dests=()
     while IFS= read -r line; do
-        hosts_lines+=("$line")
+        local a d
+        read -r a d <<< "$line"
+        _is_self "$d" && continue
+        hosts_aliases+=("$a")
+        hosts_dests+=("$d")
     done < <(_load_hosts)
 
-    for line in "${hosts_lines[@]}"; do
-        read -r alias dest <<< "$line"
-        if _is_self "$dest"; then
-            continue
+    # Probe all hosts in parallel — avoids sequential 3s timeouts per
+    # unreachable host. Each probe runs in the background; we wait for
+    # all to finish, then check which succeeded.
+    declare -A probe_results=()
+    local probe_pids=()
+    for i in "${!hosts_aliases[@]}"; do
+        local dest="${hosts_dests[$i]}"
+        ( _ssh_probe "$dest" ) &
+        probe_pids+=("$!:$i")
+    done
+    for entry in "${probe_pids[@]}"; do
+        local pid="${entry%%:*}" idx="${entry#*:}"
+        if wait "$pid" 2>/dev/null; then
+            probe_results[$idx]=1
         fi
-        if ! _ssh_probe "$dest"; then
+    done
+
+    # Sync reachable hosts sequentially (transfers can't be parallelized safely).
+    for i in "${!hosts_aliases[@]}"; do
+        local alias="${hosts_aliases[$i]}" dest="${hosts_dests[$i]}"
+        if [[ -z "${probe_results[$i]:-}" ]]; then
             skipped+=("$alias")
             continue
         fi
