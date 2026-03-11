@@ -444,7 +444,7 @@ _do_push() {
     printf '%s\n' "${files_arr[@]}" > "$tmpfile"
 
     echo "pushing ${#files_arr[@]} file(s) to $host_arg ($dest)..."
-    if rsync -avzL --no-owner --no-group --files-from="$tmpfile" "$HOME/" "$dest:~/" 2>&1; then
+    if rsync -avzLc --no-owner --no-group --files-from="$tmpfile" "$HOME/" "$dest:~/" 2>&1; then
         for f in "${files_arr[@]}"; do
             local md5hash
             md5hash=$(_md5 "$HOME/$f")
@@ -502,7 +502,7 @@ _do_pull() {
     printf '%s\n' "${files_arr[@]}" > "$tmpfile"
 
     echo "pulling ${#files_arr[@]} file(s) from $host_arg ($dest)..."
-    if rsync -avzL --no-owner --no-group --files-from="$tmpfile" "$dest:~/" "$HOME/" 2>&1; then
+    if rsync -avzLc --no-owner --no-group --files-from="$tmpfile" "$dest:~/" "$HOME/" 2>&1; then
         for f in "${files_arr[@]}"; do
             local md5hash
             md5hash=$(_md5 "$HOME/$f")
@@ -735,7 +735,7 @@ _sync_host() {
         local tmpfile
         tmpfile=$(mktemp)
         printf '%s\n' "${push_files[@]}" > "$tmpfile"
-        if rsync -azL --no-owner --no-group --files-from="$tmpfile" "$HOME/" "$dest:~/" 2>/dev/null; then
+        if rsync -azLc --no-owner --no-group --files-from="$tmpfile" "$HOME/" "$dest:~/" 2>/dev/null; then
             for f in "${push_files[@]}"; do
                 local md5hash
                 md5hash=$(_md5 "$HOME/$f")
@@ -753,7 +753,7 @@ _sync_host() {
         local tmpfile
         tmpfile=$(mktemp)
         printf '%s\n' "${pull_files[@]}" > "$tmpfile"
-        if rsync -azL --no-owner --no-group --files-from="$tmpfile" "$dest:~/" "$HOME/" 2>/dev/null; then
+        if rsync -azLc --no-owner --no-group --files-from="$tmpfile" "$dest:~/" "$HOME/" 2>/dev/null; then
             for f in "${pull_files[@]}"; do
                 local md5hash
                 md5hash=$(_md5 "$HOME/$f")
@@ -814,7 +814,7 @@ _sync_host() {
         # Fetch remote version to a temp file
         local remote_tmp
         remote_tmp=$(mktemp)
-        rsync -azL --no-owner --no-group "$dest:~/$f" "$remote_tmp" 2>/dev/null || { rm -f "$remote_tmp"; had_errors=1; continue; }
+        rsync -azLc --no-owner --no-group "$dest:~/$f" "$remote_tmp" 2>/dev/null || { rm -f "$remote_tmp"; had_errors=1; continue; }
 
         # Binary files can't be merged — save conflict copy
         if _is_binary "$HOME/$f"; then
@@ -836,7 +836,7 @@ _sync_host() {
                 backup_tmp=$(mktemp)
                 cp "$HOME/$f" "$backup_tmp"
                 cp "$merged_tmp" "$HOME/$f"
-                if rsync -azL --no-owner --no-group "$HOME/$f" "$dest:~/$f" 2>/dev/null; then
+                if rsync -azLc --no-owner --no-group "$HOME/$f" "$dest:~/$f" 2>/dev/null; then
                     local md5hash
                     md5hash=$(_md5 "$HOME/$f")
                     [[ -n "$md5hash" ]] && _save_state "$host_alias" "$f" "$HOME/$f" "$md5hash"
@@ -875,7 +875,7 @@ _sync_host() {
             # automatically because the deletion was intentional.
             local remote_tmp
             remote_tmp=$(mktemp)
-            rsync -azL --no-owner --no-group "$dest:~/$path" "$remote_tmp" 2>/dev/null || { rm -f "$remote_tmp"; continue; }
+            rsync -azLc --no-owner --no-group "$dest:~/$path" "$remote_tmp" 2>/dev/null || { rm -f "$remote_tmp"; continue; }
             cp "$remote_tmp" "$HOME/$path.conflict.$host_alias"
             rm -f "$remote_tmp"
             echo "  conflict (deleted locally, modified remotely): $path → saved $path.conflict.$host_alias" >&2
@@ -883,7 +883,7 @@ _sync_host() {
             # Modified locally but deleted remotely — the local edits take
             # priority. Push the local file back to the remote to "undo" the
             # remote deletion. State only saved on successful push.
-            if rsync -azL --no-owner --no-group "$HOME/$path" "$dest:~/$path" 2>/dev/null; then
+            if rsync -azLc --no-owner --no-group "$HOME/$path" "$dest:~/$path" 2>/dev/null; then
                 local md5hash
                 md5hash=$(_md5 "$HOME/$path")
                 [[ -n "$md5hash" ]] && _save_state "$host_alias" "$path" "$HOME/$path" "$md5hash"
