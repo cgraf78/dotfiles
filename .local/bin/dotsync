@@ -546,7 +546,7 @@ _do_list() {
     if [[ -z "$result" ]]; then
         echo "(no files found)"
     else
-        echo "$result" | sort
+        echo "$result" | sort -u
     fi
 }
 
