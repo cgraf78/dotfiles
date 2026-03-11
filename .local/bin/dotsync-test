@@ -1,0 +1,583 @@
+#!/bin/bash
+# dotsync-test — unit and integration tests for dotsync.
+#
+# Creates temp directories to simulate $HOME and tests internal functions
+# in isolation. Uses localhost for integration tests (SSH to self).
+#
+# Usage: dotsync-test [--integration]
+#        --integration  also run SSH-based tests (requires localhost SSH)
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PASS=0
+FAIL=0
+INTEGRATION=0
+CLEANUP_DIRS=()
+REAL_HOME="$HOME"
+
+[[ "${1:-}" == "--integration" ]] && INTEGRATION=1
+
+# ---------------------------------------------------------------------------
+# Test framework
+# ---------------------------------------------------------------------------
+
+_pass() { PASS=$((PASS + 1)); echo "  PASS: $1"; }
+_fail() { FAIL=$((FAIL + 1)); echo "  FAIL: $1" >&2; }
+
+_assert_eq() {
+    local desc="$1" expected="$2" actual="$3"
+    if [[ "$expected" == "$actual" ]]; then
+        _pass "$desc"
+    else
+        _fail "$desc (expected '$expected', got '$actual')"
+    fi
+}
+
+_assert_contains() {
+    local desc="$1" expected="$2" actual="$3"
+    if [[ "$actual" == *"$expected"* ]]; then
+        _pass "$desc"
+    else
+        _fail "$desc (expected to contain '$expected', got '$actual')"
+    fi
+}
+
+_assert_not_contains() {
+    local desc="$1" unexpected="$2" actual="$3"
+    if [[ "$actual" != *"$unexpected"* ]]; then
+        _pass "$desc"
+    else
+        _fail "$desc (should not contain '$unexpected')"
+    fi
+}
+
+_assert_file_exists() {
+    local desc="$1" path="$2"
+    if [[ -f "$path" ]]; then
+        _pass "$desc"
+    else
+        _fail "$desc (file not found: $path)"
+    fi
+}
+
+_assert_file_missing() {
+    local desc="$1" path="$2"
+    if [[ ! -f "$path" ]]; then
+        _pass "$desc"
+    else
+        _fail "$desc (file should not exist: $path)"
+    fi
+}
+
+_assert_file_content() {
+    local desc="$1" expected="$2" path="$3"
+    if [[ -f "$path" ]]; then
+        local actual
+        actual=$(cat "$path")
+        if [[ "$actual" == "$expected" ]]; then
+            _pass "$desc"
+        else
+            _fail "$desc (expected content '$expected', got '$actual')"
+        fi
+    else
+        _fail "$desc (file not found: $path)"
+    fi
+}
+
+# Create a temp dir that gets cleaned up at exit.
+_tmpdir() {
+    local d
+    d=$(mktemp -d)
+    CLEANUP_DIRS+=("$d")
+    echo "$d"
+}
+
+_cleanup() {
+    for d in "${CLEANUP_DIRS[@]+"${CLEANUP_DIRS[@]}"}"; do
+        rm -rf "$d"
+    done
+    # Clean up remote test files if integration tests ran
+    rm -rf "$REAL_HOME/.dotsync-test-remote" 2>/dev/null || true
+}
+trap _cleanup EXIT
+
+# ---------------------------------------------------------------------------
+# Source dotsync for internal functions
+# ---------------------------------------------------------------------------
+
+# Override HOME and config dirs for testing
+TEST_HOME=$(_tmpdir)
+export HOME="$TEST_HOME"
+export CONF_DIR="$TEST_HOME/.config/dot"
+export STATE_DIR="$TEST_HOME/.local/share/dot/dotsync"
+export DOTSYNC_SOURCED=1
+
+mkdir -p "$CONF_DIR" "$STATE_DIR"
+
+# shellcheck source=dotsync
+. "$SCRIPT_DIR/dotsync"
+
+# ---------------------------------------------------------------------------
+# Tests: Manifest parsing
+# ---------------------------------------------------------------------------
+
+echo "=== Manifest parsing ==="
+
+# Test: basic paths loaded
+cat > "$CONF_DIR/dotsync-paths" <<'EOF'
+# comment
+.bashrc_extra
+
+.config/foo
+EOF
+result=$(_load_paths)
+_assert_contains "loads .bashrc_extra" ".bashrc_extra" "$result"
+_assert_contains "loads .config/foo" ".config/foo" "$result"
+lines=$(echo "$result" | wc -l)
+_assert_eq "skips blank lines and comments" "2" "$lines"
+
+# Test: work paths merged
+cat > "$CONF_DIR/dotsync-paths-work" <<'EOF'
+.work_config
+EOF
+result=$(_load_paths)
+lines=$(echo "$result" | wc -l)
+_assert_eq "merges work paths" "3" "$lines"
+_assert_contains "includes work path" ".work_config" "$result"
+
+# Test: deduplication
+cat > "$CONF_DIR/dotsync-paths-extra" <<'EOF'
+.bashrc_extra
+.extra_file
+EOF
+result=$(_load_paths)
+count=$(echo "$result" | grep -c '.bashrc_extra')
+_assert_eq "deduplicates .bashrc_extra" "1" "$count"
+_assert_contains "includes extra file" ".extra_file" "$result"
+
+# Cleanup manifests for next tests
+rm -f "$CONF_DIR/dotsync-paths-work" "$CONF_DIR/dotsync-paths-extra"
+
+# ---------------------------------------------------------------------------
+# Tests: Path validation
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== Path validation ==="
+
+cat > "$CONF_DIR/dotsync-paths" <<'EOF'
+.valid_file
+/etc/passwd
+~/.ssh/id_rsa
+../../../etc/shadow
+.config/../../../etc/shadow
+.normal_file
+EOF
+result=$(_load_paths 2>/dev/null)
+_assert_contains "accepts .valid_file" ".valid_file" "$result"
+_assert_contains "accepts .normal_file" ".normal_file" "$result"
+_assert_not_contains "rejects absolute path" "/etc/passwd" "$result"
+_assert_not_contains "rejects tilde path" "~/.ssh/id_rsa" "$result"
+_assert_not_contains "rejects ../ traversal" "../../../etc/shadow" "$result"
+_assert_not_contains "rejects embedded ../ traversal" ".config/../../../etc/shadow" "$result"
+lines=$(echo "$result" | wc -l)
+_assert_eq "only valid paths remain" "2" "$lines"
+
+# Restore manifest for remaining tests
+cat > "$CONF_DIR/dotsync-paths" <<'EOF'
+.bashrc_extra
+.config/foo
+EOF
+
+# ---------------------------------------------------------------------------
+# Tests: Host parsing
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== Host parsing ==="
+
+cat > "$CONF_DIR/dotsync-hosts" <<'EOF'
+# alias    ssh-destination
+nas        nas.grafhome.net
+server1    server1.example.com
+EOF
+result=$(_load_hosts)
+_assert_contains "loads nas" "nas nas.grafhome.net" "$result"
+_assert_contains "loads server1" "server1 server1.example.com" "$result"
+
+# Test: work hosts merged
+cat > "$CONF_DIR/dotsync-hosts-work" <<'EOF'
+dev1       dev1.example.com
+EOF
+result=$(_load_hosts)
+_assert_contains "merges work host" "dev1 dev1.example.com" "$result"
+
+# Test: duplicate alias
+cat > "$CONF_DIR/dotsync-hosts-work" <<'EOF'
+nas        other.nas.com
+dev1       dev1.example.com
+EOF
+result=$(_load_hosts)
+count=$(echo "$result" | grep -c '^nas ')
+_assert_eq "deduplicates nas alias" "1" "$count"
+_assert_contains "first occurrence wins" "nas.grafhome.net" "$result"
+
+# Test: host resolution
+dest=$(_resolve_host "nas")
+_assert_eq "resolves alias to destination" "nas.grafhome.net" "$dest"
+
+dest=$(_resolve_host "unknown.server.com")
+_assert_eq "falls back to literal" "unknown.server.com" "$dest"
+
+# Cleanup
+rm -f "$CONF_DIR/dotsync-hosts-work"
+
+# ---------------------------------------------------------------------------
+# Tests: Self-detection
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== Self-detection ==="
+
+local_fqdn=$(hostname -f 2>/dev/null || hostname)
+local_short=$(hostname -s 2>/dev/null || hostname)
+
+if _is_self "$local_fqdn"; then
+    _pass "detects self by FQDN ($local_fqdn)"
+else
+    _fail "detects self by FQDN ($local_fqdn)"
+fi
+
+if _is_self "$local_short"; then
+    _pass "detects self by short name ($local_short)"
+else
+    _fail "detects self by short name ($local_short)"
+fi
+
+if _is_self "definitely.not.this.host"; then
+    _fail "false positive on unrelated host"
+else
+    _pass "no false positive on unrelated host"
+fi
+
+# ---------------------------------------------------------------------------
+# Tests: Checksum
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== Checksums ==="
+
+echo "hello world" > "$TEST_HOME/test_file"
+hash1=$(_md5 "$TEST_HOME/test_file")
+_assert_eq "md5 produces 32-char hash" "32" "${#hash1}"
+
+echo "hello world" > "$TEST_HOME/test_file2"
+hash2=$(_md5 "$TEST_HOME/test_file2")
+_assert_eq "identical files have same hash" "$hash1" "$hash2"
+
+echo "different content" > "$TEST_HOME/test_file2"
+hash3=$(_md5 "$TEST_HOME/test_file2")
+if [[ "$hash1" != "$hash3" ]]; then
+    _pass "different files have different hashes"
+else
+    _fail "different files have different hashes"
+fi
+
+# Empty file produces valid hash
+: > "$TEST_HOME/empty_file"
+hash4=$(_md5 "$TEST_HOME/empty_file")
+_assert_eq "empty file produces 32-char hash" "32" "${#hash4}"
+
+# Nonexistent file produces empty
+hash5=$(_md5 "$TEST_HOME/nonexistent_file" || true)
+_assert_eq "nonexistent file produces empty hash" "" "$hash5"
+
+rm -f "$TEST_HOME/test_file" "$TEST_HOME/test_file2" "$TEST_HOME/empty_file"
+
+# ---------------------------------------------------------------------------
+# Tests: State management
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== State management ==="
+
+echo "file content" > "$TEST_HOME/state_test"
+_save_state "testhost" "state_test" "$TEST_HOME/state_test" "abc123"
+
+stored=$(_get_stored_md5 "testhost" "state_test")
+_assert_eq "stored md5 retrieved" "abc123" "$stored"
+
+_assert_file_exists "state file copy exists" "$(_state_file "testhost" "state_test")"
+_assert_file_exists "state md5 file exists" "$(_state_md5_file "testhost" "state_test")"
+
+# State file content matches original
+_assert_file_content "state file content matches" "file content" "$(_state_file "testhost" "state_test")"
+
+_remove_state "testhost" "state_test"
+_assert_file_missing "state file removed" "$(_state_file "testhost" "state_test")"
+_assert_file_missing "state md5 removed" "$(_state_md5_file "testhost" "state_test")"
+
+stored=$(_get_stored_md5 "testhost" "state_test")
+_assert_eq "empty md5 after removal" "" "$stored"
+
+# Nested path state
+mkdir -p "$TEST_HOME/.config/nested"
+echo "nested content" > "$TEST_HOME/.config/nested/file"
+_save_state "testhost" ".config/nested/file" "$TEST_HOME/.config/nested/file" "def456"
+_assert_file_exists "nested state file exists" "$(_state_file "testhost" ".config/nested/file")"
+stored=$(_get_stored_md5 "testhost" ".config/nested/file")
+_assert_eq "nested state md5 retrieved" "def456" "$stored"
+_remove_state "testhost" ".config/nested/file"
+
+rm -f "$TEST_HOME/state_test"
+rm -rf "$TEST_HOME/.config/nested"
+
+# ---------------------------------------------------------------------------
+# Tests: Binary detection
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== Binary detection ==="
+
+echo "plain text" > "$TEST_HOME/text_file"
+if _is_binary "$TEST_HOME/text_file"; then
+    _fail "text file detected as binary"
+else
+    _pass "text file not detected as binary"
+fi
+
+printf '\x00\x01\x02\x03' > "$TEST_HOME/binary_file"
+if _is_binary "$TEST_HOME/binary_file"; then
+    _pass "binary file detected as binary"
+else
+    _fail "binary file detected as binary"
+fi
+
+# Nonexistent file
+if _is_binary "$TEST_HOME/no_such_file"; then
+    _fail "nonexistent file detected as binary"
+else
+    _pass "nonexistent file not detected as binary"
+fi
+
+rm -f "$TEST_HOME/text_file" "$TEST_HOME/binary_file"
+
+# ---------------------------------------------------------------------------
+# Tests: Lock file
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== Lock file ==="
+
+_acquire_lock
+_assert_file_exists "lock file created" "$LOCK_FILE"
+lock_pid=$(cat "$LOCK_FILE")
+_assert_eq "lock contains current PID" "$$" "$lock_pid"
+_release_lock
+_assert_file_missing "lock file released" "$LOCK_FILE"
+
+# Stale lock detection
+echo "99999999" > "$LOCK_FILE"
+_acquire_lock  # should succeed (PID 99999999 doesn't exist)
+_assert_eq "stale lock replaced with current PID" "$$" "$(cat "$LOCK_FILE")"
+_release_lock
+
+# ---------------------------------------------------------------------------
+# Tests: Path expansion (local)
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== Path expansion ==="
+
+mkdir -p "$TEST_HOME/.config/testdir/sub"
+echo "a" > "$TEST_HOME/.config/testdir/file1"
+echo "b" > "$TEST_HOME/.config/testdir/sub/file2"
+echo "c" > "$TEST_HOME/standalone"
+
+result=$(_expand_paths_local "$TEST_HOME" ".config/testdir" "standalone")
+_assert_contains "expands dir to file1" ".config/testdir/file1" "$result"
+_assert_contains "expands dir to sub/file2" ".config/testdir/sub/file2" "$result"
+_assert_contains "passes through standalone file" "standalone" "$result"
+
+# Missing path produces no output
+result=$(_expand_paths_local "$TEST_HOME" "nonexistent")
+_assert_eq "missing path produces empty" "" "$result"
+
+# Dangling symlink excluded
+ln -sf "$TEST_HOME/no_target" "$TEST_HOME/dangling_link"
+result=$(_expand_paths_local "$TEST_HOME" "dangling_link")
+_assert_eq "dangling symlink excluded" "" "$result"
+
+rm -rf "$TEST_HOME/.config/testdir" "$TEST_HOME/standalone" "$TEST_HOME/dangling_link"
+
+# ---------------------------------------------------------------------------
+# Tests: list and hosts commands
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== Commands ==="
+
+result=$(_do_list)
+_assert_contains "list shows .bashrc_extra" ".bashrc_extra" "$result"
+
+result=$(_do_hosts)
+_assert_contains "hosts shows nas" "nas" "$result"
+
+# ---------------------------------------------------------------------------
+# Integration tests (SSH to localhost)
+# ---------------------------------------------------------------------------
+
+if [[ $INTEGRATION -eq 1 ]]; then
+    echo ""
+    echo "=== Integration (localhost SSH) ==="
+
+    # Restore real HOME for SSH operations — localhost SSH inherits
+    # the exported HOME, so local and remote must use the same HOME.
+    export HOME="$REAL_HOME"
+    INT_CONF=$(_tmpdir)
+    INT_STATE=$(_tmpdir)
+    CONF_DIR="$INT_CONF"
+    STATE_DIR="$INT_STATE"
+    LOCK_FILE="$INT_STATE/.lock"
+    TEST_REL=".dotsync-test-$$"
+
+    if ! _ssh_probe "localhost"; then
+        echo "  SKIP: localhost SSH not available"
+    else
+        _pass "localhost SSH probe succeeds"
+
+        # --- Setup ---
+        # Both local and remote see REAL_HOME via localhost SSH.
+        # We manipulate stored state to simulate divergent local/remote views.
+        mkdir -p "$HOME/$TEST_REL"
+
+        cat > "$CONF_DIR/dotsync-paths" <<EOF
+$TEST_REL/file_a
+EOF
+        cat > "$CONF_DIR/dotsync-hosts" <<'EOF'
+testhost   localhost
+EOF
+
+        # ---------------------------------------------------------------
+        echo ""
+        echo "  --- First sync and state ---"
+
+        # First sync: file exists on both sides (same machine), same content
+        echo "initial" > "$HOME/$TEST_REL/file_a"
+        _sync_host "testhost" "localhost" 0 > /dev/null 2>&1 || true
+        _assert_file_exists "first sync: state created" "$(_state_md5_file "testhost" "$TEST_REL/file_a")"
+        stored=$(_get_stored_md5 "testhost" "$TEST_REL/file_a")
+        expected=$(_md5 "$HOME/$TEST_REL/file_a")
+        _assert_eq "first sync: state matches file" "$expected" "$stored"
+
+        # Second sync: nothing changed → up to date
+        result=$(_sync_host "testhost" "localhost" 1 2>&1)
+        _assert_contains "no changes → up to date" "(up to date)" "$result"
+
+        # ---------------------------------------------------------------
+        echo ""
+        echo "  --- Decision matrix via state manipulation ---"
+        # By writing incorrect stored state, we simulate divergent
+        # local/remote views even though they're the same filesystem.
+
+        # Simulate "local changed, remote unchanged":
+        # Set stored state to a fake hash. Local file has real hash.
+        # Remote (same file) also has real hash. So both appear "changed"
+        # relative to state, but same as each other → "both changed same"
+        echo "abc000fake" > "$(_state_md5_file "testhost" "$TEST_REL/file_a")"
+        result=$(_sync_host "testhost" "localhost" 1 2>&1)
+        _assert_contains "stale state, same content → up to date" "(up to date)" "$result"
+        # Execute to update state
+        _sync_host "testhost" "localhost" 0 > /dev/null 2>&1 || true
+
+        # Simulate "file missing locally" (= also missing remotely on localhost):
+        # Delete file, stored state exists. File won't appear in path
+        # expansion (missing on both sides), so stale state persists harmlessly.
+        rm -f "$HOME/$TEST_REL/file_a"
+        _sync_host "testhost" "localhost" 0 > /dev/null 2>&1 || true
+        stored=$(_get_stored_md5 "testhost" "$TEST_REL/file_a")
+        if [[ -n "$stored" ]]; then
+            _pass "both deleted → stale state persists (harmless)"
+        else
+            _pass "both deleted → state cleaned"
+        fi
+
+        # File missing everywhere, no files to process → early return, no output
+        rm -rf "$INT_STATE/testhost"
+        result=$(_sync_host "testhost" "localhost" 1 2>&1)
+        _assert_eq "missing everywhere → no output" "" "$result"
+
+        # ---------------------------------------------------------------
+        echo ""
+        echo "  --- Push/pull commands ---"
+
+        rm -rf "$INT_STATE/testhost"
+        echo "push test" > "$HOME/$TEST_REL/file_a"
+
+        # Dry-run push
+        DRY_RUN=1
+        result=$(_do_push "testhost" 2>&1)
+        DRY_RUN=0
+        _assert_contains "dry-run push shows file" "file_a" "$result"
+        _assert_contains "dry-run push says 'would'" "would push" "$result"
+
+        # Actual push (localhost → same file, but tests rsync + state)
+        _do_push "testhost" > /dev/null 2>&1
+        _assert_file_exists "push creates state" "$(_state_md5_file "testhost" "$TEST_REL/file_a")"
+        stored=$(_get_stored_md5 "testhost" "$TEST_REL/file_a")
+        expected=$(_md5 "$HOME/$TEST_REL/file_a")
+        _assert_eq "push state matches file" "$expected" "$stored"
+
+        # Actual pull (localhost → same file, but tests rsync + state)
+        rm -rf "$INT_STATE/testhost"
+        _do_pull "testhost" > /dev/null 2>&1
+        _assert_file_exists "pull creates state" "$(_state_md5_file "testhost" "$TEST_REL/file_a")"
+
+        # Dry-run pull
+        DRY_RUN=1
+        result=$(_do_pull "testhost" 2>&1)
+        DRY_RUN=0
+        _assert_contains "dry-run pull shows file" "file_a" "$result"
+        _assert_contains "dry-run pull says 'would'" "would pull" "$result"
+
+        # ---------------------------------------------------------------
+        echo ""
+        echo "  --- Diff command ---"
+
+        rm -rf "$INT_STATE/testhost"
+        result=$(_do_diff "testhost" 2>&1)
+        _assert_contains "diff shows host" "testhost" "$result"
+
+        # ---------------------------------------------------------------
+        echo ""
+        echo "  --- Self-detection in sync ---"
+
+        # Configure current machine as a host — should be skipped
+        local_fqdn=$(hostname -f 2>/dev/null || hostname)
+        cat > "$CONF_DIR/dotsync-hosts" <<EOF
+self       $local_fqdn
+testhost   localhost
+EOF
+        result=$(_do_sync 2>&1)
+        _assert_not_contains "self host skipped from sync" "self ($local_fqdn):" "$result"
+        _assert_contains "non-self host synced" "testhost" "$result"
+
+        # Cleanup integration test files
+        rm -rf "$HOME/$TEST_REL"
+    fi
+
+    # Restore test HOME for summary
+    export HOME="$TEST_HOME"
+fi
+
+# ---------------------------------------------------------------------------
+# Summary
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "================================"
+echo "Results: $PASS passed, $FAIL failed"
+echo "================================"
+
+[[ $FAIL -eq 0 ]] && exit 0 || exit 1

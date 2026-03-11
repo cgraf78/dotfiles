@@ -1,0 +1,999 @@
+#!/bin/bash
+# dotsync — bidirectional file sync across hosts via rsync + SSH.
+#
+# Syncs files listed in manifest files across configured hosts. Designed for
+# dotfiles and config that live outside version control.
+#
+# Usage: dotsync push <host>   rsync listed files TO host
+#        dotsync pull <host>   rsync listed files FROM host
+#        dotsync sync          bidirectional sync with all reachable hosts
+#        dotsync diff <host>   dry-run showing what sync would do
+#        dotsync list          show all paths from all manifests
+#        dotsync hosts         show configured hosts
+#
+# Flags:
+#   --dry-run, -n   show what would be done without making changes
+#
+# Config files (under ~/.config/dot/):
+#   dotsync-paths        personal manifest (tracked in dotfiles)
+#   dotsync-paths-work   work manifest (tracked in dotfiles-work)
+#   dotsync-paths-extra  machine-local manifest (untracked)
+#   dotsync-hosts        personal hosts
+#   dotsync-hosts-work   work hosts
+#
+# State stored in ~/.local/share/dot/dotsync/
+#
+# Safety invariants:
+#   - State is NEVER written unless the corresponding transfer succeeded.
+#   - SSH checksum failure aborts sync (prevents treating files as missing).
+#   - Merge backs up local file before overwriting; restores on push failure.
+#   - Remote deletions only clear state after SSH rm succeeds.
+#   - All remote shell commands use \$HOME in double-quoted strings so the
+#     local shell converts \$ to literal $, which the remote shell expands.
+
+set -euo pipefail
+
+CONF_DIR="$HOME/.config/dot"
+STATE_DIR="$HOME/.local/share/dot/dotsync"
+LOCK_FILE="$STATE_DIR/.lock"
+SSH_TIMEOUT=3
+DRY_RUN=0
+
+# ---------------------------------------------------------------------------
+# Dependencies
+# ---------------------------------------------------------------------------
+
+# Check that a command exists in PATH. Returns 1 with a message if missing.
+_check_dep() {
+    if ! command -v "$1" &>/dev/null; then
+        echo "dotsync: missing required dependency: $1" >&2
+        return 1
+    fi
+}
+
+# Verify all required tools are available. Exits on missing required deps.
+# diff3 is optional — merges fall back to conflict-copy without it.
+_check_deps() {
+    local missing=0
+    _check_dep rsync || missing=1
+    _check_dep ssh || missing=1
+    if ! command -v md5sum &>/dev/null && ! command -v md5 &>/dev/null; then
+        echo "dotsync: missing required dependency: md5sum (or md5 on macOS)" >&2
+        missing=1
+    fi
+    _check_dep file || missing=1
+    if ! command -v diff3 &>/dev/null; then
+        :  # optional — 3-way merge degrades to conflict-copy
+    fi
+    [[ $missing -eq 0 ]] || exit 1
+}
+
+# ---------------------------------------------------------------------------
+# Checksums (portable)
+# ---------------------------------------------------------------------------
+
+# Compute md5 checksum of a local file. Outputs the 32-char hex hash.
+# Returns empty on failure (file missing, unreadable, etc.).
+# Uses md5sum (Linux) or md5 -r (macOS) — both output "hash  filename".
+_md5() {
+    if command -v md5sum &>/dev/null; then
+        md5sum "$1" 2>/dev/null | cut -d' ' -f1
+    else
+        md5 -r "$1" 2>/dev/null | cut -d' ' -f1
+    fi
+}
+
+# Generate a shell script to compute md5 checksums on a remote host.
+# The script auto-detects md5sum vs md5 and outputs one line per file:
+#   "EXISTS <32-char-hash> <path>"  — file exists, hash first for safe parsing
+#   "MISSING <path>"               — file does not exist
+#
+# Quoting strategy: uses \$HOME in the local echo so the local shell strips
+# the backslash, leaving $HOME for the remote shell to expand. This avoids
+# the printf '%q' pitfall where $HOME gets over-escaped and treated as literal.
+_remote_md5_cmd() {
+    local files=("$@")
+    cat <<'REMOTESCRIPT'
+if command -v md5sum >/dev/null 2>&1; then
+    MD5CMD="md5sum"
+else
+    MD5CMD="md5 -r"
+fi
+REMOTESCRIPT
+    for f in "${files[@]}"; do
+        echo "if [ -f \"\$HOME/$f\" ]; then echo \"EXISTS \$(\$MD5CMD \"\$HOME/$f\" | cut -d' ' -f1) $f\"; else echo \"MISSING $f\"; fi"
+    done
+}
+
+# ---------------------------------------------------------------------------
+# Config loading
+# ---------------------------------------------------------------------------
+
+# Load and merge manifest paths from all tiers (personal, work, extra).
+# Returns a deduplicated list of paths, one per line.
+# Paths are relative to $HOME. Comments (#) and blank lines are stripped.
+# Rejects absolute paths, tilde paths, and parent traversals for safety.
+_load_paths() {
+    local paths=()
+    local seen=()
+    local conf_files=(
+        "$CONF_DIR/dotsync-paths"
+        "$CONF_DIR/dotsync-paths-work"
+        "$CONF_DIR/dotsync-paths-extra"
+    )
+    for f in "${conf_files[@]}"; do
+        [[ -f "$f" ]] || continue
+        while IFS= read -r line || [[ -n "$line" ]]; do
+            line="${line%%#*}"       # strip comments
+            line="${line%"${line##*[![:space:]]}"}"  # trim trailing whitespace
+            line="${line#"${line%%[![:space:]]*}"}"   # trim leading whitespace
+            [[ -z "$line" ]] && continue
+            if [[ "$line" == /* || "$line" == ~* || "$line" == ../* || "$line" == */../* ]]; then
+                echo "dotsync: ignoring invalid path: $line" >&2
+                continue
+            fi
+            local dup=0
+            for s in "${seen[@]+"${seen[@]}"}"; do
+                [[ "$s" == "$line" ]] && { dup=1; break; }
+            done
+            [[ $dup -eq 1 ]] && continue
+            seen+=("$line")
+            paths+=("$line")
+        done < "$f"
+    done
+    printf '%s\n' "${paths[@]+"${paths[@]}"}"
+}
+
+# Load and merge host configs from all tiers (personal, work).
+# Returns "alias ssh-destination" pairs, one per line. First occurrence wins
+# on duplicate aliases (personal takes priority over work).
+_load_hosts() {
+    local seen_aliases=()
+    local conf_files=(
+        "$CONF_DIR/dotsync-hosts"
+        "$CONF_DIR/dotsync-hosts-work"
+    )
+    for f in "${conf_files[@]}"; do
+        [[ -f "$f" ]] || continue
+        while read -r alias dest rest; do
+            [[ -z "$alias" || "$alias" == \#* ]] && continue
+            local dup=0
+            for s in "${seen_aliases[@]+"${seen_aliases[@]}"}"; do
+                [[ "$s" == "$alias" ]] && { dup=1; break; }
+            done
+            [[ $dup -eq 1 ]] && continue
+            seen_aliases+=("$alias")
+            echo "$alias $dest"
+        done < "$f"
+    done
+}
+
+# Resolve a host argument (alias or literal) to an SSH destination.
+# Looks up aliases in the merged hosts config; falls back to using
+# the argument as a literal SSH destination for ad-hoc usage.
+_resolve_host() {
+    local target="$1"
+    while read -r alias dest; do
+        if [[ "$alias" == "$target" ]]; then
+            echo "$dest"
+            return 0
+        fi
+    done < <(_load_hosts)
+    echo "$target"
+}
+
+# ---------------------------------------------------------------------------
+# Self-detection
+# ---------------------------------------------------------------------------
+
+# Check if an SSH destination points to the current machine.
+# Compares against hostname -f (FQDN) and hostname -s (short name),
+# matching either the full destination or its short prefix.
+# Used to skip self-sync in _do_sync — syncing with yourself is a no-op.
+_is_self() {
+    local dest="$1"
+    local fqdn short dest_short
+    fqdn=$(hostname -f 2>/dev/null || hostname)
+    short=$(hostname -s 2>/dev/null || hostname)
+    dest_short="${dest%%.*}"
+
+    [[ "$dest" == "$fqdn" ]] && return 0
+    [[ "$dest" == "$short" ]] && return 0
+    [[ "$dest_short" == "$short" ]] && return 0
+    [[ "$dest_short" == "$fqdn" ]] && return 0
+    return 1
+}
+
+# ---------------------------------------------------------------------------
+# SSH helpers
+# ---------------------------------------------------------------------------
+
+# Quick connectivity check. Returns 0 if SSH to dest succeeds within timeout.
+# Uses BatchMode to prevent password prompts (keys/agent only).
+_ssh_probe() {
+    local dest="$1"
+    ssh -o ConnectTimeout=$SSH_TIMEOUT -o BatchMode=yes "$dest" true 2>/dev/null
+}
+
+# ---------------------------------------------------------------------------
+# Path expansion (directories → files)
+# ---------------------------------------------------------------------------
+
+# Expand manifest entries to individual files on the local filesystem.
+# Files pass through as-is. Directories are recursively expanded.
+# Dangling symlinks and missing paths are silently skipped (-f only, not -L).
+# Returns paths relative to $base.
+_expand_paths_local() {
+    local base="$1"; shift
+    for p in "$@"; do
+        if [[ -d "$base/$p" ]]; then
+            find "$base/$p" -type f 2>/dev/null | while IFS= read -r fpath; do
+                echo "${fpath#$base/}"
+            done
+        elif [[ -f "$base/$p" ]]; then
+            echo "$p"
+        fi
+    done
+}
+
+# Expand manifest entries to individual files on a remote host via SSH.
+# Same logic as _expand_paths_local but runs remotely.
+# Returns paths relative to remote $HOME.
+_expand_paths_remote() {
+    local dest="$1"; shift
+    local paths=("$@")
+    local cmds=""
+    for p in "${paths[@]}"; do
+        cmds+="if [ -d \"\$HOME/$p\" ]; then find \"\$HOME/$p\" -type f 2>/dev/null | while IFS= read -r fpath; do echo \"\${fpath#\$HOME/}\"; done; elif [ -f \"\$HOME/$p\" ]; then echo \"$p\"; fi; "
+    done
+    ssh -o ConnectTimeout=$SSH_TIMEOUT -o BatchMode=yes "$dest" "$cmds" 2>/dev/null || true
+}
+
+# Deduplicate and sort a stream of file paths.
+_merge_file_lists() {
+    sort -u
+}
+
+# ---------------------------------------------------------------------------
+# State management
+#
+# State tracks what each host had at last successful sync. Stored per-host,
+# per-file as two files:
+#   <STATE_DIR>/<host>/<path>              — copy of file content (merge base)
+#   <STATE_DIR>/<host>/<path>.dotsync-md5  — md5 hash at last sync
+#
+# Uses .dotsync-md5 (not .md5) to avoid collisions with files that end in .md5.
+#
+# By comparing current local/remote checksums against stored state, the sync
+# algorithm determines what changed and in which direction.
+# ---------------------------------------------------------------------------
+
+_state_dir() {
+    local host="$1"
+    echo "$STATE_DIR/$host"
+}
+
+_state_file() {
+    local host="$1" path="$2"
+    echo "$STATE_DIR/$host/$path"
+}
+
+_state_md5_file() {
+    local host="$1" path="$2"
+    echo "$STATE_DIR/$host/$path.dotsync-md5"
+}
+
+# Get the stored checksum for a file. Returns empty if no state exists.
+_get_stored_md5() {
+    local host="$1" path="$2"
+    local md5file
+    md5file=$(_state_md5_file "$host" "$path")
+    [[ -f "$md5file" ]] && cat "$md5file" || echo ""
+}
+
+# Save sync state: copy the file content (for future 3-way merge base)
+# and record the md5 hash. Only call after a successful transfer.
+_save_state() {
+    local host="$1" path="$2" content_file="$3" md5hash="$4"
+    local state_file state_md5
+    state_file=$(_state_file "$host" "$path")
+    state_md5=$(_state_md5_file "$host" "$path")
+    mkdir -p "$(dirname "$state_file")"
+    cp -L "$content_file" "$state_file"
+    echo "$md5hash" > "$state_md5"
+}
+
+# Remove stored state for a file. Called after successful deletion propagation.
+_remove_state() {
+    local host="$1" path="$2"
+    rm -f "$(_state_file "$host" "$path")" "$(_state_md5_file "$host" "$path")"
+}
+
+# ---------------------------------------------------------------------------
+# Lock file
+# ---------------------------------------------------------------------------
+
+# Acquire an exclusive lock. Prevents concurrent dotsync operations from
+# corrupting state. Uses PID-based stale detection — if the PID in the
+# lock file is no longer running, the lock is treated as stale and removed.
+_acquire_lock() {
+    mkdir -p "$STATE_DIR"
+    if [[ -f "$LOCK_FILE" ]]; then
+        local pid
+        pid=$(cat "$LOCK_FILE" 2>/dev/null || echo "")
+        if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+            echo "dotsync: another instance is running (PID $pid)" >&2
+            exit 1
+        fi
+        rm -f "$LOCK_FILE"
+    fi
+    echo $$ > "$LOCK_FILE"
+}
+
+_release_lock() {
+    rm -f "$LOCK_FILE"
+}
+
+# ---------------------------------------------------------------------------
+# Binary detection
+# ---------------------------------------------------------------------------
+
+# Check if a file is binary (vs text). Used to decide whether 3-way merge
+# is possible — binary files can't be merged, only conflict-copied.
+_is_binary() {
+    local f="$1"
+    [[ -f "$f" ]] || return 1
+    local encoding
+    encoding=$(file --mime-encoding -b "$f" 2>/dev/null || echo "unknown")
+    [[ "$encoding" == "binary" ]]
+}
+
+# ---------------------------------------------------------------------------
+# Actions
+# ---------------------------------------------------------------------------
+
+# Print all manifest paths (merged from all tiers).
+_do_list() {
+    local paths
+    paths=$(_load_paths)
+    if [[ -z "$paths" ]]; then
+        echo "(no paths configured)"
+    else
+        echo "$paths"
+    fi
+}
+
+# Print all configured hosts (merged from all tiers).
+_do_hosts() {
+    local hosts
+    hosts=$(_load_hosts)
+    if [[ -z "$hosts" ]]; then
+        echo "(no hosts configured)"
+    else
+        echo "$hosts" | while read -r alias dest; do
+            printf "  %-12s %s\n" "$alias" "$dest"
+        done
+    fi
+}
+
+# One-way push: rsync all manifest files from local to remote.
+# Does not propagate deletions — only transfers existing files.
+# Updates stored state on success so subsequent syncs have correct baselines.
+_do_push() {
+    local host_arg="$1"
+    local dest
+    dest=$(_resolve_host "$host_arg")
+    _acquire_lock
+    trap '_release_lock' RETURN
+
+    local paths_arr=()
+    while IFS= read -r p; do
+        [[ -n "$p" ]] && paths_arr+=("$p")
+    done < <(_load_paths)
+
+    if [[ ${#paths_arr[@]} -eq 0 ]]; then
+        echo "dotsync: no paths configured"
+        return 0
+    fi
+
+    local files_arr=()
+    while IFS= read -r f; do
+        [[ -n "$f" ]] && files_arr+=("$f")
+    done < <(_expand_paths_local "$HOME" "${paths_arr[@]}")
+
+    if [[ ${#files_arr[@]} -eq 0 ]]; then
+        echo "dotsync: no files to push (all paths missing locally)"
+        return 0
+    fi
+
+    if [[ $DRY_RUN -eq 1 ]]; then
+        echo "would push ${#files_arr[@]} file(s) to $host_arg ($dest):"
+        printf '  %s\n' "${files_arr[@]}"
+        return 0
+    fi
+
+    local tmpfile
+    tmpfile=$(mktemp)
+    printf '%s\n' "${files_arr[@]}" > "$tmpfile"
+
+    echo "pushing ${#files_arr[@]} file(s) to $host_arg ($dest)..."
+    if rsync -avzL --no-owner --no-group --files-from="$tmpfile" "$HOME/" "$dest:~/" 2>&1; then
+        for f in "${files_arr[@]}"; do
+            local md5hash
+            md5hash=$(_md5 "$HOME/$f")
+            if [[ -n "$md5hash" ]]; then
+                _save_state "$host_arg" "$f" "$HOME/$f" "$md5hash"
+            fi
+        done
+        echo "done."
+    else
+        echo "push failed" >&2
+        rm -f "$tmpfile"
+        return 2
+    fi
+    rm -f "$tmpfile"
+}
+
+# One-way pull: rsync all manifest files from remote to local.
+# Mirror of _do_push — same safety guarantees.
+_do_pull() {
+    local host_arg="$1"
+    local dest
+    dest=$(_resolve_host "$host_arg")
+    _acquire_lock
+    trap '_release_lock' RETURN
+
+    local paths_arr=()
+    while IFS= read -r p; do
+        [[ -n "$p" ]] && paths_arr+=("$p")
+    done < <(_load_paths)
+
+    if [[ ${#paths_arr[@]} -eq 0 ]]; then
+        echo "dotsync: no paths configured"
+        return 0
+    fi
+
+    local files_arr=()
+    while IFS= read -r f; do
+        [[ -n "$f" ]] && files_arr+=("$f")
+    done < <(_expand_paths_remote "$dest" "${paths_arr[@]}")
+
+    if [[ ${#files_arr[@]} -eq 0 ]]; then
+        echo "dotsync: no files to pull (all paths missing on remote)"
+        return 0
+    fi
+
+    if [[ $DRY_RUN -eq 1 ]]; then
+        echo "would pull ${#files_arr[@]} file(s) from $host_arg ($dest):"
+        printf '  %s\n' "${files_arr[@]}"
+        return 0
+    fi
+
+    local tmpfile
+    tmpfile=$(mktemp)
+    printf '%s\n' "${files_arr[@]}" > "$tmpfile"
+
+    echo "pulling ${#files_arr[@]} file(s) from $host_arg ($dest)..."
+    if rsync -avzL --no-owner --no-group --files-from="$tmpfile" "$dest:~/" "$HOME/" 2>&1; then
+        for f in "${files_arr[@]}"; do
+            local md5hash
+            md5hash=$(_md5 "$HOME/$f")
+            if [[ -n "$md5hash" ]]; then
+                _save_state "$host_arg" "$f" "$HOME/$f" "$md5hash"
+            fi
+        done
+        echo "done."
+    else
+        echo "pull failed" >&2
+        rm -f "$tmpfile"
+        return 2
+    fi
+    rm -f "$tmpfile"
+}
+
+# ---------------------------------------------------------------------------
+# Bidirectional sync for a single host.
+#
+# This is the core sync algorithm. It compares local files, remote files,
+# and stored last-synced state to determine what changed and where.
+#
+# SYNC POLICY:
+#
+#   The sync uses 3-way comparison: local checksum, remote checksum, and
+#   stored baseline checksum from the last successful sync.
+#
+#   FIRST SYNC (no stored state):
+#     - File on one side only → propagate to the other side
+#     - File on both sides, same content → establish baseline (no transfer)
+#     - File on both sides, different → LOCAL WINS (push to remote)
+#       This is a deliberate policy choice: on first contact with a new host,
+#       the machine running the sync is treated as the source of truth.
+#
+#   SUBSEQUENT SYNCS (stored state exists):
+#     - Neither changed → skip
+#     - Only local changed → push to remote
+#     - Only remote changed → pull from remote
+#     - Both changed, same content → update state only (convergent edit)
+#     - Both changed, different content (text) → 3-way merge via diff3
+#       On merge success: push merged result to both sides
+#       On merge failure: keep local, save remote as .conflict.<host>
+#     - Both changed, different content (binary) → save .conflict copy
+#
+#   DELETIONS:
+#     - Deleted on one side, other side unchanged → propagate deletion
+#     - Deleted on one side, other side modified → CONFLICT
+#       DELMOD (deleted local, modified remote) → save remote as .conflict
+#       MODDEL (modified local, deleted remote) → keep local, push to remote
+#
+#   DATA SAFETY:
+#     - State is ONLY written after successful transfer/deletion
+#     - SSH checksum failure → abort (prevents "everything looks deleted")
+#     - Merge backs up local before overwriting; restores on push failure
+#     - Remote deletions: state removed only after SSH rm succeeds
+#     - Empty md5 results are never saved as state (guards against I/O errors)
+#
+# EXECUTION ORDER:
+#   1. Discover files (expand paths locally + remotely, merge/dedup)
+#   2. Fetch all remote checksums in one SSH call (batch for efficiency)
+#   3. Categorize each file into buckets (push/pull/delete/merge/conflict)
+#   4. Execute batch operations (one rsync per direction, one SSH for deletes)
+#   5. Handle merges individually (need per-file diff3 + conditional push)
+#   6. Handle delete/modify conflicts individually
+#
+# Args: host_alias, ssh_destination, dry_run (0=execute, 1=report only)
+# Returns: 0=success, 1=conflicts occurred, 2=transfer errors
+# ---------------------------------------------------------------------------
+_sync_host() {
+    local host_alias="$1" dest="$2" dry_run="${3:-0}"
+
+    # --- Phase 1: Discover files ---
+
+    local paths_arr=()
+    while IFS= read -r p; do
+        [[ -n "$p" ]] && paths_arr+=("$p")
+    done < <(_load_paths)
+
+    [[ ${#paths_arr[@]} -eq 0 ]] && return 0
+
+    # Expand directories to individual files on both sides, merge and dedup.
+    # A file only needs to exist on ONE side to enter the comparison.
+    local all_files_arr=()
+    local tmpfile_expand
+    tmpfile_expand=$(mktemp)
+    {
+        _expand_paths_local "$HOME" "${paths_arr[@]}"
+        _expand_paths_remote "$dest" "${paths_arr[@]}"
+    } | _merge_file_lists > "$tmpfile_expand"
+    mapfile -t all_files_arr < "$tmpfile_expand"
+    rm -f "$tmpfile_expand"
+
+    [[ ${#all_files_arr[@]} -eq 0 ]] && return 0
+
+    # --- Phase 2: Fetch remote checksums ---
+    # Abort on SSH failure — if we can't get checksums, all remote files
+    # would appear "missing" and the sync would wrongly delete local files.
+
+    declare -A remote_md5=()
+    local remote_script remote_output
+    remote_script=$(_remote_md5_cmd "${all_files_arr[@]}")
+    if ! remote_output=$(ssh -o ConnectTimeout=$SSH_TIMEOUT -o BatchMode=yes "$dest" "$remote_script" 2>/dev/null); then
+        echo "  error: failed to fetch remote checksums" >&2
+        return 2
+    fi
+    while IFS= read -r line; do
+        if [[ "$line" == EXISTS\ * ]]; then
+            local rest="${line#EXISTS }"
+            local hash="${rest%% *}"
+            local path="${rest#* }"
+            remote_md5["$path"]="$hash"
+        elif [[ "$line" == MISSING\ * ]]; then
+            local path="${line#MISSING }"
+            remote_md5["$path"]=""
+        fi
+    done <<< "$remote_output"
+
+    # --- Phase 3: Categorize each file ---
+
+    local push_files=() pull_files=() delete_local=() delete_remote=()
+    local merge_files=() conflict_files=() cleanup_state=()
+    local had_conflicts=0 had_errors=0
+
+    for f in "${all_files_arr[@]}"; do
+        local local_exists=0 remote_exists=0
+        local local_md5="" rem_md5="" stored_md5=""
+        local has_state=0
+
+        # Gather the three data points for comparison.
+        # Uses -f only (not -L) to exclude dangling symlinks.
+        [[ -f "$HOME/$f" ]] && { local_exists=1; local_md5=$(_md5 "$HOME/$f"); }
+        rem_md5="${remote_md5[$f]:-}"
+        [[ -n "$rem_md5" ]] && remote_exists=1
+        stored_md5=$(_get_stored_md5 "$host_alias" "$f")
+        [[ -n "$stored_md5" ]] && has_state=1
+
+        # -- Both missing --
+        if [[ $local_exists -eq 0 && $remote_exists -eq 0 ]]; then
+            # File was in the expansion list (found on one side during expansion)
+            # but no longer exists on either. Clean up orphaned state if any.
+            [[ $has_state -eq 1 ]] && cleanup_state+=("$f")
+            continue
+        fi
+
+        # -- First sync (no stored state) --
+        if [[ $has_state -eq 0 ]]; then
+            if [[ $local_exists -eq 1 && $remote_exists -eq 0 ]]; then
+                push_files+=("$f")                  # local only → push
+            elif [[ $local_exists -eq 0 && $remote_exists -eq 1 ]]; then
+                pull_files+=("$f")                  # remote only → pull
+            elif [[ "$local_md5" == "$rem_md5" ]]; then
+                # Both exist with identical content — just establish baseline
+                if [[ $dry_run -eq 0 ]]; then
+                    _save_state "$host_alias" "$f" "$HOME/$f" "$local_md5"
+                fi
+            else
+                push_files+=("$f")                  # both exist, different → local wins
+            fi
+            continue
+        fi
+
+        # -- Has stored state: check for deletions first --
+
+        if [[ $local_exists -eq 0 && $remote_exists -eq 1 ]]; then
+            # File was deleted locally. Was the remote also modified?
+            if [[ "$rem_md5" == "$stored_md5" ]]; then
+                delete_remote+=("$f")               # remote unchanged → propagate delete
+            else
+                conflict_files+=("DELMOD $f")       # remote changed → conflict
+                had_conflicts=1
+            fi
+            continue
+        fi
+
+        if [[ $local_exists -eq 1 && $remote_exists -eq 0 ]]; then
+            # File was deleted remotely. Was local also modified?
+            if [[ "$local_md5" == "$stored_md5" ]]; then
+                delete_local+=("$f")                # local unchanged → propagate delete
+            else
+                conflict_files+=("MODDEL $f")       # local changed → conflict
+                had_conflicts=1
+            fi
+            continue
+        fi
+
+        # -- Both exist: compare against baseline --
+
+        local local_changed=0 remote_changed=0
+        [[ "$local_md5" != "$stored_md5" ]] && local_changed=1
+        [[ "$rem_md5" != "$stored_md5" ]] && remote_changed=1
+
+        if [[ $local_changed -eq 0 && $remote_changed -eq 0 ]]; then
+            continue                                # neither changed
+        elif [[ $local_changed -eq 1 && $remote_changed -eq 0 ]]; then
+            push_files+=("$f")                      # only local changed
+        elif [[ $local_changed -eq 0 && $remote_changed -eq 1 ]]; then
+            pull_files+=("$f")                      # only remote changed
+        elif [[ "$local_md5" == "$rem_md5" ]]; then
+            # Both changed to the same content (convergent edit) — update baseline
+            if [[ $dry_run -eq 0 ]]; then
+                _save_state "$host_alias" "$f" "$HOME/$f" "$local_md5"
+            fi
+        else
+            merge_files+=("$f")                     # both changed differently → attempt merge
+        fi
+    done
+
+    # --- Phase 4: Dry-run report ---
+
+    if [[ $dry_run -eq 1 ]]; then
+        [[ ${#push_files[@]} -gt 0 ]] && { echo "  push:"; printf '    %s\n' "${push_files[@]}"; }
+        [[ ${#pull_files[@]} -gt 0 ]] && { echo "  pull:"; printf '    %s\n' "${pull_files[@]}"; }
+        [[ ${#delete_local[@]} -gt 0 ]] && { echo "  delete local:"; printf '    %s\n' "${delete_local[@]}"; }
+        [[ ${#delete_remote[@]} -gt 0 ]] && { echo "  delete remote:"; printf '    %s\n' "${delete_remote[@]}"; }
+        [[ ${#merge_files[@]} -gt 0 ]] && { echo "  merge:"; printf '    %s\n' "${merge_files[@]}"; }
+        for c in "${conflict_files[@]+"${conflict_files[@]}"}"; do
+            echo "  conflict: $c"
+        done
+        if [[ ${#push_files[@]} -eq 0 && ${#pull_files[@]} -eq 0 && ${#delete_local[@]} -eq 0 && ${#delete_remote[@]} -eq 0 && ${#merge_files[@]} -eq 0 && ${#conflict_files[@]} -eq 0 ]]; then
+            echo "  (up to date)"
+        fi
+        return 0
+    fi
+
+    # --- Phase 5: Execute batch transfers ---
+    # Push and pull are batched into one rsync call each for efficiency.
+    # State is only saved if rsync succeeds (exit 0 = all files transferred).
+
+    if [[ ${#push_files[@]} -gt 0 ]]; then
+        local tmpfile
+        tmpfile=$(mktemp)
+        printf '%s\n' "${push_files[@]}" > "$tmpfile"
+        if rsync -azL --no-owner --no-group --files-from="$tmpfile" "$HOME/" "$dest:~/" 2>/dev/null; then
+            for f in "${push_files[@]}"; do
+                local md5hash
+                md5hash=$(_md5 "$HOME/$f")
+                [[ -n "$md5hash" ]] && _save_state "$host_alias" "$f" "$HOME/$f" "$md5hash"
+                echo "  pushed: $f"
+            done
+        else
+            had_errors=1
+            echo "  push failed" >&2
+        fi
+        rm -f "$tmpfile"
+    fi
+
+    if [[ ${#pull_files[@]} -gt 0 ]]; then
+        local tmpfile
+        tmpfile=$(mktemp)
+        printf '%s\n' "${pull_files[@]}" > "$tmpfile"
+        if rsync -azL --no-owner --no-group --files-from="$tmpfile" "$dest:~/" "$HOME/" 2>/dev/null; then
+            for f in "${pull_files[@]}"; do
+                local md5hash
+                md5hash=$(_md5 "$HOME/$f")
+                [[ -n "$md5hash" ]] && _save_state "$host_alias" "$f" "$HOME/$f" "$md5hash"
+                echo "  pulled: $f"
+            done
+        else
+            had_errors=1
+            echo "  pull failed" >&2
+        fi
+        rm -f "$tmpfile"
+    fi
+
+    # --- Phase 6: Clean up stale state ---
+    # Files that were deleted on both sides won't appear in path expansion,
+    # but if they were somehow still in the list, clean their state.
+
+    for f in "${cleanup_state[@]+"${cleanup_state[@]}"}"; do
+        _remove_state "$host_alias" "$f"
+    done
+
+    # --- Phase 7: Execute remote deletions ---
+    # Batched into one SSH call. State is removed only AFTER the SSH succeeds
+    # to prevent the file from reappearing on next sync if rm fails.
+
+    if [[ ${#delete_remote[@]} -gt 0 ]]; then
+        local rm_cmds=""
+        for f in "${delete_remote[@]}"; do
+            rm_cmds+="rm -f \"\$HOME/$f\"; "
+        done
+        if ssh -o ConnectTimeout=$SSH_TIMEOUT -o BatchMode=yes "$dest" "$rm_cmds" 2>/dev/null; then
+            for f in "${delete_remote[@]}"; do
+                _remove_state "$host_alias" "$f"
+                echo "  deleted remote: $f"
+            done
+        else
+            had_errors=1
+            echo "  remote deletion failed" >&2
+        fi
+    fi
+
+    # --- Phase 8: Execute local deletions ---
+
+    for f in "${delete_local[@]+"${delete_local[@]}"}"; do
+        rm -f "$HOME/$f"
+        _remove_state "$host_alias" "$f"
+        echo "  deleted local: $f"
+    done
+
+    # --- Phase 9: Handle merges (per-file) ---
+    # Each merge requires fetching the remote version, running diff3 with
+    # the stored baseline as the common ancestor, and pushing the result.
+
+    for f in "${merge_files[@]+"${merge_files[@]}"}"; do
+        local state_file
+        state_file=$(_state_file "$host_alias" "$f")
+
+        # Fetch remote version to a temp file
+        local remote_tmp
+        remote_tmp=$(mktemp)
+        rsync -azL --no-owner --no-group "$dest:~/$f" "$remote_tmp" 2>/dev/null || { rm -f "$remote_tmp"; had_errors=1; continue; }
+
+        # Binary files can't be merged — save conflict copy
+        if _is_binary "$HOME/$f"; then
+            cp "$remote_tmp" "$HOME/$f.conflict.$host_alias"
+            had_conflicts=1
+            echo "  conflict (binary): $f → saved $f.conflict.$host_alias" >&2
+            rm -f "$remote_tmp"
+            continue
+        fi
+
+        if [[ -f "$state_file" ]] && command -v diff3 &>/dev/null; then
+            # 3-way merge: local=mine, stored baseline=ancestor, remote=theirs
+            local merged_tmp
+            merged_tmp=$(mktemp)
+            if diff3 -m "$HOME/$f" "$state_file" "$remote_tmp" > "$merged_tmp" 2>/dev/null; then
+                # Merge succeeded — back up local before overwriting so we
+                # can restore if the push to remote fails.
+                local backup_tmp
+                backup_tmp=$(mktemp)
+                cp "$HOME/$f" "$backup_tmp"
+                cp "$merged_tmp" "$HOME/$f"
+                if rsync -azL --no-owner --no-group "$HOME/$f" "$dest:~/$f" 2>/dev/null; then
+                    local md5hash
+                    md5hash=$(_md5 "$HOME/$f")
+                    [[ -n "$md5hash" ]] && _save_state "$host_alias" "$f" "$HOME/$f" "$md5hash"
+                    echo "  merged: $f"
+                else
+                    # Push failed — restore the pre-merge local file to avoid
+                    # losing the user's edits. The merge result is discarded.
+                    cp "$backup_tmp" "$HOME/$f"
+                    had_errors=1
+                    echo "  merge push failed, local file restored: $f" >&2
+                fi
+                rm -f "$backup_tmp"
+            else
+                # diff3 merge failed (overlapping changes) — save conflict copy
+                cp "$remote_tmp" "$HOME/$f.conflict.$host_alias"
+                had_conflicts=1
+                echo "  conflict: $f → saved $f.conflict.$host_alias" >&2
+            fi
+            rm -f "$merged_tmp"
+        else
+            # No stored baseline or diff3 unavailable — can't merge
+            cp "$remote_tmp" "$HOME/$f.conflict.$host_alias"
+            had_conflicts=1
+            echo "  conflict: $f → saved $f.conflict.$host_alias" >&2
+        fi
+        rm -f "$remote_tmp"
+    done
+
+    # --- Phase 10: Handle delete/modify conflicts ---
+
+    for c in "${conflict_files[@]+"${conflict_files[@]}"}"; do
+        local kind="${c%% *}" path="${c#* }"
+        if [[ "$kind" == "DELMOD" ]]; then
+            # Deleted locally but modified remotely — save remote version as
+            # conflict file so the user can review. We don't restore the file
+            # automatically because the deletion was intentional.
+            local remote_tmp
+            remote_tmp=$(mktemp)
+            rsync -azL --no-owner --no-group "$dest:~/$path" "$remote_tmp" 2>/dev/null || { rm -f "$remote_tmp"; continue; }
+            cp "$remote_tmp" "$HOME/$path.conflict.$host_alias"
+            rm -f "$remote_tmp"
+            echo "  conflict (deleted locally, modified remotely): $path → saved $path.conflict.$host_alias" >&2
+        elif [[ "$kind" == "MODDEL" ]]; then
+            # Modified locally but deleted remotely — the local edits take
+            # priority. Push the local file back to the remote to "undo" the
+            # remote deletion. State only saved on successful push.
+            if rsync -azL --no-owner --no-group "$HOME/$path" "$dest:~/$path" 2>/dev/null; then
+                local md5hash
+                md5hash=$(_md5 "$HOME/$path")
+                [[ -n "$md5hash" ]] && _save_state "$host_alias" "$path" "$HOME/$path" "$md5hash"
+                echo "  conflict (modified locally, deleted remotely): $path → kept local, pushed to remote" >&2
+            else
+                had_errors=1
+                echo "  conflict (modified locally, deleted remotely): $path → push failed, kept local" >&2
+            fi
+        fi
+    done
+
+    if [[ $had_errors -eq 1 ]]; then
+        return 2
+    elif [[ $had_conflicts -eq 1 ]]; then
+        return 1
+    fi
+    return 0
+}
+
+# Dry-run sync for a single host. Shows what _sync_host would do.
+_do_diff() {
+    local host_arg="$1"
+    local dest
+    dest=$(_resolve_host "$host_arg")
+
+    if _is_self "$dest"; then
+        echo "dotsync: $host_arg is the current machine, skipping"
+        return 0
+    fi
+
+    if ! _ssh_probe "$dest"; then
+        echo "dotsync: $host_arg ($dest) is unreachable"
+        return 0
+    fi
+
+    echo "$host_arg ($dest):"
+    _sync_host "$host_arg" "$dest" 1
+}
+
+# Bidirectional sync across all configured hosts.
+# Skips unreachable hosts (3s SSH timeout) and the current machine.
+# Designed for unattended cron use — no interactive prompts.
+_do_sync() {
+    _acquire_lock
+    trap '_release_lock' RETURN
+
+    local synced=() skipped=() conflicted=()
+    local exit_code=0
+
+    while read -r alias dest; do
+        if _is_self "$dest"; then
+            continue
+        fi
+        if ! _ssh_probe "$dest"; then
+            skipped+=("$alias")
+            continue
+        fi
+        echo "$alias ($dest):"
+        local rc=0
+        _sync_host "$alias" "$dest" "$DRY_RUN" || rc=$?
+        if [[ $rc -eq 0 ]]; then
+            synced+=("$alias")
+        elif [[ $rc -eq 1 ]]; then
+            synced+=("$alias")
+            conflicted+=("$alias")
+            [[ $exit_code -lt 1 ]] && exit_code=1
+        elif [[ $rc -eq 2 ]]; then
+            [[ $exit_code -lt 2 ]] && exit_code=2
+        fi
+    done < <(_load_hosts)
+
+    echo ""
+    [[ ${#synced[@]} -gt 0 ]] && echo "synced: ${synced[*]}"
+    [[ ${#skipped[@]} -gt 0 ]] && echo "skipped: ${skipped[*]} (unreachable)"
+    [[ ${#conflicted[@]} -gt 0 ]] && echo "conflicts: ${conflicted[*]}" >&2
+
+    return $exit_code
+}
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+_usage() {
+    echo "Usage: dotsync push <host>   rsync listed files TO host"
+    echo "       dotsync pull <host>   rsync listed files FROM host"
+    echo "       dotsync sync          bidirectional sync with all reachable hosts"
+    echo "       dotsync diff <host>   dry-run showing what sync would do"
+    echo "       dotsync list          show all paths from all manifests"
+    echo "       dotsync hosts         show configured hosts"
+    echo ""
+    echo "Flags: --dry-run, -n         show what would be done without changes"
+}
+
+# Allow sourcing without execution — used by dotsync-test to access internals.
+if [[ "${DOTSYNC_SOURCED:-}" == "1" ]]; then
+    return 0 2>/dev/null || true
+fi
+
+_check_deps
+
+# Parse --dry-run/-n from any position in the argument list.
+args=()
+for arg in "$@"; do
+    case "$arg" in
+        --dry-run|-n) DRY_RUN=1 ;;
+        *) args+=("$arg") ;;
+    esac
+done
+set -- "${args[@]+"${args[@]}"}"
+
+case "${1:-}" in
+    push)
+        [[ -z "${2:-}" ]] && { _usage >&2; exit 1; }
+        _do_push "$2"
+        ;;
+    pull)
+        [[ -z "${2:-}" ]] && { _usage >&2; exit 1; }
+        _do_pull "$2"
+        ;;
+    sync)
+        _do_sync
+        ;;
+    diff)
+        [[ -z "${2:-}" ]] && { _usage >&2; exit 1; }
+        _do_diff "$2"
+        ;;
+    list)
+        _do_list
+        ;;
+    hosts)
+        _do_hosts
+        ;;
+    -h|--help|help)
+        _usage
+        ;;
+    *)
+        _usage >&2
+        exit 1
+        ;;
+esac
