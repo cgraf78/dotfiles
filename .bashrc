@@ -31,8 +31,7 @@ shopt -s checkwinsize
 # Prompt
 # Set PS1 with colored user@host:path format.
 # Args: $1 - hostname to display (default: \h, the system hostname).
-#        Override via _set_prompt "alias" in ~/.bashrc_extra.
-_set_prompt() {
+set_prompt() {
     local host="${1:-\\h}"
     PS1='\[\033[01;32m\]\u@'"$host"'\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '
     case "$TERM" in
@@ -41,7 +40,17 @@ _set_prompt() {
         ;;
     esac
 }
-_set_prompt
+
+# Set a hostname alias for the prompt and tmux pane borders.
+# Args: $1 - alias to display (e.g., "dev1").
+#        Call from ~/.bashrc_extra to override the default hostname.
+set_hostname_alias() {
+    HOSTNAME_ALIAS="$1"
+    set_prompt "$1"
+    [ -n "$TMUX" ] && tmux set -g @hostname_alias "$1" 2>/dev/null
+}
+
+set_prompt
 
 # Platform-specific config
 case "$(uname -s)" in
