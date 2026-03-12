@@ -8,9 +8,16 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install Bash (macOS)
+        if: runner.os == 'macOS'
+        run: brew install bash
 
       - name: Run dot-test
         run: .local/bin/dot-test
