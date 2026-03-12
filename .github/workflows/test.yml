@@ -1,0 +1,22 @@
+name: Tests
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run dot-test
+        run: .local/bin/dot-test
+
+      - name: Run ds-test
+        run: .local/bin/ds-test
+
+      - name: Run dotsync-test
+        run: .local/bin/dotsync-test
