@@ -142,6 +142,10 @@ Bidirectional sync with all configured hosts:
 | missing | exists | none | pull from remote |
 | exists (different) | exists | none | push (local wins on first sync) |
 
+### Symlinks
+
+Symlinks are preserved transparently on both sides. When a synced file is a symlink (e.g., `~/.orc/config.lisp` → `~/.dotfiles-work/home/.orc/config.lisp`), dotsync reads and writes content through the symlink without replacing it. A file that is a symlink before sync will still be a symlink after sync, and a regular file will remain a regular file.
+
 ### First Sync
 
 When no stored state exists, the local copy is treated as the source of truth. Files are pushed to the remote and baseline state is established. No merge is attempted.

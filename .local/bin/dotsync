@@ -83,6 +83,86 @@ _md5() {
     fi
 }
 
+# ---------------------------------------------------------------------------
+# Symlink preservation
+# ---------------------------------------------------------------------------
+
+# Record symlink targets for paths relative to $HOME.
+# Outputs "rel_path<tab>target" for each symlink found.
+_record_local_symlinks() {
+    local f
+    for f in "$@"; do
+        [[ -L "$HOME/$f" ]] && printf '%s\t%s\n' "$f" "$(readlink "$HOME/$f")" || true
+    done
+}
+
+# Restore local symlinks clobbered by rsync/cp.
+# Reads "rel_path<tab>target" lines (from _record_local_symlinks).
+# Copies new content to the symlink target, then re-creates the symlink.
+# Handles both absolute and relative symlink targets.
+_restore_local_symlinks() {
+    local f target
+    while IFS=$'\t' read -r f target; do
+        [[ -z "$f" ]] && continue
+        if [[ -f "$HOME/$f" && ! -L "$HOME/$f" ]]; then
+            # Resolve the target path: relative targets are relative to
+            # the symlink's parent directory, not $PWD.
+            local resolved_target="$target"
+            if [[ "$target" != /* ]]; then
+                resolved_target="$(dirname "$HOME/$f")/$target"
+            fi
+            mkdir -p "$(dirname "$resolved_target")"
+            cp "$HOME/$f" "$resolved_target"
+            rm "$HOME/$f"
+            ln -s "$target" "$HOME/$f"
+        fi
+    done
+}
+
+# Record symlink targets on a remote host via SSH.
+# Args: $1=ssh_dest, remaining=file paths (relative to $HOME).
+# Outputs "rel_path<tab>target" for each remote symlink found.
+_record_remote_symlinks() {
+    local dest="$1"; shift
+    printf '%s\n' "$@" | ssh -o ConnectTimeout="$SSH_TIMEOUT" -o BatchMode=yes \
+        "$dest" 'while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            p="$HOME/$f"
+            [ -L "$p" ] && printf "%s\t%s\n" "$f" "$(readlink "$p")"
+        done' 2>/dev/null || true
+}
+
+# Restore symlinks on a remote host that were clobbered by rsync.
+# Reads "rel_path<tab>target" lines from stdin.
+# Handles both absolute and relative symlink targets.
+# Data is piped via stdin to avoid shell injection from symlink targets.
+_restore_remote_symlinks() {
+    local dest="$1"
+    local lines=""
+    local f target
+    while IFS=$'\t' read -r f target; do
+        [[ -z "$f" ]] && continue
+        lines+="$f"$'\t'"$target"$'\n'
+    done
+    [[ -z "$lines" ]] && return 0
+    printf '%s' "$lines" | ssh -o ConnectTimeout="$SSH_TIMEOUT" -o BatchMode=yes \
+        "$dest" 'while IFS="	" read -r f target; do
+            [ -z "$f" ] && continue
+            p="$HOME/$f"
+            if [ -f "$p" ] && [ ! -L "$p" ]; then
+                if [ "${target#/}" = "$target" ]; then
+                    resolved="$(dirname "$p")/$target"
+                else
+                    resolved="$target"
+                fi
+                mkdir -p "$(dirname "$resolved")"
+                cp "$p" "$resolved"
+                rm "$p"
+                ln -s "$target" "$p"
+            fi
+        done' 2>/dev/null || true
+}
+
 # Fixed-size remote script that reads file paths from stdin and outputs
 # one line per file:
 #   "EXISTS <32-char-hash> <path>"  — file exists, hash first for safe parsing
@@ -602,7 +682,10 @@ _do_push() {
     fi
 
     echo "pushing ${#files_arr[@]} file(s) to $host_arg ($dest)..."
+    local remote_links
+    remote_links=$(_record_remote_symlinks "$dest" "${files_arr[@]}")
     if rsync -avzLc --no-owner --no-group --files-from=<(printf '%s\n' "${files_arr[@]}") "$HOME/" "$dest:~/" 2>&1; then
+        [[ -n "$remote_links" ]] && echo "$remote_links" | _restore_remote_symlinks "$dest"
         for f in "${files_arr[@]}"; do
             local md5hash
             md5hash=$(_md5 "$HOME/$f")
@@ -644,7 +727,10 @@ _do_pull() {
     fi
 
     echo "pulling ${#files_arr[@]} file(s) from $host_arg ($dest)..."
+    local local_links
+    local_links=$(_record_local_symlinks "${files_arr[@]}")
     if rsync -avzLc --no-owner --no-group --files-from=<(printf '%s\n' "${files_arr[@]}") "$dest:~/" "$HOME/" 2>&1; then
+        [[ -n "$local_links" ]] && echo "$local_links" | _restore_local_symlinks
         for f in "${files_arr[@]}"; do
             local md5hash
             md5hash=$(_md5 "$HOME/$f")
@@ -864,7 +950,10 @@ _sync_host() {
     # file leaks on unexpected exit. State only saved if rsync succeeds.
 
     if [[ ${#push_files[@]} -gt 0 ]]; then
+        local remote_links
+        remote_links=$(_record_remote_symlinks "$dest" "${push_files[@]}")
         if rsync -azLc --no-owner --no-group --files-from=<(printf '%s\n' "${push_files[@]}") "$HOME/" "$dest:~/" 2>/dev/null; then
+            [[ -n "$remote_links" ]] && echo "$remote_links" | _restore_remote_symlinks "$dest"
             for f in "${push_files[@]}"; do
                 local md5hash
                 md5hash=$(_md5 "$HOME/$f")
@@ -878,7 +967,10 @@ _sync_host() {
     fi
 
     if [[ ${#pull_files[@]} -gt 0 ]]; then
+        local local_links
+        local_links=$(_record_local_symlinks "${pull_files[@]}")
         if rsync -azLc --no-owner --no-group --files-from=<(printf '%s\n' "${pull_files[@]}") "$dest:~/" "$HOME/" 2>/dev/null; then
+            [[ -n "$local_links" ]] && echo "$local_links" | _restore_local_symlinks
             for f in "${pull_files[@]}"; do
                 local md5hash
                 md5hash=$(_md5 "$HOME/$f")
@@ -935,6 +1027,11 @@ _sync_host() {
         local state_file
         state_file=$(_state_file "$host_alias" "$f")
 
+        # Record symlink status on both sides before any writes
+        local local_links remote_links
+        local_links=$(_record_local_symlinks "$f")
+        remote_links=$(_record_remote_symlinks "$dest" "$f")
+
         # Fetch remote version to a temp file
         local remote_tmp
         remote_tmp=$(mktemp)
@@ -960,7 +1057,9 @@ _sync_host() {
                 backup_tmp=$(mktemp)
                 cp "$HOME/$f" "$backup_tmp"
                 cp "$merged_tmp" "$HOME/$f"
+                [[ -n "$local_links" ]] && echo "$local_links" | _restore_local_symlinks
                 if rsync -azLc --no-owner --no-group "$HOME/$f" "$dest:~/$f" 2>/dev/null; then
+                    [[ -n "$remote_links" ]] && echo "$remote_links" | _restore_remote_symlinks "$dest"
                     local md5hash
                     md5hash=$(_md5 "$HOME/$f")
                     [[ -n "$md5hash" ]] && _save_state "$host_alias" "$f" "$HOME/$f" "$md5hash"
@@ -969,6 +1068,7 @@ _sync_host() {
                     # Push failed — restore the pre-merge local file to avoid
                     # losing the user's edits. The merge result is discarded.
                     cp "$backup_tmp" "$HOME/$f"
+                    [[ -n "$local_links" ]] && echo "$local_links" | _restore_local_symlinks
                     had_errors=1
                     echo "  merge push failed, local file restored: $f" >&2
                 fi

@@ -564,6 +564,82 @@ result=$(_do_hosts)
 _assert_contains "hosts shows nas" "nas" "$result"
 
 # ---------------------------------------------------------------------------
+# Tests: Symlink preservation
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== Symlink preservation ==="
+
+# Setup: create a symlink target and a symlink pointing to it
+mkdir -p "$TEST_HOME/.symlink-targets"
+echo "original content" > "$TEST_HOME/.symlink-targets/config"
+ln -s "$TEST_HOME/.symlink-targets/config" "$TEST_HOME/symlink_file"
+
+# _record_local_symlinks captures symlinks
+result=$(_record_local_symlinks "symlink_file")
+_assert_contains "records symlink path" "symlink_file" "$result"
+_assert_contains "records symlink target" ".symlink-targets/config" "$result"
+
+# _record_local_symlinks ignores regular files
+echo "regular" > "$TEST_HOME/regular_file"
+result=$(_record_local_symlinks "regular_file")
+_assert_eq "ignores regular file" "" "$result"
+
+# _restore_local_symlinks restores a clobbered symlink
+saved=$(_record_local_symlinks "symlink_file")
+# Simulate rsync clobber: replace symlink with regular file
+rm "$TEST_HOME/symlink_file"
+echo "updated content" > "$TEST_HOME/symlink_file"
+# Verify symlink is gone
+if [[ -L "$TEST_HOME/symlink_file" ]]; then
+    _fail "setup: symlink should be clobbered"
+else
+    _pass "setup: symlink clobbered by regular file"
+fi
+# Restore
+echo "$saved" | _restore_local_symlinks
+# Verify symlink is restored
+if [[ -L "$TEST_HOME/symlink_file" ]]; then
+    _pass "symlink restored after clobber"
+else
+    _fail "symlink restored after clobber"
+fi
+# Verify content was written through to target
+_assert_file_content "content written to symlink target" "updated content" "$TEST_HOME/.symlink-targets/config"
+# Verify reading through the symlink returns the new content
+actual=$(cat "$TEST_HOME/symlink_file")
+_assert_eq "symlink reads updated content" "updated content" "$actual"
+
+# _record_local_symlinks produces nothing for regular files, so
+# _restore_local_symlinks is a no-op — regular files are never touched.
+echo "regular content" > "$TEST_HOME/regular_file"
+saved_regular=$(_record_local_symlinks "regular_file")
+_assert_eq "regular file produces no saved links" "" "$saved_regular"
+
+rm -f "$TEST_HOME/symlink_file" "$TEST_HOME/regular_file"
+rm -rf "$TEST_HOME/.symlink-targets"
+
+# Relative symlink: target is relative to the symlink's parent directory
+mkdir -p "$TEST_HOME/.orc" "$TEST_HOME/.dotfiles-work/home/.orc"
+echo "original" > "$TEST_HOME/.dotfiles-work/home/.orc/config"
+ln -s "../.dotfiles-work/home/.orc/config" "$TEST_HOME/.orc/config"
+saved=$(_record_local_symlinks ".orc/config")
+_assert_contains "records relative symlink" "../.dotfiles-work" "$saved"
+# Simulate clobber
+rm "$TEST_HOME/.orc/config"
+echo "updated" > "$TEST_HOME/.orc/config"
+echo "$saved" | _restore_local_symlinks
+if [[ -L "$TEST_HOME/.orc/config" ]]; then
+    _pass "relative symlink restored"
+else
+    _fail "relative symlink restored"
+fi
+_assert_file_content "relative symlink: content written to target" "updated" "$TEST_HOME/.dotfiles-work/home/.orc/config"
+actual=$(cat "$TEST_HOME/.orc/config")
+_assert_eq "relative symlink reads updated content" "updated" "$actual"
+rm -rf "$TEST_HOME/.orc" "$TEST_HOME/.dotfiles-work"
+
+# ---------------------------------------------------------------------------
 # Integration tests (SSH to localhost)
 # ---------------------------------------------------------------------------
 
