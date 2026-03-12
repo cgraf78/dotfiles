@@ -61,6 +61,11 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
     test -e "${HOME}/.iterm2_shell_integration.bash" && . "${HOME}/.iterm2_shell_integration.bash"
 fi
 
+# --- Linux / WSL / MINGW ---
+if [[ "$(uname -s)" == "Linux" || "$(uname -s)" == MINGW* || "$(uname -s)" == MSYS* ]]; then
+    :
+fi
+
 # Machine-local extensions (not in repo)
 if [ -f ~/.bashrc_extra ]; then
     . ~/.bashrc_extra
