@@ -1260,9 +1260,9 @@ _usage() {
     echo "Flags: --dry-run, -n         show what would be done without changes"
 }
 
-# Allow sourcing without execution — used by dotsync-test to access internals.
-if [[ "${DOTSYNC_SOURCED:-}" == "1" ]]; then
-    return 0 2>/dev/null || true
+# When sourced for testing, export functions but skip arg parsing and execution.
+if [[ -n "${DOTSYNC_SOURCED:-}" ]]; then
+    return 0 2>/dev/null || exit 0
 fi
 
 _check_deps
