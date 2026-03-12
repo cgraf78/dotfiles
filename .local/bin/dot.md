@@ -10,6 +10,8 @@ Two repos:
 
 Work files are symlinked into `$HOME` by the work repo's bootstrap script. Personal dotfiles use `[ -f ]` guards to source work files only when present.
 
+**macOS note:** Requires Bash 4+ (`brew install bash`). The system Bash (3.2) is too old.
+
 ## Quick Start
 
 Personal machine:
