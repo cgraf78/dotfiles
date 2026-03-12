@@ -103,7 +103,7 @@ lookup_host() {
 # prefix matching where "ds" would match "ds-dev").
 _attach() {
     local session="$1"
-    if [[ -n "$TMUX" ]]; then
+    if [[ -n "${TMUX:-}" ]]; then
         tmux switch-client -t "=$session"
     else
         tmux attach -t "=$session"
@@ -225,6 +225,10 @@ _remote() {
         *)       echo "ds: unknown connect method '$CONNECT' for host '$HOST'" >&2; exit 1 ;;
     esac
 }
+
+if [[ -n "${DS_SOURCED:-}" ]]; then
+    return 0 2>/dev/null || exit 0
+fi
 
 if [[ -n "$HOST" ]]; then
     _remote

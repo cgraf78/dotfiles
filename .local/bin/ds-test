@@ -1,0 +1,619 @@
+#!/usr/bin/env bash
+# ds-test — unit tests for the ds dev-session launcher.
+#
+# Creates temp directories to simulate $HOME and tests internal functions
+# in isolation. Mocks tmux to avoid real session management.
+#
+# Usage: ds-test
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REAL_HOME="$HOME"
+
+# shellcheck source=../../.config/dot/test-helpers.sh
+. "$HOME/.config/dot/test-helpers.sh"
+
+# ---------------------------------------------------------------------------
+# Setup: override HOME, source ds for internal functions
+# ---------------------------------------------------------------------------
+
+TEST_HOME=$(_tmpdir)
+export HOME="$TEST_HOME"
+export CONF_DIR="$TEST_HOME/.config/ds"
+mkdir -p "$CONF_DIR"
+
+# Create a minimal profile for testing
+cat > "$CONF_DIR/profile-dev.sh" <<'PROFILE'
+_profile_dev() {
+    local session="$1" chatbot="$2" dir="$3"
+    : # no-op for testing
+}
+PROFILE
+
+cat > "$CONF_DIR/profile-orc.sh" <<'PROFILE'
+_profile_orc() {
+    local session="$1" dir="$3"
+    : # no-op for testing
+}
+PROFILE
+
+export DS_SOURCED=1
+# shellcheck source=ds
+. "$SCRIPT_DIR/ds"
+
+# Create a mock tmux in a temp bin dir and prepend to PATH
+MOCK_BIN=$(_tmpdir)
+TMUX_LOG="$MOCK_BIN/tmux.log"
+
+cat > "$MOCK_BIN/tmux" <<'MOCK'
+#!/usr/bin/env bash
+# Mock tmux that logs calls and simulates responses
+echo "tmux $*" >> "${TMUX_LOG:-/dev/null}"
+case "$1" in
+    has-session)
+        # Check MOCK_SESSIONS for existence
+        session="${3#=}"  # strip = prefix
+        if [[ " ${MOCK_SESSIONS:-} " == *" $session "* ]]; then
+            exit 0
+        else
+            exit 1
+        fi
+        ;;
+    ls)
+        echo "${MOCK_TMUX_LS:-}" | grep -v '^$' || true
+        ;;
+    new-session|attach|switch-client|kill-session|rename-window|split-window|new-window|select-window|send-keys)
+        exit 0
+        ;;
+esac
+MOCK
+chmod +x "$MOCK_BIN/tmux"
+export PATH="$MOCK_BIN:$PATH"
+export TMUX_LOG
+
+_reset_tmux_log() {
+    : > "$TMUX_LOG"
+}
+
+_tmux_log() {
+    cat "$TMUX_LOG" 2>/dev/null || true
+}
+
+# ---------------------------------------------------------------------------
+# Tests: Host config lookup
+# ---------------------------------------------------------------------------
+
+echo "=== Host config lookup ==="
+
+cat > "$CONF_DIR/hosts" <<'EOF'
+# hostname    connect   chatbot   dir
+clark2        -         argus     ~
+nas           autossh   argus     ~
+EOF
+
+# Reset globals before each lookup test
+_reset_lookup() {
+    CONNECT="ssh"
+    CHATBOT="claude"
+    DIR="$HOME"
+}
+
+_reset_lookup
+lookup_host "clark2"
+_assert_eq "clark2: connect method" "-" "$CONNECT"
+_assert_eq "clark2: chatbot" "argus" "$CHATBOT"
+_assert_eq "clark2: dir expands ~" "$HOME" "$DIR"
+
+_reset_lookup
+lookup_host "nas"
+_assert_eq "nas: connect method" "autossh" "$CONNECT"
+_assert_eq "nas: chatbot" "argus" "$CHATBOT"
+
+# Unknown host returns failure, doesn't change globals
+_reset_lookup
+if lookup_host "unknown-host"; then
+    _fail "unknown host should return 1"
+else
+    _pass "unknown host returns 1"
+fi
+_assert_eq "unknown host: connect unchanged" "ssh" "$CONNECT"
+
+# Glob pattern matching in hosts file
+cat > "$CONF_DIR/hosts-work" <<'EOF'
+dev*          et        claude    ~/fbsource
+cgrafdev      autossh   claude    ~/fbsource
+EOF
+
+_reset_lookup
+lookup_host "dev2"
+_assert_eq "glob dev*: connect" "et" "$CONNECT"
+_assert_eq "glob dev*: chatbot" "claude" "$CHATBOT"
+_assert_contains "glob dev*: dir" "fbsource" "$DIR"
+
+# First match wins (dev* before cgrafdev in file order, but cgrafdev is
+# in a separate file — hosts is searched before hosts-work)
+_reset_lookup
+lookup_host "cgrafdev"
+_assert_eq "cgrafdev: connect (hosts-work)" "autossh" "$CONNECT"
+
+# Multiple hosts files are searched (additive)
+_reset_lookup
+lookup_host "clark2"
+_assert_eq "clark2 still found with hosts-work present" "-" "$CONNECT"
+
+rm -f "$CONF_DIR/hosts-work"
+
+# No hosts files at all
+rm -f "$CONF_DIR/hosts"
+_reset_lookup
+if lookup_host "anyhost"; then
+    _fail "no hosts files should return 1"
+else
+    _pass "no hosts files returns 1"
+fi
+
+# Restore hosts for remaining tests
+cat > "$CONF_DIR/hosts" <<'EOF'
+# hostname    connect   chatbot   dir
+clark2        -         argus     ~
+nas           autossh   argus     ~
+server1       ssh       claude    ~/projects
+EOF
+
+# ---------------------------------------------------------------------------
+# Tests: Profile discovery
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== Profile discovery ==="
+
+result=$(_profiles)
+_assert_contains "discovers bare profile" "bare" "$result"
+_assert_contains "discovers dev profile" "dev" "$result"
+_assert_contains "discovers orc profile" "orc" "$result"
+
+# ---------------------------------------------------------------------------
+# Tests: Profile validation
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== Profile validation ==="
+
+PROFILE="bare"
+# _validate_profile calls exit on failure, so run in subshell
+if (PROFILE="bare"; _validate_profile) 2>/dev/null; then
+    _pass "bare profile validates"
+else
+    _fail "bare profile validates"
+fi
+
+if (PROFILE="dev"; _validate_profile) 2>/dev/null; then
+    _pass "dev profile validates"
+else
+    _fail "dev profile validates"
+fi
+
+result=$( (PROFILE="nonexistent"; _validate_profile) 2>&1 || true)
+_assert_contains "invalid profile error mentions name" "nonexistent" "$result"
+_assert_contains "invalid profile lists valid options" "bare" "$result"
+
+# ---------------------------------------------------------------------------
+# Tests: Session naming
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== Session naming ==="
+
+# _do_session builds session name from PROFILE and NAME_OVERRIDE.
+# We test the naming logic by examining tmux calls.
+
+_reset_tmux_log
+export MOCK_SESSIONS=""
+PROFILE="bare"
+NAME_OVERRIDE=""
+DIR="$HOME"
+_do_session
+log=$(_tmux_log)
+_assert_contains "bare profile → session 'ds'" "new-session -d -s ds" "$log"
+
+_reset_tmux_log
+PROFILE="dev"
+NAME_OVERRIDE=""
+_do_session
+log=$(_tmux_log)
+_assert_contains "dev profile → session 'dsdev'" "new-session -d -s dsdev" "$log"
+
+_reset_tmux_log
+PROFILE="bare"
+NAME_OVERRIDE="myproject"
+_do_session
+log=$(_tmux_log)
+_assert_contains "bare + name → session 'ds-myproject'" "new-session -d -s ds-myproject" "$log"
+
+_reset_tmux_log
+PROFILE="dev"
+NAME_OVERRIDE="work"
+_do_session
+log=$(_tmux_log)
+_assert_contains "dev + name → session 'dsdev-work'" "new-session -d -s dsdev-work" "$log"
+
+# ---------------------------------------------------------------------------
+# Tests: Existing session attachment
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== Session attachment ==="
+
+# When session exists, _do_session should attach instead of creating
+_reset_tmux_log
+export MOCK_SESSIONS="ds"
+PROFILE="bare"
+NAME_OVERRIDE=""
+unset TMUX 2>/dev/null || true
+_do_session
+log=$(_tmux_log)
+_assert_contains "existing session: attaches" "attach -t =ds" "$log"
+_assert_not_contains "existing session: no new-session" "new-session" "$log"
+
+# Inside tmux: switch-client instead of attach
+_reset_tmux_log
+export TMUX="/tmp/tmux-test/default,12345,0"
+_do_session
+log=$(_tmux_log)
+_assert_contains "inside tmux: switch-client" "switch-client -t =ds" "$log"
+_assert_not_contains "inside tmux: no attach" "attach -t" "$log"
+unset TMUX
+
+# ---------------------------------------------------------------------------
+# Tests: List sessions
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== List sessions ==="
+
+export MOCK_TMUX_LS="ds: 1 windows (attached)
+dsdev: 2 windows (detached)
+other-session: 1 windows (attached)"
+
+result=$(_do_list)
+_assert_contains "list shows ds" "ds:" "$result"
+_assert_contains "list shows dsdev" "dsdev:" "$result"
+_assert_not_contains "list excludes non-ds" "other-session" "$result"
+
+export MOCK_TMUX_LS=""
+result=$(_do_list)
+_assert_contains "empty list shows message" "no active ds sessions" "$result"
+
+# ---------------------------------------------------------------------------
+# Tests: Kill session
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== Kill session ==="
+
+# Kill with explicit target
+_reset_tmux_log
+export MOCK_SESSIONS="ds-myproject"
+KILL_TARGET="ds-myproject"
+PROFILE="bare"
+NAME_OVERRIDE=""
+result=$(_do_kill)
+log=$(_tmux_log)
+_assert_contains "kill explicit: kills target" "kill-session -t =ds-myproject" "$log"
+_assert_contains "kill explicit: reports killed" "killed ds-myproject" "$result"
+
+# Kill derived from profile (no explicit target)
+_reset_tmux_log
+export MOCK_SESSIONS="dsdev"
+KILL_TARGET=""
+PROFILE="dev"
+NAME_OVERRIDE=""
+result=$(_do_kill)
+log=$(_tmux_log)
+_assert_contains "kill derived: profile=dev → dsdev" "kill-session -t =dsdev" "$log"
+
+# Kill derived from profile + name
+_reset_tmux_log
+export MOCK_SESSIONS="dsdev-work"
+KILL_TARGET=""
+PROFILE="dev"
+NAME_OVERRIDE="work"
+result=$(_do_kill)
+log=$(_tmux_log)
+_assert_contains "kill derived: dev+work → dsdev-work" "kill-session -t =dsdev-work" "$log"
+
+# Kill bare profile → session "ds"
+_reset_tmux_log
+export MOCK_SESSIONS="ds"
+KILL_TARGET=""
+PROFILE="bare"
+NAME_OVERRIDE=""
+result=$(_do_kill)
+log=$(_tmux_log)
+_assert_contains "kill bare → ds" "kill-session -t =ds" "$log"
+
+# Kill nonexistent session
+export MOCK_SESSIONS=""
+export MOCK_TMUX_LS=""
+KILL_TARGET="nosuch"
+result=$( (_do_kill) 2>&1 || true)
+_assert_contains "kill nonexistent: error message" "no session 'nosuch'" "$result"
+
+# ---------------------------------------------------------------------------
+# Tests: Kill all sessions
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== Kill all sessions ==="
+
+export MOCK_TMUX_LS="ds
+dsdev
+dsdev-work
+other-session"
+_reset_tmux_log
+export MOCK_SESSIONS="ds dsdev dsdev-work"
+result=$(_do_killall)
+log=$(_tmux_log)
+_assert_contains "killall: kills ds" "kill-session -t =ds" "$log"
+_assert_contains "killall: kills dsdev" "kill-session -t =dsdev" "$log"
+_assert_contains "killall: kills dsdev-work" "kill-session -t =dsdev-work" "$log"
+_assert_not_contains "killall: skips non-ds" "other-session" "$log"
+
+export MOCK_TMUX_LS=""
+result=$(_do_killall)
+_assert_contains "killall empty: shows message" "no active ds sessions" "$result"
+
+# ---------------------------------------------------------------------------
+# Tests: Usage
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== Usage ==="
+
+result=$(_usage)
+_assert_contains "usage shows -p" "-p" "$result"
+_assert_contains "usage shows -l" "-l" "$result"
+_assert_contains "usage shows -k" "-k" "$result"
+
+# ---------------------------------------------------------------------------
+# Tests: Argument parsing (via subprocess)
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== Argument parsing ==="
+
+# Run ds as a subprocess with mock tmux. We test that the right tmux
+# commands are invoked based on CLI args.
+
+# Reset state for subprocess tests
+export HOME="$TEST_HOME"
+export MOCK_SESSIONS=""
+export MOCK_TMUX_LS=""
+unset DS_SOURCED
+
+# -l flag → list action
+export MOCK_TMUX_LS="ds: 1 windows (attached)"
+result=$("$SCRIPT_DIR/ds" -l 2>&1)
+_assert_contains "ds -l: lists sessions" "ds:" "$result"
+export MOCK_TMUX_LS=""
+
+# --help flag → usage
+result=$("$SCRIPT_DIR/ds" -h 2>&1)
+_assert_contains "ds -h: shows usage" "-p" "$result"
+
+# Invalid flag → error + usage
+result=$("$SCRIPT_DIR/ds" --invalid 2>&1 || true)
+_assert_contains "ds --invalid: shows usage" "-p" "$result"
+
+# -l with no sessions
+result=$("$SCRIPT_DIR/ds" -l 2>&1)
+_assert_contains "ds -l empty: shows message" "no active ds sessions" "$result"
+
+# -k with nonexistent session
+result=$("$SCRIPT_DIR/ds" -k nosuch 2>&1 || true)
+_assert_contains "ds -k nosuch: error" "no session" "$result"
+
+# --killall with no sessions
+result=$("$SCRIPT_DIR/ds" --killall 2>&1)
+_assert_contains "ds --killall empty: shows message" "no active ds sessions" "$result"
+
+# Restore DS_SOURCED for remaining in-process tests
+export DS_SOURCED=1
+
+# ---------------------------------------------------------------------------
+# Tests: Profile function invocation
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== Profile function invocation ==="
+
+# _do_session calls _profile_<PROFILE> after creating the session.
+# Verify the profile function is actually invoked by checking tmux log
+# for calls that only the profile function would make.
+
+# Define a test profile that makes a distinctive tmux call
+_profile_testprofile() {
+    local session="$1" chatbot="$2" dir="$3"
+    tmux rename-window -t "$session:1" "TEST_MARKER_$chatbot"
+}
+
+_reset_tmux_log
+export MOCK_SESSIONS=""
+PROFILE="testprofile"
+NAME_OVERRIDE=""
+CHATBOT="testbot"
+DIR="$HOME"
+_do_session
+log=$(_tmux_log)
+_assert_contains "profile function invoked" "TEST_MARKER_testbot" "$log"
+
+# ---------------------------------------------------------------------------
+# Tests: _attach behavior
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== Attach behavior ==="
+
+# Outside tmux: uses attach
+_reset_tmux_log
+unset TMUX 2>/dev/null || true
+_attach "test-session"
+log=$(_tmux_log)
+_assert_contains "outside tmux: attach" "attach -t =test-session" "$log"
+
+# Inside tmux: uses switch-client
+_reset_tmux_log
+export TMUX="/tmp/tmux-test/default,12345,0"
+_attach "test-session"
+log=$(_tmux_log)
+_assert_contains "inside tmux: switch-client" "switch-client -t =test-session" "$log"
+unset TMUX
+
+# ---------------------------------------------------------------------------
+# Tests: Host dir expansion
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== Host dir expansion ==="
+
+cat > "$CONF_DIR/hosts" <<'EOF'
+server1       ssh       claude    ~/projects
+server2       et        claude    /opt/data
+EOF
+
+_reset_lookup
+lookup_host "server1"
+_assert_eq "tilde expanded" "$HOME/projects" "$DIR"
+
+_reset_lookup
+lookup_host "server2"
+_assert_eq "absolute dir preserved" "/opt/data" "$DIR"
+
+# Empty dir field — DIR stays at default
+cat > "$CONF_DIR/hosts" <<'EOF'
+minimal       ssh       claude
+EOF
+_reset_lookup
+lookup_host "minimal"
+_assert_eq "missing dir keeps default" "$HOME" "$DIR"
+
+# Restore hosts
+cat > "$CONF_DIR/hosts" <<'EOF'
+clark2        -         argus     ~
+nas           autossh   argus     ~
+server1       ssh       claude    ~/projects
+EOF
+
+# ---------------------------------------------------------------------------
+# Tests: Remote command building
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== Remote command building ==="
+
+# Mock ssh/et/autossh to capture args instead of connecting
+cat > "$MOCK_BIN/ssh" <<'MOCK'
+#!/usr/bin/env bash
+echo "SSH_HOST=$1" > "${REMOTE_LOG:-/dev/null}"
+shift  # host
+echo "SSH_ARGS=$*" >> "${REMOTE_LOG:-/dev/null}"
+MOCK
+chmod +x "$MOCK_BIN/ssh"
+
+cat > "$MOCK_BIN/autossh" <<'MOCK'
+#!/usr/bin/env bash
+echo "AUTOSSH_ARGS=$*" > "${REMOTE_LOG:-/dev/null}"
+MOCK
+chmod +x "$MOCK_BIN/autossh"
+
+cat > "$MOCK_BIN/x2ssh" <<'MOCK'
+#!/usr/bin/env bash
+echo "X2SSH_ARGS=$*" > "${REMOTE_LOG:-/dev/null}"
+MOCK
+chmod +x "$MOCK_BIN/x2ssh"
+
+REMOTE_LOG="$MOCK_BIN/remote.log"
+export REMOTE_LOG
+
+# _remote calls exec, which doesn't play well with $() subshells.
+# Run each test in a fresh bash process that sources ds.
+_run_remote() {
+    : > "$REMOTE_LOG"
+    local env_args="$1"
+    timeout 3 bash -c "
+        export DS_SOURCED=1
+        . '$SCRIPT_DIR/ds'
+        $env_args _remote
+    " 2>&1 || true
+}
+
+# Test SSH remote dispatch
+result=$(_run_remote "HOST=server1 ACTION=session PROFILE_OVERRIDE=dev \
+    CHATBOT_OVERRIDE= DIR_OVERRIDE= NAME_OVERRIDE= CONNECT_OVERRIDE=")
+remote_log=$(cat "$REMOTE_LOG" 2>/dev/null || true)
+_assert_contains "ssh remote: host" "SSH_HOST=server1" "$remote_log"
+_assert_contains "ssh remote: runs ds" "~/.local/bin/ds" "$remote_log"
+
+# Test autossh connection method
+result=$(_run_remote "HOST=nas ACTION=session PROFILE_OVERRIDE= \
+    CHATBOT_OVERRIDE= DIR_OVERRIDE= NAME_OVERRIDE= CONNECT_OVERRIDE=")
+remote_log=$(cat "$REMOTE_LOG" 2>/dev/null || true)
+_assert_contains "autossh remote: uses autossh" "AUTOSSH_ARGS=" "$remote_log"
+
+# Test local-only host (connect = "-")
+result=$(_run_remote "HOST=clark2 ACTION=session PROFILE_OVERRIDE= \
+    CHATBOT_OVERRIDE= DIR_OVERRIDE= NAME_OVERRIDE= CONNECT_OVERRIDE=")
+_assert_contains "local-only host: error" "local-only" "$result"
+
+# Test list action on remote
+result=$(_run_remote "HOST=server1 ACTION=list PROFILE_OVERRIDE= CONNECT_OVERRIDE=")
+remote_log=$(cat "$REMOTE_LOG" 2>/dev/null || true)
+_assert_contains "remote list: passes -l" "-l" "$remote_log"
+
+# Test kill action on remote
+result=$(_run_remote "HOST=server1 ACTION=kill KILL_TARGET=ds-myproject \
+    PROFILE_OVERRIDE= CONNECT_OVERRIDE= NAME_OVERRIDE=")
+remote_log=$(cat "$REMOTE_LOG" 2>/dev/null || true)
+_assert_contains "remote kill: passes -k" "-k" "$remote_log"
+_assert_contains "remote kill: passes target" "ds-myproject" "$remote_log"
+
+# Test name override passed to remote
+result=$(_run_remote "HOST=server1 ACTION=session PROFILE_OVERRIDE=dev \
+    CHATBOT_OVERRIDE= DIR_OVERRIDE= NAME_OVERRIDE=myname CONNECT_OVERRIDE=")
+remote_log=$(cat "$REMOTE_LOG" 2>/dev/null || true)
+_assert_contains "remote name: passes -n" "-n" "$remote_log"
+_assert_contains "remote name: passes name value" "myname" "$remote_log"
+
+# ---------------------------------------------------------------------------
+# Tests: Hosts file comments and blank lines
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== Edge cases ==="
+
+cat > "$CONF_DIR/hosts" <<'EOF'
+# This is a comment
+
+  # Indented comment
+host1       ssh       claude    ~
+
+host2       et        claude    ~/work
+EOF
+
+_reset_lookup
+lookup_host "host1"
+_assert_eq "host1 found (blank lines ignored)" "ssh" "$CONNECT"
+
+_reset_lookup
+lookup_host "host2"
+_assert_eq "host2 found (blank lines ignored)" "et" "$CONNECT"
+
+# Restore hosts
+cat > "$CONF_DIR/hosts" <<'EOF'
+clark2        -         argus     ~
+nas           autossh   argus     ~
+server1       ssh       claude    ~/projects
+EOF
+
+_test_summary
