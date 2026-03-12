@@ -5,10 +5,9 @@
 #        ds -l            list active ds sessions
 #        ds -k [<name>]   kill a ds session
 #
-# Profiles define the tmux window/pane layout:
-#   bare  — single empty window (default)
-#   dev   — chatbot in top pane, bash below, separate bash window
-#   orc   — orc in top pane, bash below
+# Profiles are pluggable scripts in ~/.config/ds/profile-<name>.sh.
+# Each defines a _layout_<name>() function for the tmux layout.
+# Built-in profiles: bare (default), dev, orc.
 
 CONF_DIR="${HOME}/.config/ds"
 ACTION="session"
@@ -53,33 +52,17 @@ while [[ $# -gt 0 ]]; do
 done
 
 # --- Profile layouts ---
-# Each _layout_<name> function receives: $1=session $2=chatbot $3=dir
+# Profiles are pluggable scripts in ~/.config/ds/profile-<name>.sh.
+# Each defines a _layout_<name>() function that receives: $1=session $2=chatbot $3=dir
 # The session already exists with a default window when these are called.
 
-# Chatbot in top pane, bash below, separate bash window.
-_layout_dev() {
-    local session="$1" chatbot="$2" dir="$3"
-    tmux rename-window -t "$session:1" "$chatbot"
-    tmux send-keys -t "$session:1" "$chatbot" C-m
-    tmux split-window -v -t "$session:1" -c "$dir"
-    tmux new-window -t "$session" -n bash -c "$dir"
-    tmux select-window -t "$session:1"
-}
+# Source all discovered profile scripts.
+for _profile_file in "$CONF_DIR"/profile-*.sh; do
+    [[ -f "$_profile_file" ]] && . "$_profile_file"
+done
+unset _profile_file
 
-# Single empty window.
-_layout_bare() {
-    : # default tmux window is already what we want
-}
-
-# Orc in top pane, bash below.
-_layout_orc() {
-    local session="$1" dir="$3"
-    tmux rename-window -t "$session:1" "orc"
-    tmux send-keys -t "$session:1" "orc --new" C-m
-    tmux split-window -v -t "$session:1" -c "$dir"
-}
-
-# List valid profile names (derived from _layout_* functions).
+# List valid profile names (derived from discovered _layout_* functions).
 _profiles() {
     declare -F | sed -n 's/.*_layout_//p' | sort
 }
