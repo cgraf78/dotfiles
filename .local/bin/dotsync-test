@@ -127,12 +127,12 @@ echo "=== Manifest parsing ==="
 # Test: basic paths loaded
 cat > "$CONF_DIR/dotsync-paths" <<'EOF'
 # comment
-.bashrc_extra
+.bashrc_local
 
 .config/foo
 EOF
 result=$(_load_paths)
-_assert_contains "loads .bashrc_extra" ".bashrc_extra" "$result"
+_assert_contains "loads .bashrc_local" ".bashrc_local" "$result"
 _assert_contains "loads .config/foo" ".config/foo" "$result"
 lines=$(echo "$result" | wc -l)
 _assert_eq "skips blank lines and comments" "2" "$lines"
@@ -152,12 +152,12 @@ _assert_not_contains "excludes work path (tier=personal)" ".work_config" "$resul
 
 # Test: deduplication
 cat > "$CONF_DIR/dotsync-paths-extra" <<'EOF'
-.bashrc_extra
+.bashrc_local
 .extra_file
 EOF
 result=$(_load_paths "work")
-count=$(echo "$result" | grep -c '.bashrc_extra')
-_assert_eq "deduplicates .bashrc_extra" "1" "$count"
+count=$(echo "$result" | grep -c '.bashrc_local')
+_assert_eq "deduplicates .bashrc_local" "1" "$count"
 _assert_contains "includes extra file" ".extra_file" "$result"
 
 # Cleanup manifests for next tests
@@ -227,7 +227,7 @@ fi
 
 # Restore manifest for remaining tests
 cat > "$CONF_DIR/dotsync-paths" <<'EOF'
-.bashrc_extra
+.bashrc_local
 .config/foo
 EOF
 
@@ -268,7 +268,7 @@ _assert_eq "only valid paths remain" "2" "$lines"
 
 # Restore manifest for remaining tests
 cat > "$CONF_DIR/dotsync-paths" <<'EOF'
-.bashrc_extra
+.bashrc_local
 .config/foo
 EOF
 
@@ -507,19 +507,19 @@ result=$(_expand_paths_local "$TEST_HOME" "dangling_link")
 _assert_eq "dangling symlink excluded" "" "$result"
 
 # Glob expansion in includes
-echo "x" > "$TEST_HOME/.bashrc_extra"
-echo "y" > "$TEST_HOME/.bashrc_linux"
-echo "z" > "$TEST_HOME/.bashrc_mac"
+echo "x" > "$TEST_HOME/.bashrc_local"
+echo "y" > "$TEST_HOME/.bashrc_work"
+echo "z" > "$TEST_HOME/.bashrc_test"
 result=$(_expand_paths_local "$TEST_HOME" ".bashrc_*")
-_assert_contains "glob expands .bashrc_extra" ".bashrc_extra" "$result"
-_assert_contains "glob expands .bashrc_linux" ".bashrc_linux" "$result"
-_assert_contains "glob expands .bashrc_mac" ".bashrc_mac" "$result"
+_assert_contains "glob expands .bashrc_local" ".bashrc_local" "$result"
+_assert_contains "glob expands .bashrc_work" ".bashrc_work" "$result"
+_assert_contains "glob expands .bashrc_test" ".bashrc_test" "$result"
 
 # Glob with no matches produces no output
 result=$(_expand_paths_local "$TEST_HOME" ".no_match_*")
 _assert_eq "glob no match produces empty" "" "$result"
 
-rm -f "$TEST_HOME/.bashrc_extra" "$TEST_HOME/.bashrc_linux" "$TEST_HOME/.bashrc_mac"
+rm -f "$TEST_HOME/.bashrc_local" "$TEST_HOME/.bashrc_work" "$TEST_HOME/.bashrc_test"
 rm -rf "$TEST_HOME/.config/testdir" "$TEST_HOME/standalone" "$TEST_HOME/dangling_link"
 
 # ---------------------------------------------------------------------------
@@ -530,11 +530,11 @@ echo ""
 echo "=== Commands ==="
 
 # Create files so _do_list can find them via expansion
-echo "test" > "$TEST_HOME/.bashrc_extra"
+echo "test" > "$TEST_HOME/.bashrc_local"
 mkdir -p "$TEST_HOME/.config/foo"
 echo "test" > "$TEST_HOME/.config/foo/bar"
 result=$(_do_list)
-_assert_contains "list shows .bashrc_extra" ".bashrc_extra" "$result"
+_assert_contains "list shows .bashrc_local" ".bashrc_local" "$result"
 _assert_contains "list shows expanded dir contents" ".config/foo/bar" "$result"
 # Explicit includes bypass excludes, expanded dir contents are filtered
 cat > "$CONF_DIR/dotsync-paths" <<'EOF'
@@ -554,10 +554,10 @@ rm -rf "$TEST_HOME/.config/mydir"
 
 # Restore manifest for remaining tests
 cat > "$CONF_DIR/dotsync-paths" <<'EOF'
-.bashrc_extra
+.bashrc_local
 .config/foo
 EOF
-rm -f "$TEST_HOME/.bashrc_extra"
+rm -f "$TEST_HOME/.bashrc_local"
 rm -rf "$TEST_HOME/.config/foo"
 
 result=$(_do_hosts)
