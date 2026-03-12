@@ -25,3 +25,4 @@
 !*.conflict.*
 !.local/bin/dotbootstrap
 !.local/bin/dotsync-test
+!.local/bin/ds-test
