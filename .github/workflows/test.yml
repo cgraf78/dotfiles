@@ -35,9 +35,15 @@ jobs:
 
       - name: Run dot-test
         run: .local/bin/dot-test
+        env:
+          HOME: ${{ github.workspace }}
 
       - name: Run ds-test
         run: .local/bin/ds-test
+        env:
+          HOME: ${{ github.workspace }}
 
       - name: Run dotsync-test
         run: .local/bin/dotsync-test
+        env:
+          HOME: ${{ github.workspace }}
