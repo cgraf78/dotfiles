@@ -388,7 +388,7 @@ _resolve_host() {
             echo "$dest"
             return 0
         fi
-    done < <(_load_hosts)
+    done < <(_load_hosts 2>/dev/null)
     echo "$target"
 }
 
