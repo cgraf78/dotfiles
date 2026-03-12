@@ -6,8 +6,8 @@
 #   ~/.dotfiles-work — regular clone, work dotfiles (private, optional)
 #
 # Commands:
-#   dot pull/push    Operates on both repos (if work repo exists)
-#   dot <anything>   Passes through to git (personal repo)
+#   dot pull/push/status  Operates on both repos (if work repo exists)
+#   dot <anything>        Passes through to git (personal repo)
 
 set -euo pipefail
 
@@ -50,7 +50,13 @@ case "${1:-}" in
   status)
     _normalize_filtered
     shift
+    echo "==> Personal dotfiles"
     $GIT status "$@"
+    if [[ -d "$WORK_DIR" ]]; then
+      echo ""
+      echo "==> Work dotfiles"
+      git -C "$WORK_DIR" status "$@"
+    fi
     ;;
   *)
     $GIT "$@"
