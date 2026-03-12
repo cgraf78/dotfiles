@@ -57,7 +57,7 @@ EOF
 result=$(_load_paths)
 _assert_contains "loads .bashrc_local" ".bashrc_local" "$result"
 _assert_contains "loads .config/foo" ".config/foo" "$result"
-lines=$(echo "$result" | wc -l)
+lines=$(echo "$result" | wc -l | tr -d ' ')
 _assert_eq "skips blank lines and comments" "2" "$lines"
 
 # Test: work paths merged (only when tier=work)
@@ -65,7 +65,7 @@ cat > "$CONF_DIR/dotsync-paths-work" <<'EOF'
 .work_config
 EOF
 result=$(_load_paths "work")
-lines=$(echo "$result" | wc -l)
+lines=$(echo "$result" | wc -l | tr -d ' ')
 _assert_eq "merges work paths (tier=work)" "3" "$lines"
 _assert_contains "includes work path (tier=work)" ".work_config" "$result"
 
@@ -180,7 +180,7 @@ _assert_not_contains "rejects trailing .." "foo/.." "$result"
 _assert_not_contains "rejects dollar sign" "whoami" "$result"
 _assert_not_contains "rejects backticks" "cmd" "$result"
 _assert_not_contains "rejects semicolon" "path;rm" "$result"
-lines=$(echo "$result" | wc -l)
+lines=$(echo "$result" | wc -l | tr -d ' ')
 _assert_eq "only valid paths remain" "2" "$lines"
 
 # Restore manifest for remaining tests
