@@ -108,8 +108,8 @@ ds                    # bare session (default profile)
 ds -p dev             # chatbot + bash layout
 ds myserver           # remote session
 ds -l                 # list active sessions
-ds -k ds-dev          # kill a session
-def                   # alias for ds -p bare
+ds -k dsdev           # kill a session
+dsdev                 # shortcut for ds -p dev
 ```
 
 Host config in `~/.config/ds/hosts*` (additive — personal and work in separate files). See [`ds.md`](/.local/bin/ds.md) for full docs.

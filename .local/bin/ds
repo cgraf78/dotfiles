@@ -140,7 +140,7 @@ _validate_profile() {
 
 _do_list() {
     tmux ls -F '#{session_name}: #{session_windows} windows (#{?session_attached,attached,detached})' 2>/dev/null \
-        | grep -E '^ds(-|:)' || echo "(no active ds sessions)"
+        | grep -E '^ds' || echo "(no active ds sessions)"
 }
 
 _do_kill() {
@@ -149,7 +149,7 @@ _do_kill() {
         session="$KILL_TARGET"
     else
         session="ds"
-        [[ "$PROFILE" != "bare" ]] && session="$session-$PROFILE"
+        [[ "$PROFILE" != "bare" ]] && session="$session$PROFILE"
         [[ -n "$NAME_OVERRIDE" ]] && session="$session-$NAME_OVERRIDE"
     fi
     if tmux has-session -t "=$session" 2>/dev/null; then
@@ -164,7 +164,7 @@ _do_kill() {
 
 _do_killall() {
     local sessions
-    sessions=$(tmux ls -F '#{session_name}' 2>/dev/null | grep -E '^ds(-|$)') || true
+    sessions=$(tmux ls -F '#{session_name}' 2>/dev/null | grep -E '^ds') || true
     if [[ -z "$sessions" ]]; then
         echo "(no active ds sessions)"
         return
@@ -177,7 +177,7 @@ _do_killall() {
 
 _do_session() {
     local session="ds"
-    [[ "$PROFILE" != "bare" ]] && session="$session-$PROFILE"
+    [[ "$PROFILE" != "bare" ]] && session="$session$PROFILE"
     [[ -n "$NAME_OVERRIDE" ]] && session="$session-$NAME_OVERRIDE"
 
     # Attach if session already exists (= prefix for exact match)

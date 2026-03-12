@@ -15,14 +15,14 @@ All tracked via the `dot` bare repo.
 ds                        # bare session (default profile)
 ds -p dev                 # chatbot + bash layout
 ds -p orc                 # orc in top pane, bash below
-ds -n work                # named session: ds-bare-work
+ds -n work                # named session: ds-work
 ds myserver               # remote session (per hosts.conf)
 ds -p bare nas            # remote bare session on nas
 ds -l                     # list active ds sessions
 ds -l myserver            # list active ds sessions on remote
-ds -k ds-dev              # kill session by name
-ds -k -p dev -n 2         # kill ds-dev-2
-ds -k ds-dev myserver     # kill session on remote
+ds -k dsdev               # kill session by name
+ds -k -p dev -n 2         # kill dsdev-2
+ds -k dsdev myserver      # kill session on remote
 ds --killall              # kill all ds sessions
 dsdev                     # shortcut for ds -p dev
 dsorc                     # shortcut for ds -p orc
@@ -73,13 +73,13 @@ CLI flags (`-p`, `-b`, `-c`, `-d`, `-n`) override resolved values at any level.
 
 ## Session Naming
 
-Sessions are named `ds-<profile>[-<name>]`:
+Sessions are named `ds<profile>[-<name>]`:
 
 ```
 ds              → ds
-ds -p dev       → ds-dev
+ds -p dev       → dsdev
 ds -n work      → ds-work
-ds -p dev -n 2  → ds-dev-2
+ds -p dev -n 2  → dsdev-2
 ```
 
 ## tmux Behavior
