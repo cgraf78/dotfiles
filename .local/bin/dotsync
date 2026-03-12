@@ -88,11 +88,13 @@ _md5() {
 # ---------------------------------------------------------------------------
 
 # Record symlink targets for paths relative to $HOME.
-# Outputs "rel_path<tab>target" for each symlink found.
+# Outputs "rel_path<tab>target" for each working symlink found.
+# Broken symlinks (target doesn't exist) are skipped — there's nothing
+# meaningful to preserve, and restoring them would destroy pushed content.
 _record_local_symlinks() {
     local f
     for f in "$@"; do
-        [[ -L "$HOME/$f" ]] && printf '%s\t%s\n' "$f" "$(readlink "$HOME/$f")" || true
+        [[ -L "$HOME/$f" && -f "$HOME/$f" ]] && printf '%s\t%s\n' "$f" "$(readlink "$HOME/$f")" || true
     done
 }
 
@@ -111,24 +113,27 @@ _restore_local_symlinks() {
             if [[ "$target" != /* ]]; then
                 resolved_target="$(dirname "$HOME/$f")/$target"
             fi
-            mkdir -p "$(dirname "$resolved_target")"
-            cp "$HOME/$f" "$resolved_target"
-            rm "$HOME/$f"
-            ln -s "$target" "$HOME/$f"
+            # Only replace the file with a symlink if we can write to the target.
+            # If cp fails, keep the regular file (content is more important).
+            if mkdir -p "$(dirname "$resolved_target")" && cp "$HOME/$f" "$resolved_target"; then
+                rm "$HOME/$f"
+                ln -s "$target" "$HOME/$f"
+            fi
         fi
     done
 }
 
 # Record symlink targets on a remote host via SSH.
 # Args: $1=ssh_dest, remaining=file paths (relative to $HOME).
-# Outputs "rel_path<tab>target" for each remote symlink found.
+# Outputs "rel_path<tab>target" for each working remote symlink found.
+# Broken symlinks (target doesn't exist) are skipped.
 _record_remote_symlinks() {
     local dest="$1"; shift
     printf '%s\n' "$@" | ssh -o ConnectTimeout="$SSH_TIMEOUT" -o BatchMode=yes \
         "$dest" 'while IFS= read -r f; do
             [ -z "$f" ] && continue
             p="$HOME/$f"
-            [ -L "$p" ] && printf "%s\t%s\n" "$f" "$(readlink "$p")"
+            [ -L "$p" ] && [ -f "$p" ] && printf "%s\t%s\n" "$f" "$(readlink "$p")"
         done' 2>/dev/null || true
 }
 
@@ -155,10 +160,10 @@ _restore_remote_symlinks() {
                 else
                     resolved="$target"
                 fi
-                mkdir -p "$(dirname "$resolved")"
-                cp "$p" "$resolved"
-                rm "$p"
-                ln -s "$target" "$p"
+                if mkdir -p "$(dirname "$resolved")" && cp "$p" "$resolved"; then
+                    rm "$p"
+                    ln -s "$target" "$p"
+                fi
             fi
         done' 2>/dev/null || true
 }
@@ -167,6 +172,7 @@ _restore_remote_symlinks() {
 # one line per file:
 #   "EXISTS <32-char-hash> <path>"  — file exists, hash first for safe parsing
 #   "MISSING <path>"               — file does not exist
+#   "BROKEN <path>"                — broken symlink (target doesn't exist)
 #
 # The file list is piped through stdin instead of embedded in the command,
 # so this works for any number of files without hitting command length limits.
@@ -181,6 +187,8 @@ while IFS= read -r f; do
     p="$HOME/$f"
     if [ -f "$p" ]; then
         echo "EXISTS $($MD5CMD "$p" | cut -d" " -f1) $f"
+    elif [ -L "$p" ]; then
+        echo "BROKEN $f"
     else
         echo "MISSING $f"
     fi
@@ -684,7 +692,7 @@ _do_push() {
     echo "pushing ${#files_arr[@]} file(s) to $host_arg ($dest)..."
     local remote_links
     remote_links=$(_record_remote_symlinks "$dest" "${files_arr[@]}")
-    if rsync -avzLc --no-owner --no-group --files-from=<(printf '%s\n' "${files_arr[@]}") "$HOME/" "$dest:~/" 2>&1; then
+    if rsync -avzLc --no-owner --no-group --files-from=<(printf '%s\n' "${files_arr[@]}") "$HOME/" "$dest:" 2>&1; then
         [[ -n "$remote_links" ]] && echo "$remote_links" | _restore_remote_symlinks "$dest"
         for f in "${files_arr[@]}"; do
             local md5hash
@@ -729,7 +737,7 @@ _do_pull() {
     echo "pulling ${#files_arr[@]} file(s) from $host_arg ($dest)..."
     local local_links
     local_links=$(_record_local_symlinks "${files_arr[@]}")
-    if rsync -avzLc --no-owner --no-group --files-from=<(printf '%s\n' "${files_arr[@]}") "$dest:~/" "$HOME/" 2>&1; then
+    if rsync -avzLc --no-owner --no-group --files-from=<(printf '%s\n' "${files_arr[@]}") "$dest:" "$HOME/" 2>&1; then
         [[ -n "$local_links" ]] && echo "$local_links" | _restore_local_symlinks
         for f in "${files_arr[@]}"; do
             local md5hash
@@ -826,12 +834,17 @@ _sync_host() {
         echo "  error: failed to fetch remote checksums" >&2
         return 2
     fi
+    declare -A remote_broken=()
     while IFS= read -r line; do
         if [[ "$line" == EXISTS\ * ]]; then
             local rest="${line#EXISTS }"
             local hash="${rest%% *}"
             local path="${rest#* }"
             remote_md5["$path"]="$hash"
+        elif [[ "$line" == BROKEN\ * ]]; then
+            local path="${line#BROKEN }"
+            remote_md5["$path"]=""
+            remote_broken["$path"]=1
         elif [[ "$line" == MISSING\ * ]]; then
             local path="${line#MISSING }"
             remote_md5["$path"]=""
@@ -856,6 +869,15 @@ _sync_host() {
         [[ -n "$rem_md5" ]] && remote_exists=1
         stored_md5=$(_get_stored_md5 "$host_alias" "$f")
         [[ -n "$stored_md5" ]] && has_state=1
+
+        # Broken symlinks on the remote are not real files — clear stored
+        # state so the file is handled as a first sync (push, not delete).
+        # The broken symlink will be replaced when rsync writes the file.
+        if [[ "${remote_broken[$f]:-}" == "1" && $has_state -eq 1 ]]; then
+            [[ $dry_run -eq 0 ]] && _remove_state "$host_alias" "$f"
+            has_state=0
+            stored_md5=""
+        fi
 
         # -- Both missing --
         if [[ $local_exists -eq 0 && $remote_exists -eq 0 ]]; then
@@ -952,7 +974,7 @@ _sync_host() {
     if [[ ${#push_files[@]} -gt 0 ]]; then
         local remote_links
         remote_links=$(_record_remote_symlinks "$dest" "${push_files[@]}")
-        if rsync -azLc --no-owner --no-group --files-from=<(printf '%s\n' "${push_files[@]}") "$HOME/" "$dest:~/" 2>/dev/null; then
+        if rsync -azLc --no-owner --no-group --files-from=<(printf '%s\n' "${push_files[@]}") "$HOME/" "$dest:" 2>/dev/null; then
             [[ -n "$remote_links" ]] && echo "$remote_links" | _restore_remote_symlinks "$dest"
             for f in "${push_files[@]}"; do
                 local md5hash
@@ -969,7 +991,7 @@ _sync_host() {
     if [[ ${#pull_files[@]} -gt 0 ]]; then
         local local_links
         local_links=$(_record_local_symlinks "${pull_files[@]}")
-        if rsync -azLc --no-owner --no-group --files-from=<(printf '%s\n' "${pull_files[@]}") "$dest:~/" "$HOME/" 2>/dev/null; then
+        if rsync -azLc --no-owner --no-group --files-from=<(printf '%s\n' "${pull_files[@]}") "$dest:" "$HOME/" 2>/dev/null; then
             [[ -n "$local_links" ]] && echo "$local_links" | _restore_local_symlinks
             for f in "${pull_files[@]}"; do
                 local md5hash
@@ -1035,7 +1057,7 @@ _sync_host() {
         # Fetch remote version to a temp file
         local remote_tmp
         remote_tmp=$(mktemp)
-        rsync -azLc --no-owner --no-group "$dest:~/$f" "$remote_tmp" 2>/dev/null || { rm -f "$remote_tmp"; had_errors=1; continue; }
+        rsync -azLc --no-owner --no-group "$dest:$f" "$remote_tmp" 2>/dev/null || { rm -f "$remote_tmp"; had_errors=1; continue; }
 
         # Binary files can't be merged — save conflict copy
         if _is_binary "$HOME/$f"; then
@@ -1058,7 +1080,7 @@ _sync_host() {
                 cp "$HOME/$f" "$backup_tmp"
                 cp "$merged_tmp" "$HOME/$f"
                 [[ -n "$local_links" ]] && echo "$local_links" | _restore_local_symlinks
-                if rsync -azLc --no-owner --no-group "$HOME/$f" "$dest:~/$f" 2>/dev/null; then
+                if rsync -azLc --no-owner --no-group "$HOME/$f" "$dest:$f" 2>/dev/null; then
                     [[ -n "$remote_links" ]] && echo "$remote_links" | _restore_remote_symlinks "$dest"
                     local md5hash
                     md5hash=$(_md5 "$HOME/$f")
@@ -1099,7 +1121,7 @@ _sync_host() {
             # automatically because the deletion was intentional.
             local remote_tmp
             remote_tmp=$(mktemp)
-            rsync -azLc --no-owner --no-group "$dest:~/$path" "$remote_tmp" 2>/dev/null || { rm -f "$remote_tmp"; continue; }
+            rsync -azLc --no-owner --no-group "$dest:$path" "$remote_tmp" 2>/dev/null || { rm -f "$remote_tmp"; continue; }
             cp "$remote_tmp" "$HOME/$path.conflict.$host_alias"
             rm -f "$remote_tmp"
             echo "  conflict (deleted locally, modified remotely): $path → saved $path.conflict.$host_alias" >&2
@@ -1107,7 +1129,7 @@ _sync_host() {
             # Modified locally but deleted remotely — the local edits take
             # priority. Push the local file back to the remote to "undo" the
             # remote deletion. State only saved on successful push.
-            if rsync -azLc --no-owner --no-group "$HOME/$path" "$dest:~/$path" 2>/dev/null; then
+            if rsync -azLc --no-owner --no-group "$HOME/$path" "$dest:$path" 2>/dev/null; then
                 local md5hash
                 md5hash=$(_md5 "$HOME/$path")
                 [[ -n "$md5hash" ]] && _save_state "$host_alias" "$path" "$HOME/$path" "$md5hash"
