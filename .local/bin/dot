@@ -11,6 +11,7 @@
 
 set -euo pipefail
 
+# shellcheck source=../../.config/dot/helpers.sh
 . "$HOME/.config/dot/helpers.sh"
 
 # Re-checkout files that are byte-different but identical after clean filter.

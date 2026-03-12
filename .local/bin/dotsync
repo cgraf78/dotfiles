@@ -94,6 +94,7 @@ _md5() {
 _record_local_symlinks() {
     local f
     for f in "$@"; do
+        # shellcheck disable=SC2015  # || true is a fallback, not an else branch
         [[ -L "$HOME/$f" && -f "$HOME/$f" ]] && printf '%s\t%s\n' "$f" "$(readlink "$HOME/$f")" || true
     done
 }
@@ -176,6 +177,7 @@ _restore_remote_symlinks() {
 #
 # The file list is piped through stdin instead of embedded in the command,
 # so this works for any number of files without hitting command length limits.
+# shellcheck disable=SC2016  # intentional — variables expand on the remote host
 REMOTE_MD5_SCRIPT='
 if command -v md5sum >/dev/null 2>&1; then
     MD5CMD="md5sum"
@@ -282,7 +284,6 @@ _load_paths() {
 # are skipped — they're too fuzzy and could accidentally exclude personal files.
 _load_excludes() {
     local tier="${1:-personal}"
-    local excludes=()
     local conf_files=(
         "$CONF_DIR/dotsync-paths"
         "$CONF_DIR/dotsync-paths-extra"
@@ -329,7 +330,7 @@ _load_excludes() {
 _is_excluded() {
     local path="$1"; shift
     for excl in "$@"; do
-        # Unquoted $excl enables bash glob matching in [[ == ]]
+        # shellcheck disable=SC2053  # intentional glob matching
         if [[ "$path" == $excl || "$path" == $excl/* ]]; then
             return 0
         fi
@@ -442,10 +443,10 @@ _expand_paths_local() {
             local match
             for match in "$base/"$p; do
                 [[ -e "$match" ]] || continue
-                local rel="${match#$base/}"
+                local rel="${match#"$base"/}"
                 if [[ -d "$match" ]]; then
                     find "$match" \( -type f -o -type l \) 2>/dev/null | while IFS= read -r fpath; do
-                        if [[ -f "$fpath" ]]; then echo "${fpath#$base/}"; fi
+                        if [[ -f "$fpath" ]]; then echo "${fpath#"$base"/}"; fi
                     done
                 elif [[ -f "$match" ]]; then
                     echo "$rel"
@@ -455,7 +456,7 @@ _expand_paths_local() {
         fi
         if [[ -d "$base/$p" ]]; then
             find "$base/$p" \( -type f -o -type l \) 2>/dev/null | while IFS= read -r fpath; do
-                if [[ -f "$fpath" ]]; then echo "${fpath#$base/}"; fi
+                if [[ -f "$fpath" ]]; then echo "${fpath#"$base"/}"; fi
             done
         elif [[ -f "$base/$p" ]]; then
             echo "$p"
@@ -1262,6 +1263,7 @@ _usage() {
 
 # When sourced for testing, export functions but skip arg parsing and execution.
 if [[ -n "${DOTSYNC_SOURCED:-}" ]]; then
+    # shellcheck disable=SC2317
     return 0 2>/dev/null || exit 0
 fi
 

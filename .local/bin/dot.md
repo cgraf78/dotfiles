@@ -1,5 +1,7 @@
 # dotfiles
 
+![Tests](https://github.com/cgraf78/dotfiles/actions/workflows/test.yml/badge.svg)
+
 Personal dotfiles managed as a bare git repository with `$HOME` as the working tree.
 
 Two repos:

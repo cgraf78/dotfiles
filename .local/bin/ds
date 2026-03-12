@@ -37,6 +37,7 @@ _profile_bare() {
 }
 
 for _profile_file in "$CONF_DIR"/profile-*.sh; do
+    # shellcheck source=/dev/null
     [[ -f "$_profile_file" ]] && . "$_profile_file"
 done
 unset _profile_file
@@ -62,6 +63,7 @@ lookup_host() {
     for f in "${conf_files[@]}"; do
         while read -r name connect chatbot dir; do
             [[ -z "$name" || "$name" == \#* ]] && continue
+            # shellcheck disable=SC2053  # intentional glob matching
             if [[ "$target" == $name ]]; then
                 CONNECT="$connect"
                 CHATBOT="$chatbot"
@@ -183,7 +185,7 @@ _remote() {
             [[ -n "$DIR_OVERRIDE" ]] && DIR="${DIR_OVERRIDE/#\~/$HOME}"
             # Convert local $HOME prefix to remote ~ for safe expansion on the remote shell
             if [[ "$DIR" == "$HOME"* ]]; then
-                REMOTE_DIR="~${DIR#$HOME}"
+                REMOTE_DIR="~${DIR#"$HOME"}"
             else
                 REMOTE_DIR="$DIR"
             fi
@@ -194,6 +196,7 @@ _remote() {
 
     # Keep ~/ unescaped so the remote shell expands it; only escape the args
     local remote_cmd
+    # shellcheck disable=SC2088  # intentional — remote shell expands ~
     remote_cmd="~/.local/bin/ds $(printf '%q ' "${args[@]}")"
 
     case "$CONNECT" in
@@ -207,6 +210,7 @@ _remote() {
 
 # When sourced for testing, export functions but skip arg parsing and execution.
 if [[ -n "${DS_SOURCED:-}" ]]; then
+    # shellcheck disable=SC2317
     return 0 2>/dev/null || exit 0
 fi
 
