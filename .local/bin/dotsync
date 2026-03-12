@@ -25,7 +25,7 @@
 #
 # Safety invariants:
 #   - State is NEVER written unless the corresponding transfer succeeded.
-#   - SSH stat failure aborts sync (prevents treating files as missing).
+#   - SSH checksum failure aborts sync (prevents treating files as missing).
 #   - Merge backs up local file before overwriting; restores on push failure.
 #   - Remote deletions only clear state after SSH rm succeeds.
 #   - All remote shell commands use \$HOME in double-quoted strings so the
@@ -57,7 +57,10 @@ _check_deps() {
     local missing=0
     _check_dep rsync || missing=1
     _check_dep ssh || missing=1
-    _check_dep stat || missing=1
+    if ! command -v md5sum &>/dev/null && ! command -v md5 &>/dev/null; then
+        echo "dotsync: missing required dependency: md5sum (or md5 on macOS)" >&2
+        missing=1
+    fi
     _check_dep file || missing=1
     if ! command -v diff3 &>/dev/null; then
         :  # optional — 3-way merge degrades to conflict-copy
@@ -66,35 +69,38 @@ _check_deps() {
 }
 
 # ---------------------------------------------------------------------------
-# File fingerprinting (mtime+size)
+# Checksums (portable)
 # ---------------------------------------------------------------------------
 
-# Get a file's fingerprint: "mtime:size". Uses mtime+size instead of md5 for
-# fast change detection (stat reads the inode, not the file content).
+# Compute md5 checksum of a local file. Outputs the 32-char hex hash.
 # Returns empty on failure (file missing, unreadable, etc.).
-_file_stat() {
-    if stat -Lc '%Y:%s' "$1" 2>/dev/null; then
-        return
+# Uses md5sum (Linux) or md5 -r (macOS) — both output "hash  filename".
+_md5() {
+    if command -v md5sum &>/dev/null; then
+        md5sum "$1" 2>/dev/null | cut -d' ' -f1
+    else
+        md5 -r "$1" 2>/dev/null | cut -d' ' -f1
     fi
-    # macOS fallback
-    stat -Lf '%m:%z' "$1" 2>/dev/null
 }
 
 # Fixed-size remote script that reads file paths from stdin and outputs
 # one line per file:
-#   "EXISTS <mtime:size> <path>"   — file exists, fingerprint for change detection
+#   "EXISTS <32-char-hash> <path>"  — file exists, hash first for safe parsing
 #   "MISSING <path>"               — file does not exist
 #
-# Uses stat (inode read only, no file content) for fast comparison.
 # The file list is piped through stdin instead of embedded in the command,
 # so this works for any number of files without hitting command length limits.
-REMOTE_STAT_SCRIPT='
+REMOTE_MD5_SCRIPT='
+if command -v md5sum >/dev/null 2>&1; then
+    MD5CMD="md5sum"
+else
+    MD5CMD="md5 -r"
+fi
 while IFS= read -r f; do
     [ -z "$f" ] && continue
     p="$HOME/$f"
     if [ -f "$p" ]; then
-        s=$(stat -Lc "%Y:%s" "$p" 2>/dev/null || stat -Lf "%m:%z" "$p" 2>/dev/null)
-        echo "EXISTS $s $f"
+        echo "EXISTS $($MD5CMD "$p" | cut -d" " -f1) $f"
     else
         echo "MISSING $f"
     fi
@@ -375,9 +381,11 @@ _merge_file_lists() {
 # State tracks what each host had at last successful sync. Stored per-host,
 # per-file as two files:
 #   <STATE_DIR>/<host>/<path>              — copy of file content (merge base)
-#   <STATE_DIR>/<host>/<path>.dotsync-stat — mtime:size fingerprint at last sync
+#   <STATE_DIR>/<host>/<path>.dotsync-md5  — md5 hash at last sync
 #
-# By comparing current local/remote fingerprints against stored state, the sync
+# Uses .dotsync-md5 (not .md5) to avoid collisions with files that end in .md5.
+#
+# By comparing current local/remote checksums against stored state, the sync
 # algorithm determines what changed and in which direction.
 # ---------------------------------------------------------------------------
 
@@ -391,35 +399,35 @@ _state_file() {
     echo "$STATE_DIR/$host/$path"
 }
 
-_state_stat_file() {
+_state_md5_file() {
     local host="$1" path="$2"
-    echo "$STATE_DIR/$host/$path.dotsync-stat"
+    echo "$STATE_DIR/$host/$path.dotsync-md5"
 }
 
-# Get the stored fingerprint for a file. Returns empty if no state exists.
-_get_stored_stat() {
+# Get the stored checksum for a file. Returns empty if no state exists.
+_get_stored_md5() {
     local host="$1" path="$2"
-    local statfile
-    statfile=$(_state_stat_file "$host" "$path")
-    [[ -f "$statfile" ]] && cat "$statfile" || echo ""
+    local md5file
+    md5file=$(_state_md5_file "$host" "$path")
+    [[ -f "$md5file" ]] && cat "$md5file" || echo ""
 }
 
 # Save sync state: copy the file content (for future 3-way merge base)
-# and record the fingerprint. Only call after a successful transfer.
+# and record the md5 hash. Only call after a successful transfer.
 _save_state() {
-    local host="$1" path="$2" content_file="$3" fingerprint="$4"
-    local state_file state_stat
+    local host="$1" path="$2" content_file="$3" md5hash="$4"
+    local state_file state_md5
     state_file=$(_state_file "$host" "$path")
-    state_stat=$(_state_stat_file "$host" "$path")
+    state_md5=$(_state_md5_file "$host" "$path")
     mkdir -p "$(dirname "$state_file")"
     cp -L "$content_file" "$state_file"
-    echo "$fingerprint" > "$state_stat"
+    echo "$md5hash" > "$state_md5"
 }
 
 # Remove stored state for a file. Called after successful deletion propagation.
 _remove_state() {
     local host="$1" path="$2"
-    rm -f "$(_state_file "$host" "$path")" "$(_state_stat_file "$host" "$path")"
+    rm -f "$(_state_file "$host" "$path")" "$(_state_md5_file "$host" "$path")"
 }
 
 # ---------------------------------------------------------------------------
@@ -594,12 +602,12 @@ _do_push() {
     fi
 
     echo "pushing ${#files_arr[@]} file(s) to $host_arg ($dest)..."
-    if rsync -avzL --no-owner --no-group --files-from=<(printf '%s\n' "${files_arr[@]}") "$HOME/" "$dest:~/" 2>&1; then
+    if rsync -avzLc --no-owner --no-group --files-from=<(printf '%s\n' "${files_arr[@]}") "$HOME/" "$dest:~/" 2>&1; then
         for f in "${files_arr[@]}"; do
-            local fstat
-            fstat=$(_file_stat "$HOME/$f")
-            if [[ -n "$fstat" ]]; then
-                _save_state "$host_arg" "$f" "$HOME/$f" "$fstat"
+            local md5hash
+            md5hash=$(_md5 "$HOME/$f")
+            if [[ -n "$md5hash" ]]; then
+                _save_state "$host_arg" "$f" "$HOME/$f" "$md5hash"
             fi
         done
         echo "done."
@@ -636,12 +644,12 @@ _do_pull() {
     fi
 
     echo "pulling ${#files_arr[@]} file(s) from $host_arg ($dest)..."
-    if rsync -avzL --no-owner --no-group --files-from=<(printf '%s\n' "${files_arr[@]}") "$dest:~/" "$HOME/" 2>&1; then
+    if rsync -avzLc --no-owner --no-group --files-from=<(printf '%s\n' "${files_arr[@]}") "$dest:~/" "$HOME/" 2>&1; then
         for f in "${files_arr[@]}"; do
-            local fstat
-            fstat=$(_file_stat "$HOME/$f")
-            if [[ -n "$fstat" ]]; then
-                _save_state "$host_arg" "$f" "$HOME/$f" "$fstat"
+            local md5hash
+            md5hash=$(_md5 "$HOME/$f")
+            if [[ -n "$md5hash" ]]; then
+                _save_state "$host_arg" "$f" "$HOME/$f" "$md5hash"
             fi
         done
         echo "done."
@@ -659,12 +667,13 @@ _do_pull() {
 #
 # SYNC POLICY:
 #
-#   The sync uses 3-way comparison: local fingerprint, remote fingerprint, and
-#   stored baseline fingerprint from the last successful sync.
+#   The sync uses 3-way comparison: local checksum, remote checksum, and
+#   stored baseline checksum from the last successful sync.
 #
 #   FIRST SYNC (no stored state):
 #     - File on one side only → propagate to the other side
-#     - File on both sides → LOCAL WINS (push to remote)
+#     - File on both sides, same content → establish baseline (no transfer)
+#     - File on both sides, different → LOCAL WINS (push to remote)
 #       This is a deliberate policy choice: on first contact with a new host,
 #       the machine running the sync is treated as the source of truth.
 #
@@ -672,7 +681,8 @@ _do_pull() {
 #     - Neither changed → skip
 #     - Only local changed → push to remote
 #     - Only remote changed → pull from remote
-#     - Both changed (text) → 3-way merge via diff3
+#     - Both changed, same content → update state only (convergent edit)
+#     - Both changed, different content (text) → 3-way merge via diff3
 #       On merge success: push merged result to both sides
 #       On merge failure: keep local, save remote as .conflict.<host>
 #     - Both changed, different content (binary) → save .conflict copy
@@ -685,14 +695,14 @@ _do_pull() {
 #
 #   DATA SAFETY:
 #     - State is ONLY written after successful transfer/deletion
-#     - SSH stat failure → abort (prevents "everything looks deleted")
+#     - SSH checksum failure → abort (prevents "everything looks deleted")
 #     - Merge backs up local before overwriting; restores on push failure
 #     - Remote deletions: state removed only after SSH rm succeeds
-#     - Empty stat results are never saved as state (guards against I/O errors)
+#     - Empty md5 results are never saved as state (guards against I/O errors)
 #
 # EXECUTION ORDER:
 #   1. Discover files (expand paths locally + remotely, merge/dedup)
-#   2. Fetch all remote stats in one SSH call (batch for efficiency)
+#   2. Fetch all remote checksums in one SSH call (batch for efficiency)
 #   3. Categorize each file into buckets (push/pull/delete/merge/conflict)
 #   4. Execute batch operations (one rsync per direction, one SSH for deletes)
 #   5. Handle merges individually (need per-file diff3 + conditional push)
@@ -720,25 +730,25 @@ _sync_host() {
 
     [[ ${#all_files_arr[@]} -eq 0 ]] && return 0
 
-    # --- Phase 2: Fetch remote file stats ---
+    # --- Phase 2: Fetch remote checksums ---
     # Abort on SSH failure — if we can't get checksums, all remote files
     # would appear "missing" and the sync would wrongly delete local files.
 
-    declare -A remote_stat=()
+    declare -A remote_md5=()
     local remote_output
-    if ! remote_output=$(printf '%s\n' "${all_files_arr[@]}" | ssh -o ConnectTimeout=$SSH_TIMEOUT -o BatchMode=yes "$dest" "$REMOTE_STAT_SCRIPT" 2>/dev/null); then
-        echo "  error: failed to fetch remote file stats" >&2
+    if ! remote_output=$(printf '%s\n' "${all_files_arr[@]}" | ssh -o ConnectTimeout=$SSH_TIMEOUT -o BatchMode=yes "$dest" "$REMOTE_MD5_SCRIPT" 2>/dev/null); then
+        echo "  error: failed to fetch remote checksums" >&2
         return 2
     fi
     while IFS= read -r line; do
         if [[ "$line" == EXISTS\ * ]]; then
             local rest="${line#EXISTS }"
-            local fingerprint="${rest%% *}"
+            local hash="${rest%% *}"
             local path="${rest#* }"
-            remote_stat["$path"]="$fingerprint"
+            remote_md5["$path"]="$hash"
         elif [[ "$line" == MISSING\ * ]]; then
             local path="${line#MISSING }"
-            remote_stat["$path"]=""
+            remote_md5["$path"]=""
         fi
     done <<< "$remote_output"
 
@@ -750,17 +760,16 @@ _sync_host() {
 
     for f in "${all_files_arr[@]}"; do
         local local_exists=0 remote_exists=0
-        local local_stat="" rem_stat="" stored_stat=""
+        local local_md5="" rem_md5="" stored_md5=""
         local has_state=0
 
         # Gather the three data points for comparison.
-        # Uses mtime:size fingerprints (fast inode reads, no file content).
         # Uses -f only (not -L) to exclude dangling symlinks.
-        [[ -f "$HOME/$f" ]] && { local_exists=1; local_stat=$(_file_stat "$HOME/$f"); }
-        rem_stat="${remote_stat[$f]:-}"
-        [[ -n "$rem_stat" ]] && remote_exists=1
-        stored_stat=$(_get_stored_stat "$host_alias" "$f")
-        [[ -n "$stored_stat" ]] && has_state=1
+        [[ -f "$HOME/$f" ]] && { local_exists=1; local_md5=$(_md5 "$HOME/$f"); }
+        rem_md5="${remote_md5[$f]:-}"
+        [[ -n "$rem_md5" ]] && remote_exists=1
+        stored_md5=$(_get_stored_md5 "$host_alias" "$f")
+        [[ -n "$stored_md5" ]] && has_state=1
 
         # -- Both missing --
         if [[ $local_exists -eq 0 && $remote_exists -eq 0 ]]; then
@@ -776,8 +785,13 @@ _sync_host() {
                 push_files+=("$f")                  # local only → push
             elif [[ $local_exists -eq 0 && $remote_exists -eq 1 ]]; then
                 pull_files+=("$f")                  # remote only → pull
+            elif [[ "$local_md5" == "$rem_md5" ]]; then
+                # Both exist with identical content — just establish baseline
+                if [[ $dry_run -eq 0 ]]; then
+                    _save_state "$host_alias" "$f" "$HOME/$f" "$local_md5"
+                fi
             else
-                push_files+=("$f")                  # both exist → local wins
+                push_files+=("$f")                  # both exist, different → local wins
             fi
             continue
         fi
@@ -786,7 +800,7 @@ _sync_host() {
 
         if [[ $local_exists -eq 0 && $remote_exists -eq 1 ]]; then
             # File was deleted locally. Was the remote also modified?
-            if [[ "$rem_stat" == "$stored_stat" ]]; then
+            if [[ "$rem_md5" == "$stored_md5" ]]; then
                 delete_remote+=("$f")               # remote unchanged → propagate delete
             else
                 conflict_files+=("DELMOD $f")       # remote changed → conflict
@@ -797,7 +811,7 @@ _sync_host() {
 
         if [[ $local_exists -eq 1 && $remote_exists -eq 0 ]]; then
             # File was deleted remotely. Was local also modified?
-            if [[ "$local_stat" == "$stored_stat" ]]; then
+            if [[ "$local_md5" == "$stored_md5" ]]; then
                 delete_local+=("$f")                # local unchanged → propagate delete
             else
                 conflict_files+=("MODDEL $f")       # local changed → conflict
@@ -809,8 +823,8 @@ _sync_host() {
         # -- Both exist: compare against baseline --
 
         local local_changed=0 remote_changed=0
-        [[ "$local_stat" != "$stored_stat" ]] && local_changed=1
-        [[ "$rem_stat" != "$stored_stat" ]] && remote_changed=1
+        [[ "$local_md5" != "$stored_md5" ]] && local_changed=1
+        [[ "$rem_md5" != "$stored_md5" ]] && remote_changed=1
 
         if [[ $local_changed -eq 0 && $remote_changed -eq 0 ]]; then
             continue                                # neither changed
@@ -818,6 +832,11 @@ _sync_host() {
             push_files+=("$f")                      # only local changed
         elif [[ $local_changed -eq 0 && $remote_changed -eq 1 ]]; then
             pull_files+=("$f")                      # only remote changed
+        elif [[ "$local_md5" == "$rem_md5" ]]; then
+            # Both changed to the same content (convergent edit) — update baseline
+            if [[ $dry_run -eq 0 ]]; then
+                _save_state "$host_alias" "$f" "$HOME/$f" "$local_md5"
+            fi
         else
             merge_files+=("$f")                     # both changed differently → attempt merge
         fi
@@ -845,11 +864,11 @@ _sync_host() {
     # file leaks on unexpected exit. State only saved if rsync succeeds.
 
     if [[ ${#push_files[@]} -gt 0 ]]; then
-        if rsync -azL --no-owner --no-group --files-from=<(printf '%s\n' "${push_files[@]}") "$HOME/" "$dest:~/" 2>/dev/null; then
+        if rsync -azLc --no-owner --no-group --files-from=<(printf '%s\n' "${push_files[@]}") "$HOME/" "$dest:~/" 2>/dev/null; then
             for f in "${push_files[@]}"; do
-                local fstat
-                fstat=$(_file_stat "$HOME/$f")
-                [[ -n "$fstat" ]] && _save_state "$host_alias" "$f" "$HOME/$f" "$fstat"
+                local md5hash
+                md5hash=$(_md5 "$HOME/$f")
+                [[ -n "$md5hash" ]] && _save_state "$host_alias" "$f" "$HOME/$f" "$md5hash"
                 echo "  pushed: $f"
             done
         else
@@ -859,11 +878,11 @@ _sync_host() {
     fi
 
     if [[ ${#pull_files[@]} -gt 0 ]]; then
-        if rsync -azL --no-owner --no-group --files-from=<(printf '%s\n' "${pull_files[@]}") "$dest:~/" "$HOME/" 2>/dev/null; then
+        if rsync -azLc --no-owner --no-group --files-from=<(printf '%s\n' "${pull_files[@]}") "$dest:~/" "$HOME/" 2>/dev/null; then
             for f in "${pull_files[@]}"; do
-                local fstat
-                fstat=$(_file_stat "$HOME/$f")
-                [[ -n "$fstat" ]] && _save_state "$host_alias" "$f" "$HOME/$f" "$fstat"
+                local md5hash
+                md5hash=$(_md5 "$HOME/$f")
+                [[ -n "$md5hash" ]] && _save_state "$host_alias" "$f" "$HOME/$f" "$md5hash"
                 echo "  pulled: $f"
             done
         else
@@ -919,7 +938,7 @@ _sync_host() {
         # Fetch remote version to a temp file
         local remote_tmp
         remote_tmp=$(mktemp)
-        rsync -azL --no-owner --no-group "$dest:~/$f" "$remote_tmp" 2>/dev/null || { rm -f "$remote_tmp"; had_errors=1; continue; }
+        rsync -azLc --no-owner --no-group "$dest:~/$f" "$remote_tmp" 2>/dev/null || { rm -f "$remote_tmp"; had_errors=1; continue; }
 
         # Binary files can't be merged — save conflict copy
         if _is_binary "$HOME/$f"; then
@@ -941,10 +960,10 @@ _sync_host() {
                 backup_tmp=$(mktemp)
                 cp "$HOME/$f" "$backup_tmp"
                 cp "$merged_tmp" "$HOME/$f"
-                if rsync -azL --no-owner --no-group "$HOME/$f" "$dest:~/$f" 2>/dev/null; then
-                    local fstat
-                    fstat=$(_file_stat "$HOME/$f")
-                    [[ -n "$fstat" ]] && _save_state "$host_alias" "$f" "$HOME/$f" "$fstat"
+                if rsync -azLc --no-owner --no-group "$HOME/$f" "$dest:~/$f" 2>/dev/null; then
+                    local md5hash
+                    md5hash=$(_md5 "$HOME/$f")
+                    [[ -n "$md5hash" ]] && _save_state "$host_alias" "$f" "$HOME/$f" "$md5hash"
                     echo "  merged: $f"
                 else
                     # Push failed — restore the pre-merge local file to avoid
@@ -980,7 +999,7 @@ _sync_host() {
             # automatically because the deletion was intentional.
             local remote_tmp
             remote_tmp=$(mktemp)
-            rsync -azL --no-owner --no-group "$dest:~/$path" "$remote_tmp" 2>/dev/null || { rm -f "$remote_tmp"; continue; }
+            rsync -azLc --no-owner --no-group "$dest:~/$path" "$remote_tmp" 2>/dev/null || { rm -f "$remote_tmp"; continue; }
             cp "$remote_tmp" "$HOME/$path.conflict.$host_alias"
             rm -f "$remote_tmp"
             echo "  conflict (deleted locally, modified remotely): $path → saved $path.conflict.$host_alias" >&2
@@ -988,10 +1007,10 @@ _sync_host() {
             # Modified locally but deleted remotely — the local edits take
             # priority. Push the local file back to the remote to "undo" the
             # remote deletion. State only saved on successful push.
-            if rsync -azL --no-owner --no-group "$HOME/$path" "$dest:~/$path" 2>/dev/null; then
-                local fstat
-                fstat=$(_file_stat "$HOME/$path")
-                [[ -n "$fstat" ]] && _save_state "$host_alias" "$path" "$HOME/$path" "$fstat"
+            if rsync -azLc --no-owner --no-group "$HOME/$path" "$dest:~/$path" 2>/dev/null; then
+                local md5hash
+                md5hash=$(_md5 "$HOME/$path")
+                [[ -n "$md5hash" ]] && _save_state "$host_alias" "$path" "$HOME/$path" "$md5hash"
                 echo "  conflict (modified locally, deleted remotely): $path → kept local, pushed to remote" >&2
             else
                 had_errors=1

@@ -124,7 +124,7 @@ Simple one-way rsync. Transfers all existing files listed in the manifest. Does 
 Bidirectional sync with all configured hosts:
 
 1. Skips the current machine (self-detection via hostname)
-2. Probes each host with a 3-second SSH timeout; unreachable hosts are silently skipped
+2. Probes each host with a 1-second SSH timeout; unreachable hosts are silently skipped
 3. Compares local and remote file checksums against stored last-synced state
 4. Takes action based on what changed:
 
@@ -187,7 +187,7 @@ dotsync-test --integration    # full suite including sync/push/pull via localhos
 
 ## Dependencies
 
-**Required**: `rsync`, `ssh`, `stat`, `file`
+**Required**: `rsync`, `ssh`, `md5sum` (or `md5` on macOS), `file`
 **Optional**: `diff3` (for 3-way merge; falls back to conflict-copy if missing)
 
-Remote hosts need `rsync` and `stat`. Missing dependencies are reported at startup.
+Remote hosts need `rsync` and `md5sum`/`md5`. Missing dependencies are reported at startup.

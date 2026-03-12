@@ -363,29 +363,32 @@ fi
 # ---------------------------------------------------------------------------
 
 echo ""
-echo "=== File fingerprinting ==="
+echo "=== Checksums ==="
 
 echo "hello world" > "$TEST_HOME/test_file"
-stat1=$(_file_stat "$TEST_HOME/test_file")
-_assert_contains "stat produces mtime:size format" ":" "$stat1"
+hash1=$(_md5 "$TEST_HOME/test_file")
+_assert_eq "md5 produces 32-char hash" "32" "${#hash1}"
 
-# Different content → different size → different stat
-echo "different content that is longer" > "$TEST_HOME/test_file2"
-stat2=$(_file_stat "$TEST_HOME/test_file2")
-if [[ "$stat1" != "$stat2" ]]; then
-    _pass "different files have different stats"
+echo "hello world" > "$TEST_HOME/test_file2"
+hash2=$(_md5 "$TEST_HOME/test_file2")
+_assert_eq "identical files have same hash" "$hash1" "$hash2"
+
+echo "different content" > "$TEST_HOME/test_file2"
+hash3=$(_md5 "$TEST_HOME/test_file2")
+if [[ "$hash1" != "$hash3" ]]; then
+    _pass "different files have different hashes"
 else
-    _fail "different files have different stats"
+    _fail "different files have different hashes"
 fi
 
-# Empty file produces valid stat
+# Empty file produces valid hash
 : > "$TEST_HOME/empty_file"
-stat3=$(_file_stat "$TEST_HOME/empty_file")
-_assert_contains "empty file produces valid stat" ":" "$stat3"
+hash4=$(_md5 "$TEST_HOME/empty_file")
+_assert_eq "empty file produces 32-char hash" "32" "${#hash4}"
 
 # Nonexistent file produces empty
-stat4=$(_file_stat "$TEST_HOME/nonexistent_file" 2>/dev/null || true)
-_assert_eq "nonexistent file produces empty stat" "" "$stat4"
+hash5=$(_md5 "$TEST_HOME/nonexistent_file" || true)
+_assert_eq "nonexistent file produces empty hash" "" "$hash5"
 
 rm -f "$TEST_HOME/test_file" "$TEST_HOME/test_file2" "$TEST_HOME/empty_file"
 
@@ -399,29 +402,29 @@ echo "=== State management ==="
 echo "file content" > "$TEST_HOME/state_test"
 _save_state "testhost" "state_test" "$TEST_HOME/state_test" "abc123"
 
-stored=$(_get_stored_stat "testhost" "state_test")
-_assert_eq "stored stat retrieved" "abc123" "$stored"
+stored=$(_get_stored_md5 "testhost" "state_test")
+_assert_eq "stored md5 retrieved" "abc123" "$stored"
 
 _assert_file_exists "state file copy exists" "$(_state_file "testhost" "state_test")"
-_assert_file_exists "state stat file exists" "$(_state_stat_file "testhost" "state_test")"
+_assert_file_exists "state md5 file exists" "$(_state_md5_file "testhost" "state_test")"
 
 # State file content matches original
 _assert_file_content "state file content matches" "file content" "$(_state_file "testhost" "state_test")"
 
 _remove_state "testhost" "state_test"
 _assert_file_missing "state file removed" "$(_state_file "testhost" "state_test")"
-_assert_file_missing "state stat removed" "$(_state_stat_file "testhost" "state_test")"
+_assert_file_missing "state md5 removed" "$(_state_md5_file "testhost" "state_test")"
 
-stored=$(_get_stored_stat "testhost" "state_test")
-_assert_eq "empty stat after removal" "" "$stored"
+stored=$(_get_stored_md5 "testhost" "state_test")
+_assert_eq "empty md5 after removal" "" "$stored"
 
 # Nested path state
 mkdir -p "$TEST_HOME/.config/nested"
 echo "nested content" > "$TEST_HOME/.config/nested/file"
 _save_state "testhost" ".config/nested/file" "$TEST_HOME/.config/nested/file" "def456"
 _assert_file_exists "nested state file exists" "$(_state_file "testhost" ".config/nested/file")"
-stored=$(_get_stored_stat "testhost" ".config/nested/file")
-_assert_eq "nested state stat retrieved" "def456" "$stored"
+stored=$(_get_stored_md5 "testhost" ".config/nested/file")
+_assert_eq "nested state md5 retrieved" "def456" "$stored"
 _remove_state "testhost" ".config/nested/file"
 
 rm -f "$TEST_HOME/state_test"
@@ -602,9 +605,9 @@ EOF
         # First sync: file exists on both sides (same machine), same content
         echo "initial" > "$HOME/$TEST_REL/file_a"
         _sync_host "testhost" "localhost" "personal" 0 > /dev/null 2>&1 || true
-        _assert_file_exists "first sync: state created" "$(_state_stat_file "testhost" "$TEST_REL/file_a")"
-        stored=$(_get_stored_stat "testhost" "$TEST_REL/file_a")
-        expected=$(_file_stat "$HOME/$TEST_REL/file_a")
+        _assert_file_exists "first sync: state created" "$(_state_md5_file "testhost" "$TEST_REL/file_a")"
+        stored=$(_get_stored_md5 "testhost" "$TEST_REL/file_a")
+        expected=$(_md5 "$HOME/$TEST_REL/file_a")
         _assert_eq "first sync: state matches file" "$expected" "$stored"
 
         # Second sync: nothing changed → up to date
@@ -621,7 +624,7 @@ EOF
         # Set stored state to a fake hash. Local file has real hash.
         # Remote (same file) also has real hash. So both appear "changed"
         # relative to state, but same as each other → "both changed same"
-        echo "abc000fake" > "$(_state_stat_file "testhost" "$TEST_REL/file_a")"
+        echo "abc000fake" > "$(_state_md5_file "testhost" "$TEST_REL/file_a")"
         result=$(_sync_host "testhost" "localhost" "personal" 1 2>&1)
         _assert_contains "stale state, same content → up to date" "(up to date)" "$result"
         # Execute to update state
@@ -632,7 +635,7 @@ EOF
         # expansion (missing on both sides), so stale state persists harmlessly.
         rm -f "$HOME/$TEST_REL/file_a"
         _sync_host "testhost" "localhost" "personal" 0 > /dev/null 2>&1 || true
-        stored=$(_get_stored_stat "testhost" "$TEST_REL/file_a")
+        stored=$(_get_stored_md5 "testhost" "$TEST_REL/file_a")
         if [[ -n "$stored" ]]; then
             _pass "both deleted → stale state persists (harmless)"
         else
@@ -660,15 +663,15 @@ EOF
 
         # Actual push (localhost → same file, but tests rsync + state)
         _do_push "testhost" > /dev/null 2>&1
-        _assert_file_exists "push creates state" "$(_state_stat_file "testhost" "$TEST_REL/file_a")"
-        stored=$(_get_stored_stat "testhost" "$TEST_REL/file_a")
-        expected=$(_file_stat "$HOME/$TEST_REL/file_a")
+        _assert_file_exists "push creates state" "$(_state_md5_file "testhost" "$TEST_REL/file_a")"
+        stored=$(_get_stored_md5 "testhost" "$TEST_REL/file_a")
+        expected=$(_md5 "$HOME/$TEST_REL/file_a")
         _assert_eq "push state matches file" "$expected" "$stored"
 
         # Actual pull (localhost → same file, but tests rsync + state)
         rm -rf "$INT_STATE/testhost"
         _do_pull "testhost" > /dev/null 2>&1
-        _assert_file_exists "pull creates state" "$(_state_stat_file "testhost" "$TEST_REL/file_a")"
+        _assert_file_exists "pull creates state" "$(_state_md5_file "testhost" "$TEST_REL/file_a")"
 
         # Dry-run pull
         DRY_RUN=1
