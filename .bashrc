@@ -96,8 +96,14 @@ mkdir -p ~/.marks
 mark() { ln -sfn "$(pwd)" ~/.marks/"$1"; }
 jump() { cd -P ~/.marks/"$1" 2>/dev/null || echo "No such mark"; }
 
-# ds profile shortcuts
-dsdev() { ds -p dev "$@"; }
+# ds profile shortcuts (auto-defined from ~/.config/ds/profile-*.sh)
+# e.g., profile-dev.sh → dsdev(), profile-foo.sh → dsfoo()
+for _dsf in ~/.config/ds/profile-*.sh; do
+    [[ -f "$_dsf" ]] || continue
+    _dsn="${_dsf##*/profile-}"; _dsn="${_dsn%.sh}"
+    eval "ds${_dsn}() { ds -p ${_dsn} \"\$@\"; }"
+done
+unset _dsf _dsn
 
 # Auto-attach to tmux on SSH (sshn() bypasses this via NO_TMUX)
 # exec so the SSH session ends when tmux detaches.
