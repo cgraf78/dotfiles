@@ -52,16 +52,11 @@ while [[ $# -gt 0 ]]; do
 done
 
 # --- Profile layouts ---
-# Profiles are pluggable scripts in ~/.config/ds/profile-<name>.sh.
-# Each defines a _profile_<name>() function that receives: $1=session $2=chatbot $3=dir
-# The session already exists with a default window when these are called.
 
-# Built-in default profile: single empty window.
 _profile_bare() {
     : # default tmux window is already what we want
 }
 
-# Source additional pluggable profiles from ~/.config/ds/profile-*.sh.
 for _profile_file in "$CONF_DIR"/profile-*.sh; do
     [[ -f "$_profile_file" ]] && . "$_profile_file"
 done
@@ -174,7 +169,6 @@ _do_session() {
         return
     fi
 
-    # Create session and apply layout
     tmux new-session -d -s "$session" -c "$DIR"
     "_profile_$PROFILE" "$session" "$CHATBOT" "$DIR"
     _attach "$session"
