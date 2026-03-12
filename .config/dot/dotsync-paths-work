@@ -1,11 +1,1 @@
-# Work-specific files to sync (one path per line, relative to $HOME)
-# Prefer explicit paths over globs here. Explicit paths are automatically
-# excluded from personal-tier syncs, but globs are not (too fuzzy — a glob
-# could accidentally match personal files and block them from syncing).
-.bash_aliases_work
-.bashrc_work
-.config/dot/dotsync-hosts-work
-.config/dot/dotsync-paths-work
-.config/ds/hosts-work
-.config/ds/profile-orc.sh
-.orc/config.lisp
+/home/cgraf/.dotfiles-work/home/.config/dot/dotsync-paths-work
