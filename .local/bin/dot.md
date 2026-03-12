@@ -44,7 +44,7 @@ Work repo files are managed with plain `git` in `~/.dotfiles-work/`.
 
 ### Shell config
 
-`.bashrc` is the entry point for all shell config. Platform-specific sections (macOS Homebrew/iTerm2) are inline, guarded by `uname` checks. Sourced files:
+`.bashrc` is the entry point for all shell config. Platform-specific sections (macOS, Linux/WSL/MINGW) are inline, guarded by `uname` checks. Sourced files:
 
 ```
 .bashrc
@@ -53,7 +53,7 @@ Work repo files are managed with plain `git` in `~/.dotfiles-work/`.
 └── .bashrc_extra_work  (machine-local work-only, not tracked)
 ```
 
-`.bash_aliases` contains all aliases. Platform-specific sections (macOS ls coloring, GNU coreutils, WSL/MINGW Windows interop) are inline, guarded by `uname` checks. Sourced files:
+`.bash_aliases` contains all aliases, including platform-specific (macOS, Linux/WSL/MINGW), inline with `uname` guards. Sourced files:
 
 ```
 .bash_aliases

@@ -1,3 +1,6 @@
+# ~/.bash_aliases: all aliases, including platform-specific.
+# Sourced from ~/.bashrc (interactive shells only).
+
 # =============================================================================
 # Tools
 # =============================================================================
