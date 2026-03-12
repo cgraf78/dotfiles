@@ -1,4 +1,6 @@
+# =============================================================================
 # Tools
+# =============================================================================
 alias vs='code'
 alias ca='cal -3'
 alias vi='vim'
@@ -11,7 +13,9 @@ alias egrep='grep -E --color=auto'
 alias gl='git log --oneline --all --graph --decorate'
 alias dl='dot log --oneline --all --graph --decorate'
 
-# SSH/tunnels
+# =============================================================================
+# SSH / tunnels
+# =============================================================================
 alias rdptun.bevo2='autossh -M0 -N -L 9000:bevo2.lan:3389 nas'
 alias vnctun.metro='autossh -M0 -N -L 9001:metro.web:5901 nas'
 
@@ -47,7 +51,9 @@ if [[ "$(uname -s)" == "Linux" || "$(uname -s)" == MINGW* || "$(uname -s)" == MS
     fi
 fi
 
-# Work aliases
+# =============================================================================
+# Work
+# =============================================================================
 if [ -f ~/.bash_aliases_work ]; then
     . ~/.bash_aliases_work
 fi

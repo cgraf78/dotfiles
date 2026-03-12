@@ -1,12 +1,16 @@
 # ~/.bashrc: entry point for bash configuration.
 # Sourced from ~/.bash_profile for login shells too.
 
-# Work config (first — may include system config that must precede user config)
+# =============================================================================
+# Work
+# =============================================================================
 if [ -f ~/.bashrc_work ]; then
     . ~/.bashrc_work
 fi
 
+# =============================================================================
 # Environment
+# =============================================================================
 export EDITOR=vim
 
 # PATH
@@ -20,7 +24,9 @@ if [ -d "$HOME/bin" ]; then
     PATH="$HOME/bin:$PATH"
 fi
 
+# =============================================================================
 # Shell behavior
+# =============================================================================
 HISTSIZE=130000
 HISTFILESIZE=-1
 HISTTIMEFORMAT="%d/%m/%y %T "
@@ -28,7 +34,9 @@ HISTCONTROL=ignoreboth
 shopt -s histappend
 shopt -s checkwinsize
 
+# =============================================================================
 # Prompt
+# =============================================================================
 # Set PS1 with colored user@host:path format.
 # Args: $1 - hostname to display (default: \h, the system hostname).
 set_prompt() {
@@ -70,7 +78,10 @@ if [[ "$(uname -s)" == "Linux" || "$(uname -s)" == MINGW* || "$(uname -s)" == MS
     :
 fi
 
-# Machine-local extensions (not in repo)
+# =============================================================================
+# Extensions
+# =============================================================================
+# Machine-local (not in repo)
 if [ -f ~/.bashrc_extra ]; then
     . ~/.bashrc_extra
 fi
@@ -90,7 +101,10 @@ case $- in
       *) return;;
 esac
 
-# Aliases (after non-interactive guard — aliases aren't expanded in non-interactive shells)
+# =============================================================================
+# Interactive
+# =============================================================================
+# Aliases
 if [ -f ~/.bash_aliases ]; then
     . ~/.bash_aliases
 fi
@@ -115,7 +129,10 @@ for _dsf in ~/.config/ds/profile-*.sh; do
 done
 unset _dsf _dsn
 
-# Auto-attach to tmux on SSH (sshn() bypasses this via NO_TMUX)
+# =============================================================================
+# tmux
+# =============================================================================
+# Auto-attach on SSH (sshn() bypasses this via NO_TMUX)
 # exec so the SSH session ends when tmux detaches.
 if [[ -z "$TMUX" && $- == *i* && -n "$SSH_CONNECTION" && -z "$NO_TMUX" ]] && command -v tmux &>/dev/null; then
     exec ds
