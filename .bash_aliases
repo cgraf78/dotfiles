@@ -15,12 +15,16 @@ alias dl='dot log --oneline --all --graph --decorate'
 alias rdptun.bevo2='autossh -M0 -N -L 9000:bevo2.lan:3389 nas'
 alias vnctun.metro='autossh -M0 -N -L 9001:metro.web:5901 nas'
 
-# --- macOS ---
+# =============================================================================
+# macOS
+# =============================================================================
 if [[ "$(uname -s)" == "Darwin" ]]; then
     alias ls='ls -G'
 fi
 
-# --- Linux / WSL / MINGW ---
+# =============================================================================
+# Linux / WSL / MINGW
+# =============================================================================
 if [[ "$(uname -s)" == "Linux" || "$(uname -s)" == MINGW* || "$(uname -s)" == MSYS* ]]; then
     # GNU coreutils
     alias ls='ls --color=auto'

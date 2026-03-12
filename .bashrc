@@ -52,7 +52,9 @@ set_hostname_alias() {
 
 set_prompt
 
-# --- macOS ---
+# =============================================================================
+# macOS
+# =============================================================================
 if [[ "$(uname -s)" == "Darwin" ]]; then
     # Homebrew
     test -x /opt/homebrew/bin/brew && eval "$(/opt/homebrew/bin/brew shellenv)"
@@ -61,7 +63,9 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
     test -e "${HOME}/.iterm2_shell_integration.bash" && . "${HOME}/.iterm2_shell_integration.bash"
 fi
 
-# --- Linux / WSL / MINGW ---
+# =============================================================================
+# Linux / WSL / MINGW
+# =============================================================================
 if [[ "$(uname -s)" == "Linux" || "$(uname -s)" == MINGW* || "$(uname -s)" == MSYS* ]]; then
     :
 fi
