@@ -49,8 +49,8 @@ Work repo files are managed with plain `git` in `~/.dotfiles-work/`.
 ```
 .bashrc
 ├── .bashrc_work        (work-only — sourced first, symlinked from work repo if present)
-├── .bashrc_extra       (machine-local, not tracked)
-└── .bashrc_extra_work  (machine-local work-only, not tracked)
+├── .bashrc_local       (machine-local, not tracked)
+└── .bashrc_local_work  (machine-local work-only, not tracked)
 ```
 
 `.bash_aliases` contains all aliases, including platform-specific (macOS, Linux/WSL/MINGW), inline with `uname` guards. Sourced files:
@@ -112,7 +112,7 @@ Host config in `~/.config/ds/hosts*` (additive — personal and work in separate
 
 ### `dotsync` — Bidirectional File Sync
 
-Syncs untracked files (`.bashrc_extra`, machine-local config) across hosts via rsync + SSH. The companion to `dot` for files that live outside version control.
+Syncs untracked files (`.bashrc_local`, machine-local config) across hosts via rsync + SSH. The companion to `dot` for files that live outside version control.
 
 ```bash
 dotsync push dev2     # one-way push to a host

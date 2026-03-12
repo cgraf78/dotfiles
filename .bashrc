@@ -57,7 +57,7 @@ set_prompt() {
 
 # Set a hostname alias for the prompt and tmux pane borders.
 # Args: $1 - alias to display (e.g., "dev1").
-#        Call from ~/.bashrc_extra to override the default hostname.
+#        Call from ~/.bashrc_local to override the default hostname.
 set_hostname_alias() {
     HOSTNAME_ALIAS="$1"
     set_prompt "$1"
@@ -88,11 +88,11 @@ fi
 # Extensions
 # =============================================================================
 # Machine-local (not in repo)
-if [ -f ~/.bashrc_extra ]; then
-    . ~/.bashrc_extra
+if [ -f ~/.bashrc_local ]; then
+    . ~/.bashrc_local
 fi
-if [ -f ~/.bashrc_extra_work ]; then
-    . ~/.bashrc_extra_work
+if [ -f ~/.bashrc_local_work ]; then
+    . ~/.bashrc_local_work
 fi
 
 # Stop here for non-interactive shells
