@@ -52,13 +52,14 @@ set_hostname_alias() {
 
 set_prompt
 
-# Platform-specific config
-case "$(uname -s)" in
-    Darwin)
-        [ -f ~/.bashrc_mac ] && . ~/.bashrc_mac ;;
-    Linux|MINGW*|MSYS*)
-        [ -f ~/.bashrc_linux ] && . ~/.bashrc_linux ;;
-esac
+# --- macOS ---
+if [[ "$(uname -s)" == "Darwin" ]]; then
+    # Homebrew
+    test -x /opt/homebrew/bin/brew && eval "$(/opt/homebrew/bin/brew shellenv)"
+
+    # iTerm2
+    test -e "${HOME}/.iterm2_shell_integration.bash" && . "${HOME}/.iterm2_shell_integration.bash"
+fi
 
 # Machine-local extensions (not in repo)
 if [ -f ~/.bashrc_extra ]; then

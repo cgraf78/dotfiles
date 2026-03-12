@@ -1,11 +1,7 @@
 # Personal files to sync (one path per line, relative to $HOME)
 .bash_aliases
-.bash_aliases_linux
-.bash_aliases_mac
 .bash_profile
 .bashrc
-.bashrc_linux
-.bashrc_mac
 .config/dot
 .config/ds
 .inputrc
