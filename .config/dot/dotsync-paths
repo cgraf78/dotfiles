@@ -13,8 +13,6 @@
 .local/bin/dot*
 .local/bin/ds*
 .tmux.conf
-.vim_runtime
-.vimrc
 
 # Excludes
 !*/__pycache__
@@ -28,7 +26,6 @@
 !*.log
 !*.DS_Store
 !*/.git
-!.vim_runtime/temp_dirs
 !*_work
 !*-work
 !*.conflict.*
