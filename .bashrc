@@ -13,6 +13,12 @@ fi
 # =============================================================================
 export EDITOR=vim
 
+# Vim runtime — clone on first use if missing
+if [ ! -d "$HOME/.vim_runtime" ] && command -v git &>/dev/null; then
+    git clone --depth 1 https://github.com/cgraf78/vimrc.git "$HOME/.vim_runtime" &>/dev/null \
+        && sh "$HOME/.vim_runtime/install_awesome_vimrc.sh" &>/dev/null || true
+fi
+
 # PATH
 if [ -d "/usr/local/bin" ]; then
     PATH="/usr/local/bin:$PATH"
@@ -87,12 +93,6 @@ if [ -f ~/.bashrc_extra ]; then
 fi
 if [ -f ~/.bashrc_extra_work ]; then
     . ~/.bashrc_extra_work
-fi
-
-# Vim runtime — clone on first use if missing
-if [ ! -d "$HOME/.vim_runtime" ] && command -v git &>/dev/null; then
-    git clone --depth 1 https://github.com/cgraf78/vimrc.git "$HOME/.vim_runtime" &>/dev/null \
-        && sh "$HOME/.vim_runtime/install_awesome_vimrc.sh" &>/dev/null || true
 fi
 
 # Stop here for non-interactive shells
