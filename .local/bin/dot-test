@@ -42,15 +42,6 @@ echo "initial" > "$TEST_HOME/.testrc"
 $GIT add .testrc
 $GIT commit -m "initial" >/dev/null 2>&1
 
-# Mock git log for commands that record calls
-MOCK_BIN=$(_tmpdir)
-GIT_LOG="$MOCK_BIN/git.log"
-export GIT_LOG
-
-_reset_git_log() {
-    : > "$GIT_LOG"
-}
-
 # ---------------------------------------------------------------------------
 # Tests: helpers.sh variables
 # ---------------------------------------------------------------------------
@@ -150,27 +141,34 @@ _assert_contains "surviving merges still run" "MERGED_TESTAPP" "$result"
 rm -f "$TEST_HOME/.config/dot"/merge-*.sh
 
 # ---------------------------------------------------------------------------
-# Tests: _normalize_filtered
+# Tests: _normalize_filtered (via subprocess since dot has no sourcing guard)
 # ---------------------------------------------------------------------------
 
 echo ""
 echo "=== Normalize filtered ==="
 
-# Source dot for _normalize_filtered (it's defined in dot, not helpers.sh)
-# We can't source dot directly (no sourcing guard), so test via subprocess.
-
-# No dirty files → no-op
-result=$($GIT diff-files --name-only 2>/dev/null || true)
-_assert_eq "clean worktree: no dirty files" "" "$result"
-
-# Create a dirty file that differs on disk but not in content (after filter)
 echo "modified" > "$TEST_HOME/.testrc"
 $GIT add .testrc
 $GIT commit -m "modified" >/dev/null 2>&1
 
-# File matches HEAD — no phantom dirt
-result=$($GIT diff-files --name-only 2>/dev/null || true)
-_assert_eq "committed file: not dirty" "" "$result"
+# Clean worktree → no-op, no output
+result=$("$SCRIPT_DIR/dot" refresh 2>&1)
+_assert_eq "normalize: clean tree → no output" "" "$result"
+
+# Touch the file so stat differs (mtime) but content is same
+cp "$TEST_HOME/.testrc" "$TEST_HOME/.testrc.tmp"
+mv "$TEST_HOME/.testrc.tmp" "$TEST_HOME/.testrc"
+
+# File should show as "dirty" in diff-files (stat mismatch) but not in diff
+dirty=$($GIT diff-files --name-only 2>/dev/null || true)
+if [[ -n "$dirty" ]]; then
+    # Stat-dirty but content-clean — normalize should fix it
+    "$SCRIPT_DIR/dot" refresh 2>/dev/null
+    dirty_after=$($GIT diff-files --name-only 2>/dev/null || true)
+    _assert_eq "normalize: clears phantom dirty file" "" "$dirty_after"
+else
+    _pass "normalize: file not stat-dirty (nothing to test)"
+fi
 
 # ---------------------------------------------------------------------------
 # Tests: dot command routing (via subprocess)
@@ -211,8 +209,10 @@ _assert_eq "refresh: no output on clean tree" "" "$result"
 result=$("$SCRIPT_DIR/dot" log --oneline -1 2>&1)
 _assert_contains "passthrough: git log works" "modified" "$result"
 
+# Detect the default branch name (master or main)
+DEFAULT_BRANCH=$($GIT branch --show-current 2>/dev/null || echo "master")
 result=$("$SCRIPT_DIR/dot" branch 2>&1)
-_assert_contains "passthrough: git branch works" "master" "$result"
+_assert_contains "passthrough: git branch works" "$DEFAULT_BRANCH" "$result"
 
 # dot with no args passes through (git with no args shows usage)
 result=$("$SCRIPT_DIR/dot" 2>&1 || true)
@@ -230,7 +230,7 @@ REMOTE_BARE=$(_tmpdir)
 git clone --bare "$DOTFILES" "$REMOTE_BARE" >/dev/null 2>&1
 $GIT remote add origin "$REMOTE_BARE" 2>/dev/null || $GIT remote set-url origin "$REMOTE_BARE"
 $GIT fetch origin >/dev/null 2>&1
-$GIT branch --set-upstream-to=origin/master master 2>/dev/null || true
+$GIT branch --set-upstream-to="origin/$DEFAULT_BRANCH" "$DEFAULT_BRANCH" 2>/dev/null || true
 
 result=$("$SCRIPT_DIR/dot" pull 2>&1)
 _assert_contains "pull: shows pulling" "Pulling personal" "$result"

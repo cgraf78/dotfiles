@@ -100,13 +100,6 @@ _assert_contains "explicitly included+excluded passes through _load_paths" ".loc
 # _load_paths doesn't filter — _resolve_local_files does.
 # Verify _is_excluded recognizes the exclude pattern.
 if _is_excluded ".config/dot/dotsync-paths" ".config/dot/dotsync-paths"; then
-    _pass "is_excluded: exact match on excluded path"
-else
-    _fail "is_excluded: exact match on excluded path"
-fi
-
-# Test: _is_excluded helper
-if _is_excluded ".config/dot/dotsync-paths" ".config/dot/dotsync-paths"; then
     _pass "is_excluded: exact match"
 else
     _fail "is_excluded: exact match"

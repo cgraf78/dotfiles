@@ -5,7 +5,7 @@
 # temp directory management, and a summary reporter.
 #
 # Usage:
-#   . "$(dirname "$0")/test-helpers.sh"
+#   . "$HOME/.config/dot/test-helpers.sh"
 #   _assert_eq "description" "expected" "actual"
 #   ...
 #   _test_summary  # prints results, exits 0 or 1
