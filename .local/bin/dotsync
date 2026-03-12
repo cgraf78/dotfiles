@@ -73,11 +73,11 @@ _check_deps() {
 # fast change detection (stat reads the inode, not the file content).
 # Returns empty on failure (file missing, unreadable, etc.).
 _file_stat() {
-    if stat -c '%Y:%s' "$1" 2>/dev/null; then
+    if stat -Lc '%Y:%s' "$1" 2>/dev/null; then
         return
     fi
     # macOS fallback
-    stat -f '%m:%z' "$1" 2>/dev/null
+    stat -Lf '%m:%z' "$1" 2>/dev/null
 }
 
 # Fixed-size remote script that reads file paths from stdin and outputs
@@ -93,7 +93,7 @@ while IFS= read -r f; do
     [ -z "$f" ] && continue
     p="$HOME/$f"
     if [ -f "$p" ]; then
-        s=$(stat -c "%Y:%s" "$p" 2>/dev/null || stat -f "%m:%z" "$p" 2>/dev/null)
+        s=$(stat -Lc "%Y:%s" "$p" 2>/dev/null || stat -Lf "%m:%z" "$p" 2>/dev/null)
         echo "EXISTS $s $f"
     else
         echo "MISSING $f"
@@ -129,7 +129,6 @@ done
 _load_paths() {
     local tier="${1:-personal}"
     local paths=()
-    local excludes=()
     local seen=()
     local conf_files=(
         "$CONF_DIR/dotsync-paths"
@@ -138,7 +137,8 @@ _load_paths() {
     if [[ "$tier" == "work" ]]; then
         conf_files+=("$CONF_DIR/dotsync-paths-work")
     fi
-    # First pass: collect includes and excludes from all manifest files.
+    # Collect includes from all manifest files (excludes are skipped here,
+    # loaded separately by _load_excludes for use during expansion).
     for f in "${conf_files[@]}"; do
         [[ -f "$f" ]] || continue
         while IFS= read -r line || [[ -n "$line" ]]; do
@@ -150,16 +150,16 @@ _load_paths() {
             if [[ "$line" == !* ]]; then
                 local excl="${line#!}"
                 excl="${excl#"${excl%%[![:space:]]*}"}"  # trim leading whitespace after !
-                [[ -n "$excl" ]] && excludes+=("$excl")
+                # excludes handled by _load_excludes
                 continue
             fi
-            if [[ "$line" == /* || "$line" == ~* || "$line" == ../* || "$line" == */../* ]]; then
+            if [[ "$line" == /* || "$line" == ~* || "$line" =~ (^|/)\.\.(\/|$) ]]; then
                 echo "dotsync: ignoring invalid path: $line" >&2
                 continue
             fi
             # Reject paths with shell metacharacters (prevents injection in
             # remote SSH commands). Glob chars * and ? are allowed.
-            if [[ "$line" =~ [\$\`\|\;\&\<\>\'\"] ]]; then
+            if [[ "$line" =~ [\$\`\|\;\&\<\>\'\"\\\] ]]; then
                 echo "dotsync: ignoring path with shell metacharacters: $line" >&2
                 continue
             fi

@@ -98,7 +98,7 @@ _cleanup() {
         rm -rf "$d"
     done
     # Clean up remote test files if integration tests ran
-    rm -rf "$REAL_HOME/.dotsync-test-remote" 2>/dev/null || true
+    rm -rf "$REAL_HOME"/.dotsync-test-* 2>/dev/null || true
 }
 trap _cleanup EXIT
 
@@ -244,7 +244,12 @@ cat > "$CONF_DIR/dotsync-paths" <<'EOF'
 ~/.ssh/id_rsa
 ../../../etc/shadow
 .config/../../../etc/shadow
+..
+foo/..
 .normal_file
+$(whoami)
+file`cmd`
+path;rm -rf /
 EOF
 result=$(_load_paths 2>/dev/null)
 _assert_contains "accepts .valid_file" ".valid_file" "$result"
@@ -253,6 +258,11 @@ _assert_not_contains "rejects absolute path" "/etc/passwd" "$result"
 _assert_not_contains "rejects tilde path" "~/.ssh/id_rsa" "$result"
 _assert_not_contains "rejects ../ traversal" "../../../etc/shadow" "$result"
 _assert_not_contains "rejects embedded ../ traversal" ".config/../../../etc/shadow" "$result"
+_assert_not_contains "rejects bare .." ".." "$result"
+_assert_not_contains "rejects trailing .." "foo/.." "$result"
+_assert_not_contains "rejects dollar sign" "whoami" "$result"
+_assert_not_contains "rejects backticks" "cmd" "$result"
+_assert_not_contains "rejects semicolon" "path;rm" "$result"
 lines=$(echo "$result" | wc -l)
 _assert_eq "only valid paths remain" "2" "$lines"
 
