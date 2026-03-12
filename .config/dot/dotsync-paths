@@ -22,8 +22,6 @@
 !*.log
 !*.DS_Store
 !*/.git
-!*_work
-!*-work
 !*.conflict.*
 !.local/bin/dotbootstrap
 !.local/bin/dotsync-test

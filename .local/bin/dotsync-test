@@ -163,7 +163,7 @@ _assert_contains "includes extra file" ".extra_file" "$result"
 # Cleanup manifests for next tests
 rm -f "$CONF_DIR/dotsync-paths-work" "$CONF_DIR/dotsync-paths-extra"
 
-# Test: excludes only filter expansion, not explicit includes
+# Test: excludes filter both expansion and explicit includes
 cat > "$CONF_DIR/dotsync-paths" <<'EOF'
 .config/dot
 !.config/dot/dotsync-paths
@@ -171,14 +171,15 @@ cat > "$CONF_DIR/dotsync-paths" <<'EOF'
 !.local/bin/dotsync
 EOF
 result=$(_load_paths)
-_assert_contains "explicit include passes through" ".config/dot" "$result"
-_assert_contains "explicit include survives matching exclude" ".local/bin/dotsync" "$result"
+_assert_contains "explicit include passes through _load_paths" ".config/dot" "$result"
+_assert_contains "explicitly included+excluded passes through _load_paths" ".local/bin/dotsync" "$result"
 
-# Excludes DO filter during expansion (tested via _is_excluded)
+# _load_paths doesn't filter — _resolve_local_files does.
+# Verify _is_excluded recognizes the exclude pattern.
 if _is_excluded ".config/dot/dotsync-paths" ".config/dot/dotsync-paths"; then
-    _pass "exclude filters during expansion: exact match"
+    _pass "is_excluded: exact match on excluded path"
 else
-    _fail "exclude filters during expansion: exact match"
+    _fail "is_excluded: exact match on excluded path"
 fi
 
 # Test: _is_excluded helper
@@ -567,7 +568,7 @@ echo "test" > "$TEST_HOME/.config/foo/bar"
 result=$(_do_list)
 _assert_contains "list shows .bashrc_local" ".bashrc_local" "$result"
 _assert_contains "list shows expanded dir contents" ".config/foo/bar" "$result"
-# Explicit includes bypass excludes, expanded dir contents are filtered
+# Excludes always win, even against explicit includes
 cat > "$CONF_DIR/dotsync-paths" <<'EOF'
 .config/mydir
 .config/mydir/secret_work
@@ -578,9 +579,9 @@ echo "a" > "$TEST_HOME/.config/mydir/file1"
 echo "b" > "$TEST_HOME/.config/mydir/stuff_work"
 echo "c" > "$TEST_HOME/.config/mydir/secret_work"
 result=$(_resolve_local_files "personal")
-_assert_contains "explicit include bypasses exclude" "secret_work" "$result"
+_assert_not_contains "exclude beats explicit include" "secret_work" "$result"
 _assert_contains "non-excluded expansion passes" "file1" "$result"
-_assert_not_contains "excluded expansion filtered" "stuff_work" "$result"
+_assert_not_contains "exclude filters dir expansion" "stuff_work" "$result"
 rm -rf "$TEST_HOME/.config/mydir"
 
 # Work manifest paths are excluded from personal-tier directory expansion.
