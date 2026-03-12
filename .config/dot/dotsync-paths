@@ -29,5 +29,5 @@
 !*_work
 !*-work
 !*.conflict.*
-!.local/bin/dot-bootstrap
+!.local/bin/dotbootstrap
 !.local/bin/dotsync-test

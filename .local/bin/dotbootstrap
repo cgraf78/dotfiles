@@ -7,13 +7,13 @@
 #
 # Usage:
 #   git clone --bare https://github.com/cgraf78/dotfiles.git ~/.dotfiles
-#   git --git-dir=$HOME/.dotfiles --work-tree=$HOME checkout main -- .local/bin/dot-bootstrap
-#   ~/.local/bin/dot-bootstrap <personal|work>
+#   git --git-dir=$HOME/.dotfiles --work-tree=$HOME checkout main -- .local/bin/dotbootstrap
+#   ~/.local/bin/dotbootstrap <personal|work>
 
 set -euo pipefail
 
 if [[ $# -lt 1 ]]; then
-  echo "Usage: dot-bootstrap <personal|work>" >&2
+  echo "Usage: dotbootstrap <personal|work>" >&2
   echo "  personal  Personal dotfiles only" >&2
   echo "  work      Personal + work dotfiles" >&2
   exit 1
@@ -173,7 +173,7 @@ $GIT config "branch.$BRANCH.remote" origin
 $GIT config "branch.$BRANCH.merge" "refs/heads/$BRANCH"
 
 # Ensure clean full checkout. The quickstart one-liner does a sparse checkout
-# of just dot-bootstrap, which leaves the index with staged deletions of all
+# of just dotbootstrap, which leaves the index with staged deletions of all
 # other files. Force checkout resets the index and working tree to match HEAD.
 _backup_and_checkout
 

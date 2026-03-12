@@ -1,5 +1,5 @@
 #!/bin/bash
-# Shared helpers for dot and dot-bootstrap.
+# Shared helpers for dot and dotbootstrap.
 
 DOTFILES="$HOME/.dotfiles"
 GIT="git --git-dir=$DOTFILES --work-tree=$HOME"

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Merge Karabiner-Elements profiles from dotfiles into the local config.
-# Shared by dot-bootstrap and dot (on pull).
+# Shared by dotbootstrap and dot (on pull).
 # macOS only — no-ops silently on other platforms.
 # Requires jq.
 #

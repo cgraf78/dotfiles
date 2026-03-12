@@ -12,12 +12,12 @@ Work files are symlinked into `$HOME` by the work repo's bootstrap script. Perso
 
 Personal machine:
 ```bash
-git clone --bare https://github.com/cgraf78/dotfiles.git ~/.dotfiles && git --git-dir=$HOME/.dotfiles --work-tree=$HOME checkout main -- .local/bin/dot-bootstrap && ~/.local/bin/dot-bootstrap personal && source ~/.bashrc
+git clone --bare https://github.com/cgraf78/dotfiles.git ~/.dotfiles && git --git-dir=$HOME/.dotfiles --work-tree=$HOME checkout main -- .local/bin/dotbootstrap && ~/.local/bin/dotbootstrap personal && source ~/.bashrc
 ```
 
 Work machine (also clones work repo):
 ```bash
-git clone --bare https://github.com/cgraf78/dotfiles.git ~/.dotfiles && git --git-dir=$HOME/.dotfiles --work-tree=$HOME checkout main -- .local/bin/dot-bootstrap && ~/.local/bin/dot-bootstrap work && source ~/.bashrc
+git clone --bare https://github.com/cgraf78/dotfiles.git ~/.dotfiles && git --git-dir=$HOME/.dotfiles --work-tree=$HOME checkout main -- .local/bin/dotbootstrap && ~/.local/bin/dotbootstrap work && source ~/.bashrc
 ```
 
 The bootstrap script automatically backs up any conflicting files to `~/.dotfiles-backup-<timestamp>/`.
@@ -66,7 +66,7 @@ Work repo files are managed with plain `git` in `~/.dotfiles-work/`.
 
 ### VS Code config
 
-Settings and keybindings in `~/.config/dot/vscode/` are merged into VS Code's config dirs by `dot-bootstrap` and `dot pull`:
+Settings and keybindings in `~/.config/dot/vscode/` are merged into VS Code's config dirs by `dotbootstrap` and `dot pull`:
 
 ```
 ~/.config/dot/vscode/
@@ -85,7 +85,7 @@ Dynamic Profile in `~/.config/dot/iterm2/dotfiles-dyn-profile.json` is copied in
 
 ### Karabiner config (macOS)
 
-Profiles in `~/.config/dot/karabiner/karabiner.json` are merged into Karabiner's config by `dot-bootstrap` and `dot pull`. Merge policy: dotfiles profiles replace local profiles with the same name, local-only profiles are preserved.
+Profiles in `~/.config/dot/karabiner/karabiner.json` are merged into Karabiner's config by `dotbootstrap` and `dot pull`. Merge policy: dotfiles profiles replace local profiles with the same name, local-only profiles are preserved.
 
 ## Adding a Work-Only File
 

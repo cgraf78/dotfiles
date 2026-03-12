@@ -1,6 +1,6 @@
 #!/bin/bash
 # Merge VS Code settings and keybindings from dotfiles into local config.
-# Shared by dot-bootstrap and dot (on pull).
+# Shared by dotbootstrap and dot (on pull).
 # Requires jq.
 
 # Strip // line comments from JSONC so jq can parse it.
