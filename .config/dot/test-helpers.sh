@@ -109,6 +109,27 @@ _cleanup() {
 trap _cleanup EXIT
 
 # ---------------------------------------------------------------------------
+# Common test setup
+# ---------------------------------------------------------------------------
+
+# Create a mock HOME, saving the original. Sets TEST_HOME, REAL_HOME, HOME.
+_mock_home() {
+    # shellcheck disable=SC2034  # REAL_HOME is used by callers
+    REAL_HOME="$HOME"
+    TEST_HOME=$(_tmpdir)
+    export HOME="$TEST_HOME"
+}
+
+# Create a temp bin directory prepended to PATH for mock commands.
+# Prints the path; callers create scripts there directly.
+_mock_bin() {
+    local d
+    d=$(_tmpdir)
+    export PATH="$d:$PATH"
+    echo "$d"
+}
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 

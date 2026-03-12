@@ -12,34 +12,6 @@
 
 set -euo pipefail
 
-if [[ $# -lt 1 ]]; then
-  echo "Usage: dotbootstrap <personal|work>" >&2
-  echo "  personal  Personal dotfiles only" >&2
-  echo "  work      Personal + work dotfiles" >&2
-  exit 1
-fi
-
-MACHINE_TYPE="$1"
-REPO="https://github.com/cgraf78/dotfiles.git"
-WORK_REPO="git@github.com:cgraf78/dotfiles-work.git"
-VIMRC_REPO="https://github.com/cgraf78/vimrc.git"
-VIM_RUNTIME_DIR="$HOME/.vim_runtime"
-DOTFILES="$HOME/.dotfiles"
-WORK_DIR="$HOME/.dotfiles-work"
-BACKUP="$HOME/.dotfiles-backup-$(date +%Y%m%d%H%M%S)"
-# Optional: DOTFILES_BRANCH=<branch> to override detected branch.
-BRANCH=""
-
-case "$MACHINE_TYPE" in
-  work|personal) ;;
-  *)
-    echo "error: argument must be 'personal' or 'work'" >&2
-    exit 1
-    ;;
-esac
-
-GIT="git --git-dir=$DOTFILES --work-tree=$HOME"
-
 # ---------------------------------------------------------------------------
 # Functions
 # ---------------------------------------------------------------------------
@@ -91,6 +63,68 @@ _backup_and_checkout() {
   rmdir "$BACKUP" 2>/dev/null || true
 }
 
+_install_hint() {
+  # $1 = package name (best guess)
+  local pkg="$1"
+  if command -v brew &>/dev/null; then
+    echo "  brew install $pkg"
+  elif command -v apt-get &>/dev/null; then
+    echo "  sudo apt-get update && sudo apt-get install -y $pkg"
+  elif command -v dnf &>/dev/null; then
+    echo "  sudo dnf install -y $pkg"
+  elif command -v pacman &>/dev/null; then
+    echo "  sudo pacman -S --needed $pkg"
+  else
+    echo "  (install '$pkg' with your system package manager)"
+  fi
+}
+
+_check_dep() {
+  # $1=command $2=pkg-name
+  local cmd="$1" pkg="$2"
+  if ! command -v "$cmd" &>/dev/null; then
+    echo "  warning: missing dependency: $cmd"
+    _install_hint "$pkg"
+    return 1
+  fi
+  return 0
+}
+
+# When sourced for testing, export functions without running main logic.
+if [[ "${DOTBOOTSTRAP_SOURCED:-}" == 1 ]]; then return 0; fi
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+if [[ $# -lt 1 ]]; then
+  echo "Usage: dotbootstrap <personal|work>" >&2
+  echo "  personal  Personal dotfiles only" >&2
+  echo "  work      Personal + work dotfiles" >&2
+  exit 1
+fi
+
+MACHINE_TYPE="$1"
+REPO="${DOTBOOTSTRAP_REPO:-https://github.com/cgraf78/dotfiles.git}"
+WORK_REPO="${DOTBOOTSTRAP_WORK_REPO:-git@github.com:cgraf78/dotfiles-work.git}"
+VIMRC_REPO="${DOTBOOTSTRAP_VIMRC_REPO:-https://github.com/cgraf78/vimrc.git}"
+VIM_RUNTIME_DIR="$HOME/.vim_runtime"
+DOTFILES="$HOME/.dotfiles"
+WORK_DIR="$HOME/.dotfiles-work"
+BACKUP="$HOME/.dotfiles-backup-$(date +%Y%m%d%H%M%S)"
+# Optional: DOTFILES_BRANCH=<branch> to override detected branch.
+BRANCH=""
+
+case "$MACHINE_TYPE" in
+  work|personal) ;;
+  *)
+    echo "error: argument must be 'personal' or 'work'" >&2
+    exit 1
+    ;;
+esac
+
+GIT="git --git-dir=$DOTFILES --work-tree=$HOME"
+
 # ---------------------------------------------------------------------------
 # Personal repo: clone or configure
 # ---------------------------------------------------------------------------
@@ -122,33 +156,6 @@ $GIT config remote.origin.pushUrl "git@github.com:cgraf78/dotfiles.git"
 # ---------------------------------------------------------------------------
 # Dependency checks (best-effort)
 # ---------------------------------------------------------------------------
-
-_install_hint() {
-  # $1 = package name (best guess)
-  local pkg="$1"
-  if command -v brew &>/dev/null; then
-    echo "  brew install $pkg"
-  elif command -v apt-get &>/dev/null; then
-    echo "  sudo apt-get update && sudo apt-get install -y $pkg"
-  elif command -v dnf &>/dev/null; then
-    echo "  sudo dnf install -y $pkg"
-  elif command -v pacman &>/dev/null; then
-    echo "  sudo pacman -S --needed $pkg"
-  else
-    echo "  (install '$pkg' with your system package manager)"
-  fi
-}
-
-_check_dep() {
-  # $1=command $2=pkg-name
-  local cmd="$1" pkg="$2"
-  if ! command -v "$cmd" &>/dev/null; then
-    echo "  warning: missing dependency: $cmd"
-    _install_hint "$pkg"
-    return 1
-  fi
-  return 0
-}
 
 echo "==> Checking dependencies..."
 _check_dep git git || true
@@ -192,7 +199,7 @@ if [[ "$MACHINE_TYPE" == "work" ]]; then
     if ! git clone "$WORK_REPO" "$WORK_DIR"; then
       echo "  warning: work dotfiles clone failed" >&2
     fi
-    [[ -x "$WORK_DIR/bootstrap" ]] && "$WORK_DIR/bootstrap" || true
+    if [[ -x "$WORK_DIR/bootstrap" ]]; then "$WORK_DIR/bootstrap" || true; fi
   fi
 fi
 
