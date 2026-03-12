@@ -537,10 +537,29 @@ export REMOTE_LOG
 
 # _remote calls exec, which doesn't play well with $() subshells.
 # Run each test in a fresh bash process that sources ds.
+# Uses timeout (Linux) or gtimeout (macOS/Homebrew) with bash fallback.
+_timeout() {
+    if command -v timeout >/dev/null 2>&1; then
+        timeout "$@"
+    elif command -v gtimeout >/dev/null 2>&1; then
+        gtimeout "$@"
+    else
+        # bash-native fallback: run in background, kill after $1 seconds
+        local secs="$1"; shift
+        "$@" &
+        local pid=$!
+        ( sleep "$secs"; kill "$pid" 2>/dev/null ) &
+        local watchdog=$!
+        wait "$pid" 2>/dev/null
+        kill "$watchdog" 2>/dev/null
+        wait "$watchdog" 2>/dev/null
+    fi
+}
+
 _run_remote() {
     : > "$REMOTE_LOG"
     local env_args="$1"
-    timeout 3 bash -c "
+    _timeout 3 bash -c "
         export DS_SOURCED=1
         . '$SCRIPT_DIR/ds'
         $env_args _remote
