@@ -18,7 +18,7 @@ echo "dev2 dev2.example.com" >> ~/.config/dot/dotsync-hosts
 
 Add files to sync:
 ```bash
-echo ".bashrc_extra" >> ~/.config/dot/dotsync-paths
+echo ".bashrc_local" >> ~/.config/dot/dotsync-paths
 ```
 
 Push your files to the new host:
@@ -87,7 +87,7 @@ Lines starting with `!` are excludes. Excludes filter files found during directo
 
 ```
 # Example manifest
-.bashrc_extra
+.bashrc_local
 .config/dot
 !.config/dot/dotsync-paths   # exclude a specific file
 !*/__pycache__               # exclude __pycache__ dirs anywhere
