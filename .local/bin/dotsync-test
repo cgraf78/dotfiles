@@ -609,6 +609,23 @@ _assert_contains "work tier includes non-work file" "profiles.sh" "$result"
 rm -rf "$TEST_HOME/.config/ds"
 rm -f "$CONF_DIR/dotsync-paths-work"
 
+# Work manifest glob patterns are NOT used as personal-tier excludes
+# (too fuzzy — could accidentally exclude personal files).
+cat > "$CONF_DIR/dotsync-paths" <<'EOF'
+.config/ds
+EOF
+cat > "$CONF_DIR/dotsync-paths-work" <<'EOF'
+.config/ds/profile-*.sh
+EOF
+mkdir -p "$TEST_HOME/.config/ds"
+echo "a" > "$TEST_HOME/.config/ds/profiles.sh"
+echo "b" > "$TEST_HOME/.config/ds/profile-orc.sh"
+result=$(_resolve_local_files "personal")
+_assert_contains "personal tier includes non-work file" "profiles.sh" "$result"
+_assert_contains "work glob not used as personal exclude" "profile-orc.sh" "$result"
+rm -rf "$TEST_HOME/.config/ds"
+rm -f "$CONF_DIR/dotsync-paths-work"
+
 # Restore manifest for remaining tests
 cat > "$CONF_DIR/dotsync-paths" <<'EOF'
 .bashrc_local

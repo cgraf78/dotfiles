@@ -269,8 +269,7 @@ _load_paths() {
             paths+=("$line")
         done < "$f"
     done
-    # Emit all explicit includes. Excludes are applied later during
-    # directory expansion (via _is_excluded), not to explicit includes.
+    # Emit all includes. Excludes are applied later by _resolve_*_files.
     printf '%s\n' "${paths[@]+"${paths[@]}"}"
 }
 
@@ -280,7 +279,7 @@ _load_paths() {
 # When tier is "personal", explicit paths from dotsync-paths-work are added
 # as additional excludes. This prevents work-specific files from leaking to
 # personal hosts via directory expansion of personal-tier paths. Glob entries
-# are skipped to avoid unintended pattern matching against personal files.
+# are skipped — they're too fuzzy and could accidentally exclude personal files.
 _load_excludes() {
     local tier="${1:-personal}"
     local excludes=()
@@ -316,7 +315,7 @@ _load_excludes() {
                 line="${line%"${line##*[![:space:]]}"}"
                 line="${line#"${line%%[![:space:]]*}"}"
                 [[ -z "$line" || "$line" == !* ]] && continue
-                [[ "$line" == *[\*\?]* ]] && continue  # skip globs
+                [[ "$line" == *[\*\?]* ]] && continue  # skip globs — too fuzzy
                 echo "$line"
             done < "$work_file"
         fi
@@ -588,7 +587,7 @@ _is_binary() {
 
 # Resolve manifest paths to individual local files for a given tier.
 # Expands globs and directories, applies excludes, returns one file per line.
-# Explicit file includes bypass excludes — only expanded contents are filtered.
+# Excludes always take priority — all files are filtered regardless of how included.
 _resolve_local_files() {
     local tier="$1"
     local paths_arr=()
