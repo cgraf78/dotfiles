@@ -116,12 +116,14 @@ lookup_host() {
 # Attach to an existing tmux session, or switch to it if already inside tmux.
 # No exec — returns after tmux detaches so the calling shell can exit cleanly.
 # This is important for ET connections where exec prevents proper cleanup.
+# Uses = prefix for exact session name matching (prevents tmux's default
+# prefix matching where "ds" would match "ds-dev").
 _attach() {
     local session="$1"
     if [[ -n "$TMUX" ]]; then
-        tmux switch-client -t "$session"
+        tmux switch-client -t "=$session"
     else
-        tmux attach -t "$session"
+        tmux attach -t "=$session"
     fi
 }
 
@@ -150,8 +152,8 @@ _do_kill() {
         [[ "$PROFILE" != "bare" ]] && session="$session-$PROFILE"
         [[ -n "$NAME_OVERRIDE" ]] && session="$session-$NAME_OVERRIDE"
     fi
-    if tmux has-session -t "$session" 2>/dev/null; then
-        tmux kill-session -t "$session"
+    if tmux has-session -t "=$session" 2>/dev/null; then
+        tmux kill-session -t "=$session"
         echo "killed $session"
     else
         echo "ds: no session '$session'" >&2
@@ -168,7 +170,7 @@ _do_killall() {
         return
     fi
     echo "$sessions" | while IFS= read -r s; do
-        tmux kill-session -t "$s"
+        tmux kill-session -t "=$s"
         echo "killed $s"
     done
 }
@@ -178,8 +180,8 @@ _do_session() {
     [[ "$PROFILE" != "bare" ]] && session="$session-$PROFILE"
     [[ -n "$NAME_OVERRIDE" ]] && session="$session-$NAME_OVERRIDE"
 
-    # Attach if session already exists
-    if tmux has-session -t "$session" 2>/dev/null; then
+    # Attach if session already exists (= prefix for exact match)
+    if tmux has-session -t "=$session" 2>/dev/null; then
         _attach "$session"
         return
     fi
