@@ -2,7 +2,7 @@
 # Sourced from ~/.bash_profile for login shells too.
 
 # =============================================================================
-# Work
+# Work (must be first per requirements inside the file)
 # =============================================================================
 if [ -f ~/.bashrc_work ]; then
     . ~/.bashrc_work
