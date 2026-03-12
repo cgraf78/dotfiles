@@ -220,6 +220,9 @@ done
 # Tier filtering prevents work content from leaking to personal machines:
 #   personal host → personal + extra paths only
 #   work host     → personal + work + extra paths
+# Additionally, explicit paths from dotsync-paths-work are treated as
+# excludes during personal-tier directory expansion, so work files inside
+# personal directories are never sent to personal hosts.
 _load_paths() {
     local tier="${1:-personal}"
     local paths=()
@@ -273,6 +276,11 @@ _load_paths() {
 
 # Load exclude patterns from all manifest files for the given tier.
 # Returns one exclude pattern per line. Used to filter expanded directory contents.
+#
+# When tier is "personal", explicit paths from dotsync-paths-work are added
+# as additional excludes. This prevents work-specific files from leaking to
+# personal hosts via directory expansion of personal-tier paths. Glob entries
+# are skipped to avoid unintended pattern matching against personal files.
 _load_excludes() {
     local tier="${1:-personal}"
     local excludes=()
@@ -297,6 +305,22 @@ _load_excludes() {
             fi
         done < "$f"
     done
+    # For personal tier: work manifest paths are implicit excludes.
+    # A file explicitly listed in dotsync-paths-work should never reach
+    # personal hosts, even if discovered inside a personal-tier directory.
+    if [[ "$tier" == "personal" ]]; then
+        local work_file="$CONF_DIR/dotsync-paths-work"
+        if [[ -f "$work_file" ]]; then
+            while IFS= read -r line || [[ -n "$line" ]]; do
+                line="${line%%#*}"
+                line="${line%"${line##*[![:space:]]}"}"
+                line="${line#"${line%%[![:space:]]*}"}"
+                [[ -z "$line" || "$line" == !* ]] && continue
+                [[ "$line" == *[\*\?]* ]] && continue  # skip globs
+                echo "$line"
+            done < "$work_file"
+        fi
+    fi
 }
 
 # Check if a path matches any exclude pattern. Supports glob wildcards:

@@ -583,6 +583,31 @@ _assert_contains "non-excluded expansion passes" "file1" "$result"
 _assert_not_contains "excluded expansion filtered" "stuff_work" "$result"
 rm -rf "$TEST_HOME/.config/mydir"
 
+# Work manifest paths are excluded from personal-tier directory expansion.
+# A file listed in dotsync-paths-work should never leak to personal hosts
+# via expansion of a personal-tier directory, even without a naming convention.
+cat > "$CONF_DIR/dotsync-paths" <<'EOF'
+.config/ds
+EOF
+cat > "$CONF_DIR/dotsync-paths-work" <<'EOF'
+.config/ds/profile-orc.sh
+.config/ds/hosts-work
+EOF
+mkdir -p "$TEST_HOME/.config/ds"
+echo "a" > "$TEST_HOME/.config/ds/profiles.sh"
+echo "b" > "$TEST_HOME/.config/ds/profile-orc.sh"
+echo "c" > "$TEST_HOME/.config/ds/hosts-work"
+result=$(_resolve_local_files "personal")
+_assert_contains "personal tier includes non-work file" "profiles.sh" "$result"
+_assert_not_contains "work manifest path excluded from personal tier" "profile-orc.sh" "$result"
+_assert_not_contains "work manifest path with _work suffix also excluded" "hosts-work" "$result"
+# Work tier should include all files
+result=$(_resolve_local_files "work")
+_assert_contains "work tier includes work file" "profile-orc.sh" "$result"
+_assert_contains "work tier includes non-work file" "profiles.sh" "$result"
+rm -rf "$TEST_HOME/.config/ds"
+rm -f "$CONF_DIR/dotsync-paths-work"
+
 # Restore manifest for remaining tests
 cat > "$CONF_DIR/dotsync-paths" <<'EOF'
 .bashrc_local

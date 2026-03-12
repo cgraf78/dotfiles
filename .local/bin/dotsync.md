@@ -79,7 +79,7 @@ Three tiers, merged based on host tier:
 | Work | `dotsync-paths-work` | `~/.dotfiles-work` | Work hosts only |
 | Extra | `dotsync-paths-extra` | Nothing (per-machine) | All hosts |
 
-Work paths are **never** synced to personal-tier hosts. This prevents work content from leaking to personal machines.
+Work paths are **never** synced to personal-tier hosts. This prevents work content from leaking to personal machines. This includes files explicitly listed in `dotsync-paths-work` that happen to live inside a personal-tier directory — they are automatically excluded from personal syncs even without a matching `!` exclude pattern.
 
 Format: one path per line, relative to `$HOME`. Blank lines and `#` comments allowed. Entries can be files or directories (directories are synced recursively).
 
