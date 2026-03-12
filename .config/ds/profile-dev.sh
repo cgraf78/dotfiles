@@ -1,5 +1,5 @@
 # ds profile: dev — chatbot in top pane, bash below, separate bash window
-_layout_dev() {
+_profile_dev() {
     local session="$1" chatbot="$2" dir="$3"
     tmux rename-window -t "$session:1" "$chatbot"
     tmux send-keys -t "$session:1" "$chatbot" C-m

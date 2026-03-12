@@ -6,7 +6,7 @@
 #        ds -k [<name>]   kill a ds session
 #
 # Profiles are pluggable scripts in ~/.config/ds/profile-<name>.sh.
-# Each defines a _layout_<name>() function for the tmux layout.
+# Each defines a _profile_<name>() function for the tmux layout.
 # Built-in profiles: bare (default), dev, orc.
 
 CONF_DIR="${HOME}/.config/ds"
@@ -53,7 +53,7 @@ done
 
 # --- Profile layouts ---
 # Profiles are pluggable scripts in ~/.config/ds/profile-<name>.sh.
-# Each defines a _layout_<name>() function that receives: $1=session $2=chatbot $3=dir
+# Each defines a _profile_<name>() function that receives: $1=session $2=chatbot $3=dir
 # The session already exists with a default window when these are called.
 
 # Source all discovered profile scripts.
@@ -62,9 +62,9 @@ for _profile_file in "$CONF_DIR"/profile-*.sh; do
 done
 unset _profile_file
 
-# List valid profile names (derived from discovered _layout_* functions).
+# List valid profile names (derived from discovered _profile_* functions).
 _profiles() {
-    declare -F | sed -n 's/.*_layout_//p' | sort
+    declare -F | sed -n 's/.*_profile_//p' | sort
 }
 
 # --- Host config ---
@@ -112,7 +112,7 @@ _attach() {
 
 # Validate that the requested profile exists, or error with valid options.
 _validate_profile() {
-    if ! declare -f "_layout_$PROFILE" &>/dev/null; then
+    if ! declare -f "_profile_$PROFILE" &>/dev/null; then
         echo "ds: unknown profile '$PROFILE'" >&2
         echo "Valid profiles: $(_profiles | tr '\n' ' ')" >&2
         exit 1
@@ -171,7 +171,7 @@ _do_session() {
 
     # Create session and apply layout
     tmux new-session -d -s "$session" -c "$DIR"
-    "_layout_$PROFILE" "$session" "$CHATBOT" "$DIR"
+    "_profile_$PROFILE" "$session" "$CHATBOT" "$DIR"
     _attach "$session"
 }
 
