@@ -98,7 +98,6 @@ jump() { cd -P ~/.marks/"$1" 2>/dev/null || echo "No such mark"; }
 
 # ds profile shortcuts
 dsdev() { ds -p dev "$@"; }
-dsorc() { ds -p orc "$@"; }
 
 # Auto-attach to tmux on SSH (sshn() bypasses this via NO_TMUX)
 # exec so the SSH session ends when tmux detaches.
