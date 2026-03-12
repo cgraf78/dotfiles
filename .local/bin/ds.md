@@ -30,13 +30,15 @@ dsorc                     # shortcut for ds -p orc
 
 ## Profiles
 
-Profiles define the tmux window/pane layout. Add new profiles by defining `_layout_<name>` functions in `ds`.
+Profiles define the tmux window/pane layout. `bare` is built into `ds`. Additional profiles are pluggable scripts in `~/.config/ds/profile-<name>.sh`, each defining a `_profile_<name>()` function. Shell shortcuts (`dsdev`, `dsfoo`, etc.) are auto-defined from discovered profiles.
 
-| Profile | Layout |
-|---|---|
-| `bare` | Single empty window (default) |
-| `dev` | Chatbot in top pane, bash below, separate bash window |
-| `orc` | Orc in top pane, bash below |
+To add a new profile, create `~/.config/ds/profile-myprofile.sh`:
+```bash
+_profile_myprofile() {
+    local session="$1" chatbot="$2" dir="$3"
+    # set up tmux windows/panes here
+}
+```
 
 ## Hosts Format
 
