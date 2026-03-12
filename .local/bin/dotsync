@@ -422,7 +422,7 @@ _expand_paths_local() {
                 local rel="${match#$base/}"
                 if [[ -d "$match" ]]; then
                     find "$match" \( -type f -o -type l \) 2>/dev/null | while IFS= read -r fpath; do
-                        [[ -f "$fpath" ]] && echo "${fpath#$base/}"
+                        if [[ -f "$fpath" ]]; then echo "${fpath#$base/}"; fi
                     done
                 elif [[ -f "$match" ]]; then
                     echo "$rel"
@@ -432,7 +432,7 @@ _expand_paths_local() {
         fi
         if [[ -d "$base/$p" ]]; then
             find "$base/$p" \( -type f -o -type l \) 2>/dev/null | while IFS= read -r fpath; do
-                [[ -f "$fpath" ]] && echo "${fpath#$base/}"
+                if [[ -f "$fpath" ]]; then echo "${fpath#$base/}"; fi
             done
         elif [[ -f "$base/$p" ]]; then
             echo "$p"
@@ -451,9 +451,9 @@ _expand_paths_remote() {
     for p in "${paths[@]}"; do
         if [[ "$p" == *[\*\?]* ]]; then
             # Glob: let the remote shell expand it, then check each match
-            cmds+="for _m in \"\$HOME/\"$p; do [ -e \"\$_m\" ] || continue; if [ -d \"\$_m\" ]; then find \"\$_m\" \\( -type f -o -type l \\) 2>/dev/null | while IFS= read -r fpath; do [ -f \"\$fpath\" ] && echo \"\${fpath#\$HOME/}\"; done; elif [ -f \"\$_m\" ]; then echo \"\${_m#\$HOME/}\"; fi; done; "
+            cmds+="for _m in \"\$HOME/\"$p; do [ -e \"\$_m\" ] || continue; if [ -d \"\$_m\" ]; then find \"\$_m\" \\( -type f -o -type l \\) 2>/dev/null | while IFS= read -r fpath; do if [ -f \"\$fpath\" ]; then echo \"\${fpath#\$HOME/}\"; fi; done; elif [ -f \"\$_m\" ]; then echo \"\${_m#\$HOME/}\"; fi; done; "
         else
-            cmds+="if [ -d \"\$HOME/$p\" ]; then find \"\$HOME/$p\" \\( -type f -o -type l \\) 2>/dev/null | while IFS= read -r fpath; do [ -f \"\$fpath\" ] && echo \"\${fpath#\$HOME/}\"; done; elif [ -f \"\$HOME/$p\" ]; then echo \"$p\"; fi; "
+            cmds+="if [ -d \"\$HOME/$p\" ]; then find \"\$HOME/$p\" \\( -type f -o -type l \\) 2>/dev/null | while IFS= read -r fpath; do if [ -f \"\$fpath\" ]; then echo \"\${fpath#\$HOME/}\"; fi; done; elif [ -f \"\$HOME/$p\" ]; then echo \"$p\"; fi; "
         fi
     done
     ssh -o ConnectTimeout=$SSH_TIMEOUT -o BatchMode=yes "$dest" "$cmds" 2>/dev/null || true
@@ -1191,7 +1191,7 @@ _do_sync() {
         hosts_dests+=("$d")
     done < <(_load_hosts)
 
-    # Probe all hosts in parallel — avoids sequential 3s timeouts per
+    # Probe all hosts in parallel — avoids sequential 1s timeouts per
     # unreachable host. Each probe runs in the background; we wait for
     # all to finish, then check which succeeded.
     declare -A probe_results=()

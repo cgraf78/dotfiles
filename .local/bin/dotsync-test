@@ -519,6 +519,37 @@ _assert_contains "glob expands .bashrc_test" ".bashrc_test" "$result"
 result=$(_expand_paths_local "$TEST_HOME" ".no_match_*")
 _assert_eq "glob no match produces empty" "" "$result"
 
+# Symlink to file inside directory is included
+mkdir -p "$TEST_HOME/.config/linkdir" "$TEST_HOME/.link-targets"
+echo "target content" > "$TEST_HOME/.link-targets/real_file"
+echo "regular" > "$TEST_HOME/.config/linkdir/regular"
+ln -s "$TEST_HOME/.link-targets/real_file" "$TEST_HOME/.config/linkdir/linked_file"
+result=$(_expand_paths_local "$TEST_HOME" ".config/linkdir")
+_assert_contains "dir expansion includes regular file" ".config/linkdir/regular" "$result"
+_assert_contains "dir expansion includes symlink to file" ".config/linkdir/linked_file" "$result"
+
+# Symlink to directory inside directory is NOT expanded
+mkdir -p "$TEST_HOME/.link-targets/subdir"
+echo "deep" > "$TEST_HOME/.link-targets/subdir/deep_file"
+ln -s "$TEST_HOME/.link-targets/subdir" "$TEST_HOME/.config/linkdir/linked_dir"
+result=$(_expand_paths_local "$TEST_HOME" ".config/linkdir")
+_assert_not_contains "dir expansion skips symlink to directory" "deep_file" "$result"
+
+# Dangling symlink inside directory is skipped
+ln -sf "$TEST_HOME/no_such_target" "$TEST_HOME/.config/linkdir/broken_link"
+result=$(_expand_paths_local "$TEST_HOME" ".config/linkdir")
+_assert_not_contains "dir expansion skips dangling symlink" "broken_link" "$result"
+
+# Glob expansion also includes symlinks to files
+echo "g" > "$TEST_HOME/.linktest_a"
+ln -s "$TEST_HOME/.link-targets/real_file" "$TEST_HOME/.linktest_b"
+result=$(_expand_paths_local "$TEST_HOME" ".linktest_*")
+_assert_contains "glob includes regular file" ".linktest_a" "$result"
+_assert_contains "glob includes symlink to file" ".linktest_b" "$result"
+
+rm -f "$TEST_HOME/.linktest_a" "$TEST_HOME/.linktest_b"
+rm -rf "$TEST_HOME/.config/linkdir" "$TEST_HOME/.link-targets"
+
 rm -f "$TEST_HOME/.bashrc_local" "$TEST_HOME/.bashrc_work" "$TEST_HOME/.bashrc_test"
 rm -rf "$TEST_HOME/.config/testdir" "$TEST_HOME/standalone" "$TEST_HOME/dangling_link"
 
@@ -638,6 +669,24 @@ _assert_file_content "relative symlink: content written to target" "updated" "$T
 actual=$(cat "$TEST_HOME/.orc/config")
 _assert_eq "relative symlink reads updated content" "updated" "$actual"
 rm -rf "$TEST_HOME/.orc" "$TEST_HOME/.dotfiles-work"
+
+# Broken symlinks are skipped by _record_local_symlinks
+ln -sf "$TEST_HOME/no_such_target" "$TEST_HOME/broken_symlink"
+result=$(_record_local_symlinks "broken_symlink")
+_assert_eq "broken symlink skipped by record" "" "$result"
+rm -f "$TEST_HOME/broken_symlink"
+
+# REMOTE_MD5_SCRIPT reports BROKEN for broken symlinks
+mkdir -p "$TEST_HOME/.broken-test"
+ln -sf "$TEST_HOME/no_such_target" "$TEST_HOME/.broken-test/link"
+echo "real" > "$TEST_HOME/.broken-test/file"
+result=$(printf '%s\n' ".broken-test/link" ".broken-test/file" | HOME="$TEST_HOME" bash -c "$REMOTE_MD5_SCRIPT")
+_assert_contains "REMOTE_MD5_SCRIPT: broken symlink → BROKEN" "BROKEN .broken-test/link" "$result"
+_assert_contains "REMOTE_MD5_SCRIPT: regular file → EXISTS" "EXISTS" "$result"
+# Missing files
+result=$(printf '%s\n' "no_such_file" | HOME="$TEST_HOME" bash -c "$REMOTE_MD5_SCRIPT")
+_assert_contains "REMOTE_MD5_SCRIPT: missing file → MISSING" "MISSING no_such_file" "$result"
+rm -rf "$TEST_HOME/.broken-test"
 
 # ---------------------------------------------------------------------------
 # Integration tests (SSH to localhost)
