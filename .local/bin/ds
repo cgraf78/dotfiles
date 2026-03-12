@@ -30,27 +30,6 @@ _usage() {
     echo "       ds --killall                kill all ds sessions"
 }
 
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        -p|--profile) PROFILE_OVERRIDE="$2"; shift 2 ;;
-        -n|--name)    NAME_OVERRIDE="$2"; shift 2 ;;
-        -b|--chatbot) CHATBOT_OVERRIDE="$2"; shift 2 ;;
-        -c|--connect) CONNECT_OVERRIDE="$2"; shift 2 ;;
-        -d|--dir)     DIR_OVERRIDE="$2"; shift 2 ;;
-        -l|--list)    ACTION="list"; shift ;;
-        -k|--kill)    ACTION="kill"
-                      # Optional: next arg is the session name (if not a flag)
-                      if [[ $# -gt 1 && "$2" != -* ]]; then
-                          KILL_TARGET="$2"; shift
-                      fi
-                      shift ;;
-        --killall)    ACTION="killall"; shift ;;
-        -h|--help)    _usage; exit 0 ;;
-        -*)           _usage >&2; exit 1 ;;
-        *)            HOST="$1"; shift ;;
-    esac
-done
-
 # --- Profile layouts ---
 
 _profile_bare() {
@@ -226,9 +205,31 @@ _remote() {
     esac
 }
 
+# When sourced for testing, export functions but skip arg parsing and execution.
 if [[ -n "${DS_SOURCED:-}" ]]; then
     return 0 2>/dev/null || exit 0
 fi
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -p|--profile) PROFILE_OVERRIDE="$2"; shift 2 ;;
+        -n|--name)    NAME_OVERRIDE="$2"; shift 2 ;;
+        -b|--chatbot) CHATBOT_OVERRIDE="$2"; shift 2 ;;
+        -c|--connect) CONNECT_OVERRIDE="$2"; shift 2 ;;
+        -d|--dir)     DIR_OVERRIDE="$2"; shift 2 ;;
+        -l|--list)    ACTION="list"; shift ;;
+        -k|--kill)    ACTION="kill"
+                      # Optional: next arg is the session name (if not a flag)
+                      if [[ $# -gt 1 && "$2" != -* ]]; then
+                          KILL_TARGET="$2"; shift
+                      fi
+                      shift ;;
+        --killall)    ACTION="killall"; shift ;;
+        -h|--help)    _usage; exit 0 ;;
+        -*)           _usage >&2; exit 1 ;;
+        *)            HOST="$1"; shift ;;
+    esac
+done
 
 if [[ -n "$HOST" ]]; then
     _remote
