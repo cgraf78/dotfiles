@@ -112,9 +112,6 @@ fi
 # Completions
 command -v fzf &>/dev/null && eval "$(fzf --bash 2>/dev/null)" || true
 
-# SSH bypassing tmux
-sshn() { ssh -t "$1" "NO_TMUX=1 bash"; }
-
 # Directory bookmarks
 mkdir -p ~/.marks
 mark() { ln -sfn "$(pwd)" ~/.marks/"$1"; }
@@ -128,6 +125,9 @@ for _dsf in ~/.config/ds/profile-*.sh; do
     eval "ds${_dsn}() { ds -p ${_dsn} \"\$@\"; }"
 done
 unset _dsf _dsn
+
+# SSH bypassing tmux
+sshn() { ssh -t "$1" "NO_TMUX=1 bash"; }
 
 # =============================================================================
 # tmux
