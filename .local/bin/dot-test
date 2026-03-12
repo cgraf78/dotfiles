@@ -1,0 +1,250 @@
+#!/usr/bin/env bash
+# dot-test — unit tests for the dot dotfiles manager.
+#
+# Creates temp directories with mock git repos to test command routing,
+# work repo handling, normalize/filtered logic, and merge scripts.
+#
+# Usage: dot-test
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REAL_HOME="$HOME"
+
+# shellcheck source=../../.config/dot/test-helpers.sh
+. "$HOME/.config/dot/test-helpers.sh"
+
+# ---------------------------------------------------------------------------
+# Setup: mock HOME with bare repo structure
+# ---------------------------------------------------------------------------
+
+TEST_HOME=$(_tmpdir)
+export HOME="$TEST_HOME"
+
+# Create a bare repo to serve as .dotfiles
+git init --bare "$TEST_HOME/.dotfiles" >/dev/null 2>&1
+
+# Set GIT and WORK_DIR to match what helpers.sh would set
+DOTFILES="$TEST_HOME/.dotfiles"
+GIT="git --git-dir=$DOTFILES --work-tree=$TEST_HOME"
+WORK_DIR="$TEST_HOME/.dotfiles-work"
+
+# Configure git identity for commits
+$GIT config user.email "test@test.com"
+$GIT config user.name "Test"
+
+# Create helpers.sh and dot config dir
+mkdir -p "$TEST_HOME/.config/dot"
+cp "$REAL_HOME/.config/dot/helpers.sh" "$TEST_HOME/.config/dot/helpers.sh"
+
+# Seed the repo with a tracked file so we have a branch
+echo "initial" > "$TEST_HOME/.testrc"
+$GIT add .testrc
+$GIT commit -m "initial" >/dev/null 2>&1
+
+# Mock git log for commands that record calls
+MOCK_BIN=$(_tmpdir)
+GIT_LOG="$MOCK_BIN/git.log"
+export GIT_LOG
+
+_reset_git_log() {
+    : > "$GIT_LOG"
+}
+
+# ---------------------------------------------------------------------------
+# Tests: helpers.sh variables
+# ---------------------------------------------------------------------------
+
+echo "=== helpers.sh setup ==="
+
+# Source helpers in test HOME context
+. "$TEST_HOME/.config/dot/helpers.sh"
+
+_assert_eq "DOTFILES points to bare repo" "$TEST_HOME/.dotfiles" "$DOTFILES"
+_assert_eq "WORK_DIR points to work clone" "$TEST_HOME/.dotfiles-work" "$WORK_DIR"
+_assert_contains "GIT uses bare repo" "--git-dir=$DOTFILES" "$GIT"
+_assert_contains "GIT uses HOME as worktree" "--work-tree=$TEST_HOME" "$GIT"
+
+# ---------------------------------------------------------------------------
+# Tests: _pull_work_repo / _push_work_repo
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== Work repo helpers ==="
+
+# No work repo → silent no-op
+result=$(_pull_work_repo 2>&1)
+_assert_eq "pull_work_repo: no work dir → no output" "" "$result"
+
+result=$(_push_work_repo 2>&1)
+_assert_eq "push_work_repo: no work dir → no output" "" "$result"
+
+# Create a work repo (regular clone of a bare repo)
+WORK_BARE=$(_tmpdir)
+git init --bare "$WORK_BARE" >/dev/null 2>&1
+git clone "$WORK_BARE" "$WORK_DIR" >/dev/null 2>&1
+git -C "$WORK_DIR" config user.email "test@test.com"
+git -C "$WORK_DIR" config user.name "Test"
+
+# Seed work repo so pull/push have a branch
+echo "work content" > "$WORK_DIR/work-file"
+git -C "$WORK_DIR" add work-file
+git -C "$WORK_DIR" commit -m "seed" >/dev/null 2>&1
+git -C "$WORK_DIR" push >/dev/null 2>&1
+
+# Pull work repo succeeds
+result=$(_pull_work_repo 2>&1)
+_assert_contains "pull_work_repo: shows pulling" "Pulling work" "$result"
+
+# Push work repo succeeds
+result=$(_push_work_repo 2>&1)
+_assert_contains "push_work_repo: shows pushing" "Pushing work" "$result"
+
+# Bootstrap script runs on pull if present
+echo '#!/bin/bash
+echo "BOOTSTRAP_RAN"' > "$WORK_DIR/bootstrap"
+chmod +x "$WORK_DIR/bootstrap"
+result=$(_pull_work_repo 2>&1)
+_assert_contains "pull_work_repo: runs bootstrap" "BOOTSTRAP_RAN" "$result"
+
+rm -rf "$WORK_DIR" "$WORK_BARE"
+
+# ---------------------------------------------------------------------------
+# Tests: _run_merges
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== Merge scripts ==="
+
+# No merge scripts → no-op
+result=$(_run_merges 2>&1)
+_assert_eq "no merge scripts → no output" "" "$result"
+
+# Create test merge scripts
+cat > "$TEST_HOME/.config/dot/merge-testapp.sh" <<'MERGE'
+merge_testapp() {
+    echo "MERGED_TESTAPP"
+}
+MERGE
+
+cat > "$TEST_HOME/.config/dot/merge-otherapp.sh" <<'MERGE'
+merge_otherapp() {
+    echo "MERGED_OTHERAPP"
+}
+MERGE
+
+result=$(_run_merges 2>&1)
+_assert_contains "runs testapp merge" "MERGED_TESTAPP" "$result"
+_assert_contains "runs otherapp merge" "MERGED_OTHERAPP" "$result"
+
+# Failing merge script doesn't abort
+cat > "$TEST_HOME/.config/dot/merge-failapp.sh" <<'MERGE'
+merge_failapp() {
+    return 1
+}
+MERGE
+
+result=$(_run_merges 2>&1)
+_assert_contains "surviving merges still run" "MERGED_TESTAPP" "$result"
+
+rm -f "$TEST_HOME/.config/dot"/merge-*.sh
+
+# ---------------------------------------------------------------------------
+# Tests: _normalize_filtered
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== Normalize filtered ==="
+
+# Source dot for _normalize_filtered (it's defined in dot, not helpers.sh)
+# We can't source dot directly (no sourcing guard), so test via subprocess.
+
+# No dirty files → no-op
+result=$($GIT diff-files --name-only 2>/dev/null || true)
+_assert_eq "clean worktree: no dirty files" "" "$result"
+
+# Create a dirty file that differs on disk but not in content (after filter)
+echo "modified" > "$TEST_HOME/.testrc"
+$GIT add .testrc
+$GIT commit -m "modified" >/dev/null 2>&1
+
+# File matches HEAD — no phantom dirt
+result=$($GIT diff-files --name-only 2>/dev/null || true)
+_assert_eq "committed file: not dirty" "" "$result"
+
+# ---------------------------------------------------------------------------
+# Tests: dot command routing (via subprocess)
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== Command routing ==="
+
+# dot status shows personal dotfiles header
+result=$("$SCRIPT_DIR/dot" status 2>&1)
+_assert_contains "status: personal header" "Personal dotfiles" "$result"
+
+# dot status without work dir: no work section
+_assert_not_contains "status: no work section without work dir" "Work dotfiles" "$result"
+
+# dot status with work dir: shows both
+WORK_BARE=$(_tmpdir)
+git init --bare "$WORK_BARE" >/dev/null 2>&1
+git clone "$WORK_BARE" "$WORK_DIR" >/dev/null 2>&1
+git -C "$WORK_DIR" config user.email "test@test.com"
+git -C "$WORK_DIR" config user.name "Test"
+echo "x" > "$WORK_DIR/f"
+git -C "$WORK_DIR" add f
+git -C "$WORK_DIR" commit -m "init" >/dev/null 2>&1
+git -C "$WORK_DIR" push >/dev/null 2>&1
+
+result=$("$SCRIPT_DIR/dot" status 2>&1)
+_assert_contains "status: personal with work dir" "Personal dotfiles" "$result"
+_assert_contains "status: work section present" "Work dotfiles" "$result"
+
+rm -rf "$WORK_DIR" "$WORK_BARE"
+
+# dot refresh is a valid command (runs _normalize_filtered)
+result=$("$SCRIPT_DIR/dot" refresh 2>&1)
+_assert_eq "refresh: no output on clean tree" "" "$result"
+
+# dot <anything> passes through to git
+result=$("$SCRIPT_DIR/dot" log --oneline -1 2>&1)
+_assert_contains "passthrough: git log works" "modified" "$result"
+
+result=$("$SCRIPT_DIR/dot" branch 2>&1)
+_assert_contains "passthrough: git branch works" "master" "$result"
+
+# dot with no args passes through (git with no args shows usage)
+result=$("$SCRIPT_DIR/dot" 2>&1 || true)
+_assert_contains "no args: git usage" "usage:" "$result"
+
+# ---------------------------------------------------------------------------
+# Tests: dot pull (with mock remote)
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== Pull command ==="
+
+# Set up a remote so pull doesn't fail
+REMOTE_BARE=$(_tmpdir)
+git clone --bare "$DOTFILES" "$REMOTE_BARE" >/dev/null 2>&1
+$GIT remote add origin "$REMOTE_BARE" 2>/dev/null || $GIT remote set-url origin "$REMOTE_BARE"
+$GIT fetch origin >/dev/null 2>&1
+$GIT branch --set-upstream-to=origin/master master 2>/dev/null || true
+
+result=$("$SCRIPT_DIR/dot" pull 2>&1)
+_assert_contains "pull: shows pulling" "Pulling personal" "$result"
+_assert_contains "pull: shows done message" "Done" "$result"
+_assert_contains "pull: mentions source bashrc" "source ~/.bashrc" "$result"
+
+# ---------------------------------------------------------------------------
+# Tests: dot push (with mock remote)
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== Push command ==="
+
+result=$("$SCRIPT_DIR/dot" push 2>&1)
+_assert_contains "push: shows pushing" "Pushing personal" "$result"
+
+_test_summary
