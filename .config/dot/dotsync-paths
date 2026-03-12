@@ -31,5 +31,6 @@
 !.vim_runtime/temp_dirs
 !*_work
 !*-work
+!*.conflict.*
 !.local/bin/dot-bootstrap
 !.local/bin/dotsync-test
