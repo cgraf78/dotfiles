@@ -102,6 +102,12 @@ dsorc() { ds -p orc "$@"; }
 
 # Auto-attach to tmux on SSH (sshn() bypasses this via NO_TMUX)
 # exec so the SSH session ends when tmux detaches.
+# Skip for loopback SSH — prevents nested tmux when ssh'ing to self
+# from inside a tmux pane (causes recursive display with detach-on-destroy off).
 if [[ -z "$TMUX" && $- == *i* && -n "$SSH_CONNECTION" && -z "$NO_TMUX" ]] && command -v tmux &>/dev/null; then
-    exec ds
+    _ssh_src="${SSH_CONNECTION%% *}"
+    if [[ "$_ssh_src" != "127.0.0.1" && "$_ssh_src" != "::1" ]]; then
+        exec ds
+    fi
+    unset _ssh_src
 fi
