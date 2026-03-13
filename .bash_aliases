@@ -66,7 +66,13 @@ if [[ "$(uname -s)" == "Linux" || "$(uname -s)" == MINGW* || "$(uname -s)" == MS
 
         # Open in Windows/local VS Code instead of Remote WSL.
         wcode() {
-            code "$(wslpath -w "${1:-.}")"
+            local target
+            target="$(wslpath -w "${1:-.}")"
+            if [[ -x "/mnt/c/Users/$USER/AppData/Local/Programs/Microsoft VS Code/Code.exe" ]]; then
+                "/mnt/c/Users/$USER/AppData/Local/Programs/Microsoft VS Code/Code.exe" "$target"
+            else
+                cmd.exe /C start "" code "$target" >/dev/null 2>&1
+            fi
         }
         alias wvs='wcode'
 
