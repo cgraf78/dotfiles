@@ -68,9 +68,20 @@ if [[ "$(uname -s)" == "Linux" || "$(uname -s)" == MINGW* || "$(uname -s)" == MS
         if [[ -n "${WINHOME:-}" ]]; then
             alias wh='cd "$WINHOME"'
             alias winhome='cd "$WINHOME"'
-            alias wdesktop='cd "$WINHOME/Desktop"'
+
+            if [[ -d "$WINHOME/OneDrive/Desktop" ]]; then
+                alias wdesktop='cd "$WINHOME/OneDrive/Desktop"'
+            else
+                alias wdesktop='cd "$WINHOME/Desktop"'
+            fi
+
             alias wdownloads='cd "$WINHOME/Downloads"'
-            alias wdocuments='cd "$WINHOME/Documents"'
+
+            if [[ -d "$WINHOME/OneDrive/Documents" ]]; then
+                alias wdocuments='cd "$WINHOME/OneDrive/Documents"'
+            else
+                alias wdocuments='cd "$WINHOME/Documents"'
+            fi
         fi
 
         # Path & Clipboard helpers
