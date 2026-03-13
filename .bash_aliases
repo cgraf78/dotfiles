@@ -38,7 +38,6 @@ if [[ "$(uname -s)" == "Linux" || "$(uname -s)" == MINGW* || "$(uname -s)" == MS
     alias cp='cp --backup=numbered'
     alias ln='ln --backup=numbered'
     alias mv='mv -f --backup=numbered'
-    alias please='sudo'
 
     # Windows interop (shared between WSL and MINGW/MSYS)
     if [[ -n "${WSL_DISTRO_NAME:-}" || "$(uname -s)" != "Linux" ]]; then
@@ -69,9 +68,9 @@ if [[ "$(uname -s)" == "Linux" || "$(uname -s)" == MINGW* || "$(uname -s)" == MS
         if [[ -n "${WINHOME:-}" ]]; then
             alias wh='cd "$WINHOME"'
             alias winhome='cd "$WINHOME"'
-            alias desktop='cd "$WINHOME/Desktop"'
-            alias downloads='cd "$WINHOME/Downloads"'
-            alias documents='cd "$WINHOME/Documents"'
+            alias wdesktop='cd "$WINHOME/Desktop"'
+            alias wdownloads='cd "$WINHOME/Downloads"'
+            alias wdocuments='cd "$WINHOME/Documents"'
         fi
 
         # Path & Clipboard helpers
