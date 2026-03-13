@@ -24,17 +24,12 @@ jobs:
 
       - name: Check JSON sorting
         run: |
-          # Verify that all standard JSON files are sorted according to our Git filter.
-          # Skip files with comments (JSONC) as jq cannot parse them natively.
-          find . -name "*.json" -not -path "./.git/*" | while read -r f; do
-            # Check if it's valid standard JSON
-            if jq . "$f" >/dev/null 2>&1; then
-              if ! diff <(jq --sort-keys . "$f") "$f" >/dev/null; then
-                echo "Error: $f is not sorted. Run 'jq --sort-keys . \"$f\" > tmp.json && mv tmp.json \"$f\"' to fix."
-                exit 1
-              fi
-            else
-              echo "Info: Skipping $f (contains comments or invalid JSON)"
+          # Verify that files assigned the 'json-sort' filter in .gitattributes are actually sorted.
+          # This prevents "ghost diffs" on machines with the filter enabled.
+          git ls-files | git check-attr --all --stdin | grep "filter: json-sort" | cut -d: -f1 | while read -r f; do
+            if ! diff <(jq --sort-keys . "$f") "$f" >/dev/null; then
+              echo "Error: $f is not sorted. Run 'jq --sort-keys . \"$f\" > tmp.json && mv tmp.json \"$f\"' to fix."
+              exit 1
             fi
           done
 
