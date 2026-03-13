@@ -55,6 +55,9 @@ case "${1:-}" in
     if [[ -d "$WORK_DIR" ]]; then
       # Automatically set skip-worktree for work-overridden files on work machines
       $GIT update-index --skip-worktree CLAUDE.md .claude/settings.json 2>/dev/null || true
+    else
+      # Automatically unset skip-worktree on personal machines
+      $GIT update-index --no-skip-worktree CLAUDE.md .claude/settings.json 2>/dev/null || true
     fi
     $GIT status "$@"
     if [[ -d "$WORK_DIR" ]]; then
