@@ -64,6 +64,7 @@ if [[ "$(uname -s)" == "Linux" || "$(uname -s)" == MINGW* || "$(uname -s)" == MS
             fi
         fi
 
+        # Open in Windows/local VS Code instead of Remote WSL.
         wcode() {
             code "$(wslpath -w "${1:-.}")"
         }
