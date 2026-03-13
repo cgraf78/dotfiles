@@ -17,6 +17,14 @@ set -euo pipefail
 # Re-checkout files that are byte-different but identical after clean filter.
 # Fixes phantom dirty status from tools rewriting JSON with different key order.
 _normalize_filtered() {
+  # Warn if required filters from .gitattributes are missing in local config.
+  if [[ -f "$HOME/.gitattributes" ]] && grep -q "filter=json-sort" "$HOME/.gitattributes"; then
+    # shellcheck disable=SC2086
+    if ! $GIT config filter.json-sort.clean >/dev/null 2>&1; then
+      echo "warning: json-sort filter is not configured. run 'dotbootstrap' to fix." >&2
+    fi
+  fi
+
   local dirty
   dirty=$($GIT diff-files --name-only 2>/dev/null) || true
   [[ -n "$dirty" ]] || return 0
