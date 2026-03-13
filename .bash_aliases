@@ -38,6 +38,7 @@ if [[ "$(uname -s)" == "Linux" || "$(uname -s)" == MINGW* || "$(uname -s)" == MS
     alias cp='cp --backup=numbered'
     alias ln='ln --backup=numbered'
     alias mv='mv -f --backup=numbered'
+    alias please='sudo'
 
     # Windows interop (WSL and MINGW/MSYS — uname already matched above)
     if [[ -n "${WSL_DISTRO_NAME:-}" || "$(uname -s)" != "Linux" ]]; then
@@ -51,6 +52,41 @@ if [[ "$(uname -s)" == "Linux" || "$(uname -s)" == MINGW* || "$(uname -s)" == MS
         alias setusbhost='python "$CMDER_ROOT/bin/usbtools/setusbhost.py"'
         alias pbcopy='clip.exe'
         alias pbpaste='powershell.exe -NoProfile -Command Get-Clipboard'
+
+        # WSL-specific ergonomics
+        if [[ -n "${WSL_DISTRO_NAME:-}" ]]; then
+            # Cache Windows home path
+            if [[ -z "${WINHOME:-}" ]]; then
+                if [[ -d "/mnt/c/Users/$USER" ]]; then
+                    export WINHOME="/mnt/c/Users/$USER"
+                else
+                    # Fallback to powershell (only if not already cached)
+                    export WINHOME=$(wslpath "$(powershell.exe -c "Write-Host -NoNewline \$env:USERPROFILE" 2>/dev/null)" 2>/dev/null)
+                fi
+            fi
+
+            if [[ -n "${WINHOME:-}" ]]; then
+                alias wh='cd "$WINHOME"'
+                alias winhome='cd "$WINHOME"'
+                alias desktop='cd "$WINHOME/Desktop"'
+                alias downloads='cd "$WINHOME/Downloads"'
+                alias documents='cd "$WINHOME/Documents"'
+            fi
+
+            # Path & Clipboard helpers
+            alias cppath='wslpath -w "$(pwd)" | clip.exe'  # Copy current WSL path as Windows path
+            alias wpath='wslpath -w'                       # Convert to Windows path
+            alias lpath='wslpath -u'                       # Convert to Linux path
+
+            # Open Windows Explorer (handles paths better than e.)
+            explorer() {
+                if [[ $# -eq 0 ]]; then
+                    explorer.exe .
+                else
+                    explorer.exe "$(wslpath -w "$1")"
+                fi
+            }
+        fi
     fi
 fi
 
