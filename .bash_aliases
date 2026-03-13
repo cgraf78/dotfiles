@@ -41,7 +41,6 @@ if [[ "$(uname -s)" == "Linux" || "$(uname -s)" == MINGW* || "$(uname -s)" == MS
 
     # Windows interop (shared between WSL and MINGW/MSYS)
     if [[ -n "${WSL_DISTRO_NAME:-}" || "$(uname -s)" != "Linux" ]]; then
-        alias e.='explorer.exe .'
         alias np='"c:/program files/notepad++/notepad++.exe"'
         alias rufus='rufus-4.6p.exe -g'
         alias cpuz='cpuz_x64.exe'
@@ -89,8 +88,8 @@ if [[ "$(uname -s)" == "Linux" || "$(uname -s)" == MINGW* || "$(uname -s)" == MS
         alias wpath='wslpath -w'                       # Convert to Windows path
         alias lpath='wslpath -u'                       # Convert to Linux path
 
-        # Open Windows Explorer (handles paths better than e.)
-        explorer() {
+        # Open Windows Explorer
+        e() {
             if [[ $# -eq 0 ]]; then
                 explorer.exe .
             else
