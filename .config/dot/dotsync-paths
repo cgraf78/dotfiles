@@ -9,6 +9,8 @@
 .local/bin/dot*
 .local/bin/ds*
 .tmux.conf
+.claude/CLAUDE.md
+.claude/settings.json
 
 # Excludes
 !*/__pycache__
