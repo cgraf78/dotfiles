@@ -1,150 +1,161 @@
 {
-    "[python]": {
-        "editor.formatOnSave": true,
-        "editor.tabSize": 4,
-        "diffEditor.ignoreTrimWhitespace": false,
-        "editor.codeActionsOnSave": {
-            "source.organizeImports": "explicit"
-        }
-    },
-    "[starlark]": {
-        "editor.formatOnSave": true
-    },
-    "[java]": {
-        "editor.formatOnSave": true
-    },
-    "[kotlin]": {
-        "editor.formatOnSave": true
-    },
-    "[objective-c]": {
-        "editor.formatOnSave": true
-    },
-    "[objective-cpp]": {
-        "editor.formatOnSave": true
-    },
-    "[proto]": {
-        "editor.formatOnSave": true
-    },
-    "[cpp]": {
-        "editor.formatOnSave": true
-    },
-    "[c]": {
-        "editor.formatOnSave": true
-    },
-    "[cuda-cpp]": {
-        "editor.formatOnSave": true
-    },
-    "[rust]": {
-        "editor.formatOnSave": true
-    },
-    "[ocaml]": {
-        "editor.formatOnSave": true
-    },
-    "[swift]": {
-        "editor.formatOnSave": true
-    },
-    "[go]": {
-        "editor.formatOnSave": true
-    },
-    "editor.suggest.snippetsPreventQuickSuggestions": false,
-    "editor.tabSize": 2,
-    "editor.indentSize": "tabSize",
-    "editor.inlineSuggest.allowSuggestOnTriggerCharacters": true,
-    "editor.lightbulb.enabled": "on",
-    "editor.bracketPairColorization.enabled": true,
-    "editor.guides.bracketPairs": "active",
-    "editor.stickyScroll.enabled": true,
-    "editor.renderWhitespace": "boundary",
-    "files.insertFinalNewline": true,
-    "files.trimFinalNewlines": true,
-    "trailing-spaces.trimOnSave": true,
-    "trailing-spaces.deleteModifiedLinesOnly": true,
-    "multiCommand.commands": [
-        {
-            "command": "multiCommand.focusEditor",
-            "sequence": [
-                "workbench.action.focusActiveEditorGroup"
-            ]
-        },
-        {
-            "command": "multiCommand.findNextAndFocusEditor",
-            "sequence": [
-                "editor.action.nextMatchFindAction",
-                "workbench.action.focusActiveEditorGroup"
-            ]
-        }
-    ],
-    "cSpell.diagnosticLevel": "Hint",
-    "diffEditor.renderSideBySide": false,
+  "[c]": {
+    "editor.formatOnSave": true
+  },
+  "[cpp]": {
+    "editor.formatOnSave": true
+  },
+  "[cuda-cpp]": {
+    "editor.formatOnSave": true
+  },
+  "[go]": {
+    "editor.formatOnSave": true
+  },
+  "[java]": {
+    "editor.formatOnSave": true
+  },
+  "[kotlin]": {
+    "editor.formatOnSave": true
+  },
+  "[objective-c]": {
+    "editor.formatOnSave": true
+  },
+  "[objective-cpp]": {
+    "editor.formatOnSave": true
+  },
+  "[ocaml]": {
+    "editor.formatOnSave": true
+  },
+  "[proto]": {
+    "editor.formatOnSave": true
+  },
+  "[python]": {
     "diffEditor.ignoreTrimWhitespace": false,
-    "debug.saveBeforeStart": "nonUntitledEditorsInActiveGroup",
-    "terminal.integrated.defaultProfile.osx": "bash",
-    "terminal.integrated.defaultProfile.linux": "bash",
-    "terminal.integrated.defaultProfile.windows": "WSL",
-    "terminal.integrated.scrollback": 10000,
-    "terminal.explorerKind": "external",
-    "terminal.external.osxExec": "iTerm.app",
-    "terminal.integrated.profiles.osx": {
-        "bash": {
-            "path": "bash",
-            "args": ["-l"],
-            "icon": "terminal-bash"
-        },
-        "zsh": {
-            "path": "zsh",
-            "args": ["-l"]
-        },
-        "tmux": {
-            "path": "tmux",
-            "icon": "terminal-tmux"
-        }
+    "editor.codeActionsOnSave": {
+      "source.organizeImports": "explicit"
     },
-    "terminal.integrated.profiles.linux": {
-        "bash": {
-            "path": "bash",
-            "icon": "terminal-bash",
-            "args": ["-l"]
-        },
-        "zsh": {
-            "path": "zsh",
-            "args": ["-l"]
-        },
-        "tmux": {
-            "path": "tmux",
-            "icon": "terminal-tmux"
-        }
+    "editor.formatOnSave": true,
+    "editor.tabSize": 4
+  },
+  "[rust]": {
+    "editor.formatOnSave": true
+  },
+  "[starlark]": {
+    "editor.formatOnSave": true
+  },
+  "[swift]": {
+    "editor.formatOnSave": true
+  },
+  "accessibility.openChatEditedFiles": false,
+  "accessibility.signals.terminalBell": {
+    "sound": "on"
+  },
+  "cSpell.diagnosticLevel": "Hint",
+  "debug.saveBeforeStart": "nonUntitledEditorsInActiveGroup",
+  "diffEditor.ignoreTrimWhitespace": false,
+  "diffEditor.renderSideBySide": false,
+  "editor.bracketPairColorization.enabled": true,
+  "editor.guides.bracketPairs": "active",
+  "editor.indentSize": "tabSize",
+  "editor.inlineSuggest.allowSuggestOnTriggerCharacters": true,
+  "editor.lightbulb.enabled": "on",
+  "editor.renderWhitespace": "boundary",
+  "editor.stickyScroll.enabled": true,
+  "editor.suggest.snippetsPreventQuickSuggestions": false,
+  "editor.tabSize": 2,
+  "emmet.showAbbreviationSuggestions": false,
+  "emmet.showExpandedAbbreviation": "never",
+  "files.insertFinalNewline": true,
+  "files.trimFinalNewlines": true,
+  "isort.args": [
+    "--profile",
+    "black"
+  ],
+  "multiCommand.commands": [
+    {
+      "command": "multiCommand.focusEditor",
+      "sequence": [
+        "workbench.action.focusActiveEditorGroup"
+      ]
     },
-    "terminal.integrated.profiles.windows": {
-        "WSL": {
-            "path": "wsl.exe",
-            "icon": "terminal-bash"
-        },
-        "PowerShell": {
-            "path": "pwsh.exe",
-            "icon": "terminal-powershell"
-        },
-        "Command Prompt": {
-            "path": "cmd.exe",
-            "icon": "terminal-cmd"
-        }
+    {
+      "command": "multiCommand.findNextAndFocusEditor",
+      "sequence": [
+        "editor.action.nextMatchFindAction",
+        "workbench.action.focusActiveEditorGroup"
+      ]
+    }
+  ],
+  "terminal.explorerKind": "external",
+  "terminal.external.osxExec": "iTerm.app",
+  "terminal.integrated.defaultProfile.linux": "bash",
+  "terminal.integrated.defaultProfile.osx": "bash",
+  "terminal.integrated.defaultProfile.windows": "WSL",
+  "terminal.integrated.profiles.linux": {
+    "bash": {
+      "args": [
+        "-l"
+      ],
+      "icon": "terminal-bash",
+      "path": "bash"
     },
-    "terminal.integrated.systemd.shouldUse": true,
-    "accessibility.signals.terminalBell": {
-        "sound": "on"
+    "tmux": {
+      "icon": "terminal-tmux",
+      "path": "tmux"
     },
-    "accessibility.openChatEditedFiles": false,
-    "window.restoreWindows": "all",
-    "window.zoomPerWindow": false,
-    "window.nativeTabs": true,
-    "window.openNewWindowsInNativeTabs": true,
-    "workbench.iconTheme": "vscode-icons",
-    "workbench.colorTheme": "Night Owl (No Italics)",
-    "workbench.preferredDarkColorTheme": "Night Owl (No Italics)",
-    "workbench.editor.enablePreview": true,
-    "workbench.panel.defaultLocation": "right",
-    "workbench.secondarySideBar.defaultVisibility": "hidden",
-    "vsicons.dontShowNewVersionMessage": true,
-    "emmet.showAbbreviationSuggestions": false,
-    "emmet.showExpandedAbbreviation": "never",
-    "isort.args": ["--profile", "black"]
+    "zsh": {
+      "args": [
+        "-l"
+      ],
+      "path": "zsh"
+    }
+  },
+  "terminal.integrated.profiles.osx": {
+    "bash": {
+      "args": [
+        "-l"
+      ],
+      "icon": "terminal-bash",
+      "path": "bash"
+    },
+    "tmux": {
+      "icon": "terminal-tmux",
+      "path": "tmux"
+    },
+    "zsh": {
+      "args": [
+        "-l"
+      ],
+      "path": "zsh"
+    }
+  },
+  "terminal.integrated.profiles.windows": {
+    "Command Prompt": {
+      "icon": "terminal-cmd",
+      "path": "cmd.exe"
+    },
+    "PowerShell": {
+      "icon": "terminal-powershell",
+      "path": "pwsh.exe"
+    },
+    "WSL": {
+      "icon": "terminal-bash",
+      "path": "wsl.exe"
+    }
+  },
+  "terminal.integrated.scrollback": 10000,
+  "terminal.integrated.systemd.shouldUse": true,
+  "trailing-spaces.deleteModifiedLinesOnly": true,
+  "trailing-spaces.trimOnSave": true,
+  "vsicons.dontShowNewVersionMessage": true,
+  "window.nativeTabs": true,
+  "window.openNewWindowsInNativeTabs": true,
+  "window.restoreWindows": "all",
+  "window.zoomPerWindow": false,
+  "workbench.colorTheme": "Night Owl (No Italics)",
+  "workbench.editor.enablePreview": true,
+  "workbench.iconTheme": "vscode-icons",
+  "workbench.panel.defaultLocation": "right",
+  "workbench.preferredDarkColorTheme": "Night Owl (No Italics)",
+  "workbench.secondarySideBar.defaultVisibility": "hidden"
 }
