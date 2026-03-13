@@ -64,6 +64,11 @@ if [[ "$(uname -s)" == "Linux" || "$(uname -s)" == MINGW* || "$(uname -s)" == MS
             fi
         fi
 
+        wcode() {
+            code "$(wslpath -w "${1:-.}")"
+        }
+        alias wvs='wcode'
+
         if [[ -n "${WINHOME:-}" ]]; then
             alias wh='cd "$WINHOME"'
             alias winhome='cd "$WINHOME"'
