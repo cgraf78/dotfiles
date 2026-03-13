@@ -22,6 +22,18 @@ jobs:
           .config/dot/helpers.sh
           .config/dot/test-helpers.sh
 
+      - name: Check JSON sorting
+        run: |
+          # Verify that all JSON files are sorted according to our Git filter.
+          # If a JSON file is not sorted, it will cause "ghost diffs" on machines
+          # with the json-sort filter enabled.
+          find . -name "*.json" -not -path "./.git/*" | while read -r f; do
+            if ! diff <(jq --sort-keys . "$f") "$f" >/dev/null; then
+              echo "Error: $f is not sorted. Run 'jq --sort-keys . \"$f\" > tmp.json && mv tmp.json \"$f\"' to fix."
+              exit 1
+            fi
+          done
+
   test:
     runs-on: ${{ matrix.os }}
     strategy:
