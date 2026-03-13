@@ -19,6 +19,7 @@ set -euo pipefail
 _normalize_filtered() {
   # Warn if required filters from .gitattributes are missing in local config.
   if [[ -f "$HOME/.gitattributes" ]] && grep -q "filter=json-sort" "$HOME/.gitattributes"; then
+    # shellcheck disable=SC2086
     if ! $GIT config filter.json-sort.clean >/dev/null 2>&1; then
       echo "warning: json-sort filter is not configured. run 'dotbootstrap' to fix." >&2
     fi
