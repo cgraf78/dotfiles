@@ -1,0 +1,131 @@
+{
+  "env": {
+    "DISABLE_AUTOUPDATER": "1"
+  },
+  "permissions": {
+    "allow": [
+      "Bash(dot *)",
+      "Bash(cd *)",
+      "Bash(ls *)",
+      "Bash(which *)",
+      "Bash(echo *)",
+      "Bash(cat *)",
+      "Bash(head *)",
+      "Bash(tail *)",
+      "Bash(wc *)",
+      "Bash(env)",
+      "Bash(printenv *)",
+      "Bash(mkdir *)",
+      "Bash(test *)",
+      "Bash(diff *)",
+      "Bash(file *)",
+      "Bash(realpath *)",
+      "Bash(basename *)",
+      "Bash(dirname *)",
+      "Bash(sort *)",
+      "Bash(uniq *)",
+      "Bash(cut *)",
+      "Bash(touch *)",
+      "Bash(chmod *)",
+      "Bash(ln *)",
+      "Bash(xattr *)",
+      "Bash(stat *)",
+      "Bash(mdfind*)",
+      "Bash(tree *)",
+      "Bash(date *)",
+      "Bash(whoami)",
+      "Bash(uname *)",
+      "Bash(tr *)",
+      "Bash(python3 *)",
+      "Bash(pip3 list*)",
+      "Bash(pip3 show *)",
+      "Bash(pip3 freeze*)",
+      "Bash(c++filt *)",
+      "Bash(nm *)",
+      "Bash(otool *)",
+      "Bash(strings *)",
+      "Bash(git *)",
+      "Bash(tmux *)",
+      "Bash(locate *)",
+      "Bash(code *)",
+      "Bash(gh api *)",
+      "Bash(gh --help*)",
+      "Bash(xargs *)",
+      "Bash(sed *)",
+      "Bash(awk *)",
+      "Bash(curl -s *)",
+      "Bash(curl --silent *)",
+      "Bash(jq *)",
+      "Bash(sha256sum *)",
+      "Bash(md5sum *)",
+      "Bash(readlink *)",
+      "Bash(type *)",
+      "Bash(hostname*)",
+      "Bash(df *)",
+      "Bash(du *)",
+      "Read(*)",
+      "Glob(*)",
+      "Grep(*)",
+      "WebFetch(*)",
+      "WebSearch(*)"
+    ]
+  },
+  "model": "opus",
+  "hooks": {
+    "Notification": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "printf '\\a' > /dev/tty 2>/dev/null || true"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.command // empty' | { read cmd; if printf '%s' \"$cmd\" | grep -qE 'rm\\s+(-[a-zA-Z]*f[a-zA-Z]*\\s+)*-[a-zA-Z]*r|rm\\s+(-[a-zA-Z]*r[a-zA-Z]*\\s+)*-[a-zA-Z]*f'; then if printf '%s' \"$cmd\" | grep -qE 'rm\\s+.*\\s+(/|~|\\$HOME|\\.\\.)(\\s|$)'; then echo 'BLOCKED: rm -rf on / ~ $HOME or .. is never allowed' >&2; exit 2; fi; echo 'WARNING: rm -rf detected. Verify the target path is correct before proceeding.' >&2; fi; }"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "input=$(cat); sid=$(printf '%s' \"$input\" | jq -r '.session_id // empty'); tp=$(printf '%s' \"$input\" | jq -r '.transcript_path // empty'); if [ -z \"$sid\" ] || [ -z \"$tp\" ] || [ ! -f \"$tp\" ]; then exit 0; fi; grep -q '\"custom-title\"' \"$tp\" 2>/dev/null && exit 0; msgs=$(jq -r -R 'try fromjson catch empty | select(.type==\"user\") | .message.content | (if type==\"array\" then [.[] | select(.type==\"text\") | .text] | join(\" \") elif type==\"string\" then . else empty end) | select(length > 0) | select(startswith(\"<system-reminder>\") | not) | select(startswith(\"/\") | not) | .[:200]' \"$tp\" 2>/dev/null | head -15); [ -z \"$msgs\" ] && exit 0; export __MSGS=\"$msgs\" __SID=\"$sid\" __TP=\"$tp\"; nohup timeout 60 bash -c 'NAME=$(printf \"Name this coding session in 3-7 words based on the user messages below. Reply with ONLY the name. No preamble, no quotes, no explanation, no punctuation. Examples: Review auth hook diff, Debug flaky unit tests, Add user profile page\\n\\nUser messages:\\n%s\" \"$__MSGS\" | claude -p --no-session-persistence --model sonnet 2>/dev/null | tail -1 | sed \"s/^[^a-zA-Z0-9]*//\" | tr -d \"\\\"\" | cut -c1-80); [ -z \"$NAME\" ] && exit 0; grep -q \"\\\"custom-title\\\"\" \"$__TP\" 2>/dev/null && exit 0; jq -nc --arg t \"$NAME\" --arg s \"$__SID\" \"{\\\"type\\\":\\\"custom-title\\\",\\\"customTitle\\\":\\$t,\\\"sessionId\\\":\\$s}\" >> \"$__TP\"' >/dev/null 2>&1 & disown; exit 0 || true",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ctx=''; if command -v git >/dev/null 2>&1; then changes=$(git status --porcelain 2>/dev/null | head -20); if [ -n \"$changes\" ]; then ctx=\"Uncommitted changes:\\n$changes\"; fi; fi; disk=$(df -h . 2>/dev/null | awk 'NR==2{print $5}' | tr -d '%'); if [ -n \"$disk\" ] && [ \"$disk\" -gt 90 ] 2>/dev/null; then ctx=\"$ctx\\nWARNING: Disk usage at ${disk}%\"; fi; if [ -n \"$ctx\" ]; then printf '{\"context\": \"%s\"}' \"$ctx\"; fi",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "printf '\\a' > /dev/tty 2>/dev/null || true"
+          }
+        ]
+      }
+    ]
+  }
+}
