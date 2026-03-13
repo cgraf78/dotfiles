@@ -52,6 +52,10 @@ case "${1:-}" in
     _normalize_filtered
     shift
     echo "==> Personal dotfiles"
+    if [[ -d "$WORK_DIR" ]]; then
+      # Automatically set skip-worktree for work-overridden files on work machines
+      $GIT update-index --skip-worktree CLAUDE.md .claude/settings.json 2>/dev/null || true
+    fi
     $GIT status "$@"
     if [[ -d "$WORK_DIR" ]]; then
       echo ""
