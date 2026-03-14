@@ -20,7 +20,9 @@ merge_wezterm() {
   esac
 
   local winhome dest
-  if [[ -d "/mnt/c/Users/$USER" ]]; then
+  if [[ -n "${DOT_TEST_WINDOWS_HOME:-}" ]]; then
+    winhome="$DOT_TEST_WINDOWS_HOME"
+  elif [[ -d "/mnt/c/Users/$USER" ]]; then
     winhome="/mnt/c/Users/$USER"
   else
     winhome=$(wslpath "$(powershell.exe -NoProfile -Command "Write-Host -NoNewline \$env:USERPROFILE" 2>/dev/null)" 2>/dev/null || true)

@@ -98,25 +98,12 @@ echo "=== WezTerm merge ==="
 
 WEZ_HOME=$(_tmpdir)
 WEZ_WIN_HOME=$(_tmpdir)
-WEZ_BIN=$(_mock_bin)
-
-cat > "$WEZ_BIN/powershell.exe" <<'EOF'
-#!/usr/bin/env bash
-printf 'C:\\Users\\Chris'
-EOF
-chmod +x "$WEZ_BIN/powershell.exe"
-
-cat > "$WEZ_BIN/wslpath" <<EOF
-#!/usr/bin/env bash
-echo "$WEZ_WIN_HOME"
-EOF
-chmod +x "$WEZ_BIN/wslpath"
-
 # Run in a subshell so HOME/WSL_DISTRO_NAME/USER changes don't leak.
 (
   export HOME="$WEZ_HOME"
   export WSL_DISTRO_NAME="archlinux"
   export USER="chris"
+  export DOT_TEST_WINDOWS_HOME="$WEZ_WIN_HOME"
   echo "return { test = true }" > "$HOME/.wezterm.lua"
   merge_wezterm
 )
