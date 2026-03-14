@@ -49,10 +49,14 @@ cat > "$MOCK_BIN/tmux" <<'MOCK'
 #!/usr/bin/env bash
 # Mock tmux that logs calls and simulates responses
 echo "tmux $*" >> "${TMUX_LOG:-/dev/null}"
-case "$1" in
+args=("$@")
+if [[ "${args[0]:-}" == "-S" ]]; then
+    args=("${args[@]:2}")
+fi
+case "${args[0]:-}" in
     has-session)
         # Check MOCK_SESSIONS for existence
-        session="${3#=}"  # strip = prefix
+        session="${args[2]#=}"  # strip = prefix
         if [[ " ${MOCK_SESSIONS:-} " == *" $session "* ]]; then
             exit 0
         else
@@ -196,6 +200,38 @@ fi
 result=$( (PROFILE="nonexistent"; _validate_profile) 2>&1 || true)
 _assert_contains "invalid profile error mentions name" "nonexistent" "$result"
 _assert_contains "invalid profile lists valid options" "bare" "$result"
+
+# ---------------------------------------------------------------------------
+# Tests: Shared tmux socket
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== Shared tmux socket ==="
+
+_reset_tmux_log
+export MOCK_SESSIONS=""
+PROFILE="bare"
+NAME_OVERRIDE=""
+DIR="$HOME"
+DS_TMUX_SOCKET="/tmp/ds-shared.sock"
+_do_session
+log=$(_tmux_log)
+_assert_contains "tmux uses shared socket for new session" "-S /tmp/ds-shared.sock new-session -d -s ds" "$log"
+_assert_contains "tmux uses shared socket for attach" "-S /tmp/ds-shared.sock attach -t =ds" "$log"
+
+# _fix_socket_perms should chmod an existing socket path, but tolerate missing sockets.
+SOCK_TEST=$(_tmpdir)/tmux.sock
+python - "$SOCK_TEST" <<'PY2'
+import socket, sys
+p = sys.argv[1]
+s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+s.bind(p)
+s.close()
+PY2
+DS_TMUX_SOCKET="$SOCK_TEST"
+_fix_socket_perms
+mode=$(stat -c '%a' "$SOCK_TEST" 2>/dev/null || stat -f '%Lp' "$SOCK_TEST")
+_assert_eq "shared socket chmod" "777" "$mode"
 
 # ---------------------------------------------------------------------------
 # Tests: Session naming

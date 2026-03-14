@@ -22,6 +22,7 @@ HOST=""
 CONNECT="ssh"
 CHATBOT="claude"
 DIR="$HOME"
+DS_TMUX_SOCKET="${DS_TMUX_SOCKET:-/tmp/ds-shared.sock}"
 
 _usage() {
     echo "Usage: ds [-p <profile>] [-n <name>] [-b <chatbot>] [-c <method>] [-d <path>] [<hostname>]"
@@ -77,6 +78,17 @@ lookup_host() {
 
 # --- Tmux helpers ---
 
+# Run tmux through the ds-managed socket.
+_tmux() {
+    tmux -S "$DS_TMUX_SOCKET" "$@"
+}
+
+# Make the shared socket accessible across users when possible.
+_fix_socket_perms() {
+    [[ -S "$DS_TMUX_SOCKET" ]] || return 0
+    chmod 777 "$DS_TMUX_SOCKET" 2>/dev/null || true
+}
+
 # Attach to an existing tmux session, or switch to it if already inside tmux.
 # No exec — returns after tmux detaches so the calling shell can exit cleanly.
 # This is important for ET connections where exec prevents proper cleanup.
@@ -85,9 +97,9 @@ lookup_host() {
 _attach() {
     local session="$1"
     if [[ -n "${TMUX:-}" ]]; then
-        tmux switch-client -t "=$session"
+        _tmux switch-client -t "=$session"
     else
-        tmux attach -t "=$session"
+        _tmux attach -t "=$session"
     fi
 }
 
@@ -103,7 +115,7 @@ _validate_profile() {
 # --- Actions ---
 
 _do_list() {
-    tmux ls -F '#{session_name}: #{session_windows} windows (#{?session_attached,attached,detached})' 2>/dev/null \
+    _tmux ls -F '#{session_name}: #{session_windows} windows (#{?session_attached,attached,detached})' 2>/dev/null \
         | grep -E '^ds' || echo "(no active ds sessions)"
 }
 
@@ -116,8 +128,8 @@ _do_kill() {
         [[ "$PROFILE" != "bare" ]] && session="$session$PROFILE"
         [[ -n "$NAME_OVERRIDE" ]] && session="$session-$NAME_OVERRIDE"
     fi
-    if tmux has-session -t "=$session" 2>/dev/null; then
-        tmux kill-session -t "=$session"
+    if _tmux has-session -t "=$session" 2>/dev/null; then
+        _tmux kill-session -t "=$session"
         echo "killed $session"
     else
         echo "ds: no session '$session'" >&2
@@ -128,13 +140,13 @@ _do_kill() {
 
 _do_killall() {
     local sessions
-    sessions=$(tmux ls -F '#{session_name}' 2>/dev/null | grep -E '^ds') || true
+    sessions=$(_tmux ls -F '#{session_name}' 2>/dev/null | grep -E '^ds') || true
     if [[ -z "$sessions" ]]; then
         echo "(no active ds sessions)"
         return
     fi
     echo "$sessions" | while IFS= read -r s; do
-        tmux kill-session -t "=$s"
+        _tmux kill-session -t "=$s"
         echo "killed $s"
     done
 }
@@ -145,12 +157,13 @@ _do_session() {
     [[ -n "$NAME_OVERRIDE" ]] && session="$session-$NAME_OVERRIDE"
 
     # Attach if session already exists (= prefix for exact match)
-    if tmux has-session -t "=$session" 2>/dev/null; then
+    if _tmux has-session -t "=$session" 2>/dev/null; then
         _attach "$session"
         return
     fi
 
-    tmux new-session -d -s "$session" -c "$DIR"
+    _tmux new-session -d -s "$session" -c "$DIR"
+    _fix_socket_perms
     "_profile_$PROFILE" "$session" "$CHATBOT" "$DIR"
     _attach "$session"
 }
