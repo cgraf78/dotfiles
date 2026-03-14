@@ -156,9 +156,11 @@ merge_vscode() {
       ;;
     Linux)
       if [[ -n "${WSL_DISTRO_NAME:-}" ]]; then
-        WIN_APPDATA="$(wslpath "$(powershell.exe -NoProfile -Command "Write-Host -NoNewline ([Environment]::GetFolderPath('ApplicationData'))" 2>/dev/null | tr -d '\r')" 2>/dev/null)" || true
-        if [[ -n "$WIN_APPDATA" ]]; then
+        WIN_APPDATA="$(wslpath "$(powershell.exe -NoProfile -Command '$env:APPDATA' 2>/dev/null | tr -d '\r')" 2>/dev/null)" || true
+        if [[ "$WIN_APPDATA" = /* ]]; then
           _merge_vscode_config "$WIN_APPDATA/Code/User"
+        else
+          echo "  skipped (could not resolve Windows AppData path under WSL)"
         fi
       else
         _merge_vscode_config "$HOME/.config/Code/User"

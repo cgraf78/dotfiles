@@ -158,7 +158,7 @@ chmod +x "$VSC_BIN/jq"
 
 cat > "$VSC_BIN/powershell.exe" <<'EOF'
 #!/usr/bin/env bash
-printf 'C:\\Users\\Chris\\AppData\\Roaming'
+printf 'C:\\Users\\Chris\\AppData\\Roaming\n'
 EOF
 chmod +x "$VSC_BIN/powershell.exe"
 
