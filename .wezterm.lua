@@ -1,18 +1,160 @@
 local wezterm = require 'wezterm'
 local act = wezterm.action
 
-return {
-  -- Launch directly into WSL by default.
-  -- Change the distro name here if needed (see: wsl -l -v).
-  default_prog = { 'wsl.exe', '-d', 'archlinux', '--cd', '/home/chris' },
+local target = wezterm.target_triple or ''
+local is_macos = target:find('darwin', 1, true) ~= nil
+local is_windows = target:find('windows', 1, true) ~= nil
+local is_linux = target:find('linux', 1, true) ~= nil
 
-  -- Appearance
-  font = wezterm.font_with_fallback({
+local function file_exists(path)
+  local ok, _, code = os.rename(path, path)
+  if ok then
+    return true
+  end
+
+  return code == 13 -- Permission denied still means the path exists.
+end
+
+local function first_existing(paths)
+  for _, path in ipairs(paths) do
+    if file_exists(path) then
+      return path
+    end
+  end
+
+  return nil
+end
+
+local function font_with_fallback(names)
+  return wezterm.font_with_fallback(names)
+end
+
+local function bind(key, mods, action)
+  return {
+    key = key,
+    mods = mods,
+    action = action,
+  }
+end
+
+local function append_all(dst, src)
+  for _, item in ipairs(src) do
+    table.insert(dst, item)
+  end
+end
+
+local font_names
+local font_size
+local line_height
+local default_prog
+local window_decorations = 'RESIZE'
+local macos_window_background_blur = 0
+
+if is_macos then
+  font_names = {
+    'JetBrains Mono',
+    'Menlo',
+    'Monaco',
+    'SF Mono',
+  }
+  font_size = 10.5
+  line_height = 1.05
+
+  local bash_path = first_existing({
+    '/opt/homebrew/bin/bash',
+    '/usr/local/bin/bash',
+    '/bin/bash',
+  }) or '/bin/bash'
+  default_prog = { bash_path, '-l' }
+
+  window_decorations = 'TITLE|RESIZE'
+  macos_window_background_blur = 18
+elseif is_windows then
+  font_names = {
     'Consolas',
     'Cascadia Mono',
-  }),
-  font_size = 9.0,
-  line_height = 1.0,
+    'JetBrains Mono',
+  }
+  font_size = 9.0
+  line_height = 1.0
+  default_prog = { 'wsl.exe', '-d', 'archlinux', '--cd', '/home/chris', '--exec', '/bin/bash', '-l' }
+elseif is_linux then
+  font_names = {
+    'JetBrains Mono',
+    'Cascadia Mono',
+    'DejaVu Sans Mono',
+    'Noto Sans Mono',
+  }
+  font_size = 9.5
+  line_height = 1.0
+  default_prog = { '/bin/bash', '-l' }
+else
+  font_names = {
+    'JetBrains Mono',
+    'Menlo',
+    'Consolas',
+    'DejaVu Sans Mono',
+  }
+  font_size = 10.0
+  line_height = 1.0
+  default_prog = { '/bin/bash', '-l' }
+end
+
+local keys = {
+  -- Try to make Shift+Enter distinct from plain Enter for TUIs.
+  bind('Enter', 'SHIFT', act.SendString('\x0a')),
+
+  -- Font size controls
+  bind('=', 'CTRL', act.IncreaseFontSize),
+  bind('-', 'CTRL', act.DecreaseFontSize),
+  bind('0', 'CTRL', act.ResetFontSize),
+
+  -- Clipboard
+  bind('c', 'CTRL|SHIFT', act.CopyTo('Clipboard')),
+  bind('v', 'CTRL', act.PasteFrom('Clipboard')),
+  bind('v', 'CTRL|SHIFT', act.PasteFrom('Clipboard')),
+
+  -- Tabs
+  bind('t', 'CTRL|SHIFT', act.SpawnTab('DefaultDomain')),
+  bind('w', 'CTRL|SHIFT', act.CloseCurrentTab({ confirm = false })),
+  bind('Tab', 'CTRL', act.ActivateTabRelative(1)),
+  bind('Tab', 'CTRL|SHIFT', act.ActivateTabRelative(-1)),
+
+  -- Search / launcher
+  bind('f', 'CTRL|SHIFT', act.Search({ CaseSensitiveString = '' })),
+  bind('p', 'CTRL|SHIFT', act.ActivateCommandPalette),
+
+  -- Alt-number tab switching
+  bind('1', 'ALT', act.ActivateTab(0)),
+  bind('2', 'ALT', act.ActivateTab(1)),
+  bind('3', 'ALT', act.ActivateTab(2)),
+  bind('4', 'ALT', act.ActivateTab(3)),
+}
+
+if is_macos then
+  append_all(keys, {
+    -- Native-feeling macOS aliases mirroring the cross-platform Ctrl bindings.
+    bind('=', 'SUPER', act.IncreaseFontSize),
+    bind('-', 'SUPER', act.DecreaseFontSize),
+    bind('0', 'SUPER', act.ResetFontSize),
+    bind('c', 'SUPER', act.CopyTo('Clipboard')),
+    bind('v', 'SUPER', act.PasteFrom('Clipboard')),
+    bind('t', 'SUPER', act.SpawnTab('DefaultDomain')),
+    bind('w', 'SUPER', act.CloseCurrentTab({ confirm = false })),
+    bind('f', 'SUPER', act.Search({ CaseSensitiveString = '' })),
+    bind('p', 'SUPER|SHIFT', act.ActivateCommandPalette),
+    bind('Tab', 'SUPER', act.ActivateTabRelative(1)),
+    bind('Tab', 'SUPER|SHIFT', act.ActivateTabRelative(-1)),
+  })
+end
+
+return {
+  default_prog = default_prog,
+
+  -- Appearance
+  font = font_with_fallback(font_names),
+  font_size = font_size,
+  line_height = line_height,
   color_scheme = 'Tokyo Night',
   colors = {
     foreground = '#e6e9ef',
@@ -51,6 +193,8 @@ return {
   },
   adjust_window_size_when_changing_font_size = false,
   window_close_confirmation = 'NeverPrompt',
+  window_decorations = window_decorations,
+  macos_window_background_blur = macos_window_background_blur,
 
   -- Behavior
   scrollback_lines = 20000,
@@ -59,41 +203,7 @@ return {
   audible_bell = 'Disabled',
   default_cursor_style = 'SteadyBar',
 
-  keys = {
-    -- Try to make Shift+Enter distinct from plain Enter for TUIs.
-    -- If your app doesn't like this, switch to the Ctrl+J variant below.
-    {
-      key = 'Enter',
-      mods = 'SHIFT',
-      action = act.SendString('\x0a'),
-    },
-
-    -- Font size controls
-    { key = '=', mods = 'CTRL', action = act.IncreaseFontSize },
-    { key = '-', mods = 'CTRL', action = act.DecreaseFontSize },
-    { key = '0', mods = 'CTRL', action = act.ResetFontSize },
-
-    -- Clipboard
-    { key = 'c', mods = 'CTRL|SHIFT', action = act.CopyTo('Clipboard') },
-    { key = 'v', mods = 'CTRL', action = act.PasteFrom('Clipboard') },
-    { key = 'v', mods = 'CTRL|SHIFT', action = act.PasteFrom('Clipboard') },
-
-    -- Tabs
-    { key = 't', mods = 'CTRL|SHIFT', action = act.SpawnTab('CurrentPaneDomain') },
-    { key = 'w', mods = 'CTRL|SHIFT', action = act.CloseCurrentTab({ confirm = false }) },
-    { key = 'Tab', mods = 'CTRL', action = act.ActivateTabRelative(1) },
-    { key = 'Tab', mods = 'CTRL|SHIFT', action = act.ActivateTabRelative(-1) },
-
-    -- Search / launcher
-    { key = 'f', mods = 'CTRL|SHIFT', action = act.Search({ CaseSensitiveString = '' }) },
-    { key = 'p', mods = 'CTRL|SHIFT', action = act.ActivateCommandPalette },
-
-    -- Alt-number tab switching
-    { key = '1', mods = 'ALT', action = act.ActivateTab(0) },
-    { key = '2', mods = 'ALT', action = act.ActivateTab(1) },
-    { key = '3', mods = 'ALT', action = act.ActivateTab(2) },
-    { key = '4', mods = 'ALT', action = act.ActivateTab(3) },
-  },
+  keys = keys,
 
   -- Keep hyperlinks useful in terminal output.
   hyperlink_rules = wezterm.default_hyperlink_rules(),
