@@ -121,6 +121,7 @@ _start_socket_forward() {
     ssh -fN \
         -o ExitOnForwardFailure=yes \
         -o StreamLocalBindUnlink=yes \
+        -o StreamLocalBindMask=0111 \
         -R "${remote_socket}:${DS_TMUX_SOCKET}" \
         "$SHARE_SOCKET_TO"
 

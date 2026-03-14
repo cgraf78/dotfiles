@@ -275,6 +275,7 @@ DS_TMUX_SOCKET="/tmp/ds-shared.sock"
 _start_socket_forward
 sshlog=$(_ssh_log)
 _assert_contains "socket forward: uses reverse streamlocal forwarding" "-R /tmp/ds-test.sock:/tmp/ds-shared.sock" "$sshlog"
+_assert_contains "socket forward: requests permissive bind mask" "-o StreamLocalBindMask=0111" "$sshlog"
 _assert_contains "socket forward: targets requested host" "taylor" "$sshlog"
 
 _reset_tmux_log
