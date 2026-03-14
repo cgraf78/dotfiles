@@ -114,16 +114,20 @@ local keys = {
   bind('v', 'CTRL', act.PasteFrom('Clipboard')),
   bind('v', 'CTRL|SHIFT', act.PasteFrom('Clipboard')),
 
-  -- Tabs
+  -- Tabs / windows
   bind('t', 'CTRL', act.SpawnTab('DefaultDomain')),
   bind('w', 'CTRL', act.CloseCurrentTab({ confirm = false })),
+  bind('n', 'CTRL', act.SpawnWindow),
   bind('t', 'CTRL|SHIFT', act.SpawnTab('DefaultDomain')),
   bind('w', 'CTRL|SHIFT', act.CloseCurrentTab({ confirm = false })),
   bind('Tab', 'CTRL', act.ActivateTabRelative(1)),
   bind('Tab', 'CTRL|SHIFT', act.ActivateTabRelative(-1)),
+  bind('{', 'CTRL', act.ActivateTabRelative(-1)),
+  bind('}', 'CTRL', act.ActivateTabRelative(1)),
 
   -- Search / launcher
-  bind('f', 'CTRL|SHIFT', act.Search({ CaseSensitiveString = '' })),
+  bind('g', 'CTRL', act.CopyMode('NextMatch')),
+  bind('g', 'CTRL|SHIFT', act.CopyMode('PriorMatch')),
   bind('p', 'CTRL|SHIFT', act.ActivateCommandPalette),
 
   -- Alt-number tab switching
@@ -146,9 +150,14 @@ if is_macos then
     bind('w', 'SUPER', act.CloseCurrentTab({ confirm = false })),
     bind('W', 'SUPER', act.CloseCurrentTab({ confirm = false })),
     bind('f', 'SUPER', act.Search({ CaseSensitiveString = '' })),
+    bind('g', 'SUPER', act.CopyMode('NextMatch')),
+    bind('g', 'SUPER|SHIFT', act.CopyMode('PriorMatch')),
+    bind('n', 'SUPER', act.SpawnWindow),
     bind('p', 'SUPER|SHIFT', act.ActivateCommandPalette),
     bind('Tab', 'SUPER', act.ActivateTabRelative(1)),
     bind('Tab', 'SUPER|SHIFT', act.ActivateTabRelative(-1)),
+    bind('[', 'SUPER|SHIFT', act.ActivateTabRelative(-1)),
+    bind(']', 'SUPER|SHIFT', act.ActivateTabRelative(1)),
   })
 end
 
