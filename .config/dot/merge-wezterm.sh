@@ -43,5 +43,4 @@ merge_wezterm() {
   if [[ ! -e "$dest" ]] || ! cmp -s "$src" "$dest"; then
     cp "$src" "$dest"
   fi
-  echo "==> Merged WezTerm config to Windows home: $dest"
 }
