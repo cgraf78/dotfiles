@@ -2,6 +2,8 @@
 
 ## Dotfiles
 
+- On this macOS setup, live terminal shortcut behavior with Karabiner enabled does not always match what the tracked `karabiner.json` appears to remap explicitly. For mac terminal shortcut work, keep the `Ctrl`-prefixed bindings for cross-platform consistency, but also add `Cmd`-prefixed aliases and validate the result with Karabiner enabled because those are often the reliable forms in practice on this machine.
+
 Dotfiles are managed via a bare git repo at `~/.dotfiles` with worktree `$HOME`.
 Use the `dot` alias (defined in `~/.bashrc`) instead of `git` for all dotfiles operations:
 
