@@ -26,9 +26,10 @@ DS_TMUX_SOCKET="${DS_TMUX_SOCKET:-}"
 DS_TMUX_ACCESS_USER="${DS_TMUX_ACCESS_USER:-openclaw}"
 DS_SHARE_VIA="${DS_SHARE_VIA:-}"
 DS_SHARE_INFO_FILE="${DS_SHARE_INFO_FILE:-}"
+DS_NO_ATTACH="${DS_NO_ATTACH:-0}"
 
 _usage() {
-    echo "Usage: ds [-p <profile>] [-n <name>] [-b <chatbot>] [-c <method>] [-d <path>] [--share-via tmate] [<hostname>]"
+    echo "Usage: ds [-p <profile>] [-n <name>] [-b <chatbot>] [-c <method>] [-d <path>] [--share-via tmate] [--no-attach] [<hostname>]"
     echo "       ds -l [<hostname>]          list active ds sessions"
     echo "       ds -k [<session>] [<host>]  kill a ds session"
     echo "       ds --killall                kill all ds sessions"
@@ -224,6 +225,9 @@ _do_session() {
     if _tmux has-session -t "=$session" 2>/dev/null; then
         _fix_server_access
         _show_share_info
+        if [[ "$DS_NO_ATTACH" == "1" ]]; then
+            return
+        fi
         _attach "$session"
         return
     fi
@@ -238,6 +242,9 @@ _do_session() {
         [[ -n "$create_output" ]] && printf '%s\n' "$create_output"
     fi
     "_profile_$PROFILE" "$session" "$CHATBOT" "$DIR"
+    if [[ "$DS_NO_ATTACH" == "1" ]]; then
+        return
+    fi
     _attach "$session"
 }
 
@@ -278,6 +285,7 @@ _remote() {
             args+=("-p" "$PROFILE" "-b" "$CHATBOT" "-d" "$REMOTE_DIR")
             [[ -n "$NAME_OVERRIDE" ]] && args+=("-n" "$NAME_OVERRIDE")
             [[ -n "${DS_SHARE_VIA:-}" ]] && args+=("--share-via" "$DS_SHARE_VIA")
+            [[ "$DS_NO_ATTACH" == "1" ]] && args+=("--no-attach")
             ;;
     esac
 
@@ -309,6 +317,7 @@ while [[ $# -gt 0 ]]; do
         -c|--connect) CONNECT_OVERRIDE="$2"; shift 2 ;;
         -d|--dir)     DIR_OVERRIDE="$2"; shift 2 ;;
         --share-via)  DS_SHARE_VIA="$2"; shift 2 ;;
+        --no-attach)  DS_NO_ATTACH=1; shift ;;
         -l|--list)    ACTION="list"; shift ;;
         -k|--kill)    ACTION="kill"
                       # Optional: next arg is the session name (if not a flag)

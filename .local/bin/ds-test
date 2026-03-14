@@ -330,7 +330,23 @@ log=$(_tmux_log)
 _assert_contains "tmate existing session replays saved share info" "ssh session: ssh rw@test.tmate" "$result"
 _assert_contains "tmate existing session attaches" "attach -t =ds" "$log"
 
+_reset_tmux_log
+export MOCK_SESSIONS=""
+DS_NO_ATTACH=1
+result=$(_do_session)
+log=$(_tmux_log)
+_assert_contains "tmate no-attach still prints share info" "ssh session: ssh rw@test.tmate" "$result"
+_assert_not_contains "tmate no-attach skips attach" "attach -t =ds" "$log"
+
+_reset_tmux_log
+export MOCK_SESSIONS="ds"
+result=$(_do_session)
+log=$(_tmux_log)
+_assert_contains "tmate existing no-attach replays share info" "ssh session: ssh rw@test.tmate" "$result"
+_assert_not_contains "tmate existing no-attach skips attach" "attach -t =ds" "$log"
+
 # Reset sharing vars for remaining tmux tests
+DS_NO_ATTACH=0
 unset MOCK_TMATE_INFO
 DS_SHARE_VIA=""
 DS_TMUX_SOCKET="/tmp/ds-shared.sock"
@@ -515,6 +531,7 @@ _assert_contains "usage shows -p" "-p" "$result"
 _assert_contains "usage shows -l" "-l" "$result"
 _assert_contains "usage shows -k" "-k" "$result"
 _assert_contains "usage shows --share-via" "--share-via" "$result"
+_assert_contains "usage shows --no-attach" "--no-attach" "$result"
 
 # ---------------------------------------------------------------------------
 # Tests: Argument parsing (via subprocess)
@@ -750,6 +767,12 @@ result=$(_run_remote "HOST=server1 ACTION=session PROFILE_OVERRIDE=dev \
 remote_log=$(cat "$REMOTE_LOG" 2>/dev/null || true)
 _assert_contains "remote share backend: passes --share-via" "--share-via" "$remote_log"
 _assert_contains "remote share backend: passes tmate" "tmate" "$remote_log"
+
+# Test no-attach passed to remote
+result=$(_run_remote "HOST=server1 ACTION=session PROFILE_OVERRIDE=dev \
+    CHATBOT_OVERRIDE= DIR_OVERRIDE= NAME_OVERRIDE= CONNECT_OVERRIDE= DS_SHARE_VIA=tmate DS_NO_ATTACH=1")
+remote_log=$(cat "$REMOTE_LOG" 2>/dev/null || true)
+_assert_contains "remote no-attach: passes flag" "--no-attach" "$remote_log"
 
 # ---------------------------------------------------------------------------
 # Tests: Hosts file comments and blank lines
