@@ -89,6 +89,12 @@ _fix_socket_perms() {
     chmod 777 "$DS_TMUX_SOCKET" 2>/dev/null || true
 }
 
+# Grant tmux server access to the local openclaw user when available.
+_fix_server_access() {
+    id -u openclaw >/dev/null 2>&1 || return 0
+    _tmux server-access -a openclaw 2>/dev/null || true
+}
+
 # Attach to an existing tmux session, or switch to it if already inside tmux.
 # No exec — returns after tmux detaches so the calling shell can exit cleanly.
 # This is important for ET connections where exec prevents proper cleanup.
@@ -158,12 +164,14 @@ _do_session() {
 
     # Attach if session already exists (= prefix for exact match)
     if _tmux has-session -t "=$session" 2>/dev/null; then
+        _fix_server_access
         _attach "$session"
         return
     fi
 
     _tmux new-session -d -s "$session" -c "$DIR"
     _fix_socket_perms
+    _fix_server_access
     "_profile_$PROFILE" "$session" "$CHATBOT" "$DIR"
     _attach "$session"
 }
