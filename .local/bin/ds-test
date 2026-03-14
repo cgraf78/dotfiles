@@ -38,6 +38,7 @@ _profile_orc() {
 PROFILE
 
 export DS_SOURCED=1
+export DS_TMUX_ACCESS_USER=test-access-user
 # shellcheck source=ds
 . "$SCRIPT_DIR/ds"
 
@@ -72,6 +73,16 @@ case "${args[0]:-}" in
 esac
 MOCK
 chmod +x "$MOCK_BIN/tmux"
+
+cat > "$MOCK_BIN/id" <<'MOCK'
+#!/usr/bin/env bash
+if [[ "$1" == "-u" && "$2" == "${DS_TMUX_ACCESS_USER:-}" ]]; then
+  exit 0
+fi
+exit 1
+MOCK
+chmod +x "$MOCK_BIN/id"
+
 export PATH="$MOCK_BIN:$PATH"
 export TMUX_LOG
 
@@ -217,7 +228,7 @@ DS_TMUX_SOCKET="/tmp/ds-shared.sock"
 _do_session
 log=$(_tmux_log)
 _assert_contains "tmux uses shared socket for new session" "-S /tmp/ds-shared.sock new-session -d -s ds" "$log"
-_assert_contains "tmux uses shared socket for server-access" "-S /tmp/ds-shared.sock server-access -a openclaw" "$log"
+_assert_contains "tmux uses shared socket for server-access" "-S /tmp/ds-shared.sock server-access -a test-access-user" "$log"
 _assert_contains "tmux uses shared socket for attach" "-S /tmp/ds-shared.sock attach -t =ds" "$log"
 
 # _fix_socket_perms should chmod an existing socket path, but tolerate missing sockets.
@@ -289,7 +300,7 @@ NAME_OVERRIDE=""
 unset TMUX 2>/dev/null || true
 _do_session
 log=$(_tmux_log)
-_assert_contains "existing session: refreshes server access" "server-access -a openclaw" "$log"
+_assert_contains "existing session: refreshes server access" "server-access -a test-access-user" "$log"
 _assert_contains "existing session: attaches" "attach -t =ds" "$log"
 _assert_not_contains "existing session: no new-session" "new-session" "$log"
 

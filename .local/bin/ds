@@ -23,6 +23,7 @@ CONNECT="ssh"
 CHATBOT="claude"
 DIR="$HOME"
 DS_TMUX_SOCKET="${DS_TMUX_SOCKET:-/tmp/ds-shared.sock}"
+DS_TMUX_ACCESS_USER="${DS_TMUX_ACCESS_USER:-openclaw}"
 
 _usage() {
     echo "Usage: ds [-p <profile>] [-n <name>] [-b <chatbot>] [-c <method>] [-d <path>] [<hostname>]"
@@ -89,10 +90,11 @@ _fix_socket_perms() {
     chmod 777 "$DS_TMUX_SOCKET" 2>/dev/null || true
 }
 
-# Grant tmux server access to the local openclaw user when available.
+# Grant tmux server access to a local user when available.
 _fix_server_access() {
-    id -u openclaw >/dev/null 2>&1 || return 0
-    _tmux server-access -a openclaw 2>/dev/null || true
+    [[ -n "${DS_TMUX_ACCESS_USER:-}" ]] || return 0
+    id -u "$DS_TMUX_ACCESS_USER" >/dev/null 2>&1 || return 0
+    _tmux server-access -a "$DS_TMUX_ACCESS_USER" 2>/dev/null || true
 }
 
 # Attach to an existing tmux session, or switch to it if already inside tmux.
