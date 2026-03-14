@@ -74,6 +74,37 @@ esac
 MOCK
 chmod +x "$MOCK_BIN/tmux"
 
+cat > "$MOCK_BIN/tmate" <<'MOCK'
+#!/usr/bin/env bash
+# Mock tmate that logs calls and can emit share metadata on new-session.
+echo "tmate $*" >> "${TMUX_LOG:-/dev/null}"
+args=("$@")
+if [[ "${args[0]:-}" == "-S" ]]; then
+    args=("${args[@]:2}")
+fi
+case "${args[0]:-}" in
+    has-session)
+        session="${args[2]#=}"
+        if [[ " ${MOCK_SESSIONS:-} " == *" $session "* ]]; then
+            exit 0
+        else
+            exit 1
+        fi
+        ;;
+    ls)
+        echo "${MOCK_TMUX_LS:-}" | grep -v '^$' || true
+        ;;
+    new-session)
+        printf '%s\n' "${MOCK_TMATE_INFO:-ssh session: ssh test@tmate.example}"
+        exit 0
+        ;;
+    attach|switch-client|kill-session|rename-window|split-window|new-window|select-window|send-keys)
+        exit 0
+        ;;
+esac
+MOCK
+chmod +x "$MOCK_BIN/tmate"
+
 cat > "$MOCK_BIN/id" <<'MOCK'
 #!/usr/bin/env bash
 if [[ "$1" == "-u" && "$2" == "${DS_TMUX_ACCESS_USER:-}" ]]; then
@@ -244,6 +275,45 @@ DS_TMUX_SOCKET="$SOCK_TEST"
 _fix_socket_perms
 mode=$(stat -c '%a' "$SOCK_TEST" 2>/dev/null || stat -f '%Lp' "$SOCK_TEST")
 _assert_eq "shared socket chmod" "777" "$mode"
+
+# ---------------------------------------------------------------------------
+# Tests: tmate sharing backend
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== tmate sharing backend ==="
+
+_reset_tmux_log
+export MOCK_SESSIONS=""
+export MOCK_TMATE_INFO="ssh session: ssh test@tmate.example\nweb session: https://tmate.example/test"
+PROFILE="bare"
+NAME_OVERRIDE=""
+DIR="$HOME"
+DS_SHARE_VIA="tmate"
+DS_TMUX_SOCKET=""
+DS_SHARE_INFO_FILE=""
+DS_TMUX_SOCKET="$(_default_socket_path)"
+DS_SHARE_INFO_FILE="$(_default_share_info_file)"
+result=$(_do_session)
+log=$(_tmux_log)
+_assert_contains "tmate backend uses tmate socket default" "/tmp/ds-tmate.sock" "$log"
+_assert_contains "tmate backend creates session" "tmate -S /tmp/ds-tmate.sock new-session -d -s ds" "$log"
+_assert_not_contains "tmate backend skips tmux server-access" "server-access" "$log"
+_assert_contains "tmate backend prints share info" "ssh session: ssh test@tmate.example" "$result"
+_assert_contains "tmate backend writes share info file" "tmate.example/test" "$(cat "$DS_SHARE_INFO_FILE")"
+
+_reset_tmux_log
+export MOCK_SESSIONS="ds"
+result=$(_do_session)
+log=$(_tmux_log)
+_assert_contains "tmate existing session replays saved share info" "ssh session: ssh test@tmate.example" "$result"
+_assert_contains "tmate existing session attaches" "attach -t =ds" "$log"
+
+# Reset sharing vars for remaining tmux tests
+unset MOCK_TMATE_INFO
+DS_SHARE_VIA=""
+DS_TMUX_SOCKET="/tmp/ds-shared.sock"
+DS_SHARE_INFO_FILE="${DS_TMUX_SOCKET}.info"
 
 # ---------------------------------------------------------------------------
 # Tests: Session naming
@@ -423,6 +493,7 @@ result=$(_usage)
 _assert_contains "usage shows -p" "-p" "$result"
 _assert_contains "usage shows -l" "-l" "$result"
 _assert_contains "usage shows -k" "-k" "$result"
+_assert_contains "usage shows --share-via" "--share-via" "$result"
 
 # ---------------------------------------------------------------------------
 # Tests: Argument parsing (via subprocess)
@@ -651,6 +722,13 @@ result=$(_run_remote "HOST=server1 ACTION=session PROFILE_OVERRIDE=dev \
 remote_log=$(cat "$REMOTE_LOG" 2>/dev/null || true)
 _assert_contains "remote name: passes -n" "-n" "$remote_log"
 _assert_contains "remote name: passes name value" "myname" "$remote_log"
+
+# Test share backend passed to remote
+result=$(_run_remote "HOST=server1 ACTION=session PROFILE_OVERRIDE=dev \
+    CHATBOT_OVERRIDE= DIR_OVERRIDE= NAME_OVERRIDE= CONNECT_OVERRIDE= DS_SHARE_VIA=tmate")
+remote_log=$(cat "$REMOTE_LOG" 2>/dev/null || true)
+_assert_contains "remote share backend: passes --share-via" "--share-via" "$remote_log"
+_assert_contains "remote share backend: passes tmate" "tmate" "$remote_log"
 
 # ---------------------------------------------------------------------------
 # Tests: Hosts file comments and blank lines

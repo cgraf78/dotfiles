@@ -22,11 +22,13 @@ HOST=""
 CONNECT="ssh"
 CHATBOT="claude"
 DIR="$HOME"
-DS_TMUX_SOCKET="${DS_TMUX_SOCKET:-/tmp/ds-shared.sock}"
+DS_TMUX_SOCKET="${DS_TMUX_SOCKET:-}"
 DS_TMUX_ACCESS_USER="${DS_TMUX_ACCESS_USER:-openclaw}"
+DS_SHARE_VIA="${DS_SHARE_VIA:-}"
+DS_SHARE_INFO_FILE="${DS_SHARE_INFO_FILE:-}"
 
 _usage() {
-    echo "Usage: ds [-p <profile>] [-n <name>] [-b <chatbot>] [-c <method>] [-d <path>] [<hostname>]"
+    echo "Usage: ds [-p <profile>] [-n <name>] [-b <chatbot>] [-c <method>] [-d <path>] [--share-via tmate] [<hostname>]"
     echo "       ds -l [<hostname>]          list active ds sessions"
     echo "       ds -k [<session>] [<host>]  kill a ds session"
     echo "       ds --killall                kill all ds sessions"
@@ -77,11 +79,31 @@ lookup_host() {
     return 1
 }
 
-# --- Tmux helpers ---
+# --- Multiplexer helpers ---
 
-# Run tmux through the ds-managed socket.
+_default_socket_path() {
+    if [[ "${DS_SHARE_VIA:-}" == "tmate" ]]; then
+        echo "/tmp/ds-tmate.sock"
+    else
+        echo "/tmp/ds-shared.sock"
+    fi
+}
+
+_default_share_info_file() {
+    echo "${DS_TMUX_SOCKET}.info"
+}
+
+_mux_bin() {
+    if [[ "${DS_SHARE_VIA:-}" == "tmate" ]]; then
+        echo "tmate"
+    else
+        echo "tmux"
+    fi
+}
+
+# Run the configured multiplexer through the ds-managed socket.
 _tmux() {
-    tmux -S "$DS_TMUX_SOCKET" "$@"
+    "$(_mux_bin)" -S "$DS_TMUX_SOCKET" "$@"
 }
 
 # Make the shared socket accessible across users when possible.
@@ -92,9 +114,22 @@ _fix_socket_perms() {
 
 # Grant tmux server access to a local user when available.
 _fix_server_access() {
+    [[ "${DS_SHARE_VIA:-}" == "tmate" ]] && return 0
     [[ -n "${DS_TMUX_ACCESS_USER:-}" ]] || return 0
     id -u "$DS_TMUX_ACCESS_USER" >/dev/null 2>&1 || return 0
     _tmux server-access -a "$DS_TMUX_ACCESS_USER" 2>/dev/null || true
+}
+
+_write_share_info() {
+    local content="$1"
+    [[ -n "${DS_SHARE_INFO_FILE:-}" ]] || return 0
+    printf '%s\n' "$content" > "$DS_SHARE_INFO_FILE"
+    chmod 644 "$DS_SHARE_INFO_FILE" 2>/dev/null || true
+}
+
+_show_share_info() {
+    [[ -n "${DS_SHARE_INFO_FILE:-}" && -f "$DS_SHARE_INFO_FILE" ]] || return 0
+    cat "$DS_SHARE_INFO_FILE"
 }
 
 # Attach to an existing tmux session, or switch to it if already inside tmux.
@@ -167,13 +202,19 @@ _do_session() {
     # Attach if session already exists (= prefix for exact match)
     if _tmux has-session -t "=$session" 2>/dev/null; then
         _fix_server_access
+        _show_share_info
         _attach "$session"
         return
     fi
 
-    _tmux new-session -d -s "$session" -c "$DIR"
+    local create_output=""
+    create_output=$(_tmux new-session -d -s "$session" -c "$DIR" 2>&1)
     _fix_socket_perms
     _fix_server_access
+    if [[ "${DS_SHARE_VIA:-}" == "tmate" ]]; then
+        _write_share_info "$create_output"
+        [[ -n "$create_output" ]] && printf '%s\n' "$create_output"
+    fi
     "_profile_$PROFILE" "$session" "$CHATBOT" "$DIR"
     _attach "$session"
 }
@@ -214,6 +255,7 @@ _remote() {
             fi
             args+=("-p" "$PROFILE" "-b" "$CHATBOT" "-d" "$REMOTE_DIR")
             [[ -n "$NAME_OVERRIDE" ]] && args+=("-n" "$NAME_OVERRIDE")
+            [[ -n "${DS_SHARE_VIA:-}" ]] && args+=("--share-via" "$DS_SHARE_VIA")
             ;;
     esac
 
@@ -244,6 +286,7 @@ while [[ $# -gt 0 ]]; do
         -b|--chatbot) CHATBOT_OVERRIDE="$2"; shift 2 ;;
         -c|--connect) CONNECT_OVERRIDE="$2"; shift 2 ;;
         -d|--dir)     DIR_OVERRIDE="$2"; shift 2 ;;
+        --share-via)  DS_SHARE_VIA="$2"; shift 2 ;;
         -l|--list)    ACTION="list"; shift ;;
         -k|--kill)    ACTION="kill"
                       # Optional: next arg is the session name (if not a flag)
@@ -257,6 +300,18 @@ while [[ $# -gt 0 ]]; do
         *)            HOST="$1"; shift ;;
     esac
 done
+
+if [[ -n "$DS_SHARE_VIA" && "$DS_SHARE_VIA" != "tmate" ]]; then
+    echo "ds: unsupported share backend '$DS_SHARE_VIA' (supported: tmate)" >&2
+    exit 1
+fi
+
+if [[ -z "$DS_TMUX_SOCKET" ]]; then
+    DS_TMUX_SOCKET="$(_default_socket_path)"
+fi
+if [[ -z "$DS_SHARE_INFO_FILE" ]]; then
+    DS_SHARE_INFO_FILE="$(_default_share_info_file)"
+fi
 
 if [[ -n "$HOST" ]]; then
     _remote
