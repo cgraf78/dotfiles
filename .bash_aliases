@@ -72,9 +72,9 @@ if [[ "$(uname -s)" == "Linux" || "$(uname -s)" == MINGW* || "$(uname -s)" == MS
 
             if [[ -x "$code_exe" ]]; then
                 code_exe_win="$(wslpath -w "$code_exe")"
-                cmd.exe /C start "" "$code_exe_win" "$target" >/dev/null 2>&1
+                powershell.exe -NoProfile -Command "Start-Process -FilePath '$code_exe_win' -ArgumentList '$target'" >/dev/null 2>&1
             else
-                cmd.exe /C start "" code "$target" >/dev/null 2>&1
+                powershell.exe -NoProfile -Command "Start-Process -FilePath 'code' -ArgumentList '$target'" >/dev/null 2>&1
             fi
         }
         alias wvs='wcode'
