@@ -98,34 +98,38 @@ echo "=== WezTerm merge ==="
 
 WEZ_HOME=$(_tmpdir)
 WEZ_WIN_HOME=$(_tmpdir)
-# Run in a subshell so HOME/WSL_DISTRO_NAME/USER changes don't leak.
-(
-  export HOME="$WEZ_HOME"
-  export WSL_DISTRO_NAME="archlinux"
-  export USER="chris"
-  export DOT_TEST_WINDOWS_HOME="$WEZ_WIN_HOME"
-  echo "return { test = true }" > "$HOME/.wezterm.lua"
-  merge_wezterm
-)
+if [[ "$(uname -s)" == "Linux" ]]; then
+  # Run in a subshell so HOME/WSL_DISTRO_NAME/USER changes don't leak.
+  (
+    export HOME="$WEZ_HOME"
+    export WSL_DISTRO_NAME="archlinux"
+    export USER="chris"
+    export DOT_TEST_WINDOWS_HOME="$WEZ_WIN_HOME"
+    echo "return { test = true }" > "$HOME/.wezterm.lua"
+    merge_wezterm
+  )
 
-if [[ -L "$WEZ_WIN_HOME/.wezterm.lua" ]]; then
-  _pass "merge_wezterm: created Windows-home symlink under WSL"
+  if [[ -L "$WEZ_WIN_HOME/.wezterm.lua" ]]; then
+    _pass "merge_wezterm: created Windows-home symlink under WSL"
+  else
+    _fail "merge_wezterm: created Windows-home symlink under WSL"
+  fi
+
+  WEZ_LINK_TARGET=$(readlink "$WEZ_WIN_HOME/.wezterm.lua" 2>/dev/null || true)
+  _assert_eq "merge_wezterm: symlink target" "$WEZ_HOME/.wezterm.lua" "$WEZ_LINK_TARGET"
+
+  # Non-WSL Linux should be a no-op.
+  rm -f "$WEZ_WIN_HOME/.wezterm.lua"
+  (
+    export HOME="$WEZ_HOME"
+    unset WSL_DISTRO_NAME
+    export USER="chris"
+    merge_wezterm
+  )
+  _assert_file_missing "merge_wezterm: no-op on non-WSL Linux" "$WEZ_WIN_HOME/.wezterm.lua"
 else
-  _fail "merge_wezterm: created Windows-home symlink under WSL"
+  echo "  SKIP: merge_wezterm WSL-specific assertions (non-Linux runner)"
 fi
-
-WEZ_LINK_TARGET=$(readlink "$WEZ_WIN_HOME/.wezterm.lua" 2>/dev/null || true)
-_assert_eq "merge_wezterm: symlink target" "$WEZ_HOME/.wezterm.lua" "$WEZ_LINK_TARGET"
-
-# Non-WSL Linux should be a no-op.
-rm -f "$WEZ_WIN_HOME/.wezterm.lua"
-(
-  export HOME="$WEZ_HOME"
-  unset WSL_DISTRO_NAME
-  export USER="chris"
-  merge_wezterm
-)
-_assert_file_missing "merge_wezterm: no-op on non-WSL Linux" "$WEZ_WIN_HOME/.wezterm.lua"
 
 # ---------------------------------------------------------------------------
 # Tests: _install_hint
