@@ -115,6 +115,8 @@ local keys = {
   bind('v', 'CTRL|SHIFT', act.PasteFrom('Clipboard')),
 
   -- Tabs
+  bind('t', 'CTRL', act.SpawnTab('DefaultDomain')),
+  bind('w', 'CTRL', act.CloseCurrentTab({ confirm = false })),
   bind('t', 'CTRL|SHIFT', act.SpawnTab('DefaultDomain')),
   bind('w', 'CTRL|SHIFT', act.CloseCurrentTab({ confirm = false })),
   bind('Tab', 'CTRL', act.ActivateTabRelative(1)),
@@ -140,7 +142,9 @@ if is_macos then
     bind('c', 'SUPER', act.CopyTo('Clipboard')),
     bind('v', 'SUPER', act.PasteFrom('Clipboard')),
     bind('t', 'SUPER', act.SpawnTab('DefaultDomain')),
+    bind('T', 'SUPER', act.SpawnTab('DefaultDomain')),
     bind('w', 'SUPER', act.CloseCurrentTab({ confirm = false })),
+    bind('W', 'SUPER', act.CloseCurrentTab({ confirm = false })),
     bind('f', 'SUPER', act.Search({ CaseSensitiveString = '' })),
     bind('p', 'SUPER|SHIFT', act.ActivateCommandPalette),
     bind('Tab', 'SUPER', act.ActivateTabRelative(1)),
