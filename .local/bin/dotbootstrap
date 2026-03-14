@@ -90,6 +90,37 @@ _check_dep() {
   return 0
 }
 
+
+_link_windows_wezterm_config() {
+  local src="$HOME/.wezterm.lua"
+  [[ -f "$src" ]] || return 0
+
+  local dest=""
+  if [[ -n "${WSL_DISTRO_NAME:-}" ]]; then
+    if [[ -d "/mnt/c/Users/$USER" ]]; then
+      dest="/mnt/c/Users/$USER/.wezterm.lua"
+    else
+      local winhome
+      winhome=$(wslpath "$(powershell.exe -NoProfile -Command "Write-Host -NoNewline \\$env:USERPROFILE" 2>/dev/null)" 2>/dev/null || true)
+      [[ -n "$winhome" ]] && dest="$winhome/.wezterm.lua"
+    fi
+  elif [[ "$(uname -s)" == MINGW* || "$(uname -s)" == MSYS* ]]; then
+    # On MINGW/MSYS, HOME is already the Windows home, so the normal checkout path is sufficient.
+    return 0
+  else
+    return 0
+  fi
+
+  [[ -n "$dest" ]] || return 0
+  mkdir -p "$(dirname "$dest")"
+
+  if [[ -L "$dest" || -e "$dest" ]]; then
+    rm -f "$dest"
+  fi
+  ln -s "$src" "$dest"
+  echo "==> Linked WezTerm config to Windows home: $dest"
+}
+
 # When sourced for testing, export functions without running main logic.
 if [[ "${DOTBOOTSTRAP_SOURCED:-}" == 1 ]]; then return 0; fi
 
@@ -209,6 +240,8 @@ fi
 # ---------------------------------------------------------------------------
 
 _run_merges
+
+_link_windows_wezterm_config
 
 # ---------------------------------------------------------------------------
 # Optional one-time installs
