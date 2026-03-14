@@ -53,7 +53,7 @@ if is_macos then
   }) or '/bin/bash'
   default_prog = { bash_path, '-l' }
 
-  window_decorations = 'RESIZE'
+  window_decorations = 'TITLE|RESIZE'
   macos_window_background_blur = 18
 elseif is_windows then
   font_names = {
