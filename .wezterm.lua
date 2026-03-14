@@ -116,7 +116,9 @@ local keys = {
 
   -- Tabs
   bind('t', 'CTRL|SHIFT', act.SpawnTab('DefaultDomain')),
+  bind('T', 'CTRL|SHIFT', act.SpawnTab('DefaultDomain')),
   bind('w', 'CTRL|SHIFT', act.CloseCurrentTab({ confirm = false })),
+  bind('W', 'CTRL|SHIFT', act.CloseCurrentTab({ confirm = false })),
   bind('Tab', 'CTRL', act.ActivateTabRelative(1)),
   bind('Tab', 'CTRL|SHIFT', act.ActivateTabRelative(-1)),
 
