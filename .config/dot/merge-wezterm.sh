@@ -1,5 +1,5 @@
 #!/bin/bash
-# Link WezTerm config into the Windows home when running under WSL.
+# Copy WezTerm config into the Windows home when running under WSL.
 # Keeps ~/.wezterm.lua in dotfiles as the source of truth.
 
 merge_wezterm() {
@@ -35,14 +35,13 @@ merge_wezterm() {
   mkdir -p "$(dirname "$dest")"
 
   if [[ -L "$dest" ]]; then
-    local cur
-    cur=$(readlink "$dest" 2>/dev/null || true)
-    [[ "$cur" == "$src" ]] && return 0
     rm -f "$dest"
-  elif [[ -e "$dest" ]]; then
+  elif [[ -e "$dest" ]] && ! cmp -s "$src" "$dest"; then
     mv "$dest" "$dest.bak.$(date +%Y%m%d%H%M%S)"
   fi
 
-  ln -s "$src" "$dest"
-  echo "==> Linked WezTerm config to Windows home: $dest"
+  if [[ ! -e "$dest" ]] || ! cmp -s "$src" "$dest"; then
+    cp "$src" "$dest"
+  fi
+  echo "==> Merged WezTerm config to Windows home: $dest"
 }

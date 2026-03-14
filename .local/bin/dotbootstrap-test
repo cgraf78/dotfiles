@@ -109,14 +109,8 @@ if [[ "$(uname -s)" == "Linux" ]]; then
     merge_wezterm
   )
 
-  if [[ -L "$WEZ_WIN_HOME/.wezterm.lua" ]]; then
-    _pass "merge_wezterm: created Windows-home symlink under WSL"
-  else
-    _fail "merge_wezterm: created Windows-home symlink under WSL"
-  fi
-
-  WEZ_LINK_TARGET=$(readlink "$WEZ_WIN_HOME/.wezterm.lua" 2>/dev/null || true)
-  _assert_eq "merge_wezterm: symlink target" "$WEZ_HOME/.wezterm.lua" "$WEZ_LINK_TARGET"
+  _assert_file_exists "merge_wezterm: created Windows-home file under WSL" "$WEZ_WIN_HOME/.wezterm.lua"
+  _assert_file_content "merge_wezterm: copied file content" "return { test = true }" "$WEZ_WIN_HOME/.wezterm.lua"
 
   # Non-WSL Linux should be a no-op.
   rm -f "$WEZ_WIN_HOME/.wezterm.lua"
