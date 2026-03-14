@@ -33,6 +33,8 @@ Key dotfiles:
 
 ## Workflow
 
+- For new work, always fetch and base branches from the latest `origin/main`, not a stale local `main` or another feature branch.
+- Create new PRs for unrelated or independent changes instead of bundling them into an in-flight PR.
 - Don't chain separately-permitted commands with `&&` — use individual Bash calls instead, to avoid unnecessary permission prompts.
 - Use single-line `dot commit -m '...'` for dotfiles commits — heredoc-style commits break permission matching.
 - Always verify changes compile and pass tests before presenting as done.
