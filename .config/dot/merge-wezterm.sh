@@ -36,11 +36,11 @@ merge_wezterm() {
 
   if [[ -L "$dest" ]]; then
     rm -f "$dest"
-  elif [[ -e "$dest" ]] && ! cmp -s "$src" "$dest"; then
+  elif [[ -e "$dest" ]] && ! diff -q "$src" "$dest" >/dev/null 2>&1; then
     mv "$dest" "$dest.bak.$(date +%Y%m%d%H%M%S)"
   fi
 
-  if [[ ! -e "$dest" ]] || ! cmp -s "$src" "$dest"; then
+  if [[ ! -e "$dest" ]] || ! diff -q "$src" "$dest" >/dev/null 2>&1; then
     cp "$src" "$dest"
   fi
 }
