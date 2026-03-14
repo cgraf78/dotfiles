@@ -82,6 +82,64 @@ _assert_eq "fallback to main" "main" "$BRANCH"
 # Re-attach to branch for remaining tests
 $GIT checkout "$DEFAULT_BRANCH" 2>/dev/null || $GIT checkout -b main 2>/dev/null
 
+
+# ---------------------------------------------------------------------------
+# Tests: merge-wezterm
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== WezTerm merge ==="
+
+# Source the real merge-wezterm script from the repo under test.
+# It should link ~/.wezterm.lua into the Windows home when running under WSL.
+# Use mocked powershell.exe + wslpath so we don't depend on the host environment.
+# shellcheck source=../.config/dot/merge-wezterm.sh
+. "$SCRIPT_DIR/../.config/dot/merge-wezterm.sh"
+
+WEZ_HOME=$(_tmpdir)
+WEZ_WIN_HOME=$(_tmpdir)
+WEZ_BIN=$(_mock_bin)
+
+cat > "$WEZ_BIN/powershell.exe" <<'EOF'
+#!/usr/bin/env bash
+printf 'C:\\Users\\Chris'
+EOF
+chmod +x "$WEZ_BIN/powershell.exe"
+
+cat > "$WEZ_BIN/wslpath" <<EOF
+#!/usr/bin/env bash
+echo "$WEZ_WIN_HOME"
+EOF
+chmod +x "$WEZ_BIN/wslpath"
+
+# Run in a subshell so HOME/WSL_DISTRO_NAME/USER changes don't leak.
+(
+  export HOME="$WEZ_HOME"
+  export WSL_DISTRO_NAME="archlinux"
+  export USER="chris"
+  echo "return { test = true }" > "$HOME/.wezterm.lua"
+  merge_wezterm
+)
+
+if [[ -L "$WEZ_WIN_HOME/.wezterm.lua" ]]; then
+  _pass "merge_wezterm: created Windows-home symlink under WSL"
+else
+  _fail "merge_wezterm: created Windows-home symlink under WSL"
+fi
+
+WEZ_LINK_TARGET=$(readlink "$WEZ_WIN_HOME/.wezterm.lua" 2>/dev/null || true)
+_assert_eq "merge_wezterm: symlink target" "$WEZ_HOME/.wezterm.lua" "$WEZ_LINK_TARGET"
+
+# Non-WSL Linux should be a no-op.
+rm -f "$WEZ_WIN_HOME/.wezterm.lua"
+(
+  export HOME="$WEZ_HOME"
+  unset WSL_DISTRO_NAME
+  export USER="chris"
+  merge_wezterm
+)
+_assert_file_missing "merge_wezterm: no-op on non-WSL Linux" "$WEZ_WIN_HOME/.wezterm.lua"
+
 # ---------------------------------------------------------------------------
 # Tests: _install_hint
 # ---------------------------------------------------------------------------
