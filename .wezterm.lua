@@ -43,6 +43,16 @@ local function append_all(dst, src)
   end
 end
 
+local function copy_or_interrupt(window, pane)
+  local selection = window:get_selection_text_for_pane(pane)
+  if selection and selection ~= '' then
+    window:perform_action(act.CopyTo('Clipboard'), pane)
+    window:perform_action(act.ClearSelection, pane)
+  else
+    window:perform_action(act.SendKey({ key = 'c', mods = 'CTRL' }), pane)
+  end
+end
+
 local font_names
 local font_size
 local line_height
@@ -109,6 +119,7 @@ local keys = {
   bind('0', 'CTRL', act.ResetFontSize),
 
   -- Clipboard
+  bind('c', 'CTRL', wezterm.action_callback(copy_or_interrupt)),
   bind('c', 'CTRL|SHIFT', act.CopyTo('Clipboard')),
   bind('v', 'CTRL', act.PasteFrom('Clipboard')),
   bind('v', 'CTRL|SHIFT', act.PasteFrom('Clipboard')),
