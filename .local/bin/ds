@@ -112,6 +112,13 @@ _default_shared_socket_path() {
 # stream-local forwarding. This is an advanced mode for cases where the tmux
 # server runs on some machine other than Taylor, but that machine can reach
 # Taylor over SSH.
+_fix_remote_socket_perms() {
+    local remote_host="$1"
+    local remote_socket="$2"
+
+    ssh "$remote_host" "for i in 1 2 3 4 5; do if [ -S '$remote_socket' ]; then chmod 777 '$remote_socket' && exit 0; fi; sleep 0.2; done; exit 1" >/dev/null 2>&1 || true
+}
+
 _start_socket_forward() {
     [[ -n "${SHARE_SOCKET_TO:-}" ]] || return 0
 
@@ -124,6 +131,8 @@ _start_socket_forward() {
         -o StreamLocalBindMask=0111 \
         -R "${remote_socket}:${DS_TMUX_SOCKET}" \
         "$SHARE_SOCKET_TO"
+
+    _fix_remote_socket_perms "$SHARE_SOCKET_TO" "$remote_socket"
 
     echo "shared tmux socket forwarded to ${SHARE_SOCKET_TO}:${remote_socket}"
 }
