@@ -103,7 +103,11 @@ _mux_bin() {
 
 # Run the configured multiplexer through the ds-managed socket.
 _tmux() {
-    "$(_mux_bin)" -S "$DS_TMUX_SOCKET" "$@"
+    if [[ "${DS_SHARE_VIA:-}" == "tmate" ]]; then
+        env -u TMUX "$(_mux_bin)" -S "$DS_TMUX_SOCKET" "$@"
+    else
+        "$(_mux_bin)" -S "$DS_TMUX_SOCKET" "$@"
+    fi
 }
 
 # Make the shared socket accessible across users when possible.

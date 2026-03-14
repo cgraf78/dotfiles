@@ -77,6 +77,11 @@ chmod +x "$MOCK_BIN/tmux"
 cat > "$MOCK_BIN/tmate" <<'MOCK'
 #!/usr/bin/env bash
 # Mock tmate that logs calls and can emit share metadata.
+if [[ -z "${TMUX:-}" ]]; then
+  echo "TMUX_UNSET=1" >> "${TMUX_LOG:-/dev/null}"
+else
+  echo "TMUX_UNSET=0" >> "${TMUX_LOG:-/dev/null}"
+fi
 echo "tmate $*" >> "${TMUX_LOG:-/dev/null}"
 args=("$@")
 if [[ "${args[0]:-}" == "-S" ]]; then
@@ -310,6 +315,7 @@ DS_SHARE_INFO_FILE="$(_default_share_info_file)"
 result=$(_do_session)
 log=$(_tmux_log)
 _assert_contains "tmate backend uses tmate socket default" "/tmp/ds-tmate.sock" "$log"
+_assert_contains "tmate backend unsets TMUX for tmate commands" "TMUX_UNSET=1" "$log"
 _assert_contains "tmate backend creates session" "tmate -S /tmp/ds-tmate.sock new-session -d -s ds" "$log"
 _assert_contains "tmate backend waits for readiness" "tmate -S /tmp/ds-tmate.sock wait tmate-ready" "$log"
 _assert_contains "tmate backend queries ssh url" "tmate -S /tmp/ds-tmate.sock display-message -p #{tmate_ssh}" "$log"
