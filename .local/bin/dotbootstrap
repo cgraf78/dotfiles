@@ -90,7 +90,6 @@ _check_dep() {
   return 0
 }
 
-
 # When sourced for testing, export functions without running main logic.
 if [[ "${DOTBOOTSTRAP_SOURCED:-}" == 1 ]]; then return 0; fi
 
