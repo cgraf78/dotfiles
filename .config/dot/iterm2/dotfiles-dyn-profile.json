@@ -35,6 +35,27 @@
           "Text": "Find Previous\nFind.Find Previous",
           "Version": 2
         },
+        "0x2d-0x40000-0x1b": {
+          "Action": 25,
+          "Apply Mode": 0,
+          "Escaping": 2,
+          "Text": "Make Text Smaller\nMake Text Smaller",
+          "Version": 2
+        },
+        "0x30-0x40000-0x1d": {
+          "Action": 25,
+          "Apply Mode": 0,
+          "Escaping": 2,
+          "Text": "Make Text Normal Size\nMake Text Normal Size",
+          "Version": 2
+        },
+        "0x3d-0x40000-0x18": {
+          "Action": 25,
+          "Apply Mode": 0,
+          "Escaping": 2,
+          "Text": "Make Text Bigger\nMake Text Bigger",
+          "Version": 2
+        },
         "0x54-0x60000-0x11": {
           "Action": 27,
           "Apply Mode": 0,
