@@ -38,10 +38,10 @@ local macos_window_background_blur = 0
 
 if is_macos then
   font_names = {
-    'SF Mono',
     'JetBrains Mono',
     'Menlo',
     'Monaco',
+    'SF Mono',
   }
   font_size = 10.5
   line_height = 1.05
