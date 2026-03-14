@@ -71,11 +71,9 @@ if [[ "$(uname -s)" == "Linux" || "$(uname -s)" == MINGW* || "$(uname -s)" == MS
             code_exe="/mnt/c/Users/$USER/AppData/Local/Programs/Microsoft VS Code/Code.exe"
 
             if [[ -x "$code_exe" ]]; then
-                "$code_exe" "$target" >/dev/null 2>&1 &
-                disown
+                nohup "$code_exe" "$target" >/dev/null 2>&1 </dev/null &
             else
-                cmd.exe /C start "" code "$target" >/dev/null 2>&1 &
-                disown
+                nohup cmd.exe /C start "" code "$target" >/dev/null 2>&1 </dev/null &
             fi
         }
         alias wvs='wcode'
