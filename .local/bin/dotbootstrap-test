@@ -170,6 +170,7 @@ chmod +x "$VSC_BIN/wslpath"
 
 (
   export HOME="$VSC_HOME"
+  export PATH="$VSC_BIN:$PATH"
   export WSL_DISTRO_NAME="archlinux"
   merge_vscode
 )
