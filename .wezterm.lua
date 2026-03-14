@@ -47,7 +47,7 @@ local font_names
 local font_size
 local line_height
 local default_prog
-local window_decorations = 'RESIZE'
+local window_decorations = 'TITLE|RESIZE'
 local macos_window_background_blur = 0
 
 if is_macos then
@@ -67,7 +67,6 @@ if is_macos then
   }) or '/bin/bash'
   default_prog = { bash_path, '-l' }
 
-  window_decorations = 'TITLE|RESIZE'
   macos_window_background_blur = 18
 elseif is_windows then
   font_names = {
