@@ -241,7 +241,6 @@ fi
 
 _run_merges
 
-_link_windows_wezterm_config
 
 # ---------------------------------------------------------------------------
 # Optional one-time installs
