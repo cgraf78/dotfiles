@@ -1,18 +1,98 @@
 local wezterm = require 'wezterm'
 local act = wezterm.action
 
-return {
-  -- Launch directly into WSL by default.
-  -- Change the distro name here if needed (see: wsl -l -v).
-  default_prog = { 'wsl.exe', '-d', 'archlinux', '--cd', '/home/chris' },
+local target = wezterm.target_triple or ''
+local is_macos = target:find('darwin', 1, true) ~= nil
+local is_windows = target:find('windows', 1, true) ~= nil
+local is_linux = target:find('linux', 1, true) ~= nil
 
-  -- Appearance
-  font = wezterm.font_with_fallback({
+local function file_exists(path)
+  local ok, _, code = os.rename(path, path)
+  if ok then
+    return true
+  end
+
+  return code == 13 -- Permission denied still means the path exists.
+end
+
+local function first_existing(paths)
+  for _, path in ipairs(paths) do
+    if file_exists(path) then
+      return path
+    end
+  end
+
+  return nil
+end
+
+local function font_with_fallback(names)
+  return wezterm.font_with_fallback(names)
+end
+
+local font_names
+local font_size
+local line_height
+local default_prog
+local window_decorations = 'RESIZE'
+local macos_window_background_blur = 0
+
+if is_macos then
+  font_names = {
+    'SF Mono',
+    'JetBrains Mono',
+    'Menlo',
+    'Monaco',
+  }
+  font_size = 10.5
+  line_height = 1.05
+
+  local bash_path = first_existing({
+    '/opt/homebrew/bin/bash',
+    '/usr/local/bin/bash',
+    '/bin/bash',
+  }) or '/bin/bash'
+  default_prog = { bash_path, '-l' }
+
+  window_decorations = 'INTEGRATED_BUTTONS|RESIZE'
+  macos_window_background_blur = 18
+elseif is_windows then
+  font_names = {
     'Consolas',
     'Cascadia Mono',
-  }),
-  font_size = 9.0,
-  line_height = 1.0,
+    'JetBrains Mono',
+  }
+  font_size = 9.0
+  line_height = 1.0
+  default_prog = { 'wsl.exe', '-d', 'archlinux', '--cd', '/home/chris', '--exec', '/bin/bash', '-l' }
+elseif is_linux then
+  font_names = {
+    'JetBrains Mono',
+    'Cascadia Mono',
+    'DejaVu Sans Mono',
+    'Noto Sans Mono',
+  }
+  font_size = 9.5
+  line_height = 1.0
+  default_prog = { '/bin/bash', '-l' }
+else
+  font_names = {
+    'JetBrains Mono',
+    'Menlo',
+    'Consolas',
+    'DejaVu Sans Mono',
+  }
+  font_size = 10.0
+  line_height = 1.0
+  default_prog = { '/bin/bash', '-l' }
+end
+
+return {
+  default_prog = default_prog,
+
+  -- Appearance
+  font = font_with_fallback(font_names),
+  font_size = font_size,
+  line_height = line_height,
   color_scheme = 'Tokyo Night',
   colors = {
     foreground = '#e6e9ef',
@@ -51,6 +131,8 @@ return {
   },
   adjust_window_size_when_changing_font_size = false,
   window_close_confirmation = 'NeverPrompt',
+  window_decorations = window_decorations,
+  macos_window_background_blur = macos_window_background_blur,
 
   -- Behavior
   scrollback_lines = 20000,
@@ -61,7 +143,6 @@ return {
 
   keys = {
     -- Try to make Shift+Enter distinct from plain Enter for TUIs.
-    -- If your app doesn't like this, switch to the Ctrl+J variant below.
     {
       key = 'Enter',
       mods = 'SHIFT',
