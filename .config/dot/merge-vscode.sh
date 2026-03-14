@@ -156,7 +156,7 @@ merge_vscode() {
       ;;
     Linux)
       if [[ -n "${WSL_DISTRO_NAME:-}" ]]; then
-        WIN_APPDATA="$(wslpath "$(cmd.exe /C 'echo %APPDATA%' 2>/dev/null | tr -d '\r')" 2>/dev/null)" || true
+        WIN_APPDATA="$(wslpath "$(powershell.exe -NoProfile -Command "Write-Host -NoNewline ([Environment]::GetFolderPath('ApplicationData'))" 2>/dev/null | tr -d '\r')" 2>/dev/null)" || true
         if [[ -n "$WIN_APPDATA" ]]; then
           _merge_vscode_config "$WIN_APPDATA/Code/User"
         fi

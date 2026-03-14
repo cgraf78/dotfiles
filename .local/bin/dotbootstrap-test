@@ -125,6 +125,58 @@ else
   echo "  SKIP: merge_wezterm WSL-specific assertions (non-Linux runner)"
 fi
 
+
+# ---------------------------------------------------------------------------
+# Tests: merge-vscode (WSL AppData resolution)
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== VS Code merge (WSL path resolution) ==="
+
+# Source the real merge-vscode script from the repo under test.
+# shellcheck source=../.config/dot/merge-vscode.sh
+. "$SCRIPT_DIR/../../.config/dot/merge-vscode.sh"
+
+VSC_HOME=$(_tmpdir)
+VSC_WIN_APPDATA=$(_tmpdir)
+VSC_BIN=$(_mock_bin)
+mkdir -p "$VSC_HOME/.config/dot/vscode"
+echo '{"test.setting": true}' > "$VSC_HOME/.config/dot/vscode/settings.json"
+echo '[]' > "$VSC_HOME/.config/dot/vscode/keybindings.json"
+
+cat > "$VSC_BIN/code" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+chmod +x "$VSC_BIN/code"
+
+cat > "$VSC_BIN/jq" <<'EOF'
+#!/usr/bin/env bash
+exec /usr/bin/jq "$@"
+EOF
+chmod +x "$VSC_BIN/jq"
+
+cat > "$VSC_BIN/powershell.exe" <<'EOF'
+#!/usr/bin/env bash
+printf 'C:\\Users\\Chris\\AppData\\Roaming'
+EOF
+chmod +x "$VSC_BIN/powershell.exe"
+
+cat > "$VSC_BIN/wslpath" <<EOF
+#!/usr/bin/env bash
+echo "$VSC_WIN_APPDATA"
+EOF
+chmod +x "$VSC_BIN/wslpath"
+
+(
+  export HOME="$VSC_HOME"
+  export WSL_DISTRO_NAME="archlinux"
+  merge_vscode
+)
+
+_assert_file_exists "merge_vscode: writes settings into Windows AppData under WSL" "$VSC_WIN_APPDATA/Code/User/settings.json"
+_assert_file_exists "merge_vscode: writes keybindings into Windows AppData under WSL" "$VSC_WIN_APPDATA/Code/User/keybindings.json"
+
 # ---------------------------------------------------------------------------
 # Tests: _install_hint
 # ---------------------------------------------------------------------------
