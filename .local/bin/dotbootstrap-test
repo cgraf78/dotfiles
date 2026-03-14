@@ -94,7 +94,7 @@ echo "=== WezTerm merge ==="
 # It should link ~/.wezterm.lua into the Windows home when running under WSL.
 # Use mocked powershell.exe + wslpath so we don't depend on the host environment.
 # shellcheck source=../.config/dot/merge-wezterm.sh
-. "$SCRIPT_DIR/../.config/dot/merge-wezterm.sh"
+. "$SCRIPT_DIR/../../.config/dot/merge-wezterm.sh"
 
 WEZ_HOME=$(_tmpdir)
 WEZ_WIN_HOME=$(_tmpdir)
