@@ -42,6 +42,20 @@
           "Text": "windows-dotfiles-synced-profile-001",
           "Version": 2
         },
+        "0x74-0x40000-0x11": {
+          "Action": 27,
+          "Apply Mode": 0,
+          "Escaping": 2,
+          "Text": "windows-dotfiles-synced-profile-001",
+          "Version": 2
+        },
+        "0x54-0x120000-0x11": {
+          "Action": 27,
+          "Apply Mode": 0,
+          "Escaping": 2,
+          "Text": "windows-dotfiles-synced-profile-001",
+          "Version": 2
+        },
         "0x63-0x40000-0x8": {
           "Action": 69,
           "Apply Mode": 0,
@@ -71,6 +85,13 @@
           "Version": 2
         },
         "0x77-0x40000-0xd": {
+          "Action": 25,
+          "Apply Mode": 0,
+          "Escaping": 2,
+          "Text": "Close\nClose",
+          "Version": 2
+        },
+        "0x57-0x120000-0xd": {
           "Action": 25,
           "Apply Mode": 0,
           "Escaping": 2,
