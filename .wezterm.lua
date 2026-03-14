@@ -59,7 +59,6 @@ return {
   audible_bell = 'Disabled',
   default_cursor_style = 'SteadyBar',
 
-
   keys = {
     -- Try to make Shift+Enter distinct from plain Enter for TUIs.
     -- If your app doesn't like this, switch to the Ctrl+J variant below.
@@ -84,7 +83,6 @@ return {
     { key = 'w', mods = 'CTRL|SHIFT', action = act.CloseCurrentTab({ confirm = false }) },
     { key = 'Tab', mods = 'CTRL', action = act.ActivateTabRelative(1) },
     { key = 'Tab', mods = 'CTRL|SHIFT', action = act.ActivateTabRelative(-1) },
-
 
     -- Search / launcher
     { key = 'f', mods = 'CTRL|SHIFT', action = act.Search({ CaseSensitiveString = '' }) },
