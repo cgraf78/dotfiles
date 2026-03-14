@@ -53,6 +53,20 @@ local function copy_or_interrupt(window, pane)
   end
 end
 
+local function prompt_rename_tab(window, pane)
+  window:perform_action(
+    act.PromptInputLine({
+      description = 'Rename current tab',
+      action = wezterm.action_callback(function(inner_window, _, line)
+        if line ~= nil then
+          inner_window:active_tab():set_title(line)
+        end
+      end),
+    }),
+    pane
+  )
+end
+
 local font_names
 local font_size
 local line_height
@@ -139,6 +153,7 @@ local keys = {
   bind('g', 'CTRL', act.CopyMode('NextMatch')),
   bind('g', 'CTRL|SHIFT', act.CopyMode('PriorMatch')),
   bind('p', 'CTRL|SHIFT', act.ActivateCommandPalette),
+  bind('r', 'CTRL|SHIFT', wezterm.action_callback(prompt_rename_tab)),
 
   -- Alt-number tab switching
   bind('1', 'ALT', act.ActivateTab(0)),
@@ -164,6 +179,7 @@ if is_macos then
     bind('g', 'SUPER|SHIFT', act.CopyMode('PriorMatch')),
     bind('n', 'SUPER', act.SpawnWindow),
     bind('p', 'SUPER|SHIFT', act.ActivateCommandPalette),
+    bind('r', 'SUPER|SHIFT', wezterm.action_callback(prompt_rename_tab)),
     bind('Tab', 'SUPER', act.ActivateTabRelative(1)),
     bind('Tab', 'SUPER|SHIFT', act.ActivateTabRelative(-1)),
     bind('[', 'SUPER|SHIFT', act.ActivateTabRelative(-1)),
