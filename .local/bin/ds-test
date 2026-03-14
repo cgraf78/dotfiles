@@ -76,7 +76,7 @@ chmod +x "$MOCK_BIN/tmux"
 
 cat > "$MOCK_BIN/tmate" <<'MOCK'
 #!/usr/bin/env bash
-# Mock tmate that logs calls and can emit share metadata on new-session.
+# Mock tmate that logs calls and can emit share metadata.
 echo "tmate $*" >> "${TMUX_LOG:-/dev/null}"
 args=("$@")
 if [[ "${args[0]:-}" == "-S" ]]; then
@@ -95,8 +95,18 @@ case "${args[0]:-}" in
         echo "${MOCK_TMUX_LS:-}" | grep -v '^$' || true
         ;;
     new-session)
-        printf '%s\n' "${MOCK_TMATE_INFO:-ssh session: ssh test@tmate.example}"
         exit 0
+        ;;
+    wait)
+        exit 0
+        ;;
+    display-message)
+        case "${args[*]}" in
+            *"#{tmate_ssh_ro}"*) printf '%s\n' "${MOCK_TMATE_SSH_RO:-ssh ro@test.tmate}" ;;
+            *"#{tmate_web_ro}"*) printf '%s\n' "${MOCK_TMATE_WEB_RO:-https://ro.test.tmate}" ;;
+            *"#{tmate_ssh}"*)    printf '%s\n' "${MOCK_TMATE_SSH:-ssh rw@test.tmate}" ;;
+            *"#{tmate_web}"*)    printf '%s\n' "${MOCK_TMATE_WEB:-https://rw.test.tmate}" ;;
+        esac
         ;;
     attach|switch-client|kill-session|rename-window|split-window|new-window|select-window|send-keys)
         exit 0
@@ -285,7 +295,10 @@ echo "=== tmate sharing backend ==="
 
 _reset_tmux_log
 export MOCK_SESSIONS=""
-export MOCK_TMATE_INFO="ssh session: ssh test@tmate.example\nweb session: https://tmate.example/test"
+export MOCK_TMATE_SSH="ssh rw@test.tmate"
+export MOCK_TMATE_SSH_RO="ssh ro@test.tmate"
+export MOCK_TMATE_WEB="https://rw.test.tmate"
+export MOCK_TMATE_WEB_RO="https://ro.test.tmate"
 PROFILE="bare"
 NAME_OVERRIDE=""
 DIR="$HOME"
@@ -298,15 +311,17 @@ result=$(_do_session)
 log=$(_tmux_log)
 _assert_contains "tmate backend uses tmate socket default" "/tmp/ds-tmate.sock" "$log"
 _assert_contains "tmate backend creates session" "tmate -S /tmp/ds-tmate.sock new-session -d -s ds" "$log"
+_assert_contains "tmate backend waits for readiness" "tmate -S /tmp/ds-tmate.sock wait tmate-ready" "$log"
+_assert_contains "tmate backend queries ssh url" "tmate -S /tmp/ds-tmate.sock display-message -p #{tmate_ssh}" "$log"
 _assert_not_contains "tmate backend skips tmux server-access" "server-access" "$log"
-_assert_contains "tmate backend prints share info" "ssh session: ssh test@tmate.example" "$result"
-_assert_contains "tmate backend writes share info file" "tmate.example/test" "$(cat "$DS_SHARE_INFO_FILE")"
+_assert_contains "tmate backend prints share info" "ssh session: ssh rw@test.tmate" "$result"
+_assert_contains "tmate backend writes share info file" "https://rw.test.tmate" "$(cat "$DS_SHARE_INFO_FILE")"
 
 _reset_tmux_log
 export MOCK_SESSIONS="ds"
 result=$(_do_session)
 log=$(_tmux_log)
-_assert_contains "tmate existing session replays saved share info" "ssh session: ssh test@tmate.example" "$result"
+_assert_contains "tmate existing session replays saved share info" "ssh session: ssh rw@test.tmate" "$result"
 _assert_contains "tmate existing session attaches" "attach -t =ds" "$log"
 
 # Reset sharing vars for remaining tmux tests

@@ -132,6 +132,23 @@ _show_share_info() {
     cat "$DS_SHARE_INFO_FILE"
 }
 
+_collect_tmate_share_info() {
+    _tmux wait tmate-ready >/dev/null 2>&1 || return 1
+
+    local ssh_rw ssh_ro web_rw web_ro
+    ssh_rw=$(_tmux display-message -p '#{tmate_ssh}' 2>/dev/null || true)
+    ssh_ro=$(_tmux display-message -p '#{tmate_ssh_ro}' 2>/dev/null || true)
+    web_rw=$(_tmux display-message -p '#{tmate_web}' 2>/dev/null || true)
+    web_ro=$(_tmux display-message -p '#{tmate_web_ro}' 2>/dev/null || true)
+
+    printf '%s\n' \
+        "tmate session ready" \
+        "ssh session read only: ${ssh_ro}" \
+        "web session read only: ${web_ro}" \
+        "ssh session: ${ssh_rw}" \
+        "web session: ${web_rw}"
+}
+
 # Attach to an existing tmux session, or switch to it if already inside tmux.
 # No exec — returns after tmux detaches so the calling shell can exit cleanly.
 # This is important for ET connections where exec prevents proper cleanup.
@@ -208,10 +225,11 @@ _do_session() {
     fi
 
     local create_output=""
-    create_output=$(_tmux new-session -d -s "$session" -c "$DIR" 2>&1)
+    _tmux new-session -d -s "$session" -c "$DIR"
     _fix_socket_perms
     _fix_server_access
     if [[ "${DS_SHARE_VIA:-}" == "tmate" ]]; then
+        create_output=$(_collect_tmate_share_info 2>&1 || true)
         _write_share_info "$create_output"
         [[ -n "$create_output" ]] && printf '%s\n' "$create_output"
     fi
