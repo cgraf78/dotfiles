@@ -19,6 +19,8 @@ merge_wezterm() {
       ;;
   esac
 
+  echo "==> Merging WezTerm config..."
+
   local winhome dest
   if [[ -n "${DOT_TEST_WINDOWS_HOME:-}" ]]; then
     winhome="$DOT_TEST_WINDOWS_HOME"
