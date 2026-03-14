@@ -39,9 +39,8 @@ if [[ "$(uname -s)" == "Linux" || "$(uname -s)" == MINGW* || "$(uname -s)" == MS
     alias ln='ln --backup=numbered'
     alias mv='mv -f --backup=numbered'
 
-    # Windows interop (WSL and MINGW/MSYS — uname already matched above)
+    # Windows interop (shared between WSL and MINGW/MSYS)
     if [[ -n "${WSL_DISTRO_NAME:-}" || "$(uname -s)" != "Linux" ]]; then
-        alias e.='explorer.exe .'
         alias np='"c:/program files/notepad++/notepad++.exe"'
         alias rufus='rufus-4.6p.exe -g'
         alias cpuz='cpuz_x64.exe'
@@ -51,6 +50,67 @@ if [[ "$(uname -s)" == "Linux" || "$(uname -s)" == MINGW* || "$(uname -s)" == MS
         alias setusbhost='python "$CMDER_ROOT/bin/usbtools/setusbhost.py"'
         alias pbcopy='clip.exe'
         alias pbpaste='powershell.exe -NoProfile -Command Get-Clipboard'
+    fi
+
+    # WSL-specific ergonomics
+    if [[ -n "${WSL_DISTRO_NAME:-}" ]]; then
+        # Cache Windows home path
+        if [[ -z "${WINHOME:-}" ]]; then
+            if [[ -d "/mnt/c/Users/$USER" ]]; then
+                export WINHOME="/mnt/c/Users/$USER"
+            else
+                # Fallback to powershell (only if not already cached)
+                export WINHOME=$(wslpath "$(powershell.exe -c "Write-Host -NoNewline \$env:USERPROFILE" 2>/dev/null)" 2>/dev/null)
+            fi
+        fi
+
+        # Open in Windows/local VS Code instead of Remote WSL.
+        wcode() {
+            local target code_exe code_exe_win
+            target="$(wslpath -w "${1:-.}")"
+            code_exe="/mnt/c/Users/$USER/AppData/Local/Programs/Microsoft VS Code/Code.exe"
+
+            if [[ -x "$code_exe" ]]; then
+                code_exe_win="$(wslpath -w "$code_exe")"
+                powershell.exe -NoProfile -Command "Start-Process -FilePath '$code_exe_win' -ArgumentList '$target'" >/dev/null 2>&1
+            else
+                powershell.exe -NoProfile -Command "Start-Process -FilePath 'code' -ArgumentList '$target'" >/dev/null 2>&1
+            fi
+        }
+        alias wvs='wcode'
+
+        if [[ -n "${WINHOME:-}" ]]; then
+            alias wh='cd "$WINHOME"'
+            alias winhome='cd "$WINHOME"'
+
+            if [[ -d "$WINHOME/OneDrive/Desktop" ]]; then
+                alias wdesktop='cd "$WINHOME/OneDrive/Desktop"'
+            else
+                alias wdesktop='cd "$WINHOME/Desktop"'
+            fi
+
+            alias wdownloads='cd "$WINHOME/Downloads"'
+
+            if [[ -d "$WINHOME/OneDrive/Documents" ]]; then
+                alias wdocuments='cd "$WINHOME/OneDrive/Documents"'
+            else
+                alias wdocuments='cd "$WINHOME/Documents"'
+            fi
+        fi
+
+        # Path & Clipboard helpers
+        alias cppath='wslpath -w "$(pwd)" | clip.exe'  # Copy current WSL path as Windows path
+        alias wpath='wslpath -w'                       # Convert to Windows path
+        alias lpath='wslpath -u'                       # Convert to Linux path
+
+        # Open Windows Explorer
+        e() {
+            if [[ $# -eq 0 ]]; then
+                explorer.exe .
+            else
+                explorer.exe "$(wslpath -w "$1")"
+            fi
+        }
     fi
 fi
 
