@@ -29,6 +29,20 @@ local function font_with_fallback(names)
   return wezterm.font_with_fallback(names)
 end
 
+local function bind(key, mods, action)
+  return {
+    key = key,
+    mods = mods,
+    action = action,
+  }
+end
+
+local function append_all(dst, src)
+  for _, item in ipairs(src) do
+    table.insert(dst, item)
+  end
+end
+
 local font_names
 local font_size
 local line_height
@@ -86,6 +100,54 @@ else
   default_prog = { '/bin/bash', '-l' }
 end
 
+local keys = {
+  -- Try to make Shift+Enter distinct from plain Enter for TUIs.
+  bind('Enter', 'SHIFT', act.SendString('\x0a')),
+
+  -- Font size controls
+  bind('=', 'CTRL', act.IncreaseFontSize),
+  bind('-', 'CTRL', act.DecreaseFontSize),
+  bind('0', 'CTRL', act.ResetFontSize),
+
+  -- Clipboard
+  bind('c', 'CTRL|SHIFT', act.CopyTo('Clipboard')),
+  bind('v', 'CTRL', act.PasteFrom('Clipboard')),
+  bind('v', 'CTRL|SHIFT', act.PasteFrom('Clipboard')),
+
+  -- Tabs
+  bind('t', 'CTRL|SHIFT', act.SpawnTab('DefaultDomain')),
+  bind('w', 'CTRL|SHIFT', act.CloseCurrentTab({ confirm = false })),
+  bind('Tab', 'CTRL', act.ActivateTabRelative(1)),
+  bind('Tab', 'CTRL|SHIFT', act.ActivateTabRelative(-1)),
+
+  -- Search / launcher
+  bind('f', 'CTRL|SHIFT', act.Search({ CaseSensitiveString = '' })),
+  bind('p', 'CTRL|SHIFT', act.ActivateCommandPalette),
+
+  -- Alt-number tab switching
+  bind('1', 'ALT', act.ActivateTab(0)),
+  bind('2', 'ALT', act.ActivateTab(1)),
+  bind('3', 'ALT', act.ActivateTab(2)),
+  bind('4', 'ALT', act.ActivateTab(3)),
+}
+
+if is_macos then
+  append_all(keys, {
+    -- Native-feeling macOS aliases mirroring the cross-platform Ctrl bindings.
+    bind('=', 'SUPER', act.IncreaseFontSize),
+    bind('-', 'SUPER', act.DecreaseFontSize),
+    bind('0', 'SUPER', act.ResetFontSize),
+    bind('c', 'SUPER', act.CopyTo('Clipboard')),
+    bind('v', 'SUPER', act.PasteFrom('Clipboard')),
+    bind('t', 'SUPER', act.SpawnTab('DefaultDomain')),
+    bind('w', 'SUPER', act.CloseCurrentTab({ confirm = false })),
+    bind('f', 'SUPER', act.Search({ CaseSensitiveString = '' })),
+    bind('p', 'SUPER|SHIFT', act.ActivateCommandPalette),
+    bind('Tab', 'SUPER', act.ActivateTabRelative(1)),
+    bind('Tab', 'SUPER|SHIFT', act.ActivateTabRelative(-1)),
+  })
+end
+
 return {
   default_prog = default_prog,
 
@@ -141,40 +203,7 @@ return {
   audible_bell = 'Disabled',
   default_cursor_style = 'SteadyBar',
 
-  keys = {
-    -- Try to make Shift+Enter distinct from plain Enter for TUIs.
-    {
-      key = 'Enter',
-      mods = 'SHIFT',
-      action = act.SendString('\x0a'),
-    },
-
-    -- Font size controls
-    { key = '=', mods = 'CTRL', action = act.IncreaseFontSize },
-    { key = '-', mods = 'CTRL', action = act.DecreaseFontSize },
-    { key = '0', mods = 'CTRL', action = act.ResetFontSize },
-
-    -- Clipboard
-    { key = 'c', mods = 'CTRL|SHIFT', action = act.CopyTo('Clipboard') },
-    { key = 'v', mods = 'CTRL', action = act.PasteFrom('Clipboard') },
-    { key = 'v', mods = 'CTRL|SHIFT', action = act.PasteFrom('Clipboard') },
-
-    -- Tabs
-    { key = 't', mods = 'CTRL|SHIFT', action = act.SpawnTab('CurrentPaneDomain') },
-    { key = 'w', mods = 'CTRL|SHIFT', action = act.CloseCurrentTab({ confirm = false }) },
-    { key = 'Tab', mods = 'CTRL', action = act.ActivateTabRelative(1) },
-    { key = 'Tab', mods = 'CTRL|SHIFT', action = act.ActivateTabRelative(-1) },
-
-    -- Search / launcher
-    { key = 'f', mods = 'CTRL|SHIFT', action = act.Search({ CaseSensitiveString = '' }) },
-    { key = 'p', mods = 'CTRL|SHIFT', action = act.ActivateCommandPalette },
-
-    -- Alt-number tab switching
-    { key = '1', mods = 'ALT', action = act.ActivateTab(0) },
-    { key = '2', mods = 'ALT', action = act.ActivateTab(1) },
-    { key = '3', mods = 'ALT', action = act.ActivateTab(2) },
-    { key = '4', mods = 'ALT', action = act.ActivateTab(3) },
-  },
+  keys = keys,
 
   -- Keep hyperlinks useful in terminal output.
   hyperlink_rules = wezterm.default_hyperlink_rules(),
