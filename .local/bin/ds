@@ -18,6 +18,8 @@ CONNECT_OVERRIDE=""
 DIR_OVERRIDE=""
 NAME_OVERRIDE=""
 KILL_TARGET=""
+SHARE_SOCKET_TO=""
+SHARE_SOCKET_PATH=""
 HOST=""
 CONNECT="ssh"
 CHATBOT="claude"
@@ -30,6 +32,7 @@ _usage() {
     echo "       ds -l [<hostname>]          list active ds sessions"
     echo "       ds -k [<session>] [<host>]  kill a ds session"
     echo "       ds --killall                kill all ds sessions"
+    echo "       ds [opts] --share-socket-to <host> [--share-socket-path <path>]"
 }
 
 # --- Profile layouts ---
@@ -95,6 +98,33 @@ _fix_server_access() {
     [[ -n "${DS_TMUX_ACCESS_USER:-}" ]] || return 0
     id -u "$DS_TMUX_ACCESS_USER" >/dev/null 2>&1 || return 0
     _tmux server-access -a "$DS_TMUX_ACCESS_USER" 2>/dev/null || true
+}
+
+# Compute the default remote socket path used for SSH reverse forwarding.
+_default_shared_socket_path() {
+    local host user
+    host=$(hostname -s 2>/dev/null || hostname)
+    user=${USER:-$(id -un 2>/dev/null || echo user)}
+    echo "/tmp/ds-${user}-${host}.sock"
+}
+
+# Optionally expose the shared tmux socket to another host via SSH reverse
+# stream-local forwarding. This is an advanced mode for cases where the tmux
+# server runs on some machine other than Taylor, but that machine can reach
+# Taylor over SSH.
+_start_socket_forward() {
+    [[ -n "${SHARE_SOCKET_TO:-}" ]] || return 0
+
+    local remote_socket
+    remote_socket="${SHARE_SOCKET_PATH:-$(_default_shared_socket_path)}"
+
+    ssh -fN \
+        -o ExitOnForwardFailure=yes \
+        -o StreamLocalBindUnlink=yes \
+        -R "${remote_socket}:${DS_TMUX_SOCKET}" \
+        "$SHARE_SOCKET_TO"
+
+    echo "shared tmux socket forwarded to ${SHARE_SOCKET_TO}:${remote_socket}"
 }
 
 # Attach to an existing tmux session, or switch to it if already inside tmux.
@@ -167,6 +197,7 @@ _do_session() {
     # Attach if session already exists (= prefix for exact match)
     if _tmux has-session -t "=$session" 2>/dev/null; then
         _fix_server_access
+        _start_socket_forward
         _attach "$session"
         return
     fi
@@ -174,6 +205,7 @@ _do_session() {
     _tmux new-session -d -s "$session" -c "$DIR"
     _fix_socket_perms
     _fix_server_access
+    _start_socket_forward
     "_profile_$PROFILE" "$session" "$CHATBOT" "$DIR"
     _attach "$session"
 }
@@ -214,6 +246,8 @@ _remote() {
             fi
             args+=("-p" "$PROFILE" "-b" "$CHATBOT" "-d" "$REMOTE_DIR")
             [[ -n "$NAME_OVERRIDE" ]] && args+=("-n" "$NAME_OVERRIDE")
+            [[ -n "${SHARE_SOCKET_TO:-}" ]] && args+=("--share-socket-to" "$SHARE_SOCKET_TO")
+            [[ -n "${SHARE_SOCKET_PATH:-}" ]] && args+=("--share-socket-path" "$SHARE_SOCKET_PATH")
             ;;
     esac
 
@@ -244,6 +278,8 @@ while [[ $# -gt 0 ]]; do
         -b|--chatbot) CHATBOT_OVERRIDE="$2"; shift 2 ;;
         -c|--connect) CONNECT_OVERRIDE="$2"; shift 2 ;;
         -d|--dir)     DIR_OVERRIDE="$2"; shift 2 ;;
+        --share-socket-to)   SHARE_SOCKET_TO="$2"; shift 2 ;;
+        --share-socket-path) SHARE_SOCKET_PATH="$2"; shift 2 ;;
         -l|--list)    ACTION="list"; shift ;;
         -k|--kill)    ACTION="kill"
                       # Optional: next arg is the session name (if not a flag)

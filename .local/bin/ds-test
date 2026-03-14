@@ -85,6 +85,14 @@ chmod +x "$MOCK_BIN/id"
 
 export PATH="$MOCK_BIN:$PATH"
 export TMUX_LOG
+SSH_LOG="$MOCK_BIN/ssh.log"
+cat > "$MOCK_BIN/ssh" <<'MOCK'
+#!/usr/bin/env bash
+echo "ssh $*" >> "${SSH_LOG:-/dev/null}"
+exit 0
+MOCK
+chmod +x "$MOCK_BIN/ssh"
+export SSH_LOG
 
 _reset_tmux_log() {
     : > "$TMUX_LOG"
@@ -92,6 +100,14 @@ _reset_tmux_log() {
 
 _tmux_log() {
     cat "$TMUX_LOG" 2>/dev/null || true
+}
+
+_reset_ssh_log() {
+    : > "$SSH_LOG"
+}
+
+_ssh_log() {
+    cat "$SSH_LOG" 2>/dev/null || true
 }
 
 # ---------------------------------------------------------------------------
@@ -244,6 +260,37 @@ DS_TMUX_SOCKET="$SOCK_TEST"
 _fix_socket_perms
 mode=$(stat -c '%a' "$SOCK_TEST" 2>/dev/null || stat -f '%Lp' "$SOCK_TEST")
 _assert_eq "shared socket chmod" "777" "$mode"
+
+# ---------------------------------------------------------------------------
+# Tests: SSH socket forwarding (advanced)
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== SSH socket forwarding ==="
+
+_reset_ssh_log
+SHARE_SOCKET_TO="taylor"
+SHARE_SOCKET_PATH="/tmp/ds-test.sock"
+DS_TMUX_SOCKET="/tmp/ds-shared.sock"
+_start_socket_forward
+sshlog=$(_ssh_log)
+_assert_contains "socket forward: uses reverse streamlocal forwarding" "-R /tmp/ds-test.sock:/tmp/ds-shared.sock" "$sshlog"
+_assert_contains "socket forward: targets requested host" "taylor" "$sshlog"
+
+_reset_tmux_log
+_reset_ssh_log
+export MOCK_SESSIONS=""
+PROFILE="bare"
+NAME_OVERRIDE=""
+DIR="$HOME"
+SHARE_SOCKET_TO="taylor"
+SHARE_SOCKET_PATH="/tmp/ds-test.sock"
+DS_TMUX_SOCKET="/tmp/ds-shared.sock"
+_do_session >/tmp/ds-session.out 2>&1
+sshlog=$(_ssh_log)
+_assert_contains "session: starts socket forward when creating session" "-R /tmp/ds-test.sock:/tmp/ds-shared.sock" "$sshlog"
+
+unset SHARE_SOCKET_TO SHARE_SOCKET_PATH
 
 # ---------------------------------------------------------------------------
 # Tests: Session naming
