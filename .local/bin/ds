@@ -176,7 +176,8 @@ _do_list() {
     while IFS= read -r name; do
         if tmux show-environment -t "=$name" DS_MANAGED 2>/dev/null | grep -q '^DS_MANAGED='; then
             local info
-            info=$(tmux display-message -t "=$name" -p '#{session_windows} windows (#{?session_attached,attached,detached})')
+            info=$(tmux ls -F '#{session_name}	#{session_windows} windows (#{?session_attached,attached,detached})' \
+                | awk -F'\t' -v s="$name" '$1==s{print $2}')
             local line="$name: $info"
             if [[ "$name" == "$shared_session" ]]; then
                 line="$line [shared]"
