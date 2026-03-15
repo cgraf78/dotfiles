@@ -12,7 +12,7 @@
 # Profiles:    ~/.config/ds/profile-<name>.sh   (define _profile_<name>)
 # Connections: ~/.config/ds/connect-<method>.sh  (define _connect_<method>)
 # Share:       ~/.config/ds/share-<backend>.sh   (define _share_start, _share_stop, etc.)
-# Hosts:       ~/.config/ds/hosts*               (hostname → connect method)
+# Hosts:       ~/.config/ds/connect*.conf          (hostname → connect method)
 
 CONF_DIR="${HOME}/.config/ds"
 ACTION="session"
@@ -59,13 +59,13 @@ _profiles() {
 
 # --- Host config ---
 
-# Look up a hostname in all ~/.config/ds/hosts* files (additive).
+# Look up a hostname in all ~/.config/ds/connect*.conf files (additive).
 # Sets CONNECT from the first matching entry.
 # Returns 1 if no match was found (script defaults apply).
 # Hostnames support glob patterns (e.g., server* matches server1, server2).
 lookup_host() {
     local target="$1"
-    local conf_files=("$CONF_DIR"/hosts*)
+    local conf_files=("$CONF_DIR"/connect*.conf)
     [[ -e "${conf_files[0]}" ]] || return 1
     local f
     for f in "${conf_files[@]}"; do

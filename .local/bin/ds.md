@@ -1,17 +1,17 @@
 # ds — Dev Session Launcher
 
-`ds` creates tmux sessions locally or on remote hosts with configurable profiles, per-host defaults, and multiple connection methods.
-
-It also supports **Upterm-based sharing** so another machine/user can join an existing `ds` tmux session securely over SSH.
+`ds` creates tmux dev sessions locally or on remote hosts. Profiles, connection methods, and share backends are all pluggable via `~/.config/ds/`.
 
 ## Files
 
-- `~/.local/bin/ds` — entry point (host resolution, remote connection, tmux session creation, sharing)
-- `~/.config/ds/hosts*` — per-host config (additive, personal + work in separate files)
-- `~/.config/ds/profile-<name>.sh` — pluggable profile layouts
-- `~/.config/ds/share` — optional sharing defaults (`push=...`, `github-user=...`)
+- `~/.local/bin/ds` — main script
+- `~/.config/ds/connect*.conf` — hostname-to-connect-method maps (additive, personal + work in separate files)
+- `~/.config/ds/profile-<name>.sh` — profile layout plugins
+- `~/.config/ds/connect-<method>.sh` — connection method plugins
+- `~/.config/ds/share-<backend>.sh` — share backend plugins
+- `~/.config/ds/share.conf` — share backend config (key=value)
 
-All tracked via the `dot` bare repo.
+All tracked via the `dot` bare repo (work-specific files symlinked from `~/.dotfiles-work`).
 
 ## Usage
 
@@ -21,48 +21,53 @@ ds -p dev                       # session named "ds" with dev layout
 ds -p orc                       # session named "ds" with orc layout
 ds -n work                      # session named "work"
 ds -p dev -n work               # session named "work" with dev layout
-ds myserver                     # remote session (per hosts config)
-ds -p bare nas                  # remote bare session on nas
+ds myserver                     # remote session (per connect config)
+ds -c ssh myserver              # remote session, override connect method
 ds -l                           # list active ds sessions
 ds -l myserver                  # list active ds sessions on remote
 ds -k work                      # kill session by name
 ds -k work myserver             # kill session on remote
 ds --killall                    # kill all ds sessions
 
-ds --share                      # share current session via upterm
+ds --share                      # share current session (auto-selects backend)
 ds --share work                 # share specific existing session
 ds --unshare                    # stop sharing
-ds --share-via upterm           # create/attach and share in one command
-ds --share --push user@host     # also copy share info to remote host
-
+ds --share-via upterm           # create/attach and share in one step
+ds --share-via upterm -n work   # share a specific session (create if needed)
 ds --no-attach                  # create/share without attaching locally
-ds --github-user <github_user>  # restrict upterm auth to GitHub user
 
 dsdev                           # session "dsdev" with dev layout
 dsdev -n foo                    # session "foo" with dev layout
 dsorc                           # session "dsorc" with orc layout
+
+ds init bash                    # print shell integration snippet
 ```
+
+## Shell Integration
+
+`ds init bash` prints a snippet to source in `.bashrc` that provides:
+
+- **Profile shortcut functions** — auto-generated from discovered profiles (e.g., `dsdev`, `dsorc`). Each defaults its session name to the command name, overridable with `-n`.
+- **Auto-attach on SSH login** — when SSHing into a host, automatically creates/attaches a `ds` session. Skip with `NO_TMUX=1`.
+- **ET attach-next** — reads a state file written by the ET connect plugin to join the correct session on connect.
 
 ## Profiles
 
-Profiles define the tmux window/pane layout. `bare` is built into `ds`.
-Additional profiles are pluggable scripts in `~/.config/ds/profile-<name>.sh`, each defining a `_profile_<name>()` function that receives the session name as its only argument.
-Shell shortcuts (`dsdev`, `dsfoo`, etc.) are auto-defined from discovered profiles. Each defaults its session name to the command name (e.g., `dsdev` → session `dsdev`), overridable with `-n`.
-
-Profiles configure their own behavior via environment variables. For example, the `dev` profile reads `DS_DEV_CHATBOT` and `DS_DEV_DIR`.
-
-To add a new profile, create `~/.config/ds/profile-myprofile.sh`:
+Profiles define the tmux window/pane layout. `bare` is built into `ds`. Additional profiles are pluggable scripts in `~/.config/ds/profile-<name>.sh`, each defining a `_profile_<name>()` function:
 
 ```bash
+# ~/.config/ds/profile-myprofile.sh
 _profile_myprofile() {
     local session="$1"
     # set up tmux windows/panes here
 }
 ```
 
+Profiles configure their own behavior via environment variables. For example, the `dev` profile reads `DS_DEV_CHATBOT` and `DS_DEV_DIR`.
+
 ### Dev profile
 
-The `dev` profile creates a chatbot pane (top), a bash pane (bottom), and a separate bash window. Configured via environment variables:
+The `dev` profile creates a chatbot pane (top), a bash pane (bottom), and a separate bash window.
 
 | Variable | Default | Description |
 |---|---|---|
@@ -71,92 +76,116 @@ The `dev` profile creates a chatbot pane (top), a bash pane (bottom), and a sepa
 
 Set these in `~/.bashrc` (personal) or `~/.bashrc_work` (work) to configure per-machine defaults.
 
-## Hosts Format
+## Host Resolution
 
-All `~/.config/ds/hosts*` files are read (additive). This allows personal and work hosts to live in separate files.
-Two columns: hostname and connect method.
-Hostnames support glob patterns. First match wins across all files.
+All `~/.config/ds/connect*.conf` files are read (additive). This allows personal and work hosts to live in separate files. Format is two columns: hostname and connect method. Hostnames support glob patterns. First match wins across all files.
 
-Personal hosts (`~/.config/ds/hosts`):
+Personal hosts (`~/.config/ds/connect.conf`):
 
 ```text
 # hostname    connect
 nas           autossh
-clark2        -
+taylor        autossh
 ```
 
-Work hosts (`~/.config/ds/hosts-work`, symlinked from work repo):
+Work hosts (`~/.config/ds/connect-work.conf`, symlinked from work repo):
 
 ```text
 # hostname    connect
-myserver      ssh
+cgrafdev      autossh
+dev*          autossh
 ```
 
-## Resolution Priority
+### Resolution priority
 
-1. First glob/exact match across all `hosts*` files
-2. Hardcoded fallback: `ssh` connect method, `bare` profile
+1. First glob/exact match across all `connect*.conf` files
+2. Fallback: `ssh` connect method, `bare` profile
 
 CLI flags (`-p`, `-c`, `-n`) override resolved values per-field.
 
 ## Connect Methods
 
-| Method | Command | Use case |
+`ssh` is built-in. Other methods are plugins in `~/.config/ds/connect-<method>.sh`, each defining a `_connect_<method>` function:
+
+```bash
+# ~/.config/ds/connect-mymethod.sh
+_connect_mymethod() {
+    local host="$1" remote_cmd="$2" session="$3" action="$4" ds_args="$5"
+    # action is "session", "list", or "kill"
+    # remote_cmd is a pre-built "bash -lc 'ds ...'" string for non-session actions
+}
+```
+
+For `session` actions the plugin owns the full connect lifecycle (and may ignore `remote_cmd`). For `list`/`kill` it typically falls back to `ssh $host -t "$remote_cmd"`.
+
+| Method | Plugin | Use case |
 |---|---|---|
 | `-` | (none) | Local-only host, no remote connections |
-| `ssh` | `ssh HOST -t "ds ..."` | Standard SSH |
-| `autossh` | `autossh -M0 HOST -t "ds ..."` | Auto-reconnecting SSH |
-| `et` | `x2ssh -et HOST -c "ds ..." --noexit` | Eternal Terminal via x2ssh |
+| `ssh` | built-in | Standard SSH |
+| `autossh` | `connect-autossh.sh` | Auto-reconnecting SSH |
+| `et` | `connect-et.sh` | Eternal Terminal via x2ssh |
 
-## Upterm Sharing
+## Sharing
 
-### One-session sharing model
+Share backends are plugins in `~/.config/ds/share-<backend>.sh`. If only one backend is installed, `ds --share` auto-selects it; otherwise use `--share-via <backend>`.
 
-Only one `ds` session can be shared at a time.
+Only one session can be shared at a time. `ds -l` marks the shared session with `[shared]`.
 
-- If you share a second session while one is already shared, `ds` errors and tells you to run `ds --unshare` first.
-- `ds -l` marks the shared session with `[shared]`.
+### Share plugin interface
 
-### Share workflows
+A share backend must define all of:
 
-1. **Share an already-running session**
-   ```bash
-   ds --share [session]
-   ```
-2. **Create/attach and share in one shot**
-   ```bash
-   ds --share-via upterm
-   ```
+- `_share_start <session>` — start sharing, call `_write_share_info` with connection info
+- `_share_stop <session>` — stop sharing, clean up state files
+- `_share_running` — return 0 if sharing is active
+- `_share_current_session` — print name of the shared session
+- `_share_info` — print current share connection info
+- `_share_load_config` — load backend-specific config from `~/.config/ds/share.conf`
 
-### Auth + push options
+### Share config (`share.conf`)
 
-- `--github-user <user>` limits upterm access to that GitHub user.
-- `--push user@host` copies the generated share info file to `~/.ds/shares/` on another host.
-- Optional defaults can be set in `~/.config/ds/share`:
+Key=value file for backend settings. Currently used by the upterm backend:
 
 ```text
 push=openclaw@taylor
 github-user=argusbot78
 ```
 
-### State files and permissions
+- `push` — `user@host` target; share info is SCPed to `~/.ds/shares/` on that host
+- `github-user` — restricts upterm access to this GitHub user
 
-`ds` writes runtime share state under:
+### Upterm backend
 
-- `~/.local/state/ds/`
+The built-in `share-upterm.sh` backend shares sessions via [upterm](https://upterm.dev). Environment variables (all optional):
 
-This includes share metadata, upterm pid, admin socket path, and shared session name.
-The directory is created with mode `0700`, and files are written with restrictive permissions (including `0600` for share info).
+| Variable | Default | Description |
+|---|---|---|
+| `DS_UPTERM_HOST` | `uptermd.upterm.dev:22` | Upterm server |
+| `DS_UPTERM_PRIVATE_KEY` | auto-detected | SSH key for upterm |
+| `DS_UPTERM_KNOWN_HOSTS` | *(skip check)* | Known hosts file for server |
+| `DS_UPTERM_GITHUB_USER` | *(from share.conf or prompt)* | GitHub user for ACL |
+| `DS_SHARE_PUSH` | *(from share.conf)* | `user@host` for pushing share info |
+
+### Share workflows
+
+1. **Share an already-running session:**
+   ```bash
+   ds --share [session]
+   ```
+2. **Create/attach and share in one shot:**
+   ```bash
+   ds --share-via upterm
+   ```
 
 ### Cleanup behavior
 
-- `ds --unshare` stops upterm and cleans local share state.
+- `ds --unshare` stops sharing and cleans local state.
 - `ds -k <session>` auto-unshares first if that session is currently shared.
 - `ds --killall` auto-unshares first, then kills all ds-managed sessions.
 
 ## Session Naming
 
-`--name` sets the exact session name. Default is `ds`. Profile controls layout only, not the name.
+`-n` sets the exact session name. Default is `ds`. Profile controls layout only, not the name.
 
 ```text
 ds              → ds
@@ -167,7 +196,11 @@ dsdev           → dsdev
 dsdev -n foo    → foo
 ```
 
-Sessions are tagged with a `DS_MANAGED` tmux environment variable on creation. `ds -l` and `ds --killall` use this tag to identify ds-managed sessions (rather than matching session name prefixes).
+Sessions are tagged with a `DS_MANAGED` tmux environment variable on creation. `ds -l` and `ds --killall` use this tag to identify ds-managed sessions.
+
+## State
+
+Runtime state lives under `~/.local/state/ds/` (mode `0700`). Includes share metadata, upterm PID, admin socket path, shared session name, and ET attach-next targets.
 
 ## tmux Behavior
 

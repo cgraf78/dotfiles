@@ -141,7 +141,7 @@ _upterm_unpush_share_info() {
 # --- Required interface ---
 
 _share_load_config() {
-    local conf="$CONF_DIR/share"
+    local conf="$CONF_DIR/share.conf"
     [[ -f "$conf" ]] || return 0
     while IFS='=' read -r key val; do
         key=$(echo "$key" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
