@@ -34,7 +34,7 @@ DS_UPTERM_KNOWN_HOSTS="${DS_UPTERM_KNOWN_HOSTS:-}"
 DS_UPTERM_PID_FILE="${DS_UPTERM_PID_FILE:-}"
 DS_SHARE_PUSH="${DS_SHARE_PUSH:-}"
 DS_UPTERM_GITHUB_USER="${DS_UPTERM_GITHUB_USER:-}"
-DS_STATE_DIR="${DS_STATE_DIR:-$HOME/.local/state/ds}"
+DS_STATE_DIR="${DS_STATE_DIR:-$HOME/.local/share/ds}"
 
 _usage() {
     echo "Usage: ds [-p <profile>] [-n <name>] [-b <chatbot>] [-c <method>] [-d <path>] [--share-via upterm] [--push user@host] [<hostname>]"
