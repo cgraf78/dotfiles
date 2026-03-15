@@ -115,7 +115,7 @@ ds -k dsdev           # kill a session
 dsdev                 # shortcut for ds -p dev
 ```
 
-Host config in `~/.config/ds/hosts*` (additive — personal and work in separate files). See [`ds.md`](/.local/bin/ds.md) for full docs.
+Host config in `~/.config/ds/connect*.conf` (additive — personal and work in separate files). See [`ds.md`](/.local/bin/ds.md) for full docs.
 
 ### `dotsync` — Bidirectional File Sync
 
