@@ -148,6 +148,8 @@ local keys = {
   bind('Tab', 'CTRL|SHIFT', act.ActivateTabRelative(-1)),
   bind('{', 'CTRL', act.ActivateTabRelative(-1)),
   bind('}', 'CTRL', act.ActivateTabRelative(1)),
+  bind('{', 'ALT|SHIFT', act.MoveTabRelative(-1)),
+  bind('}', 'ALT|SHIFT', act.MoveTabRelative(1)),
 
   -- Search / launcher
   bind('g', 'CTRL', act.CopyMode('NextMatch')),
