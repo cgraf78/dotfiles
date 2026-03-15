@@ -268,18 +268,10 @@ _assert_eq "shared socket chmod" "777" "$mode"
 echo ""
 echo "=== Upterm sharing backend ==="
 
+# With the foreground upterm model, --no-attach means we skip attachment entirely
+# (no upterm host, no tmux attach). The tmux session is still created.
 _reset_tmux_log
 export MOCK_SESSIONS=""
-export MOCK_UPTERM_SLEEP=1
-MOCK_UPTERM_INFO=$(cat <<'EOF'
-The authenticity of host 'uptermd.upterm.dev' can't be established.
-ssh session: ssh test@upterm.example
-ssh session read only: ssh ro@test.upterm.example
-web session: https://upterm.example/test
-web session read only: https://ro.upterm.example/test
-EOF
-)
-export MOCK_UPTERM_INFO
 PROFILE="bare"
 NAME_OVERRIDE=""
 DIR="$HOME"
@@ -290,32 +282,27 @@ DS_SHARE_INFO_FILE="$(_default_share_info_file)"
 DS_UPTERM_PID_FILE="$(_default_upterm_pid_file)"
 result=$(_do_session)
 log=$(_tmux_log)
-_assert_contains "upterm backend keeps normal tmux session" "tmux -S /tmp/ds-shared.sock new-session -d -s ds" "$log"
-_assert_contains "upterm backend starts upterm host" "upterm host" "$log"
-_assert_contains "upterm backend force-command attaches same tmux session" "--force-command tmux -S /tmp/ds-shared.sock attach -t =ds" "$log"
-_assert_contains "upterm backend prints share info" "ssh session: ssh test@upterm.example" "$result"
-_assert_contains "upterm backend writes share info file" "https://upterm.example/test" "$(cat "$DS_SHARE_INFO_FILE")"
-_assert_not_contains "upterm backend strips host-key noise from output" "authenticity of host" "$result"
-_assert_not_contains "upterm backend strips host-key noise from share file" "authenticity of host" "$(cat "$DS_SHARE_INFO_FILE")"
+_assert_contains "upterm no-attach: creates tmux session" "tmux -S /tmp/ds-shared.sock new-session -d -s ds" "$log"
+_assert_not_contains "upterm no-attach: skips upterm host" "upterm host" "$log"
 if echo "$log" | grep -qx 'tmux -S /tmp/ds-shared.sock attach -t =ds'; then
-    _fail "upterm no-attach skips local attach"
+    _fail "upterm no-attach: skips local attach"
 else
-    _pass "upterm no-attach skips local attach"
+    _pass "upterm no-attach: skips local attach"
 fi
 
+# With no-attach and existing session, should also skip everything
 _reset_tmux_log
 export MOCK_SESSIONS="ds"
 result=$(_do_session)
 log=$(_tmux_log)
-_assert_contains "upterm existing session replays share info" "ssh session: ssh test@upterm.example" "$result"
-_assert_not_contains "upterm existing no-attach skips attach" "attach -t =ds" "$log"
+_assert_not_contains "upterm no-attach existing: skips attach" "attach -t =ds" "$log"
+_assert_not_contains "upterm no-attach existing: skips upterm" "upterm host" "$log"
 
 # Reset sharing vars for remaining tmux tests
 DS_SHARE_VIA=""
 DS_NO_ATTACH=0
 DS_SHARE_INFO_FILE=""
 DS_UPTERM_PID_FILE=""
-unset MOCK_UPTERM_INFO MOCK_UPTERM_SLEEP
 
 # ---------------------------------------------------------------------------
 # Tests: Session naming

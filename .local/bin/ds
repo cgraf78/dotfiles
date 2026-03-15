@@ -174,13 +174,35 @@ _show_share_info() {
     cat "$DS_SHARE_INFO_FILE"
 }
 
-_start_upterm_share() {
+_collect_upterm_share_info() {
+    # Background sidecar: polls `upterm session current` until share info
+    # is available, then writes it to the share info file.
+    # Runs in a subshell so it doesn't block the main process.
+    (
+        local i content
+        for i in $(seq 1 30); do
+            content=$(env -u TMUX upterm session current 2>/dev/null || true)
+            if [[ -n "$content" ]]; then
+                content=$(_normalize_share_info upterm "$content")
+                _write_share_info "$content"
+                printf '%s\n' "$content"
+                return 0
+            fi
+            sleep 0.5
+        done
+    ) &
+}
+
+_upterm_attach() {
+    # Run upterm host as the foreground terminal process (replaces _attach).
+    # This is the single attachment point — no separate _attach call needed.
     local session="$1"
-    [[ "${DS_SHARE_VIA:-}" == "upterm" ]] || return 0
 
     if _upterm_running; then
         _show_share_info
-        return 0
+        # Upterm is already hosting; just do a normal attach.
+        _attach "$session"
+        return
     fi
 
     local key
@@ -192,39 +214,16 @@ _start_upterm_share() {
     local host_args=(--accept --server "ssh://$DS_UPTERM_HOST" --private-key "$key")
     [[ -n "${DS_UPTERM_KNOWN_HOSTS:-}" ]] && host_args+=(--known-hosts "$DS_UPTERM_KNOWN_HOSTS")
 
-    local tmp_info
-    tmp_info=$(mktemp)
+    # Start background sidecar to collect share info via `upterm session current`
+    _collect_upterm_share_info
 
+    # Run upterm host in the foreground — this IS the user's terminal session.
+    # upterm wraps the tmux attach, so the user gets a normal tmux experience
+    # while the session is shared via upterm.
     env -u TMUX upterm host \
         "${host_args[@]}" \
         --force-command "tmux -S $DS_TMUX_SOCKET attach -t =$session" \
-        -- tmux -S "$DS_TMUX_SOCKET" attach -t "=$session" \
-        >"$tmp_info" 2>&1 &
-    local pid=$!
-    echo "$pid" > "$DS_UPTERM_PID_FILE"
-
-    local content=""
-    local i
-    for i in 1 2 3 4 5 6 7 8 9 10; do
-        if grep -q 'ssh session:' "$tmp_info" 2>/dev/null; then
-            content=$(cat "$tmp_info")
-            break
-        fi
-        if ! kill -0 "$pid" 2>/dev/null; then
-            content=$(cat "$tmp_info" 2>/dev/null || true)
-            break
-        fi
-        sleep 0.5
-    done
-
-    if [[ -z "$content" ]]; then
-        content=$(cat "$tmp_info" 2>/dev/null || true)
-    fi
-
-    rm -f "$tmp_info"
-    content=$(_normalize_share_info upterm "$content")
-    _write_share_info "$content"
-    [[ -n "$content" ]] && printf '%s\n' "$content"
+        -- tmux -S "$DS_TMUX_SOCKET" attach -t "=$session"
 }
 
 # Attach to an existing tmux session, or switch to it if already inside tmux.
@@ -297,11 +296,14 @@ _do_session() {
     # Attach if session already exists (= prefix for exact match)
     if _tmux has-session -t "=$session" 2>/dev/null; then
         _fix_server_access
-        _start_upterm_share "$session"
         if [[ "$DS_NO_ATTACH" == "1" ]]; then
             return
         fi
-        _attach "$session"
+        if [[ "${DS_SHARE_VIA:-}" == "upterm" ]]; then
+            _upterm_attach "$session"
+        else
+            _attach "$session"
+        fi
         return
     fi
 
@@ -309,11 +311,14 @@ _do_session() {
     _fix_socket_perms
     _fix_server_access
     "_profile_$PROFILE" "$session" "$CHATBOT" "$DIR"
-    _start_upterm_share "$session"
     if [[ "$DS_NO_ATTACH" == "1" ]]; then
         return
     fi
-    _attach "$session"
+    if [[ "${DS_SHARE_VIA:-}" == "upterm" ]]; then
+        _upterm_attach "$session"
+    else
+        _attach "$session"
+    fi
 }
 
 # --- Main ---
