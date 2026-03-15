@@ -66,6 +66,28 @@ case "${args[0]:-}" in
     ls)
         echo "${MOCK_TMUX_LS:-}" | grep -v '^$' || true
         ;;
+    set-environment)
+        # Track DS_MANAGED sessions: set-environment -t <session> DS_MANAGED 1
+        if [[ "${args[3]:-}" == "DS_MANAGED" ]]; then
+            export MOCK_DS_MANAGED="${MOCK_DS_MANAGED:-} ${args[2]}"
+        fi
+        exit 0
+        ;;
+    show-environment)
+        # show-environment -t =<session> DS_MANAGED
+        _se_name="${args[2]#=}"
+        if [[ " ${MOCK_DS_MANAGED:-} " == *" $_se_name "* ]]; then
+            echo "DS_MANAGED=1"
+            exit 0
+        else
+            exit 1
+        fi
+        ;;
+    display-message)
+        # display-message -t =<session> -p '<format>'
+        echo "1 windows (detached)"
+        exit 0
+        ;;
     new-session|attach|switch-client|kill-session|rename-window|split-window|new-window|select-window|send-keys)
         exit 0
         ;;
@@ -229,6 +251,7 @@ echo "=== Upterm sharing backend ==="
 
 _reset_tmux_log
 export MOCK_SESSIONS=""
+export MOCK_DS_MANAGED=""
 PROFILE="bare"
 NAME_OVERRIDE=""
 DIR="$HOME"
@@ -322,38 +345,43 @@ SHARE_TARGET=""
 echo ""
 echo "=== Session naming ==="
 
-# _do_session builds session name from PROFILE and NAME_OVERRIDE.
-# We test the naming logic by examining tmux calls.
+# --name sets the exact session name; profile doesn't affect the name.
+# Default (no --name) → session "ds".
 
 _reset_tmux_log
 export MOCK_SESSIONS=""
+export MOCK_DS_MANAGED=""
 PROFILE="bare"
 NAME_OVERRIDE=""
 DIR="$HOME"
 _do_session
 log=$(_tmux_log)
-_assert_contains "bare profile → session 'ds'" "new-session -d -s ds" "$log"
+_assert_contains "no name → session 'ds'" "new-session -d -s ds" "$log"
+_assert_contains "tags session with DS_MANAGED" "set-environment -t ds DS_MANAGED 1" "$log"
 
 _reset_tmux_log
+export MOCK_DS_MANAGED=""
 PROFILE="dev"
 NAME_OVERRIDE=""
 _do_session
 log=$(_tmux_log)
-_assert_contains "dev profile → session 'dsdev'" "new-session -d -s dsdev" "$log"
+_assert_contains "dev profile, no name → session 'ds'" "new-session -d -s ds" "$log"
 
 _reset_tmux_log
+export MOCK_DS_MANAGED=""
 PROFILE="bare"
 NAME_OVERRIDE="myproject"
 _do_session
 log=$(_tmux_log)
-_assert_contains "bare + name → session 'ds-myproject'" "new-session -d -s ds-myproject" "$log"
+_assert_contains "name=myproject → session 'myproject'" "new-session -d -s myproject" "$log"
 
 _reset_tmux_log
+export MOCK_DS_MANAGED=""
 PROFILE="dev"
 NAME_OVERRIDE="work"
 _do_session
 log=$(_tmux_log)
-_assert_contains "dev + name → session 'dsdev-work'" "new-session -d -s dsdev-work" "$log"
+_assert_contains "dev + name=work → session 'work'" "new-session -d -s work" "$log"
 
 # ---------------------------------------------------------------------------
 # Tests: Existing session attachment
@@ -389,16 +417,23 @@ unset TMUX
 echo ""
 echo "=== List sessions ==="
 
-export MOCK_TMUX_LS="ds: 1 windows (attached)
-dsdev: 2 windows (detached)
-other-session: 1 windows (attached)"
+export MOCK_TMUX_LS="myproject
+work
+other-session"
+export MOCK_DS_MANAGED=" myproject work"
 
 result=$(_do_list)
-_assert_contains "list shows ds" "ds:" "$result"
-_assert_contains "list shows dsdev" "dsdev:" "$result"
-_assert_not_contains "list excludes non-ds" "other-session" "$result"
+_assert_contains "list shows managed session myproject" "myproject:" "$result"
+_assert_contains "list shows managed session work" "work:" "$result"
+_assert_not_contains "list excludes unmanaged session" "other-session" "$result"
+
+export MOCK_TMUX_LS="only-unmanaged"
+export MOCK_DS_MANAGED=""
+result=$(_do_list)
+_assert_contains "no managed sessions shows message" "no active ds sessions" "$result"
 
 export MOCK_TMUX_LS=""
+export MOCK_DS_MANAGED=""
 result=$(_do_list)
 _assert_contains "empty list shows message" "no active ds sessions" "$result"
 
@@ -411,44 +446,20 @@ echo "=== Kill session ==="
 
 # Kill with explicit target
 _reset_tmux_log
-export MOCK_SESSIONS="ds-myproject"
-KILL_TARGET="ds-myproject"
-PROFILE="bare"
-NAME_OVERRIDE=""
+export MOCK_SESSIONS="myproject"
+KILL_TARGET="myproject"
 result=$(_do_kill)
 log=$(_tmux_log)
-_assert_contains "kill explicit: kills target" "kill-session -t =ds-myproject" "$log"
-_assert_contains "kill explicit: reports killed" "killed ds-myproject" "$result"
+_assert_contains "kill explicit: kills target" "kill-session -t =myproject" "$log"
+_assert_contains "kill explicit: reports killed" "killed myproject" "$result"
 
-# Kill derived from profile (no explicit target)
-_reset_tmux_log
-export MOCK_SESSIONS="dsdev"
+# Kill without target errors
+export MOCK_SESSIONS=""
+export MOCK_TMUX_LS=""
+export MOCK_DS_MANAGED=""
 KILL_TARGET=""
-PROFILE="dev"
-NAME_OVERRIDE=""
-result=$(_do_kill)
-log=$(_tmux_log)
-_assert_contains "kill derived: profile=dev → dsdev" "kill-session -t =dsdev" "$log"
-
-# Kill derived from profile + name
-_reset_tmux_log
-export MOCK_SESSIONS="dsdev-work"
-KILL_TARGET=""
-PROFILE="dev"
-NAME_OVERRIDE="work"
-result=$(_do_kill)
-log=$(_tmux_log)
-_assert_contains "kill derived: dev+work → dsdev-work" "kill-session -t =dsdev-work" "$log"
-
-# Kill bare profile → session "ds"
-_reset_tmux_log
-export MOCK_SESSIONS="ds"
-KILL_TARGET=""
-PROFILE="bare"
-NAME_OVERRIDE=""
-result=$(_do_kill)
-log=$(_tmux_log)
-_assert_contains "kill bare → ds" "kill-session -t =ds" "$log"
+result=$( (_do_kill) 2>&1 || true)
+_assert_contains "kill no target: requires session name" "session name required" "$result"
 
 # Kill nonexistent session
 export MOCK_SESSIONS=""
@@ -464,20 +475,25 @@ _assert_contains "kill nonexistent: error message" "no session 'nosuch'" "$resul
 echo ""
 echo "=== Kill all sessions ==="
 
-export MOCK_TMUX_LS="ds
-dsdev
-dsdev-work
+export MOCK_TMUX_LS="myproject
+work
 other-session"
+export MOCK_DS_MANAGED=" myproject work"
 _reset_tmux_log
-export MOCK_SESSIONS="ds dsdev dsdev-work"
 result=$(_do_killall)
 log=$(_tmux_log)
-_assert_contains "killall: kills ds" "kill-session -t =ds" "$log"
-_assert_contains "killall: kills dsdev" "kill-session -t =dsdev" "$log"
-_assert_contains "killall: kills dsdev-work" "kill-session -t =dsdev-work" "$log"
-_assert_not_contains "killall: skips non-ds" "other-session" "$log"
+_assert_contains "killall: kills myproject" "kill-session -t =myproject" "$log"
+_assert_contains "killall: kills work" "kill-session -t =work" "$log"
+_assert_not_contains "killall: skips unmanaged" "kill-session -t =other-session" "$log"
+
+export MOCK_TMUX_LS="unmanaged-only"
+export MOCK_DS_MANAGED=""
+_reset_tmux_log
+result=$(_do_killall)
+_assert_contains "killall no managed: shows message" "no active ds sessions" "$result"
 
 export MOCK_TMUX_LS=""
+export MOCK_DS_MANAGED=""
 result=$(_do_killall)
 _assert_contains "killall empty: shows message" "no active ds sessions" "$result"
 
@@ -513,10 +529,12 @@ export MOCK_TMUX_LS=""
 unset DS_SOURCED
 
 # -l flag → list action
-export MOCK_TMUX_LS="ds: 1 windows (attached)"
+export MOCK_TMUX_LS="ds"
+export MOCK_DS_MANAGED=" ds"
 result=$("$SCRIPT_DIR/ds" -l 2>&1)
 _assert_contains "ds -l: lists sessions" "ds:" "$result"
 export MOCK_TMUX_LS=""
+export MOCK_DS_MANAGED=""
 
 # --help flag → usage
 result=$("$SCRIPT_DIR/ds" -h 2>&1)
@@ -533,6 +551,10 @@ _assert_contains "ds -l empty: shows message" "no active ds sessions" "$result"
 # -k with nonexistent session
 result=$("$SCRIPT_DIR/ds" -k nosuch 2>&1 || true)
 _assert_contains "ds -k nosuch: error" "no session" "$result"
+
+# -k without session name requires a target
+result=$("$SCRIPT_DIR/ds" -k 2>&1 || true)
+_assert_contains "ds -k (no target): requires session name" "session name required" "$result"
 
 # --killall with no sessions
 result=$("$SCRIPT_DIR/ds" --killall 2>&1)
@@ -560,6 +582,7 @@ _profile_testprofile() {
 
 _reset_tmux_log
 export MOCK_SESSIONS=""
+export MOCK_DS_MANAGED=""
 PROFILE="testprofile"
 NAME_OVERRIDE=""
 CHATBOT="testbot"

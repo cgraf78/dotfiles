@@ -2,8 +2,9 @@
 # ds — connect to (or create) a tmux dev session, locally or on a remote host.
 #
 # Usage: ds [-p <profile>] [-n <name>] [-b <chatbot>] [-c <method>] [-d <path>] [<hostname>]
-#        ds -l            list active ds sessions
-#        ds -k [<name>]   kill a ds session
+#        ds -l [<hostname>]          list active ds sessions
+#        ds -k <session> [<host>]    kill a ds session
+#        ds --killall                kill all ds sessions
 #
 # Profiles are pluggable scripts in ~/.config/ds/profile-<name>.sh.
 # Each defines a _profile_<name>() function for the tmux layout.
@@ -39,7 +40,7 @@ _usage() {
     echo "       ds --share [<session>] [--push user@host]  share a ds session via upterm (one at a time)"
     echo "       ds --unshare                stop sharing the current shared session"
     echo "       ds -l [<hostname>]          list active ds sessions"
-    echo "       ds -k [<session>] [<host>]  kill a ds session"
+    echo "       ds -k <session> [<host>]    kill a ds session"
     echo "       ds --killall                kill all ds sessions"
 }
 
@@ -448,14 +449,7 @@ _stop_upterm_daemon() {
 
 # Share an existing ds session (workflow 2: share after the fact).
 _do_share() {
-    local session
-    if [[ -n "$SHARE_TARGET" ]]; then
-        session="$SHARE_TARGET"
-    else
-        session="ds"
-        [[ "$PROFILE" != "bare" ]] && session="$session$PROFILE"
-        [[ -n "$NAME_OVERRIDE" ]] && session="$session-$NAME_OVERRIDE"
-    fi
+    local session="${SHARE_TARGET:-${NAME_OVERRIDE:-ds}}"
 
     if ! tmux has-session -t "=$session" 2>/dev/null; then
         echo "ds: no session '$session' to share" >&2
@@ -470,14 +464,7 @@ _do_share() {
 
 # Unshare (stop sharing) a ds session.
 _do_unshare() {
-    local session
-    if [[ -n "${SHARE_TARGET:-}" ]]; then
-        session="$SHARE_TARGET"
-    else
-        session="ds"
-        [[ "$PROFILE" != "bare" ]] && session="$session$PROFILE"
-        [[ -n "$NAME_OVERRIDE" ]] && session="$session-$NAME_OVERRIDE"
-    fi
+    local session="${SHARE_TARGET:-${NAME_OVERRIDE:-ds}}"
     _stop_upterm_daemon
     _unpush_share_info "$session"
 }
@@ -512,21 +499,26 @@ _do_list() {
     if _upterm_running; then
         shared_session=$(_upterm_shared_session)
     fi
-    local output
-    output=$(tmux ls -F '#{session_name}: #{session_windows} windows (#{?session_attached,attached,detached})' 2>/dev/null \
-        | grep -E '^ds' || true)
+    local all_sessions
+    all_sessions=$(tmux ls -F '#{session_name}' 2>/dev/null) || true
+    [[ -z "$all_sessions" ]] && { echo "(no active ds sessions)"; return; }
+    local output=""
+    while IFS= read -r name; do
+        if tmux show-environment -t "=$name" DS_MANAGED 2>/dev/null | grep -q '^DS_MANAGED='; then
+            local info
+            info=$(tmux display-message -t "=$name" -p '#{session_windows} windows (#{?session_attached,attached,detached})')
+            local line="$name: $info"
+            if [[ "$name" == "$shared_session" ]]; then
+                line="$line [shared]"
+            fi
+            output+="$line"$'\n'
+        fi
+    done <<< "$all_sessions"
     if [[ -z "$output" ]]; then
         echo "(no active ds sessions)"
-        return
+    else
+        printf '%s' "$output"
     fi
-    while IFS= read -r line; do
-        local name="${line%%:*}"
-        if [[ "$name" == "$shared_session" ]]; then
-            echo "$line [shared]"
-        else
-            echo "$line"
-        fi
-    done <<< "$output"
 }
 
 _do_kill() {
@@ -534,9 +526,9 @@ _do_kill() {
     if [[ -n "$KILL_TARGET" ]]; then
         session="$KILL_TARGET"
     else
-        session="ds"
-        [[ "$PROFILE" != "bare" ]] && session="$session$PROFILE"
-        [[ -n "$NAME_OVERRIDE" ]] && session="$session-$NAME_OVERRIDE"
+        echo "ds: session name required (ds -k <session>)" >&2
+        _do_list >&2
+        exit 1
     fi
     if tmux has-session -t "=$session" 2>/dev/null; then
         # If this session is currently shared, stop sharing first (best-effort)
@@ -557,31 +549,33 @@ _do_kill() {
 }
 
 _do_killall() {
-    local sessions shared_session
-
     # Best-effort share cleanup: if a session is currently shared, stop sharing
     # first so we don't leave stale share state after killing all sessions.
+    local shared_session
     shared_session=$(_upterm_shared_session)
     if [[ -n "$shared_session" ]]; then
         _stop_upterm_daemon || true
         _unpush_share_info "$shared_session" || true
     fi
 
-    sessions=$(tmux ls -F '#{session_name}' 2>/dev/null | grep -E '^ds') || true
-    if [[ -z "$sessions" ]]; then
+    local all_sessions
+    all_sessions=$(tmux ls -F '#{session_name}' 2>/dev/null) || true
+    [[ -z "$all_sessions" ]] && { echo "(no active ds sessions)"; return; }
+    local found=0
+    while IFS= read -r s; do
+        if tmux show-environment -t "=$s" DS_MANAGED 2>/dev/null | grep -q '^DS_MANAGED='; then
+            tmux kill-session -t "=$s"
+            echo "killed $s"
+            found=1
+        fi
+    done <<< "$all_sessions"
+    if [[ "$found" -eq 0 ]]; then
         echo "(no active ds sessions)"
-        return
     fi
-    echo "$sessions" | while IFS= read -r s; do
-        tmux kill-session -t "=$s"
-        echo "killed $s"
-    done
 }
 
 _do_session() {
-    local session="ds"
-    [[ "$PROFILE" != "bare" ]] && session="$session$PROFILE"
-    [[ -n "$NAME_OVERRIDE" ]] && session="$session-$NAME_OVERRIDE"
+    local session="${NAME_OVERRIDE:-ds}"
 
     # Attach if session already exists (= prefix for exact match)
     if tmux has-session -t "=$session" 2>/dev/null; then
@@ -599,6 +593,7 @@ _do_session() {
     fi
 
     tmux new-session -d -s "$session" -c "$DIR"
+    tmux set-environment -t "$session" DS_MANAGED 1
     "_profile_$PROFILE" "$session" "$CHATBOT" "$DIR"
     # Start upterm daemon if --share-via upterm
     if [[ "${DS_SHARE_VIA:-}" == "upterm" ]]; then
@@ -629,13 +624,7 @@ _remote() {
             args+=("-l")
             ;;
         kill)
-            args+=("-k")
-            if [[ -n "$KILL_TARGET" ]]; then
-                args+=("$KILL_TARGET")
-            else
-                args+=("-p" "$PROFILE")
-                [[ -n "$NAME_OVERRIDE" ]] && args+=("-n" "$NAME_OVERRIDE")
-            fi
+            args+=("-k" "$KILL_TARGET")
             ;;
         session)
             [[ -n "$CHATBOT_OVERRIDE" ]] && CHATBOT="$CHATBOT_OVERRIDE"
@@ -696,7 +685,7 @@ while [[ $# -gt 0 ]]; do
         --no-attach)  DS_NO_ATTACH=1; shift ;;
         -l|--list)    ACTION="list"; shift ;;
         -k|--kill)    ACTION="kill"
-                      # Optional: next arg is the session name (if not a flag)
+                      # Required: next arg is the session name (if not a flag)
                       if [[ $# -gt 1 && "$2" != -* ]]; then
                           KILL_TARGET="$2"; shift
                       fi

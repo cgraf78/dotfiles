@@ -16,21 +16,21 @@ All tracked via the `dot` bare repo.
 ## Usage
 
 ```bash
-ds                              # bare session (default profile)
-ds -p dev                       # chatbot + bash layout
-ds -p orc                       # orc in top pane, bash below
-ds -n work                      # named session: ds-work
+ds                              # session named "ds" (default)
+ds -p dev                       # session named "ds" with dev layout
+ds -p orc                       # session named "ds" with orc layout
+ds -n work                      # session named "work"
+ds -p dev -n work               # session named "work" with dev layout
 ds myserver                     # remote session (per hosts config)
 ds -p bare nas                  # remote bare session on nas
 ds -l                           # list active ds sessions
 ds -l myserver                  # list active ds sessions on remote
-ds -k dsdev                     # kill session by name
-ds -k -p dev -n 2               # kill dsdev-2
-ds -k dsdev myserver            # kill session on remote
+ds -k work                      # kill session by name
+ds -k work myserver             # kill session on remote
 ds --killall                    # kill all ds sessions
 
 ds --share                      # share current session via upterm
-ds --share dsdev                # share specific existing session
+ds --share work                 # share specific existing session
 ds --unshare                    # stop sharing
 ds --share-via upterm           # create/attach and share in one command
 ds --share --push user@host     # also copy share info to remote host
@@ -98,7 +98,7 @@ CLI flags (`-p`, `-b`, `-c`, `-d`, `-n`) override resolved values per-field.
 
 ### One-session sharing model
 
-Only one `ds` session can be shared at a time per socket.
+Only one `ds` session can be shared at a time.
 
 - If you share a second session while one is already shared, `ds` errors and tells you to run `ds --unshare` first.
 - `ds -l` marks the shared session with `[shared]`.
@@ -129,7 +129,7 @@ github-user=argusbot78
 
 `ds` writes runtime share state under:
 
-- `~/.local/share/ds/`
+- `~/.local/state/ds/`
 
 This includes share metadata, upterm pid, admin socket path, and shared session name.
 The directory is created with mode `0700`, and files are written with restrictive permissions (including `0600` for share info).
@@ -138,18 +138,20 @@ The directory is created with mode `0700`, and files are written with restrictiv
 
 - `ds --unshare` stops upterm and cleans local share state.
 - `ds -k <session>` auto-unshares first if that session is currently shared.
-- `ds --killall` auto-unshares first, then kills all `ds*` sessions.
+- `ds --killall` auto-unshares first, then kills all ds-managed sessions.
 
 ## Session Naming
 
-Sessions are named `ds<profile>[-<name>]`:
+`--name` sets the exact session name. Default is `ds`. Profile controls layout only, not the name.
 
 ```text
 ds              → ds
-ds -p dev       → dsdev
-ds -n work      → ds-work
-ds -p dev -n 2  → dsdev-2
+ds -p dev       → ds
+ds -n work      → work
+ds -p dev -n 2  → 2
 ```
+
+Sessions are tagged with a `DS_MANAGED` tmux environment variable on creation. `ds -l` and `ds --killall` use this tag to identify ds-managed sessions (rather than matching session name prefixes).
 
 ## tmux Behavior
 
