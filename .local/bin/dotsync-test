@@ -109,7 +109,7 @@ if _is_excluded ".config/dot/sub/file" ".config/dot"; then
 else
     _fail "is_excluded: child of excluded dir"
 fi
-if _is_excluded ".config/ds/hosts.conf" ".config/dot"; then
+if _is_excluded ".config/ds/connect.conf" ".config/dot"; then
     _fail "is_excluded: false positive on sibling"
 else
     _pass "is_excluded: no false positive on sibling"
@@ -508,16 +508,16 @@ cat > "$CONF_DIR/dotsync-paths" <<'EOF'
 EOF
 cat > "$CONF_DIR/dotsync-paths-work" <<'EOF'
 .config/ds/profile-orc.sh
-.config/ds/hosts-work
+.config/ds/connect-work.conf
 EOF
 mkdir -p "$TEST_HOME/.config/ds"
 echo "a" > "$TEST_HOME/.config/ds/profiles.sh"
 echo "b" > "$TEST_HOME/.config/ds/profile-orc.sh"
-echo "c" > "$TEST_HOME/.config/ds/hosts-work"
+echo "c" > "$TEST_HOME/.config/ds/connect-work.conf"
 result=$(_resolve_local_files "personal")
 _assert_contains "personal tier includes non-work file" "profiles.sh" "$result"
 _assert_not_contains "work manifest path excluded from personal tier" "profile-orc.sh" "$result"
-_assert_not_contains "work manifest path with _work suffix also excluded" "hosts-work" "$result"
+_assert_not_contains "work manifest path excluded from personal tier" "connect-work.conf" "$result"
 # Work tier should include all files
 result=$(_resolve_local_files "work")
 _assert_contains "work tier includes work file" "profile-orc.sh" "$result"

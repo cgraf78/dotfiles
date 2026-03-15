@@ -152,7 +152,7 @@ _tmux_log() {
 
 echo "=== Host config lookup ==="
 
-cat > "$CONF_DIR/hosts" <<'EOF'
+cat > "$CONF_DIR/connect.conf" <<'EOF'
 # hostname    connect
 clark2        -
 nas           autossh
@@ -180,8 +180,8 @@ else
 fi
 _assert_eq "unknown host: connect unchanged" "ssh" "$CONNECT"
 
-# Glob pattern matching in hosts file
-cat > "$CONF_DIR/hosts-work" <<'EOF'
+# Glob pattern matching in connect config
+cat > "$CONF_DIR/connect-work.conf" <<'EOF'
 dev*          et
 cgrafdev      autossh
 EOF
@@ -191,29 +191,29 @@ lookup_host "dev2"
 _assert_eq "glob dev*: connect" "et" "$CONNECT"
 
 # First match wins (dev* before cgrafdev in file order, but cgrafdev is
-# in a separate file — hosts is searched before hosts-work)
+# in a separate file — connect.conf is searched before connect-work.conf)
 _reset_lookup
 lookup_host "cgrafdev"
-_assert_eq "cgrafdev: connect (hosts-work)" "autossh" "$CONNECT"
+_assert_eq "cgrafdev: connect (connect-work.conf)" "autossh" "$CONNECT"
 
-# Multiple hosts files are searched (additive)
+# Multiple connect.conf files are searched (additive)
 _reset_lookup
 lookup_host "clark2"
-_assert_eq "clark2 still found with hosts-work present" "-" "$CONNECT"
+_assert_eq "clark2 still found with connect-work.conf present" "-" "$CONNECT"
 
-rm -f "$CONF_DIR/hosts-work"
+rm -f "$CONF_DIR/connect-work.conf"
 
-# No hosts files at all
-rm -f "$CONF_DIR/hosts"
+# No connect.conf files at all
+rm -f "$CONF_DIR/connect.conf"
 _reset_lookup
 if lookup_host "anyhost"; then
-    _fail "no hosts files should return 1"
+    _fail "no connect.conf files should return 1"
 else
-    _pass "no hosts files returns 1"
+    _pass "no connect.conf files returns 1"
 fi
 
-# Restore hosts for remaining tests
-cat > "$CONF_DIR/hosts" <<'EOF'
+# Restore connect.conf for remaining tests
+cat > "$CONF_DIR/connect.conf" <<'EOF'
 # hostname    connect
 clark2        -
 nas           autossh
@@ -640,8 +640,8 @@ log=$(_tmux_log)
 _assert_contains "inside tmux: switch-client" "switch-client -t =test-session" "$log"
 unset TMUX
 
-# Restore hosts
-cat > "$CONF_DIR/hosts" <<'EOF'
+# Restore connect.conf
+cat > "$CONF_DIR/connect.conf" <<'EOF'
 # hostname    connect
 clark2        -
 nas           autossh
@@ -762,13 +762,13 @@ _assert_contains "remote share backend: passes upterm" "upterm" "$remote_log"
 _assert_contains "remote share backend: passes --no-attach" "--no-attach" "$remote_log"
 
 # ---------------------------------------------------------------------------
-# Tests: Hosts file comments and blank lines
+# Tests: Connect config comments and blank lines
 # ---------------------------------------------------------------------------
 
 echo ""
 echo "=== Edge cases ==="
 
-cat > "$CONF_DIR/hosts" <<'EOF'
+cat > "$CONF_DIR/connect.conf" <<'EOF'
 # This is a comment
 
   # Indented comment
@@ -785,8 +785,8 @@ _reset_lookup
 lookup_host "host2"
 _assert_eq "host2 found (blank lines ignored)" "et" "$CONNECT"
 
-# Restore hosts
-cat > "$CONF_DIR/hosts" <<'EOF'
+# Restore connect.conf
+cat > "$CONF_DIR/connect.conf" <<'EOF'
 # hostname    connect
 clark2        -
 nas           autossh
