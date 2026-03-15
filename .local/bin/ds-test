@@ -18,6 +18,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # ---------------------------------------------------------------------------
 
 TEST_HOME=$(_tmpdir)
+HOME_ORIG="$HOME"
 export HOME="$TEST_HOME"
 export CONF_DIR="$TEST_HOME/.config/ds"
 mkdir -p "$CONF_DIR"
@@ -43,6 +44,9 @@ mkdir -p "$TEST_HOME/.ssh"
 printf 'dummy' > "$DS_UPTERM_PRIVATE_KEY"
 # shellcheck source=ds
 . "$SCRIPT_DIR/ds"
+# Install and load the upterm share backend for sharing tests
+cp "$HOME_ORIG/.config/ds/share-upterm.sh" "$CONF_DIR/"
+. "$CONF_DIR/share-upterm.sh"
 
 # Create a mock tmux in a temp bin dir and prepend to PATH
 MOCK_BIN=$(_tmpdir)
@@ -99,9 +103,32 @@ cat > "$MOCK_BIN/upterm" <<'MOCK'
 #!/usr/bin/env bash
 echo "upterm $*" >> "${TMUX_LOG:-/dev/null}"
 if [[ "$1" == "host" ]]; then
-  printf '%s\n' "${MOCK_UPTERM_INFO:-ssh session: ssh test@upterm.example\nssh session read only: ssh ro@test.upterm.example\nweb session: https://upterm.example/test\nweb session read only: https://ro.upterm.example/test}"
+  # Execute the hosted command (bash -c "...") that writes the admin socket file.
+  # Find args after "--" and run them so _share_start's admin socket polling works.
+  found_dashdash=0
+  hosted_args=()
+  for arg; do
+    if [[ "$found_dashdash" -eq 1 ]]; then
+      hosted_args+=("$arg")
+    elif [[ "$arg" == "--" ]]; then
+      found_dashdash=1
+    fi
+  done
+  if [[ ${#hosted_args[@]} -gt 0 ]]; then
+    # Run hosted command in background (it sleeps forever, so we'll kill it on exit)
+    export UPTERM_ADMIN_SOCKET="/tmp/mock-upterm-admin.sock"
+    "${hosted_args[@]}" &
+    hosted_pid=$!
+    trap "kill $hosted_pid 2>/dev/null" EXIT
+  fi
+  # Write share info to stdout (goes to log file)
+  printf '%s\n' "ssh session: ssh test@upterm.example"
   # Keep background process alive briefly if launched with & so kill -0 works.
   sleep "${MOCK_UPTERM_SLEEP:-1}"
+  exit 0
+fi
+if [[ "$1" == "session" && "$2" == "current" ]]; then
+  printf '%s\n' "ssh session: ssh test@upterm.example"
   exit 0
 fi
 exit 0
@@ -237,10 +264,9 @@ _assert_contains "invalid profile lists valid options" "bare" "$result"
 echo ""
 echo "=== Upterm sharing backend ==="
 
-# With the daemon model, --share-via upterm starts a background daemon even
-# with --no-attach. The daemon calls setsid + upterm host, but with mock
-# upterm it won't produce an admin socket, so _start_upterm_daemon times out.
-# We test the daemon start separately. Here we verify the core tmux behavior.
+# _share_start launches upterm host in the background and polls for an admin
+# socket. The mock upterm executes the hosted command to create it, and
+# responds to "session current" with share info. Here we verify core behavior.
 
 _reset_tmux_log
 export MOCK_SESSIONS=""
@@ -250,7 +276,7 @@ NAME_OVERRIDE=""
 DS_SHARE_VIA=""
 DS_NO_ATTACH=1
 DS_SHARE_INFO_FILE="$(_default_share_info_file)"
-DS_UPTERM_PID_FILE="$(_default_upterm_pid_file)"
+DS_UPTERM_PID_FILE="$(_upterm_pid_file)"
 result=$(_do_session 2>&1)
 log=$(_tmux_log)
 _assert_contains "no-attach: creates tmux session" "tmux new-session -d -s ds" "$log"
@@ -263,10 +289,10 @@ fi
 # Test --share action with existing session
 _reset_tmux_log
 export MOCK_SESSIONS="ds"
-DS_SHARE_VIA=""
+DS_SHARE_VIA="upterm"
+DS_UPTERM_GITHUB_USER="testuser"
 SHARE_TARGET="ds"
-# _do_share calls _start_upterm_daemon which needs real upterm; just verify
-# it checks for the session first
+# _do_share calls _share_start, which runs the full share flow with mock upterm
 result=$(_do_share 2>&1) || true
 _assert_not_contains "share action: no 'no session' error for existing session" "no session" "$result"
 
@@ -277,50 +303,59 @@ SHARE_TARGET="nonexistent"
 result=$(_do_share 2>&1) || true
 _assert_contains "share action: error for nonexistent session" "no session" "$result"
 
+# Clean up state from share test (kill mock upterm, remove PID/state files)
+_pid_f=$(_upterm_pid_file)
+if [[ -f "$_pid_f" ]]; then
+    _pid=$(cat "$_pid_f" 2>/dev/null || true)
+    [[ "$_pid" =~ ^[0-9]+$ ]] && kill "$_pid" 2>/dev/null || true
+    rm -f "$_pid_f"
+fi
+rm -f "$DS_SHARE_INFO_FILE" "$(_upterm_admin_file)" "$(_upterm_session_file)" "$(_upterm_log_file)"
+
 # Test --unshare action (no daemon running)
 result=$(_do_unshare 2>&1)
 _assert_contains "unshare: reports not sharing" "not currently sharing" "$result"
 
 # Test normalization of upterm host output variants (e.g., WSL fallback log parse)
-result=$(_normalize_share_info upterm $'Command: ssh token123@uptermd.upterm.dev')
+result=$(_upterm_normalize_info $'Command: ssh token123@uptermd.upterm.dev')
 _assert_contains "normalize upterm: command format" "ssh: ssh token123@uptermd.upterm.dev" "$result"
 
 # Test reading share info directly from upterm log fallback
 log_file="$(_tmpdir)/upterm.log"
 printf '%s\n' 'Some startup text' 'Command: ssh abc123@uptermd.upterm.dev' > "$log_file"
-result=$(_read_share_info_from_upterm_log "$log_file")
+result=$(_upterm_read_info_from_log "$log_file")
 _assert_contains "log fallback: extracts ssh command" "ssh: ssh abc123@uptermd.upterm.dev" "$result"
 
-# Test PID validation — _upterm_running rejects non-numeric PID files
+# Test PID validation — _share_running rejects non-numeric PID files
 pid_dir=$(_tmpdir)
 DS_UPTERM_PID_FILE="$pid_dir/test.pid"
 
 echo "not-a-pid" > "$DS_UPTERM_PID_FILE"
-if _upterm_running; then
-    _fail "upterm_running: rejects non-numeric PID"
+if _share_running; then
+    _fail "share_running: rejects non-numeric PID"
 else
-    _pass "upterm_running: rejects non-numeric PID"
+    _pass "share_running: rejects non-numeric PID"
 fi
 
 echo "12345; rm -rf /" > "$DS_UPTERM_PID_FILE"
-if _upterm_running; then
-    _fail "upterm_running: rejects PID with injection"
+if _share_running; then
+    _fail "share_running: rejects PID with injection"
 else
-    _pass "upterm_running: rejects PID with injection"
+    _pass "share_running: rejects PID with injection"
 fi
 
 echo "" > "$DS_UPTERM_PID_FILE"
-if _upterm_running; then
-    _fail "upterm_running: rejects empty PID"
+if _share_running; then
+    _fail "share_running: rejects empty PID"
 else
-    _pass "upterm_running: rejects empty PID"
+    _pass "share_running: rejects empty PID"
 fi
 
 rm -f "$DS_UPTERM_PID_FILE"
-if _upterm_running; then
-    _fail "upterm_running: rejects missing PID file"
+if _share_running; then
+    _fail "share_running: rejects missing PID file"
 else
-    _pass "upterm_running: rejects missing PID file"
+    _pass "share_running: rejects missing PID file"
 fi
 
 # Reset sharing vars for remaining tmux tests
@@ -328,6 +363,7 @@ DS_SHARE_VIA=""
 DS_NO_ATTACH=0
 DS_SHARE_INFO_FILE=""
 DS_UPTERM_PID_FILE=""
+DS_UPTERM_GITHUB_USER=""
 SHARE_TARGET=""
 
 # ---------------------------------------------------------------------------
@@ -618,6 +654,12 @@ EOF
 
 echo ""
 echo "=== Remote command building ==="
+
+# Install connection plugins for testing
+cp "$HOME_ORIG/.config/ds/connect-autossh.sh" "$CONF_DIR/" 2>/dev/null || \
+    printf '_connect_autossh() { exec autossh -M0 "$1" -t "$2"; }\n' > "$CONF_DIR/connect-autossh.sh"
+cp "$HOME_ORIG/.config/ds/connect-et.sh" "$CONF_DIR/" 2>/dev/null || \
+    printf '_connect_et() { exec x2ssh -et "$1" -c "$2" --noexit; }\n' > "$CONF_DIR/connect-et.sh"
 
 # Mock ssh/et/autossh to capture args instead of connecting
 cat > "$MOCK_BIN/ssh" <<'MOCK'
