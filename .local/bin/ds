@@ -338,7 +338,7 @@ _remote() {
     # Wrap in bash -lc so the remote login profile is sourced.
     local remote_cmd
     # shellcheck disable=SC2088  # intentional — remote shell expands ~
-    remote_cmd="bash -lc '~/.local/bin/ds $(printf '%q ' "${args[@]}")'"
+    remote_cmd="NO_TMUX=1 bash -lc '~/.local/bin/ds $(printf '%q ' "${args[@]}")'"
 
     case "$CONNECT" in
         -)   echo "ds: host '$HOST' is local-only (no remote connections)" >&2; exit 1 ;;
