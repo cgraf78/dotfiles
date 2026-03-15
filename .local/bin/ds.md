@@ -38,15 +38,16 @@ ds --share --push user@host     # also copy share info to remote host
 ds --no-attach                  # create/share without attaching locally
 ds --github-user <github_user>  # restrict upterm auth to GitHub user
 
-dsdev                           # shortcut for ds -p dev
-dsorc                           # shortcut for ds -p orc
+dsdev                           # session "dsdev" with dev layout
+dsdev -n foo                    # session "foo" with dev layout
+dsorc                           # session "dsorc" with orc layout
 ```
 
 ## Profiles
 
 Profiles define the tmux window/pane layout. `bare` is built into `ds`.
 Additional profiles are pluggable scripts in `~/.config/ds/profile-<name>.sh`, each defining a `_profile_<name>()` function.
-Shell shortcuts (`dsdev`, `dsfoo`, etc.) are auto-defined from discovered profiles.
+Shell shortcuts (`dsdev`, `dsfoo`, etc.) are auto-defined from discovered profiles. Each defaults its session name to the command name (e.g., `dsdev` → session `dsdev`), overridable with `-n`.
 
 To add a new profile, create `~/.config/ds/profile-myprofile.sh`:
 
@@ -149,6 +150,8 @@ ds              → ds
 ds -p dev       → ds
 ds -n work      → work
 ds -p dev -n 2  → 2
+dsdev           → dsdev
+dsdev -n foo    → foo
 ```
 
 Sessions are tagged with a `DS_MANAGED` tmux environment variable on creation. `ds -l` and `ds --killall` use this tag to identify ds-managed sessions (rather than matching session name prefixes).

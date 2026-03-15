@@ -122,7 +122,7 @@ jump() { cd -P ~/.marks/"$1" 2>/dev/null || echo "No such mark"; }
 for _dsf in ~/.config/ds/profile-*.sh; do
     [[ -f "$_dsf" ]] || continue
     _dsn="${_dsf##*/profile-}"; _dsn="${_dsn%.sh}"
-    eval "ds${_dsn}() { ds -p ${_dsn} \"\$@\"; }"
+    eval "ds${_dsn}() { ds -p ${_dsn} -n ds${_dsn} \"\$@\"; }"
 done
 unset _dsf _dsn
 
