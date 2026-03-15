@@ -325,8 +325,12 @@ _start_upterm_daemon() {
         fi
     fi
 
-    local host_args=(--accept --server "ssh://$DS_UPTERM_HOST" --skip-host-key-check --private-key "$key")
-    [[ -n "${DS_UPTERM_KNOWN_HOSTS:-}" ]] && host_args+=(--known-hosts "$DS_UPTERM_KNOWN_HOSTS")
+    local host_args=(--accept --server "ssh://$DS_UPTERM_HOST" --private-key "$key")
+    if [[ -n "${DS_UPTERM_KNOWN_HOSTS:-}" ]]; then
+        host_args+=(--known-hosts "$DS_UPTERM_KNOWN_HOSTS")
+    else
+        host_args+=(--skip-host-key-check)
+    fi
     [[ -n "${DS_UPTERM_GITHUB_USER:-}" ]] && host_args+=(--github-user "$DS_UPTERM_GITHUB_USER")
 
     _ensure_state_dir
