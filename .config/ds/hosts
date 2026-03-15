@@ -1,5 +1,5 @@
-# hostname    connect   chatbot   dir
-clark2        -         argus     ~
-bevo2         -         argus     ~
-nas           autossh   argus     ~
-taylor        autossh   argus     ~
+# hostname    connect
+clark2        -
+bevo2         -
+nas           autossh
+taylor        autossh

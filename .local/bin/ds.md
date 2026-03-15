@@ -46,45 +46,58 @@ dsorc                           # session "dsorc" with orc layout
 ## Profiles
 
 Profiles define the tmux window/pane layout. `bare` is built into `ds`.
-Additional profiles are pluggable scripts in `~/.config/ds/profile-<name>.sh`, each defining a `_profile_<name>()` function.
+Additional profiles are pluggable scripts in `~/.config/ds/profile-<name>.sh`, each defining a `_profile_<name>()` function that receives the session name as its only argument.
 Shell shortcuts (`dsdev`, `dsfoo`, etc.) are auto-defined from discovered profiles. Each defaults its session name to the command name (e.g., `dsdev` → session `dsdev`), overridable with `-n`.
+
+Profiles configure their own behavior via environment variables. For example, the `dev` profile reads `DS_DEV_CHATBOT` and `DS_DEV_DIR`.
 
 To add a new profile, create `~/.config/ds/profile-myprofile.sh`:
 
 ```bash
 _profile_myprofile() {
-    local session="$1" chatbot="$2" dir="$3"
+    local session="$1"
     # set up tmux windows/panes here
 }
 ```
 
+### Dev profile
+
+The `dev` profile creates a chatbot pane (top), a bash pane (bottom), and a separate bash window. Configured via environment variables:
+
+| Variable | Default | Description |
+|---|---|---|
+| `DS_DEV_CHATBOT` | *(empty — no chatbot)* | Command to run in the top pane (e.g., `argus`, `claude`) |
+| `DS_DEV_DIR` | `~` | Working directory for all panes/windows |
+
+Set these in `~/.bashrc` (personal) or `~/.bashrc_work` (work) to configure per-machine defaults.
+
 ## Hosts Format
 
 All `~/.config/ds/hosts*` files are read (additive). This allows personal and work hosts to live in separate files.
-Four columns: hostname, connect method, chatbot, working directory.
+Two columns: hostname and connect method.
 Hostnames support glob patterns. First match wins across all files.
 
 Personal hosts (`~/.config/ds/hosts`):
 
 ```text
-# hostname    connect   chatbot   dir
-nas           autossh   argus     ~
-clark2        -         argus     ~
+# hostname    connect
+nas           autossh
+clark2        -
 ```
 
 Work hosts (`~/.config/ds/hosts-work`, symlinked from work repo):
 
 ```text
-# hostname    connect   chatbot   dir
-myserver      ssh       claude    ~/code
+# hostname    connect
+myserver      ssh
 ```
 
 ## Resolution Priority
 
 1. First glob/exact match across all `hosts*` files
-2. Hardcoded fallback: `ssh` + `claude` + `~` + `bare`
+2. Hardcoded fallback: `ssh` connect method, `bare` profile
 
-CLI flags (`-p`, `-b`, `-c`, `-d`, `-n`) override resolved values per-field.
+CLI flags (`-p`, `-c`, `-n`) override resolved values per-field.
 
 ## Connect Methods
 

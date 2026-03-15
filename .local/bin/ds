@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ds — connect to (or create) a tmux dev session, locally or on a remote host.
 #
-# Usage: ds [-p <profile>] [-n <name>] [-b <chatbot>] [-c <method>] [-d <path>] [<hostname>]
+# Usage: ds [-p <profile>] [-n <name>] [-c <method>] [<hostname>]
 #        ds -l [<hostname>]          list active ds sessions
 #        ds -k <session> [<host>]    kill a ds session
 #        ds --killall                kill all ds sessions
@@ -14,16 +14,12 @@ CONF_DIR="${HOME}/.config/ds"
 ACTION="session"
 PROFILE="bare"
 PROFILE_OVERRIDE=""
-CHATBOT_OVERRIDE=""
 CONNECT_OVERRIDE=""
-DIR_OVERRIDE=""
 NAME_OVERRIDE=""
 KILL_TARGET=""
 SHARE_TARGET=""
 HOST=""
 CONNECT="ssh"
-CHATBOT="claude"
-DIR="$HOME"
 DS_SHARE_VIA="${DS_SHARE_VIA:-}"
 DS_NO_ATTACH="${DS_NO_ATTACH:-0}"
 DS_SHARE_INFO_FILE="${DS_SHARE_INFO_FILE:-}"
@@ -36,7 +32,7 @@ DS_UPTERM_GITHUB_USER="${DS_UPTERM_GITHUB_USER:-}"
 DS_STATE_DIR="${DS_STATE_DIR:-$HOME/.local/state/ds}"
 
 _usage() {
-    echo "Usage: ds [-p <profile>] [-n <name>] [-b <chatbot>] [-c <method>] [-d <path>] [--share-via upterm] [--push user@host] [<hostname>]"
+    echo "Usage: ds [-p <profile>] [-n <name>] [-c <method>] [--share-via upterm] [--push user@host] [<hostname>]"
     echo "       ds --share [<session>] [--push user@host]  share a ds session via upterm (one at a time)"
     echo "       ds --unshare                stop sharing the current shared session"
     echo "       ds -l [<hostname>]          list active ds sessions"
@@ -64,24 +60,20 @@ _profiles() {
 # --- Host config ---
 
 # Look up a hostname in all ~/.config/ds/hosts* files (additive).
-# Sets CONNECT, CHATBOT, and DIR from the first matching entry.
+# Sets CONNECT from the first matching entry.
 # Returns 1 if no match was found (script defaults apply).
 # Hostnames support glob patterns (e.g., server* matches server1, server2).
-# CLI overrides (-p, -b, -c, -d) take precedence.
 lookup_host() {
     local target="$1"
     local conf_files=("$CONF_DIR"/hosts*)
     [[ -e "${conf_files[0]}" ]] || return 1
-    # Search all hosts* files (additive) for a match
     local f
     for f in "${conf_files[@]}"; do
-        while read -r name connect chatbot dir; do
+        while read -r name connect; do
             [[ -z "$name" || "$name" == \#* ]] && continue
             # shellcheck disable=SC2053  # intentional glob matching
             if [[ "$target" == $name ]]; then
                 CONNECT="$connect"
-                CHATBOT="$chatbot"
-                [[ -n "$dir" ]] && DIR="${dir/#\~/$HOME}"
                 return 0
             fi
         done < "$f"
@@ -592,9 +584,9 @@ _do_session() {
         return
     fi
 
-    tmux new-session -d -s "$session" -c "$DIR"
+    tmux new-session -d -s "$session"
     tmux set-environment -t "$session" DS_MANAGED 1
-    "_profile_$PROFILE" "$session" "$CHATBOT" "$DIR"
+    "_profile_$PROFILE" "$session"
     # Start upterm daemon if --share-via upterm
     if [[ "${DS_SHARE_VIA:-}" == "upterm" ]]; then
         if _start_upterm_daemon "$session"; then
@@ -627,15 +619,7 @@ _remote() {
             args+=("-k" "$KILL_TARGET")
             ;;
         session)
-            [[ -n "$CHATBOT_OVERRIDE" ]] && CHATBOT="$CHATBOT_OVERRIDE"
-            [[ -n "$DIR_OVERRIDE" ]] && DIR="${DIR_OVERRIDE/#\~/$HOME}"
-            # Convert local $HOME prefix to remote ~ for safe expansion on the remote shell
-            if [[ "$DIR" == "$HOME"* ]]; then
-                REMOTE_DIR="~${DIR#"$HOME"}"
-            else
-                REMOTE_DIR="$DIR"
-            fi
-            args+=("-p" "$PROFILE" "-b" "$CHATBOT" "-d" "$REMOTE_DIR")
+            args+=("-p" "$PROFILE")
             [[ -n "$NAME_OVERRIDE" ]] && args+=("-n" "$NAME_OVERRIDE")
             [[ -n "${DS_SHARE_VIA:-}" ]] && args+=("--share-via" "$DS_SHARE_VIA")
             [[ "$DS_NO_ATTACH" == "1" ]] && args+=("--no-attach")
@@ -666,9 +650,7 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         -p|--profile) PROFILE_OVERRIDE="$2"; shift 2 ;;
         -n|--name)    NAME_OVERRIDE="$2"; shift 2 ;;
-        -b|--chatbot) CHATBOT_OVERRIDE="$2"; shift 2 ;;
         -c|--connect) CONNECT_OVERRIDE="$2"; shift 2 ;;
-        -d|--dir)     DIR_OVERRIDE="$2"; shift 2 ;;
         --share-via)  DS_SHARE_VIA="$2"; shift 2 ;;
         --share)      ACTION="share"
                       if [[ $# -gt 1 && "$2" != -* ]]; then
@@ -736,10 +718,7 @@ case "$ACTION" in
     _do_unshare
     ;;
   session)
-    lookup_host "$(hostname -s 2>/dev/null || hostname)"
     [[ -n "$PROFILE_OVERRIDE" ]] && PROFILE="$PROFILE_OVERRIDE"
-    [[ -n "$CHATBOT_OVERRIDE" ]] && CHATBOT="$CHATBOT_OVERRIDE"
-    [[ -n "$DIR_OVERRIDE" ]] && DIR="${DIR_OVERRIDE/#\~/$HOME}"
     _validate_profile
     _do_session
     ;;

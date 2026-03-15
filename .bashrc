@@ -12,6 +12,7 @@ fi
 # Environment
 # =============================================================================
 export EDITOR=vim
+export DS_DEV_CHATBOT="${DS_DEV_CHATBOT:-argus}"
 
 # Vim runtime — clone on first use if missing
 if [ ! -d "$HOME/.vim_runtime" ] && command -v git &>/dev/null; then

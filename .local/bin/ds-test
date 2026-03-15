@@ -25,14 +25,14 @@ mkdir -p "$CONF_DIR"
 # Create a minimal profile for testing
 cat > "$CONF_DIR/profile-dev.sh" <<'PROFILE'
 _profile_dev() {
-    local session="$1" chatbot="$2" dir="$3"
+    local session="$1"
     : # no-op for testing
 }
 PROFILE
 
 cat > "$CONF_DIR/profile-orc.sh" <<'PROFILE'
 _profile_orc() {
-    local session="$1" dir="$3"
+    local session="$1"
     : # no-op for testing
 }
 PROFILE
@@ -126,28 +126,23 @@ _tmux_log() {
 echo "=== Host config lookup ==="
 
 cat > "$CONF_DIR/hosts" <<'EOF'
-# hostname    connect   chatbot   dir
-clark2        -         argus     ~
-nas           autossh   argus     ~
+# hostname    connect
+clark2        -
+nas           autossh
 EOF
 
 # Reset globals before each lookup test
 _reset_lookup() {
     CONNECT="ssh"
-    CHATBOT="claude"
-    DIR="$HOME"
 }
 
 _reset_lookup
 lookup_host "clark2"
 _assert_eq "clark2: connect method" "-" "$CONNECT"
-_assert_eq "clark2: chatbot" "argus" "$CHATBOT"
-_assert_eq "clark2: dir expands ~" "$HOME" "$DIR"
 
 _reset_lookup
 lookup_host "nas"
 _assert_eq "nas: connect method" "autossh" "$CONNECT"
-_assert_eq "nas: chatbot" "argus" "$CHATBOT"
 
 # Unknown host returns failure, doesn't change globals
 _reset_lookup
@@ -160,15 +155,13 @@ _assert_eq "unknown host: connect unchanged" "ssh" "$CONNECT"
 
 # Glob pattern matching in hosts file
 cat > "$CONF_DIR/hosts-work" <<'EOF'
-dev*          et        claude    ~/fbsource
-cgrafdev      autossh   claude    ~/fbsource
+dev*          et
+cgrafdev      autossh
 EOF
 
 _reset_lookup
 lookup_host "dev2"
 _assert_eq "glob dev*: connect" "et" "$CONNECT"
-_assert_eq "glob dev*: chatbot" "claude" "$CHATBOT"
-_assert_contains "glob dev*: dir" "fbsource" "$DIR"
 
 # First match wins (dev* before cgrafdev in file order, but cgrafdev is
 # in a separate file — hosts is searched before hosts-work)
@@ -194,10 +187,10 @@ fi
 
 # Restore hosts for remaining tests
 cat > "$CONF_DIR/hosts" <<'EOF'
-# hostname    connect   chatbot   dir
-clark2        -         argus     ~
-nas           autossh   argus     ~
-server1       ssh       claude    ~/projects
+# hostname    connect
+clark2        -
+nas           autossh
+server1       ssh
 EOF
 
 # ---------------------------------------------------------------------------
@@ -254,7 +247,6 @@ export MOCK_SESSIONS=""
 export MOCK_DS_MANAGED=""
 PROFILE="bare"
 NAME_OVERRIDE=""
-DIR="$HOME"
 DS_SHARE_VIA=""
 DS_NO_ATTACH=1
 DS_SHARE_INFO_FILE="$(_default_share_info_file)"
@@ -353,7 +345,6 @@ export MOCK_SESSIONS=""
 export MOCK_DS_MANAGED=""
 PROFILE="bare"
 NAME_OVERRIDE=""
-DIR="$HOME"
 _do_session
 log=$(_tmux_log)
 _assert_contains "no name → session 'ds'" "new-session -d -s ds" "$log"
@@ -576,20 +567,20 @@ echo "=== Profile function invocation ==="
 
 # Define a test profile that makes a distinctive tmux call
 _profile_testprofile() {
-    local session="$1" chatbot="$2" dir="$3"
-    tmux rename-window -t "$session:1" "TEST_MARKER_$chatbot"
+    local session="$1"
+    tmux rename-window -t "$session:1" "TEST_MARKER_${DS_TEST_VAR:-default}"
 }
 
 _reset_tmux_log
 export MOCK_SESSIONS=""
 export MOCK_DS_MANAGED=""
+export DS_TEST_VAR="testval"
 PROFILE="testprofile"
 NAME_OVERRIDE=""
-CHATBOT="testbot"
-DIR="$HOME"
 _do_session
 log=$(_tmux_log)
-_assert_contains "profile function invoked" "TEST_MARKER_testbot" "$log"
+_assert_contains "profile function invoked" "TEST_MARKER_testval" "$log"
+unset DS_TEST_VAR
 
 # ---------------------------------------------------------------------------
 # Tests: _attach behavior
@@ -613,39 +604,12 @@ log=$(_tmux_log)
 _assert_contains "inside tmux: switch-client" "switch-client -t =test-session" "$log"
 unset TMUX
 
-# ---------------------------------------------------------------------------
-# Tests: Host dir expansion
-# ---------------------------------------------------------------------------
-
-echo ""
-echo "=== Host dir expansion ==="
-
-cat > "$CONF_DIR/hosts" <<'EOF'
-server1       ssh       claude    ~/projects
-server2       et        claude    /opt/data
-EOF
-
-_reset_lookup
-lookup_host "server1"
-_assert_eq "tilde expanded" "$HOME/projects" "$DIR"
-
-_reset_lookup
-lookup_host "server2"
-_assert_eq "absolute dir preserved" "/opt/data" "$DIR"
-
-# Empty dir field — DIR stays at default
-cat > "$CONF_DIR/hosts" <<'EOF'
-minimal       ssh       claude
-EOF
-_reset_lookup
-lookup_host "minimal"
-_assert_eq "missing dir keeps default" "$HOME" "$DIR"
-
 # Restore hosts
 cat > "$CONF_DIR/hosts" <<'EOF'
-clark2        -         argus     ~
-nas           autossh   argus     ~
-server1       ssh       claude    ~/projects
+# hostname    connect
+clark2        -
+nas           autossh
+server1       ssh
 EOF
 
 # ---------------------------------------------------------------------------
@@ -712,20 +676,20 @@ _run_remote() {
 
 # Test SSH remote dispatch
 result=$(_run_remote "HOST=server1 ACTION=session PROFILE_OVERRIDE=dev \
-    CHATBOT_OVERRIDE= DIR_OVERRIDE= NAME_OVERRIDE= CONNECT_OVERRIDE=")
+    NAME_OVERRIDE= CONNECT_OVERRIDE=")
 remote_log=$(cat "$REMOTE_LOG" 2>/dev/null || true)
 _assert_contains "ssh remote: host" "SSH_HOST=server1" "$remote_log"
 _assert_contains "ssh remote: runs ds" "~/.local/bin/ds" "$remote_log"
 
 # Test autossh connection method
 result=$(_run_remote "HOST=nas ACTION=session PROFILE_OVERRIDE= \
-    CHATBOT_OVERRIDE= DIR_OVERRIDE= NAME_OVERRIDE= CONNECT_OVERRIDE=")
+    NAME_OVERRIDE= CONNECT_OVERRIDE=")
 remote_log=$(cat "$REMOTE_LOG" 2>/dev/null || true)
 _assert_contains "autossh remote: uses autossh" "AUTOSSH_ARGS=" "$remote_log"
 
 # Test local-only host (connect = "-")
 result=$(_run_remote "HOST=clark2 ACTION=session PROFILE_OVERRIDE= \
-    CHATBOT_OVERRIDE= DIR_OVERRIDE= NAME_OVERRIDE= CONNECT_OVERRIDE=")
+    NAME_OVERRIDE= CONNECT_OVERRIDE=")
 _assert_contains "local-only host: error" "local-only" "$result"
 
 # Test list action on remote
@@ -735,21 +699,21 @@ _assert_contains "remote list: passes -l" "-l" "$remote_log"
 
 # Test kill action on remote
 result=$(_run_remote "HOST=server1 ACTION=kill KILL_TARGET=ds-myproject \
-    PROFILE_OVERRIDE= CONNECT_OVERRIDE= NAME_OVERRIDE=")
+    CONNECT_OVERRIDE=")
 remote_log=$(cat "$REMOTE_LOG" 2>/dev/null || true)
 _assert_contains "remote kill: passes -k" "-k" "$remote_log"
 _assert_contains "remote kill: passes target" "ds-myproject" "$remote_log"
 
 # Test name override passed to remote
 result=$(_run_remote "HOST=server1 ACTION=session PROFILE_OVERRIDE=dev \
-    CHATBOT_OVERRIDE= DIR_OVERRIDE= NAME_OVERRIDE=myname CONNECT_OVERRIDE=")
+    NAME_OVERRIDE=myname CONNECT_OVERRIDE=")
 remote_log=$(cat "$REMOTE_LOG" 2>/dev/null || true)
 _assert_contains "remote name: passes -n" "-n" "$remote_log"
 _assert_contains "remote name: passes name value" "myname" "$remote_log"
 
 # Test share backend/no-attach passed to remote
 result=$(_run_remote "HOST=server1 ACTION=session PROFILE_OVERRIDE=dev \
-    CHATBOT_OVERRIDE= DIR_OVERRIDE= NAME_OVERRIDE= CONNECT_OVERRIDE= DS_SHARE_VIA=upterm DS_NO_ATTACH=1")
+    NAME_OVERRIDE= CONNECT_OVERRIDE= DS_SHARE_VIA=upterm DS_NO_ATTACH=1")
 remote_log=$(cat "$REMOTE_LOG" 2>/dev/null || true)
 _assert_contains "remote share backend: passes --share-via" "--share-via" "$remote_log"
 _assert_contains "remote share backend: passes upterm" "upterm" "$remote_log"
@@ -766,9 +730,9 @@ cat > "$CONF_DIR/hosts" <<'EOF'
 # This is a comment
 
   # Indented comment
-host1       ssh       claude    ~
+host1       ssh
 
-host2       et        claude    ~/work
+host2       et
 EOF
 
 _reset_lookup
@@ -781,9 +745,10 @@ _assert_eq "host2 found (blank lines ignored)" "et" "$CONNECT"
 
 # Restore hosts
 cat > "$CONF_DIR/hosts" <<'EOF'
-clark2        -         argus     ~
-nas           autossh   argus     ~
-server1       ssh       claude    ~/projects
+# hostname    connect
+clark2        -
+nas           autossh
+server1       ssh
 EOF
 
 _test_summary
