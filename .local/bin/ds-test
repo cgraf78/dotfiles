@@ -276,6 +276,38 @@ printf '%s\n' 'Some startup text' 'Command: ssh abc123@uptermd.upterm.dev' > "$l
 result=$(_read_share_info_from_upterm_log "$log_file")
 _assert_contains "log fallback: extracts ssh command" "ssh: ssh abc123@uptermd.upterm.dev" "$result"
 
+# Test PID validation — _upterm_running rejects non-numeric PID files
+pid_dir=$(_tmpdir)
+DS_UPTERM_PID_FILE="$pid_dir/test.pid"
+
+echo "not-a-pid" > "$DS_UPTERM_PID_FILE"
+if _upterm_running; then
+    _fail "upterm_running: rejects non-numeric PID"
+else
+    _pass "upterm_running: rejects non-numeric PID"
+fi
+
+echo "12345; rm -rf /" > "$DS_UPTERM_PID_FILE"
+if _upterm_running; then
+    _fail "upterm_running: rejects PID with injection"
+else
+    _pass "upterm_running: rejects PID with injection"
+fi
+
+echo "" > "$DS_UPTERM_PID_FILE"
+if _upterm_running; then
+    _fail "upterm_running: rejects empty PID"
+else
+    _pass "upterm_running: rejects empty PID"
+fi
+
+rm -f "$DS_UPTERM_PID_FILE"
+if _upterm_running; then
+    _fail "upterm_running: rejects missing PID file"
+else
+    _pass "upterm_running: rejects missing PID file"
+fi
+
 # Reset sharing vars for remaining tmux tests
 DS_SHARE_VIA=""
 DS_NO_ATTACH=0
