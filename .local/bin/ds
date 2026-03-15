@@ -8,7 +8,8 @@
 #
 # Profiles are pluggable scripts in ~/.config/ds/profile-<name>.sh.
 # Each defines a _profile_<name>() function for the tmux layout.
-# Built-in profiles: bare (default), dev, orc.
+# Built-in profile: bare (default). Additional profiles auto-discovered
+# from ~/.config/ds/profile-<name>.sh.
 
 CONF_DIR="${HOME}/.config/ds"
 ACTION="session"
@@ -123,8 +124,7 @@ _resolve_upterm_key() {
     for candidate in \
         "$HOME/.ssh/id_ed25519" \
         "$HOME/.ssh/id_rsa" \
-        "$HOME/.ssh/id_ecdsa" \
-        "$HOME/.ssh/argus_github_ed25519"
+        "$HOME/.ssh/id_ecdsa"
     do
         if [[ -f "$candidate" ]]; then
             echo "$candidate"
