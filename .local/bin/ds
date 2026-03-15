@@ -32,10 +32,11 @@ DS_UPTERM_HOST="${DS_UPTERM_HOST:-uptermd.upterm.dev:22}"
 DS_UPTERM_PRIVATE_KEY="${DS_UPTERM_PRIVATE_KEY:-}"
 DS_UPTERM_KNOWN_HOSTS="${DS_UPTERM_KNOWN_HOSTS:-}"
 DS_UPTERM_PID_FILE="${DS_UPTERM_PID_FILE:-}"
+DS_SHARE_PUSH="${DS_SHARE_PUSH:-}"
 
 _usage() {
-    echo "Usage: ds [-p <profile>] [-n <name>] [-b <chatbot>] [-c <method>] [-d <path>] [--share-via upterm] [<hostname>]"
-    echo "       ds --share [<session>]      share an existing ds session via upterm"
+    echo "Usage: ds [-p <profile>] [-n <name>] [-b <chatbot>] [-c <method>] [-d <path>] [--share-via upterm] [--push user@host] [<hostname>]"
+    echo "       ds --share [<session>] [--push user@host]  share an existing ds session via upterm"
     echo "       ds --unshare [<session>]    stop sharing a ds session"
     echo "       ds -l [<hostname>]          list active ds sessions"
     echo "       ds -k [<session>] [<host>]  kill a ds session"
@@ -183,6 +184,58 @@ _show_share_info() {
     cat "$DS_SHARE_INFO_FILE"
 }
 
+# Load share push target from config file if not set via env/flag.
+_load_share_config() {
+    [[ -n "$DS_SHARE_PUSH" ]] && return 0
+    local conf="$CONF_DIR/share"
+    [[ -f "$conf" ]] || return 0
+    while IFS='=' read -r key val; do
+        key=$(echo "$key" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+        val=$(echo "$val" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+        [[ -z "$key" || "$key" == \#* ]] && continue
+        case "$key" in
+            push) DS_SHARE_PUSH="$val" ;;
+        esac
+    done < "$conf"
+}
+
+# Push share info to a remote host via SCP.
+# Target format: user@host (share file goes to ~/.ds/shares/SRCHOST-SESSION.share)
+_push_share_info() {
+    local session="$1"
+    [[ -n "$DS_SHARE_PUSH" ]] || return 0
+    [[ -n "${DS_SHARE_INFO_FILE:-}" && -f "$DS_SHARE_INFO_FILE" ]] || return 0
+
+    local src_host
+    src_host=$(hostname -s 2>/dev/null || hostname)
+    local remote_dir=".ds/shares"
+    local remote_file="${src_host}-${session}.share"
+
+    # Ensure remote directory exists, then copy
+    ssh -o BatchMode=yes -o ConnectTimeout=5 "$DS_SHARE_PUSH" "mkdir -p ~/$remote_dir" 2>/dev/null || {
+        echo "ds: failed to create remote share dir on $DS_SHARE_PUSH" >&2
+        return 1
+    }
+    scp -o BatchMode=yes -o ConnectTimeout=5 -q \
+        "$DS_SHARE_INFO_FILE" "$DS_SHARE_PUSH:~/$remote_dir/$remote_file" 2>/dev/null || {
+        echo "ds: failed to push share info to $DS_SHARE_PUSH" >&2
+        return 1
+    }
+    echo "ds: pushed share info to $DS_SHARE_PUSH:~/$remote_dir/$remote_file"
+}
+
+# Remove share info from a remote host.
+_unpush_share_info() {
+    local session="$1"
+    [[ -n "$DS_SHARE_PUSH" ]] || return 0
+
+    local src_host
+    src_host=$(hostname -s 2>/dev/null || hostname)
+    local remote_file=".ds/shares/${src_host}-${session}.share"
+
+    ssh -o BatchMode=yes -o ConnectTimeout=5 "$DS_SHARE_PUSH" "rm -f ~/$remote_file" 2>/dev/null || true
+}
+
 _default_upterm_admin_file() {
     echo "${DS_TMUX_SOCKET}.upterm-admin"
 }
@@ -297,11 +350,21 @@ _do_share() {
     fi
 
     _start_upterm_daemon "$session"
+    _push_share_info "$session"
 }
 
 # Unshare (stop sharing) a ds session.
 _do_unshare() {
+    local session
+    if [[ -n "${SHARE_TARGET:-}" ]]; then
+        session="$SHARE_TARGET"
+    else
+        session="ds"
+        [[ "$PROFILE" != "bare" ]] && session="$session$PROFILE"
+        [[ -n "$NAME_OVERRIDE" ]] && session="$session-$NAME_OVERRIDE"
+    fi
     _stop_upterm_daemon
+    _unpush_share_info "$session"
 }
 
 # Attach to an existing tmux session, or switch to it if already inside tmux.
@@ -377,6 +440,7 @@ _do_session() {
         # Start upterm daemon if --share-via upterm (idempotent)
         if [[ "${DS_SHARE_VIA:-}" == "upterm" ]]; then
             _start_upterm_daemon "$session"
+            _push_share_info "$session"
         fi
         if [[ "$DS_NO_ATTACH" == "1" ]]; then
             return
@@ -392,6 +456,7 @@ _do_session() {
     # Start upterm daemon if --share-via upterm
     if [[ "${DS_SHARE_VIA:-}" == "upterm" ]]; then
         _start_upterm_daemon "$session"
+        _push_share_info "$session"
     fi
     if [[ "$DS_NO_ATTACH" == "1" ]]; then
         return
@@ -473,7 +538,12 @@ while [[ $# -gt 0 ]]; do
                           SHARE_TARGET="$2"; shift
                       fi
                       shift ;;
-        --unshare)    ACTION="unshare"; shift ;;
+        --unshare)    ACTION="unshare"
+                      if [[ $# -gt 1 && "$2" != -* ]]; then
+                          SHARE_TARGET="$2"; shift
+                      fi
+                      shift ;;
+        --push)       DS_SHARE_PUSH="$2"; shift 2 ;;
         --no-attach)  DS_NO_ATTACH=1; shift ;;
         -l|--list)    ACTION="list"; shift ;;
         -k|--kill)    ACTION="kill"
@@ -500,6 +570,9 @@ fi
 if [[ -z "$DS_UPTERM_PID_FILE" ]]; then
     DS_UPTERM_PID_FILE="$(_default_upterm_pid_file)"
 fi
+
+# Load push target from config if not set via --push or env
+_load_share_config
 
 if [[ -n "$HOST" ]]; then
     _remote
