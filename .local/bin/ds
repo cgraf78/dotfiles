@@ -332,7 +332,9 @@ _start_upterm_daemon() {
     # PID is tracked from the parent launcher process ($!).
     local hosted_cmd force_cmd
     hosted_cmd="umask 077; echo \"\$UPTERM_ADMIN_SOCKET\" > '$admin_file'; while true; do sleep 86400; done"
-    force_cmd="bash -lc \"tmux attach -t '=$session' || tmux attach -t '$session'\""
+    local escaped_session
+    escaped_session=$(printf '%q' "$session")
+    force_cmd="bash -lc \"tmux attach -t =$escaped_session || tmux attach -t $escaped_session\""
 
     local upterm_pid
     if command -v setsid >/dev/null 2>&1 && ! _is_wsl; then
