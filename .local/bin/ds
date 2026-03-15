@@ -187,7 +187,6 @@ _show_share_info() {
 
 # Load share push target from config file if not set via env/flag.
 _load_share_config() {
-    [[ -n "$DS_SHARE_PUSH" ]] && return 0
     local conf="$CONF_DIR/share"
     [[ -f "$conf" ]] || return 0
     while IFS='=' read -r key val; do
@@ -195,8 +194,8 @@ _load_share_config() {
         val=$(echo "$val" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
         [[ -z "$key" || "$key" == \#* ]] && continue
         case "$key" in
-            push) DS_SHARE_PUSH="$val" ;;
-            github-user) DS_UPTERM_GITHUB_USER="$val" ;;
+            push) [[ -z "$DS_SHARE_PUSH" ]] && DS_SHARE_PUSH="$val" ;;
+            github-user) [[ -z "$DS_UPTERM_GITHUB_USER" ]] && DS_UPTERM_GITHUB_USER="$val" ;;
         esac
     done < "$conf"
 }
