@@ -418,8 +418,25 @@ _validate_profile() {
 # --- Actions ---
 
 _do_list() {
-    _tmux ls -F '#{session_name}: #{session_windows} windows (#{?session_attached,attached,detached})' 2>/dev/null \
-        | grep -E '^ds' || echo "(no active ds sessions)"
+    local shared_session=""
+    if _upterm_running; then
+        shared_session=$(_upterm_shared_session)
+    fi
+    local output
+    output=$(_tmux ls -F '#{session_name}: #{session_windows} windows (#{?session_attached,attached,detached})' 2>/dev/null \
+        | grep -E '^ds' || true)
+    if [[ -z "$output" ]]; then
+        echo "(no active ds sessions)"
+        return
+    fi
+    while IFS= read -r line; do
+        local name="${line%%:*}"
+        if [[ "$name" == "$shared_session" ]]; then
+            echo "$line [shared]"
+        else
+            echo "$line"
+        fi
+    done <<< "$output"
 }
 
 _do_kill() {
