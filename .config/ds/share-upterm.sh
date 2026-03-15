@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# ds share backend: upterm — share a tmux session via upterm.dev
+# ds share backend: upterm — share a tmux session via upterm
 #
 # Required interface:
 #   _share_start <session>   — start sharing, call _write_share_info with connection info
@@ -7,22 +7,32 @@
 #   _share_info              — print current share connection info (or empty)
 #   _share_running           — return 0 if currently sharing
 #   _share_current_session   — print name of currently shared session
-#   _share_load_config       — load backend-specific config from ~/.config/ds/share
+#   _share_load_config       — load backend-specific config from share-upterm.conf
 #
-# Env vars (all optional, with sane defaults):
-#   DS_UPTERM_HOST           upterm server (default: uptermd.upterm.dev:22)
-#   DS_UPTERM_PRIVATE_KEY    SSH key for upterm (auto-detected if unset)
-#   DS_UPTERM_KNOWN_HOSTS    known_hosts file for server (skips check if unset)
-#   DS_UPTERM_GITHUB_USER    GitHub user for ACL (prompts if unset)
+# Config: ~/.config/ds/share-upterm.conf (key=value, env vars override config)
+#   server             upterm server host:port (default: uptermd.upterm.dev:22)
+#   known-hosts        known_hosts file for server verification
+#   private-key        SSH private key for upterm (auto-detected if unset)
+#   github-user        GitHub user for ACL
+#   authorized-keys    authorized_keys file for SSH-key-based ACL
+#   push               user@host target for pushing share info via SCP
+#
+# Env vars (all optional, override config):
+#   DS_UPTERM_HOST           maps to server
+#   DS_UPTERM_PRIVATE_KEY    maps to private-key
+#   DS_UPTERM_KNOWN_HOSTS    maps to known-hosts
+#   DS_UPTERM_GITHUB_USER    maps to github-user
+#   DS_UPTERM_AUTHORIZED_KEYS maps to authorized-keys
+#   DS_UPTERM_PUSH           maps to push
 #   DS_UPTERM_PID_FILE       override PID file path
-#   DS_SHARE_PUSH            user@host target for pushing share info via SCP
 
-DS_UPTERM_HOST="${DS_UPTERM_HOST:-uptermd.upterm.dev:22}"
+DS_UPTERM_HOST="${DS_UPTERM_HOST:-}"
 DS_UPTERM_PRIVATE_KEY="${DS_UPTERM_PRIVATE_KEY:-}"
 DS_UPTERM_KNOWN_HOSTS="${DS_UPTERM_KNOWN_HOSTS:-}"
 DS_UPTERM_GITHUB_USER="${DS_UPTERM_GITHUB_USER:-}"
+DS_UPTERM_AUTHORIZED_KEYS="${DS_UPTERM_AUTHORIZED_KEYS:-}"
 DS_UPTERM_PID_FILE="${DS_UPTERM_PID_FILE:-}"
-DS_SHARE_PUSH="${DS_SHARE_PUSH:-}"
+DS_UPTERM_PUSH="${DS_UPTERM_PUSH:-}"
 
 # --- State file helpers ---
 
@@ -106,7 +116,7 @@ _upterm_read_info_from_log() {
 # Push share info to a remote host via SCP.
 _upterm_push_share_info() {
     local session="$1"
-    [[ -n "$DS_SHARE_PUSH" ]] || return 0
+    [[ -n "$DS_UPTERM_PUSH" ]] || return 0
     [[ -n "${DS_SHARE_INFO_FILE:-}" && -f "$DS_SHARE_INFO_FILE" ]] || return 0
 
     local src_host
@@ -116,42 +126,46 @@ _upterm_push_share_info() {
     local escaped_dir
     escaped_dir=$(printf '%q' "$remote_dir")
 
-    ssh -o BatchMode=yes -o ConnectTimeout=5 "$DS_SHARE_PUSH" "mkdir -p ~/$escaped_dir" 2>/dev/null || {
-        echo "ds: failed to create remote share dir on $DS_SHARE_PUSH" >&2
+    ssh -o BatchMode=yes -o ConnectTimeout=5 "$DS_UPTERM_PUSH" "mkdir -p ~/$escaped_dir" 2>/dev/null || {
+        echo "ds: failed to create remote share dir on $DS_UPTERM_PUSH" >&2
         return 1
     }
     scp -o BatchMode=yes -o ConnectTimeout=5 -q \
-        "$DS_SHARE_INFO_FILE" "$DS_SHARE_PUSH:~/$remote_dir/$remote_file" 2>/dev/null || {
-        echo "ds: failed to push share info to $DS_SHARE_PUSH" >&2
+        "$DS_SHARE_INFO_FILE" "$DS_UPTERM_PUSH:~/$remote_dir/$remote_file" 2>/dev/null || {
+        echo "ds: failed to push share info to $DS_UPTERM_PUSH" >&2
         return 1
     }
-    echo "ds: pushed share info to $DS_SHARE_PUSH:~/$remote_dir/$remote_file"
+    echo "ds: pushed share info to $DS_UPTERM_PUSH:~/$remote_dir/$remote_file"
 }
 
 _upterm_unpush_share_info() {
     local session="$1"
-    [[ -n "$DS_SHARE_PUSH" ]] || return 0
+    [[ -n "$DS_UPTERM_PUSH" ]] || return 0
     local src_host
     src_host=$(hostname -s 2>/dev/null || hostname)
     local escaped_file
     escaped_file=$(printf '%q' ".ds/shares/${src_host}-${session}.share")
-    ssh -o BatchMode=yes -o ConnectTimeout=5 "$DS_SHARE_PUSH" "rm -f ~/$escaped_file" 2>/dev/null || true
+    ssh -o BatchMode=yes -o ConnectTimeout=5 "$DS_UPTERM_PUSH" "rm -f ~/$escaped_file" 2>/dev/null || true
 }
 
 # --- Required interface ---
 
 _share_load_config() {
-    local conf="$CONF_DIR/share.conf"
+    local conf="$CONF_DIR/share-upterm.conf"
     [[ -f "$conf" ]] || return 0
     while IFS='=' read -r key val; do
         key=$(echo "$key" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
         val=$(echo "$val" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
         [[ -z "$key" || "$key" == \#* ]] && continue
         case "$key" in
-            push) [[ -z "$DS_SHARE_PUSH" ]] && DS_SHARE_PUSH="$val" ;;
-            github-user) [[ -z "$DS_UPTERM_GITHUB_USER" ]] && DS_UPTERM_GITHUB_USER="$val" ;;
+            server)          [[ -z "$DS_UPTERM_HOST" ]]            && DS_UPTERM_HOST="$val" ;;
+            known-hosts)     [[ -z "$DS_UPTERM_KNOWN_HOSTS" ]]     && DS_UPTERM_KNOWN_HOSTS="$val" ;;
+            private-key)     [[ -z "$DS_UPTERM_PRIVATE_KEY" ]]     && DS_UPTERM_PRIVATE_KEY="$val" ;;
+            github-user)     [[ -z "$DS_UPTERM_GITHUB_USER" ]]     && DS_UPTERM_GITHUB_USER="$val" ;;
+            authorized-keys) [[ -z "$DS_UPTERM_AUTHORIZED_KEYS" ]] && DS_UPTERM_AUTHORIZED_KEYS="$val" ;;
+            push)            [[ -z "$DS_UPTERM_PUSH" ]]            && DS_UPTERM_PUSH="$val" ;;
         esac
-    done < "$conf"
+    done < "$conf" || true
 }
 
 _share_running() {
@@ -196,25 +210,41 @@ _share_start() {
         return 1
     }
 
-    if [[ -z "${DS_UPTERM_GITHUB_USER:-}" ]]; then
+    if [[ -z "${DS_UPTERM_GITHUB_USER:-}" && -z "${DS_UPTERM_AUTHORIZED_KEYS:-}" ]]; then
         echo "" >&2
-        echo "  WARNING: No --github-user set. Anyone with the share URL" >&2
-        echo "  will have full access to your terminal session." >&2
+        echo "  WARNING: No github-user or authorized-keys set. Anyone with" >&2
+        echo "  the share URL will have full access to your terminal session." >&2
         echo "" >&2
         read -r -p "  Share without authentication? [y/N] " answer </dev/tty
         if [[ "$answer" != [yY] ]]; then
-            echo "ds: aborted — use --github-user or set github-user in ~/.config/ds/share" >&2
+            echo "ds: aborted — set github-user or authorized-keys in ~/.config/ds/share-upterm.conf" >&2
             return 1
         fi
     fi
 
+    # Apply default server after config has been loaded
+    : "${DS_UPTERM_HOST:=uptermd.upterm.dev:22}"
+
     local host_args=(--accept --server "ssh://$DS_UPTERM_HOST" --private-key "$key")
     if [[ -n "${DS_UPTERM_KNOWN_HOSTS:-}" ]]; then
         host_args+=(--known-hosts "$DS_UPTERM_KNOWN_HOSTS")
+    elif [[ "$DS_UPTERM_HOST" != "uptermd.upterm.dev:22" ]]; then
+        # Non-default server without host key verification — MITM risk
+        echo "" >&2
+        echo "  WARNING: Connecting to '$DS_UPTERM_HOST' without host key" >&2
+        echo "  verification. Set known-hosts in share-upterm.conf to fix." >&2
+        echo "" >&2
+        read -r -p "  Skip host key check? [y/N] " answer </dev/tty
+        if [[ "$answer" != [yY] ]]; then
+            echo "ds: aborted — set known-hosts in ~/.config/ds/share-upterm.conf" >&2
+            return 1
+        fi
+        host_args+=(--skip-host-key-check)
     else
         host_args+=(--skip-host-key-check)
     fi
     [[ -n "${DS_UPTERM_GITHUB_USER:-}" ]] && host_args+=(--github-user "$DS_UPTERM_GITHUB_USER")
+    [[ -n "${DS_UPTERM_AUTHORIZED_KEYS:-}" ]] && host_args+=(--authorized-keys "$DS_UPTERM_AUTHORIZED_KEYS")
 
     _ensure_state_dir
 

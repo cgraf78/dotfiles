@@ -9,7 +9,7 @@
 - `~/.config/ds/profile-<name>.sh` — profile layout plugins
 - `~/.config/ds/connect-<method>.sh` — connection method plugins
 - `~/.config/ds/share-<backend>.sh` — share backend plugins
-- `~/.config/ds/share.conf` — share backend config (key=value)
+- `~/.config/ds/share-<backend>.conf` — share backend config (e.g., `share-upterm.conf`)
 
 All tracked via the `dot` bare repo (work-specific files symlinked from `~/.dotfiles-work`).
 
@@ -140,31 +140,46 @@ A share backend must define all of:
 - `_share_running` — return 0 if sharing is active
 - `_share_current_session` — print name of the shared session
 - `_share_info` — print current share connection info
-- `_share_load_config` — load backend-specific config from `~/.config/ds/share.conf`
+- `_share_load_config` — load backend-specific config from `share-<backend>.conf`
 
-### Share config (`share.conf`)
+### Upterm config
 
-Key=value file for backend settings. Currently used by the upterm backend:
+All upterm backend config lives in `~/.config/ds/share-upterm.conf`. Env vars (`DS_UPTERM_*`) override config values.
+
+| Config key | Env var | Description |
+|---|---|---|
+| `server` | `DS_UPTERM_HOST` | Upterm server `host:port` (default: `uptermd.upterm.dev:22`) |
+| `known-hosts` | `DS_UPTERM_KNOWN_HOSTS` | Known hosts file for server identity verification |
+| `private-key` | `DS_UPTERM_PRIVATE_KEY` | SSH private key (auto-detected if unset) |
+| `github-user` | `DS_UPTERM_GITHUB_USER` | Restrict access to a GitHub user |
+| `authorized-keys` | `DS_UPTERM_AUTHORIZED_KEYS` | Restrict access via an authorized_keys file |
+| `push` | `DS_UPTERM_PUSH` | `user@host` target — pushes share info via SCP |
+
+Example `share-upterm.conf`:
 
 ```text
-push=openclaw@taylor
 github-user=argusbot78
+push=openclaw@taylor
 ```
 
-- `push` — `user@host` target; share info is SCPed to `~/.ds/shares/` on that host
-- `github-user` — restricts upterm access to this GitHub user
+### Self-hosted server
 
-### Upterm backend
+To share through a private Upterm server instead of the public one:
 
-The built-in `share-upterm.sh` backend shares sessions via [upterm](https://upterm.dev). Environment variables (all optional):
+```text
+# ~/.config/ds/share-upterm.conf
+server=myupterm.internal:2222
+known-hosts=~/.ssh/upterm_known_hosts
+authorized-keys=~/.ssh/upterm_authorized_keys
+```
 
-| Variable | Default | Description |
-|---|---|---|
-| `DS_UPTERM_HOST` | `uptermd.upterm.dev:22` | Upterm server |
-| `DS_UPTERM_PRIVATE_KEY` | auto-detected | SSH key for upterm |
-| `DS_UPTERM_KNOWN_HOSTS` | *(skip check)* | Known hosts file for server |
-| `DS_UPTERM_GITHUB_USER` | *(from share.conf or prompt)* | GitHub user for ACL |
-| `DS_SHARE_PUSH` | *(from share.conf)* | `user@host` for pushing share info |
+`known-hosts` is strongly recommended for private servers. Without it, `ds` warns about the missing host key verification and prompts for confirmation before proceeding.
+
+For one-off server overrides, use the env var:
+
+```bash
+DS_UPTERM_HOST=myupterm.internal:2222 ds --share
+```
 
 ### Share workflows
 

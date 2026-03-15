@@ -358,12 +358,63 @@ else
     _pass "share_running: rejects missing PID file"
 fi
 
+# Test _share_load_config reads share-upterm.conf
+cat > "$CONF_DIR/share-upterm.conf" <<'EOF'
+# test config
+server=myupterm.internal:2222
+known-hosts=/path/to/known_hosts
+private-key=/path/to/key
+github-user=testghuser
+authorized-keys=/path/to/authorized_keys
+push=user@remotehost
+EOF
+
+# Clear env vars so config values take effect
+DS_UPTERM_HOST=""
+DS_UPTERM_KNOWN_HOSTS=""
+DS_UPTERM_PRIVATE_KEY=""
+DS_UPTERM_GITHUB_USER=""
+DS_UPTERM_AUTHORIZED_KEYS=""
+DS_UPTERM_PUSH=""
+_share_load_config
+_assert_eq "config: server" "myupterm.internal:2222" "$DS_UPTERM_HOST"
+_assert_eq "config: known-hosts" "/path/to/known_hosts" "$DS_UPTERM_KNOWN_HOSTS"
+_assert_eq "config: private-key" "/path/to/key" "$DS_UPTERM_PRIVATE_KEY"
+_assert_eq "config: github-user" "testghuser" "$DS_UPTERM_GITHUB_USER"
+_assert_eq "config: authorized-keys" "/path/to/authorized_keys" "$DS_UPTERM_AUTHORIZED_KEYS"
+_assert_eq "config: push" "user@remotehost" "$DS_UPTERM_PUSH"
+
+# Env vars override config values
+DS_UPTERM_HOST="envhost:3333"
+DS_UPTERM_KNOWN_HOSTS="/env/known_hosts"
+DS_UPTERM_PRIVATE_KEY="/env/key"
+DS_UPTERM_GITHUB_USER="envuser"
+DS_UPTERM_AUTHORIZED_KEYS="/env/authorized_keys"
+DS_UPTERM_PUSH="envuser@envhost"
+_share_load_config
+_assert_eq "env override: server" "envhost:3333" "$DS_UPTERM_HOST"
+_assert_eq "env override: known-hosts" "/env/known_hosts" "$DS_UPTERM_KNOWN_HOSTS"
+_assert_eq "env override: private-key" "/env/key" "$DS_UPTERM_PRIVATE_KEY"
+_assert_eq "env override: github-user" "envuser" "$DS_UPTERM_GITHUB_USER"
+_assert_eq "env override: authorized-keys" "/env/authorized_keys" "$DS_UPTERM_AUTHORIZED_KEYS"
+_assert_eq "env override: push" "envuser@envhost" "$DS_UPTERM_PUSH"
+
+# Missing config file is silently ignored
+rm -f "$CONF_DIR/share-upterm.conf"
+DS_UPTERM_HOST=""
+DS_UPTERM_PUSH=""
+_share_load_config
+_assert_eq "missing config: server empty" "" "$DS_UPTERM_HOST"
+_assert_eq "missing config: push empty" "" "$DS_UPTERM_PUSH"
+
 # Reset sharing vars for remaining tmux tests
 DS_SHARE_VIA=""
 DS_NO_ATTACH=0
 DS_SHARE_INFO_FILE=""
 DS_UPTERM_PID_FILE=""
 DS_UPTERM_GITHUB_USER=""
+DS_UPTERM_AUTHORIZED_KEYS=""
+DS_UPTERM_PUSH=""
 SHARE_TARGET=""
 
 # ---------------------------------------------------------------------------
