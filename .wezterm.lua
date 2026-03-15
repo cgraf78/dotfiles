@@ -217,13 +217,32 @@ return {
       '#7dcfff',
       '#e6e9ef',
     },
+    tab_bar = {
+      inactive_tab = {
+        bg_color = '#24283b',
+        fg_color = '#565f89',
+      },
+      active_tab = {
+        bg_color = '#1a1b26',
+        fg_color = '#c0caf5',
+      },
+      new_tab = {
+        bg_color = '#24283b',
+        fg_color = '#565f89',
+      },
+    },
   },
   enable_scroll_bar = false,
   hide_tab_bar_if_only_one_tab = true,
   initial_cols = 140,
   initial_rows = 36,
-  use_fancy_tab_bar = false,
+  use_fancy_tab_bar = true,
   tab_bar_at_bottom = false,
+  window_frame = {
+    font_size = 13.0,
+    active_titlebar_bg = '#1a1b26',
+    inactive_titlebar_bg = '#1a1b26',
+  },
   window_padding = {
     left = 6,
     right = 6,
