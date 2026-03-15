@@ -39,6 +39,9 @@ PROFILE
 
 export DS_SOURCED=1
 export DS_TMUX_ACCESS_USER=test-access-user
+export DS_UPTERM_PRIVATE_KEY="$TEST_HOME/.ssh/test_upterm_key"
+mkdir -p "$TEST_HOME/.ssh"
+printf 'dummy' > "$DS_UPTERM_PRIVATE_KEY"
 # shellcheck source=ds
 . "$SCRIPT_DIR/ds"
 
@@ -82,6 +85,19 @@ fi
 exit 1
 MOCK
 chmod +x "$MOCK_BIN/id"
+
+cat > "$MOCK_BIN/upterm" <<'MOCK'
+#!/usr/bin/env bash
+echo "upterm $*" >> "${TMUX_LOG:-/dev/null}"
+if [[ "$1" == "host" ]]; then
+  printf '%s\n' "${MOCK_UPTERM_INFO:-ssh session: ssh test@upterm.example\nssh session read only: ssh ro@test.upterm.example\nweb session: https://upterm.example/test\nweb session read only: https://ro.upterm.example/test}"
+  # Keep background process alive briefly if launched with & so kill -0 works.
+  sleep "${MOCK_UPTERM_SLEEP:-1}"
+  exit 0
+fi
+exit 0
+MOCK
+chmod +x "$MOCK_BIN/upterm"
 
 export PATH="$MOCK_BIN:$PATH"
 export TMUX_LOG
@@ -244,6 +260,65 @@ DS_TMUX_SOCKET="$SOCK_TEST"
 _fix_socket_perms
 mode=$(stat -c '%a' "$SOCK_TEST" 2>/dev/null || stat -f '%Lp' "$SOCK_TEST")
 _assert_eq "shared socket chmod" "777" "$mode"
+
+# ---------------------------------------------------------------------------
+# Tests: Upterm sharing backend
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== Upterm sharing backend ==="
+
+# With the daemon model, --share-via upterm starts a background daemon even
+# with --no-attach. The daemon calls setsid + upterm host, but with mock
+# upterm it won't produce an admin socket, so _start_upterm_daemon times out.
+# We test the daemon start separately. Here we verify the core tmux behavior.
+
+_reset_tmux_log
+export MOCK_SESSIONS=""
+PROFILE="bare"
+NAME_OVERRIDE=""
+DIR="$HOME"
+DS_SHARE_VIA=""
+DS_NO_ATTACH=1
+DS_TMUX_SOCKET="/tmp/ds-shared.sock"
+DS_SHARE_INFO_FILE="$(_default_share_info_file)"
+DS_UPTERM_PID_FILE="$(_default_upterm_pid_file)"
+result=$(_do_session 2>&1)
+log=$(_tmux_log)
+_assert_contains "no-attach: creates tmux session" "tmux -S /tmp/ds-shared.sock new-session -d -s ds" "$log"
+if echo "$log" | grep -qx 'tmux -S /tmp/ds-shared.sock attach -t =ds'; then
+    _fail "no-attach: skips local attach"
+else
+    _pass "no-attach: skips local attach"
+fi
+
+# Test --share action with existing session
+_reset_tmux_log
+export MOCK_SESSIONS="ds"
+DS_SHARE_VIA=""
+SHARE_TARGET="ds"
+# _do_share calls _start_upterm_daemon which needs real upterm; just verify
+# it checks for the session first
+result=$(_do_share 2>&1) || true
+_assert_not_contains "share action: no 'no session' error for existing session" "no session" "$result"
+
+# Test --share action with nonexistent session
+_reset_tmux_log
+export MOCK_SESSIONS=""
+SHARE_TARGET="nonexistent"
+result=$(_do_share 2>&1) || true
+_assert_contains "share action: error for nonexistent session" "no session" "$result"
+
+# Test --unshare action (no daemon running)
+result=$(_do_unshare 2>&1)
+_assert_contains "unshare: reports not sharing" "not currently sharing" "$result"
+
+# Reset sharing vars for remaining tmux tests
+DS_SHARE_VIA=""
+DS_NO_ATTACH=0
+DS_SHARE_INFO_FILE=""
+DS_UPTERM_PID_FILE=""
+SHARE_TARGET=""
 
 # ---------------------------------------------------------------------------
 # Tests: Session naming
@@ -423,6 +498,9 @@ result=$(_usage)
 _assert_contains "usage shows -p" "-p" "$result"
 _assert_contains "usage shows -l" "-l" "$result"
 _assert_contains "usage shows -k" "-k" "$result"
+_assert_contains "usage shows --share-via" "--share-via" "$result"
+_assert_contains "usage shows --share" "--share" "$result"
+_assert_contains "usage shows --unshare" "--unshare" "$result"
 
 # ---------------------------------------------------------------------------
 # Tests: Argument parsing (via subprocess)
@@ -651,6 +729,14 @@ result=$(_run_remote "HOST=server1 ACTION=session PROFILE_OVERRIDE=dev \
 remote_log=$(cat "$REMOTE_LOG" 2>/dev/null || true)
 _assert_contains "remote name: passes -n" "-n" "$remote_log"
 _assert_contains "remote name: passes name value" "myname" "$remote_log"
+
+# Test share backend/no-attach passed to remote
+result=$(_run_remote "HOST=server1 ACTION=session PROFILE_OVERRIDE=dev \
+    CHATBOT_OVERRIDE= DIR_OVERRIDE= NAME_OVERRIDE= CONNECT_OVERRIDE= DS_SHARE_VIA=upterm DS_NO_ATTACH=1")
+remote_log=$(cat "$REMOTE_LOG" 2>/dev/null || true)
+_assert_contains "remote share backend: passes --share-via" "--share-via" "$remote_log"
+_assert_contains "remote share backend: passes upterm" "upterm" "$remote_log"
+_assert_contains "remote share backend: passes --no-attach" "--no-attach" "$remote_log"
 
 # ---------------------------------------------------------------------------
 # Tests: Hosts file comments and blank lines

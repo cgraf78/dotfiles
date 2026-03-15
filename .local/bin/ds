@@ -18,15 +18,28 @@ CONNECT_OVERRIDE=""
 DIR_OVERRIDE=""
 NAME_OVERRIDE=""
 KILL_TARGET=""
+SHARE_TARGET=""
 HOST=""
 CONNECT="ssh"
 CHATBOT="claude"
 DIR="$HOME"
 DS_TMUX_SOCKET="${DS_TMUX_SOCKET:-/tmp/ds-shared.sock}"
 DS_TMUX_ACCESS_USER="${DS_TMUX_ACCESS_USER:-openclaw}"
+DS_SHARE_VIA="${DS_SHARE_VIA:-}"
+DS_NO_ATTACH="${DS_NO_ATTACH:-0}"
+DS_SHARE_INFO_FILE="${DS_SHARE_INFO_FILE:-}"
+DS_UPTERM_HOST="${DS_UPTERM_HOST:-uptermd.upterm.dev:22}"
+DS_UPTERM_PRIVATE_KEY="${DS_UPTERM_PRIVATE_KEY:-}"
+DS_UPTERM_KNOWN_HOSTS="${DS_UPTERM_KNOWN_HOSTS:-}"
+DS_UPTERM_PID_FILE="${DS_UPTERM_PID_FILE:-}"
+DS_SHARE_PUSH="${DS_SHARE_PUSH:-}"
+DS_UPTERM_GITHUB_USER="${DS_UPTERM_GITHUB_USER:-}"
+DS_STATE_DIR="${DS_STATE_DIR:-$HOME/.local/share/ds}"
 
 _usage() {
-    echo "Usage: ds [-p <profile>] [-n <name>] [-b <chatbot>] [-c <method>] [-d <path>] [<hostname>]"
+    echo "Usage: ds [-p <profile>] [-n <name>] [-b <chatbot>] [-c <method>] [-d <path>] [--share-via upterm] [--push user@host] [<hostname>]"
+    echo "       ds --share [<session>] [--push user@host]  share a ds session via upterm (one at a time)"
+    echo "       ds --unshare                stop sharing the current shared session"
     echo "       ds -l [<hostname>]          list active ds sessions"
     echo "       ds -k [<session>] [<host>]  kill a ds session"
     echo "       ds --killall                kill all ds sessions"
@@ -97,6 +110,314 @@ _fix_server_access() {
     _tmux server-access -a "$DS_TMUX_ACCESS_USER" 2>/dev/null || true
 }
 
+_ensure_state_dir() {
+    mkdir -p "$DS_STATE_DIR"
+    chmod 700 "$DS_STATE_DIR" 2>/dev/null || true
+}
+
+_state_file_prefix() {
+    local socket_base
+    socket_base=$(basename "$DS_TMUX_SOCKET")
+    printf '%s/%s' "$DS_STATE_DIR" "$socket_base"
+}
+
+_default_share_info_file() {
+    echo "$(_state_file_prefix).share"
+}
+
+_default_upterm_pid_file() {
+    echo "$(_state_file_prefix).upterm.pid"
+}
+
+_default_upterm_session_file() {
+    echo "$(_state_file_prefix).upterm.session"
+}
+
+# Return the name of the currently shared session (if any).
+_upterm_shared_session() {
+    local f
+    f=$(_default_upterm_session_file)
+    if [[ -f "$f" ]]; then
+        cat "$f"
+    fi
+}
+
+_resolve_upterm_key() {
+    if [[ -n "${DS_UPTERM_PRIVATE_KEY:-}" && -f "$DS_UPTERM_PRIVATE_KEY" ]]; then
+        echo "$DS_UPTERM_PRIVATE_KEY"
+        return 0
+    fi
+
+    local candidate
+    for candidate in \
+        "$HOME/.ssh/id_ed25519" \
+        "$HOME/.ssh/id_rsa" \
+        "$HOME/.ssh/id_ecdsa" \
+        "$HOME/.ssh/argus_github_ed25519"
+    do
+        if [[ -f "$candidate" ]]; then
+            echo "$candidate"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+_upterm_running() {
+    [[ -n "${DS_UPTERM_PID_FILE:-}" && -f "$DS_UPTERM_PID_FILE" ]] || return 1
+    local pid
+    pid=$(cat "$DS_UPTERM_PID_FILE" 2>/dev/null || true)
+    [[ -n "$pid" ]] || return 1
+    kill -0 "$pid" 2>/dev/null
+}
+
+_normalize_share_info() {
+    local backend="$1"
+    local content="$2"
+
+    case "$backend" in
+        upterm)
+            # Extract the SSH connection command from upterm output.
+            # Format: "➤ SSH:\n    ssh SESSION@HOST" or legacy "ssh session: ssh ..."
+            local ssh_cmd
+            ssh_cmd=$(printf '%s\n' "$content" | grep -E '^\s+ssh\s+\S+@\S+' | head -1 | sed 's/^[[:space:]]*//' || true)
+            if [[ -z "$ssh_cmd" ]]; then
+                # Try legacy format
+                ssh_cmd=$(printf '%s\n' "$content" | sed -n 's/^ssh session: //p' | head -1 || true)
+            fi
+            if [[ -n "$ssh_cmd" ]]; then
+                printf 'ssh: %s\n' "$ssh_cmd"
+            else
+                printf '%s\n' "$content"
+            fi
+            ;;
+        *)
+            printf '%s\n' "$content"
+            ;;
+    esac
+}
+
+_write_share_info() {
+    local content="$1"
+    [[ -n "${DS_SHARE_INFO_FILE:-}" ]] || return 0
+    _ensure_state_dir
+    local old_umask
+    old_umask=$(umask)
+    umask 077
+    printf '%s\n' "$content" > "$DS_SHARE_INFO_FILE"
+    umask "$old_umask"
+    chmod 600 "$DS_SHARE_INFO_FILE" 2>/dev/null || true
+}
+
+_show_share_info() {
+    [[ -n "${DS_SHARE_INFO_FILE:-}" && -f "$DS_SHARE_INFO_FILE" ]] || return 0
+    cat "$DS_SHARE_INFO_FILE"
+}
+
+# Load share push target from config file if not set via env/flag.
+_load_share_config() {
+    local conf="$CONF_DIR/share"
+    [[ -f "$conf" ]] || return 0
+    while IFS='=' read -r key val; do
+        key=$(echo "$key" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+        val=$(echo "$val" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+        [[ -z "$key" || "$key" == \#* ]] && continue
+        case "$key" in
+            push) [[ -z "$DS_SHARE_PUSH" ]] && DS_SHARE_PUSH="$val" ;;
+            github-user) [[ -z "$DS_UPTERM_GITHUB_USER" ]] && DS_UPTERM_GITHUB_USER="$val" ;;
+        esac
+    done < "$conf"
+}
+
+# Push share info to a remote host via SCP.
+# Target format: user@host (share file goes to ~/.ds/shares/SRCHOST-SESSION.share)
+_push_share_info() {
+    local session="$1"
+    [[ -n "$DS_SHARE_PUSH" ]] || return 0
+    [[ -n "${DS_SHARE_INFO_FILE:-}" && -f "$DS_SHARE_INFO_FILE" ]] || return 0
+
+    local src_host
+    src_host=$(hostname -s 2>/dev/null || hostname)
+    local remote_dir=".ds/shares"
+    local remote_file="${src_host}-${session}.share"
+
+    # Ensure remote directory exists, then copy
+    ssh -o BatchMode=yes -o ConnectTimeout=5 "$DS_SHARE_PUSH" "mkdir -p ~/$remote_dir" 2>/dev/null || {
+        echo "ds: failed to create remote share dir on $DS_SHARE_PUSH" >&2
+        return 1
+    }
+    scp -o BatchMode=yes -o ConnectTimeout=5 -q \
+        "$DS_SHARE_INFO_FILE" "$DS_SHARE_PUSH:~/$remote_dir/$remote_file" 2>/dev/null || {
+        echo "ds: failed to push share info to $DS_SHARE_PUSH" >&2
+        return 1
+    }
+    echo "ds: pushed share info to $DS_SHARE_PUSH:~/$remote_dir/$remote_file"
+}
+
+# Remove share info from a remote host.
+_unpush_share_info() {
+    local session="$1"
+    [[ -n "$DS_SHARE_PUSH" ]] || return 0
+
+    local src_host
+    src_host=$(hostname -s 2>/dev/null || hostname)
+    local remote_file=".ds/shares/${src_host}-${session}.share"
+
+    ssh -o BatchMode=yes -o ConnectTimeout=5 "$DS_SHARE_PUSH" "rm -f ~/$remote_file" 2>/dev/null || true
+}
+
+_default_upterm_admin_file() {
+    echo "$(_state_file_prefix).upterm-admin"
+}
+
+# Start upterm as a fully detached daemon process. It runs independently of
+# the user's terminal, so attaching/detaching from tmux doesn't affect it.
+# The daemon hosts the tmux session and writes share info to a file.
+# Only one session can be shared at a time (single PID/share file set).
+# To share a different session, --unshare first.
+_start_upterm_daemon() {
+    local session="$1"
+
+    if _upterm_running; then
+        local current_session
+        current_session=$(_upterm_shared_session)
+        if [[ "$current_session" == "$session" ]]; then
+            echo "ds: already sharing session '$session'"
+            _show_share_info
+            return 0
+        else
+            echo "ds: already sharing session '${current_session:-unknown}' — run 'ds --unshare' first" >&2
+            return 1
+        fi
+    fi
+
+    local key
+    key=$(_resolve_upterm_key) || {
+        echo "ds: no usable SSH private key found for upterm" >&2
+        return 1
+    }
+
+    local host_args=(--accept --server "ssh://$DS_UPTERM_HOST" --skip-host-key-check --private-key "$key")
+    [[ -n "${DS_UPTERM_KNOWN_HOSTS:-}" ]] && host_args+=(--known-hosts "$DS_UPTERM_KNOWN_HOSTS")
+    [[ -n "${DS_UPTERM_GITHUB_USER:-}" ]] && host_args+=(--github-user "$DS_UPTERM_GITHUB_USER")
+
+    _ensure_state_dir
+
+    local admin_file
+    admin_file=$(_default_upterm_admin_file)
+    rm -f "$admin_file"
+
+    # Record which session is being shared
+    local old_umask
+    old_umask=$(umask)
+    umask 077
+    echo "$session" > "$(_default_upterm_session_file)"
+    umask "$old_umask"
+
+    # Fully detach upterm from the controlling terminal.
+    # The hosted command writes its PPID (the upterm process) to the PID file
+    # and the admin socket path to the admin file.
+    local hosted_cmd="umask 077; echo \"\$PPID\" > '$DS_UPTERM_PID_FILE'; echo \"\$UPTERM_ADMIN_SOCKET\" > '$admin_file'; while true; do sleep 86400; done"
+
+    if command -v setsid >/dev/null 2>&1; then
+        setsid env -u TMUX upterm host \
+            "${host_args[@]}" \
+            --force-command "tmux -S $DS_TMUX_SOCKET attach -t =$session" \
+            -- bash -c "$hosted_cmd" \
+            </dev/null >/dev/null 2>&1 &
+    else
+        # macOS: use a nohup + background to detach
+        nohup env -u TMUX upterm host \
+            "${host_args[@]}" \
+            --force-command "tmux -S $DS_TMUX_SOCKET attach -t =$session" \
+            -- bash -c "$hosted_cmd" \
+            </dev/null >/dev/null 2>&1 &
+    fi
+
+    # Wait for the admin socket file to appear, then collect share info
+    local admin_sock content
+    for _ in $(seq 1 30); do
+        if [[ -s "$admin_file" ]]; then
+            admin_sock=$(cat "$admin_file")
+            break
+        fi
+        sleep 0.5
+    done
+
+    if [[ -z "${admin_sock:-}" ]]; then
+        echo "ds: timed out waiting for upterm to start" >&2
+        return 1
+    fi
+
+    for _ in $(seq 1 30); do
+        content=$(upterm session current --admin-socket "$admin_sock" 2>/dev/null || true)
+        if [[ -n "$content" ]]; then
+            content=$(_normalize_share_info upterm "$content")
+            _write_share_info "$content"
+            printf '%s\n' "$content"
+            return 0
+        fi
+        sleep 0.5
+    done
+
+    echo "ds: upterm started but couldn't retrieve share info" >&2
+    return 1
+}
+
+# Stop the upterm daemon and clean up state files.
+_stop_upterm_daemon() {
+    if _upterm_running; then
+        local pid
+        pid=$(cat "$DS_UPTERM_PID_FILE" 2>/dev/null || true)
+        if [[ -n "$pid" ]]; then
+            kill "$pid" 2>/dev/null || true
+            # Also kill the process group in case setsid created one
+            kill -TERM -"$pid" 2>/dev/null || true
+        fi
+        echo "ds: stopped sharing"
+    else
+        echo "ds: not currently sharing"
+    fi
+    rm -f "$DS_UPTERM_PID_FILE" "$DS_SHARE_INFO_FILE" "$(_default_upterm_admin_file)" "$(_default_upterm_session_file)"
+}
+
+# Share an existing ds session (workflow 2: share after the fact).
+_do_share() {
+    local session
+    if [[ -n "$SHARE_TARGET" ]]; then
+        session="$SHARE_TARGET"
+    else
+        session="ds"
+        [[ "$PROFILE" != "bare" ]] && session="$session$PROFILE"
+        [[ -n "$NAME_OVERRIDE" ]] && session="$session-$NAME_OVERRIDE"
+    fi
+
+    if ! _tmux has-session -t "=$session" 2>/dev/null; then
+        echo "ds: no session '$session' to share" >&2
+        _do_list >&2
+        return 1
+    fi
+
+    if _start_upterm_daemon "$session"; then
+        _push_share_info "$session"
+    fi
+}
+
+# Unshare (stop sharing) a ds session.
+_do_unshare() {
+    local session
+    if [[ -n "${SHARE_TARGET:-}" ]]; then
+        session="$SHARE_TARGET"
+    else
+        session="ds"
+        [[ "$PROFILE" != "bare" ]] && session="$session$PROFILE"
+        [[ -n "$NAME_OVERRIDE" ]] && session="$session-$NAME_OVERRIDE"
+    fi
+    _stop_upterm_daemon
+    _unpush_share_info "$session"
+}
+
 # Attach to an existing tmux session, or switch to it if already inside tmux.
 # No exec — returns after tmux detaches so the calling shell can exit cleanly.
 # This is important for ET connections where exec prevents proper cleanup.
@@ -123,12 +444,29 @@ _validate_profile() {
 # --- Actions ---
 
 _do_list() {
-    _tmux ls -F '#{session_name}: #{session_windows} windows (#{?session_attached,attached,detached})' 2>/dev/null \
-        | grep -E '^ds' || echo "(no active ds sessions)"
+    local shared_session=""
+    if _upterm_running; then
+        shared_session=$(_upterm_shared_session)
+    fi
+    local output
+    output=$(_tmux ls -F '#{session_name}: #{session_windows} windows (#{?session_attached,attached,detached})' 2>/dev/null \
+        | grep -E '^ds' || true)
+    if [[ -z "$output" ]]; then
+        echo "(no active ds sessions)"
+        return
+    fi
+    while IFS= read -r line; do
+        local name="${line%%:*}"
+        if [[ "$name" == "$shared_session" ]]; then
+            echo "$line [shared]"
+        else
+            echo "$line"
+        fi
+    done <<< "$output"
 }
 
 _do_kill() {
-    local session
+    local session shared_session
     if [[ -n "$KILL_TARGET" ]]; then
         session="$KILL_TARGET"
     else
@@ -137,6 +475,14 @@ _do_kill() {
         [[ -n "$NAME_OVERRIDE" ]] && session="$session-$NAME_OVERRIDE"
     fi
     if _tmux has-session -t "=$session" 2>/dev/null; then
+        # If this session is currently shared, stop sharing first (best-effort)
+        # so we don't leave stale share state behind.
+        shared_session=$(_upterm_shared_session)
+        if [[ "$shared_session" == "$session" ]]; then
+            _stop_upterm_daemon || true
+            _unpush_share_info "$session" || true
+        fi
+
         _tmux kill-session -t "=$session"
         echo "killed $session"
     else
@@ -147,7 +493,16 @@ _do_kill() {
 }
 
 _do_killall() {
-    local sessions
+    local sessions shared_session
+
+    # Best-effort share cleanup: if a session is currently shared, stop sharing
+    # first so we don't leave stale share state after killing all sessions.
+    shared_session=$(_upterm_shared_session)
+    if [[ -n "$shared_session" ]]; then
+        _stop_upterm_daemon || true
+        _unpush_share_info "$shared_session" || true
+    fi
+
     sessions=$(_tmux ls -F '#{session_name}' 2>/dev/null | grep -E '^ds') || true
     if [[ -z "$sessions" ]]; then
         echo "(no active ds sessions)"
@@ -167,6 +522,15 @@ _do_session() {
     # Attach if session already exists (= prefix for exact match)
     if _tmux has-session -t "=$session" 2>/dev/null; then
         _fix_server_access
+        # Start upterm daemon if --share-via upterm (idempotent)
+        if [[ "${DS_SHARE_VIA:-}" == "upterm" ]]; then
+            if _start_upterm_daemon "$session"; then
+                _push_share_info "$session"
+            fi
+        fi
+        if [[ "$DS_NO_ATTACH" == "1" ]]; then
+            return
+        fi
         _attach "$session"
         return
     fi
@@ -175,6 +539,15 @@ _do_session() {
     _fix_socket_perms
     _fix_server_access
     "_profile_$PROFILE" "$session" "$CHATBOT" "$DIR"
+    # Start upterm daemon if --share-via upterm
+    if [[ "${DS_SHARE_VIA:-}" == "upterm" ]]; then
+        if _start_upterm_daemon "$session"; then
+            _push_share_info "$session"
+        fi
+    fi
+    if [[ "$DS_NO_ATTACH" == "1" ]]; then
+        return
+    fi
     _attach "$session"
 }
 
@@ -214,6 +587,8 @@ _remote() {
             fi
             args+=("-p" "$PROFILE" "-b" "$CHATBOT" "-d" "$REMOTE_DIR")
             [[ -n "$NAME_OVERRIDE" ]] && args+=("-n" "$NAME_OVERRIDE")
+            [[ -n "${DS_SHARE_VIA:-}" ]] && args+=("--share-via" "$DS_SHARE_VIA")
+            [[ "$DS_NO_ATTACH" == "1" ]] && args+=("--no-attach")
             ;;
     esac
 
@@ -244,6 +619,20 @@ while [[ $# -gt 0 ]]; do
         -b|--chatbot) CHATBOT_OVERRIDE="$2"; shift 2 ;;
         -c|--connect) CONNECT_OVERRIDE="$2"; shift 2 ;;
         -d|--dir)     DIR_OVERRIDE="$2"; shift 2 ;;
+        --share-via)  DS_SHARE_VIA="$2"; shift 2 ;;
+        --share)      ACTION="share"
+                      if [[ $# -gt 1 && "$2" != -* ]]; then
+                          SHARE_TARGET="$2"; shift
+                      fi
+                      shift ;;
+        --unshare)    ACTION="unshare"
+                      if [[ $# -gt 1 && "$2" != -* ]]; then
+                          SHARE_TARGET="$2"; shift
+                      fi
+                      shift ;;
+        --push)       DS_SHARE_PUSH="$2"; shift 2 ;;
+        --github-user) DS_UPTERM_GITHUB_USER="$2"; shift 2 ;;
+        --no-attach)  DS_NO_ATTACH=1; shift ;;
         -l|--list)    ACTION="list"; shift ;;
         -k|--kill)    ACTION="kill"
                       # Optional: next arg is the session name (if not a flag)
@@ -257,6 +646,23 @@ while [[ $# -gt 0 ]]; do
         *)            HOST="$1"; shift ;;
     esac
 done
+
+if [[ -n "$DS_SHARE_VIA" && "$DS_SHARE_VIA" != "upterm" ]]; then
+    echo "ds: unsupported share backend '$DS_SHARE_VIA' (supported: upterm)" >&2
+    exit 1
+fi
+
+_ensure_state_dir
+
+if [[ -z "$DS_SHARE_INFO_FILE" ]]; then
+    DS_SHARE_INFO_FILE="$(_default_share_info_file)"
+fi
+if [[ -z "$DS_UPTERM_PID_FILE" ]]; then
+    DS_UPTERM_PID_FILE="$(_default_upterm_pid_file)"
+fi
+
+# Load push target from config if not set via --push or env
+_load_share_config
 
 if [[ -n "$HOST" ]]; then
     _remote
@@ -272,6 +678,12 @@ case "$ACTION" in
     ;;
   killall)
     _do_killall
+    ;;
+  share)
+    _do_share
+    ;;
+  unshare)
+    _do_unshare
     ;;
   session)
     lookup_host "$(hostname -s 2>/dev/null || hostname)"
