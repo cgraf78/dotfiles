@@ -212,18 +212,25 @@ _start_upterm_daemon() {
     admin_file=$(_default_upterm_admin_file)
     rm -f "$admin_file"
 
-    # The hosted command writes the admin socket path and then sleeps forever.
-    # Remote clients get --force-command to attach to the tmux session.
-    # Using setsid to fully detach from the controlling terminal.
-    local hosted_cmd="echo \"\$UPTERM_ADMIN_SOCKET\" > '$admin_file'; exec sleep infinity"
+    # Fully detach upterm from the controlling terminal.
+    # The hosted command writes its PPID (the upterm process) to the PID file
+    # and the admin socket path to the admin file.
+    local hosted_cmd="echo \"\$PPID\" > '$DS_UPTERM_PID_FILE'; echo \"\$UPTERM_ADMIN_SOCKET\" > '$admin_file'; exec sleep infinity"
 
-    setsid env -u TMUX upterm host \
-        "${host_args[@]}" \
-        --force-command "tmux -S $DS_TMUX_SOCKET attach -t =$session" \
-        -- bash -c "$hosted_cmd" \
-        </dev/null >/dev/null 2>&1 &
-    local pid=$!
-    echo "$pid" > "$DS_UPTERM_PID_FILE"
+    if command -v setsid >/dev/null 2>&1; then
+        setsid env -u TMUX upterm host \
+            "${host_args[@]}" \
+            --force-command "tmux -S $DS_TMUX_SOCKET attach -t =$session" \
+            -- bash -c "$hosted_cmd" \
+            </dev/null >/dev/null 2>&1 &
+    else
+        # macOS: use a nohup + background to detach
+        nohup env -u TMUX upterm host \
+            "${host_args[@]}" \
+            --force-command "tmux -S $DS_TMUX_SOCKET attach -t =$session" \
+            -- bash -c "$hosted_cmd" \
+            </dev/null >/dev/null 2>&1 &
+    fi
 
     # Wait for the admin socket file to appear, then collect share info
     local i admin_sock content
