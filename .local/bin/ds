@@ -174,18 +174,33 @@ _show_share_info() {
     cat "$DS_SHARE_INFO_FILE"
 }
 
+_default_upterm_admin_file() {
+    echo "${DS_TMUX_SOCKET}.upterm-admin"
+}
+
 _collect_upterm_share_info() {
-    # Background sidecar: polls `upterm session current` until share info
-    # is available, then writes it to the share info file.
-    # Runs in a subshell so it doesn't block the main process.
+    # Background sidecar: waits for the admin socket path file (written by
+    # the hosted command), then calls `upterm session current` to get share
+    # info and writes it to the share info file.
+    local admin_file="$1"
     (
-        local i content
+        local i admin_sock content
+        # Wait for the hosted command to write the admin socket path
         for i in $(seq 1 30); do
-            content=$(env -u TMUX upterm session current 2>/dev/null || true)
+            if [[ -s "$admin_file" ]]; then
+                admin_sock=$(cat "$admin_file")
+                break
+            fi
+            sleep 0.5
+        done
+        [[ -n "${admin_sock:-}" ]] || return 1
+
+        # Poll upterm session current until share info is available
+        for i in $(seq 1 30); do
+            content=$(upterm session current --admin-socket "$admin_sock" 2>/dev/null || true)
             if [[ -n "$content" ]]; then
                 content=$(_normalize_share_info upterm "$content")
                 _write_share_info "$content"
-                printf '%s\n' "$content"
                 return 0
             fi
             sleep 0.5
@@ -214,16 +229,22 @@ _upterm_attach() {
     local host_args=(--accept --server "ssh://$DS_UPTERM_HOST" --private-key "$key")
     [[ -n "${DS_UPTERM_KNOWN_HOSTS:-}" ]] && host_args+=(--known-hosts "$DS_UPTERM_KNOWN_HOSTS")
 
-    # Start background sidecar to collect share info via `upterm session current`
-    _collect_upterm_share_info
+    local admin_file
+    admin_file=$(_default_upterm_admin_file)
+    rm -f "$admin_file"
+
+    # Start background sidecar to collect share info
+    _collect_upterm_share_info "$admin_file"
+
+    # The hosted command writes the UPTERM_ADMIN_SOCKET path to a file so
+    # the background sidecar can query share info via `upterm session current`.
+    local hosted_cmd="echo \"\$UPTERM_ADMIN_SOCKET\" > '$admin_file'; exec tmux -S '$DS_TMUX_SOCKET' attach -t '=$session'"
 
     # Run upterm host in the foreground — this IS the user's terminal session.
-    # upterm wraps the tmux attach, so the user gets a normal tmux experience
-    # while the session is shared via upterm.
     env -u TMUX upterm host \
         "${host_args[@]}" \
         --force-command "tmux -S $DS_TMUX_SOCKET attach -t =$session" \
-        -- tmux -S "$DS_TMUX_SOCKET" attach -t "=$session"
+        -- bash -c "$hosted_cmd"
 }
 
 # Attach to an existing tmux session, or switch to it if already inside tmux.
