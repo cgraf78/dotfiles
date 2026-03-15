@@ -626,10 +626,11 @@ _remote() {
             ;;
     esac
 
-    # Keep ~/ unescaped so the remote shell expands it; only escape the args
+    # Wrap in bash -lc so the remote login profile is sourced (env vars
+    # like DS_DEV_CHATBOT need to be set before ds runs).
     local remote_cmd
     # shellcheck disable=SC2088  # intentional — remote shell expands ~
-    remote_cmd="~/.local/bin/ds $(printf '%q ' "${args[@]}")"
+    remote_cmd="bash -lc '~/.local/bin/ds $(printf '%q ' "${args[@]}")'"
 
     case "$CONNECT" in
         -)       echo "ds: host '$HOST' is local-only (no remote connections)" >&2; exit 1 ;;
