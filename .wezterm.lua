@@ -239,8 +239,6 @@ return {
   scrollback_lines = 20000,
   check_for_updates = false,
   automatically_reload_config = true,
-  -- Avoid passing the focus click through to terminal apps (e.g. tmux),
-  -- which can trigger accidental copy-mode on Windows/WSL setups.
   swallow_mouse_click_on_window_focus = true,
   audible_bell = 'Disabled',
   default_cursor_style = 'SteadyBar',
