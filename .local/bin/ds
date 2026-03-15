@@ -23,8 +23,6 @@ HOST=""
 CONNECT="ssh"
 CHATBOT="claude"
 DIR="$HOME"
-DS_TMUX_SOCKET="${DS_TMUX_SOCKET:-/tmp/ds-shared.sock}"
-DS_TMUX_ACCESS_USER="${DS_TMUX_ACCESS_USER:-openclaw}"
 DS_SHARE_VIA="${DS_SHARE_VIA:-}"
 DS_NO_ATTACH="${DS_NO_ATTACH:-0}"
 DS_SHARE_INFO_FILE="${DS_SHARE_INFO_FILE:-}"
@@ -92,33 +90,13 @@ lookup_host() {
 
 # --- Tmux helpers ---
 
-# Run tmux through the ds-managed socket.
-_tmux() {
-    tmux -S "$DS_TMUX_SOCKET" "$@"
-}
-
-# Make the shared socket accessible across users when possible.
-_fix_socket_perms() {
-    [[ -S "$DS_TMUX_SOCKET" ]] || return 0
-    chmod 777 "$DS_TMUX_SOCKET" 2>/dev/null || true
-}
-
-# Grant tmux server access to a local user when available.
-_fix_server_access() {
-    [[ -n "${DS_TMUX_ACCESS_USER:-}" ]] || return 0
-    id -u "$DS_TMUX_ACCESS_USER" >/dev/null 2>&1 || return 0
-    _tmux server-access -a "$DS_TMUX_ACCESS_USER" 2>/dev/null || true
-}
-
 _ensure_state_dir() {
     mkdir -p "$DS_STATE_DIR"
     chmod 700 "$DS_STATE_DIR" 2>/dev/null || true
 }
 
 _state_file_prefix() {
-    local socket_base
-    socket_base=$(basename "$DS_TMUX_SOCKET")
-    printf '%s/%s' "$DS_STATE_DIR" "$socket_base"
+    printf '%s/%s' "$DS_STATE_DIR" "ds"
 }
 
 _default_share_info_file() {
@@ -354,7 +332,7 @@ _start_upterm_daemon() {
     # PID is tracked from the parent launcher process ($!).
     local hosted_cmd force_cmd
     hosted_cmd="umask 077; echo \"\$UPTERM_ADMIN_SOCKET\" > '$admin_file'; while true; do sleep 86400; done"
-    force_cmd="bash -lc \"tmux -S '$DS_TMUX_SOCKET' attach -t '=$session' || tmux -S '$DS_TMUX_SOCKET' attach -t '$session'\""
+    force_cmd="bash -lc \"tmux attach -t '=$session' || tmux attach -t '$session'\""
 
     local upterm_pid
     if command -v setsid >/dev/null 2>&1 && ! _is_wsl; then
@@ -454,7 +432,7 @@ _do_share() {
         [[ -n "$NAME_OVERRIDE" ]] && session="$session-$NAME_OVERRIDE"
     fi
 
-    if ! _tmux has-session -t "=$session" 2>/dev/null; then
+    if ! tmux has-session -t "=$session" 2>/dev/null; then
         echo "ds: no session '$session' to share" >&2
         _do_list >&2
         return 1
@@ -487,9 +465,9 @@ _do_unshare() {
 _attach() {
     local session="$1"
     if [[ -n "${TMUX:-}" ]]; then
-        _tmux switch-client -t "=$session"
+        tmux switch-client -t "=$session"
     else
-        _tmux attach -t "=$session"
+        tmux attach -t "=$session"
     fi
 }
 
@@ -510,7 +488,7 @@ _do_list() {
         shared_session=$(_upterm_shared_session)
     fi
     local output
-    output=$(_tmux ls -F '#{session_name}: #{session_windows} windows (#{?session_attached,attached,detached})' 2>/dev/null \
+    output=$(tmux ls -F '#{session_name}: #{session_windows} windows (#{?session_attached,attached,detached})' 2>/dev/null \
         | grep -E '^ds' || true)
     if [[ -z "$output" ]]; then
         echo "(no active ds sessions)"
@@ -535,7 +513,7 @@ _do_kill() {
         [[ "$PROFILE" != "bare" ]] && session="$session$PROFILE"
         [[ -n "$NAME_OVERRIDE" ]] && session="$session-$NAME_OVERRIDE"
     fi
-    if _tmux has-session -t "=$session" 2>/dev/null; then
+    if tmux has-session -t "=$session" 2>/dev/null; then
         # If this session is currently shared, stop sharing first (best-effort)
         # so we don't leave stale share state behind.
         shared_session=$(_upterm_shared_session)
@@ -544,7 +522,7 @@ _do_kill() {
             _unpush_share_info "$session" || true
         fi
 
-        _tmux kill-session -t "=$session"
+        tmux kill-session -t "=$session"
         echo "killed $session"
     else
         echo "ds: no session '$session'" >&2
@@ -564,13 +542,13 @@ _do_killall() {
         _unpush_share_info "$shared_session" || true
     fi
 
-    sessions=$(_tmux ls -F '#{session_name}' 2>/dev/null | grep -E '^ds') || true
+    sessions=$(tmux ls -F '#{session_name}' 2>/dev/null | grep -E '^ds') || true
     if [[ -z "$sessions" ]]; then
         echo "(no active ds sessions)"
         return
     fi
     echo "$sessions" | while IFS= read -r s; do
-        _tmux kill-session -t "=$s"
+        tmux kill-session -t "=$s"
         echo "killed $s"
     done
 }
@@ -581,8 +559,7 @@ _do_session() {
     [[ -n "$NAME_OVERRIDE" ]] && session="$session-$NAME_OVERRIDE"
 
     # Attach if session already exists (= prefix for exact match)
-    if _tmux has-session -t "=$session" 2>/dev/null; then
-        _fix_server_access
+    if tmux has-session -t "=$session" 2>/dev/null; then
         # Start upterm daemon if --share-via upterm (idempotent)
         if [[ "${DS_SHARE_VIA:-}" == "upterm" ]]; then
             if _start_upterm_daemon "$session"; then
@@ -596,9 +573,7 @@ _do_session() {
         return
     fi
 
-    _tmux new-session -d -s "$session" -c "$DIR"
-    _fix_socket_perms
-    _fix_server_access
+    tmux new-session -d -s "$session" -c "$DIR"
     "_profile_$PROFILE" "$session" "$CHATBOT" "$DIR"
     # Start upterm daemon if --share-via upterm
     if [[ "${DS_SHARE_VIA:-}" == "upterm" ]]; then

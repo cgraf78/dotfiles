@@ -38,7 +38,6 @@ _profile_orc() {
 PROFILE
 
 export DS_SOURCED=1
-export DS_TMUX_ACCESS_USER=test-access-user
 export DS_UPTERM_PRIVATE_KEY="$TEST_HOME/.ssh/test_upterm_key"
 mkdir -p "$TEST_HOME/.ssh"
 printf 'dummy' > "$DS_UPTERM_PRIVATE_KEY"
@@ -54,9 +53,6 @@ cat > "$MOCK_BIN/tmux" <<'MOCK'
 # Mock tmux that logs calls and simulates responses
 echo "tmux $*" >> "${TMUX_LOG:-/dev/null}"
 args=("$@")
-if [[ "${args[0]:-}" == "-S" ]]; then
-    args=("${args[@]:2}")
-fi
 case "${args[0]:-}" in
     has-session)
         # Check MOCK_SESSIONS for existence
@@ -70,21 +66,12 @@ case "${args[0]:-}" in
     ls)
         echo "${MOCK_TMUX_LS:-}" | grep -v '^$' || true
         ;;
-    new-session|attach|switch-client|kill-session|rename-window|split-window|new-window|select-window|send-keys|server-access)
+    new-session|attach|switch-client|kill-session|rename-window|split-window|new-window|select-window|send-keys)
         exit 0
         ;;
 esac
 MOCK
 chmod +x "$MOCK_BIN/tmux"
-
-cat > "$MOCK_BIN/id" <<'MOCK'
-#!/usr/bin/env bash
-if [[ "$1" == "-u" && "$2" == "${DS_TMUX_ACCESS_USER:-}" ]]; then
-  exit 0
-fi
-exit 1
-MOCK
-chmod +x "$MOCK_BIN/id"
 
 cat > "$MOCK_BIN/upterm" <<'MOCK'
 #!/usr/bin/env bash
@@ -229,39 +216,6 @@ _assert_contains "invalid profile error mentions name" "nonexistent" "$result"
 _assert_contains "invalid profile lists valid options" "bare" "$result"
 
 # ---------------------------------------------------------------------------
-# Tests: Shared tmux socket
-# ---------------------------------------------------------------------------
-
-echo ""
-echo "=== Shared tmux socket ==="
-
-_reset_tmux_log
-export MOCK_SESSIONS=""
-PROFILE="bare"
-NAME_OVERRIDE=""
-DIR="$HOME"
-DS_TMUX_SOCKET="/tmp/ds-shared.sock"
-_do_session
-log=$(_tmux_log)
-_assert_contains "tmux uses shared socket for new session" "-S /tmp/ds-shared.sock new-session -d -s ds" "$log"
-_assert_contains "tmux uses shared socket for server-access" "-S /tmp/ds-shared.sock server-access -a test-access-user" "$log"
-_assert_contains "tmux uses shared socket for attach" "-S /tmp/ds-shared.sock attach -t =ds" "$log"
-
-# _fix_socket_perms should chmod an existing socket path, but tolerate missing sockets.
-SOCK_TEST=$(_tmpdir)/tmux.sock
-python - "$SOCK_TEST" <<'PY2'
-import socket, sys
-p = sys.argv[1]
-s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-s.bind(p)
-s.close()
-PY2
-DS_TMUX_SOCKET="$SOCK_TEST"
-_fix_socket_perms
-mode=$(stat -c '%a' "$SOCK_TEST" 2>/dev/null || stat -f '%Lp' "$SOCK_TEST")
-_assert_eq "shared socket chmod" "777" "$mode"
-
-# ---------------------------------------------------------------------------
 # Tests: Upterm sharing backend
 # ---------------------------------------------------------------------------
 
@@ -280,13 +234,12 @@ NAME_OVERRIDE=""
 DIR="$HOME"
 DS_SHARE_VIA=""
 DS_NO_ATTACH=1
-DS_TMUX_SOCKET="/tmp/ds-shared.sock"
 DS_SHARE_INFO_FILE="$(_default_share_info_file)"
 DS_UPTERM_PID_FILE="$(_default_upterm_pid_file)"
 result=$(_do_session 2>&1)
 log=$(_tmux_log)
-_assert_contains "no-attach: creates tmux session" "tmux -S /tmp/ds-shared.sock new-session -d -s ds" "$log"
-if echo "$log" | grep -qx 'tmux -S /tmp/ds-shared.sock attach -t =ds'; then
+_assert_contains "no-attach: creates tmux session" "tmux new-session -d -s ds" "$log"
+if echo "$log" | grep -qx 'tmux attach -t =ds'; then
     _fail "no-attach: skips local attach"
 else
     _pass "no-attach: skips local attach"
@@ -385,7 +338,6 @@ NAME_OVERRIDE=""
 unset TMUX 2>/dev/null || true
 _do_session
 log=$(_tmux_log)
-_assert_contains "existing session: refreshes server access" "server-access -a test-access-user" "$log"
 _assert_contains "existing session: attaches" "attach -t =ds" "$log"
 _assert_not_contains "existing session: no new-session" "new-session" "$log"
 
