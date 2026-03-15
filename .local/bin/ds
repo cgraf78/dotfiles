@@ -190,7 +190,7 @@ _write_share_info() {
     local content="$1"
     [[ -n "${DS_SHARE_INFO_FILE:-}" ]] || return 0
     printf '%s\n' "$content" > "$DS_SHARE_INFO_FILE"
-    chmod 644 "$DS_SHARE_INFO_FILE" 2>/dev/null || true
+    chmod 600 "$DS_SHARE_INFO_FILE" 2>/dev/null || true
 }
 
 _show_share_info() {
