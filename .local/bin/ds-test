@@ -313,6 +313,16 @@ _assert_contains "share action: error for nonexistent session" "no session" "$re
 result=$(_do_unshare 2>&1)
 _assert_contains "unshare: reports not sharing" "not currently sharing" "$result"
 
+# Test normalization of upterm host output variants (e.g., WSL fallback log parse)
+result=$(_normalize_share_info upterm $'Command: ssh token123@uptermd.upterm.dev')
+_assert_contains "normalize upterm: command format" "ssh: ssh token123@uptermd.upterm.dev" "$result"
+
+# Test reading share info directly from upterm log fallback
+log_file="$(_tmpdir)/upterm.log"
+printf '%s\n' 'Some startup text' 'Command: ssh abc123@uptermd.upterm.dev' > "$log_file"
+result=$(_read_share_info_from_upterm_log "$log_file")
+_assert_contains "log fallback: extracts ssh command" "ssh: ssh abc123@uptermd.upterm.dev" "$result"
+
 # Reset sharing vars for remaining tmux tests
 DS_SHARE_VIA=""
 DS_NO_ATTACH=0
