@@ -33,6 +33,7 @@ DS_UPTERM_PRIVATE_KEY="${DS_UPTERM_PRIVATE_KEY:-}"
 DS_UPTERM_KNOWN_HOSTS="${DS_UPTERM_KNOWN_HOSTS:-}"
 DS_UPTERM_PID_FILE="${DS_UPTERM_PID_FILE:-}"
 DS_SHARE_PUSH="${DS_SHARE_PUSH:-}"
+DS_UPTERM_GITHUB_USER="${DS_UPTERM_GITHUB_USER:-}"
 
 _usage() {
     echo "Usage: ds [-p <profile>] [-n <name>] [-b <chatbot>] [-c <method>] [-d <path>] [--share-via upterm] [--push user@host] [<hostname>]"
@@ -195,6 +196,7 @@ _load_share_config() {
         [[ -z "$key" || "$key" == \#* ]] && continue
         case "$key" in
             push) DS_SHARE_PUSH="$val" ;;
+            github-user) DS_UPTERM_GITHUB_USER="$val" ;;
         esac
     done < "$conf"
 }
@@ -258,8 +260,13 @@ _start_upterm_daemon() {
         return 1
     }
 
-    local host_args=(--accept --server "ssh://$DS_UPTERM_HOST" --private-key "$key")
+    local host_args=(--server "ssh://$DS_UPTERM_HOST" --private-key "$key")
     [[ -n "${DS_UPTERM_KNOWN_HOSTS:-}" ]] && host_args+=(--known-hosts "$DS_UPTERM_KNOWN_HOSTS")
+    if [[ -n "${DS_UPTERM_GITHUB_USER:-}" ]]; then
+        host_args+=(--github-user "$DS_UPTERM_GITHUB_USER")
+    else
+        host_args+=(--accept)
+    fi
 
     local admin_file
     admin_file=$(_default_upterm_admin_file)
@@ -544,6 +551,7 @@ while [[ $# -gt 0 ]]; do
                       fi
                       shift ;;
         --push)       DS_SHARE_PUSH="$2"; shift 2 ;;
+        --github-user) DS_UPTERM_GITHUB_USER="$2"; shift 2 ;;
         --no-attach)  DS_NO_ATTACH=1; shift ;;
         -l|--list)    ACTION="list"; shift ;;
         -k|--kill)    ACTION="kill"
