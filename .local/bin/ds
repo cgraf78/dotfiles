@@ -374,8 +374,9 @@ _do_share() {
         return 1
     fi
 
-    _start_upterm_daemon "$session"
-    _push_share_info "$session"
+    if _start_upterm_daemon "$session"; then
+        _push_share_info "$session"
+    fi
 }
 
 # Unshare (stop sharing) a ds session.
@@ -481,8 +482,9 @@ _do_session() {
         _fix_server_access
         # Start upterm daemon if --share-via upterm (idempotent)
         if [[ "${DS_SHARE_VIA:-}" == "upterm" ]]; then
-            _start_upterm_daemon "$session"
-            _push_share_info "$session"
+            if _start_upterm_daemon "$session"; then
+                _push_share_info "$session"
+            fi
         fi
         if [[ "$DS_NO_ATTACH" == "1" ]]; then
             return
@@ -497,8 +499,9 @@ _do_session() {
     "_profile_$PROFILE" "$session" "$CHATBOT" "$DIR"
     # Start upterm daemon if --share-via upterm
     if [[ "${DS_SHARE_VIA:-}" == "upterm" ]]; then
-        _start_upterm_daemon "$session"
-        _push_share_info "$session"
+        if _start_upterm_daemon "$session"; then
+            _push_share_info "$session"
+        fi
     fi
     if [[ "$DS_NO_ATTACH" == "1" ]]; then
         return
