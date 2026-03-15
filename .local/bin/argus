@@ -1,2 +1,0 @@
-#!/usr/bin/env bash
-exec openclaw tui --session "agent:main:tui"
