@@ -34,6 +34,8 @@ DS_UPTERM_AUTHORIZED_KEYS="${DS_UPTERM_AUTHORIZED_KEYS:-}"
 DS_UPTERM_PID_FILE="${DS_UPTERM_PID_FILE:-}"
 DS_UPTERM_PUSH="${DS_UPTERM_PUSH:-}"
 
+_UPTERM_REMOTE_STATE_DIR=".local/state/ds"
+
 # --- State file helpers ---
 
 _upterm_pid_file() {
@@ -121,21 +123,20 @@ _upterm_push_share_info() {
 
     local src_host
     src_host=$(hostname -s 2>/dev/null || hostname)
-    local remote_dir=".ds/shares"
-    local remote_file="${src_host}-${session}.share"
+    local remote_file="ds.upterm-${src_host}-${session}.share"
     local escaped_dir
-    escaped_dir=$(printf '%q' "$remote_dir")
+    escaped_dir=$(printf '%q' "$_UPTERM_REMOTE_STATE_DIR")
 
     ssh -o BatchMode=yes -o ConnectTimeout=5 "$DS_UPTERM_PUSH" "mkdir -p ~/$escaped_dir" 2>/dev/null || {
-        echo "ds: failed to create remote share dir on $DS_UPTERM_PUSH" >&2
+        echo "ds: failed to create remote state dir on $DS_UPTERM_PUSH" >&2
         return 1
     }
     scp -o BatchMode=yes -o ConnectTimeout=5 -q \
-        "$DS_SHARE_INFO_FILE" "$DS_UPTERM_PUSH:~/$remote_dir/$remote_file" 2>/dev/null || {
+        "$DS_SHARE_INFO_FILE" "$DS_UPTERM_PUSH:~/$_UPTERM_REMOTE_STATE_DIR/$remote_file" 2>/dev/null || {
         echo "ds: failed to push share info to $DS_UPTERM_PUSH" >&2
         return 1
     }
-    echo "ds: pushed share info to $DS_UPTERM_PUSH:~/$remote_dir/$remote_file"
+    echo "ds: pushed share info to $DS_UPTERM_PUSH:~/$_UPTERM_REMOTE_STATE_DIR/$remote_file"
 }
 
 _upterm_unpush_share_info() {
@@ -144,7 +145,7 @@ _upterm_unpush_share_info() {
     local src_host
     src_host=$(hostname -s 2>/dev/null || hostname)
     local escaped_file
-    escaped_file=$(printf '%q' ".ds/shares/${src_host}-${session}.share")
+    escaped_file=$(printf '%q' "$_UPTERM_REMOTE_STATE_DIR/ds.upterm-${src_host}-${session}.share")
     ssh -o BatchMode=yes -o ConnectTimeout=5 "$DS_UPTERM_PUSH" "rm -f ~/$escaped_file" 2>/dev/null || true
 }
 
