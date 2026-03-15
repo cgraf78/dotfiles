@@ -215,7 +215,7 @@ _start_upterm_daemon() {
     # Fully detach upterm from the controlling terminal.
     # The hosted command writes its PPID (the upterm process) to the PID file
     # and the admin socket path to the admin file.
-    local hosted_cmd="echo \"\$PPID\" > '$DS_UPTERM_PID_FILE'; echo \"\$UPTERM_ADMIN_SOCKET\" > '$admin_file'; exec sleep infinity"
+    local hosted_cmd="echo \"\$PPID\" > '$DS_UPTERM_PID_FILE'; echo \"\$UPTERM_ADMIN_SOCKET\" > '$admin_file'; while true; do sleep 86400; done"
 
     if command -v setsid >/dev/null 2>&1; then
         setsid env -u TMUX upterm host \
