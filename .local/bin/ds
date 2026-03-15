@@ -125,7 +125,9 @@ _default_upterm_session_file() {
 _upterm_shared_session() {
     local f
     f=$(_default_upterm_session_file)
-    [[ -f "$f" ]] && cat "$f" || true
+    if [[ -f "$f" ]]; then
+        cat "$f"
+    fi
 }
 
 _resolve_upterm_key() {
@@ -441,7 +443,7 @@ _do_list() {
 }
 
 _do_kill() {
-    local session
+    local session shared_session
     if [[ -n "$KILL_TARGET" ]]; then
         session="$KILL_TARGET"
     else
@@ -450,6 +452,14 @@ _do_kill() {
         [[ -n "$NAME_OVERRIDE" ]] && session="$session-$NAME_OVERRIDE"
     fi
     if _tmux has-session -t "=$session" 2>/dev/null; then
+        # If this session is currently shared, stop sharing first (best-effort)
+        # so we don't leave stale share state behind.
+        shared_session=$(_upterm_shared_session)
+        if [[ "$shared_session" == "$session" ]]; then
+            _stop_upterm_daemon || true
+            _unpush_share_info "$session" || true
+        fi
+
         _tmux kill-session -t "=$session"
         echo "killed $session"
     else
@@ -460,7 +470,16 @@ _do_kill() {
 }
 
 _do_killall() {
-    local sessions
+    local sessions shared_session
+
+    # Best-effort share cleanup: if a session is currently shared, stop sharing
+    # first so we don't leave stale share state after killing all sessions.
+    shared_session=$(_upterm_shared_session)
+    if [[ -n "$shared_session" ]]; then
+        _stop_upterm_daemon || true
+        _unpush_share_info "$shared_session" || true
+    fi
+
     sessions=$(_tmux ls -F '#{session_name}' 2>/dev/null | grep -E '^ds') || true
     if [[ -z "$sessions" ]]; then
         echo "(no active ds sessions)"
