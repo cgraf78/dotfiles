@@ -179,12 +179,19 @@ _normalize_share_info() {
     case "$backend" in
         upterm)
             # Extract the SSH connection command from upterm output.
-            # Format: "➤ SSH:\n    ssh SESSION@HOST" or legacy "ssh session: ssh ..."
+            # Supports multiple formats, including:
+            # - "➤ SSH:\n    ssh SESSION@HOST"
+            # - "ssh session: ssh SESSION@HOST"
+            # - "Command: ssh SESSION@HOST"
             local ssh_cmd
             ssh_cmd=$(printf '%s\n' "$content" | grep -E '^\s+ssh\s+\S+@\S+' | head -1 | sed 's/^[[:space:]]*//' || true)
             if [[ -z "$ssh_cmd" ]]; then
-                # Try legacy format
+                # Legacy format
                 ssh_cmd=$(printf '%s\n' "$content" | sed -n 's/^ssh session: //p' | head -1 || true)
+            fi
+            if [[ -z "$ssh_cmd" ]]; then
+                # Generic fallback: pick first ssh user@host command in the text
+                ssh_cmd=$(printf '%s\n' "$content" | grep -Eo 'ssh[[:space:]]+[^[:space:]]+@[^[:space:]]+' | head -1 || true)
             fi
             if [[ -n "$ssh_cmd" ]]; then
                 printf 'ssh: %s\n' "$ssh_cmd"
@@ -213,6 +220,23 @@ _write_share_info() {
 _show_share_info() {
     [[ -n "${DS_SHARE_INFO_FILE:-}" && -f "$DS_SHARE_INFO_FILE" ]] || return 0
     cat "$DS_SHARE_INFO_FILE"
+}
+
+_read_share_info_from_upterm_log() {
+    local log_file="$1"
+    [[ -s "$log_file" ]] || return 1
+
+    local raw normalized
+    raw=$(cat "$log_file" 2>/dev/null || true)
+    [[ -n "$raw" ]] || return 1
+
+    normalized=$(_normalize_share_info upterm "$raw")
+    if [[ "$normalized" == ssh:* ]]; then
+        printf '%s\n' "$normalized"
+        return 0
+    fi
+
+    return 1
 }
 
 # Load share push target from config file if not set via env/flag.
@@ -271,6 +295,14 @@ _default_upterm_admin_file() {
     echo "$(_state_file_prefix).upterm-admin"
 }
 
+_default_upterm_log_file() {
+    echo "$(_state_file_prefix).upterm.log"
+}
+
+_is_wsl() {
+    grep -qiE '(microsoft|wsl)' /proc/version 2>/dev/null
+}
+
 # Start upterm as a fully detached daemon process. It runs independently of
 # the user's terminal, so attaching/detaching from tmux doesn't affect it.
 # The daemon hosts the tmux session and writes share info to a file.
@@ -304,38 +336,53 @@ _start_upterm_daemon() {
 
     _ensure_state_dir
 
-    local admin_file
+    local admin_file log_file
     admin_file=$(_default_upterm_admin_file)
-    rm -f "$admin_file"
+    log_file=$(_default_upterm_log_file)
+    rm -f "$admin_file" "$log_file"
 
     # Record which session is being shared
     local old_umask
     old_umask=$(umask)
     umask 077
+    : > "$log_file"
     echo "$session" > "$(_default_upterm_session_file)"
     umask "$old_umask"
 
     # Fully detach upterm from the controlling terminal.
-    # The hosted command writes its PPID (the upterm process) to the PID file
-    # and the admin socket path to the admin file.
-    local hosted_cmd="umask 077; echo \"\$PPID\" > '$DS_UPTERM_PID_FILE'; echo \"\$UPTERM_ADMIN_SOCKET\" > '$admin_file'; while true; do sleep 86400; done"
+    # The hosted command writes the admin socket path to a file and sleeps.
+    # PID is tracked from the parent launcher process ($!).
+    local hosted_cmd force_cmd
+    hosted_cmd="umask 077; echo \"\$UPTERM_ADMIN_SOCKET\" > '$admin_file'; while true; do sleep 86400; done"
+    force_cmd="bash -lc \"tmux -S '$DS_TMUX_SOCKET' attach -t '=$session' || tmux -S '$DS_TMUX_SOCKET' attach -t '$session'\""
 
-    if command -v setsid >/dev/null 2>&1; then
+    local upterm_pid
+    if command -v setsid >/dev/null 2>&1 && ! _is_wsl; then
         setsid env -u TMUX upterm host \
             "${host_args[@]}" \
-            --force-command "tmux -S $DS_TMUX_SOCKET attach -t =$session" \
+            --force-command "$force_cmd" \
             -- bash -c "$hosted_cmd" \
-            </dev/null >/dev/null 2>&1 &
+            </dev/null >>"$log_file" 2>&1 &
+        upterm_pid=$!
     else
-        # macOS: use a nohup + background to detach
+        # macOS/WSL: use nohup + background for more reliable process behavior.
         nohup env -u TMUX upterm host \
             "${host_args[@]}" \
-            --force-command "tmux -S $DS_TMUX_SOCKET attach -t =$session" \
+            --force-command "$force_cmd" \
             -- bash -c "$hosted_cmd" \
-            </dev/null >/dev/null 2>&1 &
+            </dev/null >>"$log_file" 2>&1 &
+        upterm_pid=$!
     fi
 
-    # Wait for the admin socket file to appear, then collect share info
+    if [[ -n "${upterm_pid:-}" ]]; then
+        umask 077
+        echo "$upterm_pid" > "$DS_UPTERM_PID_FILE"
+        umask "$old_umask"
+    fi
+
+    # Wait for the admin socket file to appear, then collect share info.
+    # Some platforms (e.g., WSL) may not expose UPTERM_ADMIN_SOCKET in the
+    # hosted command environment; in that case, fall back to parsing host logs.
     local admin_sock content
     for _ in $(seq 1 30); do
         if [[ -s "$admin_file" ]]; then
@@ -346,7 +393,14 @@ _start_upterm_daemon() {
     done
 
     if [[ -z "${admin_sock:-}" ]]; then
-        echo "ds: timed out waiting for upterm to start" >&2
+        # Fallback: parse host output log for the ssh share command.
+        if content=$(_read_share_info_from_upterm_log "$log_file"); then
+            _write_share_info "$content"
+            printf '%s\n' "$content"
+            return 0
+        fi
+
+        echo "ds: timed out waiting for upterm share info (admin socket unavailable; log: $log_file)" >&2
         return 1
     fi
 
@@ -361,7 +415,14 @@ _start_upterm_daemon() {
         sleep 0.5
     done
 
-    echo "ds: upterm started but couldn't retrieve share info" >&2
+    # Fallback in case session-current fails but host output contains the SSH command.
+    if content=$(_read_share_info_from_upterm_log "$log_file"); then
+        _write_share_info "$content"
+        printf '%s\n' "$content"
+        return 0
+    fi
+
+    echo "ds: upterm started but couldn't retrieve share info (log: $log_file)" >&2
     return 1
 }
 
@@ -379,7 +440,7 @@ _stop_upterm_daemon() {
     else
         echo "ds: not currently sharing"
     fi
-    rm -f "$DS_UPTERM_PID_FILE" "$DS_SHARE_INFO_FILE" "$(_default_upterm_admin_file)" "$(_default_upterm_session_file)"
+    rm -f "$DS_UPTERM_PID_FILE" "$DS_SHARE_INFO_FILE" "$(_default_upterm_admin_file)" "$(_default_upterm_session_file)" "$(_default_upterm_log_file)"
 }
 
 # Share an existing ds session (workflow 2: share after the fact).
