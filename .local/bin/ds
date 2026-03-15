@@ -190,9 +190,9 @@ _collect_upterm_share_info() {
     # info and writes it to the share info file.
     local admin_file="$1"
     (
-        local i admin_sock content
+        local admin_sock content
         # Wait for the hosted command to write the admin socket path
-        for i in $(seq 1 30); do
+        for _ in $(seq 1 30); do
             if [[ -s "$admin_file" ]]; then
                 admin_sock=$(cat "$admin_file")
                 break
@@ -202,7 +202,7 @@ _collect_upterm_share_info() {
         [[ -n "${admin_sock:-}" ]] || return 1
 
         # Poll upterm session current until share info is available
-        for i in $(seq 1 30); do
+        for _ in $(seq 1 30); do
             content=$(upterm session current --admin-socket "$admin_sock" 2>/dev/null || true)
             if [[ -n "$content" ]]; then
                 content=$(_normalize_share_info upterm "$content")
