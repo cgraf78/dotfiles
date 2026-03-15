@@ -117,6 +117,17 @@ _default_upterm_pid_file() {
     echo "${DS_TMUX_SOCKET}.upterm.pid"
 }
 
+_default_upterm_session_file() {
+    echo "${DS_TMUX_SOCKET}.upterm.session"
+}
+
+# Return the name of the currently shared session (if any).
+_upterm_shared_session() {
+    local f
+    f=$(_default_upterm_session_file)
+    [[ -f "$f" ]] && cat "$f" || true
+}
+
 _resolve_upterm_key() {
     if [[ -n "${DS_UPTERM_PRIVATE_KEY:-}" && -f "$DS_UPTERM_PRIVATE_KEY" ]]; then
         echo "$DS_UPTERM_PRIVATE_KEY"
@@ -250,9 +261,16 @@ _start_upterm_daemon() {
     local session="$1"
 
     if _upterm_running; then
-        echo "ds: upterm already sharing session '$session'"
-        _show_share_info
-        return 0
+        local current_session
+        current_session=$(_upterm_shared_session)
+        if [[ "$current_session" == "$session" ]]; then
+            echo "ds: already sharing session '$session'"
+            _show_share_info
+            return 0
+        else
+            echo "ds: already sharing session '${current_session:-unknown}' — run 'ds --unshare' first" >&2
+            return 1
+        fi
     fi
 
     local key
@@ -268,6 +286,9 @@ _start_upterm_daemon() {
     local admin_file
     admin_file=$(_default_upterm_admin_file)
     rm -f "$admin_file"
+
+    # Record which session is being shared
+    echo "$session" > "$(_default_upterm_session_file)"
 
     # Fully detach upterm from the controlling terminal.
     # The hosted command writes its PPID (the upterm process) to the PID file
@@ -333,7 +354,7 @@ _stop_upterm_daemon() {
     else
         echo "ds: not currently sharing"
     fi
-    rm -f "$DS_UPTERM_PID_FILE" "$DS_SHARE_INFO_FILE" "$(_default_upterm_admin_file)"
+    rm -f "$DS_UPTERM_PID_FILE" "$DS_SHARE_INFO_FILE" "$(_default_upterm_admin_file)" "$(_default_upterm_session_file)"
 }
 
 # Share an existing ds session (workflow 2: share after the fact).
