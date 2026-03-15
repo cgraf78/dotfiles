@@ -18,6 +18,7 @@ CONNECT_OVERRIDE=""
 DIR_OVERRIDE=""
 NAME_OVERRIDE=""
 KILL_TARGET=""
+SHARE_TARGET=""
 HOST=""
 CONNECT="ssh"
 CHATBOT="claude"
@@ -33,7 +34,9 @@ DS_UPTERM_KNOWN_HOSTS="${DS_UPTERM_KNOWN_HOSTS:-}"
 DS_UPTERM_PID_FILE="${DS_UPTERM_PID_FILE:-}"
 
 _usage() {
-    echo "Usage: ds [-p <profile>] [-n <name>] [-b <chatbot>] [-c <method>] [-d <path>] [--share-via upterm] [--no-attach] [<hostname>]"
+    echo "Usage: ds [-p <profile>] [-n <name>] [-b <chatbot>] [-c <method>] [-d <path>] [--share-via upterm] [<hostname>]"
+    echo "       ds --share [<session>]      share an existing ds session via upterm"
+    echo "       ds --unshare [<session>]    stop sharing a ds session"
     echo "       ds -l [<hostname>]          list active ds sessions"
     echo "       ds -k [<session>] [<host>]  kill a ds session"
     echo "       ds --killall                kill all ds sessions"
@@ -184,46 +187,16 @@ _default_upterm_admin_file() {
     echo "${DS_TMUX_SOCKET}.upterm-admin"
 }
 
-_collect_upterm_share_info() {
-    # Background sidecar: waits for the admin socket path file (written by
-    # the hosted command), then calls `upterm session current` to get share
-    # info and writes it to the share info file.
-    local admin_file="$1"
-    (
-        local admin_sock content
-        # Wait for the hosted command to write the admin socket path
-        for _ in $(seq 1 30); do
-            if [[ -s "$admin_file" ]]; then
-                admin_sock=$(cat "$admin_file")
-                break
-            fi
-            sleep 0.5
-        done
-        [[ -n "${admin_sock:-}" ]] || return 1
-
-        # Poll upterm session current until share info is available
-        for _ in $(seq 1 30); do
-            content=$(upterm session current --admin-socket "$admin_sock" 2>/dev/null || true)
-            if [[ -n "$content" ]]; then
-                content=$(_normalize_share_info upterm "$content")
-                _write_share_info "$content"
-                return 0
-            fi
-            sleep 0.5
-        done
-    ) &
-}
-
-_upterm_attach() {
-    # Run upterm host as the foreground terminal process (replaces _attach).
-    # This is the single attachment point — no separate _attach call needed.
+# Start upterm as a fully detached daemon process. It runs independently of
+# the user's terminal, so attaching/detaching from tmux doesn't affect it.
+# The daemon hosts the tmux session and writes share info to a file.
+_start_upterm_daemon() {
     local session="$1"
 
     if _upterm_running; then
+        echo "ds: upterm already sharing session '$session'"
         _show_share_info
-        # Upterm is already hosting; just do a normal attach.
-        _attach "$session"
-        return
+        return 0
     fi
 
     local key
@@ -239,18 +212,89 @@ _upterm_attach() {
     admin_file=$(_default_upterm_admin_file)
     rm -f "$admin_file"
 
-    # Start background sidecar to collect share info
-    _collect_upterm_share_info "$admin_file"
+    # The hosted command writes the admin socket path and then sleeps forever.
+    # Remote clients get --force-command to attach to the tmux session.
+    # Using setsid to fully detach from the controlling terminal.
+    local hosted_cmd="echo \"\$UPTERM_ADMIN_SOCKET\" > '$admin_file'; exec sleep infinity"
 
-    # The hosted command writes the UPTERM_ADMIN_SOCKET path to a file so
-    # the background sidecar can query share info via `upterm session current`.
-    local hosted_cmd="echo \"\$UPTERM_ADMIN_SOCKET\" > '$admin_file'; exec tmux -S '$DS_TMUX_SOCKET' attach -t '=$session'"
-
-    # Run upterm host in the foreground — this IS the user's terminal session.
-    env -u TMUX upterm host \
+    setsid env -u TMUX upterm host \
         "${host_args[@]}" \
         --force-command "tmux -S $DS_TMUX_SOCKET attach -t =$session" \
-        -- bash -c "$hosted_cmd"
+        -- bash -c "$hosted_cmd" \
+        </dev/null >/dev/null 2>&1 &
+    local pid=$!
+    echo "$pid" > "$DS_UPTERM_PID_FILE"
+
+    # Wait for the admin socket file to appear, then collect share info
+    local i admin_sock content
+    for i in $(seq 1 30); do
+        if [[ -s "$admin_file" ]]; then
+            admin_sock=$(cat "$admin_file")
+            break
+        fi
+        sleep 0.5
+    done
+
+    if [[ -z "${admin_sock:-}" ]]; then
+        echo "ds: timed out waiting for upterm to start" >&2
+        return 1
+    fi
+
+    for i in $(seq 1 30); do
+        content=$(upterm session current --admin-socket "$admin_sock" 2>/dev/null || true)
+        if [[ -n "$content" ]]; then
+            content=$(_normalize_share_info upterm "$content")
+            _write_share_info "$content"
+            printf '%s\n' "$content"
+            return 0
+        fi
+        sleep 0.5
+    done
+
+    echo "ds: upterm started but couldn't retrieve share info" >&2
+    return 1
+}
+
+# Stop the upterm daemon and clean up state files.
+_stop_upterm_daemon() {
+    if _upterm_running; then
+        local pid
+        pid=$(cat "$DS_UPTERM_PID_FILE" 2>/dev/null || true)
+        if [[ -n "$pid" ]]; then
+            kill "$pid" 2>/dev/null || true
+            # Also kill the process group in case setsid created one
+            kill -TERM -"$pid" 2>/dev/null || true
+        fi
+        echo "ds: stopped sharing"
+    else
+        echo "ds: not currently sharing"
+    fi
+    rm -f "$DS_UPTERM_PID_FILE" "$DS_SHARE_INFO_FILE" "$(_default_upterm_admin_file)"
+}
+
+# Share an existing ds session (workflow 2: share after the fact).
+_do_share() {
+    local session
+    if [[ -n "$SHARE_TARGET" ]]; then
+        session="$SHARE_TARGET"
+    else
+        session="ds"
+        [[ "$PROFILE" != "bare" ]] && session="$session$PROFILE"
+        [[ -n "$NAME_OVERRIDE" ]] && session="$session-$NAME_OVERRIDE"
+    fi
+
+    if ! _tmux has-session -t "=$session" 2>/dev/null; then
+        echo "ds: no session '$session' to share" >&2
+        _do_list >&2
+        return 1
+    fi
+
+    _start_upterm_daemon "$session"
+}
+
+# Unshare (stop sharing) a ds session.
+_do_unshare() {
+    _stop_upterm_daemon
 }
 
 # Attach to an existing tmux session, or switch to it if already inside tmux.
@@ -323,14 +367,14 @@ _do_session() {
     # Attach if session already exists (= prefix for exact match)
     if _tmux has-session -t "=$session" 2>/dev/null; then
         _fix_server_access
+        # Start upterm daemon if --share-via upterm (idempotent)
+        if [[ "${DS_SHARE_VIA:-}" == "upterm" ]]; then
+            _start_upterm_daemon "$session"
+        fi
         if [[ "$DS_NO_ATTACH" == "1" ]]; then
             return
         fi
-        if [[ "${DS_SHARE_VIA:-}" == "upterm" ]]; then
-            _upterm_attach "$session"
-        else
-            _attach "$session"
-        fi
+        _attach "$session"
         return
     fi
 
@@ -338,14 +382,14 @@ _do_session() {
     _fix_socket_perms
     _fix_server_access
     "_profile_$PROFILE" "$session" "$CHATBOT" "$DIR"
+    # Start upterm daemon if --share-via upterm
+    if [[ "${DS_SHARE_VIA:-}" == "upterm" ]]; then
+        _start_upterm_daemon "$session"
+    fi
     if [[ "$DS_NO_ATTACH" == "1" ]]; then
         return
     fi
-    if [[ "${DS_SHARE_VIA:-}" == "upterm" ]]; then
-        _upterm_attach "$session"
-    else
-        _attach "$session"
-    fi
+    _attach "$session"
 }
 
 # --- Main ---
@@ -417,6 +461,12 @@ while [[ $# -gt 0 ]]; do
         -c|--connect) CONNECT_OVERRIDE="$2"; shift 2 ;;
         -d|--dir)     DIR_OVERRIDE="$2"; shift 2 ;;
         --share-via)  DS_SHARE_VIA="$2"; shift 2 ;;
+        --share)      ACTION="share"
+                      if [[ $# -gt 1 && "$2" != -* ]]; then
+                          SHARE_TARGET="$2"; shift
+                      fi
+                      shift ;;
+        --unshare)    ACTION="unshare"; shift ;;
         --no-attach)  DS_NO_ATTACH=1; shift ;;
         -l|--list)    ACTION="list"; shift ;;
         -k|--kill)    ACTION="kill"
@@ -458,6 +508,12 @@ case "$ACTION" in
     ;;
   killall)
     _do_killall
+    ;;
+  share)
+    _do_share
+    ;;
+  unshare)
+    _do_unshare
     ;;
   session)
     lookup_host "$(hostname -s 2>/dev/null || hostname)"

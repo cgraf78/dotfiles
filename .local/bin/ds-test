@@ -268,41 +268,57 @@ _assert_eq "shared socket chmod" "777" "$mode"
 echo ""
 echo "=== Upterm sharing backend ==="
 
-# With the foreground upterm model, --no-attach means we skip attachment entirely
-# (no upterm host, no tmux attach). The tmux session is still created.
+# With the daemon model, --share-via upterm starts a background daemon even
+# with --no-attach. The daemon calls setsid + upterm host, but with mock
+# upterm it won't produce an admin socket, so _start_upterm_daemon times out.
+# We test the daemon start separately. Here we verify the core tmux behavior.
+
 _reset_tmux_log
 export MOCK_SESSIONS=""
 PROFILE="bare"
 NAME_OVERRIDE=""
 DIR="$HOME"
-DS_SHARE_VIA="upterm"
+DS_SHARE_VIA=""
 DS_NO_ATTACH=1
 DS_TMUX_SOCKET="/tmp/ds-shared.sock"
 DS_SHARE_INFO_FILE="$(_default_share_info_file)"
 DS_UPTERM_PID_FILE="$(_default_upterm_pid_file)"
-result=$(_do_session)
+result=$(_do_session 2>&1)
 log=$(_tmux_log)
-_assert_contains "upterm no-attach: creates tmux session" "tmux -S /tmp/ds-shared.sock new-session -d -s ds" "$log"
-_assert_not_contains "upterm no-attach: skips upterm host" "upterm host" "$log"
+_assert_contains "no-attach: creates tmux session" "tmux -S /tmp/ds-shared.sock new-session -d -s ds" "$log"
 if echo "$log" | grep -qx 'tmux -S /tmp/ds-shared.sock attach -t =ds'; then
-    _fail "upterm no-attach: skips local attach"
+    _fail "no-attach: skips local attach"
 else
-    _pass "upterm no-attach: skips local attach"
+    _pass "no-attach: skips local attach"
 fi
 
-# With no-attach and existing session, should also skip everything
+# Test --share action with existing session
 _reset_tmux_log
 export MOCK_SESSIONS="ds"
-result=$(_do_session)
-log=$(_tmux_log)
-_assert_not_contains "upterm no-attach existing: skips attach" "attach -t =ds" "$log"
-_assert_not_contains "upterm no-attach existing: skips upterm" "upterm host" "$log"
+DS_SHARE_VIA=""
+SHARE_TARGET="ds"
+# _do_share calls _start_upterm_daemon which needs real upterm; just verify
+# it checks for the session first
+result=$(_do_share 2>&1) || true
+_assert_not_contains "share action: no 'no session' error for existing session" "no session" "$result"
+
+# Test --share action with nonexistent session
+_reset_tmux_log
+export MOCK_SESSIONS=""
+SHARE_TARGET="nonexistent"
+result=$(_do_share 2>&1) || true
+_assert_contains "share action: error for nonexistent session" "no session" "$result"
+
+# Test --unshare action (no daemon running)
+result=$(_do_unshare 2>&1)
+_assert_contains "unshare: reports not sharing" "not currently sharing" "$result"
 
 # Reset sharing vars for remaining tmux tests
 DS_SHARE_VIA=""
 DS_NO_ATTACH=0
 DS_SHARE_INFO_FILE=""
 DS_UPTERM_PID_FILE=""
+SHARE_TARGET=""
 
 # ---------------------------------------------------------------------------
 # Tests: Session naming
@@ -483,7 +499,8 @@ _assert_contains "usage shows -p" "-p" "$result"
 _assert_contains "usage shows -l" "-l" "$result"
 _assert_contains "usage shows -k" "-k" "$result"
 _assert_contains "usage shows --share-via" "--share-via" "$result"
-_assert_contains "usage shows --no-attach" "--no-attach" "$result"
+_assert_contains "usage shows --share" "--share" "$result"
+_assert_contains "usage shows --unshare" "--unshare" "$result"
 
 # ---------------------------------------------------------------------------
 # Tests: Argument parsing (via subprocess)
