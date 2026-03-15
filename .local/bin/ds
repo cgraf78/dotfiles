@@ -303,6 +303,16 @@ _do_init() {
     # Auto-attach on SSH login
     cat <<'INIT_EOF'
 
+# ET connect: read attach-next target (runs inside tmux for session handoff)
+_ds_f="$HOME/.local/state/ds/attach-next"
+if [[ $- == *i* && -n "$SSH_CONNECTION" && -f "$_ds_f" ]]; then
+    read -r _ds_args < "$_ds_f"
+    rm -f "$_ds_f"
+    # shellcheck disable=SC2086
+    [[ -n "$_ds_args" ]] && exec ds $_ds_args
+fi
+unset _ds_f _ds_args
+
 # Auto-attach to ds on SSH login (skip with NO_TMUX=1)
 if [[ -z "$TMUX" && $- == *i* && -n "$SSH_CONNECTION" && -z "$NO_TMUX" ]] && command -v tmux &>/dev/null; then
     exec ds
@@ -348,7 +358,7 @@ _remote() {
             if [[ -f "$plugin" ]]; then
                 # shellcheck source=/dev/null
                 . "$plugin"
-                "_connect_${CONNECT}" "$HOST" "$remote_cmd"
+                "_connect_${CONNECT}" "$HOST" "$remote_cmd" "${NAME_OVERRIDE:-ds}" "$ACTION" "${args[*]}"
             else
                 echo "ds: unknown connect method '$CONNECT' (no plugin at $plugin)" >&2
                 exit 1
