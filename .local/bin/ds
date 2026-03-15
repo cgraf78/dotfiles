@@ -37,8 +37,8 @@ DS_UPTERM_GITHUB_USER="${DS_UPTERM_GITHUB_USER:-}"
 
 _usage() {
     echo "Usage: ds [-p <profile>] [-n <name>] [-b <chatbot>] [-c <method>] [-d <path>] [--share-via upterm] [--push user@host] [<hostname>]"
-    echo "       ds --share [<session>] [--push user@host]  share an existing ds session via upterm"
-    echo "       ds --unshare [<session>]    stop sharing a ds session"
+    echo "       ds --share [<session>] [--push user@host]  share a ds session via upterm (one at a time)"
+    echo "       ds --unshare                stop sharing the current shared session"
     echo "       ds -l [<hostname>]          list active ds sessions"
     echo "       ds -k [<session>] [<host>]  kill a ds session"
     echo "       ds --killall                kill all ds sessions"
@@ -244,6 +244,8 @@ _default_upterm_admin_file() {
 # Start upterm as a fully detached daemon process. It runs independently of
 # the user's terminal, so attaching/detaching from tmux doesn't affect it.
 # The daemon hosts the tmux session and writes share info to a file.
+# Only one session can be shared at a time (single PID/share file set).
+# To share a different session, --unshare first.
 _start_upterm_daemon() {
     local session="$1"
 
