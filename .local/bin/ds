@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 # ds — connect to (or create) a tmux dev session, locally or on a remote host.
 #
-# Usage: ds [-p <profile>] [-n <name>] [-c <method>] [<hostname>]
-#        ds --share [<session>] [--share-via <backend>]
-#        ds --unshare [<session>]
-#        ds -l [<hostname>]          list active ds sessions
-#        ds -k <session> [<host>]    kill a ds session
-#        ds --killall                kill all ds sessions
-#        ds init bash                print shell integration snippet
+# Usage: ds [session] [@host]          create or attach to a session
+#        ds -l [@host]                 list active ds sessions
+#        ds -k [session] [@host]       kill a ds session (defaults to current)
+#        ds --killall [@host]          kill all ds sessions
+#        ds --share [session]          share a session (defaults to current)
+#        ds --unshare [session]        stop sharing (defaults to current)
+#        ds init bash                  print shell integration snippet
 #
+# Sessions:    profile name or profile-instance (e.g., dev, dev-work)
 # Profiles:    ~/.config/ds/profile-<name>.sh   (define _profile_<name>)
 # Connections: ~/.config/ds/connect-<method>.sh  (define _connect_<method>)
 # Share:       ~/.config/ds/share-<backend>.sh   (define _share_start, _share_stop, etc.)
@@ -16,12 +17,9 @@
 
 CONF_DIR="${HOME}/.config/ds"
 ACTION="session"
-PROFILE="bare"
-PROFILE_OVERRIDE=""
+PROFILE=""
+SESSION=""
 CONNECT_OVERRIDE=""
-NAME_OVERRIDE=""
-KILL_TARGET=""
-SHARE_TARGET=""
 HOST=""
 CONNECT="ssh"
 INIT_SHELL=""
@@ -31,13 +29,16 @@ DS_SHARE_INFO_FILE="${DS_SHARE_INFO_FILE:-}"
 DS_STATE_DIR="${DS_STATE_DIR:-$HOME/.local/state/ds}"
 
 _usage() {
-    echo "Usage: ds [-p <profile>] [-n <name>] [-c <method>] [--share-via <backend>] [<hostname>]"
-    echo "       ds --share [<session>] [--share-via <backend>]  share a ds session"
-    echo "       ds --unshare [<session>]   stop sharing"
-    echo "       ds -l [<hostname>]          list active ds sessions"
-    echo "       ds -k <session> [<host>]    kill a ds session"
-    echo "       ds --killall                kill all ds sessions"
-    echo "       ds init bash                print shell integration snippet"
+    echo "Usage: ds [session] [@host]          create or attach to a session"
+    echo "       ds -l [@host]                 list active ds sessions"
+    echo "       ds -k [session] [@host]       kill a ds session (defaults to current)"
+    echo "       ds --killall [@host]          kill all ds sessions"
+    echo "       ds --share [session]          share a session (defaults to current)"
+    echo "       ds --unshare [session]        stop sharing (defaults to current)"
+    echo "       ds init bash                  print shell integration snippet"
+    echo ""
+    echo "Sessions are named after profiles (dev) or profile-instance (dev-work)."
+    echo "Default session is 'ds' (plain tmux session)."
 }
 
 # --- Profile layouts ---
@@ -153,13 +154,55 @@ _attach() {
     fi
 }
 
-# Validate that the requested profile exists, or error with valid options.
-_validate_profile() {
-    if ! declare -f "_profile_$PROFILE" &>/dev/null; then
-        echo "ds: unknown profile '$PROFILE'" >&2
-        echo "Valid profiles: $(_profiles | tr '\n' ' ')" >&2
+# --- Session resolution helpers ---
+
+# Resolve the current tmux session name, or error if not inside tmux.
+_current_session() {
+    if [[ -n "${TMUX:-}" ]]; then
+        tmux display-message -p '#{session_name}'
+    else
+        echo "ds: session name required (not inside tmux)" >&2
         exit 1
     fi
+}
+
+# Resolve SESSION for actions that operate on existing sessions (kill, share,
+# unshare).  Defaults to current tmux session if no session specified.
+# Errors if remote (@host) without an explicit session name.
+_resolve_session_target() {
+    if [[ -n "$SESSION" ]]; then
+        return
+    fi
+    if [[ -n "$HOST" ]]; then
+        echo "ds: session name required for remote operations" >&2
+        exit 1
+    fi
+    SESSION=$(_current_session) || exit 1
+}
+
+# Resolve PROFILE from SESSION for session creation.
+# SESSION is a profile name (dev), a profile-instance (dev-work), or empty
+# (defaults to the "ds" session with bare profile).
+_resolve_profile() {
+    if [[ -z "$SESSION" ]]; then
+        SESSION="ds"
+        PROFILE="bare"
+        return
+    fi
+    # Check if SESSION itself is a profile name
+    if declare -f "_profile_$SESSION" &>/dev/null; then
+        PROFILE="$SESSION"
+        return
+    fi
+    # Split on first dash — left side may be a profile
+    local prefix="${SESSION%%-*}"
+    if [[ "$prefix" != "$SESSION" ]] && declare -f "_profile_$prefix" &>/dev/null; then
+        PROFILE="$prefix"
+        return
+    fi
+    echo "ds: unknown profile '${SESSION%%-*}'" >&2
+    echo "Valid profiles: $(_profiles | tr '\n' ' ')" >&2
+    exit 1
 }
 
 # --- Actions ---
@@ -193,25 +236,16 @@ _do_list() {
 }
 
 _do_kill() {
-    local session shared_session
-    if [[ -n "$KILL_TARGET" ]]; then
-        session="$KILL_TARGET"
-    else
-        echo "ds: session name required (ds -k <session>)" >&2
-        _do_list >&2
-        exit 1
-    fi
-    if tmux has-session -t "=$session" 2>/dev/null; then
-        # If this session is currently shared, stop sharing first.
+    local shared_session
+    if tmux has-session -t "=$SESSION" 2>/dev/null; then
         shared_session=$(_share_current_session)
-        if [[ "$shared_session" == "$session" ]]; then
-            _share_stop "$session" || true
+        if [[ "$shared_session" == "$SESSION" ]]; then
+            _share_stop "$SESSION" || true
         fi
-
-        tmux kill-session -t "=$session"
-        echo "killed $session"
+        tmux kill-session -t "=$SESSION"
+        echo "killed $SESSION"
     else
-        echo "ds: no session '$session'" >&2
+        echo "ds: no session '$SESSION' — active sessions:" >&2
         _do_list >&2
         exit 1
     fi
@@ -241,66 +275,65 @@ _do_killall() {
 }
 
 _do_share() {
-    local session="${SHARE_TARGET:-${NAME_OVERRIDE:-ds}}"
-
-    if ! tmux has-session -t "=$session" 2>/dev/null; then
-        echo "ds: no session '$session' to share" >&2
-        _do_list >&2
-        return 1
+    if [[ -n "$HOST" ]]; then
+        echo "ds: --share is local only" >&2
+        exit 1
     fi
 
-    _share_start "$session"
+    if ! tmux has-session -t "=$SESSION" 2>/dev/null; then
+        echo "ds: no session '$SESSION' to share — active sessions:" >&2
+        _do_list >&2
+        exit 1
+    fi
+
+    _share_start "$SESSION"
 }
 
 _do_unshare() {
-    local session="${SHARE_TARGET:-${NAME_OVERRIDE:-ds}}"
-    _share_stop "$session"
+    if [[ -n "$HOST" ]]; then
+        echo "ds: --unshare is local only" >&2
+        exit 1
+    fi
+
+    _share_stop "$SESSION"
 }
 
 _do_session() {
-    local session="${NAME_OVERRIDE:-ds}"
-
     # Attach if session already exists (= prefix for exact match)
-    if tmux has-session -t "=$session" 2>/dev/null; then
+    if tmux has-session -t "=$SESSION" 2>/dev/null; then
         if [[ -n "${DS_SHARE_VIA:-}" ]]; then
-            _share_start "$session"
+            _share_start "$SESSION"
         fi
         if [[ "$DS_NO_ATTACH" == "1" ]]; then
             return
         fi
-        _attach "$session"
+        _attach "$SESSION"
         return
     fi
 
-    tmux new-session -d -s "$session"
-    tmux set-environment -t "$session" DS_MANAGED 1
-    "_profile_$PROFILE" "$session"
+    tmux new-session -d -s "$SESSION"
+    tmux set-environment -t "$SESSION" DS_MANAGED 1
+    "_profile_$PROFILE" "$SESSION"
     if [[ -n "${DS_SHARE_VIA:-}" ]]; then
-        _share_start "$session"
+        _share_start "$SESSION"
     fi
     if [[ "$DS_NO_ATTACH" == "1" ]]; then
         return
     fi
-    _attach "$session"
+    _attach "$SESSION"
 }
 
 _do_init() {
     local shell="${1:-}"
+    if [[ -z "$shell" ]]; then
+        echo "ds: init requires a shell name (e.g., ds init bash)" >&2
+        exit 1
+    fi
     if [[ "$shell" != "bash" ]]; then
         echo "ds: unsupported shell '$shell' (supported: bash)" >&2
         exit 1
     fi
 
-    # Profile shortcut functions
-    local profile_file profile_name
-    for profile_file in "$CONF_DIR"/profile-*.sh; do
-        [[ -f "$profile_file" ]] || continue
-        profile_name="${profile_file##*/profile-}"
-        profile_name="${profile_name%.sh}"
-        printf 'ds%s() { ds -p %s -n ds%s "$@"; }\n' "$profile_name" "$profile_name" "$profile_name"
-    done
-
-    # Auto-attach on SSH login
     cat <<'INIT_EOF'
 
 # ET connect: read attach-next target (runs before $TMUX guard)
@@ -324,10 +357,9 @@ INIT_EOF
 
 _remote() {
     lookup_host "$HOST"
-    [[ -n "$PROFILE_OVERRIDE" ]] && PROFILE="$PROFILE_OVERRIDE"
     [[ -n "$CONNECT_OVERRIDE" ]] && CONNECT="$CONNECT_OVERRIDE"
 
-    # Build a safely-quoted remote command.
+    # Build the remote ds command args.
     local args=()
 
     case "$ACTION" in
@@ -335,11 +367,16 @@ _remote() {
             args+=("-l")
             ;;
         kill)
-            args+=("-k" "$KILL_TARGET")
+            args+=("-k" "$SESSION")
+            ;;
+        killall)
+            args+=("--killall")
             ;;
         session)
-            args+=("-p" "$PROFILE")
-            [[ -n "$NAME_OVERRIDE" ]] && args+=("-n" "$NAME_OVERRIDE")
+            # Default "ds" session needs no positional arg on the remote side
+            if [[ "$SESSION" != "ds" ]]; then
+                args+=("$SESSION")
+            fi
             [[ -n "${DS_SHARE_VIA:-}" ]] && args+=("--share-via" "$DS_SHARE_VIA")
             [[ "$DS_NO_ATTACH" == "1" ]] && args+=("--no-attach")
             ;;
@@ -352,13 +389,13 @@ _remote() {
 
     case "$CONNECT" in
         -)   echo "ds: host '$HOST' is local-only (no remote connections)" >&2; exit 1 ;;
-        ssh) exec ssh "$HOST" -t "$remote_cmd" ;;
+        ssh) exec ssh -t -- "$HOST" "$remote_cmd" ;;
         *)
             local plugin="$CONF_DIR/connect-${CONNECT}.sh"
             if [[ -f "$plugin" ]]; then
                 # shellcheck source=/dev/null
                 . "$plugin"
-                "_connect_${CONNECT}" "$HOST" "$remote_cmd" "${NAME_OVERRIDE:-ds}" "$ACTION" "${args[*]}"
+                "_connect_${CONNECT}" "$HOST" "$remote_cmd" "$SESSION" "$ACTION" "${args[*]}"
             else
                 echo "ds: unknown connect method '$CONNECT' (no plugin at $plugin)" >&2
                 exit 1
@@ -377,36 +414,25 @@ fi
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        -p|--profile) PROFILE_OVERRIDE="$2"; shift 2 ;;
-        -n|--name)    NAME_OVERRIDE="$2"; shift 2 ;;
-        -c|--connect) CONNECT_OVERRIDE="$2"; shift 2 ;;
-        --share-via)  DS_SHARE_VIA="$2"; shift 2 ;;
-        --share)      ACTION="share"
-                      if [[ $# -gt 1 && "$2" != -* ]]; then
-                          SHARE_TARGET="$2"; shift
-                      fi
-                      shift ;;
-        --unshare)    ACTION="unshare"
-                      if [[ $# -gt 1 && "$2" != -* ]]; then
-                          SHARE_TARGET="$2"; shift
-                      fi
-                      shift ;;
+        -c|--connect) [[ $# -ge 2 ]] || { echo "ds: $1 requires an argument" >&2; exit 1; }
+                      CONNECT_OVERRIDE="$2"; shift 2 ;;
+        --share-via)  [[ $# -ge 2 ]] || { echo "ds: $1 requires an argument" >&2; exit 1; }
+                      DS_SHARE_VIA="$2"; shift 2 ;;
+        --share)      ACTION="share"; shift ;;
+        --unshare)    ACTION="unshare"; shift ;;
         --no-attach)  DS_NO_ATTACH=1; shift ;;
         -l|--list)    ACTION="list"; shift ;;
-        -k|--kill)    ACTION="kill"
-                      if [[ $# -gt 1 && "$2" != -* ]]; then
-                          KILL_TARGET="$2"; shift
-                      fi
-                      shift ;;
+        -k|--kill)    ACTION="kill"; shift ;;
         --killall)    ACTION="killall"; shift ;;
         init)         ACTION="init"
-                      if [[ $# -gt 1 ]]; then
+                      if [[ $# -gt 1 && "$2" != -* && "$2" != @* ]]; then
                           INIT_SHELL="$2"; shift
                       fi
                       shift ;;
         -h|--help)    _usage; exit 0 ;;
         -*)           _usage >&2; exit 1 ;;
-        *)            HOST="$1"; shift ;;
+        @*)           HOST="${1#@}"; shift ;;
+        *)            SESSION="$1"; shift ;;
     esac
 done
 
@@ -440,6 +466,38 @@ elif [[ "$ACTION" == "share" || "$ACTION" == "unshare" || "$ACTION" == "list" \
     done
     unset _sb _sbn
 fi
+
+# Validate: --killall and -l don't take a session name
+if [[ "$ACTION" == "killall" && -n "$SESSION" ]]; then
+    echo "ds: --killall does not take a session name (use -k to kill a single session)" >&2
+    exit 1
+fi
+if [[ "$ACTION" == "list" && -n "$SESSION" ]]; then
+    echo "ds: -l does not take a session name" >&2
+    exit 1
+fi
+
+# Validate: init doesn't use @host
+if [[ "$ACTION" == "init" && -n "$HOST" ]]; then
+    echo "ds: init does not support remote hosts" >&2
+    exit 1
+fi
+
+# Validate: -c without @host is meaningless
+if [[ -n "$CONNECT_OVERRIDE" && -z "$HOST" ]]; then
+    echo "ds: -c requires a remote host (@host)" >&2
+    exit 1
+fi
+
+# Resolve session/profile depending on the action
+case "$ACTION" in
+    session)
+        _resolve_profile
+        ;;
+    kill|share|unshare)
+        _resolve_session_target
+        ;;
+esac
 
 if [[ -n "$HOST" ]]; then
     _remote
@@ -484,8 +542,6 @@ case "$ACTION" in
     _do_unshare
     ;;
   session)
-    [[ -n "$PROFILE_OVERRIDE" ]] && PROFILE="$PROFILE_OVERRIDE"
-    _validate_profile
     _do_session
     ;;
 esac

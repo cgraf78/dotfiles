@@ -31,8 +31,8 @@ _profile_dev() {
 }
 PROFILE
 
-cat > "$CONF_DIR/profile-orc.sh" <<'PROFILE'
-_profile_orc() {
+cat > "$CONF_DIR/profile-web.sh" <<'PROFILE'
+_profile_web() {
     local session="$1"
     : # no-op for testing
 }
@@ -88,7 +88,13 @@ case "${args[0]:-}" in
         fi
         ;;
     display-message)
-        # display-message -t =<session> -p '<format>'
+        # Support session name query and info format
+        for _a in "${args[@]}"; do
+            if [[ "$_a" == *'#{session_name}'* ]]; then
+                echo "${MOCK_CURRENT_SESSION:-ds}"
+                exit 0
+            fi
+        done
         echo "1 windows (detached)"
         exit 0
         ;;
@@ -230,32 +236,90 @@ echo "=== Profile discovery ==="
 result=$(_profiles)
 _assert_contains "discovers bare profile" "bare" "$result"
 _assert_contains "discovers dev profile" "dev" "$result"
-_assert_contains "discovers orc profile" "orc" "$result"
+_assert_contains "discovers web profile" "web" "$result"
 
 # ---------------------------------------------------------------------------
-# Tests: Profile validation
+# Tests: Profile resolution
 # ---------------------------------------------------------------------------
 
 echo ""
-echo "=== Profile validation ==="
+echo "=== Profile resolution ==="
 
-PROFILE="bare"
-# _validate_profile calls exit on failure, so run in subshell
-if (PROFILE="bare"; _validate_profile) 2>/dev/null; then
-    _pass "bare profile validates"
-else
-    _fail "bare profile validates"
-fi
+# Empty SESSION defaults to "ds" with bare profile
+SESSION="" PROFILE=""
+_resolve_profile
+_assert_eq "empty SESSION → SESSION=ds" "ds" "$SESSION"
+_assert_eq "empty SESSION → PROFILE=bare" "bare" "$PROFILE"
 
-if (PROFILE="dev"; _validate_profile) 2>/dev/null; then
-    _pass "dev profile validates"
-else
-    _fail "dev profile validates"
-fi
+# Exact profile match
+SESSION="dev" PROFILE=""
+_resolve_profile
+_assert_eq "SESSION=dev → PROFILE=dev" "dev" "$PROFILE"
+_assert_eq "SESSION=dev unchanged" "dev" "$SESSION"
 
-result=$( (PROFILE="nonexistent"; _validate_profile) 2>&1 || true)
-_assert_contains "invalid profile error mentions name" "nonexistent" "$result"
-_assert_contains "invalid profile lists valid options" "bare" "$result"
+SESSION="web" PROFILE=""
+_resolve_profile
+_assert_eq "SESSION=web → PROFILE=web" "web" "$PROFILE"
+
+SESSION="bare" PROFILE=""
+_resolve_profile
+_assert_eq "SESSION=bare → PROFILE=bare" "bare" "$PROFILE"
+
+# Profile-instance (dash-separated)
+SESSION="dev-work" PROFILE=""
+_resolve_profile
+_assert_eq "dev-work → PROFILE=dev" "dev" "$PROFILE"
+_assert_eq "dev-work SESSION preserved" "dev-work" "$SESSION"
+
+SESSION="dev-frontend" PROFILE=""
+_resolve_profile
+_assert_eq "dev-frontend → PROFILE=dev" "dev" "$PROFILE"
+
+SESSION="web-2" PROFILE=""
+_resolve_profile
+_assert_eq "web-2 → PROFILE=web" "web" "$PROFILE"
+
+# Multiple dashes — split on first
+SESSION="dev-my-project" PROFILE=""
+_resolve_profile
+_assert_eq "dev-my-project → PROFILE=dev" "dev" "$PROFILE"
+_assert_eq "dev-my-project SESSION preserved" "dev-my-project" "$SESSION"
+
+# Unknown profile → error
+result=$( (SESSION="foo" PROFILE=""; _resolve_profile) 2>&1 || true)
+_assert_contains "unknown profile errors" "unknown profile" "$result"
+_assert_contains "unknown profile lists options" "bare" "$result"
+
+result=$( (SESSION="foo-bar" PROFILE=""; _resolve_profile) 2>&1 || true)
+_assert_contains "unknown profile-instance errors" "unknown profile" "$result"
+
+# ---------------------------------------------------------------------------
+# Tests: Session target resolution
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== Session target resolution ==="
+
+# Explicit session — passes through
+SESSION="dev" HOST=""
+_resolve_session_target
+_assert_eq "explicit SESSION preserved" "dev" "$SESSION"
+
+# Remote without session → error
+result=$( (SESSION="" HOST="myhost"; _resolve_session_target) 2>&1 || true)
+_assert_contains "remote without session errors" "session name required for remote" "$result"
+
+# No session, no host, no tmux → error
+result=$( (SESSION="" HOST="" TMUX=""; _resolve_session_target) 2>&1 || true)
+_assert_contains "no session, no tmux errors" "not inside tmux" "$result"
+
+# Inside tmux, no session → defaults to current session
+export TMUX="/tmp/tmux-test/default,12345,0"
+export MOCK_CURRENT_SESSION="dev-work"
+SESSION="" HOST=""
+_resolve_session_target
+_assert_eq "tmux default: resolves to current session" "dev-work" "$SESSION"
+unset TMUX MOCK_CURRENT_SESSION
 
 # ---------------------------------------------------------------------------
 # Tests: Upterm sharing backend
@@ -271,8 +335,8 @@ echo "=== Upterm sharing backend ==="
 _reset_tmux_log
 export MOCK_SESSIONS=""
 export MOCK_DS_MANAGED=""
+SESSION="ds"
 PROFILE="bare"
-NAME_OVERRIDE=""
 DS_SHARE_VIA=""
 DS_NO_ATTACH=1
 DS_SHARE_INFO_FILE="$(_default_share_info_file)"
@@ -291,7 +355,8 @@ _reset_tmux_log
 export MOCK_SESSIONS="ds"
 DS_SHARE_VIA="upterm"
 DS_UPTERM_GITHUB_USER="testuser"
-SHARE_TARGET="ds"
+SESSION="ds"
+HOST=""
 # _do_share calls _share_start, which runs the full share flow with mock upterm
 result=$(_do_share 2>&1) || true
 _assert_not_contains "share action: no 'no session' error for existing session" "no session" "$result"
@@ -299,7 +364,8 @@ _assert_not_contains "share action: no 'no session' error for existing session" 
 # Test --share action with nonexistent session
 _reset_tmux_log
 export MOCK_SESSIONS=""
-SHARE_TARGET="nonexistent"
+SESSION="nonexistent"
+HOST=""
 result=$(_do_share 2>&1) || true
 _assert_contains "share action: error for nonexistent session" "no session" "$result"
 
@@ -313,6 +379,8 @@ fi
 rm -f "$DS_SHARE_INFO_FILE" "$(_upterm_admin_file)" "$(_upterm_session_file)" "$(_upterm_log_file)"
 
 # Test --unshare action (no daemon running)
+SESSION="ds"
+HOST=""
 result=$(_do_unshare 2>&1)
 _assert_contains "unshare: reports not sharing" "not currently sharing" "$result"
 
@@ -415,7 +483,8 @@ DS_UPTERM_PID_FILE=""
 DS_UPTERM_GITHUB_USER=""
 DS_UPTERM_AUTHORIZED_KEYS=""
 DS_UPTERM_PUSH=""
-SHARE_TARGET=""
+SESSION=""
+HOST=""
 
 # ---------------------------------------------------------------------------
 # Tests: Session naming
@@ -424,42 +493,42 @@ SHARE_TARGET=""
 echo ""
 echo "=== Session naming ==="
 
-# --name sets the exact session name; profile doesn't affect the name.
-# Default (no --name) → session "ds".
+# Session name is derived from profile or profile-instance.
+# Default (no session) → "ds" with bare profile.
 
 _reset_tmux_log
 export MOCK_SESSIONS=""
 export MOCK_DS_MANAGED=""
+SESSION="ds"
 PROFILE="bare"
-NAME_OVERRIDE=""
 _do_session
 log=$(_tmux_log)
-_assert_contains "no name → session 'ds'" "new-session -d -s ds" "$log"
+_assert_contains "default → session 'ds'" "new-session -d -s ds" "$log"
 _assert_contains "tags session with DS_MANAGED" "set-environment -t ds DS_MANAGED 1" "$log"
 
 _reset_tmux_log
 export MOCK_DS_MANAGED=""
+SESSION="dev"
 PROFILE="dev"
-NAME_OVERRIDE=""
 _do_session
 log=$(_tmux_log)
-_assert_contains "dev profile, no name → session 'ds'" "new-session -d -s ds" "$log"
+_assert_contains "dev → session 'dev'" "new-session -d -s dev" "$log"
 
 _reset_tmux_log
 export MOCK_DS_MANAGED=""
-PROFILE="bare"
-NAME_OVERRIDE="myproject"
+SESSION="dev-work"
+PROFILE="dev"
 _do_session
 log=$(_tmux_log)
-_assert_contains "name=myproject → session 'myproject'" "new-session -d -s myproject" "$log"
+_assert_contains "dev-work → session 'dev-work'" "new-session -d -s dev-work" "$log"
 
 _reset_tmux_log
 export MOCK_DS_MANAGED=""
-PROFILE="dev"
-NAME_OVERRIDE="work"
+SESSION="web-2"
+PROFILE="web"
 _do_session
 log=$(_tmux_log)
-_assert_contains "dev + name=work → session 'work'" "new-session -d -s work" "$log"
+_assert_contains "web-2 → session 'web-2'" "new-session -d -s web-2" "$log"
 
 # ---------------------------------------------------------------------------
 # Tests: Existing session attachment
@@ -471,8 +540,8 @@ echo "=== Session attachment ==="
 # When session exists, _do_session should attach instead of creating
 _reset_tmux_log
 export MOCK_SESSIONS="ds"
+SESSION="ds"
 PROFILE="bare"
-NAME_OVERRIDE=""
 unset TMUX 2>/dev/null || true
 _do_session
 log=$(_tmux_log)
@@ -522,29 +591,21 @@ _assert_contains "empty list shows message" "no active ds sessions" "$result"
 echo ""
 echo "=== Kill session ==="
 
-# Kill with explicit target
+# Kill with explicit session
 _reset_tmux_log
 export MOCK_SESSIONS="myproject"
-KILL_TARGET="myproject"
+SESSION="myproject"
 result=$(_do_kill)
 log=$(_tmux_log)
 _assert_contains "kill explicit: kills target" "kill-session -t =myproject" "$log"
 _assert_contains "kill explicit: reports killed" "killed myproject" "$result"
 
-# Kill without target errors
-export MOCK_SESSIONS=""
-export MOCK_TMUX_LS=""
-export MOCK_DS_MANAGED=""
-KILL_TARGET=""
-result=$( (_do_kill) 2>&1 || true)
-_assert_contains "kill no target: requires session name" "session name required" "$result"
-
 # Kill nonexistent session
 export MOCK_SESSIONS=""
 export MOCK_TMUX_LS=""
-KILL_TARGET="nosuch"
+SESSION="nosuch"
 result=$( (_do_kill) 2>&1 || true)
-_assert_contains "kill nonexistent: error message" "no session 'nosuch'" "$result"
+_assert_contains "kill nonexistent: error message" "no session 'nosuch' — active sessions:" "$result"
 
 # ---------------------------------------------------------------------------
 # Tests: Kill all sessions
@@ -583,12 +644,13 @@ echo ""
 echo "=== Usage ==="
 
 result=$(_usage)
-_assert_contains "usage shows -p" "-p" "$result"
+_assert_contains "usage shows session syntax" "[session]" "$result"
+_assert_contains "usage shows @host syntax" "[@host]" "$result"
 _assert_contains "usage shows -l" "-l" "$result"
 _assert_contains "usage shows -k" "-k" "$result"
-_assert_contains "usage shows --share-via" "--share-via" "$result"
 _assert_contains "usage shows --share" "--share" "$result"
 _assert_contains "usage shows --unshare" "--unshare" "$result"
+_assert_contains "usage shows profile-instance" "profile-instance" "$result"
 
 # ---------------------------------------------------------------------------
 # Tests: Argument parsing (via subprocess)
@@ -616,27 +678,59 @@ export MOCK_DS_MANAGED=""
 
 # --help flag → usage
 result=$("$SCRIPT_DIR/ds" -h 2>&1)
-_assert_contains "ds -h: shows usage" "-p" "$result"
+_assert_contains "ds -h: shows usage" "[session]" "$result"
 
 # Invalid flag → error + usage
 result=$("$SCRIPT_DIR/ds" --invalid 2>&1 || true)
-_assert_contains "ds --invalid: shows usage" "-p" "$result"
+_assert_contains "ds --invalid: shows usage" "[session]" "$result"
 
 # -l with no sessions
 result=$("$SCRIPT_DIR/ds" -l 2>&1)
 _assert_contains "ds -l empty: shows message" "no active ds sessions" "$result"
 
+# Unknown profile → error
+result=$("$SCRIPT_DIR/ds" foobar 2>&1 || true)
+_assert_contains "ds foobar: unknown profile" "unknown profile" "$result"
+
 # -k with nonexistent session
 result=$("$SCRIPT_DIR/ds" -k nosuch 2>&1 || true)
 _assert_contains "ds -k nosuch: error" "no session" "$result"
 
-# -k without session name requires a target
+# -k without session name requires a target (not inside tmux)
 result=$("$SCRIPT_DIR/ds" -k 2>&1 || true)
-_assert_contains "ds -k (no target): requires session name" "session name required" "$result"
+_assert_contains "ds -k (no target): requires session name" "not inside tmux" "$result"
 
 # --killall with no sessions
 result=$("$SCRIPT_DIR/ds" --killall 2>&1)
 _assert_contains "ds --killall empty: shows message" "no active ds sessions" "$result"
+
+# -c without argument → error
+result=$("$SCRIPT_DIR/ds" -c 2>&1 || true)
+_assert_contains "ds -c (no arg): requires argument" "requires an argument" "$result"
+
+# --share-via without argument → error
+result=$("$SCRIPT_DIR/ds" --share-via 2>&1 || true)
+_assert_contains "ds --share-via (no arg): requires argument" "requires an argument" "$result"
+
+# --killall with session name → error
+result=$("$SCRIPT_DIR/ds" --killall dev 2>&1 || true)
+_assert_contains "ds --killall dev: rejects session name" "does not take a session name" "$result"
+
+# -c without @host → error
+result=$("$SCRIPT_DIR/ds" -c autossh dev 2>&1 || true)
+_assert_contains "ds -c without @host: requires remote host" "requires a remote host" "$result"
+
+# -l with session name → error
+result=$("$SCRIPT_DIR/ds" -l dev 2>&1 || true)
+_assert_contains "ds -l dev: rejects session name" "does not take a session name" "$result"
+
+# init without shell arg → clear error
+result=$("$SCRIPT_DIR/ds" init 2>&1 || true)
+_assert_contains "ds init (no shell): requires shell name" "requires a shell name" "$result"
+
+# init with @host → error
+result=$("$SCRIPT_DIR/ds" init bash @myhost 2>&1 || true)
+_assert_contains "ds init @host: rejects remote host" "does not support remote" "$result"
 
 # Restore DS_SOURCED for remaining in-process tests
 export DS_SOURCED=1
@@ -662,8 +756,8 @@ _reset_tmux_log
 export MOCK_SESSIONS=""
 export MOCK_DS_MANAGED=""
 export DS_TEST_VAR="testval"
+SESSION="testprofile"
 PROFILE="testprofile"
-NAME_OVERRIDE=""
 _do_session
 log=$(_tmux_log)
 _assert_contains "profile function invoked" "TEST_MARKER_testval" "$log"
@@ -715,8 +809,15 @@ cp "$HOME_ORIG/.config/ds/connect-et.sh" "$CONF_DIR/" 2>/dev/null || \
 # Mock ssh/et/autossh to capture args instead of connecting
 cat > "$MOCK_BIN/ssh" <<'MOCK'
 #!/usr/bin/env bash
-echo "SSH_HOST=$1" > "${REMOTE_LOG:-/dev/null}"
-shift  # host
+# ssh is called as: ssh -t -- HOST CMD
+# Skip flags/-- to find the host positional arg
+_host=""
+for _a in "$@"; do
+    [[ "$_a" == --  ]] && continue
+    [[ "$_a" == -* ]] && continue
+    if [[ -z "$_host" ]]; then _host="$_a"; continue; fi
+done
+echo "SSH_HOST=$_host" > "${REMOTE_LOG:-/dev/null}"
 echo "SSH_ARGS=$*" >> "${REMOTE_LOG:-/dev/null}"
 MOCK
 chmod +x "$MOCK_BIN/ssh"
@@ -767,46 +868,57 @@ _run_remote() {
     " 2>&1 || true
 }
 
-# Test SSH remote dispatch
-result=$(_run_remote "HOST=server1 ACTION=session PROFILE_OVERRIDE=dev \
-    NAME_OVERRIDE= CONNECT_OVERRIDE=")
+# Test SSH remote dispatch (dev profile session)
+result=$(_run_remote "HOST=server1 ACTION=session SESSION=dev \
+    CONNECT_OVERRIDE=")
 remote_log=$(cat "$REMOTE_LOG" 2>/dev/null || true)
 _assert_contains "ssh remote: host" "SSH_HOST=server1" "$remote_log"
 _assert_contains "ssh remote: runs ds" "~/.local/bin/ds" "$remote_log"
+_assert_contains "ssh remote: passes session name" "dev" "$remote_log"
+
+# Test default session omits session name in remote args
+result=$(_run_remote "HOST=server1 ACTION=session SESSION=ds \
+    CONNECT_OVERRIDE=")
+remote_log=$(cat "$REMOTE_LOG" 2>/dev/null || true)
+_assert_contains "ssh remote default: runs ds" "~/.local/bin/ds" "$remote_log"
 
 # Test autossh connection method
-result=$(_run_remote "HOST=nas ACTION=session PROFILE_OVERRIDE= \
-    NAME_OVERRIDE= CONNECT_OVERRIDE=")
+result=$(_run_remote "HOST=nas ACTION=session SESSION=ds \
+    CONNECT_OVERRIDE=")
 remote_log=$(cat "$REMOTE_LOG" 2>/dev/null || true)
 _assert_contains "autossh remote: uses autossh" "AUTOSSH_ARGS=" "$remote_log"
 
 # Test local-only host (connect = "-")
-result=$(_run_remote "HOST=clark2 ACTION=session PROFILE_OVERRIDE= \
-    NAME_OVERRIDE= CONNECT_OVERRIDE=")
+result=$(_run_remote "HOST=clark2 ACTION=session SESSION=ds \
+    CONNECT_OVERRIDE=")
 _assert_contains "local-only host: error" "local-only" "$result"
 
 # Test list action on remote
-result=$(_run_remote "HOST=server1 ACTION=list PROFILE_OVERRIDE= CONNECT_OVERRIDE=")
+result=$(_run_remote "HOST=server1 ACTION=list CONNECT_OVERRIDE=")
 remote_log=$(cat "$REMOTE_LOG" 2>/dev/null || true)
 _assert_contains "remote list: passes -l" "-l" "$remote_log"
 
 # Test kill action on remote
-result=$(_run_remote "HOST=server1 ACTION=kill KILL_TARGET=ds-myproject \
+result=$(_run_remote "HOST=server1 ACTION=kill SESSION=dev-myproject \
     CONNECT_OVERRIDE=")
 remote_log=$(cat "$REMOTE_LOG" 2>/dev/null || true)
 _assert_contains "remote kill: passes -k" "-k" "$remote_log"
-_assert_contains "remote kill: passes target" "ds-myproject" "$remote_log"
+_assert_contains "remote kill: passes target" "dev-myproject" "$remote_log"
 
-# Test name override passed to remote
-result=$(_run_remote "HOST=server1 ACTION=session PROFILE_OVERRIDE=dev \
-    NAME_OVERRIDE=myname CONNECT_OVERRIDE=")
+# Test killall action on remote
+result=$(_run_remote "HOST=server1 ACTION=killall CONNECT_OVERRIDE=")
 remote_log=$(cat "$REMOTE_LOG" 2>/dev/null || true)
-_assert_contains "remote name: passes -n" "-n" "$remote_log"
-_assert_contains "remote name: passes name value" "myname" "$remote_log"
+_assert_contains "remote killall: passes --killall" "--killall" "$remote_log"
+
+# Test instance session name passed to remote
+result=$(_run_remote "HOST=server1 ACTION=session SESSION=dev-work \
+    CONNECT_OVERRIDE=")
+remote_log=$(cat "$REMOTE_LOG" 2>/dev/null || true)
+_assert_contains "remote instance: passes session name" "dev-work" "$remote_log"
 
 # Test share backend/no-attach passed to remote
-result=$(_run_remote "HOST=server1 ACTION=session PROFILE_OVERRIDE=dev \
-    NAME_OVERRIDE= CONNECT_OVERRIDE= DS_SHARE_VIA=upterm DS_NO_ATTACH=1")
+result=$(_run_remote "HOST=server1 ACTION=session SESSION=dev \
+    CONNECT_OVERRIDE= DS_SHARE_VIA=upterm DS_NO_ATTACH=1")
 remote_log=$(cat "$REMOTE_LOG" 2>/dev/null || true)
 _assert_contains "remote share backend: passes --share-via" "--share-via" "$remote_log"
 _assert_contains "remote share backend: passes upterm" "upterm" "$remote_log"
