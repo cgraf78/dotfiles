@@ -288,8 +288,8 @@ _start_upterm_daemon() {
     fi
 
     # Wait for the admin socket file to appear, then collect share info
-    local i admin_sock content
-    for i in $(seq 1 30); do
+    local admin_sock content
+    for _ in $(seq 1 30); do
         if [[ -s "$admin_file" ]]; then
             admin_sock=$(cat "$admin_file")
             break
@@ -302,7 +302,7 @@ _start_upterm_daemon() {
         return 1
     fi
 
-    for i in $(seq 1 30); do
+    for _ in $(seq 1 30); do
         content=$(upterm session current --admin-socket "$admin_sock" 2>/dev/null || true)
         if [[ -n "$content" ]]; then
             content=$(_normalize_share_info upterm "$content")
