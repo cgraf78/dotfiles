@@ -303,13 +303,15 @@ _do_init() {
     # Auto-attach on SSH login
     cat <<'INIT_EOF'
 
-# ET connect: LC_DS_ATTACH carries ds args via SSH env forwarding
-if [[ $- == *i* && -n "$LC_DS_ATTACH" ]]; then
-    _ds_args="$LC_DS_ATTACH"
-    unset LC_DS_ATTACH
+# ET connect: read attach-next target (runs before $TMUX guard)
+_ds_f="$HOME/.local/state/ds/attach-next"
+if [[ $- == *i* && -n "$SSH_CONNECTION" && -f "$_ds_f" ]]; then
+    read -r _ds_args < "$_ds_f"
+    rm -f "$_ds_f"
     # shellcheck disable=SC2086
-    exec ds $_ds_args
+    [[ -n "$_ds_args" ]] && exec ds $_ds_args
 fi
+unset _ds_f _ds_args
 
 # Auto-attach to ds on SSH login (skip with NO_TMUX=1)
 if [[ -z "$TMUX" && $- == *i* && -n "$SSH_CONNECTION" && -z "$NO_TMUX" ]] && command -v tmux &>/dev/null; then
