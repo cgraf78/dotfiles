@@ -51,7 +51,7 @@ _upterm_session_file() {
 }
 
 _upterm_admin_file() {
-    echo "$(_state_file_prefix).upterm-admin"
+    echo "$(_state_file_prefix).upterm.admin"
 }
 
 _upterm_log_file() {
