@@ -13,6 +13,7 @@ fi
 # =============================================================================
 export EDITOR=vim
 export DS_DEV_CHATBOT="${DS_DEV_CHATBOT:-argus}"
+export DS_CHAT_CHATBOT="${DS_CHAT_CHATBOT:-argus}"
 export DS_UPTERM_PRIVATE_KEY="$HOME/.ssh/argus_github_ed25519"
 
 # Vim runtime — clone on first use if missing

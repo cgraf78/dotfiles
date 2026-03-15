@@ -20,6 +20,7 @@ ds                              # default session "ds" (plain tmux session)
 ds dev                          # session "dev" with dev profile
 ds dev-work                     # session "dev-work" with dev profile
 ds dev-2                        # session "dev-2" with dev profile
+ds chat                         # session "chat" with chat profile
 
 ds dev @myhost                  # dev session on remote host
 ds @myhost                      # default session on remote host
@@ -51,6 +52,7 @@ ds              → "ds"          (default, plain tmux session)
 ds dev          → "dev"         (dev profile)
 ds dev-work     → "dev-work"    (dev profile, "work" instance)
 ds dev-2        → "dev-2"       (dev profile, second instance)
+ds chat         → "chat"        (chat profile)
 ```
 
 The profile is resolved from the session name: split on the first `-`, and if the left side matches a known profile, that profile is used. Unknown profiles produce an error. Profile names must not contain dashes.
@@ -78,7 +80,7 @@ _profile_myprofile() {
 
 Profile names must be simple words without dashes (e.g., `dev`).
 
-Profiles configure their own behavior via environment variables. For example, the `dev` profile reads `DS_DEV_CHATBOT` and `DS_DEV_DIR`.
+Profiles configure their own behavior via environment variables.
 
 ### Dev profile
 
@@ -86,8 +88,17 @@ The `dev` profile creates a chatbot pane (top), a bash pane (bottom), and a sepa
 
 | Variable | Default | Description |
 |---|---|---|
-| `DS_DEV_CHATBOT` | *(empty — no chatbot)* | Command to run in the top pane (e.g., `argus`, `claude`) |
+| `DS_DEV_CHATBOT` | *(empty — no chatbot)* | Command to run in the top pane (e.g., `claude`) |
 | `DS_DEV_DIR` | `~` | Working directory for all panes/windows |
+
+### Chat profile
+
+The `chat` profile creates a single window running a chatbot.
+
+| Variable | Default | Description |
+|---|---|---|
+| `DS_CHAT_CHATBOT` | *(empty — no chatbot)* | Command to run in the window (e.g., `claude`) |
+| `DS_CHAT_DIR` | `~` | Working directory |
 
 Set these in `~/.bashrc` (personal) or `~/.bashrc_work` (work) to configure per-machine defaults.
 
