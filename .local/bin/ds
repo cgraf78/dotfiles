@@ -34,6 +34,7 @@ DS_UPTERM_KNOWN_HOSTS="${DS_UPTERM_KNOWN_HOSTS:-}"
 DS_UPTERM_PID_FILE="${DS_UPTERM_PID_FILE:-}"
 DS_SHARE_PUSH="${DS_SHARE_PUSH:-}"
 DS_UPTERM_GITHUB_USER="${DS_UPTERM_GITHUB_USER:-}"
+DS_STATE_DIR="${DS_STATE_DIR:-$HOME/.local/state/ds}"
 
 _usage() {
     echo "Usage: ds [-p <profile>] [-n <name>] [-b <chatbot>] [-c <method>] [-d <path>] [--share-via upterm] [--push user@host] [<hostname>]"
@@ -109,16 +110,27 @@ _fix_server_access() {
     _tmux server-access -a "$DS_TMUX_ACCESS_USER" 2>/dev/null || true
 }
 
+_ensure_state_dir() {
+    mkdir -p "$DS_STATE_DIR"
+    chmod 700 "$DS_STATE_DIR" 2>/dev/null || true
+}
+
+_state_file_prefix() {
+    local socket_base
+    socket_base=$(basename "$DS_TMUX_SOCKET")
+    printf '%s/%s' "$DS_STATE_DIR" "$socket_base"
+}
+
 _default_share_info_file() {
-    echo "${DS_TMUX_SOCKET}.share"
+    echo "$(_state_file_prefix).share"
 }
 
 _default_upterm_pid_file() {
-    echo "${DS_TMUX_SOCKET}.upterm.pid"
+    echo "$(_state_file_prefix).upterm.pid"
 }
 
 _default_upterm_session_file() {
-    echo "${DS_TMUX_SOCKET}.upterm.session"
+    echo "$(_state_file_prefix).upterm.session"
 }
 
 # Return the name of the currently shared session (if any).
@@ -189,7 +201,12 @@ _normalize_share_info() {
 _write_share_info() {
     local content="$1"
     [[ -n "${DS_SHARE_INFO_FILE:-}" ]] || return 0
+    _ensure_state_dir
+    local old_umask
+    old_umask=$(umask)
+    umask 077
     printf '%s\n' "$content" > "$DS_SHARE_INFO_FILE"
+    umask "$old_umask"
     chmod 600 "$DS_SHARE_INFO_FILE" 2>/dev/null || true
 }
 
@@ -251,7 +268,7 @@ _unpush_share_info() {
 }
 
 _default_upterm_admin_file() {
-    echo "${DS_TMUX_SOCKET}.upterm-admin"
+    echo "$(_state_file_prefix).upterm-admin"
 }
 
 # Start upterm as a fully detached daemon process. It runs independently of
@@ -285,17 +302,23 @@ _start_upterm_daemon() {
     [[ -n "${DS_UPTERM_KNOWN_HOSTS:-}" ]] && host_args+=(--known-hosts "$DS_UPTERM_KNOWN_HOSTS")
     [[ -n "${DS_UPTERM_GITHUB_USER:-}" ]] && host_args+=(--github-user "$DS_UPTERM_GITHUB_USER")
 
+    _ensure_state_dir
+
     local admin_file
     admin_file=$(_default_upterm_admin_file)
     rm -f "$admin_file"
 
     # Record which session is being shared
+    local old_umask
+    old_umask=$(umask)
+    umask 077
     echo "$session" > "$(_default_upterm_session_file)"
+    umask "$old_umask"
 
     # Fully detach upterm from the controlling terminal.
     # The hosted command writes its PPID (the upterm process) to the PID file
     # and the admin socket path to the admin file.
-    local hosted_cmd="echo \"\$PPID\" > '$DS_UPTERM_PID_FILE'; echo \"\$UPTERM_ADMIN_SOCKET\" > '$admin_file'; while true; do sleep 86400; done"
+    local hosted_cmd="umask 077; echo \"\$PPID\" > '$DS_UPTERM_PID_FILE'; echo \"\$UPTERM_ADMIN_SOCKET\" > '$admin_file'; while true; do sleep 86400; done"
 
     if command -v setsid >/dev/null 2>&1; then
         setsid env -u TMUX upterm host \
@@ -628,6 +651,8 @@ if [[ -n "$DS_SHARE_VIA" && "$DS_SHARE_VIA" != "upterm" ]]; then
     echo "ds: unsupported share backend '$DS_SHARE_VIA' (supported: upterm)" >&2
     exit 1
 fi
+
+_ensure_state_dir
 
 if [[ -z "$DS_SHARE_INFO_FILE" ]]; then
     DS_SHARE_INFO_FILE="$(_default_share_info_file)"
