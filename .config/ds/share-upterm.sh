@@ -150,6 +150,7 @@ _share_load_config() {
         case "$key" in
             push) [[ -z "$DS_SHARE_PUSH" ]] && DS_SHARE_PUSH="$val" ;;
             github-user) [[ -z "$DS_UPTERM_GITHUB_USER" ]] && DS_UPTERM_GITHUB_USER="$val" ;;
+            upterm-host) [[ -z "$DS_UPTERM_HOST" || "$DS_UPTERM_HOST" == "uptermd.upterm.dev:22" ]] && DS_UPTERM_HOST="$val" ;;
         esac
     done < "$conf"
 }
