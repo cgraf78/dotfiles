@@ -160,10 +160,10 @@ _share_load_config() {
         [[ -z "$key" || "$key" == \#* ]] && continue
         case "$key" in
             server)          [[ -z "$DS_UPTERM_HOST" ]]            && DS_UPTERM_HOST="$val" ;;
-            known-hosts)     [[ -z "$DS_UPTERM_KNOWN_HOSTS" ]]     && DS_UPTERM_KNOWN_HOSTS="$val" ;;
-            private-key)     [[ -z "$DS_UPTERM_PRIVATE_KEY" ]]     && DS_UPTERM_PRIVATE_KEY="$val" ;;
+            known-hosts)     [[ -z "$DS_UPTERM_KNOWN_HOSTS" ]]     && DS_UPTERM_KNOWN_HOSTS="${val/#\~/$HOME}" ;;
+            private-key)     [[ -z "$DS_UPTERM_PRIVATE_KEY" ]]     && DS_UPTERM_PRIVATE_KEY="${val/#\~/$HOME}" ;;
             github-user)     [[ -z "$DS_UPTERM_GITHUB_USER" ]]     && DS_UPTERM_GITHUB_USER="$val" ;;
-            authorized-keys) [[ -z "$DS_UPTERM_AUTHORIZED_KEYS" ]] && DS_UPTERM_AUTHORIZED_KEYS="$val" ;;
+            authorized-keys) [[ -z "$DS_UPTERM_AUTHORIZED_KEYS" ]] && DS_UPTERM_AUTHORIZED_KEYS="${val/#\~/$HOME}" ;;
             push)            [[ -z "$DS_UPTERM_PUSH" ]]            && DS_UPTERM_PUSH="$val" ;;
         esac
     done < "$conf" || true
