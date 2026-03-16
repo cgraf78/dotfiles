@@ -14,13 +14,17 @@
 #   DS_UPTERM_PRIVATE_KEY    SSH key for upterm (auto-detected if unset)
 #   DS_UPTERM_KNOWN_HOSTS    known_hosts file for server (skips check if unset)
 #   DS_UPTERM_GITHUB_USER    GitHub user for ACL (prompts if unset)
+#   DS_UPTERM_AUTHORIZED_KEYS  path to authorized_keys file for ACL (overrides github-user)
 #   DS_UPTERM_PID_FILE       override PID file path
 #   DS_SHARE_PUSH            user@host target for pushing share info via SCP
+#
+# share.conf keys: push, github-user, upterm-host, authorized-keys, private-key
 
 DS_UPTERM_HOST="${DS_UPTERM_HOST:-uptermd.upterm.dev:22}"
 DS_UPTERM_PRIVATE_KEY="${DS_UPTERM_PRIVATE_KEY:-}"
 DS_UPTERM_KNOWN_HOSTS="${DS_UPTERM_KNOWN_HOSTS:-}"
 DS_UPTERM_GITHUB_USER="${DS_UPTERM_GITHUB_USER:-}"
+DS_UPTERM_AUTHORIZED_KEYS="${DS_UPTERM_AUTHORIZED_KEYS:-}"
 DS_UPTERM_PID_FILE="${DS_UPTERM_PID_FILE:-}"
 DS_SHARE_PUSH="${DS_SHARE_PUSH:-}"
 
@@ -151,6 +155,8 @@ _share_load_config() {
             push) [[ -z "$DS_SHARE_PUSH" ]] && DS_SHARE_PUSH="$val" ;;
             github-user) [[ -z "$DS_UPTERM_GITHUB_USER" ]] && DS_UPTERM_GITHUB_USER="$val" ;;
             upterm-host) [[ -z "$DS_UPTERM_HOST" || "$DS_UPTERM_HOST" == "uptermd.upterm.dev:22" ]] && DS_UPTERM_HOST="$val" ;;
+            authorized-keys) [[ -z "$DS_UPTERM_AUTHORIZED_KEYS" ]] && DS_UPTERM_AUTHORIZED_KEYS="${val/#\~/$HOME}" ;;
+            private-key) [[ -z "$DS_UPTERM_PRIVATE_KEY" ]] && DS_UPTERM_PRIVATE_KEY="${val/#\~/$HOME}" ;;
         esac
     done < "$conf"
 }
@@ -197,7 +203,12 @@ _share_start() {
         return 1
     }
 
-    if [[ -z "${DS_UPTERM_GITHUB_USER:-}" ]]; then
+    if [[ -n "${DS_UPTERM_AUTHORIZED_KEYS:-}" ]]; then
+        if [[ ! -f "$DS_UPTERM_AUTHORIZED_KEYS" ]]; then
+            echo "ds: authorized-keys file not found: $DS_UPTERM_AUTHORIZED_KEYS" >&2
+            return 1
+        fi
+    elif [[ -z "${DS_UPTERM_GITHUB_USER:-}" ]]; then
         echo "" >&2
         echo "  WARNING: No --github-user set. Anyone with the share URL" >&2
         echo "  will have full access to your terminal session." >&2
@@ -214,6 +225,9 @@ _share_start() {
         host_args+=(--known-hosts "$DS_UPTERM_KNOWN_HOSTS")
     else
         host_args+=(--skip-host-key-check)
+    fi
+    if [[ -n "${DS_UPTERM_AUTHORIZED_KEYS:-}" ]]; then
+        host_args+=(--authorized-keys "$DS_UPTERM_AUTHORIZED_KEYS")
     fi
     [[ -n "${DS_UPTERM_GITHUB_USER:-}" ]] && host_args+=(--github-user "$DS_UPTERM_GITHUB_USER")
 
