@@ -64,7 +64,6 @@ The default session `ds` is special — it creates a plain tmux session with no 
 `ds init bash` prints a snippet to source in `.bashrc` that provides:
 
 - **Auto-attach on SSH login** — when SSHing into a host, automatically creates/attaches a `ds` session. Skip with `NO_TMUX=1`.
-- **ET attach-next** — reads a state file written by the ET connect plugin to join the correct session on connect.
 
 ## Profiles
 
@@ -116,19 +115,11 @@ ds -k dev @myhost    # kill session on myhost
 ds --killall @myhost # kill all on myhost
 ```
 
-Personal hosts (`~/.config/ds/connect.conf`):
+Example (`~/.config/ds/connect.conf` or `connect-work.conf`):
 
 ```text
 # hostname    connect
-nas           autossh
-taylor        autossh
-```
-
-Work hosts (`~/.config/ds/connect-work.conf`, symlinked from work repo):
-
-```text
-# hostname    connect
-cgrafdev      autossh
+myserver      autossh
 dev*          autossh
 ```
 
@@ -159,7 +150,6 @@ For `session` actions the plugin owns the full connect lifecycle (and may ignore
 | `-` | (none) | Local-only host, no remote connections |
 | `ssh` | built-in | Standard SSH |
 | `autossh` | `connect-autossh.sh` | Auto-reconnecting SSH |
-| `et` | `connect-et.sh` | Eternal Terminal via x2ssh |
 
 ## Sharing
 
@@ -246,7 +236,7 @@ This default is local only — remote operations (`@host`) always require an exp
 
 ## State
 
-Runtime state lives under `~/.local/state/ds/` (mode `0700`). Includes share metadata, upterm PID, admin socket path, shared session name, and ET attach-next targets.
+Runtime state lives under `~/.local/state/ds/` (mode `0700`). Includes share metadata, upterm PID, admin socket path, and shared session name.
 
 ## tmux Behavior
 
