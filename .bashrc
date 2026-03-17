@@ -63,8 +63,14 @@ __git_prompt() {
 }
 
 # Track command duration — shows elapsed time for commands >= 3 seconds.
-__cmd_timer_start() { __cmd_start="${__cmd_start:-$SECONDS}"; }
+# DEBUG trap starts timer only for real commands (not prompt redraws).
+# PROMPT_COMMAND stops timer and captures exit code.
+__cmd_timer_start() {
+    # Only start on real commands, not PROMPT_COMMAND itself
+    [ -n "$__cmd_at_prompt" ] && __cmd_start="${__cmd_start:-$SECONDS}" && unset __cmd_at_prompt
+}
 __cmd_timer_stop() {
+    __cmd_at_prompt=1
     local elapsed=$(( SECONDS - ${__cmd_start:-$SECONDS} ))
     unset __cmd_start
     if (( elapsed >= 3 )); then
