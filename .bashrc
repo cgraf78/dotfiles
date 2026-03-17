@@ -46,11 +46,27 @@ shopt -s checkwinsize
 # =============================================================================
 # Prompt
 # =============================================================================
-# Set PS1 with colored user@host:path format.
+# Print git branch and dirty/staged indicators for the current directory.
+__git_prompt() {
+    local branch
+    branch="$(git symbolic-ref --short HEAD 2>/dev/null || git rev-parse --short HEAD 2>/dev/null)" || return
+    local status flags=""
+    status="$(git status --porcelain 2>/dev/null)"
+    # Staged changes
+    [[ "$status" == *$'\n'[MADRC]* || "$status" == [MADRC]* ]] && flags+="+"
+    # Unstaged changes
+    [[ "$status" == *$'\n'?[MDRC]* || "$status" == ?[MDRC]* ]] && flags+="*"
+    # Untracked files
+    [[ "$status" == *"??"* ]] && flags+="%"
+    [ -n "$flags" ] && flags=" $flags"
+    printf ' (%s%s)' "$branch" "$flags"
+}
+
+# Set PS1 with colored user@host:path (branch) format.
 # Args: $1 - hostname to display (default: \h, the system hostname).
 set_prompt() {
     local host="${1:-\\h}"
-    PS1='\[\033[01;32m\]\u@'"$host"'\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '
+    PS1='\[\033[01;32m\]\u@'"$host"'\[\033[00m\]:\[\033[01;34m\]\w\[\033[33m\]$(__git_prompt)\[\033[00m\]\$ '
     case "$TERM" in
     xterm*|rxvt*)
         PS1="\[\e]0;\u@$host: \w\a\]$PS1"
