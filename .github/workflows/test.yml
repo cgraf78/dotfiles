@@ -17,8 +17,6 @@ jobs:
           shellcheck -x -P SCRIPTDIR
           .local/bin/dot
           .local/bin/dotbootstrap
-          .local/bin/ds
-          .local/bin/dotsync
           .config/dot/helpers.sh
           .config/dot/test-helpers.sh
 
@@ -58,15 +56,5 @@ jobs:
 
       - name: Run dotbootstrap-test
         run: .local/bin/dotbootstrap-test
-        env:
-          HOME: ${{ github.workspace }}
-
-      - name: Run ds-test
-        run: .local/bin/ds-test
-        env:
-          HOME: ${{ github.workspace }}
-
-      - name: Run dotsync-test
-        run: .local/bin/dotsync-test
         env:
           HOME: ${{ github.workspace }}

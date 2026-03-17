@@ -1,1 +1,0 @@
-../../.dotfiles-work/home/.config/ds/connect-et.sh

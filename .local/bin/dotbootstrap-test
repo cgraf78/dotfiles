@@ -355,6 +355,24 @@ VIM
 VIMRC_ORIGIN=$(_tmpdir)
 _seed_repo "$VIMRC_ORIGIN" "$VIMRC_STAGING"
 
+# --- ds origin (stub with bin/ds) ---
+DS_STAGING=$(_tmpdir)
+mkdir -p "$DS_STAGING/bin"
+echo '#!/bin/bash' > "$DS_STAGING/bin/ds"
+chmod +x "$DS_STAGING/bin/ds"
+
+DS_ORIGIN=$(_tmpdir)
+_seed_repo "$DS_ORIGIN" "$DS_STAGING"
+
+# --- dotsync origin (stub with bin/dotsync) ---
+DOTSYNC_STAGING=$(_tmpdir)
+mkdir -p "$DOTSYNC_STAGING/bin"
+echo '#!/bin/bash' > "$DOTSYNC_STAGING/bin/dotsync"
+chmod +x "$DOTSYNC_STAGING/bin/dotsync"
+
+DOTSYNC_ORIGIN=$(_tmpdir)
+_seed_repo "$DOTSYNC_ORIGIN" "$DOTSYNC_STAGING"
+
 # Helper to run dotbootstrap in a fresh HOME with local repos
 _run_bootstrap() {
     local home="$1" mtype="$2"
@@ -362,6 +380,8 @@ _run_bootstrap() {
         DOTBOOTSTRAP_REPO="$PERSONAL_ORIGIN" \
         DOTBOOTSTRAP_WORK_REPO="$WORK_ORIGIN" \
         DOTBOOTSTRAP_VIMRC_REPO="$VIMRC_ORIGIN" \
+        DOTBOOTSTRAP_DS_REPO="$DS_ORIGIN" \
+        DOTBOOTSTRAP_DOTSYNC_REPO="$DOTSYNC_ORIGIN" \
         "$SCRIPT_DIR/dotbootstrap" "$mtype" 2>&1
 }
 
@@ -407,6 +427,20 @@ _assert_contains "personal: merge ran" "MERGE_TESTAPP_RAN" "$result"
 # Vim runtime installed
 _assert_file_exists "personal: vim runtime cloned" "$FRESH/.vim_runtime/install_awesome_vimrc.sh"
 _assert_contains "personal: vimrc install ran" "VIMRC_INSTALLED" "$result"
+
+# ds and dotsync installed
+_assert_file_exists "personal: ds installed" "$FRESH/.local/bin/ds"
+_assert_file_exists "personal: dotsync installed" "$FRESH/.local/bin/dotsync"
+if [[ -d "$FRESH/.local/share/ds" ]]; then
+    _pass "personal: ds share dir"
+else
+    _fail "personal: ds share dir"
+fi
+if [[ -d "$FRESH/.local/share/dotsync" ]]; then
+    _pass "personal: dotsync share dir"
+else
+    _fail "personal: dotsync share dir"
+fi
 
 # Done message
 _assert_contains "personal: done message" "Done" "$result"

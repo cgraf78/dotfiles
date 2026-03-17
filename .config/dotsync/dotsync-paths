@@ -3,6 +3,7 @@
 .bash_profile
 .bashrc
 .config/dot
+.config/dotsync
 .config/ds
 .inputrc
 .local/bin/argus

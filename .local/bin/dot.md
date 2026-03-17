@@ -102,30 +102,10 @@ dot add <file> && dot commit -m "add <file>" && dot push
 
 ## Additional Tools
 
-### `ds` — Dev Session Launcher
+### [`ds`](https://github.com/cgraf78/ds) — Dev Session Launcher
 
-Creates tmux sessions locally or on remote hosts with configurable profiles and per-host defaults:
+Creates tmux sessions locally or on remote hosts with configurable profiles and per-host defaults. Installed separately from its own repo.
 
-```bash
-ds                    # bare session (default profile)
-ds -p dev             # chatbot + bash layout
-ds myserver           # remote session
-ds -l                 # list active sessions
-ds -k dsdev           # kill a session
-dsdev                 # shortcut for ds -p dev
-```
+### [`dotsync`](https://github.com/cgraf78/dotsync) — Cross-Machine Dotfile Sync
 
-Host config in `~/.config/ds/connect*.conf` (additive — personal and work in separate files). See [`ds.md`](/.local/bin/ds.md) for full docs.
-
-### `dotsync` — Bidirectional File Sync
-
-Syncs untracked files (`.bashrc_local`, machine-local config) across hosts via rsync + SSH. The companion to `dot` for files that live outside version control.
-
-```bash
-dotsync push dev2     # one-way push to a host
-dotsync pull dev1     # one-way pull from a host
-dotsync sync          # bidirectional sync with all reachable hosts
-dotsync diff dev2     # preview what sync would do
-```
-
-Config in `~/.config/dot/dotsync-{paths,hosts}` (personal + work tiers). See [`dotsync.md`](/.local/bin/dotsync.md) for full docs.
+Keeps your shell environment (dotfiles + config) consistent across multiple machines via rsync + SSH. Automates pushing settings updates to all your hosts so they stay in sync. Installed separately from its own repo.

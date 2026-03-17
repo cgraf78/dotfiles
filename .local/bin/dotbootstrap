@@ -226,4 +226,91 @@ if [[ ! -d "$VIM_RUNTIME_DIR" ]]; then
   fi
 fi
 
+# Install or upgrade a tool from a local clone, GitHub release, or git clone.
+# Usage: _install_tool <name> <github-owner/repo> <install-dir>
+# Priority: ~/git/<name> (symlink) > existing git clone (pull) > release tarball > fresh clone.
+_install_tool() {
+  local name="$1" repo="$2" install_dir="$3"
+  local tarball_url tmp_dir
+  local local_clone="$HOME/git/$name"
+
+  # Prefer local clone — symlink for live development
+  if [[ -d "$local_clone/bin" ]]; then
+    rm -rf "$install_dir"
+    mkdir -p "$(dirname "$install_dir")"
+    ln -sfn "$local_clone" "$install_dir"
+    mkdir -p "$HOME/.local/bin"
+    ln -sf "$install_dir/bin/$name" "$HOME/.local/bin/$name"
+    chmod +x "$local_clone/bin/$name"
+    echo "  $name → $local_clone (local clone)"
+    return 0
+  fi
+
+  # Existing git clone — pull to update
+  if [[ -d "$install_dir/.git" ]]; then
+    if git -C "$install_dir" pull --ff-only 2>/dev/null; then
+      mkdir -p "$HOME/.local/bin"
+      ln -sf "$install_dir/bin/$name" "$HOME/.local/bin/$name"
+      chmod +x "$install_dir/bin/$name"
+      echo "  $name updated (git pull)"
+      return 0
+    else
+      echo "  warning: git pull failed for $name, re-installing..." >&2
+      rm -rf "$install_dir"
+    fi
+  fi
+
+  # Try GitHub release (only for owner/repo format, not local paths or URLs)
+  if [[ "$repo" != /* && "$repo" != *://* ]] && command -v curl &>/dev/null; then
+    tarball_url=$(curl -fsSL "https://api.github.com/repos/$repo/releases/latest" 2>/dev/null \
+      | grep -o '"browser_download_url":[[:space:]]*"[^"]*\.tar\.gz"' \
+      | head -1 | cut -d'"' -f4)
+  fi
+
+  if [[ -n "${tarball_url:-}" ]]; then
+    tmp_dir=$(mktemp -d)
+    if curl -fsSL "$tarball_url" | tar xz -C "$tmp_dir" 2>/dev/null; then
+      rm -rf "$install_dir"
+      mkdir -p "$install_dir"
+      # Tarball has a top-level dir (e.g., ds-v0.0.1/); move contents up
+      mv "$tmp_dir"/*/* "$install_dir/" 2>/dev/null || mv "$tmp_dir"/* "$install_dir/"
+      rm -rf "$tmp_dir"
+    else
+      rm -rf "$tmp_dir"
+      echo "  warning: failed to download $name release (trying git clone)" >&2
+      tarball_url=""
+    fi
+  fi
+
+  # Fallback: clone directly into install dir
+  if [[ -z "${tarball_url:-}" ]]; then
+    if ! command -v git &>/dev/null; then
+      echo "  warning: no curl release and no git — cannot install $name" >&2
+      return 1
+    fi
+    rm -rf "$install_dir"
+    local clone_url="$repo"
+    [[ "$repo" != /* && "$repo" != *://* ]] && clone_url="https://github.com/$repo.git"
+    if ! git clone --depth 1 "$clone_url" "$install_dir" 2>/dev/null; then
+      echo "  warning: failed to clone $name" >&2
+      return 1
+    fi
+  fi
+
+  # Symlink into PATH
+  mkdir -p "$HOME/.local/bin"
+  ln -sf "$install_dir/bin/$name" "$HOME/.local/bin/$name"
+  chmod +x "$install_dir/bin/$name"
+  echo "  $name installed"
+}
+
+DS_REPO="${DOTBOOTSTRAP_DS_REPO:-cgraf78/ds}"
+DOTSYNC_REPO="${DOTBOOTSTRAP_DOTSYNC_REPO:-cgraf78/dotsync}"
+
+echo "==> Installing/upgrading ds..."
+_install_tool ds "$DS_REPO" "$HOME/.local/share/ds"
+
+echo "==> Installing/upgrading dotsync..."
+_install_tool dotsync "$DOTSYNC_REPO" "$HOME/.local/share/dotsync"
+
 echo "==> Done! Run 'source ~/.bashrc' to activate."
