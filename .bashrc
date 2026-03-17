@@ -62,40 +62,14 @@ __git_prompt() {
     printf ' (%s%s)' "$branch" "$flags"
 }
 
-# Track command duration — shows elapsed time for commands >= 3 seconds.
-# DEBUG trap starts timer only for real commands (not prompt redraws).
-# PROMPT_COMMAND stops timer and captures exit code.
-__cmd_timer_start() {
-    # Only start on real commands, not PROMPT_COMMAND itself
-    [ -n "$__cmd_at_prompt" ] && __cmd_start="${__cmd_start:-$SECONDS}" && unset __cmd_at_prompt
-}
-__cmd_timer_stop() {
-    __cmd_at_prompt=1
-    local elapsed=$(( SECONDS - ${__cmd_start:-$SECONDS} ))
-    unset __cmd_start
-    if (( elapsed >= 3 )); then
-        if (( elapsed >= 3600 )); then
-            __cmd_duration=" $((elapsed/3600))h$((elapsed%3600/60))m$((elapsed%60))s"
-        elif (( elapsed >= 60 )); then
-            __cmd_duration=" $((elapsed/60))m$((elapsed%60))s"
-        else
-            __cmd_duration=" ${elapsed}s"
-        fi
-    else
-        __cmd_duration=""
-    fi
-}
-trap '__cmd_timer_start' DEBUG
-
-# Set PS1 with exit status, user@host:path (branch) duration format.
+# Set PS1 with exit status, user@host:path (branch) format.
 # Shows red x on non-zero exit code, green o on success.
 # Args: $1 - hostname to display (default: \h, the system hostname).
 set_prompt() {
     local host="${1:-\\h}"
-    PROMPT_COMMAND='__cmd_exit=$?; __cmd_timer_stop'
+    PROMPT_COMMAND='__cmd_exit=$?'
     local exit_sym='\[\033[01;$(( __cmd_exit ? 31 : 32 ))m\]$( (( __cmd_exit )) && echo "x" || echo "o")\[\033[00m\]'
-    local duration='\[\033[35m\]${__cmd_duration}\[\033[00m\]'
-    PS1="${exit_sym} "'\[\033[01;32m\]\u@'"$host"'\[\033[00m\]:\[\033[01;34m\]\w\[\033[33m\]$(__git_prompt)'"${duration}"'\[\033[00m\]\$ '
+    PS1="${exit_sym} "'\[\033[01;32m\]\u@'"$host"'\[\033[00m\]:\[\033[01;34m\]\w\[\033[33m\]$(__git_prompt)\[\033[00m\]\$ '
     case "$TERM" in
     xterm*|rxvt*)
         PS1="\[\e]0;\u@$host: \w\a\]$PS1"
