@@ -46,6 +46,10 @@ fi
 if [ -d "$HOME/bin" ]; then
     PATH="$HOME/bin:$PATH"
 fi
+if [ -d "$HOME/.bun/bin" ]; then
+    export BUN_INSTALL="$HOME/.bun"
+    PATH="$BUN_INSTALL/bin:$PATH"
+fi
 
 # =============================================================================
 # Shell behavior
