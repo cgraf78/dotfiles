@@ -15,7 +15,6 @@ alias fgrep='grep -F --color=auto'
 alias egrep='grep -E --color=auto'
 alias gl='git log --oneline --all --graph --decorate'
 alias dl='dot log --oneline --all --graph --decorate'
-alias argus='openclaw tui --session "agent:main:tui"'
 
 # =============================================================================
 # SSH / tunnels
