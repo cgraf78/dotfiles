@@ -242,10 +242,10 @@ if is_macos then
     bind('LeftArrow', 'OPT', act.SendString('\x1bb')),
     bind('RightArrow', 'OPT', act.SendString('\x1bf')),
 
-    -- CTRL+arrows: word jump — explicitly send xterm sequences so they pass
-    -- through tmux correctly (tmux can mangle these without explicit mapping)
-    bind('LeftArrow', 'CTRL', act.SendString('\x1b[1;5D')),
-    bind('RightArrow', 'CTRL', act.SendString('\x1b[1;5C')),
+    -- CTRL+arrows: word jump — send ESC+b/f (same as OPT), bypassing tmux
+    -- terminfo negotiation entirely. \e[1;5D/C are unreliable through tmux-256color.
+    bind('LeftArrow', 'CTRL', act.SendString('\x1bb')),
+    bind('RightArrow', 'CTRL', act.SendString('\x1bf')),
   })
 end
 
