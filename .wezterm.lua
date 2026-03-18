@@ -238,9 +238,14 @@ if is_macos then
     bind('[', 'SUPER|SHIFT', act.ActivateTabRelative(-1)),
     bind(']', 'SUPER|SHIFT', act.ActivateTabRelative(1)),
 
-    -- OPT+arrows: word jump (missing from WezTerm defaults, common in iTerm2/Terminal.app)
+    -- OPT+arrows: word jump (common in iTerm2/Terminal.app)
     bind('LeftArrow', 'OPT', act.SendString('\x1bb')),
     bind('RightArrow', 'OPT', act.SendString('\x1bf')),
+
+    -- CTRL+arrows: word jump — explicitly send xterm sequences so they pass
+    -- through tmux correctly (tmux can mangle these without explicit mapping)
+    bind('LeftArrow', 'CTRL', act.SendString('\x1b[1;5D')),
+    bind('RightArrow', 'CTRL', act.SendString('\x1b[1;5C')),
   })
 end
 
