@@ -59,7 +59,6 @@
       }
     ]
   },
-  "model": "opus",
   "permissions": {
     "allow": [
       "Bash(dot *)",
