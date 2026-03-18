@@ -23,6 +23,10 @@ Commit description style:
 
 - Do NOT use the `pingme` skill to send notifications.
 
+## Repos
+
+`~/git` is the default location for locally cloned git repos.
+
 ## Workflow
 
 - Don't chain separately-permitted commands with `&&` — use individual Bash calls instead, to avoid unnecessary permission prompts.
