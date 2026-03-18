@@ -123,6 +123,55 @@ else
   default_prog = { '/bin/bash', '-l' }
 end
 
+-- =============================================================================
+-- Feature 1: leader key + pane splitting/navigation/resize
+-- =============================================================================
+-- Leader: CTRL+A (tmux-style), 1s timeout
+local leader = { key = 'a', mods = 'CTRL', timeout_milliseconds = 1000 }
+
+local function move_pane(key, direction)
+  return bind(key, 'LEADER', act.ActivatePaneDirection(direction))
+end
+
+local function resize_pane(key, direction)
+  return { key = key, action = act.AdjustPaneSize({ direction, 3 }) }
+end
+
+local key_tables = {
+  -- LEADER+r enters resize mode; hjkl resize until timeout (1s idle exits)
+  resize_panes = {
+    resize_pane('h', 'Left'),
+    resize_pane('j', 'Down'),
+    resize_pane('k', 'Up'),
+    resize_pane('l', 'Right'),
+  },
+}
+
+local leader_keys = {
+  -- Pass-through: LEADER+CTRL+A sends a real CTRL+A to the shell
+  bind('a', 'LEADER|CTRL', act.SendKey({ key = 'a', mods = 'CTRL' })),
+
+  -- Pane splitting (tmux-style)
+  bind('"', 'LEADER', act.SplitHorizontal({ domain = 'CurrentPaneDomain' })),
+  bind('%', 'LEADER', act.SplitVertical({ domain = 'CurrentPaneDomain' })),
+
+  -- Pane navigation (vim keys)
+  move_pane('h', 'Left'),
+  move_pane('j', 'Down'),
+  move_pane('k', 'Up'),
+  move_pane('l', 'Right'),
+
+  -- Resize mode (LEADER+r, then hold hjkl)
+  bind('r', 'LEADER', act.ActivateKeyTable({
+    name = 'resize_panes',
+    one_shot = false,
+    timeout_milliseconds = 1000,
+  })),
+
+  -- Workspace switcher
+  bind('f', 'LEADER', act.ShowLauncherArgs({ flags = 'FUZZY|WORKSPACES' })),
+}
+
 local keys = {
   -- Try to make Shift+Enter distinct from plain Enter for TUIs.
   bind('Enter', 'SHIFT', act.SendString('\x0a')),
@@ -164,6 +213,8 @@ local keys = {
   bind('4', 'ALT', act.ActivateTab(3)),
 }
 
+append_all(keys, leader_keys)
+
 if is_macos then
   append_all(keys, {
     -- Native-feeling macOS aliases mirroring the cross-platform Ctrl bindings.
@@ -186,17 +237,25 @@ if is_macos then
     bind('Tab', 'SUPER|SHIFT', act.ActivateTabRelative(-1)),
     bind('[', 'SUPER|SHIFT', act.ActivateTabRelative(-1)),
     bind(']', 'SUPER|SHIFT', act.ActivateTabRelative(1)),
+
+    -- OPT+arrows: word jump (missing from WezTerm defaults, common in iTerm2/Terminal.app)
+    bind('LeftArrow', 'OPT', act.SendString('\x1bb')),
+    bind('RightArrow', 'OPT', act.SendString('\x1bf')),
   })
 end
 
+
+
+-- =============================================================================
+-- Config
+-- =============================================================================
 return {
   default_prog = default_prog,
+  leader = leader,
+  key_tables = key_tables,
 
-  -- Appearance
-  font = font_with_fallback(font_names),
-  font_size = font_size,
-  line_height = line_height,
   color_scheme = 'Tokyo Night',
+
   colors = {
     foreground = '#e6e9ef',
     ansi = {
@@ -234,6 +293,11 @@ return {
       },
     },
   },
+
+  -- Appearance
+  font = font_with_fallback(font_names),
+  font_size = font_size,
+  line_height = line_height,
   enable_scroll_bar = false,
   hide_tab_bar_if_only_one_tab = true,
   initial_cols = 140,
@@ -260,8 +324,6 @@ return {
   scrollback_lines = 20000,
   check_for_updates = false,
   automatically_reload_config = true,
-  -- Avoid passing the focus click through to terminal apps (e.g. tmux),
-  -- which can trigger accidental copy-mode on Windows/WSL setups.
   swallow_mouse_click_on_window_focus = true,
   audible_bell = 'Disabled',
   default_cursor_style = 'SteadyBar',
