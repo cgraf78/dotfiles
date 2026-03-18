@@ -6,16 +6,6 @@ local is_macos = target:find('darwin', 1, true) ~= nil
 local is_windows = target:find('windows', 1, true) ~= nil
 local is_linux = target:find('linux', 1, true) ~= nil
 
--- =============================================================================
--- Feature 4: appearance helpers (dark/light mode detection)
--- =============================================================================
-local function is_dark()
-  if wezterm.gui then
-    return wezterm.gui.get_appearance():find('Dark') ~= nil
-  end
-  return true
-end
-
 local function file_exists(path)
   local ok, _, code = os.rename(path, path)
   if ok then
@@ -256,43 +246,38 @@ end
 
 -- =============================================================================
 -- Feature 2: right-status powerline (workspace + datetime + hostname)
+-- Colours are anchored to the Tokyo Night tab bar palette so the status
+-- area integrates cleanly with the tabs rather than floating on its own.
 -- =============================================================================
-wezterm.on('update-status', function(window)
-  local SOLID_LEFT_ARROW = utf8.char(0xe0b2)
+local POWERLINE_ARROW = utf8.char(0xe0b2)
 
-  local segments = {
+-- Three progressively lighter shades of the Tokyo Night tab-bar background
+-- so the segments read as one unified bar with the tabs.
+local STATUS_SEGMENTS = {
+  { bg = '#2a2c40', fg = '#a9b1d6' }, -- rightmost (darkest)
+  { bg = '#232535', fg = '#a9b1d6' },
+  { bg = '#1a1b2e', fg = '#7aa2f7' }, -- leftmost (near-tab colour, accent)
+}
+
+wezterm.on('update-status', function(window)
+  local labels = {
     window:active_workspace(),
     wezterm.strftime('%a %b %-d %H:%M'),
     wezterm.hostname(),
   }
 
-  local color_scheme = window:effective_config().resolved_palette
-  local bg = wezterm.color.parse(color_scheme.background)
-  local fg = color_scheme.foreground
-
-  local gradient_to = bg
-  local gradient_from
-  if is_dark() then
-    gradient_from = gradient_to:lighten(0.2)
-  else
-    gradient_from = gradient_to:darken(0.2)
-  end
-
-  local gradient = wezterm.color.gradient(
-    { orientation = 'Horizontal', colors = { gradient_from, gradient_to } },
-    #segments
-  )
-
   local elements = {}
-  for i, seg in ipairs(segments) do
-    if i == 1 then
-      table.insert(elements, { Background = { Color = 'none' } })
-    end
-    table.insert(elements, { Foreground = { Color = gradient[i] } })
-    table.insert(elements, { Text = SOLID_LEFT_ARROW })
-    table.insert(elements, { Foreground = { Color = fg } })
-    table.insert(elements, { Background = { Color = gradient[i] } })
-    table.insert(elements, { Text = ' ' .. seg .. ' ' })
+  for i, label in ipairs(labels) do
+    local seg = STATUS_SEGMENTS[i]
+    local prev_bg = (i == 1) and 'none' or STATUS_SEGMENTS[i - 1].bg
+    -- Arrow: foreground = this segment's bg, background = previous segment's bg
+    table.insert(elements, { Background = { Color = prev_bg } })
+    table.insert(elements, { Foreground = { Color = seg.bg } })
+    table.insert(elements, { Text = POWERLINE_ARROW })
+    -- Text
+    table.insert(elements, { Background = { Color = seg.bg } })
+    table.insert(elements, { Foreground = { Color = seg.fg } })
+    table.insert(elements, { Text = ' ' .. label .. ' ' })
   end
 
   window:set_right_status(wezterm.format(elements))
@@ -306,8 +291,7 @@ return {
   leader = leader,
   key_tables = key_tables,
 
-  -- Feature 4: auto dark/light colour scheme
-  color_scheme = is_dark() and 'Tokyo Night' or 'Tokyo Night Day',
+  color_scheme = 'Tokyo Night',
 
   colors = {
     foreground = '#e6e9ef',
