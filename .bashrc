@@ -134,6 +134,5 @@ argus() {
     openclaw tui --session "agent:main:${sess}"
 }
 
-
 # ds shell integration (profile shortcuts + auto-attach on SSH)
 command -v ds &>/dev/null && eval "$(ds init bash)"
