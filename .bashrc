@@ -123,12 +123,12 @@ jump() { cd -P ~/.marks/"$1" 2>/dev/null || echo "No such mark"; }
 # SSH bypassing tmux
 sshn() { ssh -t "$1" "NO_TMUX=1 bash"; }
 
-# OpenClaw TUI — launch a conversation with the main agent.
-# Usage: argus [session-name]   (default: tui)
+# OpenClaw TUI — launch the TUI interface.
+# Session selection/management happens within the TUI or via other commands.
 argus() {
-    local sess="${1:-tui}"
-    openclaw tui --session "agent:main:${sess}"
+    openclaw tui
 }
+
 
 # ds shell integration (profile shortcuts + auto-attach on SSH)
 command -v ds &>/dev/null && eval "$(ds init bash)"
