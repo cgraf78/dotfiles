@@ -2,32 +2,22 @@
 
 ## Dotfiles
 
-- On this macOS setup, live terminal shortcut behavior with Karabiner enabled does not always match what the tracked `karabiner.json` appears to remap explicitly. For mac terminal shortcut work, keep the `Ctrl`-prefixed bindings for cross-platform consistency, but also add `Cmd`-prefixed aliases and validate the result with Karabiner enabled because those are often the reliable forms in practice on this machine.
+Two repos: `~/.dotfiles` (personal, bare) and `~/.dotfiles-work` (work, regular clone). See `~/.local/bin/dot.md` for full documentation.
 
-Dotfiles are managed via a bare git repo at `~/.dotfiles` with worktree `$HOME`.
-Use the `dot` alias (defined in `~/.bashrc`) instead of `git` for all dotfiles operations:
+- Use the `dot` alias for personal dotfiles. Use `git` in `~/.dotfiles-work/` for work dotfiles.
+- **Do NOT run `dot push` or `git push`** — Claude does not have permission to push to remote repos. Commit locally only.
+- When moving tracked personal dotfiles, use `dot mv` to preserve history.
 
-```bash
-dot status
-dot add ~/.tmux.conf
-dot commit -m "update tmux config"
-```
-
-When moving tracked dotfiles, use `dot mv` (not `mv` + `rm --cached` + `add`) to preserve history.
-
-Key dotfiles:
-- `~/.bashrc` - shell config, proxy settings, dotfiles alias
-- `~/.bash_aliases` - project-specific build/test aliases
-- `~/.tmux.conf` - tmux configuration
-- `~/.local/bin/ds` - dev session launcher (local and remote tmux sessions)
+Commit description style:
+- Title: imperative sentence, backtick code names (e.g., "Fix `ds -l` showing empty window count")
+- Body has `## Summary` and `## Testing` sections
+- Summary uses `- ` bulleted list, lowercase start, hard-wrapped at ~72 columns with 2-space continuation indent
+- Testing uses `- ` bulleted list describing what was verified
+- Blank line between title, Summary, and Testing sections
 
 ## Dev Session
 
-`~/.local/bin/ds` creates tmux sessions with configurable profiles:
-- `ds` — bare session (default), or `ds -p dev` for chatbot + bash layout
-- `ds -n <name>` — named session (e.g., `ds-bare-2`, `ds-dev-myproject`)
-- `ds <hostname>` — remote session via SSH/ET, profile per host in `~/.config/ds/hosts.conf`
-- `def [name]` — alias for `ds -p bare [-n name]`
+`~/.local/bin/ds` creates tmux dev sessions with pluggable profiles, connection methods, and share backends. Config lives in `~/.config/ds/`. See `~/.local/bin/ds.md` for full documentation.
 
 ## Notifications
 
