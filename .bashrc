@@ -126,6 +126,9 @@ sshn() { ssh -t "$1" "NO_TMUX=1 bash"; }
 # OpenClaw TUI — launch a conversation with the main agent.
 # Usage: argus [session-name]   (default: tui)
 # Enforces agent:main:<session-name> session key structure.
+# unalias first: bash expands aliases before parsing function definitions,
+# so if argus was previously an alias, "argus() {" becomes a syntax error.
+unalias argus 2>/dev/null || true
 argus() {
     local sess="${1:-tui}"
     openclaw tui --session "agent:main:${sess}"
