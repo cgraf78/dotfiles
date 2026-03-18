@@ -74,4 +74,6 @@ Key dotfiles:
 
 ## gstack
 
-Available skills: `/office-hours`, `/plan-ceo-review`, `/plan-eng-review`, `/plan-design-review`, `/design-consultation`, `/review`, `/ship`, `/qa`, `/qa-only`, `/design-review`, `/retro`, `/debug`, `/document-release`.
+Repo: `~/.gstack`. Skills symlinked into `~/.claude/skills/`.
+
+Available skills: `/office-hours`, `/plan-ceo-review`, `/plan-eng-review`, `/plan-design-review`, `/design-consultation`, `/review`, `/ship`, `/qa`, `/qa-only`, `/design-review`, `/retro`, `/debug`, `/document-release`, `/gstack-upgrade`.
