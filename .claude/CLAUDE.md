@@ -5,7 +5,6 @@
 Two repos: `~/.dotfiles` (personal, bare) and `~/.dotfiles-work` (work, regular clone). See `~/.local/bin/dot.md` for full documentation.
 
 - Use the `dot` alias for personal dotfiles. Use `git` in `~/.dotfiles-work/` for work dotfiles.
-- **Do NOT run `dot push` or `git push`** — Claude does not have permission to push to remote repos. Commit locally only.
 - When moving tracked personal dotfiles, use `dot mv` to preserve history.
 
 Commit description style:
