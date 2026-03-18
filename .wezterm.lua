@@ -244,44 +244,7 @@ if is_macos then
   })
 end
 
--- =============================================================================
--- Feature 2: right-status powerline (workspace + datetime + hostname)
--- Colours are anchored to the Tokyo Night tab bar palette so the status
--- area integrates cleanly with the tabs rather than floating on its own.
--- =============================================================================
-local POWERLINE_ARROW = utf8.char(0xe0b2)
 
--- Three progressively lighter shades of the Tokyo Night tab-bar background
--- so the segments read as one unified bar with the tabs.
-local STATUS_SEGMENTS = {
-  { bg = '#2a2c40', fg = '#a9b1d6' }, -- rightmost (darkest)
-  { bg = '#232535', fg = '#a9b1d6' },
-  { bg = '#1a1b2e', fg = '#7aa2f7' }, -- leftmost (near-tab colour, accent)
-}
-
-wezterm.on('update-status', function(window)
-  local labels = {
-    window:active_workspace(),
-    wezterm.strftime('%a %b %-d %H:%M'),
-    wezterm.hostname(),
-  }
-
-  local elements = {}
-  for i, label in ipairs(labels) do
-    local seg = STATUS_SEGMENTS[i]
-    local prev_bg = (i == 1) and 'none' or STATUS_SEGMENTS[i - 1].bg
-    -- Arrow: foreground = this segment's bg, background = previous segment's bg
-    table.insert(elements, { Background = { Color = prev_bg } })
-    table.insert(elements, { Foreground = { Color = seg.bg } })
-    table.insert(elements, { Text = POWERLINE_ARROW })
-    -- Text
-    table.insert(elements, { Background = { Color = seg.bg } })
-    table.insert(elements, { Foreground = { Color = seg.fg } })
-    table.insert(elements, { Text = ' ' .. label .. ' ' })
-  end
-
-  window:set_right_status(wezterm.format(elements))
-end)
 
 -- =============================================================================
 -- Config
