@@ -71,3 +71,7 @@ Key dotfiles:
 - Always write tests for new code.
 - Analyze edge cases before writing tests — boundary values, missing data, error paths, concurrency, invalid input.
 - Dedicated test case per edge case, not bundled into happy-path tests.
+
+## gstack
+
+Available skills: `/office-hours`, `/plan-ceo-review`, `/plan-eng-review`, `/plan-design-review`, `/design-consultation`, `/review`, `/ship`, `/qa`, `/qa-only`, `/design-review`, `/retro`, `/debug`, `/document-release`.
