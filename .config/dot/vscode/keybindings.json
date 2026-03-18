@@ -136,5 +136,12 @@
         "command": "workbench.action.terminal.sendSequence",
         "args": { "text": "\u001b\n" },
         "when": "terminalFocus"
+    },
+
+    // Ctrl+P in terminal: open file picker instead of shell history-up
+    {
+        "key": "ctrl+p",
+        "command": "workbench.action.quickOpen",
+        "when": "terminalFocus"
     }
 ]

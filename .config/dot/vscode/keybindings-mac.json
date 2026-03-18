@@ -93,10 +93,10 @@
         "args": { "text": "\u000e" },
         "when": "terminalFocus"
     },
+    // Ctrl+P (seen as Cmd+P via Karabiner) in terminal: open file picker
     {
         "key": "cmd+p",
-        "command": "workbench.action.terminal.sendSequence",
-        "args": { "text": "\u0010" },
+        "command": "workbench.action.quickOpen",
         "when": "terminalFocus"
     },
     {
