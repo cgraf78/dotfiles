@@ -108,7 +108,7 @@ DS_REPO="${DOTBOOTSTRAP_DS_REPO:-cgraf78/ds}"
 DOTSYNC_REPO="${DOTBOOTSTRAP_DOTSYNC_REPO:-cgraf78/dotsync}"
 DOTFILES="$HOME/.dotfiles"
 WORK_DIR="$HOME/.dotfiles-work"
-BACKUP="$HOME/.dotfiles-backup-$(date +%Y%m%d%H%M%S)"
+BACKUP="$HOME/.dotfiles-backup/$(date +%Y%m%d%H%M%S)"
 # Optional: DOTFILES_BRANCH=<branch> to override detected branch.
 BRANCH=""
 

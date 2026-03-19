@@ -35,7 +35,7 @@ $GIT commit -m "initial" >/dev/null 2>&1
 
 # Source dotbootstrap functions (without running main logic)
 WORK_DIR="$TEST_HOME/.dotfiles-work"
-BACKUP="$TEST_HOME/.dotfiles-backup-test"
+BACKUP="$TEST_HOME/.dotfiles-backup/test"
 BRANCH=""
 export DOTBOOTSTRAP_SOURCED=1
 # shellcheck source=dotbootstrap
@@ -209,7 +209,7 @@ BRANCH=$($GIT branch --show-current 2>/dev/null || echo "main")
 # Create a conflicting file (same path as a repo-tracked file)
 echo "local content" > "$TEST_HOME/.testrc"
 
-BACKUP="$TEST_HOME/.dotfiles-backup-test1"
+BACKUP="$TEST_HOME/.dotfiles-backup/test1"
 result=$(_backup_and_checkout 2>&1)
 
 _assert_contains "shows backup message" "backing up" "$result"
@@ -229,7 +229,7 @@ _assert_file_content "restored file has repo content" "initial" "$TEST_HOME/.tes
 
 # Untracked file is NOT backed up or removed
 echo "untracked" > "$TEST_HOME/untracked_file"
-BACKUP="$TEST_HOME/.dotfiles-backup-test2"
+BACKUP="$TEST_HOME/.dotfiles-backup/test2"
 _backup_and_checkout >/dev/null 2>&1
 _assert_file_missing "untracked file not backed up" "$BACKUP/untracked_file"
 _assert_file_content "untracked file untouched" "untracked" "$TEST_HOME/untracked_file"
@@ -237,7 +237,7 @@ rm -f "$TEST_HOME/untracked_file"
 
 # Empty backup dir is removed (no conflicts)
 rm -f "$TEST_HOME/.testrc" "$TEST_HOME/.config/dot/placeholder"
-BACKUP="$TEST_HOME/.dotfiles-backup-test3"
+BACKUP="$TEST_HOME/.dotfiles-backup/test3"
 _backup_and_checkout >/dev/null 2>&1
 if [[ ! -d "$BACKUP" ]]; then
     _pass "empty backup dir removed"

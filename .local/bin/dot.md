@@ -27,7 +27,7 @@ Work machine (also clones work repo):
 git clone --bare https://github.com/cgraf78/dotfiles.git ~/.dotfiles && git --git-dir=$HOME/.dotfiles --work-tree=$HOME checkout main -- .local/bin/dotbootstrap && ~/.local/bin/dotbootstrap work && source ~/.bashrc
 ```
 
-The bootstrap script automatically backs up any conflicting files to `~/.dotfiles-backup-<timestamp>/`.
+The bootstrap script automatically backs up any conflicting files to `~/.dotfiles-backup/<timestamp>/`.
 
 ## Usage
 
