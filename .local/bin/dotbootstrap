@@ -5,10 +5,13 @@
 #   ~/.dotfiles      — bare repo, personal dotfiles (public)
 #   ~/.dotfiles-work — regular clone, work dotfiles (private, optional)
 #
-# Usage:
+# Usage (fresh machine with git):
 #   git clone --bare https://github.com/cgraf78/dotfiles.git ~/.dotfiles
 #   git --git-dir=$HOME/.dotfiles --work-tree=$HOME checkout main -- .local/bin/dotbootstrap
-#   ~/.local/bin/dotbootstrap <personal|work>
+#   ~/.local/bin/dotbootstrap [personal|work]
+#
+# Usage (dotsync-managed machine, files already present):
+#   ~/.local/bin/dotbootstrap [personal|work]
 
 set -euo pipefail
 
@@ -98,7 +101,6 @@ if [[ "${DOTBOOTSTRAP_SOURCED:-}" == 1 ]]; then return 0; fi
 # ---------------------------------------------------------------------------
 
 MACHINE_TYPE="${1:-personal}"
-REPO="${DOTBOOTSTRAP_REPO:-https://github.com/cgraf78/dotfiles.git}"
 WORK_REPO="${DOTBOOTSTRAP_WORK_REPO:-git@github.com:cgraf78/dotfiles-work.git}"
 VIMRC_REPO="${DOTBOOTSTRAP_VIMRC_REPO:-cgraf78/vimrc}"
 GSTACK_REPO="${DOTBOOTSTRAP_GSTACK_REPO:-garrytan/gstack}"
@@ -128,28 +130,48 @@ GIT="git --git-dir=$DOTFILES --work-tree=$HOME"
 
 echo "==> Setting up $MACHINE_TYPE machine..."
 
-if [[ ! -d "$DOTFILES" ]]; then
-  echo "==> Cloning personal dotfiles..."
-  git clone --bare "$REPO" "$DOTFILES"
+if [[ -d "$DOTFILES" ]]; then
+  # ---------------------------------------------------------------------------
+  # Configure git (before fetch so refspec and filters are correct)
+  # ---------------------------------------------------------------------------
+
+  $GIT config status.showUntrackedFiles no
+  $GIT config pull.rebase true
+  $GIT config rebase.autoStash true
+
+  # json-sort filter: normalizes JSON on commit AND checkout (sorted keys).
+  $GIT config filter.json-sort.clean "jq --sort-keys . 2>/dev/null || cat"
+  $GIT config filter.json-sort.smudge "jq --sort-keys . 2>/dev/null || cat"
+
+  # Ensure standard fetch refspec.
+  $GIT config remote.origin.fetch "+refs/heads/*:refs/remotes/origin/*"
+
+  # Set push URL to SSH (HTTPS clone is read-only for public repos)
+  $GIT config remote.origin.pushUrl "git@github.com:cgraf78/dotfiles.git"
+
+  # ---------------------------------------------------------------------------
+  # Fetch, detect branch, checkout
+  # ---------------------------------------------------------------------------
+
+  echo "==> Pulling personal dotfiles..."
+  if ! $GIT fetch origin; then
+    echo "  warning: fetch failed (continuing with existing local state)" >&2
+  fi
+
+  _detect_branch
+  echo "  branch: $BRANCH"
+
+  # Set branch tracking.
+  $GIT config "branch.$BRANCH.remote" origin
+  $GIT config "branch.$BRANCH.merge" "refs/heads/$BRANCH"
+
+  # Ensure clean full checkout. The quickstart one-liner does a sparse checkout
+  # of just dotbootstrap, which leaves the index with staged deletions of all
+  # other files. Force checkout resets the index and working tree to match HEAD.
+  _backup_and_checkout
+else
+  echo "  no bare repo at $DOTFILES — skipping git setup (dotsync-managed machine)"
 fi
-
-# ---------------------------------------------------------------------------
-# Configure git (before fetch so refspec and filters are correct)
-# ---------------------------------------------------------------------------
-
-$GIT config status.showUntrackedFiles no
-$GIT config pull.rebase true
-$GIT config rebase.autoStash true
-
-# json-sort filter: normalizes JSON on commit AND checkout (sorted keys).
-$GIT config filter.json-sort.clean "jq --sort-keys . 2>/dev/null || cat"
-$GIT config filter.json-sort.smudge "jq --sort-keys . 2>/dev/null || cat"
-
-# Ensure standard fetch refspec.
-$GIT config remote.origin.fetch "+refs/heads/*:refs/remotes/origin/*"
-
-# Set push URL to SSH (HTTPS clone is read-only for public repos)
-$GIT config remote.origin.pushUrl "git@github.com:cgraf78/dotfiles.git"
 
 # ---------------------------------------------------------------------------
 # Dependency checks (best-effort)
@@ -161,28 +183,7 @@ _check_dep jq jq || true
 _check_dep tmux tmux || true
 _check_dep fzf fzf || true
 
-# ---------------------------------------------------------------------------
-# Fetch, detect branch, checkout
-# ---------------------------------------------------------------------------
-
-echo "==> Pulling personal dotfiles..."
-if ! $GIT fetch origin; then
-  echo "  warning: fetch failed (continuing with existing local state)" >&2
-fi
-
-_detect_branch
-echo "  branch: $BRANCH"
-
-# Set branch tracking.
-$GIT config "branch.$BRANCH.remote" origin
-$GIT config "branch.$BRANCH.merge" "refs/heads/$BRANCH"
-
-# Ensure clean full checkout. The quickstart one-liner does a sparse checkout
-# of just dotbootstrap, which leaves the index with staged deletions of all
-# other files. Force checkout resets the index and working tree to match HEAD.
-_backup_and_checkout
-
-# Shared helpers (now available after full checkout).
+# Shared helpers (available after checkout or via dotsync).
 . "$HOME/.config/dot/helpers.sh"
 
 # ---------------------------------------------------------------------------
