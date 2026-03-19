@@ -437,10 +437,6 @@ _assert_contains "personal: merge ran" "MERGE_TESTAPP_RAN" "$result"
 _assert_file_exists "personal: vim runtime cloned" "$FRESH/.vim_runtime/install_awesome_vimrc.sh"
 _assert_contains "personal: vimrc install ran" "VIMRC_INSTALLED" "$result"
 
-# vimrc installed
-_assert_file_exists "personal: vim runtime cloned" "$FRESH/.vim_runtime/install_awesome_vimrc.sh"
-_assert_contains "personal: vimrc install ran" "VIMRC_INSTALLED" "$result"
-
 # gstack installed and skills symlinked
 if [[ -d "$FRESH/.gstack" ]]; then
     _pass "personal: gstack cloned"

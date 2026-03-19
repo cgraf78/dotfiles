@@ -109,6 +109,8 @@ REPO="${DOTBOOTSTRAP_REPO:-https://github.com/cgraf78/dotfiles.git}"
 WORK_REPO="${DOTBOOTSTRAP_WORK_REPO:-git@github.com:cgraf78/dotfiles-work.git}"
 VIMRC_REPO="${DOTBOOTSTRAP_VIMRC_REPO:-cgraf78/vimrc}"
 GSTACK_REPO="${DOTBOOTSTRAP_GSTACK_REPO:-garrytan/gstack}"
+DS_REPO="${DOTBOOTSTRAP_DS_REPO:-cgraf78/ds}"
+DOTSYNC_REPO="${DOTBOOTSTRAP_DOTSYNC_REPO:-cgraf78/dotsync}"
 DOTFILES="$HOME/.dotfiles"
 WORK_DIR="$HOME/.dotfiles-work"
 BACKUP="$HOME/.dotfiles-backup-$(date +%Y%m%d%H%M%S)"
@@ -326,9 +328,6 @@ _install_tool() {
   chmod +x "$install_dir/bin/$name"
   echo "  $name installed"
 }
-
-DS_REPO="${DOTBOOTSTRAP_DS_REPO:-cgraf78/ds}"
-DOTSYNC_REPO="${DOTBOOTSTRAP_DOTSYNC_REPO:-cgraf78/dotsync}"
 
 echo "==> Installing/upgrading ds..."
 _install_tool ds "$DS_REPO" "$HOME/.local/share/ds"
