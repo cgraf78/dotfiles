@@ -45,11 +45,17 @@ shopt -s checkwinsize
 # Prompt
 # =============================================================================
 # Print git branch and dirty/staged indicators for the current directory.
+# Falls back to the bare dotfiles repo (~/.dotfiles) when not in a regular repo.
 __git_prompt() {
+    local -a g=(git)
+    if ! git rev-parse --git-dir &>/dev/null; then
+        [[ "$PWD" == "$HOME"* && -d "$HOME/.dotfiles" ]] || return
+        g=(git --git-dir="$HOME/.dotfiles" --work-tree="$HOME")
+    fi
     local branch
-    branch="$(git symbolic-ref --short HEAD 2>/dev/null || git rev-parse --short HEAD 2>/dev/null)" || return
+    branch="$("${g[@]}" symbolic-ref --short HEAD 2>/dev/null || "${g[@]}" rev-parse --short HEAD 2>/dev/null)" || return
     local status flags=""
-    status="$(git status --porcelain 2>/dev/null)"
+    status="$("${g[@]}" --no-optional-locks status --porcelain 2>/dev/null)"
     # Staged changes
     [[ "$status" == *$'\n'[MADRC]* || "$status" == [MADRC]* ]] && flags+="+"
     # Unstaged changes
