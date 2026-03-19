@@ -19,7 +19,7 @@ Work files are symlinked into `$HOME` by the work repo's bootstrap script. Perso
 
 Personal machine:
 ```bash
-git clone --bare https://github.com/cgraf78/dotfiles.git ~/.dotfiles && git --git-dir=$HOME/.dotfiles --work-tree=$HOME checkout main -- .local/bin/dotbootstrap && ~/.local/bin/dotbootstrap personal && source ~/.bashrc
+git clone --bare https://github.com/cgraf78/dotfiles.git ~/.dotfiles && git --git-dir=$HOME/.dotfiles --work-tree=$HOME checkout main -- .local/bin/dotbootstrap && ~/.local/bin/dotbootstrap && source ~/.bashrc
 ```
 
 Work machine (also clones work repo):
@@ -34,9 +34,10 @@ The bootstrap script automatically backs up any conflicting files to `~/.dotfile
 ```bash
 dot pull          # pull both repos, re-run work bootstrap, merge app configs
 dot push          # push both repos
+dot status        # check status of both repos
+dot diff          # diff both repos
 dot add <file>    # track a file in personal repo
 dot commit -m ""  # commit to personal repo
-dot status        # check status (auto-normalizes filtered files)
 dot refresh       # fix phantom dirty files from clean/smudge filters
 ```
 
@@ -44,7 +45,7 @@ Work repo files are managed with plain `git` in `~/.dotfiles-work/`.
 
 ## How It Works
 
-- `dot pull/push` operates on both repos (if `~/.dotfiles-work` exists)
+- `dot pull/push/status/diff` operates on both repos (if `~/.dotfiles-work` exists)
 - Work bootstrap symlinks files from `~/.dotfiles-work/home/` into `$HOME`
 - Files that override personal versions get `--skip-worktree` to prevent phantom dirty status
 - No branch sync, no markers — just two independent repos

@@ -6,8 +6,9 @@
 #   ~/.dotfiles-work — regular clone, work dotfiles (private, optional)
 #
 # Commands:
-#   dot pull/push/status  Operates on both repos (if work repo exists)
-#   dot <anything>        Passes through to git (personal repo)
+#   dot pull/push/status/diff  Operates on both repos (if work repo exists)
+#   dot refresh                Fixes phantom dirty files from clean filters
+#   dot <anything>             Passes through to git (personal repo)
 
 set -euo pipefail
 
@@ -52,14 +53,14 @@ case "${1:-}" in
     _normalize_filtered
     echo "==> Pushing personal dotfiles..."
     $GIT push "$@"
-    _push_work_repo
+    _push_work_repo "$@"
     ;;
   pull)
     shift
     _normalize_filtered
     echo "==> Pulling personal dotfiles..."
     $GIT pull "$@"
-    _pull_work_repo
+    _pull_work_repo "$@"
     _run_merges
     _normalize_filtered
     echo "==> Done! Run 'source ~/.bashrc' to activate."
@@ -67,9 +68,20 @@ case "${1:-}" in
   refresh)
     _normalize_filtered
     ;;
-  status)
-    _normalize_filtered
+  diff)
     shift
+    _normalize_filtered
+    echo "==> Personal dotfiles"
+    $GIT diff "$@"
+    if [[ -d "$WORK_DIR" ]]; then
+      echo ""
+      echo "==> Work dotfiles"
+      git -C "$WORK_DIR" diff "$@"
+    fi
+    ;;
+  status)
+    shift
+    _normalize_filtered
     echo "==> Personal dotfiles"
     $GIT status "$@"
     if [[ -d "$WORK_DIR" ]]; then
@@ -77,6 +89,20 @@ case "${1:-}" in
       echo "==> Work dotfiles"
       git -C "$WORK_DIR" status "$@"
     fi
+    ;;
+  "")
+    cat <<EOF
+usage: dot <command> [<args>]
+
+Multi-repo commands (personal + work):
+  pull      Pull both repos, re-run work bootstrap, merge app configs
+  push      Push both repos
+  status    Show status of both repos
+  diff      Show diff of both repos
+  refresh   Fix phantom dirty files from clean/smudge filters
+
+All other commands pass through to git (personal repo only).
+EOF
     ;;
   *)
     $GIT "$@"
