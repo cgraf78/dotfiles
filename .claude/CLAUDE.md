@@ -7,19 +7,14 @@ Two repos: `~/.dotfiles` (personal, bare) and `~/.dotfiles-work` (work, regular 
 - Use the `dot` alias for personal dotfiles. Use `git` in `~/.dotfiles-work/` for work dotfiles.
 - When moving tracked personal dotfiles, use `dot mv` to preserve history.
 
-## Dev Session
+## Tools
 
-`~/.local/bin/ds` creates tmux dev sessions with pluggable profiles, connection methods, and share backends. Config lives in `~/.config/ds/`. See `~/.local/bin/ds.md` for full documentation.
-
-## Notifications
-
-- Do NOT use the `pingme` skill to send notifications.
-
-## Repos
-
-- `~/git` is the default location for locally cloned git repos.
-- GitHub username: `cgraf78`.
+- `~/git` is the default location for locally cloned git repos. GitHub username: `cgraf78`.
 - Use `gh` for all GitHub operations (PRs, issues, releases).
+- `ds` creates tmux dev sessions. See `~/.local/bin/ds.md`.
+- `dotsync` syncs dotfiles across machines. Config lives in `~/.config/dotsync/`.
+- gstack skills live in `~/.gstack`, symlinked into `~/.claude/skills/`.
+- Do NOT use the `pingme` skill to send notifications.
 
 ## Commit Style
 
@@ -67,9 +62,3 @@ Two repos: `~/.dotfiles` (personal, bare) and `~/.dotfiles-work` (work, regular 
 - Always write tests for new code.
 - Analyze edge cases before writing tests — boundary values, missing data, error paths, concurrency, invalid input.
 - Dedicated test case per edge case, not bundled into happy-path tests.
-
-## gstack
-
-Repo: `~/.gstack`. Skills symlinked into `~/.claude/skills/`.
-
-Available skills: `/office-hours`, `/plan-ceo-review`, `/plan-eng-review`, `/plan-design-review`, `/design-consultation`, `/review`, `/ship`, `/qa`, `/qa-only`, `/design-review`, `/retro`, `/debug`, `/document-release`, `/gstack-upgrade`.
