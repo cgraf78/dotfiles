@@ -130,5 +130,6 @@
   "statusLine": {
     "command": "bash ~/.claude/statusline-command.sh",
     "type": "command"
-  }
+  },
+  "voiceEnabled": true
 }
