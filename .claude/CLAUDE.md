@@ -32,7 +32,6 @@ Two repos: `~/.dotfiles` (personal, bare) and `~/.dotfiles-work` (work, regular 
 ## Workflow
 
 - Don't chain separately-permitted commands with `&&` — use individual Bash calls instead, to avoid unnecessary permission prompts.
-- Use single-line `dot commit -m '...'` for dotfiles commits — heredoc-style commits break permission matching.
 - Always verify changes compile and pass tests before presenting as done.
 - Always update .h and .cpp files consistently when changing interfaces.
 - Read and understand existing code before proposing changes. Match existing patterns in the file.
