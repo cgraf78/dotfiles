@@ -14,6 +14,17 @@ set -euo pipefail
 # shellcheck source=../../.config/dot/helpers.sh
 . "$HOME/.config/dot/helpers.sh"
 
+if [[ ! -d "$DOTFILES" ]]; then
+  cat >&2 <<EOF
+error: bare repo not found at $DOTFILES
+
+Clone it first:
+  git clone --bare https://github.com/cgraf78/dotfiles.git $DOTFILES
+  $DOTFILES/../.local/bin/dotbootstrap personal
+EOF
+  exit 1
+fi
+
 # Re-checkout files that are byte-different but identical after clean filter.
 # Fixes phantom dirty status from tools rewriting JSON with different key order.
 _normalize_filtered() {
