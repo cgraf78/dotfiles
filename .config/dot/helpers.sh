@@ -23,15 +23,17 @@ _unstash_work_overrides() {
 # Pull work repo and re-run its bootstrap (symlinks, app config merges).
 _pull_work_repo() {
   [[ -d "$WORK_DIR" ]] || return 0
-  echo "==> Pulling work dotfiles..."
-  git -C "$WORK_DIR" pull "$@" || echo "  warning: work dotfiles pull failed" >&2
+  if [[ -d "$WORK_DIR/.git" ]]; then
+    echo "==> Pulling work dotfiles..."
+    git -C "$WORK_DIR" pull "$@" || echo "  warning: work dotfiles pull failed" >&2
+  fi
   # shellcheck disable=SC2015  # || true is a fallback, not an else branch
   [[ -x "$WORK_DIR/bootstrap" ]] && "$WORK_DIR/bootstrap" || true
 }
 
 # Push work repo.
 _push_work_repo() {
-  [[ -d "$WORK_DIR" ]] || return 0
+  [[ -d "$WORK_DIR/.git" ]] || return 0
   echo "==> Pushing work dotfiles..."
   git -C "$WORK_DIR" push "$@" || echo "  warning: work dotfiles push failed" >&2
 }
