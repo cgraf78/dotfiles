@@ -113,3 +113,11 @@ Creates tmux sessions locally or on remote hosts with configurable profiles and 
 ### [`dotsync`](https://github.com/cgraf78/dotsync) — Cross-Machine Dotfile Sync
 
 Keeps your shell environment (dotfiles + config) consistent across multiple machines via rsync + SSH. Automates pushing settings updates to all your hosts so they stay in sync. Installed separately from its own repo.
+
+### [`vimrc`](https://github.com/cgraf78/vimrc) — Vim Config
+
+Vim runtime and plugin configuration. Installed to `~/.vim_runtime` by `dotbootstrap`.
+
+### [`gstack`](https://github.com/garrytan/gstack) — Claude Code Skills
+
+A collection of Claude Code skills (slash commands) for engineering workflows: code review, shipping, QA, retros, design consultation, and more. Installed to `~/.gstack`; skills are symlinked into `~/.claude/skills/`.
