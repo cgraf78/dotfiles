@@ -49,7 +49,7 @@ shopt -s checkwinsize
 __git_prompt() {
     local -a g=(git)
     if ! git rev-parse --git-dir &>/dev/null; then
-        [[ "$PWD" == "$HOME"* && -d "$HOME/.dotfiles" ]] || return
+        [[ "$PWD" == "$HOME" && -d "$HOME/.dotfiles" ]] || return
         g=(git --git-dir="$HOME/.dotfiles" --work-tree="$HOME")
     fi
     local branch
