@@ -12,6 +12,7 @@
 .tmux.conf
 .claude/CLAUDE.md
 .claude/settings.json
+.config/wezterm/wezterm.lua
 
 # Excludes
 !*/__pycache__
