@@ -254,24 +254,23 @@ echo "=== Usage errors (subprocess) ==="
 
 unset DOTBOOTSTRAP_SOURCED
 
-# No args → usage error
-rc=0
-result=$("$SCRIPT_DIR/dotbootstrap" 2>&1) || rc=$?
-_assert_exit "no args exits 1" 1 "$rc"
-_assert_contains "no args shows usage" "Usage:" "$result"
+# No args → defaults to personal (no usage error)
+result=$("$SCRIPT_DIR/dotbootstrap" 2>&1 || true)
+_assert_not_contains "no args: defaults to personal" "Usage:" "$result"
 
 # Invalid machine type
 rc=0
 result=$("$SCRIPT_DIR/dotbootstrap" invalid 2>&1) || rc=$?
 _assert_exit "invalid type exits 1" 1 "$rc"
+_assert_contains "invalid type shows usage" "Usage:" "$result"
 _assert_contains "invalid type mentions personal" "personal" "$result"
 _assert_contains "invalid type mentions work" "work" "$result"
 
 # Both valid types are accepted (they fail later on git operations,
-# but they pass arg validation — verify no "error: argument" message)
+# but they pass arg validation — verify no usage error)
 for mtype in personal work; do
     result=$("$SCRIPT_DIR/dotbootstrap" "$mtype" 2>&1 || true)
-    _assert_not_contains "$mtype: passes arg validation" "error: argument" "$result"
+    _assert_not_contains "$mtype: passes arg validation" "Usage:" "$result"
 done
 
 # ---------------------------------------------------------------------------
