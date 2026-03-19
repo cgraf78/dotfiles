@@ -28,7 +28,3 @@
 !*.DS_Store
 !*/.git
 !*.conflict.*
-!.local/bin/dotbootstrap
-!.local/bin/dotsync-test
-!.local/bin/dot-test
-!.local/bin/ds-test
