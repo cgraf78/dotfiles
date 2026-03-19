@@ -345,7 +345,7 @@ chmod +x "$WORK_STAGING/bootstrap"
 WORK_ORIGIN=$(_tmpdir)
 _seed_repo "$WORK_ORIGIN" "$WORK_STAGING"
 
-# --- Vimrc origin ---
+# --- vimrc origin ---
 VIMRC_STAGING=$(_tmpdir)
 cat > "$VIMRC_STAGING/install_awesome_vimrc.sh" <<'VIM'
 #!/bin/sh
@@ -354,6 +354,14 @@ VIM
 
 VIMRC_ORIGIN=$(_tmpdir)
 _seed_repo "$VIMRC_ORIGIN" "$VIMRC_STAGING"
+
+# --- gstack origin (stub with a skill dir) ---
+GSTACK_STAGING=$(_tmpdir)
+mkdir -p "$GSTACK_STAGING/review"
+echo "# review skill" > "$GSTACK_STAGING/review/SKILL.md"
+
+GSTACK_ORIGIN=$(_tmpdir)
+_seed_repo "$GSTACK_ORIGIN" "$GSTACK_STAGING"
 
 # --- ds origin (stub with bin/ds) ---
 DS_STAGING=$(_tmpdir)
@@ -380,6 +388,7 @@ _run_bootstrap() {
         DOTBOOTSTRAP_REPO="$PERSONAL_ORIGIN" \
         DOTBOOTSTRAP_WORK_REPO="$WORK_ORIGIN" \
         DOTBOOTSTRAP_VIMRC_REPO="$VIMRC_ORIGIN" \
+        DOTBOOTSTRAP_GSTACK_REPO="$GSTACK_ORIGIN" \
         DOTBOOTSTRAP_DS_REPO="$DS_ORIGIN" \
         DOTBOOTSTRAP_DOTSYNC_REPO="$DOTSYNC_ORIGIN" \
         "$SCRIPT_DIR/dotbootstrap" "$mtype" 2>&1
@@ -427,6 +436,27 @@ _assert_contains "personal: merge ran" "MERGE_TESTAPP_RAN" "$result"
 # Vim runtime installed
 _assert_file_exists "personal: vim runtime cloned" "$FRESH/.vim_runtime/install_awesome_vimrc.sh"
 _assert_contains "personal: vimrc install ran" "VIMRC_INSTALLED" "$result"
+
+# vimrc installed
+_assert_file_exists "personal: vim runtime cloned" "$FRESH/.vim_runtime/install_awesome_vimrc.sh"
+_assert_contains "personal: vimrc install ran" "VIMRC_INSTALLED" "$result"
+
+# gstack installed and skills symlinked
+if [[ -d "$FRESH/.gstack" ]]; then
+    _pass "personal: gstack cloned"
+else
+    _fail "personal: gstack cloned"
+fi
+if [[ -L "$FRESH/.claude/skills/gstack" ]]; then
+    _pass "personal: gstack skill symlinked"
+else
+    _fail "personal: gstack skill symlinked"
+fi
+if [[ -L "$FRESH/.claude/skills/review" ]]; then
+    _pass "personal: gstack sub-skill symlinked"
+else
+    _fail "personal: gstack sub-skill symlinked"
+fi
 
 # ds and dotsync installed
 _assert_file_exists "personal: ds installed" "$FRESH/.local/bin/ds"
@@ -480,8 +510,8 @@ result=$(_run_bootstrap "$FRESH_WORK" work)
 # Should NOT try to clone (repo already exists)
 _assert_not_contains "re-run: skips clone" "Cloning personal" "$result"
 
-# Should skip vim runtime (already installed)
-_assert_not_contains "re-run: skips vimrc" "Installing vim runtime" "$result"
+# Should update vimrc (not reinstall)
+_assert_not_contains "re-run: skips vimrc install script" "VIMRC_INSTALLED" "$result"
 
 # Work repo exists → pulls instead of cloning
 _assert_contains "re-run: pulls work repo" "Pulling work" "$result"

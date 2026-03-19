@@ -16,26 +16,6 @@ export DS_DEV_CHATBOT="${DS_DEV_CHATBOT:-claude}"
 export DS_CHAT_CHATBOT="${DS_CHAT_CHATBOT:-argus}"
 export DS_UPTERM_PRIVATE_KEY="$HOME/.ssh/argus_github_ed25519"
 
-# Vim runtime — clone on first use if missing
-if [ ! -d "$HOME/.vim_runtime" ] && command -v git &>/dev/null; then
-    git clone --depth 1 https://github.com/cgraf78/vimrc.git "$HOME/.vim_runtime" &>/dev/null \
-        && sh "$HOME/.vim_runtime/install_awesome_vimrc.sh" &>/dev/null || true
-fi
-
-# gstack — clone on first use, symlink skills into ~/.claude/skills/
-if [ ! -d "$HOME/.gstack" ] && command -v git &>/dev/null; then
-    git clone --depth 1 https://github.com/garrytan/gstack.git "$HOME/.gstack" &>/dev/null || true
-fi
-if [ -d "$HOME/.gstack" ] && [ ! -L "$HOME/.claude/skills/gstack" ]; then
-    mkdir -p "$HOME/.claude/skills"
-    ln -snf "$HOME/.gstack" "$HOME/.claude/skills/gstack"
-    for _d in "$HOME/.gstack"/*/; do
-        [ -f "$_d/SKILL.md" ] && [ "$(basename "$_d")" != "node_modules" ] \
-            && ln -snf "gstack/$(basename "$_d")" "$HOME/.claude/skills/$(basename "$_d")"
-    done
-    unset _d
-fi
-
 # PATH
 if [ -d "/usr/local/bin" ]; then
     PATH="/usr/local/bin:$PATH"
