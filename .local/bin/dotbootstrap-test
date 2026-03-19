@@ -105,7 +105,8 @@ if [[ "$(uname -s)" == "Linux" ]]; then
     export WSL_DISTRO_NAME="archlinux"
     export USER="chris"
     export DOT_TEST_WINDOWS_HOME="$WEZ_WIN_HOME"
-    echo "return { test = true }" > "$HOME/.wezterm.lua"
+    mkdir -p "$HOME/.config/wezterm"
+    echo "return { test = true }" > "$HOME/.config/wezterm/wezterm.lua"
     merge_wezterm
   )
 

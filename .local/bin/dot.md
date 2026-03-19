@@ -92,7 +92,7 @@ Profiles in `~/.config/dot/karabiner/karabiner.json` are merged into Karabiner's
 
 ### WezTerm config
 
-`~/.config/wezterm/wezterm.lua` is the WezTerm config file. Tracked directly — no merge step needed.
+`~/.config/wezterm/wezterm.lua` is the WezTerm config file. Tracked directly. On WSL, `dot pull` copies it to the Windows home so the Windows-native WezTerm picks it up.
 
 ## Adding a Work-Only File
 
@@ -108,11 +108,11 @@ dot add <file> && dot commit -m "add <file>" && dot push
 
 ### [`ds`](https://github.com/cgraf78/ds) — Dev Session Launcher
 
-Creates tmux sessions locally or on remote hosts with configurable profiles and per-host defaults. Installed separately from its own repo.
+Creates tmux sessions locally or on remote hosts with configurable profiles and per-host defaults. Installed to `~/.local/share/ds` by `dotbootstrap`.
 
 ### [`dotsync`](https://github.com/cgraf78/dotsync) — Cross-Machine Dotfile Sync
 
-Keeps your shell environment (dotfiles + config) consistent across multiple machines via rsync + SSH. Automates pushing settings updates to all your hosts so they stay in sync. Installed separately from its own repo.
+Keeps your shell environment (dotfiles + config) consistent across multiple machines via rsync + SSH. Automates pushing settings updates to all your hosts so they stay in sync. Installed to `~/.local/share/dotsync` by `dotbootstrap`.
 
 ### [`vimrc`](https://github.com/cgraf78/vimrc) — Vim Config
 

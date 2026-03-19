@@ -3,7 +3,7 @@
 # Keeps ~/.wezterm.lua in dotfiles as the source of truth.
 
 merge_wezterm() {
-  local src="$HOME/.wezterm.lua"
+  local src="$HOME/.config/wezterm/wezterm.lua"
   [[ -f "$src" ]] || return 0
 
   case "$(uname -s)" in
