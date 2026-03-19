@@ -381,11 +381,14 @@ chmod +x "$DOTSYNC_STAGING/bin/dotsync"
 DOTSYNC_ORIGIN=$(_tmpdir)
 _seed_repo "$DOTSYNC_ORIGIN" "$DOTSYNC_STAGING"
 
-# Helper to run dotbootstrap in a fresh HOME with local repos
+# Helper to run dotbootstrap in a fresh HOME with local repos.
+# Pre-clones the personal bare repo (dotbootstrap no longer auto-clones).
 _run_bootstrap() {
     local home="$1" mtype="$2"
+    if [[ ! -d "$home/.dotfiles" ]]; then
+        git clone --bare "$PERSONAL_ORIGIN" "$home/.dotfiles" >/dev/null 2>&1
+    fi
     HOME="$home" \
-        DOTBOOTSTRAP_REPO="$PERSONAL_ORIGIN" \
         DOTBOOTSTRAP_WORK_REPO="$WORK_ORIGIN" \
         DOTBOOTSTRAP_VIMRC_REPO="$VIMRC_ORIGIN" \
         DOTBOOTSTRAP_GSTACK_REPO="$GSTACK_ORIGIN" \
@@ -402,11 +405,11 @@ echo "=== Fresh install (personal) ==="
 FRESH=$(_tmpdir)
 result=$(_run_bootstrap "$FRESH" personal)
 
-# Bare repo cloned
+# Bare repo present (pre-cloned by _run_bootstrap)
 if [[ -d "$FRESH/.dotfiles" ]]; then
-    _pass "personal: .dotfiles created"
+    _pass "personal: .dotfiles present"
 else
-    _fail "personal: .dotfiles created"
+    _fail "personal: .dotfiles present"
 fi
 
 # Git config applied

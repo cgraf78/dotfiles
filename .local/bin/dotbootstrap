@@ -184,7 +184,13 @@ _check_dep tmux tmux || true
 _check_dep fzf fzf || true
 
 # Shared helpers (available after checkout or via dotsync).
-. "$HOME/.config/dot/helpers.sh"
+if [[ -f "$HOME/.config/dot/helpers.sh" ]]; then
+  . "$HOME/.config/dot/helpers.sh"
+else
+  echo "  warning: helpers.sh not found — skipping work repo and merges" >&2
+  echo "==> Done! Run 'source ~/.bashrc' to activate."
+  exit 0
+fi
 
 # ---------------------------------------------------------------------------
 # Work repo (work machines only)
