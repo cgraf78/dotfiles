@@ -1,5 +1,7 @@
 # Personal Rules
 
+> **Note:** Work-specific rules live in `~/.claude/rules/CLAUDE-work.md`. When asked to remember work-specific preferences, add them there — not here. This file is for personal, cross-context, and non-work-specific rules only.
+
 ## Dotfiles
 
 Two repos: `~/.dotfiles` (personal, bare) and `~/.dotfiles-work` (work, regular clone). See `~/.local/bin/dot.md` for full documentation.
