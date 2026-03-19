@@ -105,8 +105,7 @@
       "Bash(tmux *)",
       "Bash(locate *)",
       "Bash(code *)",
-      "Bash(gh api *)",
-      "Bash(gh --help*)",
+      "Bash(gh *)",
       "Bash(xargs *)",
       "Bash(sed *)",
       "Bash(awk *)",
@@ -124,6 +123,7 @@
       "Glob(*)",
       "Grep(*)",
       "WebFetch(*)",
+      "Bash(bash tests/*)",
       "WebSearch(*)"
     ]
   }
