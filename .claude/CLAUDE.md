@@ -7,13 +7,6 @@ Two repos: `~/.dotfiles` (personal, bare) and `~/.dotfiles-work` (work, regular 
 - Use the `dot` alias for personal dotfiles. Use `git` in `~/.dotfiles-work/` for work dotfiles.
 - When moving tracked personal dotfiles, use `dot mv` to preserve history.
 
-Commit description style:
-- Title: imperative sentence, backtick code names (e.g., "Fix `ds -l` showing empty window count")
-- Body has `## Summary` and `## Testing` sections
-- Summary uses `- ` bulleted list, lowercase start, hard-wrapped at ~72 columns with 2-space continuation indent
-- Testing uses `- ` bulleted list describing what was verified
-- Blank line between title, Summary, and Testing sections
-
 ## Dev Session
 
 `~/.local/bin/ds` creates tmux dev sessions with pluggable profiles, connection methods, and share backends. Config lives in `~/.config/ds/`. See `~/.local/bin/ds.md` for full documentation.
@@ -27,6 +20,14 @@ Commit description style:
 - `~/git` is the default location for locally cloned git repos.
 - GitHub username: `cgraf78`.
 - Use `gh` for all GitHub operations (PRs, issues, releases).
+
+## Commit Style
+
+- Title: imperative sentence, backtick code names (e.g., "Fix `ds -l` showing empty window count")
+- Body has `## Summary` and `## Testing` sections
+- Summary uses `- ` bulleted list, lowercase start, hard-wrapped at ~72 columns with 2-space continuation indent
+- Testing uses `- ` bulleted list describing what was verified
+- Blank line between title, Summary, and Testing sections
 
 ## Workflow
 
