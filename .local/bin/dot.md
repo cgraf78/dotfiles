@@ -90,6 +90,10 @@ Dynamic Profile in `~/.config/dot/iterm2/dotfiles-dyn-profile.json` is copied in
 
 Profiles in `~/.config/dot/karabiner/karabiner.json` are merged into Karabiner's config by `dotbootstrap` and `dot pull`. Merge policy: dotfiles profiles replace local profiles with the same name, local-only profiles are preserved.
 
+### WezTerm config
+
+`~/.config/wezterm/wezterm.lua` is the WezTerm config file. Tracked directly — no merge step needed.
+
 ## Adding a Work-Only File
 
 Add the file to `~/.dotfiles-work/home/<path>`, commit, and push. The work bootstrap will symlink it on the next `dot pull`.
