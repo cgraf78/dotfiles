@@ -19,7 +19,7 @@ Two repos: `~/.dotfiles` (personal, bare) and `~/.dotfiles-work` (work, regular 
 ## Commit Style
 
 - Title: imperative sentence, backtick code names (e.g., "Fix `ds -l` showing empty window count")
-- Body has `## Summary` and `## Testing` sections
+- Body has `Summary` and `Testing` sections (plain text headers, no `##` prefix — `#` inside commit heredocs triggers Claude Code permission warnings)
 - Summary uses `- ` bulleted list, lowercase start, hard-wrapped at ~72 columns with 2-space continuation indent
 - Testing uses `- ` bulleted list describing what was verified
 - Blank line between title, Summary, and Testing sections
