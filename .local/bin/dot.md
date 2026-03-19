@@ -84,7 +84,7 @@ Merge policy: dotfiles win on conflicts, local-only settings/keybindings are pre
 
 ### iTerm2 config (macOS)
 
-Dynamic Profile in `~/.config/dot/iterm2/dotfiles-dyn-profile.json` is copied into iTerm2's DynamicProfiles dir. Set it as default in Preferences.
+Dynamic Profile in `~/.config/dot/iterm2/dotfiles-dyn-profile.json` is copied into iTerm2's DynamicProfiles dir by `dotbootstrap` and `dot pull`. Set it as default in Preferences.
 
 ### Karabiner config (macOS)
 
@@ -120,4 +120,4 @@ Vim runtime and plugin configuration. Installed to `~/.vim_runtime` by `dotboots
 
 ### [`gstack`](https://github.com/garrytan/gstack) — Claude Code Skills
 
-A collection of Claude Code skills (slash commands) for engineering workflows: code review, shipping, QA, retros, design consultation, and more. Installed to `~/.gstack`; skills are symlinked into `~/.claude/skills/`.
+A collection of Claude Code skills (slash commands) for engineering workflows: code review, shipping, QA, retros, design consultation, and more. Installed to `~/.gstack` by `dotbootstrap`; skills are symlinked into `~/.claude/skills/`.
