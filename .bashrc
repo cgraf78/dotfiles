@@ -135,9 +135,6 @@ if [ -f ~/.bash_aliases ]; then
     . ~/.bash_aliases
 fi
 
-# Completions
-command -v fzf &>/dev/null && eval "$(fzf --bash 2>/dev/null)" || true
-
 # Directory bookmarks
 mkdir -p ~/.marks
 mark() { ln -sfn "$(pwd)" ~/.marks/"$1"; }
@@ -157,5 +154,7 @@ argus() {
     openclaw tui --session "agent:main:${sess}"
 }
 
-# ds shell integration (profile shortcuts + auto-attach on SSH)
+# Tool shell integrations (completions, key bindings, auto-attach)
+command -v fzf &>/dev/null && eval "$(fzf --bash 2>/dev/null)" || true
 command -v ds &>/dev/null && eval "$(ds init bash)"
+command -v dotsync &>/dev/null && eval "$(dotsync init bash)"
