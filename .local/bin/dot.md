@@ -92,7 +92,7 @@ Profiles in `~/.config/dot/karabiner/karabiner.json` are merged into Karabiner's
 
 ### WezTerm config
 
-`~/.config/wezterm/wezterm.lua` is the WezTerm config file. Tracked directly. On WSL, `dot pull` copies it to the Windows home so the Windows-native WezTerm picks it up.
+`~/.config/wezterm/wezterm.lua` is the WezTerm config file. Tracked directly. On WSL, `dotbootstrap` and `dot pull` copy it to the Windows home so the Windows-native WezTerm picks it up.
 
 ## Adding a Work-Only File
 
