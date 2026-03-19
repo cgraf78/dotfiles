@@ -27,6 +27,7 @@ Two repos: `~/.dotfiles` (personal, bare) and `~/.dotfiles-work` (work, regular 
 ## Workflow
 
 - Don't chain separately-permitted commands with `&&` — use individual Bash calls instead, to avoid unnecessary permission prompts.
+- Use `git -C <path>` instead of `cd <path> && git` — avoids compound command permission checks triggered by `cd` + `git` combinations.
 - Always verify changes compile and pass tests before presenting as done.
 - Before committing in a GitHub repo, check `.github/workflows/` for CI steps and run what can be reproduced locally (linters, tests, type checks). Skip steps that require CI-specific infrastructure (deployment, secrets, matrix OS variants).
 - Always update .h and .cpp files consistently when changing interfaces.
