@@ -52,8 +52,10 @@ __git_prompt() {
         [[ "$PWD" == "$HOME" && -d "$HOME/.dotfiles" ]] || return
         g=(git --git-dir="$HOME/.dotfiles" --work-tree="$HOME")
     fi
+
     local branch
     branch="$("${g[@]}" symbolic-ref --short HEAD 2>/dev/null || "${g[@]}" rev-parse --short HEAD 2>/dev/null)" || return
+
     local status flags=""
     status="$("${g[@]}" --no-optional-locks status --porcelain 2>/dev/null)"
     # Staged changes
