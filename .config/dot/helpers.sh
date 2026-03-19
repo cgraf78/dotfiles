@@ -6,6 +6,20 @@ DOTFILES="$HOME/.dotfiles"
 GIT="git --git-dir=$DOTFILES --work-tree=$HOME"
 WORK_DIR="$HOME/.dotfiles-work"
 
+# Restore git-tracked versions of skip-worktree files so pull won't
+# conflict with work symlinks.  The work bootstrap re-symlinks and
+# re-sets skip-worktree after pull.
+_unstash_work_overrides() {
+  [[ -d "$WORK_DIR" ]] || return 0
+  local files
+  files=$($GIT ls-files -v 2>/dev/null | awk '/^S /{print $2}') || true
+  [[ -n "$files" ]] || return 0
+  echo "$files" | while IFS= read -r f; do
+    $GIT update-index --no-skip-worktree "$f" 2>/dev/null || true
+    $GIT checkout -- "$f" 2>/dev/null || true
+  done
+}
+
 # Pull work repo and re-run its bootstrap (symlinks, app config merges).
 _pull_work_repo() {
   [[ -d "$WORK_DIR" ]] || return 0

@@ -58,6 +58,7 @@ case "${1:-}" in
   pull)
     shift
     _normalize_filtered
+    _unstash_work_overrides
     echo "==> Pulling personal dotfiles..."
     $GIT pull "$@"
     _pull_work_repo "$@"
