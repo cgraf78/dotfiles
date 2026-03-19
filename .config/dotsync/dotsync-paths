@@ -12,6 +12,7 @@
 .tmux.conf
 .claude/CLAUDE.md
 .claude/settings.json
+.claude/statusline-command.sh
 .config/wezterm/wezterm.lua
 
 # Excludes
