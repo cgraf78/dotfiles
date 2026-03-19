@@ -12,6 +12,9 @@
 #
 # Usage (dotsync-managed machine, files already present):
 #   ~/.local/bin/dotbootstrap [personal|work]
+#
+# With no argument, defaults to "work" if ~/.dotfiles-work exists,
+# otherwise "personal".
 
 set -euo pipefail
 
@@ -100,7 +103,12 @@ if [[ "${DOTBOOTSTRAP_SOURCED:-}" == 1 ]]; then return 0; fi
 # Main
 # ---------------------------------------------------------------------------
 
-MACHINE_TYPE="${1:-personal}"
+# Default to work if previously bootstrapped in work mode.
+if [[ -z "${1:-}" && -d "$HOME/.dotfiles-work" ]]; then
+  MACHINE_TYPE="work"
+else
+  MACHINE_TYPE="${1:-personal}"
+fi
 WORK_REPO="${DOTBOOTSTRAP_WORK_REPO:-git@github.com:cgraf78/dotfiles-work.git}"
 VIMRC_REPO="${DOTBOOTSTRAP_VIMRC_REPO:-cgraf78/vimrc}"
 GSTACK_REPO="${DOTBOOTSTRAP_GSTACK_REPO:-garrytan/gstack}"
@@ -116,8 +124,8 @@ case "$MACHINE_TYPE" in
   work|personal) ;;
   *)
     echo "Usage: dotbootstrap [personal|work]" >&2
-    echo "  personal  Personal dotfiles only (default)" >&2
-    echo "  work      Personal + work dotfiles" >&2
+    echo "  personal  Personal dotfiles only (default on personal machines)" >&2
+    echo "  work      Personal + work dotfiles (default when ~/.dotfiles-work exists)" >&2
     exit 1
     ;;
 esac

@@ -254,9 +254,9 @@ echo "=== Usage errors (subprocess) ==="
 
 unset DOTBOOTSTRAP_SOURCED
 
-# No args → defaults to personal (no usage error)
+# No args → no usage error (defaults to personal or work)
 result=$("$SCRIPT_DIR/dotbootstrap" 2>&1 || true)
-_assert_not_contains "no args: defaults to personal" "Usage:" "$result"
+_assert_not_contains "no args: no usage error" "Usage:" "$result"
 
 # Invalid machine type
 rc=0
@@ -383,8 +383,10 @@ _seed_repo "$DOTSYNC_ORIGIN" "$DOTSYNC_STAGING"
 
 # Helper to run dotbootstrap in a fresh HOME with local repos.
 # Pre-clones the personal bare repo (dotbootstrap no longer auto-clones).
+# Usage: _run_bootstrap <home> [<machine-type>]
 _run_bootstrap() {
-    local home="$1" mtype="$2"
+    local home="$1"
+    shift
     if [[ ! -d "$home/.dotfiles" ]]; then
         git clone --bare "$PERSONAL_ORIGIN" "$home/.dotfiles" >/dev/null 2>&1
     fi
@@ -394,7 +396,7 @@ _run_bootstrap() {
         DOTBOOTSTRAP_GSTACK_REPO="$GSTACK_ORIGIN" \
         DOTBOOTSTRAP_DS_REPO="$DS_ORIGIN" \
         DOTBOOTSTRAP_DOTSYNC_REPO="$DOTSYNC_ORIGIN" \
-        "$SCRIPT_DIR/dotbootstrap" "$mtype" 2>&1
+        "$SCRIPT_DIR/dotbootstrap" "$@" 2>&1
 }
 
 # ---- Fresh personal install ----
@@ -518,5 +520,20 @@ _assert_not_contains "re-run: no work clone" "Cloning work" "$result"
 
 # Still succeeds
 _assert_contains "re-run: done message" "Done" "$result"
+
+# ---- Auto-detect machine type ----
+
+echo ""
+echo "=== Auto-detect machine type ==="
+
+# No args + work repo present → defaults to work (pulls work repo)
+result=$(_run_bootstrap "$FRESH_WORK")
+_assert_contains "auto-detect: work mode" "Pulling work" "$result"
+_assert_contains "auto-detect: done" "Done" "$result"
+
+# No args + no work repo → defaults to personal (no work pull)
+result=$(_run_bootstrap "$FRESH")
+_assert_not_contains "auto-detect: personal mode" "Pulling work" "$result"
+_assert_contains "auto-detect: personal done" "Done" "$result"
 
 _test_summary
