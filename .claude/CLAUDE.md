@@ -24,7 +24,9 @@ Commit description style:
 
 ## Repos
 
-`~/git` is the default location for locally cloned git repos.
+- `~/git` is the default location for locally cloned git repos.
+- GitHub username: `cgraf78`.
+- Use `gh` for all GitHub operations (PRs, issues, releases).
 
 ## Workflow
 
