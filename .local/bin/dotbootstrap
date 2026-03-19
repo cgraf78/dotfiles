@@ -191,6 +191,7 @@ _backup_and_checkout
 
 if [[ "$MACHINE_TYPE" == "work" ]]; then
   if [[ -d "$WORK_DIR" ]]; then
+    # shellcheck disable=SC2119  # intentionally passing no args
     _pull_work_repo
   else
     echo "==> Cloning work dotfiles..."

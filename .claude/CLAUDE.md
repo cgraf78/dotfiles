@@ -33,6 +33,7 @@ Two repos: `~/.dotfiles` (personal, bare) and `~/.dotfiles-work` (work, regular 
 
 - Don't chain separately-permitted commands with `&&` — use individual Bash calls instead, to avoid unnecessary permission prompts.
 - Always verify changes compile and pass tests before presenting as done.
+- Before committing in a GitHub repo, check `.github/workflows/` for CI steps and run what can be reproduced locally (linters, tests, type checks). Skip steps that require CI-specific infrastructure (deployment, secrets, matrix OS variants).
 - Always update .h and .cpp files consistently when changing interfaces.
 - Read and understand existing code before proposing changes. Match existing patterns in the file.
 - When uncertain about which architectural layer owns a responsibility, ask before proposing changes.
