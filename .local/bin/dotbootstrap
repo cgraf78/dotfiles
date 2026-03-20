@@ -239,7 +239,7 @@ _print_version() {
     ver=$(git -C "$dir" describe --tags --abbrev=0 2>/dev/null || true)
     [[ -z "$ver" ]] && ver=$(git -C "$dir" log -1 --format='%h' 2>/dev/null || true)
   fi
-  [[ -n "$ver" ]] && echo "    $name $ver"
+  [[ -n "$ver" ]] && echo "    $name $ver" || true
 }
 
 # Clone or update a plain git repo (no bin/ symlink). Used for tools that
