@@ -59,6 +59,7 @@
       }
     ]
   },
+  "model": "opus",
   "permissions": {
     "allow": [
       "Bash(dot *)",
@@ -126,10 +127,6 @@
       "Bash(bash tests/*)",
       "WebSearch(*)"
     ]
-  },
-  "statusLine": {
-    "command": "bash ~/.claude/statusline-command.sh",
-    "type": "command"
   },
   "voiceEnabled": true
 }
