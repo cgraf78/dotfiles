@@ -2,9 +2,7 @@
   "enabledPlugins": {
     "claude-statusline@cgraf78-claude-plugins": true
   },
-  "env": {
-    "DISABLE_AUTOUPDATER": "1"
-  },
+  "env": {},
   "extraKnownMarketplaces": {
     "cgraf78-claude-plugins": {
       "source": {
