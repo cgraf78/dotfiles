@@ -1,6 +1,17 @@
 {
+  "enabledPlugins": {
+    "claude-statusline@cgraf78-claude-plugins": true
+  },
   "env": {
     "DISABLE_AUTOUPDATER": "1"
+  },
+  "extraKnownMarketplaces": {
+    "cgraf78-claude-plugins": {
+      "source": {
+        "repo": "cgraf78/claude-plugins",
+        "source": "github"
+      }
+    }
   },
   "hooks": {
     "Notification": [
@@ -127,6 +138,10 @@
       "Bash(bash tests/*)",
       "WebSearch(*)"
     ]
+  },
+  "statusLine": {
+    "command": "bash ~/.claude/plugins/cache/cgraf78-claude-plugins/claude-statusline/*/scripts/statusline.sh",
+    "type": "command"
   },
   "voiceEnabled": true
 }
