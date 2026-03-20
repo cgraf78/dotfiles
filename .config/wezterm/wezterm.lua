@@ -327,6 +327,8 @@ return {
   macos_window_background_blur = macos_window_background_blur,
 
   -- Behavior
+  -- SUPER (CMD) bypasses tmux mouse reporting so CMD+Click opens links.
+  bypass_mouse_reporting_modifiers = 'SUPER',
   scrollback_lines = 20000,
   check_for_updates = false,
   automatically_reload_config = true,
@@ -335,6 +337,15 @@ return {
   default_cursor_style = 'SteadyBar',
 
   keys = keys,
+
+  mouse_bindings = {
+    -- CMD+Click opens hyperlinks on macOS.
+    {
+      event = { Up = { streak = 1, button = 'Left' } },
+      mods = 'SUPER',
+      action = act.OpenLinkAtMouseCursor,
+    },
+  },
 
   -- Keep hyperlinks useful in terminal output.
   hyperlink_rules = wezterm.default_hyperlink_rules(),
