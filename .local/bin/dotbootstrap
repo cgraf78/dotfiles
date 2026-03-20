@@ -197,6 +197,7 @@ if [[ -f "$HOME/.config/dot/helpers.sh" ]]; then
 else
   echo "  warning: helpers.sh not found — skipping work repo and merges" >&2
   echo "==> Done! Run 'source ~/.bashrc' to activate."
+  touch "$HOME/.dotbootstrap-done"
   exit 0
 fi
 
@@ -367,3 +368,4 @@ if [[ -d "$HOME/.gstack" ]]; then
 fi
 
 echo "==> Done! Run 'source ~/.bashrc' to activate."
+touch "$HOME/.dotbootstrap-done"
