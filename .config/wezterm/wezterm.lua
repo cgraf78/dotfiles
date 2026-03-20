@@ -173,8 +173,10 @@ local leader_keys = {
 }
 
 local keys = {
-  -- Try to make Shift+Enter distinct from plain Enter for TUIs.
-  bind('Enter', 'SHIFT', act.SendString('\x0a')),
+  -- Shift+Enter: send CSI u sequence (kitty keyboard protocol) so TUIs can
+  -- distinguish it from plain Enter. Requires tmux extended-keys passthrough
+  -- (set via terminal-features extkeys in tmux.conf).
+  bind('Enter', 'SHIFT', act.SendString('\x1b[13;2u')),
 
   -- Font size controls
   bind('=', 'CTRL', act.IncreaseFontSize),
