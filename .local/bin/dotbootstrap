@@ -5,10 +5,9 @@
 #   ~/.dotfiles      — bare repo, personal dotfiles (public)
 #   ~/.dotfiles-work — regular clone, work dotfiles (private, optional)
 #
-# Usage (fresh machine with git):
-#   git clone --bare https://github.com/cgraf78/dotfiles.git ~/.dotfiles
-#   git --git-dir=$HOME/.dotfiles --work-tree=$HOME checkout main -- .local/bin/dotbootstrap
-#   ~/.local/bin/dotbootstrap [personal|work]
+# Usage (fresh machine):
+#   curl -sL https://raw.githubusercontent.com/cgraf78/dotfiles/main/.local/bin/dotbootstrap | bash -s init
+#   curl -sL https://raw.githubusercontent.com/cgraf78/dotfiles/main/.local/bin/dotbootstrap | bash -s init work
 #
 # Usage (dotsync-managed machine, files already present):
 #   ~/.local/bin/dotbootstrap [personal|work]
@@ -100,6 +99,32 @@ _check_dep() {
 if [[ "${DOTBOOTSTRAP_SOURCED:-}" == 1 ]]; then return 0; fi
 
 # ---------------------------------------------------------------------------
+# Init mode: clone bare repo and re-exec
+# ---------------------------------------------------------------------------
+# Supports standalone curl invocation:
+#   curl -sL https://raw.githubusercontent.com/cgraf78/dotfiles/main/.local/bin/dotbootstrap | bash -s init [work]
+
+if [[ "${1:-}" == "init" ]]; then
+  DOTFILES_REPO="${DOTBOOTSTRAP_DOTFILES_REPO:-https://github.com/cgraf78/dotfiles.git}"
+  DOTFILES="$HOME/.dotfiles"
+  shift
+
+  if [[ -d "$DOTFILES" ]]; then
+    echo "error: $DOTFILES already exists" >&2
+    exit 1
+  fi
+
+  echo "==> Cloning bare repo..."
+  git clone --bare "$DOTFILES_REPO" "$DOTFILES"
+
+  echo "==> Checking out dotbootstrap..."
+  git --git-dir="$DOTFILES" --work-tree="$HOME" checkout main -- .local/bin/dotbootstrap
+
+  echo "==> Running dotbootstrap..."
+  exec "$HOME/.local/bin/dotbootstrap" "$@"
+fi
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -123,7 +148,8 @@ BRANCH=""
 case "$MACHINE_TYPE" in
   work|personal) ;;
   *)
-    echo "Usage: dotbootstrap [personal|work]" >&2
+    echo "Usage: dotbootstrap [init] [personal|work]" >&2
+    echo "  init      Clone bare repo and bootstrap (for fresh machines)" >&2
     echo "  personal  Personal dotfiles only (default on personal machines)" >&2
     echo "  work      Personal + work dotfiles (default when ~/.dotfiles-work exists)" >&2
     exit 1
