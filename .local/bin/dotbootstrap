@@ -228,6 +228,20 @@ _run_merges
 # Optional one-time installs
 # ---------------------------------------------------------------------------
 
+# Print version info for an installed tool.
+# Checks: VERSION file, git describe, git log.
+_print_version() {
+  local name="$1" dir="$2"
+  local ver=""
+  if [[ -f "$dir/VERSION" ]]; then
+    ver="v$(cat "$dir/VERSION")"
+  elif [[ -d "$dir/.git" ]]; then
+    ver=$(git -C "$dir" describe --tags --abbrev=0 2>/dev/null || true)
+    [[ -z "$ver" ]] && ver=$(git -C "$dir" log -1 --format='%h' 2>/dev/null || true)
+  fi
+  [[ -n "$ver" ]] && echo "    $name $ver"
+}
+
 # Clone or update a plain git repo (no bin/ symlink). Used for tools that
 # don't follow the _install_tool bin/ convention (e.g., vimrc, gstack).
 # Priority: ~/git/<name> (local clone, symlinked) > git pull > fresh clone.
@@ -242,12 +256,14 @@ _clone_tool() {
     mkdir -p "$(dirname "$install_dir")"
     ln -sfn "$local_clone" "$install_dir"
     echo "  $name → $local_clone (local clone)"
+    _print_version "$name" "$local_clone"
     return 0
   fi
 
   if [[ -d "$install_dir/.git" ]]; then
     if git -C "$install_dir" pull --ff-only 2>/dev/null; then
-      echo "  $name updated"
+      echo "  $name updated (git pull)"
+      _print_version "$name" "$install_dir"
     else
       echo "  warning: $name update failed" >&2
     fi
@@ -256,7 +272,8 @@ _clone_tool() {
 
   rm -rf "$install_dir"
   if git clone --depth 1 "$clone_url" "$install_dir" 2>/dev/null; then
-    echo "  $name installed"
+    echo "  $name installed (git clone)"
+    _print_version "$name" "$install_dir"
   else
     echo "  warning: failed to clone $name" >&2
     return 1
@@ -280,6 +297,7 @@ _install_tool() {
     ln -sf "$install_dir/bin/$name" "$HOME/.local/bin/$name"
     chmod +x "$local_clone/bin/$name"
     echo "  $name → $local_clone (local clone)"
+    _print_version "$name" "$local_clone"
     return 0
   fi
 
@@ -290,6 +308,7 @@ _install_tool() {
       ln -sf "$install_dir/bin/$name" "$HOME/.local/bin/$name"
       chmod +x "$install_dir/bin/$name"
       echo "  $name updated (git pull)"
+      _print_version "$name" "$install_dir"
       return 0
     else
       echo "  warning: git pull failed for $name, re-installing..." >&2
@@ -338,7 +357,12 @@ _install_tool() {
   mkdir -p "$HOME/.local/bin"
   ln -sf "$install_dir/bin/$name" "$HOME/.local/bin/$name"
   chmod +x "$install_dir/bin/$name"
-  echo "  $name installed"
+  if [[ -n "${tarball_url:-}" ]]; then
+    echo "  $name installed (release tarball)"
+  else
+    echo "  $name installed (git clone)"
+  fi
+  _print_version "$name" "$install_dir"
 }
 
 echo "==> Installing/upgrading ds..."
