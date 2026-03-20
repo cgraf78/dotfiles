@@ -15,6 +15,7 @@ export EDITOR=vim
 export DS_DEV_CHATBOT="${DS_DEV_CHATBOT:-claude}"
 export DS_CHAT_CHATBOT="${DS_CHAT_CHATBOT:-argus}"
 export DS_UPTERM_PRIVATE_KEY="$HOME/.ssh/argus_github_ed25519"
+export DS_SSH_AUTO_ATTACH=ds
 
 # PATH
 if [ -d "/usr/local/bin" ]; then
