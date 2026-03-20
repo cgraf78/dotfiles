@@ -6,7 +6,6 @@
 .config/dotsync
 .config/ds
 .inputrc
-.local/bin/argus
 .local/bin/dot*
 .local/bin/ds*
 .tmux.conf
