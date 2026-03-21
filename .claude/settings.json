@@ -3,7 +3,6 @@
     "clangd-lsp@claude-plugins-official": true,
     "claude-code-setup@claude-plugins-official": true,
     "claude-md-management@claude-plugins-official": true,
-    "claude-statusline@cgraf78-claude-plugins": true,
     "code-review@claude-plugins-official": true,
     "commit-commands@claude-plugins-official": true,
     "feature-dev@claude-plugins-official": true,
@@ -13,6 +12,7 @@
     "ralph-loop@claude-plugins-official": true,
     "security-guidance@claude-plugins-official": true,
     "skill-creator@claude-plugins-official": true,
+    "status-line@cgraf78-claude-plugins": true,
     "superpowers@claude-plugins-official": true
   },
   "env": {},
@@ -154,7 +154,7 @@
     ]
   },
   "statusLine": {
-    "command": "bash ~/.claude/plugins/cache/cgraf78-claude-plugins/claude-statusline/*/scripts/statusline.sh",
+    "command": "bash ~/.claude/plugins/cache/cgraf78-claude-plugins/status-line/*/scripts/status-line.sh",
     "type": "command"
   },
   "voiceEnabled": true
