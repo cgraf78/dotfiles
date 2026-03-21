@@ -10,7 +10,8 @@
                                 "conditions": [
                                     {
                                         "bundle_identifiers": [
-                                            "^com\\.microsoft\\.rdc\\.macos$"
+                                            "^com\\.microsoft\\.rdc\\.macos$",
+                                            "^com\\.realvnc\\.vncviewer$"
                                         ],
                                         "type": "frontmost_application_unless"
                                     }
@@ -55,7 +56,8 @@
                                             "^com\\.googlecode\\.iterm2$",
                                             "^com\\.apple\\.Terminal$",
                                             "^com\\.github\\.wez\\.wezterm$",
-                                            "^com\\.mitchellh\\.ghostty$"
+                                            "^com\\.mitchellh\\.ghostty$",
+                                            "^com\\.realvnc\\.vncviewer$"
                                         ],
                                         "file_paths": [
                                             "Chrome Remote Desktop\\.app"
@@ -109,7 +111,8 @@
                                             "^com\\.googlecode\\.iterm2$",
                                             "^com\\.apple\\.Terminal$",
                                             "^com\\.github\\.wez\\.wezterm$",
-                                            "^com\\.mitchellh\\.ghostty$"
+                                            "^com\\.mitchellh\\.ghostty$",
+                                            "^com\\.realvnc\\.vncviewer$"
                                         ],
                                         "file_paths": [
                                             "Chrome Remote Desktop\\.app"
@@ -163,7 +166,8 @@
                                             "^com\\.googlecode\\.iterm2$",
                                             "^com\\.apple\\.Terminal$",
                                             "^com\\.github\\.wez\\.wezterm$",
-                                            "^com\\.mitchellh\\.ghostty$"
+                                            "^com\\.mitchellh\\.ghostty$",
+                                            "^com\\.realvnc\\.vncviewer$"
                                         ],
                                         "file_paths": [
                                             "Chrome Remote Desktop\\.app"
@@ -219,7 +223,8 @@
                                             "^com\\.googlecode\\.iterm2$",
                                             "^com\\.apple\\.Terminal$",
                                             "^com\\.github\\.wez\\.wezterm$",
-                                            "^com\\.mitchellh\\.ghostty$"
+                                            "^com\\.mitchellh\\.ghostty$",
+                                            "^com\\.realvnc\\.vncviewer$"
                                         ],
                                         "file_paths": [
                                             "Chrome Remote Desktop\\.app"
@@ -274,7 +279,8 @@
                                             "^com\\.googlecode\\.iterm2$",
                                             "^com\\.apple\\.Terminal$",
                                             "^com\\.github\\.wez\\.wezterm$",
-                                            "^com\\.mitchellh\\.ghostty$"
+                                            "^com\\.mitchellh\\.ghostty$",
+                                            "^com\\.realvnc\\.vncviewer$"
                                         ],
                                         "file_paths": [
                                             "Chrome Remote Desktop\\.app"
@@ -328,7 +334,8 @@
                                             "^com\\.googlecode\\.iterm2$",
                                             "^com\\.apple\\.Terminal$",
                                             "^com\\.github\\.wez\\.wezterm$",
-                                            "^com\\.mitchellh\\.ghostty$"
+                                            "^com\\.mitchellh\\.ghostty$",
+                                            "^com\\.realvnc\\.vncviewer$"
                                         ],
                                         "file_paths": [
                                             "Chrome Remote Desktop\\.app"
@@ -379,7 +386,8 @@
                                             "^com\\.googlecode\\.iterm2$",
                                             "^com\\.apple\\.Terminal$",
                                             "^com\\.github\\.wez\\.wezterm$",
-                                            "^com\\.mitchellh\\.ghostty$"
+                                            "^com\\.mitchellh\\.ghostty$",
+                                            "^com\\.realvnc\\.vncviewer$"
                                         ],
                                         "file_paths": [
                                             "Chrome Remote Desktop\\.app"
@@ -435,7 +443,8 @@
                                             "^com\\.googlecode\\.iterm2$",
                                             "^com\\.apple\\.Terminal$",
                                             "^com\\.github\\.wez\\.wezterm$",
-                                            "^com\\.mitchellh\\.ghostty$"
+                                            "^com\\.mitchellh\\.ghostty$",
+                                            "^com\\.realvnc\\.vncviewer$"
                                         ],
                                         "file_paths": [
                                             "Chrome Remote Desktop\\.app"
@@ -490,7 +499,8 @@
                                             "^com\\.googlecode\\.iterm2$",
                                             "^com\\.apple\\.Terminal$",
                                             "^com\\.github\\.wez\\.wezterm$",
-                                            "^com\\.mitchellh\\.ghostty$"
+                                            "^com\\.mitchellh\\.ghostty$",
+                                            "^com\\.realvnc\\.vncviewer$"
                                         ],
                                         "file_paths": [
                                             "Chrome Remote Desktop\\.app"
@@ -544,7 +554,8 @@
                                             "^com\\.googlecode\\.iterm2$",
                                             "^com\\.apple\\.Terminal$",
                                             "^com\\.github\\.wez\\.wezterm$",
-                                            "^com\\.mitchellh\\.ghostty$"
+                                            "^com\\.mitchellh\\.ghostty$",
+                                            "^com\\.realvnc\\.vncviewer$"
                                         ],
                                         "file_paths": [
                                             "Chrome Remote Desktop\\.app"
@@ -595,7 +606,8 @@
                                             "^com\\.googlecode\\.iterm2$",
                                             "^com\\.apple\\.Terminal$",
                                             "^com\\.github\\.wez\\.wezterm$",
-                                            "^com\\.mitchellh\\.ghostty$"
+                                            "^com\\.mitchellh\\.ghostty$",
+                                            "^com\\.realvnc\\.vncviewer$"
                                         ],
                                         "file_paths": [
                                             "Chrome Remote Desktop\\.app"
@@ -651,7 +663,8 @@
                                             "^com\\.googlecode\\.iterm2$",
                                             "^com\\.apple\\.Terminal$",
                                             "^com\\.github\\.wez\\.wezterm$",
-                                            "^com\\.mitchellh\\.ghostty$"
+                                            "^com\\.mitchellh\\.ghostty$",
+                                            "^com\\.realvnc\\.vncviewer$"
                                         ],
                                         "file_paths": [
                                             "Chrome Remote Desktop\\.app"
@@ -705,7 +718,8 @@
                                             "^com\\.googlecode\\.iterm2$",
                                             "^com\\.apple\\.Terminal$",
                                             "^com\\.github\\.wez\\.wezterm$",
-                                            "^com\\.mitchellh\\.ghostty$"
+                                            "^com\\.mitchellh\\.ghostty$",
+                                            "^com\\.realvnc\\.vncviewer$"
                                         ],
                                         "file_paths": [
                                             "Chrome Remote Desktop\\.app"
@@ -761,7 +775,8 @@
                                             "^com\\.googlecode\\.iterm2$",
                                             "^com\\.apple\\.Terminal$",
                                             "^com\\.github\\.wez\\.wezterm$",
-                                            "^com\\.mitchellh\\.ghostty$"
+                                            "^com\\.mitchellh\\.ghostty$",
+                                            "^com\\.realvnc\\.vncviewer$"
                                         ],
                                         "file_paths": [
                                             "Chrome Remote Desktop\\.app"
@@ -815,7 +830,8 @@
                                             "^com\\.googlecode\\.iterm2$",
                                             "^com\\.apple\\.Terminal$",
                                             "^com\\.github\\.wez\\.wezterm$",
-                                            "^com\\.mitchellh\\.ghostty$"
+                                            "^com\\.mitchellh\\.ghostty$",
+                                            "^com\\.realvnc\\.vncviewer$"
                                         ],
                                         "file_paths": [
                                             "Chrome Remote Desktop\\.app"
@@ -869,7 +885,8 @@
                                             "^com\\.googlecode\\.iterm2$",
                                             "^com\\.apple\\.Terminal$",
                                             "^com\\.github\\.wez\\.wezterm$",
-                                            "^com\\.mitchellh\\.ghostty$"
+                                            "^com\\.mitchellh\\.ghostty$",
+                                            "^com\\.realvnc\\.vncviewer$"
                                         ],
                                         "file_paths": [
                                             "Chrome Remote Desktop\\.app"
@@ -923,7 +940,8 @@
                                             "^com\\.googlecode\\.iterm2$",
                                             "^com\\.apple\\.Terminal$",
                                             "^com\\.github\\.wez\\.wezterm$",
-                                            "^com\\.mitchellh\\.ghostty$"
+                                            "^com\\.mitchellh\\.ghostty$",
+                                            "^com\\.realvnc\\.vncviewer$"
                                         ],
                                         "file_paths": [
                                             "Chrome Remote Desktop\\.app"
@@ -979,7 +997,8 @@
                                             "^com\\.googlecode\\.iterm2$",
                                             "^com\\.apple\\.Terminal$",
                                             "^com\\.github\\.wez\\.wezterm$",
-                                            "^com\\.mitchellh\\.ghostty$"
+                                            "^com\\.mitchellh\\.ghostty$",
+                                            "^com\\.realvnc\\.vncviewer$"
                                         ],
                                         "file_paths": [
                                             "Chrome Remote Desktop\\.app"
@@ -1033,7 +1052,8 @@
                                             "^com\\.googlecode\\.iterm2$",
                                             "^com\\.apple\\.Terminal$",
                                             "^com\\.github\\.wez\\.wezterm$",
-                                            "^com\\.mitchellh\\.ghostty$"
+                                            "^com\\.mitchellh\\.ghostty$",
+                                            "^com\\.realvnc\\.vncviewer$"
                                         ],
                                         "file_paths": [
                                             "Chrome Remote Desktop\\.app"
@@ -1087,7 +1107,8 @@
                                             "^com\\.googlecode\\.iterm2$",
                                             "^com\\.apple\\.Terminal$",
                                             "^com\\.github\\.wez\\.wezterm$",
-                                            "^com\\.mitchellh\\.ghostty$"
+                                            "^com\\.mitchellh\\.ghostty$",
+                                            "^com\\.realvnc\\.vncviewer$"
                                         ],
                                         "file_paths": [
                                             "Chrome Remote Desktop\\.app"
@@ -1187,7 +1208,8 @@
                                             "^com\\.googlecode\\.iterm2$",
                                             "^com\\.apple\\.Terminal$",
                                             "^com\\.github\\.wez\\.wezterm$",
-                                            "^com\\.mitchellh\\.ghostty$"
+                                            "^com\\.mitchellh\\.ghostty$",
+                                            "^com\\.realvnc\\.vncviewer$"
                                         ],
                                         "file_paths": [
                                             "Chrome Remote Desktop\\.app"
@@ -1241,7 +1263,8 @@
                                             "^com\\.googlecode\\.iterm2$",
                                             "^com\\.apple\\.Terminal$",
                                             "^com\\.github\\.wez\\.wezterm$",
-                                            "^com\\.mitchellh\\.ghostty$"
+                                            "^com\\.mitchellh\\.ghostty$",
+                                            "^com\\.realvnc\\.vncviewer$"
                                         ],
                                         "file_paths": [
                                             "Chrome Remote Desktop\\.app"
@@ -1295,7 +1318,8 @@
                                             "^com\\.googlecode\\.iterm2$",
                                             "^com\\.apple\\.Terminal$",
                                             "^com\\.github\\.wez\\.wezterm$",
-                                            "^com\\.mitchellh\\.ghostty$"
+                                            "^com\\.mitchellh\\.ghostty$",
+                                            "^com\\.realvnc\\.vncviewer$"
                                         ],
                                         "file_paths": [
                                             "Chrome Remote Desktop\\.app"
@@ -1391,7 +1415,8 @@
                                             "^com\\.googlecode\\.iterm2$",
                                             "^com\\.apple\\.Terminal$",
                                             "^com\\.github\\.wez\\.wezterm$",
-                                            "^com\\.mitchellh\\.ghostty$"
+                                            "^com\\.mitchellh\\.ghostty$",
+                                            "^com\\.realvnc\\.vncviewer$"
                                         ],
                                         "file_paths": [
                                             "Chrome Remote Desktop\\.app"
@@ -1445,7 +1470,8 @@
                                             "^com\\.googlecode\\.iterm2$",
                                             "^com\\.apple\\.Terminal$",
                                             "^com\\.github\\.wez\\.wezterm$",
-                                            "^com\\.mitchellh\\.ghostty$"
+                                            "^com\\.mitchellh\\.ghostty$",
+                                            "^com\\.realvnc\\.vncviewer$"
                                         ],
                                         "file_paths": [
                                             "Chrome Remote Desktop\\.app"
@@ -1499,7 +1525,8 @@
                                             "^com\\.googlecode\\.iterm2$",
                                             "^com\\.apple\\.Terminal$",
                                             "^com\\.github\\.wez\\.wezterm$",
-                                            "^com\\.mitchellh\\.ghostty$"
+                                            "^com\\.mitchellh\\.ghostty$",
+                                            "^com\\.realvnc\\.vncviewer$"
                                         ],
                                         "file_paths": [
                                             "Chrome Remote Desktop\\.app"
@@ -1553,7 +1580,8 @@
                                             "^com\\.googlecode\\.iterm2$",
                                             "^com\\.apple\\.Terminal$",
                                             "^com\\.github\\.wez\\.wezterm$",
-                                            "^com\\.mitchellh\\.ghostty$"
+                                            "^com\\.mitchellh\\.ghostty$",
+                                            "^com\\.realvnc\\.vncviewer$"
                                         ],
                                         "file_paths": [
                                             "Chrome Remote Desktop\\.app"
@@ -1607,7 +1635,8 @@
                                             "^com\\.googlecode\\.iterm2$",
                                             "^com\\.apple\\.Terminal$",
                                             "^com\\.github\\.wez\\.wezterm$",
-                                            "^com\\.mitchellh\\.ghostty$"
+                                            "^com\\.mitchellh\\.ghostty$",
+                                            "^com\\.realvnc\\.vncviewer$"
                                         ],
                                         "file_paths": [
                                             "Chrome Remote Desktop\\.app"
@@ -1661,7 +1690,8 @@
                                             "^com\\.googlecode\\.iterm2$",
                                             "^com\\.apple\\.Terminal$",
                                             "^com\\.github\\.wez\\.wezterm$",
-                                            "^com\\.mitchellh\\.ghostty$"
+                                            "^com\\.mitchellh\\.ghostty$",
+                                            "^com\\.realvnc\\.vncviewer$"
                                         ],
                                         "file_paths": [
                                             "Chrome Remote Desktop\\.app"
@@ -1715,7 +1745,8 @@
                                             "^com\\.googlecode\\.iterm2$",
                                             "^com\\.apple\\.Terminal$",
                                             "^com\\.github\\.wez\\.wezterm$",
-                                            "^com\\.mitchellh\\.ghostty$"
+                                            "^com\\.mitchellh\\.ghostty$",
+                                            "^com\\.realvnc\\.vncviewer$"
                                         ],
                                         "file_paths": [
                                             "Chrome Remote Desktop\\.app"
@@ -1769,7 +1800,8 @@
                                             "^com\\.googlecode\\.iterm2$",
                                             "^com\\.apple\\.Terminal$",
                                             "^com\\.github\\.wez\\.wezterm$",
-                                            "^com\\.mitchellh\\.ghostty$"
+                                            "^com\\.mitchellh\\.ghostty$",
+                                            "^com\\.realvnc\\.vncviewer$"
                                         ],
                                         "file_paths": [
                                             "Chrome Remote Desktop\\.app"
@@ -1869,7 +1901,8 @@
                                             "^com\\.googlecode\\.iterm2$",
                                             "^com\\.apple\\.Terminal$",
                                             "^com\\.github\\.wez\\.wezterm$",
-                                            "^com\\.mitchellh\\.ghostty$"
+                                            "^com\\.mitchellh\\.ghostty$",
+                                            "^com\\.realvnc\\.vncviewer$"
                                         ],
                                         "file_paths": [
                                             "Chrome Remote Desktop\\.app"
@@ -1923,7 +1956,8 @@
                                             "^com\\.googlecode\\.iterm2$",
                                             "^com\\.apple\\.Terminal$",
                                             "^com\\.github\\.wez\\.wezterm$",
-                                            "^com\\.mitchellh\\.ghostty$"
+                                            "^com\\.mitchellh\\.ghostty$",
+                                            "^com\\.realvnc\\.vncviewer$"
                                         ],
                                         "file_paths": [
                                             "Chrome Remote Desktop\\.app"
@@ -1977,7 +2011,8 @@
                                             "^com\\.googlecode\\.iterm2$",
                                             "^com\\.apple\\.Terminal$",
                                             "^com\\.github\\.wez\\.wezterm$",
-                                            "^com\\.mitchellh\\.ghostty$"
+                                            "^com\\.mitchellh\\.ghostty$",
+                                            "^com\\.realvnc\\.vncviewer$"
                                         ],
                                         "file_paths": [
                                             "Chrome Remote Desktop\\.app"
@@ -2031,7 +2066,8 @@
                                             "^com\\.googlecode\\.iterm2$",
                                             "^com\\.apple\\.Terminal$",
                                             "^com\\.github\\.wez\\.wezterm$",
-                                            "^com\\.mitchellh\\.ghostty$"
+                                            "^com\\.mitchellh\\.ghostty$",
+                                            "^com\\.realvnc\\.vncviewer$"
                                         ],
                                         "file_paths": [
                                             "Chrome Remote Desktop\\.app"
@@ -2085,7 +2121,8 @@
                                             "^com\\.googlecode\\.iterm2$",
                                             "^com\\.apple\\.Terminal$",
                                             "^com\\.github\\.wez\\.wezterm$",
-                                            "^com\\.mitchellh\\.ghostty$"
+                                            "^com\\.mitchellh\\.ghostty$",
+                                            "^com\\.realvnc\\.vncviewer$"
                                         ],
                                         "file_paths": [
                                             "Chrome Remote Desktop\\.app"
@@ -2139,7 +2176,8 @@
                                             "^com\\.googlecode\\.iterm2$",
                                             "^com\\.apple\\.Terminal$",
                                             "^com\\.github\\.wez\\.wezterm$",
-                                            "^com\\.mitchellh\\.ghostty$"
+                                            "^com\\.mitchellh\\.ghostty$",
+                                            "^com\\.realvnc\\.vncviewer$"
                                         ],
                                         "file_paths": [
                                             "Chrome Remote Desktop\\.app"
@@ -2193,7 +2231,8 @@
                                             "^com\\.googlecode\\.iterm2$",
                                             "^com\\.apple\\.Terminal$",
                                             "^com\\.github\\.wez\\.wezterm$",
-                                            "^com\\.mitchellh\\.ghostty$"
+                                            "^com\\.mitchellh\\.ghostty$",
+                                            "^com\\.realvnc\\.vncviewer$"
                                         ],
                                         "file_paths": [
                                             "Chrome Remote Desktop\\.app"
@@ -2244,7 +2283,8 @@
                                             "^com\\.googlecode\\.iterm2$",
                                             "^com\\.apple\\.Terminal$",
                                             "^com\\.github\\.wez\\.wezterm$",
-                                            "^com\\.mitchellh\\.ghostty$"
+                                            "^com\\.mitchellh\\.ghostty$",
+                                            "^com\\.realvnc\\.vncviewer$"
                                         ],
                                         "file_paths": [
                                             "Chrome Remote Desktop\\.app"
@@ -2295,7 +2335,8 @@
                                             "^com\\.googlecode\\.iterm2$",
                                             "^com\\.apple\\.Terminal$",
                                             "^com\\.github\\.wez\\.wezterm$",
-                                            "^com\\.mitchellh\\.ghostty$"
+                                            "^com\\.mitchellh\\.ghostty$",
+                                            "^com\\.realvnc\\.vncviewer$"
                                         ],
                                         "file_paths": [
                                             "Chrome Remote Desktop\\.app"
@@ -2346,7 +2387,8 @@
                                             "^com\\.googlecode\\.iterm2$",
                                             "^com\\.apple\\.Terminal$",
                                             "^com\\.github\\.wez\\.wezterm$",
-                                            "^com\\.mitchellh\\.ghostty$"
+                                            "^com\\.mitchellh\\.ghostty$",
+                                            "^com\\.realvnc\\.vncviewer$"
                                         ],
                                         "file_paths": [
                                             "Chrome Remote Desktop\\.app"
@@ -2397,7 +2439,8 @@
                                             "^com\\.googlecode\\.iterm2$",
                                             "^com\\.apple\\.Terminal$",
                                             "^com\\.github\\.wez\\.wezterm$",
-                                            "^com\\.mitchellh\\.ghostty$"
+                                            "^com\\.mitchellh\\.ghostty$",
+                                            "^com\\.realvnc\\.vncviewer$"
                                         ],
                                         "file_paths": [
                                             "Chrome Remote Desktop\\.app"
@@ -2448,7 +2491,8 @@
                                             "^com\\.googlecode\\.iterm2$",
                                             "^com\\.apple\\.Terminal$",
                                             "^com\\.github\\.wez\\.wezterm$",
-                                            "^com\\.mitchellh\\.ghostty$"
+                                            "^com\\.mitchellh\\.ghostty$",
+                                            "^com\\.realvnc\\.vncviewer$"
                                         ],
                                         "file_paths": [
                                             "Chrome Remote Desktop\\.app"
@@ -2499,7 +2543,8 @@
                                             "^com\\.googlecode\\.iterm2$",
                                             "^com\\.apple\\.Terminal$",
                                             "^com\\.github\\.wez\\.wezterm$",
-                                            "^com\\.mitchellh\\.ghostty$"
+                                            "^com\\.mitchellh\\.ghostty$",
+                                            "^com\\.realvnc\\.vncviewer$"
                                         ],
                                         "file_paths": [
                                             "Chrome Remote Desktop\\.app"
@@ -2550,7 +2595,8 @@
                                             "^com\\.googlecode\\.iterm2$",
                                             "^com\\.apple\\.Terminal$",
                                             "^com\\.github\\.wez\\.wezterm$",
-                                            "^com\\.mitchellh\\.ghostty$"
+                                            "^com\\.mitchellh\\.ghostty$",
+                                            "^com\\.realvnc\\.vncviewer$"
                                         ],
                                         "file_paths": [
                                             "Chrome Remote Desktop\\.app"
@@ -2601,7 +2647,8 @@
                                             "^com\\.googlecode\\.iterm2$",
                                             "^com\\.apple\\.Terminal$",
                                             "^com\\.github\\.wez\\.wezterm$",
-                                            "^com\\.mitchellh\\.ghostty$"
+                                            "^com\\.mitchellh\\.ghostty$",
+                                            "^com\\.realvnc\\.vncviewer$"
                                         ],
                                         "file_paths": [
                                             "Chrome Remote Desktop\\.app"
@@ -2652,7 +2699,8 @@
                                             "^com\\.googlecode\\.iterm2$",
                                             "^com\\.apple\\.Terminal$",
                                             "^com\\.github\\.wez\\.wezterm$",
-                                            "^com\\.mitchellh\\.ghostty$"
+                                            "^com\\.mitchellh\\.ghostty$",
+                                            "^com\\.realvnc\\.vncviewer$"
                                         ],
                                         "file_paths": [
                                             "Chrome Remote Desktop\\.app"
@@ -2760,7 +2808,8 @@
                                             "^com\\.googlecode\\.iterm2$",
                                             "^com\\.apple\\.Terminal$",
                                             "^com\\.github\\.wez\\.wezterm$",
-                                            "^com\\.mitchellh\\.ghostty$"
+                                            "^com\\.mitchellh\\.ghostty$",
+                                            "^com\\.realvnc\\.vncviewer$"
                                         ],
                                         "file_paths": [
                                             "Chrome Remote Desktop\\.app"
@@ -2814,7 +2863,8 @@
                                             "^com\\.googlecode\\.iterm2$",
                                             "^com\\.apple\\.Terminal$",
                                             "^com\\.github\\.wez\\.wezterm$",
-                                            "^com\\.mitchellh\\.ghostty$"
+                                            "^com\\.mitchellh\\.ghostty$",
+                                            "^com\\.realvnc\\.vncviewer$"
                                         ],
                                         "file_paths": [
                                             "Chrome Remote Desktop\\.app"
@@ -2995,7 +3045,7 @@
                         ]
                     },
                     {
-                        "description": "Tab (Cmd) [Only Remote Desktop] → Alt+Tab on remote",
+                        "description": "Tab (Cmd) [Only Remote Desktop] \u2192 Alt+Tab on remote",
                         "manipulators": [
                             {
                                 "conditions": [
@@ -3040,7 +3090,8 @@
                                             "^com\\.parallels\\.desktop\\.console$",
                                             "^org\\.vmware\\.fusion$",
                                             "^com\\.citrix\\.XenAppViewer$",
-                                            "^com\\.microsoft\\.rdc\\.macos$"
+                                            "^com\\.microsoft\\.rdc\\.macos$",
+                                            "^com\\.realvnc\\.vncviewer$"
                                         ],
                                         "type": "frontmost_application_unless"
                                     }
@@ -3075,7 +3126,8 @@
                                 "conditions": [
                                     {
                                         "bundle_identifiers": [
-                                            "^com\\.microsoft\\.rdc\\.macos$"
+                                            "^com\\.microsoft\\.rdc\\.macos$",
+                                            "^com\\.realvnc\\.vncviewer$"
                                         ],
                                         "type": "frontmost_application_unless"
                                     }
