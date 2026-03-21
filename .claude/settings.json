@@ -82,6 +82,10 @@
     ]
   },
   "permissions": {
+    "additionalDirectories": [
+      "/home/chris",
+      "/Users/chris"
+    ],
     "allow": [
       "Bash(dot *)",
       "Bash(cd *)",
