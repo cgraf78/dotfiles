@@ -96,6 +96,7 @@
       }
     ]
   },
+  "model": "sonnet",
   "permissions": {
     "additionalDirectories": [
       "/home/chris",
