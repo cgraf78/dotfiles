@@ -166,7 +166,8 @@
       "Bash(brew *)",
       "Bash(claude *)",
       "Bash(dotsync *)",
-      "Bash(ds *)"
+      "Bash(ds *)",
+      "Skill(commit-commands:*)"
     ]
   },
   "statusLine": {
