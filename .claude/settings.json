@@ -163,13 +163,6 @@
       "WebSearch(*)"
     ]
   },
-  "pluginConfigs": {
-    "memory-sync@cgraf78-claude-plugins": {
-      "options": {
-        "cloudRoot": "/Users/chris/Google Drive/My Drive/claude-memory"
-      }
-    }
-  },
   "statusLine": {
     "command": "bash ~/.claude/plugins/cache/cgraf78-claude-plugins/status-line/*/scripts/status-line.sh",
     "type": "command"
