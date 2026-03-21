@@ -8,6 +8,7 @@
     "feature-dev@claude-plugins-official": true,
     "frontend-design@claude-plugins-official": true,
     "github@claude-plugins-official": true,
+    "memory-sync@cgraf78-claude-plugins": true,
     "plugin-dev@claude-plugins-official": true,
     "ralph-loop@claude-plugins-official": true,
     "security-guidance@claude-plugins-official": true,
@@ -74,6 +75,15 @@
         "hooks": [
           {
             "command": "printf '\\a' > /dev/tty 2>/dev/null || true",
+            "type": "command"
+          }
+        ],
+        "matcher": ""
+      },
+      {
+        "hooks": [
+          {
+            "command": "bash ~/.claude/plugins/cache/cgraf78-claude-plugins/memory-sync/*/scripts/sync-memory.sh",
             "type": "command"
           }
         ],
@@ -152,6 +162,13 @@
       "Bash(bash tests/*)",
       "WebSearch(*)"
     ]
+  },
+  "pluginConfigs": {
+    "memory-sync@cgraf78-claude-plugins": {
+      "options": {
+        "cloudRoot": "/Users/chris/Google Drive/My Drive/claude-memory"
+      }
+    }
   },
   "statusLine": {
     "command": "bash ~/.claude/plugins/cache/cgraf78-claude-plugins/status-line/*/scripts/status-line.sh",
