@@ -160,7 +160,13 @@
       "Grep(*)",
       "WebFetch(*)",
       "Bash(bash tests/*)",
-      "WebSearch(*)"
+      "WebSearch(*)",
+      "Bash(shellcheck *)",
+      "Bash(rsync *)",
+      "Bash(brew *)",
+      "Bash(claude *)",
+      "Bash(dotsync *)",
+      "Bash(ds *)"
     ]
   },
   "statusLine": {
