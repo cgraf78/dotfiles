@@ -111,7 +111,8 @@ fi
 # Linux / WSL / MINGW
 # =============================================================================
 if [[ "$(uname -s)" == "Linux" || "$(uname -s)" == MINGW* || "$(uname -s)" == MSYS* ]]; then
-    :
+    # Disable XON/XOFF flow control so ctrl+s doesn't freeze the terminal
+    stty -ixon 2>/dev/null
 fi
 
 # =============================================================================
