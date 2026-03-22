@@ -1,0 +1,31 @@
+model = "gpt-5.4"
+project_doc_fallback_filenames = ["CLAUDE.md"]
+profile = "default"
+model_reasoning_effort = "medium"
+model_verbosity = "medium"
+
+[profiles.fast]
+model_reasoning_effort = "low"
+model_verbosity = "low"
+service_tier = "fast"
+
+[profiles.deep]
+model_reasoning_effort = "high"
+model_verbosity = "medium"
+web_search = "live"
+
+[profiles.no_prompt]
+approval_policy = "never"
+sandbox_mode = "workspace-write"
+
+[profiles.no_prompt.sandbox_workspace_write]
+network_access = true
+
+[projects."/Users/chris"]
+trust_level = "trusted"
+
+[notice.model_migrations]
+"gpt-5.3-codex" = "gpt-5.4"
+
+[tui]
+status_line = ["model-with-reasoning", "context-remaining", "current-dir", "git-branch", "five-hour-limit", "weekly-limit"]
