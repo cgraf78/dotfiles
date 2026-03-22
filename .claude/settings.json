@@ -136,6 +136,7 @@
       "Bash(uname *)",
       "Bash(tr *)",
       "Bash(python3 *)",
+      "Bash(python *)",
       "Bash(pip3 list*)",
       "Bash(pip3 show *)",
       "Bash(pip3 freeze*)",
