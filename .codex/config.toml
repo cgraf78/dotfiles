@@ -21,6 +21,10 @@ sandbox_mode = "workspace-write"
 [profiles.no_prompt.sandbox_workspace_write]
 network_access = true
 
+[profiles.allow_all]
+approval_policy = "never"
+sandbox_mode = "danger-full-access"
+
 [projects."/Users/chris"]
 trust_level = "trusted"
 
