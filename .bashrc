@@ -16,9 +16,12 @@ export DS_DEV_CHATBOT="${DS_DEV_CHATBOT:-claude}"
 export DS_CHAT_CHATBOT="${DS_CHAT_CHATBOT:-argus}"
 export DS_UPTERM_PRIVATE_KEY="$HOME/.ssh/argus_github_ed25519"
 export DS_SSH_AUTO_ATTACH=ds
-[ -f "$HOME/.config/gh/github-pat" ] && export GITHUB_PERSONAL_ACCESS_TOKEN="$(cat "$HOME/.config/gh/github-pat")"
 export PHOTOCAD_ENV_FILE=/var/lib/photocad/.env
 export PHOTOCAD_LIVE_TEST_ENV_FILE=~/.config/photocad/live-test-env
+# GitHub PAT for Claude Code's GitHub MCP server. Avoids calling `gh auth token`
+# at shell startup (which triggers D-Bus/keyring on headless hosts).
+# To create: gh auth token > ~/.config/gh/github-pat && chmod 600 ~/.config/gh/github-pat
+[ -f "$HOME/.config/gh/github-pat" ] && export GITHUB_PERSONAL_ACCESS_TOKEN="$(cat "$HOME/.config/gh/github-pat")"
 
 # PATH
 if [ -d "/usr/local/bin" ]; then
