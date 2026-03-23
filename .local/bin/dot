@@ -48,6 +48,15 @@ _normalize_filtered() {
 }
 
 case "${1:-}" in
+  fetch)
+    shift
+    echo "==> Fetching personal dotfiles..."
+    $GIT fetch "$@"
+    if [[ -d "$WORK_DIR/.git" ]]; then
+      echo "==> Fetching work dotfiles..."
+      git -C "$WORK_DIR" fetch "$@"
+    fi
+    ;;
   push)
     shift
     _normalize_filtered
@@ -96,6 +105,7 @@ case "${1:-}" in
 usage: dot <command> [<args>]
 
 Multi-repo commands (personal + work):
+  fetch     Fetch both repos (without updating working copy)
   pull      Pull both repos, re-run work bootstrap, merge app configs
   push      Push both repos
   status    Show status of both repos

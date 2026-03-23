@@ -36,6 +36,7 @@ The bootstrap script automatically backs up any conflicting files to `~/.dotfile
 ## Usage
 
 ```bash
+dot fetch         # fetch both repos (without updating working copy)
 dot pull          # pull both repos, re-run work bootstrap, merge app configs
 dot push          # push both repos
 dot status        # check status of both repos
@@ -49,7 +50,7 @@ Work repo files are managed with plain `git` in `~/.dotfiles-work/`.
 
 ## How It Works
 
-- `dot pull/push/status/diff` operates on both repos (if `~/.dotfiles-work` exists)
+- `dot fetch/pull/push/status/diff` operates on both repos (if `~/.dotfiles-work` exists)
 - Work bootstrap symlinks files from `~/.dotfiles-work/home/` into `$HOME`
 - Files that override personal versions get `--skip-worktree` to prevent phantom dirty status
 - No branch sync, no markers — just two independent repos
