@@ -25,6 +25,7 @@ Two repos: `~/.dotfiles` (personal, bare) and `~/.dotfiles-work` (work, regular 
 - Summary uses `- ` bulleted list, lowercase start, hard-wrapped at ~72 columns with 2-space continuation indent
 - Testing uses `- ` bulleted list describing what was verified
 - Blank line between title, Summary, and Testing sections
+- When commit messages contain backticks or other shell-sensitive characters, do not pass them via shell-quoted `git commit -m ...`; write the message to a temporary file or use a single-quoted heredoc and commit with `git commit -F`.
 
 ## Workflow
 
