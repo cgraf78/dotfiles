@@ -16,7 +16,7 @@ export DS_DEV_CHATBOT="${DS_DEV_CHATBOT:-claude}"
 export DS_CHAT_CHATBOT="${DS_CHAT_CHATBOT:-argus}"
 export DS_UPTERM_PRIVATE_KEY="$HOME/.ssh/argus_github_ed25519"
 export DS_SSH_AUTO_ATTACH=ds
-export GITHUB_PERSONAL_ACCESS_TOKEN="$(gh auth token 2>/dev/null)"
+[ -f "$HOME/.config/gh/github-pat" ] && export GITHUB_PERSONAL_ACCESS_TOKEN="$(cat "$HOME/.config/gh/github-pat")"
 export PHOTOCAD_ENV_FILE=/var/lib/photocad/.env
 export PHOTOCAD_LIVE_TEST_ENV_FILE=~/.config/photocad/live-test-env
 
