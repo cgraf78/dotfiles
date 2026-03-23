@@ -37,6 +37,7 @@ Two repos: `~/.dotfiles` (personal, bare) and `~/.dotfiles-work` (work, regular 
 - Read and understand existing code before proposing changes. Match existing patterns in the file.
 - When uncertain about which architectural layer owns a responsibility, ask before proposing changes.
 - Don't over-engineer. Solve what's asked, nothing more.
+- When navigating into a directory or repo (whether via cd or any other means), check for `AGENTS.md` in that directory and read it if present.
 - For new work, always fetch and base branches from the latest `origin/main`, not a stale local `main` or another feature branch.
 - Create new PRs for unrelated or independent changes instead of bundling them into an in-flight PR.
 - Write PR descriptions so they also work well as squash-merge commit bodies: lead with a concise summary of what changed and why.
