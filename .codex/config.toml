@@ -4,6 +4,11 @@ profile = "default"
 model_reasoning_effort = "medium"
 model_verbosity = "medium"
 
+[profiles.default]
+model = "gpt-5.4"
+model_reasoning_effort = "medium"
+model_verbosity = "medium"
+
 [profiles.fast]
 model_reasoning_effort = "low"
 model_verbosity = "low"
