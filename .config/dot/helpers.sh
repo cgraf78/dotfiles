@@ -135,7 +135,7 @@ _install_tool() {
     ln -sfn "$local_clone" "$install_dir"
     _link_bin "$name" "$install_dir"
     local ver; ver=$(_get_version "$local_clone")
-    echo "  $name → $local_clone (local clone)${ver:+ — $ver}"
+    echo "  $name -> $local_clone (local clone)${ver:+ -- $ver}"
     return 0
   fi
 
@@ -147,9 +147,9 @@ _install_tool() {
       local head_after; head_after=$(git -C "$install_dir" rev-parse HEAD 2>/dev/null || true)
       local ver; ver=$(_get_version "$install_dir")
       if [[ "$head_before" != "$head_after" ]]; then
-        echo "  $name updated${ver:+ — $ver}"
+        echo "  $name updated${ver:+ -- $ver}"
       else
-        echo "  $name up to date${ver:+ — $ver}"
+        echo "  $name up to date${ver:+ -- $ver}"
       fi
     else
       echo "  warning: $name update failed" >&2
@@ -211,9 +211,9 @@ _install_tool() {
   local method="git clone"
   if [[ -n "${tarball_url:-}" ]]; then method="release tarball"; fi
   if [[ -n "$ver_before" && "$ver_before" == "$ver" ]]; then
-    echo "  $name up to date ($method)${ver:+ — $ver}"
+    echo "  $name up to date ($method)${ver:+ -- $ver}"
   else
-    echo "  $name installed ($method)${ver:+ — $ver}"
+    echo "  $name installed ($method)${ver:+ -- $ver}"
   fi
 }
 
