@@ -36,6 +36,7 @@ The bootstrap script automatically backs up any conflicting files to `~/.dotfile
 ## Usage
 
 ```bash
+dot update        # sync everything: pull repos, merge configs, update deps
 dot fetch         # fetch both repos (without updating working copy)
 dot pull          # pull both repos, re-run work bootstrap, merge app configs
 dot push          # push both repos
@@ -46,10 +47,13 @@ dot commit -m ""  # commit to personal repo
 dot refresh       # fix phantom dirty files from clean/smudge filters
 ```
 
+`update` works on all machines including dotsync-managed ones without git repos. All other commands require the personal bare repo.
+
 Work repo files are managed with plain `git` in `~/.dotfiles-work/`.
 
 ## How It Works
 
+- `dot update` syncs everything: pulls repos (if present), merges configs, updates deps
 - `dot fetch/pull/push/status/diff` operates on both repos (if `~/.dotfiles-work` exists)
 - Work bootstrap symlinks files from `~/.dotfiles-work/home/` into `$HOME`
 - Files that override personal versions get `--skip-worktree` to prevent phantom dirty status
@@ -75,7 +79,7 @@ Work repo files are managed with plain `git` in `~/.dotfiles-work/`.
 
 ### VS Code config
 
-Settings and keybindings in `~/.config/dot/vscode/` are merged into VS Code's config dirs by `dotbootstrap` and `dot pull`:
+Settings and keybindings in `~/.config/dot/vscode/` are merged into VS Code's config dirs by `dot update` and `dot pull`:
 
 ```
 ~/.config/dot/vscode/
@@ -90,15 +94,15 @@ Merge policy: dotfiles win on conflicts, local-only settings/keybindings are pre
 
 ### iTerm2 config (macOS)
 
-Dynamic Profile in `~/.config/dot/iterm2/dotfiles-dyn-profile.json` is copied into iTerm2's DynamicProfiles dir by `dotbootstrap` and `dot pull`. Set it as default in Preferences.
+Dynamic Profile in `~/.config/dot/iterm2/dotfiles-dyn-profile.json` is copied into iTerm2's DynamicProfiles dir by `dot update` and `dot pull`. Set it as default in Preferences.
 
 ### Karabiner config (macOS)
 
-Profiles in `~/.config/dot/karabiner/karabiner.json` are merged into Karabiner's config by `dotbootstrap` and `dot pull`. Merge policy: dotfiles profiles replace local profiles with the same name, local-only profiles are preserved.
+Profiles in `~/.config/dot/karabiner/karabiner.json` are merged into Karabiner's config by `dot update` and `dot pull`. Merge policy: dotfiles profiles replace local profiles with the same name, local-only profiles are preserved.
 
 ### WezTerm config
 
-`~/.config/wezterm/wezterm.lua` is the WezTerm config file. Tracked directly. On WSL, `dotbootstrap` and `dot pull` copy it to the Windows home so the Windows-native WezTerm picks it up.
+`~/.config/wezterm/wezterm.lua` is the WezTerm config file. Tracked directly. On WSL, `dot update` and `dot pull` copy it to the Windows home so the Windows-native WezTerm picks it up.
 
 ## Adding a Work-Only File
 
@@ -114,16 +118,16 @@ dot add <file> && dot commit -m "add <file>" && dot push
 
 ### [`ds`](https://github.com/cgraf78/ds) — Dev Session Launcher
 
-Creates tmux sessions locally or on remote hosts with configurable profiles and per-host defaults. Installed to `~/.local/share/ds` by `dotbootstrap`.
+Creates tmux sessions locally or on remote hosts with configurable profiles and per-host defaults. Installed to `~/.local/share/ds` by `dotbootstrap`; updated by `dot update`.
 
 ### [`dotsync`](https://github.com/cgraf78/dotsync) — Cross-Machine Dotfile Sync
 
-Keeps your shell environment (dotfiles + config) consistent across multiple machines via rsync + SSH. Automates pushing settings updates to all your hosts so they stay in sync. Installed to `~/.local/share/dotsync` by `dotbootstrap`.
+Keeps your shell environment (dotfiles + config) consistent across multiple machines via rsync + SSH. Automates pushing settings updates to all your hosts so they stay in sync. Installed to `~/.local/share/dotsync` by `dotbootstrap`; updated by `dot update`.
 
 ### [`vimrc`](https://github.com/cgraf78/vimrc) — Vim Config
 
-Vim runtime and plugin configuration. Installed to `~/.vim_runtime` by `dotbootstrap`.
+Vim runtime and plugin configuration. Installed to `~/.vim_runtime` by `dotbootstrap`; updated by `dot update`.
 
 ### [`gstack`](https://github.com/garrytan/gstack) — Claude Code Skills
 
-A collection of Claude Code skills (slash commands) for engineering workflows: code review, shipping, QA, retros, design consultation, and more. Installed to `~/.gstack` by `dotbootstrap`; skills are symlinked into `~/.claude/skills/`.
+A collection of Claude Code skills (slash commands) for engineering workflows: code review, shipping, QA, retros, design consultation, and more. Installed to `~/.gstack` by `dotbootstrap`; updated by `dot update`. Skills are symlinked into `~/.claude/skills/`.

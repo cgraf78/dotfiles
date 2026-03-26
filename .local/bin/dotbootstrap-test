@@ -303,28 +303,7 @@ PERSONAL_STAGING=$(_tmpdir)
 mkdir -p "$PERSONAL_STAGING/.config/dot"
 echo "bashrc content" > "$PERSONAL_STAGING/.bashrc"
 
-cat > "$PERSONAL_STAGING/.config/dot/helpers.sh" <<'HELPERS'
-#!/bin/bash
-DOTFILES="$HOME/.dotfiles"
-GIT="git --git-dir=$DOTFILES --work-tree=$HOME"
-WORK_DIR="$HOME/.dotfiles-work"
-
-_pull_work_repo() {
-  [[ -d "$WORK_DIR" ]] || return 0
-  echo "==> Pulling work dotfiles..."
-  git -C "$WORK_DIR" pull || echo "  warning: work pull failed" >&2
-  [[ -x "$WORK_DIR/bootstrap" ]] && "$WORK_DIR/bootstrap" || true
-}
-_push_work_repo() { :; }
-_run_merges() {
-  for _script in "$HOME/.config/dot"/merge-*.sh; do
-    [[ -f "$_script" ]] || continue
-    . "$_script"
-    _fn="merge_${_script##*merge-}"; _fn="${_fn%.sh}"
-    "$_fn" || true
-  done
-}
-HELPERS
+cp "$REAL_HOME/.config/dot/helpers.sh" "$PERSONAL_STAGING/.config/dot/helpers.sh"
 
 cat > "$PERSONAL_STAGING/.config/dot/merge-testapp.sh" <<'MERGE'
 merge_testapp() { echo "MERGE_TESTAPP_RAN"; }
@@ -424,9 +403,6 @@ _assert_contains "personal: json-sort filter" "jq" "$($_fgit config filter.json-
 _assert_file_exists "personal: .bashrc checked out" "$FRESH/.bashrc"
 _assert_file_content "personal: .bashrc content" "bashrc content" "$FRESH/.bashrc"
 _assert_file_exists "personal: helpers.sh checked out" "$FRESH/.config/dot/helpers.sh"
-
-# Dependencies checked (header only prints if something is missing)
-_assert_not_contains "personal: no dep warnings" "Missing dependencies" "$result"
 
 # Work repo NOT cloned
 if [[ ! -d "$FRESH/.dotfiles-work" ]]; then

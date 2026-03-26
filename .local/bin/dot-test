@@ -247,4 +247,40 @@ echo "=== Push command ==="
 result=$("$SCRIPT_DIR/dot" push 2>&1)
 _assert_contains "push: shows pushing" "Pushing personal" "$result"
 
+# ---------------------------------------------------------------------------
+# Tests: dot update (with mock remote + deps)
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== Update command ==="
+
+# Update with repo: pulls, runs merges, updates deps, shows done
+result=$(
+    DOTBOOTSTRAP_DS_REPO="$REMOTE_BARE" \
+    DOTBOOTSTRAP_DOTSYNC_REPO="$REMOTE_BARE" \
+    DOTBOOTSTRAP_VIMRC_REPO="$REMOTE_BARE" \
+    DOTBOOTSTRAP_GSTACK_REPO="$REMOTE_BARE" \
+    "$SCRIPT_DIR/dot" update 2>&1
+)
+_assert_contains "update: shows pulling" "Pulling personal" "$result"
+_assert_contains "update: shows installing" "Installing/upgrading" "$result"
+_assert_contains "update: shows done" "Done" "$result"
+
+# Update without bare repo: no error, no pull, still succeeds
+NO_REPO_HOME=$(_tmpdir)
+mkdir -p "$NO_REPO_HOME/.config/dot"
+cp "$REAL_HOME/.config/dot/helpers.sh" "$NO_REPO_HOME/.config/dot/helpers.sh"
+
+result=$(
+    HOME="$NO_REPO_HOME" \
+    DOTBOOTSTRAP_DS_REPO="$REMOTE_BARE" \
+    DOTBOOTSTRAP_DOTSYNC_REPO="$REMOTE_BARE" \
+    DOTBOOTSTRAP_VIMRC_REPO="$REMOTE_BARE" \
+    DOTBOOTSTRAP_GSTACK_REPO="$REMOTE_BARE" \
+    "$SCRIPT_DIR/dot" update 2>&1
+)
+_assert_not_contains "update no-repo: no pull" "Pulling personal" "$result"
+_assert_contains "update no-repo: shows installing" "Installing/upgrading" "$result"
+_assert_contains "update no-repo: shows done" "Done" "$result"
+
 _test_summary

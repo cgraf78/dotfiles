@@ -6,7 +6,8 @@
 #   ~/.dotfiles-work — regular clone, work dotfiles (private, optional)
 #
 # Commands:
-#   dot pull/push/status/diff  Operates on both repos (if work repo exists)
+#   dot update                 Sync everything (works on all machines)
+#   dot pull/push/status/diff  Operates on both repos (requires bare repo)
 #   dot refresh                Fixes phantom dirty files from clean filters
 #   dot <anything>             Passes through to git (personal repo)
 
@@ -15,16 +16,9 @@ set -euo pipefail
 # shellcheck source=../../.config/dot/helpers.sh
 . "$HOME/.config/dot/helpers.sh"
 
-if [[ ! -d "$DOTFILES" ]]; then
-  cat >&2 <<EOF
-error: bare repo not found at $DOTFILES
-
-Clone it first:
-  git clone --bare https://github.com/cgraf78/dotfiles.git $DOTFILES
-  $DOTFILES/../.local/bin/dotbootstrap personal
-EOF
-  exit 1
-fi
+# ---------------------------------------------------------------------------
+# Functions (defined before case statements so all commands can use them)
+# ---------------------------------------------------------------------------
 
 # Re-checkout files that are byte-different but identical after clean filter.
 # Fixes phantom dirty status from tools rewriting JSON with different key order.
@@ -47,6 +41,52 @@ _normalize_filtered() {
   done
 }
 
+# Pull both repos (personal + work) with proper unstash/normalize handling.
+_pull_all() {
+  _normalize_filtered
+  _unstash_work_overrides
+  echo "==> Pulling personal dotfiles..."
+  $GIT pull "$@"
+  _pull_work_repo "$@"
+}
+
+# ---------------------------------------------------------------------------
+# Commands that work without the bare repo
+# ---------------------------------------------------------------------------
+
+case "${1:-}" in
+  update)
+    shift
+    if [[ -d "$DOTFILES" ]]; then
+      _pull_all "$@"
+    else
+      _pull_work_repo
+    fi
+    _run_merges
+    _update_deps
+    if [[ -d "$DOTFILES" ]]; then
+      _normalize_filtered
+    fi
+    echo "==> Done! Run 'source ~/.bashrc' to activate."
+    exit 0
+    ;;
+esac
+
+# ---------------------------------------------------------------------------
+# Commands below require the bare repo
+# ---------------------------------------------------------------------------
+
+if [[ ! -d "$DOTFILES" ]]; then
+  cat >&2 <<EOF
+error: bare repo not found at $DOTFILES
+
+Clone it first:
+  git clone --bare https://github.com/cgraf78/dotfiles.git $DOTFILES
+  $DOTFILES/../.local/bin/dotbootstrap personal
+EOF
+  exit 1
+fi
+
 case "${1:-}" in
   fetch)
     shift
@@ -66,11 +106,7 @@ case "${1:-}" in
     ;;
   pull)
     shift
-    _normalize_filtered
-    _unstash_work_overrides
-    echo "==> Pulling personal dotfiles..."
-    $GIT pull "$@"
-    _pull_work_repo "$@"
+    _pull_all "$@"
     _run_merges
     _normalize_filtered
     echo "==> Done! Run 'source ~/.bashrc' to activate."
@@ -105,6 +141,7 @@ case "${1:-}" in
 usage: dot <command> [<args>]
 
 Multi-repo commands (personal + work):
+  update    Sync everything: pull repos, merge configs, update deps
   fetch     Fetch both repos (without updating working copy)
   pull      Pull both repos, re-run work bootstrap, merge app configs
   push      Push both repos
@@ -113,6 +150,9 @@ Multi-repo commands (personal + work):
   refresh   Fix phantom dirty files from clean/smudge filters
 
 All other commands pass through to git (personal repo only).
+
+'update' works on all machines including dotsync-managed ones without
+git repos. All other commands require the personal bare repo.
 EOF
     ;;
   *)
