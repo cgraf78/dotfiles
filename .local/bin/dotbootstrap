@@ -267,7 +267,10 @@ _get_version() {
   elif [[ -d "$dir/.git" ]]; then
     local ver
     ver=$(git -C "$dir" describe --tags --abbrev=0 2>/dev/null || true)
-    [[ -z "$ver" ]] && ver=$(git -C "$dir" log -1 --format='%h' 2>/dev/null || true)
+    if [[ -z "$ver" ]]; then
+      local hash; hash=$(git -C "$dir" log -1 --format='%h' 2>/dev/null || true)
+      [[ -n "$hash" ]] && ver="commit $hash"
+    fi
     echo "$ver"
   fi
 }
