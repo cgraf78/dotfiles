@@ -37,8 +37,8 @@ The bootstrap script automatically backs up any conflicting files to `~/.dotfile
 
 ```bash
 dot update        # sync everything: pull repos, merge configs, update deps
+dot pull          # same as update (requires bare repo)
 dot fetch         # fetch both repos (without updating working copy)
-dot pull          # pull both repos, re-run work bootstrap, merge app configs
 dot push          # push both repos
 dot status        # check status of both repos
 dot diff          # diff both repos
