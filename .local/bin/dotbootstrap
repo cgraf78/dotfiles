@@ -268,64 +268,32 @@ _print_version() {
   if [[ -n "$ver" ]]; then echo "    $name $ver"; fi
 }
 
-# Clone or update a plain git repo (no bin/ symlink). Used for tools that
-# don't follow the _install_tool bin/ convention (e.g., vimrc, gstack).
-# Priority: ~/git/<name> (local clone, symlinked) > git pull > fresh clone.
-_clone_tool() {
-  local name="$1" repo="$2" install_dir="$3"
-  local local_clone="$HOME/git/$name"
-  local clone_url="$repo"
-  [[ "$repo" != /* && "$repo" != *://* ]] && clone_url="https://github.com/$repo.git"
-
-  if [[ -d "$local_clone" ]]; then
-    rm -rf "$install_dir"
-    mkdir -p "$(dirname "$install_dir")"
-    ln -sfn "$local_clone" "$install_dir"
-    echo "  $name → $local_clone (local clone)"
-    _print_version "$name" "$local_clone"
-    return 0
-  fi
-
-  if [[ -d "$install_dir/.git" ]]; then
-    if git -C "$install_dir" pull --ff-only 2>/dev/null; then
-      echo "  $name updated (git pull)"
-      _print_version "$name" "$install_dir"
-    else
-      echo "  warning: $name update failed" >&2
-    fi
-    return 0
-  fi
-
-  local clone_tmp="${install_dir}.tmp.$$"
-  rm -rf "$clone_tmp"
-  if git clone --depth 1 "$clone_url" "$clone_tmp" 2>/dev/null; then
-    rm -rf "$install_dir"
-    mv "$clone_tmp" "$install_dir"
-    echo "  $name installed (git clone)"
-    _print_version "$name" "$install_dir"
-  else
-    rm -rf "$clone_tmp"
-    echo "  warning: failed to clone $name (network unreachable?)" >&2
-    return 1
+# Symlink bin/<name> into PATH if it exists.
+_link_bin() {
+  local name="$1" install_dir="$2"
+  if [[ -x "$install_dir/bin/$name" ]]; then
+    mkdir -p "$HOME/.local/bin"
+    ln -sf "$install_dir/bin/$name" "$HOME/.local/bin/$name"
   fi
 }
 
 # Install or upgrade a tool from a local clone, GitHub release, or git clone.
 # Usage: _install_tool <name> <github-owner/repo> <install-dir>
 # Priority: ~/git/<name> (symlink) > existing git clone (pull) > release tarball > fresh clone.
+# If <install-dir>/bin/<name> exists after install, it is symlinked into PATH.
 _install_tool() {
   local name="$1" repo="$2" install_dir="$3"
   local tarball_url tmp_dir
   local local_clone="$HOME/git/$name"
+  local clone_url="$repo"
+  [[ "$repo" != /* && "$repo" != *://* ]] && clone_url="https://github.com/$repo.git"
 
   # Prefer local clone — symlink for live development
-  if [[ -d "$local_clone/bin" ]]; then
+  if [[ -d "$local_clone" ]]; then
     rm -rf "$install_dir"
     mkdir -p "$(dirname "$install_dir")"
     ln -sfn "$local_clone" "$install_dir"
-    mkdir -p "$HOME/.local/bin"
-    ln -sf "$install_dir/bin/$name" "$HOME/.local/bin/$name"
-    chmod +x "$local_clone/bin/$name"
+    _link_bin "$name" "$install_dir"
     echo "  $name → $local_clone (local clone)"
     _print_version "$name" "$local_clone"
     return 0
@@ -334,19 +302,16 @@ _install_tool() {
   # Existing git clone — pull to update
   if [[ -d "$install_dir/.git" ]]; then
     if git -C "$install_dir" pull --ff-only 2>/dev/null; then
-      mkdir -p "$HOME/.local/bin"
-      ln -sf "$install_dir/bin/$name" "$HOME/.local/bin/$name"
-      chmod +x "$install_dir/bin/$name"
+      _link_bin "$name" "$install_dir"
       echo "  $name updated (git pull)"
       _print_version "$name" "$install_dir"
-      return 0
     else
-      echo "  warning: git pull failed for $name, re-installing..." >&2
-      rm -rf "$install_dir"
+      echo "  warning: $name update failed" >&2
     fi
+    return 0
   fi
 
-  # Try GitHub release (only for owner/repo format, not local paths or URLs).
+  # Try GitHub release tarball (only for owner/repo format).
   # Strip auth to prevent stale tokens from causing 401 on public repos.
   if [[ "$repo" != /* && "$repo" != *://* ]] && command -v curl &>/dev/null; then
     tarball_url=$(curl -fsSL --no-netrc -H "Authorization:" \
@@ -370,15 +335,13 @@ _install_tool() {
     fi
   fi
 
-  # Fallback: clone directly into install dir
+  # Fallback: git clone to a temp dir first so we don't destroy an existing
+  # install on failure (e.g. network unreachable).
   if [[ -z "${tarball_url:-}" ]]; then
     if ! command -v git &>/dev/null; then
       echo "  warning: no curl release and no git — cannot install $name" >&2
       return 1
     fi
-    local clone_url="$repo"
-    [[ "$repo" != /* && "$repo" != *://* ]] && clone_url="https://github.com/$repo.git"
-    # Clone to a temp dir first so we don't destroy an existing install on failure.
     local clone_tmp="${install_dir}.tmp.$$"
     rm -rf "$clone_tmp"
     if ! git clone --depth 1 "$clone_url" "$clone_tmp" 2>/dev/null; then
@@ -390,10 +353,7 @@ _install_tool() {
     mv "$clone_tmp" "$install_dir"
   fi
 
-  # Symlink into PATH
-  mkdir -p "$HOME/.local/bin"
-  ln -sf "$install_dir/bin/$name" "$HOME/.local/bin/$name"
-  chmod +x "$install_dir/bin/$name"
+  _link_bin "$name" "$install_dir"
   if [[ -n "${tarball_url:-}" ]]; then
     echo "  $name installed (release tarball)"
   else
@@ -411,14 +371,14 @@ _install_tool dotsync "$DOTSYNC_REPO" "$HOME/.local/share/dotsync" || true
 echo "==> Installing/upgrading vimrc..."
 _is_fresh_vimrc=0
 [[ ! -d "$HOME/.vim_runtime" ]] && _is_fresh_vimrc=1
-_clone_tool vimrc "$VIMRC_REPO" "$HOME/.vim_runtime" || true
+_install_tool vimrc "$VIMRC_REPO" "$HOME/.vim_runtime" || true
 if [[ $_is_fresh_vimrc -eq 1 && -f "$HOME/.vim_runtime/install_awesome_vimrc.sh" ]]; then
   sh "$HOME/.vim_runtime/install_awesome_vimrc.sh" 2>/dev/null || \
     echo "  warning: vimrc install script failed" >&2
 fi
 
 echo "==> Installing/upgrading gstack..."
-_clone_tool gstack "$GSTACK_REPO" "$HOME/.gstack" || true
+_install_tool gstack "$GSTACK_REPO" "$HOME/.gstack" || true
 if [[ -d "$HOME/.gstack" ]]; then
   mkdir -p "$HOME/.claude/skills"
   ln -sfn "$HOME/.gstack" "$HOME/.claude/skills/gstack"
