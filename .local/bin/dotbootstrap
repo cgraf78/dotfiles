@@ -135,10 +135,10 @@ else
   MACHINE_TYPE="${1:-personal}"
 fi
 WORK_REPO="${DOTBOOTSTRAP_WORK_REPO:-git@github.com:cgraf78/dotfiles-work.git}"
-VIMRC_REPO="${DOTBOOTSTRAP_VIMRC_REPO:-cgraf78/vimrc}"
-GSTACK_REPO="${DOTBOOTSTRAP_GSTACK_REPO:-garrytan/gstack}"
-DS_REPO="${DOTBOOTSTRAP_DS_REPO:-cgraf78/ds}"
-DOTSYNC_REPO="${DOTBOOTSTRAP_DOTSYNC_REPO:-cgraf78/dotsync}"
+VIMRC_REPO="${DOTBOOTSTRAP_VIMRC_REPO:-https://github.com/cgraf78/vimrc.git}"
+GSTACK_REPO="${DOTBOOTSTRAP_GSTACK_REPO:-https://github.com/garrytan/gstack.git}"
+DS_REPO="${DOTBOOTSTRAP_DS_REPO:-https://github.com/cgraf78/ds.git}"
+DOTSYNC_REPO="${DOTBOOTSTRAP_DOTSYNC_REPO:-https://github.com/cgraf78/dotsync.git}"
 DOTFILES="$HOME/.dotfiles"
 WORK_DIR="$HOME/.dotfiles-work"
 BACKUP="$HOME/.dotfiles-backup/$(date +%Y%m%d%H%M%S)"
@@ -278,15 +278,13 @@ _link_bin() {
 }
 
 # Install or upgrade a tool from a local clone, GitHub release, or git clone.
-# Usage: _install_tool <name> <github-owner/repo> <install-dir>
+# Usage: _install_tool <name> <repo-url> <install-dir>
 # Priority: ~/git/<name> (symlink) > existing git clone (pull) > release tarball > fresh clone.
 # If <install-dir>/bin/<name> exists after install, it is symlinked into PATH.
 _install_tool() {
   local name="$1" repo="$2" install_dir="$3"
   local tarball_url tmp_dir
   local local_clone="$HOME/git/$name"
-  local clone_url="$repo"
-  [[ "$repo" != /* && "$repo" != *://* ]] && clone_url="https://github.com/$repo.git"
 
   # Prefer local clone — symlink for live development
   if [[ -d "$local_clone" ]]; then
@@ -311,11 +309,15 @@ _install_tool() {
     return 0
   fi
 
-  # Try GitHub release tarball (only for owner/repo format).
+  # Try GitHub release tarball. Extract owner/repo from URL.
   # Strip auth to prevent stale tokens from causing 401 on public repos.
-  if [[ "$repo" != /* && "$repo" != *://* ]] && command -v curl &>/dev/null; then
+  local gh_repo=""
+  if [[ "$repo" =~ github\.com[:/]([^/]+/[^/.]+) ]]; then
+    gh_repo="${BASH_REMATCH[1]}"
+  fi
+  if [[ -n "$gh_repo" ]] && command -v curl &>/dev/null; then
     tarball_url=$(curl -fsSL --no-netrc -H "Authorization:" \
-      "https://api.github.com/repos/$repo/releases/latest" 2>/dev/null \
+      "https://api.github.com/repos/$gh_repo/releases/latest" 2>/dev/null \
       | grep -o '"browser_download_url":[[:space:]]*"[^"]*\.tar\.gz"' \
       | head -1 | cut -d'"' -f4)
   fi
@@ -344,7 +346,7 @@ _install_tool() {
     fi
     local clone_tmp="${install_dir}.tmp.$$"
     rm -rf "$clone_tmp"
-    if ! git clone --depth 1 "$clone_url" "$clone_tmp" 2>/dev/null; then
+    if ! git clone --depth 1 "$repo" "$clone_tmp" 2>/dev/null; then
       rm -rf "$clone_tmp"
       echo "  warning: failed to clone $name (network unreachable?)" >&2
       return 1
