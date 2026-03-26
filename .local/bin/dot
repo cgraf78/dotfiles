@@ -70,6 +70,26 @@ case "${1:-}" in
     echo "==> Done! Run 'source ~/.bashrc' to activate."
     exit 0
     ;;
+  "")
+    cat <<EOF
+usage: dot <command> [<args>]
+
+Multi-repo commands (personal + work):
+  update    Sync everything: pull repos, merge configs, update deps
+  pull      Same as update (requires bare repo)
+  fetch     Fetch both repos (without updating working copy)
+  push      Push both repos
+  status    Show status of both repos
+  diff      Show diff of both repos
+  refresh   Fix phantom dirty files from clean/smudge filters
+
+All other commands pass through to git (personal repo only).
+
+'update' works on all machines including dotsync-managed ones without
+git repos. All other commands require the personal bare repo.
+EOF
+    exit 0
+    ;;
 esac
 
 # ---------------------------------------------------------------------------
@@ -136,25 +156,6 @@ case "${1:-}" in
       echo "==> Work dotfiles"
       git -C "$WORK_DIR" status "$@"
     fi
-    ;;
-  "")
-    cat <<EOF
-usage: dot <command> [<args>]
-
-Multi-repo commands (personal + work):
-  update    Sync everything: pull repos, merge configs, update deps
-  pull      Same as update (requires bare repo)
-  fetch     Fetch both repos (without updating working copy)
-  push      Push both repos
-  status    Show status of both repos
-  diff      Show diff of both repos
-  refresh   Fix phantom dirty files from clean/smudge filters
-
-All other commands pass through to git (personal repo only).
-
-'update' works on all machines including dotsync-managed ones without
-git repos. All other commands require the personal bare repo.
-EOF
     ;;
   *)
     $GIT "$@"
