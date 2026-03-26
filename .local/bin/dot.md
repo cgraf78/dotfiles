@@ -29,9 +29,9 @@ curl -sL https://raw.githubusercontent.com/cgraf78/dotfiles/main/.local/bin/dotb
 source ~/.bashrc
 ```
 
-On subsequent runs, `dotbootstrap` with no argument auto-detects `work` mode if `~/.dotfiles-work` exists.
+On subsequent runs, `dotbootstrap` with no argument auto-detects `work` mode if `~/.dotfiles-work` exists. The bootstrap script automatically backs up any conflicting files to `~/.dotfiles-backup/<timestamp>/`.
 
-The bootstrap script automatically backs up any conflicting files to `~/.dotfiles-backup/<timestamp>/`.
+On dotsync-managed machines (no bare repo), `dotbootstrap` is not needed — use `dot update` directly.
 
 ## Usage
 

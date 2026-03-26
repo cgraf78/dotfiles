@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Bootstrap dotfiles on a new machine or reconfigure an existing one.
+# First-time bootstrap for machines with the bare git repo.
 # For day-to-day updates, use 'dot update' instead.
+# Not needed on dotsync-managed machines — use 'dot update' directly.
 #
 # Two repos:
 #   ~/.dotfiles      — bare repo, personal dotfiles (public)
@@ -10,7 +11,7 @@
 #   curl -sL https://raw.githubusercontent.com/cgraf78/dotfiles/main/.local/bin/dotbootstrap | bash -s init
 #   curl -sL https://raw.githubusercontent.com/cgraf78/dotfiles/main/.local/bin/dotbootstrap | bash -s init work
 #
-# Usage (dotsync-managed machine, files already present):
+# Usage (reconfigure existing repo machine):
 #   ~/.local/bin/dotbootstrap [personal|work]
 #
 # With no argument, defaults to "work" if ~/.dotfiles-work exists,

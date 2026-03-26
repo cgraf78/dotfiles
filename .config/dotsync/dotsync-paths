@@ -6,7 +6,9 @@
 .config/dotsync
 .config/ds
 .inputrc
-.local/bin/dot*
+.local/bin/dot
+.local/bin/dot-test
+.local/bin/dot.md
 .local/bin/ds*
 .tmux.conf
 .claude/CLAUDE.md
