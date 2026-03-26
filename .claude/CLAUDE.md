@@ -14,6 +14,10 @@ Two repos: `~/.dotfiles` (personal, bare) and `~/.dotfiles-work` (work, regular 
 - `~/git` is the default location for locally cloned git repos. GitHub username: `cgraf78`.
 - Use `gh` for all GitHub operations (PRs, issues, releases).
 - `ds` creates tmux dev sessions. See `~/.local/bin/ds.md`.
+- When inspecting tmux sessions, prefer non-attached tmux commands like
+  `capture-pane`, `list-panes`, and `list-windows`. Avoid attaching a small
+  client that would shrink the user's pane size; only attach interactively if
+  truly necessary.
 - `dotsync` syncs dotfiles across machines. Config lives in `~/.config/dotsync/`.
 - gstack skills live in `~/.gstack`, symlinked into `~/.claude/skills/`.
 - Do NOT use the `pingme` skill to send notifications.
