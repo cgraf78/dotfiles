@@ -296,12 +296,16 @@ _clone_tool() {
     return 0
   fi
 
-  rm -rf "$install_dir"
-  if git clone --depth 1 "$clone_url" "$install_dir" 2>/dev/null; then
+  local clone_tmp="${install_dir}.tmp.$$"
+  rm -rf "$clone_tmp"
+  if git clone --depth 1 "$clone_url" "$clone_tmp" 2>/dev/null; then
+    rm -rf "$install_dir"
+    mv "$clone_tmp" "$install_dir"
     echo "  $name installed (git clone)"
     _print_version "$name" "$install_dir"
   else
-    echo "  warning: failed to clone $name" >&2
+    rm -rf "$clone_tmp"
+    echo "  warning: failed to clone $name (network unreachable?)" >&2
     return 1
   fi
 }
@@ -372,13 +376,18 @@ _install_tool() {
       echo "  warning: no curl release and no git — cannot install $name" >&2
       return 1
     fi
-    rm -rf "$install_dir"
     local clone_url="$repo"
     [[ "$repo" != /* && "$repo" != *://* ]] && clone_url="https://github.com/$repo.git"
-    if ! git clone --depth 1 "$clone_url" "$install_dir" 2>/dev/null; then
-      echo "  warning: failed to clone $name" >&2
+    # Clone to a temp dir first so we don't destroy an existing install on failure.
+    local clone_tmp="${install_dir}.tmp.$$"
+    rm -rf "$clone_tmp"
+    if ! git clone --depth 1 "$clone_url" "$clone_tmp" 2>/dev/null; then
+      rm -rf "$clone_tmp"
+      echo "  warning: failed to clone $name (network unreachable?)" >&2
       return 1
     fi
+    rm -rf "$install_dir"
+    mv "$clone_tmp" "$install_dir"
   fi
 
   # Symlink into PATH
@@ -394,22 +403,22 @@ _install_tool() {
 }
 
 echo "==> Installing/upgrading ds..."
-_install_tool ds "$DS_REPO" "$HOME/.local/share/ds"
+_install_tool ds "$DS_REPO" "$HOME/.local/share/ds" || true
 
 echo "==> Installing/upgrading dotsync..."
-_install_tool dotsync "$DOTSYNC_REPO" "$HOME/.local/share/dotsync"
+_install_tool dotsync "$DOTSYNC_REPO" "$HOME/.local/share/dotsync" || true
 
 echo "==> Installing/upgrading vimrc..."
 _is_fresh_vimrc=0
 [[ ! -d "$HOME/.vim_runtime" ]] && _is_fresh_vimrc=1
-_clone_tool vimrc "$VIMRC_REPO" "$HOME/.vim_runtime"
+_clone_tool vimrc "$VIMRC_REPO" "$HOME/.vim_runtime" || true
 if [[ $_is_fresh_vimrc -eq 1 && -f "$HOME/.vim_runtime/install_awesome_vimrc.sh" ]]; then
   sh "$HOME/.vim_runtime/install_awesome_vimrc.sh" 2>/dev/null || \
     echo "  warning: vimrc install script failed" >&2
 fi
 
 echo "==> Installing/upgrading gstack..."
-_clone_tool gstack "$GSTACK_REPO" "$HOME/.gstack"
+_clone_tool gstack "$GSTACK_REPO" "$HOME/.gstack" || true
 if [[ -d "$HOME/.gstack" ]]; then
   mkdir -p "$HOME/.claude/skills"
   ln -sfn "$HOME/.gstack" "$HOME/.claude/skills/gstack"
