@@ -181,7 +181,7 @@ _update_deps() {
 
   echo "==> Installing/upgrading vimrc..."
   local is_fresh_vimrc=0
-  [[ ! -d "$HOME/.vim_runtime" ]] && is_fresh_vimrc=1 || true
+  if [[ ! -d "$HOME/.vim_runtime" ]]; then is_fresh_vimrc=1; fi
   _install_tool vimrc "$vimrc_repo" "$HOME/.vim_runtime" || true
   if [[ $is_fresh_vimrc -eq 1 && -f "$HOME/.vim_runtime/install_awesome_vimrc.sh" ]]; then
     sh "$HOME/.vim_runtime/install_awesome_vimrc.sh" 2>/dev/null || \
