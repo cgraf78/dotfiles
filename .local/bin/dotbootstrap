@@ -342,9 +342,11 @@ _install_tool() {
     fi
   fi
 
-  # Try GitHub release (only for owner/repo format, not local paths or URLs)
+  # Try GitHub release (only for owner/repo format, not local paths or URLs).
+  # Strip auth to prevent stale tokens from causing 401 on public repos.
   if [[ "$repo" != /* && "$repo" != *://* ]] && command -v curl &>/dev/null; then
-    tarball_url=$(curl -fsSL "https://api.github.com/repos/$repo/releases/latest" 2>/dev/null \
+    tarball_url=$(curl -fsSL --no-netrc -H "Authorization:" \
+      "https://api.github.com/repos/$repo/releases/latest" 2>/dev/null \
       | grep -o '"browser_download_url":[[:space:]]*"[^"]*\.tar\.gz"' \
       | head -1 | cut -d'"' -f4)
   fi
