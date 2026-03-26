@@ -189,7 +189,7 @@ _assert_eq "present dep no warning" "" "$result"
 rc=0
 result=$(_check_dep "nonexistent_cmd_xyz" "nonexistent" 2>&1) || rc=$?
 _assert_exit "missing dep returns 1" 1 "$rc"
-_assert_contains "missing dep warning" "missing dependency" "$result"
+_assert_contains "missing dep warning" "not found" "$result"
 _assert_contains "missing dep names command" "nonexistent_cmd_xyz" "$result"
 
 # ---------------------------------------------------------------------------
@@ -212,7 +212,7 @@ echo "local content" > "$TEST_HOME/.testrc"
 BACKUP="$TEST_HOME/.dotfiles-backup/test1"
 result=$(_backup_and_checkout 2>&1)
 
-_assert_contains "shows backup message" "backing up" "$result"
+_assert_contains "shows backup message" "backed up" "$result"
 _assert_contains "shows checkout message" "checking out" "$result"
 
 # Conflicting file was backed up
@@ -425,8 +425,8 @@ _assert_file_exists "personal: .bashrc checked out" "$FRESH/.bashrc"
 _assert_file_content "personal: .bashrc content" "bashrc content" "$FRESH/.bashrc"
 _assert_file_exists "personal: helpers.sh checked out" "$FRESH/.config/dot/helpers.sh"
 
-# Dependencies checked
-_assert_contains "personal: deps checked" "Checking dependencies" "$result"
+# Dependencies checked (header only prints if something is missing)
+_assert_not_contains "personal: no dep warnings" "Missing dependencies" "$result"
 
 # Work repo NOT cloned
 if [[ ! -d "$FRESH/.dotfiles-work" ]]; then

@@ -53,18 +53,21 @@ _detect_branch() {
 # Uses checkout -f because a normal checkout treats missing worktree files
 # (from the backup) as local deletions and skips recreating them.
 _backup_and_checkout() {
-  echo "  backing up conflicting files to $BACKUP..."
   mkdir -p "$BACKUP"
-  $GIT ls-tree -r "$BRANCH" --name-only \
-    | while IFS= read -r f || [[ -n "$f" ]]; do
-        if [[ -e "$HOME/$f" ]]; then
-          mkdir -p "$BACKUP/$(dirname "$f")"
-          mv "$HOME/$f" "$BACKUP/$f"
-          echo "    backed up: $f"
-        fi
-      done
+  local count=0
+  while IFS= read -r f || [[ -n "$f" ]]; do
+    if [[ -e "$HOME/$f" ]]; then
+      mkdir -p "$BACKUP/$(dirname "$f")"
+      mv "$HOME/$f" "$BACKUP/$f"
+      ((count++)) || true
+    fi
+  done < <($GIT ls-tree -r "$BRANCH" --name-only)
+  if [[ $count -gt 0 ]]; then
+    echo "  backed up $count conflicting files to $BACKUP"
+  fi
   echo "  checking out $BRANCH..."
-  $GIT checkout -f "$BRANCH"
+  $GIT checkout -f "$BRANCH" 2>&1 \
+    | grep -v "^Already on\|^Your branch is up to date" || true
   rmdir "$BACKUP" 2>/dev/null || true
 }
 
@@ -88,7 +91,8 @@ _check_dep() {
   # $1=command $2=pkg-name
   local cmd="$1" pkg="$2"
   if ! command -v "$cmd" &>/dev/null; then
-    echo "  warning: missing dependency: $cmd"
+    if [[ "${_dep_header_shown:-0}" -eq 0 ]]; then echo "==> Missing dependencies..."; _dep_header_shown=1; fi
+    echo "  warning: $cmd not found"
     _install_hint "$pkg"
     return 1
   fi
@@ -188,7 +192,7 @@ if [[ -d "$DOTFILES" ]]; then
   # ---------------------------------------------------------------------------
 
   echo "==> Pulling personal dotfiles..."
-  if ! $GIT fetch origin; then
+  if ! $GIT fetch --quiet origin; then
     echo "  warning: fetch failed (continuing with existing local state)" >&2
   fi
 
@@ -211,7 +215,7 @@ fi
 # Dependency checks (best-effort)
 # ---------------------------------------------------------------------------
 
-echo "==> Checking dependencies..."
+_dep_header_shown=0
 _check_dep git git || true
 _check_dep jq jq || true
 _check_dep tmux tmux || true
@@ -299,7 +303,7 @@ _install_tool() {
 
   # Existing git clone — pull to update
   if [[ -d "$install_dir/.git" ]]; then
-    if git -C "$install_dir" pull --ff-only 2>/dev/null; then
+    if git -C "$install_dir" pull --ff-only --quiet 2>/dev/null; then
       _link_bin "$name" "$install_dir"
       echo "  $name updated (git pull)"
       _print_version "$name" "$install_dir"

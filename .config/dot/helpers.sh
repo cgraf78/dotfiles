@@ -25,7 +25,7 @@ _pull_work_repo() {
   [[ -d "$WORK_DIR" ]] || return 0
   if [[ -d "$WORK_DIR/.git" ]]; then
     echo "==> Pulling work dotfiles..."
-    git -C "$WORK_DIR" pull "$@" || echo "  warning: work dotfiles pull failed" >&2
+    git -C "$WORK_DIR" pull --quiet "$@" || echo "  warning: work dotfiles pull failed" >&2
   fi
   # shellcheck disable=SC2015  # || true is a fallback, not an else branch
   [[ -x "$WORK_DIR/bootstrap" ]] && "$WORK_DIR/bootstrap" || true
