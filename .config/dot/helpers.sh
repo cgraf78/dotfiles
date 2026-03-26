@@ -141,15 +141,24 @@ _install_tool() {
 
   # Existing git clone — pull to update
   if [[ -d "$install_dir/.git" ]]; then
+    local head_before; head_before=$(git -C "$install_dir" rev-parse HEAD 2>/dev/null || true)
     if git -C "$install_dir" pull --ff-only --quiet 2>/dev/null; then
       _link_bin "$name" "$install_dir"
+      local head_after; head_after=$(git -C "$install_dir" rev-parse HEAD 2>/dev/null || true)
       local ver; ver=$(_get_version "$install_dir")
-      echo "  $name updated (git pull)${ver:+ — $ver}"
+      if [[ "$head_before" != "$head_after" ]]; then
+        echo "  $name updated${ver:+ — $ver}"
+      else
+        echo "  $name up to date${ver:+ — $ver}"
+      fi
     else
       echo "  warning: $name update failed" >&2
     fi
     return 0
   fi
+
+  # Capture current version before overwriting (for tarball/clone installs).
+  local ver_before; ver_before=$(_get_version "$install_dir")
 
   # Try GitHub release tarball. Extract owner/repo from URL.
   # Strip auth to prevent stale tokens from causing 401 on public repos.
@@ -199,10 +208,12 @@ _install_tool() {
 
   _link_bin "$name" "$install_dir"
   local ver; ver=$(_get_version "$install_dir")
-  if [[ -n "${tarball_url:-}" ]]; then
-    echo "  $name installed (release tarball)${ver:+ — $ver}"
+  local method="git clone"
+  if [[ -n "${tarball_url:-}" ]]; then method="release tarball"; fi
+  if [[ -n "$ver_before" && "$ver_before" == "$ver" ]]; then
+    echo "  $name up to date ($method)${ver:+ — $ver}"
   else
-    echo "  $name installed (git clone)${ver:+ — $ver}"
+    echo "  $name installed ($method)${ver:+ — $ver}"
   fi
 }
 
