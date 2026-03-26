@@ -50,6 +50,46 @@ _run_merges() {
 }
 
 # ---------------------------------------------------------------------------
+# Dependency checks
+# ---------------------------------------------------------------------------
+
+_install_hint() {
+  local pkg="$1"
+  if command -v brew &>/dev/null; then
+    echo "  brew install $pkg"
+  elif command -v apt-get &>/dev/null; then
+    echo "  sudo apt-get update && sudo apt-get install -y $pkg"
+  elif command -v dnf &>/dev/null; then
+    echo "  sudo dnf install -y $pkg"
+  elif command -v pacman &>/dev/null; then
+    echo "  sudo pacman -S --needed $pkg"
+  else
+    echo "  (install '$pkg' with your system package manager)"
+  fi
+}
+
+_check_dep() {
+  # $1=command $2=pkg-name
+  local cmd="$1" pkg="$2"
+  if ! command -v "$cmd" &>/dev/null; then
+    if [[ "${_dep_header_shown:-0}" -eq 0 ]]; then echo "==> Missing dependencies..."; _dep_header_shown=1; fi
+    echo "  warning: $cmd not found"
+    _install_hint "$pkg"
+    return 1
+  fi
+  return 0
+}
+
+# Check all expected system dependencies. Best-effort — warns but doesn't abort.
+_check_deps() {
+  _dep_header_shown=0
+  _check_dep git git || true
+  _check_dep jq jq || true
+  _check_dep tmux tmux || true
+  _check_dep fzf fzf || true
+}
+
+# ---------------------------------------------------------------------------
 # Tool install/upgrade helpers
 # ---------------------------------------------------------------------------
 
@@ -168,6 +208,8 @@ _install_tool() {
 
 # Install or upgrade all managed dependencies.
 _update_deps() {
+  _check_deps
+
   local ds_repo="${DOTBOOTSTRAP_DS_REPO:-https://github.com/cgraf78/ds.git}"
   local dotsync_repo="${DOTBOOTSTRAP_DOTSYNC_REPO:-https://github.com/cgraf78/dotsync.git}"
   local vimrc_repo="${DOTBOOTSTRAP_VIMRC_REPO:-https://github.com/cgraf78/vimrc.git}"

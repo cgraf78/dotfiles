@@ -33,7 +33,9 @@ echo "# placeholder" > "$TEST_HOME/.config/dot/placeholder"
 $GIT add .testrc .config/dot/placeholder
 $GIT commit -m "initial" >/dev/null 2>&1
 
-# Source dotbootstrap functions (without running main logic)
+# Source shared helpers and dotbootstrap functions (without running main logic)
+# shellcheck source=../../.config/dot/helpers.sh
+. "$REAL_HOME/.config/dot/helpers.sh"
 WORK_DIR="$TEST_HOME/.dotfiles-work"
 BACKUP="$TEST_HOME/.dotfiles-backup/test"
 BRANCH=""
