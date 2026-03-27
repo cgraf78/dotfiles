@@ -13,6 +13,7 @@
 .tmux.conf
 .claude/CLAUDE.md
 .claude/settings.json
+.local/bin/CLAUDE.md
 .local/bin/claude-hook-pre-bash
 .local/bin/claude-hook-post-bash
 .local/bin/claude-hook-post-edit
