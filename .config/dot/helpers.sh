@@ -6,6 +6,19 @@ DOTFILES="$HOME/.dotfiles"
 GIT="git --git-dir=$DOTFILES --work-tree=$HOME"
 WORK_DIR="$HOME/.dotfiles-work"
 
+# Quiet mode — suppresses non-essential output. Set by `dot update --cron`.
+DOT_QUIET="${DOT_QUIET:-0}"
+
+# Print a message unless quiet mode is active.
+_log() {
+  [[ "$DOT_QUIET" -eq 1 ]] || echo "$@"
+}
+
+# Print a message to stderr regardless of quiet mode.
+_warn() {
+  echo "$@" >&2
+}
+
 # Restore git-tracked versions of skip-worktree files so pull won't
 # conflict with work symlinks.  The work bootstrap re-symlinks and
 # re-sets skip-worktree after pull.
@@ -24,18 +37,23 @@ _unstash_work_overrides() {
 _pull_work_repo() {
   [[ -d "$WORK_DIR" ]] || return 0
   if [[ -d "$WORK_DIR/.git" ]]; then
-    echo "==> Pulling work dotfiles..."
-    git -C "$WORK_DIR" pull --quiet "$@" || echo "  warning: work dotfiles pull failed" >&2
+    _log "==> Pulling work dotfiles..."
+    git -C "$WORK_DIR" pull --quiet "$@" || _warn "  warning: work dotfiles pull failed"
   fi
-  # shellcheck disable=SC2015  # || true is a fallback, not an else branch
-  [[ -x "$WORK_DIR/bootstrap" ]] && "$WORK_DIR/bootstrap" || true
+  if [[ -x "$WORK_DIR/bootstrap" ]]; then
+    if [[ "$DOT_QUIET" -eq 1 ]]; then
+      "$WORK_DIR/bootstrap" >/dev/null || true
+    else
+      "$WORK_DIR/bootstrap" || true
+    fi
+  fi
 }
 
 # Push work repo.
 _push_work_repo() {
   [[ -d "$WORK_DIR/.git" ]] || return 0
-  echo "==> Pushing work dotfiles..."
-  git -C "$WORK_DIR" push "$@" || echo "  warning: work dotfiles push failed" >&2
+  _log "==> Pushing work dotfiles..."
+  git -C "$WORK_DIR" push "$@" || _warn "  warning: work dotfiles push failed"
 }
 
 # Run all app config merge scripts (iTerm2, Karabiner, VS Code, etc.).
@@ -45,7 +63,11 @@ _run_merges() {
     # shellcheck source=/dev/null
     . "$_script"
     _fn="merge_${_script##*merge-}"; _fn="${_fn%.sh}"
-    "$_fn" || true
+    if [[ "$DOT_QUIET" -eq 1 ]]; then
+      "$_fn" >/dev/null || true
+    else
+      "$_fn" || true
+    fi
   done
 }
 
@@ -56,15 +78,15 @@ _run_merges() {
 _install_hint() {
   local pkg="$1"
   if command -v brew &>/dev/null; then
-    echo "  brew install $pkg"
+    _log "  brew install $pkg"
   elif command -v apt-get &>/dev/null; then
-    echo "  sudo apt-get update && sudo apt-get install -y $pkg"
+    _log "  sudo apt-get update && sudo apt-get install -y $pkg"
   elif command -v dnf &>/dev/null; then
-    echo "  sudo dnf install -y $pkg"
+    _log "  sudo dnf install -y $pkg"
   elif command -v pacman &>/dev/null; then
-    echo "  sudo pacman -S --needed $pkg"
+    _log "  sudo pacman -S --needed $pkg"
   else
-    echo "  (install '$pkg' with your system package manager)"
+    _log "  (install '$pkg' with your system package manager)"
   fi
 }
 
@@ -72,8 +94,8 @@ _check_dep() {
   # $1=command $2=pkg-name
   local cmd="$1" pkg="$2"
   if ! command -v "$cmd" &>/dev/null; then
-    if [[ "${_dep_header_shown:-0}" -eq 0 ]]; then echo "==> Missing dependencies..."; _dep_header_shown=1; fi
-    echo "  warning: $cmd not found"
+    if [[ "${_dep_header_shown:-0}" -eq 0 ]]; then _log "==> Missing dependencies..."; _dep_header_shown=1; fi
+    _log "  warning: $cmd not found"
     _install_hint "$pkg"
     return 1
   fi
@@ -90,8 +112,8 @@ _check_dep_any() {
       return 0
     fi
   done
-  if [[ "${_dep_header_shown:-0}" -eq 0 ]]; then echo "==> Missing dependencies..."; _dep_header_shown=1; fi
-  echo "  warning: $pkg not found"
+  if [[ "${_dep_header_shown:-0}" -eq 0 ]]; then _log "==> Missing dependencies..."; _dep_header_shown=1; fi
+  _log "  warning: $pkg not found"
   _install_hint "$pkg"
   return 1
 }
@@ -156,7 +178,7 @@ _install_tool() {
     ln -sfn "$local_clone" "$install_dir"
     _link_bin "$name" "$install_dir"
     local ver; ver=$(_get_version "$local_clone")
-    echo "  $name -> $local_clone (local clone)${ver:+ -- $ver}"
+    _log "  $name -> $local_clone (local clone)${ver:+ -- $ver}"
     return 0
   fi
 
@@ -168,12 +190,12 @@ _install_tool() {
       local head_after; head_after=$(git -C "$install_dir" rev-parse HEAD 2>/dev/null || true)
       local ver; ver=$(_get_version "$install_dir")
       if [[ "$head_before" != "$head_after" ]]; then
-        echo "  $name updated${ver:+ -- $ver}"
+        _log "  $name updated${ver:+ -- $ver}"
       else
-        echo "  $name up to date${ver:+ -- $ver}"
+        _log "  $name up to date${ver:+ -- $ver}"
       fi
     else
-      echo "  warning: $name update failed" >&2
+      _warn "  warning: $name update failed"
     fi
     return 0
   fi
@@ -204,7 +226,7 @@ _install_tool() {
       rm -rf "$tmp_dir"
     else
       rm -rf "$tmp_dir"
-      echo "  warning: failed to download $name release (trying git clone)" >&2
+      _warn "  warning: failed to download $name release (trying git clone)"
       tarball_url=""
     fi
   fi
@@ -213,14 +235,14 @@ _install_tool() {
   # install on failure (e.g. network unreachable).
   if [[ -z "${tarball_url:-}" ]]; then
     if ! command -v git &>/dev/null; then
-      echo "  warning: no curl release and no git — cannot install $name" >&2
+      _warn "  warning: no curl release and no git — cannot install $name"
       return 1
     fi
     local clone_tmp="${install_dir}.tmp.$$"
     rm -rf "$clone_tmp"
     if ! git clone --depth 1 "$repo" "$clone_tmp" 2>/dev/null; then
       rm -rf "$clone_tmp"
-      echo "  warning: failed to clone $name (network unreachable?)" >&2
+      _warn "  warning: failed to clone $name (network unreachable?)"
       return 1
     fi
     rm -rf "$install_dir"
@@ -232,10 +254,137 @@ _install_tool() {
   local method="git clone"
   if [[ -n "${tarball_url:-}" ]]; then method="release tarball"; fi
   if [[ -n "$ver_before" && "$ver_before" == "$ver" ]]; then
-    echo "  $name up to date ($method)${ver:+ -- $ver}"
+    _log "  $name up to date ($method)${ver:+ -- $ver}"
   else
-    echo "  $name installed ($method)${ver:+ -- $ver}"
+    _log "  $name installed ($method)${ver:+ -- $ver}"
   fi
+}
+
+# ---------------------------------------------------------------------------
+# Worktree dirty check
+# ---------------------------------------------------------------------------
+
+# Returns 0 (true) if there are uncommitted changes in either repo.
+_is_worktree_dirty() {
+  if [[ -d "$DOTFILES" ]]; then
+    if ! $GIT diff-index --quiet HEAD 2>/dev/null; then
+      return 0
+    fi
+  fi
+  if [[ -d "$WORK_DIR/.git" ]]; then
+    if ! git -C "$WORK_DIR" diff-index --quiet HEAD 2>/dev/null; then
+      return 0
+    fi
+  fi
+  return 1
+}
+
+# ---------------------------------------------------------------------------
+# Cron install from tracked file
+# ---------------------------------------------------------------------------
+
+DOT_CRON_FILE="$HOME/.config/dot/cron"
+DOT_CRON_LOCAL="$HOME/.config/dot/cron.local"
+DOT_CRON_MARKER="# dot-managed-cron"
+
+# Build a clean PATH for cron from the current PATH.
+# Keeps: $HOME dirs, /opt/homebrew, /usr/local, and standard system dirs.
+# Drops: obscure system dirs (cryptex, munki, etc.) that clutter the crontab.
+_cron_path() {
+  local result="" dir _dirs
+  IFS=: read -ra _dirs <<< "$HOME/.local/bin:$PATH"
+  for dir in "${_dirs[@]}"; do
+    [[ -d "$dir" ]] || continue
+    [[ ":$result:" == *":$dir:"* ]] && continue
+    # Keep user dirs, homebrew, /usr/local, and standard system dirs.
+    case "$dir" in
+      "$HOME"/*|/opt/homebrew/*|/usr/local/bin|/usr/bin|/bin|/usr/sbin|/sbin) ;;
+      *) continue ;;
+    esac
+    result="${result:+$result:}$dir"
+  done
+  echo "$result"
+}
+
+# Parse a cron file: expand $HOME in entries, skip comments/blanks.
+# Appends processed lines to $DOT_CRON_PARSED (caller must initialize).
+_parse_cron_file() {
+  local file="$1"
+  [[ -f "$file" ]] || return 0
+  local line
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ "$line" =~ ^[[:space:]]*# ]] && continue
+    [[ -z "${line// /}" ]] && continue
+    line="${line//\$HOME/$HOME}"
+    if [[ -n "$DOT_CRON_PARSED" ]]; then
+      DOT_CRON_PARSED="$DOT_CRON_PARSED"$'\n'"$line"
+    else
+      DOT_CRON_PARSED="$line"
+    fi
+  done < "$file"
+}
+
+# Install cron entries from ~/.config/dot/cron (tracked) and
+# ~/.config/dot/cron.local (machine-local, untracked) into the user crontab.
+# Replaces all dot-managed entries (between marker lines) on each run.
+# Expands $HOME in cron lines. Sets PATH as a standalone cron variable
+# so tools like git, curl, jq are found in cron's minimal environment.
+# Idempotent — skips if the installed block already matches.
+_install_cron() {
+  [[ -f "$DOT_CRON_FILE" || -f "$DOT_CRON_LOCAL" ]] || return 0
+
+  DOT_CRON_PARSED=""
+  _parse_cron_file "$DOT_CRON_FILE"
+  _parse_cron_file "$DOT_CRON_LOCAL"
+
+  local block_start="$DOT_CRON_MARKER begin"
+  local block_end="$DOT_CRON_MARKER end"
+  local current
+  current=$(crontab -l 2>/dev/null || true)
+
+  # No active entries — strip any existing managed block and return.
+  if [[ -z "$DOT_CRON_PARSED" ]]; then
+    if [[ "$current" == *"$block_start"* ]]; then
+      local stripped
+      stripped=$(echo "$current" | sed "/$block_start/,/$block_end/d")
+      if [[ -n "$stripped" ]]; then
+        echo "$stripped" | crontab -
+      else
+        crontab -r 2>/dev/null || true
+      fi
+      _log "  cron entries removed"
+    fi
+    return 0
+  fi
+
+  local cron_path
+  cron_path=$(_cron_path)
+  local managed_block="$block_start"$'\n'"PATH=$cron_path"$'\n'"$DOT_CRON_PARSED"$'\n'"$block_end"
+
+  # Already installed with same content — nothing to do.
+  if [[ "$current" == *"$managed_block"* ]]; then
+    _log "  cron up to date"
+    return 0
+  fi
+
+  # Strip any existing managed block.
+  local filtered
+  if [[ "$current" == *"$block_start"* ]]; then
+    filtered=$(echo "$current" | sed "/$block_start/,/$block_end/d")
+  else
+    filtered="$current"
+  fi
+
+  # Append the new managed block.
+  local new_crontab
+  if [[ -n "$filtered" ]]; then
+    new_crontab="$filtered"$'\n'"$managed_block"
+  else
+    new_crontab="$managed_block"
+  fi
+
+  echo "$new_crontab" | crontab -
+  _log "  cron installed"
 }
 
 # Install or upgrade all managed dependencies.
@@ -247,22 +396,22 @@ _update_deps() {
   local vimrc_repo="${DOTBOOTSTRAP_VIMRC_REPO:-https://github.com/cgraf78/vimrc.git}"
   local gstack_repo="${DOTBOOTSTRAP_GSTACK_REPO:-https://github.com/garrytan/gstack.git}"
 
-  echo "==> Installing/upgrading ds..."
+  _log "==> Installing/upgrading ds..."
   _install_tool ds "$ds_repo" "$HOME/.local/share/ds" || true
 
-  echo "==> Installing/upgrading dotsync..."
+  _log "==> Installing/upgrading dotsync..."
   _install_tool dotsync "$dotsync_repo" "$HOME/.local/share/dotsync" || true
 
-  echo "==> Installing/upgrading vimrc..."
+  _log "==> Installing/upgrading vimrc..."
   local is_fresh_vimrc=0
   if [[ ! -d "$HOME/.vim_runtime" ]]; then is_fresh_vimrc=1; fi
   _install_tool vimrc "$vimrc_repo" "$HOME/.vim_runtime" || true
   if [[ $is_fresh_vimrc -eq 1 && -f "$HOME/.vim_runtime/install_awesome_vimrc.sh" ]]; then
     sh "$HOME/.vim_runtime/install_awesome_vimrc.sh" 2>/dev/null || \
-      echo "  warning: vimrc install script failed" >&2
+      _warn "  warning: vimrc install script failed"
   fi
 
-  echo "==> Installing/upgrading gstack..."
+  _log "==> Installing/upgrading gstack..."
   _install_tool gstack "$gstack_repo" "$HOME/.gstack" || true
   if [[ -d "$HOME/.gstack" ]]; then
     mkdir -p "$HOME/.claude/skills"
@@ -274,4 +423,7 @@ _update_deps() {
       fi
     done
   fi
+
+  _log "==> Installing cron..."
+  _install_cron || true
 }

@@ -283,4 +283,213 @@ _assert_not_contains "update no-repo: no pull" "Pulling personal" "$result"
 _assert_contains "update no-repo: shows installing" "Installing/upgrading" "$result"
 _assert_contains "update no-repo: shows done" "Done" "$result"
 
+# ---------------------------------------------------------------------------
+# Tests: _is_worktree_dirty
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== Worktree dirty check ==="
+
+# Clean worktree → not dirty
+if _is_worktree_dirty; then
+    _fail "clean worktree: should not be dirty"
+else
+    _pass "clean worktree: not dirty"
+fi
+
+# Modify a tracked file → dirty
+echo "dirty change" >> "$TEST_HOME/.testrc"
+if _is_worktree_dirty; then
+    _pass "modified file: is dirty"
+else
+    _fail "modified file: should be dirty"
+fi
+
+# Restore clean state
+$GIT checkout -- .testrc
+
+# Work repo dirty → dirty
+WORK_BARE2=$(_tmpdir)
+git init --bare "$WORK_BARE2" >/dev/null 2>&1
+git clone "$WORK_BARE2" "$WORK_DIR" >/dev/null 2>&1
+git -C "$WORK_DIR" config user.email "test@test.com"
+git -C "$WORK_DIR" config user.name "Test"
+echo "work" > "$WORK_DIR/work-file"
+git -C "$WORK_DIR" add work-file
+git -C "$WORK_DIR" commit -m "init" >/dev/null 2>&1
+git -C "$WORK_DIR" push >/dev/null 2>&1
+
+# Clean work repo → not dirty
+if _is_worktree_dirty; then
+    _fail "clean work repo: should not be dirty"
+else
+    _pass "clean work repo: not dirty"
+fi
+
+# Modify work repo file → dirty
+echo "dirty" >> "$WORK_DIR/work-file"
+if _is_worktree_dirty; then
+    _pass "dirty work repo: is dirty"
+else
+    _fail "dirty work repo: should be dirty"
+fi
+
+git -C "$WORK_DIR" checkout -- work-file
+rm -rf "$WORK_DIR" "$WORK_BARE2"
+
+# ---------------------------------------------------------------------------
+# Tests: dot update --cron (skip if dirty)
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== Cron mode ==="
+
+# Dirty worktree + --cron → exits immediately (no pull)
+echo "dirty" >> "$TEST_HOME/.testrc"
+result=$(
+    DOTBOOTSTRAP_DS_REPO="$REMOTE_BARE" \
+    DOTBOOTSTRAP_DOTSYNC_REPO="$REMOTE_BARE" \
+    DOTBOOTSTRAP_VIMRC_REPO="$REMOTE_BARE" \
+    DOTBOOTSTRAP_GSTACK_REPO="$REMOTE_BARE" \
+    "$SCRIPT_DIR/dot" update --cron 2>&1
+)
+_assert_eq "cron dirty: no output (skipped)" "" "$result"
+$GIT checkout -- .testrc
+
+# Clean worktree + --cron → runs but quiet (no "Done" message)
+result=$(
+    DOTBOOTSTRAP_DS_REPO="$REMOTE_BARE" \
+    DOTBOOTSTRAP_DOTSYNC_REPO="$REMOTE_BARE" \
+    DOTBOOTSTRAP_VIMRC_REPO="$REMOTE_BARE" \
+    DOTBOOTSTRAP_GSTACK_REPO="$REMOTE_BARE" \
+    "$SCRIPT_DIR/dot" update --cron 2>&1
+)
+_assert_not_contains "cron clean: no Done message" "Done" "$result"
+_assert_not_contains "cron clean: no Pulling message" "Pulling" "$result"
+
+# ---------------------------------------------------------------------------
+# Tests: cron file install
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== Cron file install ==="
+
+# Mock crontab with a file-backed implementation
+MOCK_CRONTAB=$(_tmpdir)/crontab
+touch "$MOCK_CRONTAB"
+MOCK_BIN=$(_mock_bin)
+export PATH="$MOCK_BIN:$PATH"
+cat > "$MOCK_BIN/crontab" <<CRON
+#!/bin/bash
+case "\${1:-}" in
+  -l) cat "$MOCK_CRONTAB" 2>/dev/null || { echo "no crontab" >&2; exit 1; } ;;
+  -r) > "$MOCK_CRONTAB" ;;
+  -)  cat > "$MOCK_CRONTAB" ;;
+  *)  echo "mock crontab: unknown arg \$1" >&2; exit 1 ;;
+esac
+CRON
+chmod +x "$MOCK_BIN/crontab"
+
+# No cron file → no-op
+rm -f "$TEST_HOME/.config/dot/cron"
+_install_cron 2>/dev/null
+result=$(crontab -l 2>/dev/null)
+_assert_eq "no cron file: crontab empty" "" "$result"
+
+# Cron file with one entry → installed
+cat > "$TEST_HOME/.config/dot/cron" <<'EOF'
+# comment line
+*/30 * * * * $HOME/.local/bin/dot update --cron
+EOF
+_install_cron 2>/dev/null
+result=$(crontab -l 2>/dev/null)
+_assert_contains "installs entry" "dot update --cron" "$result"
+_assert_contains "expands \$HOME" "$TEST_HOME" "$result"
+_assert_contains "injects PATH" "PATH=" "$result"
+_assert_contains "has begin marker" "dot-managed-cron begin" "$result"
+_assert_contains "has end marker" "dot-managed-cron end" "$result"
+_assert_not_contains "strips comments" "comment line" "$result"
+
+# Idempotent — running again doesn't duplicate
+_install_cron 2>/dev/null
+count=$(crontab -l 2>/dev/null | grep -c "dot update --cron" || true)
+_assert_eq "idempotent: one entry" "1" "$count"
+
+# Cron file with multiple entries → all installed
+cat > "$TEST_HOME/.config/dot/cron" <<'EOF'
+*/30 * * * * $HOME/.local/bin/dot update --cron
+0 3 * * * $HOME/.local/bin/cleanup
+EOF
+_install_cron 2>/dev/null
+result=$(crontab -l 2>/dev/null)
+_assert_contains "multi: dot entry" "dot update --cron" "$result"
+_assert_contains "multi: cleanup entry" "cleanup" "$result"
+
+# Preserves non-managed cron entries
+echo "0 6 * * * /usr/bin/other-job" | crontab -
+cat > "$TEST_HOME/.config/dot/cron" <<'EOF'
+*/30 * * * * $HOME/.local/bin/dot update --cron
+EOF
+_install_cron 2>/dev/null
+result=$(crontab -l 2>/dev/null)
+_assert_contains "preserves other jobs" "other-job" "$result"
+_assert_contains "installs managed entry" "dot update --cron" "$result"
+
+# cron.local entries are merged with cron entries
+> "$MOCK_CRONTAB"
+cat > "$TEST_HOME/.config/dot/cron" <<'EOF'
+*/30 * * * * $HOME/.local/bin/dot update --cron
+EOF
+cat > "$TEST_HOME/.config/dot/cron.local" <<'EOF'
+0 4 * * * $HOME/.local/bin/backup
+EOF
+_install_cron 2>/dev/null
+result=$(crontab -l 2>/dev/null)
+_assert_contains "local: tracked entry present" "dot update --cron" "$result"
+_assert_contains "local: local entry present" "backup" "$result"
+count=$(crontab -l 2>/dev/null | grep -c "dot-managed-cron begin" || true)
+_assert_eq "local: single managed block" "1" "$count"
+rm -f "$TEST_HOME/.config/dot/cron.local"
+
+# cron.local alone (no tracked cron file) works
+> "$MOCK_CRONTAB"
+rm -f "$TEST_HOME/.config/dot/cron"
+cat > "$TEST_HOME/.config/dot/cron.local" <<'EOF'
+0 5 * * * $HOME/.local/bin/local-only
+EOF
+_install_cron 2>/dev/null
+result=$(crontab -l 2>/dev/null)
+_assert_contains "local-only: entry installed" "local-only" "$result"
+rm -f "$TEST_HOME/.config/dot/cron.local"
+
+# Restore cron file for remaining tests
+cat > "$TEST_HOME/.config/dot/cron" <<'EOF'
+*/30 * * * * $HOME/.local/bin/dot update --cron
+EOF
+
+# All-comments cron file strips old managed block
+> "$MOCK_CRONTAB"
+cat > "$TEST_HOME/.config/dot/cron" <<'EOF'
+*/30 * * * * $HOME/.local/bin/dot update --cron
+EOF
+_install_cron 2>/dev/null
+result=$(crontab -l 2>/dev/null)
+_assert_contains "pre-remove: entry exists" "dot update --cron" "$result"
+cat > "$TEST_HOME/.config/dot/cron" <<'EOF'
+# everything commented out
+EOF
+_install_cron 2>/dev/null
+result=$(crontab -l 2>/dev/null)
+_assert_not_contains "remove: old entries stripped" "dot update --cron" "$result"
+_assert_not_contains "remove: markers stripped" "dot-managed-cron" "$result"
+
+# All-comments cron file preserves non-managed entries
+echo "0 6 * * * /usr/bin/other-job" | crontab -
+cat > "$TEST_HOME/.config/dot/cron" <<'EOF'
+# only comments here
+EOF
+_install_cron 2>/dev/null
+result=$(crontab -l 2>/dev/null)
+_assert_contains "all-comments: preserves other jobs" "other-job" "$result"
+
 _test_summary

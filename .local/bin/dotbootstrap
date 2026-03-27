@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# First-time bootstrap for machines with the bare git repo.
+# First-time bootstrap for all machines. Clones the bare git repo,
+# checks out dotfiles, installs deps, and sets up auto-update cron.
 # For day-to-day updates, use 'dot update' instead.
-# Not needed on dotsync-managed machines — use 'dot update' directly.
 #
 # Two repos:
 #   ~/.dotfiles      — bare repo, personal dotfiles (public)
@@ -178,10 +178,10 @@ if [[ -d "$DOTFILES" ]]; then
   # other files. Force checkout resets the index and working tree to match HEAD.
   _backup_and_checkout
 else
-  echo "  no bare repo at $DOTFILES — skipping git setup (dotsync-managed machine)"
+  echo "  no bare repo at $DOTFILES — skipping git setup"
 fi
 
-# Shared helpers (available after checkout or via dotsync).
+# Shared helpers (available after checkout).
 if [[ -f "$HOME/.config/dot/helpers.sh" ]]; then
   . "$HOME/.config/dot/helpers.sh"
 else

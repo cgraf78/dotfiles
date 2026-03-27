@@ -6,15 +6,22 @@
 #   ~/.dotfiles-work — regular clone, work dotfiles (private, optional)
 #
 # Commands:
-#   dot update                 Sync everything (works on all machines)
+#   dot update [--cron]        Sync everything (--cron: quiet, skip if dirty)
 #   dot pull/push/status/diff  Operates on both repos (requires bare repo)
 #   dot refresh                Fixes phantom dirty files from clean filters
+#   dot cron                   Show installed cron entries
 #   dot <anything>             Passes through to git (personal repo)
 
 set -euo pipefail
 
 # shellcheck source=../../.config/dot/helpers.sh
 . "$HOME/.config/dot/helpers.sh"
+
+# ---------------------------------------------------------------------------
+# Global flags
+# ---------------------------------------------------------------------------
+
+CRON_MODE=0
 
 # ---------------------------------------------------------------------------
 # Functions (defined before case statements so all commands can use them)
@@ -27,7 +34,7 @@ _normalize_filtered() {
   if [[ -f "$HOME/.gitattributes" ]] && grep -q "filter=json-sort" "$HOME/.gitattributes"; then
     # shellcheck disable=SC2086
     if ! $GIT config filter.json-sort.clean >/dev/null 2>&1; then
-      echo "warning: json-sort filter is not configured. run 'dotbootstrap' to fix." >&2
+      _warn "warning: json-sort filter is not configured. run 'dotbootstrap' to fix."
     fi
   fi
 
@@ -45,8 +52,12 @@ _normalize_filtered() {
 _pull_all() {
   _normalize_filtered
   _unstash_work_overrides
-  echo "==> Pulling personal dotfiles..."
-  $GIT pull "$@"
+  _log "==> Pulling personal dotfiles..."
+  if [[ "$DOT_QUIET" -eq 1 ]]; then
+    $GIT pull --quiet "$@" || _warn "  warning: personal dotfiles pull failed"
+  else
+    $GIT pull "$@"
+  fi
   _pull_work_repo "$@"
 }
 
@@ -57,6 +68,19 @@ _pull_all() {
 case "${1:-}" in
   update)
     shift
+    # Parse flags
+    while [[ "${1:-}" == --* ]]; do
+      case "$1" in
+        --cron) CRON_MODE=1; export DOT_QUIET=1; shift ;;
+        *) break ;;
+      esac
+    done
+
+    # In cron mode, skip pull if worktree is dirty.
+    if [[ "$CRON_MODE" -eq 1 ]] && _is_worktree_dirty; then
+      exit 0
+    fi
+
     if [[ -d "$DOTFILES" ]]; then
       _pull_all "$@"
     else
@@ -67,7 +91,11 @@ case "${1:-}" in
     if [[ -d "$DOTFILES" ]]; then
       _normalize_filtered
     fi
-    echo "==> Done! Run 'source ~/.bashrc' to activate."
+    _log "==> Done! Run 'source ~/.bashrc' to activate."
+    exit 0
+    ;;
+  cron)
+    crontab -l 2>/dev/null || echo "  no crontab installed"
     exit 0
     ;;
   "")
@@ -75,18 +103,22 @@ case "${1:-}" in
 usage: dot <command> [<args>]
 
 Multi-repo commands (personal + work):
-  update    Sync everything: pull repos, merge configs, update deps
-  pull      Same as update (requires bare repo)
-  fetch     Fetch both repos (without updating working copy)
-  push      Push both repos
-  status    Show status of both repos
-  diff      Show diff of both repos
-  refresh   Fix phantom dirty files from clean/smudge filters
+  update [--cron]  Sync everything: pull repos, merge configs, update deps
+  pull             Same as update (requires bare repo)
+  fetch            Fetch both repos (without updating working copy)
+  push             Push both repos
+  status           Show status of both repos
+  diff             Show diff of both repos
+  refresh          Fix phantom dirty files from clean/smudge filters
+  cron             Show installed cron entries
 
 All other commands pass through to git (personal repo only).
 
-'update' works on all machines including dotsync-managed ones without
-git repos. All other commands require the personal bare repo.
+Flags:
+  --cron    Quiet mode for cron: skip pull if worktree dirty, suppress output
+
+'update' installs cron entries from ~/.config/dot/cron (tracked) and
+cron.local (machine-local, untracked) into the user crontab.
 EOF
     exit 0
     ;;

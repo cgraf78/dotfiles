@@ -1,0 +1,6 @@
+# Dotfiles auto-update — managed by dot update. Edit this file to change.
+# Machine-local entries go in cron.local (untracked, same format).
+# Lines starting with # are comments. Blank lines are ignored.
+# PATH is injected automatically at install time.
+
+*/30 * * * * $HOME/.local/bin/dot update --cron

@@ -120,12 +120,12 @@ _mock_home() {
     export HOME="$TEST_HOME"
 }
 
-# Create a temp bin directory prepended to PATH for mock commands.
-# Prints the path; callers create scripts there directly.
+# Create a temp bin directory for mock commands. Returns the path.
+# IMPORTANT: callers must also run `export PATH="$dir:$PATH"` since
+# $() runs in a subshell and the export here won't affect the caller.
 _mock_bin() {
     local d
     d=$(_tmpdir)
-    export PATH="$d:$PATH"
     echo "$d"
 }
 
