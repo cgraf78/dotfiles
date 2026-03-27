@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# claude-hook-pre-edit — PreToolUse guard for Edit|Write.
+# Exit 2 = block the edit. Warnings go to stderr.
+# Auto-delegates to -work variant if present.
+
+set -u
+
+FP=$(jq -r '.tool_input.file_path // empty')
+export FP
+
+[ -z "$FP" ] && exit 0
+
+# --- Delegate to work variant if present ---
+work_variant=$(command -v claude-hook-pre-edit-work 2>/dev/null)
+[ -n "$work_variant" ] && [ -x "$work_variant" ] && exec "$work_variant"
+
+exit 0

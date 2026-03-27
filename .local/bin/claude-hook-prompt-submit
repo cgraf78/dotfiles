@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# claude-hook-prompt-submit — UserPromptSubmit handler.
+# Injects current commit context into every prompt.
+# Auto-delegates to -work variant if present.
+
+set -u
+
+# --- Delegate to work variant if present ---
+work_variant=$(command -v claude-hook-prompt-submit-work 2>/dev/null)
+[ -n "$work_variant" ] && [ -x "$work_variant" ] && exec "$work_variant"
+
+exit 0
