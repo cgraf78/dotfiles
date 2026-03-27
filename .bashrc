@@ -37,6 +37,9 @@ if [ -d "$HOME/.bun/bin" ]; then
     export BUN_INSTALL="$HOME/.bun"
     PATH="$BUN_INSTALL/bin:$PATH"
 fi
+if [ -f "$HOME/.atuin/bin/env" ]; then
+    . "$HOME/.atuin/bin/env"
+fi
 
 # =============================================================================
 # Shell behavior
@@ -168,3 +171,9 @@ argus() {
 command -v fzf &>/dev/null && eval "$(fzf --bash 2>/dev/null)" || true
 command -v ds &>/dev/null && eval "$(ds init bash)"
 command -v dotsync &>/dev/null && eval "$(dotsync init bash)"
+
+# Init Atuin support
+[[ -f ~/.bash-preexec.sh ]] && source ~/.bash-preexec.sh
+if command -v atuin &>/dev/null; then
+    eval "$(atuin init bash)"
+fi
