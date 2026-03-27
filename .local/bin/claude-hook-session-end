@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# claude-hook-autotitle — SessionEnd hook.
+# claude-hook-session-end — SessionEnd hook.
 # Auto-names sessions based on user messages using a fast Claude call.
 # Runs the naming in the background via nohup to avoid blocking exit.
+# Auto-delegates to -work variant if present.
 
 set -euo pipefail
 
@@ -46,5 +47,9 @@ nohup timeout 60 bash -c '
   jq -nc --arg t "$NAME" --arg s "$__SID" \
     "{\"type\":\"custom-title\",\"customTitle\":\$t,\"sessionId\":\$s}" >> "$__TP"
 ' >/dev/null 2>&1 & disown
+
+# --- Delegate to work variant if present ---
+work_variant=$(command -v claude-hook-session-end-work 2>/dev/null)
+[ -n "$work_variant" ] && [ -x "$work_variant" ] && exec "$work_variant"
 
 exit 0
