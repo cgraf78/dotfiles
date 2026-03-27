@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# claude-hook-bash-precheck — PreToolUse guard for Bash commands (personal).
+# Parses stdin JSON, exports CMD_TRIMMED for composability with -work variant.
+# Exit 2 = block the command. Warnings go to stderr.
+
+set -u
+
+# Parse stdin and export for downstream scripts
+if [ -z "${CMD_TRIMMED:-}" ]; then
+  cmd=$(jq -r '.tool_input.command // empty')
+  [ -z "$cmd" ] && exit 0
+  CMD_TRIMMED=$(printf '%s' "$cmd" | sed 's/^[[:space:]]*//')
+  export CMD_TRIMMED
+fi
+
+# --- Hard blocks ---
+
+# Block rm -rf on dangerous paths, warn on all other rm -rf
+if printf '%s' "$CMD_TRIMMED" | grep -qE '\brm\b' && printf '%s' "$CMD_TRIMMED" | grep -qE '\brm\b.*-[a-zA-Z]*r' && printf '%s' "$CMD_TRIMMED" | grep -qE '\brm\b.*-[a-zA-Z]*f'; then
+  if printf '%s' "$CMD_TRIMMED" | grep -qE '\brm\b.*\s+(/|~|\$HOME|\.\.)\s*$'; then
+    echo 'BLOCKED: rm -rf on / ~ $HOME or .. is never allowed' >&2
+    exit 2
+  fi
+  echo 'WARNING: rm -rf detected. Verify the target path is correct before proceeding.' >&2
+fi
+
+exit 0
