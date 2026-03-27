@@ -80,6 +80,22 @@ _check_dep() {
   return 0
 }
 
+_check_dep_any() {
+  # $1=pkg-name $2...=commands
+  local pkg="$1"
+  shift
+  local cmd
+  for cmd in "$@"; do
+    if command -v "$cmd" &>/dev/null; then
+      return 0
+    fi
+  done
+  if [[ "${_dep_header_shown:-0}" -eq 0 ]]; then echo "==> Missing dependencies..."; _dep_header_shown=1; fi
+  echo "  warning: $pkg not found"
+  _install_hint "$pkg"
+  return 1
+}
+
 # Check all expected system dependencies. Best-effort — warns but doesn't abort.
 _check_deps() {
   _dep_header_shown=0
@@ -89,8 +105,8 @@ _check_deps() {
   _check_dep fzf fzf || true
   _check_dep atuin atuin || true
   _check_dep zoxide zoxide || true
-  _check_dep batcat bat || true
-  _check_dep fdfind fd || true
+  _check_dep_any bat bat batcat || true
+  _check_dep_any fd fd fdfind || true
   _check_dep eza eza || true
 }
 
