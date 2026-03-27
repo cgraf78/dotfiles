@@ -89,6 +89,7 @@ _check_deps() {
   _check_dep fzf fzf || true
   _check_dep atuin atuin || true
   _check_dep zoxide zoxide || true
+  _check_dep batcat bat || true
 }
 
 # ---------------------------------------------------------------------------
