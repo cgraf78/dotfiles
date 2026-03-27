@@ -13,6 +13,7 @@
 .tmux.conf
 .claude/CLAUDE.md
 .claude/settings.json
+.config/atuin/config.toml
 .config/wezterm/wezterm.lua
 
 # Excludes
