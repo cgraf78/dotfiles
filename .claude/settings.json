@@ -42,6 +42,28 @@
         "matcher": ""
       }
     ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "claude-hook-post-edit",
+            "timeout": 60,
+            "type": "command"
+          }
+        ],
+        "matcher": "Edit|Write"
+      },
+      {
+        "hooks": [
+          {
+            "command": "claude-hook-post-bash",
+            "timeout": 120,
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash"
+      }
+    ],
     "PreToolUse": [
       {
         "hooks": [
@@ -52,6 +74,16 @@
           }
         ],
         "matcher": "Bash"
+      },
+      {
+        "hooks": [
+          {
+            "command": "claude-hook-pre-edit",
+            "timeout": 10,
+            "type": "command"
+          }
+        ],
+        "matcher": "Edit|Write"
       }
     ],
     "SessionEnd": [
@@ -90,6 +122,18 @@
         "hooks": [
           {
             "command": "bash ~/.claude/plugins/cache/cgraf78-claude-plugins/memory-sync/*/scripts/sync-memory.sh",
+            "type": "command"
+          }
+        ],
+        "matcher": ""
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "command": "claude-hook-prompt-submit",
+            "timeout": 10,
             "type": "command"
           }
         ],

@@ -18,6 +18,8 @@
 .local/bin/claude-hook-post-bash
 .local/bin/claude-hook-post-edit
 .local/bin/claude-hook-session-end
+.local/bin/claude-hook-pre-edit
+.local/bin/claude-hook-prompt-submit
 .local/bin/claude-hook-session-start
 .config/atuin/config.toml
 .config/wezterm/wezterm.lua
