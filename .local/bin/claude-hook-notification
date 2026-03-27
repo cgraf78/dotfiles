@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# claude-hook-notification — Notification hook.
+# Terminal bell on permission prompts and other attention requests.
+# Auto-delegates to -work variant if present.
+
+set -u
+
+printf '\a' > /dev/tty 2>/dev/null || true
+
+# --- Delegate to work variant if present ---
+work_variant=$(command -v claude-hook-notification-work 2>/dev/null)
+[ -n "$work_variant" ] && [ -x "$work_variant" ] && exec "$work_variant"
+
+exit 0

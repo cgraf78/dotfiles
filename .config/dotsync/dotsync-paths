@@ -15,6 +15,7 @@
 .claude/settings.json
 .local/bin/CLAUDE.md
 .local/bin/claude-hook-pre-bash
+.local/bin/claude-hook-notification
 .local/bin/claude-hook-post-bash
 .local/bin/claude-hook-post-edit
 .local/bin/claude-hook-session-end
