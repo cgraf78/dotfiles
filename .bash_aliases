@@ -38,6 +38,9 @@ if [[ "$(uname -s)" == "Linux" || "$(uname -s)" == MINGW* || "$(uname -s)" == MS
     alias cp='cp --backup=numbered'
     alias ln='ln --backup=numbered'
     alias mv='mv -f --backup=numbered'
+    if command -v batcat >/dev/null 2>&1 && ! command -v bat >/dev/null 2>&1; then
+        alias bat='batcat'
+    fi
 
     # Windows interop (shared between WSL and MINGW/MSYS)
     if [[ -n "${WSL_DISTRO_NAME:-}" || "$(uname -s)" != "Linux" ]]; then
