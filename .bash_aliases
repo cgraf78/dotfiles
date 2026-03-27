@@ -26,7 +26,16 @@ alias vnctun.metro='autossh -M0 -N -L 9001:metro.web:5901 nas'
 # macOS
 # =============================================================================
 if [[ "$(uname -s)" == "Darwin" ]]; then
-    alias ls='ls -G'
+    if command -v eza >/dev/null 2>&1; then
+        alias ls='eza --group-directories-first'
+        alias ll='eza -alF --group-directories-first'
+        alias la='eza -a --group-directories-first'
+        alias l='eza -F --group-directories-first'
+        alias lt='eza --tree --level=2'
+        alias llt='eza --tree -al --level=2'
+    else
+        alias ls='ls -G'
+    fi
 fi
 
 # =============================================================================
@@ -34,12 +43,21 @@ fi
 # =============================================================================
 if [[ "$(uname -s)" == "Linux" || "$(uname -s)" == MINGW* || "$(uname -s)" == MSYS* ]]; then
     # GNU coreutils
-    alias ls='ls --color=auto'
     alias cp='cp --backup=numbered'
     alias ln='ln --backup=numbered'
     alias mv='mv -f --backup=numbered'
     if command -v batcat >/dev/null 2>&1 && ! command -v bat >/dev/null 2>&1; then
         alias bat='batcat'
+    fi
+    if command -v eza >/dev/null 2>&1; then
+        alias ls='eza --group-directories-first'
+        alias ll='eza -alF --group-directories-first'
+        alias la='eza -a --group-directories-first'
+        alias l='eza -F --group-directories-first'
+        alias lt='eza --tree --level=2'
+        alias llt='eza --tree -al --level=2'
+    else
+        alias ls='ls --color=auto'
     fi
 
     # Windows interop (shared between WSL and MINGW/MSYS)
