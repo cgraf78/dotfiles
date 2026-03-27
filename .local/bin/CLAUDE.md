@@ -28,6 +28,12 @@ Exists as the composition base for `-work` variant delegation.
 Parses stdin JSON, exports `FP` (file path). No personal post-actions currently.
 Exists as the composition base for `-work` variant delegation.
 
+### `claude-hook-session-start` (SessionStart)
+
+Reports context at session start: uncommitted changes (`git status`) and disk
+usage warnings (>90%). Delegates to `-work` variant *before* running base logic
+(since the work variant replaces rather than extends).
+
 ### `claude-hook-session-end` (SessionEnd)
 
 Auto-names Claude Code sessions by extracting user messages from the transcript

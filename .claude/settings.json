@@ -69,7 +69,7 @@
       {
         "hooks": [
           {
-            "command": "ctx=''; if command -v git >/dev/null 2>&1; then changes=$(git status --porcelain 2>/dev/null | head -20); if [ -n \"$changes\" ]; then ctx=\"Uncommitted changes:\\n$changes\"; fi; fi; disk=$(df -h . 2>/dev/null | awk 'NR==2{print $5}' | tr -d '%'); if [ -n \"$disk\" ] && [ \"$disk\" -gt 90 ] 2>/dev/null; then ctx=\"$ctx\\nWARNING: Disk usage at ${disk}%\"; fi; if [ -n \"$ctx\" ]; then printf '{\"context\": \"%s\"}' \"$ctx\"; fi",
+            "command": "claude-hook-session-start",
             "timeout": 10,
             "type": "command"
           }
