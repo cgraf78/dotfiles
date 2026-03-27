@@ -171,9 +171,6 @@ argus() {
 command -v fzf &>/dev/null && eval "$(fzf --bash 2>/dev/null)" || true
 command -v ds &>/dev/null && eval "$(ds init bash)"
 command -v dotsync &>/dev/null && eval "$(dotsync init bash)"
-
-# Init Atuin support
+command -v zoxide &>/dev/null && eval "$(zoxide init bash)"
 [[ -f ~/.bash-preexec.sh ]] && source ~/.bash-preexec.sh
-if command -v atuin &>/dev/null; then
-    eval "$(atuin init bash)"
-fi
+command -v atuin &>/dev/null && eval "$(atuin init bash)"
