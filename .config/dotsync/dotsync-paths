@@ -21,6 +21,7 @@
 .local/bin/claude-hook-pre-edit
 .local/bin/claude-hook-prompt-submit
 .local/bin/claude-hook-session-start
+.local/bin/claude-hook-stop
 .config/atuin/config.toml
 .config/wezterm/wezterm.lua
 

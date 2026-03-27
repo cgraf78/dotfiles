@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# claude-hook-stop — Stop hook.
+# Runs after every Claude response: terminal bell + memory sync.
+# Auto-delegates to -work variant if present.
+
+set -u
+
+# --- Terminal bell ---
+printf '\a' > /dev/tty 2>/dev/null || true
+
+# --- Memory sync ---
+if command -v sync-memory >/dev/null 2>&1; then
+  sync-memory
+else
+  # Fall back to plugin cache path
+  script=$(find "$HOME/.claude/plugins/cache" -path '*/memory-sync/*/scripts/sync-memory.sh' 2>/dev/null | head -1)
+  [ -n "$script" ] && bash "$script"
+fi
+
+# --- Delegate to work variant if present ---
+work_variant=$(command -v claude-hook-stop-work 2>/dev/null)
+[ -n "$work_variant" ] && [ -x "$work_variant" ] && exec "$work_variant"
+
+exit 0

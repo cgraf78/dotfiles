@@ -112,16 +112,7 @@
       {
         "hooks": [
           {
-            "command": "printf '\\a' > /dev/tty 2>/dev/null || true",
-            "type": "command"
-          }
-        ],
-        "matcher": ""
-      },
-      {
-        "hooks": [
-          {
-            "command": "bash ~/.claude/plugins/cache/cgraf78-claude-plugins/memory-sync/*/scripts/sync-memory.sh",
+            "command": "claude-hook-stop",
             "type": "command"
           }
         ],
