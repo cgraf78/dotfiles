@@ -378,7 +378,7 @@ _install_cron() {
   # Append the new managed block.
   local new_crontab
   if [[ -n "$filtered" ]]; then
-    new_crontab="$filtered"$'\n'"$managed_block"
+    new_crontab="$filtered"$'\n\n'"$managed_block"
   else
     new_crontab="$managed_block"
   fi
