@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# claude-hook-autotitle — SessionEnd hook.
+# Auto-names sessions based on user messages using a fast Claude call.
+# Runs the naming in the background via nohup to avoid blocking exit.
+
+set -euo pipefail
+
+input=$(cat)
+sid=$(printf '%s' "$input" | jq -r '.session_id // empty')
+tp=$(printf '%s' "$input" | jq -r '.transcript_path // empty')
+
+[ -z "$sid" ] || [ -z "$tp" ] || [ ! -f "$tp" ] && exit 0
+
+# Already titled — skip
+grep -q '"custom-title"' "$tp" 2>/dev/null && exit 0
+
+# Extract user messages (skip system reminders and slash commands)
+msgs=$(jq -r -R '
+  try fromjson catch empty
+  | select(.type=="user")
+  | .message.content
+  | (if type=="array" then [.[] | select(.type=="text") | .text] | join(" ")
+     elif type=="string" then .
+     else empty end)
+  | select(length > 0)
+  | select(startswith("<system-reminder>") | not)
+  | select(startswith("/") | not)
+  | .[:200]
+' "$tp" 2>/dev/null | head -15)
+
+[ -z "$msgs" ] && exit 0
+
+export __MSGS="$msgs" __SID="$sid" __TP="$tp"
+
+nohup timeout 60 bash -c '
+  NAME=$(printf "Name this coding session in 3-7 words based on the user messages below. Reply with ONLY the name. No preamble, no quotes, no explanation, no punctuation. Examples: Review auth hook diff, Debug flaky unit tests, Add user profile page\n\nUser messages:\n%s" "$__MSGS" \
+    | claude -p --no-session-persistence --model sonnet 2>/dev/null \
+    | tail -1 \
+    | sed "s/^[^a-zA-Z0-9]*//" \
+    | tr -d "\"" \
+    | cut -c1-80)
+
+  [ -z "$NAME" ] && exit 0
+  grep -q "\"custom-title\"" "$__TP" 2>/dev/null && exit 0
+
+  jq -nc --arg t "$NAME" --arg s "$__SID" \
+    "{\"type\":\"custom-title\",\"customTitle\":\$t,\"sessionId\":\$s}" >> "$__TP"
+' >/dev/null 2>&1 & disown
+
+exit 0
