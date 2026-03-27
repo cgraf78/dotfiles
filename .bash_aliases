@@ -42,10 +42,7 @@ fi
 # Linux / WSL / MINGW
 # =============================================================================
 if [[ "$(uname -s)" == "Linux" || "$(uname -s)" == MINGW* || "$(uname -s)" == MSYS* ]]; then
-    # GNU coreutils
-    alias cp='cp --backup=numbered'
-    alias ln='ln --backup=numbered'
-    alias mv='mv -f --backup=numbered'
+
     if command -v batcat >/dev/null 2>&1 && ! command -v bat >/dev/null 2>&1; then
         alias bat='batcat'
     fi
