@@ -170,7 +170,6 @@ argus() {
 # Tool shell integrations (completions, key bindings, auto-attach)
 command -v fzf &>/dev/null && eval "$(fzf --bash 2>/dev/null)" || true
 command -v ds &>/dev/null && eval "$(ds init bash)"
-command -v dotsync &>/dev/null && eval "$(dotsync init bash)"
 command -v zoxide &>/dev/null && eval "$(zoxide init bash)"
 [[ -f ~/.bash-preexec.sh ]] && source ~/.bash-preexec.sh
 command -v atuin &>/dev/null && eval "$(atuin init bash --disable-up-arrow)"

@@ -392,15 +392,11 @@ _update_deps() {
   _check_deps
 
   local ds_repo="${DOTBOOTSTRAP_DS_REPO:-https://github.com/cgraf78/ds.git}"
-  local dotsync_repo="${DOTBOOTSTRAP_DOTSYNC_REPO:-https://github.com/cgraf78/dotsync.git}"
   local vimrc_repo="${DOTBOOTSTRAP_VIMRC_REPO:-https://github.com/cgraf78/vimrc.git}"
   local gstack_repo="${DOTBOOTSTRAP_GSTACK_REPO:-https://github.com/garrytan/gstack.git}"
 
   _log "==> Installing/upgrading ds..."
   _install_tool ds "$ds_repo" "$HOME/.local/share/ds" || true
-
-  _log "==> Installing/upgrading dotsync..."
-  _install_tool dotsync "$dotsync_repo" "$HOME/.local/share/dotsync" || true
 
   _log "==> Installing/upgrading vimrc..."
   local is_fresh_vimrc=0

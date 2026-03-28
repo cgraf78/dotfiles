@@ -136,10 +136,6 @@ dot add <file> && dot commit -m "add <file>" && dot push
 
 Creates tmux sessions locally or on remote hosts with configurable profiles and per-host defaults. Installed to `~/.local/share/ds` by `dotbootstrap`; updated by `dot update`.
 
-### [`dotsync`](https://github.com/cgraf78/dotsync) — Cross-Machine Dotfile Sync
-
-Keeps your shell environment (dotfiles + config) consistent across multiple machines via rsync + SSH. Automates pushing settings updates to all your hosts so they stay in sync. Installed to `~/.local/share/dotsync` by `dotbootstrap`; updated by `dot update`.
-
 ### [`vimrc`](https://github.com/cgraf78/vimrc) — Vim Config
 
 Vim runtime and plugin configuration. Installed to `~/.vim_runtime` by `dotbootstrap`; updated by `dot update`.
