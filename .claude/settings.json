@@ -208,7 +208,6 @@
       "Bash(rsync *)",
       "Bash(brew *)",
       "Bash(claude *)",
-      "Bash(dotsync *)",
       "Bash(ds *)",
       "Skill(commit-commands:*)"
     ]

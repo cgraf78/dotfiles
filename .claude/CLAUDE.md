@@ -1,6 +1,6 @@
 # Personal Rules
 
-> **Note:** Work-specific rules live in `~/.claude/rules/CLAUDE-work.md`. When asked to remember work-specific preferences, add them there — not here. This file is for personal, cross-context, and non-work-specific rules only.
+> **Note:** Work-specific rules live in `~/.claude/rules/CLAUDE-work.md` when that file is present. When asked to remember work-specific preferences, add them there — not here. This file is for personal, cross-context, and non-work-specific rules only.
 
 ## Dotfiles
 
@@ -13,12 +13,11 @@ Two repos: `~/.dotfiles` (personal, bare) and `~/.dotfiles-work` (work, regular 
 
 - `~/git` is the default location for locally cloned git repos. GitHub username: `cgraf78`.
 - Use `gh` for all GitHub operations (PRs, issues, releases).
-- `ds` creates tmux dev sessions. See `~/.local/bin/ds.md`.
+- `ds` creates tmux dev sessions. See the `ds` README.
 - When inspecting tmux sessions, prefer non-attached tmux commands like
   `capture-pane`, `list-panes`, and `list-windows`. Avoid attaching a small
   client that would shrink the user's pane size; only attach interactively if
   truly necessary.
-- `dotsync` syncs dotfiles across machines. Config lives in `~/.config/dotsync/`.
 - gstack skills live in `~/.gstack`, symlinked into `~/.claude/skills/`.
 - Do NOT use the `pingme` skill to send notifications.
 
