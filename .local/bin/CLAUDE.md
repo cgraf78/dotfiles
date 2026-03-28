@@ -38,7 +38,8 @@ usage warnings (>90%). Delegates to `-work` variant *before* running base logic
 
 Auto-names Claude Code sessions by extracting user messages from the transcript
 and calling `claude -p --model sonnet` in the background via `nohup`. Skips
-sessions that already have a custom title. Delegates to `-work` variant if present.
+sessions that already have a custom title. Runs this personal base logic first,
+then delegates to `-work` variant if present.
 
 ## Delegation Pattern
 
@@ -54,3 +55,6 @@ settings.json → claude-hook-{event}
 
 Work scripts receive `CMD_TRIMMED` or `FP` via exported env vars. They never
 parse stdin — the base script already consumed it.
+
+`claude-hook-session-start` is the exception: it checks for the `-work` variant
+first and lets that replace the personal base logic entirely.
