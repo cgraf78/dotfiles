@@ -172,10 +172,17 @@
       "Bash(uname *)",
       "Bash(tr *)",
       "Bash(python3 *)",
+      "Bash(python3.12 *)",
       "Bash(python *)",
       "Bash(pip3 list*)",
       "Bash(pip3 show *)",
       "Bash(pip3 freeze*)",
+      "Bash(pip install:*)",
+      "Bash(.venv/bin/pytest *)",
+      "Bash(source .venv/bin/activate)",
+      "Bash(npm install:*)",
+      "Bash(npm run:*)",
+      "Bash(npm test:*)",
       "Bash(c++filt *)",
       "Bash(nm *)",
       "Bash(otool *)",
@@ -209,7 +216,12 @@
       "Bash(brew *)",
       "Bash(claude *)",
       "Bash(ds *)",
-      "Skill(commit-commands:*)"
+      "Bash(ssh *)",
+      "Skill(commit-commands:*)",
+      "Skill(gstack-upgrade)",
+      "Skill(investigate)",
+      "Skill(update-config)",
+      "mcp__plugin_github_github__create_repository"
     ]
   },
   "statusLine": {
