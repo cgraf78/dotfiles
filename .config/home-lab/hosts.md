@@ -6,7 +6,8 @@
 - OS: Arch Linux
 - Access: direct SSH as `nas`
 - Cron: `cronie.service` with `CROND` journal entries
-- Notes: home network entry point; commonly runs `dot update --cron` and
+- Notes: home network entry point and VM host; high RAM use may be normal in
+  that context. Commonly runs `dot update --cron` and
   `ht_list_package_updates`
 
 ## taylor
