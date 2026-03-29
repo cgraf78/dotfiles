@@ -14,6 +14,8 @@ Two repos: `~/.dotfiles` (personal, bare) and `~/.dotfiles-work` (work, regular 
 - `~/git` is the default location for locally cloned git repos. GitHub username: `cgraf78`.
 - Use `gh` for all GitHub operations (PRs, issues, releases).
 - `ds` creates tmux dev sessions. See the `ds` README.
+- For home network host details, read `~/.config/home-lab/hosts.md` before
+  investigating `nas`, `taylor`, `metro`, or `bevo2`.
 - When inspecting tmux sessions, prefer non-attached tmux commands like
   `capture-pane`, `list-panes`, and `list-windows`. Avoid attaching a small
   client that would shrink the user's pane size; only attach interactively if
