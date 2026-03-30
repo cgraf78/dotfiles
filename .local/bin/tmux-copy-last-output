@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# Copy the last N commands and their output from the current tmux pane to the
+# clipboard. Parses pane content for prompt boundaries (the "o "/"x " status
+# indicator followed by user@host) to isolate command+output blocks.
+#
+# Usage: tmux-copy-last-output [count]   (default: 1)
+
+set -euo pipefail
+
+count="${1:-1}"
+
+content=$(tmux capture-pane -p -S -500)
+
+output=$(printf '%s\n' "$content" | awk -v count="$count" '
+/^[ox] [a-zA-Z0-9_]+@/ {
+  prompts[++n] = NR
+  prompt_lines[n] = $0
+  next
+}
+{ lines[NR] = $0 }
+END {
+  if (n < 2) exit 1
+  # Start index: go back count commands from the last prompt
+  start = n - count
+  if (start < 1) start = 1
+  first = 1
+  for (c = start; c < n; c++) {
+    if (!first) print ""
+    first = 0
+    cmd = prompt_lines[c]
+    sub(/^.*\$ /, "", cmd)
+    if (cmd != "") print "$ " cmd
+    for (i = prompts[c] + 1; i < prompts[c+1]; i++)
+      if (i in lines) print lines[i]
+  }
+}
+')
+
+if [[ -z "$output" ]]; then
+  tmux display-message "No command output found"
+  exit 0
+fi
+
+if command -v pbcopy &>/dev/null; then
+  printf '%s' "$output" | pbcopy
+elif command -v xclip &>/dev/null; then
+  printf '%s' "$output" | xclip -selection clipboard
+else
+  tmux display-message "No clipboard tool found"
+  exit 1
+fi
+
+if (( count == 1 )); then
+  tmux display-message "Copied last command + output to clipboard"
+else
+  tmux display-message "Copied last $count commands + output to clipboard"
+fi
