@@ -113,6 +113,9 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
 
     # iTerm2
     test -e "${HOME}/.iterm2_shell_integration.bash" && . "${HOME}/.iterm2_shell_integration.bash"
+
+    # WezTerm
+    test -e "/Applications/WezTerm.app/Contents/Resources/wezterm.sh" && . "/Applications/WezTerm.app/Contents/Resources/wezterm.sh"
 fi
 
 # =============================================================================
