@@ -38,7 +38,11 @@ _pull_work_repo() {
   [[ -d "$WORK_DIR" ]] || return 0
   if [[ -d "$WORK_DIR/.git" ]]; then
     _log "==> Pulling work dotfiles..."
-    git -C "$WORK_DIR" pull --quiet "$@" || _warn "  warning: work dotfiles pull failed"
+    if [[ "$DOT_QUIET" -eq 1 ]]; then
+      git -C "$WORK_DIR" pull --quiet "$@" || _warn "  warning: work dotfiles pull failed"
+    else
+      git -C "$WORK_DIR" pull "$@" || _warn "  warning: work dotfiles pull failed"
+    fi
   fi
   if [[ -x "$WORK_DIR/bootstrap" ]]; then
     if [[ "$DOT_QUIET" -eq 1 ]]; then
