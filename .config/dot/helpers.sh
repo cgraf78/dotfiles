@@ -398,6 +398,7 @@ _update_deps() {
   local ds_repo="${DOTBOOTSTRAP_DS_REPO:-https://github.com/cgraf78/ds.git}"
   local vimrc_repo="${DOTBOOTSTRAP_VIMRC_REPO:-https://github.com/cgraf78/vimrc.git}"
   local gstack_repo="${DOTBOOTSTRAP_GSTACK_REPO:-https://github.com/garrytan/gstack.git}"
+  local bash_preexec_repo="${DOTBOOTSTRAP_BASH_PREEXEC_REPO:-https://github.com/rcaloras/bash-preexec.git}"
 
   _log "==> Installing/upgrading ds..."
   _install_tool ds "$ds_repo" "$HOME/.local/share/ds" || true
@@ -422,6 +423,12 @@ _update_deps() {
         ln -sfn "gstack/$(basename "$_d")" "$HOME/.claude/skills/$(basename "$_d")"
       fi
     done
+  fi
+
+  _log "==> Installing/upgrading bash-preexec..."
+  _install_tool bash-preexec "$bash_preexec_repo" "$HOME/.local/share/bash-preexec" || true
+  if [[ -f "$HOME/.local/share/bash-preexec/bash-preexec.sh" ]]; then
+    ln -sfn "$HOME/.local/share/bash-preexec/bash-preexec.sh" "$HOME/.bash-preexec.sh"
   fi
 
   _log "==> Installing cron..."
