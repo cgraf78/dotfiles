@@ -137,6 +137,7 @@
     "window.zoomPerWindow": false,
     "window.nativeTabs": true,
     "window.openNewWindowsInNativeTabs": true,
+    "homepage.startup": "Never",
     "workbench.startupEditor": "none",
     "workbench.iconTheme": "vscode-icons",
     "workbench.colorTheme": "Night Owl (No Italics)",
