@@ -34,7 +34,7 @@ END {
       if (i in lines) print lines[i]
   }
 }
-')
+') || true
 
 if [[ -z "$output" ]]; then
   tmux display-message "No command output found"
