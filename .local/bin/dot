@@ -76,9 +76,13 @@ case "${1:-}" in
       esac
     done
 
-    # In cron mode, skip pull if worktree is dirty.
+    # In cron mode, skip pull if worktree is dirty.  First try to resolve
+    # dirty files that match the remote (e.g. dotsync wrote the same content
+    # that would be pulled).
     if [[ "$CRON_MODE" -eq 1 ]] && _is_worktree_dirty; then
-      exit 0
+      if ! _try_resolve_dirty; then
+        exit 0
+      fi
     fi
 
     if [[ -d "$DOTFILES" ]]; then

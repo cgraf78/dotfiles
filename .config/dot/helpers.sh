@@ -283,6 +283,60 @@ _is_worktree_dirty() {
   return 1
 }
 
+# Attempt to resolve dirty worktrees caused by dotsync writing files that
+# match what's on the remote.  Fetches origin, then for each dirty file
+# checks whether its working-tree content matches origin/main.  If every
+# dirty file matches, discards the local copy (the pull will bring the
+# same content).  Returns 0 if both repos are clean after resolution.
+_try_resolve_dirty() {
+  local dirty=0
+  if [[ -d "$DOTFILES" ]] && ! $GIT diff-index --quiet HEAD 2>/dev/null; then
+    $GIT fetch --quiet origin 2>/dev/null || true
+    if _dirty_files_match_remote personal; then
+      $GIT checkout -- . 2>/dev/null || true
+    else
+      dirty=1
+    fi
+  fi
+  if [[ -d "$WORK_DIR/.git" ]] && ! git -C "$WORK_DIR" diff-index --quiet HEAD 2>/dev/null; then
+    git -C "$WORK_DIR" fetch --quiet origin 2>/dev/null || true
+    if _dirty_files_match_remote work; then
+      git -C "$WORK_DIR" checkout -- . 2>/dev/null || true
+    else
+      dirty=1
+    fi
+  fi
+  return "$dirty"
+}
+
+# Check if every dirty file in a repo matches the content on a remote ref.
+# $1 = "personal" or "work"
+_dirty_files_match_remote() {
+  local repo="$1" remote_ref="origin/main"
+  local dirty_files
+  if [[ "$repo" == "personal" ]]; then
+    dirty_files=$($GIT diff-index --name-only HEAD 2>/dev/null) || return 1
+    $GIT rev-parse --verify "$remote_ref" &>/dev/null || return 1
+    while IFS= read -r f; do
+      local work_hash remote_hash
+      # diff-index paths are relative to work-tree ($HOME for bare repo)
+      work_hash=$($GIT hash-object "$HOME/$f" 2>/dev/null) || return 1
+      remote_hash=$($GIT rev-parse "$remote_ref:$f" 2>/dev/null) || return 1
+      [[ "$work_hash" == "$remote_hash" ]] || return 1
+    done <<< "$dirty_files"
+  else
+    dirty_files=$(git -C "$WORK_DIR" diff-index --name-only HEAD 2>/dev/null) || return 1
+    git -C "$WORK_DIR" rev-parse --verify "$remote_ref" &>/dev/null || return 1
+    while IFS= read -r f; do
+      local work_hash remote_hash
+      work_hash=$(git -C "$WORK_DIR" hash-object "$WORK_DIR/$f" 2>/dev/null) || return 1
+      remote_hash=$(git -C "$WORK_DIR" rev-parse "$remote_ref:$f" 2>/dev/null) || return 1
+      [[ "$work_hash" == "$remote_hash" ]] || return 1
+    done <<< "$dirty_files"
+  fi
+  return 0
+}
+
 # ---------------------------------------------------------------------------
 # Cron install from tracked file
 # ---------------------------------------------------------------------------
