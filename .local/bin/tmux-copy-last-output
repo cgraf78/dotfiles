@@ -46,8 +46,11 @@ if command -v pbcopy &>/dev/null; then
 elif command -v xclip &>/dev/null; then
   printf '%s' "$output" | xclip -selection clipboard
 else
-  tmux display-message "No clipboard tool found"
-  exit 1
+  # Send OSC 52 directly to the attached client's TTY, bypassing
+  # run-shell's stdout capture which would print the escape literally
+  encoded=$(printf '%s' "$output" | base64 | tr -d '\n')
+  tty=$(tmux display-message -p '#{client_tty}')
+  printf '\033]52;c;%s\033\\' "$encoded" > "$tty"
 fi
 
 if (( count == 1 )); then
