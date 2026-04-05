@@ -424,6 +424,7 @@ echo "bashrc content" > "$PERSONAL_STAGING/.bashrc"
 
 cp "$REAL_HOME/.config/dot/helpers.sh" "$PERSONAL_STAGING/.config/dot/helpers.sh"
 cp "$REAL_HOME/.config/dot/deps.conf" "$PERSONAL_STAGING/.config/dot/deps.conf"
+cp "$REAL_HOME/.config/dot/dep-hooks.sh" "$PERSONAL_STAGING/.config/dot/dep-hooks.sh"
 
 cat > "$PERSONAL_STAGING/.config/dot/merge-testapp.sh" <<'MERGE'
 merge_testapp() { echo "MERGE_TESTAPP_RAN"; }
@@ -591,8 +592,8 @@ result=$(_run_bootstrap "$FRESH_WORK" work)
 # Should NOT try to clone (repo already exists)
 _assert_not_contains "re-run: skips clone" "Cloning personal" "$result"
 
-# Post hooks run on every update (vimrc install script is idempotent)
-_assert_contains "re-run: vimrc hook ran" "VIMRC_INSTALLED" "$result"
+# vimrc hook only runs when dep was installed/updated
+_assert_not_contains "re-run: vimrc hook skipped (no change)" "VIMRC_INSTALLED" "$result"
 
 # Work repo exists → pulls instead of cloning
 _assert_contains "re-run: pulls work repo" "Pulling work" "$result"

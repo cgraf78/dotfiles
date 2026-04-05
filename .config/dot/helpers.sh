@@ -176,6 +176,7 @@ _pkg_queue() {
   local resolved
   resolved=$(_pkg_resolve "$name" "$overrides")
   _PKG_BATCH+=("$resolved")
+  _PKG_BATCH_NAMES+=("$name")
   _log "  $name queued for install"
 }
 
@@ -225,6 +226,12 @@ _pkg_install_batch() {
       esac
     done
   fi
+
+  # Mark all batch-installed deps as changed
+  local _i
+  for _i in "${!_PKG_BATCH_NAMES[@]}"; do
+    _DEPS_CHANGED[${_PKG_BATCH_NAMES[$_i]}]=1
+  done
 }
 
 # ---------------------------------------------------------------------------
@@ -277,6 +284,7 @@ _install_from_github() {
     ln -sfn "$local_clone" "$install_dir"
     _link_bin "$name" "$install_dir"
     local ver; ver=$(_get_version "$local_clone")
+    _DEPS_CHANGED[$name]=1
     _log "  $name -> $local_clone (local clone)${ver:+ -- $ver}"
     return 0
   fi
@@ -289,6 +297,7 @@ _install_from_github() {
       local head_after; head_after=$(git -C "$install_dir" rev-parse HEAD 2>/dev/null || true)
       local ver; ver=$(_get_version "$install_dir")
       if [[ "$head_before" != "$head_after" ]]; then
+        _DEPS_CHANGED[$name]=1
         _log "  $name updated${ver:+ -- $ver}"
       else
         _log "  $name up to date${ver:+ -- $ver}"
@@ -355,6 +364,7 @@ _install_from_github() {
   if [[ -n "$ver_before" && "$ver_before" == "$ver" ]]; then
     _log "  $name up to date ($method)${ver:+ -- $ver}"
   else
+    _DEPS_CHANGED[$name]=1
     _log "  $name installed ($method)${ver:+ -- $ver}"
   fi
 }
@@ -603,6 +613,7 @@ _install_appimage() {
   mv "$tmp_file" "$bin_path"
   chmod u+x "$bin_path"
 
+  _DEPS_CHANGED[$name]=1
   if [[ -n "$current_ver" ]]; then
     _log "  $name updated -- $current_ver -> $latest_ver"
   else
@@ -637,34 +648,16 @@ _install_dep() {
   esac
 }
 
-# Post-install hooks — define _post_<name> functions (dashes → underscores).
-_post_vimrc() {
-  [[ -f "$HOME/.vim_runtime/install_awesome_vimrc.sh" ]] || return 0
-  sh "$HOME/.vim_runtime/install_awesome_vimrc.sh" 2>/dev/null || \
-    _warn "  warning: vimrc install script failed"
-}
-
-_post_gstack() {
-  [[ -d "$HOME/.gstack" ]] || return 0
-  mkdir -p "$HOME/.claude/skills"
-  ln -sfn "$HOME/.gstack" "$HOME/.claude/skills/gstack"
-  local _d
-  for _d in "$HOME/.gstack"/*/; do
-    if [[ -f "$_d/SKILL.md" && "$(basename "$_d")" != "node_modules" ]]; then
-      ln -sfn "gstack/$(basename "$_d")" "$HOME/.claude/skills/$(basename "$_d")"
-    fi
-  done
-}
-
-_post_bash_preexec() {
-  [[ -f "$HOME/.local/share/bash-preexec/bash-preexec.sh" ]] || return 0
-  ln -sfn "$HOME/.local/share/bash-preexec/bash-preexec.sh" "$HOME/.bash-preexec.sh"
-}
-
 # Run post-install hooks for all deps.
+# Hook functions are defined in dep-hooks.sh.
 _run_post_hooks() {
+  [[ ${#_DEPS_CHANGED[@]} -eq 0 ]] && return 0
+  local hooks_file="$HOME/.config/dot/dep-hooks.sh"
+  # shellcheck source=dep-hooks.sh
+  [[ -f "$hooks_file" ]] && . "$hooks_file"
   for entry in "${_DEPS[@]}"; do
     local name="${entry%%|*}"
+    [[ -n "${_DEPS_CHANGED[$name]+x}" ]] || continue
     local hook="_post_${name//-/_}"
     if declare -f "$hook" &>/dev/null; then
       "$hook" || true
@@ -682,6 +675,8 @@ _update_deps() {
   _dep_load
   _pkg_detect
   _PKG_BATCH=()
+  _PKG_BATCH_NAMES=()
+  declare -gA _DEPS_CHANGED=()
 
   _log "==> Installing/upgrading tools..."
 
