@@ -445,6 +445,94 @@ _install_cron() {
   _log "  cron installed"
 }
 
+# Install or upgrade Neovim.
+# Linux: downloads AppImage from GitHub releases to ~/.local/bin/nvim.
+# macOS: delegates to Homebrew.
+# Skips if already installed and up to date.
+_install_neovim() {
+  local nvim_bin current_ver="" latest_ver=""
+
+  # macOS: use Homebrew
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    if command -v brew &>/dev/null; then
+      if command -v nvim &>/dev/null; then
+        _log "  neovim up to date (brew)"
+      elif brew install neovim 2>/dev/null; then
+        _log "  neovim installed (brew)"
+      else
+        _warn "  warning: brew install neovim failed"
+      fi
+    else
+      _warn "  warning: brew not found — install neovim manually"
+    fi
+    return 0
+  fi
+
+  # Linux: AppImage
+  nvim_bin="$HOME/.local/bin/nvim"
+
+  # Get installed version
+  if [[ -x "$nvim_bin" ]]; then
+    current_ver=$("$nvim_bin" --version 2>/dev/null | head -1 | awk '{print $2}')
+  fi
+
+  # Get latest release version from GitHub API
+  if command -v curl &>/dev/null; then
+    latest_ver=$(curl -fsSL --no-netrc -H "Authorization:" \
+      "https://api.github.com/repos/neovim/neovim/releases/latest" 2>/dev/null \
+      | grep -o '"tag_name":[[:space:]]*"[^"]*"' | cut -d'"' -f4)
+  fi
+
+  # Skip if already up to date
+  if [[ -n "$current_ver" && -n "$latest_ver" && "$current_ver" == "$latest_ver" ]]; then
+    _log "  neovim up to date -- $current_ver"
+    return 0
+  fi
+
+  if [[ -z "$latest_ver" ]]; then
+    if [[ -n "$current_ver" ]]; then
+      _log "  neovim $current_ver (couldn't check for updates)"
+      return 0
+    fi
+    _warn "  warning: couldn't determine latest neovim version"
+    return 1
+  fi
+
+  # Try platform-specific AppImage name, then legacy name
+  local tmp_file
+  tmp_file=$(mktemp)
+  local arch
+  arch=$(uname -m)
+  local urls=(
+    "https://github.com/neovim/neovim/releases/download/$latest_ver/nvim-linux-${arch}.appimage"
+    "https://github.com/neovim/neovim/releases/download/$latest_ver/nvim.appimage"
+  )
+
+  local downloaded=0
+  for url in "${urls[@]}"; do
+    if curl -fsSL "$url" -o "$tmp_file" 2>/dev/null; then
+      downloaded=1
+      break
+    fi
+  done
+
+  if [[ $downloaded -eq 0 ]]; then
+    rm -f "$tmp_file"
+    _warn "  warning: failed to download neovim $latest_ver"
+    return 1
+  fi
+
+  mkdir -p "$HOME/.local/bin"
+  mv "$tmp_file" "$nvim_bin"
+  chmod u+x "$nvim_bin"
+
+  if [[ -n "$current_ver" ]]; then
+    _log "  neovim updated -- $current_ver -> $latest_ver"
+  else
+    _log "  neovim installed -- $latest_ver"
+  fi
+}
+
 # Install or upgrade all managed dependencies.
 _update_deps() {
   _check_deps
@@ -484,6 +572,9 @@ _update_deps() {
   if [[ -f "$HOME/.local/share/bash-preexec/bash-preexec.sh" ]]; then
     ln -sfn "$HOME/.local/share/bash-preexec/bash-preexec.sh" "$HOME/.bash-preexec.sh"
   fi
+
+  _log "==> Installing/upgrading neovim..."
+  _install_neovim || true
 
   _log "==> Installing cron..."
   _install_cron || true
