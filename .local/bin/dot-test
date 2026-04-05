@@ -281,7 +281,11 @@ git -C "$HOOK_PACK_WORK" add .
 git -C "$HOOK_PACK_WORK" commit -m "seed hook pack" >/dev/null 2>&1
 git -C "$HOOK_PACK_WORK" push >/dev/null 2>&1
 
-result=$("$SCRIPT_DIR/dot" pull 2>&1)
+result=$(
+    DOTBOOTSTRAP_TEST_TOOL_REPO="$TEST_TOOL_ORIGIN" \
+    DOTBOOTSTRAP_HOOK_PACK_REPO="$HOOK_PACK_ORIGIN" \
+    "$SCRIPT_DIR/dot" pull 2>&1
+)
 _assert_contains "pull: shows pulling" "Pulling personal" "$result"
 _assert_contains "pull: shows done message" "Done" "$result"
 _assert_contains "pull: mentions source bashrc" "source ~/.bashrc" "$result"
