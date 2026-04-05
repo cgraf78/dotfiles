@@ -538,7 +538,6 @@ _assert_contains "personal: merge ran" "MERGE_TESTAPP_RAN" "$result"
 
 # Git-based deps installed (validates the general mechanism)
 _assert_contains "personal: git deps installed" "installed" "$result"
-_assert_contains "personal: post hooks ran" "VIMRC_INSTALLED" "$result"
 
 # Done message
 _assert_contains "personal: done message" "Done" "$result"

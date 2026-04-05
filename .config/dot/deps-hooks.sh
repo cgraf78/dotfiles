@@ -5,8 +5,9 @@
 # Add new hooks here — no changes to helpers.sh needed.
 
 _post_vimrc() {
-  [[ -f "$HOME/.local/share/vimrc/install_awesome_vimrc.sh" ]] || return 0
-  sh "$HOME/.local/share/vimrc/install_awesome_vimrc.sh" 2>/dev/null || \
+  local vimrc_dir="$HOME/.local/share/vimrc"
+  [[ -f "$vimrc_dir/install_awesome_parameterized.sh" ]] || return 0
+  sh "$vimrc_dir/install_awesome_parameterized.sh" "$vimrc_dir" "$(whoami)" >/dev/null 2>&1 || \
     _warn "  warning: vimrc install script failed"
 }
 
