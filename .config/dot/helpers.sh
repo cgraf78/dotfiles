@@ -19,6 +19,46 @@ _warn() {
   echo "$@" >&2
 }
 
+_logfile_create() {
+  local __var="$1"
+  local log=""
+  if ! log=$(mktemp 2>/dev/null); then
+    printf -v "$__var" '%s' ""
+    return 1
+  fi
+  printf -v "$__var" '%s' "$log"
+}
+
+_logfile_print() {
+  local label="$1"
+  local log="$2"
+  [[ -n "$log" && -s "$log" ]] || return 0
+  _warn "  $label output:"
+  sed 's/^/    /' "$log" >&2
+}
+
+_run_quiet_logged() {
+  local label="$1"
+  local warning="$2"
+  shift 2
+
+  local log=""
+  if ! _logfile_create log; then
+    "$@" >/dev/null 2>&1 || _warn "  warning: $warning"
+    return 0
+  fi
+
+  if "$@" >"$log" 2>&1; then
+    rm -f "$log"
+    return 0
+  fi
+
+  _logfile_print "$label" "$log"
+  rm -f "$log"
+  _warn "  warning: $warning"
+  return 0
+}
+
 # Restore git-tracked versions of skip-worktree files so pull won't
 # conflict with work symlinks.  The work bootstrap re-symlinks and
 # re-sets skip-worktree after pull.
@@ -39,14 +79,20 @@ _pull_work_repo() {
   if [[ -d "$WORK_DIR/.git" ]]; then
     _log "==> Pulling work dotfiles..."
     if [[ "$DOT_QUIET" -eq 1 ]]; then
-      git -C "$WORK_DIR" pull --quiet "$@" || _warn "  warning: work dotfiles pull failed"
+      _run_quiet_logged \
+        "work dotfiles pull" \
+        "work dotfiles pull failed" \
+        git -C "$WORK_DIR" pull --quiet "$@"
     else
       git -C "$WORK_DIR" pull "$@" || _warn "  warning: work dotfiles pull failed"
     fi
   fi
   if [[ -x "$WORK_DIR/bootstrap" ]]; then
     if [[ "$DOT_QUIET" -eq 1 ]]; then
-      "$WORK_DIR/bootstrap" >/dev/null || true
+      _run_quiet_logged \
+        "work bootstrap" \
+        "work bootstrap failed" \
+        "$WORK_DIR/bootstrap"
     else
       "$WORK_DIR/bootstrap" || true
     fi
@@ -68,7 +114,7 @@ _run_merges() {
     . "$_script"
     _fn="merge_${_script##*merge-}"; _fn="${_fn%.sh}"
     if [[ "$DOT_QUIET" -eq 1 ]]; then
-      "$_fn" >/dev/null || true
+      _run_quiet_logged "$_fn" "$_fn failed" "$_fn"
     else
       "$_fn" || true
     fi
@@ -262,4 +308,3 @@ _install_cron() {
   echo "$new_crontab" | crontab -
   _log "  cron installed"
 }
-

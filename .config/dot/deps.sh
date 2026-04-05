@@ -136,46 +136,84 @@ _pkg_install_batch() {
 
   _log "  installing: ${_PKG_BATCH[*]}"
   local rc=0
-  local log
-  log=$(mktemp) || {
+  local log=""
+  if ! _logfile_create log; then
     _warn "  warning: failed to create temp log for package install"
-    return 0
-  }
+  fi
   # shellcheck disable=SC2024  # Intentionally capture sudo command output in a user-owned temp log.
   case "$_PKG_MGR" in
     brew)
-      brew install "${_PKG_BATCH[@]}" >"$log" 2>&1 || rc=$?
+      if [[ -n "$log" ]]; then
+        brew install "${_PKG_BATCH[@]}" >"$log" 2>&1 || rc=$?
+      else
+        brew install "${_PKG_BATCH[@]}" || rc=$?
+      fi
       ;;
     apt)
       sudo apt-get update -qq >/dev/null 2>&1 || true
-      sudo apt-get install -y "${_PKG_BATCH[@]}" >"$log" 2>&1 || rc=$?
+      if [[ -n "$log" ]]; then
+        sudo apt-get install -y "${_PKG_BATCH[@]}" >"$log" 2>&1 || rc=$?
+      else
+        sudo apt-get install -y "${_PKG_BATCH[@]}" || rc=$?
+      fi
       ;;
     dnf)
-      sudo dnf install -y "${_PKG_BATCH[@]}" >"$log" 2>&1 || rc=$?
+      if [[ -n "$log" ]]; then
+        sudo dnf install -y "${_PKG_BATCH[@]}" >"$log" 2>&1 || rc=$?
+      else
+        sudo dnf install -y "${_PKG_BATCH[@]}" || rc=$?
+      fi
       ;;
     pacman)
-      sudo pacman -Sy --needed --noconfirm "${_PKG_BATCH[@]}" >"$log" 2>&1 || rc=$?
+      if [[ -n "$log" ]]; then
+        sudo pacman -Sy --needed --noconfirm "${_PKG_BATCH[@]}" >"$log" 2>&1 || rc=$?
+      else
+        sudo pacman -Sy --needed --noconfirm "${_PKG_BATCH[@]}" || rc=$?
+      fi
       ;;
   esac
 
   # On batch failure, retry individually
   if [[ $rc -ne 0 ]]; then
-    _warn "  package manager output:"
-    sed 's/^/    /' "$log" >&2
+    _logfile_print "package manager" "$log"
     _warn "  warning: batch install failed, retrying individually..."
     local pkg
     for pkg in "${_PKG_BATCH[@]}"; do
-      : > "$log"
+      rc=0
+      [[ -n "$log" ]] && : > "$log"
       # shellcheck disable=SC2024  # Intentionally capture sudo command output in a user-owned temp log.
       case "$_PKG_MGR" in
-        brew)    brew install "$pkg" >"$log" 2>&1 || rc=$? ;;
-        apt)     sudo apt-get install -y "$pkg" >"$log" 2>&1 || rc=$? ;;
-        dnf)     sudo dnf install -y "$pkg" >"$log" 2>&1 || rc=$? ;;
-        pacman)  sudo pacman -Sy --needed --noconfirm "$pkg" >"$log" 2>&1 || rc=$? ;;
+        brew)
+          if [[ -n "$log" ]]; then
+            brew install "$pkg" >"$log" 2>&1 || rc=$?
+          else
+            brew install "$pkg" || rc=$?
+          fi
+          ;;
+        apt)
+          if [[ -n "$log" ]]; then
+            sudo apt-get install -y "$pkg" >"$log" 2>&1 || rc=$?
+          else
+            sudo apt-get install -y "$pkg" || rc=$?
+          fi
+          ;;
+        dnf)
+          if [[ -n "$log" ]]; then
+            sudo dnf install -y "$pkg" >"$log" 2>&1 || rc=$?
+          else
+            sudo dnf install -y "$pkg" || rc=$?
+          fi
+          ;;
+        pacman)
+          if [[ -n "$log" ]]; then
+            sudo pacman -Sy --needed --noconfirm "$pkg" >"$log" 2>&1 || rc=$?
+          else
+            sudo pacman -Sy --needed --noconfirm "$pkg" || rc=$?
+          fi
+          ;;
       esac
       if [[ $rc -ne 0 ]]; then
-        _warn "  package manager output for $pkg:"
-        sed 's/^/    /' "$log" >&2
+        _logfile_print "package manager for $pkg" "$log"
         _warn "  warning: failed to install $pkg"
         rc=0
       fi
@@ -246,10 +284,28 @@ _install_from_github() {
     return 0
   fi
 
+  local log=""
+  if ! _logfile_create log; then
+    _warn "  warning: failed to create temp log for $name install"
+  fi
+
   # Existing git clone — pull to update
   if [[ -d "$install_dir/.git" ]]; then
     local head_before; head_before=$(git -C "$install_dir" rev-parse HEAD 2>/dev/null || true)
-    if git -C "$install_dir" pull --ff-only --quiet 2>/dev/null; then
+    if [[ -n "$log" ]] && git -C "$install_dir" pull --ff-only --quiet >"$log" 2>&1; then
+      _link_bin "$name" "$install_dir"
+      local head_after; head_after=$(git -C "$install_dir" rev-parse HEAD 2>/dev/null || true)
+      local ver; ver=$(_get_version "$install_dir")
+      if [[ "$head_before" != "$head_after" ]]; then
+        _DEPS_CHANGED[$name]=1
+        _log "  $name updated${ver:+ -- $ver}"
+      elif [[ "${DOT_FORCE:-0}" -eq 1 ]]; then
+        _DEPS_CHANGED[$name]=1
+        _log "  $name reinstalled${ver:+ -- $ver}"
+      else
+        _log "  $name up to date${ver:+ -- $ver}"
+      fi
+    elif [[ -z "$log" ]] && git -C "$install_dir" pull --ff-only --quiet 2>/dev/null; then
       _link_bin "$name" "$install_dir"
       local head_after; head_after=$(git -C "$install_dir" rev-parse HEAD 2>/dev/null || true)
       local ver; ver=$(_get_version "$install_dir")
@@ -263,8 +319,10 @@ _install_from_github() {
         _log "  $name up to date${ver:+ -- $ver}"
       fi
     else
+      _logfile_print "$name update" "$log"
       _warn "  warning: $name update failed"
     fi
+    rm -f "$log"
     return 0
   fi
 
@@ -286,7 +344,14 @@ _install_from_github() {
 
   if [[ -n "${tarball_url:-}" ]]; then
     tmp_dir=$(mktemp -d)
-    if curl -fsSL "$tarball_url" | tar xz -C "$tmp_dir" 2>/dev/null; then
+    if [[ -n "$log" ]] \
+      && curl -fsSL "$tarball_url" 2>"$log" | tar xz -C "$tmp_dir" >>"$log" 2>&1; then
+      rm -rf "$install_dir"
+      mkdir -p "$install_dir"
+      # Tarball has a top-level dir (e.g., ds-v0.0.1/); move contents up
+      mv "$tmp_dir"/*/* "$install_dir/" 2>/dev/null || mv "$tmp_dir"/* "$install_dir/"
+      rm -rf "$tmp_dir"
+    elif [[ -z "$log" ]] && curl -fsSL "$tarball_url" | tar xz -C "$tmp_dir" 2>/dev/null; then
       rm -rf "$install_dir"
       mkdir -p "$install_dir"
       # Tarball has a top-level dir (e.g., ds-v0.0.1/); move contents up
@@ -294,6 +359,7 @@ _install_from_github() {
       rm -rf "$tmp_dir"
     else
       rm -rf "$tmp_dir"
+      _logfile_print "$name release download" "$log"
       _warn "  warning: failed to download $name release (trying git clone)"
       tarball_url=""
     fi
@@ -303,12 +369,20 @@ _install_from_github() {
   # install on failure (e.g. network unreachable).
   if [[ -z "${tarball_url:-}" ]]; then
     if ! command -v git &>/dev/null; then
+      rm -f "$log"
       _warn "  warning: no curl release and no git — cannot install $name"
       return 1
     fi
     local clone_tmp="${install_dir}.tmp.$$"
     rm -rf "$clone_tmp"
-    if ! git clone --depth 1 "$repo" "$clone_tmp" 2>/dev/null; then
+    [[ -n "$log" ]] && : > "$log"
+    if [[ -n "$log" ]] && ! git clone --depth 1 "$repo" "$clone_tmp" >"$log" 2>&1; then
+      rm -rf "$clone_tmp"
+      _logfile_print "$name clone" "$log"
+      rm -f "$log"
+      _warn "  warning: failed to clone $name (network unreachable?)"
+      return 1
+    elif [[ -z "$log" ]] && ! git clone --depth 1 "$repo" "$clone_tmp" 2>/dev/null; then
       rm -rf "$clone_tmp"
       _warn "  warning: failed to clone $name (network unreachable?)"
       return 1
@@ -318,6 +392,7 @@ _install_from_github() {
   fi
 
   _link_bin "$name" "$install_dir"
+  rm -f "$log"
   local ver; ver=$(_get_version "$install_dir")
   local method="git clone"
   if [[ -n "${tarball_url:-}" ]]; then method="release tarball"; fi
@@ -336,6 +411,16 @@ _install_appimage() {
   local name="$1" cmd="$2" gh_repo="$3"
   local bin_path="$HOME/.local/bin/$cmd"
   local current_ver="" latest_ver=""
+  local log=""
+  if ! _logfile_create log; then
+    _warn "  warning: failed to create temp log for $name install"
+  fi
+  local tmp_file
+  tmp_file=$(mktemp) || {
+    rm -f "$log"
+    _warn "  warning: failed to create temp file for $name install"
+    return 1
+  }
 
   # Get installed version
   if [[ -x "$bin_path" ]]; then
@@ -351,22 +436,23 @@ _install_appimage() {
 
   # Skip if already up to date (unless force mode)
   if [[ "${DOT_FORCE:-0}" -ne 1 && -n "$current_ver" && -n "$latest_ver" && "$current_ver" == "$latest_ver" ]]; then
+    rm -f "$tmp_file" "$log"
     _log "  $name up to date -- $current_ver"
     return 0
   fi
 
   if [[ -z "$latest_ver" ]]; then
     if [[ -n "$current_ver" ]]; then
+      rm -f "$tmp_file" "$log"
       _log "  $name $current_ver (couldn't check for updates)"
       return 0
     fi
+    rm -f "$tmp_file" "$log"
     _warn "  warning: couldn't determine latest $name version"
     return 1
   fi
 
   # Try platform-specific AppImage name, then legacy name
-  local tmp_file
-  tmp_file=$(mktemp)
   local arch
   arch=$(uname -m)
   local urls=(
@@ -376,14 +462,20 @@ _install_appimage() {
 
   local downloaded=0
   for url in "${urls[@]}"; do
-    if curl -fsSL "$url" -o "$tmp_file" 2>/dev/null; then
+    [[ -n "$log" ]] && : > "$log"
+    if [[ -n "$log" ]] && curl -fsSL "$url" -o "$tmp_file" >"$log" 2>&1; then
+      downloaded=1
+      break
+    fi
+    if [[ -z "$log" ]] && curl -fsSL "$url" -o "$tmp_file" 2>/dev/null; then
       downloaded=1
       break
     fi
   done
 
   if [[ $downloaded -eq 0 ]]; then
-    rm -f "$tmp_file"
+    _logfile_print "$name download" "$log"
+    rm -f "$tmp_file" "$log"
     _warn "  warning: failed to download $name $latest_ver"
     return 1
   fi
@@ -391,6 +483,7 @@ _install_appimage() {
   mkdir -p "$HOME/.local/bin"
   mv "$tmp_file" "$bin_path"
   chmod u+x "$bin_path"
+  rm -f "$log"
 
   _DEPS_CHANGED[$name]=1
   if [[ -n "$current_ver" ]]; then
