@@ -137,8 +137,10 @@ _pkg_install_batch() {
   _log "  installing: ${_PKG_BATCH[*]}"
   local rc=0
   local log=""
-  if ! _logfile_create log; then
+  if ! _logfile_create; then
     _warn "  warning: failed to create temp log for package install"
+  else
+    log="$REPLY"
   fi
   # shellcheck disable=SC2024  # Intentionally capture sudo command output in a user-owned temp log.
   case "$_PKG_MGR" in
@@ -285,8 +287,10 @@ _install_from_github() {
   fi
 
   local log=""
-  if ! _logfile_create log; then
+  if ! _logfile_create; then
     _warn "  warning: failed to create temp log for $name install"
+  else
+    log="$REPLY"
   fi
 
   # Existing git clone — pull to update
@@ -412,8 +416,10 @@ _install_appimage() {
   local bin_path="$HOME/.local/bin/$cmd"
   local current_ver="" latest_ver=""
   local log=""
-  if ! _logfile_create log; then
+  if ! _logfile_create; then
     _warn "  warning: failed to create temp log for $name install"
+  else
+    log="$REPLY"
   fi
   local tmp_file
   tmp_file=$(mktemp) || {

@@ -20,13 +20,12 @@ _warn() {
 }
 
 _logfile_create() {
-  local __var="$1"
   local log=""
   if ! log=$(mktemp 2>/dev/null); then
-    printf -v "$__var" '%s' ""
+    REPLY=""
     return 1
   fi
-  printf -v "$__var" '%s' "$log"
+  REPLY="$log"
 }
 
 _logfile_print() {
@@ -43,10 +42,11 @@ _run_quiet_logged() {
   shift 2
 
   local log=""
-  if ! _logfile_create log; then
+  if ! _logfile_create; then
     "$@" >/dev/null 2>&1 || _warn "  warning: $warning"
     return 0
   fi
+  log="$REPLY"
 
   if "$@" >"$log" 2>&1; then
     rm -f "$log"
