@@ -137,7 +137,7 @@ _dep_version() {
 
 # Detect available package manager. Sets _PKG_MGR.
 _pkg_detect() {
-  if command -v brew &>/dev/null; then
+  if [[ "$(uname -s)" == "Darwin" ]] && command -v brew &>/dev/null; then
     _PKG_MGR="brew"
   elif command -v apt-get &>/dev/null; then
     _PKG_MGR="apt"
@@ -189,9 +189,8 @@ _pkg_install_batch() {
     return 1
   fi
 
-  # Cron mode: don't run sudo, just warn
-  if [[ "$DOT_QUIET" -eq 1 ]]; then
-    _warn "  warning: missing packages (skipped in cron): ${_PKG_BATCH[*]}"
+  # Cron mode: proceed if root, silently skip otherwise
+  if [[ "$DOT_QUIET" -eq 1 && "$(id -u)" -ne 0 ]]; then
     return 0
   fi
 

@@ -224,13 +224,24 @@ _make_pkg_cmd() {
     chmod +x "$PKG_BIN/$1"
 }
 
-# All present → brew wins
+# All present on macOS → brew wins
 _make_pkg_cmd brew
 _make_pkg_cmd apt-get
 _make_pkg_cmd dnf
 _make_pkg_cmd pacman
+# Mock uname to return Darwin for brew detection
+cat > "$PKG_BIN/uname" <<'UNAME'
+#!/bin/bash
+echo "Darwin"
+UNAME
+chmod +x "$PKG_BIN/uname"
 PATH="$PKG_BIN" _pkg_detect
-_assert_eq "pkg_detect: brew priority" "brew" "$_PKG_MGR"
+_assert_eq "pkg_detect: brew priority (macOS)" "brew" "$_PKG_MGR"
+
+# brew on Linux → skipped, apt wins
+rm -f "$PKG_BIN/uname"
+PATH="$PKG_BIN" _pkg_detect
+_assert_eq "pkg_detect: brew skipped on Linux" "apt" "$_PKG_MGR"
 
 # No brew → apt wins
 rm -f "$PKG_BIN/brew"
@@ -303,12 +314,11 @@ _PKG_MGR="dnf"
 result=$(_pkg_install_batch 2>&1)
 _assert_eq "pkg_batch: empty no-op" "" "$result"
 
-# Cron mode → skips with warning
+# Cron mode (non-root) → silently skips
 _PKG_BATCH=("eza" "tmux")
 DOT_QUIET=1
 result=$(_pkg_install_batch 2>&1)
-_assert_contains "pkg_batch: cron skips" "skipped in cron" "$result"
-_assert_contains "pkg_batch: cron lists packages" "eza" "$result"
+_assert_eq "pkg_batch: cron silent skip" "" "$result"
 DOT_QUIET=0
 
 # ---------------------------------------------------------------------------
