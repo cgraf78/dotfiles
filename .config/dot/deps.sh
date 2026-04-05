@@ -22,7 +22,8 @@ _dep_load() {
     # Normalize whitespace to pipe delimiter
     local fields
     # shellcheck disable=SC2086  # intentional word splitting
-    fields=$(echo $line)
+    set -- $line
+    fields="$*"
     _DEPS+=("${fields// /|}")
   done < "$conf"
 }
@@ -33,13 +34,13 @@ _dep_parse() {
   local entry="$1"
   IFS='|' read -r _name _method _cmd _cmd_alt _pkg_overrides _repo _dir <<< "$entry"
   # Replace - with empty
-  [[ "$_cmd" == "-" ]] && _cmd="" || true
-  [[ "$_cmd_alt" == "-" ]] && _cmd_alt="" || true
-  [[ "$_pkg_overrides" == "-" ]] && _pkg_overrides="" || true
-  [[ "$_repo" == "-" ]] && _repo="" || true
-  [[ "$_dir" == "-" ]] && _dir="" || true
+  if [[ "$_cmd" == "-" ]]; then _cmd=""; fi
+  if [[ "$_cmd_alt" == "-" ]]; then _cmd_alt=""; fi
+  if [[ "$_pkg_overrides" == "-" ]]; then _pkg_overrides=""; fi
+  if [[ "$_repo" == "-" ]]; then _repo=""; fi
+  if [[ "$_dir" == "-" ]]; then _dir=""; fi
   # Default cmd to name
-  [[ -z "$_cmd" ]] && _cmd="$_name" || true
+  if [[ -z "$_cmd" ]]; then _cmd="$_name"; fi
 }
 
 # Check if a dependency is installed. Returns 0 if cmd or cmd_alt is found.
@@ -64,7 +65,7 @@ _dep_version() {
 
 # Detect available package manager. Sets _PKG_MGR.
 _pkg_detect() {
-  if [[ "$(uname -s)" == "Darwin" ]] && command -v brew &>/dev/null; then
+  if [[ "$(uname -s 2>/dev/null)" == "Darwin" ]] && command -v brew &>/dev/null; then
     _PKG_MGR="brew"
   elif command -v apt-get &>/dev/null; then
     _PKG_MGR="apt"
