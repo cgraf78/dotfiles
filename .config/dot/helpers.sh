@@ -631,7 +631,10 @@ _install_dep() {
   _dep_parse "$entry"
   case "$_method" in
     pkg)
-      if _dep_exists "$_cmd" "$_cmd_alt"; then return 0; fi
+      if _dep_exists "$_cmd" "$_cmd_alt"; then
+        _PKG_PRESENT+=("$_name")
+        return 0
+      fi
       _pkg_queue "$_name" "$_pkg_overrides"
       ;;
     git)
@@ -676,6 +679,7 @@ _update_deps() {
   _pkg_detect
   _PKG_BATCH=()
   _PKG_BATCH_NAMES=()
+  _PKG_PRESENT=()
   declare -gA _DEPS_CHANGED=()
 
   _log "==> Installing/upgrading tools..."
@@ -684,6 +688,7 @@ _update_deps() {
     _install_dep "$entry" || true
   done
 
+  [[ ${#_PKG_PRESENT[@]} -gt 0 ]] && _log "  system: ${_PKG_PRESENT[*]}"
   _pkg_install_batch
   _run_post_hooks
 
