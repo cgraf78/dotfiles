@@ -90,8 +90,8 @@ case "${1:-}" in
     else
       _pull_work_repo
     fi
-    _run_merges
     _update_deps
+    _run_merges
     if [[ -d "$DOTFILES" ]]; then
       _normalize_filtered
     fi
@@ -163,8 +163,8 @@ case "${1:-}" in
   pull)
     shift
     _pull_all "$@"
-    _run_merges
     _update_deps
+    _run_merges
     _normalize_filtered
     echo "==> Done! Run 'source ~/.bashrc' to activate."
     ;;
