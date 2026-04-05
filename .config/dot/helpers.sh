@@ -90,8 +90,8 @@ _dep_load() {
   local line
   while IFS= read -r line || [[ -n "$line" ]]; do
     # Skip comments and blank lines
-    [[ "$line" =~ ^[[:space:]]*# ]] && continue
-    [[ -z "${line// /}" ]] && continue
+    if [[ "$line" =~ ^[[:space:]]*# ]]; then continue; fi
+    if [[ -z "${line// /}" ]]; then continue; fi
     # Normalize whitespace to pipe delimiter
     local fields
     # shellcheck disable=SC2086  # intentional word splitting
@@ -127,7 +127,7 @@ _dep_exists() {
 # Get installed version of a command.
 _dep_version() {
   local cmd="${1:-}"
-  [[ -z "$cmd" ]] && return 1
+  if [[ -z "$cmd" ]]; then return 1; fi
   "$cmd" --version 2>/dev/null | head -1 | awk '{print $2}'
 }
 
@@ -186,7 +186,7 @@ _pkg_install_batch() {
 
   if [[ -z "$_PKG_MGR" ]]; then
     _warn "  warning: no package manager found — cannot install: ${_PKG_BATCH[*]}"
-    return 1
+    return 0
   fi
 
   # Cron mode: proceed if root, silently skip otherwise
@@ -259,7 +259,7 @@ _get_version() {
     ver=$(git -C "$dir" describe --tags --abbrev=0 2>/dev/null || true)
     if [[ -z "$ver" ]]; then
       local hash; hash=$(git -C "$dir" log -1 --format='%h' 2>/dev/null || true)
-      [[ -n "$hash" ]] && ver="commit $hash"
+      if [[ -n "$hash" ]]; then ver="commit $hash"; fi
     fi
     echo "$ver"
   fi
