@@ -194,6 +194,17 @@ _pkg_install_batch() {
     return 0
   fi
 
+  # Check sudo access for non-brew managers before attempting install
+  if [[ "$_PKG_MGR" != "brew" && "$(id -u)" -ne 0 ]]; then
+    if ! sudo -n true 2>/dev/null; then
+      # No passwordless sudo — try interactively, but don't abort on failure
+      if ! sudo true 2>/dev/null; then
+        _warn "  warning: sudo not available — cannot install: ${_PKG_BATCH[*]}"
+        return 0
+      fi
+    fi
+  fi
+
   _log "  installing: ${_PKG_BATCH[*]}"
   local rc=0
   case "$_PKG_MGR" in
@@ -201,7 +212,7 @@ _pkg_install_batch() {
       brew install "${_PKG_BATCH[@]}" 2>/dev/null || rc=$?
       ;;
     apt)
-      sudo apt-get update -qq 2>/dev/null
+      sudo apt-get update -qq 2>/dev/null || true
       sudo apt-get install -y "${_PKG_BATCH[@]}" 2>/dev/null || rc=$?
       ;;
     dnf)
