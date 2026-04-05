@@ -76,64 +76,155 @@ _run_merges() {
 }
 
 # ---------------------------------------------------------------------------
-# Dependency checks
+# Dep registry — parse ~/.config/dot/deps.conf
 # ---------------------------------------------------------------------------
 
-_install_hint() {
-  local pkg="$1"
-  if command -v brew &>/dev/null; then
-    _log "  brew install $pkg"
-  elif command -v apt-get &>/dev/null; then
-    _log "  sudo apt-get update && sudo apt-get install -y $pkg"
-  elif command -v dnf &>/dev/null; then
-    _log "  sudo dnf install -y $pkg"
-  elif command -v pacman &>/dev/null; then
-    _log "  sudo pacman -S --needed $pkg"
-  else
-    _log "  (install '$pkg' with your system package manager)"
+# Parse deps.conf into _DEPS array. Each entry is pipe-delimited.
+_dep_load() {
+  _DEPS=()
+  local conf="$HOME/.config/dot/deps.conf"
+  if [[ ! -f "$conf" ]]; then
+    _warn "  warning: $conf not found — skipping dependency install"
+    return 0
   fi
+  local line
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    # Skip comments and blank lines
+    [[ "$line" =~ ^[[:space:]]*# ]] && continue
+    [[ -z "${line// /}" ]] && continue
+    # Normalize whitespace to pipe delimiter
+    local fields
+    # shellcheck disable=SC2086  # intentional word splitting
+    fields=$(echo $line)
+    _DEPS+=("${fields// /|}")
+  done < "$conf"
 }
 
-_check_dep() {
-  # $1=command $2=pkg-name
-  local cmd="$1" pkg="$2"
-  if ! command -v "$cmd" &>/dev/null; then
-    if [[ "${_dep_header_shown:-0}" -eq 0 ]]; then _log "==> Missing dependencies..."; _dep_header_shown=1; fi
-    _log "  warning: $cmd not found"
-    _install_hint "$pkg"
-    return 1
-  fi
-  return 0
+# Split a pipe-delimited registry entry into named variables.
+# Sets: _name, _method, _cmd, _cmd_alt, _pkg_overrides, _repo, _dir
+_dep_parse() {
+  local entry="$1"
+  IFS='|' read -r _name _method _cmd _cmd_alt _pkg_overrides _repo _dir <<< "$entry"
+  # Replace - with empty
+  [[ "$_cmd" == "-" ]] && _cmd="" || true
+  [[ "$_cmd_alt" == "-" ]] && _cmd_alt="" || true
+  [[ "$_pkg_overrides" == "-" ]] && _pkg_overrides="" || true
+  [[ "$_repo" == "-" ]] && _repo="" || true
+  [[ "$_dir" == "-" ]] && _dir="" || true
+  # Default cmd to name
+  [[ -z "$_cmd" ]] && _cmd="$_name" || true
 }
 
-_check_dep_any() {
-  # $1=pkg-name $2...=commands
-  local pkg="$1"
-  shift
-  local cmd
-  for cmd in "$@"; do
-    if command -v "$cmd" &>/dev/null; then
-      return 0
-    fi
-  done
-  if [[ "${_dep_header_shown:-0}" -eq 0 ]]; then _log "==> Missing dependencies..."; _dep_header_shown=1; fi
-  _log "  warning: $pkg not found"
-  _install_hint "$pkg"
+# Check if a dependency is installed. Returns 0 if cmd or cmd_alt is found.
+_dep_exists() {
+  local cmd="${1:-}" alt="${2:-}"
+  if [[ -z "$cmd" ]]; then return 1; fi
+  if command -v "$cmd" &>/dev/null; then return 0; fi
+  if [[ -n "$alt" ]] && command -v "$alt" &>/dev/null; then return 0; fi
   return 1
 }
 
-# Check all expected system dependencies. Best-effort — warns but doesn't abort.
-_check_deps() {
-  _dep_header_shown=0
-  _check_dep git git || true
-  _check_dep jq jq || true
-  _check_dep tmux tmux || true
-  _check_dep fzf fzf || true
-  _check_dep atuin atuin || true
-  _check_dep zoxide zoxide || true
-  _check_dep_any bat bat batcat || true
-  _check_dep_any fd fd fdfind || true
-  _check_dep eza eza || true
+# Get installed version of a command.
+_dep_version() {
+  local cmd="${1:-}"
+  [[ -z "$cmd" ]] && return 1
+  "$cmd" --version 2>/dev/null | head -1 | awk '{print $2}'
+}
+
+# ---------------------------------------------------------------------------
+# Package manager abstraction
+# ---------------------------------------------------------------------------
+
+# Detect available package manager. Sets _PKG_MGR.
+_pkg_detect() {
+  if command -v brew &>/dev/null; then
+    _PKG_MGR="brew"
+  elif command -v apt-get &>/dev/null; then
+    _PKG_MGR="apt"
+  elif command -v dnf &>/dev/null; then
+    _PKG_MGR="dnf"
+  elif command -v pacman &>/dev/null; then
+    _PKG_MGR="pacman"
+  else
+    _PKG_MGR=""
+  fi
+}
+
+# Resolve canonical package name to OS-specific name.
+# $1=name $2=pkg_overrides (e.g. "apt:fd-find,dnf:fd-find")
+_pkg_resolve() {
+  local name="$1" overrides="${2:-}"
+  if [[ -n "$overrides" && -n "$_PKG_MGR" ]]; then
+    local pair
+    IFS=',' read -ra pairs <<< "$overrides"
+    for pair in "${pairs[@]}"; do
+      local mgr="${pair%%:*}"
+      local pkg="${pair#*:}"
+      if [[ "$mgr" == "$_PKG_MGR" ]]; then
+        echo "$pkg"
+        return 0
+      fi
+    done
+  fi
+  echo "$name"
+}
+
+# Queue a package for batched install.
+# $1=name $2=pkg_overrides
+_pkg_queue() {
+  local name="$1" overrides="${2:-}"
+  local resolved
+  resolved=$(_pkg_resolve "$name" "$overrides")
+  _PKG_BATCH+=("$resolved")
+  _log "  $name queued for install"
+}
+
+# Install all queued packages in a single command.
+_pkg_install_batch() {
+  [[ ${#_PKG_BATCH[@]} -eq 0 ]] && return 0
+
+  if [[ -z "$_PKG_MGR" ]]; then
+    _warn "  warning: no package manager found — cannot install: ${_PKG_BATCH[*]}"
+    return 1
+  fi
+
+  # Cron mode: don't run sudo, just warn
+  if [[ "$DOT_QUIET" -eq 1 ]]; then
+    _warn "  warning: missing packages (skipped in cron): ${_PKG_BATCH[*]}"
+    return 0
+  fi
+
+  _log "  installing: ${_PKG_BATCH[*]}"
+  local rc=0
+  case "$_PKG_MGR" in
+    brew)
+      brew install "${_PKG_BATCH[@]}" 2>/dev/null || rc=$?
+      ;;
+    apt)
+      sudo apt-get update -qq 2>/dev/null
+      sudo apt-get install -y "${_PKG_BATCH[@]}" 2>/dev/null || rc=$?
+      ;;
+    dnf)
+      sudo dnf install -y "${_PKG_BATCH[@]}" 2>/dev/null || rc=$?
+      ;;
+    pacman)
+      sudo pacman -S --needed --noconfirm "${_PKG_BATCH[@]}" 2>/dev/null || rc=$?
+      ;;
+  esac
+
+  # On batch failure, retry individually
+  if [[ $rc -ne 0 ]]; then
+    _warn "  warning: batch install failed, retrying individually..."
+    local pkg
+    for pkg in "${_PKG_BATCH[@]}"; do
+      case "$_PKG_MGR" in
+        brew)    brew install "$pkg" 2>/dev/null || _warn "  warning: failed to install $pkg" ;;
+        apt)     sudo apt-get install -y "$pkg" 2>/dev/null || _warn "  warning: failed to install $pkg" ;;
+        dnf)     sudo dnf install -y "$pkg" 2>/dev/null || _warn "  warning: failed to install $pkg" ;;
+        pacman)  sudo pacman -S --needed --noconfirm "$pkg" 2>/dev/null || _warn "  warning: failed to install $pkg" ;;
+      esac
+    done
+  fi
 }
 
 # ---------------------------------------------------------------------------
@@ -167,11 +258,15 @@ _link_bin() {
 }
 
 # Install or upgrade a tool from a local clone, GitHub release, or git clone.
-# Usage: _install_tool <name> <repo-url> <install-dir>
+# Usage: _install_from_github <name> <github-owner/repo> <install-dir>
 # Priority: ~/git/<name> (symlink) > existing git clone (pull) > release tarball > fresh clone.
 # If <install-dir>/bin/<name> exists after install, it is symlinked into PATH.
-_install_tool() {
-  local name="$1" repo="$2" install_dir="$3"
+# Env var override: DOTBOOTSTRAP_<NAME>_REPO overrides the repo URL.
+_install_from_github() {
+  local name="$1" default_repo="$2" install_dir="$3"
+  local upper="${name^^}"; upper="${upper//-/_}"
+  local env_var="DOTBOOTSTRAP_${upper}_REPO"
+  local repo="${!env_var:-https://github.com/$default_repo}"
   local tarball_url tmp_dir
   local local_clone="$HOME/git/$name"
 
@@ -445,56 +540,38 @@ _install_cron() {
   _log "  cron installed"
 }
 
-# Install or upgrade Neovim.
-# Linux: downloads AppImage from GitHub releases to ~/.local/bin/nvim.
-# macOS: delegates to Homebrew.
-# Skips if already installed and up to date.
-_install_neovim() {
-  local nvim_bin current_ver="" latest_ver=""
-
-  # macOS: use Homebrew
-  if [[ "$(uname -s)" == "Darwin" ]]; then
-    if command -v brew &>/dev/null; then
-      if command -v nvim &>/dev/null; then
-        _log "  neovim up to date (brew)"
-      elif brew install neovim 2>/dev/null; then
-        _log "  neovim installed (brew)"
-      else
-        _warn "  warning: brew install neovim failed"
-      fi
-    else
-      _warn "  warning: brew not found — install neovim manually"
-    fi
-    return 0
-  fi
-
-  # Linux: AppImage
-  nvim_bin="$HOME/.local/bin/nvim"
+# Install or upgrade a tool via GitHub AppImage release.
+# Linux-only — macOS fallback to pkg is handled by the dispatcher.
+# Usage: _install_appimage <name> <cmd> <owner/repo>
+_install_appimage() {
+  local name="$1" cmd="$2" gh_repo="$3"
+  local bin_path="$HOME/.local/bin/$cmd"
+  local current_ver="" latest_ver=""
 
   # Get installed version
-  if [[ -x "$nvim_bin" ]]; then
-    current_ver=$("$nvim_bin" --version 2>/dev/null | head -1 | awk '{print $2}')
+  if [[ -x "$bin_path" ]]; then
+    current_ver=$(_dep_version "$cmd")
   fi
 
   # Get latest release version from GitHub API
   if command -v curl &>/dev/null; then
     latest_ver=$(curl -fsSL --no-netrc -H "Authorization:" \
-      "https://api.github.com/repos/neovim/neovim/releases/latest" 2>/dev/null \
+      "https://api.github.com/repos/$gh_repo/releases/latest" 2>/dev/null \
       | grep -o '"tag_name":[[:space:]]*"[^"]*"' | cut -d'"' -f4)
   fi
 
   # Skip if already up to date
   if [[ -n "$current_ver" && -n "$latest_ver" && "$current_ver" == "$latest_ver" ]]; then
-    _log "  neovim up to date -- $current_ver"
+    _log "  $name up to date -- $current_ver"
     return 0
   fi
 
   if [[ -z "$latest_ver" ]]; then
     if [[ -n "$current_ver" ]]; then
-      _log "  neovim $current_ver (couldn't check for updates)"
+      _log "  $name $current_ver (couldn't check for updates)"
       return 0
     fi
-    _warn "  warning: couldn't determine latest neovim version"
+    _warn "  warning: couldn't determine latest $name version"
     return 1
   fi
 
@@ -504,8 +581,8 @@ _install_neovim() {
   local arch
   arch=$(uname -m)
   local urls=(
-    "https://github.com/neovim/neovim/releases/download/$latest_ver/nvim-linux-${arch}.appimage"
-    "https://github.com/neovim/neovim/releases/download/$latest_ver/nvim.appimage"
+    "https://github.com/$gh_repo/releases/download/$latest_ver/$cmd-linux-${arch}.appimage"
+    "https://github.com/$gh_repo/releases/download/$latest_ver/$cmd.appimage"
   )
 
   local downloaded=0
@@ -518,58 +595,102 @@ _install_neovim() {
 
   if [[ $downloaded -eq 0 ]]; then
     rm -f "$tmp_file"
-    _warn "  warning: failed to download neovim $latest_ver"
+    _warn "  warning: failed to download $name $latest_ver"
     return 1
   fi
 
   mkdir -p "$HOME/.local/bin"
-  mv "$tmp_file" "$nvim_bin"
-  chmod u+x "$nvim_bin"
+  mv "$tmp_file" "$bin_path"
+  chmod u+x "$bin_path"
 
   if [[ -n "$current_ver" ]]; then
-    _log "  neovim updated -- $current_ver -> $latest_ver"
+    _log "  $name updated -- $current_ver -> $latest_ver"
   else
-    _log "  neovim installed -- $latest_ver"
+    _log "  $name installed -- $latest_ver"
   fi
+}
+
+# ---------------------------------------------------------------------------
+# Dispatcher and hooks
+# ---------------------------------------------------------------------------
+
+# Route a dep registry entry to the appropriate install method.
+_install_dep() {
+  local entry="$1"
+  _dep_parse "$entry"
+  case "$_method" in
+    pkg)
+      if _dep_exists "$_cmd" "$_cmd_alt"; then return 0; fi
+      _pkg_queue "$_name" "$_pkg_overrides"
+      ;;
+    git)
+      _install_from_github "$_name" "$_repo" "$HOME/$_dir"
+      ;;
+    appimage)
+      if [[ "$(uname -s)" == "Darwin" ]]; then
+        if _dep_exists "$_cmd" "$_cmd_alt"; then return 0; fi
+        _pkg_queue "$_name" "$_pkg_overrides"
+      else
+        _install_appimage "$_name" "$_cmd" "$_repo"
+      fi
+      ;;
+  esac
+}
+
+# Post-install hooks — define _post_<name> functions (dashes → underscores).
+_post_vimrc() {
+  [[ -f "$HOME/.vim_runtime/install_awesome_vimrc.sh" ]] || return 0
+  sh "$HOME/.vim_runtime/install_awesome_vimrc.sh" 2>/dev/null || \
+    _warn "  warning: vimrc install script failed"
+}
+
+_post_gstack() {
+  [[ -d "$HOME/.gstack" ]] || return 0
+  mkdir -p "$HOME/.claude/skills"
+  ln -sfn "$HOME/.gstack" "$HOME/.claude/skills/gstack"
+  local _d
+  for _d in "$HOME/.gstack"/*/; do
+    if [[ -f "$_d/SKILL.md" && "$(basename "$_d")" != "node_modules" ]]; then
+      ln -sfn "gstack/$(basename "$_d")" "$HOME/.claude/skills/$(basename "$_d")"
+    fi
+  done
+}
+
+_post_bash_preexec() {
+  [[ -f "$HOME/.local/share/bash-preexec/bash-preexec.sh" ]] || return 0
+  ln -sfn "$HOME/.local/share/bash-preexec/bash-preexec.sh" "$HOME/.bash-preexec.sh"
+}
+
+# Run post-install hooks for all deps.
+_run_post_hooks() {
+  for entry in "${_DEPS[@]}"; do
+    local name="${entry%%|*}"
+    local hook="_post_${name//-/_}"
+    if declare -f "$hook" &>/dev/null; then
+      "$hook" || true
+    fi
+  done
 }
 
 # Install or upgrade all managed dependencies.
 _update_deps() {
-  _check_deps
+  if ! command -v git &>/dev/null; then
+    _warn "error: git is required for dotbootstrap"
+    return 1
+  fi
 
-  local ds_repo="${DOTBOOTSTRAP_DS_REPO:-https://github.com/cgraf78/ds.git}"
-  local vimrc_repo="${DOTBOOTSTRAP_VIMRC_REPO:-https://github.com/cgraf78/vimrc.git}"
-  local gstack_repo="${DOTBOOTSTRAP_GSTACK_REPO:-https://github.com/garrytan/gstack.git}"
-  local bash_preexec_repo="${DOTBOOTSTRAP_BASH_PREEXEC_REPO:-https://github.com/rcaloras/bash-preexec.git}"
+  _dep_load
+  _pkg_detect
+  _PKG_BATCH=()
 
   _log "==> Installing/upgrading tools..."
-  _install_tool ds "$ds_repo" "$HOME/.local/share/ds" || true
 
-  local is_fresh_vimrc=0
-  if [[ ! -d "$HOME/.vim_runtime" ]]; then is_fresh_vimrc=1; fi
-  _install_tool vimrc "$vimrc_repo" "$HOME/.vim_runtime" || true
-  if [[ $is_fresh_vimrc -eq 1 && -f "$HOME/.vim_runtime/install_awesome_vimrc.sh" ]]; then
-    sh "$HOME/.vim_runtime/install_awesome_vimrc.sh" 2>/dev/null || \
-      _warn "  warning: vimrc install script failed"
-  fi
+  for entry in "${_DEPS[@]}"; do
+    _install_dep "$entry" || true
+  done
 
-  _install_tool gstack "$gstack_repo" "$HOME/.gstack" || true
-  if [[ -d "$HOME/.gstack" ]]; then
-    mkdir -p "$HOME/.claude/skills"
-    ln -sfn "$HOME/.gstack" "$HOME/.claude/skills/gstack"
-    local _d
-    for _d in "$HOME/.gstack"/*/; do
-      if [[ -f "$_d/SKILL.md" && "$(basename "$_d")" != "node_modules" ]]; then
-        ln -sfn "gstack/$(basename "$_d")" "$HOME/.claude/skills/$(basename "$_d")"
-      fi
-    done
-  fi
+  _pkg_install_batch
+  _run_post_hooks
 
-  _install_tool bash-preexec "$bash_preexec_repo" "$HOME/.local/share/bash-preexec" || true
-  if [[ -f "$HOME/.local/share/bash-preexec/bash-preexec.sh" ]]; then
-    ln -sfn "$HOME/.local/share/bash-preexec/bash-preexec.sh" "$HOME/.bash-preexec.sh"
-  fi
-
-  _install_neovim || true
   _install_cron || true
 }

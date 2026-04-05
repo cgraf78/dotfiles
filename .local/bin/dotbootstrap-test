@@ -129,70 +129,187 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Tests: _install_hint
+# Tests: _dep_load
 # ---------------------------------------------------------------------------
 
 echo ""
-echo "=== Install hints ==="
+echo "=== Dep registry loading ==="
 
-# _install_hint uses `command -v` to detect package managers.
-# Use isolated PATH per test so real system binaries don't interfere.
-# command/echo are builtins, so an empty PATH still works for _install_hint.
+# Valid deps.conf
+mkdir -p "$TEST_HOME/.config/dot"
+cat > "$TEST_HOME/.config/dot/deps.conf" <<'CONF'
+# comment line
+jq    pkg
+
+bat   pkg   bat   batcat
+ds    git   ds    -    -    cgraf78/ds.git    .local/share/ds
+CONF
+
+_dep_load
+_assert_eq "dep_load: correct count" "3" "${#_DEPS[@]}"
+
+# Missing deps.conf
+rm "$TEST_HOME/.config/dot/deps.conf"
+result=$(_dep_load 2>&1)
+_assert_contains "dep_load: warns on missing file" "not found" "$result"
+# _dep_load sets _DEPS=() at start, but the warning test ran in a subshell.
+# Call again in the current shell to verify the array is cleared.
+_dep_load 2>/dev/null
+_assert_eq "dep_load: empty array on missing" "0" "${#_DEPS[@]}"
+
+# Restore for later tests
+cat > "$TEST_HOME/.config/dot/deps.conf" <<'CONF'
+jq    pkg
+bat   pkg   bat   batcat
+ds    git   ds    -    -    cgraf78/ds.git    .local/share/ds
+CONF
+
+# ---------------------------------------------------------------------------
+# Tests: _dep_parse
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== Dep registry parsing ==="
+
+# Full entry with all fields
+_dep_parse "fd|pkg|fd|fdfind|apt:fd-find,dnf:fd-find||"
+_assert_eq "dep_parse: name" "fd" "$_name"
+_assert_eq "dep_parse: method" "pkg" "$_method"
+_assert_eq "dep_parse: cmd" "fd" "$_cmd"
+_assert_eq "dep_parse: cmd_alt" "fdfind" "$_cmd_alt"
+_assert_eq "dep_parse: pkg_overrides" "apt:fd-find,dnf:fd-find" "$_pkg_overrides"
+
+# Dash fields default to empty, cmd defaults to name
+_dep_parse "vimrc|git|-|-|-|cgraf78/vimrc.git|.vim_runtime"
+_assert_eq "dep_parse: cmd defaults to name" "vimrc" "$_cmd"
+_assert_eq "dep_parse: dash becomes empty" "" "$_cmd_alt"
+_assert_eq "dep_parse: repo" "cgraf78/vimrc.git" "$_repo"
+_assert_eq "dep_parse: dir" ".vim_runtime" "$_dir"
+
+# Minimal entry (just name and method)
+_dep_parse "jq|pkg"
+_assert_eq "dep_parse: minimal name" "jq" "$_name"
+_assert_eq "dep_parse: minimal cmd defaults" "jq" "$_cmd"
+_assert_eq "dep_parse: minimal empty fields" "" "$_repo"
+
+# ---------------------------------------------------------------------------
+# Tests: _dep_exists
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== Dep existence checks ==="
+
+rc=0; _dep_exists "bash" "" || rc=$?
+_assert_exit "dep_exists: present cmd" 0 "$rc"
+
+rc=0; _dep_exists "nonexistent_xyz_123" "bash" || rc=$?
+_assert_exit "dep_exists: alt cmd present" 0 "$rc"
+
+rc=0; _dep_exists "nonexistent_xyz_123" "nonexistent_abc_456" || rc=$?
+_assert_exit "dep_exists: neither present" 1 "$rc"
+
+rc=0; _dep_exists "" "" || rc=$?
+_assert_exit "dep_exists: empty cmd" 1 "$rc"
+
+# ---------------------------------------------------------------------------
+# Tests: _pkg_detect
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== Package manager detection ==="
+
 PKG_BIN=$(_tmpdir)
 _make_pkg_cmd() {
     echo '#!/usr/bin/env bash' > "$PKG_BIN/$1"
     chmod +x "$PKG_BIN/$1"
 }
 
-# All present → brew wins (highest priority)
+# All present → brew wins
 _make_pkg_cmd brew
 _make_pkg_cmd apt-get
 _make_pkg_cmd dnf
 _make_pkg_cmd pacman
-result=$(PATH="$PKG_BIN" _install_hint "tmux")
-_assert_contains "brew hint" "brew install tmux" "$result"
+PATH="$PKG_BIN" _pkg_detect
+_assert_eq "pkg_detect: brew priority" "brew" "$_PKG_MGR"
 
-# No brew → apt-get wins
+# No brew → apt wins
 rm -f "$PKG_BIN/brew"
-result=$(PATH="$PKG_BIN" _install_hint "tmux")
-_assert_contains "apt-get hint" "apt-get" "$result"
-_assert_contains "apt-get package" "tmux" "$result"
+PATH="$PKG_BIN" _pkg_detect
+_assert_eq "pkg_detect: apt priority" "apt" "$_PKG_MGR"
 
-# No brew/apt-get → dnf wins
+# No brew/apt → dnf wins
 rm -f "$PKG_BIN/apt-get"
-result=$(PATH="$PKG_BIN" _install_hint "tmux")
-_assert_contains "dnf hint" "dnf install" "$result"
+PATH="$PKG_BIN" _pkg_detect
+_assert_eq "pkg_detect: dnf priority" "dnf" "$_PKG_MGR"
 
-# No brew/apt-get/dnf → pacman wins
+# No brew/apt/dnf → pacman wins
 rm -f "$PKG_BIN/dnf"
-result=$(PATH="$PKG_BIN" _install_hint "tmux")
-_assert_contains "pacman hint" "pacman" "$result"
+PATH="$PKG_BIN" _pkg_detect
+_assert_eq "pkg_detect: pacman priority" "pacman" "$_PKG_MGR"
 
-# None available → generic message
+# None → empty
 rm -f "$PKG_BIN/pacman"
-result=$(PATH="$PKG_BIN" _install_hint "tmux")
-_assert_contains "generic hint" "install" "$result"
-_assert_contains "generic pkg name" "tmux" "$result"
+PATH="$PKG_BIN" _pkg_detect
+_assert_eq "pkg_detect: none available" "" "$_PKG_MGR"
 
 # ---------------------------------------------------------------------------
-# Tests: _check_dep
+# Tests: _pkg_resolve
 # ---------------------------------------------------------------------------
 
 echo ""
-echo "=== Dependency checking ==="
+echo "=== Package name resolution ==="
 
-# Present command → returns 0, no output
-rc=0
-result=$(_check_dep "bash" "bash" 2>&1) || rc=$?
-_assert_exit "present dep returns 0" 0 "$rc"
-_assert_eq "present dep no warning" "" "$result"
+_PKG_MGR="dnf"
+result=$(_pkg_resolve "fd" "apt:fd-find,dnf:fd-find")
+_assert_eq "pkg_resolve: dnf override" "fd-find" "$result"
 
-# Missing command → returns 1, prints warning
-rc=0
-result=$(_check_dep "nonexistent_cmd_xyz" "nonexistent" 2>&1) || rc=$?
-_assert_exit "missing dep returns 1" 1 "$rc"
-_assert_contains "missing dep warning" "not found" "$result"
-_assert_contains "missing dep names command" "nonexistent_cmd_xyz" "$result"
+_PKG_MGR="brew"
+result=$(_pkg_resolve "fd" "apt:fd-find,dnf:fd-find")
+_assert_eq "pkg_resolve: no override match" "fd" "$result"
+
+_PKG_MGR="apt"
+result=$(_pkg_resolve "fd" "apt:fd-find,dnf:fd-find")
+_assert_eq "pkg_resolve: apt override" "fd-find" "$result"
+
+result=$(_pkg_resolve "tmux" "")
+_assert_eq "pkg_resolve: empty overrides" "tmux" "$result"
+
+# ---------------------------------------------------------------------------
+# Tests: _pkg_queue
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== Package queuing ==="
+
+_PKG_MGR="dnf"
+_PKG_BATCH=()
+# Run in current shell so _PKG_BATCH is modified, capture output via temp file
+_pkg_queue "fd" "apt:fd-find,dnf:fd-find" > /tmp/_pkg_queue_out 2>&1
+result=$(cat /tmp/_pkg_queue_out)
+rm -f /tmp/_pkg_queue_out
+_assert_eq "pkg_queue: resolved name in batch" "fd-find" "${_PKG_BATCH[0]}"
+_assert_contains "pkg_queue: logs queuing" "queued" "$result"
+
+# ---------------------------------------------------------------------------
+# Tests: _pkg_install_batch
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== Batch install ==="
+
+# Empty batch → no-op
+_PKG_BATCH=()
+_PKG_MGR="dnf"
+result=$(_pkg_install_batch 2>&1)
+_assert_eq "pkg_batch: empty no-op" "" "$result"
+
+# Cron mode → skips with warning
+_PKG_BATCH=("eza" "tmux")
+DOT_QUIET=1
+result=$(_pkg_install_batch 2>&1)
+_assert_contains "pkg_batch: cron skips" "skipped in cron" "$result"
+_assert_contains "pkg_batch: cron lists packages" "eza" "$result"
+DOT_QUIET=0
 
 # ---------------------------------------------------------------------------
 # Tests: _backup_and_checkout
@@ -306,6 +423,7 @@ mkdir -p "$PERSONAL_STAGING/.config/dot"
 echo "bashrc content" > "$PERSONAL_STAGING/.bashrc"
 
 cp "$REAL_HOME/.config/dot/helpers.sh" "$PERSONAL_STAGING/.config/dot/helpers.sh"
+cp "$REAL_HOME/.config/dot/deps.conf" "$PERSONAL_STAGING/.config/dot/deps.conf"
 
 cat > "$PERSONAL_STAGING/.config/dot/merge-testapp.sh" <<'MERGE'
 merge_testapp() { echo "MERGE_TESTAPP_RAN"; }
@@ -473,8 +591,8 @@ result=$(_run_bootstrap "$FRESH_WORK" work)
 # Should NOT try to clone (repo already exists)
 _assert_not_contains "re-run: skips clone" "Cloning personal" "$result"
 
-# Should update vimrc (not reinstall)
-_assert_not_contains "re-run: skips vimrc install script" "VIMRC_INSTALLED" "$result"
+# Post hooks run on every update (vimrc install script is idempotent)
+_assert_contains "re-run: vimrc hook ran" "VIMRC_INSTALLED" "$result"
 
 # Work repo exists → pulls instead of cloning
 _assert_contains "re-run: pulls work repo" "Pulling work" "$result"
