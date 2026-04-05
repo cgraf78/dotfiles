@@ -542,10 +542,9 @@ _update_deps() {
   local gstack_repo="${DOTBOOTSTRAP_GSTACK_REPO:-https://github.com/garrytan/gstack.git}"
   local bash_preexec_repo="${DOTBOOTSTRAP_BASH_PREEXEC_REPO:-https://github.com/rcaloras/bash-preexec.git}"
 
-  _log "==> Installing/upgrading ds..."
+  _log "==> Installing/upgrading tools..."
   _install_tool ds "$ds_repo" "$HOME/.local/share/ds" || true
 
-  _log "==> Installing/upgrading vimrc..."
   local is_fresh_vimrc=0
   if [[ ! -d "$HOME/.vim_runtime" ]]; then is_fresh_vimrc=1; fi
   _install_tool vimrc "$vimrc_repo" "$HOME/.vim_runtime" || true
@@ -554,7 +553,6 @@ _update_deps() {
       _warn "  warning: vimrc install script failed"
   fi
 
-  _log "==> Installing/upgrading gstack..."
   _install_tool gstack "$gstack_repo" "$HOME/.gstack" || true
   if [[ -d "$HOME/.gstack" ]]; then
     mkdir -p "$HOME/.claude/skills"
@@ -567,15 +565,11 @@ _update_deps() {
     done
   fi
 
-  _log "==> Installing/upgrading bash-preexec..."
   _install_tool bash-preexec "$bash_preexec_repo" "$HOME/.local/share/bash-preexec" || true
   if [[ -f "$HOME/.local/share/bash-preexec/bash-preexec.sh" ]]; then
     ln -sfn "$HOME/.local/share/bash-preexec/bash-preexec.sh" "$HOME/.bash-preexec.sh"
   fi
 
-  _log "==> Installing/upgrading neovim..."
   _install_neovim || true
-
-  _log "==> Installing cron..."
   _install_cron || true
 }
