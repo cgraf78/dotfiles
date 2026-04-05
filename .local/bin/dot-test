@@ -36,6 +36,9 @@ $GIT config user.name "Test"
 # Create helpers.sh and dot config dir
 mkdir -p "$TEST_HOME/.config/dot"
 cp "$REAL_HOME/.config/dot/helpers.sh" "$TEST_HOME/.config/dot/helpers.sh"
+cp "$REAL_HOME/.config/dot/deps.sh" "$TEST_HOME/.config/dot/deps.sh"
+cp "$REAL_HOME/.config/dot/deps.conf" "$TEST_HOME/.config/dot/deps.conf"
+cp "$REAL_HOME/.config/dot/deps-hooks.sh" "$TEST_HOME/.config/dot/deps-hooks.sh"
 
 # Seed the repo with a tracked file so we have a branch
 echo "initial" > "$TEST_HOME/.testrc"
@@ -270,6 +273,9 @@ _assert_contains "update: shows done" "Done" "$result"
 NO_REPO_HOME=$(_tmpdir)
 mkdir -p "$NO_REPO_HOME/.config/dot"
 cp "$REAL_HOME/.config/dot/helpers.sh" "$NO_REPO_HOME/.config/dot/helpers.sh"
+cp "$REAL_HOME/.config/dot/deps.sh" "$NO_REPO_HOME/.config/dot/deps.sh"
+cp "$REAL_HOME/.config/dot/deps.conf" "$NO_REPO_HOME/.config/dot/deps.conf"
+cp "$REAL_HOME/.config/dot/deps-hooks.sh" "$NO_REPO_HOME/.config/dot/deps-hooks.sh"
 
 result=$(
     HOME="$NO_REPO_HOME" \
