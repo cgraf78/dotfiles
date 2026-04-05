@@ -6,7 +6,7 @@
 # =============================================================================
 alias vs='code'
 alias ca='cal -3'
-alias vi='vim'
+alias vi='nvim'
 alias ll='ls -alF'
 alias la='ls -A'
 alias l='ls -CF'
@@ -23,42 +23,32 @@ alias rdptun.bevo2='autossh -M0 -N -L 9000:bevo2.lan:3389 nas'
 alias vnctun.metro='autossh -M0 -N -L 9001:metro.web:5901 nas'
 
 # =============================================================================
-# macOS
+# Platform-specific defaults
 # =============================================================================
-if [[ "$(uname -s)" == "Darwin" ]]; then
-    if command -v eza >/dev/null 2>&1; then
-        alias ls='eza --group-directories-first'
-        alias ll='eza -alF --group-directories-first'
-        alias la='eza -a --group-directories-first'
-        alias l='eza -F --group-directories-first'
-        alias lt='eza --tree --level=2'
-        alias llt='eza --tree -al --level=2'
-    else
-        alias ls='ls -G'
-    fi
+if command -v eza >/dev/null 2>&1; then
+    alias ls='eza --group-directories-first'
+    alias ll='eza -alF --group-directories-first'
+    alias la='eza -a --group-directories-first'
+    alias l='eza -F --group-directories-first'
+    alias lt='eza --tree --level=2'
+    alias llt='eza --tree -al --level=2'
+elif [[ "$_UNAME" == "Darwin" ]]; then
+    alias ls='ls -G'
+else
+    alias ls='ls --color=auto'
 fi
 
 # =============================================================================
 # Linux / WSL / MINGW
 # =============================================================================
-if [[ "$(uname -s)" == "Linux" || "$(uname -s)" == MINGW* || "$(uname -s)" == MSYS* ]]; then
+if [[ "$_UNAME" == "Linux" || "$_UNAME" == MINGW* || "$_UNAME" == MSYS* ]]; then
 
     if command -v batcat >/dev/null 2>&1 && ! command -v bat >/dev/null 2>&1; then
         alias bat='batcat'
     fi
-    if command -v eza >/dev/null 2>&1; then
-        alias ls='eza --group-directories-first'
-        alias ll='eza -alF --group-directories-first'
-        alias la='eza -a --group-directories-first'
-        alias l='eza -F --group-directories-first'
-        alias lt='eza --tree --level=2'
-        alias llt='eza --tree -al --level=2'
-    else
-        alias ls='ls --color=auto'
-    fi
 
     # Windows interop (shared between WSL and MINGW/MSYS)
-    if [[ -n "${WSL_DISTRO_NAME:-}" || "$(uname -s)" != "Linux" ]]; then
+    if [[ -n "${WSL_DISTRO_NAME:-}" || "$_UNAME" != "Linux" ]]; then
         alias np='"c:/program files/notepad++/notepad++.exe"'
         alias rufus='rufus-4.6p.exe -g'
         alias cpuz='cpuz_x64.exe'

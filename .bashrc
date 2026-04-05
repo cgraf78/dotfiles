@@ -1,6 +1,9 @@
 # ~/.bashrc: entry point for bash configuration.
 # Sourced from ~/.bash_profile for login shells too.
 
+# Cache platform (avoid repeated uname subshells)
+_UNAME="$(uname -s)"
+
 # =============================================================================
 # Work (must be first per requirements inside the file)
 # =============================================================================
@@ -11,7 +14,7 @@ fi
 # =============================================================================
 # Environment
 # =============================================================================
-export EDITOR=vim
+export EDITOR=nvim
 export DS_DEV_CHATBOT="${DS_DEV_CHATBOT:-claude}"
 export DS_CHAT_CHATBOT="${DS_CHAT_CHATBOT:-argus}"
 export DS_UPTERM_PRIVATE_KEY="$HOME/.ssh/argus_github_ed25519"
@@ -21,7 +24,7 @@ export PHOTOCAD_LIVE_TEST_ENV_FILE=~/.config/photocad/live-test-env
 # GitHub PAT for Claude Code's GitHub MCP server. Avoids calling `gh auth token`
 # at shell startup (which triggers D-Bus/keyring on headless hosts).
 # To create: gh auth token > ~/.config/gh/github-pat && chmod 600 ~/.config/gh/github-pat
-[ -f "$HOME/.config/gh/github-pat" ] && export GITHUB_PERSONAL_ACCESS_TOKEN="$(cat "$HOME/.config/gh/github-pat")"
+[ -f "$HOME/.config/gh/github-pat" ] && { read -r GITHUB_PERSONAL_ACCESS_TOKEN < "$HOME/.config/gh/github-pat" && export GITHUB_PERSONAL_ACCESS_TOKEN; }
 
 # PATH
 if [ -d "/usr/local/bin" ]; then
@@ -110,7 +113,7 @@ set_prompt
 # =============================================================================
 # macOS
 # =============================================================================
-if [[ "$(uname -s)" == "Darwin" ]]; then
+if [[ "$_UNAME" == "Darwin" ]]; then
     # Homebrew
     test -x /opt/homebrew/bin/brew && eval "$(/opt/homebrew/bin/brew shellenv)"
 
@@ -124,7 +127,7 @@ fi
 # =============================================================================
 # Linux / WSL / MINGW
 # =============================================================================
-if [[ "$(uname -s)" == "Linux" || "$(uname -s)" == MINGW* || "$(uname -s)" == MSYS* ]]; then
+if [[ "$_UNAME" == "Linux" || "$_UNAME" == MINGW* || "$_UNAME" == MSYS* ]]; then
     # Disable XON/XOFF flow control so ctrl+s doesn't freeze the terminal
     stty -ixon 2>/dev/null
 fi
@@ -153,11 +156,6 @@ esac
 if [ -f ~/.bash_aliases ]; then
     . ~/.bash_aliases
 fi
-
-# Directory bookmarks
-mkdir -p ~/.marks
-mark() { ln -sfn "$(pwd)" ~/.marks/"$1"; }
-jump() { cd -P ~/.marks/"$1" 2>/dev/null || echo "No such mark"; }
 
 # SSH bypassing tmux
 sshn() { ssh -t "$1" "NO_TMUX=1 bash"; }
