@@ -136,35 +136,53 @@ _pkg_install_batch() {
 
   _log "  installing: ${_PKG_BATCH[*]}"
   local rc=0
+  local log
+  log=$(mktemp) || {
+    _warn "  warning: failed to create temp log for package install"
+    return 0
+  }
+  # shellcheck disable=SC2024  # Intentionally capture sudo command output in a user-owned temp log.
   case "$_PKG_MGR" in
     brew)
-      brew install "${_PKG_BATCH[@]}" >/dev/null || rc=$?
+      brew install "${_PKG_BATCH[@]}" >"$log" 2>&1 || rc=$?
       ;;
     apt)
       sudo apt-get update -qq >/dev/null 2>&1 || true
-      sudo apt-get install -y "${_PKG_BATCH[@]}" >/dev/null || rc=$?
+      sudo apt-get install -y "${_PKG_BATCH[@]}" >"$log" 2>&1 || rc=$?
       ;;
     dnf)
-      sudo dnf install -y "${_PKG_BATCH[@]}" >/dev/null || rc=$?
+      sudo dnf install -y "${_PKG_BATCH[@]}" >"$log" 2>&1 || rc=$?
       ;;
     pacman)
-      sudo pacman -Sy --needed --noconfirm "${_PKG_BATCH[@]}" >/dev/null || rc=$?
+      sudo pacman -Sy --needed --noconfirm "${_PKG_BATCH[@]}" >"$log" 2>&1 || rc=$?
       ;;
   esac
 
   # On batch failure, retry individually
   if [[ $rc -ne 0 ]]; then
+    _warn "  package manager output:"
+    sed 's/^/    /' "$log" >&2
     _warn "  warning: batch install failed, retrying individually..."
     local pkg
     for pkg in "${_PKG_BATCH[@]}"; do
+      : > "$log"
+      # shellcheck disable=SC2024  # Intentionally capture sudo command output in a user-owned temp log.
       case "$_PKG_MGR" in
-        brew)    brew install "$pkg" >/dev/null || _warn "  warning: failed to install $pkg" ;;
-        apt)     sudo apt-get install -y "$pkg" >/dev/null || _warn "  warning: failed to install $pkg" ;;
-        dnf)     sudo dnf install -y "$pkg" >/dev/null || _warn "  warning: failed to install $pkg" ;;
-        pacman)  sudo pacman -Sy --needed --noconfirm "$pkg" >/dev/null || _warn "  warning: failed to install $pkg" ;;
+        brew)    brew install "$pkg" >"$log" 2>&1 || rc=$? ;;
+        apt)     sudo apt-get install -y "$pkg" >"$log" 2>&1 || rc=$? ;;
+        dnf)     sudo dnf install -y "$pkg" >"$log" 2>&1 || rc=$? ;;
+        pacman)  sudo pacman -Sy --needed --noconfirm "$pkg" >"$log" 2>&1 || rc=$? ;;
       esac
+      if [[ $rc -ne 0 ]]; then
+        _warn "  package manager output for $pkg:"
+        sed 's/^/    /' "$log" >&2
+        _warn "  warning: failed to install $pkg"
+        rc=0
+      fi
     done
   fi
+
+  rm -f "$log"
 
   # Mark all batch-installed deps as changed
   local _i
