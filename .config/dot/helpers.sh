@@ -662,11 +662,11 @@ _install_dep() {
 }
 
 # Run post-install hooks for all deps.
-# Hook functions are defined in dep-hooks.sh.
+# Hook functions are defined in deps-hooks.sh.
 _run_post_hooks() {
   [[ ${#_DEPS_CHANGED[@]} -eq 0 ]] && return 0
-  local hooks_file="$HOME/.config/dot/dep-hooks.sh"
-  # shellcheck source=dep-hooks.sh
+  local hooks_file="$HOME/.config/dot/deps-hooks.sh"
+  # shellcheck source=deps-hooks.sh
   [[ -f "$hooks_file" ]] && . "$hooks_file"
   for entry in "${_DEPS[@]}"; do
     local name="${entry%%|*}"
