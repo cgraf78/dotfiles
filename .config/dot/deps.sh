@@ -1,6 +1,7 @@
 #!/bin/bash
 # Dependency management for dotbootstrap.
 # Sourced by helpers.sh. Requires _log, _warn, DOT_QUIET from helpers.sh.
+# Set DOT_FORCE=1 to force reinstall of all deps and re-run all hooks.
 
 # ---------------------------------------------------------------------------
 # Dep registry — parse ~/.config/dot/deps.conf
@@ -237,6 +238,9 @@ _install_from_github() {
       if [[ "$head_before" != "$head_after" ]]; then
         _DEPS_CHANGED[$name]=1
         _log "  $name updated${ver:+ -- $ver}"
+      elif [[ "${DOT_FORCE:-0}" -eq 1 ]]; then
+        _DEPS_CHANGED[$name]=1
+        _log "  $name reinstalled${ver:+ -- $ver}"
       else
         _log "  $name up to date${ver:+ -- $ver}"
       fi
@@ -327,8 +331,8 @@ _install_appimage() {
       | grep -o '"tag_name":[[:space:]]*"[^"]*"' | cut -d'"' -f4)
   fi
 
-  # Skip if already up to date
-  if [[ -n "$current_ver" && -n "$latest_ver" && "$current_ver" == "$latest_ver" ]]; then
+  # Skip if already up to date (unless force mode)
+  if [[ "${DOT_FORCE:-0}" -ne 1 && -n "$current_ver" && -n "$latest_ver" && "$current_ver" == "$latest_ver" ]]; then
     _log "  $name up to date -- $current_ver"
     return 0
   fi
@@ -447,6 +451,14 @@ _update_deps() {
 
   [[ ${#_PKG_PRESENT[@]} -gt 0 ]] && _log "  system: ${_PKG_PRESENT[*]}"
   _pkg_install_batch
+
+  # Force mode: mark all deps as changed so all hooks run
+  if [[ "${DOT_FORCE:-0}" -eq 1 ]]; then
+    for entry in "${_DEPS[@]}"; do
+      _DEPS_CHANGED["${entry%%|*}"]=1
+    done
+  fi
+
   _run_post_hooks
 
   _install_cron || true
