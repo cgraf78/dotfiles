@@ -5,17 +5,17 @@
 # Add new hooks here — no changes to helpers.sh needed.
 
 _post_vimrc() {
-  [[ -f "$HOME/.vim_runtime/install_awesome_vimrc.sh" ]] || return 0
-  sh "$HOME/.vim_runtime/install_awesome_vimrc.sh" 2>/dev/null || \
+  [[ -f "$HOME/.local/share/vimrc/install_awesome_vimrc.sh" ]] || return 0
+  sh "$HOME/.local/share/vimrc/install_awesome_vimrc.sh" 2>/dev/null || \
     _warn "  warning: vimrc install script failed"
 }
 
 _post_gstack() {
-  [[ -d "$HOME/.gstack" ]] || return 0
+  [[ -d "$HOME/.local/share/gstack" ]] || return 0
   mkdir -p "$HOME/.claude/skills"
-  ln -sfn "$HOME/.gstack" "$HOME/.claude/skills/gstack"
+  ln -sfn "$HOME/.local/share/gstack" "$HOME/.claude/skills/gstack"
   local _d
-  for _d in "$HOME/.gstack"/*/; do
+  for _d in "$HOME/.local/share/gstack"/*/; do
     if [[ -f "$_d/SKILL.md" && "$(basename "$_d")" != "node_modules" ]]; then
       ln -sfn "gstack/$(basename "$_d")" "$HOME/.claude/skills/$(basename "$_d")"
     fi

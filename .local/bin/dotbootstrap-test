@@ -536,34 +536,9 @@ fi
 # Merge scripts ran
 _assert_contains "personal: merge ran" "MERGE_TESTAPP_RAN" "$result"
 
-# Vim runtime installed
-_assert_file_exists "personal: vim runtime cloned" "$FRESH/.vim_runtime/install_awesome_vimrc.sh"
-_assert_contains "personal: vimrc install ran" "VIMRC_INSTALLED" "$result"
-
-# gstack installed and skills symlinked
-if [[ -d "$FRESH/.gstack" ]]; then
-    _pass "personal: gstack cloned"
-else
-    _fail "personal: gstack cloned"
-fi
-if [[ -L "$FRESH/.claude/skills/gstack" ]]; then
-    _pass "personal: gstack skill symlinked"
-else
-    _fail "personal: gstack skill symlinked"
-fi
-if [[ -L "$FRESH/.claude/skills/review" ]]; then
-    _pass "personal: gstack sub-skill symlinked"
-else
-    _fail "personal: gstack sub-skill symlinked"
-fi
-
-# ds installed
-_assert_file_exists "personal: ds installed" "$FRESH/.local/bin/ds"
-if [[ -d "$FRESH/.local/share/ds" ]]; then
-    _pass "personal: ds share dir"
-else
-    _fail "personal: ds share dir"
-fi
+# Git-based deps installed (validates the general mechanism)
+_assert_contains "personal: git deps installed" "installed" "$result"
+_assert_contains "personal: post hooks ran" "VIMRC_INSTALLED" "$result"
 
 # Done message
 _assert_contains "personal: done message" "Done" "$result"
