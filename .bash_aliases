@@ -7,6 +7,7 @@
 alias vs='code'
 alias ca='cal -3'
 alias vi='nvim'
+alias c='bat --paging=never'
 alias ll='ls -alF'
 alias la='ls -A'
 alias l='ls -CF'
