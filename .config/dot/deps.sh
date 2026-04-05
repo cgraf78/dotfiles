@@ -137,17 +137,17 @@ _pkg_install_batch() {
   local rc=0
   case "$_PKG_MGR" in
     brew)
-      brew install "${_PKG_BATCH[@]}" 2>/dev/null || rc=$?
+      brew install "${_PKG_BATCH[@]}" >/dev/null 2>&1 || rc=$?
       ;;
     apt)
-      sudo apt-get update -qq 2>/dev/null || true
-      sudo apt-get install -y "${_PKG_BATCH[@]}" 2>/dev/null || rc=$?
+      sudo apt-get update -qq >/dev/null 2>&1 || true
+      sudo apt-get install -y "${_PKG_BATCH[@]}" >/dev/null 2>&1 || rc=$?
       ;;
     dnf)
-      sudo dnf install -y "${_PKG_BATCH[@]}" 2>/dev/null || rc=$?
+      sudo dnf install -y "${_PKG_BATCH[@]}" >/dev/null 2>&1 || rc=$?
       ;;
     pacman)
-      sudo pacman -S --needed --noconfirm "${_PKG_BATCH[@]}" 2>/dev/null || rc=$?
+      sudo pacman -S --needed --noconfirm "${_PKG_BATCH[@]}" >/dev/null 2>&1 || rc=$?
       ;;
   esac
 
@@ -157,10 +157,10 @@ _pkg_install_batch() {
     local pkg
     for pkg in "${_PKG_BATCH[@]}"; do
       case "$_PKG_MGR" in
-        brew)    brew install "$pkg" 2>/dev/null || _warn "  warning: failed to install $pkg" ;;
-        apt)     sudo apt-get install -y "$pkg" 2>/dev/null || _warn "  warning: failed to install $pkg" ;;
-        dnf)     sudo dnf install -y "$pkg" 2>/dev/null || _warn "  warning: failed to install $pkg" ;;
-        pacman)  sudo pacman -S --needed --noconfirm "$pkg" 2>/dev/null || _warn "  warning: failed to install $pkg" ;;
+        brew)    brew install "$pkg" >/dev/null 2>&1 || _warn "  warning: failed to install $pkg" ;;
+        apt)     sudo apt-get install -y "$pkg" >/dev/null 2>&1 || _warn "  warning: failed to install $pkg" ;;
+        dnf)     sudo dnf install -y "$pkg" >/dev/null 2>&1 || _warn "  warning: failed to install $pkg" ;;
+        pacman)  sudo pacman -S --needed --noconfirm "$pkg" >/dev/null 2>&1 || _warn "  warning: failed to install $pkg" ;;
       esac
     done
   fi
