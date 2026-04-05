@@ -148,7 +148,7 @@ _pkg_install_batch() {
       sudo dnf install -y "${_PKG_BATCH[@]}" >/dev/null 2>&1 || rc=$?
       ;;
     pacman)
-      sudo pacman -S --needed --noconfirm "${_PKG_BATCH[@]}" >/dev/null 2>&1 || rc=$?
+      sudo pacman -Sy --needed --noconfirm "${_PKG_BATCH[@]}" >/dev/null 2>&1 || rc=$?
       ;;
   esac
 
@@ -161,7 +161,7 @@ _pkg_install_batch() {
         brew)    brew install "$pkg" >/dev/null 2>&1 || _warn "  warning: failed to install $pkg" ;;
         apt)     sudo apt-get install -y "$pkg" >/dev/null 2>&1 || _warn "  warning: failed to install $pkg" ;;
         dnf)     sudo dnf install -y "$pkg" >/dev/null 2>&1 || _warn "  warning: failed to install $pkg" ;;
-        pacman)  sudo pacman -S --needed --noconfirm "$pkg" >/dev/null 2>&1 || _warn "  warning: failed to install $pkg" ;;
+        pacman)  sudo pacman -Sy --needed --noconfirm "$pkg" >/dev/null 2>&1 || _warn "  warning: failed to install $pkg" ;;
       esac
     done
   fi
