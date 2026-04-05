@@ -131,6 +131,12 @@ result=$(_run_merges 2>&1)
 _assert_contains "runs testapp merge" "MERGED_TESTAPP" "$result"
 _assert_contains "runs otherapp merge" "MERGED_OTHERAPP" "$result"
 
+# Quiet mode should still run merges without tripping log redirection bugs.
+DOT_QUIET=1
+result=$(_run_merges 2>&1)
+DOT_QUIET=0
+_assert_eq "quiet merges: no output on success" "" "$result"
+
 # Failing merge script doesn't abort
 cat > "$TEST_HOME/.config/dot/merge-failapp.sh" <<'MERGE'
 merge_failapp() {
