@@ -64,6 +64,11 @@ _dep_version() {
 # Package manager abstraction
 # ---------------------------------------------------------------------------
 
+_is_wsl() {
+  [[ -n "${WSL_DISTRO_NAME:-}" || -n "${WSL_INTEROP:-}" ]] && return 0
+  [[ -r /proc/sys/kernel/osrelease ]] && grep -qi "microsoft" /proc/sys/kernel/osrelease
+}
+
 # Detect available package manager. Sets _PKG_MGR.
 _pkg_detect() {
   if [[ "$(uname -s 2>/dev/null)" == "Darwin" ]] && command -v brew &>/dev/null; then
@@ -519,8 +524,19 @@ _install_dep() {
       _install_from_github "$_name" "$_repo" "$HOME/$_dir"
       ;;
     appimage)
-      if [[ "$(uname -s)" == "Darwin" ]]; then
-        if _dep_exists "$_cmd" "$_cmd_alt"; then return 0; fi
+      if [[ "$(uname -s)" == "Darwin" ]] || _is_wsl; then
+        local cmd_path=""
+        cmd_path=$(command -v "$_cmd" 2>/dev/null || true)
+        if [[ -z "$cmd_path" && -n "$_cmd_alt" ]]; then
+          cmd_path=$(command -v "$_cmd_alt" 2>/dev/null || true)
+        fi
+        if _is_wsl && [[ "$cmd_path" == "$HOME/.local/bin/"* ]]; then
+          rm -f "$cmd_path"
+          cmd_path=""
+          _DEPS_CHANGED[$_name]=1
+          _log "  removed stale $_name AppImage for WSL package fallback"
+        fi
+        if [[ -n "$cmd_path" ]]; then return 0; fi
         _pkg_queue "$_name" "$_pkg_overrides"
       else
         _install_appimage "$_name" "$_cmd" "$_repo"
