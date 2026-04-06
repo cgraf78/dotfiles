@@ -15,6 +15,30 @@ REAL_HOME="$HOME"
 . "$HOME/.config/dot/test-helpers.sh"
 
 # ---------------------------------------------------------------------------
+# Tests: shellcheck
+# ---------------------------------------------------------------------------
+
+echo "=== ShellCheck ==="
+
+if command -v shellcheck &>/dev/null; then
+    sc_output=$(shellcheck -x -P SCRIPTDIR \
+        "$REAL_HOME/.local/bin/dot" \
+        "$REAL_HOME/.local/bin/dotbootstrap" \
+        "$REAL_HOME/.config/dot/helpers.sh" \
+        "$REAL_HOME/.config/dot/deps.sh" \
+        "$REAL_HOME/.config/dot/deps-hooks.sh" \
+        "$REAL_HOME/.config/dot/test-helpers.sh" 2>&1) && sc_rc=0 || sc_rc=$?
+    if [[ "$sc_rc" -eq 0 ]]; then
+        _pass "shellcheck: all files clean"
+    else
+        _fail "shellcheck: findings detected"
+        echo "$sc_output" | sed 's/^/    /' >&2
+    fi
+else
+    echo "  SKIP: shellcheck not installed"
+fi
+
+# ---------------------------------------------------------------------------
 # Setup: mock HOME with bare repo structure
 # ---------------------------------------------------------------------------
 
