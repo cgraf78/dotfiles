@@ -59,6 +59,97 @@ _run_quiet_logged() {
   return 0
 }
 
+_backup_dir() {
+  local backup="$HOME/.dotfiles-backup/$(date +%Y%m%d%H%M%S)"
+  if [[ -e "$backup" ]]; then
+    backup="${backup}-$$"
+  fi
+  mkdir -p "$backup"
+  REPLY="$backup"
+}
+
+_pull_conflicts_from_log() {
+  local log="$1"
+  awk '
+    /^error: The following untracked working tree files would be overwritten by / {
+      in_conflicts = 1
+      next
+    }
+    in_conflicts && /^Please move or remove them before you merge\./ { exit }
+    in_conflicts && /^[[:space:]]+[^[:space:]]/ {
+      sub(/^[[:space:]]+/, "")
+      print
+    }
+  ' "$log"
+}
+
+_backup_pull_conflicts() {
+  local log="$1"
+  local files=""
+  files=$(_pull_conflicts_from_log "$log") || true
+  [[ -n "$files" ]] || return 1
+
+  local backup=""
+  _backup_dir
+  backup="$REPLY"
+
+  local file count=0
+  while IFS= read -r file; do
+    [[ -n "$file" ]] || continue
+    if [[ -e "$HOME/$file" || -L "$HOME/$file" ]]; then
+      mkdir -p "$backup/$(dirname "$file")"
+      mv "$HOME/$file" "$backup/$file"
+      ((count++)) || true
+    fi
+  done <<< "$files"
+
+  if [[ "$count" -eq 0 ]]; then
+    rmdir "$backup" 2>/dev/null || true
+    return 1
+  fi
+
+  _warn "  backed up $count conflicting untracked files to $backup"
+  REPLY="$backup"
+  return 0
+}
+
+_pull_personal() {
+  local log=""
+  if ! _logfile_create; then
+    if [[ "$DOT_QUIET" -eq 1 ]]; then
+      $GIT pull --quiet "$@"
+    else
+      $GIT pull "$@"
+    fi
+    return $?
+  fi
+  log="$REPLY"
+
+  local rc=0
+  if [[ "$DOT_QUIET" -eq 1 ]]; then
+    $GIT pull --quiet "$@" >"$log" 2>&1 || rc=$?
+  else
+    $GIT pull "$@" >"$log" 2>&1 || rc=$?
+  fi
+
+  if [[ "$rc" -ne 0 ]] && _backup_pull_conflicts "$log"; then
+    : > "$log"
+    rc=0
+    if [[ "$DOT_QUIET" -eq 1 ]]; then
+      $GIT pull --quiet "$@" >"$log" 2>&1 || rc=$?
+    else
+      $GIT pull "$@" >"$log" 2>&1 || rc=$?
+    fi
+  fi
+
+  if [[ "$DOT_QUIET" -ne 1 && -s "$log" ]]; then
+    cat "$log"
+  fi
+
+  rm -f "$log"
+  return "$rc"
+}
+
 # Restore git-tracked versions of skip-worktree files so pull won't
 # conflict with work symlinks.  The work bootstrap re-symlinks and
 # re-sets skip-worktree after pull.

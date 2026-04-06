@@ -53,10 +53,12 @@ _pull_all() {
   _normalize_filtered
   _unstash_work_overrides
   _log "==> Pulling personal dotfiles..."
-  if [[ "$DOT_QUIET" -eq 1 ]]; then
-    $GIT pull --quiet "$@" || _warn "  warning: personal dotfiles pull failed"
-  else
-    $GIT pull "$@"
+  if ! _pull_personal "$@"; then
+    if [[ "$DOT_QUIET" -eq 1 ]]; then
+      _warn "  warning: personal dotfiles pull failed"
+    else
+      return 1
+    fi
   fi
   _pull_work_repo "$@"
 }
