@@ -45,11 +45,24 @@ _dep_parse() {
 }
 
 # Check if a dependency is installed. Returns 0 if cmd or cmd_alt is found.
+# Falls back to querying the package manager when command lookup fails
+# (useful for deps like fonts that don't provide binaries).
+# Requires _pkg_detect to have set _PKG_MGR before using the fallback.
 _dep_exists() {
-  local cmd="${1:-}" alt="${2:-}"
-  if [[ -z "$cmd" ]]; then return 1; fi
-  if command -v "$cmd" &>/dev/null; then return 0; fi
-  if [[ -n "$alt" ]] && command -v "$alt" &>/dev/null; then return 0; fi
+  local cmd="${1:-}" alt="${2:-}" name="${3:-}"
+  if [[ -n "$cmd" ]]; then
+    if command -v "$cmd" &>/dev/null; then return 0; fi
+    if [[ -n "$alt" ]] && command -v "$alt" &>/dev/null; then return 0; fi
+  fi
+  # Command not found (or empty) — try the package manager directly.
+  if [[ -n "$name" ]]; then
+    case "${_PKG_MGR:-}" in
+      brew)   brew list "$name" &>/dev/null && return 0 ;;
+      apt)    dpkg -s "$name" &>/dev/null && return 0 ;;
+      dnf)    rpm -q "$name" &>/dev/null && return 0 ;;
+      pacman) pacman -Q "$name" &>/dev/null && return 0 ;;
+    esac
+  fi
   return 1
 }
 
@@ -105,10 +118,15 @@ _pkg_resolve() {
 
 # Queue a package for batched install.
 # $1=name $2=pkg_overrides
+# Skips if _pkg_resolve returns NONE (platform not supported).
 _pkg_queue() {
   local name="$1" overrides="${2:-}"
   local resolved
   resolved=$(_pkg_resolve "$name" "$overrides")
+  if [[ "$resolved" == "NONE" ]]; then
+    _log "  $name skipped (not available for $_PKG_MGR)"
+    return 0
+  fi
   _PKG_BATCH+=("$resolved")
   _PKG_BATCH_NAMES+=("$name")
   _log "  $name queued for install"
@@ -514,7 +532,7 @@ _install_dep() {
   _dep_parse "$entry"
   case "$_method" in
     pkg)
-      if _dep_exists "$_cmd" "$_cmd_alt"; then
+      if _dep_exists "$_cmd" "$_cmd_alt" "$_name"; then
         _PKG_PRESENT+=("$_name")
         return 0
       fi

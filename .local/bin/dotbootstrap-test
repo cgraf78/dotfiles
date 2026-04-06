@@ -209,7 +209,35 @@ rc=0; _dep_exists "nonexistent_xyz_123" "nonexistent_abc_456" || rc=$?
 _assert_exit "dep_exists: neither present" 1 "$rc"
 
 rc=0; _dep_exists "" "" || rc=$?
-_assert_exit "dep_exists: empty cmd" 1 "$rc"
+_assert_exit "dep_exists: empty cmd and name" 1 "$rc"
+
+# Package manager fallback — mock brew list
+DEP_MOCK_BIN=$(_mock_bin)
+export PATH="$DEP_MOCK_BIN:$PATH"
+cat > "$DEP_MOCK_BIN/brew" <<'BREW'
+#!/bin/bash
+# Mock brew: "list <name>" succeeds for "installed-font", fails for others
+if [[ "$1" == "list" && "$2" == "installed-font" ]]; then exit 0; fi
+exit 1
+BREW
+chmod +x "$DEP_MOCK_BIN/brew"
+# Mock uname for _pkg_detect
+cat > "$DEP_MOCK_BIN/uname" <<'UNAME'
+#!/bin/bash
+echo "Darwin"
+UNAME
+chmod +x "$DEP_MOCK_BIN/uname"
+PATH="$DEP_MOCK_BIN:$PATH" _pkg_detect
+
+rc=0; PATH="$DEP_MOCK_BIN:$PATH" _dep_exists "" "" "installed-font" || rc=$?
+_assert_exit "dep_exists: pkg mgr fallback found" 0 "$rc"
+
+rc=0; PATH="$DEP_MOCK_BIN:$PATH" _dep_exists "" "" "not-installed-font" || rc=$?
+_assert_exit "dep_exists: pkg mgr fallback not found" 1 "$rc"
+
+# cmd takes priority over pkg manager fallback
+rc=0; _dep_exists "bash" "" "not-installed-font" || rc=$?
+_assert_exit "dep_exists: cmd found ignores pkg mgr" 0 "$rc"
 
 # ---------------------------------------------------------------------------
 # Tests: _pkg_detect
@@ -285,6 +313,23 @@ _assert_eq "pkg_resolve: apt override" "fd-find" "$result"
 result=$(_pkg_resolve "tmux" "")
 _assert_eq "pkg_resolve: empty overrides" "tmux" "$result"
 
+# NONE sentinel — skip on specific platforms
+_PKG_MGR="apt"
+result=$(_pkg_resolve "myfont" "apt:NONE,dnf:NONE,pacman:NONE")
+_assert_eq "pkg_resolve: NONE for apt" "NONE" "$result"
+
+_PKG_MGR="brew"
+result=$(_pkg_resolve "myfont" "apt:NONE,dnf:NONE,pacman:NONE")
+_assert_eq "pkg_resolve: no NONE for brew" "myfont" "$result"
+
+_PKG_MGR="dnf"
+result=$(_pkg_resolve "myfont" "apt:NONE,dnf:NONE,pacman:NONE")
+_assert_eq "pkg_resolve: NONE for dnf" "NONE" "$result"
+
+_PKG_MGR="pacman"
+result=$(_pkg_resolve "myfont" "apt:NONE,dnf:NONE,pacman:NONE")
+_assert_eq "pkg_resolve: NONE for pacman" "NONE" "$result"
+
 # ---------------------------------------------------------------------------
 # Tests: _pkg_queue
 # ---------------------------------------------------------------------------
@@ -300,6 +345,26 @@ result=$(cat /tmp/_pkg_queue_out)
 rm -f /tmp/_pkg_queue_out
 _assert_eq "pkg_queue: resolved name in batch" "fd-find" "${_PKG_BATCH[0]}"
 _assert_contains "pkg_queue: logs queuing" "queued" "$result"
+
+# NONE override — pkg_queue skips instead of queuing
+_PKG_MGR="apt"
+_PKG_BATCH=()
+_PKG_BATCH_NAMES=()
+_pkg_queue "myfont" "apt:NONE" > /tmp/_pkg_queue_out 2>&1
+result=$(cat /tmp/_pkg_queue_out)
+rm -f /tmp/_pkg_queue_out
+_assert_eq "pkg_queue NONE: batch empty" "0" "${#_PKG_BATCH[@]}"
+_assert_contains "pkg_queue NONE: logs skipped" "skipped" "$result"
+
+# Same dep on brew — should queue normally
+_PKG_MGR="brew"
+_PKG_BATCH=()
+_PKG_BATCH_NAMES=()
+_pkg_queue "myfont" "apt:NONE" > /tmp/_pkg_queue_out 2>&1
+result=$(cat /tmp/_pkg_queue_out)
+rm -f /tmp/_pkg_queue_out
+_assert_eq "pkg_queue brew: queued" "1" "${#_PKG_BATCH[@]}"
+_assert_eq "pkg_queue brew: correct name" "myfont" "${_PKG_BATCH[0]}"
 
 # ---------------------------------------------------------------------------
 # Tests: _pkg_install_batch
