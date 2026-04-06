@@ -560,6 +560,10 @@ _install_dep() {
         _install_appimage "$_name" "$_cmd" "$_repo"
       fi
       ;;
+    custom)
+      # Entirely managed by the post-install hook (_post_<name>).
+      _DEPS_CHANGED[$_name]=1
+      ;;
   esac
 }
 

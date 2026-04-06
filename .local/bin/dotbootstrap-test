@@ -407,6 +407,40 @@ _assert_eq "appimage on WSL: queued pkg fallback" "widget" "${_PKG_BATCH[0]}"
 _assert_eq "appimage on WSL: tracked original name" "widget" "${_PKG_BATCH_NAMES[0]}"
 
 # ---------------------------------------------------------------------------
+# Tests: custom method
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== Custom method ==="
+
+# custom method marks dep as changed (so hook runs)
+declare -gA _DEPS_CHANGED=()
+_install_dep "my-custom-dep|custom"
+_assert_eq "custom: marked as changed" "1" "${_DEPS_CHANGED[my-custom-dep]}"
+
+# custom method doesn't queue any packages
+_PKG_BATCH=()
+_PKG_BATCH_NAMES=()
+_install_dep "another-custom|custom"
+_assert_eq "custom: no pkg queued" "0" "${#_PKG_BATCH[@]}"
+
+# custom hook runs via _run_post_hooks
+declare -gA _DEPS_CHANGED=([hook-test]=1)
+_DEPS=("hook-test|custom")
+cat > "$TEST_HOME/.config/dot/deps-hooks.sh" <<'HOOK'
+_post_hook_test() {
+  echo "CUSTOM_HOOK_RAN" > "$HOME/.custom-hook-result"
+}
+HOOK
+_run_post_hooks
+_assert_file_exists "custom: hook ran" "$TEST_HOME/.custom-hook-result"
+_assert_file_content "custom: hook output" "CUSTOM_HOOK_RAN" "$TEST_HOME/.custom-hook-result"
+rm -f "$TEST_HOME/.custom-hook-result"
+
+# Restore deps-hooks for remaining tests
+cp "$REAL_HOME/.config/dot/deps-hooks.sh" "$TEST_HOME/.config/dot/deps-hooks.sh"
+
+# ---------------------------------------------------------------------------
 # Tests: _backup_and_checkout
 # ---------------------------------------------------------------------------
 
