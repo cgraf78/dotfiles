@@ -183,6 +183,7 @@ fi
 
 # Shared helpers (available after checkout).
 if [[ -f "$HOME/.config/dot/helpers.sh" ]]; then
+  # shellcheck source=../../.config/dot/helpers.sh
   . "$HOME/.config/dot/helpers.sh"
 else
   echo "  warning: helpers.sh not found — skipping work repo and merges" >&2
