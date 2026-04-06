@@ -68,7 +68,7 @@ _post_jetbrains_mono_nerd_font() {
   if curl -fsSL "$url" -o "$tmp/font.zip" 2>/dev/null; then
     mkdir -p "$font_dir"
     unzip -qo "$tmp/font.zip" '*.ttf' -d "$font_dir" 2>/dev/null || true
-    command -v fc-cache &>/dev/null && fc-cache -f "$font_dir" 2>/dev/null || true
+    if command -v fc-cache &>/dev/null; then fc-cache -f "$font_dir" 2>/dev/null || true; fi
     _log "  font-jetbrains-mono-nerd-font installed from GitHub ($version)"
   else
     _warn "  warning: failed to download JetBrainsMono Nerd Font"
