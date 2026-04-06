@@ -67,6 +67,30 @@ _assert_eq "WORK_DIR points to work clone" "$TEST_HOME/.dotfiles-work" "$WORK_DI
 _assert_contains "GIT uses bare repo" "--git-dir=$DOTFILES" "$GIT"
 _assert_contains "GIT uses HOME as worktree" "--work-tree=$TEST_HOME" "$GIT"
 
+echo ""
+echo "=== Helper primitives ==="
+
+_backup_dir
+backup_one="$REPLY"
+_backup_dir
+backup_two="$REPLY"
+if [[ -d "$backup_one" && -d "$backup_two" && "$backup_one" != "$backup_two" ]]; then
+    _pass "backup_dir: creates unique directories"
+else
+    _fail "backup_dir: creates unique directories"
+fi
+
+conflict_log=$(_tmpdir)/pull.log
+cat > "$conflict_log" <<'LOG'
+error: The following untracked working tree files would be overwritten by checkout:
+	.config/nvim/lazy-lock.json
+	.config/example/tool.conf
+Please move or remove them before you switch branches.
+LOG
+result=$(_pull_conflicts_from_log "$conflict_log")
+_assert_contains "pull_conflicts: captures first file" ".config/nvim/lazy-lock.json" "$result"
+_assert_contains "pull_conflicts: captures second file" ".config/example/tool.conf" "$result"
+
 # ---------------------------------------------------------------------------
 # Tests: _pull_work_repo / _push_work_repo
 # ---------------------------------------------------------------------------

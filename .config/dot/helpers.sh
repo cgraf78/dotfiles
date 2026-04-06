@@ -60,26 +60,29 @@ _run_quiet_logged() {
 }
 
 _backup_dir() {
-  local backup="$HOME/.dotfiles-backup/$(date +%Y%m%d%H%M%S)"
-  if [[ -e "$backup" ]]; then
-    backup="${backup}-$$"
+  local root="$HOME/.dotfiles-backup"
+  mkdir -p "$root"
+  local backup=""
+  if ! backup=$(mktemp -d "$root/backup.XXXXXXXX" 2>/dev/null); then
+    REPLY=""
+    return 1
   fi
-  mkdir -p "$backup"
   REPLY="$backup"
 }
 
 _pull_conflicts_from_log() {
   local log="$1"
   awk '
-    /^error: The following untracked working tree files would be overwritten by / {
+    /untracked working tree files would be overwritten by/ {
       in_conflicts = 1
       next
     }
-    in_conflicts && /^Please move or remove them before you merge\./ { exit }
     in_conflicts && /^[[:space:]]+[^[:space:]]/ {
       sub(/^[[:space:]]+/, "")
       print
+      next
     }
+    in_conflicts { exit }
   ' "$log"
 }
 
@@ -90,7 +93,9 @@ _backup_pull_conflicts() {
   [[ -n "$files" ]] || return 1
 
   local backup=""
-  _backup_dir
+  if ! _backup_dir; then
+    return 1
+  fi
   backup="$REPLY"
 
   local file count=0
