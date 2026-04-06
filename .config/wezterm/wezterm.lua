@@ -76,6 +76,7 @@ local macos_window_background_blur = 0
 
 if is_macos then
   font_names = {
+    'JetBrainsMono Nerd Font',
     'JetBrains Mono',
     'Menlo',
     'Monaco',
@@ -94,17 +95,18 @@ if is_macos then
   macos_window_background_blur = 18
 elseif is_windows then
   font_names = {
+    'JetBrainsMono Nerd Font',
+    'JetBrains Mono',
     'Consolas',
     'Cascadia Mono',
-    'JetBrains Mono',
   }
   font_size = 9.0
   line_height = 1.0
   default_prog = { 'wsl.exe', '-d', 'archlinux', '--cd', '/home/chris', '--exec', '/bin/bash', '-l' }
 elseif is_linux then
   font_names = {
+    'JetBrainsMono Nerd Font',
     'JetBrains Mono',
-    'Cascadia Mono',
     'DejaVu Sans Mono',
     'Noto Sans Mono',
   }
@@ -113,6 +115,7 @@ elseif is_linux then
   default_prog = { '/bin/bash', '-l' }
 else
   font_names = {
+    'JetBrainsMono Nerd Font',
     'JetBrains Mono',
     'Menlo',
     'Consolas',
