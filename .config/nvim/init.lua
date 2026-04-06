@@ -7,6 +7,31 @@
 -- Leader key (must be set before plugins)
 vim.g.mapleader = " "
 
+-- Theme selection:
+--   NVIM_COLORSCHEME=tokyonight nvim
+--   NVIM_COLORSCHEME=night-owl nvim
+--   NVIM_COLORSCHEME=kanagawa nvim
+--   NVIM_COLORSCHEME=oxocarbon nvim
+--   NVIM_COLORSCHEME=catppuccin nvim
+--   vim.g.dot_colorscheme = "gruvbox"      -- current default
+--   vim.g.dot_colorscheme = "tokyonight"
+--   vim.g.dot_colorscheme = "night-owl"
+--   vim.g.dot_colorscheme = "kanagawa"
+--   vim.g.dot_colorscheme = "oxocarbon"
+--   vim.g.dot_colorscheme = "catppuccin"
+local colorscheme = vim.env.NVIM_COLORSCHEME or vim.g.dot_colorscheme or "gruvbox"
+
+local function lualine_theme(name)
+  local supported = {
+    gruvbox = true,
+    tokyonight = true,
+  }
+  if supported[name] then
+    return name
+  end
+  return "auto"
+end
+
 -- ── Options ──────────────────────────────────────────────────────────────
 
 vim.opt.history = 500
@@ -162,7 +187,83 @@ require("lazy").setup({
     priority = 1000,
     config = function()
       require("gruvbox").setup({ contrast = "hard" })
-      vim.cmd("colorscheme gruvbox")
+      if colorscheme == "gruvbox" then
+        vim.cmd("colorscheme gruvbox")
+      end
+    end,
+  },
+  {
+    "folke/tokyonight.nvim",
+    lazy = false,
+    priority = 1000,
+    config = function()
+      require("tokyonight").setup({
+        style = "storm",
+        styles = {
+          comments = { italic = true },
+          keywords = { italic = true },
+          sidebars = "dark",
+          floats = "dark",
+        },
+      })
+      if colorscheme == "tokyonight" then
+        vim.cmd("colorscheme tokyonight-storm")
+      end
+    end,
+  },
+  {
+    "oxfist/night-owl.nvim",
+    lazy = false,
+    priority = 1000,
+    config = function()
+      if colorscheme == "night-owl" then
+        vim.cmd("colorscheme night-owl")
+      end
+    end,
+  },
+  {
+    "rebelot/kanagawa.nvim",
+    lazy = false,
+    priority = 1000,
+    config = function()
+      require("kanagawa").setup({
+        theme = "wave",
+        background = {
+          dark = "wave",
+          light = "lotus",
+        },
+      })
+      if colorscheme == "kanagawa" then
+        vim.cmd("colorscheme kanagawa-wave")
+      end
+    end,
+  },
+  {
+    "nyoom-engineering/oxocarbon.nvim",
+    lazy = false,
+    priority = 1000,
+    config = function()
+      if colorscheme == "oxocarbon" then
+        vim.cmd("colorscheme oxocarbon")
+      end
+    end,
+  },
+  {
+    "catppuccin/nvim",
+    name = "catppuccin",
+    lazy = false,
+    priority = 1000,
+    config = function()
+      require("catppuccin").setup({
+        flavour = "mocha",
+        integrations = {
+          gitsigns = true,
+          treesitter = true,
+        },
+      })
+      if colorscheme == "catppuccin" then
+        vim.cmd("colorscheme catppuccin")
+      end
     end,
   },
 
@@ -172,7 +273,7 @@ require("lazy").setup({
     dependencies = { "nvim-tree/nvim-web-devicons" },
     config = function()
       require("lualine").setup({
-        options = { theme = "gruvbox" },
+        options = { theme = lualine_theme(colorscheme) },
         sections = {
           lualine_c = { { "filename", path = 1 } },  -- show relative path
         },
@@ -344,7 +445,7 @@ require("lazy").setup({
 
 }, {
   -- lazy.nvim options
-  install = { colorscheme = { "gruvbox" } },
+  install = { colorscheme = { "gruvbox", "tokyonight", "night-owl", "kanagawa", "oxocarbon", "catppuccin" } },
   checker = { enabled = false },   -- don't auto-check for plugin updates
 })
 
