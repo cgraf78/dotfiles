@@ -99,6 +99,74 @@ return {
     end,
   },
   {
+    "akinsho/bufferline.nvim",
+    version = "*",
+    dependencies = { "nvim-tree/nvim-web-devicons" },
+    config = function()
+      require("bufferline").setup({
+        options = {
+          mode = "buffers",
+          diagnostics = "nvim_lsp",
+          always_show_bufferline = true,
+          show_buffer_close_icons = false,
+          show_close_icon = false,
+          separator_style = "slant",
+        },
+      })
+    end,
+  },
+  {
+    "lukas-reineke/indent-blankline.nvim",
+    main = "ibl",
+    event = "BufReadPost",
+    config = function()
+      require("ibl").setup({
+        indent = { char = "│" },
+        scope = { enabled = true },
+      })
+    end,
+  },
+  {
+    "folke/trouble.nvim",
+    dependencies = { "nvim-tree/nvim-web-devicons" },
+    keys = {
+      { "<leader>xx", "<cmd>Trouble diagnostics toggle<cr>", desc = "Diagnostics" },
+      { "<leader>xw", "<cmd>Trouble diagnostics toggle filter.buf=0<cr>", desc = "Buffer diagnostics" },
+      { "<leader>xs", "<cmd>Trouble symbols toggle focus=false<cr>", desc = "Symbols" },
+      { "<leader>xl", "<cmd>Trouble lsp toggle focus=false win.position=right<cr>", desc = "LSP definitions / refs" },
+      { "<leader>xq", "<cmd>Trouble qflist toggle<cr>", desc = "Quickfix list" },
+    },
+    config = function()
+      require("trouble").setup({})
+    end,
+  },
+  {
+    "stevearc/aerial.nvim",
+    dependencies = { "nvim-tree/nvim-web-devicons" },
+    keys = {
+      { "<leader>a", "<cmd>AerialToggle!<cr>", desc = "Symbols outline" },
+    },
+    config = function()
+      require("aerial").setup({
+        backends = { "lsp", "treesitter", "markdown", "asciidoc", "man" },
+        layout = {
+          default_direction = "right",
+          min_width = 28,
+        },
+      })
+    end,
+  },
+  {
+    "folke/persistence.nvim",
+    event = "BufReadPre",
+    opts = {},
+    keys = {
+      { "<leader>qs", function() require("persistence").load() end, desc = "Restore session" },
+      { "<leader>ql", function() require("persistence").load({ last = true }) end, desc = "Restore last session" },
+      { "<leader>qd", function() require("persistence").stop() end, desc = "Stop saving session" },
+    },
+  },
+  {
     "nvim-telescope/telescope.nvim",
     dependencies = { "nvim-lua/plenary.nvim" },
     keys = {
@@ -110,10 +178,39 @@ return {
       { "<leader>/", "<cmd>Telescope current_buffer_fuzzy_find<cr>", desc = "Search in buffer" },
     },
     config = function()
+      local find_command = nil
+      if vim.fn.executable("fd") == 1 then
+        find_command = {
+          "fd",
+          "--type", "f",
+          "--hidden",
+          "--follow",
+          "--exclude", ".git",
+          "--exclude", "Library",
+          "--exclude", "Applications",
+          "--exclude", ".local/share/Steam",
+        }
+      end
+
       require("telescope").setup({
         defaults = {
-          file_ignore_patterns = { "node_modules", "%.git/", "%.hg/", "%.o$", "%.pyc$" },
+          file_ignore_patterns = {
+            "node_modules",
+            "%.git/",
+            "%.hg/",
+            "%.o$",
+            "%.pyc$",
+            "^Library/",
+            "^Applications/",
+            "^%.local/share/Steam/",
+          },
           cwd = vim.fn.getcwd(),
+        },
+        pickers = {
+          find_files = {
+            hidden = true,
+            find_command = find_command,
+          },
         },
       })
     end,
@@ -157,7 +254,19 @@ return {
     "lewis6991/gitsigns.nvim",
     event = "BufReadPost",
     config = function()
-      require("gitsigns").setup()
+      require("gitsigns").setup({
+        on_attach = function(bufnr)
+          local gs = package.loaded.gitsigns
+          local map = vim.keymap.set
+          local opts = { buffer = bufnr }
+
+          map("n", "]h", gs.next_hunk, opts)
+          map("n", "[h", gs.prev_hunk, opts)
+          map("n", "<leader>hp", gs.preview_hunk, opts)
+          map("n", "<leader>hr", gs.reset_hunk, opts)
+          map("n", "<leader>hs", gs.stage_hunk, opts)
+        end,
+      })
     end,
   },
   {

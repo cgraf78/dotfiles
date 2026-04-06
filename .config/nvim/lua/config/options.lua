@@ -47,6 +47,7 @@ vim.opt.swapfile = false
 vim.opt.undofile = true
 
 -- Performance
+vim.opt.timeoutlen = 300
 vim.opt.updatetime = 250
 
 -- Backspace behavior

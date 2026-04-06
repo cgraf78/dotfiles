@@ -36,6 +36,9 @@ vim.lsp.config("lua_ls", {
 })
 
 -- Bash
-vim.lsp.config("bashls", { capabilities = capabilities })
+vim.lsp.config("bashls", {
+  capabilities = capabilities,
+  filetypes = { "sh", "bash", "zsh" },
+})
 
 vim.lsp.enable({ "clangd", "pyright", "lua_ls", "bashls" })
