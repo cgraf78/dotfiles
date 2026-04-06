@@ -56,6 +56,7 @@ Work repo files are managed with plain `git` in `~/.dotfiles-work/`.
 ## How It Works
 
 - `dot update` syncs everything: pulls repos (if present), merges configs, updates deps
+- If a pull updates dot infrastructure (`.config/dot/` or `.local/bin/dot`), the script re-execs itself so the rest of the run uses the new code — no need to run `dot update` twice
 - `dot fetch/pull/push/status/diff` operates on both repos (if `~/.dotfiles-work` exists)
 - Work bootstrap symlinks files from `~/.dotfiles-work/home/` into `$HOME`
 - Files that override personal versions get `--skip-worktree` to prevent phantom dirty status
@@ -129,6 +130,32 @@ Add the file to `~/.dotfiles-work/home/<path>`, commit, and push. The work boots
 ```bash
 dot add <file> && dot commit -m "add <file>" && dot push
 ```
+
+## Dependency System
+
+`dot update` installs and upgrades tools defined in `~/.config/dot/deps.conf`. Each line declares a dependency with a name and install method:
+
+```
+# name          method    cmd    alt    overrides                repo                dir
+jq              pkg
+bat             pkg       bat    batcat
+fd              pkg       fd     fdfind apt:fd-find,dnf:fd-find
+ds              git       -      -      -                        cgraf78/ds.git      .local/share/ds
+neovim          appimage  nvim   -      -                        neovim/neovim
+jetbrains-mono-nerd-font  custom
+```
+
+**Methods:**
+- **`pkg`** — system package (`brew`, `apt`, `dnf`, `pacman`). Batches all packages into one install command.
+- **`git`** — clones from GitHub (prefers `~/git/<name>` local clones, falls back to release tarballs, then `git clone`).
+- **`appimage`** — downloads GitHub AppImage releases on Linux, falls back to `pkg` on macOS/WSL.
+- **`custom`** — entirely managed by a post-install hook. The hook handles platform detection, idempotency, and installation.
+
+**Platform overrides:** The `overrides` column maps package managers to platform-specific names (e.g., `apt:fd-find`). Use `NONE` to skip a dep on a platform (e.g., `apt:NONE`).
+
+**Post-install hooks:** Defined in `~/.config/dot/deps-hooks.sh` as `_post_<name>()` functions (dashes in dep name become underscores). Run after installation when a dep is new or updated.
+
+**Existence checks:** `pkg` deps check `command -v` first, then fall back to querying the package manager directly (`brew list`, `dpkg -s`, etc.) — useful for deps like fonts that install no binary.
 
 ## Additional Tools
 
