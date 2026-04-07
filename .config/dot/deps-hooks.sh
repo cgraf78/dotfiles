@@ -28,6 +28,48 @@ _post_bash_preexec() {
   ln -sfn "$HOME/.local/share/bash-preexec/bash-preexec.sh" "$HOME/.bash-preexec.sh"
 }
 
+_nerd_fonts_entries() {
+  printf '%s\n' \
+    "JetBrains Mono Nerd Font|font-jetbrains-mono-nerd-font|ttf-jetbrains-mono-nerd|JetBrainsMono|JetBrainsMonoNerdFont" \
+    "FiraCode Nerd Font|font-fira-code-nerd-font|ttf-firacode-nerd|FiraCode|FiraCodeNerdFont" \
+    "MesloLG Nerd Font|font-meslo-lg-nerd-font|ttf-meslo-nerd|Meslo|MesloLGNerdFont"
+}
+
+_nerd_font_installed() {
+  local brew_pkg="$1" pacman_pkg="$2" font_dir="$3"
+  case "${_PKG_MGR:-}" in
+    brew)
+      if [[ "$brew_pkg" != "-" ]] && brew list "$brew_pkg" &>/dev/null; then
+        return 0
+      fi
+      ;;
+    pacman)
+      if [[ "$pacman_pkg" != "-" ]] && pacman -Q "$pacman_pkg" &>/dev/null; then
+        return 0
+      fi
+      ;;
+  esac
+  [[ -n "$font_dir" ]] && ls "$HOME/.local/share/fonts/$font_dir"/*.ttf &>/dev/null 2>&1
+}
+
+_status_nerd_fonts() {
+  if ! _dep_hook_due "nerd-fonts"; then
+    _log "  nerd-fonts up to date"
+    return 0
+  fi
+
+  local entry name brew_pkg pacman_pkg _nerd_zip font_dir
+  while IFS= read -r entry; do
+    IFS='|' read -r name brew_pkg pacman_pkg _nerd_zip font_dir <<< "$entry"
+    if ! _nerd_font_installed "$brew_pkg" "$pacman_pkg" "$font_dir"; then
+      return 1
+    fi
+  done < <(_nerd_fonts_entries)
+
+  _log "  nerd-fonts up to date"
+  return 0
+}
+
 _post_nerd_fonts() {
   # Install fonts from the _FONTS registry below.
   # Each entry: "DisplayName|brew_pkg|pacman_pkg|nerd_fonts_zip|local_dir"
@@ -35,11 +77,6 @@ _post_nerd_fonts() {
   #   pacman_pkg:     pacman package name (or - to skip)
   #   nerd_fonts_zip: zip asset name on ryanoasis/nerd-fonts releases (or - to skip)
   #   local_dir:      subdirectory under ~/.local/share/fonts/ for manual installs
-  local _FONTS=(
-    "JetBrains Mono Nerd Font|font-jetbrains-mono-nerd-font|ttf-jetbrains-mono-nerd|JetBrainsMono|JetBrainsMonoNerdFont"
-    "FiraCode Nerd Font|font-fira-code-nerd-font|ttf-firacode-nerd|FiraCode|FiraCodeNerdFont"
-    "MesloLG Nerd Font|font-meslo-lg-nerd-font|ttf-meslo-nerd|Meslo|MesloLGNerdFont"
-  )
 
   # Fetch latest nerd-fonts version once for the GitHub fallback path
   local nf_version=""
@@ -51,19 +88,11 @@ _post_nerd_fonts() {
 
   local _any_installed=0
   local entry name brew_pkg pacman_pkg nerd_zip font_dir
-  for entry in "${_FONTS[@]}"; do
+  while IFS= read -r entry; do
     IFS='|' read -r name brew_pkg pacman_pkg nerd_zip font_dir <<< "$entry"
 
     # Check if already installed
-    local installed=0
-    case "${_PKG_MGR:-}" in
-      brew)   [[ "$brew_pkg" != "-" ]] && brew list "$brew_pkg" &>/dev/null && installed=1 ;;
-      pacman) [[ "$pacman_pkg" != "-" ]] && pacman -Q "$pacman_pkg" &>/dev/null && installed=1 ;;
-    esac
-    if [[ $installed -eq 0 && -n "$font_dir" ]]; then
-      ls "$HOME/.local/share/fonts/$font_dir"/*.ttf &>/dev/null 2>&1 && installed=1
-    fi
-    if [[ $installed -eq 1 ]]; then continue; fi
+    if _nerd_font_installed "$brew_pkg" "$pacman_pkg" "$font_dir"; then continue; fi
 
     # Install via native package manager where available
     case "${_PKG_MGR:-}" in
@@ -105,11 +134,21 @@ _post_nerd_fonts() {
       _warn "  warning: failed to download $name"
     fi
     rm -rf "$tmp"
-  done
+  done < <(_nerd_fonts_entries)
 
   if [[ $_any_installed -eq 0 ]]; then
-    _log "  nerd-fonts up to date"
+    _status_nerd_fonts
   fi
+}
+
+_status_wezterm() {
+  if command -v wezterm &>/dev/null; then
+    local ver
+    ver=$(wezterm --version 2>/dev/null | awk '{print $2}')
+    _log "  wezterm up to date${ver:+ -- $ver}"
+    return 0
+  fi
+  return 1
 }
 
 _post_wezterm() {
@@ -126,9 +165,7 @@ _post_wezterm() {
 
   # Fast path: already installed and not forcing reinstall.
   if command -v wezterm &>/dev/null && [[ "${DOT_FORCE:-0}" -ne 1 ]]; then
-    local ver
-    ver=$(wezterm --version 2>/dev/null | awk '{print $2}')
-    _log "  wezterm up to date${ver:+ -- $ver}"
+    _status_wezterm
     return 0
   fi
 
