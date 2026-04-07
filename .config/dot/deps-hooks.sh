@@ -49,6 +49,7 @@ _post_nerd_fonts() {
       | grep -o '"tag_name":[[:space:]]*"[^"]*"' | cut -d'"' -f4) || true
   fi
 
+  local _any_installed=0
   local entry name brew_pkg pacman_pkg nerd_zip font_dir
   for entry in "${_FONTS[@]}"; do
     IFS='|' read -r name brew_pkg pacman_pkg nerd_zip font_dir <<< "$entry"
@@ -69,13 +70,13 @@ _post_nerd_fonts() {
       brew)
         if [[ "$brew_pkg" != "-" ]]; then
           brew install "$brew_pkg" &>/dev/null && \
-            _log "  $name installed (brew)" && continue
+            _log "  $name installed (brew)" && _any_installed=1 && continue
         fi
         ;;
       pacman)
         if [[ "$pacman_pkg" != "-" ]]; then
           sudo pacman -S --needed --noconfirm "$pacman_pkg" &>/dev/null && \
-            _log "  $name installed (pacman)" && continue
+            _log "  $name installed (pacman)" && _any_installed=1 && continue
         fi
         ;;
     esac
@@ -99,11 +100,16 @@ _post_nerd_fonts() {
       unzip -qo "$tmp/font.zip" '*.ttf' -d "$dest" 2>/dev/null || true
       if command -v fc-cache &>/dev/null; then fc-cache -f "$dest" 2>/dev/null || true; fi
       _log "  $name installed from GitHub ($nf_version)"
+      _any_installed=1
     else
       _warn "  warning: failed to download $name"
     fi
     rm -rf "$tmp"
   done
+
+  if [[ $_any_installed -eq 0 ]]; then
+    _log "  nerd-fonts up to date"
+  fi
 }
 
 _post_wezterm() {
@@ -120,6 +126,9 @@ _post_wezterm() {
 
   # Fast path: already installed and not forcing reinstall.
   if command -v wezterm &>/dev/null && [[ "${DOT_FORCE:-0}" -ne 1 ]]; then
+    local ver
+    ver=$(wezterm --version 2>/dev/null | awk '{print $2}')
+    _log "  wezterm up to date${ver:+ -- $ver}"
     return 0
   fi
 
