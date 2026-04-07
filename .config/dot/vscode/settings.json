@@ -56,6 +56,7 @@
   "diffEditor.renderSideBySide": false,
   "editor.bracketPairColorization.enabled": true,
   "editor.fontFamily": "JetBrainsMono Nerd Font, JetBrains Mono, Menlo, Consolas, DejaVu Sans Mono, monospace",
+  "editor.letterSpacing": 0.2,
   "editor.guides.bracketPairs": "active",
   "editor.indentSize": "tabSize",
   "editor.inlineSuggest.allowSuggestOnTriggerCharacters": true,
@@ -94,6 +95,7 @@
   "terminal.integrated.defaultProfile.osx": "bash",
   "terminal.integrated.defaultProfile.windows": "WSL",
   "terminal.integrated.fontFamily": "JetBrainsMono Nerd Font, JetBrains Mono, Menlo, Consolas, DejaVu Sans Mono, monospace",
+  "terminal.integrated.letterSpacing": 1,
   "terminal.integrated.profiles.linux": {
     "bash": {
       "args": [
