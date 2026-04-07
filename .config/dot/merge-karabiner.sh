@@ -11,10 +11,10 @@
 merge_karabiner() {
   [[ "$(uname)" == "Darwin" ]] || return 0
 
-  echo "==> Merging Karabiner config..."
+  echo "  Karabiner"
 
   if ! command -v jq &>/dev/null; then
-    echo "  skipped (jq not installed)"
+    echo "    skipped (jq not installed)"
     return 0
   fi
 
@@ -24,7 +24,7 @@ merge_karabiner() {
 
   [[ -f "$src" ]] || return 0
   if [[ ! -d "$dst_dir" ]]; then
-    echo "  skipped (config dir not found)"
+    echo "    skipped (config dir not found)"
     return 0
   fi
 
@@ -42,7 +42,7 @@ merge_karabiner() {
     if length > 0 then .[] | "    profile: \(.)" else empty end
   ' 2>/dev/null) || true
   if [[ -n "$conflicts" ]]; then
-    echo "  overwriting local Karabiner profiles:"
+    echo "    overwriting local Karabiner profiles:"
     echo "$conflicts"
   fi
 
@@ -59,7 +59,7 @@ merge_karabiner() {
         select(.name as $n | [$d[0].profiles[].name] | index($n) | not)]
     )
   ' > "$dst.tmp"; then
-    echo "  warning: Karabiner merge failed — skipping"
+    echo "    warning: Karabiner merge failed — skipping"
     rm -f "$dst.tmp"
     return
   fi

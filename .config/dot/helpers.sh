@@ -206,8 +206,16 @@ _push_work_repo() {
 
 # Run all app config merge scripts (iTerm2, Karabiner, VS Code, etc.).
 _run_merges() {
+  local _scripts=()
   for _script in "$HOME/.config/dot"/merge-*.sh; do
     [[ -f "$_script" ]] || continue
+    _scripts+=("$_script")
+  done
+
+  [[ ${#_scripts[@]} -gt 0 ]] || return 0
+  _log "==> Merging personal config..."
+
+  for _script in "${_scripts[@]}"; do
     # shellcheck source=/dev/null
     . "$_script"
     _fn="merge_${_script##*merge-}"; _fn="${_fn%.sh}"
