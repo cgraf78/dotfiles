@@ -150,12 +150,14 @@ _assert_contains "pull_work_repo: shows pulling" "Pulling work" "$result"
 result=$(_push_work_repo 2>&1)
 _assert_contains "push_work_repo: shows pushing" "Pushing work" "$result"
 
-# Bootstrap script runs on pull if present
+# Bootstrap script runs via _run_work_bootstrap (not _pull_work_repo)
 echo '#!/bin/bash
 echo "BOOTSTRAP_RAN"' > "$WORK_DIR/bootstrap"
 chmod +x "$WORK_DIR/bootstrap"
 result=$(_pull_work_repo 2>&1)
-_assert_contains "pull_work_repo: runs bootstrap" "BOOTSTRAP_RAN" "$result"
+_assert_not_contains "pull_work_repo: does not run bootstrap" "BOOTSTRAP_RAN" "$result"
+result=$(_run_work_bootstrap 2>&1)
+_assert_contains "run_work_bootstrap: runs bootstrap" "BOOTSTRAP_RAN" "$result"
 
 rm -rf "$WORK_DIR" "$WORK_BARE"
 

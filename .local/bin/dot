@@ -49,6 +49,8 @@ _normalize_filtered() {
 }
 
 # Pull both repos (personal + work) with proper unstash/normalize handling.
+# Does NOT run work bootstrap — callers should run _run_work_bootstrap
+# after deps + merges so that fonts/tools are installed first.
 _pull_all() {
   _normalize_filtered
   _unstash_work_overrides
@@ -123,6 +125,7 @@ case "${1:-}" in
 
     _update_deps
     _run_merges
+    _run_work_bootstrap
     if [[ -d "$DOTFILES" ]]; then
       _normalize_filtered
     fi
@@ -196,6 +199,7 @@ case "${1:-}" in
     _pull_all "$@"
     _update_deps
     _run_merges
+    _run_work_bootstrap
     _normalize_filtered
     echo "==> Done! Run 'source ~/.bashrc' to activate."
     ;;

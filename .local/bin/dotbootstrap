@@ -193,7 +193,9 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Work repo (work machines only)
+# Work repo: pull/clone (work machines only)
+# Pull early so work files are available, but defer bootstrap until after
+# deps + merges so tools like jq and fonts are installed first.
 # ---------------------------------------------------------------------------
 
 if [[ "$MACHINE_TYPE" == "work" ]]; then
@@ -205,7 +207,6 @@ if [[ "$MACHINE_TYPE" == "work" ]]; then
     if ! git clone "$WORK_REPO" "$WORK_DIR"; then
       echo "  warning: work dotfiles clone failed" >&2
     fi
-    if [[ -x "$WORK_DIR/bootstrap" ]]; then "$WORK_DIR/bootstrap" || true; fi
   fi
 fi
 
@@ -220,6 +221,12 @@ _update_deps
 # ---------------------------------------------------------------------------
 
 _run_merges
+
+# ---------------------------------------------------------------------------
+# Work bootstrap (symlinks, work config merges)
+# ---------------------------------------------------------------------------
+
+_run_work_bootstrap
 
 echo "==> Done! Run 'source ~/.bashrc' to activate."
 touch "$HOME/.dotbootstrap-done"

@@ -169,29 +169,31 @@ _unstash_work_overrides() {
   done
 }
 
-# Pull work repo and re-run its bootstrap (symlinks, app config merges).
+# Pull work repo (without running bootstrap).
 _pull_work_repo() {
-  [[ -d "$WORK_DIR" ]] || return 0
-  if [[ -d "$WORK_DIR/.git" ]]; then
-    _log "==> Pulling work dotfiles..."
-    if [[ "$DOT_QUIET" -eq 1 ]]; then
-      _run_quiet_logged \
-        "work dotfiles pull" \
-        "work dotfiles pull failed" \
-        git -C "$WORK_DIR" pull --quiet "$@"
-    else
-      git -C "$WORK_DIR" pull "$@" || _warn "  warning: work dotfiles pull failed"
-    fi
+  [[ -d "$WORK_DIR/.git" ]] || return 0
+  _log "==> Pulling work dotfiles..."
+  if [[ "$DOT_QUIET" -eq 1 ]]; then
+    _run_quiet_logged \
+      "work dotfiles pull" \
+      "work dotfiles pull failed" \
+      git -C "$WORK_DIR" pull --quiet "$@"
+  else
+    git -C "$WORK_DIR" pull "$@" || _warn "  warning: work dotfiles pull failed"
   fi
-  if [[ -x "$WORK_DIR/bootstrap" ]]; then
-    if [[ "$DOT_QUIET" -eq 1 ]]; then
-      _run_quiet_logged \
-        "work bootstrap" \
-        "work bootstrap failed" \
-        "$WORK_DIR/bootstrap"
-    else
-      "$WORK_DIR/bootstrap" || true
-    fi
+}
+
+# Run work bootstrap (symlinks, app config merges).
+# Separated from _pull_work_repo so callers can run deps between pull and bootstrap.
+_run_work_bootstrap() {
+  [[ -d "$WORK_DIR" && -x "$WORK_DIR/bootstrap" ]] || return 0
+  if [[ "$DOT_QUIET" -eq 1 ]]; then
+    _run_quiet_logged \
+      "work bootstrap" \
+      "work bootstrap failed" \
+      "$WORK_DIR/bootstrap"
+  else
+    "$WORK_DIR/bootstrap" || true
   fi
 }
 
