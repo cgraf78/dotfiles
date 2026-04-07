@@ -157,7 +157,7 @@ _pull_personal() {
 }
 
 # Restore git-tracked versions of skip-worktree files so pull won't
-# conflict with work symlinks.  The work bootstrap re-symlinks and
+# conflict with work symlinks.  _link_work_home re-symlinks and
 # re-sets skip-worktree after pull.
 _unstash_work_overrides() {
   [[ -d "$WORK_DIR" ]] || return 0
@@ -170,9 +170,11 @@ _unstash_work_overrides() {
   done
 }
 
-# Pull work repo (without running bootstrap).
+# Pull work repo.
 _pull_work_repo() {
   [[ -d "$WORK_DIR/.git" ]] || return 0
+  git -C "$WORK_DIR" config pull.rebase true 2>/dev/null || true
+  git -C "$WORK_DIR" config rebase.autoStash true 2>/dev/null || true
   _log "==> Pulling work dotfiles..."
 
   local log=""
@@ -211,18 +213,38 @@ _pull_work_repo() {
   return 0
 }
 
-# Run work bootstrap (symlinks, app config merges).
-# Separated from _pull_work_repo so callers can run deps between pull and bootstrap.
-_run_work_bootstrap() {
-  [[ -d "$WORK_DIR" && -x "$WORK_DIR/bootstrap" ]] || return 0
-  if [[ "$DOT_QUIET" -eq 1 ]]; then
-    _run_quiet_logged \
-      "work bootstrap" \
-      "work bootstrap failed" \
-      "$WORK_DIR/bootstrap"
-  else
-    "$WORK_DIR/bootstrap" || true
-  fi
+# Link work dotfiles into $HOME.
+# Creates relative symlinks from $HOME for each file in $WORK_DIR/home/.
+# Sets skip-worktree on personal-repo-tracked files that work symlinks shadow.
+_link_work_home() {
+  local work_home="$WORK_DIR/home"
+  [[ -d "$work_home" ]] || return 0
+  _log "==> Linking work dotfiles..."
+  while IFS= read -r src; do
+    local rel="${src#"$work_home"/}"
+    local dst="$HOME/$rel"
+    mkdir -p "$(dirname "$dst")"
+    # Build relative symlink: ../ for each dir level, then .dotfiles-work/home/rel
+    local depth
+    depth=$(echo "$rel" | tr -cd '/' | wc -c)
+    local prefix=""
+    for ((i = 0; i < depth; i++)); do prefix="../$prefix"; done
+    local target="${prefix}.dotfiles-work/home/$rel"
+    if [[ -L "$dst" && "$(readlink "$dst")" == "$target" ]]; then
+      # Correct symlink already exists — just ensure skip-worktree
+      if $GIT ls-files --error-unmatch "$rel" &>/dev/null; then
+        $GIT update-index --skip-worktree "$rel" 2>/dev/null || true
+      fi
+      continue
+    fi
+    ln -sf "$target" "$dst"
+    if $GIT ls-files --error-unmatch "$rel" &>/dev/null; then
+      $GIT update-index --skip-worktree "$rel" 2>/dev/null || true
+      if [[ "$DOT_QUIET" -ne 1 ]]; then echo "    linked (override): $rel"; fi
+    else
+      if [[ "$DOT_QUIET" -ne 1 ]]; then echo "    linked: $rel"; fi
+    fi
+  done < <(find "$work_home" -type f ! -name '*.~[0-9]*~')
 }
 
 # Push work repo.
@@ -241,12 +263,12 @@ _run_merges() {
   done
 
   [[ ${#_scripts[@]} -gt 0 ]] || return 0
-  _log "==> Merging personal config..."
+  _log "==> Merging app config..."
 
   for _script in "${_scripts[@]}"; do
     # shellcheck source=/dev/null
     . "$_script"
-    _fn="merge_${_script##*merge-}"; _fn="${_fn%.sh}"
+    _fn="merge_${_script##*merge-}"; _fn="${_fn%.sh}"; _fn="${_fn//-/_}"
     if [[ "$DOT_QUIET" -eq 1 ]]; then
       _run_quiet_logged "$_fn" "$_fn failed" "$_fn"
     else

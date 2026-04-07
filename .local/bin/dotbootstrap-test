@@ -799,11 +799,8 @@ _seed_repo "$PERSONAL_ORIGIN" "$PERSONAL_STAGING"
 # --- Work dotfiles origin ---
 WORK_STAGING=$(_tmpdir)
 echo "work config" > "$WORK_STAGING/work-config"
-cat > "$WORK_STAGING/bootstrap" <<'BOOT'
-#!/bin/bash
-echo "WORK_BOOTSTRAP_RAN"
-BOOT
-chmod +x "$WORK_STAGING/bootstrap"
+mkdir -p "$WORK_STAGING/home"
+echo "work shell" > "$WORK_STAGING/home/.testrc_work"
 
 WORK_ORIGIN=$(_tmpdir)
 _seed_repo "$WORK_ORIGIN" "$WORK_STAGING"
@@ -905,7 +902,12 @@ else
     _fail "work: work repo cloned"
 fi
 _assert_file_exists "work: work config present" "$FRESH_WORK/.dotfiles-work/work-config"
-_assert_contains "work: bootstrap ran" "WORK_BOOTSTRAP_RAN" "$result"
+_assert_contains "work: work files linked" "Linking work dotfiles" "$result"
+if [[ -L "$FRESH_WORK/.testrc_work" ]]; then
+    _pass "work: symlink created"
+else
+    _fail "work: symlink created"
+fi
 
 # Done message
 _assert_contains "work: done message" "Done" "$result"

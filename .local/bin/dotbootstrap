@@ -204,7 +204,10 @@ if [[ "$MACHINE_TYPE" == "work" ]]; then
     _pull_work_repo
   else
     echo "==> Cloning work dotfiles..."
-    if ! git clone "$WORK_REPO" "$WORK_DIR"; then
+    if git clone "$WORK_REPO" "$WORK_DIR"; then
+      git -C "$WORK_DIR" config pull.rebase true
+      git -C "$WORK_DIR" config rebase.autoStash true
+    else
       echo "  warning: work dotfiles clone failed" >&2
     fi
   fi
@@ -217,16 +220,16 @@ fi
 _update_deps
 
 # ---------------------------------------------------------------------------
+# Work symlinks (must precede merges so work merge scripts are discovered)
+# ---------------------------------------------------------------------------
+
+_link_work_home
+
+# ---------------------------------------------------------------------------
 # App config merges
 # ---------------------------------------------------------------------------
 
 _run_merges
-
-# ---------------------------------------------------------------------------
-# Work bootstrap (symlinks, work config merges)
-# ---------------------------------------------------------------------------
-
-_run_work_bootstrap
 
 echo "==> Done! Run 'source ~/.bashrc' to activate."
 touch "$HOME/.dotbootstrap-done"

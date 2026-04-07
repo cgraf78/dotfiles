@@ -150,14 +150,65 @@ _assert_contains "pull_work_repo: shows pulling" "Pulling work" "$result"
 result=$(_push_work_repo 2>&1)
 _assert_contains "push_work_repo: shows pushing" "Pushing work" "$result"
 
-# Bootstrap script runs via _run_work_bootstrap (not _pull_work_repo)
-echo '#!/bin/bash
-echo "BOOTSTRAP_RAN"' > "$WORK_DIR/bootstrap"
-chmod +x "$WORK_DIR/bootstrap"
-result=$(_pull_work_repo 2>&1)
-_assert_not_contains "pull_work_repo: does not run bootstrap" "BOOTSTRAP_RAN" "$result"
-result=$(_run_work_bootstrap 2>&1)
-_assert_contains "run_work_bootstrap: runs bootstrap" "BOOTSTRAP_RAN" "$result"
+rm -rf "$WORK_DIR" "$WORK_BARE"
+
+# ---------------------------------------------------------------------------
+# Tests: _link_work_home
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== Work home linking ==="
+
+# No work dir → no-op
+result=$(_link_work_home 2>&1)
+_assert_eq "link_work_home: no work dir → no output" "" "$result"
+
+# Create work dir with home/ structure
+WORK_BARE=$(_tmpdir)
+git init --bare "$WORK_BARE" >/dev/null 2>&1
+git clone "$WORK_BARE" "$WORK_DIR" >/dev/null 2>&1
+git -C "$WORK_DIR" config user.email "test@test.com"
+git -C "$WORK_DIR" config user.name "Test"
+
+mkdir -p "$WORK_DIR/home/.config/test"
+echo "work config" > "$WORK_DIR/home/.config/test/config.conf"
+echo "work shell" > "$WORK_DIR/home/.testrc_work"
+
+# Link work home — creates symlinks
+result=$(_link_work_home 2>&1)
+_assert_contains "link: shows header" "Linking work dotfiles" "$result"
+_assert_contains "link: reports new symlinks" "linked:" "$result"
+if [[ -L "$TEST_HOME/.config/test/config.conf" ]]; then
+    _pass "link: symlink created for nested file"
+else
+    _fail "link: symlink created for nested file"
+fi
+if [[ -L "$TEST_HOME/.testrc_work" ]]; then
+    _pass "link: symlink created for top-level file"
+else
+    _fail "link: symlink created for top-level file"
+fi
+
+# Verify symlinks are relative
+target=$(readlink "$TEST_HOME/.testrc_work")
+_assert_contains "link: relative symlink" ".dotfiles-work/home" "$target"
+
+# Idempotent: re-run produces no per-file output
+result=$(_link_work_home 2>&1)
+_assert_contains "link idempotent: header still shown" "Linking work dotfiles" "$result"
+_assert_not_contains "link idempotent: no per-file output" "linked:" "$result"
+
+# Quiet mode: no output
+DOT_QUIET=1
+rm "$TEST_HOME/.testrc_work"  # force re-link
+result=$(_link_work_home 2>&1)
+DOT_QUIET=0
+_assert_eq "link quiet: no output" "" "$result"
+if [[ -L "$TEST_HOME/.testrc_work" ]]; then
+    _pass "link quiet: still creates symlink"
+else
+    _fail "link quiet: still creates symlink"
+fi
 
 rm -rf "$WORK_DIR" "$WORK_BARE"
 
@@ -186,10 +237,10 @@ merge_otherapp() {
 MERGE
 
 result=$(_run_merges 2>&1)
-_assert_contains "merge header printed once" "==> Merging personal config..." "$result"
+_assert_contains "merge header printed once" "==> Merging app config..." "$result"
 _assert_contains "runs testapp merge" "MERGED_TESTAPP" "$result"
 _assert_contains "runs otherapp merge" "MERGED_OTHERAPP" "$result"
-merge_header_count=$(printf '%s\n' "$result" | grep -c '^==> Merging personal config\.\.\.$' || true)
+merge_header_count=$(printf '%s\n' "$result" | grep -c '^==> Merging app config\.\.\.$' || true)
 _assert_eq "merge header count" "1" "$merge_header_count"
 
 # Quiet mode should still run merges without tripping log redirection bugs.
@@ -207,6 +258,16 @@ MERGE
 
 result=$(_run_merges 2>&1)
 _assert_contains "surviving merges still run" "MERGED_TESTAPP" "$result"
+
+# Hyphenated script name → underscore function mapping
+cat > "$TEST_HOME/.config/dot/merge-test-app.sh" <<'MERGE'
+merge_test_app() {
+    echo "MERGED_TEST_APP"
+}
+MERGE
+
+result=$(_run_merges 2>&1)
+_assert_contains "hyphenated merge: discovered and called" "MERGED_TEST_APP" "$result"
 
 rm -f "$TEST_HOME/.config/dot"/merge-*.sh
 
