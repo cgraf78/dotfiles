@@ -337,6 +337,37 @@ export DOT_FORCE=0
 read -r appimg_api_count < "$APPIMG_API_COUNT"
 _assert_eq "install_appimage: force bypasses cache" "2" "$appimg_api_count"
 
+# Custom hooks should not be due again immediately after a successful run.
+rc=0; _dep_hook_due "nerd-fonts" || rc=$?
+_assert_exit "hook_due: custom hook initially due" 0 "$rc"
+_dep_hook_touch "nerd-fonts"
+rc=0; _dep_hook_due "nerd-fonts" || rc=$?
+_assert_exit "hook_due: touched hook is skipped" 1 "$rc"
+export DOT_FORCE=1
+rc=0; _dep_hook_due "nerd-fonts" || rc=$?
+_assert_exit "hook_due: force bypasses hook cache" 0 "$rc"
+export DOT_FORCE=0
+
+LOCAL_CLONE_NAME="local-tool"
+LOCAL_CLONE_DIR="$TEST_HOME/git/$LOCAL_CLONE_NAME"
+mkdir -p "$TEST_HOME/git"
+git clone "$REMOTE_FIXTURE" "$LOCAL_CLONE_DIR" >/dev/null 2>&1
+LOCAL_INSTALL_DIR="$TEST_HOME/.local/share/$LOCAL_CLONE_NAME"
+unset _DEPS_CHANGED["$LOCAL_CLONE_NAME"] 2>/dev/null || true
+_install_from_github "$LOCAL_CLONE_NAME" "fixture/${LOCAL_CLONE_NAME}.git" "$LOCAL_INSTALL_DIR" >/dev/null 2>&1
+if [[ -n "${_DEPS_CHANGED[$LOCAL_CLONE_NAME]+x}" ]]; then
+    _pass "install_from_github: first local clone marks changed"
+else
+    _fail "install_from_github: first local clone marks changed"
+fi
+unset _DEPS_CHANGED["$LOCAL_CLONE_NAME"] 2>/dev/null || true
+_install_from_github "$LOCAL_CLONE_NAME" "fixture/${LOCAL_CLONE_NAME}.git" "$LOCAL_INSTALL_DIR" >/dev/null 2>&1
+if [[ -n "${_DEPS_CHANGED[$LOCAL_CLONE_NAME]+x}" ]]; then
+    _fail "install_from_github: steady local clone skips changed marker"
+else
+    _pass "install_from_github: steady local clone skips changed marker"
+fi
+
 # ---------------------------------------------------------------------------
 # Tests: _dep_exists
 # ---------------------------------------------------------------------------

@@ -293,6 +293,26 @@ _dep_remote_touch() {
   date +%s > "$stamp"
 }
 
+_dep_hook_stamp() {
+  local name="$1"
+  local state_root="${XDG_STATE_HOME:-$HOME/.local/state}/dot/deps"
+  echo "$state_root/${name}.hook.stamp"
+}
+
+_dep_hook_due() {
+  local name="$1"
+  local stamp=""
+  stamp=$(_dep_hook_stamp "$name")
+  ! _dep_remote_fresh "$stamp"
+}
+
+_dep_hook_touch() {
+  local name="$1"
+  local stamp=""
+  stamp=$(_dep_hook_stamp "$name")
+  _dep_remote_touch "$stamp"
+}
+
 # ---------------------------------------------------------------------------
 # Install methods
 # ---------------------------------------------------------------------------
@@ -340,13 +360,21 @@ _install_from_github() {
 
   # Prefer local clone — symlink for live development
   if [[ -d "$local_clone" ]]; then
+    local link_before=""
+    if [[ -L "$install_dir" ]]; then
+      link_before=$(readlink "$install_dir" 2>/dev/null || true)
+    fi
     rm -rf "$install_dir"
     mkdir -p "$(dirname "$install_dir")"
     ln -sfn "$local_clone" "$install_dir"
     _link_bin "$name" "$install_dir"
     local ver; ver=$(_get_version "$local_clone")
-    _DEPS_CHANGED[$name]=1
-    _log "  $name -> $local_clone (local clone)${ver:+ -- $ver}"
+    if [[ "$link_before" != "$local_clone" || "${DOT_FORCE:-0}" -eq 1 ]]; then
+      _DEPS_CHANGED[$name]=1
+      _log "  $name -> $local_clone (local clone)${ver:+ -- $ver}"
+    else
+      _log "  $name up to date${ver:+ -- $ver}"
+    fi
     return 0
   fi
 
@@ -624,7 +652,10 @@ _install_dep() {
       ;;
     custom)
       # Entirely managed by the post-install hook (_post_<name>).
-      _DEPS_CHANGED[$_name]=1
+      # Run only when the hook is due so no-op updates stay cheap.
+      if _dep_hook_due "$_name"; then
+        _DEPS_CHANGED[$_name]=1
+      fi
       ;;
   esac
 }
@@ -642,6 +673,7 @@ _run_post_hooks() {
     local hook="_post_${name//-/_}"
     if declare -f "$hook" &>/dev/null; then
       "$hook" || true
+      _dep_hook_touch "$name" || true
     fi
   done
 }
