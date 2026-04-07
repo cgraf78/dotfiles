@@ -28,50 +28,80 @@ _post_bash_preexec() {
   ln -sfn "$HOME/.local/share/bash-preexec/bash-preexec.sh" "$HOME/.bash-preexec.sh"
 }
 
-_post_jetbrains_mono_nerd_font() {
-  # Install JetBrainsMono Nerd Font using the best method per platform:
-  #   macOS: brew install (cask)
-  #   Arch:  pacman -S ttf-jetbrains-mono-nerd
-  #   Other: download from GitHub releases
-  # Idempotent — skips if the font is already installed.
+_post_nerd_fonts() {
+  # Install fonts from the _FONTS registry below.
+  # Each entry: "DisplayName|brew_pkg|pacman_pkg|nerd_fonts_zip|local_dir"
+  #   brew_pkg:       homebrew cask name (or - to skip)
+  #   pacman_pkg:     pacman package name (or - to skip)
+  #   nerd_fonts_zip: zip asset name on ryanoasis/nerd-fonts releases (or - to skip)
+  #   local_dir:      subdirectory under ~/.local/share/fonts/ for manual installs
+  local _FONTS=(
+    "JetBrains Mono Nerd Font|font-jetbrains-mono-nerd-font|ttf-jetbrains-mono-nerd|JetBrainsMono|JetBrainsMonoNerdFont"
+    "FiraCode Nerd Font|font-fira-code-nerd-font|ttf-firacode-nerd|FiraCode|FiraCodeNerdFont"
+    "MesloLG Nerd Font|font-meslo-lg-nerd-font|ttf-meslo-nerd|Meslo|MesloLGNerdFont"
+  )
 
-  # Check if already installed
-  case "${_PKG_MGR:-}" in
-    brew)   brew list font-jetbrains-mono-nerd-font &>/dev/null && return 0 ;;
-    pacman) pacman -Q ttf-jetbrains-mono-nerd &>/dev/null && return 0 ;;
-  esac
-  local font_dir="$HOME/.local/share/fonts/JetBrainsMonoNerdFont"
-  if ls "$font_dir"/*.ttf &>/dev/null 2>&1; then return 0; fi
-
-  # Install via native package manager where available
-  case "${_PKG_MGR:-}" in
-    brew)
-      brew install font-jetbrains-mono-nerd-font &>/dev/null && \
-        _log "  font-jetbrains-mono-nerd-font installed (brew)" && return 0
-      ;;
-    pacman)
-      sudo pacman -S --needed --noconfirm ttf-jetbrains-mono-nerd &>/dev/null && \
-        _log "  font-jetbrains-mono-nerd-font installed (pacman)" && return 0
-      ;;
-  esac
-
-  # Fallback: download from GitHub releases
-  command -v curl &>/dev/null || return 0
-  local version url tmp
-  version=$(curl -fsSL --no-netrc -H "Authorization:" \
-    "https://api.github.com/repos/ryanoasis/nerd-fonts/releases/latest" 2>/dev/null \
-    | grep -o '"tag_name":[[:space:]]*"[^"]*"' | cut -d'"' -f4) || return 0
-  [[ -n "$version" ]] || return 0
-
-  url="https://github.com/ryanoasis/nerd-fonts/releases/download/$version/JetBrainsMono.zip"
-  tmp=$(mktemp -d) || return 0
-  if curl -fsSL "$url" -o "$tmp/font.zip" 2>/dev/null; then
-    mkdir -p "$font_dir"
-    unzip -qo "$tmp/font.zip" '*.ttf' -d "$font_dir" 2>/dev/null || true
-    if command -v fc-cache &>/dev/null; then fc-cache -f "$font_dir" 2>/dev/null || true; fi
-    _log "  font-jetbrains-mono-nerd-font installed from GitHub ($version)"
-  else
-    _warn "  warning: failed to download JetBrainsMono Nerd Font"
+  # Fetch latest nerd-fonts version once for the GitHub fallback path
+  local nf_version=""
+  if command -v curl &>/dev/null; then
+    nf_version=$(curl -fsSL --no-netrc -H "Authorization:" \
+      "https://api.github.com/repos/ryanoasis/nerd-fonts/releases/latest" 2>/dev/null \
+      | grep -o '"tag_name":[[:space:]]*"[^"]*"' | cut -d'"' -f4) || true
   fi
-  rm -rf "$tmp"
+
+  local entry name brew_pkg pacman_pkg nerd_zip font_dir
+  for entry in "${_FONTS[@]}"; do
+    IFS='|' read -r name brew_pkg pacman_pkg nerd_zip font_dir <<< "$entry"
+
+    # Check if already installed
+    local installed=0
+    case "${_PKG_MGR:-}" in
+      brew)   [[ "$brew_pkg" != "-" ]] && brew list "$brew_pkg" &>/dev/null && installed=1 ;;
+      pacman) [[ "$pacman_pkg" != "-" ]] && pacman -Q "$pacman_pkg" &>/dev/null && installed=1 ;;
+    esac
+    if [[ $installed -eq 0 && -n "$font_dir" ]]; then
+      ls "$HOME/.local/share/fonts/$font_dir"/*.ttf &>/dev/null 2>&1 && installed=1
+    fi
+    if [[ $installed -eq 1 ]]; then continue; fi
+
+    # Install via native package manager where available
+    case "${_PKG_MGR:-}" in
+      brew)
+        if [[ "$brew_pkg" != "-" ]]; then
+          brew install "$brew_pkg" &>/dev/null && \
+            _log "  $name installed (brew)" && continue
+        fi
+        ;;
+      pacman)
+        if [[ "$pacman_pkg" != "-" ]]; then
+          sudo pacman -S --needed --noconfirm "$pacman_pkg" &>/dev/null && \
+            _log "  $name installed (pacman)" && continue
+        fi
+        ;;
+    esac
+
+    # Fallback: download from nerd-fonts GitHub releases
+    if [[ "$nerd_zip" == "-" ]]; then
+      _warn "  warning: no install method for $name on $_PKG_MGR"
+      continue
+    fi
+    if [[ -z "$nf_version" ]]; then
+      _warn "  warning: couldn't determine nerd-fonts version — skipping $name"
+      continue
+    fi
+
+    local url tmp
+    url="https://github.com/ryanoasis/nerd-fonts/releases/download/$nf_version/$nerd_zip.zip"
+    tmp=$(mktemp -d) || continue
+    local dest="$HOME/.local/share/fonts/$font_dir"
+    if curl -fsSL "$url" -o "$tmp/font.zip" 2>/dev/null; then
+      mkdir -p "$dest"
+      unzip -qo "$tmp/font.zip" '*.ttf' -d "$dest" 2>/dev/null || true
+      if command -v fc-cache &>/dev/null; then fc-cache -f "$dest" 2>/dev/null || true; fi
+      _log "  $name installed from GitHub ($nf_version)"
+    else
+      _warn "  warning: failed to download $name"
+    fi
+    rm -rf "$tmp"
+  done
 }

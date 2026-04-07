@@ -67,7 +67,11 @@ local function prompt_rename_tab(window, pane)
   )
 end
 
-local font_names
+local font_names = {
+  'JetBrainsMono Nerd Font',
+  'FiraCode Nerd Font',
+  'MesloLG Nerd Font',
+}
 local font_size
 local line_height
 local default_prog
@@ -75,13 +79,7 @@ local window_decorations = 'TITLE|RESIZE'
 local macos_window_background_blur = 0
 
 if is_macos then
-  font_names = {
-    'JetBrainsMono Nerd Font',
-    'JetBrains Mono',
-    'Menlo',
-    'Monaco',
-    'SF Mono',
-  }
+  table.insert(font_names, 'Menlo')
   font_size = 10.5
   line_height = 1.05
 
@@ -94,33 +92,17 @@ if is_macos then
 
   macos_window_background_blur = 18
 elseif is_windows then
-  font_names = {
-    'JetBrainsMono Nerd Font',
-    'JetBrains Mono',
-    'Consolas',
-    'Cascadia Mono',
-  }
+  table.insert(font_names, 'Consolas')
   font_size = 9.0
   line_height = 1.0
   default_prog = { 'wsl.exe', '-d', 'archlinux', '--cd', '/home/chris', '--exec', '/bin/bash', '-l' }
 elseif is_linux then
-  font_names = {
-    'JetBrainsMono Nerd Font',
-    'JetBrains Mono',
-    'DejaVu Sans Mono',
-    'Noto Sans Mono',
-  }
+  table.insert(font_names, 'DejaVu Sans Mono')
   font_size = 9.5
   line_height = 1.0
   default_prog = { '/bin/bash', '-l' }
 else
-  font_names = {
-    'JetBrainsMono Nerd Font',
-    'JetBrains Mono',
-    'Menlo',
-    'Consolas',
-    'DejaVu Sans Mono',
-  }
+  table.insert(font_names, 'monospace')
   font_size = 10.0
   line_height = 1.0
   default_prog = { '/bin/bash', '-l' }
