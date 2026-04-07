@@ -26,7 +26,7 @@ if command -v shellcheck &>/dev/null; then
         "$REAL_HOME/.local/bin/dotbootstrap" \
         "$REAL_HOME/.config/dot/helpers.sh" \
         "$REAL_HOME/.config/dot/deps.sh" \
-        "$REAL_HOME/.config/dot/deps-hooks.sh" \
+        "$REAL_HOME/.config/dot/deps-hooks.d"/*.sh \
         "$REAL_HOME/.config/dot/test-helpers.sh" 2>&1) && sc_rc=0 || sc_rc=$?
     if [[ "$sc_rc" -eq 0 ]]; then
         _pass "shellcheck: all files clean"
@@ -65,8 +65,9 @@ cat > "$TEST_HOME/.config/dot/deps.conf" <<'CONF'
 test-tool  git  -  -  -  fixture/test-tool.git  .local/share/test-tool
 hook-pack  git  -  -  -  fixture/hook-pack.git  .local/share/hook-pack
 CONF
-cat > "$TEST_HOME/.config/dot/deps-hooks.sh" <<'HOOK'
-_post_hook_pack() {
+mkdir -p "$TEST_HOME/.config/dot/deps-hooks.d"
+cat > "$TEST_HOME/.config/dot/deps-hooks.d/hook-pack.sh" <<'HOOK'
+post_hook_pack() {
   mkdir -p "$HOME/.test-hooks"
   printf '%s\n' "$HOME/.local/share/hook-pack" > "$HOME/.test-hooks/hook-pack"
 }
@@ -469,7 +470,7 @@ mkdir -p "$NO_REPO_HOME/.config/dot"
 cp "$REAL_HOME/.config/dot/helpers.sh" "$NO_REPO_HOME/.config/dot/helpers.sh"
 cp "$REAL_HOME/.config/dot/deps.sh" "$NO_REPO_HOME/.config/dot/deps.sh"
 cp "$TEST_HOME/.config/dot/deps.conf" "$NO_REPO_HOME/.config/dot/deps.conf"
-cp "$TEST_HOME/.config/dot/deps-hooks.sh" "$NO_REPO_HOME/.config/dot/deps-hooks.sh"
+cp -r "$TEST_HOME/.config/dot/deps-hooks.d" "$NO_REPO_HOME/.config/dot/deps-hooks.d"
 
 result=$(
     HOME="$NO_REPO_HOME" \
