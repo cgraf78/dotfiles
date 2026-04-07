@@ -255,6 +255,45 @@ _pkg_install_batch() {
 }
 
 # ---------------------------------------------------------------------------
+# Remote-check cache
+# ---------------------------------------------------------------------------
+
+_dep_remote_ttl() {
+  echo "${DOT_DEPS_REMOTE_TTL:-3600}"
+}
+
+_dep_remote_stamp() {
+  local name="$1" kind="$2"
+  local state_root="${XDG_STATE_HOME:-$HOME/.local/state}/dot/deps"
+  echo "$state_root/${name}.${kind}.stamp"
+}
+
+_dep_remote_fresh() {
+  local stamp="$1"
+  [[ "${DOT_FORCE:-0}" -eq 1 ]] && return 1
+  [[ -f "$stamp" ]] || return 1
+
+  local cached="" now="" ttl=""
+  read -r cached < "$stamp" || return 1
+  now=$(date +%s 2>/dev/null || true)
+  ttl=$(_dep_remote_ttl)
+
+  [[ "$cached" =~ ^[0-9]+$ ]] || return 1
+  [[ "$now" =~ ^[0-9]+$ ]] || return 1
+  [[ "$ttl" =~ ^[0-9]+$ ]] || return 1
+
+  (( now - cached < ttl ))
+}
+
+_dep_remote_touch() {
+  local stamp="$1"
+  local stamp_dir
+  stamp_dir=$(dirname "$stamp")
+  mkdir -p "$stamp_dir" || return 1
+  date +%s > "$stamp"
+}
+
+# ---------------------------------------------------------------------------
 # Install methods
 # ---------------------------------------------------------------------------
 
@@ -296,6 +335,8 @@ _install_from_github() {
   local repo="${!env_var:-https://github.com/$default_repo}"
   local tarball_url tmp_dir
   local local_clone="$HOME/git/$name"
+  local stamp=""
+  stamp=$(_dep_remote_stamp "$name" git)
 
   # Prefer local clone — symlink for live development
   if [[ -d "$local_clone" ]]; then
@@ -318,11 +359,20 @@ _install_from_github() {
 
   # Existing git clone — pull to update
   if [[ -d "$install_dir/.git" ]]; then
+    if _dep_remote_fresh "$stamp"; then
+      _link_bin "$name" "$install_dir"
+      local ver; ver=$(_get_version "$install_dir")
+      _log "  $name up to date${ver:+ -- $ver}"
+      rm -f "$log"
+      return 0
+    fi
+
     local head_before; head_before=$(git -C "$install_dir" rev-parse HEAD 2>/dev/null || true)
     if [[ -n "$log" ]] && git -C "$install_dir" pull --ff-only --quiet >"$log" 2>&1; then
       _link_bin "$name" "$install_dir"
       local head_after; head_after=$(git -C "$install_dir" rev-parse HEAD 2>/dev/null || true)
       local ver; ver=$(_get_version "$install_dir")
+      _dep_remote_touch "$stamp" || true
       if [[ "$head_before" != "$head_after" ]]; then
         _DEPS_CHANGED[$name]=1
         _log "  $name updated${ver:+ -- $ver}"
@@ -336,6 +386,7 @@ _install_from_github() {
       _link_bin "$name" "$install_dir"
       local head_after; head_after=$(git -C "$install_dir" rev-parse HEAD 2>/dev/null || true)
       local ver; ver=$(_get_version "$install_dir")
+      _dep_remote_touch "$stamp" || true
       if [[ "$head_before" != "$head_after" ]]; then
         _DEPS_CHANGED[$name]=1
         _log "  $name updated${ver:+ -- $ver}"
@@ -420,6 +471,7 @@ _install_from_github() {
 
   _link_bin "$name" "$install_dir"
   rm -f "$log"
+  _dep_remote_touch "$stamp" || true
   local ver; ver=$(_get_version "$install_dir")
   local method="git clone"
   if [[ -n "${tarball_url:-}" ]]; then method="release tarball"; fi
@@ -439,6 +491,8 @@ _install_appimage() {
   local bin_path="$HOME/.local/bin/$cmd"
   local current_ver="" latest_ver=""
   local log=""
+  local stamp=""
+  stamp=$(_dep_remote_stamp "$name" appimage)
   if ! _logfile_create; then
     _warn "  warning: failed to create temp log for $name install"
   else
@@ -456,6 +510,12 @@ _install_appimage() {
     current_ver=$(_dep_version "$cmd")
   fi
 
+  if [[ -n "$current_ver" ]] && _dep_remote_fresh "$stamp"; then
+    rm -f "$tmp_file" "$log"
+    _log "  $name up to date -- $current_ver"
+    return 0
+  fi
+
   # Get latest release version from GitHub API
   if command -v curl &>/dev/null; then
     latest_ver=$(curl -fsSL --no-netrc -H "Authorization:" \
@@ -466,6 +526,7 @@ _install_appimage() {
   # Skip if already up to date (unless force mode)
   if [[ "${DOT_FORCE:-0}" -ne 1 && -n "$current_ver" && -n "$latest_ver" && "$current_ver" == "$latest_ver" ]]; then
     rm -f "$tmp_file" "$log"
+    _dep_remote_touch "$stamp" || true
     _log "  $name up to date -- $current_ver"
     return 0
   fi
@@ -513,6 +574,7 @@ _install_appimage() {
   mv "$tmp_file" "$bin_path"
   chmod u+x "$bin_path"
   rm -f "$log"
+  _dep_remote_touch "$stamp" || true
 
   _DEPS_CHANGED[$name]=1
   if [[ -n "$current_ver" ]]; then

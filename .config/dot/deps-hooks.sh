@@ -141,15 +141,19 @@ _post_wezterm() {
         fi
         return 0
       fi
-      brew install --cask wezterm &>/dev/null && \
-        _log "  wezterm installed (brew)" || \
+      if brew install --cask wezterm &>/dev/null; then
+        _log "  wezterm installed (brew)"
+      else
         _warn "  warning: failed to install wezterm (brew)"
+      fi
       return 0
       ;;
     pacman)
-      sudo pacman -S --needed --noconfirm wezterm &>/dev/null && \
-        _log "  wezterm installed (pacman)" || \
+      if sudo pacman -S --needed --noconfirm wezterm &>/dev/null; then
+        _log "  wezterm installed (pacman)"
+      else
         _warn "  warning: failed to install wezterm (pacman)"
+      fi
       return 0
       ;;
   esac
@@ -190,6 +194,7 @@ _post_wezterm() {
   # Find matching asset URL for this distro.
   local distro_id="" distro_ver=""
   if [[ -f /etc/os-release ]]; then
+    # shellcheck disable=SC1091
     . /etc/os-release
     distro_id="${ID:-}"
     distro_ver="${VERSION_ID:-}"

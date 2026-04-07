@@ -193,6 +193,151 @@ _assert_eq "dep_parse: minimal cmd defaults" "jq" "$_cmd"
 _assert_eq "dep_parse: minimal empty fields" "" "$_repo"
 
 # ---------------------------------------------------------------------------
+# Tests: remote-check cache helpers and behavior
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== Remote check cache ==="
+
+XDG_STATE_HOME="$TEST_HOME/.local/state"
+export XDG_STATE_HOME
+export DOT_DEPS_REMOTE_TTL=3600
+declare -gA _DEPS_CHANGED=()
+
+stamp=$(_dep_remote_stamp "helper-tool" "git")
+_assert_contains "remote_stamp: uses state dir" "$TEST_HOME/.local/state/dot/deps/helper-tool.git.stamp" "$stamp"
+
+rc=0; _dep_remote_fresh "$stamp" || rc=$?
+_assert_exit "remote_fresh: missing stamp is stale" 1 "$rc"
+
+_dep_remote_touch "$stamp"
+rc=0; _dep_remote_fresh "$stamp" || rc=$?
+_assert_exit "remote_fresh: touched stamp is fresh" 0 "$rc"
+
+export DOT_FORCE=1
+rc=0; _dep_remote_fresh "$stamp" || rc=$?
+_assert_exit "remote_fresh: force bypasses cache" 1 "$rc"
+export DOT_FORCE=0
+
+REMOTE_FIXTURE=$(_tmpdir)
+git init --bare "$REMOTE_FIXTURE" >/dev/null 2>&1
+REMOTE_SEED=$(_tmpdir)
+git clone "$REMOTE_FIXTURE" "$REMOTE_SEED" >/dev/null 2>&1
+git -C "$REMOTE_SEED" config user.email "test@test.com"
+git -C "$REMOTE_SEED" config user.name "Test"
+echo "tool" > "$REMOTE_SEED/README"
+git -C "$REMOTE_SEED" add README
+git -C "$REMOTE_SEED" commit -m "seed" >/dev/null 2>&1
+git -C "$REMOTE_SEED" push >/dev/null 2>&1
+
+GIT_CACHE_INSTALL="$TEST_HOME/.local/share/cache-tool"
+mkdir -p "$(dirname "$GIT_CACHE_INSTALL")"
+git clone "$REMOTE_FIXTURE" "$GIT_CACHE_INSTALL" >/dev/null 2>&1
+
+REMOTE_CACHE_BIN=$(_tmpdir)
+REAL_GIT_BIN=$(command -v git)
+GIT_PULL_COUNT="$TEST_HOME/.git-pull-count"
+echo 0 > "$GIT_PULL_COUNT"
+cat > "$REMOTE_CACHE_BIN/git" <<'EOF'
+#!/usr/bin/env bash
+pull=0
+for arg in "$@"; do
+    if [[ "$arg" == "pull" ]]; then
+        pull=1
+        break
+    fi
+done
+if [[ "$pull" -eq 1 && -n "${DOT_TEST_GIT_PULL_COUNT_FILE:-}" ]]; then
+    count=0
+    if [[ -f "$DOT_TEST_GIT_PULL_COUNT_FILE" ]]; then
+        read -r count < "$DOT_TEST_GIT_PULL_COUNT_FILE" || count=0
+    fi
+    echo $((count + 1)) > "$DOT_TEST_GIT_PULL_COUNT_FILE"
+fi
+exec "$DOT_TEST_REAL_GIT" "$@"
+EOF
+chmod +x "$REMOTE_CACHE_BIN/git"
+
+PATH="$REMOTE_CACHE_BIN:$PATH" \
+DOT_TEST_REAL_GIT="$REAL_GIT_BIN" \
+DOT_TEST_GIT_PULL_COUNT_FILE="$GIT_PULL_COUNT" \
+_install_from_github "cache-tool" "fixture/cache-tool.git" "$GIT_CACHE_INSTALL" >/dev/null 2>&1
+PATH="$REMOTE_CACHE_BIN:$PATH" \
+DOT_TEST_REAL_GIT="$REAL_GIT_BIN" \
+DOT_TEST_GIT_PULL_COUNT_FILE="$GIT_PULL_COUNT" \
+_install_from_github "cache-tool" "fixture/cache-tool.git" "$GIT_CACHE_INSTALL" >/dev/null 2>&1
+read -r git_pull_count < "$GIT_PULL_COUNT"
+_assert_eq "install_from_github: fresh cache skips second pull" "1" "$git_pull_count"
+
+export DOT_FORCE=1
+PATH="$REMOTE_CACHE_BIN:$PATH" \
+DOT_TEST_REAL_GIT="$REAL_GIT_BIN" \
+DOT_TEST_GIT_PULL_COUNT_FILE="$GIT_PULL_COUNT" \
+_install_from_github "cache-tool" "fixture/cache-tool.git" "$GIT_CACHE_INSTALL" >/dev/null 2>&1
+export DOT_FORCE=0
+read -r git_pull_count < "$GIT_PULL_COUNT"
+_assert_eq "install_from_github: force bypasses cache" "2" "$git_pull_count"
+
+APPIMG_BIN_DIR="$TEST_HOME/.local/bin"
+mkdir -p "$APPIMG_BIN_DIR"
+cat > "$APPIMG_BIN_DIR/mockimg" <<'EOF'
+#!/usr/bin/env bash
+echo "mockimg v1.2.3"
+EOF
+chmod +x "$APPIMG_BIN_DIR/mockimg"
+
+CURL_CACHE_BIN=$(_tmpdir)
+REAL_CURL_BIN=$(command -v curl)
+APPIMG_API_COUNT="$TEST_HOME/.appimg-api-count"
+echo 0 > "$APPIMG_API_COUNT"
+cat > "$CURL_CACHE_BIN/curl" <<'EOF'
+#!/usr/bin/env bash
+if [[ "$*" == *"/releases/latest"* ]]; then
+    count=0
+    if [[ -f "$DOT_TEST_CURL_API_COUNT_FILE" ]]; then
+        read -r count < "$DOT_TEST_CURL_API_COUNT_FILE" || count=0
+    fi
+    echo $((count + 1)) > "$DOT_TEST_CURL_API_COUNT_FILE"
+    printf '%s\n' '{"tag_name":"v1.2.3"}'
+    exit 0
+fi
+out=""
+while [[ "$#" -gt 0 ]]; do
+    if [[ "$1" == "-o" && "$#" -ge 2 ]]; then
+        out="$2"
+        break
+    fi
+    shift
+done
+if [[ -n "$out" ]]; then
+    printf '%s\n' '#!/usr/bin/env bash' 'echo "mockimg v1.2.3"' > "$out"
+    exit 0
+fi
+exec "$DOT_TEST_REAL_CURL" "$@"
+EOF
+chmod +x "$CURL_CACHE_BIN/curl"
+
+PATH="$CURL_CACHE_BIN:$APPIMG_BIN_DIR:$PATH" \
+DOT_TEST_REAL_CURL="$REAL_CURL_BIN" \
+DOT_TEST_CURL_API_COUNT_FILE="$APPIMG_API_COUNT" \
+_install_appimage "mockapp" "mockimg" "fixture/mockapp" >/dev/null 2>&1
+PATH="$CURL_CACHE_BIN:$APPIMG_BIN_DIR:$PATH" \
+DOT_TEST_REAL_CURL="$REAL_CURL_BIN" \
+DOT_TEST_CURL_API_COUNT_FILE="$APPIMG_API_COUNT" \
+_install_appimage "mockapp" "mockimg" "fixture/mockapp" >/dev/null 2>&1
+read -r appimg_api_count < "$APPIMG_API_COUNT"
+_assert_eq "install_appimage: fresh cache skips second API check" "1" "$appimg_api_count"
+
+export DOT_FORCE=1
+PATH="$CURL_CACHE_BIN:$APPIMG_BIN_DIR:$PATH" \
+DOT_TEST_REAL_CURL="$REAL_CURL_BIN" \
+DOT_TEST_CURL_API_COUNT_FILE="$APPIMG_API_COUNT" \
+_install_appimage "mockapp" "mockimg" "fixture/mockapp" >/dev/null 2>&1
+export DOT_FORCE=0
+read -r appimg_api_count < "$APPIMG_API_COUNT"
+_assert_eq "install_appimage: force bypasses cache" "2" "$appimg_api_count"
+
+# ---------------------------------------------------------------------------
 # Tests: _dep_exists
 # ---------------------------------------------------------------------------
 
