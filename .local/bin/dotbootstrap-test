@@ -352,6 +352,8 @@ LOCAL_CLONE_NAME="local-tool"
 LOCAL_CLONE_DIR="$TEST_HOME/git/$LOCAL_CLONE_NAME"
 mkdir -p "$TEST_HOME/git"
 git clone "$REMOTE_FIXTURE" "$LOCAL_CLONE_DIR" >/dev/null 2>&1
+git -C "$LOCAL_CLONE_DIR" config user.email "test@test.com"
+git -C "$LOCAL_CLONE_DIR" config user.name "Test"
 LOCAL_INSTALL_DIR="$TEST_HOME/.local/share/$LOCAL_CLONE_NAME"
 unset _DEPS_CHANGED["$LOCAL_CLONE_NAME"] 2>/dev/null || true
 _install_from_github "$LOCAL_CLONE_NAME" "fixture/${LOCAL_CLONE_NAME}.git" "$LOCAL_INSTALL_DIR" >/dev/null 2>&1
