@@ -95,7 +95,7 @@
   "terminal.integrated.defaultProfile.osx": "bash",
   "terminal.integrated.defaultProfile.windows": "WSL",
   "terminal.integrated.fontFamily": "JetBrainsMono Nerd Font, FiraCode Nerd Font, MesloLGM Nerd Font Mono, monospace",
-  "terminal.integrated.letterSpacing": 1,
+  "terminal.integrated.letterSpacing": 0,
   "terminal.integrated.profiles.linux": {
     "bash": {
       "args": [
