@@ -21,13 +21,18 @@ REAL_HOME="$HOME"
 echo "=== ShellCheck ==="
 
 if command -v shellcheck &>/dev/null; then
-    sc_output=$(shellcheck -x -P SCRIPTDIR \
-        "$REAL_HOME/.local/bin/dot" \
-        "$REAL_HOME/.local/bin/dotbootstrap" \
-        "$REAL_HOME/.config/dot/helpers.sh" \
-        "$REAL_HOME/.config/dot/deps.sh" \
-        "$REAL_HOME/.config/dot/deps-hooks.d"/*.sh \
-        "$REAL_HOME/.config/dot/test-helpers.sh" 2>&1) && sc_rc=0 || sc_rc=$?
+    _sc_files=(
+        "$REAL_HOME/.local/bin/dot"
+        "$REAL_HOME/.local/bin/dotbootstrap"
+        "$REAL_HOME/.config/dot/helpers.sh"
+        "$REAL_HOME/.config/dot/deps.sh"
+        "$REAL_HOME/.config/dot/test-helpers.sh"
+    )
+    for _f in "$REAL_HOME/.config/dot/deps-hooks.d"/*.sh \
+              "$REAL_HOME/.config/dot/merge-hooks.d"/*.sh; do
+        [[ -f "$_f" && ! -L "$_f" ]] && _sc_files+=("$_f")
+    done
+    sc_output=$(shellcheck -x -P SCRIPTDIR "${_sc_files[@]}" 2>&1) && sc_rc=0 || sc_rc=$?
     if [[ "$sc_rc" -eq 0 ]]; then
         _pass "shellcheck: all files clean"
     else

@@ -18,7 +18,7 @@ merge_karabiner() {
     return 0
   fi
 
-  local src="$HOME/.config/dot/karabiner/karabiner.json"
+  local src="$HOME/.config/dot/merge-hooks.d/karabiner-karabiner.json"
   local dst_dir="$HOME/.config/karabiner"
   local dst="$dst_dir/karabiner.json"
 

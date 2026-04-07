@@ -19,7 +19,8 @@ jobs:
           .local/bin/dotbootstrap
           .config/dot/helpers.sh
           .config/dot/deps.sh
-          .config/dot/deps-hooks.sh
+          .config/dot/deps-hooks.d/*.sh
+          .config/dot/merge-hooks.d/*.sh
           .config/dot/test-helpers.sh
 
       - name: Check JSON sorting
