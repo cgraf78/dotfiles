@@ -1,7 +1,7 @@
 #!/bin/bash
 # Status and post-install hooks for wezterm.
 
-status_wezterm() {
+status() {
   if command -v wezterm &>/dev/null; then
     local ver
     ver=$(wezterm --version 2>/dev/null | awk '{print $2}')
@@ -11,7 +11,7 @@ status_wezterm() {
   return 1
 }
 
-post_wezterm() {
+post() {
   # WSL: WezTerm runs as a Windows-native app; merge-wezterm.sh handles config.
   if _is_wsl; then return 0; fi
 

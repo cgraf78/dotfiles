@@ -109,11 +109,11 @@ if [[ "$(uname -s)" == "Linux" ]]; then
     export DOT_TEST_WINDOWS_HOME="$WEZ_WIN_HOME"
     mkdir -p "$HOME/.config/wezterm"
     echo "return { test = true }" > "$HOME/.config/wezterm/wezterm.lua"
-    merge_wezterm
+    merge
   )
 
-  _assert_file_exists "merge_wezterm: created Windows-home file under WSL" "$WEZ_WIN_HOME/.wezterm.lua"
-  _assert_file_content "merge_wezterm: copied file content" "return { test = true }" "$WEZ_WIN_HOME/.wezterm.lua"
+  _assert_file_exists "merge wezterm: created Windows-home file under WSL" "$WEZ_WIN_HOME/.wezterm.lua"
+  _assert_file_content "merge wezterm: copied file content" "return { test = true }" "$WEZ_WIN_HOME/.wezterm.lua"
 
   # Non-WSL Linux should be a no-op.
   rm -f "$WEZ_WIN_HOME/.wezterm.lua"
@@ -121,11 +121,11 @@ if [[ "$(uname -s)" == "Linux" ]]; then
     export HOME="$WEZ_HOME"
     unset WSL_DISTRO_NAME
     export USER="chris"
-    merge_wezterm
+    merge
   )
-  _assert_file_missing "merge_wezterm: no-op on non-WSL Linux" "$WEZ_WIN_HOME/.wezterm.lua"
+  _assert_file_missing "merge wezterm: no-op on non-WSL Linux" "$WEZ_WIN_HOME/.wezterm.lua"
 else
-  echo "  SKIP: merge_wezterm WSL-specific assertions (non-Linux runner)"
+  echo "  SKIP: merge wezterm WSL-specific assertions (non-Linux runner)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -406,16 +406,17 @@ else
 fi
 
 _DEPS=("fail-hook|custom")
-declare -f post_fail_hook >/dev/null 2>&1 && unset -f post_fail_hook
-post_fail_hook() {
-    return 1
-}
+mkdir -p "$TEST_HOME/.config/dot/deps-hooks.d"
+cat > "$TEST_HOME/.config/dot/deps-hooks.d/fail-hook.sh" <<'HOOK'
+post() { return 1; }
+HOOK
 declare -gA _DEPS_CHANGED=(["fail-hook"]=1)
 rc=0; _dep_hook_due "fail-hook" || rc=$?
 _assert_exit "hook_due: failing hook starts due" 0 "$rc"
 _run_post_hooks >/dev/null 2>&1
 rc=0; _dep_hook_due "fail-hook" || rc=$?
 _assert_exit "hook_due: failing hook remains due" 0 "$rc"
+rm -f "$TEST_HOME/.config/dot/deps-hooks.d/fail-hook.sh"
 
 # ---------------------------------------------------------------------------
 # Tests: _dep_exists
@@ -654,7 +655,7 @@ declare -gA _DEPS_CHANGED=([hook-test]=1)
 _DEPS=("hook-test|custom")
 mkdir -p "$TEST_HOME/.config/dot/deps-hooks.d"
 cat > "$TEST_HOME/.config/dot/deps-hooks.d/hook-test.sh" <<'HOOK'
-post_hook_test() {
+post() {
   echo "CUSTOM_HOOK_RAN" > "$HOME/.custom-hook-result"
 }
 HOOK
@@ -681,43 +682,45 @@ _dep_load
 
 # Create hook files for both deps
 cat > "$TEST_HOME/.config/dot/deps-hooks.d/alpha.sh" <<'HOOK'
-post_alpha() { echo "ALPHA" > "$HOME/.alpha-result"; }
-status_alpha() { return 0; }
+post() { echo "ALPHA" > "$HOME/.alpha-result"; }
+status() { return 0; }
 HOOK
 cat > "$TEST_HOME/.config/dot/deps-hooks.d/beta.sh" <<'HOOK'
-post_beta() { echo "BETA" > "$HOME/.beta-result"; }
+post() { echo "BETA" > "$HOME/.beta-result"; }
 HOOK
 
 # Source hooks the way _run_post_hooks does, then verify discovery
 declare -gA _DEPS_CHANGED=([alpha]=1 [beta]=1)
 _run_post_hooks >/dev/null 2>&1
-_assert_file_exists "discovery: post_alpha ran" "$TEST_HOME/.alpha-result"
-_assert_file_content "discovery: post_alpha output" "ALPHA" "$TEST_HOME/.alpha-result"
-_assert_file_exists "discovery: post_beta ran" "$TEST_HOME/.beta-result"
-_assert_file_content "discovery: post_beta output" "BETA" "$TEST_HOME/.beta-result"
+_assert_file_exists "discovery: alpha post() ran" "$TEST_HOME/.alpha-result"
+_assert_file_content "discovery: alpha post() output" "ALPHA" "$TEST_HOME/.alpha-result"
+_assert_file_exists "discovery: beta post() ran" "$TEST_HOME/.beta-result"
+_assert_file_content "discovery: beta post() output" "BETA" "$TEST_HOME/.beta-result"
 rm -f "$TEST_HOME/.alpha-result" "$TEST_HOME/.beta-result"
 
-# Status hook ran (status_alpha is defined, verify it was discovered)
-declare -f status_alpha &>/dev/null && _pass "discovery: status_alpha found" || _fail "discovery: status_alpha found"
+# Status hook ran — functions are unset between files, so verify via side effect
+# Re-run with a status hook that creates a marker file
+cat > "$TEST_HOME/.config/dot/deps-hooks.d/alpha.sh" <<'HOOK'
+post() { echo "ALPHA" > "$HOME/.alpha-result"; }
+status() { echo "STATUS_RAN" > "$HOME/.alpha-status"; return 0; }
+HOOK
+declare -gA _DEPS_CHANGED=([alpha]=1)
+_run_post_hooks >/dev/null 2>&1
+_assert_file_exists "discovery: status() ran" "$TEST_HOME/.alpha-status"
+rm -f "$TEST_HOME/.alpha-result" "$TEST_HOME/.alpha-status"
 
 echo ""
 echo "=== Hook isolation ==="
 
 # Create an orphan hook file for a dep NOT in deps.conf
 cat > "$TEST_HOME/.config/dot/deps-hooks.d/orphan.sh" <<'HOOK'
-post_orphan() { echo "ORPHAN" > "$HOME/.orphan-result"; }
+post() { echo "ORPHAN" > "$HOME/.orphan-result"; }
 HOOK
 
 # Re-run hooks — orphan should NOT be sourced
-unset -f post_orphan 2>/dev/null || true
 declare -gA _DEPS_CHANGED=([alpha]=1)
 _run_post_hooks >/dev/null 2>&1
 _assert_file_missing "isolation: orphan hook not sourced" "$TEST_HOME/.orphan-result"
-if declare -f post_orphan &>/dev/null; then
-    _fail "isolation: orphan function not defined"
-else
-    _pass "isolation: orphan function not defined"
-fi
 rm -f "$TEST_HOME/.config/dot/deps-hooks.d/orphan.sh"
 
 echo ""
@@ -725,7 +728,7 @@ echo "=== Hook error handling ==="
 
 # Create a hook file with a syntax error
 cat > "$TEST_HOME/.config/dot/deps-hooks.d/alpha.sh" <<'HOOK'
-post_alpha() {
+post() {
   if [[ true; then echo broken; fi
 }
 HOOK
@@ -877,7 +880,7 @@ hook-pack  git  -  -  -  fixture/hook-pack.git  .local/share/hook-pack
 CONF
 mkdir -p "$PERSONAL_STAGING/.config/dot/deps-hooks.d"
 cat > "$PERSONAL_STAGING/.config/dot/deps-hooks.d/hook-pack.sh" <<'HOOK'
-post_hook_pack() {
+post() {
   mkdir -p "$HOME/.test-hooks"
   printf '%s\n' "$HOME/.local/share/hook-pack" > "$HOME/.test-hooks/hook-pack"
 }
@@ -885,7 +888,7 @@ HOOK
 
 mkdir -p "$PERSONAL_STAGING/.config/dot/merge-hooks.d"
 cat > "$PERSONAL_STAGING/.config/dot/merge-hooks.d/testapp.sh" <<'MERGE'
-merge_testapp() { echo "MERGE_TESTAPP_RAN"; }
+merge() { echo "MERGE_TESTAPP_RAN"; }
 MERGE
 
 PERSONAL_ORIGIN=$(_tmpdir)

@@ -2,7 +2,7 @@
 # Copy WezTerm config into the Windows home when running under WSL.
 # Keeps ~/.wezterm.lua in dotfiles as the source of truth.
 
-merge_wezterm() {
+merge() {
   local src="$HOME/.config/wezterm/wezterm.lua"
   [[ -f "$src" ]] || return 0
 

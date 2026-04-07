@@ -25,7 +25,7 @@ _nerd_font_installed() {
   [[ -n "$font_dir" ]] && ls "$HOME/.local/share/fonts/$font_dir"/*.ttf &>/dev/null 2>&1
 }
 
-status_nerd_fonts() {
+status() {
   if ! _dep_hook_due "nerd-fonts"; then
     _log "  nerd-fonts up to date"
     return 0
@@ -43,7 +43,7 @@ status_nerd_fonts() {
   return 0
 }
 
-post_nerd_fonts() {
+post() {
   # Install fonts from the _FONTS registry below.
   # Each entry: "DisplayName|brew_pkg|pacman_pkg|nerd_fonts_zip|local_dir"
   #   brew_pkg:       homebrew cask name (or - to skip)

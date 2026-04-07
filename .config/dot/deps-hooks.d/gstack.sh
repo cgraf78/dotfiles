@@ -1,7 +1,7 @@
 #!/bin/bash
 # Post-install hook for gstack.
 
-post_gstack() {
+post() {
   [[ -d "$HOME/.local/share/gstack" ]] || return 0
   mkdir -p "$HOME/.claude/skills"
   ln -sfn "$HOME/.local/share/gstack" "$HOME/.claude/skills/gstack"

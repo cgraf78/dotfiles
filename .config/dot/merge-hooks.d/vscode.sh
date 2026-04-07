@@ -140,7 +140,7 @@ _merge_vscode_config() {
 }
 
 # Main: determine VS Code config dirs and merge.
-merge_vscode() {
+merge() {
   echo "  VS Code"
   if ! command -v jq &>/dev/null; then
     echo "    skipped (jq not installed)"

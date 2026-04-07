@@ -8,7 +8,7 @@
 # Local-only profiles are preserved. Profile order is maintained.
 
 # Main: merge dotfiles profiles into local Karabiner config.
-merge_karabiner() {
+merge() {
   [[ "$(uname)" == "Darwin" ]] || return 0
 
   echo "  Karabiner"

@@ -42,7 +42,7 @@ _iterm2_defaults() {
 }
 
 # Main: copy dynamic profile and apply global preferences.
-merge_iterm2() {
+merge() {
   [[ "$(uname)" == "Darwin" ]] || return 0
 
   local src="$HOME/.config/dot/merge-hooks.d/iterm2-dotfiles-dyn-profile.json"

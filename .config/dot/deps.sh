@@ -686,7 +686,7 @@ _install_dep() {
       fi
       ;;
     custom)
-      # Entirely managed by the post-install hook (post_<name>).
+      # Entirely managed by the post-install hook (post()).
       # Run only when the hook is due so no-op updates stay cheap.
       if _dep_hook_due "$_name"; then
         _DEPS_CHANGED[$_name]=1
@@ -696,24 +696,21 @@ _install_dep() {
 }
 
 # Run post-install hooks for all deps.
-# Hook functions are defined in per-dep files under deps-hooks.d/.
+# Each hook file defines post() and/or status() — sourced per-dep to avoid collisions.
 _run_post_hooks() {
   local hooks_dir="$HOME/.config/dot/deps-hooks.d"
-  for entry in "${_DEPS[@]}"; do
-    local name="${entry%%|*}"
-    local hook_file="$hooks_dir/$name.sh"
-    if [[ -f "$hook_file" ]]; then
-      # shellcheck source=/dev/null
-      . "$hook_file" || _warn "warning: failed to source $hook_file"
-    fi
-  done
 
   for entry in "${_DEPS[@]}"; do
     local name="${entry%%|*}"
-    local status_hook="status_${name//-/_}"
-    if declare -f "$status_hook" &>/dev/null; then
-      "$status_hook" || true
+    local hook_file="$hooks_dir/$name.sh"
+    [[ -f "$hook_file" ]] || continue
+    unset -f status post 2>/dev/null
+    # shellcheck source=/dev/null
+    . "$hook_file" || { _warn "warning: failed to source $hook_file"; continue; }
+    if declare -f status &>/dev/null; then
+      status || true
     fi
+    unset -f status post 2>/dev/null
   done
 
   [[ ${#_DEPS_CHANGED[@]} -eq 0 ]] && return 0
@@ -721,12 +718,17 @@ _run_post_hooks() {
   for entry in "${_DEPS[@]}"; do
     local name="${entry%%|*}"
     [[ -n "${_DEPS_CHANGED[$name]+x}" ]] || continue
-    local hook="post_${name//-/_}"
-    if declare -f "$hook" &>/dev/null; then
-      if "$hook"; then
+    local hook_file="$hooks_dir/$name.sh"
+    [[ -f "$hook_file" ]] || continue
+    unset -f post status 2>/dev/null
+    # shellcheck source=/dev/null
+    . "$hook_file" || { _warn "warning: failed to source $hook_file"; continue; }
+    if declare -f post &>/dev/null; then
+      if post; then
         _dep_hook_touch "$name" || true
       fi
     fi
+    unset -f post status 2>/dev/null
   done
 }
 
