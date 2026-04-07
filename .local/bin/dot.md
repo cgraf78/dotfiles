@@ -142,7 +142,7 @@ bat             pkg       bat    batcat
 fd              pkg       fd     fdfind apt:fd-find,dnf:fd-find
 ds              git       -      -      -                        cgraf78/ds.git      .local/share/ds
 neovim          appimage  nvim   -      -                        neovim/neovim
-jetbrains-mono-nerd-font  custom
+fonts           custom
 ```
 
 **Methods:**
@@ -156,17 +156,3 @@ jetbrains-mono-nerd-font  custom
 **Post-install hooks:** Defined in `~/.config/dot/deps-hooks.sh` as `_post_<name>()` functions (dashes in dep name become underscores). Run after installation when a dep is new or updated.
 
 **Existence checks:** `pkg` deps check `command -v` first, then fall back to querying the package manager directly (`brew list`, `dpkg -s`, etc.) — useful for deps like fonts that install no binary.
-
-## Additional Tools
-
-### [`ds`](https://github.com/cgraf78/ds) — Dev Session Launcher
-
-Creates tmux sessions locally or on remote hosts with configurable profiles and per-host defaults. Installed to `~/.local/share/ds` by `dotbootstrap`; updated by `dot update`.
-
-### [`vimrc`](https://github.com/cgraf78/vimrc) — Vim Config
-
-Vim runtime and plugin configuration. Installed to `~/.vim_runtime` by `dotbootstrap`; updated by `dot update`.
-
-### [`gstack`](https://github.com/garrytan/gstack) — Claude Code Skills
-
-A collection of Claude Code skills (slash commands) for engineering workflows: code review, shipping, QA, retros, design consultation, and more. Installed to `~/.gstack` by `dotbootstrap`; updated by `dot update`. Skills are symlinked into `~/.claude/skills/`.
