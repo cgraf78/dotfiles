@@ -313,6 +313,30 @@ _dep_hook_touch() {
   _dep_remote_touch "$stamp"
 }
 
+_dep_rev_stamp() {
+  local name="$1"
+  local state_root="${XDG_STATE_HOME:-$HOME/.local/state}/dot/deps"
+  echo "$state_root/${name}.rev"
+}
+
+_dep_rev_read() {
+  local name="$1"
+  local stamp=""
+  stamp=$(_dep_rev_stamp "$name")
+  [[ -f "$stamp" ]] || return 1
+  read -r REPLY < "$stamp" || return 1
+}
+
+_dep_rev_touch() {
+  local name="$1" rev="$2"
+  local stamp=""
+  stamp=$(_dep_rev_stamp "$name")
+  local stamp_dir
+  stamp_dir=$(dirname "$stamp")
+  mkdir -p "$stamp_dir" || return 1
+  printf '%s\n' "$rev" > "$stamp"
+}
+
 # ---------------------------------------------------------------------------
 # Install methods
 # ---------------------------------------------------------------------------
@@ -364,12 +388,21 @@ _install_from_github() {
     if [[ -L "$install_dir" ]]; then
       link_before=$(readlink "$install_dir" 2>/dev/null || true)
     fi
+    local rev_before="" rev_after="" dirty_after=0
+    _dep_rev_read "$name" && rev_before="$REPLY" || true
+    rev_after=$(git -C "$local_clone" rev-parse HEAD 2>/dev/null || true)
+    if [[ -n "$(git -C "$local_clone" status --porcelain --untracked-files=normal 2>/dev/null || true)" ]]; then
+      dirty_after=1
+    fi
     rm -rf "$install_dir"
     mkdir -p "$(dirname "$install_dir")"
     ln -sfn "$local_clone" "$install_dir"
     _link_bin "$name" "$install_dir"
     local ver; ver=$(_get_version "$local_clone")
-    if [[ "$link_before" != "$local_clone" || "${DOT_FORCE:-0}" -eq 1 ]]; then
+    if [[ -n "$rev_after" ]]; then
+      _dep_rev_touch "$name" "$rev_after" || true
+    fi
+    if [[ "$link_before" != "$local_clone" || "$rev_before" != "$rev_after" || "$dirty_after" -eq 1 || "${DOT_FORCE:-0}" -eq 1 ]]; then
       _DEPS_CHANGED[$name]=1
       _log "  $name -> $local_clone (local clone)${ver:+ -- $ver}"
     else
@@ -672,8 +705,9 @@ _run_post_hooks() {
     [[ -n "${_DEPS_CHANGED[$name]+x}" ]] || continue
     local hook="_post_${name//-/_}"
     if declare -f "$hook" &>/dev/null; then
-      "$hook" || true
-      _dep_hook_touch "$name" || true
+      if "$hook"; then
+        _dep_hook_touch "$name" || true
+      fi
     fi
   done
 }

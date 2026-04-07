@@ -367,6 +367,53 @@ if [[ -n "${_DEPS_CHANGED[$LOCAL_CLONE_NAME]+x}" ]]; then
 else
     _pass "install_from_github: steady local clone skips changed marker"
 fi
+echo "tool 2" > "$LOCAL_CLONE_DIR/README"
+git -C "$LOCAL_CLONE_DIR" add README
+git -C "$LOCAL_CLONE_DIR" commit -m "local update" >/dev/null 2>&1
+unset _DEPS_CHANGED["$LOCAL_CLONE_NAME"] 2>/dev/null || true
+_install_from_github "$LOCAL_CLONE_NAME" "fixture/${LOCAL_CLONE_NAME}.git" "$LOCAL_INSTALL_DIR" >/dev/null 2>&1
+if [[ -n "${_DEPS_CHANGED[$LOCAL_CLONE_NAME]+x}" ]]; then
+    _pass "install_from_github: local clone revision change marks changed"
+else
+    _fail "install_from_github: local clone revision change marks changed"
+fi
+echo "tool 3" > "$LOCAL_CLONE_DIR/README"
+unset _DEPS_CHANGED["$LOCAL_CLONE_NAME"] 2>/dev/null || true
+_install_from_github "$LOCAL_CLONE_NAME" "fixture/${LOCAL_CLONE_NAME}.git" "$LOCAL_INSTALL_DIR" >/dev/null 2>&1
+if [[ -n "${_DEPS_CHANGED[$LOCAL_CLONE_NAME]+x}" ]]; then
+    _pass "install_from_github: dirty local clone marks changed"
+else
+    _fail "install_from_github: dirty local clone marks changed"
+fi
+git -C "$LOCAL_CLONE_DIR" add README
+unset _DEPS_CHANGED["$LOCAL_CLONE_NAME"] 2>/dev/null || true
+_install_from_github "$LOCAL_CLONE_NAME" "fixture/${LOCAL_CLONE_NAME}.git" "$LOCAL_INSTALL_DIR" >/dev/null 2>&1
+if [[ -n "${_DEPS_CHANGED[$LOCAL_CLONE_NAME]+x}" ]]; then
+    _pass "install_from_github: staged local clone marks changed"
+else
+    _fail "install_from_github: staged local clone marks changed"
+fi
+git -C "$LOCAL_CLONE_DIR" reset --hard HEAD >/dev/null 2>&1
+echo "extra" > "$LOCAL_CLONE_DIR/EXTRA"
+unset _DEPS_CHANGED["$LOCAL_CLONE_NAME"] 2>/dev/null || true
+_install_from_github "$LOCAL_CLONE_NAME" "fixture/${LOCAL_CLONE_NAME}.git" "$LOCAL_INSTALL_DIR" >/dev/null 2>&1
+if [[ -n "${_DEPS_CHANGED[$LOCAL_CLONE_NAME]+x}" ]]; then
+    _pass "install_from_github: untracked local clone marks changed"
+else
+    _fail "install_from_github: untracked local clone marks changed"
+fi
+
+_DEPS=("fail-hook|custom")
+declare -f _post_fail_hook >/dev/null 2>&1 && unset -f _post_fail_hook
+_post_fail_hook() {
+    return 1
+}
+declare -gA _DEPS_CHANGED=(["fail-hook"]=1)
+rc=0; _dep_hook_due "fail-hook" || rc=$?
+_assert_exit "hook_due: failing hook starts due" 0 "$rc"
+_run_post_hooks >/dev/null 2>&1
+rc=0; _dep_hook_due "fail-hook" || rc=$?
+_assert_exit "hook_due: failing hook remains due" 0 "$rc"
 
 # ---------------------------------------------------------------------------
 # Tests: _dep_exists
