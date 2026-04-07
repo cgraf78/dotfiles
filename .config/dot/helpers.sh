@@ -254,10 +254,10 @@ _push_work_repo() {
   git -C "$WORK_DIR" push "$@" || _warn "  warning: work dotfiles push failed"
 }
 
-# Run all app config merge scripts (iTerm2, Karabiner, VS Code, etc.).
+# Run all app config merge scripts from merge-hooks.d/.
 _run_merges() {
   local _scripts=()
-  for _script in "$HOME/.config/dot"/merge-*.sh; do
+  for _script in "$HOME/.config/dot/merge-hooks.d"/*.sh; do
     [[ -f "$_script" ]] || continue
     _scripts+=("$_script")
   done
@@ -268,7 +268,8 @@ _run_merges() {
   for _script in "${_scripts[@]}"; do
     # shellcheck source=/dev/null
     . "$_script"
-    _fn="merge_${_script##*merge-}"; _fn="${_fn%.sh}"; _fn="${_fn//-/_}"
+    local _base="${_script##*/}"; _base="${_base%.sh}"
+    _fn="merge_${_base//-/_}"
     if [[ "$DOT_QUIET" -eq 1 ]]; then
       _run_quiet_logged "$_fn" "$_fn failed" "$_fn"
     else

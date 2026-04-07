@@ -225,13 +225,14 @@ result=$(_run_merges 2>&1)
 _assert_eq "no merge scripts → no output" "" "$result"
 
 # Create test merge scripts
-cat > "$TEST_HOME/.config/dot/merge-testapp.sh" <<'MERGE'
+mkdir -p "$TEST_HOME/.config/dot/merge-hooks.d"
+cat > "$TEST_HOME/.config/dot/merge-hooks.d/testapp.sh" <<'MERGE'
 merge_testapp() {
     echo "MERGED_TESTAPP"
 }
 MERGE
 
-cat > "$TEST_HOME/.config/dot/merge-otherapp.sh" <<'MERGE'
+cat > "$TEST_HOME/.config/dot/merge-hooks.d/otherapp.sh" <<'MERGE'
 merge_otherapp() {
     echo "MERGED_OTHERAPP"
 }
@@ -251,7 +252,7 @@ DOT_QUIET=0
 _assert_eq "quiet merges: no output on success" "" "$result"
 
 # Failing merge script doesn't abort
-cat > "$TEST_HOME/.config/dot/merge-failapp.sh" <<'MERGE'
+cat > "$TEST_HOME/.config/dot/merge-hooks.d/failapp.sh" <<'MERGE'
 merge_failapp() {
     return 1
 }
@@ -261,7 +262,7 @@ result=$(_run_merges 2>&1)
 _assert_contains "surviving merges still run" "MERGED_TESTAPP" "$result"
 
 # Hyphenated script name → underscore function mapping
-cat > "$TEST_HOME/.config/dot/merge-test-app.sh" <<'MERGE'
+cat > "$TEST_HOME/.config/dot/merge-hooks.d/test-app.sh" <<'MERGE'
 merge_test_app() {
     echo "MERGED_TEST_APP"
 }
@@ -270,7 +271,7 @@ MERGE
 result=$(_run_merges 2>&1)
 _assert_contains "hyphenated merge: discovered and called" "MERGED_TEST_APP" "$result"
 
-rm -f "$TEST_HOME/.config/dot"/merge-*.sh
+rm -f "$TEST_HOME/.config/dot/merge-hooks.d"/*.sh
 
 # ---------------------------------------------------------------------------
 # Tests: _normalize_filtered (via subprocess since dot has no sourcing guard)
