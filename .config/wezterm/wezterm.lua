@@ -70,7 +70,7 @@ end
 local font_names = {
   'JetBrainsMono Nerd Font',
   'FiraCode Nerd Font',
-  'MesloLG Nerd Font',
+  'MesloLGM Nerd Font Mono',
 }
 local font_size
 local line_height
