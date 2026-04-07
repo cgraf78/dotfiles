@@ -88,6 +88,7 @@ _pull_conflicts_from_log() {
 
 _backup_pull_conflicts() {
   local log="$1"
+  local root="${2:-$HOME}"
   local files=""
   files=$(_pull_conflicts_from_log "$log") || true
   [[ -n "$files" ]] || return 1
@@ -101,9 +102,9 @@ _backup_pull_conflicts() {
   local file count=0
   while IFS= read -r file; do
     [[ -n "$file" ]] || continue
-    if [[ -e "$HOME/$file" || -L "$HOME/$file" ]]; then
+    if [[ -e "$root/$file" || -L "$root/$file" ]]; then
       mkdir -p "$backup/$(dirname "$file")"
-      mv "$HOME/$file" "$backup/$file"
+      mv "$root/$file" "$backup/$file"
       ((count++)) || true
     fi
   done <<< "$files"
@@ -173,14 +174,41 @@ _unstash_work_overrides() {
 _pull_work_repo() {
   [[ -d "$WORK_DIR/.git" ]] || return 0
   _log "==> Pulling work dotfiles..."
-  if [[ "$DOT_QUIET" -eq 1 ]]; then
-    _run_quiet_logged \
-      "work dotfiles pull" \
-      "work dotfiles pull failed" \
-      git -C "$WORK_DIR" pull --quiet "$@"
-  else
+
+  local log=""
+  if ! _logfile_create; then
     git -C "$WORK_DIR" pull "$@" || _warn "  warning: work dotfiles pull failed"
+    return 0
   fi
+  log="$REPLY"
+
+  local rc=0
+  if [[ "$DOT_QUIET" -eq 1 ]]; then
+    git -C "$WORK_DIR" pull --quiet "$@" >"$log" 2>&1 || rc=$?
+  else
+    git -C "$WORK_DIR" pull "$@" >"$log" 2>&1 || rc=$?
+  fi
+
+  if [[ "$rc" -ne 0 ]] && _backup_pull_conflicts "$log" "$WORK_DIR"; then
+    : > "$log"
+    rc=0
+    if [[ "$DOT_QUIET" -eq 1 ]]; then
+      git -C "$WORK_DIR" pull --quiet "$@" >"$log" 2>&1 || rc=$?
+    else
+      git -C "$WORK_DIR" pull "$@" >"$log" 2>&1 || rc=$?
+    fi
+  fi
+
+  if [[ "$DOT_QUIET" -ne 1 && -s "$log" ]]; then
+    cat "$log"
+  fi
+
+  if [[ "$rc" -ne 0 ]]; then
+    _warn "  warning: work dotfiles pull failed"
+  fi
+
+  rm -f "$log"
+  return 0
 }
 
 # Run work bootstrap (symlinks, app config merges).
