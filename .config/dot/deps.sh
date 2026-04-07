@@ -389,7 +389,9 @@ _install_from_github() {
       link_before=$(readlink "$install_dir" 2>/dev/null || true)
     fi
     local rev_before="" rev_after="" dirty_after=0
-    _dep_rev_read "$name" && rev_before="$REPLY" || true
+    if _dep_rev_read "$name"; then
+      rev_before="$REPLY"
+    fi
     rev_after=$(git -C "$local_clone" rev-parse HEAD 2>/dev/null || true)
     if [[ -n "$(git -C "$local_clone" status --porcelain --untracked-files=normal 2>/dev/null || true)" ]]; then
       dirty_after=1
