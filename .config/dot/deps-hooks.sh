@@ -136,9 +136,8 @@ _post_nerd_fonts() {
     rm -rf "$tmp"
   done < <(_nerd_fonts_entries)
 
-  if [[ $_any_installed -eq 0 ]]; then
-    _status_nerd_fonts
-  fi
+  # Nothing installed — hook stamp is touched by _run_post_hooks caller.
+  # Status already printed by the _status_nerd_fonts loop.
 }
 
 _status_wezterm() {
@@ -164,8 +163,8 @@ _post_wezterm() {
   fi
 
   # Fast path: already installed and not forcing reinstall.
+  # Status already printed by the _status_wezterm loop.
   if command -v wezterm &>/dev/null && [[ "${DOT_FORCE:-0}" -ne 1 ]]; then
-    _status_wezterm
     return 0
   fi
 
