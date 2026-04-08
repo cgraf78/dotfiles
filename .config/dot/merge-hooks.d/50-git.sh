@@ -21,7 +21,6 @@ merge() {
     git config --global delta.line-numbers true
     git config --global delta.dark true
     git config --global delta.hyperlinks true
-    git config --global diff.colorMoved default
   fi
 
   # Diff and merge
@@ -29,13 +28,15 @@ merge() {
   git config --global diff.colorMoved default
   git config --global merge.conflictstyle zdiff3
 
-  # Push and pull
+  # Fetch and push
+  git config --global fetch.prune true
   git config --global push.autoSetupRemote true
   git config --global pull.rebase true
   git config --global rebase.autoStash true
   git config --global rebase.autoSquash true
 
   # UX
+  git config --global commit.verbose true
   git config --global init.defaultBranch main
   git config --global column.ui auto
   git config --global rerere.enabled true
