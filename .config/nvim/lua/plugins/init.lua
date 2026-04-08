@@ -344,6 +344,84 @@ return {
     end,
   },
   {
+    "WhoIsSethDaniel/mason-tool-installer.nvim",
+    dependencies = { "williamboman/mason.nvim" },
+    config = function()
+      require("mason-tool-installer").setup({
+        ensure_installed = {
+          "eslint_d",
+          "prettier",
+          "ruff",
+          "shfmt",
+          "stylua",
+          "taplo",
+        },
+      })
+    end,
+  },
+  {
+    "stevearc/conform.nvim",
+    event = "BufWritePre",
+    keys = {
+      {
+        "<leader>cf",
+        function() require("conform").format({ async = true }) end,
+        desc = "Format buffer",
+      },
+    },
+    config = function()
+      require("conform").setup({
+        formatters_by_ft = {
+          bash = { "shfmt" },
+          c = { "clang-format" },
+          cpp = { "clang-format" },
+          css = { "prettier" },
+          html = { "prettier" },
+          javascript = { "prettier" },
+          javascriptreact = { "prettier" },
+          json = { "prettier" },
+          lua = { "stylua" },
+          markdown = { "prettier" },
+          python = { "ruff_format" },
+          rust = { "rustfmt" },
+          sh = { "shfmt" },
+          toml = { "taplo" },
+          typescript = { "prettier" },
+          typescriptreact = { "prettier" },
+          yaml = { "prettier" },
+        },
+        format_on_save = function(bufnr)
+          -- Skip if formatter not installed
+          if vim.g.disable_autoformat or vim.b[bufnr].disable_autoformat then
+            return
+          end
+          return { timeout_ms = 2000, lsp_format = "fallback" }
+        end,
+      })
+    end,
+  },
+  {
+    "mfussenegger/nvim-lint",
+    event = { "BufReadPost", "BufWritePost", "InsertLeave" },
+    config = function()
+      local lint = require("lint")
+      lint.linters_by_ft = {
+        bash = { "shellcheck" },
+        javascript = { "eslint_d" },
+        javascriptreact = { "eslint_d" },
+        python = { "ruff" },
+        sh = { "shellcheck" },
+        typescript = { "eslint_d" },
+        typescriptreact = { "eslint_d" },
+      }
+      vim.api.nvim_create_autocmd({ "BufReadPost", "BufWritePost", "InsertLeave" }, {
+        callback = function()
+          lint.try_lint()
+        end,
+      })
+    end,
+  },
+  {
     "christoomey/vim-tmux-navigator",
     lazy = false,
   },

@@ -38,5 +38,12 @@ map("n", "<F5>", function()
   vim.api.nvim_win_set_cursor(0, pos)
 end, { desc = "Strip trailing whitespace" })
 
+-- Toggle format-on-save
+map("n", "<leader>tf", function()
+  vim.g.disable_autoformat = not vim.g.disable_autoformat
+  local state = vim.g.disable_autoformat and "disabled" or "enabled"
+  vim.notify("Format-on-save " .. state)
+end, { desc = "Toggle format-on-save" })
+
 -- Spell checking
 map("n", "<leader>ss", ":setlocal spell!<CR>")
