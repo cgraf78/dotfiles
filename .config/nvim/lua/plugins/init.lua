@@ -330,8 +330,13 @@ return {
         ensure_installed = {
           "bashls",
           "clangd",
+          "jsonls",
           "lua_ls",
+          "marksman",
           "pyright",
+          "rust_analyzer",
+          "ts_ls",
+          "yamlls",
         },
         automatic_enable = false, -- lsp.lua handles vim.lsp.enable
       })

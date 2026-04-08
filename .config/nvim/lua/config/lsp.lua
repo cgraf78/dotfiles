@@ -41,4 +41,29 @@ vim.lsp.config("bashls", {
   filetypes = { "sh", "bash", "zsh" },
 })
 
-vim.lsp.enable({ "clangd", "pyright", "lua_ls", "bashls" })
+-- TypeScript/JavaScript
+vim.lsp.config("ts_ls", { capabilities = capabilities })
+
+-- Rust
+vim.lsp.config("rust_analyzer", { capabilities = capabilities })
+
+-- JSON
+vim.lsp.config("jsonls", { capabilities = capabilities })
+
+-- YAML
+vim.lsp.config("yamlls", { capabilities = capabilities })
+
+-- Markdown
+vim.lsp.config("marksman", { capabilities = capabilities })
+
+vim.lsp.enable({
+  "bashls",
+  "clangd",
+  "jsonls",
+  "lua_ls",
+  "marksman",
+  "pyright",
+  "rust_analyzer",
+  "ts_ls",
+  "yamlls",
+})
