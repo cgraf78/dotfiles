@@ -47,3 +47,4 @@ end, { desc = "Toggle format-on-save" })
 
 -- Spell checking
 map("n", "<leader>ss", ":setlocal spell!<CR>", { desc = "Toggle spell check" })
+
