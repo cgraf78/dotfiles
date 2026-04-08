@@ -7,6 +7,11 @@ merge() {
 
   echo "  Git"
 
+  # Identity and editor
+  git config --global user.name "Chris Graf"
+  git config --global user.email "chris@grafhome.net"
+  git config --global core.editor nvim
+
   # Delta pager (only if delta is installed)
   if command -v delta &>/dev/null; then
     git config --global core.pager delta
