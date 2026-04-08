@@ -24,6 +24,22 @@ merge() {
     git config --global diff.colorMoved default
   fi
 
-  # Merge conflict style
+  # Diff and merge
+  git config --global diff.algorithm histogram
+  git config --global diff.colorMoved default
   git config --global merge.conflictstyle zdiff3
+
+  # Push and pull
+  git config --global push.autoSetupRemote true
+  git config --global pull.rebase true
+  git config --global rebase.autoStash true
+  git config --global rebase.autoSquash true
+
+  # UX
+  git config --global init.defaultBranch main
+  git config --global column.ui auto
+  git config --global rerere.enabled true
+
+  # Safety
+  git config --global transfer.fsckObjects true
 }
