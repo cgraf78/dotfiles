@@ -440,8 +440,21 @@ return {
     "folke/which-key.nvim",
     event = "VeryLazy",
     config = function()
-      require("which-key").setup({
-        delay = 500,
+      local wk = require("which-key")
+      wk.setup({ delay = 500 })
+      wk.add({
+        { "<leader>b", group = "buffer" },
+        { "<leader>c", group = "code" },
+        { "<leader>h", group = "git hunk" },
+        { "<leader>n", group = "file tree" },
+        { "<leader>q", group = "session" },
+        { "<leader>r", group = "rename" },
+        { "<leader>s", group = "spell" },
+        { "<leader>t", group = "toggle/tab" },
+        { "<leader>x", group = "diagnostics" },
+        { "g", group = "goto" },
+        { "[", group = "previous" },
+        { "]", group = "next" },
       })
     end,
   },

@@ -3,19 +3,20 @@ local map = vim.keymap.set
 -- Keymaps: only active when an LSP server is attached
 vim.api.nvim_create_autocmd("LspAttach", {
   callback = function(ev)
-    local opts = { buffer = ev.buf }
-    map("n", "gd", vim.lsp.buf.definition, opts)
-    map("n", "gD", vim.lsp.buf.declaration, opts)
-    map("n", "gi", vim.lsp.buf.implementation, opts)
-    map("n", "gr", vim.lsp.buf.references, opts)
-    map("n", "K", vim.lsp.buf.hover, opts)
-    map("n", "<C-k>", vim.lsp.buf.signature_help, opts)
-    map("n", "<leader>D", vim.lsp.buf.type_definition, opts)
-    map("n", "<leader>rn", vim.lsp.buf.rename, opts)
-    map("n", "<leader>ca", vim.lsp.buf.code_action, opts)
-    map("n", "[d", vim.diagnostic.goto_prev, opts)
-    map("n", "]d", vim.diagnostic.goto_next, opts)
-    map("n", "<leader>e", vim.diagnostic.open_float, opts)
+    local b = ev.buf
+    map("n", "gd", vim.lsp.buf.definition, { buffer = b, desc = "Go to definition" })
+    map("n", "gD", vim.lsp.buf.declaration, { buffer = b, desc = "Go to declaration" })
+    map("n", "gi", vim.lsp.buf.implementation, { buffer = b, desc = "Go to implementation" })
+    map("n", "gr", vim.lsp.buf.references, { buffer = b, desc = "Find references" })
+    map("n", "K", vim.lsp.buf.hover, { buffer = b, desc = "Hover docs" })
+    map("n", "<C-k>", vim.lsp.buf.signature_help, { buffer = b, desc = "Signature help" })
+    map("i", "<C-k>", vim.lsp.buf.signature_help, { buffer = b, desc = "Signature help" })
+    map("n", "<leader>D", vim.lsp.buf.type_definition, { buffer = b, desc = "Type definition" })
+    map("n", "<leader>rn", vim.lsp.buf.rename, { buffer = b, desc = "Rename symbol" })
+    map("n", "<leader>ca", vim.lsp.buf.code_action, { buffer = b, desc = "Code action" })
+    map("n", "[d", vim.diagnostic.goto_prev, { buffer = b, desc = "Previous diagnostic" })
+    map("n", "]d", vim.diagnostic.goto_next, { buffer = b, desc = "Next diagnostic" })
+    map("n", "<leader>e", vim.diagnostic.open_float, { buffer = b, desc = "Show diagnostic" })
   end,
 })
 
