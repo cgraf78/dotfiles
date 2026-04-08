@@ -123,6 +123,15 @@ if [[ "$_UNAME" == "Darwin" ]]; then
 
     # WezTerm
     test -e "/Applications/WezTerm.app/Contents/Resources/wezterm.sh" && . "/Applications/WezTerm.app/Contents/Resources/wezterm.sh"
+
+    # Screenshot capture to Google Drive
+    sc() {
+        if [[ ! -d ~/gdrive/img ]]; then
+            echo "error: ~/gdrive/img does not exist" >&2
+            return 1
+        fi
+        screencapture -i ~/gdrive/img/"screen_$(date +%Y%m%d_%H%M%S).png"
+    }
 fi
 
 # =============================================================================
