@@ -14,8 +14,8 @@
 
 set -euo pipefail
 
-# shellcheck source=../../.config/dot/helpers.sh
-. "$HOME/.config/dot/helpers.sh"
+# shellcheck source=../../.config/dot/init.sh
+. "$HOME/.config/dot/init.sh"
 
 # ---------------------------------------------------------------------------
 # Global flags

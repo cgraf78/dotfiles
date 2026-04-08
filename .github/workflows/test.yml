@@ -17,7 +17,11 @@ jobs:
           shellcheck -x -P SCRIPTDIR
           .local/bin/dot
           .local/bin/dotbootstrap
-          .config/dot/helpers.sh
+          .config/dot/init.sh
+          .config/dot/core.sh
+          .config/dot/repos.sh
+          .config/dot/merges.sh
+          .config/dot/cron.sh
           .config/dot/deps.sh
           .config/dot/deps-hooks.d/*.sh
           .config/dot/merge-hooks.d/*.sh

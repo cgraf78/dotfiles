@@ -34,8 +34,8 @@ $GIT add .testrc .config/dot/placeholder
 $GIT commit -m "initial" >/dev/null 2>&1
 
 # Source shared helpers and dotbootstrap functions (without running main logic)
-# shellcheck source=../../.config/dot/helpers.sh
-. "$REAL_HOME/.config/dot/helpers.sh"
+# shellcheck source=../../.config/dot/init.sh
+. "$REAL_HOME/.config/dot/init.sh"
 WORK_DIR="$TEST_HOME/.dotfiles-work"
 BACKUP="$TEST_HOME/.dotfiles-backup/test"
 BRANCH=""
@@ -872,8 +872,9 @@ PERSONAL_STAGING=$(_tmpdir)
 mkdir -p "$PERSONAL_STAGING/.config/dot"
 echo "bashrc content" > "$PERSONAL_STAGING/.bashrc"
 
-cp "$REAL_HOME/.config/dot/helpers.sh" "$PERSONAL_STAGING/.config/dot/helpers.sh"
-cp "$REAL_HOME/.config/dot/deps.sh" "$PERSONAL_STAGING/.config/dot/deps.sh"
+for _f in init.sh core.sh repos.sh merges.sh cron.sh deps.sh; do
+  cp "$REAL_HOME/.config/dot/$_f" "$PERSONAL_STAGING/.config/dot/$_f"
+done
 cat > "$PERSONAL_STAGING/.config/dot/deps.conf" <<'CONF'
 test-tool  git  -  -  -  fixture/test-tool.git  .local/share/test-tool
 hook-pack  git  -  -  -  fixture/hook-pack.git  .local/share/hook-pack
@@ -960,7 +961,7 @@ _assert_contains "personal: json-sort filter" "jq" "$($_fgit config filter.json-
 # Files checked out
 _assert_file_exists "personal: .bashrc checked out" "$FRESH/.bashrc"
 _assert_file_content "personal: .bashrc content" "bashrc content" "$FRESH/.bashrc"
-_assert_file_exists "personal: helpers.sh checked out" "$FRESH/.config/dot/helpers.sh"
+_assert_file_exists "personal: init.sh checked out" "$FRESH/.config/dot/init.sh"
 
 # Work repo NOT cloned
 if [[ ! -d "$FRESH/.dotfiles-work" ]]; then

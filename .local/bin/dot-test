@@ -24,7 +24,11 @@ if command -v shellcheck &>/dev/null; then
     _sc_files=(
         "$REAL_HOME/.local/bin/dot"
         "$REAL_HOME/.local/bin/dotbootstrap"
-        "$REAL_HOME/.config/dot/helpers.sh"
+        "$REAL_HOME/.config/dot/init.sh"
+        "$REAL_HOME/.config/dot/core.sh"
+        "$REAL_HOME/.config/dot/repos.sh"
+        "$REAL_HOME/.config/dot/merges.sh"
+        "$REAL_HOME/.config/dot/cron.sh"
         "$REAL_HOME/.config/dot/deps.sh"
         "$REAL_HOME/.config/dot/test-helpers.sh"
     )
@@ -53,7 +57,7 @@ export HOME="$TEST_HOME"
 # Create a bare repo to serve as .dotfiles
 git init --bare "$TEST_HOME/.dotfiles" >/dev/null 2>&1
 
-# Set GIT and WORK_DIR to match what helpers.sh would set
+# Set GIT and WORK_DIR to match what init.sh would set
 DOTFILES="$TEST_HOME/.dotfiles"
 GIT="git --git-dir=$DOTFILES --work-tree=$TEST_HOME"
 WORK_DIR="$TEST_HOME/.dotfiles-work"
@@ -62,10 +66,11 @@ WORK_DIR="$TEST_HOME/.dotfiles-work"
 $GIT config user.email "test@test.com"
 $GIT config user.name "Test"
 
-# Create helpers.sh and dot config dir
+# Create dot config dir and copy modules
 mkdir -p "$TEST_HOME/.config/dot"
-cp "$REAL_HOME/.config/dot/helpers.sh" "$TEST_HOME/.config/dot/helpers.sh"
-cp "$REAL_HOME/.config/dot/deps.sh" "$TEST_HOME/.config/dot/deps.sh"
+for _f in init.sh core.sh repos.sh merges.sh cron.sh deps.sh; do
+  cp "$REAL_HOME/.config/dot/$_f" "$TEST_HOME/.config/dot/$_f"
+done
 cat > "$TEST_HOME/.config/dot/deps.conf" <<'CONF'
 test-tool  git  -  -  -  fixture/test-tool.git  .local/share/test-tool
 hook-pack  git  -  -  -  fixture/hook-pack.git  .local/share/hook-pack
@@ -87,10 +92,10 @@ $GIT commit -m "initial" >/dev/null 2>&1
 # Tests: helpers.sh variables
 # ---------------------------------------------------------------------------
 
-echo "=== helpers.sh setup ==="
+echo "=== init.sh setup ==="
 
-# Source helpers in test HOME context
-. "$TEST_HOME/.config/dot/helpers.sh"
+# Source init in test HOME context
+. "$TEST_HOME/.config/dot/init.sh"
 
 _assert_eq "DOTFILES points to bare repo" "$TEST_HOME/.dotfiles" "$DOTFILES"
 _assert_eq "WORK_DIR points to work clone" "$TEST_HOME/.dotfiles-work" "$WORK_DIR"
@@ -463,8 +468,9 @@ _assert_file_content "update: generic hook ran" "$TEST_HOME/.local/share/hook-pa
 # Update without bare repo: no error, no pull, still succeeds
 NO_REPO_HOME=$(_tmpdir)
 mkdir -p "$NO_REPO_HOME/.config/dot"
-cp "$REAL_HOME/.config/dot/helpers.sh" "$NO_REPO_HOME/.config/dot/helpers.sh"
-cp "$REAL_HOME/.config/dot/deps.sh" "$NO_REPO_HOME/.config/dot/deps.sh"
+for _f in init.sh core.sh repos.sh merges.sh cron.sh deps.sh; do
+  cp "$REAL_HOME/.config/dot/$_f" "$NO_REPO_HOME/.config/dot/$_f"
+done
 cp "$TEST_HOME/.config/dot/deps.conf" "$NO_REPO_HOME/.config/dot/deps.conf"
 cp -r "$TEST_HOME/.config/dot/deps-hooks.d" "$NO_REPO_HOME/.config/dot/deps-hooks.d"
 

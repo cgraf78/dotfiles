@@ -1,6 +1,6 @@
 #!/bin/bash
 # Dependency management for dotbootstrap.
-# Sourced by helpers.sh. Requires _log, _warn, DOT_QUIET from helpers.sh.
+# Sourced by init.sh. Requires _log, _warn, DOT_QUIET from core.sh.
 # Set DOT_FORCE=1 to force reinstall of all deps and re-run all hooks.
 
 # ---------------------------------------------------------------------------
