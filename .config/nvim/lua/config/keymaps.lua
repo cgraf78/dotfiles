@@ -45,6 +45,27 @@ map("n", "<leader>tf", function()
   vim.notify("Format-on-save " .. state)
 end, { desc = "Toggle format-on-save" })
 
+-- Center cursor after scrolling
+map("n", "<C-d>", "<C-d>zz", { desc = "Scroll down (centered)" })
+map("n", "<C-u>", "<C-u>zz", { desc = "Scroll up (centered)" })
+
+-- Center cursor after search navigation
+map("n", "n", "nzzzv", { desc = "Next search result (centered)" })
+map("n", "N", "Nzzzv", { desc = "Prev search result (centered)" })
+
+-- Save from any mode
+map({ "n", "i", "v" }, "<C-s>", "<cmd>w<cr><esc>", { desc = "Save file" })
+
+-- Paste over selection without losing clipboard
+map("v", "<leader>p", '"_dP', { desc = "Paste without yank" })
+
+-- Yank whole line to system clipboard
+map("n", "<leader>Y", '"+yy', { desc = "Yank line to clipboard" })
+map("v", "<leader>Y", '"+y', { desc = "Yank selection to clipboard" })
+
+-- Join lines without cursor jump
+map("n", "J", "mzJ`z", { desc = "Join lines (keep cursor)" })
+
 -- Spell checking
 map("n", "<leader>ss", ":setlocal spell!<CR>", { desc = "Toggle spell check" })
 
