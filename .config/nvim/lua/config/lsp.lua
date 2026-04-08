@@ -5,12 +5,17 @@ vim.api.nvim_create_autocmd("LspAttach", {
   callback = function(ev)
     local opts = { buffer = ev.buf }
     map("n", "gd", vim.lsp.buf.definition, opts)
+    map("n", "gD", vim.lsp.buf.declaration, opts)
+    map("n", "gi", vim.lsp.buf.implementation, opts)
     map("n", "gr", vim.lsp.buf.references, opts)
     map("n", "K", vim.lsp.buf.hover, opts)
+    map("n", "<C-k>", vim.lsp.buf.signature_help, opts)
+    map("n", "<leader>D", vim.lsp.buf.type_definition, opts)
     map("n", "<leader>rn", vim.lsp.buf.rename, opts)
     map("n", "<leader>ca", vim.lsp.buf.code_action, opts)
     map("n", "[d", vim.diagnostic.goto_prev, opts)
     map("n", "]d", vim.diagnostic.goto_next, opts)
+    map("n", "<leader>e", vim.diagnostic.open_float, opts)
   end,
 })
 
@@ -45,13 +50,42 @@ vim.lsp.config("bashls", {
 vim.lsp.config("ts_ls", { capabilities = capabilities })
 
 -- Rust
-vim.lsp.config("rust_analyzer", { capabilities = capabilities })
+vim.lsp.config("rust_analyzer", {
+  capabilities = capabilities,
+  settings = {
+    ["rust-analyzer"] = {
+      inlayHints = {
+        parameterHints = { enable = true },
+        typeHints = { enable = true },
+        chainingHints = { enable = true },
+      },
+      checkOnSave = { command = "clippy" },
+    },
+  },
+})
 
--- JSON
-vim.lsp.config("jsonls", { capabilities = capabilities })
+-- JSON (with schemastore for config file validation)
+local schemastore_ok, schemastore = pcall(require, "schemastore")
+vim.lsp.config("jsonls", {
+  capabilities = capabilities,
+  settings = {
+    json = {
+      schemas = schemastore_ok and schemastore.json.schemas() or {},
+      validate = { enable = true },
+    },
+  },
+})
 
--- YAML
-vim.lsp.config("yamlls", { capabilities = capabilities })
+-- YAML (with schemastore for config file validation)
+vim.lsp.config("yamlls", {
+  capabilities = capabilities,
+  settings = {
+    yaml = {
+      schemas = schemastore_ok and schemastore.yaml.schemas() or {},
+      validate = true,
+    },
+  },
+})
 
 -- Markdown
 vim.lsp.config("marksman", { capabilities = capabilities })

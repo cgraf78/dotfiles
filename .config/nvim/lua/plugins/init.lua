@@ -315,6 +315,7 @@ return {
     end,
   },
   { "neovim/nvim-lspconfig", lazy = true },
+  { "b0o/schemastore.nvim", lazy = true },
   {
     "williamboman/mason.nvim",
     build = ":MasonUpdate",

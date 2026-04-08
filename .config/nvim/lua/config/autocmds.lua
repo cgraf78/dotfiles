@@ -11,7 +11,11 @@ vim.api.nvim_create_autocmd("BufReadPost", {
 
 -- Auto-strip trailing whitespace on save for common filetypes
 vim.api.nvim_create_autocmd("BufWritePre", {
-  pattern = { "*.py", "*.js", "*.ts", "*.lua", "*.sh", "*.cpp", "*.h", "*.c" },
+  pattern = {
+    "*.py", "*.js", "*.ts", "*.tsx", "*.lua", "*.sh",
+    "*.c", "*.cpp", "*.h", "*.hpp",
+    "*.rs", "*.toml", "*.json", "*.yaml", "*.yml", "*.md",
+  },
   callback = function()
     local pos = vim.api.nvim_win_get_cursor(0)
     vim.cmd([[%s/\s\+$//e]])
