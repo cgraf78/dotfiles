@@ -3,21 +3,61 @@ return {
     "nvim-treesitter/nvim-treesitter",
     build = ":TSUpdate",
     event = "BufReadPost",
+    dependencies = {
+      "nvim-treesitter/nvim-treesitter-textobjects",
+    },
     config = function()
-      vim.treesitter.language.add("c")
-      vim.treesitter.language.add("cpp")
-      vim.treesitter.language.add("python")
-      vim.treesitter.language.add("lua")
-      vim.treesitter.language.add("bash")
-      vim.treesitter.language.add("json")
-      vim.treesitter.language.add("yaml")
-      vim.treesitter.language.add("javascript")
-      vim.treesitter.language.add("typescript")
-      vim.treesitter.language.add("markdown")
-      vim.treesitter.language.add("rust")
-      vim.treesitter.language.add("toml")
-      vim.treesitter.language.add("cmake")
-      vim.treesitter.language.add("make")
+      require("nvim-treesitter.configs").setup({
+        ensure_installed = {
+          "bash",
+          "c",
+          "cmake",
+          "cpp",
+          "javascript",
+          "json",
+          "lua",
+          "make",
+          "markdown",
+          "markdown_inline",
+          "python",
+          "rust",
+          "toml",
+          "typescript",
+          "vimdoc",
+          "yaml",
+        },
+        auto_install = false,
+        highlight = { enable = true },
+        indent = { enable = true },
+        textobjects = {
+          select = {
+            enable = true,
+            lookahead = true,
+            keymaps = {
+              ["af"] = "@function.outer",
+              ["if"] = "@function.inner",
+              ["ac"] = "@class.outer",
+              ["ic"] = "@class.inner",
+              ["ab"] = "@block.outer",
+              ["ib"] = "@block.inner",
+              ["ap"] = "@parameter.outer",
+              ["ip"] = "@parameter.inner",
+            },
+          },
+          move = {
+            enable = true,
+            set_jumps = true,
+            goto_next_start = {
+              ["]m"] = "@function.outer",
+              ["]]"] = "@class.outer",
+            },
+            goto_previous_start = {
+              ["[m"] = "@function.outer",
+              ["[["] = "@class.outer",
+            },
+          },
+        },
+      })
     end,
   },
 }

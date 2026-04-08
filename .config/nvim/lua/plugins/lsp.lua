@@ -15,7 +15,6 @@ return {
       require("mason-lspconfig").setup({
         ensure_installed = {
           "bashls",
-          "clangd",
           "jsonls",
           "lua_ls",
           "marksman",
