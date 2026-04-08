@@ -6,16 +6,24 @@
 # Policy: dotfiles keys overwrite matching local keys.
 # Local-only keys are preserved.
 
+_gh_yq() {
+  local yq_bin=""
+  yq_bin=$(command -v yq 2>/dev/null) || return 1
+  "$yq_bin" --version 2>/dev/null | grep -qi 'mikefarah' || return 1
+  printf '%s\n' "$yq_bin"
+}
+
 merge() {
   local src="$HOME/.config/dot/merge-hooks.d/gh-config.yml"
   local dst="$HOME/.config/gh/config.yml"
+  local yq_bin=""
 
   [[ -f "$src" ]] || return 0
 
   echo "  GitHub CLI"
 
-  if ! command -v yq &>/dev/null; then
-    echo "    skipped (yq not installed)"
+  if ! yq_bin=$(_gh_yq); then
+    echo "    skipped (requires mikefarah yq)"
     return 0
   fi
 
@@ -28,7 +36,7 @@ merge() {
 
   # Merge: source keys overwrite destination, local-only keys preserved
   local merged
-  merged=$(yq eval-all 'select(fileIndex == 0) * select(fileIndex == 1)' "$dst" "$src") || {
+  merged=$("$yq_bin" eval-all 'select(fileIndex == 0) * select(fileIndex == 1)' "$dst" "$src") || {
     echo "    warning: merge failed — skipping"
     return 0
   }
