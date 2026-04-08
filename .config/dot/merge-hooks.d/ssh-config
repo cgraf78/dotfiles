@@ -1,0 +1,10 @@
+Host nas nas.grafhome.net
+  Hostname nas.grafhome.net
+  User chris
+  IdentityFile ~/.ssh/chris.key
+
+Host taylor
+  Hostname taylor.web
+  User chris
+  IdentityFile ~/.ssh/chris.key
+  ProxyJump nas
