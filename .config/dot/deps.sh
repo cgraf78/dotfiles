@@ -657,8 +657,15 @@ _install_dep() {
   _dep_parse "$entry"
   case "$_method" in
     pkg)
-      if _dep_exists "$_cmd" "$_cmd_alt" "$_name"; then
+      local resolved_pkg=""
+      resolved_pkg=$(_pkg_resolve "$_name" "$_pkg_overrides")
+      if _dep_exists "$_cmd" "$_cmd_alt" "$resolved_pkg"; then
         _PKG_PRESENT+=("$_name")
+        # If the package exists but the expected command is still missing,
+        # run the post hook so it can expose wrapper/symlinked binaries.
+        if ! _dep_exists "$_cmd" "$_cmd_alt"; then
+          _DEPS_CHANGED[$_name]=1
+        fi
         return 0
       fi
       _pkg_queue "$_name" "$_pkg_overrides"
