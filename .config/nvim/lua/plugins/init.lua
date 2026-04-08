@@ -316,6 +316,28 @@ return {
   },
   { "neovim/nvim-lspconfig", lazy = true },
   {
+    "williamboman/mason.nvim",
+    build = ":MasonUpdate",
+    config = function()
+      require("mason").setup()
+    end,
+  },
+  {
+    "williamboman/mason-lspconfig.nvim",
+    dependencies = { "williamboman/mason.nvim", "neovim/nvim-lspconfig" },
+    config = function()
+      require("mason-lspconfig").setup({
+        ensure_installed = {
+          "bashls",
+          "clangd",
+          "lua_ls",
+          "pyright",
+        },
+        automatic_enable = false, -- lsp.lua handles vim.lsp.enable
+      })
+    end,
+  },
+  {
     "christoomey/vim-tmux-navigator",
     lazy = false,
   },
