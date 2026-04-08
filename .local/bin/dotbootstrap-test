@@ -95,8 +95,8 @@ echo "=== WezTerm merge ==="
 # Source the real merge-wezterm script from the repo under test.
 # It should copy ~/.wezterm.lua into the Windows home when running under WSL.
 # Use a test-only Windows-home override so we don't depend on the host environment.
-# shellcheck source=../.config/dot/merge-hooks.d/wezterm.sh
-. "$SCRIPT_DIR/../../.config/dot/merge-hooks.d/wezterm.sh"
+# shellcheck source=../.config/dot/merge-hooks.d/50-wezterm.sh
+. "$SCRIPT_DIR/../../.config/dot/merge-hooks.d/50-wezterm.sh"
 
 WEZ_HOME=$(_tmpdir)
 WEZ_WIN_HOME=$(_tmpdir)
