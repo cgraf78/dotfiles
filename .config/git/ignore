@@ -1,0 +1,32 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# Editors
+*~
+.*.sw?
+\#*\#
+.#*
+
+# IDEs
+.idea/
+
+# Direnv
+.direnv/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Node
+node_modules/
+
+# Merge artifacts
+*.orig
