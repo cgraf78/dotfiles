@@ -1,4 +1,4 @@
-Host nas nas.grafhome.net
+Host nas
   Hostname nas.grafhome.net
   User chris
   IdentityFile ~/.ssh/chris.key
@@ -8,3 +8,34 @@ Host taylor
   User chris
   IdentityFile ~/.ssh/chris.key
   ProxyJump nas
+
+Host metro
+  HostName metro.web
+  User chris
+  IdentityFile ~/.ssh/chris.key
+  ProxyJump nas
+
+Host bevo2
+  HostName bevo2.lan
+  User chris
+  IdentityFile ~/.ssh/chris.key
+  ProxyJump nas
+
+Host openclaw
+  HostName taylor.web
+  User openclaw
+  IdentityFile ~/.ssh/chris.key
+  ProxyJump nas
+
+Host router
+  HostName router.lan
+  User root
+  IdentityFile ~/.ssh/chris.key
+  ProxyJump nas
+
+Host minecraft
+  HostName minecraft.web
+  User chris
+  IdentityFile ~/.ssh/chris.key
+  ProxyJump nas
+
