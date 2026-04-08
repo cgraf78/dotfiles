@@ -167,6 +167,11 @@ return {
     },
   },
   {
+    "doctorfree/cheatsheet.nvim",
+    dependencies = { "nvim-telescope/telescope.nvim", "nvim-lua/plenary.nvim" },
+    cmd = "Cheatsheet",
+  },
+  {
     "nvim-telescope/telescope.nvim",
     dependencies = { "nvim-lua/plenary.nvim" },
     keys = {
@@ -176,7 +181,8 @@ return {
       { "<leader>g", "<cmd>Telescope live_grep<cr>", desc = "Live grep" },
       { "<leader>j", "<cmd>Telescope find_files<cr>", desc = "Find files" },
       { "<leader>/", "<cmd>Telescope current_buffer_fuzzy_find<cr>", desc = "Search in buffer" },
-      { "<leader>?", "<cmd>Telescope keymaps<cr>", desc = "Search all keymaps" },
+      { "<leader>?", "<cmd>Telescope keymaps<cr>", desc = "Search keymaps" },
+      { "<leader>sv", "<cmd>Cheatsheet<cr>", desc = "Vim cheatsheet" },
       { "<leader>sh", "<cmd>Telescope help_tags<cr>", desc = "Search help" },
       { "<leader>sc", "<cmd>Telescope commands<cr>", desc = "Search commands" },
     },
