@@ -7,6 +7,12 @@ Desktop/
 Movies/
 .Trash/
 
+# Windows system
+$Recycle.Bin/
+System Volume Information/
+AppData/
+ProgramData/
+
 # Dev noise
 .dotfiles-backup/
 .local/share/Steam/
