@@ -35,6 +35,11 @@ argus() {
 }
 
 # Tool shell integrations (completions, key bindings, auto-attach)
+# Zsh completion must be initialized before tools register `compdef` hooks.
+autoload -Uz compinit
+compinit
+
 command -v fzf &>/dev/null && eval "$(fzf --zsh 2>/dev/null)"
+command -v ds &>/dev/null && eval "$(ds init zsh)" || true
 command -v zoxide &>/dev/null && eval "$(zoxide init zsh)"
 command -v atuin &>/dev/null && eval "$(atuin init zsh --disable-up-arrow)"
