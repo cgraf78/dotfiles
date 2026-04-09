@@ -126,7 +126,7 @@ if [[ "$_UNAME" == "Darwin" ]]; then
     test -e "/Applications/WezTerm.app/Contents/Resources/wezterm.sh" && . "/Applications/WezTerm.app/Contents/Resources/wezterm.sh"
 
     # Screenshot capture to Google Drive
-    sc() {
+    function sc {
         if [[ ! -d ~/gdrive/img ]]; then
             echo "error: ~/gdrive/img does not exist" >&2
             return 1
