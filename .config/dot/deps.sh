@@ -759,7 +759,20 @@ _update_deps() {
     _install_dep "$entry" || true
   done
 
-  [[ ${#_PKG_PRESENT[@]} -gt 0 ]] && _log "  system: ${_PKG_PRESENT[*]}"
+  if [[ ${#_PKG_PRESENT[@]} -gt 0 ]]; then
+    local cols=72
+    _log "  system:"
+    local line="   "
+    for pkg in "${_PKG_PRESENT[@]}"; do
+      if (( ${#line} + ${#pkg} + 1 > cols )); then
+        _log "$line"
+        line="    $pkg"
+      else
+        line+=" $pkg"
+      fi
+    done
+    [[ -n "$line" ]] && _log "$line"
+  fi
   _pkg_install_batch
 
   # Force mode: mark all deps as changed so all hooks run

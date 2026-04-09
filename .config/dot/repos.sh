@@ -183,9 +183,9 @@ _link_work_home() {
     ln -sf "$target" "$dst"
     if $GIT ls-files --error-unmatch "$rel" &>/dev/null; then
       $GIT update-index --skip-worktree "$rel" 2>/dev/null || true
-      if [[ "$DOT_QUIET" -ne 1 ]]; then echo "    linked (override): $rel"; fi
+      if [[ "$DOT_QUIET" -ne 1 ]]; then echo "  linked (override): $rel"; fi
     else
-      if [[ "$DOT_QUIET" -ne 1 ]]; then echo "    linked: $rel"; fi
+      if [[ "$DOT_QUIET" -ne 1 ]]; then echo "  linked: $rel"; fi
     fi
   done < <(find "$work_home" -type f ! -name '*.~[0-9]*~')
 }
