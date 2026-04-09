@@ -1,9 +1,6 @@
-# ~/.bash_aliases: all aliases, including platform-specific.
-# Sourced from ~/.bashrc (interactive shells only).
+# Aliases: tools, SSH, platform-specific defaults, WSL.
 
-# =============================================================================
 # Tools
-# =============================================================================
 alias vs='code'
 alias ca='cal -3'
 alias vi='nvim'
@@ -17,15 +14,11 @@ alias egrep='grep -E --color=auto'
 alias gl='git log --oneline --all --graph --decorate'
 alias dl='dot log --oneline --all --graph --decorate'
 
-# =============================================================================
 # SSH / tunnels
-# =============================================================================
 alias rdptun.bevo2='autossh -M0 -N -L 9000:bevo2.lan:3389 nas'
 alias vnctun.metro='autossh -M0 -N -L 9001:metro.web:5901 nas'
 
-# =============================================================================
 # Platform-specific defaults
-# =============================================================================
 if command -v eza >/dev/null 2>&1; then
     alias ls='eza --group-directories-first'
     alias ll='eza -alF --group-directories-first'
@@ -39,9 +32,7 @@ else
     alias ls='ls --color=auto'
 fi
 
-# =============================================================================
 # Linux / WSL / MINGW
-# =============================================================================
 if [[ "$_UNAME" == "Linux" || "$_UNAME" == MINGW* || "$_UNAME" == MSYS* ]]; then
 
     if command -v batcat >/dev/null 2>&1 && ! command -v bat >/dev/null 2>&1; then
@@ -121,11 +112,4 @@ if [[ "$_UNAME" == "Linux" || "$_UNAME" == MINGW* || "$_UNAME" == MSYS* ]]; then
             fi
         }
     fi
-fi
-
-# =============================================================================
-# Work
-# =============================================================================
-if [ -f ~/.bash_aliases_work ]; then
-    . ~/.bash_aliases_work
 fi

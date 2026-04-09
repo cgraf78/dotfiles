@@ -78,21 +78,27 @@ Run `dot cron` to see what's currently installed.
 
 ### Shell config
 
-`.bashrc` is the entry point for all shell config. Platform-specific sections (macOS, Linux/WSL/MINGW) are inline, guarded by `uname` checks. Sourced files:
+`.bashrc` is a thin loader that sources files from `~/.config/shell/` in two phases. Files use numeric prefixes for load order and extensions to indicate shell compatibility: `.sh` (any shell), `.bash` (bash-specific), `.zsh` (zsh-specific).
 
 ```
 .bashrc
-├── .bashrc_work        (work-only — sourced first, symlinked from work repo if present)
-├── .bashrc_local       (machine-local, not tracked)
-└── .bashrc_local_work  (machine-local work-only, not tracked)
+├── env.d/                          (all shells, interactive and non-interactive)
+│   ├── 10-work-bootstrap.sh        (work — devserver system config, must load first)
+│   ├── 50-core.sh                  (exports, history settings)
+│   ├── 60-path.sh                  (PATH assembly)
+│   ├── 70-platform.sh              (Homebrew, stty)
+│   └── 80-work.sh                  (work — build modes, proxy, PARA, gdrive)
+├── .bashrc_local                   (machine-local, not tracked)
+├── .bashrc_local_work              (machine-local work-only, not tracked)
+└── interactive.d/                  (interactive shells only)
+    ├── 50-aliases.sh               (tool aliases, SSH, platform-specific)
+    ├── 60-prompt.bash              (PS1, git branch indicators)
+    ├── 70-integrations.bash        (fzf, zoxide, atuin, ds)
+    ├── 80-work-aliases.sh          (work — project build/run/test shortcuts)
+    └── 90-work-integrations.bash   (work — arc completions)
 ```
 
-`.bash_aliases` contains all aliases, including platform-specific (macOS, Linux/WSL/MINGW), inline with `uname` guards. Sourced files:
-
-```
-.bash_aliases
-└── .bash_aliases_work    (work-only — symlinked from work repo if present)
-```
+Personal files (50-70) are in the personal repo. Work files (10, 80-90) are symlinked from `~/.dotfiles-work/` by `dot update`.
 
 ### VS Code config
 
