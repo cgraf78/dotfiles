@@ -73,18 +73,6 @@ merge() {
     src_set["$h"]=1
   done
 
-  # Report overwrites
-  local conflicts=()
-  for h in "${dst_headers[@]}"; do
-    [[ -n "${src_set[$h]+x}" ]] && conflicts+=("$h")
-  done
-  if [[ ${#conflicts[@]} -gt 0 ]]; then
-    echo "    overwriting:"
-    for h in "${conflicts[@]}"; do
-      echo "    $h"
-    done
-  fi
-
   # Walk destination blocks, replacing matches with source version.
   # Blocks are separated by blank lines.
   declare -A emitted=()

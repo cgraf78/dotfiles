@@ -34,18 +34,6 @@ merge() {
     return 0
   fi
 
-  # Warn about profiles being overwritten
-  local conflicts
-  conflicts=$(jq -rn --slurpfile s "$src" --slurpfile d "$dst" '
-    ($s[0].profiles | map(.name)) as $src_names |
-    [$d[0].profiles[] | select(.name as $n | $src_names | index($n)) | .name] |
-    if length > 0 then .[] | "    profile: \(.)" else empty end
-  ' 2>/dev/null) || true
-  if [[ -n "$conflicts" ]]; then
-    echo "    overwriting local Karabiner profiles:"
-    echo "$conflicts"
-  fi
-
   # Merge: for each local profile, replace with dotfiles version if name matches.
   # Append any dotfiles profiles not already present locally.
   if ! jq -n --indent 4 --slurpfile s "$src" --slurpfile d "$dst" '
