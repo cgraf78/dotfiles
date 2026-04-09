@@ -1,0 +1,13 @@
+# macOS system
+Library/
+Applications/
+Music/
+Pictures/
+Desktop/
+Movies/
+.Trash/
+
+# Dev noise
+.dotfiles-backup/
+.local/share/Steam/
+node_modules/

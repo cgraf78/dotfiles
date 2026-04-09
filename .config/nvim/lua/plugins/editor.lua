@@ -67,38 +67,14 @@ return {
       { "<leader>sc", "<cmd>Telescope commands<cr>", desc = "Search commands" },
     },
     config = function()
-      local find_command = nil
-      if vim.fn.executable("fd") == 1 then
-        find_command = {
-          "fd",
-          "--type", "f",
-          "--hidden",
-          "--follow",
-          "--exclude", ".git",
-          "--exclude", "Library",
-          "--exclude", "Applications",
-          "--exclude", ".local/share/Steam",
-        }
-      end
-
       require("telescope").setup({
         defaults = {
-          file_ignore_patterns = {
-            "node_modules",
-            "%.git/",
-            "%.hg/",
-            "%.o$",
-            "%.pyc$",
-            "^Library/",
-            "^Applications/",
-            "^%.local/share/Steam/",
-          },
           cwd = vim.fn.getcwd(),
         },
         pickers = {
           find_files = {
             hidden = true,
-            find_command = find_command,
+            find_command = { "fd", "--type", "f", "--hidden" },
           },
         },
       })
