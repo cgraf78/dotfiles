@@ -38,7 +38,15 @@ argus() {
 }
 
 # Tool shell integrations (completions, key bindings, auto-attach)
-command -v fzf &>/dev/null && eval "$(fzf --bash 2>/dev/null)" || true
+#
+# On some Linux hosts, `fzf --bash` emits malformed `complete` commands when it
+# tries to wrap distro-provided bash-completion specs. Keep the key bindings,
+# but skip the completion section to avoid login-time warnings.
+if command -v fzf &>/dev/null; then
+    eval "$(
+        fzf --bash 2>/dev/null | sed '/^### completion\.bash ###$/,$d'
+    )" || true
+fi
 command -v ds &>/dev/null && eval "$(ds init bash)" || true
 command -v zoxide &>/dev/null && eval "$(zoxide init bash)" || true
 if [[ -f ~/.bash-preexec.sh ]]; then
