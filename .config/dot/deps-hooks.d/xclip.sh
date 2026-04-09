@@ -7,10 +7,7 @@ _xclip_applicable() {
 }
 
 status() {
-  if ! _xclip_applicable; then
-    _log "  xclip skipped (headless or non-Linux)"
-    return 0
-  fi
+  if ! _xclip_applicable; then return 0; fi
 
   if command -v xclip &>/dev/null; then
     _log "  xclip up to date"

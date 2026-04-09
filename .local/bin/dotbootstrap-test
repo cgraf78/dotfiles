@@ -580,7 +580,7 @@ _pkg_queue "myfont" "apt:NONE" > /tmp/_pkg_queue_out 2>&1
 result=$(cat /tmp/_pkg_queue_out)
 rm -f /tmp/_pkg_queue_out
 _assert_eq "pkg_queue NONE: batch empty" "0" "${#_PKG_BATCH[@]}"
-_assert_contains "pkg_queue NONE: logs skipped" "skipped" "$result"
+_assert_eq "pkg_queue NONE: silent skip" "" "$result"
 
 # Same dep on brew — should queue normally
 _PKG_MGR="brew"

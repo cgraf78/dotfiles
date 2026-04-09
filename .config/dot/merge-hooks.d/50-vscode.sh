@@ -30,20 +30,6 @@ _merge_vscode_keybindings() {
   _strip_jsonc "$src" > "$src_clean"
   _strip_jsonc "$dst" > "$dst_clean"
 
-  # Warn about conflicts: keybindings with same key+when but different command or args.
-  # Skip dual-entry patterns (remove + add) where source also has the local's command.
-  local conflicts
-  conflicts=$(jq -rn --slurpfile s "$src_clean" --slurpfile d "$dst_clean" '
-    [$s[0][] as $sb | $d[0][] as $db |
-     select($sb.key == $db.key and ($sb.when // "") == ($db.when // "") and ($sb.command != $db.command or $sb.args != $db.args)) |
-     select([$s[0][] | select(.key == $db.key and (.when // "") == ($db.when // "") and .command == $db.command and .args == $db.args)] | length == 0) |
-     "    \($sb.key)\(if $sb.when then " (when: \($sb.when))" else "" end): \($db.command) -> \($sb.command)"] |
-    unique | .[]' 2>/dev/null) || true
-  if [[ -n "$conflicts" ]]; then
-    echo "  overwriting local keybindings in $(basename "$(dirname "$(dirname "$dst")")"):"
-    echo "$conflicts"
-  fi
-
   # Merge: all dotfiles entries first, then any local-only entries.
   # A keybinding's identity is its key+when pair.
   if ! jq -n --indent 4 --slurpfile s "$src_clean" --slurpfile d "$dst_clean" '
@@ -78,20 +64,6 @@ _merge_vscode_settings() {
   dst_clean=$(mktemp)
   _strip_jsonc "$src" > "$src_clean"
   _strip_jsonc "$dst" > "$dst_clean"
-
-  # Warn about actual changes: compare local vs the merged result (not vs dotfiles
-  # directly) since * does recursive merge and preserves local-only nested keys.
-  local conflicts
-  conflicts=$(jq -rn --slurpfile s "$src_clean" --slurpfile d "$dst_clean" '
-    ($d[0] * $s[0]) as $merged |
-    [$merged | to_entries[] |
-     select($d[0][.key] != null and $d[0][.key] != .value) |
-     "    \(.key): \($d[0][.key] | tostring) -> \(.value | tostring)"] |
-    .[]' 2>/dev/null) || true
-  if [[ -n "$conflicts" ]]; then
-    echo "  overwriting local settings in $(basename "$(dirname "$(dirname "$dst")")"):"
-    echo "$conflicts"
-  fi
 
   # Merge: local settings * dotfiles settings (recursive merge, dotfiles win)
   # Using * instead of + so nested objects (like "[python]") are merged
@@ -141,15 +113,9 @@ _merge_vscode_config() {
 
 # Main: determine VS Code config dirs and merge.
 merge() {
+  command -v jq &>/dev/null || return 0
+  command -v code &>/dev/null || return 0
   echo "  VS Code"
-  if ! command -v jq &>/dev/null; then
-    echo "    skipped (jq not installed)"
-    return 0
-  fi
-  if ! command -v code &>/dev/null; then
-    echo "    skipped (code not found)"
-    return 0
-  fi
   case "$(uname -s)" in
     Darwin)
       _merge_vscode_config "$HOME/Library/Application Support/Code/User"

@@ -49,12 +49,9 @@ merge() {
   local dst_dir="$HOME/Library/Application Support/iTerm2/DynamicProfiles"
   local dst="$dst_dir/dotfiles-dyn-profile.json"
 
-  echo "  iTerm2"
   [[ -f "$src" ]] || return 0
-  if [[ ! -d "$dst_dir" ]]; then
-    echo "    skipped (DynamicProfiles dir not found)"
-    return 0
-  fi
+  [[ -d "$dst_dir" ]] || return 0
+  echo "  iTerm2"
 
   # Dynamic profile copy (iTerm2 doesn't follow symlinks)
   if ! cmp -s "$src" "$dst"; then

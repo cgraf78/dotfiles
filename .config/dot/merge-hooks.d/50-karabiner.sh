@@ -11,22 +11,16 @@
 merge() {
   [[ "$(uname)" == "Darwin" ]] || return 0
 
-  echo "  Karabiner"
-
-  if ! command -v jq &>/dev/null; then
-    echo "    skipped (jq not installed)"
-    return 0
-  fi
+  command -v jq &>/dev/null || return 0
 
   local src="$HOME/.config/dot/merge-hooks.d/karabiner.json"
   local dst_dir="$HOME/.config/karabiner"
   local dst="$dst_dir/karabiner.json"
 
   [[ -f "$src" ]] || return 0
-  if [[ ! -d "$dst_dir" ]]; then
-    echo "    skipped (config dir not found)"
-    return 0
-  fi
+  [[ -d "$dst_dir" ]] || return 0
+
+  echo "  Karabiner"
 
   # No existing file — just copy
   if [[ ! -f "$dst" ]]; then

@@ -124,7 +124,6 @@ _pkg_queue() {
   local resolved
   resolved=$(_pkg_resolve "$name" "$overrides")
   if [[ "$resolved" == "NONE" ]]; then
-    _log "  $name skipped (not available for $_PKG_MGR)"
     return 0
   fi
   _PKG_BATCH+=("$resolved")

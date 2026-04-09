@@ -20,12 +20,8 @@ merge() {
 
   [[ -f "$src" ]] || return 0
 
+  yq_bin=$(_gh_yq) || return 0
   echo "  GitHub CLI"
-
-  if ! yq_bin=$(_gh_yq); then
-    echo "    skipped (requires mikefarah yq)"
-    return 0
-  fi
 
   # No existing config — just copy
   if [[ ! -f "$dst" ]]; then
