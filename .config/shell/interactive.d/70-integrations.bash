@@ -23,9 +23,6 @@ HISTCONTROL=ignoreboth
 shopt -s histappend
 shopt -s checkwinsize
 
-# SSH bypassing tmux
-sshn() { ssh -t "$1" "NO_TMUX=1 bash"; }
-
 # OpenClaw TUI — launch a conversation with the main agent.
 # Usage: argus [session-name]   (default: tui)
 # Enforces agent:main:<session-name> session key structure.
