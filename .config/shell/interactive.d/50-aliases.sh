@@ -13,6 +13,7 @@ alias fgrep='grep -F --color=auto'
 alias egrep='grep -E --color=auto'
 alias gl='git log --oneline --all --graph --decorate'
 alias dl='dot log --oneline --all --graph --decorate'
+alias fzf='fzf --bind=ctrl-j:down,ctrl-k:up,ctrl-d:half-page-down,ctrl-u:half-page-up,alt-j:down,alt-k:up'
 
 # SSH / tunnels
 alias rdptun.bevo2='autossh -M0 -N -L 9000:bevo2.lan:3389 nas'
