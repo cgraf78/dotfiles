@@ -734,7 +734,7 @@ _binary_find_asset() {
   # Extensions to always skip (metadata, packages, installers)
   local -a _skip_exts=(
     .sha256 .sha512 .md5 .sig .asc .txt .json .zsync
-    .deb .rpm .msi .zip
+    .deb .rpm .msi .zip .appimage
   )
 
   # Try matching from the API asset list (handles any naming convention).
@@ -785,11 +785,9 @@ _binary_find_asset() {
   local a
   for a in "${arch_patterns[@]}"; do
     local candidates=(
-      "$base/$cmd-${os}-${a}.appimage"
       "$base/$cmd.${os}-${a}"
       "$base/${cmd}-${os}-${a}"
       "$base/${cmd}_${os}_${a}"
-      "$base/$cmd.appimage"
     )
     local c
     for c in "${candidates[@]}"; do
