@@ -27,7 +27,7 @@ _nerd_font_installed() {
 
 status() {
   if ! _dep_hook_due "nerd-fonts"; then
-    _log "  nerd-fonts up to date"
+    _log_dim "  nerd-fonts up to date"
     return 0
   fi
 
@@ -39,7 +39,7 @@ status() {
     fi
   done < <(_nerd_fonts_entries)
 
-  _log "  nerd-fonts up to date"
+  _log_dim "  nerd-fonts up to date"
   return 0
 }
 
@@ -72,13 +72,13 @@ post() {
       brew)
         if [[ "$brew_pkg" != "-" ]]; then
           brew install "$brew_pkg" &>/dev/null && \
-            _log "  $name installed (brew)" && _any_installed=1 && continue
+            _log_ok "  $name installed (brew)" && _any_installed=1 && continue
         fi
         ;;
       pacman)
         if [[ "$pacman_pkg" != "-" ]]; then
           sudo pacman -S --needed --noconfirm "$pacman_pkg" &>/dev/null && \
-            _log "  $name installed (pacman)" && _any_installed=1 && continue
+            _log_ok "  $name installed (pacman)" && _any_installed=1 && continue
         fi
         ;;
     esac
@@ -101,7 +101,7 @@ post() {
       mkdir -p "$dest"
       unzip -qo "$tmp/font.zip" '*.ttf' -d "$dest" 2>/dev/null || true
       if command -v fc-cache &>/dev/null; then fc-cache -f "$dest" 2>/dev/null || true; fi
-      _log "  $name installed from GitHub ($nf_version)"
+      _log_ok "  $name installed from GitHub ($nf_version)"
       _any_installed=1
     else
       _warn "  warning: failed to download $name"

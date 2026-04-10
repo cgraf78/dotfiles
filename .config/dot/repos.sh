@@ -96,7 +96,7 @@ _pull_repo() {
   fi
 
   if [[ "$DOT_QUIET" -ne 1 && -s "$log" ]]; then
-    cat "$log"
+    _log_dim "$(cat "$log")"
   fi
 
   rm -f "$log"

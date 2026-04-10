@@ -71,7 +71,7 @@ _install_cron() {
       else
         crontab -r 2>/dev/null || true
       fi
-      _log "  cron entries removed"
+      _log_ok "  cron entries removed"
     fi
     return 0
   fi
@@ -82,7 +82,7 @@ _install_cron() {
 
   # Already installed with same content — nothing to do.
   if [[ "$current" == *"$managed_block"* ]]; then
-    _log "  cron up to date"
+    _log_dim "  cron up to date"
     return 0
   fi
 
@@ -103,5 +103,5 @@ _install_cron() {
   fi
 
   echo "$new_crontab" | crontab -
-  _log "  cron installed"
+  _log_ok "  cron installed"
 }

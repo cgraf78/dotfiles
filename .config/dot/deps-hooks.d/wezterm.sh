@@ -5,7 +5,7 @@ status() {
   if command -v wezterm &>/dev/null; then
     local ver
     ver=$(wezterm --version 2>/dev/null | awk '{print $2}')
-    _log "  wezterm up to date${ver:+ -- $ver}"
+    _log_dim "  wezterm up to date${ver:+ -- $ver}"
     return 0
   fi
   return 1
@@ -34,12 +34,12 @@ post() {
       if brew list --cask wezterm &>/dev/null; then
         if [[ "${DOT_FORCE:-0}" -eq 1 ]]; then
           brew upgrade --cask wezterm &>/dev/null || true
-          _log "  wezterm refreshed (brew)"
+          _log_ok "  wezterm refreshed (brew)"
         fi
         return 0
       fi
       if brew install --cask wezterm &>/dev/null; then
-        _log "  wezterm installed (brew)"
+        _log_ok "  wezterm installed (brew)"
       else
         _warn "  warning: failed to install wezterm (brew)"
       fi
@@ -47,7 +47,7 @@ post() {
       ;;
     pacman)
       if sudo pacman -S --needed --noconfirm wezterm &>/dev/null; then
-        _log "  wezterm installed (pacman)"
+        _log_ok "  wezterm installed (pacman)"
       else
         _warn "  warning: failed to install wezterm (pacman)"
       fi
@@ -142,5 +142,5 @@ post() {
     return 0
   fi
 
-  _log "  wezterm installed ($ext) -- $latest_tag"
+  _log_ok "  wezterm installed ($ext) -- $latest_tag"
 }

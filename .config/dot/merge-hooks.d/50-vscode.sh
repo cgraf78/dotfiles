@@ -115,7 +115,7 @@ _merge_vscode_config() {
 merge() {
   command -v jq &>/dev/null || return 0
   command -v code &>/dev/null || return 0
-  echo "  VS Code"
+  _log_dim "  VS Code"
   case "$(uname -s)" in
     Darwin)
       _merge_vscode_config "$HOME/Library/Application Support/Code/User"

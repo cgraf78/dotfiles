@@ -43,7 +43,7 @@ merge() {
 
   [[ -f "$src" ]] || return 0
 
-  echo "  SSH"
+  _log_dim "  SSH"
 
   # Ensure ~/.ssh exists with correct permissions
   if [[ ! -d "$HOME/.ssh" ]]; then

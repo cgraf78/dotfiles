@@ -10,7 +10,7 @@ status() {
   if ! _xclip_applicable; then return 0; fi
 
   if command -v xclip &>/dev/null; then
-    _log "  xclip up to date"
+    _log_dim "  xclip up to date"
     return 0
   fi
 
@@ -64,5 +64,5 @@ post() {
     return 1
   fi
 
-  _log "  xclip installed (${_PKG_MGR})"
+  _log_ok "  xclip installed (${_PKG_MGR})"
 }

@@ -5,7 +5,7 @@
 merge() {
   command -v git &>/dev/null || return 0
 
-  echo "  Git"
+  _log_dim "  Git"
 
   # Identity and editor
   git config --global user.name "Chris Graf"
