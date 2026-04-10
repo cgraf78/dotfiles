@@ -233,8 +233,8 @@ fv() {
         )" || return
     else
         file="$(
-            find "$_root" -name .git -prune -o -type f -print 2>/dev/null \
-                | sed "s|^$_root/||" \
+            (cd "$_root" && find . -name .git -prune -o -type f -print 2>/dev/null) \
+                | sed 's|^\./||' \
                 | fzf --height 70% --reverse --prompt="file> " --scheme=path --query="$_query" --preview="$preview" --preview-window="bottom,60%,border-top"
         )" || return
     fi
