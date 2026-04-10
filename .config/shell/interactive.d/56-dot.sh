@@ -230,18 +230,18 @@ fv() {
     printf -v root_q '%q' "$_root"
     preview="bash -lc 'source ~/.config/shell/interactive.d/56-dot.sh; _preview_file \"\$1\"' _ $root_q/{}"
 
+    local listing
     if [[ -n "$_fd_cmd" ]]; then
-        file="$(
-            "$_fd_cmd" --base-directory "$_root" --hidden --exclude .git --type f . \
-                | fzf "${_fzf_preview[@]}" --prompt="file> " --scheme=path --query="$_query" --preview="$preview"
-        )" || return
+        listing() { "$_fd_cmd" --base-directory "$_root" --hidden --exclude .git --type f .; }
     else
-        file="$(
-            (cd "$_root" && find . -name .git -prune -o -type f -print 2>/dev/null) \
-                | sed 's|^\./||' \
-                | fzf "${_fzf_preview[@]}" --prompt="file> " --scheme=path --query="$_query" --preview="$preview"
-        )" || return
+        listing() { (cd "$_root" && find . -name .git -prune -o -type f -print 2>/dev/null) | sed 's|^\./||'; }
     fi
+
+    file="$(
+        listing \
+            | fzf "${_fzf_preview[@]}" --prompt="file> " --scheme=path --query="$_query" --preview="$preview"
+    )" || return
+    unset -f listing
 
     [[ -n "$file" ]] || return
     _edit_file "$_root/$file"
