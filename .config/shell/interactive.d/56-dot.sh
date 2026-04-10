@@ -207,7 +207,7 @@ rgv() {
     preview="bash -lc 'hit=\$1; file=\${hit%%:*}; rest=\${hit#*:}; line=\${rest%%:*}; source ~/.config/shell/interactive.d/56-dot.sh; _preview_file \"\$file\" \"\$line\"' _ {}"
     hit="$(
         rg --hidden --glob '!.git' --line-number --no-heading --color=never "$@" \
-            | fzf --height 70% --reverse --prompt="rg> " --preview="$preview" --preview-window="right,60%,border-left"
+            | fzf --height 70% --reverse --prompt="rg> " --preview="$preview" --preview-window="bottom,60%,border-top"
     )" || return
     [[ -n "$hit" ]] || return
 
@@ -264,7 +264,7 @@ fv() {
         printf -v root_q '%q' "$root"
         file="$(
             "$_fd_cmd" --base-directory "$root" --hidden --exclude .git --type f . \
-                | fzf --height 70% --reverse --prompt="file> " --scheme=path --query="$query" --preview="bash -lc 'root=\$1; file=\$2; source ~/.config/shell/interactive.d/56-dot.sh; _preview_file \"\$root/\$file\"' _ $root_q {}" --preview-window="right,60%,border-left"
+                | fzf --height 70% --reverse --prompt="file> " --scheme=path --query="$query" --preview="bash -lc 'root=\$1; file=\$2; source ~/.config/shell/interactive.d/56-dot.sh; _preview_file \"\$root/\$file\"' _ $root_q {}" --preview-window="bottom,60%,border-top"
         )" || return
         [[ -n "$file" ]] || return
         _edit_file "$root/$file"
@@ -273,7 +273,7 @@ fv() {
 
     file="$(
         find "$root" -name .git -prune -o -type f -print 2>/dev/null \
-            | fzf --height 70% --reverse --prompt="file> " --scheme=path --query="$query" --preview="$preview" --preview-window="right,60%,border-left"
+            | fzf --height 70% --reverse --prompt="file> " --scheme=path --query="$query" --preview="$preview" --preview-window="bottom,60%,border-top"
     )" || return
     [[ -n "$file" ]] || return
     _edit_file "$file"
