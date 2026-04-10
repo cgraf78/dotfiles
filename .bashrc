@@ -28,5 +28,5 @@ _shell_source_dir ~/.config/shell/interactive.d bash
 
 # Machine-local overrides (not in repo) — after interactive.d so functions
 # like set_hostname_alias are defined before local scripts call them.
-[ -f ~/.bashrc_local ] && . ~/.bashrc_local
-[ -f ~/.bashrc_local_work ] && . ~/.bashrc_local_work
+if [ -f ~/.bashrc_local ]; then . ~/.bashrc_local; fi
+if [ -f ~/.bashrc_local_work ]; then . ~/.bashrc_local_work; fi

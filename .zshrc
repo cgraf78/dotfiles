@@ -22,5 +22,5 @@ _shell_source_dir ~/.config/shell/interactive.d zsh
 
 # Machine-local overrides (not in repo) — after interactive.d so functions
 # like set_hostname_alias are defined before local scripts call them.
-[ -f ~/.zshrc_local ] && . ~/.zshrc_local
-[ -f ~/.zshrc_local_work ] && . ~/.zshrc_local_work
+if [ -f ~/.zshrc_local ]; then . ~/.zshrc_local; fi
+if [ -f ~/.zshrc_local_work ]; then . ~/.zshrc_local_work; fi
