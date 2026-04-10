@@ -278,64 +278,70 @@ export DOT_FORCE=0
 read -r git_pull_count < "$GIT_PULL_COUNT"
 _assert_eq "install_from_github: force bypasses cache" "2" "$git_pull_count"
 
-APPIMG_BIN_DIR="$TEST_HOME/.local/bin"
-mkdir -p "$APPIMG_BIN_DIR"
-cat > "$APPIMG_BIN_DIR/mockimg" <<'EOF'
+BIN_DIR="$TEST_HOME/.local/bin"
+mkdir -p "$BIN_DIR"
+cat > "$BIN_DIR/mockimg" <<'EOF'
 #!/usr/bin/env bash
 echo "mockimg v1.2.3"
 EOF
-chmod +x "$APPIMG_BIN_DIR/mockimg"
+chmod +x "$BIN_DIR/mockimg"
 
 CURL_CACHE_BIN=$(_tmpdir)
 REAL_CURL_BIN=$(command -v curl)
-APPIMG_API_COUNT="$TEST_HOME/.appimg-api-count"
-echo 0 > "$APPIMG_API_COUNT"
-cat > "$CURL_CACHE_BIN/curl" <<'EOF'
+BIN_API_COUNT="$TEST_HOME/.appimg-api-count"
+echo 0 > "$BIN_API_COUNT"
+_mock_os=$(uname -s | tr '[:upper:]' '[:lower:]')
+_mock_arch=$(uname -m)
+cat > "$CURL_CACHE_BIN/curl" <<EOF
 #!/usr/bin/env bash
-if [[ "$*" == *"/releases/latest"* ]]; then
+if [[ "\$*" == *"/releases/latest"* ]]; then
     count=0
-    if [[ -f "$DOT_TEST_CURL_API_COUNT_FILE" ]]; then
-        read -r count < "$DOT_TEST_CURL_API_COUNT_FILE" || count=0
+    if [[ -f "\$DOT_TEST_CURL_API_COUNT_FILE" ]]; then
+        read -r count < "\$DOT_TEST_CURL_API_COUNT_FILE" || count=0
     fi
-    echo $((count + 1)) > "$DOT_TEST_CURL_API_COUNT_FILE"
-    printf '%s\n' '{"tag_name":"v1.2.3"}'
+    echo \$((count + 1)) > "\$DOT_TEST_CURL_API_COUNT_FILE"
+    printf '%s\n' '{"tag_name":"v1.2.3","assets":[{"browser_download_url":"https://example.com/mockimg-${_mock_os}-${_mock_arch}"}]}'
+    exit 0
+fi
+# Handle HEAD requests (asset URL existence check)
+if [[ "\$*" == *"--head"* ]]; then
     exit 0
 fi
 out=""
-while [[ "$#" -gt 0 ]]; do
-    if [[ "$1" == "-o" && "$#" -ge 2 ]]; then
-        out="$2"
+while [[ "\$#" -gt 0 ]]; do
+    if [[ "\$1" == "-o" && "\$#" -ge 2 ]]; then
+        out="\$2"
         break
     fi
     shift
 done
-if [[ -n "$out" ]]; then
-    printf '%s\n' '#!/usr/bin/env bash' 'echo "mockimg v1.2.3"' > "$out"
+if [[ -n "\$out" ]]; then
+    printf '%s\n' '#!/usr/bin/env bash' 'echo "mockimg v1.2.3"' > "\$out"
     exit 0
 fi
-exec "$DOT_TEST_REAL_CURL" "$@"
+exec "\$DOT_TEST_REAL_CURL" "\$@"
 EOF
 chmod +x "$CURL_CACHE_BIN/curl"
 
-PATH="$CURL_CACHE_BIN:$APPIMG_BIN_DIR:$PATH" \
+PATH="$CURL_CACHE_BIN:$BIN_DIR:$PATH" \
 DOT_TEST_REAL_CURL="$REAL_CURL_BIN" \
-DOT_TEST_CURL_API_COUNT_FILE="$APPIMG_API_COUNT" \
-_install_appimage "mockapp" "mockimg" "fixture/mockapp" >/dev/null 2>&1
-PATH="$CURL_CACHE_BIN:$APPIMG_BIN_DIR:$PATH" \
+DOT_TEST_CURL_API_COUNT_FILE="$BIN_API_COUNT" \
+_install_binary "mockapp" "mockimg" "fixture/mockapp" >/dev/null 2>&1
+PATH="$CURL_CACHE_BIN:$BIN_DIR:$PATH" \
 DOT_TEST_REAL_CURL="$REAL_CURL_BIN" \
-DOT_TEST_CURL_API_COUNT_FILE="$APPIMG_API_COUNT" \
-_install_appimage "mockapp" "mockimg" "fixture/mockapp" >/dev/null 2>&1
-read -r appimg_api_count < "$APPIMG_API_COUNT"
-_assert_eq "install_appimage: fresh cache skips second API check" "1" "$appimg_api_count"
+DOT_TEST_CURL_API_COUNT_FILE="$BIN_API_COUNT" \
+_install_binary "mockapp" "mockimg" "fixture/mockapp" >/dev/null 2>&1
+read -r bin_api_count < "$BIN_API_COUNT"
+_assert_eq "install_binary: fresh cache skips second API check" "1" "$bin_api_count"
 
 export DOT_FORCE=1
-PATH="$CURL_CACHE_BIN:$APPIMG_BIN_DIR:$PATH" \
+PATH="$CURL_CACHE_BIN:$BIN_DIR:$PATH" \
 DOT_TEST_REAL_CURL="$REAL_CURL_BIN" \
-DOT_TEST_CURL_API_COUNT_FILE="$APPIMG_API_COUNT" \
-_install_appimage "mockapp" "mockimg" "fixture/mockapp" >/dev/null 2>&1
+DOT_TEST_CURL_API_COUNT_FILE="$BIN_API_COUNT" \
+_install_binary "mockapp" "mockimg" "fixture/mockapp" >/dev/null 2>&1
 export DOT_FORCE=0
-read -r appimg_api_count < "$APPIMG_API_COUNT"
-_assert_eq "install_appimage: force bypasses cache" "2" "$appimg_api_count"
+read -r bin_api_count < "$BIN_API_COUNT"
+_assert_eq "install_binary: force bypasses cache" "2" "$bin_api_count"
 
 # Custom hooks should not be due again immediately after a successful run.
 rc=0; _dep_hook_due "nerd-fonts" || rc=$?
@@ -626,11 +632,11 @@ _PKG_BATCH=()
 _PKG_BATCH_NAMES=()
 declare -gA _DEPS_CHANGED=()
 WSL_DISTRO_NAME="Arch"
-_install_dep "widget|appimage|widget-bin|-|-|example/widget"
+_install_dep "widget|binary|widget-bin|-|-|example/widget"
 unset WSL_DISTRO_NAME
-_assert_file_missing "appimage on WSL: stale binary removed" "$TEST_HOME/.local/bin/widget-bin"
-_assert_eq "appimage on WSL: queued pkg fallback" "widget" "${_PKG_BATCH[0]}"
-_assert_eq "appimage on WSL: tracked original name" "widget" "${_PKG_BATCH_NAMES[0]}"
+_assert_file_missing "binary on WSL: stale binary removed" "$TEST_HOME/.local/bin/widget-bin"
+_assert_eq "binary on WSL: queued pkg fallback" "widget" "${_PKG_BATCH[0]}"
+_assert_eq "binary on WSL: tracked original name" "widget" "${_PKG_BATCH_NAMES[0]}"
 
 # ---------------------------------------------------------------------------
 # Tests: custom method
