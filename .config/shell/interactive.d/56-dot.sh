@@ -98,3 +98,40 @@ rgv() {
     line="${line%%:*}"
     nvim "+${line}" "$file"
 }
+
+fv() {
+    local root="${1:-.}"
+    local file=""
+
+    if [[ ! -d "$root" ]]; then
+        echo "error: directory not found: $root" >&2
+        return 1
+    fi
+
+    if ! command -v fzf >/dev/null 2>&1; then
+        echo "error: fv requires fzf" >&2
+        return 1
+    fi
+
+    if ! command -v nvim >/dev/null 2>&1; then
+        echo "error: fv requires nvim" >&2
+        return 1
+    fi
+
+    if command -v fd >/dev/null 2>&1; then
+        file="$(
+            fd --base-directory "$root" --type f . \
+                | fzf --height 60% --reverse --prompt="file> "
+        )" || return
+        [[ -n "$file" ]] || return
+        nvim "$root/$file"
+        return
+    fi
+
+    file="$(
+        find "$root" -type f 2>/dev/null \
+            | fzf --height 60% --reverse --prompt="file> "
+    )" || return
+    [[ -n "$file" ]] || return
+    nvim "$file"
+}
