@@ -62,13 +62,17 @@ _backup_pull_conflicts() {
   return 0
 }
 
-_pull_personal() {
+# Generic pull with optional logging, conflict backup, and retry.
+# $1 = backup root for conflict resolution
+# Remaining args: the full git pull command to run.
+_pull_repo() {
+  local backup_root="$1"; shift
   local log=""
   if ! _logfile_create; then
     if [[ "$DOT_QUIET" -eq 1 ]]; then
-      $GIT pull --quiet "$@"
+      "$@" --quiet
     else
-      $GIT pull "$@"
+      "$@"
     fi
     return $?
   fi
@@ -76,18 +80,18 @@ _pull_personal() {
 
   local rc=0
   if [[ "$DOT_QUIET" -eq 1 ]]; then
-    $GIT pull --quiet "$@" >"$log" 2>&1 || rc=$?
+    "$@" --quiet >"$log" 2>&1 || rc=$?
   else
-    $GIT pull "$@" >"$log" 2>&1 || rc=$?
+    "$@" >"$log" 2>&1 || rc=$?
   fi
 
-  if [[ "$rc" -ne 0 ]] && _backup_pull_conflicts "$log"; then
+  if [[ "$rc" -ne 0 ]] && _backup_pull_conflicts "$log" "$backup_root"; then
     : > "$log"
     rc=0
     if [[ "$DOT_QUIET" -eq 1 ]]; then
-      $GIT pull --quiet "$@" >"$log" 2>&1 || rc=$?
+      "$@" --quiet >"$log" 2>&1 || rc=$?
     else
-      $GIT pull "$@" >"$log" 2>&1 || rc=$?
+      "$@" >"$log" 2>&1 || rc=$?
     fi
   fi
 
@@ -97,6 +101,10 @@ _pull_personal() {
 
   rm -f "$log"
   return "$rc"
+}
+
+_pull_personal() {
+  _pull_repo "$HOME" $GIT pull "$@"
 }
 
 # Restore git-tracked versions of skip-worktree files so pull won't
@@ -119,40 +127,8 @@ _pull_work_repo() {
   git -C "$WORK_DIR" config pull.rebase true 2>/dev/null || true
   git -C "$WORK_DIR" config rebase.autoStash true 2>/dev/null || true
   _log "==> Pulling work dotfiles..."
-
-  local log=""
-  if ! _logfile_create; then
-    git -C "$WORK_DIR" pull "$@" || _warn "  warning: work dotfiles pull failed"
-    return 0
-  fi
-  log="$REPLY"
-
-  local rc=0
-  if [[ "$DOT_QUIET" -eq 1 ]]; then
-    git -C "$WORK_DIR" pull --quiet "$@" >"$log" 2>&1 || rc=$?
-  else
-    git -C "$WORK_DIR" pull "$@" >"$log" 2>&1 || rc=$?
-  fi
-
-  if [[ "$rc" -ne 0 ]] && _backup_pull_conflicts "$log" "$WORK_DIR"; then
-    : > "$log"
-    rc=0
-    if [[ "$DOT_QUIET" -eq 1 ]]; then
-      git -C "$WORK_DIR" pull --quiet "$@" >"$log" 2>&1 || rc=$?
-    else
-      git -C "$WORK_DIR" pull "$@" >"$log" 2>&1 || rc=$?
-    fi
-  fi
-
-  if [[ "$DOT_QUIET" -ne 1 && -s "$log" ]]; then
-    cat "$log"
-  fi
-
-  if [[ "$rc" -ne 0 ]]; then
-    _warn "  warning: work dotfiles pull failed"
-  fi
-
-  rm -f "$log"
+  _pull_repo "$WORK_DIR" git -C "$WORK_DIR" pull "$@" \
+    || _warn "  warning: work dotfiles pull failed"
   return 0
 }
 
