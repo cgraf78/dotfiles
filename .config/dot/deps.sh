@@ -556,7 +556,6 @@ _install_from_github() {
 # Install or upgrade a tool via GitHub release binary.
 # Searches release assets for a single executable matching the current OS
 # and arch (AppImages, plain binaries, etc.). Skips archives/tarballs.
-# On macOS/WSL, the dispatcher falls back to pkg instead.
 # Usage: _install_binary <name> <cmd> <owner/repo>
 _install_binary() {
   local name="$1" cmd="$2" gh_repo="$3"
@@ -753,23 +752,7 @@ _install_dep() {
       _install_from_github "$_name" "$_repo" "$HOME/$_dir"
       ;;
     binary)
-      if [[ "$(uname -s)" == "Darwin" ]] || _is_wsl; then
-        local cmd_path=""
-        cmd_path=$(command -v "$_cmd" 2>/dev/null || true)
-        if [[ -z "$cmd_path" && -n "$_cmd_alt" ]]; then
-          cmd_path=$(command -v "$_cmd_alt" 2>/dev/null || true)
-        fi
-        if _is_wsl && [[ "$cmd_path" == "$HOME/.local/bin/"* ]]; then
-          rm -f "$cmd_path"
-          cmd_path=""
-          _DEPS_CHANGED[$_name]=1
-          _log "  removed stale $_name binary for WSL package fallback"
-        fi
-        if [[ -n "$cmd_path" ]]; then return 0; fi
-        _pkg_queue "$_name" "$_pkg_overrides"
-      else
-        _install_binary "$_name" "$_cmd" "$_repo"
-      fi
+      _install_binary "$_name" "$_cmd" "$_repo"
       ;;
     custom)
       # Entirely managed by the post-install hook (post()).

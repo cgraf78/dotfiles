@@ -618,25 +618,6 @@ result=$(_pkg_install_batch 2>&1)
 _assert_eq "pkg_batch: cron silent skip" "" "$result"
 DOT_QUIET=0
 
-# WSL should fall back from AppImage to package install and remove a
-# stale dotfiles-managed AppImage binary.
-PATH="$TEST_HOME/.local/bin:$PATH"
-mkdir -p "$TEST_HOME/.local/bin"
-cat > "$TEST_HOME/.local/bin/widget-bin" <<'EOF'
-#!/bin/bash
-echo stale
-EOF
-chmod +x "$TEST_HOME/.local/bin/widget-bin"
-_PKG_MGR="pacman"
-_PKG_BATCH=()
-_PKG_BATCH_NAMES=()
-declare -gA _DEPS_CHANGED=()
-WSL_DISTRO_NAME="Arch"
-_install_dep "widget|binary|widget-bin|-|-|example/widget"
-unset WSL_DISTRO_NAME
-_assert_file_missing "binary on WSL: stale binary removed" "$TEST_HOME/.local/bin/widget-bin"
-_assert_eq "binary on WSL: queued pkg fallback" "widget" "${_PKG_BATCH[0]}"
-_assert_eq "binary on WSL: tracked original name" "widget" "${_PKG_BATCH_NAMES[0]}"
 
 # ---------------------------------------------------------------------------
 # Tests: custom method
