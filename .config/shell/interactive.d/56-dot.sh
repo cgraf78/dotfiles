@@ -6,6 +6,11 @@ if command -v fd >/dev/null 2>&1; then _fd_cmd="fd"
 elif command -v fdfind >/dev/null 2>&1; then _fd_cmd="fdfind"
 fi
 
+_bat_cmd=""
+if command -v bat >/dev/null 2>&1; then _bat_cmd="bat"
+elif command -v batcat >/dev/null 2>&1; then _bat_cmd="batcat"
+fi
+
 # Render a file preview with `bat`/`batcat` when available.
 # Args: <file> [highlight-line]
 _preview_file() {
@@ -13,16 +18,9 @@ _preview_file() {
     local line="${2:-}"
     local start=1
     local end=200
-    local bat_cmd=""
 
     if [[ -z "$file" || ! -f "$file" ]]; then
         return 1
-    fi
-
-    if command -v bat >/dev/null 2>&1; then
-        bat_cmd="bat"
-    elif command -v batcat >/dev/null 2>&1; then
-        bat_cmd="batcat"
     fi
 
     if [[ -n "$line" ]]; then
@@ -30,12 +28,10 @@ _preview_file() {
         end=$(( line + 20 ))
     fi
 
-    if [[ -n "$bat_cmd" ]]; then
-        if [[ -n "$line" ]]; then
-            "$bat_cmd" --style=plain --color=always --highlight-line "$line" --line-range "$start:$end" "$file"
-        else
-            "$bat_cmd" --style=plain --color=always --line-range "$start:$end" "$file"
-        fi
+    if [[ -n "$_bat_cmd" ]]; then
+        local -a bat_args=(--style=plain --color=always --line-range "$start:$end")
+        [[ -n "$line" ]] && bat_args+=(--highlight-line "$line")
+        "$_bat_cmd" "${bat_args[@]}" "$file"
         return
     fi
 
@@ -47,8 +43,6 @@ _preview_file() {
 _edit_file() {
     local file="$1"
     local line="${2:-}"
-    local editor="${EDITOR:-vi}"
-    local cmd=""
 
     if [[ -z "$file" ]]; then
         echo "error: missing file path" >&2
@@ -56,12 +50,19 @@ _edit_file() {
     fi
 
     if [[ -n "$line" ]]; then
-        printf -v cmd '%s +%q %q' "$editor" "$line" "$file"
+        "${EDITOR:-vi}" "+$line" "$file"
     else
-        printf -v cmd '%s %q' "$editor" "$file"
+        "${EDITOR:-vi}" "$file"
     fi
+}
 
-    eval "$cmd"
+# Re-source the current shell's rc file.
+_reload_shell() {
+    if [[ -n "${ZSH_VERSION:-}" ]]; then
+        source "$HOME/.zshrc"
+    elif [[ -n "${BASH_VERSION:-}" ]]; then
+        source "$HOME/.bashrc"
+    fi
 }
 
 # Run `dot update` and reload the current shell config on success.
@@ -69,21 +70,12 @@ _edit_file() {
 #   dotu --force
 dotu() {
     dot update "$@" || return
-
-    if [[ -n "${ZSH_VERSION:-}" ]]; then
-        source "$HOME/.zshrc"
-    elif [[ -n "${BASH_VERSION:-}" ]]; then
-        source "$HOME/.bashrc"
-    fi
+    _reload_shell
 }
 
 # Reload the current shell config without updating dotfiles.
 reloadsh() {
-    if [[ -n "${ZSH_VERSION:-}" ]]; then
-        source "$HOME/.zshrc"
-    elif [[ -n "${BASH_VERSION:-}" ]]; then
-        source "$HOME/.bashrc"
-    fi
+    _reload_shell
 }
 
 # Print shell/session context for quick environment debugging.
@@ -97,43 +89,49 @@ shellinfo() {
     printf 'pwd=%s\n' "${PWD:-}"
 }
 
+# Parse [query] or [root] [query] args into _root and _query.
+# Args: <default-root> [caller args...]
+_parse_root_query() {
+    _root="$1"; shift
+    _query=""
+
+    case $# in
+        0) ;;
+        1)
+            if [[ -d "$1" ]]; then
+                _root="$1"
+            else
+                _query="$1"
+            fi
+            ;;
+        *)
+            _root="$1"
+            _query="$2"
+            ;;
+    esac
+}
+
 # Fuzzy-jump to a repo under ~/git, with optional root and initial query.
 # Args: [query] or [root] [query]
 # Examples:
 #   cgr ds
 #   cgr ~/git dot
 cgr() {
-    local root="$HOME/git"
-    local query=""
-    local dir=""
+    local _root _query dir
+    _parse_root_query "$HOME/git" "$@"
 
-    case $# in
-        0) ;;
-        1)
-            if [[ -d "$1" ]]; then
-                root="$1"
-            else
-                query="$1"
-            fi
-            ;;
-        *)
-            root="$1"
-            query="$2"
-            ;;
-    esac
-
-    if [[ ! -d "$root" ]]; then
-        echo "error: repo root not found: $root" >&2
+    if [[ ! -d "$_root" ]]; then
+        echo "error: repo root not found: $_root" >&2
         return 1
     fi
 
     if [[ -n "$_fd_cmd" ]] && command -v fzf >/dev/null 2>&1; then
         dir="$(
-            "$_fd_cmd" --base-directory "$root" --max-depth 1 --type d . \
-                | fzf --height 40% --reverse --prompt="repo> " --query="$query"
+            "$_fd_cmd" --base-directory "$_root" --max-depth 1 --type d . \
+                | fzf --height 40% --reverse --prompt="repo> " --query="$_query"
         )" || return
         [[ -n "$dir" ]] || return
-        cd "$root/$dir" || return
+        cd "$_root/$dir" || return
         return
     fi
 
@@ -147,37 +145,21 @@ cgr() {
 #   cdf shell
 #   cdf ~/.config nvim
 cdf() {
-    local root="."
-    local query=""
-    local dir=""
+    local _root _query dir
+    _parse_root_query "." "$@"
 
-    case $# in
-        0) ;;
-        1)
-            if [[ -d "$1" ]]; then
-                root="$1"
-            else
-                query="$1"
-            fi
-            ;;
-        *)
-            root="$1"
-            query="$2"
-            ;;
-    esac
-
-    if [[ ! -d "$root" ]]; then
-        echo "error: directory not found: $root" >&2
+    if [[ ! -d "$_root" ]]; then
+        echo "error: directory not found: $_root" >&2
         return 1
     fi
 
     if [[ -n "$_fd_cmd" ]] && command -v fzf >/dev/null 2>&1; then
         dir="$(
-            "$_fd_cmd" --base-directory "$root" --hidden --exclude .git --type d . \
-                | fzf --height 40% --reverse --prompt="dir> " --query="$query"
+            "$_fd_cmd" --base-directory "$_root" --hidden --exclude .git --type d . \
+                | fzf --height 40% --reverse --prompt="dir> " --query="$_query"
         )" || return
         [[ -n "$dir" ]] || return
-        cd "$root/$dir" || return
+        cd "$_root/$dir" || return
         return
     fi
 
@@ -223,29 +205,11 @@ rgv() {
 #   fv dot.sh
 #   fv ~/.config dot.sh
 fv() {
-    local root="."
-    local query=""
-    local file=""
-    local preview=""
-    local root_q=""
+    local _root _query file root_q preview
+    _parse_root_query "." "$@"
 
-    case $# in
-        0) ;;
-        1)
-            if [[ -d "$1" ]]; then
-                root="$1"
-            else
-                query="$1"
-            fi
-            ;;
-        *)
-            root="$1"
-            query="$2"
-            ;;
-    esac
-
-    if [[ ! -d "$root" ]]; then
-        echo "error: directory not found: $root" >&2
+    if [[ ! -d "$_root" ]]; then
+        echo "error: directory not found: $_root" >&2
         return 1
     fi
 
@@ -259,22 +223,22 @@ fv() {
         return 1
     fi
 
-    preview="bash -lc 'file=\$1; source ~/.config/shell/interactive.d/56-dot.sh; _preview_file \"\$file\"' _ {}"
+    printf -v root_q '%q' "$_root"
+    preview="bash -lc 'source ~/.config/shell/interactive.d/56-dot.sh; _preview_file \"\$1\"' _ $root_q/{}"
+
     if [[ -n "$_fd_cmd" ]]; then
-        printf -v root_q '%q' "$root"
         file="$(
-            "$_fd_cmd" --base-directory "$root" --hidden --exclude .git --type f . \
-                | fzf --height 70% --reverse --prompt="file> " --scheme=path --query="$query" --preview="bash -lc 'root=\$1; file=\$2; source ~/.config/shell/interactive.d/56-dot.sh; _preview_file \"\$root/\$file\"' _ $root_q {}" --preview-window="bottom,60%,border-top"
+            "$_fd_cmd" --base-directory "$_root" --hidden --exclude .git --type f . \
+                | fzf --height 70% --reverse --prompt="file> " --scheme=path --query="$_query" --preview="$preview" --preview-window="bottom,60%,border-top"
         )" || return
-        [[ -n "$file" ]] || return
-        _edit_file "$root/$file"
-        return
+    else
+        file="$(
+            find "$_root" -name .git -prune -o -type f -print 2>/dev/null \
+                | sed "s|^$_root/||" \
+                | fzf --height 70% --reverse --prompt="file> " --scheme=path --query="$_query" --preview="$preview" --preview-window="bottom,60%,border-top"
+        )" || return
     fi
 
-    file="$(
-        find "$root" -name .git -prune -o -type f -print 2>/dev/null \
-            | fzf --height 70% --reverse --prompt="file> " --scheme=path --query="$query" --preview="$preview" --preview-window="bottom,60%,border-top"
-    )" || return
     [[ -n "$file" ]] || return
-    _edit_file "$file"
+    _edit_file "$_root/$file"
 }
