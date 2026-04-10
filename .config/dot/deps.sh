@@ -145,6 +145,8 @@ _pkg_install_batch() {
     return 0
   fi
 
+  _log "  installing: ${_PKG_BATCH[*]}"
+
   # Check sudo access for non-brew managers before attempting install
   if [[ "$_PKG_MGR" != "brew" && "$(id -u)" -ne 0 ]]; then
     if ! sudo -n true 2>/dev/null; then
@@ -156,7 +158,6 @@ _pkg_install_batch() {
     fi
   fi
 
-  _log "  installing: ${_PKG_BATCH[*]}"
   local rc=0
   local log=""
   if ! _logfile_create; then
