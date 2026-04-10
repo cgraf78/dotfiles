@@ -84,7 +84,7 @@ return {
         pickers = {
           find_files = {
             hidden = true,
-            find_command = { "fd", "--type", "f", "--hidden" },
+            find_command = { vim.fn.executable("fd") == 1 and "fd" or "fdfind", "--type", "f", "--hidden" },
           },
         },
       })
