@@ -8,8 +8,8 @@ local function is_editor_window(win)
   end
 
   local buf = vim.api.nvim_win_get_buf(win)
-  return vim.bo[buf].buftype ~= "" and false
-      or vim.bo[buf].filetype ~= "NvimTree"
+  if vim.bo[buf].buftype ~= "" then return false end
+  return vim.bo[buf].filetype ~= "NvimTree"
 end
 
 local function is_terminal_window(win)
