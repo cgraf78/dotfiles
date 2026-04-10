@@ -201,7 +201,7 @@ case "${1:-}" in
     _link_work_home
     _run_merges
     _normalize_filtered
-    _header "==> Done! Run 'source ~/.bashrc' or 'source ~/.zshrc' to activate."
+    _log_header "==> Done! Run 'source ~/.bashrc' or 'source ~/.zshrc' to activate."
     ;;
   refresh)
     _normalize_filtered
