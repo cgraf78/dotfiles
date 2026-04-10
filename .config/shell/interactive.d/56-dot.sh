@@ -1,5 +1,63 @@
 # Shared interactive helpers for dotfiles management.
 
+# Render a file preview with `bat`/`batcat` when available.
+# Args: <file> [highlight-line]
+_preview_file() {
+    local file="$1"
+    local line="${2:-}"
+    local start=1
+    local end=200
+    local bat_cmd=""
+
+    if [[ -z "$file" || ! -f "$file" ]]; then
+        return 1
+    fi
+
+    if command -v bat >/dev/null 2>&1; then
+        bat_cmd="bat"
+    elif command -v batcat >/dev/null 2>&1; then
+        bat_cmd="batcat"
+    fi
+
+    if [[ -n "$line" ]]; then
+        start=$(( line > 20 ? line - 20 : 1 ))
+        end=$(( line + 20 ))
+    fi
+
+    if [[ -n "$bat_cmd" ]]; then
+        if [[ -n "$line" ]]; then
+            "$bat_cmd" --style=plain --color=always --highlight-line "$line" --line-range "$start:$end" "$file"
+        else
+            "$bat_cmd" --style=plain --color=always --line-range "$start:$end" "$file"
+        fi
+        return
+    fi
+
+    sed -n "${start},${end}p" "$file"
+}
+
+# Open a file at an optional line using `$EDITOR`.
+# Args: <file> [line]
+_edit_file() {
+    local file="$1"
+    local line="${2:-}"
+    local editor="${EDITOR:-vi}"
+    local cmd=""
+
+    if [[ -z "$file" ]]; then
+        echo "error: missing file path" >&2
+        return 1
+    fi
+
+    if [[ -n "$line" ]]; then
+        printf -v cmd '%s +%q %q' "$editor" "$line" "$file"
+    else
+        printf -v cmd '%s %q' "$editor" "$file"
+    fi
+
+    eval "$cmd"
+}
+
 # Run `dot update` and reload the current shell config on success.
 # Args: [dot update args...]
 #   dotu --force
@@ -121,7 +179,7 @@ cdf() {
     return 1
 }
 
-# Ripgrep for content, preview matches, and open the selected hit in nvim.
+# Ripgrep for content, preview matches, and open the selected hit in `$EDITOR`.
 # Args: <rg pattern> [rg args...]
 # Examples:
 #   rgv shellcheck
@@ -135,12 +193,12 @@ rgv() {
         return 1
     fi
 
-    if ! command -v nvim >/dev/null 2>&1; then
-        echo "error: rgv requires nvim" >&2
+    if [[ -z "${EDITOR:-}" ]]; then
+        echo "error: rgv requires \$EDITOR to be set" >&2
         return 1
     fi
 
-    preview="bash -c 'hit=\$1; file=\${hit%%:*}; rest=\${hit#*:}; line=\${rest%%:*}; if command -v bat >/dev/null 2>&1; then _bat=bat; elif command -v batcat >/dev/null 2>&1; then _bat=batcat; else _bat=; fi; start=\$(( line > 20 ? line - 20 : 1 )); end=\$(( line + 20 )); if [[ -n \"\$_bat\" ]]; then \"\$_bat\" --style=plain --color=always --highlight-line \"\$line\" --line-range \"\$start:\$end\" \"\$file\"; else sed -n \"\${start},\${end}p\" \"\$file\"; fi' _ {}"
+    preview="bash -lc 'hit=\$1; file=\${hit%%:*}; rest=\${hit#*:}; line=\${rest%%:*}; source ~/.config/shell/interactive.d/56-dot.sh; _preview_file \"\$file\" \"\$line\"' _ {}"
     hit="$(
         rg --hidden --glob '!.git' --line-number --no-heading --color=never "$@" \
             | fzf --height 70% --reverse --prompt="rg> " --preview="$preview" --preview-window="right,60%,border-left"
@@ -150,10 +208,10 @@ rgv() {
     file="${hit%%:*}"
     line="${hit#*:}"
     line="${line%%:*}"
-    nvim "+${line}" "$file"
+    _edit_file "$file" "$line"
 }
 
-# Fuzzy-pick a file, preview it, and open it in nvim.
+# Fuzzy-pick a file, preview it, and open it in `$EDITOR`.
 # Args: [query] or [root] [query]
 # Examples:
 #   fv dot.sh
@@ -190,20 +248,20 @@ fv() {
         return 1
     fi
 
-    if ! command -v nvim >/dev/null 2>&1; then
-        echo "error: fv requires nvim" >&2
+    if [[ -z "${EDITOR:-}" ]]; then
+        echo "error: fv requires \$EDITOR to be set" >&2
         return 1
     fi
 
-    preview="bash -c 'file=\$1; if command -v bat >/dev/null 2>&1; then _bat=bat; elif command -v batcat >/dev/null 2>&1; then _bat=batcat; else _bat=; fi; if [[ -n \"\$_bat\" ]]; then \"\$_bat\" --style=plain --color=always --line-range :200 \"\$file\"; else sed -n \"1,200p\" \"\$file\"; fi' _ {}"
+    preview="bash -lc 'file=\$1; source ~/.config/shell/interactive.d/56-dot.sh; _preview_file \"\$file\"' _ {}"
     if command -v fd >/dev/null 2>&1; then
         printf -v root_q '%q' "$root"
         file="$(
             fd --base-directory "$root" --hidden --exclude .git --type f . \
-                | fzf --height 70% --reverse --prompt="file> " --scheme=path --query="$query" --preview="bash -c 'root=\$1; file=\$2; if command -v bat >/dev/null 2>&1; then _bat=bat; elif command -v batcat >/dev/null 2>&1; then _bat=batcat; else _bat=; fi; if [[ -n \"\$_bat\" ]]; then \"\$_bat\" --style=plain --color=always --line-range :200 \"\$root/\$file\"; else sed -n \"1,200p\" \"\$root/\$file\"; fi' _ $root_q {}" --preview-window="right,60%,border-left"
+                | fzf --height 70% --reverse --prompt="file> " --scheme=path --query="$query" --preview="bash -lc 'root=\$1; file=\$2; source ~/.config/shell/interactive.d/56-dot.sh; _preview_file \"\$root/\$file\"' _ $root_q {}" --preview-window="right,60%,border-left"
         )" || return
         [[ -n "$file" ]] || return
-        nvim "$root/$file"
+        _edit_file "$root/$file"
         return
     fi
 
@@ -212,5 +270,5 @@ fv() {
             | fzf --height 70% --reverse --prompt="file> " --scheme=path --query="$query" --preview="$preview" --preview-window="right,60%,border-left"
     )" || return
     [[ -n "$file" ]] || return
-    nvim "$file"
+    _edit_file "$file"
 }
