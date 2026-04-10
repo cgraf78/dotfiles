@@ -372,86 +372,75 @@ _link_bin() {
 # Priority: ~/git/<name> (symlink) > existing git clone (pull) > release tarball > fresh clone.
 # If <install-dir>/bin/<name> exists after install, it is symlinked into PATH.
 # Env var override: DOTBOOTSTRAP_<NAME>_REPO overrides the repo URL.
-_install_from_github() {
-  local name="$1" default_repo="$2" install_dir="$3"
-  local upper="${name^^}"; upper="${upper//-/_}"
-  local env_var="DOTBOOTSTRAP_${upper}_REPO"
-  local repo="${!env_var:-https://github.com/$default_repo}"
-  local tarball_url tmp_dir
-  local local_clone="$HOME/git/$name"
-  local stamp=""
-  stamp=$(_dep_remote_stamp "$name" git)
 
-  # Prefer local clone — symlink for live development
-  if [[ -d "$local_clone" ]]; then
-    local link_before=""
-    if [[ -L "$install_dir" ]]; then
-      link_before=$(readlink "$install_dir" 2>/dev/null || true)
-    fi
-    local rev_before="" rev_after="" dirty_after=0
-    if _dep_rev_read "$name"; then
-      rev_before="$REPLY"
-    fi
-    rev_after=$(git -C "$local_clone" rev-parse HEAD 2>/dev/null || true)
-    if [[ -n "$(git -C "$local_clone" status --porcelain --untracked-files=normal 2>/dev/null || true)" ]]; then
-      dirty_after=1
-    fi
-    rm -rf "$install_dir"
-    mkdir -p "$(dirname "$install_dir")"
-    ln -sfn "$local_clone" "$install_dir"
-    _link_bin "$name" "$install_dir"
-    local ver; ver=$(_get_version "$local_clone")
-    if [[ -n "$rev_after" ]]; then
-      _dep_rev_touch "$name" "$rev_after" || true
-    fi
-    if [[ "$link_before" != "$local_clone" || "$rev_before" != "$rev_after" || "$dirty_after" -eq 1 || "${DOT_FORCE:-0}" -eq 1 ]]; then
-      _DEPS_CHANGED[$name]=1
-      _log_ok "  $name -> $local_clone (local clone)${ver:+ -- $ver}"
-    else
-      _log_dim "  $name up to date${ver:+ -- $ver}"
-    fi
-    return 0
+# Strategy: ~/git/<name> exists — symlink for live development.
+_github_install_local_clone() {
+  local name="$1" local_clone="$2" install_dir="$3"
+  local link_before=""
+  if [[ -L "$install_dir" ]]; then
+    link_before=$(readlink "$install_dir" 2>/dev/null || true)
   fi
-
-  local log=""
-  if ! _logfile_create; then
-    _warn "  warning: failed to create temp log for $name install"
+  local rev_before="" rev_after="" dirty_after=0
+  if _dep_rev_read "$name"; then
+    rev_before="$REPLY"
+  fi
+  rev_after=$(git -C "$local_clone" rev-parse HEAD 2>/dev/null || true)
+  if [[ -n "$(git -C "$local_clone" status --porcelain --untracked-files=normal 2>/dev/null || true)" ]]; then
+    dirty_after=1
+  fi
+  rm -rf "$install_dir"
+  mkdir -p "$(dirname "$install_dir")"
+  ln -sfn "$local_clone" "$install_dir"
+  _link_bin "$name" "$install_dir"
+  local ver; ver=$(_get_version "$local_clone")
+  if [[ -n "$rev_after" ]]; then
+    _dep_rev_touch "$name" "$rev_after" || true
+  fi
+  if [[ "$link_before" != "$local_clone" || "$rev_before" != "$rev_after" || "$dirty_after" -eq 1 || "${DOT_FORCE:-0}" -eq 1 ]]; then
+    _DEPS_CHANGED[$name]=1
+    _log_ok "  $name -> $local_clone (local clone)${ver:+ -- $ver}"
   else
-    log="$REPLY"
+    _log_dim "  $name up to date${ver:+ -- $ver}"
   fi
+}
 
-  # Existing git clone — pull to update
-  if [[ -d "$install_dir/.git" ]]; then
-    if _dep_remote_fresh "$stamp"; then
-      _link_bin "$name" "$install_dir"
-      local ver; ver=$(_get_version "$install_dir")
-      _log_dim "  $name up to date${ver:+ -- $ver}"
-      rm -f "$log"
-      return 0
-    fi
-
-    local head_before; head_before=$(git -C "$install_dir" rev-parse HEAD 2>/dev/null || true)
-    if _run_logged git -C "$install_dir" pull --ff-only --quiet; then
-      _link_bin "$name" "$install_dir"
-      local head_after; head_after=$(git -C "$install_dir" rev-parse HEAD 2>/dev/null || true)
-      local ver; ver=$(_get_version "$install_dir")
-      _dep_remote_touch "$stamp" || true
-      if [[ "$head_before" != "$head_after" ]]; then
-        _DEPS_CHANGED[$name]=1
-        _log_ok "  $name updated${ver:+ -- $ver}"
-      elif [[ "${DOT_FORCE:-0}" -eq 1 ]]; then
-        _DEPS_CHANGED[$name]=1
-        _log_ok "  $name reinstalled${ver:+ -- $ver}"
-      else
-        _log_dim "  $name up to date${ver:+ -- $ver}"
-      fi
-    else
-      _logfile_print "$name update" "$log"
-      _warn "  warning: $name update failed"
-    fi
+# Strategy: install_dir/.git exists — pull to update.
+_github_install_pull() {
+  local name="$1" install_dir="$2" stamp="$3" log="$4"
+  if _dep_remote_fresh "$stamp"; then
+    _link_bin "$name" "$install_dir"
+    local ver; ver=$(_get_version "$install_dir")
+    _log_dim "  $name up to date${ver:+ -- $ver}"
     rm -f "$log"
     return 0
   fi
+
+  local head_before; head_before=$(git -C "$install_dir" rev-parse HEAD 2>/dev/null || true)
+  if _run_logged git -C "$install_dir" pull --ff-only --quiet; then
+    _link_bin "$name" "$install_dir"
+    local head_after; head_after=$(git -C "$install_dir" rev-parse HEAD 2>/dev/null || true)
+    local ver; ver=$(_get_version "$install_dir")
+    _dep_remote_touch "$stamp" || true
+    if [[ "$head_before" != "$head_after" ]]; then
+      _DEPS_CHANGED[$name]=1
+      _log_ok "  $name updated${ver:+ -- $ver}"
+    elif [[ "${DOT_FORCE:-0}" -eq 1 ]]; then
+      _DEPS_CHANGED[$name]=1
+      _log_ok "  $name reinstalled${ver:+ -- $ver}"
+    else
+      _log_dim "  $name up to date${ver:+ -- $ver}"
+    fi
+  else
+    _logfile_print "$name update" "$log"
+    _warn "  warning: $name update failed"
+  fi
+  rm -f "$log"
+}
+
+# Strategy: no existing install — try release tarball, fall back to git clone.
+_github_install_fresh() {
+  local name="$1" repo="$2" install_dir="$3" stamp="$4" log="$5"
+  local tarball_url="" tmp_dir
 
   # Capture current version before overwriting (for tarball/clone installs).
   local ver_before; ver_before=$(_get_version "$install_dir")
@@ -524,6 +513,35 @@ _install_from_github() {
       _log_ok "  $name installed ($method)${ver:+ -- $ver}"
     fi
   fi
+}
+
+_install_from_github() {
+  local name="$1" default_repo="$2" install_dir="$3"
+  local upper="${name^^}"; upper="${upper//-/_}"
+  local env_var="DOTBOOTSTRAP_${upper}_REPO"
+  local repo="${!env_var:-https://github.com/$default_repo}"
+  local local_clone="$HOME/git/$name"
+  local stamp=""
+  stamp=$(_dep_remote_stamp "$name" git)
+
+  if [[ -d "$local_clone" ]]; then
+    _github_install_local_clone "$name" "$local_clone" "$install_dir"
+    return $?
+  fi
+
+  local log=""
+  if ! _logfile_create; then
+    _warn "  warning: failed to create temp log for $name install"
+  else
+    log="$REPLY"
+  fi
+
+  if [[ -d "$install_dir/.git" ]]; then
+    _github_install_pull "$name" "$install_dir" "$stamp" "$log"
+    return $?
+  fi
+
+  _github_install_fresh "$name" "$repo" "$install_dir" "$stamp" "$log"
 }
 
 # Install or upgrade a tool via GitHub release binary.
