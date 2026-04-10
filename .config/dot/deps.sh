@@ -472,6 +472,7 @@ _install_from_github() {
 
   if [[ -n "${tarball_url:-}" ]]; then
     tmp_dir=$(mktemp -d)
+    # shellcheck disable=SC2016  # Single quotes intentional — inner script uses $1/$2.
     if _run_logged bash -c 'curl -fsSL "$1" | tar xz -C "$2"' _ "$tarball_url" "$tmp_dir"; then
       rm -rf "$install_dir"
       mkdir -p "$install_dir"

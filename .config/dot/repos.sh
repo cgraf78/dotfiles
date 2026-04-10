@@ -104,6 +104,7 @@ _pull_repo() {
 }
 
 _pull_personal() {
+  # shellcheck disable=SC2086  # $GIT is intentionally word-split (multi-word command).
   _pull_repo "$HOME" $GIT pull "$@"
 }
 
