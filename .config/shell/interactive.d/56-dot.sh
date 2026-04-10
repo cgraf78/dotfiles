@@ -83,7 +83,7 @@ reloadsh() {
 }
 
 # Print shell/session context for quick environment debugging.
-shellinfo() {
+shinfo() {
     printf 'shell=%s\n' "${SHELL:-}"
     printf 'bash=%s\n' "${BASH_VERSION:-no}"
     printf 'zsh=%s\n' "${ZSH_VERSION:-no}"
