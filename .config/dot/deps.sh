@@ -818,7 +818,7 @@ _run_post_hooks() {
     [[ -f "$hook_file" ]] || continue
     unset -f status post 2>/dev/null
     # shellcheck source=/dev/null
-    . "$hook_file" || { _warn "warning: failed to source $hook_file"; continue; }
+    . "$hook_file" || { _warn "  warning: failed to source $hook_file"; continue; }
     if declare -f status &>/dev/null; then
       status || true
     fi
@@ -834,7 +834,7 @@ _run_post_hooks() {
     [[ -f "$hook_file" ]] || continue
     unset -f post status 2>/dev/null
     # shellcheck source=/dev/null
-    . "$hook_file" || { _warn "warning: failed to source $hook_file"; continue; }
+    . "$hook_file" || { _warn "  warning: failed to source $hook_file"; continue; }
     if declare -f post &>/dev/null; then
       if post; then
         _dep_hook_touch "$name" || true

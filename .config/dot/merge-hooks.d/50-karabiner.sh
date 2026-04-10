@@ -41,7 +41,7 @@ merge() {
         select(.name as $n | [$d[0].profiles[].name] | index($n) | not)]
     )
   ' > "$dst.tmp"; then
-    echo "    warning: Karabiner merge failed — skipping"
+    _warn "    warning: Karabiner merge failed — skipping"
     rm -f "$dst.tmp"
     return
   fi

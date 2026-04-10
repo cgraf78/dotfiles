@@ -36,7 +36,7 @@ _merge_vscode_keybindings() {
     ($s[0] | map({key: .key, when: (.when // "")})) as $skeys |
     $s[0] + [$d[0][] | select({key: .key, when: (.when // "")} as $k | $skeys | map(. == $k) | any | not)]
   ' > "$dst.tmp"; then
-    echo "  warning: keybindings merge failed for $(basename "$(dirname "$(dirname "$dst")")") — skipping"
+    _warn "    warning: keybindings merge failed for $(basename "$(dirname "$(dirname "$dst")")") — skipping"
     rm -f "$dst.tmp"
     rm -f "$src_clean" "$dst_clean"
     return
@@ -70,7 +70,7 @@ _merge_vscode_settings() {
   # recursively — local-only nested keys are preserved.
   if ! jq -n --indent 4 --slurpfile s "$src_clean" --slurpfile d "$dst_clean" \
     '$d[0] * $s[0]' > "$dst.tmp"; then
-    echo "  warning: settings merge failed for $(basename "$(dirname "$(dirname "$dst")")") — skipping"
+    _warn "    warning: settings merge failed for $(basename "$(dirname "$(dirname "$dst")")") — skipping"
     rm -f "$dst.tmp"
     rm -f "$src_clean" "$dst_clean"
     return

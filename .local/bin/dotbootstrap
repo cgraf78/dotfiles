@@ -203,12 +203,12 @@ if [[ "$MACHINE_TYPE" == "work" ]]; then
     # shellcheck disable=SC2119  # intentionally passing no args
     _pull_work_repo
   else
-    echo "==> Cloning work dotfiles..."
+    _log_header "==> Cloning work dotfiles..."
     if git clone "$WORK_REPO" "$WORK_DIR"; then
       git -C "$WORK_DIR" config pull.rebase true
       git -C "$WORK_DIR" config rebase.autoStash true
     else
-      echo "  warning: work dotfiles clone failed" >&2
+      _warn "  warning: work dotfiles clone failed"
     fi
   fi
 fi
@@ -231,5 +231,5 @@ _link_work_home
 
 _run_merges
 
-echo "==> Done! Run 'source ~/.bashrc' or 'source ~/.zshrc' to activate."
+_header "==> Done! Run 'source ~/.bashrc' or 'source ~/.zshrc' to activate."
 touch "$HOME/.dotbootstrap-done"

@@ -33,7 +33,7 @@ merge() {
   # Merge: source keys overwrite destination, local-only keys preserved
   local merged
   merged=$("$yq_bin" eval-all 'select(fileIndex == 0) * select(fileIndex == 1)' "$dst" "$src") || {
-    echo "    warning: merge failed — skipping"
+    _warn "    warning: merge failed — skipping"
     return 0
   }
 
