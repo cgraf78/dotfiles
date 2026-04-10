@@ -27,8 +27,12 @@ _merge_vscode_keybindings() {
   local src_clean dst_clean
   src_clean=$(mktemp)
   dst_clean=$(mktemp)
-  _strip_jsonc "$src" > "$src_clean"
-  _strip_jsonc "$dst" > "$dst_clean"
+
+  if ! _strip_jsonc "$src" > "$src_clean" || ! _strip_jsonc "$dst" > "$dst_clean"; then
+    _warn "    warning: keybindings merge failed for $(basename "$(dirname "$(dirname "$dst")")") — skipping"
+    rm -f "$src_clean" "$dst_clean"
+    return
+  fi
 
   # Merge: all dotfiles entries first, then any local-only entries.
   # A keybinding's identity is its key+when pair.
@@ -38,10 +42,9 @@ _merge_vscode_keybindings() {
   ' > "$dst.tmp"; then
     _warn "    warning: keybindings merge failed for $(basename "$(dirname "$(dirname "$dst")")") — skipping"
     rm -f "$dst.tmp"
-    rm -f "$src_clean" "$dst_clean"
-    return
+  else
+    mv "$dst.tmp" "$dst"
   fi
-  mv "$dst.tmp" "$dst"
   rm -f "$src_clean" "$dst_clean"
 }
 
@@ -62,8 +65,12 @@ _merge_vscode_settings() {
   local src_clean dst_clean
   src_clean=$(mktemp)
   dst_clean=$(mktemp)
-  _strip_jsonc "$src" > "$src_clean"
-  _strip_jsonc "$dst" > "$dst_clean"
+
+  if ! _strip_jsonc "$src" > "$src_clean" || ! _strip_jsonc "$dst" > "$dst_clean"; then
+    _warn "    warning: settings merge failed for $(basename "$(dirname "$(dirname "$dst")")") — skipping"
+    rm -f "$src_clean" "$dst_clean"
+    return
+  fi
 
   # Merge: local settings * dotfiles settings (recursive merge, dotfiles win)
   # Using * instead of + so nested objects (like "[python]") are merged
@@ -72,10 +79,9 @@ _merge_vscode_settings() {
     '$d[0] * $s[0]' > "$dst.tmp"; then
     _warn "    warning: settings merge failed for $(basename "$(dirname "$(dirname "$dst")")") — skipping"
     rm -f "$dst.tmp"
-    rm -f "$src_clean" "$dst_clean"
-    return
+  else
+    mv "$dst.tmp" "$dst"
   fi
-  mv "$dst.tmp" "$dst"
   rm -f "$src_clean" "$dst_clean"
 }
 
