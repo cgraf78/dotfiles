@@ -43,7 +43,7 @@ merge() {
   ' > "$dst.tmp"; then
     _warn "    warning: Karabiner merge failed — skipping"
     rm -f "$dst.tmp"
-    return
+    return 0
   fi
   mv "$dst.tmp" "$dst"
 }
