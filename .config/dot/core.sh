@@ -22,8 +22,9 @@ if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
   _C_YELLOW=$'\033[33m'
   _C_BLUE=$'\033[34m'
   _C_CYAN=$'\033[36m'
+  _C_WHITE=$'\033[97m'
 else
-  _C_RESET="" _C_BOLD="" _C_DIM="" _C_GREEN="" _C_YELLOW="" _C_BLUE="" _C_CYAN=""
+  _C_RESET="" _C_BOLD="" _C_DIM="" _C_GREEN="" _C_YELLOW="" _C_BLUE="" _C_CYAN="" _C_WHITE=""
 fi
 
 # ---------------------------------------------------------------------------
@@ -35,14 +36,14 @@ _log() {
   [[ "$DOT_QUIET" -eq 1 ]] || echo "$@"
 }
 
-# Section header (bold white, always prints).
+# Section header (bright bold white, always prints).
 _header() {
-  echo "${_C_BOLD}$*${_C_RESET}"
+  echo "${_C_BOLD}${_C_WHITE}$*${_C_RESET}"
 }
 
-# Section header (bold white, respects quiet mode).
+# Section header (bright bold white, respects quiet mode).
 _log_header() {
-  [[ "$DOT_QUIET" -eq 1 ]] || echo "${_C_BOLD}$*${_C_RESET}"
+  [[ "$DOT_QUIET" -eq 1 ]] || echo "${_C_BOLD}${_C_WHITE}$*${_C_RESET}"
 }
 
 # Success message (green, respects quiet mode).
