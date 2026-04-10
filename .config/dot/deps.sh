@@ -555,7 +555,7 @@ _install_from_github() {
 
 # Install or upgrade a tool via GitHub release binary.
 # Searches release assets for a single executable matching the current OS
-# and arch (AppImages, plain binaries, etc.). Skips archives/tarballs.
+# and arch. Prefers standalone binaries; extracts from tarballs as fallback.
 # Usage: _install_binary <name> <cmd> <owner/repo>
 _install_binary() {
   local name="$1" cmd="$2" gh_repo="$3"
@@ -642,7 +642,34 @@ _install_binary() {
   fi
 
   mkdir -p "$HOME/.local/bin"
-  mv "$tmp_file" "$bin_path"
+
+  # Handle tarball archives: extract and find the binary inside.
+  if [[ "$asset_url" == *.tar.gz || "$asset_url" == *.tar.xz || "$asset_url" == *.tar.bz2 ]]; then
+    local extract_dir
+    extract_dir=$(mktemp -d) || {
+      rm -f "$tmp_file" "$log"
+      _warn "  warning: failed to create extract dir for $name"
+      return 1
+    }
+    if ! tar xf "$tmp_file" -C "$extract_dir" 2>/dev/null; then
+      rm -rf "$extract_dir" "$tmp_file" "$log"
+      _warn "  warning: failed to extract $name tarball"
+      return 1
+    fi
+    rm -f "$tmp_file"
+    local found_bin=""
+    found_bin=$(find "$extract_dir" -name "$cmd" -type f -perm +111 2>/dev/null | head -1)
+    if [[ -z "$found_bin" ]]; then
+      rm -rf "$extract_dir" "$log"
+      _warn "  warning: $cmd binary not found in $name tarball"
+      return 1
+    fi
+    mv "$found_bin" "$bin_path"
+    rm -rf "$extract_dir"
+  else
+    mv "$tmp_file" "$bin_path"
+  fi
+
   chmod u+x "$bin_path"
   rm -f "$log"
   _dep_remote_touch "$stamp" || true
@@ -658,7 +685,7 @@ _install_binary() {
 }
 
 # Find a release asset URL matching the current OS and architecture.
-# Tries the API asset list first, then falls back to common URL patterns.
+# Prefers standalone binaries; falls back to .tar.gz/.tar.xz archives.
 # Prints the URL to stdout; empty string if no match.
 _binary_find_asset() {
   local cmd="$1" gh_repo="$2" tag="$3" release_json="$4"
@@ -666,6 +693,13 @@ _binary_find_asset() {
   local os arch
   os=$(uname -s | tr '[:upper:]' '[:lower:]')
   arch=$(uname -m)
+
+  # Normalize OS names (projects use various conventions)
+  local os_patterns=("$os")
+  case "$os" in
+    darwin) os_patterns+=(macos apple osx) ;;
+    linux)  os_patterns+=(linux) ;;
+  esac
 
   # Normalize arch names for matching (projects use various conventions)
   local arch_patterns=("$arch")
@@ -676,7 +710,15 @@ _binary_find_asset() {
     arm64)   arch_patterns+=(aarch64) ;;
   esac
 
-  # Try matching from the API asset list (handles any naming convention)
+  # Extensions to always skip (metadata, packages, installers)
+  local -a _skip_exts=(
+    .sha256 .sha512 .md5 .sig .asc .txt .json .zsync
+    .deb .rpm .msi .zip
+  )
+
+  # Try matching from the API asset list (handles any naming convention).
+  # Pass 1: standalone binaries (no archives).
+  # Pass 2: tar archives (.tar.gz, .tar.xz, .tar.bz2).
   if [[ -n "$release_json" ]]; then
     local urls
     urls=$(echo "$release_json" \
@@ -684,23 +726,36 @@ _binary_find_asset() {
       | cut -d'"' -f4)
 
     if [[ -n "$urls" ]]; then
-      local url arch_pat
-      # Filter: must contain OS, must contain an arch variant,
-      # must not be a checksum/signature file
-      while IFS= read -r url; do
-        [[ "$url" == *"$os"* ]] || continue
-        [[ "$url" != *.tar.gz && "$url" != *.tar.xz && "$url" != *.tar.bz2 \
-          && "$url" != *.zip && "$url" != *.deb && "$url" != *.rpm \
-          && "$url" != *.sha256 && "$url" != *.sha512 && "$url" != *.md5 \
-          && "$url" != *.sig && "$url" != *.asc && "$url" != *.txt \
-          && "$url" != *.json ]] || continue
-        for arch_pat in "${arch_patterns[@]}"; do
-          if [[ "$url" == *"$arch_pat"* ]]; then
-            echo "$url"
-            return 0
+      local url arch_pat os_pat ext skip os_match
+      local pass
+      for pass in plain tarball; do
+        while IFS= read -r url; do
+          # Must match at least one OS pattern
+          os_match=0
+          for os_pat in "${os_patterns[@]}"; do
+            [[ "$url" == *"$os_pat"* ]] && { os_match=1; break; }
+          done
+          [[ $os_match -eq 1 ]] || continue
+          # Skip metadata and package files
+          skip=0
+          for ext in "${_skip_exts[@]}"; do
+            [[ "$url" == *"$ext" ]] && { skip=1; break; }
+          done
+          [[ $skip -eq 1 ]] && continue
+          # Pass-specific filtering
+          if [[ "$pass" == "plain" ]]; then
+            [[ "$url" != *.tar.gz && "$url" != *.tar.xz && "$url" != *.tar.bz2 ]] || continue
+          else
+            [[ "$url" == *.tar.gz || "$url" == *.tar.xz || "$url" == *.tar.bz2 ]] || continue
           fi
-        done
-      done <<< "$urls"
+          for arch_pat in "${arch_patterns[@]}"; do
+            if [[ "$url" == *"$arch_pat"* ]]; then
+              echo "$url"
+              return 0
+            fi
+          done
+        done <<< "$urls"
+      done
     fi
   fi
 

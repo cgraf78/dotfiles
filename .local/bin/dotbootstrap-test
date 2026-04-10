@@ -343,6 +343,56 @@ export DOT_FORCE=0
 read -r bin_api_count < "$BIN_API_COUNT"
 _assert_eq "install_binary: force bypasses cache" "2" "$bin_api_count"
 
+# Tarball extraction: when only .tar.gz assets are available, _install_binary
+# should download the tarball, extract it, and find the binary inside.
+TAR_BIN_DIR=$(_tmpdir)
+mkdir -p "$TAR_BIN_DIR/.local/bin"
+TAR_CURL_BIN=$(_tmpdir)
+
+# Build a real .tar.gz containing a nested binary (like neovim's layout)
+TAR_STAGING=$(_tmpdir)
+mkdir -p "$TAR_STAGING/mocktool-${_mock_os}-${_mock_arch}/bin"
+cat > "$TAR_STAGING/mocktool-${_mock_os}-${_mock_arch}/bin/mocktool" <<'TOOL'
+#!/usr/bin/env bash
+echo "mocktool v2.0.0"
+TOOL
+chmod +x "$TAR_STAGING/mocktool-${_mock_os}-${_mock_arch}/bin/mocktool"
+TAR_FILE="$TAR_STAGING/mocktool.tar.gz"
+tar czf "$TAR_FILE" -C "$TAR_STAGING" "mocktool-${_mock_os}-${_mock_arch}"
+
+cat > "$TAR_CURL_BIN/curl" <<EOF
+#!/usr/bin/env bash
+if [[ "\$*" == *"/releases/latest"* ]]; then
+    printf '%s\n' '{"tag_name":"v2.0.0","assets":[{"browser_download_url":"https://example.com/mocktool-${_mock_os}-${_mock_arch}.tar.gz"}]}'
+    exit 0
+fi
+out=""
+while [[ "\$#" -gt 0 ]]; do
+    if [[ "\$1" == "-o" && "\$#" -ge 2 ]]; then
+        out="\$2"
+        break
+    fi
+    shift
+done
+if [[ -n "\$out" ]]; then
+    cp "$TAR_FILE" "\$out"
+    exit 0
+fi
+exit 1
+EOF
+chmod +x "$TAR_CURL_BIN/curl"
+
+export DOT_FORCE=1
+HOME="$TAR_BIN_DIR" \
+PATH="$TAR_CURL_BIN:$PATH" \
+DOT_TEST_REAL_CURL="$REAL_CURL_BIN" \
+_install_binary "mocktool" "mocktool" "fixture/mocktool" >/dev/null 2>&1
+export DOT_FORCE=0
+
+_assert_file_exists "install_binary tarball: binary extracted" "$TAR_BIN_DIR/.local/bin/mocktool"
+tar_result=$("$TAR_BIN_DIR/.local/bin/mocktool" 2>&1)
+_assert_eq "install_binary tarball: binary runs" "mocktool v2.0.0" "$tar_result"
+
 # Custom hooks should not be due again immediately after a successful run.
 rc=0; _dep_hook_due "nerd-fonts" || rc=$?
 _assert_exit "hook_due: custom hook initially due" 0 "$rc"
