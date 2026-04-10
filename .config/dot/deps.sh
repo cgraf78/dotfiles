@@ -668,7 +668,10 @@ _install_binary() {
 
     # Verify the binary exists inside the extracted tree.
     local found_bin=""
-    found_bin=$(find "$extract_dir" -name "$cmd" -type f -perm +111 2>/dev/null | head -1)
+    found_bin=""
+    while IFS= read -r -d '' f; do
+      if [[ -x "$f" ]]; then found_bin="$f"; break; fi
+    done < <(find "$extract_dir" -name "$cmd" -type f -print0 2>/dev/null)
     if [[ -z "$found_bin" ]]; then
       rm -rf "$extract_dir" "$log"
       _warn "  warning: $cmd binary not found in $name tarball"
