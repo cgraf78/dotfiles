@@ -2,8 +2,10 @@
 
 # macOS integrations
 if [[ "$_UNAME" == "Darwin" ]]; then
-    test -e "${HOME}/.iterm2_shell_integration.bash" && . "${HOME}/.iterm2_shell_integration.bash"
-    test -e "/Applications/WezTerm.app/Contents/Resources/wezterm.sh" && . "/Applications/WezTerm.app/Contents/Resources/wezterm.sh"
+    if [[ -z "${NVIM:-}" ]]; then
+        test -e "${HOME}/.iterm2_shell_integration.bash" && . "${HOME}/.iterm2_shell_integration.bash"
+        test -e "/Applications/WezTerm.app/Contents/Resources/wezterm.sh" && . "/Applications/WezTerm.app/Contents/Resources/wezterm.sh"
+    fi
 
     # Screenshot capture to Google Drive
     sc() {

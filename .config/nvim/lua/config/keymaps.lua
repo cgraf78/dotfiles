@@ -1,7 +1,10 @@
 local map = vim.keymap.set
+local buffers = require("config.buffers")
+local terminal = require("config.terminal")
 
 -- Escape from insert mode
 map("i", "kj", "<Esc>", { desc = "Exit insert mode" })
+map("t", "kj", [[<C-\><C-n>]], { desc = "Exit terminal mode" })
 
 -- Fast save
 map("n", "<leader>w", ":w!<CR>", { desc = "Save file" })
@@ -15,11 +18,28 @@ map("n", "<leader><CR>", ":noh<CR>", { silent = true, desc = "Clear search highl
 -- Buffer navigation
 map("n", "<leader>l", ":bnext<CR>", { desc = "Next buffer" })
 map("n", "<leader>h", ":bprevious<CR>", { desc = "Previous buffer" })
-map("n", "<leader>bd", ":bdelete<CR>", { desc = "Delete buffer" })
+map("n", "<leader>bd", function()
+  buffers.delete()
+end, { desc = "Delete buffer" })
 
 -- Tab management
 map("n", "<leader>tn", ":tabnew<CR>", { desc = "New tab" })
 map("n", "<leader>tc", ":tabclose<CR>", { desc = "Close tab" })
+map("n", "<leader>tb", function()
+  terminal.open_bottom()
+end, { desc = "Bottom terminal" })
+map("n", "<leader>tt", function()
+  terminal.open_top()
+end, { desc = "Top terminal" })
+map("n", "<leader>tr", function()
+  terminal.open_right()
+end, { desc = "Right terminal" })
+map("n", "<leader>tl", function()
+  terminal.open_left()
+end, { desc = "Left terminal" })
+map({ "n", "t" }, "<C-`>", function()
+  terminal.toggle()
+end, { desc = "Toggle terminal" })
 
 -- Move lines with Alt+j/k
 map("n", "<M-j>", ":m .+1<CR>==", { desc = "Move line down" })
@@ -68,4 +88,3 @@ map("n", "J", "mzJ`z", { desc = "Join lines (keep cursor)" })
 
 -- Spell checking
 map("n", "<leader>ss", ":setlocal spell!<CR>", { desc = "Toggle spell check" })
-

@@ -55,7 +55,8 @@ return {
       },
     },
     keys = {
-      { "<C-f>", "<cmd>Telescope find_files<cr>", desc = "Find files" },
+      { "<C-p>", "<cmd>Telescope find_files<cr>", desc = "Find files" },
+      { "<C-f>", "<cmd>Telescope current_buffer_fuzzy_find<cr>", desc = "Search in buffer" },
       { "<leader>f", "<cmd>Telescope oldfiles<cr>", desc = "Recent files" },
       { "<leader>b", "<cmd>Telescope buffers<cr>", desc = "Buffers" },
       { "<leader>g", "<cmd>Telescope live_grep<cr>", desc = "Live grep" },
@@ -70,6 +71,15 @@ return {
       require("telescope").setup({
         defaults = {
           cwd = vim.fn.getcwd(),
+          layout_strategy = "vertical",
+          layout_config = {
+            vertical = {
+              mirror = true,
+              preview_height = 0.45,
+              prompt_position = "top",
+            },
+          },
+          sorting_strategy = "ascending",
         },
         pickers = {
           find_files = {
@@ -90,8 +100,12 @@ return {
     },
     config = function()
       require("nvim-tree").setup({
-        view = { side = "right", width = 35 },
+        view = { side = "left", width = 35 },
         filters = { dotfiles = false },
+        update_focused_file = {
+          enable = true,
+          update_root = false,
+        },
       })
     end,
   },

@@ -32,3 +32,30 @@ vim.api.nvim_create_autocmd("FileType", {
     vim.opt_local.expandtab = true
   end,
 })
+
+-- Exclude nvim-tree windows from persisted sessions.
+vim.api.nvim_create_autocmd("User", {
+  pattern = "PersistenceSavePre",
+  callback = function()
+    for _, win in ipairs(vim.api.nvim_list_wins()) do
+      local buf = vim.api.nvim_win_get_buf(win)
+      if vim.bo[buf].filetype == "NvimTree" then
+        vim.cmd("silent! NvimTreeClose")
+        break
+      end
+    end
+  end,
+})
+
+-- Make terminal buffers feel "live" when focused, like an IDE terminal.
+vim.api.nvim_create_autocmd("BufEnter", {
+  callback = function(args)
+    if vim.bo[args.buf].buftype == "terminal" then
+      vim.schedule(function()
+        if vim.api.nvim_buf_is_valid(args.buf) and vim.api.nvim_get_current_buf() == args.buf then
+          vim.cmd("startinsert")
+        end
+      end)
+    end
+  end,
+})
