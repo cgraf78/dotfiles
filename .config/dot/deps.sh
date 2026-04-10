@@ -129,6 +129,15 @@ _is_wsl() {
   [[ -r /proc/sys/kernel/osrelease ]] && grep -qi "microsoft" /proc/sys/kernel/osrelease
 }
 
+# Acquire sudo. Returns 0 if root or sudo obtained.
+# In quiet mode, skips interactive prompt and returns 1 silently.
+_require_sudo() {
+  [[ "$(id -u)" -eq 0 ]] && return 0
+  sudo -n true 2>/dev/null && return 0
+  [[ "$DOT_QUIET" -eq 1 ]] && return 1
+  sudo true 2>/dev/null
+}
+
 # Detect available package manager. Sets _PKG_MGR.
 _pkg_detect() {
   if [[ "$(uname -s 2>/dev/null)" == "Darwin" ]] && command -v brew &>/dev/null; then
@@ -195,14 +204,9 @@ _pkg_install_batch() {
   _log_ok "  installing: ${_PKG_BATCH[*]}"
 
   # Check sudo access for non-brew managers before attempting install
-  if [[ "$_PKG_MGR" != "brew" && "$(id -u)" -ne 0 ]]; then
-    if ! sudo -n true 2>/dev/null; then
-      # No passwordless sudo — try interactively, but don't abort on failure
-      if ! sudo true 2>/dev/null; then
-        _warn "  warning: sudo not available — cannot install: ${_PKG_BATCH[*]}"
-        return 0
-      fi
-    fi
+  if [[ "$_PKG_MGR" != "brew" ]] && ! _require_sudo; then
+    _warn "  warning: sudo not available — cannot install: ${_PKG_BATCH[*]}"
+    return 0
   fi
 
   local rc=0

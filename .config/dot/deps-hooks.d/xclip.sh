@@ -35,14 +35,9 @@ post() {
       ;;
   esac
 
-  if [[ "$(id -u)" -ne 0 ]] && ! sudo -n true 2>/dev/null; then
-    if [[ "$DOT_QUIET" -eq 1 ]]; then
-      return 1
-    fi
-    if ! sudo true 2>/dev/null; then
-      _warn "  warning: sudo not available — cannot install xclip"
-      return 1
-    fi
+  if ! _require_sudo; then
+    _warn "  warning: sudo not available — cannot install xclip"
+    return 1
   fi
 
   local rc=0
