@@ -98,7 +98,7 @@ _merge_vscode_config() {
   case "$(uname -s)" in
     Darwin)       kb_platform="$HOME/.config/dot/merge-hooks.d/vscode-keybindings-mac.json" ;;
     Linux)
-      if [[ -n "${WSL_DISTRO_NAME:-}" ]]; then
+      if _is_wsl; then
         kb_platform="$HOME/.config/dot/merge-hooks.d/vscode-keybindings-windows.json"
       else
         kb_platform="$HOME/.config/dot/merge-hooks.d/vscode-keybindings-linux.json"
@@ -121,7 +121,7 @@ merge() {
       _merge_vscode_config "$HOME/Library/Application Support/Code/User"
       ;;
     Linux)
-      if [[ -n "${WSL_DISTRO_NAME:-}" ]]; then
+      if _is_wsl; then
         WIN_APPDATA="$(wslpath "$(cmd.exe /C 'echo %APPDATA%' 2>/dev/null | tr -d '\r')" 2>/dev/null)" || true
         if [[ -n "$WIN_APPDATA" ]]; then
           _merge_vscode_config "$WIN_APPDATA/Code/User"

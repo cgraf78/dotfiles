@@ -8,7 +8,7 @@ merge() {
 
   case "$(uname -s)" in
     Linux)
-      [[ -n "${WSL_DISTRO_NAME:-}" ]] || return 0
+      _is_wsl || return 0
       ;;
     MINGW*|MSYS*)
       # On Windows-native shells, HOME is already the Windows home.

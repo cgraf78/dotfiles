@@ -108,3 +108,12 @@ _run_quiet_logged() {
   _warn "  warning: $warning"
   return 0
 }
+
+# ---------------------------------------------------------------------------
+# Platform helpers
+# ---------------------------------------------------------------------------
+
+_is_wsl() {
+  [[ -n "${WSL_DISTRO_NAME:-}" || -n "${WSL_INTEROP:-}" ]] && return 0
+  [[ -r /proc/sys/kernel/osrelease ]] && grep -qi "microsoft" /proc/sys/kernel/osrelease
+}

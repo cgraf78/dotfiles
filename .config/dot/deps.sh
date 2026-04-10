@@ -124,11 +124,6 @@ _dep_version() {
 # Package manager abstraction
 # ---------------------------------------------------------------------------
 
-_is_wsl() {
-  [[ -n "${WSL_DISTRO_NAME:-}" || -n "${WSL_INTEROP:-}" ]] && return 0
-  [[ -r /proc/sys/kernel/osrelease ]] && grep -qi "microsoft" /proc/sys/kernel/osrelease
-}
-
 # Acquire sudo. Returns 0 if root or sudo obtained.
 # In quiet mode, skips interactive prompt and returns 1 silently.
 _require_sudo() {
