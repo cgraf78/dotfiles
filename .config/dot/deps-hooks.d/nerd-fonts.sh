@@ -59,7 +59,6 @@ post() {
       | grep -o '"tag_name":[[:space:]]*"[^"]*"' | cut -d'"' -f4) || true
   fi
 
-  local _any_installed=0
   local entry name brew_pkg pacman_pkg nerd_zip font_dir
   while IFS= read -r entry; do
     IFS='|' read -r name brew_pkg pacman_pkg nerd_zip font_dir <<< "$entry"
@@ -72,13 +71,13 @@ post() {
       brew)
         if [[ "$brew_pkg" != "-" ]]; then
           brew install "$brew_pkg" &>/dev/null && \
-            _log_ok "  $name installed (brew)" && _any_installed=1 && continue
+            _log_ok "  $name installed (brew)" && continue
         fi
         ;;
       pacman)
         if [[ "$pacman_pkg" != "-" ]]; then
           sudo pacman -S --needed --noconfirm "$pacman_pkg" &>/dev/null && \
-            _log_ok "  $name installed (pacman)" && _any_installed=1 && continue
+            _log_ok "  $name installed (pacman)" && continue
         fi
         ;;
     esac
@@ -102,7 +101,6 @@ post() {
       unzip -qo "$tmp/font.zip" '*.ttf' -d "$dest" 2>/dev/null || true
       if command -v fc-cache &>/dev/null; then fc-cache -f "$dest" 2>/dev/null || true; fi
       _log_ok "  $name installed from GitHub ($nf_version)"
-      _any_installed=1
     else
       _warn "  warning: failed to download $name"
     fi
