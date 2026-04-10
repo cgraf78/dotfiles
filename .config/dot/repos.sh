@@ -62,6 +62,16 @@ _backup_pull_conflicts() {
   return 0
 }
 
+# Run a git pull, appending --quiet in cron mode.
+# Remaining args: the full git pull command.
+_pull_cmd() {
+  if [[ "$DOT_QUIET" -eq 1 ]]; then
+    "$@" --quiet
+  else
+    "$@"
+  fi
+}
+
 # Generic pull with optional logging, conflict backup, and retry.
 # $1 = backup root for conflict resolution
 # Remaining args: the full git pull command to run.
@@ -69,30 +79,18 @@ _pull_repo() {
   local backup_root="$1"; shift
   local log=""
   if ! _logfile_create; then
-    if [[ "$DOT_QUIET" -eq 1 ]]; then
-      "$@" --quiet
-    else
-      "$@"
-    fi
+    _pull_cmd "$@"
     return $?
   fi
   log="$REPLY"
 
   local rc=0
-  if [[ "$DOT_QUIET" -eq 1 ]]; then
-    "$@" --quiet >"$log" 2>&1 || rc=$?
-  else
-    "$@" >"$log" 2>&1 || rc=$?
-  fi
+  _pull_cmd "$@" >"$log" 2>&1 || rc=$?
 
   if [[ "$rc" -ne 0 ]] && _backup_pull_conflicts "$log" "$backup_root"; then
     : > "$log"
     rc=0
-    if [[ "$DOT_QUIET" -eq 1 ]]; then
-      "$@" --quiet >"$log" 2>&1 || rc=$?
-    else
-      "$@" >"$log" 2>&1 || rc=$?
-    fi
+    _pull_cmd "$@" >"$log" 2>&1 || rc=$?
   fi
 
   if [[ "$DOT_QUIET" -ne 1 && -s "$log" ]]; then
