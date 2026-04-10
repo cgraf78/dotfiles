@@ -30,18 +30,62 @@ _dep_load() {
 }
 
 # Split a pipe-delimited registry entry into named variables.
-# Sets: _name, _method, _cmd, _cmd_alt, _pkg_overrides, _repo, _dir
+# Sets: _name, _method, _cmd, _cmd_alt, _pkg_overrides, _repo, _dir, _platforms
 _dep_parse() {
   local entry="$1"
-  IFS='|' read -r _name _method _cmd _cmd_alt _pkg_overrides _repo _dir <<< "$entry"
+  IFS='|' read -r _name _method _cmd _cmd_alt _pkg_overrides _repo _dir _platforms <<< "$entry"
   # Replace - with empty
   if [[ "$_cmd" == "-" ]]; then _cmd=""; fi
   if [[ "$_cmd_alt" == "-" ]]; then _cmd_alt=""; fi
   if [[ "$_pkg_overrides" == "-" ]]; then _pkg_overrides=""; fi
   if [[ "$_repo" == "-" ]]; then _repo=""; fi
   if [[ "$_dir" == "-" ]]; then _dir=""; fi
+  if [[ "$_platforms" == "-" ]]; then _platforms=""; fi
   # Default cmd to name
   if [[ -z "$_cmd" ]]; then _cmd="$_name"; fi
+}
+
+# Check if the current platform matches a platforms spec.
+# Empty spec matches all platforms. Supports include (linux,darwin)
+# and exclude (!wsl,!darwin) lists.
+# Returns 0 if the dep should install on this platform.
+_platform_match() {
+  local spec="${1:-}"
+  if [[ -z "$spec" ]]; then return 0; fi
+
+  local current
+  current=$(uname -s | tr '[:upper:]' '[:lower:]')
+  _is_wsl && current="wsl"
+
+  local item has_include=0 has_exclude=0
+  local IFS=','
+  # Determine if this is an include or exclude list
+  for item in $spec; do
+    if [[ "$item" == !* ]]; then has_exclude=1; else has_include=1; fi
+  done
+
+  if [[ $has_include -eq 1 && $has_exclude -eq 1 ]]; then
+    # Mixed: check excludes first, then includes
+    for item in $spec; do
+      [[ "$item" == "!$current" ]] && return 1
+    done
+    for item in $spec; do
+      [[ "$item" == "$current" ]] && return 0
+    done
+    return 1
+  elif [[ $has_exclude -eq 1 ]]; then
+    # Exclude-only: match unless excluded
+    for item in $spec; do
+      [[ "$item" == "!$current" ]] && return 1
+    done
+    return 0
+  else
+    # Include-only: match only if listed
+    for item in $spec; do
+      [[ "$item" == "$current" ]] && return 0
+    done
+    return 1
+  fi
 }
 
 # Check if a dependency is installed. Returns 0 if cmd or cmd_alt is found.
@@ -807,6 +851,9 @@ _binary_find_asset() {
 _install_dep() {
   local entry="$1"
   _dep_parse "$entry"
+  if ! _platform_match "$_platforms"; then
+    return 0
+  fi
   case "$_method" in
     pkg)
       local resolved_pkg=""

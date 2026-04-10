@@ -192,6 +192,71 @@ _assert_eq "dep_parse: minimal name" "jq" "$_name"
 _assert_eq "dep_parse: minimal cmd defaults" "jq" "$_cmd"
 _assert_eq "dep_parse: minimal empty fields" "" "$_repo"
 
+# Platforms column
+_dep_parse "tool|pkg|-|-|-|-|-|linux,darwin"
+_assert_eq "dep_parse: platforms" "linux,darwin" "$_platforms"
+
+_dep_parse "tool|pkg|-|-|-|-|-|-"
+_assert_eq "dep_parse: dash platforms" "" "$_platforms"
+
+_dep_parse "tool|pkg"
+_assert_eq "dep_parse: omitted platforms" "" "$_platforms"
+
+# ---------------------------------------------------------------------------
+# Tests: _platform_match
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== Platform matching ==="
+
+# Empty spec matches everything
+rc=0; _platform_match "" || rc=$?
+_assert_exit "platform: empty matches all" 0 "$rc"
+
+# Detect current platform for conditional assertions
+_current_platform=$(uname -s | tr '[:upper:]' '[:lower:]')
+_is_wsl && _current_platform="wsl"
+
+# Include: current platform listed
+rc=0; _platform_match "$_current_platform" || rc=$?
+_assert_exit "platform: include current" 0 "$rc"
+
+# Include: current platform not listed
+if [[ "$_current_platform" == "darwin" ]]; then
+  rc=0; _platform_match "linux" || rc=$?
+  _assert_exit "platform: exclude by omission" 1 "$rc"
+else
+  rc=0; _platform_match "darwin" || rc=$?
+  _assert_exit "platform: exclude by omission" 1 "$rc"
+fi
+
+# Exclude: current platform excluded
+rc=0; _platform_match "!$_current_platform" || rc=$?
+_assert_exit "platform: exclude current" 1 "$rc"
+
+# Exclude: other platform excluded (should match)
+if [[ "$_current_platform" == "darwin" ]]; then
+  rc=0; _platform_match "!linux" || rc=$?
+  _assert_exit "platform: exclude other matches" 0 "$rc"
+else
+  rc=0; _platform_match "!darwin" || rc=$?
+  _assert_exit "platform: exclude other matches" 0 "$rc"
+fi
+
+# Multiple excludes
+rc=0; _platform_match "!fakeos1,!fakeos2" || rc=$?
+_assert_exit "platform: exclude non-matching" 0 "$rc"
+
+rc=0; _platform_match "!$_current_platform,!fakeos" || rc=$?
+_assert_exit "platform: exclude with current" 1 "$rc"
+
+# Include list with multiple platforms
+rc=0; _platform_match "$_current_platform,fakeos" || rc=$?
+_assert_exit "platform: include list with current" 0 "$rc"
+
+rc=0; _platform_match "fakeos1,fakeos2" || rc=$?
+_assert_exit "platform: include list without current" 1 "$rc"
+
 # ---------------------------------------------------------------------------
 # Tests: remote-check cache helpers and behavior
 # ---------------------------------------------------------------------------
