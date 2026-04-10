@@ -35,14 +35,14 @@ _log() {
   [[ "$DOT_QUIET" -eq 1 ]] || echo "$@"
 }
 
-# Section header (bold blue, always prints).
+# Section header (bold white, always prints).
 _header() {
-  echo "${_C_BOLD}${_C_BLUE}$*${_C_RESET}"
+  echo "${_C_BOLD}$*${_C_RESET}"
 }
 
-# Section header (bold blue, respects quiet mode).
+# Section header (bold white, respects quiet mode).
 _log_header() {
-  [[ "$DOT_QUIET" -eq 1 ]] || echo "${_C_BOLD}${_C_BLUE}$*${_C_RESET}"
+  [[ "$DOT_QUIET" -eq 1 ]] || echo "${_C_BOLD}$*${_C_RESET}"
 }
 
 # Success message (green, respects quiet mode).
