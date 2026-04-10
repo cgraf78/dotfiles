@@ -212,11 +212,10 @@ _pkg_install_batch() {
   else
     log="$REPLY"
   fi
-  # shellcheck disable=SC2024  # Intentionally capture sudo command output in a user-owned temp log.
   case "$_PKG_MGR" in
     apt) sudo apt-get update -qq >/dev/null 2>&1 || true ;;
   esac
-  # shellcheck disable=SC2024  # Intentionally capture sudo command output in a user-owned temp log.
+  # shellcheck disable=SC2024  # sudo output captured in user-owned log via _run_logged.
   case "$_PKG_MGR" in
     brew)   _run_logged brew install "${_PKG_BATCH[@]}" || rc=$? ;;
     apt)    _run_logged sudo apt-get install -y "${_PKG_BATCH[@]}" || rc=$? ;;
