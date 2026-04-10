@@ -3,7 +3,7 @@ local theme = require("config.theme")
 return {
   {
     "ellisonleao/gruvbox.nvim",
-    lazy = false,
+    lazy = theme.colorscheme ~= "gruvbox",
     priority = 1000,
     config = function()
       require("gruvbox").setup({ contrast = "hard" })
@@ -14,7 +14,7 @@ return {
   },
   {
     "folke/tokyonight.nvim",
-    lazy = false,
+    lazy = theme.colorscheme ~= "tokyonight",
     priority = 1000,
     config = function()
       require("tokyonight").setup({
@@ -33,7 +33,7 @@ return {
   },
   {
     "oxfist/night-owl.nvim",
-    lazy = false,
+    lazy = theme.colorscheme ~= "night-owl",
     priority = 1000,
     config = function()
       if theme.colorscheme == "night-owl" then
@@ -43,7 +43,7 @@ return {
   },
   {
     "rebelot/kanagawa.nvim",
-    lazy = false,
+    lazy = theme.colorscheme ~= "kanagawa",
     priority = 1000,
     config = function()
       require("kanagawa").setup({
@@ -60,7 +60,7 @@ return {
   },
   {
     "nyoom-engineering/oxocarbon.nvim",
-    lazy = false,
+    lazy = theme.colorscheme ~= "oxocarbon",
     priority = 1000,
     config = function()
       if theme.colorscheme == "oxocarbon" then
@@ -71,7 +71,7 @@ return {
   {
     "catppuccin/nvim",
     name = "catppuccin",
-    lazy = false,
+    lazy = theme.colorscheme ~= "catppuccin",
     priority = 1000,
     config = function()
       require("catppuccin").setup({
