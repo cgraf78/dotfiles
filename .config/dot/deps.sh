@@ -214,35 +214,14 @@ _pkg_install_batch() {
   fi
   # shellcheck disable=SC2024  # Intentionally capture sudo command output in a user-owned temp log.
   case "$_PKG_MGR" in
-    brew)
-      if [[ -n "$log" ]]; then
-        brew install "${_PKG_BATCH[@]}" >"$log" 2>&1 || rc=$?
-      else
-        brew install "${_PKG_BATCH[@]}" || rc=$?
-      fi
-      ;;
-    apt)
-      sudo apt-get update -qq >/dev/null 2>&1 || true
-      if [[ -n "$log" ]]; then
-        sudo apt-get install -y "${_PKG_BATCH[@]}" >"$log" 2>&1 || rc=$?
-      else
-        sudo apt-get install -y "${_PKG_BATCH[@]}" || rc=$?
-      fi
-      ;;
-    dnf)
-      if [[ -n "$log" ]]; then
-        sudo dnf install -y "${_PKG_BATCH[@]}" >"$log" 2>&1 || rc=$?
-      else
-        sudo dnf install -y "${_PKG_BATCH[@]}" || rc=$?
-      fi
-      ;;
-    pacman)
-      if [[ -n "$log" ]]; then
-        sudo pacman -Sy --needed --noconfirm "${_PKG_BATCH[@]}" >"$log" 2>&1 || rc=$?
-      else
-        sudo pacman -Sy --needed --noconfirm "${_PKG_BATCH[@]}" || rc=$?
-      fi
-      ;;
+    apt) sudo apt-get update -qq >/dev/null 2>&1 || true ;;
+  esac
+  # shellcheck disable=SC2024  # Intentionally capture sudo command output in a user-owned temp log.
+  case "$_PKG_MGR" in
+    brew)   _run_logged brew install "${_PKG_BATCH[@]}" || rc=$? ;;
+    apt)    _run_logged sudo apt-get install -y "${_PKG_BATCH[@]}" || rc=$? ;;
+    dnf)    _run_logged sudo dnf install -y "${_PKG_BATCH[@]}" || rc=$? ;;
+    pacman) _run_logged sudo pacman -Sy --needed --noconfirm "${_PKG_BATCH[@]}" || rc=$? ;;
   esac
 
   # On batch failure, retry individually
@@ -255,34 +234,10 @@ _pkg_install_batch() {
       [[ -n "$log" ]] && : > "$log"
       # shellcheck disable=SC2024  # Intentionally capture sudo command output in a user-owned temp log.
       case "$_PKG_MGR" in
-        brew)
-          if [[ -n "$log" ]]; then
-            brew install "$pkg" >"$log" 2>&1 || rc=$?
-          else
-            brew install "$pkg" || rc=$?
-          fi
-          ;;
-        apt)
-          if [[ -n "$log" ]]; then
-            sudo apt-get install -y "$pkg" >"$log" 2>&1 || rc=$?
-          else
-            sudo apt-get install -y "$pkg" || rc=$?
-          fi
-          ;;
-        dnf)
-          if [[ -n "$log" ]]; then
-            sudo dnf install -y "$pkg" >"$log" 2>&1 || rc=$?
-          else
-            sudo dnf install -y "$pkg" || rc=$?
-          fi
-          ;;
-        pacman)
-          if [[ -n "$log" ]]; then
-            sudo pacman -Sy --needed --noconfirm "$pkg" >"$log" 2>&1 || rc=$?
-          else
-            sudo pacman -Sy --needed --noconfirm "$pkg" || rc=$?
-          fi
-          ;;
+        brew)   _run_logged brew install "$pkg" || rc=$? ;;
+        apt)    _run_logged sudo apt-get install -y "$pkg" || rc=$? ;;
+        dnf)    _run_logged sudo dnf install -y "$pkg" || rc=$? ;;
+        pacman) _run_logged sudo pacman -Sy --needed --noconfirm "$pkg" || rc=$? ;;
       esac
       if [[ $rc -ne 0 ]]; then
         _logfile_print "package manager for $pkg" "$log"
@@ -478,21 +433,7 @@ _install_from_github() {
     fi
 
     local head_before; head_before=$(git -C "$install_dir" rev-parse HEAD 2>/dev/null || true)
-    if [[ -n "$log" ]] && git -C "$install_dir" pull --ff-only --quiet >"$log" 2>&1; then
-      _link_bin "$name" "$install_dir"
-      local head_after; head_after=$(git -C "$install_dir" rev-parse HEAD 2>/dev/null || true)
-      local ver; ver=$(_get_version "$install_dir")
-      _dep_remote_touch "$stamp" || true
-      if [[ "$head_before" != "$head_after" ]]; then
-        _DEPS_CHANGED[$name]=1
-        _log "  $name updated${ver:+ -- $ver}"
-      elif [[ "${DOT_FORCE:-0}" -eq 1 ]]; then
-        _DEPS_CHANGED[$name]=1
-        _log "  $name reinstalled${ver:+ -- $ver}"
-      else
-        _log "  $name up to date${ver:+ -- $ver}"
-      fi
-    elif [[ -z "$log" ]] && git -C "$install_dir" pull --ff-only --quiet 2>/dev/null; then
+    if _run_logged git -C "$install_dir" pull --ff-only --quiet; then
       _link_bin "$name" "$install_dir"
       local head_after; head_after=$(git -C "$install_dir" rev-parse HEAD 2>/dev/null || true)
       local ver; ver=$(_get_version "$install_dir")
@@ -532,14 +473,7 @@ _install_from_github() {
 
   if [[ -n "${tarball_url:-}" ]]; then
     tmp_dir=$(mktemp -d)
-    if [[ -n "$log" ]] \
-      && curl -fsSL "$tarball_url" 2>"$log" | tar xz -C "$tmp_dir" >>"$log" 2>&1; then
-      rm -rf "$install_dir"
-      mkdir -p "$install_dir"
-      # Tarball has a top-level dir (e.g., ds-v0.0.1/); move contents up
-      mv "$tmp_dir"/*/* "$install_dir/" 2>/dev/null || mv "$tmp_dir"/* "$install_dir/"
-      rm -rf "$tmp_dir"
-    elif [[ -z "$log" ]] && curl -fsSL "$tarball_url" | tar xz -C "$tmp_dir" 2>/dev/null; then
+    if _run_logged bash -c 'curl -fsSL "$1" | tar xz -C "$2"' _ "$tarball_url" "$tmp_dir"; then
       rm -rf "$install_dir"
       mkdir -p "$install_dir"
       # Tarball has a top-level dir (e.g., ds-v0.0.1/); move contents up
@@ -563,15 +497,11 @@ _install_from_github() {
     fi
     local clone_tmp="${install_dir}.tmp.$$"
     rm -rf "$clone_tmp"
-    [[ -n "$log" ]] && : > "$log"
-    if [[ -n "$log" ]] && ! git clone --depth 1 "$repo" "$clone_tmp" >"$log" 2>&1; then
+    [[ -n "${log:-}" ]] && : > "$log"
+    if ! _run_logged git clone --depth 1 "$repo" "$clone_tmp"; then
       rm -rf "$clone_tmp"
       _logfile_print "$name clone" "$log"
       rm -f "$log"
-      _warn "  warning: failed to clone $name (network unreachable?)"
-      return 1
-    elif [[ -z "$log" ]] && ! git clone --depth 1 "$repo" "$clone_tmp" 2>/dev/null; then
-      rm -rf "$clone_tmp"
       _warn "  warning: failed to clone $name (network unreachable?)"
       return 1
     fi
@@ -670,15 +600,8 @@ _install_binary() {
     return 1
   fi
 
-  [[ -n "$log" ]] && : > "$log"
-  local downloaded=0
-  if [[ -n "$log" ]] && curl -fsSL --no-netrc "$asset_url" -o "$tmp_file" >"$log" 2>&1; then
-    downloaded=1
-  elif [[ -z "$log" ]] && curl -fsSL --no-netrc "$asset_url" -o "$tmp_file" 2>/dev/null; then
-    downloaded=1
-  fi
-
-  if [[ $downloaded -eq 0 ]]; then
+  [[ -n "${log:-}" ]] && : > "$log"
+  if ! _run_logged curl -fsSL --no-netrc "$asset_url" -o "$tmp_file"; then
     _logfile_print "$name download" "$log"
     rm -f "$tmp_file" "$log"
     _warn "  warning: failed to download $name $latest_ver"

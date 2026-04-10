@@ -37,6 +37,16 @@ _logfile_print() {
   sed 's/^/    /' "$log" >&2
 }
 
+# Run a command, capturing output to the caller's $log if set.
+# Returns the command's exit code.
+_run_logged() {
+  if [[ -n "${log:-}" ]]; then
+    "$@" >"$log" 2>&1
+  else
+    "$@" >/dev/null 2>&1
+  fi
+}
+
 _run_quiet_logged() {
   local label="$1"
   local warning="$2"
