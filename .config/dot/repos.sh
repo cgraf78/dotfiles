@@ -219,30 +219,29 @@ _try_resolve_dirty() {
   return "$dirty"
 }
 
-# Check if every dirty file in a repo matches the content on a remote ref.
+# Check if every dirty file in a repo matches content on origin/main.
+# $1 = worktree root (for hash-object paths)
+# remaining args = git command prefix (word-split $GIT or "git -C <dir>")
+_dirty_files_match_ref() {
+  local worktree="$1" remote_ref="origin/main"; shift
+  local dirty_files
+  dirty_files=$("$@" diff-index --name-only HEAD 2>/dev/null) || return 1
+  "$@" rev-parse --verify "$remote_ref" &>/dev/null || return 1
+  while IFS= read -r f; do
+    local work_hash remote_hash
+    work_hash=$("$@" hash-object "$worktree/$f" 2>/dev/null) || return 1
+    remote_hash=$("$@" rev-parse "$remote_ref:$f" 2>/dev/null) || return 1
+    [[ "$work_hash" == "$remote_hash" ]] || return 1
+  done <<< "$dirty_files"
+  return 0
+}
+
 # $1 = "personal" or "work"
 _dirty_files_match_remote() {
-  local repo="$1" remote_ref="origin/main"
-  local dirty_files
-  if [[ "$repo" == "personal" ]]; then
-    dirty_files=$($GIT diff-index --name-only HEAD 2>/dev/null) || return 1
-    $GIT rev-parse --verify "$remote_ref" &>/dev/null || return 1
-    while IFS= read -r f; do
-      local work_hash remote_hash
-      # diff-index paths are relative to work-tree ($HOME for bare repo)
-      work_hash=$($GIT hash-object "$HOME/$f" 2>/dev/null) || return 1
-      remote_hash=$($GIT rev-parse "$remote_ref:$f" 2>/dev/null) || return 1
-      [[ "$work_hash" == "$remote_hash" ]] || return 1
-    done <<< "$dirty_files"
+  # shellcheck disable=SC2086  # $GIT is intentionally word-split
+  if [[ "$1" == "personal" ]]; then
+    _dirty_files_match_ref "$HOME" $GIT
   else
-    dirty_files=$(git -C "$WORK_DIR" diff-index --name-only HEAD 2>/dev/null) || return 1
-    git -C "$WORK_DIR" rev-parse --verify "$remote_ref" &>/dev/null || return 1
-    while IFS= read -r f; do
-      local work_hash remote_hash
-      work_hash=$(git -C "$WORK_DIR" hash-object "$WORK_DIR/$f" 2>/dev/null) || return 1
-      remote_hash=$(git -C "$WORK_DIR" rev-parse "$remote_ref:$f" 2>/dev/null) || return 1
-      [[ "$work_hash" == "$remote_hash" ]] || return 1
-    done <<< "$dirty_files"
+    _dirty_files_match_ref "$WORK_DIR" git -C "$WORK_DIR"
   fi
-  return 0
 }
