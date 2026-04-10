@@ -7,25 +7,26 @@
 #   _shell_source_dir dir         — *.sh only
 #   _shell_source_dir dir bash    — *.bash and *.sh, sorted together
 _shell_source_dir() {
-    local IFS=$'\n' f
+    local f
     local -a files=()
     for f in "$1"/*.sh; do [ -f "$f" ] && files+=("$f"); done
     if [ -n "${2:-}" ]; then
         for f in "$1"/*."$2"; do [ -f "$f" ] && files+=("$f"); done
     fi
-    IFS=$'\n' files=($(sort <<<"${files[*]}"))
+    IFS=$'\n' read -r -d '' -a files < <(printf '%s\n' "${files[@]}" | sort) || true
     for f in "${files[@]}"; do . "$f"; done
 }
 
 # Environment (all shells)
 _shell_source_dir ~/.config/shell/env.d
 
-# Machine-local overrides (not in repo)
-[ -f ~/.bashrc_local ] && . ~/.bashrc_local
-[ -f ~/.bashrc_local_work ] && . ~/.bashrc_local_work
-
 # Non-interactive? Stop here.
 case $- in *i*) ;; *) return;; esac
 
 # Interactive
 _shell_source_dir ~/.config/shell/interactive.d bash
+
+# Machine-local overrides (not in repo) — after interactive.d so functions
+# like set_hostname_alias are defined before local scripts call them.
+[ -f ~/.bashrc_local ] && . ~/.bashrc_local
+[ -f ~/.bashrc_local_work ] && . ~/.bashrc_local_work

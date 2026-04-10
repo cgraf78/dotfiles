@@ -1,6 +1,9 @@
 # Interactive tool integrations: shell extensions, completions, functions.
 
 # macOS integrations
+# unalias before the if-block: bash expands aliases at parse time,
+# so an alias inside a false branch still triggers a syntax error.
+unalias sc 2>/dev/null || true
 if [[ "$_UNAME" == "Darwin" ]]; then
     if [[ -z "${NVIM:-}" ]]; then
         test -e "${HOME}/.iterm2_shell_integration.bash" && . "${HOME}/.iterm2_shell_integration.bash"
@@ -8,7 +11,6 @@ if [[ "$_UNAME" == "Darwin" ]]; then
     fi
 
     # Screenshot capture to Google Drive
-    unalias sc 2>/dev/null || true
     sc() {
         if [[ ! -d ~/gdrive/img ]]; then
             echo "error: ~/gdrive/img does not exist" >&2

@@ -14,12 +14,13 @@ _shell_source_dir() {
 # Environment (all shells)
 _shell_source_dir ~/.config/shell/env.d
 
-# Machine-local overrides (not in repo)
-[ -f ~/.zshrc_local ] && . ~/.zshrc_local
-[ -f ~/.zshrc_local_work ] && . ~/.zshrc_local_work
-
 # Non-interactive? Stop here.
 [[ -o interactive ]] || return
 
 # Interactive
 _shell_source_dir ~/.config/shell/interactive.d zsh
+
+# Machine-local overrides (not in repo) — after interactive.d so functions
+# like set_hostname_alias are defined before local scripts call them.
+[ -f ~/.zshrc_local ] && . ~/.zshrc_local
+[ -f ~/.zshrc_local_work ] && . ~/.zshrc_local_work
