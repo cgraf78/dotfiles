@@ -8,6 +8,7 @@ if [[ "$_UNAME" == "Darwin" ]]; then
     fi
 
     # Screenshot capture to Google Drive
+    unalias sc 2>/dev/null || true
     sc() {
         if [[ ! -d ~/gdrive/img ]]; then
             echo "error: ~/gdrive/img does not exist" >&2
