@@ -140,7 +140,7 @@ rgv() {
         return 1
     fi
 
-    preview="bash -c 'hit=\$1; file=\${hit%%:*}; rest=\${hit#*:}; line=\${rest%%:*}; if command -v bat >/dev/null 2>&1; then start=\$(( line > 20 ? line - 20 : 1 )); end=\$(( line + 20 )); bat --style=plain --color=always --highlight-line \"\$line\" --line-range \"\$start:\$end\" \"\$file\"; else start=\$(( line > 20 ? line - 20 : 1 )); end=\$(( line + 20 )); sed -n \"\${start},\${end}p\" \"\$file\"; fi' _ {}"
+    preview="bash -c 'hit=\$1; file=\${hit%%:*}; rest=\${hit#*:}; line=\${rest%%:*}; if command -v bat >/dev/null 2>&1; then _bat=bat; elif command -v batcat >/dev/null 2>&1; then _bat=batcat; else _bat=; fi; start=\$(( line > 20 ? line - 20 : 1 )); end=\$(( line + 20 )); if [[ -n \"\$_bat\" ]]; then \"\$_bat\" --style=plain --color=always --highlight-line \"\$line\" --line-range \"\$start:\$end\" \"\$file\"; else sed -n \"\${start},\${end}p\" \"\$file\"; fi' _ {}"
     hit="$(
         rg --hidden --glob '!.git' --line-number --no-heading --color=never "$@" \
             | fzf --height 70% --reverse --prompt="rg> " --preview="$preview" --preview-window="right,60%,border-left"
@@ -195,12 +195,12 @@ fv() {
         return 1
     fi
 
-    preview="bash -c 'file=\$1; if command -v bat >/dev/null 2>&1; then bat --style=plain --color=always --line-range :200 \"\$file\"; else sed -n \"1,200p\" \"\$file\"; fi' _ {}"
+    preview="bash -c 'file=\$1; if command -v bat >/dev/null 2>&1; then _bat=bat; elif command -v batcat >/dev/null 2>&1; then _bat=batcat; else _bat=; fi; if [[ -n \"\$_bat\" ]]; then \"\$_bat\" --style=plain --color=always --line-range :200 \"\$file\"; else sed -n \"1,200p\" \"\$file\"; fi' _ {}"
     if command -v fd >/dev/null 2>&1; then
         printf -v root_q '%q' "$root"
         file="$(
             fd --base-directory "$root" --hidden --exclude .git --type f . \
-                | fzf --height 70% --reverse --prompt="file> " --scheme=path --query="$query" --preview="bash -c 'root=\$1; file=\$2; if command -v bat >/dev/null 2>&1; then bat --style=plain --color=always --line-range :200 \"\$root/\$file\"; else sed -n \"1,200p\" \"\$root/\$file\"; fi' _ $root_q {}" --preview-window="right,60%,border-left"
+                | fzf --height 70% --reverse --prompt="file> " --scheme=path --query="$query" --preview="bash -c 'root=\$1; file=\$2; if command -v bat >/dev/null 2>&1; then _bat=bat; elif command -v batcat >/dev/null 2>&1; then _bat=batcat; else _bat=; fi; if [[ -n \"\$_bat\" ]]; then \"\$_bat\" --style=plain --color=always --line-range :200 \"\$root/\$file\"; else sed -n \"1,200p\" \"\$root/\$file\"; fi' _ $root_q {}" --preview-window="right,60%,border-left"
         )" || return
         [[ -n "$file" ]] || return
         nvim "$root/$file"
