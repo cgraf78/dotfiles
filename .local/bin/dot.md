@@ -150,14 +150,15 @@ jq              pkg
 bat             pkg       bat    batcat
 fd              pkg       fd     fdfind apt:fd-find,dnf:fd-find
 ds              git       -      -      -                        cgraf78/ds.git      .local/share/ds
-neovim          appimage  nvim   -      -                        neovim/neovim
+neovim          binary    nvim   -      -                        neovim/neovim
+direnv          binary    -      -      -                        direnv/direnv
 fonts           custom
 ```
 
 **Methods:**
 - **`pkg`** — system package (`brew`, `apt`, `dnf`, `pacman`). Batches all packages into one install command.
 - **`git`** — clones from GitHub (prefers `~/git/<name>` local clones, falls back to release tarballs, then `git clone`).
-- **`appimage`** — downloads GitHub AppImage releases on Linux, falls back to `pkg` on macOS/WSL.
+- **`binary`** — downloads a single executable from GitHub releases on Linux (AppImages, plain binaries, etc.). Searches the release asset list by OS and arch. Falls back to `pkg` on macOS/WSL.
 - **`custom`** — entirely managed by a post-install hook. The hook handles platform detection, idempotency, and installation.
 
 **Platform overrides:** The `overrides` column maps package managers to platform-specific names (e.g., `apt:fd-find`). Use `NONE` to skip a dep on a platform (e.g., `apt:NONE`).
