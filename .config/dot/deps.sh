@@ -67,10 +67,13 @@ _dep_exists() {
 }
 
 # Get installed version of a command.
+# Extracts the first version-like token (digits+dots, optional leading v)
+# from the first line of --version output.
 _dep_version() {
   local cmd="${1:-}"
   if [[ -z "$cmd" ]]; then return 1; fi
-  "$cmd" --version 2>/dev/null | head -1 | awk '{print $2}'
+  "$cmd" --version 2>/dev/null | head -1 \
+    | grep -o '[0-9][0-9.]*' | head -1
 }
 
 # ---------------------------------------------------------------------------
@@ -550,16 +553,18 @@ _install_from_github() {
   fi
 }
 
-# Install or upgrade a tool via GitHub AppImage release.
-# Linux-only — macOS fallback to pkg is handled by the dispatcher.
-# Usage: _install_appimage <name> <cmd> <owner/repo>
-_install_appimage() {
+# Install or upgrade a tool via GitHub release binary.
+# Searches release assets for a single executable matching the current OS
+# and arch (AppImages, plain binaries, etc.). Skips archives/tarballs.
+# On macOS/WSL, the dispatcher falls back to pkg instead.
+# Usage: _install_binary <name> <cmd> <owner/repo>
+_install_binary() {
   local name="$1" cmd="$2" gh_repo="$3"
   local bin_path="$HOME/.local/bin/$cmd"
   local current_ver="" latest_ver=""
   local log=""
   local stamp=""
-  stamp=$(_dep_remote_stamp "$name" appimage)
+  stamp=$(_dep_remote_stamp "$name" binary)
   if ! _logfile_create; then
     _warn "  warning: failed to create temp log for $name install"
   else
@@ -583,15 +588,18 @@ _install_appimage() {
     return 0
   fi
 
-  # Get latest release version from GitHub API
+  # Get latest release from GitHub API (version + asset list)
+  local release_json=""
   if command -v curl &>/dev/null; then
-    latest_ver=$(curl -fsSL --no-netrc -H "Authorization:" \
-      "https://api.github.com/repos/$gh_repo/releases/latest" 2>/dev/null \
+    release_json=$(curl -fsSL --no-netrc -H "Authorization:" \
+      "https://api.github.com/repos/$gh_repo/releases/latest" 2>/dev/null || true)
+    latest_ver=$(echo "$release_json" \
       | grep -o '"tag_name":[[:space:]]*"[^"]*"' | cut -d'"' -f4)
   fi
 
   # Skip if already up to date (unless force mode)
-  if [[ "${DOT_FORCE:-0}" -ne 1 && -n "$current_ver" && -n "$latest_ver" && "$current_ver" == "$latest_ver" ]]; then
+  # Strip leading v for comparison (tags use v2.37.1, --version may not)
+  if [[ "${DOT_FORCE:-0}" -ne 1 && -n "$current_ver" && -n "$latest_ver" && "${current_ver#v}" == "${latest_ver#v}" ]]; then
     rm -f "$tmp_file" "$log"
     _dep_remote_touch "$stamp" || true
     _log "  $name up to date -- $current_ver"
@@ -609,26 +617,23 @@ _install_appimage() {
     return 1
   fi
 
-  # Try platform-specific AppImage name, then legacy name
-  local arch
-  arch=$(uname -m)
-  local urls=(
-    "https://github.com/$gh_repo/releases/download/$latest_ver/$cmd-linux-${arch}.appimage"
-    "https://github.com/$gh_repo/releases/download/$latest_ver/$cmd.appimage"
-  )
+  # Find the right asset URL for this platform.
+  local asset_url=""
+  asset_url=$(_binary_find_asset "$cmd" "$gh_repo" "$latest_ver" "$release_json")
 
+  if [[ -z "$asset_url" ]]; then
+    rm -f "$tmp_file" "$log"
+    _warn "  warning: no matching release asset for $name $latest_ver"
+    return 1
+  fi
+
+  [[ -n "$log" ]] && : > "$log"
   local downloaded=0
-  for url in "${urls[@]}"; do
-    [[ -n "$log" ]] && : > "$log"
-    if [[ -n "$log" ]] && curl -fsSL "$url" -o "$tmp_file" >"$log" 2>&1; then
-      downloaded=1
-      break
-    fi
-    if [[ -z "$log" ]] && curl -fsSL "$url" -o "$tmp_file" 2>/dev/null; then
-      downloaded=1
-      break
-    fi
-  done
+  if [[ -n "$log" ]] && curl -fsSL --no-netrc "$asset_url" -o "$tmp_file" >"$log" 2>&1; then
+    downloaded=1
+  elif [[ -z "$log" ]] && curl -fsSL --no-netrc "$asset_url" -o "$tmp_file" 2>/dev/null; then
+    downloaded=1
+  fi
 
   if [[ $downloaded -eq 0 ]]; then
     _logfile_print "$name download" "$log"
@@ -644,11 +649,81 @@ _install_appimage() {
   _dep_remote_touch "$stamp" || true
 
   _DEPS_CHANGED[$name]=1
-  if [[ -n "$current_ver" ]]; then
-    _log "  $name updated -- $current_ver -> $latest_ver"
-  else
+  if [[ -z "$current_ver" ]]; then
     _log "  $name installed -- $latest_ver"
+  elif [[ "${current_ver#v}" == "${latest_ver#v}" ]]; then
+    _log "  $name reinstalled -- $latest_ver"
+  else
+    _log "  $name updated -- $current_ver -> $latest_ver"
   fi
+}
+
+# Find a release asset URL matching the current OS and architecture.
+# Tries the API asset list first, then falls back to common URL patterns.
+# Prints the URL to stdout; empty string if no match.
+_binary_find_asset() {
+  local cmd="$1" gh_repo="$2" tag="$3" release_json="$4"
+
+  local os arch
+  os=$(uname -s | tr '[:upper:]' '[:lower:]')
+  arch=$(uname -m)
+
+  # Normalize arch names for matching (projects use various conventions)
+  local arch_patterns=("$arch")
+  case "$arch" in
+    x86_64)  arch_patterns+=(amd64 x64) ;;
+    aarch64) arch_patterns+=(arm64) ;;
+    amd64)   arch_patterns+=(x86_64 x64) ;;
+    arm64)   arch_patterns+=(aarch64) ;;
+  esac
+
+  # Try matching from the API asset list (handles any naming convention)
+  if [[ -n "$release_json" ]]; then
+    local urls
+    urls=$(echo "$release_json" \
+      | grep -o '"browser_download_url":[[:space:]]*"[^"]*"' \
+      | cut -d'"' -f4)
+
+    if [[ -n "$urls" ]]; then
+      local url arch_pat
+      # Filter: must contain OS, must contain an arch variant,
+      # must not be a checksum/signature file
+      while IFS= read -r url; do
+        [[ "$url" == *"$os"* ]] || continue
+        [[ "$url" != *.tar.gz && "$url" != *.tar.xz && "$url" != *.tar.bz2 \
+          && "$url" != *.zip && "$url" != *.deb && "$url" != *.rpm \
+          && "$url" != *.sha256 && "$url" != *.sha512 && "$url" != *.md5 \
+          && "$url" != *.sig && "$url" != *.asc && "$url" != *.txt \
+          && "$url" != *.json ]] || continue
+        for arch_pat in "${arch_patterns[@]}"; do
+          if [[ "$url" == *"$arch_pat"* ]]; then
+            echo "$url"
+            return 0
+          fi
+        done
+      done <<< "$urls"
+    fi
+  fi
+
+  # Fallback: try common URL patterns when API didn't help
+  local base="https://github.com/$gh_repo/releases/download/$tag"
+  local a
+  for a in "${arch_patterns[@]}"; do
+    local candidates=(
+      "$base/$cmd-${os}-${a}.appimage"
+      "$base/$cmd.${os}-${a}"
+      "$base/${cmd}-${os}-${a}"
+      "$base/${cmd}_${os}_${a}"
+      "$base/$cmd.appimage"
+    )
+    local c
+    for c in "${candidates[@]}"; do
+      if curl -fsSL --no-netrc --head "$c" &>/dev/null; then
+        echo "$c"
+        return 0
+      fi
+    done
+  done
 }
 
 # ---------------------------------------------------------------------------
@@ -677,7 +752,7 @@ _install_dep() {
     git)
       _install_from_github "$_name" "$_repo" "$HOME/$_dir"
       ;;
-    appimage)
+    binary)
       if [[ "$(uname -s)" == "Darwin" ]] || _is_wsl; then
         local cmd_path=""
         cmd_path=$(command -v "$_cmd" 2>/dev/null || true)
@@ -688,12 +763,12 @@ _install_dep() {
           rm -f "$cmd_path"
           cmd_path=""
           _DEPS_CHANGED[$_name]=1
-          _log "  removed stale $_name AppImage for WSL package fallback"
+          _log "  removed stale $_name binary for WSL package fallback"
         fi
         if [[ -n "$cmd_path" ]]; then return 0; fi
         _pkg_queue "$_name" "$_pkg_overrides"
       else
-        _install_appimage "$_name" "$_cmd" "$_repo"
+        _install_binary "$_name" "$_cmd" "$_repo"
       fi
       ;;
     custom)
