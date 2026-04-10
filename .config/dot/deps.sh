@@ -192,7 +192,7 @@ _pkg_install_batch() {
     return 0
   fi
 
-  _log "  installing: ${_PKG_BATCH[*]}"
+  _log_ok "  installing: ${_PKG_BATCH[*]}"
 
   # Check sudo access for non-brew managers before attempting install
   if [[ "$_PKG_MGR" != "brew" && "$(id -u)" -ne 0 ]]; then
@@ -407,9 +407,9 @@ _install_from_github() {
     fi
     if [[ "$link_before" != "$local_clone" || "$rev_before" != "$rev_after" || "$dirty_after" -eq 1 || "${DOT_FORCE:-0}" -eq 1 ]]; then
       _DEPS_CHANGED[$name]=1
-      _log "  $name -> $local_clone (local clone)${ver:+ -- $ver}"
+      _log_ok "  $name -> $local_clone (local clone)${ver:+ -- $ver}"
     else
-      _log "  $name up to date${ver:+ -- $ver}"
+      _log_dim "  $name up to date${ver:+ -- $ver}"
     fi
     return 0
   fi
@@ -426,7 +426,7 @@ _install_from_github() {
     if _dep_remote_fresh "$stamp"; then
       _link_bin "$name" "$install_dir"
       local ver; ver=$(_get_version "$install_dir")
-      _log "  $name up to date${ver:+ -- $ver}"
+      _log_dim "  $name up to date${ver:+ -- $ver}"
       rm -f "$log"
       return 0
     fi
@@ -439,12 +439,12 @@ _install_from_github() {
       _dep_remote_touch "$stamp" || true
       if [[ "$head_before" != "$head_after" ]]; then
         _DEPS_CHANGED[$name]=1
-        _log "  $name updated${ver:+ -- $ver}"
+        _log_ok "  $name updated${ver:+ -- $ver}"
       elif [[ "${DOT_FORCE:-0}" -eq 1 ]]; then
         _DEPS_CHANGED[$name]=1
-        _log "  $name reinstalled${ver:+ -- $ver}"
+        _log_ok "  $name reinstalled${ver:+ -- $ver}"
       else
-        _log "  $name up to date${ver:+ -- $ver}"
+        _log_dim "  $name up to date${ver:+ -- $ver}"
       fi
     else
       _logfile_print "$name update" "$log"
@@ -516,13 +516,13 @@ _install_from_github() {
   local method="git clone"
   if [[ -n "${tarball_url:-}" ]]; then method="release tarball"; fi
   if [[ -n "$ver_before" && "$ver_before" == "$ver" ]] && [[ "${DOT_FORCE:-0}" -ne 1 ]]; then
-    _log "  $name up to date ($method)${ver:+ -- $ver}"
+    _log_dim "  $name up to date ($method)${ver:+ -- $ver}"
   else
     _DEPS_CHANGED[$name]=1
     if [[ -n "$ver_before" && "$ver_before" == "$ver" ]]; then
-      _log "  $name reinstalled ($method)${ver:+ -- $ver}"
+      _log_ok "  $name reinstalled ($method)${ver:+ -- $ver}"
     else
-      _log "  $name installed ($method)${ver:+ -- $ver}"
+      _log_ok "  $name installed ($method)${ver:+ -- $ver}"
     fi
   fi
 }
@@ -557,7 +557,7 @@ _install_binary() {
 
   if [[ -n "$current_ver" ]] && _dep_remote_fresh "$stamp"; then
     rm -f "$tmp_file" "$log"
-    _log "  $name up to date -- $current_ver"
+    _log_dim "  $name up to date -- $current_ver"
     return 0
   fi
 
@@ -575,14 +575,14 @@ _install_binary() {
   if [[ "${DOT_FORCE:-0}" -ne 1 && -n "$current_ver" && -n "$latest_ver" && "${current_ver#v}" == "${latest_ver#v}" ]]; then
     rm -f "$tmp_file" "$log"
     _dep_remote_touch "$stamp" || true
-    _log "  $name up to date -- $current_ver"
+    _log_dim "  $name up to date -- $current_ver"
     return 0
   fi
 
   if [[ -z "$latest_ver" ]]; then
     if [[ -n "$current_ver" ]]; then
       rm -f "$tmp_file" "$log"
-      _log "  $name $current_ver (couldn't check for updates)"
+      _log_dim "  $name $current_ver (couldn't check for updates)"
       return 0
     fi
     rm -f "$tmp_file" "$log"
@@ -663,11 +663,11 @@ _install_binary() {
 
   _DEPS_CHANGED[$name]=1
   if [[ -z "$current_ver" ]]; then
-    _log "  $name installed -- $latest_ver"
+    _log_ok "  $name installed -- $latest_ver"
   elif [[ "${current_ver#v}" == "${latest_ver#v}" ]]; then
-    _log "  $name reinstalled -- $latest_ver"
+    _log_ok "  $name reinstalled -- $latest_ver"
   else
-    _log "  $name updated -- $current_ver -> $latest_ver"
+    _log_ok "  $name updated -- $current_ver -> $latest_ver"
   fi
 }
 
@@ -858,7 +858,7 @@ _update_deps() {
   _PKG_PRESENT=()
   declare -gA _DEPS_CHANGED=()
 
-  _log "==> Installing/upgrading tools..."
+  _log_header "==> Installing/upgrading tools..."
 
   for entry in "${_DEPS[@]}"; do
     _install_dep "$entry" || true
@@ -866,17 +866,17 @@ _update_deps() {
 
   if [[ ${#_PKG_PRESENT[@]} -gt 0 ]]; then
     local cols=72
-    _log "  system:"
+    _log_dim "  system:"
     local line="   "
     for pkg in "${_PKG_PRESENT[@]}"; do
       if (( ${#line} + ${#pkg} + 1 > cols )); then
-        _log "$line"
+        _log_dim "$line"
         line="    $pkg"
       else
         line+=" $pkg"
       fi
     done
-    [[ -n "$line" ]] && _log "$line"
+    [[ -n "$line" ]] && _log_dim "$line"
   fi
   _pkg_install_batch
 

@@ -127,7 +127,7 @@ _pull_work_repo() {
   [[ -d "$WORK_DIR/.git" ]] || return 0
   git -C "$WORK_DIR" config pull.rebase true 2>/dev/null || true
   git -C "$WORK_DIR" config rebase.autoStash true 2>/dev/null || true
-  _log "==> Pulling work dotfiles..."
+  _log_header "==> Pulling work dotfiles..."
   _pull_repo "$WORK_DIR" git -C "$WORK_DIR" pull "$@" \
     || _warn "  warning: work dotfiles pull failed"
   return 0
@@ -139,7 +139,7 @@ _pull_work_repo() {
 _link_work_home() {
   local work_home="$WORK_DIR/home"
   [[ -d "$work_home" ]] || return 0
-  _log "==> Linking work dotfiles..."
+  _log_header "==> Linking work dotfiles..."
   while IFS= read -r src; do
     local rel="${src#"$work_home"/}"
     local dst="$HOME/$rel"
@@ -160,9 +160,9 @@ _link_work_home() {
     ln -sf "$target" "$dst"
     if $GIT ls-files --error-unmatch "$rel" &>/dev/null; then
       $GIT update-index --skip-worktree "$rel" 2>/dev/null || true
-      if [[ "$DOT_QUIET" -ne 1 ]]; then echo "  linked (override): $rel"; fi
+      _log_ok "  linked (override): $rel"
     else
-      if [[ "$DOT_QUIET" -ne 1 ]]; then echo "  linked: $rel"; fi
+      _log_ok "  linked: $rel"
     fi
   done < <(find "$work_home" -type f ! -name '*.~[0-9]*~')
 }
@@ -170,7 +170,7 @@ _link_work_home() {
 # Push work repo.
 _push_work_repo() {
   [[ -d "$WORK_DIR/.git" ]] || return 0
-  _log "==> Pushing work dotfiles..."
+  _log_header "==> Pushing work dotfiles..."
   git -C "$WORK_DIR" push "$@" || _warn "  warning: work dotfiles push failed"
 }
 

@@ -10,7 +10,7 @@ _run_merges() {
   done
 
   [[ ${#_scripts[@]} -gt 0 ]] || return 0
-  _log "==> Merging app config..."
+  _log_header "==> Merging app config..."
 
   for _script in "${_scripts[@]}"; do
     unset -f merge 2>/dev/null

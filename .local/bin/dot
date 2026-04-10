@@ -54,7 +54,7 @@ _normalize_filtered() {
 _pull_all() {
   _normalize_filtered
   _unstash_work_overrides
-  _log "==> Pulling personal dotfiles..."
+  _log_header "==> Pulling personal dotfiles..."
   if ! _pull_personal "$@"; then
     if [[ "$DOT_QUIET" -eq 1 ]]; then
       _warn "  warning: personal dotfiles pull failed"
@@ -111,7 +111,7 @@ case "${1:-}" in
         if [[ "$_head_before" != "$_head_after" ]] && \
            $GIT diff --name-only "$_head_before" "$_head_after" 2>/dev/null | \
              grep -qE '^(\.config/dot/|\.local/bin/dot$)'; then
-          _log "==> Dot infrastructure updated, re-running..."
+          _log_header "==> Dot infrastructure updated, re-running..."
           _reexec_flags=(--skip-pull)
           [[ "$CRON_MODE" -eq 1 ]] && _reexec_flags+=(--cron)
           [[ "${DOT_FORCE:-0}" -eq 1 ]] && _reexec_flags+=(--force)
@@ -120,7 +120,7 @@ case "${1:-}" in
         fi
       fi
     else
-      _log "==> Skipping pull (re-exec after infrastructure update)..."
+      _log_header "==> Skipping pull (re-exec after infrastructure update)..."
     fi
 
     _update_deps
@@ -129,7 +129,7 @@ case "${1:-}" in
     if [[ -d "$DOTFILES" ]]; then
       _normalize_filtered
     fi
-    _log "==> Done! Run 'source ~/.bashrc' or 'source ~/.zshrc' to activate."
+    _log_header "==> Done! Run 'source ~/.bashrc' or 'source ~/.zshrc' to activate."
     exit 0
     ;;
   cron)
@@ -180,17 +180,17 @@ fi
 case "${1:-}" in
   fetch)
     shift
-    echo "==> Fetching personal dotfiles..."
+    _header "==> Fetching personal dotfiles..."
     $GIT fetch "$@"
     if [[ -d "$WORK_DIR/.git" ]]; then
-      echo "==> Fetching work dotfiles..."
+      _header "==> Fetching work dotfiles..."
       git -C "$WORK_DIR" fetch "$@"
     fi
     ;;
   push)
     shift
     _normalize_filtered
-    echo "==> Pushing personal dotfiles..."
+    _header "==> Pushing personal dotfiles..."
     $GIT push "$@"
     _push_work_repo "$@"
     ;;
@@ -201,7 +201,7 @@ case "${1:-}" in
     _link_work_home
     _run_merges
     _normalize_filtered
-    echo "==> Done! Run 'source ~/.bashrc' or 'source ~/.zshrc' to activate."
+    _header "==> Done! Run 'source ~/.bashrc' or 'source ~/.zshrc' to activate."
     ;;
   refresh)
     _normalize_filtered
@@ -209,22 +209,22 @@ case "${1:-}" in
   diff)
     shift
     _normalize_filtered
-    echo "==> Personal dotfiles"
+    _header "==> Personal dotfiles"
     $GIT diff "$@"
     if [[ -d "$WORK_DIR" ]]; then
       echo ""
-      echo "==> Work dotfiles"
+      _header "==> Work dotfiles"
       git -C "$WORK_DIR" diff "$@"
     fi
     ;;
   status)
     shift
     _normalize_filtered
-    echo "==> Personal dotfiles"
+    _header "==> Personal dotfiles"
     $GIT status "$@"
     if [[ -d "$WORK_DIR" ]]; then
       echo ""
-      echo "==> Work dotfiles"
+      _header "==> Work dotfiles"
       git -C "$WORK_DIR" status "$@"
     fi
     ;;
