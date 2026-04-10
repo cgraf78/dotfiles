@@ -11,6 +11,10 @@ if command -v bat >/dev/null 2>&1; then _bat_cmd="bat"
 elif command -v batcat >/dev/null 2>&1; then _bat_cmd="batcat"
 fi
 
+# Shared fzf layout options.
+_fzf_pick=(--height 40% --reverse)
+_fzf_preview=(--height 70% --reverse --preview-window="bottom,60%,border-top")
+
 # Render a file preview with `bat`/`batcat` when available.
 # Args: <file> [highlight-line]
 _preview_file() {
@@ -128,7 +132,7 @@ cgr() {
     if [[ -n "$_fd_cmd" ]] && command -v fzf >/dev/null 2>&1; then
         dir="$(
             "$_fd_cmd" --base-directory "$_root" --max-depth 1 --type d . \
-                | fzf --height 40% --reverse --prompt="repo> " --query="$_query"
+                | fzf "${_fzf_pick[@]}" --prompt="repo> " --query="$_query"
         )" || return
         [[ -n "$dir" ]] || return
         cd "$_root/$dir" || return
@@ -156,7 +160,7 @@ cdf() {
     if [[ -n "$_fd_cmd" ]] && command -v fzf >/dev/null 2>&1; then
         dir="$(
             "$_fd_cmd" --base-directory "$_root" --hidden --exclude .git --type d . \
-                | fzf --height 40% --reverse --prompt="dir> " --query="$_query"
+                | fzf "${_fzf_pick[@]}" --prompt="dir> " --query="$_query"
         )" || return
         [[ -n "$dir" ]] || return
         cd "$_root/$dir" || return
@@ -189,7 +193,7 @@ rgv() {
     preview="bash -lc 'hit=\$1; file=\${hit%%:*}; rest=\${hit#*:}; line=\${rest%%:*}; source ~/.config/shell/interactive.d/56-dot.sh; _preview_file \"\$file\" \"\$line\"' _ {}"
     hit="$(
         rg --hidden --glob '!.git' --line-number --no-heading --color=never "$@" \
-            | fzf --height 70% --reverse --prompt="rg> " --preview="$preview" --preview-window="bottom,60%,border-top"
+            | fzf "${_fzf_preview[@]}" --prompt="rg> " --preview="$preview"
     )" || return
     [[ -n "$hit" ]] || return
 
@@ -229,13 +233,13 @@ fv() {
     if [[ -n "$_fd_cmd" ]]; then
         file="$(
             "$_fd_cmd" --base-directory "$_root" --hidden --exclude .git --type f . \
-                | fzf --height 70% --reverse --prompt="file> " --scheme=path --query="$_query" --preview="$preview" --preview-window="bottom,60%,border-top"
+                | fzf "${_fzf_preview[@]}" --prompt="file> " --scheme=path --query="$_query" --preview="$preview"
         )" || return
     else
         file="$(
             (cd "$_root" && find . -name .git -prune -o -type f -print 2>/dev/null) \
                 | sed 's|^\./||' \
-                | fzf --height 70% --reverse --prompt="file> " --scheme=path --query="$_query" --preview="$preview" --preview-window="bottom,60%,border-top"
+                | fzf "${_fzf_preview[@]}" --prompt="file> " --scheme=path --query="$_query" --preview="$preview"
         )" || return
     fi
 
