@@ -538,11 +538,15 @@ _install_from_github() {
   local ver; ver=$(_get_version "$install_dir")
   local method="git clone"
   if [[ -n "${tarball_url:-}" ]]; then method="release tarball"; fi
-  if [[ -n "$ver_before" && "$ver_before" == "$ver" ]]; then
+  if [[ -n "$ver_before" && "$ver_before" == "$ver" ]] && [[ "${DOT_FORCE:-0}" -ne 1 ]]; then
     _log "  $name up to date ($method)${ver:+ -- $ver}"
   else
     _DEPS_CHANGED[$name]=1
-    _log "  $name installed ($method)${ver:+ -- $ver}"
+    if [[ -n "$ver_before" && "$ver_before" == "$ver" ]]; then
+      _log "  $name reinstalled ($method)${ver:+ -- $ver}"
+    else
+      _log "  $name installed ($method)${ver:+ -- $ver}"
+    fi
   fi
 }
 
