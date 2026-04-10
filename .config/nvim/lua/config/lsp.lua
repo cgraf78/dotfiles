@@ -14,8 +14,8 @@ vim.api.nvim_create_autocmd("LspAttach", {
     map("n", "<leader>D", vim.lsp.buf.type_definition, { buffer = b, desc = "Type definition" })
     map("n", "<leader>rn", vim.lsp.buf.rename, { buffer = b, desc = "Rename symbol" })
     map("n", "<leader>ca", vim.lsp.buf.code_action, { buffer = b, desc = "Code action" })
-    map("n", "[d", vim.diagnostic.goto_prev, { buffer = b, desc = "Previous diagnostic" })
-    map("n", "]d", vim.diagnostic.goto_next, { buffer = b, desc = "Next diagnostic" })
+    map("n", "[d", function() vim.diagnostic.jump({ count = -1 }) end, { buffer = b, desc = "Previous diagnostic" })
+    map("n", "]d", function() vim.diagnostic.jump({ count = 1 }) end, { buffer = b, desc = "Next diagnostic" })
     map("n", "<leader>e", vim.diagnostic.open_float, { buffer = b, desc = "Show diagnostic" })
   end,
 })
