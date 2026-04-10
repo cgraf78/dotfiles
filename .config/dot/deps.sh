@@ -643,9 +643,10 @@ _install_binary() {
 
   mkdir -p "$HOME/.local/bin"
 
-  # Handle tarball archives: extract and find the binary inside.
+  # Handle tarball archives: extract full contents to ~/.local/share/<name>
+  # and symlink the binary into PATH (consistent with the git method).
   if [[ "$asset_url" == *.tar.gz || "$asset_url" == *.tar.xz || "$asset_url" == *.tar.bz2 ]]; then
-    local extract_dir
+    local extract_dir install_dir
     extract_dir=$(mktemp -d) || {
       rm -f "$tmp_file" "$log"
       _warn "  warning: failed to create extract dir for $name"
@@ -657,6 +658,15 @@ _install_binary() {
       return 1
     fi
     rm -f "$tmp_file"
+
+    # If the tarball has a single top-level directory, use its contents.
+    local top_entries orig_extract_dir="$extract_dir"
+    top_entries=$(ls "$extract_dir")
+    if [[ $(echo "$top_entries" | wc -l) -eq 1 && -d "$extract_dir/$top_entries" ]]; then
+      extract_dir="$extract_dir/$top_entries"
+    fi
+
+    # Verify the binary exists inside the extracted tree.
     local found_bin=""
     found_bin=$(find "$extract_dir" -name "$cmd" -type f -perm +111 2>/dev/null | head -1)
     if [[ -z "$found_bin" ]]; then
@@ -664,13 +674,21 @@ _install_binary() {
       _warn "  warning: $cmd binary not found in $name tarball"
       return 1
     fi
-    mv "$found_bin" "$bin_path"
-    rm -rf "$extract_dir"
+
+    # Move extracted contents to ~/.local/share/<name>.
+    install_dir="$HOME/.local/share/$name"
+    rm -rf "$install_dir"
+    mkdir -p "$(dirname "$install_dir")"
+    mv "$extract_dir" "$install_dir"
+    [[ "$orig_extract_dir" != "$extract_dir" ]] && rm -rf "$orig_extract_dir"
+
+    # Symlink the binary into PATH.
+    local bin_rel="${found_bin#"$extract_dir/"}"
+    ln -sf "$install_dir/$bin_rel" "$bin_path"
   else
     mv "$tmp_file" "$bin_path"
+    chmod u+x "$bin_path"
   fi
-
-  chmod u+x "$bin_path"
   rm -f "$log"
   _dep_remote_touch "$stamp" || true
 

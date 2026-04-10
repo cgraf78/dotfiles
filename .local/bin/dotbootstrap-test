@@ -349,14 +349,17 @@ TAR_BIN_DIR=$(_tmpdir)
 mkdir -p "$TAR_BIN_DIR/.local/bin"
 TAR_CURL_BIN=$(_tmpdir)
 
-# Build a real .tar.gz containing a nested binary (like neovim's layout)
+# Build a real .tar.gz containing a nested binary and runtime files
+# (mimics neovim's layout: top-dir/bin/nvim + top-dir/share/...)
 TAR_STAGING=$(_tmpdir)
 mkdir -p "$TAR_STAGING/mocktool-${_mock_os}-${_mock_arch}/bin"
+mkdir -p "$TAR_STAGING/mocktool-${_mock_os}-${_mock_arch}/share/mocktool/runtime"
 cat > "$TAR_STAGING/mocktool-${_mock_os}-${_mock_arch}/bin/mocktool" <<'TOOL'
 #!/usr/bin/env bash
 echo "mocktool v2.0.0"
 TOOL
 chmod +x "$TAR_STAGING/mocktool-${_mock_os}-${_mock_arch}/bin/mocktool"
+echo "runtime-data" > "$TAR_STAGING/mocktool-${_mock_os}-${_mock_arch}/share/mocktool/runtime/init.lua"
 TAR_FILE="$TAR_STAGING/mocktool.tar.gz"
 tar czf "$TAR_FILE" -C "$TAR_STAGING" "mocktool-${_mock_os}-${_mock_arch}"
 
@@ -389,7 +392,14 @@ DOT_TEST_REAL_CURL="$REAL_CURL_BIN" \
 _install_binary "mocktool" "mocktool" "fixture/mocktool" >/dev/null 2>&1
 export DOT_FORCE=0
 
-_assert_file_exists "install_binary tarball: binary extracted" "$TAR_BIN_DIR/.local/bin/mocktool"
+_assert_file_exists "install_binary tarball: symlink created" "$TAR_BIN_DIR/.local/bin/mocktool"
+if [[ -L "$TAR_BIN_DIR/.local/bin/mocktool" ]]; then
+    _pass "install_binary tarball: is a symlink"
+else
+    _fail "install_binary tarball: is a symlink"
+fi
+_assert_file_exists "install_binary tarball: full tree in share" "$TAR_BIN_DIR/.local/share/mocktool/share/mocktool/runtime/init.lua"
+_assert_file_content "install_binary tarball: runtime data intact" "runtime-data" "$TAR_BIN_DIR/.local/share/mocktool/share/mocktool/runtime/init.lua"
 tar_result=$("$TAR_BIN_DIR/.local/bin/mocktool" 2>&1)
 _assert_eq "install_binary tarball: binary runs" "mocktool v2.0.0" "$tar_result"
 
