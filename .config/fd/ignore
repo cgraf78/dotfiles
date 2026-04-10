@@ -19,6 +19,8 @@ ProgramData/
 .local/share/Steam/
 .git/
 node_modules/
+__pycache__/
+.mypy_cache/
 .claude/debug/
 .claude/file-history/
 .claude/backups/
