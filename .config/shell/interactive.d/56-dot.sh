@@ -1,5 +1,11 @@
 # Shared interactive helpers for dotfiles management.
 
+# Resolve platform-specific binary names once.
+_fd_cmd=""
+if command -v fd >/dev/null 2>&1; then _fd_cmd="fd"
+elif command -v fdfind >/dev/null 2>&1; then _fd_cmd="fdfind"
+fi
+
 # Render a file preview with `bat`/`batcat` when available.
 # Args: <file> [highlight-line]
 _preview_file() {
@@ -121,9 +127,9 @@ cgr() {
         return 1
     fi
 
-    if command -v fd >/dev/null 2>&1 && command -v fzf >/dev/null 2>&1; then
+    if [[ -n "$_fd_cmd" ]] && command -v fzf >/dev/null 2>&1; then
         dir="$(
-            fd --base-directory "$root" --max-depth 1 --type d . \
+            "$_fd_cmd" --base-directory "$root" --max-depth 1 --type d . \
                 | fzf --height 40% --reverse --prompt="repo> " --query="$query"
         )" || return
         [[ -n "$dir" ]] || return
@@ -165,9 +171,9 @@ cdf() {
         return 1
     fi
 
-    if command -v fd >/dev/null 2>&1 && command -v fzf >/dev/null 2>&1; then
+    if [[ -n "$_fd_cmd" ]] && command -v fzf >/dev/null 2>&1; then
         dir="$(
-            fd --base-directory "$root" --hidden --exclude .git --type d . \
+            "$_fd_cmd" --base-directory "$root" --hidden --exclude .git --type d . \
                 | fzf --height 40% --reverse --prompt="dir> " --query="$query"
         )" || return
         [[ -n "$dir" ]] || return
@@ -254,10 +260,10 @@ fv() {
     fi
 
     preview="bash -lc 'file=\$1; source ~/.config/shell/interactive.d/56-dot.sh; _preview_file \"\$file\"' _ {}"
-    if command -v fd >/dev/null 2>&1; then
+    if [[ -n "$_fd_cmd" ]]; then
         printf -v root_q '%q' "$root"
         file="$(
-            fd --base-directory "$root" --hidden --exclude .git --type f . \
+            "$_fd_cmd" --base-directory "$root" --hidden --exclude .git --type f . \
                 | fzf --height 70% --reverse --prompt="file> " --scheme=path --query="$query" --preview="bash -lc 'root=\$1; file=\$2; source ~/.config/shell/interactive.d/56-dot.sh; _preview_file \"\$root/\$file\"' _ $root_q {}" --preview-window="right,60%,border-left"
         )" || return
         [[ -n "$file" ]] || return
