@@ -15,6 +15,17 @@ ProgramData/
 
 # Dev noise
 .dotfiles-backup/
+.dotfiles/objects/
 .local/share/Steam/
 .git/
 node_modules/
+.claude/debug/
+.claude/file-history/
+.claude/backups/
+.bash_sessions/
+.zsh_sessions/
+.cache/
+.venv/
+.vscode/
+.npm/
+.bun/
