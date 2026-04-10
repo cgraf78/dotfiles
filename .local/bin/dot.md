@@ -145,23 +145,25 @@ dot add <file> && dot commit -m "add <file>" && dot push
 `dot update` installs and upgrades tools defined in `~/.config/dot/deps.conf`. Each line declares a dependency with a name and install method:
 
 ```
-# name          method    cmd    alt    overrides                repo                dir
+# name          method    cmd    alt    overrides                repo                dir                 platforms
 jq              pkg
 bat             pkg       bat    batcat
 fd              pkg       fd     fdfind apt:fd-find,dnf:fd-find
 ds              git       -      -      -                        cgraf78/ds.git      .local/share/ds
 neovim          binary    nvim   -      -                        neovim/neovim
 direnv          binary    -      -      -                        direnv/direnv
-fonts           custom
+fonts           custom    -      -      -                        -                   -                   !wsl
 ```
 
 **Methods:**
 - **`pkg`** — system package (`brew`, `apt`, `dnf`, `pacman`). Batches all packages into one install command.
 - **`git`** — clones from GitHub (prefers `~/git/<name>` local clones, falls back to release tarballs, then `git clone`).
-- **`binary`** — downloads a single executable from GitHub releases on Linux (AppImages, plain binaries, etc.). Searches the release asset list by OS and arch. Falls back to `pkg` on macOS/WSL.
+- **`binary`** — downloads from GitHub releases, matching by OS and arch. Prefers standalone binaries; falls back to tarballs (extracted to `~/.local/share/<name>` with the binary symlinked into PATH).
 - **`custom`** — entirely managed by a post-install hook. The hook handles platform detection, idempotency, and installation.
 
-**Platform overrides:** The `overrides` column maps package managers to platform-specific names (e.g., `apt:fd-find`). Use `NONE` to skip a dep on a platform (e.g., `apt:NONE`).
+**Package overrides:** The `overrides` column maps package managers to platform-specific names (e.g., `apt:fd-find`). Use `NONE` to skip a dep on a specific package manager (e.g., `apt:NONE`).
+
+**Platform filtering:** The optional `platforms` column controls which platforms a dep installs on. Values: `linux`, `darwin`, `wsl`. Prefix with `!` to exclude. Examples: `linux,darwin` (only those), `!wsl` (all except WSL). Omit or use `-` for all platforms.
 
 **Post-install hooks:** Defined in `~/.config/dot/deps-hooks.sh` as `_post_<name>()` functions (dashes in dep name become underscores). Run after installation when a dep is new or updated.
 
