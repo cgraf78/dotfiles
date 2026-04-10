@@ -70,7 +70,6 @@ return {
     config = function()
       require("telescope").setup({
         defaults = {
-          cwd = vim.fn.getcwd(),
           layout_strategy = "vertical",
           layout_config = {
             vertical = {
