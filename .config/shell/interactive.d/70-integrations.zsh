@@ -2,6 +2,7 @@
 
 # macOS integrations
 if [[ "$_UNAME" == "Darwin" ]]; then
+    test -e "${HOME}/.iterm2_shell_integration.zsh" && . "${HOME}/.iterm2_shell_integration.zsh"
     test -e "/Applications/WezTerm.app/Contents/Resources/wezterm.sh" && . "/Applications/WezTerm.app/Contents/Resources/wezterm.sh"
 
     # Screenshot capture to Google Drive
@@ -32,6 +33,10 @@ argus() {
 }
 
 # Tool shell integrations (completions, key bindings, auto-attach)
+# Zsh has native preexec/precmd hooks. Initialize the helper autoload so
+# hook-based tooling can register without a bash-preexec-style shim.
+autoload -Uz add-zsh-hook
+
 # Zsh completion must be initialized before tools register `compdef` hooks.
 autoload -Uz compinit
 compinit

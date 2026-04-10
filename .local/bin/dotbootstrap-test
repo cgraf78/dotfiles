@@ -981,7 +981,7 @@ _assert_file_content "personal: generic hook ran" "$FRESH/.local/share/hook-pack
 
 # Done message
 _assert_contains "personal: done message" "Done" "$result"
-_assert_contains "personal: source bashrc hint" "source ~/.bashrc" "$result"
+_assert_contains "personal: shell activation hint" "source ~/.bashrc' or 'source ~/.zshrc" "$result"
 
 # ---- Fresh work install ----
 

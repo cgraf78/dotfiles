@@ -20,13 +20,13 @@ Work files are symlinked into `$HOME` by the work repo's bootstrap script. Perso
 Personal machine:
 ```bash
 curl -sL https://raw.githubusercontent.com/cgraf78/dotfiles/main/.local/bin/dotbootstrap | bash -s init
-source ~/.bashrc
+source ~/.bashrc  # or: source ~/.zshrc
 ```
 
 Work machine (also clones work repo):
 ```bash
 curl -sL https://raw.githubusercontent.com/cgraf78/dotfiles/main/.local/bin/dotbootstrap | bash -s init work
-source ~/.bashrc
+source ~/.bashrc  # or: source ~/.zshrc
 ```
 
 On subsequent runs, `dotbootstrap` with no argument auto-detects `work` mode if `~/.dotfiles-work` exists. The bootstrap script automatically backs up any conflicting files to `~/.dotfiles-backup/<timestamp>/`.
@@ -78,22 +78,25 @@ Run `dot cron` to see what's currently installed.
 
 ### Shell config
 
-`.bashrc` is a thin loader that sources files from `~/.config/shell/` in two phases. Files use numeric prefixes for load order and extensions to indicate shell compatibility: `.sh` (any shell), `.bash` (bash-specific), `.zsh` (zsh-specific).
+`.bashrc` and `.zshrc` are thin loaders that source files from
+`~/.config/shell/` in two phases. Files use numeric prefixes for load order
+and extensions to indicate shell compatibility: `.sh` (any shell), `.bash`
+(bash-specific), `.zsh` (zsh-specific).
 
 ```
-.bashrc
+.bashrc / .zshrc
 ├── env.d/                          (all shells, interactive and non-interactive)
 │   ├── 10-work-bootstrap.sh        (work — devserver system config, must load first)
 │   ├── 50-core.sh                  (exports, history settings)
 │   ├── 60-path.sh                  (PATH assembly)
 │   ├── 70-platform.sh              (Homebrew, stty)
 │   └── 80-work.sh                  (work — build modes, proxy, PARA, gdrive)
-├── .bashrc_local                   (machine-local, not tracked)
-├── .bashrc_local_work              (machine-local work-only, not tracked)
+├── .bashrc_local / .zshrc_local               (machine-local, not tracked)
+├── .bashrc_local_work / .zshrc_local_work     (machine-local work-only, not tracked)
 └── interactive.d/                  (interactive shells only)
     ├── 50-aliases.sh               (tool aliases, SSH, platform-specific)
-    ├── 60-prompt.bash              (PS1, git branch indicators)
-    ├── 70-integrations.bash        (fzf, zoxide, atuin, ds)
+    ├── 60-prompt.bash / .zsh       (prompt, git branch indicators)
+    ├── 70-integrations.bash / .zsh (fzf, zoxide, atuin, ds)
     ├── 80-work-aliases.sh          (work — project build/run/test shortcuts)
     └── 90-work-integrations.bash   (work — arc completions)
 ```

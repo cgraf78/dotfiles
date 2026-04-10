@@ -404,7 +404,7 @@ result=$(
 )
 _assert_contains "pull: shows pulling" "Pulling personal" "$result"
 _assert_contains "pull: shows done message" "Done" "$result"
-_assert_contains "pull: mentions source bashrc" "source ~/.bashrc" "$result"
+_assert_contains "pull: mentions shell activation hint" "source ~/.bashrc' or 'source ~/.zshrc" "$result"
 
 # Upstream starts tracking a file that exists locally as untracked → backup and continue.
 REMOTE_WORK=$(_tmpdir)

@@ -129,7 +129,7 @@ case "${1:-}" in
     if [[ -d "$DOTFILES" ]]; then
       _normalize_filtered
     fi
-    _log "==> Done! Run 'source ~/.bashrc' to activate."
+    _log "==> Done! Run 'source ~/.bashrc' or 'source ~/.zshrc' to activate."
     exit 0
     ;;
   cron)
@@ -201,7 +201,7 @@ case "${1:-}" in
     _link_work_home
     _run_merges
     _normalize_filtered
-    echo "==> Done! Run 'source ~/.bashrc' to activate."
+    echo "==> Done! Run 'source ~/.bashrc' or 'source ~/.zshrc' to activate."
     ;;
   refresh)
     _normalize_filtered

@@ -187,7 +187,7 @@ if [[ -f "$HOME/.config/dot/init.sh" ]]; then
   . "$HOME/.config/dot/init.sh"
 else
   echo "  warning: init.sh not found — skipping work repo and merges" >&2
-  echo "==> Done! Run 'source ~/.bashrc' to activate."
+  echo "==> Done! Run 'source ~/.bashrc' or 'source ~/.zshrc' to activate."
   touch "$HOME/.dotbootstrap-done"
   exit 0
 fi
@@ -231,5 +231,5 @@ _link_work_home
 
 _run_merges
 
-echo "==> Done! Run 'source ~/.bashrc' to activate."
+echo "==> Done! Run 'source ~/.bashrc' or 'source ~/.zshrc' to activate."
 touch "$HOME/.dotbootstrap-done"
