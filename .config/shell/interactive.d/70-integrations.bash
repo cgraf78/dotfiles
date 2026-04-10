@@ -52,3 +52,4 @@ if [[ -f ~/.bash-preexec.sh ]]; then
     fi
 fi
 command -v atuin &>/dev/null && eval "$(atuin init bash --disable-up-arrow)" || true
+command -v direnv &>/dev/null && eval "$(direnv hook bash)" || true
