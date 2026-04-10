@@ -16,4 +16,5 @@ ProgramData/
 # Dev noise
 .dotfiles-backup/
 .local/share/Steam/
+.git/
 node_modules/

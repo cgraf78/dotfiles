@@ -62,7 +62,7 @@ cdf() {
 
     if command -v fd >/dev/null 2>&1 && command -v fzf >/dev/null 2>&1; then
         dir="$(
-            fd --base-directory "$root" --type d . \
+            fd --base-directory "$root" --hidden --exclude .git --type d . \
                 | fzf --height 40% --reverse --prompt="dir> "
         )" || return
         [[ -n "$dir" ]] || return
@@ -88,7 +88,7 @@ rgv() {
     fi
 
     hit="$(
-        rg --line-number --no-heading --color=never "$@" \
+        rg --hidden --glob '!.git' --line-number --no-heading --color=never "$@" \
             | fzf --height 60% --reverse --prompt="rg> "
     )" || return
     [[ -n "$hit" ]] || return
@@ -120,7 +120,7 @@ fv() {
 
     if command -v fd >/dev/null 2>&1; then
         file="$(
-            fd --base-directory "$root" --type f . \
+            fd --base-directory "$root" --hidden --exclude .git --type f . \
                 | fzf --height 60% --reverse --prompt="file> "
         )" || return
         [[ -n "$file" ]] || return
@@ -129,7 +129,7 @@ fv() {
     fi
 
     file="$(
-        find "$root" -type f 2>/dev/null \
+        find "$root" -name .git -prune -o -type f -print 2>/dev/null \
             | fzf --height 60% --reverse --prompt="file> "
     )" || return
     [[ -n "$file" ]] || return
