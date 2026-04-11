@@ -126,6 +126,9 @@ _is_wsl() {
 # Installs/upgrades deps, links work files, merges app configs, and cleans
 # up phantom dirty files.
 _finalize_update() {
+  # Ensure pull-behavior and filter config is set for both repos.
+  # Self-heals on every run so config can't silently drift.
+  _ensure_repo_config
   _update_deps
   _link_work_home
   _run_merges

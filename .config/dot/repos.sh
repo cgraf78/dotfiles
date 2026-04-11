@@ -102,12 +102,26 @@ _pull_repo() {
   return "$rc"
 }
 
+# Ensure pull-behavior and filter config is set for both repos.
+# Called by _finalize_update so it runs in dot update, dot pull, and dotbootstrap.
+# shellcheck disable=SC2086  # $GIT is intentionally word-split (multi-word command).
+_ensure_repo_config() {
+  if [[ -d "$DOTFILES" ]]; then
+    $GIT config pull.rebase true 2>/dev/null || true
+    $GIT config rebase.autoStash true 2>/dev/null || true
+    $GIT config filter.json-sort.clean "jq --sort-keys . 2>/dev/null || cat" 2>/dev/null || true
+    $GIT config filter.json-sort.smudge "jq --sort-keys . 2>/dev/null || cat" 2>/dev/null || true
+  fi
+  if [[ -d "$WORK_DIR/.git" ]]; then
+    git -C "$WORK_DIR" config pull.rebase true 2>/dev/null || true
+    git -C "$WORK_DIR" config rebase.autoStash true 2>/dev/null || true
+    git -C "$WORK_DIR" config filter.json-sort.clean "jq --sort-keys . 2>/dev/null || cat" 2>/dev/null || true
+    git -C "$WORK_DIR" config filter.json-sort.smudge "jq --sort-keys . 2>/dev/null || cat" 2>/dev/null || true
+  fi
+}
+
 # shellcheck disable=SC2086  # $GIT is intentionally word-split (multi-word command).
 _pull_personal() {
-  $GIT config pull.rebase true 2>/dev/null || true
-  $GIT config rebase.autoStash true 2>/dev/null || true
-  $GIT config filter.json-sort.clean "jq --sort-keys . 2>/dev/null || cat" 2>/dev/null || true
-  $GIT config filter.json-sort.smudge "jq --sort-keys . 2>/dev/null || cat" 2>/dev/null || true
   _pull_repo "$HOME" $GIT pull "$@"
 }
 
@@ -128,10 +142,6 @@ _unstash_work_overrides() {
 # Pull work repo.
 _pull_work_repo() {
   [[ -d "$WORK_DIR/.git" ]] || return 0
-  git -C "$WORK_DIR" config pull.rebase true 2>/dev/null || true
-  git -C "$WORK_DIR" config rebase.autoStash true 2>/dev/null || true
-  git -C "$WORK_DIR" config filter.json-sort.clean "jq --sort-keys . 2>/dev/null || cat" 2>/dev/null || true
-  git -C "$WORK_DIR" config filter.json-sort.smudge "jq --sort-keys . 2>/dev/null || cat" 2>/dev/null || true
   _log_header "==> Pulling work dotfiles..."
   _pull_repo "$WORK_DIR" git -C "$WORK_DIR" pull "$@" ||
     _warn "  warning: work dotfiles pull failed"

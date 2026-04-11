@@ -27,6 +27,7 @@ CRON_MODE=0
 # Pull both repos (personal + work) with proper unstash/normalize handling.
 # Does NOT link work files — _finalize_update handles that after deps.
 _pull_all() {
+  _ensure_repo_config
   _normalize_filtered
   _unstash_work_overrides
   _log_header "==> Pulling personal dotfiles..."
@@ -87,6 +88,7 @@ update)
     if [[ -d "$DOTFILES" ]]; then
       _pull_all "$@"
     else
+      _ensure_repo_config
       _pull_work_repo
     fi
 
