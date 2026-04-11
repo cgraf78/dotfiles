@@ -4,7 +4,7 @@
 status() {
   if command -v wezterm &>/dev/null; then
     local ver
-    ver=$(wezterm --version 2>/dev/null | awk '{print $2}')
+    ver=$(wezterm --version 2>/dev/null | awk '{v=$2; if (v ~ /^[0-9a-f]{40}$/) print "commit " substr(v,1,7); else print v}')
     _log_dim "  wezterm up to date${ver:+ -- $ver}"
     return 0
   fi
