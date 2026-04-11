@@ -688,7 +688,7 @@ _install_binary() {
   mkdir -p "$HOME/.local/bin"
 
   # Install: tarball archive or direct binary.
-  if [[ "$asset_url" == *.tar.gz || "$asset_url" == *.tar.xz || "$asset_url" == *.tar.bz2 ]]; then
+  if [[ "$asset_url" == *.tar.gz || "$asset_url" == *.tar.xz || "$asset_url" == *.tar.bz2 || "$asset_url" == *.tgz ]]; then
     if ! _binary_install_tarball "$name" "$cmd" "$tmp_file" "$bin_path" "$log"; then
       return 1
     fi
@@ -775,9 +775,9 @@ _binary_find_asset() {
           [[ $skip -eq 1 ]] && continue
           # Pass-specific filtering
           if [[ "$pass" == "plain" ]]; then
-            [[ "$url" != *.tar.gz && "$url" != *.tar.xz && "$url" != *.tar.bz2 ]] || continue
+            [[ "$url" != *.tar.gz && "$url" != *.tar.xz && "$url" != *.tar.bz2 && "$url" != *.tgz ]] || continue
           else
-            [[ "$url" == *.tar.gz || "$url" == *.tar.xz || "$url" == *.tar.bz2 ]] || continue
+            [[ "$url" == *.tar.gz || "$url" == *.tar.xz || "$url" == *.tar.bz2 || "$url" == *.tgz ]] || continue
           fi
           for arch_pat in "${arch_patterns[@]}"; do
             if [[ "$url" == *"$arch_pat"* ]]; then
