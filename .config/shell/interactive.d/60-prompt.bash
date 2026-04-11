@@ -1,9 +1,18 @@
 # shellcheck shell=bash
 # Bash prompt: git branch/status/upstream, command timing, PS1 with exit code.
 
-# Print git branch, dirty/staged indicators, ahead/behind counts, and
-# current operation state for the working directory.
-# Falls back to the bare dotfiles repo (~/.dotfiles) when not in a regular repo.
+# Color constants for __git_prompt output embedded in PS1 via $().
+# \001/\002 (ASCII SOH/STX) mark non-printing sequences so readline
+# correctly calculates visible line length.
+_PC_RESET=$'\001\033[0m\002'
+_PC_CYAN=$'\001\033[36m\002'
+_PC_BOLD_RED=$'\001\033[1;31m\002'
+_PC_YELLOW=$'\001\033[33m\002'
+_PC_GREEN=$'\001\033[32m\002'
+_PC_RED=$'\001\033[31m\002'
+
+# Print colored git prompt: branch (cyan), op state (bold red), dirty (yellow),
+# ahead (green), behind (red). Falls back to ~/.dotfiles when not in a repo.
 __git_prompt() {
   local -a g=(git)
   local gitdir
@@ -21,23 +30,21 @@ __git_prompt() {
   branch="$("${g[@]}" symbolic-ref --short HEAD 2>/dev/null \
     || "${g[@]}" rev-parse --short HEAD 2>/dev/null)" || return
 
-  local status flags=""
+  local status dirty=""
   status="$("${g[@]}" --no-optional-locks status --porcelain 2>/dev/null)"
   # Staged changes
-  [[ "$status" == *$'\n'[MADRC]* || "$status" == [MADRC]* ]] && flags+="+"
+  [[ "$status" == *$'\n'[MADRC]* || "$status" == [MADRC]* ]] && dirty+="+"
   # Unstaged changes
-  [[ "$status" == *$'\n'?[MDRC]* || "$status" == ?[MDRC]* ]] && flags+="*"
+  [[ "$status" == *$'\n'?[MDRC]* || "$status" == ?[MDRC]* ]] && dirty+="*"
   # Untracked files
-  [[ "$status" == *"??"* ]] && flags+="%"
-  [[ -n "$flags" ]] && flags=" $flags"
+  [[ "$status" == *"??"* ]] && dirty+="%"
 
-  # Ahead/behind upstream (↑ ahead, ↓ behind)
+  # Ahead/behind upstream
+  local behind=0 ahead=0
   if "${g[@]}" rev-parse --abbrev-ref '@{upstream}' &>/dev/null; then
-    local counts behind ahead
+    local counts
     counts="$("${g[@]}" rev-list --count --left-right '@{upstream}...HEAD' 2>/dev/null)" || true
     read -r behind ahead <<< "$counts"
-    (( ${ahead:-0} > 0 )) && flags+=" ↑$ahead"
-    (( ${behind:-0} > 0 )) && flags+=" ↓$behind"
   fi
 
   # In-progress operation state
@@ -48,7 +55,14 @@ __git_prompt() {
   elif [[ -f "$gitdir/REVERT_HEAD" ]]; then op="|REVERT"
   fi
 
-  printf ' (%s%s%s)' "$branch" "$op" "$flags"
+  # Build output: each segment colored independently, parens in default color.
+  local out=" (${_PC_CYAN}${branch}${_PC_RESET}"
+  [[ -n "$op"    ]] && out+="${_PC_BOLD_RED}${op}${_PC_RESET}"
+  [[ -n "$dirty" ]] && out+=" ${_PC_YELLOW}${dirty}${_PC_RESET}"
+  (( ${ahead:-0}  > 0 )) && out+=" ${_PC_GREEN}↑${ahead}${_PC_RESET}"
+  (( ${behind:-0} > 0 )) && out+=" ${_PC_RED}↓${behind}${_PC_RESET}"
+  out+=")"
+  printf '%s' "$out"
 }
 
 # Command timing.
@@ -60,7 +74,12 @@ __cmd_time=""
 __prompt_preexec() { __cmd_start=$SECONDS; }
 __prompt_precmd() {
   local elapsed=$(( SECONDS - ${__cmd_start:-$SECONDS} ))
-  (( elapsed >= 2 )) && __cmd_time=" ${elapsed}s" || __cmd_time=""
+  if (( elapsed >= 2 )); then
+    # Pre-color with dim + \001/\002 wrappers so readline counts correctly.
+    __cmd_time=$'\001\033[2m\002 '"${elapsed}s"$'\001\033[0m\002'
+  else
+    __cmd_time=""
+  fi
 }
 preexec_functions+=(__prompt_preexec)
 precmd_functions+=(__prompt_precmd)
@@ -72,7 +91,8 @@ __prompt_started=1
 trap '[[ -z ${COMP_LINE:-} ]] && (( __prompt_started )) && { __cmd_start=$SECONDS; __prompt_started=0; }' DEBUG
 
 # Set PS1 with exit status, user@host:path, git info, timing, and a second line.
-# Shows red x on non-zero exit code, green o on success.
+# Line 1: dim user@host, bold-cyan path, colored git info, dim timing.
+# Line 2: exit-colored $ (green on success, red on failure).
 # Args: $1 - hostname to display (default: \h, the system hostname).
 set_prompt() {
   local host="${1:-\\h}"
@@ -84,7 +104,7 @@ set_prompt() {
   PROMPT_COMMAND='__cmd_exit=$?; [[ -z ${__bp_imported:-} ]] && { __prompt_precmd; __prompt_started=1; }'
   # shellcheck disable=SC2016  # PS1 intentionally contains literal command substitutions
   local exit_sym='\[\033[01;$(( __cmd_exit ? 31 : 32 ))m\]$( (( __cmd_exit )) && echo "x" || echo "o")\[\033[00m\]'
-  PS1="${exit_sym} "'\[\033[01;32m\]\u@'"$host"'\[\033[00m\]:\[\033[01;34m\]\w\[\033[33m\]$(__git_prompt)\[\033[00m\]${__cmd_time}\n\$ '
+  PS1="${exit_sym} "'\[\033[2m\]\u@'"$host"'\[\033[0m\]:\[\033[1;36m\]\w\[\033[0m\]$(__git_prompt)${__cmd_time}\n\[\033[01;$(( __cmd_exit ? 31 : 32 ))m\]\$\[\033[0m\] '
   case "$TERM" in
   xterm* | rxvt*)
     PS1="\[\e]0;\u@$host: \w\a\]$PS1"
