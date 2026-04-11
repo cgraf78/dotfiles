@@ -202,10 +202,7 @@ if [[ "$MACHINE_TYPE" == "work" ]]; then
     _pull_work_repo
   else
     _log_header "==> Cloning work dotfiles..."
-    if git clone "$WORK_REPO" "$WORK_DIR"; then
-      git -C "$WORK_DIR" config pull.rebase true
-      git -C "$WORK_DIR" config rebase.autoStash true
-    else
+    if ! git clone "$WORK_REPO" "$WORK_DIR"; then
       _warn "  warning: work dotfiles clone failed"
     fi
   fi
