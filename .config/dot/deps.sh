@@ -397,9 +397,9 @@ _link_bin() {
 # If <install-dir>/bin/<name> exists after install, it is symlinked into PATH.
 # Env var override: DOTBOOTSTRAP_<NAME>_REPO overrides the repo URL.
 
-# Strategy: ~/git/<name> exists — symlink for live development.
+# Strategy: ~/git/<name> exists — symlink for live development, pull if TTL expired and clean.
 _github_install_local_clone() {
-  local name="$1" local_clone="$2" install_dir="$3"
+  local name="$1" local_clone="$2" install_dir="$3" stamp="$4" log="$5"
   local link_before=""
   if [[ -L "$install_dir" ]]; then
     link_before=$(readlink "$install_dir" 2>/dev/null || true)
@@ -407,6 +407,17 @@ _github_install_local_clone() {
   local rev_before="" rev_after="" dirty_after=0
   if _dep_rev_read "$name"; then
     rev_before="$REPLY"
+  fi
+  # Pull if TTL expired (or --force) and the clone is clean.
+  if ! _dep_remote_fresh "$stamp"; then
+    if [[ -z "$(git -C "$local_clone" status --porcelain --untracked-files=normal 2>/dev/null || true)" ]]; then
+      if _run_logged git -C "$local_clone" pull --ff-only --quiet; then
+        _dep_remote_touch "$stamp" || true
+      else
+        _logfile_print "$name update" "$log"
+        _warn "  warning: $name update failed"
+      fi
+    fi
   fi
   rev_after=$(git -C "$local_clone" rev-parse HEAD 2>/dev/null || true)
   if [[ -n "$(git -C "$local_clone" status --porcelain --untracked-files=normal 2>/dev/null || true)" ]]; then
@@ -421,12 +432,19 @@ _github_install_local_clone() {
   if [[ -n "$rev_after" ]]; then
     _dep_rev_touch "$name" "$rev_after" || true
   fi
-  if [[ "$link_before" != "$local_clone" || "$rev_before" != "$rev_after" || "$dirty_after" -eq 1 || "${DOT_FORCE:-0}" -eq 1 ]]; then
+  if [[ "$link_before" != "$local_clone" ]]; then
     _DEPS_CHANGED[$name]=1
     _log_ok "  $name -> $local_clone (local clone)${ver:+ -- $ver}"
+  elif [[ "$rev_before" != "$rev_after" ]]; then
+    _DEPS_CHANGED[$name]=1
+    _log_ok "  $name updated (local clone)${ver:+ -- $ver}"
+  elif [[ "$dirty_after" -eq 1 || "${DOT_FORCE:-0}" -eq 1 ]]; then
+    _DEPS_CHANGED[$name]=1
+    _log_ok "  $name reinstalled (local clone)${ver:+ -- $ver}"
   else
     _log_dim "  $name up to date${ver:+ -- $ver}"
   fi
+  rm -f "$log"
 }
 
 # Strategy: install_dir/.git exists — pull to update.
@@ -555,17 +573,16 @@ _install_from_github() {
   local local_clone="$HOME/git/$name"
   local stamp=""
   stamp=$(_dep_remote_stamp "$name" git)
-
-  if [[ -d "$local_clone" ]]; then
-    _github_install_local_clone "$name" "$local_clone" "$install_dir"
-    return $?
-  fi
-
   local log=""
   if ! _logfile_create; then
     _warn "  warning: failed to create temp log for $name install"
   else
     log="$REPLY"
+  fi
+
+  if [[ -d "$local_clone" ]]; then
+    _github_install_local_clone "$name" "$local_clone" "$install_dir" "$stamp" "$log"
+    return $?
   fi
 
   if [[ -d "$install_dir/.git" ]]; then
