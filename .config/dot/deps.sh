@@ -173,14 +173,31 @@ _pkg_resolve() {
   echo "$name"
 }
 
+# Check if a package is available in the current package manager's repos.
+_pkg_available() {
+  local pkg="$1"
+  case "$_PKG_MGR" in
+  brew) brew info "$pkg" &>/dev/null ;;
+  apt) apt-cache show "$pkg" &>/dev/null ;;
+  dnf) dnf info "$pkg" &>/dev/null ;;
+  pacman) pacman -Si "$pkg" &>/dev/null ;;
+  *) return 0 ;;
+  esac
+}
+
 # Queue a package for batched install.
 # $1=name $2=pkg_overrides
 # Skips if _pkg_resolve returns NONE (platform not supported).
+# Skips if the package is not available in the current repos.
 _pkg_queue() {
   local name="$1" overrides="${2:-}"
   local resolved
   resolved=$(_pkg_resolve "$name" "$overrides")
   if [[ "$resolved" == "NONE" ]]; then
+    return 0
+  fi
+  if ! _pkg_available "$resolved"; then
+    _warn "  warning: $name not available in $_PKG_MGR repos — skipping"
     return 0
   fi
   _PKG_BATCH+=("$resolved")
