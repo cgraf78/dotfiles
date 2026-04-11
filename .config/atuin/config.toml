@@ -166,6 +166,13 @@
 ## This applies for new installs. Old installs will keep the old behaviour unless configured otherwise.
 enter_accept = true
 search_mode = "fuzzy"
+workspaces = true
+
+## Prevent commands with secrets in ad-hoc env assignments from being saved.
+history_filter = [
+  "^export \\S*(TOKEN|KEY|SECRET|PASSWORD|PASSWD|PASS|CREDENTIAL)\\S*=",
+  "^\\S*(TOKEN|KEY|SECRET|PASSWORD|PASSWD|PASS|CREDENTIAL)\\S*=",
+]
 
 ## Defaults to false. If enabled, when triggered after &&, || or |, Atuin will complete commands to chain rather than replace the current line.
 # command_chaining = false
@@ -309,7 +316,7 @@ autostart = false
 ## The list of enabled filter modes, in order of priority.
 ## The "workspace" mode is skipped when not in a workspace or workspaces = false.
 ## Default filter mode can be overridden with the filter_mode setting.
-# filters = [ "global", "host", "session", "session-preload", "workspace", "directory" ]
+filters = [ "global", "host", "session", "session-preload", "workspace", "directory" ]
 
 [tmux]
 ## Enable using atuin with tmux popup (requires tmux >= 3.2)
@@ -317,7 +324,7 @@ autostart = false
 ## Set to false to disable the popup.
 ## This can also be controlled with the ATUIN_TMUX_POPUP environment variable.
 ## Note: The tmux popup is currently supported in zsh, bash, and fish shells. This currently doesn't work with iTerm native tmux integration.
-# enabled = false
+enabled = true
 
 ## Width of the tmux popup window
 ## Can be a percentage, or integer (e.g. "100" means 100 characters wide)
@@ -330,7 +337,7 @@ autostart = false
 [ui]
 
 [ai]
-enabled = true
+enabled = false
 ## Columns to display in the interactive search, from left to right.
 ## The selection indicator (" > ") is always shown first implicitly.
 ##
