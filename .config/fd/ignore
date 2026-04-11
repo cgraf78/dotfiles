@@ -7,6 +7,8 @@ ProgramData/
 
 # Dev noise (match anywhere)
 .git/
+.hg/
+.sl/
 node_modules/
 __pycache__/
 .mypy_cache/
