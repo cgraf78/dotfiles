@@ -92,9 +92,10 @@ set_prompt() {
   # dim/nodim: raw ANSI wrapped in %{...%} so ZLE treats them as zero-width.
   # $'...' expands \033 to an actual ESC character at assignment time.
   local dim=$'%{\033[2m%}' nodim=$'%{\033[0m%}'
-  # %(?.true.false) — zsh ternary on last exit status
-  # Line 2 colors %# (% for users, # for root) to match the o/x indicator.
-  PROMPT="%(?.%B%F{green}o%f%b.%B%F{red}x%f%b) ${dim}%n@${host}${nodim}:%B%F{cyan}%~%f%b"'$(__git_prompt)${__cmd_time}'$'\n''%(?.%B%F{green}.%B%F{red})%#%f%b '
+  # %(?.true.false) — zsh ternary on last exit status.
+  # Exit code: bold red [N] only on failure; nothing on success.
+  # Line 2 colors %# (% for users, # for root) green/red to match.
+  PROMPT="%(?.%b%f.%B%F{red}[%?]%f%b )${dim}%n@${host}${nodim}:%B%F{cyan}%~%f%b"'$(__git_prompt)${__cmd_time}'$'\n''%(?.%B%F{green}.%B%F{red})%#%f%b '
   # Set terminal title for xterm/rxvt
   case "$TERM" in
   xterm* | rxvt*)

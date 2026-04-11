@@ -102,9 +102,12 @@ set_prompt() {
   # unset); when bash-preexec is present it already ran via precmd_functions.
   # shellcheck disable=SC2154  # __bp_imported is set by bash-preexec when it loads
   PROMPT_COMMAND='__cmd_exit=$?; [[ -z ${__bp_imported:-} ]] && { __prompt_precmd; __prompt_started=1; }'
+  # Exit code: bold red [N] only on failure; nothing on success.
+  # \001/\002 wrappers inside the printf format let readline exclude the
+  # escape sequences from visible line-length calculation.
   # shellcheck disable=SC2016  # PS1 intentionally contains literal command substitutions
-  local exit_sym='\[\033[01;$(( __cmd_exit ? 31 : 32 ))m\]$( (( __cmd_exit )) && echo "x" || echo "o")\[\033[00m\]'
-  PS1="${exit_sym} "'\[\033[2m\]\u@'"$host"'\[\033[0m\]:\[\033[1;36m\]\w\[\033[0m\]$(__git_prompt)${__cmd_time}\n\[\033[01;$(( __cmd_exit ? 31 : 32 ))m\]\$\[\033[0m\] '
+  local exit_code='$( (( __cmd_exit )) && printf '"'"'\001\033[1;31m\002[%s]\001\033[0m\002 '"'"' "$__cmd_exit")'
+  PS1="${exit_code}"'\[\033[2m\]\u@'"$host"'\[\033[0m\]:\[\033[1;36m\]\w\[\033[0m\]$(__git_prompt)${__cmd_time}\n\[\033[01;$(( __cmd_exit ? 31 : 32 ))m\]\$\[\033[0m\] '
   case "$TERM" in
   xterm* | rxvt*)
     PS1="\[\e]0;\u@$host: \w\a\]$PS1"
