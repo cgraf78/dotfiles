@@ -15,14 +15,10 @@ ProgramData/
 
 # Dev noise
 .dotfiles-backup/
-.dotfiles/objects/
 .git/
 node_modules/
 __pycache__/
 .mypy_cache/
-.claude/debug/
-.claude/file-history/
-.claude/backups/
 .bash_sessions/
 .zsh_sessions/
 .cache/
