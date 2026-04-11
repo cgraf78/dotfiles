@@ -33,6 +33,9 @@ sandbox_mode = "danger-full-access"
 [projects."/Users/chris"]
 trust_level = "trusted"
 
+[projects."/home/chris"]
+trust_level = "trusted"
+
 [notice.model_migrations]
 "gpt-5.3-codex" = "gpt-5.4"
 
