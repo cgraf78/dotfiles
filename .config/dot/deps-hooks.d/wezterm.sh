@@ -30,7 +30,6 @@ post() {
   fi
 
   # Fast path: already installed and not forcing reinstall.
-  # Status already printed by the _status_wezterm loop.
   if command -v wezterm &>/dev/null && [[ "${DOT_FORCE:-0}" -ne 1 ]]; then
     return 0
   fi
@@ -39,9 +38,12 @@ post() {
   brew)
     if brew list --cask wezterm &>/dev/null; then
       if [[ "${DOT_FORCE:-0}" -eq 1 ]]; then
-        brew upgrade --cask wezterm &>/dev/null || true
-        local ver; ver=$(_wezterm_ver)
-        _log_ok "  wezterm reinstalled (brew)${ver:+ -- $ver}"
+        if brew upgrade --cask wezterm &>/dev/null; then
+          local ver; ver=$(_wezterm_ver)
+          _log_ok "  wezterm reinstalled (brew)${ver:+ -- $ver}"
+        else
+          _warn "  warning: failed to upgrade wezterm (brew)"
+        fi
       fi
       return 0
     fi
@@ -54,9 +56,13 @@ post() {
     return 0
     ;;
   pacman)
-    if sudo pacman -S --needed --noconfirm wezterm &>/dev/null; then
+    local pacman_flags=(--noconfirm)
+    [[ "${DOT_FORCE:-0}" -ne 1 ]] && pacman_flags+=(--needed)
+    local pacman_action="installed"
+    [[ "${DOT_FORCE:-0}" -eq 1 ]] && pacman_action="reinstalled"
+    if sudo pacman -S "${pacman_flags[@]}" wezterm &>/dev/null; then
       local ver; ver=$(_wezterm_ver)
-      _log_ok "  wezterm installed (pacman)${ver:+ -- $ver}"
+      _log_ok "  wezterm $pacman_action (pacman)${ver:+ -- $ver}"
     else
       _warn "  warning: failed to install wezterm (pacman)"
     fi
