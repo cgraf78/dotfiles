@@ -867,7 +867,7 @@ post() { echo "ALPHA" > "$HOME/.alpha-result"; }
 status() { echo "STATUS_RAN" > "$HOME/.alpha-status"; return 0; }
 HOOK
 declare -gA _DEPS_CHANGED=([alpha]=1)
-_run_post_hooks >/dev/null 2>&1
+_run_status_hooks >/dev/null 2>&1
 _assert_file_exists "discovery: status() ran" "$TEST_HOME/.alpha-status"
 rm -f "$TEST_HOME/.alpha-result" "$TEST_HOME/.alpha-status"
 

@@ -1054,9 +1054,9 @@ _install_dep() {
   esac
 }
 
-# Run post-install hooks for all deps.
+# Run status() hooks for all deps (always — prints current state lines).
 # Each hook file defines post() and/or status() — sourced per-dep to avoid collisions.
-_run_post_hooks() {
+_run_status_hooks() {
   local hooks_dir="$HOME/.config/dot/deps-hooks.d"
 
   for entry in "${_DEPS[@]}"; do
@@ -1074,6 +1074,11 @@ _run_post_hooks() {
     fi
     unset -f status post 2>/dev/null
   done
+}
+
+# Run post() hooks for changed deps (after installs — applies changes).
+_run_post_hooks() {
+  local hooks_dir="$HOME/.config/dot/deps-hooks.d"
 
   [[ ${#_DEPS_CHANGED[@]} -eq 0 ]] && return 0
 
@@ -1117,6 +1122,11 @@ _update_deps() {
     _install_dep "$entry" || true
   done
 
+  # Print all per-tool status lines before the system block.
+  _run_status_hooks
+  _install_cron || true
+
+  # Print system packages last among status lines, right before installing any.
   if [[ ${#_PKG_PRESENT[@]} -gt 0 ]]; then
     local cols=72
     _log_dim "  system:"
@@ -1141,6 +1151,4 @@ _update_deps() {
   fi
 
   _run_post_hooks
-
-  _install_cron || true
 }
