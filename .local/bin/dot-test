@@ -1095,4 +1095,44 @@ result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
 # Plain pass finds .zst first (before tarball pass)
 _assert_contains "asset match: .zst matches plain pass" ".zst" "$result"
 
+# ---------------------------------------------------------------------------
+# Tests: gnu vs musl libc preference
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== Libc preference ==="
+
+# On this glibc system, gnu should be preferred over musl
+_json=$(_fake_release_json \
+  "tool-x86_64-unknown-linux-musl.tar.gz" \
+  "tool-x86_64-unknown-linux-gnu.tar.gz")
+result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
+_assert_contains "gnu preferred over musl" "gnu" "$result"
+
+# When only musl is available, still matches
+_json=$(_fake_release_json \
+  "tool-x86_64-unknown-linux-musl.tar.gz")
+result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
+_assert_contains "musl fallback when no gnu" "musl" "$result"
+
+# No libc suffix: still matches (Go tools like fzf_linux_amd64.tar.gz)
+_json=$(_fake_release_json \
+  "tool_linux_amd64.tar.gz")
+result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
+_assert_contains "no libc suffix: matches" "tool_linux_amd64" "$result"
+
+# Plain binary pass also prefers gnu
+_json=$(_fake_release_json \
+  "tool-linux-musl-amd64" \
+  "tool-linux-gnu-amd64")
+result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
+_assert_contains "plain binary: gnu preferred" "gnu" "$result"
+
+# macOS: no libc preference (no gnu/musl distinction)
+_json=$(_fake_release_json \
+  "tool-darwin-amd64.tar.gz" \
+  "tool-linux-amd64.tar.gz")
+result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
+_assert_contains "linux system: picks linux not darwin" "linux" "$result"
+
 _test_summary

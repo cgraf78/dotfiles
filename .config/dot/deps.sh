@@ -800,9 +800,15 @@ _install_binary() {
 _binary_find_asset() {
   local cmd="$1" gh_repo="$2" tag="$3" release_json="$4"
 
-  local os arch
+  local os arch libc
   os=$(uname -s | tr '[:upper:]' '[:lower:]')
   arch=$(uname -m)
+
+  # Detect system libc (gnu vs musl) for preferring matching assets.
+  libc="gnu"
+  if command -v ldd &>/dev/null && ldd --version 2>&1 | grep -qi musl; then
+    libc="musl"
+  fi
 
   # Normalize OS names (projects use various conventions)
   local os_patterns=("$os")
@@ -845,6 +851,7 @@ _binary_find_asset() {
       local url url_lower arch_pat os_pat ext skip os_match is_archive
       local pass
       for pass in plain tarball zip; do
+        local _pass_fallback=""
         while IFS= read -r url; do
           url_lower="${url,,}"
           # Must match at least one OS pattern (case-insensitive)
@@ -883,11 +890,22 @@ _binary_find_asset() {
           fi
           for arch_pat in "${arch_patterns[@]}"; do
             if [[ "$url_lower" == *"$arch_pat"* ]]; then
-              echo "$url"
-              return 0
+              # Prefer matching libc variant (gnu vs musl) on Linux
+              if [[ "$os" == "linux" && "$url_lower" == *"$libc"* ]]; then
+                echo "$url"
+                return 0
+              fi
+              # Track first match as fallback (non-libc-specific or wrong libc)
+              [[ -z "${_pass_fallback:-}" ]] && _pass_fallback="$url"
+              break
             fi
           done
         done <<<"$urls"
+        # Use fallback if no libc-preferred match found in this pass
+        if [[ -n "${_pass_fallback:-}" ]]; then
+          echo "$_pass_fallback"
+          return 0
+        fi
       done
     fi
   fi
