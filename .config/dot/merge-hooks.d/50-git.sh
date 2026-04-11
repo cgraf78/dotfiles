@@ -1,4 +1,4 @@
-#!/bin/bash
+# shellcheck shell=bash
 # Configure git global settings.
 # Idempotent — safe to run on every dot pull/update.
 

@@ -1,4 +1,4 @@
-#!/bin/bash
+# shellcheck shell=bash
 # Merge SSH host definitions from dotfiles into ~/.ssh/config.
 # Shared by dotbootstrap and dot (on pull).
 #

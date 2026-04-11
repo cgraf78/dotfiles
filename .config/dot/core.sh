@@ -1,4 +1,4 @@
-#!/bin/bash
+# shellcheck shell=bash
 # Core constants and logging helpers for dot and dotbootstrap.
 
 DOTFILES="$HOME/.dotfiles"

@@ -1,4 +1,4 @@
-#!/bin/bash
+# shellcheck shell=bash
 # Post-install hook for gstack.
 
 post() {

@@ -1,4 +1,4 @@
-#!/bin/bash
+# shellcheck shell=bash
 # Merge Karabiner-Elements profiles from dotfiles into the local config.
 # Shared by dotbootstrap and dot (on pull).
 # macOS only — no-ops silently on other platforms.

@@ -1,4 +1,4 @@
-#!/bin/bash
+# shellcheck shell=bash
 # Run all app config merge scripts from merge-hooks.d/.
 # Each file defines merge() — sourced per-script to avoid collisions.
 

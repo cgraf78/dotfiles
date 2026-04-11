@@ -1,4 +1,4 @@
-#!/bin/bash
+# shellcheck shell=bash
 # Merge GitHub CLI preferences from dotfiles into the local gh config.
 # Shared by dotbootstrap and dot (on pull).
 # Requires yq.

@@ -1,4 +1,4 @@
-#!/bin/bash
+# shellcheck shell=bash
 # Shared environment for dot and dotbootstrap.
 # Sources all dot modules in dependency order.
 

@@ -1,4 +1,4 @@
-#!/bin/bash
+# shellcheck shell=bash
 # Repository management: backup, pull, push, link, and dirty-check
 # for both personal (bare) and work dotfiles repos.
 

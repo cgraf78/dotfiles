@@ -1,4 +1,4 @@
-#!/bin/bash
+# shellcheck shell=bash
 # Merge VS Code settings and keybindings from dotfiles into local config.
 # Shared by dotbootstrap and dot (on pull).
 # Requires jq.

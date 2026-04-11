@@ -1,4 +1,4 @@
-#!/bin/bash
+# shellcheck shell=bash
 # Copy WezTerm config into the Windows home when running under WSL.
 # Keeps ~/.wezterm.lua in dotfiles as the source of truth.
 

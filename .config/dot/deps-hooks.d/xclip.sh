@@ -1,4 +1,4 @@
-#!/bin/bash
+# shellcheck shell=bash
 # Status and post-install hooks for xclip.
 
 _xclip_applicable() {

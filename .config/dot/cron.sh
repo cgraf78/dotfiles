@@ -1,4 +1,4 @@
-#!/bin/bash
+# shellcheck shell=bash
 # Cron entry management: install/update dot-managed cron entries
 # from tracked and machine-local cron files.
 

@@ -1,4 +1,4 @@
-#!/bin/bash
+# shellcheck shell=bash
 # Merge iTerm2 settings from dotfiles into the local iTerm2 config.
 # Shared by dotbootstrap and dot (on pull).
 # macOS only — no-ops silently on other platforms.

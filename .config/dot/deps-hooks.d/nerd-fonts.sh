@@ -1,4 +1,4 @@
-#!/bin/bash
+# shellcheck shell=bash
 # Status and post-install hooks for nerd-fonts.
 
 _nerd_fonts_entries() {
