@@ -68,6 +68,7 @@ _edit_file() {
 # Re-source the current shell's rc file.
 _reload_shell() {
   if [[ -n "${ZSH_VERSION:-}" ]]; then
+    # shellcheck source=/dev/null  # .zshrc uses zsh syntax; not parseable by shellcheck
     source "$HOME/.zshrc"
   elif [[ -n "${BASH_VERSION:-}" ]]; then
     source "$HOME/.bashrc"
