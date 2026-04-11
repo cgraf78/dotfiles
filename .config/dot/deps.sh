@@ -738,7 +738,7 @@ _install_binary() {
 
   mkdir -p "$HOME/.local/bin"
 
-  # Install: archive (tar/zip) or direct binary.
+  # Install: archive, compressed single binary, or direct binary.
   local asset_lower="${asset_url,,}"
   if [[ "$asset_lower" == *.tar.gz || "$asset_lower" == *.tar.xz || "$asset_lower" == *.tar.bz2 || "$asset_lower" == *.tgz ]]; then
     if ! _binary_install_tarball "$name" "$cmd" "$tmp_file" "$bin_path" "$log"; then
@@ -748,6 +748,35 @@ _install_binary() {
     if ! _binary_install_zip "$name" "$cmd" "$tmp_file" "$bin_path" "$log"; then
       return 1
     fi
+  elif [[ "$asset_lower" == *.gz ]]; then
+    if ! gunzip -f "$tmp_file" 2>/dev/null; then
+      rm -f "$tmp_file" "$log"
+      _warn "  warning: failed to decompress $name .gz"
+      return 1
+    fi
+    mv "${tmp_file%.gz}" "$bin_path" 2>/dev/null || mv "$tmp_file" "$bin_path"
+    chmod u+x "$bin_path"
+  elif [[ "$asset_lower" == *.bz2 ]]; then
+    if ! bunzip2 -f "$tmp_file" 2>/dev/null; then
+      rm -f "$tmp_file" "$log"
+      _warn "  warning: failed to decompress $name .bz2"
+      return 1
+    fi
+    mv "${tmp_file%.bz2}" "$bin_path" 2>/dev/null || mv "$tmp_file" "$bin_path"
+    chmod u+x "$bin_path"
+  elif [[ "$asset_lower" == *.zst ]]; then
+    if ! command -v zstd &>/dev/null; then
+      rm -f "$tmp_file" "$log"
+      _warn "  warning: zstd not found — cannot install $name"
+      return 1
+    fi
+    if ! zstd -df "$tmp_file" -o "$bin_path" 2>/dev/null; then
+      rm -f "$tmp_file" "$log"
+      _warn "  warning: failed to decompress $name .zst"
+      return 1
+    fi
+    rm -f "$tmp_file"
+    chmod u+x "$bin_path"
   else
     mv "$tmp_file" "$bin_path"
     chmod u+x "$bin_path"

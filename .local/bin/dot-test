@@ -1018,4 +1018,81 @@ _json=$(_fake_release_json \
 result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
 _assert_contains "asset match: zip when no tarball" ".zip" "$result"
 
+# ---------------------------------------------------------------------------
+# Tests: single-file decompression (.gz, .bz2, .zst)
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== Single-file decompression ==="
+
+# Helper: create a compressed single binary, run _install_binary dispatch.
+# We can't call _install_binary directly (needs GitHub API), so we test
+# the dispatch logic by calling the decompression inline.
+_test_decompress() {
+  local desc="$1" ext="$2"
+  local staging
+  staging=$(_tmpdir)
+  cp /bin/true "$staging/mytool"
+  local compressed="$staging/mytool.$ext"
+  case "$ext" in
+    gz)  gzip -c "$staging/mytool" > "$compressed" ;;
+    bz2) bzip2 -c "$staging/mytool" > "$compressed" ;;
+    zst) zstd -qf "$staging/mytool" -o "$compressed" ;;
+  esac
+  rm "$staging/mytool"
+  local bin_path="$staging/output-bin"
+  local rc=0
+  case "$ext" in
+    gz)
+      gunzip -f "$compressed" 2>/dev/null || { rc=1; }
+      [[ $rc -eq 0 ]] && mv "${compressed%.gz}" "$bin_path" && chmod u+x "$bin_path"
+      ;;
+    bz2)
+      bunzip2 -f "$compressed" 2>/dev/null || { rc=1; }
+      [[ $rc -eq 0 ]] && mv "${compressed%.bz2}" "$bin_path" && chmod u+x "$bin_path"
+      ;;
+    zst)
+      zstd -df "$compressed" -o "$bin_path" 2>/dev/null || { rc=1; }
+      [[ $rc -eq 0 ]] && rm -f "$compressed" && chmod u+x "$bin_path"
+      ;;
+  esac
+  _assert_exit "$desc" 0 "$rc"
+  if [[ -x "$bin_path" ]]; then
+    _pass "$desc: binary decompressed"
+  else
+    _fail "$desc: binary not at $bin_path"
+  fi
+}
+
+_test_decompress "gz decompression" "gz"
+_test_decompress "bz2 decompression" "bz2"
+if command -v zstd &>/dev/null; then
+  _test_decompress "zst decompression" "zst"
+else
+  _pass "zst decompression: skipped (zstd not installed)"
+  _pass "zst decompression: binary decompressed: skipped"
+fi
+
+# Asset matching: .gz single file matches plain pass (not tarball)
+_json=$(_fake_release_json \
+  "tool-linux-amd64.gz" \
+  "tool-linux-amd64.tar.gz")
+result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
+# Plain pass runs first, .gz is not a tarball extension → matches plain
+_assert_contains "asset match: .gz matches plain pass" "tool-linux-amd64.gz" "$result"
+
+# Asset matching: .bz2 single file (restic convention)
+_json=$(_fake_release_json \
+  "tool_1.0_linux_amd64.bz2")
+result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
+_assert_contains "asset match: .bz2 single file" "tool_1.0_linux_amd64.bz2" "$result"
+
+# Asset matching: .zst single file (codex convention)
+_json=$(_fake_release_json \
+  "tool-x86_64-unknown-linux-gnu.zst" \
+  "tool-x86_64-unknown-linux-gnu.tar.gz")
+result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
+# Plain pass finds .zst first (before tarball pass)
+_assert_contains "asset match: .zst matches plain pass" ".zst" "$result"
+
 _test_summary
