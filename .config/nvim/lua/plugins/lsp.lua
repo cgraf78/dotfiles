@@ -34,8 +34,10 @@ return {
       require("mason-tool-installer").setup({
         ensure_installed = {
           "eslint_d",
+          "markdownlint-cli2",
           "prettier",
           "ruff",
+          "shellcheck",
           "shfmt",
           "stylua",
           "taplo",
