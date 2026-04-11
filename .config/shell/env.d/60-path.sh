@@ -5,8 +5,8 @@
 [ -d "$HOME/bin" ] && PATH="$HOME/bin:$PATH"
 
 if [ -d "$HOME/.bun/bin" ]; then
-    export BUN_INSTALL="$HOME/.bun"
-    PATH="$BUN_INSTALL/bin:$PATH"
+  export BUN_INSTALL="$HOME/.bun"
+  PATH="$BUN_INSTALL/bin:$PATH"
 fi
 
 [ -f "$HOME/.atuin/bin/env" ] && . "$HOME/.atuin/bin/env"

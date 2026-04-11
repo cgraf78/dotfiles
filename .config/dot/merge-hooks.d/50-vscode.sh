@@ -19,7 +19,7 @@ _merge_vscode_keybindings() {
 
   # No existing file — just copy (stripping comments)
   if [[ ! -f "$dst" ]]; then
-    _strip_jsonc "$src" > "$dst"
+    _strip_jsonc "$src" >"$dst"
     return
   fi
 
@@ -28,7 +28,7 @@ _merge_vscode_keybindings() {
   src_clean=$(mktemp)
   dst_clean=$(mktemp)
 
-  if ! _strip_jsonc "$src" > "$src_clean" || ! _strip_jsonc "$dst" > "$dst_clean"; then
+  if ! _strip_jsonc "$src" >"$src_clean" || ! _strip_jsonc "$dst" >"$dst_clean"; then
     _warn "    warning: keybindings merge failed for $(basename "$(dirname "$(dirname "$dst")")") — skipping"
     rm -f "$src_clean" "$dst_clean"
     return
@@ -39,7 +39,7 @@ _merge_vscode_keybindings() {
   if ! jq -n --indent 4 --slurpfile s "$src_clean" --slurpfile d "$dst_clean" '
     ($s[0] | map({key: .key, when: (.when // "")})) as $skeys |
     $s[0] + [$d[0][] | select({key: .key, when: (.when // "")} as $k | $skeys | map(. == $k) | any | not)]
-  ' > "$dst.tmp"; then
+  ' >"$dst.tmp"; then
     _warn "    warning: keybindings merge failed for $(basename "$(dirname "$(dirname "$dst")")") — skipping"
     rm -f "$dst.tmp"
   else
@@ -57,7 +57,7 @@ _merge_vscode_settings() {
 
   # No existing file — just copy (stripping comments)
   if [[ ! -f "$dst" ]]; then
-    _strip_jsonc "$src" > "$dst"
+    _strip_jsonc "$src" >"$dst"
     return
   fi
 
@@ -66,7 +66,7 @@ _merge_vscode_settings() {
   src_clean=$(mktemp)
   dst_clean=$(mktemp)
 
-  if ! _strip_jsonc "$src" > "$src_clean" || ! _strip_jsonc "$dst" > "$dst_clean"; then
+  if ! _strip_jsonc "$src" >"$src_clean" || ! _strip_jsonc "$dst" >"$dst_clean"; then
     _warn "    warning: settings merge failed for $(basename "$(dirname "$(dirname "$dst")")") — skipping"
     rm -f "$src_clean" "$dst_clean"
     return
@@ -76,7 +76,7 @@ _merge_vscode_settings() {
   # Using * instead of + so nested objects (like "[python]") are merged
   # recursively — local-only nested keys are preserved.
   if ! jq -n --indent 4 --slurpfile s "$src_clean" --slurpfile d "$dst_clean" \
-    '$d[0] * $s[0]' > "$dst.tmp"; then
+    '$d[0] * $s[0]' >"$dst.tmp"; then
     _warn "    warning: settings merge failed for $(basename "$(dirname "$(dirname "$dst")")") — skipping"
     rm -f "$dst.tmp"
   else
@@ -102,15 +102,15 @@ _merge_vscode_config() {
 
   local kb_platform=""
   case "$(uname -s)" in
-    Darwin)       kb_platform="$HOME/.config/dot/merge-hooks.d/vscode-keybindings-mac.json" ;;
-    Linux)
-      if _is_wsl; then
-        kb_platform="$HOME/.config/dot/merge-hooks.d/vscode-keybindings-windows.json"
-      else
-        kb_platform="$HOME/.config/dot/merge-hooks.d/vscode-keybindings-linux.json"
-      fi
-      ;;
-    MINGW*|MSYS*) kb_platform="$HOME/.config/dot/merge-hooks.d/vscode-keybindings-windows.json" ;;
+  Darwin) kb_platform="$HOME/.config/dot/merge-hooks.d/vscode-keybindings-mac.json" ;;
+  Linux)
+    if _is_wsl; then
+      kb_platform="$HOME/.config/dot/merge-hooks.d/vscode-keybindings-windows.json"
+    else
+      kb_platform="$HOME/.config/dot/merge-hooks.d/vscode-keybindings-linux.json"
+    fi
+    ;;
+  MINGW* | MSYS*) kb_platform="$HOME/.config/dot/merge-hooks.d/vscode-keybindings-windows.json" ;;
   esac
   if [[ -n "$kb_platform" && -f "$kb_platform" ]]; then
     _merge_vscode_keybindings "$kb_platform" "$1/keybindings.json"
@@ -123,21 +123,21 @@ merge() {
   command -v code &>/dev/null || return 0
   _log_dim "  VS Code"
   case "$(uname -s)" in
-    Darwin)
-      _merge_vscode_config "$HOME/Library/Application Support/Code/User"
-      ;;
-    Linux)
-      if _is_wsl; then
-        WIN_APPDATA="$(wslpath "$(cmd.exe /C 'echo %APPDATA%' 2>/dev/null | tr -d '\r')" 2>/dev/null)" || true
-        if [[ -n "$WIN_APPDATA" ]]; then
-          _merge_vscode_config "$WIN_APPDATA/Code/User"
-        fi
-      else
-        _merge_vscode_config "$HOME/.config/Code/User"
+  Darwin)
+    _merge_vscode_config "$HOME/Library/Application Support/Code/User"
+    ;;
+  Linux)
+    if _is_wsl; then
+      WIN_APPDATA="$(wslpath "$(cmd.exe /C 'echo %APPDATA%' 2>/dev/null | tr -d '\r')" 2>/dev/null)" || true
+      if [[ -n "$WIN_APPDATA" ]]; then
+        _merge_vscode_config "$WIN_APPDATA/Code/User"
       fi
-      ;;
-    MINGW*|MSYS*)
-      _merge_vscode_config "$APPDATA/Code/User"
-      ;;
+    else
+      _merge_vscode_config "$HOME/.config/Code/User"
+    fi
+    ;;
+  MINGW* | MSYS*)
+    _merge_vscode_config "$APPDATA/Code/User"
+    ;;
   esac
 }

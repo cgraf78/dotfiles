@@ -50,7 +50,7 @@ _backup_pull_conflicts() {
       mv "$root/$file" "$backup/$file"
       ((count++)) || true
     fi
-  done <<< "$files"
+  done <<<"$files"
 
   if [[ "$count" -eq 0 ]]; then
     rmdir "$backup" 2>/dev/null || true
@@ -76,7 +76,8 @@ _pull_cmd() {
 # $1 = backup root for conflict resolution
 # Remaining args: the full git pull command to run.
 _pull_repo() {
-  local backup_root="$1"; shift
+  local backup_root="$1"
+  shift
   local log=""
   if ! _logfile_create; then
     _pull_cmd "$@"
@@ -88,7 +89,7 @@ _pull_repo() {
   _pull_cmd "$@" >"$log" 2>&1 || rc=$?
 
   if [[ "$rc" -ne 0 ]] && _backup_pull_conflicts "$log" "$backup_root"; then
-    : > "$log"
+    : >"$log"
     rc=0
     _pull_cmd "$@" >"$log" 2>&1 || rc=$?
   fi
@@ -126,8 +127,8 @@ _pull_work_repo() {
   git -C "$WORK_DIR" config pull.rebase true 2>/dev/null || true
   git -C "$WORK_DIR" config rebase.autoStash true 2>/dev/null || true
   _log_header "==> Pulling work dotfiles..."
-  _pull_repo "$WORK_DIR" git -C "$WORK_DIR" pull "$@" \
-    || _warn "  warning: work dotfiles pull failed"
+  _pull_repo "$WORK_DIR" git -C "$WORK_DIR" pull "$@" ||
+    _warn "  warning: work dotfiles pull failed"
   return 0
 }
 
@@ -221,7 +222,8 @@ _try_resolve_dirty() {
 # $1 = worktree root (for hash-object paths)
 # remaining args = git command prefix (word-split $GIT or "git -C <dir>")
 _dirty_files_match_ref() {
-  local worktree="$1" remote_ref="origin/main"; shift
+  local worktree="$1" remote_ref="origin/main"
+  shift
   local dirty_files
   dirty_files=$("$@" diff-index --name-only HEAD 2>/dev/null) || return 1
   "$@" rev-parse --verify "$remote_ref" &>/dev/null || return 1
@@ -230,7 +232,7 @@ _dirty_files_match_ref() {
     work_hash=$("$@" hash-object "$worktree/$f" 2>/dev/null) || return 1
     remote_hash=$("$@" rev-parse "$remote_ref:$f" 2>/dev/null) || return 1
     [[ "$work_hash" == "$remote_hash" ]] || return 1
-  done <<< "$dirty_files"
+  done <<<"$dirty_files"
   return 0
 }
 

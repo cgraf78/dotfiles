@@ -6,7 +6,7 @@
 set -u
 
 # --- Terminal bell ---
-printf '\a' > /dev/tty 2>/dev/null || true
+printf '\a' >/dev/tty 2>/dev/null || true
 
 # --- Memory sync ---
 if command -v sync-memory >/dev/null 2>&1; then

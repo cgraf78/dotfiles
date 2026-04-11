@@ -2,19 +2,19 @@
 
 # macOS integrations
 if [[ "$_UNAME" == "Darwin" ]]; then
-    if [[ -z "${NVIM:-}" ]]; then
-        test -e "${HOME}/.iterm2_shell_integration.zsh" && . "${HOME}/.iterm2_shell_integration.zsh"
-        test -e "/Applications/WezTerm.app/Contents/Resources/wezterm.sh" && . "/Applications/WezTerm.app/Contents/Resources/wezterm.sh"
-    fi
+  if [[ -z "${NVIM:-}" ]]; then
+    test -e "${HOME}/.iterm2_shell_integration.zsh" && . "${HOME}/.iterm2_shell_integration.zsh"
+    test -e "/Applications/WezTerm.app/Contents/Resources/wezterm.sh" && . "/Applications/WezTerm.app/Contents/Resources/wezterm.sh"
+  fi
 
-    # Screenshot capture to Google Drive
-    sc() {
-        if [[ ! -d ~/gdrive/img ]]; then
-            echo "error: ~/gdrive/img does not exist" >&2
-            return 1
-        fi
-        screencapture -i ~/gdrive/img/"screen_$(date +%Y%m%d_%H%M%S).png"
-    }
+  # Screenshot capture to Google Drive
+  sc() {
+    if [[ ! -d ~/gdrive/img ]]; then
+      echo "error: ~/gdrive/img does not exist" >&2
+      return 1
+    fi
+    screencapture -i ~/gdrive/img/"screen_$(date +%Y%m%d_%H%M%S).png"
+  }
 fi
 
 # History
@@ -30,8 +30,8 @@ setopt HIST_IGNORE_SPACE
 # Enforces agent:main:<session-name> session key structure.
 unalias argus 2>/dev/null
 argus() {
-    local sess="${1:-tui}"
-    openclaw tui --session "agent:main:${sess}"
+  local sess="${1:-tui}"
+  openclaw tui --session "agent:main:${sess}"
 }
 
 # Tool shell integrations (completions, key bindings, auto-attach)

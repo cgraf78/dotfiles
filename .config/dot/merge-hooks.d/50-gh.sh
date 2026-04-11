@@ -42,6 +42,6 @@ merge() {
     return 0
   fi
 
-  printf '%s\n' "$merged" > "$dst.tmp"
+  printf '%s\n' "$merged" >"$dst.tmp"
   mv "$dst.tmp" "$dst"
 }

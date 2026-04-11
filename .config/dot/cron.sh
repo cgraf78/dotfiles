@@ -11,14 +11,14 @@ DOT_CRON_MARKER="# dot-managed-cron"
 # Drops: obscure system dirs (cryptex, munki, etc.) that clutter the crontab.
 _cron_path() {
   local result="" dir _dirs
-  IFS=: read -ra _dirs <<< "$HOME/.local/bin:$PATH"
+  IFS=: read -ra _dirs <<<"$HOME/.local/bin:$PATH"
   for dir in "${_dirs[@]}"; do
     [[ -d "$dir" ]] || continue
     [[ ":$result:" == *":$dir:"* ]] && continue
     # Keep user dirs, homebrew, /usr/local, and standard system dirs.
     case "$dir" in
-      "$HOME"/*|/opt/homebrew/*|/usr/local/bin|/usr/bin|/bin|/usr/sbin|/sbin) ;;
-      *) continue ;;
+    "$HOME"/* | /opt/homebrew/* | /usr/local/bin | /usr/bin | /bin | /usr/sbin | /sbin) ;;
+    *) continue ;;
     esac
     result="${result:+$result:}$dir"
   done
@@ -40,7 +40,7 @@ _parse_cron_file() {
     else
       DOT_CRON_PARSED="$line"
     fi
-  done < "$file"
+  done <"$file"
 }
 
 # Install cron entries from ~/.config/dot/cron (tracked) and

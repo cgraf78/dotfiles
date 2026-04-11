@@ -50,10 +50,10 @@ else
   # run-shell's stdout capture which would print the escape literally
   encoded=$(printf '%s' "$output" | base64 | tr -d '\n')
   tty=$(tmux display-message -p '#{client_tty}')
-  printf '\033]52;c;%s\033\\' "$encoded" > "$tty"
+  printf '\033]52;c;%s\033\\' "$encoded" >"$tty"
 fi
 
-if (( count == 1 )); then
+if ((count == 1)); then
   tmux display-message "Copied last command + output to clipboard"
 else
   tmux display-message "Copied last $count commands + output to clipboard"

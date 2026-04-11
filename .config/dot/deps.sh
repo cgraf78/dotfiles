@@ -26,14 +26,14 @@ _dep_load() {
     set -- $line
     fields="$*"
     _DEPS+=("${fields// /|}")
-  done < "$conf"
+  done <"$conf"
 }
 
 # Split a pipe-delimited registry entry into named variables.
 # Sets: _name, _method, _cmd, _cmd_alt, _pkg_overrides, _repo, _dir, _platforms
 _dep_parse() {
   local entry="$1"
-  IFS='|' read -r _name _method _cmd _cmd_alt _pkg_overrides _repo _dir _platforms <<< "$entry"
+  IFS='|' read -r _name _method _cmd _cmd_alt _pkg_overrides _repo _dir _platforms <<<"$entry"
   # Replace - with empty
   if [[ "$_cmd" == "-" ]]; then _cmd=""; fi
   if [[ "$_cmd_alt" == "-" ]]; then _cmd_alt=""; fi
@@ -101,10 +101,10 @@ _dep_exists() {
   # Command not found (or empty) — try the package manager directly.
   if [[ -n "$name" ]]; then
     case "${_PKG_MGR:-}" in
-      brew)   brew list "$name" &>/dev/null && return 0 ;;
-      apt)    dpkg -s "$name" &>/dev/null && return 0 ;;
-      dnf)    rpm -q "$name" &>/dev/null && return 0 ;;
-      pacman) pacman -Q "$name" &>/dev/null && return 0 ;;
+    brew) brew list "$name" &>/dev/null && return 0 ;;
+    apt) dpkg -s "$name" &>/dev/null && return 0 ;;
+    dnf) rpm -q "$name" &>/dev/null && return 0 ;;
+    pacman) pacman -Q "$name" &>/dev/null && return 0 ;;
     esac
   fi
   return 1
@@ -116,8 +116,8 @@ _dep_exists() {
 _dep_version() {
   local cmd="${1:-}"
   if [[ -z "$cmd" ]]; then return 1; fi
-  "$cmd" --version 2>/dev/null | head -1 \
-    | grep -o '[0-9][0-9.]*' | head -1
+  "$cmd" --version 2>/dev/null | head -1 |
+    grep -o '[0-9][0-9.]*' | head -1
 }
 
 # ---------------------------------------------------------------------------
@@ -154,7 +154,7 @@ _pkg_resolve() {
   local name="$1" overrides="${2:-}"
   if [[ -n "$overrides" && -n "$_PKG_MGR" ]]; then
     local pair
-    IFS=',' read -ra pairs <<< "$overrides"
+    IFS=',' read -ra pairs <<<"$overrides"
     for pair in "${pairs[@]}"; do
       local mgr="${pair%%:*}"
       local pkg="${pair#*:}"
@@ -212,14 +212,14 @@ _pkg_install_batch() {
     log="$REPLY"
   fi
   case "$_PKG_MGR" in
-    apt) sudo apt-get update -qq >/dev/null 2>&1 || true ;;
+  apt) sudo apt-get update -qq >/dev/null 2>&1 || true ;;
   esac
   # shellcheck disable=SC2024  # sudo output captured in user-owned log via _run_logged.
   case "$_PKG_MGR" in
-    brew)   _run_logged brew install "${_PKG_BATCH[@]}" || rc=$? ;;
-    apt)    _run_logged sudo apt-get install -y "${_PKG_BATCH[@]}" || rc=$? ;;
-    dnf)    _run_logged sudo dnf install -y "${_PKG_BATCH[@]}" || rc=$? ;;
-    pacman) _run_logged sudo pacman -Sy --needed --noconfirm "${_PKG_BATCH[@]}" || rc=$? ;;
+  brew) _run_logged brew install "${_PKG_BATCH[@]}" || rc=$? ;;
+  apt) _run_logged sudo apt-get install -y "${_PKG_BATCH[@]}" || rc=$? ;;
+  dnf) _run_logged sudo dnf install -y "${_PKG_BATCH[@]}" || rc=$? ;;
+  pacman) _run_logged sudo pacman -Sy --needed --noconfirm "${_PKG_BATCH[@]}" || rc=$? ;;
   esac
 
   # On batch failure, retry individually
@@ -229,13 +229,13 @@ _pkg_install_batch() {
     local pkg
     for pkg in "${_PKG_BATCH[@]}"; do
       rc=0
-      [[ -n "$log" ]] && : > "$log"
+      [[ -n "$log" ]] && : >"$log"
       # shellcheck disable=SC2024  # Intentionally capture sudo command output in a user-owned temp log.
       case "$_PKG_MGR" in
-        brew)   _run_logged brew install "$pkg" || rc=$? ;;
-        apt)    _run_logged sudo apt-get install -y "$pkg" || rc=$? ;;
-        dnf)    _run_logged sudo dnf install -y "$pkg" || rc=$? ;;
-        pacman) _run_logged sudo pacman -Sy --needed --noconfirm "$pkg" || rc=$? ;;
+      brew) _run_logged brew install "$pkg" || rc=$? ;;
+      apt) _run_logged sudo apt-get install -y "$pkg" || rc=$? ;;
+      dnf) _run_logged sudo dnf install -y "$pkg" || rc=$? ;;
+      pacman) _run_logged sudo pacman -Sy --needed --noconfirm "$pkg" || rc=$? ;;
       esac
       if [[ $rc -ne 0 ]]; then
         _logfile_print "package manager for $pkg" "$log"
@@ -274,7 +274,7 @@ _dep_remote_fresh() {
   [[ -f "$stamp" ]] || return 1
 
   local cached="" now="" ttl=""
-  read -r cached < "$stamp" || return 1
+  read -r cached <"$stamp" || return 1
   now=$(date +%s 2>/dev/null || true)
   ttl=$(_dep_remote_ttl)
 
@@ -282,7 +282,7 @@ _dep_remote_fresh() {
   [[ "$now" =~ ^[0-9]+$ ]] || return 1
   [[ "$ttl" =~ ^[0-9]+$ ]] || return 1
 
-  (( now - cached < ttl ))
+  ((now - cached < ttl))
 }
 
 _dep_remote_touch() {
@@ -290,7 +290,7 @@ _dep_remote_touch() {
   local stamp_dir
   stamp_dir=$(dirname "$stamp")
   mkdir -p "$stamp_dir" || return 1
-  date +%s > "$stamp"
+  date +%s >"$stamp"
 }
 
 _dep_hook_stamp() {
@@ -324,7 +324,7 @@ _dep_rev_read() {
   local stamp=""
   stamp=$(_dep_rev_stamp "$name")
   [[ -f "$stamp" ]] || return 1
-  read -r REPLY < "$stamp" || return 1
+  read -r REPLY <"$stamp" || return 1
 }
 
 _dep_rev_touch() {
@@ -334,7 +334,7 @@ _dep_rev_touch() {
   local stamp_dir
   stamp_dir=$(dirname "$stamp")
   mkdir -p "$stamp_dir" || return 1
-  printf '%s\n' "$rev" > "$stamp"
+  printf '%s\n' "$rev" >"$stamp"
 }
 
 # ---------------------------------------------------------------------------
@@ -351,7 +351,8 @@ _get_version() {
     local ver
     ver=$(git -C "$dir" describe --tags --abbrev=0 2>/dev/null || true)
     if [[ -z "$ver" ]]; then
-      local hash; hash=$(git -C "$dir" log -1 --format='%h' 2>/dev/null || true)
+      local hash
+      hash=$(git -C "$dir" log -1 --format='%h' 2>/dev/null || true)
       if [[ -n "$hash" ]]; then ver="commit $hash"; fi
     fi
     echo "$ver"
@@ -392,7 +393,8 @@ _github_install_local_clone() {
   mkdir -p "$(dirname "$install_dir")"
   ln -sfn "$local_clone" "$install_dir"
   _link_bin "$name" "$install_dir"
-  local ver; ver=$(_get_version "$local_clone")
+  local ver
+  ver=$(_get_version "$local_clone")
   if [[ -n "$rev_after" ]]; then
     _dep_rev_touch "$name" "$rev_after" || true
   fi
@@ -409,17 +411,21 @@ _github_install_pull() {
   local name="$1" install_dir="$2" stamp="$3" log="$4"
   if _dep_remote_fresh "$stamp"; then
     _link_bin "$name" "$install_dir"
-    local ver; ver=$(_get_version "$install_dir")
+    local ver
+    ver=$(_get_version "$install_dir")
     _log_dim "  $name up to date${ver:+ -- $ver}"
     rm -f "$log"
     return 0
   fi
 
-  local head_before; head_before=$(git -C "$install_dir" rev-parse HEAD 2>/dev/null || true)
+  local head_before
+  head_before=$(git -C "$install_dir" rev-parse HEAD 2>/dev/null || true)
   if _run_logged git -C "$install_dir" pull --ff-only --quiet; then
     _link_bin "$name" "$install_dir"
-    local head_after; head_after=$(git -C "$install_dir" rev-parse HEAD 2>/dev/null || true)
-    local ver; ver=$(_get_version "$install_dir")
+    local head_after
+    head_after=$(git -C "$install_dir" rev-parse HEAD 2>/dev/null || true)
+    local ver
+    ver=$(_get_version "$install_dir")
     _dep_remote_touch "$stamp" || true
     if [[ "$head_before" != "$head_after" ]]; then
       _DEPS_CHANGED[$name]=1
@@ -443,7 +449,8 @@ _github_install_fresh() {
   local tarball_url="" tmp_dir
 
   # Capture current version before overwriting (for tarball/clone installs).
-  local ver_before; ver_before=$(_get_version "$install_dir")
+  local ver_before
+  ver_before=$(_get_version "$install_dir")
 
   # Try GitHub release tarball. Extract owner/repo from URL.
   # Strip auth to prevent stale tokens from causing 401 on public repos.
@@ -453,9 +460,9 @@ _github_install_fresh() {
   fi
   if [[ -n "$gh_repo" ]] && command -v curl &>/dev/null; then
     tarball_url=$(curl -fsSL --no-netrc -H "Authorization:" \
-      "https://api.github.com/repos/$gh_repo/releases/latest" 2>/dev/null \
-      | grep -o '"browser_download_url":[[:space:]]*"[^"]*\.tar\.gz"' \
-      | head -1 | cut -d'"' -f4)
+      "https://api.github.com/repos/$gh_repo/releases/latest" 2>/dev/null |
+      grep -o '"browser_download_url":[[:space:]]*"[^"]*\.tar\.gz"' |
+      head -1 | cut -d'"' -f4)
   fi
 
   if [[ -n "${tarball_url:-}" ]]; then
@@ -485,7 +492,7 @@ _github_install_fresh() {
     fi
     local clone_tmp="${install_dir}.tmp.$$"
     rm -rf "$clone_tmp"
-    [[ -n "${log:-}" ]] && : > "$log"
+    [[ -n "${log:-}" ]] && : >"$log"
     if ! _run_logged git clone --depth 1 "$repo" "$clone_tmp"; then
       rm -rf "$clone_tmp"
       _logfile_print "$name clone" "$log"
@@ -500,7 +507,8 @@ _github_install_fresh() {
   _link_bin "$name" "$install_dir"
   rm -f "$log"
   _dep_remote_touch "$stamp" || true
-  local ver; ver=$(_get_version "$install_dir")
+  local ver
+  ver=$(_get_version "$install_dir")
   local method="git clone"
   if [[ -n "${tarball_url:-}" ]]; then method="release tarball"; fi
   if [[ -n "$ver_before" && "$ver_before" == "$ver" ]] && [[ "${DOT_FORCE:-0}" -ne 1 ]]; then
@@ -517,7 +525,8 @@ _github_install_fresh() {
 
 _install_from_github() {
   local name="$1" default_repo="$2" install_dir="$3"
-  local upper="${name^^}"; upper="${upper//-/_}"
+  local upper="${name^^}"
+  upper="${upper//-/_}"
   local env_var="DOTBOOTSTRAP_${upper}_REPO"
   local repo="${!env_var:-https://github.com/$default_repo}"
   local local_clone="$HOME/git/$name"
@@ -572,7 +581,10 @@ _binary_install_tarball() {
   # Verify the binary exists inside the extracted tree.
   local found_bin=""
   while IFS= read -r -d '' f; do
-    if [[ -x "$f" ]]; then found_bin="$f"; break; fi
+    if [[ -x "$f" ]]; then
+      found_bin="$f"
+      break
+    fi
   done < <(find "$extract_dir" -name "$cmd" -type f -print0 2>/dev/null)
   if [[ -z "$found_bin" ]]; then
     rm -rf "$orig_extract_dir" "$log"
@@ -631,8 +643,8 @@ _install_binary() {
   if command -v curl &>/dev/null; then
     release_json=$(curl -fsSL --no-netrc -H "Authorization:" \
       "https://api.github.com/repos/$gh_repo/releases/latest" 2>/dev/null || true)
-    latest_ver=$(echo "$release_json" \
-      | grep -o '"tag_name":[[:space:]]*"[^"]*"' | cut -d'"' -f4)
+    latest_ver=$(echo "$release_json" |
+      grep -o '"tag_name":[[:space:]]*"[^"]*"' | cut -d'"' -f4)
   fi
 
   # Skip if already up to date (unless force mode)
@@ -665,7 +677,7 @@ _install_binary() {
     return 1
   fi
 
-  [[ -n "${log:-}" ]] && : > "$log"
+  [[ -n "${log:-}" ]] && : >"$log"
   if ! _run_logged curl -fsSL --no-netrc "$asset_url" -o "$tmp_file"; then
     _logfile_print "$name download" "$log"
     rm -f "$tmp_file" "$log"
@@ -710,17 +722,17 @@ _binary_find_asset() {
   # Normalize OS names (projects use various conventions)
   local os_patterns=("$os")
   case "$os" in
-    darwin) os_patterns+=(macos apple osx) ;;
-    linux)  os_patterns+=(linux) ;;
+  darwin) os_patterns+=(macos apple osx) ;;
+  linux) os_patterns+=(linux) ;;
   esac
 
   # Normalize arch names for matching (projects use various conventions)
   local arch_patterns=("$arch")
   case "$arch" in
-    x86_64)  arch_patterns+=(amd64 x64) ;;
-    aarch64) arch_patterns+=(arm64) ;;
-    amd64)   arch_patterns+=(x86_64 x64) ;;
-    arm64)   arch_patterns+=(aarch64) ;;
+  x86_64) arch_patterns+=(amd64 x64) ;;
+  aarch64) arch_patterns+=(arm64) ;;
+  amd64) arch_patterns+=(x86_64 x64) ;;
+  arm64) arch_patterns+=(aarch64) ;;
   esac
 
   # Extensions to always skip (metadata, packages, installers)
@@ -734,9 +746,9 @@ _binary_find_asset() {
   # Pass 2: tar archives (.tar.gz, .tar.xz, .tar.bz2).
   if [[ -n "$release_json" ]]; then
     local urls
-    urls=$(echo "$release_json" \
-      | grep -o '"browser_download_url":[[:space:]]*"[^"]*"' \
-      | cut -d'"' -f4)
+    urls=$(echo "$release_json" |
+      grep -o '"browser_download_url":[[:space:]]*"[^"]*"' |
+      cut -d'"' -f4)
 
     if [[ -n "$urls" ]]; then
       local url arch_pat os_pat ext skip os_match
@@ -746,13 +758,19 @@ _binary_find_asset() {
           # Must match at least one OS pattern
           os_match=0
           for os_pat in "${os_patterns[@]}"; do
-            [[ "$url" == *"$os_pat"* ]] && { os_match=1; break; }
+            [[ "$url" == *"$os_pat"* ]] && {
+              os_match=1
+              break
+            }
           done
           [[ $os_match -eq 1 ]] || continue
           # Skip metadata and package files
           skip=0
           for ext in "${_skip_exts[@]}"; do
-            [[ "$url" == *"$ext" ]] && { skip=1; break; }
+            [[ "$url" == *"$ext" ]] && {
+              skip=1
+              break
+            }
           done
           [[ $skip -eq 1 ]] && continue
           # Pass-specific filtering
@@ -767,7 +785,7 @@ _binary_find_asset() {
               return 0
             fi
           done
-        done <<< "$urls"
+        done <<<"$urls"
       done
     fi
   fi
@@ -803,33 +821,33 @@ _install_dep() {
     return 0
   fi
   case "$_method" in
-    pkg)
-      local resolved_pkg=""
-      resolved_pkg=$(_pkg_resolve "$_name" "$_pkg_overrides")
-      if _dep_exists "$_cmd" "$_cmd_alt" "$resolved_pkg"; then
-        _PKG_PRESENT+=("$_name")
-        # If the package exists but the expected command is still missing,
-        # run the post hook so it can expose wrapper/symlinked binaries.
-        if ! _dep_exists "$_cmd" "$_cmd_alt"; then
-          _DEPS_CHANGED[$_name]=1
-        fi
-        return 0
-      fi
-      _pkg_queue "$_name" "$_pkg_overrides"
-      ;;
-    git)
-      _install_from_github "$_name" "$_repo" "$HOME/$_dir"
-      ;;
-    binary)
-      _install_binary "$_name" "$_cmd" "$_repo"
-      ;;
-    custom)
-      # Entirely managed by the post-install hook (post()).
-      # Run only when the hook is due so no-op updates stay cheap.
-      if _dep_hook_due "$_name"; then
+  pkg)
+    local resolved_pkg=""
+    resolved_pkg=$(_pkg_resolve "$_name" "$_pkg_overrides")
+    if _dep_exists "$_cmd" "$_cmd_alt" "$resolved_pkg"; then
+      _PKG_PRESENT+=("$_name")
+      # If the package exists but the expected command is still missing,
+      # run the post hook so it can expose wrapper/symlinked binaries.
+      if ! _dep_exists "$_cmd" "$_cmd_alt"; then
         _DEPS_CHANGED[$_name]=1
       fi
-      ;;
+      return 0
+    fi
+    _pkg_queue "$_name" "$_pkg_overrides"
+    ;;
+  git)
+    _install_from_github "$_name" "$_repo" "$HOME/$_dir"
+    ;;
+  binary)
+    _install_binary "$_name" "$_cmd" "$_repo"
+    ;;
+  custom)
+    # Entirely managed by the post-install hook (post()).
+    # Run only when the hook is due so no-op updates stay cheap.
+    if _dep_hook_due "$_name"; then
+      _DEPS_CHANGED[$_name]=1
+    fi
+    ;;
   esac
 }
 
@@ -844,7 +862,10 @@ _run_post_hooks() {
     [[ -f "$hook_file" ]] || continue
     unset -f status post 2>/dev/null
     # shellcheck source=/dev/null
-    . "$hook_file" || { _warn "  warning: failed to source $hook_file"; continue; }
+    . "$hook_file" || {
+      _warn "  warning: failed to source $hook_file"
+      continue
+    }
     if declare -f status &>/dev/null; then
       status || true
     fi
@@ -860,7 +881,10 @@ _run_post_hooks() {
     [[ -f "$hook_file" ]] || continue
     unset -f post status 2>/dev/null
     # shellcheck source=/dev/null
-    . "$hook_file" || { _warn "  warning: failed to source $hook_file"; continue; }
+    . "$hook_file" || {
+      _warn "  warning: failed to source $hook_file"
+      continue
+    }
     if declare -f post &>/dev/null; then
       if post; then
         _dep_hook_touch "$name" || true
@@ -895,7 +919,7 @@ _update_deps() {
     _log_dim "  system:"
     local line="   "
     for pkg in "${_PKG_PRESENT[@]}"; do
-      if (( ${#line} + ${#pkg} + 1 > cols )); then
+      if ((${#line} + ${#pkg} + 1 > cols)); then
         _log_dim "$line"
         line="    $pkg"
       else

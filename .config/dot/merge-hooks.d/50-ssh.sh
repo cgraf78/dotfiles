@@ -27,7 +27,7 @@ _ssh_parse() {
     elif [[ -n "$header" && -n "$line" ]]; then
       block+="$line"$'\n'
     fi
-  done < "$file"
+  done <"$file"
 
   if [[ -n "$header" ]]; then
     # Normalize to end with exactly one newline
@@ -99,7 +99,7 @@ merge() {
     return 0
   fi
 
-  printf '%s' "$result" > "$dst.tmp"
+  printf '%s' "$result" >"$dst.tmp"
   chmod 600 "$dst.tmp"
   mv "$dst.tmp" "$dst"
 }

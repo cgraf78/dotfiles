@@ -22,30 +22,30 @@ REAL_HOME="$HOME"
 echo "=== ShellCheck ==="
 
 if command -v shellcheck &>/dev/null; then
-    _sc_files=(
-        "$REAL_HOME/.local/bin/dot"
-        "$REAL_HOME/.local/bin/dotbootstrap"
-        "$REAL_HOME/.config/dot/init.sh"
-        "$REAL_HOME/.config/dot/core.sh"
-        "$REAL_HOME/.config/dot/repos.sh"
-        "$REAL_HOME/.config/dot/merges.sh"
-        "$REAL_HOME/.config/dot/cron.sh"
-        "$REAL_HOME/.config/dot/deps.sh"
-        "$REAL_HOME/.config/dot/test-helpers.sh"
-    )
-    for _f in "$REAL_HOME/.config/dot/deps-hooks.d"/*.sh \
-              "$REAL_HOME/.config/dot/merge-hooks.d"/*.sh; do
-        [[ -f "$_f" && ! -L "$_f" ]] && _sc_files+=("$_f")
-    done
-    sc_output=$(shellcheck -x -P SCRIPTDIR "${_sc_files[@]}" 2>&1) && sc_rc=0 || sc_rc=$?
-    if [[ "$sc_rc" -eq 0 ]]; then
-        _pass "shellcheck: all files clean"
-    else
-        _fail "shellcheck: findings detected"
-        echo "$sc_output" | sed 's/^/    /' >&2
-    fi
+  _sc_files=(
+    "$REAL_HOME/.local/bin/dot"
+    "$REAL_HOME/.local/bin/dotbootstrap"
+    "$REAL_HOME/.config/dot/init.sh"
+    "$REAL_HOME/.config/dot/core.sh"
+    "$REAL_HOME/.config/dot/repos.sh"
+    "$REAL_HOME/.config/dot/merges.sh"
+    "$REAL_HOME/.config/dot/cron.sh"
+    "$REAL_HOME/.config/dot/deps.sh"
+    "$REAL_HOME/.config/dot/test-helpers.sh"
+  )
+  for _f in "$REAL_HOME/.config/dot/deps-hooks.d"/*.sh \
+    "$REAL_HOME/.config/dot/merge-hooks.d"/*.sh; do
+    [[ -f "$_f" && ! -L "$_f" ]] && _sc_files+=("$_f")
+  done
+  sc_output=$(shellcheck -x -P SCRIPTDIR "${_sc_files[@]}" 2>&1) && sc_rc=0 || sc_rc=$?
+  if [[ "$sc_rc" -eq 0 ]]; then
+    _pass "shellcheck: all files clean"
+  else
+    _fail "shellcheck: findings detected"
+    echo "$sc_output" | sed 's/^/    /' >&2
+  fi
 else
-    echo "  SKIP: shellcheck not installed"
+  echo "  SKIP: shellcheck not installed"
 fi
 
 # ---------------------------------------------------------------------------
@@ -72,12 +72,12 @@ mkdir -p "$TEST_HOME/.config/dot"
 for _f in init.sh core.sh repos.sh merges.sh cron.sh deps.sh; do
   cp "$REAL_HOME/.config/dot/$_f" "$TEST_HOME/.config/dot/$_f"
 done
-cat > "$TEST_HOME/.config/dot/deps.conf" <<'CONF'
+cat >"$TEST_HOME/.config/dot/deps.conf" <<'CONF'
 test-tool  git  -  -  -  fixture/test-tool.git  .local/share/test-tool
 hook-pack  git  -  -  -  fixture/hook-pack.git  .local/share/hook-pack
 CONF
 mkdir -p "$TEST_HOME/.config/dot/deps-hooks.d"
-cat > "$TEST_HOME/.config/dot/deps-hooks.d/hook-pack.sh" <<'HOOK'
+cat >"$TEST_HOME/.config/dot/deps-hooks.d/hook-pack.sh" <<'HOOK'
 post() {
   mkdir -p "$HOME/.test-hooks"
   printf '%s\n' "$HOME/.local/share/hook-pack" > "$HOME/.test-hooks/hook-pack"
@@ -85,7 +85,7 @@ post() {
 HOOK
 
 # Seed the repo with a tracked file so we have a branch
-echo "initial" > "$TEST_HOME/.testrc"
+echo "initial" >"$TEST_HOME/.testrc"
 $GIT add .testrc
 $GIT commit -m "initial" >/dev/null 2>&1
 
@@ -111,13 +111,13 @@ backup_one="$REPLY"
 _backup_dir
 backup_two="$REPLY"
 if [[ -d "$backup_one" && -d "$backup_two" && "$backup_one" != "$backup_two" ]]; then
-    _pass "backup_dir: creates unique directories"
+  _pass "backup_dir: creates unique directories"
 else
-    _fail "backup_dir: creates unique directories"
+  _fail "backup_dir: creates unique directories"
 fi
 
 conflict_log=$(_tmpdir)/pull.log
-cat > "$conflict_log" <<'LOG'
+cat >"$conflict_log" <<'LOG'
 error: The following untracked working tree files would be overwritten by checkout:
 	.config/nvim/lazy-lock.json
 	.config/example/tool.conf
@@ -149,7 +149,7 @@ git -C "$WORK_DIR" config user.email "test@test.com"
 git -C "$WORK_DIR" config user.name "Test"
 
 # Seed work repo so pull/push have a branch
-echo "work content" > "$WORK_DIR/work-file"
+echo "work content" >"$WORK_DIR/work-file"
 git -C "$WORK_DIR" add work-file
 git -C "$WORK_DIR" commit -m "seed" >/dev/null 2>&1
 git -C "$WORK_DIR" push >/dev/null 2>&1
@@ -183,22 +183,22 @@ git -C "$WORK_DIR" config user.email "test@test.com"
 git -C "$WORK_DIR" config user.name "Test"
 
 mkdir -p "$WORK_DIR/home/.config/test"
-echo "work config" > "$WORK_DIR/home/.config/test/config.conf"
-echo "work shell" > "$WORK_DIR/home/.testrc_work"
+echo "work config" >"$WORK_DIR/home/.config/test/config.conf"
+echo "work shell" >"$WORK_DIR/home/.testrc_work"
 
 # Link work home — creates symlinks
 result=$(_link_work_home 2>&1)
 _assert_contains "link: shows header" "Linking work dotfiles" "$result"
 _assert_contains "link: reports new symlinks" "linked:" "$result"
 if [[ -L "$TEST_HOME/.config/test/config.conf" ]]; then
-    _pass "link: symlink created for nested file"
+  _pass "link: symlink created for nested file"
 else
-    _fail "link: symlink created for nested file"
+  _fail "link: symlink created for nested file"
 fi
 if [[ -L "$TEST_HOME/.testrc_work" ]]; then
-    _pass "link: symlink created for top-level file"
+  _pass "link: symlink created for top-level file"
 else
-    _fail "link: symlink created for top-level file"
+  _fail "link: symlink created for top-level file"
 fi
 
 # Verify symlinks are relative
@@ -212,14 +212,14 @@ _assert_not_contains "link idempotent: no per-file output" "linked:" "$result"
 
 # Quiet mode: no output
 DOT_QUIET=1
-rm "$TEST_HOME/.testrc_work"  # force re-link
+rm "$TEST_HOME/.testrc_work" # force re-link
 result=$(_link_work_home 2>&1)
 DOT_QUIET=0
 _assert_eq "link quiet: no output" "" "$result"
 if [[ -L "$TEST_HOME/.testrc_work" ]]; then
-    _pass "link quiet: still creates symlink"
+  _pass "link quiet: still creates symlink"
 else
-    _fail "link quiet: still creates symlink"
+  _fail "link quiet: still creates symlink"
 fi
 
 rm -rf "$WORK_DIR" "$WORK_BARE"
@@ -237,13 +237,13 @@ _assert_eq "no merge scripts → no output" "" "$result"
 
 # Create test merge scripts
 mkdir -p "$TEST_HOME/.config/dot/merge-hooks.d"
-cat > "$TEST_HOME/.config/dot/merge-hooks.d/testapp.sh" <<'MERGE'
+cat >"$TEST_HOME/.config/dot/merge-hooks.d/testapp.sh" <<'MERGE'
 merge() {
     echo "MERGED_TESTAPP"
 }
 MERGE
 
-cat > "$TEST_HOME/.config/dot/merge-hooks.d/otherapp.sh" <<'MERGE'
+cat >"$TEST_HOME/.config/dot/merge-hooks.d/otherapp.sh" <<'MERGE'
 merge() {
     echo "MERGED_OTHERAPP"
 }
@@ -263,7 +263,7 @@ DOT_QUIET=0
 _assert_eq "quiet merges: no output on success" "" "$result"
 
 # Failing merge script doesn't abort
-cat > "$TEST_HOME/.config/dot/merge-hooks.d/failapp.sh" <<'MERGE'
+cat >"$TEST_HOME/.config/dot/merge-hooks.d/failapp.sh" <<'MERGE'
 merge() {
     return 1
 }
@@ -281,7 +281,7 @@ rm -f "$TEST_HOME/.config/dot/merge-hooks.d"/*.sh
 echo ""
 echo "=== Normalize filtered ==="
 
-echo "modified" > "$TEST_HOME/.testrc"
+echo "modified" >"$TEST_HOME/.testrc"
 $GIT add .testrc
 $GIT commit -m "modified" >/dev/null 2>&1
 
@@ -296,12 +296,12 @@ mv "$TEST_HOME/.testrc.tmp" "$TEST_HOME/.testrc"
 # File should show as "dirty" in diff-files (stat mismatch) but not in diff
 dirty=$($GIT diff-files --name-only 2>/dev/null || true)
 if [[ -n "$dirty" ]]; then
-    # Stat-dirty but content-clean — normalize should fix it
-    "$SCRIPT_DIR/dot" refresh 2>/dev/null
-    dirty_after=$($GIT diff-files --name-only 2>/dev/null || true)
-    _assert_eq "normalize: clears phantom dirty file" "" "$dirty_after"
+  # Stat-dirty but content-clean — normalize should fix it
+  "$SCRIPT_DIR/dot" refresh 2>/dev/null
+  dirty_after=$($GIT diff-files --name-only 2>/dev/null || true)
+  _assert_eq "normalize: clears phantom dirty file" "" "$dirty_after"
 else
-    _pass "normalize: file not stat-dirty (nothing to test)"
+  _pass "normalize: file not stat-dirty (nothing to test)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -324,7 +324,7 @@ git init --bare "$WORK_BARE" >/dev/null 2>&1
 git clone "$WORK_BARE" "$WORK_DIR" >/dev/null 2>&1
 git -C "$WORK_DIR" config user.email "test@test.com"
 git -C "$WORK_DIR" config user.name "Test"
-echo "x" > "$WORK_DIR/f"
+echo "x" >"$WORK_DIR/f"
 git -C "$WORK_DIR" add f
 git -C "$WORK_DIR" commit -m "init" >/dev/null 2>&1
 git -C "$WORK_DIR" push >/dev/null 2>&1
@@ -368,7 +368,7 @@ $GIT branch --set-upstream-to="origin/$DEFAULT_BRANCH" "$DEFAULT_BRANCH" 2>/dev/
 
 TEST_TOOL_STAGING=$(_tmpdir)
 mkdir -p "$TEST_TOOL_STAGING/bin"
-cat > "$TEST_TOOL_STAGING/bin/test-tool" <<'TOOL'
+cat >"$TEST_TOOL_STAGING/bin/test-tool" <<'TOOL'
 #!/bin/bash
 echo "test-tool"
 TOOL
@@ -386,7 +386,7 @@ git -C "$TEST_TOOL_WORK" push >/dev/null 2>&1
 
 HOOK_PACK_STAGING=$(_tmpdir)
 mkdir -p "$HOOK_PACK_STAGING/review"
-echo "# hook pack" > "$HOOK_PACK_STAGING/review/README.md"
+echo "# hook pack" >"$HOOK_PACK_STAGING/review/README.md"
 HOOK_PACK_ORIGIN=$(_tmpdir)
 git init --bare "$HOOK_PACK_ORIGIN" >/dev/null 2>&1
 HOOK_PACK_WORK=$(_tmpdir)
@@ -399,7 +399,7 @@ git -C "$HOOK_PACK_WORK" commit -m "seed hook pack" >/dev/null 2>&1
 git -C "$HOOK_PACK_WORK" push >/dev/null 2>&1
 
 result=$(
-    DOTBOOTSTRAP_TEST_TOOL_REPO="$TEST_TOOL_ORIGIN" \
+  DOTBOOTSTRAP_TEST_TOOL_REPO="$TEST_TOOL_ORIGIN" \
     DOTBOOTSTRAP_HOOK_PACK_REPO="$HOOK_PACK_ORIGIN" \
     "$SCRIPT_DIR/dot" pull 2>&1
 )
@@ -413,16 +413,16 @@ git clone "$REMOTE_BARE" "$REMOTE_WORK" >/dev/null 2>&1
 git -C "$REMOTE_WORK" config user.email "test@test.com"
 git -C "$REMOTE_WORK" config user.name "Test"
 mkdir -p "$REMOTE_WORK/.config/nvim"
-printf '%s\n' "remote-lock" > "$REMOTE_WORK/.config/nvim/lazy-lock.json"
+printf '%s\n' "remote-lock" >"$REMOTE_WORK/.config/nvim/lazy-lock.json"
 git -C "$REMOTE_WORK" add .config/nvim/lazy-lock.json
 git -C "$REMOTE_WORK" commit -m "track lazy lock" >/dev/null 2>&1
 git -C "$REMOTE_WORK" push >/dev/null 2>&1
 
 mkdir -p "$TEST_HOME/.config/nvim"
-printf '%s\n' "local-lock" > "$TEST_HOME/.config/nvim/lazy-lock.json"
+printf '%s\n' "local-lock" >"$TEST_HOME/.config/nvim/lazy-lock.json"
 
 result=$(
-    DOTBOOTSTRAP_TEST_TOOL_REPO="$TEST_TOOL_ORIGIN" \
+  DOTBOOTSTRAP_TEST_TOOL_REPO="$TEST_TOOL_ORIGIN" \
     DOTBOOTSTRAP_HOOK_PACK_REPO="$HOOK_PACK_ORIGIN" \
     "$SCRIPT_DIR/dot" pull 2>&1
 )
@@ -431,9 +431,9 @@ _assert_file_content "pull: installs tracked file after backup" "remote-lock" "$
 
 backup_lock=$(find "$TEST_HOME/.dotfiles-backup" -path '*/.config/nvim/lazy-lock.json' -print | head -1)
 if [[ -n "$backup_lock" ]]; then
-    _assert_file_content "pull: preserves local untracked file in backup" "local-lock" "$backup_lock"
+  _assert_file_content "pull: preserves local untracked file in backup" "local-lock" "$backup_lock"
 else
-    _fail "pull: preserves local untracked file in backup (backup file not found)"
+  _fail "pull: preserves local untracked file in backup (backup file not found)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -455,7 +455,7 @@ echo "=== Update command ==="
 
 # Update with repo: pulls, runs merges, updates deps, shows done
 result=$(
-    DOTBOOTSTRAP_TEST_TOOL_REPO="$TEST_TOOL_ORIGIN" \
+  DOTBOOTSTRAP_TEST_TOOL_REPO="$TEST_TOOL_ORIGIN" \
     DOTBOOTSTRAP_HOOK_PACK_REPO="$HOOK_PACK_ORIGIN" \
     "$SCRIPT_DIR/dot" update 2>&1
 )
@@ -476,7 +476,7 @@ cp "$TEST_HOME/.config/dot/deps.conf" "$NO_REPO_HOME/.config/dot/deps.conf"
 cp -r "$TEST_HOME/.config/dot/deps-hooks.d" "$NO_REPO_HOME/.config/dot/deps-hooks.d"
 
 result=$(
-    HOME="$NO_REPO_HOME" \
+  HOME="$NO_REPO_HOME" \
     DOTBOOTSTRAP_TEST_TOOL_REPO="$TEST_TOOL_ORIGIN" \
     DOTBOOTSTRAP_HOOK_PACK_REPO="$HOOK_PACK_ORIGIN" \
     "$SCRIPT_DIR/dot" update 2>&1
@@ -496,17 +496,17 @@ echo "=== Worktree dirty check ==="
 
 # Clean worktree → not dirty
 if _is_worktree_dirty; then
-    _fail "clean worktree: should not be dirty"
+  _fail "clean worktree: should not be dirty"
 else
-    _pass "clean worktree: not dirty"
+  _pass "clean worktree: not dirty"
 fi
 
 # Modify a tracked file → dirty
-echo "dirty change" >> "$TEST_HOME/.testrc"
+echo "dirty change" >>"$TEST_HOME/.testrc"
 if _is_worktree_dirty; then
-    _pass "modified file: is dirty"
+  _pass "modified file: is dirty"
 else
-    _fail "modified file: should be dirty"
+  _fail "modified file: should be dirty"
 fi
 
 # Restore clean state
@@ -518,24 +518,24 @@ git init --bare "$WORK_BARE2" >/dev/null 2>&1
 git clone "$WORK_BARE2" "$WORK_DIR" >/dev/null 2>&1
 git -C "$WORK_DIR" config user.email "test@test.com"
 git -C "$WORK_DIR" config user.name "Test"
-echo "work" > "$WORK_DIR/work-file"
+echo "work" >"$WORK_DIR/work-file"
 git -C "$WORK_DIR" add work-file
 git -C "$WORK_DIR" commit -m "init" >/dev/null 2>&1
 git -C "$WORK_DIR" push >/dev/null 2>&1
 
 # Clean work repo → not dirty
 if _is_worktree_dirty; then
-    _fail "clean work repo: should not be dirty"
+  _fail "clean work repo: should not be dirty"
 else
-    _pass "clean work repo: not dirty"
+  _pass "clean work repo: not dirty"
 fi
 
 # Modify work repo file → dirty
-echo "dirty" >> "$WORK_DIR/work-file"
+echo "dirty" >>"$WORK_DIR/work-file"
 if _is_worktree_dirty; then
-    _pass "dirty work repo: is dirty"
+  _pass "dirty work repo: is dirty"
 else
-    _fail "dirty work repo: should be dirty"
+  _fail "dirty work repo: should be dirty"
 fi
 
 git -C "$WORK_DIR" checkout -- work-file
@@ -549,9 +549,9 @@ echo ""
 echo "=== Cron mode ==="
 
 # Dirty worktree + --cron → exits immediately (no pull)
-echo "dirty" >> "$TEST_HOME/.testrc"
+echo "dirty" >>"$TEST_HOME/.testrc"
 result=$(
-    DOTBOOTSTRAP_TEST_TOOL_REPO="$TEST_TOOL_ORIGIN" \
+  DOTBOOTSTRAP_TEST_TOOL_REPO="$TEST_TOOL_ORIGIN" \
     DOTBOOTSTRAP_HOOK_PACK_REPO="$HOOK_PACK_ORIGIN" \
     "$SCRIPT_DIR/dot" update --cron 2>&1
 )
@@ -560,7 +560,7 @@ $GIT checkout -- .testrc
 
 # Clean worktree + --cron → runs but quiet (no "Done" message)
 result=$(
-    DOTBOOTSTRAP_TEST_TOOL_REPO="$TEST_TOOL_ORIGIN" \
+  DOTBOOTSTRAP_TEST_TOOL_REPO="$TEST_TOOL_ORIGIN" \
     DOTBOOTSTRAP_HOOK_PACK_REPO="$HOOK_PACK_ORIGIN" \
     "$SCRIPT_DIR/dot" update --cron 2>&1
 )
@@ -579,7 +579,7 @@ MOCK_CRONTAB=$(_tmpdir)/crontab
 touch "$MOCK_CRONTAB"
 MOCK_BIN=$(_mock_bin)
 export PATH="$MOCK_BIN:$PATH"
-cat > "$MOCK_BIN/crontab" <<CRON
+cat >"$MOCK_BIN/crontab" <<CRON
 #!/bin/bash
 case "\${1:-}" in
   -l) cat "$MOCK_CRONTAB" 2>/dev/null || { echo "no crontab" >&2; exit 1; } ;;
@@ -597,7 +597,7 @@ result=$(crontab -l 2>/dev/null)
 _assert_eq "no cron file: crontab empty" "" "$result"
 
 # Cron file with one entry → installed
-cat > "$TEST_HOME/.config/dot/cron" <<'EOF'
+cat >"$TEST_HOME/.config/dot/cron" <<'EOF'
 # comment line
 */30 * * * * $HOME/.local/bin/dot update --cron
 EOF
@@ -616,7 +616,7 @@ count=$(crontab -l 2>/dev/null | grep -c "dot update --cron" || true)
 _assert_eq "idempotent: one entry" "1" "$count"
 
 # Cron file with multiple entries → all installed
-cat > "$TEST_HOME/.config/dot/cron" <<'EOF'
+cat >"$TEST_HOME/.config/dot/cron" <<'EOF'
 */30 * * * * $HOME/.local/bin/dot update --cron
 0 3 * * * $HOME/.local/bin/cleanup
 EOF
@@ -627,7 +627,7 @@ _assert_contains "multi: cleanup entry" "cleanup" "$result"
 
 # Preserves non-managed cron entries
 echo "0 6 * * * /usr/bin/other-job" | crontab -
-cat > "$TEST_HOME/.config/dot/cron" <<'EOF'
+cat >"$TEST_HOME/.config/dot/cron" <<'EOF'
 */30 * * * * $HOME/.local/bin/dot update --cron
 EOF
 _install_cron 2>/dev/null
@@ -636,11 +636,11 @@ _assert_contains "preserves other jobs" "other-job" "$result"
 _assert_contains "installs managed entry" "dot update --cron" "$result"
 
 # cron.local entries are merged with cron entries
-> "$MOCK_CRONTAB"
-cat > "$TEST_HOME/.config/dot/cron" <<'EOF'
+>"$MOCK_CRONTAB"
+cat >"$TEST_HOME/.config/dot/cron" <<'EOF'
 */30 * * * * $HOME/.local/bin/dot update --cron
 EOF
-cat > "$TEST_HOME/.config/dot/cron.local" <<'EOF'
+cat >"$TEST_HOME/.config/dot/cron.local" <<'EOF'
 0 4 * * * $HOME/.local/bin/backup
 EOF
 _install_cron 2>/dev/null
@@ -652,9 +652,9 @@ _assert_eq "local: single managed block" "1" "$count"
 rm -f "$TEST_HOME/.config/dot/cron.local"
 
 # cron.local alone (no tracked cron file) works
-> "$MOCK_CRONTAB"
+>"$MOCK_CRONTAB"
 rm -f "$TEST_HOME/.config/dot/cron"
-cat > "$TEST_HOME/.config/dot/cron.local" <<'EOF'
+cat >"$TEST_HOME/.config/dot/cron.local" <<'EOF'
 0 5 * * * $HOME/.local/bin/local-only
 EOF
 _install_cron 2>/dev/null
@@ -663,19 +663,19 @@ _assert_contains "local-only: entry installed" "local-only" "$result"
 rm -f "$TEST_HOME/.config/dot/cron.local"
 
 # Restore cron file for remaining tests
-cat > "$TEST_HOME/.config/dot/cron" <<'EOF'
+cat >"$TEST_HOME/.config/dot/cron" <<'EOF'
 */30 * * * * $HOME/.local/bin/dot update --cron
 EOF
 
 # All-comments cron file strips old managed block
-> "$MOCK_CRONTAB"
-cat > "$TEST_HOME/.config/dot/cron" <<'EOF'
+>"$MOCK_CRONTAB"
+cat >"$TEST_HOME/.config/dot/cron" <<'EOF'
 */30 * * * * $HOME/.local/bin/dot update --cron
 EOF
 _install_cron 2>/dev/null
 result=$(crontab -l 2>/dev/null)
 _assert_contains "pre-remove: entry exists" "dot update --cron" "$result"
-cat > "$TEST_HOME/.config/dot/cron" <<'EOF'
+cat >"$TEST_HOME/.config/dot/cron" <<'EOF'
 # everything commented out
 EOF
 _install_cron 2>/dev/null
@@ -685,7 +685,7 @@ _assert_not_contains "remove: markers stripped" "dot-managed-cron" "$result"
 
 # All-comments cron file preserves non-managed entries
 echo "0 6 * * * /usr/bin/other-job" | crontab -
-cat > "$TEST_HOME/.config/dot/cron" <<'EOF'
+cat >"$TEST_HOME/.config/dot/cron" <<'EOF'
 # only comments here
 EOF
 _install_cron 2>/dev/null

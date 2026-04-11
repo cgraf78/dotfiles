@@ -70,74 +70,84 @@ _pull_all() {
 # ---------------------------------------------------------------------------
 
 case "${1:-}" in
-  update)
-    shift
-    # Parse flags
-    SKIP_PULL=0
-    while [[ "${1:-}" == -* ]]; do
-      case "$1" in
-        --cron) CRON_MODE=1; export DOT_QUIET=1; shift ;;
-        -f|--force) export DOT_FORCE=1; shift ;;
-        --skip-pull) SKIP_PULL=1; shift ;;
-        *) break ;;
-      esac
-    done
+update)
+  shift
+  # Parse flags
+  SKIP_PULL=0
+  while [[ "${1:-}" == -* ]]; do
+    case "$1" in
+    --cron)
+      CRON_MODE=1
+      export DOT_QUIET=1
+      shift
+      ;;
+    -f | --force)
+      export DOT_FORCE=1
+      shift
+      ;;
+    --skip-pull)
+      SKIP_PULL=1
+      shift
+      ;;
+    *) break ;;
+    esac
+  done
 
-    # In cron mode, skip pull if worktree is dirty.  First try to resolve
-    # dirty files that match the remote (e.g. dotsync wrote the same content
-    # that would be pulled).
-    if [[ "$CRON_MODE" -eq 1 ]] && _is_worktree_dirty; then
-      if ! _try_resolve_dirty; then
-        exit 0
-      fi
+  # In cron mode, skip pull if worktree is dirty.  First try to resolve
+  # dirty files that match the remote (e.g. dotsync wrote the same content
+  # that would be pulled).
+  if [[ "$CRON_MODE" -eq 1 ]] && _is_worktree_dirty; then
+    if ! _try_resolve_dirty; then
+      exit 0
     fi
+  fi
 
-    if [[ "$SKIP_PULL" -eq 0 ]]; then
-      # Record HEAD before pull to detect infrastructure changes
-      _head_before=""
-      if [[ -d "$DOTFILES" ]]; then
-        _head_before=$($GIT rev-parse HEAD 2>/dev/null || true)
-      fi
-
-      if [[ -d "$DOTFILES" ]]; then
-        _pull_all "$@"
-      else
-        _pull_work_repo
-      fi
-
-      # Re-exec if pull changed dot infrastructure so the rest runs with new code
-      if [[ -d "$DOTFILES" && -n "$_head_before" && -z "${DOT_REEXEC:-}" ]]; then
-        _head_after=$($GIT rev-parse HEAD 2>/dev/null || true)
-        if [[ "$_head_before" != "$_head_after" ]] && \
-           $GIT diff --name-only "$_head_before" "$_head_after" 2>/dev/null | \
-             grep -qE '^(\.config/dot/|\.local/bin/dot$)'; then
-          _log_header "==> Dot infrastructure updated, re-running..."
-          _reexec_flags=(--skip-pull)
-          [[ "$CRON_MODE" -eq 1 ]] && _reexec_flags+=(--cron)
-          [[ "${DOT_FORCE:-0}" -eq 1 ]] && _reexec_flags+=(--force)
-          export DOT_REEXEC=1
-          exec "$0" update "${_reexec_flags[@]}" "$@"
-        fi
-      fi
-    else
-      _log_header "==> Skipping pull (re-exec after infrastructure update)..."
-    fi
-
-    _update_deps
-    _link_work_home
-    _run_merges
+  if [[ "$SKIP_PULL" -eq 0 ]]; then
+    # Record HEAD before pull to detect infrastructure changes
+    _head_before=""
     if [[ -d "$DOTFILES" ]]; then
-      _normalize_filtered
+      _head_before=$($GIT rev-parse HEAD 2>/dev/null || true)
     fi
-    _log_header "==> Done! Run 'source ~/.bashrc' or 'source ~/.zshrc' to activate."
-    exit 0
-    ;;
-  cron)
-    crontab -l 2>/dev/null || echo "  no crontab installed"
-    exit 0
-    ;;
-  "")
-    cat <<EOF
+
+    if [[ -d "$DOTFILES" ]]; then
+      _pull_all "$@"
+    else
+      _pull_work_repo
+    fi
+
+    # Re-exec if pull changed dot infrastructure so the rest runs with new code
+    if [[ -d "$DOTFILES" && -n "$_head_before" && -z "${DOT_REEXEC:-}" ]]; then
+      _head_after=$($GIT rev-parse HEAD 2>/dev/null || true)
+      if [[ "$_head_before" != "$_head_after" ]] &&
+        $GIT diff --name-only "$_head_before" "$_head_after" 2>/dev/null |
+        grep -qE '^(\.config/dot/|\.local/bin/dot$)'; then
+        _log_header "==> Dot infrastructure updated, re-running..."
+        _reexec_flags=(--skip-pull)
+        [[ "$CRON_MODE" -eq 1 ]] && _reexec_flags+=(--cron)
+        [[ "${DOT_FORCE:-0}" -eq 1 ]] && _reexec_flags+=(--force)
+        export DOT_REEXEC=1
+        exec "$0" update "${_reexec_flags[@]}" "$@"
+      fi
+    fi
+  else
+    _log_header "==> Skipping pull (re-exec after infrastructure update)..."
+  fi
+
+  _update_deps
+  _link_work_home
+  _run_merges
+  if [[ -d "$DOTFILES" ]]; then
+    _normalize_filtered
+  fi
+  _log_header "==> Done! Run 'source ~/.bashrc' or 'source ~/.zshrc' to activate."
+  exit 0
+  ;;
+cron)
+  crontab -l 2>/dev/null || echo "  no crontab installed"
+  exit 0
+  ;;
+"")
+  cat <<EOF
 usage: dot <command> [<args>]
 
 Multi-repo commands (personal + work):
@@ -158,8 +168,8 @@ Flags:
 'update' installs cron entries from ~/.config/dot/cron (tracked) and
 cron.local (machine-local, untracked) into the user crontab.
 EOF
-    exit 0
-    ;;
+  exit 0
+  ;;
 esac
 
 # ---------------------------------------------------------------------------
@@ -178,57 +188,57 @@ EOF
 fi
 
 case "${1:-}" in
-  fetch)
-    shift
-    _header "==> Fetching personal dotfiles..."
-    $GIT fetch "$@"
-    if [[ -d "$WORK_DIR/.git" ]]; then
-      _header "==> Fetching work dotfiles..."
-      git -C "$WORK_DIR" fetch "$@"
-    fi
-    ;;
-  push)
-    shift
-    _normalize_filtered
-    _header "==> Pushing personal dotfiles..."
-    $GIT push "$@"
-    _push_work_repo "$@"
-    ;;
-  pull)
-    shift
-    _pull_all "$@"
-    _update_deps
-    _link_work_home
-    _run_merges
-    _normalize_filtered
-    _log_header "==> Done! Run 'source ~/.bashrc' or 'source ~/.zshrc' to activate."
-    ;;
-  refresh)
-    _normalize_filtered
-    ;;
-  diff)
-    shift
-    _normalize_filtered
-    _header "==> Personal dotfiles"
-    $GIT diff "$@"
-    if [[ -d "$WORK_DIR" ]]; then
-      echo ""
-      _header "==> Work dotfiles"
-      git -C "$WORK_DIR" diff "$@"
-    fi
-    ;;
-  status)
-    shift
-    _normalize_filtered
-    _header "==> Personal dotfiles"
-    $GIT status "$@"
-    if [[ -d "$WORK_DIR" ]]; then
-      echo ""
-      _header "==> Work dotfiles"
-      git -C "$WORK_DIR" status "$@"
-    fi
-    ;;
-  *)
-    $GIT "$@"
-    ;;
+fetch)
+  shift
+  _header "==> Fetching personal dotfiles..."
+  $GIT fetch "$@"
+  if [[ -d "$WORK_DIR/.git" ]]; then
+    _header "==> Fetching work dotfiles..."
+    git -C "$WORK_DIR" fetch "$@"
+  fi
+  ;;
+push)
+  shift
+  _normalize_filtered
+  _header "==> Pushing personal dotfiles..."
+  $GIT push "$@"
+  _push_work_repo "$@"
+  ;;
+pull)
+  shift
+  _pull_all "$@"
+  _update_deps
+  _link_work_home
+  _run_merges
+  _normalize_filtered
+  _log_header "==> Done! Run 'source ~/.bashrc' or 'source ~/.zshrc' to activate."
+  ;;
+refresh)
+  _normalize_filtered
+  ;;
+diff)
+  shift
+  _normalize_filtered
+  _header "==> Personal dotfiles"
+  $GIT diff "$@"
+  if [[ -d "$WORK_DIR" ]]; then
+    echo ""
+    _header "==> Work dotfiles"
+    git -C "$WORK_DIR" diff "$@"
+  fi
+  ;;
+status)
+  shift
+  _normalize_filtered
+  _header "==> Personal dotfiles"
+  $GIT status "$@"
+  if [[ -d "$WORK_DIR" ]]; then
+    echo ""
+    _header "==> Work dotfiles"
+    git -C "$WORK_DIR" status "$@"
+  fi
+  ;;
+*)
+  $GIT "$@"
+  ;;
 esac

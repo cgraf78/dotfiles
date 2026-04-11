@@ -16,6 +16,6 @@ export RIPGREP_CONFIG_PATH="$HOME/.config/ripgrep/config"
 # at shell startup (which triggers D-Bus/keyring on headless hosts).
 # To create: gh auth token > ~/.config/gh/github-pat && chmod 600 ~/.config/gh/github-pat
 [ -f "$HOME/.config/gh/github-pat" ] && {
-    read -r GITHUB_PERSONAL_ACCESS_TOKEN < "$HOME/.config/gh/github-pat" &&
+  read -r GITHUB_PERSONAL_ACCESS_TOKEN <"$HOME/.config/gh/github-pat" &&
     export GITHUB_PERSONAL_ACCESS_TOKEN
 }

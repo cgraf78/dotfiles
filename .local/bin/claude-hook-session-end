@@ -46,7 +46,8 @@ nohup timeout 60 bash -c '
 
   jq -nc --arg t "$NAME" --arg s "$__SID" \
     "{\"type\":\"custom-title\",\"customTitle\":\$t,\"sessionId\":\$s}" >> "$__TP"
-' >/dev/null 2>&1 & disown
+' >/dev/null 2>&1 &
+disown
 
 # --- Delegate to work variant if present ---
 work_variant=$(command -v claude-hook-session-end-work 2>/dev/null)

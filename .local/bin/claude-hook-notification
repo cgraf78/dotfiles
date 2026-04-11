@@ -5,7 +5,7 @@
 
 set -u
 
-printf '\a' > /dev/tty 2>/dev/null || true
+printf '\a' >/dev/tty 2>/dev/null || true
 
 # --- Delegate to work variant if present ---
 work_variant=$(command -v claude-hook-notification-work 2>/dev/null)

@@ -40,7 +40,7 @@ merge() {
       [$s[0].profiles[] |
         select(.name as $n | [$d[0].profiles[].name] | index($n) | not)]
     )
-  ' > "$dst.tmp"; then
+  ' >"$dst.tmp"; then
     _warn "    warning: Karabiner merge failed — skipping"
     rm -f "$dst.tmp"
     return 0

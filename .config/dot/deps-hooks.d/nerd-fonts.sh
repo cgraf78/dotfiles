@@ -11,16 +11,16 @@ _nerd_fonts_entries() {
 _nerd_font_installed() {
   local brew_pkg="$1" pacman_pkg="$2" font_dir="$3"
   case "${_PKG_MGR:-}" in
-    brew)
-      if [[ "$brew_pkg" != "-" ]] && brew list "$brew_pkg" &>/dev/null; then
-        return 0
-      fi
-      ;;
-    pacman)
-      if [[ "$pacman_pkg" != "-" ]] && pacman -Q "$pacman_pkg" &>/dev/null; then
-        return 0
-      fi
-      ;;
+  brew)
+    if [[ "$brew_pkg" != "-" ]] && brew list "$brew_pkg" &>/dev/null; then
+      return 0
+    fi
+    ;;
+  pacman)
+    if [[ "$pacman_pkg" != "-" ]] && pacman -Q "$pacman_pkg" &>/dev/null; then
+      return 0
+    fi
+    ;;
   esac
   [[ -n "$font_dir" ]] && ls "$HOME/.local/share/fonts/$font_dir"/*.ttf &>/dev/null 2>&1
 }
@@ -33,7 +33,7 @@ status() {
 
   local entry name brew_pkg pacman_pkg _nerd_zip font_dir
   while IFS= read -r entry; do
-    IFS='|' read -r name brew_pkg pacman_pkg _nerd_zip font_dir <<< "$entry"
+    IFS='|' read -r name brew_pkg pacman_pkg _nerd_zip font_dir <<<"$entry"
     if ! _nerd_font_installed "$brew_pkg" "$pacman_pkg" "$font_dir"; then
       return 1
     fi
@@ -55,31 +55,31 @@ post() {
   local nf_version=""
   if command -v curl &>/dev/null; then
     nf_version=$(curl -fsSL --no-netrc -H "Authorization:" \
-      "https://api.github.com/repos/ryanoasis/nerd-fonts/releases/latest" 2>/dev/null \
-      | grep -o '"tag_name":[[:space:]]*"[^"]*"' | cut -d'"' -f4) || true
+      "https://api.github.com/repos/ryanoasis/nerd-fonts/releases/latest" 2>/dev/null |
+      grep -o '"tag_name":[[:space:]]*"[^"]*"' | cut -d'"' -f4) || true
   fi
 
   local entry name brew_pkg pacman_pkg nerd_zip font_dir
   while IFS= read -r entry; do
-    IFS='|' read -r name brew_pkg pacman_pkg nerd_zip font_dir <<< "$entry"
+    IFS='|' read -r name brew_pkg pacman_pkg nerd_zip font_dir <<<"$entry"
 
     # Check if already installed
     if _nerd_font_installed "$brew_pkg" "$pacman_pkg" "$font_dir"; then continue; fi
 
     # Install via native package manager where available
     case "${_PKG_MGR:-}" in
-      brew)
-        if [[ "$brew_pkg" != "-" ]]; then
-          brew install "$brew_pkg" &>/dev/null && \
-            _log_ok "  $name installed (brew)" && continue
-        fi
-        ;;
-      pacman)
-        if [[ "$pacman_pkg" != "-" ]]; then
-          sudo pacman -S --needed --noconfirm "$pacman_pkg" &>/dev/null && \
-            _log_ok "  $name installed (pacman)" && continue
-        fi
-        ;;
+    brew)
+      if [[ "$brew_pkg" != "-" ]]; then
+        brew install "$brew_pkg" &>/dev/null &&
+          _log_ok "  $name installed (brew)" && continue
+      fi
+      ;;
+    pacman)
+      if [[ "$pacman_pkg" != "-" ]]; then
+        sudo pacman -S --needed --noconfirm "$pacman_pkg" &>/dev/null &&
+          _log_ok "  $name installed (pacman)" && continue
+      fi
+      ;;
     esac
 
     # Fallback: download from nerd-fonts GitHub releases

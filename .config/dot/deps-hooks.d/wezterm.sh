@@ -30,40 +30,40 @@ post() {
   fi
 
   case "${_PKG_MGR:-}" in
-    brew)
-      if brew list --cask wezterm &>/dev/null; then
-        if [[ "${DOT_FORCE:-0}" -eq 1 ]]; then
-          brew upgrade --cask wezterm &>/dev/null || true
-          _log_ok "  wezterm refreshed (brew)"
-        fi
-        return 0
-      fi
-      if brew install --cask wezterm &>/dev/null; then
-        _log_ok "  wezterm installed (brew)"
-      else
-        _warn "  warning: failed to install wezterm (brew)"
+  brew)
+    if brew list --cask wezterm &>/dev/null; then
+      if [[ "${DOT_FORCE:-0}" -eq 1 ]]; then
+        brew upgrade --cask wezterm &>/dev/null || true
+        _log_ok "  wezterm refreshed (brew)"
       fi
       return 0
-      ;;
-    pacman)
-      if sudo pacman -S --needed --noconfirm wezterm &>/dev/null; then
-        _log_ok "  wezterm installed (pacman)"
-      else
-        _warn "  warning: failed to install wezterm (pacman)"
-      fi
-      return 0
-      ;;
+    fi
+    if brew install --cask wezterm &>/dev/null; then
+      _log_ok "  wezterm installed (brew)"
+    else
+      _warn "  warning: failed to install wezterm (brew)"
+    fi
+    return 0
+    ;;
+  pacman)
+    if sudo pacman -S --needed --noconfirm wezterm &>/dev/null; then
+      _log_ok "  wezterm installed (pacman)"
+    else
+      _warn "  warning: failed to install wezterm (pacman)"
+    fi
+    return 0
+    ;;
   esac
 
   # apt/dnf: download .deb/.rpm from GitHub releases.
   local ext
   case "${_PKG_MGR:-}" in
-    apt) ext="deb" ;;
-    dnf) ext="rpm" ;;
-    *)
-      _warn "  warning: no install method for wezterm on ${_PKG_MGR:-unknown}"
-      return 0
-      ;;
+  apt) ext="deb" ;;
+  dnf) ext="rpm" ;;
+  *)
+    _warn "  warning: no install method for wezterm on ${_PKG_MGR:-unknown}"
+    return 0
+    ;;
   esac
 
   # Need sudo for package install.
@@ -95,17 +95,17 @@ post() {
   fi
 
   local all_urls asset_url=""
-  all_urls=$(echo "$release_json" \
-    | grep -o '"browser_download_url":[[:space:]]*"[^"]*\.'"$ext"'"' \
-    | cut -d'"' -f4)
+  all_urls=$(echo "$release_json" |
+    grep -o '"browser_download_url":[[:space:]]*"[^"]*\.'"$ext"'"' |
+    cut -d'"' -f4)
 
   # Try exact distro+version match (e.g., Ubuntu22.04, Fedora39).
   if [[ -n "$distro_id" && -n "$distro_ver" ]]; then
     local pattern=""
     case "$distro_id" in
-      ubuntu) pattern="Ubuntu${distro_ver}" ;;
-      debian) pattern="Debian${distro_ver}" ;;
-      fedora) pattern="Fedora${distro_ver}" ;;
+    ubuntu) pattern="Ubuntu${distro_ver}" ;;
+    debian) pattern="Debian${distro_ver}" ;;
+    fedora) pattern="Fedora${distro_ver}" ;;
     esac
     if [[ -n "$pattern" ]]; then
       asset_url=$(echo "$all_urls" | grep -i "$pattern" | head -1)
@@ -128,9 +128,11 @@ post() {
 
   local rc=0
   case "$ext" in
-    deb) sudo dpkg -i "$tmp" &>/dev/null || true
-         sudo apt-get install -f -y &>/dev/null || rc=$? ;;
-    rpm) sudo dnf install -y "$tmp" &>/dev/null || rc=$? ;;
+  deb)
+    sudo dpkg -i "$tmp" &>/dev/null || true
+    sudo apt-get install -f -y &>/dev/null || rc=$?
+    ;;
+  rpm) sudo dnf install -y "$tmp" &>/dev/null || rc=$? ;;
   esac
   rm -f "$tmp"
 

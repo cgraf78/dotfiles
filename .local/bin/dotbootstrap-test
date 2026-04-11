@@ -28,9 +28,9 @@ $GIT config user.email "test@test.com"
 $GIT config user.name "Test"
 
 # Seed the repo with tracked files so we have a branch
-echo "initial" > "$TEST_HOME/.testrc"
+echo "initial" >"$TEST_HOME/.testrc"
 mkdir -p "$TEST_HOME/.config/dot"
-echo "# placeholder" > "$TEST_HOME/.config/dot/placeholder"
+echo "# placeholder" >"$TEST_HOME/.config/dot/placeholder"
 $GIT add .testrc .config/dot/placeholder
 $GIT commit -m "initial" >/dev/null 2>&1
 
@@ -85,7 +85,6 @@ _assert_eq "fallback to main" "main" "$BRANCH"
 # Re-attach to branch for remaining tests
 $GIT checkout "$DEFAULT_BRANCH" 2>/dev/null || $GIT checkout -b main 2>/dev/null
 
-
 # ---------------------------------------------------------------------------
 # Tests: merge-wezterm
 # ---------------------------------------------------------------------------
@@ -109,7 +108,7 @@ if [[ "$(uname -s)" == "Linux" ]]; then
     export USER="chris"
     export DOT_TEST_WINDOWS_HOME="$WEZ_WIN_HOME"
     mkdir -p "$HOME/.config/wezterm"
-    echo "return { test = true }" > "$HOME/.config/wezterm/wezterm.lua"
+    echo "return { test = true }" >"$HOME/.config/wezterm/wezterm.lua"
     merge
   )
 
@@ -138,7 +137,7 @@ echo "=== Dep registry loading ==="
 
 # Valid deps.conf
 mkdir -p "$TEST_HOME/.config/dot"
-cat > "$TEST_HOME/.config/dot/deps.conf" <<'CONF'
+cat >"$TEST_HOME/.config/dot/deps.conf" <<'CONF'
 # comment line
 jq    pkg
 
@@ -159,7 +158,7 @@ _dep_load 2>/dev/null
 _assert_eq "dep_load: empty array on missing" "0" "${#_DEPS[@]}"
 
 # Restore for later tests
-cat > "$TEST_HOME/.config/dot/deps.conf" <<'CONF'
+cat >"$TEST_HOME/.config/dot/deps.conf" <<'CONF'
 jq    pkg
 bat   pkg   bat   batcat
 test-tool  git   test-tool   -   -   fixture/test-tool.git   .local/share/test-tool
@@ -211,7 +210,8 @@ echo ""
 echo "=== Platform matching ==="
 
 # Empty spec matches everything
-rc=0; _platform_match "" || rc=$?
+rc=0
+_platform_match "" || rc=$?
 _assert_exit "platform: empty matches all" 0 "$rc"
 
 # Detect current platform for conditional assertions
@@ -219,43 +219,53 @@ _current_platform=$(uname -s | tr '[:upper:]' '[:lower:]')
 _is_wsl && _current_platform="wsl"
 
 # Include: current platform listed
-rc=0; _platform_match "$_current_platform" || rc=$?
+rc=0
+_platform_match "$_current_platform" || rc=$?
 _assert_exit "platform: include current" 0 "$rc"
 
 # Include: current platform not listed
 if [[ "$_current_platform" == "darwin" ]]; then
-  rc=0; _platform_match "linux" || rc=$?
+  rc=0
+  _platform_match "linux" || rc=$?
   _assert_exit "platform: exclude by omission" 1 "$rc"
 else
-  rc=0; _platform_match "darwin" || rc=$?
+  rc=0
+  _platform_match "darwin" || rc=$?
   _assert_exit "platform: exclude by omission" 1 "$rc"
 fi
 
 # Exclude: current platform excluded
-rc=0; _platform_match "!$_current_platform" || rc=$?
+rc=0
+_platform_match "!$_current_platform" || rc=$?
 _assert_exit "platform: exclude current" 1 "$rc"
 
 # Exclude: other platform excluded (should match)
 if [[ "$_current_platform" == "darwin" ]]; then
-  rc=0; _platform_match "!linux" || rc=$?
+  rc=0
+  _platform_match "!linux" || rc=$?
   _assert_exit "platform: exclude other matches" 0 "$rc"
 else
-  rc=0; _platform_match "!darwin" || rc=$?
+  rc=0
+  _platform_match "!darwin" || rc=$?
   _assert_exit "platform: exclude other matches" 0 "$rc"
 fi
 
 # Multiple excludes
-rc=0; _platform_match "!fakeos1,!fakeos2" || rc=$?
+rc=0
+_platform_match "!fakeos1,!fakeos2" || rc=$?
 _assert_exit "platform: exclude non-matching" 0 "$rc"
 
-rc=0; _platform_match "!$_current_platform,!fakeos" || rc=$?
+rc=0
+_platform_match "!$_current_platform,!fakeos" || rc=$?
 _assert_exit "platform: exclude with current" 1 "$rc"
 
 # Include list with multiple platforms
-rc=0; _platform_match "$_current_platform,fakeos" || rc=$?
+rc=0
+_platform_match "$_current_platform,fakeos" || rc=$?
 _assert_exit "platform: include list with current" 0 "$rc"
 
-rc=0; _platform_match "fakeos1,fakeos2" || rc=$?
+rc=0
+_platform_match "fakeos1,fakeos2" || rc=$?
 _assert_exit "platform: include list without current" 1 "$rc"
 
 # ---------------------------------------------------------------------------
@@ -273,15 +283,18 @@ declare -gA _DEPS_CHANGED=()
 stamp=$(_dep_remote_stamp "helper-tool" "git")
 _assert_contains "remote_stamp: uses state dir" "$TEST_HOME/.local/state/dot/deps/helper-tool.git.stamp" "$stamp"
 
-rc=0; _dep_remote_fresh "$stamp" || rc=$?
+rc=0
+_dep_remote_fresh "$stamp" || rc=$?
 _assert_exit "remote_fresh: missing stamp is stale" 1 "$rc"
 
 _dep_remote_touch "$stamp"
-rc=0; _dep_remote_fresh "$stamp" || rc=$?
+rc=0
+_dep_remote_fresh "$stamp" || rc=$?
 _assert_exit "remote_fresh: touched stamp is fresh" 0 "$rc"
 
 export DOT_FORCE=1
-rc=0; _dep_remote_fresh "$stamp" || rc=$?
+rc=0
+_dep_remote_fresh "$stamp" || rc=$?
 _assert_exit "remote_fresh: force bypasses cache" 1 "$rc"
 export DOT_FORCE=0
 
@@ -291,7 +304,7 @@ REMOTE_SEED=$(_tmpdir)
 git clone "$REMOTE_FIXTURE" "$REMOTE_SEED" >/dev/null 2>&1
 git -C "$REMOTE_SEED" config user.email "test@test.com"
 git -C "$REMOTE_SEED" config user.name "Test"
-echo "tool" > "$REMOTE_SEED/README"
+echo "tool" >"$REMOTE_SEED/README"
 git -C "$REMOTE_SEED" add README
 git -C "$REMOTE_SEED" commit -m "seed" >/dev/null 2>&1
 git -C "$REMOTE_SEED" push >/dev/null 2>&1
@@ -303,8 +316,8 @@ git clone "$REMOTE_FIXTURE" "$GIT_CACHE_INSTALL" >/dev/null 2>&1
 REMOTE_CACHE_BIN=$(_tmpdir)
 REAL_GIT_BIN=$(command -v git)
 GIT_PULL_COUNT="$TEST_HOME/.git-pull-count"
-echo 0 > "$GIT_PULL_COUNT"
-cat > "$REMOTE_CACHE_BIN/git" <<'EOF'
+echo 0 >"$GIT_PULL_COUNT"
+cat >"$REMOTE_CACHE_BIN/git" <<'EOF'
 #!/usr/bin/env bash
 pull=0
 for arg in "$@"; do
@@ -325,28 +338,28 @@ EOF
 chmod +x "$REMOTE_CACHE_BIN/git"
 
 PATH="$REMOTE_CACHE_BIN:$PATH" \
-DOT_TEST_REAL_GIT="$REAL_GIT_BIN" \
-DOT_TEST_GIT_PULL_COUNT_FILE="$GIT_PULL_COUNT" \
-_install_from_github "cache-tool" "fixture/cache-tool.git" "$GIT_CACHE_INSTALL" >/dev/null 2>&1
+  DOT_TEST_REAL_GIT="$REAL_GIT_BIN" \
+  DOT_TEST_GIT_PULL_COUNT_FILE="$GIT_PULL_COUNT" \
+  _install_from_github "cache-tool" "fixture/cache-tool.git" "$GIT_CACHE_INSTALL" >/dev/null 2>&1
 PATH="$REMOTE_CACHE_BIN:$PATH" \
-DOT_TEST_REAL_GIT="$REAL_GIT_BIN" \
-DOT_TEST_GIT_PULL_COUNT_FILE="$GIT_PULL_COUNT" \
-_install_from_github "cache-tool" "fixture/cache-tool.git" "$GIT_CACHE_INSTALL" >/dev/null 2>&1
-read -r git_pull_count < "$GIT_PULL_COUNT"
+  DOT_TEST_REAL_GIT="$REAL_GIT_BIN" \
+  DOT_TEST_GIT_PULL_COUNT_FILE="$GIT_PULL_COUNT" \
+  _install_from_github "cache-tool" "fixture/cache-tool.git" "$GIT_CACHE_INSTALL" >/dev/null 2>&1
+read -r git_pull_count <"$GIT_PULL_COUNT"
 _assert_eq "install_from_github: fresh cache skips second pull" "1" "$git_pull_count"
 
 export DOT_FORCE=1
 PATH="$REMOTE_CACHE_BIN:$PATH" \
-DOT_TEST_REAL_GIT="$REAL_GIT_BIN" \
-DOT_TEST_GIT_PULL_COUNT_FILE="$GIT_PULL_COUNT" \
-_install_from_github "cache-tool" "fixture/cache-tool.git" "$GIT_CACHE_INSTALL" >/dev/null 2>&1
+  DOT_TEST_REAL_GIT="$REAL_GIT_BIN" \
+  DOT_TEST_GIT_PULL_COUNT_FILE="$GIT_PULL_COUNT" \
+  _install_from_github "cache-tool" "fixture/cache-tool.git" "$GIT_CACHE_INSTALL" >/dev/null 2>&1
 export DOT_FORCE=0
-read -r git_pull_count < "$GIT_PULL_COUNT"
+read -r git_pull_count <"$GIT_PULL_COUNT"
 _assert_eq "install_from_github: force bypasses cache" "2" "$git_pull_count"
 
 BIN_DIR="$TEST_HOME/.local/bin"
 mkdir -p "$BIN_DIR"
-cat > "$BIN_DIR/mockimg" <<'EOF'
+cat >"$BIN_DIR/mockimg" <<'EOF'
 #!/usr/bin/env bash
 echo "mockimg v1.2.3"
 EOF
@@ -355,10 +368,10 @@ chmod +x "$BIN_DIR/mockimg"
 CURL_CACHE_BIN=$(_tmpdir)
 REAL_CURL_BIN=$(command -v curl)
 BIN_API_COUNT="$TEST_HOME/.appimg-api-count"
-echo 0 > "$BIN_API_COUNT"
+echo 0 >"$BIN_API_COUNT"
 _mock_os=$(uname -s | tr '[:upper:]' '[:lower:]')
 _mock_arch=$(uname -m)
-cat > "$CURL_CACHE_BIN/curl" <<EOF
+cat >"$CURL_CACHE_BIN/curl" <<EOF
 #!/usr/bin/env bash
 if [[ "\$*" == *"/releases/latest"* ]]; then
     count=0
@@ -390,23 +403,23 @@ EOF
 chmod +x "$CURL_CACHE_BIN/curl"
 
 PATH="$CURL_CACHE_BIN:$BIN_DIR:$PATH" \
-DOT_TEST_REAL_CURL="$REAL_CURL_BIN" \
-DOT_TEST_CURL_API_COUNT_FILE="$BIN_API_COUNT" \
-_install_binary "mockapp" "mockimg" "fixture/mockapp" >/dev/null 2>&1
+  DOT_TEST_REAL_CURL="$REAL_CURL_BIN" \
+  DOT_TEST_CURL_API_COUNT_FILE="$BIN_API_COUNT" \
+  _install_binary "mockapp" "mockimg" "fixture/mockapp" >/dev/null 2>&1
 PATH="$CURL_CACHE_BIN:$BIN_DIR:$PATH" \
-DOT_TEST_REAL_CURL="$REAL_CURL_BIN" \
-DOT_TEST_CURL_API_COUNT_FILE="$BIN_API_COUNT" \
-_install_binary "mockapp" "mockimg" "fixture/mockapp" >/dev/null 2>&1
-read -r bin_api_count < "$BIN_API_COUNT"
+  DOT_TEST_REAL_CURL="$REAL_CURL_BIN" \
+  DOT_TEST_CURL_API_COUNT_FILE="$BIN_API_COUNT" \
+  _install_binary "mockapp" "mockimg" "fixture/mockapp" >/dev/null 2>&1
+read -r bin_api_count <"$BIN_API_COUNT"
 _assert_eq "install_binary: fresh cache skips second API check" "1" "$bin_api_count"
 
 export DOT_FORCE=1
 PATH="$CURL_CACHE_BIN:$BIN_DIR:$PATH" \
-DOT_TEST_REAL_CURL="$REAL_CURL_BIN" \
-DOT_TEST_CURL_API_COUNT_FILE="$BIN_API_COUNT" \
-_install_binary "mockapp" "mockimg" "fixture/mockapp" >/dev/null 2>&1
+  DOT_TEST_REAL_CURL="$REAL_CURL_BIN" \
+  DOT_TEST_CURL_API_COUNT_FILE="$BIN_API_COUNT" \
+  _install_binary "mockapp" "mockimg" "fixture/mockapp" >/dev/null 2>&1
 export DOT_FORCE=0
-read -r bin_api_count < "$BIN_API_COUNT"
+read -r bin_api_count <"$BIN_API_COUNT"
 _assert_eq "install_binary: force bypasses cache" "2" "$bin_api_count"
 
 # Tarball extraction: when only .tar.gz assets are available, _install_binary
@@ -420,16 +433,16 @@ TAR_CURL_BIN=$(_tmpdir)
 TAR_STAGING=$(_tmpdir)
 mkdir -p "$TAR_STAGING/mocktool-${_mock_os}-${_mock_arch}/bin"
 mkdir -p "$TAR_STAGING/mocktool-${_mock_os}-${_mock_arch}/share/mocktool/runtime"
-cat > "$TAR_STAGING/mocktool-${_mock_os}-${_mock_arch}/bin/mocktool" <<'TOOL'
+cat >"$TAR_STAGING/mocktool-${_mock_os}-${_mock_arch}/bin/mocktool" <<'TOOL'
 #!/usr/bin/env bash
 echo "mocktool v2.0.0"
 TOOL
 chmod +x "$TAR_STAGING/mocktool-${_mock_os}-${_mock_arch}/bin/mocktool"
-echo "runtime-data" > "$TAR_STAGING/mocktool-${_mock_os}-${_mock_arch}/share/mocktool/runtime/init.lua"
+echo "runtime-data" >"$TAR_STAGING/mocktool-${_mock_os}-${_mock_arch}/share/mocktool/runtime/init.lua"
 TAR_FILE="$TAR_STAGING/mocktool.tar.gz"
 tar czf "$TAR_FILE" -C "$TAR_STAGING" "mocktool-${_mock_os}-${_mock_arch}"
 
-cat > "$TAR_CURL_BIN/curl" <<EOF
+cat >"$TAR_CURL_BIN/curl" <<EOF
 #!/usr/bin/env bash
 if [[ "\$*" == *"/releases/latest"* ]]; then
     printf '%s\n' '{"tag_name":"v2.0.0","assets":[{"browser_download_url":"https://example.com/mocktool-${_mock_os}-${_mock_arch}.tar.gz"}]}'
@@ -453,16 +466,16 @@ chmod +x "$TAR_CURL_BIN/curl"
 
 export DOT_FORCE=1
 HOME="$TAR_BIN_DIR" \
-PATH="$TAR_CURL_BIN:$PATH" \
-DOT_TEST_REAL_CURL="$REAL_CURL_BIN" \
-_install_binary "mocktool" "mocktool" "fixture/mocktool" >/dev/null 2>&1
+  PATH="$TAR_CURL_BIN:$PATH" \
+  DOT_TEST_REAL_CURL="$REAL_CURL_BIN" \
+  _install_binary "mocktool" "mocktool" "fixture/mocktool" >/dev/null 2>&1
 export DOT_FORCE=0
 
 _assert_file_exists "install_binary tarball: symlink created" "$TAR_BIN_DIR/.local/bin/mocktool"
 if [[ -L "$TAR_BIN_DIR/.local/bin/mocktool" ]]; then
-    _pass "install_binary tarball: is a symlink"
+  _pass "install_binary tarball: is a symlink"
 else
-    _fail "install_binary tarball: is a symlink"
+  _fail "install_binary tarball: is a symlink"
 fi
 _assert_file_exists "install_binary tarball: full tree in share" "$TAR_BIN_DIR/.local/share/mocktool/share/mocktool/runtime/init.lua"
 _assert_file_content "install_binary tarball: runtime data intact" "runtime-data" "$TAR_BIN_DIR/.local/share/mocktool/share/mocktool/runtime/init.lua"
@@ -470,13 +483,16 @@ tar_result=$("$TAR_BIN_DIR/.local/bin/mocktool" 2>&1)
 _assert_eq "install_binary tarball: binary runs" "mocktool v2.0.0" "$tar_result"
 
 # Custom hooks should not be due again immediately after a successful run.
-rc=0; _dep_hook_due "nerd-fonts" || rc=$?
+rc=0
+_dep_hook_due "nerd-fonts" || rc=$?
 _assert_exit "hook_due: custom hook initially due" 0 "$rc"
 _dep_hook_touch "nerd-fonts"
-rc=0; _dep_hook_due "nerd-fonts" || rc=$?
+rc=0
+_dep_hook_due "nerd-fonts" || rc=$?
 _assert_exit "hook_due: touched hook is skipped" 1 "$rc"
 export DOT_FORCE=1
-rc=0; _dep_hook_due "nerd-fonts" || rc=$?
+rc=0
+_dep_hook_due "nerd-fonts" || rc=$?
 _assert_exit "hook_due: force bypasses hook cache" 0 "$rc"
 export DOT_FORCE=0
 
@@ -490,63 +506,65 @@ LOCAL_INSTALL_DIR="$TEST_HOME/.local/share/$LOCAL_CLONE_NAME"
 unset _DEPS_CHANGED["$LOCAL_CLONE_NAME"] 2>/dev/null || true
 _install_from_github "$LOCAL_CLONE_NAME" "fixture/${LOCAL_CLONE_NAME}.git" "$LOCAL_INSTALL_DIR" >/dev/null 2>&1
 if [[ -n "${_DEPS_CHANGED[$LOCAL_CLONE_NAME]+x}" ]]; then
-    _pass "install_from_github: first local clone marks changed"
+  _pass "install_from_github: first local clone marks changed"
 else
-    _fail "install_from_github: first local clone marks changed"
+  _fail "install_from_github: first local clone marks changed"
 fi
 unset _DEPS_CHANGED["$LOCAL_CLONE_NAME"] 2>/dev/null || true
 _install_from_github "$LOCAL_CLONE_NAME" "fixture/${LOCAL_CLONE_NAME}.git" "$LOCAL_INSTALL_DIR" >/dev/null 2>&1
 if [[ -n "${_DEPS_CHANGED[$LOCAL_CLONE_NAME]+x}" ]]; then
-    _fail "install_from_github: steady local clone skips changed marker"
+  _fail "install_from_github: steady local clone skips changed marker"
 else
-    _pass "install_from_github: steady local clone skips changed marker"
+  _pass "install_from_github: steady local clone skips changed marker"
 fi
-echo "tool 2" > "$LOCAL_CLONE_DIR/README"
+echo "tool 2" >"$LOCAL_CLONE_DIR/README"
 git -C "$LOCAL_CLONE_DIR" add README
 git -C "$LOCAL_CLONE_DIR" commit -m "local update" >/dev/null 2>&1
 unset _DEPS_CHANGED["$LOCAL_CLONE_NAME"] 2>/dev/null || true
 _install_from_github "$LOCAL_CLONE_NAME" "fixture/${LOCAL_CLONE_NAME}.git" "$LOCAL_INSTALL_DIR" >/dev/null 2>&1
 if [[ -n "${_DEPS_CHANGED[$LOCAL_CLONE_NAME]+x}" ]]; then
-    _pass "install_from_github: local clone revision change marks changed"
+  _pass "install_from_github: local clone revision change marks changed"
 else
-    _fail "install_from_github: local clone revision change marks changed"
+  _fail "install_from_github: local clone revision change marks changed"
 fi
-echo "tool 3" > "$LOCAL_CLONE_DIR/README"
+echo "tool 3" >"$LOCAL_CLONE_DIR/README"
 unset _DEPS_CHANGED["$LOCAL_CLONE_NAME"] 2>/dev/null || true
 _install_from_github "$LOCAL_CLONE_NAME" "fixture/${LOCAL_CLONE_NAME}.git" "$LOCAL_INSTALL_DIR" >/dev/null 2>&1
 if [[ -n "${_DEPS_CHANGED[$LOCAL_CLONE_NAME]+x}" ]]; then
-    _pass "install_from_github: dirty local clone marks changed"
+  _pass "install_from_github: dirty local clone marks changed"
 else
-    _fail "install_from_github: dirty local clone marks changed"
+  _fail "install_from_github: dirty local clone marks changed"
 fi
 git -C "$LOCAL_CLONE_DIR" add README
 unset _DEPS_CHANGED["$LOCAL_CLONE_NAME"] 2>/dev/null || true
 _install_from_github "$LOCAL_CLONE_NAME" "fixture/${LOCAL_CLONE_NAME}.git" "$LOCAL_INSTALL_DIR" >/dev/null 2>&1
 if [[ -n "${_DEPS_CHANGED[$LOCAL_CLONE_NAME]+x}" ]]; then
-    _pass "install_from_github: staged local clone marks changed"
+  _pass "install_from_github: staged local clone marks changed"
 else
-    _fail "install_from_github: staged local clone marks changed"
+  _fail "install_from_github: staged local clone marks changed"
 fi
 git -C "$LOCAL_CLONE_DIR" reset --hard HEAD >/dev/null 2>&1
-echo "extra" > "$LOCAL_CLONE_DIR/EXTRA"
+echo "extra" >"$LOCAL_CLONE_DIR/EXTRA"
 unset _DEPS_CHANGED["$LOCAL_CLONE_NAME"] 2>/dev/null || true
 _install_from_github "$LOCAL_CLONE_NAME" "fixture/${LOCAL_CLONE_NAME}.git" "$LOCAL_INSTALL_DIR" >/dev/null 2>&1
 if [[ -n "${_DEPS_CHANGED[$LOCAL_CLONE_NAME]+x}" ]]; then
-    _pass "install_from_github: untracked local clone marks changed"
+  _pass "install_from_github: untracked local clone marks changed"
 else
-    _fail "install_from_github: untracked local clone marks changed"
+  _fail "install_from_github: untracked local clone marks changed"
 fi
 
 _DEPS=("fail-hook|custom")
 mkdir -p "$TEST_HOME/.config/dot/deps-hooks.d"
-cat > "$TEST_HOME/.config/dot/deps-hooks.d/fail-hook.sh" <<'HOOK'
+cat >"$TEST_HOME/.config/dot/deps-hooks.d/fail-hook.sh" <<'HOOK'
 post() { return 1; }
 HOOK
 declare -gA _DEPS_CHANGED=(["fail-hook"]=1)
-rc=0; _dep_hook_due "fail-hook" || rc=$?
+rc=0
+_dep_hook_due "fail-hook" || rc=$?
 _assert_exit "hook_due: failing hook starts due" 0 "$rc"
 _run_post_hooks >/dev/null 2>&1
-rc=0; _dep_hook_due "fail-hook" || rc=$?
+rc=0
+_dep_hook_due "fail-hook" || rc=$?
 _assert_exit "hook_due: failing hook remains due" 0 "$rc"
 rm -f "$TEST_HOME/.config/dot/deps-hooks.d/fail-hook.sh"
 
@@ -557,22 +575,26 @@ rm -f "$TEST_HOME/.config/dot/deps-hooks.d/fail-hook.sh"
 echo ""
 echo "=== Dep existence checks ==="
 
-rc=0; _dep_exists "bash" "" || rc=$?
+rc=0
+_dep_exists "bash" "" || rc=$?
 _assert_exit "dep_exists: present cmd" 0 "$rc"
 
-rc=0; _dep_exists "nonexistent_xyz_123" "bash" || rc=$?
+rc=0
+_dep_exists "nonexistent_xyz_123" "bash" || rc=$?
 _assert_exit "dep_exists: alt cmd present" 0 "$rc"
 
-rc=0; _dep_exists "nonexistent_xyz_123" "nonexistent_abc_456" || rc=$?
+rc=0
+_dep_exists "nonexistent_xyz_123" "nonexistent_abc_456" || rc=$?
 _assert_exit "dep_exists: neither present" 1 "$rc"
 
-rc=0; _dep_exists "" "" || rc=$?
+rc=0
+_dep_exists "" "" || rc=$?
 _assert_exit "dep_exists: empty cmd and name" 1 "$rc"
 
 # Package manager fallback — mock brew list
 DEP_MOCK_BIN=$(_mock_bin)
 export PATH="$DEP_MOCK_BIN:$PATH"
-cat > "$DEP_MOCK_BIN/brew" <<'BREW'
+cat >"$DEP_MOCK_BIN/brew" <<'BREW'
 #!/bin/bash
 # Mock brew: "list <name>" succeeds for "installed-font", fails for others
 if [[ "$1" == "list" && "$2" == "installed-font" ]]; then exit 0; fi
@@ -580,21 +602,24 @@ exit 1
 BREW
 chmod +x "$DEP_MOCK_BIN/brew"
 # Mock uname for _pkg_detect
-cat > "$DEP_MOCK_BIN/uname" <<'UNAME'
+cat >"$DEP_MOCK_BIN/uname" <<'UNAME'
 #!/bin/bash
 echo "Darwin"
 UNAME
 chmod +x "$DEP_MOCK_BIN/uname"
 PATH="$DEP_MOCK_BIN:$PATH" _pkg_detect
 
-rc=0; PATH="$DEP_MOCK_BIN:$PATH" _dep_exists "" "" "installed-font" || rc=$?
+rc=0
+PATH="$DEP_MOCK_BIN:$PATH" _dep_exists "" "" "installed-font" || rc=$?
 _assert_exit "dep_exists: pkg mgr fallback found" 0 "$rc"
 
-rc=0; PATH="$DEP_MOCK_BIN:$PATH" _dep_exists "" "" "not-installed-font" || rc=$?
+rc=0
+PATH="$DEP_MOCK_BIN:$PATH" _dep_exists "" "" "not-installed-font" || rc=$?
 _assert_exit "dep_exists: pkg mgr fallback not found" 1 "$rc"
 
 # cmd takes priority over pkg manager fallback
-rc=0; _dep_exists "bash" "" "not-installed-font" || rc=$?
+rc=0
+_dep_exists "bash" "" "not-installed-font" || rc=$?
 _assert_exit "dep_exists: cmd found ignores pkg mgr" 0 "$rc"
 
 # ---------------------------------------------------------------------------
@@ -606,8 +631,8 @@ echo "=== Package manager detection ==="
 
 PKG_BIN=$(_tmpdir)
 _make_pkg_cmd() {
-    echo '#!/usr/bin/env bash' > "$PKG_BIN/$1"
-    chmod +x "$PKG_BIN/$1"
+  echo '#!/usr/bin/env bash' >"$PKG_BIN/$1"
+  chmod +x "$PKG_BIN/$1"
 }
 
 # All present on macOS → brew wins
@@ -616,7 +641,7 @@ _make_pkg_cmd apt-get
 _make_pkg_cmd dnf
 _make_pkg_cmd pacman
 # Mock uname to return Darwin for brew detection
-cat > "$PKG_BIN/uname" <<'UNAME'
+cat >"$PKG_BIN/uname" <<'UNAME'
 #!/bin/bash
 echo "Darwin"
 UNAME
@@ -698,7 +723,7 @@ echo "=== Package queuing ==="
 _PKG_MGR="dnf"
 _PKG_BATCH=()
 # Run in current shell so _PKG_BATCH is modified, capture output via temp file
-_pkg_queue "fd" "apt:fd-find,dnf:fd-find" > /tmp/_pkg_queue_out 2>&1
+_pkg_queue "fd" "apt:fd-find,dnf:fd-find" >/tmp/_pkg_queue_out 2>&1
 result=$(cat /tmp/_pkg_queue_out)
 rm -f /tmp/_pkg_queue_out
 _assert_eq "pkg_queue: resolved name in batch" "fd-find" "${_PKG_BATCH[0]}"
@@ -708,7 +733,7 @@ _assert_contains "pkg_queue: logs queuing" "queued" "$result"
 _PKG_MGR="apt"
 _PKG_BATCH=()
 _PKG_BATCH_NAMES=()
-_pkg_queue "myfont" "apt:NONE" > /tmp/_pkg_queue_out 2>&1
+_pkg_queue "myfont" "apt:NONE" >/tmp/_pkg_queue_out 2>&1
 result=$(cat /tmp/_pkg_queue_out)
 rm -f /tmp/_pkg_queue_out
 _assert_eq "pkg_queue NONE: batch empty" "0" "${#_PKG_BATCH[@]}"
@@ -718,7 +743,7 @@ _assert_eq "pkg_queue NONE: silent skip" "" "$result"
 _PKG_MGR="brew"
 _PKG_BATCH=()
 _PKG_BATCH_NAMES=()
-_pkg_queue "myfont" "apt:NONE" > /tmp/_pkg_queue_out 2>&1
+_pkg_queue "myfont" "apt:NONE" >/tmp/_pkg_queue_out 2>&1
 result=$(cat /tmp/_pkg_queue_out)
 rm -f /tmp/_pkg_queue_out
 _assert_eq "pkg_queue brew: queued" "1" "${#_PKG_BATCH[@]}"
@@ -744,7 +769,6 @@ result=$(_pkg_install_batch 2>&1)
 _assert_eq "pkg_batch: cron silent skip" "" "$result"
 DOT_QUIET=0
 
-
 # ---------------------------------------------------------------------------
 # Tests: custom method
 # ---------------------------------------------------------------------------
@@ -755,7 +779,7 @@ echo "=== Custom method ==="
 # custom method marks dep as changed (so hook runs)
 declare -gA _DEPS_CHANGED=()
 _install_dep "my-custom-dep|custom"
-_assert_eq "custom: marked as changed" "1" "${_DEPS_CHANGED[my-custom-dep]}"
+_assert_eq "custom: marked as changed" "1" "${_DEPS_CHANGED["my-custom-dep"]}"
 
 # custom method doesn't queue any packages
 _PKG_BATCH=()
@@ -764,10 +788,10 @@ _install_dep "another-custom|custom"
 _assert_eq "custom: no pkg queued" "0" "${#_PKG_BATCH[@]}"
 
 # custom hook runs via _run_post_hooks
-declare -gA _DEPS_CHANGED=([hook-test]=1)
+declare -gA _DEPS_CHANGED=(["hook-test"]=1)
 _DEPS=("hook-test|custom")
 mkdir -p "$TEST_HOME/.config/dot/deps-hooks.d"
-cat > "$TEST_HOME/.config/dot/deps-hooks.d/hook-test.sh" <<'HOOK'
+cat >"$TEST_HOME/.config/dot/deps-hooks.d/hook-test.sh" <<'HOOK'
 post() {
   echo "CUSTOM_HOOK_RAN" > "$HOME/.custom-hook-result"
 }
@@ -787,18 +811,18 @@ echo "=== Hook auto-discovery ==="
 # Setup: clean slate with two deps that have hook files
 rm -rf "$TEST_HOME/.config/dot/deps-hooks.d"
 mkdir -p "$TEST_HOME/.config/dot/deps-hooks.d"
-cat > "$TEST_HOME/.config/dot/deps.conf" <<'CONF'
+cat >"$TEST_HOME/.config/dot/deps.conf" <<'CONF'
 alpha  custom
 beta   custom
 CONF
 _dep_load
 
 # Create hook files for both deps
-cat > "$TEST_HOME/.config/dot/deps-hooks.d/alpha.sh" <<'HOOK'
+cat >"$TEST_HOME/.config/dot/deps-hooks.d/alpha.sh" <<'HOOK'
 post() { echo "ALPHA" > "$HOME/.alpha-result"; }
 status() { return 0; }
 HOOK
-cat > "$TEST_HOME/.config/dot/deps-hooks.d/beta.sh" <<'HOOK'
+cat >"$TEST_HOME/.config/dot/deps-hooks.d/beta.sh" <<'HOOK'
 post() { echo "BETA" > "$HOME/.beta-result"; }
 HOOK
 
@@ -813,7 +837,7 @@ rm -f "$TEST_HOME/.alpha-result" "$TEST_HOME/.beta-result"
 
 # Status hook ran — functions are unset between files, so verify via side effect
 # Re-run with a status hook that creates a marker file
-cat > "$TEST_HOME/.config/dot/deps-hooks.d/alpha.sh" <<'HOOK'
+cat >"$TEST_HOME/.config/dot/deps-hooks.d/alpha.sh" <<'HOOK'
 post() { echo "ALPHA" > "$HOME/.alpha-result"; }
 status() { echo "STATUS_RAN" > "$HOME/.alpha-status"; return 0; }
 HOOK
@@ -826,7 +850,7 @@ echo ""
 echo "=== Hook isolation ==="
 
 # Create an orphan hook file for a dep NOT in deps.conf
-cat > "$TEST_HOME/.config/dot/deps-hooks.d/orphan.sh" <<'HOOK'
+cat >"$TEST_HOME/.config/dot/deps-hooks.d/orphan.sh" <<'HOOK'
 post() { echo "ORPHAN" > "$HOME/.orphan-result"; }
 HOOK
 
@@ -840,7 +864,7 @@ echo ""
 echo "=== Hook error handling ==="
 
 # Create a hook file with a syntax error
-cat > "$TEST_HOME/.config/dot/deps-hooks.d/alpha.sh" <<'HOOK'
+cat >"$TEST_HOME/.config/dot/deps-hooks.d/alpha.sh" <<'HOOK'
 post() {
   if [[ true; then echo broken; fi
 }
@@ -858,17 +882,17 @@ echo "=== Hook syntax (bash -n) ==="
 # Verify all real hook files pass syntax check
 syntax_ok=1
 for f in "$REAL_HOME/.config/dot/deps-hooks.d"/*.sh; do
-    if ! bash -n "$f" 2>/dev/null; then
-        _fail "syntax: $(basename "$f")"
-        syntax_ok=0
-    fi
+  if ! bash -n "$f" 2>/dev/null; then
+    _fail "syntax: $(basename "$f")"
+    syntax_ok=0
+  fi
 done
 if [[ "$syntax_ok" -eq 1 ]]; then
-    _pass "syntax: all hook files pass bash -n"
+  _pass "syntax: all hook files pass bash -n"
 fi
 
 # Restore deps.conf for remaining tests
-cat > "$TEST_HOME/.config/dot/deps.conf" <<'CONF'
+cat >"$TEST_HOME/.config/dot/deps.conf" <<'CONF'
 jq    pkg
 bat   pkg   bat   batcat
 test-tool  git   test-tool   -   -   fixture/test-tool.git   .local/share/test-tool
@@ -889,7 +913,7 @@ $GIT fetch origin >/dev/null 2>&1
 BRANCH=$($GIT branch --show-current 2>/dev/null || echo "main")
 
 # Create a conflicting file (same path as a repo-tracked file)
-echo "local content" > "$TEST_HOME/.testrc"
+echo "local content" >"$TEST_HOME/.testrc"
 
 BACKUP="$TEST_HOME/.dotfiles-backup/test1"
 result=$(_backup_and_checkout 2>&1)
@@ -899,10 +923,10 @@ _assert_contains "shows checkout message" "checking out" "$result"
 
 # Conflicting file was backed up
 if [[ -f "$BACKUP/.testrc" ]]; then
-    _pass "conflicting file backed up"
-    _assert_file_content "backup has original content" "local content" "$BACKUP/.testrc"
+  _pass "conflicting file backed up"
+  _assert_file_content "backup has original content" "local content" "$BACKUP/.testrc"
 else
-    _fail "conflicting file backed up"
+  _fail "conflicting file backed up"
 fi
 
 # Checked-out file restored from repo
@@ -910,7 +934,7 @@ _assert_file_exists "repo file restored" "$TEST_HOME/.testrc"
 _assert_file_content "restored file has repo content" "initial" "$TEST_HOME/.testrc"
 
 # Untracked file is NOT backed up or removed
-echo "untracked" > "$TEST_HOME/untracked_file"
+echo "untracked" >"$TEST_HOME/untracked_file"
 BACKUP="$TEST_HOME/.dotfiles-backup/test2"
 _backup_and_checkout >/dev/null 2>&1
 _assert_file_missing "untracked file not backed up" "$BACKUP/untracked_file"
@@ -922,9 +946,9 @@ rm -f "$TEST_HOME/.testrc" "$TEST_HOME/.config/dot/placeholder"
 BACKUP="$TEST_HOME/.dotfiles-backup/test3"
 _backup_and_checkout >/dev/null 2>&1
 if [[ ! -d "$BACKUP" ]]; then
-    _pass "empty backup dir removed"
+  _pass "empty backup dir removed"
 else
-    _fail "empty backup dir removed"
+  _fail "empty backup dir removed"
 fi
 
 # ---------------------------------------------------------------------------
@@ -951,8 +975,8 @@ _assert_contains "invalid type mentions work" "work" "$result"
 # Both valid types are accepted (they fail later on git operations,
 # but they pass arg validation — verify no usage error)
 for mtype in personal work; do
-    result=$("$SCRIPT_DIR/dotbootstrap" "$mtype" 2>&1 || true)
-    _assert_not_contains "$mtype: passes arg validation" "Usage:" "$result"
+  result=$("$SCRIPT_DIR/dotbootstrap" "$mtype" 2>&1 || true)
+  _assert_not_contains "$mtype: passes arg validation" "Usage:" "$result"
 done
 
 # ---------------------------------------------------------------------------
@@ -964,36 +988,36 @@ done
 # overrides so we can point generic fixture deps at these test repos.
 
 _seed_repo() {
-    # $1 = bare repo path (will be created)
-    # $2 = staging dir (caller populates before calling)
-    # Inits bare, clones, commits staging content, pushes.
-    local bare="$1" staging="$2"
-    git init --bare "$bare" >/dev/null 2>&1
-    git clone "$bare" "$staging/.git-tmp" >/dev/null 2>&1
-    # Move .git into staging dir
-    mv "$staging/.git-tmp/.git" "$staging/.git"
-    rm -rf "$staging/.git-tmp"
-    git -C "$staging" config user.email "test@test.com"
-    git -C "$staging" config user.name "Test"
-    git -C "$staging" add -A >/dev/null 2>&1
-    git -C "$staging" commit -m "seed" >/dev/null 2>&1
-    git -C "$staging" push >/dev/null 2>&1
+  # $1 = bare repo path (will be created)
+  # $2 = staging dir (caller populates before calling)
+  # Inits bare, clones, commits staging content, pushes.
+  local bare="$1" staging="$2"
+  git init --bare "$bare" >/dev/null 2>&1
+  git clone "$bare" "$staging/.git-tmp" >/dev/null 2>&1
+  # Move .git into staging dir
+  mv "$staging/.git-tmp/.git" "$staging/.git"
+  rm -rf "$staging/.git-tmp"
+  git -C "$staging" config user.email "test@test.com"
+  git -C "$staging" config user.name "Test"
+  git -C "$staging" add -A >/dev/null 2>&1
+  git -C "$staging" commit -m "seed" >/dev/null 2>&1
+  git -C "$staging" push >/dev/null 2>&1
 }
 
 # --- Personal dotfiles origin ---
 PERSONAL_STAGING=$(_tmpdir)
 mkdir -p "$PERSONAL_STAGING/.config/dot"
-echo "bashrc content" > "$PERSONAL_STAGING/.bashrc"
+echo "bashrc content" >"$PERSONAL_STAGING/.bashrc"
 
 for _f in init.sh core.sh repos.sh merges.sh cron.sh deps.sh; do
   cp "$REAL_HOME/.config/dot/$_f" "$PERSONAL_STAGING/.config/dot/$_f"
 done
-cat > "$PERSONAL_STAGING/.config/dot/deps.conf" <<'CONF'
+cat >"$PERSONAL_STAGING/.config/dot/deps.conf" <<'CONF'
 test-tool  git  -  -  -  fixture/test-tool.git  .local/share/test-tool
 hook-pack  git  -  -  -  fixture/hook-pack.git  .local/share/hook-pack
 CONF
 mkdir -p "$PERSONAL_STAGING/.config/dot/deps-hooks.d"
-cat > "$PERSONAL_STAGING/.config/dot/deps-hooks.d/hook-pack.sh" <<'HOOK'
+cat >"$PERSONAL_STAGING/.config/dot/deps-hooks.d/hook-pack.sh" <<'HOOK'
 post() {
   mkdir -p "$HOME/.test-hooks"
   printf '%s\n' "$HOME/.local/share/hook-pack" > "$HOME/.test-hooks/hook-pack"
@@ -1001,7 +1025,7 @@ post() {
 HOOK
 
 mkdir -p "$PERSONAL_STAGING/.config/dot/merge-hooks.d"
-cat > "$PERSONAL_STAGING/.config/dot/merge-hooks.d/testapp.sh" <<'MERGE'
+cat >"$PERSONAL_STAGING/.config/dot/merge-hooks.d/testapp.sh" <<'MERGE'
 merge() { echo "MERGE_TESTAPP_RAN"; }
 MERGE
 
@@ -1010,9 +1034,9 @@ _seed_repo "$PERSONAL_ORIGIN" "$PERSONAL_STAGING"
 
 # --- Work dotfiles origin ---
 WORK_STAGING=$(_tmpdir)
-echo "work config" > "$WORK_STAGING/work-config"
+echo "work config" >"$WORK_STAGING/work-config"
 mkdir -p "$WORK_STAGING/home"
-echo "work shell" > "$WORK_STAGING/home/.testrc_work"
+echo "work shell" >"$WORK_STAGING/home/.testrc_work"
 
 WORK_ORIGIN=$(_tmpdir)
 _seed_repo "$WORK_ORIGIN" "$WORK_STAGING"
@@ -1020,7 +1044,7 @@ _seed_repo "$WORK_ORIGIN" "$WORK_STAGING"
 # --- test tool origin (stub with bin/test-tool) ---
 TEST_TOOL_STAGING=$(_tmpdir)
 mkdir -p "$TEST_TOOL_STAGING/bin"
-echo '#!/bin/bash' > "$TEST_TOOL_STAGING/bin/test-tool"
+echo '#!/bin/bash' >"$TEST_TOOL_STAGING/bin/test-tool"
 chmod +x "$TEST_TOOL_STAGING/bin/test-tool"
 
 TEST_TOOL_ORIGIN=$(_tmpdir)
@@ -1029,7 +1053,7 @@ _seed_repo "$TEST_TOOL_ORIGIN" "$TEST_TOOL_STAGING"
 # --- hook pack origin (stub content for a generic post-install hook) ---
 HOOK_PACK_STAGING=$(_tmpdir)
 mkdir -p "$HOOK_PACK_STAGING/review"
-echo "# hook pack" > "$HOOK_PACK_STAGING/review/README.md"
+echo "# hook pack" >"$HOOK_PACK_STAGING/review/README.md"
 
 HOOK_PACK_ORIGIN=$(_tmpdir)
 _seed_repo "$HOOK_PACK_ORIGIN" "$HOOK_PACK_STAGING"
@@ -1038,16 +1062,16 @@ _seed_repo "$HOOK_PACK_ORIGIN" "$HOOK_PACK_STAGING"
 # Pre-clones the personal bare repo (dotbootstrap no longer auto-clones).
 # Usage: _run_bootstrap <home> [<machine-type>]
 _run_bootstrap() {
-    local home="$1"
-    shift
-    if [[ ! -d "$home/.dotfiles" ]]; then
-        git clone --bare "$PERSONAL_ORIGIN" "$home/.dotfiles" >/dev/null 2>&1
-    fi
-    HOME="$home" \
-        DOTBOOTSTRAP_WORK_REPO="$WORK_ORIGIN" \
-        DOTBOOTSTRAP_TEST_TOOL_REPO="$TEST_TOOL_ORIGIN" \
-        DOTBOOTSTRAP_HOOK_PACK_REPO="$HOOK_PACK_ORIGIN" \
-        "$SCRIPT_DIR/dotbootstrap" "$@" 2>&1
+  local home="$1"
+  shift
+  if [[ ! -d "$home/.dotfiles" ]]; then
+    git clone --bare "$PERSONAL_ORIGIN" "$home/.dotfiles" >/dev/null 2>&1
+  fi
+  HOME="$home" \
+    DOTBOOTSTRAP_WORK_REPO="$WORK_ORIGIN" \
+    DOTBOOTSTRAP_TEST_TOOL_REPO="$TEST_TOOL_ORIGIN" \
+    DOTBOOTSTRAP_HOOK_PACK_REPO="$HOOK_PACK_ORIGIN" \
+    "$SCRIPT_DIR/dotbootstrap" "$@" 2>&1
 }
 
 # ---- Fresh personal install ----
@@ -1060,9 +1084,9 @@ result=$(_run_bootstrap "$FRESH" personal)
 
 # Bare repo present (pre-cloned by _run_bootstrap)
 if [[ -d "$FRESH/.dotfiles" ]]; then
-    _pass "personal: .dotfiles present"
+  _pass "personal: .dotfiles present"
 else
-    _fail "personal: .dotfiles present"
+  _fail "personal: .dotfiles present"
 fi
 
 # Git config applied
@@ -1078,9 +1102,9 @@ _assert_file_exists "personal: init.sh checked out" "$FRESH/.config/dot/init.sh"
 
 # Work repo NOT cloned
 if [[ ! -d "$FRESH/.dotfiles-work" ]]; then
-    _pass "personal: no work repo"
+  _pass "personal: no work repo"
 else
-    _fail "personal: no work repo"
+  _fail "personal: no work repo"
 fi
 
 # Merge scripts ran
@@ -1109,16 +1133,16 @@ _assert_file_exists "work: .bashrc checked out" "$FRESH_WORK/.bashrc"
 
 # Work repo cloned
 if [[ -d "$FRESH_WORK/.dotfiles-work" ]]; then
-    _pass "work: work repo cloned"
+  _pass "work: work repo cloned"
 else
-    _fail "work: work repo cloned"
+  _fail "work: work repo cloned"
 fi
 _assert_file_exists "work: work config present" "$FRESH_WORK/.dotfiles-work/work-config"
 _assert_contains "work: work files linked" "Linking work dotfiles" "$result"
 if [[ -L "$FRESH_WORK/.testrc_work" ]]; then
-    _pass "work: symlink created"
+  _pass "work: symlink created"
 else
-    _fail "work: symlink created"
+  _fail "work: symlink created"
 fi
 
 # Done message

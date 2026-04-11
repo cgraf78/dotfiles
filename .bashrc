@@ -7,21 +7,21 @@
 #   _shell_source_dir dir         — *.sh only
 #   _shell_source_dir dir bash    — *.bash and *.sh, sorted together
 _shell_source_dir() {
-    local f
-    local -a files=()
-    for f in "$1"/*.sh; do [ -f "$f" ] && files+=("$f"); done
-    if [ -n "${2:-}" ]; then
-        for f in "$1"/*."$2"; do [ -f "$f" ] && files+=("$f"); done
-    fi
-    IFS=$'\n' read -r -d '' -a files < <(printf '%s\n' "${files[@]}" | sort) || true
-    for f in "${files[@]}"; do . "$f"; done
+  local f
+  local -a files=()
+  for f in "$1"/*.sh; do [ -f "$f" ] && files+=("$f"); done
+  if [ -n "${2:-}" ]; then
+    for f in "$1"/*."$2"; do [ -f "$f" ] && files+=("$f"); done
+  fi
+  IFS=$'\n' read -r -d '' -a files < <(printf '%s\n' "${files[@]}" | sort) || true
+  for f in "${files[@]}"; do . "$f"; done
 }
 
 # Environment
 _shell_source_dir ~/.config/shell/env.d bash
 
 # Non-interactive? Stop here.
-case $- in *i*) ;; *) return;; esac
+case $- in *i*) ;; *) return ;; esac
 
 # Interactive
 _shell_source_dir ~/.config/shell/interactive.d bash

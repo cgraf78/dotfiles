@@ -28,11 +28,11 @@ post() {
   fi
 
   case "${_PKG_MGR:-}" in
-    apt|dnf|pacman) ;;
-    *)
-      _warn "  warning: no install method for xclip on ${_PKG_MGR:-unknown}"
-      return 1
-      ;;
+  apt | dnf | pacman) ;;
+  *)
+    _warn "  warning: no install method for xclip on ${_PKG_MGR:-unknown}"
+    return 1
+    ;;
   esac
 
   if ! _require_sudo; then
@@ -42,16 +42,16 @@ post() {
 
   local rc=0
   case "${_PKG_MGR:-}" in
-    apt)
-      sudo apt-get update -qq >/dev/null 2>&1 || true
-      sudo apt-get install -y xclip >/dev/null 2>&1 || rc=$?
-      ;;
-    dnf)
-      sudo dnf install -y xclip >/dev/null 2>&1 || rc=$?
-      ;;
-    pacman)
-      sudo pacman -S --needed --noconfirm xclip >/dev/null 2>&1 || rc=$?
-      ;;
+  apt)
+    sudo apt-get update -qq >/dev/null 2>&1 || true
+    sudo apt-get install -y xclip >/dev/null 2>&1 || rc=$?
+    ;;
+  dnf)
+    sudo dnf install -y xclip >/dev/null 2>&1 || rc=$?
+    ;;
+  pacman)
+    sudo pacman -S --needed --noconfirm xclip >/dev/null 2>&1 || rc=$?
+    ;;
   esac
 
   if [[ $rc -ne 0 ]]; then
