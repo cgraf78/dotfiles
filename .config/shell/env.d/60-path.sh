@@ -10,6 +10,7 @@ if [ -d "$HOME/.bun/bin" ]; then
   PATH="$BUN_INSTALL/bin:$PATH"
 fi
 
+# shellcheck disable=SC1091  # optional local tool bootstrap script
 [ -f "$HOME/.atuin/bin/env" ] && . "$HOME/.atuin/bin/env"
 # shellcheck disable=SC1091  # optional local rust bootstrap script
 [ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"

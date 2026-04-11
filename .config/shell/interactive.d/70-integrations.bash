@@ -9,6 +9,7 @@ if [[ "$_UNAME" == "Darwin" ]]; then
   if [[ -z "${NVIM:-}" ]]; then
     # shellcheck disable=SC1091  # optional local integration script
     test -e "${HOME}/.iterm2_shell_integration.bash" && . "${HOME}/.iterm2_shell_integration.bash"
+    # shellcheck disable=SC1091  # optional local app integration script
     test -e "/Applications/WezTerm.app/Contents/Resources/wezterm.sh" && . "/Applications/WezTerm.app/Contents/Resources/wezterm.sh"
   fi
 
@@ -51,13 +52,21 @@ if command -v fzf &>/dev/null; then
     fzf --bash 2>/dev/null | sed '/^### completion\.bash ###$/,$d'
   )" || true
 fi
-command -v ds &>/dev/null && eval "$(ds init bash)" || true
-command -v zoxide &>/dev/null && eval "$(zoxide init bash)" || true
+if command -v ds &>/dev/null; then
+  eval "$(ds init bash)" || true
+fi
+if command -v zoxide &>/dev/null; then
+  eval "$(zoxide init bash)" || true
+fi
 if [[ -f ~/.bash-preexec.sh ]]; then
   if [[ "$_UNAME" != "Linux" || -n "$TMUX" ]]; then
     # shellcheck disable=SC1090  # symlinked/generated local file path
     source ~/.bash-preexec.sh
   fi
 fi
-command -v atuin &>/dev/null && eval "$(atuin init bash --disable-up-arrow)" || true
-command -v direnv &>/dev/null && eval "$(direnv hook bash)" || true
+if command -v atuin &>/dev/null; then
+  eval "$(atuin init bash --disable-up-arrow)" || true
+fi
+if command -v direnv &>/dev/null; then
+  eval "$(direnv hook bash)" || true
+fi
