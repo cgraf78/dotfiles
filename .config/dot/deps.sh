@@ -755,20 +755,20 @@ _install_binary() {
       return 1
     fi
   elif [[ "$asset_lower" == *.gz ]]; then
-    if ! gunzip -f "$tmp_file" 2>/dev/null; then
-      rm -f "$tmp_file" "$log"
+    if ! gzip -dc "$tmp_file" > "$bin_path" 2>/dev/null; then
+      rm -f "$tmp_file" "$bin_path" "$log"
       _warn "  warning: failed to decompress $name .gz"
       return 1
     fi
-    mv "${tmp_file%.gz}" "$bin_path" 2>/dev/null || mv "$tmp_file" "$bin_path"
+    rm -f "$tmp_file"
     chmod u+x "$bin_path"
   elif [[ "$asset_lower" == *.bz2 ]]; then
-    if ! bunzip2 -f "$tmp_file" 2>/dev/null; then
-      rm -f "$tmp_file" "$log"
+    if ! bzip2 -dc "$tmp_file" > "$bin_path" 2>/dev/null; then
+      rm -f "$tmp_file" "$bin_path" "$log"
       _warn "  warning: failed to decompress $name .bz2"
       return 1
     fi
-    mv "${tmp_file%.bz2}" "$bin_path" 2>/dev/null || mv "$tmp_file" "$bin_path"
+    rm -f "$tmp_file"
     chmod u+x "$bin_path"
   elif [[ "$asset_lower" == *.zst ]]; then
     if ! command -v zstd &>/dev/null; then
