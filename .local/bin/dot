@@ -7,7 +7,8 @@
 #
 # Commands:
 #   dot update [--cron]        Sync everything (--cron: quiet, skip if dirty)
-#   dot pull/push/status/diff  Operates on both repos (requires bare repo)
+#   dot pull                   Same as update
+#   dot push/status/diff       Operates on both repos (requires bare repo)
 #   dot refresh                Fixes phantom dirty files from clean filters
 #   dot cron                   Show installed cron entries
 #   dot <anything>             Passes through to git (personal repo)
@@ -110,6 +111,10 @@ update)
   _finalize_update
   exit 0
   ;;
+pull)
+  shift
+  exec "$0" update "$@"
+  ;;
 cron)
   crontab -l 2>/dev/null || echo "  no crontab installed"
   exit 0
@@ -120,7 +125,7 @@ usage: dot <command> [<args>]
 
 Multi-repo commands (personal + work):
   update [--cron]  Sync everything: pull repos, merge configs, update deps
-  pull             Same as update (requires bare repo)
+  pull             Same as update
   fetch            Fetch both repos (without updating working copy)
   push             Push both repos
   status           Show status of both repos
@@ -171,11 +176,6 @@ push)
   _header "==> Pushing personal dotfiles..."
   $GIT push "$@"
   _push_work_repo "$@"
-  ;;
-pull)
-  shift
-  _pull_all "$@"
-  _finalize_update
   ;;
 refresh)
   _normalize_filtered
