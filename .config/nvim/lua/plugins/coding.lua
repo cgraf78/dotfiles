@@ -56,6 +56,11 @@ return {
     },
     config = function()
       require("conform").setup({
+        formatters = {
+          shfmt = {
+            prepend_args = { "-i", "2" },
+          },
+        },
         formatters_by_ft = {
           bash = { "shfmt" },
           c = { "clang-format" },
