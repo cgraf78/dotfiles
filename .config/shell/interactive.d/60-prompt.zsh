@@ -71,6 +71,7 @@ __cmd_time=""
 __prompt_preexec() { __cmd_start=$EPOCHSECONDS }
 __prompt_precmd() {
   local elapsed=$(( EPOCHSECONDS - ${__cmd_start:-$EPOCHSECONDS} ))
+  __cmd_start=$EPOCHSECONDS
   if (( elapsed >= 2 )); then
     # Pre-color with dim + \001/\002 wrappers so ZLE counts correctly.
     __cmd_time=$'\001\033[2m\002 '"${elapsed}s"$'\001\033[0m\002'

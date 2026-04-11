@@ -74,6 +74,7 @@ __cmd_time=""
 __prompt_preexec() { __cmd_start=$SECONDS; }
 __prompt_precmd() {
   local elapsed=$(( SECONDS - ${__cmd_start:-$SECONDS} ))
+  __cmd_start=$SECONDS
   if (( elapsed >= 2 )); then
     # Pre-color with dim + \001/\002 wrappers so readline counts correctly.
     __cmd_time=$'\001\033[2m\002 '"${elapsed}s"$'\001\033[0m\002'
