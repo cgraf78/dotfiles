@@ -9,9 +9,10 @@
 _shell_source_dir() {
   local f
   local -a files=()
-  for f in "$1"/*.sh; do [ -f "$f" ] && files+=("$f"); done
+  # (N.) — null glob (no error if no matches) + regular files only
+  for f in "$1"/*.sh(N.); do files+=("$f"); done
   if [ -n "${2:-}" ]; then
-    for f in "$1"/*."$2"; do [ -f "$f" ] && files+=("$f"); done
+    for f in "$1"/*."$2"(N.); do files+=("$f"); done
   fi
   files=(${(o)files})
   for f in "${files[@]}"; do . "$f"; done
