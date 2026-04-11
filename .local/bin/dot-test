@@ -64,7 +64,7 @@ echo "=== JSON ==="
 
 _json_failed=0
 while IFS= read -r _f; do
-  if ! diff <(jq --sort-keys . "${_lint_root}/${_f}") "${_lint_root}/${_f}" >/dev/null; then
+  if ! diff <(jq --sort-keys . "${_lint_root}/${_f}") <(jq . "${_lint_root}/${_f}") >/dev/null; then
     _fail "json-sort: ${_f} is not sorted"
     _json_failed=1
   fi
