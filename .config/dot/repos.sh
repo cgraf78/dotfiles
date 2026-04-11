@@ -109,14 +109,14 @@ _ensure_repo_config() {
   if [[ -d "$DOTFILES" ]]; then
     $GIT config pull.rebase true 2>/dev/null || true
     $GIT config rebase.autoStash true 2>/dev/null || true
-    $GIT config filter.json-sort.clean "jq --sort-keys . 2>/dev/null || cat" 2>/dev/null || true
-    $GIT config filter.json-sort.smudge "jq --sort-keys . 2>/dev/null || cat" 2>/dev/null || true
+    $GIT config --unset filter.json-sort.clean 2>/dev/null || true
+    $GIT config --unset filter.json-sort.smudge 2>/dev/null || true
   fi
   if [[ -d "$WORK_DIR/.git" ]]; then
     git -C "$WORK_DIR" config pull.rebase true 2>/dev/null || true
     git -C "$WORK_DIR" config rebase.autoStash true 2>/dev/null || true
-    git -C "$WORK_DIR" config filter.json-sort.clean "jq --sort-keys . 2>/dev/null || cat" 2>/dev/null || true
-    git -C "$WORK_DIR" config filter.json-sort.smudge "jq --sort-keys . 2>/dev/null || cat" 2>/dev/null || true
+    git -C "$WORK_DIR" config --unset filter.json-sort.clean 2>/dev/null || true
+    git -C "$WORK_DIR" config --unset filter.json-sort.smudge 2>/dev/null || true
   fi
 }
 

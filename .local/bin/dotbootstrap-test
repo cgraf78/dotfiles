@@ -1118,7 +1118,6 @@ fi
 _fgit="git --git-dir=$FRESH/.dotfiles --work-tree=$FRESH"
 _assert_eq "personal: showUntrackedFiles" "no" "$($_fgit config status.showUntrackedFiles)"
 _assert_eq "personal: pull.rebase" "true" "$($_fgit config pull.rebase)"
-_assert_contains "personal: json-sort filter" "jq" "$($_fgit config filter.json-sort.clean)"
 
 # Files checked out
 _assert_file_exists "personal: .bashrc checked out" "$FRESH/.bashrc"
