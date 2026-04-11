@@ -144,8 +144,6 @@ if [[ -d "$DOTFILES" ]]; then
   # ---------------------------------------------------------------------------
 
   $GIT config status.showUntrackedFiles no
-  $GIT config pull.rebase true
-  $GIT config rebase.autoStash true
 
   # json-sort filter: normalizes JSON on commit AND checkout (sorted keys).
   $GIT config filter.json-sort.clean "jq --sort-keys . 2>/dev/null || cat"

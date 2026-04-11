@@ -104,6 +104,10 @@ _pull_repo() {
 
 _pull_personal() {
   # shellcheck disable=SC2086  # $GIT is intentionally word-split (multi-word command).
+  $GIT config pull.rebase true 2>/dev/null || true
+  # shellcheck disable=SC2086
+  $GIT config rebase.autoStash true 2>/dev/null || true
+  # shellcheck disable=SC2086
   _pull_repo "$HOME" $GIT pull "$@"
 }
 
