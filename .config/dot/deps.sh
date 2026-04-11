@@ -746,10 +746,12 @@ _install_binary() {
     latest_ver=$(echo "$release_json" |
       grep -o '"tag_name":[[:space:]]*"[^"]*"' | cut -d'"' -f4)
   fi
+  # Extract numeric portion of tag for comparison (handles v1.2.3, rust-v1.2.3, etc.)
+  local latest_ver_num=""
+  latest_ver_num=$(echo "$latest_ver" | grep -oE '[0-9]+\.[0-9]+[0-9.]*' | head -1)
 
   # Skip if already up to date (unless force mode)
-  # Strip leading v for comparison (tags use v2.37.1, --version may not)
-  if [[ "${DOT_FORCE:-0}" -ne 1 && -n "$current_ver" && -n "$latest_ver" && "${current_ver#v}" == "${latest_ver#v}" ]]; then
+  if [[ "${DOT_FORCE:-0}" -ne 1 && -n "$current_ver" && -n "$latest_ver_num" && "$current_ver" == "$latest_ver_num" ]]; then
     rm -f "$tmp_file" "$log"
     _dep_remote_touch "$stamp" || true
     _log_dim "  $name up to date -- $current_ver"
@@ -836,7 +838,7 @@ _install_binary() {
   _DEPS_CHANGED[$name]=1
   if [[ -z "$current_ver" ]]; then
     _log_ok "  $name installed -- $latest_ver"
-  elif [[ "${current_ver#v}" == "${latest_ver#v}" ]]; then
+  elif [[ "$current_ver" == "$latest_ver_num" ]]; then
     _log_ok "  $name reinstalled -- $latest_ver"
   else
     _log_ok "  $name updated -- $current_ver -> $latest_ver"
