@@ -194,8 +194,6 @@ fi
 
 # ---------------------------------------------------------------------------
 # Work repo: pull/clone (work machines only)
-# Pull early so work files are available, but defer bootstrap until after
-# deps + merges so tools like jq and fonts are installed first.
 # ---------------------------------------------------------------------------
 
 if [[ "$MACHINE_TYPE" == "work" ]]; then
@@ -214,22 +212,8 @@ if [[ "$MACHINE_TYPE" == "work" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Dependencies (managed by _update_deps in deps.sh)
+# Finalize: deps, work symlinks, app config merges, normalize
 # ---------------------------------------------------------------------------
 
-_update_deps
-
-# ---------------------------------------------------------------------------
-# Work symlinks (must precede merges so work merge scripts are discovered)
-# ---------------------------------------------------------------------------
-
-_link_work_home
-
-# ---------------------------------------------------------------------------
-# App config merges
-# ---------------------------------------------------------------------------
-
-_run_merges
-
-_header "==> Done! Run 'source ~/.bashrc' or 'source ~/.zshrc' to activate."
+_finalize_update
 touch "$HOME/.dotbootstrap-done"

@@ -117,3 +117,20 @@ _is_wsl() {
   [[ -n "${WSL_DISTRO_NAME:-}" || -n "${WSL_INTEROP:-}" ]] && return 0
   [[ -r /proc/sys/kernel/osrelease ]] && grep -qi "microsoft" /proc/sys/kernel/osrelease
 }
+
+# ---------------------------------------------------------------------------
+# Shared finalize sequence
+# ---------------------------------------------------------------------------
+
+# Common post-pull steps shared by dot update, dot pull, and dotbootstrap.
+# Installs/upgrades deps, links work files, merges app configs, and cleans
+# up phantom dirty files.
+_finalize_update() {
+  _update_deps
+  _link_work_home
+  _run_merges
+  if [[ -d "$DOTFILES" ]]; then
+    _normalize_filtered
+  fi
+  _log_header "==> Done! Run 'source ~/.bashrc' or 'source ~/.zshrc' to activate."
+}

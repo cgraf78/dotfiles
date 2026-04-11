@@ -245,3 +245,24 @@ _dirty_files_match_remote() {
     _dirty_files_match_ref "$WORK_DIR" git -C "$WORK_DIR"
   fi
 }
+
+# Re-checkout files that are byte-different but identical after clean filter.
+# Fixes phantom dirty status from tools rewriting JSON with different key order.
+_normalize_filtered() {
+  # Warn if required filters from .gitattributes are missing in local config.
+  if [[ -f "$HOME/.gitattributes" ]] && grep -q "filter=json-sort" "$HOME/.gitattributes"; then
+    # shellcheck disable=SC2086
+    if ! $GIT config filter.json-sort.clean >/dev/null 2>&1; then
+      _warn "warning: json-sort filter is not configured. run 'dotbootstrap' to fix."
+    fi
+  fi
+
+  local dirty
+  dirty=$($GIT diff-files --name-only 2>/dev/null) || true
+  [[ -n "$dirty" ]] || return 0
+  echo "$dirty" | while IFS= read -r f; do
+    if $GIT diff --quiet -- "$f" 2>/dev/null; then
+      $GIT checkout -- "$f" 2>/dev/null || true
+    fi
+  done
+}

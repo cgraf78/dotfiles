@@ -23,34 +23,8 @@ set -euo pipefail
 
 CRON_MODE=0
 
-# ---------------------------------------------------------------------------
-# Functions (defined before case statements so all commands can use them)
-# ---------------------------------------------------------------------------
-
-# Re-checkout files that are byte-different but identical after clean filter.
-# Fixes phantom dirty status from tools rewriting JSON with different key order.
-_normalize_filtered() {
-  # Warn if required filters from .gitattributes are missing in local config.
-  if [[ -f "$HOME/.gitattributes" ]] && grep -q "filter=json-sort" "$HOME/.gitattributes"; then
-    # shellcheck disable=SC2086
-    if ! $GIT config filter.json-sort.clean >/dev/null 2>&1; then
-      _warn "warning: json-sort filter is not configured. run 'dotbootstrap' to fix."
-    fi
-  fi
-
-  local dirty
-  dirty=$($GIT diff-files --name-only 2>/dev/null) || true
-  [[ -n "$dirty" ]] || return 0
-  echo "$dirty" | while IFS= read -r f; do
-    if $GIT diff --quiet -- "$f" 2>/dev/null; then
-      $GIT checkout -- "$f" 2>/dev/null || true
-    fi
-  done
-}
-
 # Pull both repos (personal + work) with proper unstash/normalize handling.
-# Does NOT link work files — callers should run _link_work_home after deps
-# so that work merge scripts are discovered by _run_merges.
+# Does NOT link work files — _finalize_update handles that after deps.
 _pull_all() {
   _normalize_filtered
   _unstash_work_overrides
@@ -133,13 +107,7 @@ update)
     _log_header "==> Skipping pull (re-exec after infrastructure update)..."
   fi
 
-  _update_deps
-  _link_work_home
-  _run_merges
-  if [[ -d "$DOTFILES" ]]; then
-    _normalize_filtered
-  fi
-  _log_header "==> Done! Run 'source ~/.bashrc' or 'source ~/.zshrc' to activate."
+  _finalize_update
   exit 0
   ;;
 cron)
@@ -207,11 +175,7 @@ push)
 pull)
   shift
   _pull_all "$@"
-  _update_deps
-  _link_work_home
-  _run_merges
-  _normalize_filtered
-  _log_header "==> Done! Run 'source ~/.bashrc' or 'source ~/.zshrc' to activate."
+  _finalize_update
   ;;
 refresh)
   _normalize_filtered
