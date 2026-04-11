@@ -13,32 +13,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: ShellCheck
-        run: |
-          files=()
-          while IFS= read -r tracked; do
-            [[ -f "$tracked" && ! -L "$tracked" ]] || continue
-
-            case "$tracked" in
-              .bashrc | .bash_profile | *.sh | *.bash)
-                files+=("$tracked")
-                continue
-                ;;
-            esac
-
-            IFS= read -r first <"$tracked" || true
-            case "$first" in
-              '#!/usr/bin/env bash' | '#!/bin/bash')
-                files+=("$tracked")
-                ;;
-            esac
-          done < <(git ls-files)
-
-          if [[ "${#files[@]}" -eq 0 ]]; then
-            echo "No bash/sh files discovered for ShellCheck" >&2
-            exit 1
-          fi
-
-          shellcheck -x -P SCRIPTDIR "${files[@]}"
+        run: .local/bin/dot-shellcheck
 
       - name: Check JSON sorting
         run: |

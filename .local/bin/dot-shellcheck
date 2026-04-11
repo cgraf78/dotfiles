@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# dot-shellcheck — discover and lint all tracked bash/sh dotfiles.
+# Works from both the bare dotfiles repo and a normal git checkout (CI).
+# Exits 0 if all files are clean, 1 if findings or no files discovered.
+#
+# Usage: dot-shellcheck
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# Use the bare dotfiles repo when available; fall back to a regular git
+# checkout (e.g., CI where HOME points to the checked-out workspace).
+root="$HOME"
+git_cmd=(git --git-dir="${HOME}/.dotfiles" --work-tree="${HOME}")
+if ! "${git_cmd[@]}" rev-parse --is-inside-work-tree &>/dev/null; then
+  root="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+  git_cmd=(git -C "${root}")
+fi
+
+files=()
+while IFS= read -r tracked; do
+  f="${root}/${tracked}"
+  [[ -f "$f" && ! -L "$f" ]] || continue
+
+  case "$tracked" in
+    .bashrc | .bash_profile | *.sh | *.bash)
+      files+=("$f")
+      continue
+      ;;
+  esac
+
+  IFS= read -r first <"$f" || true
+  case "$first" in
+    '#!/usr/bin/env bash' | '#!/bin/bash')
+      files+=("$f")
+      ;;
+  esac
+done < <("${git_cmd[@]}" ls-files)
+
+if [[ "${#files[@]}" -eq 0 ]]; then
+  printf 'error: no bash/sh files discovered (repo root: %s)\n' "${root}" >&2
+  exit 1
+fi
+
+shellcheck -x -P SCRIPTDIR "${files[@]}"
