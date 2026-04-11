@@ -30,8 +30,6 @@ __pycache__/
 .vscode/
 .npm/
 .bun/
-.local/
-!.local/bin/
 .atuin/
 .vscode-remote/
 .cursor-server/
