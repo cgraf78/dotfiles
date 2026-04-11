@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 # Copy the last N commands and their output from the current tmux pane to the
-# clipboard. Parses pane content for prompt boundaries (the "o "/"x " status
-# indicator followed by user@host) to isolate command+output blocks.
+# clipboard. Parses pane content for prompt boundaries to isolate
+# command+output blocks.
+#
+# Prompt format (two-line):
+#   [exit_code] user@host:path (branch)
+#   $ command   (bash)
+#   % command   (zsh)
 #
 # Usage: tmux-copy-last-output [count]   (default: 1)
 
@@ -12,25 +17,61 @@ count="${1:-1}"
 content=$(tmux capture-pane -p -S -500)
 
 output=$(printf '%s\n' "$content" | awk -v count="$count" '
-/^[ox] [a-zA-Z0-9_]+@/ {
-  prompts[++n] = NR
-  prompt_lines[n] = $0
+# Two-line prompt detection:
+#   Line 1: [optional exit code] user@host:path (git info) timing
+#   Line 2: $ command
+#
+# Buffer line-1 candidates so output lines that happen to match the
+# user@host: pattern are not silently dropped.
+
+# Flush an unconfirmed line-1 candidate back into regular output.
+function flush_candidate() {
+  if (cand_nr > 0) {
+    lines[cand_nr] = cand_line
+    cand_nr = 0
+  }
+}
+
+# Match prompt line 1: optional [N] then user@host:
+/^(\[?[0-9]*\]? ?)?[a-zA-Z0-9_]+@[a-zA-Z0-9._-]+:/ {
+  flush_candidate()
+  cand_nr = NR
+  cand_line = $0
   next
 }
+
+# Match prompt line 2: $ (bash) or % (zsh), with optional command,
+# immediately after line 1.  tmux trims trailing whitespace, so a bare
+# prompt with no command appears as just "$" or "%".
+/^[$%]($| )/ {
+  if (cand_nr > 0 && NR == cand_nr + 1) {
+    n++
+    prompts[n] = cand_nr
+    cmd_lines[n] = (length($0) > 2) ? substr($0, 3) : ""
+    shell_char[n] = substr($0, 1, 1)
+    cand_nr = 0
+    next
+  }
+  # Not preceded by a line-1 match — treat as regular output
+  flush_candidate()
+}
+
 { lines[NR] = $0 }
+
 END {
+  flush_candidate()
   if (n < 2) exit 1
-  # Start index: go back count commands from the last prompt
   start = n - count
   if (start < 1) start = 1
   first = 1
   for (c = start; c < n; c++) {
     if (!first) print ""
     first = 0
-    cmd = prompt_lines[c]
-    sub(/^.*\$ /, "", cmd)
-    if (cmd != "") print "$ " cmd
-    for (i = prompts[c] + 1; i < prompts[c+1]; i++)
+    cmd = cmd_lines[c]
+    if (cmd != "") print shell_char[c] " " cmd
+    out_start = prompts[c] + 2
+    out_end = prompts[c+1] - 1
+    for (i = out_start; i <= out_end; i++)
       if (i in lines) print lines[i]
   }
 }
