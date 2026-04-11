@@ -14,6 +14,11 @@ alias fgrep='grep -F --color=auto'
 alias egrep='grep -E --color=auto'
 alias gl='git log --oneline --all --graph --decorate'
 alias dl='dot log --oneline --all --graph --decorate'
+if command -v fd &>/dev/null; then
+  alias fd='fd -H'
+elif command -v fdfind &>/dev/null; then
+  alias fd='fdfind -H'
+fi
 alias fzf='fzf --bind=ctrl-n:down,ctrl-p:up,ctrl-d:half-page-down,ctrl-u:half-page-up,alt-j:down,alt-k:up'
 
 # SSH / tunnels
