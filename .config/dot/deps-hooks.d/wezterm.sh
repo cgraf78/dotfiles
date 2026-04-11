@@ -64,7 +64,7 @@ post() {
       local ver; ver=$(_wezterm_ver)
       _log_ok "  wezterm $pacman_action (pacman)${ver:+ -- $ver}"
     else
-      _warn "  warning: failed to install wezterm (pacman)"
+      _warn "  warning: failed to $pacman_action wezterm (pacman)"
     fi
     return 0
     ;;
@@ -156,5 +156,7 @@ post() {
     return 0
   fi
 
-  _log_ok "  wezterm installed ($ext) -- $latest_tag"
+  local action="installed"
+  [[ "${DOT_FORCE:-0}" -eq 1 ]] && action="reinstalled"
+  _log_ok "  wezterm $action ($ext) -- $latest_tag"
 }
