@@ -57,12 +57,17 @@ return {
     config = function()
       require("conform").setup({
         formatters = {
-          shfmt = {
-            prepend_args = { "-i", "2" },
+          shfmt_bash = {
+            inherit = "shfmt",
+            prepend_args = { "-ln=bash" },
+          },
+          shfmt_zsh = {
+            inherit = "shfmt",
+            prepend_args = { "-ln=zsh" },
           },
         },
         formatters_by_ft = {
-          bash = { "shfmt" },
+          bash = { "shfmt_bash" },
           c = { "clang-format" },
           cpp = { "clang-format" },
           css = { "prettier" },
@@ -74,11 +79,12 @@ return {
           markdown = { "prettier" },
           python = { "ruff_format" },
           rust = { "rustfmt" },
-          sh = { "shfmt" },
+          sh = { "shfmt_bash" },
           toml = { "taplo" },
           typescript = { "prettier" },
           typescriptreact = { "prettier" },
           yaml = { "prettier" },
+          zsh = { "shfmt_zsh" },
         },
         format_on_save = function(bufnr)
           -- Skip if formatter not installed
