@@ -855,9 +855,9 @@ _binary_find_asset() {
 
     if [[ -n "$urls" ]]; then
       local url url_lower arch_pat os_pat ext skip os_match is_archive
-      local pass
+      local pass cmd_lower="${cmd,,}" fname is_exact suffix tok
       for pass in plain tarball zip; do
-        local _pass_fallback=""
+        local _exact_fallback="" _other_match="" _other_fallback=""
         while IFS= read -r url; do
           url_lower="${url,,}"
           # Must match at least one OS pattern (case-insensitive)
@@ -894,22 +894,52 @@ _binary_find_asset() {
           else
             [[ "$url_lower" == *.zip ]] || continue
           fi
+          # Check if the asset filename matches the cmd name exactly
+          # (not a longer name that happens to start with cmd).
+          # Repos with multiple binaries (e.g., codex + codex-responses-api-proxy)
+          # need this to pick the right one.  We strip the cmd prefix and
+          # check that the remainder starts with a separator followed by a
+          # known OS or arch token, a version, or an extension — not more
+          # name segments (lowercase alpha words).
+          fname="${url_lower##*/}"
+          is_exact=0
+          if [[ "$fname" == "${cmd_lower}" ]]; then
+            is_exact=1
+          elif [[ "$fname" == "${cmd_lower}"[-_.]* ]]; then
+            suffix="${fname#"${cmd_lower}"}"
+            suffix="${suffix#[-_.]}"
+            # Exact if suffix starts with OS, arch, or version pattern
+            for tok in "${os_patterns[@]}" "${arch_patterns[@]}"; do
+              [[ "$suffix" == "$tok"* ]] && { is_exact=1; break; }
+            done
+            # Also match version-prefixed names (e.g., cmd-v3.1.0-linux)
+            [[ $is_exact -eq 0 && "$suffix" =~ ^v?[0-9] ]] && is_exact=1
+          fi
           for arch_pat in "${arch_patterns[@]}"; do
             if [[ "$url_lower" == *"$arch_pat"* ]]; then
-              # Prefer matching libc variant (gnu vs musl) on Linux
               if [[ "$os" == "linux" && "$url_lower" == *"$libc"* ]]; then
-                echo "$url"
-                return 0
+                # Best: exact cmd + preferred libc
+                if [[ $is_exact -eq 1 ]]; then
+                  echo "$url"
+                  return 0
+                fi
+                [[ -z "$_other_match" ]] && _other_match="$url"
+              else
+                # Track fallback (non-libc-specific or wrong libc)
+                if [[ $is_exact -eq 1 ]]; then
+                  [[ -z "$_exact_fallback" ]] && _exact_fallback="$url"
+                else
+                  [[ -z "$_other_fallback" ]] && _other_fallback="$url"
+                fi
               fi
-              # Track first match as fallback (non-libc-specific or wrong libc)
-              [[ -z "${_pass_fallback:-}" ]] && _pass_fallback="$url"
               break
             fi
           done
         done <<<"$urls"
-        # Use fallback if no libc-preferred match found in this pass
-        if [[ -n "${_pass_fallback:-}" ]]; then
-          echo "$_pass_fallback"
+        # Prefer exact cmd matches over other matches
+        local result="${_exact_fallback:-${_other_match:-${_other_fallback:-}}}"
+        if [[ -n "$result" ]]; then
+          echo "$result"
           return 0
         fi
       done

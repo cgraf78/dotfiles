@@ -11,6 +11,7 @@ export NO_COLOR=1
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REAL_HOME="$HOME"
+_true_bin="$(type -P true)"
 
 # shellcheck source=../../.config/dot/test-helpers.sh
 . "$HOME/.config/dot/test-helpers.sh"
@@ -746,22 +747,41 @@ _fake_release_json() {
   echo "$result"
 }
 
-# Rust triple: linux x86_64 tar.gz
+# Detect platform for test assertions so tests pass on both Linux and macOS.
+_test_os=$(uname -s | tr '[:upper:]' '[:lower:]')
+_test_arch=$(uname -m)
+case "$_test_arch" in
+  x86_64)  _test_arch_alt=amd64 ;;
+  aarch64) _test_arch_alt=arm64 ;;
+  arm64)   _test_arch_alt=aarch64 ;;
+  *)       _test_arch_alt="$_test_arch" ;;
+esac
+# Capitalized OS for case-insensitive tests
+_test_OS="$(uname -s)"
+
+# Rust triple: tar.gz with OS and arch
 _json=$(_fake_release_json \
   "tool-x86_64-unknown-linux-gnu.tar.gz" \
   "tool-aarch64-unknown-linux-gnu.tar.gz" \
-  "tool-x86_64-apple-darwin.tar.gz")
+  "tool-x86_64-apple-darwin.tar.gz" \
+  "tool-aarch64-apple-darwin.tar.gz")
 result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
-_assert_contains "rust triple: linux x86_64" "x86_64-unknown-linux-gnu.tar.gz" "$result"
+_assert_contains "rust triple: matches platform" "${_test_os}" "$result"
+# Arch may be native (arm64) or normalized (aarch64) — check for either
+if [[ "$result" == *"${_test_arch}"* || "$result" == *"${_test_arch_alt}"* ]]; then
+  _pass "rust triple: matches arch"
+else
+  _fail "rust triple: matches arch (expected '${_test_arch}' or '${_test_arch_alt}' in '$result')"
+fi
 
-# Go convention: darwin arm64 plain binary
+# Go convention: plain binary
 _json=$(_fake_release_json \
   "tool-linux-amd64" \
+  "tool-linux-arm64" \
   "tool-darwin-arm64" \
   "tool-darwin-amd64")
 result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
-# On this linux x86_64 system, should match linux-amd64
-_assert_contains "go plain binary: linux amd64" "linux-amd64" "$result"
+_assert_contains "go plain binary: matches platform" "${_test_os}" "$result"
 
 # Case-insensitive: Darwin/Linux capitalized (glow, k9s, act, vhs)
 _json=$(_fake_release_json \
@@ -770,58 +790,67 @@ _json=$(_fake_release_json \
   "tool_1.0_Linux_arm64.tar.gz" \
   "tool_1.0_Linux_x86_64.tar.gz")
 result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
-_assert_contains "case-insensitive: Linux x86_64" "Linux_x86_64.tar.gz" "$result"
+_assert_contains "case-insensitive: matches platform" "${_test_OS}" "$result"
 
 # Skip metadata extensions
 _json=$(_fake_release_json \
-  "tool-linux-amd64.tar.gz.sha256" \
-  "tool-linux-amd64.tar.gz.sig" \
-  "tool-linux-amd64.tar.gz.asc" \
-  "tool-linux-amd64.sigstore" \
-  "tool-linux-amd64.tar.gz.b3" \
-  "tool-linux-amd64.tar.gz")
+  "tool-${_test_os}-${_test_arch_alt}.tar.gz.sha256" \
+  "tool-${_test_os}-${_test_arch_alt}.tar.gz.sig" \
+  "tool-${_test_os}-${_test_arch_alt}.tar.gz.asc" \
+  "tool-${_test_os}-${_test_arch_alt}.sigstore" \
+  "tool-${_test_os}-${_test_arch_alt}.tar.gz.b3" \
+  "tool-${_test_os}-${_test_arch_alt}.tar.gz")
 result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
-_assert_contains "skip metadata: finds tarball" "tool-linux-amd64.tar.gz" "$result"
+_assert_contains "skip metadata: finds tarball" "tool-${_test_os}-${_test_arch_alt}.tar.gz" "$result"
 _assert_not_contains "skip metadata: no sha256" "sha256" "$result"
 
 # Skip package extensions
 _json=$(_fake_release_json \
-  "tool_1.0_linux_amd64.deb" \
-  "tool_1.0_linux_amd64.rpm" \
-  "tool_1.0_linux_amd64.apk" \
-  "tool_1.0_linux_amd64.flatpak" \
-  "tool_1.0_linux_amd64.tar.gz")
+  "tool_1.0_${_test_os}_${_test_arch_alt}.deb" \
+  "tool_1.0_${_test_os}_${_test_arch_alt}.rpm" \
+  "tool_1.0_${_test_os}_${_test_arch_alt}.apk" \
+  "tool_1.0_${_test_os}_${_test_arch_alt}.flatpak" \
+  "tool_1.0_${_test_os}_${_test_arch_alt}.tar.gz")
 result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
-_assert_contains "skip packages: finds tarball" "tool_1.0_linux_amd64.tar.gz" "$result"
+_assert_contains "skip packages: finds tarball" "tool_1.0_${_test_os}_${_test_arch_alt}.tar.gz" "$result"
 
-# macOS: macos pattern (neovim, jq, viddy)
-_json=$(_fake_release_json \
-  "tool-macos-arm64.tar.gz" \
-  "tool-macos-x86_64.tar.gz" \
-  "tool-linux-x86_64.tar.gz")
-result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
-_assert_contains "macos pattern: linux x86_64" "linux-x86_64.tar.gz" "$result"
+# Alternate OS pattern: macos on darwin, linux on linux (neovim, jq, viddy)
+if [[ "$_test_os" == "darwin" ]]; then
+  _json=$(_fake_release_json \
+    "tool-macos-arm64.tar.gz" \
+    "tool-macos-x86_64.tar.gz" \
+    "tool-linux-x86_64.tar.gz")
+  result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
+  _assert_contains "macos alias: matches macos" "macos" "$result"
+else
+  _json=$(_fake_release_json \
+    "tool-macos-arm64.tar.gz" \
+    "tool-linux-x86_64.tar.gz" \
+    "tool-linux-arm64.tar.gz")
+  result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
+  _assert_contains "linux: picks linux not macos" "linux" "$result"
+fi
 
 # Prefer plain binary over tarball
 _json=$(_fake_release_json \
-  "tool-linux-amd64" \
-  "tool-linux-amd64.tar.gz")
+  "tool-${_test_os}-${_test_arch_alt}" \
+  "tool-${_test_os}-${_test_arch_alt}.tar.gz")
 result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
 _assert_not_contains "prefer plain over tarball" ".tar.gz" "$result"
 
 # .tar.xz support (watchexec, typst)
 _json=$(_fake_release_json \
-  "tool-x86_64-unknown-linux-gnu.tar.xz" \
-  "tool-aarch64-unknown-linux-gnu.tar.xz")
+  "tool-${_test_arch}-unknown-${_test_os}-gnu.tar.xz" \
+  "tool-${_test_arch_alt}-unknown-${_test_os}-gnu.tar.xz")
 result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
-_assert_contains "tar.xz: linux x86_64" "x86_64-unknown-linux-gnu.tar.xz" "$result"
+_assert_contains "tar.xz: matches platform" "${_test_os}" "$result"
 
 # .tgz support
 _json=$(_fake_release_json \
-  "tool-linux-amd64.tgz" \
-  "tool-darwin-amd64.tgz")
+  "tool-${_test_os}-${_test_arch_alt}.tgz" \
+  "tool-${_test_os}-${_test_arch}.tgz")
 result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
-_assert_contains "tgz: linux amd64" "linux-amd64.tgz" "$result"
+_assert_contains "tgz: matches platform" "${_test_os}" "$result"
 
 # No matching asset → empty
 _json=$(_fake_release_json \
@@ -840,7 +869,7 @@ echo "=== Tarball binary extraction ==="
 # Helper: create a tarball, run _binary_install_tarball, check result.
 # $1=description $2=cmd name $3=expected exit (0 or 1)
 # Remaining args: file paths to include (relative).
-# Executable files are ELF binaries (copies of /bin/true) so file(1)
+# Executable files are ELF binaries (copies of $_true_bin) so file(1)
 # correctly identifies them during sole-executable fallback.
 # Non-executable companion files (README, LICENSE, etc.) can be added
 # via the _test_tarball_with_extras wrapper.
@@ -860,7 +889,7 @@ _test_tarball_with_extras() {
   local f
   for f in "$@"; do
     mkdir -p "$staging/$(dirname "$f")"
-    cp /bin/true "$staging/$f"
+    cp "$_true_bin" "$staging/$f"
   done
   if [[ -n "$extras" ]]; then
     IFS=',' read -ra _extra_files <<< "$extras"
@@ -870,7 +899,7 @@ _test_tarball_with_extras() {
     done
   fi
   local tarball
-  tarball=$(mktemp --suffix=.tar.gz)
+  tarball=$(mktemp "${TMPDIR:-/tmp}/tmp.XXXXXXXXXX.tar.gz")
   tar czf "$tarball" -C "$staging" .
   local bin_path="$staging/output-bin"
   local log=""
@@ -922,8 +951,8 @@ _test_tarball "no match: multiple wrong names" "mytool" 1 \
 _test_script_staging=$(_tmpdir)
 echo "#!/bin/sh" > "$_test_script_staging/setup.sh"
 chmod +x "$_test_script_staging/setup.sh"
-cp /bin/true "$_test_script_staging/real-binary"
-_test_script_tar=$(mktemp --suffix=.tar.gz)
+cp "$_true_bin" "$_test_script_staging/real-binary"
+_test_script_tar=$(mktemp "${TMPDIR:-/tmp}/tmp.XXXXXXXXXX.tar.gz")
 tar czf "$_test_script_tar" -C "$_test_script_staging" .
 _test_script_bin="$_test_script_staging/output-bin"
 _binary_install_tarball "test-pkg" "notfound" "$_test_script_tar" "$_test_script_bin" "" >/dev/null 2>&1 || true
@@ -937,9 +966,9 @@ rm -f "$_test_script_tar"
 
 # Exact match preferred over prefix match
 _test_exact_staging=$(_tmpdir)
-cp /bin/true "$_test_exact_staging/mytool"
-cp /bin/true "$_test_exact_staging/mytool-extra"
-_test_exact_tar=$(mktemp --suffix=.tar.gz)
+cp "$_true_bin" "$_test_exact_staging/mytool"
+cp "$_true_bin" "$_test_exact_staging/mytool-extra"
+_test_exact_tar=$(mktemp "${TMPDIR:-/tmp}/tmp.XXXXXXXXXX.tar.gz")
 tar czf "$_test_exact_tar" -C "$_test_exact_staging" .
 _test_exact_bin="$_test_exact_staging/output-bin"
 _binary_install_tarball "test-pkg" "mytool" "$_test_exact_tar" "$_test_exact_bin" "" >/dev/null 2>&1
@@ -971,7 +1000,7 @@ _test_zip() {
   local f
   for f in "$@"; do
     mkdir -p "$staging/$(dirname "$f")"
-    cp /bin/true "$staging/$f"
+    cp "$_true_bin" "$staging/$f"
   done
   local zipfile="$staging/test.zip"
   (cd "$staging" && zip -qr "$zipfile" . -x test.zip)
@@ -1006,15 +1035,15 @@ _test_zip "zip: sole executable fallback" "mytool" 0 \
 
 # Asset matching prefers tarball over zip
 _json=$(_fake_release_json \
-  "tool-linux-amd64.tar.gz" \
-  "tool-linux-amd64.zip")
+  "tool-${_test_os}-${_test_arch_alt}.tar.gz" \
+  "tool-${_test_os}-${_test_arch_alt}.zip")
 result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
 _assert_contains "asset match: tarball over zip" ".tar.gz" "$result"
 
 # Asset matching falls back to zip when no tarball
 _json=$(_fake_release_json \
-  "tool-linux-amd64.zip" \
-  "tool-linux-amd64.sha256")
+  "tool-${_test_os}-${_test_arch_alt}.zip" \
+  "tool-${_test_os}-${_test_arch_alt}.sha256")
 result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
 _assert_contains "asset match: zip when no tarball" ".zip" "$result"
 
@@ -1032,7 +1061,7 @@ _test_decompress() {
   local desc="$1" ext="$2"
   local staging
   staging=$(_tmpdir)
-  cp /bin/true "$staging/mytool"
+  cp "$_true_bin" "$staging/mytool"
   local compressed="$staging/mytool.$ext"
   case "$ext" in
     gz)  gzip -c "$staging/mytool" > "$compressed" ;;
@@ -1075,22 +1104,22 @@ fi
 
 # Asset matching: .gz single file matches plain pass (not tarball)
 _json=$(_fake_release_json \
-  "tool-linux-amd64.gz" \
-  "tool-linux-amd64.tar.gz")
+  "tool-${_test_os}-${_test_arch_alt}.gz" \
+  "tool-${_test_os}-${_test_arch_alt}.tar.gz")
 result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
 # Plain pass runs first, .gz is not a tarball extension → matches plain
-_assert_contains "asset match: .gz matches plain pass" "tool-linux-amd64.gz" "$result"
+_assert_contains "asset match: .gz matches plain pass" "tool-${_test_os}-${_test_arch_alt}.gz" "$result"
 
 # Asset matching: .bz2 single file (restic convention)
 _json=$(_fake_release_json \
-  "tool_1.0_linux_amd64.bz2")
+  "tool_1.0_${_test_os}_${_test_arch_alt}.bz2")
 result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
-_assert_contains "asset match: .bz2 single file" "tool_1.0_linux_amd64.bz2" "$result"
+_assert_contains "asset match: .bz2 single file" "tool_1.0_${_test_os}_${_test_arch_alt}.bz2" "$result"
 
-# Asset matching: .zst single file (codex convention)
+# Asset matching: .zst single file
 _json=$(_fake_release_json \
-  "tool-x86_64-unknown-linux-gnu.zst" \
-  "tool-x86_64-unknown-linux-gnu.tar.gz")
+  "tool-${_test_arch}-unknown-${_test_os}.zst" \
+  "tool-${_test_arch}-unknown-${_test_os}.tar.gz")
 result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
 # Plain pass finds .zst first (before tarball pass)
 _assert_contains "asset match: .zst matches plain pass" ".zst" "$result"
@@ -1102,38 +1131,117 @@ _assert_contains "asset match: .zst matches plain pass" ".zst" "$result"
 echo ""
 echo "=== Libc preference ==="
 
-# On this glibc system, gnu should be preferred over musl
-_json=$(_fake_release_json \
-  "tool-x86_64-unknown-linux-musl.tar.gz" \
-  "tool-x86_64-unknown-linux-gnu.tar.gz")
-result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
-_assert_contains "gnu preferred over musl" "gnu" "$result"
+if [[ "$_test_os" == "linux" ]]; then
+  # On a glibc system, gnu should be preferred over musl
+  _json=$(_fake_release_json \
+    "tool-${_test_arch}-unknown-linux-musl.tar.gz" \
+    "tool-${_test_arch}-unknown-linux-gnu.tar.gz")
+  result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
+  _assert_contains "gnu preferred over musl" "gnu" "$result"
 
-# When only musl is available, still matches
-_json=$(_fake_release_json \
-  "tool-x86_64-unknown-linux-musl.tar.gz")
-result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
-_assert_contains "musl fallback when no gnu" "musl" "$result"
+  # When only musl is available, still matches
+  _json=$(_fake_release_json \
+    "tool-${_test_arch}-unknown-linux-musl.tar.gz")
+  result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
+  _assert_contains "musl fallback when no gnu" "musl" "$result"
 
-# No libc suffix: still matches (Go tools like fzf_linux_amd64.tar.gz)
-_json=$(_fake_release_json \
-  "tool_linux_amd64.tar.gz")
-result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
-_assert_contains "no libc suffix: matches" "tool_linux_amd64" "$result"
+  # No libc suffix: still matches (Go tools like fzf_linux_amd64.tar.gz)
+  _json=$(_fake_release_json \
+    "tool_linux_${_test_arch_alt}.tar.gz")
+  result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
+  _assert_contains "no libc suffix: matches" "tool_linux_${_test_arch_alt}" "$result"
 
-# Plain binary pass also prefers gnu
-_json=$(_fake_release_json \
-  "tool-linux-musl-amd64" \
-  "tool-linux-gnu-amd64")
-result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
-_assert_contains "plain binary: gnu preferred" "gnu" "$result"
+  # Plain binary pass also prefers gnu
+  _json=$(_fake_release_json \
+    "tool-linux-musl-${_test_arch_alt}" \
+    "tool-linux-gnu-${_test_arch_alt}")
+  result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
+  _assert_contains "plain binary: gnu preferred" "gnu" "$result"
 
-# macOS: no libc preference (no gnu/musl distinction)
+  # Picks linux not darwin
+  _json=$(_fake_release_json \
+    "tool-darwin-${_test_arch_alt}.tar.gz" \
+    "tool-linux-${_test_arch_alt}.tar.gz")
+  result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
+  _assert_contains "linux system: picks linux not darwin" "linux" "$result"
+else
+  _pass "gnu preferred over musl: skipped (not linux)"
+  _pass "musl fallback when no gnu: skipped (not linux)"
+  _pass "no libc suffix: matches: skipped (not linux)"
+  _pass "plain binary: gnu preferred: skipped (not linux)"
+
+  # macOS: picks darwin not linux
+  _json=$(_fake_release_json \
+    "tool-darwin-${_test_arch_alt}.tar.gz" \
+    "tool-linux-${_test_arch_alt}.tar.gz")
+  result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
+  _assert_contains "darwin system: picks darwin not linux" "darwin" "$result"
+fi
+
+# ---------------------------------------------------------------------------
+# Tests: cmd-name preference (multi-binary repos)
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== Cmd-name preference ==="
+
+# Multi-binary repo: prefer asset matching cmd name over longer names
+# (e.g., codex vs codex-responses-api-proxy)
 _json=$(_fake_release_json \
-  "tool-darwin-amd64.tar.gz" \
-  "tool-linux-amd64.tar.gz")
+  "codex-responses-api-proxy-${_test_arch}-apple-${_test_os}.tar.gz" \
+  "codex-responses-api-proxy-${_test_arch}-unknown-linux-gnu.tar.gz" \
+  "codex-${_test_arch}-apple-${_test_os}.tar.gz" \
+  "codex-${_test_arch}-unknown-linux-gnu.tar.gz" \
+  "codex-command-runner-${_test_arch}-apple-${_test_os}.tar.gz")
+result=$(_binary_find_asset "codex" "openai/codex" "v1.0.0" "$_json")
+_assert_contains "multi-binary: picks codex" "codex-${_test_arch}" "$result"
+_assert_not_contains "multi-binary: no proxy" "proxy" "$result"
+_assert_not_contains "multi-binary: no command-runner" "command-runner" "$result"
+
+# Cmd-name match with plain binary (no extension)
+_json=$(_fake_release_json \
+  "tool-extra-${_test_os}-${_test_arch_alt}" \
+  "tool-${_test_os}-${_test_arch_alt}" \
+  "tool-other-${_test_os}-${_test_arch_alt}")
 result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
-_assert_contains "linux system: picks linux not darwin" "linux" "$result"
+_assert_contains "multi-binary plain: picks cmd match" "tool-${_test_os}-${_test_arch_alt}" "$result"
+_assert_not_contains "multi-binary plain: no extra" "extra" "$result"
+
+# Cmd-name match with underscore separator (Go convention)
+_json=$(_fake_release_json \
+  "tool_extra_${_test_os}_${_test_arch_alt}.tar.gz" \
+  "tool_${_test_os}_${_test_arch_alt}.tar.gz")
+result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
+_assert_contains "underscore sep: picks cmd match" "tool_${_test_os}" "$result"
+_assert_not_contains "underscore sep: no extra" "extra" "$result"
+
+# Cmd-name match with dot separator (version in name)
+_json=$(_fake_release_json \
+  "tool-extra.v1.0.0.${_test_os}-${_test_arch_alt}.tar.gz" \
+  "tool.v1.0.0.${_test_os}-${_test_arch_alt}.tar.gz")
+result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
+_assert_not_contains "dot sep: no extra" "extra" "$result"
+
+# Version-prefixed asset names
+_json=$(_fake_release_json \
+  "tool-v1.0.0-${_test_os}-${_test_arch_alt}.tar.gz" \
+  "tool-extra-v1.0.0-${_test_os}-${_test_arch_alt}.tar.gz")
+result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
+_assert_not_contains "version prefix: no extra" "extra" "$result"
+
+# Falls back to non-exact match when no exact match exists
+_json=$(_fake_release_json \
+  "tool-extended-${_test_os}-${_test_arch_alt}.tar.gz")
+result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
+_assert_contains "no exact: falls back to non-exact" "tool-extended" "$result"
+
+# Exact cmd name as standalone file (no OS/arch suffix)
+_json=$(_fake_release_json \
+  "tool-extra-${_test_os}-${_test_arch_alt}" \
+  "tool")
+result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
+# "tool" has no OS/arch token so won't match; "tool-extra" does match
+_assert_contains "bare cmd no os/arch: falls back" "tool-extra" "$result"
 
 # ---------------------------------------------------------------------------
 # Tests: deps.local.conf
