@@ -955,4 +955,67 @@ else
 fi
 rm -f "$_test_exact_tar"
 
+# ---------------------------------------------------------------------------
+# Tests: _binary_install_zip (zip archive extraction)
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== Zip archive extraction ==="
+
+# Helper: create a zip, run _binary_install_zip, check result.
+_test_zip() {
+  local desc="$1" cmd="$2" expect_exit="$3"
+  shift 3
+  local staging
+  staging=$(_tmpdir)
+  local f
+  for f in "$@"; do
+    mkdir -p "$staging/$(dirname "$f")"
+    cp /bin/true "$staging/$f"
+  done
+  local zipfile="$staging/test.zip"
+  (cd "$staging" && zip -qr "$zipfile" . -x test.zip)
+  local bin_path="$staging/output-bin"
+  local rc=0
+  _binary_install_zip "test-pkg" "$cmd" "$zipfile" "$bin_path" "" >/dev/null 2>&1 || rc=$?
+  _assert_exit "$desc" "$expect_exit" "$rc"
+  if [[ "$expect_exit" -eq 0 ]]; then
+    if [[ -L "$bin_path" || -x "$bin_path" ]]; then
+      _pass "$desc: binary installed"
+    else
+      _fail "$desc: binary not installed at $bin_path"
+    fi
+  fi
+}
+
+# Exact match flat (deno ships just the binary in a zip)
+_test_zip "zip: exact match flat" "mytool" 0 \
+  "mytool"
+
+# Exact match in subdir (gh ships gh_*/bin/gh in a zip on macOS)
+_test_zip "zip: exact match in subdir" "mytool" 0 \
+  "mytool-v1.0/bin/mytool"
+
+# Prefix match (Rust triple inside zip)
+_test_zip "zip: prefix match" "mytool" 0 \
+  "mytool-x86_64-unknown-linux-gnu"
+
+# Sole executable fallback
+_test_zip "zip: sole executable fallback" "mytool" 0 \
+  "different-name"
+
+# Asset matching prefers tarball over zip
+_json=$(_fake_release_json \
+  "tool-linux-amd64.tar.gz" \
+  "tool-linux-amd64.zip")
+result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
+_assert_contains "asset match: tarball over zip" ".tar.gz" "$result"
+
+# Asset matching falls back to zip when no tarball
+_json=$(_fake_release_json \
+  "tool-linux-amd64.zip" \
+  "tool-linux-amd64.sha256")
+result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
+_assert_contains "asset match: zip when no tarball" ".zip" "$result"
+
 _test_summary

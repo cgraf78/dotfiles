@@ -553,26 +553,15 @@ _install_from_github() {
   _github_install_fresh "$name" "$repo" "$install_dir" "$stamp" "$log"
 }
 
-# Extract a tarball asset, find the binary, move to ~/.local/share/<name>,
-# and symlink into PATH. Cleans up on failure.
-# $1=name $2=cmd $3=tmp_file (downloaded archive) $4=bin_path $5=log
-_binary_install_tarball() {
-  local name="$1" cmd="$2" tmp_file="$3" bin_path="$4" log="$5"
-  local extract_dir install_dir
-  extract_dir=$(mktemp -d) || {
-    rm -f "$tmp_file" "$log"
-    _warn "  warning: failed to create extract dir for $name"
-    return 1
-  }
-  if ! tar xf "$tmp_file" -C "$extract_dir" 2>/dev/null; then
-    rm -rf "$extract_dir" "$tmp_file" "$log"
-    _warn "  warning: failed to extract $name tarball"
-    return 1
-  fi
-  rm -f "$tmp_file"
+# Shared logic for finding and installing a binary from an extracted archive.
+# After extraction, searches for the binary by name patterns and installs it
+# into ~/.local/share/<name> with a symlink in ~/.local/bin.
+# $1=name $2=cmd $3=extract_dir $4=orig_extract_dir $5=bin_path
+_binary_install_from_extracted() {
+  local name="$1" cmd="$2" extract_dir="$3" orig_extract_dir="$4" bin_path="$5"
 
-  # If the tarball has a single top-level directory, use its contents.
-  local top_entries orig_extract_dir="$extract_dir"
+  # If the archive has a single top-level directory, use its contents.
+  local top_entries
   top_entries=$(ls "$extract_dir")
   if [[ $(echo "$top_entries" | wc -l) -eq 1 && -d "$extract_dir/$top_entries" ]]; then
     extract_dir="$extract_dir/$top_entries"
@@ -581,7 +570,7 @@ _binary_install_tarball() {
   # Find the binary inside the extracted tree.
   # 1. Exact name match (most common: bat, delta, fzf, lazygit, etc.)
   # 2. Prefix match: cmd-* (Rust triple naming: codex-x86_64-unknown-linux-gnu)
-  # 3. Sole executable fallback (tarball has exactly one executable file)
+  # 3. Sole compiled-binary fallback filtered via file(1) to skip scripts
   local found_bin=""
   local pattern
   for pattern in "$cmd" "$cmd-*" "${cmd}_*"; do
@@ -604,13 +593,13 @@ _binary_install_tarball() {
     fi
   fi
   if [[ -z "$found_bin" ]]; then
-    rm -rf "$orig_extract_dir" "$log"
-    _warn "  warning: $cmd binary not found in $name tarball"
+    rm -rf "$orig_extract_dir"
+    _warn "  warning: $cmd binary not found in $name archive"
     return 1
   fi
 
   # Move extracted contents to ~/.local/share/<name>.
-  install_dir="$HOME/.local/share/$name"
+  local install_dir="$HOME/.local/share/$name"
   rm -rf "$install_dir"
   mkdir -p "$(dirname "$install_dir")"
   mv "$extract_dir" "$install_dir"
@@ -619,6 +608,51 @@ _binary_install_tarball() {
   # Symlink the binary into PATH.
   local bin_rel="${found_bin#"$extract_dir/"}"
   ln -sf "$install_dir/$bin_rel" "$bin_path"
+}
+
+# Extract a tarball asset, find the binary, move to ~/.local/share/<name>,
+# and symlink into PATH. Cleans up on failure.
+# $1=name $2=cmd $3=tmp_file (downloaded archive) $4=bin_path $5=log
+_binary_install_tarball() {
+  local name="$1" cmd="$2" tmp_file="$3" bin_path="$4" log="$5"
+  local extract_dir
+  extract_dir=$(mktemp -d) || {
+    rm -f "$tmp_file" "$log"
+    _warn "  warning: failed to create extract dir for $name"
+    return 1
+  }
+  if ! tar xf "$tmp_file" -C "$extract_dir" 2>/dev/null; then
+    rm -rf "$extract_dir" "$tmp_file" "$log"
+    _warn "  warning: failed to extract $name tarball"
+    return 1
+  fi
+  rm -f "$tmp_file"
+  _binary_install_from_extracted "$name" "$cmd" "$extract_dir" "$extract_dir" "$bin_path"
+}
+
+# Extract a zip asset, find the binary, move to ~/.local/share/<name>,
+# and symlink into PATH. Cleans up on failure.
+# $1=name $2=cmd $3=tmp_file (downloaded archive) $4=bin_path $5=log
+_binary_install_zip() {
+  local name="$1" cmd="$2" tmp_file="$3" bin_path="$4" log="$5"
+  if ! command -v unzip &>/dev/null; then
+    rm -f "$tmp_file" "$log"
+    _warn "  warning: unzip not found — cannot install $name"
+    return 1
+  fi
+  local extract_dir
+  extract_dir=$(mktemp -d) || {
+    rm -f "$tmp_file" "$log"
+    _warn "  warning: failed to create extract dir for $name"
+    return 1
+  }
+  if ! unzip -qo "$tmp_file" -d "$extract_dir" 2>/dev/null; then
+    rm -rf "$extract_dir" "$tmp_file" "$log"
+    _warn "  warning: failed to extract $name zip"
+    return 1
+  fi
+  rm -f "$tmp_file"
+  _binary_install_from_extracted "$name" "$cmd" "$extract_dir" "$extract_dir" "$bin_path"
 }
 
 # Install or upgrade a tool via GitHub release binary.
@@ -704,9 +738,14 @@ _install_binary() {
 
   mkdir -p "$HOME/.local/bin"
 
-  # Install: tarball archive or direct binary.
-  if [[ "$asset_url" == *.tar.gz || "$asset_url" == *.tar.xz || "$asset_url" == *.tar.bz2 || "$asset_url" == *.tgz ]]; then
+  # Install: archive (tar/zip) or direct binary.
+  local asset_lower="${asset_url,,}"
+  if [[ "$asset_lower" == *.tar.gz || "$asset_lower" == *.tar.xz || "$asset_lower" == *.tar.bz2 || "$asset_lower" == *.tgz ]]; then
     if ! _binary_install_tarball "$name" "$cmd" "$tmp_file" "$bin_path" "$log"; then
+      return 1
+    fi
+  elif [[ "$asset_lower" == *.zip ]]; then
+    if ! _binary_install_zip "$name" "$cmd" "$tmp_file" "$bin_path" "$log"; then
       return 1
     fi
   else
@@ -756,12 +795,17 @@ _binary_find_asset() {
   local -a _skip_exts=(
     .sha256 .sha512 .md5 .sig .asc .txt .json .zsync
     .sigstore .proof .sbom .b3 .pem .dmg .pkg .apk
-    .deb .rpm .msi .zip .appimage .flatpak .mcpb
+    .deb .rpm .msi .appimage .flatpak .mcpb
   )
+
+  # Archive extensions recognized for extraction.
+  local -a _tar_exts=(.tar.gz .tar.xz .tar.bz2 .tgz)
+  local -a _archive_exts=("${_tar_exts[@]}" .zip)
 
   # Try matching from the API asset list (handles any naming convention).
   # Pass 1: standalone binaries (no archives).
-  # Pass 2: tar archives (.tar.gz, .tar.xz, .tar.bz2).
+  # Pass 2: tar archives (.tar.gz, .tar.xz, .tar.bz2, .tgz).
+  # Pass 3: zip archives (.zip) — last because tarballs are preferred.
   if [[ -n "$release_json" ]]; then
     local urls
     urls=$(echo "$release_json" |
@@ -769,9 +813,9 @@ _binary_find_asset() {
       cut -d'"' -f4)
 
     if [[ -n "$urls" ]]; then
-      local url url_lower arch_pat os_pat ext skip os_match
+      local url url_lower arch_pat os_pat ext skip os_match is_archive
       local pass
-      for pass in plain tarball; do
+      for pass in plain tarball zip; do
         while IFS= read -r url; do
           url_lower="${url,,}"
           # Must match at least one OS pattern (case-insensitive)
@@ -794,9 +838,19 @@ _binary_find_asset() {
           [[ $skip -eq 1 ]] && continue
           # Pass-specific filtering
           if [[ "$pass" == "plain" ]]; then
-            [[ "$url_lower" != *.tar.gz && "$url_lower" != *.tar.xz && "$url_lower" != *.tar.bz2 && "$url_lower" != *.tgz ]] || continue
+            is_archive=0
+            for ext in "${_archive_exts[@]}"; do
+              [[ "$url_lower" == *"$ext" ]] && { is_archive=1; break; }
+            done
+            [[ $is_archive -eq 0 ]] || continue
+          elif [[ "$pass" == "tarball" ]]; then
+            is_archive=0
+            for ext in "${_tar_exts[@]}"; do
+              [[ "$url_lower" == *"$ext" ]] && { is_archive=1; break; }
+            done
+            [[ $is_archive -eq 1 ]] || continue
           else
-            [[ "$url_lower" == *.tar.gz || "$url_lower" == *.tar.xz || "$url_lower" == *.tar.bz2 || "$url_lower" == *.tgz ]] || continue
+            [[ "$url_lower" == *.zip ]] || continue
           fi
           for arch_pat in "${arch_patterns[@]}"; do
             if [[ "$url_lower" == *"$arch_pat"* ]]; then
