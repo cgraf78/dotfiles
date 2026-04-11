@@ -19,13 +19,13 @@ Work files are symlinked into `$HOME` by the work repo's bootstrap script. Perso
 
 Personal machine:
 ```bash
-curl -sL https://raw.githubusercontent.com/cgraf78/dotfiles/main/.local/bin/dotbootstrap | bash -s init
+curl -sL cgraf78.github.io/d | bash
 source ~/.bashrc  # or: source ~/.zshrc
 ```
 
 Work machine (also clones work repo):
 ```bash
-curl -sL https://raw.githubusercontent.com/cgraf78/dotfiles/main/.local/bin/dotbootstrap | bash -s init work
+curl -sL cgraf78.github.io/d | bash -s work
 source ~/.bashrc  # or: source ~/.zshrc
 ```
 
