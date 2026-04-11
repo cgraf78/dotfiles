@@ -16,22 +16,64 @@ REAL_HOME="$HOME"
 . "$HOME/.config/dot/test-helpers.sh"
 
 # ---------------------------------------------------------------------------
-# Tests: shellcheck
+# Tests: static analysis (shellcheck, JSON sorting)
 # ---------------------------------------------------------------------------
+
+# Determine repo root and git command.
+# Bare dotfiles repo when available; regular checkout (CI) as fallback.
+_lint_root="$REAL_HOME"
+_lint_git=(git --git-dir="${REAL_HOME}/.dotfiles" --work-tree="${REAL_HOME}")
+if ! "${_lint_git[@]}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  _lint_root="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+  _lint_git=(git -C "${_lint_root}")
+fi
 
 echo "=== ShellCheck ==="
 
-if command -v shellcheck &>/dev/null; then
-  if sc_output=$("$SCRIPT_DIR/dot-shellcheck" 2>&1); then
-    _pass "shellcheck: all files clean"
-  else
-    _fail "shellcheck: findings detected"
-    while IFS= read -r _line; do
-      printf '    %s\n' "$_line" >&2
-    done <<<"$sc_output"
-  fi
+_sc_files=()
+while IFS= read -r _tracked; do
+  _f="${_lint_root}/${_tracked}"
+  [[ -f "$_f" && ! -L "$_f" ]] || continue
+  case "$_tracked" in
+    .bashrc | .bash_profile | *.sh | *.bash)
+      _sc_files+=("$_f")
+      continue
+      ;;
+  esac
+  IFS= read -r _first <"$_f" || true
+  case "$_first" in
+    '#!/usr/bin/env bash' | '#!/bin/bash')
+      _sc_files+=("$_f")
+      ;;
+  esac
+done < <("${_lint_git[@]}" ls-files)
+
+if [[ "${#_sc_files[@]}" -eq 0 ]]; then
+  _fail "shellcheck: no files discovered"
+  printf '    repo root: %s\n' "${_lint_root}" >&2
+elif _sc_output=$(shellcheck -x -P SCRIPTDIR "${_sc_files[@]}" 2>&1); then
+  _pass "shellcheck: all files clean"
 else
-  echo "  SKIP: shellcheck not installed"
+  _fail "shellcheck: findings detected"
+  while IFS= read -r _line; do
+    printf '    %s\n' "$_line" >&2
+  done <<<"$_sc_output"
+fi
+
+echo "=== JSON ==="
+
+_json_failed=0
+while IFS= read -r _f; do
+  if ! diff <(jq --sort-keys . "${_lint_root}/${_f}") "${_lint_root}/${_f}" >/dev/null; then
+    _fail "json-sort: ${_f} is not sorted"
+    _json_failed=1
+  fi
+done < <("${_lint_git[@]}" ls-files \
+  | "${_lint_git[@]}" check-attr --all --stdin \
+  | grep "filter: json-sort" \
+  | cut -d: -f1 || true)
+if (( ! _json_failed )); then
+  _pass "json-sort: all files sorted"
 fi
 
 # ---------------------------------------------------------------------------

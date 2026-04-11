@@ -7,31 +7,6 @@ on:
     branches: [master, main]
 
 jobs:
-  lint:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: ShellCheck
-        run: .local/bin/dot-shellcheck
-
-      - name: Check JSON sorting
-        run: |
-          # Verify that files assigned the 'json-sort' filter in .gitattributes are actually sorted.
-          # This prevents "ghost diffs" on machines with the filter enabled.
-          # Use a temp file to track failures because the while loop runs in a subshell.
-          failed=0
-          while read -r f; do
-            if ! diff <(jq --sort-keys . "$f") "$f" >/dev/null; then
-              echo "Error: $f is not sorted. Run 'jq --sort-keys . \"$f\" > tmp.json && mv tmp.json \"$f\"' to fix."
-              failed=1
-            fi
-          done < <(git ls-files | git check-attr --all --stdin | grep "filter: json-sort" | cut -d: -f1 || true)
-          
-          if [ "$failed" -eq 1 ]; then
-            exit 1
-          fi
-
   test:
     runs-on: ${{ matrix.os }}
     strategy:
@@ -40,9 +15,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Bash (macOS)
+      - name: Install tools (macOS)
         if: runner.os == 'macOS'
-        run: brew install bash
+        run: brew install bash shellcheck jq
 
       - name: Run dot-test
         run: .local/bin/dot-test
