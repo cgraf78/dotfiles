@@ -1,12 +1,16 @@
 # shellcheck shell=bash
 # Status and post-install hooks for wezterm.
 
+_wezterm_ver() {
+  wezterm --version 2>/dev/null | awk '{v=$2; if (v ~ /^[0-9a-f]{40}$/) print "commit " substr(v,1,7); else print v}'
+}
+
 status() {
   # In force mode, post() will run and report the result — stay silent here.
   [[ "${DOT_FORCE:-0}" -eq 1 ]] && return 0
   if command -v wezterm &>/dev/null; then
     local ver
-    ver=$(wezterm --version 2>/dev/null | awk '{v=$2; if (v ~ /^[0-9a-f]{40}$/) print "commit " substr(v,1,7); else print v}')
+    ver=$(_wezterm_ver)
     _log_dim "  wezterm up to date${ver:+ -- $ver}"
     return 0
   fi
@@ -36,12 +40,14 @@ post() {
     if brew list --cask wezterm &>/dev/null; then
       if [[ "${DOT_FORCE:-0}" -eq 1 ]]; then
         brew upgrade --cask wezterm &>/dev/null || true
-        _log_ok "  wezterm refreshed (brew)"
+        local ver; ver=$(_wezterm_ver)
+        _log_ok "  wezterm reinstalled (brew)${ver:+ -- $ver}"
       fi
       return 0
     fi
     if brew install --cask wezterm &>/dev/null; then
-      _log_ok "  wezterm installed (brew)"
+      local ver; ver=$(_wezterm_ver)
+      _log_ok "  wezterm installed (brew)${ver:+ -- $ver}"
     else
       _warn "  warning: failed to install wezterm (brew)"
     fi
@@ -49,7 +55,8 @@ post() {
     ;;
   pacman)
     if sudo pacman -S --needed --noconfirm wezterm &>/dev/null; then
-      _log_ok "  wezterm installed (pacman)"
+      local ver; ver=$(_wezterm_ver)
+      _log_ok "  wezterm installed (pacman)${ver:+ -- $ver}"
     else
       _warn "  warning: failed to install wezterm (pacman)"
     fi
