@@ -1,5 +1,11 @@
 # ~/.zshrc: thin loader — config lives in ~/.config/shell/
 
+# Source all files in a directory, sorted by filename.
+# Shell-specific files (*.bash, *.zsh) are mixed into the sort with
+# common files (*.sh), so numeric prefixes control load order across
+# both types.  Call with the shell name to include its files:
+#   _shell_source_dir dir         — *.sh only
+#   _shell_source_dir dir zsh     — *.zsh and *.sh, sorted together
 _shell_source_dir() {
   local f
   local -a files=()
@@ -19,8 +25,3 @@ _shell_source_dir ~/.config/shell/env.d zsh
 
 # Interactive
 _shell_source_dir ~/.config/shell/interactive.d zsh
-
-# Machine-local overrides (not in repo) — after interactive.d so functions
-# like set_hostname_alias are defined before local scripts call them.
-if [ -f ~/.zshrc_local ]; then . ~/.zshrc_local; fi
-if [ -f ~/.zshrc_local_work ]; then . ~/.zshrc_local_work; fi

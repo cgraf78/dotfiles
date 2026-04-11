@@ -25,8 +25,3 @@ case $- in *i*) ;; *) return ;; esac
 
 # Interactive
 _shell_source_dir ~/.config/shell/interactive.d bash
-
-# Machine-local overrides (not in repo) — after interactive.d so functions
-# like set_hostname_alias are defined before local scripts call them.
-if [ -f ~/.bashrc_local ]; then . ~/.bashrc_local; fi
-if [ -f ~/.bashrc_local_work ]; then . ~/.bashrc_local_work; fi
