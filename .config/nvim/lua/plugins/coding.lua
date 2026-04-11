@@ -109,6 +109,7 @@ return {
         sh = { "shellcheck" },
         typescript = { "eslint_d" },
         typescriptreact = { "eslint_d" },
+        zsh = { "zsh" },
       }
       vim.api.nvim_create_autocmd({ "BufReadPost", "BufWritePost", "InsertLeave" }, {
         callback = function()

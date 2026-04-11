@@ -44,7 +44,7 @@ vim.lsp.config("lua_ls", {
 -- Bash
 vim.lsp.config("bashls", {
   capabilities = capabilities,
-  filetypes = { "sh", "bash", "zsh" },
+  filetypes = { "sh", "bash" },
 })
 
 -- TypeScript/JavaScript
