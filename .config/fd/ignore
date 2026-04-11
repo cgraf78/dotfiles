@@ -1,32 +1,17 @@
-# macOS system
-Library/
-Applications/
-Music/
-Pictures/
-Desktop/
-Movies/
+# OS junk
 .Trash/
-
-# Windows system
 $Recycle.Bin/
 System Volume Information/
 AppData/
 ProgramData/
 
-# Dev noise
-.dotfiles-backup/
+# Dev noise (match anywhere)
 .git/
 node_modules/
 __pycache__/
 .mypy_cache/
-.bash_sessions/
-.zsh_sessions/
 .cache/
 .venv/
 .vscode/
 .npm/
 .bun/
-.atuin/
-.vscode-remote/
-.cursor-server/
-gdrive/
