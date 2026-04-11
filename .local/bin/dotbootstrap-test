@@ -726,6 +726,9 @@ _assert_eq "pkg_resolve: NONE for pacman" "NONE" "$result"
 echo ""
 echo "=== Package queuing ==="
 
+# Stub _pkg_available so tests don't hit real package managers
+_pkg_available() { return 0; }
+
 _PKG_MGR="dnf"
 _PKG_BATCH=()
 # Run in current shell so _PKG_BATCH is modified, capture output via temp file
@@ -754,6 +757,18 @@ result=$(cat /tmp/_pkg_queue_out)
 rm -f /tmp/_pkg_queue_out
 _assert_eq "pkg_queue brew: queued" "1" "${#_PKG_BATCH[@]}"
 _assert_eq "pkg_queue brew: correct name" "myfont" "${_PKG_BATCH[0]}"
+
+# Unavailable package — pkg_queue skips with warning
+_pkg_available() { return 1; }
+_PKG_MGR="apt"
+_PKG_BATCH=()
+_PKG_BATCH_NAMES=()
+_pkg_queue "nosuchpkg" "" >/tmp/_pkg_queue_out 2>&1
+result=$(cat /tmp/_pkg_queue_out)
+rm -f /tmp/_pkg_queue_out
+_assert_eq "pkg_queue unavailable: batch empty" "0" "${#_PKG_BATCH[@]}"
+_assert_contains "pkg_queue unavailable: warns" "not available" "$result"
+_pkg_available() { return 0; }
 
 # ---------------------------------------------------------------------------
 # Tests: _pkg_install_batch
