@@ -1135,4 +1135,42 @@ _json=$(_fake_release_json \
 result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
 _assert_contains "linux system: picks linux not darwin" "linux" "$result"
 
+# ---------------------------------------------------------------------------
+# Tests: deps.local.conf
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== Local deps config ==="
+
+# deps.conf only → loads entries
+cat >"$TEST_HOME/.config/dot/deps.conf" <<'EOF'
+tool-a  pkg
+tool-b  pkg
+EOF
+rm -f "$TEST_HOME/.config/dot/deps.local.conf"
+_dep_load
+_assert_eq "conf only: entry count" "2" "${#_DEPS[@]}"
+
+# deps.local.conf adds entries
+cat >"$TEST_HOME/.config/dot/deps.local.conf" <<'EOF'
+tool-c  binary  -  -  -  owner/tool-c
+EOF
+_dep_load
+_assert_eq "conf + local: entry count" "3" "${#_DEPS[@]}"
+_assert_contains "conf + local: has local entry" "tool-c" "${_DEPS[2]}"
+
+# deps.local.conf only (no tracked conf) → still loads
+rm -f "$TEST_HOME/.config/dot/deps.conf"
+_dep_load
+_assert_eq "local only: entry count" "1" "${#_DEPS[@]}"
+_assert_contains "local only: has entry" "tool-c" "${_DEPS[0]}"
+
+# Neither file → warning, empty array
+rm -f "$TEST_HOME/.config/dot/deps.local.conf"
+_dep_load 2>/dev/null
+_assert_eq "neither: empty deps" "0" "${#_DEPS[@]}"
+
+# Restore deps.conf for remaining tests
+cp "$REAL_HOME/.config/dot/deps.conf" "$TEST_HOME/.config/dot/deps.conf"
+
 _test_summary

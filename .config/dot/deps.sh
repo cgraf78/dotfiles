@@ -7,26 +7,32 @@
 # Dep registry — parse ~/.config/dot/deps.conf
 # ---------------------------------------------------------------------------
 
-# Parse deps.conf into _DEPS array. Each entry is pipe-delimited.
+# Parse deps.conf (and optional deps.local.conf) into _DEPS array.
+# Each entry is pipe-delimited. deps.local.conf is untracked and
+# allows machine-local dependencies (same format as deps.conf).
 _dep_load() {
   _DEPS=()
   local conf="$HOME/.config/dot/deps.conf"
-  if [[ ! -f "$conf" ]]; then
+  local conf_local="$HOME/.config/dot/deps.local.conf"
+  if [[ ! -f "$conf" && ! -f "$conf_local" ]]; then
     _warn "  warning: $conf not found — skipping dependency install"
     return 0
   fi
-  local line
-  while IFS= read -r line || [[ -n "$line" ]]; do
-    # Skip comments and blank lines
-    if [[ "$line" =~ ^[[:space:]]*# ]]; then continue; fi
-    if [[ -z "${line// /}" ]]; then continue; fi
-    # Normalize whitespace to pipe delimiter
-    local fields
-    # shellcheck disable=SC2086  # intentional word splitting
-    set -- $line
-    fields="$*"
-    _DEPS+=("${fields// /|}")
-  done <"$conf"
+  local f line
+  for f in "$conf" "$conf_local"; do
+    [[ -f "$f" ]] || continue
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      # Skip comments and blank lines
+      if [[ "$line" =~ ^[[:space:]]*# ]]; then continue; fi
+      if [[ -z "${line// /}" ]]; then continue; fi
+      # Normalize whitespace to pipe delimiter
+      local fields
+      # shellcheck disable=SC2086  # intentional word splitting
+      set -- $line
+      fields="$*"
+      _DEPS+=("${fields// /|}")
+    done <"$f"
+  done
 }
 
 # Split a pipe-delimited registry entry into named variables.
