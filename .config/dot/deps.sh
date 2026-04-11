@@ -578,14 +578,31 @@ _binary_install_tarball() {
     extract_dir="$extract_dir/$top_entries"
   fi
 
-  # Verify the binary exists inside the extracted tree.
+  # Find the binary inside the extracted tree.
+  # 1. Exact name match (most common: bat, delta, fzf, lazygit, etc.)
+  # 2. Prefix match: cmd-* (Rust triple naming: codex-x86_64-unknown-linux-gnu)
+  # 3. Sole executable fallback (tarball has exactly one executable file)
   local found_bin=""
-  while IFS= read -r -d '' f; do
-    if [[ -x "$f" ]]; then
-      found_bin="$f"
-      break
+  local pattern
+  for pattern in "$cmd" "$cmd-*" "${cmd}_*"; do
+    while IFS= read -r -d '' f; do
+      if [[ -x "$f" ]]; then
+        found_bin="$f"
+        break 2
+      fi
+    done < <(find "$extract_dir" -name "$pattern" -type f -print0 2>/dev/null)
+  done
+  if [[ -z "$found_bin" ]]; then
+    # Last resort: if there's exactly one compiled binary, use it.
+    # Filter via file(1) to exclude shell scripts and other non-binaries.
+    local -a binaries=()
+    while IFS= read -r -d '' f; do
+      [[ -x "$f" ]] && file "$f" | grep -qiE 'ELF|Mach-O' && binaries+=("$f")
+    done < <(find "$extract_dir" -type f -print0 2>/dev/null)
+    if [[ ${#binaries[@]} -eq 1 ]]; then
+      found_bin="${binaries[0]}"
     fi
-  done < <(find "$extract_dir" -name "$cmd" -type f -print0 2>/dev/null)
+  fi
   if [[ -z "$found_bin" ]]; then
     rm -rf "$orig_extract_dir" "$log"
     _warn "  warning: $cmd binary not found in $name tarball"
@@ -738,7 +755,8 @@ _binary_find_asset() {
   # Extensions to always skip (metadata, packages, installers)
   local -a _skip_exts=(
     .sha256 .sha512 .md5 .sig .asc .txt .json .zsync
-    .deb .rpm .msi .zip .appimage
+    .sigstore .proof .sbom .b3 .pem .dmg .pkg .apk
+    .deb .rpm .msi .zip .appimage .flatpak .mcpb
   )
 
   # Try matching from the API asset list (handles any naming convention).
@@ -751,14 +769,15 @@ _binary_find_asset() {
       cut -d'"' -f4)
 
     if [[ -n "$urls" ]]; then
-      local url arch_pat os_pat ext skip os_match
+      local url url_lower arch_pat os_pat ext skip os_match
       local pass
       for pass in plain tarball; do
         while IFS= read -r url; do
-          # Must match at least one OS pattern
+          url_lower="${url,,}"
+          # Must match at least one OS pattern (case-insensitive)
           os_match=0
           for os_pat in "${os_patterns[@]}"; do
-            [[ "$url" == *"$os_pat"* ]] && {
+            [[ "$url_lower" == *"$os_pat"* ]] && {
               os_match=1
               break
             }
@@ -767,7 +786,7 @@ _binary_find_asset() {
           # Skip metadata and package files
           skip=0
           for ext in "${_skip_exts[@]}"; do
-            [[ "$url" == *"$ext" ]] && {
+            [[ "$url_lower" == *"$ext" ]] && {
               skip=1
               break
             }
@@ -775,12 +794,12 @@ _binary_find_asset() {
           [[ $skip -eq 1 ]] && continue
           # Pass-specific filtering
           if [[ "$pass" == "plain" ]]; then
-            [[ "$url" != *.tar.gz && "$url" != *.tar.xz && "$url" != *.tar.bz2 && "$url" != *.tgz ]] || continue
+            [[ "$url_lower" != *.tar.gz && "$url_lower" != *.tar.xz && "$url_lower" != *.tar.bz2 && "$url_lower" != *.tgz ]] || continue
           else
-            [[ "$url" == *.tar.gz || "$url" == *.tar.xz || "$url" == *.tar.bz2 || "$url" == *.tgz ]] || continue
+            [[ "$url_lower" == *.tar.gz || "$url_lower" == *.tar.xz || "$url_lower" == *.tar.bz2 || "$url_lower" == *.tgz ]] || continue
           fi
           for arch_pat in "${arch_patterns[@]}"; do
-            if [[ "$url" == *"$arch_pat"* ]]; then
+            if [[ "$url_lower" == *"$arch_pat"* ]]; then
               echo "$url"
               return 0
             fi
@@ -792,19 +811,21 @@ _binary_find_asset() {
 
   # Fallback: try common URL patterns when API didn't help
   local base="https://github.com/$gh_repo/releases/download/$tag"
-  local a
-  for a in "${arch_patterns[@]}"; do
-    local candidates=(
-      "$base/$cmd.${os}-${a}"
-      "$base/${cmd}-${os}-${a}"
-      "$base/${cmd}_${os}_${a}"
-    )
-    local c
-    for c in "${candidates[@]}"; do
-      if curl -fsSL --no-netrc --head "$c" &>/dev/null; then
-        echo "$c"
-        return 0
-      fi
+  local o a
+  for o in "${os_patterns[@]}"; do
+    for a in "${arch_patterns[@]}"; do
+      local candidates=(
+        "$base/$cmd.${o}-${a}"
+        "$base/${cmd}-${o}-${a}"
+        "$base/${cmd}_${o}_${a}"
+      )
+      local c
+      for c in "${candidates[@]}"; do
+        if curl -fsSL --no-netrc --head "$c" &>/dev/null; then
+          echo "$c"
+          return 0
+        fi
+      done
     done
   done
 }

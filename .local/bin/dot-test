@@ -722,4 +722,237 @@ _install_cron 2>/dev/null
 result=$(crontab -l 2>/dev/null)
 _assert_contains "all-comments: preserves other jobs" "other-job" "$result"
 
+# ---------------------------------------------------------------------------
+# Tests: _binary_find_asset (URL matching)
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== Binary asset matching ==="
+
+# Source deps.sh for _binary_find_asset (core.sh already loaded via init.sh)
+. "$REAL_HOME/.config/dot/deps.sh"
+
+# Helper: build a fake release JSON from a list of asset names.
+_fake_release_json() {
+  local result='{"assets":['
+  local first=1
+  local name
+  for name in "$@"; do
+    [[ $first -eq 0 ]] && result+=","
+    first=0
+    result+='{"browser_download_url":"https://github.com/test/tool/releases/download/v1.0.0/'"$name"'"}'
+  done
+  result+=']}'
+  echo "$result"
+}
+
+# Rust triple: linux x86_64 tar.gz
+_json=$(_fake_release_json \
+  "tool-x86_64-unknown-linux-gnu.tar.gz" \
+  "tool-aarch64-unknown-linux-gnu.tar.gz" \
+  "tool-x86_64-apple-darwin.tar.gz")
+result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
+_assert_contains "rust triple: linux x86_64" "x86_64-unknown-linux-gnu.tar.gz" "$result"
+
+# Go convention: darwin arm64 plain binary
+_json=$(_fake_release_json \
+  "tool-linux-amd64" \
+  "tool-darwin-arm64" \
+  "tool-darwin-amd64")
+result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
+# On this linux x86_64 system, should match linux-amd64
+_assert_contains "go plain binary: linux amd64" "linux-amd64" "$result"
+
+# Case-insensitive: Darwin/Linux capitalized (glow, k9s, act, vhs)
+_json=$(_fake_release_json \
+  "tool_1.0_Darwin_arm64.tar.gz" \
+  "tool_1.0_Darwin_x86_64.tar.gz" \
+  "tool_1.0_Linux_arm64.tar.gz" \
+  "tool_1.0_Linux_x86_64.tar.gz")
+result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
+_assert_contains "case-insensitive: Linux x86_64" "Linux_x86_64.tar.gz" "$result"
+
+# Skip metadata extensions
+_json=$(_fake_release_json \
+  "tool-linux-amd64.tar.gz.sha256" \
+  "tool-linux-amd64.tar.gz.sig" \
+  "tool-linux-amd64.tar.gz.asc" \
+  "tool-linux-amd64.sigstore" \
+  "tool-linux-amd64.tar.gz.b3" \
+  "tool-linux-amd64.tar.gz")
+result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
+_assert_contains "skip metadata: finds tarball" "tool-linux-amd64.tar.gz" "$result"
+_assert_not_contains "skip metadata: no sha256" "sha256" "$result"
+
+# Skip package extensions
+_json=$(_fake_release_json \
+  "tool_1.0_linux_amd64.deb" \
+  "tool_1.0_linux_amd64.rpm" \
+  "tool_1.0_linux_amd64.apk" \
+  "tool_1.0_linux_amd64.flatpak" \
+  "tool_1.0_linux_amd64.tar.gz")
+result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
+_assert_contains "skip packages: finds tarball" "tool_1.0_linux_amd64.tar.gz" "$result"
+
+# macOS: macos pattern (neovim, jq, viddy)
+_json=$(_fake_release_json \
+  "tool-macos-arm64.tar.gz" \
+  "tool-macos-x86_64.tar.gz" \
+  "tool-linux-x86_64.tar.gz")
+result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
+_assert_contains "macos pattern: linux x86_64" "linux-x86_64.tar.gz" "$result"
+
+# Prefer plain binary over tarball
+_json=$(_fake_release_json \
+  "tool-linux-amd64" \
+  "tool-linux-amd64.tar.gz")
+result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
+_assert_not_contains "prefer plain over tarball" ".tar.gz" "$result"
+
+# .tar.xz support (watchexec, typst)
+_json=$(_fake_release_json \
+  "tool-x86_64-unknown-linux-gnu.tar.xz" \
+  "tool-aarch64-unknown-linux-gnu.tar.xz")
+result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
+_assert_contains "tar.xz: linux x86_64" "x86_64-unknown-linux-gnu.tar.xz" "$result"
+
+# .tgz support
+_json=$(_fake_release_json \
+  "tool-linux-amd64.tgz" \
+  "tool-darwin-amd64.tgz")
+result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
+_assert_contains "tgz: linux amd64" "linux-amd64.tgz" "$result"
+
+# No matching asset → empty
+_json=$(_fake_release_json \
+  "tool-windows-amd64.exe" \
+  "tool-freebsd-amd64.tar.gz")
+result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
+_assert_eq "no match: empty result" "" "$result"
+
+# ---------------------------------------------------------------------------
+# Tests: _binary_install_tarball (binary search in tarballs)
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== Tarball binary extraction ==="
+
+# Helper: create a tarball, run _binary_install_tarball, check result.
+# $1=description $2=cmd name $3=expected exit (0 or 1)
+# Remaining args: file paths to include (relative).
+# Executable files are ELF binaries (copies of /bin/true) so file(1)
+# correctly identifies them during sole-executable fallback.
+# Non-executable companion files (README, LICENSE, etc.) can be added
+# via the _test_tarball_with_extras wrapper.
+_test_tarball() {
+  local desc="$1" cmd="$2" expect_exit="$3"
+  shift 3
+  _test_tarball_with_extras "$desc" "$cmd" "$expect_exit" "" "$@"
+}
+
+# $1=desc $2=cmd $3=expected exit $4=comma-separated non-executable files
+# remaining args: executable file paths
+_test_tarball_with_extras() {
+  local desc="$1" cmd="$2" expect_exit="$3" extras="$4"
+  shift 4
+  local staging
+  staging=$(_tmpdir)
+  local f
+  for f in "$@"; do
+    mkdir -p "$staging/$(dirname "$f")"
+    cp /bin/true "$staging/$f"
+  done
+  if [[ -n "$extras" ]]; then
+    IFS=',' read -ra _extra_files <<< "$extras"
+    for f in "${_extra_files[@]}"; do
+      mkdir -p "$staging/$(dirname "$f")"
+      echo "placeholder" > "$staging/$f"
+    done
+  fi
+  local tarball
+  tarball=$(mktemp --suffix=.tar.gz)
+  tar czf "$tarball" -C "$staging" .
+  local bin_path="$staging/output-bin"
+  local log=""
+  local rc=0
+  _binary_install_tarball "test-pkg" "$cmd" "$tarball" "$bin_path" "$log" >/dev/null 2>&1 || rc=$?
+  _assert_exit "$desc" "$expect_exit" "$rc"
+  if [[ "$expect_exit" -eq 0 ]]; then
+    if [[ -L "$bin_path" || -x "$bin_path" ]]; then
+      _pass "$desc: binary installed"
+    else
+      _fail "$desc: binary not installed at $bin_path"
+    fi
+  fi
+  rm -f "$tarball"
+}
+
+# Exact name match (fzf, lazygit, starship)
+_test_tarball "exact match: flat binary" "mytool" 0 \
+  "mytool"
+
+# Exact match in subdirectory (bat, delta, neovim)
+_test_tarball_with_extras "exact match: in subdir" "mytool" 0 \
+  "mytool-v1.0-linux/README.md" \
+  "mytool-v1.0-linux/mytool"
+
+# Exact match in bin/ subdir (gh, neovim)
+_test_tarball_with_extras "exact match: in bin subdir" "mytool" 0 \
+  "mytool-v1.0/LICENSE" \
+  "mytool-v1.0/bin/mytool"
+
+# Dash prefix match (codex: codex-x86_64-unknown-linux-gnu)
+_test_tarball "prefix match: dash separator" "mytool" 0 \
+  "mytool-x86_64-unknown-linux-gnu"
+
+# Underscore prefix match (yq: yq_linux_amd64)
+_test_tarball "prefix match: underscore separator" "mytool" 0 \
+  "mytool_linux_amd64"
+
+# Sole executable fallback
+_test_tarball "sole executable: unconventional name" "mytool" 0 \
+  "completely-different-name"
+
+# No match: multiple executables with wrong names
+_test_tarball "no match: multiple wrong names" "mytool" 1 \
+  "other-tool" \
+  "another-tool"
+
+# Sole executable fallback ignores shell scripts
+_test_script_staging=$(_tmpdir)
+echo "#!/bin/sh" > "$_test_script_staging/setup.sh"
+chmod +x "$_test_script_staging/setup.sh"
+cp /bin/true "$_test_script_staging/real-binary"
+_test_script_tar=$(mktemp --suffix=.tar.gz)
+tar czf "$_test_script_tar" -C "$_test_script_staging" .
+_test_script_bin="$_test_script_staging/output-bin"
+_binary_install_tarball "test-pkg" "notfound" "$_test_script_tar" "$_test_script_bin" "" >/dev/null 2>&1 || true
+if [[ -L "$_test_script_bin" ]]; then
+  _target=$(readlink "$_test_script_bin")
+  _assert_contains "sole exe ignores scripts: picks binary" "real-binary" "$_target"
+else
+  _fail "sole exe ignores scripts: no symlink created"
+fi
+rm -f "$_test_script_tar"
+
+# Exact match preferred over prefix match
+_test_exact_staging=$(_tmpdir)
+cp /bin/true "$_test_exact_staging/mytool"
+cp /bin/true "$_test_exact_staging/mytool-extra"
+_test_exact_tar=$(mktemp --suffix=.tar.gz)
+tar czf "$_test_exact_tar" -C "$_test_exact_staging" .
+_test_exact_bin="$_test_exact_staging/output-bin"
+_binary_install_tarball "test-pkg" "mytool" "$_test_exact_tar" "$_test_exact_bin" "" >/dev/null 2>&1
+if [[ -L "$_test_exact_bin" ]]; then
+  _target=$(readlink "$_test_exact_bin")
+  if [[ "$_target" == *"/mytool" && "$_target" != *"-extra" ]]; then
+    _pass "exact over prefix: symlinks to exact name"
+  else
+    _fail "exact over prefix: symlinks to exact name (got $_target)"
+  fi
+else
+  _fail "exact over prefix: no symlink created"
+fi
+rm -f "$_test_exact_tar"
+
 _test_summary
