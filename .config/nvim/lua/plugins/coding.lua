@@ -59,11 +59,11 @@ return {
         formatters = {
           shfmt_bash = {
             inherit = "shfmt",
-            prepend_args = { "-ln=bash" },
+            prepend_args = { "-ln=bash", "-ci" },
           },
           shfmt_zsh = {
             inherit = "shfmt",
-            prepend_args = { "-ln=zsh" },
+            prepend_args = { "-ln=zsh", "-ci" },
           },
         },
         formatters_by_ft = {
