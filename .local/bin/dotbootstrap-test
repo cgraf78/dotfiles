@@ -727,6 +727,7 @@ echo ""
 echo "=== Package queuing ==="
 
 # Stub _pkg_available so tests don't hit real package managers
+# shellcheck disable=SC2329  # invoked indirectly via _pkg_queue
 _pkg_available() { return 0; }
 
 _PKG_MGR="dnf"
@@ -759,6 +760,7 @@ _assert_eq "pkg_queue brew: queued" "1" "${#_PKG_BATCH[@]}"
 _assert_eq "pkg_queue brew: correct name" "myfont" "${_PKG_BATCH[0]}"
 
 # Unavailable package — pkg_queue skips with warning
+# shellcheck disable=SC2329  # invoked indirectly via _pkg_queue
 _pkg_available() { return 1; }
 _PKG_MGR="apt"
 _PKG_BATCH=()
@@ -768,6 +770,7 @@ result=$(cat /tmp/_pkg_queue_out)
 rm -f /tmp/_pkg_queue_out
 _assert_eq "pkg_queue unavailable: batch empty" "0" "${#_PKG_BATCH[@]}"
 _assert_contains "pkg_queue unavailable: warns" "not available" "$result"
+# shellcheck disable=SC2329  # invoked indirectly via _pkg_queue
 _pkg_available() { return 0; }
 
 # ---------------------------------------------------------------------------
