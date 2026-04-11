@@ -2,6 +2,8 @@
 # Status and post-install hooks for wezterm.
 
 status() {
+  # In force mode, post() will run and report the result — stay silent here.
+  [[ "${DOT_FORCE:-0}" -eq 1 ]] && return 0
   if command -v wezterm &>/dev/null; then
     local ver
     ver=$(wezterm --version 2>/dev/null | awk '{v=$2; if (v ~ /^[0-9a-f]{40}$/) print "commit " substr(v,1,7); else print v}')

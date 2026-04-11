@@ -8,6 +8,8 @@ _xclip_applicable() {
 
 status() {
   if ! _xclip_applicable; then return 0; fi
+  # In force mode, post() will run and report the result — stay silent here.
+  [[ "${DOT_FORCE:-0}" -eq 1 ]] && return 0
 
   if command -v xclip &>/dev/null; then
     _log_dim "  xclip up to date"
@@ -59,5 +61,7 @@ post() {
     return 1
   fi
 
-  _log_ok "  xclip installed (${_PKG_MGR})"
+  local action="installed"
+  [[ "${DOT_FORCE:-0}" -eq 1 ]] && action="reinstalled"
+  _log_ok "  xclip $action (${_PKG_MGR})"
 }

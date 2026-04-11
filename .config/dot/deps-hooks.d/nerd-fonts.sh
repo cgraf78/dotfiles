@@ -26,6 +26,9 @@ _nerd_font_installed() {
 }
 
 status() {
+  # In force mode, post() will run and report the result — stay silent here.
+  [[ "${DOT_FORCE:-0}" -eq 1 ]] && return 0
+
   if ! _dep_hook_due "nerd-fonts"; then
     _log_dim "  nerd-fonts up to date"
     return 0
@@ -63,21 +66,30 @@ post() {
   while IFS= read -r entry; do
     IFS='|' read -r name brew_pkg pacman_pkg nerd_zip font_dir <<<"$entry"
 
-    # Check if already installed
-    if _nerd_font_installed "$brew_pkg" "$pacman_pkg" "$font_dir"; then continue; fi
+    # Check if already installed (skip check when forced to reinstall).
+    if [[ "${DOT_FORCE:-0}" -ne 1 ]] && _nerd_font_installed "$brew_pkg" "$pacman_pkg" "$font_dir"; then continue; fi
 
-    # Install via native package manager where available
+    # Install (or reinstall/upgrade when forced) via native package manager where available.
     case "${_PKG_MGR:-}" in
     brew)
       if [[ "$brew_pkg" != "-" ]]; then
-        brew install "$brew_pkg" &>/dev/null &&
-          _log_ok "  $name installed (brew)" && continue
+        if [[ "${DOT_FORCE:-0}" -eq 1 ]] && brew list "$brew_pkg" &>/dev/null; then
+          brew upgrade "$brew_pkg" &>/dev/null &&
+            _log_ok "  $name reinstalled (brew)" && continue
+        else
+          brew install "$brew_pkg" &>/dev/null &&
+            _log_ok "  $name installed (brew)" && continue
+        fi
       fi
       ;;
     pacman)
       if [[ "$pacman_pkg" != "-" ]]; then
-        sudo pacman -S --needed --noconfirm "$pacman_pkg" &>/dev/null &&
-          _log_ok "  $name installed (pacman)" && continue
+        local pacman_flags=(--noconfirm)
+        [[ "${DOT_FORCE:-0}" -ne 1 ]] && pacman_flags+=(--needed)
+        local pacman_action="installed"
+        [[ "${DOT_FORCE:-0}" -eq 1 ]] && pacman_action="reinstalled"
+        sudo pacman -S "${pacman_flags[@]}" "$pacman_pkg" &>/dev/null &&
+          _log_ok "  $name $pacman_action (pacman)" && continue
       fi
       ;;
     esac
@@ -100,13 +112,14 @@ post() {
       mkdir -p "$dest"
       unzip -qo "$tmp/font.zip" '*.ttf' -d "$dest" 2>/dev/null || true
       if command -v fc-cache &>/dev/null; then fc-cache -f "$dest" 2>/dev/null || true; fi
-      _log_ok "  $name installed from GitHub ($nf_version)"
+      local action="installed"
+      [[ "${DOT_FORCE:-0}" -eq 1 ]] && action="reinstalled"
+      _log_ok "  $name $action from GitHub ($nf_version)"
     else
       _warn "  warning: failed to download $name"
     fi
     rm -rf "$tmp"
   done < <(_nerd_fonts_entries)
 
-  # Nothing installed — hook stamp is touched by _run_post_hooks caller.
-  # Status already printed by the _status_nerd_fonts loop.
+  # Hook stamp is touched by _run_post_hooks caller.
 }

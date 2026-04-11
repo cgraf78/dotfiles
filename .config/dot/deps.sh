@@ -1122,11 +1122,11 @@ _update_deps() {
     _install_dep "$entry" || true
   done
 
-  # Print all per-tool status lines before the system block.
+  # Status phase: all read-only reporting before any install actions.
   _run_status_hooks
   _install_cron || true
 
-  # Print system packages last among status lines, right before installing any.
+  # system: block closes the status phase — lists already-present pkg deps.
   if [[ ${#_PKG_PRESENT[@]} -gt 0 ]]; then
     local cols=72
     _log_dim "  system:"
@@ -1141,9 +1141,11 @@ _update_deps() {
     done
     [[ -n "$line" ]] && _log_dim "$line"
   fi
+
+  # Install phase: take actions, report what changed.
   _pkg_install_batch
 
-  # Force mode: mark all deps as changed so all hooks run
+  # Force mode: mark all deps as changed so all post() hooks run.
   if [[ "${DOT_FORCE:-0}" -eq 1 ]]; then
     for entry in "${_DEPS[@]}"; do
       _DEPS_CHANGED["${entry%%|*}"]=1
