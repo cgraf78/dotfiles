@@ -695,10 +695,19 @@ _install_binary() {
     return 0
   fi
 
-  # Get latest release from GitHub API (version + asset list)
+  # Get latest release from GitHub API (version + asset list).
+  # Use gh auth token if available for higher rate limits (60/hr → 5000/hr).
   local release_json=""
+  local -a _gh_curl_args=(curl -fsSL --no-netrc)
+  local _gh_token=""
+  _gh_token=$(gh auth token 2>/dev/null) || _gh_token="${GITHUB_TOKEN:-}"
+  if [[ -n "$_gh_token" ]]; then
+    _gh_curl_args+=(-H "Authorization: token $_gh_token")
+  else
+    _gh_curl_args+=(-H "Authorization:")
+  fi
   if command -v curl &>/dev/null; then
-    release_json=$(curl -fsSL --no-netrc -H "Authorization:" \
+    release_json=$("${_gh_curl_args[@]}" \
       "https://api.github.com/repos/$gh_repo/releases/latest" 2>/dev/null || true)
     latest_ver=$(echo "$release_json" |
       grep -o '"tag_name":[[:space:]]*"[^"]*"' | cut -d'"' -f4)
