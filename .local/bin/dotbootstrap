@@ -140,14 +140,11 @@ echo "==> Setting up $MACHINE_TYPE machine..."
 
 if [[ -d "$DOTFILES" ]]; then
   # ---------------------------------------------------------------------------
-  # Configure git (before fetch so refspec and filters are correct)
+  # Configure git (before fetch so refspec is correct)
+  # Pull-behavior and filter config is self-healed in _pull_personal/_pull_work_repo.
   # ---------------------------------------------------------------------------
 
   $GIT config status.showUntrackedFiles no
-
-  # json-sort filter: normalizes JSON on commit AND checkout (sorted keys).
-  $GIT config filter.json-sort.clean "jq --sort-keys . 2>/dev/null || cat"
-  $GIT config filter.json-sort.smudge "jq --sort-keys . 2>/dev/null || cat"
 
   # Ensure standard fetch refspec.
   $GIT config remote.origin.fetch "+refs/heads/*:refs/remotes/origin/*"

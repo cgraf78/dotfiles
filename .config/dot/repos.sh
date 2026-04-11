@@ -102,12 +102,12 @@ _pull_repo() {
   return "$rc"
 }
 
+# shellcheck disable=SC2086  # $GIT is intentionally word-split (multi-word command).
 _pull_personal() {
-  # shellcheck disable=SC2086  # $GIT is intentionally word-split (multi-word command).
   $GIT config pull.rebase true 2>/dev/null || true
-  # shellcheck disable=SC2086
   $GIT config rebase.autoStash true 2>/dev/null || true
-  # shellcheck disable=SC2086
+  $GIT config filter.json-sort.clean "jq --sort-keys . 2>/dev/null || cat" 2>/dev/null || true
+  $GIT config filter.json-sort.smudge "jq --sort-keys . 2>/dev/null || cat" 2>/dev/null || true
   _pull_repo "$HOME" $GIT pull "$@"
 }
 
@@ -130,6 +130,8 @@ _pull_work_repo() {
   [[ -d "$WORK_DIR/.git" ]] || return 0
   git -C "$WORK_DIR" config pull.rebase true 2>/dev/null || true
   git -C "$WORK_DIR" config rebase.autoStash true 2>/dev/null || true
+  git -C "$WORK_DIR" config filter.json-sort.clean "jq --sort-keys . 2>/dev/null || cat" 2>/dev/null || true
+  git -C "$WORK_DIR" config filter.json-sort.smudge "jq --sort-keys . 2>/dev/null || cat" 2>/dev/null || true
   _log_header "==> Pulling work dotfiles..."
   _pull_repo "$WORK_DIR" git -C "$WORK_DIR" pull "$@" ||
     _warn "  warning: work dotfiles pull failed"
@@ -253,14 +255,6 @@ _dirty_files_match_remote() {
 # Re-checkout files that are byte-different but identical after clean filter.
 # Fixes phantom dirty status from tools rewriting JSON with different key order.
 _normalize_filtered() {
-  # Warn if required filters from .gitattributes are missing in local config.
-  if [[ -f "$HOME/.gitattributes" ]] && grep -q "filter=json-sort" "$HOME/.gitattributes"; then
-    # shellcheck disable=SC2086
-    if ! $GIT config filter.json-sort.clean >/dev/null 2>&1; then
-      _warn "warning: json-sort filter is not configured. run 'dotbootstrap' to fix."
-    fi
-  fi
-
   local dirty
   dirty=$($GIT diff-files --name-only 2>/dev/null) || true
   [[ -n "$dirty" ]] || return 0
