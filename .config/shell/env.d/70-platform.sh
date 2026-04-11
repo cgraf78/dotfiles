@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Platform-specific non-interactive setup.
 
 if [[ "$_UNAME" == "Darwin" ]]; then

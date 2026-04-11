@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # SSH helpers shared across interactive shells.
 
 _shell_pick_remote_login_shell() {

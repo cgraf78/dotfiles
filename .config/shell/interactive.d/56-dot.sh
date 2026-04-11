@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Shared interactive helpers for dotfiles management.
 
 # Resolve platform-specific binary names once.
@@ -235,7 +236,6 @@ fv() {
   printf -v root_q '%q' "$_root"
   preview="bash -lc 'source ~/.config/shell/interactive.d/56-dot.sh; _preview_file \"\$1\"' _ $root_q/{}"
 
-  local listing
   if [[ -n "$_fd_cmd" ]]; then
     listing() { "$_fd_cmd" --base-directory "$_root" --hidden --exclude .git --type f .; }
   else

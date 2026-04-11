@@ -14,6 +14,7 @@ export CMD_TRIMMED
 
 # Block rm -rf on dangerous paths, warn on all other rm -rf
 if printf '%s' "$CMD_TRIMMED" | grep -qE '\brm\b' && printf '%s' "$CMD_TRIMMED" | grep -qE '\brm\b.*-[a-zA-Z]*r' && printf '%s' "$CMD_TRIMMED" | grep -qE '\brm\b.*-[a-zA-Z]*f'; then
+  # shellcheck disable=SC2016  # regex intentionally matches literal $HOME text
   if printf '%s' "$CMD_TRIMMED" | grep -qE '\brm\b.*\s+(/|~|\$HOME|\.\.)\s*$'; then
     echo 'BLOCKED: rm -rf on / ~ $HOME or .. is never allowed' >&2
     exit 2

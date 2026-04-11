@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Interactive tool integrations: shell extensions, completions, functions.
 
 # macOS integrations
@@ -6,6 +7,7 @@
 unalias sc 2>/dev/null || true
 if [[ "$_UNAME" == "Darwin" ]]; then
   if [[ -z "${NVIM:-}" ]]; then
+    # shellcheck disable=SC1091  # optional local integration script
     test -e "${HOME}/.iterm2_shell_integration.bash" && . "${HOME}/.iterm2_shell_integration.bash"
     test -e "/Applications/WezTerm.app/Contents/Resources/wezterm.sh" && . "/Applications/WezTerm.app/Contents/Resources/wezterm.sh"
   fi
@@ -53,6 +55,7 @@ command -v ds &>/dev/null && eval "$(ds init bash)" || true
 command -v zoxide &>/dev/null && eval "$(zoxide init bash)" || true
 if [[ -f ~/.bash-preexec.sh ]]; then
   if [[ "$_UNAME" != "Linux" || -n "$TMUX" ]]; then
+    # shellcheck disable=SC1090  # symlinked/generated local file path
     source ~/.bash-preexec.sh
   fi
 fi

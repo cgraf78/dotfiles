@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Core environment: platform cache, exports.
 
 _UNAME="$(uname -s)"

@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Aliases: tools, SSH, platform-specific defaults, WSL.
 
 # Tools
@@ -61,7 +62,8 @@ if [[ "$_UNAME" == "Linux" || "$_UNAME" == MINGW* || "$_UNAME" == MSYS* ]]; then
         export WINHOME="/mnt/c/Users/$USER"
       else
         # Fallback to powershell (only if not already cached)
-        export WINHOME=$(wslpath "$(powershell.exe -c "Write-Host -NoNewline \$env:USERPROFILE" 2>/dev/null)" 2>/dev/null)
+        WINHOME=$(wslpath "$(powershell.exe -c "Write-Host -NoNewline \$env:USERPROFILE" 2>/dev/null)" 2>/dev/null)
+        export WINHOME
       fi
     fi
 

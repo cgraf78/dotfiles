@@ -33,6 +33,7 @@ msgs=$(jq -r -R '
 
 export __MSGS="$msgs" __SID="$sid" __TP="$tp"
 
+# shellcheck disable=SC2016  # inner script intentionally expands in the child bash
 nohup timeout 60 bash -c '
   NAME=$(printf "Name this coding session in 3-7 words based on the user messages below. Reply with ONLY the name. No preamble, no quotes, no explanation, no punctuation. Examples: Review auth hook diff, Debug flaky unit tests, Add user profile page\n\nUser messages:\n%s" "$__MSGS" \
     | claude -p --no-session-persistence --model sonnet 2>/dev/null \

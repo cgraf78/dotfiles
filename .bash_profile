@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # ~/.bash_profile: executed by bash for login shells.
 # Source .bashrc so config works in both login and non-login shells.
 

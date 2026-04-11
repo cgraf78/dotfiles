@@ -22,27 +22,34 @@ REAL_HOME="$HOME"
 echo "=== ShellCheck ==="
 
 if command -v shellcheck &>/dev/null; then
-  _sc_files=(
-    "$REAL_HOME/.local/bin/dot"
-    "$REAL_HOME/.local/bin/dotbootstrap"
-    "$REAL_HOME/.config/dot/init.sh"
-    "$REAL_HOME/.config/dot/core.sh"
-    "$REAL_HOME/.config/dot/repos.sh"
-    "$REAL_HOME/.config/dot/merges.sh"
-    "$REAL_HOME/.config/dot/cron.sh"
-    "$REAL_HOME/.config/dot/deps.sh"
-    "$REAL_HOME/.config/dot/test-helpers.sh"
-  )
-  for _f in "$REAL_HOME/.config/dot/deps-hooks.d"/*.sh \
-    "$REAL_HOME/.config/dot/merge-hooks.d"/*.sh; do
-    [[ -f "$_f" && ! -L "$_f" ]] && _sc_files+=("$_f")
-  done
+  _sc_files=()
+  while IFS= read -r _tracked; do
+    _f="$REAL_HOME/$_tracked"
+    [[ -f "$_f" && ! -L "$_f" ]] || continue
+
+    case "$_tracked" in
+      .bashrc | .bash_profile | *.sh | *.bash)
+        _sc_files+=("$_f")
+        continue
+        ;;
+    esac
+
+    IFS= read -r _first <"$_f" || true
+    case "$_first" in
+      '#!/usr/bin/env bash' | '#!/bin/bash')
+        _sc_files+=("$_f")
+        ;;
+    esac
+  done < <(git --git-dir="$REAL_HOME/.dotfiles" --work-tree="$REAL_HOME" ls-files)
+
   sc_output=$(shellcheck -x -P SCRIPTDIR "${_sc_files[@]}" 2>&1) && sc_rc=0 || sc_rc=$?
   if [[ "$sc_rc" -eq 0 ]]; then
     _pass "shellcheck: all files clean"
   else
     _fail "shellcheck: findings detected"
-    echo "$sc_output" | sed 's/^/    /' >&2
+    while IFS= read -r _line; do
+      printf '    %s\n' "$_line" >&2
+    done <<<"$sc_output"
   fi
 else
   echo "  SKIP: shellcheck not installed"
@@ -214,6 +221,7 @@ _assert_not_contains "link idempotent: no per-file output" "linked:" "$result"
 DOT_QUIET=1
 rm "$TEST_HOME/.testrc_work" # force re-link
 result=$(_link_work_home 2>&1)
+# shellcheck disable=SC2034  # read by sourced helpers
 DOT_QUIET=0
 _assert_eq "link quiet: no output" "" "$result"
 if [[ -L "$TEST_HOME/.testrc_work" ]]; then
@@ -260,6 +268,7 @@ _assert_eq "merge header count" "1" "$merge_header_count"
 DOT_QUIET=1
 result=$(_run_merges 2>&1)
 DOT_QUIET=0
+: "$DOT_QUIET"
 _assert_eq "quiet merges: no output on success" "" "$result"
 
 # Failing merge script doesn't abort
@@ -636,7 +645,7 @@ _assert_contains "preserves other jobs" "other-job" "$result"
 _assert_contains "installs managed entry" "dot update --cron" "$result"
 
 # cron.local entries are merged with cron entries
->"$MOCK_CRONTAB"
+: >"$MOCK_CRONTAB"
 cat >"$TEST_HOME/.config/dot/cron" <<'EOF'
 */30 * * * * $HOME/.local/bin/dot update --cron
 EOF
@@ -652,7 +661,7 @@ _assert_eq "local: single managed block" "1" "$count"
 rm -f "$TEST_HOME/.config/dot/cron.local"
 
 # cron.local alone (no tracked cron file) works
->"$MOCK_CRONTAB"
+: >"$MOCK_CRONTAB"
 rm -f "$TEST_HOME/.config/dot/cron"
 cat >"$TEST_HOME/.config/dot/cron.local" <<'EOF'
 0 5 * * * $HOME/.local/bin/local-only
@@ -668,7 +677,7 @@ cat >"$TEST_HOME/.config/dot/cron" <<'EOF'
 EOF
 
 # All-comments cron file strips old managed block
->"$MOCK_CRONTAB"
+: >"$MOCK_CRONTAB"
 cat >"$TEST_HOME/.config/dot/cron" <<'EOF'
 */30 * * * * $HOME/.local/bin/dot update --cron
 EOF

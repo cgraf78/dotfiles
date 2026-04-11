@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # ~/.bashrc: thin loader — config lives in ~/.config/shell/
 
 # Source all files in a directory, sorted by filename.
@@ -14,6 +15,7 @@ _shell_source_dir() {
     for f in "$1"/*."$2"; do [ -f "$f" ] && files+=("$f"); done
   fi
   IFS=$'\n' read -r -d '' -a files < <(printf '%s\n' "${files[@]}" | sort) || true
+  # shellcheck disable=SC1090  # files are discovered dynamically from env.d/interactive.d
   for f in "${files[@]}"; do . "$f"; done
 }
 

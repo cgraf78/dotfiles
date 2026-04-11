@@ -50,6 +50,7 @@ else
   # run-shell's stdout capture which would print the escape literally
   encoded=$(printf '%s' "$output" | base64 | tr -d '\n')
   tty=$(tmux display-message -p '#{client_tty}')
+  # shellcheck disable=SC1003  # OSC52 escape sequence is intentionally literal
   printf '\033]52;c;%s\033\\' "$encoded" >"$tty"
 fi
 

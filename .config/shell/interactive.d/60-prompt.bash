@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Bash prompt: git branch/status indicators, PS1 with exit code.
 
 # Print git branch and dirty/staged indicators for the current directory.
@@ -30,6 +31,7 @@ __git_prompt() {
 set_prompt() {
   local host="${1:-\\h}"
   PROMPT_COMMAND='__cmd_exit=$?'
+  # shellcheck disable=SC2016  # PS1 intentionally contains literal command substitutions
   local exit_sym='\[\033[01;$(( __cmd_exit ? 31 : 32 ))m\]$( (( __cmd_exit )) && echo "x" || echo "o")\[\033[00m\]'
   PS1="${exit_sym} "'\[\033[01;32m\]\u@'"$host"'\[\033[00m\]:\[\033[01;34m\]\w\[\033[33m\]$(__git_prompt)\[\033[00m\]\$ '
   case "$TERM" in
@@ -43,6 +45,7 @@ set_prompt() {
 # Args: $1 - alias to display (e.g., "dev1").
 #        Call from ~/.bashrc_local to override the default hostname.
 set_hostname_alias() {
+  # shellcheck disable=SC2034  # used by interactive sessions and tmux integrations
   HOSTNAME_ALIAS="$1"
   set_prompt "$1"
   [ -n "$TMUX" ] && tmux set -g @hostname_alias "$1" 2>/dev/null

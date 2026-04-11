@@ -40,6 +40,7 @@ $GIT commit -m "initial" >/dev/null 2>&1
 WORK_DIR="$TEST_HOME/.dotfiles-work"
 BACKUP="$TEST_HOME/.dotfiles-backup/test"
 BRANCH=""
+declare _name _method _cmd _cmd_alt _pkg_overrides _repo _platforms
 export DOTBOOTSTRAP_SOURCED=1
 # shellcheck source=dotbootstrap
 . "$SCRIPT_DIR/dotbootstrap"
@@ -95,7 +96,7 @@ echo "=== WezTerm merge ==="
 # Source the real merge-wezterm script from the repo under test.
 # It should copy ~/.wezterm.lua into the Windows home when running under WSL.
 # Use a test-only Windows-home override so we don't depend on the host environment.
-# shellcheck source=../.config/dot/merge-hooks.d/50-wezterm.sh
+# shellcheck disable=SC1091  # sourced via repo-relative test path
 . "$SCRIPT_DIR/../../.config/dot/merge-hooks.d/50-wezterm.sh"
 
 WEZ_HOME=$(_tmpdir)
@@ -103,8 +104,10 @@ WEZ_WIN_HOME=$(_tmpdir)
 if [[ "$(uname -s)" == "Linux" ]]; then
   # Run in a subshell so HOME/WSL_DISTRO_NAME/USER changes don't leak.
   (
+    # shellcheck disable=SC2030  # intentionally scoped to the subshell
     export HOME="$WEZ_HOME"
     export WSL_DISTRO_NAME="archlinux"
+    # shellcheck disable=SC2030  # intentionally scoped to the subshell
     export USER="chris"
     export DOT_TEST_WINDOWS_HOME="$WEZ_WIN_HOME"
     mkdir -p "$HOME/.config/wezterm"
@@ -118,8 +121,10 @@ if [[ "$(uname -s)" == "Linux" ]]; then
   # Non-WSL Linux should be a no-op.
   rm -f "$WEZ_WIN_HOME/.wezterm.lua"
   (
+    # shellcheck disable=SC2031  # previous subshell mutation is intentionally not reused
     export HOME="$WEZ_HOME"
     unset WSL_DISTRO_NAME
+    # shellcheck disable=SC2031  # previous subshell mutation is intentionally not reused
     export USER="chris"
     merge
   )
@@ -173,6 +178,7 @@ echo "=== Dep registry parsing ==="
 
 # Full entry with all fields
 _dep_parse "fd|pkg|fd|fdfind|apt:fd-find,dnf:fd-find||"
+# shellcheck disable=SC2154  # globals assigned by _dep_parse
 _assert_eq "dep_parse: name" "fd" "$_name"
 _assert_eq "dep_parse: method" "pkg" "$_method"
 _assert_eq "dep_parse: cmd" "fd" "$_cmd"
@@ -503,14 +509,14 @@ git clone "$REMOTE_FIXTURE" "$LOCAL_CLONE_DIR" >/dev/null 2>&1
 git -C "$LOCAL_CLONE_DIR" config user.email "test@test.com"
 git -C "$LOCAL_CLONE_DIR" config user.name "Test"
 LOCAL_INSTALL_DIR="$TEST_HOME/.local/share/$LOCAL_CLONE_NAME"
-unset _DEPS_CHANGED["$LOCAL_CLONE_NAME"] 2>/dev/null || true
+unset "_DEPS_CHANGED[$LOCAL_CLONE_NAME]" 2>/dev/null || true
 _install_from_github "$LOCAL_CLONE_NAME" "fixture/${LOCAL_CLONE_NAME}.git" "$LOCAL_INSTALL_DIR" >/dev/null 2>&1
 if [[ -n "${_DEPS_CHANGED[$LOCAL_CLONE_NAME]+x}" ]]; then
   _pass "install_from_github: first local clone marks changed"
 else
   _fail "install_from_github: first local clone marks changed"
 fi
-unset _DEPS_CHANGED["$LOCAL_CLONE_NAME"] 2>/dev/null || true
+unset "_DEPS_CHANGED[$LOCAL_CLONE_NAME]" 2>/dev/null || true
 _install_from_github "$LOCAL_CLONE_NAME" "fixture/${LOCAL_CLONE_NAME}.git" "$LOCAL_INSTALL_DIR" >/dev/null 2>&1
 if [[ -n "${_DEPS_CHANGED[$LOCAL_CLONE_NAME]+x}" ]]; then
   _fail "install_from_github: steady local clone skips changed marker"
@@ -520,7 +526,7 @@ fi
 echo "tool 2" >"$LOCAL_CLONE_DIR/README"
 git -C "$LOCAL_CLONE_DIR" add README
 git -C "$LOCAL_CLONE_DIR" commit -m "local update" >/dev/null 2>&1
-unset _DEPS_CHANGED["$LOCAL_CLONE_NAME"] 2>/dev/null || true
+unset "_DEPS_CHANGED[$LOCAL_CLONE_NAME]" 2>/dev/null || true
 _install_from_github "$LOCAL_CLONE_NAME" "fixture/${LOCAL_CLONE_NAME}.git" "$LOCAL_INSTALL_DIR" >/dev/null 2>&1
 if [[ -n "${_DEPS_CHANGED[$LOCAL_CLONE_NAME]+x}" ]]; then
   _pass "install_from_github: local clone revision change marks changed"
@@ -528,7 +534,7 @@ else
   _fail "install_from_github: local clone revision change marks changed"
 fi
 echo "tool 3" >"$LOCAL_CLONE_DIR/README"
-unset _DEPS_CHANGED["$LOCAL_CLONE_NAME"] 2>/dev/null || true
+unset "_DEPS_CHANGED[$LOCAL_CLONE_NAME]" 2>/dev/null || true
 _install_from_github "$LOCAL_CLONE_NAME" "fixture/${LOCAL_CLONE_NAME}.git" "$LOCAL_INSTALL_DIR" >/dev/null 2>&1
 if [[ -n "${_DEPS_CHANGED[$LOCAL_CLONE_NAME]+x}" ]]; then
   _pass "install_from_github: dirty local clone marks changed"
@@ -536,7 +542,7 @@ else
   _fail "install_from_github: dirty local clone marks changed"
 fi
 git -C "$LOCAL_CLONE_DIR" add README
-unset _DEPS_CHANGED["$LOCAL_CLONE_NAME"] 2>/dev/null || true
+unset "_DEPS_CHANGED[$LOCAL_CLONE_NAME]" 2>/dev/null || true
 _install_from_github "$LOCAL_CLONE_NAME" "fixture/${LOCAL_CLONE_NAME}.git" "$LOCAL_INSTALL_DIR" >/dev/null 2>&1
 if [[ -n "${_DEPS_CHANGED[$LOCAL_CLONE_NAME]+x}" ]]; then
   _pass "install_from_github: staged local clone marks changed"
@@ -545,7 +551,7 @@ else
 fi
 git -C "$LOCAL_CLONE_DIR" reset --hard HEAD >/dev/null 2>&1
 echo "extra" >"$LOCAL_CLONE_DIR/EXTRA"
-unset _DEPS_CHANGED["$LOCAL_CLONE_NAME"] 2>/dev/null || true
+unset "_DEPS_CHANGED[$LOCAL_CLONE_NAME]" 2>/dev/null || true
 _install_from_github "$LOCAL_CLONE_NAME" "fixture/${LOCAL_CLONE_NAME}.git" "$LOCAL_INSTALL_DIR" >/dev/null 2>&1
 if [[ -n "${_DEPS_CHANGED[$LOCAL_CLONE_NAME]+x}" ]]; then
   _pass "install_from_github: untracked local clone marks changed"
@@ -767,6 +773,7 @@ _PKG_BATCH=("eza" "tmux")
 DOT_QUIET=1
 result=$(_pkg_install_batch 2>&1)
 _assert_eq "pkg_batch: cron silent skip" "" "$result"
+# shellcheck disable=SC2034  # read by sourced helpers
 DOT_QUIET=0
 
 # ---------------------------------------------------------------------------
