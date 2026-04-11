@@ -158,8 +158,10 @@ fonts           custom    -      -      -                        -              
 **Methods:**
 - **`pkg`** — system package (`brew`, `apt`, `dnf`, `pacman`). Batches all packages into one install command.
 - **`git`** — clones from GitHub (prefers `~/git/<name>` local clones, falls back to release tarballs, then `git clone`).
-- **`binary`** — downloads from GitHub releases, matching by OS and arch. Prefers standalone binaries; falls back to tarballs (extracted to `~/.local/share/<name>` with the binary symlinked into PATH).
+- **`binary`** — downloads from GitHub releases, matching by OS and arch. Asset matching is case-insensitive and supports all common naming conventions (Go, Rust triples, etc.). Prefers standalone binaries, then tarballs, then zip archives. Compressed single binaries (`.gz`, `.bz2`, `.zst`) are decompressed automatically. On Linux, prefers `gnu` over `musl` assets when both are available. Archives are extracted to `~/.local/share/<name>` with the binary symlinked into PATH.
 - **`custom`** — entirely managed by a post-install hook. The hook handles platform detection, idempotency, and installation.
+
+**Machine-local deps:** `~/.config/dot/deps.local.conf` (untracked, same format) adds machine-local dependencies that aren't in the tracked config. Entries are merged with `deps.conf` at load time.
 
 **Package overrides:** The `overrides` column maps package managers to platform-specific names (e.g., `apt:fd-find`). Use `NONE` to skip a dep on a specific package manager (e.g., `apt:NONE`).
 
