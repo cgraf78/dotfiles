@@ -17,8 +17,8 @@ _shell_source_dir() {
     for f in "${files[@]}"; do . "$f"; done
 }
 
-# Environment (all shells)
-_shell_source_dir ~/.config/shell/env.d
+# Environment
+_shell_source_dir ~/.config/shell/env.d bash
 
 # Non-interactive? Stop here.
 case $- in *i*) ;; *) return;; esac

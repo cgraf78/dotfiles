@@ -11,8 +11,8 @@ _shell_source_dir() {
     for f in "${files[@]}"; do . "$f"; done
 }
 
-# Environment (all shells)
-_shell_source_dir ~/.config/shell/env.d
+# Environment
+_shell_source_dir ~/.config/shell/env.d zsh
 
 # Non-interactive? Stop here.
 [[ -o interactive ]] || return
