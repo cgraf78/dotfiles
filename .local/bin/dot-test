@@ -718,4 +718,133 @@ _install_cron 2>/dev/null
 result=$(crontab -l 2>/dev/null)
 _assert_contains "all-comments: preserves other jobs" "other-job" "$result"
 
+# ---------------------------------------------------------------------------
+# Tests: cron filter directives
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== Cron filter directives ==="
+
+_current_host=$(hostname -s 2>/dev/null || hostname 2>/dev/null)
+_current_host="${_current_host,,}"
+_current_os=$(uname -s | tr '[:upper:]' '[:lower:]')
+
+# Entries before any filter default to all
+: >"$MOCK_CRONTAB"
+cat >"$TEST_HOME/.config/dot/cron" <<'EOF'
+*/30 * * * * $HOME/.local/bin/dot update --cron
+EOF
+_install_cron 2>/dev/null
+result=$(crontab -l 2>/dev/null)
+_assert_contains "filter default: entry included" "dot update --cron" "$result"
+
+# Filter skips non-matching host
+: >"$MOCK_CRONTAB"
+cat >"$TEST_HOME/.config/dot/cron" <<EOF
+# filter: hosts=nonexistent-host-xyz
+*/30 * * * * \$HOME/.local/bin/dot update --cron
+EOF
+_install_cron 2>/dev/null
+result=$(crontab -l 2>/dev/null)
+_assert_not_contains "filter host miss: entry skipped" "dot update --cron" "$result"
+
+# Filter includes matching host
+: >"$MOCK_CRONTAB"
+cat >"$TEST_HOME/.config/dot/cron" <<EOF
+# filter: hosts=$_current_host
+*/30 * * * * \$HOME/.local/bin/dot update --cron
+EOF
+_install_cron 2>/dev/null
+result=$(crontab -l 2>/dev/null)
+_assert_contains "filter host match: entry included" "dot update --cron" "$result"
+
+# Filter reset with `# filter: *`
+: >"$MOCK_CRONTAB"
+cat >"$TEST_HOME/.config/dot/cron" <<EOF
+# filter: hosts=nonexistent-host-xyz
+0 3 * * * \$HOME/.local/bin/skipped
+# filter: *
+*/30 * * * * \$HOME/.local/bin/dot update --cron
+EOF
+_install_cron 2>/dev/null
+result=$(crontab -l 2>/dev/null)
+_assert_not_contains "filter reset: filtered entry skipped" "skipped" "$result"
+_assert_contains "filter reset: reset entry included" "dot update --cron" "$result"
+
+# Platform filtering skips non-matching platform
+: >"$MOCK_CRONTAB"
+if [[ "$_current_os" == "linux" ]]; then
+  _wrong_plat="darwin"
+else
+  _wrong_plat="linux"
+fi
+cat >"$TEST_HOME/.config/dot/cron" <<EOF
+# filter: platforms=$_wrong_plat
+0 3 * * * \$HOME/.local/bin/wrong-platform
+EOF
+_install_cron 2>/dev/null
+result=$(crontab -l 2>/dev/null)
+_assert_not_contains "filter platform miss: entry skipped" "wrong-platform" "$result"
+
+# AND logic: matching host + wrong platform excludes
+: >"$MOCK_CRONTAB"
+cat >"$TEST_HOME/.config/dot/cron" <<EOF
+# filter: hosts=$_current_host platforms=$_wrong_plat
+0 3 * * * \$HOME/.local/bin/and-logic
+EOF
+_install_cron 2>/dev/null
+result=$(crontab -l 2>/dev/null)
+_assert_not_contains "filter AND: right host + wrong platform skipped" "and-logic" "$result"
+
+# Multiple filter directives: each replaces previous
+: >"$MOCK_CRONTAB"
+cat >"$TEST_HOME/.config/dot/cron" <<EOF
+# filter: hosts=nonexistent-host-xyz
+0 1 * * * \$HOME/.local/bin/skipped-entry
+# filter: hosts=$_current_host
+0 2 * * * \$HOME/.local/bin/included-entry
+EOF
+_install_cron 2>/dev/null
+result=$(crontab -l 2>/dev/null)
+_assert_not_contains "filter replace: first section skipped" "skipped-entry" "$result"
+_assert_contains "filter replace: second section included" "included-entry" "$result"
+
+# Missing key defaults to * (hosts only → all platforms)
+: >"$MOCK_CRONTAB"
+cat >"$TEST_HOME/.config/dot/cron" <<EOF
+# filter: hosts=$_current_host
+*/30 * * * * \$HOME/.local/bin/dot update --cron
+EOF
+_install_cron 2>/dev/null
+result=$(crontab -l 2>/dev/null)
+_assert_contains "filter missing key: hosts only, all platforms" "dot update --cron" "$result"
+
+# cron.local filter state independent from cron
+: >"$MOCK_CRONTAB"
+cat >"$TEST_HOME/.config/dot/cron" <<EOF
+# filter: hosts=nonexistent-host-xyz
+0 1 * * * \$HOME/.local/bin/cron-filtered
+EOF
+cat >"$TEST_HOME/.config/dot/cron.local" <<'EOF'
+0 2 * * * $HOME/.local/bin/local-unfiltered
+EOF
+_install_cron 2>/dev/null
+result=$(crontab -l 2>/dev/null)
+_assert_not_contains "filter independence: cron entry filtered" "cron-filtered" "$result"
+_assert_contains "filter independence: local entry unfiltered" "local-unfiltered" "$result"
+rm -f "$TEST_HOME/.config/dot/cron.local"
+
+# Exclude syntax in filter
+: >"$MOCK_CRONTAB"
+cat >"$TEST_HOME/.config/dot/cron" <<EOF
+# filter: hosts=!$_current_host
+0 3 * * * \$HOME/.local/bin/skip-this-host
+# filter: hosts=!nonexistent-host-xyz
+0 4 * * * \$HOME/.local/bin/keep-this-host
+EOF
+_install_cron 2>/dev/null
+result=$(crontab -l 2>/dev/null)
+_assert_not_contains "filter exclude: current host excluded" "skip-this-host" "$result"
+_assert_contains "filter exclude: other host not excluded" "keep-this-host" "$result"
+
 _test_summary

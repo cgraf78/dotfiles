@@ -25,15 +25,63 @@ _cron_path() {
   echo "$result"
 }
 
+# Parse a `# filter:` directive line into _cron_filter_hosts and
+# _cron_filter_platforms. Resets both to empty (match-all) first.
+# Syntax: # filter: hosts=a,b platforms=linux   or   # filter: *
+_parse_cron_filter() {
+  local spec="$1"
+  _cron_filter_hosts=""
+  _cron_filter_platforms=""
+
+  # `# filter: *` resets to match-all
+  if [[ "$spec" == "*" ]]; then return 0; fi
+
+  local token
+  for token in $spec; do
+    case "$token" in
+    hosts=*)     _cron_filter_hosts="${token#hosts=}" ;;
+    platforms=*) _cron_filter_platforms="${token#platforms=}" ;;
+    *)           _warn "  warning: unknown filter key: $token" ;;
+    esac
+  done
+}
+
+# Check if current host/platform passes the active cron filter.
+# Uses shdeps public match functions when available; includes all if not.
+_cron_filter_match() {
+  if declare -f shdeps_platform_match &>/dev/null; then
+    shdeps_platform_match "$_cron_filter_platforms" || return 1
+  fi
+  if declare -f shdeps_host_match &>/dev/null; then
+    shdeps_host_match "$_cron_filter_hosts" || return 1
+  fi
+  return 0
+}
+
 # Parse a cron file: expand $HOME in entries, skip comments/blanks.
+# Supports `# filter:` directives for host/platform filtering.
 # Appends processed lines to $DOT_CRON_PARSED (caller must initialize).
 _parse_cron_file() {
   local file="$1"
   [[ -f "$file" ]] || return 0
+
+  # Reset filter state for each file
+  _cron_filter_hosts=""
+  _cron_filter_platforms=""
+
   local line
   while IFS= read -r line || [[ -n "$line" ]]; do
+    # Check for `# filter:` directive before general comment skip
+    if [[ "$line" =~ ^[[:space:]]*#[[:space:]]*filter:[[:space:]]*(.*) ]]; then
+      _parse_cron_filter "${BASH_REMATCH[1]}"
+      continue
+    fi
     [[ "$line" =~ ^[[:space:]]*# ]] && continue
     [[ -z "${line// /}" ]] && continue
+
+    # Skip entries that don't match the active filter
+    _cron_filter_match || continue
+
     line="${line//\$HOME/$HOME}"
     if [[ -n "$DOT_CRON_PARSED" ]]; then
       DOT_CRON_PARSED="$DOT_CRON_PARSED"$'\n'"$line"

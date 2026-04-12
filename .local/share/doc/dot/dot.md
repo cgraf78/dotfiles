@@ -74,6 +74,25 @@ Every machine is a peer — no primary/replica roles. All machines pull from git
 
 To change the schedule or add more cron entries, edit `~/.config/dot/cron`. The file is a tracked dotfile — changes propagate to all machines on the next `dot update`. For machine-local entries that shouldn't propagate, use `~/.config/dot/cron.local` (same format, untracked). Lines starting with `#` are comments. `$HOME` is expanded and `PATH` is injected automatically at install time.
 
+Use `# filter:` directives to restrict entries to specific hosts or platforms:
+
+```
+# Runs everywhere (default — no filter needed)
+*/30 * * * * $HOME/.local/bin/dot update --cron
+
+# filter: hosts=nas
+0 3 * * * $HOME/.local/bin/backup-nas
+0 4 * * 0 $HOME/.local/bin/scrub-zpool
+
+# filter: hosts=!nas platforms=linux
+0 6 * * * $HOME/.local/bin/linux-non-nas-task
+
+# filter: *
+0 7 * * * $HOME/.local/bin/common-task
+```
+
+Each `# filter:` line fully replaces the previous filter. Entries before any directive default to all. `# filter: *` resets to all. Supports the same include/exclude syntax as shdeps (`hosts=nas,taylor`, `platforms=!wsl`). When both `hosts` and `platforms` are specified, both must match (AND logic). Filter state resets between `cron` and `cron.local`.
+
 Run `dot cron` to see what's currently installed.
 
 ### Shell config
