@@ -124,7 +124,19 @@ return {
     "MeanderingProgrammer/render-markdown.nvim",
     ft = "markdown",
     dependencies = { "nvim-treesitter/nvim-treesitter", "nvim-tree/nvim-web-devicons" },
-    opts = {},
+    config = function()
+      -- Night-owl-friendly heading backgrounds (blues/teals).
+      -- Only applied when night-owl is active; other themes use defaults.
+      if theme.colorscheme == "night-owl" then
+        vim.api.nvim_set_hl(0, "RenderMarkdownH1Bg", { bg = "#1d3b53" })
+        vim.api.nvim_set_hl(0, "RenderMarkdownH2Bg", { bg = "#112630" })
+        vim.api.nvim_set_hl(0, "RenderMarkdownH3Bg", { bg = "#0e293f" })
+        vim.api.nvim_set_hl(0, "RenderMarkdownH4Bg", { bg = "#0b253a" })
+        vim.api.nvim_set_hl(0, "RenderMarkdownH5Bg", { bg = "#092135" })
+        vim.api.nvim_set_hl(0, "RenderMarkdownH6Bg", { bg = "#071d30" })
+      end
+      require("render-markdown").setup({})
+    end,
   },
   {
     "lukas-reineke/indent-blankline.nvim",
