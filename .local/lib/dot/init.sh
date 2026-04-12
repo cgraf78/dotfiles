@@ -89,6 +89,12 @@ _bootstrap_shdeps() {
     _shdeps_self_update "$shdeps_dir"
   fi
 
+  # Symlink shdeps CLI into ~/.local/bin (mirrors _shdeps_link_bin pattern)
+  if [[ -n "$shdeps_dir" && -x "$shdeps_dir/bin/shdeps" ]]; then
+    mkdir -p "$HOME/.local/bin"
+    ln -sf "$shdeps_dir/bin/shdeps" "$HOME/.local/bin/shdeps"
+  fi
+
   # Map dotfiles env vars to shdeps config
   export SHDEPS_CONF="$HOME/.config/shdeps/deps.conf"
   export SHDEPS_HOOKS_DIR="$HOME/.config/shdeps/hooks.d"
