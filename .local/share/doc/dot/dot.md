@@ -91,7 +91,9 @@ Use `# filter:` directives to restrict entries to specific hosts or platforms:
 0 7 * * * $HOME/.local/bin/common-task
 ```
 
-Each `# filter:` line fully replaces the previous filter. Entries before any directive default to all. `# filter: *` resets to all. Supports the same include/exclude syntax as shdeps (`hosts=nas,taylor`, `platforms=!wsl`). When both `hosts` and `platforms` are specified, both must match (AND logic). Filter state resets between `cron` and `cron.local`.
+Each `# filter:` line fully replaces the previous filter. Entries before any directive default to all. `# filter: *` resets to all. When both `hosts` and `platforms` are specified, both must match (AND logic). Filter state resets between `cron` and `cron.local`.
+
+Platform values: `linux`, `darwin`, `wsl`. Prefix with `!` to exclude. Comma-separated for multiple values (e.g., `platforms=linux,darwin`, `platforms=!wsl`). Hosts match against the short hostname (`hostname -s`), case-insensitive.
 
 Run `dot cron` to see what's currently installed.
 
