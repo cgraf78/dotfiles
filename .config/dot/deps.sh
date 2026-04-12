@@ -130,15 +130,6 @@ _dep_version() {
 # Package manager abstraction
 # ---------------------------------------------------------------------------
 
-# Acquire sudo. Returns 0 if root or sudo obtained.
-# In quiet mode, skips interactive prompt and returns 1 silently.
-_require_sudo() {
-  [[ "$(id -u)" -eq 0 ]] && return 0
-  sudo -n true 2>/dev/null && return 0
-  [[ "$DOT_QUIET" -eq 1 ]] && return 1
-  sudo true 2>/dev/null
-}
-
 # Detect available package manager. Sets _PKG_MGR.
 _pkg_detect() {
   if [[ "$(uname -s 2>/dev/null)" == "Darwin" ]] && command -v brew &>/dev/null; then
