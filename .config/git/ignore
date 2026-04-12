@@ -30,3 +30,5 @@ node_modules/
 
 # Merge artifacts
 *.orig
+
+**/.claude/settings.local.json

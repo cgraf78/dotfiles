@@ -12,6 +12,9 @@ merge() {
   git config --global user.email "chris@grafhome.net"
   git config --global core.editor nvim
 
+  # Global ignore
+  git config --global core.excludesFile ~/.config/git/ignore
+
   # Delta pager (only if delta is installed)
   if command -v delta &>/dev/null; then
     git config --global core.pager delta
