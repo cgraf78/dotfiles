@@ -129,7 +129,12 @@ _finalize_update() {
   # Ensure pull-behavior and filter config is set for both repos.
   # Self-heals on every run so config can't silently drift.
   _ensure_repo_config
-  _update_deps
+  if declare -f shdeps_update &>/dev/null; then
+    shdeps_update
+  else
+    _warn "  warning: shdeps not available — skipping dependency install"
+  fi
+  _install_cron || true
   _link_work_home
   _run_merges
   if [[ -d "$DOTFILES" ]]; then

@@ -142,7 +142,7 @@ dot add <file> && dot commit -m "add <file>" && dot push
 
 ## Dependency System
 
-`dot update` installs and upgrades tools defined in `~/.config/dot/deps.conf`. Each line declares a dependency with a name and install method:
+`dot update` installs and upgrades tools via [shdeps](https://github.com/cgraf78/shdeps), configured in `~/.config/dot/deps.conf`. Each line declares a dependency with a name and install method:
 
 ```
 # name          method    cmd    alt    overrides                repo                dir                 platforms
@@ -167,6 +167,6 @@ fonts           custom    -      -      -                        -              
 
 **Platform filtering:** The optional `platforms` column controls which platforms a dep installs on. Values: `linux`, `darwin`, `wsl`. Prefix with `!` to exclude. Examples: `linux,darwin` (only those), `!wsl` (all except WSL). Omit or use `-` for all platforms.
 
-**Post-install hooks:** Defined in `~/.config/dot/deps-hooks.sh` as `_post_<name>()` functions (dashes in dep name become underscores). Run after installation when a dep is new or updated.
+**Post-install hooks:** Defined as individual files in `~/.config/dot/deps-hooks.d/<name>.sh`. Each file can define `post()` (runs after install/update) and `status()` (reports dep status) functions. Hooks run only when their corresponding dep is newly installed or updated.
 
 **Existence checks:** `pkg` deps check `command -v` first, then fall back to querying the package manager directly (`brew list`, `dpkg -s`, etc.) — useful for deps like fonts that install no binary.

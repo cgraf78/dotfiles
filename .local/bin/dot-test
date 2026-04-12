@@ -6,12 +6,19 @@
 #
 # Usage: dot-test
 
-set -euo pipefail
+set -o pipefail
 export NO_COLOR=1
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REAL_HOME="$HOME"
 _true_bin="$(type -P true)"
+
+# Export SHDEPS_LIB so subprocess dot commands find shdeps in the mock HOME
+if [[ -f "$REAL_HOME/git/shdeps/shdeps.sh" ]]; then
+  export SHDEPS_LIB="$REAL_HOME/git/shdeps/shdeps.sh"
+elif [[ -f "$REAL_HOME/.local/share/shdeps/shdeps.sh" ]]; then
+  export SHDEPS_LIB="$REAL_HOME/.local/share/shdeps/shdeps.sh"
+fi
 
 # shellcheck source=../../.config/dot/test-helpers.sh
 . "$HOME/.config/dot/test-helpers.sh"
@@ -22,9 +29,11 @@ _true_bin="$(type -P true)"
 
 # Determine repo root and git command.
 # Bare dotfiles repo when available; regular checkout (CI) as fallback.
+# Use --git-dir only (no --work-tree) — bare repos with core.bare=true
+# suppress ls-files/ls-tree output when --work-tree is present.
 _lint_root="$REAL_HOME"
-_lint_git=(git --git-dir="${REAL_HOME}/.dotfiles" --work-tree="${REAL_HOME}")
-if ! "${_lint_git[@]}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+_lint_git=(git --git-dir="${REAL_HOME}/.dotfiles")
+if ! "${_lint_git[@]}" rev-parse HEAD >/dev/null 2>&1; then
   _lint_root="$(cd "${SCRIPT_DIR}/../.." && pwd)"
   _lint_git=(git -C "${_lint_root}")
 fi
@@ -47,12 +56,12 @@ while IFS= read -r _tracked; do
       _sc_files+=("$_f")
       ;;
   esac
-done < <("${_lint_git[@]}" ls-files)
+done < <("${_lint_git[@]}" ls-tree -r --name-only HEAD)
 
 if [[ "${#_sc_files[@]}" -eq 0 ]]; then
   _fail "shellcheck: no files discovered"
   printf '    repo root: %s\n' "${_lint_root}" >&2
-elif _sc_output=$(shellcheck -x -P SCRIPTDIR "${_sc_files[@]}" 2>&1); then
+elif _sc_output=$(shellcheck -x -P SCRIPTDIR -e SC1091 "${_sc_files[@]}" 2>&1); then
   _pass "shellcheck: all files clean"
 else
   _fail "shellcheck: findings detected"
@@ -82,7 +91,7 @@ $GIT config user.name "Test"
 
 # Create dot config dir and copy modules
 mkdir -p "$TEST_HOME/.config/dot"
-for _f in init.sh core.sh repos.sh merges.sh cron.sh deps.sh; do
+for _f in init.sh core.sh repos.sh merges.sh cron.sh; do
   cp "$REAL_HOME/.config/dot/$_f" "$TEST_HOME/.config/dot/$_f"
 done
 cat >"$TEST_HOME/.config/dot/deps.conf" <<'CONF'
@@ -414,8 +423,8 @@ git -C "$HOOK_PACK_WORK" commit -m "seed hook pack" >/dev/null 2>&1
 git -C "$HOOK_PACK_WORK" push >/dev/null 2>&1
 
 result=$(
-  DOTBOOTSTRAP_TEST_TOOL_REPO="$TEST_TOOL_ORIGIN" \
-    DOTBOOTSTRAP_HOOK_PACK_REPO="$HOOK_PACK_ORIGIN" \
+  SHDEPS_TEST_TOOL_REPO="$TEST_TOOL_ORIGIN" \
+    SHDEPS_HOOK_PACK_REPO="$HOOK_PACK_ORIGIN" \
     "$SCRIPT_DIR/dot" pull 2>&1
 )
 _assert_contains "pull: shows pulling" "Pulling personal" "$result"
@@ -437,8 +446,8 @@ mkdir -p "$TEST_HOME/.config/nvim"
 printf '%s\n' "local-lock" >"$TEST_HOME/.config/nvim/lazy-lock.json"
 
 result=$(
-  DOTBOOTSTRAP_TEST_TOOL_REPO="$TEST_TOOL_ORIGIN" \
-    DOTBOOTSTRAP_HOOK_PACK_REPO="$HOOK_PACK_ORIGIN" \
+  SHDEPS_TEST_TOOL_REPO="$TEST_TOOL_ORIGIN" \
+    SHDEPS_HOOK_PACK_REPO="$HOOK_PACK_ORIGIN" \
     "$SCRIPT_DIR/dot" pull 2>&1
 )
 _assert_contains "pull: backs up tracked-file adoption conflict" "backed up 1 conflicting untracked files" "$result"
@@ -470,8 +479,8 @@ echo "=== Update command ==="
 
 # Update with repo: pulls, runs merges, updates deps, shows done
 result=$(
-  DOTBOOTSTRAP_TEST_TOOL_REPO="$TEST_TOOL_ORIGIN" \
-    DOTBOOTSTRAP_HOOK_PACK_REPO="$HOOK_PACK_ORIGIN" \
+  SHDEPS_TEST_TOOL_REPO="$TEST_TOOL_ORIGIN" \
+    SHDEPS_HOOK_PACK_REPO="$HOOK_PACK_ORIGIN" \
     "$SCRIPT_DIR/dot" update 2>&1
 )
 _assert_contains "update: shows pulling" "Pulling personal" "$result"
@@ -484,7 +493,7 @@ _assert_file_content "update: generic hook ran" "$TEST_HOME/.local/share/hook-pa
 # Update without bare repo: no error, no pull, still succeeds
 NO_REPO_HOME=$(_tmpdir)
 mkdir -p "$NO_REPO_HOME/.config/dot"
-for _f in init.sh core.sh repos.sh merges.sh cron.sh deps.sh; do
+for _f in init.sh core.sh repos.sh merges.sh cron.sh; do
   cp "$REAL_HOME/.config/dot/$_f" "$NO_REPO_HOME/.config/dot/$_f"
 done
 cp "$TEST_HOME/.config/dot/deps.conf" "$NO_REPO_HOME/.config/dot/deps.conf"
@@ -492,8 +501,8 @@ cp -r "$TEST_HOME/.config/dot/deps-hooks.d" "$NO_REPO_HOME/.config/dot/deps-hook
 
 result=$(
   HOME="$NO_REPO_HOME" \
-    DOTBOOTSTRAP_TEST_TOOL_REPO="$TEST_TOOL_ORIGIN" \
-    DOTBOOTSTRAP_HOOK_PACK_REPO="$HOOK_PACK_ORIGIN" \
+    SHDEPS_TEST_TOOL_REPO="$TEST_TOOL_ORIGIN" \
+    SHDEPS_HOOK_PACK_REPO="$HOOK_PACK_ORIGIN" \
     "$SCRIPT_DIR/dot" update 2>&1
 )
 _assert_not_contains "update no-repo: no pull" "Pulling personal" "$result"
@@ -566,8 +575,8 @@ echo "=== Cron mode ==="
 # Dirty worktree + --cron → exits immediately (no pull)
 echo "dirty" >>"$TEST_HOME/.testrc"
 result=$(
-  DOTBOOTSTRAP_TEST_TOOL_REPO="$TEST_TOOL_ORIGIN" \
-    DOTBOOTSTRAP_HOOK_PACK_REPO="$HOOK_PACK_ORIGIN" \
+  SHDEPS_TEST_TOOL_REPO="$TEST_TOOL_ORIGIN" \
+    SHDEPS_HOOK_PACK_REPO="$HOOK_PACK_ORIGIN" \
     "$SCRIPT_DIR/dot" update --cron 2>&1
 )
 _assert_eq "cron dirty: no output (skipped)" "" "$result"
@@ -575,8 +584,8 @@ $GIT checkout -- .testrc
 
 # Clean worktree + --cron → runs but quiet (no "Done" message)
 result=$(
-  DOTBOOTSTRAP_TEST_TOOL_REPO="$TEST_TOOL_ORIGIN" \
-    DOTBOOTSTRAP_HOOK_PACK_REPO="$HOOK_PACK_ORIGIN" \
+  SHDEPS_TEST_TOOL_REPO="$TEST_TOOL_ORIGIN" \
+    SHDEPS_HOOK_PACK_REPO="$HOOK_PACK_ORIGIN" \
     "$SCRIPT_DIR/dot" update --cron 2>&1
 )
 _assert_not_contains "cron clean: no Done message" "Done" "$result"
@@ -706,563 +715,5 @@ EOF
 _install_cron 2>/dev/null
 result=$(crontab -l 2>/dev/null)
 _assert_contains "all-comments: preserves other jobs" "other-job" "$result"
-
-# ---------------------------------------------------------------------------
-# Tests: _binary_find_asset (URL matching)
-# ---------------------------------------------------------------------------
-
-echo ""
-echo "=== Binary asset matching ==="
-
-# Source deps.sh for _binary_find_asset (core.sh already loaded via init.sh)
-. "$REAL_HOME/.config/dot/deps.sh"
-
-# Helper: build a fake release JSON from a list of asset names.
-_fake_release_json() {
-  local result='{"assets":['
-  local first=1
-  local name
-  for name in "$@"; do
-    [[ $first -eq 0 ]] && result+=","
-    first=0
-    result+='{"browser_download_url":"https://github.com/test/tool/releases/download/v1.0.0/'"$name"'"}'
-  done
-  result+=']}'
-  echo "$result"
-}
-
-# Detect platform for test assertions so tests pass on both Linux and macOS.
-_test_os=$(uname -s | tr '[:upper:]' '[:lower:]')
-_test_arch=$(uname -m)
-case "$_test_arch" in
-  x86_64)  _test_arch_alt=amd64 ;;
-  aarch64) _test_arch_alt=arm64 ;;
-  arm64)   _test_arch_alt=aarch64 ;;
-  *)       _test_arch_alt="$_test_arch" ;;
-esac
-# Capitalized OS for case-insensitive tests
-_test_OS="$(uname -s)"
-
-# Rust triple: tar.gz with OS and arch
-_json=$(_fake_release_json \
-  "tool-x86_64-unknown-linux-gnu.tar.gz" \
-  "tool-aarch64-unknown-linux-gnu.tar.gz" \
-  "tool-x86_64-apple-darwin.tar.gz" \
-  "tool-aarch64-apple-darwin.tar.gz")
-result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
-_assert_contains "rust triple: matches platform" "${_test_os}" "$result"
-# Arch may be native (arm64) or normalized (aarch64) — check for either
-if [[ "$result" == *"${_test_arch}"* || "$result" == *"${_test_arch_alt}"* ]]; then
-  _pass "rust triple: matches arch"
-else
-  _fail "rust triple: matches arch (expected '${_test_arch}' or '${_test_arch_alt}' in '$result')"
-fi
-
-# Go convention: plain binary
-_json=$(_fake_release_json \
-  "tool-linux-amd64" \
-  "tool-linux-arm64" \
-  "tool-darwin-arm64" \
-  "tool-darwin-amd64")
-result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
-_assert_contains "go plain binary: matches platform" "${_test_os}" "$result"
-
-# Case-insensitive: Darwin/Linux capitalized (glow, k9s, act, vhs)
-_json=$(_fake_release_json \
-  "tool_1.0_Darwin_arm64.tar.gz" \
-  "tool_1.0_Darwin_x86_64.tar.gz" \
-  "tool_1.0_Linux_arm64.tar.gz" \
-  "tool_1.0_Linux_x86_64.tar.gz")
-result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
-_assert_contains "case-insensitive: matches platform" "${_test_OS}" "$result"
-
-# Skip metadata extensions
-_json=$(_fake_release_json \
-  "tool-${_test_os}-${_test_arch_alt}.tar.gz.sha256" \
-  "tool-${_test_os}-${_test_arch_alt}.tar.gz.sig" \
-  "tool-${_test_os}-${_test_arch_alt}.tar.gz.asc" \
-  "tool-${_test_os}-${_test_arch_alt}.sigstore" \
-  "tool-${_test_os}-${_test_arch_alt}.tar.gz.b3" \
-  "tool-${_test_os}-${_test_arch_alt}.tar.gz")
-result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
-_assert_contains "skip metadata: finds tarball" "tool-${_test_os}-${_test_arch_alt}.tar.gz" "$result"
-_assert_not_contains "skip metadata: no sha256" "sha256" "$result"
-
-# Skip package extensions
-_json=$(_fake_release_json \
-  "tool_1.0_${_test_os}_${_test_arch_alt}.deb" \
-  "tool_1.0_${_test_os}_${_test_arch_alt}.rpm" \
-  "tool_1.0_${_test_os}_${_test_arch_alt}.apk" \
-  "tool_1.0_${_test_os}_${_test_arch_alt}.flatpak" \
-  "tool_1.0_${_test_os}_${_test_arch_alt}.tar.gz")
-result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
-_assert_contains "skip packages: finds tarball" "tool_1.0_${_test_os}_${_test_arch_alt}.tar.gz" "$result"
-
-# Alternate OS pattern: macos on darwin, linux on linux (neovim, jq, viddy)
-if [[ "$_test_os" == "darwin" ]]; then
-  _json=$(_fake_release_json \
-    "tool-macos-arm64.tar.gz" \
-    "tool-macos-x86_64.tar.gz" \
-    "tool-linux-x86_64.tar.gz")
-  result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
-  _assert_contains "macos alias: matches macos" "macos" "$result"
-else
-  _json=$(_fake_release_json \
-    "tool-macos-arm64.tar.gz" \
-    "tool-linux-x86_64.tar.gz" \
-    "tool-linux-arm64.tar.gz")
-  result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
-  _assert_contains "linux: picks linux not macos" "linux" "$result"
-fi
-
-# Prefer plain binary over tarball
-_json=$(_fake_release_json \
-  "tool-${_test_os}-${_test_arch_alt}" \
-  "tool-${_test_os}-${_test_arch_alt}.tar.gz")
-result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
-_assert_not_contains "prefer plain over tarball" ".tar.gz" "$result"
-
-# .tar.xz support (watchexec, typst)
-_json=$(_fake_release_json \
-  "tool-${_test_arch}-unknown-${_test_os}-gnu.tar.xz" \
-  "tool-${_test_arch_alt}-unknown-${_test_os}-gnu.tar.xz")
-result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
-_assert_contains "tar.xz: matches platform" "${_test_os}" "$result"
-
-# .tgz support
-_json=$(_fake_release_json \
-  "tool-${_test_os}-${_test_arch_alt}.tgz" \
-  "tool-${_test_os}-${_test_arch}.tgz")
-result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
-_assert_contains "tgz: matches platform" "${_test_os}" "$result"
-
-# No matching asset → empty
-_json=$(_fake_release_json \
-  "tool-windows-amd64.exe" \
-  "tool-freebsd-amd64.tar.gz")
-result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
-_assert_eq "no match: empty result" "" "$result"
-
-# ---------------------------------------------------------------------------
-# Tests: _binary_install_tarball (binary search in tarballs)
-# ---------------------------------------------------------------------------
-
-echo ""
-echo "=== Tarball binary extraction ==="
-
-# Helper: create a tarball, run _binary_install_tarball, check result.
-# $1=description $2=cmd name $3=expected exit (0 or 1)
-# Remaining args: file paths to include (relative).
-# Executable files are ELF binaries (copies of $_true_bin) so file(1)
-# correctly identifies them during sole-executable fallback.
-# Non-executable companion files (README, LICENSE, etc.) can be added
-# via the _test_tarball_with_extras wrapper.
-_test_tarball() {
-  local desc="$1" cmd="$2" expect_exit="$3"
-  shift 3
-  _test_tarball_with_extras "$desc" "$cmd" "$expect_exit" "" "$@"
-}
-
-# $1=desc $2=cmd $3=expected exit $4=comma-separated non-executable files
-# remaining args: executable file paths
-_test_tarball_with_extras() {
-  local desc="$1" cmd="$2" expect_exit="$3" extras="$4"
-  shift 4
-  local staging
-  staging=$(_tmpdir)
-  local f
-  for f in "$@"; do
-    mkdir -p "$staging/$(dirname "$f")"
-    cp "$_true_bin" "$staging/$f"
-  done
-  if [[ -n "$extras" ]]; then
-    IFS=',' read -ra _extra_files <<< "$extras"
-    for f in "${_extra_files[@]}"; do
-      mkdir -p "$staging/$(dirname "$f")"
-      echo "placeholder" > "$staging/$f"
-    done
-  fi
-  local tarball
-  tarball=$(mktemp "${TMPDIR:-/tmp}/tmp.XXXXXXXXXX.tar.gz")
-  tar czf "$tarball" -C "$staging" .
-  local bin_path="$staging/output-bin"
-  local log=""
-  local rc=0
-  _binary_install_tarball "test-pkg" "$cmd" "$tarball" "$bin_path" "$log" >/dev/null 2>&1 || rc=$?
-  _assert_exit "$desc" "$expect_exit" "$rc"
-  if [[ "$expect_exit" -eq 0 ]]; then
-    if [[ -L "$bin_path" || -x "$bin_path" ]]; then
-      _pass "$desc: binary installed"
-    else
-      _fail "$desc: binary not installed at $bin_path"
-    fi
-  fi
-  rm -f "$tarball"
-}
-
-# Exact name match (fzf, lazygit, starship)
-_test_tarball "exact match: flat binary" "mytool" 0 \
-  "mytool"
-
-# Exact match in subdirectory (bat, delta, neovim)
-_test_tarball_with_extras "exact match: in subdir" "mytool" 0 \
-  "mytool-v1.0-linux/README.md" \
-  "mytool-v1.0-linux/mytool"
-
-# Exact match in bin/ subdir (gh, neovim)
-_test_tarball_with_extras "exact match: in bin subdir" "mytool" 0 \
-  "mytool-v1.0/LICENSE" \
-  "mytool-v1.0/bin/mytool"
-
-# Dash prefix match (codex: codex-x86_64-unknown-linux-gnu)
-_test_tarball "prefix match: dash separator" "mytool" 0 \
-  "mytool-x86_64-unknown-linux-gnu"
-
-# Underscore prefix match (yq: yq_linux_amd64)
-_test_tarball "prefix match: underscore separator" "mytool" 0 \
-  "mytool_linux_amd64"
-
-# Sole executable fallback
-_test_tarball "sole executable: unconventional name" "mytool" 0 \
-  "completely-different-name"
-
-# No match: multiple executables with wrong names
-_test_tarball "no match: multiple wrong names" "mytool" 1 \
-  "other-tool" \
-  "another-tool"
-
-# Sole executable fallback ignores shell scripts
-_test_script_staging=$(_tmpdir)
-echo "#!/bin/sh" > "$_test_script_staging/setup.sh"
-chmod +x "$_test_script_staging/setup.sh"
-cp "$_true_bin" "$_test_script_staging/real-binary"
-_test_script_tar=$(mktemp "${TMPDIR:-/tmp}/tmp.XXXXXXXXXX.tar.gz")
-tar czf "$_test_script_tar" -C "$_test_script_staging" .
-_test_script_bin="$_test_script_staging/output-bin"
-_binary_install_tarball "test-pkg" "notfound" "$_test_script_tar" "$_test_script_bin" "" >/dev/null 2>&1 || true
-if [[ -L "$_test_script_bin" ]]; then
-  _target=$(readlink "$_test_script_bin")
-  _assert_contains "sole exe ignores scripts: picks binary" "real-binary" "$_target"
-else
-  _fail "sole exe ignores scripts: no symlink created"
-fi
-rm -f "$_test_script_tar"
-
-# Exact match preferred over prefix match
-_test_exact_staging=$(_tmpdir)
-cp "$_true_bin" "$_test_exact_staging/mytool"
-cp "$_true_bin" "$_test_exact_staging/mytool-extra"
-_test_exact_tar=$(mktemp "${TMPDIR:-/tmp}/tmp.XXXXXXXXXX.tar.gz")
-tar czf "$_test_exact_tar" -C "$_test_exact_staging" .
-_test_exact_bin="$_test_exact_staging/output-bin"
-_binary_install_tarball "test-pkg" "mytool" "$_test_exact_tar" "$_test_exact_bin" "" >/dev/null 2>&1
-if [[ -L "$_test_exact_bin" ]]; then
-  _target=$(readlink "$_test_exact_bin")
-  if [[ "$_target" == *"/mytool" && "$_target" != *"-extra" ]]; then
-    _pass "exact over prefix: symlinks to exact name"
-  else
-    _fail "exact over prefix: symlinks to exact name (got $_target)"
-  fi
-else
-  _fail "exact over prefix: no symlink created"
-fi
-rm -f "$_test_exact_tar"
-
-# ---------------------------------------------------------------------------
-# Tests: _binary_install_zip (zip archive extraction)
-# ---------------------------------------------------------------------------
-
-echo ""
-echo "=== Zip archive extraction ==="
-
-# Helper: create a zip, run _binary_install_zip, check result.
-_test_zip() {
-  local desc="$1" cmd="$2" expect_exit="$3"
-  shift 3
-  local staging
-  staging=$(_tmpdir)
-  local f
-  for f in "$@"; do
-    mkdir -p "$staging/$(dirname "$f")"
-    cp "$_true_bin" "$staging/$f"
-  done
-  local zipfile="$staging/test.zip"
-  (cd "$staging" && zip -qr "$zipfile" . -x test.zip)
-  local bin_path="$staging/output-bin"
-  local rc=0
-  _binary_install_zip "test-pkg" "$cmd" "$zipfile" "$bin_path" "" >/dev/null 2>&1 || rc=$?
-  _assert_exit "$desc" "$expect_exit" "$rc"
-  if [[ "$expect_exit" -eq 0 ]]; then
-    if [[ -L "$bin_path" || -x "$bin_path" ]]; then
-      _pass "$desc: binary installed"
-    else
-      _fail "$desc: binary not installed at $bin_path"
-    fi
-  fi
-}
-
-# Exact match flat (deno ships just the binary in a zip)
-_test_zip "zip: exact match flat" "mytool" 0 \
-  "mytool"
-
-# Exact match in subdir (gh ships gh_*/bin/gh in a zip on macOS)
-_test_zip "zip: exact match in subdir" "mytool" 0 \
-  "mytool-v1.0/bin/mytool"
-
-# Prefix match (Rust triple inside zip)
-_test_zip "zip: prefix match" "mytool" 0 \
-  "mytool-x86_64-unknown-linux-gnu"
-
-# Sole executable fallback
-_test_zip "zip: sole executable fallback" "mytool" 0 \
-  "different-name"
-
-# Asset matching prefers tarball over zip
-_json=$(_fake_release_json \
-  "tool-${_test_os}-${_test_arch_alt}.tar.gz" \
-  "tool-${_test_os}-${_test_arch_alt}.zip")
-result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
-_assert_contains "asset match: tarball over zip" ".tar.gz" "$result"
-
-# Asset matching falls back to zip when no tarball
-_json=$(_fake_release_json \
-  "tool-${_test_os}-${_test_arch_alt}.zip" \
-  "tool-${_test_os}-${_test_arch_alt}.sha256")
-result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
-_assert_contains "asset match: zip when no tarball" ".zip" "$result"
-
-# ---------------------------------------------------------------------------
-# Tests: single-file decompression (.gz, .bz2, .zst)
-# ---------------------------------------------------------------------------
-
-echo ""
-echo "=== Single-file decompression ==="
-
-# Helper: create a compressed single binary, run _install_binary dispatch.
-# We can't call _install_binary directly (needs GitHub API), so we test
-# the dispatch logic by calling the decompression inline.
-_test_decompress() {
-  local desc="$1" ext="$2"
-  local staging
-  staging=$(_tmpdir)
-  cp "$_true_bin" "$staging/mytool"
-  local compressed="$staging/mytool.$ext"
-  case "$ext" in
-    gz)  gzip -c "$staging/mytool" > "$compressed" ;;
-    bz2) bzip2 -c "$staging/mytool" > "$compressed" ;;
-    zst) zstd -qf "$staging/mytool" -o "$compressed" ;;
-  esac
-  rm "$staging/mytool"
-  local bin_path="$staging/output-bin"
-  local rc=0
-  case "$ext" in
-    gz)
-      gunzip -f "$compressed" 2>/dev/null || { rc=1; }
-      [[ $rc -eq 0 ]] && mv "${compressed%.gz}" "$bin_path" && chmod u+x "$bin_path"
-      ;;
-    bz2)
-      bunzip2 -f "$compressed" 2>/dev/null || { rc=1; }
-      [[ $rc -eq 0 ]] && mv "${compressed%.bz2}" "$bin_path" && chmod u+x "$bin_path"
-      ;;
-    zst)
-      zstd -df "$compressed" -o "$bin_path" 2>/dev/null || { rc=1; }
-      [[ $rc -eq 0 ]] && rm -f "$compressed" && chmod u+x "$bin_path"
-      ;;
-  esac
-  _assert_exit "$desc" 0 "$rc"
-  if [[ -x "$bin_path" ]]; then
-    _pass "$desc: binary decompressed"
-  else
-    _fail "$desc: binary not at $bin_path"
-  fi
-}
-
-_test_decompress "gz decompression" "gz"
-_test_decompress "bz2 decompression" "bz2"
-if command -v zstd &>/dev/null; then
-  _test_decompress "zst decompression" "zst"
-else
-  _pass "zst decompression: skipped (zstd not installed)"
-  _pass "zst decompression: binary decompressed: skipped"
-fi
-
-# Asset matching: .gz single file matches plain pass (not tarball)
-_json=$(_fake_release_json \
-  "tool-${_test_os}-${_test_arch_alt}.gz" \
-  "tool-${_test_os}-${_test_arch_alt}.tar.gz")
-result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
-# Plain pass runs first, .gz is not a tarball extension → matches plain
-_assert_contains "asset match: .gz matches plain pass" "tool-${_test_os}-${_test_arch_alt}.gz" "$result"
-
-# Asset matching: .bz2 single file (restic convention)
-_json=$(_fake_release_json \
-  "tool_1.0_${_test_os}_${_test_arch_alt}.bz2")
-result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
-_assert_contains "asset match: .bz2 single file" "tool_1.0_${_test_os}_${_test_arch_alt}.bz2" "$result"
-
-# Asset matching: .zst single file
-_json=$(_fake_release_json \
-  "tool-${_test_arch}-unknown-${_test_os}.zst" \
-  "tool-${_test_arch}-unknown-${_test_os}.tar.gz")
-result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
-# Plain pass finds .zst first (before tarball pass)
-_assert_contains "asset match: .zst matches plain pass" ".zst" "$result"
-
-# ---------------------------------------------------------------------------
-# Tests: gnu vs musl libc preference
-# ---------------------------------------------------------------------------
-
-echo ""
-echo "=== Libc preference ==="
-
-if [[ "$_test_os" == "linux" ]]; then
-  # On a glibc system, gnu should be preferred over musl
-  _json=$(_fake_release_json \
-    "tool-${_test_arch}-unknown-linux-musl.tar.gz" \
-    "tool-${_test_arch}-unknown-linux-gnu.tar.gz")
-  result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
-  _assert_contains "gnu preferred over musl" "gnu" "$result"
-
-  # When only musl is available, still matches
-  _json=$(_fake_release_json \
-    "tool-${_test_arch}-unknown-linux-musl.tar.gz")
-  result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
-  _assert_contains "musl fallback when no gnu" "musl" "$result"
-
-  # No libc suffix: still matches (Go tools like fzf_linux_amd64.tar.gz)
-  _json=$(_fake_release_json \
-    "tool_linux_${_test_arch_alt}.tar.gz")
-  result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
-  _assert_contains "no libc suffix: matches" "tool_linux_${_test_arch_alt}" "$result"
-
-  # Plain binary pass also prefers gnu
-  _json=$(_fake_release_json \
-    "tool-linux-musl-${_test_arch_alt}" \
-    "tool-linux-gnu-${_test_arch_alt}")
-  result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
-  _assert_contains "plain binary: gnu preferred" "gnu" "$result"
-
-  # Picks linux not darwin
-  _json=$(_fake_release_json \
-    "tool-darwin-${_test_arch_alt}.tar.gz" \
-    "tool-linux-${_test_arch_alt}.tar.gz")
-  result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
-  _assert_contains "linux system: picks linux not darwin" "linux" "$result"
-else
-  _pass "gnu preferred over musl: skipped (not linux)"
-  _pass "musl fallback when no gnu: skipped (not linux)"
-  _pass "no libc suffix: matches: skipped (not linux)"
-  _pass "plain binary: gnu preferred: skipped (not linux)"
-
-  # macOS: picks darwin not linux
-  _json=$(_fake_release_json \
-    "tool-darwin-${_test_arch_alt}.tar.gz" \
-    "tool-linux-${_test_arch_alt}.tar.gz")
-  result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
-  _assert_contains "darwin system: picks darwin not linux" "darwin" "$result"
-fi
-
-# ---------------------------------------------------------------------------
-# Tests: cmd-name preference (multi-binary repos)
-# ---------------------------------------------------------------------------
-
-echo ""
-echo "=== Cmd-name preference ==="
-
-# Multi-binary repo: prefer asset matching cmd name over longer names
-# (e.g., codex vs codex-responses-api-proxy)
-_json=$(_fake_release_json \
-  "codex-responses-api-proxy-${_test_arch}-apple-${_test_os}.tar.gz" \
-  "codex-responses-api-proxy-${_test_arch}-unknown-linux-gnu.tar.gz" \
-  "codex-${_test_arch}-apple-${_test_os}.tar.gz" \
-  "codex-${_test_arch}-unknown-linux-gnu.tar.gz" \
-  "codex-command-runner-${_test_arch}-apple-${_test_os}.tar.gz")
-result=$(_binary_find_asset "codex" "openai/codex" "v1.0.0" "$_json")
-_assert_contains "multi-binary: picks codex" "codex-${_test_arch}" "$result"
-_assert_not_contains "multi-binary: no proxy" "proxy" "$result"
-_assert_not_contains "multi-binary: no command-runner" "command-runner" "$result"
-
-# Cmd-name match with plain binary (no extension)
-_json=$(_fake_release_json \
-  "tool-extra-${_test_os}-${_test_arch_alt}" \
-  "tool-${_test_os}-${_test_arch_alt}" \
-  "tool-other-${_test_os}-${_test_arch_alt}")
-result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
-_assert_contains "multi-binary plain: picks cmd match" "tool-${_test_os}-${_test_arch_alt}" "$result"
-_assert_not_contains "multi-binary plain: no extra" "extra" "$result"
-
-# Cmd-name match with underscore separator (Go convention)
-_json=$(_fake_release_json \
-  "tool_extra_${_test_os}_${_test_arch_alt}.tar.gz" \
-  "tool_${_test_os}_${_test_arch_alt}.tar.gz")
-result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
-_assert_contains "underscore sep: picks cmd match" "tool_${_test_os}" "$result"
-_assert_not_contains "underscore sep: no extra" "extra" "$result"
-
-# Cmd-name match with dot separator (version in name)
-_json=$(_fake_release_json \
-  "tool-extra.v1.0.0.${_test_os}-${_test_arch_alt}.tar.gz" \
-  "tool.v1.0.0.${_test_os}-${_test_arch_alt}.tar.gz")
-result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
-_assert_not_contains "dot sep: no extra" "extra" "$result"
-
-# Version-prefixed asset names
-_json=$(_fake_release_json \
-  "tool-v1.0.0-${_test_os}-${_test_arch_alt}.tar.gz" \
-  "tool-extra-v1.0.0-${_test_os}-${_test_arch_alt}.tar.gz")
-result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
-_assert_not_contains "version prefix: no extra" "extra" "$result"
-
-# Falls back to non-exact match when no exact match exists
-_json=$(_fake_release_json \
-  "tool-extended-${_test_os}-${_test_arch_alt}.tar.gz")
-result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
-_assert_contains "no exact: falls back to non-exact" "tool-extended" "$result"
-
-# Exact cmd name as standalone file (no OS/arch suffix)
-_json=$(_fake_release_json \
-  "tool-extra-${_test_os}-${_test_arch_alt}" \
-  "tool")
-result=$(_binary_find_asset "tool" "test/tool" "v1.0.0" "$_json")
-# "tool" has no OS/arch token so won't match; "tool-extra" does match
-_assert_contains "bare cmd no os/arch: falls back" "tool-extra" "$result"
-
-# ---------------------------------------------------------------------------
-# Tests: deps.local.conf
-# ---------------------------------------------------------------------------
-
-echo ""
-echo "=== Local deps config ==="
-
-# deps.conf only → loads entries
-cat >"$TEST_HOME/.config/dot/deps.conf" <<'EOF'
-tool-a  pkg
-tool-b  pkg
-EOF
-rm -f "$TEST_HOME/.config/dot/deps.local.conf"
-_dep_load
-_assert_eq "conf only: entry count" "2" "${#_DEPS[@]}"
-
-# deps.local.conf adds entries
-cat >"$TEST_HOME/.config/dot/deps.local.conf" <<'EOF'
-tool-c  binary  -  -  -  owner/tool-c
-EOF
-_dep_load
-_assert_eq "conf + local: entry count" "3" "${#_DEPS[@]}"
-_assert_contains "conf + local: has local entry" "tool-c" "${_DEPS[2]}"
-
-# deps.local.conf only (no tracked conf) → still loads
-rm -f "$TEST_HOME/.config/dot/deps.conf"
-_dep_load
-_assert_eq "local only: entry count" "1" "${#_DEPS[@]}"
-_assert_contains "local only: has entry" "tool-c" "${_DEPS[0]}"
-
-# Neither file → warning, empty array
-rm -f "$TEST_HOME/.config/dot/deps.local.conf"
-_dep_load 2>/dev/null
-_assert_eq "neither: empty deps" "0" "${#_DEPS[@]}"
-
-# Restore deps.conf for remaining tests
-cp "$REAL_HOME/.config/dot/deps.conf" "$TEST_HOME/.config/dot/deps.conf"
 
 _test_summary

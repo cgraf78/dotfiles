@@ -55,10 +55,12 @@ update)
     --cron)
       CRON_MODE=1
       export DOT_QUIET=1
+      export SHDEPS_QUIET=1
       shift
       ;;
     -f | --force)
       export DOT_FORCE=1
+      export SHDEPS_FORCE=1
       shift
       ;;
     --skip-pull)

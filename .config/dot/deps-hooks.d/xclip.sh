@@ -9,7 +9,7 @@ _xclip_applicable() {
 status() {
   if ! _xclip_applicable; then return 0; fi
   # In force mode, post() will run and report the result — stay silent here.
-  [[ "${DOT_FORCE:-0}" -eq 1 ]] && return 0
+  [[ "${SHDEPS_FORCE:-${DOT_FORCE:-0}}" -eq 1 ]] && return 0
 
   if command -v xclip &>/dev/null; then
     _log_dim "  xclip up to date"
@@ -25,14 +25,14 @@ post() {
   if ! _xclip_applicable; then
     return 1
   fi
-  if command -v xclip &>/dev/null && [[ "${DOT_FORCE:-0}" -ne 1 ]]; then
+  if command -v xclip &>/dev/null && [[ "${SHDEPS_FORCE:-${DOT_FORCE:-0}}" -ne 1 ]]; then
     return 0
   fi
 
-  case "${_PKG_MGR:-}" in
+  case "${_SHDEPS_PKG_MGR:-${_PKG_MGR:-}}" in
   apt | dnf | pacman) ;;
   *)
-    _warn "  warning: no install method for xclip on ${_PKG_MGR:-unknown}"
+    _warn "  warning: no install method for xclip on ${_SHDEPS_PKG_MGR:-${_PKG_MGR:-unknown}}"
     return 1
     ;;
   esac
@@ -43,7 +43,7 @@ post() {
   fi
 
   local rc=0
-  case "${_PKG_MGR:-}" in
+  case "${_SHDEPS_PKG_MGR:-${_PKG_MGR:-}}" in
   apt)
     sudo apt-get update -qq >/dev/null 2>&1 || true
     sudo apt-get install -y xclip >/dev/null 2>&1 || rc=$?
@@ -62,6 +62,6 @@ post() {
   fi
 
   local action="installed"
-  [[ "${DOT_FORCE:-0}" -eq 1 ]] && action="reinstalled"
-  _log_ok "  xclip $action (${_PKG_MGR})"
+  [[ "${SHDEPS_FORCE:-${DOT_FORCE:-0}}" -eq 1 ]] && action="reinstalled"
+  _log_ok "  xclip $action (${_SHDEPS_PKG_MGR:-${_PKG_MGR:-}})"
 }

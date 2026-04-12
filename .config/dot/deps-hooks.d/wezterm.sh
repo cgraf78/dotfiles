@@ -7,7 +7,7 @@ _wezterm_ver() {
 
 status() {
   # In force mode, post() will run and report the result — stay silent here.
-  [[ "${DOT_FORCE:-0}" -eq 1 ]] && return 0
+  [[ "${SHDEPS_FORCE:-${DOT_FORCE:-0}}" -eq 1 ]] && return 0
   if command -v wezterm &>/dev/null; then
     local ver
     ver=$(_wezterm_ver)
@@ -30,14 +30,14 @@ post() {
   fi
 
   # Fast path: already installed and not forcing reinstall.
-  if command -v wezterm &>/dev/null && [[ "${DOT_FORCE:-0}" -ne 1 ]]; then
+  if command -v wezterm &>/dev/null && [[ "${SHDEPS_FORCE:-${DOT_FORCE:-0}}" -ne 1 ]]; then
     return 0
   fi
 
-  case "${_PKG_MGR:-}" in
+  case "${_SHDEPS_PKG_MGR:-${_PKG_MGR:-}}" in
   brew)
     if brew list --cask wezterm &>/dev/null; then
-      if [[ "${DOT_FORCE:-0}" -eq 1 ]]; then
+      if [[ "${SHDEPS_FORCE:-${DOT_FORCE:-0}}" -eq 1 ]]; then
         if brew upgrade --cask wezterm &>/dev/null; then
           local ver; ver=$(_wezterm_ver)
           _log_ok "  wezterm reinstalled (brew)${ver:+ -- $ver}"
@@ -57,9 +57,9 @@ post() {
     ;;
   pacman)
     local pacman_flags=(--noconfirm)
-    [[ "${DOT_FORCE:-0}" -ne 1 ]] && pacman_flags+=(--needed)
+    [[ "${SHDEPS_FORCE:-${DOT_FORCE:-0}}" -ne 1 ]] && pacman_flags+=(--needed)
     local pacman_action="installed"
-    [[ "${DOT_FORCE:-0}" -eq 1 ]] && pacman_action="reinstalled"
+    [[ "${SHDEPS_FORCE:-${DOT_FORCE:-0}}" -eq 1 ]] && pacman_action="reinstalled"
     if sudo pacman -S "${pacman_flags[@]}" wezterm &>/dev/null; then
       local ver; ver=$(_wezterm_ver)
       _log_ok "  wezterm $pacman_action (pacman)${ver:+ -- $ver}"
@@ -72,11 +72,11 @@ post() {
 
   # apt/dnf: download .deb/.rpm from GitHub releases.
   local ext
-  case "${_PKG_MGR:-}" in
+  case "${_SHDEPS_PKG_MGR:-${_PKG_MGR:-}}" in
   apt) ext="deb" ;;
   dnf) ext="rpm" ;;
   *)
-    _warn "  warning: no install method for wezterm on ${_PKG_MGR:-unknown}"
+    _warn "  warning: no install method for wezterm on ${_SHDEPS_PKG_MGR:-${_PKG_MGR:-unknown}}"
     return 0
     ;;
   esac
@@ -157,6 +157,6 @@ post() {
   fi
 
   local action="installed"
-  [[ "${DOT_FORCE:-0}" -eq 1 ]] && action="reinstalled"
+  [[ "${SHDEPS_FORCE:-${DOT_FORCE:-0}}" -eq 1 ]] && action="reinstalled"
   _log_ok "  wezterm $action ($ext) -- $latest_tag"
 }
