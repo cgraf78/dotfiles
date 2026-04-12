@@ -61,9 +61,6 @@ else
   done <<<"$_sc_output"
 fi
 
-echo "=== JSON ==="
-_pass "json-sort: removed (now handled by pre-commit hook)"
-
 # ---------------------------------------------------------------------------
 # Setup: mock HOME with bare repo structure
 # ---------------------------------------------------------------------------
