@@ -15,6 +15,19 @@
 
 set -euo pipefail
 
+# Pre-scan for --force before sourcing init.sh so that shdeps self-update
+# (which runs at source time) can bypass the TTL cache.
+case "${1:-}" in
+update | pull)
+  for _arg in "$@"; do
+    case "$_arg" in
+    -f | --force) export SHDEPS_FORCE=1; break ;;
+    esac
+  done
+  unset _arg
+  ;;
+esac
+
 # shellcheck source=../../.local/lib/dot/init.sh
 . "$HOME/.local/lib/dot/init.sh"
 

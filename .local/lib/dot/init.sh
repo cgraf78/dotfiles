@@ -29,9 +29,8 @@ _shdeps_self_update() {
   local stamp="$state_dir/shdeps.self-update.stamp"
   local ttl="${SHDEPS_REMOTE_TTL:-3600}"
 
-  # Skip if forced (shdeps_update handles force for deps, not self)
-  # Check TTL: skip pull if stamp is fresh
-  if [[ -f "$stamp" ]]; then
+  # Bypass TTL when forced; otherwise skip pull if stamp is fresh
+  if [[ "${SHDEPS_FORCE:-0}" -ne 1 && -f "$stamp" ]]; then
     local cached="" now=""
     read -r cached <"$stamp" 2>/dev/null || cached=0
     now=$(date +%s 2>/dev/null || echo 0)
