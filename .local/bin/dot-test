@@ -94,12 +94,13 @@ mkdir -p "$TEST_HOME/.config/dot"
 for _f in init.sh core.sh repos.sh merges.sh cron.sh; do
   cp "$REAL_HOME/.config/dot/$_f" "$TEST_HOME/.config/dot/$_f"
 done
-cat >"$TEST_HOME/.config/dot/deps.conf" <<'CONF'
+mkdir -p "$TEST_HOME/.config/shdeps"
+cat >"$TEST_HOME/.config/shdeps/deps.conf" <<'CONF'
 test-tool  git  -  -  -  fixture/test-tool.git  .local/share/test-tool
 hook-pack  git  -  -  -  fixture/hook-pack.git  .local/share/hook-pack
 CONF
-mkdir -p "$TEST_HOME/.config/dot/deps-hooks.d"
-cat >"$TEST_HOME/.config/dot/deps-hooks.d/hook-pack.sh" <<'HOOK'
+mkdir -p "$TEST_HOME/.config/shdeps/hooks.d"
+cat >"$TEST_HOME/.config/shdeps/hooks.d/hook-pack.sh" <<'HOOK'
 post() {
   mkdir -p "$HOME/.test-hooks"
   printf '%s\n' "$HOME/.local/share/hook-pack" > "$HOME/.test-hooks/hook-pack"
@@ -496,8 +497,9 @@ mkdir -p "$NO_REPO_HOME/.config/dot"
 for _f in init.sh core.sh repos.sh merges.sh cron.sh; do
   cp "$REAL_HOME/.config/dot/$_f" "$NO_REPO_HOME/.config/dot/$_f"
 done
-cp "$TEST_HOME/.config/dot/deps.conf" "$NO_REPO_HOME/.config/dot/deps.conf"
-cp -r "$TEST_HOME/.config/dot/deps-hooks.d" "$NO_REPO_HOME/.config/dot/deps-hooks.d"
+mkdir -p "$NO_REPO_HOME/.config/shdeps"
+cp "$TEST_HOME/.config/shdeps/deps.conf" "$NO_REPO_HOME/.config/shdeps/deps.conf"
+cp -r "$TEST_HOME/.config/shdeps/hooks.d" "$NO_REPO_HOME/.config/shdeps/hooks.d"
 
 result=$(
   HOME="$NO_REPO_HOME" \

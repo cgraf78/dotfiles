@@ -147,7 +147,7 @@ echo ""
 echo "=== Hook syntax (bash -n) ==="
 # Verify all real hook files pass syntax check
 syntax_ok=1
-for f in "$REAL_HOME/.config/dot/deps-hooks.d"/*.sh; do
+for f in "$REAL_HOME/.config/shdeps/hooks.d"/*.sh; do
   if ! bash -n "$f" 2>/dev/null; then
     _fail "syntax: $(basename "$f")"
     syntax_ok=0
@@ -270,12 +270,13 @@ echo "bashrc content" >"$PERSONAL_STAGING/.bashrc"
 for _f in init.sh core.sh repos.sh merges.sh cron.sh; do
   cp "$REAL_HOME/.config/dot/$_f" "$PERSONAL_STAGING/.config/dot/$_f"
 done
-cat >"$PERSONAL_STAGING/.config/dot/deps.conf" <<'CONF'
+mkdir -p "$PERSONAL_STAGING/.config/shdeps"
+cat >"$PERSONAL_STAGING/.config/shdeps/deps.conf" <<'CONF'
 test-tool  git  -  -  -  fixture/test-tool.git  .local/share/test-tool
 hook-pack  git  -  -  -  fixture/hook-pack.git  .local/share/hook-pack
 CONF
-mkdir -p "$PERSONAL_STAGING/.config/dot/deps-hooks.d"
-cat >"$PERSONAL_STAGING/.config/dot/deps-hooks.d/hook-pack.sh" <<'HOOK'
+mkdir -p "$PERSONAL_STAGING/.config/shdeps/hooks.d"
+cat >"$PERSONAL_STAGING/.config/shdeps/hooks.d/hook-pack.sh" <<'HOOK'
 post() {
   mkdir -p "$HOME/.test-hooks"
   printf '%s\n' "$HOME/.local/share/hook-pack" > "$HOME/.test-hooks/hook-pack"
