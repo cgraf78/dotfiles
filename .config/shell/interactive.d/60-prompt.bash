@@ -97,12 +97,15 @@ trap '[[ -z ${COMP_LINE:-} ]] && (( __prompt_started )) && { __cmd_start=$SECOND
 # Args: $1 - hostname to display (default: \h, the system hostname).
 set_prompt() {
   local host="${1:-\\h}"
-  # Capture exit code first. bash-preexec preserves $? across its own
-  # PROMPT_COMMAND work, so this is correct in both cases.
-  # __prompt_precmd: called here when bash-preexec is absent (__bp_imported
-  # unset); when bash-preexec is present it already ran via precmd_functions.
+  # Capture exit code via PROMPT_COMMAND. __prompt_precmd runs here when
+  # bash-preexec is absent; when present it already ran via precmd_functions.
+  # Only set once — re-calls (e.g., set_hostname_alias in 99-local.sh) would
+  # clobber hooks appended by 70-integrations.bash (direnv, zoxide, etc.).
   # shellcheck disable=SC2154  # __bp_imported is set by bash-preexec when it loads
-  PROMPT_COMMAND='__cmd_exit=$?; [[ -z ${__bp_imported:-} ]] && { __prompt_precmd; __prompt_started=1; }'
+  if [[ -z "${__prompt_cmd_set:-}" ]]; then
+    PROMPT_COMMAND='__cmd_exit=$?; [[ -z ${__bp_imported:-} ]] && { __prompt_precmd; __prompt_started=1; }'
+    __prompt_cmd_set=1
+  fi
   # Exit code: bold red [N] only on failure; nothing on success.
   # \001/\002 wrappers inside the printf format let readline exclude the
   # escape sequences from visible line-length calculation.
