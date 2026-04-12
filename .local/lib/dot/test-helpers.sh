@@ -5,7 +5,7 @@
 # temp directory management, and a summary reporter.
 #
 # Usage:
-#   . "$HOME/.config/dot/test-helpers.sh"
+#   . "$HOME/.local/lib/dot/test-helpers.sh"
 #   _assert_eq "description" "expected" "actual"
 #   ...
 #   _test_summary  # prints results, exits 0 or 1

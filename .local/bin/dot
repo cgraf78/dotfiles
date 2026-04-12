@@ -15,8 +15,8 @@
 
 set -euo pipefail
 
-# shellcheck source=../../.config/dot/init.sh
-. "$HOME/.config/dot/init.sh"
+# shellcheck source=../../.local/lib/dot/init.sh
+. "$HOME/.local/lib/dot/init.sh"
 
 # ---------------------------------------------------------------------------
 # Global flags
@@ -101,10 +101,10 @@ update)
       _head_after=$($GIT rev-parse HEAD 2>/dev/null || true)
       if [[ "$_head_before" != "$_head_after" ]] &&
         $GIT diff --name-only "$_head_before" "$_head_after" 2>/dev/null |
-        grep -qE '^(\.config/dot/|\.local/bin/dot$)'; then
+        grep -qE '^(\.local/lib/dot/|\.local/bin/dot$)'; then
         # Verify infrastructure files are clean before re-exec.
         # Autostash conflicts can leave conflict markers in source files.
-        if grep -rqE '^<{7} |^={7}$|^>{7} ' "$HOME/.config/dot/" "$HOME/.local/bin/dot" 2>/dev/null; then
+        if grep -rqE '^<{7} |^={7}$|^>{7} ' "$HOME/.local/lib/dot/" "$HOME/.local/bin/dot" 2>/dev/null; then
           _warn "  warning: conflict markers in dot infrastructure — skipping re-exec"
         else
           _log_header "==> Dot infrastructure updated, re-running..."

@@ -1,10 +1,10 @@
 # Personal Rules
 
-> **Note:** Work-specific rules live in `~/.claude/rules/CLAUDE-work.md` when that file is present. When asked to remember work-specific preferences, add them there — not here. This file is for personal, cross-context, and non-work-specific rules only.
+> **Note:** Work-specific rules live in `~/.claude/rules/work.md` when that file is present. When asked to remember work-specific preferences, add them there — not here. This file is for personal, cross-context, and non-work-specific rules only.
 
 ## Dotfiles
 
-Two repos: `~/.dotfiles` (personal, bare) and `~/.dotfiles-work` (work, regular clone). See `~/.local/bin/dot.md` for full documentation.
+Two repos: `~/.dotfiles` (personal, bare) and `~/.dotfiles-work` (work, regular clone). See `~/.local/share/doc/dot/dot.md` for full documentation.
 
 - Use the `dot` alias for personal dotfiles. Use `git` in `~/.dotfiles-work/` for work dotfiles.
 - Use `dot push` to push the personal bare dotfiles repo, not raw `git push`.
@@ -15,7 +15,7 @@ Two repos: `~/.dotfiles` (personal, bare) and `~/.dotfiles-work` (work, regular 
 - `~/git` is the default location for locally cloned git repos. GitHub username: `cgraf78`.
 - Use `gh` for all GitHub operations (PRs, issues, releases).
 - `ds` creates tmux dev sessions. See the `ds` README.
-- For home network host details, read `~/.config/home-lab/hosts.md` before
+- For home network host details, read `~/.local/share/doc/dot/home-lab.md` before
   investigating `nas`, `taylor`, `metro`, or `bevo2`.
 - When inspecting tmux sessions, prefer non-attached tmux commands like
   `capture-pane`, `list-panes`, and `list-windows`. Avoid attaching a small

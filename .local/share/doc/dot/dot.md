@@ -56,7 +56,7 @@ Work repo files are managed with plain `git` in `~/.dotfiles-work/`.
 ## How It Works
 
 - `dot update` syncs everything: pulls repos (if present), merges configs, updates deps
-- If a pull updates dot infrastructure (`.config/dot/` or `.local/bin/dot`), the script re-execs itself so the rest of the run uses the new code — no need to run `dot update` twice
+- If a pull updates dot infrastructure (`.local/lib/dot/` or `.local/bin/dot`), the script re-execs itself so the rest of the run uses the new code — no need to run `dot update` twice
 - `dot fetch/pull/push/status/diff` operates on both repos (if `~/.dotfiles-work` exists)
 - Work bootstrap symlinks files from `~/.dotfiles-work/home/` into `$HOME`
 - Files that override personal versions get `--skip-worktree` to prevent phantom dirty status
@@ -170,3 +170,64 @@ fonts           custom    -      -      -                        -              
 **Post-install hooks:** Defined as individual files in `~/.config/shdeps/hooks.d/<name>.sh`. Each file can define `post()` (runs after install/update) and `status()` (reports dep status) functions. Hooks run only when their corresponding dep is newly installed or updated.
 
 **Existence checks:** `pkg` deps check `command -v` first, then fall back to querying the package manager directly (`brew list`, `dpkg -s`, etc.) — useful for deps like fonts that install no binary.
+
+## Scripts Reference
+
+Personal scripts in `~/.local/bin/`, deployed via `~/.dotfiles`. All are on PATH.
+Work-specific scripts are documented in `~/.claude/CLAUDE-work.md`.
+
+### Claude Code Hooks
+
+Hook scripts follow the naming convention `claude-hook-{event}[-{matcher}]`.
+Each base script auto-delegates to a `-work` variant if one exists on PATH,
+enabling layered composition without changing settings.json.
+
+#### `claude-hook-pre-bash` (PreToolUse, Bash)
+
+Parses stdin JSON from the hook runner, exports `CMD_TRIMMED` (whitespace-
+trimmed command), then runs base guards:
+- **Blocks**: `rm -rf` on `/`, `~`, `$HOME`, or `..`
+- **Warns**: any other `rm -rf` usage
+
+Delegates to `claude-hook-pre-bash-work` if present.
+
+#### `claude-hook-post-bash` (PostToolUse, Bash)
+
+Parses stdin JSON, exports `CMD_TRIMMED`. No personal post-actions currently.
+Exists as the composition base for `-work` variant delegation.
+
+#### `claude-hook-post-edit` (PostToolUse, Edit|Write)
+
+Parses stdin JSON, exports `FP` (file path). No personal post-actions currently.
+Exists as the composition base for `-work` variant delegation.
+
+#### `claude-hook-session-start` (SessionStart)
+
+Reports context at session start: uncommitted changes (`git status`) and disk
+usage warnings (>90%). Delegates to `-work` variant *before* running base logic
+(since the work variant replaces rather than extends).
+
+#### `claude-hook-session-end` (SessionEnd)
+
+Auto-names Claude Code sessions by extracting user messages from the transcript
+and calling `claude -p --model sonnet` in the background via `nohup`. Skips
+sessions that already have a custom title. Runs this personal base logic first,
+then delegates to `-work` variant if present.
+
+### Delegation Pattern
+
+```
+settings.json → claude-hook-{event}
+                  ↓
+                  run base logic
+                  ↓
+                  command -v claude-hook-{event}-work
+                  ├─ found → exec into it (CMD_TRIMMED/FP already exported)
+                  └─ not found → exit 0
+```
+
+Work scripts receive `CMD_TRIMMED` or `FP` via exported env vars. They never
+parse stdin — the base script already consumed it.
+
+`claude-hook-session-start` is the exception: it checks for the `-work` variant
+first and lets that replace the personal base logic entirely.

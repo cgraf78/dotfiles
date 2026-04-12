@@ -177,9 +177,9 @@ else
 fi
 
 # Shared helpers (available after checkout).
-if [[ -f "$HOME/.config/dot/init.sh" ]]; then
-  # shellcheck source=../../.config/dot/init.sh
-  . "$HOME/.config/dot/init.sh"
+if [[ -f "$HOME/.local/lib/dot/init.sh" ]]; then
+  # shellcheck source=../../.local/lib/dot/init.sh
+  . "$HOME/.local/lib/dot/init.sh"
 else
   echo "  warning: init.sh not found — skipping work repo and merges" >&2
   echo "==> Done! Run 'source ~/.bashrc' or 'source ~/.zshrc' to activate."

@@ -1,1 +1,1 @@
-../.local/bin/dot.md
+../.local/share/doc/dot/dot.md

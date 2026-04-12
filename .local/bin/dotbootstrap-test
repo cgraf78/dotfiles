@@ -11,8 +11,8 @@ export NO_COLOR=1
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# shellcheck source=../../.config/dot/test-helpers.sh
-. "$HOME/.config/dot/test-helpers.sh"
+# shellcheck source=../../.local/lib/dot/test-helpers.sh
+. "$HOME/.local/lib/dot/test-helpers.sh"
 
 # ---------------------------------------------------------------------------
 # Setup: mock HOME with bare repo structure
@@ -42,8 +42,8 @@ $GIT add .testrc .config/dot/placeholder
 $GIT commit -m "initial" >/dev/null 2>&1
 
 # Source shared helpers and dotbootstrap functions (without running main logic)
-# shellcheck source=../../.config/dot/init.sh
-. "$REAL_HOME/.config/dot/init.sh"
+# shellcheck source=../../.local/lib/dot/init.sh
+. "$REAL_HOME/.local/lib/dot/init.sh"
 WORK_DIR="$TEST_HOME/.dotfiles-work"
 BACKUP="$TEST_HOME/.dotfiles-backup/test"
 BRANCH=""
@@ -264,11 +264,11 @@ _seed_repo() {
 
 # --- Personal dotfiles origin ---
 PERSONAL_STAGING=$(_tmpdir)
-mkdir -p "$PERSONAL_STAGING/.config/dot"
+mkdir -p "$PERSONAL_STAGING/.local/lib/dot"
 echo "bashrc content" >"$PERSONAL_STAGING/.bashrc"
 
 for _f in init.sh core.sh repos.sh merges.sh cron.sh; do
-  cp "$REAL_HOME/.config/dot/$_f" "$PERSONAL_STAGING/.config/dot/$_f"
+  cp "$REAL_HOME/.local/lib/dot/$_f" "$PERSONAL_STAGING/.local/lib/dot/$_f"
 done
 mkdir -p "$PERSONAL_STAGING/.config/shdeps"
 cat >"$PERSONAL_STAGING/.config/shdeps/deps.conf" <<'CONF'
@@ -357,7 +357,7 @@ _assert_contains "personal: json-normalize filter" "jq" "$($_fgit config filter.
 # Files checked out
 _assert_file_exists "personal: .bashrc checked out" "$FRESH/.bashrc"
 _assert_file_content "personal: .bashrc content" "bashrc content" "$FRESH/.bashrc"
-_assert_file_exists "personal: init.sh checked out" "$FRESH/.config/dot/init.sh"
+_assert_file_exists "personal: init.sh checked out" "$FRESH/.local/lib/dot/init.sh"
 
 # Work repo NOT cloned
 if [[ ! -d "$FRESH/.dotfiles-work" ]]; then

@@ -20,8 +20,8 @@ elif [[ -f "$REAL_HOME/.local/share/shdeps/shdeps.sh" ]]; then
   export SHDEPS_LIB="$REAL_HOME/.local/share/shdeps/shdeps.sh"
 fi
 
-# shellcheck source=../../.config/dot/test-helpers.sh
-. "$HOME/.config/dot/test-helpers.sh"
+# shellcheck source=../../.local/lib/dot/test-helpers.sh
+. "$HOME/.local/lib/dot/test-helpers.sh"
 
 # ---------------------------------------------------------------------------
 # Tests: static analysis (shellcheck, JSON sorting)
@@ -90,9 +90,9 @@ $GIT config user.email "test@test.com"
 $GIT config user.name "Test"
 
 # Create dot config dir and copy modules
-mkdir -p "$TEST_HOME/.config/dot"
+mkdir -p "$TEST_HOME/.local/lib/dot"
 for _f in init.sh core.sh repos.sh merges.sh cron.sh; do
-  cp "$REAL_HOME/.config/dot/$_f" "$TEST_HOME/.config/dot/$_f"
+  cp "$REAL_HOME/.local/lib/dot/$_f" "$TEST_HOME/.local/lib/dot/$_f"
 done
 mkdir -p "$TEST_HOME/.config/shdeps"
 cat >"$TEST_HOME/.config/shdeps/deps.conf" <<'CONF'
@@ -119,7 +119,7 @@ $GIT commit -m "initial" >/dev/null 2>&1
 echo "=== init.sh setup ==="
 
 # Source init in test HOME context
-. "$TEST_HOME/.config/dot/init.sh"
+. "$TEST_HOME/.local/lib/dot/init.sh"
 
 _assert_eq "DOTFILES points to bare repo" "$TEST_HOME/.dotfiles" "$DOTFILES"
 _assert_eq "WORK_DIR points to work clone" "$TEST_HOME/.dotfiles-work" "$WORK_DIR"
@@ -493,9 +493,9 @@ _assert_file_content "update: generic hook ran" "$TEST_HOME/.local/share/hook-pa
 
 # Update without bare repo: no error, no pull, still succeeds
 NO_REPO_HOME=$(_tmpdir)
-mkdir -p "$NO_REPO_HOME/.config/dot"
+mkdir -p "$NO_REPO_HOME/.local/lib/dot"
 for _f in init.sh core.sh repos.sh merges.sh cron.sh; do
-  cp "$REAL_HOME/.config/dot/$_f" "$NO_REPO_HOME/.config/dot/$_f"
+  cp "$REAL_HOME/.local/lib/dot/$_f" "$NO_REPO_HOME/.local/lib/dot/$_f"
 done
 mkdir -p "$NO_REPO_HOME/.config/shdeps"
 cp "$TEST_HOME/.config/shdeps/deps.conf" "$NO_REPO_HOME/.config/shdeps/deps.conf"
