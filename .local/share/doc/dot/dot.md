@@ -174,7 +174,7 @@ fonts           custom    -      -      -                        -              
 ## Scripts Reference
 
 Personal scripts in `~/.local/bin/`, deployed via `~/.dotfiles`. All are on PATH.
-Work-specific scripts are documented in `~/.claude/CLAUDE-work.md`.
+Work-specific scripts are documented in `~/.local/share/doc/dot/work-scripts.md`.
 
 ### Claude Code Hooks
 
