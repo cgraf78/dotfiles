@@ -104,20 +104,34 @@ _pull_repo() {
 
 # Ensure pull-behavior and filter config is set for both repos.
 # Called by _finalize_update so it runs in dot update, dot pull, and dotbootstrap.
-# shellcheck disable=SC2086  # $GIT is intentionally word-split (multi-word command).
 _ensure_repo_config() {
-  if [[ -d "$DOTFILES" ]]; then
-    $GIT config pull.rebase true 2>/dev/null || true
-    $GIT config rebase.autoStash true 2>/dev/null || true
-    $GIT config --unset filter.json-sort.clean 2>/dev/null || true
-    $GIT config --unset filter.json-sort.smudge 2>/dev/null || true
-  fi
-  if [[ -d "$WORK_DIR/.git" ]]; then
-    git -C "$WORK_DIR" config pull.rebase true 2>/dev/null || true
-    git -C "$WORK_DIR" config rebase.autoStash true 2>/dev/null || true
-    git -C "$WORK_DIR" config --unset filter.json-sort.clean 2>/dev/null || true
-    git -C "$WORK_DIR" config --unset filter.json-sort.smudge 2>/dev/null || true
-  fi
+  # Apply git config to a single repo. $1... is the git command prefix
+  # (e.g. "$GIT" or "git -C $WORK_DIR").
+  # shellcheck disable=SC2086  # git_cmd is intentionally word-split.
+  _apply_repo_config() {
+    local git_cmd="$*"
+    # Rebase on pull to keep linear history; stash dirty files automatically.
+    $git_cmd config pull.rebase true 2>/dev/null || true
+    $git_cmd config rebase.autoStash true 2>/dev/null || true
+    # Let git status update the index for files that are stat-dirty but
+    # content-clean after clean filter comparison. Without this, files
+    # modified by external tools (e.g. Claude Code stripping trailing
+    # newlines) show as phantom dirty even though git diff shows nothing.
+    $git_cmd config diff.autoRefreshIndex true 2>/dev/null || true
+    # Remove old json-sort filter (had both clean+smudge, which prevented
+    # git from updating the stat cache — root cause of phantom dirty).
+    # Safe to remove once all machines have run dot update (2026-04+).
+    $git_cmd config --unset filter.json-sort.clean 2>/dev/null || true
+    $git_cmd config --unset filter.json-sort.smudge 2>/dev/null || true
+    # Clean-only filter: sort JSON keys on commit for stable diffs.
+    # No smudge — blob content goes directly to disk on checkout.
+    # A smudge filter would prevent diff.autoRefreshIndex from working.
+    $git_cmd config filter.json-normalize.clean "jq --sort-keys ." 2>/dev/null || true
+  }
+  # shellcheck disable=SC2086  # $GIT is intentionally word-split.
+  [[ -d "$DOTFILES" ]] && _apply_repo_config $GIT
+  [[ -d "$WORK_DIR/.git" ]] && _apply_repo_config git -C "$WORK_DIR"
+  unset -f _apply_repo_config
 }
 
 # shellcheck disable=SC2086  # $GIT is intentionally word-split (multi-word command).
@@ -262,15 +276,28 @@ _dirty_files_match_remote() {
   fi
 }
 
-# Re-checkout files that are byte-different but identical after clean filter.
-# Fixes phantom dirty status from tools rewriting JSON with different key order.
+# Re-checkout files that are stat-dirty but content-clean (mtime-only).
+# Not needed for settings.json (diff.autoRefreshIndex + clean-only filter
+# handles that natively), but still useful for other tracked files where
+# cp/mv changes mtime without changing content.
 _normalize_filtered() {
   local dirty
   dirty=$($GIT diff-files --name-only 2>/dev/null) || true
-  [[ -n "$dirty" ]] || return 0
-  echo "$dirty" | while IFS= read -r f; do
-    if $GIT diff --quiet -- "$f" 2>/dev/null; then
-      $GIT checkout -- "$f" 2>/dev/null || true
+  if [[ -n "$dirty" ]]; then
+    echo "$dirty" | while IFS= read -r f; do
+      if $GIT diff --quiet -- "$f" 2>/dev/null; then
+        $GIT checkout -- "$f" 2>/dev/null || true
+      fi
+    done
+  fi
+  if [[ -d "$WORK_DIR/.git" ]]; then
+    dirty=$(git -C "$WORK_DIR" diff-files --name-only 2>/dev/null) || true
+    if [[ -n "$dirty" ]]; then
+      echo "$dirty" | while IFS= read -r f; do
+        if git -C "$WORK_DIR" diff --quiet -- "$f" 2>/dev/null; then
+          git -C "$WORK_DIR" checkout -- "$f" 2>/dev/null || true
+        fi
+      done
     fi
-  done
+  fi
 }
