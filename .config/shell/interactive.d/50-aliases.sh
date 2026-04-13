@@ -13,7 +13,7 @@ alias grep='grep --color=auto'
 alias fgrep='grep -F --color=auto'
 alias egrep='grep -E --color=auto'
 alias gl='git log --oneline --all --graph --decorate'
-alias dl='dot log --oneline --all --graph --decorate'
+alias dl='dot git log --oneline --all --graph --decorate'
 if command -v fd &>/dev/null; then
   alias fd='fd -H'
 elif command -v fdfind &>/dev/null; then
