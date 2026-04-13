@@ -7,64 +7,70 @@ _wezterm_ver() {
 
 status() {
   # In force mode, post() will run and report the result — stay silent here.
-  [[ "${SHDEPS_FORCE:-${DOT_FORCE:-0}}" -eq 1 ]] && return 0
+  shdeps_force && return 0
   if command -v wezterm &>/dev/null; then
     local ver
     ver=$(_wezterm_ver)
-    _log_dim "  wezterm up to date${ver:+ -- $ver}"
+    shdeps_log_dim "  wezterm up to date${ver:+ -- $ver}"
     return 0
   fi
   return 1
 }
 
 post() {
+  local platform
+  platform=$(shdeps_platform)
+
   # WSL: WezTerm runs as a Windows-native app; merge-wezterm.sh handles config.
-  if _is_wsl; then return 0; fi
+  if [[ "$platform" == "wsl" ]]; then return 0; fi
 
   # Headless Linux: skip to avoid pulling in GUI dependencies.
   # Note: DISPLAY/WAYLAND_DISPLAY are unset in cron too, so cron can't do the
   # initial install on desktops — that requires one interactive `dot update`.
   # After that, the `command -v` fast path keeps cron from re-running this.
-  if [[ "$(uname -s)" == "Linux" && -z "${DISPLAY:-}" && -z "${WAYLAND_DISPLAY:-}" ]]; then
+  if [[ "$platform" == "linux" && -z "${DISPLAY:-}" && -z "${WAYLAND_DISPLAY:-}" ]]; then
     return 0
   fi
 
   # Fast path: already installed and not forcing reinstall.
-  if command -v wezterm &>/dev/null && [[ "${SHDEPS_FORCE:-${DOT_FORCE:-0}}" -ne 1 ]]; then
+  if command -v wezterm &>/dev/null && ! shdeps_force; then
     return 0
   fi
 
-  case "${_SHDEPS_PKG_MGR:-${_PKG_MGR:-}}" in
+  local mgr
+  mgr=$(shdeps_pkg_mgr)
+
+  case "$mgr" in
   brew)
     if brew list --cask wezterm &>/dev/null; then
-      if [[ "${SHDEPS_FORCE:-${DOT_FORCE:-0}}" -eq 1 ]]; then
+      if shdeps_force; then
         if brew upgrade --cask wezterm &>/dev/null; then
           local ver; ver=$(_wezterm_ver)
-          _log_ok "  wezterm reinstalled (brew)${ver:+ -- $ver}"
+          shdeps_log_ok "  wezterm reinstalled (brew)${ver:+ -- $ver}"
         else
-          _warn "  warning: failed to upgrade wezterm (brew)"
+          shdeps_warn "  warning: failed to upgrade wezterm (brew)"
         fi
       fi
       return 0
     fi
     if brew install --cask wezterm &>/dev/null; then
       local ver; ver=$(_wezterm_ver)
-      _log_ok "  wezterm installed (brew)${ver:+ -- $ver}"
+      shdeps_log_ok "  wezterm installed (brew)${ver:+ -- $ver}"
     else
-      _warn "  warning: failed to install wezterm (brew)"
+      shdeps_warn "  warning: failed to install wezterm (brew)"
     fi
     return 0
     ;;
   pacman)
     local pacman_flags=(--noconfirm)
-    [[ "${SHDEPS_FORCE:-${DOT_FORCE:-0}}" -ne 1 ]] && pacman_flags+=(--needed)
+    shdeps_force || pacman_flags+=(--needed)
     local pacman_action="installed"
-    [[ "${SHDEPS_FORCE:-${DOT_FORCE:-0}}" -eq 1 ]] && pacman_action="reinstalled"
+    shdeps_force && pacman_action="reinstalled"
     if sudo pacman -S "${pacman_flags[@]}" wezterm &>/dev/null; then
       local ver; ver=$(_wezterm_ver)
-      _log_ok "  wezterm $pacman_action (pacman)${ver:+ -- $ver}"
+      shdeps_log_ok "  wezterm $pacman_action (pacman)${ver:+ -- $ver}"
     else
-      _warn "  warning: failed to $pacman_action wezterm (pacman)"
+      shdeps_warn "  warning: failed to $pacman_action wezterm (pacman)"
     fi
     return 0
     ;;
@@ -72,18 +78,18 @@ post() {
 
   # apt/dnf: download .deb/.rpm from GitHub releases.
   local ext
-  case "${_SHDEPS_PKG_MGR:-${_PKG_MGR:-}}" in
+  case "$mgr" in
   apt) ext="deb" ;;
   dnf) ext="rpm" ;;
   *)
-    _warn "  warning: no install method for wezterm on ${_SHDEPS_PKG_MGR:-${_PKG_MGR:-unknown}}"
+    shdeps_warn "  warning: no install method for wezterm on ${mgr:-unknown}"
     return 0
     ;;
   esac
 
   # Need sudo for package install.
-  if ! _require_sudo; then
-    _warn "  warning: sudo not available — cannot install wezterm"
+  if ! shdeps_require_sudo; then
+    shdeps_warn "  warning: sudo not available — cannot install wezterm"
     return 0
   fi
 
@@ -91,12 +97,12 @@ post() {
   local release_json latest_tag
   release_json=$(curl -fsSL --no-netrc -H "Authorization:" \
     "https://api.github.com/repos/wez/wezterm/releases/latest" 2>/dev/null) || {
-    _warn "  warning: couldn't fetch wezterm release info"
+    shdeps_warn "  warning: couldn't fetch wezterm release info"
     return 0
   }
   latest_tag=$(echo "$release_json" | grep -o '"tag_name":[[:space:]]*"[^"]*"' | cut -d'"' -f4)
   if [[ -z "$latest_tag" ]]; then
-    _warn "  warning: couldn't determine latest wezterm version"
+    shdeps_warn "  warning: couldn't determine latest wezterm version"
     return 0
   fi
 
@@ -128,7 +134,7 @@ post() {
   fi
 
   if [[ -z "$asset_url" ]]; then
-    _warn "  warning: no .$ext asset matched ${distro_id:-unknown} ${distro_ver:-} for wezterm $latest_tag"
+    shdeps_warn "  warning: no .$ext asset matched ${distro_id:-unknown} ${distro_ver:-} for wezterm $latest_tag"
     return 0
   fi
 
@@ -137,7 +143,7 @@ post() {
   tmp=$(mktemp) || return 0
   if ! curl -fsSL "$asset_url" -o "$tmp" 2>/dev/null; then
     rm -f "$tmp"
-    _warn "  warning: failed to download wezterm"
+    shdeps_warn "  warning: failed to download wezterm"
     return 0
   fi
 
@@ -152,11 +158,11 @@ post() {
   rm -f "$tmp"
 
   if [[ $rc -ne 0 ]]; then
-    _warn "  warning: wezterm package install failed"
+    shdeps_warn "  warning: wezterm package install failed"
     return 0
   fi
 
   local action="installed"
-  [[ "${SHDEPS_FORCE:-${DOT_FORCE:-0}}" -eq 1 ]] && action="reinstalled"
-  _log_ok "  wezterm $action ($ext) -- $latest_tag"
+  shdeps_force && action="reinstalled"
+  shdeps_log_ok "  wezterm $action ($ext) -- $latest_tag"
 }

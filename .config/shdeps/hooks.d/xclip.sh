@@ -9,10 +9,10 @@ _xclip_applicable() {
 status() {
   if ! _xclip_applicable; then return 0; fi
   # In force mode, post() will run and report the result — stay silent here.
-  [[ "${SHDEPS_FORCE:-${DOT_FORCE:-0}}" -eq 1 ]] && return 0
+  shdeps_force && return 0
 
   if command -v xclip &>/dev/null; then
-    _log_dim "  xclip up to date"
+    shdeps_log_dim "  xclip up to date"
     return 0
   fi
 
@@ -25,25 +25,28 @@ post() {
   if ! _xclip_applicable; then
     return 1
   fi
-  if command -v xclip &>/dev/null && [[ "${SHDEPS_FORCE:-${DOT_FORCE:-0}}" -ne 1 ]]; then
+  if command -v xclip &>/dev/null && ! shdeps_force; then
     return 0
   fi
 
-  case "${_SHDEPS_PKG_MGR:-${_PKG_MGR:-}}" in
+  local mgr
+  mgr=$(shdeps_pkg_mgr)
+
+  case "$mgr" in
   apt | dnf | pacman) ;;
   *)
-    _warn "  warning: no install method for xclip on ${_SHDEPS_PKG_MGR:-${_PKG_MGR:-unknown}}"
+    shdeps_warn "  warning: no install method for xclip on ${mgr:-unknown}"
     return 1
     ;;
   esac
 
-  if ! _require_sudo; then
-    _warn "  warning: sudo not available — cannot install xclip"
+  if ! shdeps_require_sudo; then
+    shdeps_warn "  warning: sudo not available — cannot install xclip"
     return 1
   fi
 
   local rc=0
-  case "${_SHDEPS_PKG_MGR:-${_PKG_MGR:-}}" in
+  case "$mgr" in
   apt)
     sudo apt-get update -qq >/dev/null 2>&1 || true
     sudo apt-get install -y xclip >/dev/null 2>&1 || rc=$?
@@ -57,11 +60,11 @@ post() {
   esac
 
   if [[ $rc -ne 0 ]]; then
-    _warn "  warning: failed to install xclip"
+    shdeps_warn "  warning: failed to install xclip"
     return 1
   fi
 
   local action="installed"
-  [[ "${SHDEPS_FORCE:-${DOT_FORCE:-0}}" -eq 1 ]] && action="reinstalled"
-  _log_ok "  xclip $action (${_SHDEPS_PKG_MGR:-${_PKG_MGR:-}})"
+  shdeps_force && action="reinstalled"
+  shdeps_log_ok "  xclip $action ($mgr)"
 }

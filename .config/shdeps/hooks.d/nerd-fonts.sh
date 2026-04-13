@@ -10,7 +10,7 @@ _nerd_fonts_entries() {
 
 _nerd_font_installed() {
   local brew_pkg="$1" pacman_pkg="$2" font_dir="$3"
-  case "${_SHDEPS_PKG_MGR:-${_PKG_MGR:-}}" in
+  case "$(shdeps_pkg_mgr)" in
   brew)
     if [[ "$brew_pkg" != "-" ]] && brew list "$brew_pkg" &>/dev/null; then
       return 0
@@ -27,10 +27,10 @@ _nerd_font_installed() {
 
 status() {
   # In force mode, post() will run and report the result — stay silent here.
-  [[ "${SHDEPS_FORCE:-${DOT_FORCE:-0}}" -eq 1 ]] && return 0
+  shdeps_force && return 0
 
   if ! _shdeps_hook_due "nerd-fonts"; then
-    _log_dim "  nerd-fonts up to date"
+    shdeps_log_dim "  nerd-fonts up to date"
     return 0
   fi
 
@@ -42,7 +42,7 @@ status() {
     fi
   done < <(_nerd_fonts_entries)
 
-  _log_dim "  nerd-fonts up to date"
+  shdeps_log_dim "  nerd-fonts up to date"
   return 0
 }
 
@@ -67,40 +67,40 @@ post() {
     IFS='|' read -r name brew_pkg pacman_pkg nerd_zip font_dir <<<"$entry"
 
     # Check if already installed (skip check when forced to reinstall).
-    if [[ "${SHDEPS_FORCE:-${DOT_FORCE:-0}}" -ne 1 ]] && _nerd_font_installed "$brew_pkg" "$pacman_pkg" "$font_dir"; then continue; fi
+    if ! shdeps_force && _nerd_font_installed "$brew_pkg" "$pacman_pkg" "$font_dir"; then continue; fi
 
     # Install (or reinstall/upgrade when forced) via native package manager where available.
-    case "${_SHDEPS_PKG_MGR:-${_PKG_MGR:-}}" in
+    case "$(shdeps_pkg_mgr)" in
     brew)
       if [[ "$brew_pkg" != "-" ]]; then
-        if [[ "${SHDEPS_FORCE:-${DOT_FORCE:-0}}" -eq 1 ]] && brew list "$brew_pkg" &>/dev/null; then
+        if shdeps_force && brew list "$brew_pkg" &>/dev/null; then
           brew upgrade "$brew_pkg" &>/dev/null &&
-            _log_ok "  $name reinstalled (brew)" && continue
+            shdeps_log_ok "  $name reinstalled (brew)" && continue
         else
           brew install "$brew_pkg" &>/dev/null &&
-            _log_ok "  $name installed (brew)" && continue
+            shdeps_log_ok "  $name installed (brew)" && continue
         fi
       fi
       ;;
     pacman)
       if [[ "$pacman_pkg" != "-" ]]; then
         local pacman_flags=(--noconfirm)
-        [[ "${SHDEPS_FORCE:-${DOT_FORCE:-0}}" -ne 1 ]] && pacman_flags+=(--needed)
+        shdeps_force || pacman_flags+=(--needed)
         local pacman_action="installed"
-        [[ "${SHDEPS_FORCE:-${DOT_FORCE:-0}}" -eq 1 ]] && pacman_action="reinstalled"
+        shdeps_force && pacman_action="reinstalled"
         sudo pacman -S "${pacman_flags[@]}" "$pacman_pkg" &>/dev/null &&
-          _log_ok "  $name $pacman_action (pacman)" && continue
+          shdeps_log_ok "  $name $pacman_action (pacman)" && continue
       fi
       ;;
     esac
 
     # Fallback: download from nerd-fonts GitHub releases
     if [[ "$nerd_zip" == "-" ]]; then
-      _warn "  warning: no install method for $name on ${_SHDEPS_PKG_MGR:-${_PKG_MGR:-unknown}}"
+      shdeps_warn "  warning: no install method for $name on $(shdeps_pkg_mgr)"
       continue
     fi
     if [[ -z "$nf_version" ]]; then
-      _warn "  warning: couldn't determine nerd-fonts version — skipping $name"
+      shdeps_warn "  warning: couldn't determine nerd-fonts version — skipping $name"
       continue
     fi
 
@@ -113,13 +113,11 @@ post() {
       unzip -qo "$tmp/font.zip" '*.ttf' -d "$dest" 2>/dev/null || true
       if command -v fc-cache &>/dev/null; then fc-cache -f "$dest" 2>/dev/null || true; fi
       local action="installed"
-      [[ "${SHDEPS_FORCE:-${DOT_FORCE:-0}}" -eq 1 ]] && action="reinstalled"
-      _log_ok "  $name $action from GitHub ($nf_version)"
+      shdeps_force && action="reinstalled"
+      shdeps_log_ok "  $name $action from GitHub ($nf_version)"
     else
-      _warn "  warning: failed to download $name"
+      shdeps_warn "  warning: failed to download $name"
     fi
     rm -rf "$tmp"
   done < <(_nerd_fonts_entries)
-
-  # Hook stamp is touched by _run_post_hooks caller.
 }

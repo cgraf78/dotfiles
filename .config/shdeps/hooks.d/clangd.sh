@@ -4,7 +4,7 @@
 post() {
   # Homebrew installs clangd via the keg-only llvm formula, so expose it on
   # PATH through ~/.local/bin for editors and shells that expect `clangd`.
-  if [[ "${_PKG_MGR:-}" != "brew" ]]; then
+  if [[ "$(shdeps_pkg_mgr)" != "brew" ]]; then
     return 0
   fi
 
