@@ -45,10 +45,10 @@ _pull_all() {
   _ensure_repo_config
   _normalize_filtered
   _unstash_overlay_overrides
-  _log_header "==> Pulling personal dotfiles..."
+  _log_header "==> Pulling dotfiles..."
   if ! _pull_personal "$@"; then
     if [[ "$DOT_QUIET" -eq 1 ]]; then
-      _warn "  warning: personal dotfiles pull failed"
+      _warn "  warning: dotfiles pull failed"
     else
       return 1
     fi
@@ -194,7 +194,7 @@ fi
 case "${1:-}" in
 fetch)
   shift
-  _header "==> Fetching personal dotfiles..."
+  _header "==> Fetching dotfiles..."
   $GIT fetch "$@"
   for entry in "${OVERLAYS[@]+"${OVERLAYS[@]}"}"; do
     IFS='|' read -r name path _ <<< "$entry"
@@ -207,7 +207,7 @@ fetch)
 push)
   shift
   _normalize_filtered
-  _header "==> Pushing personal dotfiles..."
+  _header "==> Pushing dotfiles..."
   $GIT push "$@"
   _push_overlays "$@"
   ;;
@@ -217,13 +217,13 @@ refresh)
 diff)
   shift
   _normalize_filtered
-  _header "==> Personal dotfiles"
+  _header "==> dotfiles"
   $GIT diff "$@"
   for entry in "${OVERLAYS[@]+"${OVERLAYS[@]}"}"; do
     IFS='|' read -r name path _ <<< "$entry"
     if [[ -d "$path/.git" ]]; then
       echo ""
-      _header "==> ${name^} dotfiles"
+      _header "==> $name dotfiles"
       git -C "$path" diff "$@"
     fi
   done
@@ -231,13 +231,13 @@ diff)
 status)
   shift
   _normalize_filtered
-  _header "==> Personal dotfiles"
+  _header "==> dotfiles"
   $GIT status "$@"
   for entry in "${OVERLAYS[@]+"${OVERLAYS[@]}"}"; do
     IFS='|' read -r name path _ <<< "$entry"
     if [[ -d "$path/.git" ]]; then
       echo ""
-      _header "==> ${name^} dotfiles"
+      _header "==> $name dotfiles"
       git -C "$path" status "$@"
     fi
   done

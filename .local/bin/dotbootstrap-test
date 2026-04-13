@@ -403,7 +403,7 @@ echo "=== Re-run (existing setup) ==="
 result=$(_run_bootstrap "$FRESH_WORK")
 
 # Should NOT try to clone (repo already exists)
-_assert_not_contains "re-run: skips clone" "Cloning personal" "$result"
+_assert_not_contains "re-run: skips clone" "Cloning dotfiles" "$result"
 
 # Overlay repo exists → pulls instead of cloning
 _assert_contains "re-run: pulls overlay repo" "Pulling work" "$result"

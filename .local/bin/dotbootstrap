@@ -131,7 +131,7 @@ if [[ -d "$DOTFILES" ]]; then
   # Fetch, detect branch, checkout
   # ---------------------------------------------------------------------------
 
-  echo "==> Pulling personal dotfiles..."
+  echo "==> Pulling dotfiles..."
   if ! $GIT fetch --quiet origin; then
     echo "  warning: fetch failed (continuing with existing local state)" >&2
   fi
