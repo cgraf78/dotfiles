@@ -19,11 +19,38 @@ _shdeps_log_ok()     { _log_ok "$@"; }
 _shdeps_log_dim()    { _log_dim "$@"; }
 _shdeps_log_header() { _log_header "$@"; }
 
-_bootstrap_shdeps() {
+# Locate install.sh: env override → dev clone → installed clone → curl install.
+# Sets REPLY to the path on success, returns 1 if not found.
+_find_shdeps_installer() {
   # REAL_HOME is set by test framework when HOME is mocked
   local real_home="${REAL_HOME:-$HOME}"
   local dev_dir="${SHDEPS_GIT_DEV_DIR:-$real_home/git}"
 
+  if [[ -n "${SHDEPS_LIB:-}" && -f "${SHDEPS_LIB%/*}/install.sh" ]]; then
+    REPLY="${SHDEPS_LIB%/*}/install.sh"
+    return 0
+  fi
+  if [[ -f "$dev_dir/shdeps/install.sh" ]]; then
+    REPLY="$dev_dir/shdeps/install.sh"
+    return 0
+  fi
+  if [[ -f "$HOME/.local/share/shdeps/install.sh" ]]; then
+    REPLY="$HOME/.local/share/shdeps/install.sh"
+    return 0
+  fi
+
+  # Not installed — install first
+  _log "  shdeps not found, installing..."
+  local _install_url="https://raw.githubusercontent.com/cgraf78/shdeps/main/install.sh"
+  if curl -fsSL "$_install_url" | bash &>/dev/null; then
+    REPLY="$HOME/.local/share/shdeps/install.sh"
+    return 0
+  fi
+
+  return 1
+}
+
+_bootstrap_shdeps() {
   # Map dotfiles env vars to shdeps config (must be set before --bootstrap
   # sources shdeps.sh, since it reads these at source time)
   export SHDEPS_CONF_DIR="$HOME/.config/shdeps"
@@ -32,23 +59,9 @@ _bootstrap_shdeps() {
   [[ "${DOT_FORCE:-0}" -eq 1 ]] && export SHDEPS_FORCE=1
   [[ "${DOT_QUIET:-0}" -eq 1 ]] && export SHDEPS_QUIET=1
 
-  # Source shdeps via install.sh --bootstrap (handles find, source,
-  # symlink CLI, and self-update).
-  if [[ -n "${SHDEPS_LIB:-}" && -f "${SHDEPS_LIB%/*}/install.sh" ]]; then
-    . "${SHDEPS_LIB%/*}/install.sh" --bootstrap && return 0
-  fi
-  if [[ -f "$dev_dir/shdeps/install.sh" ]]; then
-    . "$dev_dir/shdeps/install.sh" --bootstrap && return 0
-  fi
-  if [[ -f "$HOME/.local/share/shdeps/install.sh" ]]; then
-    . "$HOME/.local/share/shdeps/install.sh" --bootstrap && return 0
-  fi
-
-  # Not installed — install first, then bootstrap
-  _log "  shdeps not found, installing..."
-  local _install_url="https://raw.githubusercontent.com/cgraf78/shdeps/main/install.sh"
-  if curl -fsSL "$_install_url" | bash &>/dev/null; then
-    . "$HOME/.local/share/shdeps/install.sh" --bootstrap && return 0
+  if _find_shdeps_installer; then
+    # shellcheck source=/dev/null
+    . "$REPLY" --bootstrap && return 0
   fi
 
   _warn "  warning: failed to install shdeps — skipping dependency install"
