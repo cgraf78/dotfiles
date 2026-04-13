@@ -728,6 +728,7 @@ echo "=== Cron filter directives ==="
 _current_host=$(hostname -s 2>/dev/null || hostname 2>/dev/null)
 _current_host="${_current_host,,}"
 _current_os=$(uname -s | tr '[:upper:]' '[:lower:]')
+if [[ "$_current_os" == "darwin" ]]; then _current_os="macos"; fi
 
 # Entries before any filter default to all
 : >"$MOCK_CRONTAB"
@@ -774,7 +775,7 @@ _assert_contains "filter reset: reset entry included" "dot update --cron" "$resu
 # Platform filtering skips non-matching platform
 : >"$MOCK_CRONTAB"
 if [[ "$_current_os" == "linux" ]]; then
-  _wrong_plat="darwin"
+  _wrong_plat="macos"
 else
   _wrong_plat="linux"
 fi
