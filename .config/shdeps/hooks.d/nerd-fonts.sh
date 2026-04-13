@@ -46,7 +46,7 @@ status() {
   return 0
 }
 
-post() {
+install() {
   # Install fonts from the _FONTS registry below.
   # Each entry: "DisplayName|brew_pkg|pacman_pkg|nerd_fonts_zip|local_dir"
   #   brew_pkg:       homebrew cask name (or - to skip)

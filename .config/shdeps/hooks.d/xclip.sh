@@ -19,7 +19,7 @@ status() {
   return 1
 }
 
-post() {
+install() {
   # Only install on Linux desktops with X11 clipboard access.
   # Headless servers and non-Linux systems should not pull X11 packages.
   if ! _xclip_applicable; then

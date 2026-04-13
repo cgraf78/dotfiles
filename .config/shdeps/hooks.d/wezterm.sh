@@ -17,7 +17,7 @@ status() {
   return 1
 }
 
-post() {
+install() {
   local platform
   platform=$(shdeps_platform)
 
