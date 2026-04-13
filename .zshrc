@@ -14,7 +14,8 @@ _shell_source_dir() {
   if [ -n "${2:-}" ]; then
     for f in "$1"/*."$2"(N.); do files+=("$f"); done
   fi
-  files=(${(o)files})
+  [[ ${#files[@]} -gt 0 ]] || return 0
+  files=("${(@f)$(printf '%s\n' "${files[@]}" | LC_ALL=C sort)}")
   for f in "${files[@]}"; do . "$f"; done
 }
 

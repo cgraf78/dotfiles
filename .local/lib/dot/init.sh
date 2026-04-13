@@ -53,7 +53,7 @@ _bootstrap_shdeps() {
   fi
 
   # Map dotfiles env vars to shdeps config
-  export SHDEPS_CONF="$HOME/.config/shdeps/deps.conf"
+  export SHDEPS_CONF_DIR="$HOME/.config/shdeps"
   export SHDEPS_HOOKS_DIR="$HOME/.config/shdeps/hooks.d"
   export SHDEPS_STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/dot/deps"
   [[ "${DOT_FORCE:-0}" -eq 1 ]] && export SHDEPS_FORCE=1

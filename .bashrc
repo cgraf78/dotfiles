@@ -14,7 +14,7 @@ _shell_source_dir() {
   if [ -n "${2:-}" ]; then
     for f in "$1"/*."$2"; do [ -f "$f" ] && files+=("$f"); done
   fi
-  IFS=$'\n' read -r -d '' -a files < <(printf '%s\n' "${files[@]}" | sort) || true
+  IFS=$'\n' read -r -d '' -a files < <(printf '%s\n' "${files[@]}" | LC_ALL=C sort) || true
   # shellcheck disable=SC1090  # files are discovered dynamically from env.d/interactive.d
   for f in "${files[@]}"; do . "$f"; done
 }

@@ -12,7 +12,7 @@ export PHOTOCAD_ENV_FILE=/var/lib/photocad/.env
 export PHOTOCAD_LIVE_TEST_ENV_FILE=~/.config/photocad/live-test-env
 export NVIM_COLORSCHEME=night-owl
 export RIPGREP_CONFIG_PATH="$HOME/.config/ripgrep/config"
-export SHDEPS_CONF="$HOME/.config/shdeps/deps.conf"
+export SHDEPS_CONF_DIR="$HOME/.config/shdeps"
 
 # GitHub PAT for Claude Code's GitHub MCP server. Avoids calling `gh auth token`
 # at shell startup (which triggers D-Bus/keyring on headless hosts).

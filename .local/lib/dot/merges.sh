@@ -4,10 +4,10 @@
 
 _run_merges() {
   local _scripts=()
-  for _script in "$HOME/.config/dot/merge-hooks.d"/*.sh; do
-    [[ -f "$_script" ]] || continue
+  local _script
+  while IFS= read -r -d '' _script; do
     _scripts+=("$_script")
-  done
+  done < <(find "$HOME/.config/dot/merge-hooks.d" -maxdepth 1 -name '*.sh' -print0 2>/dev/null | LC_ALL=C sort -z)
 
   [[ ${#_scripts[@]} -gt 0 ]] || return 0
   _log_header "==> Merging app config..."
