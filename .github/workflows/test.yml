@@ -15,9 +15,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install tools (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y zsh
+
       - name: Install tools (macOS)
         if: runner.os == 'macOS'
-        run: brew install bash shellcheck jq
+        run: brew install bash shellcheck jq zsh
 
       - name: Run dot-test
         run: .local/bin/dot-test

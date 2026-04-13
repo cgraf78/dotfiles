@@ -70,6 +70,78 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Tests: zsh compatibility
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== Zsh compatibility ==="
+
+if command -v zsh >/dev/null 2>&1; then
+  # 1. Syntax check: zsh -n on all .sh and .zsh files
+  _zsh_files=()
+  while IFS= read -r _tracked; do
+    _f="${_lint_root}/${_tracked}"
+    [[ -f "$_f" && ! -L "$_f" ]] || continue
+    case "$_tracked" in
+      .zshrc | *.sh | *.zsh) _zsh_files+=("$_f") ;;
+    esac
+  done < <("${_lint_git[@]}" ls-tree -r --name-only HEAD)
+
+  _zsh_syntax_ok=1
+  for _f in "${_zsh_files[@]}"; do
+    if ! _zsh_err=$(zsh -n "$_f" 2>&1); then
+      _fail "zsh -n: $(basename "$_f")"
+      printf '    %s\n' "$_zsh_err" >&2
+      _zsh_syntax_ok=0
+    fi
+  done
+  if [[ "$_zsh_syntax_ok" -eq 1 ]]; then
+    _pass "zsh -n: all files pass syntax check (${#_zsh_files[@]} files)"
+  fi
+
+  # 2. Source shell config: verify .zshrc loads without errors
+  # Uses a mock HOME with the repo's shell config. Skips files that
+  # are symlinks from overlays (they may not exist in CI).
+  _zsh_home=$(_tmpdir)
+  # Copy .zshrc
+  cp "${_lint_root}/.zshrc" "$_zsh_home/.zshrc"
+  # Copy shell config dirs (only regular files from the repo)
+  for _dir in env.d interactive.d; do
+    mkdir -p "$_zsh_home/.config/shell/$_dir"
+    while IFS= read -r _tracked; do
+      _f="${_lint_root}/${_tracked}"
+      [[ -f "$_f" && ! -L "$_f" ]] || continue
+      cp "$_f" "$_zsh_home/.config/shell/$_dir/"
+    done < <("${_lint_git[@]}" ls-tree -r --name-only HEAD -- ".config/shell/$_dir")
+  done
+
+  # Non-interactive source: .zshrc returns early with a non-zero exit
+  # from the `[[ -o interactive ]] || return` guard, so we check stderr
+  # for actual errors rather than the exit code.
+  _zsh_output=$(HOME="$_zsh_home" zsh -c 'source ~/.zshrc' 2>&1 || true)
+  if [[ -z "$_zsh_output" ]]; then
+    _pass "zsh source: env.d loads without errors"
+  else
+    _fail "zsh source: env.d loads without errors"
+    while IFS= read -r _line; do
+      printf '    %s\n' "$_line" >&2
+    done <<<"$_zsh_output"
+  fi
+
+  # 3. Interactive smoke test: loads env.d + interactive.d
+  if _zsh_output=$(HOME="$_zsh_home" zsh -ic 'exit' 2>&1); then
+    _pass "zsh interactive: starts and exits cleanly"
+  else
+    _fail "zsh interactive: starts and exits cleanly"
+    while IFS= read -r _line; do
+      printf '    %s\n' "$_line" >&2
+    done <<<"$_zsh_output"
+  fi
+else
+  echo "  SKIP: zsh not installed"
+fi
+
+# ---------------------------------------------------------------------------
 # Setup: mock HOME with bare repo structure
 # ---------------------------------------------------------------------------
 
