@@ -12,7 +12,12 @@ _nerd_font_installed() {
   local brew_pkg="$1" pacman_pkg="$2" font_dir="$3"
   case "$(shdeps_pkg_mgr)" in
   brew)
-    if [[ "$brew_pkg" != "-" ]] && brew list "$brew_pkg" &>/dev/null; then
+    # Check caskroom directory directly — avoids ~1.4s Ruby overhead per
+    # brew list call. Fonts are casks so they live in Caskroom, not Cellar.
+    if [[ -z "${_NERD_CASKROOM:-}" ]]; then
+      _NERD_CASKROOM="$(brew --caskroom 2>/dev/null)"
+    fi
+    if [[ "$brew_pkg" != "-" && -n "$_NERD_CASKROOM" && -d "$_NERD_CASKROOM/$brew_pkg" ]]; then
       return 0
     fi
     ;;
