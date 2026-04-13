@@ -290,8 +290,7 @@ Host github-dotfiles-work
 SSH
 _discover_overlays
 result=$(_pull_overlays 2>&1)
-_assert_contains "pull_overlays: skips when key missing" "skipping work overlay" "$result"
-_assert_not_contains "pull_overlays: no clone attempt without key" "Cloning" "$result"
+_assert_eq "pull_overlays: silent skip when key missing" "" "$result"
 if [[ ! -d "$OVERLAY_DIR" ]]; then
   _pass "pull_overlays: no dir created without key"
 else

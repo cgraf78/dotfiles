@@ -197,7 +197,6 @@ _pull_overlay() {
     # Skip clone if the deploy key is missing — avoids noisy failures
     # on machines that don't have access yet.
     if ! _overlay_key_available "$name"; then
-      _log_dim "  skipping $name overlay (deploy key not found)"
       return 0
     fi
     if [[ -d "$path" ]]; then
