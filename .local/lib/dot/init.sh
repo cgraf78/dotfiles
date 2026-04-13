@@ -31,9 +31,9 @@ _bootstrap_shdeps() {
   elif [[ -f "$real_home/git/shdeps/shdeps.sh" ]]; then
     shdeps_lib="$real_home/git/shdeps/shdeps.sh"
     shdeps_dir="$real_home/git/shdeps"
-  elif [[ -f "$HOME/.local/share/shdeps/shdeps.sh" ]]; then
-    shdeps_lib="$HOME/.local/share/shdeps/shdeps.sh"
-    shdeps_dir="$HOME/.local/share/shdeps"
+  elif [[ -f "$real_home/.local/share/shdeps/shdeps.sh" ]]; then
+    shdeps_lib="$real_home/.local/share/shdeps/shdeps.sh"
+    shdeps_dir="$real_home/.local/share/shdeps"
   else
     _log "  shdeps not found, installing..."
     local install_url="https://raw.githubusercontent.com/cgraf78/shdeps/main/install.sh"
