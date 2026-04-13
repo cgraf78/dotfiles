@@ -861,6 +861,11 @@ git -C "$HOOK_PACK_WORK" push >/dev/null 2>&1
 _saved_deps=$(cat "$TEST_HOME/.config/shdeps/deps.conf")
 : > "$TEST_HOME/.config/shdeps/deps.conf"
 
+# Remove overlay conf so pull doesn't try to clone from example.com over SSH
+# (which hangs waiting for connection timeout). Overlay pull is tested above.
+_saved_overlay_conf="$TEST_HOME/.config/dot/overlays.d/10-work.conf"
+mv "$_saved_overlay_conf" "$_saved_overlay_conf.bak"
+
 result=$("$SCRIPT_DIR/dot" pull 2>&1)
 _assert_contains "pull: shows pulling" "Pulling dotfiles" "$result"
 _assert_contains "pull: shows done message" "Done" "$result"
@@ -891,7 +896,8 @@ else
   _fail "pull: preserves local untracked file in backup (backup file not found)"
 fi
 
-# Restore deps.conf for update tests
+# Restore deps.conf for update tests (overlay conf stays removed —
+# update/push don't test overlay behavior and the example.com URL hangs).
 printf '%s\n' "$_saved_deps" > "$TEST_HOME/.config/shdeps/deps.conf"
 
 # ---------------------------------------------------------------------------
@@ -949,6 +955,9 @@ _assert_file_content "update no-repo: generic hook ran" "$NO_REPO_HOME/.local/sh
 # ---------------------------------------------------------------------------
 # Tests: _is_worktree_dirty
 # ---------------------------------------------------------------------------
+
+# Restore overlay conf for remaining tests (worktree dirty, cron)
+mv "$_saved_overlay_conf.bak" "$_saved_overlay_conf"
 
 echo ""
 echo "=== Worktree dirty check ==="
@@ -1011,6 +1020,9 @@ rm -rf "$OVERLAY_DIR" "$OVERLAY_BARE2"
 echo ""
 echo "=== Cron mode ==="
 
+# Remove overlay conf so cron pull doesn't hang on example.com SSH
+mv "$_saved_overlay_conf" "$_saved_overlay_conf.bak"
+
 # Cron tests don't need shdeps — empty deps to avoid the cost.
 _saved_deps=$(cat "$TEST_HOME/.config/shdeps/deps.conf")
 : > "$TEST_HOME/.config/shdeps/deps.conf"
@@ -1027,6 +1039,7 @@ _assert_not_contains "cron clean: no Done message" "Done" "$result"
 _assert_not_contains "cron clean: no Pulling message" "Pulling" "$result"
 
 printf '%s\n' "$_saved_deps" > "$TEST_HOME/.config/shdeps/deps.conf"
+mv "$_saved_overlay_conf.bak" "$_saved_overlay_conf"
 
 # ---------------------------------------------------------------------------
 # Tests: cron file install
