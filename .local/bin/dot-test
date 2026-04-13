@@ -627,13 +627,13 @@ CRON
 chmod +x "$MOCK_BIN/crontab"
 
 # No cron file → no-op
-rm -f "$TEST_HOME/.config/dot/cron"
+rm -f "$TEST_HOME/.config/dot/merge-hooks.d/cron"
 _run_cron_merge 2>/dev/null
 result=$(crontab -l 2>/dev/null)
 _assert_eq "no cron file: crontab empty" "" "$result"
 
 # Cron file with one entry → installed
-cat >"$TEST_HOME/.config/dot/cron" <<'EOF'
+cat >"$TEST_HOME/.config/dot/merge-hooks.d/cron" <<'EOF'
 # comment line
 */30 * * * * $HOME/.local/bin/dot update --cron
 EOF
@@ -652,7 +652,7 @@ count=$(crontab -l 2>/dev/null | grep -c "dot update --cron" || true)
 _assert_eq "idempotent: one entry" "1" "$count"
 
 # Cron file with multiple entries → all installed
-cat >"$TEST_HOME/.config/dot/cron" <<'EOF'
+cat >"$TEST_HOME/.config/dot/merge-hooks.d/cron" <<'EOF'
 */30 * * * * $HOME/.local/bin/dot update --cron
 0 3 * * * $HOME/.local/bin/cleanup
 EOF
@@ -663,7 +663,7 @@ _assert_contains "multi: cleanup entry" "cleanup" "$result"
 
 # Preserves non-managed cron entries
 echo "0 6 * * * /usr/bin/other-job" | crontab -
-cat >"$TEST_HOME/.config/dot/cron" <<'EOF'
+cat >"$TEST_HOME/.config/dot/merge-hooks.d/cron" <<'EOF'
 */30 * * * * $HOME/.local/bin/dot update --cron
 EOF
 _run_cron_merge 2>/dev/null
@@ -673,10 +673,10 @@ _assert_contains "installs managed entry" "dot update --cron" "$result"
 
 # cron.local entries are merged with cron entries
 : >"$MOCK_CRONTAB"
-cat >"$TEST_HOME/.config/dot/cron" <<'EOF'
+cat >"$TEST_HOME/.config/dot/merge-hooks.d/cron" <<'EOF'
 */30 * * * * $HOME/.local/bin/dot update --cron
 EOF
-cat >"$TEST_HOME/.config/dot/cron.local" <<'EOF'
+cat >"$TEST_HOME/.config/dot/merge-hooks.d/cron.local" <<'EOF'
 0 4 * * * $HOME/.local/bin/backup
 EOF
 _run_cron_merge 2>/dev/null
@@ -685,33 +685,33 @@ _assert_contains "local: tracked entry present" "dot update --cron" "$result"
 _assert_contains "local: local entry present" "backup" "$result"
 count=$(crontab -l 2>/dev/null | grep -c "dot-managed-cron begin" || true)
 _assert_eq "local: single managed block" "1" "$count"
-rm -f "$TEST_HOME/.config/dot/cron.local"
+rm -f "$TEST_HOME/.config/dot/merge-hooks.d/cron.local"
 
 # cron.local alone (no tracked cron file) works
 : >"$MOCK_CRONTAB"
-rm -f "$TEST_HOME/.config/dot/cron"
-cat >"$TEST_HOME/.config/dot/cron.local" <<'EOF'
+rm -f "$TEST_HOME/.config/dot/merge-hooks.d/cron"
+cat >"$TEST_HOME/.config/dot/merge-hooks.d/cron.local" <<'EOF'
 0 5 * * * $HOME/.local/bin/local-only
 EOF
 _run_cron_merge 2>/dev/null
 result=$(crontab -l 2>/dev/null)
 _assert_contains "local-only: entry installed" "local-only" "$result"
-rm -f "$TEST_HOME/.config/dot/cron.local"
+rm -f "$TEST_HOME/.config/dot/merge-hooks.d/cron.local"
 
 # Restore cron file for remaining tests
-cat >"$TEST_HOME/.config/dot/cron" <<'EOF'
+cat >"$TEST_HOME/.config/dot/merge-hooks.d/cron" <<'EOF'
 */30 * * * * $HOME/.local/bin/dot update --cron
 EOF
 
 # All-comments cron file strips old managed block
 : >"$MOCK_CRONTAB"
-cat >"$TEST_HOME/.config/dot/cron" <<'EOF'
+cat >"$TEST_HOME/.config/dot/merge-hooks.d/cron" <<'EOF'
 */30 * * * * $HOME/.local/bin/dot update --cron
 EOF
 _run_cron_merge 2>/dev/null
 result=$(crontab -l 2>/dev/null)
 _assert_contains "pre-remove: entry exists" "dot update --cron" "$result"
-cat >"$TEST_HOME/.config/dot/cron" <<'EOF'
+cat >"$TEST_HOME/.config/dot/merge-hooks.d/cron" <<'EOF'
 # everything commented out
 EOF
 _run_cron_merge 2>/dev/null
@@ -721,7 +721,7 @@ _assert_not_contains "remove: markers stripped" "dot-managed-cron" "$result"
 
 # All-comments cron file preserves non-managed entries
 echo "0 6 * * * /usr/bin/other-job" | crontab -
-cat >"$TEST_HOME/.config/dot/cron" <<'EOF'
+cat >"$TEST_HOME/.config/dot/merge-hooks.d/cron" <<'EOF'
 # only comments here
 EOF
 _run_cron_merge 2>/dev/null
@@ -742,7 +742,7 @@ if [[ "$_current_os" == "darwin" ]]; then _current_os="macos"; fi
 
 # Entries before any filter default to all
 : >"$MOCK_CRONTAB"
-cat >"$TEST_HOME/.config/dot/cron" <<'EOF'
+cat >"$TEST_HOME/.config/dot/merge-hooks.d/cron" <<'EOF'
 */30 * * * * $HOME/.local/bin/dot update --cron
 EOF
 _run_cron_merge 2>/dev/null
@@ -751,7 +751,7 @@ _assert_contains "filter default: entry included" "dot update --cron" "$result"
 
 # Filter skips non-matching host
 : >"$MOCK_CRONTAB"
-cat >"$TEST_HOME/.config/dot/cron" <<EOF
+cat >"$TEST_HOME/.config/dot/merge-hooks.d/cron" <<EOF
 # filter: hosts=nonexistent-host-xyz
 */30 * * * * \$HOME/.local/bin/dot update --cron
 EOF
@@ -761,7 +761,7 @@ _assert_not_contains "filter host miss: entry skipped" "dot update --cron" "$res
 
 # Filter includes matching host
 : >"$MOCK_CRONTAB"
-cat >"$TEST_HOME/.config/dot/cron" <<EOF
+cat >"$TEST_HOME/.config/dot/merge-hooks.d/cron" <<EOF
 # filter: hosts=$_current_host
 */30 * * * * \$HOME/.local/bin/dot update --cron
 EOF
@@ -771,7 +771,7 @@ _assert_contains "filter host match: entry included" "dot update --cron" "$resul
 
 # Filter reset with `# filter: *`
 : >"$MOCK_CRONTAB"
-cat >"$TEST_HOME/.config/dot/cron" <<EOF
+cat >"$TEST_HOME/.config/dot/merge-hooks.d/cron" <<EOF
 # filter: hosts=nonexistent-host-xyz
 0 3 * * * \$HOME/.local/bin/skipped
 # filter: *
@@ -789,7 +789,7 @@ if [[ "$_current_os" == "linux" ]]; then
 else
   _wrong_plat="linux"
 fi
-cat >"$TEST_HOME/.config/dot/cron" <<EOF
+cat >"$TEST_HOME/.config/dot/merge-hooks.d/cron" <<EOF
 # filter: platforms=$_wrong_plat
 0 3 * * * \$HOME/.local/bin/wrong-platform
 EOF
@@ -799,7 +799,7 @@ _assert_not_contains "filter platform miss: entry skipped" "wrong-platform" "$re
 
 # AND logic: matching host + wrong platform excludes
 : >"$MOCK_CRONTAB"
-cat >"$TEST_HOME/.config/dot/cron" <<EOF
+cat >"$TEST_HOME/.config/dot/merge-hooks.d/cron" <<EOF
 # filter: hosts=$_current_host platforms=$_wrong_plat
 0 3 * * * \$HOME/.local/bin/and-logic
 EOF
@@ -809,7 +809,7 @@ _assert_not_contains "filter AND: right host + wrong platform skipped" "and-logi
 
 # Multiple filter directives: each replaces previous
 : >"$MOCK_CRONTAB"
-cat >"$TEST_HOME/.config/dot/cron" <<EOF
+cat >"$TEST_HOME/.config/dot/merge-hooks.d/cron" <<EOF
 # filter: hosts=nonexistent-host-xyz
 0 1 * * * \$HOME/.local/bin/skipped-entry
 # filter: hosts=$_current_host
@@ -822,7 +822,7 @@ _assert_contains "filter replace: second section included" "included-entry" "$re
 
 # Missing key defaults to * (hosts only → all platforms)
 : >"$MOCK_CRONTAB"
-cat >"$TEST_HOME/.config/dot/cron" <<EOF
+cat >"$TEST_HOME/.config/dot/merge-hooks.d/cron" <<EOF
 # filter: hosts=$_current_host
 */30 * * * * \$HOME/.local/bin/dot update --cron
 EOF
@@ -832,22 +832,22 @@ _assert_contains "filter missing key: hosts only, all platforms" "dot update --c
 
 # cron.local filter state independent from cron
 : >"$MOCK_CRONTAB"
-cat >"$TEST_HOME/.config/dot/cron" <<EOF
+cat >"$TEST_HOME/.config/dot/merge-hooks.d/cron" <<EOF
 # filter: hosts=nonexistent-host-xyz
 0 1 * * * \$HOME/.local/bin/cron-filtered
 EOF
-cat >"$TEST_HOME/.config/dot/cron.local" <<'EOF'
+cat >"$TEST_HOME/.config/dot/merge-hooks.d/cron.local" <<'EOF'
 0 2 * * * $HOME/.local/bin/local-unfiltered
 EOF
 _run_cron_merge 2>/dev/null
 result=$(crontab -l 2>/dev/null)
 _assert_not_contains "filter independence: cron entry filtered" "cron-filtered" "$result"
 _assert_contains "filter independence: local entry unfiltered" "local-unfiltered" "$result"
-rm -f "$TEST_HOME/.config/dot/cron.local"
+rm -f "$TEST_HOME/.config/dot/merge-hooks.d/cron.local"
 
 # Exclude syntax in filter
 : >"$MOCK_CRONTAB"
-cat >"$TEST_HOME/.config/dot/cron" <<EOF
+cat >"$TEST_HOME/.config/dot/merge-hooks.d/cron" <<EOF
 # filter: hosts=!$_current_host
 0 3 * * * \$HOME/.local/bin/skip-this-host
 # filter: hosts=!nonexistent-host-xyz

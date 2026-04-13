@@ -163,8 +163,8 @@ All other commands pass through to git (personal repo only).
 Flags:
   --cron    Quiet mode for cron: skip pull if worktree dirty, suppress output
 
-'update' installs cron entries from ~/.config/dot/cron (tracked) and
-cron.local (machine-local, untracked) into the user crontab.
+'update' installs cron entries from ~/.config/dot/merge-hooks.d/cron
+(tracked) and cron.local (machine-local, untracked) into the user crontab.
 EOF
   exit 0
   ;;

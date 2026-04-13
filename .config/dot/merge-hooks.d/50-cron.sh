@@ -87,8 +87,8 @@ _cron_parse_file() {
 }
 
 merge() {
-  local cron_file="$HOME/.config/dot/cron"
-  local cron_local="$HOME/.config/dot/cron.local"
+  local cron_file="$HOME/.config/dot/merge-hooks.d/cron"
+  local cron_local="$HOME/.config/dot/merge-hooks.d/cron.local"
   local cron_marker="# dot-managed-cron"
 
   [[ -f "$cron_file" || -f "$cron_local" ]] || return 0

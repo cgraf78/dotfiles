@@ -49,7 +49,7 @@ dot refresh         # fix phantom dirty files from clean/smudge filters
 dot cron            # show installed cron entries
 ```
 
-`update` works on all machines with the bare repo. Installs cron entries from `~/.config/dot/cron` into the user crontab. All other commands also require the bare repo.
+`update` works on all machines with the bare repo. Installs cron entries from `~/.config/dot/merge-hooks.d/cron` into the user crontab. All other commands also require the bare repo.
 
 Work repo files are managed with plain `git` in `~/.dotfiles-work/`.
 
@@ -64,7 +64,7 @@ Work repo files are managed with plain `git` in `~/.dotfiles-work/`.
 
 ### Auto-update cron
 
-`dot update` installs cron entries from `~/.config/dot/cron` into the user crontab. By default this runs `dot update --cron` every 30 minutes, keeping all machines up to date automatically after the initial `dotbootstrap`.
+`dot update` installs cron entries from `~/.config/dot/merge-hooks.d/cron` into the user crontab. By default this runs `dot update --cron` every 30 minutes, keeping all machines up to date automatically after the initial `dotbootstrap`.
 
 The `--cron` flag enables two safety behaviors:
 - **Skip if dirty** — if either repo has uncommitted changes, the update is skipped entirely. This prevents stomping on in-progress dotfile editing.
@@ -72,7 +72,7 @@ The `--cron` flag enables two safety behaviors:
 
 Every machine is a peer — no primary/replica roles. All machines pull from git independently.
 
-To change the schedule or add more cron entries, edit `~/.config/dot/cron`. The file is a tracked dotfile — changes propagate to all machines on the next `dot update`. For machine-local entries that shouldn't propagate, use `~/.config/dot/cron.local` (same format, untracked). Lines starting with `#` are comments. `$HOME` is expanded and `PATH` is injected automatically at install time.
+To change the schedule or add more cron entries, edit `~/.config/dot/merge-hooks.d/cron`. The file is a tracked dotfile — changes propagate to all machines on the next `dot update`. For machine-local entries that shouldn't propagate, use `~/.config/dot/merge-hooks.d/cron.local` (same format, untracked). Lines starting with `#` are comments. `$HOME` is expanded and `PATH` is injected automatically at install time.
 
 Use `# filter:` directives to restrict entries to specific hosts or platforms:
 
