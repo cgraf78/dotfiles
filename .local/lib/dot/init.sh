@@ -45,6 +45,13 @@ _bootstrap_shdeps() {
     fi
   fi
 
+  # Ensure the CLI is symlinked into PATH (install.sh handles this for
+  # installed clones, but dev clones at ~/git/shdeps skip install.sh).
+  if [[ -n "$shdeps_dir" && -x "$shdeps_dir/bin/shdeps" ]]; then
+    mkdir -p "$HOME/.local/bin"
+    ln -sf "$shdeps_dir/bin/shdeps" "$HOME/.local/bin/shdeps"
+  fi
+
   # Map dotfiles env vars to shdeps config
   export SHDEPS_CONF="$HOME/.config/shdeps/deps.conf"
   export SHDEPS_HOOKS_DIR="$HOME/.config/shdeps/hooks.d"
