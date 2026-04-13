@@ -1,21 +1,16 @@
 #!/usr/bin/env bash
 # First-time bootstrap for all machines. Clones the bare git repo,
-# checks out dotfiles, installs deps, and sets up auto-update cron.
-# For day-to-day updates, use 'dot update' instead.
+# checks out dotfiles, clones overlay repos, installs deps, and sets
+# up auto-update cron.  For day-to-day updates, use 'dot update' instead.
 #
-# Two repos:
-#   ~/.dotfiles      — bare repo, personal dotfiles (public)
-#   ~/.dotfiles-work — regular clone, work dotfiles (private, optional)
+# Personal bare repo at ~/.dotfiles. Overlay repos are discovered from
+# config files in ~/.config/dot/overlays.d/*.conf after personal checkout.
 #
 # Usage (fresh machine):
 #   curl -sL https://raw.githubusercontent.com/cgraf78/dotfiles/main/.local/bin/dotbootstrap | bash -s init
-#   curl -sL https://raw.githubusercontent.com/cgraf78/dotfiles/main/.local/bin/dotbootstrap | bash -s init work
 #
-# Usage (reconfigure existing repo machine):
-#   ~/.local/bin/dotbootstrap [personal|work]
-#
-# With no argument, defaults to "work" if ~/.dotfiles-work exists,
-# otherwise "personal".
+# Usage (reconfigure existing machine):
+#   ~/.local/bin/dotbootstrap
 
 set -euo pipefail
 
@@ -80,7 +75,7 @@ if [[ "${DOTBOOTSTRAP_SOURCED:-}" == 1 ]]; then return 0; fi
 # Init mode: clone bare repo and re-exec
 # ---------------------------------------------------------------------------
 # Supports standalone curl invocation:
-#   curl -sL https://raw.githubusercontent.com/cgraf78/dotfiles/main/.local/bin/dotbootstrap | bash -s init [work]
+#   curl -sL https://raw.githubusercontent.com/cgraf78/dotfiles/main/.local/bin/dotbootstrap | bash -s init
 
 if [[ "${1:-}" == "init" ]]; then
   DOTFILES_REPO="${DOTBOOTSTRAP_DOTFILES_REPO:-https://github.com/cgraf78/dotfiles.git}"
@@ -106,29 +101,10 @@ fi
 # Main
 # ---------------------------------------------------------------------------
 
-# Default to work if previously bootstrapped in work mode.
-if [[ -z "${1:-}" && -d "$HOME/.dotfiles-work" ]]; then
-  MACHINE_TYPE="work"
-else
-  MACHINE_TYPE="${1:-personal}"
-fi
-WORK_REPO="${DOTBOOTSTRAP_WORK_REPO:-git@github.com:cgraf78/dotfiles-work.git}"
 DOTFILES="$HOME/.dotfiles"
-WORK_DIR="$HOME/.dotfiles-work"
 BACKUP="$HOME/.dotfiles-backup/$(date +%Y%m%d%H%M%S)"
 # Optional: DOTFILES_BRANCH=<branch> to override detected branch.
 BRANCH=""
-
-case "$MACHINE_TYPE" in
-work | personal) ;;
-*)
-  echo "Usage: dotbootstrap [init] [personal|work]" >&2
-  echo "  init      Clone bare repo and bootstrap (for fresh machines)" >&2
-  echo "  personal  Personal dotfiles only (default on personal machines)" >&2
-  echo "  work      Personal + work dotfiles (default when ~/.dotfiles-work exists)" >&2
-  exit 1
-  ;;
-esac
 
 GIT="git --git-dir=$DOTFILES --work-tree=$HOME"
 
@@ -136,12 +112,11 @@ GIT="git --git-dir=$DOTFILES --work-tree=$HOME"
 # Personal repo: clone or configure
 # ---------------------------------------------------------------------------
 
-echo "==> Setting up $MACHINE_TYPE machine..."
+echo "==> Setting up machine..."
 
 if [[ -d "$DOTFILES" ]]; then
   # ---------------------------------------------------------------------------
   # Configure git (before fetch so refspec is correct)
-  # Pull-behavior and filter config is self-healed in _pull_personal/_pull_work_repo.
   # ---------------------------------------------------------------------------
 
   $GIT config status.showUntrackedFiles no
@@ -168,9 +143,7 @@ if [[ -d "$DOTFILES" ]]; then
   $GIT config "branch.$BRANCH.remote" origin
   $GIT config "branch.$BRANCH.merge" "refs/heads/$BRANCH"
 
-  # Ensure clean full checkout. The quickstart one-liner does a sparse checkout
-  # of just dotbootstrap, which leaves the index with staged deletions of all
-  # other files. Force checkout resets the index and working tree to match HEAD.
+  # Ensure clean full checkout.
   _backup_and_checkout
 else
   echo "  no bare repo at $DOTFILES — skipping git setup"
@@ -181,30 +154,34 @@ if [[ -f "$HOME/.local/lib/dot/init.sh" ]]; then
   # shellcheck source=../../.local/lib/dot/init.sh
   . "$HOME/.local/lib/dot/init.sh"
 else
-  echo "  warning: init.sh not found — skipping work repo and merges" >&2
+  echo "  warning: init.sh not found — skipping overlays and merges" >&2
   echo "==> Done! Run 'source ~/.bashrc' or 'source ~/.zshrc' to activate."
   touch "$HOME/.dotbootstrap-done"
   exit 0
 fi
 
 # ---------------------------------------------------------------------------
-# Work repo: pull/clone (work machines only)
+# Overlay repos: discover, clone/pull
 # ---------------------------------------------------------------------------
 
-if [[ "$MACHINE_TYPE" == "work" ]]; then
-  if [[ -d "$WORK_DIR" ]]; then
-    # shellcheck disable=SC2119  # intentionally passing no args
-    _pull_work_repo
+_merge_overlay_ssh_configs
+_discover_overlays
+for entry in "${OVERLAYS[@]+"${OVERLAYS[@]}"}"; do
+  IFS='|' read -r name path url <<< "$entry"
+  if [[ -d "$path/.git" ]]; then
+    _pull_overlay "$name" "$path"
   else
-    _log_header "==> Cloning work dotfiles..."
-    if ! git clone "$WORK_REPO" "$WORK_DIR"; then
-      _warn "  warning: work dotfiles clone failed"
+    if [[ -d "$path" ]]; then
+      _warn "  warning: $name overlay dir exists but isn't a git repo — re-cloning"
+      rm -rf "$path"
     fi
+    _log_header "==> Cloning $name dotfiles..."
+    git clone "$url" "$path" || _warn "  warning: $name dotfiles clone failed"
   fi
-fi
+done
 
 # ---------------------------------------------------------------------------
-# Finalize: deps, work symlinks, app config merges, normalize
+# Finalize: deps, overlay symlinks, app config merges, normalize
 # ---------------------------------------------------------------------------
 
 _finalize_update

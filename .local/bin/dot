@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
 # Smart dotfiles manager.
 #
-# Two repos:
-#   ~/.dotfiles      — bare repo, personal dotfiles (public)
-#   ~/.dotfiles-work — regular clone, work dotfiles (private, optional)
+# One personal bare repo at ~/.dotfiles, plus overlay repos discovered
+# from config files in ~/.config/dot/overlays.d/*.conf.
 #
 # Commands:
 #   dot update [--cron]        Sync everything (--cron: quiet, skip if dirty)
 #   dot pull                   Same as update
-#   dot push/status/diff       Operates on both repos (requires bare repo)
+#   dot push/status/diff       Operates on personal + all active overlays
 #   dot refresh                Fixes phantom dirty files from clean filters
 #   dot cron                   Show installed cron entries
 #   dot <anything>             Passes through to git (personal repo)
@@ -31,18 +30,21 @@ esac
 # shellcheck source=../../.local/lib/dot/init.sh
 . "$HOME/.local/lib/dot/init.sh"
 
+# Discover overlays after shdeps is loaded (init.sh bootstraps shdeps).
+_discover_overlays
+
 # ---------------------------------------------------------------------------
 # Global flags
 # ---------------------------------------------------------------------------
 
 CRON_MODE=0
 
-# Pull both repos (personal + work) with proper unstash/normalize handling.
-# Does NOT link work files — _finalize_update handles that after deps.
+# Pull all repos (personal + overlays) with proper unstash/normalize handling.
+# Does NOT link overlay files — _finalize_update handles that after deps.
 _pull_all() {
   _ensure_repo_config
   _normalize_filtered
-  _unstash_work_overrides
+  _unstash_overlay_overrides
   _log_header "==> Pulling personal dotfiles..."
   if ! _pull_personal "$@"; then
     if [[ "$DOT_QUIET" -eq 1 ]]; then
@@ -51,7 +53,7 @@ _pull_all() {
       return 1
     fi
   fi
-  _pull_work_repo "$@"
+  _pull_overlays "$@"
 }
 
 # ---------------------------------------------------------------------------
@@ -93,6 +95,9 @@ update)
     fi
   fi
 
+  # Merge overlay SSH configs so host aliases resolve for pulls
+  _merge_overlay_ssh_configs
+
   if [[ "$SKIP_PULL" -eq 0 ]]; then
     # Record HEAD before pull to detect infrastructure changes
     _head_before=""
@@ -104,7 +109,7 @@ update)
       _pull_all "$@"
     else
       _ensure_repo_config
-      _pull_work_repo
+      _pull_overlays
     fi
 
     # Re-exec if pull changed dot infrastructure so the rest runs with new code.
@@ -148,13 +153,13 @@ cron)
   cat <<EOF
 usage: dot <command> [<args>]
 
-Multi-repo commands (personal + work):
+Multi-repo commands (personal + overlays):
   update [--cron]  Sync everything: pull repos, merge configs, update deps
   pull             Same as update
-  fetch            Fetch both repos (without updating working copy)
-  push             Push both repos
-  status           Show status of both repos
-  diff             Show diff of both repos
+  fetch            Fetch personal + all active overlays
+  push             Push personal + all active overlays
+  status           Show status of personal + all active overlays
+  diff             Show diff of personal + all active overlays
   refresh          Fix phantom dirty files from clean/smudge filters
   cron             Show installed cron entries
 
@@ -163,6 +168,7 @@ All other commands pass through to git (personal repo only).
 Flags:
   --cron    Quiet mode for cron: skip pull if worktree dirty, suppress output
 
+Overlays are configured in ~/.config/dot/overlays.d/*.conf.
 'update' installs cron entries from ~/.config/dot/merge-hooks.d/cron
 (tracked) and cron.local (machine-local, untracked) into the user crontab.
 EOF
@@ -180,7 +186,7 @@ error: bare repo not found at $DOTFILES
 
 Clone it first:
   git clone --bare https://github.com/cgraf78/dotfiles.git $DOTFILES
-  $DOTFILES/../.local/bin/dotbootstrap personal
+  $DOTFILES/../.local/bin/dotbootstrap
 EOF
   exit 1
 fi
@@ -190,17 +196,20 @@ fetch)
   shift
   _header "==> Fetching personal dotfiles..."
   $GIT fetch "$@"
-  if [[ -d "$WORK_DIR/.git" ]]; then
-    _header "==> Fetching work dotfiles..."
-    git -C "$WORK_DIR" fetch "$@"
-  fi
+  for entry in "${OVERLAYS[@]+"${OVERLAYS[@]}"}"; do
+    IFS='|' read -r name path _ <<< "$entry"
+    if [[ -d "$path/.git" ]]; then
+      _header "==> Fetching $name dotfiles..."
+      git -C "$path" fetch "$@"
+    fi
+  done
   ;;
 push)
   shift
   _normalize_filtered
   _header "==> Pushing personal dotfiles..."
   $GIT push "$@"
-  _push_work_repo "$@"
+  _push_overlays "$@"
   ;;
 refresh)
   _normalize_filtered
@@ -210,22 +219,28 @@ diff)
   _normalize_filtered
   _header "==> Personal dotfiles"
   $GIT diff "$@"
-  if [[ -d "$WORK_DIR" ]]; then
-    echo ""
-    _header "==> Work dotfiles"
-    git -C "$WORK_DIR" diff "$@"
-  fi
+  for entry in "${OVERLAYS[@]+"${OVERLAYS[@]}"}"; do
+    IFS='|' read -r name path _ <<< "$entry"
+    if [[ -d "$path/.git" ]]; then
+      echo ""
+      _header "==> ${name^} dotfiles"
+      git -C "$path" diff "$@"
+    fi
+  done
   ;;
 status)
   shift
   _normalize_filtered
   _header "==> Personal dotfiles"
   $GIT status "$@"
-  if [[ -d "$WORK_DIR" ]]; then
-    echo ""
-    _header "==> Work dotfiles"
-    git -C "$WORK_DIR" status "$@"
-  fi
+  for entry in "${OVERLAYS[@]+"${OVERLAYS[@]}"}"; do
+    IFS='|' read -r name path _ <<< "$entry"
+    if [[ -d "$path/.git" ]]; then
+      echo ""
+      _header "==> ${name^} dotfiles"
+      git -C "$path" status "$@"
+    fi
+  done
   ;;
 *)
   $GIT "$@"

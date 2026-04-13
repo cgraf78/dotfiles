@@ -4,8 +4,6 @@
 DOTFILES="$HOME/.dotfiles"
 # shellcheck disable=SC2034  # used by scripts that source this file
 GIT="git --git-dir=$DOTFILES --work-tree=$HOME"
-# shellcheck disable=SC2034  # used by scripts that source this file
-WORK_DIR="$HOME/.dotfiles-work"
 
 # Quiet mode — suppresses non-essential output. Set by `dot update --cron`.
 DOT_QUIET="${DOT_QUIET:-0}"
@@ -128,22 +126,137 @@ _require_sudo() {
 }
 
 # ---------------------------------------------------------------------------
+# Overlay discovery
+# ---------------------------------------------------------------------------
+
+# Active overlays, populated by _discover_overlays. Each entry: "name|path|url"
+# shellcheck disable=SC2034  # used by scripts that source this file
+OVERLAYS=()
+
+# Extract overlay name from conf filename: "10-work.conf" → "work"
+_overlay_name() {
+  local base="${1##*/}"
+  base="${base%.conf}"
+  [[ "$base" =~ ^[0-9]+-(.+)$ ]] && base="${BASH_REMATCH[1]}"
+  echo "$base"
+}
+
+# Parse a single overlay conf file.
+# Sets REPLY to "name|path|url". Returns 1 if filtered out or missing url.
+_parse_overlay_conf() {
+  local file="$1"
+  local url="" platforms="" hosts=""
+  local line
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    case "$line" in
+      url=*)       url="${line#url=}" ;;
+      platforms=*) platforms="${line#platforms=}" ;;
+      hosts=*)     hosts="${line#hosts=}" ;;
+      \#*|"")      ;;
+      *)            _warn "  warning: unknown key in $file: $line" ;;
+    esac
+  done < "$file"
+
+  [[ -n "$url" ]] || return 1
+
+  if [[ -n "$platforms" ]] && declare -f shdeps_platform_match &>/dev/null; then
+    shdeps_platform_match "$platforms" || return 1
+  fi
+  if [[ -n "$hosts" ]] && declare -f shdeps_host_match &>/dev/null; then
+    shdeps_host_match "$hosts" || return 1
+  fi
+
+  local name
+  name=$(_overlay_name "$file")
+  REPLY="$name|$HOME/.dotfiles-$name|$url"
+}
+
+# Ensure overlay .ssh files are merged into ~/.ssh/config so clone
+# URLs using SSH host aliases resolve. Appends missing Host blocks
+# and replaces existing blocks whose content has changed.
+_merge_overlay_ssh_configs() {
+  local conf_dir="$HOME/.config/dot/overlays.d"
+  local f
+  for f in "$conf_dir"/*.ssh; do
+    [[ -f "$f" ]] || continue
+    local host_line
+    host_line=$(grep -m1 "^Host " "$f" 2>/dev/null) || continue
+    [[ -n "$host_line" ]] || continue
+
+    local block
+    block=$(<"$f")
+    block="${block%$'\n'}"
+
+    if [[ ! -d "$HOME/.ssh" ]]; then
+      mkdir -p "$HOME/.ssh"
+      chmod 700 "$HOME/.ssh"
+    fi
+
+    local dst="$HOME/.ssh/config"
+    if grep -qxF "$host_line" "$dst" 2>/dev/null; then
+      # Host line present — check if full block matches
+      if [[ "$(<"$dst")" == *"$block"* ]]; then
+        continue
+      fi
+      # Block differs — remove old block, will re-append below
+      local tmp
+      tmp=$(awk -v host="${host_line#Host }" '
+        /^Host / && $2 == host { skip=1; next }
+        skip && /^[^[:space:]]/ { skip=0 }
+        skip { next }
+        { print }
+      ' "$dst")
+      printf '%s' "$tmp" >"$dst"
+    fi
+
+    # Append the block with a single blank line separator
+    if [[ -f "$dst" && -s "$dst" ]]; then
+      printf '\n\n%s\n' "$block" >>"$dst"
+    else
+      printf '%s\n' "$block" >"$dst"
+    fi
+    chmod 600 "$dst"
+  done
+}
+
+# Discover all active overlays. Populates OVERLAYS array.
+# Call once after shdeps is loaded; callers iterate the cached array.
+# Callers that clone overlays should call _merge_overlay_ssh_configs
+# first so SSH host aliases resolve.
+_discover_overlays() {
+  OVERLAYS=()
+  local conf_dir="$HOME/.config/dot/overlays.d"
+  [[ -d "$conf_dir" ]] || return 0
+  local f seen_names=""
+  for f in "$conf_dir"/*.conf; do
+    [[ -f "$f" ]] || continue
+    if _parse_overlay_conf "$f"; then
+      local name="${REPLY%%|*}"
+      if [[ " $seen_names " == *" $name "* ]]; then
+        _warn "  warning: duplicate overlay name '$name' in $f — skipping"
+        continue
+      fi
+      seen_names="$seen_names $name"
+      OVERLAYS+=("$REPLY")
+    fi
+  done
+}
+
+# ---------------------------------------------------------------------------
 # Shared finalize sequence
 # ---------------------------------------------------------------------------
 
 # Common post-pull steps shared by dot update, dot pull, and dotbootstrap.
-# Installs/upgrades deps, links work files, merges app configs, and cleans
-# up phantom dirty files.
+# Installs/upgrades deps, links overlay files, merges app configs, and
+# cleans up phantom dirty files.
 _finalize_update() {
-  # Ensure pull-behavior and filter config is set for both repos.
-  # Self-heals on every run so config can't silently drift.
   _ensure_repo_config
   if declare -f shdeps_update &>/dev/null; then
     shdeps_update
   else
     _warn "  warning: shdeps not available — skipping dependency install"
   fi
-  _link_work_home
+  _link_overlays
   _run_merges
   if [[ -d "$DOTFILES" ]]; then
     _normalize_filtered

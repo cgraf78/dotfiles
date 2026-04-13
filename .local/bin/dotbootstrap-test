@@ -2,7 +2,7 @@
 # dotbootstrap-test — unit tests for the dotbootstrap machine bootstrapper.
 #
 # Tests functions in isolation by sourcing with DOTBOOTSTRAP_SOURCED=1,
-# and tests arg validation via subprocess.
+# and tests full bootstrap flow via subprocess with local repos.
 #
 # Usage: dotbootstrap-test
 
@@ -44,7 +44,6 @@ $GIT commit -m "initial" >/dev/null 2>&1
 # Source shared helpers and dotbootstrap functions (without running main logic)
 # shellcheck source=../../.local/lib/dot/init.sh
 . "$REAL_HOME/.local/lib/dot/init.sh"
-WORK_DIR="$TEST_HOME/.dotfiles-work"
 BACKUP="$TEST_HOME/.dotfiles-backup/test"
 BRANCH=""
 export DOTBOOTSTRAP_SOURCED=1
@@ -100,8 +99,6 @@ echo ""
 echo "=== WezTerm merge ==="
 
 # Source the real merge-wezterm script from the repo under test.
-# It should copy ~/.wezterm.lua into the Windows home when running under WSL.
-# Use a test-only Windows-home override so we don't depend on the host environment.
 # shellcheck disable=SC1091  # sourced via repo-relative test path
 . "$SCRIPT_DIR/../../.config/dot/merge-hooks.d/50-wezterm.sh"
 
@@ -210,49 +207,17 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Tests: Subprocess — usage errors
-# ---------------------------------------------------------------------------
-
-echo ""
-echo "=== Usage errors (subprocess) ==="
-
-unset DOTBOOTSTRAP_SOURCED
-
-# No args → no usage error (defaults to personal or work)
-result=$("$SCRIPT_DIR/dotbootstrap" 2>&1 || true)
-_assert_not_contains "no args: no usage error" "Usage:" "$result"
-
-# Invalid machine type
-rc=0
-result=$("$SCRIPT_DIR/dotbootstrap" invalid 2>&1) || rc=$?
-_assert_exit "invalid type exits 1" 1 "$rc"
-_assert_contains "invalid type shows usage" "Usage:" "$result"
-_assert_contains "invalid type mentions personal" "personal" "$result"
-_assert_contains "invalid type mentions work" "work" "$result"
-
-# Both valid types are accepted (they fail later on git operations,
-# but they pass arg validation — verify no usage error)
-for mtype in personal work; do
-  result=$("$SCRIPT_DIR/dotbootstrap" "$mtype" 2>&1 || true)
-  _assert_not_contains "$mtype: passes arg validation" "Usage:" "$result"
-done
-
-# ---------------------------------------------------------------------------
 # Tests: Full bootstrap flow (subprocess with local repos)
 # ---------------------------------------------------------------------------
 
 # Build local repos that stand in for remote origins.
-# dotbootstrap supports per-dependency DOTBOOTSTRAP_<NAME>_REPO env var
-# overrides so we can point generic fixture deps at these test repos.
 
 _seed_repo() {
   # $1 = bare repo path (will be created)
   # $2 = staging dir (caller populates before calling)
-  # Inits bare, clones, commits staging content, pushes.
   local bare="$1" staging="$2"
   git init --bare "$bare" >/dev/null 2>&1
   git clone "$bare" "$staging/.git-tmp" >/dev/null 2>&1
-  # Move .git into staging dir
   mv "$staging/.git-tmp/.git" "$staging/.git"
   rm -rf "$staging/.git-tmp"
   git -C "$staging" config user.email "test@test.com"
@@ -291,7 +256,7 @@ MERGE
 PERSONAL_ORIGIN=$(_tmpdir)
 _seed_repo "$PERSONAL_ORIGIN" "$PERSONAL_STAGING"
 
-# --- Work dotfiles origin ---
+# --- Overlay (work) dotfiles origin ---
 WORK_STAGING=$(_tmpdir)
 echo "work config" >"$WORK_STAGING/work-config"
 mkdir -p "$WORK_STAGING/home"
@@ -319,29 +284,51 @@ _seed_repo "$HOOK_PACK_ORIGIN" "$HOOK_PACK_STAGING"
 
 # Helper to run dotbootstrap in a fresh HOME with local repos.
 # Pre-clones the personal bare repo (dotbootstrap no longer auto-clones).
-# Usage: _run_bootstrap <home> [<machine-type>]
+# Creates overlay conf pointing at the test work repo origin.
+# Usage: _run_bootstrap <home> [extra-args...]
 _run_bootstrap() {
   local home="$1"
   shift
   if [[ ! -d "$home/.dotfiles" ]]; then
     git clone --bare "$PERSONAL_ORIGIN" "$home/.dotfiles" >/dev/null 2>&1
   fi
-  HOME="$home" \
-    DOTBOOTSTRAP_WORK_REPO="$WORK_ORIGIN" \
+  # Create overlay conf pointing at test work origin.
+  # Intentionally overwrites any conf from personal checkout.
+  mkdir -p "$home/.config/dot/overlays.d"
+  cat >"$home/.config/dot/overlays.d/10-work.conf" <<CONF
+url=$WORK_ORIGIN
+CONF
+  DOTBOOTSTRAP_SOURCED="" \
+    HOME="$home" \
     SHDEPS_TEST_TOOL_REPO="$TEST_TOOL_ORIGIN" \
     SHDEPS_HOOK_PACK_REPO="$HOOK_PACK_ORIGIN" \
     "$SCRIPT_DIR/dotbootstrap" "$@" 2>&1
 }
 
-# ---- Fresh personal install ----
+# Helper for personal-only bootstrap (no overlay conf)
+_run_bootstrap_personal() {
+  local home="$1"
+  shift
+  if [[ ! -d "$home/.dotfiles" ]]; then
+    git clone --bare "$PERSONAL_ORIGIN" "$home/.dotfiles" >/dev/null 2>&1
+  fi
+  # No overlay conf
+  DOTBOOTSTRAP_SOURCED="" \
+    HOME="$home" \
+    SHDEPS_TEST_TOOL_REPO="$TEST_TOOL_ORIGIN" \
+    SHDEPS_HOOK_PACK_REPO="$HOOK_PACK_ORIGIN" \
+    "$SCRIPT_DIR/dotbootstrap" "$@" 2>&1
+}
+
+# ---- Fresh install (no overlays) ----
 
 echo ""
-echo "=== Fresh install (personal) ==="
+echo "=== Fresh install (no overlays) ==="
 
 FRESH=$(_tmpdir)
-result=$(_run_bootstrap "$FRESH" personal)
+result=$(_run_bootstrap_personal "$FRESH")
 
-# Bare repo present (pre-cloned by _run_bootstrap)
+# Bare repo present (pre-cloned by helper)
 if [[ -d "$FRESH/.dotfiles" ]]; then
   _pass "personal: .dotfiles present"
 else
@@ -359,17 +346,17 @@ _assert_file_exists "personal: .bashrc checked out" "$FRESH/.bashrc"
 _assert_file_content "personal: .bashrc content" "bashrc content" "$FRESH/.bashrc"
 _assert_file_exists "personal: init.sh checked out" "$FRESH/.local/lib/dot/init.sh"
 
-# Work repo NOT cloned
+# No overlay repo cloned (no conf)
 if [[ ! -d "$FRESH/.dotfiles-work" ]]; then
-  _pass "personal: no work repo"
+  _pass "personal: no overlay repo"
 else
-  _fail "personal: no work repo"
+  _fail "personal: no overlay repo"
 fi
 
 # Merge scripts ran
 _assert_contains "personal: merge ran" "MERGE_TESTAPP_RAN" "$result"
 
-# Git-based deps added (validates the general mechanism)
+# Git-based deps added
 _assert_contains "personal: git deps added" "added" "$result"
 _assert_file_exists "personal: generic tool installed" "$FRESH/.local/share/test-tool/bin/test-tool"
 _assert_file_exists "personal: generic tool linked" "$FRESH/.local/bin/test-tool"
@@ -379,65 +366,126 @@ _assert_file_content "personal: generic hook ran" "$FRESH/.local/share/hook-pack
 _assert_contains "personal: done message" "Done" "$result"
 _assert_contains "personal: shell activation hint" "source ~/.bashrc' or 'source ~/.zshrc" "$result"
 
-# ---- Fresh work install ----
+# ---- Fresh install (with overlay) ----
 
 echo ""
-echo "=== Fresh install (work) ==="
+echo "=== Fresh install (with overlay) ==="
 
 FRESH_WORK=$(_tmpdir)
-result=$(_run_bootstrap "$FRESH_WORK" work)
+result=$(_run_bootstrap "$FRESH_WORK")
 
 # Personal dotfiles set up
-_assert_file_exists "work: .bashrc checked out" "$FRESH_WORK/.bashrc"
+_assert_file_exists "overlay: .bashrc checked out" "$FRESH_WORK/.bashrc"
 
-# Work repo cloned
+# Overlay repo cloned
 if [[ -d "$FRESH_WORK/.dotfiles-work" ]]; then
-  _pass "work: work repo cloned"
+  _pass "overlay: work repo cloned"
 else
-  _fail "work: work repo cloned"
+  _fail "overlay: work repo cloned"
 fi
-_assert_file_exists "work: work config present" "$FRESH_WORK/.dotfiles-work/work-config"
-_assert_contains "work: work files linked" "Linking work dotfiles" "$result"
+_assert_file_exists "overlay: work config present" "$FRESH_WORK/.dotfiles-work/work-config"
+_assert_contains "overlay: work files linked" "Linking work dotfiles" "$result"
 if [[ -L "$FRESH_WORK/.testrc_work" ]]; then
-  _pass "work: symlink created"
+  _pass "overlay: symlink created"
 else
-  _fail "work: symlink created"
+  _fail "overlay: symlink created"
 fi
 
 # Done message
-_assert_contains "work: done message" "Done" "$result"
+_assert_contains "overlay: done message" "Done" "$result"
 
 # ---- Re-run on existing machine ----
 
 echo ""
 echo "=== Re-run (existing setup) ==="
 
-# Run again on the same FRESH_WORK home — should succeed without re-cloning
-result=$(_run_bootstrap "$FRESH_WORK" work)
+# Run again on the same home — should succeed without re-cloning
+result=$(_run_bootstrap "$FRESH_WORK")
 
 # Should NOT try to clone (repo already exists)
 _assert_not_contains "re-run: skips clone" "Cloning personal" "$result"
 
-# Work repo exists → pulls instead of cloning
-_assert_contains "re-run: pulls work repo" "Pulling work" "$result"
-_assert_not_contains "re-run: no work clone" "Cloning work" "$result"
+# Overlay repo exists → pulls instead of cloning
+_assert_contains "re-run: pulls overlay repo" "Pulling work" "$result"
+_assert_not_contains "re-run: no overlay clone" "Cloning work" "$result"
 
 # Still succeeds
 _assert_contains "re-run: done message" "Done" "$result"
 
-# ---- Auto-detect machine type ----
+# ---- Auto-detect: overlays present → processes them ----
 
 echo ""
-echo "=== Auto-detect machine type ==="
+echo "=== Auto-detect overlays ==="
 
-# No args + work repo present → defaults to work (pulls work repo)
+# No args + overlay conf present → clones/pulls overlay
 result=$(_run_bootstrap "$FRESH_WORK")
-_assert_contains "auto-detect: work mode" "Pulling work" "$result"
+_assert_contains "auto-detect: overlay processed" "Pulling work" "$result"
 _assert_contains "auto-detect: done" "Done" "$result"
 
-# No args + no work repo → defaults to personal (no work pull)
-result=$(_run_bootstrap "$FRESH")
-_assert_not_contains "auto-detect: personal mode" "Pulling work" "$result"
+# No args + no overlay conf → personal only
+result=$(_run_bootstrap_personal "$FRESH")
+_assert_not_contains "auto-detect: no overlay" "Pulling work" "$result"
+_assert_not_contains "auto-detect: no clone" "Cloning work" "$result"
 _assert_contains "auto-detect: personal done" "Done" "$result"
+
+# ---- Filter skipping ----
+
+echo ""
+echo "=== Filter skipping ==="
+
+FRESH_FILTER=$(_tmpdir)
+if [[ ! -d "$FRESH_FILTER/.dotfiles" ]]; then
+  git clone --bare "$PERSONAL_ORIGIN" "$FRESH_FILTER/.dotfiles" >/dev/null 2>&1
+fi
+# Create overlay conf with wrong platform filter
+mkdir -p "$FRESH_FILTER/.config/dot/overlays.d"
+cat >"$FRESH_FILTER/.config/dot/overlays.d/10-work.conf" <<CONF
+url=$WORK_ORIGIN
+platforms=nonexistent-platform
+CONF
+result=$(
+  DOTBOOTSTRAP_SOURCED="" \
+    HOME="$FRESH_FILTER" \
+    SHDEPS_TEST_TOOL_REPO="$TEST_TOOL_ORIGIN" \
+    SHDEPS_HOOK_PACK_REPO="$HOOK_PACK_ORIGIN" \
+    "$SCRIPT_DIR/dotbootstrap" 2>&1
+)
+if [[ ! -d "$FRESH_FILTER/.dotfiles-work" ]]; then
+  _pass "filter: overlay not cloned (wrong platform)"
+else
+  _fail "filter: overlay not cloned (wrong platform)"
+fi
+_assert_contains "filter: still completes" "Done" "$result"
+
+# ---- Broken partial clone recovery ----
+
+echo ""
+echo "=== Broken partial clone ==="
+
+FRESH_BROKEN=$(_tmpdir)
+git clone --bare "$PERSONAL_ORIGIN" "$FRESH_BROKEN/.dotfiles" >/dev/null 2>&1
+mkdir -p "$FRESH_BROKEN/.config/dot/overlays.d"
+cat >"$FRESH_BROKEN/.config/dot/overlays.d/10-work.conf" <<CONF
+url=$WORK_ORIGIN
+CONF
+# Create a broken overlay dir (exists but no .git)
+mkdir -p "$FRESH_BROKEN/.dotfiles-work"
+echo "stale" >"$FRESH_BROKEN/.dotfiles-work/junk"
+result=$(
+  DOTBOOTSTRAP_SOURCED="" \
+    HOME="$FRESH_BROKEN" \
+    SHDEPS_TEST_TOOL_REPO="$TEST_TOOL_ORIGIN" \
+    SHDEPS_HOOK_PACK_REPO="$HOOK_PACK_ORIGIN" \
+    "$SCRIPT_DIR/dotbootstrap" 2>&1
+)
+_assert_contains "broken clone: warns" "isn't a git repo" "$result"
+# Should have re-cloned successfully
+if [[ -d "$FRESH_BROKEN/.dotfiles-work/.git" ]]; then
+  _pass "broken clone: re-cloned successfully"
+else
+  _fail "broken clone: re-cloned successfully"
+fi
+_assert_file_exists "broken clone: work content present" "$FRESH_BROKEN/.dotfiles-work/work-config"
+_assert_contains "broken clone: completes" "Done" "$result"
 
 _test_summary

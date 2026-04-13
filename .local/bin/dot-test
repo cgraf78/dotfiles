@@ -2,7 +2,7 @@
 # dot-test — unit tests for the dot dotfiles manager.
 #
 # Creates temp directories with mock git repos to test command routing,
-# work repo handling, normalize/filtered logic, and merge scripts.
+# overlay handling, normalize/filtered logic, and merge scripts.
 #
 # Usage: dot-test
 
@@ -11,7 +11,6 @@ export NO_COLOR=1
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REAL_HOME="$HOME"
-_true_bin="$(type -P true)"
 
 # Export SHDEPS_LIB so subprocess dot commands find shdeps in the mock HOME
 if [[ -f "$REAL_HOME/git/shdeps/shdeps.sh" ]]; then
@@ -80,10 +79,9 @@ export HOME="$TEST_HOME"
 # Create a bare repo to serve as .dotfiles
 git init --bare "$TEST_HOME/.dotfiles" >/dev/null 2>&1
 
-# Set GIT and WORK_DIR to match what init.sh would set
+# Set GIT and DOTFILES to match what init.sh would set
 DOTFILES="$TEST_HOME/.dotfiles"
 GIT="git --git-dir=$DOTFILES --work-tree=$TEST_HOME"
-WORK_DIR="$TEST_HOME/.dotfiles-work"
 
 # Configure git identity for commits
 $GIT config user.email "test@test.com"
@@ -113,7 +111,7 @@ $GIT add .testrc
 $GIT commit -m "initial" >/dev/null 2>&1
 
 # ---------------------------------------------------------------------------
-# Tests: helpers.sh variables
+# Tests: init.sh setup
 # ---------------------------------------------------------------------------
 
 echo "=== init.sh setup ==="
@@ -122,7 +120,6 @@ echo "=== init.sh setup ==="
 . "$TEST_HOME/.local/lib/dot/init.sh"
 
 _assert_eq "DOTFILES points to bare repo" "$TEST_HOME/.dotfiles" "$DOTFILES"
-_assert_eq "WORK_DIR points to work clone" "$TEST_HOME/.dotfiles-work" "$WORK_DIR"
 _assert_contains "GIT uses bare repo" "--git-dir=$DOTFILES" "$GIT"
 _assert_contains "GIT uses HOME as worktree" "--work-tree=$TEST_HOME" "$GIT"
 
@@ -151,66 +148,150 @@ _assert_contains "pull_conflicts: captures first file" ".config/nvim/lazy-lock.j
 _assert_contains "pull_conflicts: captures second file" ".config/example/tool.conf" "$result"
 
 # ---------------------------------------------------------------------------
-# Tests: _pull_work_repo / _push_work_repo
+# Tests: overlay discovery
 # ---------------------------------------------------------------------------
 
 echo ""
-echo "=== Work repo helpers ==="
+echo "=== Overlay discovery ==="
 
-# No work repo → silent no-op
-result=$(_pull_work_repo 2>&1)
-_assert_eq "pull_work_repo: no work dir → no output" "" "$result"
+# No overlays.d → empty
+_discover_overlays
+_assert_eq "no overlays dir: empty" "0" "${#OVERLAYS[@]}"
 
-result=$(_push_work_repo 2>&1)
-_assert_eq "push_work_repo: no work dir → no output" "" "$result"
+# Create overlays.d with a conf
+mkdir -p "$TEST_HOME/.config/dot/overlays.d"
+cat >"$TEST_HOME/.config/dot/overlays.d/10-work.conf" <<'CONF'
+url=git@example.com:work.git
+CONF
+_discover_overlays
+_assert_eq "one conf: one overlay" "1" "${#OVERLAYS[@]}"
+_assert_contains "one conf: name=work" "work|" "${OVERLAYS[0]}"
+_assert_contains "one conf: url" "git@example.com:work.git" "${OVERLAYS[0]}"
+_assert_contains "one conf: path" ".dotfiles-work" "${OVERLAYS[0]}"
 
-# Create a work repo (regular clone of a bare repo)
-WORK_BARE=$(_tmpdir)
-git init --bare "$WORK_BARE" >/dev/null 2>&1
-git clone "$WORK_BARE" "$WORK_DIR" >/dev/null 2>&1
-git -C "$WORK_DIR" config user.email "test@test.com"
-git -C "$WORK_DIR" config user.name "Test"
+# Multiple confs → sorted order
+cat >"$TEST_HOME/.config/dot/overlays.d/20-nas.conf" <<'CONF'
+url=git@example.com:nas.git
+CONF
+_discover_overlays
+_assert_eq "two confs: two overlays" "2" "${#OVERLAYS[@]}"
+_assert_contains "two confs: first is work" "work|" "${OVERLAYS[0]}"
+_assert_contains "two confs: second is nas" "nas|" "${OVERLAYS[1]}"
 
-# Seed work repo so pull/push have a branch
-echo "work content" >"$WORK_DIR/work-file"
-git -C "$WORK_DIR" add work-file
-git -C "$WORK_DIR" commit -m "seed" >/dev/null 2>&1
-git -C "$WORK_DIR" push >/dev/null 2>&1
+# Missing url → skipped
+cat >"$TEST_HOME/.config/dot/overlays.d/30-bad.conf" <<'CONF'
+platforms=linux
+CONF
+_discover_overlays
+_assert_eq "missing url: skipped" "2" "${#OVERLAYS[@]}"
+rm -f "$TEST_HOME/.config/dot/overlays.d/30-bad.conf"
 
-# Pull work repo succeeds
-result=$(_pull_work_repo 2>&1)
-_assert_contains "pull_work_repo: shows pulling" "Pulling work" "$result"
+# Duplicate names → warned and skipped
+cat >"$TEST_HOME/.config/dot/overlays.d/99-work.conf" <<'CONF'
+url=git@example.com:other-work.git
+CONF
+result=$(_discover_overlays 2>&1)
+_assert_eq "duplicate: still two" "2" "${#OVERLAYS[@]}"
+_assert_contains "duplicate: warns" "duplicate overlay name" "$result"
+rm -f "$TEST_HOME/.config/dot/overlays.d/99-work.conf"
 
-# Push work repo succeeds
-result=$(_push_work_repo 2>&1)
-_assert_contains "push_work_repo: shows pushing" "Pushing work" "$result"
+# Name extraction
+_assert_eq "name: 10-work.conf" "work" "$(_overlay_name "10-work.conf")"
+_assert_eq "name: 20-my-nas.conf" "my-nas" "$(_overlay_name "20-my-nas.conf")"
+_assert_eq "name: work.conf" "work" "$(_overlay_name "work.conf")"
+_assert_eq "name: 5-x.conf" "x" "$(_overlay_name "5-x.conf")"
 
-rm -rf "$WORK_DIR" "$WORK_BARE"
+# Comments are skipped
+cat >"$TEST_HOME/.config/dot/overlays.d/30-commented.conf" <<'CONF'
+# This is a comment
+url=git@example.com:commented.git
+
+# Another comment
+CONF
+_discover_overlays
+_assert_eq "comments: three overlays" "3" "${#OVERLAYS[@]}"
+_assert_contains "comments: url parsed" "git@example.com:commented.git" "${OVERLAYS[2]}"
+rm -f "$TEST_HOME/.config/dot/overlays.d/30-commented.conf"
+
+# Unknown key warns
+cat >"$TEST_HOME/.config/dot/overlays.d/30-typo.conf" <<'CONF'
+url=git@example.com:typo.git
+platfoms=linux
+CONF
+result=$(_discover_overlays 2>&1)
+_assert_contains "unknown key: warns" "unknown key" "$result"
+rm -f "$TEST_HOME/.config/dot/overlays.d/30-typo.conf"
+
+# Clean up for remaining tests — keep only work
+rm -f "$TEST_HOME/.config/dot/overlays.d/20-nas.conf"
 
 # ---------------------------------------------------------------------------
-# Tests: _link_work_home
+# Tests: overlay helpers
 # ---------------------------------------------------------------------------
 
 echo ""
-echo "=== Work home linking ==="
+echo "=== Overlay helpers ==="
 
-# No work dir → no-op
-result=$(_link_work_home 2>&1)
-_assert_eq "link_work_home: no work dir → no output" "" "$result"
+# No overlay repos → silent no-op
+_discover_overlays
+result=$(_pull_overlays 2>&1)
+_assert_eq "pull_overlays: no overlay dir → no output" "" "$result"
 
-# Create work dir with home/ structure
-WORK_BARE=$(_tmpdir)
-git init --bare "$WORK_BARE" >/dev/null 2>&1
-git clone "$WORK_BARE" "$WORK_DIR" >/dev/null 2>&1
-git -C "$WORK_DIR" config user.email "test@test.com"
-git -C "$WORK_DIR" config user.name "Test"
+result=$(_push_overlays 2>&1)
+_assert_eq "push_overlays: no overlay dir → no output" "" "$result"
 
-mkdir -p "$WORK_DIR/home/.config/test"
-echo "work config" >"$WORK_DIR/home/.config/test/config.conf"
-echo "work shell" >"$WORK_DIR/home/.testrc_work"
+# Create an overlay repo (regular clone of a bare repo)
+OVERLAY_BARE=$(_tmpdir)
+git init --bare "$OVERLAY_BARE" >/dev/null 2>&1
+OVERLAY_DIR="$TEST_HOME/.dotfiles-work"
+git clone "$OVERLAY_BARE" "$OVERLAY_DIR" >/dev/null 2>&1
+git -C "$OVERLAY_DIR" config user.email "test@test.com"
+git -C "$OVERLAY_DIR" config user.name "Test"
 
-# Link work home — creates symlinks
-result=$(_link_work_home 2>&1)
+# Seed overlay repo so pull/push have a branch
+echo "work content" >"$OVERLAY_DIR/work-file"
+git -C "$OVERLAY_DIR" add work-file
+git -C "$OVERLAY_DIR" commit -m "seed" >/dev/null 2>&1
+git -C "$OVERLAY_DIR" push >/dev/null 2>&1
+
+# Pull overlay succeeds
+_discover_overlays
+result=$(_pull_overlays 2>&1)
+_assert_contains "pull_overlays: shows pulling" "Pulling work" "$result"
+
+# Push overlay succeeds
+result=$(_push_overlays 2>&1)
+_assert_contains "push_overlays: shows pushing" "Pushing work" "$result"
+
+rm -rf "$OVERLAY_DIR" "$OVERLAY_BARE"
+
+# ---------------------------------------------------------------------------
+# Tests: _link_overlay / _link_overlays
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== Overlay linking ==="
+
+# No overlay dir → no-op
+_discover_overlays
+result=$(_link_overlays 2>&1)
+# (no output expected — overlay dir doesn't exist)
+
+# Create overlay dir with home/ structure
+OVERLAY_BARE=$(_tmpdir)
+git init --bare "$OVERLAY_BARE" >/dev/null 2>&1
+OVERLAY_DIR="$TEST_HOME/.dotfiles-work"
+git clone "$OVERLAY_BARE" "$OVERLAY_DIR" >/dev/null 2>&1
+git -C "$OVERLAY_DIR" config user.email "test@test.com"
+git -C "$OVERLAY_DIR" config user.name "Test"
+
+mkdir -p "$OVERLAY_DIR/home/.config/test"
+echo "work config" >"$OVERLAY_DIR/home/.config/test/config.conf"
+echo "work shell" >"$OVERLAY_DIR/home/.testrc_work"
+
+# Link overlay — creates symlinks
+_discover_overlays
+result=$(_link_overlays 2>&1)
 _assert_contains "link: shows header" "Linking work dotfiles" "$result"
 _assert_contains "link: reports new symlinks" "linked:" "$result"
 if [[ -L "$TEST_HOME/.config/test/config.conf" ]]; then
@@ -229,14 +310,14 @@ target=$(readlink "$TEST_HOME/.testrc_work")
 _assert_contains "link: relative symlink" ".dotfiles-work/home" "$target"
 
 # Idempotent: re-run produces no per-file output
-result=$(_link_work_home 2>&1)
+result=$(_link_overlays 2>&1)
 _assert_contains "link idempotent: header still shown" "Linking work dotfiles" "$result"
 _assert_not_contains "link idempotent: no per-file output" "linked:" "$result"
 
 # Quiet mode: no output
 DOT_QUIET=1
 rm "$TEST_HOME/.testrc_work" # force re-link
-result=$(_link_work_home 2>&1)
+result=$(_link_overlays 2>&1)
 # shellcheck disable=SC2034  # read by sourced helpers
 DOT_QUIET=0
 _assert_eq "link quiet: no output" "" "$result"
@@ -246,7 +327,157 @@ else
   _fail "link quiet: still creates symlink"
 fi
 
-rm -rf "$WORK_DIR" "$WORK_BARE"
+# Manifest is written
+_assert_file_exists "link: manifest written" "$TEST_HOME/.local/state/dot/overlay-links"
+manifest_content=$(cat "$TEST_HOME/.local/state/dot/overlay-links")
+_assert_contains "link: manifest has testrc_work" ".testrc_work" "$manifest_content"
+
+# Skip-worktree: overlay file shadowing a personal-repo file
+echo "personal version" >"$TEST_HOME/.testrc"
+$GIT add .testrc
+$GIT commit -m "add testrc" >/dev/null 2>&1
+echo "overlay version" >"$OVERLAY_DIR/home/.testrc"
+_discover_overlays
+_link_overlays >/dev/null 2>&1
+# Symlink should exist
+if [[ -L "$TEST_HOME/.testrc" ]]; then
+  _pass "skip-worktree: symlink created for shadowed file"
+else
+  _fail "skip-worktree: symlink created for shadowed file"
+fi
+# skip-worktree should be set
+sw_flag=$($GIT ls-files -v .testrc 2>/dev/null | cut -c1)
+_assert_eq "skip-worktree: flag set" "S" "$sw_flag"
+# Clean up the override
+rm -f "$OVERLAY_DIR/home/.testrc"
+
+# Last-wins: two overlays providing the same file
+OVERLAY_BARE2=$(_tmpdir)
+git init --bare "$OVERLAY_BARE2" >/dev/null 2>&1
+OVERLAY_DIR2="$TEST_HOME/.dotfiles-extra"
+git clone "$OVERLAY_BARE2" "$OVERLAY_DIR2" >/dev/null 2>&1
+git -C "$OVERLAY_DIR2" config user.email "test@test.com"
+git -C "$OVERLAY_DIR2" config user.name "Test"
+mkdir -p "$OVERLAY_DIR2/home"
+echo "extra version" >"$OVERLAY_DIR2/home/.shared_file"
+echo "work version" >"$OVERLAY_DIR/home/.shared_file"
+cat >"$TEST_HOME/.config/dot/overlays.d/20-extra.conf" <<'CONF'
+url=git@example.com:extra.git
+CONF
+_discover_overlays
+_link_overlays >/dev/null 2>&1
+# Last overlay (20-extra) should win
+link_target=$(readlink "$TEST_HOME/.shared_file")
+_assert_contains "last-wins: extra overlay wins" ".dotfiles-extra/home" "$link_target"
+# Clean up
+rm -f "$TEST_HOME/.config/dot/overlays.d/20-extra.conf"
+rm -f "$OVERLAY_DIR/home/.shared_file"
+rm -rf "$OVERLAY_DIR2" "$OVERLAY_BARE2"
+
+# Stale symlink cleanup: remove overlay conf, re-link → symlinks removed
+rm -f "$TEST_HOME/.config/dot/overlays.d/10-work.conf"
+_discover_overlays
+result=$(_link_overlays 2>&1)
+_assert_contains "cleanup: removes stale" "Cleaning stale" "$result"
+if [[ ! -L "$TEST_HOME/.testrc_work" ]]; then
+  _pass "cleanup: symlink removed"
+else
+  _fail "cleanup: symlink removed"
+fi
+
+# Stale cleanup restores personal repo version of shadowed file
+# (.testrc was shadowed by overlay, now overlay is gone)
+if [[ -f "$TEST_HOME/.testrc" && ! -L "$TEST_HOME/.testrc" ]]; then
+  _pass "cleanup: personal file restored"
+  _assert_file_content "cleanup: personal content" "personal version" "$TEST_HOME/.testrc"
+else
+  _fail "cleanup: personal file restored"
+fi
+# skip-worktree should be cleared
+sw_flag=$($GIT ls-files -v .testrc 2>/dev/null | cut -c1)
+_assert_not_contains "cleanup: skip-worktree cleared" "S" "$sw_flag"
+
+# Restore conf for remaining tests
+cat >"$TEST_HOME/.config/dot/overlays.d/10-work.conf" <<'CONF'
+url=git@example.com:work.git
+CONF
+
+rm -rf "$OVERLAY_DIR" "$OVERLAY_BARE"
+
+# ---------------------------------------------------------------------------
+# Tests: _merge_overlay_ssh_configs
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== Overlay SSH config merge ==="
+
+SSH_DIR="$TEST_HOME/.ssh"
+SSH_CONFIG="$SSH_DIR/config"
+rm -rf "$SSH_DIR"
+
+# No .ssh files → no-op
+_merge_overlay_ssh_configs
+if [[ ! -f "$SSH_CONFIG" ]]; then
+  _pass "ssh merge: no .ssh files → no config created"
+else
+  _fail "ssh merge: no .ssh files → no config created"
+fi
+
+# Create a .ssh file → appended to config
+cat >"$TEST_HOME/.config/dot/overlays.d/10-work.ssh" <<'SSH'
+Host test-alias
+  HostName example.com
+  User git
+  IdentityFile ~/.ssh/test-key
+SSH
+_merge_overlay_ssh_configs
+_assert_file_exists "ssh merge: config created" "$SSH_CONFIG"
+ssh_content=$(cat "$SSH_CONFIG")
+_assert_contains "ssh merge: host appended" "Host test-alias" "$ssh_content"
+_assert_contains "ssh merge: options present" "HostName example.com" "$ssh_content"
+
+# Idempotent — running again doesn't duplicate
+_merge_overlay_ssh_configs
+count=$(grep -c "^Host test-alias" "$SSH_CONFIG")
+_assert_eq "ssh merge: idempotent" "1" "$count"
+
+# Changed block → replaced
+cat >"$TEST_HOME/.config/dot/overlays.d/10-work.ssh" <<'SSH'
+Host test-alias
+  HostName changed.example.com
+  User deploy
+  IdentityFile ~/.ssh/new-key
+SSH
+_merge_overlay_ssh_configs
+ssh_content=$(cat "$SSH_CONFIG")
+_assert_contains "ssh merge: updated hostname" "changed.example.com" "$ssh_content"
+_assert_not_contains "ssh merge: old hostname removed" "HostName example.com" "$ssh_content"
+count=$(grep -c "^Host test-alias" "$SSH_CONFIG")
+_assert_eq "ssh merge: still one block" "1" "$count"
+
+# Preserves other entries
+cat >"$SSH_CONFIG" <<'EXISTING'
+Host myserver
+  HostName myserver.com
+  User me
+EXISTING
+cat >"$TEST_HOME/.config/dot/overlays.d/10-work.ssh" <<'SSH'
+Host test-alias
+  HostName example.com
+  User git
+SSH
+_merge_overlay_ssh_configs
+ssh_content=$(cat "$SSH_CONFIG")
+_assert_contains "ssh merge: preserves existing" "Host myserver" "$ssh_content"
+_assert_contains "ssh merge: adds new" "Host test-alias" "$ssh_content"
+
+# Permissions
+perms=$(stat -c '%a' "$SSH_CONFIG" 2>/dev/null || stat -f '%Lp' "$SSH_CONFIG" 2>/dev/null)
+_assert_eq "ssh merge: config is 600" "600" "$perms"
+
+# Clean up
+rm -rf "$SSH_DIR"
+rm -f "$TEST_HOME/.config/dot/overlays.d/10-work.ssh"
 
 # ---------------------------------------------------------------------------
 # Tests: _run_merges
@@ -340,25 +571,26 @@ echo "=== Command routing ==="
 result=$("$SCRIPT_DIR/dot" status 2>&1)
 _assert_contains "status: personal header" "Personal dotfiles" "$result"
 
-# dot status without work dir: no work section
-_assert_not_contains "status: no work section without work dir" "Work dotfiles" "$result"
+# dot status without overlay dir: no overlay section
+_assert_not_contains "status: no overlay section without overlay dir" "Work dotfiles" "$result"
 
-# dot status with work dir: shows both
-WORK_BARE=$(_tmpdir)
-git init --bare "$WORK_BARE" >/dev/null 2>&1
-git clone "$WORK_BARE" "$WORK_DIR" >/dev/null 2>&1
-git -C "$WORK_DIR" config user.email "test@test.com"
-git -C "$WORK_DIR" config user.name "Test"
-echo "x" >"$WORK_DIR/f"
-git -C "$WORK_DIR" add f
-git -C "$WORK_DIR" commit -m "init" >/dev/null 2>&1
-git -C "$WORK_DIR" push >/dev/null 2>&1
+# dot status with overlay dir: shows both
+OVERLAY_BARE=$(_tmpdir)
+git init --bare "$OVERLAY_BARE" >/dev/null 2>&1
+OVERLAY_DIR="$TEST_HOME/.dotfiles-work"
+git clone "$OVERLAY_BARE" "$OVERLAY_DIR" >/dev/null 2>&1
+git -C "$OVERLAY_DIR" config user.email "test@test.com"
+git -C "$OVERLAY_DIR" config user.name "Test"
+echo "x" >"$OVERLAY_DIR/f"
+git -C "$OVERLAY_DIR" add f
+git -C "$OVERLAY_DIR" commit -m "init" >/dev/null 2>&1
+git -C "$OVERLAY_DIR" push >/dev/null 2>&1
 
 result=$("$SCRIPT_DIR/dot" status 2>&1)
-_assert_contains "status: personal with work dir" "Personal dotfiles" "$result"
-_assert_contains "status: work section present" "Work dotfiles" "$result"
+_assert_contains "status: personal with overlay dir" "Personal dotfiles" "$result"
+_assert_contains "status: overlay section present" "Work dotfiles" "$result"
 
-rm -rf "$WORK_DIR" "$WORK_BARE"
+rm -rf "$OVERLAY_DIR" "$OVERLAY_BARE"
 
 # dot refresh is a valid command (runs _normalize_filtered)
 result=$("$SCRIPT_DIR/dot" refresh 2>&1)
@@ -373,9 +605,9 @@ DEFAULT_BRANCH=$($GIT branch --show-current 2>/dev/null || echo "master")
 result=$("$SCRIPT_DIR/dot" branch 2>&1)
 _assert_contains "passthrough: git branch works" "$DEFAULT_BRANCH" "$result"
 
-# dot with no args passes through (git with no args shows usage)
+# dot with no args passes through (shows usage)
 result=$("$SCRIPT_DIR/dot" 2>&1 || true)
-_assert_contains "no args: git usage" "usage:" "$result"
+_assert_contains "no args: usage" "usage:" "$result"
 
 # ---------------------------------------------------------------------------
 # Tests: dot pull (with mock remote)
@@ -538,34 +770,38 @@ fi
 # Restore clean state
 $GIT checkout -- .testrc
 
-# Work repo dirty → dirty
-WORK_BARE2=$(_tmpdir)
-git init --bare "$WORK_BARE2" >/dev/null 2>&1
-git clone "$WORK_BARE2" "$WORK_DIR" >/dev/null 2>&1
-git -C "$WORK_DIR" config user.email "test@test.com"
-git -C "$WORK_DIR" config user.name "Test"
-echo "work" >"$WORK_DIR/work-file"
-git -C "$WORK_DIR" add work-file
-git -C "$WORK_DIR" commit -m "init" >/dev/null 2>&1
-git -C "$WORK_DIR" push >/dev/null 2>&1
+# Overlay repo dirty → dirty
+OVERLAY_BARE2=$(_tmpdir)
+git init --bare "$OVERLAY_BARE2" >/dev/null 2>&1
+OVERLAY_DIR="$TEST_HOME/.dotfiles-work"
+git clone "$OVERLAY_BARE2" "$OVERLAY_DIR" >/dev/null 2>&1
+git -C "$OVERLAY_DIR" config user.email "test@test.com"
+git -C "$OVERLAY_DIR" config user.name "Test"
+echo "work" >"$OVERLAY_DIR/work-file"
+git -C "$OVERLAY_DIR" add work-file
+git -C "$OVERLAY_DIR" commit -m "init" >/dev/null 2>&1
+git -C "$OVERLAY_DIR" push >/dev/null 2>&1
 
-# Clean work repo → not dirty
+# Re-discover with overlay present
+_discover_overlays
+
+# Clean overlay repo → not dirty
 if _is_worktree_dirty; then
-  _fail "clean work repo: should not be dirty"
+  _fail "clean overlay repo: should not be dirty"
 else
-  _pass "clean work repo: not dirty"
+  _pass "clean overlay repo: not dirty"
 fi
 
-# Modify work repo file → dirty
-echo "dirty" >>"$WORK_DIR/work-file"
+# Modify overlay repo file → dirty
+echo "dirty" >>"$OVERLAY_DIR/work-file"
 if _is_worktree_dirty; then
-  _pass "dirty work repo: is dirty"
+  _pass "dirty overlay repo: is dirty"
 else
-  _fail "dirty work repo: should be dirty"
+  _fail "dirty overlay repo: should be dirty"
 fi
 
-git -C "$WORK_DIR" checkout -- work-file
-rm -rf "$WORK_DIR" "$WORK_BARE2"
+git -C "$OVERLAY_DIR" checkout -- work-file
+rm -rf "$OVERLAY_DIR" "$OVERLAY_BARE2"
 
 # ---------------------------------------------------------------------------
 # Tests: dot update --cron (skip if dirty)

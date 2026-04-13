@@ -1,6 +1,6 @@
 # shellcheck shell=bash
 # Repository management: backup, pull, push, link, and dirty-check
-# for both personal (bare) and work dotfiles repos.
+# for the personal (bare) repo and overlay repos.
 
 _backup_dir() {
   local root="$HOME/.dotfiles-backup"
@@ -102,37 +102,36 @@ _pull_repo() {
   return "$rc"
 }
 
-# Ensure pull-behavior and filter config is set for both repos.
+# Ensure pull-behavior and filter config is set for all repos.
 # Called by _finalize_update so it runs in dot update, dot pull, and dotbootstrap.
 _ensure_repo_config() {
-  # Apply git config to a single repo. $1... is the git command prefix
-  # (e.g. "$GIT" or "git -C $WORK_DIR").
+  # Apply git config to a single repo. $1... is the git command prefix.
   # shellcheck disable=SC2086  # git_cmd is intentionally word-split.
   _apply_repo_config() {
     local git_cmd="$*"
-    # Rebase on pull to keep linear history; stash dirty files automatically.
     $git_cmd config pull.rebase true 2>/dev/null || true
     $git_cmd config rebase.autoStash true 2>/dev/null || true
-    # Let git status update the index for files that are stat-dirty but
-    # content-clean after clean filter comparison. Without this, files
-    # modified by external tools (e.g. Claude Code stripping trailing
-    # newlines) show as phantom dirty even though git diff shows nothing.
     $git_cmd config diff.autoRefreshIndex true 2>/dev/null || true
-    # Remove old json-sort filter (had both clean+smudge, which prevented
-    # git from updating the stat cache — root cause of phantom dirty).
+    # Remove old json-sort filter (had both clean+smudge).
     # Safe to remove once all machines have run dot update (2026-04+).
     $git_cmd config --unset filter.json-sort.clean 2>/dev/null || true
     $git_cmd config --unset filter.json-sort.smudge 2>/dev/null || true
-    # Clean-only filter: sort JSON keys on commit for stable diffs.
-    # No smudge — blob content goes directly to disk on checkout.
-    # A smudge filter would prevent diff.autoRefreshIndex from working.
     $git_cmd config filter.json-normalize.clean "jq --sort-keys ." 2>/dev/null || true
   }
   # shellcheck disable=SC2086  # $GIT is intentionally word-split.
   [[ -d "$DOTFILES" ]] && _apply_repo_config $GIT
-  [[ -d "$WORK_DIR/.git" ]] && _apply_repo_config git -C "$WORK_DIR"
+  local entry
+  for entry in "${OVERLAYS[@]+"${OVERLAYS[@]}"}"; do
+    local path
+    IFS='|' read -r _ path _ <<< "$entry"
+    [[ -d "$path/.git" ]] && _apply_repo_config git -C "$path"
+  done
   unset -f _apply_repo_config
 }
+
+# ---------------------------------------------------------------------------
+# Personal repo
+# ---------------------------------------------------------------------------
 
 # shellcheck disable=SC2086  # $GIT is intentionally word-split (multi-word command).
 _pull_personal() {
@@ -140,10 +139,10 @@ _pull_personal() {
 }
 
 # Restore git-tracked versions of skip-worktree files so pull won't
-# conflict with work symlinks.  _link_work_home re-symlinks and
+# conflict with overlay symlinks. _link_overlays re-symlinks and
 # re-sets skip-worktree after pull.
-_unstash_work_overrides() {
-  [[ -d "$WORK_DIR" ]] || return 0
+_unstash_overlay_overrides() {
+  [[ -d "$DOTFILES" ]] || return 0
   local files
   files=$($GIT ls-files -v 2>/dev/null | awk '/^S /{print $2}') || true
   [[ -n "$files" ]] || return 0
@@ -153,104 +152,195 @@ _unstash_work_overrides() {
   done
 }
 
-# Pull work repo.
-_pull_work_repo() {
-  [[ -d "$WORK_DIR/.git" ]] || return 0
-  _log_header "==> Pulling work dotfiles..."
-  _pull_repo "$WORK_DIR" git -C "$WORK_DIR" pull "$@" ||
-    _warn "  warning: work dotfiles pull failed"
+# ---------------------------------------------------------------------------
+# Overlay repos
+# ---------------------------------------------------------------------------
+
+# Pull a single overlay repo.
+_pull_overlay() {
+  local name="$1" path="$2"
+  shift 2
+  [[ -d "$path/.git" ]] || return 0
+  _log_header "==> Pulling $name dotfiles..."
+  _pull_repo "$path" git -C "$path" pull "$@" ||
+    _warn "  warning: $name dotfiles pull failed"
   return 0
 }
 
-# Link work dotfiles into $HOME.
-# Creates relative symlinks from $HOME for each file in $WORK_DIR/home/.
-# Sets skip-worktree on personal-repo-tracked files that work symlinks shadow.
-_link_work_home() {
-  local work_home="$WORK_DIR/home"
-  [[ -d "$work_home" ]] || return 0
-  _log_header "==> Linking work dotfiles..."
+# Pull all active overlays.
+_pull_overlays() {
+  local entry
+  for entry in "${OVERLAYS[@]+"${OVERLAYS[@]}"}"; do
+    local name path
+    IFS='|' read -r name path _ <<< "$entry"
+    _pull_overlay "$name" "$path" "$@"
+  done
+}
+
+# Push a single overlay repo.
+_push_overlay() {
+  local name="$1" path="$2"
+  shift 2
+  [[ -d "$path/.git" ]] || return 0
+  _log_header "==> Pushing $name dotfiles..."
+  git -C "$path" push "$@" || _warn "  warning: $name dotfiles push failed"
+}
+
+# Push all active overlays.
+_push_overlays() {
+  local entry
+  for entry in "${OVERLAYS[@]+"${OVERLAYS[@]}"}"; do
+    local name path
+    IFS='|' read -r name path _ <<< "$entry"
+    _push_overlay "$name" "$path" "$@"
+  done
+}
+
+# ---------------------------------------------------------------------------
+# Overlay linking
+# ---------------------------------------------------------------------------
+
+# Link a single overlay's home/ directory into $HOME.
+# Creates relative symlinks. Sets skip-worktree on personal-repo files
+# that overlay symlinks shadow.
+# Appends linked paths to $_overlay_manifest_new (set by _link_overlays).
+_link_overlay() {
+  local name="$1" path="$2"
+  local overlay_home="$path/home"
+  [[ -d "$overlay_home" ]] || return 0
+  _log_header "==> Linking $name dotfiles..."
   while IFS= read -r src; do
-    local rel="${src#"$work_home"/}"
+    local rel="${src#"$overlay_home"/}"
     local dst="$HOME/$rel"
     mkdir -p "$(dirname "$dst")"
-    # Build relative symlink: ../ for each dir level, then .dotfiles-work/home/rel
     local depth
     depth=$(echo "$rel" | tr -cd '/' | wc -c)
     local prefix=""
     for ((i = 0; i < depth; i++)); do prefix="../$prefix"; done
-    local target="${prefix}.dotfiles-work/home/$rel"
+    local target="${prefix}.dotfiles-$name/home/$rel"
     if [[ -L "$dst" && "$(readlink "$dst")" == "$target" ]]; then
       # Correct symlink already exists — just ensure skip-worktree
-      if $GIT ls-files --error-unmatch "$rel" &>/dev/null; then
+      if [[ -d "$DOTFILES" ]] && $GIT ls-files --error-unmatch "$rel" &>/dev/null; then
         $GIT update-index --skip-worktree "$rel" 2>/dev/null || true
       fi
+      # Record in manifest
+      printf '%s\t%s\n' "$rel" "$name" >>"${_overlay_manifest_new:-/dev/null}"
       continue
     fi
     ln -sf "$target" "$dst"
-    if $GIT ls-files --error-unmatch "$rel" &>/dev/null; then
+    if [[ -d "$DOTFILES" ]] && $GIT ls-files --error-unmatch "$rel" &>/dev/null; then
       $GIT update-index --skip-worktree "$rel" 2>/dev/null || true
       _log_dim "  linked (override): $rel"
     else
       _log_dim "  linked: $rel"
     fi
-  done < <(find "$work_home" -type f ! -name '*.~[0-9]*~')
+    printf '%s\t%s\n' "$rel" "$name" >>"${_overlay_manifest_new:-/dev/null}"
+  done < <(find "$overlay_home" -type f ! -name '*.~[0-9]*~')
 }
 
-# Push work repo.
-_push_work_repo() {
-  [[ -d "$WORK_DIR/.git" ]] || return 0
-  _log_header "==> Pushing work dotfiles..."
-  git -C "$WORK_DIR" push "$@" || _warn "  warning: work dotfiles push failed"
+# Link all active overlays and clean up stale symlinks from removed overlays.
+_link_overlays() {
+  local manifest_dir="$HOME/.local/state/dot"
+  local manifest="$manifest_dir/overlay-links"
+  mkdir -p "$manifest_dir"
+
+  # Build new manifest in a temp file
+  local _overlay_manifest_new=""
+  if ! _overlay_manifest_new=$(mktemp 2>/dev/null); then
+    _warn "  warning: could not create manifest temp file — skipping stale cleanup"
+    _overlay_manifest_new=""
+  fi
+
+  local entry
+  for entry in "${OVERLAYS[@]+"${OVERLAYS[@]}"}"; do
+    local name path
+    IFS='|' read -r name path _ <<< "$entry"
+    _link_overlay "$name" "$path"
+  done
+
+  # Clean up stale symlinks: paths in old manifest but not in new
+  if [[ -f "$manifest" && -n "$_overlay_manifest_new" ]]; then
+    local stale
+    stale=$(comm -23 \
+      <(cut -f1 "$manifest" | grep -v '^$' | sort) \
+      <(cut -f1 "$_overlay_manifest_new" | grep -v '^$' | sort)) || true
+    if [[ -n "$stale" ]]; then
+      _log_header "==> Cleaning stale overlay symlinks..."
+      while IFS= read -r rel; do
+        [[ -n "$rel" ]] || continue
+        local dst="$HOME/$rel"
+        if [[ -L "$dst" ]]; then
+          rm -f "$dst"
+          _log_dim "  removed: $rel"
+        fi
+        # Restore personal repo version if tracked
+        if [[ -d "$DOTFILES" ]] && $GIT ls-files --error-unmatch "$rel" &>/dev/null; then
+          $GIT update-index --no-skip-worktree "$rel" 2>/dev/null || true
+          $GIT checkout -- "$rel" 2>/dev/null || true
+        fi
+      done <<< "$stale"
+    fi
+  fi
+
+  # Atomically replace manifest
+  if [[ -n "$_overlay_manifest_new" ]]; then
+    mv "$_overlay_manifest_new" "$manifest"
+  fi
 }
 
 # ---------------------------------------------------------------------------
 # Worktree dirty check
 # ---------------------------------------------------------------------------
 
-# Returns 0 (true) if there are uncommitted changes in either repo.
+# Returns 0 (true) if there are uncommitted changes in any repo.
 _is_worktree_dirty() {
   if [[ -d "$DOTFILES" ]]; then
     if ! $GIT diff-index --quiet HEAD 2>/dev/null; then
       return 0
     fi
   fi
-  if [[ -d "$WORK_DIR/.git" ]]; then
-    if ! git -C "$WORK_DIR" diff-index --quiet HEAD 2>/dev/null; then
-      return 0
+  local entry
+  for entry in "${OVERLAYS[@]+"${OVERLAYS[@]}"}"; do
+    local path
+    IFS='|' read -r _ path _ <<< "$entry"
+    if [[ -d "$path/.git" ]]; then
+      if ! git -C "$path" diff-index --quiet HEAD 2>/dev/null; then
+        return 0
+      fi
     fi
-  fi
+  done
   return 1
 }
 
 # Attempt to resolve dirty worktrees caused by dotsync writing files that
-# match what's on the remote.  Fetches origin, then for each dirty file
-# checks whether its working-tree content matches origin/main.  If every
-# dirty file matches, discards the local copy (the pull will bring the
-# same content).  Returns 0 if both repos are clean after resolution.
+# match what's on the remote. Returns 0 if all repos are clean after resolution.
 _try_resolve_dirty() {
   local dirty=0
   if [[ -d "$DOTFILES" ]] && ! $GIT diff-index --quiet HEAD 2>/dev/null; then
     $GIT fetch --quiet origin 2>/dev/null || true
-    if _dirty_files_match_remote personal; then
+    if _dirty_files_match_remote; then
       $GIT checkout -- . 2>/dev/null || true
     else
       dirty=1
     fi
   fi
-  if [[ -d "$WORK_DIR/.git" ]] && ! git -C "$WORK_DIR" diff-index --quiet HEAD 2>/dev/null; then
-    git -C "$WORK_DIR" fetch --quiet origin 2>/dev/null || true
-    if _dirty_files_match_remote work; then
-      git -C "$WORK_DIR" checkout -- . 2>/dev/null || true
-    else
-      dirty=1
+  local entry
+  for entry in "${OVERLAYS[@]+"${OVERLAYS[@]}"}"; do
+    local path
+    IFS='|' read -r _ path _ <<< "$entry"
+    if [[ -d "$path/.git" ]] && ! git -C "$path" diff-index --quiet HEAD 2>/dev/null; then
+      git -C "$path" fetch --quiet origin 2>/dev/null || true
+      if _dirty_files_match_ref "$path" git -C "$path"; then
+        git -C "$path" checkout -- . 2>/dev/null || true
+      else
+        dirty=1
+      fi
     fi
-  fi
+  done
   return "$dirty"
 }
 
 # Check if every dirty file in a repo matches content on origin/main.
-# $1 = worktree root (for hash-object paths)
-# remaining args = git command prefix (word-split $GIT or "git -C <dir>")
 _dirty_files_match_ref() {
   local worktree="$1" remote_ref="origin/main"
   shift
@@ -266,38 +356,38 @@ _dirty_files_match_ref() {
   return 0
 }
 
-# $1 = "personal" or "work"
+# Check if personal repo dirty files match origin/main.
+# shellcheck disable=SC2086  # $GIT is intentionally word-split
 _dirty_files_match_remote() {
-  # shellcheck disable=SC2086  # $GIT is intentionally word-split
-  if [[ "$1" == "personal" ]]; then
-    _dirty_files_match_ref "$HOME" $GIT
-  else
-    _dirty_files_match_ref "$WORK_DIR" git -C "$WORK_DIR"
-  fi
+  _dirty_files_match_ref "$HOME" $GIT
 }
 
 # Re-checkout files that are stat-dirty but content-clean (mtime-only).
-# Not needed for settings.json (diff.autoRefreshIndex + clean-only filter
-# handles that natively), but still useful for other tracked files where
-# cp/mv changes mtime without changing content.
 _normalize_filtered() {
   local dirty
-  dirty=$($GIT diff-files --name-only 2>/dev/null) || true
-  if [[ -n "$dirty" ]]; then
-    echo "$dirty" | while IFS= read -r f; do
-      if $GIT diff --quiet -- "$f" 2>/dev/null; then
-        $GIT checkout -- "$f" 2>/dev/null || true
-      fi
-    done
-  fi
-  if [[ -d "$WORK_DIR/.git" ]]; then
-    dirty=$(git -C "$WORK_DIR" diff-files --name-only 2>/dev/null) || true
+  if [[ -d "$DOTFILES" ]]; then
+    dirty=$($GIT diff-files --name-only 2>/dev/null) || true
     if [[ -n "$dirty" ]]; then
       echo "$dirty" | while IFS= read -r f; do
-        if git -C "$WORK_DIR" diff --quiet -- "$f" 2>/dev/null; then
-          git -C "$WORK_DIR" checkout -- "$f" 2>/dev/null || true
+        if $GIT diff --quiet -- "$f" 2>/dev/null; then
+          $GIT checkout -- "$f" 2>/dev/null || true
         fi
       done
     fi
   fi
+  local entry
+  for entry in "${OVERLAYS[@]+"${OVERLAYS[@]}"}"; do
+    local path
+    IFS='|' read -r _ path _ <<< "$entry"
+    if [[ -d "$path/.git" ]]; then
+      dirty=$(git -C "$path" diff-files --name-only 2>/dev/null) || true
+      if [[ -n "$dirty" ]]; then
+        echo "$dirty" | while IFS= read -r f; do
+          if git -C "$path" diff --quiet -- "$f" 2>/dev/null; then
+            git -C "$path" checkout -- "$f" 2>/dev/null || true
+          fi
+        done
+      fi
+    fi
+  done
 }

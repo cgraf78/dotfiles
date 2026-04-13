@@ -1,0 +1,5 @@
+Host github-dotfiles-work
+  HostName github.com
+  User git
+  IdentityFile ~/.ssh/dotfiles-work-deploy
+  IdentitiesOnly yes
