@@ -10,7 +10,7 @@
 #   dot push/status/diff       Operates on personal + all active overlays
 #   dot refresh                Fixes phantom dirty files from clean filters
 #   dot cron                   Show installed cron entries
-#   dot <anything>             Passes through to git (personal repo)
+#   dot git <command>           Run any git command on the personal repo
 
 set -euo pipefail
 
@@ -162,8 +162,7 @@ Multi-repo commands (personal + overlays):
   diff             Show diff of personal + all active overlays
   refresh          Fix phantom dirty files from clean/smudge filters
   cron             Show installed cron entries
-
-All other commands pass through to git (personal repo only).
+  git <command>    Run any git command on the personal repo
 
 Flags:
   --cron    Quiet mode for cron: skip pull if worktree dirty, suppress output
@@ -242,7 +241,13 @@ status)
     fi
   done
   ;;
-*)
+git)
+  shift
   $GIT "$@"
+  ;;
+*)
+  printf 'dot: unknown command: %s\n' "$1" >&2
+  printf 'tip: use "dot git %s" for raw git operations\n' "$1" >&2
+  exit 1
   ;;
 esac

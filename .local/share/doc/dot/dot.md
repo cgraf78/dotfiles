@@ -42,20 +42,19 @@ After bootstrap, `dot update` self-installs a cron that keeps the machine update
 ## Usage
 
 ```bash
-dot update          # sync everything: pull repos, merge configs, update deps
-dot update --cron   # same, but quiet + skip if worktree is dirty (for cron)
-dot pull            # same as update (requires bare repo)
-dot fetch           # fetch all repos (without updating working copy)
-dot push            # push all repos
-dot status          # check status of all repos
-dot diff            # diff all repos
-dot add <file>      # track a file in personal repo
-dot commit -m ""    # commit to personal repo
-dot refresh         # fix phantom dirty files from clean/smudge filters
-dot cron            # show installed cron entries
+dot update            # sync everything: pull repos, merge configs, update deps
+dot update --cron     # same, but quiet + skip if worktree is dirty (for cron)
+dot pull              # same as update (requires bare repo)
+dot fetch             # fetch all repos (without updating working copy)
+dot push              # push all repos
+dot status            # check status of all repos
+dot diff              # diff all repos
+dot refresh           # fix phantom dirty files from clean/smudge filters
+dot cron              # show installed cron entries
+dot git <command>     # run any git command on the personal repo
 ```
 
-`update` works on all machines with the bare repo. Installs cron entries from `~/.config/dot/merge-hooks.d/cron` into the user crontab. All other commands also require the bare repo.
+`update` works on all machines with the bare repo. Installs cron entries from `~/.config/dot/merge-hooks.d/cron` into the user crontab. All other commands also require the bare repo. Use `dot git` for raw git operations (e.g., `dot git add`, `dot git commit`, `dot git log`).
 
 Overlay repos are managed with plain `git -C ~/.dotfiles-<name>` for commits.
 
@@ -95,7 +94,7 @@ Numeric prefixes control ordering (same convention as shell config and merge hoo
 ### Adding an overlay
 
 1. Create a conf file: `~/.config/dot/overlays.d/10-work.conf`
-2. Track it in the personal repo: `dot add .config/dot/overlays.d/10-work.conf`
+2. Track it in the personal repo: `dot git add .config/dot/overlays.d/10-work.conf`
 3. Run `dot update` or `dotbootstrap` — the overlay is cloned and linked automatically.
 
 ### Private overlays (deploy keys)
@@ -124,7 +123,7 @@ Overlays hosted on private remotes use SSH deploy keys for access control. The d
    ```
    url=github-dotfiles-work:user/dotfiles-work.git
    ```
-5. Track both files: `dot add .config/dot/overlays.d/10-work.conf .config/dot/overlays.d/10-work.ssh`
+5. Track both files: `dot git add .config/dot/overlays.d/10-work.conf .config/dot/overlays.d/10-work.ssh`
 
 The `.ssh` file is merged into `~/.ssh/config` automatically during `dot update` and `dotbootstrap`. Machines without the deploy key skip the overlay with a warning.
 
@@ -279,7 +278,7 @@ Profiles in `~/.config/dot/karabiner/karabiner.json` are merged into Karabiner's
 ## Adding a Personal File
 
 ```bash
-dot add <file> && dot commit -m "add <file>" && dot push
+dot git add <file> && dot git commit -m "add <file>" && dot push
 ```
 
 ## Dependency System

@@ -12,7 +12,7 @@ for full documentation.
   for overlay repos.
 - `dot push/pull/status/diff/fetch` operate on personal + all active overlays.
 - Use `dot push` to push all repos, not raw `git push`.
-- When moving tracked personal dotfiles, use `dot mv` to preserve history.
+- When moving tracked personal dotfiles, use `dot git mv` to preserve history.
 
 ## Tools
 

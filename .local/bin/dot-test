@@ -596,18 +596,74 @@ rm -rf "$OVERLAY_DIR" "$OVERLAY_BARE"
 result=$("$SCRIPT_DIR/dot" refresh 2>&1)
 _assert_eq "refresh: no output on clean tree" "" "$result"
 
-# dot <anything> passes through to git
-result=$("$SCRIPT_DIR/dot" log --oneline -1 2>&1)
-_assert_contains "passthrough: git log works" "modified" "$result"
+# dot git <command> passes through to git
+result=$("$SCRIPT_DIR/dot" git log --oneline -1 2>&1)
+_assert_contains "git passthrough: log works" "modified" "$result"
 
 # Detect the default branch name (master or main)
 DEFAULT_BRANCH=$($GIT branch --show-current 2>/dev/null || echo "master")
-result=$("$SCRIPT_DIR/dot" branch 2>&1)
-_assert_contains "passthrough: git branch works" "$DEFAULT_BRANCH" "$result"
+result=$("$SCRIPT_DIR/dot" git branch 2>&1)
+_assert_contains "git passthrough: branch works" "$DEFAULT_BRANCH" "$result"
 
-# dot with no args passes through (shows usage)
+# dot with no args shows usage
 result=$("$SCRIPT_DIR/dot" 2>&1 || true)
 _assert_contains "no args: usage" "usage:" "$result"
+
+# dot git with no args (bare git → shows help/usage)
+result=$("$SCRIPT_DIR/dot" git 2>&1 || true)
+_assert_not_contains "git no-args: no unknown command error" "unknown command" "$result"
+
+# dot git with multi-arg git subcommands
+result=$("$SCRIPT_DIR/dot" git stash list 2>&1 || true)
+_assert_not_contains "git multi-arg: no error" "unknown command" "$result"
+
+# dot git forwards args with flags
+echo "tag-test" >"$TEST_HOME/.testrc"
+$GIT add .testrc
+$GIT commit -m "tag test" >/dev/null 2>&1
+result=$("$SCRIPT_DIR/dot" git log --format=%s -1 2>&1)
+_assert_contains "git flags: format flag works" "tag test" "$result"
+
+# dot git forwards exit code from git
+"$SCRIPT_DIR/dot" git diff --quiet 2>/dev/null
+_assert_eq "git exit code: clean diff returns 0" "0" "$?"
+
+if "$SCRIPT_DIR/dot" git log --bad-flag 2>/dev/null; then
+  _fail "git exit code: bad flag returns non-zero"
+else
+  _pass "git exit code: bad flag returns non-zero"
+fi
+
+# dot <unknown> prints error with hint
+result=$("$SCRIPT_DIR/dot" log 2>&1 || true)
+_assert_contains "unknown cmd: error" "unknown command" "$result"
+_assert_contains "unknown cmd: hint" "dot git log" "$result"
+
+# dot <unknown> exits non-zero
+if "$SCRIPT_DIR/dot" nosuchcommand 2>/dev/null; then
+  _fail "unknown cmd: exits non-zero"
+else
+  _pass "unknown cmd: exits non-zero"
+fi
+
+# dot <unknown> hint includes the actual command name
+result=$("$SCRIPT_DIR/dot" branch 2>&1 || true)
+_assert_contains "unknown cmd: hint matches arg" "dot git branch" "$result"
+
+# dot <unknown> outputs on stderr only
+stdout=$("$SCRIPT_DIR/dot" nosuchcommand 2>/dev/null || true)
+_assert_eq "unknown cmd: nothing on stdout" "" "$stdout"
+
+# dot git without bare repo → error
+NO_REPO_GIT=$(_tmpdir)
+mkdir -p "$NO_REPO_GIT/.local/lib/dot"
+for _f in init.sh core.sh repos.sh merges.sh; do
+  cp "$REAL_HOME/.local/lib/dot/$_f" "$NO_REPO_GIT/.local/lib/dot/$_f"
+done
+mkdir -p "$NO_REPO_GIT/.config/shdeps"
+cp "$TEST_HOME/.config/shdeps/deps.conf" "$NO_REPO_GIT/.config/shdeps/deps.conf"
+result=$(HOME="$NO_REPO_GIT" "$SCRIPT_DIR/dot" git log 2>&1 || true)
+_assert_contains "git no-repo: shows error" "bare repo not found" "$result"
 
 # ---------------------------------------------------------------------------
 # Tests: dot pull (with mock remote)
