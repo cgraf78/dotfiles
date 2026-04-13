@@ -369,8 +369,8 @@ fi
 # Merge scripts ran
 _assert_contains "personal: merge ran" "MERGE_TESTAPP_RAN" "$result"
 
-# Git-based deps installed (validates the general mechanism)
-_assert_contains "personal: git deps installed" "installed" "$result"
+# Git-based deps added (validates the general mechanism)
+_assert_contains "personal: git deps added" "added" "$result"
 _assert_file_exists "personal: generic tool installed" "$FRESH/.local/share/test-tool/bin/test-tool"
 _assert_file_exists "personal: generic tool linked" "$FRESH/.local/bin/test-tool"
 _assert_file_content "personal: generic hook ran" "$FRESH/.local/share/hook-pack" "$FRESH/.test-hooks/hook-pack"
