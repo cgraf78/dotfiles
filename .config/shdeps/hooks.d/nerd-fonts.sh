@@ -27,7 +27,7 @@ _nerd_font_installed() {
 
 status() {
   # In force mode, post() will run and report the result — stay silent here.
-  shdeps_force && return 0
+  shdeps_reinstall && return 0
 
   if ! _shdeps_hook_due "nerd-fonts"; then
     shdeps_log_dim "  nerd-fonts up to date"
@@ -67,13 +67,13 @@ install() {
     IFS='|' read -r name brew_pkg pacman_pkg nerd_zip font_dir <<<"$entry"
 
     # Check if already installed (skip check when forced to reinstall).
-    if ! shdeps_force && _nerd_font_installed "$brew_pkg" "$pacman_pkg" "$font_dir"; then continue; fi
+    if ! shdeps_reinstall && _nerd_font_installed "$brew_pkg" "$pacman_pkg" "$font_dir"; then continue; fi
 
     # Install (or reinstall/upgrade when forced) via native package manager where available.
     case "$(shdeps_pkg_mgr)" in
     brew)
       if [[ "$brew_pkg" != "-" ]]; then
-        if shdeps_force && brew list "$brew_pkg" &>/dev/null; then
+        if shdeps_reinstall && brew list "$brew_pkg" &>/dev/null; then
           brew upgrade "$brew_pkg" &>/dev/null &&
             shdeps_log_ok "  $name reinstalled (brew)" && continue
         else
@@ -85,9 +85,9 @@ install() {
     pacman)
       if [[ "$pacman_pkg" != "-" ]]; then
         local pacman_flags=(--noconfirm)
-        shdeps_force || pacman_flags+=(--needed)
+        shdeps_reinstall || pacman_flags+=(--needed)
         local pacman_action="installed"
-        shdeps_force && pacman_action="reinstalled"
+        shdeps_reinstall && pacman_action="reinstalled"
         sudo pacman -S "${pacman_flags[@]}" "$pacman_pkg" &>/dev/null &&
           shdeps_log_ok "  $name $pacman_action (pacman)" && continue
       fi
@@ -113,7 +113,7 @@ install() {
       unzip -qo "$tmp/font.zip" '*.ttf' -d "$dest" 2>/dev/null || true
       if command -v fc-cache &>/dev/null; then fc-cache -f "$dest" 2>/dev/null || true; fi
       local action="installed"
-      shdeps_force && action="reinstalled"
+      shdeps_reinstall && action="reinstalled"
       shdeps_log_ok "  $name $action from GitHub ($nf_version)"
     else
       shdeps_warn "  warning: failed to download $name"

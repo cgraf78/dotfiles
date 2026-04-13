@@ -9,7 +9,7 @@ _xclip_applicable() {
 status() {
   if ! _xclip_applicable; then return 0; fi
   # In force mode, post() will run and report the result — stay silent here.
-  shdeps_force && return 0
+  shdeps_reinstall && return 0
 
   if command -v xclip &>/dev/null; then
     shdeps_log_dim "  xclip up to date"
@@ -25,7 +25,7 @@ install() {
   if ! _xclip_applicable; then
     return 1
   fi
-  if command -v xclip &>/dev/null && ! shdeps_force; then
+  if command -v xclip &>/dev/null && ! shdeps_reinstall; then
     return 0
   fi
 
@@ -65,6 +65,6 @@ install() {
   fi
 
   local action="installed"
-  shdeps_force && action="reinstalled"
+  shdeps_reinstall && action="reinstalled"
   shdeps_log_ok "  xclip $action ($mgr)"
 }

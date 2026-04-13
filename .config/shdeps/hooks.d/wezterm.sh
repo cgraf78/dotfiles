@@ -7,7 +7,7 @@ _wezterm_ver() {
 
 status() {
   # In force mode, post() will run and report the result — stay silent here.
-  shdeps_force && return 0
+  shdeps_reinstall && return 0
   if command -v wezterm &>/dev/null; then
     local ver
     ver=$(_wezterm_ver)
@@ -33,7 +33,7 @@ install() {
   fi
 
   # Fast path: already installed and not forcing reinstall.
-  if command -v wezterm &>/dev/null && ! shdeps_force; then
+  if command -v wezterm &>/dev/null && ! shdeps_reinstall; then
     return 0
   fi
 
@@ -43,7 +43,7 @@ install() {
   case "$mgr" in
   brew)
     if brew list --cask wezterm &>/dev/null; then
-      if shdeps_force; then
+      if shdeps_reinstall; then
         if brew upgrade --cask wezterm &>/dev/null; then
           local ver; ver=$(_wezterm_ver)
           shdeps_log_ok "  wezterm reinstalled (brew)${ver:+ -- $ver}"
@@ -63,9 +63,9 @@ install() {
     ;;
   pacman)
     local pacman_flags=(--noconfirm)
-    shdeps_force || pacman_flags+=(--needed)
+    shdeps_reinstall || pacman_flags+=(--needed)
     local pacman_action="installed"
-    shdeps_force && pacman_action="reinstalled"
+    shdeps_reinstall && pacman_action="reinstalled"
     if sudo pacman -S "${pacman_flags[@]}" wezterm &>/dev/null; then
       local ver; ver=$(_wezterm_ver)
       shdeps_log_ok "  wezterm $pacman_action (pacman)${ver:+ -- $ver}"
@@ -163,6 +163,6 @@ install() {
   fi
 
   local action="installed"
-  shdeps_force && action="reinstalled"
+  shdeps_reinstall && action="reinstalled"
   shdeps_log_ok "  wezterm $action ($ext) -- $latest_tag"
 }
