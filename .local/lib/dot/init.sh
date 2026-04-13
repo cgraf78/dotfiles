@@ -31,9 +31,6 @@ _bootstrap_shdeps() {
   elif [[ -f "$real_home/git/shdeps/shdeps.sh" ]]; then
     shdeps_lib="$real_home/git/shdeps/shdeps.sh"
     shdeps_dir="$real_home/git/shdeps"
-  elif [[ -f "$real_home/.local/share/shdeps/shdeps.sh" ]]; then
-    shdeps_lib="$real_home/.local/share/shdeps/shdeps.sh"
-    shdeps_dir="$real_home/.local/share/shdeps"
   elif [[ -f "$HOME/.local/share/shdeps/shdeps.sh" ]]; then
     shdeps_lib="$HOME/.local/share/shdeps/shdeps.sh"
     shdeps_dir="$HOME/.local/share/shdeps"
@@ -62,10 +59,13 @@ _bootstrap_shdeps() {
     return 1
   }
 
-  # Self-update via shdeps's own CLI (TTL-cached, skips dirty clones)
+  # Self-update via shdeps's own CLI (TTL-cached, skips dirty clones).
+  # Use shdeps's default state dir so the TTL stamp is shared with
+  # standalone `shdeps self-update` calls.
   if [[ -n "$shdeps_dir" && -d "$shdeps_dir/.git" ]] &&
     command -v shdeps &>/dev/null; then
-    shdeps self-update 2>/dev/null || true
+    SHDEPS_STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/shdeps" \
+      shdeps self-update 2>/dev/null || true
   fi
 }
 
