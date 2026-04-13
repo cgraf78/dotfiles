@@ -164,11 +164,24 @@ _unstash_overlay_overrides() {
 # Overlay repos
 # ---------------------------------------------------------------------------
 
-# Pull a single overlay repo.
+# Pull a single overlay repo, cloning it first if missing.
+# $1 = name, $2 = path, $3 = url (from OVERLAYS entry)
+# Remaining args are forwarded to git pull.
 _pull_overlay() {
-  local name="$1" path="$2"
-  shift 2
-  [[ -d "$path/.git" ]] || return 0
+  local name="$1" path="$2" url="$3"
+  shift 3
+  if [[ ! -d "$path/.git" ]]; then
+    if [[ -z "$url" ]]; then
+      return 0
+    fi
+    if [[ -d "$path" ]]; then
+      _warn "  warning: $name overlay dir exists but isn't a git repo — re-cloning"
+      rm -rf "$path"
+    fi
+    _log_header "==> Cloning $name dotfiles..."
+    git clone "$url" "$path" || { _warn "  warning: $name dotfiles clone failed"; return 0; }
+    return 0
+  fi
   _log_header "==> Pulling $name dotfiles..."
   _pull_repo "$path" git -C "$path" pull "$@" ||
     _warn "  warning: $name dotfiles pull failed"
@@ -179,9 +192,9 @@ _pull_overlay() {
 _pull_overlays() {
   local entry
   for entry in "${OVERLAYS[@]+"${OVERLAYS[@]}"}"; do
-    local name path
-    IFS='|' read -r name path _ <<< "$entry"
-    _pull_overlay "$name" "$path" "$@"
+    local name path url
+    IFS='|' read -r name path url <<< "$entry"
+    _pull_overlay "$name" "$path" "$url" "$@"
   done
 }
 

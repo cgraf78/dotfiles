@@ -166,19 +166,7 @@ fi
 
 _merge_overlay_ssh_configs
 _discover_overlays
-for entry in "${OVERLAYS[@]+"${OVERLAYS[@]}"}"; do
-  IFS='|' read -r name path url <<< "$entry"
-  if [[ -d "$path/.git" ]]; then
-    _pull_overlay "$name" "$path"
-  else
-    if [[ -d "$path" ]]; then
-      _warn "  warning: $name overlay dir exists but isn't a git repo — re-cloning"
-      rm -rf "$path"
-    fi
-    _log_header "==> Cloning $name dotfiles..."
-    git clone "$url" "$path" || _warn "  warning: $name dotfiles clone failed"
-  fi
-done
+_pull_overlays
 
 # ---------------------------------------------------------------------------
 # Finalize: deps, overlay symlinks, app config merges, normalize

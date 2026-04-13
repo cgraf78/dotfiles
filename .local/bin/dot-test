@@ -232,18 +232,58 @@ rm -f "$TEST_HOME/.config/dot/overlays.d/20-nas.conf"
 echo ""
 echo "=== Overlay helpers ==="
 
-# No overlay repos → silent no-op
-_discover_overlays
-result=$(_pull_overlays 2>&1)
-_assert_eq "pull_overlays: no overlay dir → no output" "" "$result"
-
-result=$(_push_overlays 2>&1)
-_assert_eq "push_overlays: no overlay dir → no output" "" "$result"
-
-# Create an overlay repo (regular clone of a bare repo)
+# Create a local bare repo to serve as overlay origin
 OVERLAY_BARE=$(_tmpdir)
 git init --bare "$OVERLAY_BARE" >/dev/null 2>&1
 OVERLAY_DIR="$TEST_HOME/.dotfiles-work"
+
+# Seed it so clone/pull have a branch
+_overlay_seed=$(_tmpdir)
+git clone "$OVERLAY_BARE" "$_overlay_seed" >/dev/null 2>&1
+git -C "$_overlay_seed" config user.email "test@test.com"
+git -C "$_overlay_seed" config user.name "Test"
+echo "work content" >"$_overlay_seed/work-file"
+git -C "$_overlay_seed" add work-file
+git -C "$_overlay_seed" commit -m "seed" >/dev/null 2>&1
+git -C "$_overlay_seed" push >/dev/null 2>&1
+rm -rf "$_overlay_seed"
+
+# Update overlay conf to point at local bare repo
+cat >"$TEST_HOME/.config/dot/overlays.d/10-work.conf" <<CONF
+url=$OVERLAY_BARE
+CONF
+
+# No overlay dir → clones automatically
+_discover_overlays
+result=$(_pull_overlays 2>&1)
+_assert_contains "pull_overlays: clones missing overlay" "Cloning work dotfiles" "$result"
+if [[ -d "$OVERLAY_DIR/.git" ]]; then
+  _pass "pull_overlays: overlay dir created"
+else
+  _fail "pull_overlays: overlay dir created"
+fi
+
+# No overlay dir → push is a no-op (doesn't try to clone)
+rm -rf "$OVERLAY_DIR"
+result=$(_push_overlays 2>&1)
+_assert_eq "push_overlays: no overlay dir → no output" "" "$result"
+
+# Clone failure is graceful (bad URL)
+cat >"$TEST_HOME/.config/dot/overlays.d/10-work.conf" <<'CONF'
+url=git@nonexistent-host-xyz:bad/repo.git
+CONF
+_discover_overlays
+result=$(_pull_overlays 2>&1)
+_assert_contains "pull_overlays: clone failure warns" "clone failed" "$result"
+
+# Restore conf with working URL for remaining tests
+cat >"$TEST_HOME/.config/dot/overlays.d/10-work.conf" <<CONF
+url=$OVERLAY_BARE
+CONF
+_discover_overlays
+
+# Remove overlay dir so next section can recreate it
+rm -rf "$OVERLAY_DIR"
 git clone "$OVERLAY_BARE" "$OVERLAY_DIR" >/dev/null 2>&1
 git -C "$OVERLAY_DIR" config user.email "test@test.com"
 git -C "$OVERLAY_DIR" config user.name "Test"
