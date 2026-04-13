@@ -58,13 +58,24 @@ _bootstrap_shdeps() {
     return 1
   }
 
-  # Self-update via shdeps's own CLI (TTL-cached, skips dirty clones).
-  # Use shdeps's default state dir so the TTL stamp is shared with
-  # standalone `shdeps self-update` calls.
+  # Self-update shdeps clone (TTL-cached, skips dirty clones).
+  # Done directly via git pull instead of `shdeps self-update` to avoid
+  # a chicken-and-egg problem: installed versions that predate the
+  # self-update command can't run it to get the update.
+  # Use shdeps's default state dir (not dot's) so the TTL stamp is
+  # shared with standalone `shdeps self-update` calls.
   if [[ -n "$shdeps_dir" && -d "$shdeps_dir/.git" ]] &&
-    command -v shdeps &>/dev/null; then
-    SHDEPS_STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/shdeps" \
-      shdeps self-update 2>/dev/null || true
+    declare -f _shdeps_remote_stamp &>/dev/null; then
+    local _su_saved="$SHDEPS_STATE_DIR"
+    SHDEPS_STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/shdeps"
+    local _su_stamp
+    _su_stamp=$(_shdeps_remote_stamp "shdeps" "self-update")
+    if ! _shdeps_remote_fresh "$_su_stamp" &&
+      [[ -z "$(git -C "$shdeps_dir" status --porcelain --untracked-files=normal 2>/dev/null)" ]]; then
+      git -C "$shdeps_dir" pull --ff-only --quiet 2>/dev/null || true
+      _shdeps_remote_touch "$_su_stamp" 2>/dev/null || true
+    fi
+    SHDEPS_STATE_DIR="$_su_saved"
   fi
 }
 
