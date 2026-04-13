@@ -49,12 +49,6 @@ _bootstrap_shdeps() {
     fi
   fi
 
-  # Ensure shdeps CLI is symlinked into PATH
-  if [[ -n "$shdeps_dir" && -x "$shdeps_dir/bin/shdeps" ]]; then
-    mkdir -p "$HOME/.local/bin"
-    ln -sf "$shdeps_dir/bin/shdeps" "$HOME/.local/bin/shdeps"
-  fi
-
   # Map dotfiles env vars to shdeps config
   export SHDEPS_CONF="$HOME/.config/shdeps/deps.conf"
   export SHDEPS_HOOKS_DIR="$HOME/.config/shdeps/hooks.d"
