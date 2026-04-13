@@ -122,9 +122,17 @@ _ensure_repo_config() {
   [[ -d "$DOTFILES" ]] && _apply_repo_config $GIT
   local entry
   for entry in "${OVERLAYS[@]+"${OVERLAYS[@]}"}"; do
-    local path
-    IFS='|' read -r _ path _ <<< "$entry"
-    [[ -d "$path/.git" ]] && _apply_repo_config git -C "$path"
+    local path url
+    IFS='|' read -r _ path url <<< "$entry"
+    if [[ -d "$path/.git" ]]; then
+      _apply_repo_config git -C "$path"
+      # Sync remote URL from overlay conf
+      local current_url
+      current_url=$(git -C "$path" remote get-url origin 2>/dev/null) || true
+      if [[ -n "$url" && "$current_url" != "$url" ]]; then
+        git -C "$path" remote set-url origin "$url" 2>/dev/null || true
+      fi
+    fi
   done
   unset -f _apply_repo_config
 }
