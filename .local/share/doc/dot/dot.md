@@ -93,7 +93,7 @@ Use `# filter:` directives to restrict entries to specific hosts or platforms:
 
 Each `# filter:` line fully replaces the previous filter. Entries before any directive default to all. `# filter: *` resets to all. When both `hosts` and `platforms` are specified, both must match (AND logic). Filter state resets between `cron` and `cron.local`.
 
-Platform values: `linux`, `darwin`, `wsl`. Prefix with `!` to exclude. Comma-separated for multiple values (e.g., `platforms=linux,darwin`, `platforms=!wsl`). Hosts match against the short hostname (`hostname -s`), case-insensitive.
+Platform values: `linux`, `macos`, `wsl`. Prefix with `!` to exclude. Comma-separated for multiple values (e.g., `platforms=linux,macos`, `platforms=!wsl`). Hosts match against the short hostname (`hostname -s`), case-insensitive.
 
 Run `dot cron` to see what's currently installed.
 
@@ -186,7 +186,7 @@ fonts           custom    -      -      -                        -              
 
 **Package overrides:** The `overrides` column maps package managers to platform-specific names (e.g., `apt:fd-find`). Use `NONE` to skip a dep on a specific package manager (e.g., `apt:NONE`).
 
-**Platform filtering:** The optional `platforms` column controls which platforms a dep installs on. Values: `linux`, `darwin`, `wsl`. Prefix with `!` to exclude. Examples: `linux,darwin` (only those), `!wsl` (all except WSL). Omit or use `-` for all platforms.
+**Platform filtering:** The optional `platforms` column controls which platforms a dep installs on. Values: `linux`, `macos`, `wsl`. Prefix with `!` to exclude. Examples: `linux,macos` (only those), `!wsl` (all except WSL). Omit or use `-` for all platforms.
 
 **Post-install hooks:** Defined as individual files in `~/.config/shdeps/hooks.d/<name>.sh`. Each file can define `post()` (runs after install/update) and `status()` (reports dep status) functions. Hooks run only when their corresponding dep is newly installed or updated.
 
