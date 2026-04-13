@@ -29,7 +29,11 @@ esac
 # shellcheck source=../../.local/lib/dot/init.sh
 . "$HOME/.local/lib/dot/init.sh"
 
-# Discover overlays after shdeps is loaded (init.sh bootstraps shdeps).
+# Bootstrap shdeps for commands that need it (update, pull need deps +
+# platform filtering). Read-only commands skip it — non-matching overlay
+# dirs simply won't exist, so unfiltered discovery is harmless.
+case "${1:-}" in update | pull) _ensure_shdeps ;; esac
+
 _discover_overlays
 
 # ---------------------------------------------------------------------------

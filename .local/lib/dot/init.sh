@@ -86,4 +86,9 @@ _bootstrap_shdeps() {
   fi
 }
 
-_bootstrap_shdeps
+# Defer shdeps bootstrap until needed — commands like status, diff, push,
+# and fetch don't use shdeps and shouldn't pay the startup cost.
+_ensure_shdeps() {
+  declare -f shdeps_update &>/dev/null && return 0
+  _bootstrap_shdeps
+}

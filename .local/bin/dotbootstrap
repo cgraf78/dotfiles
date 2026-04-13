@@ -164,6 +164,7 @@ fi
 # Overlay repos: discover, clone/pull
 # ---------------------------------------------------------------------------
 
+_ensure_shdeps
 _merge_overlay_ssh_configs
 _discover_overlays
 _pull_overlays

@@ -44,6 +44,7 @@ $GIT commit -m "initial" >/dev/null 2>&1
 # Source shared helpers and dotbootstrap functions (without running main logic)
 # shellcheck source=../../.local/lib/dot/init.sh
 . "$REAL_HOME/.local/lib/dot/init.sh"
+_ensure_shdeps
 BACKUP="$TEST_HOME/.dotfiles-backup/test"
 BRANCH=""
 export DOTBOOTSTRAP_SOURCED=1

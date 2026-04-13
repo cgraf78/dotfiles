@@ -193,8 +193,10 @@ $GIT commit -m "initial" >/dev/null 2>&1
 
 echo "=== init.sh setup ==="
 
-# Source init in test HOME context
+# Source init in test HOME context and bootstrap shdeps for in-process tests
+# that need platform/host filtering (overlay discovery, cron filter directives).
 . "$TEST_HOME/.local/lib/dot/init.sh"
+_ensure_shdeps
 
 _assert_eq "DOTFILES points to bare repo" "$TEST_HOME/.dotfiles" "$DOTFILES"
 _assert_contains "GIT uses bare repo" "--git-dir=$DOTFILES" "$GIT"

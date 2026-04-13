@@ -269,6 +269,7 @@ _discover_overlays() {
 # cleans up phantom dirty files.
 _finalize_update() {
   _ensure_repo_config
+  _ensure_shdeps
   if declare -f shdeps_update &>/dev/null; then
     shdeps_update
   else
