@@ -18,7 +18,7 @@ Overlay files are symlinked into `$HOME` by `dot update`. Personal dotfiles use 
 
 Personal machine:
 ```bash
-curl -sL cgraf78.github.io/d | bash -s init
+curl -sL cgraf78.github.io/d | bash
 source ~/.bashrc  # or: source ~/.zshrc
 ```
 
@@ -29,7 +29,7 @@ scp <source>:~/.ssh/<deploy-key> ~/.ssh/
 chmod 600 ~/.ssh/<deploy-key>
 
 # 2. Bootstrap (clones personal repo + matching overlays)
-curl -sL cgraf78.github.io/d | bash -s init
+curl -sL cgraf78.github.io/d | bash
 source ~/.bashrc  # or: source ~/.zshrc
 ```
 
