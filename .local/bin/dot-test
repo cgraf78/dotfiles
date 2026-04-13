@@ -531,7 +531,7 @@ _assert_contains "surviving merges still run" "MERGED_TESTAPP" "$result"
 rm -f "$TEST_HOME/.config/dot/merge-hooks.d"/*.sh
 
 # ---------------------------------------------------------------------------
-# Tests: _normalize_filtered (via subprocess since dot has no sourcing guard)
+# Tests: _normalize_filtered (called implicitly by status/diff/push)
 # ---------------------------------------------------------------------------
 
 echo ""
@@ -541,10 +541,6 @@ echo "modified" >"$TEST_HOME/.testrc"
 $GIT add .testrc
 $GIT commit -m "modified" >/dev/null 2>&1
 
-# Clean worktree → no-op, no output
-result=$("$SCRIPT_DIR/dot" refresh 2>&1)
-_assert_eq "normalize: clean tree → no output" "" "$result"
-
 # Touch the file so stat differs (mtime) but content is same
 cp "$TEST_HOME/.testrc" "$TEST_HOME/.testrc.tmp"
 mv "$TEST_HOME/.testrc.tmp" "$TEST_HOME/.testrc"
@@ -552,8 +548,8 @@ mv "$TEST_HOME/.testrc.tmp" "$TEST_HOME/.testrc"
 # File should show as "dirty" in diff-files (stat mismatch) but not in diff
 dirty=$($GIT diff-files --name-only 2>/dev/null || true)
 if [[ -n "$dirty" ]]; then
-  # Stat-dirty but content-clean — normalize should fix it
-  "$SCRIPT_DIR/dot" refresh 2>/dev/null
+  # Stat-dirty but content-clean — dot status normalizes it as a side effect
+  "$SCRIPT_DIR/dot" status >/dev/null 2>&1
   dirty_after=$($GIT diff-files --name-only 2>/dev/null || true)
   _assert_eq "normalize: clears phantom dirty file" "" "$dirty_after"
 else
@@ -591,10 +587,6 @@ _assert_contains "status: personal with overlay dir" "dotfiles" "$result"
 _assert_contains "status: overlay section present" "work dotfiles" "$result"
 
 rm -rf "$OVERLAY_DIR" "$OVERLAY_BARE"
-
-# dot refresh is a valid command (runs _normalize_filtered)
-result=$("$SCRIPT_DIR/dot" refresh 2>&1)
-_assert_eq "refresh: no output on clean tree" "" "$result"
 
 # dot git <command> passes through to git
 result=$("$SCRIPT_DIR/dot" git log --oneline -1 2>&1)

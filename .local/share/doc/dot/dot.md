@@ -49,7 +49,6 @@ dot fetch             # fetch all repos (without updating working copy)
 dot push              # push all repos
 dot status            # check status of all repos
 dot diff              # diff all repos
-dot refresh           # fix phantom dirty files from clean/smudge filters
 dot cron              # show installed cron entries
 dot git <command>     # run any git command on the personal repo
 ```

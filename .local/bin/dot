@@ -8,7 +8,6 @@
 #   dot update [--cron]        Sync everything (--cron: quiet, skip if dirty)
 #   dot pull                   Same as update
 #   dot push/status/diff       Operates on personal + all active overlays
-#   dot refresh                Fixes phantom dirty files from clean filters
 #   dot cron                   Show installed cron entries
 #   dot git <command>           Run any git command on the personal repo
 
@@ -160,7 +159,6 @@ Multi-repo commands (personal + overlays):
   push             Push personal + all active overlays
   status           Show status of personal + all active overlays
   diff             Show diff of personal + all active overlays
-  refresh          Fix phantom dirty files from clean/smudge filters
   cron             Show installed cron entries
   git <command>    Run any git command on the personal repo
 
@@ -209,9 +207,6 @@ push)
   _header "==> Pushing dotfiles..."
   $GIT push "$@"
   _push_overlays "$@"
-  ;;
-refresh)
-  _normalize_filtered
   ;;
 diff)
   shift
