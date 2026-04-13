@@ -164,6 +164,26 @@ _unstash_overlay_overrides() {
 # Overlay repos
 # ---------------------------------------------------------------------------
 
+# Check if the deploy key for an overlay is available.
+# Returns 0 if no .ssh file exists (public repo) or if the key file exists.
+# Returns 1 if a .ssh file declares an IdentityFile that's missing.
+_overlay_key_available() {
+  local name="$1"
+  local conf_dir="$HOME/.config/dot/overlays.d"
+  # Find the companion .ssh file (any numeric prefix)
+  local f
+  for f in "$conf_dir"/*-"$name".ssh "$conf_dir"/"$name".ssh; do
+    [[ -f "$f" ]] || continue
+    local key_path
+    key_path=$(awk '/^[[:space:]]+IdentityFile / {print $2; exit}' "$f")
+    [[ -n "$key_path" ]] || return 0
+    key_path="${key_path/#\~/$HOME}"
+    [[ -f "$key_path" ]] && return 0
+    return 1
+  done
+  return 0
+}
+
 # Pull a single overlay repo, cloning it first if missing.
 # $1 = name, $2 = path, $3 = url (from OVERLAYS entry)
 # Remaining args are forwarded to git pull.
@@ -172,6 +192,12 @@ _pull_overlay() {
   shift 3
   if [[ ! -d "$path/.git" ]]; then
     if [[ -z "$url" ]]; then
+      return 0
+    fi
+    # Skip clone if the deploy key is missing — avoids noisy failures
+    # on machines that don't have access yet.
+    if ! _overlay_key_available "$name"; then
+      _log_dim "  skipping $name overlay (deploy key not found)"
       return 0
     fi
     if [[ -d "$path" ]]; then

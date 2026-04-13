@@ -276,6 +276,41 @@ _discover_overlays
 result=$(_pull_overlays 2>&1)
 _assert_contains "pull_overlays: clone failure warns" "clone failed" "$result"
 
+# Missing deploy key → skips clone silently
+rm -rf "$OVERLAY_DIR"
+cat >"$TEST_HOME/.config/dot/overlays.d/10-work.conf" <<CONF
+url=$OVERLAY_BARE
+CONF
+cat >"$TEST_HOME/.config/dot/overlays.d/10-work.ssh" <<'SSH'
+Host github-dotfiles-work
+  HostName github.com
+  User git
+  IdentityFile ~/.ssh/dotfiles-work-deploy-test-nonexistent
+  IdentitiesOnly yes
+SSH
+_discover_overlays
+result=$(_pull_overlays 2>&1)
+_assert_contains "pull_overlays: skips when key missing" "skipping work overlay" "$result"
+_assert_not_contains "pull_overlays: no clone attempt without key" "Cloning" "$result"
+if [[ ! -d "$OVERLAY_DIR" ]]; then
+  _pass "pull_overlays: no dir created without key"
+else
+  _fail "pull_overlays: no dir created without key"
+fi
+
+# Key present → clone proceeds
+mkdir -p "$TEST_HOME/.ssh"
+touch "$TEST_HOME/.ssh/dotfiles-work-deploy-test-nonexistent"
+result=$(_pull_overlays 2>&1)
+_assert_contains "pull_overlays: clones when key present" "Cloning work dotfiles" "$result"
+rm -f "$TEST_HOME/.ssh/dotfiles-work-deploy-test-nonexistent"
+rm -f "$TEST_HOME/.config/dot/overlays.d/10-work.ssh"
+
+# No .ssh file → clone proceeds (public repo)
+rm -rf "$OVERLAY_DIR"
+result=$(_pull_overlays 2>&1)
+_assert_contains "pull_overlays: clones without ssh file" "Cloning work dotfiles" "$result"
+
 # Restore conf with working URL for remaining tests
 cat >"$TEST_HOME/.config/dot/overlays.d/10-work.conf" <<CONF
 url=$OVERLAY_BARE
