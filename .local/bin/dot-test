@@ -822,7 +822,7 @@ REMOTE_BARE=$(_tmpdir)
 git clone --bare "$DOTFILES" "$REMOTE_BARE" >/dev/null 2>&1
 $GIT remote add origin "$REMOTE_BARE" 2>/dev/null || $GIT remote set-url origin "$REMOTE_BARE"
 $GIT fetch origin >/dev/null 2>&1
-$GIT branch --set-upstream-to="origin/$DEFAULT_BRANCH" "$DEFAULT_BRANCH" 2>/dev/null || true
+$GIT branch --set-upstream-to="origin/$DEFAULT_BRANCH" "$DEFAULT_BRANCH" >/dev/null 2>&1 || true
 
 TEST_TOOL_STAGING=$(_tmpdir)
 mkdir -p "$TEST_TOOL_STAGING/bin"
@@ -856,11 +856,12 @@ git -C "$HOOK_PACK_WORK" add .
 git -C "$HOOK_PACK_WORK" commit -m "seed hook pack" >/dev/null 2>&1
 git -C "$HOOK_PACK_WORK" push >/dev/null 2>&1
 
-result=$(
-  SHDEPS_TEST_TOOL_REPO="$TEST_TOOL_ORIGIN" \
-    SHDEPS_HOOK_PACK_REPO="$HOOK_PACK_ORIGIN" \
-    "$SCRIPT_DIR/dot" pull 2>&1
-)
+# Pull tests don't need shdeps — empty deps.conf avoids the cost.
+# The update tests below verify shdeps integration.
+_saved_deps=$(cat "$TEST_HOME/.config/shdeps/deps.conf")
+: > "$TEST_HOME/.config/shdeps/deps.conf"
+
+result=$("$SCRIPT_DIR/dot" pull 2>&1)
 _assert_contains "pull: shows pulling" "Pulling dotfiles" "$result"
 _assert_contains "pull: shows done message" "Done" "$result"
 _assert_contains "pull: mentions shell activation hint" "source ~/.bashrc' or 'source ~/.zshrc" "$result"
@@ -879,11 +880,7 @@ git -C "$REMOTE_WORK" push >/dev/null 2>&1
 mkdir -p "$TEST_HOME/.config/nvim"
 printf '%s\n' "local-lock" >"$TEST_HOME/.config/nvim/lazy-lock.json"
 
-result=$(
-  SHDEPS_TEST_TOOL_REPO="$TEST_TOOL_ORIGIN" \
-    SHDEPS_HOOK_PACK_REPO="$HOOK_PACK_ORIGIN" \
-    "$SCRIPT_DIR/dot" pull 2>&1
-)
+result=$("$SCRIPT_DIR/dot" pull 2>&1)
 _assert_contains "pull: backs up tracked-file adoption conflict" "backed up 1 conflicting untracked files" "$result"
 _assert_file_content "pull: installs tracked file after backup" "remote-lock" "$TEST_HOME/.config/nvim/lazy-lock.json"
 
@@ -893,6 +890,9 @@ if [[ -n "$backup_lock" ]]; then
 else
   _fail "pull: preserves local untracked file in backup (backup file not found)"
 fi
+
+# Restore deps.conf for update tests
+printf '%s\n' "$_saved_deps" > "$TEST_HOME/.config/shdeps/deps.conf"
 
 # ---------------------------------------------------------------------------
 # Tests: dot push (with mock remote)
@@ -1011,24 +1011,22 @@ rm -rf "$OVERLAY_DIR" "$OVERLAY_BARE2"
 echo ""
 echo "=== Cron mode ==="
 
+# Cron tests don't need shdeps — empty deps to avoid the cost.
+_saved_deps=$(cat "$TEST_HOME/.config/shdeps/deps.conf")
+: > "$TEST_HOME/.config/shdeps/deps.conf"
+
 # Dirty worktree + --cron → exits immediately (no pull)
 echo "dirty" >>"$TEST_HOME/.testrc"
-result=$(
-  SHDEPS_TEST_TOOL_REPO="$TEST_TOOL_ORIGIN" \
-    SHDEPS_HOOK_PACK_REPO="$HOOK_PACK_ORIGIN" \
-    "$SCRIPT_DIR/dot" update --cron 2>&1
-)
+result=$("$SCRIPT_DIR/dot" update --cron 2>&1)
 _assert_eq "cron dirty: no output (skipped)" "" "$result"
 $GIT checkout -- .testrc
 
 # Clean worktree + --cron → runs but quiet (no "Done" message)
-result=$(
-  SHDEPS_TEST_TOOL_REPO="$TEST_TOOL_ORIGIN" \
-    SHDEPS_HOOK_PACK_REPO="$HOOK_PACK_ORIGIN" \
-    "$SCRIPT_DIR/dot" update --cron 2>&1
-)
+result=$("$SCRIPT_DIR/dot" update --cron 2>&1)
 _assert_not_contains "cron clean: no Done message" "Done" "$result"
 _assert_not_contains "cron clean: no Pulling message" "Pulling" "$result"
+
+printf '%s\n' "$_saved_deps" > "$TEST_HOME/.config/shdeps/deps.conf"
 
 # ---------------------------------------------------------------------------
 # Tests: cron file install
