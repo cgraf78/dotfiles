@@ -20,45 +20,12 @@ _shdeps_log_ok()     { _log_ok "$@"; }
 _shdeps_log_dim()    { _log_dim "$@"; }
 _shdeps_log_header() { _log_header "$@"; }
 
-# Pull latest shdeps if the clone is clean and TTL has expired.
-# Dirty local clones (active development) are left alone.
-# $1=shdeps git directory
-_shdeps_self_update() {
-  local dir="$1"
-  local state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/dot/deps"
-  local stamp="$state_dir/shdeps.self-update.stamp"
-  local ttl="${SHDEPS_REMOTE_TTL:-3600}"
-
-  # Bypass TTL when forced; otherwise skip pull if stamp is fresh
-  if [[ "${SHDEPS_FORCE:-0}" -ne 1 && -f "$stamp" ]]; then
-    local cached="" now=""
-    read -r cached <"$stamp" 2>/dev/null || cached=0
-    now=$(date +%s 2>/dev/null || echo 0)
-    if [[ "$cached" =~ ^[0-9]+$ && "$now" =~ ^[0-9]+$ ]]; then
-      if (( now - cached < ttl )); then
-        return 0
-      fi
-    fi
-  fi
-
-  # Skip if dirty (uncommitted changes = active development)
-  if [[ -n "$(git -C "$dir" status --porcelain --untracked-files=normal 2>/dev/null)" ]]; then
-    return 0
-  fi
-
-  # Pull latest
-  if git -C "$dir" pull --ff-only --quiet 2>/dev/null; then
-    mkdir -p "$state_dir"
-    date +%s >"$stamp"
-  fi
-}
-
 _bootstrap_shdeps() {
   local shdeps_lib="" shdeps_dir=""
   # REAL_HOME is set by test framework when HOME is mocked
   local real_home="${REAL_HOME:-$HOME}"
 
-  # Priority: env override > local dev clone > installed clone > fresh clone
+  # Priority: env override > local dev clone > installed clone > fresh install
   if [[ -n "${SHDEPS_LIB:-}" && -f "$SHDEPS_LIB" ]]; then
     shdeps_lib="$SHDEPS_LIB"
   elif [[ -f "$real_home/git/shdeps/shdeps.sh" ]]; then
@@ -71,24 +38,18 @@ _bootstrap_shdeps() {
     shdeps_lib="$HOME/.local/share/shdeps/shdeps.sh"
     shdeps_dir="$HOME/.local/share/shdeps"
   else
-    _log "  shdeps not found, cloning..."
-    if git clone --depth 1 https://github.com/cgraf78/shdeps.git \
-      "$HOME/.local/share/shdeps" &>/dev/null; then
+    _log "  shdeps not found, installing..."
+    local install_url="https://raw.githubusercontent.com/cgraf78/shdeps/main/install.sh"
+    if curl -fsSL "$install_url" | bash &>/dev/null; then
       shdeps_lib="$HOME/.local/share/shdeps/shdeps.sh"
       shdeps_dir="$HOME/.local/share/shdeps"
     else
-      _warn "  warning: failed to clone shdeps — skipping dependency install"
+      _warn "  warning: failed to install shdeps — skipping dependency install"
       return 1
     fi
   fi
 
-  # Self-update: pull latest shdeps before sourcing.
-  # Uses same TTL cache and dirty-skip policy as shdeps's own git method.
-  if [[ -n "$shdeps_dir" && -d "$shdeps_dir/.git" ]]; then
-    _shdeps_self_update "$shdeps_dir"
-  fi
-
-  # Symlink shdeps CLI into ~/.local/bin (mirrors _shdeps_link_bin pattern)
+  # Ensure shdeps CLI is symlinked into PATH
   if [[ -n "$shdeps_dir" && -x "$shdeps_dir/bin/shdeps" ]]; then
     mkdir -p "$HOME/.local/bin"
     ln -sf "$shdeps_dir/bin/shdeps" "$HOME/.local/bin/shdeps"
@@ -97,7 +58,6 @@ _bootstrap_shdeps() {
   # Map dotfiles env vars to shdeps config
   export SHDEPS_CONF="$HOME/.config/shdeps/deps.conf"
   export SHDEPS_HOOKS_DIR="$HOME/.config/shdeps/hooks.d"
-  # Keep existing state dir for cache continuity
   export SHDEPS_STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/dot/deps"
   [[ "${DOT_FORCE:-0}" -eq 1 ]] && export SHDEPS_FORCE=1
   [[ "${DOT_QUIET:-0}" -eq 1 ]] && export SHDEPS_QUIET=1
@@ -108,10 +68,11 @@ _bootstrap_shdeps() {
     return 1
   }
 
-  # Compat aliases so existing hooks can use old names unchanged.
-  # Hooks reference _PKG_MGR, _dep_hook_due, _require_sudo, _is_wsl.
-  # _is_wsl and _require_sudo are still in core.sh. _dep_hook_due and
-  # _PKG_MGR need aliases from shdeps equivalents.
+  # Self-update via shdeps's own CLI (TTL-cached, skips dirty clones)
+  if [[ -n "$shdeps_dir" && -d "$shdeps_dir/.git" ]] &&
+    command -v shdeps &>/dev/null; then
+    shdeps self-update 2>/dev/null || true
+  fi
 }
 
 _bootstrap_shdeps
