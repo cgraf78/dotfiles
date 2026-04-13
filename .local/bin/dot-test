@@ -115,10 +115,15 @@ if command -v zsh >/dev/null 2>&1; then
     done < <("${_lint_git[@]}" ls-tree -r --name-only HEAD -- ".config/shell/$_dir")
   done
 
+  # Minimal PATH for zsh tests — avoids compinit scanning a huge
+  # inherited PATH, which can take minutes on machines with many
+  # plugin dirs. Include /usr/bin, /bin, and the repo's bin dirs.
+  _zsh_path="/usr/local/bin:/usr/bin:/bin:$_zsh_home/.local/bin"
+
   # Non-interactive source: .zshrc returns early with a non-zero exit
   # from the `[[ -o interactive ]] || return` guard, so we check stderr
   # for actual errors rather than the exit code.
-  _zsh_output=$(HOME="$_zsh_home" zsh -c 'source ~/.zshrc' 2>&1 || true)
+  _zsh_output=$(HOME="$_zsh_home" PATH="$_zsh_path" zsh -c 'source ~/.zshrc' 2>&1 || true)
   if [[ -z "$_zsh_output" ]]; then
     _pass "zsh source: env.d loads without errors"
   else
@@ -129,7 +134,7 @@ if command -v zsh >/dev/null 2>&1; then
   fi
 
   # 3. Interactive smoke test: loads env.d + interactive.d
-  if _zsh_output=$(HOME="$_zsh_home" zsh -ic 'exit' 2>&1); then
+  if _zsh_output=$(HOME="$_zsh_home" PATH="$_zsh_path" zsh -ic 'exit' 2>&1); then
     _pass "zsh interactive: starts and exits cleanly"
   else
     _fail "zsh interactive: starts and exits cleanly"
