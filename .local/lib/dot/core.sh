@@ -187,6 +187,24 @@ _merge_overlay_ssh_configs() {
     block=$(<"$f")
     block="${block%$'\n'}"
 
+    # Inherit ProxyCommand from the target host if the alias doesn't
+    # define one. E.g., if Host github.com has a ProxyCommand for a
+    # corporate proxy, the alias needs it too.
+    if [[ "$block" != *ProxyCommand* ]]; then
+      local target_host
+      target_host=$(echo "$block" | awk '/^[[:space:]]+HostName /{print $2; exit}')
+      if [[ -n "$target_host" && -f "$HOME/.ssh/config" ]]; then
+        local proxy_cmd
+        proxy_cmd=$(awk -v host="$target_host" '
+          /^Host / { active=($2 == host) }
+          active && /^[[:space:]]+ProxyCommand / { sub(/^[[:space:]]+/, "  "); print; exit }
+        ' "$HOME/.ssh/config")
+        if [[ -n "$proxy_cmd" ]]; then
+          block="$block"$'\n'"$proxy_cmd"
+        fi
+      fi
+    fi
+
     if [[ ! -d "$HOME/.ssh" ]]; then
       mkdir -p "$HOME/.ssh"
       chmod 700 "$HOME/.ssh"
