@@ -250,6 +250,7 @@ _push_overlays() {
 # Creates relative symlinks. Sets skip-worktree on base-repo files
 # that overlay symlinks shadow.
 # Appends linked paths to $_overlay_manifest_new (set by _link_overlays).
+# Uses $_base_tracked (associative array) for O(1) tracked-file lookups.
 _link_overlay() {
   local name="$1" path="$2"
   local overlay_home="$path/home"
@@ -266,7 +267,7 @@ _link_overlay() {
     local target="${prefix}.dotfiles-$name/home/$rel"
     if [[ -L "$dst" && "$(readlink "$dst")" == "$target" ]]; then
       # Correct symlink already exists — just ensure skip-worktree
-      if [[ -d "$DOTFILES" ]] && $GIT ls-files --error-unmatch "$rel" &>/dev/null; then
+      if [[ -n "${_base_tracked[$rel]+x}" ]]; then
         $GIT update-index --skip-worktree "$rel" 2>/dev/null || true
       fi
       # Record in manifest
@@ -274,7 +275,7 @@ _link_overlay() {
       continue
     fi
     ln -sf "$target" "$dst"
-    if [[ -d "$DOTFILES" ]] && $GIT ls-files --error-unmatch "$rel" &>/dev/null; then
+    if [[ -n "${_base_tracked[$rel]+x}" ]]; then
       $GIT update-index --skip-worktree "$rel" 2>/dev/null || true
       _log_dim "  linked (override): $rel"
     else
@@ -289,6 +290,16 @@ _link_overlays() {
   local manifest_dir="$HOME/.local/state/dot"
   local manifest="$manifest_dir/overlay-links"
   mkdir -p "$manifest_dir"
+
+  # Build tracked-files set once for O(1) lookups in _link_overlay.
+  # Replaces per-file $GIT ls-files --error-unmatch subprocesses.
+  declare -A _base_tracked=()
+  if [[ -d "$DOTFILES" ]]; then
+    local _tf
+    while IFS= read -r _tf; do
+      _base_tracked["$_tf"]=1
+    done < <($GIT ls-files 2>/dev/null)
+  fi
 
   # Build new manifest in a temp file
   local _overlay_manifest_new=""
@@ -320,7 +331,7 @@ _link_overlays() {
           _log_dim "  removed: $rel"
         fi
         # Restore base repo version if tracked
-        if [[ -d "$DOTFILES" ]] && $GIT ls-files --error-unmatch "$rel" &>/dev/null; then
+        if [[ -n "${_base_tracked[$rel]+x}" ]]; then
           $GIT update-index --no-skip-worktree "$rel" 2>/dev/null || true
           $GIT checkout -- "$rel" 2>/dev/null || true
         fi
