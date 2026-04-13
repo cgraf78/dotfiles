@@ -332,8 +332,8 @@ _assert_file_exists "link: manifest written" "$TEST_HOME/.local/state/dot/overla
 manifest_content=$(cat "$TEST_HOME/.local/state/dot/overlay-links")
 _assert_contains "link: manifest has testrc_work" ".testrc_work" "$manifest_content"
 
-# Skip-worktree: overlay file shadowing a personal-repo file
-echo "personal version" >"$TEST_HOME/.testrc"
+# Skip-worktree: overlay file shadowing a base-repo file
+echo "base version" >"$TEST_HOME/.testrc"
 $GIT add .testrc
 $GIT commit -m "add testrc" >/dev/null 2>&1
 echo "overlay version" >"$OVERLAY_DIR/home/.testrc"
@@ -385,13 +385,13 @@ else
   _fail "cleanup: symlink removed"
 fi
 
-# Stale cleanup restores personal repo version of shadowed file
+# Stale cleanup restores base repo version of shadowed file
 # (.testrc was shadowed by overlay, now overlay is gone)
 if [[ -f "$TEST_HOME/.testrc" && ! -L "$TEST_HOME/.testrc" ]]; then
-  _pass "cleanup: personal file restored"
-  _assert_file_content "cleanup: personal content" "personal version" "$TEST_HOME/.testrc"
+  _pass "cleanup: base file restored"
+  _assert_file_content "cleanup: base content" "base version" "$TEST_HOME/.testrc"
 else
-  _fail "cleanup: personal file restored"
+  _fail "cleanup: base file restored"
 fi
 # skip-worktree should be cleared
 sw_flag=$($GIT ls-files -v .testrc 2>/dev/null | cut -c1)
@@ -563,9 +563,9 @@ fi
 echo ""
 echo "=== Command routing ==="
 
-# dot status shows personal dotfiles header
+# dot status shows base dotfiles header
 result=$("$SCRIPT_DIR/dot" status 2>&1)
-_assert_contains "status: personal header" "dotfiles" "$result"
+_assert_contains "status: base header" "dotfiles" "$result"
 
 # dot status without overlay dir: no overlay section
 _assert_not_contains "status: no overlay section without overlay dir" "work dotfiles" "$result"
@@ -583,7 +583,7 @@ git -C "$OVERLAY_DIR" commit -m "init" >/dev/null 2>&1
 git -C "$OVERLAY_DIR" push >/dev/null 2>&1
 
 result=$("$SCRIPT_DIR/dot" status 2>&1)
-_assert_contains "status: personal with overlay dir" "dotfiles" "$result"
+_assert_contains "status: base with overlay dir" "dotfiles" "$result"
 _assert_contains "status: overlay section present" "work dotfiles" "$result"
 
 rm -rf "$OVERLAY_DIR" "$OVERLAY_BARE"

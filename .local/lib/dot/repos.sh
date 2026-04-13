@@ -1,6 +1,6 @@
 # shellcheck shell=bash
 # Repository management: backup, pull, push, link, and dirty-check
-# for the personal (bare) repo and overlay repos.
+# for the base (bare) repo and overlay repos.
 
 _backup_dir() {
   local root="$HOME/.dotfiles-backup"
@@ -138,11 +138,11 @@ _ensure_repo_config() {
 }
 
 # ---------------------------------------------------------------------------
-# Personal repo
+# Base repo
 # ---------------------------------------------------------------------------
 
 # shellcheck disable=SC2086  # $GIT is intentionally word-split (multi-word command).
-_pull_personal() {
+_pull_base() {
   _pull_repo "$HOME" $GIT pull "$@"
 }
 
@@ -209,7 +209,7 @@ _push_overlays() {
 # ---------------------------------------------------------------------------
 
 # Link a single overlay's home/ directory into $HOME.
-# Creates relative symlinks. Sets skip-worktree on personal-repo files
+# Creates relative symlinks. Sets skip-worktree on base-repo files
 # that overlay symlinks shadow.
 # Appends linked paths to $_overlay_manifest_new (set by _link_overlays).
 _link_overlay() {
@@ -281,7 +281,7 @@ _link_overlays() {
           rm -f "$dst"
           _log_dim "  removed: $rel"
         fi
-        # Restore personal repo version if tracked
+        # Restore base repo version if tracked
         if [[ -d "$DOTFILES" ]] && $GIT ls-files --error-unmatch "$rel" &>/dev/null; then
           $GIT update-index --no-skip-worktree "$rel" 2>/dev/null || true
           $GIT checkout -- "$rel" 2>/dev/null || true
@@ -364,7 +364,7 @@ _dirty_files_match_ref() {
   return 0
 }
 
-# Check if personal repo dirty files match origin/main.
+# Check if base repo dirty files match origin/main.
 # shellcheck disable=SC2086  # $GIT is intentionally word-split
 _dirty_files_match_remote() {
   _dirty_files_match_ref "$HOME" $GIT

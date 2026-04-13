@@ -3,8 +3,8 @@
 # checks out dotfiles, clones overlay repos, installs deps, and sets
 # up auto-update cron.  For day-to-day updates, use 'dot update' instead.
 #
-# Personal bare repo at ~/.dotfiles. Overlay repos are discovered from
-# config files in ~/.config/dot/overlays.d/*.conf after personal checkout.
+# Base bare repo at ~/.dotfiles. Overlay repos are discovered from
+# config files in ~/.config/dot/overlays.d/*.conf after base checkout.
 #
 # Usage (fresh machine):
 #   curl -sL https://raw.githubusercontent.com/cgraf78/dotfiles/main/.local/bin/dotbootstrap | bash -s init
@@ -109,7 +109,7 @@ BRANCH=""
 GIT="git --git-dir=$DOTFILES --work-tree=$HOME"
 
 # ---------------------------------------------------------------------------
-# Personal repo: clone or configure
+# Base repo: clone or configure
 # ---------------------------------------------------------------------------
 
 echo "==> Setting up machine..."

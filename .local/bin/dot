@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # Smart dotfiles manager.
 #
-# One personal bare repo at ~/.dotfiles, plus overlay repos discovered
+# One base bare repo at ~/.dotfiles, plus overlay repos discovered
 # from config files in ~/.config/dot/overlays.d/*.conf.
 #
 # Commands:
 #   dot update [--cron]        Sync everything (--cron: quiet, skip if dirty)
 #   dot pull                   Same as update
-#   dot push/status/diff       Operates on personal + all active overlays
+#   dot push/status/diff       Operates on base + all active overlays
 #   dot cron                   Show installed cron entries
-#   dot git <command>           Run any git command on the personal repo
+#   dot git <command>           Run any git command on the base repo
 
 set -euo pipefail
 
@@ -38,14 +38,14 @@ _discover_overlays
 
 CRON_MODE=0
 
-# Pull all repos (personal + overlays) with proper unstash/normalize handling.
+# Pull all repos (base + overlays) with proper unstash/normalize handling.
 # Does NOT link overlay files — _finalize_update handles that after deps.
 _pull_all() {
   _ensure_repo_config
   _normalize_filtered
   _unstash_overlay_overrides
   _log_header "==> Pulling dotfiles..."
-  if ! _pull_personal "$@"; then
+  if ! _pull_base "$@"; then
     if [[ "$DOT_QUIET" -eq 1 ]]; then
       _warn "  warning: dotfiles pull failed"
     else
@@ -152,15 +152,15 @@ cron)
   cat <<EOF
 usage: dot <command> [<args>]
 
-Multi-repo commands (personal + overlays):
+Multi-repo commands (base + overlays):
   update [--cron]  Sync everything: pull repos, merge configs, update deps
   pull             Same as update
-  fetch            Fetch personal + all active overlays
-  push             Push personal + all active overlays
-  status           Show status of personal + all active overlays
-  diff             Show diff of personal + all active overlays
+  fetch            Fetch base + all active overlays
+  push             Push base + all active overlays
+  status           Show status of base + all active overlays
+  diff             Show diff of base + all active overlays
   cron             Show installed cron entries
-  git <command>    Run any git command on the personal repo
+  git <command>    Run any git command on the base repo
 
 Flags:
   --cron    Quiet mode for cron: skip pull if worktree dirty, suppress output

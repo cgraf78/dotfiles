@@ -4,15 +4,15 @@
 
 ## Dotfiles
 
-Personal bare repo at `~/.dotfiles`, plus overlay repos discovered from
+Base bare repo at `~/.dotfiles`, plus overlay repos discovered from
 `~/.config/dot/overlays.d/*.conf`. See `~/.local/share/doc/dot/dot.md`
 for full documentation.
 
-- Use the `dot` alias for personal dotfiles. Use `git -C ~/.dotfiles-<name>`
+- Use the `dot` alias for base dotfiles. Use `git -C ~/.dotfiles-<name>`
   for overlay repos.
-- `dot push/pull/status/diff/fetch` operate on personal + all active overlays.
+- `dot push/pull/status/diff/fetch` operate on base + all active overlays.
 - Use `dot push` to push all repos, not raw `git push`.
-- When moving tracked personal dotfiles, use `dot git mv` to preserve history.
+- When moving tracked base dotfiles, use `dot git mv` to preserve history.
 
 ## Tools
 

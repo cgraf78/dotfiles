@@ -5,12 +5,12 @@
 [![Bash Version](https://img.shields.io/badge/bash-%3E%3D4.0-blue.svg)](https://www.gnu.org/software/bash/)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20WSL-lightgrey.svg)](#)
 
-Personal dotfiles managed as a bare git repository with `$HOME` as the working tree, plus overlay repos for work, machine-specific, or project-specific dotfiles.
+Base dotfiles managed as a bare git repository with `$HOME` as the working tree, plus overlay repos for work, machine-specific, or project-specific dotfiles.
 
-- **`~/.dotfiles`** — bare repo, personal dotfiles (public)
+- **`~/.dotfiles`** — bare repo, base dotfiles (public)
 - **`~/.dotfiles-<name>`** — overlay repos, discovered from `~/.config/dot/overlays.d/*.conf`
 
-Overlay files are symlinked into `$HOME` by `dot update`. Personal dotfiles use `[ -f ]` guards to source overlay files only when present.
+Overlay files are symlinked into `$HOME` by `dot update`. Base dotfiles use `[ -f ]` guards to source overlay files only when present.
 
 **macOS note:** Requires Bash 4+ (`brew install bash`). The system Bash (3.2) is too old.
 
@@ -28,14 +28,14 @@ Machine with a private overlay (e.g., work):
 scp <source>:~/.ssh/<deploy-key> ~/.ssh/
 chmod 600 ~/.ssh/<deploy-key>
 
-# 2. Bootstrap (clones personal repo + matching overlays)
+# 2. Bootstrap (clones base repo + matching overlays)
 curl -sL cgraf78.github.io/d | bash
 source ~/.bashrc  # or: source ~/.zshrc
 ```
 
 Overlay repos hosted on private remotes use SSH deploy keys for access control. Each overlay can include a companion `.ssh` file in `overlays.d/` that defines the SSH host alias for its remote (see [Overlays](#overlays)). Machines without the deploy key skip the overlay with a warning and continue.
 
-On subsequent runs, `dotbootstrap` pulls the personal repo and clones any overlay repos defined in `~/.config/dot/overlays.d/`. The bootstrap script automatically backs up any conflicting files to `~/.dotfiles-backup/<timestamp>/`.
+On subsequent runs, `dotbootstrap` pulls the base repo and clones any overlay repos defined in `~/.config/dot/overlays.d/`. The bootstrap script automatically backs up any conflicting files to `~/.dotfiles-backup/<timestamp>/`.
 
 After bootstrap, `dot update` self-installs a cron that keeps the machine updated automatically (see [Auto-update cron](#auto-update-cron)).
 
@@ -50,7 +50,7 @@ dot push              # push all repos
 dot status            # check status of all repos
 dot diff              # diff all repos
 dot cron              # show installed cron entries
-dot git <command>     # run any git command on the personal repo
+dot git <command>     # run any git command on the base repo
 ```
 
 `update` works on all machines with the bare repo. Installs cron entries from `~/.config/dot/merge-hooks.d/cron` into the user crontab. All other commands also require the bare repo. Use `dot git` for raw git operations (e.g., `dot git add`, `dot git commit`, `dot git log`).
@@ -59,7 +59,7 @@ Overlay repos are managed with plain `git -C ~/.dotfiles-<name>` for commits.
 
 ## Overlays
 
-Overlay repos extend the personal dotfiles with additional files. Each overlay is defined by a config file in `~/.config/dot/overlays.d/`:
+Overlay repos extend the base dotfiles with additional files. Each overlay is defined by a config file in `~/.config/dot/overlays.d/`:
 
 ```
 ~/.config/dot/overlays.d/
@@ -93,7 +93,7 @@ Numeric prefixes control ordering (same convention as shell config and merge hoo
 ### Adding an overlay
 
 1. Create a conf file: `~/.config/dot/overlays.d/10-work.conf`
-2. Track it in the personal repo: `dot git add .config/dot/overlays.d/10-work.conf`
+2. Track it in the base repo: `dot git add .config/dot/overlays.d/10-work.conf`
 3. Run `dot update` or `dotbootstrap` — the overlay is cloned and linked automatically.
 
 ### Private overlays (deploy keys)
@@ -138,7 +138,7 @@ cd ~/my-overlay-repo
 git init
 # add files under home/ (see structure below)
 git add -A && git commit -m "initial"
-# push to a remote, then create the conf in the personal repo
+# push to a remote, then create the conf in the base repo
 ```
 
 The overlay repo has one required convention: files to be symlinked into `$HOME` go under `home/`, mirroring the `$HOME` directory structure:
@@ -160,7 +160,7 @@ Everything under `home/` is symlinked into `$HOME` by `dot update`. Files outsid
 
 Overlays contribute merge hooks, shdeps configs, shell config, and scripts by placing files under `home/` at the right paths. Because these files are symlinked into `$HOME`, they appear in the same directories that `dot update` already scans:
 
-- **Merge hooks** — `home/.config/dot/merge-hooks.d/80-*.sh` (use 80+ prefix to run after personal 50-* hooks)
+- **Merge hooks** — `home/.config/dot/merge-hooks.d/80-*.sh` (use 80+ prefix to run after base 50-* hooks)
 - **Shdeps hooks** — `home/.config/shdeps/hooks.d/<name>.sh`
 - **Shell config** — `home/.config/shell/env.d/80-*.sh`, `home/.config/shell/interactive.d/80-*.sh`
 - **Cron entries** — `home/.config/dot/merge-hooks.d/cron.local` (untracked locally, or a numbered cron file)
@@ -174,15 +174,15 @@ Add the file to the overlay repo under `home/`, commit, and push. The next `dot 
 
 ### Overlay removal
 
-When an overlay conf is deleted or its filter stops matching, `dot update` automatically removes its symlinks from `$HOME` and restores any shadowed personal-repo files.
+When an overlay conf is deleted or its filter stops matching, `dot update` automatically removes its symlinks from `$HOME` and restores any shadowed base-repo files.
 
 ## How It Works
 
-- `dot update` syncs everything: pulls repos (personal + overlays), merges configs, updates deps
+- `dot update` syncs everything: pulls repos (base + overlays), merges configs, updates deps
 - If a pull updates dot infrastructure (`.local/lib/dot/` or `.local/bin/dot`), the script re-execs itself so the rest of the run uses the new code — no need to run `dot update` twice
-- `dot fetch/pull/push/status/diff` operates on personal + all active overlays
+- `dot fetch/pull/push/status/diff` operates on base + all active overlays
 - Overlay bootstrap symlinks files from `~/.dotfiles-<name>/home/` into `$HOME`
-- Files that override personal versions get `--skip-worktree` to prevent phantom dirty status
+- Files that override base versions get `--skip-worktree` to prevent phantom dirty status
 - No branch sync, no markers — just independent repos
 
 ### Auto-update cron
@@ -245,7 +245,7 @@ and extensions to indicate shell compatibility: `.sh` (any shell), `.bash`
     └── 90-work-integrations.bash   (work — arc completions)
 ```
 
-Personal files (50-70) are in the personal repo. Work files (10, 80-90) are symlinked from the work overlay by `dot update`.
+Base files (50-70) are in the base repo. Work files (10, 80-90) are symlinked from the work overlay by `dot update`.
 
 ### VS Code config
 
@@ -274,7 +274,7 @@ Profiles in `~/.config/dot/karabiner/karabiner.json` are merged into Karabiner's
 
 `~/.config/wezterm/wezterm.lua` is the WezTerm config file. Tracked directly. On WSL, `dot update` and `dot pull` copy it to the Windows home so the Windows-native WezTerm picks it up.
 
-## Adding a Personal File
+## Adding a Base File
 
 ```bash
 dot git add <file> && dot git commit -m "add <file>" && dot push
@@ -313,7 +313,7 @@ fonts           custom    -      -      -                        -              
 
 ## Scripts Reference
 
-Personal scripts in `~/.local/bin/`, deployed via `~/.dotfiles`. All are on PATH.
+Base scripts in `~/.local/bin/`, deployed via `~/.dotfiles`. All are on PATH.
 Work-specific scripts are documented in `~/.local/share/doc/dot/work-scripts.md`.
 
 ### Claude Code Hooks
@@ -333,12 +333,12 @@ Delegates to `claude-hook-pre-bash-work` if present.
 
 #### `claude-hook-post-bash` (PostToolUse, Bash)
 
-Parses stdin JSON, exports `CMD_TRIMMED`. No personal post-actions currently.
+Parses stdin JSON, exports `CMD_TRIMMED`. No base post-actions currently.
 Exists as the composition base for `-work` variant delegation.
 
 #### `claude-hook-post-edit` (PostToolUse, Edit|Write)
 
-Parses stdin JSON, exports `FP` (file path). No personal post-actions currently.
+Parses stdin JSON, exports `FP` (file path). No base post-actions currently.
 Exists as the composition base for `-work` variant delegation.
 
 #### `claude-hook-session-start` (SessionStart)
@@ -351,8 +351,7 @@ usage warnings (>90%). Delegates to `-work` variant *before* running base logic
 
 Auto-names Claude Code sessions by extracting user messages from the transcript
 and calling `claude -p --model sonnet` in the background via `nohup`. Skips
-sessions that already have a custom title. Runs this personal base logic first,
-then delegates to `-work` variant if present.
+sessions that already have a custom title. Runs base logic first, then delegates to `-work` variant if present.
 
 ### Delegation Pattern
 
@@ -370,4 +369,4 @@ Work scripts receive `CMD_TRIMMED` or `FP` via exported env vars. They never
 parse stdin — the base script already consumed it.
 
 `claude-hook-session-start` is the exception: it checks for the `-work` variant
-first and lets that replace the personal base logic entirely.
+first and lets that replace the base logic entirely.
