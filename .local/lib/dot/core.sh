@@ -143,7 +143,6 @@ _finalize_update() {
   else
     _warn "  warning: shdeps not available — skipping dependency install"
   fi
-  _install_cron || true
   _link_work_home
   _run_merges
   if [[ -d "$DOTFILES" ]]; then

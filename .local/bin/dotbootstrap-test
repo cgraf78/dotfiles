@@ -267,7 +267,7 @@ PERSONAL_STAGING=$(_tmpdir)
 mkdir -p "$PERSONAL_STAGING/.local/lib/dot"
 echo "bashrc content" >"$PERSONAL_STAGING/.bashrc"
 
-for _f in init.sh core.sh repos.sh merges.sh cron.sh; do
+for _f in init.sh core.sh repos.sh merges.sh; do
   cp "$REAL_HOME/.local/lib/dot/$_f" "$PERSONAL_STAGING/.local/lib/dot/$_f"
 done
 mkdir -p "$PERSONAL_STAGING/.config/shdeps"

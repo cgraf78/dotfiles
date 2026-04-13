@@ -91,7 +91,7 @@ $GIT config user.name "Test"
 
 # Create dot config dir and copy modules
 mkdir -p "$TEST_HOME/.local/lib/dot"
-for _f in init.sh core.sh repos.sh merges.sh cron.sh; do
+for _f in init.sh core.sh repos.sh merges.sh; do
   cp "$REAL_HOME/.local/lib/dot/$_f" "$TEST_HOME/.local/lib/dot/$_f"
 done
 mkdir -p "$TEST_HOME/.config/shdeps"
@@ -494,7 +494,7 @@ _assert_file_content "update: generic hook ran" "$TEST_HOME/.local/share/hook-pa
 # Update without bare repo: no error, no pull, still succeeds
 NO_REPO_HOME=$(_tmpdir)
 mkdir -p "$NO_REPO_HOME/.local/lib/dot"
-for _f in init.sh core.sh repos.sh merges.sh cron.sh; do
+for _f in init.sh core.sh repos.sh merges.sh; do
   cp "$REAL_HOME/.local/lib/dot/$_f" "$NO_REPO_HOME/.local/lib/dot/$_f"
 done
 mkdir -p "$NO_REPO_HOME/.config/shdeps"
@@ -600,6 +600,16 @@ _assert_not_contains "cron clean: no Pulling message" "Pulling" "$result"
 echo ""
 echo "=== Cron file install ==="
 
+# Source the cron merge hook so we can call merge() directly.
+_CRON_HOOK="$REAL_HOME/.config/dot/merge-hooks.d/50-cron.sh"
+
+_run_cron_merge() {
+  unset -f merge 2>/dev/null
+  # shellcheck source=/dev/null
+  . "$_CRON_HOOK"
+  merge
+}
+
 # Mock crontab with a file-backed implementation
 MOCK_CRONTAB=$(_tmpdir)/crontab
 touch "$MOCK_CRONTAB"
@@ -618,7 +628,7 @@ chmod +x "$MOCK_BIN/crontab"
 
 # No cron file → no-op
 rm -f "$TEST_HOME/.config/dot/cron"
-_install_cron 2>/dev/null
+_run_cron_merge 2>/dev/null
 result=$(crontab -l 2>/dev/null)
 _assert_eq "no cron file: crontab empty" "" "$result"
 
@@ -627,7 +637,7 @@ cat >"$TEST_HOME/.config/dot/cron" <<'EOF'
 # comment line
 */30 * * * * $HOME/.local/bin/dot update --cron
 EOF
-_install_cron 2>/dev/null
+_run_cron_merge 2>/dev/null
 result=$(crontab -l 2>/dev/null)
 _assert_contains "installs entry" "dot update --cron" "$result"
 _assert_contains "expands \$HOME" "$TEST_HOME" "$result"
@@ -637,7 +647,7 @@ _assert_contains "has end marker" "dot-managed-cron end" "$result"
 _assert_not_contains "strips comments" "comment line" "$result"
 
 # Idempotent — running again doesn't duplicate
-_install_cron 2>/dev/null
+_run_cron_merge 2>/dev/null
 count=$(crontab -l 2>/dev/null | grep -c "dot update --cron" || true)
 _assert_eq "idempotent: one entry" "1" "$count"
 
@@ -646,7 +656,7 @@ cat >"$TEST_HOME/.config/dot/cron" <<'EOF'
 */30 * * * * $HOME/.local/bin/dot update --cron
 0 3 * * * $HOME/.local/bin/cleanup
 EOF
-_install_cron 2>/dev/null
+_run_cron_merge 2>/dev/null
 result=$(crontab -l 2>/dev/null)
 _assert_contains "multi: dot entry" "dot update --cron" "$result"
 _assert_contains "multi: cleanup entry" "cleanup" "$result"
@@ -656,7 +666,7 @@ echo "0 6 * * * /usr/bin/other-job" | crontab -
 cat >"$TEST_HOME/.config/dot/cron" <<'EOF'
 */30 * * * * $HOME/.local/bin/dot update --cron
 EOF
-_install_cron 2>/dev/null
+_run_cron_merge 2>/dev/null
 result=$(crontab -l 2>/dev/null)
 _assert_contains "preserves other jobs" "other-job" "$result"
 _assert_contains "installs managed entry" "dot update --cron" "$result"
@@ -669,7 +679,7 @@ EOF
 cat >"$TEST_HOME/.config/dot/cron.local" <<'EOF'
 0 4 * * * $HOME/.local/bin/backup
 EOF
-_install_cron 2>/dev/null
+_run_cron_merge 2>/dev/null
 result=$(crontab -l 2>/dev/null)
 _assert_contains "local: tracked entry present" "dot update --cron" "$result"
 _assert_contains "local: local entry present" "backup" "$result"
@@ -683,7 +693,7 @@ rm -f "$TEST_HOME/.config/dot/cron"
 cat >"$TEST_HOME/.config/dot/cron.local" <<'EOF'
 0 5 * * * $HOME/.local/bin/local-only
 EOF
-_install_cron 2>/dev/null
+_run_cron_merge 2>/dev/null
 result=$(crontab -l 2>/dev/null)
 _assert_contains "local-only: entry installed" "local-only" "$result"
 rm -f "$TEST_HOME/.config/dot/cron.local"
@@ -698,13 +708,13 @@ EOF
 cat >"$TEST_HOME/.config/dot/cron" <<'EOF'
 */30 * * * * $HOME/.local/bin/dot update --cron
 EOF
-_install_cron 2>/dev/null
+_run_cron_merge 2>/dev/null
 result=$(crontab -l 2>/dev/null)
 _assert_contains "pre-remove: entry exists" "dot update --cron" "$result"
 cat >"$TEST_HOME/.config/dot/cron" <<'EOF'
 # everything commented out
 EOF
-_install_cron 2>/dev/null
+_run_cron_merge 2>/dev/null
 result=$(crontab -l 2>/dev/null)
 _assert_not_contains "remove: old entries stripped" "dot update --cron" "$result"
 _assert_not_contains "remove: markers stripped" "dot-managed-cron" "$result"
@@ -714,7 +724,7 @@ echo "0 6 * * * /usr/bin/other-job" | crontab -
 cat >"$TEST_HOME/.config/dot/cron" <<'EOF'
 # only comments here
 EOF
-_install_cron 2>/dev/null
+_run_cron_merge 2>/dev/null
 result=$(crontab -l 2>/dev/null)
 _assert_contains "all-comments: preserves other jobs" "other-job" "$result"
 
@@ -735,7 +745,7 @@ if [[ "$_current_os" == "darwin" ]]; then _current_os="macos"; fi
 cat >"$TEST_HOME/.config/dot/cron" <<'EOF'
 */30 * * * * $HOME/.local/bin/dot update --cron
 EOF
-_install_cron 2>/dev/null
+_run_cron_merge 2>/dev/null
 result=$(crontab -l 2>/dev/null)
 _assert_contains "filter default: entry included" "dot update --cron" "$result"
 
@@ -745,7 +755,7 @@ cat >"$TEST_HOME/.config/dot/cron" <<EOF
 # filter: hosts=nonexistent-host-xyz
 */30 * * * * \$HOME/.local/bin/dot update --cron
 EOF
-_install_cron 2>/dev/null
+_run_cron_merge 2>/dev/null
 result=$(crontab -l 2>/dev/null)
 _assert_not_contains "filter host miss: entry skipped" "dot update --cron" "$result"
 
@@ -755,7 +765,7 @@ cat >"$TEST_HOME/.config/dot/cron" <<EOF
 # filter: hosts=$_current_host
 */30 * * * * \$HOME/.local/bin/dot update --cron
 EOF
-_install_cron 2>/dev/null
+_run_cron_merge 2>/dev/null
 result=$(crontab -l 2>/dev/null)
 _assert_contains "filter host match: entry included" "dot update --cron" "$result"
 
@@ -767,7 +777,7 @@ cat >"$TEST_HOME/.config/dot/cron" <<EOF
 # filter: *
 */30 * * * * \$HOME/.local/bin/dot update --cron
 EOF
-_install_cron 2>/dev/null
+_run_cron_merge 2>/dev/null
 result=$(crontab -l 2>/dev/null)
 _assert_not_contains "filter reset: filtered entry skipped" "skipped" "$result"
 _assert_contains "filter reset: reset entry included" "dot update --cron" "$result"
@@ -783,7 +793,7 @@ cat >"$TEST_HOME/.config/dot/cron" <<EOF
 # filter: platforms=$_wrong_plat
 0 3 * * * \$HOME/.local/bin/wrong-platform
 EOF
-_install_cron 2>/dev/null
+_run_cron_merge 2>/dev/null
 result=$(crontab -l 2>/dev/null)
 _assert_not_contains "filter platform miss: entry skipped" "wrong-platform" "$result"
 
@@ -793,7 +803,7 @@ cat >"$TEST_HOME/.config/dot/cron" <<EOF
 # filter: hosts=$_current_host platforms=$_wrong_plat
 0 3 * * * \$HOME/.local/bin/and-logic
 EOF
-_install_cron 2>/dev/null
+_run_cron_merge 2>/dev/null
 result=$(crontab -l 2>/dev/null)
 _assert_not_contains "filter AND: right host + wrong platform skipped" "and-logic" "$result"
 
@@ -805,7 +815,7 @@ cat >"$TEST_HOME/.config/dot/cron" <<EOF
 # filter: hosts=$_current_host
 0 2 * * * \$HOME/.local/bin/included-entry
 EOF
-_install_cron 2>/dev/null
+_run_cron_merge 2>/dev/null
 result=$(crontab -l 2>/dev/null)
 _assert_not_contains "filter replace: first section skipped" "skipped-entry" "$result"
 _assert_contains "filter replace: second section included" "included-entry" "$result"
@@ -816,7 +826,7 @@ cat >"$TEST_HOME/.config/dot/cron" <<EOF
 # filter: hosts=$_current_host
 */30 * * * * \$HOME/.local/bin/dot update --cron
 EOF
-_install_cron 2>/dev/null
+_run_cron_merge 2>/dev/null
 result=$(crontab -l 2>/dev/null)
 _assert_contains "filter missing key: hosts only, all platforms" "dot update --cron" "$result"
 
@@ -829,7 +839,7 @@ EOF
 cat >"$TEST_HOME/.config/dot/cron.local" <<'EOF'
 0 2 * * * $HOME/.local/bin/local-unfiltered
 EOF
-_install_cron 2>/dev/null
+_run_cron_merge 2>/dev/null
 result=$(crontab -l 2>/dev/null)
 _assert_not_contains "filter independence: cron entry filtered" "cron-filtered" "$result"
 _assert_contains "filter independence: local entry unfiltered" "local-unfiltered" "$result"
@@ -843,7 +853,7 @@ cat >"$TEST_HOME/.config/dot/cron" <<EOF
 # filter: hosts=!nonexistent-host-xyz
 0 4 * * * \$HOME/.local/bin/keep-this-host
 EOF
-_install_cron 2>/dev/null
+_run_cron_merge 2>/dev/null
 result=$(crontab -l 2>/dev/null)
 _assert_not_contains "filter exclude: current host excluded" "skip-this-host" "$result"
 _assert_contains "filter exclude: other host not excluded" "keep-this-host" "$result"

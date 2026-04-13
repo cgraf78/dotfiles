@@ -1,10 +1,10 @@
 # shellcheck shell=bash
-# Cron entry management: install/update dot-managed cron entries
-# from tracked and machine-local cron files.
-
-DOT_CRON_FILE="$HOME/.config/dot/cron"
-DOT_CRON_LOCAL="$HOME/.config/dot/cron.local"
-DOT_CRON_MARKER="# dot-managed-cron"
+# Install cron entries from ~/.config/dot/cron (tracked) and
+# cron.local (machine-local, untracked) into the user crontab.
+# Replaces all dot-managed entries (between marker lines) on each run.
+# Expands $HOME in cron lines. Sets PATH as a standalone cron variable
+# so tools like git, curl, jq are found in cron's minimal environment.
+# Idempotent — skips if the installed block already matches.
 
 # Build a clean PATH for cron from the current PATH.
 # Keeps: $HOME dirs, /opt/homebrew, /usr/local, and standard system dirs.
@@ -15,7 +15,6 @@ _cron_path() {
   for dir in "${_dirs[@]}"; do
     [[ -d "$dir" ]] || continue
     [[ ":$result:" == *":$dir:"* ]] && continue
-    # Keep user dirs, homebrew, /usr/local, and standard system dirs.
     case "$dir" in
     "$HOME"/* | /opt/homebrew/* | /usr/local/bin | /usr/bin | /bin | /usr/sbin | /sbin) ;;
     *) continue ;;
@@ -28,12 +27,11 @@ _cron_path() {
 # Parse a `# filter:` directive line into _cron_filter_hosts and
 # _cron_filter_platforms. Resets both to empty (match-all) first.
 # Syntax: # filter: hosts=a,b platforms=linux   or   # filter: *
-_parse_cron_filter() {
+_cron_parse_filter() {
   local spec="$1"
   _cron_filter_hosts=""
   _cron_filter_platforms=""
 
-  # `# filter: *` resets to match-all
   if [[ "$spec" == "*" ]]; then return 0; fi
 
   local token
@@ -60,57 +58,54 @@ _cron_filter_match() {
 
 # Parse a cron file: expand $HOME in entries, skip comments/blanks.
 # Supports `# filter:` directives for host/platform filtering.
-# Appends processed lines to $DOT_CRON_PARSED (caller must initialize).
-_parse_cron_file() {
+# Appends processed lines to $_cron_parsed (caller must initialize).
+_cron_parse_file() {
   local file="$1"
   [[ -f "$file" ]] || return 0
 
-  # Reset filter state for each file
   _cron_filter_hosts=""
   _cron_filter_platforms=""
 
   local line
   while IFS= read -r line || [[ -n "$line" ]]; do
-    # Check for `# filter:` directive before general comment skip
     if [[ "$line" =~ ^[[:space:]]*#[[:space:]]*filter:[[:space:]]*(.*) ]]; then
-      _parse_cron_filter "${BASH_REMATCH[1]}"
+      _cron_parse_filter "${BASH_REMATCH[1]}"
       continue
     fi
     [[ "$line" =~ ^[[:space:]]*# ]] && continue
     [[ -z "${line// /}" ]] && continue
 
-    # Skip entries that don't match the active filter
     _cron_filter_match || continue
 
     line="${line//\$HOME/$HOME}"
-    if [[ -n "$DOT_CRON_PARSED" ]]; then
-      DOT_CRON_PARSED="$DOT_CRON_PARSED"$'\n'"$line"
+    if [[ -n "$_cron_parsed" ]]; then
+      _cron_parsed="$_cron_parsed"$'\n'"$line"
     else
-      DOT_CRON_PARSED="$line"
+      _cron_parsed="$line"
     fi
   done <"$file"
 }
 
-# Install cron entries from ~/.config/dot/cron (tracked) and
-# ~/.config/dot/cron.local (machine-local, untracked) into the user crontab.
-# Replaces all dot-managed entries (between marker lines) on each run.
-# Expands $HOME in cron lines. Sets PATH as a standalone cron variable
-# so tools like git, curl, jq are found in cron's minimal environment.
-# Idempotent — skips if the installed block already matches.
-_install_cron() {
-  [[ -f "$DOT_CRON_FILE" || -f "$DOT_CRON_LOCAL" ]] || return 0
+merge() {
+  local cron_file="$HOME/.config/dot/cron"
+  local cron_local="$HOME/.config/dot/cron.local"
+  local cron_marker="# dot-managed-cron"
 
-  DOT_CRON_PARSED=""
-  _parse_cron_file "$DOT_CRON_FILE"
-  _parse_cron_file "$DOT_CRON_LOCAL"
+  [[ -f "$cron_file" || -f "$cron_local" ]] || return 0
 
-  local block_start="$DOT_CRON_MARKER begin"
-  local block_end="$DOT_CRON_MARKER end"
+  _log_dim "  cron"
+
+  _cron_parsed=""
+  _cron_parse_file "$cron_file"
+  _cron_parse_file "$cron_local"
+
+  local block_start="$cron_marker begin"
+  local block_end="$cron_marker end"
   local current
   current=$(crontab -l 2>/dev/null || true)
 
   # No active entries — strip any existing managed block and return.
-  if [[ -z "$DOT_CRON_PARSED" ]]; then
+  if [[ -z "$_cron_parsed" ]]; then
     if [[ "$current" == *"$block_start"* ]]; then
       local stripped
       stripped=$(echo "$current" | sed "/$block_start/,/$block_end/d")
@@ -119,18 +114,16 @@ _install_cron() {
       else
         crontab -r 2>/dev/null || true
       fi
-      _log_ok "  cron entries removed"
     fi
     return 0
   fi
 
   local cron_path
   cron_path=$(_cron_path)
-  local managed_block="$block_start"$'\n'"PATH=$cron_path"$'\n'"$DOT_CRON_PARSED"$'\n'"$block_end"
+  local managed_block="$block_start"$'\n'"PATH=$cron_path"$'\n'"$_cron_parsed"$'\n'"$block_end"
 
   # Already installed with same content — nothing to do.
   if [[ "$current" == *"$managed_block"* ]]; then
-    _log_dim "  cron up to date"
     return 0
   fi
 
@@ -151,5 +144,4 @@ _install_cron() {
   fi
 
   echo "$new_crontab" | crontab -
-  _log_ok "  cron installed"
 }
