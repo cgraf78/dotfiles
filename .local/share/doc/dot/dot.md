@@ -33,11 +33,11 @@ curl -sL cgraf78.github.io/d | bash
 source ~/.bashrc  # or: source ~/.zshrc
 ```
 
-Overlay repos hosted on private remotes use SSH deploy keys for access control. Each overlay can include a companion `.ssh` file in `overlays.d/` that defines the SSH host alias for its remote (see [Overlays](#overlays)). Machines without the deploy key skip the overlay with a warning and continue.
+Overlay repos hosted on private remotes use SSH deploy keys for access control. Each overlay can include a companion `.ssh` file in `overlays.d/` that defines the SSH host alias for its remote (see [Overlays](#overlays)). Machines without the deploy key skip the overlay and continue.
 
 On subsequent runs, `dotbootstrap` pulls the base repo and clones any overlay repos defined in `~/.config/dot/overlays.d/`. The bootstrap script automatically backs up any conflicting files to `~/.dotfiles-backup/<timestamp>/`.
 
-After bootstrap, `dot update` self-installs a cron that keeps the machine updated automatically (see [Auto-update cron](#auto-update-cron)).
+Bootstrap automatically installs a cron that keeps the machine updated (see [Auto-update cron](#auto-update-cron)).
 
 ## Usage
 
@@ -53,9 +53,25 @@ dot cron              # show installed cron entries
 dot git <command>     # run any git command on the base repo
 ```
 
-`update` works on all machines with the bare repo. Installs cron entries from `~/.config/dot/merge-hooks.d/cron` into the user crontab. All other commands also require the bare repo. Use `dot git` for raw git operations (e.g., `dot git add`, `dot git commit`, `dot git log`).
+All commands require the bare repo. Use `dot git` for raw git operations on the base repo (e.g., `dot git add`, `dot git commit`, `dot git log`).
 
 Overlay repos are managed with plain `git -C ~/.dotfiles-<name>` for commits.
+
+To add a new file to the base repo:
+
+```bash
+dot git add <file> && dot git commit -m "add <file>" && dot push
+```
+
+## How It Works
+
+- `dot update` syncs everything: pulls repos (base + overlays), merges configs, updates deps
+- If a pull updates dot infrastructure (`.local/lib/dot/` or `.local/bin/dot`), the script re-execs itself so the rest of the run uses the new code
+- `dot fetch/pull/push/status/diff` operates on base + all active overlays
+- Overlay files are symlinked from `~/.dotfiles-<name>/home/` into `$HOME`
+- Files that override base versions get `--skip-worktree` to prevent phantom dirty status
+- Missing overlay repos are cloned automatically when their conf and deploy key are present
+- No branch sync, no markers — just independent repos. Every machine is a peer
 
 ## Overlays
 
@@ -66,6 +82,20 @@ Overlay repos extend the base dotfiles with additional files. Each overlay is de
 ├── 10-work.conf
 └── 20-nas.conf
 ```
+
+### Adding an overlay
+
+1. Create a conf file: `~/.config/dot/overlays.d/10-work.conf`
+2. Track it in the base repo: `dot git add .config/dot/overlays.d/10-work.conf`
+3. Run `dot update` or `dotbootstrap` — the overlay is cloned and linked automatically.
+
+### Adding an overlay file
+
+Add the file to the overlay repo under `home/`, commit, and push. The next `dot update` symlinks it into `$HOME`.
+
+### Overlay removal
+
+When an overlay conf is deleted or its filter stops matching, `dot update` automatically removes its symlinks from `$HOME` and restores any shadowed base-repo files.
 
 ### Conf file format
 
@@ -90,43 +120,17 @@ The filename determines the overlay name and priority:
 
 Numeric prefixes control ordering (same convention as shell config and merge hooks). When multiple overlays provide the same file, **last wins** (alphabetically by filename).
 
-### Adding an overlay
+### How overlays contribute configs
 
-1. Create a conf file: `~/.config/dot/overlays.d/10-work.conf`
-2. Track it in the base repo: `dot git add .config/dot/overlays.d/10-work.conf`
-3. Run `dot update` or `dotbootstrap` — the overlay is cloned and linked automatically.
+Overlays contribute merge hooks, shdeps configs, shell config, and scripts by placing files under `home/` at the right paths. Because these files are symlinked into `$HOME`, they appear in the same directories that `dot update` already scans:
 
-### Private overlays (deploy keys)
+- **Merge hooks** — `home/.config/dot/merge-hooks.d/80-*.sh` (use 80+ prefix to run after base 50-* hooks)
+- **Shdeps hooks** — `home/.config/shdeps/hooks.d/<name>.sh`
+- **Shell config** — `home/.config/shell/env.d/80-*.sh`, `home/.config/shell/interactive.d/80-*.sh`
+- **Cron entries** — `home/.config/dot/merge-hooks.d/cron.local` (untracked locally, or a numbered cron file)
+- **Scripts** — `home/.local/bin/<name>`
 
-Overlays hosted on private remotes use SSH deploy keys for access control. The deploy key determines which machines can access the overlay — no platform or host filtering needed.
-
-**One-time setup (per overlay):**
-
-1. Generate a deploy key:
-   ```bash
-   ssh-keygen -t ed25519 -f ~/.ssh/<name>-deploy -C "<name> deploy key" -N ""
-   ```
-2. Add the public key (`~/.ssh/<name>-deploy.pub`) to the remote host (e.g., GitHub repo → Settings → Deploy keys). Enable write access if you push from these machines.
-3. Create a companion `.ssh` file next to the conf:
-   ```
-   ~/.config/dot/overlays.d/10-work.ssh
-   ```
-   ```
-   Host github-dotfiles-work
-     HostName github.com
-     User git
-     IdentityFile ~/.ssh/dotfiles-work-deploy
-     IdentitiesOnly yes
-   ```
-4. Set the conf's `url` to use the SSH alias:
-   ```
-   url=github-dotfiles-work:user/dotfiles-work.git
-   ```
-5. Track both files: `dot git add .config/dot/overlays.d/10-work.conf .config/dot/overlays.d/10-work.ssh`
-
-The `.ssh` file is merged into `~/.ssh/config` automatically during `dot update` and `dotbootstrap`. Machines without the deploy key skip the overlay with a warning.
-
-**Provisioning a new machine:** copy the private key (`~/.ssh/<name>-deploy`) to the machine before running `dotbootstrap`.
+No special overlay mechanism needed — symlinking into `$HOME` is sufficient.
 
 ### Creating a new overlay repo
 
@@ -156,46 +160,52 @@ my-overlay-repo/
 
 Everything under `home/` is symlinked into `$HOME` by `dot update`. Files outside `home/` (READMEs, configs for the overlay repo itself) are not symlinked.
 
-### How overlays contribute configs
+### Private overlays (deploy keys)
 
-Overlays contribute merge hooks, shdeps configs, shell config, and scripts by placing files under `home/` at the right paths. Because these files are symlinked into `$HOME`, they appear in the same directories that `dot update` already scans:
+Overlays hosted on private remotes use SSH deploy keys for access control. The deploy key determines which machines can access the overlay — no platform or host filtering needed.
 
-- **Merge hooks** — `home/.config/dot/merge-hooks.d/80-*.sh` (use 80+ prefix to run after base 50-* hooks)
-- **Shdeps hooks** — `home/.config/shdeps/hooks.d/<name>.sh`
-- **Shell config** — `home/.config/shell/env.d/80-*.sh`, `home/.config/shell/interactive.d/80-*.sh`
-- **Cron entries** — `home/.config/dot/merge-hooks.d/cron.local` (untracked locally, or a numbered cron file)
-- **Scripts** — `home/.local/bin/<name>`
+**One-time setup (per overlay):**
 
-No special overlay mechanism needed — symlinking into `$HOME` is sufficient.
+1. Generate a deploy key and copy it to every machine that needs access:
+   ```bash
+   ssh-keygen -t ed25519 -f ~/.ssh/<name>-deploy -C "<name> deploy key" -N ""
+   scp ~/.ssh/<name>-deploy <other-host>:~/.ssh/
+   ```
+2. Add the public key (`~/.ssh/<name>-deploy.pub`) as a deploy key on the git remote (GitHub repo → Settings → Deploy keys). Enable write access if you push from these machines.
+3. Create a companion `.ssh` file next to the conf:
+   ```
+   ~/.config/dot/overlays.d/10-work.ssh
+   ```
+   ```
+   Host github-dotfiles-work
+     HostName github.com
+     User git
+     IdentityFile ~/.ssh/dotfiles-work-deploy
+     IdentitiesOnly yes
+   ```
+4. Set the conf's `url` to use the SSH alias:
+   ```
+   url=github-dotfiles-work:user/dotfiles-work.git
+   ```
+5. Track both files: `dot git add .config/dot/overlays.d/10-work.conf .config/dot/overlays.d/10-work.ssh`
 
-### Adding an overlay file
+The `.ssh` file is merged into `~/.ssh/config` automatically during `dot update` and `dotbootstrap`. Machines without the deploy key silently skip the overlay — once the key is added, the next `dot update` clones it automatically.
 
-Add the file to the overlay repo under `home/`, commit, and push. The next `dot update` symlinks it into `$HOME`.
+**Provisioning a new machine:** copy the private key (`~/.ssh/<name>-deploy`) to the machine before running `dotbootstrap`, or add it later and run `dot update`.
 
-### Overlay removal
+## Auto-update cron
 
-When an overlay conf is deleted or its filter stops matching, `dot update` automatically removes its symlinks from `$HOME` and restores any shadowed base-repo files.
-
-## How It Works
-
-- `dot update` syncs everything: pulls repos (base + overlays), merges configs, updates deps
-- If a pull updates dot infrastructure (`.local/lib/dot/` or `.local/bin/dot`), the script re-execs itself so the rest of the run uses the new code — no need to run `dot update` twice
-- `dot fetch/pull/push/status/diff` operates on base + all active overlays
-- Overlay bootstrap symlinks files from `~/.dotfiles-<name>/home/` into `$HOME`
-- Files that override base versions get `--skip-worktree` to prevent phantom dirty status
-- No branch sync, no markers — just independent repos
-
-### Auto-update cron
-
-`dot update` installs cron entries from `~/.config/dot/merge-hooks.d/cron` into the user crontab. By default this runs `dot update --cron` every 30 minutes, keeping all machines up to date automatically after the initial `dotbootstrap`.
+`dot update` installs cron entries from `~/.config/dot/merge-hooks.d/cron` into the user crontab. By default this runs `dot update --cron` every 30 minutes, keeping all machines up to date automatically.
 
 The `--cron` flag enables two safety behaviors:
 - **Skip if dirty** — if any repo has uncommitted changes, the update is skipped entirely. This prevents stomping on in-progress dotfile editing.
 - **Quiet mode** — suppresses all output unless something goes wrong.
 
-Every machine is a peer — no primary/replica roles. All machines pull from git independently.
-
 To change the schedule or add more cron entries, edit `~/.config/dot/merge-hooks.d/cron`. The file is a tracked dotfile — changes propagate to all machines on the next `dot update`. For machine-local entries that shouldn't propagate, use `~/.config/dot/merge-hooks.d/cron.local` (same format, untracked). Lines starting with `#` are comments. `$HOME` is expanded and `PATH` is injected automatically at install time.
+
+Run `dot cron` to see what's currently installed.
+
+### Cron filter directives
 
 Use `# filter:` directives to restrict entries to specific hosts or platforms:
 
@@ -218,9 +228,7 @@ Each `# filter:` line fully replaces the previous filter. Entries before any dir
 
 Platform values: `linux`, `macos`, `wsl`. Prefix with `!` to exclude. Comma-separated for multiple values (e.g., `platforms=linux,macos`, `platforms=!wsl`). Hosts match against the short hostname (`hostname -s`), case-insensitive.
 
-Run `dot cron` to see what's currently installed.
-
-### Shell config
+## Shell Config
 
 `.bashrc` and `.zshrc` are thin loaders that source files from
 `~/.config/shell/` in two phases. Files use numeric prefixes for load order
@@ -247,9 +255,13 @@ and extensions to indicate shell compatibility: `.sh` (any shell), `.bash`
 
 Base files (50-70) are in the base repo. Work files (10, 80-90) are symlinked from the work overlay by `dot update`.
 
-### VS Code config
+## App Config Merges
 
-Settings and keybindings in `~/.config/dot/vscode/` are merged into VS Code's config dirs by `dot update` and `dot pull`:
+`dot update` merges tracked config files into their app-specific locations. Merge hooks in `~/.config/dot/merge-hooks.d/` handle each app.
+
+### VS Code
+
+Settings and keybindings in `~/.config/dot/vscode/` are merged into VS Code's config dirs:
 
 ```
 ~/.config/dot/vscode/
@@ -262,23 +274,17 @@ Settings and keybindings in `~/.config/dot/vscode/` are merged into VS Code's co
 
 Merge policy: dotfiles win on conflicts, local-only settings/keybindings are preserved, JSONC comments are stripped.
 
-### iTerm2 config (macOS)
+### iTerm2 (macOS)
 
-Dynamic Profile in `~/.config/dot/iterm2/dotfiles-dyn-profile.json` is copied into iTerm2's DynamicProfiles dir by `dot update` and `dot pull`. Set it as default in Preferences.
+Dynamic Profile in `~/.config/dot/iterm2/dotfiles-dyn-profile.json` is copied into iTerm2's DynamicProfiles dir. Set it as default in Preferences.
 
-### Karabiner config (macOS)
+### Karabiner (macOS)
 
-Profiles in `~/.config/dot/karabiner/karabiner.json` are merged into Karabiner's config by `dot update` and `dot pull`. Merge policy: dotfiles profiles replace local profiles with the same name, local-only profiles are preserved.
+Profiles in `~/.config/dot/karabiner/karabiner.json` are merged into Karabiner's config. Dotfiles profiles replace local profiles with the same name; local-only profiles are preserved.
 
-### WezTerm config
+### WezTerm
 
-`~/.config/wezterm/wezterm.lua` is the WezTerm config file. Tracked directly. On WSL, `dot update` and `dot pull` copy it to the Windows home so the Windows-native WezTerm picks it up.
-
-## Adding a Base File
-
-```bash
-dot git add <file> && dot git commit -m "add <file>" && dot push
-```
+`~/.config/wezterm/wezterm.lua` is the WezTerm config file. Tracked directly. On WSL, `dot update` copies it to the Windows home so the Windows-native WezTerm picks it up.
 
 ## Dependency System
 
