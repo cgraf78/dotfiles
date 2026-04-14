@@ -12,6 +12,7 @@ _PC_RED=$'\001\033[31m\002'
 
 # Print colored git prompt: branch (cyan), op state (bold red), dirty (yellow),
 # ahead (green), behind (red). Falls back to ~/.dotfiles when not in a repo.
+# Uses porcelain=v2 to get branch, dirty, and ahead/behind in a single git call.
 __git_prompt() {
   local -a g=(git)
   local gitdir
@@ -25,29 +26,34 @@ __git_prompt() {
     [[ "$gitdir" != /* ]] && gitdir="$PWD/$gitdir"
   fi
 
-  local branch
-  branch="$("${g[@]}" symbolic-ref --short HEAD 2>/dev/null \
-    || "${g[@]}" rev-parse --short HEAD 2>/dev/null)" || return
+  # Single git call: branch, upstream, ahead/behind, and dirty state.
+  local git_status branch="" ahead=0 behind=0 dirty="" line
+  git_status="$("${g[@]}" --no-optional-locks status --porcelain=v2 --branch 2>/dev/null)" || return
+  while IFS= read -r line; do
+    case "$line" in
+      "# branch.head "*)  branch="${line#\# branch.head }" ;;
+      "# branch.ab "*)    read -r _ _ ahead behind <<< "$line"
+                          ahead="${ahead#+}"; behind="${behind#-}" ;;
+      "1 "*.*)            # changed entry: index/worktree status at chars 2-3
+                          [[ "${line[3]}" != "." ]] && dirty+="+"
+                          [[ "${line[4]}" != "." ]] && dirty+="*" ;;
+      "2 "*.*)            [[ "${line[3]}" != "." ]] && dirty+="+"
+                          [[ "${line[4]}" != "." ]] && dirty+="*" ;;
+      "u "*)              dirty+="+" ;;
+      "? "*)              dirty+="%" ;;
+    esac
+  done <<< "$git_status"
+  [[ -z "$branch" ]] && return
+  # Detached HEAD: porcelain v2 reports "(detached)", show short sha instead.
+  [[ "$branch" == "(detached)" ]] && branch="$("${g[@]}" rev-parse --short HEAD 2>/dev/null)"
+  # Deduplicate dirty markers (multiple changed files may append duplicates).
+  local d=""
+  [[ "$dirty" == *"+"* ]] && d+="+"
+  [[ "$dirty" == *"*"* ]] && d+="*"
+  [[ "$dirty" == *"%"* ]] && d+="%"
+  dirty="$d"
 
-  local git_status dirty=""
-  git_status="$("${g[@]}" --no-optional-locks status --porcelain 2>/dev/null)"
-  # Staged changes
-  [[ "$git_status" == *$'\n'[MADRC]* || "$git_status" == [MADRC]* ]] && dirty+="+"
-  # Unstaged changes
-  [[ "$git_status" == *$'\n'?[MDRC]* || "$git_status" == ?[MDRC]* ]] && dirty+="*"
-  # Untracked files
-  [[ "$git_status" == *"??"* ]] && dirty+="%"
-
-  # Ahead/behind upstream
-  local behind=0 ahead=0
-  if "${g[@]}" rev-parse --abbrev-ref '@{upstream}' &>/dev/null; then
-    local counts
-    counts="$("${g[@]}" rev-list --count --left-right '@{upstream}...HEAD' 2>/dev/null)" || true
-    behind="${counts%%$'\t'*}"
-    ahead="${counts##*$'\t'}"
-  fi
-
-  # In-progress operation state
+  # In-progress operation state (file tests, no subprocess).
   local op=""
   if [[ -f "$gitdir/MERGE_HEAD" ]]; then op="|MERGE"
   elif [[ -d "$gitdir/rebase-merge" || -d "$gitdir/rebase-apply" ]]; then op="|REBASE"
