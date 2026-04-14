@@ -119,7 +119,12 @@ _ensure_repo_config() {
     $git_cmd config filter.json-normalize.clean "jq --sort-keys ." 2>/dev/null || true
   }
   # shellcheck disable=SC2086  # $GIT is intentionally word-split.
-  [[ -d "$DOTFILES" ]] && _apply_repo_config $GIT
+  if [[ -d "$DOTFILES" ]]; then
+    _apply_repo_config $GIT
+    # Bare repo uses $HOME as work-tree; fsmonitor would watch the entire
+    # home directory, causing hangs.  Disable it unconditionally.
+    $GIT config core.fsmonitor false 2>/dev/null || true
+  fi
   local entry
   for entry in "${OVERLAYS[@]+"${OVERLAYS[@]}"}"; do
     local path url
