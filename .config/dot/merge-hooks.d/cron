@@ -1,3 +1,2 @@
 # vim: set ft=crontab:
-
 */30 * * * * $HOME/.local/bin/dot update --cron

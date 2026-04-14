@@ -18,6 +18,11 @@
 # Returns the block via stdout.
 _mb_build() {
   local marker="$1" source="$2" body="$3"
+  # Strip vim/emacs modelines — useful in source files for editing,
+  # but wrong inside a merged config file.
+  body="$(printf '%s\n' "$body" | grep -v '^#[[:space:]]*vim:' | grep -v '^#[[:space:]]*-\*-')"
+  body="${body#"${body%%[![:space:]]*}"}"
+  body="${body%"${body##*[![:space:]]}"}"
   printf '%s\n%s\n%s\n%s\n%s' \
     "$marker begin" \
     "# DO NOT EDIT: changes will be overwritten by dot update" \

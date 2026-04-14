@@ -121,7 +121,7 @@ merge() {
   local sources=""
   [[ -f "$cron_file" ]] && sources="$cron_file"
   [[ -f "$cron_local" ]] && sources="${sources:+$sources, }$cron_local"
-  local body="PATH=$cron_path"$'\n'"$_cron_parsed"
+  local body="PATH=$cron_path"$'\n\n'"$_cron_parsed"
   local managed_block
   managed_block="$(_mb_build "$cron_marker" "$sources" "$body")"
 

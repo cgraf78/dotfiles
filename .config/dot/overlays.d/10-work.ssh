@@ -1,3 +1,4 @@
+# vim: set ft=sshconfig:
 Host github-dotfiles-work
   HostName github.com
   User git

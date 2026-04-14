@@ -1,5 +1,4 @@
 # vim: set ft=sshconfig:
-
 Host nas
   Hostname nas.grafhome.net
   User chris
