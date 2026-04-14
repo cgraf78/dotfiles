@@ -11,14 +11,6 @@ _dir="${BASH_SOURCE[0]%/*}"
 # shdeps bootstrap — find or clone shdeps, configure for dotfiles
 # ---------------------------------------------------------------------------
 
-# Bridge shdeps logging to core.sh's versions so all output is consistent.
-# Define these before sourcing shdeps.sh — it respects pre-defined functions.
-_shdeps_log()        { _log "$@"; }
-_shdeps_warn()       { _warn "$@"; }
-_shdeps_log_ok()     { _log_ok "$@"; }
-_shdeps_log_dim()    { _log_dim "$@"; }
-_shdeps_log_header() { _log_header "$@"; }
-
 # Locate install.sh: env override → dev clone → installed clone → curl install.
 # Sets REPLY to the path on success, returns 1 if not found.
 # Also exports SHDEPS_LIB so _bootstrap skips its own redundant discovery.
