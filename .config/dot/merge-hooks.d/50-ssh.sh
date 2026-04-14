@@ -57,18 +57,14 @@ merge() {
   for f in "${src_files[@]}"; do
     local name
     name="$(basename "$f")"
-    # Resolve symlinks to show the real origin
+    # Resolve to absolute path, following symlinks
     local origin
-    if [[ -L "$f" ]]; then
-      origin="$(readlink "$f")"
-    else
-      origin="$name"
-    fi
+    origin="$(realpath "$f")"
     local body
     body="$(_ssh_body "$f")"
     [[ -n "$body" ]] || continue
     src_names+=("$name")
-    src_marked["$name"]="$_ssh_marker:$name begin — $origin"$'\n'"$body"$'\n'"$_ssh_marker:$name end"
+    src_marked["$name"]="$_ssh_marker:$name begin"$'\n'"# DO NOT EDIT: manual changes will be overwritten by dot update"$'\n'"# source: $origin"$'\n'"$body"$'\n'"$_ssh_marker:$name end"
   done
   [[ ${#src_names[@]} -gt 0 ]] || return 0
 

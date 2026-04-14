@@ -120,7 +120,11 @@ merge() {
 
   local cron_path
   cron_path=$(_cron_path)
-  local managed_block="$block_start"$'\n'"PATH=$cron_path"$'\n'"$_cron_parsed"$'\n'"$block_end"
+  # List source files that contributed entries.
+  local sources=""
+  [[ -f "$cron_file" ]] && sources="$cron_file"
+  [[ -f "$cron_local" ]] && sources="${sources:+$sources, }$cron_local"
+  local managed_block="$block_start"$'\n'"# DO NOT EDIT: manual changes will be overwritten by dot update"$'\n'"# source: $sources"$'\n'"PATH=$cron_path"$'\n'"$_cron_parsed"$'\n'"$block_end"
 
   # Already installed with same content — nothing to do.
   if [[ "$current" == *"$managed_block"* ]]; then
