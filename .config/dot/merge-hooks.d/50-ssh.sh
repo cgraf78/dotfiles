@@ -38,10 +38,17 @@ _ssh_parse() {
 }
 
 merge() {
-  local src="$HOME/.config/dot/merge-hooks.d/ssh-config"
+  local hooks_dir="$HOME/.config/dot/merge-hooks.d"
   local dst="$HOME/.ssh/config"
 
-  [[ -f "$src" ]] || return 0
+  # Collect all ssh-config* files (personal, work, etc.)
+  local -a src_files=()
+  local f
+  for f in "$hooks_dir"/ssh-config*; do
+    [[ -f "$f" ]] || continue
+    grep -qE '^(Host|Match)[[:space:]]' "$f" && src_files+=("$f")
+  done
+  [[ ${#src_files[@]} -gt 0 ]] || return 0
 
   _log_dim "  SSH"
 
@@ -51,16 +58,35 @@ merge() {
     chmod 700 "$HOME/.ssh"
   fi
 
-  # No existing config — just copy
+  # Parse all source files into a single set of blocks.
+  # Later files override earlier ones for the same Host/Match header.
+  local src_headers=()
+  declare -A src_blocks=()
+  for f in "${src_files[@]}"; do
+    local file_headers=()
+    declare -A file_blocks=()
+    _ssh_parse "$f" file_headers file_blocks
+    local h
+    for h in "${file_headers[@]}"; do
+      if [[ -z "${src_blocks[$h]+x}" ]]; then
+        src_headers+=("$h")
+      fi
+      src_blocks["$h"]="${file_blocks[$h]}"
+    done
+    unset file_headers file_blocks
+  done
+
+  # No existing config — write combined source
   if [[ ! -f "$dst" ]]; then
-    cp "$src" "$dst"
+    local result="" first=1
+    for h in "${src_headers[@]}"; do
+      [[ "$first" -eq 1 ]] && first=0 || result+=$'\n'
+      result+="${src_blocks[$h]}"
+    done
+    printf '%s' "$result" >"$dst"
     chmod 600 "$dst"
     return 0
   fi
-
-  local src_headers=()
-  declare -A src_blocks=()
-  _ssh_parse "$src" src_headers src_blocks
 
   local dst_headers=()
   declare -A dst_blocks=()
