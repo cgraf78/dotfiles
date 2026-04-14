@@ -21,3 +21,8 @@ vim.opt.rtp:prepend(lazypath)
 require("lazy").setup("plugins", require("config.lazy"))
 
 require("config.lsp")
+
+-- BigGrep (loaded after plugins so Telescope is available)
+if vim.fn.executable("xbgs") == 1 then
+  require("config.biggrep")
+end

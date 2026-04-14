@@ -88,3 +88,7 @@ map("n", "J", "mzJ`z", { desc = "Join lines (keep cursor)" })
 
 -- Spell checking
 map("n", "<leader>ss", ":setlocal spell!<CR>", { desc = "Toggle spell check" })
+
+-- BigGrep code search
+map("n", "<leader>bg", "<cmd>BigGrep<cr>", { desc = "BigGrep search" })
+map("n", "<leader>bw", "<cmd>BigGrepWord<cr>", { desc = "BigGrep word under cursor" })
