@@ -90,9 +90,9 @@
     }
   ],
   "terminal.explorerKind": "external",
-  "terminal.external.osxExec": "iTerm.app",
-  "terminal.integrated.defaultProfile.linux": "bash",
-  "terminal.integrated.defaultProfile.osx": "bash",
+  "terminal.external.osxExec": "WezTerm.app",
+  "terminal.integrated.defaultProfile.linux": "zsh",
+  "terminal.integrated.defaultProfile.osx": "zsh",
   "terminal.integrated.defaultProfile.windows": "WSL",
   "terminal.integrated.fontFamily": "JetBrainsMono Nerd Font, FiraCode Nerd Font, MesloLGM Nerd Font Mono, monospace",
   "terminal.integrated.letterSpacing": 0,
