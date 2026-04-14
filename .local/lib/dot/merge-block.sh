@@ -3,7 +3,7 @@
 #
 # A marked block looks like:
 #   # <marker> begin
-#   # DO NOT EDIT: manual changes will be overwritten by dot update
+#   # DO NOT EDIT: changes will be overwritten by dot update
 #   # source: /path/to/source
 #   <content>
 #   # <marker> end
@@ -20,7 +20,7 @@ _mb_build() {
   local marker="$1" source="$2" body="$3"
   printf '%s\n%s\n%s\n%s\n%s' \
     "$marker begin" \
-    "# DO NOT EDIT: manual changes will be overwritten by dot update" \
+    "# DO NOT EDIT: changes will be overwritten by dot update" \
     "# source: $source" \
     "$body" \
     "$marker end"
