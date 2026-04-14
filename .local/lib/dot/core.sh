@@ -172,69 +172,48 @@ _parse_overlay_conf() {
 }
 
 # Ensure overlay .ssh files are merged into ~/.ssh/config so clone
-# URLs using SSH host aliases resolve. Appends missing Host blocks
-# and replaces existing blocks whose content has changed.
+# URLs using SSH host aliases resolve. Each .ssh file gets its own
+# marked block, managed by the shared merge-block helpers.
 _merge_overlay_ssh_configs() {
   local conf_dir="$HOME/.config/dot/overlays.d"
+  local dst="$HOME/.ssh/config"
+  local -a blocks=()
   local f
   for f in "$conf_dir"/*.ssh; do
     [[ -f "$f" ]] || continue
-    local host_line
-    host_line=$(grep -m1 "^Host " "$f" 2>/dev/null) || continue
-    [[ -n "$host_line" ]] || continue
+    grep -qm1 "^Host " "$f" 2>/dev/null || continue
 
-    local block
-    block=$(<"$f")
-    block="${block%$'\n'}"
+    local name
+    name="$(basename "$f" .ssh)"
+    local origin
+    origin="$(realpath "$f")"
+    local body
+    body=$(<"$f")
+    body="${body%$'\n'}"
 
     # Inherit ProxyCommand from the target host if the alias doesn't
     # define one. E.g., if Host github.com has a ProxyCommand for a
     # corporate proxy, the alias needs it too.
-    if [[ "$block" != *ProxyCommand* ]]; then
+    if [[ "$body" != *ProxyCommand* ]]; then
       local target_host
-      target_host=$(echo "$block" | awk '/^[[:space:]]+HostName /{print $2; exit}')
-      if [[ -n "$target_host" && -f "$HOME/.ssh/config" ]]; then
+      target_host=$(echo "$body" | awk '/^[[:space:]]+HostName /{print $2; exit}')
+      if [[ -n "$target_host" && -f "$dst" ]]; then
         local proxy_cmd
         proxy_cmd=$(awk -v host="$target_host" '
           /^Host / { active=($2 == host) }
           active && /^[[:space:]]+ProxyCommand / { sub(/^[[:space:]]+/, "  "); print; exit }
-        ' "$HOME/.ssh/config")
+        ' "$dst")
         if [[ -n "$proxy_cmd" ]]; then
-          block="$block"$'\n'"$proxy_cmd"
+          body="$body"$'\n'"$proxy_cmd"
         fi
       fi
     fi
 
-    if [[ ! -d "$HOME/.ssh" ]]; then
-      mkdir -p "$HOME/.ssh"
-      chmod 700 "$HOME/.ssh"
-    fi
-
-    local dst="$HOME/.ssh/config"
-    if grep -qxF "$host_line" "$dst" 2>/dev/null; then
-      # Host line present — check if full block matches
-      if [[ "$(<"$dst")" == *"$block"* ]]; then
-        continue
-      fi
-      # Block differs — remove old block, will re-append below
-      local tmp
-      tmp=$(awk -v host="${host_line#Host }" '
-        /^Host / && $2 == host { skip=1; next }
-        skip && /^[^[:space:]]/ { skip=0 }
-        skip { next }
-        { print }
-      ' "$dst")
-      printf '%s' "$tmp" >"$dst"
-    fi
-
-    # Append the block with a single blank line separator
-    if [[ -f "$dst" && -s "$dst" ]]; then
-      printf '\n\n%s\n' "$block" >>"$dst"
-    else
-      printf '%s\n' "$block" >"$dst"
-    fi
-    chmod 600 "$dst"
+    blocks+=("$(_mb_build "# dot-managed:overlay-ssh:$name" "$origin" "$body")")
   done
+
+  [[ ${#blocks[@]} -gt 0 ]] || return 0
+  _mb_merge "$dst" "${blocks[@]}"
 }
 
 # Discover all active overlays. Populates OVERLAYS array.

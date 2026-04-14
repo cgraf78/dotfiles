@@ -166,7 +166,7 @@ $GIT config user.name "Test"
 
 # Create dot config dir and copy modules
 mkdir -p "$TEST_HOME/.local/lib/dot"
-for _f in init.sh core.sh repos.sh merges.sh; do
+for _f in init.sh core.sh merge-block.sh repos.sh merges.sh; do
   cp "$REAL_HOME/.local/lib/dot/$_f" "$TEST_HOME/.local/lib/dot/$_f"
 done
 mkdir -p "$TEST_HOME/.config/shdeps"
@@ -571,12 +571,12 @@ rm -rf "$SSH_DIR"
 # No .ssh files → no-op
 _merge_overlay_ssh_configs
 if [[ ! -f "$SSH_CONFIG" ]]; then
-  _pass "ssh merge: no .ssh files → no config created"
+  _pass "overlay ssh: no .ssh files → no config created"
 else
-  _fail "ssh merge: no .ssh files → no config created"
+  _fail "overlay ssh: no .ssh files → no config created"
 fi
 
-# Create a .ssh file → appended to config
+# Create a .ssh file → creates marked block
 cat >"$TEST_HOME/.config/dot/overlays.d/10-work.ssh" <<'SSH'
 Host test-alias
   HostName example.com
@@ -584,15 +584,18 @@ Host test-alias
   IdentityFile ~/.ssh/test-key
 SSH
 _merge_overlay_ssh_configs
-_assert_file_exists "ssh merge: config created" "$SSH_CONFIG"
+_assert_file_exists "overlay ssh: config created" "$SSH_CONFIG"
 ssh_content=$(cat "$SSH_CONFIG")
-_assert_contains "ssh merge: host appended" "Host test-alias" "$ssh_content"
-_assert_contains "ssh merge: options present" "HostName example.com" "$ssh_content"
+_assert_contains "overlay ssh: host present" "Host test-alias" "$ssh_content"
+_assert_contains "overlay ssh: options present" "HostName example.com" "$ssh_content"
+_assert_contains "overlay ssh: begin marker" "dot-managed:overlay-ssh:10-work begin" "$ssh_content"
+_assert_contains "overlay ssh: end marker" "dot-managed:overlay-ssh:10-work end" "$ssh_content"
+_assert_contains "overlay ssh: DO NOT EDIT" "DO NOT EDIT" "$ssh_content"
 
 # Idempotent — running again doesn't duplicate
 _merge_overlay_ssh_configs
 count=$(grep -c "^Host test-alias" "$SSH_CONFIG")
-_assert_eq "ssh merge: idempotent" "1" "$count"
+_assert_eq "overlay ssh: idempotent" "1" "$count"
 
 # Changed block → replaced
 cat >"$TEST_HOME/.config/dot/overlays.d/10-work.ssh" <<'SSH'
@@ -603,12 +606,12 @@ Host test-alias
 SSH
 _merge_overlay_ssh_configs
 ssh_content=$(cat "$SSH_CONFIG")
-_assert_contains "ssh merge: updated hostname" "changed.example.com" "$ssh_content"
-_assert_not_contains "ssh merge: old hostname removed" "HostName example.com" "$ssh_content"
+_assert_contains "overlay ssh: updated hostname" "changed.example.com" "$ssh_content"
+_assert_not_contains "overlay ssh: old hostname removed" "HostName example.com" "$ssh_content"
 count=$(grep -c "^Host test-alias" "$SSH_CONFIG")
-_assert_eq "ssh merge: still one block" "1" "$count"
+_assert_eq "overlay ssh: still one block" "1" "$count"
 
-# Preserves other entries
+# Preserves hand-managed entries above managed blocks
 cat >"$SSH_CONFIG" <<'EXISTING'
 Host myserver
   HostName myserver.com
@@ -621,12 +624,15 @@ Host test-alias
 SSH
 _merge_overlay_ssh_configs
 ssh_content=$(cat "$SSH_CONFIG")
-_assert_contains "ssh merge: preserves existing" "Host myserver" "$ssh_content"
-_assert_contains "ssh merge: adds new" "Host test-alias" "$ssh_content"
+_assert_contains "overlay ssh: preserves existing" "Host myserver" "$ssh_content"
+_assert_contains "overlay ssh: adds new" "Host test-alias" "$ssh_content"
+# Hand-managed entries come first (SSH first-match-wins)
+first_host=$(grep -m1 '^Host ' "$SSH_CONFIG")
+_assert_contains "overlay ssh: hand-managed first" "myserver" "$first_host"
 
 # Permissions
 perms=$(stat -c '%a' "$SSH_CONFIG" 2>/dev/null || stat -f '%Lp' "$SSH_CONFIG" 2>/dev/null)
-_assert_eq "ssh merge: config is 600" "600" "$perms"
+_assert_eq "overlay ssh: config is 600" "600" "$perms"
 
 # Clean up
 rm -rf "$SSH_DIR"
@@ -947,7 +953,7 @@ _assert_eq "unknown cmd: nothing on stdout" "" "$stdout"
 # dot git without bare repo → error
 NO_REPO_GIT=$(_tmpdir)
 mkdir -p "$NO_REPO_GIT/.local/lib/dot"
-for _f in init.sh core.sh repos.sh merges.sh; do
+for _f in init.sh core.sh merge-block.sh repos.sh merges.sh; do
   cp "$REAL_HOME/.local/lib/dot/$_f" "$NO_REPO_GIT/.local/lib/dot/$_f"
 done
 mkdir -p "$NO_REPO_GIT/.config/shdeps"
@@ -1078,7 +1084,7 @@ _assert_file_content "update: generic hook ran" "$TEST_HOME/.local/share/hook-pa
 # Update without bare repo: no error, no pull, still succeeds
 NO_REPO_HOME=$(_tmpdir)
 mkdir -p "$NO_REPO_HOME/.local/lib/dot"
-for _f in init.sh core.sh repos.sh merges.sh; do
+for _f in init.sh core.sh merge-block.sh repos.sh merges.sh; do
   cp "$REAL_HOME/.local/lib/dot/$_f" "$NO_REPO_HOME/.local/lib/dot/$_f"
 done
 mkdir -p "$NO_REPO_HOME/.config/shdeps"

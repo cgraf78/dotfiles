@@ -99,16 +99,14 @@ merge() {
   _cron_parse_file "$cron_file"
   _cron_parse_file "$cron_local"
 
-  local block_start="$cron_marker begin"
-  local block_end="$cron_marker end"
   local current
   current=$(crontab -l 2>/dev/null || true)
 
   # No active entries — strip any existing managed block and return.
   if [[ -z "$_cron_parsed" ]]; then
-    if [[ "$current" == *"$block_start"* ]]; then
+    if [[ "$current" == *"$cron_marker begin"* ]]; then
       local stripped
-      stripped=$(echo "$current" | sed "/$block_start/,/$block_end/d")
+      stripped="$(_mb_strip "$cron_marker" "$current")"
       if [[ -n "$stripped" ]]; then
         echo "$stripped" | crontab -
       else
@@ -124,7 +122,9 @@ merge() {
   local sources=""
   [[ -f "$cron_file" ]] && sources="$cron_file"
   [[ -f "$cron_local" ]] && sources="${sources:+$sources, }$cron_local"
-  local managed_block="$block_start"$'\n'"# DO NOT EDIT: manual changes will be overwritten by dot update"$'\n'"# source: $sources"$'\n'"PATH=$cron_path"$'\n'"$_cron_parsed"$'\n'"$block_end"
+  local body="PATH=$cron_path"$'\n'"$_cron_parsed"
+  local managed_block
+  managed_block="$(_mb_build "$cron_marker" "$sources" "$body")"
 
   # Already installed with same content — nothing to do.
   if [[ "$current" == *"$managed_block"* ]]; then
@@ -133,11 +133,7 @@ merge() {
 
   # Strip any existing managed block.
   local filtered
-  if [[ "$current" == *"$block_start"* ]]; then
-    filtered=$(echo "$current" | sed "/$block_start/,/$block_end/d")
-  else
-    filtered="$current"
-  fi
+  filtered="$(_mb_strip "$cron_marker" "$current")"
 
   # Append the new managed block.
   local new_crontab

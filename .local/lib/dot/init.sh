@@ -4,6 +4,7 @@
 
 _dir="${BASH_SOURCE[0]%/*}"
 . "$_dir/core.sh"
+. "$_dir/merge-block.sh"
 . "$_dir/repos.sh"
 . "$_dir/merges.sh"
 
