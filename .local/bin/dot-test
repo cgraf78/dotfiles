@@ -654,8 +654,7 @@ mkdir -p "$TEST_HOME/.config/dot/merge-hooks.d"
 _SSH_HOOK="$REAL_HOME/.config/dot/merge-hooks.d/50-ssh.sh"
 
 _run_ssh_merge() {
-  unset -f merge _ssh_body 2>/dev/null
-  unset _ssh_marker 2>/dev/null
+  unset -f merge 2>/dev/null
   # shellcheck source=/dev/null
   . "$_SSH_HOOK"
   merge
@@ -686,7 +685,7 @@ _assert_contains "ssh hook: begin marker" "dot-managed:ssh:ssh-config begin" "$s
 _assert_contains "ssh hook: end marker" "dot-managed:ssh:ssh-config end" "$ssh_content"
 _assert_contains "ssh hook: host present" "Host testhost" "$ssh_content"
 _assert_contains "ssh hook: options present" "HostName test.example.com" "$ssh_content"
-_assert_not_contains "ssh hook: header comment stripped" "Header comment" "$ssh_content"
+_assert_contains "ssh hook: source comments preserved" "Header comment" "$ssh_content"
 
 # Idempotent — running again doesn't change output
 cp "$SSH_CONFIG" "$SSH_CONFIG.prev"
@@ -1243,7 +1242,7 @@ _assert_contains "expands \$HOME" "$TEST_HOME" "$result"
 _assert_contains "injects PATH" "PATH=" "$result"
 _assert_contains "has begin marker" "dot-managed-cron begin" "$result"
 _assert_contains "has end marker" "dot-managed-cron end" "$result"
-_assert_not_contains "strips comments" "comment line" "$result"
+_assert_contains "preserves comments" "comment line" "$result"
 
 # Idempotent — running again doesn't duplicate
 _run_cron_merge 2>/dev/null
@@ -1302,7 +1301,7 @@ cat >"$TEST_HOME/.config/dot/merge-hooks.d/cron" <<'EOF'
 */30 * * * * $HOME/.local/bin/dot update --cron
 EOF
 
-# All-comments cron file strips old managed block
+# Empty cron file strips old managed block
 : >"$MOCK_CRONTAB"
 cat >"$TEST_HOME/.config/dot/merge-hooks.d/cron" <<'EOF'
 */30 * * * * $HOME/.local/bin/dot update --cron
@@ -1310,22 +1309,28 @@ EOF
 _run_cron_merge 2>/dev/null
 result=$(crontab -l 2>/dev/null)
 _assert_contains "pre-remove: entry exists" "dot update --cron" "$result"
-cat >"$TEST_HOME/.config/dot/merge-hooks.d/cron" <<'EOF'
-# everything commented out
-EOF
+: >"$TEST_HOME/.config/dot/merge-hooks.d/cron"
 _run_cron_merge 2>/dev/null
 result=$(crontab -l 2>/dev/null)
 _assert_not_contains "remove: old entries stripped" "dot update --cron" "$result"
 _assert_not_contains "remove: markers stripped" "dot-managed-cron" "$result"
 
-# All-comments cron file preserves non-managed entries
-echo "0 6 * * * /usr/bin/other-job" | crontab -
+# Comments-only cron file installs the comments
+: >"$MOCK_CRONTAB"
 cat >"$TEST_HOME/.config/dot/merge-hooks.d/cron" <<'EOF'
-# only comments here
+# descriptive comment
 EOF
 _run_cron_merge 2>/dev/null
 result=$(crontab -l 2>/dev/null)
-_assert_contains "all-comments: preserves other jobs" "other-job" "$result"
+_assert_contains "comments-only: comment installed" "descriptive comment" "$result"
+_assert_contains "comments-only: markers present" "dot-managed-cron begin" "$result"
+
+# Empty cron file preserves non-managed entries
+echo "0 6 * * * /usr/bin/other-job" | crontab -
+: >"$TEST_HOME/.config/dot/merge-hooks.d/cron"
+_run_cron_merge 2>/dev/null
+result=$(crontab -l 2>/dev/null)
+_assert_contains "empty file: preserves other jobs" "other-job" "$result"
 
 # ---------------------------------------------------------------------------
 # Tests: cron filter directives

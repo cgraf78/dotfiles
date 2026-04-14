@@ -8,26 +8,6 @@
 # entries outside markers are preserved above the managed blocks so they
 # win via SSH's first-match-wins semantics.
 
-# Read a source file, stripping leading comment-only lines (the header
-# comment block) and any trailing blank lines. Returns the body via stdout.
-_ssh_body() {
-  local file="$1"
-  local in_header=1 body=""
-  while IFS= read -r line || [[ -n "$line" ]]; do
-    if [[ "$in_header" -eq 1 ]]; then
-      [[ "$line" =~ ^[[:space:]]*# ]] && continue
-      [[ -z "$line" ]] && continue
-      in_header=0
-    fi
-    body+="$line"$'\n'
-  done <"$file"
-  # Strip trailing blank lines
-  while [[ "$body" == *$'\n\n' ]]; do
-    body="${body%$'\n'}"
-  done
-  printf '%s' "$body"
-}
-
 merge() {
   local hooks_dir="$HOME/.config/dot/merge-hooks.d"
   local dst="$HOME/.ssh/config"
@@ -51,7 +31,8 @@ merge() {
     local origin
     origin="$(realpath "$f")"
     local body
-    body="$(_ssh_body "$f")"
+    body=$(<"$f")
+    body="${body%$'\n'}"
     [[ -n "$body" ]] || continue
     blocks+=("$(_mb_build "# dot-managed:ssh:$name" "$origin" "$body")")
   done

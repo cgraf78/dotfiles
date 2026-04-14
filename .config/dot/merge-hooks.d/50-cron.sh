@@ -56,8 +56,9 @@ _cron_filter_match() {
   return 0
 }
 
-# Parse a cron file: expand $HOME in entries, skip comments/blanks.
+# Parse a cron file: expand $HOME in entries, preserve comments.
 # Supports `# filter:` directives for host/platform filtering.
+# Filter directives are consumed (not passed through to crontab).
 # Appends processed lines to $_cron_parsed (caller must initialize).
 _cron_parse_file() {
   local file="$1"
@@ -72,8 +73,6 @@ _cron_parse_file() {
       _cron_parse_filter "${BASH_REMATCH[1]}"
       continue
     fi
-    [[ "$line" =~ ^[[:space:]]*# ]] && continue
-    [[ -z "${line// /}" ]] && continue
 
     _cron_filter_match || continue
 
