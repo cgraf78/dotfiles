@@ -21,6 +21,7 @@ _shdeps_log_header() { _log_header "$@"; }
 
 # Locate install.sh: env override → dev clone → installed clone → curl install.
 # Sets REPLY to the path on success, returns 1 if not found.
+# Also exports SHDEPS_LIB so _bootstrap skips its own redundant discovery.
 _find_shdeps_installer() {
   # REAL_HOME is set by test framework when HOME is mocked
   local real_home="${REAL_HOME:-$HOME}"
@@ -30,11 +31,13 @@ _find_shdeps_installer() {
     REPLY="${SHDEPS_LIB%/*}/install.sh"
     return 0
   fi
-  if [[ -f "$dev_dir/shdeps/install.sh" ]]; then
+  if [[ -f "$dev_dir/shdeps/shdeps.sh" ]]; then
+    export SHDEPS_LIB="$dev_dir/shdeps/shdeps.sh"
     REPLY="$dev_dir/shdeps/install.sh"
     return 0
   fi
-  if [[ -f "$real_home/.local/share/shdeps/install.sh" ]]; then
+  if [[ -f "$real_home/.local/share/shdeps/shdeps.sh" ]]; then
+    export SHDEPS_LIB="$real_home/.local/share/shdeps/shdeps.sh"
     REPLY="$real_home/.local/share/shdeps/install.sh"
     return 0
   fi
