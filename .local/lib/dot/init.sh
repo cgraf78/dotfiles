@@ -34,8 +34,8 @@ _find_shdeps_installer() {
     REPLY="$dev_dir/shdeps/install.sh"
     return 0
   fi
-  if [[ -f "$HOME/.local/share/shdeps/install.sh" ]]; then
-    REPLY="$HOME/.local/share/shdeps/install.sh"
+  if [[ -f "$real_home/.local/share/shdeps/install.sh" ]]; then
+    REPLY="$real_home/.local/share/shdeps/install.sh"
     return 0
   fi
 
