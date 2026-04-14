@@ -233,7 +233,7 @@ BASE_STAGING=$(_tmpdir)
 mkdir -p "$BASE_STAGING/.local/lib/dot"
 echo "bashrc content" >"$BASE_STAGING/.bashrc"
 
-for _f in init.sh core.sh repos.sh merges.sh; do
+for _f in init.sh core.sh repos.sh merges.sh merge-block.sh; do
   cp "$REAL_HOME/.local/lib/dot/$_f" "$BASE_STAGING/.local/lib/dot/$_f"
 done
 mkdir -p "$BASE_STAGING/.config/shdeps"
