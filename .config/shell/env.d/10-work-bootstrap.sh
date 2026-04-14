@@ -1,1 +1,0 @@
-../../../.dotfiles-work/home/.config/shell/env.d/10-work-bootstrap.sh
