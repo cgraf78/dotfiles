@@ -1,3 +1,8 @@
+# vim: set ft=sshconfig:
+# SSH host definitions.
+# Merged into ~/.ssh/config by 50-ssh.sh (globs ssh-config*).
+# Add Host/Match blocks below.
+
 Host nas
   Hostname nas.grafhome.net
   User chris
