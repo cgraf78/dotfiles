@@ -83,29 +83,24 @@ if is_macos then
   font_size = 10.5
   line_height = 1.05
 
-  local bash_path = first_existing({
-    '/opt/homebrew/bin/bash',
-    '/usr/local/bin/bash',
-    '/bin/bash',
-  }) or '/bin/bash'
-  default_prog = { bash_path, '-l' }
+  -- Use the system login shell (set via chsh).
+  default_prog = nil
 
   macos_window_background_blur = 18
 elseif is_windows then
   table.insert(font_names, 'Consolas')
   font_size = 9.0
   line_height = 1.0
-  default_prog = { 'wsl.exe', '-d', 'archlinux', '--cd', '/home/chris', '--exec', '/bin/bash', '-l' }
+  -- WSL needs an explicit program; can't use the login shell.
+  default_prog = { 'wsl.exe', '-d', 'archlinux', '--cd', '/home/chris', '--exec', '/bin/zsh', '-l' }
 elseif is_linux then
   table.insert(font_names, 'DejaVu Sans Mono')
   font_size = 9.5
   line_height = 1.0
-  default_prog = { '/bin/bash', '-l' }
 else
   table.insert(font_names, 'monospace')
   font_size = 10.0
   line_height = 1.0
-  default_prog = { '/bin/bash', '-l' }
 end
 
 -- =============================================================================
