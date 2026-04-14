@@ -2,39 +2,31 @@
 # Merge SSH host definitions from dotfiles into ~/.ssh/config.
 # Shared by dotbootstrap and dot (on pull).
 #
-# Policy: dotfiles hosts replace local hosts with the same Host/Match header.
-# Local-only hosts are preserved. Order is maintained — new hosts append.
+# Each ssh-config* source file gets its own marked block in ~/.ssh/config,
+# delineated by comment markers. Content inside markers is pasted verbatim
+# from the source and will be overwritten on each merge. Hand-managed
+# entries outside markers are preserved.
 
-# Parse an SSH config into parallel arrays: headers (ordered) and blocks
-# (header → full block text including the header line).
-# Each stored block is normalized to end with a single newline (no blank line).
-# Args: $1 = file, $2 = headers array name, $3 = blocks assoc-array name
-_ssh_parse() {
+_ssh_marker="# dot-managed:ssh"
+
+# Read a source file, stripping leading comment-only lines (the header
+# comment block) and any trailing blank lines. Returns the body via stdout.
+_ssh_body() {
   local file="$1"
-  declare -n _headers="$2" _blocks="$3"
-  local header="" block=""
-
+  local in_header=1 body=""
   while IFS= read -r line || [[ -n "$line" ]]; do
-    if [[ "$line" =~ ^(Host|Match)[[:space:]] ]]; then
-      if [[ -n "$header" ]]; then
-        # Normalize to end with exactly one newline
-        block="${block%$'\n'}"$'\n'
-        _headers+=("$header")
-        _blocks["$header"]="$block"
-      fi
-      header="$line"
-      block="$line"$'\n'
-    elif [[ -n "$header" && -n "$line" ]]; then
-      block+="$line"$'\n'
+    if [[ "$in_header" -eq 1 ]]; then
+      [[ "$line" =~ ^[[:space:]]*# ]] && continue
+      [[ -z "$line" ]] && continue
+      in_header=0
     fi
+    body+="$line"$'\n'
   done <"$file"
-
-  if [[ -n "$header" ]]; then
-    # Normalize to end with exactly one newline
-    block="${block%$'\n'}"$'\n'
-    _headers+=("$header")
-    _blocks["$header"]="$block"
-  fi
+  # Strip trailing blank lines
+  while [[ "$body" == *$'\n\n' ]]; do
+    body="${body%$'\n'}"
+  done
+  printf '%s' "$body"
 }
 
 merge() {
@@ -58,70 +50,61 @@ merge() {
     chmod 700 "$HOME/.ssh"
   fi
 
-  # Parse all source files into a single set of blocks.
-  # Later files override earlier ones for the same Host/Match header.
-  local src_headers=()
-  declare -A src_blocks=()
+  # Build marked blocks for each source file.
+  # Keys are the basename (e.g. "ssh-config", "ssh-config-work").
+  local -a src_names=()
+  declare -A src_marked=()
   for f in "${src_files[@]}"; do
-    local file_headers=()
-    declare -A file_blocks=()
-    _ssh_parse "$f" file_headers file_blocks
-    local h
-    for h in "${file_headers[@]}"; do
-      if [[ -z "${src_blocks[$h]+x}" ]]; then
-        src_headers+=("$h")
-      fi
-      src_blocks["$h"]="${file_blocks[$h]}"
-    done
-    unset file_headers file_blocks
-  done
-
-  # No existing config — write combined source
-  if [[ ! -f "$dst" ]]; then
-    local result="" first=1
-    for h in "${src_headers[@]}"; do
-      [[ "$first" -eq 1 ]] && first=0 || result+=$'\n'
-      result+="${src_blocks[$h]}"
-    done
-    printf '%s' "$result" >"$dst"
-    chmod 600 "$dst"
-    return 0
-  fi
-
-  local dst_headers=()
-  declare -A dst_blocks=()
-  _ssh_parse "$dst" dst_headers dst_blocks
-
-  # Source header lookup set
-  declare -A src_set=()
-  local h
-  for h in "${src_headers[@]}"; do
-    src_set["$h"]=1
-  done
-
-  # Walk destination blocks, replacing matches with source version.
-  # Blocks are separated by blank lines.
-  declare -A emitted=()
-  local result="" first=1
-  for h in "${dst_headers[@]}"; do
-    [[ "$first" -eq 1 ]] && first=0 || result+=$'\n'
-    if [[ -n "${src_set[$h]+x}" ]]; then
-      result+="${src_blocks[$h]}"
+    local name
+    name="$(basename "$f")"
+    # Resolve symlinks to show the real origin
+    local origin
+    if [[ -L "$f" ]]; then
+      origin="$(readlink "$f")"
     else
-      result+="${dst_blocks[$h]}"
+      origin="$name"
     fi
-    emitted["$h"]=1
+    local body
+    body="$(_ssh_body "$f")"
+    [[ -n "$body" ]] || continue
+    src_names+=("$name")
+    src_marked["$name"]="$_ssh_marker:$name begin — $origin"$'\n'"$body"$'\n'"$_ssh_marker:$name end"
+  done
+  [[ ${#src_names[@]} -gt 0 ]] || return 0
+
+  local current=""
+  [[ -f "$dst" ]] && current="$(cat "$dst")"
+
+  # Strip existing marked blocks from the current config.
+  local rest="$current"
+  for name in "${src_names[@]}"; do
+    local block_start="$_ssh_marker:$name begin"
+    local block_end="$_ssh_marker:$name end"
+    if [[ "$rest" == *"$block_start"* ]]; then
+      rest="$(printf '%s\n' "$rest" | sed "/$block_start/,/$block_end/d")"
+    fi
   done
 
-  # Append source-only blocks
-  for h in "${src_headers[@]}"; do
-    if [[ -z "${emitted[$h]+x}" ]]; then
-      result+=$'\n'"${src_blocks[$h]}"
+  # Collapse runs of 3+ blank lines to 2, then strip leading/trailing
+  # whitespace. Prevents blank-line accumulation across repeated merges.
+  rest="$(printf '%s\n' "$rest" | cat -s)"
+  rest="${rest#"${rest%%[![:space:]]*}"}"
+  rest="${rest%"${rest##*[![:space:]]}"}"
+
+  # Build result: hand-managed entries first (SSH is first-match-wins,
+  # so local overrides take precedence), then managed blocks.
+  local result="$rest"
+  for name in "${src_names[@]}"; do
+    if [[ -n "$result" ]]; then
+      result+=$'\n\n'"${src_marked[$name]}"
+    else
+      result="${src_marked[$name]}"
     fi
   done
+  result+=$'\n'
 
   # Skip write if nothing changed
-  if printf '%s' "$result" | cmp -s - "$dst"; then
+  if [[ -f "$dst" ]] && printf '%s' "$result" | cmp -s - "$dst"; then
     return 0
   fi
 
