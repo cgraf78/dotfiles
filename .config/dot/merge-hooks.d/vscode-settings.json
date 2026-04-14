@@ -70,16 +70,11 @@
   "files.insertFinalNewline": true,
   "files.trimFinalNewlines": true,
   "homepage.startup": "Never",
-  "isort.args": [
-    "--profile",
-    "black"
-  ],
+  "isort.args": ["--profile", "black"],
   "multiCommand.commands": [
     {
       "command": "multiCommand.focusEditor",
-      "sequence": [
-        "workbench.action.focusActiveEditorGroup"
-      ]
+      "sequence": ["workbench.action.focusActiveEditorGroup"]
     },
     {
       "command": "multiCommand.findNextAndFocusEditor",
@@ -98,39 +93,23 @@
   "terminal.integrated.letterSpacing": 0,
   "terminal.integrated.profiles.linux": {
     "bash": {
-      "args": [
-        "-l"
-      ],
+      "args": ["-l"],
       "icon": "terminal-bash",
       "path": "bash"
     },
-    "tmux": {
-      "icon": "terminal-tmux",
-      "path": "tmux"
-    },
     "zsh": {
-      "args": [
-        "-l"
-      ],
+      "args": ["-l"],
       "path": "zsh"
     }
   },
   "terminal.integrated.profiles.osx": {
     "bash": {
-      "args": [
-        "-l"
-      ],
+      "args": ["-l"],
       "icon": "terminal-bash",
       "path": "bash"
     },
-    "tmux": {
-      "icon": "terminal-tmux",
-      "path": "tmux"
-    },
     "zsh": {
-      "args": [
-        "-l"
-      ],
+      "args": ["-l"],
       "path": "zsh"
     }
   },
