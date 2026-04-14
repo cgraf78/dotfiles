@@ -13,6 +13,7 @@ _PC_RED=$'\001\033[31m\002'
 # Print colored git prompt: branch (cyan), op state (bold red), dirty (yellow),
 # ahead (green), behind (red). Falls back to ~/.dotfiles when not in a repo.
 # Uses porcelain=v2 to get branch, dirty, and ahead/behind in a single git call.
+# Called in a background process; output is captured via fd and displayed async.
 __git_prompt() {
   local -a g=(git)
   local gitdir
@@ -71,6 +72,47 @@ __git_prompt() {
   print -rn -- "$out"
 }
 
+# ---------------------------------------------------------------------------
+# Async git prompt: computes git info in background, updates prompt via
+# zle reset-prompt when ready.  Shows stale result instantly, refreshes
+# ~60ms later (imperceptible).
+# ---------------------------------------------------------------------------
+
+__git_prompt_result=""
+__git_prompt_fd=""
+__git_prompt_pwd=""
+
+# Cancel any pending async git prompt computation.
+__git_prompt_async_cancel() {
+  if [[ -n "$__git_prompt_fd" ]]; then
+    zle -F "$__git_prompt_fd" 2>/dev/null
+    exec {__git_prompt_fd}<&- 2>/dev/null
+    __git_prompt_fd=""
+  fi
+}
+
+# Start async git prompt computation.  Called from precmd.
+__git_prompt_async_start() {
+  __git_prompt_async_cancel
+  # Clear stale result on directory change to avoid showing wrong repo info.
+  if [[ "${__git_prompt_pwd}" != "$PWD" ]]; then
+    __git_prompt_result=""
+    __git_prompt_pwd="$PWD"
+  fi
+  exec {__git_prompt_fd}< <(__git_prompt)
+  zle -F "$__git_prompt_fd" __git_prompt_async_callback
+}
+
+# Callback when background git prompt result is ready.
+__git_prompt_async_callback() {
+  local fd=$1
+  zle -F "$fd"
+  IFS= read -r -d '' -u "$fd" __git_prompt_result 2>/dev/null
+  exec {fd}<&-
+  __git_prompt_fd=""
+  zle && zle reset-prompt
+}
+
 # Command timing via zsh preexec/precmd hooks.
 # add-zsh-hook is also loaded in 70-integrations.zsh; autoloading twice is harmless.
 __cmd_time=""
@@ -88,6 +130,7 @@ __prompt_precmd() {
 autoload -Uz add-zsh-hook
 add-zsh-hook preexec __prompt_preexec
 add-zsh-hook precmd __prompt_precmd
+add-zsh-hook precmd __git_prompt_async_start
 
 # Set PROMPT with exit status, user@host:path, git info, timing, and a second line.
 # Line 1: dim user@host, bold-cyan path, colored git info, dim timing.
@@ -102,7 +145,7 @@ set_prompt() {
   # %(?.true.false) — zsh ternary on last exit status.
   # Exit code: bold red [N] only on failure; nothing on success.
   # Line 2 colors %# (% for users, # for root) green/red to match.
-  PROMPT="%(?.%b%f.%B%F{red}[%?]%f%b )${dim}%n@${host}${nodim}:%B%F{cyan}%~%f%b"'$(__git_prompt)${__cmd_time}'$'\n''%(?.%B%F{green}.%B%F{red})%#%f%b '
+  PROMPT="%(?.%b%f.%B%F{red}[%?]%f%b )${dim}%n@${host}${nodim}:%B%F{cyan}%~%f%b"'${__git_prompt_result}${__cmd_time}'$'\n''%(?.%B%F{green}.%B%F{red})%#%f%b '
   # Set terminal title for xterm/rxvt
   case "$TERM" in
   xterm* | rxvt*)
