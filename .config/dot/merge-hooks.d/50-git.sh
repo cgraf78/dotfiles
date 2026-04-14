@@ -44,6 +44,10 @@ merge() {
   git config --global column.ui auto
   git config --global rerere.enabled true
 
+  # Performance
+  git config --global core.fsmonitor true
+  git config --global core.untrackedcache true
+
   # Safety
   git config --global transfer.fsckObjects true
 }
