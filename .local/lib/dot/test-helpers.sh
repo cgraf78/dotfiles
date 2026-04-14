@@ -124,6 +124,11 @@ _mock_home() {
   REAL_HOME="$HOME"
   TEST_HOME=$(_tmpdir)
   export HOME="$TEST_HOME"
+  # Isolate tests from the real global git config (e.g. core.fsmonitor
+  # would spawn daemons watching temp work-trees and hang).  Use an
+  # empty file, not /dev/null, so git config --global writes succeed.
+  export GIT_CONFIG_GLOBAL="$TEST_HOME/.gitconfig-test"
+  touch "$GIT_CONFIG_GLOBAL"
 }
 
 # Create a temp bin directory for mock commands. Returns the path.
