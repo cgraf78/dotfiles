@@ -12,3 +12,15 @@ post() {
     fi
   done
 }
+
+uninstall() {
+  # Remove per-skill symlinks that point into gstack
+  local _link
+  for _link in "$HOME/.claude/skills"/*/; do
+    [[ -L "${_link%/}" ]] || continue
+    local _target
+    _target=$(readlink "${_link%/}")
+    [[ "$_target" == gstack/* ]] && rm -f "${_link%/}"
+  done
+  rm -f "$HOME/.claude/skills/gstack"
+}

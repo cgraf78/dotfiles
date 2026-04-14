@@ -101,3 +101,29 @@ install() {
     rm -rf "$tmp"
   done < <(_nerd_fonts_entries)
 }
+
+uninstall() {
+  local entry name brew_pkg pacman_pkg _nerd_zip font_dir
+  while IFS= read -r entry; do
+    IFS='|' read -r name brew_pkg pacman_pkg _nerd_zip font_dir <<<"$entry"
+    case "$(shdeps_pkg_mgr)" in
+    brew)
+      if [[ "$brew_pkg" != "-" ]] && brew list "$brew_pkg" &>/dev/null; then
+        shdeps_warn "  $name: remove manually via: brew uninstall $brew_pkg"
+        continue
+      fi
+      ;;
+    pacman)
+      if [[ "$pacman_pkg" != "-" ]] && pacman -Q "$pacman_pkg" &>/dev/null; then
+        shdeps_warn "  $name: remove manually via: sudo pacman -R $pacman_pkg"
+        continue
+      fi
+      ;;
+    esac
+    # GitHub-installed fonts: remove font directory
+    if [[ -n "$font_dir" && -d "$HOME/.local/share/fonts/$font_dir" ]]; then
+      rm -rf "$HOME/.local/share/fonts/$font_dir"
+    fi
+  done < <(_nerd_fonts_entries)
+  if command -v fc-cache &>/dev/null; then fc-cache -f 2>/dev/null || true; fi
+}
