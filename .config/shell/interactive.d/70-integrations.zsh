@@ -8,6 +8,9 @@ HISTFILE=~/.zsh_history
 setopt APPEND_HISTORY
 setopt HIST_IGNORE_DUPS
 setopt HIST_IGNORE_SPACE
+setopt HIST_FIND_NO_DUPS
+setopt HIST_REDUCE_BLANKS
+setopt AUTO_CD
 
 # ── Platform ──────────────────────────────────────────────────────────────
 
@@ -27,6 +30,10 @@ fi
 # Zsh completion must be initialized before tools register `compdef` hooks.
 autoload -Uz compinit
 compinit
+
+# Completion: navigable menu, case-insensitive matching
+zstyle ':completion:*' menu select
+zstyle ':completion:*' matcher-list 'm:{a-z}={A-Z}'
 
 command -v fzf &>/dev/null && eval "$(fzf --zsh 2>/dev/null)"
 command -v ds &>/dev/null && eval "$(ds init zsh)"
