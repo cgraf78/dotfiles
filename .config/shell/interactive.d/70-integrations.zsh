@@ -27,9 +27,13 @@ fi
 [[ -d "$HOME/.local/share/zsh-completions/src" ]] &&
   fpath=("$HOME/.local/share/zsh-completions/src" $fpath)
 
-# Zsh completion must be initialized before tools register `compdef` hooks.
+# Zsh completion: rebuild dump daily, use cache otherwise.
 autoload -Uz compinit
-compinit
+if [[ -n ~/.zcompdump(#qN.mh+24) ]]; then
+  compinit
+else
+  compinit -C
+fi
 
 # Completion: navigable menu, case-insensitive matching
 zstyle ':completion:*' menu select
