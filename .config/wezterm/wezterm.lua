@@ -234,10 +234,10 @@ end
 
 
 -- =============================================================================
--- Claude notification: play Glass sound via OSC 1337 user var
+-- Terminal notification: play Glass sound via OSC 1337 user var
 -- =============================================================================
 wezterm.on('user-var-changed', function(window, pane, name, value)
-  if name == 'claude_notify' and value == '1' then
+  if name == 'term_notify' and value == '1' then
     if is_macos then
       wezterm.background_child_process({ 'afplay', '/System/Library/Sounds/Glass.aiff' })
     elseif is_linux then

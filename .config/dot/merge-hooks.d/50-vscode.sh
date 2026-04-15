@@ -119,8 +119,8 @@ _merge_vscode_config() {
 
 # Ensure a local extension is registered in an extensions.json.
 # Idempotent — skips if the extension ID is already present.
-# $1 = extension ID (e.g., cgraf.claude-notify-sound)
-# $2 = extension dir name (e.g., claude-notify-sound-0.0.1)
+# $1 = extension ID (e.g., cgraf.term-notify-sound)
+# $2 = extension dir name (e.g., term-notify-sound-0.0.1)
 # $3 = extensions.json path
 _ensure_vscode_extension() {
   local ext_id="$1" ext_dir="$2" ext_json="$3"
@@ -156,9 +156,9 @@ merge() {
   command -v jq &>/dev/null || return 0
 
   # Deploy and register local extensions in all VS Code variants.
-  # Source of truth: ~/.local/share/vscode-extensions/<ext-dir>/
+  # Source of truth: ~/.local/share/dot-vscode-extensions/<ext-dir>/
   # Each variant gets a symlink + extensions.json registration.
-  local _ext_name="claude-notify-sound-0.0.1"
+  local _ext_name="term-notify-sound-0.0.1"
   local _ext_src="$HOME/.local/share/dot-vscode-extensions/$_ext_name"
   local ext_dir
   if [[ -d "$_ext_src" ]]; then
@@ -168,7 +168,7 @@ merge() {
       if [[ ! -e "$ext_dir/$_ext_name" ]]; then
         ln -sf "$_ext_src" "$ext_dir/$_ext_name"
       fi
-      _ensure_vscode_extension "cgraf.claude-notify-sound" "$_ext_name" "$ext_dir/extensions.json"
+      _ensure_vscode_extension "cgraf.term-notify-sound" "$_ext_name" "$ext_dir/extensions.json"
     done
   fi
 

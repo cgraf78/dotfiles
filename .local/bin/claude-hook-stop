@@ -6,7 +6,7 @@
 set -u
 
 # --- Audible alert ---
-claude-notify-sound 2>/dev/null || true
+term-notify-sound 2>/dev/null || true
 
 # --- Memory sync ---
 if command -v sync-memory >/dev/null 2>&1; then

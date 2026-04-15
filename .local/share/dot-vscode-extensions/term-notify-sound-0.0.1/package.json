@@ -1,21 +1,22 @@
 {
-  "name": "claude-notify-sound",
-  "displayName": "Claude Notify Sound",
-  "description": "Plays a custom notification sound when Claude Code finishes a task",
+  "name": "term-notify-sound",
+  "publisher": "cgraf",
+  "displayName": "Terminal Notify Sound",
+  "description": "Plays a custom notification sound triggered by terminal processes",
   "version": "0.0.1",
   "engines": { "vscode": "^1.80.0" },
   "activationEvents": ["onStartupFinished"],
   "main": "./extension.js",
   "contributes": {
     "configuration": {
-      "title": "Claude Notify Sound",
+      "title": "Terminal Notify Sound",
       "properties": {
-        "claudeNotifySound.soundFile": {
+        "termNotifySound.soundFile": {
           "type": "string",
           "default": "/System/Library/Sounds/Glass.aiff",
           "description": "Path to the sound file to play"
         },
-        "claudeNotifySound.enabled": {
+        "termNotifySound.enabled": {
           "type": "boolean",
           "default": true,
           "description": "Enable or disable the notification sound"

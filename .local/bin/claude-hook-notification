@@ -6,7 +6,7 @@
 set -u
 
 # --- Audible alert ---
-claude-notify-sound 2>/dev/null || true
+term-notify-sound 2>/dev/null || true
 
 # --- Delegate to work variant if present ---
 work_variant=$(command -v claude-hook-notification-work 2>/dev/null)

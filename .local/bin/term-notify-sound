@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# claude-notify-sound — Play the Claude notification sound.
+# term-notify-sound — Play a terminal notification sound.
 # Detects the terminal emulator and uses the appropriate mechanism:
 #   WezTerm:  OSC 1337 user var (triggers Glass.aiff via wezterm.on handler)
-#   VS Code:  touch a signal file watched by the claude-notify-sound extension
+#   VS Code:  touch a signal file watched by the term-notify-sound extension
 #   Other:    standard bell (BEL)
 # Wraps OSC in DCS passthrough inside tmux; falls back to the pane's pty
 # when /dev/tty is unavailable.
 
 set -u
 
-SIGNAL_DIR="$HOME/.claude/notify"
+SIGNAL_DIR="$HOME/.local/state/term-notify"
 SIGNAL_FILE="$SIGNAL_DIR/signal"
 
 notify_osc() {
@@ -17,10 +17,10 @@ notify_osc() {
   val=$(printf 1 | base64)
   if [ -n "${TMUX:-}" ]; then
     # shellcheck disable=SC1003  # \033\\ is an ESC+backslash (ST), not a quote escape
-    printf '\ePtmux;\e\033]1337;SetUserVar=claude_notify=%s\033\\\e\\' "$val"
+    printf '\ePtmux;\e\033]1337;SetUserVar=term_notify=%s\033\\\e\\' "$val"
   else
     # shellcheck disable=SC1003
-    printf '\033]1337;SetUserVar=claude_notify=%s\033\\' "$val"
+    printf '\033]1337;SetUserVar=term_notify=%s\033\\' "$val"
   fi
 }
 
