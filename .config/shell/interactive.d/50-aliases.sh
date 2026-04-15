@@ -1,7 +1,8 @@
 # shellcheck shell=bash
-# Aliases: tools, SSH, platform-specific defaults, WSL.
+# Aliases, functions, and platform-specific defaults.
 
-# Tools
+# ── Tools ─────────────────────────────────────────────────────────────────
+
 alias vs='code'
 alias ca='cal -3'
 alias vi='nvim'
@@ -34,23 +35,7 @@ elif command -v fdfind &>/dev/null; then
   alias fd='fdfind -H'
 fi
 alias fzf='fzf --bind=ctrl-n:down,ctrl-p:up,ctrl-d:half-page-down,ctrl-u:half-page-up,alt-j:down,alt-k:up'
-
-# macOS: screenshot capture to Google Drive
-if [[ "$_UNAME" == "Darwin" ]]; then
-  sc() {
-    if [[ ! -d ~/gdrive/img ]]; then
-      echo "error: ~/gdrive/img does not exist" >&2
-      return 1
-    fi
-    screencapture -i ~/gdrive/img/"screen_$(date +%Y%m%d_%H%M%S).png"
-  }
-fi
-
-# SSH / tunnels
-alias rdptun.bevo2='autossh -M0 -N -L 9000:bevo2.lan:3389 nas'
-alias vnctun.metro='autossh -M0 -N -L 9001:metro.web:5901 nas'
-
-# Platform-specific defaults
+# ls defaults (eza preferred, then platform-native coloring)
 if command -v eza >/dev/null 2>&1; then
   alias ls='eza --group-directories-first'
   alias ll='eza -alF --group-directories-first'
@@ -64,7 +49,24 @@ else
   alias ls='ls --color=auto'
 fi
 
-# Linux / WSL / MINGW
+# ── SSH / tunnels ─────────────────────────────────────────────────────────
+
+alias rdptun.bevo2='autossh -M0 -N -L 9000:bevo2.lan:3389 nas'
+alias vnctun.metro='autossh -M0 -N -L 9001:metro.web:5901 nas'
+
+# ── Platform: macOS ──────────────────────────────────────────────────────
+
+if [[ "$_UNAME" == "Darwin" ]]; then
+  sc() {
+    if [[ ! -d ~/gdrive/img ]]; then
+      echo "error: ~/gdrive/img does not exist" >&2
+      return 1
+    fi
+    screencapture -i ~/gdrive/img/"screen_$(date +%Y%m%d_%H%M%S).png"
+  }
+fi
+
+# ── Platform: Linux / WSL / MINGW ─────────────────────────────────────────
 if [[ "$_UNAME" == "Linux" || "$_UNAME" == MINGW* || "$_UNAME" == MSYS* ]]; then
 
   if command -v batcat >/dev/null 2>&1 && ! command -v bat >/dev/null 2>&1; then
