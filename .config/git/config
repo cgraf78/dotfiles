@@ -56,3 +56,4 @@
 
 [include]
 	path = ~/.config/git/config-work
+	path = ~/.config/git/config-devserver
