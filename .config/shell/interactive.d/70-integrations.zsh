@@ -58,3 +58,25 @@ command -v ds &>/dev/null && eval "$(ds init zsh)" || true
 command -v zoxide &>/dev/null && eval "$(zoxide init zsh)"
 command -v atuin &>/dev/null && eval "$(atuin init zsh --disable-up-arrow)"
 command -v direnv &>/dev/null && eval "$(direnv hook zsh)" || true
+
+# Zsh plugins (managed by shdeps/dotbootstrap).
+# Order matters: autosuggestions first, syntax-highlighting late (wraps ZLE
+# widgets), history-substring-search last (needs syntax-highlighting for
+# colored matches).
+_zsh_plugin_dir="$HOME/.local/share"
+
+[[ -f "$_zsh_plugin_dir/zsh-autosuggestions/zsh-autosuggestions.zsh" ]] &&
+  source "$_zsh_plugin_dir/zsh-autosuggestions/zsh-autosuggestions.zsh"
+
+[[ -f "$_zsh_plugin_dir/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh" ]] &&
+  source "$_zsh_plugin_dir/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
+
+if [[ -f "$_zsh_plugin_dir/zsh-history-substring-search/zsh-history-substring-search.zsh" ]]; then
+  source "$_zsh_plugin_dir/zsh-history-substring-search/zsh-history-substring-search.zsh"
+  bindkey '^[[A' history-substring-search-up
+  bindkey '^[[B' history-substring-search-down
+  bindkey -M vicmd 'k' history-substring-search-up
+  bindkey -M vicmd 'j' history-substring-search-down
+fi
+
+unset _zsh_plugin_dir
