@@ -26,6 +26,8 @@ fi
 # Extra completion definitions (must precede compinit).
 [[ -d "$HOME/.local/share/zsh-completions/src" ]] &&
   fpath=("$HOME/.local/share/zsh-completions/src" $fpath)
+[[ -d "$HOME/.local/share/zsh/site-functions" ]] &&
+  fpath=("$HOME/.local/share/zsh/site-functions" $fpath)
 
 # Zsh completion: rebuild dump daily, use cache otherwise.
 autoload -Uz compinit

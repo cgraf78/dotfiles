@@ -14,6 +14,9 @@ export NVIM_COLORSCHEME=night-owl
 export RIPGREP_CONFIG_PATH="$HOME/.config/ripgrep/config"
 export SHDEPS_CONF_DIR="$HOME/.config/shdeps"
 
+# Man pages from shdeps-managed tools
+export MANPATH="$HOME/.local/share/man:${MANPATH:-}"
+
 # GitHub PAT for Claude Code's GitHub MCP server. Avoids calling `gh auth token`
 # at shell startup (which triggers D-Bus/keyring on headless hosts).
 # To create: gh auth token > ~/.config/gh/github-pat && chmod 600 ~/.config/gh/github-pat
