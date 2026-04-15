@@ -36,6 +36,7 @@ for full documentation.
 - Testing uses `- ` bulleted list describing what was verified
 - Blank line between title, Summary, and Testing sections
 - When commit messages contain backticks or other shell-sensitive characters, do not pass them via shell-quoted `git commit -m ...`; write the message to a temporary file or use a single-quoted heredoc and commit with `git commit -F`.
+- When fixing an unpushed commit, amend it instead of creating a new commit. Never amend commits that have already been pushed. Don't assume the target commit is HEAD — for non-HEAD commits, leave changes unstaged and run `git absorb --and-rebase` to auto-route hunks to the correct commits.
 
 ## Workflow
 
