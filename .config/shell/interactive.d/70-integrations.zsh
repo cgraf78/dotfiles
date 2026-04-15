@@ -34,6 +34,12 @@ argus() {
   openclaw tui --session "agent:main:${sess}"
 }
 
+# Ctrl-Left/Right: word movement (matches bash behavior in vi mode)
+bindkey '\e[1;5D' backward-word
+bindkey '\e[1;5C' forward-word
+bindkey -M vicmd '\e[1;5D' backward-word
+bindkey -M vicmd '\e[1;5C' forward-word
+
 # Tool shell integrations (completions, key bindings, auto-attach)
 # Zsh has native preexec/precmd hooks. Initialize the helper autoload so
 # hook-based tooling can register without a bash-preexec-style shim.
