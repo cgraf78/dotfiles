@@ -92,9 +92,15 @@ __git_prompt_async_cancel() {
 }
 
 # Start async git prompt computation.  Called from precmd.
+# Skips the fork if no command was run and directory hasn't changed,
+# since git state can't have changed without user action.
+__git_prompt_cmd_ran=""
 __git_prompt_async_start() {
+  if [[ -z "$__git_prompt_cmd_ran" && "${__git_prompt_pwd}" == "$PWD" ]]; then
+    return
+  fi
+  __git_prompt_cmd_ran=""
   __git_prompt_async_cancel
-  # Clear stale result on directory change to avoid showing wrong repo info.
   if [[ "${__git_prompt_pwd}" != "$PWD" ]]; then
     __git_prompt_result=""
     __git_prompt_pwd="$PWD"
@@ -115,7 +121,7 @@ __git_prompt_async_callback() {
 
 # Command timing via zsh preexec/precmd hooks.
 __cmd_time=""
-__prompt_preexec() { __cmd_start=$EPOCHSECONDS }
+__prompt_preexec() { __cmd_start=$EPOCHSECONDS; __git_prompt_cmd_ran=1 }
 __prompt_precmd() {
   local elapsed=$(( EPOCHSECONDS - ${__cmd_start:-$EPOCHSECONDS} ))
   __cmd_start=$EPOCHSECONDS
