@@ -15,6 +15,26 @@ alias fgrep='grep -F --color=auto'
 alias egrep='grep -E --color=auto'
 alias gl='git log --oneline --all --graph --decorate'
 alias dl='dot git log --oneline --all --graph --decorate'
+alias fzf='fzf --bind=ctrl-n:down,ctrl-p:up,ctrl-d:half-page-down,ctrl-u:half-page-up,alt-j:down,alt-k:up'
+if command -v fd &>/dev/null; then
+  alias fd='fd -H'
+elif command -v fdfind &>/dev/null; then
+  alias fd='fdfind -H'
+fi
+
+# ls defaults (eza preferred, then platform-native coloring)
+if command -v eza >/dev/null 2>&1; then
+  alias ls='eza --group-directories-first'
+  alias ll='eza -alF --group-directories-first'
+  alias la='eza -a --group-directories-first'
+  alias l='eza -F --group-directories-first'
+  alias lt='eza --tree --level=2'
+  alias llt='eza --tree -al --level=2'
+elif [[ "$_UNAME" == "Darwin" ]]; then
+  alias ls='ls -G'
+else
+  alias ls='ls --color=auto'
+fi
 
 # Smart lazygit: detects bare dotfiles repo at $HOME, otherwise normal.
 lg() {
@@ -31,27 +51,6 @@ argus() {
   local sess="${1:-tui}"
   openclaw tui --session "agent:main:${sess}"
 }
-
-if command -v fd &>/dev/null; then
-  alias fd='fd -H'
-elif command -v fdfind &>/dev/null; then
-  alias fd='fdfind -H'
-fi
-alias fzf='fzf --bind=ctrl-n:down,ctrl-p:up,ctrl-d:half-page-down,ctrl-u:half-page-up,alt-j:down,alt-k:up'
-
-# ls defaults (eza preferred, then platform-native coloring)
-if command -v eza >/dev/null 2>&1; then
-  alias ls='eza --group-directories-first'
-  alias ll='eza -alF --group-directories-first'
-  alias la='eza -a --group-directories-first'
-  alias l='eza -F --group-directories-first'
-  alias lt='eza --tree --level=2'
-  alias llt='eza --tree -al --level=2'
-elif [[ "$_UNAME" == "Darwin" ]]; then
-  alias ls='ls -G'
-else
-  alias ls='ls --color=auto'
-fi
 
 # ── SSH / tunnels ─────────────────────────────────────────────────────────
 
