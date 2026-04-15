@@ -114,7 +114,6 @@ __git_prompt_async_callback() {
 }
 
 # Command timing via zsh preexec/precmd hooks.
-# add-zsh-hook is also loaded in 70-integrations.zsh; autoloading twice is harmless.
 __cmd_time=""
 __prompt_preexec() { __cmd_start=$EPOCHSECONDS }
 __prompt_precmd() {

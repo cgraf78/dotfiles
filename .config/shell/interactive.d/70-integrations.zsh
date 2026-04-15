@@ -1,5 +1,13 @@
 # Interactive tool integrations: shell extensions, completions, functions.
 
+# History (before any tool that reads HISTFILE/HISTSIZE at init)
+HISTSIZE=130000
+SAVEHIST=130000
+HISTFILE=~/.zsh_history
+setopt APPEND_HISTORY
+setopt HIST_IGNORE_DUPS
+setopt HIST_IGNORE_SPACE
+
 # macOS integrations
 if [[ "$_UNAME" == "Darwin" ]]; then
   if [[ -z "${NVIM:-}" ]]; then
@@ -17,33 +25,15 @@ if [[ "$_UNAME" == "Darwin" ]]; then
   }
 fi
 
-# History
-HISTSIZE=130000
-SAVEHIST=130000
-HISTFILE=~/.zsh_history
-setopt APPEND_HISTORY
-setopt HIST_IGNORE_DUPS
-setopt HIST_IGNORE_SPACE
-
 # OpenClaw TUI — launch a conversation with the main agent.
 # Usage: argus [session-name]   (default: tui)
 # Enforces agent:main:<session-name> session key structure.
-unalias argus 2>/dev/null
 argus() {
   local sess="${1:-tui}"
   openclaw tui --session "agent:main:${sess}"
 }
 
-# Ctrl-Left/Right: word movement (matches bash behavior in vi mode)
-bindkey '\e[1;5D' backward-word
-bindkey '\e[1;5C' forward-word
-bindkey -M vicmd '\e[1;5D' backward-word
-bindkey -M vicmd '\e[1;5C' forward-word
-
-# Tool shell integrations (completions, key bindings, auto-attach)
-# Zsh has native preexec/precmd hooks. Initialize the helper autoload so
-# hook-based tooling can register without a bash-preexec-style shim.
-autoload -Uz add-zsh-hook
+# Tool shell integrations (after history — atuin reads HISTFILE at init)
 
 # Extra completion definitions (must precede compinit).
 [[ -d "$HOME/.local/share/zsh-completions/src" ]] &&
@@ -54,10 +44,10 @@ autoload -Uz compinit
 compinit
 
 command -v fzf &>/dev/null && eval "$(fzf --zsh 2>/dev/null)"
-command -v ds &>/dev/null && eval "$(ds init zsh)" || true
+command -v ds &>/dev/null && eval "$(ds init zsh)"
 command -v zoxide &>/dev/null && eval "$(zoxide init zsh)"
 command -v atuin &>/dev/null && eval "$(atuin init zsh --disable-up-arrow)"
-command -v direnv &>/dev/null && eval "$(direnv hook zsh)" || true
+command -v direnv &>/dev/null && eval "$(direnv hook zsh)"
 
 # Zsh plugins (managed by shdeps/dotbootstrap).
 # Order matters: autosuggestions first, syntax-highlighting late (wraps ZLE
@@ -80,3 +70,9 @@ if [[ -f "$_zsh_plugin_dir/zsh-history-substring-search/zsh-history-substring-se
 fi
 
 unset _zsh_plugin_dir
+
+# Keybindings (after plugins — avoid clobbering plugin widget bindings)
+bindkey '\e[1;5D' backward-word
+bindkey '\e[1;5C' forward-word
+bindkey -M vicmd '\e[1;5D' backward-word
+bindkey -M vicmd '\e[1;5C' forward-word
