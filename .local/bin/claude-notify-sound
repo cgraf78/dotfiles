@@ -11,8 +11,10 @@ notify_osc() {
   local val
   val=$(printf 1 | base64)
   if [ -n "${TMUX:-}" ]; then
+    # shellcheck disable=SC1003  # \033\\ is an ESC+backslash (ST), not a quote escape
     printf '\ePtmux;\e\033]1337;SetUserVar=claude_notify=%s\033\\\e\\' "$val"
   else
+    # shellcheck disable=SC1003
     printf '\033]1337;SetUserVar=claude_notify=%s\033\\' "$val"
   fi
 }
@@ -39,5 +41,7 @@ if (send_notify >/dev/tty) 2>/dev/null; then
   : # sent directly
 elif [ -n "${TMUX:-}" ] && [ -n "${TMUX_PANE:-}" ]; then
   pane_tty=$(tmux display-message -t "${TMUX_PANE}" -p '#{pane_tty}' 2>/dev/null)
-  [ -n "$pane_tty" ] && send_notify >"$pane_tty" 2>/dev/null || true
+  if [ -n "$pane_tty" ]; then
+    send_notify >"$pane_tty" 2>/dev/null || true
+  fi
 fi
