@@ -234,6 +234,19 @@ end
 
 
 -- =============================================================================
+-- Claude notification: play Glass sound via OSC 1337 user var
+-- =============================================================================
+wezterm.on('user-var-changed', function(window, pane, name, value)
+  if name == 'claude_notify' and value == '1' then
+    if is_macos then
+      wezterm.background_child_process({ 'afplay', '/System/Library/Sounds/Glass.aiff' })
+    elseif is_linux then
+      wezterm.background_child_process({ 'paplay', '/usr/share/sounds/freedesktop/stereo/bell.oga' })
+    end
+  end
+end)
+
+-- =============================================================================
 -- Config
 -- =============================================================================
 return {
@@ -314,7 +327,7 @@ return {
   check_for_updates = false,
   automatically_reload_config = true,
   swallow_mouse_click_on_window_focus = true,
-  audible_bell = 'Disabled',
+  audible_bell = 'SystemBeep',
   default_cursor_style = 'SteadyBar',
 
   keys = keys,

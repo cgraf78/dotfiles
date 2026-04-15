@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# claude-notify-sound — Play the Claude notification sound.
+# Sets the OSC 1337 user var `claude_notify=1` so the terminal
+# emulator can play a distinct sound. Wraps in DCS passthrough
+# inside tmux; falls back to the pane's pty when /dev/tty is
+# unavailable.
+
+set -u
+
+notify_osc() {
+  local val
+  val=$(printf 1 | base64)
+  if [ -n "${TMUX:-}" ]; then
+    printf '\ePtmux;\e\033]1337;SetUserVar=claude_notify=%s\033\\\e\\' "$val"
+  else
+    printf '\033]1337;SetUserVar=claude_notify=%s\033\\' "$val"
+  fi
+}
+
+if (notify_osc >/dev/tty) 2>/dev/null; then
+  : # sent directly
+elif [ -n "${TMUX:-}" ] && [ -n "${TMUX_PANE:-}" ]; then
+  pane_tty=$(tmux display-message -t "${TMUX_PANE}" -p '#{pane_tty}' 2>/dev/null)
+  [ -n "$pane_tty" ] && notify_osc >"$pane_tty" 2>/dev/null || true
+fi
