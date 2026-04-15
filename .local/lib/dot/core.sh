@@ -15,7 +15,7 @@ DOT_QUIET="${DOT_QUIET:-0}"
 if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
   _C_RESET=$'\033[0m'
   _C_BOLD=$'\033[1m'
-  _C_DIM=$'\033[2m'
+  _C_DIM=$'\033[0;90m'
   _C_GREEN=$'\033[32m'
   _C_YELLOW=$'\033[33m'
   _C_WHITE=$'\033[38;2;255;255;255m'

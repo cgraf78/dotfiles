@@ -221,7 +221,7 @@ merge() {
   fi
 
   # Merge settings and keybindings.
-  _log_dim "  VS Code"
+  _log "  VS Code"
   for line in "${variants[@]}"; do
     cfg_dir="${line#*	}"
     _merge_vscode_config "$cfg_dir"

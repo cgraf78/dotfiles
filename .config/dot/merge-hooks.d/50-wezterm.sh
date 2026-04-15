@@ -19,7 +19,7 @@ merge() {
     ;;
   esac
 
-  _log_dim "  WezTerm"
+  _log "  WezTerm"
 
   local winhome dest
   if [[ -n "${DOT_TEST_WINDOWS_HOME:-}" ]]; then

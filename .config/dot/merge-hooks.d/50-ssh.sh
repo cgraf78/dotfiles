@@ -21,7 +21,7 @@ merge() {
   done
   [[ ${#src_files[@]} -gt 0 ]] || return 0
 
-  _log_dim "  SSH"
+  _log "  SSH"
 
   # Build marked blocks for each source file.
   local -a blocks=()

@@ -282,9 +282,9 @@ _link_overlay() {
     ln -sf "$target" "$dst"
     if [[ -n "${_base_tracked[$rel]+x}" ]]; then
       $GIT update-index --skip-worktree "$rel" 2>/dev/null || true
-      _log_dim "  linked (override): $rel"
+      _log "  linked (override): $rel"
     else
-      _log_dim "  linked: $rel"
+      _log "  linked: $rel"
     fi
     printf '%s\t%s\n' "$rel" "$name" >>"${_overlay_manifest_new:-/dev/null}"
   done < <(find "$overlay_home" -type f ! -name '*.~[0-9]*~')
@@ -333,7 +333,7 @@ _link_overlays() {
         local dst="$HOME/$rel"
         if [[ -L "$dst" ]]; then
           rm -f "$dst"
-          _log_dim "  removed: $rel"
+          _log "  removed: $rel"
         fi
         # Restore base repo version if tracked
         if [[ -n "${_base_tracked[$rel]+x}" ]]; then

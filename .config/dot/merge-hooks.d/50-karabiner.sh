@@ -20,7 +20,7 @@ merge() {
   [[ -f "$src" ]] || return 0
   [[ -d "$dst_dir" ]] || return 0
 
-  _log_dim "  Karabiner"
+  _log "  Karabiner"
 
   # No existing file — just copy
   if [[ ! -f "$dst" ]]; then

@@ -21,7 +21,7 @@ merge() {
   [[ -f "$src" ]] || return 0
 
   yq_bin=$(_gh_yq) || return 0
-  _log_dim "  GitHub CLI"
+  _log "  GitHub CLI"
 
   # No existing config — just copy
   if [[ ! -f "$dst" ]]; then

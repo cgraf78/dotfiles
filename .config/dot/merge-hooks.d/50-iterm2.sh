@@ -51,7 +51,7 @@ merge() {
 
   [[ -f "$src" ]] || return 0
   [[ -d "$dst_dir" ]] || return 0
-  _log_dim "  iTerm2"
+  _log "  iTerm2"
 
   # Dynamic profile copy (iTerm2 doesn't follow symlinks)
   if ! cmp -s "$src" "$dst"; then

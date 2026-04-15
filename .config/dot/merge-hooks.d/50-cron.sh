@@ -92,7 +92,7 @@ merge() {
 
   [[ -f "$cron_file" || -f "$cron_local" ]] || return 0
 
-  _log_dim "  cron"
+  _log "  cron"
 
   _cron_parsed=""
   _cron_parse_file "$cron_file"
