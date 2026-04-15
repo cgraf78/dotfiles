@@ -17,9 +17,27 @@ notify_osc() {
   fi
 }
 
-if (notify_osc >/dev/tty) 2>/dev/null; then
+# WezTerm handles OSC 1337 user vars natively (plays Glass.aiff).
+# Other terminals (VS Code, plain xterm) ignore OSC 1337, so send
+# a standard bell as fallback.
+is_wezterm() {
+  if [ -n "${TMUX:-}" ]; then
+    local ct
+    ct=$(tmux display-message -p '#{client_termtype}' 2>/dev/null)
+    [[ "$ct" == WezTerm* ]]
+  else
+    [ "${TERM_PROGRAM:-}" = "WezTerm" ]
+  fi
+}
+
+send_notify() {
+  notify_osc
+  is_wezterm || printf '\a'
+}
+
+if (send_notify >/dev/tty) 2>/dev/null; then
   : # sent directly
 elif [ -n "${TMUX:-}" ] && [ -n "${TMUX_PANE:-}" ]; then
   pane_tty=$(tmux display-message -t "${TMUX_PANE}" -p '#{pane_tty}' 2>/dev/null)
-  [ -n "$pane_tty" ] && notify_osc >"$pane_tty" 2>/dev/null || true
+  [ -n "$pane_tty" ] && send_notify >"$pane_tty" 2>/dev/null || true
 fi
