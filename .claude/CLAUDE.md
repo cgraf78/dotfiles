@@ -13,6 +13,7 @@ for full documentation.
 - `dot push/pull/status/diff/fetch` operate on base + all active overlays.
 - Use `dot push` to push all repos, not raw `git push`.
 - When moving tracked base dotfiles, use `dot git mv` to preserve history.
+- Always run `dot` commands from `$HOME`. The bare repo uses `$HOME` as its work tree, so commands like `dot git ls-files`, `dot git add`, and `dot git mv` resolve paths relative to CWD — running from a subdirectory gives wrong or empty results.
 
 ## Tools
 
