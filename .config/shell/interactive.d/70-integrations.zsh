@@ -45,6 +45,10 @@ bindkey -M vicmd '\e[1;5C' forward-word
 # hook-based tooling can register without a bash-preexec-style shim.
 autoload -Uz add-zsh-hook
 
+# Extra completion definitions (must precede compinit).
+[[ -d "$HOME/.local/share/zsh-completions/src" ]] &&
+  fpath=("$HOME/.local/share/zsh-completions/src" $fpath)
+
 # Zsh completion must be initialized before tools register `compdef` hooks.
 autoload -Uz compinit
 compinit
