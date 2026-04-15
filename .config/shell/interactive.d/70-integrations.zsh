@@ -37,7 +37,7 @@ fi
 
 # Zsh completion: rebuild dump daily, use cache otherwise.
 autoload -Uz compinit
-if [[ -n ~/.zcompdump(#qN.mh+24) ]]; then
+if [[ -n ~/.zcompdump(#qN-.mh+24) ]]; then
   compinit
 else
   compinit -C

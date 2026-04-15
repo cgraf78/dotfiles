@@ -240,7 +240,7 @@ fv() {
   if [[ -n "$_fd_cmd" ]]; then
     listing() { "$_fd_cmd" --base-directory "$_root" --hidden --exclude .git --type f .; }
   else
-    listing() { (cd "$_root" && find . -name .git -prune -o -type f -print 2>/dev/null) | sed 's|^\./||'; }
+    listing() { (cd "$_root" && find . -name .git -prune -o \( -type f -o -type l \) -print 2>/dev/null) | sed 's|^\./||'; }
   fi
 
   file="$(

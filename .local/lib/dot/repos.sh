@@ -287,7 +287,7 @@ _link_overlay() {
       _log "  linked: $rel"
     fi
     printf '%s\t%s\n' "$rel" "$name" >>"${_overlay_manifest_new:-/dev/null}"
-  done < <(find "$overlay_home" -type f ! -name '*.~[0-9]*~')
+  done < <(find "$overlay_home" \( -type f -o -type l \) ! -name '*.~[0-9]*~')
 }
 
 # Link all active overlays and clean up stale symlinks from removed overlays.

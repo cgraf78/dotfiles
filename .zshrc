@@ -9,10 +9,10 @@
 _shell_source_dir() {
   local f
   local -a files=()
-  # (N.) — null glob (no error if no matches) + regular files only
-  for f in "$1"/*.sh(N.); do files+=("$f"); done
+  # (N-.) — null glob (no error if no matches) + regular files, following symlinks
+  for f in "$1"/*.sh(N-.); do files+=("$f"); done
   if [ -n "${2:-}" ]; then
-    for f in "$1"/*."$2"(N.); do files+=("$f"); done
+    for f in "$1"/*."$2"(N-.); do files+=("$f"); done
   fi
   [[ ${#files[@]} -gt 0 ]] || return 0
   files=("${(@f)$(printf '%s\n' "${files[@]}" | LC_ALL=C sort)}")
