@@ -17,7 +17,13 @@ setopt AUTO_CD
 if [[ "$_UNAME" == "Darwin" ]]; then
   if [[ -z "${NVIM:-}" ]]; then
     test -e "${HOME}/.iterm2_shell_integration.zsh" && . "${HOME}/.iterm2_shell_integration.zsh"
-    test -e "/Applications/WezTerm.app/Contents/Resources/wezterm.sh" && . "/Applications/WezTerm.app/Contents/Resources/wezterm.sh"
+    # Guard: wezterm.sh has no re-source protection for zsh — it appends
+    # duplicate hooks to precmd/preexec_functions on every source, causing
+    # gradual prompt slowdown in long-lived shells.
+    if [[ -z "${__wezterm_sourced:-}" ]]; then
+      test -e "/Applications/WezTerm.app/Contents/Resources/wezterm.sh" && . "/Applications/WezTerm.app/Contents/Resources/wezterm.sh"
+      __wezterm_sourced=1
+    fi
   fi
 fi
 
