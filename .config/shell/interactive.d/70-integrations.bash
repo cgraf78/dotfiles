@@ -17,7 +17,11 @@ if [[ "$_UNAME" == "Darwin" ]]; then
     # shellcheck disable=SC1091  # optional local integration script
     test -e "${HOME}/.iterm2_shell_integration.bash" && . "${HOME}/.iterm2_shell_integration.bash"
     # shellcheck disable=SC1091  # optional local app integration script
-    test -e "/Applications/WezTerm.app/Contents/Resources/wezterm.sh" && . "/Applications/WezTerm.app/Contents/Resources/wezterm.sh"
+    # Guard: wezterm.sh appends duplicate hooks on every re-source.
+    if [[ -z "${__wezterm_sourced:-}" ]]; then
+      test -e "/Applications/WezTerm.app/Contents/Resources/wezterm.sh" && . "/Applications/WezTerm.app/Contents/Resources/wezterm.sh"
+      __wezterm_sourced=1
+    fi
   fi
 fi
 
@@ -43,8 +47,11 @@ if [[ -f ~/.bash-preexec.sh ]]; then
     source ~/.bash-preexec.sh
   fi
 fi
-if command -v atuin &>/dev/null; then
+# Guard: atuin's bash init uses raw precmd/preexec_functions+=
+# which accumulates duplicates on re-source.
+if command -v atuin &>/dev/null && [[ -z "${__atuin_sourced:-}" ]]; then
   eval "$(atuin init bash --disable-up-arrow)"
+  __atuin_sourced=1
 fi
 if command -v direnv &>/dev/null; then
   eval "$(direnv hook bash)"

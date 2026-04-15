@@ -89,8 +89,10 @@ __prompt_precmd() {
     __cmd_time=""
   fi
 }
-preexec_functions+=(__prompt_preexec)
-precmd_functions+=(__prompt_precmd)
+# Guard: raw += accumulates duplicates on re-source (no add-zsh-hook
+# equivalent in bash).  Only append if not already present.
+[[ " ${preexec_functions[*]} " != *" __prompt_preexec "* ]] && preexec_functions+=(__prompt_preexec)
+[[ " ${precmd_functions[*]} " != *" __prompt_precmd "* ]] && precmd_functions+=(__prompt_precmd)
 
 # DEBUG trap: sets __cmd_start at the first command after each prompt.
 # Guarded by __prompt_started so it fires only once per prompt cycle.
