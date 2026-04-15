@@ -151,20 +151,68 @@ _ensure_vscode_extension() {
   fi
 }
 
-# Main: determine VS Code config dirs and merge.
+# Discover installed VS Code variants.  Each entry is a pair of
+# tab-separated paths: extensions_dir<TAB>config_dir.  Only variants
+# whose config dir exists on disk are included.
+_vscode_variants() {
+  local -a pairs=()
+  case "$(uname -s)" in
+  Darwin)
+    local s="$HOME/Library/Application Support"
+    pairs=(
+      "$HOME/.vscode/extensions	$s/Code/User"
+      "$HOME/.vscode-insiders/extensions	$s/Code - Insiders/User"
+      "$HOME/.vscode-fb-mkt/extensions	$s/VS Code @ FB/User"
+      "$HOME/.vscode-fb-insiders-mkt/extensions	$s/VS Code @ FB - Insiders/User"
+      "$HOME/.cursor/extensions	$s/Cursor/User"
+    )
+    ;;
+  Linux)
+    if _is_wsl; then
+      local wa
+      wa="$(wslpath "$(cmd.exe /C 'echo %APPDATA%' 2>/dev/null | tr -d '\r')" 2>/dev/null)" || true
+      [[ -n "$wa" ]] && pairs=("$HOME/.vscode/extensions	$wa/Code/User")
+    else
+      pairs=(
+        "$HOME/.vscode/extensions	$HOME/.config/Code/User"
+        "$HOME/.vscode-insiders/extensions	$HOME/.config/Code - Insiders/User"
+        "$HOME/.cursor/extensions	$HOME/.config/Cursor/User"
+      )
+    fi
+    ;;
+  MINGW* | MSYS*)
+    pairs=("$HOME/.vscode/extensions	$APPDATA/Code/User")
+    ;;
+  esac
+
+  local pair
+  for pair in "${pairs[@]}"; do
+    local cfg="${pair#*	}"
+    [[ -d "$cfg" ]] && printf '%s\n' "$pair"
+  done
+}
+
+# Main: deploy extensions, settings, and keybindings to all VS Code variants.
 merge() {
   command -v jq &>/dev/null || return 0
 
-  # Deploy and register local extensions in all VS Code variants.
+  local -a variants=()
+  local line
+  while IFS= read -r line; do
+    variants+=("$line")
+  done < <(_vscode_variants)
+
+  (( ${#variants[@]} > 0 )) || return 0
+
+  # Deploy and register local extensions.
   # Source of truth: ~/.local/share/dot-vscode-extensions/<ext-dir>/
-  # Each variant gets a symlink + extensions.json registration.
   local _ext_name="term-notify-sound-0.0.1"
   local _ext_src="$HOME/.local/share/dot-vscode-extensions/$_ext_name"
-  local ext_dir
+  local ext_dir cfg_dir
   if [[ -d "$_ext_src" ]]; then
-    for ext_dir in "$HOME"/.vscode*/extensions "$HOME"/.vscode*-mkt/extensions; do
-      [[ -d "$ext_dir" ]] || continue
-      # Symlink extension dir if not already present
+    for line in "${variants[@]}"; do
+      ext_dir="${line%%	*}"
+      mkdir -p "$ext_dir"
       if [[ ! -e "$ext_dir/$_ext_name" ]]; then
         ln -sf "$_ext_src" "$ext_dir/$_ext_name"
       fi
@@ -172,24 +220,10 @@ merge() {
     done
   fi
 
-  command -v code &>/dev/null || return 0
+  # Merge settings and keybindings.
   _log_dim "  VS Code"
-  case "$(uname -s)" in
-  Darwin)
-    _merge_vscode_config "$HOME/Library/Application Support/Code/User"
-    ;;
-  Linux)
-    if _is_wsl; then
-      WIN_APPDATA="$(wslpath "$(cmd.exe /C 'echo %APPDATA%' 2>/dev/null | tr -d '\r')" 2>/dev/null)" || true
-      if [[ -n "$WIN_APPDATA" ]]; then
-        _merge_vscode_config "$WIN_APPDATA/Code/User"
-      fi
-    else
-      _merge_vscode_config "$HOME/.config/Code/User"
-    fi
-    ;;
-  MINGW* | MSYS*)
-    _merge_vscode_config "$APPDATA/Code/User"
-    ;;
-  esac
+  for line in "${variants[@]}"; do
+    cfg_dir="${line#*	}"
+    _merge_vscode_config "$cfg_dir"
+  done
 }
