@@ -117,9 +117,61 @@ _merge_vscode_config() {
   fi
 }
 
+# Ensure a local extension is registered in an extensions.json.
+# Idempotent — skips if the extension ID is already present.
+# $1 = extension ID (e.g., cgraf.claude-notify-sound)
+# $2 = extension dir name (e.g., claude-notify-sound-0.0.1)
+# $3 = extensions.json path
+_ensure_vscode_extension() {
+  local ext_id="$1" ext_dir="$2" ext_json="$3"
+  [[ -f "$ext_json" ]] || return 0
+
+  local ext_base
+  ext_base="$(dirname "$ext_json")"
+  [[ -d "$ext_base/$ext_dir" ]] || return 0
+
+  # Already registered?
+  if jq -e --arg id "$ext_id" 'map(.identifier.id) | index($id)' "$ext_json" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  local tmp
+  tmp=$(mktemp)
+  if jq --indent 4 --arg id "$ext_id" --arg dir "$ext_dir" --arg path "$ext_base/$ext_dir" \
+    '. + [{
+      identifier: {id: $id},
+      version: "0.0.1",
+      location: {"\u0024mid": 1, path: $path, scheme: "file"},
+      relativeLocation: $dir,
+      metadata: {source: "local"}
+    }]' "$ext_json" >"$tmp"; then
+    mv "$tmp" "$ext_json"
+  else
+    rm -f "$tmp"
+  fi
+}
+
 # Main: determine VS Code config dirs and merge.
 merge() {
   command -v jq &>/dev/null || return 0
+
+  # Deploy and register local extensions in all VS Code variants.
+  # Source of truth: ~/.local/share/vscode-extensions/<ext-dir>/
+  # Each variant gets a symlink + extensions.json registration.
+  local _ext_name="claude-notify-sound-0.0.1"
+  local _ext_src="$HOME/.local/share/dot-vscode-extensions/$_ext_name"
+  local ext_dir
+  if [[ -d "$_ext_src" ]]; then
+    for ext_dir in "$HOME"/.vscode*/extensions "$HOME"/.vscode*-mkt/extensions; do
+      [[ -d "$ext_dir" ]] || continue
+      # Symlink extension dir if not already present
+      if [[ ! -e "$ext_dir/$_ext_name" ]]; then
+        ln -sf "$_ext_src" "$ext_dir/$_ext_name"
+      fi
+      _ensure_vscode_extension "cgraf.claude-notify-sound" "$_ext_name" "$ext_dir/extensions.json"
+    done
+  fi
+
   command -v code &>/dev/null || return 0
   _log_dim "  VS Code"
   case "$(uname -s)" in

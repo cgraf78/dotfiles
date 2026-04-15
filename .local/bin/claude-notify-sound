@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
 # claude-notify-sound — Play the Claude notification sound.
-# Sets the OSC 1337 user var `claude_notify=1` so the terminal
-# emulator can play a distinct sound. Wraps in DCS passthrough
-# inside tmux; falls back to the pane's pty when /dev/tty is
-# unavailable.
+# Detects the terminal emulator and uses the appropriate mechanism:
+#   WezTerm:  OSC 1337 user var (triggers Glass.aiff via wezterm.on handler)
+#   VS Code:  touch a signal file watched by the claude-notify-sound extension
+#   Other:    standard bell (BEL)
+# Wraps OSC in DCS passthrough inside tmux; falls back to the pane's pty
+# when /dev/tty is unavailable.
 
 set -u
+
+SIGNAL_DIR="$HOME/.claude/notify"
+SIGNAL_FILE="$SIGNAL_DIR/signal"
 
 notify_osc() {
   local val
@@ -19,29 +24,41 @@ notify_osc() {
   fi
 }
 
-# WezTerm handles OSC 1337 user vars natively (plays Glass.aiff).
-# Other terminals (VS Code, plain xterm) ignore OSC 1337, so send
-# a standard bell as fallback.
-is_wezterm() {
+# Detect terminal emulator, even through tmux.
+_client_termtype() {
   if [ -n "${TMUX:-}" ]; then
-    local ct
-    ct=$(tmux display-message -p '#{client_termtype}' 2>/dev/null)
-    [[ "$ct" == WezTerm* ]]
+    tmux display-message -p '#{client_termtype}' 2>/dev/null
   else
-    [ "${TERM_PROGRAM:-}" = "WezTerm" ]
+    echo "${TERM_PROGRAM:-}"
   fi
 }
 
-send_notify() {
-  notify_osc
-  is_wezterm || printf '\a'
+send_tty_notify() {
+  local ct
+  ct=$(_client_termtype)
+
+  case "$ct" in
+    WezTerm*)
+      notify_osc
+      ;;
+    *)
+      # Unknown terminal — try OSC (harmless if ignored) + bell fallback
+      notify_osc
+      printf '\a'
+      ;;
+  esac
 }
 
-if (send_notify >/dev/tty) 2>/dev/null; then
+# VS Code: signal via file (no pty interaction needed).
+ct=$(_client_termtype)
+if [[ "$ct" == xterm.js* ]]; then
+  mkdir -p "$SIGNAL_DIR"
+  touch "$SIGNAL_FILE"
+elif (send_tty_notify >/dev/tty) 2>/dev/null; then
   : # sent directly
 elif [ -n "${TMUX:-}" ] && [ -n "${TMUX_PANE:-}" ]; then
   pane_tty=$(tmux display-message -t "${TMUX_PANE}" -p '#{pane_tty}' 2>/dev/null)
   if [ -n "$pane_tty" ]; then
-    send_notify >"$pane_tty" 2>/dev/null || true
+    send_tty_notify >"$pane_tty" 2>/dev/null || true
   fi
 fi
