@@ -14,6 +14,14 @@ alias fgrep='grep -F --color=auto'
 alias egrep='grep -E --color=auto'
 alias gl='git log --oneline --all --graph --decorate'
 alias dl='dot git log --oneline --all --graph --decorate'
+# Smart lazygit: detects bare dotfiles repo at $HOME, otherwise normal.
+lg() {
+  if ! git rev-parse --git-dir &>/dev/null && [[ -d "$HOME/.dotfiles" ]]; then
+    lazygit --git-dir="$HOME/.dotfiles" --work-tree="$HOME"
+  else
+    lazygit "$@"
+  fi
+}
 if command -v fd &>/dev/null; then
   alias fd='fd -H'
 elif command -v fdfind &>/dev/null; then
