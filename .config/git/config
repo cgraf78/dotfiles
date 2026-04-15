@@ -1,0 +1,58 @@
+[user]
+	name = Chris Graf
+	email = chris@grafhome.net
+
+[core]
+	pager = delta
+	editor = nvim
+	excludesFile = ~/.config/git/ignore
+	fsmonitor = true
+	untrackedcache = true
+
+[interactive]
+	diffFilter = delta --color-only
+
+[delta]
+	navigate = true
+	side-by-side = false
+	line-numbers = true
+	dark = true
+	hyperlinks = true
+
+[diff]
+	algorithm = histogram
+	colorMoved = default
+
+[merge]
+	conflictstyle = zdiff3
+
+[fetch]
+	prune = true
+
+[push]
+	autoSetupRemote = true
+
+[pull]
+	rebase = true
+
+[rebase]
+	autoStash = true
+	autoSquash = true
+
+[commit]
+	verbose = true
+
+[init]
+	defaultBranch = main
+
+[column]
+	ui = auto
+
+[rerere]
+	enabled = true
+
+[transfer]
+	fsckObjects = true
+
+[include]
+	path = ~/.config/git/config-work
