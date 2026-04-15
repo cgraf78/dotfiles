@@ -1,9 +1,19 @@
 # shellcheck shell=bash
 # Interactive tool integrations: shell extensions, completions, functions.
 
-# macOS integrations
+# ── History & shell options (before tools — atuin reads HISTFILE at init) ─
+
+HISTSIZE=130000
+HISTFILESIZE=-1
+HISTTIMEFORMAT="%d/%m/%y %T "
+HISTCONTROL=ignoreboth
+shopt -s histappend
+shopt -s checkwinsize
+
+# ── Platform ──────────────────────────────────────────────────────────────
 # unalias before the if-block: bash expands aliases at parse time,
 # so an alias inside a false branch still triggers a syntax error.
+
 unalias sc 2>/dev/null || true
 if [[ "$_UNAME" == "Darwin" ]]; then
   if [[ -z "${NVIM:-}" ]]; then
@@ -23,17 +33,10 @@ if [[ "$_UNAME" == "Darwin" ]]; then
   }
 fi
 
-# Shell options
-HISTSIZE=130000
-HISTFILESIZE=-1
-HISTTIMEFORMAT="%d/%m/%y %T "
-HISTCONTROL=ignoreboth
-shopt -s histappend
-shopt -s checkwinsize
+# ── Functions ─────────────────────────────────────────────────────────────
 
 # OpenClaw TUI — launch a conversation with the main agent.
 # Usage: argus [session-name]   (default: tui)
-# Enforces agent:main:<session-name> session key structure.
 # unalias first: bash expands aliases before parsing function definitions,
 # so if argus was previously an alias, "argus() {" becomes a syntax error.
 unalias argus 2>/dev/null || true
@@ -42,21 +45,21 @@ argus() {
   openclaw tui --session "agent:main:${sess}"
 }
 
-# Tool shell integrations (completions, key bindings, auto-attach)
-#
+# ── Tool integrations (after history) ─────────────────────────────────────
 # On some Linux hosts, `fzf --bash` emits malformed `complete` commands when it
 # tries to wrap distro-provided bash-completion specs. Keep the key bindings,
 # but skip the completion section to avoid login-time warnings.
+
 if command -v fzf &>/dev/null; then
   eval "$(
     fzf --bash 2>/dev/null | sed '/^### completion\.bash ###$/,$d'
-  )" || true
+  )"
 fi
 if command -v ds &>/dev/null; then
-  eval "$(ds init bash)" || true
+  eval "$(ds init bash)"
 fi
 if command -v zoxide &>/dev/null; then
-  eval "$(zoxide init bash)" || true
+  eval "$(zoxide init bash)"
 fi
 if [[ -f ~/.bash-preexec.sh ]]; then
   if [[ "$_UNAME" != "Linux" || -n "$TMUX" ]]; then
@@ -65,8 +68,8 @@ if [[ -f ~/.bash-preexec.sh ]]; then
   fi
 fi
 if command -v atuin &>/dev/null; then
-  eval "$(atuin init bash --disable-up-arrow)" || true
+  eval "$(atuin init bash --disable-up-arrow)"
 fi
 if command -v direnv &>/dev/null; then
-  eval "$(direnv hook bash)" || true
+  eval "$(direnv hook bash)"
 fi
