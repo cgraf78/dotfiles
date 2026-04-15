@@ -1,11 +1,18 @@
 #!/usr/bin/env bash
 # claude-hook-notification — Notification hook.
-# Terminal bell on permission prompts and other attention requests.
+# Audible alert on permission prompts and other attention requests.
 # Auto-delegates to -work variant if present.
 
 set -u
 
+# Terminal bell — propagates over SSH to local terminal
 printf '\a' >/dev/tty 2>/dev/null || true
+
+# Native audio — only useful when running locally
+case "$(uname -s)" in
+  Darwin) afplay /System/Library/Sounds/Glass.aiff &>/dev/null & ;;
+  Linux)  paplay /usr/share/sounds/freedesktop/stereo/bell.oga &>/dev/null & ;;
+esac
 
 # --- Delegate to work variant if present ---
 work_variant=$(command -v claude-hook-notification-work 2>/dev/null)
