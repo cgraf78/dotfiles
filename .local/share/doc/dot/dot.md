@@ -291,20 +291,20 @@ Profiles in `~/.config/dot/karabiner/karabiner.json` are merged into Karabiner's
 `dot update` installs and upgrades tools via [shdeps](https://github.com/cgraf78/shdeps), configured in `~/.config/shdeps/deps.conf`. Each line declares a dependency with a name and install method:
 
 ```
-# name          method    cmd    alt    overrides                repo                dir                 platforms
+# name          method    cmd    alt    overrides                repo                platforms
 jq              pkg
 bat             pkg       bat    batcat
 fd              pkg       fd     fdfind apt:fd-find,dnf:fd-find
-ds              git       -      -      -                        cgraf78/ds.git      .local/share/ds
+ds              git       -      -      -                        cgraf78/ds.git
 neovim          binary    nvim   -      -                        neovim/neovim
 direnv          binary    -      -      -                        direnv/direnv
-fonts           custom    -      -      -                        -                   -                   !wsl
+fonts           custom    -      -      -                        -                   !wsl
 ```
 
 **Methods:**
 - **`pkg`** — system package (`brew`, `apt`, `dnf`, `pacman`). Batches all packages into one install command.
-- **`git`** — clones from GitHub (prefers `~/git/<name>` local clones, falls back to release tarballs, then `git clone`).
-- **`binary`** — downloads from GitHub releases, matching by OS and arch. Asset matching is case-insensitive and supports all common naming conventions (Go, Rust triples, etc.). Prefers standalone binaries, then tarballs, then zip archives. Compressed single binaries (`.gz`, `.bz2`, `.zst`) are decompressed automatically. On Linux, prefers `gnu` over `musl` assets when both are available. Archives are extracted to `~/.local/share/<name>` with the binary symlinked into PATH.
+- **`git`** — clones from GitHub into `$SHDEPS_INSTALL_DIR/<name>` (default `~/.local/share/<name>`). Prefers `~/git/<name>` local clones, falls back to release tarballs, then `git clone`.
+- **`binary`** — downloads from GitHub releases, matching by OS and arch. Asset matching is case-insensitive and supports all common naming conventions (Go, Rust triples, etc.). Prefers standalone binaries, then tarballs, then zip archives. Compressed single binaries (`.gz`, `.bz2`, `.zst`) are decompressed automatically. On Linux, prefers `gnu` over `musl` assets when both are available. Archives are extracted to `$SHDEPS_INSTALL_DIR/<name>` (default `~/.local/share/<name>`) with the binary symlinked into PATH.
 - **`custom`** — entirely managed by a post-install hook. The hook handles platform detection, idempotency, and installation.
 
 **Machine-local deps:** `~/.config/shdeps/deps.local.conf` (untracked, same format) adds machine-local dependencies that aren't in the tracked config. Entries are merged with `deps.conf` at load time.
