@@ -238,8 +238,8 @@ for _f in init.sh core.sh repos.sh merges.sh merge-block.sh; do
 done
 mkdir -p "$BASE_STAGING/.config/shdeps"
 cat >"$BASE_STAGING/.config/shdeps/deps.conf" <<'CONF'
-test-tool  git  -  -  -  fixture/test-tool.git
-hook-pack  git  -  -  -  fixture/hook-pack.git
+test-tool  git  -  -  fixture/test-tool.git
+hook-pack  git  -  -  fixture/hook-pack.git
 CONF
 mkdir -p "$BASE_STAGING/.config/shdeps/hooks.d"
 cat >"$BASE_STAGING/.config/shdeps/hooks.d/hook-pack.sh" <<'HOOK'

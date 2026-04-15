@@ -291,14 +291,14 @@ Profiles in `~/.config/dot/karabiner/karabiner.json` are merged into Karabiner's
 `dot update` installs and upgrades tools via [shdeps](https://github.com/cgraf78/shdeps), configured in `~/.config/shdeps/deps.conf`. Each line declares a dependency with a name and install method:
 
 ```
-# name          method    cmd    alt    overrides                repo                platforms
+# name          method    cmd    alt    source                   platforms
 jq              pkg
 bat             pkg       bat    batcat
 fd              pkg       fd     fdfind apt:fd-find,dnf:fd-find
-ds              git       -      -      -                        cgraf78/ds.git
-neovim          binary    nvim   -      -                        neovim/neovim
-direnv          binary    -      -      -                        direnv/direnv
-fonts           custom    -      -      -                        -                   !wsl
+ds              git       -      -      cgraf78/ds.git
+neovim          binary    nvim   -      neovim/neovim
+direnv          binary    -      -      direnv/direnv
+fonts           custom    -      -      -                        !wsl
 ```
 
 **Methods:**
@@ -309,7 +309,7 @@ fonts           custom    -      -      -                        -              
 
 **Machine-local deps:** `~/.config/shdeps/deps.local.conf` (untracked, same format) adds machine-local dependencies that aren't in the tracked config. Entries are merged with `deps.conf` at load time.
 
-**Package overrides:** The `overrides` column maps package managers to platform-specific names (e.g., `apt:fd-find`). Use `NONE` to skip a dep on a specific package manager (e.g., `apt:NONE`).
+**Package overrides:** The `source` column maps package managers to platform-specific names (e.g., `apt:fd-find`). Use `NONE` to skip a dep on a specific package manager (e.g., `apt:NONE`).
 
 **Platform filtering:** The optional `platforms` column controls which platforms a dep installs on. Values: `linux`, `macos`, `wsl`. Prefix with `!` to exclude. Examples: `linux,macos` (only those), `!wsl` (all except WSL). Omit or use `-` for all platforms.
 
