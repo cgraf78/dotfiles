@@ -16,25 +16,7 @@ if [[ "$_UNAME" == "Darwin" ]]; then
     test -e "${HOME}/.iterm2_shell_integration.zsh" && . "${HOME}/.iterm2_shell_integration.zsh"
     test -e "/Applications/WezTerm.app/Contents/Resources/wezterm.sh" && . "/Applications/WezTerm.app/Contents/Resources/wezterm.sh"
   fi
-
-  # Screenshot capture to Google Drive
-  sc() {
-    if [[ ! -d ~/gdrive/img ]]; then
-      echo "error: ~/gdrive/img does not exist" >&2
-      return 1
-    fi
-    screencapture -i ~/gdrive/img/"screen_$(date +%Y%m%d_%H%M%S).png"
-  }
 fi
-
-# ── Functions ─────────────────────────────────────────────────────────────
-
-# OpenClaw TUI — launch a conversation with the main agent.
-# Usage: argus [session-name]   (default: tui)
-argus() {
-  local sess="${1:-tui}"
-  openclaw tui --session "agent:main:${sess}"
-}
 
 # ── Tool integrations (after history, before plugins) ─────────────────────
 

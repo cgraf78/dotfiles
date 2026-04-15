@@ -22,12 +22,29 @@ lg() {
     lazygit "$@"
   fi
 }
+# OpenClaw TUI — launch a conversation with the main agent.
+# Usage: argus [session-name]   (default: tui)
+argus() {
+  local sess="${1:-tui}"
+  openclaw tui --session "agent:main:${sess}"
+}
 if command -v fd &>/dev/null; then
   alias fd='fd -H'
 elif command -v fdfind &>/dev/null; then
   alias fd='fdfind -H'
 fi
 alias fzf='fzf --bind=ctrl-n:down,ctrl-p:up,ctrl-d:half-page-down,ctrl-u:half-page-up,alt-j:down,alt-k:up'
+
+# macOS: screenshot capture to Google Drive
+if [[ "$_UNAME" == "Darwin" ]]; then
+  sc() {
+    if [[ ! -d ~/gdrive/img ]]; then
+      echo "error: ~/gdrive/img does not exist" >&2
+      return 1
+    fi
+    screencapture -i ~/gdrive/img/"screen_$(date +%Y%m%d_%H%M%S).png"
+  }
+fi
 
 # SSH / tunnels
 alias rdptun.bevo2='autossh -M0 -N -L 9000:bevo2.lan:3389 nas'

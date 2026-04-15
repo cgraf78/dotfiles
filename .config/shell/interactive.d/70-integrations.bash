@@ -11,10 +11,7 @@ shopt -s histappend
 shopt -s checkwinsize
 
 # ── Platform ──────────────────────────────────────────────────────────────
-# unalias before the if-block: bash expands aliases at parse time,
-# so an alias inside a false branch still triggers a syntax error.
 
-unalias sc 2>/dev/null || true
 if [[ "$_UNAME" == "Darwin" ]]; then
   if [[ -z "${NVIM:-}" ]]; then
     # shellcheck disable=SC1091  # optional local integration script
@@ -22,28 +19,7 @@ if [[ "$_UNAME" == "Darwin" ]]; then
     # shellcheck disable=SC1091  # optional local app integration script
     test -e "/Applications/WezTerm.app/Contents/Resources/wezterm.sh" && . "/Applications/WezTerm.app/Contents/Resources/wezterm.sh"
   fi
-
-  # Screenshot capture to Google Drive
-  sc() {
-    if [[ ! -d ~/gdrive/img ]]; then
-      echo "error: ~/gdrive/img does not exist" >&2
-      return 1
-    fi
-    screencapture -i ~/gdrive/img/"screen_$(date +%Y%m%d_%H%M%S).png"
-  }
 fi
-
-# ── Functions ─────────────────────────────────────────────────────────────
-
-# OpenClaw TUI — launch a conversation with the main agent.
-# Usage: argus [session-name]   (default: tui)
-# unalias first: bash expands aliases before parsing function definitions,
-# so if argus was previously an alias, "argus() {" becomes a syntax error.
-unalias argus 2>/dev/null || true
-argus() {
-  local sess="${1:-tui}"
-  openclaw tui --session "agent:main:${sess}"
-}
 
 # ── Tool integrations (after history) ─────────────────────────────────────
 # On some Linux hosts, `fzf --bash` emits malformed `complete` commands when it
