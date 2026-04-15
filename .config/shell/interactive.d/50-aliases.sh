@@ -59,6 +59,9 @@ alias vnctun.metro='autossh -M0 -N -L 9001:metro.web:5901 nas'
 
 # ── Platform: macOS ──────────────────────────────────────────────────────
 
+# unalias first: bash expands aliases at parse time, so a prior alias
+# causes a syntax error even inside a false if-branch.
+unalias sc 2>/dev/null || true
 if [[ "$_UNAME" == "Darwin" ]]; then
   sc() {
     if [[ ! -d ~/gdrive/img ]]; then
