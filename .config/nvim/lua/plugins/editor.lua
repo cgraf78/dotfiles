@@ -31,7 +31,7 @@ return {
   },
   {
     "folke/persistence.nvim",
-    event = "BufReadPre",
+    lazy = false,
     opts = {},
     keys = {
       { "<leader>qs", function() require("persistence").load() end, desc = "Restore session" },
@@ -93,6 +93,7 @@ return {
   {
     "nvim-tree/nvim-tree.lua",
     dependencies = { "nvim-tree/nvim-web-devicons" },
+    cmd = { "NvimTreeToggle", "NvimTreeOpen", "NvimTreeFindFile", "NvimTreeClose" },
     keys = {
       { "<leader>nn", "<cmd>NvimTreeToggle<cr>", desc = "Toggle file tree" },
       { "<leader>nf", "<cmd>NvimTreeFindFile<cr>", desc = "Find file in tree" },

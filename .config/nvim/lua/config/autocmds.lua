@@ -58,16 +58,38 @@ vim.api.nvim_create_autocmd("StdinReadPre", {
   callback = function() vim.g.started_with_stdin = true end,
 })
 
--- Exclude nvim-tree windows from persisted sessions.
+-- Remember nvim-tree state across sessions. NvimTree buffers don't restore
+-- cleanly from session files, so close the window before save but record
+-- whether it was open via a sidecar file next to the session. On restore,
+-- reopen if the sidecar exists.
 vim.api.nvim_create_autocmd("User", {
   pattern = "PersistenceSavePre",
   callback = function()
+    local sidecar = require("persistence").current() .. ".nvimtree"
+    local was_open = false
     for _, win in ipairs(vim.api.nvim_list_wins()) do
       local buf = vim.api.nvim_win_get_buf(win)
       if vim.bo[buf].filetype == "NvimTree" then
+        was_open = true
         vim.cmd("silent! NvimTreeClose")
         break
       end
+    end
+    if was_open then
+      vim.fn.writefile({}, sidecar)
+    else
+      vim.fn.delete(sidecar)
+    end
+  end,
+})
+vim.api.nvim_create_autocmd("User", {
+  pattern = "PersistenceLoadPost",
+  callback = function()
+    local sidecar = require("persistence").current() .. ".nvimtree"
+    if vim.fn.filereadable(sidecar) == 1 then
+      vim.schedule(function()
+        vim.cmd("NvimTreeOpen")
+      end)
     end
   end,
 })
