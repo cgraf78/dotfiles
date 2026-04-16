@@ -151,19 +151,30 @@ _ensure_vscode_extension() {
 
 # Discover installed VS Code variants.  Each entry is a pair of
 # tab-separated paths: extensions_dir<TAB>config_dir.  Only variants
-# whose config dir exists on disk are included.
+# with a confirmed installation are included.
+#
+# On macOS, config dirs in ~/Library/Application Support persist after
+# uninstall, so we check for the .app bundle instead.  On Linux, config
+# dirs are only created by the app, so their presence is sufficient.
 _vscode_variants() {
   local -a pairs=()
   case "$(uname -s)" in
   Darwin)
     local s="$HOME/Library/Application Support"
-    pairs=(
-      "$HOME/.vscode/extensions	$s/Code/User"
-      "$HOME/.vscode-insiders/extensions	$s/Code - Insiders/User"
-      "$HOME/.vscode-fb-mkt/extensions	$s/VS Code @ FB/User"
-      "$HOME/.vscode-fb-insiders-mkt/extensions	$s/VS Code @ FB - Insiders/User"
-      "$HOME/.cursor/extensions	$s/Cursor/User"
+    # app_bundle<TAB>extensions_dir<TAB>config_dir
+    local -a candidates=(
+      "/Applications/Visual Studio Code.app	$HOME/.vscode/extensions	$s/Code/User"
+      "/Applications/Visual Studio Code - Insiders.app	$HOME/.vscode-insiders/extensions	$s/Code - Insiders/User"
+      "/Applications/VS Code @ FB.app	$HOME/.vscode-fb-mkt/extensions	$s/VS Code @ FB/User"
+      "/Applications/VS Code @ FB - Insiders.app	$HOME/.vscode-fb-insiders-mkt/extensions	$s/VS Code @ FB - Insiders/User"
+      "/Applications/Cursor.app	$HOME/.cursor/extensions	$s/Cursor/User"
     )
+    local c app rest
+    for c in "${candidates[@]}"; do
+      app="${c%%	*}"
+      rest="${c#*	}"
+      [[ -d "$app" ]] && pairs+=("$rest")
+    done
     ;;
   Linux)
     if _is_wsl; then
@@ -183,9 +194,9 @@ _vscode_variants() {
     ;;
   esac
 
-  local pair
+  local pair cfg
   for pair in "${pairs[@]}"; do
-    local cfg="${pair#*	}"
+    cfg="${pair#*	}"
     [[ -d "$cfg" ]] && printf '%s\n' "$pair"
   done
 }
