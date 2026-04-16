@@ -40,3 +40,9 @@ Host minecraft
   IdentityFile ~/.ssh/chris.key
   ProxyJump nas
 
+Host clark2
+  Hostname clark2.lan
+  User chris
+  IdentityFile ~/.ssh/chris.key
+  ProxyJump nas
+
