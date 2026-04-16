@@ -1,6 +1,22 @@
 # shellcheck shell=bash
 # Aliases, functions, and platform-specific defaults.
 
+# ── Platform binary detection (used by aliases and 56-dot.sh helpers) ────
+
+_fd_cmd=""
+if command -v fd &>/dev/null; then
+  _fd_cmd="fd"
+elif command -v fdfind &>/dev/null; then
+  _fd_cmd="fdfind"
+fi
+
+_bat_cmd=""
+if command -v bat &>/dev/null; then
+  _bat_cmd="bat"
+elif command -v batcat &>/dev/null; then
+  _bat_cmd="batcat"
+fi
+
 # ── Tools ─────────────────────────────────────────────────────────────────
 
 alias vs='code'
@@ -16,11 +32,8 @@ alias egrep='grep -E --color=auto'
 alias gl='git log --oneline --all --graph --decorate'
 alias dl='dot git log --oneline --all --graph --decorate'
 alias fzf='fzf --bind=ctrl-n:down,ctrl-p:up,ctrl-d:half-page-down,ctrl-u:half-page-up,alt-j:down,alt-k:up'
-if command -v fd &>/dev/null; then
-  alias fd='fd -H'
-elif command -v fdfind &>/dev/null; then
-  alias fd='fdfind -H'
-fi
+# shellcheck disable=SC2139  # intentional: expand $_fd_cmd at define time
+[[ -n "$_fd_cmd" ]] && alias fd="$_fd_cmd -H"
 
 # ls defaults (eza preferred, then platform-native coloring)
 if command -v eza >/dev/null 2>&1; then
@@ -75,9 +88,7 @@ fi
 # ── Platform: Linux / WSL / MINGW ─────────────────────────────────────────
 if [[ "$_UNAME" == "Linux" || "$_UNAME" == MINGW* || "$_UNAME" == MSYS* ]]; then
 
-  if command -v batcat >/dev/null 2>&1 && ! command -v bat >/dev/null 2>&1; then
-    alias bat='batcat'
-  fi
+  [[ "$_bat_cmd" == "batcat" ]] && alias bat='batcat'
 
   # Windows interop (shared between WSL and MINGW/MSYS)
   if [[ -n "${WSL_DISTRO_NAME:-}" || "$_UNAME" != "Linux" ]]; then

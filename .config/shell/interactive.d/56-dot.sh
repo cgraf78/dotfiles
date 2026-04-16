@@ -1,19 +1,13 @@
 # shellcheck shell=bash
 # Shared interactive helpers for dotfiles management.
-
-# Resolve platform-specific binary names once.
-_fd_cmd=""
-if command -v fd >/dev/null 2>&1; then
-  _fd_cmd="fd"
-elif command -v fdfind >/dev/null 2>&1; then
-  _fd_cmd="fdfind"
-fi
-
-_bat_cmd=""
-if command -v bat >/dev/null 2>&1; then
-  _bat_cmd="bat"
-elif command -v batcat >/dev/null 2>&1; then
-  _bat_cmd="batcat"
+# _fd_cmd and _bat_cmd are normally set by 50-aliases.sh. When this file
+# is sourced standalone (e.g., fzf preview subprocesses), detect them here.
+if [[ -z "${_bat_cmd:-}" ]]; then
+  if command -v bat >/dev/null 2>&1; then
+    _bat_cmd="bat"
+  elif command -v batcat >/dev/null 2>&1; then
+    _bat_cmd="batcat"
+  fi
 fi
 
 # Shared fzf layout options.
@@ -197,7 +191,7 @@ rgv() {
     return 1
   fi
 
-  preview="bash -lc 'hit=\$1; file=\${hit%%:*}; rest=\${hit#*:}; line=\${rest%%:*}; source ~/.config/shell/interactive.d/56-dot.sh; _preview_file \"\$file\" \"\$line\"' _ {}"
+  preview="bash -c 'source ~/.config/shell/interactive.d/56-dot.sh; hit=\$1; file=\${hit%%:*}; rest=\${hit#*:}; line=\${rest%%:*}; _preview_file \"\$file\" \"\$line\"' _ {}"
   hit="$(
     rg --hidden --glob '!.git' --line-number --no-heading --color=never "$@" |
       fzf "${_fzf_preview[@]}" --prompt="rg> " --preview="$preview"
@@ -235,7 +229,7 @@ fv() {
   fi
 
   printf -v root_q '%q' "$_root"
-  preview="bash -lc 'source ~/.config/shell/interactive.d/56-dot.sh; _preview_file \"\$1\"' _ $root_q/{}"
+  preview="bash -c 'source ~/.config/shell/interactive.d/56-dot.sh; _preview_file \"\$1\"' _ $root_q/{}"
 
   if [[ -n "$_fd_cmd" ]]; then
     listing() { "$_fd_cmd" --base-directory "$_root" --hidden --exclude .git --type f .; }
@@ -246,8 +240,10 @@ fv() {
   file="$(
     listing |
       fzf "${_fzf_preview[@]}" --prompt="file> " --scheme=path --query="$_query" --preview="$preview"
-  )" || return
+  )"
+  local fzf_rc=$?
   unset -f listing
+  [[ $fzf_rc -ne 0 ]] && return $fzf_rc
 
   [[ -n "$file" ]] || return
   _edit_file "$_root/$file"

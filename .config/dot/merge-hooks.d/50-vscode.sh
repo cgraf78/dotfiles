@@ -27,10 +27,10 @@ _merge_vscode_keybindings() {
   local src_clean dst_clean
   src_clean=$(mktemp)
   dst_clean=$(mktemp)
+  trap 'rm -f "$src_clean" "$dst_clean"' RETURN
 
   if ! _strip_jsonc "$src" >"$src_clean" || ! _strip_jsonc "$dst" >"$dst_clean"; then
     _warn "    warning: keybindings merge failed for $(basename "$(dirname "$(dirname "$dst")")") — skipping"
-    rm -f "$src_clean" "$dst_clean"
     return
   fi
 
@@ -45,7 +45,6 @@ _merge_vscode_keybindings() {
   else
     mv "$dst.tmp" "$dst"
   fi
-  rm -f "$src_clean" "$dst_clean"
 }
 
 # Merge VS Code settings from dotfiles into a local settings.json.
@@ -65,10 +64,10 @@ _merge_vscode_settings() {
   local src_clean dst_clean
   src_clean=$(mktemp)
   dst_clean=$(mktemp)
+  trap 'rm -f "$src_clean" "$dst_clean"' RETURN
 
   if ! _strip_jsonc "$src" >"$src_clean" || ! _strip_jsonc "$dst" >"$dst_clean"; then
     _warn "    warning: settings merge failed for $(basename "$(dirname "$(dirname "$dst")")") — skipping"
-    rm -f "$src_clean" "$dst_clean"
     return
   fi
 
@@ -82,7 +81,6 @@ _merge_vscode_settings() {
   else
     mv "$dst.tmp" "$dst"
   fi
-  rm -f "$src_clean" "$dst_clean"
 }
 
 # Merge both settings and keybindings into a VS Code config dir.
