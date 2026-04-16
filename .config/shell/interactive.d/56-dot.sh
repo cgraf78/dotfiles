@@ -77,6 +77,11 @@ dotu() {
   _reload_shell
 }
 
+# Shortcut for 'dot status'
+dots() {
+  dot status "$@" || return
+}
+
 # Reload the current shell config without updating dotfiles.
 reloadsh() {
   _reload_shell
@@ -101,18 +106,18 @@ _parse_root_query() {
   _query=""
 
   case $# in
-  0) ;;
-  1)
-    if [[ -d "$1" ]]; then
+    0) ;;
+    1)
+      if [[ -d "$1" ]]; then
+        _root="$1"
+      else
+        _query="$1"
+      fi
+      ;;
+    *)
       _root="$1"
-    else
-      _query="$1"
-    fi
-    ;;
-  *)
-    _root="$1"
-    _query="$2"
-    ;;
+      _query="$2"
+      ;;
   esac
 }
 
