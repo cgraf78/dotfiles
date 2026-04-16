@@ -30,8 +30,8 @@ fi
 # ── Tool integrations (after history, before plugins) ─────────────────────
 
 # Extra completion definitions (must precede compinit).
-[[ -d "$HOME/.local/share/zsh-completions/src" ]] &&
-  fpath=("$HOME/.local/share/zsh-completions/src" $fpath)
+[[ -d "$HOME/.local/share/zsh-users/zsh-completions/src" ]] &&
+  fpath=("$HOME/.local/share/zsh-users/zsh-completions/src" $fpath)
 [[ -d "$HOME/.local/share/zsh/site-functions" ]] &&
   fpath=("$HOME/.local/share/zsh/site-functions" $fpath)
 
@@ -57,7 +57,7 @@ command -v direnv &>/dev/null && eval "$(direnv hook zsh)"
 # autosuggestions → syntax-highlighting (wraps ZLE widgets) →
 # history-substring-search (needs syntax-highlighting for colored matches)
 
-_zsh_plugin_dir="$HOME/.local/share"
+_zsh_plugin_dir="$HOME/.local/share/zsh-users"
 
 [[ -f "$_zsh_plugin_dir/zsh-autosuggestions/zsh-autosuggestions.zsh" ]] &&
   source "$_zsh_plugin_dir/zsh-autosuggestions/zsh-autosuggestions.zsh"
