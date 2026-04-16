@@ -27,7 +27,7 @@ _merge_vscode_keybindings() {
   local src_clean dst_clean
   src_clean=$(mktemp)
   dst_clean=$(mktemp)
-  trap 'rm -f "$src_clean" "$dst_clean"' RETURN
+  trap 'rm -f "${src_clean:-}" "${dst_clean:-}"' RETURN
 
   if ! _strip_jsonc "$src" >"$src_clean" || ! _strip_jsonc "$dst" >"$dst_clean"; then
     _warn "    warning: keybindings merge failed for $(basename "$(dirname "$(dirname "$dst")")") — skipping"
@@ -64,7 +64,7 @@ _merge_vscode_settings() {
   local src_clean dst_clean
   src_clean=$(mktemp)
   dst_clean=$(mktemp)
-  trap 'rm -f "$src_clean" "$dst_clean"' RETURN
+  trap 'rm -f "${src_clean:-}" "${dst_clean:-}"' RETURN
 
   if ! _strip_jsonc "$src" >"$src_clean" || ! _strip_jsonc "$dst" >"$dst_clean"; then
     _warn "    warning: settings merge failed for $(basename "$(dirname "$(dirname "$dst")")") — skipping"
