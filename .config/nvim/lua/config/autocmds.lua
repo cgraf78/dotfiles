@@ -65,6 +65,10 @@ vim.api.nvim_create_autocmd("StdinReadPre", {
 vim.api.nvim_create_autocmd("User", {
   pattern = "PersistenceSavePre",
   callback = function()
+    -- Clear arglist so stray files don't reappear on session restore.
+    -- mksession always writes $argadd regardless of sessionoptions.
+    vim.cmd("%argdelete")
+
     local sidecar = require("persistence").current() .. ".nvimtree"
     local was_open = false
     for _, win in ipairs(vim.api.nvim_list_wins()) do

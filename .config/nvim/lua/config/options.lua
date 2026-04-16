@@ -56,3 +56,6 @@ vim.opt.backspace = { "eol", "start", "indent" }
 -- Split behavior
 vim.opt.splitbelow = true
 vim.opt.splitright = true
+
+-- Session: save only layout and current files, not stray buffers or arglists
+vim.opt.sessionoptions = { "curdir", "folds", "tabpages", "winsize", "winpos" }
