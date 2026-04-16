@@ -102,6 +102,7 @@ fi
 # ---------------------------------------------------------------------------
 
 DOTFILES="$HOME/.dotfiles"
+# Match _backup_dir() format in repos.sh (can't call it — not checked out yet).
 BACKUP="$HOME/.dotfiles-backup/$(date +%Y%m%d%H%M%S)"
 # Optional: DOTFILES_BRANCH=<branch> to override detected branch.
 BRANCH=""

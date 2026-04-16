@@ -5,8 +5,13 @@
 _backup_dir() {
   local root="$HOME/.dotfiles-backup"
   mkdir -p "$root"
-  local backup=""
-  if ! backup=$(mktemp -d "$root/backup.XXXXXXXX" 2>/dev/null); then
+  local backup
+  backup="$root/$(date +%Y%m%d%H%M%S)"
+  if [[ -d "$backup" ]]; then
+    # Sub-second collision: append PID to disambiguate.
+    backup="${backup}.$$"
+  fi
+  if ! mkdir "$backup" 2>/dev/null; then
     REPLY=""
     return 1
   fi
