@@ -291,29 +291,30 @@ Profiles in `~/.config/dot/karabiner/karabiner.json` are merged into Karabiner's
 `dot update` installs and upgrades tools via [shdeps](https://github.com/cgraf78/shdeps), configured in `~/.config/shdeps/deps.conf`. Each line declares a dependency with a name and install method:
 
 ```
-# name          method           cmd    alt    source                   platforms
-jq              pkg
-bat             pkg              bat    batcat
-fd              pkg              fd     fdfind apt:fd-find,dnf:fd-find
-ds              github:repo      -      -      cgraf78/ds.git
-neovim          github:release   nvim   -      neovim/neovim
-direnv          github:release   -      -      direnv/direnv
-fonts           custom           -      -      -                        !wsl
+# name               method           cmd          aliases                  filter
+jq                   pkg
+bat                  pkg              apt:batcat
+fd                   pkg              apt:fdfind   apt:fd-find,dnf:fd-find
+cgraf78/ds           github:repo
+neovim/neovim        github:release   nvim
+direnv/direnv        github:release
+nerd-fonts           custom
+dust                 pkg              -            -                        os:macos
 ```
 
 **Methods:**
 - **`pkg`** — system package (`brew`, `apt`, `dnf`, `pacman`). Batches all packages into one install command.
-- **`github:repo`** — clones from GitHub into `$SHDEPS_INSTALL_DIR/<name>` (default `~/.local/share/<name>`). Prefers `~/git/<name>` local clones, falls back to a shallow clone for fresh installs.
-- **`github:release`** — downloads from GitHub releases, matching by OS and arch. Asset matching is case-insensitive and supports all common naming conventions (Go, Rust triples, etc.). Prefers standalone binaries, then tarballs, then zip archives. Compressed single binaries (`.gz`, `.bz2`, `.zst`) are decompressed automatically. On Linux, prefers `gnu` over `musl` assets when both are available. Archives are extracted to `$SHDEPS_INSTALL_DIR/<name>` (default `~/.local/share/<name>`) with the binary symlinked into PATH.
+- **`github:repo`** — clones from GitHub into `$SHDEPS_INSTALL_DIR/<owner>/<repo>`. Prefers `~/git/<repo>` local clones, falls back to a shallow clone for fresh installs. The `name` field is `owner/repo`.
+- **`github:release`** — downloads from GitHub releases, matching by OS and arch. Asset matching is case-insensitive and supports all common naming conventions (Go, Rust triples, etc.). Prefers standalone binaries, then tarballs, then zip archives. Compressed single binaries (`.gz`, `.bz2`, `.zst`) are decompressed automatically. On Linux, prefers `gnu` over `musl` assets when both are available. The `name` field is `owner/repo`.
 - **`custom`** — entirely managed by a post-install hook. The hook handles platform detection, idempotency, and installation.
 
 **Machine-local deps:** `~/.config/shdeps/deps.local.conf` (untracked, same format) adds machine-local dependencies that aren't in the tracked config. Entries are merged with `deps.conf` at load time.
 
-**Package overrides:** The `source` column maps package managers to platform-specific names (e.g., `apt:fd-find`). Use `NONE` to skip a dep on a specific package manager (e.g., `apt:NONE`).
+**Package aliases:** The `aliases` column maps package managers to platform-specific names (e.g., `apt:fd-find`). Use `NONE` to skip a dep on a specific package manager (e.g., `apt:NONE`).
 
-**Platform filtering:** The optional `platforms` column controls which platforms a dep installs on. Values: `linux`, `macos`, `wsl`. Prefix with `!` to exclude. Examples: `linux,macos` (only those), `!wsl` (all except WSL). Omit or use `-` for all platforms.
+**Filtering:** The optional `filter` column controls which platforms and hosts a dep installs on. Uses `os:` and `host:` prefixes. Prefix with `!` to exclude. Examples: `os:linux,os:macos` (only those), `os:!wsl` (all except WSL), `host:nas` (only host named nas). Omit or use `-` for all.
 
-**Post-install hooks:** Defined as individual files in `~/.config/shdeps/hooks.d/<name>.sh`. Each file can define `post()` (runs after install/update) and `status()` (reports dep status) functions. Hooks run only when their corresponding dep is newly installed or updated.
+**Post-install hooks:** Defined as individual files in `~/.config/shdeps/hooks.d/<name>.sh` (for `github:*` deps, hooks go in `hooks.d/owner/repo.sh`). Each file can define `post()` (runs after install/update) and `status()` (reports dep status) functions. Hooks run only when their corresponding dep is newly installed or updated.
 
 **Existence checks:** `pkg` deps check `command -v` first, then fall back to querying the package manager directly (`brew list`, `dpkg -s`, etc.) — useful for deps like fonts that install no binary.
 

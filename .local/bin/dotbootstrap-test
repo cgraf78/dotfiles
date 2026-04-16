@@ -238,14 +238,15 @@ for _f in init.sh core.sh repos.sh merges.sh merge-block.sh; do
 done
 mkdir -p "$BASE_STAGING/.config/shdeps"
 cat >"$BASE_STAGING/.config/shdeps/deps.conf" <<'CONF'
-test-tool  github:repo  -  -  fixture/test-tool.git
-hook-pack  github:repo  -  -  fixture/hook-pack.git
+fixture/test-tool  github:repo
+fixture/hook-pack  github:repo
 CONF
 mkdir -p "$BASE_STAGING/.config/shdeps/hooks.d"
-cat >"$BASE_STAGING/.config/shdeps/hooks.d/hook-pack.sh" <<'HOOK'
+mkdir -p "$BASE_STAGING/.config/shdeps/hooks.d/fixture"
+cat >"$BASE_STAGING/.config/shdeps/hooks.d/fixture/hook-pack.sh" <<'HOOK'
 post() {
   mkdir -p "$HOME/.test-hooks"
-  printf '%s\n' "$HOME/.local/share/hook-pack" > "$HOME/.test-hooks/hook-pack"
+  printf '%s\n' "$HOME/.local/share/fixture/hook-pack" > "$HOME/.test-hooks/hook-pack"
 }
 HOOK
 
@@ -359,9 +360,9 @@ _assert_contains "base: merge ran" "MERGE_TESTAPP_RAN" "$result"
 
 # Git-based deps added
 _assert_contains "base: git deps added" "added" "$result"
-_assert_file_exists "base: generic tool installed" "$FRESH/.local/share/test-tool/bin/test-tool"
+_assert_file_exists "base: generic tool installed" "$FRESH/.local/share/fixture/test-tool/bin/test-tool"
 _assert_file_exists "base: generic tool linked" "$FRESH/.local/bin/test-tool"
-_assert_file_content "base: generic hook ran" "$FRESH/.local/share/hook-pack" "$FRESH/.test-hooks/hook-pack"
+_assert_file_content "base: generic hook ran" "$FRESH/.local/share/fixture/hook-pack" "$FRESH/.test-hooks/hook-pack"
 
 # Done message
 _assert_contains "base: done message" "Done" "$result"

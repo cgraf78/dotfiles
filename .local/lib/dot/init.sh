@@ -51,7 +51,6 @@ _bootstrap_shdeps() {
   # sources shdeps.sh, since it reads these at source time)
   export SHDEPS_CONF_DIR="$HOME/.config/shdeps"
   export SHDEPS_HOOKS_DIR="$HOME/.config/shdeps/hooks.d"
-  export SHDEPS_STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/dot/deps"
   [[ "${DOT_FORCE:-0}" -eq 1 ]] && export SHDEPS_FORCE=1
   [[ "${DOT_QUIET:-0}" -eq 1 ]] && export SHDEPS_QUIET=1
 

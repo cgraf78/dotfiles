@@ -171,14 +171,14 @@ for _f in init.sh core.sh merge-block.sh repos.sh merges.sh; do
 done
 mkdir -p "$TEST_HOME/.config/shdeps"
 cat >"$TEST_HOME/.config/shdeps/deps.conf" <<'CONF'
-test-tool  github:repo  -  -  fixture/test-tool.git
-hook-pack  github:repo  -  -  fixture/hook-pack.git
+fixture/test-tool  github:repo
+fixture/hook-pack  github:repo
 CONF
-mkdir -p "$TEST_HOME/.config/shdeps/hooks.d"
-cat >"$TEST_HOME/.config/shdeps/hooks.d/hook-pack.sh" <<'HOOK'
+mkdir -p "$TEST_HOME/.config/shdeps/hooks.d/fixture"
+cat >"$TEST_HOME/.config/shdeps/hooks.d/fixture/hook-pack.sh" <<'HOOK'
 post() {
   mkdir -p "$HOME/.test-hooks"
-  printf '%s\n' "$HOME/.local/share/hook-pack" > "$HOME/.test-hooks/hook-pack"
+  printf '%s\n' "$HOME/.local/share/fixture/hook-pack" > "$HOME/.test-hooks/hook-pack"
 }
 HOOK
 
@@ -1076,9 +1076,9 @@ result=$(
 _assert_contains "update: shows pulling" "Pulling dotfiles" "$result"
 _assert_contains "update: shows installing" "Installing/upgrading" "$result"
 _assert_contains "update: shows done" "Done" "$result"
-_assert_file_exists "update: generic tool install dir exists" "$TEST_HOME/.local/share/test-tool/bin/test-tool"
+_assert_file_exists "update: generic tool install dir exists" "$TEST_HOME/.local/share/fixture/test-tool/bin/test-tool"
 _assert_file_exists "update: generic tool linked into PATH" "$TEST_HOME/.local/bin/test-tool"
-_assert_file_content "update: generic hook ran" "$TEST_HOME/.local/share/hook-pack" "$TEST_HOME/.test-hooks/hook-pack"
+_assert_file_content "update: generic hook ran" "$TEST_HOME/.local/share/fixture/hook-pack" "$TEST_HOME/.test-hooks/hook-pack"
 
 # Update without bare repo: no error, no pull, still succeeds
 NO_REPO_HOME=$(_tmpdir)
@@ -1099,8 +1099,8 @@ result=$(
 _assert_not_contains "update no-repo: no pull" "Pulling dotfiles" "$result"
 _assert_contains "update no-repo: shows installing" "Installing/upgrading" "$result"
 _assert_contains "update no-repo: shows done" "Done" "$result"
-_assert_file_exists "update no-repo: generic tool installed" "$NO_REPO_HOME/.local/share/test-tool/bin/test-tool"
-_assert_file_content "update no-repo: generic hook ran" "$NO_REPO_HOME/.local/share/hook-pack" "$NO_REPO_HOME/.test-hooks/hook-pack"
+_assert_file_exists "update no-repo: generic tool installed" "$NO_REPO_HOME/.local/share/fixture/test-tool/bin/test-tool"
+_assert_file_content "update no-repo: generic hook ran" "$NO_REPO_HOME/.local/share/fixture/hook-pack" "$NO_REPO_HOME/.test-hooks/hook-pack"
 
 # ---------------------------------------------------------------------------
 # Tests: _is_worktree_dirty
