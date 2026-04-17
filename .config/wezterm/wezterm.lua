@@ -68,7 +68,7 @@ local function prompt_rename_tab(window, pane)
 end
 
 local font_names = {
-  'JetBrainsMono Nerd Font',
+  { family = 'JetBrainsMono Nerd Font', weight = 'Light' },
   'FiraCode Nerd Font',
   'MesloLGM Nerd Font Mono',
 }
@@ -77,16 +77,27 @@ local line_height
 local default_prog
 local window_decorations = 'TITLE|RESIZE'
 local macos_window_background_blur = 0
+local front_end
+local freetype_load_target
+local freetype_render_target
 
 if is_macos then
   table.insert(font_names, 'Menlo')
-  font_size = 10.5
-  line_height = 1.05
+  font_size = 11
+  line_height = 1.0
 
   -- Use the system login shell (set via chsh).
   default_prog = nil
 
   macos_window_background_blur = 18
+
+  -- Sharper glyph rendering on external (non-Retina) displays like the Dell.
+  -- WebGpu uses Metal and is crisper than the default OpenGL front end on
+  -- macOS. Grayscale Light render target avoids the subpixel color-fringing
+  -- that reads as perceived-bold text on lower-PPI external panels.
+  front_end = 'WebGpu'
+  freetype_load_target = 'Light'
+  freetype_render_target = 'Light'
 elseif is_windows then
   table.insert(font_names, 'Consolas')
   font_size = 9.0
@@ -298,6 +309,9 @@ return {
   font = font_with_fallback(font_names),
   font_size = font_size,
   line_height = line_height,
+  front_end = front_end,
+  freetype_load_target = freetype_load_target,
+  freetype_render_target = freetype_render_target,
   enable_scroll_bar = false,
   hide_tab_bar_if_only_one_tab = true,
   initial_cols = 140,
