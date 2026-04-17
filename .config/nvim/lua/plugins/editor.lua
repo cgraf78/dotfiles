@@ -55,7 +55,8 @@ return {
       },
     },
     keys = {
-      { "<C-p>", "<cmd>Telescope find_files<cr>", desc = "Find files" },
+      { "<C-p>", function() require("telescope.builtin").find_files({ cwd = vim.env.HOME }) end, desc = "Find files (home)" },
+      { "<leader>p", "<cmd>Telescope find_files<cr>", desc = "Find files (cwd)" },
       { "<C-f>", "<cmd>Telescope current_buffer_fuzzy_find<cr>", desc = "Search in buffer" },
       { "<leader>f", "<cmd>Telescope oldfiles<cr>", desc = "Recent files" },
       { "<leader>b", "<cmd>Telescope buffers<cr>", desc = "Buffers" },
@@ -70,6 +71,7 @@ return {
     config = function()
       require("telescope").setup({
         defaults = {
+          initial_mode = "normal",
           layout_strategy = "vertical",
           layout_config = {
             vertical = {
