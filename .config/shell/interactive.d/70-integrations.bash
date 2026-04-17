@@ -30,6 +30,23 @@ fi
 # tries to wrap distro-provided bash-completion specs. Keep the key bindings,
 # but skip the completion section to avoid login-time warnings.
 
+# Load bash-completion when present so shdeps-linked user completions under
+# ~/.local/share/bash-completion/completions are active in bash too.
+if ! shopt -oq posix; then
+  export BASH_COMPLETION_USER_DIR="$HOME/.local/share/bash-completion"
+
+  if [[ -f /opt/homebrew/etc/profile.d/bash_completion.sh ]]; then
+    # shellcheck disable=SC1091  # optional package-managed script
+    source /opt/homebrew/etc/profile.d/bash_completion.sh
+  elif [[ -f /usr/local/etc/profile.d/bash_completion.sh ]]; then
+    # shellcheck disable=SC1091  # optional package-managed script
+    source /usr/local/etc/profile.d/bash_completion.sh
+  elif [[ -f /usr/share/bash-completion/bash_completion ]]; then
+    # shellcheck disable=SC1091  # optional distro script
+    source /usr/share/bash-completion/bash_completion
+  fi
+fi
+
 if command -v fzf &>/dev/null; then
   eval "$(
     fzf --bash 2>/dev/null | sed '/^### completion\.bash ###$/,$d'

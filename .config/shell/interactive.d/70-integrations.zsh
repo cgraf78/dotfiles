@@ -58,6 +58,13 @@ command -v direnv &>/dev/null && eval "$(direnv hook zsh)"
 # history-substring-search (needs syntax-highlighting for colored matches)
 
 _zsh_plugin_dir="$HOME/.local/share/zsh-users"
+_fzf_tab_plugin_dir="$HOME/.local/share/Aloxaf/fzf-tab"
+
+zstyle ':fzf-tab:complete:*' fzf-flags --height=45% --reverse
+zstyle ':fzf-tab:*' switch-group '<' '>'
+
+[[ -f "$_fzf_tab_plugin_dir/fzf-tab.plugin.zsh" ]] &&
+  source "$_fzf_tab_plugin_dir/fzf-tab.plugin.zsh"
 
 [[ -f "$_zsh_plugin_dir/zsh-autosuggestions/zsh-autosuggestions.zsh" ]] &&
   source "$_zsh_plugin_dir/zsh-autosuggestions/zsh-autosuggestions.zsh"
@@ -74,6 +81,7 @@ if [[ -f "$_zsh_plugin_dir/zsh-history-substring-search/zsh-history-substring-se
 fi
 
 unset _zsh_plugin_dir
+unset _fzf_tab_plugin_dir
 
 # ── Keybindings (after plugins — avoid clobbering widget bindings) ────────
 

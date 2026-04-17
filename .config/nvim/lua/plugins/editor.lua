@@ -110,6 +110,23 @@ return {
     end,
   },
   {
+    "stevearc/oil.nvim",
+    dependencies = { "nvim-tree/nvim-web-devicons" },
+    cmd = "Oil",
+    keys = {
+      { "-", "<cmd>Oil<cr>", desc = "Open parent directory" },
+      { "<leader>no", "<cmd>Oil<cr>", desc = "Open parent directory" },
+    },
+    config = function()
+      require("oil").setup({
+        default_file_explorer = false,
+        view_options = {
+          show_hidden = true,
+        },
+      })
+    end,
+  },
+  {
     "mbbill/undotree",
     keys = {
       { "<leader>u", "<cmd>UndotreeToggle<cr>", desc = "Toggle undo tree" },
