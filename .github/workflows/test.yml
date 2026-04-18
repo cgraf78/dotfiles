@@ -63,9 +63,12 @@ jobs:
           sudo mount --bind /tmp/wsl-proc-version /proc/version
 
       - name: Set HOME to workspace
+        run: echo "HOME=$(pwd)" >> "$GITHUB_ENV"
+
+      - name: Configure git for container environment
         run: |
-          echo "HOME=$(pwd)" >> "$GITHUB_ENV"
           git config --global --add safe.directory "$(pwd)"
+          echo "GIT_DISCOVERY_ACROSS_FILESYSTEM=1" >> "$GITHUB_ENV"
 
       - name: Install dependencies via dot update
         run: |
