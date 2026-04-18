@@ -264,6 +264,31 @@ EOF
 _assert_contains "sh: parent editorconfig found" "    echo" "$(cat "$_parent/sub/test.sh")"
 
 # ---------------------------------------------------------------------------
+# Tests: config at search root
+# ---------------------------------------------------------------------------
+
+echo "=== Config at search root ==="
+
+_cfg_root=$(_tmpdir)
+mkdir -p "$_cfg_root/sub"
+cat >"$_cfg_root/.editorconfig" <<'EOF'
+root = true
+[*.sh]
+indent_style = space
+indent_size = 4
+EOF
+
+eval "$(awk '
+  /^_has_config\(\) \{/ { in_fn=1 }
+  in_fn { print }
+  in_fn && /^\}/ { exit }
+' "$AUTOFORMAT")"
+
+_has_config "$_cfg_root/sub" ".editorconfig" "$_cfg_root"
+rc=$?
+_assert_exit "has_config: checks search root" 0 "$rc"
+
+# ---------------------------------------------------------------------------
 # Tests: shebang detection for extensionless files
 # ---------------------------------------------------------------------------
 
