@@ -63,7 +63,9 @@ jobs:
           sudo mount --bind /tmp/wsl-proc-version /proc/version
 
       - name: Set HOME to workspace
-        run: echo "HOME=$(pwd)" >> "$GITHUB_ENV"
+        run: |
+          echo "HOME=$(pwd)" >> "$GITHUB_ENV"
+          git config --global --add safe.directory "$(pwd)"
 
       - name: Install dependencies via dot update
         run: |
