@@ -35,8 +35,6 @@ jobs:
     name: ${{ matrix.name }}
 
     steps:
-      - uses: actions/checkout@v4
-
       - name: Install system prereqs
         if: matrix.container || matrix.name == 'macOS'
         run: |
@@ -56,6 +54,8 @@ jobs:
               ;;
           esac
 
+      - uses: actions/checkout@v4
+
       - name: Simulate WSL environment
         if: matrix.name == 'WSL'
         run: |
@@ -65,10 +65,8 @@ jobs:
       - name: Set HOME to workspace
         run: echo "HOME=$(pwd)" >> "$GITHUB_ENV"
 
-      - name: Configure git for container environment
-        run: |
-          git config --global --add safe.directory "$(pwd)"
-          echo "GIT_DISCOVERY_ACROSS_FILESYSTEM=1" >> "$GITHUB_ENV"
+      - name: Mark workspace as safe for git
+        run: git config --global --add safe.directory "$(pwd)"
 
       - name: Install dependencies via dot update
         run: |
