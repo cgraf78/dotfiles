@@ -15,13 +15,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install tools (Linux)
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y zsh
-
-      - name: Install tools (macOS)
+      - name: Install prereqs (macOS)
         if: runner.os == 'macOS'
-        run: brew install bash shellcheck jq zsh
+        run: brew install bash
+
+      - name: Install dependencies via dot update
+        run: .local/bin/dot update --skip-pull --quiet
+        env:
+          HOME: ${{ github.workspace }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Run dot-test
         run: .local/bin/dot-test
@@ -30,5 +32,10 @@ jobs:
 
       - name: Run dotbootstrap-test
         run: .local/bin/dotbootstrap-test
+        env:
+          HOME: ${{ github.workspace }}
+
+      - name: Run autoformat-test
+        run: .local/bin/autoformat-test
         env:
           HOME: ${{ github.workspace }}
