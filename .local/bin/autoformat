@@ -56,15 +56,17 @@ _run_fmt() {
 }
 
 _format_sh() {
-  local file="$1" dir="$2"
+  local file="$1" dir="$2" lang="${3:-}"
   local args=()
+
+  [ -n "$lang" ] && args+=("-ln=$lang")
 
   if ! _has_config "$dir" ".editorconfig" &&
     [ -f "$AUTOFORMAT_DIR/shfmt.toml" ]; then
     val=$(_toml_val "$AUTOFORMAT_DIR/shfmt.toml" "indent") && args+=(-i "$val")
   fi
 
-  _run_fmt shfmt -w "${args[@]}" "$file"
+  _run_fmt shfmt "${args[@]}" -w "$file"
 }
 
 _filedir=$(dirname "$file")
@@ -109,6 +111,11 @@ sh | bash)
     _format_sh "$file" "$_filedir"
   fi
   ;;
+zsh)
+  if command -v shfmt &>/dev/null; then
+    _format_sh "$file" "$_filedir" "zsh"
+  fi
+  ;;
 c | cpp | cc | cxx | h | hpp | hxx)
   if command -v clang-format &>/dev/null; then
     args=()
@@ -136,14 +143,48 @@ lua)
     _run_fmt stylua "${args[@]}" "$file"
   fi
   ;;
+rs)
+  if command -v rustfmt &>/dev/null; then
+    _run_fmt rustfmt "$file"
+  fi
+  ;;
+toml)
+  if command -v taplo &>/dev/null; then
+    _run_fmt taplo fmt "$file"
+  fi
+  ;;
+css | html | js | jsx | json | md | ts | tsx | yaml | yml)
+  if command -v prettier &>/dev/null; then
+    _run_fmt prettier --write "$file"
+  fi
+  ;;
 *)
   # Extensionless files: check shebang for shell scripts.
   case "$base" in
+  .zshenv | .zshrc | .zprofile | .zlogin | .zlogout)
+    if command -v shfmt &>/dev/null; then
+      _format_sh "$file" "$_filedir" "zsh"
+    fi
+    ;;
+  .bashrc | .bash_profile)
+    if command -v shfmt &>/dev/null; then
+      _format_sh "$file" "$_filedir"
+    fi
+    ;;
+  .profile)
+    if command -v shfmt &>/dev/null; then
+      _format_sh "$file" "$_filedir"
+    fi
+    ;;
   # Skip common extensionless formats that should be handled by dedicated tools
   # or left untouched, even if they start with something shell-like.
   Makefile | Dockerfile | *.md | *.json | *.yaml | *.yml | *.toml) ;;
   *)
-    if head -1 "$file" 2>/dev/null | grep -qE '^#!.*\b(ba)?sh\b'; then
+    if head -1 "$file" 2>/dev/null | grep -qE '^#!.*\bzsh\b'; then
+      if command -v shfmt &>/dev/null; then
+        _format_sh "$file" "$_filedir" "zsh"
+      fi
+    elif head -1 "$file" 2>/dev/null | grep -qE '^#!.*\b(ba)?sh\b'; then
       if command -v shfmt &>/dev/null; then
         _format_sh "$file" "$_filedir"
       fi

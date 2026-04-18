@@ -58,6 +58,15 @@ EOF
 "$AUTOFORMAT" "$_td/test.bash"
 _assert_contains "bash ext: shfmt formats" "  echo" "$(cat "$_td/test.bash")"
 
+cat >"$_td/test.zsh" <<'EOF'
+#!/usr/bin/env zsh
+if true; then
+echo "hello"
+fi
+EOF
+"$AUTOFORMAT" "$_td/test.zsh"
+_assert_contains "zsh ext: shfmt formats" "  echo" "$(cat "$_td/test.zsh")"
+
 cat >"$_td/test.c" <<'EOF'
 int main() {
 int x = 0;
@@ -81,6 +90,49 @@ end
 EOF
 "$AUTOFORMAT" "$_td/test.lua"
 _assert_contains "lua: stylua formats" "  print" "$(cat "$_td/test.lua")"
+
+# Mock formatters for tools that may not be installed locally but are used by
+# Neovim formatting config.
+_mockbin=$(_mock_bin)
+
+cat >"$_mockbin/prettier" <<'EOF'
+#!/usr/bin/env bash
+file="${@: -1}"
+printf 'formatted by prettier\n' >"$file"
+EOF
+chmod +x "$_mockbin/prettier"
+
+cat >"$_mockbin/taplo" <<'EOF'
+#!/usr/bin/env bash
+file="${@: -1}"
+printf 'formatted = "taplo"\n' >"$file"
+EOF
+chmod +x "$_mockbin/taplo"
+
+cat >"$_mockbin/rustfmt" <<'EOF'
+#!/usr/bin/env bash
+file="${@: -1}"
+printf 'fn main() {}\n' >"$file"
+EOF
+chmod +x "$_mockbin/rustfmt"
+
+cat >"$_td/test.json" <<'EOF'
+{"x":1}
+EOF
+PATH="$_mockbin:$PATH" "$AUTOFORMAT" "$_td/test.json"
+_assert_eq "json: prettier formats" 'formatted by prettier' "$(cat "$_td/test.json")"
+
+cat >"$_td/test.toml" <<'EOF'
+x=1
+EOF
+PATH="$_mockbin:$PATH" "$AUTOFORMAT" "$_td/test.toml"
+_assert_eq "toml: taplo formats" 'formatted = "taplo"' "$(cat "$_td/test.toml")"
+
+cat >"$_td/test.rs" <<'EOF'
+fn main( ){ }
+EOF
+PATH="$_mockbin:$PATH" "$AUTOFORMAT" "$_td/test.rs"
+_assert_eq "rust: rustfmt formats" 'fn main() {}' "$(cat "$_td/test.rs")"
 
 # ---------------------------------------------------------------------------
 # Tests: default indent values
@@ -321,15 +373,46 @@ EOF
 "$AUTOFORMAT" "$_td/envscript"
 _assert_contains "shebang env bash: formatted" "  echo" "$(cat "$_td/envscript")"
 
+cat >"$_td/.zshrc" <<'EOF'
+if true; then
+echo "hello"
+fi
+EOF
+"$AUTOFORMAT" "$_td/.zshrc"
+_assert_contains "dotfile zshrc: formatted" "  echo" "$(cat "$_td/.zshrc")"
+
+cat >"$_td/.zshenv" <<'EOF'
+if true; then
+echo "hello"
+fi
+EOF
+"$AUTOFORMAT" "$_td/.zshenv"
+_assert_contains "dotfile zshenv: formatted" "  echo" "$(cat "$_td/.zshenv")"
+
+cat >"$_td/.bashrc" <<'EOF'
+if true; then
+echo "hello"
+fi
+EOF
+"$AUTOFORMAT" "$_td/.bashrc"
+_assert_contains "dotfile bashrc: formatted" "  echo" "$(cat "$_td/.bashrc")"
+
+cat >"$_td/.profile" <<'EOF'
+if true; then
+echo "hello"
+fi
+EOF
+"$AUTOFORMAT" "$_td/.profile"
+_assert_contains "dotfile profile: formatted" "  echo" "$(cat "$_td/.profile")"
+
 cat >"$_td/zshscript" <<'EOF'
 #!/usr/bin/env zsh
 if true; then
 echo "hello"
 fi
 EOF
-cp "$_td/zshscript" "$_td/zshscript.orig"
 "$AUTOFORMAT" "$_td/zshscript"
-_assert_eq "shebang zsh: not formatted" "$(cat "$_td/zshscript.orig")" "$(cat "$_td/zshscript")"
+_assert_contains "shebang zsh: formatted" "  echo" "$(cat "$_td/zshscript")"
 
 cat >"$_td/pyscript" <<'EOF'
 #!/usr/bin/env python3
