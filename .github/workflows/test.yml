@@ -10,16 +10,56 @@ on:
 
 jobs:
   test:
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.container || '' }}
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        include:
+          - name: macOS
+            runner: macos-latest
+          - name: Ubuntu
+            runner: ubuntu-latest
+          - name: Debian
+            runner: ubuntu-latest
+            container: debian:stable
+          - name: Arch
+            runner: ubuntu-latest
+            container: archlinux:latest
+          - name: CentOS Stream
+            runner: ubuntu-latest
+            container: quay.io/centos/centos:stream9
+          - name: WSL
+            runner: ubuntu-latest
+
+    name: ${{ matrix.name }}
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install prereqs (macOS)
-        if: runner.os == 'macOS'
-        run: brew install bash
+      - name: Install system prereqs
+        if: matrix.container || matrix.name == 'macOS'
+        run: |
+          case "${{ matrix.name }}" in
+            macOS)
+              brew install bash
+              ;;
+            Debian)
+              apt-get update && apt-get install -y git curl sudo
+              ;;
+            Arch)
+              pacman -Syu --noconfirm git curl sudo
+              ;;
+            CentOS*)
+              dnf install -y git curl sudo
+              ;;
+          esac
+
+      - name: Simulate WSL environment
+        if: matrix.name == 'WSL'
+        run: |
+          echo 'Linux version 5.15.0 (Microsoft@Microsoft.com)' > /tmp/wsl-proc-version
+          sudo mount --bind /tmp/wsl-proc-version /proc/version
 
       - name: Install dependencies via dot update
         run: |
