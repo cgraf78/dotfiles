@@ -2,36 +2,103 @@
 # autoformat — auto-format a file by extension.
 # Usable from Claude Code hooks, git hooks, editors, CLI.
 # No-ops gracefully if a formatter is not installed.
+# Respects per-repo config files; uses ~/.config/autoformat/ when absent.
 
 set -u
+
+AUTOFORMAT_DIR="${AUTOFORMAT_DIR:-$HOME/.config/autoformat}"
 
 file="${1:-}"
 [ -z "$file" ] && exit 0
 [ -f "$file" ] || exit 0
 
+# Walk up from the file's directory looking for a config file.
+_has_config() {
+  local dir="$1" name="$2"
+  while [ "$dir" != "/" ]; do
+    [ -f "$dir/$name" ] && return 0
+    dir=$(dirname "$dir")
+  done
+  return 1
+}
+
+# Read a key from a TOML file via yq. Returns 1 if missing.
+_toml_val() {
+  local file="$1" key="$2" val
+  val=$(yq -p toml ".$key // \"\"" "$file" 2>/dev/null)
+  [ -n "$val" ] || return 1
+  printf '%s' "$val"
+}
+
+_filedir=$(dirname "$file")
 ext="${file##*.}"
 base="${file##*/}"
+val=""
 
 case "$ext" in
 py)
-  command -v ruff &>/dev/null && ruff format --quiet "$file" 2>/dev/null
+  if command -v ruff &>/dev/null; then
+    args=()
+    if ! _has_config "$_filedir" "ruff.toml" &&
+      ! _has_config "$_filedir" ".ruff.toml" &&
+      ! _has_config "$_filedir" "pyproject.toml" &&
+      [ -f "$AUTOFORMAT_DIR/ruff.toml" ]; then
+      val=$(_toml_val "$AUTOFORMAT_DIR/ruff.toml" "indent-width") && args+=(--config "indent-width=$val")
+      val=$(_toml_val "$AUTOFORMAT_DIR/ruff.toml" "line-length") && args+=(--line-length "$val")
+    fi
+    ruff format --quiet "${args[@]}" "$file" 2>/dev/null
+  fi
   ;;
 sh | bash)
-  command -v shfmt &>/dev/null && shfmt -i 2 -w "$file" 2>/dev/null
+  if command -v shfmt &>/dev/null; then
+    args=()
+    if ! _has_config "$_filedir" ".editorconfig" &&
+      [ -f "$AUTOFORMAT_DIR/shfmt.toml" ]; then
+      val=$(_toml_val "$AUTOFORMAT_DIR/shfmt.toml" "indent") && args+=(-i "$val")
+    fi
+    shfmt -w "${args[@]}" "$file" 2>/dev/null
+  fi
   ;;
 c | cpp | cc | cxx | h | hpp | hxx)
-  command -v clang-format &>/dev/null && clang-format -i "$file" 2>/dev/null
+  if command -v clang-format &>/dev/null; then
+    args=()
+    if ! _has_config "$_filedir" ".clang-format" &&
+      ! _has_config "$_filedir" "_clang-format" &&
+      [ -f "$AUTOFORMAT_DIR/clang-format" ]; then
+      args=(-style="file:$AUTOFORMAT_DIR/clang-format")
+    fi
+    clang-format -i "${args[@]}" "$file" 2>/dev/null
+  fi
   ;;
 lua)
-  command -v stylua &>/dev/null && stylua --indent-type Spaces --indent-width 2 "$file" 2>/dev/null
+  if command -v stylua &>/dev/null; then
+    args=()
+    if ! _has_config "$_filedir" "stylua.toml" &&
+      ! _has_config "$_filedir" ".stylua.toml" &&
+      ! _has_config "$_filedir" ".editorconfig" &&
+      [ -f "$AUTOFORMAT_DIR/stylua.toml" ]; then
+      val=$(_toml_val "$AUTOFORMAT_DIR/stylua.toml" "indent_type") && args+=(--indent-type "$val")
+      val=$(_toml_val "$AUTOFORMAT_DIR/stylua.toml" "indent_width") && args+=(--indent-width "$val")
+      val=$(_toml_val "$AUTOFORMAT_DIR/stylua.toml" "column_width") && args+=(--column-width "$val")
+    fi
+    stylua "${args[@]}" "$file" 2>/dev/null
+  fi
   ;;
 *)
   # Extensionless files: check shebang for shell scripts.
   case "$base" in
   Makefile | Dockerfile | *.md | *.json | *.yaml | *.yml | *.toml) ;;
   *)
-    head -1 "$file" 2>/dev/null | grep -qE '^#!.*\b(ba)?sh\b' &&
-      command -v shfmt &>/dev/null && shfmt -i 2 -w "$file" 2>/dev/null
+    if head -1 "$file" 2>/dev/null | grep -qE '^#!.*\b(ba)?sh\b'; then
+      if command -v shfmt &>/dev/null; then
+        args=()
+        if ! _has_config "$_filedir" ".editorconfig" &&
+          [ -f "$AUTOFORMAT_DIR/shfmt.toml" ]; then
+          val=$(_toml_val "$AUTOFORMAT_DIR/shfmt.toml" "indent") && args+=(-i "$val")
+        fi
+        shfmt -w "${args[@]}" "$file" 2>/dev/null
+      fi
+    fi
     ;;
   esac
   ;;
