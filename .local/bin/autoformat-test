@@ -468,8 +468,11 @@ _assert_exit "no args: exits 0" 0 "$rc"
 
 echo "=== Required tools ==="
 
+_noyq_bin=$(_mock_bin)
+ln -s "$(command -v bash)" "$_noyq_bin/bash"
+
 set +e
-output=$(PATH="/usr/bin:/bin" "$AUTOFORMAT" "$_td/test.py" 2>&1)
+output=$(PATH="$_noyq_bin" "$AUTOFORMAT" "$_td/test.py" 2>&1)
 rc=$?
 set -e
 _assert_exit "missing yq: exits 1" 1 "$rc"
