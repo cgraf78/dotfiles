@@ -1,0 +1,369 @@
+#!/usr/bin/env bash
+# autoformat-test — unit tests for the autoformat script.
+#
+# Tests formatting dispatch, config file discovery, fallback defaults,
+# shebang detection, and no-op behavior for unsupported/missing files.
+#
+# Usage: autoformat-test
+
+set -o pipefail
+export NO_COLOR=1
+
+# shellcheck source=../lib/dot/test-helpers.sh
+. "$HOME/.local/lib/dot/test-helpers.sh"
+
+AUTOFORMAT="$HOME/.local/bin/autoformat"
+
+# ---------------------------------------------------------------------------
+# Tests: basic dispatch by extension
+# ---------------------------------------------------------------------------
+
+echo "=== Dispatch by extension ==="
+
+_td=$(_tmpdir)
+
+cat >"$_td/test.py" <<'EOF'
+x=1
+y =    2
+EOF
+"$AUTOFORMAT" "$_td/test.py"
+_assert_contains "py: ruff formats" "x = 1" "$(cat "$_td/test.py")"
+
+cat >"$_td/test.sh" <<'EOF'
+#!/bin/bash
+if true; then
+echo "hello"
+fi
+EOF
+"$AUTOFORMAT" "$_td/test.sh"
+_assert_contains "sh: shfmt formats" "  echo" "$(cat "$_td/test.sh")"
+
+cat >"$_td/test.cpp" <<'EOF'
+int main() {
+int x = 0;
+if (x) {
+return 0;
+}
+}
+EOF
+"$AUTOFORMAT" "$_td/test.cpp"
+_assert_contains "cpp: clang-format formats" "  int x" "$(cat "$_td/test.cpp")"
+
+cat >"$_td/test.bash" <<'EOF'
+#!/bin/bash
+if true; then
+echo "hello"
+fi
+EOF
+"$AUTOFORMAT" "$_td/test.bash"
+_assert_contains "bash ext: shfmt formats" "  echo" "$(cat "$_td/test.bash")"
+
+cat >"$_td/test.c" <<'EOF'
+int main() {
+int x = 0;
+}
+EOF
+"$AUTOFORMAT" "$_td/test.c"
+_assert_contains "c: clang-format formats" "  int x" "$(cat "$_td/test.c")"
+
+cat >"$_td/test.h" <<'EOF'
+void foo() {
+int x = 0;
+}
+EOF
+"$AUTOFORMAT" "$_td/test.h"
+_assert_contains "h: clang-format formats" "  int x" "$(cat "$_td/test.h")"
+
+cat >"$_td/test.lua" <<'EOF'
+if true then
+print("hello")
+end
+EOF
+"$AUTOFORMAT" "$_td/test.lua"
+_assert_contains "lua: stylua formats" "  print" "$(cat "$_td/test.lua")"
+
+# ---------------------------------------------------------------------------
+# Tests: default indent values
+# ---------------------------------------------------------------------------
+
+echo "=== Default indent values ==="
+
+cat >"$_td/test.py" <<'EOF'
+def foo():
+  if True:
+    print("hello")
+EOF
+"$AUTOFORMAT" "$_td/test.py"
+_assert_contains "py: 4-space indent" "    if True:" "$(cat "$_td/test.py")"
+
+cat >"$_td/test.sh" <<'EOF'
+#!/bin/bash
+if true; then
+echo "hello"
+fi
+EOF
+"$AUTOFORMAT" "$_td/test.sh"
+_assert_contains "sh: 2-space indent" "  echo" "$(cat "$_td/test.sh")"
+_assert_not_contains "sh: no tabs" "	" "$(cat "$_td/test.sh")"
+
+cat >"$_td/test.lua" <<'EOF'
+if true then
+print("hello")
+end
+EOF
+"$AUTOFORMAT" "$_td/test.lua"
+_assert_contains "lua: 2-space indent" "  print" "$(cat "$_td/test.lua")"
+_assert_not_contains "lua: no tabs" "	" "$(cat "$_td/test.lua")"
+
+# ---------------------------------------------------------------------------
+# Tests: C++ fallback config
+# ---------------------------------------------------------------------------
+
+echo "=== C++ fallback config ==="
+
+cat >"$_td/test.cpp" <<'EOF'
+int main() {
+int *x = nullptr;
+}
+EOF
+"$AUTOFORMAT" "$_td/test.cpp"
+_assert_contains "cpp: pointer left (fallback)" "int* x" "$(cat "$_td/test.cpp")"
+
+# ---------------------------------------------------------------------------
+# Tests: repo config overrides defaults
+# ---------------------------------------------------------------------------
+
+echo "=== Repo config overrides ==="
+
+_repo_sh=$(_tmpdir)
+cat >"$_repo_sh/.editorconfig" <<'EOF'
+root = true
+[*.sh]
+indent_style = space
+indent_size = 4
+EOF
+cat >"$_repo_sh/test.sh" <<'EOF'
+#!/bin/bash
+if true; then
+echo "hello"
+fi
+EOF
+"$AUTOFORMAT" "$_repo_sh/test.sh"
+_assert_contains "sh: editorconfig overrides default" "    echo" "$(cat "$_repo_sh/test.sh")"
+
+_repo_py=$(_tmpdir)
+cat >"$_repo_py/ruff.toml" <<'EOF'
+indent-width = 2
+EOF
+cat >"$_repo_py/test.py" <<'EOF'
+def foo():
+    if True:
+        print("hello")
+EOF
+"$AUTOFORMAT" "$_repo_py/test.py"
+_assert_contains "py: ruff.toml overrides default" "  if True:" "$(cat "$_repo_py/test.py")"
+
+_repo_py2=$(_tmpdir)
+cat >"$_repo_py2/.ruff.toml" <<'EOF'
+indent-width = 2
+EOF
+cat >"$_repo_py2/test.py" <<'EOF'
+def foo():
+    if True:
+        print("hello")
+EOF
+"$AUTOFORMAT" "$_repo_py2/test.py"
+_assert_contains "py: .ruff.toml overrides default" "  if True:" "$(cat "$_repo_py2/test.py")"
+
+_repo_cpp=$(_tmpdir)
+cat >"$_repo_cpp/.clang-format" <<'EOF'
+PointerAlignment: Right
+IndentWidth: 4
+EOF
+cat >"$_repo_cpp/test.cpp" <<'EOF'
+int main() {
+int* x = nullptr;
+}
+EOF
+"$AUTOFORMAT" "$_repo_cpp/test.cpp"
+_assert_contains "cpp: .clang-format overrides fallback" "int *x" "$(cat "$_repo_cpp/test.cpp")"
+
+_repo_cpp2=$(_tmpdir)
+cat >"$_repo_cpp2/_clang-format" <<'EOF'
+PointerAlignment: Right
+IndentWidth: 4
+EOF
+cat >"$_repo_cpp2/test.cpp" <<'EOF'
+int main() {
+int* x = nullptr;
+}
+EOF
+"$AUTOFORMAT" "$_repo_cpp2/test.cpp"
+_assert_contains "cpp: _clang-format overrides fallback" "int *x" "$(cat "$_repo_cpp2/test.cpp")"
+
+_repo_lua=$(_tmpdir)
+cat >"$_repo_lua/stylua.toml" <<'EOF'
+indent_type = "Tabs"
+EOF
+cat >"$_repo_lua/test.lua" <<'EOF'
+if true then
+print("hello")
+end
+EOF
+"$AUTOFORMAT" "$_repo_lua/test.lua"
+_assert_contains "lua: stylua.toml overrides default" "	print" "$(cat "$_repo_lua/test.lua")"
+
+# ---------------------------------------------------------------------------
+# Tests: config in parent directory
+# ---------------------------------------------------------------------------
+
+echo "=== Config in parent directory ==="
+
+_parent=$(_tmpdir)
+mkdir -p "$_parent/sub"
+cat >"$_parent/.editorconfig" <<'EOF'
+root = true
+[*.sh]
+indent_style = space
+indent_size = 4
+EOF
+cat >"$_parent/sub/test.sh" <<'EOF'
+#!/bin/bash
+if true; then
+echo "hello"
+fi
+EOF
+"$AUTOFORMAT" "$_parent/sub/test.sh"
+_assert_contains "sh: parent editorconfig found" "    echo" "$(cat "$_parent/sub/test.sh")"
+
+# ---------------------------------------------------------------------------
+# Tests: shebang detection for extensionless files
+# ---------------------------------------------------------------------------
+
+echo "=== Shebang detection ==="
+
+cat >"$_td/myscript" <<'EOF'
+#!/bin/bash
+if true; then
+echo "hello"
+fi
+EOF
+"$AUTOFORMAT" "$_td/myscript"
+_assert_contains "shebang bash: formatted" "  echo" "$(cat "$_td/myscript")"
+
+cat >"$_td/shscript" <<'EOF'
+#!/bin/sh
+if true; then
+echo "hello"
+fi
+EOF
+"$AUTOFORMAT" "$_td/shscript"
+_assert_contains "shebang sh: formatted" "  echo" "$(cat "$_td/shscript")"
+
+cat >"$_td/envscript" <<'EOF'
+#!/usr/bin/env bash
+if true; then
+echo "hello"
+fi
+EOF
+"$AUTOFORMAT" "$_td/envscript"
+_assert_contains "shebang env bash: formatted" "  echo" "$(cat "$_td/envscript")"
+
+cat >"$_td/zshscript" <<'EOF'
+#!/usr/bin/env zsh
+if true; then
+echo "hello"
+fi
+EOF
+cp "$_td/zshscript" "$_td/zshscript.orig"
+"$AUTOFORMAT" "$_td/zshscript"
+_assert_eq "shebang zsh: not formatted" "$(cat "$_td/zshscript.orig")" "$(cat "$_td/zshscript")"
+
+cat >"$_td/pyscript" <<'EOF'
+#!/usr/bin/env python3
+x=1
+EOF
+cp "$_td/pyscript" "$_td/pyscript.orig"
+"$AUTOFORMAT" "$_td/pyscript"
+_assert_eq "shebang python: not formatted as shell" "$(cat "$_td/pyscript.orig")" "$(cat "$_td/pyscript")"
+
+# ---------------------------------------------------------------------------
+# Tests: skip known non-shell extensionless files
+# ---------------------------------------------------------------------------
+
+echo "=== Skip non-shell files ==="
+
+cat >"$_td/Makefile" <<'EOF'
+#!/bin/bash
+echo "fake"
+EOF
+cp "$_td/Makefile" "$_td/Makefile.orig"
+"$AUTOFORMAT" "$_td/Makefile"
+_assert_eq "Makefile: not formatted" "$(cat "$_td/Makefile.orig")" "$(cat "$_td/Makefile")"
+
+cat >"$_td/Dockerfile" <<'EOF'
+#!/bin/bash
+echo "fake"
+EOF
+cp "$_td/Dockerfile" "$_td/Dockerfile.orig"
+"$AUTOFORMAT" "$_td/Dockerfile"
+_assert_eq "Dockerfile: not formatted" "$(cat "$_td/Dockerfile.orig")" "$(cat "$_td/Dockerfile")"
+
+# ---------------------------------------------------------------------------
+# Tests: no-op for missing/empty input
+# ---------------------------------------------------------------------------
+
+echo "=== No-op edge cases ==="
+
+rc=0
+"$AUTOFORMAT" "" || rc=$?
+_assert_exit "empty arg: exits 0" 0 "$rc"
+
+rc=0
+"$AUTOFORMAT" "/nonexistent/file.py" || rc=$?
+_assert_exit "missing file: exits 0" 0 "$rc"
+
+rc=0
+"$AUTOFORMAT" || rc=$?
+_assert_exit "no args: exits 0" 0 "$rc"
+
+# ---------------------------------------------------------------------------
+# Tests: AUTOFORMAT_DIR override
+# ---------------------------------------------------------------------------
+
+echo "=== AUTOFORMAT_DIR override ==="
+
+_custom_cfg=$(_tmpdir)
+cat >"$_custom_cfg/shfmt.toml" <<'EOF'
+indent = 4
+EOF
+cat >"$_td/custom.sh" <<'EOF'
+#!/bin/bash
+if true; then
+echo "hello"
+fi
+EOF
+AUTOFORMAT_DIR="$_custom_cfg" "$AUTOFORMAT" "$_td/custom.sh"
+_assert_contains "custom config dir: 4-space" "    echo" "$(cat "$_td/custom.sh")"
+
+# ---------------------------------------------------------------------------
+# Tests: missing config dir gracefully falls back to tool defaults
+# ---------------------------------------------------------------------------
+
+echo "=== Missing config dir ==="
+
+cat >"$_td/noconfig.sh" <<'EOF'
+#!/bin/bash
+if true; then
+echo "hello"
+fi
+EOF
+AUTOFORMAT_DIR="/nonexistent/path" "$AUTOFORMAT" "$_td/noconfig.sh"
+# shfmt default is tabs when no config
+_assert_contains "no config dir: shfmt uses tabs" "	echo" "$(cat "$_td/noconfig.sh")"
+
+# ---------------------------------------------------------------------------
+# Summary
+# ---------------------------------------------------------------------------
+
+_test_summary
