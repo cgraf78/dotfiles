@@ -51,6 +51,9 @@ _bootstrap_shdeps() {
   # sources shdeps.sh, since it reads these at source time)
   export SHDEPS_CONF_DIR="$HOME/.config/shdeps"
   export SHDEPS_HOOKS_DIR="$HOME/.config/shdeps/hooks.d"
+  # Enable EPEL on dnf systems — many dotfiles deps need it.
+  # User can override with SHDEPS_AUTO_EPEL=0 in their environment.
+  export SHDEPS_AUTO_EPEL="${SHDEPS_AUTO_EPEL:-1}"
   [[ "${DOT_FORCE:-0}" -eq 1 ]] && export SHDEPS_FORCE=1
   [[ "${DOT_QUIET:-0}" -eq 1 ]] && export SHDEPS_QUIET=1
 
