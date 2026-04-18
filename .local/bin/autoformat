@@ -1,12 +1,18 @@
 #!/usr/bin/env bash
 # autoformat — auto-format a file by extension.
 # Usable from Claude Code hooks, git hooks, editors, CLI.
+# Requires yq, which is installed by dotfiles bootstrap.
 # No-ops gracefully if a formatter is not installed.
 # Respects per-repo config files; uses ~/.config/autoformat/ when absent.
 
 set -u
 
 AUTOFORMAT_DIR="${AUTOFORMAT_DIR:-$HOME/.config/autoformat}"
+
+if ! command -v yq >/dev/null 2>&1; then
+  echo "autoformat: yq is required" >&2
+  exit 1
+fi
 
 file="${1:-}"
 [ -z "$file" ] && exit 0
@@ -30,6 +36,24 @@ _toml_val() {
   printf '%s' "$val"
 }
 
+# Return 0 when a TOML file contains a non-null key.
+_toml_has() {
+  local file="$1" key="$2"
+  yq -p toml -e ".$key" "$file" >/dev/null 2>&1
+}
+
+_format_sh() {
+  local file="$1" dir="$2"
+  local args=()
+
+  if ! _has_config "$dir" ".editorconfig" &&
+    [ -f "$AUTOFORMAT_DIR/shfmt.toml" ]; then
+    val=$(_toml_val "$AUTOFORMAT_DIR/shfmt.toml" "indent") && args+=(-i "$val")
+  fi
+
+  shfmt -w "${args[@]}" "$file" 2>/dev/null
+}
+
 _filedir=$(dirname "$file")
 ext="${file##*.}"
 base="${file##*/}"
@@ -39,9 +63,27 @@ case "$ext" in
 py)
   if command -v ruff &>/dev/null; then
     args=()
-    if ! _has_config "$_filedir" "ruff.toml" &&
-      ! _has_config "$_filedir" ".ruff.toml" &&
-      ! _has_config "$_filedir" "pyproject.toml" &&
+    has_ruff_config=0
+    if _has_config "$_filedir" "ruff.toml" ||
+      _has_config "$_filedir" ".ruff.toml"; then
+      has_ruff_config=1
+    else
+      # Many repos have pyproject metadata without Ruff settings. Only
+      # suppress the fallback config when pyproject.toml actually configures
+      # Ruff somewhere in the file's parent chain.
+      dir="$_filedir"
+      while :; do
+        if [ -f "$dir/pyproject.toml" ] &&
+          (_toml_has "$dir/pyproject.toml" "tool.ruff" ||
+            _toml_has "$dir/pyproject.toml" "tool.ruff.format"); then
+          has_ruff_config=1
+          break
+        fi
+        [ "$dir" = "/" ] && break
+        dir=$(dirname "$dir")
+      done
+    fi
+    if [ "$has_ruff_config" -eq 0 ] &&
       [ -f "$AUTOFORMAT_DIR/ruff.toml" ]; then
       val=$(_toml_val "$AUTOFORMAT_DIR/ruff.toml" "indent-width") && args+=(--config "indent-width=$val")
       val=$(_toml_val "$AUTOFORMAT_DIR/ruff.toml" "line-length") && args+=(--line-length "$val")
@@ -51,17 +93,14 @@ py)
   ;;
 sh | bash)
   if command -v shfmt &>/dev/null; then
-    args=()
-    if ! _has_config "$_filedir" ".editorconfig" &&
-      [ -f "$AUTOFORMAT_DIR/shfmt.toml" ]; then
-      val=$(_toml_val "$AUTOFORMAT_DIR/shfmt.toml" "indent") && args+=(-i "$val")
-    fi
-    shfmt -w "${args[@]}" "$file" 2>/dev/null
+    _format_sh "$file" "$_filedir"
   fi
   ;;
 c | cpp | cc | cxx | h | hpp | hxx)
   if command -v clang-format &>/dev/null; then
     args=()
+    # clang-format can read a specific fallback style file directly, which
+    # lets hooks and ad hoc runs stay consistent outside repos with local config.
     if ! _has_config "$_filedir" ".clang-format" &&
       ! _has_config "$_filedir" "_clang-format" &&
       [ -f "$AUTOFORMAT_DIR/clang-format" ]; then
@@ -87,16 +126,13 @@ lua)
 *)
   # Extensionless files: check shebang for shell scripts.
   case "$base" in
+  # Skip common extensionless formats that should be handled by dedicated tools
+  # or left untouched, even if they start with something shell-like.
   Makefile | Dockerfile | *.md | *.json | *.yaml | *.yml | *.toml) ;;
   *)
     if head -1 "$file" 2>/dev/null | grep -qE '^#!.*\b(ba)?sh\b'; then
       if command -v shfmt &>/dev/null; then
-        args=()
-        if ! _has_config "$_filedir" ".editorconfig" &&
-          [ -f "$AUTOFORMAT_DIR/shfmt.toml" ]; then
-          val=$(_toml_val "$AUTOFORMAT_DIR/shfmt.toml" "indent") && args+=(-i "$val")
-        fi
-        shfmt -w "${args[@]}" "$file" 2>/dev/null
+        _format_sh "$file" "$_filedir"
       fi
     fi
     ;;
