@@ -42,6 +42,18 @@ _toml_has() {
   yq -p toml -e ".$key" "$file" >/dev/null 2>&1
 }
 
+_run_fmt() {
+  local err rc
+  err=$(mktemp)
+  "$@" 2>"$err"
+  rc=$?
+  if [ "$rc" -ne 0 ] && [ -s "$err" ]; then
+    cat "$err" >&2
+  fi
+  rm -f "$err"
+  return "$rc"
+}
+
 _format_sh() {
   local file="$1" dir="$2"
   local args=()
@@ -51,7 +63,7 @@ _format_sh() {
     val=$(_toml_val "$AUTOFORMAT_DIR/shfmt.toml" "indent") && args+=(-i "$val")
   fi
 
-  shfmt -w "${args[@]}" "$file" 2>/dev/null
+  _run_fmt shfmt -w "${args[@]}" "$file"
 }
 
 _filedir=$(dirname "$file")
@@ -88,7 +100,7 @@ py)
       val=$(_toml_val "$AUTOFORMAT_DIR/ruff.toml" "indent-width") && args+=(--config "indent-width=$val")
       val=$(_toml_val "$AUTOFORMAT_DIR/ruff.toml" "line-length") && args+=(--line-length "$val")
     fi
-    ruff format --quiet "${args[@]}" "$file" 2>/dev/null
+    _run_fmt ruff format --quiet "${args[@]}" "$file"
   fi
   ;;
 sh | bash)
@@ -106,7 +118,7 @@ c | cpp | cc | cxx | h | hpp | hxx)
       [ -f "$AUTOFORMAT_DIR/clang-format" ]; then
       args=(-style="file:$AUTOFORMAT_DIR/clang-format")
     fi
-    clang-format -i "${args[@]}" "$file" 2>/dev/null
+    _run_fmt clang-format -i "${args[@]}" "$file"
   fi
   ;;
 lua)
@@ -120,7 +132,7 @@ lua)
       val=$(_toml_val "$AUTOFORMAT_DIR/stylua.toml" "indent_width") && args+=(--indent-width "$val")
       val=$(_toml_val "$AUTOFORMAT_DIR/stylua.toml" "column_width") && args+=(--column-width "$val")
     fi
-    stylua "${args[@]}" "$file" 2>/dev/null
+    _run_fmt stylua "${args[@]}" "$file"
   fi
   ;;
 *)

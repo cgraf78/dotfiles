@@ -368,6 +368,36 @@ _assert_exit "missing yq: exits 1" 1 "$rc"
 _assert_contains "missing yq: prints error" "autoformat: yq is required" "$output"
 
 # ---------------------------------------------------------------------------
+# Tests: formatter failures are surfaced
+# ---------------------------------------------------------------------------
+
+echo "=== Formatter failures ==="
+
+_mockbin=$(_mock_bin)
+cat >"$_mockbin/shfmt" <<'EOF'
+#!/usr/bin/env bash
+echo "mock shfmt parse error" >&2
+exit 2
+EOF
+chmod +x "$_mockbin/shfmt"
+
+cat >"$_td/fail.sh" <<'EOF'
+#!/bin/bash
+if true; then
+echo "hello"
+fi
+EOF
+cp "$_td/fail.sh" "$_td/fail.sh.orig"
+
+set +e
+output=$(PATH="$_mockbin:$PATH" "$AUTOFORMAT" "$_td/fail.sh" 2>&1)
+rc=$?
+set -e
+_assert_exit "formatter failure: autoformat still exits 0" 0 "$rc"
+_assert_contains "formatter failure: prints stderr" "mock shfmt parse error" "$output"
+_assert_eq "formatter failure: file left unchanged" "$(cat "$_td/fail.sh.orig")" "$(cat "$_td/fail.sh")"
+
+# ---------------------------------------------------------------------------
 # Tests: AUTOFORMAT_DIR override
 # ---------------------------------------------------------------------------
 
