@@ -91,47 +91,22 @@ EOF
 "$AUTOFORMAT" "$_td/test.lua"
 _assert_contains "lua: stylua formats" "  print" "$(cat "$_td/test.lua")"
 
-# Mock formatters for tools that may not be installed locally but are used by
-# Neovim formatting config.
-_mockbin=$(_mock_bin)
-
-cat >"$_mockbin/prettier" <<'EOF'
-#!/usr/bin/env bash
-file="${@: -1}"
-printf 'formatted by prettier\n' >"$file"
-EOF
-chmod +x "$_mockbin/prettier"
-
-cat >"$_mockbin/taplo" <<'EOF'
-#!/usr/bin/env bash
-file="${@: -1}"
-printf 'formatted = "taplo"\n' >"$file"
-EOF
-chmod +x "$_mockbin/taplo"
-
-cat >"$_mockbin/rustfmt" <<'EOF'
-#!/usr/bin/env bash
-file="${@: -1}"
-printf 'fn main() {}\n' >"$file"
-EOF
-chmod +x "$_mockbin/rustfmt"
-
 cat >"$_td/test.json" <<'EOF'
 {"x":1}
 EOF
-PATH="$_mockbin:$PATH" "$AUTOFORMAT" "$_td/test.json"
-_assert_eq "json: prettier formats" 'formatted by prettier' "$(cat "$_td/test.json")"
+"$AUTOFORMAT" "$_td/test.json"
+_assert_contains "json: prettier formats" '"x": 1' "$(cat "$_td/test.json")"
 
 cat >"$_td/test.toml" <<'EOF'
 x=1
 EOF
-PATH="$_mockbin:$PATH" "$AUTOFORMAT" "$_td/test.toml"
-_assert_eq "toml: taplo formats" 'formatted = "taplo"' "$(cat "$_td/test.toml")"
+"$AUTOFORMAT" "$_td/test.toml"
+_assert_contains "toml: taplo formats" 'x = 1' "$(cat "$_td/test.toml")"
 
 cat >"$_td/test.rs" <<'EOF'
 fn main( ){ }
 EOF
-PATH="$_mockbin:$PATH" "$AUTOFORMAT" "$_td/test.rs"
+"$AUTOFORMAT" "$_td/test.rs"
 _assert_eq "rust: rustfmt formats" 'fn main() {}' "$(cat "$_td/test.rs")"
 
 # ---------------------------------------------------------------------------
