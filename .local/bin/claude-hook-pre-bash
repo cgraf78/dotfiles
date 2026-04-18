@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # claude-hook-pre-bash — PreToolUse guard for Bash commands.
 # Exit 2 = block the command. Warnings go to stderr.
-# Auto-delegates to -work variant if present.
+# Base guards run first, then delegates to -work variant if present.
 
 set -u
 

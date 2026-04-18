@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# autoformat — auto-format a file by extension.
+# Usable from Claude Code hooks, git hooks, editors, CLI.
+# No-ops gracefully if a formatter is not installed.
+
+set -u
+
+file="${1:-}"
+[ -z "$file" ] && exit 0
+[ -f "$file" ] || exit 0
+
+ext="${file##*.}"
+base="${file##*/}"
+
+case "$ext" in
+py)
+  command -v ruff &>/dev/null && ruff format --quiet "$file" 2>/dev/null
+  ;;
+sh | bash)
+  command -v shfmt &>/dev/null && shfmt -i 2 -w "$file" 2>/dev/null
+  ;;
+c | cpp | cc | cxx | h | hpp | hxx)
+  command -v clang-format &>/dev/null && clang-format -i "$file" 2>/dev/null
+  ;;
+lua)
+  command -v stylua &>/dev/null && stylua --indent-type Spaces --indent-width 2 "$file" 2>/dev/null
+  ;;
+*)
+  # Extensionless files: check shebang for shell scripts.
+  case "$base" in
+  Makefile | Dockerfile | *.md | *.json | *.yaml | *.yml | *.toml) ;;
+  *)
+    head -1 "$file" 2>/dev/null | grep -qE '^#!.*\b(ba)?sh\b' &&
+      command -v shfmt &>/dev/null && shfmt -i 2 -w "$file" 2>/dev/null
+    ;;
+  esac
+  ;;
+esac
+
+exit 0

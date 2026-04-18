@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # claude-hook-notification — Notification hook.
 # Audible alert on permission prompts and other attention requests.
-# Auto-delegates to -work variant if present.
+# Base logic runs first, then delegates to -work variant if present.
 
 set -u
 

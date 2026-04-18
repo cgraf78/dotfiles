@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # claude-hook-session-start — SessionStart hook.
 # Reports useful context at session start: uncommitted changes, disk usage.
-# Auto-delegates to -work variant if present (before running base logic,
-# since exec replaces the process and only one script's output is captured).
+# Work-override: work variant replaces base entirely because both emit
+# JSON context on stdout — two JSON objects would be invalid output.
 
 set -u
 
-# --- Delegate to work variant if present ---
+# --- Work-override: replaces base entirely (both emit JSON context) ---
 work_variant=$(command -v claude-hook-session-start-work 2>/dev/null)
 [ -n "$work_variant" ] && [ -x "$work_variant" ] && exec "$work_variant"
 
-# --- Base logic (personal machines only) ---
+# --- Base logic (runs only when work variant is absent) ---
 
 ctx=''
 

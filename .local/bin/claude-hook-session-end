@@ -2,7 +2,7 @@
 # claude-hook-session-end — SessionEnd hook.
 # Auto-names sessions based on user messages using a fast Claude call.
 # Runs the naming in the background via nohup to avoid blocking exit.
-# Auto-delegates to -work variant if present.
+# Base logic runs first, then delegates to -work variant if present.
 
 set -euo pipefail
 

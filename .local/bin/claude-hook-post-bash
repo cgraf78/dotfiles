@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # claude-hook-post-bash — PostToolUse handler for Bash commands.
-# Auto-delegates to -work variant if present.
+# Base logic runs first, then delegates to -work variant if present.
 
 set -u
 

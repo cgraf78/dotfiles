@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # claude-hook-prompt-submit — UserPromptSubmit handler.
 # Injects current commit context into every prompt.
-# Auto-delegates to -work variant if present.
+# Work-override: work variant replaces base entirely because both emit
+# JSON context on stdout — two JSON objects would be invalid output.
 
 set -u
 
-# --- Delegate to work variant if present ---
+# --- Work-override: replaces base entirely (both emit JSON context) ---
 work_variant=$(command -v claude-hook-prompt-submit-work 2>/dev/null)
 [ -n "$work_variant" ] && [ -x "$work_variant" ] && exec "$work_variant"
 

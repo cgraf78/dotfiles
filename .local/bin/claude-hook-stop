@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # claude-hook-stop — Stop hook.
 # Runs after every Claude response: terminal bell + memory sync.
-# Auto-delegates to -work variant if present.
+# Base logic runs first, then delegates to -work variant if present.
 
 set -u
 
