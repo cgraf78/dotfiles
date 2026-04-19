@@ -21,33 +21,6 @@ file="${1:-}"
 [ -z "$file" ] && exit 0
 [ -f "$file" ] || exit 0
 
-# Read multiple keys from a TOML file in a single `yq` invocation.
-# Prints one line per requested key, in order; missing/null keys print
-# as an empty line so callers can parse with sequential `read` calls.
-# Collapsing N lookups into 1 subprocess matters for hook latency.
-_toml_read_keys() {
-  local file="$1"
-  shift
-  local expr="" k
-  for k in "$@"; do
-    [ -n "$expr" ] && expr="$expr, "
-    expr="$expr.$k // \"\""
-  done
-  yq -p toml "$expr" "$file" 2>/dev/null
-}
-
-# Return 0 when a TOML file contains any of the listed non-null keys.
-_toml_has_any() {
-  local file="$1"
-  shift
-  local expr="" k
-  for k in "$@"; do
-    [ -n "$expr" ] && expr="$expr // "
-    expr="$expr.$k"
-  done
-  yq -p toml -e "$expr" "$file" >/dev/null 2>&1
-}
-
 _run_fmt() {
   local err rc
   err=$(mktemp)

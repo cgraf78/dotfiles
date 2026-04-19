@@ -4,6 +4,11 @@
 # Kept minimal: the helpers must stay safe to source under `set -u`
 # (the defaults used by both callers) and must not define any globals
 # beyond the helper functions themselves.
+#
+# The `_toml_*` helpers require `yq` on PATH. Both autoformat and
+# autolint hard-require yq in their own entry points; this file does
+# not re-check at source time (the check would run on every edit-hook
+# fire and yq is a dotfiles-managed install anyway).
 
 # Walk up from the file's directory looking for a config file.
 # Tracks `prev` so the loop terminates even when `dir` is relative
@@ -77,4 +82,31 @@ _classify_shell() {
   else
     printf 'unknown\n'
   fi
+}
+
+# Read multiple keys from a TOML file in a single `yq` invocation.
+# Prints one line per requested key, in order; missing/null keys print
+# as an empty line so callers can parse with sequential `read` calls.
+# Collapsing N lookups into 1 subprocess matters for hook latency.
+_toml_read_keys() {
+  local file="$1"
+  shift
+  local expr="" k
+  for k in "$@"; do
+    [ -n "$expr" ] && expr="$expr, "
+    expr="$expr.$k // \"\""
+  done
+  yq -p toml "$expr" "$file" 2>/dev/null
+}
+
+# Return 0 when a TOML file contains any of the listed non-null keys.
+_toml_has_any() {
+  local file="$1"
+  shift
+  local expr="" k
+  for k in "$@"; do
+    [ -n "$expr" ] && expr="$expr // "
+    expr="$expr.$k"
+  done
+  yq -p toml -e "$expr" "$file" >/dev/null 2>&1
 }

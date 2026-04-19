@@ -302,6 +302,7 @@ _assert_not_contains "non-workflow yml: actionlint not invoked" "actionlint:" "$
 # Workflow path but actionlint not installed — graceful no-op.
 _noalint=$(_mock_bin)
 ln -s "$(command -v bash)" "$_noalint/bash"
+ln -s "$(command -v yq)" "$_noalint/yq"
 set +e
 PATH="$_noalint" "$AUTOLINT" "$_wf_dir/test.yml" >/dev/null 2>&1
 rc=$?
@@ -446,6 +447,9 @@ echo "=== Missing linters ==="
 
 _nolinters=$(_mock_bin)
 ln -s "$(command -v bash)" "$_nolinters/bash"
+# yq is hard-required by autolint; keep it on PATH so these tests
+# still reach the linter-missing graceful-skip branches.
+ln -s "$(command -v yq)" "$_nolinters/yq"
 
 cat >"$_td/nolint.sh" <<'EOF'
 #!/bin/bash
@@ -466,6 +470,71 @@ PATH="$_nolinters" "$AUTOLINT" "$_td/nolint.py" >/dev/null 2>&1
 rc=$?
 set -e
 _assert_exit "py: no ruff — exits 0" 0 "$rc"
+
+# Missing yq: autolint must exit 1 with an error message (yq is
+# hard-required, matching autoformat's behavior).
+_noyq_bin=$(_mock_bin)
+ln -s "$(command -v bash)" "$_noyq_bin/bash"
+
+set +e
+output=$(PATH="$_noyq_bin" "$AUTOLINT" "$_td/nolint.sh" 2>&1)
+rc=$?
+set -e
+_assert_exit "missing yq: exits 1" 1 "$rc"
+_assert_contains "missing yq: prints error" "autolint: yq is required" "$output"
+
+# ---------------------------------------------------------------------------
+# Tests: ruff check fallback (AUTOLINT_DIR/ruff.toml)
+# ---------------------------------------------------------------------------
+
+echo "=== ruff check fallback ==="
+
+# Controlled AUTOLINT_DIR with a ruff.toml that disables F401
+# (unused-import). Without fallback, ruff's default rules catch
+# F401; with fallback, it's ignored.
+_ruff_dir=$(_tmpdir)
+cat >"$_ruff_dir/ruff.toml" <<'EOF'
+[lint]
+ignore = ["F401"]
+EOF
+
+cat >"$_td/py-fallback.py" <<'EOF'
+import os
+x = 1
+EOF
+set +e
+AUTOLINT_DIR="$_ruff_dir" "$AUTOLINT" "$_td/py-fallback.py" >/dev/null 2>&1
+rc=$?
+AUTOLINT_DIR=/nonexistent "$AUTOLINT" "$_td/py-fallback.py" >/dev/null 2>&1
+rc_no_cfg=$?
+set -e
+_assert_exit "py: fallback ruff.toml ignores F401" 0 "$rc"
+_assert_exit "py: no fallback — F401 fires" 1 "$rc_no_cfg"
+
+# Per-repo ruff.toml overrides fallback — empty per-repo config
+# means default rules apply, so F401 fires again.
+_repo_ruff=$(_tmpdir)
+cat >"$_repo_ruff/ruff.toml" <<'EOF'
+# empty: use ruff defaults
+EOF
+cp "$_td/py-fallback.py" "$_repo_ruff/"
+set +e
+AUTOLINT_DIR="$_ruff_dir" "$AUTOLINT" "$_repo_ruff/py-fallback.py" >/dev/null 2>&1
+rc=$?
+set -e
+_assert_exit "py: per-repo ruff.toml overrides fallback" 1 "$rc"
+
+# Per-repo pyproject.toml[tool.ruff] overrides fallback — same idea.
+_repo_pp=$(_tmpdir)
+cat >"$_repo_pp/pyproject.toml" <<'EOF'
+[tool.ruff]
+EOF
+cp "$_td/py-fallback.py" "$_repo_pp/"
+set +e
+AUTOLINT_DIR="$_ruff_dir" "$AUTOLINT" "$_repo_pp/py-fallback.py" >/dev/null 2>&1
+rc=$?
+set -e
+_assert_exit "py: pyproject[tool.ruff] overrides fallback" 1 "$rc"
 
 # ---------------------------------------------------------------------------
 # Tests: relative paths terminate (regression for _has_config loop on ".")

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # autolint — lint a file by extension.
 # Usable from Claude Code hooks, git hooks, editors, CLI.
+# Requires yq, which is installed by dotfiles bootstrap.
 # No-ops gracefully if a linter is not installed.
 # Respects per-repo config files.
 #
@@ -27,6 +28,11 @@ AUTOLINT_DIR="${AUTOLINT_DIR:-$HOME/.config/autoformat}"
 
 # shellcheck source=../lib/dot/autofmt.sh
 . "$HOME/.local/lib/dot/autofmt.sh"
+
+if ! command -v yq >/dev/null 2>&1; then
+  echo "autolint: yq is required" >&2
+  exit 1
+fi
 
 _filedir=$(dirname "$file")
 ext="${file##*.}"
@@ -81,10 +87,35 @@ case "$ext" in
     ;;
   py)
     if command -v ruff &>/dev/null; then
-      if [ "$fix" -eq 1 ]; then
-        ruff check --fix "$file" || rc=$?
+      args=()
+      has_ruff_config=0
+      if _has_config "$_filedir" "ruff.toml" ||
+        _has_config "$_filedir" ".ruff.toml"; then
+        has_ruff_config=1
       else
-        ruff check "$file" || rc=$?
+        # Walk for pyproject.toml[tool.ruff] so ruff's own resolution
+        # isn't silently replaced by our fallback.
+        dir="$_filedir"
+        prev=""
+        while [ "$dir" != "$prev" ]; do
+          if [ -f "$dir/pyproject.toml" ] &&
+            _toml_has_any "$dir/pyproject.toml" "tool.ruff" "tool.ruff.lint"; then
+            has_ruff_config=1
+            break
+          fi
+          [ "$dir" = "/" ] && break
+          prev="$dir"
+          dir=$(dirname "$dir")
+        done
+      fi
+      if [ "$has_ruff_config" -eq 0 ] &&
+        [ -f "$AUTOLINT_DIR/ruff.toml" ]; then
+        args=(--config "$AUTOLINT_DIR/ruff.toml")
+      fi
+      if [ "$fix" -eq 1 ]; then
+        ruff check --fix "${args[@]}" "$file" || rc=$?
+      else
+        ruff check "${args[@]}" "$file" || rc=$?
       fi
     fi
     ;;
@@ -103,7 +134,7 @@ case "$ext" in
         _has_config "$_filedir" ".markdownlint.yaml" ||
         _has_config "$_filedir" ".markdownlint.json"; then
         has_md_config=1
-      elif command -v yq &>/dev/null; then
+      else
         # markdownlint-cli2 also resolves config from a `markdownlint-cli2`
         # key in package.json. Walk the parent chain like prettier does.
         dir="$_filedir"
