@@ -21,18 +21,31 @@ file="${1:-}"
 [ -z "$file" ] && exit 0
 [ -f "$file" ] || exit 0
 
-# Read a key from a TOML file via yq. Returns 1 if missing.
-_toml_val() {
-  local file="$1" key="$2" val
-  val=$(yq -p toml ".$key // \"\"" "$file" 2>/dev/null)
-  [ -n "$val" ] || return 1
-  printf '%s' "$val"
+# Read multiple keys from a TOML file in a single `yq` invocation.
+# Prints one line per requested key, in order; missing/null keys print
+# as an empty line so callers can parse with sequential `read` calls.
+# Collapsing N lookups into 1 subprocess matters for hook latency.
+_toml_read_keys() {
+  local file="$1"
+  shift
+  local expr="" k
+  for k in "$@"; do
+    [ -n "$expr" ] && expr="$expr, "
+    expr="$expr.$k // \"\""
+  done
+  yq -p toml "$expr" "$file" 2>/dev/null
 }
 
-# Return 0 when a TOML file contains a non-null key.
-_toml_has() {
-  local file="$1" key="$2"
-  yq -p toml -e ".$key" "$file" >/dev/null 2>&1
+# Return 0 when a TOML file contains any of the listed non-null keys.
+_toml_has_any() {
+  local file="$1"
+  shift
+  local expr="" k
+  for k in "$@"; do
+    [ -n "$expr" ] && expr="$expr // "
+    expr="$expr.$k"
+  done
+  yq -p toml -e "$expr" "$file" >/dev/null 2>&1
 }
 
 _run_fmt() {
@@ -49,14 +62,20 @@ _run_fmt() {
 
 _format_sh() {
   local file="$1" dir="$2" lang="${3:-}"
-  local args=() val=""
+  local args=() v_indent="" v_sci=""
 
   [ -n "$lang" ] && args+=("-ln=$lang")
 
   if ! _has_config "$dir" ".editorconfig" &&
     [ -f "$AUTOFORMAT_DIR/shfmt.toml" ]; then
-    val=$(_toml_val "$AUTOFORMAT_DIR/shfmt.toml" "indent") && args+=(-i "$val")
-    _toml_has "$AUTOFORMAT_DIR/shfmt.toml" "switch_case_indent" && args+=(-ci)
+    {
+      read -r v_indent
+      read -r v_sci
+    } < <(
+      _toml_read_keys "$AUTOFORMAT_DIR/shfmt.toml" indent switch_case_indent
+    )
+    [ -n "$v_indent" ] && args+=(-i "$v_indent")
+    [ "$v_sci" = "true" ] && args+=(-ci)
   fi
 
   _run_fmt shfmt "${args[@]}" -w "$file"
@@ -64,7 +83,6 @@ _format_sh() {
 
 _filedir=$(dirname "$file")
 ext="${file##*.}"
-val=""
 
 case "$ext" in
   py)
@@ -83,8 +101,7 @@ case "$ext" in
         prev=""
         while [ "$dir" != "$prev" ]; do
           if [ -f "$dir/pyproject.toml" ] &&
-            (_toml_has "$dir/pyproject.toml" "tool.ruff" ||
-              _toml_has "$dir/pyproject.toml" "tool.ruff.format"); then
+            _toml_has_any "$dir/pyproject.toml" "tool.ruff" "tool.ruff.format"; then
             has_ruff_config=1
             break
           fi
@@ -95,8 +112,16 @@ case "$ext" in
       fi
       if [ "$has_ruff_config" -eq 0 ] &&
         [ -f "$AUTOFORMAT_DIR/ruff.toml" ]; then
-        val=$(_toml_val "$AUTOFORMAT_DIR/ruff.toml" "indent-width") && args+=(--config "indent-width=$val")
-        val=$(_toml_val "$AUTOFORMAT_DIR/ruff.toml" "line-length") && args+=(--line-length "$val")
+        v_iw=""
+        v_ll=""
+        {
+          read -r v_iw
+          read -r v_ll
+        } < <(
+          _toml_read_keys "$AUTOFORMAT_DIR/ruff.toml" indent-width line-length
+        )
+        [ -n "$v_iw" ] && args+=(--config "indent-width=$v_iw")
+        [ -n "$v_ll" ] && args+=(--line-length "$v_ll")
       fi
       _run_fmt ruff format --quiet "${args[@]}" "$file"
     fi
@@ -131,9 +156,19 @@ case "$ext" in
         ! _has_config "$_filedir" ".stylua.toml" &&
         ! _has_config "$_filedir" ".editorconfig" &&
         [ -f "$AUTOFORMAT_DIR/stylua.toml" ]; then
-        val=$(_toml_val "$AUTOFORMAT_DIR/stylua.toml" "indent_type") && args+=(--indent-type "$val")
-        val=$(_toml_val "$AUTOFORMAT_DIR/stylua.toml" "indent_width") && args+=(--indent-width "$val")
-        val=$(_toml_val "$AUTOFORMAT_DIR/stylua.toml" "column_width") && args+=(--column-width "$val")
+        v_type=""
+        v_iw=""
+        v_cw=""
+        {
+          read -r v_type
+          read -r v_iw
+          read -r v_cw
+        } < <(
+          _toml_read_keys "$AUTOFORMAT_DIR/stylua.toml" indent_type indent_width column_width
+        )
+        [ -n "$v_type" ] && args+=(--indent-type "$v_type")
+        [ -n "$v_iw" ] && args+=(--indent-width "$v_iw")
+        [ -n "$v_cw" ] && args+=(--column-width "$v_cw")
       fi
       _run_fmt stylua "${args[@]}" "$file"
     fi
