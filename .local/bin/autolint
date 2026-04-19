@@ -13,14 +13,27 @@ set -u
 # defaults to read-only: edit-hook callers want diagnostics without
 # surprise fixes. Pass `--fix` explicitly — e.g. from the CLI — when
 # the caller wants ruff/eslint/markdownlint-cli2 to also apply fixes.
+#
+# Multiple file args are rejected rather than silently accepted (the
+# "last-wins" pattern would mean earlier files are dropped without the
+# caller noticing). Exit code 2 is "usage error" per convention.
 fix=0
 file=""
+files=0
 for arg in "$@"; do
   case "$arg" in
     --fix) fix=1 ;;
-    *) file="$arg" ;;
+    *)
+      files=$((files + 1))
+      file="$arg"
+      ;;
   esac
 done
+
+if [ "$files" -gt 1 ]; then
+  echo "autolint: expected a single file path, got $files" >&2
+  exit 2
+fi
 
 [ -z "$file" ] && exit 0
 [ -f "$file" ] || exit 0

@@ -595,6 +595,21 @@ rc=0
 "$AUTOFORMAT" || rc=$?
 _assert_exit "no args: exits 0" 0 "$rc"
 
+# Multi-file rejection: silently dropping arg2+ would hide data loss
+# (caller thinks all files were formatted). Exit 2 = usage error.
+cat >"$_td/a.py" <<'EOF'
+x=1
+EOF
+cat >"$_td/b.py" <<'EOF'
+y=2
+EOF
+set +e
+output=$("$AUTOFORMAT" "$_td/a.py" "$_td/b.py" 2>&1)
+rc=$?
+set -e
+_assert_exit "multi-file args: exits 2" 2 "$rc"
+_assert_contains "multi-file args: prints error" "expected a single file path" "$output"
+
 # ---------------------------------------------------------------------------
 # Tests: required tools
 # ---------------------------------------------------------------------------

@@ -17,6 +17,11 @@ if ! command -v yq >/dev/null 2>&1; then
   exit 1
 fi
 
+if [ "$#" -gt 1 ]; then
+  echo "autoformat: expected a single file path, got $# args" >&2
+  exit 2
+fi
+
 file="${1:-}"
 [ -z "$file" ] && exit 0
 [ -f "$file" ] || exit 0
@@ -29,7 +34,14 @@ file="${1:-}"
 # problems still land in the user's console.
 _run_fmt() {
   local err rc
-  err=$(mktemp)
+  # If mktemp fails (full disk, read-only $TMPDIR) we still want the
+  # formatter to run — just skip the stderr buffering and let the
+  # caller see whatever chatter the tool produces. Worse UX but still
+  # correct output.
+  if ! err=$(mktemp 2>/dev/null); then
+    "$@"
+    return $?
+  fi
   "$@" 2>"$err"
   rc=$?
   if [ "$rc" -ne 0 ] && [ -s "$err" ]; then

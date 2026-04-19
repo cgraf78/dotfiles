@@ -439,6 +439,30 @@ rc=0
 "$AUTOLINT" || rc=$?
 _assert_exit "no args: exits 0" 0 "$rc"
 
+# Multi-file rejection: silently dropping args would mean earlier
+# files are never linted without the caller noticing. Exit 2 = usage.
+cat >"$_td/a.sh" <<'EOF'
+#!/bin/bash
+echo ok
+EOF
+cat >"$_td/b.sh" <<'EOF'
+#!/bin/bash
+echo ok
+EOF
+set +e
+output=$("$AUTOLINT" "$_td/a.sh" "$_td/b.sh" 2>&1)
+rc=$?
+set -e
+_assert_exit "multi-file args: exits 2" 2 "$rc"
+_assert_contains "multi-file args: prints error" "expected a single file path" "$output"
+
+# `--fix` with multi-file should also reject.
+set +e
+output=$("$AUTOLINT" --fix "$_td/a.sh" "$_td/b.sh" 2>&1)
+rc=$?
+set -e
+_assert_exit "multi-file args with --fix: exits 2" 2 "$rc"
+
 # ---------------------------------------------------------------------------
 # Tests: graceful skip when linter not installed
 # ---------------------------------------------------------------------------
