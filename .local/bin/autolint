@@ -66,13 +66,21 @@ _lint_sh() {
   local file="$1" dir="$2"
   local args=()
   command -v shellcheck &>/dev/null || return 0
-  # Fall back to our global shellcheckrc only when no per-repo
-  # .shellcheckrc is found in the file's parent chain. (shellcheck
-  # itself also walks $HOME and $XDG_CONFIG_HOME, but --rcfile is
-  # the only way to inject our dotfiles-managed config reliably.)
+  # Apply our global shellcheckrc by translating its directives to
+  # CLI flags. shellcheck's `--rcfile` flag wasn't added until
+  # 0.10.0 (Ubuntu 24.04 ships 0.9.0 which exits 3 on the unknown
+  # flag), and shellcheck doesn't walk for our XDG-style path
+  # anyway. Parsing here is simple: we only support `disable=CODE`
+  # today, which maps cleanly to `-e CODE`. Extend the case if the
+  # rcfile grows more directives.
   if ! _has_config "$dir" ".shellcheckrc" &&
     [ -f "$AUTOLINT_DIR/shellcheckrc" ]; then
-    args=(--rcfile "$AUTOLINT_DIR/shellcheckrc")
+    local key val
+    while IFS='=' read -r key val; do
+      case "$key" in
+        disable) args+=(-e "$val") ;;
+      esac
+    done < <(grep -E '^[a-z-]+=' "$AUTOLINT_DIR/shellcheckrc")
   fi
   shellcheck "${args[@]}" "$file"
 }
