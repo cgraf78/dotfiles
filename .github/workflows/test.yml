@@ -86,3 +86,6 @@ jobs:
 
       - name: Run autoformat-test
         run: .local/bin/autoformat-test
+
+      - name: Run autolint-test
+        run: .local/bin/autolint-test
