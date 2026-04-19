@@ -21,9 +21,7 @@ __git_prompt_async_cancel() {
 }
 
 # Start async git prompt computation.  Called from precmd.
-__git_prompt_cmd_ran=""
 __git_prompt_async_start() {
-  __git_prompt_cmd_ran=""
   __git_prompt_async_cancel
   if [[ "${__git_prompt_pwd}" != "$PWD" ]]; then
     __git_prompt_result=""
@@ -45,7 +43,7 @@ __git_prompt_async_callback() {
 
 # Command timing via zsh preexec/precmd hooks.
 __cmd_time=""
-__prompt_preexec() { __cmd_start=$EPOCHSECONDS; __git_prompt_cmd_ran=1 }
+__prompt_preexec() { __cmd_start=$EPOCHSECONDS }
 __prompt_precmd() {
   local elapsed=$(( EPOCHSECONDS - ${__cmd_start:-$EPOCHSECONDS} ))
   __cmd_start=$EPOCHSECONDS
