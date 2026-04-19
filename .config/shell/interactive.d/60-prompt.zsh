@@ -21,13 +21,8 @@ __git_prompt_async_cancel() {
 }
 
 # Start async git prompt computation.  Called from precmd.
-# Skips the fork if no command was run and directory hasn't changed,
-# since git state can't have changed without user action.
 __git_prompt_cmd_ran=""
 __git_prompt_async_start() {
-  if [[ -z "$__git_prompt_cmd_ran" && "${__git_prompt_pwd}" == "$PWD" ]]; then
-    return
-  fi
   __git_prompt_cmd_ran=""
   __git_prompt_async_cancel
   if [[ "${__git_prompt_pwd}" != "$PWD" ]]; then
