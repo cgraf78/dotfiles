@@ -281,10 +281,21 @@ _rustout=$(cat "$_repo_rs/test.rs")
 _assert_contains "rust: rustfmt.toml overrides fallback (wraps args)" "    a: i32," "$_rustout"
 _assert_contains "rust: rustfmt.toml overrides fallback (wraps args)" "    b: i32," "$_rustout"
 
-# Note on taplo per-repo: taplo's own config discovery looks in the
-# process cwd, not the file's parent directory, so a per-repo
-# taplo.toml isn't picked up via the file-path invocation pattern
-# autoformat uses. No test for per-repo override here.
+# TOML: per-repo taplo.toml overrides fallback. Autoformat now
+# detects the per-repo config and passes it via --config explicitly,
+# since taplo's own auto-discovery walks cwd rather than file path.
+_repo_tm=$(_tmpdir)
+cat >"$_repo_tm/taplo.toml" <<'EOF'
+[formatting]
+reorder_keys = true
+EOF
+cat >"$_repo_tm/test.toml" <<'EOF'
+z = 1
+a = 2
+EOF
+"$AUTOFORMAT" "$_repo_tm/test.toml"
+_assert_contains "toml: taplo.toml overrides fallback (reorder)" "a = 2
+z = 1" "$(cat "$_repo_tm/test.toml")"
 
 # Prettier: per-repo .prettierrc overrides fallback
 _repo_pr=$(_tmpdir)
@@ -296,6 +307,32 @@ const x={a:"b"}
 EOF
 "$AUTOFORMAT" "$_repo_pr/test.js"
 _assert_contains "prettier: .prettierrc overrides fallback" "'b'" "$(cat "$_repo_pr/test.js")"
+
+# Prettier: package.json "prettier" key counts as per-repo config,
+# so the global fallback must NOT apply. Fallback says printWidth=100
+# + double quotes; repo's package.json says printWidth=20 +
+# singleQuote=true. Result should reflect the package.json settings.
+_repo_pkg=$(_tmpdir)
+cat >"$_repo_pkg/package.json" <<'EOF'
+{ "name": "demo", "version": "1.0.0", "prettier": { "printWidth": 20, "singleQuote": true } }
+EOF
+cat >"$_repo_pkg/test.js" <<'EOF'
+const x = {a: "hello world"};
+EOF
+"$AUTOFORMAT" "$_repo_pkg/test.js"
+_assert_contains "prettier: package.json prettier key overrides fallback" "'hello world'" "$(cat "$_repo_pkg/test.js")"
+
+# Prettier: package.json WITHOUT a "prettier" key must NOT be treated
+# as per-repo config — fallback should still apply (double quotes).
+_repo_pkg_no=$(_tmpdir)
+cat >"$_repo_pkg_no/package.json" <<'EOF'
+{ "name": "demo", "version": "1.0.0" }
+EOF
+cat >"$_repo_pkg_no/test.js" <<'EOF'
+const x = {a: 'single'};
+EOF
+"$AUTOFORMAT" "$_repo_pkg_no/test.js"
+_assert_contains "prettier: package.json without prettier key → fallback applies" '"single"' "$(cat "$_repo_pkg_no/test.js")"
 
 # Rust fallback: autoformat passes --config-path when no per-repo config
 _td_rs=$(_tmpdir)

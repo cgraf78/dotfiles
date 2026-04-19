@@ -19,6 +19,24 @@ _has_config() {
   return 1
 }
 
+# Like `_has_config`, but prints the absolute path of the found
+# config on success. Useful when a tool's own config discovery
+# differs from our walk semantics and we need to pass the path
+# through explicitly via `--config <path>`.
+_find_config() {
+  local dir="$1" name="$2" root="${3:-/}" prev=""
+  while [ "$dir" != "$prev" ]; do
+    if [ -f "$dir/$name" ]; then
+      printf '%s\n' "$dir/$name"
+      return 0
+    fi
+    [ "$dir" = "$root" ] && break
+    prev="$dir"
+    dir=$(dirname "$dir")
+  done
+  return 1
+}
+
 # Classify an extensionless file by dotfile-name or shebang. Prints one
 # of: zsh | bash | skip | unknown. Callers decide what to do with each.
 # `.profile` is classified as bash because shfmt has no POSIX default

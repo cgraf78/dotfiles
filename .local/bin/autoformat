@@ -187,9 +187,15 @@ case "$ext" in
   toml)
     if command -v taplo &>/dev/null; then
       args=()
-      if ! _has_config "$_filedir" "taplo.toml" &&
-        ! _has_config "$_filedir" ".taplo.toml" &&
-        [ -f "$AUTOFORMAT_DIR/taplo.toml" ]; then
+      # taplo walks from the process cwd (not the file path) when
+      # auto-discovering its config, so detect the per-repo config
+      # ourselves and pass it explicitly via --config. Falls back to
+      # our global default when no per-repo config is present.
+      repo_cfg=$(_find_config "$_filedir" "taplo.toml" 2>/dev/null ||
+        _find_config "$_filedir" ".taplo.toml" 2>/dev/null || true)
+      if [ -n "$repo_cfg" ]; then
+        args=(--config "$repo_cfg")
+      elif [ -f "$AUTOFORMAT_DIR/taplo.toml" ]; then
         args=(--config "$AUTOFORMAT_DIR/taplo.toml")
       fi
       _run_fmt taplo fmt "${args[@]}" "$file"
@@ -198,15 +204,35 @@ case "$ext" in
   css | html | js | jsx | json | md | ts | tsx | yaml | yml)
     if command -v prettier &>/dev/null; then
       args=()
-      if ! _has_config "$_filedir" ".prettierrc" &&
-        ! _has_config "$_filedir" ".prettierrc.json" &&
-        ! _has_config "$_filedir" ".prettierrc.yaml" &&
-        ! _has_config "$_filedir" ".prettierrc.yml" &&
-        ! _has_config "$_filedir" ".prettierrc.toml" &&
-        ! _has_config "$_filedir" ".prettierrc.js" &&
-        ! _has_config "$_filedir" "prettier.config.js" &&
-        ! _has_config "$_filedir" "prettier.config.cjs" &&
-        ! _has_config "$_filedir" "prettier.config.mjs" &&
+      has_prettier_config=0
+      if _has_config "$_filedir" ".prettierrc" ||
+        _has_config "$_filedir" ".prettierrc.json" ||
+        _has_config "$_filedir" ".prettierrc.yaml" ||
+        _has_config "$_filedir" ".prettierrc.yml" ||
+        _has_config "$_filedir" ".prettierrc.toml" ||
+        _has_config "$_filedir" ".prettierrc.js" ||
+        _has_config "$_filedir" "prettier.config.js" ||
+        _has_config "$_filedir" "prettier.config.cjs" ||
+        _has_config "$_filedir" "prettier.config.mjs"; then
+        has_prettier_config=1
+      else
+        # package.json may carry a `prettier` key as a valid config.
+        # Walk the parent chain to find one — matches how prettier
+        # itself resolves config from package.json.
+        dir="$_filedir"
+        prev=""
+        while [ "$dir" != "$prev" ]; do
+          if [ -f "$dir/package.json" ] &&
+            yq -p json -e '.prettier' "$dir/package.json" >/dev/null 2>&1; then
+            has_prettier_config=1
+            break
+          fi
+          [ "$dir" = "/" ] && break
+          prev="$dir"
+          dir=$(dirname "$dir")
+        done
+      fi
+      if [ "$has_prettier_config" -eq 0 ] &&
         [ -f "$AUTOFORMAT_DIR/prettierrc.json" ]; then
         args=(--config "$AUTOFORMAT_DIR/prettierrc.json")
       fi
