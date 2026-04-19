@@ -41,3 +41,19 @@ install() {
 
   ln -sfn "$bin_path" "$(shdeps_bin_dir)/prettier"
 }
+
+uninstall() {
+  # Only clean up artifacts we created ourselves (the npm per-user
+  # prefix tree and our bin symlink). A plain file at $bin_link — or
+  # no link at all — means prettier came from a package manager or
+  # was preinstalled by the host; leave those alone so the native
+  # removal path (brew uninstall, apt remove, host provisioning)
+  # stays authoritative.
+  local install_dir bin_link
+  install_dir="$(shdeps_install_dir)/prettier"
+  bin_link="$(shdeps_bin_dir)/prettier"
+
+  [[ -L "$bin_link" ]] && rm -f "$bin_link"
+  [[ -d "$install_dir" ]] && rm -rf "$install_dir"
+  return 0
+}
