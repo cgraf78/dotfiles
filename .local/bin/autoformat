@@ -185,7 +185,7 @@ case "$ext" in
         ;;
       # Skip common extensionless formats that should be handled by dedicated tools
       # or left untouched, even if they start with something shell-like.
-      Makefile | Dockerfile | *.md | *.json | *.yaml | *.yml | *.toml) ;;
+      Makefile | Dockerfile) ;;
       *)
         if head -1 "$file" 2>/dev/null | grep -qE '^#!.*\bzsh\b'; then
           if command -v shfmt &>/dev/null; then
