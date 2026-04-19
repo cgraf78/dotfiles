@@ -582,7 +582,7 @@ cat >"$_reldir/rel.py" <<'EOF'
 x=1
 EOF
 set +e
-output=$(cd "$_reldir" && timeout 10 "$AUTOFORMAT" rel.py 2>&1)
+output=$(cd "$_reldir" && _with_timeout 10 "$AUTOFORMAT" rel.py 2>&1)
 rc=$?
 set -e
 _assert_exit "rel py: terminates (no infinite loop)" 0 "$rc"
@@ -592,7 +592,7 @@ cat >"$_reldir/rel.cpp" <<'EOF'
 int main(){int x=0;}
 EOF
 set +e
-cd "$_reldir" && timeout 10 "$AUTOFORMAT" rel.cpp
+cd "$_reldir" && _with_timeout 10 "$AUTOFORMAT" rel.cpp
 rc=$?
 cd - >/dev/null
 set -e
@@ -606,7 +606,7 @@ echo "hello"
 fi
 EOF
 set +e
-cd "$_reldir" && timeout 10 "$AUTOFORMAT" rel.sh
+cd "$_reldir" && _with_timeout 10 "$AUTOFORMAT" rel.sh
 rc=$?
 cd - >/dev/null
 set -e
@@ -619,7 +619,7 @@ print("hi")
 end
 EOF
 set +e
-cd "$_reldir" && timeout 10 "$AUTOFORMAT" rel.lua
+cd "$_reldir" && _with_timeout 10 "$AUTOFORMAT" rel.lua
 rc=$?
 cd - >/dev/null
 set -e

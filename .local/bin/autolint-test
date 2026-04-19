@@ -367,7 +367,7 @@ cat >"$_reldir/ok.sh" <<'EOF'
 echo "hello"
 EOF
 set +e
-cd "$_reldir" && timeout 10 "$AUTOLINT" ok.sh >/dev/null 2>&1
+cd "$_reldir" && _with_timeout 10 "$AUTOLINT" ok.sh >/dev/null 2>&1
 rc=$?
 cd - >/dev/null
 set -e
@@ -377,7 +377,7 @@ cat >"$_reldir/ok.py" <<'EOF'
 x = 1
 EOF
 set +e
-cd "$_reldir" && timeout 10 "$AUTOLINT" ok.py >/dev/null 2>&1
+cd "$_reldir" && _with_timeout 10 "$AUTOLINT" ok.py >/dev/null 2>&1
 rc=$?
 cd - >/dev/null
 set -e
@@ -395,7 +395,7 @@ cat >"$_reldir/ok.js" <<'EOF'
 var x = 1
 EOF
 set +e
-cd "$_reldir" && PATH="$_rel_js_mock:$PATH" timeout 10 "$AUTOLINT" ok.js >/dev/null 2>&1
+cd "$_reldir" && PATH="$_rel_js_mock:$PATH" _with_timeout 10 "$AUTOLINT" ok.js >/dev/null 2>&1
 rc=$?
 cd - >/dev/null
 set -e

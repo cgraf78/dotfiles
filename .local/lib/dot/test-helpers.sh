@@ -141,6 +141,25 @@ _mock_bin() {
 }
 
 # ---------------------------------------------------------------------------
+# Portable timeout wrapper — `timeout` is GNU coreutils and is absent on
+# macOS by default. Falls back to `gtimeout` (installed by `brew install
+# coreutils`), and to running the command directly if neither is present
+# (CI's outer job timeout will still catch a hang).
+# ---------------------------------------------------------------------------
+
+_with_timeout() {
+  local secs="$1"
+  shift
+  if command -v timeout &>/dev/null; then
+    timeout "$secs" "$@"
+  elif command -v gtimeout &>/dev/null; then
+    gtimeout "$secs" "$@"
+  else
+    "$@"
+  fi
+}
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 
