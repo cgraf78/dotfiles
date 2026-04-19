@@ -9,6 +9,11 @@
 set -o pipefail
 export NO_COLOR=1
 
+# Formatter/linter dev tooling is expected to come from the global
+# mise toolset, so seed the shim dir explicitly for direct test runs.
+[ -d "$HOME/.local/share/mise/shims" ] &&
+  PATH="$HOME/.local/share/mise/shims:$PATH"
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REAL_HOME="$HOME"
 
