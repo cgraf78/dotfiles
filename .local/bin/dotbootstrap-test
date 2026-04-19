@@ -143,14 +143,20 @@ fi
 
 echo ""
 echo "=== Hook syntax (bash -n) ==="
-# Verify all real hook files pass syntax check
+# Verify all real dotfiles hook files pass syntax check.
 syntax_ok=1
-for f in "$REAL_HOME/.config/shdeps/hooks.d"/*.sh; do
+while IFS= read -r -d '' f; do
   if ! bash -n "$f" 2>/dev/null; then
     _fail "syntax: $(basename "$f")"
     syntax_ok=0
   fi
-done
+done < <(
+  find \
+    "$REAL_HOME/.config/dot/merge-hooks.d" \
+    "$REAL_HOME/.config/shdeps/hooks.d" \
+    -type f -name '*.sh' -print0 2>/dev/null |
+    LC_ALL=C sort -z
+)
 if [[ "$syntax_ok" -eq 1 ]]; then
   _pass "syntax: all hook files pass bash -n"
 fi
