@@ -1348,7 +1348,13 @@ _assert_contains "empty file: preserves other jobs" "other-job" "$result"
 echo ""
 echo "=== Cron filter directives ==="
 
-_current_host=$(hostname -s 2>/dev/null || hostname 2>/dev/null)
+if command -v hostname >/dev/null 2>&1; then
+  _current_host=$(hostname -s 2>/dev/null || hostname 2>/dev/null || true)
+elif [[ -r /proc/sys/kernel/hostname ]]; then
+  _current_host=$(cat /proc/sys/kernel/hostname 2>/dev/null || true)
+else
+  _current_host=$(uname -n 2>/dev/null || true)
+fi
 _current_host="${_current_host,,}"
 _current_os=$(uname -s | tr '[:upper:]' '[:lower:]')
 if [[ "$_current_os" == "darwin" ]]; then _current_os="macos"; fi
