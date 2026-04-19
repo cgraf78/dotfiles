@@ -472,6 +472,17 @@ hello
 EOF
 _assert_eq "classify: no shebang → unknown" "unknown" "$(_classify_shell "$_td/noshebang")"
 
+# Regression: binary files must not leak null bytes through the
+# `first=$(head -n1 ...)` command substitution. Classifier should
+# short-circuit to `unknown` with zero warnings on stderr.
+printf '\x7fELF\x02\x01\x01\x00%.0s' {1..10} >"$_td/binary"
+set +e
+_stderr=$(_classify_shell "$_td/binary" 2>&1 >/dev/null)
+result=$(_classify_shell "$_td/binary" 2>/dev/null)
+set -e
+_assert_eq "classify: binary → unknown" "unknown" "$result"
+_assert_not_contains "classify: binary emits no null-byte warning" "null byte" "$_stderr"
+
 # ---------------------------------------------------------------------------
 # Tests: no-op for missing/empty input
 # ---------------------------------------------------------------------------

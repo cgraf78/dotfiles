@@ -42,6 +42,15 @@ _classify_shell() {
       ;;
   esac
 
+  # Skip binary files before reading — otherwise `head -n1` on a
+  # binary (e.g. `.gif` that fell through to the extensionless path)
+  # leaks null bytes through command substitution, and bash warns.
+  # `grep -I` returns non-zero when $file is detected as binary.
+  if ! grep -Iq '' "$file" 2>/dev/null; then
+    printf 'unknown\n'
+    return 0
+  fi
+
   first=$(head -n1 "$file" 2>/dev/null) || true
   if printf '%s\n' "$first" | grep -qE '^#!.*\bzsh\b'; then
     printf 'zsh\n'
