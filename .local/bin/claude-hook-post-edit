@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # claude-hook-post-edit — PostToolUse handler for Edit|Write.
-# Auto-formats edited files via autoformat.
+# Auto-formats and lints edited files.
 # Base logic runs first, then delegates to -work variant if present.
 
 set -u
@@ -11,6 +11,10 @@ export FP
 # --- Auto-format ---
 fmt=$(command -v autoformat 2>/dev/null)
 [ -n "$fmt" ] && [ -n "$FP" ] && "$fmt" "$FP"
+
+# --- Lint (informational; hook always exits 0) ---
+lnt=$(command -v autolint 2>/dev/null)
+[ -n "$lnt" ] && [ -n "$FP" ] && "$lnt" "$FP" || true
 
 # --- Delegate to work variant if present ---
 work_variant=$(command -v claude-hook-post-edit-work 2>/dev/null)

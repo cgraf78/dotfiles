@@ -1,0 +1,312 @@
+#!/usr/bin/env bash
+# autolint-test — unit tests for the autolint script.
+#
+# Tests linting dispatch, error detection, auto-fix, shebang detection,
+# and no-op behavior for unsupported/missing files.
+#
+# Usage: autolint-test
+
+set -o pipefail
+export NO_COLOR=1
+
+# shellcheck source=../lib/dot/test-helpers.sh
+. "$HOME/.local/lib/dot/test-helpers.sh"
+
+AUTOLINT="$HOME/.local/bin/autolint"
+
+# ---------------------------------------------------------------------------
+# Tests: dispatch by extension — errors detected
+# ---------------------------------------------------------------------------
+
+echo "=== Dispatch: errors detected ==="
+
+_td=$(_tmpdir)
+
+cat >"$_td/bad.sh" <<'EOF'
+#!/bin/bash
+echo $UNDEFINED_VAR
+EOF
+set +e
+output=$("$AUTOLINT" "$_td/bad.sh" 2>&1)
+rc=$?
+set -e
+_assert_exit "sh: exits non-zero on error" 1 "$rc"
+_assert_contains "sh: shellcheck output shown" "SC" "$output"
+
+cat >"$_td/bad.zsh" <<'EOF'
+#!/usr/bin/env zsh
+if true
+  echo "missing then"
+fi
+EOF
+set +e
+"$AUTOLINT" "$_td/bad.zsh" >/dev/null 2>&1
+rc=$?
+set -e
+_assert_exit "zsh: exits non-zero on syntax error" 1 "$rc"
+
+cat >"$_td/bad.py" <<'EOF'
+import os
+import sys
+x=1
+EOF
+set +e
+output=$("$AUTOLINT" "$_td/bad.py" 2>&1)
+rc=$?
+set -e
+_assert_exit "py: exits non-zero on lint error" 1 "$rc"
+_assert_contains "py: ruff output shown" "F401" "$output"
+
+# ---------------------------------------------------------------------------
+# Tests: dispatch by extension — clean files pass
+# ---------------------------------------------------------------------------
+
+echo "=== Dispatch: clean files pass ==="
+
+cat >"$_td/ok.sh" <<'EOF'
+#!/bin/bash
+echo "hello"
+EOF
+set +e
+"$AUTOLINT" "$_td/ok.sh" >/dev/null 2>&1
+rc=$?
+set -e
+_assert_exit "sh: exits 0 on clean file" 0 "$rc"
+
+cat >"$_td/ok.zsh" <<'EOF'
+#!/usr/bin/env zsh
+echo "hello"
+EOF
+set +e
+"$AUTOLINT" "$_td/ok.zsh" >/dev/null 2>&1
+rc=$?
+set -e
+_assert_exit "zsh: exits 0 on clean file" 0 "$rc"
+
+cat >"$_td/ok.py" <<'EOF'
+x = 1
+EOF
+set +e
+"$AUTOLINT" "$_td/ok.py" >/dev/null 2>&1
+rc=$?
+set -e
+_assert_exit "py: exits 0 on clean file" 0 "$rc"
+
+# ---------------------------------------------------------------------------
+# Tests: --fix flag
+# ---------------------------------------------------------------------------
+
+echo "=== Auto-fix ==="
+
+cat >"$_td/fixable.py" <<'EOF'
+import os
+x = 1
+EOF
+set +e
+"$AUTOLINT" --fix "$_td/fixable.py" >/dev/null 2>&1
+rc=$?
+set -e
+_assert_exit "py: --fix exits 0 after fixing" 0 "$rc"
+_assert_not_contains "py: --fix removes unused import" "import os" "$(cat "$_td/fixable.py")"
+
+# ---------------------------------------------------------------------------
+# Tests: JS/TS skipped without eslint config
+# ---------------------------------------------------------------------------
+
+echo "=== JS/TS: skipped without config ==="
+
+cat >"$_td/bad.js" <<'EOF'
+var x = 1
+var y = 2
+EOF
+set +e
+"$AUTOLINT" "$_td/bad.js" >/dev/null 2>&1
+rc=$?
+set -e
+_assert_exit "js: skipped (no eslint config) — exits 0" 0 "$rc"
+
+cat >"$_td/bad.ts" <<'EOF'
+var x: any = 1
+EOF
+set +e
+"$AUTOLINT" "$_td/bad.ts" >/dev/null 2>&1
+rc=$?
+set -e
+_assert_exit "ts: skipped (no eslint config) — exits 0" 0 "$rc"
+
+# ---------------------------------------------------------------------------
+# Tests: JS/TS linted when eslint config present (mocked eslint)
+# ---------------------------------------------------------------------------
+
+echo "=== JS/TS: linted with config ==="
+
+_eslint_repo=$(_tmpdir)
+touch "$_eslint_repo/eslint.config.js"
+cat >"$_eslint_repo/test.js" <<'EOF'
+var x = 1
+EOF
+
+_mockbin=$(_mock_bin)
+cat >"$_mockbin/eslint" <<'EOF'
+#!/usr/bin/env bash
+echo "mock eslint error"
+exit 1
+EOF
+chmod +x "$_mockbin/eslint"
+
+set +e
+output=$(PATH="$_mockbin:$PATH" "$AUTOLINT" "$_eslint_repo/test.js" 2>&1)
+rc=$?
+set -e
+_assert_exit "js: eslint runs with config present" 1 "$rc"
+_assert_contains "js: eslint output shown" "mock eslint error" "$output"
+
+_mockbin_fix=$(_mock_bin)
+cat >"$_mockbin_fix/eslint" <<'EOF'
+#!/usr/bin/env bash
+for arg in "$@"; do [ "$arg" = "--fix" ] && echo "fixed" && exit 0; done
+exit 1
+EOF
+chmod +x "$_mockbin_fix/eslint"
+
+set +e
+output=$(PATH="$_mockbin_fix:$PATH" "$AUTOLINT" --fix "$_eslint_repo/test.js" 2>&1)
+rc=$?
+set -e
+_assert_exit "js: --fix passed to eslint" 0 "$rc"
+_assert_contains "js: eslint --fix output shown" "fixed" "$output"
+
+# ---------------------------------------------------------------------------
+# Tests: shebang detection for extensionless files
+# ---------------------------------------------------------------------------
+
+echo "=== Shebang detection ==="
+
+cat >"$_td/myscript" <<'EOF'
+#!/bin/bash
+echo $UNDEFINED
+EOF
+set +e
+output=$("$AUTOLINT" "$_td/myscript" 2>&1)
+rc=$?
+set -e
+_assert_exit "shebang bash: shellcheck runs" 1 "$rc"
+_assert_contains "shebang bash: output shown" "SC" "$output"
+
+cat >"$_td/shscript" <<'EOF'
+#!/bin/sh
+echo $UNDEFINED
+EOF
+set +e
+output=$("$AUTOLINT" "$_td/shscript" 2>&1)
+rc=$?
+set -e
+_assert_exit "shebang sh: shellcheck runs" 1 "$rc"
+
+cat >"$_td/zshscript" <<'EOF'
+#!/usr/bin/env zsh
+if true
+  echo "bad"
+fi
+EOF
+set +e
+"$AUTOLINT" "$_td/zshscript" >/dev/null 2>&1
+rc=$?
+set -e
+_assert_exit "shebang zsh: zsh -n runs" 1 "$rc"
+
+# ---------------------------------------------------------------------------
+# Tests: known dotfile names
+# ---------------------------------------------------------------------------
+
+echo "=== Dotfile names ==="
+
+cat >"$_td/.zshrc" <<'EOF'
+if true
+  echo "missing then"
+fi
+EOF
+set +e
+"$AUTOLINT" "$_td/.zshrc" >/dev/null 2>&1
+rc=$?
+set -e
+_assert_exit "dotfile .zshrc: zsh -n runs" 1 "$rc"
+
+cat >"$_td/.bashrc" <<'EOF'
+#!/bin/bash
+echo $UNDEFINED
+EOF
+set +e
+output=$("$AUTOLINT" "$_td/.bashrc" 2>&1)
+rc=$?
+set -e
+_assert_exit "dotfile .bashrc: shellcheck runs" 1 "$rc"
+_assert_contains "dotfile .bashrc: output shown" "SC" "$output"
+
+# ---------------------------------------------------------------------------
+# Tests: skipped file types
+# ---------------------------------------------------------------------------
+
+echo "=== Skipped types ==="
+
+cat >"$_td/Makefile" <<'EOF'
+echo $UNDEFINED
+EOF
+set +e
+"$AUTOLINT" "$_td/Makefile" >/dev/null 2>&1
+rc=$?
+set -e
+_assert_exit "Makefile: skipped — exits 0" 0 "$rc"
+
+# ---------------------------------------------------------------------------
+# Tests: no-op for missing/empty input
+# ---------------------------------------------------------------------------
+
+echo "=== No-op edge cases ==="
+
+rc=0
+"$AUTOLINT" "" || rc=$?
+_assert_exit "empty arg: exits 0" 0 "$rc"
+
+rc=0
+"$AUTOLINT" "/nonexistent/file.sh" || rc=$?
+_assert_exit "missing file: exits 0" 0 "$rc"
+
+rc=0
+"$AUTOLINT" || rc=$?
+_assert_exit "no args: exits 0" 0 "$rc"
+
+# ---------------------------------------------------------------------------
+# Tests: graceful skip when linter not installed
+# ---------------------------------------------------------------------------
+
+echo "=== Missing linters ==="
+
+_nolinters=$(_mock_bin)
+ln -s "$(command -v bash)" "$_nolinters/bash"
+
+cat >"$_td/nolint.sh" <<'EOF'
+#!/bin/bash
+echo $UNDEFINED
+EOF
+set +e
+PATH="$_nolinters" "$AUTOLINT" "$_td/nolint.sh" >/dev/null 2>&1
+rc=$?
+set -e
+_assert_exit "sh: no shellcheck — exits 0" 0 "$rc"
+
+cat >"$_td/nolint.py" <<'EOF'
+import os
+x=1
+EOF
+set +e
+PATH="$_nolinters" "$AUTOLINT" "$_td/nolint.py" >/dev/null 2>&1
+rc=$?
+set -e
+_assert_exit "py: no ruff — exits 0" 0 "$rc"
+
+# ---------------------------------------------------------------------------
+# Summary
+# ---------------------------------------------------------------------------
+
+_test_summary

@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+# autolint — lint a file by extension.
+# Usable from Claude Code hooks, git hooks, editors, CLI.
+# No-ops gracefully if a linter is not installed.
+# Respects per-repo config files.
+#
+# Usage: autolint [--fix] <file>
+
+set -u
+
+fix=0
+file=""
+for arg in "$@"; do
+  case "$arg" in
+    --fix) fix=1 ;;
+    *) file="$arg" ;;
+  esac
+done
+
+[ -z "$file" ] && exit 0
+[ -f "$file" ] || exit 0
+
+_filedir=$(dirname "$file")
+ext="${file##*.}"
+base="${file##*/}"
+rc=0
+
+# Walk up from the file's directory looking for a config file.
+_has_config() {
+  local dir="$1" name="$2" root="${3:-/}"
+  while :; do
+    [ -f "$dir/$name" ] && return 0
+    [ "$dir" = "$root" ] && break
+    dir=$(dirname "$dir")
+  done
+  return 1
+}
+
+_lint_sh() {
+  if command -v shellcheck &>/dev/null; then
+    shellcheck "$1"
+  fi
+}
+
+_lint_zsh() {
+  zsh -n "$1" 2>&1
+}
+
+_lint_js() {
+  local file="$1" dir="$2"
+  command -v eslint &>/dev/null || return 0
+  # Only lint if a config exists — eslint without config is noisy.
+  _has_config "$dir" "eslint.config.js" ||
+    _has_config "$dir" "eslint.config.mjs" ||
+    _has_config "$dir" "eslint.config.cjs" ||
+    _has_config "$dir" ".eslintrc.js" ||
+    _has_config "$dir" ".eslintrc.cjs" ||
+    _has_config "$dir" ".eslintrc.yaml" ||
+    _has_config "$dir" ".eslintrc.yml" ||
+    _has_config "$dir" ".eslintrc.json" || return 0
+  if [ "$fix" -eq 1 ]; then
+    eslint --fix "$file"
+  else
+    eslint "$file"
+  fi
+}
+
+case "$ext" in
+  sh | bash)
+    _lint_sh "$file" || rc=$?
+    ;;
+  zsh)
+    _lint_zsh "$file" || rc=$?
+    ;;
+  py)
+    if command -v ruff &>/dev/null; then
+      if [ "$fix" -eq 1 ]; then
+        ruff check --fix "$file" || rc=$?
+      else
+        ruff check "$file" || rc=$?
+      fi
+    fi
+    ;;
+  js | jsx | ts | tsx)
+    _lint_js "$file" "$_filedir" || rc=$?
+    ;;
+  md)
+    if command -v markdownlint-cli2 &>/dev/null; then
+      if [ "$fix" -eq 1 ]; then
+        markdownlint-cli2 --fix "$file" || rc=$?
+      else
+        markdownlint-cli2 "$file" || rc=$?
+      fi
+    fi
+    ;;
+  lua)
+    if command -v luacheck &>/dev/null; then
+      luacheck "$file" || rc=$?
+    fi
+    ;;
+  *)
+    # Extensionless files: check known dotfile names then shebang.
+    case "$base" in
+      .zshenv | .zshrc | .zprofile | .zlogin | .zlogout)
+        _lint_zsh "$file" || rc=$?
+        ;;
+      .bashrc | .bash_profile | .profile)
+        _lint_sh "$file" || rc=$?
+        ;;
+      Makefile | Dockerfile | *.md | *.json | *.yaml | *.yml | *.toml) ;;
+      *)
+        if head -1 "$file" 2>/dev/null | grep -qE '^#!.*\bzsh\b'; then
+          _lint_zsh "$file" || rc=$?
+        elif head -1 "$file" 2>/dev/null | grep -qE '^#!.*\b(ba)?sh\b'; then
+          _lint_sh "$file" || rc=$?
+        fi
+        ;;
+    esac
+    ;;
+esac
+
+exit "$rc"
