@@ -91,6 +91,17 @@ case "$ext" in
       luacheck "$file" || rc=$?
     fi
     ;;
+  yml | yaml)
+    # Only lint GitHub Actions workflow YAML. A generic YAML linter on
+    # arbitrary yamls is too noisy; actionlint is scoped to workflows.
+    case "$file" in
+      */.github/workflows/*)
+        if command -v actionlint &>/dev/null; then
+          actionlint "$file" || rc=$?
+        fi
+        ;;
+    esac
+    ;;
   *)
     # Extensionless files: dispatch via _classify_shell (dotfile name or shebang).
     case "$(_classify_shell "$file")" in

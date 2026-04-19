@@ -261,6 +261,54 @@ set -e
 _assert_exit "Makefile: skipped — exits 0" 0 "$rc"
 
 # ---------------------------------------------------------------------------
+# Tests: actionlint dispatched only for GH workflow YAML
+# ---------------------------------------------------------------------------
+
+echo "=== actionlint path scoping ==="
+
+_alint_mock=$(_mock_bin)
+cat >"$_alint_mock/actionlint" <<'EOF'
+#!/usr/bin/env bash
+echo "actionlint: $1"
+exit 3
+EOF
+chmod +x "$_alint_mock/actionlint"
+
+# In a workflow path — actionlint should run and its exit propagate.
+_wf_dir="$_td/.github/workflows"
+mkdir -p "$_wf_dir"
+cat >"$_wf_dir/test.yml" <<'EOF'
+name: t
+on: push
+EOF
+set +e
+output=$(PATH="$_alint_mock:$PATH" "$AUTOLINT" "$_wf_dir/test.yml" 2>&1)
+rc=$?
+set -e
+_assert_exit "yml under .github/workflows: actionlint invoked" 3 "$rc"
+_assert_contains "yml under .github/workflows: output shown" "actionlint:" "$output"
+
+# Same extension outside a workflow path — actionlint must NOT run.
+cat >"$_td/other.yml" <<'EOF'
+foo: bar
+EOF
+set +e
+output=$(PATH="$_alint_mock:$PATH" "$AUTOLINT" "$_td/other.yml" 2>&1)
+rc=$?
+set -e
+_assert_exit "non-workflow yml: actionlint skipped — exits 0" 0 "$rc"
+_assert_not_contains "non-workflow yml: actionlint not invoked" "actionlint:" "$output"
+
+# Workflow path but actionlint not installed — graceful no-op.
+_noalint=$(_mock_bin)
+ln -s "$(command -v bash)" "$_noalint/bash"
+set +e
+PATH="$_noalint" "$AUTOLINT" "$_wf_dir/test.yml" >/dev/null 2>&1
+rc=$?
+set -e
+_assert_exit "workflow yml: no actionlint — exits 0" 0 "$rc"
+
+# ---------------------------------------------------------------------------
 # Tests: no-op for missing/empty input
 # ---------------------------------------------------------------------------
 
