@@ -64,6 +64,7 @@ _format_sh() {
   if ! _has_config "$dir" ".editorconfig" &&
     [ -f "$AUTOFORMAT_DIR/shfmt.toml" ]; then
     val=$(_toml_val "$AUTOFORMAT_DIR/shfmt.toml" "indent") && args+=(-i "$val")
+    _toml_has "$AUTOFORMAT_DIR/shfmt.toml" "switch_case_indent" && args+=(-ci)
   fi
 
   _run_fmt shfmt "${args[@]}" -w "$file"
@@ -75,123 +76,123 @@ base="${file##*/}"
 val=""
 
 case "$ext" in
-py)
-  if command -v ruff &>/dev/null; then
-    args=()
-    has_ruff_config=0
-    if _has_config "$_filedir" "ruff.toml" ||
-      _has_config "$_filedir" ".ruff.toml"; then
-      has_ruff_config=1
-    else
-      # Many repos have pyproject metadata without Ruff settings. Only
-      # suppress the fallback config when pyproject.toml actually configures
-      # Ruff somewhere in the file's parent chain.
-      dir="$_filedir"
-      while :; do
-        if [ -f "$dir/pyproject.toml" ] &&
-          (_toml_has "$dir/pyproject.toml" "tool.ruff" ||
-            _toml_has "$dir/pyproject.toml" "tool.ruff.format"); then
-          has_ruff_config=1
-          break
-        fi
-        [ "$dir" = "/" ] && break
-        dir=$(dirname "$dir")
-      done
+  py)
+    if command -v ruff &>/dev/null; then
+      args=()
+      has_ruff_config=0
+      if _has_config "$_filedir" "ruff.toml" ||
+        _has_config "$_filedir" ".ruff.toml"; then
+        has_ruff_config=1
+      else
+        # Many repos have pyproject metadata without Ruff settings. Only
+        # suppress the fallback config when pyproject.toml actually configures
+        # Ruff somewhere in the file's parent chain.
+        dir="$_filedir"
+        while :; do
+          if [ -f "$dir/pyproject.toml" ] &&
+            (_toml_has "$dir/pyproject.toml" "tool.ruff" ||
+              _toml_has "$dir/pyproject.toml" "tool.ruff.format"); then
+            has_ruff_config=1
+            break
+          fi
+          [ "$dir" = "/" ] && break
+          dir=$(dirname "$dir")
+        done
+      fi
+      if [ "$has_ruff_config" -eq 0 ] &&
+        [ -f "$AUTOFORMAT_DIR/ruff.toml" ]; then
+        val=$(_toml_val "$AUTOFORMAT_DIR/ruff.toml" "indent-width") && args+=(--config "indent-width=$val")
+        val=$(_toml_val "$AUTOFORMAT_DIR/ruff.toml" "line-length") && args+=(--line-length "$val")
+      fi
+      _run_fmt ruff format --quiet "${args[@]}" "$file"
     fi
-    if [ "$has_ruff_config" -eq 0 ] &&
-      [ -f "$AUTOFORMAT_DIR/ruff.toml" ]; then
-      val=$(_toml_val "$AUTOFORMAT_DIR/ruff.toml" "indent-width") && args+=(--config "indent-width=$val")
-      val=$(_toml_val "$AUTOFORMAT_DIR/ruff.toml" "line-length") && args+=(--line-length "$val")
+    ;;
+  sh | bash)
+    if command -v shfmt &>/dev/null; then
+      _format_sh "$file" "$_filedir"
     fi
-    _run_fmt ruff format --quiet "${args[@]}" "$file"
-  fi
-  ;;
-sh | bash)
-  if command -v shfmt &>/dev/null; then
-    _format_sh "$file" "$_filedir"
-  fi
-  ;;
-zsh)
-  if command -v shfmt &>/dev/null; then
-    _format_sh "$file" "$_filedir" "zsh"
-  fi
-  ;;
-c | cpp | cc | cxx | h | hpp | hxx)
-  if command -v clang-format &>/dev/null; then
-    args=()
-    # clang-format can read a specific fallback style file directly, which
-    # lets hooks and ad hoc runs stay consistent outside repos with local config.
-    if ! _has_config "$_filedir" ".clang-format" &&
-      ! _has_config "$_filedir" "_clang-format" &&
-      [ -f "$AUTOFORMAT_DIR/clang-format" ]; then
-      args=(-style="file:$AUTOFORMAT_DIR/clang-format")
-    fi
-    _run_fmt clang-format -i "${args[@]}" "$file"
-  fi
-  ;;
-lua)
-  if command -v stylua &>/dev/null; then
-    args=()
-    if ! _has_config "$_filedir" "stylua.toml" &&
-      ! _has_config "$_filedir" ".stylua.toml" &&
-      ! _has_config "$_filedir" ".editorconfig" &&
-      [ -f "$AUTOFORMAT_DIR/stylua.toml" ]; then
-      val=$(_toml_val "$AUTOFORMAT_DIR/stylua.toml" "indent_type") && args+=(--indent-type "$val")
-      val=$(_toml_val "$AUTOFORMAT_DIR/stylua.toml" "indent_width") && args+=(--indent-width "$val")
-      val=$(_toml_val "$AUTOFORMAT_DIR/stylua.toml" "column_width") && args+=(--column-width "$val")
-    fi
-    _run_fmt stylua "${args[@]}" "$file"
-  fi
-  ;;
-rs)
-  if command -v rustfmt &>/dev/null; then
-    _run_fmt rustfmt "$file"
-  fi
-  ;;
-toml)
-  if command -v taplo &>/dev/null; then
-    _run_fmt taplo fmt "$file"
-  fi
-  ;;
-css | html | js | jsx | json | md | ts | tsx | yaml | yml)
-  if command -v prettier &>/dev/null; then
-    _run_fmt prettier --write "$file"
-  fi
-  ;;
-*)
-  # Extensionless files: check shebang for shell scripts.
-  case "$base" in
-  .zshenv | .zshrc | .zprofile | .zlogin | .zlogout)
+    ;;
+  zsh)
     if command -v shfmt &>/dev/null; then
       _format_sh "$file" "$_filedir" "zsh"
     fi
     ;;
-  .bashrc | .bash_profile)
-    if command -v shfmt &>/dev/null; then
-      _format_sh "$file" "$_filedir"
+  c | cpp | cc | cxx | h | hpp | hxx)
+    if command -v clang-format &>/dev/null; then
+      args=()
+      # clang-format can read a specific fallback style file directly, which
+      # lets hooks and ad hoc runs stay consistent outside repos with local config.
+      if ! _has_config "$_filedir" ".clang-format" &&
+        ! _has_config "$_filedir" "_clang-format" &&
+        [ -f "$AUTOFORMAT_DIR/clang-format" ]; then
+        args=(-style="file:$AUTOFORMAT_DIR/clang-format")
+      fi
+      _run_fmt clang-format -i "${args[@]}" "$file"
     fi
     ;;
-  .profile)
-    if command -v shfmt &>/dev/null; then
-      _format_sh "$file" "$_filedir"
+  lua)
+    if command -v stylua &>/dev/null; then
+      args=()
+      if ! _has_config "$_filedir" "stylua.toml" &&
+        ! _has_config "$_filedir" ".stylua.toml" &&
+        ! _has_config "$_filedir" ".editorconfig" &&
+        [ -f "$AUTOFORMAT_DIR/stylua.toml" ]; then
+        val=$(_toml_val "$AUTOFORMAT_DIR/stylua.toml" "indent_type") && args+=(--indent-type "$val")
+        val=$(_toml_val "$AUTOFORMAT_DIR/stylua.toml" "indent_width") && args+=(--indent-width "$val")
+        val=$(_toml_val "$AUTOFORMAT_DIR/stylua.toml" "column_width") && args+=(--column-width "$val")
+      fi
+      _run_fmt stylua "${args[@]}" "$file"
     fi
     ;;
-  # Skip common extensionless formats that should be handled by dedicated tools
-  # or left untouched, even if they start with something shell-like.
-  Makefile | Dockerfile | *.md | *.json | *.yaml | *.yml | *.toml) ;;
+  rs)
+    if command -v rustfmt &>/dev/null; then
+      _run_fmt rustfmt "$file"
+    fi
+    ;;
+  toml)
+    if command -v taplo &>/dev/null; then
+      _run_fmt taplo fmt "$file"
+    fi
+    ;;
+  css | html | js | jsx | json | md | ts | tsx | yaml | yml)
+    if command -v prettier &>/dev/null; then
+      _run_fmt prettier --write "$file"
+    fi
+    ;;
   *)
-    if head -1 "$file" 2>/dev/null | grep -qE '^#!.*\bzsh\b'; then
-      if command -v shfmt &>/dev/null; then
-        _format_sh "$file" "$_filedir" "zsh"
-      fi
-    elif head -1 "$file" 2>/dev/null | grep -qE '^#!.*\b(ba)?sh\b'; then
-      if command -v shfmt &>/dev/null; then
-        _format_sh "$file" "$_filedir"
-      fi
-    fi
+    # Extensionless files: check shebang for shell scripts.
+    case "$base" in
+      .zshenv | .zshrc | .zprofile | .zlogin | .zlogout)
+        if command -v shfmt &>/dev/null; then
+          _format_sh "$file" "$_filedir" "zsh"
+        fi
+        ;;
+      .bashrc | .bash_profile)
+        if command -v shfmt &>/dev/null; then
+          _format_sh "$file" "$_filedir"
+        fi
+        ;;
+      .profile)
+        if command -v shfmt &>/dev/null; then
+          _format_sh "$file" "$_filedir"
+        fi
+        ;;
+      # Skip common extensionless formats that should be handled by dedicated tools
+      # or left untouched, even if they start with something shell-like.
+      Makefile | Dockerfile | *.md | *.json | *.yaml | *.yml | *.toml) ;;
+      *)
+        if head -1 "$file" 2>/dev/null | grep -qE '^#!.*\bzsh\b'; then
+          if command -v shfmt &>/dev/null; then
+            _format_sh "$file" "$_filedir" "zsh"
+          fi
+        elif head -1 "$file" 2>/dev/null | grep -qE '^#!.*\b(ba)?sh\b'; then
+          if command -v shfmt &>/dev/null; then
+            _format_sh "$file" "$_filedir"
+          fi
+        fi
+        ;;
+    esac
     ;;
-  esac
-  ;;
 esac
 
 exit 0

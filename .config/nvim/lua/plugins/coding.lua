@@ -15,21 +15,29 @@ return {
 
       cmp.setup({
         snippet = {
-          expand = function(args) luasnip.lsp_expand(args.body) end,
+          expand = function(args)
+            luasnip.lsp_expand(args.body)
+          end,
         },
         mapping = cmp.mapping.preset.insert({
           ["<C-Space>"] = cmp.mapping.complete(),
           ["<CR>"] = cmp.mapping.confirm({ select = true }),
           ["<Tab>"] = cmp.mapping(function(fallback)
-            if cmp.visible() then cmp.select_next_item()
-            elseif luasnip.expand_or_jumpable() then luasnip.expand_or_jump()
-            else fallback()
+            if cmp.visible() then
+              cmp.select_next_item()
+            elseif luasnip.expand_or_jumpable() then
+              luasnip.expand_or_jump()
+            else
+              fallback()
             end
           end, { "i", "s" }),
           ["<S-Tab>"] = cmp.mapping(function(fallback)
-            if cmp.visible() then cmp.select_prev_item()
-            elseif luasnip.jumpable(-1) then luasnip.jump(-1)
-            else fallback()
+            if cmp.visible() then
+              cmp.select_prev_item()
+            elseif luasnip.jumpable(-1) then
+              luasnip.jump(-1)
+            else
+              fallback()
             end
           end, { "i", "s" }),
           ["<C-e>"] = cmp.mapping.abort(),
@@ -50,41 +58,40 @@ return {
     keys = {
       {
         "<leader>cf",
-        function() require("conform").format({ async = true }) end,
+        function()
+          require("conform").format({ async = true })
+        end,
         desc = "Format buffer",
       },
     },
     config = function()
       require("conform").setup({
         formatters = {
-          shfmt_bash = {
-            inherit = "shfmt",
-            prepend_args = { "-ln=bash", "-ci" },
-          },
-          shfmt_zsh = {
-            inherit = "shfmt",
-            prepend_args = { "-ln=zsh", "-ci" },
+          autoformat = {
+            command = "autoformat",
+            args = { "$FILENAME" },
+            stdin = false,
           },
         },
         formatters_by_ft = {
-          bash = { "shfmt_bash" },
-          c = { "clang-format" },
-          cpp = { "clang-format" },
-          css = { "prettier" },
-          html = { "prettier" },
-          javascript = { "prettier" },
-          javascriptreact = { "prettier" },
-          json = { "prettier" },
-          lua = { "stylua" },
-          markdown = { "prettier" },
-          python = { "ruff_format" },
-          rust = { "rustfmt" },
-          sh = { "shfmt_bash" },
-          toml = { "taplo" },
-          typescript = { "prettier" },
-          typescriptreact = { "prettier" },
-          yaml = { "prettier" },
-          zsh = { "shfmt_zsh" },
+          bash = { "autoformat" },
+          c = { "autoformat" },
+          cpp = { "autoformat" },
+          css = { "autoformat" },
+          html = { "autoformat" },
+          javascript = { "autoformat" },
+          javascriptreact = { "autoformat" },
+          json = { "autoformat" },
+          lua = { "autoformat" },
+          markdown = { "autoformat" },
+          python = { "autoformat" },
+          rust = { "autoformat" },
+          sh = { "autoformat" },
+          toml = { "autoformat" },
+          typescript = { "autoformat" },
+          typescriptreact = { "autoformat" },
+          yaml = { "autoformat" },
+          zsh = { "autoformat" },
         },
         format_on_save = function(bufnr)
           -- Skip if formatter not installed
@@ -122,12 +129,16 @@ return {
   {
     "numToStr/Comment.nvim",
     event = "BufReadPost",
-    config = function() require("Comment").setup() end,
+    config = function()
+      require("Comment").setup()
+    end,
   },
   {
     "windwp/nvim-autopairs",
     event = "InsertEnter",
-    config = function() require("nvim-autopairs").setup() end,
+    config = function()
+      require("nvim-autopairs").setup()
+    end,
   },
   { "tpope/vim-surround" },
 }
