@@ -9,6 +9,9 @@ set -u
 
 AUTOFORMAT_DIR="${AUTOFORMAT_DIR:-$HOME/.config/autoformat}"
 
+# shellcheck source=../lib/dot/autofmt.sh
+. "$HOME/.local/lib/dot/autofmt.sh"
+
 if ! command -v yq >/dev/null 2>&1; then
   echo "autoformat: yq is required" >&2
   exit 1
@@ -17,20 +20,6 @@ fi
 file="${1:-}"
 [ -z "$file" ] && exit 0
 [ -f "$file" ] || exit 0
-
-# Walk up from the file's directory looking for a config file.
-# Tracks `prev` so the loop terminates even when `dir` is relative
-# (e.g. "."), where dirname would otherwise never shrink toward root.
-_has_config() {
-  local dir="$1" name="$2" root="${3:-/}" prev=""
-  while [ "$dir" != "$prev" ]; do
-    [ -f "$dir/$name" ] && return 0
-    [ "$dir" = "$root" ] && break
-    prev="$dir"
-    dir=$(dirname "$dir")
-  done
-  return 1
-}
 
 # Read a key from a TOML file via yq. Returns 1 if missing.
 _toml_val() {
@@ -75,7 +64,6 @@ _format_sh() {
 
 _filedir=$(dirname "$file")
 ext="${file##*.}"
-base="${file##*/}"
 val=""
 
 case "$ext" in
@@ -166,35 +154,16 @@ case "$ext" in
     fi
     ;;
   *)
-    # Extensionless files: check shebang for shell scripts.
-    case "$base" in
-      .zshenv | .zshrc | .zprofile | .zlogin | .zlogout)
+    # Extensionless files: dispatch via _classify_shell (dotfile name or shebang).
+    case "$(_classify_shell "$file")" in
+      zsh)
         if command -v shfmt &>/dev/null; then
           _format_sh "$file" "$_filedir" "zsh"
         fi
         ;;
-      .bashrc | .bash_profile)
+      bash)
         if command -v shfmt &>/dev/null; then
           _format_sh "$file" "$_filedir"
-        fi
-        ;;
-      .profile)
-        if command -v shfmt &>/dev/null; then
-          _format_sh "$file" "$_filedir"
-        fi
-        ;;
-      # Skip common extensionless formats that should be handled by dedicated tools
-      # or left untouched, even if they start with something shell-like.
-      Makefile | Dockerfile) ;;
-      *)
-        if head -1 "$file" 2>/dev/null | grep -qE '^#!.*\bzsh\b'; then
-          if command -v shfmt &>/dev/null; then
-            _format_sh "$file" "$_filedir" "zsh"
-          fi
-        elif head -1 "$file" 2>/dev/null | grep -qE '^#!.*\b(ba)?sh\b'; then
-          if command -v shfmt &>/dev/null; then
-            _format_sh "$file" "$_filedir"
-          fi
         fi
         ;;
     esac

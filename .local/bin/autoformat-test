@@ -305,15 +305,17 @@ indent_style = space
 indent_size = 4
 EOF
 
-eval "$(awk '
-  /^_has_config\(\) \{/ { in_fn=1 }
-  in_fn { print }
-  in_fn && /^\}/ { exit }
-' "$AUTOFORMAT")"
+# shellcheck source=../lib/dot/autofmt.sh
+. "$HOME/.local/lib/dot/autofmt.sh"
 
 _has_config "$_cfg_root/sub" ".editorconfig" "$_cfg_root"
 rc=$?
 _assert_exit "has_config: checks search root" 0 "$rc"
+
+# Regression: relative root and relative starting dir must terminate.
+_has_config "." ".editorconfig" "."
+rc=$?
+_assert_exit "has_config: relative root terminates" 1 "$rc"
 
 # ---------------------------------------------------------------------------
 # Tests: shebang detection for extensionless files
@@ -418,6 +420,57 @@ EOF
 cp "$_td/Dockerfile" "$_td/Dockerfile.orig"
 "$AUTOFORMAT" "$_td/Dockerfile"
 _assert_eq "Dockerfile: not formatted" "$(cat "$_td/Dockerfile.orig")" "$(cat "$_td/Dockerfile")"
+
+# ---------------------------------------------------------------------------
+# Tests: _classify_shell (shared lib)
+# ---------------------------------------------------------------------------
+
+echo "=== _classify_shell ==="
+
+cat >"$_td/zshrc_file" <<'EOF'
+echo hi
+EOF
+mv "$_td/zshrc_file" "$_td/.zshrc"
+_assert_eq "classify: .zshrc → zsh" "zsh" "$(_classify_shell "$_td/.zshrc")"
+
+cat >"$_td/.bashrc" <<'EOF'
+echo hi
+EOF
+_assert_eq "classify: .bashrc → bash" "bash" "$(_classify_shell "$_td/.bashrc")"
+
+cat >"$_td/.profile" <<'EOF'
+echo hi
+EOF
+_assert_eq "classify: .profile → bash" "bash" "$(_classify_shell "$_td/.profile")"
+
+cat >"$_td/Dockerfile2" <<'EOF'
+FROM alpine
+EOF
+mv "$_td/Dockerfile2" "$_td/Dockerfile"
+_assert_eq "classify: Dockerfile → skip" "skip" "$(_classify_shell "$_td/Dockerfile")"
+
+cat >"$_td/bashscript" <<'EOF'
+#!/usr/bin/env bash
+echo hi
+EOF
+_assert_eq "classify: bash shebang → bash" "bash" "$(_classify_shell "$_td/bashscript")"
+
+cat >"$_td/zshshebang" <<'EOF'
+#!/usr/bin/env zsh
+echo hi
+EOF
+_assert_eq "classify: zsh shebang → zsh" "zsh" "$(_classify_shell "$_td/zshshebang")"
+
+cat >"$_td/pyshebang" <<'EOF'
+#!/usr/bin/env python3
+print("hi")
+EOF
+_assert_eq "classify: python shebang → unknown" "unknown" "$(_classify_shell "$_td/pyshebang")"
+
+cat >"$_td/noshebang" <<'EOF'
+hello
+EOF
+_assert_eq "classify: no shebang → unknown" "unknown" "$(_classify_shell "$_td/noshebang")"
 
 # ---------------------------------------------------------------------------
 # Tests: no-op for missing/empty input
