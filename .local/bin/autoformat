@@ -110,16 +110,7 @@ case "$ext" in
       fi
       if [ "$has_ruff_config" -eq 0 ] &&
         [ -f "$AUTOFORMAT_DIR/ruff.toml" ]; then
-        v_iw=""
-        v_ll=""
-        {
-          read -r v_iw
-          read -r v_ll
-        } < <(
-          _toml_read_keys "$AUTOFORMAT_DIR/ruff.toml" indent-width line-length
-        )
-        [ -n "$v_iw" ] && args+=(--config "indent-width=$v_iw")
-        [ -n "$v_ll" ] && args+=(--line-length "$v_ll")
+        args=(--config "$AUTOFORMAT_DIR/ruff.toml")
       fi
       _run_fmt ruff format --quiet "${args[@]}" "$file"
     fi
@@ -155,19 +146,7 @@ case "$ext" in
         ! _has_config "$_filedir" ".stylua.toml" &&
         ! _has_config "$_filedir" ".editorconfig" &&
         [ -f "$AUTOFORMAT_DIR/stylua.toml" ]; then
-        v_type=""
-        v_iw=""
-        v_cw=""
-        {
-          read -r v_type
-          read -r v_iw
-          read -r v_cw
-        } < <(
-          _toml_read_keys "$AUTOFORMAT_DIR/stylua.toml" indent_type indent_width column_width
-        )
-        [ -n "$v_type" ] && args+=(--indent-type "$v_type")
-        [ -n "$v_iw" ] && args+=(--indent-width "$v_iw")
-        [ -n "$v_cw" ] && args+=(--column-width "$v_cw")
+        args=(--config-path "$AUTOFORMAT_DIR/stylua.toml")
       fi
       _run_fmt stylua "${args[@]}" "$file"
     fi
