@@ -221,6 +221,15 @@ else
   _fail "backup_dir: creates unique directories"
 fi
 
+set +e
+_dim_output=$(_run_live_logged bash -lc 'printf "out\n"; printf "err\n" >&2; exit 7' 2>&1)
+rc=$?
+set -e
+_assert_exit "run_live_logged: preserves exit code" 7 "$rc"
+_assert_contains "run_live_logged: includes stdout" "out" "$_dim_output"
+_assert_contains "run_live_logged: includes stderr" "err" "$_dim_output"
+_assert_contains "run_live_logged: stderr emitted to stderr stream" "err" "$_dim_output"
+
 conflict_log=$(_tmpdir)/pull.log
 cat >"$conflict_log" <<'LOG'
 error: The following untracked working tree files would be overwritten by checkout:

@@ -17,10 +17,11 @@ if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
   _C_BOLD=$'\033[1m'
   _C_DIM=$'\033[0;90m'
   _C_GREEN=$'\033[32m'
+  _C_RED=$'\033[31m'
   _C_YELLOW=$'\033[33m'
   _C_WHITE=$'\033[38;2;255;255;255m'
 else
-  _C_RESET="" _C_BOLD="" _C_DIM="" _C_GREEN="" _C_YELLOW="" _C_WHITE=""
+  _C_RESET="" _C_BOLD="" _C_DIM="" _C_GREEN="" _C_RED="" _C_YELLOW="" _C_WHITE=""
 fi
 
 # ---------------------------------------------------------------------------
@@ -45,6 +46,11 @@ _log_header() {
 # Success message (green, respects quiet mode).
 _log_ok() {
   [[ "$DOT_QUIET" -eq 1 ]] || echo "${_C_GREEN}$*${_C_RESET}"
+}
+
+# Error message (red, always prints to stderr).
+_log_err() {
+  echo "${_C_RED}$*${_C_RESET}" >&2
 }
 
 # Muted message (dim, respects quiet mode).
@@ -105,6 +111,46 @@ _run_quiet_logged() {
   rm -f "$log"
   _warn "  warning: $warning"
   return 0
+}
+
+# Run a command with stdout streamed live in the muted log color while
+# preserving the wrapped command's real exit status. stderr is buffered and
+# replayed only on failure, in the error color. Common color env vars are
+# forced off for the child so the wrapper color wins.
+_run_live_logged() {
+  local tmpdir out_fifo err_file line pid rc
+
+  if ! tmpdir=$(mktemp -d 2>/dev/null); then
+    NO_COLOR=1 CLICOLOR=0 CLICOLOR_FORCE=0 "$@"
+    return $?
+  fi
+
+  out_fifo="$tmpdir/out"
+  err_file="$tmpdir/err"
+  if ! mkfifo "$out_fifo" 2>/dev/null; then
+    rm -rf "$tmpdir"
+    NO_COLOR=1 CLICOLOR=0 CLICOLOR_FORCE=0 "$@"
+    return $?
+  fi
+
+  (
+    NO_COLOR=1 CLICOLOR=0 CLICOLOR_FORCE=0 "$@" >"$out_fifo" 2>"$err_file"
+  ) &
+  pid=$!
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    _log_dim "$line"
+  done <"$out_fifo"
+
+  wait "$pid"
+  rc=$?
+  if [[ "$rc" -ne 0 && -s "$err_file" ]]; then
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      _log_err "$line"
+    done <"$err_file"
+  fi
+  rm -rf "$tmpdir"
+  return "$rc"
 }
 
 # ---------------------------------------------------------------------------

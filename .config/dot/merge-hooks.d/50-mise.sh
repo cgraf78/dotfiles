@@ -23,8 +23,8 @@ merge() {
   fi
 
   if [[ -n "$github_token" ]]; then
-    (cd "$HOME" && MISE_GITHUB_TOKEN="$github_token" mise install) || true
+    (cd "$HOME" && MISE_GITHUB_TOKEN="$github_token" _run_live_logged mise install) || true
   else
-    (cd "$HOME" && mise install) || true
+    (cd "$HOME" && _run_live_logged mise install) || true
   fi
 }
