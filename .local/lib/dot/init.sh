@@ -51,9 +51,16 @@ _bootstrap_shdeps() {
   # sources shdeps.sh, since it reads these at source time)
   export SHDEPS_CONF_DIR="$HOME/.config/shdeps"
   export SHDEPS_HOOKS_DIR="$HOME/.config/shdeps/hooks.d"
-  # Enable EPEL on dnf systems — many dotfiles deps need it.
-  # User can override with SHDEPS_AUTO_EPEL=0 in their environment.
-  export SHDEPS_AUTO_EPEL="${SHDEPS_AUTO_EPEL:-1}"
+  # Enable EPEL on RHEL-family dnf distros (CentOS Stream, Rocky, Alma,
+  # RHEL) — many dotfiles deps live only in EPEL there. Skip on Fedora:
+  # its base repos already ship those tools, and epel-release is not
+  # published for Fedora so the install would fail and abort `dot update`.
+  # User can override with SHDEPS_AUTO_EPEL=1 or =0 in their environment.
+  local _epel_default=1
+  if [[ -r /etc/os-release ]] && grep -q '^ID=fedora' /etc/os-release 2>/dev/null; then
+    _epel_default=0
+  fi
+  export SHDEPS_AUTO_EPEL="${SHDEPS_AUTO_EPEL:-$_epel_default}"
   [[ "${DOT_FORCE:-0}" -eq 1 ]] && export SHDEPS_FORCE=1
   [[ "${DOT_QUIET:-0}" -eq 1 ]] && export SHDEPS_QUIET=1
 
