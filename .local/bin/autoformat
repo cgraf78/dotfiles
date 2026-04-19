@@ -60,7 +60,7 @@ _run_fmt() {
 
 _format_sh() {
   local file="$1" dir="$2" lang="${3:-}"
-  local args=()
+  local args=() val=""
 
   [ -n "$lang" ] && args+=("-ln=$lang")
 
