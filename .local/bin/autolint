@@ -20,6 +20,11 @@ done
 [ -z "$file" ] && exit 0
 [ -f "$file" ] || exit 0
 
+# Fallback-config dir. Defaults to the same dir autoformat uses so
+# the ruff.toml shared by both tools lives in a single place. Can be
+# overridden independently via AUTOLINT_DIR.
+AUTOLINT_DIR="${AUTOLINT_DIR:-$HOME/.config/autoformat}"
+
 # shellcheck source=../lib/dot/autofmt.sh
 . "$HOME/.local/lib/dot/autofmt.sh"
 
@@ -28,9 +33,18 @@ ext="${file##*.}"
 rc=0
 
 _lint_sh() {
-  if command -v shellcheck &>/dev/null; then
-    shellcheck "$1"
+  local file="$1" dir="$2"
+  local args=()
+  command -v shellcheck &>/dev/null || return 0
+  # Fall back to our global shellcheckrc only when no per-repo
+  # .shellcheckrc is found in the file's parent chain. (shellcheck
+  # itself also walks $HOME and $XDG_CONFIG_HOME, but --rcfile is
+  # the only way to inject our dotfiles-managed config reliably.)
+  if ! _has_config "$dir" ".shellcheckrc" &&
+    [ -f "$AUTOLINT_DIR/shellcheckrc" ]; then
+    args=(--rcfile "$AUTOLINT_DIR/shellcheckrc")
   fi
+  shellcheck "${args[@]}" "$file"
 }
 
 _lint_zsh() {
@@ -60,7 +74,7 @@ _lint_js() {
 
 case "$ext" in
   sh | bash)
-    _lint_sh "$file" || rc=$?
+    _lint_sh "$file" "$_filedir" || rc=$?
     ;;
   zsh)
     _lint_zsh "$file" || rc=$?
@@ -79,16 +93,32 @@ case "$ext" in
     ;;
   md)
     if command -v markdownlint-cli2 &>/dev/null; then
+      args=()
+      if ! _has_config "$_filedir" ".markdownlint-cli2.jsonc" &&
+        ! _has_config "$_filedir" ".markdownlint-cli2.yaml" &&
+        ! _has_config "$_filedir" ".markdownlint-cli2.cjs" &&
+        ! _has_config "$_filedir" ".markdownlint-cli2.mjs" &&
+        ! _has_config "$_filedir" ".markdownlint.jsonc" &&
+        ! _has_config "$_filedir" ".markdownlint.yaml" &&
+        ! _has_config "$_filedir" ".markdownlint.json" &&
+        [ -f "$AUTOLINT_DIR/markdownlint-cli2.jsonc" ]; then
+        args=(--config "$AUTOLINT_DIR/markdownlint-cli2.jsonc")
+      fi
       if [ "$fix" -eq 1 ]; then
-        markdownlint-cli2 --fix "$file" || rc=$?
+        markdownlint-cli2 --fix "${args[@]}" "$file" || rc=$?
       else
-        markdownlint-cli2 "$file" || rc=$?
+        markdownlint-cli2 "${args[@]}" "$file" || rc=$?
       fi
     fi
     ;;
   lua)
     if command -v luacheck &>/dev/null; then
-      luacheck "$file" || rc=$?
+      args=()
+      if ! _has_config "$_filedir" ".luacheckrc" &&
+        [ -f "$AUTOLINT_DIR/luacheckrc" ]; then
+        args=(--config "$AUTOLINT_DIR/luacheckrc")
+      fi
+      luacheck "${args[@]}" "$file" || rc=$?
     fi
     ;;
   yml | yaml)
@@ -106,7 +136,7 @@ case "$ext" in
     # Extensionless files: dispatch via _classify_shell (dotfile name or shebang).
     case "$(_classify_shell "$file")" in
       zsh) _lint_zsh "$file" || rc=$? ;;
-      bash) _lint_sh "$file" || rc=$? ;;
+      bash) _lint_sh "$file" "$_filedir" || rc=$? ;;
     esac
     ;;
 esac

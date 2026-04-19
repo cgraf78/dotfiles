@@ -309,6 +309,87 @@ set -e
 _assert_exit "workflow yml: no actionlint — exits 0" 0 "$rc"
 
 # ---------------------------------------------------------------------------
+# Tests: fallback configs (AUTOLINT_DIR) applied when no per-repo config
+# ---------------------------------------------------------------------------
+
+echo "=== Fallback configs (AUTOLINT_DIR) ==="
+
+# Build a controlled AUTOLINT_DIR so these tests don't depend on the
+# contents of the user's real ~/.config/autoformat/.
+_alt_dir=$(_tmpdir)
+cat >"$_alt_dir/shellcheckrc" <<'EOF'
+disable=SC1091
+EOF
+cat >"$_alt_dir/luacheckrc" <<'EOF'
+ignore = {"212"}
+EOF
+cat >"$_alt_dir/markdownlint-cli2.jsonc" <<'EOF'
+{ "config": { "MD013": false } }
+EOF
+
+# Scenario: file with SC1091 (sourced path missing). With fallback
+# (SC1091 disabled) → rc=0; without fallback → rc=1.
+cat >"$_td/sc-src.sh" <<'EOF'
+#!/bin/bash
+. "/no/such/file/autolint/does/not/exist"
+echo "all good"
+EOF
+set +e
+AUTOLINT_DIR="$_alt_dir" "$AUTOLINT" "$_td/sc-src.sh" >/dev/null 2>&1
+rc=$?
+AUTOLINT_DIR=/nonexistent "$AUTOLINT" "$_td/sc-src.sh" >/dev/null 2>&1
+rc_no_cfg=$?
+set -e
+_assert_exit "sh: fallback shellcheckrc disables SC1091" 0 "$rc"
+_assert_exit "sh: no fallback — SC1091 fires" 1 "$rc_no_cfg"
+
+# Scenario: per-repo .shellcheckrc wins over fallback. Empty per-repo
+# file re-enables SC1091, so the sourced-missing file should warn again.
+_sc_repo=$(_tmpdir)
+touch "$_sc_repo/.shellcheckrc"
+cp "$_td/sc-src.sh" "$_sc_repo/"
+set +e
+AUTOLINT_DIR="$_alt_dir" "$AUTOLINT" "$_sc_repo/sc-src.sh" >/dev/null 2>&1
+rc=$?
+set -e
+_assert_exit "sh: per-repo .shellcheckrc overrides fallback" 1 "$rc"
+
+# luacheck: file with unused argument (code 212). Fallback ignores 212
+# → rc=0; without fallback → rc=1.
+if command -v luacheck &>/dev/null; then
+  cat >"$_td/lc.lua" <<'EOF'
+local function greet(unused)
+  return "hi"
+end
+print(greet(42))
+EOF
+  set +e
+  AUTOLINT_DIR="$_alt_dir" "$AUTOLINT" "$_td/lc.lua" >/dev/null 2>&1
+  rc=$?
+  AUTOLINT_DIR=/nonexistent "$AUTOLINT" "$_td/lc.lua" >/dev/null 2>&1
+  rc_no_cfg=$?
+  set -e
+  _assert_exit "lua: fallback luacheckrc ignores code 212" 0 "$rc"
+  _assert_exit "lua: no fallback — code 212 fires" 1 "$rc_no_cfg"
+fi
+
+# markdownlint-cli2: file with a long line (MD013). Fallback disables
+# MD013 → rc=0; without fallback → rc=1.
+if command -v markdownlint-cli2 &>/dev/null; then
+  python3 -c "
+open('$_td/doc.md','w').write('# Title\n\n' + 'x ' * 80 + 'end\n')
+"
+  set +e
+  AUTOLINT_DIR="$_alt_dir" "$AUTOLINT" "$_td/doc.md" >/dev/null 2>&1
+  rc=$?
+  AUTOLINT_DIR=/nonexistent "$AUTOLINT" "$_td/doc.md" >/dev/null 2>&1
+  rc_no_cfg=$?
+  set -e
+  _assert_exit "md: fallback markdownlint-cli2.jsonc disables MD013" 0 "$rc"
+  _assert_exit "md: no fallback — MD013 fires on long line" 1 "$rc_no_cfg"
+fi
+
+# ---------------------------------------------------------------------------
 # Tests: no-op for missing/empty input
 # ---------------------------------------------------------------------------
 

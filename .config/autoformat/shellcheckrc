@@ -1,0 +1,11 @@
+# Global shellcheck fallback. Applied via `--rcfile` when no per-repo
+# `.shellcheckrc` is found in the file's parent chain.
+
+# Follow sources (`.` / `source`) when possible. autolint invokes
+# shellcheck without `-x`, so this mostly helps interactive runs.
+external-sources=true
+
+# SC1091: "Not following: <file> was not specified as input". Noisy
+# for scripts that source dynamically-resolved paths. CI sweeps still
+# enable it via `shellcheck -x -P SCRIPTDIR -e SC1091` elsewhere.
+disable=SC1091

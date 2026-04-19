@@ -1,0 +1,10 @@
+-- Global luacheck fallback. Applied via `--config` when no per-repo
+-- `.luacheckrc` is found in the file's parent chain. File format is
+-- Lua source evaluated by luacheck.
+
+std = "max+busted"
+max_line_length = 120
+ignore = {
+  "212", -- unused argument (common in callbacks)
+  "213", -- unused loop variable
+}
