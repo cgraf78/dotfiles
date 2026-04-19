@@ -59,3 +59,18 @@ install() {
 
   ln -sfn "$bin_path" "$(shdeps_bin_dir)/selene"
 }
+
+uninstall() {
+  # Only clean up artifacts we created ourselves (the cargo-install
+  # tree and our bin symlink). A plain file at $bin_link — or no
+  # link at all — means selene came from brew or pacman; leave those
+  # alone so `brew uninstall selene` / `pacman -R selene` remain the
+  # clean removal path.
+  local install_dir bin_link
+  install_dir="$(shdeps_install_dir)/selene"
+  bin_link="$(shdeps_bin_dir)/selene"
+
+  [[ -L "$bin_link" ]] && rm -f "$bin_link"
+  [[ -d "$install_dir" ]] && rm -rf "$install_dir"
+  return 0
+}
