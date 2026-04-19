@@ -1,0 +1,12 @@
+# Global selene fallback. Applied via `--config` when no per-repo
+# `selene.toml` / `.selene.toml` is found in the file's parent chain.
+#
+# Default selene targets Roblox Lua; point std at a plain Lua
+# runtime so rules don't reference Roblox-only globals.
+std = "lua54"
+
+[rules]
+# Treat "unused variable/argument" as a signal, not an error. Common
+# in callbacks and placeholder params; matches the intent of our
+# previous luacheck fallback which ignored codes 212/213.
+unused_variable = "allow"

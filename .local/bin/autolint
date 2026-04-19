@@ -180,13 +180,14 @@ case "$ext" in
     fi
     ;;
   lua)
-    if command -v luacheck &>/dev/null; then
+    if command -v selene &>/dev/null; then
       args=()
-      if ! _has_config "$_filedir" ".luacheckrc" &&
-        [ -f "$AUTOLINT_DIR/luacheckrc" ]; then
-        args=(--config "$AUTOLINT_DIR/luacheckrc")
+      if ! _has_config "$_filedir" "selene.toml" &&
+        ! _has_config "$_filedir" ".selene.toml" &&
+        [ -f "$AUTOLINT_DIR/selene.toml" ]; then
+        args=(--config "$AUTOLINT_DIR/selene.toml")
       fi
-      luacheck "${args[@]}" "$file" || rc=$?
+      selene "${args[@]}" "$file" || rc=$?
     fi
     ;;
   yml | yaml)

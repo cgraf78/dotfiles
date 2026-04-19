@@ -112,6 +112,7 @@ return {
         bash = { "shellcheck" },
         javascript = { "eslint_d" },
         javascriptreact = { "eslint_d" },
+        lua = { "selene" },
         markdown = { "markdownlint-cli2" },
         python = { "ruff" },
         sh = { "shellcheck" },

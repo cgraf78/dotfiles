@@ -321,8 +321,10 @@ _alt_dir=$(_tmpdir)
 cat >"$_alt_dir/shellcheckrc" <<'EOF'
 disable=SC1091
 EOF
-cat >"$_alt_dir/luacheckrc" <<'EOF'
-ignore = {"212"}
+cat >"$_alt_dir/selene.toml" <<'EOF'
+std = "lua54"
+[rules]
+divide_by_zero = "allow"
 EOF
 cat >"$_alt_dir/markdownlint-cli2.jsonc" <<'EOF'
 { "config": { "MD013": false } }
@@ -355,26 +357,22 @@ rc=$?
 set -e
 _assert_exit "sh: per-repo .shellcheckrc overrides fallback" 1 "$rc"
 
-# luacheck: file with unused argument (code 212). Fallback ignores 212
-# → rc=0; without fallback → rc=1. Skipped when luacheck is present
-# but broken (some distro packages — notably older Arch luacheck
-# 1.2.0-1 — ship a wrapper whose lua runtime can't `require` its own
-# argparse dep, yielding a module-load crash on any invocation).
-if command -v luacheck &>/dev/null && luacheck --help &>/dev/null; then
-  cat >"$_td/lc.lua" <<'EOF'
-local function greet(unused)
-  return "hi"
-end
-print(greet(42))
+# selene: file with a divide-by-zero (selene treats as error by
+# default). Fallback allows the rule → rc=0; without fallback, selene
+# errors and exits non-zero → rc=1.
+if command -v selene &>/dev/null; then
+  cat >"$_td/lint.lua" <<'EOF'
+local x = 1 / 0
+print(x)
 EOF
   set +e
-  AUTOLINT_DIR="$_alt_dir" "$AUTOLINT" "$_td/lc.lua" >/dev/null 2>&1
+  AUTOLINT_DIR="$_alt_dir" "$AUTOLINT" "$_td/lint.lua" >/dev/null 2>&1
   rc=$?
-  AUTOLINT_DIR=/nonexistent "$AUTOLINT" "$_td/lc.lua" >/dev/null 2>&1
+  AUTOLINT_DIR=/nonexistent "$AUTOLINT" "$_td/lint.lua" >/dev/null 2>&1
   rc_no_cfg=$?
   set -e
-  _assert_exit "lua: fallback luacheckrc ignores code 212" 0 "$rc"
-  _assert_exit "lua: no fallback — code 212 fires" 1 "$rc_no_cfg"
+  _assert_exit "lua: fallback selene.toml allows divide_by_zero" 0 "$rc"
+  _assert_exit "lua: no fallback — divide_by_zero fires" 1 "$rc_no_cfg"
 fi
 
 # markdownlint-cli2: file with a long line (MD013). Fallback disables

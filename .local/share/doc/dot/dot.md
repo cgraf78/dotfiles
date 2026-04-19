@@ -396,7 +396,7 @@ invocations all funnel through:
   findings exist.
 
 Both hard-require `yq` (installed by dotfiles bootstrap). Both treat a
-missing tool (eslint, luacheck, rustfmt, …) as a graceful no-op — they
+missing tool (eslint, selene, rustfmt, …) as a graceful no-op — they
 never fail the caller because a language toolchain happens to be absent on
 this host.
 
@@ -416,7 +416,7 @@ source of truth shared by both scripts. Overridable per-script via the
 ├── taplo.toml                # TOML format
 ├── prettierrc.json           # css/html/js/ts/json/md/yaml format
 ├── shellcheckrc              # Shell lint
-├── luacheckrc                # Lua lint
+├── selene.toml               # Lua lint
 └── markdownlint-cli2.jsonc   # Markdown lint
 ```
 
@@ -444,7 +444,7 @@ per-repo path if present, else the fallback).
 | Python                      | ruff format      | ruff check                                                                      |
 | Shell (sh/bash)             | shfmt            | shellcheck                                                                      |
 | Zsh                         | shfmt (zsh mode) | `zsh -n`                                                                        |
-| Lua                         | stylua           | luacheck                                                                        |
+| Lua                         | stylua           | selene                                                                          |
 | C/C++                       | clang-format     | —                                                                               |
 | Rust                        | rustfmt          | —                                                                               |
 | TOML                        | taplo            | —                                                                               |
