@@ -5,18 +5,29 @@
 # after mise itself is installed or updated, so any additions here
 # are picked up on the next `dot update`.
 #
-# Start empty; populate as formatter/linter tools migrate from
-# shdeps custom hooks to mise. Prefer the `aqua:<owner>/<repo>`
-# backend when a tool ships prebuilt github-release binaries — it
-# avoids compilation (cargo) and package-manager egress (npm) that
-# bite on locked-down hosts. Aqua handles asset naming, checksum
-# verification, and execute bits correctly out of the box; the
-# `ubi:` backend assumes a `v` tag prefix that some projects (e.g.
-# selene) don't use, and the raw `github:` backend doesn't force
-# the execute bit on macOS zip payloads.
+# Global formatter/linter toolset migrated from shdeps. Prefer the
+# `aqua:<owner>/<repo>` backend when a tool ships prebuilt
+# github-release binaries — it avoids compilation (cargo) and
+# package-manager egress (npm) that bite on locked-down hosts.
+# Aqua handles asset naming, checksum verification, and execute
+# bits correctly out of the box; the `ubi:` backend assumes a `v`
+# tag prefix that some projects (e.g. selene) don't use, and the
+# raw `github:` backend doesn't force the execute bit on macOS zip
+# payloads. npm-backed tools rely on the node/npm toolchain that
+# shdeps still installs from 00-toolchains.conf.
 
 [tools]
-# Lua linter. Fetched as a prebuilt github-release binary via aqua
-# (no cargo compile, no npm egress) — works on hosts where the
-# previous cargo-install path failed.
+# GitHub release binaries via aqua.
+"aqua:astral-sh/ruff" = "latest"
+"aqua:JohnnyMorganz/StyLua" = "latest"
 "aqua:Kampfkarren/selene" = "latest"
+"aqua:koalaman/shellcheck" = "latest"
+"aqua:mvdan/sh" = "latest"
+"aqua:rhysd/actionlint" = "latest"
+"aqua:tamasfe/taplo" = "latest"
+
+# npm packages. These are project-agnostic CLI tools rather than
+# repo-local devDependencies, so install them globally here.
+"npm:eslint" = "latest"
+"npm:markdownlint-cli2" = "latest"
+"npm:prettier" = "latest"
