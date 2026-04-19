@@ -306,6 +306,52 @@ set -e
 _assert_exit "py: no ruff — exits 0" 0 "$rc"
 
 # ---------------------------------------------------------------------------
+# Tests: relative paths terminate (regression for _has_config loop on ".")
+# ---------------------------------------------------------------------------
+
+echo "=== Relative paths ==="
+
+_reldir=$(_tmpdir)
+cat >"$_reldir/ok.sh" <<'EOF'
+#!/bin/bash
+echo "hello"
+EOF
+set +e
+cd "$_reldir" && timeout 10 "$AUTOLINT" ok.sh >/dev/null 2>&1
+rc=$?
+cd - >/dev/null
+set -e
+_assert_exit "rel sh: terminates (no infinite loop)" 0 "$rc"
+
+cat >"$_reldir/ok.py" <<'EOF'
+x = 1
+EOF
+set +e
+cd "$_reldir" && timeout 10 "$AUTOLINT" ok.py >/dev/null 2>&1
+rc=$?
+cd - >/dev/null
+set -e
+_assert_exit "rel py: terminates" 0 "$rc"
+
+# JS/TS dispatch walks config chain via _has_config — the prior case that
+# could loop on relative input when eslint is installed.
+_rel_js_mock=$(_mock_bin)
+cat >"$_rel_js_mock/eslint" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+chmod +x "$_rel_js_mock/eslint"
+cat >"$_reldir/ok.js" <<'EOF'
+var x = 1
+EOF
+set +e
+cd "$_reldir" && PATH="$_rel_js_mock:$PATH" timeout 10 "$AUTOLINT" ok.js >/dev/null 2>&1
+rc=$?
+cd - >/dev/null
+set -e
+_assert_exit "rel js: terminates with eslint on PATH" 0 "$rc"
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 

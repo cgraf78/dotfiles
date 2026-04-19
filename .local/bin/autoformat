@@ -19,11 +19,14 @@ file="${1:-}"
 [ -f "$file" ] || exit 0
 
 # Walk up from the file's directory looking for a config file.
+# Tracks `prev` so the loop terminates even when `dir` is relative
+# (e.g. "."), where dirname would otherwise never shrink toward root.
 _has_config() {
-  local dir="$1" name="$2" root="${3:-/}"
-  while :; do
+  local dir="$1" name="$2" root="${3:-/}" prev=""
+  while [ "$dir" != "$prev" ]; do
     [ -f "$dir/$name" ] && return 0
     [ "$dir" = "$root" ] && break
+    prev="$dir"
     dir=$(dirname "$dir")
   done
   return 1
@@ -86,9 +89,11 @@ case "$ext" in
       else
         # Many repos have pyproject metadata without Ruff settings. Only
         # suppress the fallback config when pyproject.toml actually configures
-        # Ruff somewhere in the file's parent chain.
+        # Ruff somewhere in the file's parent chain. Track `prev` so the
+        # loop terminates on relative paths (dirname "." = ".").
         dir="$_filedir"
-        while :; do
+        prev=""
+        while [ "$dir" != "$prev" ]; do
           if [ -f "$dir/pyproject.toml" ] &&
             (_toml_has "$dir/pyproject.toml" "tool.ruff" ||
               _toml_has "$dir/pyproject.toml" "tool.ruff.format"); then
@@ -96,6 +101,7 @@ case "$ext" in
             break
           fi
           [ "$dir" = "/" ] && break
+          prev="$dir"
           dir=$(dirname "$dir")
         done
       fi

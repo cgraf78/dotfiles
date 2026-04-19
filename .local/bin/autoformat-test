@@ -519,6 +519,61 @@ AUTOFORMAT_DIR="/nonexistent/path" "$AUTOFORMAT" "$_td/noconfig.sh"
 _assert_contains "no config dir: shfmt uses tabs" "	echo" "$(cat "$_td/noconfig.sh")"
 
 # ---------------------------------------------------------------------------
+# Tests: relative paths terminate (regression for _has_config loop on ".")
+# ---------------------------------------------------------------------------
+
+echo "=== Relative paths ==="
+
+_reldir=$(_tmpdir)
+cat >"$_reldir/rel.py" <<'EOF'
+x=1
+EOF
+set +e
+output=$(cd "$_reldir" && timeout 10 "$AUTOFORMAT" rel.py 2>&1)
+rc=$?
+set -e
+_assert_exit "rel py: terminates (no infinite loop)" 0 "$rc"
+_assert_contains "rel py: formatted via relative path" "x = 1" "$(cat "$_reldir/rel.py")"
+
+cat >"$_reldir/rel.cpp" <<'EOF'
+int main(){int x=0;}
+EOF
+set +e
+cd "$_reldir" && timeout 10 "$AUTOFORMAT" rel.cpp
+rc=$?
+cd - >/dev/null
+set -e
+_assert_exit "rel cpp: terminates" 0 "$rc"
+_assert_contains "rel cpp: formatted via relative path" "  int x" "$(cat "$_reldir/rel.cpp")"
+
+cat >"$_reldir/rel.sh" <<'EOF'
+#!/bin/bash
+if true; then
+echo "hello"
+fi
+EOF
+set +e
+cd "$_reldir" && timeout 10 "$AUTOFORMAT" rel.sh
+rc=$?
+cd - >/dev/null
+set -e
+_assert_exit "rel sh: terminates" 0 "$rc"
+_assert_contains "rel sh: formatted via relative path" "  echo" "$(cat "$_reldir/rel.sh")"
+
+cat >"$_reldir/rel.lua" <<'EOF'
+if true then
+print("hi")
+end
+EOF
+set +e
+cd "$_reldir" && timeout 10 "$AUTOFORMAT" rel.lua
+rc=$?
+cd - >/dev/null
+set -e
+_assert_exit "rel lua: terminates" 0 "$rc"
+_assert_contains "rel lua: formatted via relative path" "  print" "$(cat "$_reldir/rel.lua")"
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 
