@@ -356,8 +356,11 @@ set -e
 _assert_exit "sh: per-repo .shellcheckrc overrides fallback" 1 "$rc"
 
 # luacheck: file with unused argument (code 212). Fallback ignores 212
-# → rc=0; without fallback → rc=1.
-if command -v luacheck &>/dev/null; then
+# → rc=0; without fallback → rc=1. Skipped when luacheck is present
+# but broken (some distro packages — notably older Arch luacheck
+# 1.2.0-1 — ship a wrapper whose lua runtime can't `require` its own
+# argparse dep, yielding a module-load crash on any invocation).
+if command -v luacheck &>/dev/null && luacheck --help &>/dev/null; then
   cat >"$_td/lc.lua" <<'EOF'
 local function greet(unused)
   return "hi"

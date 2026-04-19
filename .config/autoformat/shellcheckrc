@@ -1,9 +1,10 @@
 # Global shellcheck fallback. Applied via `--rcfile` when no per-repo
 # `.shellcheckrc` is found in the file's parent chain.
-
-# Follow sources (`.` / `source`) when possible. autolint invokes
-# shellcheck without `-x`, so this mostly helps interactive runs.
-external-sources=true
+#
+# Keep directives conservative — shellcheck refuses to start (exit 3)
+# when the rcfile uses a directive name it doesn't recognize, and
+# versions in older Ubuntu/WSL environments (0.9.0) reject options
+# like `external-sources=true` that 0.10.0+ accept.
 
 # SC1091: "Not following: <file> was not specified as input". Noisy
 # for scripts that source dynamically-resolved paths. CI sweeps still
