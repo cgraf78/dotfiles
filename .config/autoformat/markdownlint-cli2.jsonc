@@ -1,10 +1,16 @@
 {
   // Global markdownlint-cli2 fallback. Applied via `--config` when
   // no per-repo `.markdownlint-cli2.*` / `.markdownlint.*` file is
-  // found. Mirrors the per-repo config used in shdeps.
+  // found.
   "config": {
     "MD013": false, // line-length — README badges / URLs / tables break it
     "MD033": false, // inline HTML — shield badges need <p>/<img>
-    "MD042": false // empty links — [![Badge](img)]() is a common idiom
+    "MD042": false, // empty links — [![Badge](img)]() is a common idiom
+    "MD031": { "list_items": false } // blanks around fences — prettier
+    //                                   tightens fence spacing inside
+    //                                   list items (to keep them
+    //                                   contiguous); narrow the rule so
+    //                                   it stays active at the top level
+    //                                   where both tools agree.
   }
 }

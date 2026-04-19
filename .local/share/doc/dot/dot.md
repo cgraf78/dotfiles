@@ -17,12 +17,14 @@ Overlay files are symlinked into `$HOME` by `dot update`. Base dotfiles use `[ -
 ## Quick Start
 
 Personal machine:
+
 ```bash
 curl -sL cgraf78.github.io/d | bash
 source ~/.bashrc  # or: source ~/.zshrc
 ```
 
 Machine with a private overlay (e.g., work):
+
 ```bash
 # 1. Copy the overlay's deploy key (from any machine that has it)
 scp <source>:~/.ssh/<deploy-key> ~/.ssh/
@@ -77,7 +79,7 @@ dot git add <file> && dot git commit -m "add <file>" && dot push
 
 Overlay repos extend the base dotfiles with additional files. Each overlay is defined by a config file in `~/.config/dot/overlays.d/`:
 
-```
+```text
 ~/.config/dot/overlays.d/
 ├── 10-work.conf
 └── 20-nas.conf
@@ -99,7 +101,7 @@ When an overlay conf is deleted or its filter stops matching, `dot update` autom
 
 ### Conf file format
 
-```
+```text
 url=git@github.com:user/dotfiles-work.git
 platforms=linux
 hosts=workbox1
@@ -124,7 +126,7 @@ Numeric prefixes control ordering (same convention as shell config and merge hoo
 
 Overlays contribute merge hooks, shdeps configs, shell config, and scripts by placing files under `home/` at the right paths. Because these files are symlinked into `$HOME`, they appear in the same directories that `dot update` already scans:
 
-- **Merge hooks** — `home/.config/dot/merge-hooks.d/80-*.sh` (use 80+ prefix to run after base 50-* hooks)
+- **Merge hooks** — `home/.config/dot/merge-hooks.d/80-*.sh` (use 80+ prefix to run after base 50-\* hooks)
 - **Shdeps hooks** — `home/.config/shdeps/hooks.d/<name>.sh`
 - **Shell config** — `home/.config/shell/env.d/80-*.sh`, `home/.config/shell/interactive.d/80-*.sh`
 - **Cron entries** — `home/.config/dot/merge-hooks.d/cron.local` (untracked locally, or a numbered cron file)
@@ -147,7 +149,7 @@ git add -A && git commit -m "initial"
 
 The overlay repo has one required convention: files to be symlinked into `$HOME` go under `home/`, mirroring the `$HOME` directory structure:
 
-```
+```text
 my-overlay-repo/
 ├── home/
 │   ├── .config/shell/env.d/80-myoverlay.sh      (shell config)
@@ -173,10 +175,10 @@ Overlays hosted on private remotes use SSH deploy keys for access control. The d
    ```
 2. Add the public key (`~/.ssh/<name>-deploy.pub`) as a deploy key on the git remote (GitHub repo → Settings → Deploy keys). Enable write access if you push from these machines.
 3. Create a companion `.ssh` file next to the conf:
-   ```
+   ```text
    ~/.config/dot/overlays.d/10-work.ssh
    ```
-   ```
+   ```text
    Host github-dotfiles-work
      HostName github.com
      User git
@@ -184,7 +186,7 @@ Overlays hosted on private remotes use SSH deploy keys for access control. The d
      IdentitiesOnly yes
    ```
 4. Set the conf's `url` to use the SSH alias:
-   ```
+   ```text
    url=github-dotfiles-work:user/dotfiles-work.git
    ```
 5. Track both files: `dot git add .config/dot/overlays.d/10-work.conf .config/dot/overlays.d/10-work.ssh`
@@ -198,6 +200,7 @@ The `.ssh` file is merged into `~/.ssh/config` automatically during `dot update`
 `dot update` installs cron entries from `~/.config/dot/merge-hooks.d/cron` into the user crontab. By default this runs `dot update --cron` every 30 minutes, keeping all machines up to date automatically.
 
 The `--cron` flag enables two safety behaviors:
+
 - **Skip if dirty** — if any repo has uncommitted changes, the update is skipped entirely. This prevents stomping on in-progress dotfile editing.
 - **Quiet mode** — suppresses all output unless something goes wrong.
 
@@ -209,7 +212,7 @@ Run `dot cron` to see what's currently installed.
 
 Use `# filter:` directives to restrict entries to specific hosts or platforms:
 
-```
+```text
 # Runs everywhere (default — no filter needed)
 */30 * * * * $HOME/.local/bin/dot update --cron
 
@@ -235,7 +238,7 @@ Platform values: `linux`, `macos`, `wsl`. Prefix with `!` to exclude. Comma-sepa
 and extensions to indicate shell compatibility: `.sh` (any shell), `.bash`
 (bash-specific), `.zsh` (zsh-specific).
 
-```
+```text
 .bashrc / .zshrc
 ├── env.d/                          (all shells, interactive and non-interactive)
 │   ├── 10-work-bootstrap.sh        (work — devserver system config, must load first)
@@ -263,7 +266,7 @@ Base files (50-70) are in the base repo. Work files (10, 80-90) are symlinked fr
 
 Settings and keybindings in `~/.config/dot/vscode/` are merged into VS Code's config dirs:
 
-```
+```text
 ~/.config/dot/vscode/
 ├── settings.json             (cross-platform)
 ├── keybindings.json          (common keybindings, all platforms)
@@ -290,7 +293,7 @@ Profiles in `~/.config/dot/karabiner/karabiner.json` are merged into Karabiner's
 
 `dot update` installs and upgrades tools via [shdeps](https://github.com/cgraf78/shdeps), configured in `~/.config/shdeps/deps.conf`. Each line declares a dependency with a name and install method:
 
-```
+```text
 # name               method           cmd          aliases                  filter
 jq                   pkg
 bat                  pkg              apt:batcat
@@ -303,6 +306,7 @@ dust                 pkg              -            -                        os:m
 ```
 
 **Methods:**
+
 - **`pkg`** — system package (`brew`, `apt`, `dnf`, `pacman`). Batches all packages into one install command.
 - **`github:repo`** — clones from GitHub into `$SHDEPS_INSTALL_DIR/<owner>/<repo>`. Prefers `~/git/<repo>` local clones, falls back to a shallow clone for fresh installs. The `name` field is `owner/repo`.
 - **`github:release`** — downloads from GitHub releases, matching by OS and arch. Asset matching is case-insensitive and supports all common naming conventions (Go, Rust triples, etc.). Prefers standalone binaries, then tarballs, then zip archives. Compressed single binaries (`.gz`, `.bz2`, `.zst`) are decompressed automatically. On Linux, prefers `gnu` over `musl` assets when both are available. The `name` field is `owner/repo`.
@@ -333,6 +337,7 @@ enabling layered composition without changing settings.json.
 
 Parses stdin JSON from the hook runner, exports `CMD_TRIMMED` (whitespace-
 trimmed command), then runs base guards:
+
 - **Blocks**: `rm -rf` on `/`, `~`, `$HOME`, or `..`
 - **Warns**: any other `rm -rf` usage
 
@@ -351,7 +356,7 @@ Exists as the composition base for `-work` variant delegation.
 #### `claude-hook-session-start` (SessionStart)
 
 Reports context at session start: uncommitted changes (`git status`) and disk
-usage warnings (>90%). Delegates to `-work` variant *before* running base logic
+usage warnings (>90%). Delegates to `-work` variant _before_ running base logic
 (since the work variant replaces rather than extends).
 
 #### `claude-hook-session-end` (SessionEnd)
@@ -362,7 +367,7 @@ sessions that already have a custom title. Runs base logic first, then delegates
 
 ### Delegation Pattern
 
-```
+```text
 settings.json → claude-hook-{event}
                   ↓
                   run base logic
@@ -377,3 +382,81 @@ parse stdin — the base script already consumed it.
 
 `claude-hook-session-start` is the exception: it checks for the `-work` variant
 first and lets that replace the base logic entirely.
+
+## Format / Lint Tooling
+
+Two companion CLIs that Claude Code hooks, git hooks, editors, and shell
+invocations all funnel through:
+
+- **`autoformat FILE`** — dispatches to the right formatter for the file
+  extension (or shebang, for extensionless files). Always-mutates. Exits 0
+  even when the formatter fails (stderr is surfaced; the hook never blocks).
+- **`autolint [--fix] FILE`** — dispatches to the right linter. Read-only by
+  default; pass `--fix` to apply auto-fixes. Exits non-zero when lint
+  findings exist.
+
+Both hard-require `yq` (installed by dotfiles bootstrap). Both treat a
+missing tool (eslint, luacheck, rustfmt, …) as a graceful no-op — they
+never fail the caller because a language toolchain happens to be absent on
+this host.
+
+### Default configs
+
+All global fallback configs live in **`~/.config/autoformat/`**, a single
+source of truth shared by both scripts. Overridable per-script via the
+`AUTOFORMAT_DIR` / `AUTOLINT_DIR` env vars (both default to this path).
+
+```text
+~/.config/autoformat/
+├── ruff.toml                 # Python — shared by format + lint
+├── shfmt.toml                # Shell format (sh/bash/zsh)
+├── stylua.toml               # Lua format
+├── clang-format              # C/C++ format
+├── rustfmt.toml              # Rust format
+├── taplo.toml                # TOML format
+├── prettierrc.json           # css/html/js/ts/json/md/yaml format
+├── shellcheckrc              # Shell lint
+├── luacheckrc                # Lua lint
+└── markdownlint-cli2.jsonc   # Markdown lint
+```
+
+### Config resolution order
+
+For each file, the scripts:
+
+1. **Detect per-repo config** — walk up from the file's directory looking
+   for tool-specific config files (`ruff.toml`, `.prettierrc.*`, etc.) and
+   nested configs inside multi-purpose files (`pyproject.toml[tool.ruff]`,
+   `package.json[prettier]`, `package.json[markdownlint-cli2]`).
+2. **If per-repo config found** — invoke the tool without a `--config`
+   flag; let the tool resolve its own config the way it natively does.
+3. **If no per-repo config** — pass the global fallback explicitly via the
+   tool's `--config` / `--config-path` / `--rcfile` / `-style=file:` flag.
+
+One exception: **taplo** walks from the process `cwd`, not the file path,
+so autoformat always passes `--config <path>` explicitly (to the detected
+per-repo path if present, else the fallback).
+
+### Supported tools
+
+| File type                   | Formatter        | Linter                                                                          |
+| --------------------------- | ---------------- | ------------------------------------------------------------------------------- |
+| Python                      | ruff format      | ruff check                                                                      |
+| Shell (sh/bash)             | shfmt            | shellcheck                                                                      |
+| Zsh                         | shfmt (zsh mode) | `zsh -n`                                                                        |
+| Lua                         | stylua           | luacheck                                                                        |
+| C/C++                       | clang-format     | —                                                                               |
+| Rust                        | rustfmt          | —                                                                               |
+| TOML                        | taplo            | —                                                                               |
+| JSON/YAML/MD/CSS/HTML/JS/TS | prettier         | markdownlint-cli2 (md), actionlint (GH workflows), eslint (js/ts, project-only) |
+
+Shared code in `~/.local/lib/dot/autofmt.sh`: `_has_config`, `_find_config`
+(walk helpers), `_classify_shell` (extensionless dispatch), `_toml_read_keys`
+(batched yq reads), `_walk_config_with_key` (nested-key config walks).
+
+### Testing
+
+- `~/.local/bin/autoformat-test` — unit tests for autoformat.
+- `~/.local/bin/autolint-test` — unit tests for autolint.
+- Both run in CI on every matrix entry (macOS, Ubuntu, Debian, Arch,
+  CentOS Stream, Fedora, WSL) via `.github/workflows/test.yml`.
