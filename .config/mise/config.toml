@@ -1,0 +1,22 @@
+# Global mise config — tools that mise manages at the user level.
+#
+# Loaded by mise automatically from $XDG_CONFIG_HOME/mise/config.toml.
+# The `jdx/mise` post-install hook in shdeps runs `mise install`
+# after mise itself is installed or updated, so any additions here
+# are picked up on the next `dot update`.
+#
+# Start empty; populate as formatter/linter tools migrate from
+# shdeps custom hooks to mise. Prefer the `aqua:<owner>/<repo>`
+# backend when a tool ships prebuilt github-release binaries — it
+# avoids compilation (cargo) and package-manager egress (npm) that
+# bite on locked-down hosts. Aqua handles asset naming, checksum
+# verification, and execute bits correctly out of the box; the
+# `ubi:` backend assumes a `v` tag prefix that some projects (e.g.
+# selene) don't use, and the raw `github:` backend doesn't force
+# the execute bit on macOS zip payloads.
+
+[tools]
+# Lua linter. Fetched as a prebuilt github-release binary via aqua
+# (no cargo compile, no npm egress) — works on hosts where the
+# previous cargo-install path failed.
+"aqua:Kampfkarren/selene" = "latest"
