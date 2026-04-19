@@ -416,12 +416,6 @@ git clone "$OVERLAY_BARE" "$OVERLAY_DIR" >/dev/null 2>&1
 git -C "$OVERLAY_DIR" config user.email "test@test.com"
 git -C "$OVERLAY_DIR" config user.name "Test"
 
-# Seed overlay repo so pull/push have a branch
-echo "work content" >"$OVERLAY_DIR/work-file"
-git -C "$OVERLAY_DIR" add work-file
-git -C "$OVERLAY_DIR" commit -m "seed" >/dev/null 2>&1
-git -C "$OVERLAY_DIR" push >/dev/null 2>&1
-
 # Pull overlay succeeds
 _discover_overlays
 result=$(_pull_overlays 2>&1)
