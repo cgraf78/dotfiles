@@ -94,13 +94,32 @@ case "$ext" in
   md)
     if command -v markdownlint-cli2 &>/dev/null; then
       args=()
-      if ! _has_config "$_filedir" ".markdownlint-cli2.jsonc" &&
-        ! _has_config "$_filedir" ".markdownlint-cli2.yaml" &&
-        ! _has_config "$_filedir" ".markdownlint-cli2.cjs" &&
-        ! _has_config "$_filedir" ".markdownlint-cli2.mjs" &&
-        ! _has_config "$_filedir" ".markdownlint.jsonc" &&
-        ! _has_config "$_filedir" ".markdownlint.yaml" &&
-        ! _has_config "$_filedir" ".markdownlint.json" &&
+      has_md_config=0
+      if _has_config "$_filedir" ".markdownlint-cli2.jsonc" ||
+        _has_config "$_filedir" ".markdownlint-cli2.yaml" ||
+        _has_config "$_filedir" ".markdownlint-cli2.cjs" ||
+        _has_config "$_filedir" ".markdownlint-cli2.mjs" ||
+        _has_config "$_filedir" ".markdownlint.jsonc" ||
+        _has_config "$_filedir" ".markdownlint.yaml" ||
+        _has_config "$_filedir" ".markdownlint.json"; then
+        has_md_config=1
+      elif command -v yq &>/dev/null; then
+        # markdownlint-cli2 also resolves config from a `markdownlint-cli2`
+        # key in package.json. Walk the parent chain like prettier does.
+        dir="$_filedir"
+        prev=""
+        while [ "$dir" != "$prev" ]; do
+          if [ -f "$dir/package.json" ] &&
+            yq -p json -e '."markdownlint-cli2"' "$dir/package.json" >/dev/null 2>&1; then
+            has_md_config=1
+            break
+          fi
+          [ "$dir" = "/" ] && break
+          prev="$dir"
+          dir=$(dirname "$dir")
+        done
+      fi
+      if [ "$has_md_config" -eq 0 ] &&
         [ -f "$AUTOLINT_DIR/markdownlint-cli2.jsonc" ]; then
         args=(--config "$AUTOLINT_DIR/markdownlint-cli2.jsonc")
       fi

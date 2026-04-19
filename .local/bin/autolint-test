@@ -387,6 +387,37 @@ open('$_td/doc.md','w').write('# Title\n\n' + 'x ' * 80 + 'end\n')
   set -e
   _assert_exit "md: fallback markdownlint-cli2.jsonc disables MD013" 0 "$rc"
   _assert_exit "md: no fallback — MD013 fires on long line" 1 "$rc_no_cfg"
+
+  # package.json with a `markdownlint-cli2` key counts as per-repo
+  # config — fallback should NOT apply. Repo config keeps MD013 on,
+  # so long line fires even with AUTOLINT_DIR set.
+  _md_pkg=$(_tmpdir)
+  cat >"$_md_pkg/package.json" <<'EOF'
+{ "name": "demo", "markdownlint-cli2": { "config": { "MD013": { "line_length": 80 } } } }
+EOF
+  python3 -c "
+open('$_md_pkg/doc.md','w').write('# Title\n\n' + 'x ' * 80 + 'end\n')
+"
+  set +e
+  AUTOLINT_DIR="$_alt_dir" "$AUTOLINT" "$_md_pkg/doc.md" >/dev/null 2>&1
+  rc=$?
+  set -e
+  _assert_exit "md: package.json markdownlint-cli2 key overrides fallback" 1 "$rc"
+
+  # Regression: package.json WITHOUT the key must not count as
+  # per-repo config; fallback should still apply.
+  _md_pkg_no=$(_tmpdir)
+  cat >"$_md_pkg_no/package.json" <<'EOF'
+{ "name": "demo", "version": "1.0.0" }
+EOF
+  python3 -c "
+open('$_md_pkg_no/doc.md','w').write('# Title\n\n' + 'x ' * 80 + 'end\n')
+"
+  set +e
+  AUTOLINT_DIR="$_alt_dir" "$AUTOLINT" "$_md_pkg_no/doc.md" >/dev/null 2>&1
+  rc=$?
+  set -e
+  _assert_exit "md: package.json without key → fallback still applies" 0 "$rc"
 fi
 
 # ---------------------------------------------------------------------------
