@@ -9,6 +9,10 @@
 
 set -u
 
+# `--fix` is opt-in. Unlike autoformat (which always mutates), autolint
+# defaults to read-only: edit-hook callers want diagnostics without
+# surprise fixes. Pass `--fix` explicitly — e.g. from the CLI — when
+# the caller wants ruff/eslint/markdownlint-cli2 to also apply fixes.
 fix=0
 file=""
 for arg in "$@"; do
@@ -37,6 +41,13 @@ fi
 _filedir=$(dirname "$file")
 ext="${file##*.}"
 rc=0
+
+# Design contract shared by every `_lint_*` helper below and every
+# branch of the dispatch: if the linter isn't installed, return 0
+# silently. autolint fires on every edit-hook save; it must never
+# block the hook because a tool happens to be absent on this host.
+# The `command -v <tool> &>/dev/null || return 0` idiom in each
+# helper encodes this.
 
 _lint_sh() {
   local file="$1" dir="$2"
@@ -78,6 +89,14 @@ _lint_js() {
   fi
 }
 
+# Per-language dispatch. Each arm mirrors autoformat's three-step
+# shape (tool-present guard → per-repo config detection → fallback
+# via `$AUTOLINT_DIR`). Exceptions:
+#   - `zsh` has no config mechanism; we just run `zsh -n`.
+#   - `js/ts` are project-only by design: no global fallback, and
+#     autolint skips entirely when no eslint config is found.
+#   - `yml/yaml` is scoped to `*/.github/workflows/*` — actionlint
+#     is workflow-specific and would be noisy on arbitrary yamls.
 case "$ext" in
   sh | bash)
     _lint_sh "$file" "$_filedir" || rc=$?

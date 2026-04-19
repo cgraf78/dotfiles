@@ -21,6 +21,12 @@ file="${1:-}"
 [ -z "$file" ] && exit 0
 [ -f "$file" ] || exit 0
 
+# Run a formatter, buffering stderr so successful runs stay silent.
+# Several formatters chat on stderr even on success (prettier emits
+# "path 12ms", clang-format and shfmt occasionally warn on benign
+# input); that noise drowns out the edit-hook output on every save.
+# If the formatter fails we surface the buffered stderr so real
+# problems still land in the user's console.
 _run_fmt() {
   local err rc
   err=$(mktemp)
@@ -33,6 +39,10 @@ _run_fmt() {
   return "$rc"
 }
 
+# Dispatch sh/bash/zsh through a single shfmt invocation. Exists
+# purely to dedupe the three extension branches plus the extensionless
+# shebang path; `lang` is the `-ln` value ("" for default bash parsing,
+# "zsh" for zsh scripts).
 _format_sh() {
   local file="$1" dir="$2" lang="${3:-}"
   local args=() v_indent="" v_sci=""
@@ -57,6 +67,21 @@ _format_sh() {
 _filedir=$(dirname "$file")
 ext="${file##*.}"
 
+# Design contract shared by every arm below: if the formatter isn't
+# installed, return 0 silently. autoformat fires on every edit-hook
+# save; it must never block the hook because a tool happens to be
+# absent on this host. The `command -v <tool> &>/dev/null` guard at
+# the top of each branch encodes this.
+#
+# Per-language dispatch shape is the same three steps:
+#   1. `command -v <tool>` presence guard (see above).
+#   2. Per-repo config detection via `_has_config` / `_find_config`
+#      (and sometimes a `yq` walk for pyproject-style configs).
+#   3. Fallback to `$AUTOFORMAT_DIR/<tool-config>` via a `--config`-
+#      like CLI flag when no per-repo config was found.
+# Each tool has a slightly different flag name and config-file set;
+# inline comments explain the quirks (e.g. taplo walks from cwd, not
+# the file path).
 case "$ext" in
   py)
     if command -v ruff &>/dev/null; then
@@ -112,8 +137,9 @@ case "$ext" in
   c | cpp | cc | cxx | h | hpp | hxx)
     if command -v clang-format &>/dev/null; then
       args=()
-      # clang-format can read a specific fallback style file directly, which
-      # lets hooks and ad hoc runs stay consistent outside repos with local config.
+      # clang-format doesn't walk for a fallback style file the way it
+      # walks for a per-repo `.clang-format`. Point it at our fallback
+      # explicitly so the style is consistent on files outside a repo.
       if ! _has_config "$_filedir" ".clang-format" &&
         ! _has_config "$_filedir" "_clang-format" &&
         [ -f "$AUTOFORMAT_DIR/clang-format" ]; then
