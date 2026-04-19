@@ -88,25 +88,10 @@ case "$ext" in
       args=()
       has_ruff_config=0
       if _has_config "$_filedir" "ruff.toml" ||
-        _has_config "$_filedir" ".ruff.toml"; then
+        _has_config "$_filedir" ".ruff.toml" ||
+        _walk_config_with_key "$_filedir" pyproject.toml toml \
+          '.tool.ruff // .tool.ruff.format'; then
         has_ruff_config=1
-      else
-        # Many repos have pyproject metadata without Ruff settings. Only
-        # suppress the fallback config when pyproject.toml actually configures
-        # Ruff somewhere in the file's parent chain. Track `prev` so the
-        # loop terminates on relative paths (dirname "." = ".").
-        dir="$_filedir"
-        prev=""
-        while [ "$dir" != "$prev" ]; do
-          if [ -f "$dir/pyproject.toml" ] &&
-            _toml_has_any "$dir/pyproject.toml" "tool.ruff" "tool.ruff.format"; then
-            has_ruff_config=1
-            break
-          fi
-          [ "$dir" = "/" ] && break
-          prev="$dir"
-          dir=$(dirname "$dir")
-        done
       fi
       if [ "$has_ruff_config" -eq 0 ] &&
         [ -f "$AUTOFORMAT_DIR/ruff.toml" ]; then
@@ -183,6 +168,8 @@ case "$ext" in
     if command -v prettier &>/dev/null; then
       args=()
       has_prettier_config=0
+      # package.json with a `prettier` key also counts as a per-repo
+      # config — matches how prettier itself resolves.
       if _has_config "$_filedir" ".prettierrc" ||
         _has_config "$_filedir" ".prettierrc.json" ||
         _has_config "$_filedir" ".prettierrc.yaml" ||
@@ -191,24 +178,9 @@ case "$ext" in
         _has_config "$_filedir" ".prettierrc.js" ||
         _has_config "$_filedir" "prettier.config.js" ||
         _has_config "$_filedir" "prettier.config.cjs" ||
-        _has_config "$_filedir" "prettier.config.mjs"; then
+        _has_config "$_filedir" "prettier.config.mjs" ||
+        _walk_config_with_key "$_filedir" package.json json '.prettier'; then
         has_prettier_config=1
-      else
-        # package.json may carry a `prettier` key as a valid config.
-        # Walk the parent chain to find one — matches how prettier
-        # itself resolves config from package.json.
-        dir="$_filedir"
-        prev=""
-        while [ "$dir" != "$prev" ]; do
-          if [ -f "$dir/package.json" ] &&
-            yq -p json -e '.prettier' "$dir/package.json" >/dev/null 2>&1; then
-            has_prettier_config=1
-            break
-          fi
-          [ "$dir" = "/" ] && break
-          prev="$dir"
-          dir=$(dirname "$dir")
-        done
       fi
       if [ "$has_prettier_config" -eq 0 ] &&
         [ -f "$AUTOFORMAT_DIR/prettierrc.json" ]; then

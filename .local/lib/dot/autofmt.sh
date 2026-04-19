@@ -99,14 +99,32 @@ _toml_read_keys() {
   yq -p toml "$expr" "$file" 2>/dev/null
 }
 
-# Return 0 when a TOML file contains any of the listed non-null keys.
-_toml_has_any() {
-  local file="$1"
-  shift
-  local expr="" k
-  for k in "$@"; do
-    [ -n "$expr" ] && expr="$expr // "
-    expr="$expr.$k"
+# Walk up from $dir looking for a $filename whose content (parsed by
+# yq in the given $format: `toml` or `json`) satisfies the yq
+# predicate. Returns 0 on first match. Tracks `prev` to terminate on
+# relative paths, same as `_has_config`.
+#
+# Used to detect per-repo configs that live INSIDE a multi-purpose
+# file — pyproject.toml with a `[tool.ruff]` section, package.json
+# with a `prettier` key, etc. The caller writes the predicate
+# themselves so hyphenated keys / nested paths / `//` coalescing are
+# all supported uniformly:
+#
+#   _walk_config_with_key "$_filedir" pyproject.toml toml \
+#     '.tool.ruff // .tool.ruff.format'
+#   _walk_config_with_key "$_filedir" package.json json '.prettier'
+#   _walk_config_with_key "$_filedir" package.json json \
+#     '."markdownlint-cli2"'
+_walk_config_with_key() {
+  local dir="$1" filename="$2" format="$3" predicate="$4" prev=""
+  while [ "$dir" != "$prev" ]; do
+    if [ -f "$dir/$filename" ] &&
+      yq -p "$format" -e "$predicate" "$dir/$filename" >/dev/null 2>&1; then
+      return 0
+    fi
+    [ "$dir" = "/" ] && break
+    prev="$dir"
+    dir=$(dirname "$dir")
   done
-  yq -p toml -e "$expr" "$file" >/dev/null 2>&1
+  return 1
 }
