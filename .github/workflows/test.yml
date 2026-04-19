@@ -6,7 +6,7 @@ on:
   pull_request:
     branches: [master, main]
   schedule:
-    - cron: '0 7 * * *'
+    - cron: "0 7 * * *"
 
 jobs:
   test:
@@ -28,7 +28,10 @@ jobs:
             container: archlinux:latest
           - name: CentOS Stream
             runner: ubuntu-latest
-            container: quay.io/centos/centos:stream9
+            container: quay.io/centos/centos:latest
+          - name: Fedora
+            runner: ubuntu-latest
+            container: fedora:latest
           - name: WSL
             runner: ubuntu-latest
 
@@ -49,7 +52,7 @@ jobs:
               pacman-key --init && pacman-key --populate
               pacman -Syu --noconfirm git curl sudo
               ;;
-            CentOS*)
+            CentOS* | Fedora)
               dnf install -y --allowerasing git curl sudo
               ;;
           esac
