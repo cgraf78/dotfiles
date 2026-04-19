@@ -40,10 +40,12 @@ if true
 fi
 EOF
 set +e
-"$AUTOLINT" "$_td/bad.zsh" >/dev/null 2>&1
+_stdout=$("$AUTOLINT" "$_td/bad.zsh" 2>"$_td/bad.zsh.err")
 rc=$?
 set -e
 _assert_exit "zsh: exits non-zero on syntax error" 1 "$rc"
+_assert_eq "zsh: errors not on stdout" "" "$_stdout"
+_assert_contains "zsh: errors on stderr" "parse error" "$(cat "$_td/bad.zsh.err")"
 
 cat >"$_td/bad.py" <<'EOF'
 import os

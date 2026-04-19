@@ -46,7 +46,9 @@ _lint_sh() {
 }
 
 _lint_zsh() {
-  zsh -n "$1" 2>&1
+  if command -v zsh &>/dev/null; then
+    zsh -n "$1"
+  fi
 }
 
 _lint_js() {
