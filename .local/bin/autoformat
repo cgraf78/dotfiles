@@ -175,17 +175,42 @@ case "$ext" in
     ;;
   rs)
     if command -v rustfmt &>/dev/null; then
-      _run_fmt rustfmt "$file"
+      args=()
+      if ! _has_config "$_filedir" "rustfmt.toml" &&
+        ! _has_config "$_filedir" ".rustfmt.toml" &&
+        [ -f "$AUTOFORMAT_DIR/rustfmt.toml" ]; then
+        args=(--config-path "$AUTOFORMAT_DIR/rustfmt.toml")
+      fi
+      _run_fmt rustfmt "${args[@]}" "$file"
     fi
     ;;
   toml)
     if command -v taplo &>/dev/null; then
-      _run_fmt taplo fmt "$file"
+      args=()
+      if ! _has_config "$_filedir" "taplo.toml" &&
+        ! _has_config "$_filedir" ".taplo.toml" &&
+        [ -f "$AUTOFORMAT_DIR/taplo.toml" ]; then
+        args=(--config "$AUTOFORMAT_DIR/taplo.toml")
+      fi
+      _run_fmt taplo fmt "${args[@]}" "$file"
     fi
     ;;
   css | html | js | jsx | json | md | ts | tsx | yaml | yml)
     if command -v prettier &>/dev/null; then
-      _run_fmt prettier --write "$file"
+      args=()
+      if ! _has_config "$_filedir" ".prettierrc" &&
+        ! _has_config "$_filedir" ".prettierrc.json" &&
+        ! _has_config "$_filedir" ".prettierrc.yaml" &&
+        ! _has_config "$_filedir" ".prettierrc.yml" &&
+        ! _has_config "$_filedir" ".prettierrc.toml" &&
+        ! _has_config "$_filedir" ".prettierrc.js" &&
+        ! _has_config "$_filedir" "prettier.config.js" &&
+        ! _has_config "$_filedir" "prettier.config.cjs" &&
+        ! _has_config "$_filedir" "prettier.config.mjs" &&
+        [ -f "$AUTOFORMAT_DIR/prettierrc.json" ]; then
+        args=(--config "$AUTOFORMAT_DIR/prettierrc.json")
+      fi
+      _run_fmt prettier --write "${args[@]}" "$file"
     fi
     ;;
   *)

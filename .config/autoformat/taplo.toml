@@ -1,0 +1,11 @@
+# Global taplo fallback. Only applied when no per-repo `taplo.toml` or
+# `.taplo.toml` is found in the file's parent chain.
+
+[formatting]
+align_entries = false
+array_auto_collapse = true
+array_auto_expand = true
+column_width = 100
+indent_string = "  "
+reorder_keys = false
+trailing_newline = true

@@ -267,6 +267,63 @@ EOF
 "$AUTOFORMAT" "$_repo_lua/test.lua"
 _assert_contains "lua: stylua.toml overrides default" "	print" "$(cat "$_repo_lua/test.lua")"
 
+# Rust: per-repo rustfmt.toml overrides fallback
+_repo_rs=$(_tmpdir)
+cat >"$_repo_rs/rustfmt.toml" <<'EOF'
+max_width = 40
+EOF
+cat >"$_repo_rs/test.rs" <<'EOF'
+fn very_long_function_name(a:i32,b:i32,c:i32)->i32{a+b+c}
+EOF
+"$AUTOFORMAT" "$_repo_rs/test.rs"
+# max_width=40 forces per-arg wrapping; signature must span multiple lines
+_rustout=$(cat "$_repo_rs/test.rs")
+_assert_contains "rust: rustfmt.toml overrides fallback (wraps args)" "    a: i32," "$_rustout"
+_assert_contains "rust: rustfmt.toml overrides fallback (wraps args)" "    b: i32," "$_rustout"
+
+# Note on taplo per-repo: taplo's own config discovery looks in the
+# process cwd, not the file's parent directory, so a per-repo
+# taplo.toml isn't picked up via the file-path invocation pattern
+# autoformat uses. No test for per-repo override here.
+
+# Prettier: per-repo .prettierrc overrides fallback
+_repo_pr=$(_tmpdir)
+cat >"$_repo_pr/.prettierrc" <<'EOF'
+{"tabWidth": 4, "singleQuote": true}
+EOF
+cat >"$_repo_pr/test.js" <<'EOF'
+const x={a:"b"}
+EOF
+"$AUTOFORMAT" "$_repo_pr/test.js"
+_assert_contains "prettier: .prettierrc overrides fallback" "'b'" "$(cat "$_repo_pr/test.js")"
+
+# Rust fallback: autoformat passes --config-path when no per-repo config
+_td_rs=$(_tmpdir)
+cat >"$_td_rs/t.rs" <<'EOF'
+fn main(){ }
+EOF
+"$AUTOFORMAT" "$_td_rs/t.rs"
+_assert_eq "rust: fallback rustfmt.toml applied" 'fn main() {}' "$(cat "$_td_rs/t.rs")"
+
+# TOML fallback: autoformat passes --config when no per-repo config
+_td_tm=$(_tmpdir)
+cat >"$_td_tm/t.toml" <<'EOF'
+z=1
+a=2
+EOF
+"$AUTOFORMAT" "$_td_tm/t.toml"
+# Fallback reorder_keys=false, so original order preserved
+_assert_contains "toml: fallback taplo.toml applied (no reorder)" "z = 1
+a = 2" "$(cat "$_td_tm/t.toml")"
+
+# Prettier fallback: autoformat passes --config when no per-repo config
+_td_pr=$(_tmpdir)
+cat >"$_td_pr/t.json" <<'EOF'
+{"x":1,"y":2}
+EOF
+"$AUTOFORMAT" "$_td_pr/t.json"
+_assert_contains "prettier: fallback prettierrc.json applied" '"x": 1' "$(cat "$_td_pr/t.json")"
+
 # ---------------------------------------------------------------------------
 # Tests: config in parent directory
 # ---------------------------------------------------------------------------
