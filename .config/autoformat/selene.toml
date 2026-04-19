@@ -1,9 +1,13 @@
 # Global selene fallback. Applied via `--config` when no per-repo
 # `selene.toml` / `.selene.toml` is found in the file's parent chain.
 #
-# Default selene targets Roblox Lua; point std at a plain Lua
-# runtime so rules don't reference Roblox-only globals.
-std = "lua54"
+# Deliberately no `std = "..."` here — the selene binary shipped by
+# Homebrew is built without the `lua52`/`lua53`/`lua54` std features
+# baked in (and the `roblox` std requires a network fetch), so a
+# hardcoded std would hit "feature not enabled" or "could not fetch
+# standard library" on many hosts. Selene's no-std defaults still
+# recognise common Lua builtins like `print`. Per-repo selene.toml
+# files can set `std` explicitly when the project needs it.
 
 [rules]
 # Treat "unused variable/argument" as a signal, not an error. Common

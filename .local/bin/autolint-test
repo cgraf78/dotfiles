@@ -322,7 +322,6 @@ cat >"$_alt_dir/shellcheckrc" <<'EOF'
 disable=SC1091
 EOF
 cat >"$_alt_dir/selene.toml" <<'EOF'
-std = "lua54"
 [rules]
 divide_by_zero = "allow"
 EOF
