@@ -65,19 +65,28 @@ _classify_shell() {
       ;;
   esac
 
-  # Skip binary files before reading — otherwise `head -n1` on a
-  # binary (e.g. `.gif` that fell through to the extensionless path)
-  # leaks null bytes through command substitution, and bash warns.
-  # `grep -I` returns non-zero when $file is detected as binary.
+  # Skip binary files before reading — otherwise the builtin `read`
+  # on a binary (e.g. `.gif` that fell through to the extensionless
+  # path) could leak null bytes. `grep -I` returns non-zero when
+  # $file is detected as binary.
   if ! grep -Iq '' "$file" 2>/dev/null; then
     printf 'unknown\n'
     return 0
   fi
 
-  first=$(head -n1 "$file" 2>/dev/null) || true
-  if printf '%s\n' "$first" | grep -qE '^#!.*\bzsh\b'; then
+  # Read the shebang line via builtin (no fork), then classify with
+  # bash's own regex engine (no fork). Patterns stored in variables
+  # so bash passes the backslash through to the regex library.
+  IFS= read -r first <"$file" 2>/dev/null || first=""
+  if [[ "$first" != '#!'* ]]; then
+    printf 'unknown\n'
+    return 0
+  fi
+  local zsh_pat='(^|[^[:alnum:]_])zsh($|[^[:alnum:]_])'
+  local bash_pat='(^|[^[:alnum:]_])(ba)?sh($|[^[:alnum:]_])'
+  if [[ "$first" =~ $zsh_pat ]]; then
     printf 'zsh\n'
-  elif printf '%s\n' "$first" | grep -qE '^#!.*\b(ba)?sh\b'; then
+  elif [[ "$first" =~ $bash_pat ]]; then
     printf 'bash\n'
   else
     printf 'unknown\n'
