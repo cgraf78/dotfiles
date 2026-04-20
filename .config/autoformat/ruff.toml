@@ -1,2 +1,14 @@
 indent-width = 4
-line-length = 88
+line-length = 100
+
+# Full lint rule set applied by autolint (ruff check). autoformat runs
+# `ruff check --fix --select=I` to get just import sorting on save;
+# the remaining rules require running autolint (with --fix if wanted).
+#
+# E    - pycodestyle errors
+# F    - pyflakes (unused imports, undefined names)
+# I    - isort-style import sorting
+# UP   - pyupgrade (modern syntax)
+# B    - bugbear (likely-bugs subset)
+[lint]
+select = ["E", "F", "I", "UP", "B"]

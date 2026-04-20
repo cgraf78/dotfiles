@@ -111,6 +111,11 @@ case "$ext" in
         args=(--config "$AUTOFORMAT_DIR/ruff.toml")
       fi
       _run_fmt ruff format --quiet "${args[@]}" "$file"
+      # Also sort imports (`I` rule) as a format-adjacent fix. The
+      # full lint rule set runs via autolint --fix; scoping here to
+      # imports-only keeps autoformat's behavior deterministic and
+      # unsurprising on save.
+      _run_fmt ruff check --quiet --fix --select=I "${args[@]}" "$file"
     fi
     ;;
   sh | bash)
@@ -198,7 +203,13 @@ case "$ext" in
         [ "$file" != "$AUTOFORMAT_DIR/biome.json" ]; then
         args=(--config-path "$AUTOFORMAT_DIR")
       fi
-      _run_fmt biome format --write "${args[@]}" "$file"
+      # `biome check --write --linter-enabled=false` runs formatter +
+      # assist (organize imports etc.) but skips the linter. Autolint
+      # runs `biome lint` separately — keeping these disjoint means
+      # autoformat-on-save never applies a behavior-changing lint fix
+      # behind the user's back.
+      _run_fmt biome check --write --linter-enabled=false \
+        "${args[@]}" "$file"
     fi
     ;;
   yaml | yml)
