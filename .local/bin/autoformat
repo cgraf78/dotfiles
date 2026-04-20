@@ -183,11 +183,18 @@ case "$ext" in
       # the process cwd (not the file path). Detect the per-repo config
       # here and pass --config-path (a directory) explicitly. Falls back
       # to our global default when no per-repo config is present.
-      repo_cfg_dir=$(_find_config "$_filedir" "biome.json" 2>/dev/null ||
+      #
+      # Self-format guard: if the file being formatted IS the config we
+      # would otherwise pass, skip the --config-path arg. Otherwise
+      # biome sees the same root config twice (once via --config-path,
+      # once via its own discovery walk on the input file) and errors
+      # with "nested root configuration".
+      repo_cfg=$(_find_config "$_filedir" "biome.json" 2>/dev/null ||
         _find_config "$_filedir" "biome.jsonc" 2>/dev/null || true)
-      if [ -n "$repo_cfg_dir" ]; then
-        args=(--config-path "$(dirname "$repo_cfg_dir")")
-      elif [ -f "$AUTOFORMAT_DIR/biome.json" ]; then
+      if [ -n "$repo_cfg" ] && [ "$repo_cfg" != "$file" ]; then
+        args=(--config-path "$(dirname "$repo_cfg")")
+      elif [ -f "$AUTOFORMAT_DIR/biome.json" ] &&
+        [ "$file" != "$AUTOFORMAT_DIR/biome.json" ]; then
         args=(--config-path "$AUTOFORMAT_DIR")
       fi
       _run_fmt biome format --write "${args[@]}" "$file"

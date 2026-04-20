@@ -98,13 +98,16 @@ _lint_biome() {
   # "skip if no config" gate. biome.json(c) per-repo tunes that set,
   # otherwise we fall back to our global config (same file autoformat
   # uses — biome handles format and lint from one config).
+  # Self-lint guard: if the file being linted IS the config itself,
+  # skip --config-path to avoid biome's "nested root configuration".
   local args=()
   local repo_cfg
   repo_cfg=$(_find_config "$dir" "biome.json" 2>/dev/null ||
     _find_config "$dir" "biome.jsonc" 2>/dev/null || true)
-  if [ -n "$repo_cfg" ]; then
+  if [ -n "$repo_cfg" ] && [ "$repo_cfg" != "$file" ]; then
     args=(--config-path "$(dirname "$repo_cfg")")
-  elif [ -f "$AUTOLINT_DIR/biome.json" ]; then
+  elif [ -f "$AUTOLINT_DIR/biome.json" ] &&
+    [ "$file" != "$AUTOLINT_DIR/biome.json" ]; then
     args=(--config-path "$AUTOLINT_DIR")
   fi
   if [ "$fix" -eq 1 ]; then
