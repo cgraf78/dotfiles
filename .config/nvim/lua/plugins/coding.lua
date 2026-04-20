@@ -109,14 +109,14 @@ return {
       local lint = require("lint")
       lint.linters_by_ft = {
         bash = { "shellcheck" },
-        javascript = { "eslint_d" },
-        javascriptreact = { "eslint_d" },
+        javascript = { "biomejs" },
+        javascriptreact = { "biomejs" },
         lua = { "selene" },
-        markdown = { "markdownlint-cli2" },
+        markdown = { "rumdl" },
         python = { "ruff" },
         sh = { "shellcheck" },
-        typescript = { "eslint_d" },
-        typescriptreact = { "eslint_d" },
+        typescript = { "biomejs" },
+        typescriptreact = { "biomejs" },
         zsh = { "zsh" },
       }
       vim.api.nvim_create_autocmd({ "BufReadPost", "BufWritePost", "InsertLeave" }, {

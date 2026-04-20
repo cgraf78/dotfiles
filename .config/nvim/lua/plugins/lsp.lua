@@ -33,14 +33,14 @@ return {
     config = function()
       require("mason-tool-installer").setup({
         ensure_installed = {
-          "eslint_d",
-          "markdownlint-cli2",
-          "prettier",
+          "biome",
           "ruff",
+          "rumdl",
           "shellcheck",
           "shfmt",
           "stylua",
           "taplo",
+          "yamlfmt",
         },
       })
     end,
