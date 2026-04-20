@@ -57,9 +57,10 @@ export DOTBOOTSTRAP_SOURCED=1
 
 echo "=== Branch detection ==="
 
-# Priority 1: DOTFILES_BRANCH env var
+# Priority 1: DOTFILES_BRANCH env var — export so shellcheck sees
+# it as an external-consumer var rather than flagging SC2034.
 BRANCH=""
-DOTFILES_BRANCH="custom-branch"
+export DOTFILES_BRANCH="custom-branch"
 _detect_branch
 _assert_eq "env var override" "custom-branch" "$BRANCH"
 unset DOTFILES_BRANCH

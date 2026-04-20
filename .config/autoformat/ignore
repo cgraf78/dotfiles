@@ -22,3 +22,26 @@
 # terminal. Reformatting could change key order in ways iTerm
 # doesn't like.
 */iterm2-dotfiles-dyn-profile.json
+
+# biome can't format its own config cleanly: when cwd is $HOME
+# (common when invoking autoformat), biome treats $HOME as an
+# implicit root and flags this file as a "nested root". The self-
+# format guard on --config-path isn't enough to suppress that
+# discovery path. The file is user-edited config, small — safe
+# to skip.
+*/autoformat/biome.json
+
+# nvim lua files heavily use the `vim` global (neovim's scripting
+# API). Our fallback `selene.toml` doesn't declare a nvim std, so
+# `selene` flags every vim.* reference as undefined_variable,
+# producing hundreds of false-positives per file. Ignoring here
+# silences both autoformat and autolint for the nvim config;
+# proper fix is a nvim-specific `selene.toml` with a vim std
+# file, tracked as a follow-up.
+*/.config/nvim/*
+
+# Managed by Claude Code and Codex CLI — both tools rewrite these
+# files (settings / config) on their own schedule, so any format
+# we impose gets clobbered on next tool startup.
+*/.claude/settings.json
+*/.codex/config.toml

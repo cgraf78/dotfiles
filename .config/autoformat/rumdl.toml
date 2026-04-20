@@ -5,6 +5,9 @@
 disable = [
   "MD013", # line-length — README badges / URLs / tables break it
   "MD033", # inline HTML — shield badges need <p>/<img>
+  "MD038", # spaces inside code spans — docs often quote markdown
+  #         syntax like `- ` (bullet + space) where the space is
+  #         semantic; rumdl --fix would silently strip it.
   "MD042", # empty links — [![Badge](img)]() is a common idiom
 ]
 
