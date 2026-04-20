@@ -46,6 +46,8 @@ AUTOLINT_DIR="${AUTOLINT_DIR:-$HOME/.config/autoformat}"
 # shellcheck source=../lib/dot/autofmt.sh
 . "$HOME/.local/lib/dot/autofmt.sh"
 
+_ignored "$file" "$AUTOLINT_DIR/ignore" && exit 0
+
 if ! command -v yq >/dev/null 2>&1; then
   echo "autolint: yq is required" >&2
   exit 1

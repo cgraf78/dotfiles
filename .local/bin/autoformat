@@ -25,6 +25,7 @@ fi
 file="${1:-}"
 [ -z "$file" ] && exit 0
 [ -f "$file" ] || exit 0
+_ignored "$file" "$AUTOFORMAT_DIR/ignore" && exit 0
 
 # Run a formatter, buffering stderr so successful runs stay silent.
 # Several formatters chat on stderr even on success (prettier emits

@@ -462,6 +462,41 @@ open('$_md_repo/doc.md','w').write('# Title\n\n' + 'x ' * 80 + 'end\n')
 fi
 
 # ---------------------------------------------------------------------------
+# Tests: ignore file ($AUTOLINT_DIR/ignore)
+# ---------------------------------------------------------------------------
+
+echo "=== Ignore file ==="
+
+# File matched by ignore → autolint exits 0 without invoking any
+# linter, even for content that would otherwise produce diagnostics.
+_ign_al_dir=$(_tmpdir)
+cat >"$_ign_al_dir/ignore" <<'EOF'
+*/skipme.sh
+EOF
+
+_ign_tgt=$(_tmpdir)
+cat >"$_ign_tgt/skipme.sh" <<'EOF'
+#!/bin/bash
+echo $undefined  # would normally trip SC2154
+EOF
+set +e
+AUTOLINT_DIR="$_ign_al_dir" "$AUTOLINT" "$_ign_tgt/skipme.sh" >/dev/null 2>&1
+rc=$?
+set -e
+_assert_exit "ignore: glob match skips linting" 0 "$rc"
+
+# File NOT in ignore list → linter runs and catches issues.
+cat >"$_ign_tgt/keepme.sh" <<'EOF'
+#!/bin/bash
+echo $undefined
+EOF
+set +e
+AUTOLINT_DIR="$_ign_al_dir" "$AUTOLINT" "$_ign_tgt/keepme.sh" >/dev/null 2>&1
+rc=$?
+set -e
+_assert_exit "ignore: non-match still lints" 1 "$rc"
+
+# ---------------------------------------------------------------------------
 # Tests: no-op for missing/empty input
 # ---------------------------------------------------------------------------
 

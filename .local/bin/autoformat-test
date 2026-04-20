@@ -578,6 +578,44 @@ _assert_eq "classify: binary → unknown" "unknown" "$result"
 _assert_not_contains "classify: binary emits no null-byte warning" "null byte" "$_stderr"
 
 # ---------------------------------------------------------------------------
+# Tests: ignore file ($AUTOFORMAT_DIR/ignore)
+# ---------------------------------------------------------------------------
+
+echo "=== Ignore file ==="
+
+_ign_dir=$(_tmpdir)
+cat >"$_ign_dir/ignore" <<'EOF'
+# comment line
+*/skipme.py
+
+exact-name.sh
+*.generated.*
+EOF
+
+# Glob pattern in ignore list → file is not formatted.
+_ign_py_dir=$(_tmpdir)
+cat >"$_ign_py_dir/skipme.py" <<'EOF'
+x=1
+EOF
+AUTOFORMAT_DIR="$_ign_dir" "$AUTOFORMAT" "$_ign_py_dir/skipme.py"
+_assert_eq "ignore: glob match skips formatting" "x=1" "$(cat "$_ign_py_dir/skipme.py")"
+
+# File NOT in ignore list → formats as usual.
+cat >"$_ign_py_dir/keepme.py" <<'EOF'
+x=1
+EOF
+AUTOFORMAT_DIR="$_ign_dir" "$AUTOFORMAT" "$_ign_py_dir/keepme.py"
+_assert_contains "ignore: non-match still formats" "x = 1" "$(cat "$_ign_py_dir/keepme.py")"
+
+# Missing ignore file → scripts proceed normally.
+cat >"$_ign_py_dir/plain.py" <<'EOF'
+x=1
+EOF
+AUTOFORMAT_DIR=/nonexistent "$AUTOFORMAT" "$_ign_py_dir/plain.py"
+_assert_contains "ignore: missing ignore file → normal flow" \
+  "x = 1" "$(cat "$_ign_py_dir/plain.py")"
+
+# ---------------------------------------------------------------------------
 # Tests: no-op for missing/empty input
 # ---------------------------------------------------------------------------
 

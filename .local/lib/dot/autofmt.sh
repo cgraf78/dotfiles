@@ -128,3 +128,32 @@ _walk_config_with_key() {
   done
   return 1
 }
+
+# Check whether a file is listed in the user's ignore file. Returns 0
+# (ignored) if any non-blank non-comment line in the ignore file is a
+# bash glob pattern that matches the file path. Returns 1 otherwise
+# (including when the ignore file doesn't exist).
+#
+# Both autoformat and autolint call this at the top of dispatch so the
+# decision applies to formatting and linting uniformly. The default
+# location is shared: `$AUTOFORMAT_DIR/ignore` on the format side,
+# `$AUTOLINT_DIR/ignore` on the lint side — since AUTOLINT_DIR defaults
+# to AUTOFORMAT_DIR, both resolve to `~/.config/autoformat/ignore`
+# unless overridden for tests.
+#
+# Pattern semantics: plain bash globs — `*`, `?`, `[...]` — matched
+# against the file path as passed in. No `**`, no negations, no
+# gitignore-style directory anchoring. Matching file path (absolute
+# or relative) depends on what the caller passed to autoformat.
+_ignored() {
+  local file="$1" ignorefile="$2" pattern
+  [ -f "$ignorefile" ] || return 1
+  while IFS= read -r pattern || [ -n "$pattern" ]; do
+    case "$pattern" in
+      '' | \#*) continue ;;
+    esac
+    # shellcheck disable=SC2053  # pattern is intentionally unquoted for glob
+    [[ "$file" == $pattern ]] && return 0
+  done <"$ignorefile"
+  return 1
+}
