@@ -134,11 +134,12 @@ _require_sudo() {
 OVERLAYS=()
 
 # Extract overlay name from conf filename: "10-work.conf" → "work"
+# Sets REPLY so callers avoid a `$(...)` subshell fork.
 _overlay_name() {
   local base="${1##*/}"
   base="${base%.conf}"
   [[ "$base" =~ ^[0-9]+-(.+)$ ]] && base="${BASH_REMATCH[1]}"
-  echo "$base"
+  REPLY="$base"
 }
 
 # Parse a single overlay conf file.
@@ -166,8 +167,8 @@ _parse_overlay_conf() {
     shdeps_host_match "$hosts" || return 1
   fi
 
-  local name
-  name=$(_overlay_name "$file")
+  _overlay_name "$file"
+  local name="$REPLY"
   REPLY="$name|$HOME/.dotfiles-$name|$url"
 }
 

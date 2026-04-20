@@ -281,10 +281,10 @@ _assert_contains "duplicate: warns" "duplicate overlay name" "$result"
 rm -f "$TEST_HOME/.config/dot/overlays.d/99-work.conf"
 
 # Name extraction
-_assert_eq "name: 10-work.conf" "work" "$(_overlay_name "10-work.conf")"
-_assert_eq "name: 20-my-nas.conf" "my-nas" "$(_overlay_name "20-my-nas.conf")"
-_assert_eq "name: work.conf" "work" "$(_overlay_name "work.conf")"
-_assert_eq "name: 5-x.conf" "x" "$(_overlay_name "5-x.conf")"
+_overlay_name "10-work.conf" && _assert_eq "name: 10-work.conf" "work" "$REPLY"
+_overlay_name "20-my-nas.conf" && _assert_eq "name: 20-my-nas.conf" "my-nas" "$REPLY"
+_overlay_name "work.conf" && _assert_eq "name: work.conf" "work" "$REPLY"
+_overlay_name "5-x.conf" && _assert_eq "name: 5-x.conf" "x" "$REPLY"
 
 # Comments are skipped
 cat >"$TEST_HOME/.config/dot/overlays.d/30-commented.conf" <<'CONF'
