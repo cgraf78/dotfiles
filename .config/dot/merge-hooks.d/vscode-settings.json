@@ -87,6 +87,7 @@
   "terminal.integrated.defaultProfile.osx": "zsh",
   "terminal.integrated.defaultProfile.windows": "WSL",
   "terminal.integrated.fontFamily": "JetBrainsMono Nerd Font, FiraCode Nerd Font, MesloLGM Nerd Font Mono, monospace",
+  "terminal.integrated.fontSize": 11,
   "terminal.integrated.letterSpacing": 0,
   "terminal.integrated.profiles.linux": {
     "bash": {
