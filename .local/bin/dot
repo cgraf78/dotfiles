@@ -198,15 +198,38 @@ fi
 case "${1:-}" in
   fetch)
     shift
-    _header "==> Fetching dotfiles..."
-    $GIT fetch "$@"
+    # Parallelize: fetch is pure network I/O with no ordering
+    # dependency.  Start all repos simultaneously, capture each
+    # repo's output so it prints in discovery order after wait.
+    # Wall-clock time is max(fetch_latency) instead of sum.
+    _fetch_base_log=$(mktemp)
+    $GIT fetch "$@" >"$_fetch_base_log" 2>&1 &
+    _fetch_base_pid=$!
+
+    _fetch_logs=() _fetch_labels=() _fetch_pids=()
     for entry in "${OVERLAYS[@]+"${OVERLAYS[@]}"}"; do
-      IFS='|' read -r name path _ <<<"$entry"
-      if [[ -d "$path/.git" ]]; then
-        _header "==> Fetching $name dotfiles..."
-        git -C "$path" fetch "$@"
-      fi
+      IFS='|' read -r _fetch_name _fetch_path _ <<<"$entry"
+      [[ -d "$_fetch_path/.git" ]] || continue
+      _fetch_log=$(mktemp)
+      git -C "$_fetch_path" fetch "$@" >"$_fetch_log" 2>&1 &
+      _fetch_logs+=("$_fetch_log")
+      _fetch_labels+=("$_fetch_name")
+      _fetch_pids+=($!)
     done
+
+    _fetch_rc=0
+    _header "==> Fetching dotfiles..."
+    wait "$_fetch_base_pid" || _fetch_rc=1
+    cat "$_fetch_base_log"
+    rm -f "$_fetch_base_log"
+
+    for i in "${!_fetch_pids[@]}"; do
+      _header "==> Fetching ${_fetch_labels[$i]} dotfiles..."
+      wait "${_fetch_pids[$i]}" || _fetch_rc=1
+      cat "${_fetch_logs[$i]}"
+      rm -f "${_fetch_logs[$i]}"
+    done
+    exit "$_fetch_rc"
     ;;
   push)
     shift
