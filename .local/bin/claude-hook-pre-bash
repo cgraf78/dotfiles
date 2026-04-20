@@ -5,21 +5,31 @@
 
 set -u
 
-cmd=$(jq -r '.tool_input.command // empty')
-[ -z "$cmd" ] && exit 0
-CMD_TRIMMED=$(printf '%s' "$cmd" | sed 's/^[[:space:]]*//')
+# Single jq pass does both the extraction and the leading-whitespace trim;
+# saves a `sed` fork on every Bash tool call.
+CMD_TRIMMED=$(jq -r '(.tool_input.command // "") | sub("^[[:space:]]+"; "")')
+[ -z "$CMD_TRIMMED" ] && exit 0
 export CMD_TRIMMED
 
 # --- Base guards ---
 
-# Block rm -rf on dangerous paths, warn on all other rm -rf
-if printf '%s' "$CMD_TRIMMED" | grep -qE '\brm\b' && printf '%s' "$CMD_TRIMMED" | grep -qE '\brm\b.*-[a-zA-Z]*r' && printf '%s' "$CMD_TRIMMED" | grep -qE '\brm\b.*-[a-zA-Z]*f'; then
-  # shellcheck disable=SC2016  # regex intentionally matches literal $HOME text
-  if printf '%s' "$CMD_TRIMMED" | grep -qE '\brm\b.*\s+(/|~|\$HOME|\.\.)\s*$'; then
-    echo 'BLOCKED: rm -rf on / ~ $HOME or .. is never allowed' >&2
-    exit 2
+# Block rm -rf on dangerous paths, warn on all other rm -rf.
+# bash's regex engine against a vary-length pattern stored in a variable
+# (so backslash escapes reach the regex library); no grep fork per call.
+_rm_pat='\brm\b'
+if [[ "$CMD_TRIMMED" =~ $_rm_pat ]]; then
+  _rmr_pat='\brm\b.*-[a-zA-Z]*r'
+  _rmf_pat='\brm\b.*-[a-zA-Z]*f'
+  if [[ "$CMD_TRIMMED" =~ $_rmr_pat && "$CMD_TRIMMED" =~ $_rmf_pat ]]; then
+    # shellcheck disable=SC2016  # literal $HOME in pattern and message
+    _danger_pat='\brm\b.*[[:space:]]+(/|~|\$HOME|\.\.)[[:space:]]*$'
+    if [[ "$CMD_TRIMMED" =~ $_danger_pat ]]; then
+      # shellcheck disable=SC2016  # literal $HOME in the warning text
+      echo 'BLOCKED: rm -rf on / ~ $HOME or .. is never allowed' >&2
+      exit 2
+    fi
+    echo 'WARNING: rm -rf detected. Verify the target path is correct before proceeding.' >&2
   fi
-  echo 'WARNING: rm -rf detected. Verify the target path is correct before proceeding.' >&2
 fi
 
 # --- Delegate to work variant if present ---

@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
 # claude-hook-post-bash — PostToolUse handler for Bash commands.
-# Base logic runs first, then delegates to -work variant if present.
+# Base logic is a no-op; CMD_TRIMMED is populated only when a -work
+# variant is installed, since nothing else consumes it here.
 
 set -u
 
-cmd=$(jq -r '.tool_input.command // empty')
-[ -z "$cmd" ] && exit 0
-CMD_TRIMMED=$(printf '%s' "$cmd" | sed 's/^[[:space:]]*//')
+# Fast path: if there is no work variant, skip parsing stdin.
+work_variant=$(command -v claude-hook-post-bash-work 2>/dev/null)
+[ -n "$work_variant" ] && [ -x "$work_variant" ] || exit 0
+
+# Single jq pass extracts and trims; saves a `sed` fork.
+CMD_TRIMMED=$(jq -r '(.tool_input.command // "") | sub("^[[:space:]]+"; "")')
+[ -z "$CMD_TRIMMED" ] && exit 0
 export CMD_TRIMMED
 
-# --- Delegate to work variant if present ---
-work_variant=$(command -v claude-hook-post-bash-work 2>/dev/null)
-[ -n "$work_variant" ] && [ -x "$work_variant" ] && exec "$work_variant"
-
-exit 0
+exec "$work_variant"

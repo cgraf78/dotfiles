@@ -11,8 +11,9 @@ term-notify-sound 2>/dev/null || true
 # --- Memory sync ---
 if command -v sync-memory >/dev/null 2>&1; then
   sync-memory
-else
-  # Fall back to plugin cache path
+elif [ -d "$HOME/.claude/plugins/cache" ]; then
+  # Fall back to plugin cache path only when the cache dir exists —
+  # otherwise `find` scans a nonexistent path on every response.
   script=$(find "$HOME/.claude/plugins/cache" -path '*/memory-sync/*/scripts/sync-memory.sh' 2>/dev/null | head -1)
   [ -n "$script" ] && bash "$script"
 fi
