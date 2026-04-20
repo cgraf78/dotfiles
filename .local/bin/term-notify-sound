@@ -34,8 +34,9 @@ _client_termtype() {
 }
 
 send_tty_notify() {
-  local ct
-  ct=$(_client_termtype)
+  # Caller passes the already-resolved client termtype to avoid a
+  # redundant `tmux display-message` fork on every notification.
+  local ct="${1:-$(_client_termtype)}"
 
   case "$ct" in
     WezTerm*)
@@ -54,11 +55,11 @@ ct=$(_client_termtype)
 if [[ "$ct" == xterm.js* ]]; then
   mkdir -p "$SIGNAL_DIR"
   touch "$SIGNAL_FILE"
-elif (send_tty_notify >/dev/tty) 2>/dev/null; then
+elif (send_tty_notify "$ct" >/dev/tty) 2>/dev/null; then
   : # sent directly
 elif [ -n "${TMUX:-}" ] && [ -n "${TMUX_PANE:-}" ]; then
   pane_tty=$(tmux display-message -t "${TMUX_PANE}" -p '#{pane_tty}' 2>/dev/null)
   if [ -n "$pane_tty" ]; then
-    send_tty_notify >"$pane_tty" 2>/dev/null || true
+    send_tty_notify "$ct" >"$pane_tty" 2>/dev/null || true
   fi
 fi
