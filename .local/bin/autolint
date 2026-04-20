@@ -172,6 +172,29 @@ case "$ext" in
       fi
     fi
     ;;
+  toml)
+    if command -v taplo &>/dev/null; then
+      args=()
+      # Three-tier: per-repo .taplo.toml → $AUTOLINT_DIR/taplo.toml
+      # → --no-schema. taplo walks from cwd for auto-discovery rather
+      # than from the file path, so we detect the per-repo config
+      # ourselves and pass it via --config. --no-schema is the last
+      # resort — taplo's default schema catalog fetches JSON over HTTP
+      # on first use, which can hang on locked-down hosts and adds
+      # nothing on TOMLs that don't declare a schema anyway.
+      # RUST_LOG=error silences taplo's info-level scan logging.
+      repo_cfg=$(_find_config "$_filedir" ".taplo.toml" 2>/dev/null ||
+        _find_config "$_filedir" "taplo.toml" 2>/dev/null || true)
+      if [ -n "$repo_cfg" ]; then
+        args=(--config "$repo_cfg")
+      elif [ -f "$AUTOLINT_DIR/taplo.toml" ]; then
+        args=(--config "$AUTOLINT_DIR/taplo.toml")
+      else
+        args=(--no-schema)
+      fi
+      RUST_LOG=error taplo check "${args[@]}" "$file" || rc=$?
+    fi
+    ;;
   lua)
     if command -v selene &>/dev/null; then
       args=()

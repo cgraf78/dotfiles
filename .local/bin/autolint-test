@@ -100,6 +100,75 @@ rc=$?
 set -e
 _assert_exit "py: exits 0 on clean file" 0 "$rc"
 
+# taplo check: clean TOML is syntax-valid → exit 0; malformed TOML
+# (unclosed table header) → exit 1 with parse errors surfaced.
+if command -v taplo &>/dev/null; then
+  cat >"$_td/ok.toml" <<'EOF'
+key = "value"
+[section]
+n = 1
+EOF
+  set +e
+  "$AUTOLINT" "$_td/ok.toml" >/dev/null 2>&1
+  rc=$?
+  set -e
+  _assert_exit "toml: taplo check passes clean file" 0 "$rc"
+
+  printf '[a\nbroken\n' >"$_td/bad.toml"
+  set +e
+  "$AUTOLINT" "$_td/bad.toml" >/dev/null 2>&1
+  rc=$?
+  set -e
+  _assert_exit "toml: taplo check fails malformed file" 1 "$rc"
+fi
+
+# Dispatch-wiring: per-repo .taplo.toml wins over fallback. Uses a
+# mock taplo that echoes its args so we can check --config routing
+# without depending on taplo's actual semantics.
+_taplo_mockbin=$(_mock_bin)
+cat >"$_taplo_mockbin/taplo" <<'EOF'
+#!/usr/bin/env bash
+echo "MOCK-TAPLO-ARGS: $*"
+exit 0
+EOF
+chmod +x "$_taplo_mockbin/taplo"
+
+_taplo_repo=$(_tmpdir)
+cat >"$_taplo_repo/.taplo.toml" <<'EOF'
+# per-repo sentinel
+EOF
+echo 'k = "v"' >"$_taplo_repo/test.toml"
+set +e
+output=$(PATH="$_taplo_mockbin:$PATH" "$AUTOLINT" "$_taplo_repo/test.toml" 2>&1)
+rc=$?
+set -e
+_assert_exit "toml: per-repo .taplo.toml wins — exits 0" 0 "$rc"
+_assert_contains "toml: per-repo .taplo.toml passed via --config" \
+  "--config $_taplo_repo/.taplo.toml" "$output"
+
+# No per-repo config + $AUTOLINT_DIR/taplo.toml present → fallback applies.
+_alt_taplo=$(_tmpdir)
+cat >"$_alt_taplo/taplo.toml" <<'EOF'
+# fallback sentinel
+EOF
+echo 'k = "v"' >"$_td/fb.toml"
+set +e
+output=$(AUTOLINT_DIR="$_alt_taplo" PATH="$_taplo_mockbin:$PATH" "$AUTOLINT" "$_td/fb.toml" 2>&1)
+rc=$?
+set -e
+_assert_exit "toml: fallback taplo.toml — exits 0" 0 "$rc"
+_assert_contains "toml: fallback taplo.toml passed via --config" \
+  "--config $_alt_taplo/taplo.toml" "$output"
+
+# No per-repo config + no fallback → --no-schema.
+echo 'k = "v"' >"$_td/ns.toml"
+set +e
+output=$(AUTOLINT_DIR=/nonexistent PATH="$_taplo_mockbin:$PATH" "$AUTOLINT" "$_td/ns.toml" 2>&1)
+rc=$?
+set -e
+_assert_exit "toml: no configs → exits 0" 0 "$rc"
+_assert_contains "toml: no configs → --no-schema" "--no-schema" "$output"
+
 # ---------------------------------------------------------------------------
 # Tests: --fix flag
 # ---------------------------------------------------------------------------
