@@ -92,23 +92,25 @@ _merge_vscode_config() {
     _merge_vscode_settings "$settings_src" "$1/settings.json"
   fi
 
-  # Keybindings: merge common first, then platform-specific
-  local kb_common="$HOME/.config/dot/merge-hooks.d/vscode-keybindings.json"
+  # Keybindings: merge common first, then platform-specific. Sources
+  # are tracked as .jsonc (VS Code-style JSON with comments); the merge
+  # strips comments and emits strict JSON into the VS Code config path.
+  local kb_common="$HOME/.config/dot/merge-hooks.d/vscode-keybindings.jsonc"
   if [[ -f "$kb_common" ]]; then
     _merge_vscode_keybindings "$kb_common" "$1/keybindings.json"
   fi
 
   local kb_platform=""
   case "$(uname -s)" in
-  Darwin) kb_platform="$HOME/.config/dot/merge-hooks.d/vscode-keybindings-mac.json" ;;
+  Darwin) kb_platform="$HOME/.config/dot/merge-hooks.d/vscode-keybindings-mac.jsonc" ;;
   Linux)
     if _is_wsl; then
-      kb_platform="$HOME/.config/dot/merge-hooks.d/vscode-keybindings-windows.json"
+      kb_platform="$HOME/.config/dot/merge-hooks.d/vscode-keybindings-windows.jsonc"
     else
-      kb_platform="$HOME/.config/dot/merge-hooks.d/vscode-keybindings-linux.json"
+      kb_platform="$HOME/.config/dot/merge-hooks.d/vscode-keybindings-linux.jsonc"
     fi
     ;;
-  MINGW* | MSYS*) kb_platform="$HOME/.config/dot/merge-hooks.d/vscode-keybindings-windows.json" ;;
+  MINGW* | MSYS*) kb_platform="$HOME/.config/dot/merge-hooks.d/vscode-keybindings-windows.jsonc" ;;
   esac
   if [[ -n "$kb_platform" && -f "$kb_platform" ]]; then
     _merge_vscode_keybindings "$kb_platform" "$1/keybindings.json"
