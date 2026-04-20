@@ -221,15 +221,6 @@ else
   _fail "backup_dir: creates unique directories"
 fi
 
-set +e
-_dim_output=$(_run_live_logged bash -lc 'printf "out\n"; printf "err\n" >&2; exit 7' 2>&1)
-rc=$?
-set -e
-_assert_exit "run_live_logged: preserves exit code" 7 "$rc"
-_assert_contains "run_live_logged: includes stdout" "out" "$_dim_output"
-_assert_contains "run_live_logged: includes stderr" "err" "$_dim_output"
-_assert_contains "run_live_logged: stderr emitted to stderr stream" "err" "$_dim_output"
-
 conflict_log=$(_tmpdir)/pull.log
 cat >"$conflict_log" <<'LOG'
 error: The following untracked working tree files would be overwritten by checkout:
@@ -415,6 +406,12 @@ rm -rf "$OVERLAY_DIR"
 git clone "$OVERLAY_BARE" "$OVERLAY_DIR" >/dev/null 2>&1
 git -C "$OVERLAY_DIR" config user.email "test@test.com"
 git -C "$OVERLAY_DIR" config user.name "Test"
+
+# Seed overlay repo so pull/push have a branch
+echo "work content" >"$OVERLAY_DIR/work-file"
+git -C "$OVERLAY_DIR" add work-file
+git -C "$OVERLAY_DIR" commit -m "seed" >/dev/null 2>&1
+git -C "$OVERLAY_DIR" push >/dev/null 2>&1
 
 # Pull overlay succeeds
 _discover_overlays
@@ -1348,13 +1345,7 @@ _assert_contains "empty file: preserves other jobs" "other-job" "$result"
 echo ""
 echo "=== Cron filter directives ==="
 
-if command -v hostname >/dev/null 2>&1; then
-  _current_host=$(hostname -s 2>/dev/null || hostname 2>/dev/null || true)
-elif [[ -r /proc/sys/kernel/hostname ]]; then
-  _current_host=$(cat /proc/sys/kernel/hostname 2>/dev/null || true)
-else
-  _current_host=$(uname -n 2>/dev/null || true)
-fi
+_current_host=$(hostname -s 2>/dev/null || hostname 2>/dev/null)
 _current_host="${_current_host,,}"
 _current_os=$(uname -s | tr '[:upper:]' '[:lower:]')
 if [[ "$_current_os" == "darwin" ]]; then _current_os="macos"; fi
