@@ -118,71 +118,50 @@ _assert_exit "py: --fix exits 0 after fixing" 0 "$rc"
 _assert_not_contains "py: --fix removes unused import" "import os" "$(cat "$_td/fixable.py")"
 
 # ---------------------------------------------------------------------------
-# Tests: JS/TS skipped without eslint config
+# Tests: JS/TS/CSS/JSON linted via biome (mocked)
+#
+# Unlike eslint, biome ships a recommended rule set and runs without
+# a project config — so there is no "skipped without config" path to
+# test. The mocks just verify dispatch wiring (file reaches the tool,
+# --fix is translated to --write).
 # ---------------------------------------------------------------------------
 
-echo "=== JS/TS: skipped without config ==="
+echo "=== JS/TS: linted via biome ==="
 
-cat >"$_td/bad.js" <<'EOF'
-var x = 1
-var y = 2
-EOF
-set +e
-"$AUTOLINT" "$_td/bad.js" >/dev/null 2>&1
-rc=$?
-set -e
-_assert_exit "js: skipped (no eslint config) — exits 0" 0 "$rc"
-
-cat >"$_td/bad.ts" <<'EOF'
-var x: any = 1
-EOF
-set +e
-"$AUTOLINT" "$_td/bad.ts" >/dev/null 2>&1
-rc=$?
-set -e
-_assert_exit "ts: skipped (no eslint config) — exits 0" 0 "$rc"
-
-# ---------------------------------------------------------------------------
-# Tests: JS/TS linted when eslint config present (mocked eslint)
-# ---------------------------------------------------------------------------
-
-echo "=== JS/TS: linted with config ==="
-
-_eslint_repo=$(_tmpdir)
-touch "$_eslint_repo/eslint.config.js"
-cat >"$_eslint_repo/test.js" <<'EOF'
+_biome_repo=$(_tmpdir)
+cat >"$_biome_repo/test.js" <<'EOF'
 var x = 1
 EOF
 
 _mockbin=$(_mock_bin)
-cat >"$_mockbin/eslint" <<'EOF'
+cat >"$_mockbin/biome" <<'EOF'
 #!/usr/bin/env bash
-echo "mock eslint error"
+echo "mock biome error"
 exit 1
 EOF
-chmod +x "$_mockbin/eslint"
+chmod +x "$_mockbin/biome"
 
 set +e
-output=$(PATH="$_mockbin:$PATH" "$AUTOLINT" "$_eslint_repo/test.js" 2>&1)
+output=$(PATH="$_mockbin:$PATH" "$AUTOLINT" "$_biome_repo/test.js" 2>&1)
 rc=$?
 set -e
-_assert_exit "js: eslint runs with config present" 1 "$rc"
-_assert_contains "js: eslint output shown" "mock eslint error" "$output"
+_assert_exit "js: biome runs" 1 "$rc"
+_assert_contains "js: biome output shown" "mock biome error" "$output"
 
 _mockbin_fix=$(_mock_bin)
-cat >"$_mockbin_fix/eslint" <<'EOF'
+cat >"$_mockbin_fix/biome" <<'EOF'
 #!/usr/bin/env bash
-for arg in "$@"; do [ "$arg" = "--fix" ] && echo "fixed" && exit 0; done
+for arg in "$@"; do [ "$arg" = "--write" ] && echo "fixed" && exit 0; done
 exit 1
 EOF
-chmod +x "$_mockbin_fix/eslint"
+chmod +x "$_mockbin_fix/biome"
 
 set +e
-output=$(PATH="$_mockbin_fix:$PATH" "$AUTOLINT" --fix "$_eslint_repo/test.js" 2>&1)
+output=$(PATH="$_mockbin_fix:$PATH" "$AUTOLINT" --fix "$_biome_repo/test.js" 2>&1)
 rc=$?
 set -e
-_assert_exit "js: --fix passed to eslint" 0 "$rc"
-_assert_contains "js: eslint --fix output shown" "fixed" "$output"
+_assert_exit "js: --fix translated to --write" 0 "$rc"
+_assert_contains "js: biome --write output shown" "fixed" "$output"
 
 # ---------------------------------------------------------------------------
 # Tests: shebang detection for extensionless files
@@ -331,8 +310,9 @@ cat >"$_alt_dir/selene.toml" <<'EOF'
 [rules]
 divide_by_zero = "allow"
 EOF
-cat >"$_alt_dir/markdownlint-cli2.jsonc" <<'EOF'
-{ "config": { "MD013": false } }
+cat >"$_alt_dir/rumdl.toml" <<'EOF'
+[global]
+disable = ["MD013"]
 EOF
 
 # Scenario: file with SC1091 (sourced path missing). With fallback
@@ -380,9 +360,9 @@ EOF
   _assert_exit "lua: no fallback — divide_by_zero fires" 1 "$rc_no_cfg"
 fi
 
-# markdownlint-cli2: file with a long line (MD013). Fallback disables
-# MD013 → rc=0; without fallback → rc=1.
-if command -v markdownlint-cli2 &>/dev/null; then
+# rumdl: file with a long line (MD013). Fallback disables MD013
+# → rc=0; without fallback → rc=1.
+if command -v rumdl &>/dev/null; then
   python3 -c "
 open('$_td/doc.md','w').write('# Title\n\n' + 'x ' * 80 + 'end\n')
 "
@@ -392,39 +372,24 @@ open('$_td/doc.md','w').write('# Title\n\n' + 'x ' * 80 + 'end\n')
   AUTOLINT_DIR=/nonexistent "$AUTOLINT" "$_td/doc.md" >/dev/null 2>&1
   rc_no_cfg=$?
   set -e
-  _assert_exit "md: fallback markdownlint-cli2.jsonc disables MD013" 0 "$rc"
+  _assert_exit "md: fallback rumdl.toml disables MD013" 0 "$rc"
   _assert_exit "md: no fallback — MD013 fires on long line" 1 "$rc_no_cfg"
 
-  # package.json with a `markdownlint-cli2` key counts as per-repo
-  # config — fallback should NOT apply. Repo config keeps MD013 on,
+  # Per-repo .markdownlint.json counts as config (rumdl reads it for
+  # compat) — fallback should NOT apply. Repo config keeps MD013 on,
   # so long line fires even with AUTOLINT_DIR set.
-  _md_pkg=$(_tmpdir)
-  cat >"$_md_pkg/package.json" <<'EOF'
-{ "name": "demo", "markdownlint-cli2": { "config": { "MD013": { "line_length": 80 } } } }
+  _md_repo=$(_tmpdir)
+  cat >"$_md_repo/.markdownlint.json" <<'EOF'
+{ "MD013": { "line_length": 80 } }
 EOF
   python3 -c "
-open('$_md_pkg/doc.md','w').write('# Title\n\n' + 'x ' * 80 + 'end\n')
+open('$_md_repo/doc.md','w').write('# Title\n\n' + 'x ' * 80 + 'end\n')
 "
   set +e
-  AUTOLINT_DIR="$_alt_dir" "$AUTOLINT" "$_md_pkg/doc.md" >/dev/null 2>&1
+  AUTOLINT_DIR="$_alt_dir" "$AUTOLINT" "$_md_repo/doc.md" >/dev/null 2>&1
   rc=$?
   set -e
-  _assert_exit "md: package.json markdownlint-cli2 key overrides fallback" 1 "$rc"
-
-  # Regression: package.json WITHOUT the key must not count as
-  # per-repo config; fallback should still apply.
-  _md_pkg_no=$(_tmpdir)
-  cat >"$_md_pkg_no/package.json" <<'EOF'
-{ "name": "demo", "version": "1.0.0" }
-EOF
-  python3 -c "
-open('$_md_pkg_no/doc.md','w').write('# Title\n\n' + 'x ' * 80 + 'end\n')
-"
-  set +e
-  AUTOLINT_DIR="$_alt_dir" "$AUTOLINT" "$_md_pkg_no/doc.md" >/dev/null 2>&1
-  rc=$?
-  set -e
-  _assert_exit "md: package.json without key → fallback still applies" 0 "$rc"
+  _assert_exit "md: .markdownlint.json overrides fallback" 1 "$rc"
 fi
 
 # ---------------------------------------------------------------------------
@@ -594,14 +559,14 @@ cd - >/dev/null
 set -e
 _assert_exit "rel py: terminates" 0 "$rc"
 
-# JS/TS dispatch walks config chain via _has_config — the prior case that
-# could loop on relative input when eslint is installed.
+# JS/TS dispatch walks config chain via _find_config — the prior case
+# that could loop on relative input when biome is installed.
 _rel_js_mock=$(_mock_bin)
-cat >"$_rel_js_mock/eslint" <<'EOF'
+cat >"$_rel_js_mock/biome" <<'EOF'
 #!/usr/bin/env bash
 exit 0
 EOF
-chmod +x "$_rel_js_mock/eslint"
+chmod +x "$_rel_js_mock/biome"
 cat >"$_reldir/ok.js" <<'EOF'
 var x = 1
 EOF
@@ -610,7 +575,7 @@ cd "$_reldir" && PATH="$_rel_js_mock:$PATH" _with_timeout 10 "$AUTOLINT" ok.js >
 rc=$?
 cd - >/dev/null
 set -e
-_assert_exit "rel js: terminates with eslint on PATH" 0 "$rc"
+_assert_exit "rel js: terminates with biome on PATH" 0 "$rc"
 
 # ---------------------------------------------------------------------------
 # Summary

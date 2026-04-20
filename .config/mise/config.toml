@@ -13,12 +13,24 @@
 # bits correctly out of the box; the `ubi:` backend assumes a `v`
 # tag prefix that some projects (e.g. selene) don't use, and the
 # raw `github:` backend doesn't force the execute bit on macOS zip
-# payloads. npm-backed tools rely on the node/npm toolchain that
-# shdeps still installs from 00-toolchains.conf.
+# payloads.
+#
+# `rvben/rumdl` uses `ubi:` instead of `aqua:` because aqua's
+# baked-in registry entry enables SLSA attestation verification,
+# and its workflow-path regex (`rvben/rumdl/\.github/workflows/
+# release\.yml`) doesn't match the relative path
+# (`.github/workflows/release.yml`) in rumdl's published
+# provenance. Aqua rejects the install. The real fix is a
+# regex update in aquaproj/aqua-registry; until that ships,
+# route rumdl through `ubi:`. Integrity is still enforced
+# via the committed `mise.lock` hashes — mise verifies every
+# subsequent install against the recorded SHA256.
 
 [tools]
 # GitHub release binaries via aqua.
 "aqua:astral-sh/ruff" = "latest"
+"aqua:biomejs/biome" = "latest"
+"aqua:google/yamlfmt" = "latest"
 "aqua:JohnnyMorganz/StyLua" = "latest"
 "aqua:Kampfkarren/selene" = "latest"
 "aqua:koalaman/shellcheck" = "latest"
@@ -26,8 +38,5 @@
 "aqua:rhysd/actionlint" = "latest"
 "aqua:tamasfe/taplo" = "latest"
 
-# npm packages. These are project-agnostic CLI tools rather than
-# repo-local devDependencies, so install them globally here.
-"npm:eslint" = "latest"
-"npm:markdownlint-cli2" = "latest"
-"npm:prettier" = "latest"
+# See the note above for why rumdl uses `ubi:` instead of `aqua:`.
+"ubi:rvben/rumdl" = "latest"

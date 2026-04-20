@@ -101,7 +101,7 @@ cat >"$_td/test.json" <<'EOF'
 {"x":1}
 EOF
 "$AUTOFORMAT" "$_td/test.json"
-_assert_contains "json: prettier formats" '"x": 1' "$(cat "$_td/test.json")"
+_assert_contains "json: biome formats" '"x": 1' "$(cat "$_td/test.json")"
 
 cat >"$_td/test.toml" <<'EOF'
 x=1
@@ -114,6 +114,20 @@ fn main( ){ }
 EOF
 "$AUTOFORMAT" "$_td/test.rs"
 _assert_eq "rust: rustfmt formats" 'fn main() {}' "$(cat "$_td/test.rs")"
+
+# yamlfmt: reformats spacing and quoting around mappings.
+cat >"$_td/test.yaml" <<'EOF'
+a:  1
+b:   [1,2,3]
+EOF
+"$AUTOFORMAT" "$_td/test.yaml"
+_assert_contains "yaml: yamlfmt formats (single-space after colon)" "a: 1" "$(cat "$_td/test.yaml")"
+
+# rumdl --fix: auto-fixes rule violations. MD019 (multiple spaces
+# after the heading hash) has a reliable cross-version fix.
+printf '#  Title\n' >"$_td/test.md"
+"$AUTOFORMAT" "$_td/test.md"
+_assert_contains "md: rumdl --fix normalizes heading spacing" "# Title" "$(cat "$_td/test.md")"
 
 # ---------------------------------------------------------------------------
 # Tests: default indent values
@@ -303,42 +317,21 @@ EOF
 _assert_contains "toml: taplo.toml overrides fallback (reorder)" "a = 2
 z = 1" "$(cat "$_repo_tm/test.toml")"
 
-# Prettier: per-repo .prettierrc overrides fallback
-_repo_pr=$(_tmpdir)
-cat >"$_repo_pr/.prettierrc" <<'EOF'
-{"tabWidth": 4, "singleQuote": true}
+# Biome: per-repo biome.json overrides fallback. Repo config forces
+# singleQuote, so the formatted JS should use single quotes despite
+# the global fallback asking for doubles.
+_repo_biome=$(_tmpdir)
+cat >"$_repo_biome/biome.json" <<'EOF'
+{
+  "formatter": { "indentStyle": "space", "indentWidth": 2 },
+  "javascript": { "formatter": { "quoteStyle": "single" } }
+}
 EOF
-cat >"$_repo_pr/test.js" <<'EOF'
-const x={a:"b"}
+cat >"$_repo_biome/test.js" <<'EOF'
+const x = { a: "b" };
 EOF
-"$AUTOFORMAT" "$_repo_pr/test.js"
-_assert_contains "prettier: .prettierrc overrides fallback" "'b'" "$(cat "$_repo_pr/test.js")"
-
-# Prettier: package.json "prettier" key counts as per-repo config,
-# so the global fallback must NOT apply. Fallback says printWidth=100
-# + double quotes; repo's package.json says printWidth=20 +
-# singleQuote=true. Result should reflect the package.json settings.
-_repo_pkg=$(_tmpdir)
-cat >"$_repo_pkg/package.json" <<'EOF'
-{ "name": "demo", "version": "1.0.0", "prettier": { "printWidth": 20, "singleQuote": true } }
-EOF
-cat >"$_repo_pkg/test.js" <<'EOF'
-const x = {a: "hello world"};
-EOF
-"$AUTOFORMAT" "$_repo_pkg/test.js"
-_assert_contains "prettier: package.json prettier key overrides fallback" "'hello world'" "$(cat "$_repo_pkg/test.js")"
-
-# Prettier: package.json WITHOUT a "prettier" key must NOT be treated
-# as per-repo config — fallback should still apply (double quotes).
-_repo_pkg_no=$(_tmpdir)
-cat >"$_repo_pkg_no/package.json" <<'EOF'
-{ "name": "demo", "version": "1.0.0" }
-EOF
-cat >"$_repo_pkg_no/test.js" <<'EOF'
-const x = {a: 'single'};
-EOF
-"$AUTOFORMAT" "$_repo_pkg_no/test.js"
-_assert_contains "prettier: package.json without prettier key → fallback applies" '"single"' "$(cat "$_repo_pkg_no/test.js")"
+"$AUTOFORMAT" "$_repo_biome/test.js"
+_assert_contains "biome: biome.json overrides fallback (single quotes)" "'b'" "$(cat "$_repo_biome/test.js")"
 
 # Rust fallback: autoformat passes --config-path when no per-repo config
 _td_rs=$(_tmpdir)
@@ -359,13 +352,14 @@ EOF
 _assert_contains "toml: fallback taplo.toml applied (no reorder)" "z = 1
 a = 2" "$(cat "$_td_tm/t.toml")"
 
-# Prettier fallback: autoformat passes --config when no per-repo config
-_td_pr=$(_tmpdir)
-cat >"$_td_pr/t.json" <<'EOF'
+# Biome fallback: autoformat passes --config-path when no per-repo
+# biome.json is found, so the global biome.json shapes the output.
+_td_biome=$(_tmpdir)
+cat >"$_td_biome/t.json" <<'EOF'
 {"x":1,"y":2}
 EOF
-"$AUTOFORMAT" "$_td_pr/t.json"
-_assert_contains "prettier: fallback prettierrc.json applied" '"x": 1' "$(cat "$_td_pr/t.json")"
+"$AUTOFORMAT" "$_td_biome/t.json"
+_assert_contains "biome: fallback biome.json applied" '"x": 1' "$(cat "$_td_biome/t.json")"
 
 # ---------------------------------------------------------------------------
 # Tests: config in parent directory

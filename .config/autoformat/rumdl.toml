@@ -1,0 +1,15 @@
+# Global rumdl fallback. Applied via `--config` when no per-repo
+# `.rumdl.toml` / `rumdl.toml` / `.markdownlint.json(c)` is found.
+
+[global]
+disable = [
+  "MD013", # line-length — README badges / URLs / tables break it
+  "MD033", # inline HTML — shield badges need <p>/<img>
+  "MD042", # empty links — [![Badge](img)]() is a common idiom
+]
+
+# MD031 fires on fenced code blocks missing surrounding blank lines.
+# Narrow to top-level blocks only — inside list items, formatters
+# tighten spacing to keep items contiguous and both tools should agree.
+[MD031]
+list-items = false

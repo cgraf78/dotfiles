@@ -12,7 +12,7 @@ set -u
 # `--fix` is opt-in. Unlike autoformat (which always mutates), autolint
 # defaults to read-only: edit-hook callers want diagnostics without
 # surprise fixes. Pass `--fix` explicitly — e.g. from the CLI — when
-# the caller wants ruff/eslint/markdownlint-cli2 to also apply fixes.
+# the caller wants ruff/biome/rumdl to also apply fixes.
 #
 # Multiple file args are rejected rather than silently accepted (the
 # "last-wins" pattern would mean earlier files are dropped without the
@@ -91,22 +91,26 @@ _lint_zsh() {
   fi
 }
 
-_lint_js() {
+_lint_biome() {
   local file="$1" dir="$2"
-  command -v eslint &>/dev/null || return 0
-  # Only lint if a config exists — eslint without config is noisy.
-  _has_config "$dir" "eslint.config.js" ||
-    _has_config "$dir" "eslint.config.mjs" ||
-    _has_config "$dir" "eslint.config.cjs" ||
-    _has_config "$dir" ".eslintrc.js" ||
-    _has_config "$dir" ".eslintrc.cjs" ||
-    _has_config "$dir" ".eslintrc.yaml" ||
-    _has_config "$dir" ".eslintrc.yml" ||
-    _has_config "$dir" ".eslintrc.json" || return 0
+  command -v biome &>/dev/null || return 0
+  # biome runs its recommended rule set by default; no eslint-style
+  # "skip if no config" gate. biome.json(c) per-repo tunes that set,
+  # otherwise we fall back to our global config (same file autoformat
+  # uses — biome handles format and lint from one config).
+  local args=()
+  local repo_cfg
+  repo_cfg=$(_find_config "$dir" "biome.json" 2>/dev/null ||
+    _find_config "$dir" "biome.jsonc" 2>/dev/null || true)
+  if [ -n "$repo_cfg" ]; then
+    args=(--config-path "$(dirname "$repo_cfg")")
+  elif [ -f "$AUTOLINT_DIR/biome.json" ]; then
+    args=(--config-path "$AUTOLINT_DIR")
+  fi
   if [ "$fix" -eq 1 ]; then
-    eslint --fix "$file"
+    biome lint --write "${args[@]}" "$file"
   else
-    eslint "$file"
+    biome lint "${args[@]}" "$file"
   fi
 }
 
@@ -114,8 +118,6 @@ _lint_js() {
 # shape (tool-present guard → per-repo config detection → fallback
 # via `$AUTOLINT_DIR`). Exceptions:
 #   - `zsh` has no config mechanism; we just run `zsh -n`.
-#   - `js/ts` are project-only by design: no global fallback, and
-#     autolint skips entirely when no eslint config is found.
 #   - `yml/yaml` is scoped to `*/.github/workflows/*` — actionlint
 #     is workflow-specific and would be noisy on arbitrary yamls.
 case "$ext" in
@@ -148,34 +150,25 @@ case "$ext" in
       fi
     fi
     ;;
-  js | jsx | ts | tsx)
-    _lint_js "$file" "$_filedir" || rc=$?
+  css | js | jsx | json | jsonc | ts | tsx)
+    _lint_biome "$file" "$_filedir" || rc=$?
     ;;
   md)
-    if command -v markdownlint-cli2 &>/dev/null; then
+    if command -v rumdl &>/dev/null; then
       args=()
-      has_md_config=0
-      # package.json[markdownlint-cli2] also counts as per-repo
-      # config — matches how markdownlint-cli2 itself resolves.
-      if _has_config "$_filedir" ".markdownlint-cli2.jsonc" ||
-        _has_config "$_filedir" ".markdownlint-cli2.yaml" ||
-        _has_config "$_filedir" ".markdownlint-cli2.cjs" ||
-        _has_config "$_filedir" ".markdownlint-cli2.mjs" ||
-        _has_config "$_filedir" ".markdownlint.jsonc" ||
-        _has_config "$_filedir" ".markdownlint.yaml" ||
-        _has_config "$_filedir" ".markdownlint.json" ||
-        _walk_config_with_key "$_filedir" package.json json \
-          '."markdownlint-cli2"'; then
-        has_md_config=1
-      fi
-      if [ "$has_md_config" -eq 0 ] &&
-        [ -f "$AUTOLINT_DIR/markdownlint-cli2.jsonc" ]; then
-        args=(--config "$AUTOLINT_DIR/markdownlint-cli2.jsonc")
+      # rumdl reads markdownlint configs for compat, so per-repo
+      # detection covers both rumdl-native and markdownlint naming.
+      if ! _has_config "$_filedir" ".rumdl.toml" &&
+        ! _has_config "$_filedir" "rumdl.toml" &&
+        ! _has_config "$_filedir" ".markdownlint.json" &&
+        ! _has_config "$_filedir" ".markdownlint.jsonc" &&
+        [ -f "$AUTOLINT_DIR/rumdl.toml" ]; then
+        args=(--config "$AUTOLINT_DIR/rumdl.toml")
       fi
       if [ "$fix" -eq 1 ]; then
-        markdownlint-cli2 --fix "${args[@]}" "$file" || rc=$?
+        rumdl check --fix "${args[@]}" "$file" || rc=$?
       else
-        markdownlint-cli2 "${args[@]}" "$file" || rc=$?
+        rumdl check "${args[@]}" "$file" || rc=$?
       fi
     fi
     ;;

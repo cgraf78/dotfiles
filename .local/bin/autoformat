@@ -176,29 +176,51 @@ case "$ext" in
       _run_fmt taplo fmt "${args[@]}" "$file"
     fi
     ;;
-  css | html | js | jsx | json | md | ts | tsx | yaml | yml)
-    if command -v prettier &>/dev/null; then
+  css | js | jsx | json | jsonc | ts | tsx)
+    if command -v biome &>/dev/null; then
       args=()
-      has_prettier_config=0
-      # package.json with a `prettier` key also counts as a per-repo
-      # config — matches how prettier itself resolves.
-      if _has_config "$_filedir" ".prettierrc" ||
-        _has_config "$_filedir" ".prettierrc.json" ||
-        _has_config "$_filedir" ".prettierrc.yaml" ||
-        _has_config "$_filedir" ".prettierrc.yml" ||
-        _has_config "$_filedir" ".prettierrc.toml" ||
-        _has_config "$_filedir" ".prettierrc.js" ||
-        _has_config "$_filedir" "prettier.config.js" ||
-        _has_config "$_filedir" "prettier.config.cjs" ||
-        _has_config "$_filedir" "prettier.config.mjs" ||
-        _walk_config_with_key "$_filedir" package.json json '.prettier'; then
-        has_prettier_config=1
+      # biome walks for biome.json(c) itself, but its walk starts from
+      # the process cwd (not the file path). Detect the per-repo config
+      # here and pass --config-path (a directory) explicitly. Falls back
+      # to our global default when no per-repo config is present.
+      repo_cfg_dir=$(_find_config "$_filedir" "biome.json" 2>/dev/null ||
+        _find_config "$_filedir" "biome.jsonc" 2>/dev/null || true)
+      if [ -n "$repo_cfg_dir" ]; then
+        args=(--config-path "$(dirname "$repo_cfg_dir")")
+      elif [ -f "$AUTOFORMAT_DIR/biome.json" ]; then
+        args=(--config-path "$AUTOFORMAT_DIR")
       fi
-      if [ "$has_prettier_config" -eq 0 ] &&
-        [ -f "$AUTOFORMAT_DIR/prettierrc.json" ]; then
-        args=(--config "$AUTOFORMAT_DIR/prettierrc.json")
+      _run_fmt biome format --write "${args[@]}" "$file"
+    fi
+    ;;
+  yaml | yml)
+    if command -v yamlfmt &>/dev/null; then
+      args=()
+      # yamlfmt's own auto-discovery looks for `.yamlfmt` in the cwd
+      # (not walking). Detect a per-repo `.yamlfmt` via the walk so
+      # `autoformat` respects it regardless of cwd at invocation time.
+      if ! _has_config "$_filedir" ".yamlfmt" &&
+        [ -f "$AUTOFORMAT_DIR/yamlfmt.yaml" ]; then
+        args=(-conf "$AUTOFORMAT_DIR/yamlfmt.yaml")
       fi
-      _run_fmt prettier --write "${args[@]}" "$file"
+      _run_fmt yamlfmt "${args[@]}" "$file"
+    fi
+    ;;
+  md)
+    # rumdl --fix doubles as a formatter: it auto-fixes most rule
+    # violations (list markers, spacing, heading styles). It isn't a
+    # prose reflower like prettier; for prose reflow, rely on the
+    # editor's gqq or equivalent.
+    if command -v rumdl &>/dev/null; then
+      args=()
+      if ! _has_config "$_filedir" ".rumdl.toml" &&
+        ! _has_config "$_filedir" "rumdl.toml" &&
+        ! _has_config "$_filedir" ".markdownlint.json" &&
+        ! _has_config "$_filedir" ".markdownlint.jsonc" &&
+        [ -f "$AUTOFORMAT_DIR/rumdl.toml" ]; then
+        args=(--config "$AUTOFORMAT_DIR/rumdl.toml")
+      fi
+      _run_fmt rumdl check --fix "${args[@]}" "$file"
     fi
     ;;
   *)

@@ -38,6 +38,32 @@ checksum = "sha256:89cd4370b5c5d7ab01f436bd5d878293c9858e4e964a3da3013c49549198d
 url = "https://github.com/astral-sh/ruff/releases/download/0.15.11/ruff-aarch64-apple-darwin.tar.gz"
 provenance = "github-attestations"
 
+[[tools."aqua:biomejs/biome"]]
+version = "2.4.12"
+backend = "aqua:biomejs/biome"
+
+[tools."aqua:biomejs/biome"."platforms.linux-x64"]
+checksum = "sha256:a0c50f60ed0a3c24450f5561eff58c8b9a91708c6b3f2f9ecd398a825d4a0861"
+url = "https://github.com/biomejs/biome/releases/download/%40biomejs/biome%402.4.12/biome-linux-x64"
+provenance = "github-attestations"
+
+[tools."aqua:biomejs/biome"."platforms.macos-arm64"]
+checksum = "sha256:ac5775441d77af4ef9f61827e6058b2ec21db469102c94ccd9d1c48d09d5c461"
+url = "https://github.com/biomejs/biome/releases/download/%40biomejs/biome%402.4.12/biome-darwin-arm64"
+provenance = "github-attestations"
+
+[[tools."aqua:google/yamlfmt"]]
+version = "0.21.0"
+backend = "aqua:google/yamlfmt"
+
+[tools."aqua:google/yamlfmt"."platforms.linux-x64"]
+checksum = "sha256:1f300d9257b232bb3b541d7fb1b0e6b3c121bcbab381c86cd38cb8722be8a566"
+url = "https://github.com/google/yamlfmt/releases/download/v0.21.0/yamlfmt_0.21.0_Linux_x86_64.tar.gz"
+
+[tools."aqua:google/yamlfmt"."platforms.macos-arm64"]
+checksum = "sha256:4b417ecb94339d57e4c122ecc948c1a00fe328b5853266de9806e652a92858fa"
+url = "https://github.com/google/yamlfmt/releases/download/v0.21.0/yamlfmt_0.21.0_Darwin_arm64.tar.gz"
+
 [[tools."aqua:koalaman/shellcheck"]]
 version = "0.11.0"
 backend = "aqua:koalaman/shellcheck"
@@ -86,14 +112,6 @@ url = "https://github.com/tamasfe/taplo/releases/download/0.10.0/taplo-linux-x86
 [tools."aqua:tamasfe/taplo"."platforms.macos-arm64"]
 url = "https://github.com/tamasfe/taplo/releases/download/0.10.0/taplo-darwin-aarch64.gz"
 
-[[tools."npm:eslint"]]
-version = "10.2.1"
-backend = "npm:eslint"
-
-[[tools."npm:markdownlint-cli2"]]
-version = "0.22.0"
-backend = "npm:markdownlint-cli2"
-
-[[tools."npm:prettier"]]
-version = "3.8.3"
-backend = "npm:prettier"
+[[tools."ubi:rvben/rumdl"]]
+version = "0.1.76"
+backend = "ubi:rvben/rumdl"

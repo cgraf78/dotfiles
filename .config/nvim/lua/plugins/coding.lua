@@ -78,7 +78,6 @@ return {
           c = { "autoformat" },
           cpp = { "autoformat" },
           css = { "autoformat" },
-          html = { "autoformat" },
           javascript = { "autoformat" },
           javascriptreact = { "autoformat" },
           json = { "autoformat" },
