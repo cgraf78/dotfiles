@@ -14,3 +14,13 @@
 # in callbacks and placeholder params; matches the intent of our
 # previous luacheck fallback which ignored codes 212/213.
 unused_variable = "allow"
+
+# `bad_string_escape` flags Lua 5.2+ escapes like `\xHH` because
+# selene's published release binaries are built without the
+# `lua_versions` feature gate, so the rule defaults to Lua 5.1
+# semantics where `\x` isn't valid. Our Lua hosts (wezterm mlua,
+# neovim LuaJIT) all accept `\xHH`. Disabling avoids a stream of
+# false positives on escape sequences we rely on. Enabling the
+# check properly would require building selene from source with
+# `--features lua52` (or 5.3/5.4), which we don't do.
+bad_string_escape = "allow"
