@@ -47,11 +47,11 @@ fi
 zstyle ':completion:*' menu select
 zstyle ':completion:*' matcher-list 'm:{a-z}={A-Z}'
 
-command -v fzf &>/dev/null && eval "$(fzf --zsh 2>/dev/null)"
-command -v ds &>/dev/null && eval "$(ds init zsh)"
-command -v zoxide &>/dev/null && eval "$(zoxide init zsh)"
-command -v atuin &>/dev/null && eval "$(atuin init zsh --disable-up-arrow)"
-command -v direnv &>/dev/null && eval "$(direnv hook zsh)"
+command -v fzf &>/dev/null && _cached_init fzf-zsh 'fzf --zsh'
+command -v ds &>/dev/null && _cached_init ds-zsh 'ds init zsh'
+command -v zoxide &>/dev/null && _cached_init zoxide-zsh 'zoxide init zsh'
+command -v atuin &>/dev/null && _cached_init atuin-zsh 'atuin init zsh --disable-up-arrow'
+command -v direnv &>/dev/null && _cached_init direnv-zsh 'direnv hook zsh'
 
 # ── Plugins (after tools — ordering within section matters) ───────────────
 # autosuggestions → syntax-highlighting (wraps ZLE widgets) →

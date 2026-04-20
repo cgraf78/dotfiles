@@ -259,5 +259,8 @@ _finalize_update() {
   if [[ -d "$DOTFILES" ]]; then
     _normalize_filtered
   fi
+  # shdeps may have upgraded tools whose init output is cached by the
+  # _cached_init helper. Purge so the next shell regenerates.
+  rm -rf "$HOME/.cache/shell"
   _log_header "==> Done! Run 'source ~/.bashrc' or 'source ~/.zshrc' to activate."
 }

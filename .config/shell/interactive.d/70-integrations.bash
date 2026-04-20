@@ -47,17 +47,10 @@ if ! shopt -oq posix; then
   fi
 fi
 
-if command -v fzf &>/dev/null; then
-  eval "$(
-    fzf --bash 2>/dev/null | sed '/^### completion\.bash ###$/,$d'
-  )"
-fi
-if command -v ds &>/dev/null; then
-  eval "$(ds init bash)"
-fi
-if command -v zoxide &>/dev/null; then
-  eval "$(zoxide init bash)"
-fi
+command -v fzf &>/dev/null &&
+  _cached_init fzf-bash "fzf --bash | sed '/^### completion\\.bash ###\$/,\$d'"
+command -v ds &>/dev/null && _cached_init ds-bash 'ds init bash'
+command -v zoxide &>/dev/null && _cached_init zoxide-bash 'zoxide init bash'
 if [[ -f ~/.bash-preexec.sh ]]; then
   if [[ "$_UNAME" != "Linux" || -n "$TMUX" ]]; then
     # shellcheck disable=SC1090  # symlinked/generated local file path
@@ -67,9 +60,7 @@ fi
 # Guard: atuin's bash init uses raw precmd/preexec_functions+=
 # which accumulates duplicates on re-source.
 if command -v atuin &>/dev/null && [[ -z "${__atuin_sourced:-}" ]]; then
-  eval "$(atuin init bash --disable-up-arrow)"
+  _cached_init atuin-bash 'atuin init bash --disable-up-arrow'
   __atuin_sourced=1
 fi
-if command -v direnv &>/dev/null; then
-  eval "$(direnv hook bash)"
-fi
+command -v direnv &>/dev/null && _cached_init direnv-bash 'direnv hook bash'
