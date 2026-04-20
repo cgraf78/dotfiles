@@ -16,8 +16,8 @@ _cron_path() {
     [[ -d "$dir" ]] || continue
     [[ ":$result:" == *":$dir:"* ]] && continue
     case "$dir" in
-    "$HOME"/* | /opt/homebrew/* | /usr/local/bin | /usr/bin | /bin | /usr/sbin | /sbin) ;;
-    *) continue ;;
+      "$HOME"/* | /opt/homebrew/* | /usr/local/bin | /usr/bin | /bin | /usr/sbin | /sbin) ;;
+      *) continue ;;
     esac
     result="${result:+$result:}$dir"
   done
@@ -37,9 +37,9 @@ _cron_parse_filter() {
   local token
   for token in $spec; do
     case "$token" in
-    hosts=*)     _cron_filter_hosts="${token#hosts=}" ;;
-    platforms=*) _cron_filter_platforms="${token#platforms=}" ;;
-    *)           _warn "  warning: unknown filter key: $token" ;;
+      hosts=*) _cron_filter_hosts="${token#hosts=}" ;;
+      platforms=*) _cron_filter_platforms="${token#platforms=}" ;;
+      *) _warn "  warning: unknown filter key: $token" ;;
     esac
   done
 }

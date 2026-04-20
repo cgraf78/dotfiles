@@ -13,12 +13,12 @@ _shell_pick_remote_login_shell() {
   fi
 
   case "$shell_name" in
-  bash | zsh | sh)
-    printf '%s\n' "$shell_name"
-    ;;
-  *)
-    printf '%s\n' "sh"
-    ;;
+    bash | zsh | sh)
+      printf '%s\n' "$shell_name"
+      ;;
+    *)
+      printf '%s\n' "sh"
+      ;;
   esac
 }
 

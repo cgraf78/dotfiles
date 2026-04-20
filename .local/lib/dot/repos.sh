@@ -133,7 +133,7 @@ _ensure_repo_config() {
   local entry
   for entry in "${OVERLAYS[@]+"${OVERLAYS[@]}"}"; do
     local path url
-    IFS='|' read -r _ path url <<< "$entry"
+    IFS='|' read -r _ path url <<<"$entry"
     if [[ -d "$path/.git" ]]; then
       _apply_repo_config git -C "$path"
       # Sync remote URL from overlay conf
@@ -214,7 +214,10 @@ _pull_overlay() {
       rm -rf "$path"
     fi
     _log_header "==> Cloning $name dotfiles..."
-    git clone "$url" "$path" || { _warn "  warning: $name dotfiles clone failed"; return 0; }
+    git clone "$url" "$path" || {
+      _warn "  warning: $name dotfiles clone failed"
+      return 0
+    }
     return 0
   fi
   _log_header "==> Pulling $name dotfiles..."
@@ -228,7 +231,7 @@ _pull_overlays() {
   local entry
   for entry in "${OVERLAYS[@]+"${OVERLAYS[@]}"}"; do
     local name path url
-    IFS='|' read -r name path url <<< "$entry"
+    IFS='|' read -r name path url <<<"$entry"
     _pull_overlay "$name" "$path" "$url" "$@"
   done
 }
@@ -247,7 +250,7 @@ _push_overlays() {
   local entry
   for entry in "${OVERLAYS[@]+"${OVERLAYS[@]}"}"; do
     local name path
-    IFS='|' read -r name path _ <<< "$entry"
+    IFS='|' read -r name path _ <<<"$entry"
     _push_overlay "$name" "$path" "$@"
   done
 }
@@ -321,7 +324,7 @@ _link_overlays() {
   local entry
   for entry in "${OVERLAYS[@]+"${OVERLAYS[@]}"}"; do
     local name path
-    IFS='|' read -r name path _ <<< "$entry"
+    IFS='|' read -r name path _ <<<"$entry"
     _link_overlay "$name" "$path"
   done
 
@@ -345,7 +348,7 @@ _link_overlays() {
           $GIT update-index --no-skip-worktree "$rel" 2>/dev/null || true
           $GIT checkout -- "$rel" 2>/dev/null || true
         fi
-      done <<< "$stale"
+      done <<<"$stale"
     fi
   fi
 
@@ -369,7 +372,7 @@ _is_worktree_dirty() {
   local entry
   for entry in "${OVERLAYS[@]+"${OVERLAYS[@]}"}"; do
     local path
-    IFS='|' read -r _ path _ <<< "$entry"
+    IFS='|' read -r _ path _ <<<"$entry"
     if [[ -d "$path/.git" ]]; then
       if ! git -C "$path" diff-index --quiet HEAD 2>/dev/null; then
         return 0
@@ -394,7 +397,7 @@ _try_resolve_dirty() {
   local entry
   for entry in "${OVERLAYS[@]+"${OVERLAYS[@]}"}"; do
     local path
-    IFS='|' read -r _ path _ <<< "$entry"
+    IFS='|' read -r _ path _ <<<"$entry"
     if [[ -d "$path/.git" ]] && ! git -C "$path" diff-index --quiet HEAD 2>/dev/null; then
       git -C "$path" fetch --quiet origin 2>/dev/null || true
       if _dirty_files_match_ref "$path" git -C "$path"; then
@@ -445,7 +448,7 @@ _normalize_filtered() {
   local entry
   for entry in "${OVERLAYS[@]+"${OVERLAYS[@]}"}"; do
     local path
-    IFS='|' read -r _ path _ <<< "$entry"
+    IFS='|' read -r _ path _ <<<"$entry"
     if [[ -d "$path/.git" ]]; then
       dirty=$(git -C "$path" diff-files --name-only 2>/dev/null) || true
       if [[ -n "$dirty" ]]; then

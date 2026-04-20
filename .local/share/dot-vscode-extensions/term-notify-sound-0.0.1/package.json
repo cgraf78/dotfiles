@@ -4,8 +4,12 @@
   "displayName": "Terminal Notify Sound",
   "description": "Plays a custom notification sound triggered by terminal processes",
   "version": "0.0.1",
-  "engines": { "vscode": "^1.80.0" },
-  "activationEvents": ["onStartupFinished"],
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "main": "./extension.js",
   "contributes": {
     "configuration": {

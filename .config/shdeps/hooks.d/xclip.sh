@@ -23,11 +23,11 @@ install() {
   mgr=$(shdeps_pkg_mgr)
 
   case "$mgr" in
-  apt | dnf | pacman) ;;
-  *)
-    shdeps_warn "  warning: no install method for xclip on ${mgr:-unknown}"
-    return 1
-    ;;
+    apt | dnf | pacman) ;;
+    *)
+      shdeps_warn "  warning: no install method for xclip on ${mgr:-unknown}"
+      return 1
+      ;;
   esac
 
   if ! shdeps_require_sudo; then
@@ -37,16 +37,16 @@ install() {
 
   local rc=0
   case "$mgr" in
-  apt)
-    sudo apt-get update -qq >/dev/null 2>&1 || true
-    sudo apt-get install -y xclip >/dev/null 2>&1 || rc=$?
-    ;;
-  dnf)
-    sudo dnf install -y xclip >/dev/null 2>&1 || rc=$?
-    ;;
-  pacman)
-    sudo pacman -S --needed --noconfirm xclip >/dev/null 2>&1 || rc=$?
-    ;;
+    apt)
+      sudo apt-get update -qq >/dev/null 2>&1 || true
+      sudo apt-get install -y xclip >/dev/null 2>&1 || rc=$?
+      ;;
+    dnf)
+      sudo dnf install -y xclip >/dev/null 2>&1 || rc=$?
+      ;;
+    pacman)
+      sudo pacman -S --needed --noconfirm xclip >/dev/null 2>&1 || rc=$?
+      ;;
   esac
 
   [[ $rc -eq 0 ]]

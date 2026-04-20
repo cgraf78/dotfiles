@@ -102,15 +102,15 @@ _merge_vscode_config() {
 
   local kb_platform=""
   case "$(uname -s)" in
-  Darwin) kb_platform="$HOME/.config/dot/merge-hooks.d/vscode-keybindings-mac.jsonc" ;;
-  Linux)
-    if _is_wsl; then
-      kb_platform="$HOME/.config/dot/merge-hooks.d/vscode-keybindings-windows.jsonc"
-    else
-      kb_platform="$HOME/.config/dot/merge-hooks.d/vscode-keybindings-linux.jsonc"
-    fi
-    ;;
-  MINGW* | MSYS*) kb_platform="$HOME/.config/dot/merge-hooks.d/vscode-keybindings-windows.jsonc" ;;
+    Darwin) kb_platform="$HOME/.config/dot/merge-hooks.d/vscode-keybindings-mac.jsonc" ;;
+    Linux)
+      if _is_wsl; then
+        kb_platform="$HOME/.config/dot/merge-hooks.d/vscode-keybindings-windows.jsonc"
+      else
+        kb_platform="$HOME/.config/dot/merge-hooks.d/vscode-keybindings-linux.jsonc"
+      fi
+      ;;
+    MINGW* | MSYS*) kb_platform="$HOME/.config/dot/merge-hooks.d/vscode-keybindings-windows.jsonc" ;;
   esac
   if [[ -n "$kb_platform" && -f "$kb_platform" ]]; then
     _merge_vscode_keybindings "$kb_platform" "$1/keybindings.json"
@@ -161,39 +161,39 @@ _ensure_vscode_extension() {
 _vscode_variants() {
   local -a pairs=()
   case "$(uname -s)" in
-  Darwin)
-    local s="$HOME/Library/Application Support"
-    # app_bundle<TAB>extensions_dir<TAB>config_dir
-    local -a candidates=(
-      "/Applications/Visual Studio Code.app	$HOME/.vscode/extensions	$s/Code/User"
-      "/Applications/Visual Studio Code - Insiders.app	$HOME/.vscode-insiders/extensions	$s/Code - Insiders/User"
-      "/Applications/VS Code @ FB.app	$HOME/.vscode-fb-mkt/extensions	$s/VS Code @ FB/User"
-      "/Applications/VS Code @ FB - Insiders.app	$HOME/.vscode-fb-insiders-mkt/extensions	$s/VS Code @ FB - Insiders/User"
-      "/Applications/Cursor.app	$HOME/.cursor/extensions	$s/Cursor/User"
-    )
-    local c app rest
-    for c in "${candidates[@]}"; do
-      app="${c%%	*}"
-      rest="${c#*	}"
-      [[ -d "$app" ]] && pairs+=("$rest")
-    done
-    ;;
-  Linux)
-    if _is_wsl; then
-      local wa
-      wa="$(wslpath "$(cmd.exe /C 'echo %APPDATA%' 2>/dev/null | tr -d '\r')" 2>/dev/null)" || true
-      [[ -n "$wa" ]] && pairs=("$HOME/.vscode/extensions	$wa/Code/User")
-    else
-      pairs=(
-        "$HOME/.vscode/extensions	$HOME/.config/Code/User"
-        "$HOME/.vscode-insiders/extensions	$HOME/.config/Code - Insiders/User"
-        "$HOME/.cursor/extensions	$HOME/.config/Cursor/User"
+    Darwin)
+      local s="$HOME/Library/Application Support"
+      # app_bundle<TAB>extensions_dir<TAB>config_dir
+      local -a candidates=(
+        "/Applications/Visual Studio Code.app	$HOME/.vscode/extensions	$s/Code/User"
+        "/Applications/Visual Studio Code - Insiders.app	$HOME/.vscode-insiders/extensions	$s/Code - Insiders/User"
+        "/Applications/VS Code @ FB.app	$HOME/.vscode-fb-mkt/extensions	$s/VS Code @ FB/User"
+        "/Applications/VS Code @ FB - Insiders.app	$HOME/.vscode-fb-insiders-mkt/extensions	$s/VS Code @ FB - Insiders/User"
+        "/Applications/Cursor.app	$HOME/.cursor/extensions	$s/Cursor/User"
       )
-    fi
-    ;;
-  MINGW* | MSYS*)
-    pairs=("$HOME/.vscode/extensions	$APPDATA/Code/User")
-    ;;
+      local c app rest
+      for c in "${candidates[@]}"; do
+        app="${c%%	*}"
+        rest="${c#*	}"
+        [[ -d "$app" ]] && pairs+=("$rest")
+      done
+      ;;
+    Linux)
+      if _is_wsl; then
+        local wa
+        wa="$(wslpath "$(cmd.exe /C 'echo %APPDATA%' 2>/dev/null | tr -d '\r')" 2>/dev/null)" || true
+        [[ -n "$wa" ]] && pairs=("$HOME/.vscode/extensions	$wa/Code/User")
+      else
+        pairs=(
+          "$HOME/.vscode/extensions	$HOME/.config/Code/User"
+          "$HOME/.vscode-insiders/extensions	$HOME/.config/Code - Insiders/User"
+          "$HOME/.cursor/extensions	$HOME/.config/Cursor/User"
+        )
+      fi
+      ;;
+    MINGW* | MSYS*)
+      pairs=("$HOME/.vscode/extensions	$APPDATA/Code/User")
+      ;;
   esac
 
   local pair cfg
@@ -213,7 +213,7 @@ merge() {
     variants+=("$line")
   done < <(_vscode_variants)
 
-  (( ${#variants[@]} > 0 )) || return 0
+  ((${#variants[@]} > 0)) || return 0
 
   # Deploy and register local extensions.
   # Source of truth: ~/.local/share/dot-vscode-extensions/<ext-dir>/

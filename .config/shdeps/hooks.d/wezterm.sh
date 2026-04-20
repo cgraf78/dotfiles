@@ -33,31 +33,31 @@ install() {
   mgr=$(shdeps_pkg_mgr)
 
   case "$mgr" in
-  brew)
-    if shdeps_reinstall && brew list --cask wezterm &>/dev/null; then
-      brew upgrade --cask wezterm &>/dev/null || return 1
-    else
-      brew install --cask wezterm &>/dev/null || return 1
-    fi
-    return 0
-    ;;
-  pacman)
-    local pacman_flags=(--noconfirm)
-    shdeps_reinstall || pacman_flags+=(--needed)
-    sudo pacman -S "${pacman_flags[@]}" wezterm &>/dev/null || return 1
-    return 0
-    ;;
+    brew)
+      if shdeps_reinstall && brew list --cask wezterm &>/dev/null; then
+        brew upgrade --cask wezterm &>/dev/null || return 1
+      else
+        brew install --cask wezterm &>/dev/null || return 1
+      fi
+      return 0
+      ;;
+    pacman)
+      local pacman_flags=(--noconfirm)
+      shdeps_reinstall || pacman_flags+=(--needed)
+      sudo pacman -S "${pacman_flags[@]}" wezterm &>/dev/null || return 1
+      return 0
+      ;;
   esac
 
   # apt/dnf: download .deb/.rpm from GitHub releases.
   local ext
   case "$mgr" in
-  apt) ext="deb" ;;
-  dnf) ext="rpm" ;;
-  *)
-    shdeps_warn "  warning: no install method for wezterm on ${mgr:-unknown}"
-    return 1
-    ;;
+    apt) ext="deb" ;;
+    dnf) ext="rpm" ;;
+    *)
+      shdeps_warn "  warning: no install method for wezterm on ${mgr:-unknown}"
+      return 1
+      ;;
   esac
 
   if ! shdeps_require_sudo; then
@@ -93,9 +93,9 @@ install() {
   if [[ -n "$distro_id" && -n "$distro_ver" ]]; then
     local pattern=""
     case "$distro_id" in
-    ubuntu) pattern="Ubuntu${distro_ver}" ;;
-    debian) pattern="Debian${distro_ver}" ;;
-    fedora) pattern="Fedora${distro_ver}" ;;
+      ubuntu) pattern="Ubuntu${distro_ver}" ;;
+      debian) pattern="Debian${distro_ver}" ;;
+      fedora) pattern="Fedora${distro_ver}" ;;
     esac
     if [[ -n "$pattern" ]]; then
       asset_url=$(echo "$all_urls" | grep -i "$pattern" | head -1)
@@ -117,11 +117,11 @@ install() {
 
   local rc=0
   case "$ext" in
-  deb)
-    sudo dpkg -i "$tmp" &>/dev/null || true
-    sudo apt-get install -f -y &>/dev/null || rc=$?
-    ;;
-  rpm) sudo dnf install -y "$tmp" &>/dev/null || rc=$? ;;
+    deb)
+      sudo dpkg -i "$tmp" &>/dev/null || true
+      sudo apt-get install -f -y &>/dev/null || rc=$?
+      ;;
+    rpm) sudo dnf install -y "$tmp" &>/dev/null || rc=$? ;;
   esac
   rm -f "$tmp"
 

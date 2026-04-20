@@ -7,16 +7,16 @@ merge() {
   [[ -f "$src" ]] || return 0
 
   case "$(uname -s)" in
-  Linux)
-    _is_wsl || return 0
-    ;;
-  MINGW* | MSYS*)
-    # On Windows-native shells, HOME is already the Windows home.
-    return 0
-    ;;
-  *)
-    return 0
-    ;;
+    Linux)
+      _is_wsl || return 0
+      ;;
+    MINGW* | MSYS*)
+      # On Windows-native shells, HOME is already the Windows home.
+      return 0
+      ;;
+    *)
+      return 0
+      ;;
   esac
 
   _log "  WezTerm"

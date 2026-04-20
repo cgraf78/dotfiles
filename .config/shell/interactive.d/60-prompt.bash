@@ -10,9 +10,9 @@
 __cmd_time=""
 __prompt_preexec() { __cmd_start=$SECONDS; }
 __prompt_precmd() {
-  local elapsed=$(( SECONDS - ${__cmd_start:-$SECONDS} ))
+  local elapsed=$((SECONDS - ${__cmd_start:-$SECONDS}))
   __cmd_start=$SECONDS
-  if (( elapsed >= 2 )); then
+  if ((elapsed >= 2)); then
     # Pre-color with dim + \001/\002 wrappers so readline counts correctly.
     __cmd_time=$'\001\033[2m\002 '"${elapsed}s"$'\001\033[0m\002'
   else
@@ -52,9 +52,9 @@ set_prompt() {
   local exit_code='$( (( __cmd_exit )) && printf '"'"'\001\033[1;31m\002[%s]\001\033[0m\002 '"'"' "$__cmd_exit")'
   PS1="${exit_code}"'\[\033[2m\]\u@'"$host"'\[\033[0m\]:\[\033[1;36m\]\w\[\033[0m\]$(__git_prompt)${__cmd_time}\n\[\033[01;$(( __cmd_exit ? 31 : 32 ))m\]\$\[\033[0m\] '
   case "$TERM" in
-  xterm* | rxvt*)
-    PS1="\[\e]0;\u@$host: \w\a\]$PS1"
-    ;;
+    xterm* | rxvt*)
+      PS1="\[\e]0;\u@$host: \w\a\]$PS1"
+      ;;
   esac
 }
 

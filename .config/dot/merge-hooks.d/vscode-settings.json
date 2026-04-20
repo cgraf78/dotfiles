@@ -78,10 +78,7 @@
     },
     {
       "command": "multiCommand.findNextAndFocusEditor",
-      "sequence": [
-        "editor.action.nextMatchFindAction",
-        "workbench.action.focusActiveEditorGroup"
-      ]
+      "sequence": ["editor.action.nextMatchFindAction", "workbench.action.focusActiveEditorGroup"]
     }
   ],
   "terminal.explorerKind": "external",

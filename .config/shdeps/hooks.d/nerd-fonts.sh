@@ -11,21 +11,21 @@ _nerd_fonts_entries() {
 _nerd_font_installed() {
   local brew_pkg="$1" pacman_pkg="$2" font_dir="$3"
   case "$(shdeps_pkg_mgr)" in
-  brew)
-    # Check caskroom directory directly — avoids ~1.4s Ruby overhead per
-    # brew list call. Fonts are casks so they live in Caskroom, not Cellar.
-    if [[ -z "${_NERD_CASKROOM:-}" ]]; then
-      _NERD_CASKROOM="$(brew --caskroom 2>/dev/null)"
-    fi
-    if [[ "$brew_pkg" != "-" && -n "$_NERD_CASKROOM" && -d "$_NERD_CASKROOM/$brew_pkg" ]]; then
-      return 0
-    fi
-    ;;
-  pacman)
-    if [[ "$pacman_pkg" != "-" ]] && pacman -Q "$pacman_pkg" &>/dev/null; then
-      return 0
-    fi
-    ;;
+    brew)
+      # Check caskroom directory directly — avoids ~1.4s Ruby overhead per
+      # brew list call. Fonts are casks so they live in Caskroom, not Cellar.
+      if [[ -z "${_NERD_CASKROOM:-}" ]]; then
+        _NERD_CASKROOM="$(brew --caskroom 2>/dev/null)"
+      fi
+      if [[ "$brew_pkg" != "-" && -n "$_NERD_CASKROOM" && -d "$_NERD_CASKROOM/$brew_pkg" ]]; then
+        return 0
+      fi
+      ;;
+    pacman)
+      if [[ "$pacman_pkg" != "-" ]] && pacman -Q "$pacman_pkg" &>/dev/null; then
+        return 0
+      fi
+      ;;
   esac
   [[ -n "$font_dir" ]] && ls "$HOME/.local/share/fonts/$font_dir"/*.ttf &>/dev/null 2>&1
 }
@@ -59,22 +59,22 @@ install() {
 
     # Install via native package manager where available
     case "$(shdeps_pkg_mgr)" in
-    brew)
-      if [[ "$brew_pkg" != "-" ]]; then
-        if shdeps_reinstall && brew list "$brew_pkg" &>/dev/null; then
-          brew upgrade "$brew_pkg" &>/dev/null && continue
-        else
-          brew install "$brew_pkg" &>/dev/null && continue
+      brew)
+        if [[ "$brew_pkg" != "-" ]]; then
+          if shdeps_reinstall && brew list "$brew_pkg" &>/dev/null; then
+            brew upgrade "$brew_pkg" &>/dev/null && continue
+          else
+            brew install "$brew_pkg" &>/dev/null && continue
+          fi
         fi
-      fi
-      ;;
-    pacman)
-      if [[ "$pacman_pkg" != "-" ]]; then
-        local pacman_flags=(--noconfirm)
-        shdeps_reinstall || pacman_flags+=(--needed)
-        sudo pacman -S "${pacman_flags[@]}" "$pacman_pkg" &>/dev/null && continue
-      fi
-      ;;
+        ;;
+      pacman)
+        if [[ "$pacman_pkg" != "-" ]]; then
+          local pacman_flags=(--noconfirm)
+          shdeps_reinstall || pacman_flags+=(--needed)
+          sudo pacman -S "${pacman_flags[@]}" "$pacman_pkg" &>/dev/null && continue
+        fi
+        ;;
     esac
 
     # Fallback: download from nerd-fonts GitHub releases
@@ -107,18 +107,18 @@ uninstall() {
   while IFS= read -r entry; do
     IFS='|' read -r name brew_pkg pacman_pkg _nerd_zip font_dir <<<"$entry"
     case "$(shdeps_pkg_mgr)" in
-    brew)
-      if [[ "$brew_pkg" != "-" ]] && brew list "$brew_pkg" &>/dev/null; then
-        shdeps_warn "  $name: remove manually via: brew uninstall $brew_pkg"
-        continue
-      fi
-      ;;
-    pacman)
-      if [[ "$pacman_pkg" != "-" ]] && pacman -Q "$pacman_pkg" &>/dev/null; then
-        shdeps_warn "  $name: remove manually via: sudo pacman -R $pacman_pkg"
-        continue
-      fi
-      ;;
+      brew)
+        if [[ "$brew_pkg" != "-" ]] && brew list "$brew_pkg" &>/dev/null; then
+          shdeps_warn "  $name: remove manually via: brew uninstall $brew_pkg"
+          continue
+        fi
+        ;;
+      pacman)
+        if [[ "$pacman_pkg" != "-" ]] && pacman -Q "$pacman_pkg" &>/dev/null; then
+          shdeps_warn "  $name: remove manually via: sudo pacman -R $pacman_pkg"
+          continue
+        fi
+        ;;
     esac
     # GitHub-installed fonts: remove font directory
     if [[ -n "$font_dir" && -d "$HOME/.local/share/fonts/$font_dir" ]]; then

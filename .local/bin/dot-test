@@ -1015,7 +1015,7 @@ git -C "$HOOK_PACK_WORK" push >/dev/null 2>&1
 # Pull tests don't need shdeps — empty deps.conf avoids the cost.
 # The update tests below verify shdeps integration.
 _saved_deps=$(cat "$TEST_HOME/.config/shdeps/deps.conf")
-: > "$TEST_HOME/.config/shdeps/deps.conf"
+: >"$TEST_HOME/.config/shdeps/deps.conf"
 
 # Remove overlay conf so pull doesn't try to clone from example.com over SSH
 # (which hangs waiting for connection timeout). Overlay pull is tested above.
@@ -1054,7 +1054,7 @@ fi
 
 # Restore deps.conf for update tests (overlay conf stays removed —
 # update/push don't test overlay behavior and the example.com URL hangs).
-printf '%s\n' "$_saved_deps" > "$TEST_HOME/.config/shdeps/deps.conf"
+printf '%s\n' "$_saved_deps" >"$TEST_HOME/.config/shdeps/deps.conf"
 
 # ---------------------------------------------------------------------------
 # Tests: dot push (with mock remote)
@@ -1181,7 +1181,7 @@ mv "$_saved_overlay_conf" "$_saved_overlay_conf.bak"
 
 # Cron tests don't need shdeps — empty deps to avoid the cost.
 _saved_deps=$(cat "$TEST_HOME/.config/shdeps/deps.conf")
-: > "$TEST_HOME/.config/shdeps/deps.conf"
+: >"$TEST_HOME/.config/shdeps/deps.conf"
 
 # Dirty worktree + --cron → exits immediately (no pull)
 echo "dirty" >>"$TEST_HOME/.testrc"
@@ -1194,7 +1194,7 @@ result=$("$SCRIPT_DIR/dot" update --cron 2>&1)
 _assert_not_contains "cron clean: no Done message" "Done" "$result"
 _assert_not_contains "cron clean: no Pulling message" "Pulling" "$result"
 
-printf '%s\n' "$_saved_deps" > "$TEST_HOME/.config/shdeps/deps.conf"
+printf '%s\n' "$_saved_deps" >"$TEST_HOME/.config/shdeps/deps.conf"
 mv "$_saved_overlay_conf.bak" "$_saved_overlay_conf"
 
 # ---------------------------------------------------------------------------

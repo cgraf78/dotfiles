@@ -149,13 +149,13 @@ _parse_overlay_conf() {
   local line
   while IFS= read -r line || [[ -n "$line" ]]; do
     case "$line" in
-      url=*)       url="${line#url=}" ;;
+      url=*) url="${line#url=}" ;;
       platforms=*) platforms="${line#platforms=}" ;;
-      hosts=*)     hosts="${line#hosts=}" ;;
-      \#*|"")      ;;
-      *)            _warn "  warning: unknown key in $file: $line" ;;
+      hosts=*) hosts="${line#hosts=}" ;;
+      \#* | "") ;;
+      *) _warn "  warning: unknown key in $file: $line" ;;
     esac
-  done < "$file"
+  done <"$file"
 
   [[ -n "$url" ]] || return 1
 

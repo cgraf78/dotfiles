@@ -34,18 +34,24 @@ __git_prompt() {
   git_status="$("${g[@]}" --no-optional-locks status --porcelain=v2 --branch 2>/dev/null)" || return
   while IFS= read -r line; do
     case "$line" in
-      "# branch.head "*)  branch="${line#\# branch.head }" ;;
-      "# branch.ab "*)    read -r _ _ ahead behind <<< "$line"
-                          ahead="${ahead#+}"; behind="${behind#-}" ;;
-      "1 "*.*)            # changed entry: index/worktree status at chars 2-3
-                          [[ "${line:2:1}" != "." ]] && dirty+="+"
-                          [[ "${line:3:1}" != "." ]] && dirty+="*" ;;
-      "2 "*.*)            [[ "${line:2:1}" != "." ]] && dirty+="+"
-                          [[ "${line:3:1}" != "." ]] && dirty+="*" ;;
-      "u "*)              dirty+="+" ;;
-      "? "*)              dirty+="%" ;;
+      "# branch.head "*) branch="${line#\# branch.head }" ;;
+      "# branch.ab "*)
+        read -r _ _ ahead behind <<<"$line"
+        ahead="${ahead#+}"
+        behind="${behind#-}"
+        ;;
+      "1 "*.*) # changed entry: index/worktree status at chars 2-3
+        [[ "${line:2:1}" != "." ]] && dirty+="+"
+        [[ "${line:3:1}" != "." ]] && dirty+="*"
+        ;;
+      "2 "*.*)
+        [[ "${line:2:1}" != "." ]] && dirty+="+"
+        [[ "${line:3:1}" != "." ]] && dirty+="*"
+        ;;
+      "u "*) dirty+="+" ;;
+      "? "*) dirty+="%" ;;
     esac
-  done <<< "$git_status"
+  done <<<"$git_status"
   [[ -z "$branch" ]] && return
   # Detached HEAD: porcelain v2 reports "(detached)", show short sha instead.
   [[ "$branch" == "(detached)" ]] && branch="$("${g[@]}" rev-parse --short HEAD 2>/dev/null)"
@@ -58,18 +64,22 @@ __git_prompt() {
 
   # In-progress operation state (file tests, no subprocess).
   local op=""
-  if [[ -f "$gitdir/MERGE_HEAD" ]]; then op="|MERGE"
-  elif [[ -d "$gitdir/rebase-merge" || -d "$gitdir/rebase-apply" ]]; then op="|REBASE"
-  elif [[ -f "$gitdir/CHERRY_PICK_HEAD" ]]; then op="|PICK"
-  elif [[ -f "$gitdir/REVERT_HEAD" ]]; then op="|REVERT"
+  if [[ -f "$gitdir/MERGE_HEAD" ]]; then
+    op="|MERGE"
+  elif [[ -d "$gitdir/rebase-merge" || -d "$gitdir/rebase-apply" ]]; then
+    op="|REBASE"
+  elif [[ -f "$gitdir/CHERRY_PICK_HEAD" ]]; then
+    op="|PICK"
+  elif [[ -f "$gitdir/REVERT_HEAD" ]]; then
+    op="|REVERT"
   fi
 
   # Build output: each segment colored independently, parens in default color.
   local out=" (${_PC_CYAN}${branch}${_PC_RESET}"
-  [[ -n "$op"    ]] && out+="${_PC_BOLD_RED}${op}${_PC_RESET}"
+  [[ -n "$op" ]] && out+="${_PC_BOLD_RED}${op}${_PC_RESET}"
   [[ -n "$dirty" ]] && out+=" ${_PC_YELLOW}${dirty}${_PC_RESET}"
-  (( ${ahead:-0}  > 0 )) && out+=" ${_PC_GREEN}↑${ahead}${_PC_RESET}"
-  (( ${behind:-0} > 0 )) && out+=" ${_PC_RED}↓${behind}${_PC_RESET}"
+  ((${ahead:-0} > 0)) && out+=" ${_PC_GREEN}↑${ahead}${_PC_RESET}"
+  ((${behind:-0} > 0)) && out+=" ${_PC_RED}↓${behind}${_PC_RESET}"
   out+=")"
   printf '%s' "$out"
 }

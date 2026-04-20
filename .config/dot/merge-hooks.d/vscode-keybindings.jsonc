@@ -1,147 +1,147 @@
 // Common VS Code keybindings (all platforms).
 // Platform-specific keybindings are in keybindings-{mac,windows,linux}.json.
 [
-    // Goto line
-    {
-        "key": "alt+g",
-        "command": "workbench.action.gotoLine"
-    },
+  // Goto line
+  {
+    "key": "alt+g",
+    "command": "workbench.action.gotoLine"
+  },
 
-    // Find-related stuff
-    {
-        "key": "enter",
-        "command": "-editor.action.nextMatchFindAction",
-        "when": "editorFocus && findInputFocussed"
-    },
-    {
-        "key": "enter",
-        "command": "extension.multiCommand.execute",
-        "args": { "command": "multiCommand.focusEditor" },
-        "when": "editorFocus && findInputFocussed"
-    },
+  // Find-related stuff
+  {
+    "key": "enter",
+    "command": "-editor.action.nextMatchFindAction",
+    "when": "editorFocus && findInputFocussed"
+  },
+  {
+    "key": "enter",
+    "command": "extension.multiCommand.execute",
+    "args": { "command": "multiCommand.focusEditor" },
+    "when": "editorFocus && findInputFocussed"
+  },
 
-    // Terminal stuff
-    {
-        "key": "ctrl+`",
-        "command": "workbench.action.terminal.focus",
-        "when": "terminalIsOpen"
-    },
-    {
-        "key": "ctrl+`",
-        "command": "workbench.action.focusActiveEditorGroup",
-        "when": "terminalFocus && terminalIsOpen"
-    },
-    {
-        "key": "ctrl+`",
-        "command": "-workbench.action.terminal.toggleTerminal",
-        "when": "terminal.active"
-    },
-    {
-        "key": "ctrl+shift+`",
-        "command": "-workbench.action.terminal.new",
-        "when": "terminalProcessSupported || terminalWebExtensionContributedProfile"
-    },
+  // Terminal stuff
+  {
+    "key": "ctrl+`",
+    "command": "workbench.action.terminal.focus",
+    "when": "terminalIsOpen"
+  },
+  {
+    "key": "ctrl+`",
+    "command": "workbench.action.focusActiveEditorGroup",
+    "when": "terminalFocus && terminalIsOpen"
+  },
+  {
+    "key": "ctrl+`",
+    "command": "-workbench.action.terminal.toggleTerminal",
+    "when": "terminal.active"
+  },
+  {
+    "key": "ctrl+shift+`",
+    "command": "-workbench.action.terminal.new",
+    "when": "terminalProcessSupported || terminalWebExtensionContributedProfile"
+  },
 
-    // Diff stuff
-    {
-        "key": "f8",
-        "command": "-editor.action.marker.nextInFiles",
-        "when": "editorFocus"
-    },
-    {
-        "key": "f7",
-        "command": "-editor.action.diffReview.next",
-        "when": "isInDiffEditor"
-    },
-    {
-        "key": "f7",
-        "command": "-editor.action.wordHighlight.next",
-        "when": "editorTextFocus && hasWordHighlights"
-    },
-    {
-        "key": "f8",
-        "command": "workbench.action.compareEditor.nextChange",
-        "when": "textCompareEditorVisible"
-    },
-    {
-        "key": "alt+f5",
-        "command": "-workbench.action.compareEditor.nextChange",
-        "when": "textCompareEditorVisible"
-    },
-    {
-        "key": "f7",
-        "command": "workbench.action.compareEditor.previousChange",
-        "when": "textCompareEditorVisible"
-    },
-    {
-        "key": "shift+alt+f5",
-        "command": "-workbench.action.compareEditor.previousChange",
-        "when": "textCompareEditorVisible"
-    },
+  // Diff stuff
+  {
+    "key": "f8",
+    "command": "-editor.action.marker.nextInFiles",
+    "when": "editorFocus"
+  },
+  {
+    "key": "f7",
+    "command": "-editor.action.diffReview.next",
+    "when": "isInDiffEditor"
+  },
+  {
+    "key": "f7",
+    "command": "-editor.action.wordHighlight.next",
+    "when": "editorTextFocus && hasWordHighlights"
+  },
+  {
+    "key": "f8",
+    "command": "workbench.action.compareEditor.nextChange",
+    "when": "textCompareEditorVisible"
+  },
+  {
+    "key": "alt+f5",
+    "command": "-workbench.action.compareEditor.nextChange",
+    "when": "textCompareEditorVisible"
+  },
+  {
+    "key": "f7",
+    "command": "workbench.action.compareEditor.previousChange",
+    "when": "textCompareEditorVisible"
+  },
+  {
+    "key": "shift+alt+f5",
+    "command": "-workbench.action.compareEditor.previousChange",
+    "when": "textCompareEditorVisible"
+  },
 
-    // Tab switching (skip terminal)
-    {
-        "key": "ctrl+shift+tab",
-        "command": "workbench.action.quickOpenLeastRecentlyUsedEditorInGroup",
-        "when": "!activeEditorGroupEmpty && !terminalFocus"
-    },
-    {
-        "key": "ctrl+shift+tab",
-        "command": "-workbench.action.quickOpenLeastRecentlyUsedEditorInGroup",
-        "when": "!activeEditorGroupEmpty"
-    },
-    {
-        "key": "ctrl+tab",
-        "command": "workbench.action.quickOpenPreviousRecentlyUsedEditorInGroup",
-        "when": "!activeEditorGroupEmpty && !terminalFocus"
-    },
-    {
-        "key": "ctrl+tab",
-        "command": "-workbench.action.quickOpenPreviousRecentlyUsedEditorInGroup",
-        "when": "!activeEditorGroupEmpty"
-    },
-    {
-        "key": "ctrl+tab",
-        "command": "workbench.action.quickOpenNavigateNextInEditorPicker",
-        "when": "inEditorsPicker && inQuickOpen && !terminalFocus"
-    },
-    {
-        "key": "ctrl+tab",
-        "command": "-workbench.action.quickOpenNavigateNextInEditorPicker",
-        "when": "inEditorsPicker && inQuickOpen"
-    },
-    {
-        "key": "ctrl+shift+tab",
-        "command": "workbench.action.quickOpenNavigatePreviousInEditorPicker",
-        "when": "inEditorsPicker && inQuickOpen && !terminalFocus"
-    },
-    {
-        "key": "ctrl+shift+tab",
-        "command": "-workbench.action.quickOpenNavigatePreviousInEditorPicker",
-        "when": "inEditorsPicker && inQuickOpen"
-    },
-    {
-        "key": "ctrl+tab",
-        "command": "workbench.action.terminal.focusNext",
-        "when": "terminalFocus && terminalHasBeenCreated && !terminalEditorFocus || terminalFocus && terminalProcessSupported && !terminalEditorFocus"
-    },
-    {
-        "key": "alt+m",
-        "command": "workbench.action.toggleLightDarkThemes"
-    },
+  // Tab switching (skip terminal)
+  {
+    "key": "ctrl+shift+tab",
+    "command": "workbench.action.quickOpenLeastRecentlyUsedEditorInGroup",
+    "when": "!activeEditorGroupEmpty && !terminalFocus"
+  },
+  {
+    "key": "ctrl+shift+tab",
+    "command": "-workbench.action.quickOpenLeastRecentlyUsedEditorInGroup",
+    "when": "!activeEditorGroupEmpty"
+  },
+  {
+    "key": "ctrl+tab",
+    "command": "workbench.action.quickOpenPreviousRecentlyUsedEditorInGroup",
+    "when": "!activeEditorGroupEmpty && !terminalFocus"
+  },
+  {
+    "key": "ctrl+tab",
+    "command": "-workbench.action.quickOpenPreviousRecentlyUsedEditorInGroup",
+    "when": "!activeEditorGroupEmpty"
+  },
+  {
+    "key": "ctrl+tab",
+    "command": "workbench.action.quickOpenNavigateNextInEditorPicker",
+    "when": "inEditorsPicker && inQuickOpen && !terminalFocus"
+  },
+  {
+    "key": "ctrl+tab",
+    "command": "-workbench.action.quickOpenNavigateNextInEditorPicker",
+    "when": "inEditorsPicker && inQuickOpen"
+  },
+  {
+    "key": "ctrl+shift+tab",
+    "command": "workbench.action.quickOpenNavigatePreviousInEditorPicker",
+    "when": "inEditorsPicker && inQuickOpen && !terminalFocus"
+  },
+  {
+    "key": "ctrl+shift+tab",
+    "command": "-workbench.action.quickOpenNavigatePreviousInEditorPicker",
+    "when": "inEditorsPicker && inQuickOpen"
+  },
+  {
+    "key": "ctrl+tab",
+    "command": "workbench.action.terminal.focusNext",
+    "when": "terminalFocus && terminalHasBeenCreated && !terminalEditorFocus || terminalFocus && terminalProcessSupported && !terminalEditorFocus"
+  },
+  {
+    "key": "alt+m",
+    "command": "workbench.action.toggleLightDarkThemes"
+  },
 
-    // Shift+Enter in terminal: send Alt+Enter (ESC + newline) for Claude Code newline
-    {
-        "key": "shift+enter",
-        "command": "workbench.action.terminal.sendSequence",
-        "args": { "text": "\u001b\n" },
-        "when": "terminalFocus"
-    },
+  // Shift+Enter in terminal: send Alt+Enter (ESC + newline) for Claude Code newline
+  {
+    "key": "shift+enter",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b\n" },
+    "when": "terminalFocus"
+  },
 
-    // Ctrl+P in terminal: open file picker instead of shell history-up
-    {
-        "key": "ctrl+p",
-        "command": "workbench.action.quickOpen",
-        "when": "terminalFocus"
-    }
+  // Ctrl+P in terminal: open file picker instead of shell history-up
+  {
+    "key": "ctrl+p",
+    "command": "workbench.action.quickOpen",
+    "when": "terminalFocus"
+  }
 ]
