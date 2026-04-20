@@ -45,3 +45,10 @@
 # we impose gets clobbered on next tool startup.
 */.claude/settings.json
 */.codex/config.toml
+
+# Claude Code slash-command files: structured markdown with a
+# YAML front-matter-like metadata block that rumdl's MD041 flags
+# ("first line in file should be a level 1 heading"). The shape
+# is intentional and mirrors how Claude parses them; formatting
+# would be cosmetic and the lint noise isn't actionable.
+*/.claude/commands/*
