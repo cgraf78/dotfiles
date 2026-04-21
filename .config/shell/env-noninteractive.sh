@@ -5,6 +5,6 @@
 export _SHELL_ENV_LOADED=1
 
 for _f in "$HOME/.config/shell/env.d/"*.sh; do
-  [ -f "$_f" ] && . "$_f"
+  [ -f "$_f" ] && . "$_f" # shellcheck disable=SC1090
 done
 unset _f
