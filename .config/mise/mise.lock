@@ -24,6 +24,30 @@ url = "https://github.com/Kampfkarren/selene/releases/download/0.30.1/selene-0.3
 checksum = "sha256:4858f5f732491680d361744977d7ef3e30c09f1bd454cb6e1e337c9c58fbbd94"
 url = "https://github.com/Kampfkarren/selene/releases/download/0.30.1/selene-0.30.1-macos.zip"
 
+[[tools."aqua:LuaLS/lua-language-server"]]
+version = "3.18.2"
+backend = "aqua:LuaLS/lua-language-server"
+
+[tools."aqua:LuaLS/lua-language-server"."platforms.linux-x64"]
+checksum = "sha256:ca71415dd19f19e30aaa35a4915aefca9fdb5fec31b98331cc3d77f778d539c5"
+url = "https://github.com/LuaLS/lua-language-server/releases/download/3.18.2/lua-language-server-3.18.2-linux-x64.tar.gz"
+
+[tools."aqua:LuaLS/lua-language-server"."platforms.macos-arm64"]
+checksum = "sha256:cec99d70b1f612acec4a10a79a03664e3aa0c229d4d8a586cb3f928ec37d509e"
+url = "https://github.com/LuaLS/lua-language-server/releases/download/3.18.2/lua-language-server-3.18.2-darwin-arm64.tar.gz"
+
+[[tools."aqua:artempyanykh/marksman"]]
+version = "2026-02-08"
+backend = "aqua:artempyanykh/marksman"
+
+[tools."aqua:artempyanykh/marksman"."platforms.linux-x64"]
+checksum = "sha256:be5098e8213219269c47fc0d916a66fa31ce0602ec967475c722260aabf26087"
+url = "https://github.com/artempyanykh/marksman/releases/download/2026-02-08/marksman-linux-x64"
+
+[tools."aqua:artempyanykh/marksman"."platforms.macos-arm64"]
+checksum = "sha256:6a801c17b5ac0dba69787c5282b3b3bd416e66c96253fae098d311c6bbd1833b"
+url = "https://github.com/artempyanykh/marksman/releases/download/2026-02-08/marksman-macos"
+
 [[tools."aqua:astral-sh/ruff"]]
 version = "0.15.11"
 backend = "aqua:astral-sh/ruff"
@@ -101,6 +125,18 @@ provenance = "github-attestations"
 checksum = "sha256:aba9ced2dee8d27fecca3dc7feb1a7f9a52caefa1eb46f3271ea66b6e0e6953f"
 url = "https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_darwin_arm64.tar.gz"
 provenance = "github-attestations"
+
+[[tools."aqua:rust-lang/rust-analyzer"]]
+version = "2026-04-20"
+backend = "aqua:rust-lang/rust-analyzer"
+
+[tools."aqua:rust-lang/rust-analyzer"."platforms.linux-x64"]
+checksum = "sha256:df5588072013a0915e3d92353675c5ef6eb4c174cc4d0d3e163be926f4aa2a75"
+url = "https://github.com/rust-lang/rust-analyzer/releases/download/2026-04-20/rust-analyzer-x86_64-unknown-linux-gnu.gz"
+
+[tools."aqua:rust-lang/rust-analyzer"."platforms.macos-arm64"]
+checksum = "sha256:4becfcf7232d26461fe5d8d497c90d6ec5676e8c2e177400c539e69567515844"
+url = "https://github.com/rust-lang/rust-analyzer/releases/download/2026-04-20/rust-analyzer-aarch64-apple-darwin.gz"
 
 [[tools."aqua:tamasfe/taplo"]]
 version = "0.10.0"

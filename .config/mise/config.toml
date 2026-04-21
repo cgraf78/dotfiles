@@ -34,8 +34,11 @@
 "aqua:JohnnyMorganz/StyLua" = "latest"
 "aqua:Kampfkarren/selene" = "latest"
 "aqua:koalaman/shellcheck" = "latest"
+"aqua:LuaLS/lua-language-server" = "latest"
+"aqua:artempyanykh/marksman" = "latest"
 "aqua:mvdan/sh" = "latest"
 "aqua:rhysd/actionlint" = "latest"
+"aqua:rust-lang/rust-analyzer" = "latest"
 "aqua:tamasfe/taplo" = "latest"
 
 # See the note above for why rumdl uses `ubi:` instead of `aqua:`.

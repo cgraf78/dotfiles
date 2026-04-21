@@ -13,14 +13,17 @@ return {
     dependencies = { "williamboman/mason.nvim", "neovim/nvim-lspconfig" },
     config = function()
       require("mason-lspconfig").setup({
+        -- LSPs installed via mise (aqua) live on $PATH directly; Mason only
+        -- handles the npm/go-install ones. See ~/.config/mise/config.toml for
+        -- lua_ls, marksman, rust_analyzer.
         ensure_installed = {
           "bashls",
+          "dockerls",
+          "gopls",
           "jsonls",
-          "lua_ls",
-          "marksman",
           "pyright",
-          "rust_analyzer",
           "ts_ls",
+          "vimls",
           "yamlls",
         },
         automatic_enable = false, -- config/lsp.lua handles vim.lsp.enable

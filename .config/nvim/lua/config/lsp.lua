@@ -14,8 +14,12 @@ vim.api.nvim_create_autocmd("LspAttach", {
     map("n", "<leader>D", vim.lsp.buf.type_definition, { buffer = b, desc = "Type definition" })
     map("n", "<leader>rn", vim.lsp.buf.rename, { buffer = b, desc = "Rename symbol" })
     map("n", "<leader>ca", vim.lsp.buf.code_action, { buffer = b, desc = "Code action" })
-    map("n", "[d", function() vim.diagnostic.jump({ count = -1 }) end, { buffer = b, desc = "Previous diagnostic" })
-    map("n", "]d", function() vim.diagnostic.jump({ count = 1 }) end, { buffer = b, desc = "Next diagnostic" })
+    map("n", "[d", function()
+      vim.diagnostic.jump({ count = -1 })
+    end, { buffer = b, desc = "Previous diagnostic" })
+    map("n", "]d", function()
+      vim.diagnostic.jump({ count = 1 })
+    end, { buffer = b, desc = "Next diagnostic" })
     map("n", "<leader>e", vim.diagnostic.open_float, { buffer = b, desc = "Show diagnostic" })
   end,
 })
@@ -91,14 +95,26 @@ vim.lsp.config("yamlls", {
 -- Markdown
 vim.lsp.config("marksman", { capabilities = capabilities })
 
+-- Go
+vim.lsp.config("gopls", { capabilities = capabilities })
+
+-- Vimscript
+vim.lsp.config("vimls", { capabilities = capabilities })
+
+-- Dockerfile
+vim.lsp.config("dockerls", { capabilities = capabilities })
+
 vim.lsp.enable({
   "bashls",
   "clangd",
+  "dockerls",
+  "gopls",
   "jsonls",
   "lua_ls",
   "marksman",
   "pyright",
   "rust_analyzer",
   "ts_ls",
+  "vimls",
   "yamlls",
 })
