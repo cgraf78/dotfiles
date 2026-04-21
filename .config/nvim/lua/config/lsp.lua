@@ -84,8 +84,9 @@ local capabilities = cmp_ok and cmp_lsp.default_capabilities() or nil
 -- C/C++
 vim.lsp.config("clangd", { capabilities = capabilities })
 
--- Python
-vim.lsp.config("pyright", { capabilities = capabilities })
+-- Python (basedpyright: community fork of pyright with inlay hints and
+-- stricter defaults; active releases)
+vim.lsp.config("basedpyright", { capabilities = capabilities })
 
 -- Lua
 vim.lsp.config("lua_ls", {
@@ -98,10 +99,11 @@ vim.lsp.config("lua_ls", {
   },
 })
 
--- Bash
+-- Bash (bashls handles zsh best-effort — it understands the bash-compatible
+-- subset, misses zsh-specific syntax. Paired with autolint for full coverage.)
 vim.lsp.config("bashls", {
   capabilities = capabilities,
-  filetypes = { "sh", "bash" },
+  filetypes = { "sh", "bash", "zsh" },
 })
 
 -- TypeScript/JavaScript
@@ -163,13 +165,13 @@ vim.lsp.config("taplo", { capabilities = capabilities })
 
 vim.lsp.enable({
   "bashls",
+  "basedpyright",
   "clangd",
   "dockerls",
   "gopls",
   "jsonls",
   "lua_ls",
   "marksman",
-  "pyright",
   "rust_analyzer",
   "taplo",
   "ts_ls",

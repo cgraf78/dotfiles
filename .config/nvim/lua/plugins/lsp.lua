@@ -18,11 +18,11 @@ return {
         -- lua_ls, marksman, rust_analyzer.
         ensure_installed = {
           "bashls",
+          "basedpyright",
           "clangd",
           "dockerls",
           "gopls",
           "jsonls",
-          "pyright",
           "ts_ls",
           "vimls",
           "yamlls",
