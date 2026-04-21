@@ -88,7 +88,44 @@ local cmp_ok, cmp_lsp = pcall(require, "cmp_nvim_lsp")
 local capabilities = cmp_ok and cmp_lsp.default_capabilities() or nil
 
 -- C/C++
-vim.lsp.config("clangd", { capabilities = capabilities })
+--
+-- Skip clangd inside a Buck-managed tree that has no `compile_commands.json`.
+-- Buck supplies include paths via its own build graph, and clangd has no way
+-- to resolve them without a compile DB — attaching would produce false
+-- "file not found" errors on every Buck-provided header. Users who want
+-- clangd coverage should generate a compile DB (e.g. `buck2 bxl
+-- prelude//cxx/tools/compilation_database.bxl:generate`) and symlink it.
+vim.lsp.config("clangd", {
+  capabilities = capabilities,
+  root_dir = function(bufnr, on_dir)
+    local fname = vim.api.nvim_buf_get_name(bufnr)
+    if fname == "" then
+      return
+    end
+
+    local root = vim.fs.root(bufnr, {
+      ".clangd",
+      ".clang-tidy",
+      ".clang-format",
+      "compile_commands.json",
+      "compile_flags.txt",
+      "configure.ac",
+      ".git",
+    })
+    if not root then
+      return
+    end
+
+    if
+      vim.fs.root(bufnr, { ".buckconfig" })
+      and not vim.fs.root(bufnr, { "compile_commands.json" })
+    then
+      return
+    end
+
+    on_dir(root)
+  end,
+})
 
 -- Python (basedpyright: community fork of pyright with inlay hints and
 -- stricter defaults; active releases)
