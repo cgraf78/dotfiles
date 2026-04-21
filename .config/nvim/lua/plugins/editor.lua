@@ -4,9 +4,17 @@ return {
     dependencies = { "nvim-tree/nvim-web-devicons" },
     keys = {
       { "<leader>xx", "<cmd>Trouble diagnostics toggle<cr>", desc = "Diagnostics" },
-      { "<leader>xw", "<cmd>Trouble diagnostics toggle filter.buf=0<cr>", desc = "Buffer diagnostics" },
+      {
+        "<leader>xw",
+        "<cmd>Trouble diagnostics toggle filter.buf=0<cr>",
+        desc = "Buffer diagnostics",
+      },
       { "<leader>xs", "<cmd>Trouble symbols toggle focus=false<cr>", desc = "Symbols" },
-      { "<leader>xl", "<cmd>Trouble lsp toggle focus=false win.position=right<cr>", desc = "LSP definitions / refs" },
+      {
+        "<leader>xl",
+        "<cmd>Trouble lsp toggle focus=false win.position=right<cr>",
+        desc = "LSP definitions / refs",
+      },
       { "<leader>xq", "<cmd>Trouble qflist toggle<cr>", desc = "Quickfix list" },
     },
     config = function()
@@ -34,9 +42,27 @@ return {
     lazy = false,
     opts = {},
     keys = {
-      { "<leader>qs", function() require("persistence").load() end, desc = "Restore session" },
-      { "<leader>ql", function() require("persistence").load({ last = true }) end, desc = "Restore last session" },
-      { "<leader>qd", function() require("persistence").stop() end, desc = "Stop saving session" },
+      {
+        "<leader>qs",
+        function()
+          require("persistence").load()
+        end,
+        desc = "Restore session",
+      },
+      {
+        "<leader>ql",
+        function()
+          require("persistence").load({ last = true })
+        end,
+        desc = "Restore last session",
+      },
+      {
+        "<leader>qd",
+        function()
+          require("persistence").stop()
+        end,
+        desc = "Stop saving session",
+      },
     },
   },
   {
@@ -51,16 +77,24 @@ return {
       {
         "nvim-telescope/telescope-fzf-native.nvim",
         build = "make",
-        cond = function() return vim.fn.executable("make") == 1 end,
+        cond = function()
+          return vim.fn.executable("make") == 1
+        end,
       },
     },
     keys = {
-      { "<C-p>", function() require("telescope.builtin").find_files({ cwd = vim.env.HOME }) end, desc = "Find files (home)" },
+      {
+        "<C-p>",
+        function()
+          require("telescope.builtin").find_files({ cwd = vim.env.HOME })
+        end,
+        desc = "Find files (home)",
+      },
       { "<leader>p", "<cmd>Telescope find_files<cr>", desc = "Find files (cwd)" },
       { "<C-f>", "<cmd>Telescope current_buffer_fuzzy_find<cr>", desc = "Search in buffer" },
       { "<leader>f", "<cmd>Telescope oldfiles<cr>", desc = "Recent files" },
       { "<leader>b", "<cmd>Telescope buffers<cr>", desc = "Buffers" },
-      { "<leader>g", "<cmd>Telescope live_grep<cr>", desc = "Live grep" },
+      { "<leader>g", "<cmd>Telescope live_grep initial_mode=insert<cr>", desc = "Live grep" },
       { "<leader>j", "<cmd>Telescope find_files<cr>", desc = "Find files" },
       { "<leader>/", "<cmd>Telescope current_buffer_fuzzy_find<cr>", desc = "Search in buffer" },
       { "<leader>?", "<cmd>Telescope keymaps<cr>", desc = "Search keymaps" },
@@ -85,7 +119,12 @@ return {
         pickers = {
           find_files = {
             hidden = true,
-            find_command = { vim.fn.executable("fd") == 1 and "fd" or "fdfind", "--type", "f", "--hidden" },
+            find_command = {
+              vim.fn.executable("fd") == 1 and "fd" or "fdfind",
+              "--type",
+              "f",
+              "--hidden",
+            },
           },
         },
       })
