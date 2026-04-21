@@ -17,6 +17,11 @@ export SHDEPS_CONF_DIR="$HOME/.config/shdeps"
 # Man pages from shdeps-managed tools
 export MANPATH="$HOME/.local/share/man:${MANPATH:-}"
 
+# Ensure non-interactive bash subshells (e.g. agent tool calls) get the same
+# PATH as the interactive session. BASH_ENV is sourced automatically by bash
+# for every non-interactive invocation and is inherited by child processes.
+export BASH_ENV="$HOME/.config/shell/env-noninteractive.sh"
+
 # GitHub PAT for Claude Code's GitHub MCP server. Avoids calling `gh auth token`
 # at shell startup (which triggers D-Bus/keyring on headless hosts).
 # To create: gh auth token > ~/.config/gh/github-pat && chmod 600 ~/.config/gh/github-pat
