@@ -16,7 +16,13 @@ vim.diagnostic.config({
     header = "",
     prefix = "",
   },
-  virtual_text = { prefix = "●", spacing = 2 },
+  -- Inline text only for errors; warnings/info/hints still show as signs
+  -- and in the cursor-hold float to keep the line visually quiet.
+  virtual_text = {
+    prefix = "●",
+    spacing = 2,
+    severity = { min = vim.diagnostic.severity.ERROR },
+  },
   signs = true,
   underline = true,
   update_in_insert = false,
