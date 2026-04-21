@@ -90,3 +90,6 @@ jobs:
 
       - name: Run autolint-test
         run: .local/bin/autolint-test
+
+      - name: Run githook-test
+        run: .local/bin/githook-test

@@ -1,0 +1,293 @@
+#!/usr/bin/env bash
+# githook-test — unit tests for the shared git hooks.
+#
+# Today covers `~/.local/share/git-hooks/pre-commit` only; extend as
+# new hooks land. Each test spins up an isolated temp git repo with
+# `core.hooksPath` aimed at the hook under test, so the suite is safe
+# to run anywhere without touching the user's real repos.
+#
+# Usage: githook-test
+
+set -o pipefail
+export NO_COLOR=1
+
+# Formatter/linter dev tooling is expected to come from the global
+# mise toolset, so seed the shim dir explicitly for direct test runs
+# (matches the pattern used by autoformat-test / autolint-test).
+[ -d "$HOME/.local/share/mise/shims" ] &&
+  PATH="$HOME/.local/share/mise/shims:$PATH"
+export MISE_GLOBAL_CONFIG_FILE="$HOME/.config/mise/config.toml"
+
+# shellcheck source=../lib/dot/test-helpers.sh
+. "$HOME/.local/lib/dot/test-helpers.sh"
+
+HOOK_DIR="$HOME/.local/share/git-hooks"
+PRE_COMMIT="$HOOK_DIR/pre-commit"
+
+if [ ! -x "$PRE_COMMIT" ]; then
+  echo "githook-test: pre-commit hook not found at $PRE_COMMIT" >&2
+  exit 1
+fi
+
+# Each test runs inside its own repo. Keep the helper tiny — the
+# isolation knobs (GIT_CONFIG_GLOBAL) matter more than any fancy
+# fixture abstraction.
+_new_repo() {
+  local repo
+  repo=$(_tmpdir)
+  (
+    cd "$repo" || exit 1
+    # Point git at an empty per-repo global so real user config (e.g.
+    # a system-wide fsmonitor or a differently-set hooksPath) can't
+    # leak in and skew behavior.
+    export GIT_CONFIG_GLOBAL="$repo/.gitconfig-test"
+    : >"$GIT_CONFIG_GLOBAL"
+    git init -q
+    git config user.email test@test.local
+    git config user.name "Test User"
+    git config core.hooksPath "$HOOK_DIR"
+    git config commit.gpgsign false
+  )
+  echo "$repo"
+}
+
+# Run `git commit` inside $1 with the given env prefix and message.
+# Captures stdout+stderr into $__COMMIT_OUT and the exit code into
+# $__COMMIT_RC. Keeps the full command line explicit at call sites
+# rather than building one-size-fits-all plumbing.
+_commit() {
+  local repo="$1" msg="$2"
+  shift 2
+  __COMMIT_OUT=$(
+    cd "$repo" &&
+      GIT_CONFIG_GLOBAL="$repo/.gitconfig-test" "$@" \
+        git commit -m "$msg" 2>&1
+  )
+  __COMMIT_RC=$?
+}
+
+# ---------------------------------------------------------------------------
+# Tests: default behavior
+# ---------------------------------------------------------------------------
+
+echo "=== Default: clean file, clean lint ==="
+
+repo=$(_new_repo)
+cat >"$repo/ok.py" <<'EOF'
+x = 1
+EOF
+(cd "$repo" && git add ok.py)
+_commit "$repo" "clean"
+_assert_exit "clean file + clean lint: commit succeeds" 0 "$__COMMIT_RC"
+
+echo "=== Default: autoformat mutates → commit rejected ==="
+
+# ruff --fix removes unused imports; `import os` is dropped by the
+# format pass, so the file on disk diverges from the staged version
+# and the hook should reject with a clear message.
+repo=$(_new_repo)
+cat >"$repo/fixable.py" <<'EOF'
+import os
+x = 1
+EOF
+(cd "$repo" && git add fixable.py)
+_commit "$repo" "fmt-reject"
+_assert_exit "autoformat mutated file: commit rejected" 1 "$__COMMIT_RC"
+_assert_contains "autoformat reject: mentions staging" \
+  "stage the formatting changes" "$__COMMIT_OUT"
+_assert_contains "autoformat reject: shows bypass knob" \
+  "GITHOOK_PRECOMMIT_SKIP_AUTOFORMAT=1" "$__COMMIT_OUT"
+
+echo "=== Default: lint-only failure → commit proceeds (warn-only) ==="
+
+# A file that's formatter-clean but trips the linter — rumdl's MD024
+# on duplicate headings is format-inert, so the default hook should
+# stream the diagnostics and let the commit through.
+if command -v rumdl &>/dev/null; then
+  repo=$(_new_repo)
+  cat >"$repo/dup.md" <<'EOF'
+# Title
+
+## Dup
+
+## Dup
+EOF
+  (cd "$repo" && git add dup.md)
+  _commit "$repo" "lint-warn"
+  _assert_exit "lint-only failure (warn-only): commit succeeds" 0 "$__COMMIT_RC"
+  _assert_contains "lint-only failure: diagnostics streamed" \
+    "MD024" "$__COMMIT_OUT"
+fi
+
+# ---------------------------------------------------------------------------
+# Tests: strict-lint knob promotes failures to blocking
+# ---------------------------------------------------------------------------
+
+echo "=== GITHOOK_PRECOMMIT_STRICT_AUTOLINT=1: lint blocks ==="
+
+if command -v rumdl &>/dev/null; then
+  repo=$(_new_repo)
+  cat >"$repo/dup.md" <<'EOF'
+# Title
+
+## Dup
+
+## Dup
+EOF
+  (cd "$repo" && git add dup.md)
+  _commit "$repo" "strict-lint" env GITHOOK_PRECOMMIT_STRICT_AUTOLINT=1
+  _assert_exit "strict lint: commit rejected" 1 "$__COMMIT_RC"
+  _assert_contains "strict lint: reports failing file" \
+    "autolint failed" "$__COMMIT_OUT"
+  _assert_contains "strict lint: shows bypass knob" \
+    "GITHOOK_PRECOMMIT_SKIP_AUTOLINT=1" "$__COMMIT_OUT"
+fi
+
+# ---------------------------------------------------------------------------
+# Tests: skip knobs
+# ---------------------------------------------------------------------------
+
+echo "=== GITHOOK_PRECOMMIT_SKIP=1: whole hook skipped ==="
+
+# A would-reject file (autoformat mutates) should commit cleanly when
+# the hook is fully skipped.
+repo=$(_new_repo)
+cat >"$repo/fixable.py" <<'EOF'
+import os
+x = 1
+EOF
+(cd "$repo" && git add fixable.py)
+_commit "$repo" "skip-all" env GITHOOK_PRECOMMIT_SKIP=1
+_assert_exit "SKIP: hook bypassed entirely" 0 "$__COMMIT_RC"
+
+echo "=== GITHOOK_PRECOMMIT_SKIP_AUTOFORMAT=1: format skipped, lint still runs ==="
+
+# With autoformat skipped the file won't mutate, so the format-reject
+# path can't fire. In strict mode, lint should still block (bad
+# python has F401 + syntax-style warnings).
+repo=$(_new_repo)
+cat >"$repo/fixable.py" <<'EOF'
+import os
+x = 1
+EOF
+(cd "$repo" && git add fixable.py)
+_commit "$repo" "skip-fmt-strict" \
+  env GITHOOK_PRECOMMIT_SKIP_AUTOFORMAT=1 GITHOOK_PRECOMMIT_STRICT_AUTOLINT=1
+_assert_exit "SKIP_AUTOFORMAT + STRICT: lint still blocks" 1 "$__COMMIT_RC"
+_assert_contains "SKIP_AUTOFORMAT: no format-reject message" \
+  "autolint failed" "$__COMMIT_OUT"
+_assert_not_contains "SKIP_AUTOFORMAT: format step did not fire" \
+  "stage the formatting changes" "$__COMMIT_OUT"
+
+echo "=== GITHOOK_PRECOMMIT_SKIP_AUTOLINT=1: lint skipped, format still runs ==="
+
+# Format pass should still reject on mutation even when lint is off.
+repo=$(_new_repo)
+cat >"$repo/fixable.py" <<'EOF'
+import os
+x = 1
+EOF
+(cd "$repo" && git add fixable.py)
+_commit "$repo" "skip-lint" env GITHOOK_PRECOMMIT_SKIP_AUTOLINT=1
+_assert_exit "SKIP_AUTOLINT: format still blocks" 1 "$__COMMIT_RC"
+_assert_contains "SKIP_AUTOLINT: format-reject message shown" \
+  "stage the formatting changes" "$__COMMIT_OUT"
+_assert_not_contains "SKIP_AUTOLINT: no lint-reject message" \
+  "autolint failed" "$__COMMIT_OUT"
+
+# Both granular skips simultaneously → should short-circuit like SKIP=1.
+repo=$(_new_repo)
+cat >"$repo/fixable.py" <<'EOF'
+import os
+x = 1
+EOF
+(cd "$repo" && git add fixable.py)
+_commit "$repo" "skip-both" \
+  env GITHOOK_PRECOMMIT_SKIP_AUTOFORMAT=1 GITHOOK_PRECOMMIT_SKIP_AUTOLINT=1
+_assert_exit "SKIP_AUTOFORMAT + SKIP_AUTOLINT: commit proceeds" 0 "$__COMMIT_RC"
+
+# ---------------------------------------------------------------------------
+# Tests: hash-compare regression — partial-stage false positive
+# ---------------------------------------------------------------------------
+
+echo "=== Hash-compare: partial-stage unstaged hunks don't trigger reject ==="
+
+# Stage a formatter-clean file, then append unrelated content to the
+# working-tree copy. The staged hunks are clean, autoformat finds
+# nothing to change, and `git hash-object` gives equal pre/post
+# hashes — so the hook must NOT reject. Lint is skipped here to keep
+# the signal focused on the format decision.
+repo=$(_new_repo)
+cat >"$repo/clean.py" <<'EOF'
+x = 1
+EOF
+(cd "$repo" && git add clean.py)
+echo "extra_unstaged = True" >>"$repo/clean.py"
+_commit "$repo" "partial-stage" env GITHOOK_PRECOMMIT_SKIP_AUTOLINT=1
+_assert_exit "partial-stage clean content: commit succeeds" 0 "$__COMMIT_RC"
+_assert_not_contains "partial-stage: no false-positive format reject" \
+  "stage the formatting changes" "$__COMMIT_OUT"
+
+# ---------------------------------------------------------------------------
+# Tests: graceful no-op when both tools missing
+# ---------------------------------------------------------------------------
+
+echo "=== Graceful no-op: neither autoformat nor autolint on PATH ==="
+
+_empty_path=$(_mock_bin)
+ln -s "$(command -v bash)" "$_empty_path/bash"
+ln -s "$(command -v git)" "$_empty_path/git"
+
+repo=$(_new_repo)
+cat >"$repo/fixable.py" <<'EOF'
+import os
+x = 1
+EOF
+(cd "$repo" && git add fixable.py)
+__COMMIT_OUT=$(
+  cd "$repo" &&
+    GIT_CONFIG_GLOBAL="$repo/.gitconfig-test" \
+      PATH="$_empty_path" \
+      git commit -m "notools" 2>&1
+)
+__COMMIT_RC=$?
+_assert_exit "neither tool on PATH: hook exits 0, commit succeeds" 0 "$__COMMIT_RC"
+
+# ---------------------------------------------------------------------------
+# Tests: edges
+# ---------------------------------------------------------------------------
+
+echo "=== Edges ==="
+
+# Symlinks are skipped (the formatter would follow them to the
+# target, which isn't what the commit is about).
+repo=$(_new_repo)
+echo "real = 1" >"$repo/real.py"
+ln -s real.py "$repo/link.py"
+(cd "$repo" && git add real.py link.py)
+_commit "$repo" "symlink" env GITHOOK_PRECOMMIT_SKIP_AUTOLINT=1
+_assert_exit "symlink in staged set: commit succeeds" 0 "$__COMMIT_RC"
+
+# Empty staged set (e.g., `git commit --allow-empty`) must not block.
+repo=$(_new_repo)
+__COMMIT_OUT=$(
+  cd "$repo" &&
+    GIT_CONFIG_GLOBAL="$repo/.gitconfig-test" \
+      git commit --allow-empty -m "empty" 2>&1
+)
+__COMMIT_RC=$?
+_assert_exit "empty staged set: commit succeeds" 0 "$__COMMIT_RC"
+
+# Deleted file in the staged set is filtered out by --diff-filter=ACM;
+# the hook shouldn't try to format a nonexistent path.
+repo=$(_new_repo)
+echo "x = 1" >"$repo/bye.py"
+(cd "$repo" && git add bye.py && git commit -q -m "seed" && rm bye.py && git add -A)
+_commit "$repo" "delete" env GITHOOK_PRECOMMIT_SKIP_AUTOLINT=1
+_assert_exit "deletion only: commit succeeds" 0 "$__COMMIT_RC"
+
+# ---------------------------------------------------------------------------
+# Summary
+# ---------------------------------------------------------------------------
+
+_test_summary

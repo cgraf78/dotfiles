@@ -8,6 +8,7 @@
 	excludesFile = ~/.config/git/ignore
 	fsmonitor = true
 	untrackedcache = true
+	hooksPath = ~/.local/share/git-hooks
 
 [interactive]
 	diffFilter = delta --color-only

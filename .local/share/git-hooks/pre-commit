@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+# pre-commit — Run `autoformat` + `autolint` on staged files.
+#
+# Goal: keep human-authored commits consistent with what Claude Code's
+# post-edit hook already enforces. Same underlying tools (autoformat,
+# autolint) in both paths, so nothing diverges.
+#
+# Behavior:
+#   - Runs autoformat on each staged file. If the formatter actually
+#     changes the file, the commit is rejected with a message telling
+#     you to stage the changes (avoids silently overriding partial-hunk
+#     staging).
+#   - Runs autolint on each staged file. Diagnostics are surfaced on
+#     stderr but the commit proceeds by default — lint signal is often
+#     useful-but-not-urgent, and blocking here slows iteration. Flip
+#     `GITHOOK_PRECOMMIT_STRICT_AUTOLINT=1` to promote failures to
+#     blocking when you want a stricter gate.
+#   - No-ops gracefully when autoformat/autolint aren't on PATH, so
+#     the hook can live in shared config without forcing dependencies.
+#
+# Knobs (all `=1` to enable):
+#   - GITHOOK_PRECOMMIT_SKIP              skip the whole hook.
+#   - GITHOOK_PRECOMMIT_SKIP_AUTOFORMAT   skip the format step.
+#   - GITHOOK_PRECOMMIT_SKIP_AUTOLINT     skip the lint step.
+#   - GITHOOK_PRECOMMIT_STRICT_AUTOLINT   make lint failures blocking.
+# Names are `GITHOOK_`-prefixed (never `GIT_`) to avoid colliding with
+# git's own environment-variable namespace; `PRECOMMIT` is one word so
+# it reads as the git hook name rather than a generic phase concept
+# (sapling also has pre-commit actions).
+# Last resort: `git commit --no-verify`.
+
+set -u
+
+[ "${GITHOOK_PRECOMMIT_SKIP:-0}" = "1" ] && exit 0
+
+skip_fmt="${GITHOOK_PRECOMMIT_SKIP_AUTOFORMAT:-0}"
+skip_lint="${GITHOOK_PRECOMMIT_SKIP_AUTOLINT:-0}"
+strict_lint="${GITHOOK_PRECOMMIT_STRICT_AUTOLINT:-0}"
+
+# Both granular knobs set → nothing to do; short-circuit so we don't
+# pay the staged-file enumeration cost for a no-op.
+[ "$skip_fmt" = "1" ] && [ "$skip_lint" = "1" ] && exit 0
+
+have_fmt=0
+have_lint=0
+command -v autoformat >/dev/null 2>&1 && have_fmt=1
+command -v autolint >/dev/null 2>&1 && have_lint=1
+# If neither tool is on PATH, the hook has no work either way.
+[ "$have_fmt" = 0 ] && [ "$have_lint" = 0 ] && exit 0
+
+run_fmt=0
+run_lint=0
+[ "$have_fmt" = 1 ] && [ "$skip_fmt" != "1" ] && run_fmt=1
+[ "$have_lint" = 1 ] && [ "$skip_lint" != "1" ] && run_lint=1
+[ "$run_fmt" = 0 ] && [ "$run_lint" = 0 ] && exit 0
+
+# Added / copied / modified files only. Skip deletes and symlinks.
+staged=$(git diff --cached --name-only --diff-filter=ACM 2>/dev/null)
+[ -z "$staged" ] && exit 0
+
+fmt_modified=()
+lint_failed=()
+while IFS= read -r f; do
+  [ -n "$f" ] || continue
+  [ -f "$f" ] || continue
+  # Skip symlinks — formatters would follow and format the target,
+  # which isn't the file being committed.
+  [ ! -L "$f" ] || continue
+
+  if [ "$run_fmt" = 1 ]; then
+    # Hash-compare around autoformat so we only flag files whose
+    # content actually changed. Using `git diff --quiet` here would
+    # fire on any pre-existing unstaged hunk even when autoformat did
+    # nothing — misleading in `git add -p` workflows. `git hash-object`
+    # is always available inside a git hook, portable to macOS without
+    # coreutils, and faster than shelling out to `shasum`.
+    pre=$(git hash-object -- "$f" 2>/dev/null || true)
+    autoformat "$f" >/dev/null 2>&1 || true
+    post=$(git hash-object -- "$f" 2>/dev/null || true)
+    if [ -n "$pre" ] && [ "$pre" != "$post" ]; then
+      fmt_modified+=("$f")
+    fi
+  fi
+
+  if [ "$run_lint" = 1 ]; then
+    # Strict mode mirrors the format step's UX: suppress output,
+    # collect failures, report at the end. Warn-only mode (default)
+    # lets autolint's own output stream through so the author sees
+    # what tripped even though the commit proceeds.
+    if [ "$strict_lint" = "1" ]; then
+      if ! autolint "$f" >/dev/null 2>&1; then
+        lint_failed+=("$f")
+      fi
+    else
+      autolint "$f" >&2 || true
+    fi
+  fi
+done <<<"$staged"
+
+rc=0
+if [ ${#fmt_modified[@]} -gt 0 ]; then
+  echo "pre-commit: autoformat modified these staged files:" >&2
+  printf '  %s\n' "${fmt_modified[@]}" >&2
+  echo "            stage the formatting changes and re-run the commit." >&2
+  echo "            bypass: GITHOOK_PRECOMMIT_SKIP_AUTOFORMAT=1 git commit ..." >&2
+  rc=1
+fi
+if [ ${#lint_failed[@]} -gt 0 ]; then
+  echo "pre-commit: autolint failed on these staged files:" >&2
+  printf '  %s\n' "${lint_failed[@]}" >&2
+  echo "            run 'autolint <file>' to see the diagnostics." >&2
+  echo "            bypass: GITHOOK_PRECOMMIT_SKIP_AUTOLINT=1 git commit ..." >&2
+  rc=1
+fi
+
+exit "$rc"
