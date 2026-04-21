@@ -107,18 +107,93 @@ return {
     event = { "BufReadPost", "BufWritePost", "InsertLeave" },
     config = function()
       local lint = require("lint")
-      lint.linters_by_ft = {
-        bash = { "shellcheck" },
-        javascript = { "biomejs" },
-        javascriptreact = { "biomejs" },
-        lua = { "selene" },
-        markdown = { "rumdl" },
-        python = { "ruff" },
-        sh = { "shellcheck" },
-        typescript = { "biomejs" },
-        typescriptreact = { "biomejs" },
-        zsh = { "zsh" },
+
+      -- Delegate every filetype to a single `autolint --json` call.
+      -- The in-editor lint and the post-edit / pre-commit hooks share
+      -- one codepath (the `autolint` script), so there is no way for
+      -- nvim to surface a different set of diagnostics than what the
+      -- commit gate enforces.
+      local severity_map = {
+        error = vim.diagnostic.severity.ERROR,
+        warning = vim.diagnostic.severity.WARN,
+        info = vim.diagnostic.severity.INFO,
+        hint = vim.diagnostic.severity.HINT,
       }
+
+      lint.linters.autolint = {
+        cmd = "autolint",
+        args = { "--json" },
+        stdin = false,
+        append_fname = true,
+        stream = "stdout",
+        ignore_exitcode = true,
+        parser = function(output, _bufnr)
+          local diags = {}
+          for line in output:gmatch("[^\r\n]+") do
+            local ok, d = pcall(vim.json.decode, line)
+            if ok and type(d) == "table" and d.line then
+              table.insert(diags, {
+                lnum = math.max(0, d.line - 1),
+                col = math.max(0, (d.col or 1) - 1),
+                end_lnum = d.end_line and (d.end_line - 1) or nil,
+                end_col = d.end_col and (d.end_col - 1) or nil,
+                severity = severity_map[d.severity] or vim.diagnostic.severity.WARN,
+                code = d.code,
+                message = d.message,
+                source = d.source or "autolint",
+              })
+            end
+          end
+          return diags
+        end,
+      }
+
+      -- Every filetype `autolint` dispatches on points at the same
+      -- linter; `autolint` itself decides which tool to invoke based
+      -- on file extension / shebang classification.
+      local autolint_fts = {
+        "bash",
+        "css",
+        "javascript",
+        "javascriptreact",
+        "json",
+        "jsonc",
+        "lua",
+        "markdown",
+        "python",
+        "sh",
+        "toml",
+        "typescript",
+        "typescriptreact",
+        "yaml",
+        "zsh",
+      }
+      lint.linters_by_ft = {}
+      for _, ft in ipairs(autolint_fts) do
+        lint.linters_by_ft[ft] = { "autolint" }
+      end
+
+      -- Escape hatch for languages `autolint` does not yet dispatch
+      -- on — wire nvim-lint's built-in per-tool linters here when the
+      -- language server doesn't already surface the signal.
+      --
+      -- Today this map is empty. c/cpp and rust diagnostics come from
+      -- the language servers (clangd with `--clang-tidy`, rust-analyzer
+      -- with clippy), which already parse the TU / crate and stream
+      -- results over LSP — duplicating that via nvim-lint means a
+      -- second process, a second compdb lookup, and worse UX when the
+      -- tool is missing. Let the LSP own static-analyzer signals.
+      --
+      -- Migration path: once `autolint` gains a `case "$ext"` branch
+      -- for a new language, append the ft to `autolint_fts` above.
+      -- If a language needs a lint signal that no LSP produces and
+      -- `autolint` doesn't cover, add it here as
+      --   <ft> = { "<nvim-lint-linter-name>" }.
+      local extra_linters_by_ft = {}
+      for ft, linters in pairs(extra_linters_by_ft) do
+        lint.linters_by_ft[ft] = linters
+      end
+
       vim.api.nvim_create_autocmd({ "BufReadPost", "BufWritePost", "InsertLeave" }, {
         callback = function()
           lint.try_lint()
