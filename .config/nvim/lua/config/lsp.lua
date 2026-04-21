@@ -83,9 +83,11 @@ vim.api.nvim_create_autocmd("LspAttach", {
   end,
 })
 
--- nvim-cmp completion capabilities for LSP
-local cmp_ok, cmp_lsp = pcall(require, "cmp_nvim_lsp")
-local capabilities = cmp_ok and cmp_lsp.default_capabilities() or nil
+-- blink.cmp patches vim.lsp.protocol.make_client_capabilities() at
+-- load time, so all LSP clients automatically get completion
+-- capabilities. Pass nil here — vim.lsp.config uses the patched
+-- defaults when capabilities is omitted.
+local capabilities = nil
 
 -- C/C++
 --
