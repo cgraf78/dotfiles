@@ -117,7 +117,8 @@ vim.lsp.config("rust_analyzer", {
         typeHints = { enable = true },
         chainingHints = { enable = true },
       },
-      checkOnSave = { command = "clippy" },
+      check = { command = "clippy" },
+      checkOnSave = true,
     },
   },
 })
