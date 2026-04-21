@@ -6,21 +6,48 @@
 # so tools like git, curl, jq are found in cron's minimal environment.
 # Idempotent — skips if the installed block already matches.
 
-# Build a clean PATH for cron from the current PATH.
-# Keeps: $HOME dirs, /opt/homebrew, /usr/local, and standard system dirs.
-# Drops: obscure system dirs (cryptex, munki, etc.) that clutter the crontab.
+# Build a clean PATH for cron.
+#
+# Allowlist-only: enumerate the dirs cron actually needs rather than inherit
+# an arbitrary PATH. Immune to PATH pollution from version managers (mise,
+# pyenv, nvm, etc.) that inject per-tool install dirs and can push the
+# generated `PATH=...` line past Debian cron's 998-char limit — truncation
+# silently drops trailing system dirs (e.g. /usr/bin) and breaks
+# `#!/usr/bin/env bash` lookup for cron-invoked scripts.
+#
+# Dirs that don't exist on the current host are skipped. Order matches a
+# typical interactive PATH: user bins first, then shims, then system.
 _cron_path() {
-  local result="" dir _dirs
-  IFS=: read -ra _dirs <<<"$HOME/.local/bin:$PATH"
-  for dir in "${_dirs[@]}"; do
+  local -a candidates=(
+    "$HOME/.local/bin"
+    "$HOME/bin"
+    "$HOME/.local/share/mise/shims"
+    "$HOME/.atuin/bin"
+    "$HOME/.cargo/bin"
+    /opt/homebrew/bin
+    /opt/homebrew/sbin
+    /usr/local/bin
+    /usr/local/sbin
+    /usr/bin
+    /usr/sbin
+    /bin
+    /sbin
+  )
+
+  local result="" dir
+  for dir in "${candidates[@]}"; do
     [[ -d "$dir" ]] || continue
     [[ ":$result:" == *":$dir:"* ]] && continue
-    case "$dir" in
-      "$HOME"/* | /opt/homebrew/* | /usr/local/bin | /usr/bin | /bin | /usr/sbin | /sbin) ;;
-      *) continue ;;
-    esac
     result="${result:+$result:}$dir"
   done
+
+  # Guard against silent truncation by Debian cron (998-char line limit on
+  # `PATH=...`). Leave headroom for the `PATH=` prefix and future growth.
+  local max=900
+  if ((${#result} > max)); then
+    _warn "  warning: cron PATH is ${#result} chars (>$max) — crond may truncate"
+  fi
+
   echo "$result"
 }
 
