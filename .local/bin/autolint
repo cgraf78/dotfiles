@@ -47,6 +47,16 @@ fi
 [ -z "$file" ] && exit 0
 [ -f "$file" ] || exit 0
 
+# Normalize to an absolute path before anything else. The ignore
+# patterns in `$AUTOLINT_DIR/ignore` are written `*/path/...` —
+# anchored on a leading directory separator — so callers passing a
+# repo-relative path (e.g. the git pre-commit hook, which emits
+# `git diff --cached --name-only` output) would otherwise escape the
+# ignore match. Using `cd + pwd` keeps this portable (no readlink -f
+# on macOS without coreutils) and avoids resolving symlinks, which
+# the rest of the script treats as-is.
+file="$(cd "$(dirname "$file")" && pwd)/$(basename "$file")"
+
 # Fallback-config dir. Defaults to the same dir autoformat uses so
 # the ruff.toml shared by both tools lives in a single place. Can be
 # overridden independently via AUTOLINT_DIR.

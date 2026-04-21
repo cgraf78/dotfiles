@@ -496,6 +496,36 @@ rc=$?
 set -e
 _assert_exit "ignore: non-match still lints" 1 "$rc"
 
+# Regression: a caller passing a repo-relative path (git pre-commit
+# hook, for instance) must still hit the ignore rule. Pre-normalization
+# the file would slip past `*/skipme.sh` and get linted, emitting
+# SC2154. The path-absolute-normalization step makes this case match
+# and silently exit 0 — pin that behavior.
+_ign_rel_repo=$(_tmpdir)
+mkdir -p "$_ign_rel_repo/sub"
+cat >"$_ign_rel_repo/sub/skipme.sh" <<'EOF'
+#!/bin/bash
+echo $undefined
+EOF
+cat >"$_ign_rel_repo/sub/other.sh" <<'EOF'
+#!/bin/bash
+echo $undefined
+EOF
+set +e
+output=$(cd "$_ign_rel_repo" && AUTOLINT_DIR="$_ign_al_dir" \
+  "$AUTOLINT" sub/skipme.sh 2>&1)
+rc=$?
+set -e
+_assert_exit "ignore: relative path still matches ignore glob" 0 "$rc"
+_assert_eq "ignore: relative ignored path emits no output" "" "$output"
+# Control: a non-ignored relative path still lints.
+set +e
+(cd "$_ign_rel_repo" && AUTOLINT_DIR="$_ign_al_dir" \
+  "$AUTOLINT" sub/other.sh >/dev/null 2>&1)
+rc=$?
+set -e
+_assert_exit "ignore: relative non-ignored path still lints" 1 "$rc"
+
 # ---------------------------------------------------------------------------
 # Tests: no-op for missing/empty input
 # ---------------------------------------------------------------------------
