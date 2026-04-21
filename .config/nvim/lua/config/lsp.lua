@@ -1,16 +1,59 @@
 local map = vim.keymap.set
 
+-- Global UX for hover-style info popups.
+--
+-- Goal: make info-on-hover (diagnostics, LSP hover, signature help) as
+-- discoverable as VS Code — rounded borders, diagnostic source labels,
+-- and an auto-float that pops up whenever the cursor rests on a line
+-- with a diagnostic.
+local float_border = "rounded"
+
+vim.diagnostic.config({
+  severity_sort = true,
+  float = {
+    border = float_border,
+    source = true,
+    header = "",
+    prefix = "",
+  },
+  virtual_text = { prefix = "●", spacing = 2 },
+  signs = true,
+  underline = true,
+  update_in_insert = false,
+})
+
+-- Cursor-hold auto-float: when the cursor sits on a diagnostic for
+-- `updatetime` ms (250, set in options.lua), open a non-focused float
+-- with just the diagnostics under the cursor. Skip prompt/terminal
+-- buffers where a floating popup would be disruptive.
+vim.api.nvim_create_autocmd("CursorHold", {
+  callback = function()
+    local bt = vim.bo.buftype
+    if bt == "prompt" or bt == "terminal" or bt == "nofile" then
+      return
+    end
+    vim.diagnostic.open_float(nil, { focus = false, scope = "cursor" })
+  end,
+})
+
 -- Keymaps: only active when an LSP server is attached
 vim.api.nvim_create_autocmd("LspAttach", {
   callback = function(ev)
     local b = ev.buf
+    local function hover()
+      vim.lsp.buf.hover({ border = float_border })
+    end
+    local function signature()
+      vim.lsp.buf.signature_help({ border = float_border })
+    end
+
     map("n", "gd", vim.lsp.buf.definition, { buffer = b, desc = "Go to definition" })
     map("n", "gD", vim.lsp.buf.declaration, { buffer = b, desc = "Go to declaration" })
     map("n", "gi", vim.lsp.buf.implementation, { buffer = b, desc = "Go to implementation" })
     map("n", "gr", vim.lsp.buf.references, { buffer = b, desc = "Find references" })
-    map("n", "K", vim.lsp.buf.hover, { buffer = b, desc = "Hover docs" })
-    map("n", "<C-k>", vim.lsp.buf.signature_help, { buffer = b, desc = "Signature help" })
-    map("i", "<C-k>", vim.lsp.buf.signature_help, { buffer = b, desc = "Signature help" })
+    map("n", "K", hover, { buffer = b, desc = "Hover docs" })
+    map("n", "<C-k>", signature, { buffer = b, desc = "Signature help" })
+    map("i", "<C-k>", signature, { buffer = b, desc = "Signature help" })
     map("n", "<leader>D", vim.lsp.buf.type_definition, { buffer = b, desc = "Type definition" })
     map("n", "<leader>rn", vim.lsp.buf.rename, { buffer = b, desc = "Rename symbol" })
     map("n", "<leader>ca", vim.lsp.buf.code_action, { buffer = b, desc = "Code action" })
@@ -21,6 +64,16 @@ vim.api.nvim_create_autocmd("LspAttach", {
       vim.diagnostic.jump({ count = 1 })
     end, { buffer = b, desc = "Next diagnostic" })
     map("n", "<leader>e", vim.diagnostic.open_float, { buffer = b, desc = "Show diagnostic" })
+
+    -- Inlay hints: enable by default if the server supports them, and
+    -- provide a quick toggle for when they get in the way.
+    local client = vim.lsp.get_client_by_id(ev.data.client_id)
+    if client and client:supports_method("textDocument/inlayHint") then
+      vim.lsp.inlay_hint.enable(true, { bufnr = b })
+      map("n", "<leader>ih", function()
+        vim.lsp.inlay_hint.enable(not vim.lsp.inlay_hint.is_enabled({ bufnr = b }), { bufnr = b })
+      end, { buffer = b, desc = "Toggle inlay hints" })
+    end
   end,
 })
 
