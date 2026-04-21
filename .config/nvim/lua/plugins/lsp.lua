@@ -18,6 +18,7 @@ return {
         -- lua_ls, marksman, rust_analyzer.
         ensure_installed = {
           "bashls",
+          "clangd",
           "dockerls",
           "gopls",
           "jsonls",
