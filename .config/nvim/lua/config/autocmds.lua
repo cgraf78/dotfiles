@@ -12,9 +12,22 @@ vim.api.nvim_create_autocmd("BufReadPost", {
 -- Auto-strip trailing whitespace on save for common filetypes
 vim.api.nvim_create_autocmd("BufWritePre", {
   pattern = {
-    "*.py", "*.js", "*.ts", "*.tsx", "*.lua", "*.sh",
-    "*.c", "*.cpp", "*.h", "*.hpp",
-    "*.rs", "*.toml", "*.json", "*.yaml", "*.yml", "*.md",
+    "*.py",
+    "*.js",
+    "*.ts",
+    "*.tsx",
+    "*.lua",
+    "*.sh",
+    "*.c",
+    "*.cpp",
+    "*.h",
+    "*.hpp",
+    "*.rs",
+    "*.toml",
+    "*.json",
+    "*.yaml",
+    "*.yml",
+    "*.md",
   },
   callback = function()
     local pos = vim.api.nvim_win_get_cursor(0)
@@ -55,7 +68,9 @@ vim.api.nvim_create_autocmd("VimEnter", {
 
 -- Detect stdin so auto-restore doesn't clobber piped input.
 vim.api.nvim_create_autocmd("StdinReadPre", {
-  callback = function() vim.g.started_with_stdin = true end,
+  callback = function()
+    vim.g.started_with_stdin = true
+  end,
 })
 
 -- Remember nvim-tree state across sessions. NvimTree buffers don't restore
@@ -97,6 +112,34 @@ vim.api.nvim_create_autocmd("User", {
     end
   end,
 })
+
+-- Keep terminal buffers out of the tabline and make :q exit nvim.
+vim.api.nvim_create_autocmd("TermOpen", {
+  callback = function(args)
+    vim.bo[args.buf].buflisted = false
+    vim.cmd("cnoreabbrev <buffer> q Qa")
+    vim.cmd("cnoreabbrev <buffer> q! Qa!")
+    vim.cmd("cnoreabbrev <buffer> wq Qa")
+    vim.cmd("cnoreabbrev <buffer> wq! Qa!")
+  end,
+})
+
+vim.api.nvim_create_user_command("Qa", function(cmd)
+  for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+    if vim.api.nvim_buf_is_valid(buf) and vim.bo[buf].buftype == "terminal" then
+      local job = vim.b[buf].terminal_job_id
+      if job then
+        pcall(vim.fn.jobstop, job)
+        pcall(vim.fn.jobwait, { job }, 100)
+      end
+      pcall(vim.api.nvim_buf_delete, buf, { force = true })
+    end
+  end
+  local ok, err = pcall(vim.cmd, cmd.bang and "qa!" or "qa")
+  if not ok then
+    vim.notify(err:gsub("^.*:E", "E"), vim.log.levels.ERROR)
+  end
+end, { bang = true })
 
 -- Make terminal buffers feel "live" when focused, like an IDE terminal.
 vim.api.nvim_create_autocmd("BufEnter", {

@@ -8,7 +8,9 @@ local function is_editor_window(win)
   end
 
   local buf = vim.api.nvim_win_get_buf(win)
-  if vim.bo[buf].buftype ~= "" then return false end
+  if vim.bo[buf].buftype ~= "" then
+    return false
+  end
   return vim.bo[buf].filetype ~= "NvimTree"
 end
 
@@ -77,20 +79,46 @@ function M.open_left()
   vim.cmd("startinsert")
 end
 
+local function find_terminal_buf()
+  local saved = vim.t.last_terminal_buf
+  if saved and vim.api.nvim_buf_is_valid(saved) and vim.bo[saved].buftype == "terminal" then
+    return saved
+  end
+  for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+    if vim.api.nvim_buf_is_valid(buf) and vim.bo[buf].buftype == "terminal" then
+      return buf
+    end
+  end
+end
+
 function M.toggle()
   local current = vim.api.nvim_get_current_win()
 
+  -- From terminal: hide the window, go back to editor.
   if is_terminal_window(current) then
+    vim.t.last_terminal_buf = vim.api.nvim_win_get_buf(current)
+    vim.api.nvim_win_close(current, false)
     local target = editor_window()
-    if target and target ~= current then
+    if target then
       vim.api.nvim_set_current_win(target)
     end
     return
   end
 
+  -- If a terminal window is already visible, just focus it.
   local term = terminal_window()
   if term then
     vim.api.nvim_set_current_win(term)
+    vim.cmd("startinsert")
+    return
+  end
+
+  -- Re-show a hidden terminal buffer if one exists.
+  local term_buf = find_terminal_buf()
+  if term_buf then
+    vim.cmd("botright 12split")
+    vim.api.nvim_win_set_buf(0, term_buf)
+    vim.t.last_terminal_win = vim.api.nvim_get_current_win()
     vim.cmd("startinsert")
     return
   end

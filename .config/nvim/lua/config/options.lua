@@ -38,6 +38,9 @@ vim.opt.smartindent = true
 vim.opt.wrap = true
 vim.opt.linebreak = true
 
+-- Terminal
+vim.opt.shell = "zsh"
+
 -- No backup/swap
 vim.opt.backup = false
 vim.opt.writebackup = false
