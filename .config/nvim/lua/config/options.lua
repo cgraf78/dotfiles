@@ -57,5 +57,7 @@ vim.opt.backspace = { "eol", "start", "indent" }
 vim.opt.splitbelow = true
 vim.opt.splitright = true
 
--- Session: save only layout and current files, not stray buffers or arglists
-vim.opt.sessionoptions = { "curdir", "folds", "tabpages", "winsize", "winpos" }
+-- Session: save the full buffer list (not just windowed ones), layout, and
+-- cwd. `buffers` is required for persistence.nvim to restore hidden buffers
+-- — without it `:mksession` only persists what's visible in a window.
+vim.opt.sessionoptions = { "buffers", "curdir", "folds", "tabpages", "winsize", "winpos" }
