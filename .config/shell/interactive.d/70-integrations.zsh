@@ -47,7 +47,7 @@ fi
 zstyle ':completion:*' menu select
 zstyle ':completion:*' matcher-list 'm:{a-z}={A-Z}'
 
-command -v fzf &>/dev/null && eval "$(fzf --zsh 2>/dev/null)"
+command -v fzf &>/dev/null && eval "$(fzf --zsh 2>/dev/null)" 2>/dev/null
 command -v ds &>/dev/null && eval "$(ds init zsh)"
 command -v zoxide &>/dev/null && eval "$(zoxide init zsh)"
 command -v atuin &>/dev/null && eval "$(atuin init zsh --disable-up-arrow)"

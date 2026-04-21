@@ -88,6 +88,7 @@ set_hostname_alias() {
   HOSTNAME_ALIAS="$1"
   set_prompt "$1"
   [ -n "$TMUX" ] && tmux set -g @hostname_alias "$1" 2>/dev/null
+  return 0
 }
 
 set_prompt

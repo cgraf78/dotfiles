@@ -21,3 +21,4 @@ fi
 [ -f "$HOME/.atuin/bin/env" ] && . "$HOME/.atuin/bin/env"
 # shellcheck disable=SC1091  # optional local rust bootstrap script
 [ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
+true
