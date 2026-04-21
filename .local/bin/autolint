@@ -5,7 +5,7 @@
 # No-ops gracefully if a linter is not installed.
 # Respects per-repo config files.
 #
-# Usage: autolint [--fix] <file>
+# Usage: autolint [--fix] [--json] <file>
 
 set -u
 
@@ -14,15 +14,24 @@ set -u
 # surprise fixes. Pass `--fix` explicitly — e.g. from the CLI — when
 # the caller wants ruff/biome/rumdl to also apply fixes.
 #
+# `--json` emits one JSON object per diagnostic on stdout, in a unified
+# schema: {path,line,col,end_line?,end_col?,severity,code?,message,source}.
+# Line/col are 1-based. Designed for nvim-lint so the editor's
+# diagnostics are produced by exactly the same dispatch path as the
+# post-edit and pre-commit hooks. Tool stderr is suppressed in json
+# mode so the output stream stays parseable.
+#
 # Multiple file args are rejected rather than silently accepted (the
 # "last-wins" pattern would mean earlier files are dropped without the
 # caller noticing). Exit code 2 is "usage error" per convention.
 fix=0
+json=0
 file=""
 files=0
 for arg in "$@"; do
   case "$arg" in
     --fix) fix=1 ;;
+    --json) json=1 ;;
     *)
       files=$((files + 1))
       file="$arg"
@@ -53,9 +62,41 @@ if ! command -v yq >/dev/null 2>&1; then
   exit 1
 fi
 
+# `--json` relies on jq to transform each tool's native JSON into the
+# unified schema. Bail early if jq is missing so callers get a clear
+# error instead of silent empty output.
+if [ "$json" -eq 1 ] && ! command -v jq >/dev/null 2>&1; then
+  echo "autolint: jq is required for --json" >&2
+  exit 1
+fi
+
 _filedir=$(dirname "$file")
 ext="${file##*.}"
 rc=0
+
+# Severity normalizer shared by every jq filter below: maps each
+# tool's native level spelling onto the unified set
+# {error, warning, info, hint}. Unknown values fall back to warning —
+# a missing severity must never silently drop a diagnostic.
+# shellcheck disable=SC2016  # single quotes intentional — this is a jq program
+_JQ_SEVLIB='def sev($v):
+  ({
+    "error":"error","err":"error","fatal":"error",
+    "warning":"warning","warn":"warning",
+    "info":"info","information":"info","note":"info",
+    "hint":"hint","style":"hint"
+  })[($v // "warning") | ascii_downcase] // "warning";'
+
+# Emit a single synthesized error-level diagnostic. Used by backends
+# with no structured output (zsh syntax check, taplo) so pre-commit
+# still surfaces "something is wrong" in json mode, even without
+# precise positions.
+_emit_synth_error() {
+  local path="$1" message="$2" source_="$3"
+  jq -cn --arg p "$path" --arg m "$message" --arg s "$source_" '{
+    path: $p, line: 1, col: 1, severity: "error", message: $m, source: $s
+  }'
+}
 
 # Design contract shared by every `_lint_*` helper below and every
 # branch of the dispatch: if the linter isn't installed, return 0
@@ -84,13 +125,54 @@ _lint_sh() {
       esac
     done < <(grep -E '^[a-z-]+=' "$AUTOLINT_DIR/shellcheckrc")
   fi
+  if [ "$json" -eq 1 ]; then
+    local out tool_rc
+    out=$(shellcheck -f json1 "${args[@]}" "$file" 2>/dev/null)
+    tool_rc=$?
+    if [ -n "$out" ]; then
+      printf '%s' "$out" | jq -c --arg path "$file" "$_JQ_SEVLIB"'
+        .comments[]? | {
+          path: $path,
+          line: .line,
+          col: .column,
+          end_line: .endLine,
+          end_col: .endColumn,
+          severity: sev(.level),
+          code: ("SC" + (.code|tostring)),
+          message: .message,
+          source: "shellcheck"
+        }'
+    fi
+    return "$tool_rc"
+  fi
   shellcheck "${args[@]}" "$file"
 }
 
 _lint_zsh() {
-  if command -v zsh &>/dev/null; then
-    zsh -n "$1"
+  command -v zsh &>/dev/null || return 0
+  if [ "$json" -eq 1 ]; then
+    local err tool_rc
+    err=$(zsh -n "$1" 2>&1 1>/dev/null)
+    tool_rc=$?
+    if [ "$tool_rc" -ne 0 ]; then
+      # `zsh -n` prints `file:LINE: message`. Try to parse out the
+      # line number; fall back to line 1 if the format is unexpected.
+      local line msg
+      if [[ $err =~ :([0-9]+):\ (.*)$ ]]; then
+        line="${BASH_REMATCH[1]}"
+        msg="${BASH_REMATCH[2]}"
+      else
+        line=1
+        msg="$err"
+      fi
+      jq -cn --arg p "$1" --arg m "$msg" --argjson l "$line" '{
+        path: $p, line: $l, col: 1, severity: "error",
+        message: $m, source: "zsh"
+      }'
+    fi
+    return "$tool_rc"
   fi
+  zsh -n "$1"
 }
 
 _lint_biome() {
@@ -111,6 +193,26 @@ _lint_biome() {
   elif [ -f "$AUTOLINT_DIR/biome.json" ] &&
     [ "$file" != "$AUTOLINT_DIR/biome.json" ]; then
     args=(--config-path "$AUTOLINT_DIR")
+  fi
+  if [ "$json" -eq 1 ]; then
+    local out tool_rc
+    out=$(biome lint --reporter=json "${args[@]}" "$file" 2>/dev/null)
+    tool_rc=$?
+    if [ -n "$out" ]; then
+      printf '%s' "$out" | jq -c --arg path "$file" "$_JQ_SEVLIB"'
+        .diagnostics[]? | {
+          path: $path,
+          line: .location.start.line,
+          col: .location.start.column,
+          end_line: .location.end.line,
+          end_col: .location.end.column,
+          severity: sev(.severity),
+          code: .category,
+          message: .message,
+          source: "biome"
+        }'
+    fi
+    return "$tool_rc"
   fi
   if [ "$fix" -eq 1 ]; then
     biome lint --write "${args[@]}" "$file"
@@ -148,7 +250,25 @@ case "$ext" in
         [ -f "$AUTOLINT_DIR/ruff.toml" ]; then
         args=(--config "$AUTOLINT_DIR/ruff.toml")
       fi
-      if [ "$fix" -eq 1 ]; then
+      if [ "$json" -eq 1 ]; then
+        out=$(ruff check --output-format=json-lines "${args[@]}" "$file" 2>/dev/null)
+        tool_rc=$?
+        if [ -n "$out" ]; then
+          printf '%s' "$out" | jq -c --arg path "$file" "$_JQ_SEVLIB"'
+            select(.code) | {
+              path: $path,
+              line: .location.row,
+              col: .location.column,
+              end_line: .end_location.row,
+              end_col: .end_location.column,
+              severity: sev(.severity),
+              code: .code,
+              message: .message,
+              source: "ruff"
+            }'
+        fi
+        [ "$tool_rc" -ne 0 ] && rc=$tool_rc
+      elif [ "$fix" -eq 1 ]; then
         ruff check --fix "${args[@]}" "$file" || rc=$?
       else
         ruff check "${args[@]}" "$file" || rc=$?
@@ -170,7 +290,23 @@ case "$ext" in
         [ -f "$AUTOLINT_DIR/rumdl.toml" ]; then
         args=(--config "$AUTOLINT_DIR/rumdl.toml")
       fi
-      if [ "$fix" -eq 1 ]; then
+      if [ "$json" -eq 1 ]; then
+        out=$(rumdl check --output json "${args[@]}" "$file" 2>/dev/null)
+        tool_rc=$?
+        if [ -n "$out" ]; then
+          printf '%s' "$out" | jq -c --arg path "$file" "$_JQ_SEVLIB"'
+            .[]? | {
+              path: $path,
+              line: .line,
+              col: .column,
+              severity: sev(.severity),
+              code: .rule,
+              message: .message,
+              source: "rumdl"
+            }'
+        fi
+        [ "$tool_rc" -ne 0 ] && rc=$tool_rc
+      elif [ "$fix" -eq 1 ]; then
         rumdl check --fix "${args[@]}" "$file" || rc=$?
       else
         rumdl check "${args[@]}" "$file" || rc=$?
@@ -197,7 +333,20 @@ case "$ext" in
       else
         args=(--no-schema)
       fi
-      RUST_LOG=error taplo check "${args[@]}" "$file" || rc=$?
+      if [ "$json" -eq 1 ]; then
+        # taplo has no structured output. Synthesize a minimal
+        # file-level error when it reports non-zero so pre-commit
+        # still surfaces "this file is broken" in json mode.
+        err=$(RUST_LOG=error taplo check "${args[@]}" "$file" 2>&1 1>/dev/null)
+        tool_rc=$?
+        if [ "$tool_rc" -ne 0 ]; then
+          msg=${err:-"taplo check failed"}
+          _emit_synth_error "$file" "$msg" "taplo"
+          rc=$tool_rc
+        fi
+      else
+        RUST_LOG=error taplo check "${args[@]}" "$file" || rc=$?
+      fi
     fi
     ;;
   lua)
@@ -208,7 +357,30 @@ case "$ext" in
         [ -f "$AUTOLINT_DIR/selene.toml" ]; then
         args=(--config "$AUTOLINT_DIR/selene.toml")
       fi
-      selene "${args[@]}" "$file" || rc=$?
+      if [ "$json" -eq 1 ]; then
+        out=$(selene --display-style=json2 "${args[@]}" "$file" 2>/dev/null)
+        tool_rc=$?
+        if [ -n "$out" ]; then
+          # selene emits both Diagnostic and Summary records under
+          # `--display-style=json2`; filter to diagnostics and shift
+          # its 0-based span coordinates to the unified 1-based schema.
+          printf '%s' "$out" | jq -c --arg path "$file" "$_JQ_SEVLIB"'
+            select(.type == "Diagnostic" or (.type == null and .primary_label)) | {
+              path: $path,
+              line: (.primary_label.span.start_line + 1),
+              col: (.primary_label.span.start_column + 1),
+              end_line: (.primary_label.span.end_line + 1),
+              end_col: (.primary_label.span.end_column + 1),
+              severity: sev(.severity),
+              code: .code,
+              message: .message,
+              source: "selene"
+            }'
+        fi
+        [ "$tool_rc" -ne 0 ] && rc=$tool_rc
+      else
+        selene "${args[@]}" "$file" || rc=$?
+      fi
     fi
     ;;
   yml | yaml)
@@ -217,7 +389,26 @@ case "$ext" in
     case "$file" in
       */.github/workflows/*)
         if command -v actionlint &>/dev/null; then
-          actionlint "$file" || rc=$?
+          if [ "$json" -eq 1 ]; then
+            out=$(actionlint -format '{{json .}}' "$file" 2>/dev/null)
+            tool_rc=$?
+            if [ -n "$out" ]; then
+              printf '%s' "$out" | jq -c --arg path "$file" "$_JQ_SEVLIB"'
+                .[]? | {
+                  path: $path,
+                  line: .line,
+                  col: .column,
+                  end_col: .end_column,
+                  severity: "error",
+                  code: .kind,
+                  message: .message,
+                  source: "actionlint"
+                }'
+            fi
+            [ "$tool_rc" -ne 0 ] && rc=$tool_rc
+          else
+            actionlint "$file" || rc=$?
+          fi
         fi
         ;;
     esac

@@ -682,6 +682,201 @@ set -e
 _assert_exit "rel js: terminates with biome on PATH" 0 "$rc"
 
 # ---------------------------------------------------------------------------
+# Tests: --json mode — unified schema per tool
+#
+# Each subtest feeds a known-bad fixture and asserts the per-tool
+# output is a stream of JSON objects matching the unified schema:
+#   {path, line, col, severity, message, source} (+ optional
+#   code/end_line/end_col). Position fields must be 1-based integers.
+# These tests pin the schema so tool-version drift fails loudly
+# rather than silently reshaping the diagnostics nvim consumes.
+# ---------------------------------------------------------------------------
+
+echo "=== --json: unified schema per filetype ==="
+
+# Shared assertion: every non-empty line of $1 parses as JSON with
+# the required fields and sensible types/values.
+_assert_json_lines_valid() {
+  local label="$1" output="$2" expected_source="$3"
+  if [ -z "$output" ]; then
+    _fail "$label (no output)"
+    return
+  fi
+  local check
+  # Walk each input record and return the first schema problem we
+  # find, or "ok" if every record is well-formed. `inputs` + `-n`
+  # streams JSON-lines safely even when a record contains nested
+  # objects that span no newlines.
+  check=$(printf '%s\n' "$output" | jq -nr --arg src "$expected_source" '
+    def problem:
+      if type != "object" then "not-object"
+      elif (.path | type) != "string" then "bad-path"
+      elif (.line | type) != "number" or .line < 1 then "bad-line"
+      elif (.col  | type) != "number" or .col  < 1 then "bad-col"
+      elif ([.severity] | inside(["error","warning","info","hint"]) | not) then "bad-severity: " + (.severity|tostring)
+      elif (.message | type) != "string" or (.message | length) == 0 then "bad-message"
+      elif .source != $src then "bad-source: " + (.source|tostring)
+      else "ok"
+      end;
+    [inputs | problem] as $ps |
+    if ($ps | length) == 0 then "no-records"
+    else ($ps | map(select(. != "ok")) | if length == 0 then "ok" else .[0] end)
+    end')
+  if [ "$check" = "ok" ]; then
+    _pass "$label"
+  else
+    _fail "$label ($check)"
+  fi
+}
+
+# sh via shellcheck
+cat >"$_td/json-bad.sh" <<'EOF'
+#!/bin/bash
+echo $UNDEFINED
+EOF
+set +e
+output=$("$AUTOLINT" --json "$_td/json-bad.sh" 2>/dev/null)
+rc=$?
+set -e
+_assert_exit "json sh: exits non-zero on lint error" 1 "$rc"
+_assert_json_lines_valid "json sh: valid unified schema" "$output" "shellcheck"
+_assert_contains "json sh: shellcheck code prefixed SC" '"code":"SC' "$output"
+
+# ruff
+cat >"$_td/json-bad.py" <<'EOF'
+import os
+x = 1
+EOF
+set +e
+output=$(AUTOLINT_DIR=/nonexistent "$AUTOLINT" --json "$_td/json-bad.py" 2>/dev/null)
+rc=$?
+set -e
+_assert_exit "json py: exits non-zero on lint error" 1 "$rc"
+_assert_json_lines_valid "json py: valid unified schema" "$output" "ruff"
+_assert_contains "json py: ruff code present" '"code":"F401"' "$output"
+
+# selene — use per-repo empty config so divide_by_zero fires
+if command -v selene &>/dev/null; then
+  _json_lua_repo=$(_tmpdir)
+  : >"$_json_lua_repo/selene.toml"
+  cat >"$_json_lua_repo/bad.lua" <<'EOF'
+local x = 1 / 0
+print(x)
+EOF
+  set +e
+  output=$("$AUTOLINT" --json "$_json_lua_repo/bad.lua" 2>/dev/null)
+  rc=$?
+  set -e
+  _assert_exit "json lua: exits non-zero" 1 "$rc"
+  _assert_json_lines_valid "json lua: valid unified schema" "$output" "selene"
+  _assert_contains "json lua: selene code present" '"code":"divide_by_zero"' "$output"
+  # selene native spans are 0-based; verify the shift to 1-based
+  # coordinates — divide_by_zero on line 1, col 11 (the "1 / 0"
+  # expression starts at column 11 in the 1-based view).
+  _assert_contains "json lua: line shifted to 1-based" '"line":1' "$output"
+fi
+
+# rumdl
+if command -v rumdl &>/dev/null; then
+  cat >"$_td/json-bad.md" <<'EOF'
+# Title
+
+## Dup
+
+## Dup
+EOF
+  set +e
+  output=$("$AUTOLINT" --json "$_td/json-bad.md" 2>/dev/null)
+  rc=$?
+  set -e
+  _assert_exit "json md: exits non-zero" 1 "$rc"
+  _assert_json_lines_valid "json md: valid unified schema" "$output" "rumdl"
+  _assert_contains "json md: rumdl rule present" '"code":"MD024"' "$output"
+fi
+
+# biome
+cat >"$_td/json-bad.js" <<'EOF'
+var x = 1
+if (x == 1) x++;
+EOF
+set +e
+output=$("$AUTOLINT" --json "$_td/json-bad.js" 2>/dev/null)
+rc=$?
+set -e
+_assert_exit "json js: exits non-zero" 1 "$rc"
+_assert_json_lines_valid "json js: valid unified schema" "$output" "biome"
+_assert_contains "json js: biome category present" '"code":"lint/suspicious/noDoubleEquals"' "$output"
+
+# actionlint (workflow YAML)
+_json_wf="$_td/.github/workflows/json-bad.yml"
+mkdir -p "$(dirname "$_json_wf")"
+cat >"$_json_wf" <<'EOF'
+name: t
+on: push
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "${{ secrets.FOO "
+EOF
+if command -v actionlint &>/dev/null; then
+  set +e
+  output=$("$AUTOLINT" --json "$_json_wf" 2>/dev/null)
+  rc=$?
+  set -e
+  _assert_exit "json yml: exits non-zero" 1 "$rc"
+  _assert_json_lines_valid "json yml: valid unified schema" "$output" "actionlint"
+fi
+
+# zsh — synthesized diagnostic with parsed line number
+cat >"$_td/json-bad.zsh" <<'EOF'
+#!/usr/bin/env zsh
+if true
+  echo oops
+fi
+EOF
+set +e
+output=$("$AUTOLINT" --json "$_td/json-bad.zsh" 2>/dev/null)
+rc=$?
+set -e
+_assert_exit "json zsh: exits non-zero" 1 "$rc"
+_assert_json_lines_valid "json zsh: valid unified schema" "$output" "zsh"
+_assert_contains "json zsh: error severity" '"severity":"error"' "$output"
+
+# taplo — synthesized file-level error on malformed TOML
+if command -v taplo &>/dev/null; then
+  printf '[a\nbroken\n' >"$_td/json-bad.toml"
+  set +e
+  output=$("$AUTOLINT" --json "$_td/json-bad.toml" 2>/dev/null)
+  rc=$?
+  set -e
+  _assert_exit "json toml: exits non-zero on malformed" 1 "$rc"
+  _assert_json_lines_valid "json toml: valid unified schema" "$output" "taplo"
+fi
+
+# Clean input → no output in json mode, exit 0.
+cat >"$_td/json-ok.py" <<'EOF'
+x = 1
+EOF
+set +e
+output=$("$AUTOLINT" --json "$_td/json-ok.py" 2>/dev/null)
+rc=$?
+set -e
+_assert_exit "json py: exits 0 on clean file" 0 "$rc"
+_assert_eq "json py: no output on clean file" "" "$output"
+
+# Missing jq → hard error (same shape as missing yq).
+_nojq_bin=$(_mock_bin)
+ln -s "$(command -v bash)" "$_nojq_bin/bash"
+ln -s "$(command -v yq)" "$_nojq_bin/yq"
+set +e
+output=$(PATH="$_nojq_bin" "$AUTOLINT" --json "$_td/json-ok.py" 2>&1)
+rc=$?
+set -e
+_assert_exit "json: missing jq exits 1" 1 "$rc"
+_assert_contains "json: missing jq error message" "jq is required for --json" "$output"
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 
