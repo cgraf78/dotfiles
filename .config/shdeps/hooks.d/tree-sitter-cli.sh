@@ -22,10 +22,10 @@ install() {
 
   case "$mgr" in
     brew)
-      if shdeps_reinstall && brew list tree-sitter &>/dev/null; then
-        brew upgrade tree-sitter &>/dev/null || return 1
+      if shdeps_reinstall && brew list tree-sitter-cli &>/dev/null; then
+        brew upgrade tree-sitter-cli &>/dev/null || return 1
       else
-        brew install tree-sitter &>/dev/null || return 1
+        brew install tree-sitter-cli &>/dev/null || return 1
       fi
       ;;
     dnf)
