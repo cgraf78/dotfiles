@@ -2,7 +2,9 @@
 # Hook for tree-sitter-cli — needed by nvim-treesitter for grammars
 # that require generation (e.g. doxygen).
 #
-# brew/dnf/pacman have packages; apt doesn't, so fall back to cargo.
+# brew/dnf/pacman have packages; apt doesn't and cargo install requires
+# rustc ≥ 1.86 which Debian stable doesn't ship yet.
+# TODO: add cargo fallback for apt once Debian ships rustc ≥ 1.86.
 
 exists() {
   command -v tree-sitter &>/dev/null
@@ -39,13 +41,6 @@ install() {
       local pacman_flags=(--noconfirm)
       shdeps_reinstall || pacman_flags+=(--needed)
       sudo pacman -S "${pacman_flags[@]}" tree-sitter-cli &>/dev/null || return 1
-      ;;
-    apt)
-      if ! command -v cargo &>/dev/null; then
-        shdeps_warn "  warning: cargo not available — cannot install tree-sitter-cli on apt"
-        return 1
-      fi
-      cargo install tree-sitter-cli &>/dev/null || return 1
       ;;
     *)
       shdeps_warn "  warning: no install method for tree-sitter-cli on ${mgr:-unknown}"
