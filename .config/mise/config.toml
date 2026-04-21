@@ -41,5 +41,13 @@
 "aqua:rust-lang/rust-analyzer" = "latest"
 "aqua:tamasfe/taplo" = "latest"
 
+# Pin `tmux` via mise so every machine gets a modern build regardless
+# of what the distro ships. `tmux` 3.5a has a bracketed-paste tracking
+# regression: it parses the child's `\e[?2004h` request but never wraps
+# pastes with `\e[200~…\e[201~` when forwarding to the child. Apps that
+# opt into bracketed paste then see each newline in a multi-line paste
+# as `Enter` and submit mid-paste. 3.6a fixes it.
+"aqua:tmux/tmux-builds" = "latest"
+
 # See the note above for why rumdl uses `ubi:` instead of `aqua:`.
 "ubi:rvben/rumdl" = "latest"
