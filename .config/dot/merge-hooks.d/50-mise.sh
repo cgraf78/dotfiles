@@ -18,7 +18,11 @@ merge() {
 
   local github_token
   github_token="${MISE_GITHUB_TOKEN:-}"
-  if [[ -z "$github_token" ]] && command -v gh &>/dev/null; then
+
+  # Headless cron runs on Linux can leak a session bus/keyring pair when
+  # `gh auth token` wakes up the credential stack, so only fall back to
+  # `gh` when the merge is running interactively.
+  if [[ -z "$github_token" ]] && [[ -t 0 && -t 1 ]] && command -v gh &>/dev/null; then
     github_token="$(gh auth token 2>/dev/null || true)"
   fi
 

@@ -789,6 +789,68 @@ rm -rf "$SSH_DIR"
 rm -f "$TEST_HOME/.config/dot/merge-hooks.d"/ssh-config*
 
 # ---------------------------------------------------------------------------
+# Tests: 50-mise.sh merge hook
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== Mise merge hook ==="
+
+_MISE_HOOK="$REAL_HOME/.config/dot/merge-hooks.d/50-mise.sh"
+
+_run_mise_merge() {
+  unset -f merge 2>/dev/null
+  # shellcheck source=/dev/null
+  . "$_MISE_HOOK"
+  merge
+}
+
+MOCK_BIN=$(_mock_bin)
+export PATH="$MOCK_BIN:$PATH"
+mkdir -p "$TEST_HOME/.config/mise" "$TEST_HOME/.config/gh"
+printf '%s\n' '[tools]' >"$TEST_HOME/.config/mise/config.toml"
+
+cat >"$MOCK_BIN/mise" <<'MISE'
+#!/bin/bash
+printf 'MISE_GITHUB_TOKEN=%s\n' "${MISE_GITHUB_TOKEN-}" >>"$HOME/.mise-env.log"
+printf '%s\n' "$*" >>"$HOME/.mise-calls.log"
+exit 0
+MISE
+chmod +x "$MOCK_BIN/mise"
+
+cat >"$MOCK_BIN/gh" <<'GH'
+#!/bin/bash
+printf '%s\n' "$*" >>"$HOME/.gh-calls.log"
+printf '%s\n' "gh-token"
+exit 0
+GH
+chmod +x "$MOCK_BIN/gh"
+
+# Non-interactive merge never calls gh.
+rm -f "$TEST_HOME/.mise-env.log" "$TEST_HOME/.mise-calls.log" "$TEST_HOME/.gh-calls.log"
+_run_mise_merge
+result=$(cat "$TEST_HOME/.mise-env.log")
+_assert_contains "mise hook: leaves token empty in non-interactive mode" "MISE_GITHUB_TOKEN=" "$result"
+result=$(cat "$TEST_HOME/.mise-calls.log")
+_assert_contains "mise hook: trusts config" "trust $TEST_HOME/.config/mise/config.toml" "$result"
+_assert_contains "mise hook: runs install" "install" "$result"
+if [[ ! -e "$TEST_HOME/.gh-calls.log" ]]; then
+  _pass "mise hook: skips gh in non-interactive mode"
+else
+  _fail "mise hook: skips gh in non-interactive mode"
+fi
+
+# Existing env token wins and also skips gh.
+rm -f "$TEST_HOME/.mise-env.log" "$TEST_HOME/.mise-calls.log" "$TEST_HOME/.gh-calls.log"
+MISE_GITHUB_TOKEN='token-from-env' _run_mise_merge
+result=$(cat "$TEST_HOME/.mise-env.log")
+_assert_contains "mise hook: keeps existing env token" "MISE_GITHUB_TOKEN=token-from-env" "$result"
+if [[ ! -e "$TEST_HOME/.gh-calls.log" ]]; then
+  _pass "mise hook: env token also skips gh"
+else
+  _fail "mise hook: env token also skips gh"
+fi
+
+# ---------------------------------------------------------------------------
 # Tests: _run_merges
 # ---------------------------------------------------------------------------
 
