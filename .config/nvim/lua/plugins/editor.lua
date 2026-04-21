@@ -83,19 +83,22 @@ return {
       },
     },
     keys = {
+      { "<C-p>", "<cmd>Telescope oldfiles<cr>", desc = "Recent files" },
+      { "<leader>f", "<cmd>Telescope find_files<cr>", desc = "Find files" },
       {
-        "<C-p>",
+        "<C-f>",
+        "<cmd>Telescope current_buffer_fuzzy_find initial_mode=insert<cr>",
+        desc = "Search in buffer",
+      },
+      { "<leader>b", "<cmd>Telescope buffers<cr>", desc = "Buffers" },
+      { "<leader>g", "<cmd>Telescope live_grep initial_mode=insert<cr>", desc = "Live grep" },
+      {
+        "<leader>j",
         function()
           require("telescope.builtin").find_files({ cwd = vim.env.HOME })
         end,
         desc = "Find files (home)",
       },
-      { "<leader>p", "<cmd>Telescope find_files<cr>", desc = "Find files (cwd)" },
-      { "<C-f>", "<cmd>Telescope current_buffer_fuzzy_find<cr>", desc = "Search in buffer" },
-      { "<leader>f", "<cmd>Telescope oldfiles<cr>", desc = "Recent files" },
-      { "<leader>b", "<cmd>Telescope buffers<cr>", desc = "Buffers" },
-      { "<leader>g", "<cmd>Telescope live_grep initial_mode=insert<cr>", desc = "Live grep" },
-      { "<leader>j", "<cmd>Telescope find_files<cr>", desc = "Find files" },
       { "<leader>/", "<cmd>Telescope current_buffer_fuzzy_find<cr>", desc = "Search in buffer" },
       { "<leader>?", "<cmd>Telescope keymaps<cr>", desc = "Search keymaps" },
       { "<leader>sv", "<cmd>Cheatsheet<cr>", desc = "Vim cheatsheet" },
