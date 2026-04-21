@@ -143,9 +143,11 @@ return {
           zsh = { "autoformat" },
         },
         format_on_save = function(bufnr)
-          -- Skip if formatter not installed
           if vim.g.disable_autoformat or vim.b[bufnr].disable_autoformat then
             return
+          end
+          if vim.g.dotfiles_lsp_format then
+            return { timeout_ms = 2500, lsp_format = "prefer" }
           end
           return { timeout_ms = 2000, lsp_format = "fallback" }
         end,
