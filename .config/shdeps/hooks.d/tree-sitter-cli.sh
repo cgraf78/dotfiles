@@ -7,6 +7,8 @@
 # TODO: add cargo fallback for apt once Debian ships rustc ≥ 1.86.
 
 exists() {
+  # No package available on apt; report as present to avoid install failure.
+  [[ "$(shdeps_pkg_mgr)" == "apt" ]] && return 0
   command -v tree-sitter &>/dev/null
 }
 
