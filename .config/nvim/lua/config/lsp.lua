@@ -157,6 +157,9 @@ vim.lsp.config("vimls", { capabilities = capabilities })
 -- Dockerfile
 vim.lsp.config("dockerls", { capabilities = capabilities })
 
+-- TOML (taplo is managed by mise; binary lives on $PATH via shims)
+vim.lsp.config("taplo", { capabilities = capabilities })
+
 vim.lsp.enable({
   "bashls",
   "clangd",
@@ -167,6 +170,7 @@ vim.lsp.enable({
   "marksman",
   "pyright",
   "rust_analyzer",
+  "taplo",
   "ts_ls",
   "vimls",
   "yamlls",
