@@ -85,6 +85,28 @@ map("n", "<C-a>", "ggVG", { desc = "Select all" })
 map("v", "<C-a>", "gg0oG$", { desc = "Select all" })
 map("i", "<C-a>", "<Esc>ggVG", { desc = "Select all" })
 
+-- Shift-arrow selection (character-wise)
+map("n", "<S-Left>", "v<Left>", { desc = "Select left" })
+map("n", "<S-Right>", "v<Right>", { desc = "Select right" })
+map("n", "<S-Up>", "v<Up>", { desc = "Select up" })
+map("n", "<S-Down>", "v<Down>", { desc = "Select down" })
+map("v", "<S-Left>", "<Left>", { desc = "Extend left" })
+map("v", "<S-Right>", "<Right>", { desc = "Extend right" })
+map("v", "<S-Up>", "<Up>", { desc = "Extend up" })
+map("v", "<S-Down>", "<Down>", { desc = "Extend down" })
+map("i", "<S-Left>", "<Esc>v<Left>", { desc = "Select left" })
+map("i", "<S-Right>", "<Esc>v<Right>", { desc = "Select right" })
+map("i", "<S-Up>", "<Esc>v<Up>", { desc = "Select up" })
+map("i", "<S-Down>", "<Esc>v<Down>", { desc = "Select down" })
+
+-- Ctrl-Shift-arrow selection (word-wise)
+map("n", "<C-S-Left>", "vb", { desc = "Select word left" })
+map("n", "<C-S-Right>", "ve", { desc = "Select word right" })
+map("v", "<C-S-Left>", "b", { desc = "Extend word left" })
+map("v", "<C-S-Right>", "e", { desc = "Extend word right" })
+map("i", "<C-S-Left>", "<Esc>vb", { desc = "Select word left" })
+map("i", "<C-S-Right>", "<Esc>ve", { desc = "Select word right" })
+
 -- Copy visual selection with Ctrl-C
 map("v", "<C-c>", "y", { desc = "Copy selection" })
 
