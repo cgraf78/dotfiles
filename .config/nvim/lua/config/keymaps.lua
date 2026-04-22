@@ -80,6 +80,11 @@ map({ "n", "i", "v" }, "<C-s>", "<cmd>w<cr><esc>", { desc = "Save file" })
 map({ "n", "i", "v" }, "<C-z>", "<cmd>undo<cr>", { desc = "Undo" })
 map({ "n", "i", "v" }, "<C-y>", "<cmd>redo<cr>", { desc = "Redo" })
 
+-- Select all with Ctrl-A
+map("n", "<C-a>", "ggVG", { desc = "Select all" })
+map("v", "<C-a>", "gg0oG$", { desc = "Select all" })
+map("i", "<C-a>", "<Esc>ggVG", { desc = "Select all" })
+
 -- Copy visual selection with Ctrl-C
 map("v", "<C-c>", "y", { desc = "Copy selection" })
 
