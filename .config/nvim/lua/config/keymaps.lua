@@ -122,7 +122,10 @@ map("v", "<Up>", "<Esc><Up>", { desc = "Clear selection, move up" })
 map("v", "<Down>", "<Esc><Down>", { desc = "Clear selection, move down" })
 
 -- Copy visual selection with Ctrl-C
-map("v", "<C-c>", "y", { desc = "Copy selection" })
+map("v", "<C-c>", "ygv<Esc>", { desc = "Copy selection" })
+
+-- Yank without moving cursor
+map("v", "y", "ygv<Esc>", { desc = "Yank (keep cursor)" })
 
 -- Paste over selection without losing clipboard
 map("v", "<leader>p", '"_dP', { desc = "Paste without yank" })
