@@ -107,6 +107,14 @@ map("v", "<C-S-Right>", "e", { desc = "Extend word right" })
 map("i", "<C-S-Left>", "<Esc>vb", { desc = "Select word left" })
 map("i", "<C-S-Right>", "<Esc>ve", { desc = "Select word right" })
 
+-- Shift-PageUp/Down selection
+map("n", "<S-PageUp>", "v<PageUp>", { desc = "Select page up" })
+map("n", "<S-PageDown>", "v<PageDown>", { desc = "Select page down" })
+map("v", "<S-PageUp>", "<PageUp>", { desc = "Extend page up" })
+map("v", "<S-PageDown>", "<PageDown>", { desc = "Extend page down" })
+map("i", "<S-PageUp>", "<Esc>v<PageUp>", { desc = "Select page up" })
+map("i", "<S-PageDown>", "<Esc>v<PageDown>", { desc = "Select page down" })
+
 -- Arrow keys in visual mode: clear selection and move
 map("v", "<Left>", "<Esc><Left>", { desc = "Clear selection, move left" })
 map("v", "<Right>", "<Esc><Right>", { desc = "Clear selection, move right" })
