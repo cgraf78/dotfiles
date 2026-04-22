@@ -14,6 +14,12 @@ local M = {}
 --   vim.g.dot_colorscheme = "catppuccin"
 M.colorscheme = vim.env.NVIM_COLORSCHEME or vim.g.dot_colorscheme or "gruvbox"
 
+function M.apply_overrides()
+  if M.colorscheme == "night-owl" then
+    vim.api.nvim_set_hl(0, "CursorLine", { bg = "#0b2942" })
+  end
+end
+
 function M.lualine_theme()
   local supported = {
     gruvbox = true,

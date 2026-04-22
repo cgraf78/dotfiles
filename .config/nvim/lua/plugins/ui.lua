@@ -38,7 +38,7 @@ return {
     config = function()
       if theme.colorscheme == "night-owl" then
         vim.cmd("colorscheme night-owl")
-        vim.api.nvim_set_hl(0, "CursorLine", { bg = "#0b2942" })
+        theme.apply_overrides()
       end
     end,
   },
