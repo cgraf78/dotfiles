@@ -194,4 +194,62 @@ return {
       require("bigfile").setup({ filesize = 2 })
     end,
   },
+  {
+    "folke/todo-comments.nvim",
+    dependencies = { "nvim-lua/plenary.nvim" },
+    event = "BufReadPost",
+    keys = {
+      {
+        "]t",
+        function()
+          require("todo-comments").jump_next()
+        end,
+        desc = "Next TODO",
+      },
+      {
+        "[t",
+        function()
+          require("todo-comments").jump_prev()
+        end,
+        desc = "Prev TODO",
+      },
+      { "<leader>st", "<cmd>TodoTelescope<cr>", desc = "Search TODOs" },
+    },
+    config = function()
+      require("todo-comments").setup()
+    end,
+  },
+  {
+    "nvim-pack/nvim-spectre",
+    enabled = false,
+    dependencies = { "nvim-lua/plenary.nvim" },
+    keys = {
+      {
+        "<leader>sr",
+        function()
+          require("spectre").toggle()
+        end,
+        desc = "Search and replace",
+      },
+      {
+        "<leader>sw",
+        function()
+          require("spectre").open_visual({ select_word = true })
+        end,
+        desc = "Search current word",
+      },
+    },
+  },
+  {
+    "sindrets/diffview.nvim",
+    cmd = { "DiffviewOpen", "DiffviewFileHistory" },
+    keys = {
+      { "<leader>dv", "<cmd>DiffviewOpen<cr>", desc = "Diff view" },
+      { "<leader>dh", "<cmd>DiffviewFileHistory %<cr>", desc = "File history" },
+      { "<leader>dc", "<cmd>DiffviewClose<cr>", desc = "Close diff view" },
+    },
+    config = function()
+      require("diffview").setup()
+    end,
+  },
 }
