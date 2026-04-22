@@ -90,5 +90,12 @@ map("v", "<leader>Y", '"+y', { desc = "Yank selection to clipboard" })
 -- Join lines without cursor jump
 map("n", "J", "mzJ`z", { desc = "Join lines (keep cursor)" })
 
+-- Go to line (Alt-G, matches VS Code)
+map("n", "<M-g>", ":", { desc = "Go to line" })
+
+-- Prev/next diff hunk (F7/F8, matches VS Code)
+map("n", "<F8>", "]c", { desc = "Next diff hunk" })
+map("n", "<F7>", "[c", { desc = "Prev diff hunk" })
+
 -- Spell checking
 map("n", "<leader>ss", ":setlocal spell!<CR>", { desc = "Toggle spell check" })
