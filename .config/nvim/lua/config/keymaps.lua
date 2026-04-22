@@ -107,6 +107,12 @@ map("v", "<C-S-Right>", "e", { desc = "Extend word right" })
 map("i", "<C-S-Left>", "<Esc>vb", { desc = "Select word left" })
 map("i", "<C-S-Right>", "<Esc>ve", { desc = "Select word right" })
 
+-- Arrow keys in visual mode: clear selection and move
+map("v", "<Left>", "<Esc><Left>", { desc = "Clear selection, move left" })
+map("v", "<Right>", "<Esc><Right>", { desc = "Clear selection, move right" })
+map("v", "<Up>", "<Esc><Up>", { desc = "Clear selection, move up" })
+map("v", "<Down>", "<Esc><Down>", { desc = "Clear selection, move down" })
+
 -- Copy visual selection with Ctrl-C
 map("v", "<C-c>", "y", { desc = "Copy selection" })
 
