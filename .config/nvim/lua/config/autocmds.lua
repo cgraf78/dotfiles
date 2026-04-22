@@ -113,28 +113,65 @@ vim.api.nvim_create_autocmd("User", {
   end,
 })
 
--- Keep terminal buffers out of the tabline and make :q exit nvim.
+-- IDE-style :q — exit nvim from any non-editor buffer (terminal, NvimTree).
+--
+-- Without this, :q from a terminal or tree sidebar just closes that window,
+-- requiring a second :q to actually exit. This makes :q behave like closing
+-- the IDE window: quit everything, but warn about unsaved file changes.
+--
+-- Mechanism: buffer-local cnoreabbrev expands :q to :Qa in auxiliary buffers.
+-- We can't use lowercase user commands (nvim requires uppercase) or QuitPre
+-- (can't reliably delete buffers mid-quit), so the abbreviation trick is the
+-- only approach that works.
+--
+-- To add a new auxiliary buffer type:
+--   1. Add its predicate to is_auxiliary_buf()
+--   2. Add an autocmd calling setup_quit_abbrevs()
+--   3. Add type-specific cleanup in Qa if needed (e.g. job kill for terminals)
+
+local function setup_quit_abbrevs()
+  vim.cmd("cnoreabbrev <buffer> q Qa")
+  vim.cmd("cnoreabbrev <buffer> q! Qa!")
+  vim.cmd("cnoreabbrev <buffer> wq Qa")
+  vim.cmd("cnoreabbrev <buffer> wq! Qa!")
+end
+
 vim.api.nvim_create_autocmd("TermOpen", {
   callback = function(args)
     vim.bo[args.buf].buflisted = false
-    vim.cmd("cnoreabbrev <buffer> q Qa")
-    vim.cmd("cnoreabbrev <buffer> q! Qa!")
-    vim.cmd("cnoreabbrev <buffer> wq Qa")
-    vim.cmd("cnoreabbrev <buffer> wq! Qa!")
+    setup_quit_abbrevs()
   end,
 })
 
+vim.api.nvim_create_autocmd("FileType", {
+  pattern = "NvimTree",
+  callback = function()
+    setup_quit_abbrevs()
+  end,
+})
+
+local function is_auxiliary_buf(buf)
+  if not vim.api.nvim_buf_is_valid(buf) then
+    return false
+  end
+  return vim.bo[buf].buftype == "terminal" or vim.bo[buf].filetype == "NvimTree"
+end
+
 vim.api.nvim_create_user_command("Qa", function(cmd)
   for _, buf in ipairs(vim.api.nvim_list_bufs()) do
-    if vim.api.nvim_buf_is_valid(buf) and vim.bo[buf].buftype == "terminal" then
-      local job = vim.b[buf].terminal_job_id
-      if job then
-        pcall(vim.fn.jobstop, job)
-        pcall(vim.fn.jobwait, { job }, 100)
+    if is_auxiliary_buf(buf) then
+      -- Terminal jobs block :qa with E948 unless killed first.
+      if vim.bo[buf].buftype == "terminal" then
+        local job = vim.b[buf].terminal_job_id
+        if job then
+          pcall(vim.fn.jobstop, job)
+          pcall(vim.fn.jobwait, { job }, 100)
+        end
       end
       pcall(vim.api.nvim_buf_delete, buf, { force = true })
     end
   end
+  -- :qa warns about unsaved file buffers (E37); :qa! discards them.
   local ok, err = pcall(vim.cmd, cmd.bang and "qa!" or "qa")
   if not ok then
     vim.notify(err:gsub("^.*:E", "E"), vim.log.levels.ERROR)
