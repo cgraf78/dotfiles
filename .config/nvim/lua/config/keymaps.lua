@@ -115,11 +115,15 @@ map("v", "<S-PageDown>", "<PageDown>", { desc = "Extend page down" })
 map("i", "<S-PageUp>", "<Esc>v<PageUp>", { desc = "Select page up" })
 map("i", "<S-PageDown>", "<Esc>v<PageDown>", { desc = "Select page down" })
 
--- Arrow keys in visual mode: clear selection and move
+-- Navigation keys in visual mode: clear selection and move
 map("v", "<Left>", "<Esc><Left>", { desc = "Clear selection, move left" })
 map("v", "<Right>", "<Esc><Right>", { desc = "Clear selection, move right" })
 map("v", "<Up>", "<Esc><Up>", { desc = "Clear selection, move up" })
 map("v", "<Down>", "<Esc><Down>", { desc = "Clear selection, move down" })
+map("v", "<Home>", "<Esc><Home>", { desc = "Clear selection, move to line start" })
+map("v", "<End>", "<Esc><End>", { desc = "Clear selection, move to line end" })
+map("v", "<PageUp>", "<Esc><PageUp>", { desc = "Clear selection, page up" })
+map("v", "<PageDown>", "<Esc><PageDown>", { desc = "Clear selection, page down" })
 
 -- Copy visual selection with Ctrl-C
 map("v", "<C-c>", "ygv<Esc>", { desc = "Copy selection" })
