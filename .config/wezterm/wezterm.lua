@@ -255,6 +255,8 @@ wezterm.on("user-var-changed", function(window, pane, name, value)
     elseif is_linux then
       wezterm.background_child_process({ "paplay", "/usr/share/sounds/freedesktop/stereo/bell.oga" })
     end
+  elseif name == "term_open_url" and value ~= "" then
+    wezterm.open_with(value)
   end
 end)
 
