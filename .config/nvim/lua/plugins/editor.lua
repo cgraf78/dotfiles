@@ -157,6 +157,9 @@ return {
           enable = true,
           update_root = false,
         },
+        filesystem_watchers = {
+          enable = not vim.g.dotfiles_large_repo,
+        },
       })
     end,
   },
