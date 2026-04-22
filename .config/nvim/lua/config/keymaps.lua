@@ -80,6 +80,9 @@ map({ "n", "i", "v" }, "<C-s>", "<cmd>w<cr><esc>", { desc = "Save file" })
 map({ "n", "i", "v" }, "<C-z>", "<cmd>undo<cr>", { desc = "Undo" })
 map({ "n", "i", "v" }, "<C-y>", "<cmd>redo<cr>", { desc = "Redo" })
 
+-- Copy visual selection with Ctrl-C
+map("v", "<C-c>", "y", { desc = "Copy selection" })
+
 -- Paste over selection without losing clipboard
 map("v", "<leader>p", '"_dP', { desc = "Paste without yank" })
 
