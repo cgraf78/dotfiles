@@ -1,3 +1,8 @@
+-- Large-repo safety: plugins that recursively walk the project tree
+-- (filesystem watchers, project-wide grep/search, TODO scanning) must
+-- be gated on `not vim.g.dotfiles_large_repo`. The flag is set by the
+-- work dotfiles overlay for repos where tree traversal is prohibitive.
+
 return {
   {
     "folke/trouble.nvim",
