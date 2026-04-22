@@ -120,6 +120,13 @@ return {
           sorting_strategy = "ascending",
         },
         pickers = {
+          buffers = {
+            mappings = {
+              n = {
+                ["dd"] = require("telescope.actions").delete_buffer,
+              },
+            },
+          },
           find_files = {
             hidden = true,
             find_command = {
