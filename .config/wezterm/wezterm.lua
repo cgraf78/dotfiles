@@ -114,59 +114,6 @@ else
   line_height = 1.0
 end
 
--- =============================================================================
--- Feature 1: leader key + pane splitting/navigation/resize
--- =============================================================================
--- Leader: CTRL+A (tmux-style), 1s timeout
-local leader = { key = "a", mods = "CTRL", timeout_milliseconds = 1000 }
-
-local function move_pane(key, direction)
-  return bind(key, "LEADER", act.ActivatePaneDirection(direction))
-end
-
-local function resize_pane(key, direction)
-  return { key = key, action = act.AdjustPaneSize({ direction, 3 }) }
-end
-
-local key_tables = {
-  -- LEADER+r enters resize mode; hjkl resize until timeout (1s idle exits)
-  resize_panes = {
-    resize_pane("h", "Left"),
-    resize_pane("j", "Down"),
-    resize_pane("k", "Up"),
-    resize_pane("l", "Right"),
-  },
-}
-
-local leader_keys = {
-  -- Pass-through: LEADER+CTRL+A sends a real CTRL+A to the shell
-  bind("a", "LEADER|CTRL", act.SendKey({ key = "a", mods = "CTRL" })),
-
-  -- Pane splitting (tmux-style)
-  bind('"', "LEADER", act.SplitHorizontal({ domain = "CurrentPaneDomain" })),
-  bind("%", "LEADER", act.SplitVertical({ domain = "CurrentPaneDomain" })),
-
-  -- Pane navigation (vim keys)
-  move_pane("h", "Left"),
-  move_pane("j", "Down"),
-  move_pane("k", "Up"),
-  move_pane("l", "Right"),
-
-  -- Resize mode (LEADER+r, then hold hjkl)
-  bind(
-    "r",
-    "LEADER",
-    act.ActivateKeyTable({
-      name = "resize_panes",
-      one_shot = false,
-      timeout_milliseconds = 1000,
-    })
-  ),
-
-  -- Workspace switcher
-  bind("f", "LEADER", act.ShowLauncherArgs({ flags = "FUZZY|WORKSPACES" })),
-}
-
 local keys = {
   -- Shift+Enter: send CSI u sequence (kitty keyboard protocol) so TUIs can
   -- distinguish it from plain Enter. Requires tmux extended-keys passthrough
@@ -207,8 +154,6 @@ local keys = {
   bind("3", "ALT", act.ActivateTab(2)),
   bind("4", "ALT", act.ActivateTab(3)),
 }
-
-append_all(keys, leader_keys)
 
 if is_macos then
   append_all(keys, {
@@ -265,8 +210,6 @@ end)
 -- =============================================================================
 return {
   default_prog = default_prog,
-  leader = leader,
-  key_tables = key_tables,
 
   color_scheme = "Tokyo Night",
 
