@@ -120,6 +120,10 @@ local keys = {
   -- (set via terminal-features extkeys in tmux.conf).
   bind("Enter", "SHIFT", act.SendString("\x1b[13;2u")),
 
+  -- Pass Shift-PageUp/Down to the application (overrides WezTerm scrollback)
+  bind("PageUp", "SHIFT", act.SendString("\x1b[5;2~")),
+  bind("PageDown", "SHIFT", act.SendString("\x1b[6;2~")),
+
   -- Font size controls
   bind("=", "CTRL", act.IncreaseFontSize),
   bind("-", "CTRL", act.DecreaseFontSize),
