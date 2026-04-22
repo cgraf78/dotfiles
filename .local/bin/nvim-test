@@ -759,6 +759,7 @@ _nvim_eval "clangd root_dir works for non-Buck project with .git" '
   dofile("'"$NVIM_CONFIG"'/config/lsp.lua")
   local tmp = vim.fn.tempname()
   vim.fn.mkdir(tmp .. "/project", "p")
+  tmp = vim.uv.fs_realpath(tmp)
   -- Create .git but no .buckconfig
   vim.fn.writefile({}, tmp .. "/project/.git")
   vim.fn.writefile({ "int main() {}" }, tmp .. "/project/main.cpp")
@@ -783,6 +784,7 @@ _nvim_eval "clangd root_dir works for Buck project with compile_commands.json" '
   dofile("'"$NVIM_CONFIG"'/config/lsp.lua")
   local tmp = vim.fn.tempname()
   vim.fn.mkdir(tmp .. "/project", "p")
+  tmp = vim.uv.fs_realpath(tmp)
   -- Buck project WITH compile_commands.json — should work
   vim.fn.writefile({}, tmp .. "/project/.buckconfig")
   vim.fn.writefile({}, tmp .. "/project/.git")
