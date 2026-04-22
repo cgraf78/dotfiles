@@ -216,7 +216,14 @@ return {
         end,
         desc = "Prev TODO",
       },
-      { "<leader>st", "<cmd>TodoTelescope<cr>", desc = "Search TODOs" },
+      {
+        "<leader>st",
+        "<cmd>TodoTelescope<cr>",
+        desc = "Search TODOs",
+        cond = function()
+          return not vim.g.dotfiles_large_repo
+        end,
+      },
     },
     config = function()
       require("todo-comments").setup()
