@@ -97,5 +97,8 @@ map("n", "<M-g>", ":", { desc = "Go to line" })
 map("n", "<F8>", "]c", { desc = "Next diff hunk" })
 map("n", "<F7>", "[c", { desc = "Prev diff hunk" })
 
+-- Toggle relative line numbers
+map("n", "<leader>rl", ":set relativenumber!<CR>", { desc = "Toggle relative numbers" })
+
 -- Spell checking
 map("n", "<leader>ss", ":setlocal spell!<CR>", { desc = "Toggle spell check" })
