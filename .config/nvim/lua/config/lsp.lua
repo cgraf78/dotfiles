@@ -208,10 +208,14 @@ vim.lsp.config("dockerls", { capabilities = capabilities })
 -- TOML (taplo is managed by mise; binary lives on $PATH via shims)
 vim.lsp.config("taplo", { capabilities = capabilities })
 
+-- CMake
+vim.lsp.config("cmake", { capabilities = capabilities })
+
 vim.lsp.enable({
   "bashls",
   "basedpyright",
   "clangd",
+  "cmake",
   "dockerls",
   "gopls",
   "jsonls",
