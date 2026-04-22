@@ -97,11 +97,18 @@ function M.toggle()
   -- From terminal: hide the window, go back to editor.
   if is_terminal_window(current) then
     vim.t.last_terminal_buf = vim.api.nvim_win_get_buf(current)
+    -- Suppress auto-exit: closing the terminal window may leave only
+    -- aux windows visible (e.g. ephemeral views + NvimTree), but the user is
+    -- just toggling, not quitting.
+    vim.g.aux_exit_suppressed = true
     vim.api.nvim_win_close(current, false)
     local target = editor_window()
     if target then
       vim.api.nvim_set_current_win(target)
     end
+    vim.schedule(function()
+      vim.g.aux_exit_suppressed = false
+    end)
     return
   end
 
