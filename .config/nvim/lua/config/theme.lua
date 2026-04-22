@@ -20,6 +20,16 @@ function M.apply_overrides()
   end
 end
 
+function M.lazy_dir()
+  return vim.fn.stdpath("data") .. "/lazy/" .. M.colorscheme .. ".nvim"
+end
+
+function M.apply()
+  vim.o.termguicolors = true
+  vim.cmd("silent! colorscheme " .. M.colorscheme)
+  M.apply_overrides()
+end
+
 function M.lualine_theme()
   local supported = {
     gruvbox = true,
