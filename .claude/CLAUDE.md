@@ -56,6 +56,16 @@ for full documentation.
 - Keep in-flight PR branches current with the latest `origin/main`; if `origin/main` has moved and I'm touching the branch again, rebase it and update the PR.
 - Before saying a PR was updated, verify that the PR is still open; if it was already merged or closed, create a new branch/PR instead of assuming more branch pushes update the old PR.
 
+## Design Principles
+
+- **Single-source shared knowledge** — when two or more places need the same value, decision, or logic, extract it to one authoritative location and have consumers call into it. Don't duplicate constants, resolution logic, or convention knowledge across files.
+- **Expose clean interfaces** — provide a function or module API to access shared state rather than forcing callers to reimplement the same steps. Callers should say *what* they want, not *how* to get it.
+- **Compose from single-purpose parts** — build higher-level behavior by aggregating small, focused components with clean interfaces. Each piece does one thing well; composition gives flexibility to recombine them differently without rewriting internals.
+- **Consolidate after the second use** — the first duplication is fine; when a second consumer appears, refactor to a shared source. Don't preemptively abstract, but don't tolerate three copies.
+- **Guard at async boundaries** — any callback that fires after a delay (timers, deferred functions, completion handlers) must re-validate every handle it touches. Resources can disappear between scheduling and execution.
+- **Prevent re-entrancy in polled loops** — if a timer or event can fire while a previous invocation is still in flight, use a flag to skip overlapping runs rather than queuing unbounded work.
+- **Isolate by separation, not by crippling** — when sandboxing components, prefer running normal code in a separate process or scope over stripping everything and manually re-adding pieces. Only remove what actually causes interference.
+
 ## Code Style
 
 - **Brief function names** — concise verbs, no unnecessary prefixes/suffixes.
