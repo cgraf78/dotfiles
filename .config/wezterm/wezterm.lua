@@ -187,6 +187,8 @@ if is_macos then
     -- (not just tmux source) to take effect inside tmux.
     bind("LeftArrow", "CTRL", act.SendString("\x1b[1;5D")),
     bind("RightArrow", "CTRL", act.SendString("\x1b[1;5C")),
+    bind("LeftArrow", "CTRL|SHIFT", act.SendString("\x1b[1;6D")),
+    bind("RightArrow", "CTRL|SHIFT", act.SendString("\x1b[1;6C")),
   })
 end
 
