@@ -25,7 +25,6 @@ return {
           "bashls",
           "basedpyright",
           "clangd",
-          "cmake",
           "dockerls",
           "gopls",
           "jsonls",
