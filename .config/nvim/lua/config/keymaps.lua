@@ -76,6 +76,10 @@ map("n", "N", "Nzzzv", { desc = "Prev search result (centered)" })
 -- Save from any mode
 map({ "n", "i", "v" }, "<C-s>", "<cmd>w<cr><esc>", { desc = "Save file" })
 
+-- Undo/redo
+map({ "n", "i", "v" }, "<C-z>", "<cmd>undo<cr>", { desc = "Undo" })
+map({ "n", "i", "v" }, "<C-y>", "<cmd>redo<cr>", { desc = "Redo" })
+
 -- Paste over selection without losing clipboard
 map("v", "<leader>p", '"_dP', { desc = "Paste without yank" })
 
