@@ -107,6 +107,14 @@ map("v", "<C-S-Right>", "e", { desc = "Extend word right" })
 map("i", "<C-S-Left>", "<Esc>vb", { desc = "Select word left" })
 map("i", "<C-S-Right>", "<Esc>ve", { desc = "Select word right" })
 
+-- Shift-Home/End selection
+map("n", "<S-Home>", "v<Home>", { desc = "Select to line start" })
+map("n", "<S-End>", "v<End>", { desc = "Select to line end" })
+map("v", "<S-Home>", "<Home>", { desc = "Extend to line start" })
+map("v", "<S-End>", "<End>", { desc = "Extend to line end" })
+map("i", "<S-Home>", "<Esc>v<Home>", { desc = "Select to line start" })
+map("i", "<S-End>", "<Esc>v<End>", { desc = "Select to line end" })
+
 -- Shift-PageUp/Down selection
 map("n", "<S-PageUp>", "v<PageUp>", { desc = "Select page up" })
 map("n", "<S-PageDown>", "v<PageDown>", { desc = "Select page down" })
@@ -127,6 +135,9 @@ map("v", "<PageDown>", "<Esc><PageDown>", { desc = "Clear selection, page down" 
 
 -- Copy visual selection with Ctrl-C
 map("v", "<C-c>", "ygv<Esc>", { desc = "Copy selection" })
+
+-- Cut visual selection with Ctrl-X
+map("v", "<C-x>", "d", { desc = "Cut selection" })
 
 -- Yank without moving cursor
 map("v", "y", "ygv<Esc>", { desc = "Yank (keep cursor)" })
