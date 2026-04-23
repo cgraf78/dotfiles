@@ -27,7 +27,8 @@ alias c='bat --paging=never'
 alias grep='grep --color=auto'
 alias gl='git log --oneline --graph --decorate'
 alias gll='git log --oneline --all --graph --decorate'
-alias dl='dot git log --oneline --all --graph --decorate'
+alias dl='dot git log --oneline --graph --decorate'
+alias dll='dot git log --oneline --all --graph --decorate'
 alias fzf='fzf --bind=ctrl-n:down,ctrl-p:up,ctrl-d:half-page-down,ctrl-u:half-page-up,alt-j:down,alt-k:up'
 # shellcheck disable=SC2139  # intentional: expand $_fd_cmd at define time
 [[ -n "$_fd_cmd" ]] && alias fd="$_fd_cmd -H"
