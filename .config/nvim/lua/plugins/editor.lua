@@ -223,11 +223,17 @@ return {
       },
       {
         "<leader>st",
-        "<cmd>TodoTelescope<cr>",
-        desc = "Search TODOs",
-        cond = function()
-          return not vim.g.dotfiles_large_repo
+        -- TodoTelescope recursively walks the repo; skip on large repos.
+        -- `cond` isn't valid on per-keymap specs (only on plugin specs), so
+        -- gate inside the rhs instead.
+        function()
+          if vim.g.dotfiles_large_repo then
+            vim.notify("TodoTelescope disabled on large repos", vim.log.levels.WARN)
+            return
+          end
+          vim.cmd("TodoTelescope")
         end,
+        desc = "Search TODOs",
       },
     },
     config = function()
