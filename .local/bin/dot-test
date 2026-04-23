@@ -1033,6 +1033,44 @@ result=$(HOME="$NO_REPO_GIT" "$SCRIPT_DIR/dot" git log 2>&1 || true)
 _assert_contains "git no-repo: shows error" "bare repo not found" "$result"
 
 # ---------------------------------------------------------------------------
+# Tests: dot doctor
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== Doctor command ==="
+
+# Doctor runs against the sandbox HOME. Many checks will warn/fail here
+# because the sandbox is intentionally minimal (no real .bashrc, no yq
+# unless the test host has it on PATH, no cron). These tests assert
+# structural behavior — that the tool renders all sections, emits a
+# summary, and exits with a defined status — not sandbox health.
+
+result=$("$SCRIPT_DIR/dot" doctor 2>&1 || true)
+
+_assert_contains "doctor: title banner" "dot doctor" "$result"
+_assert_contains "doctor: Shell environment section" "Shell environment" "$result"
+_assert_contains "doctor: Dotfiles base repo section" "Dotfiles base repo" "$result"
+_assert_contains "doctor: Overlays section" "Overlays" "$result"
+_assert_contains "doctor: Tools section" "Tools" "$result"
+_assert_contains "doctor: Git hooks section" "Git hooks" "$result"
+_assert_contains "doctor: Cron section" "Cron" "$result"
+_assert_contains "doctor: summary line" "passed" "$result"
+
+# Exit status must be 0 (all OK) or 1 (any FAIL) — never a script crash.
+"$SCRIPT_DIR/dot" doctor >/dev/null 2>&1
+_doctor_rc=$?
+if [[ $_doctor_rc -eq 0 || $_doctor_rc -eq 1 ]]; then
+  _pass "doctor: exit code is 0 or 1"
+else
+  _fail "doctor: exit code is 0 or 1 (got $_doctor_rc)"
+fi
+
+# A sandbox without ~/.bashrc should get flagged as a FAIL (bashrc is
+# checked by the shell section). Ensures the failure path is wired up,
+# not just the happy path.
+[ -f "$TEST_HOME/.bashrc" ] || _assert_contains "doctor: flags missing .bashrc" ".bashrc missing" "$result"
+
+# ---------------------------------------------------------------------------
 # Tests: dot pull (with mock remote)
 # ---------------------------------------------------------------------------
 
