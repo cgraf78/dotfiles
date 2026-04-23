@@ -1,7 +1,8 @@
 # shellcheck shell=bash
-# Aliases, functions, and platform-specific defaults.
+# Cross-platform aliases and helper detection.
+# Platform-specific aliases live in 51-aliases-{macos,linux,wsl}.sh.
 
-# ── Platform binary detection (used by aliases and 56-dot.sh helpers) ────
+# ── Platform binary detection (shared across 51-* files and overlays) ─────
 
 _fd_cmd=""
 if command -v fd &>/dev/null; then
@@ -23,9 +24,6 @@ alias vs='code'
 alias ca='cal -3'
 alias vi='nvim'
 alias c='bat --paging=never'
-alias ll='ls -alF'
-alias la='ls -A'
-alias l='ls -CF'
 alias grep='grep --color=auto'
 alias fgrep='grep -F --color=auto'
 alias egrep='grep -E --color=auto'
@@ -35,7 +33,7 @@ alias fzf='fzf --bind=ctrl-n:down,ctrl-p:up,ctrl-d:half-page-down,ctrl-u:half-pa
 # shellcheck disable=SC2139  # intentional: expand $_fd_cmd at define time
 [[ -n "$_fd_cmd" ]] && alias fd="$_fd_cmd -H"
 
-# ls defaults (eza preferred, then platform-native coloring)
+# ls defaults: prefer eza (cross-platform); platform files set native fallbacks.
 if command -v eza >/dev/null 2>&1; then
   alias ls='eza --group-directories-first'
   alias ll='eza -alF --group-directories-first'
@@ -43,10 +41,10 @@ if command -v eza >/dev/null 2>&1; then
   alias l='eza -F --group-directories-first'
   alias lt='eza --tree --level=2'
   alias llt='eza --tree -al --level=2'
-elif [[ "$_UNAME" == "Darwin" ]]; then
-  alias ls='ls -G'
 else
-  alias ls='ls --color=auto'
+  alias ll='ls -alF'
+  alias la='ls -A'
+  alias l='ls -CF'
 fi
 
 # Smart lazygit: detects bare dotfiles repo at $HOME, otherwise normal.
@@ -69,99 +67,3 @@ argus() {
 
 alias rdptun.bevo2='autossh -M0 -N -L 9000:bevo2.lan:3389 nas'
 alias vnctun.metro='autossh -M0 -N -L 9001:metro.web:5901 nas'
-
-# ── Platform: macOS ──────────────────────────────────────────────────────
-
-# unalias first: bash expands aliases at parse time, so a prior alias
-# causes a syntax error even inside a false if-branch.
-unalias sc 2>/dev/null || true
-if [[ "$_UNAME" == "Darwin" ]]; then
-  sc() {
-    if [[ ! -d ~/gdrive/img ]]; then
-      echo "error: ~/gdrive/img does not exist" >&2
-      return 1
-    fi
-    screencapture -i ~/gdrive/img/"screen_$(date +%Y%m%d_%H%M%S).png"
-  }
-fi
-
-# ── Platform: Linux / WSL / MINGW ─────────────────────────────────────────
-if [[ "$_UNAME" == "Linux" || "$_UNAME" == MINGW* || "$_UNAME" == MSYS* ]]; then
-
-  [[ "$_bat_cmd" == "batcat" ]] && alias bat='batcat'
-
-  # Windows interop (shared between WSL and MINGW/MSYS)
-  if [[ -n "${WSL_DISTRO_NAME:-}" || "$_UNAME" != "Linux" ]]; then
-    alias np='"c:/program files/notepad++/notepad++.exe"'
-    alias rufus='rufus-4.6p.exe -g'
-    alias cpuz='cpuz_x64.exe'
-    alias wireshark='"c:/Program Files/Wireshark/Wireshark.exe"'
-    alias wireshark.rdma='ssh cgraf@ubuntu tcpdump -ni mlx5_0 --immediate-mode -Uw - | "c:/Program Files/Wireshark/Wireshark.exe" -k -i -'
-    alias rebootusb='python "$CMDER_ROOT/bin/usbtools/rebootusb.py"'
-    alias setusbhost='python "$CMDER_ROOT/bin/usbtools/setusbhost.py"'
-    alias pbcopy='clip.exe'
-    alias pbpaste='powershell.exe -NoProfile -Command Get-Clipboard'
-  fi
-
-  # WSL-specific ergonomics
-  if [[ -n "${WSL_DISTRO_NAME:-}" ]]; then
-    # Cache Windows home path
-    if [[ -z "${WINHOME:-}" ]]; then
-      if [[ -d "/mnt/c/Users/$USER" ]]; then
-        export WINHOME="/mnt/c/Users/$USER"
-      else
-        # Fallback to powershell (only if not already cached)
-        WINHOME=$(wslpath "$(powershell.exe -c "Write-Host -NoNewline \$env:USERPROFILE" 2>/dev/null)" 2>/dev/null)
-        export WINHOME
-      fi
-    fi
-
-    # Open in Windows/local VS Code instead of Remote WSL.
-    wcode() {
-      local target code_exe code_exe_win
-      target="$(wslpath -w "${1:-.}")"
-      code_exe="/mnt/c/Users/$USER/AppData/Local/Programs/Microsoft VS Code/Code.exe"
-
-      if [[ -x "$code_exe" ]]; then
-        code_exe_win="$(wslpath -w "$code_exe")"
-        powershell.exe -NoProfile -Command "Start-Process -FilePath '$code_exe_win' -ArgumentList '$target'" >/dev/null 2>&1
-      else
-        powershell.exe -NoProfile -Command "Start-Process -FilePath 'code' -ArgumentList '$target'" >/dev/null 2>&1
-      fi
-    }
-    alias wvs='wcode'
-
-    if [[ -n "${WINHOME:-}" ]]; then
-      alias wh='cd "$WINHOME"'
-      alias winhome='cd "$WINHOME"'
-
-      if [[ -d "$WINHOME/OneDrive/Desktop" ]]; then
-        alias wdesktop='cd "$WINHOME/OneDrive/Desktop"'
-      else
-        alias wdesktop='cd "$WINHOME/Desktop"'
-      fi
-
-      alias wdownloads='cd "$WINHOME/Downloads"'
-
-      if [[ -d "$WINHOME/OneDrive/Documents" ]]; then
-        alias wdocuments='cd "$WINHOME/OneDrive/Documents"'
-      else
-        alias wdocuments='cd "$WINHOME/Documents"'
-      fi
-    fi
-
-    # Path & Clipboard helpers
-    alias cppath='wslpath -w "$(pwd)" | clip.exe' # Copy current WSL path as Windows path
-    alias wpath='wslpath -w'                      # Convert to Windows path
-    alias lpath='wslpath -u'                      # Convert to Linux path
-
-    # Open Windows Explorer
-    e() {
-      if [[ $# -eq 0 ]]; then
-        explorer.exe .
-      else
-        explorer.exe "$(wslpath -w "$1")"
-      fi
-    }
-  fi
-fi
