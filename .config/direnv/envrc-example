@@ -1,0 +1,81 @@
+# Reference `.envrc` — copy to a project root, edit to taste, then run
+# `direnv allow` once to activate. direnv re-evaluates this file whenever
+# you `cd` into the directory or the file's mtime changes.
+#
+# Full helper reference: `man direnv-stdlib` or
+# https://direnv.net/man/direnv-stdlib.1.html
+#
+# Security note: `.envrc` is a real shell script and runs automatically.
+# Treat it like any other code — don't `direnv allow` untrusted repos.
+
+
+# ── PATH: expose project-local tool/script dirs ─────────────────────────
+#
+# `PATH_add DIR` prepends DIR to PATH (safely — no duplicates, no leaking
+# absolute paths into the stored PATH). Call once per directory.
+
+PATH_add ./bin
+PATH_add ./test
+
+
+# ── Environment variables ───────────────────────────────────────────────
+#
+# Use plain `export`. Values are unset when you leave the directory.
+
+# export PROJECT_NAME=my-app
+# export DATABASE_URL=postgres://localhost/my-app-dev
+# export LOG_LEVEL=debug
+
+
+# ── Secrets: load from a gitignored `.env` file ─────────────────────────
+#
+# `dotenv` loads a KEY=VALUE file into the environment. Keep secrets in
+# `.env`, add `.env` to `.gitignore`, and check in an `.env.example` with
+# placeholder values so collaborators know what to set.
+#
+# `dotenv_if_exists` is the same but silent when the file is missing —
+# preferred since it keeps `direnv allow` working on fresh checkouts.
+
+# dotenv_if_exists .env
+
+
+# ── Watch other files for changes ───────────────────────────────────────
+#
+# direnv normally only re-runs when `.envrc` itself changes. Use
+# `watch_file` to also invalidate when a dependency manifest changes, so
+# `layout python` / `use_node` / etc. pick up the new version.
+
+# watch_file pyproject.toml
+# watch_file package.json
+# watch_file Cargo.toml
+
+
+# ── Language-specific layouts ───────────────────────────────────────────
+#
+# `layout` helpers set up a project-local toolchain. They create
+# directories on first run (under `.direnv/`) and add them to PATH.
+#
+#   layout python3     # creates/activates .direnv/python-<ver>/ venv
+#   layout node        # adds node_modules/.bin to PATH, sets NODE_PATH
+#   layout go          # sets GOPATH to .direnv/go
+#   layout ruby        # uses Bundler if Gemfile exists
+#
+# Pair with `watch_file` on the relevant manifest so the layout refreshes
+# when dependencies change.
+
+# layout python3
+
+
+# ── Nested / composed envrcs ────────────────────────────────────────────
+#
+# `source_up` sources the nearest ancestor `.envrc`, letting a parent
+# project's environment apply to subprojects. `source_env PATH` loads
+# an arbitrary file as envrc (must also be `direnv allow`ed).
+
+# source_up
+
+
+# ── Nix / flakes (if you use them) ──────────────────────────────────────
+
+# use_nix            # loads default.nix / shell.nix
+# use_flake          # loads flake.nix devShell
