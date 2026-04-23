@@ -1,0 +1,20 @@
+#!/bin/bash
+# Open a file in the first nvim tmux pane found.
+# Usage: nvim-tmux-open /path/to/file[:line[:col]]
+
+input="$1"
+[ -z "$input" ] && exit 0
+
+IFS=: read -r file line _col <<<"$input"
+line="${line:-1}"
+
+# Resolve relative paths against fbsource root
+[[ "$file" != /* ]] && file="/data/users/$USER/fbsource/$file"
+
+# Find first pane running nvim
+pane_id=$(tmux list-panes -a -F '#{pane_id} #{pane_current_command}' |
+  awk '$2 == "nvim" { print $1; exit }')
+[ -z "$pane_id" ] && exit 0
+
+tmux send-keys -t "$pane_id" Escape
+tmux send-keys -t "$pane_id" ":e +${line} ${file}" Enter

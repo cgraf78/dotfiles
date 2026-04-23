@@ -199,6 +199,29 @@ if is_macos then
 end
 
 -- =============================================================================
+-- File-path hyperlinks → open in nvim via tmux
+-- =============================================================================
+wezterm.on("open-uri", function(window, pane, uri)
+  local path_info = uri:match("^nvim%-open://(.+)$")
+  if not path_info then
+    return true
+  end
+
+  if is_linux then
+    wezterm.background_child_process({
+      os.getenv("HOME") .. "/.local/bin/nvim-tmux-open",
+      path_info,
+    })
+  else
+    window:perform_action(
+      act.SendString("\x02:run-shell 'nvim-tmux-open " .. path_info .. "'\r"),
+      pane
+    )
+  end
+  return false
+end)
+
+-- =============================================================================
 -- Terminal notification: play Glass sound via OSC 1337 user var
 -- =============================================================================
 wezterm.on("user-var-changed", function(window, pane, name, value)
@@ -310,5 +333,21 @@ return {
   },
 
   -- Keep hyperlinks useful in terminal output.
-  hyperlink_rules = wezterm.default_hyperlink_rules(),
+  hyperlink_rules = (function()
+    local rules = wezterm.default_hyperlink_rules()
+
+    -- Absolute file paths with optional :line:col
+    table.insert(rules, {
+      regex = [[(/[^\s:]+\.\w+(?::\d+){0,2})(?=\s|$|[,;)\]}>])]],
+      format = "nvim-open://$1",
+    })
+
+    -- Relative file paths (must contain /) with optional :line:col
+    table.insert(rules, {
+      regex = [[(?:^|(?<=\s))([\w@.-]+/[^\s:]+\.\w+(?::\d+){0,2})(?=\s|$|[,;)\]}>])]],
+      format = "nvim-open://$1",
+    })
+
+    return rules
+  end)(),
 }
