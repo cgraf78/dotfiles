@@ -1,4 +1,8 @@
 # vim: set ft=sshconfig:
+# Meta devserver only: route all github* hosts through fwdproxy
+Match Host github* exec "test -d /data/users/%u"
+  ProxyCommand fwdproxy_ssh_proxy %h %p
+
 Host github-dotfiles-work
   HostName github.com
   User git
