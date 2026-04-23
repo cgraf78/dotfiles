@@ -1,5 +1,7 @@
 #!/bin/bash
 # Open a file in the first nvim tmux pane found.
+# Tries local tmux first; falls back to sending keys through a remote
+# connection pane (et/ssh/mosh) to reach nvim in a remote tmux.
 # Usage: nvim-tmux-open /path/to/file[:line[:col]]
 
 # GUI apps on macOS (e.g. WezTerm) don't inherit the shell PATH.
@@ -18,19 +20,31 @@ file="${file#a/}"
 file="${file#b/}"
 
 # Expand leading tilde
+# shellcheck disable=SC2088 # matching literal ~ from terminal output, not shell expansion
 [[ "$file" == "~/"* ]] && file="$HOME/${file#"~/"}"
-
-send_to_nvim() {
-  local pane="$1" target_file="$2" target_line="$3"
-  tmux send-keys -t "$pane" Escape
-  tmux send-keys -t "$pane" -l ":e +${target_line} ${target_file}"
-  tmux send-keys -t "$pane" Enter
-}
 
 # --- Try local tmux ---
 pane_id=$(tmux list-panes -a -F '#{pane_id} #{pane_current_command}' 2>/dev/null |
   awk '$2 == "nvim" { print $1; exit }')
 
-[ -z "$pane_id" ] && exit 1
+if [[ -n "$pane_id" ]]; then
+  tmux send-keys -t "$pane_id" Escape
+  tmux send-keys -t "$pane_id" -l ":e +${line} ${file}"
+  tmux send-keys -t "$pane_id" Enter
+  exit 0
+fi
 
-send_to_nvim "$pane_id" "$file" "$line"
+# --- Fallback: send through a remote connection pane ---
+# Find a local tmux pane running a remote session (et, ssh, mosh).
+# Send tmux prefix (C-b) + run-shell command through it so the
+# remote tmux runs nvim-tmux-open on the other end.
+remote_pane=$(tmux list-panes -a -F '#{pane_id} #{pane_current_command}' 2>/dev/null |
+  awk '$2 ~ /^(et|ssh|mosh|dev)$/ { print $1; exit }')
+[[ -z "$remote_pane" ]] && exit 1
+
+# C-b reaches the remote tmux prefix through the connection.
+# Sleep gives the remote command-prompt time to initialize.
+tmux send-keys -t "$remote_pane" C-b :
+sleep 0.15
+tmux send-keys -t "$remote_pane" -l "run-shell '~/.local/bin/nvim-tmux-open \"${input}\"'"
+tmux send-keys -t "$remote_pane" Enter

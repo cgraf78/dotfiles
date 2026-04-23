@@ -207,11 +207,10 @@ wezterm.on("open-uri", function(window, pane, uri)
     return true
   end
 
-  -- Send tmux `prefix + e` through the terminal. The bytes go through
-  -- whatever tmux the terminal is attached to (local or remote via
-  -- et/SSH). The binding runs command-prompt which substitutes the
-  -- path into `run-shell 'nvim-tmux-open "%%"'`.
-  window:perform_action(act.SendString("\x02e" .. path_info .. "\r"), pane)
+  wezterm.background_child_process({
+    os.getenv("HOME") .. "/.local/bin/nvim-tmux-open",
+    path_info,
+  })
 
   return false
 end)
@@ -332,7 +331,7 @@ return {
     local rules = wezterm.default_hyperlink_rules()
 
     -- Relative file paths (must contain /) with optional :line:col.
-    -- Inserted FIRST so that "fbcode/foo/bar.cpp" is matched in full
+    -- Inserted FIRST so that "src/foo/bar.cpp" is matched in full
     -- before the absolute rule can grab "/foo/bar.cpp" out of it.
     -- [^\s:]*\w for the path body greedily matches then backtracks to
     -- end on a word char, naturally stripping trailing punctuation.
