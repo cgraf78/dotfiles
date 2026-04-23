@@ -126,6 +126,10 @@ local keys = {
   bind("PageUp", "CTRL|SHIFT", act.SendString("\x1b[5;6~")),
   bind("PageDown", "CTRL|SHIFT", act.SendString("\x1b[6;6~")),
 
+  -- Pass Ctrl-Shift-Up/Down to the application (overrides WezTerm scrollback)
+  bind("UpArrow", "CTRL|SHIFT", act.SendString("\x1b[1;6A")),
+  bind("DownArrow", "CTRL|SHIFT", act.SendString("\x1b[1;6B")),
+
   -- Font size controls
   bind("=", "CTRL", act.IncreaseFontSize),
   bind("-", "CTRL", act.DecreaseFontSize),

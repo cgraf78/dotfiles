@@ -153,3 +153,11 @@ map("n", "<leader>rl", ":set relativenumber!<CR>", { desc = "Toggle relative num
 
 -- Spell checking
 map("n", "<leader>ss", ":setlocal spell!<CR>", { desc = "Toggle spell check" })
+
+-- Jump by function with Ctrl-Up/Down
+map("n", "<C-Up>", "[m", { desc = "Previous function" })
+map("n", "<C-Down>", "]m", { desc = "Next function" })
+map("v", "<C-S-Up>", "[m", { desc = "Extend to previous function" })
+map("v", "<C-S-Down>", "]m", { desc = "Extend to next function" })
+map("n", "<C-S-Up>", "v[m", { desc = "Select to previous function" })
+map("n", "<C-S-Down>", "v]m", { desc = "Select to next function" })
