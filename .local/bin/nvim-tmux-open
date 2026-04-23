@@ -8,6 +8,10 @@ input="$1"
 IFS=: read -r file line _col <<<"$input"
 line="${line:-1}"
 
+# Strip diff a/ b/ prefixes
+file="${file#a/}"
+file="${file#b/}"
+
 # Resolve relative paths against fbsource root
 [[ "$file" != /* ]] && file="/data/users/$USER/fbsource/$file"
 

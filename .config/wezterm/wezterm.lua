@@ -213,8 +213,12 @@ wezterm.on("open-uri", function(window, pane, uri)
       path_info,
     })
   else
+    local run_cmd = "run-shell 'nvim-tmux-open " .. path_info .. "'"
     window:perform_action(
-      act.SendString("\x02:run-shell 'nvim-tmux-open " .. path_info .. "'\r"),
+      act.Multiple({
+        act.SendKey({ key = "b", mods = "CTRL" }),
+        act.SendString(":" .. run_cmd .. "\r"),
+      }),
       pane
     )
   end
