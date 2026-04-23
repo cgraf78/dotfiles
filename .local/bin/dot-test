@@ -175,9 +175,7 @@ $GIT config user.name "Test"
 
 # Create dot config dir and copy modules
 mkdir -p "$TEST_HOME/.local/lib/dot"
-for _f in init.sh core.sh merge-block.sh repos.sh merges.sh; do
-  cp "$REAL_HOME/.local/lib/dot/$_f" "$TEST_HOME/.local/lib/dot/$_f"
-done
+cp "$REAL_HOME/.local/lib/dot/"*.sh "$TEST_HOME/.local/lib/dot/"
 mkdir -p "$TEST_HOME/.config/shdeps"
 cat >"$TEST_HOME/.config/shdeps/deps.conf" <<'CONF'
 fixture/test-tool  github:repo
@@ -1023,9 +1021,7 @@ _assert_eq "unknown cmd: nothing on stdout" "" "$stdout"
 # dot git without bare repo → error
 NO_REPO_GIT=$(_tmpdir)
 mkdir -p "$NO_REPO_GIT/.local/lib/dot"
-for _f in init.sh core.sh merge-block.sh repos.sh merges.sh; do
-  cp "$REAL_HOME/.local/lib/dot/$_f" "$NO_REPO_GIT/.local/lib/dot/$_f"
-done
+cp "$REAL_HOME/.local/lib/dot/"*.sh "$NO_REPO_GIT/.local/lib/dot/"
 mkdir -p "$NO_REPO_GIT/.config/shdeps"
 cp "$TEST_HOME/.config/shdeps/deps.conf" "$NO_REPO_GIT/.config/shdeps/deps.conf"
 result=$(HOME="$NO_REPO_GIT" "$SCRIPT_DIR/dot" git log 2>&1 || true)
@@ -1154,9 +1150,7 @@ _assert_file_content "update: generic hook ran" "$TEST_HOME/.local/share/fixture
 # Update without bare repo: no error, no pull, still succeeds
 NO_REPO_HOME=$(_tmpdir)
 mkdir -p "$NO_REPO_HOME/.local/lib/dot"
-for _f in init.sh core.sh merge-block.sh repos.sh merges.sh; do
-  cp "$REAL_HOME/.local/lib/dot/$_f" "$NO_REPO_HOME/.local/lib/dot/$_f"
-done
+cp "$REAL_HOME/.local/lib/dot/"*.sh "$NO_REPO_HOME/.local/lib/dot/"
 mkdir -p "$NO_REPO_HOME/.config/shdeps"
 cp "$TEST_HOME/.config/shdeps/deps.conf" "$NO_REPO_HOME/.config/shdeps/deps.conf"
 cp -r "$TEST_HOME/.config/shdeps/hooks.d" "$NO_REPO_HOME/.config/shdeps/hooks.d"

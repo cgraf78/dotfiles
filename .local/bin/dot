@@ -155,6 +155,10 @@ case "${1:-}" in
     crontab -l 2>/dev/null || echo "  no crontab installed"
     exit 0
     ;;
+  doctor)
+    _dot_doctor
+    exit $?
+    ;;
   "")
     cat <<EOF
 usage: dot <command> [<args>]
@@ -167,6 +171,7 @@ Multi-repo commands (base + overlays):
   status           Show status of base + all active overlays
   diff             Show diff of base + all active overlays
   cron             Show installed cron entries
+  doctor           Run health checks on the installation
   git <command>    Run any git command on the base repo
 
 Flags:

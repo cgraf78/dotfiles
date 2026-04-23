@@ -7,6 +7,7 @@ _dir="${BASH_SOURCE[0]%/*}"
 . "$_dir/merge-block.sh"
 . "$_dir/repos.sh"
 . "$_dir/merges.sh"
+. "$_dir/doctor.sh"
 
 # ---------------------------------------------------------------------------
 # shdeps bootstrap — find or clone shdeps, configure for dotfiles
