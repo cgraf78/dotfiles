@@ -802,7 +802,12 @@ _run_mise_merge() {
   unset -f merge 2>/dev/null
   # shellcheck source=/dev/null
   . "$_MISE_HOOK"
-  merge
+  # Drop stdin/stdout TTYs so the hook's `-t 0 && -t 1` interactivity
+  # probe is deterministic regardless of whether the test itself is
+  # invoked from a terminal (CI / piped runs naturally have no tty;
+  # manual `dot-test` from a terminal would otherwise inherit one and
+  # make the hook call `gh`, breaking the non-interactive assertions).
+  merge </dev/null >/dev/null
 }
 
 MOCK_BIN=$(_mock_bin)
