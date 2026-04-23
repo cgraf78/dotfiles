@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
-# pre-commit — Run `autoformat` + `autolint` on staged files.
+# pre-commit — Run `gitleaks` + `autoformat` + `autolint` on staged files.
 #
 # Goal: keep human-authored commits consistent with what Claude Code's
-# post-edit hook already enforces. Same underlying tools (autoformat,
-# autolint) in both paths, so nothing diverges.
+# post-edit hook already enforces (autoformat, autolint) and catch
+# credential leaks before they reach a commit.
 #
 # Behavior:
+#   - Runs gitleaks on the staged diff first. Any finding blocks the
+#     commit — a leaked credential is high-severity, not a warning.
+#     False positives can bypass via GITHOOK_PRECOMMIT_SKIP_GITLEAKS
+#     or `git commit --no-verify`.
 #   - Runs autoformat on each staged file. If the formatter actually
 #     changes the file, the commit is rejected with a message telling
 #     you to stage the changes (avoids silently overriding partial-hunk
@@ -15,11 +19,13 @@
 #     useful-but-not-urgent, and blocking here slows iteration. Flip
 #     `GITHOOK_PRECOMMIT_STRICT_AUTOLINT=1` to promote failures to
 #     blocking when you want a stricter gate.
-#   - No-ops gracefully when autoformat/autolint aren't on PATH, so
-#     the hook can live in shared config without forcing dependencies.
+#   - No-ops gracefully when gitleaks/autoformat/autolint aren't on
+#     PATH, so the hook can live in shared config without forcing
+#     dependencies.
 #
 # Knobs (all `=1` to enable):
 #   - GITHOOK_PRECOMMIT_SKIP              skip the whole hook.
+#   - GITHOOK_PRECOMMIT_SKIP_GITLEAKS     skip the secret-scan step.
 #   - GITHOOK_PRECOMMIT_SKIP_AUTOFORMAT   skip the format step.
 #   - GITHOOK_PRECOMMIT_SKIP_AUTOLINT     skip the lint step.
 #   - GITHOOK_PRECOMMIT_STRICT_AUTOLINT   make lint failures blocking.
@@ -32,6 +38,20 @@
 set -u
 
 [ "${GITHOOK_PRECOMMIT_SKIP:-0}" = "1" ] && exit 0
+
+# ── gitleaks: scan staged diff for credentials (blocking) ───────────────
+# Runs before the per-file loop. `--pre-commit --staged` scans the index,
+# so nothing is written to disk. `--redact` masks matched secrets in the
+# output so the terminal/scrollback doesn't become a second leak surface.
+if [ "${GITHOOK_PRECOMMIT_SKIP_GITLEAKS:-0}" != "1" ] &&
+  command -v gitleaks >/dev/null 2>&1; then
+  if ! gitleaks git --pre-commit --staged --redact --verbose --no-banner 2>&1; then
+    echo "pre-commit: gitleaks blocked the commit (secret detected above)." >&2
+    echo "            bypass: GITHOOK_PRECOMMIT_SKIP_GITLEAKS=1 git commit ..." >&2
+    echo "                    (only bypass after confirming the finding is a false positive)" >&2
+    exit 1
+  fi
+fi
 
 skip_fmt="${GITHOOK_PRECOMMIT_SKIP_AUTOFORMAT:-0}"
 skip_lint="${GITHOOK_PRECOMMIT_SKIP_AUTOLINT:-0}"
