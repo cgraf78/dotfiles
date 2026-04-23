@@ -1,6 +1,5 @@
 #!/bin/bash
 # Open a file in the first nvim tmux pane found.
-# Tries local tmux first; falls back to devserver via SSH.
 # Usage: nvim-tmux-open /path/to/file[:line[:col]]
 
 # GUI apps on macOS (e.g. WezTerm) don't inherit the shell PATH.
@@ -32,17 +31,6 @@ send_to_nvim() {
 pane_id=$(tmux list-panes -a -F '#{pane_id} #{pane_current_command}' 2>/dev/null |
   awk '$2 == "nvim" { print $1; exit }')
 
-if [[ -n "$pane_id" ]]; then
-  send_to_nvim "$pane_id" "$file" "$line"
-  exit 0
-fi
+[ -z "$pane_id" ] && exit 1
 
-# --- Fallback: devserver via SSH ---
-# Detect devserver from agent-forwarded autossh connections
-devserver=$(ps -eo command 2>/dev/null |
-  awk '/^autossh.*-A/{ for(i=NF;i>1;i--) if($i!="-N") { print $i; exit } }')
-[[ -z "$devserver" ]] && exit 1
-
-# Run the same script on the devserver (path resolution handled by remote OS)
-ssh -o ConnectTimeout=2 -o BatchMode=yes "$devserver" \
-  "~/.local/bin/nvim-tmux-open '${input//\'/\'\\\'\'}'"
+send_to_nvim "$pane_id" "$file" "$line"
