@@ -2,6 +2,11 @@
 # Open a file in the first nvim tmux pane found.
 # Usage: nvim-tmux-open /path/to/file[:line[:col]]
 
+# GUI apps on macOS (e.g. WezTerm) don't inherit the shell PATH.
+if [[ "$(uname)" == "Darwin" ]]; then
+  PATH="/opt/homebrew/bin:$PATH"
+fi
+
 input="$1"
 [ -z "$input" ] && exit 0
 
@@ -12,13 +17,31 @@ line="${line:-1}"
 file="${file#a/}"
 file="${file#b/}"
 
-# Resolve relative paths against fbsource root
-[[ "$file" != /* ]] && file="/data/users/$USER/fbsource/$file"
+# Expand leading tilde
+[[ "$file" == "~/"* ]] && file="$HOME/${file#"~/"}"
+
+# On macOS, translate devserver absolute paths to local fbsource.
+# /data/users/<anyone>/fbsource/... → $HOME/fbsource/...
+if [[ "$(uname)" == "Darwin" && "$file" == /data/users/*/fbsource/* ]]; then
+  file="$HOME/fbsource/${file#/data/users/*/fbsource/}"
+fi
+
+# Resolve relative paths against the appropriate fbsource root.
+if [[ "$file" != /* ]]; then
+  if [[ "$(uname)" == "Darwin" ]]; then
+    file="$HOME/fbsource/$file"
+  else
+    file="/data/users/$USER/fbsource/$file"
+  fi
+fi
 
 # Find first pane running nvim
 pane_id=$(tmux list-panes -a -F '#{pane_id} #{pane_current_command}' |
   awk '$2 == "nvim" { print $1; exit }')
 [ -z "$pane_id" ] && exit 0
 
+# Escape → normal mode, then open the file.
+# -l sends literal text (no tmux key-name interpretation).
 tmux send-keys -t "$pane_id" Escape
-tmux send-keys -t "$pane_id" ":e +${line} ${file}" Enter
+tmux send-keys -t "$pane_id" -l ":e +${line} ${file}"
+tmux send-keys -t "$pane_id" Enter

@@ -207,25 +207,13 @@ wezterm.on("open-uri", function(window, pane, uri)
     return true
   end
 
-  if is_linux then
-    wezterm.background_child_process({
-      os.getenv("HOME") .. "/.local/bin/nvim-tmux-open",
-      path_info,
-    })
-  else
-    -- Split the tmux prefix+`:` entry from the command text. Sending
-    -- them as a single SendString somehow causes tmux to receive an
-    -- extra `:` inside command-prompt (seen as `unknown command:
-    -- :run-shell`). Splitting into discrete actions sidesteps that.
-    window:perform_action(
-      act.Multiple({
-        act.SendString("\x02"),
-        act.SendString(":"),
-        act.SendString("run-shell 'nvim-tmux-open " .. path_info .. "'\r"),
-      }),
-      pane
-    )
-  end
+  -- Run the helper script directly via background process. This works on both
+  -- macOS (local tmux) and Linux (devserver) because the script talks to tmux
+  -- via `tmux send-keys`, not via keystroke injection into the terminal.
+  wezterm.background_child_process({
+    os.getenv("HOME") .. "/.local/bin/nvim-tmux-open",
+    path_info,
+  })
   return false
 end)
 
@@ -344,15 +332,19 @@ return {
   hyperlink_rules = (function()
     local rules = wezterm.default_hyperlink_rules()
 
-    -- Absolute file paths with optional :line:col
+    -- Relative file paths (must contain /) with optional :line:col.
+    -- Inserted FIRST so that "fbcode/foo/bar.cpp" is matched in full
+    -- before the absolute rule can grab "/foo/bar.cpp" out of it.
+    -- [^\s:]*\w for the path body greedily matches then backtracks to
+    -- end on a word char, naturally stripping trailing punctuation.
     table.insert(rules, {
-      regex = [[(/[^\s:]+\.\w+(?::\d+){0,2})(?=\s|$|[,;)\]}>])]],
+      regex = [[(?:^|(?<=[^\w@.+~/-]))([\w@.+~-]+/[^\s:]*\w(?::\d+){0,2})(?=\s|$|[^\w@+~-])]],
       format = "nvim-open://$1",
     })
 
-    -- Relative file paths (must contain /) with optional :line:col
+    -- Absolute file paths with optional :line:col.
     table.insert(rules, {
-      regex = [[(?:^|(?<=\s))([\w@.-]+/[^\s:]+\.\w+(?::\d+){0,2})(?=\s|$|[,;)\]}>])]],
+      regex = [[(?:^|(?<=[^\w.@+~/-]))(/[^\s:]*\w(?::\d+){0,2})(?=\s|$|[^\w@+~-])]],
       format = "nvim-open://$1",
     })
 
