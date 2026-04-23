@@ -233,6 +233,16 @@ _dr_check_overlays() {
       continue
     fi
 
+    # Private overlays (those with a companion .ssh IdentityFile) are
+    # gated on the deploy key being present. On machines without the
+    # key (e.g., personal laptops for a work overlay), dot intentionally
+    # skips the clone — so doctor shouldn't treat a missing clone as a
+    # failure. Mirror `_overlay_key_available` from repos.sh.
+    if ! _overlay_key_available "$name"; then
+      _dr_skip "$name" "no deploy key on this machine — clone skipped"
+      continue
+    fi
+
     if [[ ! -d "$path/.git" ]]; then
       _dr_fail "$name: not cloned" "expected at $(_dr_tilde "$path")"
       continue
@@ -249,21 +259,15 @@ _dr_check_overlays() {
         "conf=$want_url vs actual=$actual_url"
     fi
 
-    # Companion .ssh file (if present) references an existing key
+    # Companion .ssh file: if present and the key is here (otherwise
+    # we'd have skipped above), report it as present.
     local ssh_conf="${f%.conf}.ssh"
     if [[ -f "$ssh_conf" ]]; then
       local key
       key=$(awk '/^[[:space:]]+IdentityFile /{print $2; exit}' "$ssh_conf")
-      if [[ -z "$key" ]]; then
-        _dr_warn "$name: .ssh has no IdentityFile"
-      else
-        # Expand ~
+      if [[ -n "$key" ]]; then
         key="${key/#\~/$HOME}"
-        if [[ -f "$key" ]]; then
-          _dr_ok "$name: SSH deploy key present" "$(_dr_tilde "$key")"
-        else
-          _dr_fail "$name: SSH deploy key missing" "$key"
-        fi
+        _dr_ok "$name: SSH deploy key present" "$(_dr_tilde "$key")"
       fi
     fi
   done
