@@ -213,11 +213,16 @@ wezterm.on("open-uri", function(window, pane, uri)
       path_info,
     })
   else
-    -- Send raw \x02 byte (Ctrl-B = tmux prefix). `SendKey` with CTRL
-    -- encodes as CSI-u under kitty keyboard protocol, which tmux may
-    -- not map back to the prefix; a literal byte avoids that.
+    -- Split the tmux prefix+`:` entry from the command text. Sending
+    -- them as a single SendString somehow causes tmux to receive an
+    -- extra `:` inside command-prompt (seen as `unknown command:
+    -- :run-shell`). Splitting into discrete actions sidesteps that.
     window:perform_action(
-      act.SendString("\x02:run-shell 'nvim-tmux-open " .. path_info .. "'\r"),
+      act.Multiple({
+        act.SendString("\x02"),
+        act.SendString(":"),
+        act.SendString("run-shell 'nvim-tmux-open " .. path_info .. "'\r"),
+      }),
       pane
     )
   end
