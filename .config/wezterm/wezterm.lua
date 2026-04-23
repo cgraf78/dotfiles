@@ -207,19 +207,12 @@ wezterm.on("open-uri", function(window, pane, uri)
     return true
   end
 
-  -- Try local tmux first (works when nvim runs in a local tmux pane).
-  local script = os.getenv("HOME") .. "/.local/bin/nvim-tmux-open"
-  local ok = wezterm.run_child_process({ script, path_info })
-
-  if not ok then
-    -- No local nvim pane found. Assume we're attached to a remote tmux
-    -- session (e.g. devserver via SSH). Inject the tmux prefix key then
-    -- trigger the `prefix + e` binding which runs command-prompt → the
-    -- typed path is substituted into `run-shell 'nvim-tmux-open "%%"'`.
-    -- This avoids the `:` command-mode key entirely (which had a
-    -- duplication bug under extended-keys / kitty keyboard protocol).
-    window:perform_action(act.SendString("\x02e" .. path_info .. "\r"), pane)
-  end
+  -- Inject tmux prefix + `e` binding key, then the path, then Enter.
+  -- The `prefix + e` binding runs `command-prompt` which substitutes
+  -- the typed text into `run-shell 'nvim-tmux-open "%%"'`. This works
+  -- for both local and remote tmux — the bytes go through whatever
+  -- tmux session the terminal is currently attached to.
+  window:perform_action(act.SendString("\x02e" .. path_info .. "\r"), pane)
 
   return false
 end)
