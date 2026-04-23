@@ -213,12 +213,11 @@ wezterm.on("open-uri", function(window, pane, uri)
       path_info,
     })
   else
-    local run_cmd = "run-shell 'nvim-tmux-open " .. path_info .. "'"
+    -- Send raw \x02 byte (Ctrl-B = tmux prefix). `SendKey` with CTRL
+    -- encodes as CSI-u under kitty keyboard protocol, which tmux may
+    -- not map back to the prefix; a literal byte avoids that.
     window:perform_action(
-      act.Multiple({
-        act.SendKey({ key = "b", mods = "CTRL" }),
-        act.SendString(":" .. run_cmd .. "\r"),
-      }),
+      act.SendString("\x02:run-shell 'nvim-tmux-open " .. path_info .. "'\r"),
       pane
     )
   end
