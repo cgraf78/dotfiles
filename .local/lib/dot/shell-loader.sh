@@ -41,5 +41,30 @@ _shell_source_dir() {
   while IFS= read -r f; do files+=("$f"); done <<<"$sorted"
 
   # shellcheck disable=SC1090  # discovered dynamically from env.d/interactive.d
-  for f in "${files[@]}"; do . "$f"; done
+  if [ -n "${SHELL_LOADER_TIMING:-}" ]; then
+    # Instrumented path for `shell-time`. Uses EPOCHREALTIME (bash 5+,
+    # zsh with zsh/datetime) for fork-free microsecond timing. Emits one
+    # tagged line per file to stderr; totals are computed by the driver.
+    [ -n "${ZSH_VERSION:-}" ] && zmodload zsh/datetime 2>/dev/null
+    local _t0 _t1 _s0 _s1 _u0 _u1 _du _ms _fr
+    for f in "${files[@]}"; do
+      _t0="${EPOCHREALTIME:-0.000000}"
+      . "$f"
+      _t1="${EPOCHREALTIME:-0.000000}"
+      _s0=${_t0%.*}
+      _u0=${_t0#*.}
+      _u0="${_u0}000000"
+      _u0="${_u0:0:6}"
+      _s1=${_t1%.*}
+      _u1=${_t1#*.}
+      _u1="${_u1}000000"
+      _u1="${_u1:0:6}"
+      _du=$(((10#$_s1 - 10#$_s0) * 1000000 + 10#$_u1 - 10#$_u0))
+      _ms=$((_du / 1000))
+      _fr=$((_du % 1000))
+      printf 'SHELL_TIMING\t%d.%03d\t%s\n' "$_ms" "$_fr" "$f" >&2
+    done
+  else
+    for f in "${files[@]}"; do . "$f"; done
+  fi
 }
