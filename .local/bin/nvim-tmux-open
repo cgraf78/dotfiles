@@ -38,7 +38,7 @@ fi
 # Find first pane running nvim
 pane_id=$(tmux list-panes -a -F '#{pane_id} #{pane_current_command}' |
   awk '$2 == "nvim" { print $1; exit }')
-[ -z "$pane_id" ] && exit 0
+[ -z "$pane_id" ] && exit 1
 
 # Escape → normal mode, then open the file.
 # -l sends literal text (no tmux key-name interpretation).
