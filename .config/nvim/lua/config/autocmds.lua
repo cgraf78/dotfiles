@@ -73,6 +73,27 @@ vim.api.nvim_create_autocmd("StdinReadPre", {
   end,
 })
 
+-- Continuously save session state so other nvim instances can load it.
+-- Debounced to avoid hammering disk on rapid buffer changes (e.g. :argdo).
+local save_timer = vim.uv.new_timer()
+local function save_session_debounced()
+  if not require("persistence").active() then
+    return
+  end
+  save_timer:stop()
+  save_timer:start(
+    500,
+    0,
+    vim.schedule_wrap(function()
+      require("persistence").save()
+    end)
+  )
+end
+
+vim.api.nvim_create_autocmd({ "BufAdd", "BufDelete" }, {
+  callback = save_session_debounced,
+})
+
 -- Auxiliary buffer types — IDE-style quit and session behavior.
 --
 -- Problem: nvim treats every window independently. :q from NvimTree or a
