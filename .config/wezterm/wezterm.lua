@@ -207,16 +207,10 @@ wezterm.on("open-uri", function(window, pane, uri)
     return true
   end
 
-  -- Try local tmux (Mac nvim) via background process.
-  wezterm.background_child_process({
-    os.getenv("HOME") .. "/.local/bin/nvim-tmux-open",
-    path_info,
-  })
-
-  -- Also send tmux `prefix + e` binding through the terminal for
-  -- remote sessions (devserver via et/SSH). Goes through whatever
-  -- tmux the terminal is attached to. If both local and remote nvim
-  -- exist, both will open — but typically only one is active.
+  -- Send tmux `prefix + e` through the terminal. The bytes go through
+  -- whatever tmux the terminal is attached to (local or remote via
+  -- et/SSH). The binding runs command-prompt which substitutes the
+  -- path into `run-shell 'nvim-tmux-open "%%"'`.
   window:perform_action(act.SendString("\x02e" .. path_info .. "\r"), pane)
 
   return false
