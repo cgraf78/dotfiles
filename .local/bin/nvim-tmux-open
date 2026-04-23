@@ -1,5 +1,6 @@
 #!/bin/bash
 # Open a file in the first nvim tmux pane found.
+# Tries local tmux first; falls back to devserver via SSH.
 # Usage: nvim-tmux-open /path/to/file[:line[:col]]
 
 # GUI apps on macOS (e.g. WezTerm) don't inherit the shell PATH.
@@ -20,28 +21,28 @@ file="${file#b/}"
 # Expand leading tilde
 [[ "$file" == "~/"* ]] && file="$HOME/${file#"~/"}"
 
-# On macOS, translate devserver absolute paths to local fbsource.
-# /data/users/<anyone>/fbsource/... → $HOME/fbsource/...
-if [[ "$(uname)" == "Darwin" && "$file" == /data/users/*/fbsource/* ]]; then
-  file="$HOME/fbsource/${file#/data/users/*/fbsource/}"
-fi
+send_to_nvim() {
+  local pane="$1" target_file="$2" target_line="$3"
+  tmux send-keys -t "$pane" Escape
+  tmux send-keys -t "$pane" -l ":e +${target_line} ${target_file}"
+  tmux send-keys -t "$pane" Enter
+}
 
-# Resolve relative paths against the appropriate fbsource root.
-if [[ "$file" != /* ]]; then
-  if [[ "$(uname)" == "Darwin" ]]; then
-    file="$HOME/fbsource/$file"
-  else
-    file="/data/users/$USER/fbsource/$file"
-  fi
-fi
-
-# Find first pane running nvim
-pane_id=$(tmux list-panes -a -F '#{pane_id} #{pane_current_command}' |
+# --- Try local tmux ---
+pane_id=$(tmux list-panes -a -F '#{pane_id} #{pane_current_command}' 2>/dev/null |
   awk '$2 == "nvim" { print $1; exit }')
-[ -z "$pane_id" ] && exit 1
 
-# Escape → normal mode, then open the file.
-# -l sends literal text (no tmux key-name interpretation).
-tmux send-keys -t "$pane_id" Escape
-tmux send-keys -t "$pane_id" -l ":e +${line} ${file}"
-tmux send-keys -t "$pane_id" Enter
+if [[ -n "$pane_id" ]]; then
+  send_to_nvim "$pane_id" "$file" "$line"
+  exit 0
+fi
+
+# --- Fallback: devserver via SSH ---
+# Detect devserver from agent-forwarded autossh connections
+devserver=$(ps -eo command 2>/dev/null |
+  awk '/^autossh.*-A/{ for(i=NF;i>1;i--) if($i!="-N") { print $i; exit } }')
+[[ -z "$devserver" ]] && exit 1
+
+# Run the same script on the devserver (path resolution handled by remote OS)
+ssh -o ConnectTimeout=2 -o BatchMode=yes "$devserver" \
+  "~/.local/bin/nvim-tmux-open '${input//\'/\'\\\'\'}'"

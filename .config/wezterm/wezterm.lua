@@ -207,12 +207,10 @@ wezterm.on("open-uri", function(window, pane, uri)
     return true
   end
 
-  -- Inject tmux prefix + `e` binding key, then the path, then Enter.
-  -- The `prefix + e` binding runs `command-prompt` which substitutes
-  -- the typed text into `run-shell 'nvim-tmux-open "%%"'`. This works
-  -- for both local and remote tmux — the bytes go through whatever
-  -- tmux session the terminal is currently attached to.
-  window:perform_action(act.SendString("\x02e" .. path_info .. "\r"), pane)
+  wezterm.background_child_process({
+    os.getenv("HOME") .. "/.local/bin/nvim-tmux-open",
+    path_info,
+  })
 
   return false
 end)
