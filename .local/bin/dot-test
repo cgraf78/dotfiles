@@ -111,6 +111,9 @@ if command -v zsh >/dev/null 2>&1; then
   _zsh_home=$(_tmpdir)
   # Copy .zshrc
   cp "${_lint_root}/.zshrc" "$_zsh_home/.zshrc"
+  # Copy the shared loader body (sourced by .zshrc)
+  mkdir -p "$_zsh_home/.local/lib/dot"
+  cp "${_lint_root}/.local/lib/dot/shell-loader.sh" "$_zsh_home/.local/lib/dot/shell-loader.sh"
   # Copy shell config dirs (only regular files from the repo)
   for _dir in env.d interactive.d; do
     mkdir -p "$_zsh_home/.config/shell/$_dir"
