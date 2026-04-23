@@ -77,7 +77,8 @@ vim.api.nvim_create_autocmd("StdinReadPre", {
 -- Debounced to avoid hammering disk on rapid buffer changes (e.g. :argdo).
 local save_timer = vim.uv.new_timer()
 local function save_session_debounced()
-  if not require("persistence").active() then
+  local ok, persistence = pcall(require, "persistence")
+  if not ok or type(persistence.active) ~= "function" or not persistence.active() then
     return
   end
   save_timer:stop()
