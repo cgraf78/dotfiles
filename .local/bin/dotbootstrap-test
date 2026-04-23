@@ -240,9 +240,7 @@ BASE_STAGING=$(_tmpdir)
 mkdir -p "$BASE_STAGING/.local/lib/dot"
 echo "bashrc content" >"$BASE_STAGING/.bashrc"
 
-for _f in init.sh core.sh repos.sh merges.sh merge-block.sh; do
-  cp "$REAL_HOME/.local/lib/dot/$_f" "$BASE_STAGING/.local/lib/dot/$_f"
-done
+cp "$REAL_HOME/.local/lib/dot/"*.sh "$BASE_STAGING/.local/lib/dot/"
 mkdir -p "$BASE_STAGING/.config/shdeps"
 cat >"$BASE_STAGING/.config/shdeps/deps.conf" <<'CONF'
 fixture/test-tool  github:repo
