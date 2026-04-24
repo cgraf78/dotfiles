@@ -26,6 +26,9 @@ local severity_map = {
 }
 
 return {
+  { "zbirenbaum/copilot.lua", enabled = false },
+  { "fang2hou/blink-copilot", enabled = false },
+
   {
     "stevearc/conform.nvim",
     opts = {
