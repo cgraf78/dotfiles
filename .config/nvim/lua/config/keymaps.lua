@@ -1,86 +1,17 @@
-local map = vim.keymap.set
-local buffers = require("config.buffers")
-local terminal = require("config.terminal")
+-- Keymaps are automatically loaded on the VeryLazy event
+-- Default keymaps that are always set: https://github.com/LazyVim/LazyVim/blob/main/lua/lazyvim/config/keymaps.lua
 
--- Escape from insert mode
+local map = vim.keymap.set
+
+-- Exit insert/terminal mode
 map("i", "kj", "<Esc>", { desc = "Exit insert mode" })
 map("t", "kj", [[<C-\><C-n>]], { desc = "Exit terminal mode" })
 
--- Fast save
-map("n", "<leader>w", ":w!<CR>", { desc = "Save file" })
-
--- Remap 0 to first non-blank character
-map("n", "0", "^", { desc = "First non-blank char" })
-
--- Clear search highlight
-map("n", "<leader><CR>", ":noh<CR>", { silent = true, desc = "Clear search highlight" })
-
--- Buffer navigation
-map("n", "<leader>l", ":bnext<CR>", { desc = "Next buffer" })
-map("n", "<leader>h", ":bprevious<CR>", { desc = "Previous buffer" })
-map("n", "<leader>bd", function()
-  buffers.delete()
-end, { desc = "Delete buffer" })
-
--- Tab management
-map("n", "<leader>tn", ":tabnew<CR>", { desc = "New tab" })
-map("n", "<leader>tc", ":tabclose<CR>", { desc = "Close tab" })
-map("n", "<leader>tb", function()
-  terminal.open_bottom()
-end, { desc = "Bottom terminal" })
-map("n", "<leader>tt", function()
-  terminal.open_top()
-end, { desc = "Top terminal" })
-map("n", "<leader>tr", function()
-  terminal.open_right()
-end, { desc = "Right terminal" })
-map("n", "<leader>tl", function()
-  terminal.open_left()
-end, { desc = "Left terminal" })
-map({ "n", "t" }, "<C-`>", function()
-  terminal.toggle()
-end, { desc = "Toggle terminal" })
-
--- Move lines with Alt+j/k
-map("n", "<M-j>", ":m .+1<CR>==", { desc = "Move line down" })
-map("n", "<M-k>", ":m .-2<CR>==", { desc = "Move line up" })
-map("v", "<M-j>", ":m '>+1<CR>gv=gv", { desc = "Move selection down" })
-map("v", "<M-k>", ":m '<-2<CR>gv=gv", { desc = "Move selection up" })
-
--- Visual mode: search for selection with * and #
-map("v", "*", [[y/\V<C-R>=escape(@",'/\')<CR><CR>]], { desc = "Search selection forward" })
-map("v", "#", [[y?\V<C-R>=escape(@",'/\')<CR><CR>]], { desc = "Search selection backward" })
-
--- Strip trailing whitespace
-map("n", "<F5>", function()
-  local pos = vim.api.nvim_win_get_cursor(0)
-  vim.cmd([[%s/\s\+$//e]])
-  vim.api.nvim_win_set_cursor(0, pos)
-end, { desc = "Strip trailing whitespace" })
-
--- Toggle format-on-save
-map("n", "<leader>tf", function()
-  vim.g.disable_autoformat = not vim.g.disable_autoformat
-  local state = vim.g.disable_autoformat and "disabled" or "enabled"
-  vim.notify("Format-on-save " .. state)
-end, { desc = "Toggle format-on-save" })
-
--- Center cursor after scrolling
-map("n", "<C-d>", "<C-d>zz", { desc = "Scroll down (centered)" })
-map("n", "<C-u>", "<C-u>zz", { desc = "Scroll up (centered)" })
-
--- Center cursor after search navigation
-map("n", "n", "nzzzv", { desc = "Next search result (centered)" })
-map("n", "N", "Nzzzv", { desc = "Prev search result (centered)" })
-
--- Save from any mode
-map({ "n", "i", "v" }, "<C-s>", "<cmd>w<cr><esc>", { desc = "Save file" })
-
--- Undo/redo
+-- Undo/redo (VSCode-style)
 map({ "n", "i", "v" }, "<C-z>", "<cmd>undo<cr>", { desc = "Undo" })
 map({ "n", "i", "v" }, "<C-y>", "<cmd>redo<cr>", { desc = "Redo" })
 
--- Select all with Ctrl-A
+-- Select all (VSCode-style)
 map("n", "<C-a>", "ggVG", { desc = "Select all" })
 map("v", "<C-a>", "gg0oG$", { desc = "Select all" })
 map("i", "<C-a>", "<Esc>ggVG", { desc = "Select all" })
@@ -123,7 +54,7 @@ map("v", "<S-PageDown>", "<PageDown>", { desc = "Extend page down" })
 map("i", "<S-PageUp>", "<Esc>v<PageUp>", { desc = "Select page up" })
 map("i", "<S-PageDown>", "<Esc>v<PageDown>", { desc = "Select page down" })
 
--- Navigation keys in visual mode: clear selection and move
+-- Arrow keys in visual mode: clear selection and move (VSCode behavior)
 map("v", "<Left>", "<Esc><Left>", { desc = "Clear selection, move left" })
 map("v", "<Right>", "<Esc><Right>", { desc = "Clear selection, move right" })
 map("v", "<Up>", "<Esc><Up>", { desc = "Clear selection, move up" })
@@ -133,42 +64,30 @@ map("v", "<End>", "<Esc><End>", { desc = "Clear selection, move to line end" })
 map("v", "<PageUp>", "<Esc><PageUp>", { desc = "Clear selection, page up" })
 map("v", "<PageDown>", "<Esc><PageDown>", { desc = "Clear selection, page down" })
 
--- Copy visual selection with Ctrl-C
+-- Copy/cut/paste (VSCode-style)
 map("v", "<C-c>", "ygv<Esc>", { desc = "Copy selection" })
-
--- Cut visual selection with Ctrl-X
 map("v", "<C-x>", "d", { desc = "Cut selection" })
-
--- Yank without moving cursor
-map("v", "y", "ygv<Esc>", { desc = "Yank (keep cursor)" })
-
--- Paste over selection without losing clipboard
-map("v", "<leader>p", '"_dP', { desc = "Paste without yank" })
-
--- Yank whole line to system clipboard
-map("n", "<leader>Y", '"+yy', { desc = "Yank line to clipboard" })
-map("v", "<leader>Y", '"+y', { desc = "Yank selection to clipboard" })
-
--- Join lines without cursor jump
-map("n", "J", "mzJ`z", { desc = "Join lines (keep cursor)" })
-
--- Go to line (Alt-G, matches VS Code)
-map("n", "<M-g>", ":", { desc = "Go to line" })
-
--- Prev/next diff hunk (F7/F8, matches VS Code)
-map("n", "<F8>", "]c", { desc = "Next diff hunk" })
-map("n", "<F7>", "[c", { desc = "Prev diff hunk" })
-
--- Toggle relative line numbers
-map("n", "<leader>rl", ":set relativenumber!<CR>", { desc = "Toggle relative numbers" })
-
--- Spell checking
-map("n", "<leader>ss", ":setlocal spell!<CR>", { desc = "Toggle spell check" })
+map({ "n", "v" }, "<C-v>", "P", { desc = "Paste at cursor" })
+map({ "n", "v" }, "p", "<Plug>(YankyPutBefore)", { desc = "Paste at cursor" })
 
 -- Jump by function with Ctrl-Up/Down
 map("n", "<C-Up>", "[m", { desc = "Previous function" })
 map("n", "<C-Down>", "]m", { desc = "Next function" })
-map("v", "<C-S-Up>", "[m", { desc = "Extend to previous function" })
-map("v", "<C-S-Down>", "]m", { desc = "Extend to next function" })
 map("n", "<C-S-Up>", "v[m", { desc = "Select to previous function" })
 map("n", "<C-S-Down>", "v]m", { desc = "Select to next function" })
+map("v", "<C-S-Up>", "[m", { desc = "Extend to previous function" })
+map("v", "<C-S-Down>", "]m", { desc = "Extend to next function" })
+
+-- Join lines without cursor jump
+map("n", "J", "mzJ`z", { desc = "Join lines (keep cursor)" })
+
+-- Terminal toggle (alias for C-/)
+map({ "n", "t" }, "<C-`>", function()
+  Snacks.terminal()
+end, { desc = "Toggle terminal" })
+
+-- Override LazyVim's window navigation with tmux-navigator
+map("n", "<C-h>", "<cmd>TmuxNavigateLeft<cr>", { desc = "Navigate left" })
+map("n", "<C-j>", "<cmd>TmuxNavigateDown<cr>", { desc = "Navigate down" })
+map("n", "<C-k>", "<cmd>TmuxNavigateUp<cr>", { desc = "Navigate up" })
+map("n", "<C-l>", "<cmd>TmuxNavigateRight<cr>", { desc = "Navigate right" })

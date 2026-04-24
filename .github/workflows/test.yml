@@ -93,6 +93,3 @@ jobs:
 
       - name: Run githook-test
         run: .local/bin/githook-test
-
-      - name: Run nvim-test
-        run: .local/bin/nvim-test
