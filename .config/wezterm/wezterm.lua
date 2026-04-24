@@ -153,9 +153,10 @@ local keys = {
   bind("}", "ALT|SHIFT", act.MoveTabRelative(1)),
 
   -- Search / launcher
+  bind("f", "CTRL|SHIFT", act.DisableDefaultAssignment),
   bind("g", "CTRL", act.CopyMode("NextMatch")),
   bind("g", "CTRL|SHIFT", act.CopyMode("PriorMatch")),
-  bind("p", "CTRL|SHIFT", act.ActivateCommandPalette),
+  bind("p", "CTRL|SHIFT", act.DisableDefaultAssignment),
   bind("r", "CTRL|SHIFT", wezterm.action_callback(prompt_rename_tab)),
 
   -- Alt-number tab switching
