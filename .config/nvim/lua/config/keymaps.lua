@@ -70,6 +70,17 @@ map("v", "<C-x>", "d", { desc = "Cut selection" })
 map({ "n", "v" }, "<C-v>", "P", { desc = "Paste at cursor" })
 map({ "n", "v" }, "p", "<Plug>(YankyPutBefore)", { desc = "Paste at cursor" })
 
+-- WezTerm intercepts Ctrl-V and sends bracketed paste, which nvim's default
+-- handler inserts AFTER the cursor. Override to insert BEFORE (VSCode behavior).
+local orig_paste = vim.paste
+vim.paste = function(lines, phase)
+  if phase == -1 and vim.fn.mode() == "n" then
+    vim.api.nvim_put(lines, "c", false, true)
+    return true
+  end
+  return orig_paste(lines, phase)
+end
+
 -- Jump by function with Ctrl-Up/Down
 map("n", "<C-Up>", "[m", { desc = "Previous function" })
 map("n", "<C-Down>", "]m", { desc = "Next function" })

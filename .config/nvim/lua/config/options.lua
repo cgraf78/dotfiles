@@ -1,6 +1,13 @@
 -- Options are automatically loaded before lazy.nvim startup
 -- Default options that are always set: https://github.com/LazyVim/LazyVim/blob/main/lua/lazyvim/config/options.lua
 
+-- Vim's default "inclusive" selection includes the character under the cursor,
+-- causing off-by-one vs VSCode's between-characters model.
+vim.o.selection = "exclusive"
+-- LazyVim sets clipboard="" over SSH, breaking Ctrl-C copy to OS clipboard.
+-- Force unnamedplus so yanks reach the system clipboard via OSC 52.
+vim.o.clipboard = "unnamedplus"
+
 vim.opt.backup = false
 vim.opt.writebackup = false
 vim.opt.swapfile = false
