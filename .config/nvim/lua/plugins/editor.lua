@@ -22,6 +22,12 @@ return {
           then
             require("persistence").load()
             vim.schedule(function()
+              for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+                local name = vim.api.nvim_buf_get_name(buf)
+                if name ~= "" and not vim.uv.fs_stat(name) then
+                  vim.api.nvim_buf_delete(buf, { force = true })
+                end
+              end
               if vim.api.nvim_buf_get_name(0) ~= "" then
                 vim.cmd("filetype detect")
                 vim.cmd("edit")
