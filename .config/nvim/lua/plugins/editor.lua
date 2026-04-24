@@ -13,7 +13,11 @@ return {
       vim.api.nvim_create_autocmd("VimEnter", {
         nested = true,
         callback = function()
-          if vim.fn.argc() == 0 and not vim.g.started_with_stdin then
+          if
+            vim.fn.argc() == 0
+            and not vim.g.started_with_stdin
+            and not vim.g.disable_session_restore
+          then
             require("persistence").load()
             vim.schedule(function()
               if vim.api.nvim_buf_get_name(0) ~= "" then
@@ -71,7 +75,11 @@ return {
       {
         "<leader>fE",
         function()
-          require("neo-tree.command").execute({ action = "focus", reveal = true, dir = vim.env.HOME })
+          require("neo-tree.command").execute({
+            action = "focus",
+            reveal = true,
+            dir = vim.env.HOME,
+          })
         end,
         desc = "Explorer NeoTree (Home)",
       },
