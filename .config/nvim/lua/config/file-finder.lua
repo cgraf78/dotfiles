@@ -9,63 +9,6 @@ function M.add_source(source)
   M.sources[#M.sources + 1] = source
 end
 
-local split_cache_prompt = ""
-local split_cache_terms = {}
-
-local function split_terms(prompt)
-  if prompt == split_cache_prompt then
-    return split_cache_terms
-  end
-  split_cache_prompt = prompt
-  split_cache_terms = vim.split(prompt, "%s+", { trimempty = true })
-  return split_cache_terms
-end
-
-local function multi_term_sorter()
-  local base = require("telescope.config").values.file_sorter({})
-  local Sorter = require("telescope.sorters").Sorter
-  local base_score = base.scoring_function
-
-  return Sorter:new({
-    scoring_function = function(_, prompt, line)
-      if not prompt or prompt == "" then
-        return 1
-      end
-      local terms = split_terms(prompt)
-      if #terms <= 1 then
-        return base_score(base, prompt, line)
-      end
-      local total = 0
-      for i = 1, #terms do
-        local score = base_score(base, terms[i], line)
-        if score < 0 then
-          return -1
-        end
-        total = total + score
-      end
-      return total
-    end,
-    highlighter = function(_, prompt, display)
-      if not prompt or prompt == "" then
-        return {}
-      end
-      local terms = split_terms(prompt)
-      local all = {}
-      local n = 0
-      for i = 1, #terms do
-        local h = base:highlighter(terms[i], display)
-        if h then
-          for j = 1, #h do
-            n = n + 1
-            all[n] = h[j]
-          end
-        end
-      end
-      return all
-    end,
-  })
-end
-
 local fd_cmd
 local home
 local recent_files = require("config.recent-files")
@@ -132,7 +75,7 @@ function M.find()
     prompt_title = "Files",
     initial_mode = "insert",
     finder = make_finder(),
-    sorter = multi_term_sorter(),
+    sorter = conf.file_sorter({}),
     previewer = conf.file_previewer({}),
     attach_mappings = function(prompt_bufnr)
       vim.api.nvim_create_autocmd("BufDelete", {
@@ -203,8 +146,9 @@ function M.find()
               end
 
               -- Source 1: fd from HOME
+              local fd_pattern = vim.fn.escape(prompt, "\\[](){}+?|^$"):gsub("%s+", ".*")
               local proc = vim.system(
-                { fd_cmd, "--type", "f", "--hidden", "--fixed-strings", "--max-results", "50", "--", prompt, home },
+                { fd_cmd, "--type", "f", "--hidden", "--max-results", "50", "--", fd_pattern, home },
                 { text = true },
                 function(result)
                   local stdout = result.stdout or ""
