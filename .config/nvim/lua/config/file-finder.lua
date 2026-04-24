@@ -147,22 +147,29 @@ function M.find()
 
               -- Source 1: fd from HOME
               local fd_pattern = vim.fn.escape(prompt, "\\[](){}+?|^$"):gsub("%s+", ".*")
-              local proc = vim.system(
-                { fd_cmd, "--type", "f", "--hidden", "--max-results", "50", "--", fd_pattern, home },
-                { text = true },
-                function(result)
-                  local stdout = result.stdout or ""
-                  vim.schedule(function()
-                    local parsed = {}
-                    if stdout ~= "" then
-                      for f in stdout:gmatch("[^\n]+") do
-                        parsed[#parsed + 1] = f
-                      end
+              local proc = vim.system({
+                fd_cmd,
+                "--type",
+                "f",
+                "--hidden",
+                "--full-path",
+                "--max-results",
+                "50",
+                "--",
+                fd_pattern,
+                home,
+              }, { text = true }, function(result)
+                local stdout = result.stdout or ""
+                vim.schedule(function()
+                  local parsed = {}
+                  if stdout ~= "" then
+                    for f in stdout:gmatch("[^\n]+") do
+                      parsed[#parsed + 1] = f
                     end
-                    source_done(parsed)
-                  end)
-                end
-              )
+                  end
+                  source_done(parsed)
+                end)
+              end)
               active_procs[#active_procs + 1] = proc
 
               -- Source 2+: registered sources
