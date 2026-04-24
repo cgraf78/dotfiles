@@ -1,0 +1,73 @@
+# macOS home dirs
+Library/
+Applications/
+Music/
+Pictures/
+Desktop/
+Movies/
+
+# Shell sessions
+.bash_sessions/
+.zsh_sessions/
+
+# Cloud storage
+gdrive/
+
+# OS junk
+.DS_Store
+.Trash/
+$Recycle.Bin/
+System Volume Information/
+AppData/
+ProgramData/
+
+# VCS and dev noise
+.git/
+.hg/
+.sl/
+node_modules/
+__pycache__/
+.mypy_cache/
+.cache/
+.venv/
+.vscode/
+.direnv/
+.npm/
+.bun/
+
+# XDG data and state
+.local/share/*
+!.local/share/doc/
+.local/state/
+
+# Language toolchains
+.cargo/
+.rustup/
+.mise/
+go/
+
+# Claude Code runtime data
+.claude/agent-market/
+.claude/backups/
+.claude/cache/
+.claude/debug/
+.claude/file-history/
+.claude/ide/
+.claude/meta/
+.claude/notify/
+.claude/paste-cache/
+.claude/plans/
+.claude/plugins/
+.claude/session-env/
+.claude/sessions/
+.claude/shell-snapshots/
+.claude/tasks/
+.claude/todos/
+.claude/usage-data/
+
+# Tool caches
+.dotfiles/
+.dotfiles-backup/
+.atuin/
+.vscode-remote/
+.cursor-server/
