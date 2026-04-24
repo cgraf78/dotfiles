@@ -138,7 +138,7 @@ local keys = {
   -- Clipboard
   bind("c", "CTRL", wezterm.action_callback(copy_or_interrupt)),
   bind("c", "CTRL|SHIFT", act.CopyTo("Clipboard")),
-  bind("v", "CTRL", act.SendKey({ key = "v", mods = "CTRL" })),
+  bind("v", "CTRL", act.PasteFrom("Clipboard")),
   bind("v", "CTRL|SHIFT", act.PasteFrom("Clipboard")),
 
   -- Tabs / windows
