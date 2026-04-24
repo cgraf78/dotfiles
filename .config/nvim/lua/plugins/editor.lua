@@ -137,7 +137,7 @@ return {
       {
         "<C-S-p>",
         function()
-          require("telescope.builtin").commands({ initial_mode = "insert" })
+          require("config.command-palette").open()
         end,
         desc = "Command palette",
       },
