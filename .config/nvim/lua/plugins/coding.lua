@@ -26,8 +26,14 @@ local severity_map = {
 }
 
 return {
-  { "zbirenbaum/copilot.lua", enabled = false },
-  { "fang2hou/blink-copilot", enabled = false },
+  {
+    "saghen/blink.cmp",
+    opts = {
+      keymap = {
+        ["<Tab>"] = { "select_and_accept", "snippet_forward", "fallback" },
+      },
+    },
+  },
 
   {
     "stevearc/conform.nvim",
@@ -46,9 +52,6 @@ return {
         end
         return t
       end)(),
-      format_on_save = function(bufnr)
-        return vim.b[bufnr].format_on_save_opts or { timeout_ms = 2000, lsp_format = "fallback" }
-      end,
     },
   },
 

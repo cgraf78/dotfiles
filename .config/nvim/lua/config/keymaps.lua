@@ -30,6 +30,12 @@ map("i", "<S-Right>", "<Esc>v<Right>", { desc = "Select right" })
 map("i", "<S-Up>", "<Esc>v<Up>", { desc = "Select up" })
 map("i", "<S-Down>", "<Esc>v<Down>", { desc = "Select down" })
 
+-- Ctrl-arrow word navigation
+map("n", "<C-Left>", "b", { desc = "Word left" })
+map("n", "<C-Right>", "w", { desc = "Word right" })
+map("i", "<C-Left>", "<C-o>b", { desc = "Word left" })
+map("i", "<C-Right>", "<C-o>w", { desc = "Word right" })
+
 -- Ctrl-Shift-arrow selection (word-wise)
 map("n", "<C-S-Left>", "vb", { desc = "Select word left" })
 map("n", "<C-S-Right>", "ve", { desc = "Select word right" })
@@ -67,6 +73,8 @@ map("v", "<PageDown>", "<Esc><PageDown>", { desc = "Clear selection, page down" 
 -- Copy/cut/paste (VSCode-style)
 map("v", "<C-c>", "ygv<Esc>", { desc = "Copy selection" })
 map("v", "<C-x>", "d", { desc = "Cut selection" })
+map("v", "<Del>", "d", { desc = "Delete selection" })
+map("v", "<BS>", "d", { desc = "Delete selection" })
 map({ "n", "v" }, "<C-v>", "P", { desc = "Paste at cursor" })
 map({ "n", "v" }, "p", "<Plug>(YankyPutBefore)", { desc = "Paste at cursor" })
 
