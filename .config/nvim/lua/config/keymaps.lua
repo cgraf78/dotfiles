@@ -84,7 +84,8 @@ map("v", "<C-Right>", "<Esc>w", { desc = "Clear selection, word right" })
 map("v", "<C-Up>", "<Esc>[m", { desc = "Clear selection, previous function" })
 map("v", "<C-Down>", "<Esc>]m", { desc = "Clear selection, next function" })
 
--- Yank history
+-- Yank history. tmux forwards Ctrl-Shift-v as Esc[778899~ so it does not
+-- fall through to tmux's plain Ctrl-v paste binding.
 map({ "n", "x", "i" }, "<C-S-v>", open_yank_history, { desc = "Open Yank History" })
 map(
   { "n", "x", "i" },
@@ -92,6 +93,16 @@ map(
   open_yank_history,
   { desc = "Open Yank History" }
 )
+
+-- Move / duplicate lines (VSCode-style Alt-Up/Down)
+map("n", "<M-Up>", ":m .-2<cr>==", { desc = "Move line up" })
+map("n", "<M-Down>", ":m .+1<cr>==", { desc = "Move line down" })
+map("v", "<M-Up>", ":m '<-2<cr>gv=gv", { desc = "Move selection up" })
+map("v", "<M-Down>", ":m '>+1<cr>gv=gv", { desc = "Move selection down" })
+map("n", "<M-S-Up>", ":t .-1<cr>", { desc = "Duplicate line up" })
+map("n", "<M-S-Down>", ":t .<cr>", { desc = "Duplicate line down" })
+map("v", "<M-S-Up>", ":t '<-1<cr>gv", { desc = "Duplicate selection up" })
+map("v", "<M-S-Down>", ":t '><cr>gv", { desc = "Duplicate selection down" })
 
 -- Copy/cut/paste (VSCode-style)
 map("v", "<C-c>", "ygv<Esc>", { desc = "Copy selection" })
