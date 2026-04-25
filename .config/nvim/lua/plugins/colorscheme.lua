@@ -36,8 +36,12 @@ return {
     priority = 1000,
     config = function()
       if colorscheme == "night-owl" then
+        local dim = "#384050"
         local overrides = {
           CursorLine = { bg = "#0b2942" },
+          SnacksIndent = { fg = dim },
+          SnacksIndentScope = { fg = dim },
+          Whitespace = { fg = dim },
         }
         local function apply()
           for group, hl in pairs(overrides) do

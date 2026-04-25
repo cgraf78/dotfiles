@@ -8,6 +8,10 @@ vim.o.selection = "exclusive"
 -- Force unnamedplus so yanks reach the system clipboard via OSC 52.
 vim.o.clipboard = "unnamedplus"
 
+-- Show leading spaces as dim dots.
+vim.opt.list = true
+vim.opt.listchars:append({ lead = "·" })
+
 vim.opt.backup = false
 vim.opt.writebackup = false
 vim.opt.swapfile = false
