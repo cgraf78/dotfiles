@@ -27,6 +27,11 @@ local severity_map = {
 
 return {
   {
+    "nvimtools/none-ls.nvim",
+    opts = { sources = {} },
+  },
+
+  {
     "saghen/blink.cmp",
     opts = {
       keymap = {
