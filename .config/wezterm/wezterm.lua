@@ -139,7 +139,7 @@ local keys = {
   bind("c", "CTRL", wezterm.action_callback(copy_or_interrupt)),
   bind("c", "CTRL|SHIFT", act.CopyTo("Clipboard")),
   bind("v", "CTRL", act.PasteFrom("Clipboard")),
-  bind("v", "CTRL|SHIFT", act.PasteFrom("Clipboard")),
+  bind("v", "CTRL|SHIFT", act.SendKey({ key = "v", mods = "CTRL|SHIFT" })),
 
   -- Tabs / windows
   bind("t", "CTRL", act.SpawnTab("DefaultDomain")),
