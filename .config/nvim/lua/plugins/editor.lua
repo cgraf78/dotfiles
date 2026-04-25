@@ -121,6 +121,34 @@ return {
         desc = "Find files",
       },
       {
+        "<leader><space>",
+        function()
+          require("config.file-finder").find()
+        end,
+        desc = "Find files",
+      },
+      {
+        "<leader>ff",
+        function()
+          require("config.file-finder").find()
+        end,
+        desc = "Find files",
+      },
+      {
+        "<leader>fF",
+        function()
+          require("config.file-finder").find()
+        end,
+        desc = "Find files",
+      },
+      {
+        "<leader>fg",
+        function()
+          require("config.file-finder").find()
+        end,
+        desc = "Find files",
+      },
+      {
         "<C-f>",
         function()
           require("telescope.builtin").current_buffer_fuzzy_find({ initial_mode = "insert" })
