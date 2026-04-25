@@ -42,6 +42,12 @@ return {
           SnacksIndent = { fg = dim },
           SnacksIndentScope = { fg = dim },
           Whitespace = { fg = dim },
+          RenderMarkdownH1Bg = { bg = "#1d3b53" },
+          RenderMarkdownH2Bg = { bg = "#112630" },
+          RenderMarkdownH3Bg = { bg = "#0e293f" },
+          RenderMarkdownH4Bg = { bg = "#0b253a" },
+          RenderMarkdownH5Bg = { bg = "#092135" },
+          RenderMarkdownH6Bg = { bg = "#071d30" },
         }
         local function apply()
           for group, hl in pairs(overrides) do
