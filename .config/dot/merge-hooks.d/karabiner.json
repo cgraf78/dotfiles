@@ -1839,13 +1839,6 @@
                                 "conditions": [
                                     {
                                         "bundle_identifiers": [
-                                            "^com\\.alacritty$",
-                                            "^io\\.alacritty$",
-                                            "^co\\.zeit\\.hyper$",
-                                            "^com\\.googlecode\\.iterm2$",
-                                            "^com\\.apple\\.Terminal$",
-                                            "^com\\.github\\.wez\\.wezterm$",
-                                            "^com\\.mitchellh\\.ghostty$",
                                             "^com\\.facebook\\.fbvscode$",
                                             "^com\\.microsoft\\.VSCode$",
                                             "^com\\.facebook\\.fbvscode-insiders$",
@@ -1915,9 +1908,6 @@
                                     "modifiers": {
                                         "mandatory": [
                                             "control"
-                                        ],
-                                        "optional": [
-                                            "any"
                                         ]
                                     }
                                 },

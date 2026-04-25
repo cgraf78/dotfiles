@@ -3,6 +3,16 @@
 
 local map = vim.keymap.set
 
+local function open_yank_history()
+  if LazyVim.pick.picker.name == "telescope" then
+    require("telescope").extensions.yank_history.yank_history({})
+  elseif LazyVim.pick.picker.name == "snacks" then
+    Snacks.picker.yanky()
+  else
+    vim.cmd([[YankyRingHistory]])
+  end
+end
+
 -- Exit insert/terminal mode
 map("i", "kj", "<Esc>", { desc = "Exit insert mode" })
 map("t", "kj", [[<C-\><C-n>]], { desc = "Exit terminal mode" })
@@ -75,7 +85,13 @@ map("v", "<C-Up>", "<Esc>[m", { desc = "Clear selection, previous function" })
 map("v", "<C-Down>", "<Esc>]m", { desc = "Clear selection, next function" })
 
 -- Yank history
-map("n", "<C-S-v>", "<cmd>Telescope yank_history<cr>", { desc = "Yank history" })
+map({ "n", "x", "i" }, "<C-S-v>", open_yank_history, { desc = "Open Yank History" })
+map(
+  { "n", "x", "i" },
+  vim.keycode("<Esc>") .. "[778899~",
+  open_yank_history,
+  { desc = "Open Yank History" }
+)
 
 -- Copy/cut/paste (VSCode-style)
 map("v", "<C-c>", "ygv<Esc>", { desc = "Copy selection" })
