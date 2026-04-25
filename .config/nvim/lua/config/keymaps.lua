@@ -70,6 +70,9 @@ map("v", "<End>", "<Esc><End>", { desc = "Clear selection, move to line end" })
 map("v", "<PageUp>", "<Esc><PageUp>", { desc = "Clear selection, page up" })
 map("v", "<PageDown>", "<Esc><PageDown>", { desc = "Clear selection, page down" })
 
+-- Yank history
+map("n", "<C-S-v>", "<cmd>Telescope yank_history<cr>", { desc = "Yank history" })
+
 -- Copy/cut/paste (VSCode-style)
 map("v", "<C-c>", "ygv<Esc>", { desc = "Copy selection" })
 map("v", "<C-x>", "d", { desc = "Cut selection" })
