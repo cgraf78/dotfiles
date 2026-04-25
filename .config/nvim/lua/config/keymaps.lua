@@ -69,6 +69,10 @@ map("v", "<Home>", "<Esc><Home>", { desc = "Clear selection, move to line start"
 map("v", "<End>", "<Esc><End>", { desc = "Clear selection, move to line end" })
 map("v", "<PageUp>", "<Esc><PageUp>", { desc = "Clear selection, page up" })
 map("v", "<PageDown>", "<Esc><PageDown>", { desc = "Clear selection, page down" })
+map("v", "<C-Left>", "<Esc>b", { desc = "Clear selection, word left" })
+map("v", "<C-Right>", "<Esc>w", { desc = "Clear selection, word right" })
+map("v", "<C-Up>", "<Esc>[m", { desc = "Clear selection, previous function" })
+map("v", "<C-Down>", "<Esc>]m", { desc = "Clear selection, next function" })
 
 -- Yank history
 map("n", "<C-S-v>", "<cmd>Telescope yank_history<cr>", { desc = "Yank history" })
