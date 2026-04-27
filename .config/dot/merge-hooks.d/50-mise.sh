@@ -17,7 +17,7 @@ merge() {
   mise trust "$config" &>/dev/null || true
 
   local github_token
-  github_token="${MISE_GITHUB_TOKEN:-}"
+  github_token="${MISE_GITHUB_TOKEN:-${GITHUB_TOKEN:-}}"
 
   # Headless cron runs on Linux can leak a session bus/keyring pair when
   # `gh auth token` wakes up the credential stack, so only fall back to
