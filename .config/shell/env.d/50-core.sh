@@ -3,6 +3,7 @@
 
 _UNAME="$(uname -s)"
 
+export LANG="${LANG:-en_US.UTF-8}"
 export EDITOR=nvim
 export DS_DEV_CHATBOT="${DS_DEV_CHATBOT:-claude}"
 export DS_CHAT_CHATBOT="${DS_CHAT_CHATBOT:-argus}"
