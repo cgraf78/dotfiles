@@ -1,4 +1,5 @@
--- Change default theme here:
+-- NVIM_COLORSCHEME lets shell profiles switch themes without editing this file.
+-- Only the active colorscheme is eager-loaded; the rest are lazy to avoid startup cost.
 local colorscheme = vim.env.NVIM_COLORSCHEME or "tokyonight"
 
 return {
@@ -36,6 +37,9 @@ return {
     priority = 1000,
     config = function()
       if colorscheme == "night-owl" then
+        -- night-owl ships without good defaults for indent guides, whitespace,
+        -- and render-markdown headings. Override them and re-apply on ColorScheme
+        -- events so :colorscheme reloads don't lose the fixes.
         local dim = "#384050"
         local overrides = {
           CursorLine = { bg = "#0b2942" },

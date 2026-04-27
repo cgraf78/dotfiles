@@ -1,3 +1,7 @@
+-- VSCode-style command palette (Ctrl-Shift-P): merges keymaps, user commands,
+-- and telescope builtins into one searchable list. Buffer-local keymaps are
+-- added first so they sort above globals.
+
 local M = {}
 
 local function add_keymaps(entries, seen, list, suffix)

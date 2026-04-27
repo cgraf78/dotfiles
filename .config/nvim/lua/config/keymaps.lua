@@ -1,6 +1,11 @@
 -- Keymaps are automatically loaded on the VeryLazy event
 -- Default keymaps that are always set: https://github.com/LazyVim/LazyVim/blob/main/lua/lazyvim/config/keymaps.lua
 
+-- This file replaces vim's modal selection model with VSCode-style shift-arrow
+-- selection, modifier navigation, and CUA clipboard shortcuts (Ctrl-C/X/V).
+-- Each block covers normal, visual, and insert modes so the bindings work
+-- regardless of what mode you happen to be in.
+
 local map = vim.keymap.set
 
 local function open_yank_history()
@@ -70,7 +75,8 @@ map("v", "<S-PageDown>", "<PageDown>", { desc = "Extend page down" })
 map("i", "<S-PageUp>", "<Esc>v<PageUp>", { desc = "Select page up" })
 map("i", "<S-PageDown>", "<Esc>v<PageDown>", { desc = "Select page down" })
 
--- Arrow keys in visual mode: clear selection and move (VSCode behavior)
+-- Unmodified arrows in visual mode: clear selection and move (VSCode behavior).
+-- Vim's default keeps the selection alive, which is confusing for VSCode muscle memory.
 map("v", "<Left>", "<Esc><Left>", { desc = "Clear selection, move left" })
 map("v", "<Right>", "<Esc><Right>", { desc = "Clear selection, move right" })
 map("v", "<Up>", "<Esc><Up>", { desc = "Clear selection, move up" })
@@ -104,11 +110,13 @@ map("n", "<M-S-Down>", ":t .<cr>", { desc = "Duplicate line down" })
 map("v", "<M-S-Up>", ":t '<-1<cr>gv", { desc = "Duplicate selection up" })
 map("v", "<M-S-Down>", ":t '><cr>gv", { desc = "Duplicate selection down" })
 
--- Copy/cut/paste (VSCode-style)
+-- Copy/cut/paste (VSCode-style).
+-- C-c uses `ygv<Esc>` instead of plain `y` to keep cursor position after copy.
 map("v", "<C-c>", "ygv<Esc>", { desc = "Copy selection" })
 map("v", "<C-x>", "d", { desc = "Cut selection" })
 map("v", "<Del>", "d", { desc = "Delete selection" })
 map("v", "<BS>", "d", { desc = "Delete selection" })
+-- `P` pastes before cursor (VSCode inserts at cursor, not after it).
 map({ "n", "v" }, "<C-v>", "P", { desc = "Paste at cursor" })
 map({ "n", "v" }, "p", "<Plug>(YankyPutBefore)", { desc = "Paste at cursor" })
 
@@ -131,7 +139,8 @@ map("n", "<C-S-Down>", "v]m", { desc = "Select to next function" })
 map("v", "<C-S-Up>", "[m", { desc = "Extend to previous function" })
 map("v", "<C-S-Down>", "]m", { desc = "Extend to next function" })
 
--- Toggle comment (VSCode-style Ctrl-/)
+-- Toggle comment (VSCode-style Ctrl-/).
+-- `remap = true` chains into ts-comments.nvim's `gc`/`gcc` for per-filetype syntax.
 map("n", "<C-/>", "gcc", { remap = true, desc = "Toggle comment" })
 map("v", "<C-/>", "gc", { remap = true, desc = "Toggle comment" })
 map("i", "<C-/>", "<Esc>gcca", { remap = true, desc = "Toggle comment" })
@@ -139,12 +148,13 @@ map("i", "<C-/>", "<Esc>gcca", { remap = true, desc = "Toggle comment" })
 -- Join lines without cursor jump
 map("n", "J", "mzJ`z", { desc = "Join lines (keep cursor)" })
 
--- Terminal toggle (alias for C-/)
+-- C-` mirrors VSCode's terminal toggle. C-/ is now used for commenting.
 map({ "n", "t" }, "<C-`>", function()
   Snacks.terminal()
 end, { desc = "Toggle terminal" })
 
--- Override LazyVim's window navigation with tmux-navigator
+-- Override LazyVim's C-hjkl with tmux-navigator so pane navigation
+-- works seamlessly between vim splits and tmux panes.
 map("n", "<C-h>", "<cmd>TmuxNavigateLeft<cr>", { desc = "Navigate left" })
 map("n", "<C-j>", "<cmd>TmuxNavigateDown<cr>", { desc = "Navigate down" })
 map("n", "<C-k>", "<cmd>TmuxNavigateUp<cr>", { desc = "Navigate up" })

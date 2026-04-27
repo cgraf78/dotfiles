@@ -1,5 +1,11 @@
+-- MRU file list: session-visited files first (current session), then oldfiles
+-- (cross-session via shada). Capped at 100 to keep pickers responsive.
+-- Used by both file-finder and file-search as the "recent files" source.
+
 local M = {}
 
+-- Session-visited files always outrank oldfiles (cross-session) so the picker
+-- prioritizes what you're actively working on over yesterday's context.
 local session_files = {}
 local session_set = {}
 local cache = nil

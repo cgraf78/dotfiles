@@ -1,3 +1,7 @@
+-- Async file picker: shows recent files instantly, then progressively merges
+-- live fd results as you type. Extensible via add_source() so overlay configs
+-- can plug in additional search backends without touching this file.
+
 local M = {}
 
 M.sources = {}
@@ -51,6 +55,8 @@ function M.find()
     return finders.new_table({ results = all, entry_maker = entry_maker })
   end
 
+  -- Debounce typing so we don't fork fd on every keystroke.
+  -- query_gen monotonically increments; stale callbacks discard their results.
   local debounce_timer = vim.uv.new_timer()
   local last_query = ""
   local active_procs = {}

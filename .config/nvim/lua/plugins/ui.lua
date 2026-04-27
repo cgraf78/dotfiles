@@ -1,4 +1,5 @@
 return {
+  -- Overlay configs can set vim.g.disable_bufferline to hide the tab bar.
   {
     "akinsho/bufferline.nvim",
     enabled = not vim.g.disable_bufferline,

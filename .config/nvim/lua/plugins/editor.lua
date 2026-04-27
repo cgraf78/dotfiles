@@ -1,4 +1,6 @@
 return {
+  -- Disable snacks features that conflict with terminal rendering or feel laggy
+  -- over SSH (smooth scroll, animations, startup dashboard).
   {
     "folke/snacks.nvim",
     opts = {
@@ -8,6 +10,8 @@ return {
     },
   },
 
+  -- Auto-restore sessions when nvim is opened with no arguments.
+  -- Skips restore when piping via stdin (see StdinReadPre autocmd in autocmds.lua).
   {
     "folke/persistence.nvim",
     opts = {},
@@ -21,6 +25,8 @@ return {
             and not vim.g.disable_session_restore
           then
             require("persistence").load()
+            -- Clean up stale buffers from deleted files, then re-trigger filetype
+            -- detection which doesn't fire automatically after session restore.
             vim.schedule(function()
               for _, buf in ipairs(vim.api.nvim_list_bufs()) do
                 local name = vim.api.nvim_buf_get_name(buf)
@@ -65,11 +71,15 @@ return {
     },
   },
 
+  -- lazy = false so C-hjkl navigation works immediately (see keymaps.lua).
   {
     "christoomey/vim-tmux-navigator",
     lazy = false,
   },
 
+  -- in_large_repo() (defined in options.lua, overridable by overlay configs)
+  -- disables git status, file watchers, and gitignore filtering that would be
+  -- too slow in very large repositories.
   {
     "nvim-neo-tree/neo-tree.nvim",
     keys = {
@@ -110,6 +120,10 @@ return {
     end,
   },
 
+  -- All file-find keys route to config/file-finder, a custom async picker that
+  -- merges recent files with live fd results and extensible sources. C-S-f
+  -- routes to config/file-search for content search with ripgrep + extensible
+  -- sources. Overlay configs can register additional search backends.
   {
     "nvim-telescope/telescope.nvim",
     opts = {

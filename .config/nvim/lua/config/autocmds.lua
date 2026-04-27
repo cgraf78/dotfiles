@@ -21,13 +21,15 @@ vim.diagnostic.config({
   update_in_insert = false,
 })
 
+-- Flag stdin input so persistence.nvim skips session restore (see editor.lua).
 vim.api.nvim_create_autocmd("StdinReadPre", {
   callback = function()
     vim.g.started_with_stdin = true
   end,
 })
 
--- Save session continuously so crash recovery doesn't lose state.
+-- Save session on every buffer change so crash recovery doesn't lose state.
+-- Debounced at 500ms to batch rapid open/close sequences (e.g. telescope previews).
 local save_timer = vim.uv.new_timer()
 vim.api.nvim_create_autocmd({ "BufAdd", "BufDelete" }, {
   callback = function()
@@ -46,7 +48,8 @@ vim.api.nvim_create_autocmd({ "BufAdd", "BufDelete" }, {
   end,
 })
 
--- Cursor-hold auto-float: show diagnostics under the cursor when idle.
+-- Show diagnostic float on cursor hold — saves reaching for `gl` every time.
+-- Skip non-file buffers where diagnostics don't apply (terminals, pickers, etc).
 vim.api.nvim_create_autocmd("CursorHold", {
   callback = function()
     local bt = vim.bo.buftype

@@ -1,3 +1,7 @@
+-- Async content search picker: ripgreps recent files first (fast, relevant hits),
+-- then searches from $HOME as a broader fallback. Extensible via add_source()
+-- for overlay-provided search backends.
+
 local M = {}
 
 M.sources = {}
@@ -51,8 +55,12 @@ function M.find()
     vim.fn.writefile(recent, tmpfile)
   end
 
+  -- --fixed-strings: treat query as literal (no regex surprises from user input).
+  -- --max-filesize 1M: skip large binaries/generated files.
   local rg_base = { "rg", "--vimgrep", "--fixed-strings", "--smart-case", "--max-filesize", "1M" }
 
+  -- Search recent files first with --max-count 3 per file to avoid one large
+  -- file flooding the results before the broader $HOME search completes.
   local rg_recent_prefix
   if tmpfile then
     rg_recent_prefix = { unpack(rg_base) }
