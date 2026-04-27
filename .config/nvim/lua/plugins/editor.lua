@@ -112,6 +112,19 @@ return {
 
   {
     "nvim-telescope/telescope.nvim",
+    opts = {
+      pickers = {
+        buffers = {
+          mappings = {
+            n = {
+              ["dd"] = function(buf)
+                require("telescope.actions").delete_buffer(buf)
+              end,
+            },
+          },
+        },
+      },
+    },
     keys = {
       {
         "<C-p>",
