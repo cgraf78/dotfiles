@@ -131,6 +131,11 @@ map("n", "<C-S-Down>", "v]m", { desc = "Select to next function" })
 map("v", "<C-S-Up>", "[m", { desc = "Extend to previous function" })
 map("v", "<C-S-Down>", "]m", { desc = "Extend to next function" })
 
+-- Toggle comment (VSCode-style Ctrl-/)
+map("n", "<C-/>", "gcc", { remap = true, desc = "Toggle comment" })
+map("v", "<C-/>", "gc", { remap = true, desc = "Toggle comment" })
+map("i", "<C-/>", "<Esc>gcca", { remap = true, desc = "Toggle comment" })
+
 -- Join lines without cursor jump
 map("n", "J", "mzJ`z", { desc = "Join lines (keep cursor)" })
 
