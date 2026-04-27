@@ -1146,6 +1146,7 @@
                                 "conditions": [
                                     {
                                         "bundle_identifiers": [
+                                            "^net\\.kovidgoyal\\.kitty$",
                                             "^com\\.alacritty$",
                                             "^io\\.alacritty$",
                                             "^co\\.zeit\\.hyper$",
@@ -1833,7 +1834,7 @@
                         ]
                     },
                     {
-                        "description": "V (Ctrl+Shift) [Only Terminal Emulators]",
+                        "description": "V (Ctrl+Shift) [Only VS Code]",
                         "manipulators": [
                             {
                                 "conditions": [
