@@ -158,6 +158,11 @@ _assert_eq "startup timeout: portable watchdog returns timeout status" "124" "$r
 _assert_file_missing "startup timeout: portable watchdog bypasses external timeout" \
   "$timeout_marker"
 
+timeout_fixture_home=$(_tmpdir)
+rc=0
+HOME="$timeout_fixture_home" _with_timeout 1 true || rc=$?
+_assert_eq "startup timeout: watchdog survives fixture HOME changes" "0" "$rc"
+
 timeout_fixture_dir=$(_tmpdir)
 timeout_descendant_pid="$timeout_fixture_dir/descendant.pid"
 cat >"$timeout_fixture_dir/child.py" <<'PY'
@@ -187,6 +192,41 @@ _assert_eq "startup timeout: descendant watchdog returns timeout status" "124" "
 descendant_pid=$(cat "$timeout_descendant_pid")
 _assert_process_stopped "startup timeout: descendant that ignores TERM is killed" \
   "$descendant_pid"
+
+rc=0
+python3 - "$_DOT_TEST_TIMEOUT_PY" <<'PY' || rc=$?
+import importlib.util
+import signal
+import sys
+
+spec = importlib.util.spec_from_file_location("dot_timeout", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+
+
+class Process:
+    pid = 123
+    waited = False
+
+    def wait(self):
+        self.waited = True
+
+
+process = Process()
+module.process = process
+module.time.sleep = lambda _: None
+
+
+def killpg(_pid, signum):
+    if signum == signal.SIGKILL:
+        raise PermissionError
+
+
+module.os.killpg = killpg
+module.stop_process_group(signal.SIGTERM)
+assert process.waited
+PY
+_assert_eq "startup timeout: forced kill tolerates macOS permission race" "0" "$rc"
 
 timeout_cancel_descendant_pid="$timeout_fixture_dir/cancel-descendant.pid"
 timeout_wrapper_pid_file="$timeout_fixture_dir/wrapper.pid"

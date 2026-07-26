@@ -339,83 +339,12 @@ _mock_bin() {
 # Linux and macOS.
 # ---------------------------------------------------------------------------
 
+_DOT_TEST_TIMEOUT_PY=$(cd "${BASH_SOURCE[0]%/*}" && pwd)/timeout.py
+
 _with_python_timeout() {
   local secs="$1"
   shift
-  python3 -c '
-import os
-import signal
-import subprocess
-import sys
-import time
-
-value = sys.argv[1]
-units = {"s": 1, "m": 60, "h": 3600, "d": 86400}
-multiplier = units.get(value[-1:], 1)
-if value[-1:] in units:
-    value = value[:-1]
-timeout = float(value) * multiplier
-
-process = None
-interrupted_signal = None
-
-
-class ForwardedSignal(Exception):
-    pass
-
-
-def capture_signal(signum, _frame):
-    global interrupted_signal
-    interrupted_signal = signum
-    if process is not None:
-        raise ForwardedSignal
-
-
-handled_signals = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
-for handled_signal in handled_signals:
-    signal.signal(handled_signal, capture_signal)
-
-
-def stop_process_group(first_signal):
-    for handled_signal in handled_signals:
-        signal.signal(handled_signal, signal.SIG_IGN)
-    try:
-        os.killpg(process.pid, first_signal)
-    except ProcessLookupError:
-        process.wait()
-        return
-    time.sleep(1)
-    try:
-        os.killpg(process.pid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
-    process.wait()
-
-
-try:
-    process = subprocess.Popen(sys.argv[2:], start_new_session=True)
-except FileNotFoundError:
-    raise SystemExit(127)
-except OSError:
-    raise SystemExit(126)
-
-try:
-    if interrupted_signal is not None:
-        raise ForwardedSignal
-    wrapper_pid_file = os.environ.get("DOT_TEST_TIMEOUT_WRAPPER_PID_FILE")
-    if wrapper_pid_file:
-        with open(wrapper_pid_file, "w", encoding="utf-8") as file:
-            file.write(str(os.getpid()))
-    status = process.wait(timeout=timeout)
-except ForwardedSignal:
-    stop_process_group(interrupted_signal)
-    raise SystemExit(128 + interrupted_signal)
-except subprocess.TimeoutExpired:
-    stop_process_group(signal.SIGTERM)
-    raise SystemExit(124)
-
-raise SystemExit(status if status >= 0 else 128 - status)
-' "$secs" "$@"
+  python3 "$_DOT_TEST_TIMEOUT_PY" "$secs" "$@"
 }
 
 _with_timeout() {

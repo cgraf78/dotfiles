@@ -52,6 +52,131 @@ DOTRUNNER
   _assert_eq "dot-test sequential: suite stays foreground" \
     "" "$(cat "$_dot_runner_setsid_log")"
 
+  _dot_runner_timeout_tests=$(_tmpdir)
+  cat >"$_dot_runner_timeout_tests/hang-test" <<'DOTRUNNER'
+#!/usr/bin/env bash
+while :; do
+  sleep 1
+done
+DOTRUNNER
+  chmod +x "$_dot_runner_timeout_tests/hang-test"
+  _dot_runner_timeout_output=$(
+    PATH="$_dot_runner_bin:$PATH" DOT_TEST_SETSID_LOG="$_dot_runner_setsid_log" \
+      DOT_TEST_TESTS_DIR="$_dot_runner_timeout_tests" DOT_TEST_JOBS=1 \
+      DOT_TEST_SUITE_TIMEOUT_SECONDS=1 DOT_TEST_NO_COLOR=1 \
+      _with_timeout 5 "$BIN_DIR/dot-test" 2>&1
+  )
+  _dot_runner_timeout_rc=$?
+  _assert_exit "dot-test parallel: hanging suite fails within its deadline" \
+    1 "$_dot_runner_timeout_rc"
+  _assert_contains "dot-test parallel: timed-out suite is reported" \
+    "Failed: hang-test" "$_dot_runner_timeout_output"
+
+  _dot_runner_escape_tests=$(_tmpdir)
+  _dot_runner_escape_pid_file="$_dot_runner_escape_tests/escaped.pid"
+  cat >"$_dot_runner_escape_tests/escaped-test" <<'DOTRUNNER'
+#!/usr/bin/env bash
+python3 - "$DOT_TEST_ESCAPED_PID_FILE" <<'PY' &
+import subprocess
+import sys
+
+process = subprocess.Popen(
+    [sys.executable, "-c", "import time; time.sleep(15)"],
+    start_new_session=True,
+)
+with open(sys.argv[1], "w", encoding="utf-8") as handle:
+    handle.write(str(process.pid))
+PY
+while :; do
+  sleep 1
+done
+DOTRUNNER
+  chmod +x "$_dot_runner_escape_tests/escaped-test"
+  SECONDS=0
+  _dot_runner_escape_output=$(
+    PATH="$_dot_runner_bin:$PATH" DOT_TEST_SETSID_LOG="$_dot_runner_setsid_log" \
+      DOT_TEST_ESCAPED_PID_FILE="$_dot_runner_escape_pid_file" \
+      DOT_TEST_TESTS_DIR="$_dot_runner_escape_tests" DOT_TEST_SUITE_TIMEOUT_SECONDS=1 \
+      DOT_TEST_NO_COLOR=1 _with_timeout 20 "$BIN_DIR/dot-test" -s 2>&1
+  )
+  _dot_runner_escape_rc=$?
+  _dot_runner_escape_elapsed=$SECONDS
+  if [[ -s "$_dot_runner_escape_pid_file" ]]; then
+    _dot_runner_escape_pid=$(cat "$_dot_runner_escape_pid_file")
+    kill -KILL "$_dot_runner_escape_pid" 2>/dev/null || true
+  fi
+  _assert_exit "dot-test sequential: escaped writer cannot bypass suite deadline" \
+    1 "$_dot_runner_escape_rc"
+  _assert_contains "dot-test sequential: escaped-writer timeout is reported" \
+    "Failed: escaped-test" "$_dot_runner_escape_output"
+  if [[ "$_dot_runner_escape_elapsed" -le 8 ]]; then
+    _pass "dot-test sequential: escaped writer cannot delay timeout reporting"
+  else
+    _fail "dot-test sequential: escaped writer cannot delay timeout reporting"
+  fi
+
+  _assert_dot_runner_cancellation() {
+    local mode="$1"
+    shift
+    local cancel_tests cancel_pid_file cancel_output cancel_pid cancel_rc
+    local suite_pid started state
+
+    cancel_tests=$(_tmpdir)
+    cancel_pid_file="$cancel_tests/suite.pid"
+    cancel_output="$cancel_tests/runner.out"
+    cat >"$cancel_tests/cancel-test" <<'DOTRUNNER'
+#!/usr/bin/env bash
+printf '%s\n' "$$" >"$DOT_TEST_CANCEL_SUITE_PID_FILE"
+while :; do
+  sleep 1
+done
+DOTRUNNER
+    chmod +x "$cancel_tests/cancel-test"
+    PATH="$_dot_runner_bin:$PATH" DOT_TEST_SETSID_LOG="$_dot_runner_setsid_log" \
+      DOT_TEST_CANCEL_SUITE_PID_FILE="$cancel_pid_file" \
+      DOT_TEST_TESTS_DIR="$cancel_tests" DOT_TEST_JOBS=1 \
+      DOT_TEST_SUITE_TIMEOUT_SECONDS=30 DOT_TEST_NO_COLOR=1 \
+      "$BIN_DIR/dot-test" "$@" >"$cancel_output" 2>&1 &
+    cancel_pid=$!
+    started=$SECONDS
+    while [[ ! -s "$cancel_pid_file" ]]; do
+      if ((SECONDS - started >= 5)); then
+        break
+      fi
+      sleep 0.05
+    done
+    if [[ -s "$cancel_pid_file" ]]; then
+      kill -TERM "$cancel_pid"
+      cancel_rc=0
+      wait "$cancel_pid" || cancel_rc=$?
+      _assert_exit "dot-test $mode: cancellation preserves signal status" 143 "$cancel_rc"
+
+      suite_pid=$(cat "$cancel_pid_file")
+      started=$SECONDS
+      while kill -0 "$suite_pid" 2>/dev/null; do
+        state=$(ps -o stat= -p "$suite_pid" 2>/dev/null) || break
+        [[ "$state" =~ ^[[:space:]]*Z ]] && break
+        if ((SECONDS - started >= 5)); then
+          break
+        fi
+        sleep 0.05
+      done
+      state=$(ps -o stat= -p "$suite_pid" 2>/dev/null || true)
+      if kill -0 "$suite_pid" 2>/dev/null && [[ ! "$state" =~ ^[[:space:]]*Z ]]; then
+        _fail "dot-test $mode: cancellation stops active suite"
+        kill -KILL "$suite_pid" 2>/dev/null || true
+      else
+        _pass "dot-test $mode: cancellation stops active suite"
+      fi
+    else
+      _fail "dot-test $mode: cancellation fixture becomes ready"
+      kill -TERM "$cancel_pid" 2>/dev/null || true
+      wait "$cancel_pid" 2>/dev/null || true
+    fi
+  }
+  _assert_dot_runner_cancellation parallel
+  _assert_dot_runner_cancellation sequential -s
+
   # Worktree ergonomics: running dot-test from a linked worktree should exercise
   # that tree's files without forcing developers to create helper symlinks for
   # host-installed dependencies. DOT_TEST_SOURCE_HOME models the discovered
@@ -71,6 +196,8 @@ DOTRUNNER
     "$_dot_runner_host_home/.cache/mise"
   cp "$BIN_DIR/dot-test" "$_dot_runner_source_home/.local/bin/dot-test"
   cp "$REAL_HOME/.local/lib/dot/core/ui.sh" "$_dot_runner_source_home/.local/lib/dot/core/ui.sh"
+  cp "$REAL_HOME/.local/lib/dot/tests/timeout.py" \
+    "$_dot_runner_source_home/.local/lib/dot/tests/timeout.py"
   printf '%s\n' '# fake shdeps' >"$_dot_runner_host_home/git/shdeps/shdeps.sh"
   cat >"$_dot_runner_source_tests/home-test" <<'DOTRUNNER'
 #!/usr/bin/env bash
