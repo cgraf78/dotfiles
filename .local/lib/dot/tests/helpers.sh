@@ -347,6 +347,7 @@ import os
 import signal
 import subprocess
 import sys
+import time
 
 value = sys.argv[1]
 units = {"s": 1, "m": 60, "h": 3600, "d": 86400}
@@ -355,16 +356,26 @@ if value[-1:] in units:
     value = value[:-1]
 timeout = float(value) * multiplier
 
-process = subprocess.Popen(sys.argv[2:], start_new_session=True)
+try:
+    process = subprocess.Popen(sys.argv[2:], start_new_session=True)
+except FileNotFoundError:
+    raise SystemExit(127)
+except OSError:
+    raise SystemExit(126)
 try:
     status = process.wait(timeout=timeout)
 except subprocess.TimeoutExpired:
-    os.killpg(process.pid, signal.SIGTERM)
     try:
-        process.wait(timeout=1)
-    except subprocess.TimeoutExpired:
-        os.killpg(process.pid, signal.SIGKILL)
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
         process.wait()
+        raise SystemExit(124)
+    time.sleep(1)
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    process.wait()
     raise SystemExit(124)
 
 raise SystemExit(status if status >= 0 else 128 - status)

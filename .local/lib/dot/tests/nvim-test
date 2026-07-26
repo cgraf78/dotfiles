@@ -143,6 +143,59 @@ _assert_eq "startup timeout: portable watchdog returns timeout status" "124" "$r
 _assert_file_missing "startup timeout: portable watchdog bypasses external timeout" \
   "$timeout_marker"
 
+timeout_fixture_dir=$(_tmpdir)
+timeout_descendant_pid="$timeout_fixture_dir/descendant.pid"
+cat >"$timeout_fixture_dir/child.py" <<'PY'
+#!/usr/bin/env python3
+import os
+import signal
+import sys
+import time
+
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+with open(sys.argv[1], "w", encoding="utf-8") as file:
+    file.write(str(os.getpid()))
+time.sleep(30)
+PY
+cat >"$timeout_fixture_dir/parent.sh" <<'SH'
+#!/usr/bin/env bash
+trap 'exit 0' TERM
+python3 "$DOT_TEST_TIMEOUT_CHILD" "$DOT_TEST_TIMEOUT_DESCENDANT_PID" &
+wait
+SH
+chmod +x "$timeout_fixture_dir/child.py" "$timeout_fixture_dir/parent.sh"
+rc=0
+DOT_TEST_PORTABLE_TIMEOUT=1 \
+  DOT_TEST_TIMEOUT_CHILD="$timeout_fixture_dir/child.py" \
+  DOT_TEST_TIMEOUT_DESCENDANT_PID="$timeout_descendant_pid" \
+  _with_timeout 1 "$timeout_fixture_dir/parent.sh" || rc=$?
+_assert_eq "startup timeout: descendant watchdog returns timeout status" "124" "$rc"
+descendant_pid=$(cat "$timeout_descendant_pid")
+if kill -0 "$descendant_pid" 2>/dev/null; then
+  _fail "startup timeout: descendant that ignores TERM is killed"
+  kill -KILL "$descendant_pid" 2>/dev/null || true
+else
+  _pass "startup timeout: descendant that ignores TERM is killed"
+fi
+
+timeout_exec_error="$timeout_fixture_dir/exec-error.log"
+rc=0
+DOT_TEST_PORTABLE_TIMEOUT=1 \
+  _with_timeout 1 "$timeout_fixture_dir/missing-command" \
+  2>"$timeout_exec_error" || rc=$?
+_assert_eq "startup timeout: missing command preserves shell status" "127" "$rc"
+_assert_not_contains "startup timeout: missing command has no traceback" \
+  "Traceback" "$(cat "$timeout_exec_error")"
+touch "$timeout_fixture_dir/non-executable"
+chmod 644 "$timeout_fixture_dir/non-executable"
+rc=0
+DOT_TEST_PORTABLE_TIMEOUT=1 \
+  _with_timeout 1 "$timeout_fixture_dir/non-executable" \
+  2>"$timeout_exec_error" || rc=$?
+_assert_eq "startup timeout: non-executable command preserves shell status" "126" "$rc"
+_assert_not_contains "startup timeout: non-executable command has no traceback" \
+  "Traceback" "$(cat "$timeout_exec_error")"
+
 _assert_nvim_startup_budget "startup: .bashrc opens and exits within budget" "$HOME/.bashrc"
 
 # ---------------------------------------------------------------------------
