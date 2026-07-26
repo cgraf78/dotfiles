@@ -127,9 +127,11 @@ _assert_nvim_startup_budget() {
 echo "=== nvim: startup/shutdown performance ==="
 
 _assert_process_stopped() {
-  local desc="$1" pid="$2" started=$SECONDS
+  local desc="$1" pid="$2" started=$SECONDS state
 
   while kill -0 "$pid" 2>/dev/null; do
+    state=$(ps -o stat= -p "$pid" 2>/dev/null) || break
+    [[ "$state" =~ ^[[:space:]]*Z ]] && break
     if ((SECONDS - started >= 5)); then
       _fail "$desc"
       kill -KILL "$pid" 2>/dev/null || true
