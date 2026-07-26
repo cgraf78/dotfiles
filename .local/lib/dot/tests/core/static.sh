@@ -93,7 +93,7 @@ MOCK
       _ci_has_termux_pin=1
     fi
     if ((_ci_in_termux_job)) &&
-      [[ "$_ci_code" =~ ^[[:space:]]{8}\.local/bin/dot-test[[:space:]]*$ ]]; then
+      [[ "$_ci_code" =~ ^[[:space:]]{8}bash[[:space:]]+\.local/bin/dot-test[[:space:]]*$ ]]; then
       _ci_termux_runs_dot_test=1
     fi
     if [[ "$_ci_code" =~ ^[[:space:]]*secrets: ]]; then
