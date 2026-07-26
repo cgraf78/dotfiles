@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# android-ci-smoke — validate Android-specific dotfiles policy in real Termux.
+
+set -o pipefail
+
+fail() {
+  printf 'FAIL: %s\n' "$1" >&2
+  exit 1
+}
+
+[[ -n "${TERMUX_VERSION:-}" ]] || fail "TERMUX_VERSION is not set"
+[[ "${PREFIX:-}" == *com.termux*/usr ]] || fail "PREFIX is not a Termux prefix"
+[[ "$(uname -o)" == "Android" ]] || fail "uname does not report Android"
+command -v pkg >/dev/null || fail "Termux pkg command is unavailable"
+
+root=${DOTFILES_ROOT:-$PWD}
+toolchains="$root/.config/shdeps/00-toolchains.conf"
+deps="$root/.config/shdeps/10-deps.conf"
+
+[[ -r "$toolchains" && -r "$deps" ]] || fail "shdeps configuration is unavailable"
+
+awk '$1 == "cargo" && $2 == "pkg" && $0 ~ /android:rust/ { found = 1 }
+     END { exit !found }' "$toolchains" ||
+  fail "Rust toolchain lacks its Android package mapping"
+awk '$1 == "uv" && $2 == "pkg" && $0 ~ /os:macos,os:android/ { found = 1 }
+     END { exit !found }' "$toolchains" ||
+  fail "uv lacks its Android package policy"
+awk '$1 == "fd" && $2 == "pkg" && $0 ~ /android:fd/ { found = 1 }
+     END { exit !found }' "$deps" ||
+  fail "fd lacks its Android package mapping"
+awk '$1 == "neovim\\/neovim" && $0 ~ /os:!android/ { found = 1 }
+     END { exit !found }' "$deps" ||
+  fail "unsupported Neovim installer is not excluded on Android"
+
+printf 'Android Termux policy smoke passed\n'

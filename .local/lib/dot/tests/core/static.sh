@@ -55,7 +55,7 @@ MOCK
   _ci_in_shell_with=0
   _ci_uses_full_matrix=0
   _ci_has_termux_pin=0
-  _ci_termux_runs_doctor=0
+  _ci_termux_runs_smoke=0
   while IFS= read -r _ci_line; do
     _ci_code=${_ci_line%%#*}
     if [[ "$_ci_code" =~ ^jobs:[[:space:]]*$ ]]; then
@@ -93,8 +93,8 @@ MOCK
       _ci_has_termux_pin=1
     fi
     if ((_ci_in_termux_job)) &&
-      [[ "$_ci_code" =~ ^[[:space:]]{8}bash[[:space:]]+\.local/bin/dot[[:space:]]+doctor[[:space:]]*$ ]]; then
-      _ci_termux_runs_doctor=1
+      [[ "$_ci_code" =~ ^[[:space:]]{8}bash[[:space:]]+\.local/lib/dot/tests/android-ci-smoke[[:space:]]*$ ]]; then
+      _ci_termux_runs_smoke=1
     fi
     if [[ "$_ci_code" =~ ^[[:space:]]*secrets: ]]; then
       _ci_forwards_secrets=1
@@ -115,10 +115,10 @@ MOCK
   else
     _fail "CI workflow: runs Android tests through pinned Termux workflow"
   fi
-  if ((_ci_termux_runs_doctor)); then
-    _pass "CI workflow: runs dot doctor inside Termux"
+  if ((_ci_termux_runs_smoke)); then
+    _pass "CI workflow: runs Android policy smoke inside Termux"
   else
-    _fail "CI workflow: runs dot doctor inside Termux"
+    _fail "CI workflow: runs Android policy smoke inside Termux"
   fi
   _assert_not_contains "CI workflow: has no obsolete ds deploy key" \
     "DS_DEPLOY_KEY" "$_ci_workflow"

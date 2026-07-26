@@ -2,7 +2,7 @@
 
 ## Goal
 
-Run the dotfiles bootstrap and doctor smoke checks inside the official Termux
+Run a dotfiles policy smoke check inside the official Termux
 application on an Android emulator for every push and pull request. Keep
 Android separate from the shared eight-platform shell matrix and leave
 `cgraf78/actions` unchanged.
@@ -22,11 +22,10 @@ command executed after its checkout is copied into the Termux home directory.
 
 The caller command will:
 
-1. install the minimum bootstrap packages, `git` and `curl`, from Termux;
-2. set the copied checkout as `HOME` and put its `.local/bin` first on `PATH`;
-3. run `dot update --skip-pull` so the normal Android-aware shdeps policy
-   installs the declared dependencies; and
-4. run `dot doctor` as the same bootstrap smoke check used by shell CI.
+1. install the minimum test package, `git`, from Termux;
+2. verify the process is actually running under Android and Termux; and
+3. validate Android package mappings and unsupported-platform exclusions in
+   the dotfiles dependency policy.
 
 No repository secrets will be forwarded into the Termux workflow.
 
@@ -38,7 +37,7 @@ would report fixture incompatibility rather than dotfiles runtime health.
 ## Verification
 
 Extend the core static workflow checks to require an active, immutably pinned
-`termux-ci.yml` call and an active `dot doctor` command in the `termux` job.
+`termux-ci.yml` call and the Android policy smoke command in the `termux` job.
 The assertions must ignore comments and reject the same calls when they are
 placed under another job.
 
