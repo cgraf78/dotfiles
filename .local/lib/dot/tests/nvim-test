@@ -69,6 +69,31 @@ _run_nvim_startup() {
     "$file" '+qa!'
 }
 
+_prepare_nvim_startup() {
+  local file="$1" budget="$2" remaining output rc elapsed
+  local total_elapsed=0
+
+  while :; do
+    remaining=$((120 - total_elapsed))
+    if [[ "$remaining" -le 0 ]]; then
+      echo "startup preparation did not converge within 120 seconds"
+      return 124
+    fi
+
+    SECONDS=0
+    output=$(_run_nvim_startup "$remaining" "$file" 2>&1)
+    rc=$?
+    elapsed=$SECONDS
+    total_elapsed=$((total_elapsed + elapsed))
+    if [[ "$rc" -ne 0 ]]; then
+      printf '%s\n' "$output"
+      return "$rc"
+    fi
+
+    [[ "$elapsed" -le "$budget" ]] && return 0
+  done
+}
+
 _assert_nvim_startup_budget() {
   local desc="$1" file="$2" budget
   local output rc elapsed
@@ -76,7 +101,7 @@ _assert_nvim_startup_budget() {
 
   # LazyVim may populate plugins on first launch; measure only after that
   # readiness process has completed successfully.
-  output=$(_run_nvim_startup 120 "$file" 2>&1)
+  output=$(_prepare_nvim_startup "$file" "$budget" 2>&1)
   rc=$?
   if [[ "$rc" -ne 0 ]]; then
     _fail "$desc preparation failed (exit $rc; output: $output)"
@@ -100,6 +125,23 @@ _assert_nvim_startup_budget() {
 # ---------------------------------------------------------------------------
 
 echo "=== nvim: startup/shutdown performance ==="
+
+timeout_mock_bin=$(_mock_bin)
+timeout_marker=$(_tmpdir)/external-timeout-called
+cat >"$timeout_mock_bin/timeout" <<'EOF'
+#!/usr/bin/env bash
+: >"$DOT_TEST_TIMEOUT_MARKER"
+exit 99
+EOF
+chmod +x "$timeout_mock_bin/timeout"
+rc=0
+PATH="$timeout_mock_bin:$PATH" \
+  DOT_TEST_PORTABLE_TIMEOUT=1 \
+  DOT_TEST_TIMEOUT_MARKER="$timeout_marker" \
+  _with_timeout 1 bash -c 'sleep 5' || rc=$?
+_assert_eq "startup timeout: portable watchdog returns timeout status" "124" "$rc"
+_assert_file_missing "startup timeout: portable watchdog bypasses external timeout" \
+  "$timeout_marker"
 
 _assert_nvim_startup_budget "startup: .bashrc opens and exits within budget" "$HOME/.bashrc"
 

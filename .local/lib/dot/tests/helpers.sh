@@ -336,19 +336,53 @@ _mock_bin() {
 # ---------------------------------------------------------------------------
 # Portable timeout wrapper — `timeout` is GNU coreutils and is absent on
 # macOS by default. Falls back to `gtimeout` (installed by `brew install
-# coreutils`), and to running the command directly if neither is present
-# (CI's outer job timeout will still catch a hang).
+# coreutils`), then to the repository-required Python 3 runtime.
 # ---------------------------------------------------------------------------
+
+_with_python_timeout() {
+  local secs="$1"
+  shift
+  python3 -c '
+import os
+import signal
+import subprocess
+import sys
+
+value = sys.argv[1]
+units = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+multiplier = units.get(value[-1:], 1)
+if value[-1:] in units:
+    value = value[:-1]
+timeout = float(value) * multiplier
+
+process = subprocess.Popen(sys.argv[2:], start_new_session=True)
+try:
+    status = process.wait(timeout=timeout)
+except subprocess.TimeoutExpired:
+    os.killpg(process.pid, signal.SIGTERM)
+    try:
+        process.wait(timeout=1)
+    except subprocess.TimeoutExpired:
+        os.killpg(process.pid, signal.SIGKILL)
+        process.wait()
+    raise SystemExit(124)
+
+raise SystemExit(status if status >= 0 else 128 - status)
+' "$secs" "$@"
+}
 
 _with_timeout() {
   local secs="$1"
   shift
-  if command -v timeout &>/dev/null; then
+  if [[ "${DOT_TEST_PORTABLE_TIMEOUT:-0}" != 1 ]] && command -v timeout &>/dev/null; then
     timeout "$secs" "$@"
-  elif command -v gtimeout &>/dev/null; then
+  elif [[ "${DOT_TEST_PORTABLE_TIMEOUT:-0}" != 1 ]] && command -v gtimeout &>/dev/null; then
     gtimeout "$secs" "$@"
+  elif command -v python3 &>/dev/null; then
+    _with_python_timeout "$secs" "$@"
   else
-    "$@"
+    echo "test timeout requires timeout, gtimeout, or python3" >&2
+    return 127
   fi
 }
 
