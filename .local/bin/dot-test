@@ -337,7 +337,6 @@ esac
 [[ "$max_jobs" -gt "${#scripts[@]}" ]] && max_jobs=${#scripts[@]}
 
 tmpdir=$(mktemp -d)
-trap 'kill $(jobs -p) 2>/dev/null; wait; rm -rf "$tmpdir"' EXIT
 
 # Auto-verbose in CI so test output is visible (folded via ::group::)
 [[ -n "${GITHUB_ACTIONS:-}" ]] && verbose=true
@@ -349,7 +348,8 @@ failed_names=()
 
 _run_suite() {
   local detach="$1" name="$2" script="$3" suite_tmpdir="$4"
-  local parallel_flag=0
+  local parallel_flag=0 suite_timeout timeout_supervisor
+  local suite_cmd=()
   $parallel && parallel_flag=1
   local env_cmd=(
     env
@@ -364,22 +364,77 @@ _run_suite() {
     env_cmd+=("DOT_CORE_SKIP_STATIC=1")
   fi
 
+  suite_timeout="${DOT_TEST_SUITE_TIMEOUT_SECONDS:-300}"
+  timeout_supervisor="$HOME/.local/lib/dot/tests/timeout.py"
+  if ! command -v python3 >/dev/null 2>&1 || [[ ! -f "$timeout_supervisor" ]]; then
+    echo "dot-test suite timeout requires python3 and $timeout_supervisor" >&2
+    return 127
+  fi
+  suite_cmd=(python3 "$timeout_supervisor" "$suite_timeout" "${env_cmd[@]}" "$script")
+
   if $detach && command -v setsid >/dev/null 2>&1; then
-    setsid "${env_cmd[@]}" "$script"
+    exec setsid "${suite_cmd[@]}"
   elif $detach && command -v python3 >/dev/null 2>&1; then
     # macOS lacks GNU `setsid`, but `dot-test` still needs background suites
     # out of the caller's terminal session. Otherwise any nested tool that
     # reopens `/dev/tty` can intermittently SIGTTIN-suspend the whole runner.
-    python3 -c '
+    exec python3 -c '
 import os
 import sys
 
 os.setsid()
 os.execvpe(sys.argv[1], sys.argv[1:], os.environ)
-' "${env_cmd[@]}" "$script"
+' "${suite_cmd[@]}"
   else
-    "${env_cmd[@]}" "$script"
+    exec "${suite_cmd[@]}"
   fi
+}
+
+_wait_job_bounded() {
+  local pid="$1" limit="$2" started=$SECONDS state
+
+  while kill -0 "$pid" 2>/dev/null; do
+    state=$(ps -o stat= -p "$pid" 2>/dev/null) || break
+    [[ "$state" =~ ^[[:space:]]*Z ]] && break
+    ((SECONDS - started >= limit)) && return 1
+    sleep 0.05
+  done
+  wait "$pid" 2>/dev/null || true
+}
+
+_stop_job() {
+  local pid="$1" signal_name="${2:-TERM}"
+  kill -"$signal_name" "$pid" 2>/dev/null || true
+  _wait_job_bounded "$pid" 3 && return 0
+  kill -KILL "$pid" 2>/dev/null || true
+  _wait_job_bounded "$pid" 1 || true
+}
+
+_cleanup_test_jobs() {
+  local pid
+  trap - EXIT
+  for pid in $(jobs -p); do
+    _stop_job "$pid"
+  done
+  rm -rf "$tmpdir"
+}
+trap _cleanup_test_jobs EXIT
+
+# shellcheck disable=SC2329 # Signal traps invoke this cancellation handler.
+_cancel_suite() {
+  local signal_name="$1" status="$2" pid
+  trap - HUP INT TERM
+  if [[ -n "${suite_pid:-}" ]]; then
+    _stop_job "$suite_pid" "$signal_name"
+  else
+    for pid in $(jobs -p); do
+      _stop_job "$pid" "$signal_name"
+    done
+  fi
+  if [[ -n "${tee_pid:-}" ]]; then
+    _stop_job "$tee_pid"
+  fi
+  exit "$status"
 }
 
 if $parallel; then
@@ -394,9 +449,18 @@ if $parallel; then
     suite_tmpdir="$tmpdir/$name.tmp"
     mkdir -p "$suite_tmpdir"
     (
+      suite_pid=""
+      trap '_cancel_suite HUP 129' HUP
+      trap '_cancel_suite INT 130' INT
+      trap '_cancel_suite TERM 143' TERM
+
       SECONDS=0
-      _run_suite true "$name" "$script" "$suite_tmpdir" </dev/null >"$tmpdir/$name.out" 2>&1
+      _run_suite true "$name" "$script" "$suite_tmpdir" \
+        </dev/null >"$tmpdir/$name.out" 2>&1 &
+      suite_pid=$!
+      wait "$suite_pid"
       rc=$?
+      trap - HUP INT TERM
       echo "$SECONDS" >"$tmpdir/$name.time"
       echo "$rc" >"$tmpdir/$name.rc"
     ) &
@@ -479,9 +543,23 @@ else
     fi
     SECONDS=0
     suite_tmpdir="$tmpdir/$name.tmp"
+    output_fifo="$suite_tmpdir/output.fifo"
     mkdir -p "$suite_tmpdir"
-    _run_suite false "$name" "$script" "$suite_tmpdir" </dev/null 2>&1 | tee "$tmpdir/$name.out"
-    rc=${PIPESTATUS[0]}
+    mkfifo "$output_fifo"
+    tee "$tmpdir/$name.out" <"$output_fifo" &
+    tee_pid=$!
+    suite_pid=""
+    trap '_cancel_suite HUP 129' HUP
+    trap '_cancel_suite INT 130' INT
+    trap '_cancel_suite TERM 143' TERM
+    _run_suite false "$name" "$script" "$suite_tmpdir" \
+      </dev/null >"$output_fifo" 2>&1 &
+    suite_pid=$!
+    wait "$suite_pid"
+    rc=$?
+    _wait_job_bounded "$tee_pid" 1 || _stop_job "$tee_pid"
+    rm -f "$output_fifo"
+    trap - HUP INT TERM
     elapsed=$SECONDS
     case "$(_classify_suite "$rc" "$tmpdir/$name.out")" in
       skip)

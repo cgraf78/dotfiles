@@ -334,21 +334,27 @@ _mock_bin() {
 }
 
 # ---------------------------------------------------------------------------
-# Portable timeout wrapper — `timeout` is GNU coreutils and is absent on
-# macOS by default. Falls back to `gtimeout` (installed by `brew install
-# coreutils`), and to running the command directly if neither is present
-# (CI's outer job timeout will still catch a hang).
+# Portable timeout wrapper backed by the repository-required Python 3 runtime.
+# One supervisor keeps timeout, signal, and process-group behavior identical on
+# Linux and macOS.
 # ---------------------------------------------------------------------------
+
+_DOT_TEST_TIMEOUT_PY=$(cd "${BASH_SOURCE[0]%/*}" && pwd)/timeout.py
+
+_with_python_timeout() {
+  local secs="$1"
+  shift
+  python3 "$_DOT_TEST_TIMEOUT_PY" "$secs" "$@"
+}
 
 _with_timeout() {
   local secs="$1"
   shift
-  if command -v timeout &>/dev/null; then
-    timeout "$secs" "$@"
-  elif command -v gtimeout &>/dev/null; then
-    gtimeout "$secs" "$@"
+  if command -v python3 &>/dev/null; then
+    _with_python_timeout "$secs" "$@"
   else
-    "$@"
+    echo "test timeout requires python3" >&2
+    return 127
   fi
 }
 
