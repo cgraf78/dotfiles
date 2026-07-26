@@ -29,4 +29,3 @@ jobs:
         export PATH="$HOME/.local/bin:$PATH"
         bash .local/bin/dot update --skip-pull
         bash .local/bin/dot doctor
-        bash .local/bin/dot-test

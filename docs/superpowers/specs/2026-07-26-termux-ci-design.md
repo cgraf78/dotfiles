@@ -2,9 +2,10 @@
 
 ## Goal
 
-Run the dotfiles test suite inside the official Termux application on an
-Android emulator for every push and pull request. Keep Android separate from
-the shared eight-platform shell matrix and leave `cgraf78/actions` unchanged.
+Run the dotfiles bootstrap and doctor smoke checks inside the official Termux
+application on an Android emulator for every push and pull request. Keep
+Android separate from the shared eight-platform shell matrix and leave
+`cgraf78/actions` unchanged.
 
 ## Design
 
@@ -24,17 +25,22 @@ The caller command will:
 1. install the minimum bootstrap packages, `git` and `curl`, from Termux;
 2. set the copied checkout as `HOME` and put its `.local/bin` first on `PATH`;
 3. run `dot update --skip-pull` so the normal Android-aware shdeps policy
-   installs the test dependencies;
-4. run `dot doctor` as the same bootstrap smoke check used by shell CI; and
-5. run `dot-test`.
+   installs the declared dependencies; and
+4. run `dot doctor` as the same bootstrap smoke check used by shell CI.
 
 No repository secrets will be forwarded into the Termux workflow.
+
+The complete `dot-test` suite remains on the eight host platforms. Its
+fixtures intentionally model Linux/macOS filesystem layouts, interpreters,
+and host tools, so running it wholesale in an Android application sandbox
+would report fixture incompatibility rather than dotfiles runtime health.
 
 ## Verification
 
 Extend the core static workflow checks to require an active, immutably pinned
-`termux-ci.yml` call in the `termux` job. The assertion must ignore comments
-and reject the same call when it is placed under another job.
+`termux-ci.yml` call and an active `dot doctor` command in the `termux` job.
+The assertions must ignore comments and reject the same calls when they are
+placed under another job.
 
 Use a red/green test cycle by first adding the assertion against the unchanged
 workflow, confirming it fails, then adding the job and confirming it passes.
