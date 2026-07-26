@@ -46,6 +46,31 @@ MOCK
     _lint_git=(git -C "${_lint_root}")
   fi
 
+  _ci_workflow=$(cat "$_lint_root/.github/workflows/test.yml")
+  _ci_has_public_pin=0
+  _ci_forwards_secrets=0
+  while IFS= read -r _ci_line; do
+    _ci_code=${_ci_line%%#*}
+    if [[ "$_ci_code" =~ ^[[:space:]]*uses:[[:space:]]+cgraf78/actions/\.github/workflows/shell-ci\.yml@([0-9a-f]{40})[[:space:]]*$ ]]; then
+      _ci_has_public_pin=1
+    fi
+    if [[ "$_ci_code" =~ ^[[:space:]]*secrets: ]]; then
+      _ci_forwards_secrets=1
+    fi
+  done <<<"$_ci_workflow"
+  if ((_ci_has_public_pin)); then
+    _pass "CI workflow: pins public dependency setup immutably"
+  else
+    _fail "CI workflow: pins public dependency setup immutably"
+  fi
+  _assert_not_contains "CI workflow: has no obsolete ds deploy key" \
+    "DS_DEPLOY_KEY" "$_ci_workflow"
+  if ((_ci_forwards_secrets)); then
+    _fail "CI workflow: forwards no repository secrets"
+  else
+    _pass "CI workflow: forwards no repository secrets"
+  fi
+
   echo "=== ShellCheck ==="
 
   _sc_files=()
