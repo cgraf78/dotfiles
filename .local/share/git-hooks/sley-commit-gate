@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# sley-commit-gate — shared Git commit-readiness gate.
+
+set -u
+
+# The Git launcher runs `$HOME` commits against the base bare dotfiles repo
+# (`~/.dotfiles`) with `$HOME` as the work tree. In that shape, Sley's
+# untracked-file status walk would traverse all of `$HOME`; commit scope only
+# needs staged files, so use the launcher's untracked-walk escape hatch.
+if [ "${SLEY_SKIP_UNTRACKED:-0}" != "1" ] &&
+  [ -n "${GIT_DIR:-}" ] &&
+  [ -n "${GIT_WORK_TREE:-}" ]; then
+  git_dir=$(git rev-parse --absolute-git-dir 2>/dev/null || true)
+  if [ "$(basename "$git_dir")" = ".dotfiles" ]; then
+    export SLEY_SKIP_UNTRACKED=1
+  fi
+fi
+
+if ! command -v sley >/dev/null 2>&1; then
+  {
+    echo "sley-commit-gate: sley not found on PATH."
+    echo "sley-commit-gate: install sley, fix PATH, or use Git's native --no-verify bypass if this commit must skip hooks."
+  } >&2
+  exit 1
+fi
+
+exec sley ready --fix --commit

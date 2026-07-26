@@ -1,0 +1,19 @@
+# Global typos fallback. Applied via `--config` when no per-repo
+# `.typos.toml` or `typos.toml` is found.
+#
+# Keep this intentionally small. Repo-specific dictionaries and ignore rules
+# belong in the repo so spelling policy travels with the code.
+
+[default]
+extend-ignore-re = [
+  # IPv6 host segments can look like short misspellings.
+  "c0ba",
+]
+
+[default.extend-identifiers]
+# Makefile extension used by Checkrun filetype metadata.
+mak = "mak"
+# Intentional Git option abbreviation fixture.
+othe = "othe"
+# Pluralized hardware-token acronym.
+OTPs = "OTPs"

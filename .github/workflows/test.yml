@@ -1,0 +1,21 @@
+name: Tests
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  schedule:
+    - cron: "0 7 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  shell:
+    uses: cgraf78/actions/.github/workflows/shell-ci.yml@7d88c3afa6e51a83e9cfefb0c12f503155e17952
+    secrets:
+      DS_DEPLOY_KEY: ${{ secrets.DS_DEPLOY_KEY }}
+    with:
+      setup: dotfiles
+      test-command: .local/bin/dot-test

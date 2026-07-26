@@ -1,0 +1,289 @@
+# shellcheck shell=bash
+# Dot update adapter for shdeps' JSONL progress stream.
+#
+# shdeps owns dependency update behavior and emits machine-readable events.
+# Dot owns the terminal experience around `dot update`, so this module maps
+# shdeps events into dot's generic `_ui_*` primitives without changing the
+# update contract exposed by shdeps itself.
+
+_shdeps_group_label() {
+  case "$1" in
+    packages) printf 'Packages' ;;
+    github-releases | github-repos) printf 'GitHub' ;;
+    cargo) printf 'Cargo' ;;
+    go) printf 'Go' ;;
+    uv) printf 'UV' ;;
+    npm) printf 'NPM' ;;
+    custom) printf 'Custom' ;;
+    other | "") printf 'Other' ;;
+    # shdeps owns group names. If a newer shdeps emits a group dot does not yet
+    # know, show that key instead of collapsing distinct work under "Other".
+    *) printf '%s' "$1" ;;
+  esac
+}
+
+# Canonical display order of the dependency groups dot knows about. shdeps owns
+# the group names; this list only fixes their order in dot's output. Groups a
+# newer shdeps emits that are not listed here still render, appended in
+# discovery order via DOT_UI_SHDEPS_GROUP_ORDER. Keep aligned with the keys in
+# _shdeps_group_label.
+_SHDEPS_KNOWN_GROUPS=(packages github-releases github-repos cargo go uv npm custom other)
+
+_shdeps_summary_text() {
+  local changed="$1" current="$2" skipped="$3" failed="$4"
+  local -a parts=()
+  [[ "$failed" -gt 0 ]] && parts+=("$failed failed")
+  [[ "$changed" -gt 0 ]] && parts+=("$changed changed")
+  [[ "$current" -gt 0 || "${#parts[@]}" -eq 0 ]] && parts+=("$current current")
+  [[ "$skipped" -gt 0 ]] && parts+=("$skipped skipped")
+  _join_comma "${parts[@]}"
+}
+
+_shdeps_prompt_pause() {
+  DOT_UI_SHDEPS_PROMPT_ACTIVE=1
+}
+
+_shdeps_prompt_resume() {
+  DOT_UI_SHDEPS_PROMPT_ACTIVE=0
+}
+
+_shdeps_ui_reset() {
+  DOT_UI_SHDEPS_STATUS=ok
+  DOT_UI_SHDEPS_SUMMARY="dependencies checked"
+  _shdeps_prompt_resume
+  DOT_UI_SHDEPS_GROUP_ORDER=()
+  declare -gA DOT_UI_SHDEPS_GROUP_SEEN=()
+  declare -gA DOT_UI_SHDEPS_GROUP_LABELS=()
+  declare -gA DOT_UI_SHDEPS_GROUP_ITEMS=()
+  declare -gA DOT_UI_SHDEPS_GROUP_SUMMARIES=()
+}
+
+_shdeps_remember_group() {
+  local group="$1"
+  if [[ -z "${DOT_UI_SHDEPS_GROUP_SEEN[$group]+x}" ]]; then
+    DOT_UI_SHDEPS_GROUP_SEEN["$group"]=1
+    DOT_UI_SHDEPS_GROUP_ORDER+=("$group")
+  fi
+}
+
+_shdeps_record_item() {
+  local group="$1" status="$2" name="$3" detail="$4"
+  _shdeps_remember_group "$group"
+  DOT_UI_SHDEPS_GROUP_ITEMS["$group"]+="${status}"$'\t'"${name}"$'\t'"${detail}"$'\n'
+}
+
+_shdeps_record_group_summary() {
+  local group="$1" label="$2" status="$3" changed="$4" current="$5" skipped="$6" failed="$7" elapsed_ms="$8"
+  _shdeps_remember_group "$group"
+  [[ -n "$label" ]] || label=$(_shdeps_group_label "$group")
+  DOT_UI_SHDEPS_GROUP_LABELS["$group"]="$label"
+  local detail
+  detail="${label}: $(_shdeps_summary_text "${changed:-0}" "${current:-0}" "${skipped:-0}" "${failed:-0}")"
+  DOT_UI_SHDEPS_GROUP_SUMMARIES["$group"]="${status}"$'\t'"${detail}"$'\t'"${elapsed_ms:-0}"
+}
+
+_shdeps_display_label() {
+  local group="$1"
+  printf '%s' "${DOT_UI_SHDEPS_GROUP_LABELS[$group]:-$(_shdeps_group_label "$group")}"
+}
+
+_shdeps_print_verbose_group_rows() {
+  local label="$1" group rows status name detail seen=" "
+  for group in "${_SHDEPS_KNOWN_GROUPS[@]}" "${DOT_UI_SHDEPS_GROUP_ORDER[@]+"${DOT_UI_SHDEPS_GROUP_ORDER[@]}"}"; do
+    [[ "$seen" == *" $group "* ]] && continue
+    seen+="$group "
+    [[ "$(_shdeps_display_label "$group")" == "$label" ]] || continue
+    rows="${DOT_UI_SHDEPS_GROUP_ITEMS[$group]:-}"
+    [[ -n "$rows" ]] || continue
+    while IFS=$'\t' read -r status name detail; do
+      [[ -n "$status" ]] || continue
+      _ui_item "$status" "$name" "$detail"
+    done <<<"$rows"
+  done
+}
+
+_shdeps_print_verbose_items() {
+  [[ "${DOT_VERBOSE:-0}" -eq 1 ]] || return 0
+  local group rows label seen_groups=" " seen_labels=$'\n'
+  for group in "${_SHDEPS_KNOWN_GROUPS[@]}" "${DOT_UI_SHDEPS_GROUP_ORDER[@]+"${DOT_UI_SHDEPS_GROUP_ORDER[@]}"}"; do
+    [[ "$seen_groups" == *" $group "* ]] && continue
+    seen_groups+="$group "
+    rows="${DOT_UI_SHDEPS_GROUP_ITEMS[$group]:-}"
+    [[ -n "$rows" ]] || continue
+    label=$(_shdeps_display_label "$group")
+    [[ "$seen_labels" == *$'\n'"$label"$'\n'* ]] && continue
+    seen_labels+="$label"$'\n'
+    _ui_section "$label"
+    _shdeps_print_verbose_group_rows "$label"
+  done
+}
+
+_shdeps_print_group_items_with_status() {
+  local group="$1" wanted="$2" rows status name detail
+  rows="${DOT_UI_SHDEPS_GROUP_ITEMS[$group]:-}"
+  [[ -n "$rows" ]] || return 0
+  while IFS=$'\t' read -r status name detail; do
+    [[ "$status" == "$wanted" ]] || continue
+    _ui_item "$status" "$name" "$detail"
+  done <<<"$rows"
+}
+
+_shdeps_print_group_summaries() {
+  [[ "${DOT_VERBOSE:-0}" -eq 0 ]] || return 0
+  local threshold="${DOT_UPDATE_SUBPHASE_THRESHOLD_MS:-}"
+  local group record status detail elapsed_ms rendered_elapsed seen=" "
+  for group in "${_SHDEPS_KNOWN_GROUPS[@]}" "${DOT_UI_SHDEPS_GROUP_ORDER[@]+"${DOT_UI_SHDEPS_GROUP_ORDER[@]}"}"; do
+    [[ "$seen" == *" $group "* ]] && continue
+    seen+="$group "
+    record="${DOT_UI_SHDEPS_GROUP_SUMMARIES[$group]:-}"
+    [[ -n "$record" ]] || continue
+    IFS=$'\t' read -r status detail elapsed_ms <<<"$record"
+    [[ -n "$elapsed_ms" ]] || elapsed_ms=0
+    if [[ -n "$threshold" && "$elapsed_ms" -ge "$threshold" ]]; then
+      rendered_elapsed=$(_ui_duration_ms "$elapsed_ms")
+      _ui_stage_note "$status" "$detail, $rendered_elapsed"
+      [[ "$status" == "changed" ]] && _shdeps_print_group_items_with_status "$group" changed
+      # Failed rows are the ones a user must act on; anonymous failure counts
+      # made real incidents (rate-limited GitHub fetches) opaque.
+      [[ "$status" == "failed" ]] && _shdeps_print_group_items_with_status "$group" failed
+      continue
+    fi
+    case "$status" in
+      changed)
+        _ui_stage_note "$status" "$detail"
+        _shdeps_print_group_items_with_status "$group" changed
+        continue
+        ;;
+      ok | skipped) continue ;;
+    esac
+    rendered_elapsed=$(_ui_duration_ms "$elapsed_ms")
+    _ui_stage_note "$status" "$detail, $rendered_elapsed"
+    [[ "$status" == "failed" ]] && _shdeps_print_group_items_with_status "$group" failed
+  done
+  return 0
+}
+
+_handle_shdeps_event() {
+  local line="$1"
+  local event group label status detail done_count total name changed current skipped failed elapsed_ms
+  event=$(_json_get event "$line")
+  case "$event" in
+    prompt)
+      _shdeps_prompt_pause
+      ;;
+    phase)
+      _shdeps_prompt_resume
+      label=$(_json_get label "$line")
+      done_count=$(_json_num "done" "$line")
+      total=$(_json_num total "$line")
+      if [[ -n "$done_count" && -n "$total" && "$total" -gt 0 ]]; then
+        _ui_stage_update "$(_ui_progress_detail_with_label "$label" "$done_count" "$total")"
+      else
+        _ui_stage_update "$label"
+      fi
+      ;;
+    item)
+      _shdeps_prompt_resume
+      group=$(_json_get group "$line")
+      status=$(_json_get status "$line")
+      name=$(_json_get name "$line")
+      detail=$(_json_get detail "$line")
+      _shdeps_record_item "$group" "$status" "$name" "$detail"
+      ;;
+    group_summary)
+      _shdeps_prompt_resume
+      group=$(_json_get group "$line")
+      label=$(_json_get label "$line")
+      status=$(_json_get status "$line")
+      changed=$(_json_num changed "$line")
+      current=$(_json_num current "$line")
+      skipped=$(_json_num skipped "$line")
+      failed=$(_json_num failed "$line")
+      elapsed_ms=$(_json_num elapsed_ms "$line")
+      _shdeps_record_group_summary "$group" "$label" "$status" \
+        "${changed:-0}" "${current:-0}" "${skipped:-0}" "${failed:-0}" "${elapsed_ms:-0}"
+      ;;
+    summary)
+      _shdeps_prompt_resume
+      status=$(_json_get status "$line")
+      changed=$(_json_num changed "$line")
+      current=$(_json_num current "$line")
+      skipped=$(_json_num skipped "$line")
+      failed=$(_json_num failed "$line")
+      # shellcheck disable=SC2034  # consumed by update.sh after shdeps exits.
+      DOT_UI_SHDEPS_STATUS="$status"
+      # shellcheck disable=SC2034  # consumed by update.sh after shdeps exits.
+      DOT_UI_SHDEPS_SUMMARY=$(_shdeps_summary_text "${changed:-0}" "${current:-0}" "${skipped:-0}" "${failed:-0}")
+      ;;
+    warning | detail | hint)
+      _shdeps_prompt_resume
+      status=$(_json_get status "$line")
+      detail=$(_json_get detail "$line")
+      _ui_stage_note "${status:-$event}" "$detail"
+      ;;
+  esac
+}
+
+_run_shdeps_update_ui() {
+  local status_file="" fifo="" tmpdir=""
+  _dot_update_prepare_shdeps_jobs
+  if ! tmpdir=$(mktemp -d 2>/dev/null); then
+    _run_shdeps_update_command
+    return $?
+  fi
+  status_file="$tmpdir/status"
+  fifo="$tmpdir/progress"
+  if ! mkfifo "$fifo" 2>/dev/null; then
+    rm -rf "$tmpdir"
+    _run_shdeps_update_command
+    return $?
+  fi
+  _shdeps_ui_reset
+  local line progress_fd child rc=0
+  exec {progress_fd}<>"$fifo"
+  (
+    _run_shdeps_update_command jsonl >"$fifo"
+    printf '%s' "$?" >"$status_file"
+  ) &
+  child=$!
+  while :; do
+    if IFS= read -r -t "${DOT_UI_TICK_SECONDS:-0.2}" -u "$progress_fd" line; then
+      _handle_shdeps_event "$line"
+      continue
+    fi
+    if ! kill -0 "$child" 2>/dev/null; then
+      # Child exited (cleanly or killed). Drain any complete lines still buffered
+      # in the fifo, then stop. Break on child death rather than on the status
+      # file: a child killed abnormally (e.g. the OOM killer) never reaches its
+      # `printf "$?" >status_file`, and since the parent holds the fifo open R/W
+      # the read never sees EOF — so waiting on the status file would hang here
+      # forever. The empty status file falls through to rc=1 below.
+      while IFS= read -r -t 0 -u "$progress_fd" line; do
+        _handle_shdeps_event "$line"
+      done
+      break
+    fi
+    [[ "${DOT_UI_SHDEPS_PROMPT_ACTIVE:-0}" -eq 1 ]] || _ui_stage_tick
+  done
+  wait "$child" 2>/dev/null || true
+  exec {progress_fd}>&-
+  _shdeps_print_verbose_items
+  rc=$(cat "$status_file" 2>/dev/null || printf '1')
+  rm -rf "$tmpdir"
+  return "$rc"
+}
+
+_run_shdeps_update_command() {
+  local progress_mode="${1:-}"
+  if [[ "${DOT_SHDEPS_ALLOW_GH_AUTH_TOKEN:-0}" -eq 1 && -z "${SHDEPS_ALLOW_GH_AUTH_TOKEN+x}" ]]; then
+    if [[ "$progress_mode" == "jsonl" ]]; then
+      SHDEPS_ALLOW_GH_AUTH_TOKEN=1 SHDEPS_NESTED=1 SHDEPS_PROGRESS=jsonl shdeps_update
+    else
+      SHDEPS_ALLOW_GH_AUTH_TOKEN=1 SHDEPS_NESTED=1 shdeps_update
+    fi
+  elif [[ "$progress_mode" == "jsonl" ]]; then
+    SHDEPS_NESTED=1 SHDEPS_PROGRESS=jsonl shdeps_update
+  else
+    SHDEPS_NESTED=1 shdeps_update
+  fi
+}

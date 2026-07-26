@@ -1,0 +1,13 @@
+$HOME/.local/bin
+$HOME/bin
+$HOME/.local/share/mise/shims
+$HOME/.atuin/bin
+$HOME/.cargo/bin
+/opt/homebrew/bin
+/opt/homebrew/sbin
+/usr/local/bin
+/usr/local/sbin
+/usr/bin
+/usr/sbin
+/bin
+/sbin

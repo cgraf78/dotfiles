@@ -1,0 +1,337 @@
+#!/usr/bin/env bash
+# archup-test - unit tests for the Arch upgrade helper.
+
+set -o pipefail
+export NO_COLOR=1
+
+# shellcheck source=helpers.sh
+. "$HOME/.local/lib/dot/tests/helpers.sh"
+
+export ARCHUP_SOURCE_ONLY=1
+# shellcheck source=../../../bin/archup
+. "$HOME/.local/bin/archup"
+
+echo "=== archup: conditional AUR rebuilds ==="
+
+_archup_mock_reset() {
+  ARCHUP_MOCK_ROOT=$(_tmpdir)
+  ARCHUP_YAY_COMMAND_LOG="$ARCHUP_MOCK_ROOT/yay-commands.log"
+  : >"$ARCHUP_YAY_COMMAND_LOG"
+  ARCHUP_PACKAGES=()
+  declare -gA ARCHUP_PACKAGE_FILES=()
+  declare -gA ARCHUP_PACKAGE_VERSIONS=()
+  declare -gA ARCHUP_PACKAGE_UPGRADE_VERSIONS=()
+  declare -gA ARCHUP_AUR_PACKAGES=()
+  declare -gA ARCHUP_LDD_OUTPUT=()
+  ARCHUP_ACTIVE_UNITS=()
+  ARCHUP_YAY_FAIL_UPGRADE=0
+  ARCHUP_SYSTEMCTL_LOG="$ARCHUP_MOCK_ROOT/systemctl-commands.log"
+  : >"$ARCHUP_SYSTEMCTL_LOG"
+}
+
+_archup_mock_add_package() {
+  local name="$1" aur="$2" libs="$3"
+  local version="${4:-1.0}"
+  local file="$ARCHUP_MOCK_ROOT/$name/bin/$name"
+
+  mkdir -p "$(dirname "$file")"
+  : >"$file"
+  ARCHUP_PACKAGES+=("$name")
+  ARCHUP_PACKAGE_FILES["$name"]="$file"
+  ARCHUP_PACKAGE_VERSIONS["$name"]="$version"
+  ARCHUP_AUR_PACKAGES["$name"]="$aur"
+  case "$libs" in
+    broken)
+      ARCHUP_LDD_OUTPUT["$file"]=$'libmissing.so => not found\nlibok.so => /usr/lib/libok.so'
+      ;;
+    ok)
+      ARCHUP_LDD_OUTPUT["$file"]=$'libok.so => /usr/lib/libok.so'
+      ;;
+    *)
+      echo "unknown mock lib state: $libs" >&2
+      return 2
+      ;;
+  esac
+}
+
+_archup_mock_add_service() {
+  local pkg="$1" unit="$2"
+  ARCHUP_PACKAGE_FILES["$pkg"]+=$'\n'"/usr/lib/systemd/system/$unit"
+}
+
+pacman() {
+  case "$1" in
+    -Q)
+      local pkg
+      for pkg in "${ARCHUP_PACKAGES[@]}"; do
+        printf '%s %s\n' "$pkg" "${ARCHUP_PACKAGE_VERSIONS[$pkg]}"
+      done
+      ;;
+    -Qqm)
+      printf '%s\n' "${ARCHUP_PACKAGES[@]}"
+      ;;
+    -Qlq)
+      printf '%s\n' "${ARCHUP_PACKAGE_FILES[$2]:-}"
+      ;;
+    *)
+      echo "unexpected pacman args: $*" >&2
+      return 2
+      ;;
+  esac
+}
+
+yay() {
+  if [[ "$1" == "-Si" && "$2" == "--aur" ]]; then
+    [[ "${ARCHUP_AUR_PACKAGES[$3]:-0}" == 1 ]]
+    return
+  fi
+
+  if [[ "$1" == "-Syu" ]]; then
+    if ((ARCHUP_YAY_FAIL_UPGRADE != 0)); then
+      return "$ARCHUP_YAY_FAIL_UPGRADE"
+    fi
+
+    local pkg
+    for pkg in "${!ARCHUP_PACKAGE_UPGRADE_VERSIONS[@]}"; do
+      ARCHUP_PACKAGE_VERSIONS["$pkg"]="${ARCHUP_PACKAGE_UPGRADE_VERSIONS[$pkg]}"
+    done
+  fi
+
+  printf '%s\n' "$*" >>"$ARCHUP_YAY_COMMAND_LOG"
+}
+
+file() {
+  if [[ "$1" == *.service ]]; then
+    printf 'ASCII text\n'
+    return
+  fi
+  printf 'ELF 64-bit LSB executable\n'
+}
+
+ldd() {
+  printf '%s\n' "${ARCHUP_LDD_OUTPUT[$1]:-}"
+}
+
+sudo() {
+  if [[ "${1:-}" == "-v" ]]; then
+    return 0
+  fi
+
+  "$@"
+}
+
+systemctl() {
+  case "$1" in
+    list-units)
+      local unit
+      for unit in "${ARCHUP_ACTIVE_UNITS[@]}"; do
+        printf '%s loaded active running mock unit\n' "$unit"
+      done
+      ;;
+    daemon-reload | try-restart | reset-failed | restart)
+      printf '%s\n' "$*" >>"$ARCHUP_SYSTEMCTL_LOG"
+      ;;
+    --failed)
+      ;;
+    is-enabled)
+      printf 'enabled\n'
+      ;;
+    *)
+      printf 'unexpected systemctl args: %s\n' "$*" >&2
+      return 2
+      ;;
+  esac
+}
+
+require_arch_linux() {
+  return 0
+}
+
+_archup_mock_reset
+_archup_mock_add_package eternalterminal-server 1 ok
+result=$(upgrade_system 2>&1)
+yay_commands=$(cat "$ARCHUP_YAY_COMMAND_LOG")
+_assert_contains "archup clean: still runs system upgrade" \
+  "-Syu --devel" "$yay_commands"
+_assert_not_contains "archup clean: does not force rebuild clean AUR packages" \
+  "--rebuild" "$yay_commands"
+_assert_contains "archup clean: reports no broken libraries after upgrade" \
+  "no broken foreign package libraries found after upgrade" "$result"
+
+_archup_mock_reset
+_archup_mock_add_package broken-aur 1 broken
+_archup_mock_add_package healthy-aur 1 ok
+_archup_mock_add_package broken-local 0 broken
+result=$(upgrade_system 2>&1)
+yay_commands=$(cat "$ARCHUP_YAY_COMMAND_LOG")
+_assert_contains "archup broken: rebuilds broken AUR package" \
+  "-S --aur --rebuild --redownload --answerclean All broken-aur" "$yay_commands"
+_assert_not_contains "archup broken: does not rebuild healthy AUR package" \
+  "-S --aur --rebuild --redownload --answerclean All healthy-aur" "$yay_commands"
+_assert_not_contains "archup broken: does not pass non-AUR package to yay rebuild" \
+  "-S --aur --rebuild --redownload --answerclean All broken-local" "$yay_commands"
+_assert_contains "archup broken: reports scoped rebuild" \
+  "rebuilding broken AUR packages (1)" "$result"
+
+echo ""
+echo "=== archup: upgraded service restarts ==="
+
+before_packages=$(mktemp)
+after_packages=$(mktemp)
+cat >"$before_packages" <<'EOF'
+same-version 1.0
+upgraded-service 1.0
+EOF
+cat >"$after_packages" <<'EOF'
+new-package 1.0
+same-version 1.0
+upgraded-service 2.0
+EOF
+changed=$(changed_packages "$before_packages" "$after_packages")
+_assert_eq "archup package diff: reports version changes only" \
+  "upgraded-service" "$changed"
+rm -f "$before_packages" "$after_packages"
+
+_archup_mock_reset
+_archup_mock_add_package upgraded-service 1 ok
+_archup_mock_add_service upgraded-service upgraded.service
+ARCHUP_ACTIVE_UNITS=(upgraded.service)
+result=$(restart_upgraded_services upgraded-service 2>&1)
+systemctl_commands=$(cat "$ARCHUP_SYSTEMCTL_LOG")
+_assert_contains "archup restart: reloads systemd before service restart" \
+  "daemon-reload" "$systemctl_commands"
+_assert_contains "archup restart: restarts active service from upgraded package" \
+  "try-restart upgraded.service" "$systemctl_commands"
+_assert_contains "archup restart: reports upgraded service restart" \
+  "restarting active services from upgraded or rebuilt packages" "$result"
+
+_archup_mock_reset
+_archup_mock_add_package templated-service 1 ok
+_archup_mock_add_service templated-service worker@.service
+ARCHUP_ACTIVE_UNITS=(worker@alpha.service unrelated.service)
+restart_upgraded_services templated-service >/dev/null
+systemctl_commands=$(cat "$ARCHUP_SYSTEMCTL_LOG")
+_assert_contains "archup restart: restarts active template instances" \
+  "try-restart worker@alpha.service" "$systemctl_commands"
+_assert_not_contains "archup restart: ignores unrelated active services" \
+  "unrelated.service" "$systemctl_commands"
+
+_archup_mock_reset
+_archup_mock_add_package inactive-service 1 ok
+_archup_mock_add_service inactive-service inactive.service
+result=$(restart_upgraded_services inactive-service 2>&1)
+systemctl_commands=$(cat "$ARCHUP_SYSTEMCTL_LOG")
+_assert_not_contains "archup restart: skips inactive upgraded services" \
+  "try-restart" "$systemctl_commands"
+_assert_contains "archup restart: reports no active upgraded services" \
+  "no active services shipped by upgraded or rebuilt packages" "$result"
+
+_archup_mock_reset
+_archup_mock_add_package eternalterminal-server 1 ok 1.0
+_archup_mock_add_service eternalterminal-server et.service
+ARCHUP_PACKAGE_UPGRADE_VERSIONS["eternalterminal-server"]="2.0"
+ARCHUP_ACTIVE_UNITS=(et.service)
+main >/dev/null
+systemctl_commands=$(cat "$ARCHUP_SYSTEMCTL_LOG")
+_assert_contains "archup main: restarts upgraded services by default" \
+  "try-restart et.service" "$systemctl_commands"
+
+_archup_mock_reset
+_archup_mock_add_package optout-service 1 ok 1.0
+_archup_mock_add_service optout-service optout.service
+ARCHUP_PACKAGE_UPGRADE_VERSIONS["optout-service"]="2.0"
+ARCHUP_ACTIVE_UNITS=(optout.service)
+main --no-restart-upgraded-services >/dev/null
+systemctl_commands=$(cat "$ARCHUP_SYSTEMCTL_LOG")
+_assert_not_contains "archup main: opt-out skips upgraded service restart" \
+  "try-restart optout.service" "$systemctl_commands"
+
+_archup_mock_reset
+_archup_mock_add_package failed-upgrade-service 1 ok 1.0
+ARCHUP_YAY_FAIL_UPGRADE=42
+set +e
+main >/dev/null 2>&1
+status=$?
+set -e
+_assert_eq "archup main: propagates yay upgrade failure" \
+  "42" "$status"
+
+_archup_mock_reset
+_archup_mock_add_package rebuilt-service 1 broken 1.0
+_archup_mock_add_service rebuilt-service rebuilt.service
+ARCHUP_ACTIVE_UNITS=(rebuilt.service)
+main >/dev/null 2>&1 || true
+systemctl_commands=$(cat "$ARCHUP_SYSTEMCTL_LOG")
+_assert_contains "archup main: restarts same-version rebuilt AUR services" \
+  "try-restart rebuilt.service" "$systemctl_commands"
+
+set +e
+result=$(
+  {
+    unset before_packages after_packages
+    _archup_mock_reset
+    _archup_mock_add_package trap-clean-service 1 ok 1.0
+    ARCHUP_PACKAGE_UPGRADE_VERSIONS["trap-clean-service"]="2.0"
+    main >/dev/null
+  } 2>&1
+)
+status=$?
+set -e
+_assert_eq "archup main: successful upgrade exits cleanly after snapshot cleanup" \
+  "0" "$status"
+_assert_not_contains "archup main: cleanup trap does not outlive local snapshots" \
+  "unbound variable" "$result"
+
+set +e
+caller_trap_file=$(_tmpdir)/caller-exit-trap
+result=$(
+  {
+    # shellcheck disable=SC2064 # The test needs this fixture path expanded before the subshell exits.
+    trap "printf 'caller exit trap\n' >'$caller_trap_file'" EXIT
+    unset before_packages after_packages
+    _archup_mock_reset
+    _archup_mock_add_package caller-trap-service 1 ok 1.0
+    ARCHUP_PACKAGE_UPGRADE_VERSIONS["caller-trap-service"]="2.0"
+    main >/dev/null
+  } 2>&1
+)
+status=$?
+set -e
+_assert_eq "archup main: does not clobber caller EXIT trap" \
+  "0" "$status"
+_assert_eq "archup main: caller EXIT trap still runs" \
+  "caller exit trap" "$(cat "$caller_trap_file" 2>/dev/null || true)"
+
+set +e
+result=$(
+  {
+    _archup_mock_reset
+    snapshot_prefix="$ARCHUP_MOCK_ROOT/snapshot"
+    snapshot_count=0
+    # shellcheck disable=SC2329 # main calls this mock through package snapshot helpers.
+    mktemp() {
+      snapshot_count=$((snapshot_count + 1))
+      local path="$snapshot_prefix.$snapshot_count"
+      : >"$path"
+      printf '%s\n' "$path"
+    }
+    # shellcheck disable=SC2329 # main calls this mock while testing failed snapshot cleanup.
+    package_snapshot() {
+      return 7
+    }
+
+    main >/dev/null
+    printf 'status=%s\n' "$?"
+    compgen -G "$snapshot_prefix.*" || true
+  } 2>&1
+)
+status=$?
+set -e
+_assert_eq "archup main: failed snapshot path still lets test shell continue" \
+  "0" "$status"
+_assert_contains "archup main: failed upgrade block returns original status" \
+  "status=7" "$result"
+_assert_not_contains "archup main: failed upgrade block removes snapshots" \
+  "snapshot." "$result"
+
+_test_summary

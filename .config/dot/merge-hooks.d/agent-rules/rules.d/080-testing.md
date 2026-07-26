@@ -1,0 +1,14 @@
+# Testing
+
+<!-- agent-rule-id: global-testing-practices -->
+
+- Add tests for new or changed executable behavior. For documentation,
+  configuration, schemas, or generated artifacts, run the closest applicable
+  validation.
+- Analyze edge cases before writing tests — boundary values, missing data, error
+  paths, concurrency, invalid input.
+- Dedicated test case per edge case, not bundled into happy-path tests.
+- Before committing in a GitHub repo, check `.github/workflows/` for CI steps
+  and run what can be reproduced locally (linters, tests, type checks). Skip
+  steps that require CI-specific infrastructure (deployment, secrets, matrix OS
+  variants).

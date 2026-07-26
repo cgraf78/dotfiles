@@ -1,0 +1,3 @@
+$HOME/.claude/CLAUDE.md
+$HOME/.codex/AGENTS.md
+$HOME/.gemini/GEMINI.md

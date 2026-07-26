@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+# lua-test — dotfiles Lua bootstrap helpers.
+
+set -o pipefail
+export NO_COLOR=1
+
+# shellcheck source=.local/lib/dot/tests/helpers.sh
+# shellcheck disable=SC1091
+. "$HOME/.local/lib/dot/tests/helpers.sh"
+
+_lua_working_nvim() {
+  local candidate
+
+  for candidate in \
+    "$HOME/.local/share/neovim/neovim/bin/nvim" \
+    "$(command -v nvim 2>/dev/null || true)"; do
+    [[ -n "$candidate" && -x "$candidate" ]] || continue
+
+    # Keep this probe aligned with wezterm-test. Alpine can see the
+    # bootstrapped glibc-linked nvim binary as executable even though musl
+    # cannot run it, so test the binary before using it as a Lua host.
+    if _with_timeout 10s "$candidate" --version >/dev/null 2>&1; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+_lua_run() {
+  local script="$1" nvim_bin
+
+  if command -v lua >/dev/null 2>&1; then
+    lua "$script"
+    return
+  fi
+
+  nvim_bin=$(_lua_working_nvim || true)
+  if [[ -n "$nvim_bin" && -x "$nvim_bin" ]]; then
+    _with_timeout 10s "$nvim_bin" --headless --noplugin -u NONE -i NONE -l "$script" 2>&1
+    return
+  fi
+
+  printf '%s\n' "lua-test: no Lua runner found" >&2
+  return 127
+}
+
+echo "=== lua: shdeps bootstrap loader ==="
+
+fixture=$(_tmpdir)
+script=$(_tmpdir)/shdeps-loader-test.lua
+mkdir -p "$fixture/shdeps/lua/shdeps"
+cat >"$fixture/shdeps/lua/shdeps/bootstrap.lua" <<'LUA'
+local M = {}
+
+function M.load(options)
+  options = options or {}
+  return {
+    new = function()
+      return {
+        dep_file = function(name, relative_path)
+          return table.concat({ options.home, name, relative_path }, "|")
+        end,
+        env = function()
+          return { HOME = options.home }
+        end,
+      }
+    end,
+  }
+end
+
+return M
+LUA
+
+cat >"$script" <<'LUA'
+local loader = dofile(os.getenv("DOTFILES_HOME") .. "/.local/lib/dot/lua/shdeps-loader.lua")
+local api = loader.new({ home = os.getenv("TEST_HOME") })
+print(api.dep_file("cgraf78/tool", "lib/tool/init.lua"))
+print(api.env().HOME)
+LUA
+
+result=$(
+  SHDEPS_DIR="$fixture/shdeps" \
+    SHDEPS_GIT_DEV_DIR="$fixture/no-git" \
+    DOTFILES_HOME="$HOME" \
+    TEST_HOME="$fixture/home" \
+    _lua_run "$script"
+)
+expected="$(printf '%s|cgraf78/tool|lib/tool/init.lua\n%s' "$fixture/home" "$fixture/home")"
+_assert_eq "shdeps loader delegates to upstream Lua API" "$expected" "$result"
+
+_test_summary

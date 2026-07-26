@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# prompt-test — shell prompt helpers.
+
+# shellcheck disable=SC1091 # dotfiles test helper lives under HOME.
+. "$HOME/.local/lib/dot/tests/helpers.sh"
+
+REAL_HOME="$HOME"
+TEST_TMPDIR=$(_tmpdir)
+
+echo ""
+echo "=== prompt: home dotfiles git path ==="
+
+MOCK_HOME="$TEST_TMPDIR/home"
+MOCK_BIN="$TEST_TMPDIR/bin"
+GIT_LOG="$TEST_TMPDIR/git.log"
+mkdir -p "$MOCK_HOME/.dotfiles" "$MOCK_BIN"
+: >"$GIT_LOG"
+
+cat >"$MOCK_BIN/git" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$GIT_LOG"
+case " $* " in
+  *" rev-parse --git-dir "*)
+    printf '.dotfiles\n'
+    ;;
+  *" --no-optional-locks status --porcelain=v2 --branch "*)
+    printf '%s\n' \
+      '# branch.head main' \
+      '# branch.ab +1 -2' \
+      '1 .M N... 100644 100644 100644 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa file.txt'
+    ;;
+  *" rev-parse --short HEAD "*)
+    printf 'abc123\n'
+    ;;
+  *)
+    exit 1
+    ;;
+esac
+EOF
+chmod +x "$MOCK_BIN/git"
+
+export HOME="$MOCK_HOME"
+export GIT_LOG
+PATH="$MOCK_BIN:$PATH"
+
+(
+  cd "$HOME" || exit 1
+  # shellcheck disable=SC1091 # source the installed prompt helper from real HOME.
+  . "$REAL_HOME/.config/shell/interactive.d/59-prompt.sh"
+  __git_prompt
+) >"$TEST_TMPDIR/prompt.out"
+
+prompt_out=$(cat "$TEST_TMPDIR/prompt.out")
+git_log=$(cat "$GIT_LOG")
+
+_assert_contains "home dotfiles prompt: renders branch" "main" "$prompt_out"
+_assert_not_contains \
+  "home dotfiles prompt: skips launcher rev-parse" \
+  "rev-parse --git-dir" \
+  "$git_log"
+_assert_contains \
+  "home dotfiles prompt: uses explicit bare repo args" \
+  "--git-dir=$HOME/.dotfiles --work-tree=$HOME --no-optional-locks status --porcelain=v2 --branch" \
+  "$git_log"
+
+_test_summary

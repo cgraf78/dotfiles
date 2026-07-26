@@ -1,0 +1,29 @@
+# Arrow keys search history by prefix
+"\e[A": history-search-backward
+"\e[B": history-search-forward
+
+# Ignore Shift+arrow sequences (terminals can't do cursor-based selection)
+"\e[1;2A": ""
+"\e[1;2B": ""
+"\e[1;2C": ""
+"\e[1;2D": ""
+
+# Ctrl+arrow word navigation
+"\e[1;5C": forward-word
+"\e[1;5D": backward-word
+
+# Home/End variants emitted by macOS terminals directly, through SSH, and
+# through tmux.
+"\e[H": beginning-of-line
+"\eOH": beginning-of-line
+"\e[1~": beginning-of-line
+"\e[7~": beginning-of-line
+"\e[F": end-of-line
+"\eOF": end-of-line
+"\e[4~": end-of-line
+"\e[8~": end-of-line
+
+# Visual aids
+set blink-matching-paren on
+set colored-completion-prefix on
+set enable-bracketed-paste on

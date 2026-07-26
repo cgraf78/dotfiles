@@ -1,0 +1,9 @@
+# platform	marker	extensions_dir	config_dir	options
+Darwin	${VSCODE_APPLICATIONS_DIR}/Visual Studio Code.app	$HOME/.vscode/extensions	$HOME/Library/Application Support/Code/User
+Darwin	${VSCODE_APPLICATIONS_DIR}/Visual Studio Code - Insiders.app	$HOME/.vscode-insiders/extensions	$HOME/Library/Application Support/Code - Insiders/User
+Darwin	${VSCODE_APPLICATIONS_DIR}/Cursor.app	$HOME/.cursor/extensions	$HOME/Library/Application Support/Cursor/User
+Linux	$HOME/.config/Code/User	$HOME/.vscode/extensions	$HOME/.config/Code/User
+Linux	$HOME/.config/Code - Insiders/User	$HOME/.vscode-insiders/extensions	$HOME/.config/Code - Insiders/User
+Linux	$HOME/.config/Cursor/User	$HOME/.cursor/extensions	$HOME/.config/Cursor/User
+Windows	${APPDATA}/Code/User	$HOME/.vscode/extensions	${APPDATA}/Code/User
+WSL	${WSL_APPDATA}/Code/User	$HOME/.vscode-server/extensions	${WSL_APPDATA}/Code/User

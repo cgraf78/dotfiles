@@ -1,0 +1,25 @@
+# Global selene fallback. Applied via `--config` when no per-repo
+# `selene.toml` / `.selene.toml` is found in the file's parent chain.
+#
+# Deliberately no `std = "..."` here — the selene binary shipped by
+# Homebrew is built without the `lua52`/`lua53`/`lua54` std features
+# baked in (and the `roblox` std requires a network fetch), so a
+# hardcoded std would hit "feature not enabled" or "could not fetch
+# standard library" on many hosts. Selene's no-std defaults still
+# recognise common Lua builtins like `print`. Per-repo selene.toml
+# files can set `std` explicitly when the project needs it.
+
+[rules]
+# Unused locals and callback parameters should fail the default lint gate.
+# Intentional placeholders can be named `_` or `_name`, which Selene ignores.
+unused_variable = "warn"
+
+# `bad_string_escape` flags Lua 5.2+ escapes like `\xHH` because
+# selene's published release binaries are built without the
+# `lua_versions` feature gate, so the rule defaults to Lua 5.1
+# semantics where `\x` isn't valid. Our Lua hosts (wezterm mlua,
+# neovim LuaJIT) all accept `\xHH`. Disabling avoids a stream of
+# false positives on escape sequences we rely on. Enabling the
+# check properly would require building selene from source with
+# `--features lua52` (or 5.3/5.4), which we don't do.
+bad_string_escape = "allow"

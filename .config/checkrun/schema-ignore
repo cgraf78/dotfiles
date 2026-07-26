@@ -1,0 +1,4 @@
+# Files autolint's schema validation phase should skip.
+#
+# Keep this empty by default. Prefer leaving schema validation enabled unless a
+# file intentionally cannot satisfy an available public schema.

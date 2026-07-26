@@ -1,0 +1,38 @@
+# ~/.config/bottom/bottom.toml
+
+[flags]
+rate = 1000
+default_widget_type = "proc"
+group_processes = true
+case_sensitive = false
+whole_word = false
+regex = true
+hide_avg_cpu = true
+enable_cache_memory = true
+battery = true
+process_memory_as_value = true
+
+# Layout: CPU + Memory top, Network + Disk middle, Processes bottom
+[[row]]
+ratio = 30
+[[row.child]]
+type = "cpu"
+ratio = 60
+[[row.child]]
+type = "mem"
+ratio = 40
+
+[[row]]
+ratio = 25
+[[row.child]]
+type = "net"
+ratio = 55
+[[row.child]]
+type = "disk"
+ratio = 45
+
+[[row]]
+ratio = 45
+[[row.child]]
+type = "proc"
+default = true

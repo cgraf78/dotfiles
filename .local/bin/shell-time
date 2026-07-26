@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+# shell-time — profile interactive shell startup by per-file load cost.
+#
+# Launches a fresh interactive shell with `SHELL_LOADER_TIMING` set so
+# `_shell_source_dir` emits one tagged line per sourced file, then prints
+# a sorted report with totals for env.d and interactive.d.
+#
+# Usage:
+#   shell-time            # profile zsh (default)
+#   shell-time zsh
+#   shell-time bash
+#
+# The report shows each file and its inclusive load cost (milliseconds).
+# Costs include everything the file does while being sourced — tool
+# integrations via `eval "$(foo init)"`, plugin files it sources, etc.
+
+set -o pipefail
+
+shell="${1:-zsh}"
+case "$shell" in
+  zsh | bash) ;;
+  *)
+    echo "usage: shell-time [zsh|bash]" >&2
+    exit 2
+    ;;
+esac
+
+if ! command -v "$shell" >/dev/null 2>&1; then
+  echo "shell-time: $shell not installed" >&2
+  exit 1
+fi
+
+# Run a fresh interactive shell; the loader emits one `SHELL_TIMING\tMS\tPATH`
+# line per file on stderr. Discard stdout (prompt chatter), keep stderr.
+raw=$(SHELL_LOADER_TIMING=1 "$shell" -ic 'exit' 2>&1 >/dev/null) || true
+
+# Split into env.d and interactive.d sections, compute totals.
+# awk collects per-bucket lines + running totals, emits report at END.
+printf '%s\n' "$raw" | awk -v shell="$shell" '
+  BEGIN {
+    n_env = 0; n_int = 0
+    total_env = 0; total_int = 0
+  }
+  /^SHELL_TIMING\t/ {
+    ms = $2 + 0      # "1.234" → 1.234
+    path = $3
+    for (i = 4; i <= NF; i++) path = path " " $i   # tolerate filenames with spaces
+
+    # Bucket by directory segment.
+    if (path ~ /\/env\.d\//) {
+      env_path[n_env] = path
+      env_ms[n_env] = ms
+      n_env++
+      total_env += ms
+    } else if (path ~ /\/interactive\.d\//) {
+      int_path[n_int] = path
+      int_ms[n_int] = ms
+      n_int++
+      total_int += ms
+    }
+  }
+  END {
+    printf "shell-time (%s) — per-file load cost, sorted descending\n\n", shell
+
+    print_section("env.d (always loaded)",           env_ms,  env_path,  n_env,  total_env)
+    print ""
+    print_section("interactive.d (interactive only)", int_ms,  int_path,  n_int,  total_int)
+    print ""
+    printf "%8.3f ms  TOTAL\n", (total_env + total_int)
+  }
+  function print_section(title, ms_arr, path_arr, n, total,    i, j, idx, tmp, order) {
+    printf "=== %s ===\n", title
+    if (n == 0) { print "  (no files)"; return }
+    # Build an ordering array 0..n-1, then selection-sort descending by ms.
+    for (i = 0; i < n; i++) order[i] = i
+    for (i = 0; i < n - 1; i++) {
+      for (j = i + 1; j < n; j++) {
+        if (ms_arr[order[j]] > ms_arr[order[i]]) {
+          tmp = order[i]; order[i] = order[j]; order[j] = tmp
+        }
+      }
+    }
+    for (i = 0; i < n; i++) {
+      idx = order[i]
+      path = path_arr[idx]
+      sub(/^\/Users\/[^\/]+\//, "~/", path)   # collapse $HOME for readability
+      sub(/^\/home\/[^\/]+\//,  "~/", path)
+      printf "  %8.3f ms  %s\n", ms_arr[idx], path
+    }
+    printf "  %8s -----\n", ""
+    printf "  %8.3f ms  subtotal\n", total
+  }
+'

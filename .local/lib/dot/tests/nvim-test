@@ -1,0 +1,2495 @@
+#!/usr/bin/env bash
+# nvim-test — unit tests for custom nvim config modules.
+#
+# Runs lua tests headlessly via `nvim --headless` to exercise dotfiles-owned
+# Neovim config modules and integration wiring for extracted plugins.
+#
+# Usage: nvim-test
+
+set -o pipefail
+export NO_COLOR=1
+
+# shellcheck source=helpers.sh
+. "$HOME/.local/lib/dot/tests/helpers.sh"
+
+_require_compatible_libc "nvim-test"
+_test_use_host_runtime_dirs
+_test_use_host_shdeps
+
+# Run a lua snippet headlessly in nvim. Prepends the nvim config lua dir
+# to package.path so dofile'd modules can resolve their require() calls.
+_nvim_lua() {
+  local _lua_dir="$HOME/.config/nvim/lua"
+  # Keep headless tests off the user's ShaDa file. `dot-test` runs suites in
+  # parallel, and concurrent nvim processes can otherwise fight over
+  # ~/.local/state/nvim/shada/main.shada.
+  nvim --headless --noplugin -u NONE -i NONE \
+    -c "lua package.path='$_lua_dir/?.lua;' .. package.path; $1" \
+    -c 'qa!' 2>&1
+}
+
+# Run a Lua snippet after loading the VSCode-style keymaps. These tests use
+# Select mode directly because that is what lets printable keys replace
+# selected text; command-style mappings need to avoid inserting their rhs.
+_nvim_vscode_keys() {
+  _nvim_lua "
+    vim.o.selection = 'exclusive'
+    vim.o.clipboard = ''
+    dofile(vim.fn.expand('~/.config/nvim/lua/config/keymaps/vscode.lua'))
+    $1
+  "
+}
+
+# Keep one full-config smoke test in this suite. Most tests use `--noplugin`
+# unit snippets for determinism, but startup/shutdown regressions usually hide
+# in integration paths such as filetype, LSP, lint, and workspace root probes.
+_nvim_startup_budget() {
+  if [[ -n "${NVIM_STARTUP_BUDGET_SECONDS:-}" ]]; then
+    printf '%s\n' "$NVIM_STARTUP_BUDGET_SECONDS"
+  elif [[ "${DOT_TEST_PARALLEL:-0}" = 1 && "${DOT_TEST_JOBS:-1}" =~ ^[0-9]+$ && "${DOT_TEST_JOBS:-1}" -gt 1 ]]; then
+    # The full config smoke test runs real startup/shutdown while dot-test may
+    # also be driving shell, Git, bootstrap, and editor suites. Keep direct
+    # single-suite runs strict, but scale the parallel-run budget with load.
+    printf '%s\n' "$((6 + DOT_TEST_JOBS * 2))"
+  elif [[ -n "${WSL_DISTRO_NAME:-}" || -n "${WSL_INTEROP:-}" ]]; then
+    # WSL terminal sessions can be CPU- and IO-constrained under the full
+    # parallel dot-test load. Keep the smoke test meaningful without making it
+    # fail only because the host is busy.
+    printf '15\n'
+  else
+    printf '6\n'
+  fi
+}
+
+_assert_nvim_startup_budget() {
+  local desc="$1" file="$2" budget
+  local output rc elapsed
+  local -a timeout_prefix=()
+  budget=$(_nvim_startup_budget)
+
+  command -v timeout >/dev/null 2>&1 && timeout_prefix=(timeout 20)
+
+  SECONDS=0
+  output=$("${timeout_prefix[@]}" nvim -i NONE --headless \
+    --cmd 'lua vim.g.mason_disabled = true' \
+    "$file" '+qa!' 2>&1)
+  rc=$?
+  elapsed=$SECONDS
+
+  if [[ "$rc" -eq 0 && "$elapsed" -le "$budget" ]]; then
+    _pass "$desc"
+  else
+    _fail "$desc (exit $rc after ${elapsed}s, budget ${budget}s; output: $output)"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Tests: full nvim startup/shutdown smoke
+# ---------------------------------------------------------------------------
+
+echo "=== nvim: startup/shutdown performance ==="
+
+_assert_nvim_startup_budget "startup: .bashrc opens and exits within budget" "$HOME/.bashrc"
+
+# ---------------------------------------------------------------------------
+# Tests: VSCode-style selection keymaps
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== keymaps: vscode selection ==="
+
+result=$(_nvim_vscode_keys '
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, {"abcdef"})
+  vim.api.nvim_feedkeys(
+    vim.api.nvim_replace_termcodes("gg0vll", true, false, true) .. string.char(7),
+    "nx",
+    false
+  )
+  vim.api.nvim_feedkeys("Z", "xt", false)
+  print(vim.api.nvim_get_current_line())
+')
+_assert_eq "selection typing: printable key replaces selected text" "Zcdef" "$result"
+
+result=$(_nvim_vscode_keys '
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, {"abcdef"})
+  vim.api.nvim_feedkeys(
+    vim.api.nvim_replace_termcodes("gg0vll", true, false, true) .. string.char(7),
+    "nx",
+    false
+  )
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-c>", true, false, true), "xt", false)
+  print(vim.api.nvim_get_current_line())
+  print(vim.fn.getreg("\""))
+')
+expected="$(printf 'abcdef\nab')"
+_assert_eq "selection clipboard: Ctrl-C copies without changing text" "$expected" "$result"
+
+result=$(_nvim_vscode_keys '
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, {"abcdef"})
+  vim.api.nvim_feedkeys(
+    vim.api.nvim_replace_termcodes("gg0vll", true, false, true) .. string.char(7),
+    "nx",
+    false
+  )
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-x>", true, false, true), "xt", false)
+  print(vim.api.nvim_get_current_line())
+  print(vim.fn.getreg("\""))
+')
+expected="$(printf 'cdef\nab')"
+_assert_eq "selection clipboard: Ctrl-X cuts selected text" "$expected" "$result"
+
+result=$(_nvim_vscode_keys '
+  vim.fn.setreg("\"", "ZZ")
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, {"abcdef"})
+  vim.api.nvim_feedkeys(
+    vim.api.nvim_replace_termcodes("gg0vll", true, false, true) .. string.char(7),
+    "nx",
+    false
+  )
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-v>", true, false, true), "xt", false)
+  print(vim.api.nvim_get_current_line())
+')
+_assert_eq "selection clipboard: Ctrl-V replaces selected text" "ZZcdef" "$result"
+
+result=$(_nvim_vscode_keys '
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, {"one", "two", "three"})
+  vim.api.nvim_feedkeys(
+    vim.api.nvim_replace_termcodes("gg0vll", true, false, true) .. string.char(7),
+    "nx",
+    false
+  )
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-a>Z", true, false, true), "xt", false)
+  print(table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), "|"))
+')
+_assert_eq "selection select-all: Ctrl-A remains replaceable" "Z" "$result"
+
+result=$(_nvim_vscode_keys '
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, {"a", "b"})
+  vim.api.nvim_feedkeys(
+    vim.api.nvim_replace_termcodes("gg0Vj", true, false, true) .. string.char(7),
+    "nx",
+    false
+  )
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Tab>", true, false, true), "xt", false)
+  print(table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), "|"))
+')
+expected="$(printf '\ta|\tb')"
+_assert_eq "selection command maps: Tab indents instead of inserting rhs" "$expected" "$result"
+
+result=$(_nvim_vscode_keys '
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, {"foo a+b/c tail", "next a+b/c hit"})
+  vim.api.nvim_feedkeys(
+    vim.api.nvim_replace_termcodes("gg04lv5l", true, false, true) .. string.char(7),
+    "nx",
+    false
+  )
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-f><CR>", true, false, true), "xt", false)
+  print(vim.fn.getreg("/"))
+  print(vim.inspect(vim.api.nvim_win_get_cursor(0)))
+')
+expected="$(printf '\\Va+b\\/c\n{ 2, 5 }')"
+_assert_contains "selection find: Ctrl-F prefills selected literal search" "$expected" "$result"
+
+result=$(_nvim_vscode_keys '
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, {"a/b\\c", "a/b\\c"})
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("gg0v4l<C-f><CR>", true, false, true), "xt", false)
+  print(vim.fn.getreg("/"))
+  print(vim.inspect(vim.api.nvim_win_get_cursor(0)))
+')
+expected="$(printf '\\Va\\/b\\\\\n{ 2, 0 }')"
+_assert_contains "selection find: Ctrl-F escapes slashes and backslashes" "$expected" "$result"
+
+result=$(_nvim_vscode_keys '
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, {"alpha", "beta", "gamma", "alpha", "beta"})
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("ggVj<C-f><CR>", true, false, true), "xt", false)
+  print(vim.fn.getreg("/"))
+  print(vim.inspect(vim.api.nvim_win_get_cursor(0)))
+')
+expected="$(printf '\\Valpha\\nbeta\n{ 4, 0 }')"
+_assert_contains "selection find: Ctrl-F searches linewise multiline selection" "$expected" "$result"
+
+result=$(_nvim_vscode_keys '
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, {"alpha", "beta", "gamma", "gap", "alpha", "beta", "gamma"})
+  local keys = "gg0v" .. string.char(36) .. "je<C-f><CR>"
+  vim.api.nvim_feedkeys(
+    vim.api.nvim_replace_termcodes(keys, true, false, true),
+    "xt",
+    false
+  )
+  print(vim.fn.getreg("/"))
+  print(vim.inspect(vim.api.nvim_win_get_cursor(0)))
+')
+expected="$(printf '\\Valpha\\nbeta\\ngamma\n{ 5, 0 }')"
+_assert_contains "selection find: Ctrl-F searches charwise multiline selection" "$expected" "$result"
+
+result=$(_nvim_vscode_keys '
+  vim.opt.shortmess:append("S")
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, {"xx foo yy foo"})
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("gg0<C-f>foo<CR>", true, false, true), "xt", false)
+  vim.wait(100, function()
+    return vim.fn.mode() == "s"
+  end)
+  vim.api.nvim_feedkeys("bar", "xt", false)
+  print(vim.api.nvim_get_current_line())
+')
+_assert_contains "selection find: Ctrl-F selects match for replacement typing" \
+  "xx bar yy foo" "$result"
+
+result=$(_nvim_vscode_keys '
+  vim.opt.shortmess:append("S")
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, {"xx foo yy foo"})
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("gg0<C-f><Esc>/foo<CR>", true, false, true), "xt", false)
+  vim.wait(100, function()
+    return vim.fn.mode() == "s"
+  end)
+  print("mode=" .. vim.fn.mode())
+')
+_assert_contains "selection find: cancelled Ctrl-F does not select later slash search" \
+  "mode=n" "$result"
+
+result=$(_nvim_vscode_keys '
+  vim.opt.shortmess:append("S")
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, {"xx foo yy foo"})
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("gg0<C-f>foo<CR>", true, false, true), "xt", false)
+  vim.wait(100, function()
+    return vim.fn.mode() == "s"
+  end)
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-g>", true, false, true), "xt", false)
+  vim.wait(100, function()
+    return vim.fn.mode() == "s"
+  end)
+  vim.api.nvim_feedkeys("bar", "xt", false)
+  print(vim.api.nvim_get_current_line())
+')
+_assert_contains "selection find: Ctrl-G selects next match for replacement typing" \
+  "xx foo yy bar" "$result"
+
+result=$(_nvim_vscode_keys '
+  vim.opt.shortmess:append("S")
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, {"x foo foo foo"})
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("gg0<C-f>foo<CR>", true, false, true), "xt", false)
+  vim.wait(100, function()
+    return vim.fn.mode() == "s"
+  end)
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-g>", true, false, true), "xt", false)
+  vim.wait(100, function()
+    return vim.fn.mode() == "s" and vim.api.nvim_win_get_cursor(0)[2] > 7
+  end)
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-g>", true, false, true), "xt", false)
+  vim.wait(100, function()
+    return vim.fn.mode() == "s" and vim.api.nvim_win_get_cursor(0)[2] > 11
+  end)
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-g>", true, false, true), "xt", false)
+  vim.wait(100, function()
+    return vim.fn.mode() == "s" and vim.api.nvim_win_get_cursor(0)[2] < 6
+  end)
+  vim.api.nvim_feedkeys("bar", "xt", false)
+  print(vim.api.nvim_get_current_line())
+')
+_assert_contains "selection find: Ctrl-G keeps advancing and wraps" \
+  "x bar foo foo" "$result"
+
+result=$(_nvim_vscode_keys '
+  vim.opt.shortmess:append("S")
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, {"xx foo yy foo"})
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("gg0<C-f>foo<CR>", true, false, true), "xt", false)
+  vim.wait(100, function()
+    return vim.fn.mode() == "s"
+  end)
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-g>", true, false, true), "xt", false)
+  vim.wait(100, function()
+    return vim.fn.mode() == "s" and vim.api.nvim_win_get_cursor(0)[2] > 10
+  end)
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-S-g>", true, false, true), "xt", false)
+  vim.wait(100, function()
+    return vim.fn.mode() == "s"
+  end)
+  vim.api.nvim_feedkeys("bar", "xt", false)
+  print(vim.api.nvim_get_current_line())
+')
+_assert_contains "selection find: Ctrl-Shift-G selects previous match for replacement typing" \
+  "xx bar yy foo" "$result"
+
+result=$(_nvim_vscode_keys '
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, {"abc"})
+  vim.fn.setreg("/", "")
+  vim.api.nvim_win_set_cursor(0, { 1, 1 })
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("i<C-g>Z", true, false, true), "xt", false)
+  vim.wait(100, function()
+    return vim.api.nvim_get_current_line():find("Z", 1, true) ~= nil
+  end)
+  print(vim.api.nvim_get_current_line())
+')
+expected="aZbc"
+_assert_eq "selection find: insert Ctrl-G without search keeps accepting text" \
+  "$expected" "$result"
+
+result=$(_nvim_vscode_keys '
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, {"abc"})
+  vim.fn.setreg("/", "missing")
+  vim.api.nvim_win_set_cursor(0, { 1, 1 })
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("i<C-S-g>Z", true, false, true), "xt", false)
+  vim.wait(100, function()
+    return vim.api.nvim_get_current_line():find("Z", 1, true) ~= nil
+  end)
+  print(vim.api.nvim_get_current_line())
+')
+expected="aZbc"
+_assert_eq "selection find: insert Ctrl-Shift-G with stale search keeps accepting text" \
+  "$expected" "$result"
+
+result=$(_nvim_vscode_keys '
+  local rhs = vim.fn.maparg("<C-q>", "n")
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, {"abc"})
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("gg0<C-q>", true, false, true), "xt", false)
+  print((rhs == "" and "<empty>" or rhs) .. "|" .. vim.fn.mode())
+')
+_assert_eq "visual block: Ctrl-Q is explicitly preserved when Ctrl-V pastes" "<C-V>|^V" "$result"
+
+NVIM_CTRL_S_TMP=$(_tmpdir)
+NVIM_CTRL_S_FILE="$NVIM_CTRL_S_TMP/save.txt"
+result=$(_nvim_vscode_keys "
+  vim.cmd('edit $NVIM_CTRL_S_FILE')
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, {'saved'})
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes('<C-s>', true, false, true), 'xt', false)
+  print(table.concat(vim.fn.readfile('$NVIM_CTRL_S_FILE'), '|'))
+")
+_assert_eq "save: Ctrl-S writes current buffer" "saved" "$result"
+
+NVIM_CTRL_S_INSERT_TMP=$(_tmpdir)
+NVIM_CTRL_S_INSERT_FILE="$NVIM_CTRL_S_INSERT_TMP/save.txt"
+result=$(_nvim_vscode_keys "
+  vim.cmd('edit $NVIM_CTRL_S_INSERT_FILE')
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, {'abc'})
+  vim.api.nvim_win_set_cursor(0, {1, 0})
+  vim.cmd('startinsert')
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes('<C-s>X', true, false, true), 'xt', false)
+  print(vim.api.nvim_get_current_line())
+  print(table.concat(vim.fn.readfile('$NVIM_CTRL_S_INSERT_FILE'), '|'))
+")
+expected="$(printf 'Xabc\nabc')"
+_assert_eq "save: insert Ctrl-S saves and keeps accepting typed text" "$expected" "$result"
+
+result=$(_nvim_lua '
+  package.loaded["grug-far"] = {
+    open = function(opts)
+      local paths = opts.prefills and opts.prefills.paths or "nil"
+      print("open:" .. paths .. ":" .. tostring(opts.transient))
+    end,
+    with_visual_selection = function(opts)
+      local paths = opts.prefills and opts.prefills.paths or "nil"
+      print("visual:" .. paths .. ":" .. tostring(opts.transient))
+    end,
+  }
+
+  dofile(vim.fn.expand("~/.config/nvim/lua/config/keymaps.lua"))
+  vim.api.nvim_buf_set_name(0, "/tmp/vscode replace test/file with spaces.txt")
+
+  local ctrl_h = vim.fn.maparg("<C-h>", "n")
+  if not ctrl_h:find("TmuxNavigateLeft", 1, true) then
+    print("bad-ctrl-h:" .. ctrl_h)
+    return
+  end
+  print("ctrl-shift-h:" .. (vim.fn.maparg("<C-S-h>", "n") == "" and "unmapped" or "mapped"))
+
+  vim.fn.maparg("<leader>sr", "n", false, true).callback()
+  vim.fn.maparg("<leader>sR", "n", false, true).callback()
+  vim.fn.maparg("<leader>sr", "x", false, true).callback()
+  vim.fn.maparg("<leader>sR", "x", false, true).callback()
+')
+expected="$(printf 'ctrl-shift-h:unmapped\nopen:/tmp/vscode\\ replace\\ test/file\\ with\\ spaces.txt:true\nopen:nil:true\nvisual:/tmp/vscode\\ replace\\ test/file\\ with\\ spaces.txt:true\nvisual:nil:true')"
+_assert_eq "replace: keymaps keep Ctrl-H navigation and avoid OS-reserved Ctrl-Shift-H" "$expected" "$result"
+
+result=$(_nvim_lua '
+  package.loaded["config.wezterm-vars"] = {
+    set = function(name, value)
+      print("wezterm:" .. name .. ":" .. value)
+    end,
+  }
+  vim.env.TMUX = nil
+  vim.env.TMUX_PANE = nil
+  vim.api.nvim_create_user_command("BufferLineCycleNext", function()
+    print("buffer-next")
+  end, {})
+  vim.api.nvim_create_user_command("BufferLineCyclePrev", function()
+    print("buffer-previous")
+  end, {})
+  dofile(vim.fn.expand("~/.config/nvim/lua/config/keymaps.lua"))
+  vim.api.nvim_create_buf(true, false)
+  vim.fn.maparg("<C-Tab>", "n", false, true).callback()
+  vim.fn.maparg("<C-S-Tab>", "n", false, true).callback()
+')
+expected="$(printf 'buffer-next\nbuffer-previous')"
+_assert_eq "buffer cycling: Ctrl-Tab stays in nvim when nvim has multiple buffers" "$expected" "$result"
+
+result=$(_nvim_lua '
+  package.loaded["config.wezterm-vars"] = {
+    set = function(name, value)
+      print("wezterm:" .. name .. ":" .. value)
+    end,
+  }
+  vim.env.TMUX = nil
+  vim.env.TMUX_PANE = nil
+  vim.api.nvim_create_user_command("BufferLineMovePrev", function()
+    print("buffer-move-left")
+  end, {})
+  vim.api.nvim_create_user_command("BufferLineMoveNext", function()
+    print("buffer-move-right")
+  end, {})
+  dofile(vim.fn.expand("~/.config/nvim/lua/config/keymaps.lua"))
+  vim.api.nvim_create_buf(true, false)
+  vim.fn.maparg("<M-{>", "n", false, true).callback()
+  vim.fn.maparg("<M-}>", "n", false, true).callback()
+')
+expected="$(printf 'buffer-move-left\nbuffer-move-right')"
+_assert_eq "buffer moving: Alt-Shift-brackets reorder BufferLine when nvim has multiple buffers" "$expected" "$result"
+
+result=$(_nvim_lua '
+  package.loaded["config.wezterm-vars"] = {
+    set = function(name, value)
+      print(name .. ":" .. value:match("^[^:]+"))
+    end,
+  }
+  vim.env.TMUX = nil
+  vim.env.TMUX_PANE = nil
+  dofile(vim.fn.expand("~/.config/nvim/lua/config/keymaps.lua"))
+  for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
+    vim.bo[bufnr].buflisted = bufnr == vim.api.nvim_get_current_buf()
+  end
+  vim.fn.maparg("<C-Tab>", "n", false, true).callback()
+  vim.fn.maparg("<C-S-Tab>", "n", false, true).callback()
+')
+expected="$(printf 'DOT_SWITCH_TAB:next\nDOT_SWITCH_TAB:previous')"
+_assert_eq "buffer cycling: Ctrl-Tab bubbles to WezTerm when nvim has one buffer outside tmux" "$expected" "$result"
+
+tab_tmux_mock=$(_tmpdir)
+cat >"$tab_tmux_mock/tmux" <<'MOCK'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$TMUX_MOCK_LOG"
+if [[ "$1" == "display-message" ]]; then
+  printf '2\n'
+fi
+MOCK
+chmod +x "$tab_tmux_mock/tmux"
+
+result=$(TMUX="/tmp/tmux-test,1,0" TMUX_PANE="%1" TMUX_MOCK_LOG="$tab_tmux_mock/tmux.log" PATH="$tab_tmux_mock:$PATH" _nvim_lua '
+  package.loaded["config.wezterm-vars"] = {
+    set = function(name, value)
+      print("wezterm:" .. name .. ":" .. value)
+    end,
+  }
+  dofile(vim.fn.expand("~/.config/nvim/lua/config/keymaps.lua"))
+  for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
+    vim.bo[bufnr].buflisted = bufnr == vim.api.nvim_get_current_buf()
+  end
+  vim.fn.maparg("<C-Tab>", "n", false, true).callback()
+  vim.fn.maparg("<C-S-Tab>", "n", false, true).callback()
+  print(table.concat(vim.fn.readfile(vim.env.TMUX_MOCK_LOG), "|"))
+')
+_assert_eq "buffer cycling: Ctrl-Tab switches tmux when nvim has one buffer and tmux has windows" \
+  'display-message -p #{session_windows}|next-window|display-message -p #{session_windows}|previous-window' "$result"
+
+tab_tmux_one_window_mock=$(_tmpdir)
+cat >"$tab_tmux_one_window_mock/tmux" <<'MOCK'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$TMUX_MOCK_LOG"
+case "$1" in
+  display-message)
+    printf '1\n'
+    ;;
+  list-clients)
+    printf '100 wezterm\n'
+    ;;
+esac
+MOCK
+chmod +x "$tab_tmux_one_window_mock/tmux"
+
+result=$(TMUX="/tmp/tmux-test,1,0" TMUX_PANE="%1" TMUX_MOCK_LOG="$tab_tmux_one_window_mock/tmux.log" PATH="$tab_tmux_one_window_mock:$PATH" _nvim_lua '
+  package.loaded["config.wezterm-vars"] = {
+    set = function(name, value)
+      print(name .. ":" .. value:match("^[^:]+"))
+    end,
+  }
+  dofile(vim.fn.expand("~/.config/nvim/lua/config/keymaps.lua"))
+  for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
+    vim.bo[bufnr].buflisted = bufnr == vim.api.nvim_get_current_buf()
+  end
+  vim.fn.maparg("<C-Tab>", "n", false, true).callback()
+  vim.fn.maparg("<C-S-Tab>", "n", false, true).callback()
+  print("tmux:" .. table.concat(vim.fn.readfile(vim.env.TMUX_MOCK_LOG), "|"))
+')
+expected="$(printf 'DOT_SWITCH_TAB:next\nDOT_SWITCH_TAB:previous\ntmux:display-message -p #{session_windows}|list-clients -F #{client_activity} #{client_termtype}|display-message -p #{client_termname}|display-message -p #{session_windows}|list-clients -F #{client_activity} #{client_termtype}|display-message -p #{client_termname}')"
+_assert_eq "buffer cycling: Ctrl-Tab bubbles to WezTerm when nvim and tmux each have one tab/window" \
+  "$expected" "$result"
+
+tab_tmux_nested_one_window_mock=$(_tmpdir)
+cat >"$tab_tmux_nested_one_window_mock/tmux" <<'MOCK'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$TMUX_MOCK_LOG"
+if [[ "$1" == "display-message" && "$3" == "#{session_windows}" ]]; then
+  printf '1\n'
+elif [[ "$1" == "display-message" && "$3" == "#{client_termname}" ]]; then
+  printf 'tmux-256color\n'
+elif [[ "$1" == "list-clients" ]]; then
+  printf '100 wezterm\n'
+fi
+MOCK
+chmod +x "$tab_tmux_nested_one_window_mock/tmux"
+
+result=$(TMUX="/tmp/tmux-test,1,0" TMUX_PANE="%1" TMUX_MOCK_LOG="$tab_tmux_nested_one_window_mock/tmux.log" PATH="$tab_tmux_nested_one_window_mock:$PATH" _nvim_lua '
+  package.loaded["config.wezterm-vars"] = {
+    set = function(name, value)
+      print(name .. ":" .. value:match("^[^:]+"))
+    end,
+  }
+  dofile(vim.fn.expand("~/.config/nvim/lua/config/keymaps.lua"))
+  for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
+    vim.bo[bufnr].buflisted = bufnr == vim.api.nvim_get_current_buf()
+  end
+  vim.fn.maparg("<C-Tab>", "n", false, true).callback()
+  vim.fn.maparg("<C-S-Tab>", "n", false, true).callback()
+  print("tmux:" .. table.concat(vim.fn.readfile(vim.env.TMUX_MOCK_LOG), "|"))
+')
+expected="$(printf 'DOT_PARENT_SWITCH_TAB:next\nDOT_PARENT_SWITCH_TAB:previous\ntmux:display-message -p #{session_windows}|list-clients -F #{client_activity} #{client_termtype}|display-message -p #{client_termname}|display-message -p #{session_windows}|list-clients -F #{client_activity} #{client_termtype}|display-message -p #{client_termname}')"
+_assert_eq "buffer cycling: Ctrl-Tab bubbles to parent tmux when nvim and nested tmux each have one tab/window" \
+  "$expected" "$result"
+
+move_tmux_mock=$(_tmpdir)
+cat >"$move_tmux_mock/tmux" <<'MOCK'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$TMUX_MOCK_LOG"
+if [[ "$1" == "display-message" ]]; then
+  printf '2 3 1\n'
+fi
+MOCK
+chmod +x "$move_tmux_mock/tmux"
+
+result=$(TMUX="/tmp/tmux-test,1,0" TMUX_PANE="%1" TMUX_MOCK_LOG="$move_tmux_mock/tmux.log" PATH="$move_tmux_mock:$PATH" _nvim_lua '
+  package.loaded["config.wezterm-vars"] = {
+    set = function(name, value)
+      print("wezterm:" .. name .. ":" .. value)
+    end,
+  }
+  dofile(vim.fn.expand("~/.config/nvim/lua/config/keymaps.lua"))
+  for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
+    vim.bo[bufnr].buflisted = bufnr == vim.api.nvim_get_current_buf()
+  end
+  vim.fn.maparg("<M-{>", "n", false, true).callback()
+  vim.fn.maparg("<M-}>", "n", false, true).callback()
+  print(table.concat(vim.fn.readfile(vim.env.TMUX_MOCK_LOG), "|"))
+')
+_assert_eq "buffer moving: Alt-Shift-brackets move tmux window when nvim has one buffer and tmux can move" \
+  'display-message -p #{window_index} #{session_windows} #{base-index}|swap-window -d -t :-|display-message -p #{window_index} #{session_windows} #{base-index}|swap-window -d -t :+' "$result"
+
+move_tmux_one_window_mock=$(_tmpdir)
+cat >"$move_tmux_one_window_mock/tmux" <<'MOCK'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$TMUX_MOCK_LOG"
+case "$1" in
+  display-message)
+    printf '1 1 1\n'
+    ;;
+  list-clients)
+    printf '100 wezterm\n'
+    ;;
+esac
+MOCK
+chmod +x "$move_tmux_one_window_mock/tmux"
+
+result=$(TMUX="/tmp/tmux-test,1,0" TMUX_PANE="%1" TMUX_MOCK_LOG="$move_tmux_one_window_mock/tmux.log" PATH="$move_tmux_one_window_mock:$PATH" _nvim_lua '
+  package.loaded["config.wezterm-vars"] = {
+    set = function(name, value)
+      print(name .. ":" .. value:match("^[^:]+"))
+    end,
+  }
+  dofile(vim.fn.expand("~/.config/nvim/lua/config/keymaps.lua"))
+  for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
+    vim.bo[bufnr].buflisted = bufnr == vim.api.nvim_get_current_buf()
+  end
+  vim.fn.maparg("<M-{>", "n", false, true).callback()
+  vim.fn.maparg("<M-}>", "n", false, true).callback()
+  print("tmux:" .. table.concat(vim.fn.readfile(vim.env.TMUX_MOCK_LOG), "|"))
+')
+expected="$(printf 'DOT_MOVE_TAB:left\nDOT_MOVE_TAB:right\ntmux:display-message -p #{window_index} #{session_windows} #{base-index}|list-clients -F #{client_activity} #{client_termtype}|display-message -p #{client_termname}|display-message -p #{window_index} #{session_windows} #{base-index}|list-clients -F #{client_activity} #{client_termtype}|display-message -p #{client_termname}')"
+_assert_eq "buffer moving: Alt-Shift-brackets bubble to WezTerm when nvim and tmux each have one tab/window" \
+  "$expected" "$result"
+
+move_tmux_nested_one_window_mock=$(_tmpdir)
+cat >"$move_tmux_nested_one_window_mock/tmux" <<'MOCK'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$TMUX_MOCK_LOG"
+if [[ "$1" == "display-message" && "$3" == "#{window_index} #{session_windows} #{base-index}" ]]; then
+  printf '1 1 1\n'
+elif [[ "$1" == "display-message" && "$3" == "#{client_termname}" ]]; then
+  printf 'tmux-256color\n'
+elif [[ "$1" == "list-clients" ]]; then
+  printf '100 wezterm\n'
+fi
+MOCK
+chmod +x "$move_tmux_nested_one_window_mock/tmux"
+
+result=$(TMUX="/tmp/tmux-test,1,0" TMUX_PANE="%1" TMUX_MOCK_LOG="$move_tmux_nested_one_window_mock/tmux.log" PATH="$move_tmux_nested_one_window_mock:$PATH" _nvim_lua '
+  package.loaded["config.wezterm-vars"] = {
+    set = function(name, value)
+      print(name .. ":" .. value:match("^[^:]+"))
+    end,
+  }
+  dofile(vim.fn.expand("~/.config/nvim/lua/config/keymaps.lua"))
+  for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
+    vim.bo[bufnr].buflisted = bufnr == vim.api.nvim_get_current_buf()
+  end
+  vim.fn.maparg("<M-{>", "n", false, true).callback()
+  vim.fn.maparg("<M-}>", "n", false, true).callback()
+  print("tmux:" .. table.concat(vim.fn.readfile(vim.env.TMUX_MOCK_LOG), "|"))
+')
+expected="$(printf 'DOT_PARENT_MOVE_TAB:left\nDOT_PARENT_MOVE_TAB:right\ntmux:display-message -p #{window_index} #{session_windows} #{base-index}|list-clients -F #{client_activity} #{client_termtype}|display-message -p #{client_termname}|display-message -p #{window_index} #{session_windows} #{base-index}|list-clients -F #{client_activity} #{client_termtype}|display-message -p #{client_termname}')"
+_assert_eq "buffer moving: Alt-Shift-brackets bubble to parent tmux when nvim and nested tmux each have one tab/window" \
+  "$expected" "$result"
+
+vscode_switch_mock=$(_tmpdir)
+cat >"$vscode_switch_mock/tmux" <<'MOCK'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$TMUX_MOCK_LOG"
+case "$1" in
+  display-message)
+    printf '1\n'
+    ;;
+  list-clients)
+    printf '100 xterm.js(6.1.0-beta.285)\n'
+    ;;
+esac
+MOCK
+chmod +x "$vscode_switch_mock/tmux"
+cat >"$vscode_switch_mock/vscode-switch-tab" <<'MOCK'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$VSCODE_MOCK_LOG"
+MOCK
+chmod +x "$vscode_switch_mock/vscode-switch-tab"
+
+vscode_switch_log=$(_tmpdir)/vscode-switch.log
+result=$(TMUX="/tmp/tmux-test,1,0" TMUX_PANE="%1" \
+  TMUX_MOCK_LOG="$vscode_switch_mock/tmux.log" \
+  VSCODE_MOCK_LOG="$vscode_switch_log" \
+  PATH="$vscode_switch_mock:$PATH" _nvim_lua '
+  package.loaded["config.wezterm-vars"] = {
+    set = function(name, value)
+      print("wezterm:" .. name .. ":" .. value)
+    end,
+  }
+  dofile(vim.fn.expand("~/.config/nvim/lua/config/keymaps.lua"))
+  for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
+    vim.bo[bufnr].buflisted = bufnr == vim.api.nvim_get_current_buf()
+  end
+  vim.fn.maparg("<C-Tab>", "n", false, true).callback()
+  vim.wait(1000, function()
+    return vim.fn.filereadable(vim.env.VSCODE_MOCK_LOG) == 1
+  end)
+  print("vscode:" .. table.concat(vim.fn.readfile(vim.env.VSCODE_MOCK_LOG), "|"))
+')
+_assert_eq "buffer cycling: Ctrl-Tab bubbles to VS Code (not WezTerm) when the active client is VS Code" \
+  "vscode:next" "$result"
+
+# VS Code exposes no command to reorder terminal tabs, so moves must stop
+# dead when the active client is VS Code: no bridge call (canary script
+# below would log one) and no WezTerm user-var fallthrough (mocked set()
+# would print one). The fixed wait gives any stray async jobstart time to
+# land before asserting absence.
+vscode_move_mock=$(_tmpdir)
+cat >"$vscode_move_mock/tmux" <<'MOCK'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$TMUX_MOCK_LOG"
+case "$1" in
+  display-message)
+    printf '1 1 1\n'
+    ;;
+  list-clients)
+    printf '100 xterm.js(6.1.0-beta.285)\n'
+    ;;
+esac
+MOCK
+chmod +x "$vscode_move_mock/tmux"
+cat >"$vscode_move_mock/vscode-move-tab" <<'MOCK'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$VSCODE_MOCK_LOG"
+MOCK
+chmod +x "$vscode_move_mock/vscode-move-tab"
+
+vscode_move_log=$(_tmpdir)/vscode-move.log
+result=$(TMUX="/tmp/tmux-test,1,0" TMUX_PANE="%1" \
+  TMUX_MOCK_LOG="$vscode_move_mock/tmux.log" \
+  VSCODE_MOCK_LOG="$vscode_move_log" \
+  PATH="$vscode_move_mock:$PATH" _nvim_lua '
+  package.loaded["config.wezterm-vars"] = {
+    set = function(name, value)
+      print("wezterm:" .. name .. ":" .. value)
+    end,
+  }
+  dofile(vim.fn.expand("~/.config/nvim/lua/config/keymaps.lua"))
+  for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
+    vim.bo[bufnr].buflisted = bufnr == vim.api.nvim_get_current_buf()
+  end
+  vim.fn.maparg("<M-{>", "n", false, true).callback()
+  vim.wait(400)
+  print("vscode-called:" .. tostring(vim.fn.filereadable(vim.env.VSCODE_MOCK_LOG)))
+')
+_assert_eq "buffer moving: Alt-Shift-[ is a no-op (no bridge call, no WezTerm var) when the active client is VS Code" \
+  "vscode-called:0" "$result"
+
+vscode_multi_client_mock=$(_tmpdir)
+cat >"$vscode_multi_client_mock/tmux" <<'MOCK'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$TMUX_MOCK_LOG"
+case "$1" in
+  display-message)
+    printf '1\n'
+    ;;
+  list-clients)
+    # Two attached clients; the WezTerm one is MORE recently active, so it
+    # must win even though a VS Code client is also attached.
+    printf '50 xterm.js(6.1.0-beta.285)\n200 wezterm\n'
+    ;;
+esac
+MOCK
+chmod +x "$vscode_multi_client_mock/tmux"
+
+result=$(TMUX="/tmp/tmux-test,1,0" TMUX_PANE="%1" \
+  TMUX_MOCK_LOG="$vscode_multi_client_mock/tmux.log" \
+  PATH="$vscode_multi_client_mock:$PATH" _nvim_lua '
+  package.loaded["config.wezterm-vars"] = {
+    set = function(name, value)
+      print(name .. ":" .. value:match("^[^:]+"))
+    end,
+  }
+  dofile(vim.fn.expand("~/.config/nvim/lua/config/keymaps.lua"))
+  for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
+    vim.bo[bufnr].buflisted = bufnr == vim.api.nvim_get_current_buf()
+  end
+  vim.fn.maparg("<C-Tab>", "n", false, true).callback()
+')
+_assert_eq "buffer cycling: Ctrl-Tab picks the most-recently-active client when both VS Code and WezTerm are attached" \
+  "DOT_SWITCH_TAB:next" "$result"
+
+move_tmux_edge_mock=$(_tmpdir)
+cat >"$move_tmux_edge_mock/tmux" <<'MOCK'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$TMUX_MOCK_LOG"
+if [[ "$1" == "display-message" ]]; then
+  printf '%s\n' "${TMUX_TEST_WINDOW_POSITION:-1 3 1}"
+fi
+MOCK
+chmod +x "$move_tmux_edge_mock/tmux"
+
+left_edge_result=$(TMUX="/tmp/tmux-test,1,0" TMUX_PANE="%1" TMUX_TEST_WINDOW_POSITION="1 3 1" TMUX_MOCK_LOG="$move_tmux_edge_mock/left.log" PATH="$move_tmux_edge_mock:$PATH" _nvim_lua '
+  package.loaded["config.wezterm-vars"] = {
+    set = function(name, value)
+      print("wezterm:" .. name .. ":" .. value)
+    end,
+  }
+  dofile(vim.fn.expand("~/.config/nvim/lua/config/keymaps.lua"))
+  for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
+    vim.bo[bufnr].buflisted = bufnr == vim.api.nvim_get_current_buf()
+  end
+  vim.fn.maparg("<M-{>", "n", false, true).callback()
+  print(table.concat(vim.fn.readfile(vim.env.TMUX_MOCK_LOG), "|"))
+')
+right_edge_result=$(TMUX="/tmp/tmux-test,1,0" TMUX_PANE="%1" TMUX_TEST_WINDOW_POSITION="3 3 1" TMUX_MOCK_LOG="$move_tmux_edge_mock/right.log" PATH="$move_tmux_edge_mock:$PATH" _nvim_lua '
+  package.loaded["config.wezterm-vars"] = {
+    set = function(name, value)
+      print("wezterm:" .. name .. ":" .. value)
+    end,
+  }
+  dofile(vim.fn.expand("~/.config/nvim/lua/config/keymaps.lua"))
+  for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
+    vim.bo[bufnr].buflisted = bufnr == vim.api.nvim_get_current_buf()
+  end
+  vim.fn.maparg("<M-}>", "n", false, true).callback()
+  print(table.concat(vim.fn.readfile(vim.env.TMUX_MOCK_LOG), "|"))
+')
+expected="$(printf 'display-message -p #{window_index} #{session_windows} #{base-index}\ndisplay-message -p #{window_index} #{session_windows} #{base-index}')"
+_assert_eq "buffer moving: Alt-Shift-brackets stop at tmux edges instead of bubbling" \
+  "$expected" "$(printf '%s\n%s' "$left_edge_result" "$right_edge_result")"
+
+result=$(_nvim_lua '
+  package.loaded["inc_rename"] = {
+    config = { cmd_name = "IncRename" },
+  }
+  package.loaded["telescope.builtin"] = {
+    lsp_definitions = function(opts)
+      print("telescope_definition:" .. tostring(opts.reuse_win))
+    end,
+    lsp_references = function()
+      print("telescope_references")
+    end,
+  }
+  vim.api.nvim_feedkeys = function(keys)
+    print("feedkeys:" .. keys)
+  end
+  vim.lsp.buf.rename = function()
+    print("rename")
+  end
+  vim.lsp.buf.definition = function()
+    print("definition")
+  end
+  vim.lsp.buf.references = function()
+    print("references")
+  end
+  vim.lsp.buf.code_action = function()
+    print("code_action")
+  end
+
+  dofile(vim.fn.expand("~/.config/nvim/lua/config/keymaps/vscode.lua"))
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, { "renameTarget" })
+  vim.api.nvim_win_set_cursor(0, { 1, 0 })
+
+  local aliases = { "<F2>", "<F12>", "<S-F12>", "<C-.>" }
+
+  for _, lhs in ipairs(aliases) do
+    for _, mode in ipairs({ "n", "i", "x", "s" }) do
+      local info = vim.fn.maparg(lhs, mode, false, true)
+      if type(info.callback) ~= "function" then
+        print("missing:" .. lhs .. ":" .. mode)
+        return
+      end
+      info.callback()
+    end
+  end
+')
+expected="$(printf 'feedkeys::IncRename renameTarget\nfeedkeys::IncRename renameTarget\nfeedkeys::IncRename renameTarget\nfeedkeys::IncRename renameTarget\ntelescope_definition:true\ntelescope_definition:true\ntelescope_definition:true\ntelescope_definition:true\ntelescope_references\ntelescope_references\ntelescope_references\ntelescope_references\ncode_action\ncode_action\ncode_action\ncode_action')"
+_assert_eq "lsp aliases: VSCode keys preserve configured picker and rename UX" "$expected" "$result"
+
+result=$(_nvim_lua '
+  package.loaded["inc_rename"] = {
+    config = { cmd_name = "IncRename" },
+  }
+  vim.api.nvim_feedkeys = function(keys, mode)
+    keys = keys:gsub("\27", "<Esc>")
+    print("feedkeys:" .. keys .. ":" .. tostring(mode))
+  end
+
+  dofile(vim.fn.expand("~/.config/nvim/lua/config/keymaps/vscode.lua"))
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, { "renameTarget" })
+  vim.api.nvim_win_set_cursor(0, { 1, 0 })
+  vim.fn.mode = function()
+    return "v"
+  end
+
+  vim.fn.maparg("<F2>", "x", false, true).callback()
+')
+expected="$(printf 'feedkeys:<Esc>:x\nfeedkeys::IncRename renameTarget:n')"
+_assert_eq "lsp aliases: visual rename clears selection before inc-rename prompt" "$expected" "$result"
+
+result=$(_nvim_lua '
+  vim.lsp.buf.rename = function()
+    print("rename")
+  end
+  vim.lsp.buf.definition = function()
+    print("definition")
+  end
+  vim.lsp.buf.references = function()
+    print("references")
+  end
+
+  dofile(vim.fn.expand("~/.config/nvim/lua/config/keymaps/vscode.lua"))
+  vim.fn.maparg("<F2>", "n", false, true).callback()
+  vim.fn.maparg("<F12>", "n", false, true).callback()
+  vim.fn.maparg("<S-F12>", "n", false, true).callback()
+')
+expected="$(printf 'rename\ndefinition\nreferences')"
+_assert_eq "lsp aliases: VSCode keys fall back to builtin lsp actions" "$expected" "$result"
+
+# ---------------------------------------------------------------------------
+# Tests: editor plugin keymaps
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== editor plugins ==="
+
+result=$(rg -n "vim\\.keymap\\.set" "$HOME/.config/nvim/lua/plugins" || true)
+_assert_eq "keymaps: plugin specs avoid raw keymap setters" "" "$result"
+
+EDITOR_PLUGIN_TMP=$(_tmpdir)
+mkdir -p "$EDITOR_PLUGIN_TMP/project"
+touch "$EDITOR_PLUGIN_TMP/project/file with spaces.lua"
+
+result=$(_nvim_lua "
+  package.loaded['diffview.actions'] = {
+    cycle_layout = function() end,
+  }
+  local specs = dofile(vim.fn.expand('~/.config/nvim/lua/plugins/git.lua'))
+  local diffview
+  for _, spec in ipairs(specs) do
+    if spec[1] == 'sindrets/diffview.nvim' then
+      diffview = spec
+      break
+    end
+  end
+  if not diffview then
+    print('missing')
+    return
+  end
+
+  local key_desc = {}
+  local key_rhs = {}
+  for _, key in ipairs(diffview.keys) do
+    key_desc[key[1]] = key.desc
+    key_rhs[key[1]] = key[2]
+  end
+
+  print('cmd=' .. table.concat(diffview.cmd, ','))
+  print('dv=' .. tostring(key_desc['<leader>dv']))
+  print('df=' .. tostring(key_desc['<leader>df']))
+  print('dr=' .. tostring(key_desc['<leader>dr']))
+  print('dh=' .. tostring(key_desc['<leader>dh']))
+  print('dc=' .. tostring(key_desc['<leader>dc']))
+
+  local opts = diffview.opts()
+  local layout = opts.view and opts.view.default and opts.view.default.layout or 'missing'
+  print('layout=' .. layout)
+
+  local function map_info(context, lhs)
+    for _, key in ipairs(opts.keymaps[context]) do
+      if key[2] == lhs then
+        local rhs = type(key[3]) == 'function' and 'function' or tostring(key[3])
+        return rhs .. '|' .. key[4].desc
+      end
+    end
+    return 'missing'
+  end
+
+  print('view-cx=' .. map_info('view', '<C-x>'))
+  print('view-dx=' .. map_info('view', '<leader>dx'))
+  print('view-cu=' .. map_info('view', '<C-Up>'))
+  print('view-cd=' .. map_info('view', '<C-Down>'))
+  print('files-cx=' .. map_info('file_panel', '<C-x>'))
+  print('history-cx=' .. map_info('file_history_panel', '<C-x>'))
+
+  vim.api.nvim_command('edit ' .. vim.fn.fnameescape('$EDITOR_PLUGIN_TMP/project/file with spaces.lua'))
+  vim.cmd = function(command)
+    print('run=' .. command)
+  end
+  key_rhs['<leader>df']()
+")
+expected="$(printf 'cmd=DiffviewOpen,DiffviewFileHistory,DiffviewClose,DiffviewRefresh\ndv=Diff changes\ndf=Diff current file\ndr=Refresh diff view\ndh=File history\ndc=Close diff view\nlayout=diff2_vertical\nview-cx=function|Cycle diff layout\nview-dx=function|Cycle diff layout\nview-cu=[c|Previous diff hunk\nview-cd=]c|Next diff hunk\nfiles-cx=function|Cycle diff layout\nhistory-cx=function|Cycle diff layout\nrun=DiffviewOpen -- %s/project/file\\ with\\ spaces.lua' "$EDITOR_PLUGIN_TMP")"
+_assert_eq "diffview: exposes diff workflow keymaps" "$expected" "$result"
+
+result=$(_nvim_lua '
+  local specs = dofile(vim.fn.expand("~/.config/nvim/lua/plugins/workspace.lua"))
+  local workspace_spec
+  for _, spec in ipairs(specs) do
+    if spec[1] == "cgraf78/nvim-workspace" then
+      workspace_spec = spec
+      break
+    end
+  end
+  if not workspace_spec then
+    print("missing")
+    return
+  end
+  local opts = workspace_spec.opts()
+  print(type(opts.large_root_detector))
+  print(opts.shell.shell_glob)
+  print(table.concat(opts.shell.home_files, ","))
+  print(table.concat(opts.shell.home_globs, ","))
+  print(tostring(opts.shell.overlay.enabled))
+  print(opts.session.save_debounce_ms)
+  print(opts.navigation.shell_module)
+')
+expected="$(printf 'function\n*@(.sh|.inc|.bash|.zsh|.command)\n.bashrc,.bash_profile,.profile,.zshenv,.zprofile,.zshrc\n.local/share/cgraf78/*/bin/*\ntrue\n500\nnvim_workspace.shell')"
+_assert_eq "nvim-workspace: plugin spec owns dotfiles session/shell/navigation policy" \
+  "$expected" "$result"
+
+result=$(_nvim_lua '
+  local setup_opts
+  package.loaded["nvim_workspace"] = {
+    setup = function(opts)
+      setup_opts = opts
+    end,
+  }
+  local specs = dofile(vim.fn.expand("~/.config/nvim/lua/plugins/workspace.lua"))
+  for _, spec in ipairs(specs) do
+    if spec[1] == "cgraf78/nvim-workspace" then
+      spec.config(nil, { marker = true })
+      print(tostring(setup_opts.marker))
+      return
+    end
+  end
+  print("missing")
+')
+_assert_eq "nvim-workspace: plugin config calls public setup" "true" "$result"
+
+result=$(_nvim_lua '
+  package.loaded["nvim_workspace"] = {
+    files = function(opts)
+      print("files=" .. tostring(opts and opts.root or "nil"))
+    end,
+    grep = function(opts)
+      print("grep=" .. tostring(opts and opts.root or "nil"))
+    end,
+  }
+  local specs = dofile(vim.fn.expand("~/.config/nvim/lua/plugins/workspace.lua"))
+  for _, spec in ipairs(specs) do
+    if spec[1] == "nvim-telescope/telescope.nvim" then
+      spec.init()
+      local has_ctrl_f = false
+      for _, key in ipairs(spec.keys) do
+        if key[1] == "<C-f>" then
+          has_ctrl_f = true
+        end
+        if key[1] == "<C-p>" then
+          key[2]()
+        elseif key[1] == "<C-S-f>" then
+          key[2]()
+        end
+      end
+      vim.cmd("FindFilesIn /tmp/example")
+      vim.cmd("FileSearchIn /tmp/example")
+      print("ctrl-f=" .. tostring(has_ctrl_f))
+      return
+    end
+  end
+  print("missing")
+')
+expected="$(printf 'files=nil\ngrep=nil\nfiles=/tmp/example\ngrep=/tmp/example\nctrl-f=false')"
+_assert_eq "nvim-workspace: telescope keys and scoped commands use public pickers" \
+  "$expected" "$result"
+
+result=$(_nvim_lua '
+  package.loaded["nvim_workspace.neo_tree"] = {
+    setup_manager_patch = function() end,
+    filesystem_policy = function()
+      return {
+        enable_git_status = true,
+        filtered_items = { hide_dotfiles = true },
+      }
+    end,
+    filesystem_mappings = function()
+      return { ["<C-r>"] = "home" }
+    end,
+    open = function(root, opts)
+      print("open=" .. tostring(root) .. ":" .. tostring(opts and opts.toggle) .. ":" .. tostring(opts and opts.action))
+    end,
+    context_root = function()
+      return "/workspace/root"
+    end,
+  }
+  local specs = dofile(vim.fn.expand("~/.config/nvim/lua/plugins/workspace.lua"))
+  for _, spec in ipairs(specs) do
+    if spec[1] == "nvim-neo-tree/neo-tree.nvim" then
+      local opts = spec.opts()
+      print(tostring(opts.filesystem.use_libuv_file_watcher))
+      print(tostring(opts.filesystem.window.mappings["<C-r>"]))
+      spec.keys[1][2]()
+      spec.keys[2][2]()
+      return
+    end
+  end
+  print("missing")
+')
+expected="$(printf 'false\nhome\nopen=nil:true:nil\nopen=/workspace/root:nil:focus')"
+_assert_eq "nvim-workspace: neo-tree integration uses extracted helper" \
+  "$expected" "$result"
+
+LAZYGIT_BIN_TMP=$(_tmpdir)
+printf '%s\n' '#!/usr/bin/env sh' 'exit 0' >"$LAZYGIT_BIN_TMP/lazygit"
+chmod +x "$LAZYGIT_BIN_TMP/lazygit"
+result=$(PATH="$LAZYGIT_BIN_TMP:$PATH" _nvim_lua '
+  vim.g.mapleader = " "
+  package.loaded["nvim_workspace.lazygit"] = {
+    opts = function()
+      return { cwd = "/workspace/root" }
+    end,
+  }
+  package.loaded["snacks.lazygit"] = {
+    open = function(opts)
+      vim.g.dot_lazygit_opened = opts.cwd
+    end,
+  }
+  local specs = dofile(vim.fn.expand("~/.config/nvim/lua/plugins/workspace.lua"))
+  for _, spec in ipairs(specs) do
+    if spec[1] == "cgraf78/nvim-workspace" then
+      spec.init()
+      break
+    end
+  end
+  vim.keymap.set("n", "<leader>gg", function()
+    vim.g.dot_lazygit_opened = "default"
+  end, { desc = "Default Lazygit" })
+  vim.api.nvim_exec_autocmds("User", { pattern = "VeryLazy" })
+  vim.wait(100, function()
+    return false
+  end)
+  local info = vim.fn.maparg("<leader>gg", "n", false, true)
+  if type(info.callback) == "function" then
+    info.callback()
+  end
+  print(vim.g.dot_lazygit_opened or "no")
+')
+_assert_eq "nvim-workspace: leader-gg passes workspace opts to Snacks lazygit" \
+  "/workspace/root" "$result"
+
+# ---------------------------------------------------------------------------
+# Tests: command-palette sort and add_keymaps
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== command-palette: sort_entries ==="
+
+# Sort by type rank: key < telescope < cmd
+result=$(_nvim_lua '
+  local cp = dofile(vim.fn.expand("~/.config/nvim/lua/config/command-palette.lua"))
+  local entries = {
+    {key = ":Foo", desc = "foo", type = "cmd"},
+    {key = "Telescope", desc = "bar", type = "telescope"},
+    {key = "<C-p>", desc = "find", type = "key"},
+  }
+  cp.sort_entries(entries)
+  for _, e in ipairs(entries) do
+    print(e.type .. ":" .. e.key)
+  end
+')
+expected="$(printf 'key:<C-p>\ntelescope:Telescope\ncmd::Foo')"
+_assert_eq "sort: type rank order" "$expected" "$result"
+
+# Same type sorts by key
+result=$(_nvim_lua '
+  local cp = dofile(vim.fn.expand("~/.config/nvim/lua/config/command-palette.lua"))
+  local entries = {
+    {key = "<C-z>", desc = "undo", type = "key"},
+    {key = "<C-a>", desc = "all", type = "key"},
+    {key = "<C-f>", desc = "find", type = "key"},
+  }
+  cp.sort_entries(entries)
+  local keys = {}
+  for _, e in ipairs(entries) do keys[#keys+1] = e.key end
+  print(table.concat(keys, ","))
+')
+_assert_eq "sort: same type by key" "<C-a>,<C-f>,<C-z>" "$result"
+
+# Same key sorts by desc
+result=$(_nvim_lua '
+  local cp = dofile(vim.fn.expand("~/.config/nvim/lua/config/command-palette.lua"))
+  local entries = {
+    {key = "<C-p>", desc = "zebra", type = "key"},
+    {key = "<C-p>", desc = "alpha", type = "key"},
+  }
+  cp.sort_entries(entries)
+  print(entries[1].desc .. "," .. entries[2].desc)
+')
+_assert_eq "sort: same key by desc" "alpha,zebra" "$result"
+
+# Unknown type sorts last
+result=$(_nvim_lua '
+  local cp = dofile(vim.fn.expand("~/.config/nvim/lua/config/command-palette.lua"))
+  local entries = {
+    {key = "x", desc = "unknown", type = "custom"},
+    {key = "<C-p>", desc = "key", type = "key"},
+  }
+  cp.sort_entries(entries)
+  print(entries[1].type .. "," .. entries[2].type)
+')
+_assert_eq "sort: unknown type last" "key,custom" "$result"
+
+echo ""
+echo "=== command-palette: add_keymaps ==="
+
+# Adds keymaps with dedup
+result=$(_nvim_lua '
+  local cp = dofile(vim.fn.expand("~/.config/nvim/lua/config/command-palette.lua"))
+  local entries = {}
+  local seen = {}
+  local keymaps = {
+    {lhs = " ff", desc = "Find files"},
+    {lhs = " fg", desc = "Live grep"},
+    {lhs = " ff", desc = "Find files dup"},
+  }
+  cp.add_keymaps(entries, seen, keymaps, nil)
+  print(#entries)
+  print(entries[1].key)
+  print(entries[1].desc)
+')
+expected="$(printf '2\n<Space>ff\nFind files')"
+_assert_eq "add_keymaps: dedup and space replace" "$expected" "$result"
+
+# Suffix appended
+result=$(_nvim_lua '
+  local cp = dofile(vim.fn.expand("~/.config/nvim/lua/config/command-palette.lua"))
+  local entries = {}
+  local seen = {}
+  cp.add_keymaps(entries, seen, {{lhs = "gd", desc = "Go to def"}}, " [buf]")
+  print(entries[1].desc)
+')
+_assert_eq "add_keymaps: suffix appended" "Go to def [buf]" "$result"
+
+# Skips keymaps without desc
+result=$(_nvim_lua '
+  local cp = dofile(vim.fn.expand("~/.config/nvim/lua/config/command-palette.lua"))
+  local entries = {}
+  local seen = {}
+  cp.add_keymaps(entries, seen, {
+    {lhs = "x", desc = ""},
+    {lhs = "y"},
+    {lhs = "z", desc = "valid"},
+  }, nil)
+  print(#entries)
+')
+_assert_eq "add_keymaps: skips empty/missing desc" "1" "$result"
+
+# Entry fields are set correctly
+result=$(_nvim_lua '
+  local cp = dofile(vim.fn.expand("~/.config/nvim/lua/config/command-palette.lua"))
+  local entries = {}
+  local seen = {}
+  cp.add_keymaps(entries, seen, {{lhs = "gd", desc = "Go to def"}}, nil)
+  local e = entries[1]
+  print(e.type)
+  print(e.lhs)
+  print(e.key)
+')
+expected="$(printf 'key\ngd\ngd')"
+_assert_eq "add_keymaps: sets type, lhs, key fields" "$expected" "$result"
+
+# Cross-call dedup: buf keymaps block same lhs from globals (how build_entries uses it)
+result=$(_nvim_lua '
+  local cp = dofile(vim.fn.expand("~/.config/nvim/lua/config/command-palette.lua"))
+  local entries = {}
+  local seen = {}
+  cp.add_keymaps(entries, seen, {{lhs = "gd", desc = "Go to def"}}, " [buf]")
+  cp.add_keymaps(entries, seen, {{lhs = "gd", desc = "Go to def"}, {lhs = "gr", desc = "References"}}, nil)
+  print(#entries)
+  print(entries[1].desc)
+  print(entries[2].desc)
+')
+expected="$(printf '2\nGo to def [buf]\nReferences')"
+_assert_eq "add_keymaps: cross-call dedup via shared seen" "$expected" "$result"
+
+# ---------------------------------------------------------------------------
+# Tests: sley hook integration
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== format/lint wrappers ==="
+
+result=$(_nvim_lua '
+  local policy = require("config.language-policy")
+  local formatting = dofile(vim.fn.expand("~/.config/nvim/lua/plugins/formatting.lua"))
+  local linting = dofile(vim.fn.expand("~/.config/nvim/lua/plugins/linting.lua"))
+
+  local function same_map(name, actual, expected)
+    for ft, tools in pairs(expected) do
+      if not (actual[ft] and actual[ft][1] == tools[1]) then
+        print(name .. ":missing:" .. ft)
+        return false
+      end
+    end
+    for ft in pairs(actual) do
+      if expected[ft] == nil then
+        print(name .. ":extra:" .. ft)
+        return false
+      end
+    end
+    return true
+  end
+
+  if not same_map(
+    "format",
+    formatting[1].opts.formatters_by_ft,
+    policy.sley_formatters_by_ft()
+  ) then
+    return
+  end
+  if not same_map(
+    "lint",
+    linting[1].opts.linters_by_ft,
+    policy.sley_linters_by_ft()
+  ) then
+    return
+  end
+  print("ok")
+')
+_assert_eq "sley hook policy: nvim shares format and lint filetypes" "ok" "$result"
+
+result=$(_nvim_lua '
+  local policy = require("config.language-policy")
+  local capabilities = policy.checkrun_capabilities()
+
+  local function list_eq(actual, expected)
+    if #actual ~= #expected then
+      return false
+    end
+    for i, value in ipairs(actual) do
+      if value ~= expected[i] then
+        return false
+      end
+    end
+    return true
+  end
+
+  if not list_eq(policy.sley_format_filetypes(), capabilities.filetypes.format) then
+    print("format-drift")
+    return
+  end
+
+  local lint = policy.sley_lint_filetypes()
+  local expected_lint = vim.deepcopy(capabilities.filetypes.lint)
+  table.sort(expected_lint)
+  if not list_eq(lint, expected_lint) then
+    print("lint-drift")
+    return
+  end
+
+  if capabilities.filetypes.custom.filename.Dockerfile ~= "dockerfile" then
+    print("missing-checkrun-custom-filename")
+    return
+  end
+
+  print("ok")
+')
+_assert_eq "sley hook policy: nvim reads checkrun capability metadata" "ok" "$result"
+
+CHECKRUN_CAP_BIN=$(_tmpdir)
+cat >"$CHECKRUN_CAP_BIN/checkrun" <<'EOF'
+#!/usr/bin/env bash
+if [[ "$1" == "capabilities" && "$2" == "--json" ]]; then
+  cat <<'JSON'
+{
+  "version": 2,
+  "filetypes": {
+    "format": ["mockfmt"],
+    "lint": ["mocklint"],
+    "custom": {
+      "filename": { "Mockfile": "mockfmt" },
+      "extension": {},
+      "patterns": []
+    }
+  },
+  "selectors": []
+}
+JSON
+  exit 0
+fi
+exit 2
+EOF
+chmod +x "$CHECKRUN_CAP_BIN/checkrun"
+
+result=$(PATH="$CHECKRUN_CAP_BIN:$PATH" _nvim_lua '
+  local real_shdeps = require("config.dot-runtime").shdeps()
+  local checkrun_nvim = real_shdeps.dep_file("cgraf78/checkrun", "lib/checkrun/nvim.lua")
+
+  package.loaded["config.dot-runtime"] = {
+    shdeps = function()
+      return {
+        dep_file = function(_, rel)
+          if rel == "lib/checkrun/nvim.lua" then
+            return checkrun_nvim
+          end
+          return nil
+        end,
+        env = function()
+          return {}
+        end,
+      }
+    end,
+  }
+
+  local policy = require("config.language-policy")
+  local capabilities = policy.checkrun_capabilities()
+  if capabilities.filetypes.format[1] ~= "mockfmt" then
+    print("missing-cli-format")
+    return
+  end
+  if capabilities.filetypes.lint[1] ~= "mocklint" then
+    print("missing-cli-lint")
+    return
+  end
+  if capabilities.filetypes.custom.filename.Mockfile ~= "mockfmt" then
+    print("missing-cli-filetype")
+    return
+  end
+  print("ok")
+')
+_assert_eq "sley hook policy: falls back to checkrun capabilities CLI" "ok" "$result"
+
+result=$(_nvim_lua '
+  local specs = dofile(vim.fn.expand("~/.config/nvim/lua/plugins/formatting.lua"))
+  local by_ft = specs[1].opts.formatters_by_ft
+  local required = {
+    "bash", "bzl", "c", "cmake", "cpp", "css", "dockerfile", "go", "html",
+    "java", "javascript", "javascriptreact", "json", "jsonc", "lua",
+    "markdown", "php", "python", "ruby", "rust", "sh", "starlark", "toml",
+    "typescript", "typescriptreact", "yaml", "zsh",
+  }
+  for _, ft in ipairs(required) do
+    if not (by_ft[ft] and by_ft[ft][1] == "sley") then
+      print("missing:" .. ft)
+      return
+    end
+  end
+  print("ok")
+')
+_assert_eq "sley hook format: nvim maps supported format filetypes" "ok" "$result"
+
+result=$(_nvim_lua '
+  local specs = dofile(vim.fn.expand("~/.config/nvim/lua/plugins/formatting.lua"))
+  local formatter = specs[1].opts.formatters.sley
+  if formatter.command ~= "sley" then
+    print("bad-command:" .. tostring(formatter.command))
+    return
+  end
+  if table.concat(formatter.args, " ") ~= ("hook format-file " .. "$" .. "FILENAME") then
+    print("bad-args:" .. table.concat(formatter.args, " "))
+    return
+  end
+  print("ok")
+')
+_assert_eq "sley hook format: nvim command uses hook CLI" "ok" "$result"
+
+result=$(_nvim_lua '
+  local specs = dofile(vim.fn.expand("~/.config/nvim/lua/plugins/linting.lua"))
+  local by_ft = specs[1].opts.linters_by_ft
+  local required = {
+    "bash", "bzl", "cmake", "css", "dockerfile", "editorconfig", "go",
+    "crontab", "gitconfig", "html", "java", "javascript", "javascriptreact",
+    "json", "jsonc", "lua", "make", "markdown", "php", "python", "ruby",
+    "rust", "sh", "starlark", "systemd", "text", "tmux", "toml", "typescript",
+    "typescriptreact", "yaml", "zsh",
+  }
+  for _, ft in ipairs(required) do
+    if not (by_ft[ft] and by_ft[ft][1] == "sley") then
+      print("missing:" .. ft)
+      return
+    end
+  end
+  print("ok")
+')
+_assert_eq "sley hook lint: nvim maps supported lint filetypes" "ok" "$result"
+
+result=$(_nvim_lua '
+  local specs = dofile(vim.fn.expand("~/.config/nvim/lua/plugins/linting.lua"))
+  local linter = specs[1].opts.linters.sley
+  if linter.cmd ~= "sley" then
+    print("bad-command:" .. tostring(linter.cmd))
+    return
+  end
+  if table.concat(linter.args, " ") ~= "hook lint-file --json" then
+    print("bad-args:" .. table.concat(linter.args, " "))
+    return
+  end
+  if linter.append_fname ~= true then
+    print("missing-append-fname")
+    return
+  end
+  print("ok")
+')
+_assert_eq "sley hook lint: nvim command uses hook CLI" "ok" "$result"
+
+result=$(_nvim_lua '
+  local policy = require("config.language-policy")
+  local expected = {
+    "bash", "c", "cmake", "cpp", "css", "dockerfile", "go", "html",
+    "javascript", "json", "lua", "markdown", "markdown_inline", "python",
+    "rust", "thrift", "toml", "tsx", "typescript", "yaml",
+  }
+  local seen = {}
+  for _, parser in ipairs(policy.critical_treesitter_parsers()) do
+    if seen[parser] then
+      print("duplicate:" .. parser)
+      return
+    end
+    seen[parser] = true
+  end
+  for _, parser in ipairs(expected) do
+    if not seen[parser] then
+      print("missing:" .. parser)
+      return
+    end
+  end
+  print("ok")
+')
+_assert_eq "treesitter: nvim declares critical language parsers" "ok" "$result"
+
+result=$(_nvim_lua '
+  local policy = require("config.language-policy")
+  local specs = dofile(vim.fn.expand("~/.config/nvim/lua/plugins/coding.lua"))
+  for _, spec in ipairs(specs) do
+    if spec[1] == "nvim-treesitter/nvim-treesitter" then
+      local installed = spec.opts and spec.opts.ensure_installed or {}
+      for _, parser in ipairs(policy.critical_treesitter_parsers()) do
+        if not vim.tbl_contains(installed, parser) then
+          print("missing:" .. parser)
+          return
+        end
+      end
+      print("ok")
+      return
+    end
+  end
+  print("missing-spec")
+')
+_assert_eq "treesitter: nvim ensures critical language parsers" "ok" "$result"
+
+result=$(_nvim_lua '
+  local specs = dofile(vim.fn.expand("~/.config/nvim/lua/plugins/coding.lua"))
+  local servers
+  for _, spec in ipairs(specs) do
+    if spec[1] == "neovim/nvim-lspconfig" then
+      servers = spec.opts.servers
+      break
+    end
+  end
+  if not servers then
+    print("missing-lsp-spec")
+    return
+  end
+  local jsonls = servers.jsonls
+  local schemas = jsonls
+    and jsonls.settings
+    and jsonls.settings.json
+    and jsonls.settings.json.schemas
+  if type(schemas) ~= "table" then
+    print("missing-schemas")
+    return
+  end
+  for _, schema in ipairs(schemas) do
+    if schema.name == "Sley verify registry" then
+      if tostring(schema.url):find("$" .. "HOME", 1, true) then
+        print("unexpanded-url:" .. tostring(schema.url))
+        return
+      end
+      if tostring(schema.url):find("shdeps:", 1, true) then
+        print("unresolved-url:" .. tostring(schema.url))
+        return
+      end
+      if not tostring(schema.url):match("/share/sley/schemas/verify%.schema%.json$") then
+        print("bad-url:" .. tostring(schema.url))
+        return
+      end
+      local required = {
+        [".config/sley/verify.json"] = false,
+        [".config/sley/verify.d/*.json"] = false,
+        [vim.fn.expand("~") .. "/.config/sley/verify.json"] = false,
+        [vim.fn.expand("~") .. "/.config/sley/verify.d/*.json"] = false,
+        [".sley/verify.json"] = false,
+        [".sley/verify.d/*.json"] = false,
+        ["**/.sley/verify.json"] = false,
+        ["**/.sley/verify.d/*.json"] = false,
+      }
+      for _, pattern in ipairs(schema.fileMatch or {}) do
+        if required[pattern] ~= nil then
+          required[pattern] = true
+        end
+      end
+      for pattern, seen in pairs(required) do
+        if not seen then
+          print("missing-pattern:" .. pattern)
+          return
+        end
+      end
+      print("ok")
+      return
+    end
+  end
+  print("missing-sley-schema")
+')
+_assert_eq "sley verify schema: nvim associates registry files with jsonls schema" "ok" "$result"
+
+python3_bin=$(command -v python3 2>/dev/null || true)
+python3_dir=${python3_bin%/*}
+minimal_child_path="$python3_dir:/usr/bin:/bin:/usr/sbin:/sbin"
+result=$(DOT_TEST_MINIMAL_CHILD_PATH="$minimal_child_path" _nvim_lua '
+  local minimal_path = vim.env.DOT_TEST_MINIMAL_CHILD_PATH
+  if not minimal_path or minimal_path == "" then
+    print("missing-python3")
+    return
+  end
+
+  -- Reproduce CI environments where nvim itself can resolve dotfiles assets
+  -- through the absolute shdeps binary, but child Python processes do not have
+  -- ~/.local/bin on PATH. Keep the system path segments because shdeps still
+  -- needs normal shell utilities; the bug was missing dotfiles tools, not a
+  -- completely empty process environment.
+  vim.env.PATH = minimal_path
+  package.loaded["plugins.coding"] = nil
+  package.loaded["config.dot-runtime"] = nil
+  local specs = dofile(vim.fn.expand("~/.config/nvim/lua/plugins/coding.lua"))
+  local servers
+  for _, spec in ipairs(specs) do
+    if spec[1] == "neovim/nvim-lspconfig" then
+      servers = spec.opts.servers
+      break
+    end
+  end
+  for _, schema in ipairs(servers.jsonls.settings.json.schemas or {}) do
+    if schema.name == "Checkrun schema association policy" then
+      if tostring(schema.url):find("shdeps:", 1, true) then
+        print("unresolved-policy-url:" .. tostring(schema.url))
+        return
+      end
+      print("ok")
+      return
+    end
+  end
+  print("missing-policy-schema")
+')
+_assert_eq "public schemas: nvim resolves shdeps schemas when child PATH is minimal" "ok" "$result"
+
+result=$(_nvim_lua '
+  local specs = dofile(vim.fn.expand("~/.config/nvim/lua/plugins/coding.lua"))
+  local servers
+  for _, spec in ipairs(specs) do
+    if spec[1] == "neovim/nvim-lspconfig" then
+      servers = spec.opts.servers
+      break
+    end
+  end
+  if not servers then
+    print("missing-lsp-spec")
+    return
+  end
+  local json_schemas = servers.jsonls.settings.json.schemas
+  local yaml_schemas = servers.yamlls.settings.yaml.schemas
+  local toml_associations = servers.taplo.settings.evenBetterToml.schema.associations
+
+  local function has(list, value)
+    for _, item in ipairs(list or {}) do
+      if item == value then
+        return true
+      end
+    end
+    return false
+  end
+
+  local function json_schema(name)
+    for _, schema in ipairs(json_schemas or {}) do
+      if schema.name == name then
+        return schema
+      end
+    end
+    return nil
+  end
+
+  local policy = json_schema("Checkrun schema association policy")
+  if not policy then
+    print("missing-policy-schema")
+    return
+  end
+  if tostring(policy.url):find("shdeps:", 1, true) then
+    print("unresolved-policy-url:" .. tostring(policy.url))
+    return
+  end
+  if not tostring(policy.url):match("file://.*/share/checkrun/schemas/associations%.schema%.json$") then
+    print("bad-policy-url:" .. tostring(policy.url))
+    return
+  end
+  if not has(policy.fileMatch, ".config/checkrun/associations.json") then
+    print("missing-policy-relative")
+    return
+  end
+  if not has(policy.fileMatch, "**/.config/checkrun/associations.json") then
+    print("missing-policy-recursive")
+    return
+  end
+
+  local claude = json_schema("Claude Code settings layers")
+  if not claude then
+    print("missing-claude")
+    return
+  end
+  if claude.url ~= "https://www.schemastore.org/claude-code-settings.json" then
+    print("bad-claude-url:" .. tostring(claude.url))
+    return
+  end
+  if not has(claude.fileMatch, "**/.config/dot/merge-hooks.d/claude/settings.d/*.json") then
+    print("missing-claude-recursive")
+    return
+  end
+
+  local gemini = json_schema("Gemini CLI settings layers")
+  if not gemini then
+    print("missing-gemini")
+    return
+  end
+  if not has(gemini.fileMatch, vim.fn.expand("~") .. "/.config/dot/merge-hooks.d/gemini/settings.d/*.json") then
+    print("missing-gemini-home")
+    return
+  end
+
+  local golangci = yaml_schemas["https://golangci-lint.run/jsonschema/golangci.v2.jsonschema.json"]
+  if not has(golangci, "**/.config/checkrun/golangci-lint.yaml") then
+    print("missing-golangci-yaml")
+    return
+  end
+
+  local rubocop = yaml_schemas["https://www.rubyschema.org/rubocop.json"]
+  if not has(rubocop, ".config/checkrun/rubocop.yml") then
+    print("missing-rubocop-relative")
+    return
+  end
+
+  local yamlfmt = yaml_schemas["https://raw.githubusercontent.com/google/yamlfmt/main/schema.json"]
+  if not has(yamlfmt, "**/.config/checkrun/yamlfmt.yml") then
+    print("missing-yamlfmt-recursive")
+    return
+  end
+  if not has(yamlfmt, "**/.yamlfmt") then
+    print("missing-yamlfmt-standard")
+    return
+  end
+
+  local codex_config_ok = false
+  local codex_profile_ok = false
+  for pattern, schema in pairs(toml_associations) do
+    if schema == "https://developers.openai.com/codex/config-schema.json" then
+      if pattern:find("codex/config", 1, true) then
+        codex_config_ok = true
+      end
+      if pattern:find("codex/profiles/", 1, true) and pattern:find(".d/", 1, true) then
+        codex_profile_ok = true
+      end
+    end
+  end
+  if not codex_config_ok or not codex_profile_ok then
+    print("missing-codex:" .. tostring(codex_config_ok) .. ":" .. tostring(codex_profile_ok))
+    return
+  end
+
+  print("ok")
+')
+_assert_eq "public schemas: nvim associates dotfile source patterns" "ok" "$result"
+
+result=$(_nvim_lua '
+  local specs = dofile(vim.fn.expand("~/.config/nvim/lua/plugins/coding.lua"))
+  local servers
+  for _, spec in ipairs(specs) do
+    if spec[1] == "neovim/nvim-lspconfig" then
+      servers = spec.opts.servers
+      break
+    end
+  end
+  if not servers then
+    print("missing-lsp-spec")
+    return
+  end
+
+  local function has(list, value)
+    for _, item in ipairs(list or {}) do
+      if item == value then
+        return true
+      end
+    end
+    return false
+  end
+
+  local function has_json_schema(list, name)
+    for _, schema in ipairs(list or {}) do
+      if schema.name == name then
+        return true
+      end
+    end
+    return false
+  end
+
+  local json_config = {
+    settings = vim.deepcopy(servers.jsonls.settings),
+  }
+  vim.list_extend(json_config.settings.json.schemas, {
+    {
+      name = "package.json",
+      url = "https://www.schemastore.org/package.json",
+      fileMatch = { "package.json" },
+    },
+  })
+  if not has_json_schema(json_config.settings.json.schemas, "Sley verify registry") then
+    print("missing-local-json")
+    return
+  end
+  if not has_json_schema(json_config.settings.json.schemas, "package.json") then
+    print("missing-schemastore-json")
+    return
+  end
+
+  local yaml_config = {
+    settings = vim.deepcopy(servers.yamlls.settings),
+  }
+  package.loaded.schemastore = {
+    yaml = {
+      schemas = function()
+        return {
+          ["https://www.rubyschema.org/rubocop.json"] = { "*.rubocop.yml" },
+          ["https://www.schemastore.org/github-workflow.json"] = {
+            "**/.github/workflows/*.yml",
+          },
+        }
+      end,
+    },
+  }
+  servers.yamlls.before_init(nil, yaml_config)
+  local yaml_schemas = yaml_config.settings.yaml.schemas
+  local rubocop = yaml_schemas["https://www.rubyschema.org/rubocop.json"]
+  if not has(rubocop, "*.rubocop.yml") then
+    print("missing-schemastore-rubocop")
+    return
+  end
+  if not has(rubocop, ".config/checkrun/rubocop.yml") then
+    print("missing-local-rubocop")
+    return
+  end
+  local github_actions = yaml_schemas["https://www.schemastore.org/github-workflow.json"]
+  if not has(github_actions, "**/.github/workflows/*.yml") then
+    print("missing-schemastore-yaml")
+    return
+  end
+  local yamlfmt = yaml_schemas["https://raw.githubusercontent.com/google/yamlfmt/main/schema.json"]
+  if not has(yamlfmt, "**/.config/checkrun/yamlfmt.yaml") then
+    print("missing-local-yamlfmt")
+    return
+  end
+
+  print("ok")
+')
+_assert_eq "public schemas: nvim composes dotfile and SchemaStore associations" "ok" "$result"
+
+result=$(_nvim_lua '
+  local specs = dofile(vim.fn.expand("~/.config/nvim/lua/plugins/sley.lua"))
+  specs[1].init()
+  local commands = vim.api.nvim_get_commands({})
+  for _, name in ipairs({ "SleyStatus", "SleyCheck", "SleyReady" }) do
+    if commands[name] == nil then
+      print("missing:" .. name)
+      return
+    end
+  end
+  print("ok")
+')
+_assert_eq "sley: nvim exposes explicit user commands" "ok" "$result"
+
+SLEY_CMD_TMP=$(_tmpdir)
+mkdir -p "$SLEY_CMD_TMP/repo/src"
+result=$(_nvim_lua "
+  local sley_status
+  package.loaded['nvim_workspace'] = {
+    current_file_repo_root = function()
+      print('scope=current-file')
+      return '$SLEY_CMD_TMP/repo'
+    end,
+  }
+  vim.api.nvim_create_user_command = function(name, callback)
+    if name == 'SleyStatus' then
+      sley_status = callback
+    end
+  end
+  vim.cmd = function(cmd)
+    print('cmd=' .. cmd)
+  end
+  vim.fn.jobstart = function(cmd, opts)
+    print('job=' .. table.concat(cmd, ' '))
+    print('cwd=' .. tostring(opts and opts.cwd or nil))
+    print('term=' .. tostring(opts and opts.term or nil))
+    return 1
+  end
+  local specs = dofile(vim.fn.expand('~/.config/nvim/lua/plugins/sley.lua'))
+  specs[1].init()
+  sley_status()
+")
+expected="$(printf 'scope=current-file\ncmd=botright split\njob=sley status\ncwd=%s\nterm=true\ncmd=startinsert' \
+  "$SLEY_CMD_TMP/repo")"
+_assert_eq "sley: explicit commands run in current buffer repo" "$expected" "$result"
+
+result=$(_nvim_lua "
+  local sley_status
+  local started = false
+  package.loaded['nvim_workspace'] = {
+    current_file_repo_root = function()
+      return nil
+    end,
+  }
+  vim.api.nvim_create_user_command = function(name, callback)
+    if name == 'SleyStatus' then
+      sley_status = callback
+    end
+  end
+  vim.cmd = function() end
+  vim.notify = function(message, level)
+    print('notify=' .. message)
+    print('warn=' .. tostring(level == vim.log.levels.WARN))
+  end
+  vim.fn.jobstart = function()
+    started = true
+    return 1
+  end
+  local specs = dofile(vim.fn.expand('~/.config/nvim/lua/plugins/sley.lua'))
+  specs[1].init()
+  sley_status()
+  print('started=' .. tostring(started))
+")
+expected="$(printf 'notify=Sley command needs a valid buffer repo root\nwarn=true\nstarted=false')"
+_assert_eq "sley: explicit commands abort without buffer repo root" "$expected" "$result"
+
+SLEY_NOFILE_TMP=$(_tmpdir)
+mkdir -p "$SLEY_NOFILE_TMP/repo"
+result=$(_nvim_lua "
+  local started = false
+  vim.cmd('cd $SLEY_NOFILE_TMP/repo')
+  vim.cmd('new')
+  vim.bo.buftype = 'nofile'
+  package.loaded['nvim_workspace'] = {
+    current_file_repo_root = function()
+      return nil
+    end,
+  }
+  vim.api.nvim_create_user_command = function(name, callback)
+    if name == 'SleyStatus' then
+      callback()
+    end
+  end
+  vim.cmd = function() end
+  vim.notify = function(message, level)
+    print('notify=' .. message)
+    print('warn=' .. tostring(level == vim.log.levels.WARN))
+  end
+  vim.fn.jobstart = function()
+    started = true
+    return 1
+  end
+  local specs = dofile(vim.fn.expand('~/.config/nvim/lua/plugins/sley.lua'))
+  specs[1].init()
+  print('started=' .. tostring(started))
+")
+expected="$(printf 'notify=Sley command needs a valid buffer repo root\nwarn=true\nstarted=false')"
+_assert_eq "sley: explicit commands abort from nofile buffers" "$expected" "$result"
+
+result=$(_nvim_lua '
+  local specs = dofile(vim.fn.expand("~/.config/nvim/lua/plugins/workspace.lua"))
+  for _, spec in ipairs(specs) do
+    if spec[1] == "nvim-telescope/telescope.nvim" then
+      spec.init()
+      break
+    end
+  end
+  local commands = vim.api.nvim_get_commands({})
+  for _, name in ipairs({ "FindFilesIn", "FileSearchIn" }) do
+    if commands[name] == nil then
+      print("missing:" .. name)
+      return
+    end
+  end
+  print("ok")
+')
+_assert_eq "nvim-workspace: nvim exposes scoped picker commands" "ok" "$result"
+
+result=$(_nvim_lua '
+  package.loaded["config.language-policy"] = {
+    add_filetypes = function()
+      print("filetypes-called")
+    end,
+    critical_treesitter_parsers = function()
+      return {}
+    end,
+  }
+  dofile(vim.fn.expand("~/.config/nvim/lua/plugins/coding.lua"))
+')
+_assert_eq "filetype: nvim delegates custom mappings to language policy" \
+  "filetypes-called" "$result"
+
+result=$(_nvim_lua '
+  dofile(vim.fn.expand("~/.config/nvim/lua/plugins/coding.lua"))
+  local files = {
+    ["BUCK"] = "bzl",
+    ["BUILD"] = "bzl",
+    ["TARGETS"] = "bzl",
+    ["WORKSPACE"] = "bzl",
+    ["MODULE.bazel"] = "bzl",
+    ["Containerfile"] = "dockerfile",
+    ["Containerfile.dev"] = "dockerfile",
+    ["Dockerfile"] = "dockerfile",
+    ["Dockerfile.prod"] = "dockerfile",
+    ["Makefile"] = "make",
+    ["cron"] = "crontab",
+    ["example.cron"] = "crontab",
+    ["example.service"] = "systemd",
+    ["example.timer"] = "systemd",
+    ["example.socket"] = "systemd",
+    ["example.mount"] = "systemd",
+    ["example.automount"] = "systemd",
+    ["example.path"] = "systemd",
+    ["example.target"] = "systemd",
+    ["example.swap"] = "systemd",
+    ["example.scope"] = "systemd",
+    ["example.slice"] = "systemd",
+    ["example.device"] = "systemd",
+    ["agent-hook-pre-bash-work"] = "sh",
+    ["agent-hook-pre-bash-work.py"] = "python",
+    ["envrc-prod"] = "bash",
+    ["envrc-prod.txt"] = "text",
+    [vim.fn.expand("~") .. "/.dotfiles-work/home/.local/bin/agent-hook-pre-bash-work"] = "sh",
+  }
+  for file, expected in pairs(files) do
+    local actual = vim.filetype.match({ filename = file })
+    if actual ~= expected then
+      print(file .. ":" .. tostring(actual))
+      return
+    end
+  end
+  print("ok")
+')
+_assert_eq "filetype: nvim maps wrapper-only basenames/extensions" "ok" "$result"
+
+result=$(_nvim_lua '
+  local specs = dofile(vim.fn.expand("~/.config/nvim/lua/plugins/coding.lua"))
+  local servers
+  for _, spec in ipairs(specs) do
+    if spec[1] == "neovim/nvim-lspconfig" then
+      servers = spec.opts.servers
+      break
+    end
+  end
+  if not servers then
+    print("missing-lsp-spec")
+    return
+  end
+  for _, server in ipairs({ "biome", "cssls" }) do
+    if type(servers[server]) ~= "table" then
+      print("missing:" .. server)
+      return
+    end
+  end
+  print("ok")
+')
+_assert_eq "lsp: nvim enables web language servers" "ok" "$result"
+
+# ---------------------------------------------------------------------------
+# Tests: Mason policy
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== mason-policy ==="
+
+result=$(_nvim_lua '
+  local policy = dofile(vim.fn.expand("~/.config/nvim/lua/config/mason-policy.lua"))
+  local opts = {}
+  policy.apply_mason_opts(opts)
+  print(opts.PATH)
+')
+_assert_eq "mason-policy: mason path appends after managed tools" "append" "$result"
+
+result=$(_nvim_lua '
+  local policy = dofile(vim.fn.expand("~/.config/nvim/lua/config/mason-policy.lua"))
+  local server_packages = policy.lsp_server_packages()
+  print(server_packages.biome)
+  print(server_packages.cssls)
+  print(server_packages.neocmake)
+  print(server_packages.vtsls)
+  local fallback = policy.lsp_fallback_packages()
+  table.sort(fallback)
+  print(vim.tbl_contains(fallback, "biome"))
+  print(vim.tbl_contains(fallback, "css-lsp"))
+  print(vim.tbl_contains(fallback, "neocmakelsp"))
+  print(vim.tbl_contains(fallback, "rust-analyzer"))
+')
+expected="$(printf 'biome\ncss-lsp\nneocmakelsp\nvtsls\ntrue\ntrue\ntrue\ntrue')"
+_assert_eq "mason-policy: exposes lsp server/package drift source" "$expected" "$result"
+
+result=$(_nvim_lua '
+  local policy = dofile(vim.fn.expand("~/.config/nvim/lua/config/mason-policy.lua"))
+  vim.g.mason_disabled = true
+  print(tostring(policy.mason_enabled()))
+  vim.g.mason_disabled = false
+  print(tostring(policy.mason_enabled()))
+')
+expected="$(printf 'false\ntrue')"
+_assert_eq "mason-policy: global flag gates mason plugins" "$expected" "$result"
+
+result=$(_nvim_lua '
+  local specs = dofile(vim.fn.expand("~/.config/nvim/lua/plugins/zz-mason-policy.lua"))
+  for _, spec in ipairs(specs) do
+    if spec[1] == "jay-babu/mason-nvim-dap.nvim" then
+      print(tostring(spec.optional))
+      return
+    end
+  end
+  print("missing")
+')
+_assert_eq "mason-policy: dap policy does not activate dap stack" "true" "$result"
+
+result=$(_nvim_lua '
+  local policy = dofile(vim.fn.expand("~/.config/nvim/lua/config/mason-policy.lua"))
+  vim.g.mason_disabled = true
+  vim.lsp.config("missing_default", { cmd = { "definitely-not-a-real-lsp-binary" } })
+  print(tostring(policy.server_command("missing_default", {})))
+  print(tostring(policy.server_available("missing_default", {})))
+')
+expected="$(printf 'definitely-not-a-real-lsp-binary\nfalse')"
+_assert_eq "mason-policy: disabled mason checks default lsp commands" "$expected" "$result"
+
+result=$(_nvim_lua '
+  local policy = dofile(vim.fn.expand("~/.config/nvim/lua/config/mason-policy.lua"))
+  local original_path = vim.env.PATH
+  vim.env.PATH = "/definitely/not/a/real/path"
+  print(policy.server_command("biome", { cmd = function() end }))
+  print(policy.server_command("cssls", { cmd = function() end }))
+  print(policy.server_command("html", { cmd = function() end }))
+  print(policy.server_command("jsonls", { cmd = function() end }))
+  print(policy.server_command("yamlls", { cmd = function() end }))
+  print(tostring(policy.server_available("cssls", { cmd = function() end })))
+  vim.env.PATH = original_path
+')
+expected="$(printf 'biome\nvscode-css-language-server\nvscode-html-language-server\nvscode-json-language-server\nyaml-language-server\nfalse')"
+_assert_eq "mason-policy: disabled mason checks function-style lsp commands" "$expected" "$result"
+
+result=$(_nvim_lua '
+  local policy = dofile(vim.fn.expand("~/.config/nvim/lua/config/mason-policy.lua"))
+  vim.g.mason_disabled = true
+  local called = false
+  local opts = { setup = {
+    missing = function()
+      called = true
+    end,
+  } }
+  policy.apply_lsp_policy(opts)
+  local skipped = opts.setup.missing("missing", { cmd = { "definitely-not-a-real-lsp-binary" } })
+  print(tostring(skipped))
+  print(tostring(called))
+')
+expected="$(printf 'true\nfalse')"
+_assert_eq "mason-policy: disabled mason skips missing lsp executables" "$expected" "$result"
+
+result=$(_nvim_lua '
+  local policy = dofile(vim.fn.expand("~/.config/nvim/lua/config/mason-policy.lua"))
+  vim.g.mason_disabled = true
+  local called = false
+  local opts = { setup = {
+    available = function()
+      called = true
+      return "previous"
+    end,
+  } }
+  policy.apply_lsp_policy(opts)
+  local ret = opts.setup.available("available", { cmd = { "sh" } })
+  print(tostring(ret))
+  print(tostring(called))
+')
+expected="$(printf 'previous\ntrue')"
+_assert_eq "mason-policy: disabled mason allows available lsp executables" "$expected" "$result"
+
+result=$(_nvim_lua '
+  local policy = dofile(vim.fn.expand("~/.config/nvim/lua/config/mason-policy.lua"))
+  vim.g.mason_disabled = false
+  local called = false
+  local opts = { setup = {
+    missing = function()
+      called = true
+    end,
+  } }
+  policy.apply_lsp_policy(opts)
+  local ret = opts.setup.missing("missing", { cmd = { "definitely-not-a-real-lsp-binary" } })
+  print(tostring(ret))
+  print(tostring(called))
+')
+expected="$(printf 'nil\ntrue')"
+_assert_eq "mason-policy: enabled mason leaves installation gaps to mason" "$expected" "$result"
+
+# ---------------------------------------------------------------------------
+# Tests: nvim-workspace integration
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== nvim-workspace integration ==="
+
+result=$(_nvim_lua '
+  local opts = require("config.nvim-workspace").options()
+  print(opts.shell.shell_glob)
+  print(table.concat(opts.shell.home_files, ","))
+  print(table.concat(opts.shell.home_globs, ","))
+  print(opts.shell.home_dirs[1].prefix)
+  print(opts.shell.home_dirs[1].glob)
+  print(opts.shell.home_dirs[2].prefix)
+  print(opts.shell.home_dirs[2].glob)
+  print(opts.shell.home_dirs[3].prefix)
+  print(opts.shell.home_dirs[3].glob)
+  print(opts.shell.home_dirs[4].prefix)
+  print(opts.shell.home_dirs[4].glob)
+  print(opts.shell.home_dirs[5].prefix)
+  print(opts.shell.home_dirs[5].glob)
+  print(opts.shell.home_dirs[6].prefix)
+  print(tostring(opts.shell.home_dirs[6].direct))
+  print(tostring(opts.shell.overlay.enabled))
+  print(opts.shell.overlay.root_prefix)
+  print(opts.shell.overlay.home_dir)
+  print(opts.session.save_debounce_ms)
+  print(table.concat(opts.navigation.path_first_filetypes, ","))
+  print(tostring(opts.navigation.prefer_shell_for_home_paths))
+')
+expected="$(printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\ntrue\ntrue\n%s\n%s\n500\n%s\ntrue' \
+  '*@(.sh|.inc|.bash|.zsh|.command)' \
+  '.bashrc,.bash_profile,.profile,.zshenv,.zprofile,.zshrc' \
+  '.local/share/cgraf78/*/bin/*' \
+  '.config/dot/merge-hooks.d/' \
+  '.config/dot/merge-hooks.d/**/*@(.sh|.inc|.bash|.zsh|.command)' \
+  '.config/shdeps/hooks.d/' \
+  '.config/shdeps/hooks.d/**/*@(.sh|.inc|.bash|.zsh|.command)' \
+  '.config/shell/' \
+  '.config/shell/**/*@(.sh|.inc|.bash|.zsh|.command)' \
+  '.local/lib/dot/' \
+  '.local/lib/dot/**/*@(.sh|.inc|.bash|.zsh|.command)' \
+  '.local/share/cgraf78/' \
+  '.local/share/cgraf78/**/*@(.sh|.inc|.bash|.zsh|.command)' \
+  '.local/bin/' \
+  '.dotfiles-' \
+  'home' \
+  'bash,sh,zsh')"
+_assert_eq "nvim-workspace: dotfiles passes session, shell, and navigation policy" \
+  "$expected" "$result"
+
+WORKSPACE_ROOT_TMP=$(_tmpdir)
+mkdir -p "$WORKSPACE_ROOT_TMP/project/src" "$WORKSPACE_ROOT_TMP/project/.git"
+WORKSPACE_ROOT_BIN=$(_tmpdir)
+cat >"$WORKSPACE_ROOT_BIN/sley" <<'EOF'
+#!/usr/bin/env sh
+printf '%s\n' 'sley should not run for marker roots' >&2
+exit 2
+EOF
+chmod +x "$WORKSPACE_ROOT_BIN/sley"
+result=$(PATH="$WORKSPACE_ROOT_BIN:$PATH" _nvim_lua "
+  local opts = require('config.nvim-workspace').options()
+  print(type(opts.workspace.repo_root_detector))
+  print(opts.workspace.repo_root_detector('$WORKSPACE_ROOT_TMP/project/src'))
+")
+expected="$(printf 'function\n%s' "$WORKSPACE_ROOT_TMP/project")"
+_assert_eq "nvim-workspace: dotfiles root detector prefers marker roots without sley" \
+  "$expected" "$result"
+
+WORKSPACE_HOME_TMP=$(_tmpdir)
+mkdir -p "$WORKSPACE_HOME_TMP/.dotfiles" "$WORKSPACE_HOME_TMP/.config/shell"
+WORKSPACE_HOME_BIN=$(_tmpdir)
+cat >"$WORKSPACE_HOME_BIN/git" <<'EOF'
+#!/usr/bin/env sh
+if [ "$1" != "--git-dir" ] || [ "$2" != "$HOME/.dotfiles" ]; then
+  printf '%s\n' 'unexpected git dir' >&2
+  exit 2
+fi
+if [ "$3" != "--work-tree" ] || [ "$4" != "$HOME" ]; then
+  printf '%s\n' 'unexpected work tree' >&2
+  exit 2
+fi
+if [ "$5" != "ls-files" ]; then
+  printf '%s\n' 'unexpected git command' >&2
+  exit 2
+fi
+if [ "$6" != "--" ] || [ "$7" != ".config/shell" ] || [ "$8" != ".config/shell/**" ]; then
+  printf 'unexpected pathspecs: %s\n' "$*" >&2
+  exit 2
+fi
+printf '%s\n' '.config/shell/profile.sh'
+EOF
+cat >"$WORKSPACE_HOME_BIN/sley" <<'EOF'
+#!/usr/bin/env sh
+printf '%s\n' 'sley should not run for tracked dotfiles paths' >&2
+exit 2
+EOF
+chmod +x "$WORKSPACE_HOME_BIN/git"
+chmod +x "$WORKSPACE_HOME_BIN/sley"
+result=$(PATH="$WORKSPACE_HOME_BIN:$PATH" _nvim_lua "
+  vim.env.HOME = '$WORKSPACE_HOME_TMP'
+  local opts = require('config.nvim-workspace').options()
+  print(type(opts.workspace.home_workspace_detector))
+  print(tostring(opts.workspace.repo_root_detector('$WORKSPACE_HOME_TMP')))
+  print(tostring(opts.workspace.repo_root_detector('$WORKSPACE_HOME_TMP/.config/shell')))
+  print(opts.workspace.home_workspace_detector('$WORKSPACE_HOME_TMP/.config/shell'))
+")
+expected="$(printf 'function\nnil\nnil\n%s' "$WORKSPACE_HOME_TMP")"
+_assert_eq "nvim-workspace: dotfiles home detector uses tracked paths without sley" \
+  "$expected" "$result"
+
+WORKSPACE_HOME_FALLBACK=$(_tmpdir)
+WORKSPACE_EMPTY_BIN=$(_tmpdir)
+mkdir -p "$WORKSPACE_HOME_FALLBACK/.dotfiles"
+cat >"$WORKSPACE_EMPTY_BIN/git" <<'EOF'
+#!/usr/bin/env sh
+exit 0
+EOF
+cat >"$WORKSPACE_EMPTY_BIN/sley" <<'EOF'
+#!/usr/bin/env sh
+printf '%s\n' 'sley should not run for untracked HOME paths' >&2
+exit 2
+EOF
+chmod +x "$WORKSPACE_EMPTY_BIN/git"
+chmod +x "$WORKSPACE_EMPTY_BIN/sley"
+result=$(PATH="$WORKSPACE_EMPTY_BIN:$PATH" _nvim_lua "
+  vim.env.HOME = '$WORKSPACE_HOME_FALLBACK'
+  local opts = require('config.nvim-workspace').options()
+  print(opts.workspace.home_workspace_detector('$WORKSPACE_HOME_FALLBACK'))
+  print(tostring(opts.workspace.home_workspace_detector('$WORKSPACE_HOME_FALLBACK/.config')))
+")
+expected="$(printf '%s\nnil' "$WORKSPACE_HOME_FALLBACK")"
+_assert_eq "nvim-workspace: dotfiles home detector only falls back for HOME itself" \
+  "$expected" "$result"
+
+WORKSPACE_LAZYGIT_HOME=$(_tmpdir)
+WORKSPACE_LAZYGIT_BIN=$(_tmpdir)
+mkdir -p "$WORKSPACE_LAZYGIT_HOME/.dotfiles" "$WORKSPACE_LAZYGIT_HOME/.config/nvim"
+touch "$WORKSPACE_LAZYGIT_HOME/.bashrc" "$WORKSPACE_LAZYGIT_HOME/untracked"
+cat >"$WORKSPACE_LAZYGIT_BIN/git" <<'EOF'
+#!/usr/bin/env sh
+if [ "$1" != "--git-dir" ] || [ "$2" != "$HOME/.dotfiles" ]; then
+  exit 2
+fi
+if [ "$3" != "--work-tree" ] || [ "$4" != "$HOME" ]; then
+  exit 2
+fi
+if [ "$5" != "ls-files" ] || [ "$6" != "--error-unmatch" ] || [ "$7" != "--" ]; then
+  exit 2
+fi
+case "$8" in
+  .bashrc)
+    exit 0
+    ;;
+esac
+exit 1
+EOF
+chmod +x "$WORKSPACE_LAZYGIT_BIN/git"
+result=$(PATH="$WORKSPACE_LAZYGIT_BIN:$PATH" _nvim_lua "
+  vim.env.HOME = '$WORKSPACE_LAZYGIT_HOME'
+  local opts = require('config.nvim-workspace').options()
+  local ctx = {
+    default_root = '$WORKSPACE_LAZYGIT_HOME',
+    relative_to_default_root = function(path)
+      if path == '$WORKSPACE_LAZYGIT_HOME/.bashrc' then
+        return '.bashrc'
+      end
+      if path == '$WORKSPACE_LAZYGIT_HOME/untracked' then
+        return 'untracked'
+      end
+      return nil
+    end,
+  }
+  local tracked = opts.lazygit.opts_for_path('$WORKSPACE_LAZYGIT_HOME/.bashrc', ctx)
+  print(type(opts.lazygit.opts_for_path))
+  print(tracked.cwd)
+  print(table.concat(tracked.args, ' '))
+  print(tostring(opts.lazygit.opts_for_path('$WORKSPACE_LAZYGIT_HOME/untracked', ctx)))
+")
+expected="$(printf 'function\n%s\n--work-tree %s --git-dir %s\nnil' \
+  "$WORKSPACE_LAZYGIT_HOME" \
+  "$WORKSPACE_LAZYGIT_HOME" \
+  "$WORKSPACE_LAZYGIT_HOME/.dotfiles")"
+_assert_eq "nvim-workspace: dotfiles lazygit callback owns bare repo args" \
+  "$expected" "$result"
+
+result=$(_nvim_lua '
+  package.loaded["nvim_workspace.shell"] = {
+    root_dir = function(bufnr, on_dir)
+      print("root-name=" .. vim.api.nvim_buf_get_name(bufnr))
+      on_dir("/tmp/bash-root")
+    end,
+    before_init = function(_, config)
+      print("before-init")
+      config.settings = { bashIde = { globPattern = "bounded" } }
+    end,
+  }
+  local specs = dofile(vim.fn.expand("~/.config/nvim/lua/plugins/coding.lua"))
+  local bashls
+  for _, spec in ipairs(specs) do
+    if spec[1] == "neovim/nvim-lspconfig" then
+      bashls = spec.opts.servers.bashls
+    end
+  end
+  vim.api.nvim_buf_set_name(0, "/tmp/.bashrc")
+  local root
+  bashls.root_dir(vim.api.nvim_get_current_buf(), function(value)
+    root = value
+  end)
+  local config = {}
+  bashls.before_init(nil, config)
+  print(root)
+  print(config.settings.bashIde.globPattern)
+  print(tostring(bashls.root_markers == nil))
+')
+expected="$(printf 'root-name=%s/.bashrc\nbefore-init\n/tmp/bash-root\nbounded\ntrue' "$(_test_realpath /tmp)")"
+_assert_eq "nvim-workspace: bashls delegates root and init policy" "$expected" "$result"
+
+result=$(_nvim_lua '
+  package.loaded["nvim_workspace.navigation"] = {
+    goto_mouse = function() end,
+  }
+  local specs = dofile(vim.fn.expand("~/.config/nvim/lua/plugins/workspace.lua"))
+  for _, spec in ipairs(specs) do
+    if spec[1] == "cgraf78/nvim-workspace" then
+      spec.init()
+      break
+    end
+  end
+  vim.api.nvim_exec_autocmds("User", { pattern = "VeryLazy" })
+  vim.wait(100, function()
+    return false
+  end)
+  local mapping = vim.fn.maparg("<C-LeftMouse>", "n", false, true)
+  print(mapping.desc or "")
+  print(type(mapping.callback))
+')
+expected="$(printf 'Follow Item\nfunction')"
+_assert_eq "nvim-workspace: ctrl-click exposes follow-item navigation" "$expected" "$result"
+
+# ---------------------------------------------------------------------------
+# Tests: termnav nvim wrappers
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== termnav nvim wrappers ==="
+
+result=$(_nvim_lua '
+  local writes = {}
+  local opener_setup_count = 0
+  package.loaded["config.termnav"] = nil
+
+  local termnav = require("config.termnav")
+  local ctx = termnav.setup({
+    publish_delay_ms = -1,
+    opener = {
+      setup = function()
+        opener_setup_count = opener_setup_count + 1
+      end,
+      server = function()
+        return "nvim.sock"
+      end,
+    },
+    wezterm_vars = {
+      set = function(name, value)
+        writes[#writes + 1] = name .. "=" .. tostring(value or "")
+        return true
+      end,
+    },
+  })
+  vim.api.nvim_exec_autocmds("BufEnter", {})
+  vim.api.nvim_exec_autocmds("WinEnter", {})
+  vim.api.nvim_exec_autocmds("FocusGained", {})
+  print(ctx.group_name)
+  print(opener_setup_count)
+  print(#writes)
+
+  local old_cwd = vim.fn.getcwd()
+  local temp_cwd = vim.fn.tempname()
+  vim.fn.mkdir(temp_cwd, "p")
+  vim.cmd("lcd " .. vim.fn.fnameescape(temp_cwd))
+  vim.api.nvim_exec_autocmds("DirChanged", {})
+  local changed_count = #writes
+  vim.api.nvim_exec_autocmds("DirChanged", {})
+  print(#writes - changed_count)
+  vim.cmd("lcd " .. vim.fn.fnameescape(old_cwd))
+')
+expected="$(printf 'dot_termnav\n1\n6\n0')"
+_assert_eq "termnav wrapper: delegates protocol setup while preserving dotfiles policy" \
+  "$expected" "$result"
+
+result=$(_nvim_lua '
+  local opener = dofile(vim.fn.expand("~/.config/nvim/lua/config/nvim-tmux-open.lua"))
+  local vars = dofile(vim.fn.expand("~/.config/nvim/lua/config/wezterm-vars.lua"))
+  local termnav = require("config.termnav")
+  print(type(opener.open_now))
+  print(type(opener.setup))
+  print(type(opener.server))
+  print(type(vars.set))
+  print(type(termnav.setup))
+')
+expected="$(printf 'function\nfunction\nfunction\nfunction\nfunction')"
+_assert_eq "termnav nvim wrappers expose dependency module APIs" "$expected" "$result"
+
+_test_summary

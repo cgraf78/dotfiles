@@ -1,0 +1,20 @@
+# Standalone Ruby fallback for hooks outside a project. Repo-local
+# .rubocop.yml/.rubocop.yaml files always take precedence.
+AllCops:
+  NewCops: enable
+  SuggestExtensions: false
+
+Layout:
+  Enabled: true
+
+Lint:
+  Enabled: true
+
+Metrics:
+  Enabled: false
+
+Naming:
+  Enabled: false
+
+Style:
+  Enabled: false

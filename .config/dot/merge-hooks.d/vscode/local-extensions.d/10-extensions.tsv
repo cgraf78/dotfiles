@@ -1,0 +1,3 @@
+# extension_id	source_dir	disabled_by_variant_options
+cgraf.term-notify-sound	$HOME/.local/share/dot-vscode-extensions/term-notify-sound-0.0.1
+cgraf.sley-tools	$HOME/.local/share/dot-vscode-extensions/sley-tools-0.0.1	no-sley

@@ -1,0 +1,124 @@
+#!/usr/bin/env bash
+# nvim launcher - reuse an existing Neovim pane in the current tmux window for
+# simple file opens, otherwise delegate to the real nvim binary.
+
+set -u
+
+_nvim_launcher_lib="${BASH_SOURCE[0]%/*}/../lib/dot/launcher-real.sh"
+if [[ ! -f "$_nvim_launcher_lib" ]]; then
+  _nvim_launcher_lib="${HOME:-}/.local/lib/dot/launcher-real.sh"
+fi
+# shellcheck disable=SC1090
+. "$_nvim_launcher_lib" || {
+  printf 'nvim launcher: could not load launcher helper\n' >&2
+  exit 127
+}
+
+_real_nvim() {
+  local self marker candidate
+  self=$(_dot_launcher_file_id "${BASH_SOURCE[0]}") || self="${BASH_SOURCE[0]}"
+  marker="# nvim launcher - reuse an existing Neovim pane in the current tmux window for"
+
+  # Keep the launcher and real editor in separate locations. shdeps owns this
+  # private binary path, while ~/.local/bin/nvim remains the tmux-aware public
+  # launcher. Looking here before PATH gives every platform the same stable
+  # delegation target and avoids depending on whether a package manager exposes
+  # its binary in the non-interactive PATH used by CI, hooks, or editor callers.
+  # dot-test worktrees deliberately set HOME to the source checkout, which does
+  # not contain shdeps-installed binaries. Only borrow the host binary while
+  # HOME is still that source checkout; unit tests and callers sometimes set
+  # HOME to a fixture and must keep resolving against that fixture first.
+  if [[ -n "${DOT_TEST_HOST_HOME:-}" && "${DOT_TEST_SOURCE_HOME:-}" == "${HOME:-}" ]]; then
+    candidate="$DOT_TEST_HOST_HOME/.local/share/neovim/neovim/bin/nvim"
+    if _dot_launcher_candidate_ok "$candidate" "$self" "$marker"; then
+      _dot_launcher_cache_write nvim "$candidate"
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  fi
+
+  candidate="$HOME/.local/share/neovim/neovim/bin/nvim"
+  if _dot_launcher_candidate_ok "$candidate" "$self" "$marker"; then
+    _dot_launcher_cache_write nvim "$candidate"
+    printf '%s\n' "$candidate"
+    return 0
+  fi
+
+  _dot_launcher_find_real nvim "$self" "$marker" \
+    /opt/homebrew/bin/nvim /usr/local/bin/nvim /usr/bin/nvim /bin/nvim
+}
+
+_parent_is_interactive_shell() {
+  local arg args first parent
+  local -a argv
+
+  # Reusing an existing pane is only safe for a command the user typed at an
+  # interactive prompt. Tools that use $EDITOR, plus shell scripts and `sh -c`,
+  # need this process to block until the real editor exits.
+  parent=$(ps -o comm= -p "$PPID" 2>/dev/null) || return 1
+  parent="${parent##*/}"
+  parent="${parent#-}"
+
+  case "$parent" in
+    bash | dash | fish | ksh | mksh | sh | yash | zsh)
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+
+  args=$(ps -o args= -p "$PPID" 2>/dev/null || true)
+  [[ -n "$args" ]] || return 0
+
+  read -r -a argv <<<"$args"
+  [[ "${#argv[@]}" -gt 0 ]] || return 0
+
+  first="${argv[0]##*/}"
+  first="${first#-}"
+  [[ "$first" == "$parent" ]] || return 1
+
+  for arg in "${argv[@]:1}"; do
+    case "$arg" in
+      -c | --command)
+        return 1
+        ;;
+      -*)
+        ;;
+      *)
+        return 1
+        ;;
+    esac
+  done
+
+  return 0
+}
+
+_should_reuse_nvim_pane() {
+  [[ "${NVIM_LAUNCHER_FORCE_NEW:-0}" != "1" ]] || return 1
+  [[ -n "${TMUX:-}" ]] || return 1
+  [[ -t 0 || "${NVIM_LAUNCHER_ALLOW_NONTTY:-0}" == "1" ]] || return 1
+  [[ "${NVIM_LAUNCHER_ALLOW_NONSHELL_PARENT:-0}" == "1" ]] || _parent_is_interactive_shell || return 1
+  [[ "$#" -eq 1 ]] || return 1
+
+  case "$1" in
+    "" | -* | +*)
+      return 1
+      ;;
+  esac
+
+  command -v nvim-tmux-open >/dev/null 2>&1 || return 1
+  return 0
+}
+
+real_nvim=$(_real_nvim) || {
+  printf 'nvim launcher: real nvim not found on PATH\n' >&2
+  exit 127
+}
+
+if _should_reuse_nvim_pane "$@"; then
+  if nvim-tmux-open cli "$1" "$PWD"; then
+    exit 0
+  fi
+fi
+
+exec "$real_nvim" "$@"

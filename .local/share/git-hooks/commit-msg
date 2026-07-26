@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# commit-msg — validate commit message format and scan it for secrets.
+#
+# Delegates format checks to validate-commit-msg with --format git. Non-strict
+# by default: structural issues warn but don't block (only title >100 chars is a
+# hard error). Set COMMIT_MSG_STRICT=1 for full enforcement.
+#
+# Also scans the finalized message for secrets via `sley secrets` — the
+# pre-commit secrets pass only sees staged file content, never the message.
+#
+# Knobs:
+#   COMMIT_MSG_SKIP=1               skip validation (passed through)
+#   COMMIT_MSG_STRICT=1             promote warnings to errors
+#   GITHOOK_COMMITMSG_SKIP=1        skip this hook entirely
+# Last resort: git commit --no-verify
+
+[ "${GITHOOK_COMMITMSG_SKIP:-0}" = "1" ] && exit 0
+
+# Capture (don't let it fall off the end): validate-commit-msg's exit code must
+# still block the commit — the secrets scan below is a separate gate, not a
+# replacement, and must not swallow a validation hard error (e.g. title >100).
+validate_rc=0
+if command -v validate-commit-msg >/dev/null 2>&1; then
+  validate-commit-msg --format git --file "$1" || validate_rc=$?
+else
+  # Fail visible, not silent: if the validator isn't on PATH the check is a
+  # no-op, so warn rather than let a broken/missing tool silently disable it.
+  echo "commit-msg: validate-commit-msg not found on PATH — skipping message validation" >&2
+fi
+
+# Scan the message for secrets (and any sley-extension-provided forbidden
+# vocabulary). A finding is blocking and takes precedence — exit immediately.
+# sley owns the ruleset and repo gating; this hook stays a thin feeder. Covers
+# normal commits, amends, and merges; git commit --no-verify and
+# GITHOOK_COMMITMSG_SKIP bypass it. Sequencer commits (cherry-pick/rebase) don't
+# fire commit-msg — their staged content is already gated by prepare-commit-msg
+# (message scanning there is a known gap).
+if command -v sley >/dev/null 2>&1; then
+  sley secrets --message-file "$1" || exit "$?"
+fi
+
+# No secrets finding: fall through to validation's verdict so a format hard
+# error still blocks.
+exit "$validate_rc"

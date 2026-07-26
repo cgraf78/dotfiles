@@ -1,0 +1,12 @@
+# Files autolint should still consider for spelling/schema phases but should not
+# pass to the language- or filetype-specific backend linter.
+
+# Checkrun JSON policy files are validated through schema associations. Running
+# Biome as a backend linter over them adds no useful signal and can report
+# nested-root errors because biome.json lives in this same policy directory.
+*/.config/checkrun/*.json
+
+# Claude Code slash-command files intentionally start with metadata rather than
+# a level-1 heading, which makes markdown style lint noisy. Spelling can still
+# run because command prose is user-authored.
+*/.claude/commands/*

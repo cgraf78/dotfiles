@@ -1,0 +1,590 @@
+#!/usr/bin/env bash
+# githook-test — unit tests for the shared git hooks.
+#
+# shellcheck disable=SC2030,SC2031 # git config env is intentionally scoped to fixture subshells.
+#
+# Covers the shared Git hook directory. Each test spins up an isolated temp git
+# repo with `core.hooksPath` aimed at the hook under test, so the suite is safe
+# to run anywhere without touching the user's real repos.
+#
+# Usage: githook-test
+
+set -o pipefail
+export NO_COLOR=1
+
+# Formatter/linter dev tooling is expected to come from the global
+# mise toolset, so seed the shim dir explicitly for direct test runs
+# (matches the pattern used by autoformat-test / autolint-test).
+# On macOS, brew binaries are signed and must take priority over
+# unsigned mise downloads that macOS Gatekeeper kills.
+[ -d "$HOME/.local/share/mise/shims" ] &&
+  PATH="$HOME/.local/share/mise/shims:$PATH"
+[ -d "/opt/homebrew/bin" ] &&
+  PATH="/opt/homebrew/bin:$PATH"
+export MISE_GLOBAL_CONFIG_FILE="$HOME/.config/mise/config.toml"
+
+# shellcheck source=helpers.sh
+. "$HOME/.local/lib/dot/tests/helpers.sh"
+
+_require_compatible_libc "githook-test"
+
+HOOK_DIR="$HOME/.local/share/git-hooks"
+
+# Most tests unset agent-session env vars so assertions do not depend on the
+# invoking agent runtime. The hook itself must not bypass readiness for agents.
+_NO_AGENT_ENV=(
+  -u AGENTGUARD_NAME
+  -u AGENTGUARD_SESSION_ID
+  -u CODEX_THREAD_ID
+  -u CODEX_INTERNAL_ORIGINATOR_OVERRIDE
+  -u CLAUDE_CODE_CURRENT_SESSION_ID
+  -u CLAUDE_CODE_SESSION_ID
+  -u GEMINI_PROJECT_DIR
+  AGENTGUARD_PROCESS_DETECT=0
+)
+
+for hook in pre-commit pre-merge-commit pre-applypatch prepare-commit-msg \
+  sley-commit-gate; do
+  if [ ! -x "$HOOK_DIR/$hook" ]; then
+    echo "githook-test: hook not found or not executable at $HOOK_DIR/$hook" >&2
+    exit 1
+  fi
+done
+
+# Each test runs inside its own repo. Keep the helper tiny — the
+# isolation knobs (GIT_CONFIG_GLOBAL) matter more than any fancy
+# fixture abstraction.
+_new_repo() {
+  local repo
+  repo=$(_tmpdir)
+  (
+    cd "$repo" || exit 1
+    # Point git at an empty per-repo global so real user config (e.g.
+    # a system-wide fsmonitor or a differently-set hooksPath) can't
+    # leak in and skew behavior.
+    export GIT_CONFIG_GLOBAL="$repo/.gitconfig-test"
+    : >"$GIT_CONFIG_GLOBAL"
+    git init -q
+    _git_set_test_identity git
+    git config core.hooksPath "$HOOK_DIR"
+    git config commit.gpgsign false
+  )
+  echo "$repo"
+}
+
+# Run `git commit` inside $1 with the given env prefix and message.
+# Captures stdout+stderr into $__COMMIT_OUT and the exit code into
+# $__COMMIT_RC. Keeps the full command line explicit at call sites
+# rather than building one-size-fits-all plumbing.
+_commit() {
+  local repo="$1" msg="$2"
+  shift 2
+  # Unset agent-session env vars so the pre-commit hook runs its full
+  # format/lint/validate pipeline (not the agent-session short-circuit).
+  # Tests that need the agent bypass must set the vars explicitly.
+  __COMMIT_OUT=$(
+    cd "$repo" &&
+      env "${_NO_AGENT_ENV[@]}" \
+        GIT_CONFIG_GLOBAL="$repo/.gitconfig-test" "$@" \
+        git commit -m "$msg" 2>&1
+  )
+  __COMMIT_RC=$?
+}
+
+_mock_sley_ready_bin() {
+  local mock_bin
+  mock_bin=$(_mock_bin)
+  cat >"$mock_bin/sley" <<'EOF'
+#!/usr/bin/env bash
+[ "$1" = "ready" ] || exit 0
+shift
+printf 'mock-sley=1\n'
+printf 'mock-args=%s\n' "$*"
+printf 'mock-pwd=%s\n' "$PWD"
+[ -n "${MOCK_SLEY_OUT:-}" ] && printf '%s\n' "$MOCK_SLEY_OUT"
+exit "${MOCK_SLEY_RC:-0}"
+EOF
+  chmod +x "$mock_bin/sley"
+  printf '%s\n' "$mock_bin"
+}
+
+# Mock sley that passes the `ready` gate (so pre-commit does not block) but
+# returns MOCK_SECRETS_RC for `secrets --message-file`, so the commit-msg
+# message scan can be exercised in isolation. Records the secrets invocation.
+_mock_sley_secrets_bin() {
+  local mock_bin
+  mock_bin=$(_mock_bin)
+  cat >"$mock_bin/sley" <<'EOF'
+#!/usr/bin/env bash
+case "$1" in
+  ready) exit 0 ;;
+  secrets)
+    printf 'mock-secrets-args=%s\n' "$*"
+    exit "${MOCK_SECRETS_RC:-0}"
+    ;;
+  *) exit 0 ;;
+esac
+EOF
+  chmod +x "$mock_bin/sley"
+  printf '%s\n' "$mock_bin"
+}
+
+# ---------------------------------------------------------------------------
+# Tests: default behavior
+# ---------------------------------------------------------------------------
+
+echo "=== Default: clean file, clean lint ==="
+
+repo=$(_new_repo)
+cat >"$repo/ok.py" <<'EOF'
+x = 1
+EOF
+(cd "$repo" && git add ok.py)
+_commit "$repo" "clean"
+_assert_exit "clean file + clean lint: commit succeeds" 0 "$__COMMIT_RC"
+
+echo "=== Default: formatter mutates → commit rejected ==="
+
+# ruff --fix removes unused imports; `import os` is dropped by the
+# format pass, so the file on disk diverges from the staged version
+# and the hook should reject with a clear message.
+repo=$(_new_repo)
+cat >"$repo/fixable.py" <<'EOF'
+import os
+x = 1
+EOF
+(cd "$repo" && git add fixable.py)
+_commit "$repo" "fmt-reject"
+_assert_exit "formatter mutated file: commit rejected" 1 "$__COMMIT_RC"
+_assert_contains "formatter reject: mentions staging" \
+  "stage the formatting changes" "$__COMMIT_OUT"
+_assert_contains "formatter reject: from sley fix" \
+  "sley fix:" "$__COMMIT_OUT"
+
+echo "=== Default: lint failure blocks via sley ready ==="
+
+# A file that's formatter-clean but trips the linter. sley ready's check
+# phase runs lint and blocks the commit on failure (rc=1).
+if command -v rumdl &>/dev/null; then
+  repo=$(_new_repo)
+  cat >"$repo/dup.md" <<'EOF'
+# Title
+
+## Dup
+
+## Dup
+EOF
+  (cd "$repo" && git add dup.md)
+  _commit "$repo" "lint-block"
+  _assert_exit "lint failure: commit blocked" 1 "$__COMMIT_RC"
+fi
+
+# ---------------------------------------------------------------------------
+# Tests: commit-producing Git operations all use the shared readiness gate
+# ---------------------------------------------------------------------------
+
+echo "=== Git commit-producing operations run sley ready ==="
+
+mock_sley=$(_mock_sley_ready_bin)
+
+repo=$(_new_repo)
+cat >"$repo/commit.txt" <<'EOF'
+commit
+EOF
+(cd "$repo" && git add commit.txt)
+_commit "$repo" "mock-commit" \
+  PATH="$mock_sley:$PATH" \
+  MOCK_SLEY_RC=1
+_assert_exit "git commit: pre-commit blocks through sley" 1 "$__COMMIT_RC"
+_assert_contains "git commit: runs sley ready" "mock-sley=1" "$__COMMIT_OUT"
+_assert_contains "git commit: includes verify by default" \
+  "mock-args=--fix --commit" "$__COMMIT_OUT"
+_assert_not_contains "git commit: does not pass quiet" "--quiet" "$__COMMIT_OUT"
+
+repo=$(_new_repo)
+cat >"$repo/amend.txt" <<'EOF'
+base
+EOF
+(cd "$repo" && git add amend.txt && git commit --no-verify -q -m "base")
+cat >"$repo/amend.txt" <<'EOF'
+amended
+EOF
+(cd "$repo" && git add amend.txt)
+__COMMIT_OUT=$(
+  cd "$repo" &&
+    env "${_NO_AGENT_ENV[@]}" \
+      GIT_CONFIG_GLOBAL="$repo/.gitconfig-test" \
+      PATH="$mock_sley:$PATH" \
+      MOCK_SLEY_RC=1 \
+      git commit --amend --no-edit 2>&1
+)
+__COMMIT_RC=$?
+_assert_exit "git commit --amend: pre-commit blocks through sley" \
+  1 "$__COMMIT_RC"
+_assert_contains "git commit --amend: runs sley ready" \
+  "mock-sley=1" "$__COMMIT_OUT"
+_assert_contains "git commit --amend: includes verify by default" \
+  "mock-args=--fix --commit" "$__COMMIT_OUT"
+_assert_not_contains "git commit --amend: does not pass quiet" \
+  "--quiet" "$__COMMIT_OUT"
+
+repo=$(_new_repo)
+base_branch=$(cd "$repo" && git symbolic-ref --short HEAD)
+cat >"$repo/base.txt" <<'EOF'
+base
+EOF
+(cd "$repo" && git add base.txt && git commit --no-verify -q -m "base")
+(cd "$repo" && git switch -q -c feature)
+cat >"$repo/feature.txt" <<'EOF'
+feature
+EOF
+(cd "$repo" && git add feature.txt && git commit --no-verify -q -m "feature")
+(cd "$repo" && git switch -q "$base_branch")
+cat >"$repo/main.txt" <<'EOF'
+main
+EOF
+(cd "$repo" && git add main.txt && git commit --no-verify -q -m "main")
+__COMMIT_OUT=$(
+  cd "$repo" &&
+    env "${_NO_AGENT_ENV[@]}" \
+      GIT_CONFIG_GLOBAL="$repo/.gitconfig-test" \
+      PATH="$mock_sley:$PATH" \
+      MOCK_SLEY_RC=1 \
+      git merge --no-ff --no-edit feature 2>&1
+)
+__COMMIT_RC=$?
+_assert_exit "git merge: pre-merge-commit blocks through sley" 1 "$__COMMIT_RC"
+_assert_contains "git merge: runs sley ready" "mock-sley=1" "$__COMMIT_OUT"
+_assert_contains "git merge: includes verify by default" \
+  "mock-args=--fix --commit" "$__COMMIT_OUT"
+_assert_not_contains "git merge: does not pass quiet" "--quiet" "$__COMMIT_OUT"
+
+src=$(_tmpdir)
+patch_file="$src/change.patch"
+(
+  cd "$src" || exit 1
+  export GIT_CONFIG_GLOBAL="$src/.gitconfig-test"
+  : >"$GIT_CONFIG_GLOBAL"
+  git init -q -b main
+  _git_set_test_identity git
+  echo "base" >base.txt
+  git add base.txt
+  git commit -q -m "base"
+  echo "mail" >mail.txt
+  git add mail.txt
+  git commit -q -m "mail"
+  git format-patch -1 --stdout >"$patch_file"
+)
+repo=$(_new_repo)
+cat >"$repo/base.txt" <<'EOF'
+base
+EOF
+(cd "$repo" && git add base.txt && git commit --no-verify -q -m "base")
+__COMMIT_OUT=$(
+  cd "$repo" &&
+    env "${_NO_AGENT_ENV[@]}" \
+      GIT_CONFIG_GLOBAL="$repo/.gitconfig-test" \
+      PATH="$mock_sley:$PATH" \
+      MOCK_SLEY_RC=1 \
+      git am "$patch_file" 2>&1
+)
+__COMMIT_RC=$?
+_assert_exit "git am: pre-applypatch blocks through sley" 1 "$__COMMIT_RC"
+_assert_contains "git am: runs sley ready" "mock-sley=1" "$__COMMIT_OUT"
+_assert_contains "git am: includes verify by default" \
+  "mock-args=--fix --commit" "$__COMMIT_OUT"
+_assert_not_contains "git am: does not pass quiet" "--quiet" "$__COMMIT_OUT"
+
+repo=$(_new_repo)
+base_branch=$(cd "$repo" && git symbolic-ref --short HEAD)
+cat >"$repo/base.txt" <<'EOF'
+base
+EOF
+(cd "$repo" && git add base.txt && git commit --no-verify -q -m "base")
+(cd "$repo" && git switch -q -c feature)
+cat >"$repo/cherry.txt" <<'EOF'
+cherry
+EOF
+(cd "$repo" && git add cherry.txt && git commit --no-verify -q -m "cherry")
+cherry_commit=$(cd "$repo" && git rev-parse HEAD)
+(cd "$repo" && git switch -q "$base_branch")
+__COMMIT_OUT=$(
+  cd "$repo" &&
+    env "${_NO_AGENT_ENV[@]}" \
+      GIT_CONFIG_GLOBAL="$repo/.gitconfig-test" \
+      PATH="$mock_sley:$PATH" \
+      MOCK_SLEY_RC=1 \
+      git cherry-pick --no-edit "$cherry_commit" 2>&1
+)
+__COMMIT_RC=$?
+_assert_exit "git cherry-pick: prepare-commit-msg blocks through sley" 128 "$__COMMIT_RC"
+_assert_contains "git cherry-pick: runs sley ready" "mock-sley=1" "$__COMMIT_OUT"
+_assert_contains "git cherry-pick: includes verify by default" \
+  "mock-args=--fix --commit" "$__COMMIT_OUT"
+_assert_not_contains "git cherry-pick: does not pass quiet" "--quiet" "$__COMMIT_OUT"
+
+repo=$(_new_repo)
+cat >"$repo/revert.txt" <<'EOF'
+one
+EOF
+(cd "$repo" && git add revert.txt && git commit --no-verify -q -m "base")
+cat >"$repo/revert.txt" <<'EOF'
+two
+EOF
+(cd "$repo" && git add revert.txt && git commit --no-verify -q -m "second")
+__COMMIT_OUT=$(
+  cd "$repo" &&
+    env "${_NO_AGENT_ENV[@]}" \
+      GIT_CONFIG_GLOBAL="$repo/.gitconfig-test" \
+      PATH="$mock_sley:$PATH" \
+      MOCK_SLEY_RC=1 \
+      git revert --no-edit HEAD 2>&1
+)
+__COMMIT_RC=$?
+_assert_exit "git revert: prepare-commit-msg blocks through sley" 128 "$__COMMIT_RC"
+_assert_contains "git revert: runs sley ready" "mock-sley=1" "$__COMMIT_OUT"
+_assert_contains "git revert: includes verify by default" \
+  "mock-args=--fix --commit" "$__COMMIT_OUT"
+_assert_not_contains "git revert: does not pass quiet" "--quiet" "$__COMMIT_OUT"
+
+repo=$(_new_repo)
+base_branch=$(cd "$repo" && git symbolic-ref --short HEAD)
+cat >"$repo/conflict.txt" <<'EOF'
+base
+EOF
+(cd "$repo" && git add conflict.txt && git commit --no-verify -q -m "base")
+(cd "$repo" && git switch -q -c feature)
+cat >"$repo/conflict.txt" <<'EOF'
+feature
+EOF
+(cd "$repo" && git add conflict.txt && git commit --no-verify -q -m "feature")
+(cd "$repo" && git switch -q "$base_branch")
+cat >"$repo/conflict.txt" <<'EOF'
+main
+EOF
+(cd "$repo" && git add conflict.txt && git commit --no-verify -q -m "main")
+(cd "$repo" && git rebase feature >/dev/null 2>&1 || true)
+cat >"$repo/conflict.txt" <<'EOF'
+resolved
+EOF
+(cd "$repo" && git add conflict.txt)
+__COMMIT_OUT=$(
+  cd "$repo" &&
+    env "${_NO_AGENT_ENV[@]}" \
+      GIT_CONFIG_GLOBAL="$repo/.gitconfig-test" \
+      GIT_EDITOR=: \
+      PATH="$mock_sley:$PATH" \
+      MOCK_SLEY_RC=1 \
+      git rebase --continue 2>&1
+)
+__COMMIT_RC=$?
+_assert_exit "git rebase --continue: prepare-commit-msg blocks through sley" \
+  1 "$__COMMIT_RC"
+_assert_contains "git rebase --continue: runs sley ready" \
+  "mock-sley=1" "$__COMMIT_OUT"
+_assert_contains "git rebase --continue: includes verify by default" \
+  "mock-args=--fix --commit" "$__COMMIT_OUT"
+_assert_not_contains "git rebase --continue: does not pass quiet" \
+  "--quiet" "$__COMMIT_OUT"
+
+# ---------------------------------------------------------------------------
+# Tests: hash-compare regression — partial-stage false positive
+# ---------------------------------------------------------------------------
+
+echo "=== Hash-compare: partial-stage unstaged hunks don't trigger reject ==="
+
+# Stage a formatter-clean file, then append unrelated content to the
+# working-tree copy. The staged hunks are clean, autoformat finds
+# nothing to change, and `git hash-object` gives equal pre/post
+# hashes — so the hook must NOT reject.
+repo=$(_new_repo)
+cat >"$repo/clean.py" <<'EOF'
+x = 1
+EOF
+(cd "$repo" && git add clean.py)
+echo "extra_unstaged = True" >>"$repo/clean.py"
+_commit "$repo" "partial-stage"
+_assert_exit "partial-stage clean content: commit succeeds" 0 "$__COMMIT_RC"
+_assert_not_contains "partial-stage: no false-positive format reject" \
+  "sley fix:" "$__COMMIT_OUT"
+
+# ---------------------------------------------------------------------------
+# Tests: fail closed when sley is not on PATH
+# ---------------------------------------------------------------------------
+
+echo "=== Fail closed: sley not on PATH ==="
+
+_empty_path=$(_mock_bin)
+ln -s "$(command -v bash)" "$_empty_path/bash"
+ln -s "$(command -v git)" "$_empty_path/git"
+
+repo=$(_new_repo)
+cat >"$repo/fixable.py" <<'EOF'
+import os
+x = 1
+EOF
+(cd "$repo" && git add fixable.py)
+__COMMIT_OUT=$(
+  cd "$repo" &&
+    env "${_NO_AGENT_ENV[@]}" \
+      GIT_CONFIG_GLOBAL="$repo/.gitconfig-test" \
+      PATH="$_empty_path:/usr/bin:/bin" \
+      git commit -m "notools" 2>&1
+)
+__COMMIT_RC=$?
+_assert_exit "sley not on PATH: commit fails closed" 1 "$__COMMIT_RC"
+_assert_contains "sley not on PATH: explains missing tool" \
+  "sley not found on PATH" "$__COMMIT_OUT"
+
+# ---------------------------------------------------------------------------
+# Tests: bare dotfiles repo performance guard
+# ---------------------------------------------------------------------------
+
+echo "=== Bare dotfiles repo: untracked HOME walk skipped ==="
+
+repo=$(_tmpdir)
+bare="$repo/.dotfiles"
+mock_bin=$(_mock_bin)
+record="$repo/sley-env"
+mkdir -p "$repo/.config/lazygit"
+git init -q --bare "$bare"
+cat >"$mock_bin/sley" <<EOF
+#!/usr/bin/env bash
+# Record only the readiness invocation. SLEY_SKIP_UNTRACKED tunes the untracked
+# file walk, which is exclusive to the readiness/file-scan path. The commit-msg
+# hook makes a separate secrets-message-file call that scans message text only
+# (no untracked walk), so it neither sets nor needs the var.
+[ "\$1" = ready ] && printf '%s\n' "\${SLEY_SKIP_UNTRACKED:-unset}" >"$record"
+exit 0
+EOF
+chmod +x "$mock_bin/sley"
+cat >"$repo/.config/lazygit/config.yml" <<'EOF'
+git:
+  pagers: []
+EOF
+_git_set_test_identity \
+  env GIT_DIR="$bare" GIT_WORK_TREE="$repo" GIT_CONFIG_GLOBAL="$repo/.gitconfig-test" git
+env GIT_DIR="$bare" GIT_WORK_TREE="$repo" GIT_CONFIG_GLOBAL="$repo/.gitconfig-test" \
+  git config core.hooksPath "$HOOK_DIR"
+env GIT_DIR="$bare" GIT_WORK_TREE="$repo" GIT_CONFIG_GLOBAL="$repo/.gitconfig-test" \
+  git config commit.gpgsign false
+env GIT_DIR="$bare" GIT_WORK_TREE="$repo" GIT_CONFIG_GLOBAL="$repo/.gitconfig-test" \
+  git add .config/lazygit/config.yml
+__COMMIT_OUT=$(
+  cd "$repo" &&
+    env "${_NO_AGENT_ENV[@]}" \
+      GIT_DIR="$bare" \
+      GIT_WORK_TREE="$repo" \
+      GIT_CONFIG_GLOBAL="$repo/.gitconfig-test" \
+      PATH="$mock_bin:$PATH" \
+      git commit -m "bare-home" 2>&1
+)
+__COMMIT_RC=$?
+_assert_exit "bare dotfiles repo: commit succeeds" 0 "$__COMMIT_RC"
+_assert_file_content "bare dotfiles repo: SLEY_SKIP_UNTRACKED=1" "1" "$record"
+
+# ---------------------------------------------------------------------------
+# Tests: edges
+# ---------------------------------------------------------------------------
+
+echo "=== Edges ==="
+
+repo=$(_new_repo)
+echo "real = 1" >"$repo/real.py"
+ln -s real.py "$repo/link.py"
+(cd "$repo" && git add real.py link.py)
+_commit "$repo" "symlink"
+_assert_exit "symlink in staged set: commit succeeds" 0 "$__COMMIT_RC"
+
+repo=$(_new_repo)
+__COMMIT_OUT=$(
+  cd "$repo" &&
+    env "${_NO_AGENT_ENV[@]}" \
+      GIT_CONFIG_GLOBAL="$repo/.gitconfig-test" \
+      git commit --allow-empty -m "empty" 2>&1
+)
+__COMMIT_RC=$?
+_assert_exit "empty staged set: commit succeeds" 0 "$__COMMIT_RC"
+
+repo=$(_new_repo)
+echo "x = 1" >"$repo/bye.py"
+(cd "$repo" && git add bye.py)
+_commit "$repo" "seed"
+_assert_exit "deletion setup: seed commit succeeds" 0 "$__COMMIT_RC"
+rm "$repo/bye.py"
+(cd "$repo" && git add -A)
+_commit "$repo" "delete"
+_assert_exit "deletion only: commit succeeds" 0 "$__COMMIT_RC"
+
+# ---------------------------------------------------------------------------
+# Tests: agent sessions still run readiness
+# ---------------------------------------------------------------------------
+
+echo "=== Agent session still runs sley ready ==="
+
+repo=$(_new_repo)
+cat >"$repo/needs-format.py" <<'EOF'
+x=1
+EOF
+(cd "$repo" && git add needs-format.py)
+__COMMIT_OUT=$(
+  cd "$repo" &&
+    env "${_NO_AGENT_ENV[@]}" \
+      AGENTGUARD_NAME="agent" \
+      AGENTGUARD_SESSION_ID="agent-bypass-test" \
+      GIT_CONFIG_GLOBAL="$repo/.gitconfig-test" \
+      git commit -m "agent bypass" 2>&1
+)
+__COMMIT_RC=$?
+_assert_exit "agent session: hook still blocks on readiness" 1 "$__COMMIT_RC"
+_assert_contains "agent session: sley ready output is visible" \
+  "sley fix:" "$__COMMIT_OUT"
+
+# ---------------------------------------------------------------------------
+# Tests: commit-msg scans the message for secrets via sley
+# ---------------------------------------------------------------------------
+echo "=== commit-msg: scans the commit message via sley secrets ==="
+
+mock_ss=$(_mock_sley_secrets_bin)
+
+# A secret in the message is blocking (pre-commit's `ready` passes, so the block
+# comes from the commit-msg message scan).
+repo=$(_new_repo)
+printf 'code\n' >"$repo/f.txt"
+(cd "$repo" && git add f.txt)
+_commit "$repo" "add a feature" PATH="$mock_ss:$PATH" MOCK_SECRETS_RC=1
+_assert_exit "commit-msg: message secret blocks the commit" 1 "$__COMMIT_RC"
+_assert_contains "commit-msg: runs sley secrets --message-file" \
+  "mock-secrets-args=secrets --message-file" "$__COMMIT_OUT"
+
+# A clean message commits, and the scan still ran.
+repo=$(_new_repo)
+printf 'code\n' >"$repo/f.txt"
+(cd "$repo" && git add f.txt)
+_commit "$repo" "add a feature" PATH="$mock_ss:$PATH" MOCK_SECRETS_RC=0
+_assert_exit "commit-msg: clean message commits" 0 "$__COMMIT_RC"
+_assert_contains "commit-msg: clean commit still ran the scan" \
+  "mock-secrets-args=secrets --message-file" "$__COMMIT_OUT"
+
+# The secrets scan must not swallow validate-commit-msg's blocking exit: a
+# title >100 chars is a validate hard error, and a clean secrets scan (rc 0)
+# must still let that failure block the commit.
+repo=$(_new_repo)
+printf 'code\n' >"$repo/f.txt"
+(cd "$repo" && git add f.txt)
+_long_title="this commit title is deliberately far too long to be acceptable and comfortably exceeds the one hundred character hard limit"
+_commit "$repo" "$_long_title" PATH="$mock_ss:$PATH" MOCK_SECRETS_RC=0
+_assert_exit "commit-msg: clean scan still lets a validate hard error block" 1 "$__COMMIT_RC"
+
+# GITHOOK_COMMITMSG_SKIP bypasses the whole hook, including the scan.
+repo=$(_new_repo)
+printf 'code\n' >"$repo/f.txt"
+(cd "$repo" && git add f.txt)
+_commit "$repo" "add a feature" PATH="$mock_ss:$PATH" MOCK_SECRETS_RC=1 GITHOOK_COMMITMSG_SKIP=1
+_assert_exit "commit-msg: GITHOOK_COMMITMSG_SKIP bypasses the scan" 0 "$__COMMIT_RC"
+
+# ---------------------------------------------------------------------------
+# Summary
+# ---------------------------------------------------------------------------
+
+_test_summary

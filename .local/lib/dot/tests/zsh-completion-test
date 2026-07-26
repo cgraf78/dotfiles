@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# zsh-completion-test — zsh completion startup behavior.
+
+# shellcheck disable=SC1091 # dotfiles test helper lives under HOME.
+. "$HOME/.local/lib/dot/tests/helpers.sh"
+
+echo ""
+echo "=== zsh completion init ==="
+
+if ! command -v zsh >/dev/null 2>&1; then
+  echo "  SKIP: zsh not installed"
+  _test_summary
+fi
+
+TEST_TMPDIR=$(_tmpdir)
+mkdir -p "$TEST_TMPDIR/fpath" "$TEST_TMPDIR/home"
+
+cat >"$TEST_TMPDIR/fpath/compinit" <<'EOF'
+(( COMPINIT_COUNT++ ))
+typeset -gA _comps
+EOF
+
+# shellcheck disable=SC2016 # inner zsh intentionally expands test variables.
+result=$(
+  zsh -fc '
+    fpath=("$1/fpath" $fpath)
+    HOME="$1/home"
+    _UNAME=Linux
+    _tool_init() { :; }
+    source "$2/.config/shell/interactive.d/70-integrations.zsh"
+    source "$2/.config/shell/interactive.d/70-integrations.zsh"
+    printf "compinit=%s\n" "${COMPINIT_COUNT:-0}"
+  ' _ "$TEST_TMPDIR" "$HOME"
+)
+
+_assert_contains "zsh completion: re-source keeps compinit single-run" \
+  "compinit=1" "$result"
+
+result=$(
+  zsh -fc '
+    emulate -L zsh
+    __git_prompt_fd=""
+    zle() { return 0; }
+    __git_prompt() { :; }
+    source "$1/.config/shell/interactive.d/60-prompt.zsh"
+    exec {__git_prompt_fd}< <(:)
+    __git_prompt_async_cancel
+    printf "stderr-visible\n" >&2
+  ' _ "$HOME" 2>&1
+)
+
+_assert_contains "zsh prompt: async cancel keeps stderr visible" \
+  "stderr-visible" "$result"
+
+_test_summary

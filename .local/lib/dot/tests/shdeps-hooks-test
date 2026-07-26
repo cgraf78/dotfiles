@@ -1,0 +1,1509 @@
+#!/usr/bin/env bash
+# shdeps-hooks-test — unit tests for dotfiles-specific shdeps custom hooks.
+#
+# shdeps itself owns the generic dependency installer tests. This file covers
+# subtle behavior in hook glue where dotfiles choose fallback tools and wrap
+# externally managed executables.
+
+set -o pipefail
+export NO_COLOR=1
+
+# shellcheck source=helpers.sh disable=SC1091
+. "$HOME/.local/lib/dot/tests/helpers.sh"
+
+REAL_HOME="$HOME"
+
+echo "=== shdeps hook policy ==="
+
+_release_helpers=$(
+  rg -l 'shdeps_github_release_install' "$REAL_HOME/.config/shdeps/hooks.d" |
+    sed "\|^$REAL_HOME/.config/shdeps/hooks.d/neovim/neovim.sh$|d" || true
+)
+_assert_eq "custom hooks do not hide native github:release update policy" \
+  "" "$_release_helpers"
+_assert_not_contains "tree-sitter: no upstream release binary on Linux" \
+  "tree-sitter/tree-sitter                   github:release" \
+  "$(cat "$REAL_HOME/.config/shdeps/10-deps.conf")"
+
+_tree_sitter_dep=$(
+  awk '$1 == "tree-sitter-cli" && $2 == "pkg" { print; exit }' \
+    "$REAL_HOME/.config/shdeps/10-deps.conf"
+)
+_assert_eq "tree-sitter: uses package manager instead of release binary" \
+  "pkg" "$(awk '{ print $2 }' <<<"$_tree_sitter_dep")"
+_assert_eq "tree-sitter: command maps to tree-sitter" \
+  "tree-sitter" "$(awk '{ print $3 }' <<<"$_tree_sitter_dep")"
+_assert_contains "tree-sitter: package aliases cover apt" \
+  "apt:tree-sitter-cli" "$_tree_sitter_dep"
+_assert_contains "tree-sitter: package aliases cover dnf" \
+  "dnf:tree-sitter-cli" "$_tree_sitter_dep"
+_assert_contains "tree-sitter: package aliases cover pacman" \
+  "pacman:tree-sitter-cli" "$_tree_sitter_dep"
+_assert_contains "tree-sitter: package aliases cover zypper" \
+  "zypper:tree-sitter-cli" "$_tree_sitter_dep"
+_assert_contains "tree-sitter: package aliases cover apk" \
+  "apk:tree-sitter-cli" "$_tree_sitter_dep"
+_assert_contains "tree-sitter: Homebrew uses formula name" \
+  "brew:tree-sitter" "$_tree_sitter_dep"
+_assert_contains "tree-sitter: Termux uses native package name" \
+  "android:tree-sitter" "$_tree_sitter_dep"
+
+_clippy_dep=$(
+  awk '$1 == "clippy" && $2 == "pkg" { print; exit }' \
+    "$REAL_HOME/.config/shdeps/00-toolchains.conf"
+)
+_assert_eq "clippy: uses package manager instead of cargo install" \
+  "pkg" "$(awk '{ print $2 }' <<<"$_clippy_dep")"
+_assert_eq "clippy: command check uses cargo subcommand binary" \
+  "cargo-clippy" "$(awk '{ print $3 }' <<<"$_clippy_dep")"
+_assert_contains "clippy: Debian package name is rust-clippy" \
+  "apt:rust-clippy" "$_clippy_dep"
+_assert_not_contains "clippy: Debian package name is not the command name" \
+  "apt:cargo-clippy" "$_clippy_dep"
+_assert_contains "clippy: Alpine package name is rust-clippy" \
+  "apk:rust-clippy" "$_clippy_dep"
+_assert_contains "clippy: Arch package bundles clippy with rust" \
+  "pacman:rust" "$_clippy_dep"
+_assert_contains "clippy: Homebrew formula bundles clippy with rust" \
+  "brew:rust" "$_clippy_dep"
+_assert_contains "clippy: Termux rust package bundles clippy" \
+  "android:rust" "$_clippy_dep"
+_assert_contains "rust-src: Termux rust package bundles sources" \
+  "android:rust" \
+  "$(awk '$1 == "rust-src" && $2 == "pkg" { print; exit }' "$REAL_HOME/.config/shdeps/00-toolchains.conf")"
+
+_assert_contains "uv: Termux uses the native package" \
+  "os:macos,os:android" \
+  "$(awk '$1 == "uv" && $2 == "pkg" { print; exit }' "$REAL_HOME/.config/shdeps/00-toolchains.conf")"
+_assert_contains "uv: upstream release checkout excludes Android" \
+  "os:!macos,os:!android" \
+  "$(awk '$1 == "astral-sh/uv" { print; exit }' "$REAL_HOME/.config/shdeps/00-toolchains.conf")"
+
+_assert_contains "bat: Termux command keeps the native binary name" \
+  "android:bat,apt:batcat" \
+  "$(awk '$1 == "bat" && $2 == "pkg" { print; exit }' "$REAL_HOME/.config/shdeps/10-deps.conf")"
+
+for _termux_native in difftastic direnv dust gum lazygit mise; do
+  _assert_contains "$_termux_native: Termux uses the native package" \
+    "os:macos,os:android" \
+    "$(awk -v name="$_termux_native" '$1 == name && $2 == "pkg" { print; exit }' "$REAL_HOME/.config/shdeps/10-deps.conf")"
+done
+
+for _termux_upstream in \
+  Wilfred/difftastic direnv/direnv bootandy/dust charmbracelet/gum \
+  Decodetalkers/neocmakelsp editorconfig-checker/editorconfig-checker \
+  jesseduffield/lazygit jdx/mise; do
+  _assert_contains "$_termux_upstream: upstream install excludes Android" \
+    "os:!macos,os:!android" \
+    "$(awk -v name="$_termux_upstream" '$1 == name { print; exit }' "$REAL_HOME/.config/shdeps/10-deps.conf")"
+done
+
+echo "=== neovim hook ==="
+
+_neovim_dep=$(
+  awk '$1 == "neovim/neovim" { print; exit }' \
+    "$REAL_HOME/.config/shdeps/10-deps.conf"
+)
+_assert_contains "neovim: launcher-owned binary is custom managed" \
+  "custom" "$_neovim_dep"
+_assert_contains "neovim: shdeps install excludes Android" \
+  "os:!android" "$_neovim_dep"
+_assert_not_contains "neovim: macOS pkg entry does not trust launcher" \
+  "neovim                                    pkg              nvim" \
+  "$(cat "$REAL_HOME/.config/shdeps/10-deps.conf")"
+
+_neovim_hook="$REAL_HOME/.config/shdeps/hooks.d/neovim/neovim.sh"
+# shellcheck source=/dev/null
+. "$_neovim_hook"
+
+_nvim_home=$(_tmpdir)
+_nvim_bin=$(_tmpdir)
+_nvim_brew=$(_mock_bin)
+_nvim_brew_prefix=$(_tmpdir)
+_nvim_calls=$(_tmpdir)/calls.log
+mkdir -p "$_nvim_brew_prefix/bin"
+cat >"$_nvim_brew_prefix/bin/nvim" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' 'NVIM v0.12.0'
+EOF
+chmod +x "$_nvim_brew_prefix/bin/nvim"
+cat >"$_nvim_brew/brew" <<'EOF'
+#!/usr/bin/env bash
+case "$*" in
+  "list neovim") exit 0 ;;
+  "--prefix neovim") printf '%s\n' "$NVIM_TEST_BREW_PREFIX" ;;
+  *) exit 1 ;;
+esac
+EOF
+chmod +x "$_nvim_brew/brew"
+
+# shellcheck disable=SC2329  # hook calls this public shdeps API by name.
+shdeps_install_dir() { echo "$_nvim_home"; }
+# shellcheck disable=SC2329  # hook calls this public shdeps API by name.
+shdeps_bin_dir() { echo "$_nvim_bin"; }
+# shellcheck disable=SC2329  # hook calls this public shdeps API by name.
+shdeps_pkg_mgr() { echo brew; }
+# shellcheck disable=SC2329  # hook calls this public shdeps API by name.
+shdeps_reinstall() { return 1; }
+# shellcheck disable=SC2329  # hook calls this public shdeps API by name.
+shdeps_pkg_install_for_mgr() {
+  printf 'pkg:%s\n' "$*" >>"$_nvim_calls"
+  return 0
+}
+PATH="$_nvim_brew:/usr/bin:/bin" \
+  NVIM_TEST_BREW_PREFIX="$_nvim_brew_prefix" \
+  install "neovim/neovim"
+if [[ -L "$_nvim_home/neovim/neovim/bin/nvim" ]]; then
+  _pass "neovim: brew install exposes real binary behind launcher"
+else
+  _fail "neovim: brew install exposes real binary behind launcher"
+fi
+_assert_eq "neovim: brew real binary points at Homebrew nvim" \
+  "$_nvim_brew_prefix/bin/nvim" "$(readlink "$_nvim_home/neovim/neovim/bin/nvim")"
+_assert_file_missing "neovim: brew install leaves public launcher path alone" \
+  "$_nvim_bin/nvim"
+if exists "neovim/neovim"; then
+  _pass "neovim: real binary satisfies exists check"
+else
+  _fail "neovim: real binary satisfies exists check"
+fi
+_assert_eq "neovim: version comes from real binary" "v0.12.0" "$(version "neovim/neovim")"
+
+# shellcheck disable=SC2329  # hook calls this public shdeps API by name.
+shdeps_pkg_mgr() { echo apt; }
+# shellcheck disable=SC2329  # hook calls this public shdeps API by name.
+shdeps_github_release_install() {
+  printf 'release:%s|%s|%s|%s\n' "$1" "$2" "$3" "$4" >>"$_nvim_calls"
+}
+install "neovim/neovim"
+_assert_contains "neovim: github release avoids legacy self-link target" \
+  "release:neovim/neovim|nvim|neovim/neovim|$_nvim_home/neovim/neovim/bin/nvim.shdeps-link" \
+  "$(cat "$_nvim_calls")"
+_assert_file_missing "neovim: github release removes disposable side link" \
+  "$_nvim_home/neovim/neovim/bin/nvim.shdeps-link"
+
+unset -f exists version install uninstall shdeps_install_dir shdeps_bin_dir \
+  shdeps_pkg_mgr shdeps_reinstall shdeps_pkg_install_for_mgr \
+  shdeps_github_release_install
+
+echo "=== wezterm hook ==="
+
+_wezterm_hook="$REAL_HOME/.config/shdeps/hooks.d/wezterm.sh"
+# shellcheck source=/dev/null
+. "$_wezterm_hook"
+
+# shellcheck disable=SC2329  # hook calls this public shdeps API by name.
+shdeps_platform() { echo darwin; }
+# shellcheck disable=SC2329  # hook calls this public shdeps API by name.
+shdeps_pkg_mgr() { echo brew; }
+_wezterm_brew=$(_mock_bin)
+cat >"$_wezterm_brew/brew" <<'EOF'
+#!/usr/bin/env bash
+printf 'brew should not run in CI\n' >&2
+exit 1
+EOF
+chmod +x "$_wezterm_brew/brew"
+if CI=1 PATH="$_wezterm_brew:/usr/bin:/bin" exists "wez/wezterm"; then
+  _pass "wezterm: CI satisfies GUI terminal dependency"
+else
+  _fail "wezterm: CI satisfies GUI terminal dependency"
+fi
+if CI=1 PATH="$_wezterm_brew:/usr/bin:/bin" install "wez/wezterm"; then
+  _pass "wezterm: CI install path is a no-op"
+else
+  _fail "wezterm: CI install path is a no-op"
+fi
+
+unset -f exists version install shdeps_platform shdeps_pkg_mgr
+
+echo "=== gstack hook ==="
+
+_assert_not_contains "gstack: dotfiles do not install Bun for skill registration" \
+  "bun                                       custom" \
+  "$(cat "$REAL_HOME/.config/shdeps/00-toolchains.conf")"
+_gstack_dep=$(
+  awk '$1 == "garrytan/gstack" { print; exit }' \
+    "$REAL_HOME/.config/shdeps/10-deps.conf"
+)
+_assert_eq "gstack: repository dependency is managed by shdeps" \
+  "github" "$(awk '{ print $2 }' <<<"$_gstack_dep")"
+
+echo "=== shdeps dependency repos ==="
+
+for _dependency in agentguard checkrun cmdblocks sley termnav; do
+  _dependency_dep=$(
+    awk -v name="cgraf78/$_dependency" '$1 == name { print; exit }' \
+      "$REAL_HOME/.config/shdeps/10-deps.conf"
+  )
+  _assert_eq "dependency repo: $_dependency is managed by shdeps" \
+    "github" "$(awk '{ print $2 }' <<<"$_dependency_dep")"
+done
+
+_gstack_hook="$REAL_HOME/.config/shdeps/hooks.d/garrytan/gstack.sh"
+_gstack_home=$(_tmpdir)
+_gstack_repo="$_gstack_home/.local/share/garrytan/gstack"
+mkdir -p "$_gstack_repo/bin" "$_gstack_repo/qa" "$_gstack_repo/review" \
+  "$_gstack_repo/node_modules" "$_gstack_home/.codex" "$_gstack_home/.gemini"
+cat >"$_gstack_repo/SKILL.md" <<'MD'
+---
+name: gstack
+---
+MD
+cat >"$_gstack_repo/qa/SKILL.md" <<'MD'
+---
+name: qa
+description: QA workflow: catches visual regressions. (gstack)
+---
+
+Run ~/.claude/skills/gstack/bin/gstack-config and keep .claude/skills/gstack vendored checks local.
+MD
+cat >"$_gstack_repo/review/SKILL.md" <<'MD'
+---
+name: review
+---
+MD
+mkdir -p "$_gstack_repo/manual" "$_gstack_home/.claude/skills/manual"
+cat >"$_gstack_repo/manual/SKILL.md" <<'MD'
+---
+name: manual
+---
+MD
+cat >"$_gstack_home/.claude/skills/manual/SKILL.md" <<'MD'
+---
+name: manual-owned
+---
+MD
+ln -s "$_gstack_repo" "$_gstack_home/.claude/skills/gstack"
+ln -s gstack/open-gstack-browser "$_gstack_home/.claude/skills/connect-chrome"
+ln -s gstack/checkpoint "$_gstack_home/.claude/skills/checkpoint"
+mkdir -p "$_gstack_home/.codex/skills/qa" \
+  "$_gstack_home/.codex/skills/review" \
+  "$_gstack_home/.codex/skills/removed" \
+  "$_gstack_home/.codex/skills/gstack-old"
+cat >"$_gstack_home/.codex/skills/qa/SKILL.md" <<'MD'
+---
+name: qa
+description: "old fixed gstack copy. (gstack)"
+---
+
+<!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
+
+Run ~/.claude/skills/gstack/bin/gstack-update-check
+MD
+cat >"$_gstack_home/.codex/skills/review/SKILL.md" <<'MD'
+---
+name: review
+description: "local review skill that mentions (gstack) in prose"
+---
+MD
+cat >"$_gstack_home/.codex/skills/removed/SKILL.md" <<'MD'
+---
+name: removed
+description: "old fixed gstack copy for a source skill that no longer exists"
+---
+
+<!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
+
+Run ~/.claude/skills/gstack/bin/gstack-update-check
+MD
+touch "$_gstack_home/.codex/skills/gstack-old/.dotfiles-managed-gstack"
+cat >"$_gstack_home/.codex/skills/gstack-old/SKILL.md" <<'MD'
+---
+name: gstack-old
+---
+MD
+cat >"$_gstack_repo/node_modules/SKILL.md" <<'MD'
+---
+name: ignored
+---
+MD
+cat >"$_gstack_repo/setup" <<'SH'
+#!/usr/bin/env bash
+printf 'setup %s\n' "$*" >>"$GSTACK_HOOK_LOG"
+SH
+cat >"$_gstack_repo/bin/gstack-uninstall" <<'SH'
+#!/usr/bin/env bash
+printf 'uninstall %s\n' "$*" >>"$GSTACK_HOOK_LOG"
+SH
+chmod +x "$_gstack_repo/setup" "$_gstack_repo/bin/gstack-uninstall"
+
+_gstack_log=$(_tmpdir)/gstack.log
+_gstack_agent_bin=$(_mock_bin)
+cat >"$_gstack_agent_bin/codex" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+cat >"$_gstack_agent_bin/gemini" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+chmod +x "$_gstack_agent_bin/codex" "$_gstack_agent_bin/gemini"
+_saved_home=$HOME
+_saved_path=$PATH
+HOME=$_gstack_home
+PATH="$_gstack_agent_bin:$PATH"
+export GSTACK_HOOK_LOG=$_gstack_log
+export DOT_GSTACK_REGISTER_LIB="$REAL_HOME/.local/lib/dot/gstack-register/api.sh"
+# shellcheck disable=SC2329  # sourced hook helper calls this by name.
+shdeps_warn() { printf '%s\n' "$*" >&2; }
+
+# shellcheck source=/dev/null
+. "$_gstack_hook"
+
+if post "garrytan/gstack"; then
+  _pass "gstack: post hook registers skills"
+else
+  _fail "gstack: post hook registers skills"
+fi
+_assert_eq "gstack: post hook does not run upstream setup" "" "$(cat "$_gstack_log" 2>/dev/null)"
+_assert_file_missing "gstack: post hook removes Claude compatibility root" \
+  "$_gstack_home/.claude/skills/gstack/SKILL.md"
+_assert_file_missing "gstack: post hook removes legacy Claude connect-chrome alias" \
+  "$_gstack_home/.claude/skills/connect-chrome"
+_assert_file_exists "gstack: post hook creates shared generated skill" \
+  "$_gstack_home/.gstack/dotfiles-skills/gstack-qa/SKILL.md"
+_assert_file_exists "gstack: post hook creates shared Gemini context" \
+  "$_gstack_home/.gstack/dotfiles-skills/GEMINI.md"
+_assert_file_exists "gstack: post hook marks shared generated skill as managed" \
+  "$_gstack_home/.gstack/dotfiles-skills/gstack-qa/.dotfiles-managed-gstack"
+_assert_file_exists "gstack: post hook links prefixed Claude skill" \
+  "$_gstack_home/.claude/skills/gstack-qa/SKILL.md"
+_assert_eq "gstack: post hook points Claude skill at shared generated skill" \
+  "$_gstack_home/.gstack/dotfiles-skills/gstack-qa" \
+  "$(readlink "$_gstack_home/.claude/skills/gstack-qa")"
+_assert_file_missing "gstack: post hook removes legacy unprefixed Claude skill" \
+  "$_gstack_home/.claude/skills/qa/SKILL.md"
+_assert_contains "gstack: post hook preserves unmanaged Claude skill collision" \
+  "name: manual-owned" "$(cat "$_gstack_home/.claude/skills/manual/SKILL.md")"
+_assert_file_missing "gstack: post hook prunes stale Claude gstack link" \
+  "$_gstack_home/.claude/skills/checkpoint"
+_assert_file_missing "gstack: post hook prunes legacy unprefixed Codex copy" \
+  "$_gstack_home/.codex/skills/qa/SKILL.md"
+_assert_file_exists "gstack: post hook preserves unmanaged Codex skill with prose marker" \
+  "$_gstack_home/.codex/skills/review/SKILL.md"
+_assert_file_missing "gstack: post hook prunes removed-source legacy Codex copy" \
+  "$_gstack_home/.codex/skills/removed/SKILL.md"
+_assert_file_missing "gstack: post hook prunes stale managed Codex skill" \
+  "$_gstack_home/.codex/skills/gstack-old/SKILL.md"
+_assert_file_exists "gstack: post hook links Codex source skill" \
+  "$_gstack_home/.codex/skills/gstack-qa/SKILL.md"
+_assert_eq "gstack: post hook points Codex skill at shared generated skill" \
+  "$_gstack_home/.gstack/dotfiles-skills/gstack-qa" \
+  "$(readlink "$_gstack_home/.codex/skills/gstack-qa")"
+_assert_file_exists "gstack: post hook marks Codex source skill as managed" \
+  "$_gstack_home/.codex/skills/gstack-qa/.dotfiles-managed-gstack"
+_assert_file_missing "gstack: post hook removes legacy Codex runtime root" \
+  "$_gstack_home/.codex/skills/gstack/SKILL.md"
+_assert_contains "gstack: post hook rewrites Codex skill name" \
+  "name: gstack-qa" "$(cat "$_gstack_home/.codex/skills/gstack-qa/SKILL.md")"
+_assert_contains "gstack: post hook quotes invalid Codex YAML descriptions" \
+  'description: "QA workflow: catches visual regressions. (gstack)"' \
+  "$(cat "$_gstack_home/.codex/skills/gstack-qa/SKILL.md")"
+_assert_contains "gstack: post hook rewrites absolute Claude runtime paths" \
+  "Run $_gstack_repo/bin/gstack-config" \
+  "$(cat "$_gstack_home/.gstack/dotfiles-skills/gstack-qa/SKILL.md")"
+_assert_contains "gstack: post hook preserves project-relative vendored checks" \
+  ".claude/skills/gstack vendored checks local" \
+  "$(cat "$_gstack_home/.gstack/dotfiles-skills/gstack-qa/SKILL.md")"
+_assert_file_exists "gstack: post hook creates Gemini extension manifest" \
+  "$_gstack_home/.gemini/extensions/gstack/gemini-extension.json"
+_assert_file_exists "gstack: post hook marks Gemini extension as managed" \
+  "$_gstack_home/.gemini/extensions/gstack/.dotfiles-managed-gstack"
+_assert_eq "gstack: post hook points Gemini context at shared generated context" \
+  "$_gstack_home/.gstack/dotfiles-skills/GEMINI.md" \
+  "$(readlink "$_gstack_home/.gemini/extensions/gstack/GEMINI.md")"
+_assert_contains "gstack: generated Gemini context references prefixed skills" \
+  "generated \`gstack-*\` agent" \
+  "$(cat "$_gstack_home/.gstack/dotfiles-skills/GEMINI.md")"
+# shellcheck disable=SC2088  # This assertion intentionally checks literal upstream prose.
+_assert_not_contains "gstack: generated Gemini context avoids raw Claude runtime paths" \
+  '~/.claude/skills/gstack' \
+  "$(cat "$_gstack_home/.gstack/dotfiles-skills/GEMINI.md")"
+_assert_file_exists "gstack: post hook links Gemini source skill" \
+  "$_gstack_home/.gemini/extensions/gstack/skills/gstack-qa/SKILL.md"
+_assert_eq "gstack: post hook points Gemini skill at shared generated skill" \
+  "$_gstack_home/.gstack/dotfiles-skills/gstack-qa" \
+  "$(readlink "$_gstack_home/.gemini/extensions/gstack/skills/gstack-qa")"
+_assert_file_exists "gstack: post hook marks Gemini source skill as managed" \
+  "$_gstack_home/.gemini/extensions/gstack/skills/gstack-qa/.dotfiles-managed-gstack"
+_assert_contains "gstack: post hook rewrites Gemini skill name" \
+  "name: gstack-qa" "$(cat "$_gstack_home/.gemini/extensions/gstack/skills/gstack-qa/SKILL.md")"
+_assert_contains "gstack: post hook quotes invalid Gemini YAML descriptions" \
+  'description: "QA workflow: catches visual regressions. (gstack)"' \
+  "$(cat "$_gstack_home/.gemini/extensions/gstack/skills/gstack-qa/SKILL.md")"
+_assert_contains "gstack: post hook leaves upstream source skill unchanged" \
+  "description: QA workflow: catches visual regressions. (gstack)" \
+  "$(cat "$_gstack_repo/qa/SKILL.md")"
+_assert_file_missing "gstack: post hook skips node_modules skills" \
+  "$_gstack_home/.claude/skills/gstack-ignored/SKILL.md"
+_assert_file_missing "gstack: post hook skips node_modules generated cache" \
+  "$_gstack_home/.gstack/dotfiles-skills/gstack-ignored/SKILL.md"
+_assert_file_exists "gstack: post hook stamps install-shape migration" \
+  "$_gstack_home/.gstack/.dot-agent-agnostic-install-v1"
+if [[ -d "$_gstack_home/.gstack" && ! -L "$_gstack_home/.gstack" ]]; then
+  _pass "gstack: post hook uses real state directory"
+else
+  _fail "gstack: post hook uses real state directory"
+fi
+
+eval "$(declare -f _dot_gstack_register_claude |
+  sed '1s/_dot_gstack_register_claude/_orig_dot_gstack_register_claude/')"
+eval "$(declare -f _dot_gstack_register_codex |
+  sed '1s/_dot_gstack_register_codex/_orig_dot_gstack_register_codex/')"
+eval "$(declare -f _dot_gstack_register_gemini |
+  sed '1s/_dot_gstack_register_gemini/_orig_dot_gstack_register_gemini/')"
+eval "$(declare -f _dot_gstack_source_fingerprint |
+  sed '1s/_dot_gstack_source_fingerprint/_orig_dot_gstack_source_fingerprint/')"
+eval "$(declare -f _dot_gstack_target_fingerprint |
+  sed '1s/_dot_gstack_target_fingerprint/_orig_dot_gstack_target_fingerprint/')"
+_gstack_full_register_log=$(_tmpdir)/gstack-full-register.log
+_gstack_fingerprint_log=$(_tmpdir)/gstack-fingerprint.log
+: >"$_gstack_full_register_log"
+: >"$_gstack_fingerprint_log"
+# shellcheck disable=SC2329  # dot_gstack_register_all invokes this by name.
+_dot_gstack_register_claude() {
+  printf 'claude\n' >>"$_gstack_full_register_log"
+  _orig_dot_gstack_register_claude "$@"
+}
+# shellcheck disable=SC2329  # dot_gstack_register_all invokes this by name.
+_dot_gstack_register_codex() {
+  printf 'codex\n' >>"$_gstack_full_register_log"
+  _orig_dot_gstack_register_codex "$@"
+}
+# shellcheck disable=SC2329  # dot_gstack_register_all invokes this by name.
+_dot_gstack_register_gemini() {
+  printf 'gemini\n' >>"$_gstack_full_register_log"
+  _orig_dot_gstack_register_gemini "$@"
+}
+# shellcheck disable=SC2329  # dot_gstack_register_all invokes this by name.
+_dot_gstack_source_fingerprint() {
+  printf 'source\n' >>"$_gstack_fingerprint_log"
+  _orig_dot_gstack_source_fingerprint "$@"
+}
+# shellcheck disable=SC2329  # dot_gstack_register_all invokes this by name.
+_dot_gstack_target_fingerprint() {
+  printf 'target\n' >>"$_gstack_fingerprint_log"
+  _orig_dot_gstack_target_fingerprint "$@"
+}
+
+if dot_gstack_register_all; then
+  _pass "gstack: current registration cache check succeeds"
+else
+  _fail "gstack: current registration cache check succeeds"
+fi
+_assert_eq "gstack: current registration skips full rewrite path" \
+  "" "$(cat "$_gstack_full_register_log")"
+_assert_eq "gstack: current registration skips fingerprint scans" \
+  "" "$(cat "$_gstack_fingerprint_log")"
+
+ln -sfn "$_gstack_repo" "$_gstack_home/.claude/skills/gstack"
+ln -sfn gstack/open-gstack-browser "$_gstack_home/.claude/skills/connect-chrome"
+touch -r "$_gstack_home/.gstack/.dotfiles-registration-cache-v1" "$_gstack_home/.claude/skills"
+: >"$_gstack_full_register_log"
+if dot_gstack_register_all; then
+  _pass "gstack: cache miss repairs recreated Claude compatibility roots"
+else
+  _fail "gstack: cache miss repairs recreated Claude compatibility roots"
+fi
+_assert_contains "gstack: recreated Claude root forces repair" \
+  "claude" "$(cat "$_gstack_full_register_log")"
+_assert_file_missing "gstack: cache miss removes recreated Claude compatibility root" \
+  "$_gstack_home/.claude/skills/gstack"
+_assert_file_missing "gstack: cache miss removes recreated connect-chrome alias" \
+  "$_gstack_home/.claude/skills/connect-chrome"
+
+touch -t 200001010000.00 "$_gstack_home/.gstack/.dotfiles-registration-cache-v1"
+: >"$_gstack_full_register_log"
+if dot_gstack_register_all; then
+  _pass "gstack: target freshness check succeeds"
+else
+  _fail "gstack: target freshness check succeeds"
+fi
+_assert_contains "gstack: target newer than cache forces validation" \
+  "codex" "$(cat "$_gstack_full_register_log")"
+
+rm -f "$_gstack_home/.codex/skills/gstack-qa/SKILL.md"
+: >"$_gstack_full_register_log"
+if dot_gstack_register_all; then
+  _pass "gstack: cache miss repairs missing generated skill"
+else
+  _fail "gstack: cache miss repairs missing generated skill"
+fi
+_assert_contains "gstack: missing generated skill forces Codex repair" \
+  "codex" "$(cat "$_gstack_full_register_log")"
+_assert_file_exists "gstack: cache miss restores missing generated skill" \
+  "$_gstack_home/.codex/skills/gstack-qa/SKILL.md"
+
+for i in {1..20}; do
+  mkdir -p "$_gstack_home/.claude/skills/stale-$i" \
+    "$_gstack_home/.codex/skills/gstack-stale-$i" \
+    "$_gstack_home/.gemini/extensions/gstack/skills/gstack-stale-$i"
+  touch "$_gstack_home/.claude/skills/stale-$i/.dotfiles-managed-gstack" \
+    "$_gstack_home/.codex/skills/gstack-stale-$i/.dotfiles-managed-gstack" \
+    "$_gstack_home/.gemini/extensions/gstack/skills/gstack-stale-$i/.dotfiles-managed-gstack"
+  cat >"$_gstack_home/.claude/skills/stale-$i/SKILL.md" <<MD
+---
+name: stale-$i
+---
+MD
+  cat >"$_gstack_home/.codex/skills/gstack-stale-$i/SKILL.md" <<MD
+---
+name: gstack-stale-$i
+---
+MD
+  cat >"$_gstack_home/.gemini/extensions/gstack/skills/gstack-stale-$i/SKILL.md" <<MD
+---
+name: gstack-stale-$i
+---
+MD
+done
+
+eval "$(declare -f _dot_gstack_each_source_skill |
+  sed '1s/_dot_gstack_each_source_skill/_orig_dot_gstack_each_source_skill/')"
+_gstack_source_scan_log=$(_tmpdir)/gstack-source-scans.log
+: >"$_gstack_source_scan_log"
+: >"$_gstack_full_register_log"
+_DOT_GSTACK_SOURCE_CACHE_DIR=''
+# shellcheck disable=SC2329  # dot_gstack_register_all invokes this by name.
+_dot_gstack_each_source_skill() {
+  printf '.\n' >>"$_gstack_source_scan_log"
+  _orig_dot_gstack_each_source_skill "$@"
+}
+if dot_gstack_register_all; then
+  _pass "gstack: registration succeeds with stale managed skills"
+else
+  _fail "gstack: registration succeeds with stale managed skills"
+fi
+_assert_contains "gstack: stale managed skill bypasses cache" \
+  "codex" "$(cat "$_gstack_full_register_log")"
+_assert_file_missing "gstack: cache miss prunes stale managed Codex skill" \
+  "$_gstack_home/.codex/skills/gstack-stale-1/SKILL.md"
+_gstack_source_scan_count=$(wc -l <"$_gstack_source_scan_log" | tr -d ' ')
+if [[ "$_gstack_source_scan_count" -le 10 ]]; then
+  _pass "gstack: registration reuses source skill scan"
+else
+  _fail "gstack: registration reuses source skill scan (expected <= 10 scans, got $_gstack_source_scan_count)"
+fi
+
+: >"$_gstack_log"
+if uninstall "garrytan/gstack"; then
+  _pass "gstack: uninstall removes lightweight registrations"
+else
+  _fail "gstack: uninstall removes lightweight registrations"
+fi
+_assert_eq "gstack: uninstall does not call upstream cleanup" "" "$(cat "$_gstack_log")"
+_assert_file_missing "gstack: uninstall removes Claude source skill" \
+  "$_gstack_home/.claude/skills/gstack-qa/SKILL.md"
+_assert_file_missing "gstack: uninstall removes Codex source skill" \
+  "$_gstack_home/.codex/skills/gstack-qa/SKILL.md"
+_assert_file_missing "gstack: uninstall removes Codex runtime root" \
+  "$_gstack_home/.codex/skills/gstack"
+_assert_file_missing "gstack: uninstall removes shared generated skill" \
+  "$_gstack_home/.gstack/dotfiles-skills/gstack-qa/SKILL.md"
+_assert_file_missing "gstack: uninstall removes shared Gemini context" \
+  "$_gstack_home/.gstack/dotfiles-skills/GEMINI.md"
+
+HOME=$_saved_home
+PATH=$_saved_path
+unset GSTACK_HOOK_LOG DOT_GSTACK_REGISTER_LIB
+unset -f post uninstall dot_gstack_dir dot_gstack_migration_stamp \
+  dot_gstack_register_all dot_gstack_unregister_all _dot_gstack_warn \
+  _dot_gstack_log _dot_gstack_has_agent _dot_gstack_skill_name \
+  _dot_gstack_each_source_skill _dot_gstack_load_source_skills \
+  _dot_gstack_reset_source_cache \
+  _dot_gstack_codex_skill_name _dot_gstack_codex_skill_name_exists \
+  _dot_gstack_is_prefixed_skill_name _dot_gstack_each_prefixed_skill_target \
+  _dot_gstack_remove_link_if_managed \
+  _dot_gstack_points_to_gstack _dot_gstack_points_to_dotfiles_skills \
+  _dot_gstack_points_to_managed_gstack _dot_gstack_skill_dir_is_managed \
+  _dot_gstack_managed_marker _dot_gstack_mark_managed_dir \
+  _dot_gstack_state_dir _dot_gstack_generated_skills_dir \
+  _dot_gstack_state_entry_is_known \
+  _dot_gstack_migrate_state_dir \
+  _dot_gstack_codex_root_is_managed _dot_gstack_gemini_extension_is_managed \
+  _dot_gstack_legacy_codex_fixed_copy_is_gstack \
+  _dot_gstack_prune_stale_claude _dot_gstack_prune_stale_codex \
+  _dot_gstack_prune_stale_gemini _dot_gstack_prune_stale_generated_skills \
+  _dot_gstack_link_generated_skill _dot_gstack_register_claude \
+  _dot_gstack_generated_skill_current _dot_gstack_write_skill_md \
+  _dot_gstack_write_gemini_context _dot_gstack_write_generated_skills \
+  _dot_gstack_remove_skill_link \
+  _dot_gstack_register_codex _dot_gstack_register_gemini \
+  _dot_gstack_unregister_generated_skills _dot_gstack_unregister_codex \
+  _dot_gstack_unregister_gemini \
+  _orig_dot_gstack_each_source_skill _orig_dot_gstack_register_claude \
+  _orig_dot_gstack_register_codex _orig_dot_gstack_register_gemini \
+  _orig_dot_gstack_source_fingerprint _orig_dot_gstack_target_fingerprint \
+  _dot_gstack_agent_state _dot_gstack_registration_cache_file \
+  _dot_gstack_source_fingerprint _dot_gstack_emit_target_entry \
+  _dot_gstack_emit_unexpected_managed_targets _dot_gstack_target_fingerprint \
+  _dot_gstack_cache_watch_entry_current _dot_gstack_registration_watch_current \
+  _dot_gstack_emit_watch_entry _dot_gstack_emit_source_watch_entries \
+  _dot_gstack_emit_target_watch_entries \
+  _dot_gstack_emit_registration_watch_entries \
+  _dot_gstack_registration_cache_current _dot_gstack_write_registration_cache \
+  shdeps_warn
+unset _DOT_GSTACK_SOURCE_CACHE_DIR _DOT_GSTACK_SOURCE_SKILL_DIRS \
+  _DOT_GSTACK_SOURCE_SKILL_NAMES _DOT_GSTACK_SOURCE_NAME_EXISTS \
+  _DOT_GSTACK_SOURCE_CODEX_NAME_EXISTS
+
+_gstack_merge_hook="$REAL_HOME/.local/lib/dot/core/merge-hooks/gstack.sh"
+_gstack_merge_home=$(_tmpdir)
+_gstack_merge_repo="$_gstack_merge_home/.local/share/garrytan/gstack"
+mkdir -p "$_gstack_merge_repo/qa" "$_gstack_merge_home/.codex" "$_gstack_merge_home/.gemini"
+ln -s "$_gstack_merge_repo" "$_gstack_merge_home/.gstack"
+cat >"$_gstack_merge_repo/SKILL.md" <<'MD'
+---
+name: gstack
+---
+MD
+mkdir -p "$_gstack_merge_repo/projects" "$_gstack_merge_repo/sessions"
+cat >"$_gstack_merge_repo/config.yaml" <<'YAML'
+proactive: true
+YAML
+touch "$_gstack_merge_repo/.codex-desc-healed"
+cat >"$_gstack_merge_repo/qa/SKILL.md" <<'MD'
+---
+name: qa
+---
+MD
+cat >"$_gstack_merge_repo/setup" <<'SH'
+#!/usr/bin/env bash
+printf 'setup %s\n' "$*" >>"$GSTACK_MERGE_LOG"
+SH
+chmod +x "$_gstack_merge_repo/setup"
+
+_gstack_merge_log=$(_tmpdir)/gstack-merge.log
+_gstack_merge_agent_bin=$(_mock_bin)
+cat >"$_gstack_merge_agent_bin/codex" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+chmod +x "$_gstack_merge_agent_bin/codex"
+_saved_home=$HOME
+_saved_path=$PATH
+HOME=$_gstack_merge_home
+# Keep this migration fixture independent of host-installed agents: it models a
+# Codex-only machine, so a real /usr/local/bin/gemini must not affect results.
+PATH="$_gstack_merge_agent_bin:/usr/bin:/bin"
+export GSTACK_MERGE_LOG=$_gstack_merge_log
+export DOT_GSTACK_REGISTER_LIB="$REAL_HOME/.local/lib/dot/gstack-register/api.sh"
+# shellcheck disable=SC2329  # sourced merge helper calls this by name.
+_warn() { printf '%s\n' "$*" >&2; }
+# shellcheck disable=SC2329  # sourced merge helper calls this by name.
+_log() { printf '%s\n' "$*" >/dev/null; }
+
+# shellcheck source=/dev/null
+. "$_gstack_merge_hook"
+
+if merge; then
+  _pass "gstack: dot update migration hook succeeds"
+else
+  _fail "gstack: dot update migration hook succeeds"
+fi
+_assert_eq "gstack: dot update migration does not run upstream setup" \
+  "" "$(cat "$_gstack_merge_log" 2>/dev/null)"
+_assert_file_exists "gstack: dot update migration links Codex skill" \
+  "$_gstack_merge_home/.codex/skills/gstack-qa/SKILL.md"
+_assert_file_exists "gstack: dot update migration records stamp" \
+  "$_gstack_merge_home/.gstack/.dot-agent-agnostic-install-v1"
+if [[ -d "$_gstack_merge_home/.gstack" && ! -L "$_gstack_merge_home/.gstack" ]]; then
+  _pass "gstack: dot update migration replaces legacy state symlink"
+else
+  _fail "gstack: dot update migration replaces legacy state symlink"
+fi
+_assert_file_exists "gstack: dot update migration preserves config state" \
+  "$_gstack_merge_home/.gstack/config.yaml"
+if [[ -d "$_gstack_merge_home/.gstack/projects" ]]; then
+  _pass "gstack: dot update migration preserves project state"
+else
+  _fail "gstack: dot update migration preserves project state"
+fi
+_assert_file_exists "gstack: dot update migration preserves hidden state markers" \
+  "$_gstack_merge_home/.gstack/.codex-desc-healed"
+_assert_file_missing "gstack: dot update migration removes state from checkout" \
+  "$_gstack_merge_repo/config.yaml"
+# Blast-radius invariant: migration moves ONLY whitelisted runtime entries. The
+# upstream checkout holds source content (skills, a setup script) with no
+# whitelist entry; those must stay in the checkout and must NOT be drained into
+# durable ~/.gstack state.
+_assert_file_exists "gstack: migration leaves unknown checkout skill in place" \
+  "$_gstack_merge_repo/qa/SKILL.md"
+_assert_file_exists "gstack: migration leaves the upstream setup script in place" \
+  "$_gstack_merge_repo/setup"
+_assert_file_exists "gstack: migration leaves the top-level source SKILL.md in place" \
+  "$_gstack_merge_repo/SKILL.md"
+_assert_file_missing "gstack: migration does not drain unknown skill into state" \
+  "$_gstack_merge_home/.gstack/qa/SKILL.md"
+_assert_file_missing "gstack: migration does not drain the setup script into state" \
+  "$_gstack_merge_home/.gstack/setup"
+_assert_file_missing "gstack: dot update skips Gemini when Gemini CLI is missing" \
+  "$_gstack_merge_home/.gemini/extensions/gstack/gemini-extension.json"
+
+: >"$_gstack_merge_log"
+rm -f "$_gstack_merge_home/.codex/skills/gstack-qa/SKILL.md"
+mkdir -p "$_gstack_merge_home/.gemini/extensions/gstack"
+cat >"$_gstack_merge_home/.gemini/extensions/gstack/gemini-extension.json" <<'JSON'
+{"name":"stale"}
+JSON
+ln -sfn "$_gstack_merge_repo/SKILL.md" "$_gstack_merge_home/.gemini/extensions/gstack/GEMINI.md"
+if merge; then
+  _pass "gstack: stamped migration refreshes lightweight registrations"
+else
+  _fail "gstack: stamped migration refreshes lightweight registrations"
+fi
+_assert_eq "gstack: stamped migration still skips upstream setup" "" "$(cat "$_gstack_merge_log")"
+_assert_file_exists "gstack: stamped migration restores missing Codex skill" \
+  "$_gstack_merge_home/.codex/skills/gstack-qa/SKILL.md"
+_assert_file_missing "gstack: stamped migration removes stale Gemini extension when CLI is missing" \
+  "$_gstack_merge_home/.gemini/extensions/gstack/gemini-extension.json"
+
+HOME=$_saved_home
+PATH=$_saved_path
+unset GSTACK_MERGE_LOG DOT_GSTACK_REGISTER_LIB
+unset -f merge dot_gstack_dir dot_gstack_migration_stamp \
+  dot_gstack_register_all dot_gstack_unregister_all _dot_gstack_warn \
+  _dot_gstack_log _dot_gstack_has_agent _dot_gstack_skill_name \
+  _dot_gstack_each_source_skill _dot_gstack_load_source_skills \
+  _dot_gstack_reset_source_cache \
+  _dot_gstack_codex_skill_name _dot_gstack_codex_skill_name_exists \
+  _dot_gstack_is_prefixed_skill_name _dot_gstack_each_prefixed_skill_target \
+  _dot_gstack_remove_link_if_managed \
+  _dot_gstack_points_to_gstack _dot_gstack_points_to_dotfiles_skills \
+  _dot_gstack_points_to_managed_gstack _dot_gstack_skill_dir_is_managed \
+  _dot_gstack_managed_marker _dot_gstack_mark_managed_dir \
+  _dot_gstack_state_dir _dot_gstack_generated_skills_dir \
+  _dot_gstack_state_entry_is_known \
+  _dot_gstack_migrate_state_dir \
+  _dot_gstack_codex_root_is_managed _dot_gstack_gemini_extension_is_managed \
+  _dot_gstack_legacy_codex_fixed_copy_is_gstack \
+  _dot_gstack_prune_stale_claude _dot_gstack_prune_stale_codex \
+  _dot_gstack_prune_stale_gemini _dot_gstack_prune_stale_generated_skills \
+  _dot_gstack_link_generated_skill _dot_gstack_register_claude \
+  _dot_gstack_generated_skill_current _dot_gstack_write_skill_md \
+  _dot_gstack_write_gemini_context _dot_gstack_write_generated_skills \
+  _dot_gstack_remove_skill_link \
+  _dot_gstack_register_codex _dot_gstack_register_gemini \
+  _dot_gstack_unregister_generated_skills _dot_gstack_unregister_codex \
+  _dot_gstack_unregister_gemini _warn _log
+unset -f _dot_gstack_agent_state _dot_gstack_registration_cache_file \
+  _dot_gstack_source_fingerprint _dot_gstack_emit_target_entry \
+  _dot_gstack_emit_unexpected_managed_targets _dot_gstack_target_fingerprint \
+  _dot_gstack_cache_watch_entry_current _dot_gstack_registration_watch_current \
+  _dot_gstack_emit_watch_entry _dot_gstack_emit_source_watch_entries \
+  _dot_gstack_emit_target_watch_entries \
+  _dot_gstack_emit_registration_watch_entries \
+  _dot_gstack_registration_cache_current _dot_gstack_write_registration_cache
+unset _DOT_GSTACK_SOURCE_CACHE_DIR _DOT_GSTACK_SOURCE_SKILL_DIRS \
+  _DOT_GSTACK_SOURCE_SKILL_NAMES _DOT_GSTACK_SOURCE_NAME_EXISTS \
+  _DOT_GSTACK_SOURCE_CODEX_NAME_EXISTS
+
+# ---------------------------------------------------------------------------
+# gstack migration: the two non-destructive branches. The happy-path drain (and
+# its whitelist invariant) is covered above; these guard the safety branches.
+# Run the function in a fresh shell that sources only the migration units, so
+# _dot_gstack_state_dir resolves from a controlled HOME.
+# ---------------------------------------------------------------------------
+echo "=== gstack migration: safety branches ==="
+_gstack_mig_lib="$REAL_HOME/.local/lib/dot/gstack-register"
+_run_gstack_migrate() { # $1=HOME  $2=expected-checkout arg
+  HOME="$1" bash -c '
+    . "$1/paths.sh"
+    . "$1/migration.sh"
+    _dot_gstack_migrate_state_dir "$2"
+  ' _ "$_gstack_mig_lib" "$2" 2>&1
+}
+
+# Non-symlink ~/.gstack that already exists: leave its contents intact (the
+# branch is a no-op besides ensuring the dir exists). "keep left intact" is the
+# red-green assertion — a destructive rewrite of this branch loses it.
+_gm_home=$(_tmpdir)
+mkdir -p "$_gm_home/.gstack"
+: >"$_gm_home/.gstack/keep"
+_run_gstack_migrate "$_gm_home" "$(_tmpdir)" >/dev/null
+_assert_file_exists "gstack migrate: existing non-symlink state dir is left intact" \
+  "$_gm_home/.gstack/keep"
+
+# Non-symlink ~/.gstack that is absent: the branch creates it as a real dir.
+_gm_home_abs=$(_tmpdir)
+rm -rf "$_gm_home_abs/.gstack"
+_run_gstack_migrate "$_gm_home_abs" "$(_tmpdir)" >/dev/null
+if [[ -d "$_gm_home_abs/.gstack" && ! -L "$_gm_home_abs/.gstack" ]]; then
+  _pass "gstack migrate: absent state dir is created as a real directory"
+else
+  _fail "gstack migrate: absent state dir is created as a real directory"
+fi
+
+# ~/.gstack is a symlink to an UNEXPECTED target (not the managed checkout):
+# refuse — warn and leave the symlink pointing exactly where it did, rather than
+# replacing it with a real dir. (The drain source is the arg, not the symlink
+# target, so the meaningful guard is that the symlink is left untouched.)
+_gm_home2=$(_tmpdir)
+_gm_elsewhere=$(_tmpdir)
+ln -s "$_gm_elsewhere" "$_gm_home2/.gstack"
+_gm_checkout2=$(_tmpdir) # the expected checkout, different from the symlink target
+_gm_out=$(_run_gstack_migrate "$_gm_home2" "$_gm_checkout2")
+if [[ -L "$_gm_home2/.gstack" ]]; then
+  _pass "gstack migrate: unexpected symlink is not replaced"
+else
+  _fail "gstack migrate: unexpected symlink is not replaced"
+fi
+_assert_eq "gstack migrate: unexpected symlink still points to its original target" \
+  "$_gm_elsewhere" "$(readlink "$_gm_home2/.gstack")"
+_assert_contains "gstack migrate: warns on unexpected symlink target" "unexpected" "$_gm_out"
+
+echo "=== Hive Memory hook ==="
+
+_hive_memory_dep=$(
+  awk '$1 == "cgraf78/hive-memory" { print; exit }' \
+    "$REAL_HOME/.config/shdeps/10-deps.conf"
+)
+_assert_eq "hive-memory: dependency uses native github updater" \
+  "github" "$(awk '{ print $2 }' <<<"$_hive_memory_dep")"
+_assert_eq "hive-memory: dependency exposes hm command" \
+  "hm" "$(awk '{ print $3 }' <<<"$_hive_memory_dep")"
+_hive_memory_base_config=$(
+  git --git-dir="$REAL_HOME/.dotfiles" --work-tree="$REAL_HOME" \
+    ls-files -- .config/hive-memory/config.toml 2>/dev/null ||
+    git -C "$REAL_HOME" ls-files -- .config/hive-memory/config.toml 2>/dev/null ||
+    true
+)
+if [[ -z "$_hive_memory_base_config" ]]; then
+  _pass "hive-memory: base does not track personal store config"
+else
+  _fail "hive-memory: base does not track personal store config"
+fi
+
+_hive_memory_hook="$REAL_HOME/.config/shdeps/hooks.d/cgraf78/hive-memory.sh"
+
+# shellcheck source=/dev/null
+. "$_hive_memory_hook"
+
+_hm_home=$(_tmpdir)
+_hm_bin=$(_tmpdir)
+mkdir -p "$_hm_home/cgraf78/hive-memory"
+cat >"$_hm_home/cgraf78/hive-memory/hm" <<'HM'
+#!/usr/bin/env bash
+if [ "${1:-}" = "env-probe" ]; then
+  printf 'agent=%s\n' "${HIVE_MEMORY_AGENT_ID:-}"
+  printf 'session=%s\n' "${HIVE_MEMORY_SESSION_ID:-}"
+  printf 'project=%s\n' "${HIVE_MEMORY_PROJECT:-}"
+  exit 0
+fi
+echo "hm 0.1.0"
+HM
+chmod +x "$_hm_home/cgraf78/hive-memory/hm"
+
+_saved_path=$PATH
+PATH="/usr/bin:/bin"
+# shellcheck disable=SC2329  # hook install calls this by name.
+shdeps_install_dir() { echo "$_hm_home"; }
+# shellcheck disable=SC2329  # hook install calls this by name.
+shdeps_bin_dir() { echo "$_hm_bin"; }
+
+if post "cgraf78/hive-memory"; then
+  _pass "hive-memory: post hook succeeds"
+else
+  _fail "hive-memory: post hook succeeds"
+fi
+_assert_file_exists "hive-memory: post hook moves release binary to core path" "$_hm_home/hive-memory/bin/hm-core"
+if [[ -L "$_hm_bin/hm" ]]; then
+  _pass "hive-memory: linked hm launcher into PATH"
+else
+  _fail "hive-memory: linked hm launcher into PATH"
+fi
+PATH="$_hm_bin:$PATH"
+export HIVE_MEMORY_CORE="$_hm_home/hive-memory/bin/hm-core"
+# Baseline scrub for every hm env-probe case: clear all ambient agent-identity
+# and project vars so each probe exercises only the vars it sets, regardless of
+# which agent runs the suite (Claude exports CLAUDE_CODE_SESSION_ID, Codex
+# CODEX_THREAD_ID, etc.). env applies operands left to right, so each probe
+# appends its own overrides after this array and they win.
+_hm_scrub_env=(
+  AGENTGUARD_PROCESS_DETECT=0
+  CODEX_THREAD_ID=
+  CODEX_INTERNAL_ORIGINATOR_OVERRIDE=
+  CLAUDE_CODE_CURRENT_SESSION_ID=
+  CLAUDE_CODE_SESSION_ID=
+  AGENTGUARD_NAME=
+  GEMINI_PROJECT_DIR=
+  HIVE_MEMORY_AGENT_ID=
+  HIVE_MEMORY_SESSION_ID=
+  HIVE_MEMORY_PROJECT=
+)
+_hm_plain_probe=$(env "${_hm_scrub_env[@]}" "$_hm_bin/hm" env-probe)
+_assert_contains "hive-memory: launcher leaves human agent unset" \
+  "agent=" "$_hm_plain_probe"
+_assert_contains "hive-memory: launcher leaves human session unset" \
+  "session=" "$_hm_plain_probe"
+_hm_env_probe=$(env "${_hm_scrub_env[@]}" \
+  CODEX_THREAD_ID="codex-session-1" \
+  "$_hm_bin/hm" env-probe)
+_assert_contains "hive-memory: launcher detects Codex agent" \
+  "agent=codex" "$_hm_env_probe"
+_assert_contains "hive-memory: launcher exports Codex session" \
+  "session=codex-session-1" "$_hm_env_probe"
+_assert_contains "hive-memory: launcher exports project hint" \
+  "project=$(pwd)" "$_hm_env_probe"
+_hm_dot_agent_probe=$(env "${_hm_scrub_env[@]}" \
+  AGENTGUARD_NAME="codex" \
+  "$_hm_bin/hm" env-probe)
+_assert_contains "hive-memory: launcher uses explicit dot agent name" \
+  "agent=codex" "$_hm_dot_agent_probe"
+_assert_contains "hive-memory: launcher synthesizes dot agent session" \
+  "session=codex-" "$_hm_dot_agent_probe"
+_hm_explicit_agent_probe=$(env "${_hm_scrub_env[@]}" \
+  AGENTGUARD_NAME="codex" \
+  CODEX_THREAD_ID="codex-session-2" \
+  HIVE_MEMORY_AGENT_ID="custom-agent" \
+  "$_hm_bin/hm" env-probe)
+_assert_contains "hive-memory: launcher preserves explicit agent override" \
+  "agent=custom-agent" "$_hm_explicit_agent_probe"
+_assert_contains "hive-memory: launcher keeps detected runtime session" \
+  "session=codex-session-2" "$_hm_explicit_agent_probe"
+_hm_no_project_probe=$(env "${_hm_scrub_env[@]}" \
+  AGENTGUARD_NAME="codex" \
+  CODEX_THREAD_ID="codex-session-3" \
+  HIVE_MEMORY_PROJECT_INFER=0 \
+  "$_hm_bin/hm" env-probe)
+_assert_eq "hive-memory: launcher keeps project unset when inference disabled" \
+  "project=" "$(printf '%s\n' "$_hm_no_project_probe" | grep '^project=')"
+
+PATH=$_saved_path
+unset HIVE_MEMORY_CORE
+unset -f post uninstall shdeps_install_dir shdeps_bin_dir
+
+echo "=== RuboCop hook ==="
+
+_rubocop_hook="$REAL_HOME/.config/shdeps/hooks.d/rubocop.sh"
+
+# The hooks now record skips through shdeps' binary-backed helpers, which shdeps
+# provides at runtime. Mock them onto the test's install dir so coverage stays
+# hermetic (shdeps itself is tested in its own repo). They resolve the install
+# dir at call time, so each block's shdeps_install_dir mock drives them.
+# shellcheck disable=SC2329  # invoked indirectly by the sourced hook.
+shdeps_skip() {
+  local marker
+  marker="$(shdeps_install_dir)/$1/.skipped"
+  mkdir -p "$(dirname "$marker")"
+  printf '%s\n' "${2:-skipped}" >"$marker"
+}
+# shellcheck disable=SC2329  # invoked indirectly by the sourced hook.
+shdeps_skipped() { [[ -f "$(shdeps_install_dir)/$1/.skipped" ]]; }
+# shellcheck disable=SC2329  # invoked indirectly by the sourced hook.
+shdeps_skip_reason() {
+  [[ -f "$(shdeps_install_dir)/$1/.skipped" ]] || return 1
+  head -1 "$(shdeps_install_dir)/$1/.skipped"
+}
+# shellcheck disable=SC2329  # invoked indirectly by the sourced hook.
+shdeps_unskip() { rm -f "$(shdeps_install_dir)/$1/.skipped"; }
+
+# Mirror shdeps_write_wrapper (used by the php/java hooks) onto the mocked bin
+# dir: parse "[--env V]... <name> <interp> [args...] -- <payload>" and emit the
+# same `exec <interp> <args...> <payload> "$@"` launcher the real helper writes.
+# shellcheck disable=SC2329  # invoked indirectly by the sourced hook.
+shdeps_write_wrapper() {
+  local env_lines=() head=() payload="" saw_sep=0
+  while [[ $# -gt 0 ]]; do
+    if [[ "$saw_sep" -eq 1 ]]; then
+      payload="$1"
+      shift
+      continue
+    fi
+    case "$1" in
+      --env)
+        env_lines+=("$2")
+        shift 2
+        ;;
+      --)
+        saw_sep=1
+        shift
+        ;;
+      *)
+        head+=("$1")
+        shift
+        ;;
+    esac
+  done
+  local wrapper
+  wrapper="$(shdeps_bin_dir)/${head[0]}"
+  mkdir -p "$(dirname "$wrapper")"
+  {
+    printf '#!/usr/bin/env bash\n'
+    local line
+    for line in ${env_lines[@]+"${env_lines[@]}"}; do
+      printf 'export %s\n' "$line"
+    done
+    printf 'exec'
+    local token
+    for token in "${head[@]:1}"; do
+      printf ' %q' "$token"
+    done
+    printf ' %q "$@"\n' "$payload"
+  } >"$wrapper"
+  chmod u+x "$wrapper"
+  printf '%s\n' "$wrapper"
+}
+
+_minimal_bin_with() {
+  local bin cmd
+  bin=$(_mock_bin)
+  for cmd in "$@"; do
+    ln -s "$(command -v "$cmd")" "$bin/$cmd"
+  done
+  echo "$bin"
+}
+
+# shellcheck source=/dev/null
+. "$_rubocop_hook"
+
+_blocked_gem=$(_mock_bin)
+_real_gem=$(_mock_bin)
+cat >"$_blocked_gem/gem" <<'EOF'
+#!/usr/bin/env bash
+echo "gem install blocked by local policy"
+exit 1
+EOF
+chmod +x "$_blocked_gem/gem"
+cat >"$_real_gem/gem" <<'EOF'
+#!/usr/bin/env bash
+case "$*" in
+  "--version") echo "3.2.33" ;;
+  *) echo "REAL-GEM $*" ;;
+esac
+EOF
+chmod +x "$_real_gem/gem"
+
+_saved_path=$PATH
+PATH="$_blocked_gem:$_real_gem:$PATH"
+_selected=$(_rubocop_gem 2>/dev/null || true)
+PATH=$_saved_path
+_assert_eq "rubocop: gem helper skips blocked wrapper" \
+  "$_real_gem/gem" "$_selected"
+
+_home=$(_tmpdir)
+_bin=$(_tmpdir)
+_minimal_bin=$(_minimal_bin_with bash cat dirname head mkdir)
+_pkg_log=$(_tmpdir)/pkg.log
+_saved_path=$PATH
+PATH=$_minimal_bin
+# shellcheck disable=SC2329  # hook install calls this by name.
+shdeps_pkg_install_for_mgr() {
+  printf '%s\n' "$*" >>"$_pkg_log"
+  return 1
+}
+# shellcheck disable=SC2329  # hook install calls this by name.
+shdeps_install_dir() { echo "$_home"; }
+# shellcheck disable=SC2329  # hook install calls this by name.
+shdeps_bin_dir() { echo "$_bin"; }
+# shellcheck disable=SC2329  # hook exists calls this by name.
+shdeps_reinstall() { return 1; }
+# shellcheck disable=SC2329  # hook install calls this by name.
+shdeps_log() { printf '%s\n' "$*" >&2; }
+# shellcheck disable=SC2329  # test controls RubyGems availability.
+_rubocop_gem() { return 1; }
+
+if install; then
+  _pass "rubocop: missing RubyGems skips without failing shdeps"
+else
+  _fail "rubocop: missing RubyGems skips without failing shdeps"
+fi
+_assert_file_exists "rubocop: skip marker records unavailable RubyGems" \
+  "$_home/rubocop/.skipped"
+if exists; then
+  _pass "rubocop: skip marker satisfies shdeps exists check"
+else
+  _fail "rubocop: skip marker satisfies shdeps exists check"
+fi
+_assert_contains "rubocop: skipped version explains unavailable RubyGems" \
+  "RubyGems unavailable" "$(version)"
+_assert_not_contains "rubocop: hook does not install apt Ruby runtime" \
+  "apt:ruby-full" "$(cat "$_pkg_log")"
+_assert_not_contains "rubocop: hook does not install dnf Ruby runtime" \
+  "dnf:ruby " "$(cat "$_pkg_log")"
+_assert_not_contains "rubocop: hook does not install RubyGems runtime" \
+  "dnf:rubygems" "$(cat "$_pkg_log")"
+
+# shellcheck disable=SC2329  # test controls RubyGems availability.
+_rubocop_gem() { echo "$_real_gem/gem"; }
+if exists; then
+  _fail "rubocop: RubyGems availability invalidates skip marker"
+else
+  _pass "rubocop: RubyGems availability invalidates skip marker"
+fi
+PATH=$_saved_path
+unset -f shdeps_pkg_install_for_mgr shdeps_install_dir shdeps_bin_dir \
+  shdeps_reinstall shdeps_log _rubocop_gem
+# shellcheck source=/dev/null
+. "$_rubocop_hook"
+
+_blocked_gem=$(_mock_bin)
+_real_gem=$(_mock_bin)
+_home=$(_tmpdir)
+_bin=$(_tmpdir)
+_gem_home="$_home/gems"
+cat >"$_blocked_gem/gem" <<'EOF'
+#!/usr/bin/env bash
+echo "gem install blocked by local policy"
+exit 1
+EOF
+chmod +x "$_blocked_gem/gem"
+cat >"$_real_gem/gem" <<'EOF'
+#!/usr/bin/env bash
+case "$*" in
+  "--version") echo "3.2.33" ;;
+  "env user_gemhome") echo "$MOCK_GEM_HOME" ;;
+  install*)
+    mkdir -p "$MOCK_GEM_HOME/bin"
+    cat >"$MOCK_GEM_HOME/bin/rubocop" <<'RUBOCOP'
+#!/usr/bin/env bash
+printf 'RUBOCOP-WRAPPED %s\n' "$*"
+RUBOCOP
+    chmod +x "$MOCK_GEM_HOME/bin/rubocop"
+    ;;
+  *) exit 1 ;;
+esac
+EOF
+chmod +x "$_real_gem/gem"
+
+PATH="$_blocked_gem:$_real_gem:$PATH"
+export MOCK_GEM_HOME="$_gem_home"
+# shellcheck disable=SC2329  # hook install calls this by name.
+shdeps_pkg_install_for_mgr() { return 1; }
+# shellcheck disable=SC2329  # hook install calls this by name.
+shdeps_install_dir() { echo "$_home"; }
+# shellcheck disable=SC2329  # hook install calls this by name.
+shdeps_bin_dir() { echo "$_bin"; }
+# shellcheck disable=SC2329  # hook install calls this by name.
+shdeps_warn() { printf '%s\n' "$*" >&2; }
+
+if install; then
+  _pass "rubocop: install succeeds with usable gem behind blocked wrapper"
+else
+  _fail "rubocop: install succeeds with usable gem behind blocked wrapper"
+fi
+_assert_file_exists "rubocop: wrapper created from usable gem" "$_bin/rubocop"
+_assert_contains "rubocop: wrapper executes installed gem binary" \
+  "RUBOCOP-WRAPPED --version" "$("$_bin/rubocop" --version 2>/dev/null || true)"
+
+_failing_gem=$(_mock_bin)
+_minimal_bin=$(_minimal_bin_with awk bash dirname head mkdir)
+_home=$(_tmpdir)
+_bin=$(_tmpdir)
+cat >"$_failing_gem/gem" <<'EOF'
+#!/usr/bin/env bash
+case "$*" in
+  "--version") echo "3.2.33" ;;
+  install*) echo "ERROR: 403 Forbidden"; exit 1 ;;
+  *) exit 1 ;;
+esac
+EOF
+chmod +x "$_failing_gem/gem"
+
+_saved_path=$PATH
+PATH="$_failing_gem:$_minimal_bin"
+# shellcheck disable=SC2329  # hook install calls this by name.
+shdeps_pkg_install_for_mgr() { return 1; }
+# shellcheck disable=SC2329  # hook install calls this by name.
+shdeps_install_dir() { echo "$_home"; }
+# shellcheck disable=SC2329  # hook install calls this by name.
+shdeps_bin_dir() { echo "$_bin"; }
+# shellcheck disable=SC2329  # hook exists calls this by name.
+shdeps_reinstall() { return 1; }
+# shellcheck disable=SC2329  # hook install calls this by name.
+shdeps_log() { printf '%s\n' "$*" >&2; }
+
+if install; then
+  _pass "rubocop: unavailable gem install skips without failing shdeps"
+else
+  _fail "rubocop: unavailable gem install skips without failing shdeps"
+fi
+_assert_file_exists "rubocop: skip marker records unavailable install" \
+  "$_home/rubocop/.skipped"
+if exists; then
+  _pass "rubocop: skip marker satisfies shdeps exists check"
+else
+  _fail "rubocop: skip marker satisfies shdeps exists check"
+fi
+_assert_contains "rubocop: skipped version explains unavailable tool" \
+  "skipped" "$(version)"
+PATH=$_saved_path
+
+unset -f exists version install uninstall
+
+echo "=== EditorConfig checker hook ==="
+
+_editorconfig_hook="$REAL_HOME/.config/shdeps/hooks.d/editorconfig-checker.sh"
+
+# shellcheck source=/dev/null
+. "$_editorconfig_hook"
+
+_broken_ec=$(_mock_bin)
+_working_ec=$(_mock_bin)
+_later_checker=$(_mock_bin)
+cat >"$_broken_ec/ec" <<'EOF'
+#!/usr/bin/env bash
+case "$*" in
+  "--version") echo "broken shim"; exit 1 ;;
+  *) echo "BROKEN-EC-SHOULD-NOT-RUN"; exit 10 ;;
+esac
+EOF
+chmod +x "$_broken_ec/ec"
+cat >"$_working_ec/ec" <<'EOF'
+#!/usr/bin/env bash
+case "$*" in
+  "--version") echo "3.6.1"; exit 0 ;;
+  *) echo "MOCK-WORKING-EC-ARGS: $*"; exit 8 ;;
+esac
+EOF
+chmod +x "$_working_ec/ec"
+cat >"$_later_checker/editorconfig-checker" <<'EOF'
+#!/usr/bin/env bash
+case "$*" in
+  "--version") echo "3.5.0"; exit 0 ;;
+  *) echo "LATER-CHECKER-SHOULD-NOT-RUN"; exit 0 ;;
+esac
+EOF
+chmod +x "$_later_checker/editorconfig-checker"
+
+_saved_path=$PATH
+PATH="$_broken_ec:$_working_ec:$_later_checker:$PATH"
+_selected=$(_editorconfig_checker_cmd 2>/dev/null || true)
+PATH=$_saved_path
+_assert_eq "editorconfig: helper skips broken ec shim" \
+  "$_working_ec/ec" "$_selected"
+
+PATH="$_broken_ec"
+if exists; then
+  _fail "editorconfig: broken ec shim is not installed"
+else
+  _pass "editorconfig: broken ec shim is not installed"
+fi
+PATH=$_saved_path
+
+_package_bin=$(_mock_bin)
+_bin=$(_tmpdir)
+cat >"$_package_bin/editorconfig-checker" <<'EOF'
+#!/usr/bin/env bash
+case "$*" in
+  "--version") echo "3.6.1"; exit 0 ;;
+  *) echo "MOCK-PACKAGE-EC-ARGS: $*"; exit 8 ;;
+esac
+EOF
+chmod +x "$_package_bin/editorconfig-checker"
+
+PATH="$_bin:$_package_bin:$PATH"
+# shellcheck disable=SC2329  # hook install calls this by name.
+shdeps_bin_dir() { echo "$_bin"; }
+
+if post "editorconfig-checker"; then
+  _pass "editorconfig: post hook links package binary as ec"
+else
+  _fail "editorconfig: post hook links package binary as ec"
+fi
+_assert_file_exists "editorconfig: post hook creates ec link" "$_bin/ec"
+_assert_eq "editorconfig: linked package ec becomes selected command" \
+  "$_bin/ec" "$(_editorconfig_checker_cmd 2>/dev/null || true)"
+PATH=$_saved_path
+
+unset -f exists version post uninstall shdeps_bin_dir
+
+echo "=== php-cs-fixer hook ==="
+
+_php_cs_fixer_hook="$REAL_HOME/.config/shdeps/hooks.d/php-cs-fixer.sh"
+
+# shellcheck source=/dev/null
+. "$_php_cs_fixer_hook"
+
+_home=$(_tmpdir)
+_bin=$(_tmpdir)
+_pkg_log=$(_tmpdir)/pkg.log
+_php_saved_path=$PATH
+PATH=/usr/bin:/bin
+
+# shellcheck disable=SC2329  # hook install calls this by name.
+shdeps_pkg_install_for_mgr() {
+  printf '%s\n' "$*" >>"$_pkg_log"
+  return 1
+}
+# shellcheck disable=SC2329  # hook install calls this by name.
+shdeps_install_dir() { echo "$_home"; }
+# shellcheck disable=SC2329  # hook install calls this by name.
+shdeps_bin_dir() { echo "$_bin"; }
+# shellcheck disable=SC2329  # hook exists calls this by name.
+shdeps_reinstall() { return 1; }
+# shellcheck disable=SC2329  # hook install calls this by name.
+shdeps_log() { printf '%s\n' "$*" >&2; }
+# shellcheck disable=SC2329  # test controls PHP availability.
+_php_cs_fixer_php() { return 1; }
+
+if install; then
+  _pass "php-cs-fixer: missing PHP skips without failing shdeps"
+else
+  _fail "php-cs-fixer: missing PHP skips without failing shdeps"
+fi
+_assert_file_exists "php-cs-fixer: skip marker records unavailable PHP" \
+  "$_home/php-cs-fixer/.skipped"
+if exists; then
+  _pass "php-cs-fixer: skip marker satisfies shdeps exists check"
+else
+  _fail "php-cs-fixer: skip marker satisfies shdeps exists check"
+fi
+_assert_contains "php-cs-fixer: skipped version explains unavailable tool" \
+  "skipped" "$(version)"
+_assert_not_contains "php-cs-fixer: hook does not install PHP package" \
+  "php-cli" "$(cat "$_pkg_log")"
+
+_php_bin=$(_mock_bin)
+cat >"$_php_bin/php" <<'EOF'
+#!/usr/bin/env bash
+printf 'MOCK-PHP %s\n' "$*"
+EOF
+chmod +x "$_php_bin/php"
+# shellcheck disable=SC2329  # test controls PHP availability.
+_php_cs_fixer_php() { echo "$_php_bin/php"; }
+
+if exists; then
+  _fail "php-cs-fixer: PHP availability invalidates skip marker"
+else
+  _pass "php-cs-fixer: PHP availability invalidates skip marker"
+fi
+
+_curl_bin=$(_mock_bin)
+cat >"$_curl_bin/curl" <<'EOF'
+#!/usr/bin/env bash
+out=""
+prev=""
+for arg in "$@"; do
+  if [[ "$prev" == "-o" ]]; then
+    out=$arg
+    break
+  fi
+  prev=$arg
+done
+
+[[ -n "$out" ]] || exit 1
+printf '%s\n' "mock phar" >"$out"
+EOF
+chmod +x "$_curl_bin/curl"
+
+PATH="$_curl_bin:/usr/bin:/bin"
+if install; then
+  _pass "php-cs-fixer: existing PHP installs PHAR wrapper"
+else
+  _fail "php-cs-fixer: existing PHP installs PHAR wrapper"
+fi
+PATH=$_php_saved_path
+_assert_file_exists "php-cs-fixer: wrapper created" \
+  "$_bin/php-cs-fixer"
+_assert_file_missing "php-cs-fixer: successful install clears skip marker" \
+  "$_home/php-cs-fixer/.skipped"
+_assert_contains "php-cs-fixer: wrapper uses pinned PHP" \
+  "MOCK-PHP $_home/php-cs-fixer/php-cs-fixer.phar --version" \
+  "$("$_bin/php-cs-fixer" --version 2>/dev/null || true)"
+
+unset -f exists version install uninstall shdeps_pkg_install_for_mgr \
+  shdeps_github_release_install shdeps_bin_dir
+
+echo "=== google-java-format hook ==="
+
+_google_java_format_hook="$REAL_HOME/.config/shdeps/hooks.d/google-java-format.sh"
+
+# shellcheck source=/dev/null
+. "$_google_java_format_hook"
+
+_home=$(_tmpdir)
+_bin=$(_tmpdir)
+_pkg_log=$(_tmpdir)/pkg.log
+_google_saved_path=$PATH
+PATH=/usr/bin:/bin
+
+# shellcheck disable=SC2329  # hook install calls this by name.
+shdeps_pkg_install_for_mgr() {
+  printf '%s\n' "$*" >>"$_pkg_log"
+  return 1
+}
+# shellcheck disable=SC2329  # hook install calls this by name.
+shdeps_install_dir() { echo "$_home"; }
+# shellcheck disable=SC2329  # hook install calls this by name.
+shdeps_bin_dir() { echo "$_bin"; }
+# shellcheck disable=SC2329  # hook exists calls this by name.
+shdeps_reinstall() { return 1; }
+# shellcheck disable=SC2329  # hook install calls this by name.
+shdeps_log() { printf '%s\n' "$*" >&2; }
+# shellcheck disable=SC2329  # test controls Java availability.
+_google_java_format_java() { return 1; }
+
+if install; then
+  _pass "google-java-format: missing Java skips without failing shdeps"
+else
+  _fail "google-java-format: missing Java skips without failing shdeps"
+fi
+_assert_file_exists "google-java-format: skip marker records unavailable Java" \
+  "$_home/google-java-format/.skipped"
+if exists; then
+  _pass "google-java-format: skip marker satisfies shdeps exists check"
+else
+  _fail "google-java-format: skip marker satisfies shdeps exists check"
+fi
+_assert_contains "google-java-format: skipped version explains unavailable tool" \
+  "skipped" "$(version)"
+_assert_not_contains "google-java-format: hook does not install JRE package" \
+  "jre-openjdk-headless" "$(cat "$_pkg_log")"
+
+_java_bin=$(_mock_bin)
+cat >"$_java_bin/java" <<'EOF'
+#!/usr/bin/env bash
+printf 'MOCK-JAVA %s\n' "$*"
+EOF
+chmod +x "$_java_bin/java"
+# shellcheck disable=SC2329  # test controls Java availability.
+_google_java_format_java() { echo "$_java_bin/java"; }
+
+if exists; then
+  _fail "google-java-format: Java availability invalidates skip marker"
+else
+  _pass "google-java-format: Java availability invalidates skip marker"
+fi
+
+_curl_bin=$(_mock_bin)
+cat >"$_curl_bin/curl" <<'EOF'
+#!/usr/bin/env bash
+out=""
+prev=""
+for arg in "$@"; do
+  if [[ "$prev" == "-o" ]]; then
+    out=$arg
+    break
+  fi
+  prev=$arg
+done
+
+case "$*" in
+  *"/releases/latest"*)
+    printf '%s\n' '{"tag_name":"v1.27.0","assets":[{"browser_download_url":"https://example.test/google-java-format-all-deps.jar"}]}'
+    ;;
+  *)
+    [[ -n "$out" ]] || exit 1
+    printf '%s\n' "mock jar" >"$out"
+    ;;
+esac
+EOF
+chmod +x "$_curl_bin/curl"
+
+PATH="$_curl_bin:/usr/bin:/bin"
+if install; then
+  _pass "google-java-format: existing Java installs jar wrapper"
+else
+  _fail "google-java-format: existing Java installs jar wrapper"
+fi
+PATH=$_google_saved_path
+_assert_file_exists "google-java-format: wrapper created" \
+  "$_bin/google-java-format"
+_assert_file_missing "google-java-format: successful install clears skip marker" \
+  "$_home/google-java-format/.skipped"
+_assert_contains "google-java-format: wrapper uses pinned Java" \
+  "MOCK-JAVA -jar $_home/google-java-format/google-java-format.jar --version" \
+  "$("$_bin/google-java-format" --version 2>/dev/null || true)"
+
+_test_summary

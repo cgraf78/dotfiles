@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+# Dotfiles-owned front door for the generic `hm` binary.
+#
+# The Hive Memory core tool intentionally stays standalone and vendor-neutral.
+# Agent sessions still need a small amount of host-specific glue, though:
+# `hm remember` can only write a session receipt when it sees the active agent
+# session id, and hook policy uses those receipts to clear end-of-session memory
+# reminders. Keep that runtime detection here rather than baking dotfiles or
+# agent-specific launch details into the generic binary.
+
+set -euo pipefail
+
+_hm_core="${HIVE_MEMORY_CORE:-$HOME/.local/share/hive-memory/bin/hm-core}"
+
+if [[ ! -x "$_hm_core" ]]; then
+  printf 'hm: core binary missing at %s\n' "$_hm_core" >&2
+  printf 'hm: run dot update to install Hive Memory\n' >&2
+  exit 127
+fi
+
+if [[ -r "$HOME/.local/lib/dot/core/shdeps-assets.sh" ]]; then
+  # shellcheck source=../core/shdeps-assets.sh
+  . "$HOME/.local/lib/dot/core/shdeps-assets.sh"
+fi
+
+if declare -F dot_shdeps_dep_source >/dev/null 2>&1; then
+  # Reuse the same public detector API as the agent hooks so normal `hm`
+  # commands and hook invocations agree on whether the caller is Claude, Codex,
+  # Gemini, or a human shell. The generic hm-core binary stays vendor-neutral;
+  # this launcher owns dotfiles/runtime-specific inference.
+  dot_shdeps_dep_source cgraf78/agentguard lib/agentguard/agentguard.sh 2>/dev/null || true
+fi
+
+_hm_agent_runtime=0
+_hm_explicit_agent="${HIVE_MEMORY_AGENT_ID:-}"
+_hm_detected_agent=""
+if declare -F agentguard_agent_name >/dev/null 2>&1; then
+  _hm_detected_agent=$(agentguard_agent_name)
+  [[ "$_hm_detected_agent" != "unknown" ]] || _hm_detected_agent=""
+fi
+
+# Keep the launcher useful in minimal shdeps/test environments where the
+# agentguard helper is not installed yet. These are the same public environment
+# variables agentguard consumes, but reading them directly avoids losing Hive
+# Memory receipts during bootstrap or partial installs.
+if [[ -z "$_hm_detected_agent" ]]; then
+  if [[ -n "${AGENTGUARD_NAME:-}" ]]; then
+    _hm_detected_agent="$AGENTGUARD_NAME"
+  elif [[ -n "${CODEX_THREAD_ID:-}" || -n "${CODEX_INTERNAL_ORIGINATOR_OVERRIDE:-}" ]]; then
+    _hm_detected_agent="codex"
+  elif [[ -n "${CLAUDE_CODE_CURRENT_SESSION_ID:-}" || -n "${CLAUDE_CODE_SESSION_ID:-}" ]]; then
+    _hm_detected_agent="claude"
+  elif [[ -n "${GEMINI_PROJECT_DIR:-}" ]]; then
+    _hm_detected_agent="gemini"
+  fi
+fi
+_hm_agent_name="${_hm_explicit_agent:-$_hm_detected_agent}"
+
+# Only infer context inside known agent runtimes. Human shells should keep the
+# plain `hm` behavior unless they explicitly export HIVE_MEMORY_* themselves.
+if [[ -n "$_hm_agent_name" ]]; then
+  _hm_agent_runtime=1
+  export HIVE_MEMORY_AGENT_ID="${HIVE_MEMORY_AGENT_ID:-$_hm_agent_name}"
+
+  # Session ids are best-effort for direct agent shell use. Hooks pass their
+  # already-normalized session key explicitly; direct `hm remember`/`hm note`
+  # calls should still get enough context to coordinate pending-memory receipts
+  # when the runtime exposes a durable id.
+  if [[ -z "${HIVE_MEMORY_SESSION_ID:-}" ]]; then
+    # If the caller explicitly overrides the agent label, still prefer the
+    # detected runtime for session-id selection. A manually named Codex command
+    # should coordinate with the Codex session, not fall back to a synthetic
+    # "custom-$PPID" key just because the display label changed.
+    case "${_hm_detected_agent:-$_hm_agent_name}" in
+      codex)
+        export HIVE_MEMORY_SESSION_ID="${AGENTGUARD_SESSION_ID:-${CODEX_THREAD_ID:-codex-$PPID}}"
+        ;;
+      claude)
+        export HIVE_MEMORY_SESSION_ID="${AGENTGUARD_SESSION_ID:-${CLAUDE_CODE_CURRENT_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:-claude-$PPID}}}"
+        ;;
+      gemini)
+        # Gemini does not expose a stable session id to shell subprocesses. The
+        # parent CLI process is stable across hook calls in the same session,
+        # matching the hook helper's fallback and preserving receipt coordination.
+        export HIVE_MEMORY_SESSION_ID="${AGENTGUARD_SESSION_ID:-gemini-$PPID}"
+        ;;
+      *)
+        export HIVE_MEMORY_SESSION_ID="${AGENTGUARD_SESSION_ID:-$_hm_agent_name-$PPID}"
+        ;;
+    esac
+  fi
+fi
+
+if [[ "$_hm_agent_runtime" == 1 && -z "${HIVE_MEMORY_PROJECT:-}" && "${HIVE_MEMORY_PROJECT_INFER:-1}" != "0" ]]; then
+  if [[ -n "${GEMINI_PROJECT_DIR:-}" ]]; then
+    export HIVE_MEMORY_PROJECT="$GEMINI_PROJECT_DIR"
+  else
+    # Use a path hint, not HIVE_MEMORY_PROJECT_ID. Long-lived agents can move
+    # across repos; the core tool should resolve the current command's project
+    # from the command cwd instead of being pinned to the launch project.
+    export HIVE_MEMORY_PROJECT="$PWD"
+  fi
+fi
+
+# Preserve the public command name in help/errors even though dotfiles stores
+# the real executable under a collision-free internal name.
+exec -a hm "$_hm_core" "$@"

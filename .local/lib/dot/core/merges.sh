@@ -1,0 +1,310 @@
+# shellcheck shell=bash
+# Run all config merge scripts from the core merge hook implementation dir.
+# Each file defines merge() — sourced per-script to avoid collisions.
+
+_merge_trim() {
+  local _line="$1"
+  _line="${_line#"${_line%%[![:space:]]*}"}"
+  _line="${_line%"${_line##*[![:space:]]}"}"
+  printf '%s' "$_line"
+}
+
+_merge_label_from_script() {
+  local _base="${1##*/}"
+  _base="${_base%.sh}"
+  if [[ "$_base" =~ ^[0-9]+[-_](.+)$ ]]; then
+    _base="${BASH_REMATCH[1]}"
+  fi
+  printf '%s' "$_base"
+}
+
+_merge_progress_detail() {
+  local _done="$1" _total="$2" _label="$3"
+  # Merge hook filenames already define the durable hook identity. Keep progress
+  # generic here so adding a hook never requires teaching dot about product
+  # display names or abbreviations in a second place.
+  _ui_progress_detail_with_label "$_label" "$_done" "$_total"
+}
+
+# Print ordered merge hook specs as `<sort-key><tab><script-path>`.
+_merge_hook_specs() {
+  local _key _script
+
+  {
+    shopt -s nullglob
+    for _script in "$HOME/.local/lib/dot/core/merge-hooks"/*.sh; do
+      [[ -r "$_script" ]] || continue
+      _key="${_script##*/}"
+      _key="${_key%.sh}"
+      printf '%s\t%s\n' "$_key" "$_script"
+    done
+    shopt -u nullglob
+  } | LC_ALL=C sort
+}
+
+_merge_hook_is_serial() {
+  # Keep this list small. Each serial hook needs its own comment explaining the
+  # concrete shared resource and failure mode that make parallel execution risky.
+  case "$1" in
+    cron)
+      # crontab is one per-user table with a whole-table install operation. The
+      # hook rebuilds that table from fragments plus cron.local, so a concurrent
+      # crontab writer could be overwritten by the generated replacement.
+      return 0
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+_merge_parallel_jobs() {
+  local _jobs="${DOT_MERGE_JOBS:-}"
+  case "$_jobs" in
+    '' | *[!0-9]*) _jobs="$(_dot_update_jobs)" ;;
+  esac
+  [[ "$_jobs" -lt 1 ]] && _jobs=1
+  printf '%s\n' "$_jobs"
+}
+
+_merge_summary() {
+  local _count="$1"
+  if [[ "$_count" -eq 1 ]]; then
+    printf '1 config merged'
+  else
+    printf '%s configs merged' "$_count"
+  fi
+}
+
+_merge_failure_summary() {
+  local _count="$1"
+  if [[ "$_count" -eq 1 ]]; then
+    printf '1 config hook failed'
+  else
+    printf '%s config hooks failed' "$_count"
+  fi
+}
+
+_merge_warning_summary() {
+  local _total="$1" _failed="$2"
+  local _succeeded=$((_total - _failed))
+  printf '%s, %s' \
+    "$(_merge_summary "$_succeeded")" \
+    "$(_merge_failure_summary "$_failed")"
+}
+
+_print_merge_result() {
+  local _script="$1" _elapsed_ms="$2" _log="$3" _status="${4:-ok}"
+  local _line _label=""
+  local -a _details=()
+
+  # Verbose hooks own their first output line as the display label. That keeps
+  # the runner generic while still allowing hooks to show a friendlier target
+  # name when the filename stem is too mechanical.
+  while IFS= read -r _line || [[ -n "$_line" ]]; do
+    _line="$(_merge_trim "$_line")"
+    [[ -n "$_line" ]] || continue
+    if [[ -z "$_label" ]]; then
+      _label="$_line"
+    else
+      _details+=("$_line")
+    fi
+  done <"$_log"
+
+  [[ -n "$_label" ]] || _label="$(_merge_label_from_script "$_script")"
+  _ui_item "$_status" "$_label" "$(_ui_duration_ms "$_elapsed_ms")"
+  for _line in "${_details[@]}"; do
+    _ui_detail "$_line"
+  done
+}
+
+_merge_result_prefix() {
+  local _dir="$1" _idx="$2"
+  printf '%s/%03d' "$_dir" "$_idx"
+}
+
+_run_merge_hook_capture() {
+  local _idx="$1" _script="$2" _result_dir="$3"
+  local _prefix _started_ms _elapsed_ms _merge_rc=0
+  _prefix="$(_merge_result_prefix "$_result_dir" "$_idx")"
+  _started_ms="$(_ui_now_ms)"
+
+  (
+    unset -f merge 2>/dev/null
+    # shellcheck source=/dev/null
+    if . "$_script"; then
+      if declare -f merge &>/dev/null; then
+        printf '1' >"$_prefix.has_merge"
+        merge
+      else
+        printf '0' >"$_prefix.has_merge"
+      fi
+    else
+      printf '1' >"$_prefix.has_merge"
+      exit 1
+    fi
+  ) >"$_prefix.log" 2>&1 || _merge_rc=$?
+
+  _elapsed_ms=$(($(_ui_now_ms) - _started_ms))
+  printf '%s' "$_merge_rc" >"$_prefix.rc"
+  printf '%s' "$_elapsed_ms" >"$_prefix.elapsed_ms"
+}
+
+_print_merge_capture() {
+  local _hook_key="$1" _idx="$2" _result_dir="$3"
+  local _prefix _has_merge _merge_rc _elapsed_ms _merge_status=ok
+  _prefix="$(_merge_result_prefix "$_result_dir" "$_idx")"
+  _has_merge="$(cat "$_prefix.has_merge" 2>/dev/null || printf '0')"
+  [[ "$_has_merge" -eq 1 ]] || return 1
+
+  _merge_rc="$(cat "$_prefix.rc" 2>/dev/null || printf '1')"
+  _elapsed_ms="$(cat "$_prefix.elapsed_ms" 2>/dev/null || printf '0')"
+  [[ "$_merge_rc" -eq 0 ]] || _merge_status=warning
+
+  if [[ "${DOT_VERBOSE:-0}" -eq 1 && "${DOT_QUIET:-0}" -ne 1 ]]; then
+    _print_merge_result "$_hook_key" "$_elapsed_ms" "$_prefix.log" "$_merge_status"
+  elif [[ "$_merge_rc" -ne 0 ]]; then
+    _logfile_print "$_hook_key" "$_prefix.log"
+    _warn "  warning: merge failed"
+  fi
+
+  return 0
+}
+
+_run_merge_hook_batch() {
+  local _result_dir _jobs _running=0
+  local _hook_spec _hook_key _script _hook_label
+  local _capture_prefix _capture_rc
+  local _idx=0 _n_merged=0 _n_failed=0
+  local -a _specs=("$@") _pids=()
+
+  ((${#_specs[@]} > 0)) || {
+    REPLY=0
+    return 0
+  }
+
+  _result_dir=$(mktemp -d) || {
+    REPLY=0
+    return 0
+  }
+  _jobs="$(_merge_parallel_jobs)"
+
+  for _hook_spec in "${_specs[@]}"; do
+    IFS=$'\t' read -r _hook_key _script <<<"$_hook_spec"
+    _idx=$((_idx + 1))
+    _merge_index=$((_merge_index + 1))
+    _hook_label="$(_merge_label_from_script "$_hook_key")"
+
+    # Progress reflects the current hook stem, not hook output. Output may be
+    # captured or suppressed depending on verbosity, so filenames are the stable
+    # identity available before the hook runs.
+    if [[ "${DOT_UI_TOTAL:-0}" -gt 0 ]]; then
+      if [[ "${DOT_VERBOSE:-0}" -eq 1 ]]; then
+        _ui_stage_update "$_hook_label $_merge_index/${#_hooks[@]}"
+      else
+        _ui_stage_update "$(_merge_progress_detail "$_merge_index" "${#_hooks[@]}" "$_hook_label")"
+      fi
+    fi
+
+    _run_merge_hook_capture "$_idx" "$_script" "$_result_dir" &
+    _pids+=("$!")
+    _running=$((_running + 1))
+    if [[ "$_running" -ge "$_jobs" ]]; then
+      wait "${_pids[0]}" 2>/dev/null || true
+      _pids=("${_pids[@]:1}")
+      _running=$((_running - 1))
+    fi
+  done
+
+  for _pid in "${_pids[@]}"; do
+    wait "$_pid" 2>/dev/null || true
+  done
+
+  _idx=0
+  for _hook_spec in "${_specs[@]}"; do
+    IFS=$'\t' read -r _hook_key _script <<<"$_hook_spec"
+    _idx=$((_idx + 1))
+    _capture_prefix="$(_merge_result_prefix "$_result_dir" "$_idx")"
+    _capture_rc="$(cat "$_capture_prefix.rc" 2>/dev/null || printf '1')"
+    if _print_merge_capture "$_hook_key" "$_idx" "$_result_dir"; then
+      _n_merged=$((_n_merged + 1))
+    fi
+    if [[ "$_capture_rc" -ne 0 ]]; then
+      _n_failed=$((_n_failed + 1))
+    fi
+  done
+
+  rm -rf "$_result_dir"
+  DOT_MERGE_FAILED_COUNT=$((${DOT_MERGE_FAILED_COUNT:-0} + _n_failed))
+  REPLY="$_n_merged"
+}
+
+_run_merges() {
+  local _hooks=()
+  local _hook_spec _hook_key _script
+  DOT_MERGE_FAILED_COUNT=0
+
+  while IFS= read -r _hook_spec; do
+    [[ -n "$_hook_spec" ]] || continue
+    _hooks+=("$_hook_spec")
+  done < <(_merge_hook_specs)
+
+  if [[ ${#_hooks[@]} -eq 0 ]]; then
+    if [[ "${DOT_UI_TOTAL:-0}" -gt 0 ]]; then
+      _ui_stage_start "Configs" "checking config hooks"
+      _ui_stage_finish ok "no config hooks"
+    fi
+    return 0
+  fi
+  if [[ "${DOT_UI_TOTAL:-0}" -gt 0 ]]; then
+    _ui_stage_start "Configs" "running config hooks"
+  else
+    _ui_stage "Configs"
+  fi
+
+  local _n_merged=0
+  local _merge_index=0
+  local -a _parallel_batch=()
+  for _hook_spec in "${_hooks[@]}"; do
+    IFS=$'\t' read -r _hook_key _script <<<"$_hook_spec"
+
+    if _merge_hook_is_serial "$_hook_key"; then
+      if ((${#_parallel_batch[@]} > 0)); then
+        _run_merge_hook_batch "${_parallel_batch[@]}"
+        _n_merged=$((_n_merged + REPLY))
+        _parallel_batch=()
+      fi
+      _run_merge_hook_batch "$_hook_spec"
+      _n_merged=$((_n_merged + REPLY))
+    else
+      _parallel_batch+=("$_hook_spec")
+    fi
+  done
+
+  if ((${#_parallel_batch[@]} > 0)); then
+    _run_merge_hook_batch "${_parallel_batch[@]}"
+    _n_merged=$((_n_merged + REPLY))
+  fi
+
+  # Non-verbose mode intentionally reports one aggregate config result. The
+  # hook-level rows are useful when debugging, but too noisy for the regular
+  # fleet update path where `dot update` runs frequently.
+  if [[ "$DOT_MERGE_FAILED_COUNT" -gt 0 ]]; then
+    if [[ "${DOT_UI_TOTAL:-0}" -gt 0 ]]; then
+      _ui_stage_finish warning \
+        "$(_merge_warning_summary "$_n_merged" "$DOT_MERGE_FAILED_COUNT")"
+    fi
+  elif [[ $_n_merged -gt 0 && "${DOT_QUIET:-0}" -ne 1 && "${DOT_VERBOSE:-0}" -ne 1 ]]; then
+    if [[ "${DOT_UI_TOTAL:-0}" -gt 0 ]]; then
+      _ui_stage_finish ok "$(_merge_summary "$_n_merged")"
+    else
+      _ui_status ok "$(_merge_summary "$_n_merged")"
+    fi
+  elif [[ $_n_merged -gt 0 && "${DOT_UI_TOTAL:-0}" -gt 0 ]]; then
+    _ui_stage_finish ok "$(_merge_summary "$_n_merged")"
+  elif [[ "${DOT_UI_TOTAL:-0}" -gt 0 ]]; then
+    # The stage was started because hook files exist, but none defined merge()
+    # (e.g. a helper .sh in the dir). Finish it so the dashboard row does not
+    # stay stuck in the "running" state.
+    _ui_stage_finish ok "no config changes"
+  fi
+  return 0
+}

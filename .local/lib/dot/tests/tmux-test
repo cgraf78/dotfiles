@@ -1,0 +1,339 @@
+#!/usr/bin/env bash
+# tmux-test - dotfiles tmux config and termnav wrapper integration.
+
+set -o pipefail
+export NO_COLOR=1
+
+# shellcheck source=helpers.sh
+. "$HOME/.local/lib/dot/tests/helpers.sh"
+
+tmux_config="$HOME/.config/tmux/tmux.conf"
+tmux_content=$(cat "$tmux_config")
+# shellcheck disable=SC2088 # tmux expands this literal path in its own shell.
+tmux_follow_installed_path='~/.local/bin/tmux-follow-click'
+tmux_tool_home="${DOT_TEST_HOST_HOME:-$HOME}"
+# shellcheck disable=SC2088 # tmux expands this literal path in its own shell.
+wezterm_switch_tab_path='~/.local/bin/wezterm-switch-tab'
+# shellcheck disable=SC2088 # tmux expands this literal path in its own shell.
+wezterm_move_tab_path='~/.local/bin/wezterm-move-tab'
+# shellcheck disable=SC2088 # tmux expands this literal path in its own shell.
+vscode_switch_tab_path='~/.local/bin/vscode-switch-tab'
+wezterm_switch_tab_content=$(cat "$tmux_tool_home/.local/bin/wezterm-switch-tab" 2>/dev/null || true)
+wezterm_move_tab_content=$(cat "$tmux_tool_home/.local/bin/wezterm-move-tab" 2>/dev/null || true)
+ctrl_tab_config_line=$(printf '%s\n' "$tmux_content" | grep '^bind-key -n C-Tab ' || true)
+ctrl_shift_tab_config_line=$(printf '%s\n' "$tmux_content" | grep '^bind-key -n C-BTab ' || true)
+move_tab_left_config_line=$(printf '%s\n' "$tmux_content" | grep "^bind-key -n 'M-{' " || true)
+move_tab_right_config_line=$(printf '%s\n' "$tmux_content" | grep "^bind-key -n 'M-}' " || true)
+
+_assert_executable() {
+  local desc="$1" path="$2"
+  if [[ -x "$path" ]]; then
+    _pass "$desc"
+  else
+    _fail "$desc (not executable: $path)"
+  fi
+}
+
+echo "=== tmux config syntax ==="
+
+if command -v tmux >/dev/null 2>&1; then
+  syntax_socket_dir=$(_tmpdir)
+  syntax_socket="$syntax_socket_dir/tmux.sock"
+  tmux -S "$syntax_socket" -f /dev/null new-session -d -s dot-tmux-syntax 'sleep 60'
+  syntax_out=$(tmux -S "$syntax_socket" source-file -n "$tmux_config" 2>&1)
+  syntax_rc=$?
+  tmux -S "$syntax_socket" kill-server
+  _assert_exit "tmux config dry-run parses" 0 "$syntax_rc"
+  _assert_eq "tmux config dry-run is quiet" "" "$syntax_out"
+else
+  echo "  - skipping tmux syntax checks (tmux not installed)"
+fi
+
+echo
+echo "=== tmux config integration ==="
+
+_assert_contains "tmux uses vi keys in copy mode" \
+  "set -g mode-keys vi" "$tmux_content"
+_assert_contains "tmux keeps Escape responsive" \
+  "set -s escape-time 10" "$tmux_content"
+_assert_contains "tmux advertises OSC-8 hyperlinks and extended keys" \
+  "xterm-256color:extkeys:hyperlinks" "$tmux_content"
+_assert_contains "tmux forwards Ctrl-click into mouse-aware panes" \
+  "bind-key -n C-MouseDown1Pane if-shell -F '#{mouse_any_flag}' 'send-keys -M'" "$tmux_content"
+_assert_contains "tmux routes terminal Ctrl-click through installed helper" \
+  "$tmux_follow_installed_path --stdin" "$tmux_content"
+_assert_contains "tmux passes OSC-8 hyperlink targets to helper" \
+  "#{mouse_hyperlink}" "$tmux_content"
+_assert_contains "tmux passes pane cwd to helper" \
+  "#{pane_current_path}" "$tmux_content"
+_assert_contains "tmux passes client tty for browser URLs" \
+  "#{client_tty}" "$tmux_content"
+_assert_executable "tmux save session command is installed" \
+  "$tmux_tool_home/.local/bin/tmux-save-session"
+_assert_executable "tmux restore session command is installed" \
+  "$tmux_tool_home/.local/bin/tmux-restore-session"
+_assert_executable "tmux clip paste command is installed" \
+  "$tmux_tool_home/.local/bin/tmux-clip-paste"
+_assert_executable "tmux WezTerm tab switch helper is installed" \
+  "$tmux_tool_home/.local/bin/wezterm-switch-tab"
+_assert_executable "tmux WezTerm tab move helper is installed" \
+  "$tmux_tool_home/.local/bin/wezterm-move-tab"
+_assert_contains "tmux Ctrl-c copies and exits copy mode" \
+  "bind -T copy-mode-vi C-c send-keys -X copy-pipe-and-cancel" "$tmux_content"
+_assert_contains "tmux Ctrl-v paste path pastes literally" \
+  "tmux paste-buffer -p" "$tmux_content"
+_assert_contains "tmux save session uses tmux-tools command" \
+  "bind S run-shell 'tmux-save-session'" "$tmux_content"
+_assert_contains "tmux restore session opens picker popup" \
+  "bind R display-popup -E -w 80% -h 60% 'tmux-restore-session'" "$tmux_content"
+# shellcheck disable=SC2016 # testing literal tmux config text.
+_assert_contains "tmux clipboard history uses tmux-tools handoff path" \
+  'clip pick > "$(tmux-clip-paste --path)"' "$tmux_content"
+_assert_contains "tmux clipboard history pastes after picker exits" \
+  "run-shell tmux-clip-paste" "$tmux_content"
+_assert_contains "tmux Ctrl-Tab helper bubbles to WezTerm when session has one window" \
+  "DOT_SWITCH_TAB" "$wezterm_switch_tab_content"
+_assert_contains "tmux Ctrl-Tab helper can bubble one level to parent tmux" \
+  "DOT_PARENT_SWITCH_TAB" "$wezterm_switch_tab_content"
+_assert_contains "tmux Alt-Shift-bracket helper bubbles tab moves to WezTerm" \
+  "DOT_MOVE_TAB" "$wezterm_move_tab_content"
+_assert_contains "tmux Alt-Shift-bracket helper can bubble one level to parent tmux" \
+  "DOT_PARENT_MOVE_TAB" "$wezterm_move_tab_content"
+switch_parent_tty=$(_tmpdir)/wezterm-switch-parent.out
+"$tmux_tool_home/.local/bin/wezterm-switch-tab" --parent next --tty "$switch_parent_tty"
+switch_parent_osc=$(cat "$switch_parent_tty")
+_assert_contains "tmux Ctrl-Tab helper wraps parent bubble for nested tmux passthrough" \
+  $'\033Ptmux;\033\033]1337;SetUserVar=DOT_PARENT_SWITCH_TAB=' "$switch_parent_osc"
+move_parent_tty=$(_tmpdir)/wezterm-move-parent.out
+"$tmux_tool_home/.local/bin/wezterm-move-tab" --parent left --tty "$move_parent_tty"
+move_parent_osc=$(cat "$move_parent_tty")
+_assert_contains "tmux Alt-Shift-bracket helper wraps parent bubble for nested tmux passthrough" \
+  $'\033Ptmux;\033\033]1337;SetUserVar=DOT_PARENT_MOVE_TAB=' "$move_parent_osc"
+_assert_contains "tmux defines private parent-bubble key for next tab" \
+  "user-keys[0]" "$tmux_content"
+_assert_contains "tmux defines private parent-bubble key for previous tab" \
+  "user-keys[1]" "$tmux_content"
+_assert_contains "tmux defines private parent-bubble key for moving left" \
+  "user-keys[2]" "$tmux_content"
+_assert_contains "tmux defines private parent-bubble key for moving right" \
+  "user-keys[3]" "$tmux_content"
+_assert_contains "tmux detects when its client is another tmux" \
+  "is_nested_tmux_client=" "$tmux_content"
+_assert_contains "tmux Ctrl-Tab checks session window count before switching" \
+  "#{>:#{session_windows},1}" "$tmux_content"
+_assert_contains "tmux Ctrl-Tab forwards direct nvim/fzf panes via CSI-u helper" \
+  "\"\$send_ctrl_tab\"" "$ctrl_tab_config_line"
+_assert_contains "tmux Ctrl-Shift-Tab forwards direct nvim/fzf panes via CSI-u helper" \
+  "\"\$send_ctrl_shift_tab\"" "$ctrl_shift_tab_config_line"
+_assert_contains "tmux detects SSH/mosh panes as terminal app-owned for nested remotes" \
+  "is_remote_transport=" "$tmux_content"
+_assert_contains "tmux foreground app detector reads process groups" \
+  "pgid= -o tpgid=" "$tmux_content"
+process_group_filter=$'\\$3 == \\$4'
+_assert_contains "tmux foreground app detector ignores background tty processes" \
+  "$process_group_filter" "$tmux_content"
+foreground_transport_filter=$(
+  cat <<'AWK'
+$3 == $4 && $1 !~ /^[TXZ]/ && $2 ~ /^(ssh|mosh|mosh-client|mosh-server)$/ { found = 1 }
+END { exit !found }
+AWK
+)
+printf 'S zsh 1351878 1351878\nS ssh 1362873 1351878\n' |
+  awk "$foreground_transport_filter"
+background_transport_rc=$?
+_assert_exit "tmux foreground app detector ignores background ssh helpers" \
+  1 "$background_transport_rc"
+printf 'S ssh 1548429 1548429\n' | awk "$foreground_transport_filter"
+foreground_transport_rc=$?
+_assert_exit "tmux foreground app detector still forwards active ssh" \
+  0 "$foreground_transport_rc"
+_assert_contains "tmux Ctrl-Tab forwards SSH/mosh panes instead of switching parent tmux" \
+  "\"\$is_terminal_app\"" "$ctrl_tab_config_line"
+_assert_contains "tmux Ctrl-Shift-Tab forwards SSH/mosh panes instead of switching parent tmux" \
+  "\"\$is_terminal_app\"" "$ctrl_shift_tab_config_line"
+_assert_contains "tmux Ctrl-Tab forwards into mouse-aware nested terminal apps" \
+  "\"\$is_nested_wrapper_with_mouse\"" "$ctrl_tab_config_line"
+_assert_contains "tmux Ctrl-Shift-Tab forwards into mouse-aware nested terminal apps" \
+  "\"\$is_nested_wrapper_with_mouse\"" "$ctrl_shift_tab_config_line"
+_assert_contains "tmux nested wrapper detector checks mouse-aware panes" \
+  "#{mouse_any_flag}" "$tmux_content"
+_assert_contains "tmux Ctrl-Tab forwards CSI-u sequence into nested terminal apps" \
+  "send_ctrl_tab=\"send-keys Escape '[9;5u'\"" "$tmux_content"
+_assert_contains "tmux Ctrl-Shift-Tab forwards CSI-u sequence into nested terminal apps" \
+  "send_ctrl_shift_tab=\"send-keys Escape '[9;6u'\"" "$tmux_content"
+_assert_contains "tmux Ctrl-Tab bubbles through helper to avoid nested shell parsing" \
+  "$wezterm_switch_tab_path next #{client_tty}" "$tmux_content"
+_assert_contains "tmux Ctrl-Tab asks parent tmux when nested client has one window" \
+  "$wezterm_switch_tab_path --parent next #{client_tty}" "$tmux_content"
+_assert_contains "tmux Alt-Shift-[ forwards direct nvim/fzf panes" \
+  "\"\$send_alt_shift_left_bracket\"" "$move_tab_left_config_line"
+_assert_contains "tmux Alt-Shift-] forwards direct nvim/fzf panes" \
+  "\"\$send_alt_shift_right_bracket\"" "$move_tab_right_config_line"
+_assert_contains "tmux Alt-Shift-[ forwards Meta-left-brace sequence" \
+  "send_alt_shift_left_bracket=\"send-keys Escape '{'\"" "$tmux_content"
+_assert_contains "tmux Alt-Shift-] forwards Meta-right-brace sequence" \
+  "send_alt_shift_right_bracket=\"send-keys Escape '}'\"" "$tmux_content"
+_assert_contains "tmux Alt-Shift-[ forwards SSH/mosh panes instead of moving parent tmux" \
+  "\"\$is_terminal_app\"" "$move_tab_left_config_line"
+_assert_contains "tmux Alt-Shift-] forwards SSH/mosh panes instead of moving parent tmux" \
+  "\"\$is_terminal_app\"" "$move_tab_right_config_line"
+_assert_contains "tmux Alt-Shift-[ forwards into mouse-aware nested terminal apps" \
+  "\"\$is_nested_wrapper_with_mouse\"" "$move_tab_left_config_line"
+_assert_contains "tmux Alt-Shift-] forwards into mouse-aware nested terminal apps" \
+  "\"\$is_nested_wrapper_with_mouse\"" "$move_tab_right_config_line"
+_assert_contains "tmux Alt-Shift-[ stops at first tmux window before bubbling" \
+  "#{>:#{window_index},#{base-index}}" "$tmux_content"
+_assert_contains "tmux Alt-Shift-] stops at last tmux window before bubbling" \
+  "#{<:#{window_index},#{e|+:#{base-index},#{e|-:#{session_windows},1}}}" "$tmux_content"
+_assert_contains "tmux Alt-Shift-[ bubbles through move helper" \
+  "$wezterm_move_tab_path left #{client_tty}" "$tmux_content"
+_assert_contains "tmux Alt-Shift-] bubbles through move helper" \
+  "$wezterm_move_tab_path right #{client_tty}" "$tmux_content"
+_assert_contains "tmux Alt-Shift-[ asks parent tmux when nested client has one window" \
+  "$wezterm_move_tab_path --parent left #{client_tty}" "$tmux_content"
+_assert_contains "tmux Alt-Shift-] asks parent tmux when nested client has one window" \
+  "$wezterm_move_tab_path --parent right #{client_tty}" "$tmux_content"
+_assert_contains "tmux Ctrl-Tab checks for a VS Code client before asking WezTerm" \
+  "#{m:xterm.js*,#{client_termtype}}" "$ctrl_tab_config_line"
+_assert_contains "tmux Ctrl-Shift-Tab checks for a VS Code client before asking WezTerm" \
+  "#{m:xterm.js*,#{client_termtype}}" "$ctrl_shift_tab_config_line"
+_assert_contains "tmux Alt-Shift-[ checks for a VS Code client before asking WezTerm" \
+  "#{m:xterm.js*,#{client_termtype}}" "$move_tab_left_config_line"
+_assert_contains "tmux Alt-Shift-] checks for a VS Code client before asking WezTerm" \
+  "#{m:xterm.js*,#{client_termtype}}" "$move_tab_right_config_line"
+_assert_contains "tmux Ctrl-Tab bubbles to VS Code via the installed helper" \
+  "$vscode_switch_tab_path next" "$tmux_content"
+_assert_contains "tmux Ctrl-Shift-Tab bubbles to VS Code via the installed helper" \
+  "$vscode_switch_tab_path previous" "$tmux_content"
+# VS Code exposes no command to reorder terminal tabs, so the move chords
+# stop at the tmux layer for VS Code clients instead of bubbling.
+_assert_not_contains "tmux Alt-Shift-[ does not bubble moves to VS Code" \
+  "vscode-move-tab" "$tmux_content"
+_assert_executable "tmux VS Code tab switch helper is installed" \
+  "$tmux_tool_home/.local/bin/vscode-switch-tab"
+# shellcheck disable=SC2016 # testing a literal shell command-substitution token.
+_assert_not_contains "tmux Ctrl-Tab fallback does not embed inline shell command substitutions" \
+  'payload=$(' "$tmux_content"
+
+if command -v tmux >/dev/null 2>&1; then
+  socket_dir=$(_tmpdir)
+  socket="$socket_dir/tmux.sock"
+  tmux -S "$socket" -f /dev/null new-session -d -s dot-tmux-test 'sleep 60'
+  tmux -S "$socket" source-file "$tmux_config"
+  copy_keys=$(tmux -S "$socket" list-keys -T copy-mode-vi)
+  root_keys=$(tmux -S "$socket" list-keys -T root)
+  prefix_keys=$(tmux -S "$socket" list-keys -T prefix)
+  ctrl_tab_root_line=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root C-Tab ' || true)
+  ctrl_shift_tab_root_line=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root C-BTab ' || true)
+  move_tab_left_root_line=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root "M-{"' || true)
+  move_tab_right_root_line=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root "M-}"' || true)
+  parent_next_root_line=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root User0 ' || true)
+  parent_previous_root_line=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root User1 ' || true)
+  parent_move_left_root_line=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root User2 ' || true)
+  parent_move_right_root_line=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root User3 ' || true)
+  parent_key_0=$(tmux -S "$socket" show-options -s -v user-keys[0])
+  parent_key_1=$(tmux -S "$socket" show-options -s -v user-keys[1])
+  parent_key_2=$(tmux -S "$socket" show-options -s -v user-keys[2])
+  parent_key_3=$(tmux -S "$socket" show-options -s -v user-keys[3])
+  mode_keys=$(tmux -S "$socket" show-window-options -g -v mode-keys)
+  tmux -S "$socket" kill-server
+
+  _assert_eq "tmux runtime mode-keys is vi" "vi" "$mode_keys"
+  _assert_eq "tmux runtime parent-bubble next key sequence is configured" \
+    $'\033[777001u' "$parent_key_0"
+  _assert_eq "tmux runtime parent-bubble previous key sequence is configured" \
+    $'\033[777002u' "$parent_key_1"
+  _assert_eq "tmux runtime parent-bubble move-left key sequence is configured" \
+    $'\033[777003u' "$parent_key_2"
+  _assert_eq "tmux runtime parent-bubble move-right key sequence is configured" \
+    $'\033[777004u' "$parent_key_3"
+  _assert_contains "tmux runtime Ctrl-c copies and cancels" \
+    "copy-pipe-and-cancel" "$copy_keys"
+  _assert_contains "tmux runtime binds Ctrl-click mouse down" \
+    "C-MouseDown1Pane" "$root_keys"
+  _assert_contains "tmux runtime Ctrl-click uses installed helper path" \
+    "$tmux_follow_installed_path" "$root_keys"
+  _assert_contains "tmux runtime restore uses popup picker" \
+    "tmux-restore-session" "$prefix_keys"
+  _assert_contains "tmux runtime clipboard picker uses tmux-clip-paste path" \
+    "tmux-clip-paste --path" "$prefix_keys"
+  _assert_contains "tmux runtime clipboard picker pastes after popup" \
+    "run-shell tmux-clip-paste" "$prefix_keys"
+  _assert_contains "tmux runtime Ctrl-Tab can request parent tab switch" \
+    "$wezterm_switch_tab_path next #{client_tty}" "$root_keys"
+  _assert_contains "tmux runtime Ctrl-Tab can request outer tmux tab switch" \
+    "$wezterm_switch_tab_path --parent next #{client_tty}" "$root_keys"
+  _assert_contains "tmux runtime Ctrl-Tab calls helper with client tty" \
+    "$wezterm_switch_tab_path next #{client_tty}" "$root_keys"
+  _assert_contains "tmux runtime Ctrl-Tab forwards direct nvim/fzf panes with CSI-u" \
+    "send-keys Escape '[9;5u'" "$ctrl_tab_root_line"
+  _assert_contains "tmux runtime Ctrl-Shift-Tab forwards direct nvim/fzf panes with CSI-u" \
+    "send-keys Escape '[9;6u'" "$ctrl_shift_tab_root_line"
+  _assert_contains "tmux runtime Ctrl-Tab forwards SSH/mosh panes" \
+    "ssh|mosh" "$ctrl_tab_root_line"
+  _assert_contains "tmux runtime Ctrl-Tab only forwards foreground tty processes" \
+    "pgid= -o tpgid=" "$ctrl_tab_root_line"
+  _assert_contains "tmux runtime Ctrl-Tab filters out background tty processes" \
+    "\$3 == \$4" "$ctrl_tab_root_line"
+  _assert_contains "tmux runtime Ctrl-Shift-Tab forwards SSH/mosh panes" \
+    "ssh|mosh" "$ctrl_shift_tab_root_line"
+  _assert_contains "tmux runtime Ctrl-Tab forwards into nested terminal apps" \
+    "#{mouse_any_flag}" "$ctrl_tab_root_line"
+  _assert_contains "tmux runtime Ctrl-Shift-Tab forwards into nested terminal apps" \
+    "#{mouse_any_flag}" "$ctrl_shift_tab_root_line"
+  _assert_contains "tmux runtime Ctrl-Tab forwards CSI-u sequence into nested terminal apps" \
+    "[9;5u" "$ctrl_tab_root_line"
+  _assert_contains "tmux runtime Ctrl-Shift-Tab forwards CSI-u sequence into nested terminal apps" \
+    "[9;6u" "$ctrl_shift_tab_root_line"
+  _assert_contains "tmux runtime Alt-Shift-[ forwards direct nvim/fzf panes" \
+    "send-keys Escape '{'" "$move_tab_left_root_line"
+  _assert_contains "tmux runtime Alt-Shift-] forwards direct nvim/fzf panes" \
+    "send-keys Escape '}'" "$move_tab_right_root_line"
+  _assert_contains "tmux runtime Alt-Shift-[ forwards SSH/mosh panes" \
+    "ssh|mosh" "$move_tab_left_root_line"
+  _assert_contains "tmux runtime Alt-Shift-] forwards SSH/mosh panes" \
+    "ssh|mosh" "$move_tab_right_root_line"
+  _assert_contains "tmux runtime Alt-Shift-[ forwards into nested terminal apps" \
+    "#{mouse_any_flag}" "$move_tab_left_root_line"
+  _assert_contains "tmux runtime Alt-Shift-] forwards into nested terminal apps" \
+    "#{mouse_any_flag}" "$move_tab_right_root_line"
+  _assert_contains "tmux runtime Alt-Shift-[ swaps tmux window left without wrapping" \
+    "swap-window -d -t :-" "$move_tab_left_root_line"
+  _assert_contains "tmux runtime Alt-Shift-] swaps tmux window right without wrapping" \
+    "swap-window -d -t :+" "$move_tab_right_root_line"
+  _assert_contains "tmux runtime Alt-Shift-[ bubbles move request to WezTerm" \
+    "$wezterm_move_tab_path left #{client_tty}" "$move_tab_left_root_line"
+  _assert_contains "tmux runtime Alt-Shift-] bubbles move request to WezTerm" \
+    "$wezterm_move_tab_path right #{client_tty}" "$move_tab_right_root_line"
+  _assert_contains "tmux runtime Alt-Shift-[ can request parent tmux move" \
+    "$wezterm_move_tab_path --parent left #{client_tty}" "$root_keys"
+  _assert_contains "tmux runtime Alt-Shift-] can request parent tmux move" \
+    "$wezterm_move_tab_path --parent right #{client_tty}" "$root_keys"
+  _assert_contains "tmux runtime Ctrl-Tab checks for a VS Code client" \
+    "#{m:xterm.js*,#{client_termtype}}" "$ctrl_tab_root_line"
+  _assert_contains "tmux runtime Ctrl-Shift-Tab checks for a VS Code client" \
+    "#{m:xterm.js*,#{client_termtype}}" "$ctrl_shift_tab_root_line"
+  _assert_contains "tmux runtime Alt-Shift-[ checks for a VS Code client" \
+    "#{m:xterm.js*,#{client_termtype}}" "$move_tab_left_root_line"
+  _assert_contains "tmux runtime Alt-Shift-] checks for a VS Code client" \
+    "#{m:xterm.js*,#{client_termtype}}" "$move_tab_right_root_line"
+  _assert_contains "tmux runtime Ctrl-Tab can bubble to VS Code" \
+    "$vscode_switch_tab_path next" "$root_keys"
+  _assert_not_contains "tmux runtime Alt-Shift-[ does not bubble moves to VS Code" \
+    "vscode-move-tab" "$root_keys"
+  _assert_contains "tmux runtime parent-bubble next switches current tmux layer" \
+    "next-window" "$parent_next_root_line"
+  _assert_contains "tmux runtime parent-bubble previous switches current tmux layer" \
+    "previous-window" "$parent_previous_root_line"
+  _assert_contains "tmux runtime parent-bubble move-left swaps current tmux layer" \
+    "swap-window -d -t :-" "$parent_move_left_root_line"
+  _assert_contains "tmux runtime parent-bubble move-right swaps current tmux layer" \
+    "swap-window -d -t :+" "$parent_move_right_root_line"
+  # shellcheck disable=SC2016 # testing a literal shell command-substitution token.
+  _assert_not_contains "tmux runtime Ctrl-Tab does not embed inline shell command substitutions" \
+    'payload=$(' "$root_keys"
+else
+  echo "  - skipping tmux runtime key checks (tmux not installed)"
+fi
+
+_test_summary

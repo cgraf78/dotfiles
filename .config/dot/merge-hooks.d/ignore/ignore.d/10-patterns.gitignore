@@ -1,0 +1,116 @@
+# macOS home dirs
+Library/
+Applications/
+Music/
+Pictures/
+Desktop/
+Movies/
+
+# Shell sessions
+.bash_sessions/
+.zsh_sessions/
+
+# Cloud storage
+gdrive/
+Google Drive/
+
+# OS junk
+.DS_Store
+.Trash/
+$Recycle.Bin/
+System Volume Information/
+AppData/
+ProgramData/
+
+# VCS and dev noise
+.git/
+.hg/
+.jj/
+.sl/
+.svn/
+node_modules/
+__pycache__/
+.mypy_cache/
+.cache/
+.venv/
+.vscode/
+.direnv/
+.npm/
+.bun/
+
+# XDG data and state. The `.local/share/*` rule hides high-noise XDG runtime
+# data from `rg "$HOME"`, but the dotfiles ship their own files under
+# `.local/share/` (git-hooks, sl-hooks, dotfiles installer artifacts, doc).
+# Re-include those explicitly so a HOME-wide search still finds hook code.
+.local/share/*
+!.local/share/checkrun/
+!.local/share/doc/
+!.local/share/git-hooks/
+!.local/share/sl-hooks/
+.local/state/
+
+# Language toolchains
+.cargo/
+.rustup/
+.mise/
+go/
+
+# Claude Code runtime data
+.claude/agent-market/
+.claude/backups/
+.claude/cache/
+.claude/debug/
+.claude/file-history/
+.claude/history.jsonl
+.claude/ide/
+.claude/notify/
+.claude/paste-cache/
+.claude/plans/
+.claude/plugins/
+.claude/projects/
+.claude/session-index.json
+.claude/session-index.md
+.claude/session-env/
+.claude/sessions/
+.claude/shell-snapshots/
+.claude/settings.json.backup-*
+.claude/stats-cache.json
+.claude/statusline-costs/
+.claude/statusline-topics/
+.claude/tasks/
+.claude/todos/
+.claude/usage-data/
+.claude/.calendar-cache.json
+
+# Codex runtime data. Keep .codex/skills, prompts, rules, and config
+# searchable; these generated logs/session stores dominate HOME ripgrep output.
+.codex/.tmp/
+.codex/tmp/
+.codex/log/
+.codex/logs_*.sqlite*
+.codex/sessions/
+.codex/shell_snapshots/
+.codex/history.jsonl
+.codex/session_index.jsonl
+.codex/state_*.sqlite*
+
+# Gemini runtime data. Keep settings, policies, extensions, and trusted
+# folder config searchable; logs and chat transcripts are generated noise.
+.gemini/history/
+.gemini/tmp/
+
+# Tool caches
+.dotfiles/
+.dotfiles-backup/
+.atuin/
+.vscode-remote/
+.cursor-server/
+.antigravity-server/
+.dotsync/conflicts/
+.nuget/
+.ruff_cache/
+.solargraph/cache/
+.config/checkrun/.ruff_cache/
+.config/checkrun/.rumdl_cache/
+downloads/
+venv/

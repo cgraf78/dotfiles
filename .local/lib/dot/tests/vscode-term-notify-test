@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+# vscode-term-notify-test — XDG path tests for the terminal sound extension.
+
+set -euo pipefail
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "SKIP: vscode-term-notify-test (node unavailable)"
+  exit 0
+fi
+
+node <<'NODE'
+const assert = require("node:assert/strict");
+const realFs = require("node:fs");
+const Module = require("node:module");
+const path = require("node:path");
+
+const root = process.env.HOME;
+const extensionPath = path.join(
+  root,
+  ".local/share/dot-vscode-extensions/term-notify-sound-0.0.1",
+);
+const { signalDir } = require(path.join(extensionPath, "paths.js"));
+const fallback = path.join("/home/example", ".local", "state", "term-notify");
+
+assert.equal(signalDir({ HOME: "/home/example" }), fallback);
+assert.equal(signalDir({ HOME: "/home/example", XDG_STATE_HOME: "" }), fallback);
+assert.equal(
+  signalDir({ HOME: "/home/example", XDG_STATE_HOME: "relative/state" }),
+  fallback,
+);
+assert.equal(
+  signalDir({ XDG_STATE_HOME: "/var/lib/example-state" }, "/home/example"),
+  "/var/lib/example-state/term-notify",
+);
+assert.equal(
+  signalDir({ XDG_STATE_HOME: "/var/lib/no-home" }),
+  "/var/lib/no-home/term-notify",
+);
+assert.throws(
+  () => signalDir({}),
+  /HOME is not set and XDG_STATE_HOME is not absolute/,
+);
+
+const noHomeEnv = new Proxy(
+  { XDG_STATE_HOME: "/var/lib/lazy-home" },
+  {
+    get(target, property) {
+      if (property === "HOME") throw new Error("HOME fallback was evaluated");
+      return target[property];
+    },
+  },
+);
+assert.equal(signalDir(noHomeEnv), "/var/lib/lazy-home/term-notify");
+
+const selectedState = path.join(root, "custom-state");
+const selectedSignalDir = path.join(selectedState, "term-notify");
+const mkdirCalls = [];
+const watchCalls = [];
+let watcherClosed = false;
+const mockFs = {
+  ...realFs,
+  mkdirSync(dir, options) {
+    mkdirCalls.push({ dir, options });
+  },
+  watch(dir) {
+    watchCalls.push(dir);
+    return {
+      close() {
+        watcherClosed = true;
+      },
+    };
+  },
+};
+const vscode = {
+  workspace: {
+    getConfiguration() {
+      return { get() { return false; } };
+    },
+  },
+};
+
+const originalLoad = Module._load;
+const previousStateHome = process.env.XDG_STATE_HOME;
+Module._load = function load(request, parent, isMain) {
+  if (request === "vscode") return vscode;
+  if (request === "node:fs") return mockFs;
+  if (request === "node:child_process") return { execFile() {} };
+  return originalLoad.call(this, request, parent, isMain);
+};
+process.env.XDG_STATE_HOME = selectedState;
+
+try {
+  const extension = require(path.join(extensionPath, "extension.js"));
+  const context = { subscriptions: [] };
+  extension.activate(context);
+
+  assert.deepEqual(mkdirCalls, [
+    { dir: selectedSignalDir, options: { recursive: true } },
+  ]);
+  assert.deepEqual(watchCalls, [selectedSignalDir]);
+  assert.equal(context.subscriptions.length, 1);
+  context.subscriptions[0].dispose();
+  assert.equal(watcherClosed, true);
+} finally {
+  Module._load = originalLoad;
+  if (previousStateHome === undefined) {
+    delete process.env.XDG_STATE_HOME;
+  } else {
+    process.env.XDG_STATE_HOME = previousStateHome;
+  }
+}
+NODE
+
+echo "Results: 1 passed, 0 failed"

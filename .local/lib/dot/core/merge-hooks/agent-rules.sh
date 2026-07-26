@@ -1,0 +1,335 @@
+# shellcheck shell=bash
+# Merge ordered agent rule fragments into generated runtime target files.
+#
+# Rule source fragments live under merge-hooks.d/agent-rules/rules.d. Target profiles
+# live under merge-hooks.d/agent-rules/targets.d. Both use the shared dot family
+# layout, so overlays can add fragments and can choose one mutually-exclusive
+# target profile with a `.replace` group.
+
+if ! declare -F _merge_hook_family_files_matching >/dev/null 2>&1; then
+  _dot_agent_rules_hook_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)" || return
+  # shellcheck source=../merge-hooks.sh disable=SC1091
+  . "$_dot_agent_rules_hook_dir/../merge-hooks.sh"
+fi
+if ! declare -F _mb_build >/dev/null 2>&1; then
+  _dot_agent_rules_hook_dir="${_dot_agent_rules_hook_dir:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)}" || return
+  # shellcheck source=../merge-block.sh disable=SC1091
+  . "$_dot_agent_rules_hook_dir/../merge-block.sh"
+fi
+if ! declare -F _dot_xdg_path >/dev/null 2>&1; then
+  _dot_agent_rules_hook_dir="${_dot_agent_rules_hook_dir:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)}" || return
+  # shellcheck source=../xdg.sh disable=SC1091
+  . "$_dot_agent_rules_hook_dir/../xdg.sh"
+fi
+if ! declare -F _dot_playbook_index >/dev/null 2>&1; then
+  _dot_agent_rules_hook_dir="${_dot_agent_rules_hook_dir:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)}" || return
+  # shellcheck source=../agent-playbooks.sh disable=SC1091
+  . "$_dot_agent_rules_hook_dir/../agent-playbooks.sh"
+fi
+
+# Return the marker namespace so stale agent-rule blocks can be stripped as a family.
+_agent_rules_marker_prefix() {
+  printf '%s\n' "# dot-managed:agent-rules:"
+}
+
+# Return the single marker used for the aggregate block in each runtime target.
+_agent_rules_marker() {
+  printf '%s\n' "$(_agent_rules_marker_prefix)aggregate"
+}
+
+# Cache current source/target inputs so later profile changes can prune outputs.
+_agent_rules_cache_path() {
+  _dot_xdg_path state "dot/agent-rules-publish-cache-v3"
+}
+
+# Read the old symlink-publisher cache during migration from fragment links.
+_agent_rules_legacy_cache_path() {
+  _dot_xdg_path state "dot/agent-rules-publish-cache-v1"
+}
+
+# Expand the declarative target-file syntax without sourcing target configs.
+_agent_rules_expand_target() {
+  local target="$1"
+  local home_ref="\$HOME"
+  local tilde_ref="~"
+  case "$target" in
+    "$home_ref") printf '%s\n' "$HOME" ;;
+    "$home_ref"/*) printf '%s/%s\n' "$HOME" "${target#"$home_ref"/}" ;;
+    "$tilde_ref") printf '%s\n' "$HOME" ;;
+    "$tilde_ref"/*) printf '%s/%s\n' "$HOME" "${target#"$tilde_ref"/}" ;;
+    /*) printf '%s\n' "$target" ;;
+    *)
+      _warn "    warning: skipping relative agent rule target: $target"
+      return 1
+      ;;
+  esac
+}
+
+# Return ordered Markdown source fragments from the shared family aggregator.
+_agent_rules_sources() {
+  _merge_hook_family_files_matching agent-rules/rules.d '[0-9][0-9][0-9]-*.md' '[0-9][0-9][0-9]-*.replace/*.md'
+}
+
+# Return active target profile files, honoring `.replace` profile selection.
+_agent_rules_target_confs() {
+  _merge_hook_family_files_matching \
+    agent-rules/targets.d \
+    '*.txt' '*.replace/*.txt' \
+    '*.conf' '*.replace/*.conf'
+}
+
+# Parse target configs into de-duplicated absolute destination file paths.
+_agent_rules_collect_targets() {
+  local conf line target
+
+  _agent_rules_targets=()
+  _agent_rules_targets_seen=()
+  while IFS= read -r conf; do
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      line=$(printf '%s\n' "$line" | sed 's/[[:space:]]*#.*$//; s/^[[:space:]]*//; s/[[:space:]]*$//')
+      [[ -n "$line" ]] || continue
+      target=$(_agent_rules_expand_target "$line") || continue
+      [[ -n "${_agent_rules_targets_seen[$target]+x}" ]] && continue
+      _agent_rules_targets_seen[$target]=1
+      _agent_rules_targets+=("$target")
+    done <"$conf"
+  done < <(_agent_rules_target_confs)
+}
+
+# Concatenate source fragments into the generated body inside the managed block.
+_agent_rules_playbook_marker_count() {
+  local fragment="$1" line count=0
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ "$line" == '<!-- dot-playbook-index -->' ]] && count=$((count + 1))
+  done <<<"$fragment"
+  printf '%s\n' "$count"
+}
+
+_agent_rules_expand_playbook_index() {
+  local fragment="$1" playbook_index line output="" marker_count=0 first=true
+  playbook_index=$(_dot_playbook_index) || return 1
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    if [[ "$line" == '<!-- dot-playbook-index -->' ]]; then
+      marker_count=$((marker_count + 1))
+      line="$playbook_index"
+    fi
+    if $first; then
+      output="$line"
+      first=false
+    else
+      output+=$'\n'"$line"
+    fi
+  done <<<"$fragment"
+  [[ "$marker_count" -eq 1 ]] || return 1
+  printf '%s\n' "$output"
+}
+
+_agent_rules_render() {
+  local source body fragment fragment_marker_count playbook_root marker_count=0 first=true
+
+  body=$'# Generated by dot. Do not edit this block directly.\n# Edit source fragments under ~/.config/dot/merge-hooks.d/agent-rules/rules.d/ and run dot update.\n'
+  while IFS= read -r source; do
+    fragment=$(<"$source")
+    fragment="${fragment%$'\n'}"
+    [[ -n "$fragment" ]] || continue
+    fragment_marker_count=$(_agent_rules_playbook_marker_count "$fragment") || return 2
+    marker_count=$((marker_count + fragment_marker_count))
+    if [[ "$fragment" == *'<!-- dot-playbook-index -->'* ]]; then
+      fragment=$(_agent_rules_expand_playbook_index "$fragment") || return 2
+    fi
+    if $first; then
+      body+=$'\n'"$fragment"
+      first=false
+    else
+      body+=$'\n\n'"$fragment"
+    fi
+  done < <(_agent_rules_sources)
+
+  $first && return 1
+  playbook_root=$(_dot_playbook_root) || return 2
+  if [[ -d "$playbook_root" && "$marker_count" -ne 1 ]]; then
+    return 2
+  fi
+  printf '%s\n' "$body"
+}
+
+# Write a full file only when pruning leaves unmanaged content that changed.
+_agent_rules_write_if_changed() {
+  local dst="$1" text="$2" tmp
+
+  if [[ -f "$dst" ]] && printf '%s' "$text" | cmp -s - "$dst"; then
+    return 0
+  fi
+
+  _dot_sibling_tmp_for "$dst" || return 1
+  tmp="$REPLY"
+  printf '%s' "$text" >"$tmp" || {
+    rm -f "$tmp"
+    return 1
+  }
+  chmod 600 "$tmp" || {
+    rm -f "$tmp"
+    return 1
+  }
+  mv "$tmp" "$dst" || {
+    rm -f "$tmp"
+    return 1
+  }
+}
+
+# Remove this hook's managed block from one file, preserving unmanaged text.
+_agent_rules_prune_block_file() {
+  local dst="$1"
+  [[ -f "$dst" ]] || return 0
+
+  local current rest
+  current=$(cat "$dst")
+  rest="$(_mb_strip_family "$(_agent_rules_marker_prefix)" "$current")"
+  rest="$(printf '%s\n' "$rest" | cat -s)"
+  rest="${rest#"${rest%%[![:space:]]*}"}"
+  rest="${rest%"${rest##*[![:space:]]}"}"
+
+  [[ "$rest" != "$current" ]] || return 0
+  if [[ -n "$rest" ]]; then
+    _agent_rules_write_if_changed "$dst" "$rest"$'\n'
+  else
+    rm -f "$dst"
+  fi
+}
+
+# Resolve symlink targets so legacy managed symlinks can be recognized safely.
+_agent_rules_resolve_link_target() {
+  local link="$1" target
+  target=$(readlink "$link") || return 1
+  if [[ "$target" = /* ]]; then
+    printf '%s\n' "$target"
+  else
+    printf '%s/%s\n' "$(cd "$(dirname "$link")" && pwd -P)" "$target"
+  fi
+}
+
+# Identify symlinks created by the retired `~/.config/agent-rules` publisher.
+_agent_rules_legacy_managed_target() {
+  local target="$1"
+  case "$target" in
+    "$HOME/.config/agent-rules/"*) return 0 ;;
+  esac
+  return 1
+}
+
+# Prune only legacy symlinks that point back into the retired source tree.
+_agent_rules_prune_legacy_dir() {
+  local dir="$1" f target
+  [[ -d "$dir" ]] || return 0
+
+  for f in "$dir"/*.md; do
+    [[ -L "$f" ]] || continue
+    target=$(_agent_rules_resolve_link_target "$f" 2>/dev/null || true)
+    [[ -n "$target" ]] || continue
+    _agent_rules_legacy_managed_target "$target" || continue
+    rm -f "$f"
+  done
+}
+
+# Return target files or legacy target dirs recorded by current/old caches.
+_agent_rules_previous_targets() {
+  local cache current_cache legacy_cache key first _second
+
+  _agent_rules_cache_path || return 0
+  current_cache="$REPLY"
+  _agent_rules_legacy_cache_path || return 0
+  legacy_cache="$REPLY"
+
+  for cache in "$current_cache" "$legacy_cache"; do
+    [[ -f "$cache" ]] || continue
+    while IFS=$'\t' read -r key first _second; do
+      [[ "$key" == "target" ]] || continue
+      printf '%s\n' "$first"
+    done <"$cache"
+  done | LC_ALL=C sort -u
+}
+
+# Remove managed output from targets no longer selected by the active profile.
+_agent_rules_prune_stale_targets() {
+  local previous
+  while IFS= read -r previous; do
+    [[ -n "$previous" ]] || continue
+    [[ -n "${_agent_rules_targets_seen[$previous]+x}" ]] && continue
+    if [[ -d "$previous" ]]; then
+      _agent_rules_prune_legacy_dir "$previous"
+    else
+      _agent_rules_prune_block_file "$previous"
+    fi
+  done < <(_agent_rules_previous_targets)
+}
+
+# Persist enough state to prune generated files after source/profile changes.
+_agent_rules_write_cache() {
+  local cache tmp target source conf
+  _agent_rules_cache_path || return 1
+  cache="$REPLY"
+  mkdir -p "$(dirname "$cache")"
+  _dot_sibling_tmp_for "$cache" || return 1
+  tmp="$REPLY"
+
+  {
+    printf 'version\t%s\n' "dotfiles-agent-rules-cache-v3"
+    while IFS= read -r source; do
+      printf 'source\t%s\n' "$source"
+    done < <(_agent_rules_sources)
+    while IFS= read -r conf; do
+      printf 'target-conf\t%s\n' "$conf"
+    done < <(_agent_rules_target_confs)
+    for target in "${_agent_rules_targets[@]}"; do
+      printf 'target\t%s\n' "$target"
+    done
+  } >"$tmp" || {
+    rm -f "$tmp"
+    return 1
+  }
+  mv "$tmp" "$cache" || {
+    rm -f "$tmp"
+    return 1
+  }
+}
+
+# Merge current fragments into active targets and prune stale managed outputs.
+merge() {
+  local -a _agent_rules_targets=()
+  local -A _agent_rules_targets_seen=()
+  local aggregate render_status
+  aggregate=$(_agent_rules_render)
+  render_status=$?
+  if [[ "$render_status" -eq 1 ]]; then
+    _agent_rules_collect_targets
+    local target
+    for target in "${_agent_rules_targets[@]}"; do
+      _agent_rules_prune_block_file "$target"
+    done
+    _agent_rules_prune_stale_targets
+    _agent_rules_write_cache || true
+    return 0
+  elif [[ "$render_status" -ne 0 ]]; then
+    _warn "    warning: invalid agent playbook metadata; keeping existing generated rules"
+    return "$render_status"
+  fi
+
+  _agent_rules_collect_targets
+  if [[ ${#_agent_rules_targets[@]} -eq 0 ]]; then
+    _agent_rules_prune_stale_targets
+    _agent_rules_write_cache || true
+    return 0
+  fi
+
+  _log "  Agent rules"
+
+  local block target
+  block="$(_mb_build "$(_agent_rules_marker)" "$(_merge_hook_family agent-rules/rules.d)" "$aggregate")"
+  for target in "${_agent_rules_targets[@]}"; do
+    _mb_merge_family "$target" "$(_agent_rules_marker_prefix)" "$block"
+  done
+
+  _agent_rules_prune_stale_targets
+  _agent_rules_write_cache || true
+}

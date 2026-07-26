@@ -1,0 +1,172 @@
+#!/usr/bin/env bash
+# xdg-test - shared dot runtime XDG path policy.
+
+# This integration test deliberately sources runtime modules through the
+# checkout selected by dot-test and mutates XDG environment variables in place.
+# shellcheck disable=SC1090,SC1091,SC2034
+
+set -o pipefail
+export NO_COLOR=1
+
+# shellcheck source=helpers.sh
+. "$HOME/.local/lib/dot/tests/helpers.sh"
+
+work=$(_tmpdir)
+source_home="$HOME"
+fixture_home="$work/home"
+mkdir -p "$fixture_home"
+
+# shellcheck source=../core/xdg.sh
+. "$source_home/.local/lib/dot/core/xdg.sh"
+
+export HOME="$fixture_home"
+XDG_CONFIG_HOME="$work/config"
+XDG_STATE_HOME="$work/state"
+XDG_CACHE_HOME="$work/cache"
+XDG_DATA_HOME="$work/data"
+_dot_xdg_path config "tool/config.toml"
+_assert_eq "xdg policy: absolute config home is honored" "$work/config/tool/config.toml" "$REPLY"
+_dot_xdg_path state "dot/state"
+_assert_eq "xdg policy: absolute state home is honored" "$work/state/dot/state" "$REPLY"
+_dot_xdg_path cache "dot/cache"
+_assert_eq "xdg policy: absolute cache home is honored" "$work/cache/dot/cache" "$REPLY"
+_dot_xdg_path data "tool/data"
+_assert_eq "xdg policy: absolute data home is honored" "$work/data/tool/data" "$REPLY"
+
+XDG_CONFIG_HOME=""
+XDG_STATE_HOME="relative/state"
+XDG_CACHE_HOME="relative/cache"
+XDG_DATA_HOME=""
+_dot_xdg_path config "tool/config.toml"
+_assert_eq "xdg policy: empty config home falls back to HOME" \
+  "$fixture_home/.config/tool/config.toml" "$REPLY"
+_dot_xdg_path state "dot/state"
+_assert_eq "xdg policy: relative state home falls back to HOME" \
+  "$fixture_home/.local/state/dot/state" "$REPLY"
+_dot_xdg_path cache "dot/cache"
+_assert_eq "xdg policy: relative cache home falls back to HOME" \
+  "$fixture_home/.cache/dot/cache" "$REPLY"
+_dot_xdg_path data "tool/data"
+_assert_eq "xdg policy: empty data home falls back to HOME" \
+  "$fixture_home/.local/share/tool/data" "$REPLY"
+
+newline_state="$work/state"$'\n'
+XDG_STATE_HOME="$newline_state"
+_dot_xdg_path state "dot/state"
+_assert_eq "xdg policy: absolute base bytes are preserved" "$newline_state/dot/state" "$REPLY"
+
+unset HOME
+XDG_STATE_HOME="$work/no-home-state"
+_dot_xdg_path state "dot/state"
+_assert_eq "xdg policy: absolute XDG works without HOME" \
+  "$work/no-home-state/dot/state" "$REPLY"
+XDG_STATE_HOME="relative/state"
+if _dot_xdg_path state "dot/state"; then
+  _fail "xdg policy: invalid XDG without HOME fails closed"
+else
+  _pass "xdg policy: invalid XDG without HOME fails closed"
+fi
+
+export HOME="$fixture_home"
+XDG_STATE_HOME="relative/state"
+UPDATE_LOCK_MODULE="$source_home/.local/lib/dot/core/update-lock.sh"
+lock_cwd_one="$work/cwd-one"
+lock_cwd_two="$work/cwd-two"
+mkdir -p "$lock_cwd_one" "$lock_cwd_two"
+XDG_STATE_HOME="$newline_state"
+. "$UPDATE_LOCK_MODULE"
+_dot_update_lock_path
+_assert_eq "update lock: state path preserves trailing newline bytes" \
+  "$newline_state/dot/update.lock.d" "$REPLY"
+XDG_STATE_HOME="relative/state"
+lock_one=$(cd "$lock_cwd_one" && . "$UPDATE_LOCK_MODULE" && _dot_update_lock_path &&
+  printf '%s' "$REPLY")
+lock_two=$(cd "$lock_cwd_two" && . "$UPDATE_LOCK_MODULE" && _dot_update_lock_path &&
+  printf '%s' "$REPLY")
+_assert_eq "update lock: relative state home has one cwd-independent identity" \
+  "$lock_one" "$lock_two"
+_assert_eq "update lock: relative state home uses HOME fallback" \
+  "$fixture_home/.local/state/dot/update.lock.d" "$lock_one"
+
+XDG_STATE_HOME="$work/runtime-state"
+# shellcheck source=../core/constants.sh
+. "$source_home/.local/lib/dot/core/constants.sh"
+_assert_eq "overlay manifest: writer and doctor share XDG state path" \
+  "$work/runtime-state/dot/overlay-links" "$DOT_OVERLAY_MANIFEST"
+
+# shellcheck source=../core/merge-hooks/agent-rules.sh
+. "$source_home/.local/lib/dot/core/merge-hooks/agent-rules.sh"
+_agent_rules_cache_path
+_assert_eq "agent rules: current cache uses shared XDG state policy" \
+  "$work/runtime-state/dot/agent-rules-publish-cache-v3" "$REPLY"
+_agent_rules_legacy_cache_path
+_assert_eq "agent rules: migration cache uses shared XDG state policy" \
+  "$work/runtime-state/dot/agent-rules-publish-cache-v1" "$REPLY"
+
+# shellcheck source=../core/merge-hooks/gh.sh
+. "$source_home/.local/lib/dot/core/merge-hooks/gh.sh"
+_gh_token_seed_failure_stamp_path
+_assert_eq "GitHub token seed: failure stamp uses shared XDG state policy" \
+  "$work/runtime-state/dot/gh-token-seed-failed.stamp" "$REPLY"
+
+# shellcheck source=../launcher-real.sh
+. "$source_home/.local/lib/dot/launcher-real.sh"
+newline_cache="$work/cache"$'\n'
+XDG_CACHE_HOME="$newline_cache"
+_dot_launcher_cache_path git
+_assert_eq "launcher cache: cache path preserves trailing newline bytes" \
+  "$newline_cache/dot/git-real" "$REPLY"
+XDG_CACHE_HOME="relative/cache"
+_dot_launcher_cache_path git
+_assert_eq "launcher cache: relative cache home uses HOME fallback" \
+  "$fixture_home/.cache/dot/git-real" "$REPLY"
+
+DOT_GIT_LAUNCHER_SOURCED=1
+# shellcheck source=../../../bin/git
+# shellcheck disable=SC1094 # The guarded launcher is linted independently.
+. "$source_home/.local/bin/git"
+unset DOT_GIT_LAUNCHER_SOURCED
+_dot_git_nested_cache_path
+_assert_eq "git nested cache: relative cache home uses HOME fallback" \
+  "$fixture_home/.cache/dot/git-nested-worktree-roots" "$REPLY"
+
+XDG_DATA_HOME="relative/data"
+marks_one=$(cd "$lock_cwd_one" && HOME="$fixture_home" XDG_DATA_HOME="relative/data" \
+  bash -c '. "$1"; printf "%s" "$_MARKS_DIR"' \
+  _ "$source_home/.config/shell/interactive.d/57-marks.sh")
+marks_two=$(cd "$lock_cwd_two" && HOME="$fixture_home" XDG_DATA_HOME="relative/data" \
+  bash -c '. "$1"; printf "%s" "$_MARKS_DIR"' \
+  _ "$source_home/.config/shell/interactive.d/57-marks.sh")
+_assert_eq "marks: relative data home has one cwd-independent location" "$marks_one" "$marks_two"
+_assert_eq "marks: relative data home uses HOME fallback" \
+  "$fixture_home/.local/share/marks" "$marks_one"
+# shellcheck disable=SC2016  # zsh receives the runtime expressions.
+marks_zsh=$(cd "$lock_cwd_two" && env -i PATH="$PATH" HOME="$fixture_home" \
+  XDG_DATA_HOME="relative/data" zsh -dfc \
+  '. "$1"; printf "%s" "$_MARKS_DIR"' \
+  _ "$source_home/.config/shell/interactive.d/57-marks.sh")
+_assert_eq "marks: zsh uses the shared HOME fallback" "$fixture_home/.local/share/marks" \
+  "$marks_zsh"
+
+absolute_data="$work/no-home-data"
+# shellcheck disable=SC2016  # zsh receives the runtime expressions.
+marks_zsh_no_home=$(cd "$lock_cwd_two" && env -i PATH="$PATH" \
+  XDG_DATA_HOME="$absolute_data" zsh -dfc \
+  'unset HOME; . "$1"; printf "%s" "$_MARKS_DIR"' \
+  _ "$source_home/.config/shell/interactive.d/57-marks.sh")
+_assert_eq "marks: zsh accepts absolute data home without HOME" "$absolute_data/marks" \
+  "$marks_zsh_no_home"
+
+mkdir -p "$fixture_home/.local/share/clip"
+printf 'fallback entry' >"$fixture_home/.local/share/clip/fallback"
+clip_output=$(cd "$lock_cwd_one" && XDG_DATA_HOME="relative/data" \
+  "$source_home/.local/bin/clip" list)
+_assert_contains "clip: relative data home reads HOME fallback" "fallback entry" "$clip_output"
+
+mkdir -p "$absolute_data/clip"
+printf 'absolute entry' >"$absolute_data/clip/absolute"
+clip_output=$(cd "$lock_cwd_two" && env -u HOME XDG_DATA_HOME="$absolute_data" \
+  "$source_home/.local/bin/clip" list)
+_assert_contains "clip: absolute data home works without HOME" "absolute entry" "$clip_output"
+
+_test_summary

@@ -1,0 +1,377 @@
+#!/usr/bin/env bash
+# Dotfiles-aware launcher for Git.
+
+set -u
+
+_dot_git_launcher_lib="${BASH_SOURCE[0]%/*}/../lib/dot/launcher-real.sh"
+if [ ! -f "$_dot_git_launcher_lib" ]; then
+  _dot_git_launcher_lib="${HOME:-}/.local/lib/dot/launcher-real.sh"
+fi
+# shellcheck disable=SC1090
+. "$_dot_git_launcher_lib" || {
+  printf 'git launcher: could not load launcher helper\n' >&2
+  exit 2
+}
+
+_dot_git_die() {
+  printf 'git launcher: %s\n' "$*" >&2
+  exit 2
+}
+
+_dot_git_real_git() {
+  local self marker
+  self=$(_dot_launcher_file_id "${BASH_SOURCE[0]}") || self="${BASH_SOURCE[0]}"
+  marker="# Dotfiles-aware launcher for Git."
+  _dot_launcher_find_real git "$self" "$marker" \
+    /opt/homebrew/bin/git /usr/local/bin/git /usr/bin/git /bin/git
+}
+
+_dot_git_resolve_dir() {
+  local base="$1" path="$2"
+  case "$path" in
+    "~")
+      path="$HOME"
+      ;;
+    "~"/*)
+      path="$HOME/${path#"~/"}"
+      ;;
+    /*) ;;
+    *)
+      path="$base/$path"
+      ;;
+  esac
+  _dot_launcher_physical_dir "$path"
+}
+
+_dot_git_git_worktree_root() {
+  local dir="$1" root
+  root=$(cd -- "$dir" 2>/dev/null && "$_dot_git_real" rev-parse --show-toplevel 2>/dev/null) ||
+    return 1
+  [ -n "$root" ] || return 1
+  root=$(_dot_launcher_physical_dir "$root") || return 1
+  printf '%s\n' "$root"
+}
+
+_dot_git_real_sl_worktree_root() {
+  local dir="$1" root
+  command -v sl >/dev/null 2>&1 || return 1
+  root=$(cd -- "$dir" 2>/dev/null && sl root --config ui.color=never 2>/dev/null) ||
+    return 1
+  [[ -d "$root/.sl" || -d "$root/.hg" ]] || return 1
+  root=$(_dot_launcher_physical_dir "$root") || return 1
+  printf '%s\n' "$root"
+}
+
+_dot_git_parse_invocation() {
+  _dot_git_effective_cwd=$(pwd -P)
+  _dot_git_command=""
+  _dot_git_explicit_context=0
+
+  local arg next i=1
+  while [ "$i" -le "$#" ]; do
+    arg="${!i}"
+    case "$arg" in
+      -C)
+        i=$((i + 1))
+        [ "$i" -le "$#" ] || return 0
+        next="${!i}"
+        _dot_git_effective_cwd=$(_dot_git_resolve_dir "$_dot_git_effective_cwd" "$next") ||
+          return 0
+        i=$((i + 1))
+        ;;
+      -C?*)
+        _dot_git_effective_cwd=$(_dot_git_resolve_dir "$_dot_git_effective_cwd" "${arg#-C}") ||
+          return 0
+        i=$((i + 1))
+        ;;
+      --git-dir | --work-tree)
+        _dot_git_explicit_context=1
+        i=$((i + 2))
+        ;;
+      --git-dir=* | --work-tree=* | --bare)
+        _dot_git_explicit_context=1
+        i=$((i + 1))
+        ;;
+      -c | --config-env | --namespace)
+        i=$((i + 2))
+        ;;
+      --exec-path)
+        # Bare `--exec-path` takes no value (git prints the path and exits); only
+        # the `--exec-path=<path>` form below carries one. Consume a single token.
+        i=$((i + 1))
+        ;;
+      --config-env=* | --namespace=* | --exec-path=*)
+        i=$((i + 1))
+        ;;
+      --paginate | --no-pager | --no-replace-objects | --literal-pathspecs | \
+        --glob-pathspecs | --noglob-pathspecs | --icase-pathspecs | --no-optional-locks)
+        i=$((i + 1))
+        ;;
+      --version | version)
+        _dot_git_command="version"
+        return 0
+        ;;
+      -h | --help | help)
+        _dot_git_command="help"
+        return 0
+        ;;
+      --)
+        return 0
+        ;;
+      -*)
+        # Unknown leading options are Git global options or will be rejected by
+        # Git itself. Keep scanning so `git -C repo ...` still gets a chance.
+        i=$((i + 1))
+        ;;
+      *)
+        _dot_git_command="$arg"
+        return 0
+        ;;
+    esac
+  done
+}
+
+_dot_git_passthrough_command() {
+  case "$_dot_git_command" in
+    clone | init)
+      return 0
+      ;;
+  esac
+  return 1
+}
+
+_dot_git_scm_config_probe() {
+  [ "$_dot_git_command" = "config" ] || return 1
+
+  local arg i=1 saw_config=0 saw_show_scope=0 pattern=""
+  while [ "$i" -le "$#" ]; do
+    arg="${!i}"
+    if [ "$saw_config" -eq 0 ]; then
+      [ "$arg" = "config" ] && saw_config=1
+      i=$((i + 1))
+      continue
+    fi
+
+    case "$arg" in
+      --show-scope)
+        saw_show_scope=1
+        ;;
+      --get-regexp)
+        i=$((i + 1))
+        [ "$i" -le "$#" ] || return 1
+        pattern="${!i}"
+        ;;
+      --get-regexp=*)
+        pattern="${arg#--get-regexp=}"
+        ;;
+    esac
+    i=$((i + 1))
+  done
+
+  [ "$saw_show_scope" -eq 1 ] && [ "$pattern" = '^(remote|user|submodule)\.' ]
+}
+
+_dot_git_nested_cache_path() {
+  _dot_xdg_path cache "dot/git-nested-worktree-roots"
+}
+
+# When sourced for testing, expose the helper functions without resolving real
+# git or running the launcher flow below.
+if [ "${DOT_GIT_LAUNCHER_SOURCED:-}" = 1 ]; then
+  return 0
+fi
+
+_dot_git_real=$(_dot_git_real_git) ||
+  _dot_git_die "could not find real git outside ~/.local/bin"
+
+_dot_git_nested_cache_limit=64
+
+_dot_git_exec_dotfiles_or_real() {
+  if [ -d "$HOME/.dotfiles" ]; then
+    exec env \
+      GIT_DIR="$HOME/.dotfiles" \
+      GIT_WORK_TREE="$HOME" \
+      "$_dot_git_real" "$@"
+  fi
+
+  exec "$_dot_git_real" "$@"
+}
+
+_dot_git_root_still_exists() {
+  local root="$1"
+  [ -e "$root/.git" ] || [ -d "$root/.sl" ] || [ -d "$root/.hg" ]
+}
+
+_dot_git_closest_marker_root() {
+  local dir="$1" stop="$2"
+  while [ "$dir" != "/" ]; do
+    if _dot_git_root_still_exists "$dir"; then
+      printf '%s\n' "$dir"
+      return 0
+    fi
+    [ "$dir" = "$stop" ] && break
+    dir="${dir%/*}"
+    [ -n "$dir" ] || dir="/"
+  done
+  return 1
+}
+
+_dot_git_dir_under_root() {
+  local dir="$1" root="$2"
+  [ -n "$root" ] || return 1
+  case "$dir" in
+    "$root" | "$root"/*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+_dot_git_cached_nested_worktree() {
+  local dir="$1" cache line root type actual marker tmp tmp_count=0 tmp_dir hit=0
+  _dot_git_nested_cache_path || return 1
+  cache="$REPLY"
+  [ -r "$cache" ] || return 1
+  tmp_dir="${cache%/*}"
+  tmp=$(mktemp "${cache}.XXXXXX" 2>/dev/null) || return 1
+
+  while IFS= read -r line; do
+    case "$line" in
+      git$'\t'*)
+        type="git"
+        root="${line#*$'\t'}"
+        ;;
+      sl$'\t'*)
+        type="sl"
+        root="${line#*$'\t'}"
+        ;;
+      *)
+        continue
+        ;;
+    esac
+    _dot_git_root_still_exists "$root" || continue
+    if [ "$tmp_count" -lt "$_dot_git_nested_cache_limit" ]; then
+      printf '%s\n' "$line" >>"$tmp" 2>/dev/null || true
+      tmp_count=$((tmp_count + 1))
+    fi
+    _dot_git_dir_under_root "$dir" "$root" || continue
+    case "$type" in
+      git)
+        actual=$(_dot_git_git_worktree_root "$dir") || continue
+        if [ "$actual" = "$root" ]; then
+          hit=1
+          break
+        fi
+        ;;
+      sl)
+        command -v sl >/dev/null 2>&1 || continue
+        marker=$(_dot_git_closest_marker_root "$dir" "$root") || continue
+        if [ "$marker" = "$root" ]; then
+          hit=1
+          break
+        fi
+        ;;
+    esac
+  done <"$cache"
+
+  if [ -d "$tmp_dir" ] && [ -f "$tmp" ]; then
+    mv -f -- "$tmp" "$cache" 2>/dev/null || rm -f -- "$tmp"
+  else
+    rm -f -- "$tmp"
+  fi
+
+  [ "$hit" -eq 1 ] && return 0
+  return 1
+}
+
+_dot_git_cache_nested_root() {
+  local type="$1" root="$2" cache dir cached entry tmp tmp_count=1
+  [ -n "$root" ] || return 0
+  _dot_git_root_still_exists "$root" || return 0
+  _dot_git_nested_cache_path || return 0
+  cache="$REPLY"
+  entry="${type}"$'\t'"$root"
+  dir="${cache%/*}"
+  mkdir -p -- "$dir" 2>/dev/null || return 0
+  tmp=$(mktemp "${cache}.XXXXXX" 2>/dev/null) || return 0
+  printf '%s\n' "$entry" >"$tmp" 2>/dev/null || {
+    rm -f -- "$tmp"
+    return 0
+  }
+  if [ -r "$cache" ]; then
+    while IFS= read -r cached; do
+      [ "$cached" = "$entry" ] && continue
+      [ "$tmp_count" -ge "$_dot_git_nested_cache_limit" ] && break
+      printf '%s\n' "$cached" >>"$tmp" 2>/dev/null || true
+      tmp_count=$((tmp_count + 1))
+    done <"$cache"
+  fi
+  mv -f -- "$tmp" "$cache" 2>/dev/null || rm -f -- "$tmp"
+}
+
+if [ "${DOT_GIT_REAL:-0}" = "1" ]; then
+  exec "$_dot_git_real" "$@"
+fi
+
+_dot_git_parse_invocation "$@"
+
+# Explicit Git context wins. This keeps non-dotfiles bare repos and callers
+# using their own GIT_DIR/GIT_WORK_TREE from being silently rewritten.
+if [ -n "${GIT_DIR:-}" ] || [ -n "${GIT_WORK_TREE:-}" ] ||
+  [ "$_dot_git_explicit_context" -eq 1 ]; then
+  exec "$_dot_git_real" "$@"
+fi
+
+# Repo-creating commands are not dotfiles operations. Let real Git handle them
+# even when launched from $HOME, where the bare dotfiles repo is otherwise the
+# ambient context.
+if _dot_git_passthrough_command; then
+  exec "$_dot_git_real" "$@"
+fi
+
+if _dot_git_scm_config_probe "$@"; then
+  exec "$_dot_git_real" "$@"
+fi
+
+case "$_dot_git_command" in
+  version | help)
+    exec "$_dot_git_real" "$@"
+    ;;
+esac
+
+# Only invocations rooted in $HOME can resolve to the bare dotfiles repo, so the
+# work-tree probes below (which each spawn a real git / sl child process) are
+# meaningful only there. Resolve $HOME and bail to real Git first for every cwd
+# outside it: that path always ended in a plain `exec "$_dot_git_real"` anyway,
+# and skipping the probes keeps non-$HOME calls at real-git latency.
+_dot_git_home_phys=$(_dot_launcher_physical_dir "$HOME") ||
+  exec "$_dot_git_real" "$@"
+
+case "$_dot_git_effective_cwd" in
+  "$_dot_git_home_phys" | "$_dot_git_home_phys"/*) ;;
+  *)
+    exec "$_dot_git_real" "$@"
+    ;;
+esac
+
+# The HOME root itself is the bare dotfiles work tree. Nested repository probes
+# only matter for descendants under HOME, and skipping them keeps high-frequency
+# ambient `git` calls from spawning unnecessary Git/Sapling ownership checks.
+if [ "$_dot_git_effective_cwd" = "$_dot_git_home_phys" ]; then
+  _dot_git_exec_dotfiles_or_real "$@"
+fi
+
+if _dot_git_cached_nested_worktree "$_dot_git_effective_cwd"; then
+  exec "$_dot_git_real" "$@"
+fi
+
+# Inside $HOME: a nested real Git or Sapling checkout owns the cwd, so route it
+# to real Git instead of silently rewriting it onto the bare dotfiles repo.
+if _dot_git_nested_root=$(_dot_git_git_worktree_root "$_dot_git_effective_cwd"); then
+  _dot_git_cache_nested_root git "$_dot_git_nested_root"
+  exec "$_dot_git_real" "$@"
+fi
+if _dot_git_nested_root=$(_dot_git_real_sl_worktree_root "$_dot_git_effective_cwd"); then
+  _dot_git_cache_nested_root sl "$_dot_git_nested_root"
+  exec "$_dot_git_real" "$@"
+fi
+
+_dot_git_exec_dotfiles_or_real "$@"

@@ -1,0 +1,191 @@
+{
+  "hooks": {
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "command": "env AGENTGUARD_NAME=claude AGENTGUARD_SESSION_ID=\"${CLAUDE_CODE_CURRENT_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:-}}\" agent-hook-notification",
+            "type": "command"
+          }
+        ],
+        "matcher": ""
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "env AGENTGUARD_NAME=claude AGENTGUARD_SESSION_ID=\"${CLAUDE_CODE_CURRENT_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:-}}\" agent-hook-post-edit",
+            "timeout": 60,
+            "type": "command"
+          }
+        ],
+        "matcher": "Edit|Write"
+      },
+      {
+        "hooks": [
+          {
+            "command": "env AGENTGUARD_NAME=claude AGENTGUARD_SESSION_ID=\"${CLAUDE_CODE_CURRENT_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:-}}\" agent-hook-post-bash",
+            "timeout": 120,
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash"
+      },
+      {
+        "hooks": [
+          {
+            "command": "env AGENTGUARD_NAME=claude AGENTGUARD_SESSION_ID=\"${CLAUDE_CODE_CURRENT_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:-}}\" agent-hook-post-mcp",
+            "timeout": 10,
+            "type": "command"
+          }
+        ],
+        "matcher": "mcp__"
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "env AGENTGUARD_NAME=claude AGENTGUARD_SESSION_ID=\"${CLAUDE_CODE_CURRENT_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:-}}\" agent-hook-pre-bash",
+            "timeout": 600,
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash"
+      },
+      {
+        "hooks": [
+          {
+            "command": "env AGENTGUARD_NAME=claude AGENTGUARD_SESSION_ID=\"${CLAUDE_CODE_CURRENT_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:-}}\" agent-hook-pre-edit",
+            "timeout": 10,
+            "type": "command"
+          }
+        ],
+        "matcher": "Edit|Write"
+      },
+      {
+        "hooks": [
+          {
+            "command": "env AGENTGUARD_NAME=claude AGENTGUARD_SESSION_ID=\"${CLAUDE_CODE_CURRENT_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:-}}\" agent-hook-pre-mcp",
+            "timeout": 10,
+            "type": "command"
+          }
+        ],
+        "matcher": "mcp__"
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "command": "env AGENTGUARD_NAME=claude AGENTGUARD_SESSION_ID=\"${CLAUDE_CODE_CURRENT_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:-}}\" agent-hook-session-end",
+            "timeout": 30,
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "command": "env AGENTGUARD_NAME=claude AGENTGUARD_SESSION_ID=\"${CLAUDE_CODE_CURRENT_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:-}}\" agent-hook-session-start",
+            "timeout": 10,
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "command": "env AGENTGUARD_NAME=claude AGENTGUARD_SESSION_ID=\"${CLAUDE_CODE_CURRENT_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:-}}\" agent-hook-stop",
+            "type": "command"
+          }
+        ],
+        "matcher": ""
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "command": "env AGENTGUARD_NAME=claude AGENTGUARD_SESSION_ID=\"${CLAUDE_CODE_CURRENT_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:-}}\" agent-hook-prompt-submit",
+            "timeout": 10,
+            "type": "command"
+          }
+        ],
+        "matcher": ""
+      }
+    ]
+  },
+  "permissions": {
+    "additionalDirectories": ["$HOME"],
+    "allow": [
+      "Bash(awk *)",
+      "Bash(basename *)",
+      "Bash(cat *)",
+      "Bash(cd *)",
+      "Bash(c++filt *)",
+      "Bash(chmod *)",
+      "Bash(code *)",
+      "Bash(curl -s *)",
+      "Bash(curl --silent *)",
+      "Bash(cut *)",
+      "Bash(date *)",
+      "Bash(df *)",
+      "Bash(diff *)",
+      "Bash(dirname *)",
+      "Bash(dot *)",
+      "Bash(du *)",
+      "Bash(echo *)",
+      "Bash(env)",
+      "Bash(file *)",
+      "Bash(head *)",
+      "Bash(hostname*)",
+      "Bash(jq *)",
+      "Bash(ln *)",
+      "Bash(locate *)",
+      "Bash(ls *)",
+      "Bash(md5sum *)",
+      "Bash(mdfind*)",
+      "Bash(mkdir *)",
+      "Bash(nm *)",
+      "Bash(otool *)",
+      "Bash(pip3 freeze*)",
+      "Bash(pip3 list*)",
+      "Bash(pip3 show *)",
+      "Bash(printenv *)",
+      "Bash(python3 *)",
+      "Bash(readlink *)",
+      "Bash(realpath *)",
+      "Bash(sed *)",
+      "Bash(sha256sum *)",
+      "Bash(sort *)",
+      "Bash(stat *)",
+      "Bash(strings *)",
+      "Bash(tail *)",
+      "Bash(test *)",
+      "Bash(tmux *)",
+      "Bash(touch *)",
+      "Bash(tr *)",
+      "Bash(tree *)",
+      "Bash(type *)",
+      "Bash(uname *)",
+      "Bash(uniq *)",
+      "Bash(wc *)",
+      "Bash(which *)",
+      "Bash(whoami)",
+      "Bash(xargs *)",
+      "Bash(xattr *)",
+      "Glob",
+      "Grep",
+      "Read",
+      "Skill(update-config)",
+      "WebFetch",
+      "WebSearch"
+    ]
+  }
+}

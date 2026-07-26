@@ -1,0 +1,183 @@
+#!/usr/bin/env bash
+# validate-commit-msg — validate commit message format.
+#
+# Reusable validator for git commit-msg hooks and agent-driven Sapling hooks.
+# Checks title structure and required sections.
+#
+# Usage:
+#   validate-commit-msg [--format git|sl] [--strict] --file FILE
+#   echo "message" | validate-commit-msg [--format git|sl] [--strict]
+#
+# Formats:
+#   git   requires Summary + Testing sections (default)
+#   sl    requires Summary + Test Plan sections
+#
+# Knobs:
+#   COMMIT_MSG_SKIP=1     skip all validation
+#   COMMIT_MSG_STRICT=1   same as --strict
+#
+# Exit codes:
+#   0   clean or warnings only
+#   1   blocking errors found
+
+set -u
+
+[ "${COMMIT_MSG_SKIP:-0}" = "1" ] && exit 0
+
+# ── Args ──────────────────────────────────────────────────────────────
+
+format=''
+file=''
+strict="${COMMIT_MSG_STRICT:-0}"
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --format)
+      format="${2:-}"
+      shift 2
+      ;;
+    --file)
+      file="${2:-}"
+      shift 2
+      ;;
+    --strict)
+      strict=1
+      shift
+      ;;
+    *) shift ;;
+  esac
+done
+
+# ── Read message ──────────────────────────────────────────────────────
+
+if [ -n "$file" ]; then
+  [ ! -f "$file" ] && exit 0
+  # Strip git comment lines (core.commentChar default: #)
+  msg=$(grep -v '^#' <"$file")
+else
+  msg=$(cat)
+fi
+
+# Strip trailing blank lines (awk for BSD sed portability)
+msg=$(printf '%s\n' "$msg" | awk '
+  { lines[NR] = $0 }
+  /[^[:space:]]/ { last = NR }
+  END { for (i = 1; i <= last; i++) print lines[i] }
+')
+[ -z "$msg" ] && exit 0
+
+title=${msg%%$'\n'*}
+title=${title#"${title%%[![:space:]]*}"}
+line_count=$(printf '%s\n' "$msg" | wc -l | tr -d ' ')
+
+# ── Diagnostics ───────────────────────────────────────────────────────
+
+warns=0
+errs=0
+_warn() {
+  printf 'commit-msg: %s\n' "$1" >&2
+  warns=$((warns + 1))
+}
+_err() {
+  printf 'commit-msg: %s\n' "$1" >&2
+  errs=$((errs + 1))
+}
+_check() { if [ "$strict" = 1 ]; then _err "$1"; else _warn "$1"; fi; }
+
+# ── Skip special commits ─────────────────────────────────────────────
+
+case "$title" in
+  Merge\ * | fixup!\ * | squash!\ * | amend!\ * | Revert\ *) exit 0 ;;
+esac
+
+# ── Title ─────────────────────────────────────────────────────────────
+
+tlen=${#title}
+if [ "$tlen" -gt 100 ]; then
+  _err "title is $tlen chars (max 100)"
+elif [ "$tlen" -gt 72 ]; then
+  _warn "title is $tlen chars (prefer ≤72)"
+fi
+
+case "$title" in
+  *.) _check "title ends with a period" ;;
+esac
+
+if [ "$line_count" -gt 1 ]; then
+  rest=${msg#*$'\n'}
+  second=${rest%%$'\n'*}
+  [ -n "$second" ] && _check "missing blank line after title"
+fi
+
+# ── Sections ──────────────────────────────────────────────────────────
+
+if [ -z "$format" ]; then
+  if printf '%s\n' "$msg" | grep -qiE '^[[:space:]]*Test Plan'; then
+    format=sl
+  else
+    format=git
+  fi
+fi
+
+_check_section() {
+  local name="$1"
+
+  local hline
+  hline=$(printf '%s\n' "$msg" | grep -niE "^[[:space:]]*${name}(:|[[:space:]]*$)" | head -1 | cut -d: -f1)
+
+  if [ -z "$hline" ]; then
+    _check "missing '${name}' section"
+    return
+  fi
+
+  # Inline content on the header line (e.g., "Summary: content here")
+  local inline
+  inline=$(printf '%s\n' "$msg" | sed -n "${hline}p" | sed -E 's/^[[:space:]]*[^:]+:?[[:space:]]*//')
+  if [ -n "$inline" ]; then
+    if printf '%s\n' "$inline" | grep -qiE '^(TODO|TBD|FIXME|N/?A)[[:space:]]*$'; then
+      _check "'${name}' is a placeholder"
+    fi
+    return
+  fi
+
+  # Content on subsequent lines. Stop at known section headers
+  # (case-insensitive via bracket globs) or metadata lines.
+  local content=''
+  while IFS= read -r _line; do
+    case "$_line" in
+      [Ss]ummary | [Ss]ummary:* | [Tt]esting | [Tt]esting:* | \
+        [Tt]est\ [Pp]lan | [Tt]est\ [Pp]lan:*) break ;;
+      "Differential Revision:"* | "Reviewed By:"* | "Reviewers:"*) break ;;
+    esac
+    [[ "$_line" =~ ^[[:space:]]*$ ]] && continue
+    content="$_line"
+    break
+  done < <(printf '%s\n' "$msg" | tail -n +"$((hline + 1))" | head -10)
+
+  if [ -z "$content" ]; then
+    _check "'${name}' section is empty"
+  elif printf '%s\n' "$content" | grep -qiE '^[[:space:]]*(TODO|TBD|FIXME|N/?A)[[:space:]]*$'; then
+    _check "'${name}' is a placeholder"
+  fi
+}
+
+# Title-only commits: skip section checks in non-strict mode
+if [ "$line_count" -le 2 ] && [ "$strict" != 1 ]; then
+  : # one-liner, no sections expected
+else
+  case "$format" in
+    sl)
+      _check_section "Summary"
+      _check_section "Test Plan"
+      ;;
+    *)
+      _check_section "Summary"
+      _check_section "Testing"
+      ;;
+  esac
+fi
+
+# ── Result ────────────────────────────────────────────────────────────
+
+[ "$errs" -gt 0 ] && exit 1
+exit 0

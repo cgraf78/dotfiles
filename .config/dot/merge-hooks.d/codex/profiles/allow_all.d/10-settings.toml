@@ -1,0 +1,8 @@
+# `codex --profile allow_all` overlay (the codex() shell alias passes this).
+# Layered on top of config.toml: grant full disk/network access and push
+# reasoning to high. The shell alias passes `--ask-for-approval never`
+# explicitly because current Codex builds ignore `approval_policy` from profile
+# overlays when building the runtime permission policy.
+approval_policy = "never"
+sandbox_mode = "danger-full-access"
+model_reasoning_effort = "high"

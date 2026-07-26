@@ -1,0 +1,723 @@
+#!/usr/bin/env bash
+# agent-rules-test — tests for generated agent rule aggregates.
+
+# shellcheck disable=SC1091,SC2016,SC2030,SC2031,SC2088
+# Route extraction intentionally matches literal Markdown backticks.
+set -o pipefail
+export NO_COLOR=1
+
+. "$HOME/.local/lib/dot/tests/helpers.sh"
+. "$HOME/.local/lib/dot/core/constants.sh"
+. "$HOME/.local/lib/dot/core/repos/overlays.sh"
+
+HOOK="$HOME/.local/lib/dot/core/merge-hooks/agent-rules.sh"
+PLAYBOOK_LIB="$HOME/.local/lib/dot/core/agent-playbooks.sh"
+RULE_FAMILY="$HOME/.config/dot/merge-hooks.d/agent-rules/rules.d"
+PLAYBOOK_FAMILY="$HOME/.config/dot/agent-playbooks.d"
+if [[ -f "$PLAYBOOK_LIB" ]]; then
+  # shellcheck source=/dev/null
+  . "$PLAYBOOK_LIB"
+else
+  _fail "agent rules: playbook library exists"
+fi
+OVERLAY_AUTHORITY_MANIFESTS=()
+if ! _overlay_authority_files; then
+  _fail "agent rules: overlay authority manifests are safe: $REPLY"
+fi
+
+_managed_overlay_owner_for_path() {
+  local relative="$1" manifest line REPLY_REL REPLY_OWNER
+  for manifest in "${OVERLAY_AUTHORITY_MANIFESTS[@]+"${OVERLAY_AUTHORITY_MANIFESTS[@]}"}"; do
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      _overlay_parse_manifest_record "$line" || continue
+      if [[ "$REPLY_REL" == "$relative" ]] &&
+        _overlay_link_matches "$relative" "$REPLY_OWNER"; then
+        printf '%s\n' "$REPLY_OWNER"
+        return 0
+      fi
+    done <"$manifest"
+  done
+  return 1
+}
+
+_run_agent_rules_merge() {
+  local fixture="$1"
+  (
+    HOME="$fixture"
+    export DOT_OVERLAY_MANIFEST="$fixture/.local/state/dot/overlay-links"
+    export DOT_OVERLAY_LEGACY_MANIFEST="$fixture/.local/state/dot/legacy-overlay-links"
+    # The sourced merge hook calls these callbacks; shellcheck cannot see that
+    # indirection from this test fixture.
+    # shellcheck disable=SC2329
+    _log() { :; }
+    # shellcheck disable=SC2329
+    _warn() { printf '%s\n' "$*" >&2; }
+    # shellcheck source=/dev/null
+    source "$HOOK"
+    merge
+  )
+}
+
+_managed_body() {
+  local file="$1"
+  awk '
+    /^# dot-managed:agent-rules:aggregate begin$/ { in_block = 1; next }
+    /^# dot-managed:agent-rules:aggregate end$/ { in_block = 0; next }
+    in_block { print }
+  ' "$file"
+}
+
+echo "=== global memory rules ==="
+
+SCOPE_RULES_TEXT=$(cat "$RULE_FAMILY/000-global-rules.md")
+MEMORY_RULES_TEXT=$(cat "$RULE_FAMILY/010-durable-memory.md")
+GIT_RULES_TEXT=$(cat "$RULE_FAMILY/050-git-and-github.md")
+WORKFLOW_RULES_TEXT=$(cat "$RULE_FAMILY/070-engineering-workflow.md")
+_assert_contains "agent rules: scope explains generated targets" \
+  "This rule set is generated from source fragments" "$SCOPE_RULES_TEXT"
+_assert_contains "agent rules: scope directs edits to source fragments" \
+  ".config/dot/merge-hooks.d/agent-rules/rules.d/" \
+  "$SCOPE_RULES_TEXT"
+_assert_contains "agent rules: scope avoids generated target edits" \
+  "generated runtime target" "$SCOPE_RULES_TEXT"
+_assert_contains "agent rules: memory policy uses Hive Memory" \
+  "Hive Memory is available through the \`hm\` command" "$MEMORY_RULES_TEXT"
+_assert_contains "agent rules: memory policy requires project-aware writes" \
+  "pass \`--project <file-or-repo-path>\`" "$MEMORY_RULES_TEXT"
+_assert_contains "agent rules: memory policy handles pending reminders" \
+  "If a prompt or hook reminder says memory is pending" "$MEMORY_RULES_TEXT"
+_assert_contains "agent rules: memory policy forbids secrets" \
+  "Do not store secrets or sensitive credentials" "$MEMORY_RULES_TEXT"
+_assert_contains "agent rules: branch pushes name the destination" \
+  'git push <remote> <source>:refs/heads/<destination>' "$GIT_RULES_TEXT"
+
+lifecycle_anchor_paths=$(printf '%s\n' "$WORKFLOW_RULES_TEXT" |
+  grep -Eo '`~/.config/dot/agent-playbooks.d/[^`]+\.md`' | tr -d '`')
+lifecycle_anchor_count=$(printf '%s\n' "$lifecycle_anchor_paths" | sed '/^$/d' | wc -l)
+_assert_eq "agent rules: two lifecycle-critical playbook anchors remain in core" \
+  "2" "$lifecycle_anchor_count"
+_assert_contains "agent rules: worktree lifecycle anchor remains in core" \
+  '~/.config/dot/agent-playbooks.d/git/worktrees.md' "$lifecycle_anchor_paths"
+_assert_contains "agent rules: fresh-eyes lifecycle anchor remains in core" \
+  '~/.config/dot/agent-playbooks.d/review/fresh-eyes.md' "$lifecycle_anchor_paths"
+while IFS= read -r lifecycle_anchor; do
+  [[ -n "$lifecycle_anchor" ]] || continue
+  _assert_file_exists "agent rules: lifecycle anchor exists: $lifecycle_anchor" \
+    "$HOME/${lifecycle_anchor#\~/}"
+done <<<"$lifecycle_anchor_paths"
+
+echo "=== agent rule ids ==="
+
+rule_files=()
+while IFS= read -r rule_file; do
+  rule_files+=("$rule_file")
+done < <(
+  . "$HOME/.local/lib/dot/core/merge-hooks.sh"
+  _merge_hook_family_files_matching agent-rules/rules.d '[0-9][0-9][0-9]-*.md' '[0-9][0-9][0-9]-*.replace/*.md'
+)
+
+playbook_files=()
+playbook_listing=""
+if declare -F _dot_playbook_files >/dev/null 2>&1; then
+  playbook_listing=$(_dot_playbook_files) ||
+    _fail "agent rules: playbook discovery succeeds"
+else
+  _fail "agent rules: playbook discovery helper exists"
+fi
+while IFS= read -r playbook_file; do
+  [[ -n "$playbook_file" ]] || continue
+  playbook_files+=("$playbook_file")
+done <<<"$playbook_listing"
+if ((${#playbook_files[@]} == 0)); then
+  _fail "agent rules: playbooks exist"
+fi
+
+rule_ids=$(
+  for rule_file in "${rule_files[@]}" "${playbook_files[@]}"; do
+    grep -hEo 'agent-rule-id: [a-z0-9-]+' "$rule_file" 2>/dev/null || true
+  done | awk '{print $2}'
+)
+duplicate_rule_ids=$(printf '%s\n' "$rule_ids" | sed '/^$/d' | sort | uniq -d)
+if [[ -z "$duplicate_rule_ids" ]]; then
+  _pass "agent rules: rule ids are unique"
+else
+  _fail "agent rules: duplicate rule ids: $duplicate_rule_ids"
+fi
+
+for rule_file in "${rule_files[@]}"; do
+  if grep -qE 'agent-rule-id: [a-z0-9-]+' "$rule_file"; then
+    _pass "agent rules: $(basename "$rule_file") has rule id"
+  else
+    _fail "agent rules: $rule_file has no rule id"
+  fi
+done
+
+for playbook_file in "${playbook_files[@]}"; do
+  if grep -qE 'agent-rule-id: [a-z0-9-]+' "$playbook_file"; then
+    _pass "agent rules: ${playbook_file#"$PLAYBOOK_FAMILY/"} has rule id"
+  else
+    _fail "agent rules: $playbook_file has no rule id"
+  fi
+
+  trigger_count=$(grep -cE '^<!--[[:space:]]*agent-rule-trigger: .+ -->$' \
+    "$playbook_file" 2>/dev/null || true)
+  _assert_eq \
+    "agent rules: ${playbook_file#"$PLAYBOOK_FAMILY/"} owns one trigger" \
+    "1" "$trigger_count"
+  if declare -F _dot_playbook_trigger >/dev/null 2>&1 &&
+    _dot_playbook_trigger "$playbook_file" >/dev/null; then
+    _pass "agent rules: ${playbook_file#"$PLAYBOOK_FAMILY/"} trigger parses"
+  else
+    _fail "agent rules: ${playbook_file#"$PLAYBOOK_FAMILY/"} trigger parses"
+  fi
+done
+
+echo "=== on-demand playbooks ==="
+
+routing_files=()
+for rule_file in "${rule_files[@]}"; do
+  grep -qE 'agent-rule-id: [a-z0-9-]*on-demand-playbooks[[:space:]]*-->' \
+    "$rule_file" || continue
+  routing_files+=("$rule_file")
+done
+if ((${#routing_files[@]} == 0)); then
+  _fail "agent rules: on-demand routing index exists"
+  ROUTING_TEXT=""
+else
+  _pass "agent rules: discovered ${#routing_files[@]} routing index files"
+  routing_source=$(cat "${routing_files[@]}")
+  _assert_contains "agent rules: routing source has generated index marker" \
+    "<!-- dot-playbook-index -->" "$routing_source"
+  _assert_not_contains "agent rules: routing source has no maintained route list" \
+    "languages/python.md" "$routing_source"
+
+  if declare -F _dot_playbook_index >/dev/null 2>&1; then
+    ROUTING_TEXT=$(_dot_playbook_index) ||
+      _fail "agent rules: generated routing index renders"
+  else
+    ROUTING_TEXT=""
+  fi
+fi
+for playbook_file in "${playbook_files[@]}"; do
+  playbook_rel=${playbook_file#"$PLAYBOOK_FAMILY/"}
+  _assert_contains "agent rules: routes $playbook_rel" \
+    "\`$playbook_rel\`" "$ROUTING_TEXT"
+done
+
+route_paths=""
+if ((${#routing_files[@]} > 0)); then
+  route_paths=$(
+    printf '%s\n' "$ROUTING_TEXT" |
+      grep -Eo '`[^`]+\.md`' |
+      tr -d '`' |
+      LC_ALL=C sort -u
+  )
+fi
+
+_assert_playbook_route() {
+  local root="$1" route="$2" target relative owner root_real target_dir_real
+  target="$root/$route"
+
+  case "$route" in
+    /* | '~'* | '$'* | ./* | ../* | */../* | */..)
+      _fail "agent rules: route is a safe relative path: $route"
+      return
+      ;;
+  esac
+  if [[ -L "$target" ]]; then
+    relative=${target#"$HOME/"}
+    owner=$(_managed_overlay_owner_for_path "$relative" 2>/dev/null || true)
+    if [[ -n "$owner" ]]; then
+      _pass "agent rules: route exists in managed overlay: $route"
+    else
+      _fail "agent rules: route symlink is owned by an active overlay: $route"
+    fi
+    return
+  fi
+  if [[ ! -f "$target" ]]; then
+    _fail "agent rules: route exists: $route (file not found: $target)"
+    return
+  fi
+  root_real=$(cd "$root" && pwd -P) || {
+    _fail "agent rules: playbook root resolves: $root"
+    return
+  }
+  target_dir_real=$(cd "${target%/*}" && pwd -P) || {
+    _fail "agent rules: route parent resolves: $route"
+    return
+  }
+  case "$target_dir_real/" in
+    "$root_real/"*) _pass "agent rules: route exists: $route" ;;
+    *) _fail "agent rules: route stays below playbook root: $route" ;;
+  esac
+}
+
+while IFS= read -r route_path; do
+  [[ -n "$route_path" ]] || continue
+  _assert_playbook_route "$PLAYBOOK_FAMILY" "$route_path"
+done <<<"$route_paths"
+
+rendered_rules=$(
+  # shellcheck source=/dev/null
+  . "$HOOK"
+  _agent_rules_render
+)
+core_bytes=$(printf '%s\n' "$rendered_rules" | wc -c)
+if ((core_bytes <= 20000)); then
+  _pass "agent rules: rendered always-loaded rules are $core_bytes / 20000 bytes"
+else
+  _fail "agent rules: rendered always-loaded rules are $core_bytes bytes (limit: 20000)"
+fi
+
+echo "=== playbook metadata and discovery ==="
+
+if declare -F _dot_playbook_trigger >/dev/null 2>&1; then
+  META_FIXTURE=$(_tmpdir)
+  cat >"$META_FIXTURE/valid.md" <<'EOF'
+# Valid
+
+<!-- agent-rule-id: valid -->
+<!-- agent-rule-trigger: A valid trigger -->
+
+Body.
+
+## Later
+<!-- agent-rule-trigger: A body decoy -->
+EOF
+  _assert_eq "agent rules: parser ignores body trigger decoys" \
+    "A valid trigger" "$(_dot_playbook_trigger "$META_FIXTURE/valid.md")"
+
+  cat >"$META_FIXTURE/duplicate.md" <<'EOF'
+# Duplicate
+
+<!-- agent-rule-id: duplicate -->
+<!-- agent-rule-trigger: First -->
+<!-- agent-rule-trigger: Second -->
+
+Body.
+EOF
+  if _dot_playbook_trigger "$META_FIXTURE/duplicate.md" >/dev/null 2>&1; then
+    _fail "agent rules: parser rejects duplicate top-level triggers"
+  else
+    _pass "agent rules: parser rejects duplicate top-level triggers"
+  fi
+
+  if (
+    # shellcheck source=/dev/null
+    . "$HOOK"
+    _agent_rules_expand_playbook_index \
+      'inline <!-- dot-playbook-index --> marker'
+  ) >/dev/null 2>&1; then
+    _fail "agent rules: inline generated-index marker is rejected"
+  else
+    _pass "agent rules: inline generated-index marker is rejected"
+  fi
+  if (
+    # shellcheck source=/dev/null
+    . "$HOOK"
+    _agent_rules_expand_playbook_index \
+      $'<!-- dot-playbook-index -->\n<!-- dot-playbook-index -->'
+  ) >/dev/null 2>&1; then
+    _fail "agent rules: duplicate generated-index markers are rejected"
+  else
+    _pass "agent rules: duplicate generated-index markers are rejected"
+  fi
+
+  DISCOVERY_FIXTURE=$(_tmpdir)
+  mkdir -p \
+    "$DISCOVERY_FIXTURE/.config/dot/agent-playbooks.d/nested/deeper" \
+    "$DISCOVERY_FIXTURE/.config/dot/agent-playbooks.d/unmanaged" \
+    "$DISCOVERY_FIXTURE/.dotfiles-private/home/.config/dot/agent-playbooks.d/private" \
+    "$DISCOVERY_FIXTURE/.local/state/dot"
+  cat >"$DISCOVERY_FIXTURE/.config/dot/agent-playbooks.d/nested/deeper/base.md" <<'EOF'
+# Nested Base
+
+<!-- agent-rule-id: nested-base -->
+<!-- agent-rule-trigger: Testing nested discovery -->
+EOF
+  cat >"$DISCOVERY_FIXTURE/.config/dot/agent-playbooks.d/unmanaged/file.md" <<'EOF'
+# Unmanaged
+
+<!-- agent-rule-id: unmanaged -->
+<!-- agent-rule-trigger: This must not be indexed -->
+EOF
+  cat >"$DISCOVERY_FIXTURE/.dotfiles-private/home/.config/dot/agent-playbooks.d/private/overlay.md" <<'EOF'
+# Managed Overlay
+
+<!-- agent-rule-id: managed-overlay -->
+<!-- agent-rule-trigger: Testing managed overlays -->
+EOF
+  cat >"$DISCOVERY_FIXTURE/.dotfiles-private/home/.config/dot/agent-playbooks.d/private/untracked.md" <<'EOF'
+# Untracked Overlay
+
+<!-- agent-rule-id: untracked-overlay -->
+<!-- agent-rule-trigger: This must not be indexed -->
+EOF
+  git init -q --bare "$DISCOVERY_FIXTURE/.dotfiles"
+  git --git-dir="$DISCOVERY_FIXTURE/.dotfiles" \
+    --work-tree="$DISCOVERY_FIXTURE" add \
+    .config/dot/agent-playbooks.d/nested/deeper/base.md
+  git -C "$DISCOVERY_FIXTURE/.dotfiles-private" init -q
+  git -C "$DISCOVERY_FIXTURE/.dotfiles-private" add \
+    home/.config/dot/agent-playbooks.d/private/overlay.md
+  discovery_rel=.config/dot/agent-playbooks.d/private/overlay.md
+  discovery_target=$(
+    HOME="$DISCOVERY_FIXTURE"
+    _overlay_link_target "$discovery_rel" private
+    printf '%s\n' "$REPLY"
+  )
+  mkdir -p "$DISCOVERY_FIXTURE/${discovery_rel%/*}"
+  ln -s "$discovery_target" "$DISCOVERY_FIXTURE/$discovery_rel"
+  printf '%s\t%s\n' "$discovery_rel" private \
+    >"$DISCOVERY_FIXTURE/.local/state/dot/overlay-links"
+  discovery_untracked_rel=.config/dot/agent-playbooks.d/private/untracked.md
+  discovery_untracked_target=$(
+    HOME="$DISCOVERY_FIXTURE"
+    _overlay_link_target "$discovery_untracked_rel" private
+    printf '%s\n' "$REPLY"
+  )
+  ln -s "$discovery_untracked_target" "$DISCOVERY_FIXTURE/$discovery_untracked_rel"
+  printf '%s\t%s\n' "$discovery_untracked_rel" private \
+    >>"$DISCOVERY_FIXTURE/.local/state/dot/overlay-links"
+  chmod 600 "$DISCOVERY_FIXTURE/.local/state/dot/overlay-links"
+  ln -s "$DISCOVERY_FIXTURE/.config/dot/agent-playbooks.d/nested/deeper/base.md" \
+    "$DISCOVERY_FIXTURE/.config/dot/agent-playbooks.d/unmanaged/link.md"
+
+  discovery_listing=$(
+    HOME="$DISCOVERY_FIXTURE" \
+      DOT_OVERLAY_MANIFEST="$DISCOVERY_FIXTURE/.local/state/dot/overlay-links" \
+      DOT_OVERLAY_LEGACY_MANIFEST="$DISCOVERY_FIXTURE/.local/state/dot/legacy-overlay-links" \
+      _dot_playbook_files
+  )
+  discovery_nested_listing=$(
+    cd "$DISCOVERY_FIXTURE/.config" || exit
+    HOME="$DISCOVERY_FIXTURE" \
+      DOT_OVERLAY_MANIFEST="$DISCOVERY_FIXTURE/.local/state/dot/overlay-links" \
+      DOT_OVERLAY_LEGACY_MANIFEST="$DISCOVERY_FIXTURE/.local/state/dot/legacy-overlay-links" \
+      _dot_playbook_files
+  )
+  _assert_contains "agent rules: discovery includes recursively nested tracked playbook" \
+    "$DISCOVERY_FIXTURE/.config/dot/agent-playbooks.d/nested/deeper/base.md" \
+    "$discovery_listing"
+  _assert_contains "agent rules: discovery is independent of caller directory" \
+    "$DISCOVERY_FIXTURE/.config/dot/agent-playbooks.d/nested/deeper/base.md" \
+    "$discovery_nested_listing"
+  _assert_contains "agent rules: discovery includes exact managed overlay symlink" \
+    "$DISCOVERY_FIXTURE/.config/dot/agent-playbooks.d/private/overlay.md" \
+    "$discovery_listing"
+  _assert_not_contains "agent rules: discovery excludes untracked regular files" \
+    "$DISCOVERY_FIXTURE/.config/dot/agent-playbooks.d/unmanaged/file.md" \
+    "$discovery_listing"
+  _assert_not_contains "agent rules: discovery excludes arbitrary symlinks" \
+    "$DISCOVERY_FIXTURE/.config/dot/agent-playbooks.d/unmanaged/link.md" \
+    "$discovery_listing"
+  _assert_not_contains "agent rules: discovery excludes untracked overlay sources" \
+    "$DISCOVERY_FIXTURE/$discovery_untracked_rel" "$discovery_listing"
+
+  mv "$DISCOVERY_FIXTURE/.dotfiles-private/home/$discovery_rel" \
+    "$DISCOVERY_FIXTURE/.dotfiles-private/home/$discovery_rel.missing"
+  if HOME="$DISCOVERY_FIXTURE" \
+    DOT_OVERLAY_MANIFEST="$DISCOVERY_FIXTURE/.local/state/dot/overlay-links" \
+    DOT_OVERLAY_LEGACY_MANIFEST="$DISCOVERY_FIXTURE/.local/state/dot/legacy-overlay-links" \
+    _dot_playbook_files >/dev/null 2>&1; then
+    _fail "agent rules: discovery fails on a missing tracked overlay source"
+  else
+    _pass "agent rules: discovery fails on a missing tracked overlay source"
+  fi
+  mv "$DISCOVERY_FIXTURE/.dotfiles-private/home/$discovery_rel.missing" \
+    "$DISCOVERY_FIXTURE/.dotfiles-private/home/$discovery_rel"
+
+  discovery_broken_rel=.config/dot/agent-playbooks.d/private/broken.md
+  mkdir -p "$DISCOVERY_FIXTURE/.dotfiles-broken/home/${discovery_broken_rel%/*}"
+  cp "$DISCOVERY_FIXTURE/.dotfiles-private/home/$discovery_rel" \
+    "$DISCOVERY_FIXTURE/.dotfiles-broken/home/$discovery_broken_rel"
+  discovery_broken_target=$(
+    HOME="$DISCOVERY_FIXTURE"
+    _overlay_link_target "$discovery_broken_rel" broken
+    printf '%s\n' "$REPLY"
+  )
+  ln -s "$discovery_broken_target" "$DISCOVERY_FIXTURE/$discovery_broken_rel"
+  printf '%s\t%s\n' "$discovery_broken_rel" broken \
+    >>"$DISCOVERY_FIXTURE/.local/state/dot/overlay-links"
+  if HOME="$DISCOVERY_FIXTURE" \
+    DOT_OVERLAY_MANIFEST="$DISCOVERY_FIXTURE/.local/state/dot/overlay-links" \
+    DOT_OVERLAY_LEGACY_MANIFEST="$DISCOVERY_FIXTURE/.local/state/dot/legacy-overlay-links" \
+    _dot_playbook_files >/dev/null 2>&1; then
+    _fail "agent rules: discovery fails on an invalid overlay repository"
+  else
+    _pass "agent rules: discovery fails on an invalid overlay repository"
+  fi
+fi
+
+echo "=== agent rules merge ==="
+
+MARKER_FIXTURE=$(_tmpdir)
+mkdir -p \
+  "$MARKER_FIXTURE/.config/dot/agent-playbooks.d/test" \
+  "$MARKER_FIXTURE/.config/dot/merge-hooks.d/agent-rules/rules.d" \
+  "$MARKER_FIXTURE/.config/dot/merge-hooks.d/agent-rules/targets.d/80-targets.replace"
+cat >"$MARKER_FIXTURE/.config/dot/agent-playbooks.d/test/example.md" <<'EOF'
+# Example
+
+<!-- agent-rule-id: marker-example -->
+<!-- agent-rule-trigger: Testing marker ownership -->
+EOF
+printf '%s\n' '# No marker' \
+  >"$MARKER_FIXTURE/.config/dot/merge-hooks.d/agent-rules/rules.d/000-main.md"
+printf '%s\n' '$HOME/.claude/CLAUDE.md' \
+  >"$MARKER_FIXTURE/.config/dot/merge-hooks.d/agent-rules/targets.d/80-targets.replace/50-native.conf"
+git init -q --bare "$MARKER_FIXTURE/.dotfiles"
+git --git-dir="$MARKER_FIXTURE/.dotfiles" --work-tree="$MARKER_FIXTURE" add \
+  .config/dot/agent-playbooks.d/test/example.md
+if _run_agent_rules_merge "$MARKER_FIXTURE"; then
+  _fail "agent rules merge: playbooks without an index marker fail the update"
+else
+  _pass "agent rules merge: playbooks without an index marker fail the update"
+fi
+printf '%s\n' '<!-- dot-playbook-index -->' \
+  >>"$MARKER_FIXTURE/.config/dot/merge-hooks.d/agent-rules/rules.d/000-main.md"
+printf '%s\n' '<!-- dot-playbook-index -->' \
+  >"$MARKER_FIXTURE/.config/dot/merge-hooks.d/agent-rules/rules.d/010-duplicate.md"
+if _run_agent_rules_merge "$MARKER_FIXTURE"; then
+  _fail "agent rules merge: index markers in two fragments fail the update"
+else
+  _pass "agent rules merge: index markers in two fragments fail the update"
+fi
+
+FIXTURE=$(_tmpdir)
+mkdir -p \
+  "$FIXTURE/.config/dot/merge-hooks.d/agent-rules/rules.d" \
+  "$FIXTURE/.config/dot/merge-hooks.d/agent-rules/targets.d/80-targets.replace" \
+  "$FIXTURE/.claude" \
+  "$FIXTURE/.codex"
+cat >"$FIXTURE/.config/dot/merge-hooks.d/agent-rules/rules.d/000-main.md" <<'EOF'
+# Main
+
+<!-- agent-rule-id: test-main -->
+## Main Rule
+
+main rules
+EOF
+cat >"$FIXTURE/.config/dot/merge-hooks.d/agent-rules/rules.d/010-style.md" <<'EOF'
+# Style
+
+<!-- agent-rule-id: test-style -->
+## Style Rule
+
+style rules
+EOF
+cat >"$FIXTURE/.config/dot/merge-hooks.d/agent-rules/targets.d/80-targets.replace/50-native.txt" <<'EOF'
+$HOME/.claude/CLAUDE.md
+~/.codex/AGENTS.md
+EOF
+printf '%s\n' "local claude note" >"$FIXTURE/.claude/CLAUDE.md"
+
+_run_agent_rules_merge "$FIXTURE"
+
+_assert_contains "agent rules merge: preserves unmanaged target text" \
+  "local claude note" "$(cat "$FIXTURE/.claude/CLAUDE.md")"
+_assert_contains "agent rules merge: writes managed block" \
+  "# dot-managed:agent-rules:aggregate begin" "$(cat "$FIXTURE/.claude/CLAUDE.md")"
+_assert_contains "agent rules merge: writes generated warning" \
+  "Generated by dot. Do not edit this block directly." \
+  "$(cat "$FIXTURE/.claude/CLAUDE.md")"
+_assert_contains "agent rules merge: preserves rule id markers" \
+  "agent-rule-id: test-main" "$(cat "$FIXTURE/.claude/CLAUDE.md")"
+_assert_contains "agent rules merge: expands tilde target" \
+  "style rules" "$(cat "$FIXTURE/.codex/AGENTS.md")"
+
+INVALID_PLAYBOOK_FIXTURE=$(_tmpdir)
+mkdir -p \
+  "$INVALID_PLAYBOOK_FIXTURE/.config/dot/agent-playbooks.d/test" \
+  "$INVALID_PLAYBOOK_FIXTURE/.config/dot/merge-hooks.d/agent-rules/rules.d" \
+  "$INVALID_PLAYBOOK_FIXTURE/.config/dot/merge-hooks.d/agent-rules/targets.d/80-targets.replace" \
+  "$INVALID_PLAYBOOK_FIXTURE/.claude"
+cat >"$INVALID_PLAYBOOK_FIXTURE/.config/dot/agent-playbooks.d/test/example.md" <<'EOF'
+# Example
+
+<!-- agent-rule-id: test-example -->
+<!-- agent-rule-trigger: Testing A & B metadata handling -->
+EOF
+cat >"$INVALID_PLAYBOOK_FIXTURE/.config/dot/merge-hooks.d/agent-rules/rules.d/110-on-demand-playbooks.md" <<'EOF'
+# On-Demand Playbooks
+
+<!-- agent-rule-id: test-on-demand-playbooks -->
+
+<!-- dot-playbook-index -->
+EOF
+printf '%s\n' '$HOME/.claude/CLAUDE.md' \
+  >"$INVALID_PLAYBOOK_FIXTURE/.config/dot/merge-hooks.d/agent-rules/targets.d/80-targets.replace/50-native.conf"
+git -C "$INVALID_PLAYBOOK_FIXTURE" init -q
+git -C "$INVALID_PLAYBOOK_FIXTURE" add .config/dot/agent-playbooks.d/test/example.md
+_run_agent_rules_merge "$INVALID_PLAYBOOK_FIXTURE"
+valid_generated_rules=$(cat "$INVALID_PLAYBOOK_FIXTURE/.claude/CLAUDE.md")
+_assert_contains "agent rules merge: preserves ampersands in trigger text" \
+  "Testing A & B metadata handling" "$valid_generated_rules"
+sed '/agent-rule-trigger:/d' \
+  "$INVALID_PLAYBOOK_FIXTURE/.config/dot/agent-playbooks.d/test/example.md" \
+  >"$INVALID_PLAYBOOK_FIXTURE/example.md.tmp"
+mv "$INVALID_PLAYBOOK_FIXTURE/example.md.tmp" \
+  "$INVALID_PLAYBOOK_FIXTURE/.config/dot/agent-playbooks.d/test/example.md"
+if _run_agent_rules_merge "$INVALID_PLAYBOOK_FIXTURE"; then
+  _fail "agent rules merge: invalid playbook metadata fails the update"
+else
+  _pass "agent rules merge: invalid playbook metadata fails the update"
+fi
+_assert_file_content \
+  "agent rules merge: invalid playbook metadata preserves last valid output" \
+  "$valid_generated_rules" "$INVALID_PLAYBOOK_FIXTURE/.claude/CLAUDE.md"
+
+TAMPER_FIXTURE=$(_tmpdir)
+mkdir -p \
+  "$TAMPER_FIXTURE/.config/dot/agent-playbooks.d/keep" \
+  "$TAMPER_FIXTURE/.config/dot/agent-playbooks.d/escape" \
+  "$TAMPER_FIXTURE/.config/dot/merge-hooks.d/agent-rules/rules.d" \
+  "$TAMPER_FIXTURE/.config/dot/merge-hooks.d/agent-rules/targets.d/80-targets.replace" \
+  "$TAMPER_FIXTURE/.claude"
+for name in keep escape; do
+  cat >"$TAMPER_FIXTURE/.config/dot/agent-playbooks.d/$name/$name.md" <<EOF
+# $name
+
+<!-- agent-rule-id: test-$name -->
+<!-- agent-rule-trigger: Testing $name -->
+EOF
+done
+cat >"$TAMPER_FIXTURE/.config/dot/merge-hooks.d/agent-rules/rules.d/110-on-demand-playbooks.md" <<'EOF'
+# On-Demand Playbooks
+
+<!-- agent-rule-id: tamper-on-demand-playbooks -->
+
+<!-- dot-playbook-index -->
+EOF
+printf '%s\n' '$HOME/.claude/CLAUDE.md' \
+  >"$TAMPER_FIXTURE/.config/dot/merge-hooks.d/agent-rules/targets.d/80-targets.replace/50-native.conf"
+git init -q --bare "$TAMPER_FIXTURE/.dotfiles"
+git --git-dir="$TAMPER_FIXTURE/.dotfiles" --work-tree="$TAMPER_FIXTURE" add \
+  .config/dot/agent-playbooks.d/keep/keep.md \
+  .config/dot/agent-playbooks.d/escape/escape.md
+_run_agent_rules_merge "$TAMPER_FIXTURE"
+untampered_rules=$(cat "$TAMPER_FIXTURE/.claude/CLAUDE.md")
+mv "$TAMPER_FIXTURE/.config/dot/agent-playbooks.d/escape" \
+  "$TAMPER_FIXTURE/external-escape-playbooks"
+ln -s "$TAMPER_FIXTURE/external-escape-playbooks" \
+  "$TAMPER_FIXTURE/.config/dot/agent-playbooks.d/escape"
+if _run_agent_rules_merge "$TAMPER_FIXTURE"; then
+  _fail "agent rules merge: tracked playbook path tampering fails the update"
+else
+  _pass "agent rules merge: tracked playbook path tampering fails the update"
+fi
+_assert_file_content \
+  "agent rules merge: tracked playbook tampering preserves last valid output" \
+  "$untampered_rules" "$TAMPER_FIXTURE/.claude/CLAUDE.md"
+
+managed_body="$(_managed_body "$FIXTURE/.claude/CLAUDE.md")"
+main_line=$(printf '%s\n' "$managed_body" | grep -n "main rules" | cut -d: -f1)
+style_line=$(printf '%s\n' "$managed_body" | grep -n "style rules" | cut -d: -f1)
+if [[ -n "$main_line" && -n "$style_line" && "$main_line" -lt "$style_line" ]]; then
+  _pass "agent rules merge: preserves source order in aggregate"
+else
+  _fail "agent rules merge: preserves source order in aggregate"
+fi
+
+_run_agent_rules_merge "$FIXTURE"
+_assert_file_exists "agent rules merge: writes publish cache" \
+  "$FIXTURE/.local/state/dot/agent-rules-publish-cache-v3"
+_assert_contains "agent rules merge: idempotent rerun keeps managed block" \
+  "style rules" "$(_managed_body "$FIXTURE/.claude/CLAUDE.md")"
+
+cat >"$FIXTURE/.config/dot/merge-hooks.d/agent-rules/targets.d/80-targets.replace/80-alt.conf" <<'EOF'
+$HOME/.agent-alt/AGENTS.md
+EOF
+_run_agent_rules_merge "$FIXTURE"
+_assert_contains "agent rules merge: replace group selects alternate target" \
+  "main rules" "$(cat "$FIXTURE/.agent-alt/AGENTS.md")"
+if [[ -e "$FIXTURE/.codex/AGENTS.md" ]]; then
+  _fail "agent rules merge: prunes stale native target after profile switch"
+else
+  _pass "agent rules merge: prunes stale native target after profile switch"
+fi
+_assert_file_content "agent rules merge: preserves unmanaged text while pruning stale block" \
+  "local claude note" "$FIXTURE/.claude/CLAUDE.md"
+
+LEGACY_FIXTURE=$(_tmpdir)
+mkdir -p \
+  "$LEGACY_FIXTURE/.config/agent-rules/shared" \
+  "$LEGACY_FIXTURE/.config/dot/merge-hooks.d/agent-rules/rules.d" \
+  "$LEGACY_FIXTURE/.config/dot/merge-hooks.d/agent-rules/targets.d/80-targets.replace" \
+  "$LEGACY_FIXTURE/.claude/rules"
+printf '%s\n' "legacy source" >"$LEGACY_FIXTURE/.config/agent-rules/shared/old.md"
+ln -s "$LEGACY_FIXTURE/.config/agent-rules/shared/old.md" \
+  "$LEGACY_FIXTURE/.claude/rules/shared-old.md"
+cat >"$LEGACY_FIXTURE/.config/dot/merge-hooks.d/agent-rules/rules.d/000-main.md" <<'EOF'
+# Main
+
+<!-- agent-rule-id: legacy-main -->
+## Main Rule
+
+main rules
+EOF
+printf '%s\n' "\$HOME/.claude/CLAUDE.md" \
+  >"$LEGACY_FIXTURE/.config/dot/merge-hooks.d/agent-rules/targets.d/80-targets.replace/50-native.conf"
+mkdir -p "$LEGACY_FIXTURE/.local/state/dot"
+cat >"$LEGACY_FIXTURE/.local/state/dot/agent-rules-publish-cache-v1" <<EOF
+version	dotfiles-agent-rules-cache-v2
+target	$LEGACY_FIXTURE/.claude/rules
+desired	$LEGACY_FIXTURE/.claude/rules/shared-old.md
+watch	current	$LEGACY_FIXTURE/.claude/rules/shared-old.md
+EOF
+_run_agent_rules_merge "$LEGACY_FIXTURE"
+_assert_file_missing "agent rules merge: prunes legacy fragment symlink targets" \
+  "$LEGACY_FIXTURE/.claude/rules/shared-old.md"
+
+MISSING_FIXTURE=$(_tmpdir)
+mkdir -p "$MISSING_FIXTURE/.config/dot/merge-hooks.d/agent-rules/targets.d/80-targets.replace"
+printf '%s\n' "\$HOME/.claude/CLAUDE.md" \
+  >"$MISSING_FIXTURE/.config/dot/merge-hooks.d/agent-rules/targets.d/80-targets.replace/50-native.conf"
+_run_agent_rules_merge "$MISSING_FIXTURE"
+if [[ -e "$MISSING_FIXTURE/.claude/CLAUDE.md" ]]; then
+  _fail "agent rules merge: no target created when source family is absent"
+else
+  _pass "agent rules merge: no target created when source family is absent"
+fi
+
+EMPTY_SOURCE_FIXTURE=$(_tmpdir)
+mkdir -p \
+  "$EMPTY_SOURCE_FIXTURE/.config/dot/merge-hooks.d/agent-rules/rules.d" \
+  "$EMPTY_SOURCE_FIXTURE/.config/dot/merge-hooks.d/agent-rules/targets.d/80-targets.replace" \
+  "$EMPTY_SOURCE_FIXTURE/.claude"
+printf '%s\n' "# Main" >"$EMPTY_SOURCE_FIXTURE/.config/dot/merge-hooks.d/agent-rules/rules.d/000-main.md"
+printf '%s\n' "\$HOME/.claude/CLAUDE.md" \
+  >"$EMPTY_SOURCE_FIXTURE/.config/dot/merge-hooks.d/agent-rules/targets.d/80-targets.replace/50-native.conf"
+printf '%s\n' "local claude note" >"$EMPTY_SOURCE_FIXTURE/.claude/CLAUDE.md"
+_run_agent_rules_merge "$EMPTY_SOURCE_FIXTURE"
+rm -f "$EMPTY_SOURCE_FIXTURE/.config/dot/merge-hooks.d/agent-rules/rules.d/000-main.md"
+_run_agent_rules_merge "$EMPTY_SOURCE_FIXTURE"
+_assert_file_content "agent rules merge: prunes current target block when source family empties" \
+  "local claude note" "$EMPTY_SOURCE_FIXTURE/.claude/CLAUDE.md"
+
+NO_TARGET_FIXTURE=$(_tmpdir)
+mkdir -p "$NO_TARGET_FIXTURE/.config/dot/merge-hooks.d/agent-rules/rules.d"
+printf '%s\n' "# Main" >"$NO_TARGET_FIXTURE/.config/dot/merge-hooks.d/agent-rules/rules.d/000-main.md"
+_run_agent_rules_merge "$NO_TARGET_FIXTURE"
+if [[ -e "$NO_TARGET_FIXTURE/.claude/CLAUDE.md" ]]; then
+  _fail "agent rules merge: no target created without configured targets"
+else
+  _pass "agent rules merge: no target created without configured targets"
+fi
+
+REMOVED_TARGET_FIXTURE=$(_tmpdir)
+mkdir -p \
+  "$REMOVED_TARGET_FIXTURE/.config/dot/merge-hooks.d/agent-rules/rules.d" \
+  "$REMOVED_TARGET_FIXTURE/.config/dot/merge-hooks.d/agent-rules/targets.d/80-targets.replace" \
+  "$REMOVED_TARGET_FIXTURE/.claude"
+printf '%s\n' "# Main" >"$REMOVED_TARGET_FIXTURE/.config/dot/merge-hooks.d/agent-rules/rules.d/000-main.md"
+printf '%s\n' "\$HOME/.claude/CLAUDE.md" \
+  >"$REMOVED_TARGET_FIXTURE/.config/dot/merge-hooks.d/agent-rules/targets.d/80-targets.replace/50-native.conf"
+printf '%s\n' "local claude note" >"$REMOVED_TARGET_FIXTURE/.claude/CLAUDE.md"
+_run_agent_rules_merge "$REMOVED_TARGET_FIXTURE"
+rm -f "$REMOVED_TARGET_FIXTURE/.config/dot/merge-hooks.d/agent-rules/targets.d/80-targets.replace/50-native.conf"
+_run_agent_rules_merge "$REMOVED_TARGET_FIXTURE"
+_assert_file_content "agent rules merge: prunes current block when target profile is removed" \
+  "local claude note" "$REMOVED_TARGET_FIXTURE/.claude/CLAUDE.md"
+
+_test_summary

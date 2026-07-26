@@ -1,0 +1,152 @@
+#!/usr/bin/env bash
+# clip -- persistent clipboard history with fzf picker.
+#
+# Usage:
+#   clip save              snapshot current clipboard to history
+#   clip copy [< input]    copy stdin to clipboard + history
+#   clip list              show recent entries
+#   clip pick              fzf picker, outputs selection to stdout
+#   clip clear             clear history
+
+set -euo pipefail
+
+_dot_clip_dir="${BASH_SOURCE[0]%/*}"
+# shellcheck source=../lib/dot/core/xdg.sh disable=SC1091
+. "$_dot_clip_dir/../lib/dot/core/xdg.sh"
+if ! _dot_xdg_path data clip; then
+  printf 'clip: HOME is not set and XDG_DATA_HOME is not absolute\n' >&2
+  exit 1
+fi
+CLIP_DIR="$REPLY"
+unset _dot_clip_dir
+CLIP_MAX=200
+
+# Resolve the clipboard copy/paste tool into an array so callers can invoke it
+# directly without eval-ing a command string. Leaves the array empty when no
+# clipboard tool is installed.
+_clip_cmd() {
+  if command -v pbcopy >/dev/null 2>&1; then
+    CLIP_CMD=(pbcopy)
+  elif command -v xclip >/dev/null 2>&1; then
+    CLIP_CMD=(xclip -selection clipboard)
+  else
+    CLIP_CMD=()
+  fi
+}
+
+_paste_cmd() {
+  if command -v pbpaste >/dev/null 2>&1; then
+    PASTE_CMD=(pbpaste)
+  elif command -v xclip >/dev/null 2>&1; then
+    PASTE_CMD=(xclip -o -selection clipboard)
+  else
+    PASTE_CMD=()
+  fi
+}
+
+_prune() {
+  local count
+  count=$(command ls -1 "$CLIP_DIR" 2>/dev/null | wc -l | tr -d ' ')
+  if ((count > CLIP_MAX)); then
+    command ls -1t "$CLIP_DIR" | tail -n "+$((CLIP_MAX + 1))" |
+      while IFS= read -r old; do rm -f "$CLIP_DIR/$old"; done
+  fi
+}
+
+clip_save() {
+  local -a PASTE_CMD
+  _paste_cmd
+  [[ ${#PASTE_CMD[@]} -gt 0 ]] || {
+    echo "error: no clipboard tool found" >&2
+    return 1
+  }
+
+  mkdir -p "$CLIP_DIR"
+  local content
+  content=$("${PASTE_CMD[@]}") || return
+  [[ -n "$content" ]] || return 0
+
+  printf '%s' "$content" >"$CLIP_DIR/$(date +%Y%m%d-%H%M%S)-$$"
+  _prune
+}
+
+clip_copy() {
+  local -a CLIP_CMD
+  _clip_cmd
+  [[ ${#CLIP_CMD[@]} -gt 0 ]] || {
+    echo "error: no clipboard tool found" >&2
+    return 1
+  }
+
+  mkdir -p "$CLIP_DIR"
+  local content
+  content=$(cat)
+  printf '%s' "$content" | "${CLIP_CMD[@]}"
+  printf '%s' "$content" >"$CLIP_DIR/$(date +%Y%m%d-%H%M%S)-$$"
+  _prune
+}
+
+clip_list() {
+  [[ -d "$CLIP_DIR" ]] || {
+    echo "no clipboard history"
+    return
+  }
+
+  # Read into an array first: `ls | head` would SIGPIPE ls (exit 141) once head
+  # closes the pipe, and pipefail would turn that into a fatal error under set -e.
+  local -a entries
+  mapfile -t entries < <(command ls -1t "$CLIP_DIR")
+  local f preview
+  for f in "${entries[@]:0:20}"; do
+    preview=$(head -1 "$CLIP_DIR/$f" | cut -c1-80)
+    printf '%s  %s\n' "$f" "$preview"
+  done
+}
+
+clip_pick() {
+  [[ -d "$CLIP_DIR" ]] || {
+    echo "no clipboard history" >&2
+    return 1
+  }
+
+  # Read into an array first: `ls | head` would SIGPIPE ls (exit 141) once head
+  # closes the pipe, and pipefail would turn that into a fatal error under set -e.
+  local -a entries
+  mapfile -t entries < <(command ls -1t "$CLIP_DIR")
+  [[ ${#entries[@]} -gt 0 ]] || return
+
+  local file
+  file=$(
+    printf '%s\n' "${entries[@]:0:$CLIP_MAX}" |
+      fzf --height 50% --reverse --prompt="clip> " \
+        --preview="cat '$CLIP_DIR/{}'"
+  ) || return
+
+  [[ -n "$file" ]] || return
+  cat "$CLIP_DIR/$file"
+}
+
+clip_clear() {
+  [[ -d "$CLIP_DIR" ]] || return 0
+  rm -f "$CLIP_DIR"/*
+  echo "clipboard history cleared"
+}
+
+case "${1:-}" in
+  save) clip_save ;;
+  copy) clip_copy ;;
+  list) clip_list ;;
+  pick) clip_pick ;;
+  clear) clip_clear ;;
+  *)
+    cat >&2 <<'USAGE'
+usage: clip {save|copy|list|pick|clear}
+  save   snapshot current clipboard to history
+  copy   copy stdin to clipboard + history
+  list   show recent entries
+  pick   fzf picker, outputs selection to stdout
+  clear  clear history
+USAGE
+    exit 1
+    ;;
+esac

@@ -1,0 +1,182 @@
+// Common VS Code keybindings (all platforms).
+// Platform-specific keybindings live in vscode/keybindings/<platform>.d/.
+[
+  // Goto line
+  {
+    "key": "alt+g",
+    "command": "workbench.action.gotoLine"
+  },
+
+  // Find-related stuff
+  {
+    "key": "enter",
+    "command": "-editor.action.nextMatchFindAction",
+    "when": "editorFocus && findInputFocussed"
+  },
+  {
+    "key": "enter",
+    "command": "extension.multiCommand.execute",
+    "args": { "command": "multiCommand.focusEditor" },
+    "when": "editorFocus && findInputFocussed"
+  },
+
+  // Terminal stuff
+  {
+    "key": "ctrl+`",
+    "command": "workbench.action.terminal.focus",
+    "when": "terminalIsOpen"
+  },
+  {
+    "key": "ctrl+`",
+    "command": "workbench.action.focusActiveEditorGroup",
+    "when": "terminalFocus && terminalIsOpen"
+  },
+  {
+    "key": "ctrl+`",
+    "command": "-workbench.action.terminal.toggleTerminal",
+    "when": "terminal.active"
+  },
+  {
+    "key": "ctrl+shift+`",
+    "command": "-workbench.action.terminal.new",
+    "when": "terminalProcessSupported || terminalWebExtensionContributedProfile"
+  },
+
+  // Diff stuff
+  {
+    "key": "f8",
+    "command": "-editor.action.marker.nextInFiles",
+    "when": "editorFocus"
+  },
+  {
+    "key": "f7",
+    "command": "-editor.action.diffReview.next",
+    "when": "isInDiffEditor"
+  },
+  {
+    "key": "f7",
+    "command": "-editor.action.wordHighlight.next",
+    "when": "editorTextFocus && hasWordHighlights"
+  },
+  {
+    "key": "f8",
+    "command": "workbench.action.compareEditor.nextChange",
+    "when": "textCompareEditorVisible"
+  },
+  {
+    "key": "alt+f5",
+    "command": "-workbench.action.compareEditor.nextChange",
+    "when": "textCompareEditorVisible"
+  },
+  {
+    "key": "f7",
+    "command": "workbench.action.compareEditor.previousChange",
+    "when": "textCompareEditorVisible"
+  },
+  {
+    "key": "shift+alt+f5",
+    "command": "-workbench.action.compareEditor.previousChange",
+    "when": "textCompareEditorVisible"
+  },
+
+  // Tab switching/moving. Editors own these chords outside the terminal.
+  // Terminal focus sends the raw sequences so tmux/nvim can handle their own
+  // tab layers, including bubbling switches back to the integrated-terminal
+  // tabs when tmux/nvim have nothing left to switch locally (see
+  // ~/git/termnav's vscode-switch-tab, wired in from tmux.conf and nvim's
+  // keymaps.lua). Moves stop at the tmux layer: VS Code has no command to
+  // reorder terminal tabs.
+  {
+    "key": "ctrl+shift+tab",
+    "command": "workbench.action.quickOpenLeastRecentlyUsedEditorInGroup",
+    "when": "!activeEditorGroupEmpty && !terminalFocus"
+  },
+  {
+    "key": "ctrl+shift+tab",
+    "command": "-workbench.action.quickOpenLeastRecentlyUsedEditorInGroup",
+    "when": "!activeEditorGroupEmpty"
+  },
+  {
+    "key": "ctrl+tab",
+    "command": "workbench.action.quickOpenPreviousRecentlyUsedEditorInGroup",
+    "when": "!activeEditorGroupEmpty && !terminalFocus"
+  },
+  {
+    "key": "ctrl+tab",
+    "command": "-workbench.action.quickOpenPreviousRecentlyUsedEditorInGroup",
+    "when": "!activeEditorGroupEmpty"
+  },
+  {
+    "key": "ctrl+tab",
+    "command": "workbench.action.quickOpenNavigateNextInEditorPicker",
+    "when": "inEditorsPicker && inQuickOpen && !terminalFocus"
+  },
+  {
+    "key": "ctrl+tab",
+    "command": "-workbench.action.quickOpenNavigateNextInEditorPicker",
+    "when": "inEditorsPicker && inQuickOpen"
+  },
+  {
+    "key": "ctrl+shift+tab",
+    "command": "workbench.action.quickOpenNavigatePreviousInEditorPicker",
+    "when": "inEditorsPicker && inQuickOpen && !terminalFocus"
+  },
+  {
+    "key": "ctrl+shift+tab",
+    "command": "-workbench.action.quickOpenNavigatePreviousInEditorPicker",
+    "when": "inEditorsPicker && inQuickOpen"
+  },
+  {
+    "key": "ctrl+tab",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[9;5u" },
+    "when": "terminalFocus"
+  },
+  {
+    "key": "ctrl+shift+tab",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[9;6u" },
+    "when": "terminalFocus"
+  },
+  {
+    "key": "alt+shift+[",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b{" },
+    "when": "terminalFocus"
+  },
+  {
+    "key": "alt+shift+]",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b}" },
+    "when": "terminalFocus"
+  },
+  {
+    "key": "alt+shift+[",
+    "command": "workbench.action.moveEditorLeftInGroup",
+    "when": "!terminalFocus"
+  },
+  {
+    "key": "alt+shift+]",
+    "command": "workbench.action.moveEditorRightInGroup",
+    "when": "!terminalFocus"
+  },
+  {
+    "key": "alt+m",
+    "command": "workbench.action.toggleLightDarkThemes"
+  },
+
+  // Shift+Enter in terminal: send Alt+Enter (ESC + newline) for Claude Code newline
+  {
+    "key": "shift+enter",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b\n" },
+    "when": "terminalFocus"
+  },
+
+  // Ctrl+P in terminal: open file picker instead of shell history-up
+  {
+    "key": "ctrl+p",
+    "command": "workbench.action.quickOpen",
+    "when": "terminalFocus"
+  }
+]

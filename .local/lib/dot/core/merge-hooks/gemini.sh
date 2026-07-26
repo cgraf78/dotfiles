@@ -1,0 +1,39 @@
+# shellcheck shell=bash
+# Merge Gemini CLI settings into ~/.gemini/settings.json.
+# Shared by dotbootstrap and dot (on pull).
+# Requires jq.
+#
+# Layers come from gemini/settings.d. Direct files aggregate in lexical order;
+# each immediate *.replace directory contributes only its last lexical file, so
+# overlays can express environment-specific overrides without this hook knowing
+# those environment names.
+#
+# Gemini-owned state (sessionRetention, trustedFolders, etc.) is preserved
+# because the recursive merge only overwrites keys present in the source.
+
+_merge_gemini_settings() {
+  local src="$1" dst="$2"
+  # shellcheck disable=SC2016 # jq owns $d/$s inside this filter.
+  _merge_hook_jq_layer "Gemini settings" "$src" "$dst" '$d[0] * $s[0]'
+}
+
+merge() {
+  _merge_hook_jq_available || return 0
+
+  local dst="$HOME/.gemini/settings.json"
+  local -a src_files=()
+  local src
+
+  while IFS= read -r src; do
+    src_files+=("$src")
+  done < <(_merge_hook_family_files_matching gemini/settings.d '*.json' '*.replace/*.json')
+  ((${#src_files[@]} > 0)) || return 0
+
+  _log "  Gemini CLI"
+
+  [[ -L "$dst" ]] && rm -f "$dst"
+
+  for src in "${src_files[@]}"; do
+    _merge_gemini_settings "$src" "$dst"
+  done
+}
