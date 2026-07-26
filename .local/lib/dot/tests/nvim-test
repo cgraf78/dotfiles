@@ -1527,6 +1527,25 @@ result=$(_nvim_lua '
 ')
 _assert_eq "treesitter: nvim ensures critical language parsers" "ok" "$result"
 
+result=$(_nvim_lua '
+  local env = require("config.checkrun-nvim").schema_opts().env
+  for _, key in ipairs({
+    "SHDEPS_BIN_DIR",
+    "SHDEPS_CONF_DIR",
+    "SHDEPS_GIT_DEV_DIR",
+    "SHDEPS_HOOKS_DIR",
+    "SHDEPS_INSTALL_DIR",
+    "SHDEPS_STATE_DIR",
+  }) do
+    if env[key] ~= vim.env[key] then
+      print("missing:" .. key)
+      return
+    end
+  end
+  print("ok")
+')
+_assert_eq "public schemas: Checkrun child inherits shdeps runtime roots" "ok" "$result"
+
 schema_policy_path=$(
   shdeps dep-file cgraf78/checkrun lib/checkrun/schemas/schema_policy.py 2>/dev/null
 )
