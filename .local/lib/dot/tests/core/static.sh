@@ -49,8 +49,33 @@ MOCK
   _ci_workflow=$(cat "$_lint_root/.github/workflows/test.yml")
   _ci_has_public_pin=0
   _ci_forwards_secrets=0
+  _ci_in_jobs=0
+  _ci_in_shell_job=0
+  _ci_in_shell_with=0
+  _ci_uses_full_matrix=0
   while IFS= read -r _ci_line; do
     _ci_code=${_ci_line%%#*}
+    if [[ "$_ci_code" =~ ^jobs:[[:space:]]*$ ]]; then
+      _ci_in_jobs=1
+    elif ((_ci_in_jobs)) && [[ "$_ci_code" =~ ^[^[:space:]] ]]; then
+      _ci_in_jobs=0
+      _ci_in_shell_job=0
+      _ci_in_shell_with=0
+    elif ((_ci_in_jobs)) && [[ "$_ci_code" =~ ^[[:space:]]{2}([a-zA-Z0-9_-]+):[[:space:]]*$ ]]; then
+      if [[ "${BASH_REMATCH[1]}" == "shell" ]]; then
+        _ci_in_shell_job=1
+      else
+        _ci_in_shell_job=0
+      fi
+      _ci_in_shell_with=0
+    elif ((_ci_in_shell_job)) && [[ "$_ci_code" =~ ^[[:space:]]{4}with:[[:space:]]*$ ]]; then
+      _ci_in_shell_with=1
+    elif ((_ci_in_shell_with)) && [[ "$_ci_code" =~ ^[[:space:]]{6}matrix-set:[[:space:]]+full[[:space:]]*$ ]]; then
+      _ci_uses_full_matrix=1
+    elif ((_ci_in_shell_with)) && [[ -n "${_ci_code//[[:space:]]/}" ]] &&
+      [[ ! "$_ci_code" =~ ^[[:space:]]{6} ]]; then
+      _ci_in_shell_with=0
+    fi
     if [[ "$_ci_code" =~ ^[[:space:]]*uses:[[:space:]]+cgraf78/actions/\.github/workflows/shell-ci\.yml@([0-9a-f]{40})[[:space:]]*$ ]]; then
       _ci_has_public_pin=1
     fi
@@ -62,6 +87,11 @@ MOCK
     _pass "CI workflow: pins public dependency setup immutably"
   else
     _fail "CI workflow: pins public dependency setup immutably"
+  fi
+  if ((_ci_uses_full_matrix)); then
+    _pass "CI workflow: requests full platform matrix"
+  else
+    _fail "CI workflow: requests full platform matrix"
   fi
   _assert_not_contains "CI workflow: has no obsolete ds deploy key" \
     "DS_DEPLOY_KEY" "$_ci_workflow"

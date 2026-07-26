@@ -15,5 +15,6 @@ jobs:
   shell:
     uses: cgraf78/actions/.github/workflows/shell-ci.yml@feeba8dcb271bd206ae55cd735e53577ffa08877
     with:
+      matrix-set: full
       setup: dotfiles
       test-command: .local/bin/dot-test
