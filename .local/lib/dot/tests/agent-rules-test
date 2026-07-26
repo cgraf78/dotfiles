@@ -93,7 +93,7 @@ _assert_contains "agent rules: branch pushes name the destination" \
 
 lifecycle_anchor_paths=$(printf '%s\n' "$WORKFLOW_RULES_TEXT" |
   grep -Eo '`~/.config/dot/agent-playbooks.d/[^`]+\.md`' | tr -d '`')
-lifecycle_anchor_count=$(printf '%s\n' "$lifecycle_anchor_paths" | sed '/^$/d' | wc -l)
+lifecycle_anchor_count=$(printf '%s\n' "$lifecycle_anchor_paths" | sed '/^$/d' | wc -l | tr -d '[:space:]')
 _assert_eq "agent rules: two lifecycle-critical playbook anchors remain in core" \
   "2" "$lifecycle_anchor_count"
 _assert_contains "agent rules: worktree lifecycle anchor remains in core" \

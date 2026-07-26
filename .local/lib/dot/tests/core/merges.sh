@@ -2734,6 +2734,7 @@ HM
   chmod +x "$_HIVE_BIN/hm"
 
   _run_hive_merge() {
+    local old_path="$PATH" rc
     unset -f merge _hive_memory_config _hive_memory_default_store_spec \
       _hive_memory_cloud_root_for \
       _hive_memory_warn _hive_memory_init_default_store \
@@ -2742,7 +2743,13 @@ HM
     . "$_HIVE_HOOK"
     export HIVE_MEMORY_HM_LOG="$_HIVE_LOG"
     export HIVE_MEMORY_STORES_LIST_RC="${HIVE_MEMORY_STORES_LIST_RC:-}"
-    PATH="$_HIVE_BIN:$PATH" merge >/dev/null
+    export PATH="$_HIVE_BIN:$PATH"
+    hash -r
+    merge >/dev/null
+    rc=$?
+    export PATH="$old_path"
+    hash -r
+    return "$rc"
   }
 
   _write_hive_personal_config() {
