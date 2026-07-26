@@ -2855,6 +2855,7 @@ TOML
   _assert_eq "hive hook config: empty explicit override still wins" \
     "" "$_hive_empty_explicit_config"
 
+  unset HIVE_MEMORY_CONFIG XDG_CONFIG_HOME
   mkdir -p "$TEST_HOME/.config/hive-memory" "$TEST_HOME/gdrive"
   _write_hive_personal_config
   : >"$_HIVE_LOG"

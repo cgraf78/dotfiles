@@ -1527,6 +1527,15 @@ result=$(_nvim_lua '
 ')
 _assert_eq "treesitter: nvim ensures critical language parsers" "ok" "$result"
 
+schema_policy_path=$(
+  shdeps dep-file cgraf78/checkrun lib/checkrun/schemas/schema_policy.py
+)
+schema_policy_output=$(python3 "$schema_policy_path" --lsp-schemas 2>&1)
+schema_policy_rc=$?
+_assert_exit "public schemas: Checkrun policy command succeeds" "0" "$schema_policy_rc"
+_assert_not_contains "public schemas: Checkrun policy resolves dependency assets" \
+  "shdeps:" "$schema_policy_output"
+
 result=$(_nvim_lua '
   local specs = dofile(vim.fn.expand("~/.config/nvim/lua/plugins/coding.lua"))
   local servers
