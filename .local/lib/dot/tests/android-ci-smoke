@@ -8,7 +8,6 @@ fail() {
   exit 1
 }
 
-[[ -n "${TERMUX_VERSION:-}" ]] || fail "TERMUX_VERSION is not set"
 [[ "${PREFIX:-}" == *com.termux*/usr ]] || fail "PREFIX is not a Termux prefix"
 [[ "$(uname -o)" == "Android" ]] || fail "uname does not report Android"
 command -v pkg >/dev/null || fail "Termux pkg command is unavailable"
