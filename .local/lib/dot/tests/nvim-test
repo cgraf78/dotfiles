@@ -61,18 +61,32 @@ _nvim_startup_budget() {
   fi
 }
 
+_run_nvim_startup() {
+  local timeout_seconds="$1" file="$2"
+  local -a timeout_prefix=()
+
+  command -v timeout >/dev/null 2>&1 && timeout_prefix=(timeout "$timeout_seconds")
+  "${timeout_prefix[@]}" nvim -i NONE --headless \
+    --cmd 'lua vim.g.mason_disabled = true' \
+    "$file" '+qa!'
+}
+
 _assert_nvim_startup_budget() {
   local desc="$1" file="$2" budget
   local output rc elapsed
-  local -a timeout_prefix=()
   budget=$(_nvim_startup_budget)
 
-  command -v timeout >/dev/null 2>&1 && timeout_prefix=(timeout 20)
+  # LazyVim may populate plugins on first launch; measure only after that
+  # readiness process has completed successfully.
+  output=$(_run_nvim_startup 120 "$file" 2>&1)
+  rc=$?
+  if [[ "$rc" -ne 0 ]]; then
+    _fail "$desc preparation failed (exit $rc; output: $output)"
+    return
+  fi
 
   SECONDS=0
-  output=$("${timeout_prefix[@]}" nvim -i NONE --headless \
-    --cmd 'lua vim.g.mason_disabled = true' \
-    "$file" '+qa!' 2>&1)
+  output=$(_run_nvim_startup 20 "$file" 2>&1)
   rc=$?
   elapsed=$SECONDS
 
