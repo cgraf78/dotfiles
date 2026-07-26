@@ -2738,9 +2738,13 @@ HM
     unset -f merge _hive_memory_config _hive_memory_default_store_spec \
       _hive_memory_cloud_root_for \
       _hive_memory_warn _hive_memory_init_default_store \
-      _hive_memory_check_config 2>/dev/null
+      _hive_memory_check_config hm 2>/dev/null
     # shellcheck source=/dev/null
     . "$_HIVE_HOOK"
+    # shellcheck disable=SC2329 # merge resolves this fixture through command lookup.
+    hm() {
+      "$_HIVE_BIN/hm" "$@"
+    }
     export HIVE_MEMORY_HM_LOG="$_HIVE_LOG"
     export HIVE_MEMORY_STORES_LIST_RC="${HIVE_MEMORY_STORES_LIST_RC:-}"
     export PATH="$_HIVE_BIN:$PATH"
@@ -2749,6 +2753,7 @@ HM
     rc=$?
     export PATH="$old_path"
     hash -r
+    unset -f hm
     return "$rc"
   }
 

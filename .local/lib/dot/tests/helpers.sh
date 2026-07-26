@@ -110,12 +110,12 @@ _test_use_host_shdeps() {
   local dependency_home="${DOT_TEST_HOST_HOME:-$HOME}"
 
   [[ -n "$dependency_home" ]] || return 0
-  : "${SHDEPS_INSTALL_DIR:=$dependency_home/.local/share}"
-  : "${SHDEPS_BIN_DIR:=$dependency_home/.local/bin}"
-  : "${SHDEPS_GIT_DEV_DIR:=$dependency_home/git}"
+  SHDEPS_INSTALL_DIR="$dependency_home/.local/share"
+  SHDEPS_BIN_DIR="$dependency_home/.local/bin"
+  SHDEPS_GIT_DEV_DIR="$dependency_home/git"
   export SHDEPS_INSTALL_DIR SHDEPS_BIN_DIR SHDEPS_GIT_DEV_DIR
 
-  [[ -z "${SHDEPS_LIB:-}" && -z "${SHDEPS_DIR:-}" ]] || return 0
+  unset SHDEPS_LIB SHDEPS_DIR
   if [[ -f "$dependency_home/git/shdeps/shdeps.sh" ]]; then
     export SHDEPS_LIB="$dependency_home/git/shdeps/shdeps.sh"
   elif [[ -f "$dependency_home/.local/share/shdeps/shdeps.sh" ]]; then
