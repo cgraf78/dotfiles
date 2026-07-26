@@ -18,3 +18,15 @@ jobs:
       matrix-set: full
       setup: dotfiles
       test-command: .local/bin/dot-test
+
+  termux:
+    uses: cgraf78/actions/.github/workflows/termux-ci.yml@feeba8dcb271bd206ae55cd735e53577ffa08877
+    with:
+      command: |-
+        pkg install -y git curl
+        export CI=1 GITHUB_ACTIONS=1
+        export HOME=$PWD
+        export PATH="$HOME/.local/bin:$PATH"
+        .local/bin/dot update --skip-pull
+        .local/bin/dot doctor
+        .local/bin/dot-test
