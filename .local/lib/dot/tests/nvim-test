@@ -126,6 +126,20 @@ _assert_nvim_startup_budget() {
 
 echo "=== nvim: startup/shutdown performance ==="
 
+_assert_process_stopped() {
+  local desc="$1" pid="$2" started=$SECONDS
+
+  while kill -0 "$pid" 2>/dev/null; do
+    if ((SECONDS - started >= 5)); then
+      _fail "$desc"
+      kill -KILL "$pid" 2>/dev/null || true
+      return
+    fi
+    sleep 0.05
+  done
+  _pass "$desc"
+}
+
 timeout_mock_bin=$(_mock_bin)
 timeout_marker=$(_tmpdir)/external-timeout-called
 cat >"$timeout_mock_bin/timeout" <<'EOF'
@@ -136,7 +150,6 @@ EOF
 chmod +x "$timeout_mock_bin/timeout"
 rc=0
 PATH="$timeout_mock_bin:$PATH" \
-  DOT_TEST_PORTABLE_TIMEOUT=1 \
   DOT_TEST_TIMEOUT_MARKER="$timeout_marker" \
   _with_timeout 1 bash -c 'sleep 5' || rc=$?
 _assert_eq "startup timeout: portable watchdog returns timeout status" "124" "$rc"
@@ -165,23 +178,46 @@ wait
 SH
 chmod +x "$timeout_fixture_dir/child.py" "$timeout_fixture_dir/parent.sh"
 rc=0
-DOT_TEST_PORTABLE_TIMEOUT=1 \
-  DOT_TEST_TIMEOUT_CHILD="$timeout_fixture_dir/child.py" \
+DOT_TEST_TIMEOUT_CHILD="$timeout_fixture_dir/child.py" \
   DOT_TEST_TIMEOUT_DESCENDANT_PID="$timeout_descendant_pid" \
   _with_timeout 1 "$timeout_fixture_dir/parent.sh" || rc=$?
 _assert_eq "startup timeout: descendant watchdog returns timeout status" "124" "$rc"
 descendant_pid=$(cat "$timeout_descendant_pid")
-if kill -0 "$descendant_pid" 2>/dev/null; then
-  _fail "startup timeout: descendant that ignores TERM is killed"
-  kill -KILL "$descendant_pid" 2>/dev/null || true
+_assert_process_stopped "startup timeout: descendant that ignores TERM is killed" \
+  "$descendant_pid"
+
+timeout_cancel_descendant_pid="$timeout_fixture_dir/cancel-descendant.pid"
+timeout_wrapper_pid_file="$timeout_fixture_dir/wrapper.pid"
+DOT_TEST_TIMEOUT_WRAPPER_PID_FILE="$timeout_wrapper_pid_file" \
+  DOT_TEST_TIMEOUT_CHILD="$timeout_fixture_dir/child.py" \
+  DOT_TEST_TIMEOUT_DESCENDANT_PID="$timeout_cancel_descendant_pid" \
+  _with_timeout 30 "$timeout_fixture_dir/parent.sh" &
+timeout_call_pid=$!
+timeout_wait_started=$SECONDS
+while [[ ! -s "$timeout_wrapper_pid_file" || ! -s "$timeout_cancel_descendant_pid" ]]; do
+  if ((SECONDS - timeout_wait_started >= 5)); then
+    break
+  fi
+  sleep 0.05
+done
+if [[ -s "$timeout_wrapper_pid_file" && -s "$timeout_cancel_descendant_pid" ]]; then
+  timeout_wrapper_pid=$(cat "$timeout_wrapper_pid_file")
+  kill -TERM "$timeout_wrapper_pid"
+  rc=0
+  wait "$timeout_call_pid" || rc=$?
+  _assert_eq "startup timeout: cancellation preserves signal status" "143" "$rc"
+  cancel_descendant_pid=$(cat "$timeout_cancel_descendant_pid")
+  _assert_process_stopped "startup timeout: cancellation kills descendant process group" \
+    "$cancel_descendant_pid"
 else
-  _pass "startup timeout: descendant that ignores TERM is killed"
+  _fail "startup timeout: cancellation fixture becomes ready"
+  kill -TERM "$timeout_call_pid" 2>/dev/null || true
+  wait "$timeout_call_pid" 2>/dev/null || true
 fi
 
 timeout_exec_error="$timeout_fixture_dir/exec-error.log"
 rc=0
-DOT_TEST_PORTABLE_TIMEOUT=1 \
-  _with_timeout 1 "$timeout_fixture_dir/missing-command" \
+_with_timeout 1 "$timeout_fixture_dir/missing-command" \
   2>"$timeout_exec_error" || rc=$?
 _assert_eq "startup timeout: missing command preserves shell status" "127" "$rc"
 _assert_not_contains "startup timeout: missing command has no traceback" \
@@ -189,8 +225,7 @@ _assert_not_contains "startup timeout: missing command has no traceback" \
 touch "$timeout_fixture_dir/non-executable"
 chmod 644 "$timeout_fixture_dir/non-executable"
 rc=0
-DOT_TEST_PORTABLE_TIMEOUT=1 \
-  _with_timeout 1 "$timeout_fixture_dir/non-executable" \
+_with_timeout 1 "$timeout_fixture_dir/non-executable" \
   2>"$timeout_exec_error" || rc=$?
 _assert_eq "startup timeout: non-executable command preserves shell status" "126" "$rc"
 _assert_not_contains "startup timeout: non-executable command has no traceback" \

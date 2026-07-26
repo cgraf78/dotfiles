@@ -334,9 +334,9 @@ _mock_bin() {
 }
 
 # ---------------------------------------------------------------------------
-# Portable timeout wrapper — `timeout` is GNU coreutils and is absent on
-# macOS by default. Falls back to `gtimeout` (installed by `brew install
-# coreutils`), then to the repository-required Python 3 runtime.
+# Portable timeout wrapper backed by the repository-required Python 3 runtime.
+# One supervisor keeps timeout, signal, and process-group behavior identical on
+# Linux and macOS.
 # ---------------------------------------------------------------------------
 
 _with_python_timeout() {
@@ -356,26 +356,62 @@ if value[-1:] in units:
     value = value[:-1]
 timeout = float(value) * multiplier
 
-try:
-    process = subprocess.Popen(sys.argv[2:], start_new_session=True)
-except FileNotFoundError:
-    raise SystemExit(127)
-except OSError:
-    raise SystemExit(126)
-try:
-    status = process.wait(timeout=timeout)
-except subprocess.TimeoutExpired:
+process = None
+interrupted_signal = None
+
+
+class ForwardedSignal(Exception):
+    pass
+
+
+def capture_signal(signum, _frame):
+    global interrupted_signal
+    interrupted_signal = signum
+    if process is not None:
+        raise ForwardedSignal
+
+
+handled_signals = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
+for handled_signal in handled_signals:
+    signal.signal(handled_signal, capture_signal)
+
+
+def stop_process_group(first_signal):
+    for handled_signal in handled_signals:
+        signal.signal(handled_signal, signal.SIG_IGN)
     try:
-        os.killpg(process.pid, signal.SIGTERM)
+        os.killpg(process.pid, first_signal)
     except ProcessLookupError:
         process.wait()
-        raise SystemExit(124)
+        return
     time.sleep(1)
     try:
         os.killpg(process.pid, signal.SIGKILL)
     except ProcessLookupError:
         pass
     process.wait()
+
+
+try:
+    process = subprocess.Popen(sys.argv[2:], start_new_session=True)
+except FileNotFoundError:
+    raise SystemExit(127)
+except OSError:
+    raise SystemExit(126)
+
+try:
+    if interrupted_signal is not None:
+        raise ForwardedSignal
+    wrapper_pid_file = os.environ.get("DOT_TEST_TIMEOUT_WRAPPER_PID_FILE")
+    if wrapper_pid_file:
+        with open(wrapper_pid_file, "w", encoding="utf-8") as file:
+            file.write(str(os.getpid()))
+    status = process.wait(timeout=timeout)
+except ForwardedSignal:
+    stop_process_group(interrupted_signal)
+    raise SystemExit(128 + interrupted_signal)
+except subprocess.TimeoutExpired:
+    stop_process_group(signal.SIGTERM)
     raise SystemExit(124)
 
 raise SystemExit(status if status >= 0 else 128 - status)
@@ -385,14 +421,10 @@ raise SystemExit(status if status >= 0 else 128 - status)
 _with_timeout() {
   local secs="$1"
   shift
-  if [[ "${DOT_TEST_PORTABLE_TIMEOUT:-0}" != 1 ]] && command -v timeout &>/dev/null; then
-    timeout "$secs" "$@"
-  elif [[ "${DOT_TEST_PORTABLE_TIMEOUT:-0}" != 1 ]] && command -v gtimeout &>/dev/null; then
-    gtimeout "$secs" "$@"
-  elif command -v python3 &>/dev/null; then
+  if command -v python3 &>/dev/null; then
     _with_python_timeout "$secs" "$@"
   else
-    echo "test timeout requires timeout, gtimeout, or python3" >&2
+    echo "test timeout requires python3" >&2
     return 127
   fi
 }
