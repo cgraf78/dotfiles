@@ -95,6 +95,9 @@ _test_realpath() {
 _test_use_host_runtime_dirs() {
   local dependency_home="${DOT_TEST_HOST_HOME:-$HOME}"
 
+  XDG_CONFIG_HOME="$HOME/.config"
+  export XDG_CONFIG_HOME
+
   [[ -n "$dependency_home" && "$dependency_home" != "$HOME" ]] || return 0
   : "${XDG_DATA_HOME:=$dependency_home/.local/share}"
   : "${XDG_STATE_HOME:=$dependency_home/.local/state}"
