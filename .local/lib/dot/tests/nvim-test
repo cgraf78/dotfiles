@@ -63,10 +63,8 @@ _nvim_startup_budget() {
 
 _run_nvim_startup() {
   local timeout_seconds="$1" file="$2"
-  local -a timeout_prefix=()
 
-  command -v timeout >/dev/null 2>&1 && timeout_prefix=(timeout "$timeout_seconds")
-  "${timeout_prefix[@]}" nvim -i NONE --headless \
+  _with_timeout "$timeout_seconds" nvim -i NONE --headless \
     --cmd 'lua vim.g.mason_disabled = true' \
     "$file" '+qa!'
 }
