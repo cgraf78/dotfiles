@@ -1528,6 +1528,38 @@ result=$(_nvim_lua '
 _assert_eq "treesitter: nvim ensures critical language parsers" "ok" "$result"
 
 result=$(_nvim_lua '
+  local env = require("config.checkrun-nvim").schema_opts().env
+  for _, key in ipairs({
+    "SHDEPS_BIN_DIR",
+    "SHDEPS_CONF_DIR",
+    "SHDEPS_GIT_DEV_DIR",
+    "SHDEPS_HOOKS_DIR",
+    "SHDEPS_INSTALL_DIR",
+    "SHDEPS_STATE_DIR",
+  }) do
+    if env[key] ~= vim.env[key] then
+      print("missing:" .. key)
+      return
+    end
+  end
+  print("ok")
+')
+_assert_eq "public schemas: Checkrun child inherits shdeps runtime roots" "ok" "$result"
+
+schema_policy_path=$(
+  shdeps dep-file cgraf78/checkrun lib/checkrun/schemas/schema_policy.py 2>/dev/null
+)
+if [[ -n "$schema_policy_path" && -f "$schema_policy_path" ]]; then
+  _pass "public schemas: Checkrun policy asset resolves through shdeps"
+else
+  checkrun_root=$(shdeps dep-root cgraf78/checkrun 2>/dev/null || true)
+  checkrun_nvim_path=$(
+    shdeps dep-file cgraf78/checkrun lib/checkrun/nvim.lua 2>/dev/null || true
+  )
+  _fail "public schemas: Checkrun policy asset resolves through shdeps (root='$checkrun_root', nvim='$checkrun_nvim_path')"
+fi
+
+result=$(_nvim_lua '
   local specs = dofile(vim.fn.expand("~/.config/nvim/lua/plugins/coding.lua"))
   local servers
   for _, spec in ipairs(specs) do

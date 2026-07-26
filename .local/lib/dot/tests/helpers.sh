@@ -95,6 +95,9 @@ _test_realpath() {
 _test_use_host_runtime_dirs() {
   local dependency_home="${DOT_TEST_HOST_HOME:-$HOME}"
 
+  XDG_CONFIG_HOME="$HOME/.config"
+  export XDG_CONFIG_HOME
+
   [[ -n "$dependency_home" && "$dependency_home" != "$HOME" ]] || return 0
   : "${XDG_DATA_HOME:=$dependency_home/.local/share}"
   : "${XDG_STATE_HOME:=$dependency_home/.local/state}"
@@ -110,14 +113,17 @@ _test_use_host_shdeps() {
   local dependency_home="${DOT_TEST_HOST_HOME:-$HOME}"
 
   [[ -n "$dependency_home" ]] || return 0
-  if [[ "$dependency_home" != "$HOME" ]]; then
-    : "${SHDEPS_INSTALL_DIR:=$dependency_home/.local/share}"
-    : "${SHDEPS_BIN_DIR:=$dependency_home/.local/bin}"
-    : "${SHDEPS_GIT_DEV_DIR:=$dependency_home/git}"
-    export SHDEPS_INSTALL_DIR SHDEPS_BIN_DIR SHDEPS_GIT_DEV_DIR
-  fi
+  SHDEPS_CONF_DIR="$dependency_home/.config/shdeps"
+  SHDEPS_HOOKS_DIR="$dependency_home/.config/shdeps/hooks.d"
+  SHDEPS_STATE_DIR="$dependency_home/.local/state/shdeps"
+  SHDEPS_INSTALL_DIR="$dependency_home/.local/share"
+  SHDEPS_BIN_DIR="$dependency_home/.local/bin"
+  SHDEPS_GIT_DEV_DIR="$dependency_home/git"
+  export SHDEPS_CONF_DIR SHDEPS_HOOKS_DIR SHDEPS_STATE_DIR
+  export SHDEPS_INSTALL_DIR SHDEPS_BIN_DIR SHDEPS_GIT_DEV_DIR
+  unset SHDEPS_TEST_PLATFORM SHDEPS_TEST_HOST
 
-  [[ -z "${SHDEPS_LIB:-}" && -z "${SHDEPS_DIR:-}" ]] || return 0
+  unset SHDEPS_LIB SHDEPS_DIR
   if [[ -f "$dependency_home/git/shdeps/shdeps.sh" ]]; then
     export SHDEPS_LIB="$dependency_home/git/shdeps/shdeps.sh"
   elif [[ -f "$dependency_home/.local/share/shdeps/shdeps.sh" ]]; then

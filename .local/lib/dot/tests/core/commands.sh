@@ -277,7 +277,7 @@ dot_core_test_commands() {
           "$($fixture_git rev-parse HEAD)" "$rebase_state" "$clean" \
           "$(cat "$fixture_home/managed-file")" \
           "$([[ -e "$pull_invoked_file" ]] && printf yes || printf no)" \
-          "$($fixture_git for-each-ref --format='%(refname)' refs/dot/republished-candidate | wc -l)" \
+          "$($fixture_git for-each-ref --format='%(refname)' refs/dot/republished-candidate | wc -l | tr -d '[:space:]')" \
           "$pull_output"
       }
 

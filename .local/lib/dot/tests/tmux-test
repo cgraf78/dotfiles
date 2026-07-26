@@ -110,13 +110,13 @@ move_parent_osc=$(cat "$move_parent_tty")
 _assert_contains "tmux Alt-Shift-bracket helper wraps parent bubble for nested tmux passthrough" \
   $'\033Ptmux;\033\033]1337;SetUserVar=DOT_PARENT_MOVE_TAB=' "$move_parent_osc"
 _assert_contains "tmux defines private parent-bubble key for next tab" \
-  "user-keys[0]" "$tmux_content"
+  'set -s user-keys[0] "\033[777001u"' "$tmux_content"
 _assert_contains "tmux defines private parent-bubble key for previous tab" \
-  "user-keys[1]" "$tmux_content"
+  'set -s user-keys[1] "\033[777002u"' "$tmux_content"
 _assert_contains "tmux defines private parent-bubble key for moving left" \
-  "user-keys[2]" "$tmux_content"
+  'set -s user-keys[2] "\033[777003u"' "$tmux_content"
 _assert_contains "tmux defines private parent-bubble key for moving right" \
-  "user-keys[3]" "$tmux_content"
+  'set -s user-keys[3] "\033[777004u"' "$tmux_content"
 _assert_contains "tmux detects when its client is another tmux" \
   "is_nested_tmux_client=" "$tmux_content"
 _assert_contains "tmux Ctrl-Tab checks session window count before switching" \
@@ -237,6 +237,14 @@ if command -v tmux >/dev/null 2>&1; then
   parent_key_3=$(tmux -S "$socket" show-options -s -v user-keys[3])
   mode_keys=$(tmux -S "$socket" show-window-options -g -v mode-keys)
   tmux -S "$socket" kill-server
+
+  # Some distro tmux builds sanitize a leading control byte as `_` when an
+  # option is displayed, even though the parsed user key and binding are live.
+  # The static assertions above still verify the literal ESC sequence.
+  parent_key_0=${parent_key_0/#_/$'\033'}
+  parent_key_1=${parent_key_1/#_/$'\033'}
+  parent_key_2=${parent_key_2/#_/$'\033'}
+  parent_key_3=${parent_key_3/#_/$'\033'}
 
   _assert_eq "tmux runtime mode-keys is vi" "vi" "$mode_keys"
   _assert_eq "tmux runtime parent-bubble next key sequence is configured" \

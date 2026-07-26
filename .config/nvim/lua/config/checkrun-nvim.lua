@@ -37,7 +37,23 @@ function M.schema_opts()
   -- The Checkrun adapter can derive schema_policy.py relative to its own Lua
   -- file. Dotfiles only adds shdeps' environment so dependency-owned schema URLs
   -- resolve the same way they do under autolint.
-  return { env = shdeps().env() }
+  local env = shdeps().env()
+  for _, key in ipairs({
+    "SHDEPS_BIN",
+    "SHDEPS_BIN_DIR",
+    "SHDEPS_CONF_DIR",
+    "SHDEPS_DIR",
+    "SHDEPS_GIT_DEV_DIR",
+    "SHDEPS_HOOKS_DIR",
+    "SHDEPS_INSTALL_DIR",
+    "SHDEPS_LIB",
+    "SHDEPS_STATE_DIR",
+  }) do
+    if vim.env[key] ~= nil then
+      env[key] = vim.env[key]
+    end
+  end
+  return { env = env }
 end
 
 return M

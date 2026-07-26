@@ -2734,15 +2734,27 @@ HM
   chmod +x "$_HIVE_BIN/hm"
 
   _run_hive_merge() {
+    local old_path="$PATH" rc
     unset -f merge _hive_memory_config _hive_memory_default_store_spec \
       _hive_memory_cloud_root_for \
       _hive_memory_warn _hive_memory_init_default_store \
-      _hive_memory_check_config 2>/dev/null
+      _hive_memory_check_config hm 2>/dev/null
     # shellcheck source=/dev/null
     . "$_HIVE_HOOK"
+    # shellcheck disable=SC2329 # merge resolves this fixture through command lookup.
+    hm() {
+      "$_HIVE_BIN/hm" "$@"
+    }
     export HIVE_MEMORY_HM_LOG="$_HIVE_LOG"
     export HIVE_MEMORY_STORES_LIST_RC="${HIVE_MEMORY_STORES_LIST_RC:-}"
-    PATH="$_HIVE_BIN:$PATH" merge >/dev/null
+    export PATH="$_HIVE_BIN:$PATH"
+    hash -r
+    merge >/dev/null
+    rc=$?
+    export PATH="$old_path"
+    hash -r
+    unset -f hm
+    return "$rc"
   }
 
   _write_hive_personal_config() {
@@ -2843,6 +2855,7 @@ TOML
   _assert_eq "hive hook config: empty explicit override still wins" \
     "" "$_hive_empty_explicit_config"
 
+  unset HIVE_MEMORY_CONFIG XDG_CONFIG_HOME
   mkdir -p "$TEST_HOME/.config/hive-memory" "$TEST_HOME/gdrive"
   _write_hive_personal_config
   : >"$_HIVE_LOG"

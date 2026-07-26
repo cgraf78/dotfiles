@@ -25,6 +25,17 @@ _assert_not_contains "tree-sitter: no upstream release binary on Linux" \
   "tree-sitter/tree-sitter                   github:release" \
   "$(cat "$REAL_HOME/.config/shdeps/10-deps.conf")"
 
+_gitleaks_dep=$(
+  awk '$1 == "gitleaks/gitleaks" { print; exit }' \
+    "$REAL_HOME/.config/shdeps/10-deps.conf"
+)
+_assert_eq "gitleaks: Linux requires a release binary" \
+  "github:release" "$(awk '{ print $2 }' <<<"$_gitleaks_dep")"
+_assert_eq "gitleaks: release matching uses the executable name" \
+  "gitleaks" "$(awk '{ print $3 }' <<<"$_gitleaks_dep")"
+_assert_contains "gitleaks: upstream release excludes Android" \
+  "os:!macos,os:!android" "$_gitleaks_dep"
+
 _tree_sitter_dep=$(
   awk '$1 == "tree-sitter-cli" && $2 == "pkg" { print; exit }' \
     "$REAL_HOME/.config/shdeps/10-deps.conf"

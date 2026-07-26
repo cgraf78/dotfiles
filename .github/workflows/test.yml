@@ -13,9 +13,7 @@ permissions:
 
 jobs:
   shell:
-    uses: cgraf78/actions/.github/workflows/shell-ci.yml@7d88c3afa6e51a83e9cfefb0c12f503155e17952
-    secrets:
-      DS_DEPLOY_KEY: ${{ secrets.DS_DEPLOY_KEY }}
+    uses: cgraf78/actions/.github/workflows/shell-ci.yml@feeba8dcb271bd206ae55cd735e53577ffa08877
     with:
       setup: dotfiles
       test-command: .local/bin/dot-test
