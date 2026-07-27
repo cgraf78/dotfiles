@@ -111,6 +111,14 @@ MOCK
     _pass "CI workflow: forwards no repository secrets"
   fi
 
+  echo "=== Git push policy ==="
+
+  _git_config="$_lint_root/.config/git/config"
+  _assert_eq "git push: mismatched upstream names fail closed" \
+    "simple" "$(git config --file "$_git_config" --get push.default)"
+  _assert_eq "git push: first publish records the remote branch" \
+    "true" "$(git config --file "$_git_config" --get push.autoSetupRemote)"
+
   echo "=== ShellCheck ==="
 
   _sc_files=()
