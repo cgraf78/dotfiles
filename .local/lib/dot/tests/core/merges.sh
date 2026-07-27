@@ -22,6 +22,42 @@ dot_core_test_merges() {
     "precommit.sley = $TEST_HOME/.local/share/sl-hooks/sley-commit-gate" \
     "$(_merge_hook_expand_home 'precommit.sley = $HOME/.local/share/sl-hooks/sley-commit-gate')"
 
+  echo "=== Git config merge hook ==="
+
+  git_home="$TEST_HOME/git-merge-home"
+  mkdir -p "$git_home/.config/git"
+  cat >"$git_home/.config/git/config" <<'GIT_CONFIG'
+[push]
+	default = simple
+GIT_CONFIG
+  cat >"$git_home/.gitconfig" <<'GIT_CONFIG'
+[user]
+	name = Local User
+GIT_CONFIG
+
+  HOME="$git_home" GIT_CONFIG_GLOBAL="$git_home/.gitconfig" \
+    bash -c '
+      _log() { printf "%s\n" "$*"; }
+      _warn() { printf "%s\n" "$*" >&2; }
+      . "$1"
+      merge
+      merge
+    ' _ "$REAL_HOME/.local/lib/dot/core/merge-hooks/git.sh"
+
+  _assert_eq "Git config merge: managed push policy becomes globally effective" \
+    "simple" \
+    "$(HOME="$git_home" GIT_CONFIG_GLOBAL="$git_home/.gitconfig" \
+      git config --global --includes --get push.default)"
+  _assert_eq "Git config merge: preserves host-specific global settings" \
+    "Local User" \
+    "$(HOME="$git_home" GIT_CONFIG_GLOBAL="$git_home/.gitconfig" \
+      git config --global --get user.name)"
+  # shellcheck disable=SC2088 # Assert the literal portable Git config path.
+  _assert_eq "Git config merge: records one portable managed include" \
+    '~/.config/git/config' \
+    "$(HOME="$git_home" GIT_CONFIG_GLOBAL="$git_home/.gitconfig" \
+      git config --global --get-all include.path)"
+
   family_dir="$TEST_HOME/.config/dot/merge-hooks.d/example.d"
   mkdir -p "$family_dir/50-env.replace" "$family_dir/70-mode.replace"
   printf '%s\n' "core" >"$family_dir/10-core.json"

@@ -76,6 +76,7 @@ runtime API.
 | Codex CLI | `codex/config.d/`, `codex/profiles/<name>.d/` | `~/.codex/config.toml` |
 | Gemini CLI | `gemini/settings.d/` | `~/.gemini/settings.json` |
 | Agent rules | `agent-rules/rules.d/*.md`, `agent-rules/targets.d/*.txt` | configured agent rule target files |
+| Git | tracked XDG config | one portable include in `~/.gitconfig` when needed |
 | GitHub CLI | `gh/config.d/*.yml` | `~/.config/gh/config.yml` |
 | SSH | `ssh/config.d/*.ssh_config` plus overlay `.ssh` files | `~/.ssh/config` |
 | Git ignore | `ignore/ignore.d/` | global gitignore |

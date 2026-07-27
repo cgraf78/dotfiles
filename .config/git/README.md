@@ -2,7 +2,8 @@
 
 This directory owns machine-wide Git policy for this dotfiles checkout:
 
-- `config` is the global Git config loaded by Git itself.
+- `config` is the global Git config. The dotfiles Git merge hook ensures Git
+  loads it even on hosts whose existing `~/.gitconfig` suppresses XDG discovery.
 - `attributes` defines repository-neutral working-tree normalization.
 - `ignore` is the global ignore file referenced by `core.excludesFile`.
 
