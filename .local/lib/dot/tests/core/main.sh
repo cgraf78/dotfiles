@@ -308,6 +308,28 @@ dot_core_test_main() {
   _assert_not_contains "shdeps UI prompt: does not clear possible sudo prompt" \
     $'[sudo] password for chris:\r\033[K' "$result"
 
+  _shdeps_finish_dir=$(_tmpdir)
+  _shdeps_finish_status="$_shdeps_finish_dir/status"
+  printf '0' >"$_shdeps_finish_status"
+  # shellcheck disable=SC2329  # _shdeps_update_finished invokes this test seam.
+  kill() { return 0; }
+  # shellcheck disable=SC2329  # _shdeps_update_finished invokes this test seam.
+  ps() { printf 'S\n'; }
+  _shdeps_finish_rc=0
+  _shdeps_update_finished 12345 "$_shdeps_finish_status" ||
+    _shdeps_finish_rc=$?
+  _assert_eq "shdeps UI completion: status wins while child still appears alive" \
+    "0" "$_shdeps_finish_rc"
+
+  : >"$_shdeps_finish_status"
+  # A completed child can remain visible to kill(2) until its parent reaps it.
+  # shellcheck disable=SC2329  # _shdeps_update_finished invokes this test seam.
+  ps() { printf 'Z\n'; }
+  _shdeps_finish_rc=0
+  _shdeps_update_finished 12345 "$_shdeps_finish_status" || _shdeps_finish_rc=$?
+  unset -f kill ps
+  _assert_eq "shdeps UI completion: zombie child is finished" "0" "$_shdeps_finish_rc"
+
   # shellcheck disable=SC2329  # _run_shdeps_update_ui invokes this fixture by name.
   shdeps_update() {
     printf '%s\n' '{"event":"prompt","status":"running","detail":"waiting for sudo authentication"}'

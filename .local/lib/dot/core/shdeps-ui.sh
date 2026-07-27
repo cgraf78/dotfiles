@@ -224,6 +224,17 @@ _handle_shdeps_event() {
   esac
 }
 
+_shdeps_update_finished() {
+  local child="$1" status_file="$2" state
+
+  # The status is authoritative for normal completion. On some runners the
+  # child remains visible to kill(2) as a zombie until the wait below reaps it.
+  [[ -s "$status_file" ]] && return 0
+  kill -0 "$child" 2>/dev/null || return 0
+  state=$(ps -o stat= -p "$child" 2>/dev/null) || return 0
+  [[ "$state" =~ ^[[:space:]]*Z ]]
+}
+
 _run_shdeps_update_ui() {
   local status_file="" fifo="" tmpdir=""
   _dot_update_prepare_shdeps_jobs
@@ -251,14 +262,13 @@ _run_shdeps_update_ui() {
       _handle_shdeps_event "$line"
       continue
     fi
-    if ! kill -0 "$child" 2>/dev/null; then
+    if _shdeps_update_finished "$child" "$status_file"; then
       # Child exited (cleanly or killed). Drain any complete lines still buffered
-      # in the fifo, then stop. Break on child death rather than on the status
-      # file: a child killed abnormally (e.g. the OOM killer) never reaches its
-      # `printf "$?" >status_file`, and since the parent holds the fifo open R/W
-      # the read never sees EOF — so waiting on the status file would hang here
-      # forever. The empty status file falls through to rc=1 below.
-      while IFS= read -r -t 0 -u "$progress_fd" line; do
+      # in the fifo, then stop. A normal child publishes status before exiting;
+      # a child killed abnormally may instead disappear or remain a zombie.
+      # Cover all three because the parent holds the fifo open R/W, so EOF cannot
+      # distinguish completion. An empty status file becomes rc=1 below.
+      while IFS= read -r -t "${DOT_UI_TICK_SECONDS:-0.2}" -u "$progress_fd" line; do
         _handle_shdeps_event "$line"
       done
       break
