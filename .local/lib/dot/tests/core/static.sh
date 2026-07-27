@@ -51,10 +51,8 @@ MOCK
   _ci_forwards_secrets=0
   _ci_in_jobs=0
   _ci_in_shell_job=0
-  _ci_in_termux_job=0
   _ci_in_shell_with=0
   _ci_uses_full_matrix=0
-  _ci_has_termux_pin=0
   _ci_termux_runs_smoke=0
   while IFS= read -r _ci_line; do
     _ci_code=${_ci_line%%#*}
@@ -63,18 +61,12 @@ MOCK
     elif ((_ci_in_jobs)) && [[ "$_ci_code" =~ ^[^[:space:]] ]]; then
       _ci_in_jobs=0
       _ci_in_shell_job=0
-      _ci_in_termux_job=0
       _ci_in_shell_with=0
     elif ((_ci_in_jobs)) && [[ "$_ci_code" =~ ^[[:space:]]{2}([a-zA-Z0-9_-]+):[[:space:]]*$ ]]; then
       if [[ "${BASH_REMATCH[1]}" == "shell" ]]; then
         _ci_in_shell_job=1
       else
         _ci_in_shell_job=0
-      fi
-      if [[ "${BASH_REMATCH[1]}" == "termux" ]]; then
-        _ci_in_termux_job=1
-      else
-        _ci_in_termux_job=0
       fi
       _ci_in_shell_with=0
     elif ((_ci_in_shell_job)) && [[ "$_ci_code" =~ ^[[:space:]]{4}with:[[:space:]]*$ ]]; then
@@ -88,11 +80,7 @@ MOCK
     if [[ "$_ci_code" =~ ^[[:space:]]*uses:[[:space:]]+cgraf78/actions/\.github/workflows/shell-ci\.yml@([0-9a-f]{40})[[:space:]]*$ ]]; then
       _ci_has_public_pin=1
     fi
-    if ((_ci_in_termux_job)) &&
-      [[ "$_ci_code" =~ ^[[:space:]]{4}uses:[[:space:]]+cgraf78/actions/\.github/workflows/termux-ci\.yml@([0-9a-f]{40})[[:space:]]*$ ]]; then
-      _ci_has_termux_pin=1
-    fi
-    if ((_ci_in_termux_job)) &&
+    if ((_ci_in_shell_with)) &&
       [[ "$_ci_code" =~ ^[[:space:]]{8}bash[[:space:]]+\.local/lib/dot/tests/android-ci-smoke[[:space:]]*$ ]]; then
       _ci_termux_runs_smoke=1
     fi
@@ -110,15 +98,10 @@ MOCK
   else
     _fail "CI workflow: requests full platform matrix"
   fi
-  if ((_ci_has_termux_pin)); then
-    _pass "CI workflow: runs Android tests through pinned Termux workflow"
-  else
-    _fail "CI workflow: runs Android tests through pinned Termux workflow"
-  fi
   if ((_ci_termux_runs_smoke)); then
-    _pass "CI workflow: runs Android policy smoke inside Termux"
+    _pass "CI workflow: routes Android policy smoke through shell CI"
   else
-    _fail "CI workflow: runs Android policy smoke inside Termux"
+    _fail "CI workflow: routes Android policy smoke through shell CI"
   fi
   _assert_not_contains "CI workflow: has no obsolete ds deploy key" \
     "DS_DEPLOY_KEY" "$_ci_workflow"
