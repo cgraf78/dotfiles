@@ -311,20 +311,18 @@ dot_core_test_main() {
   _shdeps_finish_dir=$(_tmpdir)
   _shdeps_finish_status="$_shdeps_finish_dir/status"
   printf '0' >"$_shdeps_finish_status"
-  sleep 30 &
-  _shdeps_finish_child=$!
+  # shellcheck disable=SC2329  # _shdeps_update_finished invokes this test seam.
+  kill() { return 0; }
+  # shellcheck disable=SC2329  # _shdeps_update_finished invokes this test seam.
+  ps() { printf 'S\n'; }
   _shdeps_finish_rc=0
-  _shdeps_update_finished "$_shdeps_finish_child" "$_shdeps_finish_status" ||
+  _shdeps_update_finished 12345 "$_shdeps_finish_status" ||
     _shdeps_finish_rc=$?
-  kill "$_shdeps_finish_child" 2>/dev/null || true
-  wait "$_shdeps_finish_child" 2>/dev/null || true
   _assert_eq "shdeps UI completion: status wins while child still appears alive" \
     "0" "$_shdeps_finish_rc"
 
   : >"$_shdeps_finish_status"
   # A completed child can remain visible to kill(2) until its parent reaps it.
-  # shellcheck disable=SC2329  # _shdeps_update_finished invokes this test seam.
-  kill() { return 0; }
   # shellcheck disable=SC2329  # _shdeps_update_finished invokes this test seam.
   ps() { printf 'Z\n'; }
   _shdeps_finish_rc=0
