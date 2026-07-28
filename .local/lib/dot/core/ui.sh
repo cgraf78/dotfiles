@@ -22,7 +22,14 @@ _dot_ui_hex_to_rgb() {
 }
 
 _dot_ui_has_gum() {
-  command -v gum >/dev/null 2>&1
+  local gum_bin
+  gum_bin=$(type -P gum 2>/dev/null) || return 1
+
+  # `command -v` only proves that a name resolves. Some platform packages can
+  # leave an executable that starts but cannot parse a subcommand, which would
+  # otherwise leak Gum's usage error into every styled dot command.
+  [[ -x "$gum_bin" ]] || return 1
+  "$gum_bin" style --help >/dev/null 2>&1
 }
 
 _dot_ui_title() {
