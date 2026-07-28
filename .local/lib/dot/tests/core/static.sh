@@ -519,6 +519,12 @@ PY
   else
     _fail "checkrun ignores: Karabiner profile sources preserve native formatting"
   fi
+  if grep -Fxq '*/.config/nvim/checkrun-editor-metadata.json' \
+    "$_checkrun_policy_dir/format-ignore"; then
+    _pass "checkrun ignores: generated editor metadata preserves generator bytes"
+  else
+    _fail "checkrun ignores: generated editor metadata preserves generator bytes"
+  fi
 
   echo ""
   echo "=== Claude settings schema conventions ==="

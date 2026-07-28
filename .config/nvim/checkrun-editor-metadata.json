@@ -1,0 +1,577 @@
+{
+  "capabilities": {
+    "editorLanguageIds": {
+      "vscode": {
+        "bash": [
+          "shellscript"
+        ],
+        "bzl": [
+          "starlark",
+          "bzl"
+        ],
+        "editorconfig": [
+          "editorconfig"
+        ],
+        "gitconfig": [
+          "gitconfig"
+        ],
+        "ini": [
+          "ini"
+        ],
+        "make": [
+          "makefile"
+        ],
+        "sh": [
+          "shellscript"
+        ],
+        "sshconfig": [
+          "ssh_config"
+        ],
+        "starlark": [
+          "starlark",
+          "bzl"
+        ],
+        "systemd": [
+          "systemd"
+        ],
+        "text": [
+          "plaintext"
+        ],
+        "tmux": [
+          "tmux"
+        ],
+        "zsh": [
+          "shellscript"
+        ]
+      }
+    },
+    "filetypes": {
+      "custom": {
+        "extension": {
+          "automount": "systemd",
+          "bash": "bash",
+          "bzl": "bzl",
+          "c": "c",
+          "cc": "cpp",
+          "cfg": "properties",
+          "cmake": "cmake",
+          "code-profile": "json",
+          "code-workspace": "jsonc",
+          "containerfile": "dockerfile",
+          "cpp": "cpp",
+          "cron": "crontab",
+          "css": "css",
+          "cxx": "cpp",
+          "device": "systemd",
+          "directory": "properties",
+          "dockerfile": "dockerfile",
+          "eyaml": "yaml",
+          "eyml": "yaml",
+          "gitattributes": "properties",
+          "gitconfig": "gitconfig",
+          "gitignore": "ignore",
+          "gitmodules": "properties",
+          "go": "go",
+          "h": "c",
+          "hgrc": "ini",
+          "hpp": "cpp",
+          "htm": "html",
+          "html": "html",
+          "hxx": "cpp",
+          "ini": "ini",
+          "java": "java",
+          "js": "javascript",
+          "json": "json",
+          "jsonc": "jsonc",
+          "jsonl": "jsonl",
+          "jsx": "javascriptreact",
+          "less": "less",
+          "lua": "lua",
+          "mak": "make",
+          "markdown": "markdown",
+          "md": "markdown",
+          "mdown": "markdown",
+          "mdtext": "markdown",
+          "mdtxt": "markdown",
+          "mdwn": "markdown",
+          "mk": "make",
+          "mkd": "markdown",
+          "mkdn": "markdown",
+          "mount": "systemd",
+          "nix": "nix",
+          "npmignore": "ignore",
+          "npmrc": "properties",
+          "path": "systemd",
+          "pathlist": "text",
+          "php": "php",
+          "properties": "properties",
+          "proto": "proto",
+          "py": "python",
+          "rb": "ruby",
+          "repo": "properties",
+          "rs": "rust",
+          "scope": "systemd",
+          "scss": "scss",
+          "service": "systemd",
+          "sh": "sh",
+          "slice": "systemd",
+          "socket": "systemd",
+          "ssh-config": "sshconfig",
+          "ssh_config": "sshconfig",
+          "star": "starlark",
+          "swap": "systemd",
+          "target": "systemd",
+          "timer": "systemd",
+          "toml": "toml",
+          "ts": "typescript",
+          "tsv": "text",
+          "tsx": "typescriptreact",
+          "txt": "text",
+          "yaml": "yaml",
+          "yml": "yaml",
+          "zsh": "zsh"
+        },
+        "filename": {
+          ".bash_profile": "bash",
+          ".bashrc": "bash",
+          ".clang-format": "yaml",
+          ".clang-tidy": "yaml",
+          ".condarc": "yaml",
+          ".devcontainer.json": "jsonc",
+          ".editorconfig": "editorconfig",
+          ".env": "dotenv",
+          ".envrc": "bash",
+          ".flake8": "ini",
+          ".git-blame-ignore-revs": "ignore",
+          ".gitattributes": "properties",
+          ".gitconfig": "gitconfig",
+          ".gitignore": "ignore",
+          ".gitignore_global": "ignore",
+          ".gitmodules": "properties",
+          ".luarc.json": "jsonc",
+          ".npmignore": "ignore",
+          ".npmrc": "properties",
+          ".pep8": "ini",
+          ".profile": "bash",
+          ".pylintrc": "ini",
+          ".pypirc": "ini",
+          ".vscodeignore": "ignore",
+          ".zlogin": "zsh",
+          ".zlogout": "zsh",
+          ".zprofile": "zsh",
+          ".zshenv": "zsh",
+          ".zshrc": "zsh",
+          "BUCK": "bzl",
+          "BUILD": "bzl",
+          "CMakeLists.txt": "cmake",
+          "Containerfile": "dockerfile",
+          "Dockerfile": "dockerfile",
+          "GNUmakefile": "make",
+          "MODULE.bazel": "bzl",
+          "Makefile": "make",
+          "Pipfile": "toml",
+          "TARGETS": "bzl",
+          "WORKSPACE": "bzl",
+          "_clang-format": "yaml",
+          "argv.json": "jsonc",
+          "cron": "crontab",
+          "crontab": "crontab",
+          "devcontainer.json": "jsonc",
+          "envrc": "bash",
+          "extensions.json": "jsonc",
+          "keybindings.json": "jsonc",
+          "launch.json": "jsonc",
+          "makefile": "make",
+          "mcp.json": "jsonc",
+          "profiles.json": "jsonc",
+          "settings.json": "jsonc",
+          "tasks.json": "jsonc",
+          "tmux.conf": "tmux"
+        },
+        "patterns": [
+          {
+            "filetype": "text",
+            "pattern": "*/.config/dot/merge-hooks.d/agent-rules/targets.d/*.conf"
+          },
+          {
+            "filetype": "text",
+            "pattern": "*/.config/dot/merge-hooks.d/agent-rules/targets.d/*.replace/*.conf"
+          },
+          {
+            "filetype": "gitconfig",
+            "pattern": "*/.config/git/config"
+          },
+          {
+            "filetype": "jsonc",
+            "pattern": "*color-theme.json"
+          },
+          {
+            "filetype": "jsonc",
+            "pattern": "*icon-theme.json"
+          },
+          {
+            "filetype": "jsonc",
+            "pattern": "*language-configuration.json"
+          },
+          {
+            "filetype": "dotenv",
+            "pattern": ".env.*"
+          },
+          {
+            "filetype": "bzl",
+            "pattern": "BUCK.*"
+          },
+          {
+            "filetype": "bzl",
+            "pattern": "BUILD.*"
+          },
+          {
+            "filetype": "dockerfile",
+            "pattern": "Containerfile.*"
+          },
+          {
+            "filetype": "dockerfile",
+            "pattern": "Dockerfile.*"
+          },
+          {
+            "filetype": "bzl",
+            "pattern": "TARGETS.*"
+          },
+          {
+            "filetype": "bzl",
+            "pattern": "WORKSPACE.*"
+          },
+          {
+            "extensionlessOnly": true,
+            "filetype": "sh",
+            "pattern": "agent-hook-*"
+          },
+          {
+            "extensionlessOnly": true,
+            "filetype": "bash",
+            "pattern": "envrc-*"
+          }
+        ]
+      },
+      "format": [
+        "bash",
+        "bzl",
+        "c",
+        "cmake",
+        "cpp",
+        "css",
+        "dockerfile",
+        "go",
+        "html",
+        "java",
+        "javascript",
+        "javascriptreact",
+        "json",
+        "jsonc",
+        "less",
+        "lua",
+        "markdown",
+        "nix",
+        "php",
+        "proto",
+        "python",
+        "ruby",
+        "rust",
+        "scss",
+        "sh",
+        "starlark",
+        "toml",
+        "typescript",
+        "typescriptreact",
+        "yaml",
+        "zsh"
+      ],
+      "lint": [
+        "bash",
+        "bzl",
+        "c",
+        "cmake",
+        "cpp",
+        "crontab",
+        "css",
+        "dockerfile",
+        "editorconfig",
+        "gitconfig",
+        "go",
+        "html",
+        "java",
+        "javascript",
+        "javascriptreact",
+        "json",
+        "jsonc",
+        "less",
+        "lua",
+        "make",
+        "markdown",
+        "nix",
+        "php",
+        "proto",
+        "python",
+        "ruby",
+        "rust",
+        "scss",
+        "sh",
+        "starlark",
+        "systemd",
+        "text",
+        "tmux",
+        "toml",
+        "typescript",
+        "typescriptreact",
+        "yaml",
+        "zsh"
+      ]
+    },
+    "version": 2
+  },
+  "schemas": {
+    "json": [
+      {
+        "fileMatch": [
+          "$HOME/.config/checkrun/biome.json",
+          "**/.config/checkrun/biome.json",
+          ".config/checkrun/biome.json"
+        ],
+        "name": "Biome fallback config",
+        "url": "https://biomejs.dev/schemas/latest/schema.json"
+      },
+      {
+        "fileMatch": [
+          "$HOME/.github/renovate.json",
+          "$HOME/.renovaterc",
+          "$HOME/.renovaterc.json",
+          "$HOME/renovate.json",
+          "**/.github/renovate.json",
+          "**/.renovaterc",
+          "**/.renovaterc.json",
+          "**/renovate.json",
+          ".github/renovate.json",
+          ".renovaterc",
+          ".renovaterc.json",
+          "renovate.json"
+        ],
+        "name": "Renovate config",
+        "url": "https://docs.renovatebot.com/renovate-schema.json"
+      },
+      {
+        "fileMatch": [
+          "$HOME/.config/dot/merge-hooks.d/gemini/settings.d/*.json",
+          "$HOME/.config/dot/merge-hooks.d/gemini/settings.d/*.replace/*.json",
+          "**/.config/dot/merge-hooks.d/gemini/settings.d/*.json",
+          "**/.config/dot/merge-hooks.d/gemini/settings.d/*.replace/*.json",
+          ".config/dot/merge-hooks.d/gemini/settings.d/*.json",
+          ".config/dot/merge-hooks.d/gemini/settings.d/*.replace/*.json"
+        ],
+        "name": "Gemini CLI settings layers",
+        "url": "https://raw.githubusercontent.com/google-gemini/gemini-cli/refs/heads/main/schemas/settings.schema.json"
+      },
+      {
+        "fileMatch": [
+          "$HOME/.config/dot/merge-hooks.d/claude/settings.d/*.json",
+          "$HOME/.config/dot/merge-hooks.d/claude/settings.d/*.replace/*.json",
+          "**/.config/dot/merge-hooks.d/claude/settings.d/*.json",
+          "**/.config/dot/merge-hooks.d/claude/settings.d/*.replace/*.json",
+          ".config/dot/merge-hooks.d/claude/settings.d/*.json",
+          ".config/dot/merge-hooks.d/claude/settings.d/*.replace/*.json"
+        ],
+        "name": "Claude Code settings layers",
+        "url": "https://www.schemastore.org/claude-code-settings.json"
+      },
+      {
+        "fileMatch": [
+          "$HOME/package.json",
+          "**/package.json",
+          "package.json"
+        ],
+        "name": "package manifest",
+        "url": "https://www.schemastore.org/package.json"
+      },
+      {
+        "fileMatch": [
+          "$HOME/.config/checkrun/associations.json",
+          "**/.config/checkrun/associations.json",
+          ".config/checkrun/associations.json"
+        ],
+        "name": "Checkrun schema association policy",
+        "url": "shdeps:cgraf78/checkrun/share/checkrun/schemas/associations.schema.json"
+      },
+      {
+        "fileMatch": [
+          "$HOME/.config/sley/verify.d/*.json",
+          "$HOME/.config/sley/verify.json",
+          "$HOME/.sley/verify.d/*.json",
+          "$HOME/.sley/verify.json",
+          "**/.config/sley/verify.d/*.json",
+          "**/.config/sley/verify.json",
+          "**/.sley/verify.d/*.json",
+          "**/.sley/verify.json",
+          ".config/sley/verify.d/*.json",
+          ".config/sley/verify.json",
+          ".sley/verify.d/*.json",
+          ".sley/verify.json"
+        ],
+        "name": "Sley verify registry",
+        "url": "shdeps:cgraf78/sley/share/sley/schemas/verify.schema.json"
+      }
+    ],
+    "toml": {
+      ".*/Cargo\\.toml$": "https://www.schemastore.org/cargo.json",
+      ".*/Makefile\\.toml$": "https://www.schemastore.org/cargo-make.json",
+      ".*/\\.config/bottom/bottom\\.toml$": "https://raw.githubusercontent.com/ClementTsang/bottom/main/schema/v0.10/bottom.json",
+      ".*/\\.config/checkrun/ruff\\.toml$": "https://www.schemastore.org/ruff.json",
+      ".*/\\.config/checkrun/rumdl\\.toml$": "https://raw.githubusercontent.com/SchemaStore/schemastore/master/src/schemas/json/rumdl.json",
+      ".*/\\.config/checkrun/rustfmt\\.toml$": "https://www.schemastore.org/rustfmt.json",
+      ".*/\\.config/checkrun/stylua\\.toml$": "https://www.schemastore.org/stylua.json",
+      ".*/\\.config/checkrun/taplo\\.toml$": "https://www.schemastore.org/taplo.json",
+      ".*/\\.config/checkrun/typos\\.toml$": "https://raw.githubusercontent.com/crate-ci/typos/master/config.schema.json",
+      ".*/\\.config/dot/merge-hooks\\.d/codex/config\\.d/.*\\.replace/.*\\.toml$": "https://developers.openai.com/codex/config-schema.json",
+      ".*/\\.config/dot/merge-hooks\\.d/codex/config\\.d/.*\\.toml$": "https://developers.openai.com/codex/config-schema.json",
+      ".*/\\.config/dot/merge-hooks\\.d/codex/profiles/.*\\.d/.*\\.replace/.*\\.toml$": "https://developers.openai.com/codex/config-schema.json",
+      ".*/\\.config/dot/merge-hooks\\.d/codex/profiles/.*\\.d/.*\\.toml$": "https://developers.openai.com/codex/config-schema.json",
+      ".*/\\.config/dot/merge-hooks\\.d/vscode/extensions\\.d/.*\\.replace/.*\\.toml$": "file://$HOME/.local/share/checkrun/schemas/dot-vscode-extensions.schema.json",
+      ".*/\\.config/dot/merge-hooks\\.d/vscode/extensions\\.d/.*\\.toml$": "file://$HOME/.local/share/checkrun/schemas/dot-vscode-extensions.schema.json",
+      ".*/\\.config/gitleaks/.*\\.toml$": "https://www.schemastore.org/gitleaks.json",
+      ".*/\\.config/grafhome-ca/policy/ca\\.toml$": "shdeps:cgraf78/grafhome-ca/schemas/policy/ca.schema.json",
+      ".*/\\.config/grafhome-ca/policy/endpoints\\.toml$": "shdeps:cgraf78/grafhome-ca/schemas/policy/legacy/endpoints.schema.json",
+      ".*/\\.config/grafhome-ca/policy/hosts/.*\\.toml$": "shdeps:cgraf78/grafhome-ca/schemas/policy/host.schema.json",
+      ".*/\\.config/grafhome-ca/policy/hosts\\.toml$": "shdeps:cgraf78/grafhome-ca/schemas/policy/legacy/hosts.schema.json",
+      ".*/\\.config/grafhome-ca/policy/provisioners\\.toml$": "shdeps:cgraf78/grafhome-ca/schemas/policy/legacy/provisioners.schema.json",
+      ".*/\\.config/grafhome-ca/policy/user-clients\\.toml$": "shdeps:cgraf78/grafhome-ca/schemas/policy/legacy/user-clients.schema.json",
+      ".*/\\.config/grafhome-ca/policy/user-remotes\\.toml$": "shdeps:cgraf78/grafhome-ca/schemas/policy/legacy/user-remotes.schema.json",
+      ".*/\\.config/grafhome-ca/policy/users\\.toml$": "shdeps:cgraf78/grafhome-ca/schemas/policy/users.schema.json",
+      ".*/\\.config/mise/config\\.toml$": "https://mise.jdx.dev/schema/mise.json",
+      ".*/\\.config/nextest\\.toml$": "https://nexte.st/schemas/repo-config.json",
+      ".*/\\.gitleaks\\.toml$": "https://www.schemastore.org/gitleaks.json",
+      ".*/hatch\\.toml$": "https://raw.githubusercontent.com/SchemaStore/schemastore/master/src/schemas/json/hatch.json",
+      ".*/pyproject\\.toml$": "https://raw.githubusercontent.com/SchemaStore/schemastore/master/src/schemas/json/pyproject.json",
+      ".*/tox\\.toml$": "https://raw.githubusercontent.com/tox-dev/tox/main/src/tox/tox.schema.json",
+      ".*/uv\\.toml$": "https://raw.githubusercontent.com/SchemaStore/schemastore/master/src/schemas/json/uv.json",
+      "^$HOME/Cargo\\.toml$": "https://www.schemastore.org/cargo.json",
+      "^$HOME/Makefile\\.toml$": "https://www.schemastore.org/cargo-make.json",
+      "^$HOME/\\.config/bottom/bottom\\.toml$": "https://raw.githubusercontent.com/ClementTsang/bottom/main/schema/v0.10/bottom.json",
+      "^$HOME/\\.config/checkrun/ruff\\.toml$": "https://www.schemastore.org/ruff.json",
+      "^$HOME/\\.config/checkrun/rumdl\\.toml$": "https://raw.githubusercontent.com/SchemaStore/schemastore/master/src/schemas/json/rumdl.json",
+      "^$HOME/\\.config/checkrun/rustfmt\\.toml$": "https://www.schemastore.org/rustfmt.json",
+      "^$HOME/\\.config/checkrun/stylua\\.toml$": "https://www.schemastore.org/stylua.json",
+      "^$HOME/\\.config/checkrun/taplo\\.toml$": "https://www.schemastore.org/taplo.json",
+      "^$HOME/\\.config/checkrun/typos\\.toml$": "https://raw.githubusercontent.com/crate-ci/typos/master/config.schema.json",
+      "^$HOME/\\.config/dot/merge-hooks\\.d/codex/config\\.d/.*\\.replace/.*\\.toml$": "https://developers.openai.com/codex/config-schema.json",
+      "^$HOME/\\.config/dot/merge-hooks\\.d/codex/config\\.d/.*\\.toml$": "https://developers.openai.com/codex/config-schema.json",
+      "^$HOME/\\.config/dot/merge-hooks\\.d/codex/profiles/.*\\.d/.*\\.replace/.*\\.toml$": "https://developers.openai.com/codex/config-schema.json",
+      "^$HOME/\\.config/dot/merge-hooks\\.d/codex/profiles/.*\\.d/.*\\.toml$": "https://developers.openai.com/codex/config-schema.json",
+      "^$HOME/\\.config/dot/merge-hooks\\.d/vscode/extensions\\.d/.*\\.replace/.*\\.toml$": "file://$HOME/.local/share/checkrun/schemas/dot-vscode-extensions.schema.json",
+      "^$HOME/\\.config/dot/merge-hooks\\.d/vscode/extensions\\.d/.*\\.toml$": "file://$HOME/.local/share/checkrun/schemas/dot-vscode-extensions.schema.json",
+      "^$HOME/\\.config/gitleaks/.*\\.toml$": "https://www.schemastore.org/gitleaks.json",
+      "^$HOME/\\.config/grafhome-ca/policy/ca\\.toml$": "shdeps:cgraf78/grafhome-ca/schemas/policy/ca.schema.json",
+      "^$HOME/\\.config/grafhome-ca/policy/endpoints\\.toml$": "shdeps:cgraf78/grafhome-ca/schemas/policy/legacy/endpoints.schema.json",
+      "^$HOME/\\.config/grafhome-ca/policy/hosts/.*\\.toml$": "shdeps:cgraf78/grafhome-ca/schemas/policy/host.schema.json",
+      "^$HOME/\\.config/grafhome-ca/policy/hosts\\.toml$": "shdeps:cgraf78/grafhome-ca/schemas/policy/legacy/hosts.schema.json",
+      "^$HOME/\\.config/grafhome-ca/policy/provisioners\\.toml$": "shdeps:cgraf78/grafhome-ca/schemas/policy/legacy/provisioners.schema.json",
+      "^$HOME/\\.config/grafhome-ca/policy/user-clients\\.toml$": "shdeps:cgraf78/grafhome-ca/schemas/policy/legacy/user-clients.schema.json",
+      "^$HOME/\\.config/grafhome-ca/policy/user-remotes\\.toml$": "shdeps:cgraf78/grafhome-ca/schemas/policy/legacy/user-remotes.schema.json",
+      "^$HOME/\\.config/grafhome-ca/policy/users\\.toml$": "shdeps:cgraf78/grafhome-ca/schemas/policy/users.schema.json",
+      "^$HOME/\\.config/mise/config\\.toml$": "https://mise.jdx.dev/schema/mise.json",
+      "^$HOME/\\.config/nextest\\.toml$": "https://nexte.st/schemas/repo-config.json",
+      "^$HOME/\\.gitleaks\\.toml$": "https://www.schemastore.org/gitleaks.json",
+      "^$HOME/hatch\\.toml$": "https://raw.githubusercontent.com/SchemaStore/schemastore/master/src/schemas/json/hatch.json",
+      "^$HOME/pyproject\\.toml$": "https://raw.githubusercontent.com/SchemaStore/schemastore/master/src/schemas/json/pyproject.json",
+      "^$HOME/tox\\.toml$": "https://raw.githubusercontent.com/tox-dev/tox/main/src/tox/tox.schema.json",
+      "^$HOME/uv\\.toml$": "https://raw.githubusercontent.com/SchemaStore/schemastore/master/src/schemas/json/uv.json"
+    },
+    "yaml": {
+      "https://golangci-lint.run/jsonschema/golangci.v2.jsonschema.json": [
+        "$HOME/.config/checkrun/golangci-lint.yaml",
+        "$HOME/.config/checkrun/golangci-lint.yml",
+        "**/.config/checkrun/golangci-lint.yaml",
+        "**/.config/checkrun/golangci-lint.yml",
+        ".config/checkrun/golangci-lint.yaml",
+        ".config/checkrun/golangci-lint.yml"
+      ],
+      "https://raw.githubusercontent.com/compose-spec/compose-go/master/schema/compose-spec.json": [
+        "$HOME/compose.*.yaml",
+        "$HOME/compose.*.yml",
+        "$HOME/compose.yaml",
+        "$HOME/compose.yml",
+        "$HOME/docker-compose.*.yaml",
+        "$HOME/docker-compose.*.yml",
+        "$HOME/docker-compose.yaml",
+        "$HOME/docker-compose.yml",
+        "**/compose.*.yaml",
+        "**/compose.*.yml",
+        "**/compose.yaml",
+        "**/compose.yml",
+        "**/docker-compose.*.yaml",
+        "**/docker-compose.*.yml",
+        "**/docker-compose.yaml",
+        "**/docker-compose.yml",
+        "compose.*.yaml",
+        "compose.*.yml",
+        "compose.yaml",
+        "compose.yml",
+        "docker-compose.*.yaml",
+        "docker-compose.*.yml",
+        "docker-compose.yaml",
+        "docker-compose.yml"
+      ],
+      "https://raw.githubusercontent.com/google/yamlfmt/main/schema.json": [
+        "$HOME/.config/checkrun/yamlfmt.yaml",
+        "$HOME/.config/checkrun/yamlfmt.yml",
+        "$HOME/.yamlfmt",
+        "**/.config/checkrun/yamlfmt.yaml",
+        "**/.config/checkrun/yamlfmt.yml",
+        "**/.yamlfmt",
+        ".config/checkrun/yamlfmt.yaml",
+        ".config/checkrun/yamlfmt.yml",
+        ".yamlfmt"
+      ],
+      "https://raw.githubusercontent.com/hadolint/hadolint/master/contrib/hadolint.json": [
+        "$HOME/.config/checkrun/hadolint.yaml",
+        "**/.config/checkrun/hadolint.yaml",
+        ".config/checkrun/hadolint.yaml"
+      ],
+      "https://raw.githubusercontent.com/jesseduffield/lazygit/master/schema/config.json": [
+        "$HOME/.config/lazygit/config.yml",
+        "**/.config/lazygit/config.yml",
+        ".config/lazygit/config.yml"
+      ],
+      "https://www.rubyschema.org/rubocop.json": [
+        "$HOME/.config/checkrun/rubocop.yaml",
+        "$HOME/.config/checkrun/rubocop.yml",
+        "**/.config/checkrun/rubocop.yaml",
+        "**/.config/checkrun/rubocop.yml",
+        ".config/checkrun/rubocop.yaml",
+        ".config/checkrun/rubocop.yml"
+      ],
+      "https://www.schemastore.org/dependabot-2.0.json": [
+        "$HOME/.github/dependabot.yaml",
+        "$HOME/.github/dependabot.yml",
+        "**/.github/dependabot.yaml",
+        "**/.github/dependabot.yml",
+        ".github/dependabot.yaml",
+        ".github/dependabot.yml"
+      ],
+      "https://www.schemastore.org/github-workflow.json": [
+        "$HOME/.github/workflows/*.yaml",
+        "$HOME/.github/workflows/*.yml",
+        "**/.github/workflows/*.yaml",
+        "**/.github/workflows/*.yml",
+        ".github/workflows/*.yaml",
+        ".github/workflows/*.yml"
+      ],
+      "https://www.schemastore.org/pre-commit-config.json": [
+        "$HOME/.pre-commit-config.yaml",
+        "$HOME/.pre-commit-config.yml",
+        "**/.pre-commit-config.yaml",
+        "**/.pre-commit-config.yml",
+        ".pre-commit-config.yaml",
+        ".pre-commit-config.yml"
+      ]
+    }
+  },
+  "version": 1
+}
