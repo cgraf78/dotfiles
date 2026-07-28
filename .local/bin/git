@@ -202,6 +202,13 @@ _dot_git_root_still_exists() {
   [ -e "$root/.git" ] || [ -d "$root/.sl" ] || [ -d "$root/.hg" ]
 }
 
+_dot_git_exact_marker_exists() {
+  local root="$1"
+  [ -e "$root/.git" ] || [ -L "$root/.git" ] ||
+    [ -e "$root/.sl" ] || [ -L "$root/.sl" ] ||
+    [ -e "$root/.hg" ] || [ -L "$root/.hg" ]
+}
+
 _dot_git_closest_marker_root() {
   local dir="$1" stop="$2"
   while [ "$dir" != "/" ]; do
@@ -357,6 +364,13 @@ esac
 # ambient `git` calls from spawning unnecessary Git/Sapling ownership checks.
 if [ "$_dot_git_effective_cwd" = "$_dot_git_home_phys" ]; then
   _dot_git_exec_dotfiles_or_real "$@"
+fi
+
+# An exact repository marker already establishes ownership at the effective
+# root. Let real Git handle it without validating or rewriting the descendant
+# cache; malformed markers should likewise surface Git's own error.
+if _dot_git_exact_marker_exists "$_dot_git_effective_cwd"; then
+  exec "$_dot_git_real" "$@"
 fi
 
 if _dot_git_cached_nested_worktree "$_dot_git_effective_cwd"; then
