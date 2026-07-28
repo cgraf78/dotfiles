@@ -34,24 +34,21 @@ _clear_tool_cache() {
   unset __atuin_sourced __wezterm_sourced
 }
 
-# mtime of a file in epoch seconds. Follows symlinks (default stat behavior), so
-# a shdeps-style ~/.local/bin/<tool> → checkout swap reports the target's mtime.
-_tool_mtime() {
-  if [[ -n "${ZSH_VERSION:-}" ]]; then
-    zmodload zsh/stat 2>/dev/null
-    local -A _st
-    zstat -H _st "$1" 2>/dev/null && printf '%s' "${_st[mtime]}"
-    return
-  fi
-  stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null
-}
-
 _tool_cache_is_fresh() {
   local cache="$1"
   if [[ -n "${ZSH_VERSION:-}" ]]; then
     local _now _cache_mtime
+    local -A _st
+    # Import only the clock parameter. Loading the whole module also installs
+    # a global `strftime` builtin in every interactive shell.
+    zmodload -F zsh/datetime p:EPOCHSECONDS 2>/dev/null
+    # Import only zstat. Loading the whole module would also install a `stat`
+    # builtin that shadows the user's platform stat command.
+    zmodload -F zsh/stat b:zstat 2>/dev/null
     _now="${EPOCHSECONDS:-$(date +%s)}"
-    _cache_mtime=$(_tool_mtime "$cache")
+    # Read the cache age without a subshell or an external stat process.
+    zstat -H _st "$cache" 2>/dev/null || return 1
+    _cache_mtime="${_st[mtime]}"
     [[ -n "$_cache_mtime" ]] && ((_now - _cache_mtime < 7 * 86400))
     return
   fi

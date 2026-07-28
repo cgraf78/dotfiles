@@ -12,6 +12,7 @@
 
 REAL_FIND=$(command -v find)
 REAL_STAT=$(command -v stat)
+REAL_DATE=$(command -v date)
 TEST_TMPDIR=$(_tmpdir)
 export XDG_CACHE_HOME="$TEST_TMPDIR/cache"
 BIN="$TEST_TMPDIR/bin"
@@ -251,5 +252,53 @@ _assert_contains "symlink metadata: find receives the direct cache file" \
 _assert_not_contains "symlink metadata: find does not traverse the cache directory" \
   "find:$SYMLINK_CACHE_ROOT/shell " "$(cat "$METADATA_LOG")"
 _assert_eq "symlink metadata: cached integration is sourced" "1" "${PERFA_LOADED:-}"
+
+echo ""
+echo "=== tool-init: warm Zsh cache checks stay in-process ==="
+if command -v zsh >/dev/null 2>&1; then
+  ZSH_METADATA_LOG="$TEST_TMPDIR/zsh-metadata.log"
+  ZSH_CACHE_ROOT="$TEST_TMPDIR/zsh-cache"
+  ZSH_CACHE="$ZSH_CACHE_ROOT/shell/zshfoo.zsh"
+  mkdir -p "$ZSH_CACHE_ROOT/shell"
+  printf 'ZSHFOO_LOADED=1\n' >"$ZSH_CACHE"
+  cat >"$BIN/zshfoo" <<'EOF'
+#!/usr/bin/env bash
+printf 'ZSHFOO_LOADED=2\n'
+EOF
+  cat >"$BIN/date" <<'EOF'
+#!/usr/bin/env bash
+printf 'date:%s\n' "$*" >>"$ZSH_METADATA_LOG"
+exec "$REAL_DATE" "$@"
+EOF
+  chmod +x "$BIN/zshfoo" "$BIN/date"
+  touch -t 202401010000 "$BIN/zshfoo"
+  : >"$ZSH_METADATA_LOG"
+
+  zsh_output=$(
+    export DOT_TEST_SOURCE_HOME PATH REAL_DATE ZSH_METADATA_LOG
+    export XDG_CACHE_HOME="$ZSH_CACHE_ROOT"
+    zsh -dfc '
+      strftime_before=$(whence -w strftime)
+      source "$DOT_TEST_SOURCE_HOME/.config/shell/interactive.d/54-tool-init.sh"
+      _tool_init zshfoo zshfoo
+      print -r -- "loaded=${ZSHFOO_LOADED:-}"
+      print -r -- "stat=$(whence -w stat)"
+      if [[ "$(whence -w strftime)" == "$strftime_before" ]]; then
+        print -r -- "strftime=unchanged"
+      fi
+    '
+  )
+
+  _assert_eq "warm Zsh metadata: uses no external clock process" \
+    "" "$(cat "$ZSH_METADATA_LOG")"
+  _assert_contains "warm Zsh metadata: reuses and sources the cache" \
+    "loaded=1" "$zsh_output"
+  _assert_contains "warm Zsh metadata: does not shadow external stat" \
+    "stat=stat: command" "$zsh_output"
+  _assert_contains "warm Zsh metadata: does not install a global strftime builtin" \
+    "strftime=unchanged" "$zsh_output"
+else
+  echo "  SKIP: zsh not installed"
+fi
 
 _test_summary
