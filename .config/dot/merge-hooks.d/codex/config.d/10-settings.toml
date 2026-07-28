@@ -107,7 +107,7 @@ command = "env AGENTGUARD_NAME=codex AGENTGUARD_SESSION_ID=\"${CODEX_THREAD_ID:-
 [[hooks.SessionEnd.hooks]]
 type = "command"
 command = "env AGENTGUARD_NAME=codex AGENTGUARD_SESSION_ID=\"${CODEX_THREAD_ID:-}\" agent-hook-session-end"
-timeout = 30
+timeout = 3
 
 [[hooks.PermissionRequest]]
 [[hooks.PermissionRequest.hooks]]
