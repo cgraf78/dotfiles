@@ -19,6 +19,32 @@ dot_core_test_main() {
   _ui_r=$(_ui_pad "ab" 5)
   _assert_eq "ui_pad: pads under-width to width" "5" "${#_ui_r}"
 
+  echo "=== Gum capability detection ==="
+
+  local _gum_probe_bin
+  _gum_probe_bin=$(_mock_bin)
+  cat >"$_gum_probe_bin/gum" <<'MOCK'
+#!/usr/bin/env bash
+printf '%s\n' "broken gum" >&2
+exit 80
+MOCK
+  chmod +x "$_gum_probe_bin/gum"
+  if PATH="$_gum_probe_bin:$PATH" _dot_ui_has_gum; then
+    _fail "ui gum probe: rejects an unusable executable"
+  else
+    _pass "ui gum probe: rejects an unusable executable"
+  fi
+  cat >"$_gum_probe_bin/gum" <<'MOCK'
+#!/usr/bin/env bash
+[[ "$1" == style && "$2" == --help ]]
+MOCK
+  chmod +x "$_gum_probe_bin/gum"
+  if PATH="$_gum_probe_bin:$PATH" _dot_ui_has_gum; then
+    _pass "ui gum probe: accepts a usable executable"
+  else
+    _fail "ui gum probe: accepts a usable executable"
+  fi
+
   _saved_dot_verbose="${DOT_VERBOSE:-0}"
   _saved_dot_quiet="${DOT_QUIET:-0}"
   _saved_dot_ui_total="${DOT_UI_TOTAL:-0}"
