@@ -20,3 +20,4 @@ jobs:
       test-command: .local/bin/dot-test
       termux-command: |-
         bash .local/lib/dot/tests/android-ci-smoke
+      termux-profiles: runtime,neovim

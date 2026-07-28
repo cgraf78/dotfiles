@@ -38,4 +38,5 @@ dependency as skipped so future updates are quiet until the runtime appears.
 When a PATH-visible command is owned by dotfiles, keep the public launcher in
 dotfiles and install the dependency binary behind it. The Neovim hook is the
 main example: `~/.local/bin/nvim` stays the tmux-aware launcher, while shdeps
-manages the real Neovim binary at a private path.
+manages the real Neovim binary at a private path. On Android/Termux, the hook
+uses Termux's native `neovim` package and links its binary behind that launcher.
