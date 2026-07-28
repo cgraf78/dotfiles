@@ -64,7 +64,10 @@ _nvim_startup_budget() {
 _run_nvim_startup() {
   local timeout_seconds="$1" file="$2"
 
+  # The smoke test opens a fixture file and must not overwrite the user's
+  # nvim-workspace session when the full config saves on VimLeavePre.
   _with_timeout "$timeout_seconds" nvim -i NONE --headless \
+    --cmd 'lua vim.g.disable_session_restore = true' \
     --cmd 'lua vim.g.mason_disabled = true' \
     "$file" '+qa!'
 }
@@ -125,6 +128,14 @@ _assert_nvim_startup_budget() {
 # ---------------------------------------------------------------------------
 
 echo "=== nvim: startup/shutdown performance ==="
+
+nvim_session_state_dir=$(_tmpdir)
+startup_rc=0
+XDG_STATE_HOME="$nvim_session_state_dir" \
+  _run_nvim_startup 20 "$HOME/.bashrc" >/dev/null 2>&1 || startup_rc=$?
+_assert_eq "startup session isolation: nvim exits successfully" "0" "$startup_rc"
+session_files=$(fd --type f . "$nvim_session_state_dir/nvim/sessions" 2>/dev/null || true)
+_assert_eq "startup session isolation: nvim does not save a user session" "" "$session_files"
 
 _assert_process_stopped() {
   local desc="$1" pid="$2" started=$SECONDS state
