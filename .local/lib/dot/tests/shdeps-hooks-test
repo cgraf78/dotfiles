@@ -117,7 +117,7 @@ _neovim_dep=$(
 )
 _assert_contains "neovim: launcher-owned binary is custom managed" \
   "custom" "$_neovim_dep"
-_assert_contains "neovim: shdeps install excludes Android" \
+_assert_not_contains "neovim: shdeps install supports Android" \
   "os:!android" "$_neovim_dep"
 _assert_not_contains "neovim: macOS pkg entry does not trust launcher" \
   "neovim                                    pkg              nvim" \
@@ -180,6 +180,35 @@ else
 fi
 _assert_eq "neovim: version comes from real binary" "v0.12.0" "$(version "neovim/neovim")"
 
+_nvim_termux_prefix=$(_tmpdir)
+mkdir -p "$_nvim_termux_prefix/bin"
+cat >"$_nvim_termux_prefix/bin/nvim" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' 'NVIM v0.12.3'
+EOF
+chmod +x "$_nvim_termux_prefix/bin/nvim"
+
+# shellcheck disable=SC2329  # hook calls this public shdeps API by name.
+shdeps_platform_match() { [[ "${1:-}" == android ]]; }
+# shellcheck disable=SC2329  # hook calls this public shdeps API by name.
+shdeps_pkg_mgr() { echo apt; }
+# shellcheck disable=SC2329  # hook calls this public shdeps API by name.
+shdeps_pkg_install_for_mgr() {
+  printf 'pkg:%s\n' "$*" >>"$_nvim_calls"
+  return 0
+}
+export PREFIX="$_nvim_termux_prefix"
+install "neovim/neovim"
+_assert_contains "neovim: Termux installs the native package" \
+  "pkg:apt:neovim" "$(cat "$_nvim_calls")"
+_assert_eq "neovim: Termux real binary points at native nvim" \
+  "$_nvim_termux_prefix/bin/nvim" \
+  "$(readlink "$_nvim_home/neovim/neovim/bin/nvim")"
+
+# Keep the release-asset test on its non-Android path.
+# shellcheck disable=SC2329  # hook calls this public shdeps API by name.
+shdeps_platform_match() { return 1; }
+
 # shellcheck disable=SC2329  # hook calls this public shdeps API by name.
 shdeps_pkg_mgr() { echo apt; }
 # shellcheck disable=SC2329  # hook calls this public shdeps API by name.
@@ -195,7 +224,7 @@ _assert_file_missing "neovim: github release removes disposable side link" \
 
 unset -f exists version install uninstall shdeps_install_dir shdeps_bin_dir \
   shdeps_pkg_mgr shdeps_reinstall shdeps_pkg_install_for_mgr \
-  shdeps_github_release_install
+  shdeps_github_release_install shdeps_platform_match
 
 echo "=== wezterm hook ==="
 

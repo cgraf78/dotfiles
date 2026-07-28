@@ -29,6 +29,17 @@ _neovim_brew_bin() {
   printf '%s/bin/nvim\n' "$prefix"
 }
 
+_neovim_termux_bin() {
+  # Termux owns its Android/Bionic package prefix. Keep the public launcher in
+  # dotfiles while linking the package-managed binary behind it.
+  local prefix=${PREFIX:-}
+  local bin
+  [[ -n "$prefix" ]] || return 1
+  bin="$prefix/bin/nvim"
+  [[ -x "$bin" && ! -d "$bin" ]] || return 1
+  printf '%s\n' "$bin"
+}
+
 _neovim_release_install() {
   local target=$1
   local link_target
@@ -60,6 +71,15 @@ install() {
   local target
   target=$(_neovim_real_bin)
   mkdir -p "$(dirname "$target")" || return 1
+
+  if shdeps_platform_match android; then
+    shdeps_pkg_install_for_mgr apt:neovim || return 1
+
+    local termux_bin
+    termux_bin=$(_neovim_termux_bin) || return 1
+    ln -sf "$termux_bin" "$target"
+    return 0
+  fi
 
   case "$(shdeps_pkg_mgr)" in
     brew)

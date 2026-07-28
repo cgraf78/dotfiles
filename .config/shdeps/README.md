@@ -24,7 +24,7 @@ jq                   pkg
 bat                  pkg              apt:batcat
 fd                   pkg              apt:fdfind   apt:fd-find,dnf:fd-find
 cgraf78/ds           github
-neovim/neovim        github           nvim
+neovim/neovim        custom           nvim
 direnv/direnv        github
 nerd-fonts           custom
 dust                 pkg              -            -                        os:macos
