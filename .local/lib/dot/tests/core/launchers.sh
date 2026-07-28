@@ -197,6 +197,75 @@ EOF
   _assert_not_contains "git launcher HOME root: skips Sapling probe" \
     "sl:root --config ui.color=never" "$(cat "$_git_home_probe_log" 2>/dev/null || true)"
 
+  _git_exact_root_bin=$(_tmpdir)
+  _git_exact_root_cache=$(_tmpdir)
+  _git_exact_root_log="$(_tmpdir)/git-exact-root.log"
+  _git_exact_root_base="$TEST_HOME/git/exact-root"
+  mkdir -p "$_git_exact_root_base" "$_git_exact_root_cache/dot"
+  cat >"$_git_exact_root_bin/git" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$GIT_EXACT_ROOT_LOG"
+case "$1" in
+  rev-parse)
+    printf '%s\n' "$GIT_EXACT_ROOT"
+    ;;
+esac
+case "${!#}" in
+  status)
+    printf 'real-root-status\n'
+    ;;
+esac
+EOF
+  chmod +x "$_git_exact_root_bin/git"
+  local _git_exact_marker _git_exact_mode _git_exact_expected
+  for _git_exact_marker in git-dir git-file git-dangling sl-dir sl-file sl-dangling hg-dir hg-file hg-dangling; do
+    _git_exact_root="$_git_exact_root_base/$_git_exact_marker"
+    mkdir -p "$_git_exact_root"
+    case "$_git_exact_marker" in
+      git-dir) mkdir "$_git_exact_root/.git" ;;
+      git-file) printf 'malformed gitfile\n' >"$_git_exact_root/.git" ;;
+      git-dangling) ln -s missing-gitdir "$_git_exact_root/.git" ;;
+      sl-dir) mkdir "$_git_exact_root/.sl" ;;
+      sl-file) printf 'malformed marker\n' >"$_git_exact_root/.sl" ;;
+      sl-dangling) ln -s missing-sldir "$_git_exact_root/.sl" ;;
+      hg-dir) mkdir "$_git_exact_root/.hg" ;;
+      hg-file) printf 'malformed marker\n' >"$_git_exact_root/.hg" ;;
+      hg-dangling) ln -s missing-hgdir "$_git_exact_root/.hg" ;;
+    esac
+
+    for _git_exact_mode in cwd explicit-c; do
+      : >"$_git_exact_root_log"
+      printf 'sentinel\n' >"$_git_exact_root_cache/dot/git-nested-worktree-roots"
+      if [[ "$_git_exact_mode" == cwd ]]; then
+        result=$(
+          cd "$_git_exact_root" &&
+            GIT_EXACT_ROOT="$_git_exact_root" \
+              GIT_EXACT_ROOT_LOG="$_git_exact_root_log" \
+              XDG_CACHE_HOME="$_git_exact_root_cache" \
+              PATH="$BIN_DIR:$_git_exact_root_bin:/usr/bin:/bin" \
+              "$BIN_DIR/git" status
+        )
+        _git_exact_expected="status"
+      else
+        result=$(
+          cd "$TEST_HOME" &&
+            GIT_EXACT_ROOT="$_git_exact_root" \
+              GIT_EXACT_ROOT_LOG="$_git_exact_root_log" \
+              XDG_CACHE_HOME="$_git_exact_root_cache" \
+              PATH="$BIN_DIR:$_git_exact_root_bin:/usr/bin:/bin" \
+              "$BIN_DIR/git" -C "$_git_exact_root" status
+        )
+        _git_exact_expected="-C $_git_exact_root status"
+      fi
+      _assert_eq "git launcher exact root ($_git_exact_marker, $_git_exact_mode): reaches real git" \
+        "real-root-status" "$result"
+      _assert_eq "git launcher exact root ($_git_exact_marker, $_git_exact_mode): executes only requested git" \
+        "$_git_exact_expected" "$(cat "$_git_exact_root_log")"
+      _assert_eq "git launcher exact root ($_git_exact_marker, $_git_exact_mode): leaves cache untouched" \
+        "sentinel" "$(cat "$_git_exact_root_cache/dot/git-nested-worktree-roots")"
+    done
+  done
+
   _git_nested_probe_bin=$(_tmpdir)
   _git_nested_probe_cache=$(_tmpdir)
   _git_nested_probe_log="$(_tmpdir)/git-nested-probe.log"
@@ -234,6 +303,43 @@ printf 'sl:%s\n' "$*" >>"$GIT_NESTED_PROBE_LOG"
 printf '%s\n' "$GIT_NESTED_PROBE_ROOT"
 EOF
   chmod +x "$_git_nested_probe_bin/git" "$_git_nested_probe_bin/sl"
+
+  local _git_stale_marker _git_stale_mode _git_stale_cache
+  local _git_stale_root _git_stale_leaf
+  for _git_stale_marker in sl hg; do
+    for _git_stale_mode in file dangling; do
+      _git_stale_cache=$(_tmpdir)
+      _git_stale_root="$TEST_HOME/git/stale-$_git_stale_marker-$_git_stale_mode"
+      _git_stale_leaf="$_git_stale_root/project"
+      mkdir -p "$_git_stale_cache/dot" "$_git_stale_leaf"
+      case "$_git_stale_mode" in
+        file)
+          printf 'malformed marker\n' >"$_git_stale_root/.$_git_stale_marker"
+          ;;
+        dangling)
+          ln -s missing-marker "$_git_stale_root/.$_git_stale_marker"
+          ;;
+      esac
+      printf 'sl\t%s\n' "$_git_stale_root" \
+        >"$_git_stale_cache/dot/git-nested-worktree-roots"
+
+      result=$(
+        cd "$_git_stale_leaf" &&
+          GIT_NESTED_PROBE_LOG="$_git_nested_probe_log" \
+            GIT_NESTED_PROBE_HOME="$TEST_HOME" \
+            GIT_NESTED_PROBE_ROOT="$_git_stale_root" \
+            XDG_CACHE_HOME="$_git_stale_cache" \
+            PATH="$BIN_DIR:$_git_nested_probe_bin:/usr/bin:/bin" \
+            "$BIN_DIR/git" status
+      )
+      _assert_eq "git launcher nested cache: invalidates stale $_git_stale_marker $_git_stale_mode marker" \
+        "dotfiles-status" "$result"
+      _assert_eq "git launcher nested cache: removes stale $_git_stale_marker $_git_stale_mode entry" \
+        "" "$(cat "$_git_stale_cache/dot/git-nested-worktree-roots")"
+    done
+  done
+  : >"$_git_nested_probe_log"
+
   result=$(
     cd "$_git_nested_probe_subdir" &&
       GIT_NESTED_PROBE_LOG="$_git_nested_probe_log" \
