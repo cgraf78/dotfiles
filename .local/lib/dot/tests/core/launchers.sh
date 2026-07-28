@@ -429,6 +429,8 @@ EOF
   NVIM_LAUNCHER_HOME=$(_tmpdir)
   NVIM_LAUNCHER_BIN=$(_mock_bin)
   NVIM_LAUNCHER_CWD="$NVIM_LAUNCHER_HOME/project"
+  NVIM_LAUNCHER_XDG_CACHE="$NVIM_LAUNCHER_HOME/xdg-cache"
+  NVIM_LAUNCHER_CACHE="$NVIM_LAUNCHER_XDG_CACHE/dot/nvim-real"
   mkdir -p "$NVIM_LAUNCHER_HOME/.local/share/neovim/neovim/bin" "$NVIM_LAUNCHER_CWD"
 
   cat >"$NVIM_LAUNCHER_HOME/.local/share/neovim/neovim/bin/nvim" <<'MOCK'
@@ -462,30 +464,41 @@ MOCK
 
   result=$(
     cd "$NVIM_LAUNCHER_CWD" &&
-      HOME="$NVIM_LAUNCHER_HOME" PATH="$NVIM_LAUNCHER_BIN:$PATH" TMUX="/tmp/tmux.sock,1,0" \
+      HOME="$NVIM_LAUNCHER_HOME" XDG_CACHE_HOME="$NVIM_LAUNCHER_XDG_CACHE" \
+        PATH="$NVIM_LAUNCHER_BIN:$PATH" TMUX="/tmp/tmux.sock,1,0" \
         NVIM_LAUNCHER_ALLOW_NONTTY=1 "$BIN_DIR/nvim" src/app.lua
   )
   _assert_eq "nvim launcher: tmux file open reuses existing pane" \
     "open:cli src/app.lua $NVIM_LAUNCHER_CWD" "$result"
+  _assert_file_missing "nvim launcher: preferred binary does not create fallback cache" \
+    "$NVIM_LAUNCHER_CACHE"
+
+  mkdir -p "${NVIM_LAUNCHER_CACHE%/*}"
+  printf 'fallback-cache-sentinel\n' >"$NVIM_LAUNCHER_CACHE"
 
   result=$(
     cd "$NVIM_LAUNCHER_CWD" &&
-      HOME="$NVIM_LAUNCHER_HOME" PATH="$NVIM_LAUNCHER_BIN:$PATH" TMUX="/tmp/tmux.sock,1,0" \
+      HOME="$NVIM_LAUNCHER_HOME" XDG_CACHE_HOME="$NVIM_LAUNCHER_XDG_CACHE" \
+        PATH="$NVIM_LAUNCHER_BIN:$PATH" TMUX="/tmp/tmux.sock,1,0" \
         NVIM_LAUNCHER_ALLOW_NONTTY=1 NVIM_TMUX_OPEN_RC=1 "$BIN_DIR/nvim" src/app.lua
   )
   expected="$(printf 'open:cli src/app.lua %s\nreal:src/app.lua' "$NVIM_LAUNCHER_CWD")"
   _assert_eq "nvim launcher: no reusable pane falls back to real nvim" "$expected" "$result"
+  _assert_file_content "nvim launcher: preferred binary preserves fallback cache" \
+    "fallback-cache-sentinel" "$NVIM_LAUNCHER_CACHE"
 
   result=$(
     cd "$NVIM_LAUNCHER_CWD" &&
-      HOME="$NVIM_LAUNCHER_HOME" PATH="$NVIM_LAUNCHER_BIN:$PATH" TMUX="/tmp/tmux.sock,1,0" \
+      HOME="$NVIM_LAUNCHER_HOME" XDG_CACHE_HOME="$NVIM_LAUNCHER_XDG_CACHE" \
+        PATH="$NVIM_LAUNCHER_BIN:$PATH" TMUX="/tmp/tmux.sock,1,0" \
         NVIM_LAUNCHER_ALLOW_NONTTY=1 "$BIN_DIR/nvim" --headless src/app.lua
   )
   _assert_eq "nvim launcher: flags bypass pane reuse" "real:--headless src/app.lua" "$result"
 
   result=$(
     cd "$NVIM_LAUNCHER_CWD" &&
-      HOME="$NVIM_LAUNCHER_HOME" PATH="$NVIM_LAUNCHER_BIN:$PATH" TMUX="/tmp/tmux.sock,1,0" \
+      HOME="$NVIM_LAUNCHER_HOME" XDG_CACHE_HOME="$NVIM_LAUNCHER_XDG_CACHE" \
+        PATH="$NVIM_LAUNCHER_BIN:$PATH" TMUX="/tmp/tmux.sock,1,0" \
         NVIM_LAUNCHER_ALLOW_NONTTY=1 NVIM_LAUNCHER_PARENT_COMMAND=git "$BIN_DIR/nvim" .git/COMMIT_EDITMSG
   )
   _assert_eq "nvim launcher: editor-style parent bypasses pane reuse" \
@@ -493,7 +506,8 @@ MOCK
 
   result=$(
     cd "$NVIM_LAUNCHER_CWD" &&
-      HOME="$NVIM_LAUNCHER_HOME" PATH="$NVIM_LAUNCHER_BIN:$PATH" TMUX="/tmp/tmux.sock,1,0" \
+      HOME="$NVIM_LAUNCHER_HOME" XDG_CACHE_HOME="$NVIM_LAUNCHER_XDG_CACHE" \
+        PATH="$NVIM_LAUNCHER_BIN:$PATH" TMUX="/tmp/tmux.sock,1,0" \
         NVIM_LAUNCHER_ALLOW_NONTTY=1 NVIM_LAUNCHER_PARENT_COMMAND=bash \
         NVIM_LAUNCHER_PARENT_ARGS="bash ./script-that-runs-nvim" "$BIN_DIR/nvim" src/app.lua
   )
@@ -502,13 +516,16 @@ MOCK
 
   result=$(
     cd "$NVIM_LAUNCHER_CWD" &&
-      HOME="$NVIM_LAUNCHER_HOME" PATH="$NVIM_LAUNCHER_BIN:$PATH" \
+      HOME="$NVIM_LAUNCHER_HOME" XDG_CACHE_HOME="$NVIM_LAUNCHER_XDG_CACHE" \
+        PATH="$NVIM_LAUNCHER_BIN:$PATH" \
         "$BIN_DIR/nvim" src/app.lua
   )
   _assert_eq "nvim launcher: outside tmux launches real nvim" "real:src/app.lua" "$result"
 
   NVIM_PATH_HOME=$(_tmpdir)
   NVIM_PATH_BIN=$(_mock_bin)
+  NVIM_PATH_XDG_CACHE="$NVIM_PATH_HOME/xdg-cache"
+  NVIM_PATH_CACHE="$NVIM_PATH_XDG_CACHE/dot/nvim-real"
   cat >"$NVIM_PATH_BIN/nvim" <<'MOCK'
 #!/usr/bin/env bash
 printf 'path-real:%s\n' "$*"
@@ -516,14 +533,20 @@ MOCK
   chmod +x "$NVIM_PATH_BIN/nvim"
   result=$(
     cd "$NVIM_LAUNCHER_CWD" &&
-      HOME="$NVIM_PATH_HOME" PATH="$NVIM_PATH_BIN:$BIN_DIR:/usr/bin:/bin" \
+      HOME="$NVIM_PATH_HOME" XDG_CACHE_HOME="$NVIM_PATH_XDG_CACHE" \
+        PATH="$NVIM_PATH_BIN:$BIN_DIR:/usr/bin:/bin" \
         "$BIN_DIR/nvim" src/app.lua
   )
   _assert_eq "nvim launcher: path fallback skips wrapper" "path-real:src/app.lua" "$result"
+  expected="$(printf '%s\n%s' \
+    "$NVIM_PATH_BIN/nvim" "$NVIM_PATH_BIN:$BIN_DIR:/usr/bin:/bin")"
+  _assert_file_content "nvim launcher: path fallback caches resolved binary" \
+    "$expected" "$NVIM_PATH_CACHE"
 
   NVIM_CROSS_HOME=$(_tmpdir)
   NVIM_CROSS_WRAPPER_BIN=$(_tmpdir)
   NVIM_CROSS_REAL_BIN=$(_tmpdir)
+  NVIM_CROSS_XDG_CACHE="$NVIM_CROSS_HOME/xdg-cache"
   cp "$BIN_DIR/nvim" "$NVIM_CROSS_WRAPPER_BIN/nvim"
   chmod +x "$NVIM_CROSS_WRAPPER_BIN/nvim"
   cat >"$NVIM_CROSS_REAL_BIN/nvim" <<'MOCK'
@@ -540,7 +563,7 @@ MOCK
   if [[ -n "$_nvim_cross_timeout" ]]; then
     result=$(
       cd "$NVIM_LAUNCHER_CWD" &&
-        HOME="$NVIM_CROSS_HOME" \
+        HOME="$NVIM_CROSS_HOME" XDG_CACHE_HOME="$NVIM_CROSS_XDG_CACHE" \
           PATH="$BIN_DIR:$NVIM_CROSS_WRAPPER_BIN:$NVIM_CROSS_REAL_BIN:/usr/bin:/bin" \
           "$_nvim_cross_timeout" 3s "$BIN_DIR/nvim" --headless src/app.lua
     )
