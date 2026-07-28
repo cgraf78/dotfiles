@@ -26,6 +26,9 @@ return {
 
   {
     "saghen/blink.cmp",
+    -- LazyVim's current blink integration targets the stable v1 API. Keep
+    -- the plugin off its moving v2 main branch, which requires blink.lib.
+    version = "1.*",
     opts = {
       keymap = {
         ["<Tab>"] = { "select_and_accept", "snippet_forward", "fallback" },
