@@ -7,7 +7,7 @@
 dot_shdeps_dep_source cgraf78/termnav share/termnav/shell.sh 2>/dev/null || true
 
 _dot_wezterm_publish_tmux_context() {
-  declare -F _termnav_wezterm_set_user_var >/dev/null 2>&1 || return 0
+  typeset -f _termnav_wezterm_set_user_var >/dev/null 2>&1 || return 0
   if [[ -n "${TMUX:-}" ]]; then
     _termnav_wezterm_set_user_var DOT_TMUX true
   else
@@ -15,18 +15,23 @@ _dot_wezterm_publish_tmux_context() {
   fi
 }
 
-_dot_wezterm_register_tmux_context() {
-  declare -F _termnav_wezterm_set_user_var >/dev/null 2>&1 || return 0
-  _dot_wezterm_publish_tmux_context
-
+_dot_wezterm_unregister_tmux_context() {
   if [[ -n "${ZSH_VERSION:-}" ]]; then
     autoload -Uz add-zsh-hook
     add-zsh-hook -d precmd _dot_wezterm_publish_tmux_context 2>/dev/null || true
-    add-zsh-hook precmd _dot_wezterm_publish_tmux_context
   elif [[ -n "${BASH_VERSION:-}" ]]; then
-    [[ " ${precmd_functions[*]} " != *" _dot_wezterm_publish_tmux_context "* ]] &&
-      precmd_functions+=(_dot_wezterm_publish_tmux_context)
+    local _callback
+    local -a _remaining=()
+    for _callback in ${precmd_functions[@]+"${precmd_functions[@]}"}; do
+      [[ "$_callback" == _dot_wezterm_publish_tmux_context ]] ||
+        _remaining+=("$_callback")
+    done
+    precmd_functions=("${_remaining[@]}")
   fi
 }
 
-_dot_wezterm_register_tmux_context
+# TMUX is fixed for a shell's lifetime, so publish this context when the
+# integration loads instead of paying for it on every prompt cycle. Remove the
+# legacy callback so reloading an existing shell also gets the faster path.
+_dot_wezterm_unregister_tmux_context
+_dot_wezterm_publish_tmux_context

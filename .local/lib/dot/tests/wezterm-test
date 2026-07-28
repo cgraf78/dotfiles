@@ -18,6 +18,8 @@ public_rule_wrapper=$(cat "$public_link_rules")
 termnav_wrapper=$(cat "$termnav_module")
 alias_content=$(cat "$HOME/.config/shell/interactive.d/50-aliases.sh")
 ripgrep_content=$(cat "$HOME/.config/ripgrep/config")
+tmux_context_shell="$HOME/.config/shell/interactive.d/53-wezterm.sh"
+tmux_context_content=$(cat "$tmux_context_shell")
 
 _wezterm_lua() {
   local code="$1" nvim_bin script
@@ -64,6 +66,100 @@ _wezterm_has_lua_runner() {
   command -v lua >/dev/null 2>&1 && return 0
   _wezterm_working_nvim >/dev/null
 }
+
+_tmux_context_probe() {
+  local shell="$1" tmux_value="$2" termnav_available="$3" stale_hook="$4"
+  local resourced_tmux="$5" resourced_termnav="$6"
+  local -a shell_args=()
+
+  case "$shell" in
+    bash) shell_args=(--noprofile --norc) ;;
+    zsh) shell_args=(-f) ;;
+  esac
+
+  : >"$tmux_context_log"
+  # shellcheck disable=SC2016 # Expansions run in the probed child shell.
+  HOME="$tmux_context_home" \
+    TMUX="$tmux_value" \
+    DOT_TMUX_TEST_TERMNAV="$termnav_available" \
+    DOT_TMUX_TEST_STALE_HOOK="$stale_hook" \
+    DOT_TMUX_TEST_RESOURCED_TMUX="$resourced_tmux" \
+    DOT_TMUX_TEST_RESOURCED_TERMNAV="$resourced_termnav" \
+    DOT_TMUX_TEST_LOG="$tmux_context_log" \
+    DOT_TMUX_CONTEXT_SHELL="$tmux_context_shell" \
+    "$shell" "${shell_args[@]}" -c '
+      existing_precmd() { :; }
+      precmd_functions=(existing_precmd)
+      if [[ "$DOT_TMUX_TEST_STALE_HOOK" == 1 ]]; then
+        precmd_functions+=(_dot_wezterm_publish_tmux_context)
+      fi
+
+      . "$DOT_TMUX_CONTEXT_SHELL"
+      cycle=0
+      while [[ "$cycle" -lt 3 ]]; do
+        for callback in "${precmd_functions[@]}"; do
+          "$callback"
+        done
+        cycle=$((cycle + 1))
+      done
+
+      printf "hooks=%s\n" "${precmd_functions[*]}"
+      printf "after-prompts=%s\n" "$(wc -l <"$DOT_TMUX_TEST_LOG" | tr -d " ")"
+      TMUX="$DOT_TMUX_TEST_RESOURCED_TMUX"
+      DOT_TMUX_TEST_TERMNAV="$DOT_TMUX_TEST_RESOURCED_TERMNAV"
+      export TMUX DOT_TMUX_TEST_TERMNAV
+      . "$DOT_TMUX_CONTEXT_SHELL"
+      printf "after-resource=%s\n" "$(wc -l <"$DOT_TMUX_TEST_LOG" | tr -d " ")"
+      cat "$DOT_TMUX_TEST_LOG"
+    ' 2>&1
+}
+
+echo "=== WezTerm shell context publication ==="
+
+tmux_context_direct_calls=$(grep -c '^_dot_wezterm_publish_tmux_context$' "$tmux_context_shell" || true)
+_assert_eq "DOT_TMUX has one source-time publication call" \
+  "1" "$tmux_context_direct_calls"
+_assert_not_contains "DOT_TMUX publication is not registered with zsh prompts" \
+  "add-zsh-hook precmd _dot_wezterm_publish_tmux_context" "$tmux_context_content"
+_assert_not_contains "DOT_TMUX publication is not registered with Bash prompts" \
+  "precmd_functions+=(_dot_wezterm_publish_tmux_context)" "$tmux_context_content"
+
+tmux_context_home=$(_tmpdir)
+tmux_context_log=$(_tmpdir)/publications.log
+mkdir -p "$tmux_context_home/.local/lib/dot/core"
+cat >"$tmux_context_home/.local/lib/dot/core/shdeps-assets.sh" <<'EOF'
+dot_shdeps_dep_source() {
+  [[ "${DOT_TMUX_TEST_TERMNAV:-1}" == 1 ]] || return 0
+  _termnav_wezterm_set_user_var() {
+    printf '<%s>=<%s>\n' "$1" "$2" >>"$DOT_TMUX_TEST_LOG"
+  }
+}
+EOF
+
+for test_shell in bash zsh; do
+  if [[ "$test_shell" == zsh ]] && ! command -v zsh >/dev/null 2>&1; then
+    echo "  - skipping DOT_TMUX zsh runtime tests (zsh unavailable)"
+    continue
+  fi
+
+  stale_context=$(_tmux_context_probe \
+    "$test_shell" /tmp/dot-tmux,1,0 1 1 /tmp/dot-tmux,1,0 1)
+  _assert_eq "$test_shell removes stale DOT_TMUX prompt publication" \
+    "$(printf 'hooks=existing_precmd\nafter-prompts=1\nafter-resource=2\n<DOT_TMUX>=<true>\n<DOT_TMUX>=<true>')" \
+    "$stale_context"
+
+  changed_context=$(_tmux_context_probe \
+    "$test_shell" /tmp/dot-tmux,1,0 1 0 "" 1)
+  _assert_eq "$test_shell refreshes DOT_TMUX after context changes and re-source" \
+    "$(printf 'hooks=existing_precmd\nafter-prompts=1\nafter-resource=2\n<DOT_TMUX>=<true>\n<DOT_TMUX>=<>')" \
+    "$changed_context"
+
+  recovered_context=$(_tmux_context_probe \
+    "$test_shell" /tmp/dot-tmux,1,0 0 0 /tmp/dot-tmux,1,0 1)
+  _assert_eq "$test_shell publishes DOT_TMUX when Termnav appears before re-source" \
+    "$(printf 'hooks=existing_precmd\nafter-prompts=0\nafter-resource=1\n<DOT_TMUX>=<true>')" \
+    "$recovered_context"
+done
 
 echo "=== WezTerm mouse and route integration ==="
 
