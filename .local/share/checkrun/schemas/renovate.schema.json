@@ -1,8 +1,8 @@
 {
   "$id": "https://docs.renovatebot.com/renovate-schema.json",
-  "title": "JSON schema for Renovate 43.264.2 config files (https://renovatebot.com/)",
+  "title": "JSON schema for Renovate 43.285.6 config files (https://renovatebot.com/)",
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "x-renovate-version": "43.264.2",
+  "x-renovate-version": "43.285.6",
   "allowComments": true,
   "type": "object",
   "definitions": {
@@ -429,6 +429,12 @@
       "markdownDescription": "The id of an existing work item on Azure Boards to link to each PR.\n\nSee also: [azureWorkItemId](https://docs.renovatebot.com/configuration-options/#azureworkitemid)",
       "type": "integer",
       "default": 0
+    },
+    "azureWorkItemType": {
+      "description": "The work item type Renovate uses for its issues (e.g. the Dependency Dashboard) on Azure DevOps.\nSee also: https://docs.renovatebot.com/configuration-options/#azureworkitemtype",
+      "markdownDescription": "The work item type Renovate uses for its issues (e.g. the Dependency Dashboard) on Azure DevOps.\n\nSee also: [azureWorkItemType](https://docs.renovatebot.com/configuration-options/#azureworkitemtype)",
+      "type": "string",
+      "default": "Issue"
     },
     "baseBranchPatterns": {
       "description": "List of one or more custom base branches defined as exact strings and/or via regex expressions.\nSee also: https://docs.renovatebot.com/configuration-options/#basebranchpatterns",
@@ -1452,6 +1458,18 @@
       "markdownDescription": "The upgrade topic/noun used in commit messages and PR titles.\n\nSee also: [commitMessageTopic](https://docs.renovatebot.com/configuration-options/#commitmessagetopic)",
       "type": "string",
       "default": "dependency {{depName}}"
+    },
+    "commitTrailers": {
+      "description": "Structured git trailers (`Key: value` lines) to add in the final block of the commit message.\nSee also: https://docs.renovatebot.com/configuration-options/#committrailers",
+      "markdownDescription": "Structured git trailers (`Key: value` lines) to add in the final block of the commit message.\n\nSee also: [commitTrailers](https://docs.renovatebot.com/configuration-options/#committrailers)",
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "string"
+      },
+      "default": null
     },
     "composer": {
       "description": "Configuration object for the composer manager\nSee also: https://docs.renovatebot.com/configuration-options/#composer",
@@ -7471,6 +7489,47 @@
       ],
       "default": null
     },
+    "smithy": {
+      "description": "Configuration object for the smithy manager\nSee also: https://docs.renovatebot.com/configuration-options/#smithy",
+      "markdownDescription": "Configuration object for the smithy manager\n\nSee also: [smithy](https://docs.renovatebot.com/configuration-options/#smithy)",
+      "type": "object",
+      "default": {
+        "managerFilePatterns": [
+          "/(^|/)smithy-build\\.json$/"
+        ]
+      },
+      "$ref": "#",
+      "items": {
+        "allOf": [
+          {
+            "type": "object",
+            "properties": {
+              "description": {
+                "oneOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "description": "A custom description for this configuration object"
+                    }
+                  },
+                  {
+                    "type": "string",
+                    "description": "A custom description for this configuration object"
+                  }
+                ]
+              },
+              "enabled": {
+                "$ref": "#/definitions/enabled"
+              },
+              "managerFilePatterns": {
+                "$ref": "#/definitions/managerFilePatterns"
+              }
+            }
+          }
+        ]
+      }
+    },
     "sourceDirectory": {
       "description": "The source directory in which the package is present at its source.\nSee also: https://docs.renovatebot.com/configuration-options/#packagerulessourcedirectory",
       "markdownDescription": "The source directory in which the package is present at its source.\n\nSee also: [sourceDirectory](https://docs.renovatebot.com/configuration-options/#packagerulessourcedirectory)",
@@ -8472,6 +8531,9 @@
     "azureWorkItemId": {
       "$ref": "#/definitions/azureWorkItemId"
     },
+    "azureWorkItemType": {
+      "$ref": "#/definitions/azureWorkItemType"
+    },
     "baseBranchPatterns": {
       "$ref": "#/definitions/baseBranchPatterns"
     },
@@ -8597,6 +8659,9 @@
     },
     "commitMessageTopic": {
       "$ref": "#/definitions/commitMessageTopic"
+    },
+    "commitTrailers": {
+      "$ref": "#/definitions/commitTrailers"
     },
     "composer": {
       "$ref": "#/definitions/composer"
@@ -9200,6 +9265,9 @@
     },
     "skipInstalls": {
       "$ref": "#/definitions/skipInstalls"
+    },
+    "smithy": {
+      "$ref": "#/definitions/smithy"
     },
     "statusCheckNames": {
       "$ref": "#/definitions/statusCheckNames"
