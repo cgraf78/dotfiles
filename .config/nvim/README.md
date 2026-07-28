@@ -38,8 +38,10 @@ drift.
   VS Code HOME workspace policy documented in `~/.vscode/README.md`.
 - Formatting routes through `sley hook format-file`.
 - Diagnostics route through `sley hook lint-file --json`.
-- JSON schema associations come from
-  `python3 "$(shdeps dep-file cgraf78/checkrun lib/checkrun/schemas/schema_policy.py)" --lsp-schemas`.
+- Language capabilities and JSON/YAML/TOML schema associations are generated
+  by `checkrun editor-metadata --json` into
+  `checkrun-editor-metadata.json`. Neovim materializes its portable `$HOME` and
+  `shdeps:` references in Lua so startup never waits for Checkrun or Python.
 
 Keeping these paths shared means Neovim gets the same behavior as `autolint`,
 agent hooks, Git hooks, and Sapling hooks.

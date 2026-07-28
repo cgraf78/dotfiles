@@ -1453,6 +1453,24 @@ _assert_eq "add_keymaps: cross-call dedup via shared seen" "$expected" "$result"
 echo ""
 echo "=== format/lint wrappers ==="
 
+editor_metadata="$HOME/.config/nvim/checkrun-editor-metadata.json"
+generated_editor_metadata=$(_tmpdir)/checkrun-editor-metadata.json
+editor_metadata_generator="${DOT_TEST_CHECKRUN_EDITOR_METADATA_BIN:-}"
+if [[ -z "$editor_metadata_generator" ]]; then
+  editor_metadata_generator=$(shdeps dep-file cgraf78/checkrun bin/checkrun 2>/dev/null || true)
+fi
+[[ -n "$editor_metadata_generator" ]] || editor_metadata_generator=$(command -v checkrun 2>/dev/null || true)
+if (
+  unset CHECKRUN_REGISTRY CHECKRUN_SCHEMA_ASSOCIATIONS
+  "$editor_metadata_generator" editor-metadata --json
+) >"$generated_editor_metadata" 2>/dev/null &&
+  cmp -s "$editor_metadata" "$generated_editor_metadata"; then
+  _pass "editor metadata: checked projection matches Checkrun policy"
+else
+  _fail "editor metadata: checked projection matches Checkrun policy"
+  diff -u "$editor_metadata" "$generated_editor_metadata" 2>/dev/null | sed -n '1,80p' >&2 || true
+fi
+
 result=$(_nvim_lua '
   local policy = require("config.language-policy")
   local formatting = dofile(vim.fn.expand("~/.config/nvim/lua/plugins/formatting.lua"))
@@ -1530,9 +1548,13 @@ result=$(_nvim_lua '
 ')
 _assert_eq "sley hook policy: nvim reads checkrun capability metadata" "ok" "$result"
 
-CHECKRUN_CAP_BIN=$(_tmpdir)
-cat >"$CHECKRUN_CAP_BIN/checkrun" <<'EOF'
+CHECKRUN_METADATA_BIN=$(_tmpdir)
+CHECKRUN_METADATA_MARKER=$(_tmpdir)/editor-metadata-processes
+REAL_PYTHON3=$(command -v python3)
+export CHECKRUN_METADATA_MARKER REAL_PYTHON3
+cat >"$CHECKRUN_METADATA_BIN/checkrun" <<'EOF'
 #!/usr/bin/env bash
+printf 'checkrun\n' >>"$CHECKRUN_METADATA_MARKER"
 if [[ "$1" == "capabilities" && "$2" == "--json" ]]; then
   cat <<'JSON'
 {
@@ -1553,20 +1575,33 @@ JSON
 fi
 exit 2
 EOF
-chmod +x "$CHECKRUN_CAP_BIN/checkrun"
+cat >"$CHECKRUN_METADATA_BIN/python3" <<'EOF'
+#!/usr/bin/env bash
+printf 'python3\n' >>"$CHECKRUN_METADATA_MARKER"
+exec "$REAL_PYTHON3" "$@"
+EOF
+chmod +x "$CHECKRUN_METADATA_BIN/checkrun" "$CHECKRUN_METADATA_BIN/python3"
 
-result=$(PATH="$CHECKRUN_CAP_BIN:$PATH" _nvim_lua '
+result=$(PATH="$CHECKRUN_METADATA_BIN:$PATH" \
+  DOT_TEST_CHECKRUN_BIN="$CHECKRUN_METADATA_BIN/checkrun" \
+  _nvim_lua '
   local real_shdeps = require("config.dot-runtime").shdeps()
   local checkrun_nvim = real_shdeps.dep_file("cgraf78/checkrun", "lib/checkrun/nvim.lua")
+  local dep_calls = {}
 
   package.loaded["config.dot-runtime"] = {
     shdeps = function()
       return {
-        dep_file = function(_, rel)
-          if rel == "lib/checkrun/nvim.lua" then
+        dep_file = function(dep, rel)
+          local key = dep .. "/" .. rel
+          dep_calls[key] = (dep_calls[key] or 0) + 1
+          if dep == "cgraf78/checkrun" and rel == "lib/checkrun/nvim.lua" then
             return checkrun_nvim
           end
-          return nil
+          if dep == "cgraf78/checkrun" and rel == "bin/checkrun" then
+            return vim.env.DOT_TEST_CHECKRUN_BIN
+          end
+          return real_shdeps.dep_file(dep, rel)
         end,
         env = function()
           return {}
@@ -1577,21 +1612,32 @@ result=$(PATH="$CHECKRUN_CAP_BIN:$PATH" _nvim_lua '
 
   local policy = require("config.language-policy")
   local capabilities = policy.checkrun_capabilities()
-  if capabilities.filetypes.format[1] ~= "mockfmt" then
-    print("missing-cli-format")
+  if capabilities.filetypes.custom.filename.Dockerfile ~= "dockerfile" then
+    print("missing-static-filetype")
     return
   end
-  if capabilities.filetypes.lint[1] ~= "mocklint" then
-    print("missing-cli-lint")
+  local schemas = require("config.schema-policy").json_schemas()
+  if type(schemas) ~= "table" or #schemas == 0 then
+    print("missing-static-schemas")
     return
   end
-  if capabilities.filetypes.custom.filename.Mockfile ~= "mockfmt" then
-    print("missing-cli-filetype")
+  local total_calls = 0
+  for key, calls in pairs(dep_calls) do
+    if calls ~= 1 then
+      print("duplicate-dependency-resolution:" .. key .. ":" .. calls)
+      return
+    end
+    total_calls = total_calls + calls
+  end
+  if total_calls ~= 11 then
+    print("unexpected-dependency-resolution-count:" .. total_calls)
     return
   end
   print("ok")
 ')
-_assert_eq "sley hook policy: falls back to checkrun capabilities CLI" "ok" "$result"
+_assert_eq "editor metadata: static capabilities and schemas load" "ok" "$result"
+_assert_file_missing "editor metadata: Neovim invokes neither Checkrun nor Python" \
+  "$CHECKRUN_METADATA_MARKER"
 
 result=$(_nvim_lua '
   local specs = dofile(vim.fn.expand("~/.config/nvim/lua/plugins/formatting.lua"))
@@ -1712,23 +1758,78 @@ result=$(_nvim_lua '
 _assert_eq "treesitter: nvim ensures critical language parsers" "ok" "$result"
 
 result=$(_nvim_lua '
-  local env = require("config.checkrun-nvim").schema_opts().env
-  for _, key in ipairs({
-    "SHDEPS_BIN_DIR",
-    "SHDEPS_CONF_DIR",
-    "SHDEPS_GIT_DEV_DIR",
-    "SHDEPS_HOOKS_DIR",
-    "SHDEPS_INSTALL_DIR",
-    "SHDEPS_STATE_DIR",
-  }) do
-    if env[key] ~= vim.env[key] then
-      print("missing:" .. key)
-      return
-    end
+  local checkrun = require("config.checkrun-nvim")
+  local capabilities = checkrun.capability_opts().capabilities
+  local schemas = checkrun.schema_opts().config
+  if type(capabilities) ~= "table" or type(capabilities.filetypes) ~= "table" then
+    print("missing-capabilities")
+    return
+  end
+  if type(schemas) ~= "table" or type(schemas.json) ~= "table" then
+    print("missing-schemas")
+    return
+  end
+  if checkrun.capability_opts().command ~= nil or checkrun.schema_opts().command ~= nil then
+    print("startup-command-configured")
+    return
   end
   print("ok")
 ')
-_assert_eq "public schemas: Checkrun child inherits shdeps runtime roots" "ok" "$result"
+_assert_eq "editor metadata: adapters receive direct in-memory config" "ok" "$result"
+
+result=$(_nvim_lua '
+  vim.env.HOME = "/tmp/home +#%.test"
+  package.loaded["config.checkrun-nvim"] = nil
+  local schemas = require("config.checkrun-nvim").schema_opts().config
+  local expected_uri = vim.uri_from_fname(vim.env.HOME .. "/.local/share/checkrun/schemas/dot-vscode-extensions.schema.json")
+  local saw_regex = false
+  local saw_uri = false
+  for pattern, url in pairs(schemas.toml or {}) do
+    if pattern:find("^/tmp/home \\+#%\\.test/", 1, true) then
+      saw_regex = true
+    end
+    if url == expected_uri then
+      saw_uri = true
+    end
+  end
+  if not saw_regex then
+    print("home-regex-not-escaped")
+    return
+  end
+  if not saw_uri then
+    print("home-file-uri-not-encoded")
+    return
+  end
+  print("ok")
+')
+_assert_eq "editor metadata: hostile HOME is regex-escaped and URI-encoded" "ok" "$result"
+
+malformed_metadata_root=$(_tmpdir)
+mkdir -p "$malformed_metadata_root/lua/config"
+cp "$HOME/.config/nvim/lua/config/checkrun-nvim.lua" \
+  "$malformed_metadata_root/lua/config/checkrun-nvim.lua"
+cat >"$malformed_metadata_root/checkrun-editor-metadata.json" <<'EOF'
+{
+  "version": 1,
+  "capabilities": {"version": 2, "filetypes": {}},
+  "schemas": {
+    "json": {"url": "shdeps:malformed", "fileMatch": []},
+    "yaml": ["not-an-object"],
+    "toml": ["https://example.invalid/schema"]
+  }
+}
+EOF
+result=$(DOT_TEST_MALFORMED_CHECKRUN_MODULE="$malformed_metadata_root/lua/config/checkrun-nvim.lua" \
+  _nvim_lua '
+    local checkrun = dofile(vim.env.DOT_TEST_MALFORMED_CHECKRUN_MODULE)
+    local schemas = checkrun.schema_opts().config
+    if #schemas.json ~= 0 or next(schemas.yaml) ~= nil or next(schemas.toml) ~= nil then
+      print("malformed-schema-survived")
+      return
+    end
+    print("ok")
+  ')
+_assert_eq "editor metadata: malformed versioned schemas degrade to empty" "ok" "$result"
 
 schema_policy_path=$(
   shdeps dep-file cgraf78/checkrun lib/checkrun/schemas/schema_policy.py 2>/dev/null
