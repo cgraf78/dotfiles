@@ -30,6 +30,7 @@ _clear_tool_cache() {
   if _tool_cache_dir; then
     find "$REPLY" -maxdepth 1 -type f -delete 2>/dev/null
   fi
+  unset __tool_cache_scan_dir __tool_cache_fresh_files
   unset __atuin_sourced __wezterm_sourced
 }
 
@@ -43,6 +44,48 @@ _tool_mtime() {
     return
   fi
   stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null
+}
+
+_tool_cache_is_fresh() {
+  local cache="$1"
+  if [[ -n "${ZSH_VERSION:-}" ]]; then
+    local _now _cache_mtime
+    _now="${EPOCHSECONDS:-$(date +%s)}"
+    _cache_mtime=$(_tool_mtime "$cache")
+    [[ -n "$_cache_mtime" ]] && ((_now - _cache_mtime < 7 * 86400))
+    return
+  fi
+
+  local cache_dir="${cache%/*}" _fresh _path _restore_noglob=0
+  local -a _candidates
+  if [[ "${__tool_cache_scan_dir:-}" != "$cache_dir" ]]; then
+    __tool_cache_scan_dir="$cache_dir"
+    __tool_cache_fresh_files=()
+    _candidates=()
+    if [[ "$-" == *f* ]]; then
+      _restore_noglob=1
+      set +f
+    fi
+    for _path in "$cache_dir"/*; do
+      [[ -f "$_path" ]] && _candidates+=("$_path")
+    done
+    ((_restore_noglob)) && set -f
+    if ((${#_candidates[@]})); then
+      while IFS= read -r -d '' _fresh; do
+        __tool_cache_fresh_files+=("$_fresh")
+      done < <(find -H "${_candidates[@]}" -type f -mtime -7 -print0 2>/dev/null)
+    fi
+  fi
+  for _fresh in "${__tool_cache_fresh_files[@]}"; do
+    [[ "$_fresh" == "$cache" ]] && return 0
+  done
+  return 1
+}
+
+_tool_cache_mark_fresh() {
+  local cache="$1"
+  [[ "${__tool_cache_scan_dir:-}" == "${cache%/*}" ]] || return 0
+  __tool_cache_fresh_files+=("$cache")
 }
 
 _tool_shdeps_source_emit() {
@@ -75,21 +118,12 @@ _tool_init() {
   cache="$cache_dir/${name}.${_shell_name}"
   local regen=1
 
-  if [[ -f "$cache" ]]; then
-    local _now _cache_mtime _tool_t
-    _now="${EPOCHSECONDS:-$(date +%s)}"
-    _cache_mtime=$(_tool_mtime "$cache")
-    if [[ -n "$_cache_mtime" ]] && ((_now - _cache_mtime < 7 * 86400)); then
-      regen=0
-      # Also regenerate if the tool was upgraded after the cache was written, so
-      # the new init applies on the very next shell. Without this, a freshly
-      # installed version's init (completions, guards, etc.) stays masked by the
-      # stale cache until the 7-day timer or a manual reloadsh. Skipped when the
-      # tool resolves to a function/builtin (no file mtime) — timer still covers
-      # those.
-      _tool_t=$(_tool_mtime "$_tool_path")
-      [[ -n "$_tool_t" ]] && ((_tool_t > _cache_mtime)) && regen=1
-    fi
+  if [[ -f "$cache" ]] && _tool_cache_is_fresh "$cache"; then
+    regen=0
+    # Also regenerate if the tool was upgraded after the cache was written, so
+    # the new init applies on the very next shell. The shell's file test avoids
+    # a separate stat process for every warm integration.
+    [[ -f "$_tool_path" && "$_tool_path" -nt "$cache" ]] && regen=1
   fi
 
   if ((regen)); then
@@ -102,7 +136,11 @@ _tool_init() {
     local _tmp
     _tmp=$(mktemp "${cache}.tmp.XXXXXX" 2>/dev/null) || return
     if "$@" >"$_tmp" 2>/dev/null && [[ -s "$_tmp" ]]; then
-      mv "$_tmp" "$cache"
+      if mv "$_tmp" "$cache"; then
+        _tool_cache_mark_fresh "$cache"
+      else
+        rm -f "$_tmp"
+      fi
     else
       rm -f "$_tmp"
     fi
