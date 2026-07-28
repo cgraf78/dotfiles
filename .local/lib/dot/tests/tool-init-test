@@ -10,6 +10,8 @@
 # shellcheck disable=SC1090 # function-under-test lives under HOME.
 . "$HOME/.config/shell/interactive.d/54-tool-init.sh"
 
+REAL_FIND=$(command -v find)
+REAL_STAT=$(command -v stat)
 TEST_TMPDIR=$(_tmpdir)
 export XDG_CACHE_HOME="$TEST_TMPDIR/cache"
 BIN="$TEST_TMPDIR/bin"
@@ -169,5 +171,85 @@ _assert_file_exists "newline cache: generated at exact XDG path" \
 _assert_eq "newline cache: generated init is sourced" "1" "${NEWLINEFOO_LOADED:-}"
 _assert_file_missing "newline cache: path was not truncated by command substitution" \
   "${NEWLINE_CACHE%$'\n'}/shell/newlinefoo.bash"
+
+echo ""
+echo "=== tool-init: warm Bash caches batch filesystem metadata probes ==="
+METADATA_LOG="$TEST_TMPDIR/metadata.log"
+export METADATA_LOG REAL_FIND REAL_STAT
+cat >"$BIN/find" <<'EOF'
+#!/usr/bin/env bash
+printf 'find:%s\n' "$*" >>"$METADATA_LOG"
+exec "$REAL_FIND" "$@"
+EOF
+cat >"$BIN/stat" <<'EOF'
+#!/usr/bin/env bash
+printf 'stat\n' >>"$METADATA_LOG"
+exec "$REAL_STAT" "$@"
+EOF
+cat >"$BIN/perfa" <<'EOF'
+#!/usr/bin/env bash
+printf 'perfa:generate\n' >>"$METADATA_LOG"
+printf 'PERFA_LOADED=1\n'
+EOF
+cat >"$BIN/perfb" <<'EOF'
+#!/usr/bin/env bash
+printf 'perfb:generate\n' >>"$METADATA_LOG"
+printf 'PERFB_LOADED=1\n'
+EOF
+chmod +x "$BIN/find" "$BIN/stat" "$BIN/perfa" "$BIN/perfb"
+
+XDG_CACHE_HOME="$TEST_TMPDIR/perf-cache"
+unset __tool_cache_scan_dir __tool_cache_fresh_files
+_tool_init perfa perfa
+_tool_init perfb perfb
+: >"$METADATA_LOG"
+unset __tool_cache_scan_dir __tool_cache_fresh_files PERFA_LOADED PERFB_LOADED
+_tool_init perfa perfa
+_tool_init perfb perfb
+
+_find_count=$(grep -c '^find:' "$METADATA_LOG" || true)
+_stat_count=$(grep -c '^stat$' "$METADATA_LOG" || true)
+_generate_count=$(grep -c ':generate$' "$METADATA_LOG" || true)
+_assert_eq "warm metadata: scans the cache directory once" "1" "$_find_count"
+_assert_eq "warm metadata: uses no per-tool stat processes" "0" "$_stat_count"
+_assert_eq "warm metadata: does not regenerate integrations" "0" "$_generate_count"
+_assert_eq "warm metadata: first cached integration is sourced" "1" "${PERFA_LOADED:-}"
+_assert_eq "warm metadata: second cached integration is sourced" "1" "${PERFB_LOADED:-}"
+
+: >"$METADATA_LOG"
+unset __tool_cache_scan_dir __tool_cache_fresh_files PERFA_LOADED
+set -f
+_tool_init perfa perfa
+_generate_count=$(grep -c ':generate$' "$METADATA_LOG" || true)
+_assert_eq "warm metadata: noglob does not regenerate integration" \
+  "0" "$_generate_count"
+_assert_contains "warm metadata: caller noglob setting is restored" "f" "$-"
+set +f
+
+echo ""
+echo "=== tool-init: batch scan follows cache-directory symlinks only one level ==="
+SYMLINK_CACHE_ROOT="$TEST_TMPDIR/symlink-cache"
+SYMLINK_CACHE_TARGET="$TEST_TMPDIR/symlink-cache-target"
+mkdir -p "$SYMLINK_CACHE_ROOT" "$SYMLINK_CACHE_TARGET/shell/nested"
+ln -s "$SYMLINK_CACHE_TARGET/shell" "$SYMLINK_CACHE_ROOT/shell"
+printf 'nested\n' >"$SYMLINK_CACHE_TARGET/shell/nested/not-a-cache"
+XDG_CACHE_HOME="$SYMLINK_CACHE_ROOT"
+unset __tool_cache_scan_dir __tool_cache_fresh_files PERFA_LOADED
+_tool_init perfa perfa
+: >"$METADATA_LOG"
+unset __tool_cache_scan_dir __tool_cache_fresh_files PERFA_LOADED
+_tool_init perfa perfa
+
+_find_count=$(grep -c '^find:' "$METADATA_LOG" || true)
+_stat_count=$(grep -c '^stat$' "$METADATA_LOG" || true)
+_generate_count=$(grep -c ':generate$' "$METADATA_LOG" || true)
+_assert_eq "symlink metadata: warm cache uses one batch scan" "1" "$_find_count"
+_assert_eq "symlink metadata: warm cache uses no stat process" "0" "$_stat_count"
+_assert_eq "symlink metadata: warm cache is not regenerated" "0" "$_generate_count"
+_assert_contains "symlink metadata: find receives the direct cache file" \
+  "$SYMLINK_CACHE_ROOT/shell/perfa.bash" "$(cat "$METADATA_LOG")"
+_assert_not_contains "symlink metadata: find does not traverse the cache directory" \
+  "find:$SYMLINK_CACHE_ROOT/shell " "$(cat "$METADATA_LOG")"
+_assert_eq "symlink metadata: cached integration is sourced" "1" "${PERFA_LOADED:-}"
 
 _test_summary
