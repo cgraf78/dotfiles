@@ -1713,6 +1713,22 @@ result=$(_nvim_lua '
 _assert_eq "sley hook lint: nvim command uses hook CLI" "ok" "$result"
 
 result=$(_nvim_lua '
+  local specs = dofile(vim.fn.expand("~/.config/nvim/lua/plugins/coding.lua"))
+  for _, spec in ipairs(specs) do
+    if spec[1] == "saghen/blink.cmp" then
+      if spec.version ~= "1.*" then
+        print("version:" .. tostring(spec.version))
+        return
+      end
+      print("ok")
+      return
+    end
+  end
+  print("missing-spec")
+')
+_assert_eq "blink.cmp: pins the stable v1 API" "ok" "$result"
+
+result=$(_nvim_lua '
   local policy = require("config.language-policy")
   local expected = {
     "bash", "c", "cmake", "cpp", "css", "dockerfile", "go", "html",
