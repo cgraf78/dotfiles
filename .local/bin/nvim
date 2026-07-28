@@ -39,7 +39,6 @@ _real_nvim() {
 
   candidate="$HOME/.local/share/neovim/neovim/bin/nvim"
   if _dot_launcher_candidate_ok "$candidate" "$self" "$marker"; then
-    _dot_launcher_cache_write nvim "$candidate"
     printf '%s\n' "$candidate"
     return 0
   fi
