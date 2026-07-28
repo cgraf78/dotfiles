@@ -83,6 +83,78 @@ _assert_contains "rust-src: Termux rust package bundles sources" \
   "android:rust" \
   "$(awk '$1 == "rust-src" && $2 == "pkg" { print; exit }' "$REAL_HOME/.config/shdeps/00-toolchains.conf")"
 
+echo "=== cmake-language-server hook ==="
+
+_cmake_language_server_hook="$REAL_HOME/.config/shdeps/hooks.d/cmake-language-server.sh"
+# shellcheck source=/dev/null
+. "$_cmake_language_server_hook"
+
+_cmake_language_server_bin=$(_mock_bin)
+_cmake_language_server_calls=$(_tmpdir)/calls.log
+cat >"$_cmake_language_server_bin/uv" <<'EOF'
+#!/usr/bin/env bash
+printf 'uv:%s\n' "$*" >>"$CMAKE_LANGUAGE_SERVER_TEST_CALLS"
+case "${CMAKE_LANGUAGE_SERVER_TEST_INVENTORY:-valid}" in
+  valid)
+    printf 'other-tool v9.8.7 (/tools/other-tool)\n'
+    printf '%s\n' '- other-tool (/bin/other-tool)'
+    printf 'cmake-language-server v0.1.11 (/tools/cmake-language-server)\n'
+    printf -- '- cmake-language-server (%s)\n' "$CMAKE_LANGUAGE_SERVER_TEST_ACTIVE"
+    ;;
+  empty) ;;
+  malformed)
+    printf 'cmake-language-server not-a-version (/tools/cmake-language-server)\n'
+    printf -- '- cmake-language-server (%s)\n' "$CMAKE_LANGUAGE_SERVER_TEST_ACTIVE"
+    ;;
+  shadowed)
+    printf 'cmake-language-server v9.8.7 (/tools/cmake-language-server)\n'
+    printf '%s\n' '- cmake-language-server (/different/bin/cmake-language-server)'
+    ;;
+esac
+EOF
+chmod +x "$_cmake_language_server_bin/uv"
+cat >"$_cmake_language_server_bin/cmake-language-server" <<'EOF'
+#!/usr/bin/env bash
+printf 'cmake-language-server:%s\n' "$*" >>"$CMAKE_LANGUAGE_SERVER_TEST_CALLS"
+exit 99
+EOF
+chmod +x "$_cmake_language_server_bin/cmake-language-server"
+
+_cmake_language_server_saved_path=$PATH
+PATH="$_cmake_language_server_bin:/usr/bin:/bin"
+export CMAKE_LANGUAGE_SERVER_TEST_CALLS="$_cmake_language_server_calls"
+export CMAKE_LANGUAGE_SERVER_TEST_ACTIVE="$_cmake_language_server_bin/cmake-language-server"
+
+CMAKE_LANGUAGE_SERVER_TEST_INVENTORY=valid
+export CMAKE_LANGUAGE_SERVER_TEST_INVENTORY
+_assert_eq "cmake-language-server: version comes from uv inventory" \
+  "cmake-language-server 0.1.11" "$(version)"
+
+CMAKE_LANGUAGE_SERVER_TEST_INVENTORY=empty
+export CMAKE_LANGUAGE_SERVER_TEST_INVENTORY
+_assert_eq "cmake-language-server: empty uv inventory omits version detail" \
+  "" "$(version)"
+
+CMAKE_LANGUAGE_SERVER_TEST_INVENTORY=malformed
+export CMAKE_LANGUAGE_SERVER_TEST_INVENTORY
+_assert_eq "cmake-language-server: malformed uv version is not reported" \
+  "" "$(version)"
+
+CMAKE_LANGUAGE_SERVER_TEST_INVENTORY=shadowed
+export CMAKE_LANGUAGE_SERVER_TEST_INVENTORY
+_assert_eq "cmake-language-server: shadowed uv install is not reported" \
+  "" "$(version)"
+
+_assert_eq "cmake-language-server: status queries the uv inventory" \
+  $'uv:tool list --show-paths\nuv:tool list --show-paths\nuv:tool list --show-paths\nuv:tool list --show-paths' \
+  "$(cat "$_cmake_language_server_calls")"
+_assert_not_contains "cmake-language-server: status never launches the Python CLI" \
+  "cmake-language-server:" "$(cat "$_cmake_language_server_calls")"
+PATH=$_cmake_language_server_saved_path
+unset CMAKE_LANGUAGE_SERVER_TEST_ACTIVE CMAKE_LANGUAGE_SERVER_TEST_CALLS
+unset CMAKE_LANGUAGE_SERVER_TEST_INVENTORY
+unset -f exists version install uninstall
+
 _assert_contains "uv: Termux uses the native package" \
   "os:macos,os:android" \
   "$(awk '$1 == "uv" && $2 == "pkg" { print; exit }' "$REAL_HOME/.config/shdeps/00-toolchains.conf")"
