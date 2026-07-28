@@ -5,6 +5,12 @@
 - Always verify changes compile and pass tests before presenting as done.
 - Before the first repository-modifying action, read
   `~/.config/dot/agent-playbooks.d/git/worktrees.md` and follow it.
+- Before the first repository-modifying action, establish the correct isolated
+  checkout or worktree. Read-only inspection may happen in the current
+  checkout, but edits, generation, formatting, staging, commits, and other
+  state-changing actions must happen only after that boundary is established.
+  If the current checkout is already an appropriate linked worktree, continue
+  there; otherwise create or select one first.
 - Before presenting non-trivial work as complete, read
   `~/.config/dot/agent-playbooks.d/review/fresh-eyes.md` and perform the
   risk-scaled review it requires.
