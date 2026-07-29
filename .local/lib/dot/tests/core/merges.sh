@@ -3108,10 +3108,21 @@ TOML
   mkdir -p "$TEST_HOME/.config/mise" "$TEST_HOME/.config/gh"
   printf '%s\n' '[tools]' >"$TEST_HOME/.config/mise/config.toml"
 
+  _mise_tmux_one="$TEST_HOME/.local/share/mise/installs/tmux/3.6a/tmux"
+  _mise_tmux_two="$TEST_HOME/.local/share/mise/installs/tmux/3.7/tmux"
+  mkdir -p "${_mise_tmux_one%/*}" "${_mise_tmux_two%/*}"
+  printf '%s\n' '#!/bin/bash' 'exit 0' >"$_mise_tmux_one"
+  printf '%s\n' '#!/bin/bash' 'exit 0' >"$_mise_tmux_two"
+  chmod +x "$_mise_tmux_one" "$_mise_tmux_two"
+
   cat >"$MOCK_BIN/mise" <<'MISE'
 #!/bin/bash
 printf 'MISE_GITHUB_TOKEN=%s\n' "${MISE_GITHUB_TOKEN-}" >>"$HOME/.mise-env.log"
 printf '%s\n' "$*" >>"$HOME/.mise-calls.log"
+if [[ "$*" == "which tmux" ]]; then
+  [[ "${MISE_TMUX_WHICH_RC:-0}" == 0 ]] || exit "$MISE_TMUX_WHICH_RC"
+  printf '%s\n' "${MISE_TMUX_BIN:?}"
+fi
 exit 0
 MISE
   chmod +x "$MOCK_BIN/mise"
@@ -3126,21 +3137,88 @@ GH
 
   # Non-interactive merge never calls gh.
   rm -f "$TEST_HOME/.mise-env.log" "$TEST_HOME/.mise-calls.log" "$TEST_HOME/.gh-calls.log"
-  _run_mise_merge
+  MISE_TMUX_BIN="$_mise_tmux_one" _run_mise_merge
   result=$(cat "$TEST_HOME/.mise-env.log")
   _assert_contains "mise hook: leaves token empty in non-interactive mode" "MISE_GITHUB_TOKEN=" "$result"
   result=$(cat "$TEST_HOME/.mise-calls.log")
   _assert_contains "mise hook: trusts config" "trust $TEST_HOME/.config/mise/config.toml" "$result"
   _assert_contains "mise hook: runs install" "install" "$result"
+  if [[ -L "$TEST_HOME/.local/bin/tmux" ]]; then
+    _pass "mise hook: publishes direct tmux executable"
+  else
+    _fail "mise hook: publishes direct tmux executable"
+  fi
+  _mise_managed_tmux="$TEST_HOME/.local/bin/.dot-mise/tmux"
+  _assert_eq "mise hook: public tmux link has a stable managed target" \
+    "$_mise_managed_tmux" "$(readlink "$TEST_HOME/.local/bin/tmux" 2>/dev/null || true)"
+  _assert_eq "mise hook: managed tmux link targets selected install" \
+    "$_mise_tmux_one" "$(readlink "$_mise_managed_tmux" 2>/dev/null || true)"
+  _assert_eq "mise hook: direct tmux link wins over generic shims" \
+    "$TEST_HOME/.local/bin/tmux" \
+    "$(PATH="$TEST_HOME/.local/bin:$TEST_HOME/.local/share/mise/shims:$PATH" command -v tmux)"
   if [[ ! -e "$TEST_HOME/.gh-calls.log" ]]; then
     _pass "mise hook: skips gh in non-interactive mode"
   else
     _fail "mise hook: skips gh in non-interactive mode"
   fi
 
+  MISE_TMUX_BIN="$_mise_tmux_two" _run_mise_merge
+  _assert_eq "mise hook: refreshes direct tmux link after upgrades" \
+    "$_mise_tmux_two" "$(readlink "$_mise_managed_tmux" 2>/dev/null || true)"
+
+  rm -f "$TEST_HOME/.config/mise/config.toml"
+  MISE_TMUX_BIN="$_mise_tmux_two" _run_mise_merge
+  if [[ ! -e "$TEST_HOME/.local/bin/tmux" && ! -L "$TEST_HOME/.local/bin/tmux" ]]; then
+    _pass "mise hook: removed config retires the public link"
+  else
+    _fail "mise hook: removed config retires the public link"
+  fi
+  if [[ ! -e "$_mise_managed_tmux" && ! -L "$_mise_managed_tmux" ]]; then
+    _pass "mise hook: removed config retires the managed link"
+  else
+    _fail "mise hook: removed config retires the managed link"
+  fi
+
+  printf '%s\n' '[tools]' >"$TEST_HOME/.config/mise/config.toml"
+  MISE_TMUX_BIN="$_mise_tmux_two" _run_mise_merge
+  MISE_TMUX_BIN="$_mise_tmux_two" MISE_TMUX_WHICH_RC=1 _run_mise_merge
+  if [[ ! -e "$TEST_HOME/.local/bin/tmux" && ! -L "$TEST_HOME/.local/bin/tmux" ]]; then
+    _pass "mise hook: removed tmux retires the public link"
+  else
+    _fail "mise hook: removed tmux retires the public link"
+  fi
+  if [[ ! -e "$_mise_managed_tmux" && ! -L "$_mise_managed_tmux" ]]; then
+    _pass "mise hook: removed tmux retires the managed link"
+  else
+    _fail "mise hook: removed tmux retires the managed link"
+  fi
+
+  rm -f "$TEST_HOME/.local/bin/tmux"
+  printf '%s\n' 'user-owned tmux' >"$TEST_HOME/.local/bin/tmux"
+  chmod +x "$TEST_HOME/.local/bin/tmux"
+  MISE_TMUX_BIN="$_mise_tmux_one" _run_mise_merge
+  _assert_file_content "mise hook: preserves an explicit user tmux executable" \
+    "user-owned tmux" "$TEST_HOME/.local/bin/tmux"
+
+  _user_tmux="$TEST_HOME/user-tools/tmux"
+  mkdir -p "${_user_tmux%/*}"
+  printf '%s\n' '#!/bin/bash' 'exit 0' >"$_user_tmux"
+  chmod +x "$_user_tmux"
+  rm -f "$TEST_HOME/.local/bin/tmux"
+  ln -s "$_user_tmux" "$TEST_HOME/.local/bin/tmux"
+  MISE_TMUX_BIN="$_mise_tmux_one" _run_mise_merge
+  _assert_eq "mise hook: preserves an explicit user tmux symlink" \
+    "$_user_tmux" "$(readlink "$TEST_HOME/.local/bin/tmux")"
+
+  rm -f "$TEST_HOME/.config/mise/config.toml"
+  MISE_TMUX_BIN="$_mise_tmux_one" _run_mise_merge
+  _assert_eq "mise hook: removed config preserves a user tmux symlink" \
+    "$_user_tmux" "$(readlink "$TEST_HOME/.local/bin/tmux")"
+  printf '%s\n' '[tools]' >"$TEST_HOME/.config/mise/config.toml"
+
   # GitHub Actions token feeds mise when a dedicated mise token is absent.
   rm -f "$TEST_HOME/.mise-env.log" "$TEST_HOME/.mise-calls.log" "$TEST_HOME/.gh-calls.log"
-  GITHUB_TOKEN='token-from-actions' _run_mise_merge
+  MISE_TMUX_BIN="$_mise_tmux_two" GITHUB_TOKEN='token-from-actions' _run_mise_merge
   result=$(cat "$TEST_HOME/.mise-env.log")
   _assert_contains "mise hook: uses GitHub Actions token" "MISE_GITHUB_TOKEN=token-from-actions" "$result"
   if [[ ! -e "$TEST_HOME/.gh-calls.log" ]]; then
@@ -3151,7 +3229,8 @@ GH
 
   # Existing env token wins and also skips gh.
   rm -f "$TEST_HOME/.mise-env.log" "$TEST_HOME/.mise-calls.log" "$TEST_HOME/.gh-calls.log"
-  MISE_GITHUB_TOKEN='token-from-env' GITHUB_TOKEN='token-from-actions' _run_mise_merge
+  MISE_TMUX_BIN="$_mise_tmux_two" MISE_GITHUB_TOKEN='token-from-env' \
+    GITHUB_TOKEN='token-from-actions' _run_mise_merge
   result=$(cat "$TEST_HOME/.mise-env.log")
   _assert_contains "mise hook: keeps existing env token" "MISE_GITHUB_TOKEN=token-from-env" "$result"
   if [[ ! -e "$TEST_HOME/.gh-calls.log" ]]; then
