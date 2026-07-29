@@ -1852,6 +1852,25 @@ result=$(_nvim_lua '
 _assert_eq "sley hook lint: nvim command uses hook CLI" "ok" "$result"
 
 result=$(_nvim_lua '
+  local specs = dofile(vim.fn.expand("~/.config/nvim/lua/plugins/linting.lua"))
+  local events = specs[1].opts.events
+  if not events then
+    print("inherited")
+    return
+  end
+  local enabled = {}
+  for _, event in ipairs(events) do
+    enabled[event] = true
+  end
+  print(#events)
+  print(tostring(enabled.BufReadPost == true))
+  print(tostring(enabled.BufWritePost == true))
+  print(tostring(enabled.InsertLeave == true))
+')
+_assert_eq "sley hook lint: disk-backed lint runs only on file read and write" \
+  "$(printf '2\ntrue\ntrue\nfalse')" "$result"
+
+result=$(_nvim_lua '
   local specs = dofile(vim.fn.expand("~/.config/nvim/lua/plugins/coding.lua"))
   for _, spec in ipairs(specs) do
     if spec[1] == "saghen/blink.cmp" then

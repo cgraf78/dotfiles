@@ -7,6 +7,8 @@ return {
   {
     "mfussenegger/nvim-lint",
     opts = {
+      -- The configured linters read saved files, so InsertLeave repeats stale work.
+      events = { "BufReadPost", "BufWritePost" },
       linters = {
         sley = sley_nvim.nvim_lint_linter({
           condition = function()
