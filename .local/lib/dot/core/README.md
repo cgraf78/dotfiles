@@ -60,6 +60,8 @@ flow.
 `shdeps-ui.sh` adapts shdeps' `SHDEPS_PROGRESS=jsonl` stream into the generic
 dot UI primitives. shdeps owns dependency update behavior and event vocabulary;
 dot owns grouping, summaries, verbose rendering, and live terminal updates.
+Non-fatal warning items retain both their warning count and actionable detail;
+they must not be folded into the current dependency count.
 
 `doctor.sh` is the public doctor source point. It lazily loads the focused
 modules under `doctor/`, which share a small private result API for section
