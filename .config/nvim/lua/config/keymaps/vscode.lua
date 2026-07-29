@@ -22,6 +22,13 @@ map({ "n", "i", "x", "s" }, "<C-z>", "<cmd>undo<cr>", { desc = "Undo" })
 map({ "n", "i", "x", "s" }, "<C-y>", "<cmd>redo<cr>", { desc = "Redo" })
 
 local function save_buffer(resume_insert)
+  local function save_path(path)
+    if vim.fn.isabsolutepath(path) == 1 then
+      return path
+    end
+    return vim.fs.joinpath(vim.fn.expand("~"), path)
+  end
+
   local function finish(use_feedkeys)
     if resume_insert then
       if use_feedkeys then
@@ -38,7 +45,11 @@ local function save_buffer(resume_insert)
   if vim.api.nvim_buf_get_name(0) == "" then
     vim.ui.input({ prompt = "Save as: ", completion = "file" }, function(path)
       if path and path ~= "" then
-        vim.cmd("silent saveas " .. vim.fn.fnameescape(path))
+        vim.cmd({
+          cmd = "saveas",
+          args = { save_path(path) },
+          mods = { silent = true },
+        })
       end
       finish(false)
     end)
