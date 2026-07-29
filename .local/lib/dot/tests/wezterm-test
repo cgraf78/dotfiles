@@ -169,8 +169,10 @@ _assert_contains "ctrl-click mouse down is swallowed before tmux sees it" \
   "action = act.Nop," "$content"
 _assert_contains "shift remains the generic mouse-reporting bypass" \
   'bypass_mouse_reporting_modifiers = "SHIFT",' "$content"
-_assert_contains "wezterm renders the standard terminal bell" \
-  'audible_bell = "SystemBeep",' "$content"
+_assert_contains "wezterm handles the standard terminal bell event" \
+  'wezterm.on("bell"' "$content"
+_assert_contains "wezterm configures bell rendering through platform policy" \
+  "audible_bell = audible_bell," "$content"
 _assert_contains "wezterm delegates open-uri routing to termnav wrapper" \
   'load_config_module("link-routes.lua")' "$content"
 _assert_contains "wezterm key policy reads nvim pane state through termnav" \
@@ -215,6 +217,104 @@ public_copy_home=$(_tmpdir)
 nvim_key_home=$(_tmpdir)
 
 if _wezterm_has_lua_runner; then
+  bell_home=$(_tmpdir)
+  cp "$config" "$bell_home/wezterm.lua"
+  cp "$link_routes" "$bell_home/link-routes.lua"
+  cp "$public_link_rules" "$bell_home/public-link-rules.lua"
+  cp "$termnav_module" "$bell_home/termnav-module.lua"
+  cat >"$bell_home/termnav-link-routes.lua" <<'LUA'
+return {
+  new = function()
+    return {
+      is_nvim = function()
+        return false
+      end,
+      setup = function() end,
+    }
+  end,
+}
+LUA
+  cat >"$bell_home/termnav-public-link-rules.lua" <<'LUA'
+return {
+  add_public_link_rules = function(rules)
+    return rules
+  end,
+}
+LUA
+
+  _wezterm_bell_probe() {
+    local target_triple="$1"
+
+    HOME="$bell_home/missing-home" _wezterm_lua "
+      local handlers = {}
+      local spawned = {}
+      local fake_action = {
+        DisableDefaultAssignment = { action = 'DisableDefaultAssignment' },
+      }
+      setmetatable(fake_action, {
+        __index = function(_, name)
+          return function(value)
+            return { action = name, value = value }
+          end
+        end,
+      })
+      package.preload.wezterm = function()
+        return {
+          action = fake_action,
+          action_callback = function(fn)
+            return fn
+          end,
+          background_child_process = function(command)
+            table.insert(spawned, command)
+          end,
+          config_dir = '$bell_home',
+          default_hyperlink_rules = function()
+            return {}
+          end,
+          font_with_fallback = function(names)
+            return names
+          end,
+          glob = function()
+            return {}
+          end,
+          on = function(name, handler)
+            handlers[name] = handler
+          end,
+          target_triple = '$target_triple',
+        }
+      end
+
+      local config_table = dofile('$bell_home/wezterm.lua')
+      print(config_table.audible_bell)
+      print(type(handlers.bell))
+      if handlers.bell then
+        handlers.bell({}, {})
+      end
+      print(tostring(#spawned))
+      print(spawned[1] and table.concat(spawned[1], '|') or 'none')
+    "
+  }
+
+  macos_bell_result=$(_wezterm_bell_probe x86_64-apple-darwin)
+  _assert_eq "wezterm renders BEL audibly on macOS" \
+    "$(printf 'Disabled\nfunction\n1\nafplay|/System/Library/Sounds/Glass.aiff')" \
+    "$macos_bell_result"
+
+  linux_bell_result=$(_wezterm_bell_probe x86_64-unknown-linux-gnu)
+  _assert_eq "wezterm renders BEL audibly on Linux" \
+    "$(printf 'Disabled\nfunction\n1\npaplay|/usr/share/sounds/freedesktop/stereo/bell.oga')" \
+    "$linux_bell_result"
+
+  windows_bell_result=$(_wezterm_bell_probe x86_64-pc-windows-msvc)
+  _assert_eq "wezterm renders BEL audibly on Windows" \
+    "$(printf 'Disabled\nfunction\n1\npowershell.exe|-NoProfile|-NonInteractive|-Command|[System.Media.SystemSounds]::Asterisk.Play()')" \
+    "$windows_bell_result"
+
+  unknown_bell_result=$(_wezterm_bell_probe unknown-target)
+  _assert_eq "wezterm retains SystemBeep as the unknown-platform fallback" \
+    "$(printf 'SystemBeep\nfunction\n0\nnone')" \
+    "$unknown_bell_result"
+
   cp "$config" "$nvim_key_home/.wezterm.lua"
   cp "$link_routes" "$nvim_key_home/link-routes.lua"
   cp "$public_link_rules" "$nvim_key_home/public-link-rules.lua"
