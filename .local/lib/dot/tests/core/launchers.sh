@@ -537,6 +537,7 @@ EOF
   NVIM_LAUNCHER_CWD="$NVIM_LAUNCHER_HOME/project"
   NVIM_LAUNCHER_XDG_CACHE="$NVIM_LAUNCHER_HOME/xdg-cache"
   NVIM_LAUNCHER_CACHE="$NVIM_LAUNCHER_XDG_CACHE/dot/nvim-real"
+  NVIM_LAUNCHER_PS_LOG="$NVIM_LAUNCHER_HOME/ps.log"
   mkdir -p "$NVIM_LAUNCHER_HOME/.local/share/neovim/neovim/bin" "$NVIM_LAUNCHER_CWD"
 
   cat >"$NVIM_LAUNCHER_HOME/.local/share/neovim/neovim/bin/nvim" <<'MOCK'
@@ -554,7 +555,13 @@ MOCK
 
   cat >"$NVIM_LAUNCHER_BIN/ps" <<'MOCK'
 #!/usr/bin/env bash
+[[ -z "${NVIM_LAUNCHER_PS_LOG:-}" ]] || printf '%s\n' "$*" >>"$NVIM_LAUNCHER_PS_LOG"
 case "$*" in
+  "-ww -o comm= -o args= -p "*)
+    printf '%s %s\n' \
+      "${NVIM_LAUNCHER_PARENT_COMMAND:-zsh}" \
+      "${NVIM_LAUNCHER_PARENT_ARGS:-${NVIM_LAUNCHER_PARENT_COMMAND:--zsh}}"
+    ;;
   "-o comm= -p "*)
     printf '%s\n' "${NVIM_LAUNCHER_PARENT_COMMAND:-zsh}"
     ;;
@@ -568,20 +575,25 @@ esac
 MOCK
   chmod +x "$NVIM_LAUNCHER_BIN/ps"
 
+  : >"$NVIM_LAUNCHER_PS_LOG"
   result=$(
     cd "$NVIM_LAUNCHER_CWD" &&
       HOME="$NVIM_LAUNCHER_HOME" XDG_CACHE_HOME="$NVIM_LAUNCHER_XDG_CACHE" \
         PATH="$NVIM_LAUNCHER_BIN:$PATH" TMUX="/tmp/tmux.sock,1,0" \
-        NVIM_LAUNCHER_ALLOW_NONTTY=1 "$BIN_DIR/nvim" src/app.lua
+        NVIM_LAUNCHER_ALLOW_NONTTY=1 NVIM_LAUNCHER_PS_LOG="$NVIM_LAUNCHER_PS_LOG" \
+        "$BIN_DIR/nvim" src/app.lua
   )
   _assert_eq "nvim launcher: tmux file open reuses existing pane" \
     "open:cli src/app.lua $NVIM_LAUNCHER_CWD" "$result"
   _assert_file_missing "nvim launcher: preferred binary does not create fallback cache" \
     "$NVIM_LAUNCHER_CACHE"
+  _assert_eq "nvim launcher: eligible file open inspects its parent once" \
+    "1" "$(wc -l <"$NVIM_LAUNCHER_PS_LOG" | tr -d ' ')"
 
   mkdir -p "${NVIM_LAUNCHER_CACHE%/*}"
   printf 'fallback-cache-sentinel\n' >"$NVIM_LAUNCHER_CACHE"
 
+  : >"$NVIM_LAUNCHER_PS_LOG"
   result=$(
     cd "$NVIM_LAUNCHER_CWD" &&
       HOME="$NVIM_LAUNCHER_HOME" XDG_CACHE_HOME="$NVIM_LAUNCHER_XDG_CACHE" \
@@ -597,9 +609,12 @@ MOCK
     cd "$NVIM_LAUNCHER_CWD" &&
       HOME="$NVIM_LAUNCHER_HOME" XDG_CACHE_HOME="$NVIM_LAUNCHER_XDG_CACHE" \
         PATH="$NVIM_LAUNCHER_BIN:$PATH" TMUX="/tmp/tmux.sock,1,0" \
-        NVIM_LAUNCHER_ALLOW_NONTTY=1 "$BIN_DIR/nvim" --headless src/app.lua
+        NVIM_LAUNCHER_ALLOW_NONTTY=1 NVIM_LAUNCHER_PS_LOG="$NVIM_LAUNCHER_PS_LOG" \
+        "$BIN_DIR/nvim" --headless src/app.lua
   )
   _assert_eq "nvim launcher: flags bypass pane reuse" "real:--headless src/app.lua" "$result"
+  _assert_file_content "nvim launcher: ineligible arguments skip parent inspection" \
+    "" "$NVIM_LAUNCHER_PS_LOG"
 
   result=$(
     cd "$NVIM_LAUNCHER_CWD" &&

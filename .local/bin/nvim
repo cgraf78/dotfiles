@@ -48,13 +48,15 @@ _real_nvim() {
 }
 
 _parent_is_interactive_shell() {
-  local arg args first parent
+  local arg args first parent parent_info
   local -a argv
 
   # Reusing an existing pane is only safe for a command the user typed at an
   # interactive prompt. Tools that use $EDITOR, plus shell scripts and `sh -c`,
   # need this process to block until the real editor exits.
-  parent=$(ps -o comm= -p "$PPID" 2>/dev/null) || return 1
+  parent_info=$(ps -ww -o comm= -o args= -p "$PPID" 2>/dev/null) || return 1
+  read -r parent args <<<"$parent_info"
+  [[ -n "$parent" ]] || return 1
   parent="${parent##*/}"
   parent="${parent#-}"
 
@@ -66,7 +68,6 @@ _parent_is_interactive_shell() {
       ;;
   esac
 
-  args=$(ps -o args= -p "$PPID" 2>/dev/null || true)
   [[ -n "$args" ]] || return 0
 
   read -r -a argv <<<"$args"
@@ -96,7 +97,6 @@ _should_reuse_nvim_pane() {
   [[ "${NVIM_LAUNCHER_FORCE_NEW:-0}" != "1" ]] || return 1
   [[ -n "${TMUX:-}" ]] || return 1
   [[ -t 0 || "${NVIM_LAUNCHER_ALLOW_NONTTY:-0}" == "1" ]] || return 1
-  [[ "${NVIM_LAUNCHER_ALLOW_NONSHELL_PARENT:-0}" == "1" ]] || _parent_is_interactive_shell || return 1
   [[ "$#" -eq 1 ]] || return 1
 
   case "$1" in
@@ -106,6 +106,7 @@ _should_reuse_nvim_pane() {
   esac
 
   command -v nvim-tmux-open >/dev/null 2>&1 || return 1
+  [[ "${NVIM_LAUNCHER_ALLOW_NONSHELL_PARENT:-0}" == "1" ]] || _parent_is_interactive_shell || return 1
   return 0
 }
 
