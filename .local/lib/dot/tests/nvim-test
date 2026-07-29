@@ -592,6 +592,35 @@ result=$(_nvim_vscode_keys "
 expected="$(printf 'Save as: |file\n%s\nnew buffer' "$NVIM_CTRL_S_UNNAMED_FILE")"
 _assert_eq_realpath_lines "save: Ctrl-S prompts and saves an unnamed buffer" "$expected" "$result"
 
+NVIM_CTRL_S_RELATIVE_NAME="foobar2"
+result=$(_nvim_vscode_keys "
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, {'home-relative'})
+  vim.ui.input = function(_, callback)
+    callback('$NVIM_CTRL_S_RELATIVE_NAME')
+  end
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes('<C-s>', true, false, true), 'xt', false)
+  local path = vim.fs.joinpath(vim.fn.expand('~'), '$NVIM_CTRL_S_RELATIVE_NAME')
+  print(vim.api.nvim_buf_get_name(0))
+  print(table.concat(vim.fn.readfile(path), '|'))
+  vim.fn.delete(path)
+")
+expected="$(printf '%s/%s\nhome-relative' "$HOME" "$NVIM_CTRL_S_RELATIVE_NAME")"
+_assert_eq_realpath_lines "save: relative filename resolves under HOME" "$expected" "$result"
+
+NVIM_CTRL_S_ABSOLUTE_TMP=$(_tmpdir)
+NVIM_CTRL_S_ABSOLUTE_FILE="$NVIM_CTRL_S_ABSOLUTE_TMP/absolute path.txt"
+result=$(_nvim_vscode_keys "
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, {'absolute'})
+  vim.ui.input = function(_, callback)
+    callback('$NVIM_CTRL_S_ABSOLUTE_FILE')
+  end
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes('<C-s>', true, false, true), 'xt', false)
+  print(vim.api.nvim_buf_get_name(0))
+  print(table.concat(vim.fn.readfile('$NVIM_CTRL_S_ABSOLUTE_FILE'), '|'))
+")
+expected="$(printf '%s\nabsolute' "$NVIM_CTRL_S_ABSOLUTE_FILE")"
+_assert_eq_realpath_lines "save: absolute filename is preserved" "$expected" "$result"
+
 result=$(_nvim_vscode_keys '
   vim.api.nvim_buf_set_lines(0, 0, -1, false, {"cancelled"})
   vim.ui.input = function(_, callback)

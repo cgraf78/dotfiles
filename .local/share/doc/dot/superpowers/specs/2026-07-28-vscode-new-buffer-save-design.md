@@ -16,6 +16,8 @@ plugin.
 - Make `Ctrl-S` save named buffers with the existing write behavior.
 - Make `Ctrl-S` on an unnamed buffer prompt for a filename with file
   completion and associate the buffer with the selected path.
+- Resolve relative save names under `$HOME`, while preserving supplied absolute
+  paths.
 - Preserve the editing mode after saving from insert mode.
 - Treat cancellation and an empty filename as a no-op.
 - Keep all implementation in `vscode.lua`, as requested; a future refactor of
@@ -42,9 +44,11 @@ Add a small local save helper beside the existing Save mappings in
    API rather than parsing status text.
 3. Named buffers run `:write` as before.
 4. Unnamed buffers call `vim.ui.input` with a `file` completion mode. A
-   non-empty response is escaped with `vim.fn.fnameescape` and passed to
+   non-empty relative response is joined to `$HOME`; an absolute response is
+   preserved. The resulting path is passed as a structured argument to
    `:saveas`, which both writes the file and assigns its name to the buffer.
-   Cancelled or empty input returns without changing the buffer.
+   Cancelled or empty input returns without changing the buffer. Structured
+   command arguments avoid treating user-entered filenames as Ex command text.
 5. Normal, visual, and select mode mappings call the helper directly. The
    insert-mode mapping exits insert mode, calls the same helper, and re-enters
    insert mode after either the synchronous named-buffer write or the
