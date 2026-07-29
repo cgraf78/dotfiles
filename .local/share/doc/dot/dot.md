@@ -137,6 +137,11 @@ because overlay order controls which file wins when overlays overlap.
 shdeps owns its own self-update policy; dot only ensures shdeps is available and
 then invokes the configured dependency update pass.
 
+Dependency warnings remain non-fatal, but `dot update` shows their count and
+the affected dependency details. For example, a user-owned local checkout that
+cannot fast-forward stays untouched and usable while the update reports that it
+may be serving stale code.
+
 If a pull updates dot infrastructure such as `.local/lib/dot/` or
 `.local/bin/dot`, the command re-execs itself so the remainder of the update
 uses the new code.

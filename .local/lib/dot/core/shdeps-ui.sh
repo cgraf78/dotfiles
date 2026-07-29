@@ -30,9 +30,10 @@ _shdeps_group_label() {
 _SHDEPS_KNOWN_GROUPS=(packages github-releases github-repos cargo go uv npm custom other)
 
 _shdeps_summary_text() {
-  local changed="$1" current="$2" skipped="$3" failed="$4"
+  local changed="$1" current="$2" skipped="$3" failed="$4" warnings="${5:-0}"
   local -a parts=()
   [[ "$failed" -gt 0 ]] && parts+=("$failed failed")
+  [[ "$warnings" -gt 0 ]] && parts+=("$warnings warning")
   [[ "$changed" -gt 0 ]] && parts+=("$changed changed")
   [[ "$current" -gt 0 || "${#parts[@]}" -eq 0 ]] && parts+=("$current current")
   [[ "$skipped" -gt 0 ]] && parts+=("$skipped skipped")
@@ -73,12 +74,12 @@ _shdeps_record_item() {
 }
 
 _shdeps_record_group_summary() {
-  local group="$1" label="$2" status="$3" changed="$4" current="$5" skipped="$6" failed="$7" elapsed_ms="$8"
+  local group="$1" label="$2" status="$3" changed="$4" current="$5" skipped="$6" failed="$7" elapsed_ms="$8" warnings="${9:-0}"
   _shdeps_remember_group "$group"
   [[ -n "$label" ]] || label=$(_shdeps_group_label "$group")
   DOT_UI_SHDEPS_GROUP_LABELS["$group"]="$label"
   local detail
-  detail="${label}: $(_shdeps_summary_text "${changed:-0}" "${current:-0}" "${skipped:-0}" "${failed:-0}")"
+  detail="${label}: $(_shdeps_summary_text "${changed:-0}" "${current:-0}" "${skipped:-0}" "${failed:-0}" "${warnings:-0}")"
   DOT_UI_SHDEPS_GROUP_SUMMARIES["$group"]="${status}"$'\t'"${detail}"$'\t'"${elapsed_ms:-0}"
 }
 
@@ -146,6 +147,7 @@ _shdeps_print_group_summaries() {
       # Failed rows are the ones a user must act on; anonymous failure counts
       # made real incidents (rate-limited GitHub fetches) opaque.
       [[ "$status" == "failed" ]] && _shdeps_print_group_items_with_status "$group" failed
+      [[ "$status" == "warning" ]] && _shdeps_print_group_items_with_status "$group" warning
       continue
     fi
     case "$status" in
@@ -159,13 +161,14 @@ _shdeps_print_group_summaries() {
     rendered_elapsed=$(_ui_duration_ms "$elapsed_ms")
     _ui_stage_note "$status" "$detail, $rendered_elapsed"
     [[ "$status" == "failed" ]] && _shdeps_print_group_items_with_status "$group" failed
+    [[ "$status" == "warning" ]] && _shdeps_print_group_items_with_status "$group" warning
   done
   return 0
 }
 
 _handle_shdeps_event() {
   local line="$1"
-  local event group label status detail done_count total name changed current skipped failed elapsed_ms
+  local event group label status detail done_count total name changed warnings current skipped failed elapsed_ms
   event=$(_json_get event "$line")
   case "$event" in
     prompt)
@@ -196,24 +199,26 @@ _handle_shdeps_event() {
       label=$(_json_get label "$line")
       status=$(_json_get status "$line")
       changed=$(_json_num changed "$line")
+      warnings=$(_json_num warnings "$line")
       current=$(_json_num current "$line")
       skipped=$(_json_num skipped "$line")
       failed=$(_json_num failed "$line")
       elapsed_ms=$(_json_num elapsed_ms "$line")
       _shdeps_record_group_summary "$group" "$label" "$status" \
-        "${changed:-0}" "${current:-0}" "${skipped:-0}" "${failed:-0}" "${elapsed_ms:-0}"
+        "${changed:-0}" "${current:-0}" "${skipped:-0}" "${failed:-0}" "${elapsed_ms:-0}" "${warnings:-0}"
       ;;
     summary)
       _shdeps_prompt_resume
       status=$(_json_get status "$line")
       changed=$(_json_num changed "$line")
+      warnings=$(_json_num warnings "$line")
       current=$(_json_num current "$line")
       skipped=$(_json_num skipped "$line")
       failed=$(_json_num failed "$line")
       # shellcheck disable=SC2034  # consumed by update.sh after shdeps exits.
       DOT_UI_SHDEPS_STATUS="$status"
       # shellcheck disable=SC2034  # consumed by update.sh after shdeps exits.
-      DOT_UI_SHDEPS_SUMMARY=$(_shdeps_summary_text "${changed:-0}" "${current:-0}" "${skipped:-0}" "${failed:-0}")
+      DOT_UI_SHDEPS_SUMMARY=$(_shdeps_summary_text "${changed:-0}" "${current:-0}" "${skipped:-0}" "${failed:-0}" "${warnings:-0}")
       ;;
     warning | detail | hint)
       _shdeps_prompt_resume

@@ -242,6 +242,20 @@ MOCK
   _assert_contains "shdeps UI: failed items carry their detail" \
     "GitHub API rate limit exceeded" "$result"
 
+  _shdeps_ui_reset
+  _handle_shdeps_event '{"event":"item","group":"github-repos","status":"warning","name":"cgraf78/cmdblocks","detail":"pull failed (no fast-forward; local clone)"}'
+  _handle_shdeps_event '{"event":"group_summary","group":"github-repos","label":"GitHub","status":"warning","changed":0,"warnings":1,"current":4,"skipped":0,"failed":0,"elapsed_ms":900}'
+  _handle_shdeps_event '{"event":"summary","status":"warning","changed":0,"warnings":1,"current":4,"skipped":0,"failed":0}'
+  result=$(_shdeps_print_group_summaries)
+  _assert_contains "shdeps UI: warning summaries retain the warning count" \
+    "GitHub: 1 warning, 4 current" "$result"
+  _assert_contains "shdeps UI: warning summaries name the affected dependency" \
+    "warning  cgraf78/cmdblocks" "$result"
+  _assert_contains "shdeps UI: warning items retain their actionable detail" \
+    "pull failed (no fast-forward; local clone)" "$result"
+  _assert_eq "shdeps UI: aggregate warning summary retains the warning count" \
+    "1 warning, 4 current" "$DOT_UI_SHDEPS_SUMMARY"
+
   DOT_UPDATE_SUBPHASE_THRESHOLD_MS=1000
   _shdeps_ui_reset
   _shdeps_record_group_summary github-releases "GitHub" failed 0 15 0 1 2000
