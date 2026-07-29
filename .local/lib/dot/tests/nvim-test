@@ -565,6 +565,72 @@ result=$(_nvim_vscode_keys "
 expected="$(printf 'Xabc\nabc')"
 _assert_eq "save: insert Ctrl-S saves and keeps accepting typed text" "$expected" "$result"
 
+result=$(_nvim_vscode_keys '
+  local window = vim.api.nvim_get_current_win()
+  vim.api.nvim_buf_set_name(0, "existing.txt")
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-n>", true, false, true), "xt", false)
+  print(table.concat({
+    tostring(vim.api.nvim_get_current_win() == window),
+    vim.api.nvim_buf_get_name(0),
+    tostring(vim.bo.buflisted),
+  }, "|"))
+')
+_assert_eq "new buffer: Ctrl-N uses the current window" "true||true" "$result"
+
+NVIM_CTRL_S_UNNAMED_TMP=$(_tmpdir)
+NVIM_CTRL_S_UNNAMED_FILE="$NVIM_CTRL_S_UNNAMED_TMP/new.txt"
+result=$(_nvim_vscode_keys "
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, {'new buffer'})
+  vim.ui.input = function(opts, callback)
+    print(opts.prompt .. '|' .. tostring(opts.completion))
+    callback('$NVIM_CTRL_S_UNNAMED_FILE')
+  end
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes('<C-s>', true, false, true), 'xt', false)
+  print(vim.api.nvim_buf_get_name(0))
+  print(table.concat(vim.fn.readfile('$NVIM_CTRL_S_UNNAMED_FILE'), '|'))
+")
+expected="$(printf 'Save as: |file\n%s\nnew buffer' "$NVIM_CTRL_S_UNNAMED_FILE")"
+_assert_eq "save: Ctrl-S prompts and saves an unnamed buffer" "$expected" "$result"
+
+result=$(_nvim_vscode_keys '
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, {"cancelled"})
+  vim.ui.input = function(_, callback)
+    callback(nil)
+  end
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-s>", true, false, true), "xt", false)
+  print(vim.api.nvim_buf_get_name(0) .. "|" .. vim.api.nvim_get_current_line())
+')
+_assert_eq "save: cancelled unnamed-buffer prompt is a no-op" "|cancelled" "$result"
+
+result=$(_nvim_vscode_keys '
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, {"empty"})
+  vim.ui.input = function(_, callback)
+    callback("")
+  end
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-s>", true, false, true), "xt", false)
+  print(vim.api.nvim_buf_get_name(0) .. "|" .. vim.api.nvim_get_current_line())
+')
+_assert_eq "save: empty unnamed-buffer filename is a no-op" "|empty" "$result"
+
+NVIM_CTRL_S_UNNAMED_INSERT_TMP=$(_tmpdir)
+NVIM_CTRL_S_UNNAMED_INSERT_FILE="$NVIM_CTRL_S_UNNAMED_INSERT_TMP/new.txt"
+result=$(_nvim_vscode_keys "
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, {'abc'})
+  vim.ui.input = function(_, callback)
+    vim.schedule(function()
+      callback('$NVIM_CTRL_S_UNNAMED_INSERT_FILE')
+    end)
+  end
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes('i<C-s>', true, false, true), 'xt', false)
+  vim.wait(100, function()
+    return vim.fn.filereadable('$NVIM_CTRL_S_UNNAMED_INSERT_FILE') == 1
+  end)
+  print(vim.api.nvim_buf_get_name(0))
+  print(table.concat(vim.fn.readfile('$NVIM_CTRL_S_UNNAMED_INSERT_FILE'), '|'))
+")
+expected="$(printf '%s\nabc' "$NVIM_CTRL_S_UNNAMED_INSERT_FILE")"
+_assert_eq "save: insert Ctrl-S prompts and saves an unnamed buffer" "$expected" "$result"
+
 result=$(_nvim_lua '
   package.loaded["grug-far"] = {
     open = function(opts)

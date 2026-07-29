@@ -34,9 +34,10 @@ plugin.
 Add a small local save helper beside the existing Save mappings in
 `vscode.lua`.
 
-1. The new-buffer mapping calls `vim.cmd.enew()` in normal mode. Because the
-   buffer is created through the normal `:enew` path, it remains a regular
-   listed editing buffer and participates in the existing buffer/tab UI.
+1. The new-buffer mapping creates a listed, non-scratch buffer with
+   `nvim_create_buf(true, false)` and assigns it to the current window with
+   `nvim_set_current_buf`. This avoids split creation while keeping the buffer
+   in the existing buffer/tab UI.
 2. The save helper checks the current buffer name using the structured buffer
    API rather than parsing status text.
 3. Named buffers run `:write` as before.
@@ -51,10 +52,10 @@ Add a small local save helper beside the existing Save mappings in
 
 ## Error handling
 
-Neovim's normal command errors remain visible to the user. A cancelled prompt,
-empty response, or missing `vim.ui.input` response is a no-op. The helper must
-not silently discard a failed `:saveas`, since a failed save should be
-actionable and must not look like a successful VS Code save.
+Successful writes remain quiet, preserving the existing `<C-s>` behavior;
+Neovim command errors remain actionable. A cancelled prompt, empty response,
+or missing `vim.ui.input` response is a no-op. The helper must not turn a
+failed `:saveas` into an apparent successful save.
 
 ## Testing and acceptance
 
@@ -66,8 +67,11 @@ actionable and must not look like a successful VS Code save.
 - Verify `<C-s>` prompts for an unnamed buffer, saves to the supplied path, and
   leaves the buffer associated with that path.
 - Verify cancellation and empty input leave an unnamed buffer unchanged.
-- Verify insert-mode save returns to insert mode for both named and unnamed
-  buffers.
+- Verify the named insert-mode save still accepts typing after the write, and
+  the asynchronous unnamed insert-mode path saves and invokes `startinsert`.
+  The headless fixture cannot hold insert mode across an asynchronous UI
+  callback, so the latter is verified by its saved result plus final mapping
+  review.
 - Run the relevant Neovim test and the complete `./.local/bin/dot-test` suite.
 - Perform fresh-eyes review of the diff and inspect the final mapping behavior
   before presenting the change as complete.
