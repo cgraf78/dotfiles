@@ -566,16 +566,49 @@ expected="$(printf 'Xabc\nabc')"
 _assert_eq "save: insert Ctrl-S saves and keeps accepting typed text" "$expected" "$result"
 
 result=$(_nvim_vscode_keys '
-  local window = vim.api.nvim_get_current_win()
-  vim.api.nvim_buf_set_name(0, "existing.txt")
+  local initial = vim.api.nvim_get_current_buf()
   vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-n>", true, false, true), "xt", false)
   print(table.concat({
-    tostring(vim.api.nvim_get_current_win() == window),
+    tostring(vim.api.nvim_get_current_buf() == initial),
     vim.api.nvim_buf_get_name(0),
     tostring(vim.bo.buflisted),
   }, "|"))
 ')
-_assert_eq "new buffer: Ctrl-N uses the current window" "true||true" "$result"
+_assert_eq "new buffer: Ctrl-N reuses a pristine unnamed buffer" "true||true" "$result"
+
+result=$(_nvim_vscode_keys '
+  local initial = vim.api.nvim_get_current_buf()
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, {"keep this text"})
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-n>", true, false, true), "xt", false)
+  print(table.concat({
+    tostring(vim.api.nvim_get_current_buf() ~= initial),
+    vim.api.nvim_buf_get_name(initial),
+    vim.api.nvim_buf_get_lines(initial, 0, -1, false)[1],
+    tostring(vim.bo.buflisted),
+  }, "|"))
+')
+_assert_eq "new buffer: Ctrl-N preserves a populated unnamed buffer" "true||keep this text|true" "$result"
+
+NVIM_CTRL_S_NEW_BUFFER_TMP=$(_tmpdir)
+NVIM_CTRL_S_NEW_BUFFER_FILE="$NVIM_CTRL_S_NEW_BUFFER_TMP/new-buffer.txt"
+result=$(_nvim_vscode_keys "
+  vim.ui.input = function(_, callback)
+    callback('$NVIM_CTRL_S_NEW_BUFFER_FILE')
+  end
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes('<C-n>', true, false, true), 'xt', false)
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, {'saved new buffer'})
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes('<C-s>', true, false, true), 'xt', false)
+  local unnamed = 0
+  for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
+    if vim.bo[bufnr].buflisted and vim.api.nvim_buf_get_name(bufnr) == '' then
+      unnamed = unnamed + 1
+    end
+  end
+  print(vim.api.nvim_buf_get_name(0))
+  print(unnamed)
+")
+expected="$(printf '%s\n0' "$NVIM_CTRL_S_NEW_BUFFER_FILE")"
+_assert_eq_realpath_lines "save: Ctrl-N then Ctrl-S leaves no unnamed buffer" "$expected" "$result"
 
 NVIM_CTRL_S_UNNAMED_TMP=$(_tmpdir)
 NVIM_CTRL_S_UNNAMED_FILE="$NVIM_CTRL_S_UNNAMED_TMP/new.txt"

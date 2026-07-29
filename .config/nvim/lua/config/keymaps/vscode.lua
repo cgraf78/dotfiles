@@ -45,11 +45,13 @@ local function save_buffer(resume_insert)
   if vim.api.nvim_buf_get_name(0) == "" then
     vim.ui.input({ prompt = "Save as: ", completion = "file" }, function(path)
       if path and path ~= "" then
+        local target = save_path(path)
         vim.cmd({
-          cmd = "saveas",
-          args = { save_path(path) },
+          cmd = "write",
+          args = { target },
           mods = { silent = true },
         })
+        vim.api.nvim_buf_set_name(0, target)
       end
       finish(false)
     end)
@@ -62,6 +64,17 @@ end
 
 -- Save
 map("n", "<C-n>", function()
+  local current_is_pristine = vim.api.nvim_buf_get_name(0) == ""
+    and vim.bo.buftype == ""
+    and vim.bo.buflisted
+    and not vim.bo.modified
+    and vim.api.nvim_buf_line_count(0) == 1
+    and vim.api.nvim_buf_get_lines(0, 0, 1, false)[1] == ""
+
+  if current_is_pristine then
+    return
+  end
+
   local buffer = vim.api.nvim_create_buf(true, false)
   vim.api.nvim_set_current_buf(buffer)
 end, { desc = "New buffer" })
