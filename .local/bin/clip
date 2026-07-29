@@ -3,7 +3,9 @@
 #
 # Usage:
 #   clip save              snapshot current clipboard to history
-#   clip copy [< input]    copy stdin to clipboard + history
+#   clip copy [< input]    copy stdin to a host clipboard + history
+#   clip capture [< input] copy when possible, always save to history
+#   clip paste             print the current host clipboard
 #   clip list              show recent entries
 #   clip pick              fzf picker, outputs selection to stdout
 #   clip clear             clear history
@@ -21,13 +23,15 @@ CLIP_DIR="$REPLY"
 unset _dot_clip_dir
 CLIP_MAX=200
 
-# Resolve the clipboard copy/paste tool into an array so callers can invoke it
-# directly without eval-ing a command string. Leaves the array empty when no
-# clipboard tool is installed.
+# Prefer the native backend for the active display. A binary installed on a
+# remote or headless host is not enough: selecting it without its display
+# socket turns a valid tmux OSC 52 copy into a noisy backend failure.
 _clip_cmd() {
   if command -v pbcopy >/dev/null 2>&1; then
     CLIP_CMD=(pbcopy)
-  elif command -v xclip >/dev/null 2>&1; then
+  elif [[ -n "${WAYLAND_DISPLAY:-}" ]] && command -v wl-copy >/dev/null 2>&1; then
+    CLIP_CMD=(wl-copy)
+  elif [[ -n "${DISPLAY:-}" ]] && command -v xclip >/dev/null 2>&1; then
     CLIP_CMD=(xclip -selection clipboard)
   else
     CLIP_CMD=()
@@ -37,7 +41,9 @@ _clip_cmd() {
 _paste_cmd() {
   if command -v pbpaste >/dev/null 2>&1; then
     PASTE_CMD=(pbpaste)
-  elif command -v xclip >/dev/null 2>&1; then
+  elif [[ -n "${WAYLAND_DISPLAY:-}" ]] && command -v wl-paste >/dev/null 2>&1; then
+    PASTE_CMD=(wl-paste --no-newline)
+  elif [[ -n "${DISPLAY:-}" ]] && command -v xclip >/dev/null 2>&1; then
     PASTE_CMD=(xclip -o -selection clipboard)
   else
     PASTE_CMD=()
@@ -53,6 +59,13 @@ _prune() {
   fi
 }
 
+_record() {
+  local content="$1"
+  mkdir -p "$CLIP_DIR"
+  printf '%s' "$content" >"$CLIP_DIR/$(date +%Y%m%d-%H%M%S)-$$"
+  _prune
+}
+
 clip_save() {
   local -a PASTE_CMD
   _paste_cmd
@@ -61,13 +74,10 @@ clip_save() {
     return 1
   }
 
-  mkdir -p "$CLIP_DIR"
   local content
   content=$("${PASTE_CMD[@]}") || return
   [[ -n "$content" ]] || return 0
-
-  printf '%s' "$content" >"$CLIP_DIR/$(date +%Y%m%d-%H%M%S)-$$"
-  _prune
+  _record "$content"
 }
 
 clip_copy() {
@@ -78,12 +88,36 @@ clip_copy() {
     return 1
   }
 
-  mkdir -p "$CLIP_DIR"
   local content
   content=$(cat)
   printf '%s' "$content" | "${CLIP_CMD[@]}"
-  printf '%s' "$content" >"$CLIP_DIR/$(date +%Y%m%d-%H%M%S)-$$"
-  _prune
+  _record "$content"
+}
+
+# tmux publishes the selection to capable terminals with OSC 52. Capture keeps
+# history and mirrors to a native host backend when one exists, but a remote
+# host without clipboard utilities is still a successful copy operation.
+clip_capture() {
+  local -a CLIP_CMD
+  local content
+  _clip_cmd
+  content=$(cat)
+  _record "$content"
+  if [[ ${#CLIP_CMD[@]} -gt 0 ]]; then
+    if ! printf '%s' "$content" | "${CLIP_CMD[@]}"; then
+      echo "warning: host clipboard copy failed; selection remains in clip history" >&2
+    fi
+  fi
+}
+
+clip_paste() {
+  local -a PASTE_CMD
+  _paste_cmd
+  [[ ${#PASTE_CMD[@]} -gt 0 ]] || {
+    echo "error: no clipboard tool found" >&2
+    return 1
+  }
+  "${PASTE_CMD[@]}"
 }
 
 clip_list() {
@@ -135,14 +169,18 @@ clip_clear() {
 case "${1:-}" in
   save) clip_save ;;
   copy) clip_copy ;;
+  capture) clip_capture ;;
+  paste) clip_paste ;;
   list) clip_list ;;
   pick) clip_pick ;;
   clear) clip_clear ;;
   *)
     cat >&2 <<'USAGE'
-usage: clip {save|copy|list|pick|clear}
+usage: clip {save|copy|capture|paste|list|pick|clear}
   save   snapshot current clipboard to history
   copy   copy stdin to clipboard + history
+  capture copy stdin when possible, always save to history
+  paste  print the current host clipboard
   list   show recent entries
   pick   fzf picker, outputs selection to stdout
   clear  clear history

@@ -95,8 +95,10 @@
     "command": "-workbench.action.toggleSidebarVisibility"
   },
 
-  // Terminal passthrough: Karabiner remaps Ctrl+key -> Cmd+key,
-  // so we catch Cmd+key in the terminal and send the raw Ctrl character.
+  // Karabiner owns Windows-style physical remapping and translates Ctrl+key
+  // to Cmd+key. VS Code only resolves terminal context that Karabiner cannot
+  // see: most chords send raw Ctrl characters, while clipboard chords stay
+  // with the local client.
   {
     "key": "cmd+b",
     "command": "workbench.action.terminal.sendSequence",
@@ -108,6 +110,11 @@
     "command": "workbench.action.terminal.sendSequence",
     "args": { "text": "\u0001" },
     "when": "terminalFocus"
+  },
+  {
+    "key": "cmd+c",
+    "command": "workbench.action.terminal.copySelection",
+    "when": "terminalFocus && terminalTextSelected"
   },
   {
     "key": "cmd+c",
@@ -137,6 +144,11 @@
     "key": "cmd+u",
     "command": "workbench.action.terminal.sendSequence",
     "args": { "text": "\u0015" },
+    "when": "terminalFocus"
+  },
+  {
+    "key": "cmd+v",
+    "command": "workbench.action.terminal.paste",
     "when": "terminalFocus"
   },
   {

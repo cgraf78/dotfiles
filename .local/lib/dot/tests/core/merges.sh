@@ -279,6 +279,35 @@ JSON
     )
     _assert_eq "karabiner: Windows Home/End rules exempt VS Code apps" \
       "8" "$karabiner_home_end_vscode_exemptions"
+
+    karabiner_clipboard_vscode_mappings=$(
+      jq -r '
+        def vscode_bundle_ids:
+          [
+            "^com\\.facebook\\.fbvscode$",
+            "^com\\.facebook\\.fbvscode-insiders$",
+            "^com\\.microsoft\\.VSCode$",
+            "^com\\.vscodium$"
+          ];
+
+        [
+          .profiles[]
+          | select(.name == "Windows (Dotfiles)")
+          | .complex_modifications.rules[]
+          | select(.description as $desc | ["C (Ctrl)", "V (Ctrl)"] | index($desc))
+          | .manipulators[]
+          | select(.from.modifiers.mandatory == ["control"])
+          | select(.to[0].modifiers == ["command"])
+          | select(.to[0].key_code == .from.key_code)
+          | .conditions[]
+          | select(.type == "frontmost_application_unless")
+          | .bundle_identifiers as $bundles
+          | select(vscode_bundle_ids | all(. as $bundle | $bundles | index($bundle) | not))
+        ] | length
+      ' "$karabiner_src"
+    )
+    _assert_eq "karabiner: Windows profile owns VS Code Ctrl+C/V to Cmd+C/V remapping" \
+      "2" "$karabiner_clipboard_vscode_mappings"
   else
     echo "  SKIP: Karabiner source assertions (jq unavailable)"
   fi
@@ -629,6 +658,35 @@ EOF
       _assert_contains "vscode mac editor: Ctrl+Shift+Down extends selection down" \
         "$ctrl_shift_down_expected" \
         "$keybindings"
+    }
+
+    _assert_vscode_macos_karabiner_terminal_keybindings() {
+      local keybindings_file="$1"
+
+      _assert_eq "vscode mac terminal: Cmd+V pastes after Karabiner translates Ctrl+V" \
+        "1" \
+        "$(jq '[.[] | select(.key == "cmd+v" and .command == "workbench.action.terminal.paste" and .when == "terminalFocus")] | length' "$keybindings_file")"
+      _assert_eq "vscode mac terminal: Cmd+C copies a Karabiner-translated selection" \
+        "1" \
+        "$(jq '[.[] | select(.key == "cmd+c" and .command == "workbench.action.terminal.copySelection" and .when == "terminalFocus && terminalTextSelected")] | length' "$keybindings_file")"
+      _assert_eq "vscode mac terminal: Cmd+C interrupts when no text is selected" \
+        "1" \
+        "$(jq '[.[] | select(.key == "cmd+c" and .command == "workbench.action.terminal.sendSequence" and .when == "terminalFocus && !terminalTextSelected" and .args.text == "\u0003")] | length' "$keybindings_file")"
+    }
+
+    _assert_vscode_terminal_clipboard_keybindings() {
+      local keybindings_file="$1"
+      local platform="$2"
+
+      _assert_eq "vscode $platform terminal: Ctrl+C copies only selected text" \
+        "1" \
+        "$(jq '[.[] | select(.key == "ctrl+c" and .command == "workbench.action.terminal.copySelection" and .when == "terminalFocus && terminalTextSelected")] | length' "$keybindings_file")"
+      _assert_eq "vscode $platform terminal: Ctrl+C keeps interrupt behavior without a selection" \
+        "1" \
+        "$(jq '[.[] | select(.key == "ctrl+c")] | length' "$keybindings_file")"
+      _assert_eq "vscode $platform terminal: Ctrl+V pastes from the client clipboard" \
+        "1" \
+        "$(jq '[.[] | select(.key == "ctrl+v" and .command == "workbench.action.terminal.paste" and .when == "terminalFocus")] | length' "$keybindings_file")"
     }
 
     vscode_home=$(_tmpdir)
@@ -1278,6 +1336,7 @@ PY
     _assert_eq "vscode terminal: Alt-Shift-] sends tmux/nvim tab-move escape" \
       "1" \
       "$(jq '[.[] | select(.key == "alt+shift+]" and .command == "workbench.action.terminal.sendSequence" and .when == "terminalFocus" and .args.text == "\u001b}")] | length' "$vscode_keybindings_file")"
+    _assert_vscode_terminal_clipboard_keybindings "$vscode_keybindings_file" "linux"
     vscode_extensions=$(jq -c . "$vscode_home/.vscode/extensions/extensions.json")
     _assert_contains "vscode sley: extension registered" \
       '"id":"cgraf.sley-tools"' "$vscode_extensions"
@@ -1327,6 +1386,8 @@ PY
       merge
     '
     _assert_vscode_macos_ctrl_arrow_keybindings "$vscode_mac_keybindings"
+    _assert_vscode_macos_karabiner_terminal_keybindings "$vscode_mac_keybindings"
+    _assert_vscode_terminal_clipboard_keybindings "$vscode_mac_keybindings" "macOS"
 
     rm -rf "$vscode_home/.config/Code/User"
 
@@ -1478,6 +1539,8 @@ JSON
       "$win_code_user/settings.json" "$vscode_mv_ops"
     _assert_not_contains "vscode wsl: Windows keybindings replacement avoids forced mv" \
       "$win_code_user/keybindings.json" "$vscode_mv_ops"
+    _assert_vscode_terminal_clipboard_keybindings \
+      "$win_code_user/keybindings.json" "Windows"
 
     # Regression: on a machine where a second Linux account (e.g. root) also
     # runs `dot update`, both accounts previously resolved the same native

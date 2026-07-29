@@ -41,6 +41,20 @@
     "command": "-workbench.action.terminal.new",
     "when": "terminalProcessSupported || terminalWebExtensionContributedProfile"
   },
+  // The VS Code client owns its clipboard even when the pty is remote. Keep
+  // Ctrl+C as the terminal interrupt unless xterm.js has an actual selection;
+  // tmux copy-mode selections are not xterm.js selections and still receive
+  // the key for tmux's OSC 52 path.
+  {
+    "key": "ctrl+c",
+    "command": "workbench.action.terminal.copySelection",
+    "when": "terminalFocus && terminalTextSelected"
+  },
+  {
+    "key": "ctrl+v",
+    "command": "workbench.action.terminal.paste",
+    "when": "terminalFocus"
+  },
 
   // Diff stuff
   {
