@@ -29,26 +29,29 @@ plugin.
 - No new Neovim tabpage or split behavior; `Ctrl-N` changes the buffer in the
   current window, matching the existing bufferline-as-editor-tab workflow.
 - No changes to other VS Code shortcuts or save automation.
-- No overwrite policy beyond Neovim's native `:saveas` handling.
+- No overwrite policy beyond Neovim's native `:write` handling.
 
 ## Design
 
 Add a small local save helper beside the existing Save mappings in
 `vscode.lua`.
 
-1. The new-buffer mapping creates a listed, non-scratch buffer with
+1. The new-buffer mapping reuses a pristine, listed, unnamed buffer when one
+   is already current. Otherwise it creates a listed, non-scratch buffer with
    `nvim_create_buf(true, false)` and assigns it to the current window with
    `nvim_set_current_buf`. This avoids split creation while keeping the buffer
-   in the existing buffer/tab UI.
+   in the existing buffer/tab UI and prevents an initial `[No Name]` buffer
+   from lingering after the new buffer is saved.
 2. The save helper checks the current buffer name using the structured buffer
    API rather than parsing status text.
 3. Named buffers run `:write` as before.
 4. Unnamed buffers call `vim.ui.input` with a `file` completion mode. A
    non-empty relative response is joined to `$HOME`; an absolute response is
    preserved. The resulting path is passed as a structured argument to
-   `:saveas`, which both writes the file and assigns its name to the buffer.
-   Cancelled or empty input returns without changing the buffer. Structured
-   command arguments avoid treating user-entered filenames as Ex command text.
+   `:write`, then assigned to the same buffer with `nvim_buf_set_name`.
+   Cancelled or empty input returns without changing the buffer. This avoids
+   leaving an extra unnamed buffer behind while structured command arguments
+   prevent user-entered filenames from being parsed as Ex command text.
 5. Normal, visual, and select mode mappings call the helper directly. The
    insert-mode mapping exits insert mode, calls the same helper, and re-enters
    insert mode after either the synchronous named-buffer write or the
@@ -59,14 +62,15 @@ Add a small local save helper beside the existing Save mappings in
 Successful writes remain quiet, preserving the existing `<C-s>` behavior;
 Neovim command errors remain actionable. A cancelled prompt, empty response,
 or missing `vim.ui.input` response is a no-op. The helper must not turn a
-failed `:saveas` into an apparent successful save.
+failed `:write` into an apparent successful save.
 
 ## Testing and acceptance
 
 - Add focused checks to the existing Neovim dotfiles test path if its fixture
   can exercise keymaps; otherwise use a headless Neovim fixture that loads the
   keymap module with a minimal `vim.ui.input` stub.
-- Verify `<C-n>` produces a new unnamed buffer in the same window.
+- Verify `<C-n>` reuses a pristine initial unnamed buffer instead of leaving a
+  duplicate `[No Name]` buffer, while preserving populated unnamed buffers.
 - Verify `<C-s>` writes a named buffer.
 - Verify `<C-s>` prompts for an unnamed buffer, saves to the supplied path, and
   leaves the buffer associated with that path.
