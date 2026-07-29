@@ -21,9 +21,44 @@ paste.setup()
 map({ "n", "i", "x", "s" }, "<C-z>", "<cmd>undo<cr>", { desc = "Undo" })
 map({ "n", "i", "x", "s" }, "<C-y>", "<cmd>redo<cr>", { desc = "Redo" })
 
+local function save_buffer(resume_insert)
+  local function finish(use_feedkeys)
+    if resume_insert then
+      if use_feedkeys then
+        -- A named save is still inside the key mapping, so feed the same
+        -- append command as the original insert-mode mapping.
+        vim.api.nvim_feedkeys("a", "n", false)
+      else
+        -- UI input callbacks return after the mapping has finished.
+        vim.cmd("startinsert")
+      end
+    end
+  end
+
+  if vim.api.nvim_buf_get_name(0) == "" then
+    vim.ui.input({ prompt = "Save as: ", completion = "file" }, function(path)
+      if path and path ~= "" then
+        vim.cmd("silent saveas " .. vim.fn.fnameescape(path))
+      end
+      finish(false)
+    end)
+    return
+  end
+
+  vim.cmd("silent write")
+  finish(true)
+end
+
 -- Save
-map({ "n", "x", "s" }, "<C-s>", "<cmd>silent write<cr>", { desc = "Save" })
-map("i", "<C-s>", "<Esc><cmd>silent write<cr>a", { desc = "Save" })
+map("n", "<C-n>", function()
+  local buffer = vim.api.nvim_create_buf(true, false)
+  vim.api.nvim_set_current_buf(buffer)
+end, { desc = "New buffer" })
+map({ "n", "x", "s" }, "<C-s>", save_buffer, { desc = "Save" })
+map("i", "<C-s>", function()
+  vim.cmd("stopinsert")
+  save_buffer(true)
+end, { desc = "Save" })
 
 -- Select all
 map("n", "<C-a>", select("ggVG"), { desc = "Select all" })
