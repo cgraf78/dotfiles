@@ -13,11 +13,25 @@ if ! command -v zsh >/dev/null 2>&1; then
 fi
 
 TEST_TMPDIR=$(_tmpdir)
-mkdir -p "$TEST_TMPDIR/fpath" "$TEST_TMPDIR/home"
+mkdir -p \
+  "$TEST_TMPDIR/fpath" \
+  "$TEST_TMPDIR/home/.local/share/zsh-users/zsh-autosuggestions"
 
 cat >"$TEST_TMPDIR/fpath/compinit" <<'EOF'
 (( COMPINIT_COUNT++ ))
 typeset -gA _comps
+EOF
+
+cat >"$TEST_TMPDIR/home/.local/share/zsh-users/zsh-autosuggestions/zsh-autosuggestions.zsh" <<'EOF'
+(( AUTOSUGGEST_MANUAL_AT_SOURCE = ${+ZSH_AUTOSUGGEST_MANUAL_REBIND} ))
+_zsh_autosuggest_start() {
+  (( AUTOSUGGEST_BIND_COUNT++ ))
+  if (( ${+ZSH_AUTOSUGGEST_MANUAL_REBIND} )); then
+    precmd_functions=("${(@)precmd_functions:#_zsh_autosuggest_start}")
+  fi
+}
+(( precmd_functions[(I)_zsh_autosuggest_start] )) ||
+  precmd_functions+=(_zsh_autosuggest_start)
 EOF
 
 # shellcheck disable=SC2016 # inner zsh intentionally expands test variables.
@@ -35,6 +49,32 @@ result=$(
 
 _assert_contains "zsh completion: re-source keeps compinit single-run" \
   "compinit=1" "$result"
+
+# shellcheck disable=SC2016 # inner zsh intentionally expands test variables.
+result=$(
+  zsh -fc '
+    HOME="$1/home"
+    _UNAME=Linux
+    _tool_init() { :; }
+    typeset -ga precmd_functions=()
+    source "$2/.config/shell/interactive.d/70-integrations.zsh"
+    source "$2/.config/shell/interactive.d/70-integrations.zsh"
+    printf "armed-hooks=%s\n" "${precmd_functions[(I)_zsh_autosuggest_start]}"
+    _zsh_autosuggest_start
+    printf "manual-at-source=%s\n" "${AUTOSUGGEST_MANUAL_AT_SOURCE:-0}"
+    printf "bind-count=%s\n" "${AUTOSUGGEST_BIND_COUNT:-0}"
+    printf "remaining-hooks=%s\n" "${precmd_functions[(I)_zsh_autosuggest_start]}"
+  ' _ "$TEST_TMPDIR" "$HOME"
+)
+
+_assert_contains "zsh autosuggestions: manual rebind is enabled before plugin load" \
+  "manual-at-source=1" "$result"
+_assert_contains "zsh autosuggestions: re-source arms one bind hook" \
+  "armed-hooks=1" "$result"
+_assert_contains "zsh autosuggestions: first prompt still binds widgets" \
+  "bind-count=1" "$result"
+_assert_contains "zsh autosuggestions: first bind removes recurring prompt hook" \
+  "remaining-hooks=0" "$result"
 
 result=$(
   zsh -fc '

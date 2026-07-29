@@ -71,6 +71,11 @@ _fsh_plugin_dir="$HOME/.local/share/zdharma-continuum/fast-syntax-highlighting"
 zstyle ':fzf-tab:complete:*' fzf-flags --height=45% --reverse
 zstyle ':fzf-tab:*' switch-group '<' '>'
 
+# All widget-wrapping plugins below load before the first prompt. Bind
+# autosuggestions once after that final ordering instead of rescanning and
+# rebinding every ZLE widget on every subsequent prompt.
+typeset -g ZSH_AUTOSUGGEST_MANUAL_REBIND=1
+
 [[ -f "$_fzf_tab_plugin_dir/fzf-tab.plugin.zsh" ]] &&
   source "$_fzf_tab_plugin_dir/fzf-tab.plugin.zsh"
 
