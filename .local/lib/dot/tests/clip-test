@@ -10,10 +10,19 @@ export NO_COLOR=1
 clip="$HOME/.local/bin/clip"
 test_root=$(_tmpdir)
 backend_bin="$test_root/bin"
+runtime_bin=$(_mock_bin)
 data_home="$test_root/data"
 copy_log="$test_root/copied"
 args_log="$test_root/args"
 mkdir -p "$backend_bin" "$data_home"
+
+# Keep each backend case independent of clipboard tools installed by the host.
+# In particular, macOS provides pbcopy/pbpaste in /usr/bin, which must not win
+# while the Wayland, X11, and missing-backend cases are under test.
+for tool in bash cat cut date head ls mkdir rm tail tr wc; do
+  ln -s "$(command -v "$tool")" "$runtime_bin/$tool"
+done
+test_path="$backend_bin:$runtime_bin"
 
 echo "=== Clipboard backend selection ==="
 
@@ -28,10 +37,10 @@ EOF
 chmod +x "$backend_bin/pbcopy" "$backend_bin/pbpaste"
 
 printf '%s' 'macOS copy' |
-  env PATH="$backend_bin:/usr/bin:/bin" XDG_DATA_HOME="$data_home" \
+  env PATH="$test_path" XDG_DATA_HOME="$data_home" \
     CLIP_TEST_COPY_LOG="$copy_log" "$clip" copy
 _assert_file_content "clip copy uses pbcopy on macOS" "macOS copy" "$copy_log"
-macos_paste=$(env PATH="$backend_bin:/usr/bin:/bin" XDG_DATA_HOME="$data_home" \
+macos_paste=$(env PATH="$test_path" XDG_DATA_HOME="$data_home" \
   CLIP_TEST_COPY_LOG="$copy_log" "$clip" paste)
 _assert_eq "clip paste uses pbpaste on macOS" "macOS clipboard" "$macos_paste"
 rm -f "$backend_bin/pbcopy" "$backend_bin/pbpaste" "$copy_log"
@@ -49,7 +58,7 @@ EOF
 chmod +x "$backend_bin/wl-copy" "$backend_bin/wl-paste"
 
 printf '%s' 'wayland copy' |
-  env PATH="$backend_bin:/usr/bin:/bin" XDG_DATA_HOME="$data_home" \
+  env PATH="$test_path" XDG_DATA_HOME="$data_home" \
     WAYLAND_DISPLAY=wayland-0 CLIP_TEST_COPY_LOG="$copy_log" \
     CLIP_TEST_ARGS_LOG="$args_log" "$clip" copy
 _assert_file_content "clip copy uses wl-copy in a Wayland session" \
@@ -57,7 +66,7 @@ _assert_file_content "clip copy uses wl-copy in a Wayland session" \
 _assert_file_content "clip copy does not add unsupported wl-copy arguments" \
   "" "$args_log"
 
-wayland_paste=$(env PATH="$backend_bin:/usr/bin:/bin" XDG_DATA_HOME="$data_home" \
+wayland_paste=$(env PATH="$test_path" XDG_DATA_HOME="$data_home" \
   WAYLAND_DISPLAY=wayland-0 CLIP_TEST_COPY_LOG="$copy_log" \
   CLIP_TEST_ARGS_LOG="$args_log" "$clip" paste)
 _assert_eq "clip paste reads the Wayland clipboard" \
@@ -78,14 +87,14 @@ EOF
 chmod +x "$backend_bin/xclip"
 
 printf '%s' 'x11 copy' |
-  env PATH="$backend_bin:/usr/bin:/bin" XDG_DATA_HOME="$data_home" \
+  env PATH="$test_path" XDG_DATA_HOME="$data_home" \
     DISPLAY=:0 CLIP_TEST_COPY_LOG="$copy_log" CLIP_TEST_ARGS_LOG="$args_log" \
     "$clip" copy
 _assert_file_content "clip copy uses xclip in an X11 session" "x11 copy" "$copy_log"
 _assert_file_content "clip copy selects the X11 clipboard" \
   "-selection clipboard" "$args_log"
 
-x11_paste=$(env PATH="$backend_bin:/usr/bin:/bin" XDG_DATA_HOME="$data_home" \
+x11_paste=$(env PATH="$test_path" XDG_DATA_HOME="$data_home" \
   DISPLAY=:0 CLIP_TEST_COPY_LOG="$copy_log" CLIP_TEST_ARGS_LOG="$args_log" \
   "$clip" paste)
 _assert_eq "clip paste reads the X11 clipboard" "x11 clipboard" "$x11_paste"
@@ -99,7 +108,7 @@ rm -f "$backend_bin/xclip" "$copy_log" "$args_log"
 remote_data="$test_root/remote-data"
 capture_rc=0
 printf '%s' 'remote selection' |
-  env PATH="/usr/bin:/bin" XDG_DATA_HOME="$remote_data" "$clip" capture || capture_rc=$?
+  env PATH="$runtime_bin" XDG_DATA_HOME="$remote_data" "$clip" capture || capture_rc=$?
 _assert_exit "clip capture succeeds without a host clipboard backend" 0 "$capture_rc"
 remote_history=$(printf '%s\n' "$remote_data/clip"/* | head -1)
 _assert_file_content "clip capture preserves remote tmux selections in history" \
@@ -113,7 +122,7 @@ chmod +x "$backend_bin/wl-copy"
 failed_backend_data="$test_root/failed-backend-data"
 capture_rc=0
 printf '%s' 'selection despite failed backend' |
-  env PATH="$backend_bin:/usr/bin:/bin" XDG_DATA_HOME="$failed_backend_data" \
+  env PATH="$test_path" XDG_DATA_HOME="$failed_backend_data" \
     WAYLAND_DISPLAY=wayland-0 "$clip" capture >/dev/null 2>&1 || capture_rc=$?
 _assert_exit "clip capture survives a broken optional host backend" 0 "$capture_rc"
 failed_backend_history=$(printf '%s\n' "$failed_backend_data/clip"/* | head -1)
@@ -123,12 +132,12 @@ rm -f "$backend_bin/wl-copy"
 
 copy_rc=0
 printf '%s' 'no backend' |
-  env PATH="/usr/bin:/bin" XDG_DATA_HOME="$test_root/no-backend-copy" \
+  env PATH="$runtime_bin" XDG_DATA_HOME="$test_root/no-backend-copy" \
     "$clip" copy >/dev/null 2>&1 || copy_rc=$?
 _assert_exit "clip copy still reports a missing direct clipboard backend" 1 "$copy_rc"
 
 paste_rc=0
-env PATH="/usr/bin:/bin" XDG_DATA_HOME="$test_root/no-backend-paste" \
+env PATH="$runtime_bin" XDG_DATA_HOME="$test_root/no-backend-paste" \
   "$clip" paste >/dev/null 2>&1 || paste_rc=$?
 _assert_exit "clip paste reports when no host clipboard is readable" 1 "$paste_rc"
 
