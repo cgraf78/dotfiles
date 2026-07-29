@@ -401,16 +401,10 @@ end
 termnav_routes.setup()
 
 -- =============================================================================
--- Terminal notification: play Glass sound via OSC 1337 user var
+-- Terminal user-variable routing
 -- =============================================================================
 wezterm.on("user-var-changed", function(window, pane, name, value)
-  if name == "term_notify" and value == "1" then
-    if is_macos then
-      wezterm.background_child_process({ "afplay", "/System/Library/Sounds/Glass.aiff" })
-    elseif is_linux then
-      wezterm.background_child_process({ "paplay", "/usr/share/sounds/freedesktop/stereo/bell.oga" })
-    end
-  elseif name == "term_open_url" and value ~= "" then
+  if name == "term_open_url" and value ~= "" then
     wezterm.open_with(value)
   elseif name == "DOT_SWITCH_TAB" and value ~= "" then
     local direction = value:match("^([^:]+):") or value

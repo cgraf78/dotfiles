@@ -730,8 +730,6 @@ JSON
 JSON
     cp -R "$REAL_HOME/.local/share/dot-vscode-extensions/sley-tools-0.0.1" \
       "$vscode_home/.local/share/dot-vscode-extensions/sley-tools-0.0.1"
-    cp -R "$REAL_HOME/.local/share/dot-vscode-extensions/term-notify-sound-0.0.1" \
-      "$vscode_home/.local/share/dot-vscode-extensions/term-notify-sound-0.0.1"
     vscode_mv_log="$vscode_home/mv.log"
     cat >"$vscode_home/.vscode/extensions/extensions.json" <<'JSON'
 [
@@ -746,9 +744,20 @@ JSON
       "id": "cgraf.sley-tools"
     },
     "relativeLocation": "stale-sley-tools-0.0.1"
+  },
+  {
+    "identifier": {
+      "id": "cgraf.retired-local"
+    },
+    "relativeLocation": "retired-local-0.0.1",
+    "metadata": {
+      "source": "local"
+    }
   }
 ]
 JSON
+    ln -s "$vscode_home/.local/share/dot-vscode-extensions/retired-local-0.0.1" \
+      "$vscode_home/.vscode/extensions/retired-local-0.0.1"
     mkdir -p "$vscode_home/.vscode-server/extensions"
     mkdir -p "$vscode_home/.vscode-nosley/extensions" "$vscode_home/.config/NoSley/User"
     ln -s "$vscode_home/.local/share/dot-vscode-extensions/sley-tools-0.0.1" \
@@ -1023,6 +1032,8 @@ PY
       '"[makefile]"' "$vscode_settings"
     _assert_not_contains "vscode settings: stale isort setting is absent" \
       '"isort.args"' "$vscode_settings"
+    _assert_contains "vscode terminal: native bell sound stays enabled" \
+      '"accessibility.signals.terminalBell":{"sound":"on"}' "$vscode_settings"
     _assert_contains "vscode sley: exact filename association generated" \
       '".editorconfig":"editorconfig"' "$vscode_settings"
     _assert_contains "vscode sley: gitconfig association generated" \
@@ -1340,23 +1351,26 @@ PY
     vscode_extensions=$(jq -c . "$vscode_home/.vscode/extensions/extensions.json")
     _assert_contains "vscode sley: extension registered" \
       '"id":"cgraf.sley-tools"' "$vscode_extensions"
-    _assert_contains "vscode local extensions: notification extension registered" \
-      '"id":"cgraf.term-notify-sound"' "$vscode_extensions"
+    _assert_eq "vscode local extensions: only declared extension is registered" \
+      '["cgraf.sley-tools"]' \
+      "$(jq -c '[.[] | select(.metadata.source == "local") | .identifier.id]' "$vscode_home/.vscode/extensions/extensions.json")"
     _assert_contains "vscode sley: preserves existing extension registrations" \
       '"id":"keep.existing"' "$vscode_extensions"
     _assert_contains "vscode sley: refreshes stale local extension registration" \
       '"relativeLocation":"sley-tools-0.0.1"' "$vscode_extensions"
     _assert_not_contains "vscode sley: removes stale local extension location" \
       'stale-sley-tools-0.0.1' "$vscode_extensions"
+    _assert_not_contains "vscode local extensions: retired registration is pruned" \
+      '"id":"cgraf.retired-local"' "$vscode_extensions"
+    if [[ ! -L "$vscode_home/.vscode/extensions/retired-local-0.0.1" ]]; then
+      _pass "vscode local extensions: retired broken symlink is pruned"
+    else
+      _fail "vscode local extensions: retired broken symlink is pruned"
+    fi
     if [[ -L "$vscode_home/.vscode/extensions/sley-tools-0.0.1" ]]; then
       _pass "vscode sley: extension symlink deployed"
     else
       _fail "vscode sley: extension symlink deployed"
-    fi
-    if [[ -L "$vscode_home/.vscode/extensions/term-notify-sound-0.0.1" ]]; then
-      _pass "vscode local extensions: notification symlink deployed"
-    else
-      _fail "vscode local extensions: notification symlink deployed"
     fi
     _assert_eq "vscode remote settings: generated window title uses remote host label" \
       "$vscode_title_expected" \
@@ -1445,17 +1459,13 @@ PY
     vscode_nosley_extensions=$(jq -c . "$vscode_home/.vscode-nosley/extensions/extensions.json")
     _assert_not_contains "vscode sley: no-sley variant unregisters formatter extension" \
       '"id":"cgraf.sley-tools"' "$vscode_nosley_extensions"
-    _assert_contains "vscode sley: no-sley variant keeps other local extensions" \
-      '"id":"cgraf.term-notify-sound"' "$vscode_nosley_extensions"
+    _assert_eq "vscode sley: no-sley variant has no dot-managed local extensions" \
+      '[]' \
+      "$(jq -c '[.[] | select(.metadata.source == "local") | .identifier.id]' "$vscode_home/.vscode-nosley/extensions/extensions.json")"
     if [[ ! -e "$vscode_home/.vscode-nosley/extensions/sley-tools-0.0.1" ]]; then
       _pass "vscode sley: no-sley variant removes formatter symlink"
     else
       _fail "vscode sley: no-sley variant removes formatter symlink"
-    fi
-    if [[ -L "$vscode_home/.vscode-nosley/extensions/term-notify-sound-0.0.1" ]]; then
-      _pass "vscode sley: no-sley variant keeps other local symlinks"
-    else
-      _fail "vscode sley: no-sley variant keeps other local symlinks"
     fi
     vscode_nosley_settings=$(jq -c . "$vscode_home/.config/NoSley/User/settings.json")
     _assert_not_contains "vscode sley: no-sley variant removes formatter settings" \
@@ -1482,8 +1492,7 @@ JSON
     printf '%s\n' "$win_extensions_before" >"$win_ext_dir/extensions.json"
     rm -f \
       "$vscode_home/.vscode-server/extensions/extensions.json" \
-      "$vscode_home/.vscode-server/extensions/sley-tools-0.0.1" \
-      "$vscode_home/.vscode-server/extensions/term-notify-sound-0.0.1"
+      "$vscode_home/.vscode-server/extensions/sley-tools-0.0.1"
 
     wsl_rc=0
     # shellcheck disable=SC2016 # The inner shell expands fixture env variables.
@@ -1508,27 +1517,19 @@ JSON
       "$win_extensions_before" "$win_ext_dir/extensions.json"
     _assert_not_contains "vscode wsl: Windows native does not register sley extension" \
       '"id":"cgraf.sley-tools"' "$win_extensions"
-    _assert_not_contains "vscode wsl: Windows native does not register notification extension" \
-      '"id":"cgraf.term-notify-sound"' "$win_extensions"
     _assert_file_missing "vscode wsl: Windows native sley extension not copied" \
       "$win_ext_dir/sley-tools-0.0.1"
-    _assert_file_missing "vscode wsl: Windows native notification extension not copied" \
-      "$win_ext_dir/term-notify-sound-0.0.1"
 
     wsl_extensions=$(jq -c . "$vscode_home/.vscode-server/extensions/extensions.json")
     _assert_contains "vscode wsl: server registers sley extension" \
       '"id":"cgraf.sley-tools"' "$wsl_extensions"
-    _assert_contains "vscode wsl: server registers notification extension" \
-      '"id":"cgraf.term-notify-sound"' "$wsl_extensions"
+    _assert_eq "vscode wsl: server only registers declared local extension" \
+      '["cgraf.sley-tools"]' \
+      "$(jq -c '[.[] | select(.metadata.source == "local") | .identifier.id]' "$vscode_home/.vscode-server/extensions/extensions.json")"
     if [[ -L "$vscode_home/.vscode-server/extensions/sley-tools-0.0.1" ]]; then
       _pass "vscode wsl: server sley symlink deployed"
     else
       _fail "vscode wsl: server sley symlink deployed"
-    fi
-    if [[ -L "$vscode_home/.vscode-server/extensions/term-notify-sound-0.0.1" ]]; then
-      _pass "vscode wsl: server notification symlink deployed"
-    else
-      _fail "vscode wsl: server notification symlink deployed"
     fi
 
     win_settings=$(jq -c . "$win_code_user/settings.json")

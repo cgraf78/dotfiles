@@ -169,6 +169,8 @@ _assert_contains "ctrl-click mouse down is swallowed before tmux sees it" \
   "action = act.Nop," "$content"
 _assert_contains "shift remains the generic mouse-reporting bypass" \
   'bypass_mouse_reporting_modifiers = "SHIFT",' "$content"
+_assert_contains "wezterm renders the standard terminal bell" \
+  'audible_bell = "SystemBeep",' "$content"
 _assert_contains "wezterm delegates open-uri routing to termnav wrapper" \
   'load_config_module("link-routes.lua")' "$content"
 _assert_contains "wezterm key policy reads nvim pane state through termnav" \
