@@ -690,8 +690,8 @@ _merge_vscode_config() {
 
 # Ensure a local extension is registered in an extensions.json.
 # Existing local entries are refreshed so path corrections take effect.
-# $1 = extension ID (e.g., cgraf.term-notify-sound)
-# $2 = extension dir name (e.g., term-notify-sound-0.0.1)
+# $1 = extension ID (e.g., cgraf.sley-tools)
+# $2 = extension dir name (e.g., sley-tools-0.0.1)
 # $3 = extensions.json path
 # $4 = optional location.path override
 _ensure_vscode_extension() {
@@ -749,6 +749,25 @@ _remove_vscode_extension() {
   else
     rm -f "$tmp"
   fi
+}
+
+# Remove dot-managed local extensions whose source has been retired. A deleted
+# source leaves the installed symlink dangling; metadata.source distinguishes
+# these registrations from gallery extensions without claiming ownership of
+# unrelated local directories.
+_prune_vscode_local_extensions() {
+  local ext_json="$1" ext_base ext_id ext_dir
+  [[ -f "$ext_json" ]] || return 0
+
+  ext_base="$(dirname "$ext_json")"
+  while IFS=$'\t' read -r ext_id ext_dir; do
+    [[ -n "$ext_id" && -n "$ext_dir" ]] || continue
+    [[ "$ext_dir" == "${ext_dir##*/}" && "$ext_dir" != "." && "$ext_dir" != ".." ]] || continue
+    if [[ -L "$ext_base/$ext_dir" && ! -e "$ext_base/$ext_dir" ]]; then
+      _remove_vscode_extension "$ext_id" "$ext_dir" "$ext_json"
+    fi
+  done < <(jq -r '.[] | select(.metadata.source == "local") |
+    [(.identifier.id // ""), (.relativeLocation // "")] | @tsv' "$ext_json")
 }
 
 _vscode_wsl_appdata_dirs() {
@@ -1069,6 +1088,11 @@ merge() {
   ((${#variants[@]} > 0)) || return 0
 
   local _ext_spec _ext_id _ext_src _ext_disabled_opts _ext_name ext_dir cfg_dir opts rest
+  for line in "${variants[@]}"; do
+    ext_dir="${line%%	*}"
+    _prune_vscode_local_extensions "$ext_dir/extensions.json"
+  done
+
   while IFS=$'\t' read -r _ext_id _ext_src _ext_disabled_opts; do
     _ext_name="${_ext_src##*/}"
     [[ -d "$_ext_src" ]] || continue
