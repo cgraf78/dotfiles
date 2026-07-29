@@ -80,6 +80,12 @@ _assert_executable "tmux WezTerm tab move helper is installed" \
   "$tmux_tool_home/.local/bin/wezterm-move-tab"
 _assert_contains "tmux Ctrl-c copies and exits copy mode" \
   "bind -T copy-mode-vi C-c send-keys -X copy-pipe-and-cancel" "$tmux_content"
+_assert_contains "tmux Ctrl-c records history without requiring a host clipboard" \
+  'copy-pipe-and-cancel "clip capture"' "$tmux_content"
+_assert_contains "tmux publishes copy-mode selections through OSC 52" \
+  "set -g set-clipboard on" "$tmux_content"
+_assert_contains "tmux Ctrl-v reads local clipboard policy through clip" \
+  "clip paste" "$tmux_content"
 _assert_contains "tmux Ctrl-v paste path pastes literally" \
   "tmux paste-buffer -p" "$tmux_content"
 _assert_contains "tmux save session uses tmux-tools command" \

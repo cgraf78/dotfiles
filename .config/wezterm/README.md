@@ -72,6 +72,20 @@ asks VS Code to switch or move editor tabs when a nested tmux session bubbles
 past its own tab/window layer. The `DOT_PARENT_*` bridge also depends on
 WezTerm receiving OSC 1337 user-var escapes from the nested session.
 
+## Clipboard Ownership
+
+The terminal frontend owns paste because only it can read the workstation
+clipboard reliably across SSH, WSL, and VS Code Remote boundaries. WezTerm
+handles `Ctrl-V` directly; VS Code installs the equivalent terminal-focused
+binding from the shared keybinding layer. Both frontends copy their own text
+selection, while an unselected `Ctrl-C` continues into the pty as interrupt.
+
+Selections made inside tmux copy mode take the other path: tmux stores them in
+its buffer and publishes them to a capable outer terminal with OSC 52. The
+`clip capture` pipe also keeps clipboard history and mirrors to a native
+`pbcopy`, `wl-copy`, or `xclip` backend when tmux is local. Plain `Ctrl-V` in a
+non-WezTerm/non-VS Code local terminal remains supported through `clip paste`.
+
 ## Routing Contracts
 
 The same link shapes are recognized in three places: WezTerm's Lua

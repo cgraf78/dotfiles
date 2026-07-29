@@ -238,6 +238,7 @@ return {
 LUA
   nvim_key_result=$(HOME="$nvim_key_home/missing-home" _wezterm_lua "
     local fake_action = {
+      ClearSelection = { action = 'ClearSelection' },
       DisableDefaultAssignment = { action = 'DisableDefaultAssignment' },
     }
     setmetatable(fake_action, {
@@ -308,6 +309,15 @@ LUA
       return false
     end
 
+    local function find_binding(keys, key, mods)
+      for _, item in ipairs(keys) do
+        if item.key == key and item.mods == mods then
+          return item.action
+        end
+      end
+      return nil
+    end
+
     local config_table = dofile('$nvim_key_home/.wezterm.lua')
     print(tostring(has_passthrough(config_table.keys, '.', 'CTRL', '.', 'CTRL')))
     print(tostring(has_passthrough(config_table.keys, '/', 'CTRL', '/', 'CTRL')))
@@ -323,9 +333,32 @@ LUA
     print(tostring(has_callback(config_table.keys, 'Tab', 'CTRL|SHIFT')))
     print(tostring(has_callback(config_table.keys, '{', 'ALT|SHIFT')))
     print(tostring(has_callback(config_table.keys, '}', 'ALT|SHIFT')))
+
+    local copy_action = find_binding(config_table.keys, 'c', 'CTRL')
+    local paste_action = find_binding(config_table.keys, 'v', 'CTRL')
+    local selection = ''
+    local performed = {}
+    local pane = {}
+    local window = {
+      get_selection_text_for_pane = function()
+        return selection
+      end,
+      perform_action = function(_, action)
+        table.insert(performed, action)
+      end,
+    }
+
+    copy_action(window, pane)
+    print(performed[1].action .. ':' .. performed[1].value.key .. ':' .. performed[1].value.mods)
+
+    selection = 'selected terminal text'
+    performed = {}
+    copy_action(window, pane)
+    print(performed[1].action .. ':' .. performed[1].value .. ',' .. performed[2].action)
+    print(paste_action.action .. ':' .. paste_action.value)
   ")
-  expected="$(printf 'true\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue')"
-  _assert_eq "wezterm explicitly passes terminal app-owned chords through" \
+  expected="$(printf 'true\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\nSendKey:c:CTRL\nCopyTo:Clipboard,ClearSelection\nPasteFrom:Clipboard')"
+  _assert_eq "wezterm preserves terminal chords and owns client clipboard actions" \
     "$expected" "$nvim_key_result"
 
   cp "$link_routes" "$route_copy_home/link-routes.lua"
