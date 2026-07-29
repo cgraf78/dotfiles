@@ -590,7 +590,7 @@ result=$(_nvim_vscode_keys "
   print(table.concat(vim.fn.readfile('$NVIM_CTRL_S_UNNAMED_FILE'), '|'))
 ")
 expected="$(printf 'Save as: |file\n%s\nnew buffer' "$NVIM_CTRL_S_UNNAMED_FILE")"
-_assert_eq "save: Ctrl-S prompts and saves an unnamed buffer" "$expected" "$result"
+_assert_eq_realpath_lines "save: Ctrl-S prompts and saves an unnamed buffer" "$expected" "$result"
 
 result=$(_nvim_vscode_keys '
   vim.api.nvim_buf_set_lines(0, 0, -1, false, {"cancelled"})
@@ -629,7 +629,7 @@ result=$(_nvim_vscode_keys "
   print(table.concat(vim.fn.readfile('$NVIM_CTRL_S_UNNAMED_INSERT_FILE'), '|'))
 ")
 expected="$(printf '%s\nabc' "$NVIM_CTRL_S_UNNAMED_INSERT_FILE")"
-_assert_eq "save: insert Ctrl-S prompts and saves an unnamed buffer" "$expected" "$result"
+_assert_eq_realpath_lines "save: insert Ctrl-S prompts and saves an unnamed buffer" "$expected" "$result"
 
 result=$(_nvim_lua '
   package.loaded["grug-far"] = {
