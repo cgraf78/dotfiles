@@ -3,6 +3,19 @@
 `wezterm.lua` is tracked directly. On WSL, `dot update` copies it to the
 Windows home directory so Windows-native WezTerm sees the same config.
 
+## Terminal Bell
+
+Terminal notifications use the standard BEL byte end to end. Local commands,
+SSH sessions, and tmux panes therefore use the same transport, and the terminal
+client owns sound playback. WezTerm handles its documented `bell` event and
+plays a client-local sound with `afplay` on macOS, `paplay` on Linux, or
+PowerShell system sounds on Windows. Its native `SystemBeep` renderer is
+disabled on those platforms to prevent duplicate playback; that renderer is
+silent on Wayland and is retained only as the fallback for unknown platforms.
+
+This is deliberately separate from OSC user variables: remote hosts only emit
+BEL and never need access to the workstation audio system.
+
 ## Ctrl-Click File Opening
 
 Ctrl-click file opening is split across the tools that each own a piece of

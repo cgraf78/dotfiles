@@ -207,6 +207,8 @@ local macos_window_background_blur = 0
 local front_end
 local freetype_load_target
 local freetype_render_target
+local bell_command
+local audible_bell = "SystemBeep"
 local termnav_ssh_control_hosts = os.getenv("TERMNAV_SSH_CONTROL_HOSTS")
   or read_trimmed_file(wezterm.config_dir .. "/termnav-ssh-control-hosts")
   or ""
@@ -237,6 +239,7 @@ if is_macos then
   front_end = "WebGpu"
   freetype_load_target = "Light"
   freetype_render_target = "Light"
+  bell_command = { "afplay", "/System/Library/Sounds/Glass.aiff" }
 elseif is_windows then
   table.insert(font_names, "Consolas")
   font_size = 9.0
@@ -244,16 +247,30 @@ elseif is_windows then
   line_height = 1.0
   -- WSL needs an explicit program; can't use the login shell.
   default_prog = { "wsl.exe", "-d", "archlinux", "--cd", "~", "--exec", "/bin/zsh", "-l" }
+  bell_command = {
+    "powershell.exe",
+    "-NoProfile",
+    "-NonInteractive",
+    "-Command",
+    "[System.Media.SystemSounds]::Asterisk.Play()",
+  }
 elseif is_linux then
   table.insert(font_names, "DejaVu Sans Mono")
   font_size = 9.5
   tab_font_size = 9.5
   line_height = 1.0
+  bell_command = { "paplay", "/usr/share/sounds/freedesktop/stereo/bell.oga" }
 else
   table.insert(font_names, "monospace")
   font_size = 10.0
   tab_font_size = 10.0
   line_height = 1.0
+end
+
+if bell_command then
+  -- The bell event below owns playback on supported platforms. Disabling the
+  -- native renderer avoids duplicate sounds where SystemBeep happens to work.
+  audible_bell = "Disabled"
 end
 
 local keys = {}
@@ -401,6 +418,18 @@ end
 termnav_routes.setup()
 
 -- =============================================================================
+-- Terminal bell
+-- =============================================================================
+-- BEL is the portable transport across local shells, SSH, and tmux. Render it
+-- in the GUI client because WezTerm's SystemBeep is silent on Wayland and can
+-- be unavailable on other desktop setups.
+wezterm.on("bell", function()
+  if bell_command then
+    wezterm.background_child_process(bell_command)
+  end
+end)
+
+-- =============================================================================
 -- Terminal user-variable routing
 -- =============================================================================
 wezterm.on("user-var-changed", function(window, pane, name, value)
@@ -496,7 +525,7 @@ return {
   check_for_updates = false,
   automatically_reload_config = true,
   swallow_mouse_click_on_window_focus = true,
-  audible_bell = "SystemBeep",
+  audible_bell = audible_bell,
   default_cursor_style = "BlinkingBlock",
 
   keys = keys,
