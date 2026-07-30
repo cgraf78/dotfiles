@@ -7,9 +7,12 @@
 # before pulling so Git never tries to merge through a symlink.
 
 _overlay_link_target() {
-  local rel="$1" name="$2" depth prefix="" i
-  depth=$(printf '%s' "$rel" | tr -cd '/' | wc -c)
-  for ((i = 0; i < depth; i++)); do prefix="../$prefix"; done
+  local rel="$1" name="$2" rest prefix=""
+  rest="$rel"
+  while [[ "$rest" == */* ]]; do
+    rest="${rest#*/}"
+    prefix="../$prefix"
+  done
   REPLY="${prefix}.dotfiles-$name/home/$rel"
 }
 
@@ -91,7 +94,7 @@ _overlay_parse_manifest_record() {
   owner="${line#*$'\t'}"
   [[ "$owner" != *$'\t'* ]] || return 1
   case "$rel" in
-    "" | /* | . | .. | ./* | ../* | */./* | */../* | */. | */..)
+    "" | /* | . | .. | ./* | ../* | */./* | */../* | */. | */.. | */ | *//*)
       return 1
       ;;
   esac

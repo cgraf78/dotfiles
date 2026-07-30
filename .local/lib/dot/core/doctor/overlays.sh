@@ -89,7 +89,10 @@ _dr_check_overlays() {
   local manifest="$DOT_OVERLAY_MANIFEST"
   if [[ -f "$manifest" ]]; then
     declare -A manifest_owners=()
-    local issue_count=0 rel overlay_name
+    # Keep the parser's dynamically scoped outputs local even though this call
+    # uses it only as a validator and deliberately retains the raw values.
+    # shellcheck disable=SC2034
+    local issue_count=0 rel overlay_name REPLY_REL REPLY_OWNER
     while IFS=$'\t' read -r rel overlay_name _; do
       [[ -n "$rel" ]] || continue
       manifest_owners["$rel"]="$overlay_name"
@@ -109,6 +112,14 @@ _dr_check_overlays() {
       fi
       if [[ -z "${overlay_name:-}" || -z "${overlay_paths[$overlay_name]+x}" ]]; then
         ((issue_count++)) || true
+        continue
+      fi
+
+      # Managed links normally retain dot's deterministic relative target.
+      # Check that cheap representation first; physical resolution remains the
+      # compatibility fallback for equivalent absolute or hand-normalized links.
+      if _overlay_parse_manifest_record "$rel"$'\t'"$overlay_name" &&
+        _overlay_link_matches "$rel" "$overlay_name"; then
         continue
       fi
 

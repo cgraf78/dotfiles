@@ -17,8 +17,8 @@ local empty_metadata = {
   schemas = { json = {}, yaml = {}, toml = {} },
 }
 
-local function shdeps()
-  return require("config.dot-runtime").shdeps()
+local function dep_file(repo, relpath)
+  return require("config.dot-runtime").dep_file(repo, relpath)
 end
 
 local function source_path()
@@ -83,8 +83,8 @@ local function materialize_url(value)
     if dependency_url_cache[value] ~= nil then
       return dependency_url_cache[value] or nil
     end
-    local path = shdeps().dep_file(dependency, asset)
-    if not path or vim.fn.filereadable(path) ~= 1 then
+    local path = dep_file(dependency, asset)
+    if not path then
       dependency_url_cache[value] = false
       return nil
     end
@@ -188,8 +188,8 @@ function M.module()
     return adapter_cache or nil
   end
 
-  local path = shdeps().dep_file("cgraf78/checkrun", "lib/checkrun/nvim.lua")
-  if not path or vim.fn.filereadable(path) ~= 1 then
+  local path = dep_file("cgraf78/checkrun", "lib/checkrun/nvim.lua")
+  if not path then
     adapter_cache = false
     return nil
   end
