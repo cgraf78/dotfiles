@@ -7,12 +7,10 @@
 - Body has `Summary` and `Testing` sections (plain text headers, no `##` prefix)
 - (git repos only) Body is hard-wrapped at ~72 columns with 2-space
   continuation indent
-- Summary section: first paragraph describes high-level intent & the why,
-  following paragraphs provide details; prefer bulleted lists for details,
-  lowercase start
-- Testing section: bulleted list describing what was verified
+- Summary: first paragraph gives high-level intent & the why, later paragraphs
+  give details; prefer bulleted lists, lowercase start
+- Testing: bulleted list of what was verified
 - Blank line between title, Summary, and Testing sections
-- When commit messages contain backticks or other shell-sensitive characters, do
-  not pass them via shell-quoted `git commit -m ...`; write the message to a
-  temporary file using the runtime-approved file-writing mechanism and commit
-  with `git commit -F`.
+- For messages with backticks or other shell-sensitive characters, don't use
+  shell-quoted `git commit -m ...`; write the message to a temp file with the
+  runtime-approved file-writing mechanism and commit with `git commit -F`.
