@@ -9,6 +9,28 @@ dot_core_test_overlays() {
   _discover_overlays
   _assert_eq "no overlays dir: empty" "0" "${#OVERLAYS[@]}"
 
+  overlay_target_rc=0
+  overlay_target=$(
+    # shellcheck disable=SC2123 # prove this helper has no command dependency.
+    PATH=/nonexistent
+    _overlay_link_target ".config/dot/example.conf" work
+    printf '%s\n' "$REPLY"
+  ) 2>/dev/null || overlay_target_rc=$?
+  _assert_exit "overlay link target: uses no external path utilities" 0 "$overlay_target_rc"
+  _assert_eq "overlay link target: preserves nested relative target" \
+    "../../.dotfiles-work/home/.config/dot/example.conf" "$overlay_target"
+
+  if _overlay_parse_manifest_record "nested//file"$'\t'"work"; then
+    _fail "overlay manifest: rejects empty path components"
+  else
+    _pass "overlay manifest: rejects empty path components"
+  fi
+  if _overlay_parse_manifest_record "nested/file/"$'\t'"work"; then
+    _fail "overlay manifest: rejects trailing separators"
+  else
+    _pass "overlay manifest: rejects trailing separators"
+  fi
+
   # The first run with an XDG state root must retain cleanup authority from the
   # old HOME-default manifest. Otherwise a removed overlay leaves its symlink
   # and the base file's skip-worktree bit behind forever.
