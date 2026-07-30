@@ -74,6 +74,43 @@ local function normalize_dir(path)
   return strip_trailing_slash(vim.fn.fnamemodify(path, ":p"))
 end
 
+local function read_first_line(path)
+  local ok, lines = pcall(vim.fn.readfile, path, "", 1)
+  if not ok then
+    return nil
+  end
+  return lines[1]
+end
+
+-- persistence.nvim asks for the branch once per primary and alias session
+-- save. Reading Git's symbolic HEAD preserves its branch-session naming while
+-- avoiding a PATH launcher process for every root in the save batch.
+function M.persistence_branch(cwd)
+  local root = normalize_dir(cwd or vim.fn.getcwd())
+  local marker = root .. "/.git"
+  local marker_stat = vim.uv.fs_stat(marker)
+  if not marker_stat then
+    return nil
+  end
+
+  local git_dir = marker
+  if marker_stat.type == "file" then
+    local target = (read_first_line(marker) or ""):match("^gitdir:%s*(.-)%s*$")
+    if not target or target == "" then
+      return nil
+    end
+    if not target:match("^/") then
+      target = vim.fs.dirname(marker) .. "/" .. target
+    end
+    git_dir = normalize_dir(target)
+  elseif marker_stat.type ~= "directory" then
+    return nil
+  end
+
+  local head = read_first_line(git_dir .. "/HEAD")
+  return head and head:match("^ref:%s*refs/heads/(.-)%s*$") or nil
+end
+
 local function contains(root, path)
   root = normalize_dir(root)
   path = normalize_dir(path)
@@ -121,6 +158,8 @@ local function dotfiles_tracked_root(cwd)
   local rel = normalized:sub(#root + 2)
   local args = {
     "git",
+    "-C",
+    root,
     "--git-dir",
     git_dir,
     "--work-tree",

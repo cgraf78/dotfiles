@@ -1340,6 +1340,85 @@ result=$(_nvim_lua '
 ')
 _assert_eq "nvim-workspace: plugin config calls public setup" "true" "$result"
 
+PERSISTENCE_BRANCH_TMP=$(_tmpdir)
+mkdir -p \
+  "$PERSISTENCE_BRANCH_TMP/repo/.git" \
+  "$PERSISTENCE_BRANCH_TMP/detached/.git" \
+  "$PERSISTENCE_BRANCH_TMP/worktree" \
+  "$PERSISTENCE_BRANCH_TMP/worktree-git"
+printf '%s\n' 'ref: refs/heads/feature/fast-sessions' >"$PERSISTENCE_BRANCH_TMP/repo/.git/HEAD"
+printf '%s\n' '0123456789abcdef0123456789abcdef01234567' >"$PERSISTENCE_BRANCH_TMP/detached/.git/HEAD"
+printf '%s\n' 'gitdir: ../worktree-git' >"$PERSISTENCE_BRANCH_TMP/worktree/.git"
+printf '%s\n' 'ref: refs/heads/worktree-branch' >"$PERSISTENCE_BRANCH_TMP/worktree-git/HEAD"
+PERSISTENCE_BRANCH_BIN=$(_tmpdir)
+PERSISTENCE_BRANCH_GIT_MARKER=$PERSISTENCE_BRANCH_TMP/git-called
+cat >"$PERSISTENCE_BRANCH_BIN/git" <<'EOF'
+#!/usr/bin/env sh
+: >"$PERSISTENCE_BRANCH_GIT_MARKER"
+exit 99
+EOF
+chmod +x "$PERSISTENCE_BRANCH_BIN/git"
+result=$(PATH="$PERSISTENCE_BRANCH_BIN:$PATH" \
+  PERSISTENCE_BRANCH_GIT_MARKER="$PERSISTENCE_BRANCH_GIT_MARKER" \
+  _nvim_lua "
+  local config = require('config.nvim-workspace')
+  print(config.persistence_branch('$PERSISTENCE_BRANCH_TMP/repo'))
+  print(config.persistence_branch('$PERSISTENCE_BRANCH_TMP/worktree'))
+  print(tostring(config.persistence_branch('$PERSISTENCE_BRANCH_TMP/detached')))
+  print(tostring(config.persistence_branch('$PERSISTENCE_BRANCH_TMP/repo/.git')))
+  vim.fn.writefile({ 'ref: refs/heads/switched' }, '$PERSISTENCE_BRANCH_TMP/repo/.git/HEAD')
+  print(config.persistence_branch('$PERSISTENCE_BRANCH_TMP/repo'))
+  vim.cmd('cd ' .. vim.fn.fnameescape('$PERSISTENCE_BRANCH_TMP/repo'))
+  print(config.persistence_branch())
+")
+expected="$(printf 'feature/fast-sessions\nworktree-branch\nnil\nnil\nswitched\nswitched')"
+_assert_eq "nvim-workspace: persistence branch lookup preserves Git HEAD semantics" \
+  "$expected" "$result"
+_assert_file_missing "nvim-workspace: persistence branch lookup starts no Git process" \
+  "$PERSISTENCE_BRANCH_GIT_MARKER"
+
+result=$(_nvim_lua "
+  local persistence = {
+    setup = function() end,
+    stop = function() end,
+    branch = function() return 'slow-path' end,
+  }
+  package.loaded.persistence = persistence
+  local specs = dofile(vim.fn.expand('~/.config/nvim/lua/plugins/workspace.lua'))
+  for _, spec in ipairs(specs) do
+    if spec[1] == 'folke/persistence.nvim' then
+      spec.config(nil, {})
+      print(tostring(persistence.branch == require('config.nvim-workspace').persistence_branch))
+      print(persistence.branch('$PERSISTENCE_BRANCH_TMP/repo'))
+      return
+    end
+  end
+  print('missing')
+")
+expected="$(printf 'true\nswitched')"
+_assert_eq "nvim-workspace: persistence avoids PATH Git for branch session names" \
+  "$expected" "$result"
+
+result=$(_nvim_lua '
+  vim.opt.runtimepath:prepend(vim.fn.stdpath("data") .. "/lazy/persistence.nvim")
+  package.loaded.persistence = nil
+  package.loaded["persistence.config"] = nil
+  local persistence = require("persistence")
+  local config = require("persistence.config")
+  config.options = { branch = true, dir = "/tmp/sessions/" }
+  local calls = 0
+  persistence.branch = function()
+    calls = calls + 1
+    return "feature/contract"
+  end
+  local current = persistence.current()
+  print("calls=" .. calls)
+  print("branch=" .. tostring(current:find("%%feature%contract", 1, true) ~= nil))
+')
+expected="$(printf 'calls=1\nbranch=true')"
+_assert_eq "nvim-workspace: pinned persistence current uses the overridden branch hook" \
+  "$expected" "$result"
+
 result=$(_nvim_lua '
   package.loaded["nvim_workspace"] = {
     files = function(opts)
@@ -2837,19 +2916,23 @@ mkdir -p "$WORKSPACE_HOME_TMP/.dotfiles" "$WORKSPACE_HOME_TMP/.config/shell"
 WORKSPACE_HOME_BIN=$(_tmpdir)
 cat >"$WORKSPACE_HOME_BIN/git" <<'EOF'
 #!/usr/bin/env sh
-if [ "$1" != "--git-dir" ] || [ "$2" != "$HOME/.dotfiles" ]; then
+if [ "$1" != "-C" ] || [ "$2" != "$HOME" ]; then
+  printf '%s\n' 'unexpected git cwd' >&2
+  exit 2
+fi
+if [ "$3" != "--git-dir" ] || [ "$4" != "$HOME/.dotfiles" ]; then
   printf '%s\n' 'unexpected git dir' >&2
   exit 2
 fi
-if [ "$3" != "--work-tree" ] || [ "$4" != "$HOME" ]; then
+if [ "$5" != "--work-tree" ] || [ "$6" != "$HOME" ]; then
   printf '%s\n' 'unexpected work tree' >&2
   exit 2
 fi
-if [ "$5" != "ls-files" ]; then
+if [ "$7" != "ls-files" ]; then
   printf '%s\n' 'unexpected git command' >&2
   exit 2
 fi
-if [ "$6" != "--" ] || [ "$7" != ".config/shell" ] || [ "$8" != ".config/shell/**" ]; then
+if [ "$8" != "--" ] || [ "$9" != ".config/shell" ] || [ "${10}" != ".config/shell/**" ]; then
   printf 'unexpected pathspecs: %s\n' "$*" >&2
   exit 2
 fi
