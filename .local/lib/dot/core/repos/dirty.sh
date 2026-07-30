@@ -103,18 +103,47 @@ _normalize_dirty_files() {
   done <<<"$dirty"
 }
 
+_normalize_repo() {
+  local kind="$1" path="$2"
+  case "$kind" in
+    base)
+      # shellcheck disable=SC2086 # $GIT is intentionally word-split.
+      _normalize_dirty_files $GIT
+      ;;
+    overlay)
+      _normalize_dirty_files git -C "$path"
+      ;;
+  esac
+}
+
 # Re-checkout files that are stat-dirty but content-clean across base + overlays.
 _normalize_filtered() {
-  if [[ -d "$DOTFILES" ]]; then
-    # shellcheck disable=SC2086  # $GIT is intentionally word-split
-    _normalize_dirty_files $GIT
-  fi
-  local entry
+  local entry path record pid
+  local -a records=() pids=()
+  [[ ! -d "$DOTFILES" ]] || records+=("base|")
   for entry in "${OVERLAYS[@]+"${OVERLAYS[@]}"}"; do
-    local path
     IFS='|' read -r _ path _ <<<"$entry"
-    if [[ -d "$path/.git" ]]; then
-      _normalize_dirty_files git -C "$path"
-    fi
+    [[ ! -d "$path/.git" ]] || records+=("overlay|$path")
+  done
+
+  # Keep the base-only path synchronous; there is no work to overlap and no
+  # reason to pay for a subshell. Multiple repositories have independent Git
+  # indexes, so their silent, best-effort normalization probes can safely run
+  # together. Probe failures have always been ignored by _normalize_dirty_files.
+  if ((${#records[@]} < 2)); then
+    for record in "${records[@]+"${records[@]}"}"; do
+      IFS='|' read -r entry path <<<"$record"
+      _normalize_repo "$entry" "$path" || true
+    done
+    return 0
+  fi
+
+  for record in "${records[@]+"${records[@]}"}"; do
+    IFS='|' read -r entry path <<<"$record"
+    _normalize_repo "$entry" "$path" &
+    pids+=("$!")
+  done
+  for pid in "${pids[@]+"${pids[@]}"}"; do
+    wait "$pid" 2>/dev/null || true
   done
 }
