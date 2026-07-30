@@ -1,0 +1,2875 @@
+#!/usr/bin/env bash
+# et-tunnel-test - behavior tests for the generic TCP-over-ET tunnel launcher.
+
+# shellcheck disable=SC1091,SC2016
+set -o pipefail
+export NO_COLOR=1
+
+. "$HOME/.local/lib/dot/tests/helpers.sh"
+
+SCRIPT="$HOME/.local/bin/et-tunnel"
+tmp=$(_tmpdir)
+bin="$tmp/bin"
+test_home="$tmp/home"
+log="$tmp/commands.log"
+test_python=$(python3 -c 'import sys; print(sys.executable)')
+real_lsof=$(command -v lsof 2>/dev/null || true)
+printf -v real_lsof_q '%q' "$real_lsof"
+real_bash=$(command -v bash)
+real_ps=$(command -v ps)
+printf -v real_ps_q '%q' "$real_ps"
+real_mv=$(command -v mv)
+printf -v real_mv_q '%q' "$real_mv"
+mkdir -p "$bin" "$test_home"
+
+_write_stub() {
+  local path="$1"
+  shift
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf '%s\n' "$@"
+  } >"$path"
+  chmod +x "$path"
+}
+
+_write_stub "$bin/lsof" \
+  'if [[ -n "${ET_TUNNEL_TEST_LSOF_ESTABLISHED_PORT:-}" ]]; then' \
+  '  for arg in "$@"; do' \
+  '    if [[ "$arg" == "-iTCP:$ET_TUNNEL_TEST_LSOF_ESTABLISHED_PORT" ]]; then' \
+  '      printf "p12345\\nn127.0.0.1:%s->127.0.0.1:443\\n" "$ET_TUNNEL_TEST_LSOF_ESTABLISHED_PORT"' \
+  '      exit 0' \
+  '    fi' \
+  '  done' \
+  'fi' \
+  'if [[ -n "${ET_TUNNEL_TEST_LSOF_REMOTE_PORT:-}" ]]; then' \
+  '  for arg in "$@"; do' \
+  '    if [[ "$arg" == "-iTCP:$ET_TUNNEL_TEST_LSOF_REMOTE_PORT" ]]; then' \
+  '      printf "p12345\\nn127.0.0.1:54321->127.0.0.1:%s\\n" "$ET_TUNNEL_TEST_LSOF_REMOTE_PORT"' \
+  '      exit 0' \
+  '    fi' \
+  '  done' \
+  'fi' \
+  'if [[ -n "${ET_TUNNEL_TEST_LSOF_EXIT:-}" ]]; then' \
+  '  if [[ "$ET_TUNNEL_TEST_LSOF_EXIT" == 0 ]]; then' \
+  '    for arg in "$@"; do' \
+  '      [[ "$arg" == -iTCP:* ]] && printf "p12345\\nn*:%s\\n" "${arg#-iTCP:}"' \
+  '    done' \
+  '  fi' \
+  '  exit "$ET_TUNNEL_TEST_LSOF_EXIT"' \
+  'fi' \
+  "host_lsof=$real_lsof_q" \
+  '[[ -z "$host_lsof" ]] || exec "$host_lsof" "$@"' \
+  'exit 1'
+ss_bin="$tmp/ss-bin"
+mkdir -p "$ss_bin"
+ln -s "$real_bash" "$ss_bin/bash"
+_write_stub "$ss_bin/ss" \
+  'if [[ " $* " == *" -atn "* && " $* " == *" sport = :$ET_TUNNEL_TEST_SS_LISTENER_PORT "* ]]; then' \
+  '  printf "LISTEN 0 128 127.0.0.1:%s 0.0.0.0:*\\n" "$ET_TUNNEL_TEST_SS_LISTENER_PORT"' \
+  'fi'
+_write_stub "$bin/et" \
+  'printf "et\n" >>"$ET_TUNNEL_TEST_LOG"' \
+  'previous= tunnel_spec=' \
+  'for arg in "$@"; do' \
+  '  printf "<%s>\n" "$arg" >>"$ET_TUNNEL_TEST_LOG"' \
+  '  if [[ "$previous" == --command ]]; then printf "%s\n" "$arg" >"$ET_TUNNEL_TEST_REMOTE_COMMAND"; fi' \
+  '  if [[ "$previous" == -t ]]; then tunnel_spec=$arg; fi' \
+  '  previous="$arg"' \
+  'done' \
+  'printf "%s\n" "--" >>"$ET_TUNNEL_TEST_LOG"' \
+  'count=0' \
+  '[[ -r "$ET_TUNNEL_TEST_COUNT" ]] && read -r count <"$ET_TUNNEL_TEST_COUNT"' \
+  'count=$((count + 1))' \
+  'printf "%s\n" "$count" >"$ET_TUNNEL_TEST_COUNT"' \
+  'if ((count <= ${ET_TUNNEL_TEST_COLLISIONS:-0})); then' \
+  '  printf "%s\n" "$ET_TUNNEL_RETRY_MARKER" >&2' \
+  'fi' \
+  'if [[ -n "${ET_TUNNEL_TEST_FATAL_STATUS:-}" ]]; then' \
+  '  token=${ET_TUNNEL_RETRY_MARKER#ET_TUNNEL_COLLISION:}' \
+  '  token=${token%%:*}' \
+  '  printf "ET_TUNNEL_FATAL:%s:%s:test-failure\n" "$token" "$ET_TUNNEL_TEST_FATAL_STATUS" >&2' \
+  'fi' \
+  'if [[ "${ET_TUNNEL_TEST_ECHO_ARGS:-0}" == 1 ]]; then printf "%s\n" "$@"; fi' \
+  'if [[ -n "${ET_TUNNEL_TEST_BOOTSTRAP_PAYLOAD:-}" && "${ET_TUNNEL_TEST_EXIT:-0}" == 0 && "${ET_TUNNEL_TEST_COLLISIONS:-0}" == 0 && -z "${ET_TUNNEL_TEST_FATAL_STATUS:-}" ]]; then' \
+  '  bootstrap_mapping=${tunnel_spec##*,}' \
+  '  bootstrap_port=${bootstrap_mapping%%:*}' \
+  '  "$ET_TUNNEL_TEST_PYTHON" - "$bootstrap_port" "$ET_TUNNEL_TEST_BOOTSTRAP_PAYLOAD" "$ET_TUNNEL_RETRY_MARKER" <<PY' \
+  'import socket' \
+  'import sys' \
+  'port, output, retry_marker = sys.argv[1:]' \
+  'token = retry_marker.split(":")[1]' \
+  'server = socket.socket()' \
+  'server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)' \
+  'server.bind(("127.0.0.1", int(port)))' \
+  'server.listen(2)' \
+  'server.settimeout(5)' \
+  'for _ in range(4):' \
+  '    connection, _ = server.accept()' \
+  '    connection.sendall(b"ET_TUNNEL_BOOTSTRAP\\n")' \
+  '    received = b""' \
+  '    while True:' \
+  '        chunk = connection.recv(65536)' \
+  '        if not chunk:' \
+  '            break' \
+  '        received += chunk' \
+  '    if received.startswith(b"ET_TUNNEL_PAYLOAD:"):' \
+  '        with open(output, "wb") as payload_file:' \
+  '            payload_file.write(received)' \
+  '        connection.close()' \
+  '        break' \
+  '    connection.close()' \
+  'server.close()' \
+  'PY' \
+  'fi' \
+  'exit "${ET_TUNNEL_TEST_EXIT:-0}"'
+_write_stub "$bin/test-transport" \
+  'printf "transport\n" >>"$ET_TUNNEL_TEST_LOG"' \
+  'for arg in "$@"; do printf "<%s>\n" "$arg" >>"$ET_TUNNEL_TEST_LOG"; done' \
+  'printf "%s\n" "$3" >"$ET_TUNNEL_TEST_REMOTE_COMMAND"' \
+  'printf "%s\n" "--" >>"$ET_TUNNEL_TEST_LOG"'
+_write_stub "$bin/blocking-transport" \
+  'printf "%s\n" "$$" >"$ET_TUNNEL_TEST_TRANSPORT_PID"' \
+  'sleep 300 &' \
+  'child=$!' \
+  'printf "%s\n" "$child" >"$ET_TUNNEL_TEST_TRANSPORT_CHILD_PID"' \
+  'wait "$child"'
+_write_stub "$bin/interactive-transport" \
+  'printf "%s\n" "$$" >"$ET_TUNNEL_TEST_TRANSPORT_PID"' \
+  'trap "" INT' \
+  '[[ -z "${ET_TUNNEL_TEST_TRANSPORT_COUNT:-}" ]] || printf "1\n" >>"$ET_TUNNEL_TEST_TRANSPORT_COUNT"' \
+  'ps -o pid=,pgid=,tpgid=,stat= -p "$$" >"$ET_TUNNEL_TEST_AUTH_STATE"' \
+  'printf "Passcode: "' \
+  'IFS= read -r answer' \
+  'printf "%s\n" "$answer" >"$ET_TUNNEL_TEST_AUTH_RESULT"' \
+  'exec sleep 300'
+_write_stub "$bin/interactive-attached-transport" \
+  'printf "%s\n" "$$" >"$ET_TUNNEL_TEST_TRANSPORT_PID"' \
+  'printf "Passcode: "' \
+  'if [[ -n "${ET_TUNNEL_TEST_PREAUTH_STOPPED:-}" ]]; then' \
+  '  : >"$ET_TUNNEL_TEST_PREAUTH_STOPPED"' \
+  '  kill -TTIN 0' \
+  'fi' \
+  'IFS= read -r answer' \
+  'printf "%s\n" "$answer" >"$ET_TUNNEL_TEST_AUTH_RESULT"' \
+  'mapping=$2' \
+  'control_mapping=${mapping#*,}' \
+  'control_port=${control_mapping%%:*}' \
+  'token=${ET_TUNNEL_RETRY_MARKER#ET_TUNNEL_COLLISION:}' \
+  'token=${token%%:*}' \
+  'exec python3 - "$control_port" "$token" <<PY' \
+  'import os' \
+  'import signal' \
+  'import socket' \
+  'import sys' \
+  'import time' \
+  'resume_count = 0' \
+  'def mark_resumed(_signum, _frame):' \
+  '    global resume_count' \
+  '    resume_count += 1' \
+  '    with open(os.environ["ET_TUNNEL_TEST_CONTROL_RESUMED"], "w", encoding="utf-8") as output:' \
+  '        output.write(str(resume_count))' \
+  '    if resume_count <= 3 and os.environ.get("ET_TUNNEL_TEST_RESTOP_AFTER_CONT") == "1":' \
+  '        os.killpg(os.getpgrp(), signal.SIGSTOP)' \
+  'signal.signal(signal.SIGINT, lambda _signum, _frame: sys.exit(130))' \
+  'signal.signal(signal.SIGCONT, signal.SIG_DFL)' \
+  'signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGINT, signal.SIGCONT})' \
+  'server = socket.socket()' \
+  'server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)' \
+  'server.bind(("127.0.0.1", int(sys.argv[1])))' \
+  'server.listen(1)' \
+  'open(os.environ["ET_TUNNEL_TEST_CONTROL_READY"], "wb").close()' \
+  'connection, _ = server.accept()' \
+  'connection.sendall(b"ET_TUNNEL_CONTROL\\n")' \
+  'received = b""' \
+  'with connection:' \
+  '    while b"\\n" not in received:' \
+  '        chunk = connection.recv(256)' \
+  '        if not chunk:' \
+  '            break' \
+  '        received += chunk' \
+  '    with open(os.environ["ET_TUNNEL_TEST_CONTROL_TOKEN"], "wb") as output:' \
+  '        output.write(received)' \
+  '    expected_token = f"{sys.argv[2]}\\n".encode()' \
+  '    if received != expected_token:' \
+  '        raise RuntimeError(f"unexpected token: {received!r}")' \
+  '    time.sleep(float(os.environ.get("ET_TUNNEL_TEST_ACK_DELAY", "0")))' \
+  '    connection.sendall(f"ET_TUNNEL_ATTACHED:{sys.argv[2]}\\n".encode())' \
+  '    confirm = b""' \
+  '    while b"\\n" not in confirm:' \
+  '        chunk = connection.recv(256)' \
+  '        if not chunk:' \
+  '            break' \
+  '        confirm += chunk' \
+  '    expected = f"ET_TUNNEL_CONFIRM:{sys.argv[2]}\\n".encode()' \
+  '    if confirm != expected:' \
+  '        raise RuntimeError(f"unexpected confirmation: {confirm!r}")' \
+  '    signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGCONT})' \
+  '    signal.signal(signal.SIGCONT, mark_resumed)' \
+  '    connection.sendall(f"ET_TUNNEL_CONFIRMED:{sys.argv[2]}\\n".encode())' \
+  '    signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGCONT})' \
+  '    resume_deadline = time.monotonic() + 20' \
+  '    resumed = os.environ["ET_TUNNEL_TEST_CONTROL_RESUMED"]' \
+  '    while not os.path.exists(resumed) and time.monotonic() < resume_deadline:' \
+  '        time.sleep(0.01)' \
+  '    if not os.path.exists(resumed):' \
+  '        raise TimeoutError("transport did not resume after control handoff")' \
+  '    connection.sendall(b"ET_TUNNEL_HELD\\n")' \
+  '    open(os.environ["ET_TUNNEL_TEST_CONTROL_HELD"], "wb").close()' \
+  '    try:' \
+  '        while connection.recv(256):' \
+  '            pass' \
+  '    except ConnectionResetError:' \
+  '        pass' \
+  'open(os.environ["ET_TUNNEL_TEST_CONTROL_EOF"], "wb").close()' \
+  'server.close()' \
+  'PY'
+_write_stub "$bin/worker-pgrp-transport" \
+  'worker_pgid=$(ps -o pgid= -p "$PPID" | tr -d " ")' \
+  'adapter_pgid=$(ps -o pgid= -p "$$" | tr -d " ")' \
+  'printf "%s %s\n" "$worker_pgid" "$adapter_pgid" >"$ET_TUNNEL_TEST_WORKER_PGRPS"'
+_write_stub "$bin/tstp-exit-transport" \
+  'kill -TSTP 0' \
+  'exit 127'
+_write_stub "$bin/exit-127-transport" \
+  'exit 127'
+_write_stub "$bin/delayed-control-transport" \
+  'printf "%s\n" "$$" >"$ET_TUNNEL_TEST_TRANSPORT_PID"' \
+  'mapping=$2' \
+  'control_mapping=${mapping#*,}' \
+  'control_port=${control_mapping%%:*}' \
+  'token=${ET_TUNNEL_RETRY_MARKER#ET_TUNNEL_COLLISION:}' \
+  'token=${token%%:*}' \
+  'sleep 1' \
+  'python3 - "$control_port" "$ET_TUNNEL_TEST_CONTROL_TOKEN" "${ET_TUNNEL_TEST_CONTROL_READY:-}" "$token" "${ET_TUNNEL_TEST_CONTROL_ATTACHED:-}" "${ET_TUNNEL_TEST_CONTROL_EOF:-}" <<PY' \
+  'import socket' \
+  'import signal' \
+  'import sys' \
+  'signal.signal(signal.SIGINT, lambda _signum, _frame: sys.exit(130))' \
+  'signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGINT})' \
+  'server = socket.socket()' \
+  'server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)' \
+  'server.bind(("127.0.0.1", int(sys.argv[1])))' \
+  'server.listen(1)' \
+  'if sys.argv[3]:' \
+  '    open(sys.argv[3], "wb").close()' \
+  'connection, _ = server.accept()' \
+  'connection.sendall(b"ET_TUNNEL_CONTROL\\n")' \
+  'received = b""' \
+  'with connection:' \
+  '    while b"\n" not in received:' \
+  '        chunk = connection.recv(256)' \
+  '        if not chunk:' \
+  '            break' \
+  '        received += chunk' \
+  '    with open(sys.argv[2], "wb") as output:' \
+  '        output.write(received)' \
+  '    expected_stop = f"ET_TUNNEL_STOP:{sys.argv[4]}\n".encode()' \
+  '    expected_attach = f"{sys.argv[4]}\n".encode()' \
+  '    if received == expected_stop:' \
+  '        connection.sendall(f"ET_TUNNEL_STOPPED:{sys.argv[4]}\n".encode())' \
+  '    elif received == expected_attach:' \
+  '        connection.sendall(f"ET_TUNNEL_ATTACHED:{sys.argv[4]}\n".encode())' \
+  '        confirm = b""' \
+  '        while b"\n" not in confirm:' \
+  '            chunk = connection.recv(256)' \
+  '            if not chunk:' \
+  '                break' \
+  '            confirm += chunk' \
+  '        expected_confirm = f"ET_TUNNEL_CONFIRM:{sys.argv[4]}\n".encode()' \
+  '        if confirm == expected_confirm:' \
+  '            connection.sendall(f"ET_TUNNEL_CONFIRMED:{sys.argv[4]}\n".encode())' \
+  '            if sys.argv[5]:' \
+  '                open(sys.argv[5], "wb").close()' \
+  '    try:' \
+  '        while connection.recv(256):' \
+  '            pass' \
+  '    except ConnectionResetError:' \
+  '        pass' \
+  'if sys.argv[6]:' \
+  '    open(sys.argv[6], "wb").close()' \
+  'server.close()' \
+  'PY'
+_write_stub "$bin/dropping-control-transport" \
+  'printf "%s\n" "$$" >"$ET_TUNNEL_TEST_TRANSPORT_PID"' \
+  'mapping=$2' \
+  'control_mapping=${mapping#*,}' \
+  'control_port=${control_mapping%%:*}' \
+  'token=${ET_TUNNEL_RETRY_MARKER#ET_TUNNEL_COLLISION:}' \
+  'token=${token%%:*}' \
+  'python3 - "$control_port" "$token" <<PY' \
+  'import os' \
+  'import socket' \
+  'import time' \
+  'import sys' \
+  'server = socket.socket()' \
+  'server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)' \
+  'server.bind(("127.0.0.1", int(sys.argv[1])))' \
+  'server.listen(4)' \
+  'open(os.environ["ET_TUNNEL_TEST_CONTROL_READY"], "wb").close()' \
+  'while not os.path.exists(os.environ["ET_TUNNEL_TEST_CONTROL_GATE"]):' \
+  '    time.sleep(0.05)' \
+  'expected_stop = f"ET_TUNNEL_STOP:{sys.argv[2]}\n".encode()' \
+  'dropped_stop = False' \
+  'while True:' \
+  '    connection, _ = server.accept()' \
+  '    connection.sendall(b"ET_TUNNEL_CONTROL\\n")' \
+  '    received = b""' \
+  '    with connection:' \
+  '        while b"\n" not in received:' \
+  '            chunk = connection.recv(256)' \
+  '            if not chunk:' \
+  '                break' \
+  '            received += chunk' \
+  '        if received != expected_stop:' \
+  '            continue' \
+  '        if not dropped_stop:' \
+  '            open(os.environ["ET_TUNNEL_TEST_CONTROL_DROPPED"], "wb").close()' \
+  '            dropped_stop = True' \
+  '            continue' \
+  '        with open(os.environ["ET_TUNNEL_TEST_CONTROL_TOKEN"], "wb") as output:' \
+  '            output.write(received)' \
+  '        connection.sendall(f"ET_TUNNEL_STOPPED:{sys.argv[2]}\n".encode())' \
+  '        while connection.recv(256):' \
+  '            pass' \
+  '        break' \
+  'server.close()' \
+  'PY'
+
+_decode_remote_payload() {
+  local wire="$1" magic token payload
+
+  IFS=: read -r magic token payload <<<"$wire"
+  [[ "$magic" == ET_TUNNEL_PAYLOAD && "$token" =~ ^[0-9a-f]{32}$ ]] || return 1
+  if printf '%s' "$payload" | base64 --decode 2>/dev/null | gzip -dc 2>/dev/null; then
+    return
+  fi
+  printf '%s' "$payload" | base64 -D 2>/dev/null | gzip -dc
+}
+
+_run_et_tunnel() {
+  : >"$log"
+  stdout="$tmp/stdout"
+  stderr="$tmp/stderr"
+  count="$tmp/count"
+  remote_command_file="$tmp/remote-command"
+  bootstrap_payload_file="$tmp/bootstrap-payload"
+  run_exit=0
+  : >"$count"
+  : >"$remote_command_file"
+  rm -f "$bootstrap_payload_file"
+  PATH="${ET_TUNNEL_TEST_PATH:-$bin:/usr/bin:/bin}" \
+    HOME="$test_home" \
+    XDG_STATE_HOME="$test_home/state" \
+    ET_TUNNEL_TEST_LOG="$log" \
+    ET_TUNNEL_TEST_REMOTE_COMMAND="$remote_command_file" \
+    ET_TUNNEL_TEST_BOOTSTRAP_PAYLOAD="$bootstrap_payload_file" \
+    ET_TUNNEL_TEST_PYTHON="$test_python" \
+    ET_TUNNEL_TEST_COUNT="$count" \
+    ET_TUNNEL_TEST_COLLISIONS="${ET_TUNNEL_TEST_COLLISIONS:-0}" \
+    ET_TUNNEL_TEST_EXIT="${ET_TUNNEL_TEST_EXIT:-0}" \
+    ET_TUNNEL_TEST_FATAL_STATUS="${ET_TUNNEL_TEST_FATAL_STATUS:-}" \
+    ET_TUNNEL_TEST_ECHO_ARGS="${ET_TUNNEL_TEST_ECHO_ARGS:-0}" \
+    ET_TUNNEL_CLIENT_ID="${ET_TUNNEL_TEST_CLIENT_ID-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}" \
+    ET_TUNNEL_TEST_LSOF_EXIT="${ET_TUNNEL_TEST_LSOF_EXIT:-}" \
+    ET_TUNNEL_TEST_LSOF_ESTABLISHED_PORT="${ET_TUNNEL_TEST_LSOF_ESTABLISHED_PORT:-}" \
+    ET_TUNNEL_TEST_LSOF_REMOTE_PORT="${ET_TUNNEL_TEST_LSOF_REMOTE_PORT:-}" \
+    ET_TUNNEL_TEST_SS_LISTENER_PORT="${ET_TUNNEL_TEST_SS_LISTENER_PORT:-}" \
+    ET_TUNNEL_ET="${ET_TUNNEL_TEST_ET:-et}" \
+    ET_TUNNEL_TRANSPORT="${ET_TUNNEL_TEST_TRANSPORT:-}" \
+    bash "$SCRIPT" "$@" >"$stdout" 2>"$stderr" || run_exit=$?
+}
+
+echo "=== et-tunnel default transport ==="
+
+if [[ -x "$SCRIPT" ]]; then
+  _pass "installation: public entry point is executable"
+else
+  _fail "installation: public entry point is executable"
+fi
+
+ET_TUNNEL_TEST_LSOF_ESTABLISHED_PORT=10452 \
+  ET_TUNNEL_TEST_EXIT=23 \
+  _run_et_tunnel gateway.example 10452 service.internal 443
+unset ET_TUNNEL_TEST_LSOF_ESTABLISHED_PORT ET_TUNNEL_TEST_EXIT
+_assert_exit "occupied established local port: rejected" 1 "$run_exit"
+_assert_contains "occupied established local port: suggests an existing tunnel" \
+  "may already be running" "$(cat "$stderr")"
+_assert_file_content "occupied established local port: rejected before transport" "" "$log"
+
+ET_TUNNEL_TEST_LSOF_REMOTE_PORT=10453 \
+  ET_TUNNEL_TEST_EXIT=23 \
+  _run_et_tunnel gateway.example 10453 service.internal 443
+unset ET_TUNNEL_TEST_LSOF_REMOTE_PORT ET_TUNNEL_TEST_EXIT
+_assert_exit "remote-only TCP port: remains available locally" 23 "$run_exit"
+_assert_contains "remote-only TCP port: reaches the transport" "et" "$(cat "$log")"
+
+ET_TUNNEL_TEST_PATH="$ss_bin" \
+  ET_TUNNEL_TEST_SS_LISTENER_PORT=10454 \
+  ET_TUNNEL_TEST_EXIT=23 \
+  _run_et_tunnel gateway.example 10454 service.internal 443
+unset ET_TUNNEL_TEST_PATH ET_TUNNEL_TEST_SS_LISTENER_PORT ET_TUNNEL_TEST_EXIT
+_assert_exit "ss fallback listener: rejected" 1 "$run_exit"
+_assert_contains "ss fallback listener: suggests an existing tunnel" \
+  "may already be running" "$(cat "$stderr")"
+_assert_file_content "ss fallback listener: rejected before transport" "" "$log"
+
+_run_et_tunnel gateway.example 10443 service.internal 443
+commands=$(cat "$log")
+transport_remote_command=$(cat "$remote_command_file")
+transport_remote_payload=$(cat "$bootstrap_payload_file")
+decoded_remote_command=$(_decode_remote_payload "$transport_remote_payload")
+commands+=$'\n'"$decoded_remote_command"
+output=$(cat "$stdout")
+mapping=$(sed -n '/^<-t>$/{n;s/^<\(.*\)>$/\1/p;q;}' "$log")
+ports=$(sed -n 's/^10443:\([0-9][0-9]*\),\([0-9][0-9]*\):\([0-9][0-9]*\)$/\1 \2 \3/p' <<<"$mapping")
+read -r relay_port control_local_port control_remote_port <<<"$ports"
+
+_assert_exit "default launch: succeeds" 0 "$run_exit"
+_assert_contains "default launch: runs ET without a terminal" $'et\n<-N>' "$commands"
+_assert_contains "default launch: enables ET keepalives" $'<--keepalive>\n<5>' "$commands"
+expected_mapping=$(printf '<-t>\n<10443:%s,%s:%s>' \
+  "$relay_port" "$control_local_port" "$control_remote_port")
+_assert_contains "default launch: maps the requested local port" \
+  "$expected_mapping" "$commands"
+if [[ "$control_local_port" =~ ^[0-9]+$ ]] &&
+  ((control_local_port >= 49152 && control_local_port <= 65535)); then
+  _pass "default launch: chooses a private local control port"
+else
+  _fail "default launch: chooses a private local control port (got '$control_local_port')"
+fi
+_assert_contains "default launch: sends a remote relay command" "<--command>" "$commands"
+_assert_contains "default launch: enters an explicit POSIX remote shell" \
+  "exec /bin/sh -c '" \
+  "$transport_remote_command"
+_assert_contains "default launch: bootstrap uses a portable decoder" \
+  "base64 -d" "$transport_remote_command"
+_assert_contains "default launch: bootstrap decompresses the remote supervisor" \
+  "gzip -dc" "$transport_remote_command"
+_assert_contains "default launch: authenticates the exact bootstrap payload" \
+  "sha256sum" "$transport_remote_command"
+_assert_contains "default launch: bounds unauthenticated bootstrap input" \
+  "ulimit -f" "$transport_remote_command"
+_assert_contains "default launch: gives an abandoned bootstrap a deadline" \
+  "bootstrap-timeout" "$transport_remote_command"
+_assert_contains "default launch: identifies the bootstrap listener before upload" \
+  "ET_TUNNEL_BOOTSTRAP" "$transport_remote_command"
+_assert_contains "default launch: uploads the supervisor over the private forward" \
+  "ET_TUNNEL_PAYLOAD:" "$transport_remote_payload"
+if [[ "$transport_remote_command" != *$'\n'* ]]; then
+  _pass "default launch: sends the remote command as one line"
+else
+  _fail "default launch: sends the remote command as one line"
+fi
+if ((${#transport_remote_command} <= 3072)); then
+  _pass "default launch: keeps the bootstrap below the remote TTY input budget"
+else
+  _fail "default launch: keeps the bootstrap below the remote TTY input budget"
+fi
+_assert_contains "default launch: connects through the requested host" \
+  "<gateway.example>" "$commands"
+if [[ "$relay_port" =~ ^[0-9]+$ ]] &&
+  ((relay_port >= 49152 && relay_port <= 65535)); then
+  _pass "default launch: chooses an ephemeral relay port"
+else
+  _fail "default launch: chooses an ephemeral relay port (got '$relay_port')"
+fi
+_assert_contains "default launch: relay binds only remote loopback" \
+  '127.0.0.1 "$et_tunnel_relay_port"' "$commands"
+_assert_contains "default launch: control listener binds only remote loopback" \
+  '127.0.0.1 "$et_tunnel_control_port"' "$commands"
+_assert_contains "default launch: ncat relay reaches the requested target" \
+  "service.internal 443" "$commands"
+_assert_contains "default launch: supports socat when ncat is unavailable" "command -v socat" "$commands"
+case "$commands" in
+  *'if command -v socat'*'elif command -v ncat'*)
+    _pass "default launch: prefers the transparent socat relay"
+    ;;
+  *)
+    _fail "default launch: prefers the transparent socat relay"
+    ;;
+esac
+_assert_contains "default launch: scopes remote state to client and local port" \
+  "et_tunnel_key=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-10443" "$commands"
+_assert_contains "default launch: records a private remote owner" \
+  'et_tunnel_owner=$et_tunnel_state/owner' "$commands"
+_assert_contains "default launch: replaces the prior logical tunnel through its control port" \
+  'old_token' "$commands"
+_assert_contains "default launch: supports authenticated pre-attachment cleanup" \
+  'ET_TUNNEL_STOPPED:' "$commands"
+_assert_contains "default launch: serializes same-key remote startup" \
+  'flock -n 7' "$commands"
+_assert_contains "default launch: directly execs the observable control listener" \
+  'exec ncat --listen --recv-only' "$commands"
+_assert_contains "default launch: treats zombie control listeners as stopped" \
+  'case "$process_state" in *Z*) return 1' "$commands"
+_assert_contains "default launch: defers remote signals through child PID publication" \
+  'defer_remote_signals' "$commands"
+_assert_contains "default launch: cleans direct relay children on exit" \
+  'relay_pid' "$commands"
+_assert_contains "default launch: emits a tokenized collision marker" \
+  'ET_TUNNEL_COLLISION:' "$commands"
+_assert_contains "default launch: reports the local endpoint" "localhost:10443" "$output"
+_assert_contains "default launch: reports the remote endpoint" "service.internal:443" "$output"
+_assert_contains "default launch: reports foreground stop behavior" "Ctrl-C to stop" "$output"
+_assert_contains "default launch: documents the forced cleanup escape" \
+  "press Ctrl-C again to force" "$(bash "$SCRIPT" --help 2>&1)"
+
+echo ""
+echo "=== et-tunnel remote supervisor ==="
+
+remote_bin="$tmp/remote-bin"
+remote_cache="$tmp/remote-cache"
+remote_fifos="$tmp/remote-fifos"
+remote_log="$tmp/remote.log"
+remote_stop_race_arm="$tmp/remote-stop-race.arm"
+remote_stop_race_used="$tmp/remote-stop-race.used"
+remote_stop_race_ready="$tmp/remote-stop-race.ready"
+mkdir -p "$remote_bin" "$remote_cache" "$remote_fifos"
+real_flock=$(command -v flock 2>/dev/null || true)
+_write_stub "$remote_bin/flock" \
+  'if [[ -n "${ET_TUNNEL_REMOTE_REAL_FLOCK:-}" ]]; then' \
+  '  exec "$ET_TUNNEL_REMOTE_REAL_FLOCK" "$@"' \
+  'fi' \
+  'exit 0'
+_write_stub "$remote_bin/wc" \
+  'if [[ "${1:-}" == -l && -e "${ET_TUNNEL_REMOTE_STOP_RACE_ARM:-}" && ! -e "${ET_TUNNEL_REMOTE_STOP_RACE_USED:-}" ]] &&' \
+  '  "$ET_TUNNEL_REMOTE_TEST_PYTHON" -c "import os, sys; sys.exit(0 if os.path.samestat(os.fstat(0), os.stat(sys.argv[1])) else 1)" "$ET_TUNNEL_REMOTE_STOP_FILE"; then' \
+  '  stale_count=$(/usr/bin/wc "$@")' \
+  '  : >"$ET_TUNNEL_REMOTE_STOP_RACE_USED"' \
+  '  stop_pid=' \
+  '  [[ ! -r "${ET_TUNNEL_REMOTE_STOP_PID:-}" ]] || read -r stop_pid <"$ET_TUNNEL_REMOTE_STOP_PID"' \
+  '  for _ in {1..80}; do' \
+  '    stop_state=$(ps -o stat= -p "$stop_pid" 2>/dev/null || true)' \
+  '    if [[ -z "$stop_state" || "$stop_state" == *Z* ]]; then' \
+  '      : >"$ET_TUNNEL_REMOTE_STOP_RACE_READY"' \
+  '      break' \
+  '    fi' \
+  '    sleep 0.1' \
+  '  done' \
+  '  printf "  %s\n" "$stale_count"' \
+  '  exit 0' \
+  'fi' \
+  'count=$(/usr/bin/wc "$@")' \
+  'if [[ "${1:-}" == -l || "${1:-}" == -c ]]; then' \
+  '  printf "  %s\n" "$count"' \
+  'else' \
+  '  printf "%s\n" "$count"' \
+  'fi'
+_write_stub "$remote_bin/fifo-listener" \
+  'exec "$ET_TUNNEL_REMOTE_TEST_PYTHON" - "$@" <<PY' \
+  'import os' \
+  'import sys' \
+  'with open(sys.argv[1], "rb", buffering=0) as source:' \
+  '    while True:' \
+  '        chunk = source.read(65536)' \
+  '        if not chunk:' \
+  '            break' \
+  '        offset = 0' \
+  '        while offset < len(chunk):' \
+  '            offset += os.write(1, chunk[offset:])' \
+  'PY'
+_write_stub "$remote_bin/fifo-sender" \
+  'IFS= read -r value || :' \
+  'exec "$ET_TUNNEL_REMOTE_TEST_PYTHON" - "$1" "$value" <<PY' \
+  'import errno' \
+  'import os' \
+  'import sys' \
+  'import time' \
+  'deadline = time.monotonic() + 8' \
+  'while True:' \
+  '    try:' \
+  '        descriptor = os.open(sys.argv[1], os.O_WRONLY | os.O_NONBLOCK)' \
+  '        break' \
+  '    except OSError as error:' \
+  '        if error.errno not in (errno.ENOENT, errno.ENXIO) or time.monotonic() >= deadline:' \
+  '            raise' \
+  '        time.sleep(0.05)' \
+  'with os.fdopen(descriptor, "wb", buffering=0) as output:' \
+  '    output.write((sys.argv[2] + "\\n").encode())' \
+  'PY'
+_write_stub "$remote_bin/ncat" \
+  'mode=connect' \
+  'previous=' \
+  'handler=' \
+  'for arg in "$@"; do' \
+  '  [[ "$previous" == --exec ]] && handler=$arg' \
+  '  [[ "$arg" == --listen ]] && mode=control' \
+  '  [[ "$arg" == --keep-open ]] && mode=data' \
+  '  [[ "$arg" == --recv-only ]] && mode=control' \
+  '  [[ "$arg" == --send-only ]] && mode=send' \
+  '  previous=$arg' \
+  'done' \
+  'port="${!#}"' \
+  'printf "%s %s\n" "$mode" "$port" >>"$ET_TUNNEL_REMOTE_TEST_LOG"' \
+  'case "$mode" in' \
+  '  data)' \
+  '    printf "%s\n" "$$" >"$ET_TUNNEL_REMOTE_DATA_PID"' \
+  '    sleep 300 &' \
+  '    data_child=$!' \
+  '    printf "%s\n" "$data_child" >"$ET_TUNNEL_REMOTE_DATA_CHILD_PID"' \
+  '    wait "$data_child"' \
+  '    ;;' \
+  '  control)' \
+  '    if [[ "$port" == "${ET_TUNNEL_REMOTE_STOP_PORT:-}" && -n "${ET_TUNNEL_REMOTE_STOP_PID:-}" ]]; then' \
+  '      printf "%s\n" "$$" >"$ET_TUNNEL_REMOTE_STOP_PID"' \
+  '    elif [[ -n "${ET_TUNNEL_REMOTE_CONTROL_PID:-}" ]]; then' \
+  '      printf "%s\n" "$$" >"$ET_TUNNEL_REMOTE_CONTROL_PID"' \
+  '    fi' \
+  '    for _ in {1..50}; do [[ -p "$ET_TUNNEL_REMOTE_FIFO_DIR/$port" ]] && break; sleep 0.1; done' \
+  '    if [[ -n "$handler" ]]; then' \
+  '      exec "$handler" 127.0.0.1 "$port" <"$ET_TUNNEL_REMOTE_FIFO_DIR/$port" >"$ET_TUNNEL_REMOTE_FIFO_DIR/$port.reply"' \
+  '    else' \
+  '      exec "$ET_TUNNEL_REMOTE_FIFO_LISTENER" "$ET_TUNNEL_REMOTE_FIFO_DIR/$port" 127.0.0.1 "$port"' \
+  '    fi' \
+  '    ;;' \
+  '  send)' \
+  '    exec "$ET_TUNNEL_REMOTE_FIFO_SENDER" "$ET_TUNNEL_REMOTE_FIFO_DIR/$port"' \
+  '    ;;' \
+  'esac'
+
+_start_remote_supervisor() {
+  local command="$1" control_port="$2" stop_port="$3"
+  mkfifo "$remote_fifos/$control_port" "$remote_fifos/$stop_port"
+  PATH="$remote_bin:/usr/bin:/bin" \
+    XDG_CACHE_HOME="$remote_cache" \
+    ET_TUNNEL_REMOTE_FIFO_DIR="$remote_fifos" \
+    ET_TUNNEL_REMOTE_DATA_PID="$tmp/remote-data.pid" \
+    ET_TUNNEL_REMOTE_DATA_CHILD_PID="$tmp/remote-data-child.pid" \
+    ET_TUNNEL_REMOTE_CONTROL_PID="$tmp/remote-control.pid" \
+    ET_TUNNEL_REMOTE_STOP_PID="$tmp/remote-stop.pid" \
+    ET_TUNNEL_REMOTE_STOP_FILE="$remote_state/stop" \
+    ET_TUNNEL_REMOTE_STOP_RACE_ARM="$remote_stop_race_arm" \
+    ET_TUNNEL_REMOTE_STOP_RACE_USED="$remote_stop_race_used" \
+    ET_TUNNEL_REMOTE_STOP_RACE_READY="$remote_stop_race_ready" \
+    ET_TUNNEL_REMOTE_STOP_PORT="$stop_port" \
+    ET_TUNNEL_REMOTE_FIFO_LISTENER="$remote_bin/fifo-listener" \
+    ET_TUNNEL_REMOTE_FIFO_SENDER="$remote_bin/fifo-sender" \
+    ET_TUNNEL_REMOTE_TEST_PYTHON="$test_python" \
+    ET_TUNNEL_REMOTE_REAL_FLOCK="$real_flock" \
+    ET_TUNNEL_REMOTE_TEST_LOG="$remote_log" \
+    sh -c "$command" >"$tmp/remote.stdout" 2>"$tmp/remote.stderr" &
+  remote_pid=$!
+}
+
+_write_remote_fifo() {
+  printf '%s\n' "$2" | ET_TUNNEL_REMOTE_TEST_PYTHON="$test_python" \
+    "$remote_bin/fifo-sender" "$1"
+}
+
+_wait_for_file() {
+  local path="$1"
+  local _
+  for _ in {1..80}; do
+    [[ -s "$path" ]] && return
+    sleep 0.1
+  done
+  return 1
+}
+
+_wait_for_marker() {
+  local path="$1"
+  local _
+  for _ in {1..80}; do
+    [[ -e "$path" ]] && return
+    sleep 0.1
+  done
+  return 1
+}
+
+_wait_for_line() {
+  local path="$1" expected="$2"
+  local _
+  for _ in {1..80}; do
+    if [[ -r "$path" ]] && grep -Fxq -- "$expected" "$path"; then
+      return
+    fi
+    sleep 0.1
+  done
+  return 1
+}
+
+_report_remote_timeout() {
+  local label="$1" supervisor="$2" owner_snapshot=""
+  local observed_pid path
+  local -a owner_fields=()
+
+  [[ ! -r "$remote_owner" ]] || owner_snapshot=$(cat "$remote_owner")
+  read -r -a owner_fields <<<"$owner_snapshot"
+  printf 'remote supervisor timeout (%s): requested=%s owner=%s\n' \
+    "$label" "$supervisor" "$owner_snapshot" >&2
+  for observed_pid in "$supervisor" "${owner_fields[2]:-}" \
+    "${owner_fields[3]:-}" "${owner_fields[6]:-}" "${owner_fields[7]:-}"; do
+    [[ "$observed_pid" =~ ^[0-9]+$ ]] || continue
+    ps -ww -o pid=,ppid=,stat=,command= -p "$observed_pid" >&2 || true
+  done
+  for path in "$remote_state/control" "$remote_state/stop"; do
+    printf '%s: ' "$path" >&2
+    if [[ -r "$path" ]]; then
+      sed -n '1,3p' "$path" >&2
+    else
+      printf '<missing>\n' >&2
+    fi
+  done
+  printf '%s\n' 'remote stderr:' >&2
+  tail -n 20 "$tmp/remote.stderr" >&2 || true
+  printf '%s\n' 'remote log:' >&2
+  tail -n 20 "$remote_log" >&2 || true
+}
+
+_process_has_stopped() {
+  local pid="$1" state
+
+  state=$(ps -o stat= -p "$pid" 2>/dev/null || true)
+  [[ -z "$state" || "$state" == *Z* ]]
+}
+
+_wait_for_processes_stopped() {
+  local _ pid all_stopped
+
+  for _ in {1..80}; do
+    all_stopped=1
+    for pid in "$@"; do
+      if ! _process_has_stopped "$pid"; then
+        all_stopped=0
+      fi
+    done
+    ((all_stopped == 1)) && return
+    sleep 0.1
+  done
+  return 1
+}
+
+_wait_for_owner_control() {
+  local path="$1" expected="$2" token control _
+  for _ in {1..80}; do
+    token=
+    control=
+    [[ -r "$path" ]] && read -r token control _ <"$path"
+    if [[ -n "$token" && "$control" == "$expected" ]]; then
+      return
+    fi
+    sleep 0.1
+  done
+  return 1
+}
+
+remote_transport_command="$transport_remote_command"
+remote_command="$decoded_remote_command"
+case "$remote_transport_command" in
+  *'awk "{ print \$1 }"'*) ;;
+  *) _fail "remote bootstrap command: preserves the nested awk program" ;;
+esac
+sh -n -c "$remote_transport_command" ||
+  _fail "remote bootstrap command: is valid POSIX shell syntax"
+stop_remote_port=$(sed -n 's/^et_tunnel_stop_port=//p' <<<"$remote_command")
+remote_root="$remote_cache/et-tunnel"
+remote_key="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-10443"
+remote_state="$remote_root/$remote_key"
+remote_owner="$remote_state/owner"
+remote_startup_lock="$remote_root/.$remote_key.start.lock"
+
+bad_cache="$tmp/not-a-cache-directory"
+: >"$bad_cache"
+remote_token=$(sed -n 's/^et_tunnel_token=//p' <<<"$remote_command")
+bootstrap_dir="${TMPDIR:-/tmp}/et-tunnel-bootstrap.$remote_token"
+bootstrap_guard_target="$tmp/bootstrap-guard-target"
+mkdir -p "$bootstrap_guard_target"
+printf 'unchanged\n' >"$bootstrap_guard_target/w"
+ln -s "$bootstrap_guard_target" "$bootstrap_dir"
+bootstrap_guard_exit=0
+bootstrap_guard_output=$(sh -c "$remote_transport_command" 2>&1) ||
+  bootstrap_guard_exit=$?
+_assert_exit "remote bootstrap staging: refuses a preexisting shared path" \
+  73 "$bootstrap_guard_exit"
+_assert_contains "remote bootstrap staging: reports a tokenized state failure" \
+  "ET_TUNNEL_FATAL:$remote_token:73:bootstrap-state" "$bootstrap_guard_output"
+_assert_eq "remote bootstrap staging: does not follow a hostile symlink" \
+  "unchanged" "$(cat "$bootstrap_guard_target/w")"
+if [[ -L "$bootstrap_dir" ]]; then
+  _pass "remote bootstrap staging: leaves an unowned path untouched"
+else
+  _fail "remote bootstrap staging: leaves an unowned path untouched"
+fi
+rm -f "$bootstrap_dir"
+rm -rf "$bootstrap_guard_target"
+
+if command -v ncat >/dev/null 2>&1 || command -v socat >/dev/null 2>&1; then
+  base64_invoked="$tmp/bootstrap-base64.invoked"
+  _write_stub "$remote_bin/base64" \
+    'touch "$ET_TUNNEL_REMOTE_BASE64_INVOKED"' \
+    'exit 127'
+  mv "$remote_bin/ncat" "$remote_bin/ncat.supervisor"
+  decoder_exit=0
+  PATH="$remote_bin:$PATH" \
+    ET_TUNNEL_REMOTE_BASE64_INVOKED="$base64_invoked" \
+    sh -c "$remote_transport_command" >"$tmp/decoder.stdout" 2>"$tmp/decoder.stderr" &
+  decoder_pid=$!
+  for _ in {1..50}; do
+    [[ -d "$bootstrap_dir" ]] && break
+    sleep 0.05
+  done
+  bootstrap_mode=$(stat -c '%a' "$bootstrap_dir" 2>/dev/null ||
+    stat -f '%Lp' "$bootstrap_dir" 2>/dev/null || true)
+  _assert_eq "remote bootstrap staging: creates a private directory" \
+    "700" "$bootstrap_mode"
+
+  _bootstrap_exchange() {
+    "$test_python" - "$control_remote_port" "$1" <<'PY'
+import socket
+import sys
+import time
+
+port, request = sys.argv[1:]
+deadline = time.monotonic() + 5
+while True:
+    try:
+        connection = socket.create_connection(("127.0.0.1", int(port)), timeout=1)
+    except ConnectionRefusedError:
+        if time.monotonic() >= deadline:
+            raise
+        time.sleep(0.05)
+        continue
+    response = b""
+    while b"\n" not in response:
+        chunk = connection.recv(4096)
+        if not chunk:
+            break
+        response += chunk
+    if response == b"ET_TUNNEL_BOOTSTRAP\n":
+        break
+    connection.close()
+    if time.monotonic() >= deadline:
+        raise RuntimeError(f"unexpected bootstrap marker: {response!r}")
+    time.sleep(0.05)
+with connection:
+    connection.sendall(request.encode())
+    connection.shutdown(socket.SHUT_WR)
+    while True:
+        chunk = connection.recv(4096)
+        if not chunk:
+            break
+        response += chunk
+sys.stdout.buffer.write(response)
+PY
+  }
+
+  bootstrap_reply=$(_bootstrap_exchange "")
+  _assert_eq "remote bootstrap probe: identifies the pre-supervisor listener" \
+    "ET_TUNNEL_BOOTSTRAP" "$bootstrap_reply"
+  tampered_payload="${transport_remote_payload%?}X"
+  [[ "$tampered_payload" != "$transport_remote_payload" ]] ||
+    tampered_payload="${transport_remote_payload%?}Y"
+  _bootstrap_exchange "$tampered_payload" >/dev/null
+  if kill -0 "$decoder_pid" 2>/dev/null && [[ ! -e "$base64_invoked" ]]; then
+    _pass "remote bootstrap authentication: rejects a same-size altered payload before decoding"
+  else
+    _fail "remote bootstrap authentication: rejects a same-size altered payload before decoding"
+  fi
+  _bootstrap_exchange "$transport_remote_payload" >/dev/null
+  wait "$decoder_pid" || decoder_exit=$?
+  decoder_output=$(cat "$tmp/decoder.stdout" "$tmp/decoder.stderr")
+  _assert_exit "remote decoder failure: preserves an actionable status" 127 "$decoder_exit"
+  _assert_contains "remote decoder failure: emits a tokenized fatal marker" \
+    "ET_TUNNEL_FATAL:$remote_token:127:decode" "$decoder_output"
+  if [[ -e "$base64_invoked" ]]; then
+    _pass "remote bootstrap authentication: decodes the exact bound payload"
+  else
+    _fail "remote bootstrap authentication: decodes the exact bound payload"
+  fi
+  rm -f "$remote_bin/base64"
+  mv "$remote_bin/ncat.supervisor" "$remote_bin/ncat"
+
+  bootstrap_timeout_exit=0
+  bootstrap_timeout_output=$(ET_TUNNEL_BOOTSTRAP_TIMEOUT=1 \
+    sh -c "$remote_transport_command" 2>&1) || bootstrap_timeout_exit=$?
+  _assert_exit "remote bootstrap deadline: expires an abandoned listener" \
+    124 "$bootstrap_timeout_exit"
+  _assert_contains "remote bootstrap deadline: emits a tokenized fatal marker" \
+    "ET_TUNNEL_FATAL:$remote_token:124:bootstrap-timeout" \
+    "$bootstrap_timeout_output"
+  if "$test_python" - "$control_remote_port" <<'PY'; then
+import socket
+import sys
+
+probe = socket.socket()
+probe.settimeout(0.2)
+try:
+    status = probe.connect_ex(("127.0.0.1", int(sys.argv[1])))
+finally:
+    probe.close()
+sys.exit(0 if status != 0 else 1)
+PY
+    _pass "remote bootstrap deadline: removes its listener"
+  else
+    _fail "remote bootstrap deadline: removes its listener"
+  fi
+  if [[ ! -e "$bootstrap_dir" && ! -L "$bootstrap_dir" ]]; then
+    _pass "remote bootstrap deadline: removes private temporary files"
+  else
+    _fail "remote bootstrap deadline: removes private temporary files"
+  fi
+else
+  printf '  SKIP: real bootstrap relay checks require local ncat or socat\n'
+fi
+
+setup_exit=0
+setup_output=$(PATH="$remote_bin:/usr/bin:/bin" XDG_CACHE_HOME="$bad_cache" \
+  ET_TUNNEL_REMOTE_FIFO_DIR="$remote_fifos" \
+  ET_TUNNEL_REMOTE_REAL_FLOCK="$real_flock" \
+  ET_TUNNEL_REMOTE_TEST_LOG="$remote_log" \
+  sh -c "$remote_command" 2>&1) || setup_exit=$?
+_assert_exit "remote setup failure: preserves an actionable status" 74 "$setup_exit"
+_assert_contains "remote setup failure: emits a tokenized fatal marker" \
+  "ET_TUNNEL_FATAL:$remote_token:74:state-root" "$setup_output"
+
+mkdir -p "$remote_state"
+startup_lock_holder=""
+if [[ -n "$real_flock" ]]; then
+  "$real_flock" "$remote_startup_lock" sleep 2 &
+  startup_lock_holder=$!
+  for _ in {1..50}; do
+    "$real_flock" -n "$remote_startup_lock" true 2>/dev/null || break
+    sleep 0.1
+  done
+fi
+_start_remote_supervisor "$remote_command" "$control_remote_port" "$stop_remote_port"
+sleep 0.3
+if [[ -z "$real_flock" || ! -e "$remote_owner" ]]; then
+  _pass "remote startup lock: waits for a live same-key owner when flock is available"
+else
+  _fail "remote startup lock: waits for a live same-key owner when flock is available"
+fi
+if [[ -n "$startup_lock_holder" ]]; then
+  wait "$startup_lock_holder" 2>/dev/null || true
+fi
+if _wait_for_file "$remote_owner"; then
+  _pass "remote supervisor: reclaims an incomplete owner and publishes state"
+else
+  _fail "remote supervisor: reclaims an incomplete owner and publishes state"
+  wait "$remote_pid" 2>/dev/null || true
+  rm -f "$remote_owner" "$remote_state/control" \
+    "$remote_fifos/$control_remote_port" "$remote_fifos/$stop_remote_port"
+  rmdir "$remote_state" 2>/dev/null || true
+  _start_remote_supervisor "$remote_command" "$control_remote_port" "$stop_remote_port"
+  _wait_for_file "$remote_owner" || _fail "remote supervisor: clean fallback starts"
+fi
+startup_lock_released=1
+if [[ -n "$real_flock" ]]; then
+  startup_lock_released=0
+  for _ in {1..80}; do
+    if "$real_flock" -n "$remote_startup_lock" true 2>/dev/null; then
+      startup_lock_released=1
+      break
+    fi
+    sleep 0.1
+  done
+fi
+if ((startup_lock_released == 1)); then
+  _pass "remote startup lock: releases automatically after publication"
+else
+  _fail "remote startup lock: releases automatically after publication"
+fi
+read -r remote_token published_stop_port _ <"$remote_owner"
+_assert_eq "remote supervisor: publishes a separate reclaim listener" \
+  "$stop_remote_port" "$published_stop_port"
+_wait_for_file "$tmp/remote-data.pid" || _fail "remote supervisor: records its data child"
+_wait_for_file "$tmp/remote-data-child.pid" || _fail "remote supervisor: records its relay descendant"
+read -r remote_data_pid <"$tmp/remote-data.pid"
+read -r remote_data_child_pid <"$tmp/remote-data-child.pid"
+remote_control_reply="$remote_fifos/$control_remote_port.reply"
+exec 9<>"$remote_fifos/$control_remote_port"
+if _wait_for_line "$remote_control_reply" "ET_TUNNEL_CONTROL"; then
+  _pass "remote supervisor: held attachment advertises the control role"
+else
+  _fail "remote supervisor: held attachment advertises the control role"
+fi
+printf '%s\n' "$remote_token" >&9
+if _wait_for_line "$remote_control_reply" "ET_TUNNEL_ATTACHED:$remote_token"; then
+  _pass "remote supervisor: held attachment acknowledges the token"
+else
+  _fail "remote supervisor: held attachment acknowledges the token"
+fi
+printf 'ET_TUNNEL_CONFIRM:%s\n' "$remote_token" >&9
+if _wait_for_line "$remote_control_reply" "ET_TUNNEL_CONFIRMED:$remote_token"; then
+  _pass "remote supervisor: held attachment confirms the control stream"
+else
+  _fail "remote supervisor: held attachment confirms the control stream"
+fi
+if _wait_for_file "$remote_state/control"; then
+  _assert_eq "remote supervisor: held attachment records the exact token" \
+    "$remote_token" "$(cat "$remote_state/control")"
+else
+  _fail "remote supervisor: held attachment records the exact token"
+fi
+_wait_for_file "$tmp/remote-stop.pid" ||
+  _fail "remote supervisor: records its stop listener"
+: >"$remote_stop_race_arm"
+_wait_for_marker "$remote_stop_race_used" ||
+  _fail "remote supervisor: exercises the completed-listener stop race"
+_write_remote_fifo "$remote_fifos/$stop_remote_port" "$remote_token" ||
+  _fail "remote supervisor: reclaim listener accepts a stop request"
+_wait_for_marker "$remote_stop_race_ready" ||
+  _fail "remote supervisor: forces the completed-listener stop race"
+remote_exit=0
+if ! _wait_for_processes_stopped "$remote_pid"; then
+  _fail "remote supervisor: held attachment stop completes within deadline"
+  _report_remote_timeout "held attachment stop" "$remote_pid"
+  kill -KILL "$remote_pid" 2>/dev/null || true
+fi
+wait "$remote_pid" || remote_exit=$?
+exec 9>&-
+_assert_exit "remote supervisor: reclaim listener stops a held attachment" \
+  0 "$remote_exit"
+if [[ ! -e "$remote_state" ]]; then
+  _pass "remote supervisor: removes owned state after stop"
+else
+  _fail "remote supervisor: removes owned state after stop"
+fi
+if _wait_for_processes_stopped "$remote_data_pid"; then
+  _pass "remote supervisor: terminates its direct data child"
+else
+  _fail "remote supervisor: terminates its direct data child"
+fi
+if _wait_for_processes_stopped "$remote_data_child_pid"; then
+  _pass "remote supervisor: terminates active relay descendants"
+else
+  _fail "remote supervisor: terminates active relay descendants"
+  kill -KILL "$remote_data_child_pid" 2>/dev/null || true
+fi
+
+: >"$remote_log"
+rm -f "$remote_fifos/$control_remote_port" "$remote_fifos/$stop_remote_port" \
+  "$tmp/remote-data.pid" "$tmp/remote-data-child.pid" \
+  "$tmp/remote-control.pid" "$tmp/remote-stop.pid"
+_start_remote_supervisor "$remote_command" "$control_remote_port" "$stop_remote_port"
+_wait_for_file "$remote_owner" || _fail "remote control death: owner starts"
+_wait_for_file "$tmp/remote-control.pid" || _fail "remote control death: listener starts"
+read -r killed_control_pid <"$tmp/remote-control.pid"
+kill -KILL "$killed_control_pid"
+for _ in {1..50}; do
+  killed_control_state=$(ps -o stat= -p "$remote_pid" 2>/dev/null || true)
+  [[ -z "$killed_control_state" || "$killed_control_state" == *Z* ]] && break
+  sleep 0.1
+done
+killed_control_exit=0
+killed_control_state=$(ps -o stat= -p "$remote_pid" 2>/dev/null || true)
+if [[ -n "$killed_control_state" && "$killed_control_state" != *Z* ]]; then
+  kill -TERM "$remote_pid" 2>/dev/null || true
+fi
+wait "$remote_pid" || killed_control_exit=$?
+_assert_exit "remote control death: exits instead of hanging without a marker" \
+  75 "$killed_control_exit"
+if [[ ! -e "$remote_state" ]]; then
+  _pass "remote control death: removes owned state"
+else
+  _fail "remote control death: removes owned state"
+fi
+
+: >"$remote_log"
+rm -f "$remote_fifos/$control_remote_port" "$remote_fifos/$stop_remote_port" \
+  "$tmp/remote-data.pid" "$tmp/remote-data-child.pid" \
+  "$tmp/remote-control.pid" "$tmp/remote-stop.pid"
+_start_remote_supervisor "$remote_command" "$control_remote_port" "$stop_remote_port"
+_wait_for_file "$remote_owner" || _fail "remote replacement: first owner starts"
+_wait_for_file "$tmp/remote-data.pid" || _fail "remote replacement: first relay starts"
+_wait_for_file "$tmp/remote-control.pid" || _fail "remote replacement: first control starts"
+_wait_for_file "$tmp/remote-stop.pid" || _fail "remote replacement: first stop listener starts"
+first_remote_pid=$remote_pid
+read -r first_relay_pid <"$tmp/remote-data.pid"
+read -r first_control_pid <"$tmp/remote-control.pid"
+read -r first_stop_pid <"$tmp/remote-stop.pid"
+for _ in {1..80}; do
+  grep -Fq "control $control_remote_port" "$remote_log" && break
+  sleep 0.1
+done
+kill -KILL "$first_remote_pid" 2>/dev/null || true
+first_exit=0
+wait "$first_remote_pid" 2>/dev/null || first_exit=$?
+_assert_exit "remote replacement: observes an untrappable supervisor death" 137 "$first_exit"
+if ! _process_has_stopped "$first_relay_pid"; then
+  _pass "remote replacement: reproduces the orphaned relay before reclaim"
+else
+  _pass "remote replacement: accepts relay cleanup before reclaim"
+fi
+_run_et_tunnel gateway.example 10443 service.internal 443
+replacement_payload=$(cat "$bootstrap_payload_file")
+replacement_command=$(_decode_remote_payload "$replacement_payload")
+replacement_control=$(sed -n 's/^et_tunnel_control_port=//p' <<<"$replacement_command")
+replacement_stop=$(sed -n 's/^et_tunnel_stop_port=//p' <<<"$replacement_command")
+_start_remote_supervisor "$replacement_command" \
+  "$replacement_control" "$replacement_stop"
+replacement_pid=$remote_pid
+_wait_for_owner_control "$remote_owner" "$replacement_stop" ||
+  _fail "remote replacement: new owner starts"
+read -r replacement_token replacement_owner_control _ <"$remote_owner"
+_assert_eq "remote replacement: publishes the new control port" \
+  "$replacement_stop" "$replacement_owner_control"
+_assert_contains "remote replacement: uses the old private control listener" \
+  "send $stop_remote_port" "$(cat "$remote_log")"
+if _wait_for_processes_stopped "$first_relay_pid"; then
+  _pass "remote replacement: reclaims the relay from a killed supervisor"
+else
+  _fail "remote replacement: reclaims the relay from a killed supervisor"
+  kill -KILL "$first_relay_pid" 2>/dev/null || true
+fi
+if _wait_for_processes_stopped "$first_control_pid" "$first_stop_pid"; then
+  _pass "remote replacement: reclaims listeners from a killed supervisor"
+else
+  _fail "remote replacement: reclaims listeners from a killed supervisor"
+  kill -KILL "$first_control_pid" "$first_stop_pid" 2>/dev/null || true
+fi
+_write_remote_fifo "$remote_fifos/$replacement_stop" "$replacement_token" ||
+  _fail "remote replacement: replacement listener accepts a stop request"
+if ! _wait_for_processes_stopped "$replacement_pid"; then
+  _fail "remote replacement: replacement supervisor stops"
+  _report_remote_timeout "replacement stop" "$replacement_pid"
+  kill -KILL "$replacement_pid" 2>/dev/null || true
+fi
+wait "$replacement_pid" || true
+rm -f "$remote_fifos/$control_remote_port" "$remote_fifos/$stop_remote_port" \
+  "$remote_fifos/$replacement_control" "$remote_fifos/$replacement_stop"
+
+if command -v flock >/dev/null 2>&1 && {
+  command -v ncat >/dev/null 2>&1 || command -v socat >/dev/null 2>&1
+}; then
+  _run_et_tunnel gateway.example 10451 service.internal 443
+  control_stop_payload=$(cat "$bootstrap_payload_file")
+  control_stop_command=$(_decode_remote_payload "$control_stop_payload")
+  control_stop_port=$(sed -n 's/^et_tunnel_control_port=//p' <<<"$control_stop_command")
+  control_stop_token=$(sed -n 's/^et_tunnel_token=//p' <<<"$control_stop_command")
+  control_stop_cache="$tmp/control-stop-cache"
+  control_stop_state="$control_stop_cache/et-tunnel/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-10451"
+  mkdir -p "$control_stop_cache"
+  XDG_CACHE_HOME="$control_stop_cache" HOME="$tmp" \
+    sh -c "$control_stop_command" \
+    >"$tmp/control-stop.stdout" 2>"$tmp/control-stop.stderr" &
+  control_stop_pid=$!
+  control_stop_exchange=$(
+    "$test_python" - "$control_stop_port" "$control_stop_token" <<'PY'
+import socket
+import sys
+import time
+
+port, token = sys.argv[1:]
+deadline = time.monotonic() + 8
+last_role = None
+while True:
+    try:
+        connection = socket.create_connection(("127.0.0.1", int(port)), timeout=1)
+        with connection:
+            stream = connection.makefile("rb")
+            role = stream.readline().decode().strip()
+            last_role = role
+            if role == "ET_TUNNEL_CONTROL":
+                connection.sendall(f"ET_TUNNEL_STOP:{token}\n".encode())
+                stopped = stream.readline().decode().strip()
+                break
+    except (ConnectionRefusedError, TimeoutError):
+        pass
+    if time.monotonic() >= deadline:
+        raise TimeoutError(f"control role not ready; last role was {last_role!r}")
+    time.sleep(0.05)
+print(role)
+print(stopped)
+PY
+  )
+  control_stop_exit=0
+  wait "$control_stop_pid" || control_stop_exit=$?
+  _assert_contains "remote pre-attachment stop: advertises the control role" \
+    "ET_TUNNEL_CONTROL" "$control_stop_exchange"
+  _assert_contains "remote pre-attachment stop: acknowledges the authenticated request" \
+    "ET_TUNNEL_STOPPED:$control_stop_token" "$control_stop_exchange"
+  _assert_exit "remote pre-attachment stop: terminates the supervisor" \
+    0 "$control_stop_exit"
+  if [[ ! -e "$control_stop_state" ]]; then
+    _pass "remote pre-attachment stop: removes owned state"
+  else
+    _fail "remote pre-attachment stop: removes owned state"
+  fi
+else
+  printf '  SKIP: real supervisor stop check requires local flock and ncat or socat\n'
+fi
+
+echo ""
+echo "=== et-tunnel custom transport ==="
+
+ET_TUNNEL_TEST_TRANSPORT="$bin/test-transport" \
+  _run_et_tunnel relay.example 5901 desktop.internal 5900
+unset ET_TUNNEL_TEST_TRANSPORT
+commands=$(cat "$log")
+transport_remote_command=$(cat "$remote_command_file")
+
+_assert_exit "custom transport: succeeds" 0 "$run_exit"
+_assert_contains "custom transport: receives via host first" $'transport\n<relay.example>' "$commands"
+_assert_contains "custom transport: receives the complete ET tunnel spec second" \
+  $'<relay.example>\n<5901:' "$commands"
+_assert_contains "custom transport: receives the bounded bootstrap third" \
+  "et-bootstrap" "$commands"
+_assert_not_contains "custom transport: bypasses the default ET binary" $'\net\n' "$commands"
+
+ET_TUNNEL_TEST_TRANSPORT="$bin/test-transport" \
+  _run_et_tunnel __et_tunnel_transport_worker 5902 desktop.internal 5900
+unset ET_TUNNEL_TEST_TRANSPORT
+commands=$(cat "$log")
+_assert_exit "custom transport: a worker-like VIA remains usable" 0 "$run_exit"
+_assert_contains "custom transport: passes a worker-like VIA unchanged" \
+  $'transport\n<__et_tunnel_transport_worker>' "$commands"
+
+worker_runtime="$tmp/worker-runtime"
+worker_pgrps="$tmp/worker-pgrps"
+worker_bash_env="$tmp/worker-bash-env"
+mkdir -p "$worker_runtime"
+printf 'set -m\n' >"$worker_bash_env"
+worker_exit=0
+PATH="$bin:/usr/local/bin:/usr/bin:/bin" \
+  BASH_ENV="$worker_bash_env" \
+  ET_TUNNEL_TEST_WORKER_PGRPS="$worker_pgrps" \
+  "$BASH" "$SCRIPT" --et-tunnel-transport-worker \
+  "$worker_runtime" 0 "$bin/worker-pgrp-transport" "" \
+  gateway.example 5902:5900 true "$$" || worker_exit=$?
+_assert_exit "transport worker: succeeds with inherited monitor mode" 0 "$worker_exit"
+if [[ -r "$worker_pgrps" ]]; then
+  read -r worker_pgid adapter_pgid <"$worker_pgrps"
+else
+  worker_pgid=missing
+  adapter_pgid=absent
+fi
+_assert_eq "transport worker: keeps the adapter in its process group" \
+  "$worker_pgid" "$adapter_pgid"
+
+tstp_exit_runtime="$tmp/tstp-exit-runtime"
+mkdir -p "$tstp_exit_runtime"
+tstp_exit=0
+PATH="$bin:/usr/local/bin:/usr/bin:/bin" \
+  "$test_python" - "$BASH" "$SCRIPT" "$tstp_exit_runtime" \
+  "$bin/tstp-exit-transport" <<'PY' || tstp_exit=$?
+import os
+import subprocess
+import sys
+
+bash, script, runtime, transport = sys.argv[1:]
+completed = subprocess.run(
+    [
+        bash,
+        script,
+        "--et-tunnel-transport-worker",
+        runtime,
+        "0",
+        transport,
+        "",
+        "gateway.example",
+        "5902:5900",
+        "true",
+        str(os.getpid()),
+    ],
+    check=False,
+    start_new_session=True,
+    timeout=10,
+)
+raise SystemExit(completed.returncode)
+PY
+_assert_exit "transport worker: preserves exit 127 after Ctrl-Z" 127 "$tstp_exit"
+
+publication_runtime="$tmp/publication-runtime"
+publication_bin="$tmp/publication-bin"
+publication_marker="$tmp/publication.marker"
+publication_release="$tmp/publication.release"
+mkdir -p "$publication_runtime" "$publication_bin"
+# This mv performs the real atomic publication, then stops the whole process
+# group and blocks. The parent test withholds release long enough to prove that
+# seeing transport.status cannot make the worker return before reaping the
+# wrapper. The marker records that wrapper PID for the final no-orphan check.
+_write_stub "$publication_bin/mv" \
+  "real_mv=$real_mv_q" \
+  '"$real_mv" "$@"' \
+  'kill -TSTP 0' \
+  'printf "%s\n" "$PPID" >"$ET_TUNNEL_TEST_PUBLISHER_MARKER"' \
+  'while [[ ! -e "$ET_TUNNEL_TEST_PUBLISHER_RELEASE" ]]; do sleep 0.01; done'
+publication_exit=0
+PATH="$publication_bin:$bin:/usr/local/bin:/usr/bin:/bin" \
+  ET_TUNNEL_TEST_PUBLISHER_MARKER="$publication_marker" \
+  ET_TUNNEL_TEST_PUBLISHER_RELEASE="$publication_release" \
+  "$test_python" - "$BASH" "$SCRIPT" "$publication_runtime" \
+  "$bin/exit-127-transport" "$publication_marker" "$publication_release" <<'PY' || publication_exit=$?
+import os
+import signal
+import subprocess
+import sys
+import time
+
+bash, script, runtime, transport, marker, release = sys.argv[1:]
+worker = subprocess.Popen(
+    [
+        bash,
+        script,
+        "--et-tunnel-transport-worker",
+        runtime,
+        "0",
+        transport,
+        "",
+        "gateway.example",
+        "5902:5900",
+        "true",
+        str(os.getpid()),
+    ],
+    start_new_session=True,
+)
+deadline = time.monotonic() + 5
+while not os.path.exists(marker) and time.monotonic() < deadline:
+    time.sleep(0.01)
+marker_seen = os.path.exists(marker)
+time.sleep(0.1)
+returned_before_release = worker.poll() is not None
+open(release, "wb").close()
+try:
+    returncode = worker.wait(timeout=5)
+except subprocess.TimeoutExpired:
+    os.killpg(worker.pid, signal.SIGKILL)
+    returncode = worker.wait(timeout=1)
+
+publisher_gone = False
+try:
+    with open(marker, "r", encoding="utf-8") as marker_input:
+        publisher_pid = int(marker_input.read().strip())
+except (FileNotFoundError, ValueError):
+    publisher_pid = None
+if publisher_pid is not None:
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline:
+        try:
+            os.kill(publisher_pid, 0)
+        except ProcessLookupError:
+            publisher_gone = True
+            break
+        time.sleep(0.01)
+
+success = marker_seen and not returned_before_release and returncode == 127 and publisher_gone
+if not success:
+    sys.stderr.write(
+        f"marker={marker_seen} early={returned_before_release} "
+        f"exit={returncode} publisher_gone={publisher_gone}\n"
+    )
+sys.exit(0 if success else 1)
+PY
+_assert_exit "transport worker: reaps the status publisher before returning" \
+  0 "$publication_exit"
+
+gate_runtime_root="$tmp/gate-runtime"
+gate_adapter_pid="$tmp/gate-adapter.pid"
+gate_results="$tmp/gate-results"
+gate_bin="$tmp/gate-bin"
+mkdir -p "$gate_runtime_root" "$gate_bin"
+_write_stub "$gate_bin/ps" \
+  'for arg in "$@"; do [[ "$arg" != tpgid= ]] || { sleep 0.05; exit 1; }; done' \
+  "exec $real_ps_q \"\$@\""
+gate_exit=0
+PATH="$gate_bin:$bin:/usr/local/bin:/usr/bin:/bin" \
+  TMPDIR="$gate_runtime_root" \
+  HOME="$test_home" \
+  XDG_STATE_HOME="$test_home/state" \
+  ET_TUNNEL_CLIENT_ID=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+  ET_TUNNEL_TEST_TRANSPORT_PID="$gate_adapter_pid" \
+  ET_TUNNEL_TRANSPORT="$bin/interactive-transport" \
+  "$test_python" - "$BASH" "$SCRIPT" "$gate_runtime_root" \
+  "$gate_adapter_pid" "$gate_results" <<'PY' || gate_exit=$?
+import fcntl
+import os
+import pty
+import select
+import signal
+import sys
+import termios
+import time
+
+bash, script, runtime_root, adapter_pid_file, results_file = sys.argv[1:]
+
+def transport_worker_pid():
+    for entry in os.listdir(runtime_root):
+        pid_path = os.path.join(runtime_root, entry, "transport.pid")
+        try:
+            with open(pid_path, "r", encoding="utf-8") as pid_input:
+                return int(pid_input.read().strip())
+        except (FileNotFoundError, ValueError):
+            pass
+    return None
+
+def reap_child(pid, timeout):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            waited, status = os.waitpid(pid, os.WNOHANG)
+        except ChildProcessError:
+            return True, None
+        if waited:
+            return True, status
+        time.sleep(0.05)
+    return False, None
+
+def run_case(port, cancel):
+    try:
+        os.unlink(adapter_pid_file)
+    except FileNotFoundError:
+        pass
+    # The gate is meaningful only with a controlling PTY: without one, the
+    # worker deliberately skips foreground ownership and starts immediately.
+    master, slave = pty.openpty()
+    child = os.fork()
+    if child == 0:
+        os.setsid()
+        fcntl.ioctl(slave, termios.TIOCSCTTY, 0)
+        for fd in (0, 1, 2):
+            os.dup2(slave, fd)
+        os.close(master)
+        os.close(slave)
+        os.execv(
+            bash,
+            ["bash", script, "gateway.example", str(port), "service.internal", "443"],
+        )
+
+    os.close(slave)
+    output = b""
+    status = None
+    reaped = False
+    cancel_sent = False
+    deadline = time.monotonic() + 20
+    try:
+        while time.monotonic() < deadline:
+            readable, _, _ = select.select([master], [], [], 0.05)
+            if readable:
+                try:
+                    output += os.read(master, 4096)
+                except OSError:
+                    pass
+            worker_pid = transport_worker_pid()
+            if cancel and not cancel_sent and worker_pid is not None:
+                try:
+                    # Send terminal Ctrl-C only after the worker PGID is truly
+                    # foreground; otherwise the byte would target the launcher
+                    # and fail to cover pre-adapter gate cancellation.
+                    if os.tcgetpgrp(master) == worker_pid:
+                        os.write(master, b"\x03")
+                        cancel_sent = True
+                except OSError:
+                    pass
+            waited, candidate = os.waitpid(child, os.WNOHANG)
+            if waited:
+                status = candidate
+                reaped = True
+                break
+    finally:
+        if status is None:
+            try:
+                os.killpg(child, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            reaped, status = reap_child(child, 1)
+            if not reaped:
+                try:
+                    os.kill(child, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                reaped, status = reap_child(child, 1)
+        os.close(master)
+
+    exit_code = os.waitstatus_to_exitcode(status) if status is not None else None
+    adapter_started = os.path.exists(adapter_pid_file)
+    return exit_code, cancel_sent, adapter_started, reaped, output
+
+bounded_exit, _, bounded_adapter, bounded_reaped, bounded_output = run_case(10454, False)
+cancel_exit, cancel_sent, cancel_adapter, cancel_reaped, cancel_output = run_case(10455, True)
+bounded = (
+    bounded_exit == 1
+    and bounded_reaped
+    and not bounded_adapter
+    and b"could not hand the terminal" in bounded_output
+)
+cancelled = cancel_sent and cancel_exit == 130 and cancel_reaped and not cancel_adapter
+with open(results_file, "w", encoding="utf-8") as results:
+    results.write(f"bounded={int(bounded)}\n")
+    results.write(f"cancelled={int(cancelled)}\n")
+if not bounded:
+    sys.stderr.write(
+        f"bounded_exit={bounded_exit} reaped={bounded_reaped} "
+        f"adapter={bounded_adapter}\n"
+    )
+    sys.stderr.buffer.write(bounded_output)
+if not cancelled:
+    sys.stderr.write(
+        f"cancel_exit={cancel_exit} sent={cancel_sent} reaped={cancel_reaped} "
+        f"adapter={cancel_adapter}\n"
+    )
+    sys.stderr.buffer.write(cancel_output)
+sys.exit(0 if bounded and cancelled else 1)
+PY
+_assert_exit "terminal gate: a failed foreground probe is bounded" 0 "$gate_exit"
+if [[ -r "$gate_results" ]]; then
+  gate_result_text=$(cat "$gate_results")
+else
+  gate_result_text=""
+fi
+_assert_contains "terminal gate: reports foreground handoff failure" \
+  "bounded=1" "$gate_result_text"
+_assert_contains "terminal gate: cancellation launches no adapter" \
+  "cancelled=1" "$gate_result_text"
+
+# Exercise a real controlling PTY rather than piping input. macOS Bash job
+# control differs from noninteractive subprocess behavior: Ctrl-Z is terminal
+# input, foreground PGID determines signal delivery, and fg restores termios.
+interactive_transport_pid_file="$tmp/interactive-transport.pid"
+interactive_auth_result="$tmp/interactive-auth.result"
+interactive_auth_state="$tmp/interactive-auth.state"
+interactive_exit=0
+PATH="$bin:/usr/local/bin:/usr/bin:/bin" \
+  HOME="$test_home" \
+  XDG_STATE_HOME="$test_home/state" \
+  ET_TUNNEL_CLIENT_ID=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+  ET_TUNNEL_TEST_TRANSPORT_PID="$interactive_transport_pid_file" \
+  ET_TUNNEL_TEST_AUTH_RESULT="$interactive_auth_result" \
+  ET_TUNNEL_TEST_AUTH_STATE="$interactive_auth_state" \
+  ET_TUNNEL_TRANSPORT="$bin/interactive-transport" \
+  "$test_python" - "$BASH" "$SCRIPT" "$interactive_transport_pid_file" \
+  "$interactive_auth_result" "$interactive_auth_state" <<'PY' || interactive_exit=$?
+import fcntl
+import os
+import pty
+import select
+import signal
+import subprocess
+import sys
+import termios
+import time
+
+bash, script, transport_pid_file, auth_result, auth_state = sys.argv[1:]
+
+def reap_child(pid, timeout):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            waited, _ = os.waitpid(pid, os.WNOHANG)
+        except ChildProcessError:
+            return True
+        if waited:
+            return True
+        time.sleep(0.05)
+    return False
+
+def wait_process_gone(pid, timeout):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        state = subprocess.run(
+            ["ps", "-o", "stat=", "-p", str(pid)],
+            check=False,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        if not state or state.startswith("Z"):
+            return True
+        time.sleep(0.05)
+    return False
+
+# Create a new session and explicitly acquire the slave as its controlling TTY,
+# matching an actual terminal tab rather than Python's inherited test terminal.
+master, slave = pty.openpty()
+child = os.fork()
+if child == 0:
+    os.setsid()
+    fcntl.ioctl(slave, termios.TIOCSCTTY, 0)
+    for fd in (0, 1, 2):
+        os.dup2(slave, fd)
+    os.close(master)
+    os.close(slave)
+    os.execv(bash, ["bash", script, "gateway.example", "10447", "service.internal", "443"])
+
+os.close(slave)
+output = b""
+sent = False
+suspend_sent = False
+suspend_observed = False
+authenticated = False
+adapter_gone_before_cleanup = False
+foreground_at_prompt = False
+launcher_reaped = False
+status = None
+transport_pid = None
+prompt_deadline = time.monotonic() + 20
+try:
+    while time.monotonic() < prompt_deadline:
+        readable, _, _ = select.select([master], [], [], 0.1)
+        if readable:
+            try:
+                output += os.read(master, 4096)
+            except OSError:
+                break
+        if not suspend_sent and b"Passcode: " in output:
+            os.write(master, b"\x1a")
+            suspend_sent = True
+            break
+    suspend_deadline = time.monotonic() + 20
+    while suspend_sent and time.monotonic() < suspend_deadline:
+        readable, _, _ = select.select([master], [], [], 0.1)
+        if readable:
+            try:
+                output += os.read(master, 4096)
+            except OSError:
+                break
+        if b"^Z" in output:
+            suspend_observed = True
+            break
+    if suspend_observed:
+        # Wait until the terminal driver has emitted the visible ^Z echo before
+        # sending the passcode. On macOS, writing earlier can race the resumed
+        # credential reader and turn this into a test of PTY buffering instead.
+        termios.tcdrain(master)
+        os.write(master, b"test-passcode\n")
+        sent = True
+    auth_deadline = time.monotonic() + 20
+    while sent and time.monotonic() < auth_deadline:
+        readable, _, _ = select.select([master], [], [], 0.1)
+        if readable:
+            try:
+                output += os.read(master, 4096)
+            except OSError:
+                break
+        if os.path.exists(auth_result):
+            with open(auth_result, "r", encoding="utf-8") as result:
+                authenticated = result.read().strip() == "test-passcode"
+            try:
+                with open(auth_state, "r", encoding="utf-8") as state_input:
+                    state_fields = state_input.read().split()
+                foreground_at_prompt = (
+                    len(state_fields) >= 3 and state_fields[1] == state_fields[2]
+                )
+            except FileNotFoundError:
+                pass
+            break
+    if authenticated:
+        os.write(master, b"\x03")
+        cancel_deadline = time.monotonic() + 20
+        while time.monotonic() < cancel_deadline:
+            # Keep draining the PTY while Bash fg restores terminal attributes.
+            # macOS uses a drain-waiting tcsetattr path here; if the test stops
+            # reading output, cleanup can deadlock even though a real terminal
+            # emulator would continue consuming those bytes.
+            readable, _, _ = select.select([master], [], [], 0.05)
+            if readable:
+                try:
+                    output += os.read(master, 4096)
+                except OSError:
+                    pass
+            waited, candidate = os.waitpid(child, os.WNOHANG)
+            if waited:
+                status = candidate
+                launcher_reaped = True
+                break
+    try:
+        with open(transport_pid_file, "r", encoding="utf-8") as pid_file:
+            transport_pid = int(pid_file.read().strip())
+    except (FileNotFoundError, ValueError):
+        pass
+    if launcher_reaped and transport_pid is not None:
+        adapter_gone_before_cleanup = wait_process_gone(transport_pid, 5)
+finally:
+    if not adapter_gone_before_cleanup and transport_pid is not None:
+        try:
+            if os.getsid(transport_pid) == child:
+                os.killpg(os.getpgid(transport_pid), signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    if not launcher_reaped:
+        try:
+            os.killpg(child, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        launcher_reaped = reap_child(child, 2)
+        if not launcher_reaped:
+            try:
+                os.kill(child, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            launcher_reaped = reap_child(child, 1)
+    os.close(master)
+
+exit_code = os.waitstatus_to_exitcode(status) if status is not None else None
+success = (
+    suspend_sent
+    and suspend_observed
+    and authenticated
+    and foreground_at_prompt
+    and launcher_reaped
+    and adapter_gone_before_cleanup
+    and exit_code == 130
+)
+if not success:
+    sys.stderr.write(
+        f"suspend_sent={suspend_sent} suspend_observed={suspend_observed} "
+        f"authenticated={authenticated} "
+        f"foreground_at_prompt={foreground_at_prompt} "
+        f"launcher_reaped={launcher_reaped} "
+        f"adapter_gone={adapter_gone_before_cleanup} exit={exit_code}\n"
+    )
+    sys.stderr.buffer.write(output)
+sys.exit(0 if success else 1)
+PY
+if ((interactive_exit != 0)) && [[ -r "$interactive_auth_state" ]]; then
+  printf 'interactive state: %s\n' "$(cat "$interactive_auth_state")" >&2
+fi
+_assert_exit "interactive transport: ignores Ctrl-Z and reads authentication from a controlling TTY" \
+  0 "$interactive_exit"
+
+# Cancel at the credential prompt before remote control attachment. This proves
+# Ctrl-C is handled by the existing worker once, returns 130, and is not mistaken
+# for a collision that would launch a second authentication attempt.
+interactive_cancel_count="$tmp/interactive-cancel.count"
+interactive_cancel_runtime="$tmp/interactive-cancel-runtime"
+interactive_cancel_exit=0
+: >"$interactive_cancel_count"
+mkdir -p "$interactive_cancel_runtime"
+rm -f "$interactive_transport_pid_file"
+PATH="$bin:/usr/local/bin:/usr/bin:/bin" \
+  TMPDIR="$interactive_cancel_runtime" \
+  HOME="$test_home" \
+  XDG_STATE_HOME="$test_home/state" \
+  ET_TUNNEL_CLIENT_ID=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+  ET_TUNNEL_TEST_TRANSPORT_PID="$interactive_transport_pid_file" \
+  ET_TUNNEL_TEST_TRANSPORT_COUNT="$interactive_cancel_count" \
+  ET_TUNNEL_TEST_AUTH_RESULT="$interactive_auth_result" \
+  ET_TUNNEL_TEST_AUTH_STATE="$interactive_auth_state" \
+  ET_TUNNEL_TRANSPORT="$bin/interactive-transport" \
+  "$test_python" - "$BASH" "$SCRIPT" "$interactive_transport_pid_file" \
+  "$interactive_cancel_runtime" <<'PY' ||
+\
+import fcntl
+import os
+import pty
+import select
+import signal
+import subprocess
+import sys
+import termios
+import time
+
+bash, script, transport_pid_file, runtime_root = sys.argv[1:]
+
+def process_state(pid):
+    try:
+        session_id = os.getsid(pid)
+    except ProcessLookupError:
+        session_id = None
+    process = subprocess.run(
+        ["ps", "-o", "pid=,ppid=,pgid=,tpgid=,stat=", "-p", str(pid)],
+        check=False,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    return f"sid={session_id} {process}".strip()
+
+def observe_runtime():
+    runtime_dirs = [
+        os.path.join(runtime_root, entry)
+        for entry in os.listdir(runtime_root)
+        if entry.startswith("et-tunnel.")
+    ]
+    interrupted = any(
+        os.path.exists(os.path.join(runtime_dir, "transport.interrupted"))
+        for runtime_dir in runtime_dirs
+    )
+    return bool(runtime_dirs), interrupted
+
+master, slave = pty.openpty()
+child = os.fork()
+if child == 0:
+    os.setsid()
+    fcntl.ioctl(slave, termios.TIOCSCTTY, 0)
+    for fd in (0, 1, 2):
+        os.dup2(slave, fd)
+    os.close(master)
+    os.close(slave)
+    os.execv(bash, ["bash", script, "gateway.example", "10450", "service.internal", "443"])
+
+os.close(slave)
+output = b""
+status = None
+cancel_sent = False
+completed_before_cleanup = False
+interrupted_seen = False
+launcher_state_before_cleanup = ""
+runtime_seen = False
+transport_state_before_cleanup = ""
+transport_gone_before_cleanup = False
+prompt_deadline = time.monotonic() + 20
+try:
+    while time.monotonic() < prompt_deadline:
+        observed_runtime, observed_interrupt = observe_runtime()
+        runtime_seen = runtime_seen or observed_runtime
+        interrupted_seen = interrupted_seen or observed_interrupt
+        readable, _, _ = select.select([master], [], [], 0.1)
+        if readable:
+            try:
+                output += os.read(master, 4096)
+            except OSError:
+                break
+        if b"Passcode: " in output:
+            os.write(master, b"\x03")
+            cancel_sent = True
+            break
+    exit_deadline = time.monotonic() + 20
+    while cancel_sent and time.monotonic() < exit_deadline:
+        observed_runtime, observed_interrupt = observe_runtime()
+        runtime_seen = runtime_seen or observed_runtime
+        interrupted_seen = interrupted_seen or observed_interrupt
+        # Do not stop reading after Ctrl-C. Bash may need the PTY output queue to
+        # drain before macOS completes fg's terminal-state restoration.
+        readable, _, _ = select.select([master], [], [], 0.1)
+        if readable:
+            try:
+                output += os.read(master, 4096)
+            except OSError:
+                pass
+        waited, candidate = os.waitpid(child, os.WNOHANG)
+        if waited:
+            status = candidate
+            break
+    completed_before_cleanup = status is not None
+    launcher_state_before_cleanup = process_state(child)
+    observed_runtime, observed_interrupt = observe_runtime()
+    runtime_seen = runtime_seen or observed_runtime
+    interrupted_seen = interrupted_seen or observed_interrupt
+    try:
+        with open(transport_pid_file, "r", encoding="utf-8") as pid_file:
+            observed_transport_pid = int(pid_file.read().strip())
+    except (FileNotFoundError, ValueError):
+        pass
+    else:
+        transport_state_before_cleanup = process_state(observed_transport_pid)
+    if completed_before_cleanup:
+        try:
+            with open(transport_pid_file, "r", encoding="utf-8") as pid_file:
+                completed_transport_pid = int(pid_file.read().strip())
+        except (FileNotFoundError, ValueError):
+            pass
+        else:
+            transport_deadline = time.monotonic() + 5
+            while time.monotonic() < transport_deadline:
+                transport_state = subprocess.run(
+                    ["ps", "-o", "stat=", "-p", str(completed_transport_pid)],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                ).stdout.strip()
+                if not transport_state or transport_state.startswith("Z"):
+                    transport_gone_before_cleanup = True
+                    break
+                time.sleep(0.05)
+finally:
+    transport_pid = None
+    try:
+        with open(transport_pid_file, "r", encoding="utf-8") as pid_file:
+            transport_pid = int(pid_file.read().strip())
+        if os.getsid(transport_pid) == child:
+            os.killpg(os.getpgid(transport_pid), signal.SIGKILL)
+    except (FileNotFoundError, ProcessLookupError, ValueError):
+        pass
+    if status is None:
+        try:
+            os.killpg(child, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        try:
+            os.kill(child, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        reap_deadline = time.monotonic() + 2
+        while time.monotonic() < reap_deadline:
+            try:
+                waited, candidate = os.waitpid(child, os.WNOHANG)
+            except ChildProcessError:
+                break
+            if waited:
+                status = candidate
+                break
+            time.sleep(0.05)
+    os.close(master)
+
+exit_code = os.waitstatus_to_exitcode(status) if status is not None else None
+success = (
+    cancel_sent
+    and completed_before_cleanup
+    and transport_gone_before_cleanup
+    and exit_code == 130
+)
+if not success:
+    sys.stderr.write(
+        f"cancel_sent={cancel_sent} completed={completed_before_cleanup} "
+        f"runtime_seen={runtime_seen} interrupted_seen={interrupted_seen} "
+        f"transport_gone={transport_gone_before_cleanup} exit={exit_code}\n"
+        f"launcher_state={launcher_state_before_cleanup!r} "
+        f"transport_state={transport_state_before_cleanup!r}\n"
+    )
+    sys.stderr.buffer.write(output)
+sys.exit(0 if success else 1)
+PY
+  interactive_cancel_exit=$?
+_assert_exit "interactive authentication: Ctrl-C returns the conventional status" \
+  0 "$interactive_cancel_exit"
+_assert_eq "interactive authentication: Ctrl-C is not retried as a collision" \
+  "1" "$(wc -l <"$interactive_cancel_count" | tr -d ' ')"
+
+# Drive the hardest handoff ordering: the adapter repeatedly stops during attach,
+# Ctrl-Z must leave the launcher and its process group runnable, and a subsequent
+# Ctrl-C must still complete remote EOF cleanup with the conventional status.
+interactive_control_token="$tmp/interactive-control.token"
+interactive_control_eof="$tmp/interactive-control.eof"
+interactive_control_held="$tmp/interactive-control.held"
+interactive_control_resumed="$tmp/interactive-control.resumed"
+interactive_control_ready="$tmp/interactive-control.ready"
+interactive_pre_auth_stopped="$tmp/interactive-pre-auth.stopped"
+interactive_handoff_exit=0
+PATH="$bin:/usr/local/bin:/usr/bin:/bin" \
+  HOME="$test_home" \
+  XDG_STATE_HOME="$test_home/state" \
+  ET_TUNNEL_CLIENT_ID=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+  ET_TUNNEL_TEST_TRANSPORT_PID="$interactive_transport_pid_file" \
+  ET_TUNNEL_TEST_AUTH_RESULT="$interactive_auth_result" \
+  ET_TUNNEL_TEST_CONTROL_TOKEN="$interactive_control_token" \
+  ET_TUNNEL_TEST_CONTROL_EOF="$interactive_control_eof" \
+  ET_TUNNEL_TEST_CONTROL_HELD="$interactive_control_held" \
+  ET_TUNNEL_TEST_CONTROL_RESUMED="$interactive_control_resumed" \
+  ET_TUNNEL_TEST_CONTROL_READY="$interactive_control_ready" \
+  ET_TUNNEL_TEST_PREAUTH_STOPPED="$interactive_pre_auth_stopped" \
+  ET_TUNNEL_TEST_RESTOP_AFTER_CONT=1 \
+  ET_TUNNEL_TEST_ACK_DELAY=1 \
+  ET_TUNNEL_TRANSPORT="$bin/interactive-attached-transport" \
+  "$test_python" - "$BASH" "$SCRIPT" "$interactive_transport_pid_file" \
+  "$interactive_auth_result" "$interactive_control_token" \
+  "$interactive_control_eof" "$interactive_control_held" \
+  "$interactive_control_resumed" "$interactive_control_ready" <<'PY' ||
+\
+import fcntl
+import os
+import pty
+import select
+import signal
+import subprocess
+import sys
+import termios
+import time
+
+(
+    bash,
+    script,
+    transport_pid_file,
+    auth_result,
+    token_file,
+    eof_file,
+    held_file,
+    resumed_file,
+    ready_file,
+) = sys.argv[1:]
+
+def read_integer(path):
+    try:
+        with open(path, "r", encoding="utf-8") as input_file:
+            return int(input_file.read().strip())
+    except (FileNotFoundError, ValueError):
+        return None
+
+for path in (
+    transport_pid_file,
+    auth_result,
+    token_file,
+    eof_file,
+    held_file,
+    resumed_file,
+    ready_file,
+):
+    try:
+        os.unlink(path)
+    except FileNotFoundError:
+        pass
+
+master, slave = pty.openpty()
+child = os.fork()
+if child == 0:
+    os.setsid()
+    fcntl.ioctl(slave, termios.TIOCSCTTY, 0)
+    for fd in (0, 1, 2):
+        os.dup2(slave, fd)
+    os.close(master)
+    os.close(slave)
+    os.execv(bash, ["bash", script, "gateway.example", "10449", "service.internal", "443"])
+
+os.close(slave)
+output = b""
+sent = False
+handoff = False
+suspend_sent = False
+suspend_proven = False
+status = None
+auth_ok = False
+foreground_pgid = None
+progress = None
+restop_count = None
+transport_pid = None
+deadline = time.monotonic() + 20
+try:
+    while time.monotonic() < deadline:
+        readable, _, _ = select.select([master], [], [], 0.1)
+        if readable:
+            try:
+                output += os.read(master, 4096)
+            except OSError:
+                break
+        if not sent and b"Passcode: " in output:
+            os.write(master, b"test-passcode\n")
+            sent = True
+        restop_count = read_integer(resumed_file)
+        transport_pid = read_integer(transport_pid_file)
+        try:
+            with open(auth_result, "r", encoding="utf-8") as auth_input:
+                auth_ok = auth_input.read().strip() == "test-passcode"
+        except FileNotFoundError:
+            auth_ok = False
+        current_progress = (
+            sent,
+            auth_ok,
+            os.path.exists(ready_file),
+            os.path.exists(token_file),
+            os.path.exists(held_file),
+            restop_count,
+        )
+        if current_progress != progress:
+            progress = current_progress
+            deadline = time.monotonic() + 20
+        waited, candidate = os.waitpid(child, os.WNOHANG)
+        if waited:
+            status = candidate
+            break
+        ready = (
+            auth_ok
+            and os.path.exists(ready_file)
+            and os.path.exists(token_file)
+            and restop_count is not None
+            and restop_count >= 4
+            and transport_pid is not None
+            and os.path.exists(held_file)
+            and os.tcgetpgrp(master) == child
+        )
+        if ready:
+            # First prove an actual terminal Ctrl-Z cannot suspend the launcher.
+            # Then manufacture repeated transport stops so Ctrl-C arrives while
+            # both launcher and adapter are stopped, the macOS failure mode that
+            # originally stranded cleanup behind Bash job control.
+            os.write(master, b"\x1a")
+            suspend_sent = True
+            resume_target = restop_count + 1
+            os.killpg(os.getpgid(transport_pid), signal.SIGSTOP)
+            resume_deadline = time.monotonic() + 2
+            while time.monotonic() < resume_deadline:
+                launcher_state = subprocess.run(
+                    ["ps", "-o", "stat=", "-p", str(child)],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                ).stdout.strip()
+                if launcher_state.startswith("T"):
+                    raise RuntimeError("launcher stopped after Ctrl-Z")
+                resumed_after_suspend = read_integer(resumed_file)
+                if (
+                    resumed_after_suspend is not None
+                    and resumed_after_suspend >= resume_target
+                    and os.tcgetpgrp(master) == child
+                ):
+                    break
+                time.sleep(0.01)
+            else:
+                raise RuntimeError("launcher made no progress after Ctrl-Z")
+
+            launcher_group = subprocess.run(
+                ["ps", "-axo", "pgid=,stat="],
+                check=False,
+                capture_output=True,
+                text=True,
+            ).stdout.splitlines()
+            stopped = []
+            for process in launcher_group:
+                fields = process.split(None, 1)
+                if len(fields) == 2 and fields[0] == str(child) and fields[1].startswith("T"):
+                    stopped.append(process.strip())
+            if stopped:
+                raise RuntimeError(f"launcher process group stopped after Ctrl-Z: {stopped}")
+            suspend_proven = True
+
+            launcher_stopped = False
+            try:
+                os.kill(child, signal.SIGSTOP)
+                launcher_stopped = True
+                launcher_stop_deadline = time.monotonic() + 1
+                while time.monotonic() < launcher_stop_deadline:
+                    launcher_state = subprocess.run(
+                        ["ps", "-o", "stat=", "-p", str(child)],
+                        check=False,
+                        capture_output=True,
+                        text=True,
+                    ).stdout.strip()
+                    if launcher_state.startswith("T"):
+                        break
+                    time.sleep(0.01)
+                else:
+                    raise RuntimeError("launcher did not stop before Ctrl-C")
+
+                os.killpg(os.getpgid(transport_pid), signal.SIGSTOP)
+            except ProcessLookupError:
+                if launcher_stopped:
+                    try:
+                        os.kill(child, signal.SIGCONT)
+                    except ProcessLookupError:
+                        pass
+                continue
+            try:
+                stop_deadline = time.monotonic() + 1
+                while time.monotonic() < stop_deadline:
+                    transport_state = subprocess.run(
+                        ["ps", "-o", "stat=", "-p", str(transport_pid)],
+                        check=False,
+                        capture_output=True,
+                        text=True,
+                    ).stdout.strip()
+                    if transport_state.startswith("T"):
+                        break
+                    time.sleep(0.01)
+                else:
+                    raise RuntimeError("transport did not stop before Ctrl-C")
+                if os.tcgetpgrp(master) != child:
+                    raise RuntimeError("launcher lost the terminal before Ctrl-C")
+                os.write(master, b"\x03")
+                handoff = True
+            finally:
+                if launcher_stopped:
+                    try:
+                        os.kill(child, signal.SIGCONT)
+                    except ProcessLookupError:
+                        pass
+            break
+
+    exit_deadline = time.monotonic() + 8
+    while handoff and time.monotonic() < exit_deadline:
+        waited, candidate = os.waitpid(child, os.WNOHANG)
+        if waited:
+            status = candidate
+            break
+        # Continue draining for the same reason as the simpler authentication
+        # case: terminal restoration may wait for queued output on macOS.
+        readable, _, _ = select.select([master], [], [], 0.1)
+        if readable:
+            try:
+                output += os.read(master, 4096)
+            except OSError:
+                pass
+finally:
+    transport_pid = read_integer(transport_pid_file)
+    try:
+        foreground_pgid = os.tcgetpgrp(master)
+    except OSError:
+        pass
+    if status is None:
+        try:
+            os.killpg(child, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        try:
+            _, status = os.waitpid(child, 0)
+        except ChildProcessError:
+            pass
+    if transport_pid is not None:
+        try:
+            os.killpg(os.getpgid(transport_pid), signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    os.close(master)
+
+exit_code = os.waitstatus_to_exitcode(status) if status is not None else None
+token_ok = False
+try:
+    with open(token_file, "rb") as token_input:
+        token = token_input.read().strip()
+        token_ok = len(token) == 32 and all(character in b"0123456789abcdef" for character in token)
+except FileNotFoundError:
+    pass
+
+success = (
+    suspend_sent
+    and suspend_proven
+    and handoff
+    and exit_code == 130
+    and token_ok
+    and os.path.exists(eof_file)
+)
+if not success:
+    restop_count = read_integer(resumed_file)
+    sys.stderr.write(
+        f"suspend={suspend_sent}/{suspend_proven} handoff={handoff} "
+        f"exit={exit_code} token={token_ok} "
+        f"auth={auth_ok} ready={os.path.exists(ready_file)} "
+        f"resumes={restop_count} held={os.path.exists(held_file)} "
+        f"eof={os.path.exists(eof_file)} transport={transport_pid} "
+        f"foreground={foreground_pgid}\n"
+    )
+    sys.stderr.buffer.write(output)
+sys.exit(0 if success else 1)
+PY
+  interactive_handoff_exit=$?
+_assert_exit "interactive handoff: Ctrl-Z does not block Ctrl-C cleanup during a repeated stop" \
+  0 "$interactive_handoff_exit"
+_assert_file_exists "interactive handoff: forces a pre-attachment transport stop" \
+  "$interactive_pre_auth_stopped"
+
+# Simulate the narrow case where the worker records Ctrl-C and dies after control
+# handoff but before the launcher's wait has reaped it. The marker must dominate
+# the transient wait status, and the adapter process group must still disappear.
+late_interrupt_transport_pid="$tmp/late-interrupt-transport.pid"
+late_interrupt_auth_result="$tmp/late-interrupt-auth.result"
+late_interrupt_control_token="$tmp/late-interrupt-control.token"
+late_interrupt_control_eof="$tmp/late-interrupt-control.eof"
+late_interrupt_control_held="$tmp/late-interrupt-control.held"
+late_interrupt_control_resumed="$tmp/late-interrupt-control.resumed"
+late_interrupt_control_ready="$tmp/late-interrupt-control.ready"
+late_interrupt_runtime_root="$tmp/late-interrupt-runtime"
+mkdir -p "$late_interrupt_runtime_root"
+late_interrupt_exit=0
+PATH="$bin:/usr/local/bin:/usr/bin:/bin" \
+  TMPDIR="$late_interrupt_runtime_root" \
+  HOME="$test_home" \
+  XDG_STATE_HOME="$test_home/state" \
+  ET_TUNNEL_CLIENT_ID=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+  ET_TUNNEL_TEST_TRANSPORT_PID="$late_interrupt_transport_pid" \
+  ET_TUNNEL_TEST_AUTH_RESULT="$late_interrupt_auth_result" \
+  ET_TUNNEL_TEST_CONTROL_TOKEN="$late_interrupt_control_token" \
+  ET_TUNNEL_TEST_CONTROL_EOF="$late_interrupt_control_eof" \
+  ET_TUNNEL_TEST_CONTROL_HELD="$late_interrupt_control_held" \
+  ET_TUNNEL_TEST_CONTROL_RESUMED="$late_interrupt_control_resumed" \
+  ET_TUNNEL_TEST_CONTROL_READY="$late_interrupt_control_ready" \
+  ET_TUNNEL_TRANSPORT="$bin/interactive-attached-transport" \
+  "$test_python" - "$BASH" "$SCRIPT" "$late_interrupt_transport_pid" \
+  "$late_interrupt_auth_result" "$late_interrupt_control_resumed" \
+  "$late_interrupt_runtime_root" <<'PY'
+import fcntl
+import os
+import pty
+import select
+import signal
+import subprocess
+import sys
+import termios
+import time
+
+bash, script, transport_pid_file, auth_result, resumed_file, runtime_root = sys.argv[1:]
+
+def reap_child(pid, timeout):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            waited, status = os.waitpid(pid, os.WNOHANG)
+        except ChildProcessError:
+            return True, None
+        if waited:
+            return True, status
+        time.sleep(0.05)
+    return False, None
+
+master, slave = pty.openpty()
+child = os.fork()
+if child == 0:
+    os.setsid()
+    fcntl.ioctl(slave, termios.TIOCSCTTY, 0)
+    for fd in (0, 1, 2):
+        os.dup2(slave, fd)
+    os.close(master)
+    os.close(slave)
+    os.execv(bash, ["bash", script, "gateway.example", "10456", "service.internal", "443"])
+
+os.close(slave)
+output = b""
+sent = False
+status = None
+launcher_reaped = False
+transport_pid = None
+adapter_gone = False
+interrupt_injected = False
+deadline = time.monotonic() + 15
+try:
+    while time.monotonic() < deadline:
+        readable, _, _ = select.select([master], [], [], 0.1)
+        if readable:
+            try:
+                output += os.read(master, 4096)
+            except OSError:
+                pass
+        if not sent and b"Passcode: " in output:
+            os.write(master, b"test-passcode\n")
+            sent = True
+        if not interrupt_injected and os.path.exists(resumed_file):
+            try:
+                with open(transport_pid_file, "r", encoding="utf-8") as pid_input:
+                    resumed_transport_pid = int(pid_input.read().strip())
+            except (FileNotFoundError, ValueError):
+                pass
+            else:
+                runtime_dirs = [
+                    os.path.join(runtime_root, entry)
+                    for entry in os.listdir(runtime_root)
+                    if entry.startswith("et-tunnel.")
+                ]
+                if runtime_dirs:
+                    open(
+                        os.path.join(runtime_dirs[0], "transport.interrupted"), "wb"
+                    ).close()
+                    os.killpg(os.getpgid(resumed_transport_pid), signal.SIGKILL)
+                    interrupt_injected = True
+        waited, candidate = os.waitpid(child, os.WNOHANG)
+        if waited:
+            status = candidate
+            launcher_reaped = True
+            break
+    try:
+        with open(transport_pid_file, "r", encoding="utf-8") as pid_input:
+            transport_pid = int(pid_input.read().strip())
+    except (FileNotFoundError, ValueError):
+        pass
+    if status is not None and transport_pid is not None:
+        gone_deadline = time.monotonic() + 2
+        while time.monotonic() < gone_deadline:
+            state = subprocess.run(
+                ["ps", "-o", "stat=", "-p", str(transport_pid)],
+                check=False,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            if not state or state.startswith("Z"):
+                adapter_gone = True
+                break
+            time.sleep(0.05)
+finally:
+    if status is None:
+        try:
+            os.killpg(child, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        launcher_reaped, status = reap_child(child, 1)
+        if not launcher_reaped:
+            try:
+                os.kill(child, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            launcher_reaped, status = reap_child(child, 1)
+    if not adapter_gone and transport_pid is not None:
+        try:
+            os.killpg(os.getpgid(transport_pid), signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    os.close(master)
+
+exit_code = os.waitstatus_to_exitcode(status) if status is not None else None
+authenticated = False
+try:
+    with open(auth_result, "r", encoding="utf-8") as auth_input:
+        authenticated = auth_input.read().strip() == "test-passcode"
+except FileNotFoundError:
+    pass
+success = (
+    sent
+    and authenticated
+    and os.path.exists(resumed_file)
+    and interrupt_injected
+    and adapter_gone
+    and launcher_reaped
+    and exit_code == 130
+)
+if not success:
+    sys.stderr.write(
+        f"sent={sent} auth={authenticated} resumed={os.path.exists(resumed_file)} "
+        f"injected={interrupt_injected} "
+        f"adapter_gone={adapter_gone} reaped={launcher_reaped} exit={exit_code}\n"
+    )
+    sys.stderr.buffer.write(output)
+sys.exit(0 if success else 1)
+PY
+late_interrupt_exit=$?
+_assert_exit "interactive handoff: late transport Ctrl-C returns status 130" \
+  0 "$late_interrupt_exit"
+
+echo ""
+echo "=== et-tunnel collision handling ==="
+
+ET_TUNNEL_TEST_COLLISIONS=2 \
+  _run_et_tunnel gateway.example 10443 service.internal 443
+unset ET_TUNNEL_TEST_COLLISIONS
+commands=$(cat "$log")
+attempts=$(grep -c '^et$' "$log")
+mappings=$(sed -n '/^<-t>$/{n;p;}' "$log")
+unique_mappings=$(printf '%s\n' "$mappings" | sort -u | wc -l | tr -d ' ')
+_assert_exit "relay collision: retries to success" 0 "$run_exit"
+_assert_eq "relay collision: makes exactly three attempts" "3" "$attempts"
+_assert_eq "relay collision: selects a distinct mapping per attempt" "3" "$unique_mappings"
+_assert_contains "relay collision: preserves collision diagnostics" \
+  "ET_TUNNEL_COLLISION:" "$(cat "$stderr")"
+
+ET_TUNNEL_TEST_EXIT=23 \
+  _run_et_tunnel gateway.example 10443 service.internal 443
+unset ET_TUNNEL_TEST_EXIT
+attempts=$(grep -c '^et$' "$log")
+_assert_exit "transport failure: preserves the exit status" 23 "$run_exit"
+_assert_eq "transport failure: is not retried without a collision marker" "1" "$attempts"
+
+ET_TUNNEL_TEST_FATAL_STATUS=127 \
+  _run_et_tunnel gateway.example 10443 service.internal 443
+unset ET_TUNNEL_TEST_FATAL_STATUS
+attempts=$(grep -c '^et$' "$log")
+_assert_exit "remote fatal error: survives ET masking the remote status" 127 "$run_exit"
+_assert_eq "remote fatal error: is not retried as a port collision" "1" "$attempts"
+
+ET_TUNNEL_TEST_ECHO_ARGS=1 \
+  _run_et_tunnel gateway.example 10443 service.internal 443
+unset ET_TUNNEL_TEST_ECHO_ARGS
+attempts=$(grep -c '^et$' "$log")
+_assert_exit "verbose transport: echoed argv does not forge a collision" 0 "$run_exit"
+_assert_eq "verbose transport: is not retried" "1" "$attempts"
+
+signal_transport_pid_file="$tmp/signal-transport.pid"
+signal_child_pid_file="$tmp/signal-child.pid"
+signal_runtime_root="$tmp/signal-runtime"
+mkdir -p "$signal_runtime_root"
+PATH="$bin:/usr/bin:/bin" \
+  TMPDIR="$signal_runtime_root" \
+  HOME="$test_home" \
+  XDG_STATE_HOME="$test_home/state" \
+  ET_TUNNEL_CLIENT_ID=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+  ET_TUNNEL_TEST_TRANSPORT_PID="$signal_transport_pid_file" \
+  ET_TUNNEL_TEST_TRANSPORT_CHILD_PID="$signal_child_pid_file" \
+  ET_TUNNEL_TRANSPORT="$bin/blocking-transport" \
+  bash "$SCRIPT" gateway.example 10443 service.internal 443 \
+  </dev/null >"$tmp/signal.stdout" 2>"$tmp/signal.stderr" &
+signal_tunnel_pid=$!
+_wait_for_file "$signal_transport_pid_file" || _fail "signal handling: transport starts"
+_wait_for_file "$signal_child_pid_file" || _fail "signal handling: adapter child starts"
+read -r signal_transport_pid <"$signal_transport_pid_file"
+read -r signal_child_pid <"$signal_child_pid_file"
+signal_runtime_dir=""
+for _ in {1..50}; do
+  for candidate in "$signal_runtime_root"/et-tunnel.*; do
+    if [[ -d "$candidate" ]]; then
+      signal_runtime_dir="$candidate"
+      break 2
+    fi
+  done
+  sleep 0.1
+done
+if [[ -n "$signal_runtime_dir" ]]; then
+  # Model interruption on either side of the atomic rename. TERM kills the
+  # worker before it can consume these, so only outer cleanup can remove both
+  # files and successfully remove the private runtime directory.
+  : >"$signal_runtime_dir/transport.status"
+  : >"$signal_runtime_dir/transport.status.tmp"
+else
+  _fail "signal handling: creates private runtime state"
+fi
+kill -TERM "$signal_tunnel_pid"
+for _ in {1..50}; do
+  signal_state=$(ps -o stat= -p "$signal_tunnel_pid" 2>/dev/null || true)
+  [[ -z "$signal_state" || "$signal_state" == *Z* ]] && break
+  sleep 0.1
+done
+signal_exit=0
+wait "$signal_tunnel_pid" || signal_exit=$?
+_assert_exit "signal handling: preserves TERM status" 143 "$signal_exit"
+if _wait_for_processes_stopped "$signal_transport_pid" "$signal_child_pid"; then
+  _pass "signal handling: terminates the adapter process tree"
+else
+  _fail "signal handling: terminates the adapter process tree"
+  kill -KILL "$signal_transport_pid" "$signal_child_pid" 2>/dev/null || true
+fi
+if [[ -n "$signal_runtime_dir" && ! -e "$signal_runtime_dir" ]]; then
+  _pass "signal handling: removes status publication state"
+else
+  _fail "signal handling: removes status publication state"
+fi
+
+rm -f "$signal_transport_pid_file" "$signal_child_pid_file"
+PATH="$bin:/usr/bin:/bin" \
+  HOME="$test_home" \
+  XDG_STATE_HOME="$test_home/state" \
+  ET_TUNNEL_CLIENT_ID=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+  ET_TUNNEL_TEST_TRANSPORT_PID="$signal_transport_pid_file" \
+  ET_TUNNEL_TEST_TRANSPORT_CHILD_PID="$signal_child_pid_file" \
+  ET_TUNNEL_TRANSPORT="$bin/blocking-transport" \
+  bash "$SCRIPT" gateway.example 10451 service.internal 443 \
+  </dev/null >"$tmp/sigkill.stdout" 2>"$tmp/sigkill.stderr" &
+sigkill_tunnel_pid=$!
+_wait_for_file "$signal_transport_pid_file" ||
+  _fail "parent death: transport starts"
+_wait_for_file "$signal_child_pid_file" ||
+  _fail "parent death: adapter child starts"
+read -r sigkill_transport_pid <"$signal_transport_pid_file"
+read -r sigkill_child_pid <"$signal_child_pid_file"
+kill -KILL "$sigkill_tunnel_pid"
+sigkill_exit=0
+wait "$sigkill_tunnel_pid" 2>/dev/null || sigkill_exit=$?
+_assert_exit "parent death: launcher reports SIGKILL" 137 "$sigkill_exit"
+for _ in {1..50}; do
+  sigkill_transport_state=$(ps -o stat= -p "$sigkill_transport_pid" 2>/dev/null || true)
+  sigkill_child_state=$(ps -o stat= -p "$sigkill_child_pid" 2>/dev/null || true)
+  if [[ -z "$sigkill_transport_state" || "$sigkill_transport_state" == *Z* ]] &&
+    [[ -z "$sigkill_child_state" || "$sigkill_child_state" == *Z* ]]; then
+    break
+  fi
+  sleep 0.1
+done
+if [[ -z "$sigkill_transport_state" || "$sigkill_transport_state" == *Z* ]] &&
+  [[ -z "$sigkill_child_state" || "$sigkill_child_state" == *Z* ]]; then
+  _pass "parent death: watchdog terminates the adapter process tree"
+else
+  _fail "parent death: watchdog terminates the adapter process tree"
+  kill -KILL "$sigkill_transport_pid" "$sigkill_child_pid" 2>/dev/null || true
+fi
+
+delayed_transport_pid_file="$tmp/delayed-transport.pid"
+delayed_control_token_file="$tmp/delayed-control.token"
+PATH="$bin:/usr/local/bin:/usr/bin:/bin" \
+  HOME="$test_home" \
+  XDG_STATE_HOME="$test_home/state" \
+  ET_TUNNEL_CLIENT_ID=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+  ET_TUNNEL_TEST_TRANSPORT_PID="$delayed_transport_pid_file" \
+  ET_TUNNEL_TEST_CONTROL_TOKEN="$delayed_control_token_file" \
+  ET_TUNNEL_TRANSPORT="$bin/delayed-control-transport" \
+  bash "$SCRIPT" gateway.example 10445 service.internal 443 \
+  </dev/null >"$tmp/delayed.stdout" 2>"$tmp/delayed.stderr" &
+delayed_tunnel_pid=$!
+_wait_for_file "$delayed_transport_pid_file" ||
+  _fail "signal handling: delayed-control transport starts"
+read -r delayed_transport_pid <"$delayed_transport_pid_file"
+kill -TERM "$delayed_tunnel_pid"
+delayed_exit=0
+wait "$delayed_tunnel_pid" || delayed_exit=$?
+_assert_exit "signal handling: delayed control preserves TERM status" 143 "$delayed_exit"
+if _wait_for_file "$delayed_control_token_file"; then
+  delayed_control_token=$(tr -d '\r\n' <"$delayed_control_token_file")
+  if [[ "$delayed_control_token" =~ ^ET_TUNNEL_STOP:[0-9a-f]{32}$ ]]; then
+    _pass "signal handling: retries a control channel still starting"
+  else
+    _fail "signal handling: delayed control receives the exact stop token"
+  fi
+else
+  _fail "signal handling: retries a control channel still starting"
+fi
+if _wait_for_processes_stopped "$delayed_transport_pid"; then
+  _pass "signal handling: terminates the delayed-control transport"
+else
+  _fail "signal handling: terminates the delayed-control transport"
+  kill -KILL "$delayed_transport_pid" 2>/dev/null || true
+fi
+
+dropping_transport_pid_file="$tmp/dropping-transport.pid"
+dropping_control_token_file="$tmp/dropping-control.token"
+dropping_control_ready_file="$tmp/dropping-control.ready"
+dropping_control_gate_file="$tmp/dropping-control.gate"
+dropping_control_dropped_file="$tmp/dropping-control.dropped"
+PATH="$bin:/usr/local/bin:/usr/bin:/bin" \
+  HOME="$test_home" \
+  XDG_STATE_HOME="$test_home/state" \
+  ET_TUNNEL_CLIENT_ID=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+  ET_TUNNEL_TEST_TRANSPORT_PID="$dropping_transport_pid_file" \
+  ET_TUNNEL_TEST_CONTROL_TOKEN="$dropping_control_token_file" \
+  ET_TUNNEL_TEST_CONTROL_READY="$dropping_control_ready_file" \
+  ET_TUNNEL_TEST_CONTROL_GATE="$dropping_control_gate_file" \
+  ET_TUNNEL_TEST_CONTROL_DROPPED="$dropping_control_dropped_file" \
+  ET_TUNNEL_TRANSPORT="$bin/dropping-control-transport" \
+  bash "$SCRIPT" gateway.example 10448 service.internal 443 \
+  </dev/null >"$tmp/dropping.stdout" 2>"$tmp/dropping.stderr" &
+dropping_tunnel_pid=$!
+_wait_for_file "$dropping_transport_pid_file" ||
+  _fail "signal handling: early-drop transport starts"
+_wait_for_marker "$dropping_control_ready_file" ||
+  _fail "signal handling: early-drop listener starts"
+read -r dropping_transport_pid <"$dropping_transport_pid_file"
+: >"$dropping_control_gate_file"
+kill -TERM "$dropping_tunnel_pid"
+dropping_exit=0
+wait "$dropping_tunnel_pid" || dropping_exit=$?
+_assert_exit "signal handling: early-drop control preserves TERM status" 143 "$dropping_exit"
+_wait_for_marker "$dropping_control_dropped_file" ||
+  _fail "signal handling: reproduces a locally accepted control drop"
+if _wait_for_file "$dropping_control_token_file"; then
+  dropping_control_token=$(tr -d '\r\n' <"$dropping_control_token_file")
+  if [[ "$dropping_control_token" =~ ^ET_TUNNEL_STOP:[0-9a-f]{32}$ ]]; then
+    _pass "signal handling: retries after a locally accepted control drop"
+  else
+    _fail "signal handling: retry sends the exact stop token after a drop"
+  fi
+else
+  _fail "signal handling: retries after a locally accepted control drop"
+fi
+if _wait_for_processes_stopped "$dropping_transport_pid"; then
+  _pass "signal handling: terminates the early-drop transport"
+else
+  _fail "signal handling: terminates the early-drop transport"
+  kill -KILL "$dropping_transport_pid" 2>/dev/null || true
+fi
+
+terminal_transport_pid_file="$tmp/terminal-transport.pid"
+terminal_control_token_file="$tmp/terminal-control.token"
+terminal_control_ready_file="$tmp/terminal-control.ready"
+terminal_control_attached_file="$tmp/terminal-control.attached"
+terminal_control_eof_file="$tmp/terminal-control.eof"
+PATH="$bin:/usr/local/bin:/usr/bin:/bin" \
+  HOME="$test_home" \
+  XDG_STATE_HOME="$test_home/state" \
+  ET_TUNNEL_CLIENT_ID=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+  ET_TUNNEL_TEST_TRANSPORT_PID="$terminal_transport_pid_file" \
+  ET_TUNNEL_TEST_CONTROL_TOKEN="$terminal_control_token_file" \
+  ET_TUNNEL_TEST_CONTROL_READY="$terminal_control_ready_file" \
+  ET_TUNNEL_TEST_CONTROL_ATTACHED="$terminal_control_attached_file" \
+  ET_TUNNEL_TEST_CONTROL_EOF="$terminal_control_eof_file" \
+  ET_TUNNEL_TRANSPORT="$bin/delayed-control-transport" \
+  "$test_python" - "$BASH" "$SCRIPT" gateway.example 10446 service.internal 443 \
+  >"$tmp/terminal.stdout" 2>"$tmp/terminal.stderr" <<'PY' &
+import os
+import signal
+import sys
+
+os.setsid()
+signal.signal(signal.SIGINT, signal.SIG_DFL)
+bash, *command = sys.argv[1:]
+os.execv(bash, ["bash", *command])
+PY
+terminal_tunnel_pid=$!
+_wait_for_file "$terminal_transport_pid_file" ||
+  _fail "signal handling: terminal-interrupt transport starts"
+_wait_for_marker "$terminal_control_ready_file" ||
+  _fail "signal handling: terminal-interrupt control channel starts"
+_wait_for_file "$terminal_control_token_file" ||
+  _fail "signal handling: terminal-interrupt control handoff starts"
+_wait_for_marker "$terminal_control_attached_file" ||
+  _fail "signal handling: terminal-interrupt control handoff is acknowledged"
+read -r terminal_transport_pid <"$terminal_transport_pid_file"
+terminal_pgid=$(ps -o pgid= -p "$terminal_tunnel_pid" | tr -d ' ')
+kill -INT -- "-$terminal_pgid"
+terminal_exit=0
+wait "$terminal_tunnel_pid" || terminal_exit=$?
+_assert_exit "signal handling: terminal Ctrl-C preserves INT status" 130 "$terminal_exit"
+if _wait_for_file "$terminal_control_token_file"; then
+  terminal_control_token=$(tr -d '\r\n' <"$terminal_control_token_file")
+  if [[ "$terminal_control_token" =~ ^[0-9a-f]{32}$ ]] &&
+    _wait_for_marker "$terminal_control_eof_file"; then
+    _pass "signal handling: terminal Ctrl-C keeps control forwarding alive for cleanup"
+  elif [[ ! "$terminal_control_token" =~ ^[0-9a-f]{32}$ ]]; then
+    _fail "signal handling: terminal Ctrl-C sends the exact handoff token"
+  else
+    _fail "signal handling: terminal Ctrl-C closes the acknowledged control stream"
+  fi
+else
+  _fail "signal handling: terminal Ctrl-C keeps control forwarding alive for cleanup"
+fi
+if _wait_for_processes_stopped "$terminal_transport_pid"; then
+  _pass "signal handling: terminates the terminal-interrupt transport"
+else
+  _fail "signal handling: terminates the terminal-interrupt transport"
+  kill -KILL "$terminal_transport_pid" 2>/dev/null || true
+fi
+
+_write_stub "$bin/od" \
+  ': >"$ET_TUNNEL_TEST_SETUP_READY"' \
+  'sleep 1' \
+  'printf " 01 23 45 67 89 ab cd ef 01 23 45 67 89 ab cd ef\\n"'
+setup_suspend_ready="$tmp/setup-suspend-ready"
+setup_suspend_transport_log="$tmp/setup-suspend-transport.log"
+setup_suspend_exit=0
+PATH="$bin:/usr/local/bin:/usr/bin:/bin" \
+  HOME="$test_home" \
+  XDG_STATE_HOME="$test_home/state" \
+  ET_TUNNEL_CLIENT_ID=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+  ET_TUNNEL_TEST_SETUP_READY="$setup_suspend_ready" \
+  ET_TUNNEL_TEST_LOG="$setup_suspend_transport_log" \
+  ET_TUNNEL_TRANSPORT="$bin/test-transport" \
+  "$test_python" - "$BASH" "$SCRIPT" "$setup_suspend_ready" \
+  "$setup_suspend_transport_log" \
+  >"$tmp/setup-suspend.stdout" 2>"$tmp/setup-suspend.stderr" <<'PY' ||
+setup_suspend_exit=$?
+import os
+import signal
+import sys
+import time
+
+bash, script, ready_file, transport_log = sys.argv[1:]
+os.setsid()
+signal.signal(signal.SIGTSTP, signal.SIG_DFL)
+child = os.fork()
+if child == 0:
+    os.setpgid(0, 0)
+    os.execv(
+        bash,
+        ["bash", script, "gateway.example", "10452", "service.internal", "443"],
+    )
+
+status = None
+ready_deadline = time.monotonic() + 5
+while not os.path.exists(ready_file) and time.monotonic() < ready_deadline:
+    time.sleep(0.01)
+
+progress = False
+if os.path.exists(ready_file):
+    os.killpg(child, signal.SIGTSTP)
+    progress_deadline = time.monotonic() + 5
+    while time.monotonic() < progress_deadline:
+        try:
+            progress = os.path.getsize(transport_log) > 0
+        except FileNotFoundError:
+            progress = False
+        if progress:
+            break
+        time.sleep(0.01)
+
+if progress:
+    exit_deadline = time.monotonic() + 5
+    while time.monotonic() < exit_deadline:
+        waited, candidate = os.waitpid(child, os.WNOHANG)
+        if waited:
+            status = candidate
+            break
+        time.sleep(0.01)
+
+if status is None:
+    try:
+        os.killpg(child, signal.SIGCONT)
+        os.killpg(child, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    exit_deadline = time.monotonic() + 2
+    while time.monotonic() < exit_deadline:
+        try:
+            waited, candidate = os.waitpid(child, os.WNOHANG)
+        except ChildProcessError:
+            break
+        if waited:
+            status = candidate
+            break
+        time.sleep(0.01)
+if status is None:
+    try:
+        os.killpg(child, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    try:
+        _, status = os.waitpid(child, 0)
+    except ChildProcessError:
+        pass
+
+exit_code = os.waitstatus_to_exitcode(status) if status is not None else None
+success = os.path.exists(ready_file) and progress and exit_code == 0
+if not success:
+    sys.stderr.write(
+        f"ready={os.path.exists(ready_file)} progress={progress} exit={exit_code}\n"
+    )
+sys.exit(0 if success else 1)
+PY
+  _assert_exit "signal handling: Ctrl-Z is ignored during setup" 0 "$setup_suspend_exit"
+if ((setup_suspend_exit != 0)); then
+  cat "$tmp/setup-suspend.stderr" >&2
+fi
+
+setup_ready="$tmp/setup-ready"
+setup_transport_log="$tmp/setup-transport.log"
+PATH="$bin:/usr/bin:/bin" \
+  HOME="$test_home" \
+  XDG_STATE_HOME="$test_home/state" \
+  ET_TUNNEL_CLIENT_ID=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+  ET_TUNNEL_TEST_SETUP_READY="$setup_ready" \
+  ET_TUNNEL_TEST_LOG="$setup_transport_log" \
+  ET_TUNNEL_TRANSPORT="$bin/test-transport" \
+  bash "$SCRIPT" gateway.example 10444 service.internal 443 \
+  </dev/null >"$tmp/setup.stdout" 2>"$tmp/setup.stderr" &
+setup_tunnel_pid=$!
+_wait_for_marker "$setup_ready" || _fail "signal handling: setup reaches token generation"
+kill -TERM "$setup_tunnel_pid"
+setup_exit=0
+wait "$setup_tunnel_pid" || setup_exit=$?
+_assert_exit "signal handling: TERM during setup exits" 143 "$setup_exit"
+if [[ ! -s "$setup_transport_log" ]]; then
+  _pass "signal handling: TERM during setup launches no transport"
+else
+  _fail "signal handling: TERM during setup launches no transport"
+fi
+
+ET_TUNNEL_TEST_CLIENT_ID='' \
+  _run_et_tunnel gateway.example 10443 service.internal 443
+client_id_file="$test_home/state/et-tunnel/client-id"
+client_id=""
+[[ -r "$client_id_file" ]] && read -r client_id <"$client_id_file"
+if [[ "$client_id" =~ ^[0-9a-f]{32}$ ]]; then
+  _pass "client identity: creates a stable random id"
+else
+  _fail "client identity: creates a stable random id (got '$client_id')"
+fi
+client_mode=$(stat -c '%a' "$client_id_file" 2>/dev/null || stat -f '%Lp' "$client_id_file")
+_assert_eq "client identity: protects the id file" "600" "$client_mode"
+
+echo ""
+echo "=== et-tunnel validation and errors ==="
+
+_run_et_tunnel --help
+_assert_exit "help: succeeds" 0 "$run_exit"
+_assert_contains "help: shows the compact positional interface" \
+  "et-tunnel VIA LOCAL_PORT TARGET TARGET_PORT" "$(cat "$stderr")"
+_assert_contains "help: documents Ctrl-Z behavior for the tunnel lifetime" \
+  "Ctrl-Z is ignored for the tunnel's lifetime" "$(cat "$stderr")"
+_assert_file_content "help: launches no transport" "" "$log"
+
+_run_et_tunnel gateway.example 10443 service.internal
+_assert_exit "missing argument: rejected" 2 "$run_exit"
+_assert_contains "missing argument: error is actionable" "expected four arguments" "$(cat "$stderr")"
+_assert_file_content "missing argument: rejected before transport" "" "$log"
+
+_run_et_tunnel 'bad;command' 10443 service.internal 443
+_assert_exit "unsafe via host: rejected" 2 "$run_exit"
+_assert_contains "unsafe via host: error is actionable" "invalid via host" "$(cat "$stderr")"
+_assert_file_content "unsafe via host: rejected before transport" "" "$log"
+
+_run_et_tunnel gateway.example 10443 'bad;command' 443
+_assert_exit "unsafe target host: rejected" 2 "$run_exit"
+_assert_contains "unsafe target host: error is actionable" "invalid target host" "$(cat "$stderr")"
+_assert_file_content "unsafe target host: rejected before transport" "" "$log"
+
+_run_et_tunnel gateway.example 0 service.internal 443
+_assert_exit "invalid local port: rejected" 2 "$run_exit"
+_assert_contains "invalid local port: error is actionable" "invalid local port" "$(cat "$stderr")"
+_assert_file_content "invalid local port: rejected before transport" "" "$log"
+
+_run_et_tunnel gateway.example 10443 service.internal 70000
+_assert_exit "invalid target port: rejected" 2 "$run_exit"
+_assert_contains "invalid target port: error is actionable" "invalid target port" "$(cat "$stderr")"
+_assert_file_content "invalid target port: rejected before transport" "" "$log"
+
+ET_TUNNEL_TEST_LSOF_EXIT=0 _run_et_tunnel gateway.example 10443 service.internal 443
+unset ET_TUNNEL_TEST_LSOF_EXIT
+_assert_exit "occupied local port: rejected" 1 "$run_exit"
+_assert_contains "occupied local port: suggests an existing tunnel" \
+  "may already be running" "$(cat "$stderr")"
+_assert_file_content "occupied local port: rejected before transport" "" "$log"
+
+ET_TUNNEL_TEST_ET=missing-et _run_et_tunnel gateway.example 10443 service.internal 443
+unset ET_TUNNEL_TEST_ET
+_assert_exit "missing ET: rejected" 1 "$run_exit"
+_assert_contains "missing ET: error names the dependency" \
+  "ET client 'missing-et' was not found" "$(cat "$stderr")"
+_assert_file_content "missing ET: launches no transport" "" "$log"
+
+ET_TUNNEL_TEST_TRANSPORT='test-transport --unsafe' \
+  _run_et_tunnel gateway.example 10443 service.internal 443
+unset ET_TUNNEL_TEST_TRANSPORT
+_assert_exit "transport string: is treated as one executable name" 1 "$run_exit"
+_assert_contains "transport string: is never shell-evaluated" \
+  "transport 'test-transport --unsafe' was not found" "$(cat "$stderr")"
+_assert_file_content "transport string: launches no command" "" "$log"
+
+_assert_contains "dependencies: provisions the ET client on macOS" \
+  "eternal-terminal" "$(cat "$HOME/.config/shdeps/10-deps.conf")"
+
+_test_summary
