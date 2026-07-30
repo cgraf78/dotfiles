@@ -1,0 +1,46 @@
+# gstack skills to leave unregistered.
+#
+# Upstream gstack ships every skill it has. Each registered skill spends
+# description text in every agent session's skill budget, so this list keeps
+# only the ones this fleet actually uses.
+#
+# One name per line. Bare (`browse`) and prefixed (`gstack-browse`) both work.
+# `#` starts a comment. A name matching no upstream skill is warned about on
+# `dot update`, not silently ignored.
+#
+# Read by ~/.local/lib/dot/gstack-register/source.sh; changes apply on the next
+# `dot update`.
+
+# iOS — no iOS or SwiftUI development on this fleet.
+ios-clean
+ios-design-review
+ios-fix
+ios-qa
+ios-sync
+
+# Browser-driven web QA — no web frontend work, so the headless browser and
+# its scrape/record helpers go unused.
+benchmark
+browse
+open-gstack-browser
+pair-agent
+qa
+qa-only
+scrape
+setup-browser-cookies
+skillify
+
+# Context and memory — this fleet already has a durable memory store, and a
+# second one only adds ambiguity about where a fact belongs.
+context-restore
+context-save
+learn
+setup-gbrain
+sync-gbrain
+
+# Edit guardrails — pre-tool hooks already enforce edit boundaries and warn on
+# destructive commands. Two guard layers that can disagree is worse than one.
+careful
+freeze
+guard
+unfreeze

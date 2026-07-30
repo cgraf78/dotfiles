@@ -25,6 +25,14 @@ _dot_gstack_claude_skills_dir() {
   printf '%s\n' "$HOME/.claude/skills"
 }
 
+# Optional user skip list for upstream gstack skills. Upstream ships every skill
+# it has, but agents pay for each registration in their skill-description
+# context budget, so a machine may legitimately want only a subset. The path is
+# overridable so tests can point at a fixture without writing to the real home.
+_dot_gstack_skill_exclude_file() {
+  printf '%s\n' "${DOT_GSTACK_SKILL_EXCLUDE_FILE:-$HOME/.config/dot/gstack-skills-exclude}"
+}
+
 _dot_gstack_codex_skills_dir() {
   printf '%s\n' "$HOME/.codex/skills"
 }
@@ -60,9 +68,13 @@ _DOT_GSTACK_SOURCE_SKILL_DIRS=()
 _DOT_GSTACK_SOURCE_SKILL_NAMES=()
 declare -A _DOT_GSTACK_SOURCE_NAME_EXISTS=()
 declare -A _DOT_GSTACK_SOURCE_CODEX_NAME_EXISTS=()
+declare -A _DOT_GSTACK_SKILL_EXCLUDE=()
+_DOT_GSTACK_SKILL_EXCLUDE_LOADED=''
 _DOT_GSTACK_GENERATED_SKILL_VERSION='dotfiles-gstack-skill-v5'
 _DOT_GSTACK_GEMINI_CONTEXT_VERSION='dotfiles-gstack-gemini-context-v1'
-_DOT_GSTACK_REGISTRATION_CACHE_VERSION='dotfiles-gstack-registration-v11'
+# v12 adds the skill exclude list to the source fingerprint and watch set;
+# caches written by v11 cannot prove an exclusion edit was applied.
+_DOT_GSTACK_REGISTRATION_CACHE_VERSION='dotfiles-gstack-registration-v12'
 _DOT_GSTACK_TARGET_FRESHNESS_CACHE_FILE=''
 
 _dot_gstack_cksum_file() {
