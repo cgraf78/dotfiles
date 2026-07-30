@@ -1687,6 +1687,90 @@ result=$(_nvim_lua '
 ')
 _assert_eq "sley hook policy: nvim reads checkrun capability metadata" "ok" "$result"
 
+dep_file_root=$(_tmpdir)
+mkdir -p "$dep_file_root/assets/dir"
+printf '%s\n' "asset" >"$dep_file_root/assets/readable file.lua"
+ln -s "readable file.lua" "$dep_file_root/assets/symlink.lua"
+mkfifo "$dep_file_root/assets/fifo"
+ln -s "fifo" "$dep_file_root/assets/fifo-symlink"
+result=$(DOT_TEST_DEP_FILE_ROOT="$dep_file_root" _nvim_lua '
+  local runtime = dofile(vim.fn.expand("~/.config/nvim/lua/config/dot-runtime.lua"))
+  local calls = {}
+  runtime.shdeps = function()
+    return {
+      dep_root = function(dep)
+        calls[dep] = (calls[dep] or 0) + 1
+        if dep == "cgraf78/present" or (dep == "cgraf78/missing" and calls[dep] > 1) then
+          return vim.env.DOT_TEST_DEP_FILE_ROOT
+        end
+        return nil
+      end,
+    }
+  end
+
+  local readable = runtime.dep_file("cgraf78/present", "assets/readable file.lua")
+  local symlink = runtime.dep_file("cgraf78/present", "assets/symlink.lua")
+  if not readable or not symlink then
+    print("readable-assets-missing")
+    return
+  end
+  if runtime.dep_file("cgraf78/present", "assets/missing.lua") ~= nil
+    or runtime.dep_file("cgraf78/present", "assets/dir") ~= nil
+    or runtime.dep_file("cgraf78/present", "assets/fifo") ~= nil
+    or runtime.dep_file("cgraf78/present", "assets/fifo-symlink") ~= nil
+  then
+    print("non-files-resolved")
+    return
+  end
+  if calls["cgraf78/present"] ~= 1 then
+    print("duplicate-present-root:" .. tostring(calls["cgraf78/present"]))
+    return
+  end
+
+  if runtime.dep_file("cgraf78/missing", "assets/readable file.lua") ~= nil then
+    print("initially-missing-root-resolved")
+    return
+  end
+  if runtime.dep_file("cgraf78/missing", "assets/readable file.lua") ~= nil
+    or calls["cgraf78/missing"] ~= 1
+  then
+    print("missing-root-not-batched")
+    return
+  end
+  local recovered = nil
+  local recovered_in_time = vim.wait(1000, function()
+    recovered = runtime.dep_file("cgraf78/missing", "assets/readable file.lua")
+    return recovered ~= nil
+  end, 1)
+  if not recovered_in_time or not recovered
+    or not runtime.dep_file("cgraf78/missing", "assets/readable file.lua") then
+    print("installed-root-did-not-recover")
+    return
+  end
+  if calls["cgraf78/missing"] ~= 2 then
+    print("missing-root-recovery-count:" .. tostring(calls["cgraf78/missing"]))
+    return
+  end
+
+  local invalid = {
+    "", "/absolute", "C:\\\\absolute", "\\\\\\\\server\\\\share",
+    "../escape", "nested/../escape", "nested\\\\..\\\\escape", "nul\0byte",
+  }
+  local before = calls["cgraf78/present"]
+  for _, relpath in ipairs(invalid) do
+    if runtime.dep_file("cgraf78/present", relpath) ~= nil then
+      print("invalid-path-resolved:" .. relpath)
+      return
+    end
+  end
+  if calls["cgraf78/present"] ~= before then
+    print("invalid-path-probed-root")
+    return
+  end
+  print("ok")
+')
+_assert_eq "dependency assets: cache roots without weakening file validation" "ok" "$result"
+
 CHECKRUN_METADATA_BIN=$(_tmpdir)
 CHECKRUN_METADATA_MARKER=$(_tmpdir)/editor-metadata-processes
 REAL_PYTHON3=$(command -v python3)
@@ -1722,32 +1806,23 @@ EOF
 chmod +x "$CHECKRUN_METADATA_BIN/checkrun" "$CHECKRUN_METADATA_BIN/python3"
 
 result=$(PATH="$CHECKRUN_METADATA_BIN:$PATH" \
-  DOT_TEST_CHECKRUN_BIN="$CHECKRUN_METADATA_BIN/checkrun" \
   _nvim_lua '
-  local real_shdeps = require("config.dot-runtime").shdeps()
-  local checkrun_nvim = real_shdeps.dep_file("cgraf78/checkrun", "lib/checkrun/nvim.lua")
+  local runtime = dofile(vim.fn.expand("~/.config/nvim/lua/config/dot-runtime.lua"))
+  local real_shdeps = runtime.shdeps()
   local dep_calls = {}
 
-  package.loaded["config.dot-runtime"] = {
-    shdeps = function()
-      return {
-        dep_file = function(dep, rel)
-          local key = dep .. "/" .. rel
-          dep_calls[key] = (dep_calls[key] or 0) + 1
-          if dep == "cgraf78/checkrun" and rel == "lib/checkrun/nvim.lua" then
-            return checkrun_nvim
-          end
-          if dep == "cgraf78/checkrun" and rel == "bin/checkrun" then
-            return vim.env.DOT_TEST_CHECKRUN_BIN
-          end
-          return real_shdeps.dep_file(dep, rel)
-        end,
-        env = function()
-          return {}
-        end,
-      }
-    end,
-  }
+  runtime.shdeps = function()
+    return {
+      dep_root = function(dep)
+        dep_calls[dep] = (dep_calls[dep] or 0) + 1
+        return real_shdeps.dep_root(dep)
+      end,
+      env = function()
+        return {}
+      end,
+    }
+  end
+  package.loaded["config.dot-runtime"] = runtime
 
   local policy = require("config.language-policy")
   local capabilities = policy.checkrun_capabilities()
@@ -1760,16 +1835,25 @@ result=$(PATH="$CHECKRUN_METADATA_BIN:$PATH" \
     print("missing-static-schemas")
     return
   end
+  local expected = {
+    ["cgraf78/checkrun"] = true,
+    ["cgraf78/grafhome-ca"] = true,
+    ["cgraf78/sley"] = true,
+  }
   local total_calls = 0
-  for key, calls in pairs(dep_calls) do
+  for dep, calls in pairs(dep_calls) do
     if calls ~= 1 then
-      print("duplicate-dependency-resolution:" .. key .. ":" .. calls)
+      print("duplicate-dependency-root:" .. dep .. ":" .. calls)
+      return
+    end
+    if not expected[dep] then
+      print("unexpected-dependency-root:" .. dep)
       return
     end
     total_calls = total_calls + calls
   end
-  if total_calls ~= 11 then
-    print("unexpected-dependency-resolution-count:" .. total_calls)
+  if total_calls ~= 3 then
+    print("unexpected-dependency-root-count:" .. total_calls)
     return
   end
   print("ok")

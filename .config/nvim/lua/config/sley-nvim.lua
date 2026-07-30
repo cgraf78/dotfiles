@@ -7,9 +7,8 @@ function M.module()
     return adapter_cache
   end
 
-  local shdeps = require("config.dot-runtime").shdeps()
-  local path = shdeps.dep_file("cgraf78/sley", "lib/sley/nvim.lua")
-  if not path or vim.fn.filereadable(path) ~= 1 then
+  local path = require("config.dot-runtime").dep_file("cgraf78/sley", "lib/sley/nvim.lua")
+  if not path then
     error("sley nvim adapter module not found through shdeps")
   end
 
