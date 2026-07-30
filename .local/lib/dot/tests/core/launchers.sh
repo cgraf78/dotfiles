@@ -47,6 +47,34 @@ dot_core_test_launchers() {
   _assert_contains "status: base with overlay dir" "dotfiles" "$result"
   _assert_contains "status: overlay section present" "work dotfiles" "$result"
 
+  _discover_overlays
+  normalize_sync=$(_tmpdir)
+  mkdir -p "$normalize_sync"
+  # shellcheck disable=SC2329 # invoked indirectly by _normalize_filtered.
+  _normalize_dirty_files() {
+    local kind=base started=$SECONDS
+    [[ "$*" != *" -C $OVERLAY_DIR"* ]] || kind=overlay
+    : >"$normalize_sync/$kind.started"
+    while [[ ! -e "$normalize_sync/base.started" || ! -e "$normalize_sync/overlay.started" ]]; do
+      if ((SECONDS - started >= 5)); then
+        : >"$normalize_sync/not-concurrent"
+        break
+      fi
+      sleep 0.01
+    done
+    : >"$normalize_sync/$kind.finished"
+  }
+  _normalize_filtered
+  _assert_file_missing "normalize parallel: repositories overlap" \
+    "$normalize_sync/not-concurrent"
+  _assert_file_exists "normalize parallel: drains base worker" \
+    "$normalize_sync/base.finished"
+  _assert_file_exists "normalize parallel: drains overlay worker" \
+    "$normalize_sync/overlay.finished"
+  unset -f _normalize_dirty_files
+  # shellcheck disable=SC1091 # restore the production helper after the canary.
+  . "$_DOT_REPOS_DIR/dirty.sh"
+
   rm -rf "$OVERLAY_DIR" "$OVERLAY_BARE"
 
   # dot with no args shows usage
