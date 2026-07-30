@@ -10,3 +10,8 @@ This directory groups VS Code keybinding source families by platform.
 Each directory is a merge-hook family. Direct `*.jsonc` files aggregate in
 lexical order, and an immediate `.replace/` group contributes only its last
 matching `*.jsonc` file.
+
+Existing local-only bindings keep their normal precedence over managed
+bindings. The shared terminal `Ctrl-Tab` and `Ctrl-Shift-Tab` send-sequence
+routes are the exception: they are emitted last so older or more specific local
+terminal-tab handlers cannot consume those chords before tmux receives them.
