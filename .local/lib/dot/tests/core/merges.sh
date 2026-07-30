@@ -689,6 +689,46 @@ EOF
         "$(jq '[.[] | select(.key == "ctrl+v" and .command == "workbench.action.terminal.paste" and .when == "terminalFocus")] | length' "$keybindings_file")"
     }
 
+    _write_vscode_keybinding_conflicts() {
+      local keybindings_file="$1"
+
+      mkdir -p "$(dirname "$keybindings_file")"
+      cat >"$keybindings_file" <<'JSON'
+[
+  {
+    "key": "ctrl+tab",
+    "command": "workbench.action.terminal.focusNext",
+    "when": "terminalFocus && terminalHasBeenCreated && !terminalEditorFocus || terminalFocus && terminalProcessSupported && !terminalEditorFocus"
+  },
+  {
+    "key": "ctrl+shift+tab",
+    "command": "workbench.action.terminal.focusPrevious",
+    "when": "terminalFocus && terminalHasBeenCreated && !terminalEditorFocus || terminalFocus && terminalProcessSupported && !terminalEditorFocus"
+  },
+  {
+    "key": "ctrl+v",
+    "command": "local.terminalPasteOverride",
+    "when": "terminalFocus && localTerminalMode"
+  }
+]
+JSON
+    }
+
+    _assert_vscode_keybinding_precedence() {
+      local keybindings_file="$1"
+      local platform="$2"
+
+      _assert_eq "vscode $platform terminal: managed Ctrl-Tab wins over an overlapping local binding" \
+        '["workbench.action.terminal.focusNext","workbench.action.terminal.sendSequence"]' \
+        "$(jq -c '[.[] | select(.key == "ctrl+tab" and (.command == "workbench.action.terminal.focusNext" or .command == "workbench.action.terminal.sendSequence")) | .command]' "$keybindings_file")"
+      _assert_eq "vscode $platform terminal: managed Ctrl-Shift-Tab wins over an overlapping local binding" \
+        '["workbench.action.terminal.focusPrevious","workbench.action.terminal.sendSequence"]' \
+        "$(jq -c '[.[] | select(.key == "ctrl+shift+tab" and (.command == "workbench.action.terminal.focusPrevious" or .command == "workbench.action.terminal.sendSequence")) | .command]' "$keybindings_file")"
+      _assert_eq "vscode $platform terminal: unrelated local overlap retains precedence" \
+        '["workbench.action.terminal.paste","local.terminalPasteOverride"]' \
+        "$(jq -c '[.[] | select(.key == "ctrl+v" and (.command == "workbench.action.terminal.paste" or .command == "local.terminalPasteOverride")) | .command]' "$keybindings_file")"
+    }
+
     vscode_home=$(_tmpdir)
     vscode_bin=$(_tmpdir)/bin
     export DOT_VSCODE_EXTENSIONS_SKIP=1
@@ -722,6 +762,7 @@ EOF
   }
 }
 JSON
+    _write_vscode_keybinding_conflicts "$vscode_home/.config/Code/User/keybindings.json"
     cp -R "$REAL_HOME/.config/dot/merge-hooks.d/vscode" \
       "$vscode_home/.config/dot/merge-hooks.d/vscode"
     cat >"$vscode_home/.config/dot/merge-hooks.d/vscode/settings.d/50-prefix-probe.json" <<'JSON'
@@ -1112,6 +1153,7 @@ PY
     _assert_eq "vscode mcp auth: token state file is not group/world readable" \
       "600" "$vscode_mcp_token_perms"
 
+    vscode_keybindings_before_repeat=$(cat "$vscode_home/.config/Code/User/keybindings.json")
     # shellcheck disable=SC2016 # The inner shell expands fixture env variables.
     env HOME="$vscode_home" REAL_HOME="$REAL_HOME" PATH="$vscode_bin:$PATH" \
       DOT_TEST_MV_LOG="$vscode_mv_log" DOT_TEST_VSCODE_HOSTNAME="fixture-host" bash -c '
@@ -1129,6 +1171,9 @@ PY
     _assert_eq "vscode mcp auth: token is stable across repeat merges" \
       "$vscode_mcp_token_setting" \
       "$(jq -r '.["vscode-mcp-server.authToken"] // empty' "$vscode_home/.config/Code/User/settings.json")"
+    _assert_file_content "vscode keybindings: repeat merge is byte-identical" \
+      "$vscode_keybindings_before_repeat" \
+      "$vscode_home/.config/Code/User/keybindings.json"
 
     # --- MCP auth edge cases: scoping, corruption recovery, race safety ---
     vscode_mcp_edge_home=$(_tmpdir)
@@ -1349,6 +1394,7 @@ PY
       _fail "vscode sley: saved keybindings are sorted"
     fi
     vscode_keybindings_file="$vscode_home/.config/Code/User/keybindings.json"
+    _assert_vscode_keybinding_precedence "$vscode_keybindings_file" "linux"
     _assert_eq "vscode terminal: Alt-Shift-[ sends tmux/nvim tab-move escape" \
       "1" \
       "$(jq '[.[] | select(.key == "alt+shift+[" and .command == "workbench.action.terminal.sendSequence" and .when == "terminalFocus" and .args.text == "\u001b{")] | length' "$vscode_keybindings_file")"
@@ -1402,6 +1448,7 @@ PY
     # this keybinding layer restores editor word movement only for that platform.
     vscode_mac_keybindings="$vscode_home/Library/Application Support/Code/User/keybindings.json"
     rm -rf "$vscode_home/Library/Application Support/Code/User"
+    _write_vscode_keybinding_conflicts "$vscode_mac_keybindings"
     # shellcheck disable=SC2016 # The inner shell expands fixture env variables.
     env HOME="$vscode_home" REAL_HOME="$REAL_HOME" PATH="$vscode_bin:$PATH" \
       DOT_TEST_MV_LOG="$vscode_mv_log" bash -c '
@@ -1417,6 +1464,7 @@ PY
       }
       merge
     '
+    _assert_vscode_keybinding_precedence "$vscode_mac_keybindings" "macOS"
     _assert_vscode_macos_ctrl_arrow_keybindings "$vscode_mac_keybindings"
     _assert_vscode_macos_karabiner_terminal_keybindings "$vscode_mac_keybindings"
     _assert_vscode_terminal_clipboard_keybindings "$vscode_mac_keybindings" "macOS"

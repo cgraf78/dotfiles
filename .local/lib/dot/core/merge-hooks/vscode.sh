@@ -117,7 +117,9 @@ PY
 
 # Merge VS Code keybindings from dotfiles into a local keybindings.json.
 # Policy: dotfiles win on conflicts (same key+when, different command).
-# Local-only keybindings (not in dotfiles) are preserved.
+# Local-only keybindings (not in dotfiles) are preserved with their precedence,
+# except that managed terminal tab routes must reach the pty ahead of stale
+# local handlers with overlapping when clauses.
 # Writes to a .tmp file first so the original is preserved on failure.
 _merge_vscode_keybindings() {
   local src="$1" dst="$2" out
@@ -147,13 +149,22 @@ _merge_vscode_keybindings() {
     return
   fi
 
-  # Merge: all dotfiles entries first, then any local-only entries.
-  # A keybinding's identity is its key+when pair.
+  # A keybinding's identity is its key+when pair. VS Code resolves equal-weight
+  # user bindings from the bottom up, so keep only the managed terminal tab
+  # routes after preserved local entries; unrelated local overrides retain the
+  # existing source-first precedence.
   _merge_hook_tmp_for "$dst" || return 1
   out="$REPLY"
   if ! jq -n --indent 4 --sort-keys --slurpfile s "$src_clean" --slurpfile d "$dst_clean" '
+    def terminal_tab_route:
+      .command == "workbench.action.terminal.sendSequence"
+      and .when == "terminalFocus"
+      and (.key == "ctrl+tab" or .key == "ctrl+shift+tab");
+
     ($s[0] | map({key: .key, when: (.when // "")})) as $skeys |
-    $s[0] + [$d[0][] | select({key: .key, when: (.when // "")} as $k | $skeys | map(. == $k) | any | not)]
+    ($s[0] | map(select(terminal_tab_route | not)))
+    + [$d[0][] | select({key: .key, when: (.when // "")} as $k | $skeys | map(. == $k) | any | not)]
+    + ($s[0] | map(select(terminal_tab_route)))
   ' >"$out"; then
     _warn "    warning: keybindings merge failed for $(basename "$(dirname "$(dirname "$dst")")") — skipping"
     rm -f "$out"
