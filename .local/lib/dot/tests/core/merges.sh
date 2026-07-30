@@ -696,6 +696,7 @@ EOF
       "$vscode_bin" \
       "$vscode_home/.config/Code/User" \
       "$vscode_home/.config/dot/merge-hooks.d" \
+      "$vscode_home/.local/share/cgraf78/termnav/share/termnav/vscode/termnav-0.1.0" \
       "$vscode_home/.local/share/dot-vscode-extensions" \
       "$vscode_home/.vscode/extensions"
     cat >"$vscode_home/.config/Code/User/settings.json" <<'JSON'
@@ -730,6 +731,13 @@ JSON
 JSON
     cp -R "$REAL_HOME/.local/share/dot-vscode-extensions/sley-tools-0.0.1" \
       "$vscode_home/.local/share/dot-vscode-extensions/sley-tools-0.0.1"
+    cat >"$vscode_home/.local/share/cgraf78/termnav/share/termnav/vscode/termnav-0.1.0/package.json" <<'JSON'
+{
+  "name": "termnav",
+  "publisher": "cgraf",
+  "version": "0.1.0"
+}
+JSON
     vscode_mv_log="$vscode_home/mv.log"
     cat >"$vscode_home/.vscode/extensions/extensions.json" <<'JSON'
 [
@@ -1351,8 +1359,13 @@ PY
     vscode_extensions=$(jq -c . "$vscode_home/.vscode/extensions/extensions.json")
     _assert_contains "vscode sley: extension registered" \
       '"id":"cgraf.sley-tools"' "$vscode_extensions"
-    _assert_eq "vscode local extensions: only declared extension is registered" \
-      '["cgraf.sley-tools"]' \
+    _assert_contains "vscode termnav: extension registered" \
+      '"id":"cgraf.termnav"' "$vscode_extensions"
+    _assert_eq "vscode local extensions: registration uses the manifest version" \
+      "0.1.0" \
+      "$(jq -r '.[] | select(.identifier.id == "cgraf.termnav") | .version' "$vscode_home/.vscode/extensions/extensions.json")"
+    _assert_eq "vscode local extensions: only declared extensions are registered" \
+      '["cgraf.sley-tools","cgraf.termnav"]' \
       "$(jq -c '[.[] | select(.metadata.source == "local") | .identifier.id]' "$vscode_home/.vscode/extensions/extensions.json")"
     _assert_contains "vscode sley: preserves existing extension registrations" \
       '"id":"keep.existing"' "$vscode_extensions"
@@ -1371,6 +1384,11 @@ PY
       _pass "vscode sley: extension symlink deployed"
     else
       _fail "vscode sley: extension symlink deployed"
+    fi
+    if [[ -L "$vscode_home/.vscode/extensions/termnav-0.1.0" ]]; then
+      _pass "vscode termnav: extension symlink deployed"
+    else
+      _fail "vscode termnav: extension symlink deployed"
     fi
     _assert_eq "vscode remote settings: generated window title uses remote host label" \
       "$vscode_title_expected" \
@@ -1430,10 +1448,17 @@ PY
     vscode_remote_extensions=$(jq -c . "$vscode_home/.vscode-server/extensions/extensions.json")
     _assert_contains "vscode sley: extension-only variant registered" \
       '"id":"cgraf.sley-tools"' "$vscode_remote_extensions"
+    _assert_contains "vscode termnav: extension-only variant registered" \
+      '"id":"cgraf.termnav"' "$vscode_remote_extensions"
     if [[ -L "$vscode_home/.vscode-server/extensions/sley-tools-0.0.1" ]]; then
       _pass "vscode sley: extension-only symlink deployed"
     else
       _fail "vscode sley: extension-only symlink deployed"
+    fi
+    if [[ -L "$vscode_home/.vscode-server/extensions/termnav-0.1.0" ]]; then
+      _pass "vscode termnav: extension-only symlink deployed"
+    else
+      _fail "vscode termnav: extension-only symlink deployed"
     fi
 
     vscode_server_only_home=$(_tmpdir)
@@ -1459,13 +1484,18 @@ PY
     vscode_nosley_extensions=$(jq -c . "$vscode_home/.vscode-nosley/extensions/extensions.json")
     _assert_not_contains "vscode sley: no-sley variant unregisters formatter extension" \
       '"id":"cgraf.sley-tools"' "$vscode_nosley_extensions"
-    _assert_eq "vscode sley: no-sley variant has no dot-managed local extensions" \
-      '[]' \
+    _assert_eq "vscode sley: no-sley variant keeps independent local extensions" \
+      '["cgraf.termnav"]' \
       "$(jq -c '[.[] | select(.metadata.source == "local") | .identifier.id]' "$vscode_home/.vscode-nosley/extensions/extensions.json")"
     if [[ ! -e "$vscode_home/.vscode-nosley/extensions/sley-tools-0.0.1" ]]; then
       _pass "vscode sley: no-sley variant removes formatter symlink"
     else
       _fail "vscode sley: no-sley variant removes formatter symlink"
+    fi
+    if [[ -L "$vscode_home/.vscode-nosley/extensions/termnav-0.1.0" ]]; then
+      _pass "vscode termnav: no-sley variant keeps tab router"
+    else
+      _fail "vscode termnav: no-sley variant keeps tab router"
     fi
     vscode_nosley_settings=$(jq -c . "$vscode_home/.config/NoSley/User/settings.json")
     _assert_not_contains "vscode sley: no-sley variant removes formatter settings" \
@@ -1517,19 +1547,28 @@ JSON
       "$win_extensions_before" "$win_ext_dir/extensions.json"
     _assert_not_contains "vscode wsl: Windows native does not register sley extension" \
       '"id":"cgraf.sley-tools"' "$win_extensions"
+    _assert_not_contains "vscode wsl: Windows native does not register termnav extension" \
+      '"id":"cgraf.termnav"' "$win_extensions"
     _assert_file_missing "vscode wsl: Windows native sley extension not copied" \
       "$win_ext_dir/sley-tools-0.0.1"
 
     wsl_extensions=$(jq -c . "$vscode_home/.vscode-server/extensions/extensions.json")
     _assert_contains "vscode wsl: server registers sley extension" \
       '"id":"cgraf.sley-tools"' "$wsl_extensions"
-    _assert_eq "vscode wsl: server only registers declared local extension" \
-      '["cgraf.sley-tools"]' \
+    _assert_contains "vscode wsl: server registers termnav extension" \
+      '"id":"cgraf.termnav"' "$wsl_extensions"
+    _assert_eq "vscode wsl: server only registers declared local extensions" \
+      '["cgraf.sley-tools","cgraf.termnav"]' \
       "$(jq -c '[.[] | select(.metadata.source == "local") | .identifier.id]' "$vscode_home/.vscode-server/extensions/extensions.json")"
     if [[ -L "$vscode_home/.vscode-server/extensions/sley-tools-0.0.1" ]]; then
       _pass "vscode wsl: server sley symlink deployed"
     else
       _fail "vscode wsl: server sley symlink deployed"
+    fi
+    if [[ -L "$vscode_home/.vscode-server/extensions/termnav-0.1.0" ]]; then
+      _pass "vscode wsl: server termnav symlink deployed"
+    else
+      _fail "vscode wsl: server termnav symlink deployed"
     fi
 
     win_settings=$(jq -c . "$win_code_user/settings.json")

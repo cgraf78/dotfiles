@@ -17,7 +17,7 @@ wezterm_switch_tab_path='~/.local/bin/wezterm-switch-tab'
 # shellcheck disable=SC2088 # tmux expands this literal path in its own shell.
 wezterm_move_tab_path='~/.local/bin/wezterm-move-tab'
 # shellcheck disable=SC2088 # tmux expands this literal path in its own shell.
-vscode_switch_tab_path='~/.local/bin/vscode-switch-tab'
+termnav_switch_tab_path='~/.local/bin/termnav-switch-tab'
 wezterm_switch_tab_content=$(cat "$tmux_tool_home/.local/bin/wezterm-switch-tab" 2>/dev/null || true)
 wezterm_move_tab_content=$(cat "$tmux_tool_home/.local/bin/wezterm-move-tab" 2>/dev/null || true)
 ctrl_tab_config_line=$(printf '%s\n' "$tmux_content" | grep '^bind-key -n C-Tab ' || true)
@@ -199,18 +199,20 @@ _assert_contains "tmux Alt-Shift-[ asks parent tmux when nested client has one w
   "$wezterm_move_tab_path --parent left #{client_tty}" "$tmux_content"
 _assert_contains "tmux Alt-Shift-] asks parent tmux when nested client has one window" \
   "$wezterm_move_tab_path --parent right #{client_tty}" "$tmux_content"
-_assert_contains "tmux Ctrl-Tab checks for a VS Code client before asking WezTerm" \
+_assert_not_contains "tmux Ctrl-Tab leaves outer-terminal selection to termnav" \
   "#{m:xterm.js*,#{client_termtype}}" "$ctrl_tab_config_line"
-_assert_contains "tmux Ctrl-Shift-Tab checks for a VS Code client before asking WezTerm" \
+_assert_not_contains "tmux Ctrl-Shift-Tab leaves outer-terminal selection to termnav" \
   "#{m:xterm.js*,#{client_termtype}}" "$ctrl_shift_tab_config_line"
 _assert_contains "tmux Alt-Shift-[ checks for a VS Code client before asking WezTerm" \
   "#{m:xterm.js*,#{client_termtype}}" "$move_tab_left_config_line"
 _assert_contains "tmux Alt-Shift-] checks for a VS Code client before asking WezTerm" \
   "#{m:xterm.js*,#{client_termtype}}" "$move_tab_right_config_line"
-_assert_contains "tmux Ctrl-Tab bubbles to VS Code via the installed helper" \
-  "$vscode_switch_tab_path next" "$tmux_content"
-_assert_contains "tmux Ctrl-Shift-Tab bubbles to VS Code via the installed helper" \
-  "$vscode_switch_tab_path previous" "$tmux_content"
+_assert_contains "tmux Ctrl-Tab bubbles through the nearest-scope router" \
+  "$termnav_switch_tab_path next --client-pid #{client_pid} --client-tty #{q:client_tty} --client-termtype #{q:client_termtype}" \
+  "$tmux_content"
+_assert_contains "tmux Ctrl-Shift-Tab bubbles through the nearest-scope router" \
+  "$termnav_switch_tab_path previous --client-pid #{client_pid} --client-tty #{q:client_tty} --client-termtype #{q:client_termtype}" \
+  "$tmux_content"
 # VS Code exposes no command to reorder terminal tabs, so the move chords
 # stop at the tmux layer for VS Code clients instead of bubbling.
 _assert_not_contains "tmux Alt-Shift-[ does not bubble moves to VS Code" \
@@ -323,16 +325,17 @@ if command -v tmux >/dev/null 2>&1; then
     "$wezterm_move_tab_path --parent left #{client_tty}" "$root_keys"
   _assert_contains "tmux runtime Alt-Shift-] can request parent tmux move" \
     "$wezterm_move_tab_path --parent right #{client_tty}" "$root_keys"
-  _assert_contains "tmux runtime Ctrl-Tab checks for a VS Code client" \
+  _assert_not_contains "tmux runtime Ctrl-Tab delegates outer-terminal selection" \
     "#{m:xterm.js*,#{client_termtype}}" "$ctrl_tab_root_line"
-  _assert_contains "tmux runtime Ctrl-Shift-Tab checks for a VS Code client" \
+  _assert_not_contains "tmux runtime Ctrl-Shift-Tab delegates outer-terminal selection" \
     "#{m:xterm.js*,#{client_termtype}}" "$ctrl_shift_tab_root_line"
   _assert_contains "tmux runtime Alt-Shift-[ checks for a VS Code client" \
     "#{m:xterm.js*,#{client_termtype}}" "$move_tab_left_root_line"
   _assert_contains "tmux runtime Alt-Shift-] checks for a VS Code client" \
     "#{m:xterm.js*,#{client_termtype}}" "$move_tab_right_root_line"
-  _assert_contains "tmux runtime Ctrl-Tab can bubble to VS Code" \
-    "$vscode_switch_tab_path next" "$root_keys"
+  _assert_contains "tmux runtime Ctrl-Tab preserves triggering client identity" \
+    "$termnav_switch_tab_path next --client-pid #{client_pid} --client-tty #{q:client_tty} --client-termtype #{q:client_termtype}" \
+    "$root_keys"
   _assert_not_contains "tmux runtime Alt-Shift-[ does not bubble moves to VS Code" \
     "vscode-move-tab" "$root_keys"
   _assert_contains "tmux runtime parent-bubble next switches current tmux layer" \

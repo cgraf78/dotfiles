@@ -697,11 +697,14 @@ _merge_vscode_config() {
 _ensure_vscode_extension() {
   local ext_id="$1" ext_dir="$2" ext_json="$3" location_path="${4:-}"
 
-  local ext_base
+  local ext_base ext_version
   ext_base="$(dirname "$ext_json")"
   mkdir -p "$ext_base"
   [[ -d "$ext_base/$ext_dir" ]] || return 0
   [[ -n "$location_path" ]] || location_path="$ext_base/$ext_dir"
+  ext_version=$(jq -r '.version // empty | select(type == "string")' \
+    "$ext_base/$ext_dir/package.json" 2>/dev/null || true)
+  [[ -n "$ext_version" ]] || ext_version="0.0.1"
 
   if [[ ! -f "$ext_json" ]]; then
     printf '[]\n' >"$ext_json"
@@ -709,10 +712,11 @@ _ensure_vscode_extension() {
 
   local tmp
   tmp=$(mktemp)
-  if jq --indent 4 --arg id "$ext_id" --arg dir "$ext_dir" --arg path "$location_path" '
+  if jq --indent 4 --arg id "$ext_id" --arg dir "$ext_dir" \
+    --arg path "$location_path" --arg version "$ext_version" '
     def local_extension_entry: {
       identifier: {id: $id},
-      version: "0.0.1",
+      version: $version,
       location: {"\u0024mid": 1, path: $path, scheme: "file"},
       relativeLocation: $dir,
       metadata: {source: "local"}

@@ -59,13 +59,12 @@ overlay, not in the base dotfiles repo.
 
 ## Tab Bubbling
 
-WezTerm owns `Ctrl-Tab` only when the active pane is not controlled by Neovim or
-tmux. When a top-level tmux session has only one window left to switch to,
-`wezterm-switch-tab` from `termnav` emits the `DOT_SWITCH_TAB` user-var escape,
-and WezTerm handles that as a parent tab switch. When a tmux session attached
-inside another tmux has only one window, it emits `DOT_PARENT_SWITCH_TAB`;
-WezTerm translates that into a private tmux `User0`/`User1` key so the parent
-tmux layer can switch its own windows.
+WezTerm owns `Ctrl-Tab` only when the active pane is not controlled by
+Neovim or tmux. A one-window tmux delegates to `termnav-switch-tab`,
+which walks locally reachable parent tmux sessions before asking the outer
+WezTerm client to activate a tab. For remote nested chains whose parent tmux
+socket is not locally reachable, `DOT_PARENT_SWITCH_TAB` still lets
+WezTerm bounce a private `User0`/`User1` key into that parent layer.
 
 WezTerm also owns `Alt-Shift-[` and `Alt-Shift-]` tab moves only outside
 Neovim/tmux panes. In terminal-owned panes the key is forwarded inward as
@@ -78,12 +77,9 @@ emits `DOT_PARENT_MOVE_TAB`; WezTerm translates that into a private tmux
 Multi-window tmux sessions stop at their own first and last windows to match
 WezTerm's edge behavior.
 
-This parent fallback is WezTerm-specific. VS Code terminal keybindings can
-forward `Ctrl-Tab` and `Alt-Shift-[`/`Alt-Shift-]` into tmux and Neovim, but
-this dotfiles setup does not currently provide a terminal-output bridge that
-asks VS Code to switch or move editor tabs when a nested tmux session bubbles
-past its own tab/window layer. The `DOT_PARENT_*` bridge also depends on
-WezTerm receiving OSC 1337 user-var escapes from the nested session.
+The `DOT_PARENT_*` fallback is WezTerm-specific. VS Code switches use
+termnav's per-window socket adapter instead; VS Code still has no command for
+reordering terminal tabs, so tab-move bubbling remains WezTerm-only.
 
 ## Clipboard Ownership
 
