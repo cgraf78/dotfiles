@@ -20,8 +20,14 @@ ios-sync
 
 # Browser-driven web QA — no web frontend work, so the headless browser and
 # its scrape/record helpers go unused.
+#
+# `connect-chrome` and `open-gstack-browser` are two upstream directories that
+# both declare `name: open-gstack-browser`, so they generate the same
+# `gstack-open-gstack-browser` link. Matching is by directory name, so both
+# have to be listed or the un-excluded one regenerates the link.
 benchmark
 browse
+connect-chrome
 open-gstack-browser
 pair-agent
 qa
