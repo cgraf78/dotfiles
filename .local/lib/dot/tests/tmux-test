@@ -24,6 +24,11 @@ ctrl_tab_config_line=$(printf '%s\n' "$tmux_content" | grep '^bind-key -n C-Tab 
 ctrl_shift_tab_config_line=$(printf '%s\n' "$tmux_content" | grep '^bind-key -n C-BTab ' || true)
 move_tab_left_config_line=$(printf '%s\n' "$tmux_content" | grep "^bind-key -n 'M-{' " || true)
 move_tab_right_config_line=$(printf '%s\n' "$tmux_content" | grep "^bind-key -n 'M-}' " || true)
+vim_detector_line=$(printf '%s\n' "$tmux_content" | grep '^is_vim=' || true)
+foreground_app_detectors=$(
+  printf '%s\n' "$tmux_content" |
+    grep -E '^is_(vim|remote_transport|nested_wrapper_with_mouse)=' || true
+)
 
 _assert_executable() {
   local desc="$1" path="$2"
@@ -135,9 +140,31 @@ _assert_contains "tmux detects SSH/mosh panes as terminal app-owned for nested r
   "is_remote_transport=" "$tmux_content"
 _assert_contains "tmux foreground app detector reads process groups" \
   "pgid= -o tpgid=" "$tmux_content"
+_assert_contains "tmux foreground app detector uses portable user command names" \
+  "-o ucomm=" "$foreground_app_detectors"
+_assert_contains "tmux nvim detector uses portable user command names" \
+  "-o ucomm=" "$vim_detector_line"
+_assert_not_contains "tmux foreground app detector avoids path-valued macOS comm output" \
+  "-o comm=" "$foreground_app_detectors"
 process_group_filter=$'\\$3 == \\$4'
 _assert_contains "tmux foreground app detector ignores background tty processes" \
   "$process_group_filter" "$tmux_content"
+foreground_vim_filter=$(
+  cat <<'AWK'
+$3 == $4 && $1 !~ /^[TXZ]/ && $2 ~ /^g?(view|l?n?vim?x?|fzf)(diff)?$/ { found = 1 }
+END { exit !found }
+AWK
+)
+printf 'Ss zsh 37657 39056\nS+ nvim 39056 39056\n' |
+  awk "$foreground_vim_filter"
+foreground_vim_rc=$?
+_assert_exit "tmux foreground app detector matches macOS nvim ucomm output" \
+  0 "$foreground_vim_rc"
+printf 'Ss zsh 37657 37657\nS nvim 39056 37657\n' |
+  awk "$foreground_vim_filter"
+background_vim_rc=$?
+_assert_exit "tmux foreground app detector ignores background nvim" \
+  1 "$background_vim_rc"
 foreground_transport_filter=$(
   cat <<'AWK'
 $3 == $4 && $1 !~ /^[TXZ]/ && $2 ~ /^(ssh|mosh|mosh-client|mosh-server)$/ { found = 1 }
@@ -289,6 +316,10 @@ if command -v tmux >/dev/null 2>&1; then
     "ssh|mosh" "$ctrl_tab_root_line"
   _assert_contains "tmux runtime Ctrl-Tab only forwards foreground tty processes" \
     "pgid= -o tpgid=" "$ctrl_tab_root_line"
+  _assert_contains "tmux runtime Ctrl-Tab uses portable user command names" \
+    "-o ucomm=" "$ctrl_tab_root_line"
+  _assert_not_contains "tmux runtime Ctrl-Tab avoids path-valued macOS comm output" \
+    "-o comm=" "$ctrl_tab_root_line"
   _assert_contains "tmux runtime Ctrl-Tab filters out background tty processes" \
     "\$3 == \$4" "$ctrl_tab_root_line"
   _assert_contains "tmux runtime Ctrl-Shift-Tab forwards SSH/mosh panes" \
