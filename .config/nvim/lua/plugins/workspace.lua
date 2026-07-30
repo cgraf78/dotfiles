@@ -37,6 +37,10 @@ return {
     opts = {},
     config = function(_, opts)
       local persistence = require("persistence")
+      -- This is the branch hook used by persistence.current() in the pinned
+      -- plugin version; keep the override next to setup so lock updates must
+      -- preserve the fast session-name path.
+      persistence.branch = require("config.nvim-workspace").persistence_branch
       persistence.setup(opts)
       -- Own quit-time saves in nvim-workspace so the primary session
       -- and file-root aliases are written together without a duplicate primary
