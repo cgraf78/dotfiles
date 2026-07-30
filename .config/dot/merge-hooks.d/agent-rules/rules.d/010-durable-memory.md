@@ -13,23 +13,22 @@ below apply only where runtime policy permits memory writes.
   context into prompts or rules.
 - Search with `hm search` when the task may depend on prior decisions,
   preferences, conventions, incidents, or cross-machine context that was not
-  injected. Prefer project-aware queries or `hm context --project <path>`; do
-  not assume the shell cwd is the project root.
+  injected. Prefer project-aware queries or `hm context --project <path>`
+  derived from the current file, not the shell cwd.
 - Use `hm remember --text` when the user states or you discover a durable
   preference, stable project fact, recurring workflow, naming convention,
   environment detail, architectural decision, or correction that should affect
   future sessions.
 - For repo-specific memory, pass `--project <file-or-repo-path>` so Hive Memory
-  infers project scope and preserves project identity across machines. Derive it
-  from the current file or project context; do not assume the shell cwd is the
-  project root.
+  infers project scope and preserves project identity across machines. Derive
+  the path from the current file or project context, not the shell cwd.
 - Prefer one concise memory per lasting fact. Do not store transient task state,
   command output, speculative conclusions, or facts that only matter inside the
   current turn.
-- Use `hm note --text` only for lower-confidence observations that may need later
-  triage; use `hm remember` for facts that should be injected or recalled
+- Use `hm note --text` only for lower-confidence observations that may need
+  later triage; use `hm remember` for facts that should be injected or recalled
   automatically.
 - If a prompt or hook reminder says memory is pending, satisfy it before the
-  session ends; leave it unwritten when policy forbids writes or when there is no
-  lasting fact to preserve.
+  session ends; leave it unwritten when policy forbids writes or when there is
+  no lasting fact to preserve.
 - Do not store secrets or sensitive credentials.

@@ -8,7 +8,7 @@
 - (git repos only) Body is hard-wrapped at ~72 columns with 2-space
   continuation indent
 - Summary: first paragraph gives high-level intent & the why, later paragraphs
-  give details; prefer bulleted lists, lowercase start
+  give details; prefer bulleted lists for details, lowercase start
 - Testing: bulleted list of what was verified
 - Blank line between title, Summary, and Testing sections
 - For messages with backticks or other shell-sensitive characters, don't use
