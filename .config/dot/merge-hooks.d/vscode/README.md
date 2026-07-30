@@ -13,7 +13,13 @@ source families and private helpers live in this directory.
 - `variants.d/` declares VS Code, VS Code Insiders, Cursor, and remote variant
   targets.
 - `local-extensions.d/` declares local extension directories that should be
-  symlinked into active variants.
+  symlinked into active variants. The termnav adapter is loaded from shdeps'
+  stable `$HOME/.local/share/cgraf78/termnav` dependency root so local,
+  remote, and WSL extension hosts share the same window-scoped tab bridge. Its
+  versioned source directory must stay aligned with the adapter manifest.
+  After first registration, reload or restart each editor window, then relaunch
+  its existing terminal or tmux clients so they receive the adapter socket.
+  Relaunch those clients again after a later editor or extension-host restart.
 
 The executable hook implementation lives at
 `~/.local/lib/dot/core/merge-hooks/vscode.sh`.

@@ -12,9 +12,9 @@ terminal navigation stack.
 - Session save/restore and clipboard-history paste use `tmux-tools`.
 - Ctrl-Tab window switching forwards into Neovim/fzf and nested terminal apps,
   switches tmux windows when the current tmux layer owns the chord, and bubbles
-  one-window sessions upward through `wezterm-switch-tab` from `termnav`.
-  A tmux session attached inside another tmux asks the parent tmux layer to
-  handle the switch; a top-level one-window tmux asks WezTerm.
+  one-window sessions upward through `termnav-switch-tab`. The helper
+  walks locally nested tmux parents, then targets the originating VS Code or
+  WezTerm client rather than relying on session-global host state.
 - Alt-Shift-[ and Alt-Shift-] mirror WezTerm tab reordering for tmux windows:
   the bindings forward into Neovim/fzf and nested terminal apps, swap tmux
   windows only when the current window is not already at the edge, and bubble
@@ -49,10 +49,14 @@ inspect via `ps` wants raw input. `#{mouse_any_flag}` alone is not enough:
 plain TUIs (Claude Code, codex, `htop -m`, ...) can enable mouse reporting for
 their own scrolling/clicking without wanting to own Ctrl-Tab, so the flag is
 only trusted when paired with the nested-wrapper check. Switch tmux windows
-when the current tmux layer owns the chord. If a one-window tmux is attached inside another tmux
-(`#{client_termname}` starts with `tmux` or `screen`), emit a parent-bubble
-request so WezTerm can bounce a private `User0`/`User1` key into the parent
-tmux layer. Only a top-level one-window tmux bubbles directly to WezTerm.
+when the current tmux layer owns the chord. A one-window session passes its
+triggering client's PID, TTY, and shell-quoted terminal type to
+`termnav-switch-tab`. That helper switches the first reachable parent tmux
+with multiple windows, or uses the outer client's per-window VS Code socket or
+WezTerm TTY. Only clients actively showing the parent pane are eligible; a
+unique focused client breaks an activity tie, and unresolved ties fail closed.
+The private `User0`/`User1` loopback remains for remote nested tmux chains
+whose parent server is not locally reachable.
 
 Alt-Shift-bracket tab-move bindings follow the same ownership rule, except edge
 handling stops at the tmux layer when a multi-window tmux session is already at
