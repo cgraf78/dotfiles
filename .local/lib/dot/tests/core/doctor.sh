@@ -374,6 +374,64 @@ SH
   printf '%s\t%s\n' ".doctor-overlay-link" "work" >"$TEST_HOME/.local/state/dot/overlay-links"
   result=$("$BIN_DIR/dot" doctor 2>&1 || true)
   _assert_contains "doctor: flags overlay symlink target drift" "overlay symlink issue" "$result"
+
+  rm -f "$TEST_HOME/.doctor-overlay-link"
+  _overlay_link_target ".doctor-overlay-link" work
+  ln -s "$REPLY" "$TEST_HOME/.doctor-overlay-link"
+  _discover_overlays
+  doctor_physical_fallback_log=$(_tmpdir)/physical-fallback.log
+  result=$(
+    # shellcheck disable=SC2329 # invoked indirectly by _dr_check_overlays.
+    _dr_symlink_points_to() {
+      printf 'called\n' >>"$doctor_physical_fallback_log"
+      return 1
+    }
+    _dr_check_overlays 2>&1 || true
+  )
+  _assert_contains "doctor: canonical overlay target stays healthy" \
+    "overlay symlinks healthy" "$result"
+  _assert_file_missing "doctor: canonical overlay target skips physical fallback" \
+    "$doctor_physical_fallback_log"
+
+  rm -f "$TEST_HOME/.dotfiles-work/home/.doctor-overlay-link"
+  result=$(
+    # shellcheck disable=SC2329 # invoked indirectly by _dr_check_overlays.
+    _dr_symlink_points_to() {
+      printf 'called\n' >>"$doctor_physical_fallback_log"
+      return 1
+    }
+    _dr_check_overlays 2>&1 || true
+  )
+  _assert_contains "doctor: canonical dangling overlay target remains an issue" \
+    "overlay symlink issue" "$result"
+  _assert_file_missing "doctor: dangling target fails before the lexical fast path" \
+    "$doctor_physical_fallback_log"
+  printf '%s\n' "expected" >"$TEST_HOME/.dotfiles-work/home/.doctor-overlay-link"
+
+  # A malformed record can make the generated lexical target point at a
+  # different, existing sibling tree after filesystem normalization. It must
+  # take the physical fallback rather than inheriting the canonical fast path.
+  doctor_escape_overlay="${TEST_HOME%/*}/.dotfiles-work"
+  mkdir -p "$doctor_escape_overlay/home"
+  printf '%s\n' "wrong tree" >"$doctor_escape_overlay/home/.doctor-overlay-link"
+  rm -f "$TEST_HOME/.doctor-overlay-link" "$doctor_physical_fallback_log"
+  _overlay_link_target "./.doctor-overlay-link" work
+  ln -s "$REPLY" "$TEST_HOME/.doctor-overlay-link"
+  printf '%s\t%s\n' "./.doctor-overlay-link" "work" >"$TEST_HOME/.local/state/dot/overlay-links"
+  result=$(
+    # shellcheck disable=SC2329 # invoked indirectly by _dr_check_overlays.
+    _dr_symlink_points_to() {
+      printf 'called\n' >>"$doctor_physical_fallback_log"
+      return 1
+    }
+    _dr_check_overlays 2>&1 || true
+  )
+  _assert_contains "doctor: noncanonical overlay target remains an issue" \
+    "overlay symlink issue" "$result"
+  _assert_file_exists "doctor: noncanonical overlay target uses physical fallback" \
+    "$doctor_physical_fallback_log"
+  rm -rf "$doctor_escape_overlay"
+
   rm -f "$TEST_HOME/.doctor-overlay-link"
   : >"$TEST_HOME/.local/state/dot/overlay-links"
   rm -rf "$TEST_HOME/.dotfiles-work" "$doctor_overlay_bare"
