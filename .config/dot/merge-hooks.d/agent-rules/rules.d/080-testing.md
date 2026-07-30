@@ -9,6 +9,5 @@
   paths, concurrency, invalid input.
 - Dedicated test case per edge case, not bundled into happy-path tests.
 - Before committing in a GitHub repo, check `.github/workflows/` for CI steps
-  and run what can be reproduced locally (linters, tests, type checks). Skip
-  steps that require CI-specific infrastructure (deployment, secrets, matrix OS
-  variants).
+  and run what reproduces locally (linters, tests, type checks). Skip CI-only
+  infrastructure (deployment, secrets, matrix OS variants).

@@ -13,8 +13,8 @@ for full documentation.
   active overlays. `pull` is an alias for `update`.
 - When moving tracked base dotfiles, use `git mv` to preserve history.
 - Run base dotfile `git` commands from the path you mean to scope. The launcher
-  uses `$HOME` as the work tree outside normal repos, so pathspecs are resolved
-  by Git relative to your current directory.
-- Dotfiles is a bare repo and does not track every file under `$HOME`. Before
-  assuming a file is part of dotfiles, check `git ls-files -- <path>` or
-  `git status --short -- <path>`.
+  uses `$HOME` as the work tree outside normal repos, so Git resolves pathspecs
+  relative to your current directory.
+- The base repo does not track every file under `$HOME`. Check
+  `git ls-files -- <path>` or `git status --short -- <path>` before assuming a
+  file is tracked.
