@@ -20,6 +20,29 @@ component; files here should stay thin and command-shaped.
   available, restarts active systemd services shipped by upgraded or rebuilt
   packages, and runs post-upgrade checks for missing shared libraries and
   failed systemd units.
+- `et-tunnel VIA LOCAL_PORT TARGET TARGET_PORT` exposes a remote TCP endpoint
+  on local loopback through an Eternal Terminal server. It stays in the
+  foreground and lets ET recover from roaming and network loss. A token-owned,
+  loopback-only `socat` or `ncat` supervisor cleans up on `Ctrl-C`; the next
+  same-client launch also reclaims an interrupted cleanup. Remote bind
+  conflicts retry five distinct port sets. The ET client is managed on macOS.
+  Both ends need `base64`, `gzip`, and a SHA-256 tool (`sha256sum`, `shasum`, or
+  `openssl`); VIA also needs `/bin/sh`, `etserver`, `flock`, and `socat`
+  (preferred) or `ncat`. The `flock` lock serializes
+  same-client startup and is released by the kernel even after abrupt
+  termination. The `ncat` fallback is suitable for long-lived
+  full-duplex protocols such as RDP and VNC, but protocols that half-close
+  their request before reading a response need `socat` for transparent EOF
+  handling. Set `ET_TUNNEL_TRANSPORT` to an executable adapter for connection
+  environments that wrap ET. The adapter receives `VIA`, the complete
+  comma-separated ET tunnel specification, and a bounded remote bootstrap
+  command as three positional arguments. After ET connects, the launcher
+  reads a constant role banner to distinguish the bootstrap listener from the
+  supervisor, then uploads the digest-bound payload through the same private
+  control forward with an input limit and overall deadline. This keeps the
+  transport contract to two forwarded channels for compatibility with older ET
+  servers. The adapter must remain in the foreground for the lifetime of the ET
+  connection.
 
 ## Hook And Tool Front Doors
 
