@@ -1464,14 +1464,23 @@ result=$(_nvim_lua '
         filtered_items = { hide_dotfiles = true },
       }
     end,
+    apply_filesystem_policy = function() end,
     filesystem_mappings = function()
       return { ["<C-r>"] = "home" }
     end,
+    root_dir = function()
+      return "/home/chris"
+    end,
     open = function(root, opts)
-      print("open=" .. tostring(root) .. ":" .. tostring(opts and opts.toggle) .. ":" .. tostring(opts and opts.action))
+      print("open=" .. tostring(root) .. ":" .. tostring(opts and opts.toggle) .. ":" .. tostring(opts and opts.action) .. ":" .. tostring(opts and opts.reveal))
     end,
     context_root = function()
       return "/workspace/root"
+    end,
+  }
+  package.loaded["neo-tree.command"] = {
+    execute = function(args, policy)
+      print("command=" .. tostring(args.dir) .. ":" .. tostring(args.toggle) .. ":" .. tostring(args.reveal) .. ":" .. tostring(policy.enable_git_status))
     end,
   }
   local specs = dofile(vim.fn.expand("~/.config/nvim/lua/plugins/workspace.lua"))
@@ -1479,6 +1488,7 @@ result=$(_nvim_lua '
     if spec[1] == "nvim-neo-tree/neo-tree.nvim" then
       local opts = spec.opts()
       print(tostring(opts.filesystem.use_libuv_file_watcher))
+      print(tostring(opts.filesystem.async_directory_scan))
       print(tostring(opts.filesystem.window.mappings["<C-r>"]))
       spec.keys[1][2]()
       spec.keys[2][2]()
@@ -1487,7 +1497,7 @@ result=$(_nvim_lua '
   end
   print("missing")
 ')
-expected="$(printf 'false\nhome\nopen=nil:true:nil\nopen=/workspace/root:nil:focus')"
+expected="$(printf 'false\nalways\nhome\ncommand=/home/chris:true:false:true\nopen=/workspace/root:nil:focus:nil')"
 _assert_eq "nvim-workspace: neo-tree integration uses extracted helper" \
   "$expected" "$result"
 

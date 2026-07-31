@@ -6,6 +6,16 @@ local function workspace_grep()
   require("nvim_workspace").grep()
 end
 
+local function open_home_explorer()
+  local paths = require("nvim_workspace.neo_tree")
+  local root = paths.root_dir()
+  local policy = paths.filesystem_policy(root)
+  paths.apply_filesystem_policy(policy)
+  -- Set the command flag itself: clearing the reveal path is insufficient
+  -- while Neo-tree's follow_current_file option can imply a reveal.
+  require("neo-tree.command").execute({ dir = root, reveal = false, toggle = true }, policy)
+end
+
 return {
   {
     "cgraf78/nvim-workspace",
@@ -58,9 +68,7 @@ return {
     keys = {
       {
         "<leader>fe",
-        function()
-          require("nvim_workspace.neo_tree").open(nil, { toggle = true })
-        end,
+        open_home_explorer,
         desc = "Explorer NeoTree (Home)",
       },
       {
@@ -79,6 +87,8 @@ return {
       return {
         enable_git_status = policy.enable_git_status,
         filesystem = {
+          -- Keep the sidebar responsive while its shallow root scan fills in.
+          async_directory_scan = "always",
           use_libuv_file_watcher = false,
           follow_current_file = { enabled = true },
           filtered_items = policy.filtered_items,
