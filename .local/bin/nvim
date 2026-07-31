@@ -47,15 +47,12 @@ _real_nvim() {
     /opt/homebrew/bin/nvim /usr/local/bin/nvim /usr/bin/nvim /bin/nvim
 }
 
-_parent_is_interactive_shell() {
-  local arg args first parent parent_info
+_parent_argv_is_interactive_shell() {
+  local parent="$1" arg first
   local -a argv
+  shift
+  argv=("$@")
 
-  # Reusing an existing pane is only safe for a command the user typed at an
-  # interactive prompt. Tools that use $EDITOR, plus shell scripts and `sh -c`,
-  # need this process to block until the real editor exits.
-  parent_info=$(ps -ww -o comm= -o args= -p "$PPID" 2>/dev/null) || return 1
-  read -r parent args <<<"$parent_info"
   [[ -n "$parent" ]] || return 1
   parent="${parent##*/}"
   parent="${parent#-}"
@@ -68,9 +65,6 @@ _parent_is_interactive_shell() {
       ;;
   esac
 
-  [[ -n "$args" ]] || return 0
-
-  read -r -a argv <<<"$args"
   [[ "${#argv[@]}" -gt 0 ]] || return 0
 
   first="${argv[0]##*/}"
@@ -93,6 +87,37 @@ _parent_is_interactive_shell() {
   return 0
 }
 
+_parent_is_interactive_shell() {
+  local arg args parent parent_info proc_dir
+  local -a argv=()
+
+  # Reusing an existing pane is only safe for a command the user typed at an
+  # interactive prompt. Tools that use $EDITOR, plus shell scripts and `sh -c`,
+  # need this process to block until the real editor exits. Linux procfs gives
+  # us the exact argv without launching ps; retain ps for macOS and restricted
+  # or malformed procfs mounts, including restricted Termux environments.
+  proc_dir="${NVIM_LAUNCHER_PROC_ROOT:-/proc}/$PPID"
+  if [[ -r "$proc_dir/comm" && -r "$proc_dir/cmdline" ]]; then
+    IFS= read -r parent 2>/dev/null <"$proc_dir/comm" || parent=""
+    while IFS= read -r -d '' arg; do
+      argv+=("$arg")
+    done 2>/dev/null <"$proc_dir/cmdline"
+    if [[ -n "$parent" && "${#argv[@]}" -gt 0 ]]; then
+      _parent_argv_is_interactive_shell "$parent" "${argv[@]}"
+      return $?
+    fi
+  fi
+
+  parent_info=$(ps -ww -o comm= -o args= -p "$PPID" 2>/dev/null) || return 1
+  read -r parent args <<<"$parent_info"
+  if [[ -n "$args" ]]; then
+    read -r -a argv <<<"$args"
+    _parent_argv_is_interactive_shell "$parent" "${argv[@]}"
+  else
+    _parent_argv_is_interactive_shell "$parent"
+  fi
+}
+
 _should_reuse_nvim_pane() {
   [[ "${NVIM_LAUNCHER_FORCE_NEW:-0}" != "1" ]] || return 1
   [[ -n "${TMUX:-}" ]] || return 1
@@ -110,15 +135,15 @@ _should_reuse_nvim_pane() {
   return 0
 }
 
-real_nvim=$(_real_nvim) || {
-  printf 'nvim launcher: real nvim not found on PATH\n' >&2
-  exit 127
-}
-
 if _should_reuse_nvim_pane "$@"; then
   if nvim-tmux-open cli "$1" "$PWD"; then
     exit 0
   fi
 fi
+
+real_nvim=$(_real_nvim) || {
+  printf 'nvim launcher: real nvim not found on PATH\n' >&2
+  exit 127
+}
 
 exec "$real_nvim" "$@"
