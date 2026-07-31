@@ -6,11 +6,10 @@
   composing cohesive, readable, well-named components with clear boundaries and
   clean interfaces, so pieces recombine without rewriting internals. Prefer
   that over tangled or overly clever implementations.
-- **Single-source shared knowledge** — when a second place needs the same
-  value, decision, or logic, extract it to one authoritative location and have
-  consumers call into it; don't duplicate constants, resolution logic, or
-  convention knowledge across files. The first duplication is fine — don't
-  preemptively abstract, don't tolerate three copies.
+- **Single-source shared knowledge** — extract any value, decision, or logic to
+  one authoritative location as soon as a second place needs it, and have
+  consumers call into it. Don't abstract before that second use exists; don't
+  duplicate constants, resolution logic, or convention knowledge across files.
 - **Expose clean interfaces** — give callers a function or module API for
   shared state so they say *what* they want, not *how* to get it, instead of
   reimplementing the same steps.
