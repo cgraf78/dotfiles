@@ -760,7 +760,22 @@ def _can_list_extensions(target: Target) -> bool:
     result = _run_code(target, ["--list-extensions", "--show-versions"])
     if result is None:
         return False
-    return result.returncode == 0
+    return _extension_listing_succeeded(target, result)
+
+
+def _extension_listing_succeeded(target: Target, result: subprocess.CompletedProcess[str]) -> bool:
+    """Reject IPC-only shims that print an error but incorrectly exit zero."""
+
+    if result.returncode != 0:
+        return False
+    if result.stdout.strip() or not result.stderr.strip():
+        return True
+
+    version = _run_code(target, ["--version"])
+    if version is None or version.returncode != 0:
+        return False
+    first_line = next((line.strip() for line in version.stdout.splitlines() if line.strip()), "")
+    return re.fullmatch(r"\d+\.\d+\.\d+(?:[-+].*)?", first_line) is not None
 
 
 def installed_extensions(target: Target) -> dict[str, str | None] | None:
@@ -769,7 +784,7 @@ def installed_extensions(target: Target) -> dict[str, str | None] | None:
     result = _run_code(target, ["--list-extensions", "--show-versions"])
     if result is None:
         return None
-    if result.returncode != 0:
+    if not _extension_listing_succeeded(target, result):
         warn(f"{target.profile.name}: failed to list extensions: {_stderr_summary(result)}")
         return None
 

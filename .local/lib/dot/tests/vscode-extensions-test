@@ -601,6 +601,81 @@ assert any(entry["command"] == server for entry in log)
 PY
 _assert_exit "vscode extensions: remote profile still uses code-server" 0 "$?"
 
+unusable_home="$work/unusable-home"
+unusable_bin="$work/unusable-bin"
+unusable_manifest="$work/unusable.toml"
+unusable_log="$work/unusable.log"
+mkdir -p "$unusable_home" "$unusable_bin"
+cat >"$unusable_bin/code" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$DOT_TEST_UNUSABLE_CODE_LOG"
+case " $* " in
+  *" --list-extensions "*)
+    printf 'integrated terminal IPC is unavailable\n' >&2
+    exit 0
+    ;;
+  *)
+    exit 0
+    ;;
+esac
+EOF
+chmod +x "$unusable_bin/code"
+cat >"$unusable_manifest" <<'TOML'
+[bundle.common]
+extensions = ["example.unusable"]
+
+[profile.vscode-local]
+editor = "vscode"
+channel = "stable"
+scope = "local"
+include = ["common"]
+TOML
+env -u WSL_DISTRO_NAME -u WSL_INTEROP \
+  DOT_TEST_UNUSABLE_CODE_LOG="$unusable_log" \
+  PATH="$unusable_bin:/usr/bin:/bin" \
+  "$(command -v python3)" "$helper" --home "$unusable_home" --manifest "$unusable_manifest" \
+  >"$work/unusable.out" 2>"$work/unusable.err"
+_assert_eq "vscode extensions: unusable empty inventory performs one validation probe" \
+  "2" "$(wc -l <"$unusable_log" | tr -d ' ')"
+_assert_contains "vscode extensions: unusable empty inventory does not start installs" \
+  "--list-extensions --show-versions" "$(cat "$unusable_log")"
+_assert_contains "vscode extensions: unusable empty inventory probes the CLI version" \
+  "--version" "$(cat "$unusable_log")"
+_assert_contains "vscode extensions: unusable empty inventory warning is visible" \
+  "integrated terminal IPC is unavailable" "$(cat "$work/unusable.err")"
+
+warning_home="$work/warning-home"
+warning_bin="$work/warning-bin"
+warning_log="$work/warning.log"
+mkdir -p "$warning_home" "$warning_bin"
+cat >"$warning_bin/code" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$DOT_TEST_WARNING_CODE_LOG"
+case " $* " in
+  *" --list-extensions "*)
+    printf 'benign inventory warning\n' >&2
+    exit 0
+    ;;
+  *" --version "*)
+    printf '1.99.3\n'
+    exit 0
+    ;;
+  *)
+    exit 0
+    ;;
+esac
+EOF
+chmod +x "$warning_bin/code"
+env -u WSL_DISTRO_NAME -u WSL_INTEROP \
+  DOT_TEST_WARNING_CODE_LOG="$warning_log" \
+  PATH="$warning_bin:/usr/bin:/bin" \
+  "$(command -v python3)" "$helper" --home "$warning_home" --manifest "$unusable_manifest" \
+  >"$work/warning.out" 2>"$work/warning.err"
+_assert_eq "vscode extensions: valid empty inventory probes version before install" \
+  "3" "$(wc -l <"$warning_log" | tr -d ' ')"
+_assert_contains "vscode extensions: valid empty inventory remains installable" \
+  "--install-extension example.unusable" "$(cat "$warning_log")"
+
 wsl_home="$work/wsl-home"
 wsl_drive="$work/fake-c-drive"
 wsl_win_home="$wsl_drive/Users/Chris With Space"
@@ -871,6 +946,16 @@ touch "$hook_tmp/vscode/extensions.d/not-extensions.txt"
 # shellcheck source=.local/lib/dot/core/merge-hooks/vscode.sh
 # shellcheck disable=SC1091
 . "$HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+same_tmp="$work/same.tmp"
+same_dst="$work/same.json"
+printf '{"same":true}\n' >"$same_tmp"
+cp "$same_tmp" "$same_dst"
+same_inode_before=$(python3 -c 'import os, sys; print(os.stat(sys.argv[1]).st_ino)' "$same_dst")
+_vscode_commit_tmp "$same_tmp" "$same_dst"
+same_inode_after=$(python3 -c 'import os, sys; print(os.stat(sys.argv[1]).st_ino)' "$same_dst")
+_assert_eq "vscode config: identical content preserves the watched file" \
+  "$same_inode_before" "$same_inode_after"
+_assert_file_missing "vscode config: identical temporary file is removed" "$same_tmp"
 _merge_hook_dir() {
   printf '%s\n' "$hook_tmp"
 }

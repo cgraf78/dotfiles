@@ -37,6 +37,11 @@ _vscode_is_wsl() {
 _vscode_commit_tmp() {
   local tmp="$1" dst="$2" size
 
+  if [[ -f "$dst" ]] && cmp -s -- "$tmp" "$dst"; then
+    rm -f -- "$tmp"
+    return 0
+  fi
+
   if _vscode_is_wsl; then
     if ! command -v python3 >/dev/null 2>&1; then
       _warn "    warning: python3 unavailable for verified VS Code config write to $dst — leaving temp file"
