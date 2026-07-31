@@ -51,6 +51,8 @@ _shdeps_prompt_resume() {
 _shdeps_ui_reset() {
   DOT_UI_SHDEPS_STATUS=ok
   DOT_UI_SHDEPS_SUMMARY="dependencies checked"
+  DOT_UI_SHDEPS_HAS_JQ=0
+  command -v jq >/dev/null 2>&1 && DOT_UI_SHDEPS_HAS_JQ=1
   _shdeps_prompt_resume
   DOT_UI_SHDEPS_GROUP_ORDER=()
   declare -gA DOT_UI_SHDEPS_GROUP_SEEN=()
@@ -166,19 +168,85 @@ _shdeps_print_group_summaries() {
   return 0
 }
 
+_shdeps_parse_event() {
+  local line="$1" field
+  local -a fields=()
+
+  if [[ "${DOT_UI_SHDEPS_HAS_JQ:-0}" -eq 1 ]]; then
+    while IFS= read -r -d '' field; do
+      fields+=("$field")
+    done < <(
+      printf '%s' "$line" | jq -j '
+        def text($key):
+          .[$key] | if type == "string" then . else "" end;
+        def number($key):
+          .[$key] | if type == "number" then tostring else "" end;
+        [
+          text("event"), text("group"), text("label"), text("status"),
+          text("detail"), number("done"), number("total"), text("name"),
+          number("changed"), number("warnings"), number("current"),
+          number("skipped"), number("failed"), number("elapsed_ms")
+        ] | .[] + "\u0000"
+      ' 2>/dev/null
+    )
+    if [[ "${#fields[@]}" -eq 14 ]]; then
+      SHDEPS_EVENT="${fields[0]}"
+      SHDEPS_GROUP="${fields[1]}"
+      SHDEPS_LABEL="${fields[2]}"
+      SHDEPS_STATUS="${fields[3]}"
+      SHDEPS_DETAIL="${fields[4]}"
+      SHDEPS_DONE="${fields[5]}"
+      SHDEPS_TOTAL="${fields[6]}"
+      SHDEPS_NAME="${fields[7]}"
+      SHDEPS_CHANGED="${fields[8]}"
+      SHDEPS_WARNINGS="${fields[9]}"
+      SHDEPS_CURRENT="${fields[10]}"
+      SHDEPS_SKIPPED="${fields[11]}"
+      SHDEPS_FAILED="${fields[12]}"
+      SHDEPS_ELAPSED_MS="${fields[13]}"
+      return 0
+    fi
+  fi
+
+  return 1
+}
+
 _handle_shdeps_event() {
   local line="$1"
   local event group label status detail done_count total name changed warnings current skipped failed elapsed_ms
-  event=$(_json_get event "$line")
+  local parsed=0
+  if _shdeps_parse_event "$line"; then
+    parsed=1
+    event="$SHDEPS_EVENT"
+    group="$SHDEPS_GROUP"
+    label="$SHDEPS_LABEL"
+    status="$SHDEPS_STATUS"
+    detail="$SHDEPS_DETAIL"
+    done_count="$SHDEPS_DONE"
+    total="$SHDEPS_TOTAL"
+    name="$SHDEPS_NAME"
+    changed="$SHDEPS_CHANGED"
+    warnings="$SHDEPS_WARNINGS"
+    current="$SHDEPS_CURRENT"
+    skipped="$SHDEPS_SKIPPED"
+    failed="$SHDEPS_FAILED"
+    elapsed_ms="$SHDEPS_ELAPSED_MS"
+  else
+    # Minimal/bootstrap environments retain the old lazy per-event parsing,
+    # avoiding work for fields that the current event cannot use.
+    event=$(_json_get event "$line")
+  fi
   case "$event" in
     prompt)
       _shdeps_prompt_pause
       ;;
     phase)
       _shdeps_prompt_resume
-      label=$(_json_get label "$line")
-      done_count=$(_json_num "done" "$line")
-      total=$(_json_num total "$line")
+      if [[ "$parsed" -eq 0 ]]; then
+        label=$(_json_get label "$line")
+        done_count=$(_json_num "done" "$line")
+        total=$(_json_num total "$line")
+      fi
       if [[ -n "$done_count" && -n "$total" && "$total" -gt 0 ]]; then
         _ui_stage_update "$(_ui_progress_detail_with_label "$label" "$done_count" "$total")"
       else
@@ -187,34 +255,40 @@ _handle_shdeps_event() {
       ;;
     item)
       _shdeps_prompt_resume
-      group=$(_json_get group "$line")
-      status=$(_json_get status "$line")
-      name=$(_json_get name "$line")
-      detail=$(_json_get detail "$line")
+      if [[ "$parsed" -eq 0 ]]; then
+        group=$(_json_get group "$line")
+        status=$(_json_get status "$line")
+        name=$(_json_get name "$line")
+        detail=$(_json_get detail "$line")
+      fi
       _shdeps_record_item "$group" "$status" "$name" "$detail"
       ;;
     group_summary)
       _shdeps_prompt_resume
-      group=$(_json_get group "$line")
-      label=$(_json_get label "$line")
-      status=$(_json_get status "$line")
-      changed=$(_json_num changed "$line")
-      warnings=$(_json_num warnings "$line")
-      current=$(_json_num current "$line")
-      skipped=$(_json_num skipped "$line")
-      failed=$(_json_num failed "$line")
-      elapsed_ms=$(_json_num elapsed_ms "$line")
+      if [[ "$parsed" -eq 0 ]]; then
+        group=$(_json_get group "$line")
+        label=$(_json_get label "$line")
+        status=$(_json_get status "$line")
+        changed=$(_json_num changed "$line")
+        warnings=$(_json_num warnings "$line")
+        current=$(_json_num current "$line")
+        skipped=$(_json_num skipped "$line")
+        failed=$(_json_num failed "$line")
+        elapsed_ms=$(_json_num elapsed_ms "$line")
+      fi
       _shdeps_record_group_summary "$group" "$label" "$status" \
         "${changed:-0}" "${current:-0}" "${skipped:-0}" "${failed:-0}" "${elapsed_ms:-0}" "${warnings:-0}"
       ;;
     summary)
       _shdeps_prompt_resume
-      status=$(_json_get status "$line")
-      changed=$(_json_num changed "$line")
-      warnings=$(_json_num warnings "$line")
-      current=$(_json_num current "$line")
-      skipped=$(_json_num skipped "$line")
-      failed=$(_json_num failed "$line")
+      if [[ "$parsed" -eq 0 ]]; then
+        status=$(_json_get status "$line")
+        changed=$(_json_num changed "$line")
+        warnings=$(_json_num warnings "$line")
+        current=$(_json_num current "$line")
+        skipped=$(_json_num skipped "$line")
+        failed=$(_json_num failed "$line")
+      fi
       # shellcheck disable=SC2034  # consumed by update.sh after shdeps exits.
       DOT_UI_SHDEPS_STATUS="$status"
       # shellcheck disable=SC2034  # consumed by update.sh after shdeps exits.
@@ -222,11 +296,27 @@ _handle_shdeps_event() {
       ;;
     warning | detail | hint)
       _shdeps_prompt_resume
-      status=$(_json_get status "$line")
-      detail=$(_json_get detail "$line")
+      if [[ "$parsed" -eq 0 ]]; then
+        status=$(_json_get status "$line")
+        detail=$(_json_get detail "$line")
+      fi
       _ui_stage_note "${status:-$event}" "$detail"
       ;;
   esac
+}
+
+_shdeps_proc_state() {
+  local pid="$1" root="${DOT_PROC_ROOT:-/proc}" line rest state
+
+  [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+  IFS= read -r line 2>/dev/null <"$root/$pid/stat" || return 1
+  [[ "$line" == "$pid ("* ]] || return 1
+  # A process name may contain ')', so split after the last closing delimiter.
+  rest="${line##*) }"
+  [[ "$rest" != "$line" ]] || return 1
+  state="${rest%% *}"
+  [[ "$state" =~ ^[A-Za-z]$ ]] || return 1
+  printf '%s\n' "$state"
 }
 
 _shdeps_update_finished() {
@@ -236,6 +326,10 @@ _shdeps_update_finished() {
   # child remains visible to kill(2) as a zombie until the wait below reaps it.
   [[ -s "$status_file" ]] && return 0
   kill -0 "$child" 2>/dev/null || return 0
+  if state=$(_shdeps_proc_state "$child"); then
+    [[ "$state" == Z ]]
+    return
+  fi
   state=$(ps -o stat= -p "$child" 2>/dev/null) || return 0
   [[ "$state" =~ ^[[:space:]]*Z ]]
 }

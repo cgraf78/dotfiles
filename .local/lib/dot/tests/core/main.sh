@@ -341,6 +341,54 @@ MOCK
   _assert_not_contains "shdeps UI phase: does not remap detail to legacy label" \
     "GitHub methods" "$result"
 
+  if command -v jq >/dev/null 2>&1; then
+    _shdeps_jq_log="$(_tmpdir)/jq.log"
+    _shdeps_jq_sed_log="$(_tmpdir)/jq-sed.log"
+    _shdeps_real_jq=$(type -P jq)
+    _shdeps_real_sed=$(type -P sed)
+    : >"$_shdeps_jq_sed_log"
+    # shellcheck disable=SC2329  # _handle_shdeps_event invokes this test seam.
+    jq() {
+      printf 'jq\n' >>"$_shdeps_jq_log"
+      "$_shdeps_real_jq" "$@"
+    }
+    # shellcheck disable=SC2329  # legacy JSON fallback invokes this test seam.
+    sed() {
+      printf 'sed\n' >>"$_shdeps_jq_sed_log"
+      "$_shdeps_real_sed" "$@"
+    }
+    _shdeps_ui_reset
+    _handle_shdeps_event \
+      '{"event":"item","group":"custom","status":"ok","name":"one","detail":"current"}'
+    unset -f jq sed
+    _assert_eq "shdeps UI event parsing: decodes each event once" \
+      "1" "$(wc -l <"$_shdeps_jq_log" | tr -d ' ')"
+    _assert_eq "shdeps UI event parsing: successful decode skips legacy parsing" \
+      "0" "$(wc -l <"$_shdeps_jq_sed_log" | tr -d ' ')"
+  fi
+
+  _shdeps_sed_log="$(_tmpdir)/sed.log"
+  _shdeps_real_sed=$(type -P sed)
+  : >"$_shdeps_sed_log"
+  # shellcheck disable=SC2329  # JSON fallback invokes these test seams.
+  command() {
+    if [[ "$1" == -v && "${2:-}" == jq ]]; then
+      return 1
+    fi
+    builtin command "$@"
+  }
+  # shellcheck disable=SC2329  # _json_get invokes this test seam.
+  sed() {
+    printf 'sed\n' >>"$_shdeps_sed_log"
+    "$_shdeps_real_sed" "$@"
+  }
+  _shdeps_ui_reset
+  _handle_shdeps_event \
+    '{"event":"item","group":"custom","status":"ok","name":"one","detail":"current"}'
+  unset -f command sed
+  _assert_eq "shdeps UI fallback parsing: item reads only fields it uses" \
+    "5" "$(wc -l <"$_shdeps_sed_log" | tr -d ' ')"
+
   result=$(
     printf '[sudo] password for chris:'
     _handle_shdeps_event '{"event":"prompt","status":"running","detail":"waiting for sudo authentication"}'
@@ -366,9 +414,60 @@ MOCK
   # shellcheck disable=SC2329  # _shdeps_update_finished invokes this test seam.
   ps() { printf 'Z\n'; }
   _shdeps_finish_rc=0
-  _shdeps_update_finished 12345 "$_shdeps_finish_status" || _shdeps_finish_rc=$?
+  DOT_PROC_ROOT="$_shdeps_finish_dir/missing-proc" \
+    _shdeps_update_finished 12345 "$_shdeps_finish_status" || _shdeps_finish_rc=$?
   unset -f kill ps
   _assert_eq "shdeps UI completion: zombie child is finished" "0" "$_shdeps_finish_rc"
+
+  _shdeps_proc_root="$(_tmpdir)/proc"
+  mkdir -p "$_shdeps_proc_root/42"
+  printf '%s\n' '42 (worker) name) Z 0 0 0' >"$_shdeps_proc_root/42/stat"
+  _assert_eq "shdeps UI completion: procfs parser handles a closing parenthesis in comm" \
+    "Z" "$(DOT_PROC_ROOT="$_shdeps_proc_root" _shdeps_proc_state 42)"
+
+  mkdir -p "$_shdeps_proc_root/43"
+  printf '%s\n' '43 malformed stat record' >"$_shdeps_proc_root/43/stat"
+  _shdeps_malformed_ps_log="$(_tmpdir)/malformed-ps.log"
+  : >"$_shdeps_malformed_ps_log"
+  # shellcheck disable=SC2329  # _shdeps_update_finished invokes these test seams.
+  kill() { return 0; }
+  # shellcheck disable=SC2329  # _shdeps_update_finished invokes these test seams.
+  ps() {
+    printf 'ps\n' >>"$_shdeps_malformed_ps_log"
+    printf 'Z\n'
+  }
+  _shdeps_finish_rc=0
+  DOT_PROC_ROOT="$_shdeps_proc_root" \
+    _shdeps_update_finished 43 "$_shdeps_finish_status" || _shdeps_finish_rc=$?
+  unset -f kill ps
+  _assert_eq "shdeps UI completion: malformed procfs falls back to ps" \
+    "0" "$_shdeps_finish_rc"
+  _assert_eq "shdeps UI completion: malformed procfs invokes ps once" \
+    "1" "$(wc -l <"$_shdeps_malformed_ps_log" | tr -d ' ')"
+
+  if [[ -r "/proc/$$/stat" ]]; then
+    _shdeps_ps_log="$(_tmpdir)/ps.log"
+    _shdeps_live_status="$(_tmpdir)/status"
+    : >"$_shdeps_ps_log"
+    : >"$_shdeps_live_status"
+    sleep 10 &
+    _shdeps_live_pid=$!
+    # shellcheck disable=SC2329  # _shdeps_update_finished invokes this test seam.
+    ps() {
+      printf 'ps\n' >>"$_shdeps_ps_log"
+      return 1
+    }
+    _shdeps_finish_rc=0
+    _shdeps_update_finished "$_shdeps_live_pid" "$_shdeps_live_status" ||
+      _shdeps_finish_rc=$?
+    unset -f ps
+    kill "$_shdeps_live_pid" 2>/dev/null || true
+    wait "$_shdeps_live_pid" 2>/dev/null || true
+    _assert_eq "shdeps UI completion: live procfs child is unfinished" \
+      "1" "$_shdeps_finish_rc"
+    _assert_eq "shdeps UI completion: readable procfs avoids ps" \
+      "0" "$(wc -l <"$_shdeps_ps_log" | tr -d ' ')"
+  fi
 
   # shellcheck disable=SC2329  # _run_shdeps_update_ui invokes this fixture by name.
   shdeps_update() {
