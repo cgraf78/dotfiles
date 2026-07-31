@@ -37,6 +37,14 @@ _dot_gstack_codex_skills_dir() {
   printf '%s\n' "$HOME/.codex/skills"
 }
 
+_dot_gstack_opencode_skills_dir() {
+  printf '%s\n' "$HOME/.config/opencode/skills"
+}
+
+_dot_gstack_opencode_generated_skills_dir() {
+  printf '%s\n' "$(_dot_gstack_state_dir)/dotfiles-opencode-skills"
+}
+
 _dot_gstack_gemini_extension_dir() {
   printf '%s\n' "$HOME/.gemini/extensions/gstack"
 }
@@ -71,10 +79,12 @@ declare -A _DOT_GSTACK_SOURCE_CODEX_NAME_EXISTS=()
 declare -A _DOT_GSTACK_SKILL_EXCLUDE=()
 _DOT_GSTACK_SKILL_EXCLUDE_LOADED=''
 _DOT_GSTACK_GENERATED_SKILL_VERSION='dotfiles-gstack-skill-v5'
+_DOT_GSTACK_OPENCODE_SKILL_VERSION='dotfiles-gstack-opencode-skill-v1'
 _DOT_GSTACK_GEMINI_CONTEXT_VERSION='dotfiles-gstack-gemini-context-v1'
 # v12 adds the skill exclude list to the source fingerprint and watch set;
 # caches written by v11 cannot prove an exclusion edit was applied.
-_DOT_GSTACK_REGISTRATION_CACHE_VERSION='dotfiles-gstack-registration-v12'
+# v14 adds the transformed, dependency-free OpenCode skill tree.
+_DOT_GSTACK_REGISTRATION_CACHE_VERSION='dotfiles-gstack-registration-v14'
 _DOT_GSTACK_TARGET_FRESHNESS_CACHE_FILE=''
 
 _dot_gstack_cksum_file() {
@@ -102,6 +112,7 @@ _dot_gstack_has_agent() {
     claude) command -v claude >/dev/null 2>&1 ;;
     codex) command -v codex >/dev/null 2>&1 ;;
     gemini) command -v gemini >/dev/null 2>&1 ;;
+    opencode) command -v opencode >/dev/null 2>&1 ;;
     *) return 1 ;;
   esac
 }

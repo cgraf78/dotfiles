@@ -21,11 +21,15 @@ _dot_gstack_points_to_gstack() {
 }
 
 _dot_gstack_points_to_dotfiles_skills() {
-  local generated_dir
+  local generated_dir opencode_generated_dir
   generated_dir=$(_dot_gstack_generated_skills_dir)
+  opencode_generated_dir=$(_dot_gstack_opencode_generated_skills_dir)
   case "$1" in
     "$generated_dir" | "$generated_dir"/* | .gstack/dotfiles-skills | .gstack/dotfiles-skills/* | \
-      */.gstack/dotfiles-skills | */.gstack/dotfiles-skills/*)
+      */.gstack/dotfiles-skills | */.gstack/dotfiles-skills/* | \
+      "$opencode_generated_dir" | "$opencode_generated_dir"/* | \
+      .gstack/dotfiles-opencode-skills | .gstack/dotfiles-opencode-skills/* | \
+      */.gstack/dotfiles-opencode-skills | */.gstack/dotfiles-opencode-skills/*)
       return 0
       ;;
   esac
@@ -75,6 +79,15 @@ _dot_gstack_gemini_extension_is_managed() {
   fi
 
   return 1
+}
+
+_dot_gstack_opencode_root_is_managed() {
+  local root="$1" skill_link
+  [ -d "$root" ] || return 1
+  [ -f "$(_dot_gstack_managed_marker "$root")" ] && return 0
+
+  skill_link=$(readlink "$root/SKILL.md" 2>/dev/null || true)
+  _dot_gstack_points_to_managed_gstack "$skill_link"
 }
 
 _dot_gstack_skill_dir_is_managed() {

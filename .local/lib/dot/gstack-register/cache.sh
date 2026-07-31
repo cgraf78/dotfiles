@@ -12,7 +12,7 @@ _dot_gstack_source_fingerprint() {
   {
     # The source fingerprint captures every input that can change what the
     # registration step should produce. Agent availability is included because
-    # losing Codex/Gemini should remove generated registrations for that agent,
+    # losing Codex/Gemini/OpenCode should remove registrations for that agent,
     # while gaining one should create them on the next dot update.
     printf 'version\t%s\n' "$_DOT_GSTACK_REGISTRATION_CACHE_VERSION"
     # The exclude list is a registration input even though it lives outside the
@@ -44,6 +44,10 @@ _dot_gstack_source_fingerprint() {
     )"
     printf 'agent\tgemini\t%s\n' "$(
       _dot_gstack_has_agent gemini
+      printf '%s' "$?"
+    )"
+    printf 'agent\topencode\t%s\n' "$(
+      _dot_gstack_has_agent opencode
       printf '%s' "$?"
     )"
 
@@ -85,7 +89,9 @@ _dot_gstack_emit_target_entry() {
 
 _dot_gstack_emit_unexpected_managed_targets() {
   local gstack_dir="$1" generated_dir="$2" claude_dir="$3" codex_dir="$4" gemini_skill_dir="$5"
-  local dst base
+  local opencode_dir="$6"
+  local opencode_generated_dir dst base
+  opencode_generated_dir=$(_dot_gstack_opencode_generated_skills_dir)
 
   # Expected-output fingerprints catch missing generated files, but they do not
   # naturally notice extra managed directories left behind after a source skill
@@ -122,17 +128,28 @@ _dot_gstack_emit_unexpected_managed_targets() {
     _dot_gstack_skill_dir_is_managed "$dst" || continue
     printf 'unexpected-target\tgemini/%s\t%s\n' "$base" "$dst"
   done < <(_dot_gstack_each_prefixed_skill_target "$gemini_skill_dir")
+
+  while IFS= read -r dst; do
+    base=$(basename "$dst")
+    [ -f "$opencode_generated_dir/$base/SKILL.md" ] && continue
+    _dot_gstack_skill_dir_is_managed "$dst" || continue
+    printf 'unexpected-target\topencode/%s\t%s\n' "$base" "$dst"
+  done < <(_dot_gstack_each_prefixed_skill_target "$opencode_dir")
 }
 
 _dot_gstack_target_fingerprint() {
   local gstack_dir="$1"
-  local claude_dir codex_dir gemini_ext gemini_skill_dir
+  local claude_dir codex_dir gemini_ext gemini_skill_dir opencode_dir opencode_root
+  local opencode_generated_dir
   local generated_dir
-  local i name link_name asset
+  local i name link_name asset rel skill_dir
   claude_dir="$(_dot_gstack_claude_skills_dir)"
   codex_dir="$(_dot_gstack_codex_skills_dir)"
   gemini_ext="$(_dot_gstack_gemini_extension_dir)"
   gemini_skill_dir="$(_dot_gstack_gemini_skills_dir)"
+  opencode_dir="$(_dot_gstack_opencode_skills_dir)"
+  opencode_root="$opencode_dir/gstack"
+  opencode_generated_dir=$(_dot_gstack_opencode_generated_skills_dir)
   generated_dir=$(_dot_gstack_generated_skills_dir)
 
   {
@@ -206,8 +223,39 @@ _dot_gstack_target_fingerprint() {
       _dot_gstack_emit_target_entry "$gemini_ext" "gemini-extension"
     fi
 
+    if _dot_gstack_has_agent opencode; then
+      _dot_gstack_emit_target_entry "$opencode_generated_dir" "opencode-generated"
+      _dot_gstack_emit_target_entry "$(_dot_gstack_managed_marker "$opencode_generated_dir")" \
+        "opencode-generated/.dotfiles-managed-gstack"
+      _dot_gstack_emit_target_entry "$opencode_generated_dir/gstack/SKILL.md" \
+        "opencode-generated/gstack/SKILL.md"
+      _dot_gstack_emit_target_entry "$opencode_root" "opencode/gstack"
+      _dot_gstack_emit_target_entry "$(_dot_gstack_managed_marker "$opencode_root")" \
+        "opencode/gstack/.dotfiles-managed-gstack"
+      _dot_gstack_emit_target_entry "$opencode_root/SKILL.md" "opencode/gstack/SKILL.md"
+      while IFS=$'\t' read -r asset rel; do
+        [ -n "$asset" ] || continue
+        _dot_gstack_emit_target_entry "$opencode_root/$rel" "opencode/gstack/$rel"
+      done < <(_dot_gstack_each_opencode_runtime_asset "$gstack_dir")
+      for skill_dir in "$opencode_generated_dir"/gstack-*/; do
+        [ -f "$skill_dir/SKILL.md" ] || continue
+        link_name=$(basename "$skill_dir")
+        _dot_gstack_emit_target_entry "$skill_dir" "opencode-generated/$link_name"
+        _dot_gstack_emit_target_entry "$(_dot_gstack_managed_marker "${skill_dir%/}")" \
+          "opencode-generated/$link_name/.dotfiles-managed-gstack"
+        _dot_gstack_emit_target_entry "$skill_dir/SKILL.md" \
+          "opencode-generated/$link_name/SKILL.md"
+        _dot_gstack_emit_target_entry "$opencode_dir/$link_name" "opencode/$link_name"
+        _dot_gstack_emit_target_entry "$opencode_dir/$link_name/SKILL.md" \
+          "opencode/$link_name/SKILL.md"
+      done
+    else
+      _dot_gstack_emit_target_entry "$opencode_root" "opencode/gstack"
+    fi
+
     _dot_gstack_emit_unexpected_managed_targets \
-      "$gstack_dir" "$generated_dir" "$claude_dir" "$codex_dir" "$gemini_skill_dir"
+      "$gstack_dir" "$generated_dir" "$claude_dir" "$codex_dir" "$gemini_skill_dir" \
+      "$opencode_dir"
   } 2>/dev/null | LC_ALL=C sort | _dot_gstack_hash_stream
 }
 
@@ -309,13 +357,17 @@ _dot_gstack_emit_source_watch_entries() {
 
 _dot_gstack_emit_target_watch_entries() {
   local gstack_dir="$1"
-  local claude_dir codex_dir gemini_ext gemini_skill_dir
+  local claude_dir codex_dir gemini_ext gemini_skill_dir opencode_dir opencode_root
+  local opencode_generated_dir
   local generated_dir
-  local i name link_name asset
+  local i name link_name asset rel skill_dir
   claude_dir="$(_dot_gstack_claude_skills_dir)"
   codex_dir="$(_dot_gstack_codex_skills_dir)"
   gemini_ext="$(_dot_gstack_gemini_extension_dir)"
   gemini_skill_dir="$(_dot_gstack_gemini_skills_dir)"
+  opencode_dir="$(_dot_gstack_opencode_skills_dir)"
+  opencode_root="$opencode_dir/gstack"
+  opencode_generated_dir=$(_dot_gstack_opencode_generated_skills_dir)
   generated_dir=$(_dot_gstack_generated_skills_dir)
 
   # Parent directories are part of the watch set because stale managed skills
@@ -327,6 +379,8 @@ _dot_gstack_emit_target_watch_entries() {
   _dot_gstack_emit_watch_entry "$gemini_ext"
   _dot_gstack_emit_watch_entry "$gemini_skill_dir"
   _dot_gstack_emit_watch_entry "$generated_dir"
+  _dot_gstack_emit_watch_entry "$opencode_dir"
+  _dot_gstack_emit_watch_entry "$opencode_generated_dir"
 
   _dot_gstack_load_source_skills "$gstack_dir"
 
@@ -372,6 +426,25 @@ _dot_gstack_emit_target_watch_entries() {
     _dot_gstack_emit_watch_entry "$(_dot_gstack_managed_marker "$gemini_skill_dir/$link_name")"
     _dot_gstack_emit_watch_entry "$gemini_skill_dir/$link_name/SKILL.md"
   done
+
+  _dot_gstack_emit_watch_entry "$opencode_root"
+  _dot_gstack_emit_watch_entry "$(_dot_gstack_managed_marker "$opencode_root")"
+  _dot_gstack_emit_watch_entry "$opencode_root/SKILL.md"
+  while IFS=$'\t' read -r asset rel; do
+    [ -n "$asset" ] || continue
+    _dot_gstack_emit_watch_entry "$opencode_root/$rel"
+  done < <(_dot_gstack_each_opencode_runtime_asset "$gstack_dir")
+  _dot_gstack_emit_watch_entry "$(_dot_gstack_managed_marker "$opencode_generated_dir")"
+  _dot_gstack_emit_watch_entry "$opencode_generated_dir/gstack/SKILL.md"
+  for skill_dir in "$opencode_generated_dir"/gstack-*/; do
+    [ -f "$skill_dir/SKILL.md" ] || continue
+    link_name=$(basename "$skill_dir")
+    _dot_gstack_emit_watch_entry "${skill_dir%/}"
+    _dot_gstack_emit_watch_entry "$(_dot_gstack_managed_marker "${skill_dir%/}")"
+    _dot_gstack_emit_watch_entry "$skill_dir/SKILL.md"
+    _dot_gstack_emit_watch_entry "$opencode_dir/$link_name"
+    _dot_gstack_emit_watch_entry "$opencode_dir/$link_name/SKILL.md"
+  done
 }
 
 _dot_gstack_emit_registration_watch_entries() {
@@ -380,6 +453,7 @@ _dot_gstack_emit_registration_watch_entries() {
   printf 'agent\tclaude\t%s\n' "$(_dot_gstack_agent_state claude)"
   printf 'agent\tcodex\t%s\n' "$(_dot_gstack_agent_state codex)"
   printf 'agent\tgemini\t%s\n' "$(_dot_gstack_agent_state gemini)"
+  printf 'agent\topencode\t%s\n' "$(_dot_gstack_agent_state opencode)"
 
   _dot_gstack_emit_source_watch_entries "$gstack_dir"
   _dot_gstack_emit_target_watch_entries "$gstack_dir"

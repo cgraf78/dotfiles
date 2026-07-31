@@ -24,6 +24,8 @@ _DOT_GSTACK_REGISTER_DIR="${_DOT_GSTACK_REGISTER_DIR:-$(_dot_gstack_register_mod
 . "$_DOT_GSTACK_REGISTER_DIR/migration.sh"
 # shellcheck source=generated.sh
 . "$_DOT_GSTACK_REGISTER_DIR/generated.sh"
+# shellcheck source=opencode.sh
+. "$_DOT_GSTACK_REGISTER_DIR/opencode.sh"
 # shellcheck source=targets.sh
 . "$_DOT_GSTACK_REGISTER_DIR/targets.sh"
 # shellcheck source=cache.sh
@@ -65,6 +67,11 @@ dot_gstack_register_all() {
   else
     _dot_gstack_unregister_gemini
   fi
+  if _dot_gstack_has_agent opencode; then
+    _dot_gstack_register_opencode "$gstack_dir" || return 1
+  else
+    _dot_gstack_unregister_opencode || return 1
+  fi
 
   _dot_gstack_write_registration_cache "$gstack_dir" || true
   touch "$stamp"
@@ -90,6 +97,7 @@ dot_gstack_unregister_all() {
   _dot_gstack_remove_link_if_managed "$claude_dir/connect-chrome"
   _dot_gstack_unregister_codex "$gstack_dir"
   _dot_gstack_unregister_gemini
+  _dot_gstack_unregister_opencode
   _dot_gstack_unregister_generated_skills
   rm -f "$(dot_gstack_migration_stamp)"
 }
