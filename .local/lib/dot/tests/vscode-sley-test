@@ -36,7 +36,20 @@ const config = {
 let registeredProvider;
 let registeredSelector;
 let refreshDiagnostics;
+let activeEditorChangeHandler;
+let changeDocumentHandler;
+let openDocumentHandler;
+let saveDocumentHandler;
+let deferredCapabilities = false;
+let deferredLint = false;
+let activeLintCalls = 0;
+let completedLintCalls = 0;
+let abortedLintCalls = 0;
+let maxActiveLintCalls = 0;
+const pendingCapabilityCallbacks = [];
+const pendingLintCallbacks = [];
 let failFirstCapabilities = false;
+let failAllCapabilities = false;
 let workspaceRoot;
 
 class Position {
@@ -105,7 +118,8 @@ const vscode = {
     },
   },
   window: {
-    onDidChangeActiveTextEditor() {
+    onDidChangeActiveTextEditor(handler) {
+      activeEditorChangeHandler = handler;
       return { dispose() {} };
     },
   },
@@ -127,13 +141,16 @@ const vscode = {
       }
       return undefined;
     },
-    onDidChangeTextDocument() {
+    onDidChangeTextDocument(handler) {
+      changeDocumentHandler = handler;
       return { dispose() {} };
     },
-    onDidOpenTextDocument() {
+    onDidOpenTextDocument(handler) {
+      openDocumentHandler = handler;
       return { dispose() {} };
     },
-    onDidSaveTextDocument() {
+    onDidSaveTextDocument(handler) {
+      saveDocumentHandler = handler;
       return { dispose() {} };
     },
   },
@@ -176,6 +193,14 @@ function execFile(command, args, opts, callback) {
       callback(Object.assign(new Error("checkrun unavailable"), { code: "ENOENT" }), "", "");
       return;
     }
+    if (failAllCapabilities) {
+      callback(Object.assign(new Error("checkrun unavailable"), { code: "ENOENT" }), "", "");
+      return;
+    }
+    if (deferredCapabilities) {
+      pendingCapabilityCallbacks.push(callback);
+      return;
+    }
     callback(null, JSON.stringify({ editorLanguageIds, filetypes, version: 2 }), "");
     return;
   }
@@ -185,6 +210,26 @@ function execFile(command, args, opts, callback) {
     return;
   }
   if (command === "sley" && args[0] === "hook" && args[1] === "lint-file") {
+    if (deferredLint) {
+      activeLintCalls += 1;
+      maxActiveLintCalls = Math.max(maxActiveLintCalls, activeLintCalls);
+      let settled = false;
+      const finish = (err) => {
+        if (settled) return;
+        settled = true;
+        activeLintCalls -= 1;
+        if (err) abortedLintCalls += 1;
+        else completedLintCalls += 1;
+        callback(err, "", "");
+      };
+      pendingLintCallbacks.push(() => finish(null));
+      opts.signal?.addEventListener(
+        "abort",
+        () => finish(Object.assign(new Error("aborted"), { name: "AbortError" })),
+        { once: true },
+      );
+      return;
+    }
     const output = [
       JSON.stringify({
         line: 2,
@@ -217,6 +262,7 @@ function document(filePath, languageId, text) {
     isUntitled: false,
     languageId,
     lineCount: lines.length,
+    version: 1,
     uri: {
       fsPath: filePath,
       scheme: "file",
@@ -236,6 +282,18 @@ function document(filePath, languageId, text) {
       return new Position(before.length - 1, before[before.length - 1].length);
     },
   };
+}
+
+async function nextTurn() {
+  await new Promise((resolve) => setImmediate(resolve));
+}
+
+async function drainDeferredLints() {
+  while (activeLintCalls > 0 || pendingLintCallbacks.length > 0) {
+    const callbacks = pendingLintCallbacks.splice(0);
+    for (const callback of callbacks) callback();
+    await nextTurn();
+  }
 }
 
 (async () => {
@@ -359,6 +417,132 @@ function document(filePath, languageId, text) {
     assert.equal(cppEdits.length, 1);
     assert.equal(cppEdits[0].newText, "formatted\n");
     assert.equal(calls.filter((call) => call.command === "checkrun").length, 2);
+
+    delete require.cache[require.resolve(extensionFile)];
+    activeEditorChangeHandler = undefined;
+    activeLintCalls = 0;
+    completedLintCalls = 0;
+    abortedLintCalls = 0;
+    maxActiveLintCalls = 0;
+    pendingLintCallbacks.length = 0;
+    calls.length = 0;
+    config.lintOnOpen = true;
+    deferredLint = true;
+    vscode.workspace.textDocuments = Array.from({ length: 10 }, (_, index) =>
+      document(path.join(tmp, `startup-${index}.service`), "systemd", "[Unit]\n"),
+    );
+    let startupActivationSettled = false;
+    const startupActivation = require(extensionFile).activate({
+      extensionPath,
+      subscriptions: [],
+    });
+    startupActivation.then(() => {
+      startupActivationSettled = true;
+    });
+    await nextTurn();
+    assert.equal(startupActivationSettled, true, "startup lint does not delay activation");
+    assert.equal(maxActiveLintCalls, 4, "startup lint concurrency is bounded");
+    assert.equal(typeof activeEditorChangeHandler, "function", "editor focus lint remains enabled");
+    activeEditorChangeHandler({ document: vscode.workspace.textDocuments[0] });
+    openDocumentHandler(vscode.workspace.textDocuments[0]);
+    saveDocumentHandler(vscode.workspace.textDocuments[0]);
+    const overlappingRefresh = refreshDiagnostics();
+    await drainDeferredLints();
+    await overlappingRefresh;
+    assert.equal(completedLintCalls, 10, "overlapping lint triggers share in-flight work");
+    assert.equal(maxActiveLintCalls, 4, "all lint triggers share one concurrency budget");
+    await startupActivation;
+    deferredLint = false;
+
+    delete require.cache[require.resolve(extensionFile)];
+    diagnosticSets.length = 0;
+    activeLintCalls = 0;
+    pendingLintCallbacks.length = 0;
+    config.lintOnOpen = false;
+    deferredLint = true;
+    vscode.workspace.textDocuments = [];
+    await require(extensionFile).activate({ extensionPath, subscriptions: [] });
+    const staleDocument = document(path.join(tmp, "stale.service"), "systemd", "[Unit]\n");
+    saveDocumentHandler(staleDocument);
+    await nextTurn();
+    staleDocument.version += 1;
+    await drainDeferredLints();
+    assert.equal(diagnosticSets.length, 0, "outdated lint results are not published");
+    deferredLint = false;
+    config.lintOnOpen = true;
+
+    delete require.cache[require.resolve(extensionFile)];
+    activeLintCalls = 0;
+    completedLintCalls = 0;
+    abortedLintCalls = 0;
+    maxActiveLintCalls = 0;
+    pendingLintCallbacks.length = 0;
+    deferredLint = true;
+    vscode.workspace.textDocuments = Array.from({ length: 6 }, (_, index) =>
+      document(path.join(tmp, `dispose-${index}.service`), "systemd", "[Unit]\n"),
+    );
+    const disposableContext = { extensionPath, subscriptions: [] };
+    await require(extensionFile).activate(disposableContext);
+    await nextTurn();
+    assert.equal(activeLintCalls, 4, "startup fills only the shared lint budget");
+    for (const subscription of disposableContext.subscriptions) subscription.dispose();
+    await nextTurn();
+    assert.equal(activeLintCalls, 0, "extension disposal cancels active lint work");
+    assert.equal(abortedLintCalls, 4, "every active lint is aborted on disposal");
+    assert.equal(completedLintCalls, 0, "disposed startup work does not complete later");
+    pendingLintCallbacks.length = 0;
+    deferredLint = false;
+
+    delete require.cache[require.resolve(extensionFile)];
+    calls.length = 0;
+    pendingCapabilityCallbacks.length = 0;
+    failFirstCapabilities = true;
+    deferredCapabilities = true;
+    vscode.workspace.textDocuments = Array.from({ length: 10 }, (_, index) =>
+      document(path.join(tmp, `retry-${index}.service`), "systemd", "[Unit]\n"),
+    );
+    const retryActivation = require(extensionFile).activate({
+      extensionPath,
+      subscriptions: [],
+    });
+    await nextTurn();
+    assert.equal(
+      calls.filter((call) => call.command === "checkrun").length,
+      2,
+      "startup documents share one capability retry",
+    );
+    assert.equal(pendingCapabilityCallbacks.length, 1);
+    deferredCapabilities = false;
+    for (const callback of pendingCapabilityCallbacks.splice(0)) {
+      callback(null, JSON.stringify({ editorLanguageIds, filetypes, version: 2 }), "");
+    }
+    await retryActivation;
+    await nextTurn();
+
+    delete require.cache[require.resolve(extensionFile)];
+    calls.length = 0;
+    failAllCapabilities = true;
+    vscode.workspace.textDocuments = Array.from({ length: 10 }, (_, index) =>
+      document(path.join(tmp, `failed-${index}.service`), "systemd", "[Unit]\n"),
+    );
+    const originalPersistentConsoleError = console.error;
+    try {
+      console.error = () => {};
+      await require(extensionFile).activate({
+        extensionPath,
+        subscriptions: [],
+      });
+      await nextTurn();
+      await nextTurn();
+    } finally {
+      console.error = originalPersistentConsoleError;
+      failAllCapabilities = false;
+    }
+    assert.equal(
+      calls.filter((call) => call.command === "checkrun").length,
+      2,
+      "persistent capability failure is attempted once per startup batch",
+    );
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
     Module._load = originalLoad;
