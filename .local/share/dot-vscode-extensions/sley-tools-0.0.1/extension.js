@@ -5,6 +5,7 @@ const path = require("node:path");
 
 const SOURCE = "sley";
 const MAX_BUFFER = 10 * 1024 * 1024;
+const MAX_CONCURRENT_LINTS = 4;
 
 function config() {
   return vscode.workspace.getConfiguration("sleyTools");
@@ -54,7 +55,7 @@ function providerSelector(filetypes, languageMap, phase) {
   return [{ scheme: "file" }];
 }
 
-function run(command, args, cwd, timeoutMs, allowFailure = false) {
+function run(command, args, cwd, timeoutMs, allowFailure = false, signal) {
   return new Promise((resolve, reject) => {
     execFile(
       command,
@@ -64,6 +65,7 @@ function run(command, args, cwd, timeoutMs, allowFailure = false) {
         timeout: timeoutMs,
         maxBuffer: MAX_BUFFER,
         env: { ...process.env, SLEY_CALLER: "vscode" },
+        signal,
       },
       (err, stdout, stderr) => {
         if (err && !allowFailure) {
@@ -78,10 +80,17 @@ function run(command, args, cwd, timeoutMs, allowFailure = false) {
   });
 }
 
-async function capabilities() {
+async function capabilities(signal) {
   const checkrun = config().get("checkrunCommand") || "checkrun";
   try {
-    const { stdout } = await run(checkrun, ["capabilities", "--json"], process.cwd(), 5000);
+    const { stdout } = await run(
+      checkrun,
+      ["capabilities", "--json"],
+      process.cwd(),
+      5000,
+      false,
+      signal,
+    );
     const parsed = JSON.parse(stdout);
     return {
       filetypes: parsed.filetypes || {},
@@ -277,18 +286,33 @@ async function formatCopy(document, sley, timeoutMs) {
 }
 
 async function activate(context) {
-  let cap = await capabilities();
+  const controller = new AbortController();
+  let disposed = false;
+  let activeLints = 0;
+  const lintQueue = [];
+  const inFlightLints = new Map();
+  let cap = await capabilities(controller.signal);
   let filetypes = cap.filetypes;
   let languageMap = cap.languageMap;
   let byLanguage = languageToFiletypes(languageMap);
+  let capabilitiesInFlight;
   const diagnostics = vscode.languages.createDiagnosticCollection(SOURCE);
 
   async function currentFiletypes() {
     if (!hasCapabilities(filetypes)) {
-      cap = await capabilities();
-      filetypes = cap.filetypes;
-      languageMap = cap.languageMap;
-      byLanguage = languageToFiletypes(languageMap);
+      if (!capabilitiesInFlight) {
+        capabilitiesInFlight = capabilities(controller.signal)
+          .then((next) => {
+            cap = next;
+            filetypes = cap.filetypes;
+            languageMap = cap.languageMap;
+            byLanguage = languageToFiletypes(languageMap);
+          })
+          .finally(() => {
+            capabilitiesInFlight = undefined;
+          });
+      }
+      await capabilitiesInFlight;
     }
     return filetypes;
   }
@@ -314,7 +338,7 @@ async function activate(context) {
     ),
   );
 
-  async function lint(document) {
+  async function lint(document, version) {
     if (
       document.isUntitled ||
       document.uri.scheme !== "file" ||
@@ -334,14 +358,83 @@ async function activate(context) {
       path.dirname(filePath),
       timeoutMs,
       true,
+      controller.signal,
     );
-    diagnostics.set(document.uri, parseDiagnostics(document, stdout));
+    if (!disposed && (typeof version !== "number" || document.version === version)) {
+      diagnostics.set(document.uri, parseDiagnostics(document, stdout));
+    }
   }
 
+  function pumpLintQueue() {
+    while (!disposed && activeLints < MAX_CONCURRENT_LINTS && lintQueue.length > 0) {
+      const { task, resolve, reject } = lintQueue.shift();
+      activeLints += 1;
+      Promise.resolve()
+        .then(task)
+        .then(resolve, reject)
+        .finally(() => {
+          activeLints -= 1;
+          pumpLintQueue();
+        });
+    }
+  }
+
+  function withLintSlot(task) {
+    if (disposed) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      lintQueue.push({ task, resolve, reject });
+      pumpLintQueue();
+    });
+  }
+
+  function lintKey(document) {
+    const uri = document.uri.fsPath || document.uri.toString();
+    return `${uri}\0${typeof document.version === "number" ? document.version : ""}`;
+  }
+
+  function scheduleLint(document) {
+    const key = lintKey(document);
+    const existing = inFlightLints.get(key);
+    if (existing) return existing;
+
+    const version = document.version;
+    const pending = withLintSlot(() => lint(document, version)).finally(() => {
+      if (inFlightLints.get(key) === pending) inFlightLints.delete(key);
+    });
+    inFlightLints.set(key, pending);
+    return pending;
+  }
+
+  async function lintDocuments(documents) {
+    if (!hasCapabilities(await currentFiletypes())) {
+      for (const document of documents) diagnostics.delete(document.uri);
+      return;
+    }
+
+    await Promise.all(documents.map(scheduleLint));
+  }
+
+  function reportLintFailure(err) {
+    if (!disposed && err?.name !== "AbortError") {
+      console.error("sley-tools: diagnostics failed", err);
+    }
+  }
+
+  function startLint(document) {
+    void scheduleLint(document).catch(reportLintFailure);
+  }
+
+  context.subscriptions.push({
+    dispose() {
+      disposed = true;
+      controller.abort();
+      for (const { resolve } of lintQueue.splice(0)) resolve();
+    },
+  });
   context.subscriptions.push(diagnostics);
   context.subscriptions.push(
     vscode.commands.registerCommand("sleyTools.refreshDiagnostics", () =>
-      Promise.all(vscode.workspace.textDocuments.map(lint)),
+      lintDocuments([...vscode.workspace.textDocuments]),
     ),
   );
   context.subscriptions.push(
@@ -349,22 +442,21 @@ async function activate(context) {
   );
   context.subscriptions.push(
     vscode.workspace.onDidOpenTextDocument((document) => {
-      if (config().get("lintOnOpen")) lint(document);
+      if (config().get("lintOnOpen")) startLint(document);
     }),
   );
   context.subscriptions.push(
     vscode.workspace.onDidSaveTextDocument((document) => {
-      if (config().get("lintOnSave")) lint(document);
+      if (config().get("lintOnSave")) startLint(document);
     }),
   );
   context.subscriptions.push(
     vscode.window.onDidChangeActiveTextEditor((editor) => {
-      if (editor && config().get("lintOnOpen")) lint(editor.document);
+      if (editor && config().get("lintOnOpen")) startLint(editor.document);
     }),
   );
-
   if (config().get("lintOnOpen")) {
-    await Promise.all(vscode.workspace.textDocuments.map(lint));
+    void lintDocuments([...vscode.workspace.textDocuments]).catch(reportLintFailure);
   }
 }
 
