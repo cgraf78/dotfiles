@@ -110,11 +110,15 @@ ln -s \
 
 saved_home=$HOME
 saved_path=$PATH
+real_ln=$(command -v ln)
+real_rm=$(command -v rm)
 HOME=$fixture_home
 PATH="$mock_bin:/usr/bin:/bin"
 export HOME PATH
 export GSTACK_OPENCODE_BUN_LOG=$bun_log
 export GSTACK_OPENCODE_SETUP_LOG=$setup_log
+export GSTACK_OPENCODE_REAL_LN=$real_ln
+export GSTACK_OPENCODE_REAL_RM=$real_rm
 export DOT_GSTACK_REGISTER_LIB="$source_home/.local/lib/dot/gstack-register/api.sh"
 
 # shellcheck source=../gstack-register/api.sh
@@ -238,7 +242,7 @@ for arg in "$@"; do
     */.config/opencode/skills/gstack-qa) exit 1 ;;
   esac
 done
-exec /usr/bin/ln "$@"
+exec "$GSTACK_OPENCODE_REAL_LN" "$@"
 SH
 chmod +x "$mock_bin/ln"
 hash -r
@@ -265,10 +269,10 @@ for arg in "$@"; do
     */.config/opencode/skills/gstack-qa) exit 1 ;;
   esac
 done
-exec /usr/bin/rm "$@"
+exec "$GSTACK_OPENCODE_REAL_RM" "$@"
 SH
 chmod +x "$mock_bin/rm"
-/usr/bin/rm -f "$mock_bin/opencode"
+"$GSTACK_OPENCODE_REAL_RM" -f "$mock_bin/opencode"
 hash -r
 if dot_gstack_register_all; then
   _fail "OpenCode: an agent-removal failure fails registration"
@@ -277,7 +281,7 @@ else
 fi
 _assert_eq "OpenCode: failed agent removal does not replace the current cache" \
   "$agent_removal_cache_before" "$(cksum <"$cache_file")"
-/usr/bin/rm -f "$mock_bin/rm"
+"$GSTACK_OPENCODE_REAL_RM" -f "$mock_bin/rm"
 hash -r
 dot_gstack_register_all
 _assert_file_missing "OpenCode: removes the managed root when the agent disappears" \
@@ -305,6 +309,7 @@ _assert_file_exists "OpenCode: an unmanaged root keeps upstream-owned sibling sk
 HOME=$saved_home
 PATH=$saved_path
 export HOME PATH
-unset GSTACK_OPENCODE_BUN_LOG GSTACK_OPENCODE_SETUP_LOG DOT_GSTACK_REGISTER_LIB
+unset GSTACK_OPENCODE_BUN_LOG GSTACK_OPENCODE_SETUP_LOG
+unset GSTACK_OPENCODE_REAL_LN GSTACK_OPENCODE_REAL_RM DOT_GSTACK_REGISTER_LIB
 
 _test_summary
