@@ -5,6 +5,23 @@ Upstream gstack setup can build browser assets and install heavier runtime
 pieces; dotfiles only needs `dot update` and the shdeps post hook to expose the
 existing checkout's skills to installed agents.
 
+## Dependency boundary
+
+This registration path intentionally does **not** depend on Bun and must not run
+upstream `gstack/setup` or `bun run gen:skill-docs`. Upstream's host-specific
+`.agents/`, `.factory/`, and `.opencode/` skill trees are generated artifacts
+and are not committed, so they are unavailable on a fresh lightweight checkout
+without adding Bun as an installation dependency.
+
+Instead, dotfiles materializes skills with Bash/Awk, applies the host transforms
+it owns, and supplies each supported agent's runtime registration shape. This
+preserves dependency-free `dot update` and shdeps hooks. Host-specific upstream
+changes do not arrive automatically; parity changes must be reviewed and
+implemented here without silently introducing Bun. The template-only
+`gstack-claude` external-host skill is deliberately omitted because upstream
+does not commit a resolved `claude/SKILL.md` that the dependency-free path can
+consume.
+
 Public API lives in [`api.sh`](api.sh):
 
 - `dot_gstack_dir` returns the upstream checkout path
@@ -49,6 +66,10 @@ ignored, because it otherwise fails open and looks like a no-op.
   and rewrite old Claude runtime paths to the actual checkout.
 - [`targets.sh`](targets.sh) links generated skills into Claude, Codex, and
   Gemini locations, and prunes stale managed registrations.
+- [`opencode.sh`](opencode.sh) writes an OpenCode-specific generated tree under
+  `~/.gstack/dotfiles-opencode-skills`, allowlists supported frontmatter,
+  rewrites runtime paths, omits the recursive Codex wrapper, and maintains
+  OpenCode's runtime asset root without invoking Bun or upstream setup.
 - [`cache.sh`](cache.sh) implements the warm `dot update` fast path. Watch
   entries use mtimes to skip expensive validation only when every watched source
   and target is no newer than the cache; otherwise the slower fingerprint path
@@ -56,9 +77,10 @@ ignored, because it otherwise fails open and looks like a no-op.
 
 ## Invariants
 
-Generated skill directories are the single source consumed by agents. Claude,
-Codex, and Gemini registrations should point at that shared tree rather than
-copying or linking directly to upstream source skills.
+Generated skill directories are the source consumed by agents. Claude, Codex,
+and Gemini point at the shared tree; OpenCode points at its host-transformed
+tree. Runtime-root assets may link directly to non-skill files in the upstream
+checkout, but registered `SKILL.md` files must come from a generated tree.
 
 Removal must be conservative. A path can be deleted only when it is a symlink to
 managed gstack content, has a dotfiles managed marker, or carries the generated
