@@ -7,6 +7,28 @@ dot_core_test_doctor() {
 
   _dot_doctor_load
 
+  doctor_physical_dir="$(_tmpdir)/physical/real"
+  doctor_path_tools_log="$(_tmpdir)/path-tools.log"
+  mkdir -p "$doctor_physical_dir"
+  printf '%s\n' "physical" >"$doctor_physical_dir/file"
+  doctor_physical_expected="$(cd "$doctor_physical_dir" && pwd -P)/file"
+  # shellcheck disable=SC2329  # _dr_physical_path invokes these test seams.
+  dirname() {
+    printf 'dirname\n' >>"$doctor_path_tools_log"
+    command dirname "$@"
+  }
+  # shellcheck disable=SC2329  # _dr_physical_path invokes these test seams.
+  basename() {
+    printf 'basename\n' >>"$doctor_path_tools_log"
+    command basename "$@"
+  }
+  doctor_physical_result=$(_dr_physical_path "$doctor_physical_dir/file")
+  unset -f dirname basename
+  _assert_eq "doctor paths: physical path remains correct" \
+    "$doctor_physical_expected" "$doctor_physical_result"
+  _assert_file_missing "doctor paths: physical path uses no external split tools" \
+    "$doctor_path_tools_log"
+
   drift=$(_dr_lsp_policy_diff "bashls neocmake vtsls" "bashls neocmake vtsls")
   expected="$(printf 'missing=\nstale=')"
   _assert_eq "doctor: lsp policy no drift" "$expected" "$drift"
@@ -380,7 +402,22 @@ SH
   ln -s "$REPLY" "$TEST_HOME/.doctor-overlay-link"
   _discover_overlays
   doctor_physical_fallback_log=$(_tmpdir)/physical-fallback.log
+  doctor_readlink_log=$(_tmpdir)/readlink.log
+  for doctor_link_suffix in one two; do
+    doctor_link_rel=".doctor-overlay-link-$doctor_link_suffix"
+    printf '%s\n' "expected" \
+      >"$TEST_HOME/.dotfiles-work/home/$doctor_link_rel"
+    _overlay_link_target "$doctor_link_rel" work
+    ln -s "$REPLY" "$TEST_HOME/$doctor_link_rel"
+    printf '%s\t%s\n' "$doctor_link_rel" "work" \
+      >>"$TEST_HOME/.local/state/dot/overlay-links"
+  done
   result=$(
+    # shellcheck disable=SC2329 # invoked indirectly by _dr_check_overlays.
+    readlink() {
+      printf '%s\n' "$#" >>"$doctor_readlink_log"
+      command readlink "$@"
+    }
     # shellcheck disable=SC2329 # invoked indirectly by _dr_check_overlays.
     _dr_symlink_points_to() {
       printf 'called\n' >>"$doctor_physical_fallback_log"
@@ -392,6 +429,55 @@ SH
     "overlay symlinks healthy" "$result"
   _assert_file_missing "doctor: canonical overlay target skips physical fallback" \
     "$doctor_physical_fallback_log"
+  _assert_file_content "doctor: canonical overlay targets use one batched readlink" \
+    "3" "$doctor_readlink_log"
+  doctor_readlink_fallback_log=$(_tmpdir)/readlink-fallback.log
+  result=$(
+    # shellcheck disable=SC2329 # invoked indirectly by _dr_check_overlays.
+    readlink() {
+      printf '%s\n' "$#" >>"$doctor_readlink_fallback_log"
+      [[ "$#" -eq 1 ]] || return 1
+      command readlink "$@"
+    }
+    # shellcheck disable=SC2329 # invoked indirectly by _dr_check_overlays.
+    _dr_symlink_points_to() {
+      printf 'called\n' >>"$doctor_physical_fallback_log"
+      return 1
+    }
+    _dr_check_overlays 2>&1 || true
+  )
+  _assert_contains "doctor: unsupported batched readlink falls back safely" \
+    "overlay symlinks healthy" "$result"
+  _assert_file_content "doctor: failed batch retries each link separately" \
+    $'3\n1\n1\n1' "$doctor_readlink_fallback_log"
+  _assert_file_missing "doctor: successful readlink fallback skips physical resolution" \
+    "$doctor_physical_fallback_log"
+  doctor_readlink_short_log=$(_tmpdir)/readlink-short.log
+  result=$(
+    set -e
+    # shellcheck disable=SC2329 # invoked indirectly by _dr_check_overlays.
+    readlink() {
+      printf '%s\n' "$#" >>"$doctor_readlink_short_log"
+      if [[ "$#" -gt 1 ]]; then
+        command readlink "$1"
+        return 0
+      fi
+      command readlink "$@"
+    }
+    _dr_check_overlays 2>&1
+  )
+  _assert_contains "doctor: incomplete batch output falls back under errexit" \
+    "overlay symlinks healthy" "$result"
+  _assert_file_content "doctor: incomplete batch retries each link separately" \
+    $'3\n1\n1\n1' "$doctor_readlink_short_log"
+  for doctor_link_suffix in one two; do
+    doctor_link_rel=".doctor-overlay-link-$doctor_link_suffix"
+    rm -f \
+      "$TEST_HOME/$doctor_link_rel" \
+      "$TEST_HOME/.dotfiles-work/home/$doctor_link_rel"
+  done
+  printf '%s\t%s\n' ".doctor-overlay-link" "work" \
+    >"$TEST_HOME/.local/state/dot/overlay-links"
 
   rm -f "$TEST_HOME/.dotfiles-work/home/.doctor-overlay-link"
   result=$(
