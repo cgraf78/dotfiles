@@ -79,6 +79,8 @@ return {
       return {
         enable_git_status = policy.enable_git_status,
         filesystem = {
+          -- Keep the sidebar responsive while its shallow root scan fills in.
+          async_directory_scan = "always",
           use_libuv_file_watcher = false,
           follow_current_file = { enabled = true },
           filtered_items = policy.filtered_items,

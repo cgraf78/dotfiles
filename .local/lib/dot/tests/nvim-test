@@ -1479,6 +1479,7 @@ result=$(_nvim_lua '
     if spec[1] == "nvim-neo-tree/neo-tree.nvim" then
       local opts = spec.opts()
       print(tostring(opts.filesystem.use_libuv_file_watcher))
+      print(tostring(opts.filesystem.async_directory_scan))
       print(tostring(opts.filesystem.window.mappings["<C-r>"]))
       spec.keys[1][2]()
       spec.keys[2][2]()
@@ -1487,7 +1488,7 @@ result=$(_nvim_lua '
   end
   print("missing")
 ')
-expected="$(printf 'false\nhome\nopen=nil:true:nil\nopen=/workspace/root:nil:focus')"
+expected="$(printf 'false\nalways\nhome\nopen=nil:true:nil\nopen=/workspace/root:nil:focus')"
 _assert_eq "nvim-workspace: neo-tree integration uses extracted helper" \
   "$expected" "$result"
 
