@@ -75,18 +75,63 @@ _ensure_repo_config() {
   # Apply git config to a single repo. $1... is the git command prefix.
   # shellcheck disable=SC2086  # git_cmd is intentionally word-split.
   _apply_repo_config() {
-    local git_cmd="$*"
-    $git_cmd config pull.rebase true 2>/dev/null || true
-    $git_cmd config rebase.autoStash true 2>/dev/null || true
-    $git_cmd config diff.autoRefreshIndex true 2>/dev/null || true
-    $git_cmd config filter.json-normalize.clean "jq --sort-keys ." 2>/dev/null || true
+    local git_cmd="$*" record key value
+    local pull_seen=0 pull_ok=1 rebase_seen=0 rebase_ok=1
+    local refresh_seen=0 refresh_ok=1 filter_seen=0 filter_ok=1
+    local fsmonitor_seen=0 fsmonitor_ok=1
+
+    while IFS= read -r -d '' record; do
+      key="${record%%$'\n'*}"
+      value="${record#*$'\n'}"
+      case "$key" in
+        pull.rebase)
+          pull_seen=1
+          [[ "$value" == true ]] || pull_ok=0
+          ;;
+        rebase.autostash)
+          rebase_seen=1
+          [[ "$value" == true ]] || rebase_ok=0
+          ;;
+        diff.autorefreshindex)
+          refresh_seen=1
+          [[ "$value" == true ]] || refresh_ok=0
+          ;;
+        filter.json-normalize.clean)
+          filter_seen=1
+          [[ "$value" == "jq --sort-keys ." ]] || filter_ok=0
+          ;;
+        core.fsmonitor)
+          fsmonitor_seen=1
+          [[ "$value" == false ]] || fsmonitor_ok=0
+          ;;
+      esac
+    done < <(
+      $git_cmd config --local --null --get-regexp \
+        '^(pull\.rebase|rebase\.autostash|diff\.autorefreshindex|filter\.json-normalize\.clean|core\.fsmonitor)$' \
+        2>/dev/null
+    )
+
+    [[ "$pull_seen" -eq 1 && "$pull_ok" -eq 1 ]] ||
+      $git_cmd config pull.rebase true 2>/dev/null || true
+    [[ "$rebase_seen" -eq 1 && "$rebase_ok" -eq 1 ]] ||
+      $git_cmd config rebase.autoStash true 2>/dev/null || true
+    [[ "$refresh_seen" -eq 1 && "$refresh_ok" -eq 1 ]] ||
+      $git_cmd config diff.autoRefreshIndex true 2>/dev/null || true
+    [[ "$filter_seen" -eq 1 && "$filter_ok" -eq 1 ]] ||
+      $git_cmd config filter.json-normalize.clean "jq --sort-keys ." 2>/dev/null || true
+
+    DOT_REPO_CONFIG_FSMONITOR_OK=0
+    [[ "$fsmonitor_seen" -eq 1 && "$fsmonitor_ok" -eq 1 ]] &&
+      DOT_REPO_CONFIG_FSMONITOR_OK=1
+    return 0
   }
   # shellcheck disable=SC2086  # $GIT is intentionally word-split.
   if [[ -d "$DOTFILES" ]]; then
     _apply_repo_config $GIT
     # Bare repo uses $HOME as work-tree; fsmonitor would watch the entire
     # home directory, causing hangs. Disable it unconditionally.
-    $GIT config core.fsmonitor false 2>/dev/null || true
+    [[ "$DOT_REPO_CONFIG_FSMONITOR_OK" -eq 1 ]] ||
+      $GIT config core.fsmonitor false 2>/dev/null || true
   fi
   local entry
   for entry in "${OVERLAYS[@]+"${OVERLAYS[@]}"}"; do
@@ -97,6 +142,7 @@ _ensure_repo_config() {
     fi
   done
   unset -f _apply_repo_config
+  unset DOT_REPO_CONFIG_FSMONITOR_OK
 }
 
 _dotfiles_repo_url() {
@@ -104,10 +150,31 @@ _dotfiles_repo_url() {
 }
 
 _prefer_base_dotfiles_ssh_remote() {
-  local url ssh_url
+  local url="" push_url="" ssh_url record key value url_count=0 push_count=0
   ssh_url="$(_dotfiles_repo_url)"
-  # shellcheck disable=SC2086  # $GIT is intentionally word-split.
-  url=$($GIT remote get-url origin 2>/dev/null || true)
+  while IFS= read -r -d '' record; do
+    key="${record%%$'\n'*}"
+    value="${record#*$'\n'}"
+    case "$key" in
+      remote.origin.url)
+        url="$value"
+        url_count=$((url_count + 1))
+        ;;
+      remote.origin.pushurl)
+        push_url="$value"
+        push_count=$((push_count + 1))
+        ;;
+    esac
+  done < <(
+    # Inspect raw local values so url.*.insteadOf cannot make an already-correct
+    # SSH remote appear to be the legacy HTTPS spelling.
+    # shellcheck disable=SC2086  # $GIT is intentionally word-split.
+    $GIT config --local --null --get-regexp \
+      '^remote\.origin\.(url|pushurl)$' 2>/dev/null
+  )
+  # An ambiguous fetch URL is not a recognizable legacy install. Leave both
+  # fetch and push routing untouched for explicit user repair.
+  [[ "$url_count" -eq 1 ]] || return 0
   case "$url" in
     https://github.com/cgraf78/dotfiles | https://github.com/cgraf78/dotfiles.git)
       # The base repo used to be public, so older installs may still point at
@@ -122,6 +189,8 @@ _prefer_base_dotfiles_ssh_remote() {
   esac
   # Keep explicit push routing in sync with the read remote. This matters on
   # machines that still have a stale HTTPS pushUrl from the public-repo era.
-  # shellcheck disable=SC2086  # $GIT is intentionally word-split.
-  $GIT remote set-url --push origin "$ssh_url" 2>/dev/null || true
+  if [[ "$push_count" -ne 1 || "$push_url" != "$ssh_url" ]]; then
+    # shellcheck disable=SC2086  # $GIT is intentionally word-split.
+    $GIT remote set-url --push origin "$ssh_url" 2>/dev/null || true
+  fi
 }

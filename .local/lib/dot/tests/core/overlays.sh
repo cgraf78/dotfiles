@@ -303,6 +303,33 @@ CONF
     "$RELATIVE_OVERLAY_BARE" "$(git -C "$relative_overlay" config --get remote.origin.url)"
   rm -rf "$relative_overlay" "$RELATIVE_OVERLAY_BARE"
 
+  # Converged policy checks must not rewrite every repository config on both
+  # the pre-pull and finalization passes of a no-op update.
+  _ensure_repo_config
+  base_config_inode=$(stat -c '%i' "$DOTFILES/config" 2>/dev/null ||
+    stat -f '%i' "$DOTFILES/config")
+  overlay_config_inode=$(stat -c '%i' "$OVERLAY_DIR/.git/config" 2>/dev/null ||
+    stat -f '%i' "$OVERLAY_DIR/.git/config")
+  _ensure_repo_config
+  _assert_eq "repo config: converged base config keeps its inode" \
+    "$base_config_inode" \
+    "$(stat -c '%i' "$DOTFILES/config" 2>/dev/null || stat -f '%i' "$DOTFILES/config")"
+  _assert_eq "repo config: converged overlay config keeps its inode" \
+    "$overlay_config_inode" \
+    "$(stat -c '%i' "$OVERLAY_DIR/.git/config" 2>/dev/null || stat -f '%i' "$OVERLAY_DIR/.git/config")"
+  git -C "$OVERLAY_DIR" config pull.rebase false
+  _ensure_repo_config
+  _assert_eq "repo config: mismatched overlay policy is repaired" \
+    "true" "$(git -C "$OVERLAY_DIR" config --get pull.rebase)"
+  git -C "$OVERLAY_DIR" config core.fsmonitor true
+  _ensure_repo_config
+  _assert_eq "repo config: overlay fsmonitor policy remains repo-owned" \
+    "true" "$(git -C "$OVERLAY_DIR" config --get core.fsmonitor)"
+  $GIT config core.fsmonitor true
+  _ensure_repo_config
+  _assert_eq "repo config: unsafe base fsmonitor policy is repaired" \
+    "false" "$($GIT config --get core.fsmonitor)"
+
   # A Git checkout at the configured path is not sufficient evidence that it
   # is the configured overlay. Fail closed before pull so an unrelated repo is
   # never updated merely because it occupies ~/.dotfiles-<name>.

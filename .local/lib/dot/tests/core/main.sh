@@ -1133,6 +1133,31 @@ LOG
   _assert_contains "pull_cmd: forces C locale in quiet mode" "LC_ALL=C" "$result"
   _assert_contains "pull_cmd: quiet mode appends --quiet" "--quiet" "$result"
 
+  dot_raw_home=$(_tmpdir)
+  dot_raw_repo="$dot_raw_home/repo.git"
+  git init --bare -q "$dot_raw_repo"
+  git --git-dir="$dot_raw_repo" config remote.origin.url \
+    git@github.com:cgraf78/dotfiles.git
+  git --git-dir="$dot_raw_repo" config remote.origin.pushurl \
+    git@github.com:cgraf78/dotfiles.git
+  git --git-dir="$dot_raw_repo" config url.https://github.com/.insteadOf \
+    git@github.com:
+  dot_raw_inode=$(stat -c '%i' "$dot_raw_repo/config" 2>/dev/null ||
+    stat -f '%i' "$dot_raw_repo/config")
+  (
+    GIT="git --git-dir=$dot_raw_repo --work-tree=$dot_raw_home"
+    _prefer_base_dotfiles_ssh_remote
+  )
+  _assert_eq "dotfiles remote: converged raw SSH config keeps its inode" \
+    "$dot_raw_inode" \
+    "$(stat -c '%i' "$dot_raw_repo/config" 2>/dev/null || stat -f '%i' "$dot_raw_repo/config")"
+  _assert_eq "dotfiles remote: converged raw fetch URL remains SSH" \
+    "git@github.com:cgraf78/dotfiles.git" \
+    "$(git --git-dir="$dot_raw_repo" config --get remote.origin.url)"
+  _assert_eq "dotfiles remote: converged raw push URL remains SSH" \
+    "git@github.com:cgraf78/dotfiles.git" \
+    "$(git --git-dir="$dot_raw_repo" config --get remote.origin.pushurl)"
+
   dot_fb_home=$(_tmpdir)
   dot_fb_bin="$dot_fb_home/bin"
   dot_fb_log="$dot_fb_home/git.log"
@@ -1147,8 +1172,9 @@ printf '%s\n' "$*" >>"$DOTFILES_REMOTE_LOG"
 while [[ "$1" == --git-dir=* || "$1" == --work-tree=* ]]; do
   shift
 done
-if [[ "$1" = remote && "$2" = get-url && "$3" = origin ]]; then
-  cat "$DOTFILES_REMOTE_FILE"
+if [[ "$1" = config && "$2" = --local && "$3" = --null && "$4" = --get-regexp ]]; then
+  printf 'remote.origin.url\n%s\0' "$(cat "$DOTFILES_REMOTE_FILE")"
+  printf 'remote.origin.pushurl\n%s\0' "$(cat "$DOTFILES_PUSH_REMOTE_FILE")"
   exit 0
 fi
 if [[ "$1" = remote && "$2" = set-url && "$3" = origin ]]; then
@@ -1183,7 +1209,7 @@ SH
   unset -f _dotfiles_pull_fallback_fixture
   dot_fb_calls=$(cat "$dot_fb_log")
   _assert_contains "dotfiles pull: checks legacy HTTPS origin" \
-    "remote get-url origin" "$dot_fb_calls"
+    "config --local --null --get-regexp" "$dot_fb_calls"
   _assert_contains "dotfiles pull: switches legacy origin to SSH" \
     "remote set-url origin git@github.com:cgraf78/dotfiles.git" "$dot_fb_calls"
   _assert_contains "dotfiles pull: switches push URL to SSH" \
