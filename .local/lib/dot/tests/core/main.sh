@@ -1086,6 +1086,11 @@ SH
   echo ""
   echo "=== Helper primitives ==="
 
+  helper_tmpfile=$(_tmpfile)
+  _assert_file_exists "tmpfile: creates a regular file" "$helper_tmpfile"
+  _assert_eq "tmpfile: stays inside the managed test root" \
+    "$_DOT_TEST_TMP_ROOT" "${helper_tmpfile%/*}"
+
   _backup_dir
   backup_one="$REPLY"
   _backup_dir

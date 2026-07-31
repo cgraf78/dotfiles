@@ -979,7 +979,7 @@ if $_bootstrap_run_shortcut; then
   echo "=== README shortcut bootstrap ==="
 
   shortcut_url="cgraf78.github.io/d"
-  shortcut_probe_err=$(mktemp)
+  shortcut_probe_err=$(_tmpfile)
   shortcut_probe_rc=0
   curl -fsSL --connect-timeout 10 --max-time 30 "$shortcut_url" -o /dev/null 2>"$shortcut_probe_err" ||
     shortcut_probe_rc=$?

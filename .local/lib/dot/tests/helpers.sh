@@ -285,6 +285,19 @@ _tmpdir() {
   echo "$d"
 }
 
+_tmpfile() {
+  local f
+  f=$(mktemp "$_DOT_TEST_TMP_ROOT/file.XXXXXX") || {
+    echo "failed to create test temp file" >&2
+    exit 1
+  }
+  if [[ -z "$f" || "$f" != "$_DOT_TEST_TMP_ROOT"/* || ! -f "$f" ]]; then
+    echo "mktemp returned invalid test temp file: $f" >&2
+    exit 1
+  fi
+  echo "$f"
+}
+
 _cleanup() {
   for d in "${CLEANUP_DIRS[@]+"${CLEANUP_DIRS[@]}"}"; do
     rm -rf "$d"

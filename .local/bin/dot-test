@@ -336,8 +336,6 @@ esac
 [[ "$max_jobs" -lt 1 ]] && max_jobs=1
 [[ "$max_jobs" -gt "${#scripts[@]}" ]] && max_jobs=${#scripts[@]}
 
-tmpdir=$(mktemp -d)
-
 # Auto-verbose in CI so test output is visible (folded via ::group::)
 [[ -n "${GITHUB_ACTIONS:-}" ]] && verbose=true
 
@@ -418,7 +416,54 @@ _cleanup_test_jobs() {
   done
   rm -rf "$tmpdir"
 }
+
+_prune_stale_test_roots() {
+  local parent="$1" now="$2" candidate marker owner_pid started
+  for candidate in "$parent"/run.*; do
+    [[ -d "$candidate" && ! -L "$candidate" && -O "$candidate" ]] || continue
+    marker="$candidate/.dot-test-owner-v2"
+    [[ -f "$marker" && -O "$marker" ]] || continue
+    IFS=$'\t' read -r owner_pid started <"$marker" || continue
+    [[ "$owner_pid" =~ ^[1-9][0-9]{0,9}$ ]] || continue
+    kill -0 "$owner_pid" 2>/dev/null && continue
+    [[ "$started" =~ ^[1-9][0-9]{0,17}$ ]] || continue
+    ((started <= now && now - started > 86400)) || continue
+    rm -rf -- "$candidate"
+  done
+}
+
+_dot_test_tmp_base="${TMPDIR:-/tmp}"
+_dot_test_tmp_base="${_dot_test_tmp_base%/}"
+[[ -n "$_dot_test_tmp_base" ]] || _dot_test_tmp_base=/
+_dot_test_tmp_parent="$_dot_test_tmp_base/dot-test-runs.$EUID"
+if ! mkdir -m 700 "$_dot_test_tmp_parent" 2>/dev/null &&
+  [[ ! -e "$_dot_test_tmp_parent" ]]; then
+  echo "dot-test: could not create temporary root" >&2
+  exit 1
+fi
+if [[ ! -d "$_dot_test_tmp_parent" || -L "$_dot_test_tmp_parent" ||
+  ! -O "$_dot_test_tmp_parent" ]]; then
+  echo "dot-test: unsafe temporary root: $_dot_test_tmp_parent" >&2
+  exit 1
+fi
+chmod 700 "$_dot_test_tmp_parent" || {
+  echo "dot-test: could not secure temporary root" >&2
+  exit 1
+}
+_dot_test_now=$(date +%s) || {
+  echo "dot-test: could not read system time" >&2
+  exit 1
+}
+_prune_stale_test_roots "$_dot_test_tmp_parent" "$_dot_test_now"
+tmpdir=$(mktemp -d "$_dot_test_tmp_parent/run.XXXXXXXX") || {
+  echo "dot-test: could not create temporary directory" >&2
+  exit 1
+}
 trap _cleanup_test_jobs EXIT
+if ! printf '%s\t%s\n' "$$" "$_dot_test_now" >"$tmpdir/.dot-test-owner-v2"; then
+  echo "dot-test: could not mark temporary directory" >&2
+  exit 1
+fi
 
 # shellcheck disable=SC2329 # Signal traps invoke this cancellation handler.
 _cancel_suite() {
