@@ -124,6 +124,16 @@ export DOT_GSTACK_REGISTER_LIB="$source_home/.local/lib/dot/gstack-register/api.
 # shellcheck source=../gstack-register/api.sh
 . "$DOT_GSTACK_REGISTER_LIB"
 
+eval "$(declare -f _dot_gstack_has_agent | sed \
+  '1s/_dot_gstack_has_agent/_original_dot_gstack_has_agent/')"
+_dot_gstack_has_agent() {
+  if [ "$1" = "opencode" ]; then
+    [ -x "$mock_bin/opencode" ]
+    return
+  fi
+  _original_dot_gstack_has_agent "$@"
+}
+
 eval "$(declare -f _dot_gstack_register_opencode | sed \
   '1s/_dot_gstack_register_opencode/_original_dot_gstack_register_opencode/')"
 opencode_register_count=0
@@ -274,6 +284,11 @@ SH
 chmod +x "$mock_bin/rm"
 "$GSTACK_OPENCODE_REAL_RM" -f "$mock_bin/opencode"
 hash -r
+if _dot_gstack_has_agent opencode; then
+  _fail "OpenCode: fixture models agent removal independently of the host"
+else
+  _pass "OpenCode: fixture models agent removal independently of the host"
+fi
 if dot_gstack_register_all; then
   _fail "OpenCode: an agent-removal failure fails registration"
 else
