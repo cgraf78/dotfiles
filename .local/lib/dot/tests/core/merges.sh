@@ -1262,7 +1262,8 @@ PY
     rm -rf "$vscode_mcp_edge_home/.local/state/dot"
     vscode_mcp_race_out="$vscode_mcp_edge_home/race-out.txt"
     # shellcheck disable=SC2016 # The inner shell expands fixture env variables.
-    env HOME="$vscode_mcp_edge_home" REAL_HOME="$REAL_HOME" bash -c '
+    env HOME="$vscode_mcp_edge_home" REAL_HOME="$REAL_HOME" \
+      TMPDIR="$_DOT_TEST_TMP_ROOT" bash -c '
       set -uo pipefail
       _warn() { :; }
       # shellcheck source=/dev/null
@@ -1314,7 +1315,8 @@ PY
     # A silent {} on generation failure would leave the extension installed
     # and unauthenticated with no trace. The security gap must be _warn'd.
     # shellcheck disable=SC2016 # The inner shell expands fixture env variables.
-    vscode_mcp_warn_output=$(env HOME="$vscode_mcp_edge_home" REAL_HOME="$REAL_HOME" bash -c '
+    vscode_mcp_warn_output=$(env HOME="$vscode_mcp_edge_home" REAL_HOME="$REAL_HOME" \
+      TMPDIR="$_DOT_TEST_TMP_ROOT" bash -c '
       set -euo pipefail
       _warn() { printf "%s\n" "$*"; }
       # shellcheck source=/dev/null
@@ -1379,14 +1381,14 @@ PY
       "$vscode_home/.config/Code/User/settings.json" "$vscode_mv_ops"
     _assert_contains "vscode sley: keybindings replacement uses forced mv" \
       "$vscode_home/.config/Code/User/keybindings.json" "$vscode_mv_ops"
-    sorted_settings=$(mktemp)
+    sorted_settings=$(_tmpfile)
     jq --indent 4 --sort-keys '.' "$vscode_home/.config/Code/User/settings.json" >"$sorted_settings"
     if cmp -s "$sorted_settings" "$vscode_home/.config/Code/User/settings.json"; then
       _pass "vscode sley: saved settings are sorted"
     else
       _fail "vscode sley: saved settings are sorted"
     fi
-    sorted_keybindings=$(mktemp)
+    sorted_keybindings=$(_tmpfile)
     jq --indent 4 --sort-keys '.' "$vscode_home/.config/Code/User/keybindings.json" >"$sorted_keybindings"
     if cmp -s "$sorted_keybindings" "$vscode_home/.config/Code/User/keybindings.json"; then
       _pass "vscode sley: saved keybindings are sorted"

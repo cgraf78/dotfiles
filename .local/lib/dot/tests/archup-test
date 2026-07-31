@@ -176,8 +176,8 @@ _assert_contains "archup broken: reports scoped rebuild" \
 echo ""
 echo "=== archup: upgraded service restarts ==="
 
-before_packages=$(mktemp)
-after_packages=$(mktemp)
+before_packages=$(_tmpfile)
+after_packages=$(_tmpfile)
 cat >"$before_packages" <<'EOF'
 same-version 1.0
 upgraded-service 1.0

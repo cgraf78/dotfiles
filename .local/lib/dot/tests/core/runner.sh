@@ -27,6 +27,88 @@ exec "$@"
 DOTRUNNER
   chmod +x "$_dot_runner_bin/setsid"
 
+  _dot_runner_lifecycle_parent=$(_tmpdir)
+  _dot_runner_lifecycle_root="$_dot_runner_lifecycle_parent/dot-test-runs.$EUID"
+  _dot_runner_lifecycle_tests=$(_tmpdir)
+  _dot_runner_old_dead="$_dot_runner_lifecycle_root/run.old-dead"
+  _dot_runner_recent_dead="$_dot_runner_lifecycle_root/run.recent-dead"
+  _dot_runner_old_live="$_dot_runner_lifecycle_root/run.old-live"
+  _dot_runner_unmarked="$_dot_runner_lifecycle_root/run.unmarked"
+  _dot_runner_malformed="$_dot_runner_lifecycle_root/run.malformed"
+  _dot_runner_malformed_time="$_dot_runner_lifecycle_root/run.malformed-time"
+  _dot_runner_symlink="$_dot_runner_lifecycle_root/run.symlink"
+  _dot_runner_symlink_target="$_dot_runner_lifecycle_parent/symlink-target"
+  mkdir -p "$_dot_runner_old_dead" "$_dot_runner_recent_dead" \
+    "$_dot_runner_old_live" "$_dot_runner_unmarked" \
+    "$_dot_runner_malformed" "$_dot_runner_malformed_time" \
+    "$_dot_runner_symlink_target"
+  ln -s "$_dot_runner_symlink_target" "$_dot_runner_symlink"
+  _dot_runner_dead_pid=9999999999
+  _dot_runner_now=$(date +%s)
+  printf '%s\t%s\n' "$_dot_runner_dead_pid" 1 \
+    >"$_dot_runner_old_dead/.dot-test-owner-v2"
+  printf '%s\t%s\n' "$_dot_runner_dead_pid" "$_dot_runner_now" \
+    >"$_dot_runner_recent_dead/.dot-test-owner-v2"
+  printf '%s\t%s\n' "$$" 1 >"$_dot_runner_old_live/.dot-test-owner-v2"
+  printf 'not-a-pid\tnot-a-time\n' >"$_dot_runner_malformed/.dot-test-owner-v2"
+  printf '%s\tnot-a-time\n' "$_dot_runner_dead_pid" \
+    >"$_dot_runner_malformed_time/.dot-test-owner-v2"
+  cat >"$_dot_runner_lifecycle_tests/lifecycle-test" <<'DOTRUNNER'
+#!/usr/bin/env bash
+printf 'Results: 1 passed, 0 failed\n'
+DOTRUNNER
+  chmod +x "$_dot_runner_lifecycle_tests/lifecycle-test"
+  TMPDIR="$_dot_runner_lifecycle_parent" \
+    DOT_TEST_TESTS_DIR="$_dot_runner_lifecycle_tests" DOT_TEST_NO_COLOR=1 \
+    "$BIN_DIR/dot-test" -s lifecycle >/dev/null 2>&1
+  _dot_runner_lifecycle_rc=$?
+  _assert_exit "dot-test temp lifecycle: cleanup probe succeeds" \
+    0 "$_dot_runner_lifecycle_rc"
+  _dot_runner_concurrent_parent=$(_tmpdir)
+  TMPDIR="$_dot_runner_concurrent_parent" \
+    DOT_TEST_TESTS_DIR="$_dot_runner_lifecycle_tests" DOT_TEST_NO_COLOR=1 \
+    "$BIN_DIR/dot-test" -s lifecycle >/dev/null 2>&1 &
+  _dot_runner_concurrent_one=$!
+  TMPDIR="$_dot_runner_concurrent_parent" \
+    DOT_TEST_TESTS_DIR="$_dot_runner_lifecycle_tests" DOT_TEST_NO_COLOR=1 \
+    "$BIN_DIR/dot-test" -s lifecycle >/dev/null 2>&1 &
+  _dot_runner_concurrent_two=$!
+  _dot_runner_concurrent_one_rc=0
+  _dot_runner_concurrent_two_rc=0
+  wait "$_dot_runner_concurrent_one" || _dot_runner_concurrent_one_rc=$?
+  wait "$_dot_runner_concurrent_two" || _dot_runner_concurrent_two_rc=$?
+  _assert_exit "dot-test temp lifecycle: first concurrent runner succeeds" \
+    0 "$_dot_runner_concurrent_one_rc"
+  _assert_exit "dot-test temp lifecycle: second concurrent runner succeeds" \
+    0 "$_dot_runner_concurrent_two_rc"
+  if [[ ! -e "$_dot_runner_old_dead" && ! -L "$_dot_runner_old_dead" ]]; then
+    _pass "dot-test temp lifecycle: old dead runner is reclaimed"
+  else
+    _fail "dot-test temp lifecycle: old dead runner is reclaimed"
+  fi
+  for _dot_runner_preserved in \
+    "$_dot_runner_recent_dead" "$_dot_runner_old_live" \
+    "$_dot_runner_unmarked" "$_dot_runner_malformed" \
+    "$_dot_runner_malformed_time"; do
+    if [[ -d "$_dot_runner_preserved" ]]; then
+      _pass "dot-test temp lifecycle: preserves ${_dot_runner_preserved##*.} runner"
+    else
+      _fail "dot-test temp lifecycle: preserves ${_dot_runner_preserved##*.} runner"
+    fi
+  done
+  if [[ -L "$_dot_runner_symlink" && -d "$_dot_runner_symlink_target" ]]; then
+    _pass "dot-test temp lifecycle: preserves symlink runner"
+  else
+    _fail "dot-test temp lifecycle: preserves symlink runner"
+  fi
+  _dot_runner_lifecycle_count=0
+  for _dot_runner_lifecycle_dir in "$_dot_runner_lifecycle_root"/run.*; do
+    [[ -d "$_dot_runner_lifecycle_dir" && ! -L "$_dot_runner_lifecycle_dir" ]] || continue
+    _dot_runner_lifecycle_count=$((_dot_runner_lifecycle_count + 1))
+  done
+  _assert_eq "dot-test temp lifecycle: completed runners remove their roots" \
+    5 "$_dot_runner_lifecycle_count"
+
   _dot_runner_parallel_output=$(
     PATH="$_dot_runner_bin:$PATH" DOT_TEST_SETSID_LOG="$_dot_runner_setsid_log" \
       DOT_TEST_TESTS_DIR="$_dot_runner_tests" DOT_TEST_JOBS=1 DOT_TEST_NO_COLOR=1 \
