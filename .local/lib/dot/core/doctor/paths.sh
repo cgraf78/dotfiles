@@ -4,21 +4,45 @@
 # shellcheck disable=SC2088  # tilde strings here are display text.
 
 _dr_physical_path() {
-  local path="$1"
-  local dir base
-  dir=$(dirname "$path")
-  base=$(basename "$path")
+  local path="$1" dir base
+  while [[ "$path" != / && "$path" == */ ]]; do
+    path="${path%/}"
+  done
+  case "$path" in
+    /)
+      dir=/
+      base=/
+      ;;
+    */*)
+      dir="${path%/*}"
+      base="${path##*/}"
+      [[ -n "$dir" ]] || dir=/
+      ;;
+    *)
+      dir=.
+      base="$path"
+      ;;
+  esac
   [[ -d "$dir" ]] || return 1
   dir=$(cd "$dir" && pwd -P) || return 1
   printf '%s/%s\n' "$dir" "$base"
 }
 _dr_symlink_target_path() {
   local link="$1"
-  local target
+  local target link_dir
   target=$(readlink "$link") || return 1
   case "$target" in
     /*) _dr_physical_path "$target" ;;
-    *) _dr_physical_path "$(dirname "$link")/$target" ;;
+    *)
+      case "$link" in
+        */*)
+          link_dir="${link%/*}"
+          [[ -n "$link_dir" ]] || link_dir=/
+          ;;
+        *) link_dir=. ;;
+      esac
+      _dr_physical_path "$link_dir/$target"
+      ;;
   esac
 }
 _dr_symlink_points_to() {

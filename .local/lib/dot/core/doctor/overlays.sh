@@ -93,6 +93,7 @@ _dr_check_overlays() {
     # uses it only as a validator and deliberately retains the raw values.
     # shellcheck disable=SC2034
     local issue_count=0 rel overlay_name REPLY_REL REPLY_OWNER
+    local -a link_rels=() link_owners=() link_dsts=() link_targets=()
     while IFS=$'\t' read -r rel overlay_name _; do
       [[ -n "$rel" ]] || continue
       manifest_owners["$rel"]="$overlay_name"
@@ -115,15 +116,46 @@ _dr_check_overlays() {
         continue
       fi
 
+      link_rels+=("$rel")
+      link_owners+=("$overlay_name")
+      link_dsts+=("$dst")
+    done
+
+    local batch_ok=0 readlink_file="" readlink_output_count=0
+    if [[ "${#link_dsts[@]}" -gt 0 ]] && _logfile_create; then
+      readlink_file="$REPLY"
+      if readlink "${link_dsts[@]}" >"$readlink_file" 2>/dev/null; then
+        mapfile -t link_targets <"$readlink_file"
+        readlink_output_count="${#link_targets[@]}"
+        if [[ "$readlink_output_count" -eq "${#link_dsts[@]}" ]]; then
+          batch_ok=1
+        fi
+      fi
+      rm -f "$readlink_file"
+    fi
+
+    local i actual expected_lexical expected
+    for ((i = 0; i < ${#link_dsts[@]}; i++)); do
+      rel="${link_rels[$i]}"
+      overlay_name="${link_owners[$i]}"
+      dst="${link_dsts[$i]}"
+      actual=""
+      if [[ "$batch_ok" -eq 1 ]]; then
+        actual="${link_targets[$i]}"
+      else
+        actual=$(readlink "$dst" 2>/dev/null || true)
+      fi
+
       # Managed links normally retain dot's deterministic relative target.
       # Check that cheap representation first; physical resolution remains the
       # compatibility fallback for equivalent absolute or hand-normalized links.
-      if _overlay_parse_manifest_record "$rel"$'\t'"$overlay_name" &&
-        _overlay_link_matches "$rel" "$overlay_name"; then
-        continue
+      if _overlay_parse_manifest_record "$rel"$'\t'"$overlay_name"; then
+        _overlay_link_target "$rel" "$overlay_name"
+        expected_lexical="$REPLY"
+        [[ "$actual" == "$expected_lexical" ]] && continue
       fi
 
-      local expected="${overlay_paths[$overlay_name]}/home/$rel"
+      expected="${overlay_paths[$overlay_name]}/home/$rel"
       if ! _dr_symlink_points_to "$dst" "$expected"; then
         ((issue_count++)) || true
       fi
