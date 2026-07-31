@@ -30,6 +30,12 @@ __git_prompt() {
     [[ -n "$gitdir" ]] || return
     # git may return a relative path (e.g. ".git"); make it absolute
     [[ "$gitdir" != /* ]] && gitdir="$PWD/$gitdir"
+    if [[ -z "${GIT_DIR:-}" && -z "${GIT_WORK_TREE:-}" &&
+      -d "$HOME/.dotfiles" && "$gitdir" -ef "$HOME/.dotfiles" ]]; then
+      # Discovery was authoritative; make the remaining prompt calls explicit
+      # so HOME descendants do not pay the launcher routing cost again.
+      g=(git --git-dir="$HOME/.dotfiles" --work-tree="$HOME")
+    fi
   fi
 
   # Single git call: branch, upstream, ahead/behind, and dirty state.

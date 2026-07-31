@@ -21,7 +21,7 @@ cat >"$MOCK_BIN/git" <<'EOF'
 printf '%s\n' "$*" >>"$GIT_LOG"
 case " $* " in
   *" rev-parse --git-dir "*)
-    printf '.dotfiles\n'
+    printf '%s\n' "${MOCK_GITDIR:-.dotfiles}"
     ;;
   *" --no-optional-locks status --porcelain=v2 --branch "*)
     printf '%s\n' \
@@ -62,5 +62,73 @@ _assert_contains \
   "home dotfiles prompt: uses explicit bare repo args" \
   "--git-dir=$HOME/.dotfiles --work-tree=$HOME --no-optional-locks status --porcelain=v2 --branch" \
   "$git_log"
+
+echo ""
+echo "=== prompt: dotfiles descendant git path ==="
+
+: >"$GIT_LOG"
+mkdir -p "$HOME/.config/prompt-test"
+ln -s .dotfiles "$HOME/.dotfiles-alias"
+export MOCK_GITDIR="$HOME/.dotfiles-alias"
+(
+  cd "$HOME/.config/prompt-test" || exit 1
+  # shellcheck disable=SC1091 # source the installed prompt helper from real HOME.
+  . "$REAL_HOME/.config/shell/interactive.d/59-prompt.sh"
+  __git_prompt
+) >"$TEST_TMPDIR/prompt-descendant.out"
+unset MOCK_GITDIR
+
+prompt_descendant_out=$(cat "$TEST_TMPDIR/prompt-descendant.out")
+git_descendant_log=$(cat "$GIT_LOG")
+
+_assert_contains "dotfiles descendant prompt: renders branch" \
+  "main" "$prompt_descendant_out"
+_assert_contains "dotfiles descendant prompt: keeps authoritative discovery" \
+  "rev-parse --git-dir" "$git_descendant_log"
+_assert_contains "dotfiles descendant prompt: status uses explicit base repo" \
+  "--git-dir=$HOME/.dotfiles --work-tree=$HOME --no-optional-locks status --porcelain=v2 --branch" \
+  "$git_descendant_log"
+
+echo ""
+echo "=== prompt: nested repository path ==="
+
+: >"$GIT_LOG"
+mkdir -p "$HOME/project/src" "$HOME/project/src/.git"
+export MOCK_GITDIR=.git
+(
+  cd "$HOME/project/src" || exit 1
+  # shellcheck disable=SC1091 # source the installed prompt helper from real HOME.
+  . "$REAL_HOME/.config/shell/interactive.d/59-prompt.sh"
+  __git_prompt
+) >"$TEST_TMPDIR/prompt-nested.out"
+unset MOCK_GITDIR
+
+git_nested_log=$(cat "$GIT_LOG")
+_assert_contains "nested repository prompt: keeps normal status routing" \
+  "--no-optional-locks status --porcelain=v2 --branch" "$git_nested_log"
+_assert_not_contains "nested repository prompt: does not select base dotfiles" \
+  "--git-dir=$HOME/.dotfiles" "$git_nested_log"
+
+echo ""
+echo "=== prompt: explicit Git context ==="
+
+: >"$GIT_LOG"
+mkdir -p "$HOME/alternate-worktree"
+export GIT_DIR="$HOME/.dotfiles"
+export GIT_WORK_TREE="$HOME/alternate-worktree"
+export MOCK_GITDIR="$HOME/.dotfiles"
+(
+  cd "$HOME/.config/prompt-test" || exit 1
+  # shellcheck disable=SC1091 # source the installed prompt helper from real HOME.
+  . "$REAL_HOME/.config/shell/interactive.d/59-prompt.sh"
+  __git_prompt
+) >"$TEST_TMPDIR/prompt-explicit.out"
+unset GIT_DIR GIT_WORK_TREE MOCK_GITDIR
+
+git_explicit_log=$(cat "$GIT_LOG")
+_assert_contains "explicit Git prompt: keeps normal status routing" \
+  "--no-optional-locks status --porcelain=v2 --branch" "$git_explicit_log"
+_assert_not_contains "explicit Git prompt: does not override caller worktree" \
+  "--work-tree=$HOME" "$git_explicit_log"
 
 _test_summary
