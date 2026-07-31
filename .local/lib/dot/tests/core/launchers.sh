@@ -294,6 +294,148 @@ EOF
     done
   done
 
+  _git_cached_probe_bin=$(_tmpdir)
+  _git_cached_probe_cache=$(_tmpdir)
+  _git_cached_probe_log="$(_tmpdir)/git-cached-probe.log"
+  _git_cached_probe_root="$TEST_HOME/git/cached-worktree"
+  _git_cached_probe_subdir="$_git_cached_probe_root/project/src"
+  _git_cached_probe_other="$TEST_HOME/git/cached-worktree-other"
+  _git_cached_probe_other_subdir="$_git_cached_probe_other/project/src"
+  mkdir -p \
+    "$_git_cached_probe_bin" \
+    "$_git_cached_probe_cache/dot" \
+    "$_git_cached_probe_root/.git" \
+    "$_git_cached_probe_subdir" \
+    "$_git_cached_probe_other/.git" \
+    "$_git_cached_probe_other_subdir"
+  _git_cached_probe_root=$(cd "$_git_cached_probe_root" && pwd -P)
+  _git_cached_probe_subdir=$(cd "$_git_cached_probe_subdir" && pwd -P)
+  _git_cached_probe_other=$(cd "$_git_cached_probe_other" && pwd -P)
+  _git_cached_probe_other_subdir=$(cd "$_git_cached_probe_other_subdir" && pwd -P)
+  cat >"$_git_cached_probe_bin/git" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$GIT_CACHED_PROBE_LOG"
+case "$1" in
+  rev-parse)
+    [[ "${GIT_CACHED_PROBE_MISS:-0}" -eq 0 ]] || exit 1
+    printf '%s\n' "$GIT_CACHED_PROBE_ROOT"
+    ;;
+  status)
+    if [[ -n "${GIT_CACHED_PROBE_HOME:-}" &&
+      "${GIT_DIR:-}" == "$GIT_CACHED_PROBE_HOME/.dotfiles" ]]; then
+      printf 'dotfiles-status\n'
+    else
+      printf 'real-git-status\n'
+    fi
+    ;;
+  *)
+    exit 1
+    ;;
+esac
+EOF
+  chmod +x "$_git_cached_probe_bin/git"
+
+  result=$(
+    cd "$_git_cached_probe_subdir" &&
+      GIT_CACHED_PROBE_LOG="$_git_cached_probe_log" \
+        GIT_CACHED_PROBE_ROOT="$_git_cached_probe_root" \
+        XDG_CACHE_HOME="$_git_cached_probe_cache" \
+        PATH="$BIN_DIR:$_git_cached_probe_bin:/usr/bin:/bin" \
+        "$BIN_DIR/git" status
+  )
+  _assert_eq "git launcher nested Git cache: cold call reaches real git" \
+    "real-git-status" "$result"
+
+  _git_cached_probe_file="$_git_cached_probe_cache/dot/git-nested-worktree-roots"
+  _git_cached_probe_inode=$(
+    stat -c '%i' "$_git_cached_probe_file" 2>/dev/null ||
+      stat -f '%i' "$_git_cached_probe_file"
+  )
+  : >"$_git_cached_probe_log"
+  result=$(
+    cd "$_git_cached_probe_subdir" &&
+      GIT_CACHED_PROBE_LOG="$_git_cached_probe_log" \
+        GIT_CACHED_PROBE_ROOT="$_git_cached_probe_root" \
+        XDG_CACHE_HOME="$_git_cached_probe_cache" \
+        PATH="$BIN_DIR:$_git_cached_probe_bin:/usr/bin:/bin" \
+        "$BIN_DIR/git" status
+  )
+  _assert_eq "git launcher nested Git cache: warm call reaches real git" \
+    "real-git-status" "$result"
+  _assert_eq "git launcher nested Git cache: warm call executes only requested git" \
+    "status" "$(cat "$_git_cached_probe_log")"
+  _assert_eq "git launcher nested Git cache: warm call does not replace cache" \
+    "$_git_cached_probe_inode" \
+    "$(stat -c '%i' "$_git_cached_probe_file" 2>/dev/null ||
+      stat -f '%i' "$_git_cached_probe_file")"
+
+  printf 'git\t%s\ngit\t%s\n' \
+    "$_git_cached_probe_root" "$_git_cached_probe_other" \
+    >"$_git_cached_probe_file"
+  _git_cached_probe_expected=$(cat "$_git_cached_probe_file")
+  result=$(
+    cd "$_git_cached_probe_subdir" &&
+      GIT_CACHED_PROBE_LOG="$_git_cached_probe_log" \
+        GIT_CACHED_PROBE_ROOT="$_git_cached_probe_root" \
+        XDG_CACHE_HOME="$_git_cached_probe_cache" \
+        PATH="$BIN_DIR:$_git_cached_probe_bin:/usr/bin:/bin" \
+        "$BIN_DIR/git" status
+  )
+  _assert_eq "git launcher nested Git cache: multi-root warm call succeeds" \
+    "real-git-status" "$result"
+  _assert_file_content "git launcher nested Git cache: warm hit preserves other roots" \
+    "$_git_cached_probe_expected" "$_git_cached_probe_file"
+
+  : >"$_git_cached_probe_log"
+  result=$(
+    cd "$_git_cached_probe_other_subdir" &&
+      GIT_CACHED_PROBE_LOG="$_git_cached_probe_log" \
+        GIT_CACHED_PROBE_ROOT="$_git_cached_probe_other" \
+        XDG_CACHE_HOME="$_git_cached_probe_cache" \
+        PATH="$BIN_DIR:$_git_cached_probe_bin:/usr/bin:/bin" \
+        "$BIN_DIR/git" status
+  )
+  _assert_eq "git launcher nested Git cache: alternate warm root succeeds" \
+    "real-git-status" "$result"
+  _assert_eq "git launcher nested Git cache: alternate warm root skips ownership probe" \
+    "status" "$(cat "$_git_cached_probe_log")"
+  _assert_file_content "git launcher nested Git cache: alternate hit preserves all roots" \
+    "$_git_cached_probe_expected" "$_git_cached_probe_file"
+
+  rm -rf "$_git_cached_probe_root/.git"
+  printf 'malformed gitfile\n' >"$_git_cached_probe_root/.git"
+  printf 'git\t%s\n' "$_git_cached_probe_root" >"$_git_cached_probe_file"
+  : >"$_git_cached_probe_log"
+  result=$(
+    cd "$_git_cached_probe_subdir" &&
+      GIT_CACHED_PROBE_LOG="$_git_cached_probe_log" \
+        GIT_CACHED_PROBE_ROOT="$_git_cached_probe_root" \
+        XDG_CACHE_HOME="$_git_cached_probe_cache" \
+        PATH="$BIN_DIR:$_git_cached_probe_bin:/usr/bin:/bin" \
+        "$BIN_DIR/git" status
+  )
+  _assert_eq "git launcher nested Git cache: malformed cached marker stays Git-owned" \
+    "real-git-status" "$result"
+  _assert_eq "git launcher nested Git cache: malformed cached marker skips ownership probe" \
+    "status" "$(cat "$_git_cached_probe_log")"
+
+  rm -f "$_git_cached_probe_root/.git"
+  : >"$_git_cached_probe_log"
+  result=$(
+    cd "$_git_cached_probe_subdir" &&
+      GIT_CACHED_PROBE_HOME="$TEST_HOME" \
+        GIT_CACHED_PROBE_LOG="$_git_cached_probe_log" \
+        GIT_CACHED_PROBE_MISS=1 \
+        GIT_CACHED_PROBE_ROOT="$_git_cached_probe_root" \
+        XDG_CACHE_HOME="$_git_cached_probe_cache" \
+        PATH="$BIN_DIR:$_git_cached_probe_bin:/usr/bin:/bin" \
+        "$BIN_DIR/git" status
+  )
+  _assert_eq "git launcher nested Git cache: removed marker falls back to dotfiles" \
+    "dotfiles-status" "$result"
+  _assert_file_content "git launcher nested Git cache: removed root is pruned" \
+    "" "$_git_cached_probe_file"
+
   _git_nested_probe_bin=$(_tmpdir)
   _git_nested_probe_cache=$(_tmpdir)
   _git_nested_probe_log="$(_tmpdir)/git-nested-probe.log"

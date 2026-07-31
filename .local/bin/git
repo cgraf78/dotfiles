@@ -233,12 +233,11 @@ _dot_git_dir_under_root() {
 }
 
 _dot_git_cached_nested_worktree() {
-  local dir="$1" cache line root type actual marker tmp tmp_count=0 tmp_dir hit=0
+  local dir="$1" cache line root type marker tmp cached_count=0 hit=0 dirty=0
+  local -a cached_lines=()
   _dot_git_nested_cache_path || return 1
   cache="$REPLY"
   [ -r "$cache" ] || return 1
-  tmp_dir="${cache%/*}"
-  tmp=$(mktemp "${cache}.XXXXXX" 2>/dev/null) || return 1
 
   while IFS= read -r line; do
     case "$line" in
@@ -251,38 +250,32 @@ _dot_git_cached_nested_worktree() {
         root="${line#*$'\t'}"
         ;;
       *)
+        dirty=1
         continue
         ;;
     esac
-    _dot_git_root_still_exists "$root" || continue
-    if [ "$tmp_count" -lt "$_dot_git_nested_cache_limit" ]; then
-      printf '%s\n' "$line" >>"$tmp" 2>/dev/null || true
-      tmp_count=$((tmp_count + 1))
+    if ! _dot_git_root_still_exists "$root"; then
+      dirty=1
+      continue
+    fi
+    if [ "$cached_count" -lt "$_dot_git_nested_cache_limit" ]; then
+      cached_lines+=("$line")
+      cached_count=$((cached_count + 1))
+    else
+      dirty=1
     fi
     _dot_git_dir_under_root "$dir" "$root" || continue
-    case "$type" in
-      git)
-        actual=$(_dot_git_git_worktree_root "$dir") || continue
-        if [ "$actual" = "$root" ]; then
-          hit=1
-          break
-        fi
-        ;;
-      sl)
-        command -v sl >/dev/null 2>&1 || continue
-        marker=$(_dot_git_closest_marker_root "$dir" "$root") || continue
-        if [ "$marker" = "$root" ]; then
-          hit=1
-          break
-        fi
-        ;;
-    esac
+    [ "$type" != "sl" ] || command -v sl >/dev/null 2>&1 || continue
+    marker=$(_dot_git_closest_marker_root "$dir" "$root") || continue
+    [ "$marker" = "$root" ] && hit=1
   done <"$cache"
 
-  if [ -d "$tmp_dir" ] && [ -f "$tmp" ]; then
+  if [ "$dirty" -eq 1 ] && tmp=$(mktemp "${cache}.XXXXXX" 2>/dev/null); then
+    : >"$tmp"
+    for line in "${cached_lines[@]+"${cached_lines[@]}"}"; do
+      printf '%s\n' "$line" >>"$tmp" 2>/dev/null || true
+    done
     mv -f -- "$tmp" "$cache" 2>/dev/null || rm -f -- "$tmp"
-  else
-    rm -f -- "$tmp"
   fi
 
   [ "$hit" -eq 1 ] && return 0
