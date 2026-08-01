@@ -42,7 +42,7 @@ def list_session_pids(session_id: int) -> list[int] | None:
     """Return a portable PID snapshot for one session, or None when unavailable."""
     try:
         result = subprocess.run(
-            ["ps", "-A", "-o", "pid=", "-o", "sid="],
+            ["ps", "-A", "-o", "pid=", "-o", "sess="],
             check=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
@@ -78,9 +78,9 @@ def stop_process_group(first_signal: int) -> None:
         except AttributeError:
             try:
                 process.send_signal(signum)
-            except ProcessLookupError:
+            except (PermissionError, ProcessLookupError):
                 return False
-        except ProcessLookupError:
+        except (PermissionError, ProcessLookupError):
             return False
         return True
 

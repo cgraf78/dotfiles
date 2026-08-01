@@ -215,6 +215,30 @@ module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 
 
+class PsResult:
+    stdout = "123 123\n124 123\n"
+
+
+def run_ps(argv, **_kwargs):
+    assert argv == ["ps", "-A", "-o", "pid=", "-o", "sess="]
+    return PsResult()
+
+
+module.subprocess.run = run_ps
+assert module.list_session_pids(123) == [123, 124]
+PY
+_assert_eq "startup timeout: session enumeration uses portable ps fields" "0" "$rc"
+
+rc=0
+python3 - "$_DOT_TEST_TIMEOUT_PY" <<'PY' || rc=$?
+import importlib.util
+import signal
+import sys
+
+spec = importlib.util.spec_from_file_location("dot_timeout", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+
 class Process:
     pid = 123
     waited = False
@@ -226,6 +250,7 @@ class Process:
 process = Process()
 module.process = process
 module.time.sleep = lambda _: None
+module.list_session_pids = lambda _session_id: None
 
 
 def killpg(_pid, signum):

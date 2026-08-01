@@ -134,6 +134,24 @@ DOTRUNNER
   _assert_eq "dot-test sequential: suite stays foreground" \
     "" "$(cat "$_dot_runner_setsid_log")"
 
+  _dot_runner_filter_tests=$(_tmpdir)
+  for _dot_runner_filter_name in filter filter-extra; do
+    cat >"$_dot_runner_filter_tests/${_dot_runner_filter_name}-test" <<'DOTRUNNER'
+#!/usr/bin/env bash
+printf 'Results: 1 passed, 0 failed\n'
+DOTRUNNER
+    chmod +x "$_dot_runner_filter_tests/${_dot_runner_filter_name}-test"
+  done
+  _dot_runner_filter_output=$(
+    DOT_TEST_TESTS_DIR="$_dot_runner_filter_tests" DOT_TEST_NO_COLOR=1 \
+      _with_timeout 5 "$BIN_DIR/dot-test" filter filter-extra 2>&1
+  )
+  _dot_runner_filter_rc=$?
+  _assert_exit "dot-test filters: overlapping selections finish" \
+    0 "$_dot_runner_filter_rc"
+  _assert_contains "dot-test filters: overlapping selections run each suite once" \
+    "Running 2 test suites" "$_dot_runner_filter_output"
+
   _dot_runner_timeout_tests=$(_tmpdir)
   cat >"$_dot_runner_timeout_tests/hang-test" <<'DOTRUNNER'
 #!/usr/bin/env bash
