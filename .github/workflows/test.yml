@@ -13,11 +13,13 @@ permissions:
 
 jobs:
   shell:
-    uses: cgraf78/actions/.github/workflows/shell-ci.yml@d0648a98a1585710edb5d1393af84e48025bcaa7
+    uses: cgraf78/actions/.github/workflows/shell-ci.yml@f9a9074b2d43fb3812067477d29307ef1e84e70e
     with:
       matrix-set: full
       setup: dotfiles
-      test-command: .local/bin/dot-test
+      shellcheck-exclude-codes: SC1091
+      shellcheck-inventory-path: .github/shellcheck-files.txt
+      test-command: DOT_CORE_SKIP_SHELLCHECK=1 .local/bin/dot-test
       termux-command: |-
         bash .local/lib/dot/tests/android-ci-smoke
       termux-profiles: runtime,neovim
