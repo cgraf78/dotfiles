@@ -79,6 +79,7 @@ runtime API.
 | Git | tracked XDG config | one portable include in `~/.gitconfig` when needed |
 | GitHub CLI | `gh/config.d/*.yml` | `~/.config/gh/config.yml` |
 | SSH | `ssh/config.d/*.ssh_config` plus overlay `.ssh` files | `~/.ssh/config` |
+| tmux | tracked `~/.config/tmux/tmux.conf` | running default tmux server |
 | Git ignore | `ignore/ignore.d/` | global gitignore |
 | WezTerm | tracked WezTerm config | copied to Windows home on WSL |
 | Cron | `cron/cron.d/`, `cron/path.d/`, and optional `cron.local` | user crontab |
