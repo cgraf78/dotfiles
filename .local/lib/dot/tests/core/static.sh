@@ -93,6 +93,12 @@ MOCK
   else
     _fail "CI workflow: pins public dependency setup immutably"
   fi
+  _assert_contains "CI workflow: delegates the typed ShellCheck inventory" \
+    "shellcheck-inventory-path: .github/shellcheck-files.txt" "$_ci_workflow"
+  _assert_contains "CI workflow: scopes the dynamic-source exclusion" \
+    "shellcheck-exclude-codes: SC1091" "$_ci_workflow"
+  _assert_contains "CI workflow: skips only redundant platform ShellCheck" \
+    "test-command: DOT_CORE_SKIP_SHELLCHECK=1 .local/bin/dot-test" "$_ci_workflow"
   if ((_ci_uses_full_matrix)); then
     _pass "CI workflow: requests full platform matrix"
   else
@@ -193,7 +199,9 @@ MOCK
     [[ "$failed" -eq 0 ]]
   }
 
-  if [[ "${#_sc_files[@]}" -eq 0 ]]; then
+  if [[ "${DOT_CORE_SKIP_SHELLCHECK:-0}" == "1" ]]; then
+    _pass "shellcheck: delegated to shared CI"
+  elif [[ "${#_sc_files[@]}" -eq 0 ]]; then
     _fail "shellcheck: no files discovered"
     printf '    repo root: %s\n' "${_lint_root}" >&2
   elif _sc_output=$(_run_shellcheck 2>&1); then
