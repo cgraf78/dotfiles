@@ -9,6 +9,7 @@ export NO_COLOR=1
 
 tmux_config="$HOME/.config/tmux/tmux.conf"
 tmux_content=$(cat "$tmux_config")
+shdeps_content=$(cat "$HOME/.config/shdeps/10-deps.conf")
 # shellcheck disable=SC2088 # tmux expands this literal path in its own shell.
 tmux_follow_installed_path='~/.local/bin/tmux-follow-click'
 tmux_tool_home="${DOT_TEST_HOST_HOME:-$HOME}"
@@ -121,6 +122,61 @@ _assert_contains "tmux save session uses tmux-tools command" \
   "bind S run-shell 'tmux-save-session'" "$tmux_content"
 _assert_contains "tmux restore session opens picker popup" \
   "bind R display-popup -E -w 80% -h 60% 'tmux-restore-session'" "$tmux_content"
+_assert_eq "tmux plugin manager is installed as a repo dependency" \
+  "github:repo" \
+  "$(awk '$1 == "tmux-plugins/tpm" { print $2 }' <<<"$shdeps_content")"
+_assert_eq "tmux resurrect is installed as a repo dependency" \
+  "github:repo" \
+  "$(awk '$1 == "tmux-plugins/tmux-resurrect" { print $2 }' <<<"$shdeps_content")"
+_assert_eq "tmux continuum is installed as a repo dependency" \
+  "github:repo" \
+  "$(awk '$1 == "tmux-plugins/tmux-continuum" { print $2 }' <<<"$shdeps_content")"
+_assert_contains "tmux points TPM at shdeps-owned plugin checkouts" \
+  "set-environment -g TMUX_PLUGIN_MANAGER_PATH '~/.local/share/tmux-plugins/'" \
+  "$tmux_content"
+tmux_plugins=$(
+  awk '/^[[:space:]]*set -g @plugin / { gsub(/'\''/, "", $4); print $4 }' \
+    "$tmux_config"
+)
+_assert_eq "tmux loads persistence plugins in dependency order" \
+  $'tmux-plugins/tpm\ntmux-plugins/tmux-resurrect\ntmux-plugins/tmux-continuum' \
+  "$tmux_plugins"
+_assert_contains "tmux restores the last saved environment on server start" \
+  "set -g @continuum-restore 'on'" "$tmux_content"
+_assert_contains "tmux saves its environment every fifteen minutes" \
+  "set -g @continuum-save-interval '15'" "$tmux_content"
+_assert_contains "tmux keeps resurrect snapshots separate per host" \
+  "set -g @resurrect-dir '~/.local/share/tmux/resurrect/\$HOSTNAME'" \
+  "$tmux_content"
+# shellcheck disable=SC2016 # testing literal tmux config text.
+_assert_contains "tmux protects snapshots whenever the server config loads" \
+  'chmod 0700 "$base" "$host"' "$tmux_content"
+_assert_contains "tmux saves ds identity in each resurrect snapshot" \
+  "set -g @resurrect-hook-post-save-layout 'ds resurrect save'" \
+  "$tmux_content"
+_assert_contains "tmux marks ds restoration before rebuilding panes" \
+  "set -g @resurrect-hook-pre-restore-all 'ds resurrect begin'" \
+  "$tmux_content"
+_assert_contains "tmux restores ds identity after the environment is complete" \
+  "set -g @resurrect-hook-post-restore-all 'ds resurrect restore'" \
+  "$tmux_content"
+_assert_contains "tmux loads TPM after all plugin options" \
+  "exec ~/.local/share/tmux-plugins/tpm/tpm" "$tmux_content"
+_assert_not_contains "tmux does not restart every foreground process" \
+  "set -g @resurrect-processes ':all:'" "$tmux_content"
+_assert_not_contains "tmux does not persist terminal scrollback by default" \
+  "set -g @resurrect-capture-pane-contents 'on'" "$tmux_content"
+resurrect_hook="$HOME/.config/shdeps/hooks.d/tmux-plugins/tmux-resurrect.sh"
+resurrect_test_home=$(_tmpdir)
+HOME="$resurrect_test_home" bash -c 'umask 000; . "$1"; post' _ "$resurrect_hook"
+resurrect_base="$resurrect_test_home/.local/share/tmux/resurrect"
+resurrect_host="$resurrect_base/$(hostname)"
+resurrect_base_mode=$(stat -c '%a' "$resurrect_base" 2>/dev/null ||
+  stat -f '%Lp' "$resurrect_base" 2>/dev/null || true)
+resurrect_host_mode=$(stat -c '%a' "$resurrect_host" 2>/dev/null ||
+  stat -f '%Lp' "$resurrect_host" 2>/dev/null || true)
+_assert_eq "tmux protects the resurrect state root" "700" "$resurrect_base_mode"
+_assert_eq "tmux protects each host resurrect snapshot" "700" "$resurrect_host_mode"
 # shellcheck disable=SC2016 # testing literal tmux config text.
 _assert_contains "tmux clipboard history uses tmux-tools handoff path" \
   'clip pick > "$(tmux-clip-paste --path)"' "$tmux_content"

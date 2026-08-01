@@ -9,7 +9,9 @@ terminal navigation stack.
 - Ctrl-click routing delegates to `tmux-follow-click` from the `termnav`
   dependency when the foreground pane is not already handling mouse events.
 - File opens route through `nvim-tmux-open`, also owned by `termnav`.
-- Session save/restore and clipboard-history paste use `tmux-tools`.
+- Manual session export/restore and clipboard-history paste use `tmux-tools`.
+- Automatic session persistence uses TPM, `tmux-resurrect`, and
+  `tmux-continuum`, installed as shdeps-managed repository checkouts.
 - Ctrl-Tab window switching forwards into Neovim/fzf and nested terminal apps,
   switches tmux windows when the current tmux layer owns the chord, and bubbles
   one-window sessions upward through `termnav-switch-tab`. The helper
@@ -63,3 +65,35 @@ handling stops at the tmux layer when a multi-window tmux session is already at
 the first or last window. A one-window nested tmux bubbles the move to the
 parent tmux layer through private `User2`/`User3` keys; a one-window top-level
 tmux bubbles the move to WezTerm.
+
+## Session Persistence
+
+Continuum saves the tmux environment every 15 minutes and asks resurrect to
+restore the latest snapshot when the next tmux server starts. On remote hosts,
+the normal SSH `ds` auto-attach starts that server; elsewhere, the first `ds`
+or tmux command does. This restores each machine's local sessions across tmux
+server restarts and machine reboots without making tmux start a terminal at
+login.
+
+Resurrect restores session names, windows, panes, layouts, working directories,
+and its conservative default process list. The config deliberately does not
+restart every foreground command or persist pane scrollback: agent processes
+can carry stale work, and scrollback snapshots can contain sensitive output.
+Resurrect still records each pane's working directory and full foreground
+command line, including arguments, so snapshots can contain sensitive paths or
+command arguments even with scrollback capture disabled. Its rolling history
+keeps at least five snapshots and otherwise removes files older than 30 days.
+Snapshots use a private host-specific directory so machines sharing a home
+directory do not overwrite one another's state.
+
+The existing prefix+S and prefix+R bindings remain available for explicit
+`tmux-tools` exports and restores. Keep the TPM block at the end of `tmux.conf`
+and keep continuum last in the plugin list. Continuum injects autosave through
+`status-right`, so a later plugin or status assignment would silently disable
+periodic saves.
+
+Continuum intentionally gives persistence ownership to the first tmux server
+for the user. Additional servers started with `tmux -L` or `tmux -S` do not
+auto-save or auto-restore, and this host-specific snapshot directory is not
+socket-scoped. Keep the normal default server as the persistent `ds` server;
+use additional servers only for isolated temporary work.
