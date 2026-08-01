@@ -280,19 +280,26 @@ _default_jobs() {
 scripts=()
 if [[ ${#filter[@]} -gt 0 ]]; then
   declare -A _seen=()
+  declare -A _seen_scripts=()
   for name in "${filter[@]}"; do
     [[ -n "${_seen[$name]:-}" ]] && continue
     _seen[$name]=1
     matched=false
     f="$TESTS_DIR/${name}-test"
     if [[ -x "$f" ]]; then
-      scripts+=("$f")
       matched=true
+      if [[ -z "${_seen_scripts[$f]:-}" ]]; then
+        scripts+=("$f")
+        _seen_scripts[$f]=1
+      fi
     fi
     for f in "$TESTS_DIR/${name}-"*-test; do
       [[ -x "$f" ]] || continue
-      scripts+=("$f")
       matched=true
+      if [[ -z "${_seen_scripts[$f]:-}" ]]; then
+        scripts+=("$f")
+        _seen_scripts[$f]=1
+      fi
     done
     if ! $matched; then
       echo "unknown test: $name (expected $TESTS_DIR/${name}-test or ${name}-*-test)" >&2

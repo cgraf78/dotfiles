@@ -134,6 +134,24 @@ DOTRUNNER
   _assert_eq "dot-test sequential: suite stays foreground" \
     "" "$(cat "$_dot_runner_setsid_log")"
 
+  _dot_runner_filter_tests=$(_tmpdir)
+  for _dot_runner_filter_name in filter filter-extra; do
+    cat >"$_dot_runner_filter_tests/${_dot_runner_filter_name}-test" <<'DOTRUNNER'
+#!/usr/bin/env bash
+printf 'Results: 1 passed, 0 failed\n'
+DOTRUNNER
+    chmod +x "$_dot_runner_filter_tests/${_dot_runner_filter_name}-test"
+  done
+  _dot_runner_filter_output=$(
+    DOT_TEST_TESTS_DIR="$_dot_runner_filter_tests" DOT_TEST_NO_COLOR=1 \
+      _with_timeout 5 "$BIN_DIR/dot-test" filter filter-extra 2>&1
+  )
+  _dot_runner_filter_rc=$?
+  _assert_exit "dot-test filters: overlapping selections finish" \
+    0 "$_dot_runner_filter_rc"
+  _assert_contains "dot-test filters: overlapping selections run each suite once" \
+    "Running 2 test suites" "$_dot_runner_filter_output"
+
   _dot_runner_timeout_tests=$(_tmpdir)
   cat >"$_dot_runner_timeout_tests/hang-test" <<'DOTRUNNER'
 #!/usr/bin/env bash
@@ -153,6 +171,56 @@ DOTRUNNER
     1 "$_dot_runner_timeout_rc"
   _assert_contains "dot-test parallel: timed-out suite is reported" \
     "Failed: hang-test" "$_dot_runner_timeout_output"
+
+  _dot_runner_descendant_tests=$(_tmpdir)
+  _dot_runner_descendant_pid_file="$_dot_runner_descendant_tests/descendant.pid"
+  cat >"$_dot_runner_descendant_tests/descendant-test" <<'DOTRUNNER'
+#!/usr/bin/env bash
+python3 - "$DOT_TEST_DESCENDANT_PID_FILE" <<'PY' &
+import os
+import sys
+import time
+from pathlib import Path
+
+os.setpgid(0, 0)
+Path(sys.argv[1]).write_text(str(os.getpid()), encoding="utf-8")
+time.sleep(300)
+PY
+while [[ ! -s "$DOT_TEST_DESCENDANT_PID_FILE" ]]; do
+  sleep 0.01
+done
+printf 'Results: 1 passed, 0 failed\n'
+exit 0
+DOTRUNNER
+  chmod +x "$_dot_runner_descendant_tests/descendant-test"
+  _dot_runner_descendant_output=$(
+    DOT_TEST_DESCENDANT_PID_FILE="$_dot_runner_descendant_pid_file" \
+      DOT_TEST_TESTS_DIR="$_dot_runner_descendant_tests" DOT_TEST_NO_COLOR=1 \
+      "$BIN_DIR/dot-test" -s descendant 2>&1
+  )
+  _dot_runner_descendant_rc=$?
+  _assert_exit "dot-test sequential: passing suite with a descendant succeeds" \
+    0 "$_dot_runner_descendant_rc"
+  if [[ -s "$_dot_runner_descendant_pid_file" ]]; then
+    _dot_runner_descendant_pid=$(cat "$_dot_runner_descendant_pid_file")
+    _dot_runner_descendant_started=$SECONDS
+    while kill -0 "$_dot_runner_descendant_pid" 2>/dev/null; do
+      _dot_runner_descendant_state=$(ps -o stat= -p "$_dot_runner_descendant_pid" 2>/dev/null) || break
+      [[ "$_dot_runner_descendant_state" =~ ^[[:space:]]*Z ]] && break
+      ((SECONDS - _dot_runner_descendant_started >= 5)) && break
+      sleep 0.05
+    done
+    _dot_runner_descendant_state=$(ps -o stat= -p "$_dot_runner_descendant_pid" 2>/dev/null || true)
+    if kill -0 "$_dot_runner_descendant_pid" 2>/dev/null &&
+      [[ ! "$_dot_runner_descendant_state" =~ ^[[:space:]]*Z ]]; then
+      _fail "dot-test sequential: passing suite stops its descendant"
+      kill -KILL "$_dot_runner_descendant_pid" 2>/dev/null || true
+    else
+      _pass "dot-test sequential: passing suite stops its descendant"
+    fi
+  else
+    _fail "dot-test sequential: passing suite records its descendant"
+  fi
 
   _dot_runner_escape_tests=$(_tmpdir)
   _dot_runner_escape_pid_file="$_dot_runner_escape_tests/escaped.pid"
