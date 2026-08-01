@@ -158,8 +158,19 @@ DOTRUNNER
   _dot_runner_descendant_pid_file="$_dot_runner_descendant_tests/descendant.pid"
   cat >"$_dot_runner_descendant_tests/descendant-test" <<'DOTRUNNER'
 #!/usr/bin/env bash
-sleep 300 &
-printf '%s\n' "$!" >"$DOT_TEST_DESCENDANT_PID_FILE"
+python3 - "$DOT_TEST_DESCENDANT_PID_FILE" <<'PY' &
+import os
+import sys
+import time
+from pathlib import Path
+
+os.setpgid(0, 0)
+Path(sys.argv[1]).write_text(str(os.getpid()), encoding="utf-8")
+time.sleep(300)
+PY
+while [[ ! -s "$DOT_TEST_DESCENDANT_PID_FILE" ]]; do
+  sleep 0.01
+done
 printf 'Results: 1 passed, 0 failed\n'
 exit 0
 DOTRUNNER

@@ -13,8 +13,6 @@ bin="$tmp/bin"
 test_home="$tmp/home"
 log="$tmp/commands.log"
 test_python=$(python3 -c 'import sys; print(sys.executable)')
-real_lsof=$(command -v lsof 2>/dev/null || true)
-printf -v real_lsof_q '%q' "$real_lsof"
 real_bash=$(command -v bash)
 real_ps=$(command -v ps)
 printf -v real_ps_q '%q' "$real_ps"
@@ -57,8 +55,6 @@ _write_stub "$bin/lsof" \
   '  fi' \
   '  exit "$ET_TUNNEL_TEST_LSOF_EXIT"' \
   'fi' \
-  "host_lsof=$real_lsof_q" \
-  '[[ -z "$host_lsof" ]] || exec "$host_lsof" "$@"' \
   'exit 1'
 ss_bin="$tmp/ss-bin"
 mkdir -p "$ss_bin"

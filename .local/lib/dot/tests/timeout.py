@@ -38,29 +38,76 @@ def capture_signal(signum: int, _frame: FrameType | None) -> None:
         raise ForwardedSignal
 
 
+def list_session_pids(session_id: int) -> list[int] | None:
+    """Return a portable PID snapshot for one session, or None when unavailable."""
+    try:
+        result = subprocess.run(
+            ["ps", "-A", "-o", "pid=", "-o", "sid="],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return None
+
+    pids: list[int] = []
+    for line in result.stdout.splitlines():
+        fields = line.split()
+        if len(fields) != 2:
+            return None
+        try:
+            pid, sid = (int(field) for field in fields)
+        except ValueError:
+            return None
+        if sid == session_id:
+            pids.append(pid)
+    return pids
+
+
 def stop_process_group(first_signal: int) -> None:
     """Stop the entire child session, then reap its leader."""
     assert process is not None
     for handled_signal in handled_signals:
         signal.signal(handled_signal, signal.SIG_IGN)
 
-    def send_signal(signum: int) -> None:
-        """Signal the process group, or its leader where groups are unavailable."""
+    def send_process_group_signal(signum: int) -> bool:
+        """Signal the original process group when session enumeration is unavailable."""
         try:
             os.killpg(process.pid, signum)
         except AttributeError:
-            process.send_signal(signum)
+            try:
+                process.send_signal(signum)
+            except ProcessLookupError:
+                return False
+        except ProcessLookupError:
+            return False
+        return True
 
-    try:
-        send_signal(first_signal)
-    except ProcessLookupError:
+    def send_signal(signum: int) -> bool:
+        """Signal revalidated members of the child session."""
+        pids = list_session_pids(process.pid)
+        if pids is None:
+            return send_process_group_signal(signum)
+
+        found_member = False
+        for pid in pids:
+            try:
+                # The ps output is only a candidate snapshot. Re-check the SID
+                # immediately before signaling so PID reuse cannot widen scope.
+                if os.getsid(pid) != process.pid:
+                    continue
+                found_member = True
+                os.kill(pid, signum)
+            except (PermissionError, ProcessLookupError):
+                pass
+        return found_member
+
+    if not send_signal(first_signal):
         process.wait()
         return
     time.sleep(1)
-    try:
-        send_signal(signal.SIGKILL)
-    except (PermissionError, ProcessLookupError):
-        pass
+    send_signal(signal.SIGKILL)
     process.wait()
 
 
