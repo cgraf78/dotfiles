@@ -68,7 +68,7 @@ tmux bubbles the move to WezTerm.
 
 ## Session Persistence
 
-The default tmux server runs continuum's native save script every 15 minutes,
+The default tmux server runs continuum's native save script every 5 minutes,
 and its default-server helper asks resurrect to restore the latest snapshot at
 startup. On remote hosts, the normal SSH `ds` auto-attach starts that server;
 elsewhere, the first `ds` or tmux command does. This restores each machine's
