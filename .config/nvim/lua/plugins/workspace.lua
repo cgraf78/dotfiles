@@ -2,6 +2,11 @@ local function workspace_files()
   require("nvim_workspace").files()
 end
 
+local function workspace_repo_files()
+  local workspace = require("nvim_workspace")
+  workspace.files({ root = workspace.current_file_repo_root() })
+end
+
 local function workspace_grep()
   require("nvim_workspace").grep()
 end
@@ -127,8 +132,8 @@ return {
       { "<C-p>", workspace_files, desc = "Find files" },
       { "<leader><space>", workspace_files, desc = "Find files" },
       { "<leader>ff", workspace_files, desc = "Find files" },
-      { "<leader>fF", workspace_files, desc = "Find files" },
-      { "<leader>fg", workspace_files, desc = "Find files" },
+      { "<leader>fF", workspace_repo_files, desc = "Find files (Repository)" },
+      { "<leader>fg", workspace_grep, desc = "Search in files" },
       -- Ctrl-F is reserved for VSCode-style in-buffer find in config/keymaps;
       -- Telescope keeps Ctrl-P and Ctrl-Shift-F for workspace-scale search.
       { "<C-S-f>", workspace_grep, desc = "Search in files" },
