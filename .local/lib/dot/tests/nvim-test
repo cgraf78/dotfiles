@@ -1427,6 +1427,9 @@ result=$(_nvim_lua '
     grep = function(opts)
       print("grep=" .. tostring(opts and opts.root or "nil"))
     end,
+    current_file_repo_root = function()
+      return "/tmp/repo"
+    end,
   }
   local specs = dofile(vim.fn.expand("~/.config/nvim/lua/plugins/workspace.lua"))
   for _, spec in ipairs(specs) do
@@ -1439,7 +1442,11 @@ result=$(_nvim_lua '
         end
         if key[1] == "<C-p>" then
           key[2]()
+        elseif key[1] == "<leader>fF" then
+          key[2]()
         elseif key[1] == "<C-S-f>" then
+          key[2]()
+        elseif key[1] == "<leader>fg" then
           key[2]()
         end
       end
@@ -1451,7 +1458,7 @@ result=$(_nvim_lua '
   end
   print("missing")
 ')
-expected="$(printf 'files=nil\ngrep=nil\nfiles=/tmp/example\ngrep=/tmp/example\nctrl-f=false')"
+expected="$(printf 'files=nil\nfiles=/tmp/repo\ngrep=nil\ngrep=nil\nfiles=/tmp/example\ngrep=/tmp/example\nctrl-f=false')"
 _assert_eq "nvim-workspace: telescope keys and scoped commands use public pickers" \
   "$expected" "$result"
 
