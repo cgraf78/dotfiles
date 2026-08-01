@@ -43,14 +43,22 @@ def stop_process_group(first_signal: int) -> None:
     assert process is not None
     for handled_signal in handled_signals:
         signal.signal(handled_signal, signal.SIG_IGN)
+
+    def send_signal(signum: int) -> None:
+        """Signal the process group, or its leader where groups are unavailable."""
+        try:
+            os.killpg(process.pid, signum)
+        except AttributeError:
+            process.send_signal(signum)
+
     try:
-        os.killpg(process.pid, first_signal)
+        send_signal(first_signal)
     except ProcessLookupError:
         process.wait()
         return
     time.sleep(1)
     try:
-        os.killpg(process.pid, signal.SIGKILL)
+        send_signal(signal.SIGKILL)
     except (PermissionError, ProcessLookupError):
         pass
     process.wait()
@@ -86,6 +94,7 @@ def main(argv: Sequence[str]) -> int:
         stop_process_group(signal.SIGTERM)
         return 124
 
+    stop_process_group(signal.SIGTERM)
     return status if status >= 0 else 128 - status
 
 
