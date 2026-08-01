@@ -42,7 +42,7 @@ def list_session_pids(session_id: int) -> list[int] | None:
     """Return a portable PID snapshot for one session, or None when unavailable."""
     try:
         result = subprocess.run(
-            ["ps", "-A", "-o", "pid=", "-o", "sess="],
+            ["ps", "-A", "-o", "pid="],
             check=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
@@ -54,14 +54,17 @@ def list_session_pids(session_id: int) -> list[int] | None:
     pids: list[int] = []
     for line in result.stdout.splitlines():
         fields = line.split()
-        if len(fields) != 2:
+        if len(fields) != 1:
             return None
         try:
-            pid, sid = (int(field) for field in fields)
+            pid = int(fields[0])
         except ValueError:
             return None
-        if sid == session_id:
-            pids.append(pid)
+        try:
+            if os.getsid(pid) == session_id:
+                pids.append(pid)
+        except (PermissionError, ProcessLookupError):
+            pass
     return pids
 
 
@@ -101,7 +104,15 @@ def stop_process_group(first_signal: int) -> None:
                 os.kill(pid, signum)
             except (PermissionError, ProcessLookupError):
                 pass
-        return found_member
+        if found_member:
+            return True
+
+        # A portable PID snapshot can race with a still-running leader. The
+        # original process group remains a safe fallback because this wrapper
+        # created that leader and session itself.
+        if process.poll() is None:
+            return send_process_group_signal(signum)
+        return False
 
     if not send_signal(first_signal):
         process.wait()

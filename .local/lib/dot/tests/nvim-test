@@ -216,18 +216,19 @@ spec.loader.exec_module(module)
 
 
 class PsResult:
-    stdout = "123 123\n124 123\n"
+    stdout = "123\n124\n125\n"
 
 
 def run_ps(argv, **_kwargs):
-    assert argv == ["ps", "-A", "-o", "pid=", "-o", "sess="]
+    assert argv == ["ps", "-A", "-o", "pid="]
     return PsResult()
 
 
 module.subprocess.run = run_ps
+module.os.getsid = lambda pid: 123 if pid in (123, 124) else 125
 assert module.list_session_pids(123) == [123, 124]
 PY
-_assert_eq "startup timeout: session enumeration uses portable ps fields" "0" "$rc"
+_assert_eq "startup timeout: session enumeration uses portable PID snapshots" "0" "$rc"
 
 rc=0
 python3 - "$_DOT_TEST_TIMEOUT_PY" <<'PY' || rc=$?
@@ -243,6 +244,9 @@ class Process:
     pid = 123
     waited = False
 
+    def poll(self):
+        return None
+
     def wait(self):
         self.waited = True
 
@@ -250,10 +254,12 @@ class Process:
 process = Process()
 module.process = process
 module.time.sleep = lambda _: None
-module.list_session_pids = lambda _session_id: None
+module.list_session_pids = lambda _session_id: []
+signals = []
 
 
 def killpg(_pid, signum):
+    signals.append(signum)
     if signum == signal.SIGKILL:
         raise PermissionError
 
@@ -261,6 +267,7 @@ def killpg(_pid, signum):
 module.os.killpg = killpg
 module.stop_process_group(signal.SIGTERM)
 assert process.waited
+assert signals == [signal.SIGTERM, signal.SIGKILL]
 PY
 _assert_eq "startup timeout: forced kill tolerates macOS permission race" "0" "$rc"
 
