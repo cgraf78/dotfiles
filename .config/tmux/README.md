@@ -68,12 +68,17 @@ tmux bubbles the move to WezTerm.
 
 ## Session Persistence
 
-Continuum saves the tmux environment every 15 minutes and asks resurrect to
-restore the latest snapshot when the next tmux server starts. On remote hosts,
-the normal SSH `ds` auto-attach starts that server; elsewhere, the first `ds`
-or tmux command does. This restores each machine's local sessions across tmux
-server restarts and machine reboots without making tmux start a terminal at
-login.
+The default tmux server runs continuum's native save script every 15 minutes,
+and its default-server helper asks resurrect to restore the latest snapshot at
+startup. On remote hosts, the normal SSH `ds` auto-attach starts that server;
+elsewhere, the first `ds` or tmux command does. This restores each machine's
+local sessions across tmux server restarts and machine reboots without making
+tmux start a terminal at login.
+
+Tmux uses zsh as its explicit default shell when zsh is installed, falling
+back to the account shell otherwise. Resurrect creates restored panes from
+that tmux default, while the ds metadata hook restores each session's selected
+shell for future windows.
 
 Resurrect restores session names, windows, panes, layouts, working directories,
 and its conservative default process list. The config deliberately does not
@@ -92,8 +97,11 @@ and keep continuum last in the plugin list. Continuum injects autosave through
 `status-right`, so a later plugin or status assignment would silently disable
 periodic saves.
 
-Continuum intentionally gives persistence ownership to the first tmux server
-for the user. Additional servers started with `tmux -L` or `tmux -S` do not
-auto-save or auto-restore, and this host-specific snapshot directory is not
-socket-scoped. Keep the normal default server as the persistent `ds` server;
-use additional servers only for isolated temporary work.
+Upstream continuum normally gives persistence ownership to the first tmux
+server for the user. This config loads continuum with saving and restoring
+disabled, then synchronously enables the native save script and resurrect
+restore only for the normal default `ds` server. That keeps ownership stable
+even when an isolated socket was already running. Additional servers started
+with `tmux -L` or `tmux -S` do not auto-save or auto-restore, and this
+host-specific snapshot directory is not socket-scoped. Use additional servers
+only for isolated temporary work.
