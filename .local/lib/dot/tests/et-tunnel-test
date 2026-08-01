@@ -587,21 +587,12 @@ _write_stub "$remote_bin/fifo-sender" \
   'with os.fdopen(descriptor, "wb", buffering=0) as output:' \
   '    output.write((sys.argv[2] + "\\n").encode())' \
   'PY'
-_write_stub "$remote_bin/ncat" \
-  'mode=connect' \
-  'previous=' \
-  'handler=' \
-  'for arg in "$@"; do' \
-  '  [[ "$previous" == --exec ]] && handler=$arg' \
-  '  [[ "$arg" == --listen ]] && mode=control' \
-  '  [[ "$arg" == --keep-open ]] && mode=data' \
-  '  [[ "$arg" == --recv-only ]] && mode=control' \
-  '  [[ "$arg" == --send-only ]] && mode=send' \
-  '  previous=$arg' \
-  'done' \
-  'port="${!#}"' \
-  'printf "%s %s\n" "$mode" "$port" >>"$ET_TUNNEL_REMOTE_TEST_LOG"' \
-  'case "$mode" in' \
+_write_stub "$remote_bin/relay-action" \
+  'action=$1' \
+  'port=$2' \
+  'handler=${3:-}' \
+  'printf "%s %s\n" "$action" "$port" >>"$ET_TUNNEL_REMOTE_TEST_LOG"' \
+  'case "$action" in' \
   '  data)' \
   '    printf "%s\n" "$$" >"$ET_TUNNEL_REMOTE_DATA_PID"' \
   '    sleep 300 &' \
@@ -626,6 +617,45 @@ _write_stub "$remote_bin/ncat" \
   '    exec "$ET_TUNNEL_REMOTE_FIFO_SENDER" "$ET_TUNNEL_REMOTE_FIFO_DIR/$port"' \
   '    ;;' \
   'esac'
+_write_stub "$remote_bin/ncat" \
+  'mode=connect' \
+  'previous=' \
+  'handler=' \
+  'for arg in "$@"; do' \
+  '  [[ "$previous" == --exec ]] && handler=$arg' \
+  '  [[ "$arg" == --listen ]] && mode=control' \
+  '  [[ "$arg" == --keep-open ]] && mode=data' \
+  '  [[ "$arg" == --recv-only ]] && mode=control' \
+  '  [[ "$arg" == --send-only ]] && mode=send' \
+  '  previous=$arg' \
+  'done' \
+  'port="${!#}"' \
+  'source "${0%/*}/relay-action" "$mode" "$port" "$handler"'
+_write_stub "$remote_bin/socat" \
+  'listen_port=' \
+  'handler=' \
+  'peer=' \
+  'receive=0' \
+  'for arg in "$@"; do' \
+  '  case "$arg" in' \
+  '    TCP-LISTEN:*) listen_port=${arg#TCP-LISTEN:}; listen_port=${listen_port%%,*} ;;' \
+  '    EXEC:*) handler=${arg#EXEC:} ;;' \
+  '    TCP:*) peer=${arg#TCP:} ;;' \
+  '    -u) receive=1 ;;' \
+  '  esac' \
+  'done' \
+  '# Normalize socat address forms through the authoritative relay fixture contract.' \
+  'if [[ -n "$listen_port" ]]; then' \
+  '  if [[ -n "$handler" ]]; then' \
+  '    source "${0%/*}/relay-action" control "$listen_port" "$handler"' \
+  '  elif ((receive == 1)); then' \
+  '    source "${0%/*}/relay-action" control "$listen_port"' \
+  '  else' \
+  '    source "${0%/*}/relay-action" data "$listen_port"' \
+  '  fi' \
+  'fi' \
+  'port=${peer##*:}' \
+  'source "${0%/*}/relay-action" send "$port"'
 
 _start_remote_supervisor() {
   local command="$1" control_port="$2" stop_port="$3"
@@ -799,6 +829,8 @@ if command -v ncat >/dev/null 2>&1 || command -v socat >/dev/null 2>&1; then
     'touch "$ET_TUNNEL_REMOTE_BASE64_INVOKED"' \
     'exit 127'
   mv "$remote_bin/ncat" "$remote_bin/ncat.supervisor"
+  # This path exercises the real bootstrap listener, not the relay fixture.
+  mv "$remote_bin/socat" "$remote_bin/socat.supervisor"
   decoder_exit=0
   PATH="$remote_bin:$PATH" \
     ET_TUNNEL_REMOTE_BASE64_INVOKED="$base64_invoked" \
@@ -878,6 +910,7 @@ PY
   fi
   rm -f "$remote_bin/base64"
   mv "$remote_bin/ncat.supervisor" "$remote_bin/ncat"
+  mv "$remote_bin/socat.supervisor" "$remote_bin/socat"
 
   bootstrap_timeout_exit=0
   bootstrap_timeout_output=$(ET_TUNNEL_BOOTSTRAP_TIMEOUT=1 \
@@ -1193,7 +1226,7 @@ fi
 echo ""
 echo "=== et-tunnel custom transport ==="
 
-ET_TUNNEL_TEST_TRANSPORT="$bin/test-transport" \
+ET_TUNNEL_TEST_LSOF_EXIT=1 ET_TUNNEL_TEST_TRANSPORT="$bin/test-transport" \
   _run_et_tunnel relay.example 5901 desktop.internal 5900
 unset ET_TUNNEL_TEST_TRANSPORT
 commands=$(cat "$log")
@@ -1207,7 +1240,7 @@ _assert_contains "custom transport: receives the bounded bootstrap third" \
   "et-bootstrap" "$commands"
 _assert_not_contains "custom transport: bypasses the default ET binary" $'\net\n' "$commands"
 
-ET_TUNNEL_TEST_TRANSPORT="$bin/test-transport" \
+ET_TUNNEL_TEST_LSOF_EXIT=1 ET_TUNNEL_TEST_TRANSPORT="$bin/test-transport" \
   _run_et_tunnel __et_tunnel_transport_worker 5902 desktop.internal 5900
 unset ET_TUNNEL_TEST_TRANSPORT
 commands=$(cat "$log")
