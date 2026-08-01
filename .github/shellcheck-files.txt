@@ -86,6 +86,7 @@ program	.local/lib/dot/core/merge-hooks/karabiner.sh
 program	.local/lib/dot/core/merge-hooks/mise.sh
 program	.local/lib/dot/core/merge-hooks/sapling.sh
 program	.local/lib/dot/core/merge-hooks/ssh.sh
+program	.local/lib/dot/core/merge-hooks/tmux.sh
 program	.local/lib/dot/core/merge-hooks/vscode.sh
 program	.local/lib/dot/core/merge-hooks/wezterm.sh
 program	.local/lib/dot/core/merges.sh

@@ -22,6 +22,50 @@ dot_core_test_merges() {
     "precommit.sley = $TEST_HOME/.local/share/sl-hooks/sley-commit-gate" \
     "$(_merge_hook_expand_home 'precommit.sley = $HOME/.local/share/sl-hooks/sley-commit-gate')"
 
+  echo "=== tmux merge hook ==="
+
+  tmux_home="$TEST_HOME/tmux-merge-home"
+  tmux_bin="$tmux_home/bin"
+  tmux_log="$tmux_home/tmux.log"
+  tmux_server="$tmux_home/server-running"
+  mkdir -p "$tmux_home/.config/tmux" "$tmux_bin"
+  printf '%s\n' 'set -g status on' >"$tmux_home/.config/tmux/tmux.conf"
+  cat >"$tmux_bin/tmux" <<'TMUX'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$DOT_TEST_TMUX_LOG"
+case "$1" in
+  has-session)
+    [[ -f "$DOT_TEST_TMUX_SERVER" ]]
+    ;;
+  source-file) exit 0 ;;
+  *) exit 2 ;;
+esac
+TMUX
+  chmod +x "$tmux_bin/tmux"
+  _run_tmux_merge_for_test() {
+    unset -f merge 2>/dev/null
+    # shellcheck source=/dev/null
+    . "$REAL_HOME/.local/lib/dot/core/merge-hooks/tmux.sh"
+    merge
+  }
+
+  : >"$tmux_server"
+  : >"$tmux_log"
+  HOME="$tmux_home" PATH="$tmux_bin:$PATH" DOT_TEST_TMUX_LOG="$tmux_log" \
+    DOT_TEST_TMUX_SERVER="$tmux_server" _run_tmux_merge_for_test
+  tmux_expected=$(printf 'has-session\nsource-file %s' \
+    "$tmux_home/.config/tmux/tmux.conf")
+  _assert_eq "tmux merge: reloads the default running server" \
+    "$tmux_expected" "$(cat "$tmux_log")"
+
+  rm -f "$tmux_server"
+  : >"$tmux_log"
+  HOME="$tmux_home" PATH="$tmux_bin:$PATH" DOT_TEST_TMUX_LOG="$tmux_log" \
+    DOT_TEST_TMUX_SERVER="$tmux_server" _run_tmux_merge_for_test
+  _assert_eq "tmux merge: skips reload when no server is running" \
+    "has-session" "$(cat "$tmux_log")"
+  unset -f _run_tmux_merge_for_test merge 2>/dev/null
+
   echo "=== Git config merge hook ==="
 
   git_home="$TEST_HOME/git-merge-home"
