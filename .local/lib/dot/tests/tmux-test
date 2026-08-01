@@ -148,8 +148,8 @@ _assert_contains "tmux disables continuum restore before plugin loading" \
   "set -g @continuum-restore 'off'" "$tmux_content"
 _assert_contains "tmux leaves isolated-server continuum saving inert" \
   "set -g @continuum-save-interval '0'" "$tmux_content"
-_assert_contains "tmux gives the default server a fifteen-minute interval" \
-  "set -g @ds-continuum-save-interval '15'" "$tmux_content"
+_assert_contains "tmux gives the default server a five-minute interval" \
+  "set -g @ds-continuum-save-interval '5'" "$tmux_content"
 _assert_contains "tmux resets default restore ownership before plugin loading" \
   "set -g @ds-resurrect-auto-restore 'off'" "$tmux_content"
 _assert_contains "tmux keeps resurrect snapshots separate per host" \

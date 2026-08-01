@@ -34,7 +34,7 @@ case "$*" in
     printf '%s\n' "${MOCK_CONTINUUM_MAX_DELAY:-10}"
     ;;
   'show-options -gqv @ds-continuum-save-interval')
-    printf '%s\n' "${MOCK_DS_SAVE_INTERVAL:-15}"
+    printf '%s\n' "${MOCK_DS_SAVE_INTERVAL:-5}"
     ;;
   'show-options -gqv @ds-resurrect-restore-started-at')
     [[ -f "$RESTORE_MARKER" ]] && cat "$RESTORE_MARKER"
@@ -44,6 +44,9 @@ case "$*" in
     ;;
   "display-message -p #{start_time}")
     printf '%s\n' "${MOCK_SERVER_START:-100}"
+    ;;
+  "display-message -p #{socket_path}")
+    printf '%s\n' "${MOCK_SOCKET_PATH:-${TMUX%%,*}}"
     ;;
   set-option*)
     if [[ "${2:-}" == "-g" && "${3:-}" == "@ds-resurrect-restore-started-at" ]]; then
@@ -81,7 +84,12 @@ printf 'restore\n' >>"$RESTORE_LOG"
 MOCK
 chmod +x "$plugin_root/tmux-resurrect/scripts/restore.sh"
 
-run_helper() {
+run_helper() (
+  if [[ ${TMUX+x} ]]; then
+    export TMUX
+  else
+    unset TMUX
+  fi
   HOME="$test_home" \
     PATH="$mock_bin:/usr/bin:/bin" \
     TMUX_LOG="$tmux_log" \
@@ -89,12 +97,22 @@ run_helper() {
     RESTORE_MARKER="$restore_marker" \
     TIMESTAMP_STATE="$timestamp_state" \
     MOCK_STATUS_RIGHT="${MOCK_STATUS_RIGHT:-status}" \
+    MOCK_SOCKET_PATH="${MOCK_SOCKET_PATH:-}" \
     MOCK_SERVER_START="${MOCK_SERVER_START:-100}" \
     MOCK_NOW="${MOCK_NOW:-105}" \
     MOCK_CONTINUUM_RESTORE="${MOCK_CONTINUUM_RESTORE:-on}" \
     TMUX_PLUGIN_MANAGER_PATH="$literal_plugin_root" \
-    TMUX="${TMUX:?}" \
+    TMUX_TMPDIR="${TMUX_TMPDIR:-}" \
     "$helper"
+)
+
+wait_for_restore_log() {
+  local _
+  for _ in {1..100}; do
+    [[ -f "$restore_log" ]] && return 0
+    sleep 0.05
+  done
+  return 1
 }
 
 echo "=== tmux continuum default server ==="
@@ -108,19 +126,46 @@ TMUX="/tmp/isolated/default,123,0"
 run_helper
 _assert_file_missing "custom -S default basename: remains isolated" "$tmux_log"
 
+unset TMUX
+MOCK_SOCKET_PATH="/tmp/tmux-$(id -u)/default"
+run_helper
+_assert_contains "run-shell env: discovers the default socket from tmux" \
+  "tmux set-option -g @continuum-save-interval 5" "$(cat "$tmux_log")"
+wait_for_restore_log || true
+_assert_file_content "run-shell env: runs native resurrect restore" \
+  "restore" "$restore_log"
+
+: >"$tmux_log"
+rm -f "$restore_log" "$restore_marker" "$timestamp_state"
+unset MOCK_SOCKET_PATH
+
+socket_root_real=$(_tmpdir)
+socket_root_link=$(_tmpdir)/tmux-root-link
+mkdir -p "$socket_root_real/tmux-$(id -u)"
+ln -s "$socket_root_real" "$socket_root_link"
+TMUX_TMPDIR="$socket_root_link"
+MOCK_SOCKET_PATH="$socket_root_real/tmux-$(id -u)/default"
+unset TMUX
+run_helper
+_assert_contains "canonical socket path: accepts symlinked default root" \
+  "tmux set-option -g @continuum-save-interval 5" "$(cat "$tmux_log")"
+wait_for_restore_log || true
+_assert_file_content "canonical socket path: runs native resurrect restore" \
+  "restore" "$restore_log"
+
+: >"$tmux_log"
+rm -f "$restore_log" "$restore_marker" "$timestamp_state"
+unset MOCK_SOCKET_PATH TMUX_TMPDIR
 TMUX="/tmp/tmux-$(id -u)/default,123,0"
 MOCK_STATUS_RIGHT='#(/existing/continuum_save.sh)status'
 run_helper
 _assert_not_contains "existing interpolation: does not duplicate autosave" \
   "set-option -g status-right" "$(cat "$tmux_log")"
 _assert_contains "default socket: enables the configured save interval" \
-  "tmux set-option -g @continuum-save-interval 15" "$(cat "$tmux_log")"
+  "tmux set-option -g @continuum-save-interval 5" "$(cat "$tmux_log")"
 _assert_contains "default socket: publishes its restore ownership" \
   "tmux set-option -g @ds-resurrect-auto-restore on" "$(cat "$tmux_log")"
-for _ in {1..20}; do
-  [[ -f "$restore_log" ]] && break
-  sleep 0.01
-done
+wait_for_restore_log || true
 _assert_file_content "default socket: runs one native resurrect restore" \
   "restore" "$restore_log"
 : >"$tmux_log"
@@ -146,10 +191,7 @@ if [[ -n "$_timestamp_line" && -n "$_status_line" &&
 else
   _fail "suppressed continuum: delays first save before interpolation"
 fi
-for _ in {1..20}; do
-  [[ -f "$restore_log" ]] && break
-  sleep 0.01
-done
+wait_for_restore_log || true
 _assert_file_content "suppressed continuum: runs native resurrect restore" \
   "restore" "$restore_log"
 
