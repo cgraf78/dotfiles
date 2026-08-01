@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# Keep the normal DS tmux server persistent when continuum sees other sockets.
+
+set -u
+
+socket=${TMUX%%,*}
+socket_root=${TMUX_TMPDIR:-/tmp}
+socket_root=${socket_root%/}
+default_socket="$socket_root/tmux-$(id -u)/default"
+[[ "$socket" == "$default_socket" ]] || exit 0
+
+plugin_root=${TMUX_PLUGIN_MANAGER_PATH:-$HOME/.local/share/tmux-plugins/}
+plugin_root=${plugin_root/#\~/$HOME}
+plugin_root=${plugin_root%/}
+save_script="$plugin_root/tmux-continuum/scripts/continuum_save.sh"
+restore_script="$plugin_root/tmux-resurrect/scripts/restore.sh"
+[[ -x "$save_script" && -x "$restore_script" ]] || exit 0
+
+save_interval=$(tmux show-options -gqv @ds-continuum-save-interval \
+  2>/dev/null) || save_interval=""
+[[ "$save_interval" =~ ^[1-9][0-9]*$ ]] || save_interval=15
+now=$(date +%s) || exit 0
+
+# Continuum loads disabled on every socket. Publish the timestamp before
+# enabling its native save script so the first status render cannot race the
+# restore below.
+last_save=$(tmux show-options -gqv @continuum-save-last-timestamp \
+  2>/dev/null) || last_save=""
+if [[ ! "$last_save" =~ ^[0-9]+$ ]]; then
+  tmux set-option -g @continuum-save-last-timestamp "$now" || exit 0
+fi
+tmux set-option -g @continuum-save-interval "$save_interval" || exit 0
+tmux set-option -g @ds-resurrect-auto-restore on || exit 0
+status_right=$(tmux show-options -gv status-right 2>/dev/null) || exit 0
+if [[ "$status_right" != *continuum_save.sh* ]]; then
+  tmux set-option -g status-right "#($save_script)$status_right" || exit 0
+fi
+
+[[ ! -f "$HOME/tmux_no_auto_restore" ]] || exit 0
+server_start=$(tmux display-message -p '#{start_time}' 2>/dev/null) || exit 0
+max_delay=$(tmux show-options -gqv @continuum-restore-max-delay \
+  2>/dev/null) || max_delay=""
+[[ "$max_delay" =~ ^[0-9]+$ ]] || max_delay=10
+[[ "$server_start" =~ ^[0-9]+$ && "$now" =~ ^[0-9]+$ ]] || exit 0
+((server_start > now - max_delay)) || exit 0
+restore_started=$(tmux show-options -gqv @ds-resurrect-restore-started-at \
+  2>/dev/null) || restore_started=""
+[[ "$restore_started" != "$server_start" ]] || exit 0
+tmux set-option -g @ds-resurrect-restore-started-at "$server_start" || exit 0
+
+(
+  sleep 1
+  "$restore_script" >/dev/null 2>&1
+) &

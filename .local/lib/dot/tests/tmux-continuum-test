@@ -1,0 +1,170 @@
+#!/usr/bin/env bash
+# Tests the default-server fallback used when continuum suppresses itself
+# because unrelated tmux sockets already exist.
+
+set -euo pipefail
+
+# shellcheck source=helpers.sh
+. "$HOME/.local/lib/dot/tests/helpers.sh"
+
+helper="$HOME/.local/bin/tmux-continuum-default-server"
+test_home=$(_tmpdir)
+mock_bin=$(_tmpdir)
+tmux_log=$(_tmpdir)/tmux.log
+restore_log=$(_tmpdir)/restore.log
+restore_marker=$(_tmpdir)/restore-marker
+timestamp_state=$(_tmpdir)/timestamp
+plugin_root="$test_home/.local/share/tmux-plugins"
+# shellcheck disable=SC2088 # exercise tmux's literal configured value.
+literal_plugin_root='~/.local/share/tmux-plugins/'
+mkdir -p "$mock_bin" "$plugin_root/tmux-continuum/scripts" \
+  "$plugin_root/tmux-resurrect/scripts"
+
+cat >"$mock_bin/tmux" <<'MOCK'
+#!/usr/bin/env bash
+printf 'tmux %s\n' "$*" >>"$TMUX_LOG"
+case "$*" in
+  'show-options -gv status-right')
+    printf '%s\n' "${MOCK_STATUS_RIGHT:-status}"
+    ;;
+  'show-options -gqv @continuum-restore')
+    printf '%s\n' "${MOCK_CONTINUUM_RESTORE:-on}"
+    ;;
+  'show-options -gqv @continuum-restore-max-delay')
+    printf '%s\n' "${MOCK_CONTINUUM_MAX_DELAY:-10}"
+    ;;
+  'show-options -gqv @ds-continuum-save-interval')
+    printf '%s\n' "${MOCK_DS_SAVE_INTERVAL:-15}"
+    ;;
+  'show-options -gqv @ds-resurrect-restore-started-at')
+    [[ -f "$RESTORE_MARKER" ]] && cat "$RESTORE_MARKER"
+    ;;
+  'show-options -gqv @continuum-save-last-timestamp')
+    [[ -f "$TIMESTAMP_STATE" ]] && cat "$TIMESTAMP_STATE"
+    ;;
+  "display-message -p #{start_time}")
+    printf '%s\n' "${MOCK_SERVER_START:-100}"
+    ;;
+  set-option*)
+    if [[ "${2:-}" == "-g" && "${3:-}" == "@ds-resurrect-restore-started-at" ]]; then
+      printf '%s\n' "${4:-}" >"$RESTORE_MARKER"
+    fi
+    if [[ "${2:-}" == "-g" && "${3:-}" == "@continuum-save-last-timestamp" ]]; then
+      printf '%s\n' "${4:-}" >"$TIMESTAMP_STATE"
+    fi
+    ;;
+esac
+MOCK
+chmod +x "$mock_bin/tmux"
+
+cat >"$mock_bin/date" <<'MOCK'
+#!/usr/bin/env bash
+printf '%s\n' "${MOCK_NOW:-105}"
+MOCK
+chmod +x "$mock_bin/date"
+
+cat >"$mock_bin/sleep" <<'MOCK'
+#!/usr/bin/env bash
+:
+MOCK
+chmod +x "$mock_bin/sleep"
+
+cat >"$plugin_root/tmux-continuum/scripts/continuum_save.sh" <<'MOCK'
+#!/usr/bin/env bash
+:
+MOCK
+chmod +x "$plugin_root/tmux-continuum/scripts/continuum_save.sh"
+
+cat >"$plugin_root/tmux-resurrect/scripts/restore.sh" <<'MOCK'
+#!/usr/bin/env bash
+printf 'restore\n' >>"$RESTORE_LOG"
+MOCK
+chmod +x "$plugin_root/tmux-resurrect/scripts/restore.sh"
+
+run_helper() {
+  HOME="$test_home" \
+    PATH="$mock_bin:/usr/bin:/bin" \
+    TMUX_LOG="$tmux_log" \
+    RESTORE_LOG="$restore_log" \
+    RESTORE_MARKER="$restore_marker" \
+    TIMESTAMP_STATE="$timestamp_state" \
+    MOCK_STATUS_RIGHT="${MOCK_STATUS_RIGHT:-status}" \
+    MOCK_SERVER_START="${MOCK_SERVER_START:-100}" \
+    MOCK_NOW="${MOCK_NOW:-105}" \
+    MOCK_CONTINUUM_RESTORE="${MOCK_CONTINUUM_RESTORE:-on}" \
+    TMUX_PLUGIN_MANAGER_PATH="$literal_plugin_root" \
+    TMUX="${TMUX:?}" \
+    "$helper"
+}
+
+echo "=== tmux continuum default server ==="
+
+TMUX="/tmp/tmux-test/isolated,123,0"
+run_helper
+_assert_file_missing "non-default socket: leaves continuum ownership unchanged" \
+  "$tmux_log"
+
+TMUX="/tmp/isolated/default,123,0"
+run_helper
+_assert_file_missing "custom -S default basename: remains isolated" "$tmux_log"
+
+TMUX="/tmp/tmux-$(id -u)/default,123,0"
+MOCK_STATUS_RIGHT='#(/existing/continuum_save.sh)status'
+run_helper
+_assert_not_contains "existing interpolation: does not duplicate autosave" \
+  "set-option -g status-right" "$(cat "$tmux_log")"
+_assert_contains "default socket: enables the configured save interval" \
+  "tmux set-option -g @continuum-save-interval 15" "$(cat "$tmux_log")"
+_assert_contains "default socket: publishes its restore ownership" \
+  "tmux set-option -g @ds-resurrect-auto-restore on" "$(cat "$tmux_log")"
+for _ in {1..20}; do
+  [[ -f "$restore_log" ]] && break
+  sleep 0.01
+done
+_assert_file_content "default socket: runs one native resurrect restore" \
+  "restore" "$restore_log"
+: >"$tmux_log"
+run_helper
+_assert_file_content "config reload: does not launch a second restore" \
+  "restore" "$restore_log"
+_assert_not_contains "config reload: preserves the last-save deadline" \
+  "set-option -g @continuum-save-last-timestamp" "$(cat "$tmux_log")"
+
+: >"$tmux_log"
+rm -f "$restore_log" "$restore_marker" "$timestamp_state"
+MOCK_STATUS_RIGHT=status
+run_helper
+_assert_contains "suppressed continuum: injects native save interpolation" \
+  "tmux set-option -g status-right #($plugin_root/tmux-continuum/scripts/continuum_save.sh)status" \
+  "$(cat "$tmux_log")"
+_timestamp_line=$(awk '/set-option -g @continuum-save-last-timestamp/ { print NR; exit }' \
+  "$tmux_log")
+_status_line=$(awk '/set-option -g status-right/ { print NR; exit }' "$tmux_log")
+if [[ -n "$_timestamp_line" && -n "$_status_line" &&
+  "$_timestamp_line" -lt "$_status_line" ]]; then
+  _pass "suppressed continuum: delays first save before interpolation"
+else
+  _fail "suppressed continuum: delays first save before interpolation"
+fi
+for _ in {1..20}; do
+  [[ -f "$restore_log" ]] && break
+  sleep 0.01
+done
+_assert_file_content "suppressed continuum: runs native resurrect restore" \
+  "restore" "$restore_log"
+
+: >"$tmux_log"
+rm "$restore_log"
+MOCK_SERVER_START=90
+run_helper
+_assert_contains "warm reload: still repairs automatic saving" \
+  "tmux set-option -g status-right" "$(cat "$tmux_log")"
+_assert_file_missing "warm reload: does not restore an old server" "$restore_log"
+
+: >"$tmux_log"
+MOCK_SERVER_START=100
+touch "$test_home/tmux_no_auto_restore"
+run_helper
+_assert_file_missing "halt file: suppresses fallback restore" "$restore_log"
+
+_test_summary
