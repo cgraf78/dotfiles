@@ -53,7 +53,7 @@
   {
     "key": "ctrl+v",
     "command": "workbench.action.terminal.paste",
-    "when": "terminalFocus"
+    "when": "terminalFocus && !termnav.nvimFocused"
   },
 
   // Diff stuff
@@ -187,10 +187,10 @@
     "when": "terminalFocus"
   },
 
-  // Ctrl+P in terminal: open file picker instead of shell history-up
+  // Ctrl+P opens the host picker unless nvim owns the focused terminal pane.
   {
     "key": "ctrl+p",
     "command": "workbench.action.quickOpen",
-    "when": "terminalFocus"
+    "when": "terminalFocus && !termnav.nvimFocused"
   }
 ]
