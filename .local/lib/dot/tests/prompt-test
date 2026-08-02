@@ -5,6 +5,7 @@
 . "$HOME/.local/lib/dot/tests/helpers.sh"
 
 REAL_HOME="$HOME"
+REAL_GIT=$(PATH=/usr/bin:/bin command -v git)
 TEST_TMPDIR=$(_tmpdir)
 
 echo ""
@@ -18,14 +19,18 @@ mkdir -p "$MOCK_HOME/.dotfiles" "$MOCK_BIN"
 
 cat >"$MOCK_BIN/git" <<'EOF'
 #!/usr/bin/env bash
+if [[ "${PROMPT_USE_REAL_GIT:-0}" == 1 ]]; then
+  exec "$REAL_GIT" "$@"
+fi
 printf '%s\n' "$*" >>"$GIT_LOG"
 case " $* " in
   *" rev-parse --git-dir "*)
     printf '%s\n' "${MOCK_GITDIR:-.dotfiles}"
     ;;
   *" --no-optional-locks status --porcelain=v2 --branch "*)
+    [[ "${MOCK_STATUS_FAIL:-0}" != 1 ]] || exit 1
     printf '%s\n' \
-      '# branch.head main' \
+      "# branch.head ${MOCK_BRANCH:-main}" \
       '# branch.ab +1 -2' \
       '1 .M N... 100644 100644 100644 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa file.txt'
     ;;
@@ -40,7 +45,7 @@ EOF
 chmod +x "$MOCK_BIN/git"
 
 export HOME="$MOCK_HOME"
-export GIT_LOG
+export GIT_LOG REAL_GIT
 PATH="$MOCK_BIN:$PATH"
 
 (
@@ -108,6 +113,10 @@ _assert_contains "nested repository prompt: keeps normal status routing" \
   "--no-optional-locks status --porcelain=v2 --branch" "$git_nested_log"
 _assert_not_contains "nested repository prompt: does not select base dotfiles" \
   "--git-dir=$HOME/.dotfiles" "$git_nested_log"
+_assert_not_contains "nested repository prompt: skips separate discovery" \
+  "rev-parse --git-dir" "$git_nested_log"
+_assert_eq "nested repository prompt: invokes git once" \
+  "1" "$(wc -l <"$GIT_LOG" | tr -d ' ')"
 
 echo ""
 echo "=== prompt: explicit Git context ==="
@@ -130,5 +139,189 @@ _assert_contains "explicit Git prompt: keeps normal status routing" \
   "--no-optional-locks status --porcelain=v2 --branch" "$git_explicit_log"
 _assert_not_contains "explicit Git prompt: does not override caller worktree" \
   "--work-tree=$HOME" "$git_explicit_log"
+_assert_not_contains "explicit Git prompt: uses provided git dir without discovery" \
+  "rev-parse --git-dir" "$git_explicit_log"
+
+echo ""
+echo "=== prompt: linked worktree operation state ==="
+
+: >"$GIT_LOG"
+WORKTREE_ROOT="$HOME/linked-worktree"
+WORKTREE_GITDIR="$HOME/common/worktrees/linked-worktree"
+mkdir -p "$WORKTREE_ROOT/src" "$WORKTREE_GITDIR"
+printf 'gitdir: ../common/worktrees/linked-worktree' >"$WORKTREE_ROOT/.git"
+: >"$WORKTREE_GITDIR/MERGE_HEAD"
+export MOCK_GITDIR="$WORKTREE_GITDIR"
+(
+  cd "$WORKTREE_ROOT/src" || exit 1
+  # shellcheck disable=SC1091 # source the installed prompt helper from real HOME.
+  . "$REAL_HOME/.config/shell/interactive.d/59-prompt.sh"
+  __git_prompt
+) >"$TEST_TMPDIR/prompt-worktree.out"
+unset MOCK_GITDIR
+
+prompt_worktree_out=$(cat "$TEST_TMPDIR/prompt-worktree.out")
+git_worktree_log=$(cat "$GIT_LOG")
+_assert_contains "linked worktree prompt: preserves merge state" \
+  "|MERGE" "$prompt_worktree_out"
+_assert_contains "linked worktree prompt: validates gitfile operation state" \
+  "rev-parse --git-dir" "$git_worktree_log"
+_assert_eq "linked worktree prompt: validates operation state" \
+  "2" "$(wc -l <"$GIT_LOG" | tr -d ' ')"
+
+echo ""
+echo "=== prompt: symlinked repository path ==="
+
+SYMLINK_PARENT="$HOME/symlink-parent"
+SYMLINK_TARGET="$HOME/symlink-target"
+mkdir -p "$SYMLINK_PARENT" "$SYMLINK_TARGET/src"
+"$REAL_GIT" -C "$SYMLINK_PARENT" init -q
+"$REAL_GIT" -C "$SYMLINK_PARENT" symbolic-ref HEAD refs/heads/alpha
+: >"$SYMLINK_PARENT/.git/MERGE_HEAD"
+"$REAL_GIT" -C "$SYMLINK_TARGET" init -q
+"$REAL_GIT" -C "$SYMLINK_TARGET" symbolic-ref HEAD refs/heads/beta
+ln -s "$SYMLINK_TARGET" "$SYMLINK_PARENT/link"
+(
+  export PROMPT_USE_REAL_GIT=1
+  cd "$SYMLINK_PARENT/link/src" || exit 1
+  # shellcheck disable=SC1091 # source the installed prompt helper from real HOME.
+  . "$REAL_HOME/.config/shell/interactive.d/59-prompt.sh"
+  __git_prompt
+) >"$TEST_TMPDIR/prompt-symlink.out"
+
+prompt_symlink_out=$(cat "$TEST_TMPDIR/prompt-symlink.out")
+_assert_contains "symlinked repository prompt: uses physical repository" \
+  "beta" "$prompt_symlink_out"
+_assert_not_contains "symlinked repository prompt: ignores lexical operation state" \
+  "|MERGE" "$prompt_symlink_out"
+
+echo ""
+echo "=== prompt: discovery disagreement ==="
+
+: >"$GIT_LOG"
+DISAGREE_ROOT="$HOME/disagreement"
+AUTHORITATIVE_GITDIR="$HOME/authoritative-gitdir"
+mkdir -p "$DISAGREE_ROOT/.git" "$AUTHORITATIVE_GITDIR"
+: >"$DISAGREE_ROOT/.git/MERGE_HEAD"
+export MOCK_GITDIR="$AUTHORITATIVE_GITDIR"
+(
+  cd "$DISAGREE_ROOT" || exit 1
+  # shellcheck disable=SC1091 # source the installed prompt helper from real HOME.
+  . "$REAL_HOME/.config/shell/interactive.d/59-prompt.sh"
+  __git_prompt
+) >"$TEST_TMPDIR/prompt-disagreement.out"
+unset MOCK_GITDIR
+
+prompt_disagreement_out=$(cat "$TEST_TMPDIR/prompt-disagreement.out")
+_assert_not_contains "discovery disagreement: rejects inferred operation state" \
+  "|MERGE" "$prompt_disagreement_out"
+_assert_contains "discovery disagreement: validates with Git" \
+  "rev-parse --git-dir" "$(cat "$GIT_LOG")"
+
+echo ""
+echo "=== prompt: Git ceiling fallback ==="
+
+CEILING_ROOT="$HOME/ceiling-repo"
+mkdir -p "$CEILING_ROOT/sub"
+"$REAL_GIT" -C "$CEILING_ROOT" init -q
+if (
+  # shellcheck disable=SC2030,SC2034 # read by the sourced prompt helper.
+  GIT_CEILING_DIRECTORIES="$CEILING_ROOT/"
+  cd "$CEILING_ROOT/sub" || exit 1
+  # shellcheck disable=SC1091 # source the installed prompt helper from real HOME.
+  . "$REAL_HOME/.config/shell/interactive.d/59-prompt.sh"
+  _dot_git_prompt_gitdir
+) >"$TEST_TMPDIR/prompt-ceiling.out" 2>/dev/null; then
+  _fail "Git ceiling prompt: defers discovery to Git"
+else
+  _pass "Git ceiling prompt: defers discovery to Git"
+fi
+
+echo ""
+echo "=== prompt: repository operation states ==="
+
+for operation in merge rebase pick revert; do
+  rm -f "$HOME/project/src/.git/MERGE_HEAD" \
+    "$HOME/project/src/.git/CHERRY_PICK_HEAD" \
+    "$HOME/project/src/.git/REVERT_HEAD"
+  rm -rf "$HOME/project/src/.git/rebase-merge"
+  case "$operation" in
+    merge)
+      : >"$HOME/project/src/.git/MERGE_HEAD"
+      expected_operation='|MERGE'
+      ;;
+    rebase)
+      mkdir "$HOME/project/src/.git/rebase-merge"
+      expected_operation='|REBASE'
+      ;;
+    pick)
+      : >"$HOME/project/src/.git/CHERRY_PICK_HEAD"
+      expected_operation='|PICK'
+      ;;
+    revert)
+      : >"$HOME/project/src/.git/REVERT_HEAD"
+      expected_operation='|REVERT'
+      ;;
+  esac
+  : >"$GIT_LOG"
+  export MOCK_GITDIR=.git
+  (
+    cd "$HOME/project/src" || exit 1
+    # shellcheck disable=SC1091 # source the installed prompt helper from real HOME.
+    . "$REAL_HOME/.config/shell/interactive.d/59-prompt.sh"
+    __git_prompt
+  ) >"$TEST_TMPDIR/prompt-operation.out"
+  unset MOCK_GITDIR
+  _assert_contains "operation prompt: preserves $operation state" \
+    "$expected_operation" "$(cat "$TEST_TMPDIR/prompt-operation.out")"
+  _assert_eq "operation prompt: $operation validates operation state" \
+    "2" "$(wc -l <"$GIT_LOG" | tr -d ' ')"
+done
+rm -f "$HOME/project/src/.git/MERGE_HEAD" \
+  "$HOME/project/src/.git/CHERRY_PICK_HEAD" \
+  "$HOME/project/src/.git/REVERT_HEAD"
+rm -rf "$HOME/project/src/.git/rebase-merge"
+
+echo ""
+echo "=== prompt: detached head ==="
+
+: >"$GIT_LOG"
+export MOCK_BRANCH='(detached)' MOCK_GITDIR=.git
+(
+  cd "$HOME/project/src" || exit 1
+  # shellcheck disable=SC1091 # source the installed prompt helper from real HOME.
+  . "$REAL_HOME/.config/shell/interactive.d/59-prompt.sh"
+  __git_prompt
+) >"$TEST_TMPDIR/prompt-detached.out"
+unset MOCK_BRANCH MOCK_GITDIR
+
+prompt_detached_out=$(cat "$TEST_TMPDIR/prompt-detached.out")
+git_detached_log=$(cat "$GIT_LOG")
+_assert_contains "detached prompt: renders short revision" \
+  "abc123" "$prompt_detached_out"
+_assert_not_contains "detached prompt: skips separate git-dir discovery" \
+  "rev-parse --git-dir" "$git_detached_log"
+_assert_eq "detached prompt: adds only the revision lookup" \
+  "2" "$(wc -l <"$GIT_LOG" | tr -d ' ')"
+
+echo ""
+echo "=== prompt: non-repository ==="
+
+: >"$GIT_LOG"
+NONREPO_ROOT="$TEST_TMPDIR/outside-home"
+mkdir -p "$NONREPO_ROOT"
+export MOCK_STATUS_FAIL=1
+(
+  cd "$NONREPO_ROOT" || exit 1
+  # shellcheck disable=SC1091 # source the installed prompt helper from real HOME.
+  . "$REAL_HOME/.config/shell/interactive.d/59-prompt.sh"
+  __git_prompt
+) >"$TEST_TMPDIR/prompt-nonrepo.out"
+unset MOCK_STATUS_FAIL
+
+_assert_file_content "non-repository prompt: renders nothing" \
+  "" "$TEST_TMPDIR/prompt-nonrepo.out"
+_assert_eq "non-repository prompt: stops after failed status" \
+  "1" "$(wc -l <"$GIT_LOG" | tr -d ' ')"
 
 _test_summary
