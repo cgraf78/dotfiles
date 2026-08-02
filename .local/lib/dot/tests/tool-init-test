@@ -55,6 +55,18 @@ _assert_eq "cache clear: resets all source guards without a cache root" \
 HOME="$ORIGINAL_HOME"
 XDG_CACHE_HOME="$TEST_TMPDIR/cache"
 
+COMPLETION_CACHE="$XDG_CACHE_HOME/shell/zsh-completions/5.9/generation/_git.zwc"
+mkdir -p "${COMPLETION_CACHE%/*}"
+: >"$COMPLETION_CACHE"
+: >"$XDG_CACHE_HOME/shell/flat-cache"
+_clear_tool_cache
+_assert_file_missing "cache clear: removes generated tool init" \
+  "$XDG_CACHE_HOME/shell/flat-cache"
+_assert_file_exists "cache clear: preserves identity-validated completion bytecode" \
+  "$COMPLETION_CACHE"
+# The test called the real find before installing its later instrumentation.
+hash -r
+
 # A fake tool: `footool __emit` prints an init line that records its version, so
 # the test can tell which generation was sourced. Each write bumps its mtime.
 _write_footool() {
