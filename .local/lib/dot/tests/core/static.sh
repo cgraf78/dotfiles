@@ -52,6 +52,7 @@ MOCK
   _ci_in_jobs=0
   _ci_in_shell_job=0
   _ci_in_shell_with=0
+  _ci_forces_dotfiles_update=0
   _ci_uses_full_matrix=0
   _ci_termux_runs_smoke=0
   while IFS= read -r _ci_line; do
@@ -73,6 +74,8 @@ MOCK
       _ci_in_shell_with=1
     elif ((_ci_in_shell_with)) && [[ "$_ci_code" =~ ^[[:space:]]{6}matrix-set:[[:space:]]+full[[:space:]]*$ ]]; then
       _ci_uses_full_matrix=1
+    elif ((_ci_in_shell_with)) && [[ "$_ci_code" =~ ^[[:space:]]{6}force-dotfiles-update:[[:space:]]+true[[:space:]]*$ ]]; then
+      _ci_forces_dotfiles_update=1
     elif ((_ci_in_shell_with)) && [[ -n "${_ci_code//[[:space:]]/}" ]] &&
       [[ ! "$_ci_code" =~ ^[[:space:]]{6} ]]; then
       _ci_in_shell_with=0
@@ -99,6 +102,11 @@ MOCK
     "shellcheck-exclude-codes: SC1091" "$_ci_workflow"
   _assert_contains "CI workflow: skips only redundant platform ShellCheck" \
     "test-command: DOT_CORE_SKIP_SHELLCHECK=1 .local/bin/dot-test" "$_ci_workflow"
+  if ((_ci_forces_dotfiles_update)); then
+    _pass "CI workflow: refreshes shdeps before dependency resolution"
+  else
+    _fail "CI workflow: refreshes shdeps before dependency resolution"
+  fi
   if ((_ci_uses_full_matrix)); then
     _pass "CI workflow: requests full platform matrix"
   else

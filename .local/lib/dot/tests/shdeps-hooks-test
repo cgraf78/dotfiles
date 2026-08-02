@@ -351,18 +351,64 @@ for _dependency in agentguard checkrun cmdblocks sley termnav; do
     "github" "$(awk '{ print $2 }' <<<"$_dependency_dep")"
 done
 
-for _dependency in ast-grep/ast-grep watchexec/watchexec fujiapple852/trippy; do
+for _dependency in watchexec/watchexec fujiapple852/trippy; do
   _dependency_dep=$(awk -v name="$_dependency" '$1 == name { print; exit }' \
     "$REAL_HOME/.config/shdeps/10-deps.conf")
   _assert_eq "developer tool: $_dependency uses the native github updater" \
     "github" "$(awk '{ print $2 }' <<<"$_dependency_dep")"
+  _assert_contains "developer tool: $_dependency excludes macOS github installs" \
+    "os:!macos" "$_dependency_dep"
 done
-_assert_eq "ast-grep: command is sg" "sg" \
-  "$(awk '$1 == "ast-grep/ast-grep" { print $3; exit }' "$REAL_HOME/.config/shdeps/10-deps.conf")"
+
+for _developer_tool in watchexec trippy; do
+  _developer_tool_dep=$(awk -v name="$_developer_tool" '$1 == name && $2 == "pkg" { print; exit }' \
+    "$REAL_HOME/.config/shdeps/10-deps.conf")
+  _assert_eq "developer tool: $_developer_tool uses Homebrew on macOS" \
+    "pkg" "$(awk '{ print $2 }' <<<"$_developer_tool_dep")"
+  _assert_contains "developer tool: $_developer_tool package route is macOS-only" \
+    "os:macos" "$_developer_tool_dep"
+done
 _assert_eq "watchexec: command is watchexec" "watchexec" \
   "$(awk '$1 == "watchexec/watchexec" { print $3; exit }' "$REAL_HOME/.config/shdeps/10-deps.conf")"
 _assert_eq "trippy: command is trip" "trip" \
   "$(awk '$1 == "fujiapple852/trippy" { print $3; exit }' "$REAL_HOME/.config/shdeps/10-deps.conf")"
+
+# The CI bootstrap runs `dot update` before this suite.  Verify the installed
+# release artifact itself rather than merely trusting a declaration's command
+# field; an upstream rename can leave a valid-looking but unusable launcher.
+_assert_shdeps_tool_runs() {
+  local tool="$1" package="$2" path version_output
+
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    if ! brew list --versions "$package" >/dev/null 2>&1; then
+      _fail "developer tool: $tool is installed by Homebrew"
+      return
+    fi
+    path="$(brew --prefix "$package")/bin/$tool"
+  else
+    path="$REAL_HOME/.local/bin/$tool"
+  fi
+
+  if [[ ! -x "$path" ]]; then
+    _fail "developer tool: $tool is installed by shdeps"
+  elif version_output=$("$path" --version 2>&1); then
+    _pass "developer tool: $tool runs after shdeps install"
+  else
+    # Keep the CI failure actionable without dumping arbitrary tool output.
+    version_output="${version_output%%$'\n'*}"
+    _fail "developer tool: $tool runs after shdeps install ($version_output)"
+  fi
+}
+
+# Worktree tests intentionally keep source config separate from installed host
+# tools. CI (and an explicit local opt-in) is where those two surfaces meet.
+if [[ "${CI:-}" == "true" || "${DOT_TEST_VALIDATE_SHDEPS_TOOLS:-0}" == "1" ]]; then
+  for _developer_tool in 'watchexec:watchexec' 'trip:trippy'; do
+    _tool="${_developer_tool%%:*}"
+    _package="${_developer_tool#*:}"
+    _assert_shdeps_tool_runs "$_tool" "$_package"
+  done
+fi
 
 _gstack_hook="$REAL_HOME/.config/shdeps/hooks.d/garrytan/gstack.sh"
 _gstack_home=$(_tmpdir)

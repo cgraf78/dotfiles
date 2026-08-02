@@ -176,6 +176,19 @@ _bootstrap_shdeps() {
   _dot_forward_gh_interactivity
 
   if _find_shdeps_installer; then
+    # A forced check must refresh the bootstrap resolver first so a cached
+    # pre-fix installer cannot validate dependencies with obsolete logic. Keep
+    # ordinary interactive and cron updates cache-local; `dot update -f` and
+    # an explicit SHDEPS_FORCE=1 both opt into the network refresh.
+    if [[ -z "${SHDEPS_LIB:-}" && "${SHDEPS_FORCE:-0}" == 1 ]]; then
+      if [[ "${DOT_QUIET:-0}" -eq 1 ]]; then
+        _repair_shdeps_install "${REPLY%/*}" >/dev/null 2>&1 || return 1
+      else
+        _repair_shdeps_install "${REPLY%/*}" || return 1
+      fi
+      REPLY="${REPLY%/*}/install.sh"
+    fi
+
     # A managed release can survive a platform transition, and an older source
     # checkout can predate the sourceable installer's --bootstrap interface.
     # Repair either recognized installed-tree shape with the current installer

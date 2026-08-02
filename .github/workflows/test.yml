@@ -13,8 +13,11 @@ permissions:
 
 jobs:
   shell:
-    uses: cgraf78/actions/.github/workflows/shell-ci.yml@f9a9074b2d43fb3812067477d29307ef1e84e70e
+    uses: cgraf78/actions/.github/workflows/shell-ci.yml@7ed93f1518cb9e0456baeccdc1670063ff277e5f
     with:
+      # CI restores shdeps between runs. Refresh the resolver before it
+      # validates dependency releases and installed-tool smoke checks.
+      force-dotfiles-update: true
       matrix-set: full
       setup: dotfiles
       shellcheck-exclude-codes: SC1091
