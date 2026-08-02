@@ -51,6 +51,7 @@ program	.local/bin/git
 program	.local/bin/nvim
 program	.local/bin/shell-time
 program	.local/bin/tmux-continuum-default-server
+program	.local/bin/tmux-continuum-save-gate
 program	.local/bin/validate-commit-msg
 program	.local/lib/dot/core/agent-playbooks.sh
 program	.local/lib/dot/core/constants.sh

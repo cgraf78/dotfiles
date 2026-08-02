@@ -8,12 +8,15 @@ set -euo pipefail
 . "$HOME/.local/lib/dot/tests/helpers.sh"
 
 helper="$HOME/.local/bin/tmux-continuum-default-server"
+gate="$HOME/.local/bin/tmux-continuum-save-gate"
 test_home=$(_tmpdir)
 mock_bin=$(_tmpdir)
 tmux_log=$(_tmpdir)/tmux.log
 restore_log=$(_tmpdir)/restore.log
 restore_marker=$(_tmpdir)/restore-marker
 timestamp_state=$(_tmpdir)/timestamp
+save_log=$(_tmpdir)/save.log
+date_log=$(_tmpdir)/date.log
 plugin_root="$test_home/.local/share/tmux-plugins"
 # shellcheck disable=SC2088 # exercise tmux's literal configured value.
 literal_plugin_root='~/.local/share/tmux-plugins/'
@@ -62,6 +65,7 @@ chmod +x "$mock_bin/tmux"
 
 cat >"$mock_bin/date" <<'MOCK'
 #!/usr/bin/env bash
+[[ -z "${DATE_LOG:-}" ]] || printf 'date\n' >>"$DATE_LOG"
 printf '%s\n' "${MOCK_NOW:-105}"
 MOCK
 chmod +x "$mock_bin/date"
@@ -74,7 +78,7 @@ chmod +x "$mock_bin/sleep"
 
 cat >"$plugin_root/tmux-continuum/scripts/continuum_save.sh" <<'MOCK'
 #!/usr/bin/env bash
-:
+[[ -z "${SAVE_LOG:-}" ]] || printf 'save\n' >>"$SAVE_LOG"
 MOCK
 chmod +x "$plugin_root/tmux-continuum/scripts/continuum_save.sh"
 
@@ -84,7 +88,17 @@ printf 'restore\n' >>"$RESTORE_LOG"
 MOCK
 chmod +x "$plugin_root/tmux-resurrect/scripts/restore.sh"
 
+run_gate() {
+  HOME="$test_home" \
+    PATH="$mock_bin:/usr/bin:/bin" \
+    SAVE_LOG="$save_log" \
+    DATE_LOG="$date_log" \
+    MOCK_NOW="${MOCK_NOW:-105}" \
+    "$gate" "x$1" "x$2" "$plugin_root/tmux-continuum/scripts/continuum_save.sh"
+}
+
 run_helper() (
+  helper_to_run=${1:-$helper}
   if [[ ${TMUX+x} ]]; then
     export TMUX
   else
@@ -103,7 +117,7 @@ run_helper() (
     MOCK_CONTINUUM_RESTORE="${MOCK_CONTINUUM_RESTORE:-on}" \
     TMUX_PLUGIN_MANAGER_PATH="$literal_plugin_root" \
     TMUX_TMPDIR="${TMUX_TMPDIR:-}" \
-    "$helper"
+    "$helper_to_run"
 )
 
 wait_for_restore_log() {
@@ -117,14 +131,76 @@ wait_for_restore_log() {
 
 echo "=== tmux continuum default server ==="
 
-TMUX="/tmp/tmux-test/isolated,123,0"
-run_helper
-_assert_file_missing "non-default socket: leaves continuum ownership unchanged" \
-  "$tmux_log"
+run_gate 100 0
+_assert_file_missing "save gate disabled: skips native continuum" "$save_log"
+_assert_file_missing "save gate disabled: skips clock lookup" "$date_log"
 
+run_gate 100 5
+_assert_file_missing "save gate not due: skips native continuum" "$save_log"
+_assert_file_content "save gate not due: checks the clock once" "date" "$date_log"
+
+rm -f "$date_log"
+MOCK_NOW=400 run_gate 100 5
+_assert_file_content "save gate due: delegates to native continuum" "save" "$save_log"
+
+rm -f "$save_log" "$date_log"
+run_gate '1:2' 5
+_assert_file_content "save gate invalid state: fails open to native continuum" \
+  "save" "$save_log"
+_assert_file_missing "save gate invalid state: avoids speculative clock math" \
+  "$date_log"
+
+rm -f "$save_log" "$date_log"
+
+if real_tmux=$(command -v tmux); then
+  quote_socket="dot-test-continuum-$RANDOM-$$"
+  quote_marker="$test_home/hostile-option-executed"
+  quote_status=0
+  (
+    trap '"$real_tmux" -L "$quote_socket" kill-server >/dev/null 2>&1 || true' EXIT
+    "$real_tmux" -L "$quote_socket" -f /dev/null new-session -d
+    "$real_tmux" -L "$quote_socket" set-option -g \
+      @continuum-save-last-timestamp "\$(touch $quote_marker)"
+    escaped_last=$("$real_tmux" -L "$quote_socket" display-message -p \
+      '#{q:@continuum-save-last-timestamp}')
+    printf -v rendered_command '%q x%s x5 %q' \
+      "$gate" "$escaped_last" \
+      "$plugin_root/tmux-continuum/scripts/continuum_save.sh"
+    HOME="$test_home" PATH="$mock_bin:/usr/bin:/bin" \
+      SAVE_LOG="$save_log" DATE_LOG="$date_log" \
+      /bin/sh -c "$rendered_command"
+  ) || quote_status=$?
+  _assert_eq "save gate quoting: isolated tmux render succeeds" "0" "$quote_status"
+  _assert_file_missing "save gate quoting: option shell syntax remains data" \
+    "$quote_marker"
+  _assert_file_content "save gate quoting: malformed option still fails open" \
+    "save" "$save_log"
+else
+  echo "  - save gate quoting skipped (tmux unavailable)"
+fi
+
+rm -f "$save_log" "$date_log"
+
+native_command="#($plugin_root/tmux-continuum/scripts/continuum_save.sh)"
+native_interpolation="${native_command}status"
+gated_command="#($gate x#{q:@continuum-save-last-timestamp} x#{q:@continuum-save-interval} $plugin_root/tmux-continuum/scripts/continuum_save.sh)"
+gated_interpolation="${gated_command}status"
+
+TMUX="/tmp/tmux-test/isolated,123,0"
+MOCK_STATUS_RIGHT="$native_interpolation"
+run_helper
+_assert_contains "non-default socket: gates disabled continuum status work" \
+  "tmux set-option -g status-right #($gate x#{q:@continuum-save-last-timestamp} x0 $plugin_root/tmux-continuum/scripts/continuum_save.sh)status" \
+  "$(cat "$tmux_log")"
+_assert_not_contains "non-default socket: leaves save ownership disabled" \
+  "tmux set-option -g @continuum-save-interval" "$(cat "$tmux_log")"
+
+: >"$tmux_log"
+MOCK_STATUS_RIGHT=status
 TMUX="/tmp/isolated/default,123,0"
 run_helper
-_assert_file_missing "custom -S default basename: remains isolated" "$tmux_log"
+_assert_not_contains "custom -S default basename: remains isolated" \
+  "@continuum-save-interval" "$(cat "$tmux_log")"
 
 unset TMUX
 MOCK_SOCKET_PATH="/tmp/tmux-$(id -u)/default"
@@ -168,6 +244,43 @@ _assert_contains "default socket: publishes its restore ownership" \
 wait_for_restore_log || true
 _assert_file_content "default socket: runs one native resurrect restore" \
   "restore" "$restore_log"
+
+: >"$tmux_log"
+MOCK_STATUS_RIGHT="$gated_interpolation"
+run_helper
+_assert_not_contains "gated interpolation: remains idempotent on reload" \
+  "set-option -g status-right" "$(cat "$tmux_log")"
+
+spaced_bin="$test_home/bin with spaces"
+mkdir -p "$spaced_bin"
+cp "$helper" "$spaced_bin/tmux-continuum-default-server"
+cp "$gate" "$spaced_bin/tmux-continuum-save-gate"
+printf -v spaced_gate_command '#(%q x#{q:@continuum-save-last-timestamp} x#{q:@continuum-save-interval} %q)' \
+  "$spaced_bin/tmux-continuum-save-gate" \
+  "$plugin_root/tmux-continuum/scripts/continuum_save.sh"
+: >"$tmux_log"
+MOCK_STATUS_RIGHT="${native_command}${spaced_gate_command}status"
+run_helper "$spaced_bin/tmux-continuum-default-server"
+_assert_contains "escaped gate path: mixed reload converges without duplication" \
+  "tmux set-option -g status-right ${spaced_gate_command}status" \
+  "$(cat "$tmux_log")"
+
+missing_gate_bin="$test_home/bin-without-gate"
+mkdir -p "$missing_gate_bin"
+cp "$helper" "$missing_gate_bin/tmux-continuum-default-server"
+: >"$tmux_log"
+MOCK_STATUS_RIGHT=status
+run_helper "$missing_gate_bin/tmux-continuum-default-server"
+_assert_contains "missing gate: preserves native continuum saving" \
+  "tmux set-option -g status-right ${native_command}status" "$(cat "$tmux_log")"
+_assert_contains "missing gate: preserves default restore ownership" \
+  "tmux set-option -g @ds-resurrect-auto-restore on" "$(cat "$tmux_log")"
+
+: >"$tmux_log"
+MOCK_STATUS_RIGHT="$native_command$gated_interpolation"
+run_helper
+_assert_contains "mixed interpolation: removes the reloaded native hook" \
+  "tmux set-option -g status-right $gated_interpolation" "$(cat "$tmux_log")"
 : >"$tmux_log"
 run_helper
 _assert_file_content "config reload: does not launch a second restore" \
@@ -179,8 +292,8 @@ _assert_not_contains "config reload: preserves the last-save deadline" \
 rm -f "$restore_log" "$restore_marker" "$timestamp_state"
 MOCK_STATUS_RIGHT=status
 run_helper
-_assert_contains "suppressed continuum: injects native save interpolation" \
-  "tmux set-option -g status-right #($plugin_root/tmux-continuum/scripts/continuum_save.sh)status" \
+_assert_contains "suppressed continuum: injects gated save interpolation" \
+  "tmux set-option -g status-right $gated_interpolation" \
   "$(cat "$tmux_log")"
 _timestamp_line=$(awk '/set-option -g @continuum-save-last-timestamp/ { print NR; exit }' \
   "$tmux_log")
