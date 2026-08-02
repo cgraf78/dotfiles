@@ -357,12 +357,35 @@ for _dependency in ast-grep/ast-grep watchexec/watchexec fujiapple852/trippy; do
   _assert_eq "developer tool: $_dependency uses the native github updater" \
     "github" "$(awk '{ print $2 }' <<<"$_dependency_dep")"
 done
-_assert_eq "ast-grep: command is sg" "sg" \
+_assert_eq "ast-grep: command is ast-grep" "ast-grep" \
   "$(awk '$1 == "ast-grep/ast-grep" { print $3; exit }' "$REAL_HOME/.config/shdeps/10-deps.conf")"
 _assert_eq "watchexec: command is watchexec" "watchexec" \
   "$(awk '$1 == "watchexec/watchexec" { print $3; exit }' "$REAL_HOME/.config/shdeps/10-deps.conf")"
 _assert_eq "trippy: command is trip" "trip" \
   "$(awk '$1 == "fujiapple852/trippy" { print $3; exit }' "$REAL_HOME/.config/shdeps/10-deps.conf")"
+
+# The CI bootstrap runs `dot update` before this suite.  Verify the installed
+# release artifact itself rather than merely trusting a declaration's command
+# field; an upstream rename can leave a valid-looking but unusable launcher.
+_assert_shdeps_tool_runs() {
+  local tool="$1" path="$REAL_HOME/.local/bin/$1"
+
+  if [[ ! -x "$path" ]]; then
+    _fail "developer tool: $tool is installed by shdeps"
+  elif "$path" --version >/dev/null 2>&1; then
+    _pass "developer tool: $tool runs after shdeps install"
+  else
+    _fail "developer tool: $tool runs after shdeps install"
+  fi
+}
+
+# Worktree tests intentionally keep source config separate from installed host
+# tools. CI (and an explicit local opt-in) is where those two surfaces meet.
+if [[ "${CI:-}" == "true" || "${DOT_TEST_VALIDATE_SHDEPS_TOOLS:-0}" == "1" ]]; then
+  for _developer_tool in ast-grep watchexec trip; do
+    _assert_shdeps_tool_runs "$_developer_tool"
+  done
+fi
 
 _gstack_hook="$REAL_HOME/.config/shdeps/hooks.d/garrytan/gstack.sh"
 _gstack_home=$(_tmpdir)
