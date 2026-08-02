@@ -862,15 +862,27 @@ EOF
     _assert_vscode_macos_karabiner_terminal_keybindings() {
       local keybindings_file="$1"
 
-      _assert_eq "vscode mac terminal: Cmd+V pastes after Karabiner translates Ctrl+V" \
+      _assert_eq "vscode mac terminal: Cmd+V pastes outside nvim" \
         "1" \
-        "$(jq '[.[] | select(.key == "cmd+v" and .command == "workbench.action.terminal.paste" and .when == "terminalFocus")] | length' "$keybindings_file")"
+        "$(jq '[.[] | select(.key == "cmd+v" and .command == "workbench.action.terminal.paste" and .when == "terminalFocus && !termnav.nvimFocused")] | length' "$keybindings_file")"
+      _assert_eq "vscode mac terminal: Cmd+V reaches nvim after Karabiner translates Ctrl+V" \
+        "1" \
+        "$(jq '[.[] | select(.key == "cmd+v" and .command == "workbench.action.terminal.sendSequence" and .when == "terminalFocus && termnav.nvimFocused" and .args.text == "\u0016")] | length' "$keybindings_file")"
       _assert_eq "vscode mac terminal: Cmd+C copies a Karabiner-translated selection" \
         "1" \
         "$(jq '[.[] | select(.key == "cmd+c" and .command == "workbench.action.terminal.copySelection" and .when == "terminalFocus && terminalTextSelected")] | length' "$keybindings_file")"
-      _assert_eq "vscode mac terminal: Cmd+C interrupts when no text is selected" \
+      _assert_eq "vscode mac terminal: Cmd+C reaches nvim when no text is selected" \
         "1" \
         "$(jq '[.[] | select(.key == "cmd+c" and .command == "workbench.action.terminal.sendSequence" and .when == "terminalFocus && !terminalTextSelected" and .args.text == "\u0003")] | length' "$keybindings_file")"
+      _assert_eq "vscode mac terminal: Cmd+B restores the normal sidebar outside nvim" \
+        "1" \
+        "$(jq '[.[] | select(.key == "cmd+b" and .command == "workbench.action.toggleSidebarVisibility" and .when == "terminalFocus && !termnav.nvimFocused")] | length' "$keybindings_file")"
+      _assert_eq "vscode mac terminal: Cmd+P opens VS Code quick open outside nvim" \
+        "1" \
+        "$(jq '[.[] | select(.key == "cmd+p" and .command == "workbench.action.quickOpen" and .when == "terminalFocus && !termnav.nvimFocused")] | length' "$keybindings_file")"
+      _assert_eq "vscode mac terminal: Cmd+P reaches nvim after Karabiner translates Ctrl+P" \
+        "1" \
+        "$(jq '[.[] | select(.key == "cmd+p" and .command == "workbench.action.terminal.sendSequence" and .when == "terminalFocus && termnav.nvimFocused" and .args.text == "\u0010")] | length' "$keybindings_file")"
     }
 
     _assert_vscode_terminal_clipboard_keybindings() {
@@ -881,11 +893,29 @@ EOF
         "1" \
         "$(jq '[.[] | select(.key == "ctrl+c" and .command == "workbench.action.terminal.copySelection" and .when == "terminalFocus && terminalTextSelected")] | length' "$keybindings_file")"
       _assert_eq "vscode $platform terminal: Ctrl+C keeps interrupt behavior without a selection" \
-        "1" \
+        "2" \
         "$(jq '[.[] | select(.key == "ctrl+c")] | length' "$keybindings_file")"
-      _assert_eq "vscode $platform terminal: Ctrl+V pastes from the client clipboard" \
+      _assert_eq "vscode $platform terminal: Ctrl+V pastes outside nvim" \
         "1" \
-        "$(jq '[.[] | select(.key == "ctrl+v" and .command == "workbench.action.terminal.paste" and .when == "terminalFocus")] | length' "$keybindings_file")"
+        "$(jq '[.[] | select(.key == "ctrl+v" and .command == "workbench.action.terminal.paste" and .when == "terminalFocus && !termnav.nvimFocused")] | length' "$keybindings_file")"
+      _assert_eq "vscode $platform terminal: Ctrl+V reaches nvim" \
+        "1" \
+        "$(jq '[.[] | select(.key == "ctrl+v" and .command == "workbench.action.terminal.sendSequence" and .when == "terminalFocus && termnav.nvimFocused" and .args.text == "\u0016")] | length' "$keybindings_file")"
+      _assert_eq "vscode $platform terminal: Ctrl+P opens VS Code quick open outside nvim" \
+        "1" \
+        "$(jq '[.[] | select(.key == "ctrl+p" and .command == "workbench.action.quickOpen" and .when == "terminalFocus && !termnav.nvimFocused")] | length' "$keybindings_file")"
+      _assert_eq "vscode $platform terminal: Ctrl+P reaches nvim" \
+        "1" \
+        "$(jq '[.[] | select(.key == "ctrl+p" and .command == "workbench.action.terminal.sendSequence" and .when == "terminalFocus && termnav.nvimFocused" and .args.text == "\u0010")] | length' "$keybindings_file")"
+      _assert_eq "vscode $platform terminal: Ctrl+F reaches nvim" \
+        "1" \
+        "$(jq '[.[] | select(.key == "ctrl+f" and .command == "workbench.action.terminal.sendSequence" and .when == "terminalFocus && termnav.nvimFocused" and .args.text == "\u0006")] | length' "$keybindings_file")"
+      _assert_eq "vscode $platform terminal: every Ctrl letter reaches nvim" \
+        "26" \
+        "$(jq '[.[] | select(.key | test("^ctrl\\+[a-z]$")) | select(.command == "workbench.action.terminal.sendSequence" and (.when | contains("termnav.nvimFocused")))] | length' "$keybindings_file")"
+      _assert_eq "vscode $platform terminal: Ctrl+Shift+G reaches nvim distinctly" \
+        "1" \
+        "$(jq '[.[] | select(.key == "ctrl+shift+g" and .command == "workbench.action.terminal.sendSequence" and .when == "terminalFocus && termnav.nvimFocused" and .args.text == "\u001b[103;6u")] | length' "$keybindings_file")"
     }
 
     _write_vscode_keybinding_conflicts() {
@@ -935,7 +965,7 @@ JSON
       "$vscode_bin" \
       "$vscode_home/.config/Code/User" \
       "$vscode_home/.config/dot/merge-hooks.d" \
-      "$vscode_home/.local/share/cgraf78/termnav/share/termnav/vscode/termnav-0.1.0" \
+      "$vscode_home/.local/share/cgraf78/termnav/share/termnav/vscode/termnav-0.2.0" \
       "$vscode_home/.local/share/dot-vscode-extensions" \
       "$vscode_home/.vscode/extensions"
     cat >"$vscode_home/.config/Code/User/settings.json" <<'JSON'
@@ -971,11 +1001,11 @@ JSON
 JSON
     cp -R "$REAL_HOME/.local/share/dot-vscode-extensions/sley-tools-0.0.1" \
       "$vscode_home/.local/share/dot-vscode-extensions/sley-tools-0.0.1"
-    cat >"$vscode_home/.local/share/cgraf78/termnav/share/termnav/vscode/termnav-0.1.0/package.json" <<'JSON'
+    cat >"$vscode_home/.local/share/cgraf78/termnav/share/termnav/vscode/termnav-0.2.0/package.json" <<'JSON'
 {
   "name": "termnav",
   "publisher": "cgraf",
-  "version": "0.1.0"
+  "version": "0.2.0"
 }
 JSON
     vscode_mv_log="$vscode_home/mv.log"
@@ -1609,7 +1639,7 @@ PY
     _assert_contains "vscode termnav: extension registered" \
       '"id":"cgraf.termnav"' "$vscode_extensions"
     _assert_eq "vscode local extensions: registration uses the manifest version" \
-      "0.1.0" \
+      "0.2.0" \
       "$(jq -r '.[] | select(.identifier.id == "cgraf.termnav") | .version' "$vscode_home/.vscode/extensions/extensions.json")"
     _assert_eq "vscode local extensions: only declared extensions are registered" \
       '["cgraf.sley-tools","cgraf.termnav"]' \
@@ -1632,7 +1662,7 @@ PY
     else
       _fail "vscode sley: extension symlink deployed"
     fi
-    if [[ -L "$vscode_home/.vscode/extensions/termnav-0.1.0" ]]; then
+    if [[ -L "$vscode_home/.vscode/extensions/termnav-0.2.0" ]]; then
       _pass "vscode termnav: extension symlink deployed"
     else
       _fail "vscode termnav: extension symlink deployed"
@@ -1704,7 +1734,7 @@ PY
     else
       _fail "vscode sley: extension-only symlink deployed"
     fi
-    if [[ -L "$vscode_home/.vscode-server/extensions/termnav-0.1.0" ]]; then
+    if [[ -L "$vscode_home/.vscode-server/extensions/termnav-0.2.0" ]]; then
       _pass "vscode termnav: extension-only symlink deployed"
     else
       _fail "vscode termnav: extension-only symlink deployed"
@@ -1741,7 +1771,7 @@ PY
     else
       _fail "vscode sley: no-sley variant removes formatter symlink"
     fi
-    if [[ -L "$vscode_home/.vscode-nosley/extensions/termnav-0.1.0" ]]; then
+    if [[ -L "$vscode_home/.vscode-nosley/extensions/termnav-0.2.0" ]]; then
       _pass "vscode termnav: no-sley variant keeps tab router"
     else
       _fail "vscode termnav: no-sley variant keeps tab router"
@@ -1814,7 +1844,7 @@ JSON
     else
       _fail "vscode wsl: server sley symlink deployed"
     fi
-    if [[ -L "$vscode_home/.vscode-server/extensions/termnav-0.1.0" ]]; then
+    if [[ -L "$vscode_home/.vscode-server/extensions/termnav-0.2.0" ]]; then
       _pass "vscode wsl: server termnav symlink deployed"
     else
       _fail "vscode wsl: server termnav symlink deployed"
