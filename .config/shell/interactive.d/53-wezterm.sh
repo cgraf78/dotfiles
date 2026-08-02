@@ -8,6 +8,12 @@ dot_shdeps_dep_source cgraf78/termnav share/termnav/shell.sh 2>/dev/null || true
 
 _dot_wezterm_publish_tmux_context() {
   typeset -f _termnav_wezterm_set_user_var >/dev/null 2>&1 || return 0
+  # Neovim's embedded terminal cannot relay tmux DCS passthrough framing, so
+  # leave WezTerm-only metadata to Termnav's context predicate. Keep older
+  # Termnav installations working until the predicate is universally present.
+  if typeset -f _termnav_wezterm_active >/dev/null 2>&1; then
+    _termnav_wezterm_active || return 0
+  fi
   if [[ -n "${TMUX:-}" ]]; then
     _termnav_wezterm_set_user_var DOT_TMUX true
   else
