@@ -368,6 +368,14 @@ for _developer_tool in ast-grep watchexec trippy; do
   _assert_contains "developer tool: $_developer_tool package route is macOS-only" \
     "os:macos" "$_developer_tool_dep"
 done
+_ast_grep_github_dep=$(awk '$1 == "ast-grep/ast-grep" { print; exit }' \
+  "$REAL_HOME/.config/shdeps/10-deps.conf")
+_assert_contains "developer tool: ast-grep github route excludes Alpine" \
+  "os:!alpine" "$_ast_grep_github_dep"
+_ast_grep_alpine_dep=$(awk '$1 == "ast-grep" && $2 == "pkg" && /os:alpine/ { print; exit }' \
+  "$REAL_HOME/.config/shdeps/10-deps.conf")
+_assert_contains "developer tool: ast-grep uses Alpine package" \
+  "os:alpine" "$_ast_grep_alpine_dep"
 _assert_eq "ast-grep: command is ast-grep" "ast-grep" \
   "$(awk '$1 == "ast-grep/ast-grep" { print $3; exit }' "$REAL_HOME/.config/shdeps/10-deps.conf")"
 _assert_eq "watchexec: command is watchexec" "watchexec" \
@@ -379,7 +387,7 @@ _assert_eq "trippy: command is trip" "trip" \
 # release artifact itself rather than merely trusting a declaration's command
 # field; an upstream rename can leave a valid-looking but unusable launcher.
 _assert_shdeps_tool_runs() {
-  local tool="$1" package="$2" path
+  local tool="$1" package="$2" path version_output
 
   if [[ "$(uname -s)" == "Darwin" ]]; then
     if ! brew list --versions "$package" >/dev/null 2>&1; then
@@ -393,10 +401,12 @@ _assert_shdeps_tool_runs() {
 
   if [[ ! -x "$path" ]]; then
     _fail "developer tool: $tool is installed by shdeps"
-  elif "$path" --version >/dev/null 2>&1; then
+  elif version_output=$("$path" --version 2>&1); then
     _pass "developer tool: $tool runs after shdeps install"
   else
-    _fail "developer tool: $tool runs after shdeps install"
+    # Keep the CI failure actionable without dumping arbitrary tool output.
+    version_output="${version_output%%$'\n'*}"
+    _fail "developer tool: $tool runs after shdeps install ($version_output)"
   fi
 }
 
