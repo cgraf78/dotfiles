@@ -209,6 +209,17 @@ _dot_git_exact_marker_exists() {
     [ -e "$root/.hg" ] || [ -L "$root/.hg" ]
 }
 
+_dot_git_has_sl_marker_ancestor() {
+  local dir="$1"
+  while :; do
+    [[ -d "$dir/.sl" || -d "$dir/.hg" ]] && return 0
+    [ "$dir" = "/" ] && break
+    dir="${dir%/*}"
+    [ -n "$dir" ] || dir="/"
+  done
+  return 1
+}
+
 _dot_git_closest_marker_root() {
   local dir="$1" stop="$2"
   while [ "$dir" != "/" ]; do
@@ -376,7 +387,10 @@ if _dot_git_nested_root=$(_dot_git_git_worktree_root "$_dot_git_effective_cwd");
   _dot_git_cache_nested_root git "$_dot_git_nested_root"
   exec "$_dot_git_real" "$@"
 fi
-if _dot_git_nested_root=$(_dot_git_real_sl_worktree_root "$_dot_git_effective_cwd"); then
+# Starting Sapling is comparatively expensive. A real marker is necessary for
+# the result to be accepted, while `sl root` remains the authoritative resolver.
+if _dot_git_has_sl_marker_ancestor "$_dot_git_effective_cwd" &&
+  _dot_git_nested_root=$(_dot_git_real_sl_worktree_root "$_dot_git_effective_cwd"); then
   _dot_git_cache_nested_root sl "$_dot_git_nested_root"
   exec "$_dot_git_real" "$@"
 fi

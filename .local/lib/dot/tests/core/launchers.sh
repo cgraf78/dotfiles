@@ -524,6 +524,45 @@ EOF
   _assert_not_contains "git launcher SCM config probe: skips Sapling probe" \
     "sl:root --config ui.color=never" "$(cat "$_git_nested_probe_log" 2>/dev/null || true)"
 
+  _git_no_marker_cache=$(_tmpdir)
+  _git_no_marker_root="$TEST_HOME/git/no-marker"
+  _git_no_marker_leaf="$_git_no_marker_root/project/src"
+  mkdir -p "$_git_no_marker_leaf"
+  : >"$_git_nested_probe_log"
+  result=$(
+    cd "$_git_no_marker_leaf" &&
+      GIT_NESTED_PROBE_LOG="$_git_nested_probe_log" \
+        GIT_NESTED_PROBE_HOME="$TEST_HOME" \
+        GIT_NESTED_PROBE_ROOT="$_git_no_marker_root" \
+        XDG_CACHE_HOME="$_git_no_marker_cache" \
+        PATH="$BIN_DIR:$_git_nested_probe_bin:/usr/bin:/bin" \
+        "$BIN_DIR/git" status
+  )
+  _assert_eq "git launcher nested probe: no marker falls back to dotfiles" \
+    "dotfiles-status" "$result"
+  _assert_not_contains "git launcher nested probe: no marker skips Sapling" \
+    "sl:root --config ui.color=never" "$(cat "$_git_nested_probe_log")"
+
+  _git_hg_probe_cache=$(_tmpdir)
+  _git_hg_probe_root="$TEST_HOME/git/hg-worktree"
+  _git_hg_probe_leaf="$_git_hg_probe_root/project/src"
+  mkdir -p "$_git_hg_probe_root/.hg" "$_git_hg_probe_leaf"
+  : >"$_git_nested_probe_log"
+  result=$(
+    cd "$_git_hg_probe_leaf" &&
+      GIT_NESTED_PROBE_LOG="$_git_nested_probe_log" \
+        GIT_NESTED_PROBE_HOME="$TEST_HOME" \
+        GIT_NESTED_PROBE_ROOT="$_git_hg_probe_root" \
+        XDG_CACHE_HOME="$_git_hg_probe_cache" \
+        PATH="$BIN_DIR:$_git_nested_probe_bin:/usr/bin:/bin" \
+        "$BIN_DIR/git" status
+  )
+  _assert_eq "git launcher nested probe: hg marker reaches real git" \
+    "real-git-status" "$result"
+  _assert_contains "git launcher nested probe: hg marker keeps Sapling authority" \
+    "sl:root --config ui.color=never" "$(cat "$_git_nested_probe_log")"
+
+  : >"$_git_nested_probe_log"
   result=$(
     cd "$_git_nested_probe_subdir" &&
       GIT_NESTED_PROBE_LOG="$_git_nested_probe_log" \
@@ -549,8 +588,8 @@ EOF
   _assert_eq "git launcher nested repo cache: invalidates stale Sapling root" \
     "real-git-status"$'\n'"real-git-status"$'\n'"dotfiles-status" "$result"
   _nested_sl_count=$(grep -c 'sl:root --config ui.color=never' "$_git_nested_probe_log" 2>/dev/null || true)
-  _assert_eq "git launcher nested repo cache: Sapling probe reruns after invalidation" \
-    "2" "$_nested_sl_count"
+  _assert_eq "git launcher nested repo cache: removed marker skips Sapling reprobe" \
+    "1" "$_nested_sl_count"
 
   _git_nested_probe_semantic_cache=$(_tmpdir)
   _git_nested_probe_semantic_log="$(_tmpdir)/git-nested-semantic.log"
