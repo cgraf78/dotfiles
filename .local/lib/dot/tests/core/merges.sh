@@ -66,6 +66,161 @@ TMUX
     "has-session" "$(cat "$tmux_log")"
   unset -f _run_tmux_merge_for_test merge 2>/dev/null
 
+  echo "=== Neovim merge hook ==="
+
+  nvim_home="$TEST_HOME/nvim-merge-home"
+  nvim_bin="$nvim_home/bin"
+  nvim_log="$nvim_home/nvim.log"
+  nvim_state="$nvim_home/state"
+  nvim_data="$nvim_home/data"
+  nvim_lock="$nvim_data/nvim/lazy/lazy.nvim.update.lock"
+  nvim_pgrep_state="$nvim_home/pgrep-state"
+  mkdir -p "$nvim_home/.config/nvim" "$nvim_bin" \
+    "$nvim_data/nvim/lazy/lazy.nvim"
+  : >"$nvim_home/.config/nvim/init.lua"
+  cat >"$nvim_bin/nvim" <<'NVIM'
+#!/bin/sh
+[ -z "${DOT_TEST_NVIM_LOCK:-}" ] || [ -d "$DOT_TEST_NVIM_LOCK" ] || exit 88
+printf '%s\n' "$*" >>"$DOT_TEST_NVIM_LOG"
+NVIM
+  cat >"$nvim_bin/pgrep" <<'PGREP'
+#!/bin/sh
+if [ -n "${DOT_TEST_PGREP_SEQUENCE:-}" ]; then
+  step=0
+  [ ! -r "$DOT_TEST_PGREP_STATE" ] || step=$(cat "$DOT_TEST_PGREP_STATE")
+  set -- $DOT_TEST_PGREP_SEQUENCE
+  while [ "$step" -gt 0 ]; do
+    shift
+    step=$((step - 1))
+  done
+  printf '%s\n' "$(( $(cat "$DOT_TEST_PGREP_STATE" 2>/dev/null || printf 0) + 1 ))" \
+    >"$DOT_TEST_PGREP_STATE"
+  exit "$1"
+fi
+exit "${DOT_TEST_PGREP_STATUS:-1}"
+PGREP
+  chmod +x "$nvim_bin/nvim" "$nvim_bin/pgrep"
+  _run_nvim_merge_for_test() {
+    unset -f merge 2>/dev/null
+    # shellcheck source=/dev/null
+    . "$REAL_HOME/.local/lib/dot/core/merge-hooks/nvim.sh"
+    merge
+  }
+
+  : >"$nvim_log"
+  HOME="$nvim_home" XDG_STATE_HOME="$nvim_state" XDG_DATA_HOME="$nvim_data" \
+    PATH="$nvim_bin:$PATH" DOT_TEST_NVIM_LOCK="$nvim_lock" DOT_TEST_NVIM_LOG="$nvim_log" \
+    DOT_TEST_PGREP_STATUS=1 _run_nvim_merge_for_test
+  _assert_eq "nvim merge: updates plugins headlessly when the editor is idle" \
+    "--headless --cmd lua vim.g.disable_session_restore = true +Lazy! update +qa" \
+    "$(cat "$nvim_log")"
+  _assert_eq "nvim merge: releases its lock after updating" "no" \
+    "$(test -d "$nvim_lock" && printf yes || printf no)"
+
+  : >"$nvim_log"
+  HOME="$nvim_home" XDG_STATE_HOME="$nvim_state" XDG_DATA_HOME="$nvim_data" \
+    PATH="$nvim_bin:$PATH" DOT_TEST_NVIM_LOCK="$nvim_lock" DOT_TEST_NVIM_LOG="$nvim_log" \
+    DOT_TEST_PGREP_STATUS=0 _run_nvim_merge_for_test
+  _assert_eq "nvim merge: does not update plugins beneath a running editor" "" "$(cat "$nvim_log")"
+
+  rm -f "$nvim_pgrep_state"
+  : >"$nvim_log"
+  HOME="$nvim_home" XDG_STATE_HOME="$nvim_state" XDG_DATA_HOME="$nvim_data" \
+    PATH="$nvim_bin:$PATH" DOT_TEST_NVIM_LOCK="$nvim_lock" DOT_TEST_NVIM_LOG="$nvim_log" \
+    DOT_TEST_PGREP_SEQUENCE="1 0" DOT_TEST_PGREP_STATE="$nvim_pgrep_state" \
+    _run_nvim_merge_for_test
+  _assert_eq "nvim merge: defers if Neovim starts after taking the lock" "" "$(cat "$nvim_log")"
+  _assert_eq "nvim merge: releases the lock after a raced editor start" "no" \
+    "$(test -d "$nvim_lock" && printf yes || printf no)"
+
+  : >"$nvim_log"
+  HOME="$nvim_home" XDG_STATE_HOME="$nvim_state" XDG_DATA_HOME="$nvim_data" \
+    PATH="$nvim_bin:$PATH" DOT_TEST_NVIM_LOCK="$nvim_lock" DOT_TEST_NVIM_LOG="$nvim_log" \
+    DOT_TEST_PGREP_STATUS=2 _run_nvim_merge_for_test
+  _assert_eq "nvim merge: defers when process inspection fails" "" "$(cat "$nvim_log")"
+
+  mkdir -p "$nvim_lock"
+  : >"$nvim_log"
+  HOME="$nvim_home" XDG_STATE_HOME="$nvim_state" XDG_DATA_HOME="$nvim_data" \
+    PATH="$nvim_bin:$PATH" DOT_TEST_NVIM_LOCK="$nvim_lock" DOT_TEST_NVIM_LOG="$nvim_log" \
+    DOT_TEST_PGREP_STATUS=1 _run_nvim_merge_for_test
+  _assert_eq "nvim merge: defers while another updater owns the lock" "" "$(cat "$nvim_log")"
+  rmdir "$nvim_lock"
+
+  mkdir -p "$nvim_lock"
+  cat >"$nvim_lock/owner" <<'OWNER'
+pid	99999999
+start	dead process
+token	dead-owner
+OWNER
+  : >"$nvim_log"
+  HOME="$nvim_home" XDG_STATE_HOME="$nvim_state" XDG_DATA_HOME="$nvim_data" \
+    PATH="$nvim_bin:$PATH" DOT_TEST_NVIM_LOCK="$nvim_lock" DOT_TEST_NVIM_LOG="$nvim_log" \
+    DOT_TEST_PGREP_STATUS=1 _run_nvim_merge_for_test
+  _assert_eq "nvim merge: reclaims a dead updater lock" \
+    "--headless --cmd lua vim.g.disable_session_restore = true +Lazy! update +qa" \
+    "$(cat "$nvim_log")"
+
+  nvim_live_pid="${BASHPID:-$$}"
+  nvim_live_start="$(_nvim_lazy_process_start "$nvim_live_pid")"
+  mkdir -p "$nvim_lock"
+  printf 'pid\t%s\nstart\t%s\ntoken\tlive-owner\n' \
+    "$nvim_live_pid" "$nvim_live_start" >"$nvim_lock/owner"
+  if _nvim_lazy_lock_reclaim_stale "$nvim_lock"; then
+    _fail "nvim merge: stale claimant never removes a live replacement owner"
+  elif [[ -f "$nvim_lock/owner" ]]; then
+    _pass "nvim merge: stale claimant restores a live replacement owner"
+  else
+    _fail "nvim merge: stale claimant restores a live replacement owner"
+  fi
+  rm -f "$nvim_lock/owner"
+  rmdir "$nvim_lock"
+
+  mkdir -p "$nvim_lock"
+  touch -t 200001010000 "$nvim_lock"
+  : >"$nvim_log"
+  HOME="$nvim_home" XDG_STATE_HOME="$nvim_state" XDG_DATA_HOME="$nvim_data" \
+    PATH="$nvim_bin:$PATH" DOT_TEST_NVIM_LOCK="$nvim_lock" DOT_TEST_NVIM_LOG="$nvim_log" \
+    DOT_TEST_PGREP_STATUS=1 _run_nvim_merge_for_test
+  _assert_eq "nvim merge: reclaims abandoned lock initialization" \
+    "--headless --cmd lua vim.g.disable_session_restore = true +Lazy! update +qa" \
+    "$(cat "$nvim_log")"
+
+  mkdir -p "$nvim_lock"
+  printf 'partial owner' >"$nvim_lock/owner.tmp.interrupted"
+  touch -t 200001010000 "$nvim_lock"
+  : >"$nvim_log"
+  HOME="$nvim_home" XDG_STATE_HOME="$nvim_state" XDG_DATA_HOME="$nvim_data" \
+    PATH="$nvim_bin:$PATH" DOT_TEST_NVIM_LOCK="$nvim_lock" DOT_TEST_NVIM_LOG="$nvim_log" \
+    DOT_TEST_PGREP_STATUS=1 _run_nvim_merge_for_test
+  _assert_eq "nvim merge: reclaims abandoned temporary owner files" \
+    "--headless --cmd lua vim.g.disable_session_restore = true +Lazy! update +qa" \
+    "$(cat "$nvim_log")"
+
+  mv "$nvim_bin/pgrep" "$nvim_bin/pgrep.disabled"
+  : >"$nvim_log"
+  HOME="$nvim_home" XDG_STATE_HOME="$nvim_state" XDG_DATA_HOME="$nvim_data" \
+    PATH="$nvim_bin" DOT_TEST_NVIM_LOCK="$nvim_lock" DOT_TEST_NVIM_LOG="$nvim_log" \
+    DOT_TEST_PGREP_STATUS=1 _run_nvim_merge_for_test
+  _assert_eq "nvim merge: skips when it cannot prove the editor is idle" "" "$(cat "$nvim_log")"
+  mv "$nvim_bin/pgrep.disabled" "$nvim_bin/pgrep"
+
+  rm -rf "$nvim_data/nvim/lazy/lazy.nvim"
+  : >"$nvim_log"
+  HOME="$nvim_home" XDG_STATE_HOME="$nvim_state" XDG_DATA_HOME="$nvim_data" \
+    PATH="$nvim_bin:$PATH" DOT_TEST_NVIM_LOCK="$nvim_lock" DOT_TEST_NVIM_LOG="$nvim_log" \
+    DOT_TEST_PGREP_STATUS=1 _run_nvim_merge_for_test
+  _assert_eq "nvim merge: skips the interactive Lazy bootstrap path" "" "$(cat "$nvim_log")"
+  mkdir -p "$nvim_data/nvim/lazy/lazy.nvim"
+
+  rm -rf "$nvim_home/.config/nvim"
+  : >"$nvim_log"
+  HOME="$nvim_home" XDG_STATE_HOME="$nvim_state" XDG_DATA_HOME="$nvim_data" \
+    PATH="$nvim_bin:$PATH" DOT_TEST_NVIM_LOCK="$nvim_lock" DOT_TEST_NVIM_LOG="$nvim_log" \
+    DOT_TEST_PGREP_STATUS=1 _run_nvim_merge_for_test
+  _assert_eq "nvim merge: skips hosts without a Neovim config" "" "$(cat "$nvim_log")"
+  unset -f _run_nvim_merge_for_test merge 2>/dev/null
+
   echo "=== Git config merge hook ==="
 
   git_home="$TEST_HOME/git-merge-home"

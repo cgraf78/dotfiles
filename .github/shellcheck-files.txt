@@ -84,6 +84,7 @@ program	.local/lib/dot/core/merge-hooks/ignore.sh
 program	.local/lib/dot/core/merge-hooks/iterm2.sh
 program	.local/lib/dot/core/merge-hooks/karabiner.sh
 program	.local/lib/dot/core/merge-hooks/mise.sh
+program	.local/lib/dot/core/merge-hooks/nvim.sh
 program	.local/lib/dot/core/merge-hooks/sapling.sh
 program	.local/lib/dot/core/merge-hooks/ssh.sh
 program	.local/lib/dot/core/merge-hooks/tmux.sh
