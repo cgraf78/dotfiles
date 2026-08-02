@@ -115,6 +115,22 @@ _assert_contains "tmux Ctrl-c copies and exits copy mode" \
   "bind -T copy-mode-vi C-c send-keys -X copy-pipe-and-cancel" "$tmux_content"
 _assert_contains "tmux Ctrl-c records history without requiring a host clipboard" \
   'copy-pipe-and-cancel "clip capture"' "$tmux_content"
+_assert_contains "tmux Enter records history through the Ctrl-c copy path" \
+  'bind -T copy-mode-vi Enter send-keys -X copy-pipe-and-cancel "clip capture"' "$tmux_content"
+_assert_contains "tmux Shift-Left extends copy-mode selections by a character" \
+  "bind -T copy-mode-vi S-Left if -F '#{selection_active}' 'send-keys -X cursor-left'" "$tmux_content"
+_assert_contains "tmux Shift-Right extends copy-mode selections by a character" \
+  "bind -T copy-mode-vi S-Right if -F '#{selection_active}' 'send-keys -X cursor-right'" "$tmux_content"
+_assert_contains "tmux Shift-Up extends copy-mode selections by a line" \
+  "bind -T copy-mode-vi S-Up if -F '#{selection_active}' 'send-keys -X cursor-up'" "$tmux_content"
+_assert_contains "tmux Shift-Down extends copy-mode selections by a line" \
+  "bind -T copy-mode-vi S-Down if -F '#{selection_active}' 'send-keys -X cursor-down'" "$tmux_content"
+_assert_contains "tmux Ctrl-Shift-Left extends copy-mode selections by a word" \
+  "bind -T copy-mode-vi C-S-Left if -F '#{selection_active}' 'send-keys -X previous-word'" "$tmux_content"
+_assert_contains "tmux Ctrl-Shift-Right extends copy-mode selections by a word" \
+  "bind -T copy-mode-vi C-S-Right if -F '#{selection_active}' 'send-keys -X next-word-end'" "$tmux_content"
+_assert_contains "tmux modified-arrow bindings anchor new selections" \
+  "send-keys -X begin-selection" "$tmux_content"
 _assert_contains "tmux publishes copy-mode selections through OSC 52" \
   "set -g set-clipboard on" "$tmux_content"
 _assert_contains "tmux Ctrl-v reads local clipboard policy through clip" \
@@ -358,6 +374,7 @@ if command -v tmux >/dev/null 2>&1; then
   tmux -S "$socket" -f /dev/null new-session -d -s dot-tmux-test 'sleep 60'
   tmux -S "$socket" source-file "$tmux_config"
   copy_keys=$(tmux -S "$socket" list-keys -T copy-mode-vi)
+  enter_copy_key=$(awk '/bind-key -T copy-mode-vi Enter/ { print }' <<<"$copy_keys")
   root_keys=$(tmux -S "$socket" list-keys -T root)
   prefix_keys=$(tmux -S "$socket" list-keys -T prefix)
   ctrl_tab_root_line=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root C-Tab ' || true)
@@ -394,6 +411,20 @@ if command -v tmux >/dev/null 2>&1; then
     $'\033[777004u' "$parent_key_3"
   _assert_contains "tmux runtime Ctrl-c copies and cancels" \
     "copy-pipe-and-cancel" "$copy_keys"
+  _assert_contains "tmux runtime Enter uses the captured copy path" \
+    'copy-pipe-and-cancel "clip capture"' "$enter_copy_key"
+  _assert_contains "tmux runtime Shift-Left extends copy-mode selections" \
+    "bind-key -T copy-mode-vi S-Left" "$copy_keys"
+  _assert_contains "tmux runtime Shift-Right extends copy-mode selections" \
+    "bind-key -T copy-mode-vi S-Right" "$copy_keys"
+  _assert_contains "tmux runtime Shift-Up extends copy-mode selections" \
+    "bind-key -T copy-mode-vi S-Up" "$copy_keys"
+  _assert_contains "tmux runtime Shift-Down extends copy-mode selections" \
+    "bind-key -T copy-mode-vi S-Down" "$copy_keys"
+  _assert_contains "tmux runtime Ctrl-Shift-Left extends copy-mode selections" \
+    "bind-key -T copy-mode-vi C-S-Left" "$copy_keys"
+  _assert_contains "tmux runtime Ctrl-Shift-Right extends copy-mode selections" \
+    "bind-key -T copy-mode-vi C-S-Right" "$copy_keys"
   _assert_contains "tmux runtime binds Ctrl-click mouse down" \
     "C-MouseDown1Pane" "$root_keys"
   _assert_contains "tmux runtime Ctrl-click uses installed helper path" \
