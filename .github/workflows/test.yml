@@ -11,6 +11,12 @@ on:
 permissions:
   contents: read
 
+# CI restores shdeps between runs. Force its existing bootstrap refresh so the
+# `dot update` below exercises the current release resolver before dot-test
+# runs the installed-tool smoke checks.
+env:
+  SHDEPS_FORCE: "1"
+
 jobs:
   shell:
     uses: cgraf78/actions/.github/workflows/shell-ci.yml@f9a9074b2d43fb3812067477d29307ef1e84e70e
