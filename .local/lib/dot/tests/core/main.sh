@@ -815,6 +815,85 @@ SH
   _assert_eq "shdeps bootstrap: repaired binary exposes wrapper ABI" \
     "abi:1" "$("$_shdeps_repair_dir/shdeps" __api version)"
 
+  # A forced update must replace the cached resolver before dependency update
+  # loads it. Otherwise a release that fixed resolver behavior cannot repair
+  # the very dependency that exposed the old behavior.
+  _shdeps_refresh_home=$(_tmpdir)
+  _shdeps_refresh_dir="$_shdeps_refresh_home/.local/share/shdeps"
+  _shdeps_refresh_bin="$_shdeps_refresh_home/fake-bin"
+  _shdeps_refresh_remote="$_shdeps_refresh_home/current-install.sh"
+  _shdeps_refresh_marker="$_shdeps_refresh_home/remote-installer-ran"
+  _shdeps_refresh_stale_marker="$_shdeps_refresh_home/stale-installer-sourced"
+  mkdir -p "$_shdeps_refresh_dir" "$_shdeps_refresh_bin"
+  printf '%s\n' '{"schema":1,"method":"release","artifact_platform":"linux-x86_64-musl"}' \
+    >"$_shdeps_refresh_dir/.shdeps-install.json"
+  cat >"$_shdeps_refresh_dir/shdeps" <<'SH'
+#!/usr/bin/env bash
+case "${1:-}:${2:-}" in
+  __api:version) printf '%s\n' 'abi:1' ;;
+esac
+SH
+  chmod +x "$_shdeps_refresh_dir/shdeps"
+  printf '%s\n' '# installed shdeps fixture' >"$_shdeps_refresh_dir/shdeps.sh"
+  cat >"$_shdeps_refresh_dir/install.sh" <<'SH'
+case "${1:-}" in
+  --bootstrap)
+    printf '%s\n' 'stale installer was sourced' >"$SHDEPS_REFRESH_STALE_MARKER"
+    shdeps_update() { :; }
+    ;;
+esac
+SH
+  cat >"$_shdeps_refresh_remote" <<'SH'
+#!/usr/bin/env bash
+set -u
+printf '%s\n' 'ran' >"$SHDEPS_REFRESH_MARKER"
+cat >"$SHDEPS_DIR/shdeps" <<'BIN'
+#!/usr/bin/env bash
+case "${1:-}:${2:-}" in
+  __api:version) printf '%s\n' 'abi:1' ;;
+esac
+BIN
+chmod +x "$SHDEPS_DIR/shdeps"
+cat >"$SHDEPS_DIR/install.sh" <<'INSTALL'
+case "${1:-}" in
+  --bootstrap) shdeps_update() { :; } ;;
+esac
+INSTALL
+SH
+  cat >"$_shdeps_refresh_bin/curl" <<'SH'
+#!/usr/bin/env bash
+set -u
+out=''
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -o) out="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+cp "$SHDEPS_REFRESH_REMOTE" "$out"
+SH
+  chmod +x "$_shdeps_refresh_bin/curl"
+  _shdeps_refresh_result=$(
+    unset SHDEPS_LIB SHDEPS_FORCE DOT_FORCE
+    HOME="$_shdeps_refresh_home" \
+      REAL_HOME="$_shdeps_refresh_home" \
+      SHDEPS_DIR="$_shdeps_refresh_dir" \
+      SHDEPS_GIT_DEV_DIR="$_shdeps_refresh_home/git" \
+      SHDEPS_REFRESH_REMOTE="$_shdeps_refresh_remote" \
+      SHDEPS_REFRESH_MARKER="$_shdeps_refresh_marker" \
+      SHDEPS_REFRESH_STALE_MARKER="$_shdeps_refresh_stale_marker" \
+      SHDEPS_FORCE=1 \
+      PATH="$_shdeps_refresh_bin:$PATH" \
+      _bootstrap_shdeps >/dev/null
+    printf 'rc=%s\n' "$?"
+  )
+  _assert_contains "shdeps bootstrap: forced refresh succeeds" \
+    "rc=0" "$_shdeps_refresh_result"
+  _assert_eq "shdeps bootstrap: forced refresh uses current installer" \
+    "ran" "$(cat "$_shdeps_refresh_marker" 2>/dev/null || true)"
+  _assert_file_missing "shdeps bootstrap: forced refresh skips stale installer" \
+    "$_shdeps_refresh_stale_marker"
+
   # Fleet machines can retain the source-checkout install shape from before
   # install.sh supported --bootstrap. That default installed tree is managed
   # state, not a dev checkout, and must migrate through the current installer.

@@ -11,9 +11,9 @@ on:
 permissions:
   contents: read
 
-# CI restores shdeps between runs. Force its existing bootstrap refresh so the
-# `dot update` below exercises the current release resolver before dot-test
-# runs the installed-tool smoke checks.
+# CI restores shdeps between runs. Force the existing `dot update` dependency
+# check so it refreshes the bootstrap resolver before dot-test runs the
+# installed-tool smoke checks.
 env:
   SHDEPS_FORCE: "1"
 
