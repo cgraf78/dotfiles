@@ -360,7 +360,7 @@ for _dependency in ast-grep/ast-grep watchexec/watchexec fujiapple852/trippy; do
     "os:!macos" "$_dependency_dep"
 done
 
-for _developer_tool in ast-grep watchexec trippy; do
+for _developer_tool in watchexec trippy; do
   _developer_tool_dep=$(awk -v name="$_developer_tool" '$1 == name && $2 == "pkg" { print; exit }' \
     "$REAL_HOME/.config/shdeps/10-deps.conf")
   _assert_eq "developer tool: $_developer_tool uses Homebrew on macOS" \
@@ -370,12 +370,18 @@ for _developer_tool in ast-grep watchexec trippy; do
 done
 _ast_grep_github_dep=$(awk '$1 == "ast-grep/ast-grep" { print; exit }' \
   "$REAL_HOME/.config/shdeps/10-deps.conf")
-_assert_contains "developer tool: ast-grep github route excludes Alpine" \
+_assert_not_contains "developer tool: ast-grep does not use a distro filter" \
   "os:!alpine" "$_ast_grep_github_dep"
-_ast_grep_alpine_dep=$(awk '$1 == "ast-grep" && $2 == "pkg" && /os:alpine/ { print; exit }' \
+_ast_grep_pkg_dep=$(awk '$1 == "ast-grep" && $2 == "pkg" { print; exit }' \
   "$REAL_HOME/.config/shdeps/10-deps.conf")
-_assert_contains "developer tool: ast-grep uses Alpine package" \
-  "os:alpine" "$_ast_grep_alpine_dep"
+_assert_eq "developer tool: ast-grep has one native package route" "1" \
+  "$(awk '$1 == "ast-grep" && $2 == "pkg" { count++ } END { print count + 0 }' "$REAL_HOME/.config/shdeps/10-deps.conf")"
+_assert_contains "developer tool: ast-grep selects Alpine apk" \
+  "apk:ast-grep" "$_ast_grep_pkg_dep"
+for _manager in android apt dnf pacman zypper; do
+  _assert_contains "developer tool: ast-grep skips $_manager packages" \
+    "$_manager:NONE" "$_ast_grep_pkg_dep"
+done
 _assert_eq "ast-grep: command is ast-grep" "ast-grep" \
   "$(awk '$1 == "ast-grep/ast-grep" { print $3; exit }' "$REAL_HOME/.config/shdeps/10-deps.conf")"
 _assert_eq "watchexec: command is watchexec" "watchexec" \
