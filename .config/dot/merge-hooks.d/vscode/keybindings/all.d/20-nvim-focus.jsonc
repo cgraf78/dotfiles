@@ -1,0 +1,263 @@
+// Pass VS Code-style chords through only while Termnav proves that the active
+// terminal and tmux pane are owned by nvim. Missing or expired context leaves
+// the normal VS Code command active.
+[
+  {
+    "key": "ctrl+a",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u0001" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
+  {
+    "key": "ctrl+b",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u0002" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
+  {
+    "key": "ctrl+c",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u0003" },
+    "when": "terminalFocus && termnav.nvimFocused && !terminalTextSelected"
+  },
+  {
+    "key": "ctrl+d",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u0004" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
+  {
+    "key": "ctrl+e",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u0005" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
+  {
+    "key": "ctrl+f",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u0006" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
+  {
+    "key": "ctrl+g",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u0007" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
+  {
+    "key": "ctrl+h",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u0008" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
+  {
+    "key": "ctrl+i",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u0009" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
+  {
+    "key": "ctrl+j",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u000a" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
+  {
+    "key": "ctrl+k",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u000b" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
+  {
+    "key": "ctrl+l",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u000c" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
+  {
+    "key": "ctrl+m",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u000d" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
+  {
+    "key": "ctrl+n",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u000e" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
+  {
+    "key": "ctrl+o",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u000f" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
+  {
+    "key": "ctrl+p",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u0010" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
+  {
+    "key": "ctrl+q",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u0011" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
+  {
+    "key": "ctrl+r",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u0012" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
+  {
+    "key": "ctrl+s",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u0013" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
+  {
+    "key": "ctrl+t",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u0014" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
+  {
+    "key": "ctrl+u",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u0015" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
+  {
+    "key": "ctrl+v",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u0016" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
+  {
+    "key": "ctrl+w",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u0017" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
+  {
+    "key": "ctrl+x",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u0018" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
+  {
+    "key": "ctrl+y",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u0019" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
+  {
+    "key": "ctrl+z",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001a" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
+  {
+    "key": "ctrl+/",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001f" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
+  {
+    "key": "ctrl+`",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u0000" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
+  {
+    "key": "ctrl+.",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[46;5u" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
+  {
+    "key": "ctrl+shift+g",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[103;6u" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
+  {
+    "key": "ctrl+shift+v",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[118;6u" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
+  {
+    "key": "ctrl+left",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[1;5D" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
+  {
+    "key": "ctrl+right",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[1;5C" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
+  {
+    "key": "ctrl+up",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[1;5A" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
+  {
+    "key": "ctrl+down",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[1;5B" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
+  {
+    "key": "ctrl+shift+left",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[1;6D" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
+  {
+    "key": "ctrl+shift+right",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[1;6C" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
+  {
+    "key": "ctrl+shift+up",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[1;6A" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
+  {
+    "key": "ctrl+shift+down",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[1;6B" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
+  {
+    "key": "alt+up",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[1;3A" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
+  {
+    "key": "alt+down",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[1;3B" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
+  {
+    "key": "shift+alt+up",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[1;4A" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
+  {
+    "key": "shift+alt+down",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[1;4B" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  }
+]
