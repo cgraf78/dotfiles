@@ -965,7 +965,7 @@ JSON
       "$vscode_bin" \
       "$vscode_home/.config/Code/User" \
       "$vscode_home/.config/dot/merge-hooks.d" \
-      "$vscode_home/.local/share/cgraf78/termnav/share/termnav/vscode/termnav-0.2.0" \
+      "$vscode_home/.local/share/cgraf78/termnav/share/termnav/vscode/termnav-0.3.0" \
       "$vscode_home/.local/share/dot-vscode-extensions" \
       "$vscode_home/.vscode/extensions"
     cat >"$vscode_home/.config/Code/User/settings.json" <<'JSON'
@@ -1001,11 +1001,11 @@ JSON
 JSON
     cp -R "$REAL_HOME/.local/share/dot-vscode-extensions/sley-tools-0.0.1" \
       "$vscode_home/.local/share/dot-vscode-extensions/sley-tools-0.0.1"
-    cat >"$vscode_home/.local/share/cgraf78/termnav/share/termnav/vscode/termnav-0.2.0/package.json" <<'JSON'
+    cat >"$vscode_home/.local/share/cgraf78/termnav/share/termnav/vscode/termnav-0.3.0/package.json" <<'JSON'
 {
   "name": "termnav",
   "publisher": "cgraf",
-  "version": "0.2.0"
+  "version": "0.3.0"
 }
 JSON
     vscode_mv_log="$vscode_home/mv.log"
@@ -1639,7 +1639,7 @@ PY
     _assert_contains "vscode termnav: extension registered" \
       '"id":"cgraf.termnav"' "$vscode_extensions"
     _assert_eq "vscode local extensions: registration uses the manifest version" \
-      "0.2.0" \
+      "0.3.0" \
       "$(jq -r '.[] | select(.identifier.id == "cgraf.termnav") | .version' "$vscode_home/.vscode/extensions/extensions.json")"
     _assert_eq "vscode local extensions: only declared extensions are registered" \
       '["cgraf.sley-tools","cgraf.termnav"]' \
@@ -1662,7 +1662,7 @@ PY
     else
       _fail "vscode sley: extension symlink deployed"
     fi
-    if [[ -L "$vscode_home/.vscode/extensions/termnav-0.2.0" ]]; then
+    if [[ -L "$vscode_home/.vscode/extensions/termnav-0.3.0" ]]; then
       _pass "vscode termnav: extension symlink deployed"
     else
       _fail "vscode termnav: extension symlink deployed"
@@ -1734,7 +1734,7 @@ PY
     else
       _fail "vscode sley: extension-only symlink deployed"
     fi
-    if [[ -L "$vscode_home/.vscode-server/extensions/termnav-0.2.0" ]]; then
+    if [[ -L "$vscode_home/.vscode-server/extensions/termnav-0.3.0" ]]; then
       _pass "vscode termnav: extension-only symlink deployed"
     else
       _fail "vscode termnav: extension-only symlink deployed"
@@ -1771,7 +1771,7 @@ PY
     else
       _fail "vscode sley: no-sley variant removes formatter symlink"
     fi
-    if [[ -L "$vscode_home/.vscode-nosley/extensions/termnav-0.2.0" ]]; then
+    if [[ -L "$vscode_home/.vscode-nosley/extensions/termnav-0.3.0" ]]; then
       _pass "vscode termnav: no-sley variant keeps tab router"
     else
       _fail "vscode termnav: no-sley variant keeps tab router"
@@ -1844,7 +1844,7 @@ JSON
     else
       _fail "vscode wsl: server sley symlink deployed"
     fi
-    if [[ -L "$vscode_home/.vscode-server/extensions/termnav-0.2.0" ]]; then
+    if [[ -L "$vscode_home/.vscode-server/extensions/termnav-0.3.0" ]]; then
       _pass "vscode wsl: server termnav symlink deployed"
     else
       _fail "vscode wsl: server termnav symlink deployed"

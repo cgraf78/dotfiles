@@ -29,7 +29,8 @@ thin loaders. The ordered files in this directory hold the actual shell policy.
     ├── 60-prompt.bash
     ├── 60-prompt.zsh
     ├── 70-integrations.bash
-    └── 70-integrations.zsh
+    ├── 70-integrations.zsh
+    └── 71-zsh-completion-cache.zsh
 ```
 
 ## Loading Policy
@@ -49,7 +50,7 @@ thin loaders. The ordered files in this directory hold the actual shell policy.
 - `.zsh` files load only in Zsh.
 - Numeric prefixes define order.
 
-Base files generally use prefixes in the `50-70` range. Overlay files should
+Base files generally use prefixes in the `50-71` range. Overlay files should
 use `80-` or higher unless they must run before base setup.
 
 See [`env.d/README.md`](env.d/README.md) and
