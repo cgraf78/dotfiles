@@ -11,6 +11,11 @@ local function workspace_grep()
   require("nvim_workspace").grep()
 end
 
+local function workspace_explorer()
+  local paths = require("nvim_workspace.neo_tree")
+  paths.open(paths.context_root(), { action = "focus" })
+end
+
 return {
   {
     "cgraf78/nvim-workspace",
@@ -70,12 +75,10 @@ return {
       },
       {
         "<leader>fE",
-        function()
-          local paths = require("nvim_workspace.neo_tree")
-          paths.open(paths.context_root(), { action = "focus" })
-        end,
+        workspace_explorer,
         desc = "Explorer NeoTree (Workspace Root)",
       },
+      { "<C-S-e>", workspace_explorer, desc = "Explorer NeoTree (Workspace Root)" },
     },
     opts = function()
       local paths = require("nvim_workspace.neo_tree")

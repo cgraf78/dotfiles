@@ -113,7 +113,7 @@ local function has_search_match()
     return false
   end
 
-  -- Insert-mode Ctrl-G should be a no-op when there is no real match; leaving
+  -- Insert-mode F3 should be a no-op when there is no real match; leaving
   -- Insert mode just to discover that would eat the next typed character.
   local ok, count = pcall(vim.fn.searchcount, { recompute = true, maxcount = 1 })
   return ok and (count.total or 0) > 0
@@ -209,15 +209,49 @@ function M.select_next_search(from_insert)
 end
 
 function M.select_previous_search_from_insert()
-  if has_search_match() then
-    M.select_previous_search(true)
+  if not has_search_match() then
+    return
   end
+
+  local win = vim.api.nvim_get_current_win()
+  local buf = vim.api.nvim_get_current_buf()
+  vim.cmd("stopinsert")
+  vim.schedule(function()
+    if not vim.api.nvim_win_is_valid(win) or vim.api.nvim_get_current_win() ~= win then
+      return
+    end
+    if
+      not vim.api.nvim_buf_is_valid(buf)
+      or vim.api.nvim_win_get_buf(win) ~= buf
+      or vim.fn.mode() ~= "n"
+    then
+      return
+    end
+    M.select_previous_search()
+  end)
 end
 
 function M.select_next_search_from_insert()
-  if has_search_match() then
-    M.select_next_search(true)
+  if not has_search_match() then
+    return
   end
+
+  local win = vim.api.nvim_get_current_win()
+  local buf = vim.api.nvim_get_current_buf()
+  vim.cmd("stopinsert")
+  vim.schedule(function()
+    if not vim.api.nvim_win_is_valid(win) or vim.api.nvim_get_current_win() ~= win then
+      return
+    end
+    if
+      not vim.api.nvim_buf_is_valid(buf)
+      or vim.api.nvim_win_get_buf(win) ~= buf
+      or vim.fn.mode() ~= "n"
+    then
+      return
+    end
+    M.select_next_search()
+  end)
 end
 
 return M

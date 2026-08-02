@@ -532,14 +532,14 @@ result=$(_nvim_vscode_keys '
   vim.wait(100, function()
     return vim.fn.mode() == "s"
   end)
-  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-g>", true, false, true), "xt", false)
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<F3>", true, false, true), "xt", false)
   vim.wait(100, function()
     return vim.fn.mode() == "s"
   end)
   vim.api.nvim_feedkeys("bar", "xt", false)
   print(vim.api.nvim_get_current_line())
 ')
-_assert_contains "selection find: Ctrl-G selects next match for replacement typing" \
+_assert_contains "selection find: F3 selects next match for replacement typing" \
   "xx foo yy bar" "$result"
 
 result=$(_nvim_vscode_keys '
@@ -549,22 +549,22 @@ result=$(_nvim_vscode_keys '
   vim.wait(100, function()
     return vim.fn.mode() == "s"
   end)
-  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-g>", true, false, true), "xt", false)
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<F3>", true, false, true), "xt", false)
   vim.wait(100, function()
     return vim.fn.mode() == "s" and vim.api.nvim_win_get_cursor(0)[2] > 7
   end)
-  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-g>", true, false, true), "xt", false)
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<F3>", true, false, true), "xt", false)
   vim.wait(100, function()
     return vim.fn.mode() == "s" and vim.api.nvim_win_get_cursor(0)[2] > 11
   end)
-  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-g>", true, false, true), "xt", false)
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<F3>", true, false, true), "xt", false)
   vim.wait(100, function()
     return vim.fn.mode() == "s" and vim.api.nvim_win_get_cursor(0)[2] < 6
   end)
   vim.api.nvim_feedkeys("bar", "xt", false)
   print(vim.api.nvim_get_current_line())
 ')
-_assert_contains "selection find: Ctrl-G keeps advancing and wraps" \
+_assert_contains "selection find: F3 keeps advancing and wraps" \
   "x bar foo foo" "$result"
 
 result=$(_nvim_vscode_keys '
@@ -574,47 +574,214 @@ result=$(_nvim_vscode_keys '
   vim.wait(100, function()
     return vim.fn.mode() == "s"
   end)
-  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-g>", true, false, true), "xt", false)
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<F3>", true, false, true), "xt", false)
   vim.wait(100, function()
     return vim.fn.mode() == "s" and vim.api.nvim_win_get_cursor(0)[2] > 10
   end)
-  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-S-g>", true, false, true), "xt", false)
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<S-F3>", true, false, true), "xt", false)
   vim.wait(100, function()
     return vim.fn.mode() == "s"
   end)
   vim.api.nvim_feedkeys("bar", "xt", false)
   print(vim.api.nvim_get_current_line())
 ')
-_assert_contains "selection find: Ctrl-Shift-G selects previous match for replacement typing" \
+_assert_contains "selection find: Shift-F3 selects previous match for replacement typing" \
   "xx bar yy foo" "$result"
 
 result=$(_nvim_vscode_keys '
   vim.api.nvim_buf_set_lines(0, 0, -1, false, {"abc"})
   vim.fn.setreg("/", "")
   vim.api.nvim_win_set_cursor(0, { 1, 1 })
-  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("i<C-g>Z", true, false, true), "xt", false)
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("i<F3>Z", true, false, true), "xt", false)
   vim.wait(100, function()
     return vim.api.nvim_get_current_line():find("Z", 1, true) ~= nil
   end)
   print(vim.api.nvim_get_current_line())
 ')
 expected="aZbc"
-_assert_eq "selection find: insert Ctrl-G without search keeps accepting text" \
+_assert_eq "selection find: insert F3 without search keeps accepting text" \
   "$expected" "$result"
 
 result=$(_nvim_vscode_keys '
   vim.api.nvim_buf_set_lines(0, 0, -1, false, {"abc"})
   vim.fn.setreg("/", "missing")
   vim.api.nvim_win_set_cursor(0, { 1, 1 })
-  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("i<C-S-g>Z", true, false, true), "xt", false)
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("i<S-F3>Z", true, false, true), "xt", false)
   vim.wait(100, function()
     return vim.api.nvim_get_current_line():find("Z", 1, true) ~= nil
   end)
   print(vim.api.nvim_get_current_line())
 ')
 expected="aZbc"
-_assert_eq "selection find: insert Ctrl-Shift-G with stale search keeps accepting text" \
+_assert_eq "selection find: insert Shift-F3 with stale search keeps accepting text" \
   "$expected" "$result"
+
+result=$(_nvim_vscode_keys '
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, {"foo x foo"})
+  vim.fn.setreg("/", "foo")
+  vim.api.nvim_win_set_cursor(0, { 1, 0 })
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<F3>", true, false, true), "xt", false)
+  vim.wait(100, function()
+    return vim.fn.mode() == "s"
+  end)
+  vim.api.nvim_feedkeys("bar", "xt", false)
+  print(vim.api.nvim_get_current_line())
+')
+_assert_eq "selection find: normal F3 selects the next match" "foo x bar" "$result"
+
+result=$(_nvim_vscode_keys '
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, {"foo x foo"})
+  vim.fn.setreg("/", "foo")
+  vim.api.nvim_win_set_cursor(0, { 1, 6 })
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<S-F3>", true, false, true), "xt", false)
+  vim.wait(100, function()
+    return vim.fn.mode() == "s"
+  end)
+  vim.api.nvim_feedkeys("bar", "xt", false)
+  print(vim.api.nvim_get_current_line())
+')
+_assert_eq "selection find: normal Shift-F3 selects the previous match" "bar x foo" "$result"
+
+result=$(_nvim_vscode_keys '
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, {"foo x foo"})
+  vim.fn.setreg("/", "foo")
+  vim.api.nvim_win_set_cursor(0, { 1, 0 })
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("i<F3>", true, false, true), "xt", false)
+  vim.wait(100, function()
+    return vim.fn.mode() == "s"
+  end)
+  vim.api.nvim_feedkeys("bar", "xt", false)
+  print(vim.api.nvim_get_current_line())
+')
+_assert_eq "selection find: insert F3 selects the next match" "foo x bar" "$result"
+
+result=$(_nvim_vscode_keys '
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, {"foo x foo"})
+  vim.fn.setreg("/", "foo")
+  vim.api.nvim_win_set_cursor(0, { 1, 6 })
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("i<S-F3>", true, false, true), "xt", false)
+  vim.wait(100, function()
+    return vim.fn.mode() == "s"
+  end)
+  vim.api.nvim_feedkeys("bar", "xt", false)
+  print(vim.api.nvim_get_current_line())
+')
+_assert_eq "selection find: insert Shift-F3 selects the previous match" "bar x foo" "$result"
+
+result=$(_nvim_vscode_keys '
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, vim.fn["repeat"]({ "abcdef" }, 20))
+  vim.ui.input = function(opts, callback)
+    print(opts.prompt)
+    callback("12")
+  end
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-g>", true, false, true), "xt", false)
+  print(vim.inspect(vim.api.nvim_win_get_cursor(0)))
+')
+expected="$(printf 'Go to line: \n{ 12, 0 }')"
+_assert_eq "navigation: Ctrl-G prompts for and moves to a line" "$expected" "$result"
+
+result=$(_nvim_vscode_keys '
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, vim.fn["repeat"]({ "abcdef" }, 20))
+  vim.api.nvim_win_set_cursor(0, { 2, 2 })
+  vim.ui.input = function(_, callback)
+    callback("12:4")
+  end
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-g>", true, false, true), "xt", false)
+  print(vim.inspect(vim.api.nvim_win_get_cursor(0)))
+')
+_assert_eq "navigation: Ctrl-G accepts a one-based line and column" "{ 12, 3 }" "$result"
+
+result=$(_nvim_vscode_keys '
+  local callback
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, { "abcdef", "abcdef" })
+  vim.ui.input = function(_, input_callback)
+    callback = input_callback
+  end
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("i<C-g>", true, false, true), "xt", false)
+  if not callback then
+    print("missing-callback")
+    return
+  end
+  callback("2:2")
+  print(vim.inspect(vim.api.nvim_win_get_cursor(0)))
+')
+_assert_eq "navigation: insert Ctrl-G opens Go to Line" "{ 2, 1 }" "$result"
+
+result=$(_nvim_vscode_keys '
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, { "abcdef", "aébc" })
+  vim.api.nvim_win_set_cursor(0, { 2, 2 })
+  vim.ui.input = function(_, callback)
+    callback("2:3")
+  end
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-g>", true, false, true), "xt", false)
+  print(vim.inspect(vim.api.nvim_win_get_cursor(0)))
+')
+_assert_eq "navigation: Ctrl-G counts multibyte columns as characters" "{ 2, 3 }" "$result"
+
+result=$(_nvim_vscode_keys '
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, { "abcdef", "abc" })
+  vim.api.nvim_win_set_cursor(0, { 2, 2 })
+  vim.ui.input = function(_, callback)
+    callback("2:99")
+  end
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-g>", true, false, true), "xt", false)
+  print(vim.inspect(vim.api.nvim_win_get_cursor(0)))
+')
+_assert_eq "navigation: Ctrl-G lands an overlong column at end of line" "{ 2, 2 }" "$result"
+
+for invalid_location in 0 0:1 1:0 3 'not a location'; do
+  result=$(_nvim_vscode_keys "
+    vim.api.nvim_buf_set_lines(0, 0, -1, false, { 'abcdef', 'abc' })
+    vim.api.nvim_win_set_cursor(0, { 2, 2 })
+    vim.ui.input = function(_, callback)
+      callback('$invalid_location')
+    end
+    vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes('<C-g>', true, false, true), 'xt', false)
+    print(vim.inspect(vim.api.nvim_win_get_cursor(0)))
+  ")
+  _assert_eq "navigation: Ctrl-G ignores invalid location $invalid_location" "{ 2, 2 }" "$result"
+done
+
+result=$(_nvim_vscode_keys '
+  local callback
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, vim.fn["repeat"]({ "abcdef" }, 20))
+  local origin = vim.api.nvim_get_current_win()
+  vim.api.nvim_win_set_cursor(origin, { 2, 2 })
+  vim.ui.input = function(_, input_callback)
+    callback = input_callback
+  end
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-g>", true, false, true), "xt", false)
+  vim.cmd("vsplit")
+  local replacement = vim.api.nvim_get_current_win()
+  vim.api.nvim_win_set_cursor(replacement, { 3, 3 })
+  if not callback then
+    print("missing-callback")
+    return
+  end
+  callback("12:4")
+  print(vim.inspect(vim.api.nvim_win_get_cursor(origin)))
+  print(vim.inspect(vim.api.nvim_win_get_cursor(replacement)))
+')
+expected="$(printf '{ 2, 2 }\n{ 3, 3 }')"
+_assert_eq "navigation: stale Ctrl-G callback leaves both windows untouched" "$expected" "$result"
+
+result=$(_nvim_vscode_keys '
+  local jumps = {}
+  vim.diagnostic.jump = function(opts)
+    jumps[#jumps + 1] = opts.count .. ":" .. tostring(opts.float)
+  end
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<F8><S-F8>", true, false, true), "xt", false)
+  print(table.concat(jumps, "|"))
+')
+_assert_eq "diagnostics: F8 and Shift-F8 navigate with a detail float" "1:true|-1:true" "$result"
+
+result=$(_nvim_vscode_keys '
+  vim.api.nvim_create_user_command("Trouble", function(opts)
+    print(opts.args)
+  end, { nargs = "*" })
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-S-m>", true, false, true), "xt", false)
+')
+_assert_eq "diagnostics: Ctrl-Shift-M opens Problems" "diagnostics toggle" "$result"
 
 result=$(_nvim_vscode_keys '
   local rhs = vim.fn.maparg("<C-q>", "n")
@@ -736,6 +903,69 @@ result=$(_nvim_vscode_keys "
 ")
 expected="$(printf '%s\nabsolute' "$NVIM_CTRL_S_ABSOLUTE_FILE")"
 _assert_eq_realpath_lines "save: absolute filename is preserved" "$expected" "$result"
+
+NVIM_CTRL_S_STALE_TMP=$(_tmpdir)
+NVIM_CTRL_S_STALE_FILE="$NVIM_CTRL_S_STALE_TMP/incorrect-target.txt"
+result=$(_nvim_vscode_keys "
+  local callback
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, {'original buffer'})
+  local original = vim.api.nvim_get_current_buf()
+  vim.ui.input = function(_, input_callback)
+    callback = input_callback
+  end
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes('<C-s>', true, false, true), 'xt', false)
+  vim.cmd('new')
+  local replacement = vim.api.nvim_get_current_buf()
+  callback('$NVIM_CTRL_S_STALE_FILE')
+  print(table.concat({
+    tostring(vim.fn.filereadable('$NVIM_CTRL_S_STALE_FILE')),
+    vim.api.nvim_buf_get_name(original),
+    vim.api.nvim_buf_get_lines(original, 0, -1, false)[1],
+    tostring(vim.api.nvim_get_current_buf() == replacement),
+  }, '|'))
+")
+_assert_eq "save: stale Save As callback leaves its original buffer and new buffer untouched" \
+  "0||original buffer|true" "$result"
+
+NVIM_CTRL_S_STALE_INSERT_TMP=$(_tmpdir)
+NVIM_CTRL_S_STALE_INSERT_FILE="$NVIM_CTRL_S_STALE_INSERT_TMP/incorrect-target.txt"
+result=$(_nvim_vscode_keys "
+  local callback
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, {'original buffer'})
+  local original = vim.api.nvim_get_current_win()
+  vim.ui.input = function(_, input_callback)
+    callback = input_callback
+  end
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes('i<C-s>', true, false, true), 'xt', false)
+  vim.cmd('vsplit')
+  local replacement = vim.api.nvim_get_current_win()
+  callback('$NVIM_CTRL_S_STALE_INSERT_FILE')
+  print(table.concat({
+    tostring(vim.fn.filereadable('$NVIM_CTRL_S_STALE_INSERT_FILE')),
+    tostring(vim.api.nvim_get_current_win() == replacement),
+    vim.fn.mode(),
+    vim.api.nvim_buf_get_lines(vim.api.nvim_win_get_buf(original), 0, -1, false)[1],
+  }, '|'))
+")
+_assert_eq "save: stale insert Save As callback does not write or resume in another window" \
+  "0|true|n|original buffer" "$result"
+
+NVIM_CTRL_S_WIPED_TMP=$(_tmpdir)
+NVIM_CTRL_S_WIPED_FILE="$NVIM_CTRL_S_WIPED_TMP/incorrect-target.txt"
+result=$(_nvim_vscode_keys "
+  local callback
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, {'wiped buffer'})
+  local original = vim.api.nvim_get_current_buf()
+  vim.ui.input = function(_, input_callback)
+    callback = input_callback
+  end
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes('<C-s>', true, false, true), 'xt', false)
+  vim.cmd('new')
+  vim.api.nvim_buf_delete(original, { force = true })
+  callback('$NVIM_CTRL_S_WIPED_FILE')
+  print(tostring(vim.fn.filereadable('$NVIM_CTRL_S_WIPED_FILE')) .. '|' .. tostring(vim.api.nvim_buf_is_valid(original)))
+")
+_assert_eq "save: wiped Save As origin ignores a delayed callback" "0|false" "$result"
 
 result=$(_nvim_vscode_keys '
   vim.api.nvim_buf_set_lines(0, 0, -1, false, {"cancelled"})
@@ -1573,13 +1803,21 @@ result=$(_nvim_lua '
       print(tostring(opts.filesystem.window.mappings["<C-r>"]))
       spec.keys[1][2]()
       spec.keys[2][2]()
+      for _, key in ipairs(spec.keys) do
+        if key[1] == "<C-S-e>" then
+          print(key.desc)
+          key[2]()
+          return
+        end
+      end
+      print("missing-explorer-key")
       return
     end
   end
   print("missing")
 ')
-expected="$(printf 'false\nalways\nhome\nopen=nil:true:nil\nopen=/workspace/root:nil:focus')"
-_assert_eq "nvim-workspace: neo-tree integration uses extracted helper" \
+expected="$(printf 'false\nalways\nhome\nopen=nil:true:nil\nopen=/workspace/root:nil:focus\nExplorer NeoTree (Workspace Root)\nopen=/workspace/root:nil:focus')"
+_assert_eq "nvim-workspace: neo-tree integration exposes a workspace Explorer key" \
   "$expected" "$result"
 
 LAZYGIT_BIN_TMP=$(_tmpdir)
