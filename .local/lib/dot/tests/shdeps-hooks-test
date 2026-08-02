@@ -351,6 +351,19 @@ for _dependency in agentguard checkrun cmdblocks sley termnav; do
     "github" "$(awk '{ print $2 }' <<<"$_dependency_dep")"
 done
 
+for _dependency in ast-grep/ast-grep watchexec/watchexec fujiapple852/trippy; do
+  _dependency_dep=$(awk -v name="$_dependency" '$1 == name { print; exit }' \
+    "$REAL_HOME/.config/shdeps/10-deps.conf")
+  _assert_eq "developer tool: $_dependency uses the native github updater" \
+    "github" "$(awk '{ print $2 }' <<<"$_dependency_dep")"
+done
+_assert_eq "ast-grep: command is sg" "sg" \
+  "$(awk '$1 == "ast-grep/ast-grep" { print $3; exit }' "$REAL_HOME/.config/shdeps/10-deps.conf")"
+_assert_eq "watchexec: command is watchexec" "watchexec" \
+  "$(awk '$1 == "watchexec/watchexec" { print $3; exit }' "$REAL_HOME/.config/shdeps/10-deps.conf")"
+_assert_eq "trippy: command is trip" "trip" \
+  "$(awk '$1 == "fujiapple852/trippy" { print $3; exit }' "$REAL_HOME/.config/shdeps/10-deps.conf")"
+
 _gstack_hook="$REAL_HOME/.config/shdeps/hooks.d/garrytan/gstack.sh"
 _gstack_home=$(_tmpdir)
 _gstack_repo="$_gstack_home/.local/share/garrytan/gstack"
