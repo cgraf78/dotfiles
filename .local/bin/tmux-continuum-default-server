@@ -24,14 +24,50 @@ fi
 socket_root=${TMUX_TMPDIR:-/tmp}
 socket_root=${socket_root%/}
 default_socket="$socket_root/tmux-$(id -u)/default"
-[[ "$(canonical_socket_path "$socket")" == "$(canonical_socket_path "$default_socket")" ]] || exit 0
+is_default=0
+if [[ "$(canonical_socket_path "$socket")" == "$(canonical_socket_path "$default_socket")" ]]; then
+  is_default=1
+fi
 
 plugin_root=${TMUX_PLUGIN_MANAGER_PATH:-$HOME/.local/share/tmux-plugins/}
 plugin_root=${plugin_root/#\~/$HOME}
 plugin_root=${plugin_root%/}
 save_script="$plugin_root/tmux-continuum/scripts/continuum_save.sh"
 restore_script="$plugin_root/tmux-resurrect/scripts/restore.sh"
-[[ -x "$save_script" && -x "$restore_script" ]] || exit 0
+helper_source=${BASH_SOURCE[0]}
+if [[ "$helper_source" != */* ]]; then
+  helper_source=$(command -v -- "$helper_source" 2>/dev/null) ||
+    helper_source="./$helper_source"
+fi
+[[ "$helper_source" == */* ]] || helper_source="./$helper_source"
+gate_script="${helper_source%/*}/tmux-continuum-save-gate"
+[[ -x "$save_script" ]] || exit 0
+
+status_right=$(tmux show-options -gv status-right 2>/dev/null) || exit 0
+native_interpolation="#($save_script)"
+gated_interpolation=""
+if [[ -x "$gate_script" ]]; then
+  interval_argument='x#{q:@continuum-save-interval}'
+  ((is_default)) || interval_argument=x0
+  printf -v gated_interpolation '#(%q x#{q:@continuum-save-last-timestamp} %s %q)' \
+    "$gate_script" "$interval_argument" "$save_script"
+fi
+if [[ -n "$gated_interpolation" &&
+  "$status_right" == *"$native_interpolation"* ]]; then
+  prefix=${status_right%%"$native_interpolation"*}
+  suffix=${status_right#*"$native_interpolation"}
+  if [[ "$status_right" == *"$gated_interpolation"* ]]; then
+    status_right="$prefix$suffix"
+  else
+    status_right="$prefix$gated_interpolation$suffix"
+  fi
+  tmux set-option -g status-right "$status_right" || exit 0
+fi
+
+# Disabled auxiliary sockets still render status, so replace Continuum's
+# native interpolation above, then leave save and restore ownership disabled.
+((is_default)) || exit 0
+[[ -x "$restore_script" ]] || exit 0
 
 save_interval=$(tmux show-options -gqv @ds-continuum-save-interval \
   2>/dev/null) || save_interval=""
@@ -48,9 +84,13 @@ if [[ ! "$last_save" =~ ^[0-9]+$ ]]; then
 fi
 tmux set-option -g @continuum-save-interval "$save_interval" || exit 0
 tmux set-option -g @ds-resurrect-auto-restore on || exit 0
-status_right=$(tmux show-options -gv status-right 2>/dev/null) || exit 0
-if [[ "$status_right" != *continuum_save.sh* ]]; then
-  tmux set-option -g status-right "#($save_script)$status_right" || exit 0
+save_interpolation=${gated_interpolation:-$native_interpolation}
+# If the companion gate is unavailable, keep native Continuum and restore
+# behavior intact rather than turning a performance helper into an outage.
+if [[ "$status_right" != *"$save_interpolation"* &&
+  "$status_right" != *continuum_save.sh* ]]; then
+  tmux set-option -g status-right \
+    "$save_interpolation$status_right" || exit 0
 fi
 
 [[ ! -f "$HOME/tmux_no_auto_restore" ]] || exit 0
