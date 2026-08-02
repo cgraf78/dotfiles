@@ -69,7 +69,7 @@ _wezterm_has_lua_runner() {
 
 _tmux_context_probe() {
   local shell="$1" tmux_value="$2" termnav_available="$3" stale_hook="$4"
-  local resourced_tmux="$5" resourced_termnav="$6"
+  local resourced_tmux="$5" resourced_termnav="$6" nvim_value="$7"
   local -a shell_args=()
 
   case "$shell" in
@@ -81,6 +81,7 @@ _tmux_context_probe() {
   # shellcheck disable=SC2016 # Expansions run in the probed child shell.
   HOME="$tmux_context_home" \
     TMUX="$tmux_value" \
+    NVIM="$nvim_value" \
     DOT_TMUX_TEST_TERMNAV="$termnav_available" \
     DOT_TMUX_TEST_STALE_HOOK="$stale_hook" \
     DOT_TMUX_TEST_RESOURCED_TMUX="$resourced_tmux" \
@@ -133,6 +134,9 @@ dot_shdeps_dep_source() {
   _termnav_wezterm_set_user_var() {
     printf '<%s>=<%s>\n' "$1" "$2" >>"$DOT_TMUX_TEST_LOG"
   }
+  _termnav_wezterm_active() {
+    [[ -z "${NVIM:-}" ]]
+  }
 }
 EOF
 
@@ -143,22 +147,28 @@ for test_shell in bash zsh; do
   fi
 
   stale_context=$(_tmux_context_probe \
-    "$test_shell" /tmp/dot-tmux,1,0 1 1 /tmp/dot-tmux,1,0 1)
+    "$test_shell" /tmp/dot-tmux,1,0 1 1 /tmp/dot-tmux,1,0 1 "")
   _assert_eq "$test_shell removes stale DOT_TMUX prompt publication" \
     "$(printf 'hooks=existing_precmd\nafter-prompts=1\nafter-resource=2\n<DOT_TMUX>=<true>\n<DOT_TMUX>=<true>')" \
     "$stale_context"
 
   changed_context=$(_tmux_context_probe \
-    "$test_shell" /tmp/dot-tmux,1,0 1 0 "" 1)
+    "$test_shell" /tmp/dot-tmux,1,0 1 0 "" 1 "")
   _assert_eq "$test_shell refreshes DOT_TMUX after context changes and re-source" \
     "$(printf 'hooks=existing_precmd\nafter-prompts=1\nafter-resource=2\n<DOT_TMUX>=<true>\n<DOT_TMUX>=<>')" \
     "$changed_context"
 
   recovered_context=$(_tmux_context_probe \
-    "$test_shell" /tmp/dot-tmux,1,0 0 0 /tmp/dot-tmux,1,0 1)
+    "$test_shell" /tmp/dot-tmux,1,0 0 0 /tmp/dot-tmux,1,0 1 "")
   _assert_eq "$test_shell publishes DOT_TMUX when Termnav appears before re-source" \
     "$(printf 'hooks=existing_precmd\nafter-prompts=0\nafter-resource=1\n<DOT_TMUX>=<true>')" \
     "$recovered_context"
+
+  nvim_context=$(_tmux_context_probe \
+    "$test_shell" /tmp/dot-tmux,1,0 1 0 /tmp/dot-tmux,1,0 1 /tmp/nvim.sock)
+  _assert_eq "$test_shell does not publish DOT_TMUX inside Neovim" \
+    $'hooks=existing_precmd\nafter-prompts=0\nafter-resource=0' \
+    "$nvim_context"
 done
 
 echo "=== WezTerm mouse and route integration ==="
