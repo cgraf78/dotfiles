@@ -351,7 +351,7 @@ for _dependency in agentguard checkrun cmdblocks sley termnav; do
     "github" "$(awk '{ print $2 }' <<<"$_dependency_dep")"
 done
 
-for _dependency in ast-grep/ast-grep watchexec/watchexec fujiapple852/trippy; do
+for _dependency in watchexec/watchexec fujiapple852/trippy; do
   _dependency_dep=$(awk -v name="$_dependency" '$1 == name { print; exit }' \
     "$REAL_HOME/.config/shdeps/10-deps.conf")
   _assert_eq "developer tool: $_dependency uses the native github updater" \
@@ -368,22 +368,6 @@ for _developer_tool in watchexec trippy; do
   _assert_contains "developer tool: $_developer_tool package route is macOS-only" \
     "os:macos" "$_developer_tool_dep"
 done
-_ast_grep_github_dep=$(awk '$1 == "ast-grep/ast-grep" { print; exit }' \
-  "$REAL_HOME/.config/shdeps/10-deps.conf")
-_assert_not_contains "developer tool: ast-grep does not use a distro filter" \
-  "os:!alpine" "$_ast_grep_github_dep"
-_ast_grep_pkg_dep=$(awk '$1 == "ast-grep" && $2 == "pkg" { print; exit }' \
-  "$REAL_HOME/.config/shdeps/10-deps.conf")
-_assert_eq "developer tool: ast-grep has one native package route" "1" \
-  "$(awk '$1 == "ast-grep" && $2 == "pkg" { count++ } END { print count + 0 }' "$REAL_HOME/.config/shdeps/10-deps.conf")"
-_assert_contains "developer tool: ast-grep selects Alpine apk" \
-  "apk:ast-grep" "$_ast_grep_pkg_dep"
-for _manager in android apt dnf pacman zypper; do
-  _assert_contains "developer tool: ast-grep skips $_manager packages" \
-    "$_manager:NONE" "$_ast_grep_pkg_dep"
-done
-_assert_eq "ast-grep: command is ast-grep" "ast-grep" \
-  "$(awk '$1 == "ast-grep/ast-grep" { print $3; exit }' "$REAL_HOME/.config/shdeps/10-deps.conf")"
 _assert_eq "watchexec: command is watchexec" "watchexec" \
   "$(awk '$1 == "watchexec/watchexec" { print $3; exit }' "$REAL_HOME/.config/shdeps/10-deps.conf")"
 _assert_eq "trippy: command is trip" "trip" \
@@ -419,7 +403,7 @@ _assert_shdeps_tool_runs() {
 # Worktree tests intentionally keep source config separate from installed host
 # tools. CI (and an explicit local opt-in) is where those two surfaces meet.
 if [[ "${CI:-}" == "true" || "${DOT_TEST_VALIDATE_SHDEPS_TOOLS:-0}" == "1" ]]; then
-  for _developer_tool in 'ast-grep:ast-grep' 'watchexec:watchexec' 'trip:trippy'; do
+  for _developer_tool in 'watchexec:watchexec' 'trip:trippy'; do
     _tool="${_developer_tool%%:*}"
     _package="${_developer_tool#*:}"
     _assert_shdeps_tool_runs "$_tool" "$_package"
