@@ -78,6 +78,7 @@ runtime API.
 | Agent rules | `agent-rules/rules.d/*.md`, `agent-rules/targets.d/*.txt` | configured agent rule target files |
 | Git | tracked XDG config | one portable include in `~/.gitconfig` when needed |
 | GitHub CLI | `gh/config.d/*.yml` | `~/.config/gh/config.yml` |
+| Neovim | `nvim/` | Lazy-managed plugins updated headlessly when Neovim is idle |
 | SSH | `ssh/config.d/*.ssh_config` plus overlay `.ssh` files | `~/.ssh/config` |
 | tmux | tracked `~/.config/tmux/tmux.conf` | running default tmux server |
 | Git ignore | `ignore/ignore.d/` | global gitignore |

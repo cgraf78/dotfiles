@@ -319,6 +319,57 @@ _assert_not_contains "startup timeout: non-executable command has no traceback" 
 _assert_nvim_startup_budget "startup: .bashrc opens and exits within budget" "$HOME/.bashrc"
 
 # ---------------------------------------------------------------------------
+# Tests: scheduled Lazy update lock
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== nvim: Lazy update lock ==="
+
+nvim_lock_state=$(_tmpdir)
+nvim_lock_data=$(_tmpdir)
+result=$(XDG_STATE_HOME="$nvim_lock_state" XDG_DATA_HOME="$nvim_lock_data" _nvim_lua '
+  local lock = require("config.lazy-update-lock")
+  print(lock.path() == vim.fn.stdpath("data") .. "/lazy/lazy.nvim.update.lock")
+  local wait = vim.wait
+  vim.wait = function()
+    error("idle startup must not wait for an update")
+  end
+  print(lock.await())
+  vim.wait = wait
+')
+_assert_eq "Lazy update lock: idle startup does no blocking work" $'true\ntrue' "$result"
+
+nvim_lock_state=$(_tmpdir)
+nvim_lock_data=$(_tmpdir)
+result=$(XDG_STATE_HOME="$nvim_lock_state" XDG_DATA_HOME="$nvim_lock_data" _nvim_lua '
+  local lock = require("config.lazy-update-lock")
+  local path = lock.path()
+  vim.fn.mkdir(path, "p")
+  local wait = vim.wait
+  vim.wait = function(timeout, condition, interval)
+    print(timeout .. "|" .. interval .. "|" .. tostring(condition()))
+    vim.fn.delete(path, "d")
+    return true
+  end
+  print(lock.await())
+  vim.wait = wait
+')
+_assert_eq "Lazy update lock: startup waits for an active scheduled update" \
+  $'300000|50|false\ntrue' "$result"
+
+nvim_lock_state=$(_tmpdir)
+nvim_lock_data=$(_tmpdir)
+result=$(XDG_STATE_HOME="$nvim_lock_state" XDG_DATA_HOME="$nvim_lock_data" _nvim_lua '
+  local lock = require("config.lazy-update-lock")
+  local path = lock.path()
+  vim.fn.mkdir(path, "p")
+  vim.env.NVIM_LAZY_UPDATE = "1"
+  print(lock.await())
+  print(vim.fn.isdirectory(path))
+')
+_assert_eq "Lazy update lock: updater itself does not wait on its lock" $'true\n1' "$result"
+
+# ---------------------------------------------------------------------------
 # Tests: VSCode-style selection keymaps
 # ---------------------------------------------------------------------------
 
