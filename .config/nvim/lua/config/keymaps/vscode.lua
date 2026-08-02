@@ -17,6 +17,47 @@ local map_selection_command = selection.map_command
 find.setup()
 paste.setup()
 
+local function is_active_context(win, buf)
+  return vim.api.nvim_win_is_valid(win)
+    and vim.api.nvim_get_current_win() == win
+    and vim.api.nvim_buf_is_valid(buf)
+    and vim.api.nvim_win_get_buf(win) == buf
+end
+
+local function go_to_line()
+  local win = vim.api.nvim_get_current_win()
+  local buf = vim.api.nvim_get_current_buf()
+
+  vim.ui.input({ prompt = "Go to line: " }, function(input)
+    if not is_active_context(win, buf) then
+      return
+    end
+
+    if input then
+      local line_text, column_text = input:match("^(%d+):(%d+)$")
+      if not line_text then
+        line_text = input:match("^(%d+)$")
+      end
+
+      local line = tonumber(line_text)
+      local column = column_text and tonumber(column_text) or nil
+      if
+        line
+        and line >= 1
+        and line <= vim.api.nvim_buf_line_count(buf)
+        and (not column or column >= 1)
+      then
+        local byte_column = 0
+        if column then
+          local text = vim.api.nvim_buf_get_lines(buf, line - 1, line, false)[1]
+          byte_column = vim.str_byteindex(text, math.min(column - 1, vim.fn.strchars(text)))
+        end
+        vim.api.nvim_win_set_cursor(win, { line, byte_column })
+      end
+    end
+  end)
+end
+
 -- Undo/redo
 map({ "n", "i", "x", "s" }, "<C-z>", "<cmd>undo<cr>", { desc = "Undo" })
 map({ "n", "i", "x", "s" }, "<C-y>", "<cmd>redo<cr>", { desc = "Redo" })
@@ -43,7 +84,14 @@ local function save_buffer(resume_insert)
   end
 
   if vim.api.nvim_buf_get_name(0) == "" then
+    local win = vim.api.nvim_get_current_win()
+    local buf = vim.api.nvim_get_current_buf()
     vim.ui.input({ prompt = "Save as: ", completion = "file" }, function(path)
+      -- Input callbacks can run after a buffer switch, a split, or a close.
+      -- Never write or resume Insert mode in whichever editor is active then.
+      if not is_active_context(win, buf) then
+        return
+      end
       if path and path ~= "" then
         local target = save_path(path)
         vim.cmd({
@@ -83,6 +131,13 @@ map("i", "<C-s>", function()
   vim.cmd("stopinsert")
   save_buffer(true)
 end, { desc = "Save" })
+
+-- Go to Line follows VS Code's one-based line:column convention. Columns are
+-- converted to Neovim's byte offsets so multibyte text lands under the cursor.
+-- Select mode keeps Ctrl-G free because Neovim uses it internally to enable
+-- replacement typing for the active selection.
+map("n", "<C-g>", go_to_line, { desc = "Go to line" })
+map("i", "<C-g>", go_to_line, { desc = "Go to line" })
 
 -- Select all
 map("n", "<C-a>", select("ggVG"), { desc = "Select all" })
@@ -213,13 +268,25 @@ map(
   { desc = "Replace selection in files" }
 )
 
--- Find next/prev
-map("n", "<C-g>", find.select_next_search, { desc = "Find next" })
-map(selection_modes, "<C-g>", find.select_next_search, { desc = "Find next" })
-map("n", "<C-S-g>", find.select_previous_search, { desc = "Find prev" })
-map(selection_modes, "<C-S-g>", find.select_previous_search, { desc = "Find prev" })
-map("i", "<C-g>", find.select_next_search_from_insert, { nowait = true, desc = "Find next" })
-map("i", "<C-S-g>", find.select_previous_search_from_insert, { nowait = true, desc = "Find prev" })
+-- Find next/prev. Ctrl-G now owns Go to Line; F3 is the VS Code search key.
+map({ "n", "x", "s" }, "<F3>", find.select_next_search, { desc = "Find next" })
+map({ "n", "x", "s" }, "<S-F3>", find.select_previous_search, { desc = "Find prev" })
+map("i", "<F3>", find.select_next_search_from_insert, { nowait = true, desc = "Find next" })
+map("i", "<S-F3>", find.select_previous_search_from_insert, { nowait = true, desc = "Find prev" })
+
+local function jump_diagnostic(count)
+  vim.diagnostic.jump({ count = count, float = true })
+end
+
+-- Problems and diagnostic navigation reuse the existing Trouble and native
+-- diagnostic surfaces rather than adding another editor integration.
+map("n", "<F8>", function()
+  jump_diagnostic(1)
+end, { desc = "Next diagnostic" })
+map("n", "<S-F8>", function()
+  jump_diagnostic(-1)
+end, { desc = "Previous diagnostic" })
+map("n", "<C-S-m>", "<cmd>Trouble diagnostics toggle<cr>", { desc = "Problems" })
 
 -- Toggle comment (Ctrl-/).
 -- `remap = true` chains into ts-comments.nvim's `gc`/`gcc` for per-filetype syntax.

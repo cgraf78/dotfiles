@@ -412,6 +412,21 @@ LUA
       return false
     end
 
+    local function has_string(keys, key, mods, value)
+      for _, item in ipairs(keys) do
+        local action = item.action
+        if item.key == key
+          and item.mods == mods
+          and type(action) == 'table'
+          and action.action == 'SendString'
+          and action.value == value
+        then
+          return true
+        end
+      end
+      return false
+    end
+
     local function has_callback(keys, key, mods)
       for _, item in ipairs(keys) do
         if item.key == key and item.mods == mods and type(item.action) == 'function' then
@@ -439,6 +454,8 @@ LUA
     print(tostring(has_passthrough(config_table.keys, 'v', 'CTRL|SHIFT', 'v', 'CTRL|SHIFT')))
     print(tostring(has_passthrough(config_table.keys, 'g', 'CTRL', 'g', 'CTRL')))
     print(tostring(has_passthrough(config_table.keys, 'g', 'CTRL|SHIFT', 'g', 'CTRL|SHIFT')))
+    print(tostring(has_string(config_table.keys, 'e', 'CTRL|SHIFT', '\027[101;6u')))
+    print(tostring(has_string(config_table.keys, 'm', 'CTRL|SHIFT', '\027[109;6u')))
     print(tostring(has_action(config_table.keys, 'f', 'CTRL|SHIFT', 'DisableDefaultAssignment')))
     print(tostring(has_action(config_table.keys, 'p', 'CTRL|SHIFT', 'DisableDefaultAssignment')))
     print(tostring(has_callback(config_table.keys, 'Tab', 'CTRL')))
@@ -469,7 +486,7 @@ LUA
     print(performed[1].action .. ':' .. performed[1].value .. ',' .. performed[2].action)
     print(paste_action.action .. ':' .. paste_action.value)
   ")
-  expected="$(printf 'true\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\nSendKey:c:CTRL\nCopyTo:Clipboard,ClearSelection\nPasteFrom:Clipboard')"
+  expected="$(printf 'true\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\nfalse\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\nSendKey:c:CTRL\nCopyTo:Clipboard,ClearSelection\nPasteFrom:Clipboard')"
   _assert_eq "wezterm preserves terminal chords and owns client clipboard actions" \
     "$expected" "$nvim_key_result"
 

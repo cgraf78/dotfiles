@@ -315,8 +315,12 @@ append_all(keys, {
   pass_key("F12", "SHIFT"), -- nvim: find references.
   pass_key("v", "CTRL|SHIFT"), -- nvim: yank history; tmux rewrites it safely.
   release_key("f", "CTRL|SHIFT"), -- nvim: workspace search instead of WezTerm find.
-  pass_key("g", "CTRL"), -- nvim: find next.
-  pass_key("g", "CTRL|SHIFT"), -- nvim: find previous.
+  pass_key("g", "CTRL"), -- nvim: Go to Line.
+  -- Preserve these VS Code chords through WezTerm and tmux even where plain
+  -- Ctrl-Shift letters would otherwise collapse into Enter or Ctrl-E. The
+  -- existing <leader>xx and <leader>fE mappings remain portable fallbacks.
+  bind("m", "CTRL|SHIFT", act.SendString("\x1b[109;6u")),
+  bind("e", "CTRL|SHIFT", act.SendString("\x1b[101;6u")),
   release_key("p", "CTRL|SHIFT"), -- nvim: command palette instead of WezTerm launcher.
 
   -- Conditional ownership: buffers belong to nvim while it is focused, and to
