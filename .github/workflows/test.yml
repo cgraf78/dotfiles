@@ -24,6 +24,7 @@ jobs:
       shellcheck-inventory-path: .github/shellcheck-files.txt
       test-command: DOT_CORE_SKIP_SHELLCHECK=1 .local/bin/dot-test
       termux-command: |-
+        set -euo pipefail
         HOME="$PWD" PATH="$PWD/.local/bin:$PATH" .local/bin/dot update --skip-pull
         HOME="$PWD" PATH="$PWD/.local/bin:$PATH" bash .local/lib/dot/tests/android-ci-smoke
       termux-profiles: base,neovim

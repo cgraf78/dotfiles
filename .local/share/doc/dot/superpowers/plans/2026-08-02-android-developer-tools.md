@@ -21,7 +21,8 @@ Termux `pkg`.
 - Do not install Watchexec directly in the Android smoke script.
 - Do not install Trippy on Android.
 - Do not add work to shell or Neovim startup.
-- Keep this change independent of the `dot update` exit-status implementation.
+- Keep failure aggregation owned by `dot update`; require the CI caller to
+  honor its public exit-status contract.
 
 ---
 
@@ -48,8 +49,8 @@ Require both GitHub rows to include `os:!macos,os:!android`.
 - [ ] **Step 2: Write failing workflow assertions**
 
 Extend the static workflow test to require the Termux command to run
-`dot update --skip-pull` before `android-ci-smoke`, and require
-`termux-profiles: base,neovim`.
+`dot update --skip-pull` before `android-ci-smoke`, propagate a failed update
+with `set -euo pipefail`, and require `termux-profiles: base,neovim`.
 
 - [ ] **Step 3: Verify RED**
 
@@ -97,6 +98,7 @@ Change the Termux command to run the checkout with an isolated `HOME`:
 
 ```yaml
 termux-command: |-
+  set -euo pipefail
   HOME="$PWD" PATH="$PWD/.local/bin:$PATH" .local/bin/dot update --skip-pull
   HOME="$PWD" PATH="$PWD/.local/bin:$PATH" bash .local/lib/dot/tests/android-ci-smoke
 termux-profiles: base,neovim

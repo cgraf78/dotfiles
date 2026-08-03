@@ -55,6 +55,7 @@ MOCK
   _ci_forces_dotfiles_update=0
   _ci_uses_full_matrix=0
   _ci_line_number=0
+  _ci_termux_strict_line=0
   _ci_termux_update_line=0
   _ci_termux_smoke_line=0
   _ci_termux_uses_base_profile=0
@@ -86,6 +87,10 @@ MOCK
     fi
     if [[ "$_ci_code" =~ ^[[:space:]]*uses:[[:space:]]+cgraf78/actions/\.github/workflows/shell-ci\.yml@([0-9a-f]{40})[[:space:]]*$ ]]; then
       _ci_has_public_pin=1
+    fi
+    if ((_ci_in_shell_with)) &&
+      [[ "$_ci_code" =~ ^[[:space:]]{8}set[[:space:]]+-euo[[:space:]]+pipefail[[:space:]]*$ ]]; then
+      _ci_termux_strict_line=$_ci_line_number
     fi
     if ((_ci_in_shell_with)) &&
       [[ "$_ci_code" =~ ^[[:space:]]{8}HOME=\"\$PWD\"[[:space:]]+PATH=\"\$PWD/\.local/bin:\$PATH\"[[:space:]]+\.local/bin/dot[[:space:]]+update[[:space:]]+--skip-pull[[:space:]]*$ ]]; then
@@ -133,6 +138,11 @@ MOCK
     _pass "CI workflow: runs dot update in Termux before policy smoke"
   else
     _fail "CI workflow: runs dot update in Termux before policy smoke"
+  fi
+  if ((_ci_termux_strict_line > 0 && _ci_termux_strict_line < _ci_termux_update_line)); then
+    _pass "CI workflow: propagates Termux dot update failures"
+  else
+    _fail "CI workflow: propagates Termux dot update failures"
   fi
   if ((_ci_termux_uses_base_profile)); then
     _pass "CI workflow: provides Termux bootstrap prerequisites"

@@ -26,7 +26,8 @@ syntax rather than a hook or installer special case.
 The Termux job will exercise the user-visible bootstrap path:
 
 1. Install the shared workflow's `base` and `neovim` prerequisite profiles.
-2. Run `dot update --skip-pull` with the checkout as an isolated `HOME`.
+2. Enable strict shell failure propagation and run `dot update --skip-pull`
+   with the checkout as an isolated `HOME`.
 3. Fail immediately if `dot update` returns nonzero.
 4. Run the existing Android policy smoke checks.
 5. Confirm `watchexec --version` succeeds after the bootstrap.
