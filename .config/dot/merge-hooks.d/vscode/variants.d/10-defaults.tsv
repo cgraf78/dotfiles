@@ -1,7 +1,7 @@
-# platform	marker	extensions_dir	config_dir	options	macos_bundle_id	macos_executable_relpath
-Darwin	${VSCODE_APPLICATIONS_DIR}/Visual Studio Code.app	$HOME/.vscode/extensions	$HOME/Library/Application Support/Code/User	-	com.microsoft.VSCode	Contents/MacOS/Code
-Darwin	${VSCODE_APPLICATIONS_DIR}/Visual Studio Code - Insiders.app	$HOME/.vscode-insiders/extensions	$HOME/Library/Application Support/Code - Insiders/User	-	com.microsoft.VSCodeInsiders	Contents/MacOS/Electron
-Darwin	${VSCODE_APPLICATIONS_DIR}/Cursor.app	$HOME/.cursor/extensions	$HOME/Library/Application Support/Cursor/User	-	com.todesktop.230313mzl4w4u92	Contents/MacOS/Cursor
+# platform	marker	extensions_dir	config_dir	options
+Darwin	${VSCODE_APPLICATIONS_DIR}/Visual Studio Code.app	$HOME/.vscode/extensions	$HOME/Library/Application Support/Code/User
+Darwin	${VSCODE_APPLICATIONS_DIR}/Visual Studio Code - Insiders.app	$HOME/.vscode-insiders/extensions	$HOME/Library/Application Support/Code - Insiders/User
+Darwin	${VSCODE_APPLICATIONS_DIR}/Cursor.app	$HOME/.cursor/extensions	$HOME/Library/Application Support/Cursor/User
 Linux	$HOME/.config/Code/User	$HOME/.vscode/extensions	$HOME/.config/Code/User
 Linux	$HOME/.config/Code - Insiders/User	$HOME/.vscode-insiders/extensions	$HOME/.config/Code - Insiders/User
 Linux	$HOME/.config/Cursor/User	$HOME/.cursor/extensions	$HOME/.config/Cursor/User

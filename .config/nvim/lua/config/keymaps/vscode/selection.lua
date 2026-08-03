@@ -53,7 +53,7 @@ end
 
 -- Select-mode search movement starts from whichever side of the current
 -- selection points toward the next match. Normal `n`/`N` would otherwise keep
--- rediscovering the selected match, which makes F3 appear to stop.
+-- rediscovering the selected match, which makes find-next appear to stop.
 function M.bounds()
   local anchor = vim.fn.getpos("v")
   local cursor = vim.fn.getpos(".")

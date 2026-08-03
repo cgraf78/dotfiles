@@ -169,8 +169,6 @@
                                             "^com\\.mitchellh\\.ghostty$",
                                             "^com\\.facebook\\.fbvscode$",
                                             "^com\\.microsoft\\.VSCode$",
-                                            "^com\\.microsoft\\.VSCodeInsiders$",
-                                            "^com\\.todesktop\\.230313mzl4w4u92$",
                                             "^com\\.facebook\\.fbvscode-insiders$",
                                             "^com\\.vscodium$",
                                             "^com\\.realvnc\\.vncviewer$"
@@ -232,8 +230,6 @@
                                             "^com\\.mitchellh\\.ghostty$",
                                             "^com\\.facebook\\.fbvscode$",
                                             "^com\\.microsoft\\.VSCode$",
-                                            "^com\\.microsoft\\.VSCodeInsiders$",
-                                            "^com\\.todesktop\\.230313mzl4w4u92$",
                                             "^com\\.facebook\\.fbvscode-insiders$",
                                             "^com\\.vscodium$",
                                             "^com\\.realvnc\\.vncviewer$"
@@ -294,8 +290,6 @@
                                             "^com\\.mitchellh\\.ghostty$",
                                             "^com\\.facebook\\.fbvscode$",
                                             "^com\\.microsoft\\.VSCode$",
-                                            "^com\\.microsoft\\.VSCodeInsiders$",
-                                            "^com\\.todesktop\\.230313mzl4w4u92$",
                                             "^com\\.facebook\\.fbvscode-insiders$",
                                             "^com\\.vscodium$",
                                             "^com\\.realvnc\\.vncviewer$"
@@ -355,8 +349,6 @@
                                             "^com\\.mitchellh\\.ghostty$",
                                             "^com\\.facebook\\.fbvscode$",
                                             "^com\\.microsoft\\.VSCode$",
-                                            "^com\\.microsoft\\.VSCodeInsiders$",
-                                            "^com\\.todesktop\\.230313mzl4w4u92$",
                                             "^com\\.facebook\\.fbvscode-insiders$",
                                             "^com\\.vscodium$",
                                             "^com\\.realvnc\\.vncviewer$"
@@ -413,8 +405,6 @@
                                             "^com\\.mitchellh\\.ghostty$",
                                             "^com\\.facebook\\.fbvscode$",
                                             "^com\\.microsoft\\.VSCode$",
-                                            "^com\\.microsoft\\.VSCodeInsiders$",
-                                            "^com\\.todesktop\\.230313mzl4w4u92$",
                                             "^com\\.facebook\\.fbvscode-insiders$",
                                             "^com\\.vscodium$",
                                             "^com\\.realvnc\\.vncviewer$"
@@ -476,8 +466,6 @@
                                             "^com\\.mitchellh\\.ghostty$",
                                             "^com\\.facebook\\.fbvscode$",
                                             "^com\\.microsoft\\.VSCode$",
-                                            "^com\\.microsoft\\.VSCodeInsiders$",
-                                            "^com\\.todesktop\\.230313mzl4w4u92$",
                                             "^com\\.facebook\\.fbvscode-insiders$",
                                             "^com\\.vscodium$",
                                             "^com\\.realvnc\\.vncviewer$"
@@ -538,8 +526,6 @@
                                             "^com\\.mitchellh\\.ghostty$",
                                             "^com\\.facebook\\.fbvscode$",
                                             "^com\\.microsoft\\.VSCode$",
-                                            "^com\\.microsoft\\.VSCodeInsiders$",
-                                            "^com\\.todesktop\\.230313mzl4w4u92$",
                                             "^com\\.facebook\\.fbvscode-insiders$",
                                             "^com\\.vscodium$",
                                             "^com\\.realvnc\\.vncviewer$"
@@ -599,8 +585,6 @@
                                             "^com\\.mitchellh\\.ghostty$",
                                             "^com\\.facebook\\.fbvscode$",
                                             "^com\\.microsoft\\.VSCode$",
-                                            "^com\\.microsoft\\.VSCodeInsiders$",
-                                            "^com\\.todesktop\\.230313mzl4w4u92$",
                                             "^com\\.facebook\\.fbvscode-insiders$",
                                             "^com\\.vscodium$",
                                             "^com\\.realvnc\\.vncviewer$"
@@ -657,8 +641,6 @@
                                             "^com\\.mitchellh\\.ghostty$",
                                             "^com\\.facebook\\.fbvscode$",
                                             "^com\\.microsoft\\.VSCode$",
-                                            "^com\\.microsoft\\.VSCodeInsiders$",
-                                            "^com\\.todesktop\\.230313mzl4w4u92$",
                                             "^com\\.facebook\\.fbvscode-insiders$",
                                             "^com\\.vscodium$",
                                             "^com\\.realvnc\\.vncviewer$"
@@ -720,8 +702,6 @@
                                             "^com\\.mitchellh\\.ghostty$",
                                             "^com\\.facebook\\.fbvscode$",
                                             "^com\\.microsoft\\.VSCode$",
-                                            "^com\\.microsoft\\.VSCodeInsiders$",
-                                            "^com\\.todesktop\\.230313mzl4w4u92$",
                                             "^com\\.facebook\\.fbvscode-insiders$",
                                             "^com\\.vscodium$",
                                             "^com\\.realvnc\\.vncviewer$"
@@ -781,8 +761,6 @@
                                             "^com\\.mitchellh\\.ghostty$",
                                             "^com\\.facebook\\.fbvscode$",
                                             "^com\\.microsoft\\.VSCode$",
-                                            "^com\\.microsoft\\.VSCodeInsiders$",
-                                            "^com\\.todesktop\\.230313mzl4w4u92$",
                                             "^com\\.facebook\\.fbvscode-insiders$",
                                             "^com\\.vscodium$",
                                             "^com\\.realvnc\\.vncviewer$"
@@ -844,8 +822,6 @@
                                             "^com\\.mitchellh\\.ghostty$",
                                             "^com\\.facebook\\.fbvscode$",
                                             "^com\\.microsoft\\.VSCode$",
-                                            "^com\\.microsoft\\.VSCodeInsiders$",
-                                            "^com\\.todesktop\\.230313mzl4w4u92$",
                                             "^com\\.facebook\\.fbvscode-insiders$",
                                             "^com\\.vscodium$",
                                             "^com\\.realvnc\\.vncviewer$"
@@ -1228,8 +1204,6 @@
                                             "^com\\.mitchellh\\.ghostty$",
                                             "^com\\.facebook\\.fbvscode$",
                                             "^com\\.microsoft\\.VSCode$",
-                                            "^com\\.microsoft\\.VSCodeInsiders$",
-                                            "^com\\.todesktop\\.230313mzl4w4u92$",
                                             "^com\\.facebook\\.fbvscode-insiders$",
                                             "^com\\.vscodium$"
                                         ],
@@ -1908,7 +1882,7 @@
                         ]
                     },
                     {
-                        "description": "V (Ctrl+Shift passthrough) [Only VS Code]",
+                        "description": "V (Ctrl+Shift) [Only VS Code]",
                         "manipulators": [
                             {
                                 "conditions": [
@@ -1916,8 +1890,6 @@
                                         "bundle_identifiers": [
                                             "^com\\.facebook\\.fbvscode$",
                                             "^com\\.microsoft\\.VSCode$",
-                                            "^com\\.microsoft\\.VSCodeInsiders$",
-                                            "^com\\.todesktop\\.230313mzl4w4u92$",
                                             "^com\\.facebook\\.fbvscode-insiders$",
                                             "^com\\.vscodium$"
                                         ],
@@ -1940,8 +1912,7 @@
                                     {
                                         "key_code": "v",
                                         "modifiers": [
-                                            "control",
-                                            "shift"
+                                            "command"
                                         ]
                                     }
                                 ],

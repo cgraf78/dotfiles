@@ -92,18 +92,13 @@ embedded serializer so root scalars stay above nested tables.
 
 VS Code variants are declared by files under `vscode/variants.d/`.
 Each non-comment row is
-`platform<TAB>marker<TAB>extensions_dir<TAB>config_dir<TAB>options`, followed
-on config-bearing macOS rows by
-`<TAB>macos_bundle_id<TAB>macos_executable_relpath`. Use `-` for
-`config_dir` when a variant only needs extensions registered, such as a remote
-VS Code server profile, and to reserve an empty `options` column before macOS
-identity. The bundle ID must be concrete, and the executable path must stay
-under `Contents/MacOS/`; together they let tests prove the same app identity
-Karabiner uses. Options are comma-separated; `no-sley` skips the local Sley
-formatter extension and removes generated Sley formatter settings for that
-variant. Checkrun-generated file associations and schema settings still apply
-because they are editor policy, not Sley extension registration. Only `$HOME`,
-`${HOME}`, `~`, `${APPDATA}`, `${WSL_APPDATA}`, and
+`platform<TAB>marker<TAB>extensions_dir<TAB>config_dir<TAB>options`. Use `-`
+for `config_dir` when a variant only needs extensions registered, such as a
+remote VS Code server profile. Options are comma-separated; `no-sley` skips the
+local Sley formatter extension and removes generated Sley formatter settings for
+that variant. Checkrun-generated file associations and schema settings still
+apply because they are editor policy, not Sley extension registration. Only
+`$HOME`, `${HOME}`, `~`, `${APPDATA}`, `${WSL_APPDATA}`, and
 `${VSCODE_APPLICATIONS_DIR}` are expanded in paths.
 
 VS Code local extensions are declared by files under
@@ -131,10 +126,7 @@ exists, do not add an invented placeholder schema.
   synchronized from another machine without altering generated keybinding
   semantics or mistaking genuine local bindings for dotfiles.
 - Karabiner dotfiles profiles from `karabiner/profiles.d` replace local profiles with the same name;
-  local-only profiles are preserved. If effective family sources repeat a
-  profile name, the later source supplies its contents while the first
-  occurrence retains its position. Resolving that identity before first
-  install and later merges keeps overlay behavior lifecycle-independent.
+  local-only profiles are preserved.
 - Claude, Codex, and Gemini settings are layered from their source families.
   Direct fragments aggregate, while `.replace` groups can model personal/work
   or other mutually-exclusive environment choices.

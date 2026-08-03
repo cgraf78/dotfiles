@@ -1,16 +1,16 @@
-// Exact bindings emitted before the focus-aware routing migration.
+// Append-only exact bindings retired by focus-aware routing migrations.
 //
 // Keep these records indefinitely. They are source-only retirement directives,
 // not active shortcuts: the merge hook strips "dotfiles.retire" before matching
-// and never writes the records to VS Code. Co-locating this one-time bridge with
-// the binding sources keeps the retirement logic free of Termnav keys, commands,
+// and never writes the records to VS Code. Co-locating this history with the
+// binding sources keeps the retirement logic free of Termnav keys, commands,
 // platform lists, or focus-policy knowledge.
 //
 // Match the complete historical object, including args and any extra fields.
 // Never add a merely similar binding: exactness is what prevents this deletion
-// authority from consuming an independent local shortcut. Tests require future
-// additions to have existed in prior active source; this initial bridge is the
-// sole exception because it predates the source history that now proves ownership.
+// authority from consuming an independent local shortcut. Each addition is an
+// explicit, reviewed claim that dotfiles generated that exact object, including
+// review builds that never entered landed Git history.
 [
   {
     "key": "ctrl+p",
@@ -90,6 +90,230 @@
     "command": "workbench.action.terminal.sendSequence",
     "args": { "text": "\u001a" },
     "when": "terminalFocus",
+    "dotfiles.retire": true
+  },
+
+  // The active forms now live in the Termnav capability family. Keeping exact
+  // retirements globally lets a no-termnav variant remove earlier generated
+  // copies while adapter-enabled variants re-add the active source objects.
+  {
+    "key": "ctrl+shift+tab",
+    "command": "workbench.action.quickOpenLeastRecentlyUsedEditorInGroup",
+    "when": "!activeEditorGroupEmpty && !terminalFocus",
+    "dotfiles.retire": true
+  },
+  {
+    "key": "ctrl+shift+tab",
+    "command": "-workbench.action.quickOpenLeastRecentlyUsedEditorInGroup",
+    "when": "!activeEditorGroupEmpty",
+    "dotfiles.retire": true
+  },
+  {
+    "key": "ctrl+tab",
+    "command": "workbench.action.quickOpenPreviousRecentlyUsedEditorInGroup",
+    "when": "!activeEditorGroupEmpty && !terminalFocus",
+    "dotfiles.retire": true
+  },
+  {
+    "key": "ctrl+tab",
+    "command": "-workbench.action.quickOpenPreviousRecentlyUsedEditorInGroup",
+    "when": "!activeEditorGroupEmpty",
+    "dotfiles.retire": true
+  },
+  {
+    "key": "ctrl+tab",
+    "command": "workbench.action.quickOpenNavigateNextInEditorPicker",
+    "when": "inEditorsPicker && inQuickOpen && !terminalFocus",
+    "dotfiles.retire": true
+  },
+  {
+    "key": "ctrl+tab",
+    "command": "-workbench.action.quickOpenNavigateNextInEditorPicker",
+    "when": "inEditorsPicker && inQuickOpen",
+    "dotfiles.retire": true
+  },
+  {
+    "key": "ctrl+shift+tab",
+    "command": "workbench.action.quickOpenNavigatePreviousInEditorPicker",
+    "when": "inEditorsPicker && inQuickOpen && !terminalFocus",
+    "dotfiles.retire": true
+  },
+  {
+    "key": "ctrl+shift+tab",
+    "command": "-workbench.action.quickOpenNavigatePreviousInEditorPicker",
+    "when": "inEditorsPicker && inQuickOpen",
+    "dotfiles.retire": true
+  },
+  {
+    "key": "ctrl+tab",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[9;5u" },
+    "when": "terminalFocus",
+    "dotfiles.retire": true
+  },
+  {
+    "key": "ctrl+shift+tab",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[9;6u" },
+    "when": "terminalFocus",
+    "dotfiles.retire": true
+  },
+
+  // Exact forms replaced while restoring terminal-native controls and making
+  // the Ctrl+backtick host routes disjoint from focused Neovim.
+  {
+    "key": "ctrl+`",
+    "command": "workbench.action.terminal.focus",
+    "when": "terminalIsOpen",
+    "dotfiles.retire": true
+  },
+  {
+    "key": "ctrl+`",
+    "command": "workbench.action.focusActiveEditorGroup",
+    "when": "terminalFocus && terminalIsOpen",
+    "dotfiles.retire": true
+  },
+  {
+    "key": "cmd+r",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u0012" },
+    "when": "terminalFocus && termnav.nvimFocused",
+    "dotfiles.retire": true
+  },
+  {
+    "key": "cmd+b",
+    "command": "-workbench.action.toggleSidebarVisibility",
+    "dotfiles.retire": true
+  },
+  {
+    "key": "cmd+b",
+    "command": "workbench.action.toggleSidebarVisibility",
+    "when": "terminalFocus && !termnav.nvimFocused",
+    "dotfiles.retire": true
+  },
+  {
+    "key": "cmd+b",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u0002" },
+    "when": "terminalFocus && termnav.nvimFocused",
+    "dotfiles.retire": true
+  },
+  {
+    "key": "cmd+a",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u0001" },
+    "when": "terminalFocus && termnav.nvimFocused",
+    "dotfiles.retire": true
+  },
+  {
+    "key": "cmd+l",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u000c" },
+    "when": "terminalFocus && termnav.nvimFocused",
+    "dotfiles.retire": true
+  },
+  {
+    "key": "cmd+n",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u000e" },
+    "when": "terminalFocus && termnav.nvimFocused",
+    "dotfiles.retire": true
+  },
+  {
+    "key": "cmd+u",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u0015" },
+    "when": "terminalFocus && termnav.nvimFocused",
+    "dotfiles.retire": true
+  },
+  {
+    "key": "cmd+w",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u0017" },
+    "when": "terminalFocus && termnav.nvimFocused",
+    "dotfiles.retire": true
+  },
+  {
+    "key": "cmd+z",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001a" },
+    "when": "terminalFocus && termnav.nvimFocused",
+    "dotfiles.retire": true
+  },
+
+  // PR #90 was exercised against live VS Code profiles before its host-side
+  // fallbacks were removed. Retire those exact generated objects so returning
+  // to normal VS Code resolution also repairs Settings Sync copies.
+  {
+    "key": "ctrl+.",
+    "command": "editor.action.quickFix",
+    "when": "terminalFocus && !termnav.nvimFocused",
+    "dotfiles.retire": true
+  },
+  {
+    "key": "ctrl+/",
+    "command": "editor.action.commentLine",
+    "when": "terminalFocus && !termnav.nvimFocused",
+    "dotfiles.retire": true
+  },
+  {
+    "key": "ctrl+\\",
+    "command": "workbench.action.splitEditor",
+    "when": "terminalFocus && !termnav.nvimFocused",
+    "dotfiles.retire": true
+  },
+  {
+    "key": "ctrl+shift+e",
+    "command": "workbench.view.explorer",
+    "when": "terminalFocus && !termnav.nvimFocused",
+    "dotfiles.retire": true
+  },
+  {
+    "key": "ctrl+shift+f",
+    "command": "workbench.view.search",
+    "when": "terminalFocus && !termnav.nvimFocused",
+    "dotfiles.retire": true
+  },
+  {
+    "key": "ctrl+shift+m",
+    "command": "workbench.actions.view.problems",
+    "when": "terminalFocus && !termnav.nvimFocused",
+    "dotfiles.retire": true
+  },
+  {
+    "key": "ctrl+shift+p",
+    "command": "workbench.action.showCommands",
+    "when": "terminalFocus && !termnav.nvimFocused",
+    "dotfiles.retire": true
+  },
+  {
+    "key": "shift+cmd+f",
+    "command": "workbench.view.search",
+    "when": "terminalFocus && !termnav.nvimFocused",
+    "dotfiles.retire": true
+  },
+  {
+    "key": "shift+cmd+p",
+    "command": "workbench.action.showCommands",
+    "when": "terminalFocus && !termnav.nvimFocused",
+    "dotfiles.retire": true
+  },
+  {
+    "key": "ctrl+shift+v",
+    "command": "workbench.action.terminal.paste",
+    "when": "terminalFocus && !termnav.nvimFocused",
+    "dotfiles.retire": true
+  },
+  {
+    "key": "ctrl+shift+v",
+    "command": "editor.action.clipboardPasteAction",
+    "when": "textInputFocus && !editorReadonly && !terminalFocus",
+    "dotfiles.retire": true
+  },
+  {
+    "key": "cmd+/",
+    "command": "editor.action.commentLine",
+    "when": "terminalFocus && !termnav.nvimFocused",
     "dotfiles.retire": true
   }
 ]

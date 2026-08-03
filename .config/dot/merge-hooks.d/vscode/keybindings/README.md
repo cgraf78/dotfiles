@@ -3,6 +3,7 @@
 This directory groups VS Code keybinding source families by platform.
 
 - `all.d/` applies to every VS Code config target.
+- `termnav.d/` applies only to targets that load the Termnav adapter.
 - `linux.d/` applies on native Linux.
 - `macos.d/` applies on macOS.
 - `windows.d/` applies on Windows and WSL-backed Windows VS Code targets.
@@ -12,9 +13,10 @@ lexical order, and an immediate `.replace/` group contributes only its last
 matching `*.jsonc` file.
 
 Existing local-only bindings keep their normal precedence over managed
-bindings. The shared terminal `Ctrl-Tab` and `Ctrl-Shift-Tab` send-sequence
-routes are the exception: they are emitted last so older or more specific local
-terminal-tab handlers cannot consume those chords before tmux receives them.
+bindings. On adapter-enabled targets, the terminal `Ctrl-Tab` and
+`Ctrl-Shift-Tab` send-sequence routes are the exception: they are emitted last
+so older or more specific local terminal-tab handlers cannot consume those
+chords before tmux receives them.
 `all.d/00-retirements.jsonc` is append-only exact history. Its
 `dotfiles.retire` records are source-only and never reach VS Code. The hook
 matches those complete objects rather than guessing ownership from a key,
@@ -34,11 +36,10 @@ The merge test enforces the policy against an immutable Git event base for each
 effective platform projection (`all.d` plus that platform's family). A removed
 or changed active object must enter retirement; retirement is append-only and
 must live in `all.d` so every platform can remove a synchronized foreign
-generation. After the initial bridge in this PR, a new retirement object must
-also appear in the prior active source, preventing the history file from
-becoming an unchecked list that could delete local-only bindings. The initial
-file is the one exception because it must describe generated output from before
-retirement history existed.
+generation. A new retirement object is explicit deletion authority. Exact
+matching, global placement, review, and append-only history keep that authority
+narrow while still allowing cleanup of generated review builds that never
+entered landed Git history.
 
 Native paths use an atomic rename. WSL uses the existing verified write with
 best-effort rollback because Windows can deny replacement of an open VS Code
@@ -48,47 +49,29 @@ could either delete a local binding or strand a managed one.
 Termnav's local VS Code extension publishes `termnav.nvimFocused` only while
 the active integrated terminal and, when present, focused tmux pane are owned
 by Neovim. `all.d/20-nvim-focus.jsonc` uses that leased context to pass
-VSCode-style chords to Neovim; missing or expired context leaves the normal VS
-Code command active.
-VS Code also treats a context key that was never published as false. Systems
-without the Termnav extension therefore follow the same path as systems where
-Neovim is not focused: positive Neovim routes stay inactive, negated host
-routes stay active, and chords without an explicit host override fall through
-to VS Code's normal defaults.
+VSCode-style chords to Neovim. The extension is the only process sensor in this
+layer: VS Code keybinding conditions cannot inspect the foreground process in a
+tmux pane by themselves.
 
-Ctrl+Shift letters use CSI-u so Shift is not collapsed into the corresponding
-plain Ctrl byte. The merge test inventories literal `<C-S-letter>` mappings
-under Neovim's Lua config and requires each one to have the correctly encoded
-focused route. This deliberate development-time coupling prevents a new
-VSCode-style Neovim mapping from silently becoming host-owned; satisfying it
-normally requires editing only the JSONC source, not the generic merge hook.
-The same inventory scans literal Ctrl+single-punctuation mappings. Known
-punctuation has explicit terminal and Karabiner vocabulary; a new symbol fails
-closed until that cross-layer spelling and sequence are deliberately added.
-The exception is a physical chord whose existing Karabiner translation loses
-information or collides with a different macOS shortcut. In that case the
-keyboard layer must preserve a distinct observed chord as well. Ctrl+Shift+V
-is the current example: keeping it raw avoids conflating Neovim's yank history
-with macOS Shift+Cmd+V, which VS Code uses for Markdown preview.
+VS Code treats a context key that was never published as false. That is a
+missing capability, not evidence that the workbench owns every chord.
+Neovim-specific additions must therefore be positive-only
+(`terminalFocus && termnav.nvimFocused`). Do not pair them with negated host
+commands for chords that normally reach the terminal; such fallbacks steal
+keys whenever the adapter is absent. Existing baseline routes such as terminal
+paste, quick open, and terminal toggle remain explicit, while other chords use
+normal VS Code and xterm.js resolution. A variant that cannot load the adapter
+uses `no-termnav`, which unregisters managed adapter generations; the positive
+routes then remain inert by construction and the Termnav-only tab family is
+omitted. Without the sensor, Neovim-aware routing is unavailable, but normal
+editor, workbench, shell, and tmux behavior continues.
 
 On macOS, Karabiner remains the only modifier-remapping layer. The macOS VS
-Code bindings merely route the Cmd chord that Karabiner already produced: they
-run the ordinary VS Code command outside Neovim and send the corresponding
-terminal sequence while `termnav.nvimFocused` is true. For each supported VS
-Code application, tests resolve Karabiner's first matching structured
-manipulator and require the generated keybindings to route the chord it
-actually emits. This models app conditions and rule order rather than
-duplicating a list of today's translated keys. Ctrl+Arrow and the deliberately
-distinct Ctrl+Shift+V stay raw and use common bindings. The supported
-applications and their concrete bundle/executable identities come from the
-variant manifest, so adding an editor cannot silently omit it from this
-cross-layer proof.
-
-This ownership policy applies when an integrated terminal has focus: Neovim
-gets the chord when it owns the active pane, and the VS Code workbench gets it
-otherwise. It does not redefine Windows-style shortcuts for ordinary macOS
-editor focus; those remain the responsibility of the existing Karabiner
-profile and VS Code defaults. The narrow Ctrl+Shift+V editor binding preserves
-the historical paste behavior after Karabiner stopped translating that
-physical chord; it is compatibility glue for the raw-chord exception above,
-not a second general editor-shortcut policy.
+Code bindings route the Cmd chord that Karabiner already produced. Terminal
+controls that shells and tmux must always receive (`Ctrl-A/B/L/N/R/U/W/Z`) are
+sent under `terminalFocus` without depending on Termnav. In particular,
+physical `Ctrl-B` reaches tmux as C0 byte `0x02`, while VS Code's normal
+`Cmd-B` sidebar command remains active outside the terminal. Other translated
+VSCode-style chords override the host only while `termnav.nvimFocused` is true.
+Ctrl+Arrow stays raw in VS Code under the existing Karabiner exemptions and
+uses the common bindings.

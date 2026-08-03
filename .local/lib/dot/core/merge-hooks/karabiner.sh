@@ -22,30 +22,7 @@ _karabiner_build_source() {
   _merge_hook_tmp_for "$dst" || return 1
   tmp="$REPLY"
 
-  # A profile name is the merge identity. Collapse duplicate names here so the
-  # later effective family source wins before any destination-specific work.
-  # Keeping the first occurrence's position preserves stable profile ordering,
-  # while centralizing winner selection prevents an overlay replacement and a
-  # routing test from interpreting the same source family differently.
-  if ! jq -s --indent 4 '
-    [.[].profiles[]?]
-    | reduce .[] as $profile (
-        {order: [], profiles: {}};
-        if (.profiles | has($profile.name)) then
-          .
-        else
-          .order += [$profile.name]
-        end
-        | .profiles[$profile.name] = $profile
-      )
-    | . as $state
-    | {
-        profiles: [
-          $state.order[] as $name
-          | $state.profiles[$name]
-        ]
-      }
-  ' \
+  if ! jq -s --indent 4 '{profiles: ([.[].profiles[]?])}' \
     "${_karabiner_sources[@]}" >"$tmp"; then
     _warn "    warning: Karabiner source merge failed — skipping"
     rm -f "$tmp"
@@ -72,9 +49,12 @@ merge() {
 
   _log "  Karabiner"
 
-  # First install still goes through the source builder so bootstrap and later
-  # merges apply the same overlay and duplicate-name policy.
+  # No existing file — just copy
   if [[ ! -f "$dst" ]]; then
+    if ((${#_karabiner_sources[@]} == 1)); then
+      cp "${_karabiner_sources[0]}" "$dst"
+      return 0
+    fi
     _karabiner_build_source "$dst" || return 0
     _merge_hook_commit_tmp "$REPLY" "$dst"
     return 0

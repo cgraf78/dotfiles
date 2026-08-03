@@ -24,40 +24,6 @@ local function is_active_context(win, buf)
     and vim.api.nvim_win_get_buf(win) == buf
 end
 
-local function go_to_line()
-  local win = vim.api.nvim_get_current_win()
-  local buf = vim.api.nvim_get_current_buf()
-
-  vim.ui.input({ prompt = "Go to line: " }, function(input)
-    if not is_active_context(win, buf) then
-      return
-    end
-
-    if input then
-      local line_text, column_text = input:match("^(%d+):(%d+)$")
-      if not line_text then
-        line_text = input:match("^(%d+)$")
-      end
-
-      local line = tonumber(line_text)
-      local column = column_text and tonumber(column_text) or nil
-      if
-        line
-        and line >= 1
-        and line <= vim.api.nvim_buf_line_count(buf)
-        and (not column or column >= 1)
-      then
-        local byte_column = 0
-        if column then
-          local text = vim.api.nvim_buf_get_lines(buf, line - 1, line, false)[1]
-          byte_column = vim.str_byteindex(text, math.min(column - 1, vim.fn.strchars(text)))
-        end
-        vim.api.nvim_win_set_cursor(win, { line, byte_column })
-      end
-    end
-  end)
-end
-
 -- Undo/redo
 map({ "n", "i", "x", "s" }, "<C-z>", "<cmd>undo<cr>", { desc = "Undo" })
 map({ "n", "i", "x", "s" }, "<C-y>", "<cmd>redo<cr>", { desc = "Redo" })
@@ -131,13 +97,6 @@ map("i", "<C-s>", function()
   vim.cmd("stopinsert")
   save_buffer(true)
 end, { desc = "Save" })
-
--- Go to Line follows VS Code's one-based line:column convention. Columns are
--- converted to Neovim's byte offsets so multibyte text lands under the cursor.
--- Select mode keeps Ctrl-G free because Neovim uses it internally to enable
--- replacement typing for the active selection.
-map("n", "<C-g>", go_to_line, { desc = "Go to line" })
-map("i", "<C-g>", go_to_line, { desc = "Go to line" })
 
 -- Select all
 map("n", "<C-a>", select("ggVG"), { desc = "Select all" })
@@ -268,7 +227,12 @@ map(
   { desc = "Replace selection in files" }
 )
 
--- Find next/prev. Ctrl-G now owns Go to Line; F3 is the VS Code search key.
+-- Find next/prev. Keep both the repository's Ctrl-G vocabulary and VS Code's
+-- F3 aliases so focus changes do not change what Ctrl-G means.
+map({ "n", "x", "s" }, "<C-g>", find.select_next_search, { desc = "Find next" })
+map({ "n", "x", "s" }, "<C-S-g>", find.select_previous_search, { desc = "Find prev" })
+map("i", "<C-g>", find.select_next_search_from_insert, { nowait = true, desc = "Find next" })
+map("i", "<C-S-g>", find.select_previous_search_from_insert, { nowait = true, desc = "Find prev" })
 map({ "n", "x", "s" }, "<F3>", find.select_next_search, { desc = "Find next" })
 map({ "n", "x", "s" }, "<S-F3>", find.select_previous_search, { desc = "Find prev" })
 map("i", "<F3>", find.select_next_search_from_insert, { nowait = true, desc = "Find next" })
