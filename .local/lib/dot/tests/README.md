@@ -62,6 +62,9 @@ depending on a particular `/var` versus `/private/var` spelling.
   one place. It also guards production workflow surfaces against direct
   low-level formatter/linter dispatch so those tools stay behind Checkrun or
   explicit Sley verify policy.
+- `schema-refresh-workflow-test` keeps the scheduled schema updater on its
+  dedicated branch-and-PR path, requires a real protected-check synchronization
+  event, and prevents auto-merge from bypassing the normal dotfiles gate.
 
 Prefer suites named for the tool or focused behavior they test. Behavior owned
 by a dependency repo should live in that repo's own test suite; this directory

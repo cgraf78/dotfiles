@@ -16,3 +16,9 @@ access.
 When refreshing a public schema, keep the filename stable when the association
 still means the same schema. Use a new filename only when the schema identity or
 major compatibility contract changes.
+
+The daily `Refresh Checkrun schemas` workflow runs the same refresh command and
+publishes drift through one dedicated automation PR. A repository-scoped deploy
+key synchronizes the final commit after the PR exists so the normal protected
+dotfiles matrix runs; GitHub auto-merge lands the payload only after that gate
+passes.
