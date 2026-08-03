@@ -61,6 +61,8 @@ _nvim_startup_budget() {
   fi
 }
 
+# The regression harness below replaces this function before invoking it.
+# shellcheck disable=SC2329
 _run_nvim_startup() {
   local timeout_seconds="$1" file="$2"
 
@@ -129,6 +131,39 @@ _assert_nvim_startup_budget() {
 
 echo "=== nvim: startup/shutdown performance ==="
 
+startup_mock_dir=$(_tmpdir)
+startup_mock_log="$startup_mock_dir/calls"
+saved_run_nvim_startup=$(declare -f _run_nvim_startup)
+_run_nvim_startup() {
+  local timeout_seconds="$1"
+  printf '%s\n' "$timeout_seconds" >>"$startup_mock_log"
+
+  if [[ $(wc -l <"$startup_mock_log") -eq 1 ]]; then
+    if [[ "$startup_mock_timeout_kind" == watchdog &&
+      -n "${DOT_TEST_TIMEOUT_EXPIRED_FILE:-}" ]]; then
+      : >"$DOT_TEST_TIMEOUT_EXPIRED_FILE"
+    fi
+    return 124
+  fi
+  return 0
+}
+startup_mock_timeout_kind=watchdog
+startup_rc=0
+_prepare_nvim_startup "$HOME/.bashrc" "$(_nvim_startup_budget)" || startup_rc=$?
+_assert_eq "startup preparation: recovers from one timeout" "0" "$startup_rc"
+expected=$(printf '120\n60')
+_assert_eq "startup preparation: preserves the original attempt before retrying" \
+  "$expected" "$(cat "$startup_mock_log")"
+
+: >"$startup_mock_log"
+startup_mock_timeout_kind=child
+startup_rc=0
+_prepare_nvim_startup "$HOME/.bashrc" "$(_nvim_startup_budget)" || startup_rc=$?
+eval "$saved_run_nvim_startup"
+_assert_eq "startup preparation: does not retry a child status 124" "124" "$startup_rc"
+_assert_file_content "startup preparation: child status 124 runs once" "120" \
+  "$startup_mock_log"
+
 nvim_session_state_dir=$(_tmpdir)
 startup_rc=0
 XDG_STATE_HOME="$nvim_session_state_dir" \
@@ -155,6 +190,7 @@ _assert_process_stopped() {
 
 timeout_mock_bin=$(_mock_bin)
 timeout_marker=$(_tmpdir)/external-timeout-called
+timeout_expired_marker=$(_tmpdir)/watchdog-expired
 cat >"$timeout_mock_bin/timeout" <<'EOF'
 #!/usr/bin/env bash
 : >"$DOT_TEST_TIMEOUT_MARKER"
@@ -164,10 +200,21 @@ chmod +x "$timeout_mock_bin/timeout"
 rc=0
 PATH="$timeout_mock_bin:$PATH" \
   DOT_TEST_TIMEOUT_MARKER="$timeout_marker" \
+  DOT_TEST_TIMEOUT_EXPIRED_FILE="$timeout_expired_marker" \
   _with_timeout 1 bash -c 'sleep 5' || rc=$?
 _assert_eq "startup timeout: portable watchdog returns timeout status" "124" "$rc"
+_assert_file_exists "startup timeout: watchdog records actual expiration" \
+  "$timeout_expired_marker"
 _assert_file_missing "startup timeout: portable watchdog bypasses external timeout" \
   "$timeout_marker"
+
+rm -f "$timeout_expired_marker"
+rc=0
+DOT_TEST_TIMEOUT_EXPIRED_FILE="$timeout_expired_marker" \
+  _with_timeout 5 bash -c 'exit 124' || rc=$?
+_assert_eq "startup timeout: child status 124 is preserved" "124" "$rc"
+_assert_file_missing "startup timeout: child status 124 is not expiration" \
+  "$timeout_expired_marker"
 
 timeout_fixture_home=$(_tmpdir)
 rc=0
