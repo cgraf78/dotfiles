@@ -10,6 +10,7 @@ local vcs_root_env = {
   DOT_GIT_REAL = "1",
   SLEY_SKIP_BARE_REPO_FALLBACK = "1",
 }
+local dotfiles_tracked_cache = nil
 
 local home_files = {
   ".bashrc",
@@ -138,6 +139,33 @@ local function option_marker_root(opts)
   return nil
 end
 
+local function dotfiles_index_identity(git_dir)
+  if vim.env.GIT_INDEX_FILE and vim.env.GIT_INDEX_FILE ~= "" then
+    return nil
+  end
+
+  local stat = vim.uv.fs_stat(git_dir .. "/index")
+  if not stat or stat.type ~= "file" or not stat.mtime or not stat.ctime then
+    return nil
+  end
+
+  local fields = {
+    stat.dev,
+    stat.ino,
+    stat.size,
+    stat.mtime.sec,
+    stat.mtime.nsec,
+    stat.ctime.sec,
+    stat.ctime.nsec,
+  }
+  for _, field in ipairs(fields) do
+    if field == nil then
+      return nil
+    end
+  end
+  return table.concat(fields, ":")
+end
+
 local function dotfiles_tracked_root(cwd)
   local root = home()
   if not contains(root, cwd) then
@@ -156,6 +184,18 @@ local function dotfiles_tracked_root(cwd)
   end
 
   local rel = normalized:sub(#root + 2)
+  local cwd_stat = vim.uv.fs_stat(normalized)
+  local index_identity = dotfiles_index_identity(git_dir)
+  local cache_key = index_identity
+      and table.concat(
+        { normalized, cwd_stat and cwd_stat.type or "missing", index_identity },
+        "\0"
+      )
+    or nil
+  if cache_key and dotfiles_tracked_cache and dotfiles_tracked_cache.key == cache_key then
+    return dotfiles_tracked_cache.root or nil
+  end
+
   local args = {
     "git",
     "-C",
@@ -168,16 +208,23 @@ local function dotfiles_tracked_root(cwd)
     "--",
     rel,
   }
-  local cwd_stat = vim.uv.fs_stat(normalized)
   if cwd_stat and cwd_stat.type == "directory" then
     args[#args + 1] = rel .. "/**"
   end
 
   local tracked = vim.fn.system(args)
-  if vim.v.shell_error == 0 and tracked ~= "" then
-    return root
+  if vim.v.shell_error ~= 0 then
+    return nil
   end
-  return nil
+
+  local tracked_root = tracked ~= "" and root or false
+  -- Workspace pickers commonly ask about the same path several times in one
+  -- interaction. Keep only that result in memory, and bind it to the complete
+  -- bare-index identity so staging or atomic index replacement invalidates it.
+  if cache_key then
+    dotfiles_tracked_cache = { key = cache_key, root = tracked_root }
+  end
+  return tracked_root or nil
 end
 
 local function sley_root(cwd, env, opts)
