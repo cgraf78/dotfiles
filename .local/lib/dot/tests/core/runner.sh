@@ -81,6 +81,14 @@ DOTRUNNER
     0 "$_dot_runner_concurrent_one_rc"
   _assert_exit "dot-test temp lifecycle: second concurrent runner succeeds" \
     0 "$_dot_runner_concurrent_two_rc"
+  _dot_runner_wait_block=$(sed -n '/^_wait_job_bounded()/,/^}/p' "$BIN_DIR/dot-test")
+  # These are literal implementation contracts, not shell expressions here.
+  # shellcheck disable=SC2016
+  _assert_contains "dot-test wait: uses a complete polling budget" \
+    'remaining=$((limit * 20))' "$_dot_runner_wait_block"
+  # shellcheck disable=SC2016
+  _assert_not_contains "dot-test wait: avoids coarse integer-second deadlines" \
+    'started=$SECONDS' "$_dot_runner_wait_block"
   if [[ ! -e "$_dot_runner_old_dead" && ! -L "$_dot_runner_old_dead" ]]; then
     _pass "dot-test temp lifecycle: old dead runner is reclaimed"
   else

@@ -396,12 +396,16 @@ os.execvpe(sys.argv[1], sys.argv[1:], os.environ)
 }
 
 _wait_job_bounded() {
-  local pid="$1" limit="$2" started=$SECONDS state
+  local pid="$1" limit="$2" remaining state
+  # SECONDS has integer precision, so a one-second grace period can otherwise
+  # expire immediately at a tick boundary before a finished pipe drains.
+  remaining=$((limit * 20))
 
   while kill -0 "$pid" 2>/dev/null; do
     state=$(ps -o stat= -p "$pid" 2>/dev/null) || break
     [[ "$state" =~ ^[[:space:]]*Z ]] && break
-    ((SECONDS - started >= limit)) && return 1
+    ((remaining > 0)) || return 1
+    remaining=$((remaining - 1))
     sleep 0.05
   done
   wait "$pid" 2>/dev/null || true
