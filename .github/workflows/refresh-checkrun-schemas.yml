@@ -1,0 +1,355 @@
+name: Refresh Checkrun schemas
+
+on:
+  schedule:
+    # Avoid the top of the hour, when scheduled Actions traffic is busiest.
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: refresh-checkrun-schemas
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    name: Resolve current schemas
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    outputs:
+      base_sha: ${{ steps.refresh.outputs.base_sha }}
+      changed: ${{ steps.refresh.outputs.changed }}
+    steps:
+      - name: Checkout dotfiles
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Checkout Checkrun
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: cgraf78/checkrun
+          path: .schema-refresh/checkrun
+          persist-credentials: false
+
+      - name: Refresh and validate tracked schemas
+        id: refresh
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          base_sha=$(git rev-parse HEAD)
+          echo "base_sha=$base_sha" >>"$GITHUB_OUTPUT"
+
+          # Checkrun deliberately treats jsonschema as optional. This trusted
+          # unattended path pins and provisions it in the read-only job instead
+          # of depending on the hosted runner's incidental Python packages.
+          python3 -m pip install --disable-pip-version-check --no-input \
+            --no-compile --only-binary=:all: 'jsonschema==4.25.1'
+          python3 -c 'import jsonschema'
+
+          checkrun="$GITHUB_WORKSPACE/.schema-refresh/checkrun/bin/checkrun"
+          if ! HOME="$GITHUB_WORKSPACE" CHECKRUN_PYTHON=python3 \
+            PYTHONDONTWRITEBYTECODE=1 \
+            "$checkrun" schema refresh; then
+            echo "Schema refresh failed; retrying the read-only fetch phase once." >&2
+            sleep 10
+            HOME="$GITHUB_WORKSPACE" CHECKRUN_PYTHON=python3 \
+              PYTHONDONTWRITEBYTECODE=1 \
+              "$checkrun" schema refresh
+          fi
+          rm -rf .schema-refresh
+
+          # Discard anything the updater placed in the index, then inventory
+          # tracked and newly created files through one strict allowlist.
+          git reset --mixed "$base_sha"
+          paths_file="$RUNNER_TEMP/checkrun-schema-refresh-paths"
+          python3 - "$base_sha" "$paths_file" <<'PY'
+          import json
+          from jsonschema.exceptions import SchemaError
+          from jsonschema.validators import validator_for
+          from pathlib import Path
+          import re
+          import subprocess
+          import sys
+
+          base_sha, output_path = sys.argv[1:]
+
+          def git_paths(*args: str) -> list[str]:
+              data = subprocess.check_output(["git", *args])
+              return [
+                  item.decode("utf-8", "surrogateescape")
+                  for item in data.split(b"\0")
+                  if item
+              ]
+
+          paths = sorted(
+              set(
+                  git_paths("diff", "--name-only", "-z", base_sha, "--")
+                  + git_paths("ls-files", "--others", "--exclude-standard", "-z")
+              )
+          )
+          allowed = re.compile(
+              r"\.local/share/checkrun/schemas/[A-Za-z0-9][A-Za-z0-9._-]*\.schema\.json"
+          )
+          unexpected = [path for path in paths if not allowed.fullmatch(path)]
+          if unexpected:
+              print("unexpected tracked changes from schema refresh:", file=sys.stderr)
+              print("\n".join(unexpected), file=sys.stderr)
+              raise SystemExit(1)
+
+          for path in paths:
+              candidate = Path(path)
+              if candidate.is_symlink() or not candidate.is_file():
+                  raise SystemExit(f"schema refresh output is not a regular file: {path}")
+              try:
+                  with candidate.open(encoding="utf-8") as handle:
+                      schema = json.load(handle)
+                  validator_for(schema).check_schema(schema)
+              except (OSError, json.JSONDecodeError, SchemaError) as error:
+                  raise SystemExit(f"invalid schema refresh output {path}: {error}")
+
+          Path(output_path).write_text(
+              "".join(f"{path}\n" for path in paths), encoding="utf-8"
+          )
+          PY
+
+          if [[ ! -s "$paths_file" ]]; then
+            echo "Pinned Checkrun schemas are current."
+            echo "changed=false" >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          mapfile -t changed_paths <"$paths_file"
+          git add -- "${changed_paths[@]}"
+
+          # This staged inventory is the exact payload transferred across the
+          # read-only/privileged job boundary.
+          git diff --cached --name-only -z >"$RUNNER_TEMP/staged-paths"
+          python3 - "$paths_file" "$RUNNER_TEMP/staged-paths" <<'PY'
+          from pathlib import Path
+          import sys
+
+          expected = Path(sys.argv[1]).read_text(encoding="utf-8").splitlines()
+          actual = [
+              item.decode("utf-8", "surrogateescape")
+              for item in Path(sys.argv[2]).read_bytes().split(b"\0")
+              if item
+          ]
+          if actual != expected:
+              raise SystemExit(
+                  f"staged schema inventory differs: expected={expected!r} actual={actual!r}"
+              )
+          PY
+
+          git diff --cached --check
+          git diff --cached --binary --full-index \
+            >"$RUNNER_TEMP/checkrun-schema-refresh.patch"
+          echo "changed=true" >>"$GITHUB_OUTPUT"
+
+      - name: Upload validated schema patch
+        if: steps.refresh.outputs.changed == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: checkrun-schema-refresh
+          path: ${{ runner.temp }}/checkrun-schema-refresh.patch
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: Publish refresh pull request
+    needs: refresh
+    if: needs.refresh.outputs.changed == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions: # zizmor: ignore[excessive-permissions]
+      contents: write # Push the automation branch and request auto-merge.
+      pull-requests: write # Create or update the dedicated refresh PR.
+    env:
+      BASE_BRANCH: ${{ github.event.repository.default_branch }}
+      BASE_SHA: ${{ needs.refresh.outputs.base_sha }}
+      UPDATE_BRANCH: automation/checkrun-schema-refresh
+    steps:
+      - name: Require the repository-scoped deploy key
+        shell: bash
+        env:
+          DEPLOY_KEY: ${{ secrets.DOTFILES_SCHEMA_REFRESH_DEPLOY_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$DEPLOY_KEY" ]]; then
+            echo "DOTFILES_SCHEMA_REFRESH_DEPLOY_KEY is not configured" >&2
+            exit 1
+          fi
+
+      - name: Checkout exact refresh base
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The persisted repository-only key makes the post-PR push a genuine
+          # synchronize event, so protected pull_request checks are attached.
+          ssh-key: ${{ secrets.DOTFILES_SCHEMA_REFRESH_DEPLOY_KEY }}
+          token: unused-by-ssh-checkout
+          persist-credentials: true # zizmor: ignore[artipacked]
+          ref: ${{ needs.refresh.outputs.base_sha }}
+
+      - name: Download validated schema patch
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: checkrun-schema-refresh
+          path: ${{ runner.temp }}/checkrun-schema-refresh
+
+      - name: Apply and revalidate schema patch
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          patch="$RUNNER_TEMP/checkrun-schema-refresh/checkrun-schema-refresh.patch"
+          git apply --index --check "$patch"
+          git apply --index "$patch"
+          git diff --cached --name-only -z >"$RUNNER_TEMP/published-paths"
+
+          python3 - "$RUNNER_TEMP/published-paths" <<'PY'
+          import json
+          from pathlib import Path
+          import re
+          import sys
+
+          paths = [
+              item.decode("utf-8", "surrogateescape")
+              for item in Path(sys.argv[1]).read_bytes().split(b"\0")
+              if item
+          ]
+          allowed = re.compile(
+              r"\.local/share/checkrun/schemas/[A-Za-z0-9][A-Za-z0-9._-]*\.schema\.json"
+          )
+          if not paths:
+              raise SystemExit("schema refresh patch is empty")
+          unexpected = [path for path in paths if not allowed.fullmatch(path)]
+          if unexpected:
+              raise SystemExit(f"unexpected paths in schema refresh patch: {unexpected!r}")
+
+          for path in paths:
+              candidate = Path(path)
+              if candidate.is_symlink() or not candidate.is_file():
+                  raise SystemExit(f"schema refresh output is not a regular file: {path}")
+              try:
+                  with candidate.open(encoding="utf-8") as handle:
+                      json.load(handle)
+              except (OSError, json.JSONDecodeError) as error:
+                  raise SystemExit(f"invalid schema refresh output {path}: {error}")
+          PY
+
+          git diff --cached --check
+
+      - name: Publish update and enable auto-merge
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |-
+          set -euo pipefail
+
+          latest_base=$(gh api "repos/$GITHUB_REPOSITORY/branches/$BASE_BRANCH" \
+            --jq .commit.sha)
+          if [[ "$latest_base" != "$BASE_SHA" ]]; then
+            echo "default branch changed during schema refresh; rerun the workflow" >&2
+            exit 1
+          fi
+
+          remote_ref="refs/heads/$UPDATE_BRANCH"
+          remote_sha=$(git ls-remote --heads origin "$remote_ref" | awk '{print $1}')
+
+          git config user.name "github-actions[bot]"
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$UPDATE_BRANCH"
+          git commit -m "Stage refreshed Checkrun schemas"
+
+          if [[ -n "$remote_sha" ]]; then
+            git push origin "HEAD:$remote_ref" \
+              "--force-with-lease=$remote_ref:$remote_sha"
+          else
+            git push origin "HEAD:$remote_ref"
+          fi
+          published_sha=$(git rev-parse HEAD)
+
+          body="$RUNNER_TEMP/checkrun-schema-refresh-pr.md"
+          cat >"$body" <<'EOF'
+          Refresh the pinned public Checkrun schemas used for deterministic,
+          offline validation in dotfiles.
+
+          ## Summary
+
+          - fetch the current public schemas declared by Checkrun policy
+          - keep the reviewed payloads available to hooks, editors, and CI
+          - auto-merge only after the normal protected dotfiles matrix passes
+
+          ## Testing
+
+          - `checkrun schema refresh`
+          - full dotfiles CI matrix on the final automation commit
+          EOF
+
+          owner=${GITHUB_REPOSITORY%%/*}
+          head="$owner:$UPDATE_BRANCH"
+          prs=$(gh api --method GET "repos/$GITHUB_REPOSITORY/pulls" \
+            -f state=open -f "head=$head" -f per_page=2)
+          count=$(jq 'length' <<<"$prs")
+          if ((count > 1)); then
+            echo "multiple open schema refresh PRs for $head" >&2
+            exit 1
+          fi
+
+          if ((count == 0)); then
+            gh pr create --base "$BASE_BRANCH" --head "$UPDATE_BRANCH" \
+              --title "Refresh pinned Checkrun schemas" --body-file "$body"
+            prs=$(gh api --method GET "repos/$GITHUB_REPOSITORY/pulls" \
+              -f state=open -f "head=$head" -f per_page=2)
+            count=$(jq 'length' <<<"$prs")
+          fi
+          if ((count != 1)); then
+            echo "expected exactly one open schema refresh PR for $head" >&2
+            exit 1
+          fi
+
+          number=$(jq -r '.[0].number' <<<"$prs")
+          base=$(jq -r '.[0].base.ref' <<<"$prs")
+          head_repo=$(jq -r '.[0].head.repo.full_name' <<<"$prs")
+          head_ref=$(jq -r '.[0].head.ref' <<<"$prs")
+          if [[ "$base" != "$BASE_BRANCH" ]]; then
+            echo "unexpected base on schema refresh PR #$number: $base" >&2
+            exit 1
+          fi
+          if [[ "$head_repo" != "$GITHUB_REPOSITORY" ]]; then
+            echo "unexpected head repository on schema refresh PR #$number: $head_repo" >&2
+            exit 1
+          fi
+          if [[ "$head_ref" != "$UPDATE_BRANCH" ]]; then
+            echo "unexpected head branch on schema refresh PR #$number: $head_ref" >&2
+            exit 1
+          fi
+          gh pr edit "$number" --title "Refresh pinned Checkrun schemas" \
+            --body-file "$body"
+
+          # GITHUB_TOKEN-created PR events do not start another workflow. Amend
+          # the staged commit after the PR exists and push it with the scoped
+          # deploy key retained by checkout. That real synchronize event starts
+          # the protected pull_request matrix on the final tree.
+          git commit --amend -F - <<'EOF'
+          Refresh pinned Checkrun schemas
+
+          Summary
+
+          Refresh the public schema payloads tracked by dotfiles for offline
+          validation.
+
+          Testing
+
+          - full protected dotfiles CI matrix
+          EOF
+          git push origin "HEAD:$remote_ref" \
+            "--force-with-lease=$remote_ref:$published_sha"
+
+          gh pr merge "$number" --auto --squash
