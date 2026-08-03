@@ -120,7 +120,11 @@ exists, do not add an invented placeholder schema.
 ## Merge Details
 
 - VS Code settings and keybindings preserve local-only entries, let dotfiles
-  win on conflicts, and strip JSONC comments before writing config.
+  win on conflicts, and strip JSONC comments before writing config. Append-only
+  retirement records in the JSONC sources identify exact historical managed
+  entries. That lets later source changes and deletions remove generations
+  synchronized from another machine without altering generated keybinding
+  semantics or mistaking genuine local bindings for dotfiles.
 - Karabiner dotfiles profiles from `karabiner/profiles.d` replace local profiles with the same name;
   local-only profiles are preserved.
 - Claude, Codex, and Gemini settings are layered from their source families.

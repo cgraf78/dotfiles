@@ -19,11 +19,24 @@ if ! declare -F _dot_xdg_path >/dev/null 2>&1; then
   . "$_dot_vscode_hook_dir/../xdg.sh"
 fi
 
-# Strip // line comments from JSONC so jq can parse it.
-# Uses [[:space:]] instead of \s for macOS BSD sed compatibility.
+# Strip // line comments from JSONC so jq can parse it. Normalize transport
+# bytes first because Settings Sync can move CRLF/BOM files across platforms;
+# leaving a BOM attached to the first comment would make a valid source or
+# synchronized destination fail parsing for a formatting-only reason.
 _strip_jsonc() {
-  grep -v '^[[:space:]]*//' "$1" | jq --indent 4 '.'
+  LC_ALL=C awk '
+    NR == 1 { sub(/^\357\273\277/, "", $0) }
+    { sub(/\r$/, "", $0) }
+    !/^[[:space:]]*\/\//
+  ' "$1" | jq --indent 4 '.'
 }
+
+# Retirement history stays in source because there is no universally inert
+# ownership field in a VS Code keybinding. Comments disappear during divergent
+# Settings Sync merges, `when` participates in resolver implication, and `args`
+# can change positive-command behavior. Exact source records are less clever
+# and more durable: they alter no generated shortcut semantics at all.
+_DOT_VSCODE_KEYBINDING_RETIRE='dotfiles.retire'
 
 _vscode_is_wsl() {
   if command -v _is_wsl >/dev/null 2>&1; then
@@ -121,61 +134,110 @@ PY
 }
 
 # Merge VS Code keybindings from dotfiles into a local keybindings.json.
-# Policy: dotfiles win on conflicts (same key+when, different command).
-# Local-only keybindings (not in dotfiles) are preserved with their precedence,
-# except that managed terminal tab routes must reach the pty ahead of stale
-# local handlers with overlapping when clauses.
+# Policy: dotfiles win on key+when conflicts. Append-only, exact source
+# retirement records identify old managed generations that can be removed,
+# including bindings imported by Settings Sync from another machine. Genuinely
+# local-only bindings retain their precedence. Keeping history in JSONC teaches
+# this hook nothing about keys, commands, platforms, or Termnav behavior.
+#
+# Managed terminal tab routes are the exception to normal ordering: they must
+# reach the pty ahead of stale local handlers with overlapping when clauses.
 # Writes to a .tmp file first so the original is preserved on failure.
 _merge_vscode_keybindings() {
-  local src="$1" dst="$2" out
+  local src="$1" dst="$2"
+  local out src_clean dst_clean
   mkdir -p "$(dirname "$dst")"
 
-  # No existing file — just copy (stripping comments)
-  if [[ ! -f "$dst" ]]; then
-    _merge_hook_tmp_for "$dst" || return 1
-    out="$REPLY"
-    if _strip_jsonc "$src" | jq --indent 4 --sort-keys '.' >"$out"; then
-      _vscode_commit_tmp "$out" "$dst"
-    else
-      rm -f "$out"
-      return 1
-    fi
-    return
-  fi
-
-  # Create clean JSON temp files (strip JSONC comments for jq)
-  local src_clean dst_clean
+  # Normalize exactly one top-level array from each JSONC input. Accepting a
+  # second JSON document would let a plausible-looking prefix hide corruption,
+  # then silently discard retirement policy or bindings through $slurpfile[0].
   src_clean=$(mktemp)
   dst_clean=$(mktemp)
   trap 'rm -f "${src_clean:-}" "${dst_clean:-}"' RETURN
 
-  if ! _strip_jsonc "$src" >"$src_clean" || ! _strip_jsonc "$dst" >"$dst_clean"; then
+  if ! _strip_jsonc "$src" |
+    jq -s -e \
+      --arg retire "$_DOT_VSCODE_KEYBINDING_RETIRE" '
+      def valid_binding:
+        type == "object"
+        and (.key | type == "string" and length > 0)
+        and (.command | type == "string" and length > 0)
+        and ((has("when") | not) or (.when | type == "string"))
+        and (
+          (has($retire) | not)
+          or .[$retire] == true
+        );
+
+      if length == 1
+        and (.[0] | type == "array")
+        and all(.[0][]; valid_binding)
+      then .[0]
+      else error("expected one valid keybinding array")
+      end
+    ' \
+      >"$src_clean"; then
     _warn "    warning: keybindings merge failed for $(basename "$(dirname "$(dirname "$dst")")") — skipping"
-    return
+    return 1
   fi
 
-  # A keybinding's identity is its key+when pair. VS Code resolves equal-weight
-  # user bindings from the bottom up, so keep only the managed terminal tab
-  # routes after preserved local entries; unrelated local overrides retain the
-  # existing source-first precedence.
+  if [[ -f "$dst" ]]; then
+    if ! _strip_jsonc "$dst" |
+      jq -s -e 'if length == 1 and (.[0] | type == "array") then .[0] else error("expected one array") end' \
+        >"$dst_clean"; then
+      _warn "    warning: keybindings merge failed for $(basename "$(dirname "$(dirname "$dst")")") — skipping"
+      return 1
+    fi
+  else
+    printf '[]\n' >"$dst_clean"
+  fi
+
+  # Current key+when conflicts and exact retirement records are source-owned
+  # policy. A changed or deleted binding keeps its former exact object in the
+  # JSONC history, allowing machines to skip releases without stranding an
+  # intermediate generation synchronized from elsewhere. "Exact" deliberately
+  # includes args and any additional properties: a near-match may be a user's
+  # independent binding, so broad key/command heuristics are not safe deletion
+  # authority.
+  # VS Code resolves equal-weight user bindings from the bottom up, so keep only
+  # the managed terminal tab routes after preserved local entries; unrelated
+  # local overrides retain the existing source-first precedence.
   _merge_hook_tmp_for "$dst" || return 1
   out="$REPLY"
-  if ! jq -n --indent 4 --sort-keys --slurpfile s "$src_clean" --slurpfile d "$dst_clean" '
+  if ! jq -n --indent 4 --sort-keys \
+    --arg retire "$_DOT_VSCODE_KEYBINDING_RETIRE" \
+    --slurpfile s "$src_clean" \
+    --slurpfile d "$dst_clean" '
     def terminal_tab_route:
       .command == "workbench.action.terminal.sendSequence"
       and .when == "terminalFocus"
       and (.key == "ctrl+tab" or .key == "ctrl+shift+tab");
 
-    ($s[0] | map({key: .key, when: (.when // "")})) as $skeys |
-    ($s[0] | map(select(terminal_tab_route | not)))
-    + [$d[0][] | select({key: .key, when: (.when // "")} as $k | $skeys | map(. == $k) | any | not)]
-    + ($s[0] | map(select(terminal_tab_route)))
+    ($s[0] | map(select(.[$retire] != true))) as $active |
+    ($s[0] | map(select(.[$retire] == true) | del(.[$retire]))) as $retired |
+    ($active | map({key: .key, when: (.when // "")})) as $skeys |
+    # Current managed entries come first, matching the historical merge
+    # policy. A local key+when conflict is removed even when its command
+    # differs because VS Code would otherwise resolve two definitions for the
+    # same shortcut condition.
+    ($active | map(select(terminal_tab_route | not)))
+    + [
+      $d[0][]
+      | select(
+          ({key: .key, when: (.when // "")} as $key_when
+            | $skeys | map(. == $key_when) | any | not)
+          and
+          (. as $binding
+            | $retired | map(. == $binding) | any | not)
+        )
+    ]
+    + ($active | map(select(terminal_tab_route)))
   ' >"$out"; then
     _warn "    warning: keybindings merge failed for $(basename "$(dirname "$(dirname "$dst")")") — skipping"
     rm -f "$out"
-  else
-    _vscode_commit_tmp "$out" "$dst"
+    return 1
   fi
+
+  _vscode_commit_tmp "$out" "$dst"
 }
 
 # Merge VS Code settings from dotfiles into a local settings.json.
@@ -641,6 +703,19 @@ _vscode_settings_sources() {
   _merge_hook_family_files_matching vscode/settings.d '*.json' '*.replace/*.json'
 }
 
+# Print the stable platform key used by keybinding families.
+_vscode_keybinding_platform() {
+  # _vscode_platform is the canonical host classifier used by variant
+  # selection. Map its display vocabulary once so family paths cannot drift
+  # into an independent uname/WSL policy.
+  case "$(_vscode_platform)" in
+    Darwin) printf 'macos\n' ;;
+    Linux) printf 'linux\n' ;;
+    WSL | Windows) printf 'windows\n' ;;
+    *) return 1 ;;
+  esac
+}
+
 # Print the keybinding families that apply to the current platform.
 #
 # Keybindings have two independent policies: the shared family mechanism orders
@@ -651,19 +726,13 @@ _vscode_settings_sources() {
 # Args: none
 # Returns merge-hook family names on stdout, common first and platform second.
 _vscode_keybinding_families() {
-  printf '%s\n' vscode/keybindings/all.d
+  local platform="${1:-}"
+  if [[ -z "$platform" ]]; then
+    platform=$(_vscode_keybinding_platform) || return 1
+  fi
 
-  case "$(uname -s)" in
-    Darwin) printf '%s\n' vscode/keybindings/macos.d ;;
-    Linux)
-      if _vscode_is_wsl; then
-        printf '%s\n' vscode/keybindings/windows.d
-      else
-        printf '%s\n' vscode/keybindings/linux.d
-      fi
-      ;;
-    MINGW* | MSYS*) printf '%s\n' vscode/keybindings/windows.d ;;
-  esac
+  printf '%s\n' vscode/keybindings/all.d
+  printf 'vscode/keybindings/%s.d\n' "$platform"
 }
 
 # Merge both settings and keybindings into a VS Code config dir.
@@ -693,15 +762,43 @@ _merge_vscode_config() {
   _merge_vscode_window_title "$cfg_dir/settings.json"
   _merge_vscode_mcp_auth "$cfg_dir/settings.json"
 
-  # Keybindings merge common first, then the selected platform family. The
-  # source files are JSONC; the merge strips comments and emits strict JSON into
-  # the VS Code config path.
-  local kb_family kb_source
+  # Aggregate every applicable source before reconciliation. This keeps
+  # two current fragments with the same action but distinct conditions from
+  # mistaking each other for stale output, while preserving the existing
+  # later-fragment-first output precedence.
+  local kb_family kb_source kb_layer kb_aggregate kb_next kb_platform
+  kb_platform=$(_vscode_keybinding_platform) || return 1
+  kb_aggregate=$(mktemp)
+  printf '[]\n' >"$kb_aggregate"
   while IFS= read -r kb_family; do
     while IFS= read -r kb_source; do
-      _merge_vscode_keybindings "$kb_source" "$cfg_dir/keybindings.json"
+      kb_layer=$(mktemp)
+      kb_next=$(mktemp)
+      if ! _strip_jsonc "$kb_source" |
+        jq -s -e 'if length == 1 and (.[0] | type == "array") then .[0] else error("expected one array") end' \
+          >"$kb_layer" ||
+        ! jq -n --slurpfile layer "$kb_layer" --slurpfile current "$kb_aggregate" \
+          '$layer[0] + $current[0]' >"$kb_next"; then
+        rm -f "$kb_layer" "$kb_next" "$kb_aggregate"
+        _warn "    warning: keybindings source aggregation failed for $cfg_dir — skipping"
+        return 1
+      fi
+      if ! mv -f -- "$kb_next" "$kb_aggregate"; then
+        rm -f "$kb_layer" "$kb_next" "$kb_aggregate"
+        _warn "    warning: keybindings source aggregation failed for $cfg_dir — skipping"
+        return 1
+      fi
+      rm -f "$kb_layer"
     done < <(_merge_hook_family_files_matching "$kb_family" '*.jsonc' '*.replace/*.jsonc')
-  done < <(_vscode_keybinding_families)
+  done < <(_vscode_keybinding_families "$kb_platform")
+  if ! _merge_vscode_keybindings \
+    "$kb_aggregate" \
+    "$cfg_dir/keybindings.json" \
+    "$kb_platform"; then
+    rm -f "$kb_aggregate"
+    return 1
+  fi
+  rm -f "$kb_aggregate"
 }
 
 # Ensure a local extension is registered in an extensions.json.
@@ -1107,7 +1204,8 @@ merge() {
 
   ((${#variants[@]} > 0)) || return 0
 
-  local _ext_spec _ext_id _ext_src _ext_disabled_opts _ext_name ext_dir cfg_dir opts rest
+  local _ext_spec _ext_id _ext_src _ext_disabled_opts _ext_name
+  local ext_dir cfg_dir opts rest merge_rc=0
   for line in "${variants[@]}"; do
     ext_dir="${line%%	*}"
     _prune_vscode_local_extensions "$ext_dir/extensions.json"
@@ -1136,6 +1234,10 @@ merge() {
   done < <(_vscode_local_extensions)
 
   # Merge settings and keybindings.
+  # Variants are independent, so keep processing after one fails. Preserve the
+  # aggregate failure explicitly: the hook runner deliberately invokes merge
+  # in a context where Bash errexit is not a reliable error boundary, and a
+  # later successful variant must not make a partial deployment look healthy.
   _log "  VS Code"
   for line in "${variants[@]}"; do
     rest="${line#*	}"
@@ -1143,7 +1245,8 @@ merge() {
     opts="${rest#*	}"
     [[ "$opts" == "$cfg_dir" ]] && opts=""
     if [[ -n "$cfg_dir" ]]; then
-      _merge_vscode_config "$cfg_dir" "$opts"
+      _merge_vscode_config "$cfg_dir" "$opts" || merge_rc=1
     fi
   done
+  return "$merge_rc"
 }
