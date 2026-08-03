@@ -1313,6 +1313,58 @@ EOF
     "when": "terminalFocus && localTerminalMode"
   },
   {
+    "key": "ctrl+shift+tab",
+    "command": "workbench.action.quickOpenLeastRecentlyUsedEditorInGroup",
+    "when": "!activeEditorGroupEmpty && !terminalFocus"
+  },
+  {
+    "key": "ctrl+shift+tab",
+    "command": "-workbench.action.quickOpenLeastRecentlyUsedEditorInGroup",
+    "when": "!activeEditorGroupEmpty"
+  },
+  {
+    "key": "ctrl+tab",
+    "command": "workbench.action.quickOpenPreviousRecentlyUsedEditorInGroup",
+    "when": "!activeEditorGroupEmpty && !terminalFocus"
+  },
+  {
+    "key": "ctrl+tab",
+    "command": "-workbench.action.quickOpenPreviousRecentlyUsedEditorInGroup",
+    "when": "!activeEditorGroupEmpty"
+  },
+  {
+    "key": "ctrl+tab",
+    "command": "workbench.action.quickOpenNavigateNextInEditorPicker",
+    "when": "inEditorsPicker && inQuickOpen && !terminalFocus"
+  },
+  {
+    "key": "ctrl+tab",
+    "command": "-workbench.action.quickOpenNavigateNextInEditorPicker",
+    "when": "inEditorsPicker && inQuickOpen"
+  },
+  {
+    "key": "ctrl+shift+tab",
+    "command": "workbench.action.quickOpenNavigatePreviousInEditorPicker",
+    "when": "inEditorsPicker && inQuickOpen && !terminalFocus"
+  },
+  {
+    "key": "ctrl+shift+tab",
+    "command": "-workbench.action.quickOpenNavigatePreviousInEditorPicker",
+    "when": "inEditorsPicker && inQuickOpen"
+  },
+  {
+    "key": "ctrl+tab",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[9;5u" },
+    "when": "terminalFocus"
+  },
+  {
+    "key": "ctrl+shift+tab",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[9;6u" },
+    "when": "terminalFocus"
+  },
+  {
     "key": "ctrl+v",
     "command": "local.terminalPasteOverride",
     "when": "terminalFocus && localTerminalMode"
@@ -1507,6 +1559,53 @@ JSON
       _assert_eq "vscode $platform terminal: managed Ctrl-Shift-Tab wins over a local near-match" \
         '["workbench.action.terminal.focusPrevious","workbench.action.terminal.sendSequence"]' \
         "$(jq -c '[.[] | select(.key == "ctrl+shift+tab" and (.command == "workbench.action.terminal.focusPrevious" or .command == "workbench.action.terminal.sendSequence")) | .command]' "$keybindings_file")"
+      _assert_eq "vscode $platform terminal: tab routes require positive Neovim focus" \
+        '[]' \
+        "$(jq -c '[
+          . as $bindings
+          | (
+              [
+                {key: "ctrl+tab", text: "\u001b[9;5u"},
+                {key: "ctrl+shift+tab", text: "\u001b[9;6u"}
+              ][]
+            ) as $wanted
+          | select(
+              [
+                $bindings[]
+                | select(
+                    .key == $wanted.key
+                    and .command == "workbench.action.terminal.sendSequence"
+                    and .args.text == $wanted.text
+                    and .when == "terminalFocus && termnav.nvimFocused"
+                  )
+              ]
+              | length != 1
+            )
+          | $wanted.key
+        ]' "$keybindings_file")"
+      _assert_eq "vscode $platform terminal: every tab sequence is positive-only" \
+        "0" \
+        "$(jq '[.[] | select(
+          (.key == "ctrl+tab" or .key == "ctrl+shift+tab")
+          and .command == "workbench.action.terminal.sendSequence"
+          and .when != "terminalFocus && termnav.nvimFocused"
+        )] | length' "$keybindings_file")"
+      _assert_eq "vscode $platform editor: native tab defaults have no managed shadow" \
+        "0" \
+        "$(jq '[.[] | select(
+          [.key, .command, (.when // "")] as $route
+          | [
+              ["ctrl+shift+tab", "workbench.action.quickOpenLeastRecentlyUsedEditorInGroup", "!activeEditorGroupEmpty && !terminalFocus"],
+              ["ctrl+shift+tab", "-workbench.action.quickOpenLeastRecentlyUsedEditorInGroup", "!activeEditorGroupEmpty"],
+              ["ctrl+tab", "workbench.action.quickOpenPreviousRecentlyUsedEditorInGroup", "!activeEditorGroupEmpty && !terminalFocus"],
+              ["ctrl+tab", "-workbench.action.quickOpenPreviousRecentlyUsedEditorInGroup", "!activeEditorGroupEmpty"],
+              ["ctrl+tab", "workbench.action.quickOpenNavigateNextInEditorPicker", "inEditorsPicker && inQuickOpen && !terminalFocus"],
+              ["ctrl+tab", "-workbench.action.quickOpenNavigateNextInEditorPicker", "inEditorsPicker && inQuickOpen"],
+              ["ctrl+shift+tab", "workbench.action.quickOpenNavigatePreviousInEditorPicker", "inEditorsPicker && inQuickOpen && !terminalFocus"],
+              ["ctrl+shift+tab", "-workbench.action.quickOpenNavigatePreviousInEditorPicker", "inEditorsPicker && inQuickOpen"]
+            ]
+            | any(.[]; . == $route)
+        )] | length' "$keybindings_file")"
       _assert_eq "vscode $platform terminal: unrelated local overlap retains precedence" \
         '["workbench.action.terminal.paste","local.terminalPasteOverride"]' \
         "$(jq -c '[.[] | select(.key == "ctrl+v" and (.command == "workbench.action.terminal.paste" or .command == "local.terminalPasteOverride")) | .command]' "$keybindings_file")"
@@ -1532,7 +1631,7 @@ JSON
       local keybindings_file="$1"
       local platform="$2"
 
-      _assert_eq "vscode $platform: no-termnav retires only the legacy tab handlers" \
+      _assert_eq "vscode $platform: no-termnav keeps positive and local tab routes only" \
         '[]' \
         "$(jq -c '
           [
@@ -1550,6 +1649,16 @@ JSON
                 key: "ctrl+shift+tab",
                 command: "workbench.action.terminal.focusPrevious",
                 when: "terminalFocus && localTerminalMode"
+              },
+              {
+                key: "ctrl+tab",
+                command: "workbench.action.terminal.sendSequence",
+                when: "terminalFocus && termnav.nvimFocused"
+              },
+              {
+                key: "ctrl+shift+tab",
+                command: "workbench.action.terminal.sendSequence",
+                when: "terminalFocus && termnav.nvimFocused"
               }
             ] as $expected
           | (($actual - $expected) + ($expected - $actual) | unique)
@@ -1816,6 +1925,8 @@ JSON
           LC_ALL=C sort
       )
 
+      # all + the three platform families are the runtime union. termnav is
+      # retained here only as the explicitly removed historical family.
       for family in all termnav linux macos windows; do
         report_family="$family"
         while IFS= read -r source; do
@@ -1829,6 +1940,21 @@ JSON
             "vscode/keybindings/$family.d" \
             '*.jsonc' '*.replace/*.jsonc'
         )
+        if [[ "$family" == "termnav" ]]; then
+          # The historical scan above proves this migration's removals. Runtime
+          # no longer loads the family, so this current scan only prevents an
+          # unreachable fragment from becoming future retirement provenance.
+          while IFS= read -r source; do
+            [[ -n "$source" ]] || continue
+            _fail "vscode keybindings: obsolete termnav family stays removed"
+            return
+          done < <(
+            HOME="$repo" _merge_hook_family_files_matching \
+              vscode/keybindings/termnav.d \
+              '*.jsonc' '*.replace/*.jsonc'
+          )
+          continue
+        fi
         while IFS= read -r source; do
           if ! _vscode_test_append_jsonc_array \
             "$current_all" "$source" "$report_family"; then
@@ -3725,31 +3851,8 @@ JSON
 
     for vscode_no_termnav_platform in macos windows; do
       vscode_no_termnav_config="$vscode_home/.config/NoTermnav-$vscode_no_termnav_platform/User"
-      mkdir -p "$vscode_no_termnav_config"
-      cat >"$vscode_no_termnav_config/keybindings.json" <<'JSON'
-[
-  {
-    "key": "ctrl+tab",
-    "command": "workbench.action.terminal.focusNext",
-    "when": "terminalFocus && terminalHasBeenCreated && !terminalEditorFocus || terminalFocus && terminalProcessSupported && !terminalEditorFocus"
-  },
-  {
-    "key": "ctrl+shift+tab",
-    "command": "workbench.action.terminal.focusPrevious",
-    "when": "terminalFocus && terminalHasBeenCreated && !terminalEditorFocus || terminalFocus && terminalProcessSupported && !terminalEditorFocus"
-  },
-  {
-    "key": "ctrl+tab",
-    "command": "workbench.action.terminal.focusNext",
-    "when": "terminalFocus && localTerminalMode"
-  },
-  {
-    "key": "ctrl+shift+tab",
-    "command": "workbench.action.terminal.focusPrevious",
-    "when": "terminalFocus && localTerminalMode"
-  }
-]
-JSON
+      _write_vscode_keybinding_conflicts \
+        "$vscode_no_termnav_config/keybindings.json"
       # shellcheck disable=SC2016 # The inner shell expands fixture env variables.
       env HOME="$vscode_home" REAL_HOME="$REAL_HOME" PATH="$vscode_bin:$PATH" \
         DOT_TEST_MV_LOG="$vscode_mv_log" \

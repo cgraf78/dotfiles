@@ -305,5 +305,21 @@
     "command": "workbench.action.terminal.sendSequence",
     "args": { "text": "\u001b[1;4B" },
     "when": "terminalFocus && termnav.nvimFocused"
+  },
+  // Ctrl-Tab policy must be safe in config directories shared by extension
+  // hosts with different capabilities. A published focus lease routes the
+  // chords through tmux/Neovim; a missing adapter leaves VS Code defaults
+  // untouched.
+  {
+    "key": "ctrl+tab",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[9;5u" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
+  {
+    "key": "ctrl+shift+tab",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[9;6u" },
+    "when": "terminalFocus && termnav.nvimFocused"
   }
 ]

@@ -97,9 +97,9 @@
     "dotfiles.retire": true
   },
 
-  // The active forms now live in the Termnav capability family. Keeping exact
-  // retirements globally lets a no-termnav variant remove earlier generated
-  // copies while adapter-enabled variants re-add the active source objects.
+  // Native editor defaults now remain untouched, while common focus policy
+  // adds only positively gated terminal routes. Keeping the earlier exact
+  // forms here removes synchronized copies on every variant.
   {
     "key": "ctrl+shift+tab",
     "command": "workbench.action.quickOpenLeastRecentlyUsedEditorInGroup",
@@ -343,10 +343,9 @@
 
   // PR #45 recorded these exact local handlers because they competed with the
   // managed terminal-tab bridge. They are intentionally obsolete everywhere:
-  // the Termnav bridge covers every condition where they could run, while a
-  // no-Termnav profile must leave Ctrl-Tab to native VS Code behavior. This is
-  // explicit deletion authority over the known local pair, not a general rule
-  // for similar user bindings.
+  // the positive bridge owns focused Neovim, while native VS Code owns shell,
+  // non-Neovim, and adapter-absent states. This is explicit deletion authority
+  // over the known local pair, not a general rule for similar user bindings.
   {
     "key": "ctrl+tab",
     "command": "workbench.action.terminal.focusNext",
