@@ -89,6 +89,7 @@ _prepare_nvim_startup() {
 
     attempt_timeout=$remaining
     timeout_expired_file=$(_tmpdir)/expired
+    rm -f "$timeout_expired_file"
 
     SECONDS=0
     output=$(DOT_TEST_TIMEOUT_EXPIRED_FILE="$timeout_expired_file" \
@@ -99,7 +100,8 @@ _prepare_nvim_startup() {
     [[ -f "$timeout_expired_file" ]] && timed_out=1
     # A watchdog expiration consumes its requested child-runtime window.
     # Normalize integer-clock undercounting before sizing the retry.
-    if [[ "$timed_out" -eq 1 && "$elapsed" -lt "$attempt_timeout" ]]; then
+    if [[ "$rc" -eq 124 && "$timed_out" -eq 1 &&
+      "$elapsed" -lt "$attempt_timeout" ]]; then
       elapsed=$attempt_timeout
     fi
     total_elapsed=$((total_elapsed + elapsed))
@@ -167,8 +169,9 @@ _run_nvim_startup() {
   local timeout_seconds="$1"
   printf '%s\n' "$timeout_seconds" >>"$startup_mock_log"
 
-  if [[ $(wc -l <"$startup_mock_log") -eq 1 ]]; then
-    if [[ "$startup_mock_timeout_kind" == watchdog &&
+  if [[ $(wc -l <"$startup_mock_log") -eq 1 ||
+  "$startup_mock_timeout_kind" == watchdog-always ]]; then
+    if [[ "$startup_mock_timeout_kind" == watchdog* &&
       -n "${DOT_TEST_TIMEOUT_EXPIRED_FILE:-}" ]]; then
       : >"$DOT_TEST_TIMEOUT_EXPIRED_FILE"
     fi
@@ -183,6 +186,14 @@ _assert_eq "startup preparation: recovers from one timeout" "0" "$startup_rc"
 expected=$(printf '120\n60')
 _assert_eq "startup preparation: preserves the original attempt before retrying" \
   "$expected" "$(cat "$startup_mock_log")"
+
+: >"$startup_mock_log"
+startup_mock_timeout_kind=watchdog-always
+startup_rc=0
+_prepare_nvim_startup "$HOME/.bashrc" "$(_nvim_startup_budget)" || startup_rc=$?
+_assert_eq "startup preparation: a second timeout is terminal" "124" "$startup_rc"
+_assert_file_content "startup preparation: timeout retry runs only once" \
+  "$expected" "$startup_mock_log"
 
 : >"$startup_mock_log"
 startup_mock_timeout_kind=child
@@ -235,6 +246,12 @@ DOT_TEST_TIMEOUT_EXPIRED_FILE="$timeout_expired_marker" \
 _assert_eq "startup timeout: child status 124 is preserved" "124" "$rc"
 _assert_file_missing "startup timeout: child status 124 is not expiration" \
   "$timeout_expired_marker"
+
+rc=0
+# shellcheck disable=SC2016 # expansion must happen in the supervised child.
+DOT_TEST_TIMEOUT_EXPIRED_FILE="$timeout_expired_marker" \
+  _with_timeout 5 bash -c '[[ -z "${DOT_TEST_TIMEOUT_EXPIRED_FILE+x}" ]]' || rc=$?
+_assert_eq "startup timeout: marker path is private to the supervisor" "0" "$rc"
 
 timeout_fixture_home=$(_tmpdir)
 rc=0

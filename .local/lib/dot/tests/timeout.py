@@ -143,8 +143,10 @@ def main(argv: Sequence[str]) -> int:
     for handled_signal in handled_signals:
         signal.signal(handled_signal, capture_signal)
 
+    child_env = os.environ.copy()
+    child_env.pop("DOT_TEST_TIMEOUT_EXPIRED_FILE", None)
     try:
-        process = subprocess.Popen(argv[2:], start_new_session=True)
+        process = subprocess.Popen(argv[2:], start_new_session=True, env=child_env)
     except FileNotFoundError:
         return 127
     except OSError:
