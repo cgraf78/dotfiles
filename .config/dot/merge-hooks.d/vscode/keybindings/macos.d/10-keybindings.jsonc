@@ -75,7 +75,7 @@
     "key": "cmd+r",
     "command": "workbench.action.terminal.sendSequence",
     "args": { "text": "\u0012" },
-    "when": "terminalFocus && termnav.nvimFocused"
+    "when": "terminalFocus"
   },
 
   // Find prev/next (Cmd variants)
@@ -89,32 +89,21 @@
     "when": "editorFocus"
   },
 
-  // Remove the unconditional Cmd+B sidebar toggle; restore it outside nvim.
-  {
-    "key": "cmd+b",
-    "command": "-workbench.action.toggleSidebarVisibility"
-  },
-  {
-    "key": "cmd+b",
-    "command": "workbench.action.toggleSidebarVisibility",
-    "when": "terminalFocus && !termnav.nvimFocused"
-  },
-
   // Karabiner owns Windows-style physical remapping and translates Ctrl+key
-  // to Cmd+key. VS Code only resolves terminal context that Karabiner cannot
-  // see: most chords send raw Ctrl characters, while clipboard chords stay
-  // with the local client.
+  // to Cmd+key. Shell and tmux controls must remain terminal-native even when
+  // Termnav is unavailable; VS Code's normal Cmd bindings remain active when
+  // the terminal is not focused.
   {
     "key": "cmd+b",
     "command": "workbench.action.terminal.sendSequence",
     "args": { "text": "\u0002" },
-    "when": "terminalFocus && termnav.nvimFocused"
+    "when": "terminalFocus"
   },
   {
     "key": "cmd+a",
     "command": "workbench.action.terminal.sendSequence",
     "args": { "text": "\u0001" },
-    "when": "terminalFocus && termnav.nvimFocused"
+    "when": "terminalFocus"
   },
   {
     "key": "cmd+c",
@@ -131,13 +120,13 @@
     "key": "cmd+l",
     "command": "workbench.action.terminal.sendSequence",
     "args": { "text": "\u000c" },
-    "when": "terminalFocus && termnav.nvimFocused"
+    "when": "terminalFocus"
   },
   {
     "key": "cmd+n",
     "command": "workbench.action.terminal.sendSequence",
     "args": { "text": "\u000e" },
-    "when": "terminalFocus && termnav.nvimFocused"
+    "when": "terminalFocus"
   },
   // Ctrl+P (seen as Cmd+P via Karabiner) keeps host behavior outside nvim.
   {
@@ -145,11 +134,44 @@
     "command": "workbench.action.quickOpen",
     "when": "terminalFocus && !termnav.nvimFocused"
   },
+  // Karabiner translates physical Ctrl+Shift+F/P to Cmd+Shift+F/P. Add only
+  // the focused Neovim overrides; normal VS Code bindings remain untouched.
+  {
+    "key": "shift+cmd+f",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[102;6u" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
+  {
+    "key": "shift+cmd+p",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[112;6u" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
+  // Karabiner transports physical Ctrl+Shift+V as F20 so Neovim can
+  // distinguish yank history from plain Ctrl+V without consuming VS Code's
+  // native Shift+Cmd+V. Reconstruct paste outside focused Neovim.
+  {
+    "key": "f20",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[118;6u" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
+  {
+    "key": "f20",
+    "command": "workbench.action.terminal.paste",
+    "when": "terminalFocus && !termnav.nvimFocused"
+  },
+  {
+    "key": "f20",
+    "command": "editor.action.clipboardPasteAction",
+    "when": "textInputFocus && !editorReadonly && !terminalFocus"
+  },
   {
     "key": "cmd+u",
     "command": "workbench.action.terminal.sendSequence",
     "args": { "text": "\u0015" },
-    "when": "terminalFocus && termnav.nvimFocused"
+    "when": "terminalFocus"
   },
   {
     "key": "cmd+v",
@@ -160,13 +182,13 @@
     "key": "cmd+w",
     "command": "workbench.action.terminal.sendSequence",
     "args": { "text": "\u0017" },
-    "when": "terminalFocus && termnav.nvimFocused"
+    "when": "terminalFocus"
   },
   {
     "key": "cmd+z",
     "command": "workbench.action.terminal.sendSequence",
     "args": { "text": "\u001a" },
-    "when": "terminalFocus && termnav.nvimFocused"
+    "when": "terminalFocus"
   },
   {
     "key": "cmd+f",
@@ -226,6 +248,14 @@
     "key": "cmd+y",
     "command": "workbench.action.terminal.sendSequence",
     "args": { "text": "\u0019" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
+  // Karabiner translates physical Ctrl+/ to Cmd+/. Override it only while
+  // Neovim owns the terminal; otherwise native VS Code resolution applies.
+  {
+    "key": "cmd+/",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001f" },
     "when": "terminalFocus && termnav.nvimFocused"
   },
   {

@@ -24,12 +24,12 @@
   {
     "key": "ctrl+`",
     "command": "workbench.action.terminal.focus",
-    "when": "terminalIsOpen"
+    "when": "terminalIsOpen && !terminalFocus"
   },
   {
     "key": "ctrl+`",
     "command": "workbench.action.focusActiveEditorGroup",
-    "when": "terminalFocus && terminalIsOpen"
+    "when": "terminalFocus && terminalIsOpen && !termnav.nvimFocused"
   },
   {
     "key": "ctrl+`",
@@ -49,6 +49,15 @@
     "key": "ctrl+c",
     "command": "workbench.action.terminal.copySelection",
     "when": "terminalFocus && terminalTextSelected"
+  },
+  // Ctrl+B is tmux's prefix and must reach the pty in every terminal pane,
+  // including shells and extensionless variants. VS Code keeps its normal
+  // sidebar shortcut whenever terminal focus is absent.
+  {
+    "key": "ctrl+b",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u0002" },
+    "when": "terminalFocus"
   },
   {
     "key": "ctrl+v",
@@ -93,65 +102,8 @@
     "when": "textCompareEditorVisible"
   },
 
-  // Tab switching/moving. Editors own these chords outside the terminal.
-  // Terminal focus sends the raw sequences so tmux/nvim can handle their own
-  // tab layers, including bubbling switches back to the integrated-terminal
-  // tabs when tmux/nvim have nothing left to switch locally (see
-  // ~/git/termnav's vscode-switch-tab, wired in from tmux.conf and nvim's
-  // keymaps.lua). Moves stop at the tmux layer: VS Code has no command to
-  // reorder terminal tabs.
-  {
-    "key": "ctrl+shift+tab",
-    "command": "workbench.action.quickOpenLeastRecentlyUsedEditorInGroup",
-    "when": "!activeEditorGroupEmpty && !terminalFocus"
-  },
-  {
-    "key": "ctrl+shift+tab",
-    "command": "-workbench.action.quickOpenLeastRecentlyUsedEditorInGroup",
-    "when": "!activeEditorGroupEmpty"
-  },
-  {
-    "key": "ctrl+tab",
-    "command": "workbench.action.quickOpenPreviousRecentlyUsedEditorInGroup",
-    "when": "!activeEditorGroupEmpty && !terminalFocus"
-  },
-  {
-    "key": "ctrl+tab",
-    "command": "-workbench.action.quickOpenPreviousRecentlyUsedEditorInGroup",
-    "when": "!activeEditorGroupEmpty"
-  },
-  {
-    "key": "ctrl+tab",
-    "command": "workbench.action.quickOpenNavigateNextInEditorPicker",
-    "when": "inEditorsPicker && inQuickOpen && !terminalFocus"
-  },
-  {
-    "key": "ctrl+tab",
-    "command": "-workbench.action.quickOpenNavigateNextInEditorPicker",
-    "when": "inEditorsPicker && inQuickOpen"
-  },
-  {
-    "key": "ctrl+shift+tab",
-    "command": "workbench.action.quickOpenNavigatePreviousInEditorPicker",
-    "when": "inEditorsPicker && inQuickOpen && !terminalFocus"
-  },
-  {
-    "key": "ctrl+shift+tab",
-    "command": "-workbench.action.quickOpenNavigatePreviousInEditorPicker",
-    "when": "inEditorsPicker && inQuickOpen"
-  },
-  {
-    "key": "ctrl+tab",
-    "command": "workbench.action.terminal.sendSequence",
-    "args": { "text": "\u001b[9;5u" },
-    "when": "terminalFocus"
-  },
-  {
-    "key": "ctrl+shift+tab",
-    "command": "workbench.action.terminal.sendSequence",
-    "args": { "text": "\u001b[9;6u" },
-    "when": "terminalFocus"
-  },
+  // Tab moves stop at the tmux layer: VS Code has no command to reorder
+  // integrated-terminal tabs.
   {
     "key": "alt+shift+[",
     "command": "workbench.action.terminal.sendSequence",

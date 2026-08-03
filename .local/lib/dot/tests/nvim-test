@@ -753,101 +753,30 @@ result=$(_nvim_vscode_keys '
 _assert_eq "selection find: insert Shift-F3 selects the previous match" "bar x foo" "$result"
 
 result=$(_nvim_vscode_keys '
-  vim.api.nvim_buf_set_lines(0, 0, -1, false, vim.fn["repeat"]({ "abcdef" }, 20))
-  vim.ui.input = function(opts, callback)
-    print(opts.prompt)
-    callback("12")
-  end
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, {"foo x foo"})
+  vim.fn.setreg("/", "foo")
+  vim.api.nvim_win_set_cursor(0, { 1, 0 })
   vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-g>", true, false, true), "xt", false)
-  print(vim.inspect(vim.api.nvim_win_get_cursor(0)))
+  vim.wait(100, function()
+    return vim.fn.mode() == "s"
+  end)
+  vim.api.nvim_feedkeys("bar", "xt", false)
+  print(vim.api.nvim_get_current_line())
 ')
-expected="$(printf 'Go to line: \n{ 12, 0 }')"
-_assert_eq "navigation: Ctrl-G prompts for and moves to a line" "$expected" "$result"
+_assert_eq "selection find: Ctrl-G selects the next match" "foo x bar" "$result"
 
 result=$(_nvim_vscode_keys '
-  vim.api.nvim_buf_set_lines(0, 0, -1, false, vim.fn["repeat"]({ "abcdef" }, 20))
-  vim.api.nvim_win_set_cursor(0, { 2, 2 })
-  vim.ui.input = function(_, callback)
-    callback("12:4")
-  end
-  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-g>", true, false, true), "xt", false)
-  print(vim.inspect(vim.api.nvim_win_get_cursor(0)))
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, {"foo x foo"})
+  vim.fn.setreg("/", "foo")
+  vim.api.nvim_win_set_cursor(0, { 1, 6 })
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-S-g>", true, false, true), "xt", false)
+  vim.wait(100, function()
+    return vim.fn.mode() == "s"
+  end)
+  vim.api.nvim_feedkeys("bar", "xt", false)
+  print(vim.api.nvim_get_current_line())
 ')
-_assert_eq "navigation: Ctrl-G accepts a one-based line and column" "{ 12, 3 }" "$result"
-
-result=$(_nvim_vscode_keys '
-  local callback
-  vim.api.nvim_buf_set_lines(0, 0, -1, false, { "abcdef", "abcdef" })
-  vim.ui.input = function(_, input_callback)
-    callback = input_callback
-  end
-  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("i<C-g>", true, false, true), "xt", false)
-  if not callback then
-    print("missing-callback")
-    return
-  end
-  callback("2:2")
-  print(vim.inspect(vim.api.nvim_win_get_cursor(0)))
-')
-_assert_eq "navigation: insert Ctrl-G opens Go to Line" "{ 2, 1 }" "$result"
-
-result=$(_nvim_vscode_keys '
-  vim.api.nvim_buf_set_lines(0, 0, -1, false, { "abcdef", "aébc" })
-  vim.api.nvim_win_set_cursor(0, { 2, 2 })
-  vim.ui.input = function(_, callback)
-    callback("2:3")
-  end
-  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-g>", true, false, true), "xt", false)
-  print(vim.inspect(vim.api.nvim_win_get_cursor(0)))
-')
-_assert_eq "navigation: Ctrl-G counts multibyte columns as characters" "{ 2, 3 }" "$result"
-
-result=$(_nvim_vscode_keys '
-  vim.api.nvim_buf_set_lines(0, 0, -1, false, { "abcdef", "abc" })
-  vim.api.nvim_win_set_cursor(0, { 2, 2 })
-  vim.ui.input = function(_, callback)
-    callback("2:99")
-  end
-  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-g>", true, false, true), "xt", false)
-  print(vim.inspect(vim.api.nvim_win_get_cursor(0)))
-')
-_assert_eq "navigation: Ctrl-G lands an overlong column at end of line" "{ 2, 2 }" "$result"
-
-for invalid_location in 0 0:1 1:0 3 'not a location'; do
-  result=$(_nvim_vscode_keys "
-    vim.api.nvim_buf_set_lines(0, 0, -1, false, { 'abcdef', 'abc' })
-    vim.api.nvim_win_set_cursor(0, { 2, 2 })
-    vim.ui.input = function(_, callback)
-      callback('$invalid_location')
-    end
-    vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes('<C-g>', true, false, true), 'xt', false)
-    print(vim.inspect(vim.api.nvim_win_get_cursor(0)))
-  ")
-  _assert_eq "navigation: Ctrl-G ignores invalid location $invalid_location" "{ 2, 2 }" "$result"
-done
-
-result=$(_nvim_vscode_keys '
-  local callback
-  vim.api.nvim_buf_set_lines(0, 0, -1, false, vim.fn["repeat"]({ "abcdef" }, 20))
-  local origin = vim.api.nvim_get_current_win()
-  vim.api.nvim_win_set_cursor(origin, { 2, 2 })
-  vim.ui.input = function(_, input_callback)
-    callback = input_callback
-  end
-  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-g>", true, false, true), "xt", false)
-  vim.cmd("vsplit")
-  local replacement = vim.api.nvim_get_current_win()
-  vim.api.nvim_win_set_cursor(replacement, { 3, 3 })
-  if not callback then
-    print("missing-callback")
-    return
-  end
-  callback("12:4")
-  print(vim.inspect(vim.api.nvim_win_get_cursor(origin)))
-  print(vim.inspect(vim.api.nvim_win_get_cursor(replacement)))
-')
-expected="$(printf '{ 2, 2 }\n{ 3, 3 }')"
-_assert_eq "navigation: stale Ctrl-G callback leaves both windows untouched" "$expected" "$result"
+_assert_eq "selection find: Ctrl-Shift-G selects the previous match" "bar x foo" "$result"
 
 result=$(_nvim_vscode_keys '
   local jumps = {}

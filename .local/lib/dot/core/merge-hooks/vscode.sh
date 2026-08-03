@@ -37,6 +37,8 @@ _strip_jsonc() {
 # can change positive-command behavior. Exact source records are less clever
 # and more durable: they alter no generated shortcut semantics at all.
 _DOT_VSCODE_KEYBINDING_RETIRE='dotfiles.retire'
+_DOT_VSCODE_KEYBINDING_RETIRE_PROOF='dotfiles.retire-proof'
+_DOT_VSCODE_KEYBINDING_REVIEW_PROOF='review-build:7030e8e'
 
 _vscode_is_wsl() {
   if command -v _is_wsl >/dev/null 2>&1; then
@@ -157,7 +159,9 @@ _merge_vscode_keybindings() {
 
   if ! _strip_jsonc "$src" |
     jq -s -e \
-      --arg retire "$_DOT_VSCODE_KEYBINDING_RETIRE" '
+      --arg retire "$_DOT_VSCODE_KEYBINDING_RETIRE" \
+      --arg proof "$_DOT_VSCODE_KEYBINDING_RETIRE_PROOF" \
+      --arg review_proof "$_DOT_VSCODE_KEYBINDING_REVIEW_PROOF" '
       def valid_binding:
         type == "object"
         and (.key | type == "string" and length > 0)
@@ -166,6 +170,13 @@ _merge_vscode_keybindings() {
         and (
           (has($retire) | not)
           or .[$retire] == true
+        )
+        and (
+          (has($proof) | not)
+          or (
+            .[$retire] == true
+            and .[$proof] == $review_proof
+          )
         );
 
       if length == 1
@@ -205,6 +216,7 @@ _merge_vscode_keybindings() {
   out="$REPLY"
   if ! jq -n --indent 4 --sort-keys \
     --arg retire "$_DOT_VSCODE_KEYBINDING_RETIRE" \
+    --arg proof "$_DOT_VSCODE_KEYBINDING_RETIRE_PROOF" \
     --slurpfile s "$src_clean" \
     --slurpfile d "$dst_clean" '
     def terminal_tab_route:
@@ -213,7 +225,7 @@ _merge_vscode_keybindings() {
       and (.key == "ctrl+tab" or .key == "ctrl+shift+tab");
 
     ($s[0] | map(select(.[$retire] != true))) as $active |
-    ($s[0] | map(select(.[$retire] == true) | del(.[$retire]))) as $retired |
+    ($s[0] | map(select(.[$retire] == true) | del(.[$retire], .[$proof]))) as $retired |
     ($active | map({key: .key, when: (.when // "")})) as $skeys |
     # Current managed entries come first, matching the historical merge
     # policy. A local key+when conflict is removed even when its command
@@ -723,15 +735,20 @@ _vscode_keybinding_platform() {
 # split. Keeping the platform choice here avoids turning dot core family names
 # into semantic concepts like mac/windows/linux.
 #
-# Args: none
-# Returns merge-hook family names on stdout, common first and platform second.
+# Args: $1 = optional stable platform key
+#       $2 = optional comma-separated variant options
+# Returns merge-hook family names on stdout: common, enabled capabilities, then
+# platform-specific policy.
 _vscode_keybinding_families() {
-  local platform="${1:-}"
+  local platform="${1:-}" opts="${2:-}"
   if [[ -z "$platform" ]]; then
     platform=$(_vscode_keybinding_platform) || return 1
   fi
 
   printf '%s\n' vscode/keybindings/all.d
+  if ! _vscode_opts_contains "$opts" "no-termnav"; then
+    printf '%s\n' vscode/keybindings/termnav.d
+  fi
   printf 'vscode/keybindings/%s.d\n' "$platform"
 }
 
@@ -790,7 +807,7 @@ _merge_vscode_config() {
       fi
       rm -f "$kb_layer"
     done < <(_merge_hook_family_files_matching "$kb_family" '*.jsonc' '*.replace/*.jsonc')
-  done < <(_vscode_keybinding_families "$kb_platform")
+  done < <(_vscode_keybinding_families "$kb_platform" "$opts")
   if ! _merge_vscode_keybindings \
     "$kb_aggregate" \
     "$cfg_dir/keybindings.json" \
@@ -866,6 +883,41 @@ _remove_vscode_extension() {
   else
     rm -f "$tmp"
   fi
+}
+
+# Remove older symlinked generations of one dot-managed local extension. Limit
+# ownership to links whose name and target stay under the declared source
+# family, which also identifies a managed generation after its target vanishes
+# without claiming same-ID development links elsewhere.
+_prune_vscode_extension_versions() {
+  local ext_id="$1" managed_source="$2" keep_dir="$3" ext_json="$4"
+  local ext_base managed_parent extension_name
+  local candidate candidate_dir target target_dir target_name version_suffix
+  ext_base="$(dirname "$ext_json")"
+  managed_parent="$(dirname "$managed_source")"
+  extension_name="${ext_id#*.}"
+
+  for candidate in "$ext_base"/*; do
+    [[ -L "$candidate" ]] || continue
+    candidate_dir="${candidate##*/}"
+    [[ -z "$keep_dir" || "$candidate_dir" != "$keep_dir" ]] || continue
+    target=$(readlink "$candidate") || continue
+    [[ "$target" == /* ]] || target="$ext_base/$target"
+    target_dir="$(dirname "$target")"
+    target_name="${target##*/}"
+    [[ "$target_dir" == "$managed_parent" ]] || continue
+    [[ "$candidate_dir" == "$target_name" ]] || continue
+    # Broken managed generations no longer have package metadata, so the name
+    # is the remaining ownership proof. Require the complete suffix to be a
+    # dotted semver (with optional prerelease/build tails); a first-digit check
+    # would still claim a sibling such as termnav-2-tools-*.
+    if [[ "$target_name" != "$extension_name" ]]; then
+      [[ "$target_name" == "${extension_name}-"* ]] || continue
+      version_suffix="${target_name#"$extension_name"-}"
+      [[ "$version_suffix" =~ ^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)*$ ]] || continue
+    fi
+    rm -f "$candidate"
+  done
 }
 
 # Remove dot-managed local extensions whose source has been retired. A deleted
@@ -1213,7 +1265,6 @@ merge() {
 
   while IFS=$'\t' read -r _ext_id _ext_src _ext_disabled_opts; do
     _ext_name="${_ext_src##*/}"
-    [[ -d "$_ext_src" ]] || continue
 
     for line in "${variants[@]}"; do
       ext_dir="${line%%	*}"
@@ -1222,9 +1273,16 @@ merge() {
       opts="${rest#*	}"
       [[ "$opts" == "$cfg_dir" ]] && opts=""
       if _vscode_opts_intersect "$opts" "$_ext_disabled_opts"; then
+        _prune_vscode_extension_versions \
+          "$_ext_id" "$_ext_src" "" "$ext_dir/extensions.json"
         _remove_vscode_extension "$_ext_id" "$_ext_name" "$ext_dir/extensions.json"
         continue
       fi
+      # An unavailable payload cannot be installed, but it must not prevent a
+      # different variant's explicit opt-out above from cleaning stale copies.
+      [[ -d "$_ext_src" ]] || continue
+      _prune_vscode_extension_versions \
+        "$_ext_id" "$_ext_src" "$_ext_name" "$ext_dir/extensions.json"
       mkdir -p "$ext_dir"
       if [[ ! -e "$ext_dir/$_ext_name" ]]; then
         ln -sf "$_ext_src" "$ext_dir/$_ext_name"

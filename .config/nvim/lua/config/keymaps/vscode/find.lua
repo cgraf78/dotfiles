@@ -113,8 +113,9 @@ local function has_search_match()
     return false
   end
 
-  -- Insert-mode F3 should be a no-op when there is no real match; leaving
-  -- Insert mode just to discover that would eat the next typed character.
+  -- Insert-mode search navigation should be a no-op when there is no real
+  -- match; leaving Insert mode just to discover that would eat the next typed
+  -- character.
   local ok, count = pcall(vim.fn.searchcount, { recompute = true, maxcount = 1 })
   return ok and (count.total or 0) > 0
 end

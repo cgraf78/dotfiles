@@ -1,17 +1,11 @@
 // Pass VS Code-style chords through only while Termnav proves that the active
-// terminal and tmux pane are owned by nvim. Missing or expired context leaves
-// the normal VS Code command active.
+// terminal and tmux pane are owned by nvim. Terminal-native exceptions such as
+// the tmux prefix live in common policy instead of depending on this lease.
 [
   {
     "key": "ctrl+a",
     "command": "workbench.action.terminal.sendSequence",
     "args": { "text": "\u0001" },
-    "when": "terminalFocus && termnav.nvimFocused"
-  },
-  {
-    "key": "ctrl+b",
-    "command": "workbench.action.terminal.sendSequence",
-    "args": { "text": "\u0002" },
     "when": "terminalFocus && termnav.nvimFocused"
   },
   {
@@ -170,10 +164,35 @@
     "args": { "text": "\u0000" },
     "when": "terminalFocus && termnav.nvimFocused"
   },
+  // Ctrl+\ is Neovim's terminal-mode escape prefix. Keep VS Code's normal
+  // editor-split ownership outside Neovim, but deliver the C0 file separator
+  // while Neovim owns the pane so terminal escape sequences remain usable.
+  {
+    "key": "ctrl+\\",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001c" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
   {
     "key": "ctrl+.",
     "command": "workbench.action.terminal.sendSequence",
     "args": { "text": "\u001b[46;5u" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
+  // Shifted letters need CSI-u rather than their plain Ctrl C0 bytes. CSI-u
+  // preserves Shift so Neovim can distinguish its VS Code-style Explorer,
+  // Search, Problems, and Command Palette maps from Ctrl+E/F/M/P. The numeric
+  // key codes are lowercase ASCII and modifier value 6 means Ctrl+Shift.
+  {
+    "key": "ctrl+shift+e",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[101;6u" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
+  {
+    "key": "ctrl+shift+f",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[102;6u" },
     "when": "terminalFocus && termnav.nvimFocused"
   },
   {
@@ -183,9 +202,36 @@
     "when": "terminalFocus && termnav.nvimFocused"
   },
   {
+    "key": "ctrl+shift+m",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[109;6u" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
+  {
+    "key": "ctrl+shift+p",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[112;6u" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
+  {
     "key": "ctrl+shift+v",
     "command": "workbench.action.terminal.sendSequence",
     "args": { "text": "\u001b[118;6u" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
+  // VS Code normally owns Shift+PageUp/Down for terminal viewport scrolling.
+  // While Neovim owns the pane, pass the xterm sequences through so its
+  // VSCode-style page-selection mappings remain reachable.
+  {
+    "key": "shift+pageup",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[5;2~" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
+  {
+    "key": "shift+pagedown",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[6;2~" },
     "when": "terminalFocus && termnav.nvimFocused"
   },
   {
