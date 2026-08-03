@@ -65,6 +65,9 @@ _assert_contains "schema refresh: payloads receive meta-schema validation" \
 _assert_contains "schema refresh: updater comes from Checkrun" 'repository: cgraf78/checkrun' "$content"
 _assert_contains "schema refresh: command uses the public Checkrun API" \
   'checkrun" schema refresh' "$content"
+_assert_contains "schema refresh: policy comes from the dotfiles checkout" \
+  'CHECKRUN_SCHEMA_ASSOCIATIONS: ${{ github.workspace }}/.config/checkrun/associations.json' \
+  "$refresh_job"
 _assert_contains "schema refresh: fetch phase has one bounded retry" \
   'retrying the read-only fetch phase once' "$content"
 _assert_contains "schema refresh: only pinned payloads are staged" \
