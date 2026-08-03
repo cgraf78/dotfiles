@@ -8,9 +8,11 @@
 //
 // Match the complete historical object, including args and any extra fields.
 // Never add a merely similar binding: exactness is what prevents this deletion
-// authority from consuming an independent local shortcut. Each addition is an
-// explicit, reviewed claim that dotfiles generated that exact object, including
-// review builds that never entered landed Git history.
+// authority from consuming an independent local shortcut. Tests require every
+// addition to have existed in prior landed active source, proving that dotfiles
+// owned the exact object before granting deletion authority. A sealed
+// dotfiles.retire-proof marks the one review build known to have reached live
+// profiles before landing; the validator locks that proof to its exact count.
 [
   {
     "key": "ctrl+p",
@@ -158,6 +160,13 @@
     "when": "terminalFocus",
     "dotfiles.retire": true
   },
+  {
+    "key": "ctrl+b",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u0002" },
+    "when": "terminalFocus && termnav.nvimFocused",
+    "dotfiles.retire": true
+  },
 
   // Exact forms replaced while restoring terminal-native controls and making
   // the Ctrl+backtick host routes disjoint from focused Neovim.
@@ -241,79 +250,91 @@
     "dotfiles.retire": true
   },
 
-  // PR #90 was exercised against live VS Code profiles before its host-side
-  // fallbacks were removed. Retire those exact generated objects so returning
-  // to normal VS Code resolution also repairs Settings Sync copies.
+  // PR #90 was exercised against live profiles before its negative host
+  // fallbacks were removed. This sealed proof label is accepted only for the
+  // exact 12-object review generation; tests lock both its value and count.
   {
     "key": "ctrl+.",
     "command": "editor.action.quickFix",
     "when": "terminalFocus && !termnav.nvimFocused",
-    "dotfiles.retire": true
+    "dotfiles.retire": true,
+    "dotfiles.retire-proof": "review-build:7030e8e"
   },
   {
     "key": "ctrl+/",
     "command": "editor.action.commentLine",
     "when": "terminalFocus && !termnav.nvimFocused",
-    "dotfiles.retire": true
+    "dotfiles.retire": true,
+    "dotfiles.retire-proof": "review-build:7030e8e"
   },
   {
     "key": "ctrl+\\",
     "command": "workbench.action.splitEditor",
     "when": "terminalFocus && !termnav.nvimFocused",
-    "dotfiles.retire": true
+    "dotfiles.retire": true,
+    "dotfiles.retire-proof": "review-build:7030e8e"
   },
   {
     "key": "ctrl+shift+e",
     "command": "workbench.view.explorer",
     "when": "terminalFocus && !termnav.nvimFocused",
-    "dotfiles.retire": true
+    "dotfiles.retire": true,
+    "dotfiles.retire-proof": "review-build:7030e8e"
   },
   {
     "key": "ctrl+shift+f",
     "command": "workbench.view.search",
     "when": "terminalFocus && !termnav.nvimFocused",
-    "dotfiles.retire": true
+    "dotfiles.retire": true,
+    "dotfiles.retire-proof": "review-build:7030e8e"
   },
   {
     "key": "ctrl+shift+m",
     "command": "workbench.actions.view.problems",
     "when": "terminalFocus && !termnav.nvimFocused",
-    "dotfiles.retire": true
+    "dotfiles.retire": true,
+    "dotfiles.retire-proof": "review-build:7030e8e"
   },
   {
     "key": "ctrl+shift+p",
     "command": "workbench.action.showCommands",
     "when": "terminalFocus && !termnav.nvimFocused",
-    "dotfiles.retire": true
+    "dotfiles.retire": true,
+    "dotfiles.retire-proof": "review-build:7030e8e"
   },
   {
     "key": "shift+cmd+f",
     "command": "workbench.view.search",
     "when": "terminalFocus && !termnav.nvimFocused",
-    "dotfiles.retire": true
+    "dotfiles.retire": true,
+    "dotfiles.retire-proof": "review-build:7030e8e"
   },
   {
     "key": "shift+cmd+p",
     "command": "workbench.action.showCommands",
     "when": "terminalFocus && !termnav.nvimFocused",
-    "dotfiles.retire": true
+    "dotfiles.retire": true,
+    "dotfiles.retire-proof": "review-build:7030e8e"
   },
   {
     "key": "ctrl+shift+v",
     "command": "workbench.action.terminal.paste",
     "when": "terminalFocus && !termnav.nvimFocused",
-    "dotfiles.retire": true
+    "dotfiles.retire": true,
+    "dotfiles.retire-proof": "review-build:7030e8e"
   },
   {
     "key": "ctrl+shift+v",
     "command": "editor.action.clipboardPasteAction",
     "when": "textInputFocus && !editorReadonly && !terminalFocus",
-    "dotfiles.retire": true
+    "dotfiles.retire": true,
+    "dotfiles.retire-proof": "review-build:7030e8e"
   },
   {
     "key": "cmd+/",
     "command": "editor.action.commentLine",
     "when": "terminalFocus && !termnav.nvimFocused",
-    "dotfiles.retire": true
+    "dotfiles.retire": true,
+    "dotfiles.retire-proof": "review-build:7030e8e"
   }
 ]

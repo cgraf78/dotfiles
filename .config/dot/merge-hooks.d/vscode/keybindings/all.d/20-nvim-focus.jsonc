@@ -1,17 +1,11 @@
 // Pass VS Code-style chords through only while Termnav proves that the active
-// terminal and tmux pane are owned by nvim. Missing or expired context leaves
-// the normal VS Code command active.
+// terminal and tmux pane are owned by nvim. Terminal-native exceptions such as
+// the tmux prefix live in common policy instead of depending on this lease.
 [
   {
     "key": "ctrl+a",
     "command": "workbench.action.terminal.sendSequence",
     "args": { "text": "\u0001" },
-    "when": "terminalFocus && termnav.nvimFocused"
-  },
-  {
-    "key": "ctrl+b",
-    "command": "workbench.action.terminal.sendSequence",
-    "args": { "text": "\u0002" },
     "when": "terminalFocus && termnav.nvimFocused"
   },
   {
@@ -223,6 +217,21 @@
     "key": "ctrl+shift+v",
     "command": "workbench.action.terminal.sendSequence",
     "args": { "text": "\u001b[118;6u" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
+  // VS Code normally owns Shift+PageUp/Down for terminal viewport scrolling.
+  // While Neovim owns the pane, pass the xterm sequences through so its
+  // VSCode-style page-selection mappings remain reachable.
+  {
+    "key": "shift+pageup",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[5;2~" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
+  {
+    "key": "shift+pagedown",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[6;2~" },
     "when": "terminalFocus && termnav.nvimFocused"
   },
   {

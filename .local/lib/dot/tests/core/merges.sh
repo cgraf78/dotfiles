@@ -426,6 +426,8 @@ JSON
             "^com\\.facebook\\.fbvscode$",
             "^com\\.facebook\\.fbvscode-insiders$",
             "^com\\.microsoft\\.VSCode$",
+            "^com\\.microsoft\\.VSCodeInsiders$",
+            "^com\\.todesktop\\.230313mzl4w4u92$",
             "^com\\.vscodium$"
           ];
 
@@ -454,6 +456,8 @@ JSON
             "^com\\.facebook\\.fbvscode$",
             "^com\\.facebook\\.fbvscode-insiders$",
             "^com\\.microsoft\\.VSCode$",
+            "^com\\.microsoft\\.VSCodeInsiders$",
+            "^com\\.todesktop\\.230313mzl4w4u92$",
             "^com\\.vscodium$"
           ];
 
@@ -486,6 +490,8 @@ JSON
             "^com\\.facebook\\.fbvscode$",
             "^com\\.facebook\\.fbvscode-insiders$",
             "^com\\.microsoft\\.VSCode$",
+            "^com\\.microsoft\\.VSCodeInsiders$",
+            "^com\\.todesktop\\.230313mzl4w4u92$",
             "^com\\.vscodium$"
           ];
 
@@ -507,6 +513,121 @@ JSON
     )
     _assert_eq "karabiner: Windows profile owns VS Code Ctrl+C/V to Cmd+C/V remapping" \
       "2" "$karabiner_clipboard_vscode_mappings"
+
+    karabiner_vscode_ctrl_letter_mappings=$(
+      jq -c '
+        def vscode_bundle_ids:
+          [
+            "^com\\.facebook\\.fbvscode$",
+            "^com\\.facebook\\.fbvscode-insiders$",
+            "^com\\.microsoft\\.VSCode$",
+            "^com\\.microsoft\\.VSCodeInsiders$",
+            "^com\\.todesktop\\.230313mzl4w4u92$",
+            "^com\\.vscodium$"
+          ];
+
+        [
+          .profiles[]
+          | select(.name == "Windows (Dotfiles)")
+          | .complex_modifications.rules[].manipulators[]
+          | select(.from.key_code | test("^[a-z]$"))
+          | select(.from.modifiers.mandatory == ["control"])
+          | select(.to[0].key_code == .from.key_code)
+          | select(.to[0].modifiers == ["command"])
+          | select(any(.conditions[];
+              .type == "frontmost_application_unless"
+              and (.bundle_identifiers as $bundles
+                | vscode_bundle_ids
+                | all(. as $bundle | $bundles | index($bundle) | not))))
+          | .from.key_code
+        ] | unique | sort
+      ' "$karabiner_src"
+    )
+    _assert_eq "karabiner: VS Code Ctrl-letter translation inventory is explicit" \
+      '["a","b","c","f","g","i","n","o","p","r","s","t","u","v","w","x","y","z"]' \
+      "$karabiner_vscode_ctrl_letter_mappings"
+
+    karabiner_ctrl_slash_vscode_mapping=$(
+      jq -r '
+        [
+          .profiles[]
+          | select(.name == "Windows (Dotfiles)")
+          | .complex_modifications.rules[]
+          | select(.description == "/ (Ctrl) [+Terminal Emulators]")
+          | .manipulators[]
+          | select(.from.key_code == "slash")
+          | select(.from.modifiers.mandatory == ["control"])
+          | select(.to[0].key_code == "slash")
+          | select(.to[0].modifiers == ["command"])
+        ] | length
+      ' "$karabiner_src"
+    )
+    _assert_eq "karabiner: VS Code Ctrl+slash translation stays explicit" \
+      "1" "$karabiner_ctrl_slash_vscode_mapping"
+
+    karabiner_shift_c_vscode_mapping=$(
+      jq -r '
+        def vscode_bundle_ids:
+          [
+            "^com\\.facebook\\.fbvscode$",
+            "^com\\.facebook\\.fbvscode-insiders$",
+            "^com\\.microsoft\\.VSCode$",
+            "^com\\.microsoft\\.VSCodeInsiders$",
+            "^com\\.todesktop\\.230313mzl4w4u92$",
+            "^com\\.vscodium$"
+          ];
+
+        [
+          .profiles[]
+          | select(.name == "Windows (Dotfiles)")
+          | .complex_modifications.rules[]
+          | select(.description == "C (Ctrl+Shift) [Only Terminal Emulators]")
+          | .manipulators[]
+          | select(.from.key_code == "c")
+          | select(.from.modifiers.mandatory == ["control", "shift"])
+          | select(.to[0].key_code == "c")
+          | select(.to[0].modifiers == ["command"])
+          | .conditions[]
+          | select(.type == "frontmost_application_if")
+          | .bundle_identifiers as $bundles
+          | select(vscode_bundle_ids | all(. as $bundle | $bundles | index($bundle)))
+        ] | length
+      ' "$karabiner_src"
+    )
+    _assert_eq "karabiner: VS Code Ctrl+Shift+C remains copy" \
+      "1" "$karabiner_shift_c_vscode_mapping"
+
+    karabiner_shift_v_vscode_mapping=$(
+      jq -r '
+        def vscode_bundle_ids:
+          [
+            "^com\\.facebook\\.fbvscode$",
+            "^com\\.facebook\\.fbvscode-insiders$",
+            "^com\\.microsoft\\.VSCode$",
+            "^com\\.microsoft\\.VSCodeInsiders$",
+            "^com\\.todesktop\\.230313mzl4w4u92$",
+            "^com\\.vscodium$"
+          ];
+
+        [
+          .profiles[]
+          | select(.name == "Windows (Dotfiles)")
+          | .complex_modifications.rules[]
+          | select(.description == "V (Ctrl+Shift) [Only VS Code]")
+          | .manipulators[]
+          | select(.from.key_code == "v")
+          | select(.from.modifiers.mandatory == ["control", "shift"])
+          | select(.to[0].key_code == "f20")
+          | select((.to[0] | has("modifiers")) | not)
+          | .conditions[]
+          | select(.type == "frontmost_application_if")
+          | .bundle_identifiers as $bundles
+          | select(vscode_bundle_ids | all(. as $bundle | $bundles | index($bundle)))
+        ] | length
+      ' "$karabiner_src"
+    )
+    _assert_eq "karabiner: VS Code Ctrl+Shift+V uses a private transport" \
+      "1" "$karabiner_shift_v_vscode_mapping"
   else
     echo "  SKIP: Karabiner source assertions (jq unavailable)"
   fi
@@ -910,6 +1031,15 @@ EOF
       _assert_eq "vscode mac terminal: Cmd+V reaches nvim after Karabiner translates Ctrl+V" \
         "1" \
         "$(jq '[.[] | select(.key == "cmd+v" and .command == "workbench.action.terminal.sendSequence" and .when == "terminalFocus && termnav.nvimFocused" and .args.text == "\u0016")] | length' "$keybindings_file")"
+      _assert_eq "vscode mac terminal: Ctrl+Shift+V transport pastes without focused nvim" \
+        "1" \
+        "$(jq '[.[] | select(.key == "f20" and .command == "workbench.action.terminal.paste" and .when == "terminalFocus && !termnav.nvimFocused")] | length' "$keybindings_file")"
+      _assert_eq "vscode mac editor: Ctrl+Shift+V transport preserves Windows-style paste" \
+        "1" \
+        "$(jq '[.[] | select(.key == "f20" and .command == "editor.action.clipboardPasteAction" and .when == "textInputFocus && !editorReadonly && !terminalFocus")] | length' "$keybindings_file")"
+      _assert_eq "vscode mac: native Shift+Cmd+V stays unmanaged" \
+        "0" \
+        "$(jq '[.[] | select(.key == "shift+cmd+v")] | length' "$keybindings_file")"
       _assert_eq "vscode mac terminal: Cmd+C copies a Karabiner-translated selection" \
         "1" \
         "$(jq '[.[] | select(.key == "cmd+c" and .command == "workbench.action.terminal.copySelection" and .when == "terminalFocus && terminalTextSelected")] | length' "$keybindings_file")"
@@ -922,10 +1052,90 @@ EOF
       _assert_eq "vscode mac terminal: Cmd+P reaches nvim after Karabiner translates Ctrl+P" \
         "1" \
         "$(jq '[.[] | select(.key == "cmd+p" and .command == "workbench.action.terminal.sendSequence" and .when == "terminalFocus && termnav.nvimFocused" and .args.text == "\u0010")] | length' "$keybindings_file")"
+      _assert_eq "vscode mac terminal: every Karabiner-translated Ctrl letter reaches focused nvim" \
+        '[]' \
+        "$(jq -c '[
+          . as $bindings
+          | (
+            [
+              {key: "cmd+f", text: "\u0006"},
+              {key: "cmd+g", text: "\u0007"},
+              {key: "cmd+i", text: "\u0009"},
+              {key: "cmd+o", text: "\u000f"},
+              {key: "cmd+p", text: "\u0010"},
+              {key: "cmd+s", text: "\u0013"},
+              {key: "cmd+t", text: "\u0014"},
+              {key: "cmd+v", text: "\u0016"},
+              {key: "cmd+x", text: "\u0018"},
+              {key: "cmd+y", text: "\u0019"}
+            ][]
+          )
+          | . as $wanted
+          | select(
+              [
+                $bindings[]
+                | select(
+                    .key == $wanted.key
+                    and .command == "workbench.action.terminal.sendSequence"
+                    and .args.text == $wanted.text
+                    and .when == "terminalFocus && termnav.nvimFocused"
+                  )
+              ]
+              | length != 1
+            )
+          | $wanted.key
+        ]
+        ' "$keybindings_file")"
+      _assert_eq "vscode mac terminal: Karabiner-translated shifted and punctuation chords reach focused nvim" \
+        '[]' \
+        "$(jq -c '[
+          . as $bindings
+          | (
+            [
+              {key: "shift+cmd+f", text: "\u001b[102;6u"},
+              {key: "shift+cmd+g", text: "\u001b[103;6u"},
+              {key: "shift+cmd+p", text: "\u001b[112;6u"},
+              {key: "f20", text: "\u001b[118;6u"},
+              {key: "cmd+/", text: "\u001f"}
+            ][]
+          )
+          | . as $wanted
+          | select(
+              [
+                $bindings[]
+                | select(
+                    .key == $wanted.key
+                    and .command == "workbench.action.terminal.sendSequence"
+                    and .args.text == $wanted.text
+                    and .when == "terminalFocus && termnav.nvimFocused"
+                  )
+              ]
+              | length != 1
+            )
+          | $wanted.key
+        ]
+        ' "$keybindings_file")"
     }
 
     _assert_vscode_focus_fallback_keybindings() {
       local keybindings_file="$1"
+      local platform="$2"
+
+      _assert_eq "vscode $platform terminal: tmux prefix is extension-independent" \
+        "1" \
+        "$(jq '[.[] | select(
+          .key == "ctrl+b"
+          and .command == "workbench.action.terminal.sendSequence"
+          and .args.text == "\u0002"
+          and .when == "terminalFocus"
+        )] | length' "$keybindings_file")"
+      _assert_eq "vscode $platform terminal: tmux prefix has no focus-only duplicate" \
+        "0" \
+        "$(jq '[.[] | select(
+          .key == "ctrl+b"
+          and .command == "workbench.action.terminal.sendSequence"
+          and .when == "terminalFocus && termnav.nvimFocused"
+        )] | length' "$keybindings_file")"
 
       _assert_eq "vscode terminal toggle: editor route excludes terminal focus" \
         "1" \
@@ -949,35 +1159,70 @@ EOF
           and .args.text == "\u0000"
           and .when == "terminalFocus && termnav.nvimFocused"
         )] | length' "$keybindings_file")"
-      _assert_eq "vscode extension fallback: editor commands are not forced in terminals" \
+      _assert_eq "vscode $platform fallback: negated Termnav routes stay allowlisted" \
         '[]' \
-        "$(jq -c '[
-          .[]
-          | select(.when == "terminalFocus && !termnav.nvimFocused")
-          | select(.key as $key | [
-              "ctrl+.",
-              "ctrl+/",
-              "ctrl+\\",
-              "ctrl+shift+e",
-              "ctrl+shift+f",
-              "ctrl+shift+m",
-              "ctrl+shift+p",
-              "shift+cmd+f",
-              "shift+cmd+p"
-            ] | index($key))
-          | .key
-        ] | unique' "$keybindings_file")"
+        "$(jq -c --arg platform "$platform" '
+          def route: {key, command, when};
+          (
+            [
+              {
+                key: "ctrl+`",
+                command: "workbench.action.focusActiveEditorGroup",
+                when: "terminalFocus && terminalIsOpen && !termnav.nvimFocused"
+              },
+              {
+                key: "ctrl+p",
+                command: "workbench.action.quickOpen",
+                when: "terminalFocus && !termnav.nvimFocused"
+              },
+              {
+                key: "ctrl+v",
+                command: "workbench.action.terminal.paste",
+                when: "terminalFocus && !termnav.nvimFocused"
+              }
+            ]
+            + if $platform == "macOS" then
+                [
+                  {
+                    key: "cmd+p",
+                    command: "workbench.action.quickOpen",
+                    when: "terminalFocus && !termnav.nvimFocused"
+                  },
+                  {
+                    key: "cmd+v",
+                    command: "workbench.action.terminal.paste",
+                    when: "terminalFocus && !termnav.nvimFocused"
+                  },
+                  {
+                    key: "f20",
+                    command: "workbench.action.terminal.paste",
+                    when: "terminalFocus && !termnav.nvimFocused"
+                  }
+                ]
+              else [] end
+          ) as $allowed
+          | ([
+              .[]
+              | select((.when // "") | contains("!termnav.nvimFocused"))
+              | route
+            ] | unique) as $actual
+          | (($actual - $allowed) + ($allowed - $actual) | unique)
+        ' "$keybindings_file")"
       _assert_eq "vscode focused nvim: shifted and escape chords stay positive-only" \
         '[]' \
         "$(jq -c '[
           . as $bindings
           | (
             [
+              {key: "ctrl+/", text: "\u001f"},
               {key: "ctrl+\\", text: "\u001c"},
+              {key: "ctrl+.", text: "\u001b[46;5u"},
               {key: "ctrl+shift+e", text: "\u001b[101;6u"},
               {key: "ctrl+shift+f", text: "\u001b[102;6u"},
               {key: "ctrl+shift+m", text: "\u001b[109;6u"},
-              {key: "ctrl+shift+p", text: "\u001b[112;6u"}
+              {key: "ctrl+shift+p", text: "\u001b[112;6u"},
+              {key: "shift+pageup", text: "\u001b[5;2~"},
+              {key: "shift+pagedown", text: "\u001b[6;2~"}
             ][]
           )
           | . as $wanted
@@ -1023,9 +1268,19 @@ EOF
       _assert_eq "vscode $platform terminal: Ctrl+F reaches nvim" \
         "1" \
         "$(jq '[.[] | select(.key == "ctrl+f" and .command == "workbench.action.terminal.sendSequence" and .when == "terminalFocus && termnav.nvimFocused" and .args.text == "\u0006")] | length' "$keybindings_file")"
-      _assert_eq "vscode $platform terminal: every Ctrl letter reaches nvim" \
+      _assert_eq "vscode $platform terminal: every Ctrl letter reaches its terminal owner" \
         "26" \
-        "$(jq '[.[] | select(.key | test("^ctrl\\+[a-z]$")) | select(.command == "workbench.action.terminal.sendSequence" and (.when | contains("termnav.nvimFocused")))] | length' "$keybindings_file")"
+        "$(jq '[
+          .[]
+          | select(.key | test("^ctrl\\+[a-z]$"))
+          | select(
+              .command == "workbench.action.terminal.sendSequence"
+              and (
+                .when == "terminalFocus"
+                or (.when | contains("termnav.nvimFocused"))
+              )
+            )
+        ] | length' "$keybindings_file")"
       _assert_eq "vscode $platform terminal: Ctrl+Shift+G reaches nvim distinctly" \
         "1" \
         "$(jq '[.[] | select(.key == "ctrl+shift+g" and .command == "workbench.action.terminal.sendSequence" and .when == "terminalFocus && termnav.nvimFocused" and .args.text == "\u001b[103;6u")] | length' "$keybindings_file")"
@@ -1289,48 +1544,101 @@ JSON
       # production would never match.
       jq -nc \
         --arg retire "dotfiles.retire" \
+        --arg proof "dotfiles.retire-proof" \
+        --arg review_proof "review-build:7030e8e" \
         --slurpfile old "$old" \
         --slurpfile current "$current" '
-        def retired($records):
+        def retired_targets($records):
+          $records
+          | map(select(.binding[$retire] == true)
+            | .binding | del(.[$retire], .[$proof]))
+          | unique;
+        def retirement_directives($records):
           $records
           | map(select(.binding[$retire] == true)
             | .binding | del(.[$retire]))
           | unique;
-        def effective($records; $platform):
+        def reviewed_targets($records):
+          $records
+          | map(select(
+              .binding[$retire] == true
+              and .binding[$proof] == $review_proof
+            ) | .binding | del(.[$retire], .[$proof]))
+          | unique;
+        def effective($records; $platform; $termnav):
           $records
           | map(select(.binding[$retire] != true))
           | map(select(
               .family == "all"
               or .family == $platform
+              or (.family == "termnav" and $termnav)
             ))
           | map(.binding)
           | unique;
-        (retired($old[0])) as $old_retired |
-        (retired($current[0])) as $current_retired |
+        def active_union($records):
+          $records
+          | map(select(.binding[$retire] != true) | .binding)
+          | unique;
+        (retired_targets($old[0])) as $old_retired |
+        (retired_targets($current[0])) as $current_retired |
+        (retirement_directives($old[0])) as $old_directives |
+        (retirement_directives($current[0])) as $current_directives |
+        (reviewed_targets($current[0])) as $reviewed |
         {
           missing: {
             linux: (
-              effective($old[0]; "linux")
-              - effective($current[0]; "linux")
+              effective($old[0]; "linux"; true)
+              - effective($current[0]; "linux"; true)
               - $current_retired
             ),
             macos: (
-              effective($old[0]; "macos")
-              - effective($current[0]; "macos")
+              effective($old[0]; "macos"; true)
+              - effective($current[0]; "macos"; true)
               - $current_retired
             ),
             windows: (
-              effective($old[0]; "windows")
-              - effective($current[0]; "windows")
+              effective($old[0]; "windows"; true)
+              - effective($current[0]; "windows"; true)
+              - $current_retired
+            ),
+            linux_no_termnav: (
+              effective($old[0]; "linux"; false)
+              - effective($current[0]; "linux"; false)
+              - $current_retired
+            ),
+            macos_no_termnav: (
+              effective($old[0]; "macos"; false)
+              - effective($current[0]; "macos"; false)
+              - $current_retired
+            ),
+            windows_no_termnav: (
+              effective($old[0]; "windows"; false)
+              - effective($current[0]; "windows"; false)
               - $current_retired
             )
           },
-          removed: ($old_retired - $current_retired),
+          removed: ($old_directives - $current_directives),
           misplaced: (
             $current[0]
             | map(select(
                 .binding[$retire] == true
                 and .family != "all"
+              ))
+          ),
+          unproven: (
+            ($current_retired - $old_retired)
+            - active_union($old[0])
+            - $reviewed
+          ),
+          review_proof_count: ($reviewed | length),
+          invalid_review_proofs: (
+            $current[0]
+            | map(select(
+                (.binding | has($proof))
+                and (
+                  .binding[$retire] != true
+                  or .binding[$proof] != $review_proof
+                )
               ))
           )
         }
@@ -1417,7 +1725,6 @@ JSON
 
       for family in all termnav linux macos windows; do
         report_family="$family"
-        [[ "$report_family" != "termnav" ]] || report_family="all"
         while IFS= read -r source; do
           if ! _vscode_test_append_jsonc_array \
             "$old_all" "$source" "$report_family"; then
@@ -1455,6 +1762,12 @@ JSON
         '[]' "$(jq -c '.missing.macos' "$report")"
       _assert_eq "vscode windows keybindings: changed and deleted bindings enter retirement history" \
         '[]' "$(jq -c '.missing.windows' "$report")"
+      _assert_eq "vscode linux no-termnav keybindings: capability moves enter retirement history" \
+        '[]' "$(jq -c '.missing.linux_no_termnav' "$report")"
+      _assert_eq "vscode macos no-termnav keybindings: capability moves enter retirement history" \
+        '[]' "$(jq -c '.missing.macos_no_termnav' "$report")"
+      _assert_eq "vscode windows no-termnav keybindings: capability moves enter retirement history" \
+        '[]' "$(jq -c '.missing.windows_no_termnav' "$report")"
       _assert_eq "vscode keybindings: retirement history is append-only" \
         '[]' "$(jq -c '.removed' "$report")"
 
@@ -1464,14 +1777,20 @@ JSON
       # object after Settings Sync carries it elsewhere.
       _assert_eq "vscode keybindings: retirement records are globally available from all.d" \
         '[]' "$(jq -c '.misplaced' "$report")"
+      _assert_eq "vscode keybindings: new retirements were previously managed" \
+        '[]' "$(jq -c '.unproven' "$report")"
+      _assert_eq "vscode keybindings: PR 90 review-build proof stays sealed" \
+        '12' "$(jq -c '.review_proof_count' "$report")"
+      _assert_eq "vscode keybindings: retirement proof labels stay allowlisted" \
+        '[]' "$(jq -c '.invalid_review_proofs' "$report")"
     }
 
     _assert_vscode_retirement_history "$REAL_HOME"
 
     # Negative fixtures protect the safety validator itself. These are kept
     # small and semantic so a future refactor cannot silently turn a missing,
-    # removed, or misplaced retirement into a passing repository check while
-    # the much larger end-to-end fixture remains green.
+    # removed, misplaced, or invented retirement into a passing repository
+    # check while the much larger end-to-end fixture remains green.
     vscode_guard_old=$(_tmpfile)
     vscode_guard_current=$(_tmpfile)
     vscode_guard_report=$(_tmpfile)
@@ -1510,6 +1829,23 @@ JSON
       "command": "fixture.misplacedRetirement",
       "dotfiles.retire": true
     }
+  },
+  {
+    "family": "all",
+    "binding": {
+      "key": "ctrl+alt+4",
+      "command": "fixture.unprovenRetirement",
+      "dotfiles.retire": true
+    }
+  },
+  {
+    "family": "all",
+    "binding": {
+      "key": "ctrl+alt+5",
+      "command": "fixture.invalidRetirementProof",
+      "dotfiles.retire": true,
+      "dotfiles.retire-proof": "review-build:invented"
+    }
   }
 ]
 JSON
@@ -1521,6 +1857,10 @@ JSON
       "1" "$(jq '.removed | length' "$vscode_guard_report")"
     _assert_eq "vscode history guard: platform-local retirement is rejected" \
       "1" "$(jq '.misplaced | length' "$vscode_guard_report")"
+    _assert_eq "vscode history guard: unproven retirement is rejected" \
+      "3" "$(jq '.unproven | length' "$vscode_guard_report")"
+    _assert_eq "vscode history guard: unknown retirement proof is rejected" \
+      "1" "$(jq '.invalid_review_proofs | length' "$vscode_guard_report")"
 
     vscode_base_guard_repo=$(_tmpdir)
     mkdir -p \
@@ -1714,6 +2054,58 @@ JSON
 JSON
     cat >"$vscode_home/.config/NoTermnav/User/keybindings.json" <<'JSON'
 [
+  {
+    "key": "ctrl+shift+tab",
+    "command": "workbench.action.quickOpenLeastRecentlyUsedEditorInGroup",
+    "when": "!activeEditorGroupEmpty && !terminalFocus"
+  },
+  {
+    "key": "ctrl+shift+tab",
+    "command": "-workbench.action.quickOpenLeastRecentlyUsedEditorInGroup",
+    "when": "!activeEditorGroupEmpty"
+  },
+  {
+    "key": "ctrl+tab",
+    "command": "workbench.action.quickOpenPreviousRecentlyUsedEditorInGroup",
+    "when": "!activeEditorGroupEmpty && !terminalFocus"
+  },
+  {
+    "key": "ctrl+tab",
+    "command": "-workbench.action.quickOpenPreviousRecentlyUsedEditorInGroup",
+    "when": "!activeEditorGroupEmpty"
+  },
+  {
+    "key": "ctrl+tab",
+    "command": "workbench.action.quickOpenNavigateNextInEditorPicker",
+    "when": "inEditorsPicker && inQuickOpen && !terminalFocus"
+  },
+  {
+    "key": "ctrl+tab",
+    "command": "-workbench.action.quickOpenNavigateNextInEditorPicker",
+    "when": "inEditorsPicker && inQuickOpen"
+  },
+  {
+    "key": "ctrl+shift+tab",
+    "command": "workbench.action.quickOpenNavigatePreviousInEditorPicker",
+    "when": "inEditorsPicker && inQuickOpen && !terminalFocus"
+  },
+  {
+    "key": "ctrl+shift+tab",
+    "command": "-workbench.action.quickOpenNavigatePreviousInEditorPicker",
+    "when": "inEditorsPicker && inQuickOpen"
+  },
+  {
+    "key": "ctrl+tab",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[9;5u" },
+    "when": "terminalFocus"
+  },
+  {
+    "key": "ctrl+shift+tab",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[9;6u" },
+    "when": "terminalFocus"
+  },
   {
     "key": "ctrl+/",
     "command": "editor.action.commentLine",
@@ -2010,7 +2402,8 @@ PY
     "command": "fixture.retiredExact",
     "args": {"text": "old"},
     "when": "fixture.retiredExact",
-    "dotfiles.retire": true
+    "dotfiles.retire": true,
+    "dotfiles.retire-proof": "review-build:7030e8e"
   }
 ]
 JSON
@@ -2062,7 +2455,7 @@ JSON
         and .command == "workbench.action.quickOpen"
         and .when == "terminalFocus"
       )] | length' "$vscode_delayed_upgrade_dir/keybindings.json")"
-    _assert_eq "vscode keybindings: retirement preserves args and property near-matches" \
+    _assert_eq "vscode keybindings: proven retirement preserves args and property near-matches" \
       '[{"args":{"text":"local"},"command":"fixture.retiredExact","key":"ctrl+alt+4","when":"fixture.retiredExact"},{"args":{"text":"old"},"command":"fixture.retiredExact","key":"ctrl+alt+4","localOnly":true,"when":"fixture.retiredExact"}]' \
       "$(jq -c '[.[] | select(.command == "fixture.retiredExact")]' \
         "$vscode_delayed_upgrade_dir/keybindings.json")"
@@ -2935,7 +3328,7 @@ JSON
       "1" \
       "$(jq '[.[] | select(.key == "alt+shift+]" and .command == "workbench.action.terminal.sendSequence" and .when == "terminalFocus" and .args.text == "\u001b}")] | length' "$vscode_keybindings_file")"
     _assert_vscode_terminal_clipboard_keybindings "$vscode_keybindings_file" "linux"
-    _assert_vscode_focus_fallback_keybindings "$vscode_keybindings_file"
+    _assert_vscode_focus_fallback_keybindings "$vscode_keybindings_file" "Linux"
     vscode_extensions=$(jq -c . "$vscode_home/.vscode/extensions/extensions.json")
     _assert_contains "vscode sley: extension registered" \
       '"id":"cgraf.sley-tools"' "$vscode_extensions"
@@ -3004,7 +3397,7 @@ JSON
     _assert_vscode_macos_ctrl_arrow_keybindings "$vscode_mac_keybindings"
     _assert_vscode_macos_karabiner_terminal_keybindings "$vscode_mac_keybindings"
     _assert_vscode_terminal_clipboard_keybindings "$vscode_mac_keybindings" "macOS"
-    _assert_vscode_focus_fallback_keybindings "$vscode_mac_keybindings"
+    _assert_vscode_focus_fallback_keybindings "$vscode_mac_keybindings" "macOS"
 
     rm -rf "$vscode_home/.config/Code/User"
 
@@ -3092,8 +3485,15 @@ JSON
       "$vscode_home/.vscode-no-termnav/extensions/termnav-0.3.0"
     _assert_file_missing "vscode termnav: no-termnav removes older adapter symlinks" \
       "$vscode_home/.vscode-no-termnav/extensions/termnav-0.2.0"
+    _assert_eq "vscode keybindings: PR 90 review-build fallback is retired exactly" \
+      "0" \
+      "$(jq '[.[] | select(
+        .key == "ctrl+/"
+        and .command == "editor.action.commentLine"
+        and .when == "terminalFocus && !termnav.nvimFocused"
+      )] | length' "$vscode_home/.config/NoTermnav/User/keybindings.json")"
     _assert_vscode_focus_fallback_keybindings \
-      "$vscode_home/.config/NoTermnav/User/keybindings.json"
+      "$vscode_home/.config/NoTermnav/User/keybindings.json" "Linux"
     _assert_eq "vscode termnav: no-termnav restores native tab handling" \
       "0" \
       "$(jq '[.[] | select(
@@ -3267,7 +3667,7 @@ JSON
     _assert_vscode_terminal_clipboard_keybindings \
       "$win_code_user/keybindings.json" "Windows"
     _assert_vscode_focus_fallback_keybindings \
-      "$win_code_user/keybindings.json"
+      "$win_code_user/keybindings.json" "Windows"
     _assert_vscode_focus_keybinding_migration \
       "$win_code_user/keybindings.json" "Windows"
 

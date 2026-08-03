@@ -148,6 +148,25 @@
     "args": { "text": "\u001b[112;6u" },
     "when": "terminalFocus && termnav.nvimFocused"
   },
+  // Karabiner transports physical Ctrl+Shift+V as F20 so Neovim can
+  // distinguish yank history from plain Ctrl+V without consuming VS Code's
+  // native Shift+Cmd+V. Reconstruct paste outside focused Neovim.
+  {
+    "key": "f20",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[118;6u" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
+  {
+    "key": "f20",
+    "command": "workbench.action.terminal.paste",
+    "when": "terminalFocus && !termnav.nvimFocused"
+  },
+  {
+    "key": "f20",
+    "command": "editor.action.clipboardPasteAction",
+    "when": "textInputFocus && !editorReadonly && !terminalFocus"
+  },
   {
     "key": "cmd+u",
     "command": "workbench.action.terminal.sendSequence",

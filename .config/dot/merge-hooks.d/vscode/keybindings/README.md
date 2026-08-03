@@ -33,13 +33,15 @@ change. Keep retirement records indefinitely so a machine that skips releases
 can still remove an intermediate generation synchronized from elsewhere.
 
 The merge test enforces the policy against an immutable Git event base for each
-effective platform projection (`all.d` plus that platform's family). A removed
-or changed active object must enter retirement; retirement is append-only and
-must live in `all.d` so every platform can remove a synchronized foreign
-generation. A new retirement object is explicit deletion authority. Exact
-matching, global placement, review, and append-only history keep that authority
-narrow while still allowing cleanup of generated review builds that never
-entered landed Git history.
+effective platform projection, both with and without the Termnav capability. A
+removed or changed active object must enter retirement; retirement is
+append-only, must live in `all.d` so every platform can remove a synchronized
+foreign generation, and must exactly match prior landed active source. These
+checks keep deletion authority narrow enough that an invented retirement cannot
+consume an identical local-only binding. The only exception is the sealed
+`dotfiles.retire-proof` generation for PR #90, which reached live profiles while
+still under review; the validator fixes both that proof label and its exact
+record count so it cannot become a general bypass.
 
 Native paths use an atomic rename. WSL uses the existing verified write with
 best-effort rollback because Windows can deny replacement of an open VS Code
@@ -73,5 +75,10 @@ sent under `terminalFocus` without depending on Termnav. In particular,
 physical `Ctrl-B` reaches tmux as C0 byte `0x02`, while VS Code's normal
 `Cmd-B` sidebar command remains active outside the terminal. Other translated
 VSCode-style chords override the host only while `termnav.nvimFocused` is true.
-Ctrl+Arrow stays raw in VS Code under the existing Karabiner exemptions and
-uses the common bindings.
+Karabiner transports physical `Ctrl-Shift-V` through otherwise-unused `F20`;
+focused Neovim receives the distinct CSI-u chord, while terminal and editor
+fallbacks retain normal paste behavior without consuming native
+`Shift-Cmd-V`. Ctrl+Arrow stays raw in stable, Insiders, Cursor, FB, and
+VSCodium builds under the shared Karabiner exemptions and uses the common
+bindings. Shift+PageUp/Down similarly override terminal viewport scrolling only
+while focused Neovim owns the pane.

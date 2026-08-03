@@ -37,6 +37,8 @@ _strip_jsonc() {
 # can change positive-command behavior. Exact source records are less clever
 # and more durable: they alter no generated shortcut semantics at all.
 _DOT_VSCODE_KEYBINDING_RETIRE='dotfiles.retire'
+_DOT_VSCODE_KEYBINDING_RETIRE_PROOF='dotfiles.retire-proof'
+_DOT_VSCODE_KEYBINDING_REVIEW_PROOF='review-build:7030e8e'
 
 _vscode_is_wsl() {
   if command -v _is_wsl >/dev/null 2>&1; then
@@ -157,7 +159,9 @@ _merge_vscode_keybindings() {
 
   if ! _strip_jsonc "$src" |
     jq -s -e \
-      --arg retire "$_DOT_VSCODE_KEYBINDING_RETIRE" '
+      --arg retire "$_DOT_VSCODE_KEYBINDING_RETIRE" \
+      --arg proof "$_DOT_VSCODE_KEYBINDING_RETIRE_PROOF" \
+      --arg review_proof "$_DOT_VSCODE_KEYBINDING_REVIEW_PROOF" '
       def valid_binding:
         type == "object"
         and (.key | type == "string" and length > 0)
@@ -166,6 +170,13 @@ _merge_vscode_keybindings() {
         and (
           (has($retire) | not)
           or .[$retire] == true
+        )
+        and (
+          (has($proof) | not)
+          or (
+            .[$retire] == true
+            and .[$proof] == $review_proof
+          )
         );
 
       if length == 1
@@ -205,6 +216,7 @@ _merge_vscode_keybindings() {
   out="$REPLY"
   if ! jq -n --indent 4 --sort-keys \
     --arg retire "$_DOT_VSCODE_KEYBINDING_RETIRE" \
+    --arg proof "$_DOT_VSCODE_KEYBINDING_RETIRE_PROOF" \
     --slurpfile s "$src_clean" \
     --slurpfile d "$dst_clean" '
     def terminal_tab_route:
@@ -213,7 +225,7 @@ _merge_vscode_keybindings() {
       and (.key == "ctrl+tab" or .key == "ctrl+shift+tab");
 
     ($s[0] | map(select(.[$retire] != true))) as $active |
-    ($s[0] | map(select(.[$retire] == true) | del(.[$retire]))) as $retired |
+    ($s[0] | map(select(.[$retire] == true) | del(.[$retire], .[$proof]))) as $retired |
     ($active | map({key: .key, when: (.when // "")})) as $skeys |
     # Current managed entries come first, matching the historical merge
     # policy. A local key+when conflict is removed even when its command

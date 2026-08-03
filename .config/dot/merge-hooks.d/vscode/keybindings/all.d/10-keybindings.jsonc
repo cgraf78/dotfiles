@@ -50,6 +50,15 @@
     "command": "workbench.action.terminal.copySelection",
     "when": "terminalFocus && terminalTextSelected"
   },
+  // Ctrl+B is tmux's prefix and must reach the pty in every terminal pane,
+  // including shells and extensionless variants. VS Code keeps its normal
+  // sidebar shortcut whenever terminal focus is absent.
+  {
+    "key": "ctrl+b",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u0002" },
+    "when": "terminalFocus"
+  },
   {
     "key": "ctrl+v",
     "command": "workbench.action.terminal.paste",
