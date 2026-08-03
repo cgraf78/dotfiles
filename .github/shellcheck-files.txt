@@ -163,6 +163,7 @@ program	.local/lib/dot/tests/helpers.sh
 program	.local/lib/dot/tests/lua-test
 program	.local/lib/dot/tests/nvim-test
 program	.local/lib/dot/tests/prompt-test
+program	.local/lib/dot/tests/schema-refresh-workflow-test
 program	.local/lib/dot/tests/shdeps-hooks-test
 program	.local/lib/dot/tests/tmux-continuum-test
 program	.local/lib/dot/tests/tmux-test
