@@ -42,6 +42,14 @@ awk '$1 == "fujiapple852\/trippy" && $2 == "github" &&
        $0 ~ /os:!macos,os:!android/ { found = 1 }
      END { exit !found }' "$deps" ||
   fail "Trippy GitHub install is not excluded on Android"
+awk '$1 == "ClementTsang\/bottom" && $2 == "github" &&
+       $0 ~ /os:!macos,os:!android/ { found = 1 }
+     END { exit !found }' "$deps" ||
+  fail "Bottom GitHub install is not excluded on Android"
+awk '$1 == "cgraf78\/hive-memory" && $2 == "github" &&
+       $0 ~ /os:!android/ { found = 1 }
+     END { exit !found }' "$deps" ||
+  fail "Hive Memory GitHub install is not excluded on Android"
 
 command -v nvim >/dev/null || fail "Termux Neovim package did not provide nvim"
 nvim --version 2>&1 | awk 'NR == 1 && $1 == "NVIM" { found = 1 }

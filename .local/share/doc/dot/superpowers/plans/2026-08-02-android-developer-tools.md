@@ -5,8 +5,9 @@
 > superpowers:executing-plans to implement this plan task-by-task. Steps use
 > checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Route Watchexec through Termux packages, disable unsupported Trippy
-installs on Android, and make Termux CI exercise the real `dot update` path.
+**Goal:** Route Watchexec through Termux packages, disable unsupported Trippy,
+Bottom, and Hive Memory installs on Android, and make Termux CI exercise the
+real `dot update` path.
 
 **Architecture:** Keep platform policy in the Shdeps registry. Run the existing
 Android smoke after a checkout-isolated `dot update --skip-pull`, then assert
@@ -19,10 +20,12 @@ Termux `pkg`.
 
 - Keep `.config/shdeps/10-deps.conf` columns aligned.
 - Do not install Watchexec directly in the Android smoke script.
-- Do not install Trippy on Android.
+- Do not install Trippy, Bottom, or Hive Memory on Android.
 - Do not add work to shell or Neovim startup.
 - Keep failure aggregation owned by `dot update`; require the CI caller to
   honor its public exit-status contract.
+- Preserve fresh-bootstrap diagnostics outside quiet mode so unsupported
+  platforms and broken prerequisites are actionable.
 
 ---
 
@@ -45,6 +48,10 @@ Termux `pkg`.
 Replace the macOS-only Watchexec assertion with explicit checks that its
 package row includes `os:macos,os:android`, while Trippy remains macOS-only.
 Require both GitHub rows to include `os:!macos,os:!android`.
+
+Require Bottom and Hive Memory GitHub rows to exclude Android because their
+repositories do not provide runnable Termux payloads and neither tool is
+available from the supported Termux package source.
 
 - [ ] **Step 2: Write failing workflow assertions**
 
@@ -115,7 +122,13 @@ watchexec --version >/dev/null 2>&1 ||
   fail "Termux Watchexec binary does not run"
 ```
 
-- [ ] **Step 4: Verify GREEN**
+- [ ] **Step 4: Preserve fresh-bootstrap diagnostics**
+
+Keep quiet and cron updates silent, but allow a failed first-time Shdeps
+installer to emit its underlying curl, platform, or artifact error during an
+interactive update. Cover both output modes in the core tests.
+
+- [ ] **Step 5: Verify GREEN**
 
 Run:
 
@@ -155,7 +168,8 @@ git diff --check
 - [ ] **Step 2: Review the complete branch diff**
 
 Confirm no direct Watchexec install exists in the smoke script, no Android
-Trippy route remains, and no unrelated files changed.
+Trippy, Bottom, or Hive Memory route remains, interactive bootstrap failures
+retain their diagnostics, and no unrelated files changed.
 
 - [ ] **Step 3: Commit**
 

@@ -377,6 +377,12 @@ _assert_eq "developer tool: trippy uses Homebrew on macOS" \
   "pkg" "$(awk '{ print $2 }' <<<"$_trippy_pkg_dep")"
 _assert_contains "developer tool: trippy package route is macOS-only" \
   "os:macos" "$_trippy_pkg_dep"
+_bottom_dep=$(
+  awk '$1 == "ClementTsang/bottom" { print; exit }' \
+    "$REAL_HOME/.config/shdeps/10-deps.conf"
+)
+_assert_contains "developer tool: bottom excludes unsupported Android installs" \
+  "os:!macos,os:!android" "$_bottom_dep"
 _assert_eq "watchexec: command is watchexec" "watchexec" \
   "$(awk '$1 == "watchexec/watchexec" { print $3; exit }' "$REAL_HOME/.config/shdeps/10-deps.conf")"
 _assert_eq "trippy: command is trip" "trip" \
@@ -1042,6 +1048,8 @@ _assert_eq "hive-memory: dependency uses native github updater" \
   "github" "$(awk '{ print $2 }' <<<"$_hive_memory_dep")"
 _assert_eq "hive-memory: dependency exposes hm command" \
   "hm" "$(awk '{ print $3 }' <<<"$_hive_memory_dep")"
+_assert_contains "hive-memory: dependency excludes unsupported Android installs" \
+  "os:!android" "$_hive_memory_dep"
 _hive_memory_base_config=$(
   git --git-dir="$REAL_HOME/.dotfiles" --work-tree="$REAL_HOME" \
     ls-files -- .config/hive-memory/config.toml 2>/dev/null ||
