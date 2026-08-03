@@ -7,6 +7,7 @@ set -o pipefail
 export NO_COLOR=1
 
 . "$HOME/.local/lib/dot/tests/helpers.sh"
+_test_prefer_system_git || exit 1
 . "$HOME/.local/lib/dot/core/constants.sh"
 . "$HOME/.local/lib/dot/core/repos/overlays.sh"
 
@@ -44,6 +45,9 @@ _run_agent_rules_merge() {
   local fixture="$1"
   (
     HOME="$fixture"
+    # Merge behavior is fixture-local. Do not inherit absolute XDG roots from
+    # the suite runner or the invoking user's shell when HOME changes.
+    unset XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME
     export DOT_OVERLAY_MANIFEST="$fixture/.local/state/dot/overlay-links"
     export DOT_OVERLAY_LEGACY_MANIFEST="$fixture/.local/state/dot/legacy-overlay-links"
     # The sourced merge hook calls these callbacks; shellcheck cannot see that

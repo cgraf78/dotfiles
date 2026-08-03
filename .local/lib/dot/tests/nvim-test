@@ -15,6 +15,7 @@ export NO_COLOR=1
 _require_compatible_libc "nvim-test"
 _test_use_host_runtime_dirs
 _test_use_host_shdeps
+_test_prefer_system_git after-dotfiles || exit 1
 
 # Run a lua snippet headlessly in nvim. Prepends the nvim config lua dir
 # to package.path so dofile'd modules can resolve their require() calls.

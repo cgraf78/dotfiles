@@ -1,0 +1,234 @@
+#!/usr/bin/env bash
+# harness-isolation-test - test-suite state isolation contracts.
+
+# Fixture subshells intentionally shadow these roots and report their values.
+# shellcheck disable=SC2030,SC2031
+
+set -o pipefail
+export NO_COLOR=1
+
+SOURCE_HOME="$HOME"
+SOURCE_RESIDUE_CANDIDATES=(
+  .cache/dot/git-real
+  .cache/edenscm/hgrc.dynamic
+  .cache/edenscm/hgrc.remote_cache
+  .loginouthistory
+  .scm.sqlite
+)
+SOURCE_ABSENT_RESIDUE=()
+for source_residue in "${SOURCE_RESIDUE_CANDIDATES[@]}"; do
+  [[ -e "$SOURCE_HOME/$source_residue" ]] || SOURCE_ABSENT_RESIDUE+=("$source_residue")
+done
+
+# shellcheck source=helpers.sh
+. "$SOURCE_HOME/.local/lib/dot/tests/helpers.sh"
+
+if [[ "${DOT_TEST:-0}" = 1 ]]; then
+  _assert_eq "harness runtime: runner isolates XDG cache" \
+    "$TMPDIR/xdg-cache" "${XDG_CACHE_HOME:-}"
+  _assert_eq "harness runtime: runner isolates XDG state" \
+    "$TMPDIR/xdg-state" "${XDG_STATE_HOME:-}"
+fi
+
+echo "=== Host tool data isolation ==="
+
+host_runtime_home=$(_tmpdir)
+source_runtime_home=$(_tmpdir)
+runtime_paths_file=$(_tmpfile)
+(
+  HOME="$source_runtime_home"
+  DOT_TEST_HOST_HOME="$host_runtime_home"
+  XDG_CACHE_HOME=/suite/cache
+  XDG_STATE_HOME=/suite/state
+  export HOME DOT_TEST_HOST_HOME XDG_CACHE_HOME XDG_STATE_HOME
+  _test_use_host_runtime_dirs
+  printf '%s\n' \
+    "$XDG_CONFIG_HOME" "$XDG_DATA_HOME" "$XDG_CACHE_HOME" "$XDG_STATE_HOME" \
+    >"$runtime_paths_file"
+)
+runtime_paths=$(cat "$runtime_paths_file")
+_assert_eq "host runtime: config comes from the source tree" \
+  "$source_runtime_home/.config" "$(sed -n '1p' <<<"$runtime_paths")"
+_assert_eq "host runtime: installed data comes from the host" \
+  "$host_runtime_home/.local/share" "$(sed -n '2p' <<<"$runtime_paths")"
+_assert_eq "host runtime: cache stays suite-local" \
+  "/suite/cache" "$(sed -n '3p' <<<"$runtime_paths")"
+_assert_eq "host runtime: state stays suite-local" \
+  "/suite/state" "$(sed -n '4p' <<<"$runtime_paths")"
+
+echo ""
+echo "=== System Git isolation ==="
+
+fixture_git=$(_tmpfile)
+cat >"$fixture_git" <<'GIT'
+#!/usr/bin/env bash
+printf 'fixture-git:%s\n' "$*"
+GIT
+chmod +x "$fixture_git"
+saved_path=$PATH
+DOT_TEST_SYSTEM_GIT="$fixture_git"
+export DOT_TEST_SYSTEM_GIT
+system_git_rc=0
+_test_prefer_system_git || system_git_rc=$?
+_assert_exit "system Git: explicit executable is selected" 0 "$system_git_rc"
+_assert_eq "system Git: selected executable runs" \
+  "fixture-git:version" "$(git version)"
+PATH=$saved_path
+system_git_rc=0
+_test_prefer_system_git after-dotfiles || system_git_rc=$?
+_assert_exit "system Git: launcher-backend mode is selected" 0 "$system_git_rc"
+_assert_eq "system Git: tracked launcher uses the selected backend" \
+  "fixture-git:version" "$(DOT_GIT_REAL=1 git version)"
+PATH=$saved_path
+unset DOT_TEST_SYSTEM_GIT
+
+_mock_home
+case "$HOME/" in
+  "$_DOT_TEST_TMP_ROOT/"*) _pass "harness runtime: HOME is suite-local" ;;
+  *) _fail "harness runtime: HOME is suite-local" ;;
+esac
+_assert_eq "mock HOME: ignores system Git config" "1" "$GIT_CONFIG_NOSYSTEM"
+
+echo "=== Shdeps implementation isolation ==="
+
+fixture_home=$(_tmpdir)
+fixture_shdeps="$fixture_home/git/shdeps"
+mkdir -p "$fixture_shdeps/completions" "$fixture_shdeps/man/man1" \
+  "$fixture_shdeps/target/release"
+printf '%s\n' 'fixture installer' >"$fixture_shdeps/install.sh"
+printf '%s\n' 'fixture library' >"$fixture_shdeps/shdeps.sh"
+printf '%s\n' 'fixture completion' >"$fixture_shdeps/completions/shdeps.bash"
+printf '%s\n' 'fixture manual' >"$fixture_shdeps/man/man1/shdeps.1"
+git -C "$fixture_shdeps" init -q
+_git_set_test_identity git -C "$fixture_shdeps"
+git -C "$fixture_shdeps" add install.sh shdeps.sh completions man
+git -C "$fixture_shdeps" -c core.hooksPath=/dev/null commit -qm fixture
+fixture_head=$(git -C "$fixture_shdeps" rev-parse --short=8 HEAD)
+cat >"$fixture_shdeps/shdeps" <<'SHDEPS'
+#!/usr/bin/env bash
+printf '%s\n' 'shdeps stale-build'
+SHDEPS
+cat >"$fixture_shdeps/target/release/shdeps" <<SHDEPS
+#!/usr/bin/env bash
+printf '%s\n' 'shdeps fixture-$fixture_head'
+SHDEPS
+chmod +x "$fixture_shdeps/shdeps" "$fixture_shdeps/target/release/shdeps"
+
+snapshot_rc=0
+if declare -F _test_prepare_shdeps_snapshot >/dev/null 2>&1; then
+  _test_prepare_shdeps_snapshot "$fixture_home" || snapshot_rc=$?
+else
+  snapshot_rc=127
+fi
+_assert_exit "shdeps snapshot: helper is available" 0 "$snapshot_rc"
+
+if [[ "$snapshot_rc" -eq 0 ]]; then
+  _assert_contains "shdeps snapshot: lives under the suite temp root" \
+    "$_DOT_TEST_TMP_ROOT/" "$DOT_TEST_SHDEPS_SNAPSHOT/"
+  _assert_eq "shdeps snapshot: wrapper uses isolated library" \
+    "$DOT_TEST_SHDEPS_SNAPSHOT/shdeps.sh" "${SHDEPS_LIB:-}"
+  _assert_eq "shdeps snapshot: wrapper uses isolated binary" \
+    "$DOT_TEST_SHDEPS_SNAPSHOT/shdeps" "$SHDEPS_RUST_CLI"
+  _assert_file_content "shdeps snapshot: installer is copied" \
+    "fixture installer" "$DOT_TEST_SHDEPS_SNAPSHOT/install.sh"
+  _assert_file_content "shdeps snapshot: library is copied" \
+    "fixture library" "$DOT_TEST_SHDEPS_SNAPSHOT/shdeps.sh"
+  _assert_contains "shdeps snapshot: binary matches development HEAD" \
+    "$fixture_head" "$("$DOT_TEST_SHDEPS_SNAPSHOT/shdeps" version)"
+  _assert_file_missing "shdeps snapshot: omits live install metadata" \
+    "$DOT_TEST_SHDEPS_SNAPSHOT/.shdeps-install.json"
+  if [[ ! -e "$DOT_TEST_SHDEPS_SNAPSHOT/.git" ]]; then
+    _pass "shdeps snapshot: excludes source-control state"
+  else
+    _fail "shdeps snapshot: excludes source-control state"
+  fi
+
+  printf '%s\n' 'mutated source' >"$fixture_shdeps/install.sh"
+  _assert_file_content "shdeps snapshot: is independent from its source" \
+    "fixture installer" "$DOT_TEST_SHDEPS_SNAPSHOT/install.sh"
+fi
+
+worktree_home=$(_tmpdir)
+mkdir -p "$worktree_home/git"
+git -C "$fixture_shdeps" worktree add -q -b fixture-worktree \
+  "$worktree_home/git/shdeps"
+worktree_shdeps="$worktree_home/git/shdeps"
+mkdir -p "$worktree_shdeps/target/release"
+cat >"$worktree_shdeps/shdeps" <<'SHDEPS'
+#!/usr/bin/env bash
+printf '%s\n' 'shdeps stale-worktree-build'
+SHDEPS
+cat >"$worktree_shdeps/target/release/shdeps" <<SHDEPS
+#!/usr/bin/env bash
+printf '%s\n' 'shdeps fixture-$fixture_head'
+SHDEPS
+chmod +x "$worktree_shdeps/shdeps" "$worktree_shdeps/target/release/shdeps"
+worktree_rc=0
+_test_prepare_shdeps_snapshot "$worktree_home" || worktree_rc=$?
+_assert_exit "shdeps snapshot: supports a Git worktree source" 0 "$worktree_rc"
+if [[ "$worktree_rc" -eq 0 ]]; then
+  _assert_contains "shdeps snapshot: validates a Git worktree binary" \
+    "$fixture_head" "$("$DOT_TEST_SHDEPS_SNAPSHOT/shdeps" version)"
+fi
+
+stale_home=$(_tmpdir)
+stale_shdeps="$stale_home/git/shdeps"
+mkdir -p "$stale_shdeps"
+printf '%s\n' 'fixture installer' >"$stale_shdeps/install.sh"
+printf '%s\n' 'fixture library' >"$stale_shdeps/shdeps.sh"
+git -C "$stale_shdeps" init -q
+_git_set_test_identity git -C "$stale_shdeps"
+git -C "$stale_shdeps" add install.sh shdeps.sh
+git -C "$stale_shdeps" -c core.hooksPath=/dev/null commit -qm fixture
+cat >"$stale_shdeps/shdeps" <<'SHDEPS'
+#!/usr/bin/env bash
+printf '%s\n' 'shdeps stale-build'
+SHDEPS
+chmod +x "$stale_shdeps/shdeps"
+stale_rc=0
+_test_prepare_shdeps_snapshot "$stale_home" >/dev/null 2>&1 || stale_rc=$?
+_assert_exit "shdeps snapshot: rejects a stale development binary" 1 "$stale_rc"
+
+echo ""
+echo "=== Mock HOME runtime isolation ==="
+
+export XDG_CONFIG_HOME=/outside/config
+export XDG_DATA_HOME=/outside/data
+export XDG_STATE_HOME=/outside/state
+export XDG_CACHE_HOME=/outside/cache
+export MISE_DATA_DIR=/outside/mise-data
+export MISE_STATE_DIR=/outside/mise-state
+export MISE_CACHE_DIR=/outside/mise-cache
+export SHDEPS_CONF_DIR=/outside/shdeps-config
+export SHDEPS_HOOKS_DIR=/outside/shdeps-hooks
+export SHDEPS_STATE_DIR=/outside/shdeps-state
+export SHDEPS_INSTALL_DIR=/outside/shdeps-install
+export SHDEPS_BIN_DIR=/outside/shdeps-bin
+export SHDEPS_GIT_DEV_DIR=/outside/shdeps-git
+export SHDEPS_DIR=/outside/shdeps
+export SHDEPS_BIN=/outside/bin/shdeps
+
+_mock_home
+
+_assert_eq "mock HOME: clears external XDG config" "" "${XDG_CONFIG_HOME:-}"
+_assert_eq "mock HOME: clears external XDG data" "" "${XDG_DATA_HOME:-}"
+_assert_eq "mock HOME: clears external XDG state" "" "${XDG_STATE_HOME:-}"
+_assert_eq "mock HOME: clears external XDG cache" "" "${XDG_CACHE_HOME:-}"
+_assert_eq "mock HOME: clears external Mise data" "" "${MISE_DATA_DIR:-}"
+_assert_eq "mock HOME: clears external Mise state" "" "${MISE_STATE_DIR:-}"
+_assert_eq "mock HOME: clears external Mise cache" "" "${MISE_CACHE_DIR:-}"
+_assert_eq "mock HOME: clears external shdeps config" "" "${SHDEPS_CONF_DIR:-}"
+_assert_eq "mock HOME: clears external shdeps hooks" "" "${SHDEPS_HOOKS_DIR:-}"
+_assert_eq "mock HOME: clears external shdeps state" "" "${SHDEPS_STATE_DIR:-}"
+_assert_eq "mock HOME: clears external shdeps installs" "" "${SHDEPS_INSTALL_DIR:-}"
+_assert_eq "mock HOME: clears external shdeps binaries" "" "${SHDEPS_BIN_DIR:-}"
+_assert_eq "mock HOME: clears external shdeps source discovery" "" "${SHDEPS_GIT_DEV_DIR:-}"
+_assert_eq "mock HOME: clears external shdeps implementation" "" "${SHDEPS_DIR:-}"
+_assert_eq "mock HOME: clears external shdeps command" "" "${SHDEPS_BIN:-}"
+
+for source_residue in "${SOURCE_ABSENT_RESIDUE[@]}"; do
+  _assert_file_missing "harness runtime: leaves no $source_residue in source HOME" \
+    "$SOURCE_HOME/$source_residue"
+done
+
+_test_summary

@@ -87,11 +87,10 @@ _test_realpath() {
   realpath "$path" 2>/dev/null || printf '%s\n' "$path"
 }
 
-# Suites that start real editor/tool processes from a worktree HOME can opt
-# into the host's runtime dirs while still reading config from the source tree.
-# Keep this out of the global runner: merge-hook tests intentionally use
-# fixture HOME/state paths, and a global XDG override would leak host state into
-# those fixtures.
+# Suites that start real editor/tool processes from a worktree HOME can reuse
+# the host's installed tool data while still reading config from the source
+# tree. Writable cache/state roots remain suite-local when dot-test supplies
+# them; this prevents editor smoke tests from modifying either checkout.
 _test_use_host_runtime_dirs() {
   local dependency_home="${DOT_TEST_HOST_HOME:-$HOME}"
 
@@ -99,10 +98,8 @@ _test_use_host_runtime_dirs() {
   export XDG_CONFIG_HOME
 
   [[ -n "$dependency_home" && "$dependency_home" != "$HOME" ]] || return 0
-  : "${XDG_DATA_HOME:=$dependency_home/.local/share}"
-  : "${XDG_STATE_HOME:=$dependency_home/.local/state}"
-  : "${XDG_CACHE_HOME:=$dependency_home/.cache}"
-  export XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME
+  XDG_DATA_HOME="$dependency_home/.local/share"
+  export XDG_DATA_HOME
 }
 
 # Suites that execute host-installed binaries from a worktree HOME sometimes
@@ -129,6 +126,130 @@ _test_use_host_shdeps() {
   elif [[ -f "$dependency_home/.local/share/shdeps/shdeps.sh" ]]; then
     export SHDEPS_DIR="$dependency_home/.local/share/shdeps"
   fi
+}
+
+# Suites that exercise higher-level editor or dependency policy should not
+# accidentally use a site-specific Git wrapper. By default the selected Git is
+# first on PATH. The after-dotfiles mode keeps the tracked launcher first while
+# making the selected Git its immediate backend, preserving integration
+# coverage without invoking later site wrappers.
+_test_prefer_system_git() {
+  local mode="${1:-first}" candidate git_bin source_bin path_entry
+  local -a candidates=()
+
+  [[ "$mode" = first || "$mode" = after-dotfiles ]] || {
+    echo "test harness: invalid system Git mode: $mode" >&2
+    return 2
+  }
+
+  [[ -z "${DOT_TEST_SYSTEM_GIT:-}" ]] || candidates+=("$DOT_TEST_SYSTEM_GIT")
+  candidates+=(/usr/bin/git /bin/git /opt/homebrew/bin/git)
+  [[ -z "${PREFIX:-}" ]] || candidates+=("$PREFIX/bin/git")
+  while IFS= read -r path_entry; do
+    candidates+=("$path_entry")
+  done < <(type -P -a git 2>/dev/null)
+
+  source_bin="${DOT_TEST_SOURCE_HOME:-$HOME}/.local/bin"
+  for candidate in "${candidates[@]}"; do
+    [[ -x "$candidate" && ! -d "$candidate" ]] || continue
+    [[ "$candidate" != "$source_bin/git" ]] || continue
+    git_bin=$(_mock_bin)
+    ln -s "$candidate" "$git_bin/git" || return 1
+    if [[ "$mode" = after-dotfiles ]]; then
+      case "$PATH" in
+        "$source_bin") PATH="$source_bin:$git_bin" ;;
+        "$source_bin:"*) PATH="$source_bin:$git_bin:${PATH#"$source_bin:"}" ;;
+        *) PATH="$source_bin:$git_bin:$PATH" ;;
+      esac
+    else
+      PATH="$git_bin:$PATH"
+    fi
+    export PATH
+    return 0
+  done
+
+  echo "test harness: could not find a system Git executable" >&2
+  return 1
+}
+
+# Core/bootstrap suites need the current shdeps implementation, but sourcing a
+# development checkout lets its bootstrap pull and rebuild that shared checkout.
+# Copy only the sourceable surface and resolved binary into this suite's temp
+# root so parallel tests cannot mutate or race user-owned shdeps state.
+_test_prepare_shdeps_snapshot() {
+  local home source_dir="" binary="" candidate snapshot optional
+  local head="" version="" git_root="" source_root=""
+
+  for home in "$@"; do
+    [[ -n "$home" ]] || continue
+    for candidate in "$home/git/shdeps" "$home/.local/share/shdeps"; do
+      if [[ -f "$candidate/install.sh" && -f "$candidate/shdeps.sh" ]]; then
+        source_dir="$candidate"
+        break 2
+      fi
+    done
+  done
+  if [[ -z "$source_dir" ]]; then
+    echo "dot-test: no shdeps implementation available for an isolated snapshot" >&2
+    return 1
+  fi
+
+  source_root=$(cd -P -- "$source_dir" 2>/dev/null && pwd) || return 1
+  git_root=$(git -C "$source_dir" rev-parse --show-toplevel 2>/dev/null || true)
+  if [[ -n "$git_root" ]]; then
+    git_root=$(cd -P -- "$git_root" 2>/dev/null && pwd) || return 1
+  fi
+  if [[ "$git_root" == "$source_root" ]]; then
+    # A development checkout is authoritative. Never silently combine its
+    # current shell API with an older installed binary or fallback release.
+    head=$(git -C "$source_dir" rev-parse --short=8 HEAD 2>/dev/null) || {
+      echo "dot-test: could not resolve shdeps checkout HEAD: $source_dir" >&2
+      return 1
+    }
+    for candidate in \
+      "$source_dir/shdeps" \
+      "$source_dir/target/release/shdeps" \
+      "$source_dir/target/debug/shdeps"; do
+      [[ -x "$candidate" ]] || continue
+      version=$("$candidate" version 2>/dev/null || true)
+      if [[ "$version" == *"$head"* ]]; then
+        binary="$candidate"
+        break
+      fi
+    done
+  else
+    for candidate in \
+      "$source_dir/shdeps" \
+      "$source_dir/target/release/shdeps" \
+      "$source_dir/target/debug/shdeps"; do
+      if [[ -x "$candidate" ]]; then
+        binary="$candidate"
+        break
+      fi
+    done
+  fi
+  if [[ -z "$binary" ]]; then
+    if [[ -n "$head" ]]; then
+      echo "dot-test: shdeps checkout has no binary for HEAD $head; run cargo build --release --locked in $source_dir" >&2
+    else
+      echo "dot-test: shdeps implementation has no runnable binary: $source_dir" >&2
+    fi
+    return 1
+  fi
+
+  snapshot=$(_tmpdir)
+  cp "$source_dir/install.sh" "$source_dir/shdeps.sh" "$snapshot/" || return 1
+  cp -L "$binary" "$snapshot/shdeps" || return 1
+  chmod +x "$snapshot/shdeps" || return 1
+  for optional in completions man; do
+    [[ -e "$source_dir/$optional" ]] || continue
+    cp -R "$source_dir/$optional" "$snapshot/" || return 1
+  done
+
+  DOT_TEST_SHDEPS_SNAPSHOT="$snapshot"
+  SHDEPS_LIB="$snapshot/shdeps.sh"
+  SHDEPS_RUST_CLI="$snapshot/shdeps"
+  export DOT_TEST_SHDEPS_SNAPSHOT SHDEPS_LIB SHDEPS_RUST_CLI
 }
 
 _test_realpath_lines() {
@@ -315,9 +436,18 @@ _mock_home() {
   REAL_HOME="$HOME"
   TEST_HOME=$(_tmpdir)
   export HOME="$TEST_HOME"
-  # Isolate tests from the real global git config (e.g. core.fsmonitor
-  # would spawn daemons watching temp work-trees and hang).  Use an
-  # empty file, not /dev/null, so git config --global writes succeed.
+  # Clear caller-owned absolute roots so every tool uses its standard HOME
+  # default. This also keeps nested fresh-HOME subprocesses isolated to their
+  # own HOME instead of pinning them to the outer fixture's directories.
+  unset XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME
+  unset MISE_DATA_DIR MISE_STATE_DIR MISE_CACHE_DIR
+  unset SHDEPS_CONF_DIR SHDEPS_HOOKS_DIR SHDEPS_STATE_DIR
+  unset SHDEPS_INSTALL_DIR SHDEPS_BIN_DIR SHDEPS_GIT_DEV_DIR
+  unset SHDEPS_DIR SHDEPS_BIN
+  # Isolate tests from real user and system Git config (e.g. core.fsmonitor or
+  # commit signing can spawn external processes). Use an empty writable global
+  # file so fixture `git config --global` calls still succeed.
+  export GIT_CONFIG_NOSYSTEM=1
   export GIT_CONFIG_GLOBAL="$TEST_HOME/.gitconfig-test"
   touch "$GIT_CONFIG_GLOBAL"
 }

@@ -159,6 +159,7 @@ program	.local/lib/dot/tests/fixtures.sh
 program	.local/lib/dot/tests/githook-test
 program	.local/lib/dot/tests/gstack-opencode-test
 program	.local/lib/dot/tests/gstack-register-test
+program	.local/lib/dot/tests/harness-isolation-test
 program	.local/lib/dot/tests/helpers.sh
 program	.local/lib/dot/tests/lua-test
 program	.local/lib/dot/tests/nvim-test
