@@ -3606,7 +3606,7 @@ JSON
             ["ctrl+shift+v", "editor.action.clipboardPasteAction", "textInputFocus && !editorReadonly && !terminalFocus"],
             ["cmd+/", "editor.action.commentLine", "terminalFocus && !termnav.nvimFocused"]
           ]
-          | index($route)
+          | any(.[]; . == $route)
       )] | length' "$vscode_home/.config/NoTermnav/User/keybindings.json")"
     _assert_vscode_focus_fallback_keybindings \
       "$vscode_home/.config/NoTermnav/User/keybindings.json" "Linux"
