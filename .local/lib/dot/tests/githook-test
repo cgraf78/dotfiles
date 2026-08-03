@@ -51,6 +51,48 @@ for hook in pre-commit pre-merge-commit pre-applypatch prepare-commit-msg \
   fi
 done
 
+echo "=== Prepare-commit-msg ordinary commit fast path ==="
+
+prepare_probe_bin=$(_mock_bin)
+prepare_probe_log=$(_tmpdir)/git.log
+prepare_sed_log=$(_tmpdir)/sed.log
+prepare_message=$(_tmpdir)/message
+prepare_git_dir=$(_tmpdir)
+prepare_output=$(_tmpdir)/output
+: >"$prepare_probe_log"
+: >"$prepare_sed_log"
+printf 'ordinary commit\n' >"$prepare_message"
+ln -s "$(command -v bash)" "$prepare_probe_bin/bash"
+cat >"$prepare_probe_bin/git" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$PREPARE_PROBE_LOG"
+[[ "$*" == "rev-parse --absolute-git-dir" ]] || exit 2
+printf '%s\n' "$PREPARE_GIT_DIR"
+EOF
+cat >"$prepare_probe_bin/sed" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$PREPARE_SED_LOG"
+exit 0
+EOF
+chmod +x "$prepare_probe_bin/git" "$prepare_probe_bin/sed"
+
+PREPARE_PROBE_LOG="$prepare_probe_log" \
+  PREPARE_GIT_DIR="$prepare_git_dir" \
+  PREPARE_SED_LOG="$prepare_sed_log" \
+  PATH="$prepare_probe_bin:$PATH" \
+  "$HOOK_DIR/prepare-commit-msg" "$prepare_message" >"$prepare_output" 2>&1
+prepare_rc=$?
+
+_assert_eq "prepare-commit-msg fast path: exits successfully" "0" "$prepare_rc"
+_assert_file_content "prepare-commit-msg fast path: emits no diagnostics" \
+  "" "$prepare_output"
+_assert_eq "prepare-commit-msg fast path: resolves all sequencer paths in one Git call" \
+  "1" "$(wc -l <"$prepare_probe_log" | tr -d ' ')"
+_assert_file_content "prepare-commit-msg fast path: queries the absolute Git directory" \
+  "rev-parse --absolute-git-dir" "$prepare_probe_log"
+_assert_eq "prepare-commit-msg fast path: reads the message without sed processes" \
+  "0" "$(wc -l <"$prepare_sed_log" | tr -d ' ')"
+
 # Each test runs inside its own repo. Keep the helper tiny — the
 # isolation knobs (GIT_CONFIG_GLOBAL) matter more than any fancy
 # fixture abstraction.

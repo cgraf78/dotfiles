@@ -3242,9 +3242,13 @@ _assert_eq "nvim-workspace: dotfiles root detector prefers marker roots without 
 
 WORKSPACE_HOME_TMP=$(_tmpdir)
 mkdir -p "$WORKSPACE_HOME_TMP/.dotfiles" "$WORKSPACE_HOME_TMP/.config/shell"
+touch "$WORKSPACE_HOME_TMP/.dotfiles/index"
 WORKSPACE_HOME_BIN=$(_tmpdir)
+WORKSPACE_HOME_GIT_LOG=$(_tmpdir)/git.log
+: >"$WORKSPACE_HOME_GIT_LOG"
 cat >"$WORKSPACE_HOME_BIN/git" <<'EOF'
 #!/usr/bin/env sh
+printf '%s\n' "$*" >>"$WORKSPACE_HOME_GIT_LOG"
 if [ "$1" != "-C" ] || [ "$2" != "$HOME" ]; then
   printf '%s\n' 'unexpected git cwd' >&2
   exit 2
@@ -3274,23 +3278,75 @@ exit 2
 EOF
 chmod +x "$WORKSPACE_HOME_BIN/git"
 chmod +x "$WORKSPACE_HOME_BIN/sley"
-result=$(PATH="$WORKSPACE_HOME_BIN:$PATH" _nvim_lua "
+result=$(WORKSPACE_HOME_GIT_LOG="$WORKSPACE_HOME_GIT_LOG" \
+  PATH="$WORKSPACE_HOME_BIN:$PATH" _nvim_lua "
   vim.env.HOME = '$WORKSPACE_HOME_TMP'
   local opts = require('config.nvim-workspace').options()
   print(type(opts.workspace.home_workspace_detector))
   print(tostring(opts.workspace.repo_root_detector('$WORKSPACE_HOME_TMP')))
   print(tostring(opts.workspace.repo_root_detector('$WORKSPACE_HOME_TMP/.config/shell')))
   print(opts.workspace.home_workspace_detector('$WORKSPACE_HOME_TMP/.config/shell'))
+  print(opts.workspace.home_workspace_detector('$WORKSPACE_HOME_TMP/.config/shell'))
 ")
-expected="$(printf 'function\nnil\nnil\n%s' "$WORKSPACE_HOME_TMP")"
+expected="$(printf 'function\nnil\nnil\n%s\n%s' "$WORKSPACE_HOME_TMP" "$WORKSPACE_HOME_TMP")"
 _assert_eq "nvim-workspace: dotfiles home detector uses tracked paths without sley" \
+  "$expected" "$result"
+_assert_eq "nvim-workspace: repeated tracked HOME lookup reuses index result" \
+  "1" "$(wc -l <"$WORKSPACE_HOME_GIT_LOG" | tr -d ' ')"
+
+: >"$WORKSPACE_HOME_GIT_LOG"
+result=$(WORKSPACE_HOME_GIT_LOG="$WORKSPACE_HOME_GIT_LOG" \
+  PATH="$WORKSPACE_HOME_BIN:$PATH" _nvim_lua "
+  vim.env.HOME = '$WORKSPACE_HOME_TMP'
+  local detector = require('config.nvim-workspace').options().workspace.home_workspace_detector
+  print(detector('$WORKSPACE_HOME_TMP/.config/shell'))
+  vim.fn.writefile({ 'replacement' }, '$WORKSPACE_HOME_TMP/.dotfiles/index.next')
+  assert(vim.uv.fs_rename(
+    '$WORKSPACE_HOME_TMP/.dotfiles/index.next',
+    '$WORKSPACE_HOME_TMP/.dotfiles/index'
+  ))
+  print(detector('$WORKSPACE_HOME_TMP/.config/shell'))
+")
+expected="$(printf '%s\n%s' "$WORKSPACE_HOME_TMP" "$WORKSPACE_HOME_TMP")"
+_assert_eq "nvim-workspace: atomic index replacement preserves tracked result" \
+  "$expected" "$result"
+_assert_eq "nvim-workspace: atomic index replacement invalidates HOME lookup" \
+  "2" "$(wc -l <"$WORKSPACE_HOME_GIT_LOG" | tr -d ' ')"
+
+WORKSPACE_RETRY_HOME=$(_tmpdir)
+WORKSPACE_RETRY_BIN=$(_tmpdir)
+WORKSPACE_RETRY_STATE=$(_tmpdir)/state
+mkdir -p "$WORKSPACE_RETRY_HOME/.dotfiles" "$WORKSPACE_RETRY_HOME/.config/shell"
+touch "$WORKSPACE_RETRY_HOME/.dotfiles/index"
+cat >"$WORKSPACE_RETRY_BIN/git" <<'EOF'
+#!/usr/bin/env sh
+if [ ! -e "$WORKSPACE_RETRY_STATE" ]; then
+  : >"$WORKSPACE_RETRY_STATE"
+  exit 2
+fi
+printf '%s\n' '.config/shell/profile.sh'
+EOF
+chmod +x "$WORKSPACE_RETRY_BIN/git"
+result=$(WORKSPACE_RETRY_STATE="$WORKSPACE_RETRY_STATE" \
+  PATH="$WORKSPACE_RETRY_BIN:$PATH" _nvim_lua "
+  vim.env.HOME = '$WORKSPACE_RETRY_HOME'
+  local detector = require('config.nvim-workspace').options().workspace.home_workspace_detector
+  print(tostring(detector('$WORKSPACE_RETRY_HOME/.config/shell')))
+  print(detector('$WORKSPACE_RETRY_HOME/.config/shell'))
+")
+expected="$(printf 'nil\n%s' "$WORKSPACE_RETRY_HOME")"
+_assert_eq "nvim-workspace: failed HOME lookup is retried instead of cached" \
   "$expected" "$result"
 
 WORKSPACE_HOME_FALLBACK=$(_tmpdir)
 WORKSPACE_EMPTY_BIN=$(_tmpdir)
+WORKSPACE_EMPTY_GIT_LOG=$(_tmpdir)/git.log
 mkdir -p "$WORKSPACE_HOME_FALLBACK/.dotfiles"
+touch "$WORKSPACE_HOME_FALLBACK/.dotfiles/index"
+: >"$WORKSPACE_EMPTY_GIT_LOG"
 cat >"$WORKSPACE_EMPTY_BIN/git" <<'EOF'
 #!/usr/bin/env sh
+printf '%s\n' "$*" >>"$WORKSPACE_EMPTY_GIT_LOG"
 exit 0
 EOF
 cat >"$WORKSPACE_EMPTY_BIN/sley" <<'EOF'
@@ -3300,15 +3356,19 @@ exit 2
 EOF
 chmod +x "$WORKSPACE_EMPTY_BIN/git"
 chmod +x "$WORKSPACE_EMPTY_BIN/sley"
-result=$(PATH="$WORKSPACE_EMPTY_BIN:$PATH" _nvim_lua "
+result=$(WORKSPACE_EMPTY_GIT_LOG="$WORKSPACE_EMPTY_GIT_LOG" \
+  PATH="$WORKSPACE_EMPTY_BIN:$PATH" _nvim_lua "
   vim.env.HOME = '$WORKSPACE_HOME_FALLBACK'
   local opts = require('config.nvim-workspace').options()
   print(opts.workspace.home_workspace_detector('$WORKSPACE_HOME_FALLBACK'))
   print(tostring(opts.workspace.home_workspace_detector('$WORKSPACE_HOME_FALLBACK/.config')))
+  print(tostring(opts.workspace.home_workspace_detector('$WORKSPACE_HOME_FALLBACK/.config')))
 ")
-expected="$(printf '%s\nnil' "$WORKSPACE_HOME_FALLBACK")"
+expected="$(printf '%s\nnil\nnil' "$WORKSPACE_HOME_FALLBACK")"
 _assert_eq "nvim-workspace: dotfiles home detector only falls back for HOME itself" \
   "$expected" "$result"
+_assert_eq "nvim-workspace: repeated untracked HOME lookup reuses index result" \
+  "1" "$(wc -l <"$WORKSPACE_EMPTY_GIT_LOG" | tr -d ' ')"
 
 WORKSPACE_LAZYGIT_HOME=$(_tmpdir)
 WORKSPACE_LAZYGIT_BIN=$(_tmpdir)

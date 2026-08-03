@@ -3,23 +3,23 @@
 
 set -u
 
-_git_path_exists() {
-  local path
-  path=$(git rev-parse --git-path "$1" 2>/dev/null) || return 1
-  [ -e "$path" ]
-}
-
-_git_path_dir_exists() {
-  local path
-  path=$(git rev-parse --git-path "$1" 2>/dev/null) || return 1
-  [ -d "$path" ]
+_sequencer_state_active() {
+  local git_dir
+  git_dir=$(git rev-parse --absolute-git-dir 2>/dev/null) || return 1
+  [ -e "$git_dir/CHERRY_PICK_HEAD" ] ||
+    [ -e "$git_dir/REVERT_HEAD" ] ||
+    [ -d "$git_dir/rebase-merge" ] ||
+    [ -d "$git_dir/rebase-apply" ]
 }
 
 _generated_revert_message() {
-  local msg_file="$1" first_line="" third_line=""
+  local msg_file="$1" first_line="" _="" third_line=""
   [ -f "$msg_file" ] || return 1
-  first_line=$(sed -n '1p' "$msg_file")
-  third_line=$(sed -n '3p' "$msg_file")
+  {
+    IFS= read -r first_line || [[ -n "$first_line" ]] || return 1
+    IFS= read -r _ || return 1
+    IFS= read -r third_line || [[ -n "$third_line" ]] || return 1
+  } <"$msg_file"
   case "$first_line" in
     "Revert \""*)
       case "$third_line" in
@@ -35,11 +35,7 @@ _generated_revert_message() {
 # `pre-commit`. Run the same readiness gate here only when those states are
 # active; ordinary `git commit` and automatic merges are already covered by
 # `pre-commit` / `pre-merge-commit`.
-if _git_path_exists CHERRY_PICK_HEAD ||
-  _git_path_exists REVERT_HEAD ||
-  _git_path_dir_exists rebase-merge ||
-  _git_path_dir_exists rebase-apply ||
-  _generated_revert_message "${1:-}"; then
+if _sequencer_state_active || _generated_revert_message "${1:-}"; then
   _hook_dir=$(cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd) || exit 0
   exec "$_hook_dir/sley-commit-gate"
 fi

@@ -13,6 +13,45 @@ _PC_YELLOW=$'\001\033[33m\002'
 _PC_GREEN=$'\001\033[32m\002'
 _PC_RED=$'\001\033[31m\002'
 
+_DOT_GIT_PROMPT_BIN=git
+_DOT_GIT_PROMPT_PATH_SNAPSHOT=""
+
+_dot_git_prompt_resolve_command() {
+  local cache candidate="" cached_path="" launcher="$HOME/.local/bin/git"
+
+  if [[ "$_DOT_GIT_PROMPT_BIN" != git &&
+    "$_DOT_GIT_PROMPT_PATH_SNAPSHOT" == "${PATH:-}" &&
+    -x "$_DOT_GIT_PROMPT_BIN" && ! -d "$_DOT_GIT_PROMPT_BIN" ]]; then
+    return 0
+  fi
+
+  _DOT_GIT_PROMPT_BIN=git
+  _DOT_GIT_PROMPT_PATH_SNAPSHOT=""
+  case "${XDG_CACHE_HOME:-}" in
+    /*) cache="$XDG_CACHE_HOME/dot/git-real" ;;
+    *) cache="$HOME/.cache/dot/git-real" ;;
+  esac
+  [[ -r "$cache" ]] || return 0
+  {
+    IFS= read -r candidate || return 0
+    IFS= read -r cached_path || return 0
+  } <"$cache"
+  [[ -n "$candidate" && "$cached_path" == "${PATH:-}" &&
+    -x "$candidate" && ! -d "$candidate" ]] || return 0
+  if [[ -e "$launcher" && "$candidate" -ef "$launcher" ]]; then
+    return 0
+  fi
+
+  _DOT_GIT_PROMPT_BIN="$candidate"
+  _DOT_GIT_PROMPT_PATH_SNAPSHOT="${PATH:-}"
+}
+
+# The launcher validates this cache when it publishes it. Reading that result
+# once keeps Bash prompt redraws from re-running launcher discovery;
+# __git_prompt revalidates it cheaply so PATH changes and removed binaries fall
+# back through the launcher and refresh naturally.
+_dot_git_prompt_resolve_command
+
 _dot_git_prompt_is_ceiling() {
   local candidate="$1" ceiling
   local IFS=:
@@ -76,13 +115,14 @@ _dot_git_prompt_gitdir() {
 # ahead (green), behind (red). Falls back to ~/.dotfiles when not in a repo.
 # Uses porcelain=v2 to get branch, dirty, and ahead/behind in a single git call.
 __git_prompt() {
-  local -a g=(git)
+  _dot_git_prompt_resolve_command
+  local -a g=("$_DOT_GIT_PROMPT_BIN")
   local gitdir="" git_status
   if [[ "$PWD" == "$HOME" && -d "$HOME/.dotfiles" ]]; then
     # The home prompt intentionally shows the base dotfiles repo. Probe it
     # directly so the prompt does not pay for the PATH-visible git launcher and
     # a separate rev-parse before the status call.
-    g=(git --git-dir="$HOME/.dotfiles" --work-tree="$HOME")
+    g=("$_DOT_GIT_PROMPT_BIN" --git-dir="$HOME/.dotfiles" --work-tree="$HOME")
     gitdir="$HOME/.dotfiles"
   else
     gitdir=$(_dot_git_prompt_gitdir 2>/dev/null) || gitdir=""
@@ -95,7 +135,7 @@ __git_prompt() {
       [[ "$gitdir" != /* ]] && gitdir="$PWD/$gitdir"
       if [[ -z "${GIT_DIR:-}" && -z "${GIT_WORK_TREE:-}" &&
         -d "$HOME/.dotfiles" && "$gitdir" -ef "$HOME/.dotfiles" ]]; then
-        g=(git --git-dir="$HOME/.dotfiles" --work-tree="$HOME")
+        g=("$_DOT_GIT_PROMPT_BIN" --git-dir="$HOME/.dotfiles" --work-tree="$HOME")
       fi
     fi
   fi
@@ -113,7 +153,7 @@ __git_prompt() {
       -d "$HOME/.dotfiles" && "$gitdir" -ef "$HOME/.dotfiles" ]]; then
       # Discovery was authoritative; make the remaining prompt calls explicit
       # so HOME descendants do not pay the launcher routing cost again.
-      g=(git --git-dir="$HOME/.dotfiles" --work-tree="$HOME")
+      g=("$_DOT_GIT_PROMPT_BIN" --git-dir="$HOME/.dotfiles" --work-tree="$HOME")
     fi
   fi
 
