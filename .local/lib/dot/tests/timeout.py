@@ -38,6 +38,19 @@ def capture_signal(signum: int, _frame: FrameType | None) -> None:
         raise ForwardedSignal
 
 
+def mark_timeout_expired() -> None:
+    """Record that the supervisor, rather than the child, produced status 124."""
+    marker = os.environ.get("DOT_TEST_TIMEOUT_EXPIRED_FILE")
+    if not marker:
+        return
+    try:
+        Path(marker).write_text("", encoding="utf-8")
+    except OSError:
+        # Failure to publish optional retry metadata must not replace the
+        # command's authoritative timeout status.
+        pass
+
+
 def list_session_pids(session_id: int) -> list[int] | None:
     """Return a portable PID snapshot for one session, or None when unavailable."""
     try:
@@ -130,8 +143,10 @@ def main(argv: Sequence[str]) -> int:
     for handled_signal in handled_signals:
         signal.signal(handled_signal, capture_signal)
 
+    child_env = os.environ.copy()
+    child_env.pop("DOT_TEST_TIMEOUT_EXPIRED_FILE", None)
     try:
-        process = subprocess.Popen(argv[2:], start_new_session=True)
+        process = subprocess.Popen(argv[2:], start_new_session=True, env=child_env)
     except FileNotFoundError:
         return 127
     except OSError:
@@ -149,6 +164,7 @@ def main(argv: Sequence[str]) -> int:
         stop_process_group(interrupted_signal)
         return 128 + interrupted_signal
     except subprocess.TimeoutExpired:
+        mark_timeout_expired()
         stop_process_group(signal.SIGTERM)
         return 124
 
