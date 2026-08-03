@@ -1565,6 +1565,21 @@ JSON
               and .binding[$proof] == $review_proof
             ) | .binding | del(.[$retire], .[$proof]))
           | unique;
+        def review_oracle:
+          [
+            {key: "ctrl+.", command: "editor.action.quickFix", when: "terminalFocus && !termnav.nvimFocused"},
+            {key: "ctrl+/", command: "editor.action.commentLine", when: "terminalFocus && !termnav.nvimFocused"},
+            {key: "ctrl+\\", command: "workbench.action.splitEditor", when: "terminalFocus && !termnav.nvimFocused"},
+            {key: "ctrl+shift+e", command: "workbench.view.explorer", when: "terminalFocus && !termnav.nvimFocused"},
+            {key: "ctrl+shift+f", command: "workbench.view.search", when: "terminalFocus && !termnav.nvimFocused"},
+            {key: "ctrl+shift+m", command: "workbench.actions.view.problems", when: "terminalFocus && !termnav.nvimFocused"},
+            {key: "ctrl+shift+p", command: "workbench.action.showCommands", when: "terminalFocus && !termnav.nvimFocused"},
+            {key: "shift+cmd+f", command: "workbench.view.search", when: "terminalFocus && !termnav.nvimFocused"},
+            {key: "shift+cmd+p", command: "workbench.action.showCommands", when: "terminalFocus && !termnav.nvimFocused"},
+            {key: "ctrl+shift+v", command: "workbench.action.terminal.paste", when: "terminalFocus && !termnav.nvimFocused"},
+            {key: "ctrl+shift+v", command: "editor.action.clipboardPasteAction", when: "textInputFocus && !editorReadonly && !terminalFocus"},
+            {key: "cmd+/", command: "editor.action.commentLine", when: "terminalFocus && !termnav.nvimFocused"}
+          ] | unique;
         def effective($records; $platform; $termnav):
           $records
           | map(select(.binding[$retire] != true))
@@ -1584,6 +1599,8 @@ JSON
         (retirement_directives($old[0])) as $old_directives |
         (retirement_directives($current[0])) as $current_directives |
         (reviewed_targets($current[0])) as $reviewed |
+        (review_oracle) as $review_oracle |
+        ($reviewed - ($reviewed - $review_oracle)) as $authorized_reviewed |
         {
           missing: {
             linux: (
@@ -1628,9 +1645,10 @@ JSON
           unproven: (
             ($current_retired - $old_retired)
             - active_union($old[0])
-            - $reviewed
+            - $authorized_reviewed
           ),
-          review_proof_count: ($reviewed | length),
+          review_proof_extra: ($reviewed - $review_oracle),
+          review_proof_missing: ($review_oracle - $reviewed),
           invalid_review_proofs: (
             $current[0]
             | map(select(
@@ -1779,8 +1797,10 @@ JSON
         '[]' "$(jq -c '.misplaced' "$report")"
       _assert_eq "vscode keybindings: new retirements were previously managed" \
         '[]' "$(jq -c '.unproven' "$report")"
-      _assert_eq "vscode keybindings: PR 90 review-build proof stays sealed" \
-        '12' "$(jq -c '.review_proof_count' "$report")"
+      _assert_eq "vscode keybindings: PR 90 review-build proof adds no other targets" \
+        '[]' "$(jq -c '.review_proof_extra' "$report")"
+      _assert_eq "vscode keybindings: PR 90 review-build proof retains every canonical target" \
+        '[]' "$(jq -c '.review_proof_missing' "$report")"
       _assert_eq "vscode keybindings: retirement proof labels stay allowlisted" \
         '[]' "$(jq -c '.invalid_review_proofs' "$report")"
     }
@@ -1846,6 +1866,15 @@ JSON
       "dotfiles.retire": true,
       "dotfiles.retire-proof": "review-build:invented"
     }
+  },
+  {
+    "family": "all",
+    "binding": {
+      "key": "ctrl+alt+6",
+      "command": "fixture.substitutedReviewTarget",
+      "dotfiles.retire": true,
+      "dotfiles.retire-proof": "review-build:7030e8e"
+    }
   }
 ]
 JSON
@@ -1858,9 +1887,11 @@ JSON
     _assert_eq "vscode history guard: platform-local retirement is rejected" \
       "1" "$(jq '.misplaced | length' "$vscode_guard_report")"
     _assert_eq "vscode history guard: unproven retirement is rejected" \
-      "3" "$(jq '.unproven | length' "$vscode_guard_report")"
+      "4" "$(jq '.unproven | length' "$vscode_guard_report")"
     _assert_eq "vscode history guard: unknown retirement proof is rejected" \
       "1" "$(jq '.invalid_review_proofs | length' "$vscode_guard_report")"
+    _assert_eq "vscode history guard: substituted review target is rejected" \
+      "1" "$(jq '.review_proof_extra | length' "$vscode_guard_report")"
 
     vscode_base_guard_repo=$(_tmpdir)
     mkdir -p \

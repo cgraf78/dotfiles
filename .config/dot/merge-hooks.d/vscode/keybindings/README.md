@@ -40,8 +40,8 @@ foreign generation, and must exactly match prior landed active source. These
 checks keep deletion authority narrow enough that an invented retirement cannot
 consume an identical local-only binding. The only exception is the sealed
 `dotfiles.retire-proof` generation for PR #90, which reached live profiles while
-still under review; the validator fixes both that proof label and its exact
-record count so it cannot become a general bypass.
+still under review; the validator fixes both that proof label and its canonical
+exact-object set so it cannot become a general bypass.
 
 Native paths use an atomic rename. WSL uses the existing verified write with
 best-effort rollback because Windows can deny replacement of an open VS Code

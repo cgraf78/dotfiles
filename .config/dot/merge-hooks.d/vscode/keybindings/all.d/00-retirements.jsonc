@@ -12,7 +12,7 @@
 // addition to have existed in prior landed active source, proving that dotfiles
 // owned the exact object before granting deletion authority. A sealed
 // dotfiles.retire-proof marks the one review build known to have reached live
-// profiles before landing; the validator locks that proof to its exact count.
+// profiles before landing; the validator locks that proof to its exact objects.
 [
   {
     "key": "ctrl+p",
@@ -252,7 +252,7 @@
 
   // PR #90 was exercised against live profiles before its negative host
   // fallbacks were removed. This sealed proof label is accepted only for the
-  // exact 12-object review generation; tests lock both its value and count.
+  // exact review generation; tests lock both its value and canonical contents.
   {
     "key": "ctrl+.",
     "command": "editor.action.quickFix",
