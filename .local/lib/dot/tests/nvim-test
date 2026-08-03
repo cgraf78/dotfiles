@@ -75,22 +75,43 @@ _run_nvim_startup() {
 }
 
 _prepare_nvim_startup() {
-  local file="$1" budget="$2" remaining output rc elapsed
-  local total_elapsed=0
+  local file="$1" budget="$2" remaining attempt_timeout output rc elapsed
+  local timeout_expired_file timed_out
+  local total_elapsed=0 deadline=120
+  local timeout_retried=0
 
   while :; do
-    remaining=$((120 - total_elapsed))
+    remaining=$((deadline - total_elapsed))
     if [[ "$remaining" -le 0 ]]; then
-      echo "startup preparation did not converge within 120 seconds"
+      echo "startup preparation did not converge within $deadline seconds"
       return 124
     fi
 
+    attempt_timeout=$remaining
+    timeout_expired_file=$(_tmpdir)/expired
+
     SECONDS=0
-    output=$(_run_nvim_startup "$remaining" "$file" 2>&1)
+    output=$(DOT_TEST_TIMEOUT_EXPIRED_FILE="$timeout_expired_file" \
+      _run_nvim_startup "$attempt_timeout" "$file" 2>&1)
     rc=$?
     elapsed=$SECONDS
+    timed_out=0
+    [[ -f "$timeout_expired_file" ]] && timed_out=1
+    # A watchdog expiration consumes its requested child-runtime window.
+    # Normalize integer-clock undercounting before sizing the retry.
+    if [[ "$timed_out" -eq 1 && "$elapsed" -lt "$attempt_timeout" ]]; then
+      elapsed=$attempt_timeout
+    fi
     total_elapsed=$((total_elapsed + elapsed))
     if [[ "$rc" -ne 0 ]]; then
+      if [[ "$rc" -eq 124 && "$timed_out" -eq 1 && "$timeout_retried" -eq 0 ]]; then
+        # Preserve the original uninterrupted 120-second preparation window.
+        # A timed-out cold Lazy install gets one bounded recovery window because
+        # its completed clones are reusable by the next process.
+        timeout_retried=1
+        deadline=$((deadline + 60))
+        continue
+      fi
       printf '%s\n' "$output"
       return "$rc"
     fi
@@ -101,7 +122,7 @@ _prepare_nvim_startup() {
 
 _assert_nvim_startup_budget() {
   local desc="$1" file="$2" budget
-  local output rc elapsed
+  local output rc elapsed nvim_session_state_dir startup_rc session_files
   budget=$(_nvim_startup_budget)
 
   # LazyVim may populate plugins on first launch; measure only after that
@@ -112,6 +133,14 @@ _assert_nvim_startup_budget() {
     _fail "$desc preparation failed (exit $rc; output: $output)"
     return
   fi
+
+  nvim_session_state_dir=$(_tmpdir)
+  startup_rc=0
+  XDG_STATE_HOME="$nvim_session_state_dir" \
+    _run_nvim_startup 20 "$file" >/dev/null 2>&1 || startup_rc=$?
+  _assert_eq "startup session isolation: nvim exits successfully" "0" "$startup_rc"
+  session_files=$(fd --type f . "$nvim_session_state_dir/nvim/sessions" 2>/dev/null || true)
+  _assert_eq "startup session isolation: nvim does not save a user session" "" "$session_files"
 
   SECONDS=0
   output=$(_run_nvim_startup 20 "$file" 2>&1)
@@ -163,15 +192,6 @@ eval "$saved_run_nvim_startup"
 _assert_eq "startup preparation: does not retry a child status 124" "124" "$startup_rc"
 _assert_file_content "startup preparation: child status 124 runs once" "120" \
   "$startup_mock_log"
-
-nvim_session_state_dir=$(_tmpdir)
-startup_rc=0
-XDG_STATE_HOME="$nvim_session_state_dir" \
-  _run_nvim_startup 20 "$HOME/.bashrc" >/dev/null 2>&1 || startup_rc=$?
-_assert_eq "startup session isolation: nvim exits successfully" "0" "$startup_rc"
-session_files=$(fd --type f . "$nvim_session_state_dir/nvim/sessions" 2>/dev/null || true)
-_assert_eq "startup session isolation: nvim does not save a user session" "" "$session_files"
-
 _assert_process_stopped() {
   local desc="$1" pid="$2" started=$SECONDS state
 
