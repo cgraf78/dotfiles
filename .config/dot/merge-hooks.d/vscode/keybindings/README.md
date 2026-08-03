@@ -3,7 +3,6 @@
 This directory groups VS Code keybinding source families by platform.
 
 - `all.d/` applies to every VS Code config target.
-- `termnav.d/` applies only to targets that load the Termnav adapter.
 - `linux.d/` applies on native Linux.
 - `macos.d/` applies on macOS.
 - `windows.d/` applies on Windows and WSL-backed Windows VS Code targets.
@@ -13,10 +12,11 @@ lexical order, and an immediate `.replace/` group contributes only its last
 matching `*.jsonc` file.
 
 Existing local-only bindings keep their normal precedence over managed
-bindings. On adapter-enabled targets, the terminal `Ctrl-Tab` and
-`Ctrl-Shift-Tab` send-sequence routes are the exception: they are emitted last
-so older or more specific local terminal-tab handlers cannot consume those
-chords before tmux receives them.
+bindings. The positively gated terminal `Ctrl-Tab` and `Ctrl-Shift-Tab`
+send-sequence routes are the exception: they are emitted last so an overlapping
+local handler cannot consume those chords while Termnav proves Neovim owns the
+pane. Without that context, the routes are inert and local or native VS Code
+behavior remains in control.
 `all.d/00-retirements.jsonc` is append-only exact history. Its
 `dotfiles.retire` records are source-only and never reach VS Code. The hook
 matches those complete objects rather than guessing ownership from a key,
@@ -60,7 +60,9 @@ the active integrated terminal and, when present, focused tmux pane are owned
 by Neovim. `all.d/20-nvim-focus.jsonc` uses that leased context to pass
 VSCode-style chords to Neovim. The extension is the only process sensor in this
 layer: VS Code keybinding conditions cannot inspect the foreground process in a
-tmux pane by themselves.
+tmux pane by themselves. The adapter expires the lease and publishes false on
+terminal changes, terminal disposal, window focus loss, and extension
+deactivation, so a stale positive context fails closed.
 
 VS Code treats a context key that was never published as false. That is a
 missing capability, not evidence that the workbench owns every chord.
@@ -69,11 +71,15 @@ Neovim-specific additions must therefore be positive-only
 commands for chords that normally reach the terminal; such fallbacks steal
 keys whenever the adapter is absent. Existing baseline routes such as terminal
 paste, quick open, and terminal toggle remain explicit, while other chords use
-normal VS Code and xterm.js resolution. A variant that cannot load the adapter
-uses `no-termnav`, which unregisters managed adapter generations; the positive
-routes then remain inert by construction and the Termnav-only tab family is
-omitted. Without the sensor, Neovim-aware routing is unavailable, but normal
-editor, workbench, shell, and tmux behavior continues.
+normal VS Code and xterm.js resolution. Keybinding emission is deliberately
+variant-independent. A variant that cannot load the adapter uses `no-termnav`
+only to unregister managed adapter generations; the positive routes remain in
+the shared file but are inert because the context key is false. This is also
+safe when capable and restricted extension hosts share one VS Code config
+directory: the same positive-only file serves both, and runtime context selects
+behavior.
+Without the sensor, Neovim-aware routing is unavailable, but normal editor,
+workbench, shell, and tmux behavior continues.
 
 On macOS, Karabiner remains the only modifier-remapping layer. The macOS VS
 Code bindings route the Cmd chord that Karabiner already produced. Terminal

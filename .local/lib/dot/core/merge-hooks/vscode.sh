@@ -226,7 +226,7 @@ _merge_vscode_keybindings() {
     --slurpfile d "$dst_clean" '
     def terminal_tab_route:
       .command == "workbench.action.terminal.sendSequence"
-      and .when == "terminalFocus"
+      and .when == "terminalFocus && termnav.nvimFocused"
       and (.key == "ctrl+tab" or .key == "ctrl+shift+tab");
 
     ($s[0] | map(select(.[$retire] != true))) as $active |
@@ -741,19 +741,16 @@ _vscode_keybinding_platform() {
 # into semantic concepts like mac/windows/linux.
 #
 # Args: $1 = optional stable platform key
-#       $2 = optional comma-separated variant options
-# Returns merge-hook family names on stdout: common, enabled capabilities, then
-# platform-specific policy.
+# Returns merge-hook family names on stdout: common, then platform-specific
+# policy. Focus-aware routes stay in common policy because their positive
+# context condition is the capability boundary.
 _vscode_keybinding_families() {
-  local platform="${1:-}" opts="${2:-}"
+  local platform="${1:-}"
   if [[ -z "$platform" ]]; then
     platform=$(_vscode_keybinding_platform) || return 1
   fi
 
   printf '%s\n' vscode/keybindings/all.d
-  if ! _vscode_opts_contains "$opts" "no-termnav"; then
-    printf '%s\n' vscode/keybindings/termnav.d
-  fi
   printf 'vscode/keybindings/%s.d\n' "$platform"
 }
 
@@ -812,7 +809,7 @@ _merge_vscode_config() {
       fi
       rm -f "$kb_layer"
     done < <(_merge_hook_family_files_matching "$kb_family" '*.jsonc' '*.replace/*.jsonc')
-  done < <(_vscode_keybinding_families "$kb_platform" "$opts")
+  done < <(_vscode_keybinding_families "$kb_platform")
   if ! _merge_vscode_keybindings \
     "$kb_aggregate" \
     "$cfg_dir/keybindings.json" \
