@@ -622,6 +622,7 @@ MOCK
   mkdir -p "$_shdeps_fb_bin"
   cat >"$_shdeps_fb_bin/curl" <<'SH'
 #!/usr/bin/env bash
+printf '%s\n' 'curl: bootstrap probe failed' >&2
 exit 22
 SH
   cat >"$_shdeps_fb_bin/git" <<'SH'
@@ -638,7 +639,7 @@ SH
       SHDEPS_GIT_DEV_DIR="$_shdeps_fb_home/git" \
       SHDEPS_FALLBACK_LOG="$_shdeps_fb_log" \
       PATH="$_shdeps_fb_bin:/usr/bin:/bin" \
-      _find_shdeps_installer >/dev/null
+      _find_shdeps_installer 2>&1 >/dev/null
     printf 'rc=%s\n' "$?"
     printf 'reply=%s\n' "${REPLY:-}"
     printf 'lib=%s\n' "${SHDEPS_LIB:-}"
@@ -647,6 +648,8 @@ SH
     "" "$(cat "$_shdeps_fb_log" 2>/dev/null || true)"
   _assert_contains "shdeps bootstrap: failed fresh install reports not found" \
     "rc=1" "$_shdeps_fb_result"
+  _assert_contains "shdeps bootstrap: failed fresh install preserves diagnostics" \
+    "curl: bootstrap probe failed" "$_shdeps_fb_result"
   _assert_contains "shdeps bootstrap: failed fresh install leaves SHDEPS_LIB unset" \
     "lib=" "$_shdeps_fb_result"
 
