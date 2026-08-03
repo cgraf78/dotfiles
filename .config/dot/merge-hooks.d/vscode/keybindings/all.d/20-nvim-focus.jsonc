@@ -1,6 +1,6 @@
 // Pass VS Code-style chords through only while Termnav proves that the active
-// terminal and tmux pane are owned by nvim. Terminal-native exceptions such as
-// the tmux prefix live in common policy instead of depending on this lease.
+// terminal and tmux pane are owned by nvim. Terminal-native tmux controls live
+// in common policy instead of depending on this lease.
 [
   {
     "key": "ctrl+a",
@@ -39,33 +39,9 @@
     "when": "terminalFocus && termnav.nvimFocused"
   },
   {
-    "key": "ctrl+h",
-    "command": "workbench.action.terminal.sendSequence",
-    "args": { "text": "\u0008" },
-    "when": "terminalFocus && termnav.nvimFocused"
-  },
-  {
     "key": "ctrl+i",
     "command": "workbench.action.terminal.sendSequence",
     "args": { "text": "\u0009" },
-    "when": "terminalFocus && termnav.nvimFocused"
-  },
-  {
-    "key": "ctrl+j",
-    "command": "workbench.action.terminal.sendSequence",
-    "args": { "text": "\u000a" },
-    "when": "terminalFocus && termnav.nvimFocused"
-  },
-  {
-    "key": "ctrl+k",
-    "command": "workbench.action.terminal.sendSequence",
-    "args": { "text": "\u000b" },
-    "when": "terminalFocus && termnav.nvimFocused"
-  },
-  {
-    "key": "ctrl+l",
-    "command": "workbench.action.terminal.sendSequence",
-    "args": { "text": "\u000c" },
     "when": "terminalFocus && termnav.nvimFocused"
   },
   {
@@ -304,22 +280,6 @@
     "key": "shift+alt+down",
     "command": "workbench.action.terminal.sendSequence",
     "args": { "text": "\u001b[1;4B" },
-    "when": "terminalFocus && termnav.nvimFocused"
-  },
-  // Ctrl-Tab policy must be safe in config directories shared by extension
-  // hosts with different capabilities. A published focus lease routes the
-  // chords through tmux/Neovim; a missing adapter leaves VS Code defaults
-  // untouched.
-  {
-    "key": "ctrl+tab",
-    "command": "workbench.action.terminal.sendSequence",
-    "args": { "text": "\u001b[9;5u" },
-    "when": "terminalFocus && termnav.nvimFocused"
-  },
-  {
-    "key": "ctrl+shift+tab",
-    "command": "workbench.action.terminal.sendSequence",
-    "args": { "text": "\u001b[9;6u" },
     "when": "terminalFocus && termnav.nvimFocused"
   }
 ]

@@ -1136,6 +1136,39 @@ EOF
           and .command == "workbench.action.terminal.sendSequence"
           and .when == "terminalFocus && termnav.nvimFocused"
         )] | length' "$keybindings_file")"
+      _assert_eq "vscode $platform terminal: tmux pane navigation is extension-independent" \
+        '[]' \
+        "$(jq -c '[
+          . as $bindings
+          | (
+              [
+                {key: "ctrl+h", text: "\u0008"},
+                {key: "ctrl+j", text: "\u000a"},
+                {key: "ctrl+k", text: "\u000b"},
+                {key: "ctrl+l", text: "\u000c"}
+              ][]
+            ) as $wanted
+          | select(
+              [
+                $bindings[]
+                | select(
+                    .key == $wanted.key
+                    and .command == "workbench.action.terminal.sendSequence"
+                    and .args.text == $wanted.text
+                    and .when == "terminalFocus"
+                  )
+              ]
+              | length != 1
+            )
+          | $wanted.key
+        ]' "$keybindings_file")"
+      _assert_eq "vscode $platform terminal: tmux pane navigation has no focus-only duplicates" \
+        "0" \
+        "$(jq '[.[] | select(
+          (.key == "ctrl+h" or .key == "ctrl+j" or .key == "ctrl+k" or .key == "ctrl+l")
+          and .command == "workbench.action.terminal.sendSequence"
+          and .when == "terminalFocus && termnav.nvimFocused"
+        )] | length' "$keybindings_file")"
 
       _assert_eq "vscode terminal toggle: editor route excludes terminal focus" \
         "1" \
@@ -1286,6 +1319,58 @@ EOF
         "$(jq '[.[] | select(.key == "ctrl+shift+g" and .command == "workbench.action.terminal.sendSequence" and .when == "terminalFocus && termnav.nvimFocused" and .args.text == "\u001b[103;6u")] | length' "$keybindings_file")"
     }
 
+    _add_vscode_focus_gated_tmux_keybindings() {
+      local keybindings_file="$1"
+      local migrated
+
+      migrated=$(_tmpfile)
+      jq '. + [
+        {
+          "key": "ctrl+b",
+          "command": "workbench.action.terminal.sendSequence",
+          "args": {"text": "\u0002"},
+          "when": "terminalFocus && termnav.nvimFocused"
+        },
+        {
+          "key": "ctrl+h",
+          "command": "workbench.action.terminal.sendSequence",
+          "args": {"text": "\u0008"},
+          "when": "terminalFocus && termnav.nvimFocused"
+        },
+        {
+          "key": "ctrl+j",
+          "command": "workbench.action.terminal.sendSequence",
+          "args": {"text": "\u000a"},
+          "when": "terminalFocus && termnav.nvimFocused"
+        },
+        {
+          "key": "ctrl+k",
+          "command": "workbench.action.terminal.sendSequence",
+          "args": {"text": "\u000b"},
+          "when": "terminalFocus && termnav.nvimFocused"
+        },
+        {
+          "key": "ctrl+l",
+          "command": "workbench.action.terminal.sendSequence",
+          "args": {"text": "\u000c"},
+          "when": "terminalFocus && termnav.nvimFocused"
+        },
+        {
+          "key": "ctrl+tab",
+          "command": "workbench.action.terminal.sendSequence",
+          "args": {"text": "\u001b[9;5u"},
+          "when": "terminalFocus && termnav.nvimFocused"
+        },
+        {
+          "key": "ctrl+shift+tab",
+          "command": "workbench.action.terminal.sendSequence",
+          "args": {"text": "\u001b[9;6u"},
+          "when": "terminalFocus && termnav.nvimFocused"
+        }
+      ]' "$keybindings_file" >"$migrated"
+      mv "$migrated" "$keybindings_file"
+    }
+
     _write_vscode_keybinding_conflicts() {
       local keybindings_file="$1"
 
@@ -1388,6 +1473,9 @@ EOF
   }
 ]
 JSON
+      # Exercise upgrades from both the #80 focus-gated tmux controls and the
+      # #98 focus-gated tab generation, including machines that skipped #90.
+      _add_vscode_focus_gated_tmux_keybindings "$keybindings_file"
     }
 
     _add_vscode_pre_focus_keybindings() {
@@ -1559,7 +1647,7 @@ JSON
       _assert_eq "vscode $platform terminal: managed Ctrl-Shift-Tab wins over a local near-match" \
         '["workbench.action.terminal.focusPrevious","workbench.action.terminal.sendSequence"]' \
         "$(jq -c '[.[] | select(.key == "ctrl+shift+tab" and (.command == "workbench.action.terminal.focusPrevious" or .command == "workbench.action.terminal.sendSequence")) | .command]' "$keybindings_file")"
-      _assert_eq "vscode $platform terminal: tab routes require positive Neovim focus" \
+      _assert_eq "vscode $platform terminal: tab routes are terminal-native" \
         '[]' \
         "$(jq -c '[
           . as $bindings
@@ -1576,19 +1664,19 @@ JSON
                     .key == $wanted.key
                     and .command == "workbench.action.terminal.sendSequence"
                     and .args.text == $wanted.text
-                    and .when == "terminalFocus && termnav.nvimFocused"
+                    and .when == "terminalFocus"
                   )
               ]
               | length != 1
             )
           | $wanted.key
         ]' "$keybindings_file")"
-      _assert_eq "vscode $platform terminal: every tab sequence is positive-only" \
+      _assert_eq "vscode $platform terminal: every tab sequence is adapter-independent" \
         "0" \
         "$(jq '[.[] | select(
           (.key == "ctrl+tab" or .key == "ctrl+shift+tab")
           and .command == "workbench.action.terminal.sendSequence"
-          and .when != "terminalFocus && termnav.nvimFocused"
+          and .when != "terminalFocus"
         )] | length' "$keybindings_file")"
       _assert_eq "vscode $platform editor: native tab defaults have no managed shadow" \
         "0" \
@@ -1631,7 +1719,7 @@ JSON
       local keybindings_file="$1"
       local platform="$2"
 
-      _assert_eq "vscode $platform: no-termnav keeps positive and local tab routes only" \
+      _assert_eq "vscode $platform: no-termnav keeps terminal-native and local tab routes only" \
         '[]' \
         "$(jq -c '
           [
@@ -1653,12 +1741,12 @@ JSON
               {
                 key: "ctrl+tab",
                 command: "workbench.action.terminal.sendSequence",
-                when: "terminalFocus && termnav.nvimFocused"
+                when: "terminalFocus"
               },
               {
                 key: "ctrl+shift+tab",
                 command: "workbench.action.terminal.sendSequence",
-                when: "terminalFocus && termnav.nvimFocused"
+                when: "terminalFocus"
               }
             ] as $expected
           | (($actual - $expected) + ($expected - $actual) | unique)
@@ -2447,6 +2535,8 @@ JSON
   }
 ]
 JSON
+    _add_vscode_focus_gated_tmux_keybindings \
+      "$vscode_home/.config/NoTermnav/User/keybindings.json"
     cat >"$vscode_home/.config/NoSley/User/settings.json" <<'JSON'
 {
   "[cpp]": {
@@ -3873,6 +3963,9 @@ JSON
         macos) vscode_no_termnav_label="macOS" ;;
         windows) vscode_no_termnav_label="Windows" ;;
       esac
+      _assert_vscode_focus_fallback_keybindings \
+        "$vscode_no_termnav_config/keybindings.json" \
+        "$vscode_no_termnav_label"
       _assert_vscode_native_tab_handling \
         "$vscode_no_termnav_config/keybindings.json" \
         "$vscode_no_termnav_label"

@@ -143,8 +143,8 @@ PY
 # local-only bindings retain their precedence. Keeping history in JSONC teaches
 # this hook nothing about keys, commands, platforms, or Termnav behavior.
 #
-# Managed terminal tab routes are the exception to normal ordering: they must
-# reach the pty ahead of stale local handlers with overlapping when clauses.
+# Managed terminal-native tab routes are the exception to normal ordering: they
+# must reach the pty ahead of stale local handlers with overlapping conditions.
 # Writes to a .tmp file first so the original is preserved on failure.
 _merge_vscode_keybindings() {
   local src="$1" dst="$2"
@@ -215,7 +215,7 @@ _merge_vscode_keybindings() {
   # independent binding, so broad key/command heuristics are not safe deletion
   # authority.
   # VS Code resolves equal-weight user bindings from the bottom up, so keep only
-  # the managed terminal tab routes after preserved local entries; unrelated
+  # the managed terminal-native tab routes after preserved local entries; unrelated
   # local overrides retain the existing source-first precedence.
   _merge_hook_tmp_for "$dst" || return 1
   out="$REPLY"
@@ -226,7 +226,7 @@ _merge_vscode_keybindings() {
     --slurpfile d "$dst_clean" '
     def terminal_tab_route:
       .command == "workbench.action.terminal.sendSequence"
-      and .when == "terminalFocus && termnav.nvimFocused"
+      and .when == "terminalFocus"
       and (.key == "ctrl+tab" or .key == "ctrl+shift+tab");
 
     ($s[0] | map(select(.[$retire] != true))) as $active |
