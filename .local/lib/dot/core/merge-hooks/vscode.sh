@@ -39,6 +39,7 @@ _strip_jsonc() {
 _DOT_VSCODE_KEYBINDING_RETIRE='dotfiles.retire'
 _DOT_VSCODE_KEYBINDING_RETIRE_PROOF='dotfiles.retire-proof'
 _DOT_VSCODE_KEYBINDING_REVIEW_PROOF='review-build:7030e8e'
+_DOT_VSCODE_KEYBINDING_LEGACY_PROOF='legacy-local:280f7f8'
 
 _vscode_is_wsl() {
   if command -v _is_wsl >/dev/null 2>&1; then
@@ -161,7 +162,8 @@ _merge_vscode_keybindings() {
     jq -s -e \
       --arg retire "$_DOT_VSCODE_KEYBINDING_RETIRE" \
       --arg proof "$_DOT_VSCODE_KEYBINDING_RETIRE_PROOF" \
-      --arg review_proof "$_DOT_VSCODE_KEYBINDING_REVIEW_PROOF" '
+      --arg review_proof "$_DOT_VSCODE_KEYBINDING_REVIEW_PROOF" \
+      --arg legacy_proof "$_DOT_VSCODE_KEYBINDING_LEGACY_PROOF" '
       def valid_binding:
         type == "object"
         and (.key | type == "string" and length > 0)
@@ -175,7 +177,10 @@ _merge_vscode_keybindings() {
           (has($proof) | not)
           or (
             .[$retire] == true
-            and .[$proof] == $review_proof
+            and (
+              .[$proof] == $review_proof
+              or .[$proof] == $legacy_proof
+            )
           )
         );
 
