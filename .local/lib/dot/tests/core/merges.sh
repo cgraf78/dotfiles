@@ -3624,12 +3624,20 @@ JSON
       "$vscode_missing_termnav_home/.vscode-no-termnav/extensions" \
       "$vscode_missing_termnav_home/dev/termnav-9.9.9" \
       "$vscode_missing_termnav_home/managed/termnav-0.2.0" \
-      "$vscode_missing_termnav_home/managed/termnav-tools-0.1.0"
+      "$vscode_missing_termnav_home/managed/termnav-tools-0.1.0" \
+      "$vscode_missing_termnav_home/managed/termnav-2-tools-0.1.0"
     cat >"$vscode_missing_termnav_home/managed/termnav-0.2.0/package.json" <<'JSON'
 {
   "name": "termnav",
   "publisher": "cgraf",
   "version": "0.2.0"
+}
+JSON
+    cat >"$vscode_missing_termnav_home/managed/termnav-2-tools-0.1.0/package.json" <<'JSON'
+{
+  "name": "termnav-2-tools",
+  "publisher": "cgraf",
+  "version": "0.1.0"
 }
 JSON
     cat >"$vscode_missing_termnav_home/managed/termnav-tools-0.1.0/package.json" <<'JSON'
@@ -3654,6 +3662,8 @@ JSON
       "$vscode_missing_termnav_home/.vscode-no-termnav/extensions/termnav-9.9.9"
     ln -s "$vscode_missing_termnav_home/managed/termnav-tools-0.1.0" \
       "$vscode_missing_termnav_home/.vscode-no-termnav/extensions/termnav-tools-0.1.0"
+    ln -s "$vscode_missing_termnav_home/managed/termnav-2-tools-0.1.0" \
+      "$vscode_missing_termnav_home/.vscode-no-termnav/extensions/termnav-2-tools-0.1.0"
     cat >"$vscode_missing_termnav_home/.vscode-no-termnav/extensions/extensions.json" <<'JSON'
 [
   {
@@ -3705,6 +3715,11 @@ EOF
       _pass "vscode termnav: opt-out preserves same-parent prefix sibling"
     else
       _fail "vscode termnav: opt-out preserves same-parent prefix sibling"
+    fi
+    if [[ -L "$vscode_missing_termnav_home/.vscode-no-termnav/extensions/termnav-2-tools-0.1.0" ]]; then
+      _pass "vscode termnav: opt-out preserves numeric-prefix sibling"
+    else
+      _fail "vscode termnav: opt-out preserves numeric-prefix sibling"
     fi
 
     vscode_nosley_settings=$(jq -c . "$vscode_home/.config/NoSley/User/settings.json")

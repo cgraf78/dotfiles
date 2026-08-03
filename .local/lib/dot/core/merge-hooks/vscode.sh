@@ -892,7 +892,7 @@ _remove_vscode_extension() {
 _prune_vscode_extension_versions() {
   local ext_id="$1" managed_source="$2" keep_dir="$3" ext_json="$4"
   local ext_base managed_parent extension_name
-  local candidate candidate_dir target target_dir target_name
+  local candidate candidate_dir target target_dir target_name version_suffix
   ext_base="$(dirname "$ext_json")"
   managed_parent="$(dirname "$managed_source")"
   extension_name="${ext_id#*.}"
@@ -907,10 +907,15 @@ _prune_vscode_extension_versions() {
     target_name="${target##*/}"
     [[ "$target_dir" == "$managed_parent" ]] || continue
     [[ "$candidate_dir" == "$target_name" ]] || continue
-    # Versioned local-extension directories use a numeric semver suffix. The
-    # digit boundary prevents an ID such as `cgraf.sley` from claiming the
-    # sibling `sley-tools-*` family inside the shared managed parent.
-    [[ "$target_name" == "$extension_name" || "$target_name" == "${extension_name}-"[0-9]* ]] || continue
+    # Broken managed generations no longer have package metadata, so the name
+    # is the remaining ownership proof. Require the complete suffix to be a
+    # dotted semver (with optional prerelease/build tails); a first-digit check
+    # would still claim a sibling such as termnav-2-tools-*.
+    if [[ "$target_name" != "$extension_name" ]]; then
+      [[ "$target_name" == "${extension_name}-"* ]] || continue
+      version_suffix="${target_name#"$extension_name"-}"
+      [[ "$version_suffix" =~ ^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)*$ ]] || continue
+    fi
     rm -f "$candidate"
   done
 }
