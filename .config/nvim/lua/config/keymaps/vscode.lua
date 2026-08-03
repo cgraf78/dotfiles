@@ -252,11 +252,14 @@ map("n", "<S-F8>", function()
 end, { desc = "Previous diagnostic" })
 map("n", "<C-S-m>", "<cmd>Trouble diagnostics toggle<cr>", { desc = "Problems" })
 
--- Toggle comment (Ctrl-/).
+-- Toggle comment (Ctrl-/). Legacy terminal protocols encode the physical chord
+-- as Ctrl-_, while CSI-u-capable terminals preserve Ctrl-/ distinctly.
 -- `remap = true` chains into ts-comments.nvim's `gc`/`gcc` for per-filetype syntax.
-map("n", "<C-/>", "gcc", { remap = true, desc = "Toggle comment" })
-map_selection_command("<C-/>", "gc", { remap = true, desc = "Toggle comment" })
-map("i", "<C-/>", "<Esc>gcca", { remap = true, desc = "Toggle comment" })
+for _, key in ipairs({ "<C-/>", "<C-_>" }) do
+  map("n", key, "gcc", { remap = true, desc = "Toggle comment" })
+  map_selection_command(key, "gc", { remap = true, desc = "Toggle comment" })
+  map("i", key, "<Esc>gcca", { remap = true, desc = "Toggle comment" })
+end
 
 -- C-` mirrors VSCode's terminal toggle. C-/ is now used for commenting.
 -- Separate count values so Snacks treats these as distinct terminal instances.

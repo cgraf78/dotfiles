@@ -1,4 +1,8 @@
-// macOS-specific VS Code keybindings.
+// macOS/Karabiner transport adapters plus genuinely macOS-only workbench
+// policy. This file does not choose ownership independently: mirror the common
+// classification. A translated terminal-owned chord uses plain terminalFocus;
+// a translated Neovim-only override keeps the positive Termnav gate; a chord
+// that Karabiner exempts and xterm already transports needs no entry here.
 // Common keybindings live in vscode/keybindings/all.d/.
 [
   // Remap redo to Cmd+Y (Windows-style), move omni-search to Alt+Y
@@ -250,13 +254,13 @@
     "args": { "text": "\u0019" },
     "when": "terminalFocus && termnav.nvimFocused"
   },
-  // Karabiner translates physical Ctrl+/ to Cmd+/. Override it only while
-  // Neovim owns the terminal; otherwise native VS Code resolution applies.
+  // Karabiner translates physical Ctrl+/ to Cmd+/. Restore the conventional
+  // terminal Ctrl-_ byte under terminal focus; editor Cmd+/ remains native.
   {
     "key": "cmd+/",
     "command": "workbench.action.terminal.sendSequence",
     "args": { "text": "\u001f" },
-    "when": "terminalFocus && termnav.nvimFocused"
+    "when": "terminalFocus"
   },
   {
     "key": "shift+cmd+g",

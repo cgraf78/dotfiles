@@ -11,6 +11,38 @@ Each directory is a merge-hook family. Direct `*.jsonc` files aggregate in
 lexical order, and an immediate `.replace/` group contributes only its last
 matching `*.jsonc` file.
 
+## Adding Or Changing A Binding
+
+Use this decision order:
+
+1. If VS Code and xterm already deliver the desired key in every relevant
+   client, add nothing. A Neovim mapping alone is not a reason to manage a VS
+   Code binding.
+2. If the terminal owns the chord whenever it is focused, add the common route
+   to `all.d/10-keybindings.jsonc` with plain `terminalFocus`. This includes
+   terminal protocol normalization and explicit decisions that tmux/shell
+   behavior outranks a workbench shortcut.
+3. If overriding normal VS Code behavior is valid only while Neovim owns the
+   active pane, add it to `all.d/20-nvim-focus.jsonc` with exactly
+   `terminalFocus && termnav.nvimFocused`.
+4. If the VS Code client owns a behavior such as copy, paste, quick-open, or
+   terminal toggle, define the disjoint client and terminal conditions in
+   `all.d/10-keybindings.jsonc`; do not infer Neovim from a missing context key.
+5. Add a platform entry only when the platform changes the physical chord or
+   desired client behavior. In particular, `macos.d/10-keybindings.jsonc`
+   translates Karabiner's output but mirrors the ownership decision from steps
+   2-4; it does not create a separate macOS focus policy.
+6. Encode Ctrl letters and exact C0 controls as their byte. For a modified key
+   with no exact C0 identity, use CSI-u: `ESC [ <ASCII> ; <modifier> u`. Ctrl is
+   5 and Ctrl+Shift is 6. Legacy terminals encode physical Ctrl+/ as Ctrl-_
+   (`0x1f`), so Neovim intentionally maps both spellings.
+7. When changing or deleting an existing managed object, copy the complete old
+   object into `all.d/00-retirements.jsonc` and add `dotfiles.retire: true`.
+   Never place active policy in that file.
+8. Extend `core-merges` for Linux, macOS, and Windows with and without Termnav,
+   seed any stale generation that must be removed, and add a Neovim keymap test
+   when terminal encoding aliases or CSI-u identity matter.
+
 Existing local-only bindings keep their normal precedence over managed
 bindings. The terminal-native `Ctrl-Tab` and `Ctrl-Shift-Tab` send-sequence
 routes are the exception: they are emitted last so an overlapping local handler
@@ -84,25 +116,28 @@ workbench behavior continues outside the terminal, while terminal-native
 controls continue reaching shell and tmux.
 
 The common terminal-native inventory is intentionally narrow: `Ctrl-B` for the
-tmux prefix, `Ctrl-H/J/K/L` for tmux pane navigation, and both `Ctrl-Tab`
-directions for layered tab navigation. Clipboard chords keep their explicit
-client-side paste policy, while Shift+Enter and Alt+Shift+bracket already have
-their own terminal routes. Keeping all four pane directions explicit also
-protects Linux and Windows from VS Code's global Ctrl+J panel action and Ctrl+K
-chord prefix. This keeps workbench shortcuts intact outside terminal focus
-without making tmux depend on the Neovim sensor.
+tmux prefix, `Ctrl-H/J/K/L` for tmux pane navigation, both `Ctrl-Tab` directions
+for layered tab navigation, and Ctrl+/ normalization to the conventional
+Ctrl-_ byte. Clipboard chords keep their explicit client-side paste policy,
+while Shift+Enter and Alt+Shift+bracket already have their own terminal routes.
+Keeping all four pane directions explicit also protects Linux and Windows from
+VS Code's global Ctrl+J panel action and Ctrl+K chord prefix. This keeps
+workbench shortcuts intact outside terminal focus without making terminal
+transport depend on the Neovim sensor.
 Local tmux window cycling does not need the adapter. Bubbling past a one-window
 tmux session to another VS Code terminal tab still does: without that command
 bridge the outer request fails closed instead of rerouting the chord to editor
 tabs.
 
 On macOS, Karabiner remains the only modifier-remapping layer. The macOS VS
-Code bindings route the Cmd chord that Karabiner already produced. Terminal
-controls that shells and tmux must always receive (`Ctrl-A/B/L/N/R/U/W/Z`) are
+Code bindings route the Cmd chord that Karabiner already produced, while using
+the same ownership classification as common policy. Terminal controls that
+shells and tmux must always receive (`Ctrl-A/B/L/N/R/U/W/Z` and `Ctrl-/`) are
 sent under `terminalFocus` without depending on Termnav. In particular,
-physical `Ctrl-B` reaches tmux as C0 byte `0x02`, while VS Code's normal
-`Cmd-B` sidebar command remains active outside the terminal. Other translated
-VSCode-style chords override the host only while `termnav.nvimFocused` is true.
+physical `Ctrl-B` reaches tmux as C0 byte `0x02`, physical `Ctrl-/` reaches the
+pty as `0x1f`, and the corresponding native Cmd shortcuts remain active outside
+the terminal. Other translated VSCode-style chords override the host only while
+`termnav.nvimFocused` is true.
 Karabiner transports physical `Ctrl-Shift-V` through otherwise-unused `F20`;
 focused Neovim receives the distinct CSI-u chord, while terminal and editor
 fallbacks retain normal paste behavior without consuming native

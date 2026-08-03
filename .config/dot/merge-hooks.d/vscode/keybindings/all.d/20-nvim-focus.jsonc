@@ -1,6 +1,13 @@
-// Pass VS Code-style chords through only while Termnav proves that the active
-// terminal and tmux pane are owned by nvim. Terminal-native tmux controls live
-// in common policy instead of depending on this lease.
+// Neovim-only overrides. Add a binding here only when taking the chord from
+// normal VS Code/xterm behavior is valid after Termnav positively proves that
+// the active terminal and tmux pane are owned by Neovim. Use exactly
+// `terminalFocus && termnav.nvimFocused`; never infer focus from a missing or
+// false context key. Terminal-owned transport belongs in 10-keybindings.jsonc,
+// and a key xterm already transports correctly needs no managed binding.
+//
+// Encoding rule: C0 controls use their byte. Modified keys without an exact C0
+// identity use CSI-u: ESC [ <lowercase ASCII> ; <modifier> u, where Ctrl is 5
+// and Ctrl+Shift is 6. For example, physical Ctrl+` is 96;5u, not NUL/Ctrl+@.
 [
   {
     "key": "ctrl+a",
@@ -129,15 +136,9 @@
     "when": "terminalFocus && termnav.nvimFocused"
   },
   {
-    "key": "ctrl+/",
-    "command": "workbench.action.terminal.sendSequence",
-    "args": { "text": "\u001f" },
-    "when": "terminalFocus && termnav.nvimFocused"
-  },
-  {
     "key": "ctrl+`",
     "command": "workbench.action.terminal.sendSequence",
-    "args": { "text": "\u0000" },
+    "args": { "text": "\u001b[96;5u" },
     "when": "terminalFocus && termnav.nvimFocused"
   },
   // Ctrl+\ is Neovim's terminal-mode escape prefix. Keep VS Code's normal
