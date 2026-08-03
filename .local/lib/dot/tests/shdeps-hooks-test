@@ -12,6 +12,7 @@ export NO_COLOR=1
 . "$HOME/.local/lib/dot/tests/helpers.sh"
 
 REAL_HOME="$HOME"
+_test_prefer_system_git || exit 1
 
 echo "=== shdeps hook policy ==="
 

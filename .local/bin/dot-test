@@ -359,6 +359,11 @@ _run_suite() {
   local env_cmd=(
     env
     "TMPDIR=$suite_tmpdir"
+    # A suite may run commands before creating its own fixture HOME. Keep
+    # launcher caches and other runtime state out of the source checkout even
+    # during that setup window.
+    "XDG_CACHE_HOME=$suite_tmpdir/xdg-cache"
+    "XDG_STATE_HOME=$suite_tmpdir/xdg-state"
     "DOT_TEST=1"
     "DOT_TEST_STYLE=$_child_style"
     "DOT_TEST_JOBS=$max_jobs"

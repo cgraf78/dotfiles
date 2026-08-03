@@ -71,21 +71,7 @@ esac
 dot_fixture_home
 DEPENDENCY_HOME="${DOT_TEST_HOST_HOME:-$REAL_HOME}"
 
-# Subprocess bootstrap checks run with a mocked HOME, but still need the real
-# shdeps implementation installed for the test runner. A dev checkout is an
-# explicit source override; a normal installed tree is managed bootstrap state,
-# so pass it as SHDEPS_DIR and let shdeps handle source/release migration.
-if [[ -f "$REAL_HOME/git/shdeps/shdeps.sh" ]]; then
-  export SHDEPS_LIB="$REAL_HOME/git/shdeps/shdeps.sh"
-elif [[ -f "$DEPENDENCY_HOME/git/shdeps/shdeps.sh" ]]; then
-  export SHDEPS_LIB="$DEPENDENCY_HOME/git/shdeps/shdeps.sh"
-elif [[ -f "$REAL_HOME/.local/share/shdeps/shdeps.sh" ]]; then
-  export SHDEPS_DIR="$REAL_HOME/.local/share/shdeps"
-  unset SHDEPS_LIB
-elif [[ -f "$DEPENDENCY_HOME/.local/share/shdeps/shdeps.sh" ]]; then
-  export SHDEPS_DIR="$DEPENDENCY_HOME/.local/share/shdeps"
-  unset SHDEPS_LIB
-fi
+_test_prepare_shdeps_snapshot "$REAL_HOME" "$DEPENDENCY_HOME" || exit 1
 
 dot_fixture_base_repo
 dot_fixture_seed_bootstrap_files
