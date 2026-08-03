@@ -306,5 +306,5 @@ _run_merges() {
     # stay stuck in the "running" state.
     _ui_stage_finish ok "no config changes"
   fi
-  return 0
+  [[ "$DOT_MERGE_FAILED_COUNT" -eq 0 ]]
 }

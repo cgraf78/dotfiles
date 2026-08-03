@@ -3741,8 +3741,11 @@ merge() {
 MERGE
 
   export DOT_VERBOSE=1
-  result=$(_run_merges 2>&1)
+  merge_failure_rc=0
+  result=$(_run_merges 2>&1) || merge_failure_rc=$?
   export DOT_VERBOSE=0
+  _assert_exit "failing merge hook: aggregate status is nonzero" \
+    1 "$merge_failure_rc"
   _assert_contains "surviving merges still run" "Test app" "$result"
   _assert_contains "verbose: failing hook gets warning row" "warning  failapp" "$result"
   _assert_not_contains "verbose: failing hook is not marked ok" "ok       failapp" "$result"

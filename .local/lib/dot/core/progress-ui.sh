@@ -293,13 +293,17 @@ _ui_shell_reload_hint() {
 
 _ui_done() {
   [[ "$DOT_QUIET" -eq 1 ]] && return 0
+  local status="${1:-0}"
   local elapsed=$((${SECONDS:-0} - ${DOT_UI_STARTED:-${SECONDS:-0}}))
-  local hint
+  local hint message="Done"
+  [[ "$status" -eq 0 ]] || message="Done with errors"
   hint="$(_ui_shell_reload_hint)"
   if [[ -n "$hint" ]]; then
-    printf '%sDone in %ss.%s %s\n' "$_C_BOLD$_C_WHITE" "$elapsed" "$_C_RESET" "$hint"
+    printf '%s%s in %ss.%s %s\n' \
+      "$_C_BOLD$_C_WHITE" "$message" "$elapsed" "$_C_RESET" "$hint"
   else
-    printf '%sDone in %ss%s\n' "$_C_BOLD$_C_WHITE" "$elapsed" "$_C_RESET"
+    printf '%s%s in %ss%s\n' \
+      "$_C_BOLD$_C_WHITE" "$message" "$elapsed" "$_C_RESET"
   fi
 }
 
