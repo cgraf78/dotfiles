@@ -1,5 +1,5 @@
 {
-  "$id": "https://mise.en.dev/schema/mise.json",
+  "$id": "https://mise.jdx.dev/schema/mise.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "mise",
   "type": "object",
@@ -33,6 +33,10 @@
               "additionalProperties": {
                 "type": "string"
               }
+            },
+            "optional": {
+              "description": "do not fail when the task name or pattern has no matches",
+              "type": "boolean"
             }
           },
           "required": [
@@ -684,7 +688,7 @@
               "type": "boolean"
             },
             "binstall_native": {
-              "description": "[experimental] Use mise's native cargo binary installer when cargo-binstall is unavailable.",
+              "description": "Use mise's native cargo binary installer when cargo-binstall is unavailable.",
               "type": "boolean"
             },
             "binstall_only": {
@@ -1138,6 +1142,14 @@
           "description": "Set to false to disable the idiomatic version files such as .node-version, .ruby-version, etc.",
           "type": "boolean",
           "deprecated": true
+        },
+        "idiomatic_version_file_disable_files": {
+          "default": [],
+          "description": "Specific idiomatic version files to disable for a tool.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         },
         "idiomatic_version_file_disable_tools": {
           "default": [],
@@ -1836,6 +1848,48 @@
           "type": "object",
           "unevaluatedProperties": false,
           "properties": {
+            "cache_dir": {
+              "description": "[experimental] Directory for task output cache artifacts.",
+              "type": "string"
+            },
+            "cache_max_age": {
+              "description": "[experimental] Maximum age of task output cache entries since their last access.",
+              "type": "string"
+            },
+            "cache_max_size": {
+              "description": "[experimental] Maximum total size of task output cache entries.",
+              "type": "string"
+            },
+            "cache_remote_mode": {
+              "default": "read-write",
+              "description": "[experimental] Remote task cache access mode.",
+              "type": "string",
+              "enum": [
+                "read-write",
+                "read-only",
+                "write-only"
+              ]
+            },
+            "cache_remote_namespace": {
+              "description": "[experimental] Namespace sent to the remote task cache.",
+              "type": "string"
+            },
+            "cache_remote_oidc_audience": {
+              "description": "[experimental] Audience for an automatically acquired remote cache OIDC token.",
+              "type": "string"
+            },
+            "cache_remote_token": {
+              "description": "[experimental] Bearer token for remote task cache authentication.",
+              "type": "string"
+            },
+            "cache_remote_token_file": {
+              "description": "[experimental] File containing a remote task cache bearer token.",
+              "type": "string"
+            },
+            "cache_remote_url": {
+              "description": "[experimental] Base URL for the remote task cache service.",
+              "type": "string"
+            },
             "disable_paths": {
               "default": [],
               "description": "Paths that mise will not look for tasks in.",
@@ -2367,8 +2421,20 @@
               "description": "store and restore eligible task outputs from the local mise cache",
               "type": "boolean"
             },
+            "audit": {
+              "default": false,
+              "description": "report project files read or written outside declared cache sources and outputs",
+              "type": "boolean"
+            },
             "env": {
               "description": "ambient environment variable names whose values affect eligible task cache keys",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "command_inputs": {
+              "description": "commands whose stdout and stderr affect eligible task cache keys",
               "items": {
                 "type": "string"
               },
@@ -2436,6 +2502,62 @@
         "lockfile": {
           "description": "Use a single lockfile at the monorepo root for descendant config roots. true opts in now, false keeps lockfiles next to subproject configs, and unset keeps the current behavior until the scheduled default flip.",
           "type": "boolean"
+        },
+        "task_defaults": {
+          "description": "Experimental task defaults applied by task name across inferred and explicit workspace projects",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/task_template"
+          }
+        },
+        "projects": {
+          "description": "Experimental explicit additions, removals, and overrides applied to provider-inferred workspace projects",
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "unevaluatedProperties": false,
+            "properties": {
+              "remove": {
+                "description": "Remove this project and every dependency edge connected to it",
+                "type": "boolean"
+              },
+              "root": {
+                "description": "Add the project at this workspace-relative root or replace its inferred root",
+                "type": "string"
+              },
+              "metadata": {
+                "description": "Replace provider-inferred project metadata",
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "depends": {
+                "description": "Replace the complete provider-inferred dependency set",
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "uniqueItems": true
+              },
+              "depends_add": {
+                "description": "Add dependency edges after an optional depends replacement",
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "uniqueItems": true
+              },
+              "depends_remove": {
+                "description": "Remove dependency edges after an optional depends replacement",
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "uniqueItems": true
+              }
+            }
+          }
         }
       }
     },
@@ -2925,6 +3047,18 @@
       "unevaluatedProperties": false,
       "description": "Prepare provider configuration"
     },
+    "task_watch": {
+      "description": "options used by `mise watch` for this task",
+      "type": "object",
+      "unevaluatedProperties": false,
+      "properties": {
+        "no_vcs_ignore": {
+          "default": false,
+          "description": "do not load VCS ignore files such as `.gitignore` when watching this task",
+          "type": "boolean"
+        }
+      }
+    },
     "task_props": {
       "description": "common task properties",
       "properties": {
@@ -3093,8 +3227,20 @@
               "description": "store and restore task outputs from the local mise cache",
               "type": "boolean"
             },
+            "audit": {
+              "default": false,
+              "description": "report project files read or written outside declared cache sources and outputs",
+              "type": "boolean"
+            },
             "env": {
               "description": "ambient environment variable names whose values affect the cache key",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "command_inputs": {
+              "description": "commands whose stdout and stderr affect the cache key",
               "items": {
                 "type": "string"
               },
@@ -3196,6 +3342,9 @@
               "type": "string"
             }
           ]
+        },
+        "watch": {
+          "$ref": "#/$defs/task_watch"
         },
         "shell": {
           "description": "specify a shell command to run the script with",
@@ -3722,6 +3871,13 @@
                     "type": "string"
                   }
                 ]
+              },
+              "exclude": {
+                "type": "array",
+                "description": "glob patterns to skip when the mode walks a source directory (symlink-each, or copy with a directory source); a pattern without \"/\" matches any path component, one with \"/\" is anchored to the source root",
+                "items": {
+                  "type": "string"
+                }
               },
               "block": {
                 "type": "string",
