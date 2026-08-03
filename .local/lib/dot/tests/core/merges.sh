@@ -1303,6 +1303,11 @@ EOF
     "when": "terminalFocus && terminalHasBeenCreated && !terminalEditorFocus || terminalFocus && terminalProcessSupported && !terminalEditorFocus"
   },
   {
+    "key": "ctrl+tab",
+    "command": "workbench.action.terminal.focusNext",
+    "when": "terminalFocus && localTerminalMode"
+  },
+  {
     "key": "ctrl+v",
     "command": "local.terminalPasteOverride",
     "when": "terminalFocus && localTerminalMode"
@@ -1477,11 +1482,18 @@ JSON
       local keybindings_file="$1"
       local platform="$2"
 
-      _assert_eq "vscode $platform terminal: managed Ctrl-Tab wins over an overlapping local binding" \
+      _assert_eq "vscode $platform terminal: exact legacy Ctrl-Tab handler is retired" \
+        "0" \
+        "$(jq '[.[] | select(
+          .key == "ctrl+tab"
+          and .command == "workbench.action.terminal.focusNext"
+          and .when == "terminalFocus && terminalHasBeenCreated && !terminalEditorFocus || terminalFocus && terminalProcessSupported && !terminalEditorFocus"
+        )] | length' "$keybindings_file")"
+      _assert_eq "vscode $platform terminal: managed Ctrl-Tab wins over a local near-match" \
         '["workbench.action.terminal.focusNext","workbench.action.terminal.sendSequence"]' \
         "$(jq -c '[.[] | select(.key == "ctrl+tab" and (.command == "workbench.action.terminal.focusNext" or .command == "workbench.action.terminal.sendSequence")) | .command]' "$keybindings_file")"
-      _assert_eq "vscode $platform terminal: managed Ctrl-Shift-Tab wins over an overlapping local binding" \
-        '["workbench.action.terminal.focusPrevious","workbench.action.terminal.sendSequence"]' \
+      _assert_eq "vscode $platform terminal: exact legacy Ctrl-Shift-Tab handler is retired" \
+        '["workbench.action.terminal.sendSequence"]' \
         "$(jq -c '[.[] | select(.key == "ctrl+shift+tab" and (.command == "workbench.action.terminal.focusPrevious" or .command == "workbench.action.terminal.sendSequence")) | .command]' "$keybindings_file")"
       _assert_eq "vscode $platform terminal: unrelated local overlap retains precedence" \
         '["workbench.action.terminal.paste","local.terminalPasteOverride"]' \
@@ -1501,6 +1513,17 @@ JSON
           and .command == "workbench.action.terminal.sendSequence"
           and .args.text == "\u0010"
           and .when == "terminalFocus && localTerminalMode"
+        )] | length' "$keybindings_file")"
+    }
+
+    _assert_vscode_native_tab_handling() {
+      local keybindings_file="$1"
+      local platform="$2"
+
+      _assert_eq "vscode $platform: no-termnav restores native tab handling" \
+        "0" \
+        "$(jq '[.[] | select(
+          .key == "ctrl+tab" or .key == "ctrl+shift+tab"
         )] | length' "$keybindings_file")"
     }
 
@@ -1546,6 +1569,7 @@ JSON
         --arg retire "dotfiles.retire" \
         --arg proof "dotfiles.retire-proof" \
         --arg review_proof "review-build:7030e8e" \
+        --arg legacy_proof "legacy-local:280f7f8" \
         --slurpfile old "$old" \
         --slurpfile current "$current" '
         def retired_targets($records):
@@ -1558,11 +1582,11 @@ JSON
           | map(select(.binding[$retire] == true)
             | .binding | del(.[$retire]))
           | unique;
-        def reviewed_targets($records):
+        def proof_targets($records; $proof_value):
           $records
           | map(select(
               .binding[$retire] == true
-              and .binding[$proof] == $review_proof
+              and .binding[$proof] == $proof_value
             ) | .binding | del(.[$retire], .[$proof]))
           | unique;
         def review_oracle:
@@ -1579,6 +1603,19 @@ JSON
             {key: "ctrl+shift+v", command: "workbench.action.terminal.paste", when: "terminalFocus && !termnav.nvimFocused"},
             {key: "ctrl+shift+v", command: "editor.action.clipboardPasteAction", when: "textInputFocus && !editorReadonly && !terminalFocus"},
             {key: "cmd+/", command: "editor.action.commentLine", when: "terminalFocus && !termnav.nvimFocused"}
+          ] | unique;
+        def legacy_oracle:
+          [
+            {
+              key: "ctrl+tab",
+              command: "workbench.action.terminal.focusNext",
+              when: "terminalFocus && terminalHasBeenCreated && !terminalEditorFocus || terminalFocus && terminalProcessSupported && !terminalEditorFocus"
+            },
+            {
+              key: "ctrl+shift+tab",
+              command: "workbench.action.terminal.focusPrevious",
+              when: "terminalFocus && terminalHasBeenCreated && !terminalEditorFocus || terminalFocus && terminalProcessSupported && !terminalEditorFocus"
+            }
           ] | unique;
         def effective($records; $platform; $termnav):
           $records
@@ -1598,9 +1635,12 @@ JSON
         (retired_targets($current[0])) as $current_retired |
         (retirement_directives($old[0])) as $old_directives |
         (retirement_directives($current[0])) as $current_directives |
-        (reviewed_targets($current[0])) as $reviewed |
+        (proof_targets($current[0]; $review_proof)) as $reviewed |
+        (proof_targets($current[0]; $legacy_proof)) as $legacy |
         (review_oracle) as $review_oracle |
+        (legacy_oracle) as $legacy_oracle |
         ($reviewed - ($reviewed - $review_oracle)) as $authorized_reviewed |
+        ($legacy - ($legacy - $legacy_oracle)) as $authorized_legacy |
         {
           missing: {
             linux: (
@@ -1646,16 +1686,22 @@ JSON
             ($current_retired - $old_retired)
             - active_union($old[0])
             - $authorized_reviewed
+            - $authorized_legacy
           ),
           review_proof_extra: ($reviewed - $review_oracle),
           review_proof_missing: ($review_oracle - $reviewed),
-          invalid_review_proofs: (
+          legacy_proof_extra: ($legacy - $legacy_oracle),
+          legacy_proof_missing: ($legacy_oracle - $legacy),
+          invalid_proofs: (
             $current[0]
             | map(select(
                 (.binding | has($proof))
                 and (
                   .binding[$retire] != true
-                  or .binding[$proof] != $review_proof
+                  or (
+                    .binding[$proof] != $review_proof
+                    and .binding[$proof] != $legacy_proof
+                  )
                 )
               ))
           )
@@ -1801,8 +1847,12 @@ JSON
         '[]' "$(jq -c '.review_proof_extra' "$report")"
       _assert_eq "vscode keybindings: PR 90 review-build proof retains every canonical target" \
         '[]' "$(jq -c '.review_proof_missing' "$report")"
+      _assert_eq "vscode keybindings: legacy local proof adds no other targets" \
+        '[]' "$(jq -c '.legacy_proof_extra' "$report")"
+      _assert_eq "vscode keybindings: legacy local proof retains both canonical targets" \
+        '[]' "$(jq -c '.legacy_proof_missing' "$report")"
       _assert_eq "vscode keybindings: retirement proof labels stay allowlisted" \
-        '[]' "$(jq -c '.invalid_review_proofs' "$report")"
+        '[]' "$(jq -c '.invalid_proofs' "$report")"
     }
 
     _assert_vscode_retirement_history "$REAL_HOME"
@@ -1875,6 +1925,15 @@ JSON
       "dotfiles.retire": true,
       "dotfiles.retire-proof": "review-build:7030e8e"
     }
+  },
+  {
+    "family": "all",
+    "binding": {
+      "key": "ctrl+alt+7",
+      "command": "fixture.substitutedLegacyTarget",
+      "dotfiles.retire": true,
+      "dotfiles.retire-proof": "legacy-local:280f7f8"
+    }
   }
 ]
 JSON
@@ -1887,11 +1946,13 @@ JSON
     _assert_eq "vscode history guard: platform-local retirement is rejected" \
       "1" "$(jq '.misplaced | length' "$vscode_guard_report")"
     _assert_eq "vscode history guard: unproven retirement is rejected" \
-      "4" "$(jq '.unproven | length' "$vscode_guard_report")"
+      "5" "$(jq '.unproven | length' "$vscode_guard_report")"
     _assert_eq "vscode history guard: unknown retirement proof is rejected" \
-      "1" "$(jq '.invalid_review_proofs | length' "$vscode_guard_report")"
+      "1" "$(jq '.invalid_proofs | length' "$vscode_guard_report")"
     _assert_eq "vscode history guard: substituted review target is rejected" \
       "1" "$(jq '.review_proof_extra | length' "$vscode_guard_report")"
+    _assert_eq "vscode history guard: substituted legacy target is rejected" \
+      "1" "$(jq '.legacy_proof_extra | length' "$vscode_guard_report")"
 
     vscode_base_guard_repo=$(_tmpdir)
     mkdir -p \
@@ -2097,6 +2158,16 @@ JSON
 JSON
     cat >"$vscode_home/.config/NoTermnav/User/keybindings.json" <<'JSON'
 [
+  {
+    "key": "ctrl+tab",
+    "command": "workbench.action.terminal.focusNext",
+    "when": "terminalFocus && terminalHasBeenCreated && !terminalEditorFocus || terminalFocus && terminalProcessSupported && !terminalEditorFocus"
+  },
+  {
+    "key": "ctrl+shift+tab",
+    "command": "workbench.action.terminal.focusPrevious",
+    "when": "terminalFocus && terminalHasBeenCreated && !terminalEditorFocus || terminalFocus && terminalProcessSupported && !terminalEditorFocus"
+  },
   {
     "key": "ctrl+shift+tab",
     "command": "workbench.action.quickOpenLeastRecentlyUsedEditorInGroup",
@@ -3610,12 +3681,50 @@ JSON
       )] | length' "$vscode_home/.config/NoTermnav/User/keybindings.json")"
     _assert_vscode_focus_fallback_keybindings \
       "$vscode_home/.config/NoTermnav/User/keybindings.json" "Linux"
-    _assert_eq "vscode termnav: no-termnav restores native tab handling" \
-      "0" \
-      "$(jq '[.[] | select(
-        .key == "ctrl+tab" or .key == "ctrl+shift+tab"
-      )] | length' \
-        "$vscode_home/.config/NoTermnav/User/keybindings.json")"
+    _assert_vscode_native_tab_handling \
+      "$vscode_home/.config/NoTermnav/User/keybindings.json" "Linux"
+
+    for vscode_no_termnav_platform in macos windows; do
+      vscode_no_termnav_config="$vscode_home/.config/NoTermnav-$vscode_no_termnav_platform/User"
+      mkdir -p "$vscode_no_termnav_config"
+      cat >"$vscode_no_termnav_config/keybindings.json" <<'JSON'
+[
+  {
+    "key": "ctrl+tab",
+    "command": "workbench.action.terminal.focusNext",
+    "when": "terminalFocus && terminalHasBeenCreated && !terminalEditorFocus || terminalFocus && terminalProcessSupported && !terminalEditorFocus"
+  },
+  {
+    "key": "ctrl+shift+tab",
+    "command": "workbench.action.terminal.focusPrevious",
+    "when": "terminalFocus && terminalHasBeenCreated && !terminalEditorFocus || terminalFocus && terminalProcessSupported && !terminalEditorFocus"
+  }
+]
+JSON
+      # shellcheck disable=SC2016 # The inner shell expands fixture env variables.
+      env HOME="$vscode_home" REAL_HOME="$REAL_HOME" PATH="$vscode_bin:$PATH" \
+        DOT_TEST_MV_LOG="$vscode_mv_log" \
+        DOT_TEST_VSCODE_CONFIG="$vscode_no_termnav_config" \
+        DOT_TEST_VSCODE_PLATFORM="$vscode_no_termnav_platform" bash -c '
+        set -euo pipefail
+        _is_wsl() { return 1; }
+        _log() { :; }
+        _warn() { printf "%s\n" "$*" >&2; }
+        # shellcheck source=/dev/null
+        . "$REAL_HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+        _vscode_keybinding_platform() {
+          printf "%s\n" "$DOT_TEST_VSCODE_PLATFORM"
+        }
+        _merge_vscode_config "$DOT_TEST_VSCODE_CONFIG" no-termnav
+      '
+      case "$vscode_no_termnav_platform" in
+        macos) vscode_no_termnav_label="macOS" ;;
+        windows) vscode_no_termnav_label="Windows" ;;
+      esac
+      _assert_vscode_native_tab_handling \
+        "$vscode_no_termnav_config/keybindings.json" \
+        "$vscode_no_termnav_label"
+    done
 
     vscode_missing_termnav_home=$(_tmpdir)
     mkdir -p \
@@ -3815,6 +3924,8 @@ JSON
     _assert_vscode_focus_fallback_keybindings \
       "$win_code_user/keybindings.json" "Windows"
     _assert_vscode_focus_keybinding_migration \
+      "$win_code_user/keybindings.json" "Windows"
+    _assert_vscode_keybinding_precedence \
       "$win_code_user/keybindings.json" "Windows"
 
     # Regression: on a machine where a second Linux account (e.g. root) also

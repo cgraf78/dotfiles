@@ -10,9 +10,10 @@
 // Never add a merely similar binding: exactness is what prevents this deletion
 // authority from consuming an independent local shortcut. Tests require every
 // addition to have existed in prior landed active source, proving that dotfiles
-// owned the exact object before granting deletion authority. A sealed
-// dotfiles.retire-proof marks the one review build known to have reached live
-// profiles before landing; the validator locks that proof to its exact objects.
+// owned the exact object before granting deletion authority. Sealed
+// dotfiles.retire-proof labels cover the review build known to have reached
+// live profiles before landing and the two legacy local tab handlers recorded
+// by PR #45; the validator locks each proof to its exact objects.
 [
   {
     "key": "ctrl+p",
@@ -160,6 +161,26 @@
     "when": "terminalFocus",
     "dotfiles.retire": true
   },
+
+  // PR #45 recorded these exact local handlers because they competed with the
+  // managed terminal-tab bridge. Without Termnav that bridge is absent, so the
+  // preserved handlers would consume Ctrl-Tab instead of leaving native VS
+  // Code behavior in control. The sealed proof is limited to this known pair.
+  {
+    "key": "ctrl+tab",
+    "command": "workbench.action.terminal.focusNext",
+    "when": "terminalFocus && terminalHasBeenCreated && !terminalEditorFocus || terminalFocus && terminalProcessSupported && !terminalEditorFocus",
+    "dotfiles.retire": true,
+    "dotfiles.retire-proof": "legacy-local:280f7f8"
+  },
+  {
+    "key": "ctrl+shift+tab",
+    "command": "workbench.action.terminal.focusPrevious",
+    "when": "terminalFocus && terminalHasBeenCreated && !terminalEditorFocus || terminalFocus && terminalProcessSupported && !terminalEditorFocus",
+    "dotfiles.retire": true,
+    "dotfiles.retire-proof": "legacy-local:280f7f8"
+  },
+
   {
     "key": "ctrl+b",
     "command": "workbench.action.terminal.sendSequence",

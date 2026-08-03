@@ -23,7 +23,10 @@ matches those complete objects rather than guessing ownership from a key,
 command, or condition, so a similar local binding remains untouched. Keeping
 history in source is deliberate: JSONC comments are not merged semantically by
 Settings Sync, while every field that is merged can also affect VS Code's
-keybinding resolver or command behavior.
+keybinding resolver or command behavior. Two sealed proof sets cover objects
+observed live without prior active-source ownership: PR #90's review build and
+the exact legacy terminal-tab handlers recorded in PR #45. Both sets are
+canonical and reject substitutions, additions, and omissions.
 
 The retirement mechanism understands only its generic schema; it has no list
 of Termnav chords, commands, platforms, or focus conditions. Adding a binding
@@ -38,10 +41,9 @@ removed or changed active object must enter retirement; retirement is
 append-only, must live in `all.d` so every platform can remove a synchronized
 foreign generation, and must exactly match prior landed active source. These
 checks keep deletion authority narrow enough that an invented retirement cannot
-consume an identical local-only binding. The only exception is the sealed
-`dotfiles.retire-proof` generation for PR #90, which reached live profiles while
-still under review; the validator fixes both that proof label and its canonical
-exact-object set so it cannot become a general bypass.
+consume an identical local-only binding. The sealed `dotfiles.retire-proof`
+sets are the only exceptions; the validator fixes each label and canonical
+exact-object set so neither can become a general bypass.
 
 Native paths use an atomic rename. WSL uses the existing verified write with
 best-effort rollback because Windows can deny replacement of an open VS Code
