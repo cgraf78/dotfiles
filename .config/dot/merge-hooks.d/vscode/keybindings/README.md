@@ -26,7 +26,12 @@ Settings Sync, while every field that is merged can also affect VS Code's
 keybinding resolver or command behavior. Two sealed proof sets cover objects
 observed live without prior active-source ownership: PR #90's review build and
 the exact legacy terminal-tab handlers recorded in PR #45. Both sets are
-canonical and reject substitutions, additions, and omissions.
+canonical in the development-time history guard, which rejects substitutions,
+additions, and omissions. Runtime parsing only allowlists their proof labels.
+The second set intentionally grants deletion authority over those two local
+objects: PR #45 recorded them as obsolete competitors to the managed tab
+bridge, and no-Termnav profiles now require native Ctrl-Tab handling. It does
+not authorize deleting similar local customizations.
 
 The retirement mechanism understands only its generic schema; it has no list
 of Termnav chords, commands, platforms, or focus conditions. Adding a binding
@@ -42,7 +47,7 @@ append-only, must live in `all.d` so every platform can remove a synchronized
 foreign generation, and must exactly match prior landed active source. These
 checks keep deletion authority narrow enough that an invented retirement cannot
 consume an identical local-only binding. The sealed `dotfiles.retire-proof`
-sets are the only exceptions; the validator fixes each label and canonical
+sets are the only exceptions; the history guard fixes each label and canonical
 exact-object set so neither can become a general bypass.
 
 Native paths use an atomic rename. WSL uses the existing verified write with

@@ -1308,6 +1308,11 @@ EOF
     "when": "terminalFocus && localTerminalMode"
   },
   {
+    "key": "ctrl+shift+tab",
+    "command": "workbench.action.terminal.focusPrevious",
+    "when": "terminalFocus && localTerminalMode"
+  },
+  {
     "key": "ctrl+v",
     "command": "local.terminalPasteOverride",
     "when": "terminalFocus && localTerminalMode"
@@ -1493,7 +1498,14 @@ JSON
         '["workbench.action.terminal.focusNext","workbench.action.terminal.sendSequence"]' \
         "$(jq -c '[.[] | select(.key == "ctrl+tab" and (.command == "workbench.action.terminal.focusNext" or .command == "workbench.action.terminal.sendSequence")) | .command]' "$keybindings_file")"
       _assert_eq "vscode $platform terminal: exact legacy Ctrl-Shift-Tab handler is retired" \
-        '["workbench.action.terminal.sendSequence"]' \
+        "0" \
+        "$(jq '[.[] | select(
+          .key == "ctrl+shift+tab"
+          and .command == "workbench.action.terminal.focusPrevious"
+          and .when == "terminalFocus && terminalHasBeenCreated && !terminalEditorFocus || terminalFocus && terminalProcessSupported && !terminalEditorFocus"
+        )] | length' "$keybindings_file")"
+      _assert_eq "vscode $platform terminal: managed Ctrl-Shift-Tab wins over a local near-match" \
+        '["workbench.action.terminal.focusPrevious","workbench.action.terminal.sendSequence"]' \
         "$(jq -c '[.[] | select(.key == "ctrl+shift+tab" and (.command == "workbench.action.terminal.focusPrevious" or .command == "workbench.action.terminal.sendSequence")) | .command]' "$keybindings_file")"
       _assert_eq "vscode $platform terminal: unrelated local overlap retains precedence" \
         '["workbench.action.terminal.paste","local.terminalPasteOverride"]' \
@@ -1520,11 +1532,28 @@ JSON
       local keybindings_file="$1"
       local platform="$2"
 
-      _assert_eq "vscode $platform: no-termnav restores native tab handling" \
-        "0" \
-        "$(jq '[.[] | select(
-          .key == "ctrl+tab" or .key == "ctrl+shift+tab"
-        )] | length' "$keybindings_file")"
+      _assert_eq "vscode $platform: no-termnav retires only the legacy tab handlers" \
+        '[]' \
+        "$(jq -c '
+          [
+            .[]
+            | select(.key == "ctrl+tab" or .key == "ctrl+shift+tab")
+            | {key, command, when: (.when // "")}
+          ] as $actual
+          | [
+              {
+                key: "ctrl+tab",
+                command: "workbench.action.terminal.focusNext",
+                when: "terminalFocus && localTerminalMode"
+              },
+              {
+                key: "ctrl+shift+tab",
+                command: "workbench.action.terminal.focusPrevious",
+                when: "terminalFocus && localTerminalMode"
+              }
+            ] as $expected
+          | (($actual - $expected) + ($expected - $actual) | unique)
+        ' "$keybindings_file")"
     }
 
     _vscode_test_append_jsonc_array() {
@@ -2167,6 +2196,16 @@ JSON
     "key": "ctrl+shift+tab",
     "command": "workbench.action.terminal.focusPrevious",
     "when": "terminalFocus && terminalHasBeenCreated && !terminalEditorFocus || terminalFocus && terminalProcessSupported && !terminalEditorFocus"
+  },
+  {
+    "key": "ctrl+tab",
+    "command": "workbench.action.terminal.focusNext",
+    "when": "terminalFocus && localTerminalMode"
+  },
+  {
+    "key": "ctrl+shift+tab",
+    "command": "workbench.action.terminal.focusPrevious",
+    "when": "terminalFocus && localTerminalMode"
   },
   {
     "key": "ctrl+shift+tab",
@@ -3698,6 +3737,16 @@ JSON
     "key": "ctrl+shift+tab",
     "command": "workbench.action.terminal.focusPrevious",
     "when": "terminalFocus && terminalHasBeenCreated && !terminalEditorFocus || terminalFocus && terminalProcessSupported && !terminalEditorFocus"
+  },
+  {
+    "key": "ctrl+tab",
+    "command": "workbench.action.terminal.focusNext",
+    "when": "terminalFocus && localTerminalMode"
+  },
+  {
+    "key": "ctrl+shift+tab",
+    "command": "workbench.action.terminal.focusPrevious",
+    "when": "terminalFocus && localTerminalMode"
   }
 ]
 JSON

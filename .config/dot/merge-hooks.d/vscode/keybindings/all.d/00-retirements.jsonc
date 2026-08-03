@@ -13,7 +13,8 @@
 // owned the exact object before granting deletion authority. Sealed
 // dotfiles.retire-proof labels cover the review build known to have reached
 // live profiles before landing and the two legacy local tab handlers recorded
-// by PR #45; the validator locks each proof to its exact objects.
+// by PR #45; the development-time history guard locks each proof to its exact
+// objects while runtime parsing allowlists only their labels.
 [
   {
     "key": "ctrl+p",
@@ -160,25 +161,6 @@
     "args": { "text": "\u001b[9;6u" },
     "when": "terminalFocus",
     "dotfiles.retire": true
-  },
-
-  // PR #45 recorded these exact local handlers because they competed with the
-  // managed terminal-tab bridge. Without Termnav that bridge is absent, so the
-  // preserved handlers would consume Ctrl-Tab instead of leaving native VS
-  // Code behavior in control. The sealed proof is limited to this known pair.
-  {
-    "key": "ctrl+tab",
-    "command": "workbench.action.terminal.focusNext",
-    "when": "terminalFocus && terminalHasBeenCreated && !terminalEditorFocus || terminalFocus && terminalProcessSupported && !terminalEditorFocus",
-    "dotfiles.retire": true,
-    "dotfiles.retire-proof": "legacy-local:280f7f8"
-  },
-  {
-    "key": "ctrl+shift+tab",
-    "command": "workbench.action.terminal.focusPrevious",
-    "when": "terminalFocus && terminalHasBeenCreated && !terminalEditorFocus || terminalFocus && terminalProcessSupported && !terminalEditorFocus",
-    "dotfiles.retire": true,
-    "dotfiles.retire-proof": "legacy-local:280f7f8"
   },
 
   {
@@ -357,5 +339,26 @@
     "when": "terminalFocus && !termnav.nvimFocused",
     "dotfiles.retire": true,
     "dotfiles.retire-proof": "review-build:7030e8e"
+  },
+
+  // PR #45 recorded these exact local handlers because they competed with the
+  // managed terminal-tab bridge. They are intentionally obsolete everywhere:
+  // the Termnav bridge covers every condition where they could run, while a
+  // no-Termnav profile must leave Ctrl-Tab to native VS Code behavior. This is
+  // explicit deletion authority over the known local pair, not a general rule
+  // for similar user bindings.
+  {
+    "key": "ctrl+tab",
+    "command": "workbench.action.terminal.focusNext",
+    "when": "terminalFocus && terminalHasBeenCreated && !terminalEditorFocus || terminalFocus && terminalProcessSupported && !terminalEditorFocus",
+    "dotfiles.retire": true,
+    "dotfiles.retire-proof": "legacy-local:280f7f8"
+  },
+  {
+    "key": "ctrl+shift+tab",
+    "command": "workbench.action.terminal.focusPrevious",
+    "when": "terminalFocus && terminalHasBeenCreated && !terminalEditorFocus || terminalFocus && terminalProcessSupported && !terminalEditorFocus",
+    "dotfiles.retire": true,
+    "dotfiles.retire-proof": "legacy-local:280f7f8"
   }
 ]
