@@ -1,0 +1,95 @@
+// Exact bindings emitted before the focus-aware routing migration.
+//
+// Keep these records indefinitely. They are source-only retirement directives,
+// not active shortcuts: the merge hook strips "dotfiles.retire" before matching
+// and never writes the records to VS Code. Co-locating this one-time bridge with
+// the binding sources keeps the retirement logic free of Termnav keys, commands,
+// platform lists, or focus-policy knowledge.
+//
+// Match the complete historical object, including args and any extra fields.
+// Never add a merely similar binding: exactness is what prevents this deletion
+// authority from consuming an independent local shortcut. Tests require future
+// additions to have existed in prior active source; this initial bridge is the
+// sole exception because it predates the source history that now proves ownership.
+[
+  {
+    "key": "ctrl+p",
+    "command": "workbench.action.quickOpen",
+    "when": "terminalFocus",
+    "dotfiles.retire": true
+  },
+  {
+    "key": "ctrl+v",
+    "command": "workbench.action.terminal.paste",
+    "when": "terminalFocus",
+    "dotfiles.retire": true
+  },
+  {
+    "key": "cmd+a",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u0001" },
+    "when": "terminalFocus",
+    "dotfiles.retire": true
+  },
+  {
+    "key": "cmd+b",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u0002" },
+    "when": "terminalFocus",
+    "dotfiles.retire": true
+  },
+  {
+    "key": "cmd+l",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u000c" },
+    "when": "terminalFocus",
+    "dotfiles.retire": true
+  },
+  {
+    "key": "cmd+n",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u000e" },
+    "when": "terminalFocus",
+    "dotfiles.retire": true
+  },
+  {
+    "key": "cmd+p",
+    "command": "workbench.action.quickOpen",
+    "when": "terminalFocus",
+    "dotfiles.retire": true
+  },
+  {
+    "key": "cmd+r",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u0012" },
+    "when": "terminalFocus",
+    "dotfiles.retire": true
+  },
+  {
+    "key": "cmd+u",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u0015" },
+    "when": "terminalFocus",
+    "dotfiles.retire": true
+  },
+  {
+    "key": "cmd+v",
+    "command": "workbench.action.terminal.paste",
+    "when": "terminalFocus",
+    "dotfiles.retire": true
+  },
+  {
+    "key": "cmd+w",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u0017" },
+    "when": "terminalFocus",
+    "dotfiles.retire": true
+  },
+  {
+    "key": "cmd+z",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001a" },
+    "when": "terminalFocus",
+    "dotfiles.retire": true
+  }
+]

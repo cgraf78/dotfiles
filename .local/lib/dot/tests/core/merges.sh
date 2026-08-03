@@ -938,9 +938,171 @@ EOF
     "key": "ctrl+v",
     "command": "local.terminalPasteOverride",
     "when": "terminalFocus && localTerminalMode"
+  },
+  {
+    "key": "ctrl+p",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": {"text": "\u001b[local-action"},
+    "when": "terminalFocus && localTerminalMode"
+  },
+  {
+    "key": "ctrl+p",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": {"text": "\u0010"},
+    "when": "terminalFocus && localTerminalMode"
+  },
+  {
+    "key": "cmd+p",
+    "command": "workbench.action.quickOpen",
+    "when": "terminalFocus && localTerminalMode"
   }
 ]
 JSON
+    }
+
+    _add_vscode_pre_focus_keybindings() {
+      local keybindings_file="$1"
+      local platform="$2"
+      local migrated
+
+      migrated=$(_tmpfile)
+      jq --arg platform "$platform" '
+        . + [
+          {
+            "key": "ctrl+p",
+            "command": "workbench.action.quickOpen",
+            "when": "terminalFocus"
+          },
+          {
+            "key": "ctrl+v",
+            "command": "workbench.action.terminal.paste",
+            "when": "terminalFocus"
+          }
+        ] + (
+          if $platform == "macOS" then
+            [
+              {
+                "key": "cmd+a",
+                "command": "workbench.action.terminal.sendSequence",
+                "args": {"text": "\u0001"},
+                "when": "terminalFocus"
+              },
+              {
+                "key": "cmd+b",
+                "command": "workbench.action.terminal.sendSequence",
+                "args": {"text": "\u0002"},
+                "when": "terminalFocus"
+              },
+              {
+                "key": "cmd+l",
+                "command": "workbench.action.terminal.sendSequence",
+                "args": {"text": "\u000c"},
+                "when": "terminalFocus"
+              },
+              {
+                "key": "cmd+n",
+                "command": "workbench.action.terminal.sendSequence",
+                "args": {"text": "\u000e"},
+                "when": "terminalFocus"
+              },
+              {
+                "key": "cmd+p",
+                "command": "workbench.action.quickOpen",
+                "when": "terminalFocus"
+              },
+              {
+                "key": "cmd+r",
+                "command": "workbench.action.terminal.sendSequence",
+                "args": {"text": "\u0012"},
+                "when": "terminalFocus"
+              },
+              {
+                "key": "cmd+u",
+                "command": "workbench.action.terminal.sendSequence",
+                "args": {"text": "\u0015"},
+                "when": "terminalFocus"
+              },
+              {
+                "key": "cmd+v",
+                "command": "workbench.action.terminal.paste",
+                "when": "terminalFocus"
+              },
+              {
+                "key": "cmd+w",
+                "command": "workbench.action.terminal.sendSequence",
+                "args": {"text": "\u0017"},
+                "when": "terminalFocus"
+              },
+              {
+                "key": "cmd+z",
+                "command": "workbench.action.terminal.sendSequence",
+                "args": {"text": "\u001a"},
+                "when": "terminalFocus"
+              }
+            ]
+          else
+            []
+          end
+        )
+      ' "$keybindings_file" >"$migrated"
+      mv "$migrated" "$keybindings_file"
+    }
+
+    _assert_vscode_focus_keybinding_migration() {
+      local keybindings_file="$1"
+      local platform="$2"
+
+      _assert_eq "vscode $platform migration: stale Ctrl host actions are removed" \
+        "0" \
+        "$(jq '[.[] | select(.when == "terminalFocus") | select(
+          (.key == "ctrl+p" and .command == "workbench.action.quickOpen")
+          or (.key == "ctrl+v" and .command == "workbench.action.terminal.paste")
+        )] | length' "$keybindings_file")"
+
+      if [[ "$platform" == "macOS" ]]; then
+        _assert_eq "vscode macOS migration: stale Cmd host actions are removed" \
+          "0" \
+          "$(jq '[.[] | select(.when == "terminalFocus") | select(
+            (.key == "cmd+p" and .command == "workbench.action.quickOpen")
+            or (.key == "cmd+v" and .command == "workbench.action.terminal.paste")
+          )] | length' "$keybindings_file")"
+        _assert_eq "vscode macOS migration: stale Cmd terminal routes are removed" \
+          "0" \
+          "$(jq '[.[] | select(.when == "terminalFocus")
+            | select(.command == "workbench.action.terminal.sendSequence")
+            | select(.key as $key | [
+              "cmd+a", "cmd+b", "cmd+l", "cmd+n",
+              "cmd+r", "cmd+u", "cmd+w", "cmd+z"
+            ] | index($key))
+          ] | length' "$keybindings_file")"
+      else
+        # Settings Sync can carry an exact macOS generation into another
+        # platform's file. Central retirement intentionally removes those known
+        # objects everywhere; a near-match remains local and is tested below.
+        _assert_eq "vscode $platform migration: synced stale Cmd host actions are removed" \
+          "0" \
+          "$(jq '[.[] | select(.when == "terminalFocus") | select(
+            (.key == "cmd+p" and .command == "workbench.action.quickOpen")
+            or (.key == "cmd+v" and .command == "workbench.action.terminal.paste")
+          )] | length' "$keybindings_file")"
+        _assert_eq "vscode $platform migration: synced stale Cmd terminal routes are removed" \
+          "0" \
+          "$(jq '[.[] | select(.when == "terminalFocus")
+            | select(.command == "workbench.action.terminal.sendSequence")
+            | select(.key as $key | [
+              "cmd+a", "cmd+b", "cmd+l", "cmd+n",
+              "cmd+r", "cmd+u", "cmd+w", "cmd+z"
+            ] | index($key))
+          ] | length' "$keybindings_file")"
+      fi
+
+      _assert_eq "vscode $platform migration: near-match Cmd local binding is preserved" \
+        "1" \
+        "$(jq '[.[] | select(
+          .key == "cmd+p"
+          and .command == "workbench.action.quickOpen"
+          and .when == "terminalFocus && localTerminalMode"
+        )] | length' "$keybindings_file")"
     }
 
     _assert_vscode_keybinding_precedence() {
@@ -956,7 +1118,364 @@ JSON
       _assert_eq "vscode $platform terminal: unrelated local overlap retains precedence" \
         '["workbench.action.terminal.paste","local.terminalPasteOverride"]' \
         "$(jq -c '[.[] | select(.key == "ctrl+v" and (.command == "workbench.action.terminal.paste" or .command == "local.terminalPasteOverride")) | .command]' "$keybindings_file")"
+      _assert_eq "vscode $platform terminal: same command with different args stays local" \
+        "1" \
+        "$(jq '[.[] | select(
+          .key == "ctrl+p"
+          and .command == "workbench.action.terminal.sendSequence"
+          and .args.text == "\u001b[local-action"
+          and .when == "terminalFocus && localTerminalMode"
+        )] | length' "$keybindings_file")"
+      _assert_eq "vscode $platform terminal: same managed action under a local condition survives" \
+        "1" \
+        "$(jq '[.[] | select(
+          .key == "ctrl+p"
+          and .command == "workbench.action.terminal.sendSequence"
+          and .args.text == "\u0010"
+          and .when == "terminalFocus && localTerminalMode"
+        )] | length' "$keybindings_file")"
     }
+
+    _vscode_test_append_jsonc_array() {
+      local aggregate="$1" source="$2" family="$3"
+      local layer next
+
+      layer=$(_tmpfile)
+      next=$(_tmpfile)
+      # Match production's comment/BOM/CRLF handling. The history guard must
+      # compare semantic objects, not formatting, or harmless editor changes
+      # would demand false retirement records.
+      if ! LC_ALL=C awk '
+        NR == 1 { sub(/^\357\273\277/, "", $0) }
+        { sub(/\r$/, "", $0) }
+        !/^[[:space:]]*\/\//
+      ' "$source" |
+        jq -s -e --arg family "$family" '
+          if length == 1 and (.[0] | type == "array")
+          then .[0] | map({family: $family, binding: .})
+          else error("expected one array")
+          end
+        ' >"$layer"; then
+        return 1
+      fi
+      if ! jq -n --slurpfile a "$aggregate" --slurpfile b "$layer" \
+        '$a[0] + $b[0]' >"$next"; then
+        return 1
+      fi
+      mv "$next" "$aggregate"
+    }
+
+    _vscode_test_retirement_report() {
+      local old="$1" current="$2"
+
+      # Keep the invariant calculation separate from Git/materialization so
+      # focused negative fixtures can prove each destructive-policy guard. The
+      # Family provenance wraps each binding instead of adding a temporary
+      # property to it. Exact comparison includes arbitrary user properties;
+      # mutating the object here could let the guard pass a retirement that
+      # production would never match.
+      jq -nc \
+        --arg retire "dotfiles.retire" \
+        --slurpfile old "$old" \
+        --slurpfile current "$current" '
+        def retired($records):
+          $records
+          | map(select(.binding[$retire] == true)
+            | .binding | del(.[$retire]))
+          | unique;
+        def effective($records; $platform):
+          $records
+          | map(select(.binding[$retire] != true))
+          | map(select(
+              .family == "all"
+              or .family == $platform
+            ))
+          | map(.binding)
+          | unique;
+        def active_union($records):
+          $records
+          | map(select(.binding[$retire] != true) | .binding)
+          | unique;
+
+        (retired($old[0])) as $old_retired |
+        (retired($current[0])) as $current_retired |
+        {
+          missing: {
+            linux: (
+              effective($old[0]; "linux")
+              - effective($current[0]; "linux")
+              - $current_retired
+            ),
+            macos: (
+              effective($old[0]; "macos")
+              - effective($current[0]; "macos")
+              - $current_retired
+            ),
+            windows: (
+              effective($old[0]; "windows")
+              - effective($current[0]; "windows")
+              - $current_retired
+            )
+          },
+          removed: ($old_retired - $current_retired),
+          misplaced: (
+            $current[0]
+            | map(select(
+                .binding[$retire] == true
+                and .family != "all"
+              ))
+          ),
+          unproven: (
+            ($current_retired - $old_retired)
+            - active_union($old[0])
+          )
+        }
+      '
+    }
+
+    _assert_vscode_retirement_history() {
+      local repo="$1"
+      local rel=.config/dot/merge-hooks.d/vscode/keybindings
+      local head origin base base_sha path old_root source family report
+      local initial_retirement_oracle
+      local retirement_history_existed=0
+      local old_all current_all
+      origin=""
+      base=""
+
+      # Runtime merging must not depend on Git: deployed dotfiles may be
+      # exported, shallow, or split across overlays. This is deliberately a
+      # development-time guard. It compares the proposed source with the event
+      # base (or the last landed commit during local/main runs) and turns a
+      # forgotten retirement into a failing test before the unsafe edit ships.
+      if ! git -C "$repo" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        _pass "vscode keybindings: retirement history guard skipped outside Git"
+        return
+      fi
+
+      head=$(git -C "$repo" rev-parse HEAD 2>/dev/null || true)
+      base_sha="${DOT_VSCODE_KEYBINDING_BASE_SHA:-}"
+      if [[ -n "$base_sha" && "$base_sha" != "0000000000000000000000000000000000000000" ]]; then
+        if [[ "$base_sha" == "$head" ]] &&
+          git -C "$repo" diff --quiet HEAD -- "$rel" 2>/dev/null; then
+          _fail "vscode keybindings: event base must precede a clean checkout"
+          return
+        fi
+        if git -C "$repo" cat-file -e "$base_sha^{commit}" 2>/dev/null; then
+          base="$base_sha"
+        else
+          _fail "vscode keybindings: event base commit was not fetched"
+          return
+        fi
+      else
+        origin=$(git -C "$repo" rev-parse origin/main 2>/dev/null || true)
+      fi
+
+      if [[ -z "${base:-}" && -n "$origin" && "$origin" != "$head" ]]; then
+        # Local feature worktrees compare with their fetched base branch. CI
+        # takes the immutable event-SHA path above so a moving branch cannot
+        # race the validation result.
+        base="$origin"
+      elif [[ -z "${base:-}" ]] &&
+        ! git -C "$repo" diff --quiet HEAD -- "$rel" 2>/dev/null; then
+        base="$head"
+      elif [[ -z "${base:-}" ]]; then
+        base=$(git -C "$repo" rev-parse HEAD^ 2>/dev/null || true)
+      fi
+
+      if [[ -z "$base" ]]; then
+        _fail "vscode keybindings: retirement history guard requires a Git base"
+        return
+      fi
+      old_all=$(_tmpfile)
+      current_all=$(_tmpfile)
+      old_root=$(_tmpdir)
+      printf '[]\n' >"$old_all"
+      printf '[]\n' >"$current_all"
+
+      # Materialize only the historical source subtree. Reusing the production
+      # family selector against this temporary HOME preserves `.replace`
+      # semantics; a raw recursive scan could validate a fragment that the
+      # runtime would never load and mask a real per-platform disappearance.
+      while IFS= read -r path; do
+        [[ -n "$path" ]] || continue
+        [[ "$path" == *.jsonc ]] || continue
+        mkdir -p "$old_root/$(dirname "$path")"
+        if ! git -C "$repo" show "$base:$path" >"$old_root/$path"; then
+          _fail "vscode keybindings: historical JSONC must be readable"
+          return
+        fi
+      done < <(
+        git -C "$repo" ls-tree -r --name-only "$base" -- "$rel" |
+          LC_ALL=C sort
+      )
+
+      for family in all linux macos windows; do
+        while IFS= read -r source; do
+          if ! _vscode_test_append_jsonc_array \
+            "$old_all" "$source" "$family"; then
+            _fail "vscode keybindings: historical JSONC must parse completely"
+            return
+          fi
+        done < <(
+          HOME="$old_root" _merge_hook_family_files_matching \
+            "vscode/keybindings/$family.d" \
+            '*.jsonc' '*.replace/*.jsonc'
+        )
+        while IFS= read -r source; do
+          if ! _vscode_test_append_jsonc_array \
+            "$current_all" "$source" "$family"; then
+            _fail "vscode keybindings: current JSONC must parse completely"
+            return
+          fi
+        done < <(
+          HOME="$repo" _merge_hook_family_files_matching \
+            "vscode/keybindings/$family.d" \
+            '*.jsonc' '*.replace/*.jsonc'
+        )
+      done
+
+      # An active object that disappears is a change or deletion. Requiring its
+      # exact old form in retirement lets any machine jump directly from the
+      # base to this generation, even if Settings Sync delivered an intervening
+      # file. Retirement itself is append-only for the same skipped-release
+      # reason.
+      report=$(_tmpfile)
+      _vscode_test_retirement_report "$old_all" "$current_all" >"$report"
+      # Detect the one-time migration boundary from semantic history rather
+      # than a filename. A later rename or `.replace` reorganization must not
+      # reopen permission to add retirement objects with no prior ownership.
+      if jq -e --arg retire "dotfiles.retire" \
+        'any(.[]; .binding[$retire] == true)' "$old_all" >/dev/null; then
+        retirement_history_existed=1
+      fi
+      _assert_eq "vscode linux keybindings: changed and deleted bindings enter retirement history" \
+        '[]' "$(jq -c '.missing.linux' "$report")"
+      _assert_eq "vscode macos keybindings: changed and deleted bindings enter retirement history" \
+        '[]' "$(jq -c '.missing.macos' "$report")"
+      _assert_eq "vscode windows keybindings: changed and deleted bindings enter retirement history" \
+        '[]' "$(jq -c '.missing.windows' "$report")"
+      _assert_eq "vscode keybindings: retirement history is append-only" \
+        '[]' "$(jq -c '.removed' "$report")"
+
+      # All platforms consume all.d, making it the only safe home for an exact
+      # retirement synchronized across machines. A platform-local retirement
+      # would pass that platform's history check but strand the same generated
+      # object after Settings Sync carries it elsewhere.
+      _assert_eq "vscode keybindings: retirement records are globally available from all.d" \
+        '[]' "$(jq -c '.misplaced' "$report")"
+      # Exact deletion authority must come from prior managed output. Without
+      # this provenance check, an arbitrary new retirement record could erase
+      # an identical local-only binding even though dotfiles never owned it.
+      if ((retirement_history_existed)); then
+        _assert_eq "vscode keybindings: new retirements were previously managed" \
+          '[]' "$(jq -c '.unproven' "$report")"
+      else
+        # This PR establishes the one-time bridge for bindings emitted before
+        # exact history existed. Once the file is present in the base, every
+        # later addition must prove ownership from prior active source.
+        initial_retirement_oracle=$(_tmpfile)
+        printf '[]\n' >"$initial_retirement_oracle"
+        _add_vscode_pre_focus_keybindings \
+          "$initial_retirement_oracle" "macOS"
+        _assert_eq "vscode keybindings: initial retirement bridge matches historical output exactly" \
+          "$(jq -cS 'unique' "$initial_retirement_oracle")" \
+          "$(jq -cS --arg retire "dotfiles.retire" '
+            map(select(.binding[$retire] == true)
+              | .binding | del(.[$retire]))
+            | unique
+          ' "$current_all")"
+      fi
+    }
+
+    _assert_vscode_retirement_history "$REAL_HOME"
+
+    # Negative fixtures protect the safety validator itself. These are kept
+    # small and semantic so a future refactor cannot silently turn a missing,
+    # removed, misplaced, or invented retirement into a passing repository
+    # check while the much larger end-to-end fixture remains green.
+    vscode_guard_old=$(_tmpfile)
+    vscode_guard_current=$(_tmpfile)
+    vscode_guard_report=$(_tmpfile)
+    cat >"$vscode_guard_old" <<'JSON'
+[
+  {
+    "family": "all",
+    "binding": {
+      "key": "ctrl+alt+1",
+      "command": "fixture.mustRetire"
+    }
+  },
+  {
+    "family": "all",
+    "binding": {
+      "key": "ctrl+alt+2",
+      "command": "fixture.oldRetirement",
+      "dotfiles.retire": true
+    }
+  }
+]
+JSON
+    cat >"$vscode_guard_current" <<'JSON'
+[
+  {
+    "family": "all",
+    "binding": {
+      "key": "ctrl+alt+2",
+      "command": "fixture.oldRetirement"
+    }
+  },
+  {
+    "family": "macos",
+    "binding": {
+      "key": "ctrl+alt+3",
+      "command": "fixture.misplacedRetirement",
+      "dotfiles.retire": true
+    }
+  },
+  {
+    "family": "all",
+    "binding": {
+      "key": "ctrl+alt+4",
+      "command": "fixture.unprovenRetirement",
+      "dotfiles.retire": true
+    }
+  }
+]
+JSON
+    _vscode_test_retirement_report \
+      "$vscode_guard_old" "$vscode_guard_current" >"$vscode_guard_report"
+    _assert_eq "vscode history guard: missing retirement is rejected" \
+      "1" "$(jq '.missing.linux | length' "$vscode_guard_report")"
+    _assert_eq "vscode history guard: removed retirement is rejected" \
+      "1" "$(jq '.removed | length' "$vscode_guard_report")"
+    _assert_eq "vscode history guard: platform-local retirement is rejected" \
+      "1" "$(jq '.misplaced | length' "$vscode_guard_report")"
+    _assert_eq "vscode history guard: unproven retirement is rejected" \
+      "2" "$(jq '.unproven | length' "$vscode_guard_report")"
+
+    vscode_base_guard_repo=$(_tmpdir)
+    mkdir -p \
+      "$vscode_base_guard_repo/.config/dot/merge-hooks.d/vscode/keybindings/all.d"
+    printf '[]\n' \
+      >"$vscode_base_guard_repo/.config/dot/merge-hooks.d/vscode/keybindings/all.d/10-keybindings.jsonc"
+    git -C "$vscode_base_guard_repo" init -q
+    git -C "$vscode_base_guard_repo" add .
+    git -C "$vscode_base_guard_repo" \
+      -c user.name=dot-test -c user.email=dot-test.invalid \
+      commit -q --no-verify -m base
+    vscode_self_base_rc=0
+    (
+      set -e
+      _fail() { return 23; }
+      export DOT_VSCODE_KEYBINDING_BASE_SHA
+      DOT_VSCODE_KEYBINDING_BASE_SHA=$(
+        git -C "$vscode_base_guard_repo" rev-parse HEAD
+      )
+      _assert_vscode_retirement_history "$vscode_base_guard_repo"
+    ) || vscode_self_base_rc=$?
+    _assert_eq "vscode history guard: clean checkout cannot compare with itself" \
+      "23" "$vscode_self_base_rc"
 
     vscode_home=$(_tmpdir)
     vscode_bin=$(_tmpdir)/bin
@@ -992,8 +1511,55 @@ JSON
 }
 JSON
     _write_vscode_keybinding_conflicts "$vscode_home/.config/Code/User/keybindings.json"
+    _add_vscode_pre_focus_keybindings \
+      "$vscode_home/.config/Code/User/keybindings.json" \
+      "linux"
     cp -R "$REAL_HOME/.config/dot/merge-hooks.d/vscode" \
       "$vscode_home/.config/dot/merge-hooks.d/vscode"
+    cat >"$vscode_home/.config/dot/merge-hooks.d/vscode/keybindings/all.d/25-order-probe.jsonc" <<'JSON'
+[
+  {
+    "key": "ctrl+alt+5",
+    "command": "fixture.orderCommonEarlier",
+    "when": "fixture.orderCommonEarlier"
+  }
+]
+JSON
+    cat >"$vscode_home/.config/dot/merge-hooks.d/vscode/keybindings/all.d/30-history-probe.jsonc" <<'JSON'
+[
+  {
+    "key": "ctrl+alt+8",
+    "command": "fixture.managedOld",
+    "args": {"version": 1},
+    "when": "fixture.managedOld"
+  },
+  {
+    "key": "ctrl+alt+9",
+    "command": "fixture.managedDeleted",
+    "when": "fixture.managedDeleted"
+  },
+  {
+    "key": "ctrl+p",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": {"text": "\u0010"},
+    "when": "terminalFocus && fixtureParallelSource"
+  },
+  {
+    "key": "ctrl+alt+6",
+    "command": "fixture.orderCommonLater",
+    "when": "fixture.orderCommonLater"
+  }
+]
+JSON
+    cat >"$vscode_home/.config/dot/merge-hooks.d/vscode/keybindings/linux.d/20-order-probe.jsonc" <<'JSON'
+[
+  {
+    "key": "ctrl+alt+7",
+    "command": "fixture.orderPlatform",
+    "when": "fixture.orderPlatform"
+  }
+]
+JSON
     cat >"$vscode_home/.config/dot/merge-hooks.d/vscode/settings.d/50-prefix-probe.json" <<'JSON'
 {
   "dotfiles.prefixProbe": true
@@ -1194,6 +1760,13 @@ if [[ "\${1:-}" == "--" ]]; then
   shift
 fi
 printf '%s\n' "\$*" >>"\${DOT_TEST_MV_LOG:?}"
+if [[ -n "\${DOT_TEST_MV_FAIL_SUFFIX:-}" && "\${!#}" == *"\$DOT_TEST_MV_FAIL_SUFFIX" ]]; then
+  exit 75
+fi
+if [[ -n "\${DOT_TEST_MV_FAIL_ONCE_MARKER:-}" && ! -e "\$DOT_TEST_MV_FAIL_ONCE_MARKER" ]]; then
+  : >"\$DOT_TEST_MV_FAIL_ONCE_MARKER"
+  exit 75
+fi
 exec "$real_mv" -f -- "\$@"
 EOF
     chmod +x "$vscode_bin/checkrun" "$vscode_bin/shdeps" "$vscode_bin/mv" "$vscode_home/checkrun-schema-policy.py"
@@ -1280,11 +1853,391 @@ PY
     _assert_eq "vscode commit: WSL partial replacement writes complete file" \
       "$partial_expected" "$partial_actual"
 
+    # WSL cannot fall back to the native rename path: an open Windows file can
+    # turn that apparent success into a truncated config. If the verified
+    # writer is unavailable, keep both the destination and retryable temp file
+    # rather than gambling with user configuration.
+    wsl_missing_python_dir=$(_tmpdir)
+    printf '%s\n' '{"old":true}' \
+      >"$wsl_missing_python_dir/keybindings.json"
+    printf '%s\n' '{"new":true}' \
+      >"$wsl_missing_python_dir/keybindings.json.tmp"
+    wsl_missing_python_rc=0
+    # shellcheck disable=SC2016 # The inner shell owns the command override.
+    env REAL_HOME="$REAL_HOME" WSL_FAILURE_DIR="$wsl_missing_python_dir" bash -c '
+      set -euo pipefail
+      _is_wsl() { return 0; }
+      command() {
+        if [[ "${1:-}" == "-v" && "${2:-}" == "python3" ]]; then
+          return 1
+        fi
+        builtin command "$@"
+      }
+      _warn() { :; }
+      # shellcheck source=/dev/null
+      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+      _vscode_commit_tmp \
+        "$WSL_FAILURE_DIR/keybindings.json.tmp" \
+        "$WSL_FAILURE_DIR/keybindings.json"
+    ' || wsl_missing_python_rc=$?
+    _assert_eq "vscode commit: WSL missing verified writer fails" \
+      "1" "$wsl_missing_python_rc"
+    _assert_file_content "vscode commit: WSL failure preserves destination" \
+      '{"old":true}' "$wsl_missing_python_dir/keybindings.json"
+    _assert_file_content "vscode commit: WSL failure retains retryable temp" \
+      '{"new":true}' "$wsl_missing_python_dir/keybindings.json.tmp"
+
+    # A machine can skip the migration release and arrive after a focus-aware
+    # replacement was itself deleted. Exact source retirement, rather than
+    # today's active actions, must still identify the old generated rule.
+    vscode_delayed_upgrade_dir=$(_tmpdir)
+    cat >"$vscode_delayed_upgrade_dir/source.json" <<'JSON'
+[
+  {
+    "key": "ctrl+p",
+    "command": "workbench.action.quickOpen",
+    "when": "terminalFocus",
+    "dotfiles.retire": true
+  },
+  {
+    "key": "ctrl+alt+4",
+    "command": "fixture.retiredExact",
+    "args": {"text": "old"},
+    "when": "fixture.retiredExact",
+    "dotfiles.retire": true
+  }
+]
+JSON
+    cat >"$vscode_delayed_upgrade_dir/keybindings.json" <<'JSON'
+[
+  {
+    "key": "ctrl+p",
+    "command": "workbench.action.quickOpen",
+    "when": "terminalFocus"
+  },
+  {
+    "key": "ctrl+alt+4",
+    "command": "fixture.retiredExact",
+    "args": {"text": "old"},
+    "when": "fixture.retiredExact"
+  },
+  {
+    "key": "ctrl+alt+4",
+    "command": "fixture.retiredExact",
+    "args": {"text": "local"},
+    "when": "fixture.retiredExact"
+  },
+  {
+    "key": "ctrl+alt+4",
+    "command": "fixture.retiredExact",
+    "args": {"text": "old"},
+    "when": "fixture.retiredExact",
+    "localOnly": true
+  }
+]
+JSON
+    # shellcheck disable=SC2016 # The inner shell expands fixture env variables.
+    env HOME="$vscode_home" REAL_HOME="$REAL_HOME" PATH="$vscode_bin:$PATH" \
+      DOT_TEST_MV_LOG="$vscode_mv_log" \
+      HOME_DELAYED="$vscode_delayed_upgrade_dir" bash -c '
+      set -euo pipefail
+      _warn() { printf "%s\n" "$*" >&2; }
+      # shellcheck source=/dev/null
+      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+      _merge_vscode_keybindings \
+        "$HOME_DELAYED/source.json" \
+        "$HOME_DELAYED/keybindings.json" \
+        linux
+    '
+    _assert_eq "vscode keybindings: delayed upgrade retires source-owned baseline" \
+      "0" \
+      "$(jq '[.[] | select(
+        .key == "ctrl+p"
+        and .command == "workbench.action.quickOpen"
+        and .when == "terminalFocus"
+      )] | length' "$vscode_delayed_upgrade_dir/keybindings.json")"
+    _assert_eq "vscode keybindings: retirement preserves args and property near-matches" \
+      '[{"args":{"text":"local"},"command":"fixture.retiredExact","key":"ctrl+alt+4","when":"fixture.retiredExact"},{"args":{"text":"old"},"command":"fixture.retiredExact","key":"ctrl+alt+4","localOnly":true,"when":"fixture.retiredExact"}]' \
+      "$(jq -c '[.[] | select(.command == "fixture.retiredExact")]' \
+        "$vscode_delayed_upgrade_dir/keybindings.json")"
+
+    # Target B never runs generation V2 locally; it receives A's plain JSON
+    # artifact through a divergent Settings Sync merge. V3's exact retirement
+    # record must remove V2 without relying on comments or sibling metadata.
+    vscode_sync_a=$(_tmpdir)
+    vscode_sync_b=$(_tmpdir)
+    cat >"$vscode_sync_a/source.json" <<'JSON'
+[
+  {
+    "key": "ctrl+alt+1",
+    "command": "fixture.syncV1",
+    "when": "fixture.syncV1"
+  }
+]
+JSON
+    # shellcheck disable=SC2016 # The inner shell expands fixture env variables.
+    env HOME="$vscode_home" REAL_HOME="$REAL_HOME" PATH="$vscode_bin:$PATH" \
+      DOT_TEST_MV_LOG="$vscode_mv_log" SYNC_DIR="$vscode_sync_a" bash -c '
+      set -euo pipefail
+      _warn() { printf "%s\n" "$*" >&2; }
+      # shellcheck source=/dev/null
+      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+      _merge_vscode_keybindings \
+        "$SYNC_DIR/source.json" "$SYNC_DIR/keybindings.json" macos
+    '
+    cat >"$vscode_sync_a/source.json" <<'JSON'
+[
+  {
+    "key": "ctrl+alt+1",
+    "command": "fixture.syncV1",
+    "when": "fixture.syncV1",
+    "dotfiles.retire": true
+  },
+  {
+    "key": "ctrl+alt+2",
+    "command": "fixture.syncV2",
+    "when": "fixture.syncV2"
+  }
+]
+JSON
+    # shellcheck disable=SC2016 # The inner shell expands fixture env variables.
+    env HOME="$vscode_home" REAL_HOME="$REAL_HOME" PATH="$vscode_bin:$PATH" \
+      DOT_TEST_MV_LOG="$vscode_mv_log" SYNC_DIR="$vscode_sync_a" bash -c '
+      set -euo pipefail
+      _warn() { printf "%s\n" "$*" >&2; }
+      # shellcheck source=/dev/null
+      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+      _merge_vscode_keybindings \
+        "$SYNC_DIR/source.json" "$SYNC_DIR/keybindings.json" macos
+    '
+    # Model a Windows editor transporting the macOS generation with both a BOM
+    # and CRLF. The retirement policy lives in source, so transport formatting
+    # cannot erase the provenance needed by the target machine.
+    {
+      printf '\357\273\277'
+      awk '{ printf "%s\r\n", $0 }' \
+        "$vscode_sync_a/keybindings.json"
+    } >"$vscode_sync_b/keybindings.json"
+    cat >"$vscode_sync_b/source.json" <<'JSON'
+[
+  {
+    "key": "ctrl+alt+2",
+    "command": "fixture.syncV2",
+    "when": "fixture.syncV2",
+    "dotfiles.retire": true
+  },
+  {
+    "key": "ctrl+alt+3",
+    "command": "fixture.syncV3",
+    "when": "fixture.syncV3"
+  }
+]
+JSON
+    # shellcheck disable=SC2016 # The inner shell expands fixture env variables.
+    env HOME="$vscode_home" REAL_HOME="$REAL_HOME" PATH="$vscode_bin:$PATH" \
+      DOT_TEST_MV_LOG="$vscode_mv_log" SYNC_DIR="$vscode_sync_b" bash -c '
+      set -euo pipefail
+      _warn() { printf "%s\n" "$*" >&2; }
+      # shellcheck source=/dev/null
+      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+      _merge_vscode_keybindings \
+        "$SYNC_DIR/source.json" "$SYNC_DIR/keybindings.json" linux
+    '
+    _assert_eq "vscode keybindings: source history retires synced generation unseen by target" \
+      '["fixture.syncV3"]' \
+      "$(jq -c '[.[] | .command | select(startswith("fixture.sync"))]' \
+        "$vscode_sync_b/keybindings.json")"
+
+    # A brand-new profile receives only active bindings. Retirement directives
+    # must never leak into VS Code, where they would be invalid shortcuts.
+    vscode_first_run_dir=$(_tmpdir)
+    cat >"$vscode_first_run_dir/source.json" <<'JSON'
+[
+  {
+    "key": "ctrl+alt+1",
+    "command": "fixture.firstRun",
+    "when": "fixture.firstRun"
+  }
+]
+JSON
+    # shellcheck disable=SC2016 # The inner shell expands fixture env variables.
+    env HOME="$vscode_home" REAL_HOME="$REAL_HOME" PATH="$vscode_bin:$PATH" \
+      DOT_TEST_MV_LOG="$vscode_mv_log" \
+      FIRST_RUN_DIR="$vscode_first_run_dir" bash -c '
+      set -euo pipefail
+      _warn() { printf "%s\n" "$*" >&2; }
+      # shellcheck source=/dev/null
+      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+      _merge_vscode_keybindings \
+        "$FIRST_RUN_DIR/source.json" \
+        "$FIRST_RUN_DIR/keybindings.json" \
+        linux
+    '
+    _assert_eq "vscode keybindings: first run creates managed binding" \
+      '["fixture.firstRun"]' \
+      "$(jq -c '[.[] | .command | select(startswith("fixture."))]' \
+        "$vscode_first_run_dir/keybindings.json")"
+    _assert_not_contains "vscode keybindings: first run omits source retirement directives" \
+      'dotfiles.retire' \
+      "$(cat "$vscode_first_run_dir/keybindings.json")"
+
+    # Losing a source layer could discard either an active binding or the exact
+    # retirement that protects a skipped-release migration. Force the
+    # intermediate rename to fail before any artifact is written.
+    vscode_aggregate_failure_home=$(_tmpdir)
+    mkdir -p "$vscode_aggregate_failure_home/.config/dot/merge-hooks.d"
+    cp -R "$REAL_HOME/.config/dot/merge-hooks.d/vscode" \
+      "$vscode_aggregate_failure_home/.config/dot/merge-hooks.d/vscode"
+    vscode_aggregate_failure_marker=$vscode_aggregate_failure_home/mv-failed
+    vscode_aggregate_failure_rc=0
+    # shellcheck disable=SC2016 # The inner shell expands fixture env variables.
+    env HOME="$vscode_aggregate_failure_home" REAL_HOME="$REAL_HOME" \
+      PATH="$vscode_bin:$PATH" DOT_TEST_MV_LOG="$vscode_mv_log" \
+      DOT_TEST_MV_FAIL_ONCE_MARKER="$vscode_aggregate_failure_marker" bash -c '
+      set -uo pipefail
+      _is_wsl() { return 1; }
+      uname() { printf "Linux\n"; }
+      _warn() { printf "%s\n" "$*" >&2; }
+      # shellcheck source=/dev/null
+      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+      _vscode_settings_sources() { :; }
+      _vscode_checkrun_settings() { printf "{}\n" >"$1"; }
+      _remove_vscode_generated_checkrun_settings() { :; }
+      _merge_vscode_settings() { :; }
+      _merge_vscode_window_title() { :; }
+      _merge_vscode_mcp_auth() { :; }
+      _merge_vscode_config "$HOME/User"
+    ' >/dev/null 2>&1 || vscode_aggregate_failure_rc=$?
+    _assert_eq "vscode keybindings: aggregate rename failure propagates" \
+      "1" "$vscode_aggregate_failure_rc"
+    _assert_file_missing "vscode keybindings: aggregate failure writes no artifact" \
+      "$vscode_aggregate_failure_home/User/keybindings.json"
+
+    # A fragment is one reconciliation unit. Silently accepting only the first
+    # of two JSON documents could drop active or retirement policy.
+    cat >"$vscode_aggregate_failure_home/.config/dot/merge-hooks.d/vscode/keybindings/all.d/99-invalid.jsonc" <<'JSON'
+[]
+[
+  {
+    "key": "ctrl+alt+9",
+    "command": "fixture.hiddenSecondDocument",
+    "when": "fixture.hiddenSecondDocument"
+  }
+]
+JSON
+    vscode_multi_fragment_rc=0
+    # shellcheck disable=SC2016 # The inner shell expands fixture env variables.
+    env HOME="$vscode_aggregate_failure_home" REAL_HOME="$REAL_HOME" \
+      PATH="$vscode_bin:$PATH" DOT_TEST_MV_LOG="$vscode_mv_log" bash -c '
+      set -uo pipefail
+      _is_wsl() { return 1; }
+      uname() { printf "Linux\n"; }
+      _warn() { printf "%s\n" "$*" >&2; }
+      # shellcheck source=/dev/null
+      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+      _vscode_settings_sources() { :; }
+      _vscode_checkrun_settings() { printf "{}\n" >"$1"; }
+      _remove_vscode_generated_checkrun_settings() { :; }
+      _merge_vscode_settings() { :; }
+      _merge_vscode_window_title() { :; }
+      _merge_vscode_mcp_auth() { :; }
+      _merge_vscode_config "$HOME/User"
+    ' >/dev/null 2>&1 || vscode_multi_fragment_rc=$?
+    _assert_eq "vscode keybindings: multi-document source fragment fails closed" \
+      "1" "$vscode_multi_fragment_rc"
+    _assert_file_missing "vscode keybindings: invalid source fragment writes no artifact" \
+      "$vscode_aggregate_failure_home/User/keybindings.json"
+
+    printf '// comments only\n' \
+      >"$vscode_aggregate_failure_home/.config/dot/merge-hooks.d/vscode/keybindings/all.d/99-invalid.jsonc"
+    vscode_empty_fragment_rc=0
+    # shellcheck disable=SC2016 # The inner shell expands fixture env variables.
+    env HOME="$vscode_aggregate_failure_home" REAL_HOME="$REAL_HOME" \
+      PATH="$vscode_bin:$PATH" DOT_TEST_MV_LOG="$vscode_mv_log" bash -c '
+      set -uo pipefail
+      _is_wsl() { return 1; }
+      uname() { printf "Linux\n"; }
+      _warn() { printf "%s\n" "$*" >&2; }
+      # shellcheck source=/dev/null
+      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+      _vscode_settings_sources() { :; }
+      _vscode_checkrun_settings() { printf "{}\n" >"$1"; }
+      _remove_vscode_generated_checkrun_settings() { :; }
+      _merge_vscode_settings() { :; }
+      _merge_vscode_window_title() { :; }
+      _merge_vscode_mcp_auth() { :; }
+      _merge_vscode_config "$HOME/User"
+    ' >/dev/null 2>&1 || vscode_empty_fragment_rc=$?
+    _assert_eq "vscode keybindings: empty source fragment fails closed" \
+      "1" "$vscode_empty_fragment_rc"
+
+    # A failed atomic replacement must leave the entire old generation intact;
+    # the retry can then install V2 without reasoning about a partial array.
+    vscode_destination_failure_dir=$(_tmpdir)
+    cat >"$vscode_destination_failure_dir/source.json" <<'JSON'
+[
+  {
+    "key": "ctrl+alt+3",
+    "command": "fixture.attemptedV1",
+    "when": "fixture.attemptedV1"
+  }
+]
+JSON
+    printf '[]\n' \
+      >"$vscode_destination_failure_dir/keybindings.json"
+    vscode_destination_failure_rc=0
+    # shellcheck disable=SC2016 # The inner shell expands fixture env variables.
+    env HOME="$vscode_home" REAL_HOME="$REAL_HOME" PATH="$vscode_bin:$PATH" \
+      DOT_TEST_MV_LOG="$vscode_mv_log" \
+      DOT_TEST_MV_FAIL_SUFFIX="/keybindings.json" \
+      DESTINATION_FAILURE_DIR="$vscode_destination_failure_dir" bash -c '
+      set -uo pipefail
+      _warn() { printf "%s\n" "$*" >&2; }
+      # shellcheck source=/dev/null
+      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+      _merge_vscode_keybindings \
+        "$DESTINATION_FAILURE_DIR/source.json" \
+        "$DESTINATION_FAILURE_DIR/keybindings.json" \
+        linux
+    ' >/dev/null 2>&1 || vscode_destination_failure_rc=$?
+    _assert_eq "vscode keybindings: destination write failure propagates" \
+      "1" "$vscode_destination_failure_rc"
+    _assert_file_content "vscode keybindings: destination failure leaves old file intact" \
+      '[]' \
+      "$vscode_destination_failure_dir/keybindings.json"
+    cat >"$vscode_destination_failure_dir/source.json" <<'JSON'
+[
+  {
+    "key": "ctrl+alt+4",
+    "command": "fixture.retriedV2",
+    "when": "fixture.retriedV2"
+  }
+]
+JSON
+    # shellcheck disable=SC2016 # The inner shell expands fixture env variables.
+    env HOME="$vscode_home" REAL_HOME="$REAL_HOME" PATH="$vscode_bin:$PATH" \
+      DOT_TEST_MV_LOG="$vscode_mv_log" \
+      DESTINATION_FAILURE_DIR="$vscode_destination_failure_dir" bash -c '
+      set -euo pipefail
+      _warn() { printf "%s\n" "$*" >&2; }
+      # shellcheck source=/dev/null
+      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+      _merge_vscode_keybindings \
+        "$DESTINATION_FAILURE_DIR/source.json" \
+        "$DESTINATION_FAILURE_DIR/keybindings.json" \
+        linux
+    '
+    _assert_eq "vscode keybindings: retry installs latest generation only" \
+      '["fixture.retriedV2"]' \
+      "$(jq -c '[.[] | .command | select(startswith("fixture."))]' \
+        "$vscode_destination_failure_dir/keybindings.json")"
+
     # shellcheck disable=SC2016 # The inner shell expands REAL_HOME from env.
     env HOME="$vscode_home" REAL_HOME="$REAL_HOME" PATH="$vscode_bin:$PATH" \
       DOT_TEST_MV_LOG="$vscode_mv_log" DOT_TEST_VSCODE_HOSTNAME="fixture-host" bash -c '
-      set -euo pipefail
+      set -uo pipefail
       _is_wsl() { return 1; }
+      uname() { printf "Linux\n"; }
       _log() { :; }
       _warn() { printf "%s\n" "$*" >&2; }
       # shellcheck source=/dev/null
@@ -1294,6 +2247,21 @@ PY
       }
       merge
     '
+    _assert_vscode_focus_keybinding_migration \
+      "$vscode_home/.config/Code/User/keybindings.json" \
+      "linux"
+    # Each layer is prepended for compatibility with VS Code's bottom-up user
+    # binding resolution. Check both lexical ordering inside all.d and the
+    # platform family's precedence over the completed common aggregate.
+    _assert_eq "vscode keybindings: later fragments and platform family retain precedence" \
+      "true" \
+      "$(jq '
+        map(.command) as $commands
+        | ($commands | index("fixture.orderPlatform")) as $platform
+        | ($commands | index("fixture.orderCommonLater")) as $common_later
+        | ($commands | index("fixture.orderCommonEarlier")) as $common_earlier
+        | $platform < $common_later and $common_later < $common_earlier
+      ' "$vscode_home/.config/Code/User/keybindings.json")"
 
     vscode_settings=$(jq -c . "$vscode_home/.config/Code/User/settings.json")
     _assert_contains "vscode sley: python uses local formatter" \
@@ -1388,6 +2356,7 @@ PY
       DOT_TEST_MV_LOG="$vscode_mv_log" DOT_TEST_VSCODE_HOSTNAME="fixture-host" bash -c '
       set -euo pipefail
       _is_wsl() { return 1; }
+      uname() { printf "Linux\n"; }
       _log() { :; }
       _warn() { printf "%s\n" "$*" >&2; }
       # shellcheck source=/dev/null
@@ -1403,6 +2372,231 @@ PY
     _assert_file_content "vscode keybindings: repeat merge is byte-identical" \
       "$vscode_keybindings_before_repeat" \
       "$vscode_home/.config/Code/User/keybindings.json"
+
+    vscode_valid_keybindings=$(_tmpfile)
+    cp "$vscode_home/.config/Code/User/keybindings.json" \
+      "$vscode_valid_keybindings"
+    printf '[invalid\n' \
+      >"$vscode_home/.config/Code/User/keybindings.json"
+    vscode_invalid_keybindings_rc=0
+    # shellcheck disable=SC2016 # The inner shell expands fixture env variables.
+    env HOME="$vscode_home" REAL_HOME="$REAL_HOME" PATH="$vscode_bin:$PATH" \
+      DOT_TEST_MV_LOG="$vscode_mv_log" DOT_TEST_VSCODE_HOSTNAME="fixture-host" bash -c '
+      set -uo pipefail
+      _is_wsl() { return 1; }
+      uname() { printf "Linux\n"; }
+      _log() { :; }
+      _warn() { printf "%s\n" "$*" >&2; }
+      # shellcheck source=/dev/null
+      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+      _vscode_variants() {
+        printf "%s\t%s\n" "$HOME/.vscode/extensions" "$HOME/.config/Code/User"
+      }
+      merge
+    ' >/dev/null 2>&1 || vscode_invalid_keybindings_rc=$?
+    _assert_eq "vscode keybindings: reconciliation failure propagates" \
+      "1" "$vscode_invalid_keybindings_rc"
+    cp "$vscode_valid_keybindings" \
+      "$vscode_home/.config/Code/User/keybindings.json"
+
+    # The real merge runner does not make errexit a dependable contract. Model
+    # two variants without it so a later success cannot erase an earlier
+    # reconciliation failure from the hook's explicit aggregate status.
+    vscode_variant_failure_home=$(_tmpdir)
+    mkdir -p \
+      "$vscode_variant_failure_home/.config/dot/merge-hooks.d" \
+      "$vscode_variant_failure_home/failing/User" \
+      "$vscode_variant_failure_home/succeeding/User"
+    cp -R "$REAL_HOME/.config/dot/merge-hooks.d/vscode" \
+      "$vscode_variant_failure_home/.config/dot/merge-hooks.d/vscode"
+    printf '[invalid\n' \
+      >"$vscode_variant_failure_home/failing/User/keybindings.json"
+    printf '[]\n' \
+      >"$vscode_variant_failure_home/succeeding/User/keybindings.json"
+    vscode_variant_failure_rc=0
+    # shellcheck disable=SC2016 # The inner shell expands fixture env variables.
+    env HOME="$vscode_variant_failure_home" REAL_HOME="$REAL_HOME" \
+      PATH="$vscode_bin:$PATH" DOT_TEST_MV_LOG="$vscode_mv_log" \
+      DOT_TEST_VSCODE_HOSTNAME="fixture-host" bash -c '
+      set -uo pipefail
+      _is_wsl() { return 1; }
+      uname() { printf "Linux\n"; }
+      _log() { :; }
+      _warn() { printf "%s\n" "$*" >&2; }
+      # shellcheck source=/dev/null
+      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+      _vscode_local_extensions() { :; }
+      _vscode_variants() {
+        printf "%s\t%s\n" \
+          "$HOME/failing/extensions" "$HOME/failing/User" \
+          "$HOME/succeeding/extensions" "$HOME/succeeding/User"
+      }
+      merge
+    ' >/dev/null 2>&1 || vscode_variant_failure_rc=$?
+    _assert_eq "vscode keybindings: an earlier variant failure survives a later success" \
+      "1" "$vscode_variant_failure_rc"
+    _assert_eq "vscode keybindings: later variant still reconciles after an earlier failure" \
+      "1" \
+      "$(jq '[.[] | select(
+        .key == "ctrl+p"
+        and .command == "workbench.action.quickOpen"
+        and .when == "terminalFocus && !termnav.nvimFocused"
+      )] | length' \
+        "$vscode_variant_failure_home/succeeding/User/keybindings.json")"
+    # This variant deliberately installs no local extensions. The static
+    # clauses must encode VS Code's documented undefined-context behavior:
+    # negation selects the host route while the positive nvim route is dormant.
+    # Actual context evaluation is covered by live acceptance with Termnav
+    # absent; these assertions intentionally check the generated contract.
+    _assert_file_missing "vscode keybindings: extensionless variant has no local extension registry" \
+      "$vscode_variant_failure_home/succeeding/extensions/extensions.json"
+    _assert_file_missing "vscode keybindings: extensionless variant has no Termnav symlink" \
+      "$vscode_variant_failure_home/succeeding/extensions/termnav-0.3.0"
+    _assert_eq "vscode keybindings: extensionless config includes negated host fallback" \
+      "1" \
+      "$(jq '[.[] | select(
+        .key == "ctrl+p"
+        and .command == "workbench.action.quickOpen"
+        and .when == "terminalFocus && !termnav.nvimFocused"
+      )] | length' \
+        "$vscode_variant_failure_home/succeeding/User/keybindings.json")"
+    _assert_eq "vscode keybindings: extensionless config gates nvim route positively" \
+      "1" \
+      "$(jq '[.[] | select(
+        .key == "ctrl+p"
+        and .command == "workbench.action.terminal.sendSequence"
+        and .when == "terminalFocus && termnav.nvimFocused"
+      )] | length' \
+        "$vscode_variant_failure_home/succeeding/User/keybindings.json")"
+
+    cat >"$vscode_home/.config/dot/merge-hooks.d/vscode/keybindings/all.d/30-history-probe.jsonc" <<'JSON'
+[
+  {
+    "key": "ctrl+alt+8",
+    "command": "fixture.managedOld",
+    "args": {"version": 1},
+    "when": "fixture.managedOld",
+    "dotfiles.retire": true
+  },
+  {
+    "key": "ctrl+alt+9",
+    "command": "fixture.managedDeleted",
+    "when": "fixture.managedDeleted",
+    "dotfiles.retire": true
+  },
+  {
+    "key": "ctrl+alt+0",
+    "command": "fixture.managedNew",
+    "args": {"version": 2},
+    "when": "fixture.managedNew"
+  },
+  {
+    "key": "ctrl+p",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": {"text": "\u0010"},
+    "when": "terminalFocus && fixtureParallelSource"
+  }
+]
+JSON
+    vscode_visible_edit=$(_tmpfile)
+    jq '. + [{
+        "key": "ctrl+p",
+        "command": "workbench.action.quickOpen",
+        "when": "terminalFocus"
+      }]' "$vscode_home/.config/Code/User/keybindings.json" \
+      >"$vscode_visible_edit"
+    mv "$vscode_visible_edit" \
+      "$vscode_home/.config/Code/User/keybindings.json"
+    # shellcheck disable=SC2016 # The inner shell expands fixture env variables.
+    env HOME="$vscode_home" REAL_HOME="$REAL_HOME" PATH="$vscode_bin:$PATH" \
+      DOT_TEST_MV_LOG="$vscode_mv_log" DOT_TEST_VSCODE_HOSTNAME="fixture-host" bash -c '
+      set -euo pipefail
+      _is_wsl() { return 1; }
+      uname() { printf "Linux\n"; }
+      _log() { :; }
+      _warn() { printf "%s\n" "$*" >&2; }
+      # shellcheck source=/dev/null
+      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+      _vscode_variants() {
+        printf "%s\t%s\n" "$HOME/.vscode/extensions" "$HOME/.config/Code/User"
+      }
+      merge
+    '
+    _assert_eq "vscode keybindings: prior managed action is retired after arbitrary change" \
+      "0" \
+      "$(jq '[.[] | select(.command == "fixture.managedOld")] | length' \
+        "$vscode_home/.config/Code/User/keybindings.json")"
+    _assert_eq "vscode keybindings: deleted managed action is retired" \
+      "0" \
+      "$(jq '[.[] | select(.command == "fixture.managedDeleted")] | length' \
+        "$vscode_home/.config/Code/User/keybindings.json")"
+    _assert_eq "vscode keybindings: replacement managed action is installed" \
+      "1" \
+      "$(jq '[.[] | select(
+        .key == "ctrl+alt+0"
+        and .command == "fixture.managedNew"
+        and .args.version == 2
+        and .when == "fixture.managedNew"
+      )] | length' "$vscode_home/.config/Code/User/keybindings.json")"
+    _assert_eq "vscode keybindings: current fragments retain parallel conditions for one action" \
+      "2" \
+      "$(jq '[.[] | select(
+        .key == "ctrl+p"
+        and .command == "workbench.action.terminal.sendSequence"
+        and .args.text == "\u0010"
+        and (
+          .when == "terminalFocus && termnav.nvimFocused"
+          or .when == "terminalFocus && fixtureParallelSource"
+        )
+      )] | length' "$vscode_home/.config/Code/User/keybindings.json")"
+    _assert_eq "vscode keybindings: retired pre-provenance binding cannot be reintroduced" \
+      "0" \
+      "$(jq '[.[] | select(
+        .key == "ctrl+p"
+        and .command == "workbench.action.quickOpen"
+        and .when == "terminalFocus"
+      )] | length' "$vscode_home/.config/Code/User/keybindings.json")"
+    _assert_vscode_keybinding_precedence \
+      "$vscode_home/.config/Code/User/keybindings.json" \
+      "linux post-history"
+
+    # Retirement is destructive authority, so a nearly-correct directive must
+    # fail closed. Treating a string as truthy here would permit an accidental
+    # source typo to delete a user's exact local binding.
+    cat >"$vscode_home/.config/dot/merge-hooks.d/vscode/keybindings/all.d/99-invalid-retirement.jsonc" <<'JSON'
+[
+  {
+    "key": "ctrl+alt+9",
+    "command": "fixture.invalidRetirement",
+    "when": "fixture.invalidRetirement",
+    "dotfiles.retire": "yes"
+  }
+]
+JSON
+    vscode_before_invalid_retirement=$(cat \
+      "$vscode_home/.config/Code/User/keybindings.json")
+    vscode_invalid_retirement_rc=0
+    # shellcheck disable=SC2016 # The inner shell expands fixture env variables.
+    env HOME="$vscode_home" REAL_HOME="$REAL_HOME" PATH="$vscode_bin:$PATH" \
+      DOT_TEST_MV_LOG="$vscode_mv_log" DOT_TEST_VSCODE_HOSTNAME="fixture-host" bash -c '
+      set -uo pipefail
+      _is_wsl() { return 1; }
+      uname() { printf "Linux\n"; }
+      _log() { :; }
+      _warn() { printf "%s\n" "$*" >&2; }
+      # shellcheck source=/dev/null
+      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+      _vscode_variants() {
+        printf "%s\t%s\n" "$HOME/.vscode/extensions" "$HOME/.config/Code/User"
+      }
+      merge
+    ' >/dev/null 2>&1 || vscode_invalid_retirement_rc=$?
+    _assert_eq "vscode keybindings: malformed retirement directive fails closed" \
+      "1" "$vscode_invalid_retirement_rc"
+    _assert_file_content "vscode keybindings: malformed retirement leaves artifact unchanged" \
+      "$vscode_before_invalid_retirement" \
+      "$vscode_home/.config/Code/User/keybindings.json"
+    rm "$vscode_home/.config/dot/merge-hooks.d/vscode/keybindings/all.d/99-invalid-retirement.jsonc"
 
     # --- MCP auth edge cases: scoping, corruption recovery, race safety ---
     vscode_mcp_edge_home=$(_tmpdir)
@@ -1618,7 +2812,9 @@ PY
       _fail "vscode sley: saved settings are sorted"
     fi
     sorted_keybindings=$(_tmpfile)
-    jq --indent 4 --sort-keys '.' "$vscode_home/.config/Code/User/keybindings.json" >"$sorted_keybindings"
+    jq --indent 4 --sort-keys '.' \
+      "$vscode_home/.config/Code/User/keybindings.json" \
+      >"$sorted_keybindings"
     if cmp -s "$sorted_keybindings" "$vscode_home/.config/Code/User/keybindings.json"; then
       _pass "vscode sley: saved keybindings are sorted"
     else
@@ -1680,6 +2876,7 @@ PY
     vscode_mac_keybindings="$vscode_home/Library/Application Support/Code/User/keybindings.json"
     rm -rf "$vscode_home/Library/Application Support/Code/User"
     _write_vscode_keybinding_conflicts "$vscode_mac_keybindings"
+    _add_vscode_pre_focus_keybindings "$vscode_mac_keybindings" "macOS"
     # shellcheck disable=SC2016 # The inner shell expands fixture env variables.
     env HOME="$vscode_home" REAL_HOME="$REAL_HOME" PATH="$vscode_bin:$PATH" \
       DOT_TEST_MV_LOG="$vscode_mv_log" bash -c '
@@ -1696,6 +2893,7 @@ PY
       merge
     '
     _assert_vscode_keybinding_precedence "$vscode_mac_keybindings" "macOS"
+    _assert_vscode_focus_keybinding_migration "$vscode_mac_keybindings" "macOS"
     _assert_vscode_macos_ctrl_arrow_keybindings "$vscode_mac_keybindings"
     _assert_vscode_macos_karabiner_terminal_keybindings "$vscode_mac_keybindings"
     _assert_vscode_terminal_clipboard_keybindings "$vscode_mac_keybindings" "macOS"
@@ -1796,7 +2994,13 @@ PY
   "editor.tabSize": 4
 }
 JSON
-    printf '[]\n' >"$win_code_user/keybindings.json"
+    # Windows shares the Ctrl baseline but must never claim macOS Cmd-shaped
+    # locals. Seed the complete macOS historical shape here so WSL exercises
+    # the persisted "windows" platform key, not just Linux/macOS branches.
+    _write_vscode_keybinding_conflicts "$win_code_user/keybindings.json"
+    _add_vscode_pre_focus_keybindings \
+      "$win_code_user/keybindings.json" \
+      "windows"
     win_extensions_before='[{"identifier":{"id":"keep.existing"},"relativeLocation":"keep-existing-extension-1.0.0","metadata":{"ownedBy":"windows"}}]'
     printf '%s\n' "$win_extensions_before" >"$win_ext_dir/extensions.json"
     rm -f \
@@ -1859,6 +3063,8 @@ JSON
     _assert_not_contains "vscode wsl: Windows keybindings replacement avoids forced mv" \
       "$win_code_user/keybindings.json" "$vscode_mv_ops"
     _assert_vscode_terminal_clipboard_keybindings \
+      "$win_code_user/keybindings.json" "Windows"
+    _assert_vscode_focus_keybinding_migration \
       "$win_code_user/keybindings.json" "Windows"
 
     # Regression: on a machine where a second Linux account (e.g. root) also
@@ -2271,6 +3477,7 @@ EOF
     "/old/legacy/hook" "$sl_hook_hgrc"
 
   echo ""
+  unset -f jq
   echo "=== SSH config merge hook ==="
 
   SSH_DIR="$TEST_HOME/.ssh"

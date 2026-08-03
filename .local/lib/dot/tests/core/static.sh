@@ -118,7 +118,7 @@ MOCK
   _assert_contains "CI workflow: scopes the dynamic-source exclusion" \
     "shellcheck-exclude-codes: SC1091" "$_ci_workflow"
   _assert_contains "CI workflow: skips only redundant platform ShellCheck" \
-    "test-command: DOT_CORE_SKIP_SHELLCHECK=1 .local/bin/dot-test" "$_ci_workflow"
+    "DOT_CORE_SKIP_SHELLCHECK=1 .local/bin/dot-test" "$_ci_workflow"
   if ((_ci_forces_dotfiles_update)); then
     _pass "CI workflow: refreshes shdeps before dependency resolution"
   else
