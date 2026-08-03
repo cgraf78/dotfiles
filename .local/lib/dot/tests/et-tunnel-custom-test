@@ -171,15 +171,38 @@ gate_runtime_root="$tmp/gate-runtime"
 gate_adapter_pid="$tmp/gate-adapter.pid"
 gate_results="$tmp/gate-results"
 gate_bin="$tmp/gate-bin"
+gate_bash_env="$tmp/gate-bash-env"
 mkdir -p "$gate_runtime_root" "$gate_bin"
 _write_stub "$gate_bin/ps" \
   'for arg in "$@"; do [[ "$arg" != tpgid= ]] || { sleep 0.05; exit 1; }; done' \
   "exec $real_ps_q \"\$@\""
+# Bash 3.2 sources BASH_ENV before making the script's positional parameters
+# available. Classify on the first script command instead: ordinary Bash
+# subprocesses remove the DEBUG trap immediately, while the sentinel worker
+# retains it until its internal function call, before worker signal traps run.
+_write_stub "$gate_bash_env" \
+  'if [[ -n "${ET_TUNNEL_TEST_WORKER_START_MODE:-}" ]]; then' \
+  "  trap '" \
+  '    if [[ "$BASH_COMMAND" == run_transport_worker\ * ]]; then' \
+  '      trap - DEBUG' \
+  '      case "$ET_TUNNEL_TEST_WORKER_START_MODE" in' \
+  '        block)' \
+  '          : >"$ET_TUNNEL_TEST_WORKER_BLOCKED"' \
+  '          IFS= read -r _ <"$ET_TUNNEL_TEST_WORKER_GATE"' \
+  '          ;;' \
+  '        exit) exit 42 ;;' \
+  '      esac' \
+  '    elif [[ "${1:-}" != --et-tunnel-transport-worker ]]; then' \
+  '      trap - DEBUG' \
+  '    fi' \
+  "  ' DEBUG" \
+  'fi'
 gate_exit=0
 PATH="$gate_bin:$bin:/usr/local/bin:/usr/bin:/bin" \
   TMPDIR="$gate_runtime_root" \
   HOME="$test_home" \
   XDG_STATE_HOME="$test_home/state" \
+  BASH_ENV="$gate_bash_env" \
   ET_TUNNEL_CLIENT_ID=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
   ET_TUNNEL_TEST_TRANSPORT_PID="$gate_adapter_pid" \
   ET_TUNNEL_TRANSPORT="$bin/interactive-transport" \
@@ -196,15 +219,18 @@ import time
 
 bash, script, runtime_root, adapter_pid_file, results_file = sys.argv[1:]
 
-def transport_worker_pid():
+def transport_worker_state():
     for entry in os.listdir(runtime_root):
-        pid_path = os.path.join(runtime_root, entry, "transport.pid")
+        run_dir = os.path.join(runtime_root, entry)
+        pid_path = os.path.join(run_dir, "transport.pid")
         try:
             with open(pid_path, "r", encoding="utf-8") as pid_input:
-                return int(pid_input.read().strip())
+                worker_pid = int(pid_input.read().strip())
         except (FileNotFoundError, ValueError):
             pass
-    return None
+        else:
+            return worker_pid, os.path.exists(os.path.join(run_dir, "transport.ready"))
+    return None, False
 
 def reap_child(pid, timeout):
     deadline = time.monotonic() + timeout
@@ -218,11 +244,15 @@ def reap_child(pid, timeout):
         time.sleep(0.05)
     return False, None
 
-def run_case(port, cancel):
+def run_case(port, cancel=False, startup_mode=""):
     try:
         os.unlink(adapter_pid_file)
     except FileNotFoundError:
         pass
+    blocked_marker = f"{results_file}.{port}.blocked"
+    gate_fifo = f"{results_file}.{port}.gate"
+    if startup_mode == "block":
+        os.mkfifo(gate_fifo)
     # The gate is meaningful only with a controlling PTY: without one, the
     # worker deliberately skips foreground ownership and starts immediately.
     master, slave = pty.openpty()
@@ -234,9 +264,18 @@ def run_case(port, cancel):
             os.dup2(slave, fd)
         os.close(master)
         os.close(slave)
-        os.execv(
+        environment = os.environ.copy()
+        environment.update(
+            {
+                "ET_TUNNEL_TEST_WORKER_START_MODE": startup_mode,
+                "ET_TUNNEL_TEST_WORKER_BLOCKED": blocked_marker,
+                "ET_TUNNEL_TEST_WORKER_GATE": gate_fifo,
+            }
+        )
+        os.execve(
             bash,
             ["bash", script, "gateway.example", str(port), "service.internal", "443"],
+            environment,
         )
 
     os.close(slave)
@@ -244,7 +283,12 @@ def run_case(port, cancel):
     status = None
     reaped = False
     cancel_sent = False
-    deadline = time.monotonic() + 20
+    blocked_seen = False
+    ready_before_cancel = False
+    launcher_foreground = False
+    worker_foreground = False
+    worker_pid = None
+    deadline = time.monotonic() + (5 if startup_mode else 20)
     try:
         while time.monotonic() < deadline:
             readable, _, _ = select.select([master], [], [], 0.05)
@@ -253,13 +297,21 @@ def run_case(port, cancel):
                     output += os.read(master, 4096)
                 except OSError:
                     pass
-            worker_pid = transport_worker_pid()
+            worker_pid, worker_ready = transport_worker_state()
             if cancel and not cancel_sent and worker_pid is not None:
                 try:
-                    # Send terminal Ctrl-C only after the worker PGID is truly
-                    # foreground; otherwise the byte would target the launcher
-                    # and fail to cover pre-adapter gate cancellation.
-                    if os.tcgetpgrp(master) == worker_pid:
+                    terminal_pgid = os.tcgetpgrp(master)
+                    launcher_foreground = terminal_pgid == child
+                    worker_foreground = terminal_pgid == worker_pid
+                    if startup_mode == "block" and os.path.exists(blocked_marker):
+                        blocked_seen = True
+                        ready_before_cancel = worker_ready
+                        os.write(master, b"\x03")
+                        cancel_sent = True
+                    # The normal gate case covers cancellation after the worker
+                    # really owns the terminal. The startup case above instead
+                    # requires Ctrl-C to remain with the launcher.
+                    elif not startup_mode and worker_foreground:
                         os.write(master, b"\x03")
                         cancel_sent = True
                 except OSError:
@@ -271,6 +323,11 @@ def run_case(port, cancel):
                 break
     finally:
         if status is None:
+            if worker_pid is not None:
+                try:
+                    os.killpg(worker_pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
             try:
                 os.killpg(child, signal.SIGKILL)
             except ProcessLookupError:
@@ -286,33 +343,70 @@ def run_case(port, cancel):
 
     exit_code = os.waitstatus_to_exitcode(status) if status is not None else None
     adapter_started = os.path.exists(adapter_pid_file)
-    return exit_code, cancel_sent, adapter_started, reaped, output
+    return {
+        "adapter": adapter_started,
+        "blocked": blocked_seen,
+        "cancel_sent": cancel_sent,
+        "exit": exit_code,
+        "foreground": worker_foreground,
+        "launcher_foreground": launcher_foreground,
+        "output": output,
+        "ready": ready_before_cancel,
+        "reaped": reaped,
+        "runtime_clean": not os.listdir(runtime_root),
+    }
 
-bounded_exit, _, bounded_adapter, bounded_reaped, bounded_output = run_case(10454, False)
-cancel_exit, cancel_sent, cancel_adapter, cancel_reaped, cancel_output = run_case(10455, True)
+bounded_case = run_case(10454)
+cancel_case = run_case(10455, cancel=True)
+startup_cancel_case = run_case(10456, cancel=True, startup_mode="block")
+startup_exit_case = run_case(10457, startup_mode="exit")
 bounded = (
-    bounded_exit == 1
-    and bounded_reaped
-    and not bounded_adapter
-    and b"could not hand the terminal" in bounded_output
+    bounded_case["exit"] == 1
+    and bounded_case["reaped"]
+    and not bounded_case["adapter"]
+    and b"could not hand the terminal" in bounded_case["output"]
 )
-cancelled = cancel_sent and cancel_exit == 130 and cancel_reaped and not cancel_adapter
+cancelled = (
+    cancel_case["cancel_sent"]
+    and cancel_case["exit"] == 130
+    and cancel_case["reaped"]
+    and not cancel_case["adapter"]
+)
+startup_cancelled = (
+    startup_cancel_case["blocked"]
+    and startup_cancel_case["cancel_sent"]
+    and startup_cancel_case["exit"] == 130
+    and startup_cancel_case["reaped"]
+    and startup_cancel_case["runtime_clean"]
+    and not startup_cancel_case["adapter"]
+    and not startup_cancel_case["ready"]
+    and not startup_cancel_case["foreground"]
+    and startup_cancel_case["launcher_foreground"]
+)
+startup_exit_preserved = (
+    startup_exit_case["exit"] == 42
+    and startup_exit_case["reaped"]
+    and startup_exit_case["runtime_clean"]
+    and not startup_exit_case["adapter"]
+)
 with open(results_file, "w", encoding="utf-8") as results:
     results.write(f"bounded={int(bounded)}\n")
     results.write(f"cancelled={int(cancelled)}\n")
+    results.write(f"startup_cancelled={int(startup_cancelled)}\n")
+    results.write(f"startup_exit_preserved={int(startup_exit_preserved)}\n")
 if not bounded:
-    sys.stderr.write(
-        f"bounded_exit={bounded_exit} reaped={bounded_reaped} "
-        f"adapter={bounded_adapter}\n"
-    )
-    sys.stderr.buffer.write(bounded_output)
+    sys.stderr.write(f"bounded: {bounded_case}\n")
+    sys.stderr.buffer.write(bounded_case["output"])
 if not cancelled:
-    sys.stderr.write(
-        f"cancel_exit={cancel_exit} sent={cancel_sent} reaped={cancel_reaped} "
-        f"adapter={cancel_adapter}\n"
-    )
-    sys.stderr.buffer.write(cancel_output)
-sys.exit(0 if bounded and cancelled else 1)
+    sys.stderr.write(f"cancellation: {cancel_case}\n")
+    sys.stderr.buffer.write(cancel_case["output"])
+if not startup_cancelled:
+    sys.stderr.write(f"startup cancellation: {startup_cancel_case}\n")
+    sys.stderr.buffer.write(startup_cancel_case["output"])
+if not startup_exit_preserved:
+    sys.stderr.write(f"startup exit: {startup_exit_case}\n")
+    sys.stderr.buffer.write(startup_exit_case["output"])
+sys.exit(0 if all((bounded, cancelled, startup_cancelled, startup_exit_preserved)) else 1)
 PY
 _assert_exit "terminal gate: a failed foreground probe is bounded" 0 "$gate_exit"
 if [[ -r "$gate_results" ]]; then
@@ -324,6 +418,10 @@ _assert_contains "terminal gate: reports foreground handoff failure" \
   "bounded=1" "$gate_result_text"
 _assert_contains "terminal gate: cancellation launches no adapter" \
   "cancelled=1" "$gate_result_text"
+_assert_contains "terminal gate: startup Ctrl-C stays with the launcher until traps are armed" \
+  "startup_cancelled=1" "$gate_result_text"
+_assert_contains "terminal gate: preserves a worker failure before readiness" \
+  "startup_exit_preserved=1" "$gate_result_text"
 
 # Exercise a real controlling PTY rather than piping input. macOS Bash job
 # control differs from noninteractive subprocess behavior: Ctrl-Z is terminal

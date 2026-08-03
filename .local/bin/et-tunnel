@@ -55,6 +55,10 @@ run_transport_worker() {
   trap 'trap "" INT; : >"$worker_runtime_dir/transport.interrupted"; kill -KILL 0 2>/dev/null || exit 130' INT
   trap '' TERM HUP
   set +m
+  # The launcher must not foreground this process group before its terminal
+  # signal traps are armed. Otherwise an immediate Ctrl-C can be lost during
+  # Bash startup and a later foreground-probe failure masks the cancellation.
+  : >"$worker_runtime_dir/transport.ready" || return 1
 
   if ((worker_terminal_handoff == 1)); then
     # Do not start an interactive adapter in the background. Reads from the
@@ -1110,7 +1114,8 @@ cleanup_local() {
       "$runtime_dir/transport.pid" "$runtime_dir/control.attached" \
       "$runtime_dir/control.stop" "$runtime_dir/transport.foreground" \
       "$runtime_dir/transport.foreground.failed" \
-      "$runtime_dir/transport.interrupted" "$runtime_dir/transport.status" \
+      "$runtime_dir/transport.interrupted" "$runtime_dir/transport.ready" \
+      "$runtime_dir/transport.status" \
       "$runtime_dir/transport.status.tmp"
     rmdir "$runtime_dir" 2>/dev/null || true
   fi
@@ -1227,6 +1232,7 @@ run_transport() {
   local stdout_log="$runtime_dir/stdout" stderr_log="$runtime_dir/stderr"
   local stdout_fifo="$runtime_dir/stdout.fifo" stderr_fifo="$runtime_dir/stderr.fifo"
   local foreground_status=0 handoff_resume_count=0 pre_attach_resume_count=0
+  local worker_ready_deadline=0 worker_ready_timed_out=0
   local pre_attach_stop_signal=""
   local transport_job="" transport_reaped=0 use_terminal_handoff=0
 
@@ -1258,7 +1264,7 @@ run_transport() {
   rm -f "$runtime_dir/transport.pid" "$runtime_dir/control.attached" \
     "$runtime_dir/control.stop" "$runtime_dir/transport.foreground" \
     "$runtime_dir/transport.foreground.failed" \
-    "$runtime_dir/transport.interrupted"
+    "$runtime_dir/transport.interrupted" "$runtime_dir/transport.ready"
   set -m
   # POSIX preserves SIG_IGN across exec, which caused macOS adapters to inherit
   # an unwanted Ctrl-Z policy during authentication. A caught no-op disposition
@@ -1279,22 +1285,71 @@ run_transport() {
     return 1
   fi
   printf '%s\n' "$transport_pid" >"$runtime_dir/transport.pid"
-  control_handoff_helper "$$" "$use_terminal_handoff" &
-  control_helper_pid=$!
-  control_helper_job=$(job_for_pid "$control_helper_pid")
-  if [[ -z "$control_helper_job" ]]; then
-    printf 'et-tunnel: could not identify the control helper job\n' >&2
-    kill_transport_tree "$transport_pid"
-    stop_control_helper_now
-    set +m
-    return 1
+  if ((use_terminal_handoff == 1)); then
+    worker_ready_deadline=$((SECONDS + FOREGROUND_GATE_TIMEOUT))
+    while [[ ! -e "$runtime_dir/transport.ready" ]] &&
+      ((pending_signal == 0)) && transport_is_running; do
+      if ((SECONDS >= worker_ready_deadline)); then
+        printf 'et-tunnel: timed out preparing the transport for terminal handoff\n' >&2
+        worker_ready_timed_out=1
+        break
+      fi
+      # A synchronous command becomes the terminal's foreground process group
+      # under monitor mode. Keep the launcher foreground so Ctrl-C reaches its
+      # pending-signal trap while the worker is still gated.
+      sleep 0.01 &
+      wait "$!" 2>/dev/null || true
+    done
+
+    if ((pending_signal != 0)); then
+      # The launcher still owns the terminal until readiness is published, so a
+      # signal here cannot have reached an adapter or created remote state.
+      # Reap the blocked worker locally and preserve the conventional status.
+      signal_status="$pending_signal"
+      : >"$runtime_dir/control.stop"
+      kill_transport_tree "$transport_pid"
+      wait "$transport_job" 2>/dev/null || true
+      foreground_status="$signal_status"
+      transport_reaped=1
+    elif ((worker_ready_timed_out == 1)); then
+      : >"$runtime_dir/control.stop"
+      kill_transport_tree "$transport_pid"
+      wait "$transport_job" 2>/dev/null || true
+      foreground_status=1
+      transport_reaped=1
+    elif [[ ! -e "$runtime_dir/transport.ready" ]]; then
+      # Preserve a worker failure that happens before trap readiness rather than
+      # waiting for a marker that can no longer be published.
+      wait "$transport_job" 2>/dev/null || foreground_status=$?
+      transport_reaped=1
+    fi
+  fi
+
+  if ((transport_reaped == 0)); then
+    control_handoff_helper "$$" "$use_terminal_handoff" &
+    control_helper_pid=$!
+    control_helper_job=$(job_for_pid "$control_helper_pid")
+    if [[ -z "$control_helper_job" ]]; then
+      printf 'et-tunnel: could not identify the control helper job\n' >&2
+      : >"$runtime_dir/control.stop"
+      kill_transport_tree "$transport_pid"
+      stop_control_helper_now
+      wait "$transport_job" 2>/dev/null || true
+      foreground_status=1
+      transport_reaped=1
+    fi
+  fi
+  if ((transport_reaped == 1)); then
+    # Do not leave a reaped PID in the cleanup ledger when force-stop traps
+    # become active; the kernel may already have reused it for another process.
+    transport_pid=""
   fi
   install_stop_traps
-  if ((pending_signal != 0)); then
+  if ((pending_signal != 0 && signal_status == 0)); then
     stop_transport "$pending_signal"
   fi
 
-  if ((use_terminal_handoff == 1)); then
+  if ((use_terminal_handoff == 1 && transport_reaped == 0)); then
     # fg simultaneously transfers the terminal and waits for job state. On
     # macOS, an adapter can stop with TTIN/TSTP during that transition and fg
     # returns a signal-shaped status even though the same job is still healthy.
