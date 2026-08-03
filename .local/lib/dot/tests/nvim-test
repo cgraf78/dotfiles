@@ -462,6 +462,27 @@ echo ""
 echo "=== keymaps: vscode selection ==="
 
 result=$(_nvim_vscode_keys '
+  for _, key in ipairs({ "<C-/>", "<C-_>" }) do
+    for _, mode in ipairs({ "n", "x", "i" }) do
+      local mapping = vim.fn.maparg(key, mode, false, true)
+      local rhs = mapping.rhs and vim.fn.keytrans(mapping.rhs) or ""
+      print(key .. ":" .. mode .. ":" .. rhs .. ":" .. tostring(mapping.noremap == 0))
+    end
+  end
+')
+expected="$(printf '<C-/>:n:gcc:true\n<C-/>:x:gc:true\n<C-/>:i:<lt>Esc>gcca:true\n<C-_>:n:gcc:true\n<C-_>:x:gc:true\n<C-_>:i:<lt>Esc>gcca:true')"
+_assert_eq "comments: Ctrl+/ and its legacy Ctrl-_ terminal encoding share mappings" \
+  "$expected" "$result"
+
+result=$(_nvim_vscode_keys '
+  local physical_backtick = vim.keycode("<C-`>")
+  local nul = string.char(0)
+  print(physical_backtick ~= nul)
+')
+_assert_eq "terminal encoding: physical Ctrl+backtick stays distinct from NUL" \
+  "true" "$result"
+
+result=$(_nvim_vscode_keys '
   vim.api.nvim_buf_set_lines(0, 0, -1, false, {"abcdef"})
   vim.api.nvim_feedkeys(
     vim.api.nvim_replace_termcodes("gg0vll", true, false, true) .. string.char(7),

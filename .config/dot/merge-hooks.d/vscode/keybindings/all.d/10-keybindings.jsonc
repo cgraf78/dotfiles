@@ -1,5 +1,11 @@
 // Common VS Code keybindings (all platforms).
-// Platform-specific keybindings live in vscode/keybindings/<platform>.d/.
+//
+// Put baseline workbench/client policy here. A terminal-owned chord that must
+// reach the pty whenever terminalFocus is true also belongs here and must not
+// depend on Termnav. Do not add a sendSequence merely because Neovim maps the
+// key: if normal VS Code/xterm resolution already transports it correctly,
+// leave it unmanaged. Neovim-only overrides belong in 20-nvim-focus.jsonc;
+// platform translations of either policy belong under <platform>.d/.
 [
   // Goto line
   {
@@ -81,6 +87,15 @@
     "key": "ctrl+l",
     "command": "workbench.action.terminal.sendSequence",
     "args": { "text": "\u000c" },
+    "when": "terminalFocus"
+  },
+  // Legacy terminal protocols encode Ctrl+/ as Ctrl-_ (US, 0x1f). Neovim
+  // maps both spellings so this remains useful without the Termnav sensor and
+  // keeps its conventional readline undo meaning in ordinary shells.
+  {
+    "key": "ctrl+/",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001f" },
     "when": "terminalFocus"
   },
   {
