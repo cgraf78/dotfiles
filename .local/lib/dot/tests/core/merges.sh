@@ -2030,6 +2030,15 @@ JSON
   },
   {
     "identifier": {
+      "id": "cgraf.termnav"
+    },
+    "relativeLocation": "termnav-0.2.0",
+    "metadata": {
+      "source": "local"
+    }
+  },
+  {
+    "identifier": {
       "id": "cgraf.retired-local"
     },
     "relativeLocation": "retired-local-0.0.1",
@@ -2067,6 +2076,9 @@ JSON
   "version": "0.2.0"
 }
 JSON
+    ln -s \
+      "$vscode_home/.local/share/cgraf78/termnav/share/termnav/vscode/termnav-0.2.0" \
+      "$vscode_home/.vscode/extensions/termnav-0.2.0"
     ln -s \
       "$vscode_home/.local/share/cgraf78/termnav/share/termnav/vscode/termnav-0.2.0" \
       "$vscode_home/.vscode-no-termnav/extensions/termnav-0.2.0"
@@ -2139,6 +2151,61 @@ JSON
   },
   {
     "key": "ctrl+/",
+    "command": "editor.action.commentLine",
+    "when": "terminalFocus && !termnav.nvimFocused"
+  },
+  {
+    "key": "ctrl+.",
+    "command": "editor.action.quickFix",
+    "when": "terminalFocus && !termnav.nvimFocused"
+  },
+  {
+    "key": "ctrl+\\",
+    "command": "workbench.action.splitEditor",
+    "when": "terminalFocus && !termnav.nvimFocused"
+  },
+  {
+    "key": "ctrl+shift+e",
+    "command": "workbench.view.explorer",
+    "when": "terminalFocus && !termnav.nvimFocused"
+  },
+  {
+    "key": "ctrl+shift+f",
+    "command": "workbench.view.search",
+    "when": "terminalFocus && !termnav.nvimFocused"
+  },
+  {
+    "key": "ctrl+shift+m",
+    "command": "workbench.actions.view.problems",
+    "when": "terminalFocus && !termnav.nvimFocused"
+  },
+  {
+    "key": "ctrl+shift+p",
+    "command": "workbench.action.showCommands",
+    "when": "terminalFocus && !termnav.nvimFocused"
+  },
+  {
+    "key": "shift+cmd+f",
+    "command": "workbench.view.search",
+    "when": "terminalFocus && !termnav.nvimFocused"
+  },
+  {
+    "key": "shift+cmd+p",
+    "command": "workbench.action.showCommands",
+    "when": "terminalFocus && !termnav.nvimFocused"
+  },
+  {
+    "key": "ctrl+shift+v",
+    "command": "workbench.action.terminal.paste",
+    "when": "terminalFocus && !termnav.nvimFocused"
+  },
+  {
+    "key": "ctrl+shift+v",
+    "command": "editor.action.clipboardPasteAction",
+    "when": "textInputFocus && !editorReadonly && !terminalFocus"
+  },
+  {
+    "key": "cmd+/",
     "command": "editor.action.commentLine",
     "when": "terminalFocus && !termnav.nvimFocused"
   }
@@ -3368,6 +3435,9 @@ JSON
     _assert_eq "vscode local extensions: registration uses the manifest version" \
       "0.3.0" \
       "$(jq -r '.[] | select(.identifier.id == "cgraf.termnav") | .version' "$vscode_home/.vscode/extensions/extensions.json")"
+    _assert_eq "vscode termnav: enabled upgrade keeps one current registration" \
+      '["termnav-0.3.0"]' \
+      "$(jq -c '[.[] | select(.identifier.id == "cgraf.termnav") | .relativeLocation]' "$vscode_home/.vscode/extensions/extensions.json")"
     _assert_eq "vscode local extensions: only declared extensions are registered" \
       '["cgraf.sley-tools","cgraf.termnav"]' \
       "$(jq -c '[.[] | select(.metadata.source == "local") | .identifier.id]' "$vscode_home/.vscode/extensions/extensions.json")"
@@ -3394,6 +3464,8 @@ JSON
     else
       _fail "vscode termnav: extension symlink deployed"
     fi
+    _assert_file_missing "vscode termnav: enabled upgrade prunes older generation" \
+      "$vscode_home/.vscode/extensions/termnav-0.2.0"
     _assert_eq "vscode remote settings: generated window title uses remote host label" \
       "$vscode_title_expected" \
       "$(jq -r '.["window.title"]' "$vscode_home/.vscode-server/data/Machine/settings.json")"
@@ -3516,12 +3588,25 @@ JSON
       "$vscode_home/.vscode-no-termnav/extensions/termnav-0.3.0"
     _assert_file_missing "vscode termnav: no-termnav removes older adapter symlinks" \
       "$vscode_home/.vscode-no-termnav/extensions/termnav-0.2.0"
-    _assert_eq "vscode keybindings: PR 90 review-build fallback is retired exactly" \
+    _assert_eq "vscode keybindings: every PR 90 review-build fallback is retired exactly" \
       "0" \
       "$(jq '[.[] | select(
-        .key == "ctrl+/"
-        and .command == "editor.action.commentLine"
-        and .when == "terminalFocus && !termnav.nvimFocused"
+        [.key, .command, (.when // "")] as $route
+        | [
+            ["ctrl+.", "editor.action.quickFix", "terminalFocus && !termnav.nvimFocused"],
+            ["ctrl+/", "editor.action.commentLine", "terminalFocus && !termnav.nvimFocused"],
+            ["ctrl+\\", "workbench.action.splitEditor", "terminalFocus && !termnav.nvimFocused"],
+            ["ctrl+shift+e", "workbench.view.explorer", "terminalFocus && !termnav.nvimFocused"],
+            ["ctrl+shift+f", "workbench.view.search", "terminalFocus && !termnav.nvimFocused"],
+            ["ctrl+shift+m", "workbench.actions.view.problems", "terminalFocus && !termnav.nvimFocused"],
+            ["ctrl+shift+p", "workbench.action.showCommands", "terminalFocus && !termnav.nvimFocused"],
+            ["shift+cmd+f", "workbench.view.search", "terminalFocus && !termnav.nvimFocused"],
+            ["shift+cmd+p", "workbench.action.showCommands", "terminalFocus && !termnav.nvimFocused"],
+            ["ctrl+shift+v", "workbench.action.terminal.paste", "terminalFocus && !termnav.nvimFocused"],
+            ["ctrl+shift+v", "editor.action.clipboardPasteAction", "textInputFocus && !editorReadonly && !terminalFocus"],
+            ["cmd+/", "editor.action.commentLine", "terminalFocus && !termnav.nvimFocused"]
+          ]
+          | index($route)
       )] | length' "$vscode_home/.config/NoTermnav/User/keybindings.json")"
     _assert_vscode_focus_fallback_keybindings \
       "$vscode_home/.config/NoTermnav/User/keybindings.json" "Linux"
@@ -3538,12 +3623,20 @@ JSON
       "$vscode_missing_termnav_home/.config/dot/merge-hooks.d/vscode/variants.d" \
       "$vscode_missing_termnav_home/.vscode-no-termnav/extensions" \
       "$vscode_missing_termnav_home/dev/termnav-9.9.9" \
-      "$vscode_missing_termnav_home/managed/termnav-0.2.0"
+      "$vscode_missing_termnav_home/managed/termnav-0.2.0" \
+      "$vscode_missing_termnav_home/managed/termnav-tools-0.1.0"
     cat >"$vscode_missing_termnav_home/managed/termnav-0.2.0/package.json" <<'JSON'
 {
   "name": "termnav",
   "publisher": "cgraf",
   "version": "0.2.0"
+}
+JSON
+    cat >"$vscode_missing_termnav_home/managed/termnav-tools-0.1.0/package.json" <<'JSON'
+{
+  "name": "termnav-tools",
+  "publisher": "cgraf",
+  "version": "0.1.0"
 }
 JSON
     cat >"$vscode_missing_termnav_home/dev/termnav-9.9.9/package.json" <<'JSON'
@@ -3559,6 +3652,8 @@ JSON
       "$vscode_missing_termnav_home/.vscode-no-termnav/extensions/termnav-0.1.0"
     ln -s "$vscode_missing_termnav_home/dev/termnav-9.9.9" \
       "$vscode_missing_termnav_home/.vscode-no-termnav/extensions/termnav-9.9.9"
+    ln -s "$vscode_missing_termnav_home/managed/termnav-tools-0.1.0" \
+      "$vscode_missing_termnav_home/.vscode-no-termnav/extensions/termnav-tools-0.1.0"
     cat >"$vscode_missing_termnav_home/.vscode-no-termnav/extensions/extensions.json" <<'JSON'
 [
   {
@@ -3605,6 +3700,11 @@ EOF
       _pass "vscode termnav: opt-out preserves same-ID development symlink"
     else
       _fail "vscode termnav: opt-out preserves same-ID development symlink"
+    fi
+    if [[ -L "$vscode_missing_termnav_home/.vscode-no-termnav/extensions/termnav-tools-0.1.0" ]]; then
+      _pass "vscode termnav: opt-out preserves same-parent prefix sibling"
+    else
+      _fail "vscode termnav: opt-out preserves same-parent prefix sibling"
     fi
 
     vscode_nosley_settings=$(jq -c . "$vscode_home/.config/NoSley/User/settings.json")

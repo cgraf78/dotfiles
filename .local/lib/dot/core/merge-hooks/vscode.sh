@@ -907,7 +907,10 @@ _prune_vscode_extension_versions() {
     target_name="${target##*/}"
     [[ "$target_dir" == "$managed_parent" ]] || continue
     [[ "$candidate_dir" == "$target_name" ]] || continue
-    [[ "$target_name" == "$extension_name" || "$target_name" == "${extension_name}-"* ]] || continue
+    # Versioned local-extension directories use a numeric semver suffix. The
+    # digit boundary prevents an ID such as `cgraf.sley` from claiming the
+    # sibling `sley-tools-*` family inside the shared managed parent.
+    [[ "$target_name" == "$extension_name" || "$target_name" == "${extension_name}-"[0-9]* ]] || continue
     rm -f "$candidate"
   done
 }
