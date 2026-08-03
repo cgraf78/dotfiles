@@ -39,6 +39,8 @@ jobs:
       - name: Refresh and validate tracked schemas
         id: refresh
         shell: bash
+        env:
+          CHECKRUN_SCHEMA_ASSOCIATIONS: ${{ github.workspace }}/.config/checkrun/associations.json
         run: |
           set -euo pipefail
 
