@@ -30,8 +30,19 @@ awk '$1 == "fd" && $2 == "pkg" && $0 ~ /android:fd/ { found = 1 }
 awk '$1 == "neovim/neovim" && $2 == "custom" && $0 !~ /os:!android/ { found = 1 }
      END { exit !found }' "$deps" ||
   fail "Neovim custom installer is not enabled on Android"
+awk '$1 == "watchexec" && $2 == "pkg" &&
+       $0 ~ /os:macos,os:android/ { found = 1 }
+     END { exit !found }' "$deps" ||
+  fail "Watchexec lacks its Android package policy"
+awk '$1 == "watchexec\/watchexec" && $2 == "github" &&
+       $0 ~ /os:!macos,os:!android/ { found = 1 }
+     END { exit !found }' "$deps" ||
+  fail "Watchexec GitHub install is not excluded on Android"
+awk '$1 == "fujiapple852\/trippy" && $2 == "github" &&
+       $0 ~ /os:!macos,os:!android/ { found = 1 }
+     END { exit !found }' "$deps" ||
+  fail "Trippy GitHub install is not excluded on Android"
 
-pkg install -y neovim >/dev/null 2>&1 || fail "Termux could not install Neovim"
 command -v nvim >/dev/null || fail "Termux Neovim package did not provide nvim"
 nvim --version 2>&1 | awk 'NR == 1 && $1 == "NVIM" { found = 1 }
                            END { exit !found }' ||
@@ -41,4 +52,8 @@ PATH="$root/.local/bin:$PATH" NVIM_LAUNCHER_FORCE_NEW=1 nvim --version 2>&1 |
        END { exit !found }' ||
   fail "dotfiles nvim launcher does not delegate on Android"
 
-printf 'Android Termux Neovim policy smoke passed\n'
+command -v watchexec >/dev/null || fail "dot update did not install Watchexec"
+watchexec --version >/dev/null 2>&1 ||
+  fail "Termux Watchexec binary does not run"
+
+printf 'Android Termux developer tool policy smoke passed\n'

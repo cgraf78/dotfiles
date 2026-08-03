@@ -54,8 +54,12 @@ MOCK
   _ci_in_shell_with=0
   _ci_forces_dotfiles_update=0
   _ci_uses_full_matrix=0
-  _ci_termux_runs_smoke=0
+  _ci_line_number=0
+  _ci_termux_update_line=0
+  _ci_termux_smoke_line=0
+  _ci_termux_uses_base_profile=0
   while IFS= read -r _ci_line; do
+    _ci_line_number=$((_ci_line_number + 1))
     _ci_code=${_ci_line%%#*}
     if [[ "$_ci_code" =~ ^jobs:[[:space:]]*$ ]]; then
       _ci_in_jobs=1
@@ -84,8 +88,16 @@ MOCK
       _ci_has_public_pin=1
     fi
     if ((_ci_in_shell_with)) &&
-      [[ "$_ci_code" =~ ^[[:space:]]{8}bash[[:space:]]+\.local/lib/dot/tests/android-ci-smoke[[:space:]]*$ ]]; then
-      _ci_termux_runs_smoke=1
+      [[ "$_ci_code" =~ ^[[:space:]]{8}HOME=\"\$PWD\"[[:space:]]+PATH=\"\$PWD/\.local/bin:\$PATH\"[[:space:]]+\.local/bin/dot[[:space:]]+update[[:space:]]+--skip-pull[[:space:]]*$ ]]; then
+      _ci_termux_update_line=$_ci_line_number
+    fi
+    if ((_ci_in_shell_with)) &&
+      [[ "$_ci_code" =~ ^[[:space:]]{8}HOME=\"\$PWD\"[[:space:]]+PATH=\"\$PWD/\.local/bin:\$PATH\"[[:space:]]+bash[[:space:]]+\.local/lib/dot/tests/android-ci-smoke[[:space:]]*$ ]]; then
+      _ci_termux_smoke_line=$_ci_line_number
+    fi
+    if ((_ci_in_shell_with)) &&
+      [[ "$_ci_code" =~ ^[[:space:]]{6}termux-profiles:[[:space:]]+base,neovim[[:space:]]*$ ]]; then
+      _ci_termux_uses_base_profile=1
     fi
     if [[ "$_ci_code" =~ ^[[:space:]]*secrets: ]]; then
       _ci_forwards_secrets=1
@@ -112,10 +124,20 @@ MOCK
   else
     _fail "CI workflow: requests full platform matrix"
   fi
-  if ((_ci_termux_runs_smoke)); then
+  if ((_ci_termux_smoke_line > 0)); then
     _pass "CI workflow: routes Android policy smoke through shell CI"
   else
     _fail "CI workflow: routes Android policy smoke through shell CI"
+  fi
+  if ((_ci_termux_update_line > 0 && _ci_termux_update_line < _ci_termux_smoke_line)); then
+    _pass "CI workflow: runs dot update in Termux before policy smoke"
+  else
+    _fail "CI workflow: runs dot update in Termux before policy smoke"
+  fi
+  if ((_ci_termux_uses_base_profile)); then
+    _pass "CI workflow: provides Termux bootstrap prerequisites"
+  else
+    _fail "CI workflow: provides Termux bootstrap prerequisites"
   fi
   _assert_not_contains "CI workflow: has no obsolete ds deploy key" \
     "DS_DEPLOY_KEY" "$_ci_workflow"

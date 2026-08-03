@@ -356,18 +356,27 @@ for _dependency in watchexec/watchexec fujiapple852/trippy; do
     "$REAL_HOME/.config/shdeps/10-deps.conf")
   _assert_eq "developer tool: $_dependency uses the native github updater" \
     "github" "$(awk '{ print $2 }' <<<"$_dependency_dep")"
-  _assert_contains "developer tool: $_dependency excludes macOS github installs" \
-    "os:!macos" "$_dependency_dep"
+  _assert_contains "developer tool: $_dependency excludes macOS and Android github installs" \
+    "os:!macos,os:!android" "$_dependency_dep"
 done
 
-for _developer_tool in watchexec trippy; do
-  _developer_tool_dep=$(awk -v name="$_developer_tool" '$1 == name && $2 == "pkg" { print; exit }' \
-    "$REAL_HOME/.config/shdeps/10-deps.conf")
-  _assert_eq "developer tool: $_developer_tool uses Homebrew on macOS" \
-    "pkg" "$(awk '{ print $2 }' <<<"$_developer_tool_dep")"
-  _assert_contains "developer tool: $_developer_tool package route is macOS-only" \
-    "os:macos" "$_developer_tool_dep"
-done
+_watchexec_pkg_dep=$(
+  awk '$1 == "watchexec" && $2 == "pkg" { print; exit }' \
+    "$REAL_HOME/.config/shdeps/10-deps.conf"
+)
+_assert_eq "developer tool: watchexec uses native packages" \
+  "pkg" "$(awk '{ print $2 }' <<<"$_watchexec_pkg_dep")"
+_assert_contains "developer tool: watchexec package route includes macOS and Android" \
+  "os:macos,os:android" "$_watchexec_pkg_dep"
+
+_trippy_pkg_dep=$(
+  awk '$1 == "trippy" && $2 == "pkg" { print; exit }' \
+    "$REAL_HOME/.config/shdeps/10-deps.conf"
+)
+_assert_eq "developer tool: trippy uses Homebrew on macOS" \
+  "pkg" "$(awk '{ print $2 }' <<<"$_trippy_pkg_dep")"
+_assert_contains "developer tool: trippy package route is macOS-only" \
+  "os:macos" "$_trippy_pkg_dep"
 _assert_eq "watchexec: command is watchexec" "watchexec" \
   "$(awk '$1 == "watchexec/watchexec" { print $3; exit }' "$REAL_HOME/.config/shdeps/10-deps.conf")"
 _assert_eq "trippy: command is trip" "trip" \
