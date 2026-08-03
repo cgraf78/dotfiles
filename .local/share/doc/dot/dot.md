@@ -142,6 +142,17 @@ the affected dependency details. For example, a user-owned local checkout that
 cannot fast-forward stays untouched and usable while the update reports that it
 may be serving stale code.
 
+Required-stage failures are different: repository sync, overlay linking,
+dependency installation, and config merge hook failures make `dot update`
+return nonzero. The command remains best effort and runs every later safe stage
+before returning, so one failed dependency does not prevent config convergence
+or cleanup. An initial shdeps bootstrap failure stops before overlay discovery
+because platform and host filters are not available safely.
+
+Advisory dependency warnings, optional overlay skips, cron's dirty-worktree
+skip, cron lock contention, and best-effort worktree normalization retain a
+zero exit status.
+
 If a pull updates dot infrastructure such as `.local/lib/dot/` or
 `.local/bin/dot`, the command re-execs itself so the remainder of the update
 uses the new code.

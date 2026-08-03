@@ -18,6 +18,7 @@ _dot_update_no_base_pull() {
   else
     _ui_stage_finish "$status" "no base repo"
   fi
+  [[ "${DOT_PULL_OVERLAY_FAILED:-0}" -eq 0 ]]
 }
 
 _dot_update_head() {
@@ -163,25 +164,32 @@ _dot_update_sync_repos() {
 }
 
 _dot_update_finalize() {
+  local update_status="${1:-0}" shdeps_ready=0
   if [[ "${DOT_UI_TOTAL:-0}" -le 0 ]]; then
     _ui_begin 4
   fi
   _ensure_repo_config
-  _link_overlays
-  _ensure_shdeps
+  _link_overlays || update_status=1
+  if _ensure_shdeps; then
+    shdeps_ready=1
+  else
+    update_status=1
+  fi
   _ui_stage_start "Tools" "checking configured dependencies"
-  if declare -f shdeps_update &>/dev/null; then
+  if [[ "$shdeps_ready" -eq 1 ]] && declare -f shdeps_update &>/dev/null; then
     if _run_shdeps_update_ui; then
       _ui_stage_finish "${DOT_UI_SHDEPS_STATUS:-ok}" "${DOT_UI_SHDEPS_SUMMARY:-dependencies checked}"
       _shdeps_print_group_summaries
     else
+      update_status=1
       _ui_stage_finish failed "${DOT_UI_SHDEPS_SUMMARY:-dependency update failed}"
       _shdeps_print_group_summaries
     fi
   else
-    _ui_stage_finish warning "shdeps unavailable; dependency install skipped"
+    update_status=1
+    _ui_stage_finish failed "shdeps unavailable; dependency install skipped"
   fi
-  _run_merges
+  _run_merges || update_status=1
   if [[ -d "$DOTFILES" ]]; then
     _ui_stage_start "Cleanup" "normalizing worktree"
     _normalize_filtered
@@ -190,11 +198,12 @@ _dot_update_finalize() {
     _ui_stage_start "Cleanup" "normalizing worktree"
     _ui_stage_finish ok "no base repo"
   fi
-  _ui_done
+  _ui_done "$update_status"
+  return "$update_status"
 }
 
 _dot_update() {
-  local cron_mode=0 skip_pull=0
+  local cron_mode=0 skip_pull=0 update_status=0
 
   while [[ "${1:-}" == -* ]]; do
     case "$1" in
@@ -242,6 +251,7 @@ _dot_update() {
   # snippets, so merge those snippets before any pull that may clone overlays.
   _merge_overlay_ssh_configs
 
-  _dot_update_sync_repos "$skip_pull" "$cron_mode" "$@"
-  _dot_update_finalize
+  _dot_update_sync_repos "$skip_pull" "$cron_mode" "$@" || update_status=1
+  _dot_update_finalize "$update_status" || update_status=1
+  return "$update_status"
 }

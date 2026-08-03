@@ -684,6 +684,144 @@ CONF
     _assert_file_exists "update: generic tool linked into PATH" "$TEST_HOME/.local/bin/test-tool"
     _assert_file_content "update: generic hook ran" "$TEST_HOME/.local/share/fixture/hook-pack" "$TEST_HOME/.test-hooks/hook-pack"
 
+    finalize_marker_dir=$(_tmpdir)
+    finalize_rc=0
+    (
+      # shellcheck disable=SC2329  # invoked dynamically by update finalization.
+      _ensure_repo_config() { :; }
+      # shellcheck disable=SC2329  # invoked dynamically by update finalization.
+      _link_overlays() { :; }
+      # shellcheck disable=SC2329  # invoked dynamically by update finalization.
+      _ensure_shdeps() { :; }
+      # shellcheck disable=SC2329  # invoked dynamically by update finalization.
+      _run_shdeps_update_ui() { return 1; }
+      # shellcheck disable=SC2329  # invoked dynamically by update finalization.
+      _shdeps_print_group_summaries() { :; }
+      # shellcheck disable=SC2329  # invoked dynamically by update finalization.
+      _run_merges() { : >"$finalize_marker_dir/merges"; }
+      # shellcheck disable=SC2329  # invoked dynamically by update finalization.
+      _normalize_filtered() { : >"$finalize_marker_dir/cleanup"; }
+      DOT_QUIET=1 DOT_UI_TOTAL=0 _dot_update_finalize
+    ) || finalize_rc=$?
+    _assert_exit "update finalize: dependency failure is nonzero" \
+      1 "$finalize_rc"
+    _assert_file_exists "update finalize: dependency failure still runs merges" \
+      "$finalize_marker_dir/merges"
+    _assert_file_exists "update finalize: dependency failure still runs cleanup" \
+      "$finalize_marker_dir/cleanup"
+
+    overlay_marker_dir=$(_tmpdir)
+    overlay_rc=0
+    (
+      # shellcheck disable=SC2329  # invoked dynamically by update finalization.
+      _ensure_repo_config() { :; }
+      # shellcheck disable=SC2329  # invoked dynamically by update finalization.
+      _link_overlays() { return 1; }
+      # shellcheck disable=SC2329  # invoked dynamically by update finalization.
+      _ensure_shdeps() { :; }
+      # shellcheck disable=SC2329  # invoked dynamically by update finalization.
+      _run_shdeps_update_ui() { return 0; }
+      # shellcheck disable=SC2329  # invoked dynamically by update finalization.
+      _shdeps_print_group_summaries() { :; }
+      # shellcheck disable=SC2329  # invoked dynamically by update finalization.
+      _run_merges() { : >"$overlay_marker_dir/merges"; }
+      # shellcheck disable=SC2329  # invoked dynamically by update finalization.
+      _normalize_filtered() { : >"$overlay_marker_dir/cleanup"; }
+      DOT_QUIET=1 DOT_UI_TOTAL=0 _dot_update_finalize
+    ) || overlay_rc=$?
+    _assert_exit "update finalize: overlay link failure is nonzero" \
+      1 "$overlay_rc"
+    _assert_file_exists "update finalize: overlay failure still runs merges" \
+      "$overlay_marker_dir/merges"
+    _assert_file_exists "update finalize: overlay failure still runs cleanup" \
+      "$overlay_marker_dir/cleanup"
+
+    warning_rc=0
+    (
+      # shellcheck disable=SC2329  # invoked dynamically by update finalization.
+      _ensure_repo_config() { :; }
+      # shellcheck disable=SC2329  # invoked dynamically by update finalization.
+      _link_overlays() { :; }
+      # shellcheck disable=SC2329  # invoked dynamically by update finalization.
+      _ensure_shdeps() { :; }
+      # shellcheck disable=SC2329  # invoked dynamically by update finalization.
+      _run_shdeps_update_ui() {
+        # shellcheck disable=SC2034  # consumed dynamically by the finalizer.
+        DOT_UI_SHDEPS_STATUS=warning
+        # shellcheck disable=SC2034  # consumed dynamically by the finalizer.
+        DOT_UI_SHDEPS_SUMMARY="1 warning, 2 current"
+        return 0
+      }
+      # shellcheck disable=SC2329  # invoked dynamically by update finalization.
+      _shdeps_print_group_summaries() { :; }
+      # shellcheck disable=SC2329  # invoked dynamically by update finalization.
+      _run_merges() { :; }
+      # shellcheck disable=SC2329  # invoked dynamically by update finalization.
+      _normalize_filtered() { :; }
+      DOT_QUIET=1 DOT_UI_TOTAL=0 _dot_update_finalize
+    ) || warning_rc=$?
+    _assert_exit "update finalize: dependency warning remains successful" \
+      0 "$warning_rc"
+
+    no_base_pull_rc=0
+    (
+      # shellcheck disable=SC2329  # invoked dynamically by no-base update sync.
+      _ensure_repo_config() { :; }
+      # shellcheck disable=SC2329  # invoked dynamically by no-base update sync.
+      _pull_overlays() {
+        # shellcheck disable=SC2034  # consumed dynamically by no-base update sync.
+        DOT_PULL_OVERLAY_FAILED=1
+        REPLY="1 repo failed"
+        return 0
+      }
+      DOT_QUIET=1 DOT_UI_TOTAL=0 _dot_update_no_base_pull
+    ) || no_base_pull_rc=$?
+    _assert_exit "update no-base sync: required overlay failure is nonzero" \
+      1 "$no_base_pull_rc"
+
+    sync_marker_dir=$(_tmpdir)
+    sync_rc=0
+    (
+      # shellcheck disable=SC2329  # invoked dynamically by update orchestration.
+      _merge_overlay_ssh_configs() { :; }
+      # shellcheck disable=SC2329  # invoked dynamically by update orchestration.
+      _dot_update_sync_repos() { return 1; }
+      # shellcheck disable=SC2329  # invoked dynamically by update orchestration.
+      _dot_update_finalize() {
+        printf '%s' "${1:-missing}" >"$sync_marker_dir/finalize"
+        return "${1:-0}"
+      }
+      DOT_QUIET=1 _dot_update --skip-pull
+    ) || sync_rc=$?
+    _assert_exit "update orchestration: repository failure is nonzero" \
+      1 "$sync_rc"
+    _assert_file_exists "update orchestration: repository failure still finalizes" \
+      "$sync_marker_dir/finalize"
+    _assert_file_content "update orchestration: finalizer receives prior failure" \
+      "1" "$sync_marker_dir/finalize"
+
+    mkdir -p "$TEST_HOME/.local/lib/dot/core/merge-hooks"
+    cat >"$TEST_HOME/.local/lib/dot/core/merge-hooks/failapp.sh" <<'MERGE'
+merge() {
+  return 1
+}
+MERGE
+    update_failure_rc=0
+    result=$(
+      SHDEPS_TEST_TOOL_REPO="$TEST_TOOL_ORIGIN" \
+        SHDEPS_HOOK_PACK_REPO="$HOOK_PACK_ORIGIN" \
+        "$BIN_DIR/dot" update --skip-pull 2>&1
+    ) || update_failure_rc=$?
+    rm -f "$TEST_HOME/.local/lib/dot/core/merge-hooks/failapp.sh"
+    _assert_exit "update launcher: preserves aggregate failure status" \
+      1 "$update_failure_rc"
+    _assert_contains "update launcher: reports config hook warning" \
+      "Configs    warning" "$result"
+    _assert_contains "update launcher: still runs cleanup after config failure" \
+      "Cleanup    ok" "$result"
+    _assert_contains "update launcher: completion reports errors" \
+      "Done with errors in" "$result"
+
     dot_fixture_file_origin UPDATE_OVERLAY_BARE "work-file" "update overlay content"
     UPDATE_OVERLAY_DIR="$TEST_HOME/.dotfiles-work"
     rm -rf "$UPDATE_OVERLAY_DIR"

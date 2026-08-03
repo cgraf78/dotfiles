@@ -67,8 +67,9 @@ case "${1:-}" in
     fi
     _ensure_shdeps
     _discover_overlays
-    _dot_update "$@"
-    exit 0
+    _dot_update_rc=0
+    _dot_update "$@" || _dot_update_rc=$?
+    exit "$_dot_update_rc"
     ;;
   pull)
     shift

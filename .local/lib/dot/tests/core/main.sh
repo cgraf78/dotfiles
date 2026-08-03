@@ -594,6 +594,18 @@ MOCK
   )
   _assert_not_contains "done UI: dotu suppresses redundant reload hint" \
     "Reload your shell" "$result"
+  result=$(
+    _ui_begin 1
+    _ui_done 0
+  )
+  _assert_contains "done UI: successful update keeps success message" \
+    "Done in" "$result"
+  result=$(
+    _ui_begin 1
+    _ui_done 1
+  )
+  _assert_contains "done UI: failed update reports completed errors" \
+    "Done with errors in" "$result"
 
   unset -f shdeps_update _define_shdeps_update_fixture
   unset DOT_UPDATE_RELOADS_SHELL DOT_UPDATE_SUBPHASE_THRESHOLD_MS DOT_UI_FORCE_LIVE DOT_UI_TICK_SECONDS
