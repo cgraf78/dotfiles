@@ -42,3 +42,109 @@ jobs:
         HOME="$PWD" PATH="$PWD/.local/bin:$PATH" .local/bin/dot update --skip-pull
         HOME="$PWD" PATH="$PWD/.local/bin:$PATH" bash .local/lib/dot/tests/android-ci-smoke
       termux-profiles: base,neovim
+
+  cold-bootstrap:
+    name: Cold Ubuntu bootstrap
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install bootstrap prerequisites
+        uses: cgraf78/actions/.github/actions/shell-ci-prereqs@8eaac8e384ae89e9c1aaf675dd23689cfe73fa7c
+        with:
+          matrix-name: Ubuntu
+          setup: dotfiles
+
+      - name: Create an exact origin and conventional user
+        shell: bash
+        run: |-
+          set -euo pipefail
+
+          staging=$(mktemp -d /tmp/dotfiles-cold-bootstrap.XXXXXXXX)
+          chmod 0755 "$staging"
+          cp "$GITHUB_WORKSPACE/.local/bin/dotbootstrap" "$staging/dotbootstrap"
+          origin="$staging/origin.git"
+          git init --bare "$origin"
+          git push "$origin" "$GITHUB_SHA:refs/heads/main"
+          git --git-dir="$origin" symbolic-ref HEAD refs/heads/main
+          echo "COLD_BOOTSTRAP_SCRIPT=$staging/dotbootstrap" >>"$GITHUB_ENV"
+          echo "COLD_DOTFILES_ORIGIN=$origin" >>"$GITHUB_ENV"
+
+          sudo useradd --create-home --shell /bin/bash dotfiles-ci
+          echo 'dotfiles-ci ALL=(ALL) NOPASSWD:ALL' |
+          sudo tee /etc/sudoers.d/dotfiles-ci >/dev/null
+          sudo chmod 0440 /etc/sudoers.d/dotfiles-ci
+          sudo visudo -cf /etc/sudoers.d/dotfiles-ci
+          sudo chown -R dotfiles-ci:dotfiles-ci "$staging"
+
+      - name: Bootstrap, update, install, and diagnose
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |-
+          set -euo pipefail
+
+          sudo --preserve-env=CI,GH_TOKEN,GITHUB_TOKEN -H -u dotfiles-ci \
+            bash -s -- \
+            "$COLD_BOOTSTRAP_SCRIPT" "$COLD_DOTFILES_ORIGIN" "$GITHUB_SHA" <<'BASH'
+          set -euo pipefail
+          bootstrap=$1
+          origin=$2
+          expected=$3
+
+          test "$HOME" = /home/dotfiles-ci
+          # sudo -H sets HOME but keeps the runner cwd, which this user cannot traverse.
+          cd "$HOME"
+          unset XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME XDG_RUNTIME_DIR
+          unset GIT_CONFIG_GLOBAL GIT_CONFIG_SYSTEM GIT_CONFIG_NOSYSTEM GIT_CONFIG_COUNT
+          unset MISE_DATA_DIR MISE_STATE_DIR MISE_CACHE_DIR MISE_CONFIG_DIR
+
+          retry() {
+            local attempt rc delay
+            for attempt in 1 2 3; do
+              if "$@"; then
+                return 0
+              else
+                rc=$?
+              fi
+              if [[ "$attempt" -eq 3 ]]; then
+                return "$rc"
+              fi
+              delay=$((attempt * 15))
+              echo "$* failed (attempt $attempt/3, exit $rc); retrying in ${delay}s..." >&2
+              sleep "$delay"
+            done
+          }
+
+          test ! -e "$HOME/.dotfiles"
+          test ! -e "$HOME/.local/share/shdeps"
+          test ! -e "$HOME/.cache/mise"
+          export GIT_TERMINAL_PROMPT=0
+          export GIT_SSH_COMMAND='ssh -o BatchMode=yes -o ConnectTimeout=5'
+
+          # Preserve the clean-install signal: only the idempotent post-bootstrap
+          # network phases below receive bounded retries.
+          DOTBOOTSTRAP_DOTFILES_REPO="$origin" DOTFILES_BRANCH=main \
+            bash -s init <"$bootstrap"
+
+          export PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:$PATH"
+          test -e "$HOME/.dotbootstrap-done"
+          test "$(git --git-dir="$HOME/.dotfiles" rev-parse HEAD)" = "$expected"
+
+          retry dot update
+          mise trust "$HOME/.config/mise/config.toml" >/dev/null || true
+          export MISE_GITHUB_TOKEN="$GITHUB_TOKEN"
+          retry mise install --locked
+          for tool in actionlint ruff shellcheck shfmt zizmor; do
+            command -v "$tool" >/dev/null
+          done
+          dot doctor
+
+          test "$(git --git-dir="$HOME/.dotfiles" rev-parse HEAD)" = "$expected"
+          BASH

@@ -149,6 +149,54 @@ MOCK
   else
     _fail "CI workflow: provides Termux bootstrap prerequisites"
   fi
+  _ci_cold_bootstrap=$(awk '
+    /^  cold-bootstrap:/ { capture = 1; job = $1 }
+    capture && /^  [a-zA-Z0-9_-]+:/ && $1 != job { exit }
+    capture { print }
+  ' <<<"$_ci_workflow")
+  _assert_contains "CI workflow: schedules an uncached cold bootstrap" \
+    "cold-bootstrap:" "$_ci_cold_bootstrap"
+  _assert_contains "CI workflow: cold bootstrap is schedule or manual only" \
+    "if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'" \
+    "$_ci_cold_bootstrap"
+  _assert_contains "CI workflow: cold bootstrap uses a conventional user" \
+    "useradd --create-home --shell /bin/bash dotfiles-ci" "$_ci_cold_bootstrap"
+  _assert_contains "CI workflow: cold bootstrap verifies its conventional HOME" \
+    "test \"\$HOME\" = /home/dotfiles-ci" "$_ci_cold_bootstrap"
+  _assert_contains "CI workflow: cold bootstrap clears runner configuration roots" \
+    "unset XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME XDG_RUNTIME_DIR" \
+    "$_ci_cold_bootstrap"
+  _ci_cold_home_line=$(grep -nF "          cd \"\$HOME\"" <<<"$_ci_cold_bootstrap" | cut -d: -f1)
+  _ci_cold_init_line=$(grep -nF "            bash -s init <\"\$bootstrap\"" <<<"$_ci_cold_bootstrap" | cut -d: -f1)
+  if [[ -n "$_ci_cold_home_line" && -n "$_ci_cold_init_line" &&
+    "$_ci_cold_home_line" -lt "$_ci_cold_init_line" ]]; then
+    _pass "CI workflow: cold bootstrap starts from the conventional HOME"
+  else
+    _fail "CI workflow: cold bootstrap starts from the conventional HOME"
+  fi
+  _assert_contains "CI workflow: cold bootstrap pins its exact commit to main" \
+    "git push \"\$origin\" \"\$GITHUB_SHA:refs/heads/main\"" "$_ci_cold_bootstrap"
+  _assert_contains "CI workflow: cold bootstrap origin has complete history" \
+    "fetch-depth: 0" "$_ci_cold_bootstrap"
+  _assert_contains "CI workflow: cold bootstrap uses the stdin install path" \
+    "bash -s init <\"\$bootstrap\"" "$_ci_cold_bootstrap"
+  _assert_contains "CI workflow: cold bootstrap follows with a normal update" \
+    "          retry dot update" "$_ci_cold_bootstrap"
+  _assert_contains "CI workflow: cold bootstrap preserves terminal retry failures" \
+    $'              else\n                rc=$?\n              fi' \
+    "$_ci_cold_bootstrap"
+  _assert_contains "CI workflow: cold bootstrap retries locked Mise downloads" \
+    "retry mise install --locked" \
+    "$_ci_cold_bootstrap"
+  _ci_cold_sha_checks=$(grep -Fc \
+    "git --git-dir=\"\$HOME/.dotfiles\" rev-parse HEAD)" \
+    <<<"$_ci_cold_bootstrap")
+  _assert_eq "CI workflow: cold bootstrap verifies SHA before and after update" \
+    "2" "$_ci_cold_sha_checks"
+  _assert_not_contains "CI workflow: cold bootstrap does not restore dependency caches" \
+    "actions/cache" "$_ci_cold_bootstrap"
+  _assert_not_contains "CI workflow: cold bootstrap does not skip pulling" \
+    "--skip-pull" "$_ci_cold_bootstrap"
   _assert_not_contains "CI workflow: has no obsolete ds deploy key" \
     "DS_DEPLOY_KEY" "$_ci_workflow"
   if ((_ci_forwards_secrets)); then
