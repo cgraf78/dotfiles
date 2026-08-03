@@ -192,5 +192,50 @@
     "key": "ctrl+p",
     "command": "workbench.action.quickOpen",
     "when": "terminalFocus && !termnav.nvimFocused"
+  },
+
+  // These punctuation chords mirror Neovim's VS Code-style actions. VS Code's
+  // built-in editor bindings are normally disabled while a terminal has focus,
+  // so make the host half explicit when Termnav says Neovim does not own it.
+  {
+    "key": "ctrl+.",
+    "command": "editor.action.quickFix",
+    "when": "terminalFocus && !termnav.nvimFocused"
+  },
+  {
+    "key": "ctrl+/",
+    "command": "editor.action.commentLine",
+    "when": "terminalFocus && !termnav.nvimFocused"
+  },
+  {
+    "key": "ctrl+\\",
+    "command": "workbench.action.splitEditor",
+    "when": "terminalFocus && !termnav.nvimFocused"
+  },
+
+  // These workbench chords intentionally match Neovim's VS Code-style maps.
+  // Declare the host halves explicitly instead of relying on built-in
+  // bindings: the paired nvim rules must remain deterministic as VS Code
+  // defaults evolve, while an absent Termnav extension still makes the
+  // negated context true and preserves normal host behavior.
+  {
+    "key": "ctrl+shift+e",
+    "command": "workbench.view.explorer",
+    "when": "terminalFocus && !termnav.nvimFocused"
+  },
+  {
+    "key": "ctrl+shift+f",
+    "command": "workbench.view.search",
+    "when": "terminalFocus && !termnav.nvimFocused"
+  },
+  {
+    "key": "ctrl+shift+m",
+    "command": "workbench.actions.view.problems",
+    "when": "terminalFocus && !termnav.nvimFocused"
+  },
+  {
+    "key": "ctrl+shift+p",
+    "command": "workbench.action.showCommands",
+    "when": "terminalFocus && !termnav.nvimFocused"
   }
 ]

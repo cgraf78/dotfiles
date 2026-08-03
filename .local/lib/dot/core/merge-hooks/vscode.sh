@@ -1028,7 +1028,10 @@ _vscode_record_variant() {
     [[ -d "$ext_dir" ]] || return 0
   fi
 
-  if [[ -n "$opts" ]]; then
+  # A dash reserves the options column when later macOS app-identity metadata
+  # is present. Treat it as empty so adding bundle/executable identity beside a
+  # variant cannot leak a fake option into merge behavior.
+  if [[ -n "$opts" && "$opts" != "-" ]]; then
     printf '%s\t%s\t%s\n' "$ext_dir" "$cfg_dir" "$opts"
   else
     printf '%s\t%s\n' "$ext_dir" "$cfg_dir"

@@ -56,8 +56,39 @@ Neovim is not focused: positive Neovim routes stay inactive, negated host
 routes stay active, and chords without an explicit host override fall through
 to VS Code's normal defaults.
 
+Ctrl+Shift letters use CSI-u so Shift is not collapsed into the corresponding
+plain Ctrl byte. The merge test inventories literal `<C-S-letter>` mappings
+under Neovim's Lua config and requires each one to have the correctly encoded
+focused route. This deliberate development-time coupling prevents a new
+VSCode-style Neovim mapping from silently becoming host-owned; satisfying it
+normally requires editing only the JSONC source, not the generic merge hook.
+The same inventory scans literal Ctrl+single-punctuation mappings. Known
+punctuation has explicit terminal and Karabiner vocabulary; a new symbol fails
+closed until that cross-layer spelling and sequence are deliberately added.
+The exception is a physical chord whose existing Karabiner translation loses
+information or collides with a different macOS shortcut. In that case the
+keyboard layer must preserve a distinct observed chord as well. Ctrl+Shift+V
+is the current example: keeping it raw avoids conflating Neovim's yank history
+with macOS Shift+Cmd+V, which VS Code uses for Markdown preview.
+
 On macOS, Karabiner remains the only modifier-remapping layer. The macOS VS
 Code bindings merely route the Cmd chord that Karabiner already produced: they
 run the ordinary VS Code command outside Neovim and send the corresponding
-terminal sequence while `termnav.nvimFocused` is true. Ctrl+Arrow stays raw in
-VS Code under the existing Karabiner exemptions and uses the common bindings.
+terminal sequence while `termnav.nvimFocused` is true. For each supported VS
+Code application, tests resolve Karabiner's first matching structured
+manipulator and require the generated keybindings to route the chord it
+actually emits. This models app conditions and rule order rather than
+duplicating a list of today's translated keys. Ctrl+Arrow and the deliberately
+distinct Ctrl+Shift+V stay raw and use common bindings. The supported
+applications and their concrete bundle/executable identities come from the
+variant manifest, so adding an editor cannot silently omit it from this
+cross-layer proof.
+
+This ownership policy applies when an integrated terminal has focus: Neovim
+gets the chord when it owns the active pane, and the VS Code workbench gets it
+otherwise. It does not redefine Windows-style shortcuts for ordinary macOS
+editor focus; those remain the responsibility of the existing Karabiner
+profile and VS Code defaults. The narrow Ctrl+Shift+V editor binding preserves
+the historical paste behavior after Karabiner stopped translating that
+physical chord; it is compatibility glue for the raw-chord exception above,
+not a second general editor-shortcut policy.

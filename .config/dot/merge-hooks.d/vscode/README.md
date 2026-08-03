@@ -11,7 +11,13 @@ source families and private helpers live in this directory.
   overlay can replace the whole managed-extension policy with an empty
   manifest.
 - `variants.d/` declares VS Code, VS Code Insiders, Cursor, and remote variant
-  targets.
+  targets. Darwin rows also carry each application's concrete bundle ID and
+  executable path relative to its app bundle. Those identities belong beside
+  the target declaration because Karabiner can match either one, and VS Code
+  must agree about which application receives a translated chord; tests use
+  the same fields to catch a newly supported editor that the keyboard layer
+  forgot. A `-` reserves an otherwise empty options column when later metadata
+  is present, rather than turning manifest layout into runtime behavior.
 - `local-extensions.d/` declares local extension directories that should be
   symlinked into active variants. The termnav adapter is loaded from shdeps'
   stable `$HOME/.local/share/cgraf78/termnav` dependency root so local,

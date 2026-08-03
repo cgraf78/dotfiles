@@ -418,17 +418,325 @@ JSON
   echo "=== Karabiner source config ==="
 
   if command -v jq >/dev/null 2>&1; then
-    karabiner_src="$REAL_HOME/.config/dot/merge-hooks.d/karabiner/profiles.d/10-windows-dotfiles.json"
-    karabiner_ctrl_arrow_vscode_exemptions=$(
-      jq -r '
-        def vscode_bundle_ids:
-          [
-            "^com\\.facebook\\.fbvscode$",
-            "^com\\.facebook\\.fbvscode-insiders$",
-            "^com\\.microsoft\\.VSCode$",
-            "^com\\.vscodium$"
-          ];
+    karabiner_src=$(_tmpfile)
+    # Build exactly the effective source production consumes. Karabiner profile
+    # families support overlays, replacement groups, and duplicate profile
+    # names whose later source wins; reading the base file would let any of
+    # those mechanisms bypass this cross-layer routing proof.
+    (
+      # shellcheck source=/dev/null
+      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/karabiner.sh"
+      HOME="$REAL_HOME" _karabiner_profile_sources
+      _karabiner_build_source "$karabiner_src"
+      cp "$REPLY" "$karabiner_src"
+      rm -f "$REPLY"
+    )
+    karabiner_duplicate_first=$(_tmpfile)
+    karabiner_duplicate_later=$(_tmpfile)
+    karabiner_duplicate_effective=$(_tmpfile)
+    cat >"$karabiner_duplicate_first" <<'JSON'
+{"profiles":[{"name":"Duplicate","marker":"first"}]}
+JSON
+    cat >"$karabiner_duplicate_later" <<'JSON'
+{"profiles":[{"name":"Duplicate","marker":"later"}]}
+JSON
+    (
+      # shellcheck source=/dev/null
+      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/karabiner.sh"
+      _karabiner_sources=(
+        "$karabiner_duplicate_first"
+        "$karabiner_duplicate_later"
+      )
+      _karabiner_build_source "$karabiner_duplicate_effective"
+      cp "$REPLY" "$karabiner_duplicate_effective"
+      rm -f "$REPLY"
+    )
+    _assert_eq "karabiner source: duplicate profile names collapse to one later winner" \
+      '[{"name":"Duplicate","marker":"later"}]' \
+      "$(jq -c '.profiles' "$karabiner_duplicate_effective")"
+    vscode_darwin_variants=$(_tmpfile)
+    # Ask production discovery for the effective variant family instead of
+    # naming the base manifest. Overlays can add rows or replace the family, and
+    # bypassing that selection here would let an editor ship without entering
+    # the Karabiner/keybinding compatibility proof below. The subshell keeps the
+    # hook functions from leaking into unrelated merge-hook tests.
+    (
+      # shellcheck source=/dev/null
+      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+      while IFS= read -r vscode_variants_src; do
+        while IFS=$'\t' read -r platform marker extensions_dir config_dir \
+          options bundle_id executable_relpath; do
+          _vscode_platform_matches "$platform" "Darwin" || continue
+          # Extension-only wildcard rows never receive local keybindings and
+          # therefore need no macOS application identity. A wildcard row with
+          # a config target does receive them and must enter this proof.
+          config_dir=$(HOME="$REAL_HOME" _vscode_expand_path "$config_dir")
+          [[ -n "$config_dir" ]] || continue
+          # Variant markers accept several safe home/app-directory spellings.
+          # Reuse production expansion so an overlay cannot be simulated under
+          # a literal placeholder that the real hook would resolve.
+          marker=$(HOME="$REAL_HOME" _vscode_expand_path "$marker")
+          printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+            "$platform" "$marker" "$extensions_dir" "$config_dir" "$options" \
+            "$bundle_id" "$executable_relpath"
+        done <"$vscode_variants_src"
+      done < <(HOME="$REAL_HOME" _vscode_variant_sources)
+    ) >"$vscode_darwin_variants"
+    # Concrete bundle IDs live on the effective Darwin rows that deploy these
+    # macOS keybindings. Keeping identity beside the variant target prevents a
+    # second hand-maintained app list from silently drifting.
+    karabiner_vscode_apps=$(
+      awk -F '\t' '
+        $6 != "" && $6 != "-" && $7 != "" && $7 != "-" {
+          print $2 "\t" $6 "\t" $7
+        }
+      ' \
+        "$vscode_darwin_variants" |
+        jq -Rsc '
+          split("\n")
+          | map(
+              select(length > 0)
+              | split("\t")
+              | . as $fields
+              | (
+                  $fields[0]
+                ) as $marker
+              | {
+                  marker: $marker,
+                  path: (
+                    $marker + "/" + $fields[2]
+                  ),
+                  bundle: $fields[1],
+                  executable_relpath: $fields[2]
+                }
+            )
+        '
+    )
+    _assert_eq "vscode variants: every Darwin target declares concrete Karabiner identity" \
+      "$(awk 'END { print NR + 0 }' "$vscode_darwin_variants")" \
+      "$(jq 'length' <<<"$karabiner_vscode_apps")"
+    karabiner_vscode_identity_validation=$(
+      jq -nc --argjson apps "$karabiner_vscode_apps" '
+        def valid_identity:
+          (.bundle | test("^[A-Za-z0-9-]+(\\.[A-Za-z0-9-]+)+$"))
+          and (
+            .executable_relpath
+            | test("^Contents/MacOS/[A-Za-z0-9][A-Za-z0-9._ ()+-]*$")
+          );
+        {
+          violations: [
+            $apps[]
+            | select(valid_identity | not)
+            | {
+                bundle,
+                executable_relpath
+              }
+          ],
+          rejected_fixtures: (
+            [
+              {
+                bundle: "${BUNDLE_ID}",
+                executable_relpath: "Contents/MacOS/Foo"
+              },
+              {
+                bundle: "com.example.Foo",
+                executable_relpath: "/tmp/Foo"
+              },
+              {
+                bundle: "com.example.Foo",
+                executable_relpath: "Contents/MacOS/../Foo"
+              },
+              {
+                bundle: "com.example.Foo",
+                executable_relpath: "Contents/MacOS/${EXECUTABLE}"
+              },
+              {
+                bundle: "com.example.Foo",
+                executable_relpath: "Contents/MacOS/."
+              },
+              {
+                bundle: "com.example.Foo",
+                executable_relpath: "Contents/MacOS/.."
+              }
+            ]
+            | map(select(valid_identity | not))
+            | length
+          )
+        }
+      '
+    )
+    _assert_eq "vscode variants: macOS identity is concrete and app-relative" \
+      '{"violations":[],"rejected_fixtures":6}' \
+      "$karabiner_vscode_identity_validation"
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+      while IFS=$'\t' read -r app_marker declared_executable declared_bundle; do
+        [[ -d "$app_marker" ]] || continue
+        # The manifest still covers apps absent from this host, but an installed
+        # app is authoritative about its executable name. Validate both its
+        # Info.plist and filesystem so an editor update cannot leave path-based
+        # Karabiner simulation pointed at a plausible but nonexistent binary.
+        plist_executable=$(
+          /usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" \
+            "$app_marker/Contents/Info.plist"
+        )
+        plist_bundle=$(
+          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" \
+            "$app_marker/Contents/Info.plist"
+        )
+        _assert_eq "vscode variants: installed app executable matches its manifest" \
+          "$app_marker/Contents/MacOS/$plist_executable" \
+          "$declared_executable"
+        _assert_eq "vscode variants: installed app bundle ID matches its manifest" \
+          "$plist_bundle" "$declared_bundle"
+        if [[ -x "$declared_executable" ]]; then
+          _pass "vscode variants: declared installed app executable exists"
+        else
+          _fail "vscode variants: declared installed app executable exists"
+        fi
+      done < <(
+        jq -r '.[] | [.marker, .path, .bundle] | @tsv' \
+          <<<"$karabiner_vscode_apps"
+      )
+    fi
+    karabiner_vscode_bundle_ids=$(
+      jq -c '[.[].bundle]' <<<"$karabiner_vscode_apps"
+    )
+    # Sole cross-layer vocabulary for Ctrl+punctuation. Shape validation,
+    # generated bindings, and the macOS first-match simulator all consume this
+    # array so adding a symbol cannot update only one layer of the proof.
+    vscode_punctuation_routes=$(
+      jq -nc '
+        [
+          {
+            vscode_key: "ctrl+.",
+            karabiner_key: "period",
+            sequence: "\u001b[46;5u",
+            host: {
+              command: "editor.action.quickFix",
+              when: "terminalFocus && !termnav.nvimFocused"
+            }
+          },
+          {
+            vscode_key: "ctrl+/",
+            karabiner_key: "slash",
+            sequence: "\u001f",
+            host: {
+              command: "editor.action.commentLine",
+              when: "terminalFocus && !termnav.nvimFocused"
+            }
+          },
+          {
+            vscode_key: "ctrl+`",
+            karabiner_key: "grave_accent_and_tilde",
+            sequence: "\u0000",
+            host: {
+              command: "workbench.action.focusActiveEditorGroup",
+              when: "terminalFocus && terminalIsOpen"
+            }
+          },
+          {
+            vscode_key: "ctrl+\\",
+            karabiner_key: "backslash",
+            sequence: "\u001c",
+            host: {
+              command: "workbench.action.splitEditor",
+              when: "terminalFocus && !termnav.nvimFocused"
+            }
+          }
+        ]
+      '
+    )
+    karabiner_vscode_manipulators=$(
+      jq -c --argjson vscode "$karabiner_vscode_apps" '
+        [
+          $vscode[] as $app
+          | $app + {
+              manipulators: [
+                .profiles[]
+                | select(.name == "Windows (Dotfiles)")
+                | .complex_modifications.rules[].manipulators[]
+              ]
+            }
+        ]
+      ' "$karabiner_src"
+    )
+    karabiner_vscode_shape_violations=$(
+      jq -c --argjson punctuation "$vscode_punctuation_routes" '
+        def subset($allowed):
+          type == "array"
+          and all(.[]; . as $value | $allowed | index($value) != null);
+        def keys_only($allowed):
+          type == "object" and ((keys - $allowed) | length) == 0;
+        def strings:
+          type == "array" and all(.[]; type == "string");
+        def known_key:
+          . as $key
+          | ($key | test("^[a-z]$"))
+            or any(
+              $punctuation[];
+              .karabiner_key == $key
+            );
+        def relevant:
+          ((.from.key_code // "") | known_key)
+          and (
+            (.from.modifiers.mandatory // [])
+            | all(.[];
+                . == "control"
+                or . == "shift"
+                or . == "left_control"
+                or . == "right_control"
+                or . == "left_shift"
+                or . == "right_shift"
+                or . == "any")
+          );
+        def supported:
+          keys_only(["conditions", "from", "to", "type"])
+          and .type == "basic"
+          and (.from | keys_only(["key_code", "modifiers"]))
+          and (
+            (.from.modifiers // {})
+            | keys_only(["mandatory", "optional"])
+          )
+          and (
+            (.from.modifiers.mandatory // [])
+            | subset(["control", "shift"])
+          )
+          and (
+            (.from.modifiers.optional // [])
+            | subset(["any", "command", "control", "option", "shift"])
+          )
+          and (.to | type == "array" and length == 1)
+          and (.to[0] | keys_only(["key_code", "modifiers"]))
+          and ((.to[0].key_code // "") | known_key)
+          and (
+            (.to[0].modifiers // [])
+            | subset(["command", "control", "option", "shift"])
+          )
+          and (
+            (.conditions // [])
+            | type == "array"
+            and all(.[];
+                keys_only(["bundle_identifiers", "file_paths", "type"])
+                and (
+                  .type == "frontmost_application_if"
+                  or .type == "frontmost_application_unless"
+                )
+                and ((.bundle_identifiers // []) | strings)
+                and ((.file_paths // []) | strings))
+          );
 
+        [
+          .[].manipulators[]
+          | select(relevant and (supported | not))
+          | { from, to, conditions }
+        ]
+        | unique
+      ' <<<"$karabiner_vscode_manipulators"
+    )
+    _assert_eq "vscode mac routing oracle: relevant Karabiner shapes are modeled losslessly" \
+      "[]" "$karabiner_vscode_shape_violations"
+    karabiner_ctrl_arrow_vscode_exemptions=$(
+      jq -r --argjson vscode "$karabiner_vscode_bundle_ids" '
         [
           .profiles[]
           | select(.name == "Windows (Dotfiles)")
@@ -438,9 +746,14 @@ JSON
               "Left Arrow (Ctrl)",
               "Right Arrow (Ctrl+Shift)",
               "Right Arrow (Ctrl)"
-            ] | index($desc))
+          ] | index($desc))
           | .manipulators[0].conditions[0].bundle_identifiers as $bundles
-          | select(vscode_bundle_ids | all(. as $bundle | $bundles | index($bundle)))
+          | select(
+              $vscode
+              | all(. as $bundle
+                  | $bundles
+                  | any(. as $pattern | $bundle | test($pattern)))
+            )
         ] | length
       ' "$karabiner_src"
     )
@@ -448,15 +761,7 @@ JSON
       "4" "$karabiner_ctrl_arrow_vscode_exemptions"
 
     karabiner_home_end_vscode_exemptions=$(
-      jq -r '
-        def vscode_bundle_ids:
-          [
-            "^com\\.facebook\\.fbvscode$",
-            "^com\\.facebook\\.fbvscode-insiders$",
-            "^com\\.microsoft\\.VSCode$",
-            "^com\\.vscodium$"
-          ];
-
+      jq -r --argjson vscode "$karabiner_vscode_bundle_ids" '
         [
           .profiles[]
           | select(.name == "Windows (Dotfiles)")
@@ -470,9 +775,14 @@ JSON
               "End (Shift)",
               "End (Ctrl)",
               "End"
-            ] | index($desc))
+          ] | index($desc))
           | .manipulators[0].conditions[0].bundle_identifiers as $bundles
-          | select(vscode_bundle_ids | all(. as $bundle | $bundles | index($bundle)))
+          | select(
+              $vscode
+              | all(. as $bundle
+                  | $bundles
+                  | any(. as $pattern | $bundle | test($pattern)))
+            )
         ] | length
       ' "$karabiner_src"
     )
@@ -480,15 +790,7 @@ JSON
       "8" "$karabiner_home_end_vscode_exemptions"
 
     karabiner_clipboard_vscode_mappings=$(
-      jq -r '
-        def vscode_bundle_ids:
-          [
-            "^com\\.facebook\\.fbvscode$",
-            "^com\\.facebook\\.fbvscode-insiders$",
-            "^com\\.microsoft\\.VSCode$",
-            "^com\\.vscodium$"
-          ];
-
+      jq -r --argjson vscode "$karabiner_vscode_bundle_ids" '
         [
           .profiles[]
           | select(.name == "Windows (Dotfiles)")
@@ -501,12 +803,18 @@ JSON
           | .conditions[]
           | select(.type == "frontmost_application_unless")
           | .bundle_identifiers as $bundles
-          | select(vscode_bundle_ids | all(. as $bundle | $bundles | index($bundle) | not))
+          | select(
+              $vscode
+              | all(. as $bundle
+                  | $bundles
+                  | all(. as $pattern | $bundle | test($pattern) | not))
+            )
         ] | length
       ' "$karabiner_src"
     )
     _assert_eq "karabiner: Windows profile owns VS Code Ctrl+C/V to Cmd+C/V remapping" \
       "2" "$karabiner_clipboard_vscode_mappings"
+
   else
     echo "  SKIP: Karabiner source assertions (jq unavailable)"
   fi
@@ -560,7 +868,6 @@ EOF
       merge
     }
     HOME="$karabiner_home" PATH="$karabiner_bin:$PATH" _run_karabiner_merge_for_test
-    unset -f _run_karabiner_merge_for_test merge 2>/dev/null
     karabiner_output=$(jq -c . "$karabiner_home/.config/karabiner/karabiner.json")
     _assert_contains "karabiner merge: local-only profile preserved" \
       '{"name":"Local Only"}' "$karabiner_output"
@@ -570,6 +877,24 @@ EOF
       '"stale":true' "$karabiner_output"
     _assert_contains "karabiner merge: source-only profile appended" \
       '{"name":"Source Only"}' "$karabiner_output"
+
+    # First install used to copy a single source byte-for-byte, bypassing the
+    # duplicate-name policy used by later merges and by the routing oracle.
+    # Exercise that lifecycle boundary with both duplicates in one source.
+    cat >"$karabiner_home/.config/dot/merge-hooks.d/karabiner/profiles.d/10-profiles.json" <<'JSON'
+{
+    "profiles": [
+        {"name": "Duplicate", "marker": "first"},
+        {"name": "Duplicate", "marker": "later"}
+    ]
+}
+JSON
+    rm -f "$karabiner_home/.config/karabiner/karabiner.json"
+    HOME="$karabiner_home" PATH="$karabiner_bin:$PATH" _run_karabiner_merge_for_test
+    _assert_eq "karabiner merge: first install applies the later duplicate winner" \
+      '[{"name":"Duplicate","marker":"later"}]' \
+      "$(jq -c '.profiles' "$karabiner_home/.config/karabiner/karabiner.json")"
+    unset -f _run_karabiner_merge_for_test merge 2>/dev/null
   else
     echo "  SKIP: Karabiner merge hook assertions (jq unavailable)"
   fi
@@ -883,6 +1208,33 @@ EOF
       _assert_eq "vscode mac terminal: Cmd+P reaches nvim after Karabiner translates Ctrl+P" \
         "1" \
         "$(jq '[.[] | select(.key == "cmd+p" and .command == "workbench.action.terminal.sendSequence" and .when == "terminalFocus && termnav.nvimFocused" and .args.text == "\u0010")] | length' "$keybindings_file")"
+      _assert_eq "vscode mac terminal: Cmd+Shift+P opens Command Palette outside nvim" \
+        "1" \
+        "$(jq '[.[] | select(.key == "shift+cmd+p" and .command == "workbench.action.showCommands" and .when == "terminalFocus && !termnav.nvimFocused")] | length' "$keybindings_file")"
+      _assert_eq "vscode mac terminal: Cmd+Shift+P reaches nvim after Karabiner translates Ctrl+Shift+P" \
+        "1" \
+        "$(jq '[.[] | select(.key == "shift+cmd+p" and .command == "workbench.action.terminal.sendSequence" and .when == "terminalFocus && termnav.nvimFocused" and .args.text == "\u001b[112;6u")] | length' "$keybindings_file")"
+      _assert_eq "vscode mac terminal: Cmd+Shift+F opens Search outside nvim" \
+        "1" \
+        "$(jq '[.[] | select(.key == "shift+cmd+f" and .command == "workbench.view.search" and .when == "terminalFocus && !termnav.nvimFocused")] | length' "$keybindings_file")"
+      _assert_eq "vscode mac terminal: Cmd+Shift+F reaches nvim" \
+        "1" \
+        "$(jq '[.[] | select(.key == "shift+cmd+f" and .command == "workbench.action.terminal.sendSequence" and .when == "terminalFocus && termnav.nvimFocused" and .args.text == "\u001b[102;6u")] | length' "$keybindings_file")"
+      _assert_eq "vscode mac terminal: raw Ctrl+Shift+V pastes outside nvim" \
+        "1" \
+        "$(jq '[.[] | select(.key == "ctrl+shift+v" and .command == "workbench.action.terminal.paste" and .when == "terminalFocus && !termnav.nvimFocused")] | length' "$keybindings_file")"
+      _assert_eq "vscode mac terminal: raw Ctrl+Shift+V reaches nvim yank history" \
+        "1" \
+        "$(jq '[.[] | select(.key == "ctrl+shift+v" and .command == "workbench.action.terminal.sendSequence" and .when == "terminalFocus && termnav.nvimFocused" and .args.text == "\u001b[118;6u")] | length' "$keybindings_file")"
+      _assert_eq "vscode mac editor: Ctrl+Shift+V translation retains historical paste behavior" \
+        "1" \
+        "$(jq '[.[] | select(.key == "ctrl+shift+v" and .command == "editor.action.clipboardPasteAction" and .when == "textInputFocus && !editorReadonly && !terminalFocus")] | length' "$keybindings_file")"
+      _assert_eq "vscode mac editor: native Cmd+Shift+V remains available to VS Code" \
+        "0" \
+        "$(jq '[.[] | select(.key == "shift+cmd+v")] | length' "$keybindings_file")"
+      _assert_eq "vscode mac terminal: Cmd+/ reaches nvim as Ctrl+/" \
+        "1" \
+        "$(jq '[.[] | select(.key == "cmd+/" and .command == "workbench.action.terminal.sendSequence" and .when == "terminalFocus && termnav.nvimFocused" and .args.text == "\u001f")] | length' "$keybindings_file")"
     }
 
     _assert_vscode_terminal_clipboard_keybindings() {
@@ -907,15 +1259,681 @@ EOF
       _assert_eq "vscode $platform terminal: Ctrl+P reaches nvim" \
         "1" \
         "$(jq '[.[] | select(.key == "ctrl+p" and .command == "workbench.action.terminal.sendSequence" and .when == "terminalFocus && termnav.nvimFocused" and .args.text == "\u0010")] | length' "$keybindings_file")"
+      _assert_eq "vscode $platform terminal: Ctrl+Shift+P opens Command Palette outside nvim" \
+        "1" \
+        "$(jq '[.[] | select(.key == "ctrl+shift+p" and .command == "workbench.action.showCommands" and .when == "terminalFocus && !termnav.nvimFocused")] | length' "$keybindings_file")"
+      _assert_eq "vscode $platform terminal: Ctrl+Shift+P reaches nvim" \
+        "1" \
+        "$(jq '[.[] | select(.key == "ctrl+shift+p" and .command == "workbench.action.terminal.sendSequence" and .when == "terminalFocus && termnav.nvimFocused" and .args.text == "\u001b[112;6u")] | length' "$keybindings_file")"
+      _assert_eq "vscode $platform terminal: Ctrl+Shift+E opens Explorer outside nvim" \
+        "1" \
+        "$(jq '[.[] | select(.key == "ctrl+shift+e" and .command == "workbench.view.explorer" and .when == "terminalFocus && !termnav.nvimFocused")] | length' "$keybindings_file")"
+      _assert_eq "vscode $platform terminal: Ctrl+Shift+E reaches nvim" \
+        "1" \
+        "$(jq '[.[] | select(.key == "ctrl+shift+e" and .command == "workbench.action.terminal.sendSequence" and .when == "terminalFocus && termnav.nvimFocused" and .args.text == "\u001b[101;6u")] | length' "$keybindings_file")"
+      _assert_eq "vscode $platform terminal: Ctrl+Shift+F opens Search outside nvim" \
+        "1" \
+        "$(jq '[.[] | select(.key == "ctrl+shift+f" and .command == "workbench.view.search" and .when == "terminalFocus && !termnav.nvimFocused")] | length' "$keybindings_file")"
+      _assert_eq "vscode $platform terminal: Ctrl+Shift+F reaches nvim" \
+        "1" \
+        "$(jq '[.[] | select(.key == "ctrl+shift+f" and .command == "workbench.action.terminal.sendSequence" and .when == "terminalFocus && termnav.nvimFocused" and .args.text == "\u001b[102;6u")] | length' "$keybindings_file")"
+      _assert_eq "vscode $platform terminal: Ctrl+Shift+M opens Problems outside nvim" \
+        "1" \
+        "$(jq '[.[] | select(.key == "ctrl+shift+m" and .command == "workbench.actions.view.problems" and .when == "terminalFocus && !termnav.nvimFocused")] | length' "$keybindings_file")"
+      _assert_eq "vscode $platform terminal: Ctrl+Shift+M reaches nvim" \
+        "1" \
+        "$(jq '[.[] | select(.key == "ctrl+shift+m" and .command == "workbench.action.terminal.sendSequence" and .when == "terminalFocus && termnav.nvimFocused" and .args.text == "\u001b[109;6u")] | length' "$keybindings_file")"
       _assert_eq "vscode $platform terminal: Ctrl+F reaches nvim" \
         "1" \
         "$(jq '[.[] | select(.key == "ctrl+f" and .command == "workbench.action.terminal.sendSequence" and .when == "terminalFocus && termnav.nvimFocused" and .args.text == "\u0006")] | length' "$keybindings_file")"
-      _assert_eq "vscode $platform terminal: every Ctrl letter reaches nvim" \
-        "26" \
-        "$(jq '[.[] | select(.key | test("^ctrl\\+[a-z]$")) | select(.command == "workbench.action.terminal.sendSequence" and (.when | contains("termnav.nvimFocused")))] | length' "$keybindings_file")"
+      _assert_eq "vscode $platform terminal: every Ctrl letter has its exact focused C0 route" \
+        "[]" \
+        "$(jq -c '
+          . as $bindings
+          | [
+              range(0; 26) as $offset
+              | ([97 + $offset] | implode) as $letter
+              | ("ctrl+" + $letter) as $key
+              | ([1 + $offset] | implode) as $sequence
+              | (
+                  if $letter == "c" then
+                    "terminalFocus && termnav.nvimFocused && !terminalTextSelected"
+                  else
+                    "terminalFocus && termnav.nvimFocused"
+                  end
+                ) as $when
+              | select(
+                  [
+                    $bindings[]
+                    | select(
+                        .key == $key
+                        and .command
+                          == "workbench.action.terminal.sendSequence"
+                        and .args.text == $sequence
+                        and .when == $when
+                      )
+                  ]
+                  | length != 1
+                )
+              | $key
+            ]
+        ' "$keybindings_file")"
       _assert_eq "vscode $platform terminal: Ctrl+Shift+G reaches nvim distinctly" \
         "1" \
         "$(jq '[.[] | select(.key == "ctrl+shift+g" and .command == "workbench.action.terminal.sendSequence" and .when == "terminalFocus && termnav.nvimFocused" and .args.text == "\u001b[103;6u")] | length' "$keybindings_file")"
+    }
+
+    _vscode_nvim_punctuation_chords() {
+      local config_root="$1"
+
+      rg -oi --no-filename --glob '*.lua' '<c-([^a-z0-9])>' \
+        "$config_root" |
+        tr '[:upper:]' '[:lower:]' |
+        sed -E 's/^<c-(.)>$/ctrl+\1/' |
+        sort -u |
+        jq -Rsc 'split("\n") | map(select(length > 0))'
+    }
+
+    _assert_vscode_nvim_shifted_chord_inventory() {
+      local keybindings_file="$1"
+      local platform="$2"
+      local nvim_chords nvim_punctuation punctuation_fixture \
+        punctuation_fixture_root punctuation_routes punctuation_validation \
+        routed_chords
+      punctuation_routes="$vscode_punctuation_routes"
+
+      # This is intentionally a conservative development-time coupling check.
+      # VS Code and Neovim cannot share a runtime keymap, so scan Neovim's
+      # literal Ctrl+Shift letter vocabulary and require every such chord to
+      # have a focused CSI-u route. A new mapping therefore fails CI until its
+      # JSONC route is added, while the runtime merge hook stays ignorant of
+      # editor policy. Mentions in comments also count on purpose: reviewing a
+      # rare false positive is safer than silently letting VS Code steal a key.
+      nvim_chords=$(
+        rg -oi --no-filename --glob '*.lua' '<(c-s|s-c)-[a-z]>' \
+          "$REAL_HOME/.config/nvim" |
+          tr '[:upper:]' '[:lower:]' |
+          sed -E 's/^<(c-s|s-c)-([a-z])>$/ctrl+shift+\2/' |
+          sort -u |
+          jq -Rsc 'split("\n") | map(select(length > 0))'
+      )
+      nvim_punctuation=$(
+        # Scan the wider single-punctuation vocabulary, not merely today's
+        # supported keys. A future <C-,> style map must fail as unsupported
+        # until both its terminal encoding and macOS keyboard spelling enter
+        # the explicit policy below.
+        _vscode_nvim_punctuation_chords "$REAL_HOME/.config/nvim"
+      )
+      punctuation_fixture_root=$(_tmpdir)
+      cat >"$punctuation_fixture_root/unsupported.lua" <<'LUA'
+local unsupported = "<C-,>"
+LUA
+      punctuation_fixture=$(
+        _vscode_nvim_punctuation_chords "$punctuation_fixture_root"
+      )
+      _assert_eq "vscode nvim routing: punctuation scanner exposes unsupported literals" \
+        '["ctrl+,"]' "$punctuation_fixture"
+      _assert_eq "vscode nvim routing: punctuation policy rejects discovered unknowns" \
+        '["ctrl+,"]' \
+        "$(jq -nc --argjson discovered "$punctuation_fixture" \
+          --argjson routes "$punctuation_routes" \
+          '$discovered - [$routes[].vscode_key]')"
+      routed_chords=$(
+        jq -c '
+          [
+            .[]
+            | select(.key | test("^ctrl\\+shift\\+[a-z]$"))
+            | select(
+                .command == "workbench.action.terminal.sendSequence"
+                and .when == "terminalFocus && termnav.nvimFocused"
+              )
+            | select(
+                .key[-1:] as $letter
+                | .args.text == (
+                    "\u001b[" + (($letter | explode[0]) | tostring) + ";6u"
+                  )
+              )
+            | .key
+          ]
+          | unique
+        ' "$keybindings_file"
+      )
+
+      _assert_eq "vscode nvim routing: every literal Ctrl+Shift letter mapping has a CSI-u route" \
+        "[]" \
+        "$(jq -nc --argjson nvim "$nvim_chords" --argjson routed "$routed_chords" \
+          '$nvim - $routed')"
+      _assert_eq "vscode nvim routing: no focus-agnostic terminal rule can shadow owned shifted chords" \
+        "0" \
+        "$(jq --argjson nvim "$nvim_chords" '
+          [
+            .[]
+            | select(.key as $key | $nvim | index($key))
+            | select(.when == "terminalFocus")
+          ]
+          | length
+        ' "$keybindings_file")"
+      punctuation_validation=$(
+        jq -c --argjson nvim "$nvim_punctuation" \
+          --argjson routes "$punctuation_routes" '
+          def route_for($key):
+            $routes[] | select(.vscode_key == $key);
+          . as $bindings
+          | {
+              invalid_policy: [
+                $routes[]
+                | select(
+                    (.host.command | type) != "string"
+                    or (.host.when | type) != "string"
+                  )
+                | .vscode_key
+              ],
+              unsupported: (
+                $nvim
+                - [$routes[].vscode_key]
+              ),
+              missing_or_wrong: [
+                $nvim[] as $key
+                | route_for($key) as $route
+                | select(
+                    [
+                      $bindings[]
+                      | select(
+                          .key == $key
+                          and .command
+                            == "workbench.action.terminal.sendSequence"
+                          and .when
+                            == "terminalFocus && termnav.nvimFocused"
+                          and .args.text == $route.sequence
+                        )
+                    ]
+                    | length != 1
+                  )
+                | $key
+              ],
+              missing_host_fallback: [
+                $nvim[] as $key
+                | route_for($key) as $route
+                | select(
+                    [
+                      $bindings[]
+                      | select(
+                          .key == $key
+                          and .command == $route.host.command
+                          and .when == $route.host.when
+                        )
+                    ]
+                    | length != 1
+                  )
+                | $key
+              ]
+            }
+        ' "$keybindings_file"
+      )
+      _assert_eq "vscode nvim routing: every literal Ctrl punctuation map has an exact route" \
+        '{"invalid_policy":[],"unsupported":[],"missing_or_wrong":[],"missing_host_fallback":[]}' \
+        "$punctuation_validation"
+
+      if [[ "$platform" == "macOS" ]]; then
+        local mac_resolution mac_chords mac_collisions mac_missing_chords \
+          mac_missing_host_chords
+
+        # Resolve the first matching manipulator separately for every supported
+        # VS Code bundle. Karabiner is ordered and app-conditional; collecting
+        # all superficially compatible rules would validate aliases for rules
+        # that never fire and miss an earlier app-specific rewrite. Optional
+        # modifiers are carried into the emitted chord, matching Karabiner's
+        # documented behavior for generic Ctrl rules.
+        mac_resolution=$(
+          jq -nc --argjson nvim "$nvim_chords" \
+            --argjson apps "$karabiner_vscode_manipulators" \
+            --argjson punctuation "$punctuation_routes" '
+            def matches_any($value; $patterns):
+              any($patterns[]?;
+                  . as $pattern | $value | test($pattern));
+            def applies($bundle; $path):
+              all(.conditions[]?;
+                  if .type == "frontmost_application_if" then
+                    (
+                      matches_any(
+                        $bundle;
+                        (.bundle_identifiers // [])
+                      )
+                      or matches_any($path; (.file_paths // []))
+                    )
+                  elif .type == "frontmost_application_unless" then
+                    (
+                      matches_any(
+                        $bundle;
+                        (.bundle_identifiers // [])
+                      )
+                      or matches_any($path; (.file_paths // []))
+                    )
+                    | not
+                  else
+                    error(
+                      "unsupported Karabiner condition in VS Code chord: "
+                      + .type
+                    )
+                  end);
+            def matches($key; $physical):
+              (.from.key_code == $key)
+              and (
+                (.from.modifiers.mandatory // []) as $required
+                | (.from.modifiers.optional // []) as $optional
+                | ($physical - $required) as $extra
+                | (($required - $physical) | length) == 0
+                and (
+                  ($extra | length) == 0
+                  or ($optional | index("any")) != null
+                  or (($extra - $optional) | length) == 0
+                )
+              );
+            def resolve($key; $physical; $bundle; $path; $manipulators):
+              [
+                $manipulators[]
+                | select(
+                    matches($key; $physical)
+                    and applies($bundle; $path)
+                  )
+              ][0] as $winner
+              | if $winner == null then
+                  { key: $key, modifiers: $physical }
+                else
+                  ($winner.from.modifiers.mandatory // []) as $required
+                  | ($physical - $required) as $optional
+                  | {
+                      key: $winner.to[0].key_code,
+                      modifiers: (
+                        (($winner.to[0].modifiers // []) + $optional) | unique
+                      )
+                    }
+                end;
+            def vscode_key:
+              . as $route
+              # Karabiner names physical keys, while VS Code spells punctuation
+              # as the character users type. Normalize at this boundary so the
+              # oracle compares the semantics of both systems rather than their
+              # unrelated configuration vocabularies.
+              | (
+                  [
+                    $punctuation[]
+                    | select(.karabiner_key == $route.key)
+                    | .vscode_key
+                    | ltrimstr("ctrl+")
+                  ][0] // $route.key
+                ) as $vscode_key
+              | [
+                  if $route.modifiers | index("control") then "ctrl" else empty end,
+                  if $route.modifiers | index("shift") then "shift" else empty end,
+                  if $route.modifiers | index("option") then "alt" else empty end,
+                  if $route.modifiers | index("command") then "cmd" else empty end,
+                  $vscode_key
+                ]
+              | join("+");
+            def collisions($routes):
+              [
+                $routes
+                | group_by(.key)[]
+                | select((map(.sequence) | unique | length) > 1)
+                | {
+                    key: .[0].key,
+                    physical: (map(.physical) | unique),
+                    sequences: (map(.sequence) | unique)
+                  }
+              ];
+            def route(
+              $bundle;
+              $path;
+              $physical;
+              $key;
+              $modifiers;
+              $sequence;
+              $manipulators
+            ):
+              resolve($key; $modifiers; $bundle; $path; $manipulators)
+              | {
+                  bundle: $bundle,
+                  physical: $physical,
+                  key: vscode_key,
+                  sequence: $sequence
+                };
+
+            (
+              [
+                $apps[]
+                | .bundle as $bundle
+                | .path as $path
+                | .manipulators as $manipulators
+                | (
+                    # Shifted meanings must also remain distinct from the
+                    # existing plain Ctrl alphabet. A keyboard rewrite that
+                    # collapses Ctrl+Shift+S and Ctrl+S to one VS Code chord is
+                    # a collision even when only the shifted chord was newly
+                    # added, so the production collision set needs both sides.
+                    range(0; 26) as $offset
+                    | ([97 + $offset] | implode) as $letter
+                    | route(
+                        $bundle;
+                        $path;
+                        "ctrl+" + $letter;
+                        $letter;
+                        ["control"];
+                        ([1 + $offset] | implode);
+                        $manipulators
+                      )
+                  ),
+                  (
+                    $nvim[]
+                    | split("+")[-1] as $letter
+                    | route(
+                        $bundle;
+                        $path;
+                        "ctrl+shift+" + $letter;
+                        $letter;
+                        ["control", "shift"];
+                        (
+                          "\u001b["
+                          + (($letter | explode[0]) | tostring)
+                          + ";6u"
+                        );
+                        $manipulators
+                      )
+                  ),
+                  (
+                    $punctuation[]
+                    | . as $punctuation_route
+                    | route(
+                        $bundle;
+                        $path;
+                        $punctuation_route.vscode_key;
+                        $punctuation_route.karabiner_key;
+                        ["control"];
+                        $punctuation_route.sequence;
+                        $manipulators
+                      )
+                    | . + {
+                        host: $punctuation_route.host
+                      }
+                  )
+              ]
+            ) as $routes
+            | (
+                [
+                  {
+                    from: {
+                      key_code: "x",
+                      modifiers: { mandatory: ["control", "shift"] }
+                    },
+                    to: [
+                      {
+                        key_code: "q",
+                        modifiers: ["command", "shift"]
+                      }
+                    ],
+                    conditions: [
+                      {
+                        type: "frontmost_application_if",
+                        bundle_identifiers: ["^fixture\\.one$"]
+                      }
+                    ]
+                  },
+                  {
+                    from: {
+                      key_code: "w",
+                      modifiers: { mandatory: ["control", "shift"] }
+                    },
+                    to: [
+                      {
+                        key_code: "r",
+                        modifiers: ["command", "shift"]
+                      }
+                    ],
+                    conditions: [
+                      {
+                        type: "frontmost_application_if",
+                        file_paths: [
+                          "Fixture One\\.app/Contents/MacOS/Fixture$"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    from: {
+                      key_code: "v",
+                      modifiers: { mandatory: ["control", "shift"] }
+                    },
+                    to: [
+                      {
+                        key_code: "v",
+                        modifiers: ["command", "shift"]
+                      }
+                    ],
+                    conditions: [
+                      {
+                        type: "frontmost_application_unless",
+                        file_paths: [
+                          "Fixture One\\.app/Contents/MacOS/Fixture$"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    from: {
+                      key_code: "x",
+                      modifiers: {
+                        mandatory: ["control"],
+                        optional: ["any"]
+                      }
+                    },
+                    to: [{ key_code: "x", modifiers: ["command"] }],
+                    conditions: []
+                  }
+                ]
+              ) as $fixture_manipulators
+            | {
+                routes: $routes,
+                collisions: collisions($routes),
+                selftest: {
+                  resolved: [
+                    (
+                      resolve(
+                        "x";
+                        ["control", "shift"];
+                        "fixture.one";
+                        "/Applications/Fixture One.app";
+                        $fixture_manipulators
+                      )
+                      | vscode_key
+                    ),
+                    (
+                      resolve(
+                        "x";
+                        ["control", "shift"];
+                        "fixture.two";
+                        "/Applications/Fixture Two.app";
+                        $fixture_manipulators
+                      )
+                      | vscode_key
+                    ),
+                    (
+                      resolve(
+                        "y";
+                        ["control", "shift"];
+                        "fixture.one";
+                        "/Applications/Fixture One.app";
+                        $fixture_manipulators
+                      )
+                      | vscode_key
+                    ),
+                    (
+                      resolve(
+                        "w";
+                        ["control", "shift"];
+                        "fixture.unrelated";
+                        "/Applications/Fixture One.app/Contents/MacOS/Fixture";
+                        $fixture_manipulators
+                      )
+                      | vscode_key
+                    ),
+                    (
+                      resolve(
+                        "w";
+                        ["control", "shift"];
+                        "fixture.unrelated";
+                        "/Applications/Fixture Two.app/Contents/MacOS/Fixture";
+                        $fixture_manipulators
+                      )
+                      | vscode_key
+                    ),
+                    (
+                      resolve(
+                        "v";
+                        ["control", "shift"];
+                        "fixture.unrelated";
+                        "/Applications/Fixture One.app/Contents/MacOS/Fixture";
+                        $fixture_manipulators
+                      )
+                      | vscode_key
+                    ),
+                    (
+                      resolve(
+                        "v";
+                        ["control", "shift"];
+                        "fixture.unrelated";
+                        "/Applications/Fixture Two.app/Contents/MacOS/Fixture";
+                        $fixture_manipulators
+                      )
+                      | vscode_key
+                    ),
+                    (
+                      try (
+                        resolve(
+                          "z";
+                          ["control", "shift"];
+                          "fixture.one";
+                          "/Applications/Fixture One.app";
+                          [
+                            {
+                              from: {
+                                key_code: "z",
+                                modifiers: {
+                                  mandatory: ["control", "shift"]
+                                }
+                              },
+                              to: [
+                                {
+                                  key_code: "z",
+                                  modifiers: ["command", "shift"]
+                                }
+                              ],
+                              conditions: [{ type: "variable_if" }]
+                            }
+                          ]
+                        )
+                        | vscode_key
+                      ) catch "rejected"
+                    )
+                  ],
+                  collision_count: (
+                    collisions([
+                      {
+                        key: "cmd+x",
+                        physical: "ctrl+shift+x",
+                        sequence: "one"
+                      },
+                      {
+                        key: "cmd+x",
+                        physical: "ctrl+x",
+                        sequence: "two"
+                      }
+                    ])
+                    | length
+                  )
+                }
+              }
+          '
+        )
+        _assert_eq "vscode mac routing oracle: order, app scope, modifiers, fallback, and rejection work" \
+          '{"resolved":["shift+cmd+q","shift+cmd+x","ctrl+shift+y","shift+cmd+r","ctrl+shift+w","ctrl+shift+v","shift+cmd+v","rejected"],"collision_count":1}' \
+          "$(jq -c '.selftest' <<<"$mac_resolution")"
+        mac_chords=$(jq -c '.routes' <<<"$mac_resolution")
+        mac_collisions=$(jq -c '.collisions' <<<"$mac_resolution")
+        _assert_eq "vscode mac nvim routing: Karabiner preserves distinct physical meanings" \
+          "[]" "$mac_collisions"
+        mac_missing_chords=$(
+          jq -c --argjson wanted "$mac_chords" '
+            . as $bindings
+            | [
+                $wanted[]
+                | . as $route
+                # Most aliases are leased to focused Neovim. Ctrl+C is the
+                # intentional exception: its selection-aware terminal rule
+                # sends ETX only when no text is selected, preserving the
+                # established copy-selection behavior in every terminal.
+                | select(
+                    [
+                      $bindings[]
+                      | select(
+                          .key == $route.key
+                          and .command == "workbench.action.terminal.sendSequence"
+                          and .args.text == $route.sequence
+                          and (
+                            .when == "terminalFocus && termnav.nvimFocused"
+                            or (
+                              $route.physical == "ctrl+c"
+                              and .when
+                                == "terminalFocus && !terminalTextSelected"
+                            )
+                          )
+                        )
+                    ]
+                    | length == 0
+                  )
+                | {
+                    bundle: $route.bundle,
+                    physical: $route.physical,
+                    observed: $route.key
+                  }
+              ]
+            | unique_by(.bundle + "\u0000" + .physical)
+          ' "$keybindings_file"
+        )
+        _assert_eq "vscode mac nvim routing: every app's first Karabiner result has an alias" \
+          "[]" \
+          "$mac_missing_chords"
+        mac_missing_host_chords=$(
+          jq -c --argjson wanted "$mac_chords" '
+            . as $bindings
+            | [
+                $wanted[]
+                | . as $route
+                | select(has("host"))
+                | select(
+                    [
+                      $bindings[]
+                      | select(
+                          .key == $route.key
+                          and .command == $route.host.command
+                          and .when == $route.host.when
+                        )
+                    ]
+                    | length == 0
+                  )
+                | {
+                    bundle: $route.bundle,
+                    physical: $route.physical,
+                    observed: $route.key,
+                    command: $route.host.command
+                  }
+              ]
+            | unique_by(.bundle + "\u0000" + .physical)
+          ' "$keybindings_file"
+        )
+        _assert_eq "vscode mac host routing: every app's first Karabiner result has a fallback" \
+          "[]" \
+          "$mac_missing_host_chords"
+      fi
     }
 
     _write_vscode_keybinding_conflicts() {
@@ -2829,6 +3847,8 @@ JSON
       "1" \
       "$(jq '[.[] | select(.key == "alt+shift+]" and .command == "workbench.action.terminal.sendSequence" and .when == "terminalFocus" and .args.text == "\u001b}")] | length' "$vscode_keybindings_file")"
     _assert_vscode_terminal_clipboard_keybindings "$vscode_keybindings_file" "linux"
+    _assert_vscode_nvim_shifted_chord_inventory \
+      "$vscode_keybindings_file" "linux"
     vscode_extensions=$(jq -c . "$vscode_home/.vscode/extensions/extensions.json")
     _assert_contains "vscode sley: extension registered" \
       '"id":"cgraf.sley-tools"' "$vscode_extensions"
@@ -2897,6 +3917,8 @@ JSON
     _assert_vscode_macos_ctrl_arrow_keybindings "$vscode_mac_keybindings"
     _assert_vscode_macos_karabiner_terminal_keybindings "$vscode_mac_keybindings"
     _assert_vscode_terminal_clipboard_keybindings "$vscode_mac_keybindings" "macOS"
+    _assert_vscode_nvim_shifted_chord_inventory \
+      "$vscode_mac_keybindings" "macOS"
 
     rm -rf "$vscode_home/.config/Code/User"
 
@@ -3063,6 +4085,8 @@ JSON
     _assert_not_contains "vscode wsl: Windows keybindings replacement avoids forced mv" \
       "$win_code_user/keybindings.json" "$vscode_mv_ops"
     _assert_vscode_terminal_clipboard_keybindings \
+      "$win_code_user/keybindings.json" "Windows"
+    _assert_vscode_nvim_shifted_chord_inventory \
       "$win_code_user/keybindings.json" "Windows"
     _assert_vscode_focus_keybinding_migration \
       "$win_code_user/keybindings.json" "Windows"

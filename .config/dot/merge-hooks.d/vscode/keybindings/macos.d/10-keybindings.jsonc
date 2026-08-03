@@ -145,6 +145,32 @@
     "command": "workbench.action.quickOpen",
     "when": "terminalFocus && !termnav.nvimFocused"
   },
+  // Karabiner translates physical Ctrl+Shift+F/P to Cmd+Shift+F/P before VS
+  // Code resolves them. Mirror both halves of the common focus policy under
+  // those translated spellings. Cross-layer tests pin the Karabiner contract
+  // because correct VS Code rules are useless if the keyboard layer drifts.
+  {
+    "key": "shift+cmd+f",
+    "command": "workbench.view.search",
+    "when": "terminalFocus && !termnav.nvimFocused"
+  },
+  {
+    "key": "shift+cmd+f",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[102;6u" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
+  {
+    "key": "shift+cmd+p",
+    "command": "workbench.action.showCommands",
+    "when": "terminalFocus && !termnav.nvimFocused"
+  },
+  {
+    "key": "shift+cmd+p",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[112;6u" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
   {
     "key": "cmd+u",
     "command": "workbench.action.terminal.sendSequence",
@@ -155,6 +181,24 @@
     "key": "cmd+v",
     "command": "workbench.action.terminal.paste",
     "when": "terminalFocus && !termnav.nvimFocused"
+  },
+  // Plain Ctrl+V, Ctrl+Shift+V, and native Cmd+Shift+V are three different
+  // actions. Karabiner deliberately keeps physical Ctrl+Shift+V raw so VS Code
+  // can route paste versus Neovim yank history without stealing macOS
+  // Cmd+Shift+V (Markdown Preview). The common focus rule owns the nvim half.
+  {
+    "key": "ctrl+shift+v",
+    "command": "workbench.action.terminal.paste",
+    "when": "terminalFocus && !termnav.nvimFocused"
+  },
+  // Before this chord became raw, Karabiner emitted Cmd+V, which pasted in
+  // writable VS Code inputs. Preserve that Windows-style behavior only where
+  // paste is meaningful; narrower context avoids consuming the chord in
+  // readonly views or unrelated workbench surfaces.
+  {
+    "key": "ctrl+shift+v",
+    "command": "editor.action.clipboardPasteAction",
+    "when": "textInputFocus && !editorReadonly && !terminalFocus"
   },
   {
     "key": "cmd+w",
@@ -226,6 +270,21 @@
     "key": "cmd+y",
     "command": "workbench.action.terminal.sendSequence",
     "args": { "text": "\u0019" },
+    "when": "terminalFocus && termnav.nvimFocused"
+  },
+  // Karabiner translates physical Ctrl+/ to Cmd+/. Restore the C0 unit
+  // separator that Neovim recognizes as Ctrl+/ only while it owns the pane;
+  // otherwise invoke the same Toggle Line Comment action explicitly because
+  // VS Code's editor-only default is inactive while the terminal has focus.
+  {
+    "key": "cmd+/",
+    "command": "editor.action.commentLine",
+    "when": "terminalFocus && !termnav.nvimFocused"
+  },
+  {
+    "key": "cmd+/",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001f" },
     "when": "terminalFocus && termnav.nvimFocused"
   },
   {
