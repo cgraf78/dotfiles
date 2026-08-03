@@ -80,15 +80,24 @@ _find_shdeps_installer() {
   _log "  shdeps not found, installing..."
   local _install_url
   _install_url="$(_shdeps_default_install_url)"
-  if (
-    set -o pipefail
-    curl -fsSL "$_install_url" | bash
-  ) &>/dev/null; then
-    REPLY="$installed_dir/install.sh"
-    return 0
+  if [[ "${DOT_QUIET:-0}" -eq 1 ]]; then
+    (
+      set -o pipefail
+      curl -fsSL "$_install_url" | bash
+    ) &>/dev/null || return 1
+  else
+    # A fresh install is the one bootstrap path with no local implementation
+    # to fall back to. Preserve its diagnostics so network, platform, and
+    # artifact failures are actionable instead of collapsing into the generic
+    # warning emitted by `_bootstrap_shdeps`.
+    (
+      set -o pipefail
+      curl -fsSL "$_install_url" | bash
+    ) || return 1
   fi
 
-  return 1
+  REPLY="$installed_dir/install.sh"
+  return 0
 }
 
 _shdeps_install_needs_repair() {
