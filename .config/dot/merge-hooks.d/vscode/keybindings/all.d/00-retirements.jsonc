@@ -97,9 +97,10 @@
     "dotfiles.retire": true
   },
 
-  // Native editor defaults now remain untouched, while common focus policy
-  // adds only positively gated terminal routes. Keeping the earlier exact
-  // forms here removes synchronized copies on every variant.
+  // Native editor defaults remain untouched outside terminal focus. Tab
+  // transport changed generations several times, so every superseded exact
+  // form stays here even when a later policy deliberately revives an older
+  // terminal-native object in active source.
   {
     "key": "ctrl+shift+tab",
     "command": "workbench.action.quickOpenLeastRecentlyUsedEditorInGroup",
@@ -162,11 +163,53 @@
     "when": "terminalFocus",
     "dotfiles.retire": true
   },
+  {
+    "key": "ctrl+tab",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[9;5u" },
+    "when": "terminalFocus && termnav.nvimFocused",
+    "dotfiles.retire": true
+  },
+  {
+    "key": "ctrl+shift+tab",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001b[9;6u" },
+    "when": "terminalFocus && termnav.nvimFocused",
+    "dotfiles.retire": true
+  },
 
   {
     "key": "ctrl+b",
     "command": "workbench.action.terminal.sendSequence",
     "args": { "text": "\u0002" },
+    "when": "terminalFocus && termnav.nvimFocused",
+    "dotfiles.retire": true
+  },
+  {
+    "key": "ctrl+h",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u0008" },
+    "when": "terminalFocus && termnav.nvimFocused",
+    "dotfiles.retire": true
+  },
+  {
+    "key": "ctrl+j",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u000a" },
+    "when": "terminalFocus && termnav.nvimFocused",
+    "dotfiles.retire": true
+  },
+  {
+    "key": "ctrl+k",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u000b" },
+    "when": "terminalFocus && termnav.nvimFocused",
+    "dotfiles.retire": true
+  },
+  {
+    "key": "ctrl+l",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u000c" },
     "when": "terminalFocus && termnav.nvimFocused",
     "dotfiles.retire": true
   },
