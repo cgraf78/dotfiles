@@ -1224,6 +1224,35 @@ CONF
   target=$(readlink "$TEST_HOME/.testrc_work")
   _assert_contains "link: relative symlink" ".dotfiles-work/home" "$target"
 
+  # Result accounting must use structured state, not words in the display
+  # label. Overlay names may contain spaces, including the word "linked".
+  linked_name="status linked fixture"
+  linked_dir="$TEST_HOME/.dotfiles-$linked_name"
+  dot_fixture_clone_repo "$OVERLAY_BARE" "$linked_dir"
+  mkdir -p "$linked_dir/home"
+  printf 'linked-name fixture\n' >"$linked_dir/home/.linked-name-fixture"
+  cat >"$TEST_HOME/.config/dot/overlays.d/99-$linked_name.conf" <<CONF
+url=$OVERLAY_BARE
+CONF
+  _discover_overlays
+  _link_overlays >/dev/null 2>&1
+
+  export DOT_UI_FORCE_LIVE=1
+  export DOT_UI_ASCII=1
+  _ui_begin 5
+  result=$(_link_overlays 2>&1)
+  unset DOT_UI_FORCE_LIVE DOT_UI_ASCII
+  unset DOT_UI_TOTAL DOT_UI_INDEX DOT_UI_STARTED DOT_UI_STAGE_LABEL DOT_UI_STAGE_DETAIL DOT_UI_STAGE_STARTED DOT_UI_LIVE_ACTIVE
+  _assert_contains "link status: display words do not mark current overlays changed" \
+    "2 overlays current" "$result"
+  _assert_not_contains "link status: current overlay name is not parsed as state" \
+    "overlay changed" "$result"
+
+  rm -f "$TEST_HOME/.config/dot/overlays.d/99-$linked_name.conf"
+  _discover_overlays
+  _link_overlays >/dev/null 2>&1
+  rm -rf "$linked_dir"
+
   # Idempotent: re-run produces no per-file output
   result=$(_link_overlays 2>&1)
   _assert_contains "link idempotent: stage still shown" "Overlays" "$result"
