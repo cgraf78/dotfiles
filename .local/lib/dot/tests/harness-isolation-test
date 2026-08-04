@@ -57,6 +57,85 @@ _assert_eq "host runtime: state stays suite-local" \
   "/suite/state" "$(sed -n '4p' <<<"$runtime_paths")"
 
 echo ""
+echo "=== Temporary root cleanup ==="
+
+cleanup_real_rm=$(command -v rm)
+cleanup_mock_bin=$(_mock_bin)
+cleanup_attempts=$(_tmpfile)
+cleanup_target=$(_tmpdir)
+cat >"$cleanup_mock_bin/rm" <<'RM'
+#!/usr/bin/env bash
+attempts=$(cat "$CLEANUP_TEST_ATTEMPTS" 2>/dev/null || printf '0\n')
+attempts=$((attempts + 1))
+printf '%s\n' "$attempts" >"$CLEANUP_TEST_ATTEMPTS"
+if ((attempts <= CLEANUP_TEST_FAILURES)); then
+  echo "fixture rm failure $attempts" >&2
+  exit 1
+fi
+exec "$CLEANUP_TEST_REAL_RM" "$@"
+RM
+chmod +x "$cleanup_mock_bin/rm"
+export CLEANUP_TEST_ATTEMPTS="$cleanup_attempts"
+export CLEANUP_TEST_FAILURES=1
+export CLEANUP_TEST_REAL_RM="$cleanup_real_rm"
+saved_path=$PATH
+PATH="$cleanup_mock_bin:$PATH"
+cleanup_output=$(_cleanup_dir "$cleanup_target" 2>&1)
+cleanup_rc=$?
+PATH=$saved_path
+_assert_exit "temp cleanup: retries a transient removal failure" 0 "$cleanup_rc"
+_assert_eq "temp cleanup: transient failure uses two attempts" \
+  "2" "$(cat "$cleanup_attempts")"
+_assert_eq "temp cleanup: suppresses recovered diagnostics" "" "$cleanup_output"
+if [[ ! -e "$cleanup_target" && ! -L "$cleanup_target" ]]; then
+  _pass "temp cleanup: removes the target after retry"
+else
+  _fail "temp cleanup: removes the target after retry"
+fi
+
+printf '0\n' >"$cleanup_attempts"
+cleanup_target=$(_tmpdir)
+export CLEANUP_TEST_FAILURES=3
+PATH="$cleanup_mock_bin:$PATH"
+cleanup_output=$(_cleanup_dir "$cleanup_target" 2>&1)
+cleanup_rc=$?
+PATH=$saved_path
+_assert_exit "temp cleanup: persistent removal failure stays fatal" 1 "$cleanup_rc"
+_assert_eq "temp cleanup: persistent failure stops after three attempts" \
+  "3" "$(cat "$cleanup_attempts")"
+_assert_contains "temp cleanup: reports the final removal failure" \
+  "fixture rm failure 3" "$cleanup_output"
+_assert_contains "temp cleanup: identifies the retained target" \
+  "test cleanup did not remove: $cleanup_target" "$cleanup_output"
+
+printf '0\n' >"$cleanup_attempts"
+cleanup_nested_tmp=$(_tmpdir)
+# The child shell expands $1 after the helper path is passed as an argument.
+# shellcheck disable=SC2016
+cleanup_output=$(env \
+  CLEANUP_TEST_ATTEMPTS="$cleanup_attempts" \
+  CLEANUP_TEST_FAILURES=3 \
+  CLEANUP_TEST_REAL_RM="$cleanup_real_rm" \
+  PATH="$cleanup_mock_bin:$PATH" \
+  TMPDIR="$cleanup_nested_tmp" \
+  bash -c '. "$1"; exit 0' _ \
+  "$SOURCE_HOME/.local/lib/dot/tests/helpers.sh" 2>&1)
+cleanup_rc=$?
+_assert_exit "temp cleanup: EXIT trap makes a persistent failure fatal" \
+  1 "$cleanup_rc"
+_assert_eq "temp cleanup: EXIT trap keeps the retry bound" \
+  "3" "$(cat "$cleanup_attempts")"
+
+cleanup_nested_tmp=$(_tmpdir)
+# shellcheck disable=SC2016
+TMPDIR="$cleanup_nested_tmp" bash -c '. "$1"; exit 7' _ \
+  "$SOURCE_HOME/.local/lib/dot/tests/helpers.sh" >/dev/null 2>&1
+cleanup_rc=$?
+_assert_exit "temp cleanup: EXIT trap preserves an existing failure" \
+  7 "$cleanup_rc"
+unset CLEANUP_TEST_ATTEMPTS CLEANUP_TEST_FAILURES CLEANUP_TEST_REAL_RM
+
+echo ""
 echo "=== System Git isolation ==="
 
 fixture_git=$(_tmpfile)

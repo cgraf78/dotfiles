@@ -419,12 +419,45 @@ _tmpfile() {
   echo "$f"
 }
 
-_cleanup() {
-  for d in "${CLEANUP_DIRS[@]+"${CLEANUP_DIRS[@]}"}"; do
-    rm -rf "$d"
+_cleanup_dir() {
+  local d="$1" retries=2
+
+  # Git can leave a short-lived asynchronous helper writing under the fixture
+  # HOME after the command returns. Give that writer a bounded chance to exit;
+  # a persistent leak still fails loudly on the final attempt.
+  while ((retries > 0)); do
+    rm -rf "$d" 2>/dev/null
+    [[ ! -e "$d" && ! -L "$d" ]] && return 0
+    retries=$((retries - 1))
+    sleep 0.05
   done
+
+  rm -rf "$d"
+  if [[ -e "$d" || -L "$d" ]]; then
+    echo "test cleanup did not remove: $d" >&2
+    return 1
+  fi
 }
-trap _cleanup EXIT
+
+_cleanup() {
+  local d status=0
+  for d in "${CLEANUP_DIRS[@]+"${CLEANUP_DIRS[@]}"}"; do
+    _cleanup_dir "$d" || status=$?
+  done
+  return "$status"
+}
+
+_cleanup_on_exit() {
+  local status="$1" cleanup_status=0
+
+  trap - EXIT
+  _cleanup || cleanup_status=$?
+  if ((status == 0 && cleanup_status != 0)); then
+    status=$cleanup_status
+  fi
+  exit "$status"
+}
+trap '_cleanup_on_exit "$?"' EXIT
 
 # ---------------------------------------------------------------------------
 # Common test setup
