@@ -89,6 +89,9 @@ _assert_contains "tmux uses vi keys in copy mode" \
   "set -g mode-keys vi" "$tmux_content"
 _assert_contains "tmux keeps Escape responsive" \
   "set -s escape-time 10" "$tmux_content"
+_assert_contains "tmux pane labels expose human and stable targets" \
+  "set -g pane-border-format ' #I.#P (#{pane_id})  #{pane_current_command} '" \
+  "$tmux_content"
 _assert_contains "tmux advertises OSC-8 hyperlinks and extended keys" \
   "xterm-256color:extkeys:hyperlinks" "$tmux_content"
 _assert_contains "tmux forwards Ctrl-click into mouse-aware panes" \
