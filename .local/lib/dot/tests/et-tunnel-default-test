@@ -39,16 +39,132 @@ _assert_contains "ss fallback listener: suggests an existing tunnel" \
   "may already be running" "$(cat "$stderr")"
 _assert_file_content "ss fallback listener: rejected before transport" "" "$log"
 
-_run_et_tunnel gateway.example 10443 service.internal 443
-commands=$(cat "$log")
-transport_remote_command=$(cat "$remote_command_file")
-transport_remote_payload=$(cat "$bootstrap_payload_file")
-decoded_remote_command=$(_decode_remote_payload "$transport_remote_payload")
-commands+=$'\n'"$decoded_remote_command"
-output=$(cat "$stdout")
-mapping=$(sed -n '/^<-t>$/{n;s/^<\(.*\)>$/\1/p;q;}' "$log")
-ports=$(sed -n 's/^10443:\([0-9][0-9]*\),\([0-9][0-9]*\):\([0-9][0-9]*\)$/\1 \2 \3/p' <<<"$mapping")
-read -r relay_port control_local_port control_remote_port <<<"$ports"
+_local_port_available() {
+  "$test_python" - "$1" <<'PY'
+import errno
+import socket
+import sys
+
+probe = None
+try:
+    probe = socket.socket()
+    probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    probe.bind(("127.0.0.1", int(sys.argv[1])))
+except OSError as error:
+    if error.errno == errno.EADDRINUSE:
+        sys.exit(1)
+    print(f"port availability probe failed: {error}", file=sys.stderr)
+    sys.exit(2)
+finally:
+    if probe is not None:
+        probe.close()
+PY
+}
+
+_local_port_closed() {
+  local probe_exit _
+
+  # A connection probe can consume the one-shot listener and hide a leak.
+  # Poll for a successful bind instead, matching the fixture's allocation test.
+  for _ in {1..40}; do
+    probe_exit=0
+    _local_port_available "$1" || probe_exit=$?
+    case "$probe_exit" in
+      0) return 0 ;;
+      1) sleep 0.05 ;;
+      *) return "$probe_exit" ;;
+    esac
+  done
+  return 1
+}
+
+_capture_default_launch() {
+  local local_port="${1:-10443}"
+  _run_et_tunnel gateway.example "$local_port" service.internal 443
+  commands=$(cat "$log")
+  transport_remote_command=$(cat "$remote_command_file")
+  transport_remote_payload=$(cat "$bootstrap_payload_file")
+  decoded_remote_command=$(_decode_remote_payload "$transport_remote_payload")
+  commands+=$'\n'"$decoded_remote_command"
+  output=$(cat "$stdout")
+  mapping=$(sed -n '/^<-t>$/{n;s/^<\(.*\)>$/\1/p;q;}' "$log")
+  ports=$(sed -n "s/^$local_port:\([0-9][0-9]*\),\([0-9][0-9]*\):\([0-9][0-9]*\)$/\1 \2 \3/p" <<<"$mapping")
+  read -r relay_port control_local_port control_remote_port <<<"$ports"
+}
+
+_activate_captured_remote_launch() {
+  remote_transport_command="$transport_remote_command"
+  remote_command="$decoded_remote_command"
+  stop_remote_port=$(sed -n 's/^et_tunnel_stop_port=//p' <<<"$remote_command")
+  remote_token=$(sed -n 's/^et_tunnel_token=//p' <<<"$remote_command")
+  if [[ ! "$stop_remote_port" =~ ^[0-9]+$ ||
+    ! "$remote_token" =~ ^[0-9a-f]{32}$ ]]; then
+    _fail "default fixture: decoded launch has malformed identity or ports"
+    exit 1
+  fi
+  bootstrap_dir="${TMPDIR:-/tmp}/et-tunnel-bootstrap.$remote_token"
+  if [[ -e "$bootstrap_dir" || -L "$bootstrap_dir" ]]; then
+    _fail "default fixture: generated bootstrap path already exists"
+    exit 1
+  fi
+  CLEANUP_DIRS+=("$bootstrap_dir")
+}
+
+_local_launch_ports_available() {
+  local port_scope="$1" port probe_exit
+  local -a ports=("$control_remote_port")
+  case "$port_scope" in
+    control) ;;
+    all) ports+=("$relay_port" "$stop_remote_port") ;;
+    *)
+      _fail "default fixture: unknown local port scope: $port_scope"
+      exit 1
+      ;;
+  esac
+  for port in "${ports[@]}"; do
+    probe_exit=0
+    _local_port_available "$port" || probe_exit=$?
+    case "$probe_exit" in
+      0) ;;
+      1) return 1 ;;
+      *)
+        _fail "default fixture: could not probe local port $port"
+        exit 1
+        ;;
+    esac
+  done
+  return 0
+}
+
+# The generated control port is remote in production, but this fixture runs the
+# remote command locally. Select immediately before each real local bind so an
+# unrelated listener cannot turn remote-port selection into a test failure.
+_select_local_remote_launch() {
+  local local_port="${1:-10443}" port_scope="${2:-control}" _
+  for _ in {1..20}; do
+    _capture_default_launch "$local_port"
+    if [[ "$run_exit" -ne 0 || ! "$relay_port" =~ ^[0-9]+$ ||
+      ! "$control_local_port" =~ ^[0-9]+$ ||
+      ! "$control_remote_port" =~ ^[0-9]+$ ]]; then
+      _fail "default fixture: launch failed or produced a malformed port mapping"
+      exit 1
+    fi
+    stop_remote_port=$(sed -n 's/^et_tunnel_stop_port=//p' \
+      <<<"$decoded_remote_command")
+    [[ "$stop_remote_port" =~ ^[0-9]+$ ]] || {
+      _fail "default fixture: launch produced a malformed stop port"
+      exit 1
+    }
+    if _local_launch_ports_available "$port_scope"; then
+      _activate_captured_remote_launch
+      return 0
+    fi
+  done
+  _fail "default fixture: could not select an available local remote-control port"
+  exit 1
+}
+
+_capture_default_launch
 
 _assert_exit "default launch: succeeds" 0 "$run_exit"
 _assert_contains "default launch: runs ET without a terminal" $'et\n<-N>' "$commands"
@@ -366,15 +482,13 @@ _wait_for_owner_control() {
   return 1
 }
 
-remote_transport_command="$transport_remote_command"
-remote_command="$decoded_remote_command"
+_activate_captured_remote_launch
 case "$remote_transport_command" in
   *'awk "{ print \$1 }"'*) ;;
   *) _fail "remote bootstrap command: preserves the nested awk program" ;;
 esac
 sh -n -c "$remote_transport_command" ||
   _fail "remote bootstrap command: is valid POSIX shell syntax"
-stop_remote_port=$(sed -n 's/^et_tunnel_stop_port=//p' <<<"$remote_command")
 remote_root="$remote_cache/et-tunnel"
 remote_key="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-10443"
 remote_state="$remote_root/$remote_key"
@@ -383,8 +497,6 @@ remote_startup_lock="$remote_root/.$remote_key.start.lock"
 
 bad_cache="$tmp/not-a-cache-directory"
 : >"$bad_cache"
-remote_token=$(sed -n 's/^et_tunnel_token=//p' <<<"$remote_command")
-bootstrap_dir="${TMPDIR:-/tmp}/et-tunnel-bootstrap.$remote_token"
 bootstrap_guard_target="$tmp/bootstrap-guard-target"
 mkdir -p "$bootstrap_guard_target"
 printf 'unchanged\n' >"$bootstrap_guard_target/w"
@@ -407,6 +519,7 @@ rm -f "$bootstrap_dir"
 rm -rf "$bootstrap_guard_target"
 
 if command -v ncat >/dev/null 2>&1 || command -v socat >/dev/null 2>&1; then
+  _select_local_remote_launch
   base64_invoked="$tmp/bootstrap-base64.invoked"
   _write_stub "$remote_bin/base64" \
     'touch "$ET_TUNNEL_REMOTE_BASE64_INVOKED"' \
@@ -495,6 +608,18 @@ PY
   mv "$remote_bin/ncat.supervisor" "$remote_bin/ncat"
   mv "$remote_bin/socat.supervisor" "$remote_bin/socat"
 
+  if _local_port_closed "$control_remote_port"; then
+    _pass "remote decoder failure: removes its listener"
+  else
+    _fail "remote decoder failure: removes its listener"
+  fi
+  if [[ ! -e "$bootstrap_dir" && ! -L "$bootstrap_dir" ]]; then
+    _pass "remote decoder failure: removes private temporary files"
+  else
+    _fail "remote decoder failure: removes private temporary files"
+  fi
+
+  _select_local_remote_launch
   bootstrap_timeout_exit=0
   bootstrap_timeout_output=$(ET_TUNNEL_BOOTSTRAP_TIMEOUT=1 \
     sh -c "$remote_transport_command" 2>&1) || bootstrap_timeout_exit=$?
@@ -503,18 +628,7 @@ PY
   _assert_contains "remote bootstrap deadline: emits a tokenized fatal marker" \
     "ET_TUNNEL_FATAL:$remote_token:124:bootstrap-timeout" \
     "$bootstrap_timeout_output"
-  if "$test_python" - "$control_remote_port" <<'PY'; then
-import socket
-import sys
-
-probe = socket.socket()
-probe.settimeout(0.2)
-try:
-    status = probe.connect_ex(("127.0.0.1", int(sys.argv[1])))
-finally:
-    probe.close()
-sys.exit(0 if status != 0 else 1)
-PY
+  if _local_port_closed "$control_remote_port"; then
     _pass "remote bootstrap deadline: removes its listener"
   else
     _fail "remote bootstrap deadline: removes its listener"
@@ -748,14 +862,13 @@ rm -f "$remote_fifos/$control_remote_port" "$remote_fifos/$stop_remote_port" \
 if command -v flock >/dev/null 2>&1 && {
   command -v ncat >/dev/null 2>&1 || command -v socat >/dev/null 2>&1
 }; then
-  _run_et_tunnel gateway.example 10451 service.internal 443
-  control_stop_payload=$(cat "$bootstrap_payload_file")
-  control_stop_command=$(_decode_remote_payload "$control_stop_payload")
-  control_stop_port=$(sed -n 's/^et_tunnel_control_port=//p' <<<"$control_stop_command")
-  control_stop_token=$(sed -n 's/^et_tunnel_token=//p' <<<"$control_stop_command")
   control_stop_cache="$tmp/control-stop-cache"
   control_stop_state="$control_stop_cache/et-tunnel/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-10451"
   mkdir -p "$control_stop_cache"
+  _select_local_remote_launch 10451 all
+  control_stop_command="$remote_command"
+  control_stop_port=$(sed -n 's/^et_tunnel_control_port=//p' <<<"$control_stop_command")
+  control_stop_token=$(sed -n 's/^et_tunnel_token=//p' <<<"$control_stop_command")
   XDG_CACHE_HOME="$control_stop_cache" HOME="$tmp" \
     sh -c "$control_stop_command" \
     >"$tmp/control-stop.stdout" 2>"$tmp/control-stop.stderr" &
@@ -801,6 +914,21 @@ PY
     _pass "remote pre-attachment stop: removes owned state"
   else
     _fail "remote pre-attachment stop: removes owned state"
+  fi
+  if _local_port_closed "$relay_port"; then
+    _pass "remote pre-attachment stop: releases the relay listener"
+  else
+    _fail "remote pre-attachment stop: releases the relay listener"
+  fi
+  if _local_port_closed "$control_remote_port"; then
+    _pass "remote pre-attachment stop: releases the control listener"
+  else
+    _fail "remote pre-attachment stop: releases the control listener"
+  fi
+  if _local_port_closed "$stop_remote_port"; then
+    _pass "remote pre-attachment stop: releases the stop listener"
+  else
+    _fail "remote pre-attachment stop: releases the stop listener"
   fi
 else
   printf '  SKIP: real supervisor stop check requires local flock and ncat or socat\n'

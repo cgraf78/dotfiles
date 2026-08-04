@@ -13,6 +13,7 @@ bin="$tmp/bin"
 test_home="$tmp/home"
 log="$tmp/commands.log"
 test_python=$(python3 -c 'import sys; print(sys.executable)')
+port_probe_error="$tmp/port-probe.error"
 real_bash=$(command -v bash)
 real_ps=$(command -v ps)
 printf -v real_ps_q '%q' "$real_ps"
@@ -54,6 +55,33 @@ _write_stub "$bin/lsof" \
   '    done' \
   '  fi' \
   '  exit "$ET_TUNNEL_TEST_LSOF_EXIT"' \
+  'fi' \
+  'probe_port=' \
+  'for arg in "$@"; do [[ "$arg" == -iTCP:* ]] && probe_port=${arg#-iTCP:}; done' \
+  'if [[ "$probe_port" =~ ^[0-9]+$ ]] && ((probe_port >= 49152)); then' \
+  '  "$ET_TUNNEL_TEST_PYTHON" - "$probe_port" <<PY' \
+  'import errno' \
+  'import os' \
+  'import socket' \
+  'import sys' \
+  'probe = None' \
+  'try:' \
+  '    probe = socket.socket()' \
+  '    probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)' \
+  '    probe.bind(("127.0.0.1", int(sys.argv[1])))' \
+  'except OSError as error:' \
+  '    if error.errno == errno.EADDRINUSE:' \
+  '        print(f"p1\\nn127.0.0.1:{sys.argv[1]}")' \
+  '        sys.exit(0)' \
+  '    with open(os.environ["ET_TUNNEL_TEST_PORT_PROBE_ERROR"], "a", encoding="utf-8") as output:' \
+  '        output.write(f"port {sys.argv[1]}: {error}\\n")' \
+  '    sys.exit(2)' \
+  'finally:' \
+  '    if probe is not None:' \
+  '        probe.close()' \
+  'sys.exit(1)' \
+  'PY' \
+  '  exit $?' \
   'fi' \
   'exit 1'
 ss_bin="$tmp/ss-bin"
@@ -377,6 +405,7 @@ _run_et_tunnel() {
   : >"$count"
   : >"$remote_command_file"
   rm -f "$bootstrap_payload_file"
+  rm -f "$port_probe_error"
   PATH="${ET_TUNNEL_TEST_PATH:-$bin:/usr/bin:/bin}" \
     HOME="$test_home" \
     XDG_STATE_HOME="$test_home/state" \
@@ -384,6 +413,7 @@ _run_et_tunnel() {
     ET_TUNNEL_TEST_REMOTE_COMMAND="$remote_command_file" \
     ET_TUNNEL_TEST_BOOTSTRAP_PAYLOAD="$bootstrap_payload_file" \
     ET_TUNNEL_TEST_PYTHON="$test_python" \
+    ET_TUNNEL_TEST_PORT_PROBE_ERROR="$port_probe_error" \
     ET_TUNNEL_TEST_COUNT="$count" \
     ET_TUNNEL_TEST_COLLISIONS="${ET_TUNNEL_TEST_COLLISIONS:-0}" \
     ET_TUNNEL_TEST_EXIT="${ET_TUNNEL_TEST_EXIT:-0}" \
@@ -397,6 +427,13 @@ _run_et_tunnel() {
     ET_TUNNEL_ET="${ET_TUNNEL_TEST_ET:-et}" \
     ET_TUNNEL_TRANSPORT="${ET_TUNNEL_TEST_TRANSPORT:-}" \
     bash "$SCRIPT" "$@" >"$stdout" 2>"$stderr" || run_exit=$?
+  if [[ -s "$port_probe_error" ]]; then
+    printf 'fixture port probe failed:\n' >>"$stderr"
+    cat "$port_probe_error" >>"$stderr"
+    run_exit=1
+    _fail "fixture: local port availability probe failed"
+    return 1
+  fi
 }
 
 _wait_for_file() {
