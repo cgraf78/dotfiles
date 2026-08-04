@@ -74,6 +74,7 @@ runtime API.
 | Karabiner | `karabiner/profiles.d/*.json` | Karabiner config |
 | Claude Code | `claude/settings.d/` | `~/.claude/settings.json` |
 | Codex CLI | `codex/config.d/`, `codex/profiles/<name>.d/` | `~/.codex/config.toml` |
+| OpenCode | `opencode/agentguard.js` | `~/.config/opencode/plugins/dotfiles-agentguard.js` |
 | Gemini CLI | `gemini/settings.d/` | `~/.gemini/settings.json` |
 | Agent rules | `agent-rules/rules.d/*.md`, `agent-rules/targets.d/*.txt` | configured agent rule target files |
 | Git | tracked XDG config | one portable include in `~/.gitconfig` when needed |
@@ -136,8 +137,10 @@ exists, do not add an invented placeholder schema.
   mutually-exclusive target profile for a machine.
 - Gemini uses the same `agent-hook-*` scripts as Claude and Codex, with Gemini
   event names and tool matchers.
-- New agent runtimes should follow the adapter pattern in the `agentguard`
-  dependency repo.
+- OpenCode has no declarative command-hook schema, so its merge hook installs a
+  thin dotfiles-owned protocol adapter through OpenCode's global plugin
+  directory. The adapter reuses the same `agent-hook-*` scripts as Claude,
+  Codex, and Gemini without duplicating AgentGuard policy.
 - SSH config merges tracked family fragments plus overlay `.ssh` host aliases.
 - Global ignore patterns are assembled from `ignore/ignore.d` source files.
 - The mise hook runs `mise install` for versions declared under

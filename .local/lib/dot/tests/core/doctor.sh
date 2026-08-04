@@ -7,6 +7,42 @@ dot_core_test_doctor() {
 
   _dot_doctor_load
 
+  doctor_opencode_home=$(_tmpdir)
+  doctor_opencode_bin=$(_tmpdir)
+  mkdir -p "$doctor_opencode_home/.config/opencode/plugins"
+  cat >"$doctor_opencode_bin/opencode" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+  chmod +x "$doctor_opencode_bin/opencode"
+
+  result=$(
+    HOME="$doctor_opencode_home" PATH="$doctor_opencode_bin:$PATH" \
+      _dr_check_opencode_agentguard 2>&1
+  )
+  _assert_contains "doctor: warns when OpenCode AgentGuard plugin is absent" \
+    "OpenCode AgentGuard plugin missing" "$result"
+
+  printf '%s\n' 'export const userOwned = true' \
+    >"$doctor_opencode_home/.config/opencode/plugins/dotfiles-agentguard.js"
+  result=$(
+    HOME="$doctor_opencode_home" PATH="$doctor_opencode_bin:$PATH" \
+      _dr_check_opencode_agentguard 2>&1
+  )
+  _assert_contains "doctor: warns when OpenCode AgentGuard plugin is unmanaged" \
+    "OpenCode AgentGuard plugin unmanaged" "$result"
+
+  cat >"$doctor_opencode_home/.config/opencode/plugins/dotfiles-agentguard.js" <<'PLUGIN'
+// dot-managed:opencode-agentguard-plugin
+export const AgentGuardPlugin = async () => ({});
+PLUGIN
+  result=$(
+    HOME="$doctor_opencode_home" PATH="$doctor_opencode_bin:$PATH" \
+      _dr_check_opencode_agentguard 2>&1
+  )
+  _assert_contains "doctor: accepts the managed OpenCode AgentGuard plugin" \
+    "OpenCode AgentGuard plugin installed" "$result"
+
   doctor_physical_dir="$(_tmpdir)/physical/real"
   doctor_path_tools_log="$(_tmpdir)/path-tools.log"
   mkdir -p "$doctor_physical_dir"
