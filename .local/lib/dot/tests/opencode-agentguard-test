@@ -337,9 +337,14 @@ await check("translates Bash, edit, write, patch, and MCP payloads", async () =>
     assert.equal(pre.payload.tool_name, toolName);
     assert.equal(pre.payload.session_id, "payload-session");
     assert.equal(pre.payload.cwd, expectedCwd);
-    assert.equal(pre.cwd, expectedCwd);
+    // macOS exposes /tmp and /var as symlinks into /private. Keep asserting
+    // the lexical directory in AgentGuard's payload, because that is the path
+    // OpenCode requested, while comparing the hook process's cwd with the
+    // filesystem-canonical directory the kernel reports after chdir(2).
+    const expectedProcessCwd = fs.realpathSync(expectedCwd);
+    assert.equal(pre.cwd, expectedProcessCwd);
     assert.equal(post.payload.cwd, expectedCwd);
-    assert.equal(post.cwd, expectedCwd);
+    assert.equal(post.cwd, expectedProcessCwd);
     assert.equal(pre.name, "opencode");
     assert.equal(pre.session, "payload-session");
     assert.equal(pre.bashEnv, path.join(home, ".config/shell/env-noninteractive.sh"));
@@ -604,12 +609,13 @@ await check("fails closed when a protected hook closes stdin early", async () =>
   const hookPath = path.join(home, ".local/bin/agent-hook-pre-edit");
   const hookScript = path.join(root, "close-input-hook.sh");
   const descendantMarker = path.join(root, "closed-input-descendant-survived");
+  const descendantDelayMs = 2_000;
   fs.writeFileSync(
     hookScript,
     `#!/bin/sh
 exec 0<&-
 (
-  sleep 0.2
+  sleep ${descendantDelayMs / 1_000}
   printf alive >"${descendantMarker}"
 ) &
 sleep 5
@@ -633,7 +639,11 @@ sleep 5
       ),
       /input failed/i,
     );
-    await new Promise((resolve) => setTimeout(resolve, 350));
+    // EPIPE delivery includes OS pipe-buffer and scheduler behavior. A 200 ms
+    // descendant could mutate before macOS reported the closed input under the
+    // parallel CI load, which tested notification latency rather than whether
+    // the adapter kills the process group once the failure is observable.
+    await new Promise((resolve) => setTimeout(resolve, descendantDelayMs + 250));
     assert.equal(fs.existsSync(descendantMarker), false);
     await hooks.dispose();
   } finally {
