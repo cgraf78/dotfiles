@@ -4493,6 +4493,13 @@ EOF
   _assert_contains "mb_merge: writes block body" "merged-body" "$(cat "$mb_dst")"
   mb_perms=$(stat -c '%a' "$mb_dst" 2>/dev/null || stat -f '%Lp' "$mb_dst" 2>/dev/null)
   _assert_eq "mb_merge: destination is 600" "600" "$mb_perms"
+  mb_inode_before=$(stat -c '%i' "$mb_dst" 2>/dev/null ||
+    stat -f '%i' "$mb_dst" 2>/dev/null)
+  _mb_merge "$mb_dst" "$mb_block"
+  mb_inode_after=$(stat -c '%i' "$mb_dst" 2>/dev/null ||
+    stat -f '%i' "$mb_dst" 2>/dev/null)
+  _assert_eq "mb_merge: unchanged merge skips replacement" \
+    "$mb_inode_before" "$mb_inode_after"
   shopt -s nullglob
   mb_leftovers=("$mb_dst".tmp.*)
   shopt -u nullglob
@@ -4501,27 +4508,55 @@ EOF
 
   mb_family_dst="$TEST_HOME/.config/testapp/mb-family-out"
   cat >"$mb_family_dst" <<'EOF'
-manual line
+
+manual first
+
+
+
+manual second
 
 # dot-managed:family:old begin
 old generated
 # dot-managed:family:old end
+
+
 EOF
   mb_family_block=$(_mb_build '# dot-managed:family:new' "/src/new" "new generated")
-  _mb_merge_family "$mb_family_dst" "# dot-managed:family:" "$mb_family_block"
+  mb_family_block_two=$(_mb_build \
+    '# dot-managed:family:second' "/src/second" "second generated")
+  _mb_merge_family "$mb_family_dst" "# dot-managed:family:" \
+    "$mb_family_block" "$mb_family_block_two"
   mb_family_content=$(cat "$mb_family_dst")
-  _assert_contains "mb_merge_family: preserves manual content" "manual line" "$mb_family_content"
+  _assert_contains "mb_merge_family: preserves manual content" \
+    "manual first" "$mb_family_content"
   _assert_not_contains "mb_merge_family: prunes stale family block" \
     "old generated" "$mb_family_content"
   _assert_contains "mb_merge_family: writes replacement block" \
     "new generated" "$mb_family_content"
+  printf 'manual first\n\nmanual second\n\n%s\n\n%s\n' \
+    "$mb_family_block" "$mb_family_block_two" >"$mb_family_dst.prev"
+  if cmp -s "$mb_family_dst.prev" "$mb_family_dst"; then
+    _pass "mb_merge_family: keeps normalized exact multi-block layout"
+  else
+    _fail "mb_merge_family: keeps normalized exact multi-block layout"
+  fi
+  mb_family_perms=$(stat -c '%a' "$mb_family_dst" 2>/dev/null ||
+    stat -f '%Lp' "$mb_family_dst" 2>/dev/null)
+  _assert_eq "mb_merge_family: destination is 600" "600" "$mb_family_perms"
   cp "$mb_family_dst" "$mb_family_dst.prev"
-  _mb_merge_family "$mb_family_dst" "# dot-managed:family:" "$mb_family_block"
+  mb_family_inode_before=$(stat -c '%i' "$mb_family_dst" 2>/dev/null ||
+    stat -f '%i' "$mb_family_dst" 2>/dev/null)
+  _mb_merge_family "$mb_family_dst" "# dot-managed:family:" \
+    "$mb_family_block" "$mb_family_block_two"
+  mb_family_inode_after=$(stat -c '%i' "$mb_family_dst" 2>/dev/null ||
+    stat -f '%i' "$mb_family_dst" 2>/dev/null)
   if cmp -s "$mb_family_dst.prev" "$mb_family_dst"; then
     _pass "mb_merge_family: unchanged merge is stable"
   else
     _fail "mb_merge_family: unchanged merge is stable"
   fi
+  _assert_eq "mb_merge_family: unchanged merge skips replacement" \
+    "$mb_family_inode_before" "$mb_family_inode_after"
 
   echo ""
   echo "=== Sapling native sley commit gate ==="

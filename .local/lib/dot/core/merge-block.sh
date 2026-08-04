@@ -12,6 +12,7 @@
 #   _mb_build    — assemble a marked block string
 #   _mb_strip    — remove a marked block from a string
 #   _mb_strip_family — remove every marked block with a marker prefix
+#   _mb_finalize — normalize and atomically publish stripped content + blocks
 #   _mb_merge    — merge marked blocks into a file (hand-managed first)
 #   _mb_merge_family — merge blocks after stripping a whole marker family
 
@@ -79,6 +80,55 @@ _mb_strip_family() {
   ' <<<"$input"
 }
 
+# Normalize unmanaged content, append managed blocks, and atomically publish
+# the result. Callers own marker stripping because exact and family replacement
+# deliberately have different semantics.
+# Args: $1 = destination, $2 = stripped unmanaged content, $3..N = blocks
+_mb_finalize() {
+  local dst="$1" rest="$2"
+  shift 2
+  local -a blocks=("$@")
+
+  # Squeeze repeated blank lines, then strip leading/trailing whitespace.
+  # Prevents blank-line accumulation across repeated merges.
+  rest="$(printf '%s\n' "$rest" | cat -s)"
+  rest="${rest#"${rest%%[![:space:]]*}"}"
+  rest="${rest%"${rest##*[![:space:]]}"}"
+
+  # Build result: hand-managed entries first, then managed blocks.
+  local result="$rest"
+  local block
+  for block in "${blocks[@]}"; do
+    if [[ -n "$result" ]]; then
+      result+=$'\n\n'"$block"
+    else
+      result="$block"
+    fi
+  done
+  result+=$'\n'
+
+  # Skip write if nothing changed.
+  if [[ -f "$dst" ]] && printf '%s' "$result" | cmp -s - "$dst"; then
+    return 0
+  fi
+
+  local tmp
+  _dot_sibling_tmp_for "$dst" || return 1
+  tmp="$REPLY"
+  printf '%s' "$result" >"$tmp" || {
+    rm -f "$tmp"
+    return 1
+  }
+  chmod 600 "$tmp" || {
+    rm -f "$tmp"
+    return 1
+  }
+  mv "$tmp" "$dst" || {
+    rm -f "$tmp"
+    return 1
+  }
+}
+
 # Merge marked blocks into a file. Hand-managed content stays first
 # (important for SSH first-match-wins), managed blocks append at the end.
 #
@@ -112,43 +162,7 @@ _mb_merge() {
     rest="$(_mb_strip "$marker" "$rest")"
   done
 
-  # Collapse runs of 3+ blank lines to 2, then strip leading/trailing
-  # whitespace. Prevents blank-line accumulation across repeated merges.
-  rest="$(printf '%s\n' "$rest" | cat -s)"
-  rest="${rest#"${rest%%[![:space:]]*}"}"
-  rest="${rest%"${rest##*[![:space:]]}"}"
-
-  # Build result: hand-managed entries first, then managed blocks.
-  local result="$rest"
-  for block in "${blocks[@]}"; do
-    if [[ -n "$result" ]]; then
-      result+=$'\n\n'"$block"
-    else
-      result="$block"
-    fi
-  done
-  result+=$'\n'
-
-  # Skip write if nothing changed
-  if [[ -f "$dst" ]] && printf '%s' "$result" | cmp -s - "$dst"; then
-    return 0
-  fi
-
-  local tmp
-  _dot_sibling_tmp_for "$dst" || return 1
-  tmp="$REPLY"
-  printf '%s' "$result" >"$tmp" || {
-    rm -f "$tmp"
-    return 1
-  }
-  chmod 600 "$tmp" || {
-    rm -f "$tmp"
-    return 1
-  }
-  mv "$tmp" "$dst" || {
-    rm -f "$tmp"
-    return 1
-  }
+  _mb_finalize "$dst" "$rest" "${blocks[@]}"
 }
 
 # Merge marked blocks into a file after stripping a whole marker family.
@@ -183,42 +197,5 @@ _mb_merge_family() {
   local rest="$current"
   rest="$(_mb_strip_family "$marker_prefix" "$rest")"
 
-  # Collapse runs of 3+ blank lines to 2, then strip leading/trailing
-  # whitespace. Prevents blank-line accumulation across repeated merges.
-  rest="$(printf '%s\n' "$rest" | cat -s)"
-  rest="${rest#"${rest%%[![:space:]]*}"}"
-  rest="${rest%"${rest##*[![:space:]]}"}"
-
-  # Build result: hand-managed entries first, then managed blocks.
-  local result="$rest"
-  local block
-  for block in "${blocks[@]}"; do
-    if [[ -n "$result" ]]; then
-      result+=$'\n\n'"$block"
-    else
-      result="$block"
-    fi
-  done
-  result+=$'\n'
-
-  # Skip write if nothing changed
-  if [[ -f "$dst" ]] && printf '%s' "$result" | cmp -s - "$dst"; then
-    return 0
-  fi
-
-  local tmp
-  _dot_sibling_tmp_for "$dst" || return 1
-  tmp="$REPLY"
-  printf '%s' "$result" >"$tmp" || {
-    rm -f "$tmp"
-    return 1
-  }
-  chmod 600 "$tmp" || {
-    rm -f "$tmp"
-    return 1
-  }
-  mv "$tmp" "$dst" || {
-    rm -f "$tmp"
-    return 1
-  }
+  _mb_finalize "$dst" "$rest" "${blocks[@]}"
 }
