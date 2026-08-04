@@ -1333,6 +1333,10 @@ MOCK
 chmod +x "$vscode_switch_mock/tmux"
 cat >"$vscode_switch_mock/vscode-switch-tab" <<'MOCK'
 #!/usr/bin/env bash
+# Hold a deterministic exists-but-empty window so file existence alone cannot
+# masquerade as async command completion.
+: >>"$VSCODE_MOCK_LOG"
+sleep 0.1
 printf '%s\n' "$*" >>"$VSCODE_MOCK_LOG"
 MOCK
 chmod +x "$vscode_switch_mock/vscode-switch-tab"
@@ -1352,10 +1356,17 @@ result=$(TMUX="/tmp/tmux-test,1,0" TMUX_PANE="%1" \
     vim.bo[bufnr].buflisted = bufnr == vim.api.nvim_get_current_buf()
   end
   vim.fn.maparg("<C-Tab>", "n", false, true).callback()
-  vim.wait(1000, function()
+  -- Poll well inside the mock 100 ms empty-file window.
+  local output_ready = vim.wait(2000, function()
+    -- The async shell opens the log before writing its argument.
     return vim.fn.filereadable(vim.env.VSCODE_MOCK_LOG) == 1
-  end)
-  print("vscode:" .. table.concat(vim.fn.readfile(vim.env.VSCODE_MOCK_LOG), "|"))
+      and #vim.fn.readfile(vim.env.VSCODE_MOCK_LOG) > 0
+  end, 10)
+  if output_ready then
+    print("vscode:" .. table.concat(vim.fn.readfile(vim.env.VSCODE_MOCK_LOG), "|"))
+  else
+    print("vscode:TIMEOUT")
+  end
 ')
 _assert_eq "buffer cycling: Ctrl-Tab bubbles to VS Code (not WezTerm) when the active client is VS Code" \
   "vscode:next" "$result"
