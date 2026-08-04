@@ -200,6 +200,17 @@ function directTarget(tool, args) {
   }
 }
 
+function matchingMcpTargets(tool, args, servers, prefixFor) {
+  return servers
+    .map((server) => ({ server, prefix: prefixFor(server) }))
+    .filter(({ prefix }) => tool.startsWith(prefix) && tool.length > prefix.length)
+    .map(({ server, prefix }) => ({
+      kind: "mcp",
+      name: `mcp__${server}__${tool.slice(prefix.length)}`,
+      input: args,
+    }));
+}
+
 function mcpTargets(tool, args, servers) {
   const resourceName = RESOURCE_TOOLS.get(tool);
   if (resourceName) {
@@ -218,25 +229,18 @@ function mcpTargets(tool, args, servers) {
     return [];
   }
 
-  // OpenCode flattens MCP identity into "sanitized-server_tool". A prefix can
-  // be ambiguous after sanitization, and guessing would let the wrong server's
-  // policy authorize a call, so ambiguity must fail closed.
-  const matches = servers
-    .map((server) => ({ server, prefix: `${sanitizeMcpName(server)}_` }))
-    .filter(({ prefix }) => tool.startsWith(prefix) && tool.length > prefix.length);
+  // Canonical aliases remain executable in compatible runtimes even when the
+  // advertised tool name is flattened. Evaluate both interpretations together:
+  // valid server names can make their prefixes overlap, and guessing would let
+  // the wrong server's policy authorize a call.
+  const matches = [
+    ...matchingMcpTargets(tool, args, servers, (server) => `mcp__${server}__`),
+    ...matchingMcpTargets(tool, args, servers, (server) => `${sanitizeMcpName(server)}_`),
+  ];
   if (matches.length > 1) {
     throw new Error(`Ambiguous MCP tool identity for ${tool}`);
   }
-  if (matches.length === 0) return [];
-
-  const match = matches[0];
-  return [
-    {
-      kind: "mcp",
-      name: `mcp__${match.server}__${tool.slice(match.prefix.length)}`,
-      input: args,
-    },
-  ];
+  return matches;
 }
 
 function targetsFor(tool, args, servers) {
@@ -266,12 +270,16 @@ function basePayload(sessionID, directory, eventName) {
   };
 }
 
-function toolPayload(sessionID, directory, eventName, target, response) {
+function toolPayload(sessionID, directory, eventName, target, output) {
+  const response = output === undefined ? undefined : toolResponse(target, output);
   return {
     ...basePayload(sessionID, directory, eventName),
     tool_name: target.name,
     tool_input: target.input,
     ...(response === undefined ? {} : { tool_response: response }),
+    ...(target.kind === "mcp" && typeof output?.isError === "boolean"
+      ? { tool_result_is_error: output.isError }
+      : {}),
   };
 }
 
@@ -737,13 +745,7 @@ export const AgentGuardPlugin = async ({ directory, client }) => {
         const result = await advisory(
           input.sessionID,
           hookFor(target.kind, "post"),
-          toolPayload(
-            input.sessionID,
-            target.cwd,
-            "PostToolUse",
-            target,
-            toolResponse(target, output),
-          ),
+          toolPayload(input.sessionID, target.cwd, "PostToolUse", target, output),
           target.cwd,
         );
         if (result.context) contexts.push(result.context);

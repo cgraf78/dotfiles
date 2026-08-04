@@ -413,6 +413,36 @@ await check("translates Bash, edit, multiedit, write, patch, and MCP payloads", 
   }
 });
 
+await check("routes canonical MCP aliases through MCP hooks", async () => {
+  clearLog();
+  let hooks;
+  try {
+    hooks = await plugin({ mcp: { docs: { type: "local" } } });
+    const input = {
+      tool: "mcp__docs__lookup",
+      sessionID: "canonical-mcp",
+      callID: "canonical-mcp-call",
+    };
+    const args = { query: "value" };
+    await hooks["tool.execute.before"](input, { args });
+    await hooks["tool.execute.after"](
+      { ...input, args },
+      { title: "lookup", output: "result", metadata: {} },
+    );
+
+    const records = logs().filter((record) => record.hook.endsWith("-mcp"));
+    assert.deepEqual(
+      records.map((record) => [record.hook, record.payload.tool_name]),
+      [
+        ["agent-hook-pre-mcp", "mcp__docs__lookup"],
+        ["agent-hook-post-mcp", "mcp__docs__lookup"],
+      ],
+    );
+  } finally {
+    await hooks?.dispose();
+  }
+});
+
 await check("preserves typed MCP content and appends hook context", async () => {
   clearLog();
   let hooks;
@@ -449,6 +479,34 @@ await check("preserves typed MCP content and appends hook context", async () => 
     await hooks?.dispose();
     clearBehavior("agent-hook-pre-mcp");
     clearBehavior("agent-hook-post-mcp");
+  }
+});
+
+await check("maps MCP protocol errors to the canonical post-hook status", async () => {
+  clearLog();
+  let hooks;
+  try {
+    hooks = await plugin({ mcp: { docs: { type: "local" } } });
+    const args = { query: "value" };
+    await hooks["tool.execute.before"](
+      { tool: "docs_lookup", sessionID: "failed-mcp", callID: "failed-mcp-call" },
+      { args },
+    );
+    await hooks["tool.execute.after"](
+      { tool: "docs_lookup", sessionID: "failed-mcp", callID: "failed-mcp-call", args },
+      {
+        title: "lookup",
+        output: "request failed",
+        content: [{ type: "text", text: "request failed" }],
+        isError: true,
+        metadata: { source: "mcp" },
+      },
+    );
+
+    const post = logs().find((record) => record.hook === "agent-hook-post-mcp");
+    assert.equal(post.payload.tool_result_is_error, true);
+  } finally {
+    await hooks?.dispose();
   }
 });
 
@@ -660,16 +718,32 @@ await check("fails closed on malformed successful protected output", async () =>
 await check("treats a missing executable as advisory", async () => {
   clearLog();
   const hookPath = path.join(home, ".local/bin/agent-hook-pre-bash");
+  const savedConsoleError = console.error;
+  const savedPath = process.env.PATH;
+  const errors = [];
+  let hooks;
   fs.renameSync(hookPath, `${hookPath}.missing`);
+  console.error = (...args) => errors.push(args.join(" "));
+  process.env.PATH = path.join(root, "no-hooks-here");
   try {
-    const hooks = await plugin();
+    hooks = await plugin();
     await hooks["tool.execute.before"](
       { tool: "bash", sessionID: "missing", callID: "missing-call" },
       { args: { command: "safe" } },
     );
-    await hooks.dispose();
+    assert.deepEqual(logs(), []);
+    assert.deepEqual(errors, [
+      "[opencode-agentguard] agent-hook-pre-bash unavailable; skipping",
+    ]);
   } finally {
+    console.error = savedConsoleError;
+    if (savedPath === undefined) {
+      delete process.env.PATH;
+    } else {
+      process.env.PATH = savedPath;
+    }
     fs.renameSync(`${hookPath}.missing`, hookPath);
+    await hooks?.dispose();
   }
 });
 
@@ -846,6 +920,50 @@ await check("fails closed on ambiguous MCP server prefixes", async () => {
   await assert.rejects(
     hooks["tool.execute.before"](
       { tool: "a_b_lookup", sessionID: "ambiguous", callID: "ambiguous-call" },
+      output,
+    ),
+    /ambiguous MCP/i,
+  );
+  assert.equal(output.decision, "deny");
+  assert.match(output.reason, /ambiguous MCP/i);
+  await hooks.dispose();
+});
+
+await check("fails closed on ambiguous canonical MCP server prefixes", async () => {
+  clearLog();
+  const hooks = await plugin({ mcp: { a: {}, a__b: {} } });
+  const output = { args: { query: "x" } };
+  await assert.rejects(
+    hooks["tool.execute.before"](
+      { tool: "mcp__a__b__lookup", sessionID: "canonical-ambiguous", callID: "canonical-ambiguous-call" },
+      output,
+    ),
+    /ambiguous MCP/i,
+  );
+  assert.equal(output.decision, "deny");
+  assert.match(output.reason, /ambiguous MCP/i);
+  await hooks.dispose();
+});
+
+await check("retains flattened MCP names that start with the canonical marker", async () => {
+  clearLog();
+  const hooks = await plugin({ mcp: { mcp_: {} } });
+  await hooks["tool.execute.before"](
+    { tool: "mcp__lookup", sessionID: "prefixed-mcp", callID: "prefixed-mcp-call" },
+    { args: { query: "x" } },
+  );
+  const pre = logs().find((record) => record.hook === "agent-hook-pre-mcp");
+  assert.equal(pre.payload.tool_name, "mcp__mcp___lookup");
+  await hooks.dispose();
+});
+
+await check("fails closed on cross-form ambiguous MCP identities", async () => {
+  clearLog();
+  const hooks = await plugin({ mcp: { docs: {}, mcp__docs_: {} } });
+  const output = { args: { query: "x" } };
+  await assert.rejects(
+    hooks["tool.execute.before"](
+      { tool: "mcp__docs__lookup", sessionID: "cross-form", callID: "cross-form-call" },
       output,
     ),
     /ambiguous MCP/i,
