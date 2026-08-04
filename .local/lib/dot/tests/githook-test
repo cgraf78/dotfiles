@@ -538,7 +538,7 @@ EOF
 chmod +x "$mock_bin/sley"
 cat >"$repo/.config/lazygit/config.yml" <<'EOF'
 git:
-  pagers: []
+  diffRenderers: []
 EOF
 _git_set_test_identity \
   env GIT_DIR="$bare" GIT_WORK_TREE="$repo" GIT_CONFIG_GLOBAL="$repo/.gitconfig-test" git
