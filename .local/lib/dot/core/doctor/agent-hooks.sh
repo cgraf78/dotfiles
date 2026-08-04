@@ -30,7 +30,7 @@ _dr_run_agent_hook() {
 }
 
 _dr_check_opencode_agentguard() {
-  command -v opencode >/dev/null 2>&1 || return 0
+  command -v "${DOT_OPENCODE_COMMAND:-opencode}" >/dev/null 2>&1 || return 0
 
   local plugin="$HOME/.config/opencode/plugins/dotfiles-agentguard.js"
   local marker='// dot-managed:opencode-agentguard-plugin'

@@ -108,12 +108,9 @@ _dot_gstack_write_opencode_skill_md() {
       gsub(/~\/[.]claude\/skills\/review/, runtime_root "/review", line)
       gsub(/[$]HOME\/[.]claude\/skills\/review/, runtime_root "/review", line)
       gsub(/[$][{]HOME[}]\/[.]claude\/skills\/review/, runtime_root "/review", line)
-      gsub(/[.]claude\/skills\/gstack/, runtime_root, line)
-      gsub(/[.]claude\/skills\/review/, runtime_root "/review", line)
       gsub(/~\/[.]claude\/skills/, skills_root, line)
       gsub(/[$]HOME\/[.]claude\/skills/, skills_root, line)
       gsub(/[$][{]HOME[}]\/[.]claude\/skills/, skills_root, line)
-      gsub(/[.]claude\/skills/, skills_root, line)
       return line
     }
     BEGIN {

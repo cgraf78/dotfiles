@@ -36,11 +36,13 @@ SH
 // dot-managed:opencode-agentguard-plugin
 export const AgentGuardPlugin = async () => ({});
 PLUGIN
+  mv "$doctor_opencode_bin/opencode" "$doctor_opencode_bin/compatible-opencode"
   result=$(
-    HOME="$doctor_opencode_home" PATH="$doctor_opencode_bin:$PATH" \
+    HOME="$doctor_opencode_home" PATH="$doctor_opencode_bin:/usr/bin:/bin" \
+      DOT_OPENCODE_COMMAND=compatible-opencode \
       _dr_check_opencode_agentguard 2>&1
   )
-  _assert_contains "doctor: accepts the managed OpenCode AgentGuard plugin" \
+  _assert_contains "doctor: accepts the managed plugin for a compatible command" \
     "OpenCode AgentGuard plugin installed" "$result"
 
   doctor_physical_dir="$(_tmpdir)/physical/real"

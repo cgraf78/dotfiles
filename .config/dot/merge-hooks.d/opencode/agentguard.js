@@ -109,6 +109,29 @@ function appendContext(original, contexts) {
   return `${prefix}<${CONTEXT_HEADING}>\n${usable.join("\n\n")}\n</${CONTEXT_HEADING}>`;
 }
 
+function agentName() {
+  const configured = process.env.DOT_OPENCODE_AGENTGUARD_NAME?.trim();
+  return configured || "opencode";
+}
+
+function appendOutputContext(output, contexts) {
+  const context = appendContext("", contexts);
+  if (!context) return;
+  if (Array.isArray(output.content)) {
+    output.content = [...output.content, { type: "text", text: context }];
+    return;
+  }
+  if (typeof output.content === "string") {
+    output.content = appendContext(output.content, contexts);
+    return;
+  }
+  if (typeof output.output === "string") {
+    output.output = appendContext(output.output, contexts);
+    return;
+  }
+  output.output = context;
+}
+
 // AgentGuard owns one stable cross-runtime schema. Translate OpenCode's native
 // camel-case arguments here instead of teaching individual guard hooks about
 // another runtime.
@@ -136,6 +159,17 @@ function canonicalToolInput(tool, args) {
       content: args.content,
     };
   }
+  if (tool === "multiedit") {
+    return {
+      ...args,
+      file_path: args.filePath,
+      edits: (args.edits ?? []).map((edit) => ({
+        old_string: edit.oldString,
+        new_string: edit.newString,
+        replace_all: edit.replaceAll,
+      })),
+    };
+  }
   if (tool === "apply_patch" || tool === "patch") {
     return {
       ...args,
@@ -157,6 +191,9 @@ function directTarget(tool, args) {
   }
   if (tool === "write") {
     return { kind: "edit", name: "Write", input: canonicalToolInput(tool, args) };
+  }
+  if (tool === "multiedit") {
+    return { kind: "edit", name: "MultiEdit", input: canonicalToolInput(tool, args) };
   }
   if (tool === "apply_patch" || tool === "patch") {
     return { kind: "edit", name: "Edit", input: canonicalToolInput(tool, args) };
@@ -262,6 +299,7 @@ function toolResponse(target, output) {
   }
   return {
     output: output.output,
+    ...(output.content === undefined ? {} : { content: output.content }),
     metadata: output.metadata,
   };
 }
@@ -292,7 +330,7 @@ async function executable(hook) {
   }
 }
 
-function spawnHook(command, hook, payload, directory, sessionID) {
+function spawnHook(command, hook, payload, directory, sessionID, runtimeName) {
   return new Promise((resolve, reject) => {
     const home = process.env.HOME ?? process.env.USERPROFILE ?? "";
     // A timed-out hook may have spawned helpers. A separate POSIX process group
@@ -304,7 +342,7 @@ function spawnHook(command, hook, payload, directory, sessionID) {
       detached: grouped,
       env: {
         ...process.env,
-        AGENTGUARD_NAME: "opencode",
+        AGENTGUARD_NAME: runtimeName,
         AGENTGUARD_SESSION_ID: sessionID,
         BASH_ENV: path.join(home, ".config", "shell", "env-noninteractive.sh"),
       },
@@ -390,6 +428,7 @@ export const AgentGuardPlugin = async ({ directory, client }) => {
   // tools need their own pre-hook context and cleanup boundary.
   const sessions = new Map();
   const calls = new Map();
+  const runtimeName = agentName();
   let configState;
   let runtimeMcpServers;
   let reportedMcpStatusFailure = false;
@@ -474,7 +513,7 @@ export const AgentGuardPlugin = async ({ directory, client }) => {
       return { missing: true, context: "" };
     }
 
-    const result = await spawnHook(command, hook, payload, cwd, sessionID);
+    const result = await spawnHook(command, hook, payload, cwd, sessionID, runtimeName);
     let parsed;
     if (result.stdout.trim()) {
       try {
@@ -598,7 +637,7 @@ export const AgentGuardPlugin = async ({ directory, client }) => {
       // `hm remember` and `hm note` writes with this OpenCode session. Keep Hive
       // vocabulary out of the adapter: the launcher remains the single owner of
       // HIVE_MEMORY_* translation, just as it is for Claude and Codex.
-      output.env.AGENTGUARD_NAME = "opencode";
+      output.env.AGENTGUARD_NAME = runtimeName;
       if (input.sessionID) {
         output.env.AGENTGUARD_SESSION_ID = input.sessionID;
       } else {
@@ -647,26 +686,35 @@ export const AgentGuardPlugin = async ({ directory, client }) => {
 
     "tool.execute.before": async (input, output) => {
       prune();
-      // Direct tools never need a status round trip. Every other tool may be a
-      // runtime-added MCP tool, so refresh identity before deciding it is
-      // unrelated and therefore safe to skip.
-      const servers = directTarget(input.tool, output.args) ? [] : await activeMcpServers();
-      const targets = targetsFor(input.tool, output.args, servers).map((target) => ({
-        ...target,
-        cwd: targetCwd(target, directory),
-      }));
-      if (targets.length === 0) return;
-
+      let targets;
       const contexts = [];
-      for (const target of targets) {
-        const result = await invoke(
-          input.sessionID,
-          hookFor(target.kind, "pre"),
-          toolPayload(input.sessionID, target.cwd, "PreToolUse", target),
-          true,
-          target.cwd,
-        );
-        if (result.context) contexts.push(result.context);
+      try {
+        // Direct tools never need a status round trip. Every other tool may be
+        // a runtime-added MCP tool, so refresh identity before deciding it is
+        // unrelated and therefore safe to skip.
+        const servers = directTarget(input.tool, output.args) ? [] : await activeMcpServers();
+        targets = targetsFor(input.tool, output.args, servers).map((target) => ({
+          ...target,
+          cwd: targetCwd(target, directory),
+        }));
+        if (targets.length === 0) return;
+
+        for (const target of targets) {
+          const result = await invoke(
+            input.sessionID,
+            hookFor(target.kind, "pre"),
+            toolPayload(input.sessionID, target.cwd, "PreToolUse", target),
+            true,
+            target.cwd,
+          );
+          if (result.context) contexts.push(result.context);
+        }
+      } catch (error) {
+        // OpenCode blocks on the rejected callback. Compatible runtimes can
+        // additionally consume the structured decision from the same failure.
+        output.decision = "deny";
+        output.reason = error instanceof Error ? error.message : String(error);
+        throw error;
       }
       calls.set(input.callID, {
         sessionID: input.sessionID,
@@ -700,7 +748,7 @@ export const AgentGuardPlugin = async ({ directory, client }) => {
         );
         if (result.context) contexts.push(result.context);
       }
-      output.output = appendContext(output.output, contexts);
+      appendOutputContext(output, contexts);
     },
 
     event: ({ event }) => {

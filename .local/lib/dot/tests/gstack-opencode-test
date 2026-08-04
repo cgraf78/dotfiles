@@ -57,6 +57,7 @@ Runs fixture QA checks when asked to validate the current behavior.
 ## Workflow
 
 Read `.claude/skills/review/TODOS-format.md`.
+Read `~/.claude/skills/review/checklist.md`.
 Run `~/.claude/skills/gstack/bin/gstack-config`.
 MD
 cat >"$gstack_dir/browse/SKILL.md" <<'MD'
@@ -126,6 +127,28 @@ export DOT_GSTACK_REGISTER_LIB="$source_home/.local/lib/dot/gstack-register/api.
 
 eval "$(declare -f _dot_gstack_has_agent | sed \
   '1s/_dot_gstack_has_agent/_original_dot_gstack_has_agent/')"
+
+cat >"$mock_bin/compatible-opencode" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+chmod +x "$mock_bin/compatible-opencode"
+DOT_OPENCODE_COMMAND=compatible-opencode
+export DOT_OPENCODE_COMMAND
+if _original_dot_gstack_has_agent opencode; then
+  _pass "OpenCode: compatible command override enables registration"
+else
+  _fail "OpenCode: compatible command override enables registration"
+fi
+rm -f "$mock_bin/compatible-opencode"
+hash -r
+if _original_dot_gstack_has_agent opencode; then
+  _fail "OpenCode: command override does not fall back to a different executable"
+else
+  _pass "OpenCode: command override does not fall back to a different executable"
+fi
+unset DOT_OPENCODE_COMMAND
+
 _dot_gstack_has_agent() {
   if [ "$1" = "opencode" ]; then
     [ -x "$mock_bin/opencode" ]
@@ -165,8 +188,10 @@ _assert_not_contains "OpenCode: strips Claude-only allowed-tools frontmatter" \
   "allowed-tools:" "$opencode_qa"
 _assert_not_contains "OpenCode: strips Claude-only trigger frontmatter" \
   "triggers:" "$opencode_qa"
-_assert_contains "OpenCode: rewrites shared review paths to its runtime root" \
-  "$opencode_root/review/TODOS-format.md" "$opencode_qa"
+_assert_contains "OpenCode: preserves project-relative skill paths" \
+  '.claude/skills/review/TODOS-format.md' "$opencode_qa"
+_assert_contains "OpenCode: rewrites global review paths to its runtime root" \
+  "$opencode_root/review/checklist.md" "$opencode_qa"
 _assert_contains "OpenCode: rewrites gstack runtime paths to its runtime root" \
   "$opencode_root/bin/gstack-config" "$opencode_qa"
 _assert_file_exists "OpenCode: links a retained generated skill" \
@@ -326,5 +351,6 @@ PATH=$saved_path
 export HOME PATH
 unset GSTACK_OPENCODE_BUN_LOG GSTACK_OPENCODE_SETUP_LOG
 unset GSTACK_OPENCODE_REAL_LN GSTACK_OPENCODE_REAL_RM DOT_GSTACK_REGISTER_LIB
+unset DOT_OPENCODE_COMMAND
 
 _test_summary
