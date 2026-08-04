@@ -443,9 +443,6 @@ _pull_overlay() {
       _log_header "==> Cloning $name dotfiles..."
     fi
     if ! git clone "$url" "$path" >/dev/null 2>&1; then
-      if [[ "$optional" == "true" ]]; then
-        return 0
-      fi
       if [[ "${DOT_UI_TOTAL:-0}" -gt 0 ]]; then
         _ui_status warning "$name dotfiles clone failed"
       else
@@ -524,9 +521,6 @@ _pull_overlay() {
   local head_before head_after
   head_before=$(_repo_head git -C "$path")
   if ! _pull_repo "$path" git -C "$path" pull "$@"; then
-    if [[ "$optional" == "true" ]]; then
-      return 0
-    fi
     if [[ "${DOT_UI_TOTAL:-0}" -gt 0 ]]; then
       _ui_status warning "$name dotfiles pull failed"
     else

@@ -338,12 +338,15 @@ _unstash_overlay_overrides() {
 # that overlay symlinks shadow.
 # Appends linked paths to $_overlay_manifest_new (set by _link_overlays).
 # Uses $_base_tracked (associative array) for O(1) tracked-file lookups.
+# Sets REPLY to display text and reports the outcome through REPLY_STATUS
+# (changed|current, or empty when there is no overlay home to process).
 _link_overlay() {
   local name="$1" path="$2" inventory="$3"
   local overlay_home="$path/home"
+  REPLY=""
+  REPLY_STATUS=""
   [[ -d "$overlay_home" ]] || return 0
   [[ -f "$inventory" && ! -L "$inventory" ]] || return 1
-  REPLY=""
   if [[ "${DOT_VERBOSE:-0}" -eq 1 ]]; then
     _ui_status running "$name overlay: linking"
   fi
@@ -413,11 +416,13 @@ _link_overlay() {
     _overlay_record_final "$rel" "$name" || return 1
   done <"$inventory"
   if [[ "$linked" -gt 0 ]]; then
+    REPLY_STATUS="changed"
     REPLY="$name overlay linked $linked"
     if [[ "${DOT_VERBOSE:-0}" -eq 1 ]]; then
       _ui_status changed "$REPLY"
     fi
   else
+    REPLY_STATUS="current"
     REPLY="$name overlay current"
     if [[ "${DOT_VERBOSE:-0}" -eq 1 ]]; then
       _ui_status ok "$REPLY"
@@ -532,7 +537,7 @@ _link_overlays() {
   local _overlay_changed=0
   local -a _overlay_changed_items=()
   for entry in "${OVERLAYS[@]+"${OVERLAYS[@]}"}"; do
-    local name path url actual_origin expected_url
+    local name path url actual_origin expected_url status
     IFS='|' read -r name path url _ <<<"$entry"
     [[ -d "$path/home" ]] || continue
     if ! _overlay_is_worktree "$path"; then
@@ -555,14 +560,23 @@ _link_overlays() {
       rm -rf -- "$inventory_root"
       return 1
     fi
-    if [[ -n "${REPLY:-}" ]]; then
-      if [[ "$REPLY" == *" linked "* ]]; then
+    status="${REPLY_STATUS:-}"
+    case "$status" in
+      changed)
         _overlay_changed=$((_overlay_changed + 1))
         _overlay_changed_items+=("$REPLY")
-      else
+        ;;
+      current)
         _overlay_current=$((_overlay_current + 1))
-      fi
-    fi
+        ;;
+      "") ;;
+      *)
+        _warn "  warning: unexpected link status for $name overlay: $status"
+        rm -f -- "$_overlay_manifest_new"
+        rm -rf -- "$inventory_root"
+        return 1
+        ;;
+    esac
   done
 
   # Clean up every previously or provisionally authoritative path omitted from
