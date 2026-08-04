@@ -29,6 +29,11 @@ const DEFAULT_TIMEOUT = 10_000;
 const CALL_TTL = 6 * 60 * 60 * 1_000;
 const MAX_CALLS = 1_024;
 const CONTEXT_HEADING = "AgentGuard context";
+const PERMISSION_FAILURE_PREFIXES = [
+  "The user rejected permission to use this specific tool call.",
+  "The user rejected permission to use this specific tool call with the following feedback:",
+  "The user has specified a rule which prevents you from using this specific tool call.",
+];
 
 // Node can create a private POSIX session but cannot enumerate its members.
 // The usual command-line shortcuts are not portable here: Apple's pkill omits
@@ -595,6 +600,77 @@ export const AgentGuardPlugin = async ({ directory, client }) => {
     }
   }
 
+  function claimCall(callID, sessionID) {
+    const call = calls.get(callID);
+    if (!call || call.sessionID !== sessionID) return;
+    calls.delete(callID);
+    return call;
+  }
+
+  async function runPostHooks(sessionID, call, output) {
+    const contexts = [...call.contexts];
+    for (const target of call.targets) {
+      const result = await advisory(
+        sessionID,
+        hookFor(target.kind, "post"),
+        toolPayload(sessionID, target.cwd, "PostToolUse", target, output),
+        target.cwd,
+      );
+      if (result.context) contexts.push(result.context);
+    }
+    return contexts;
+  }
+
+  function terminalToolError(event) {
+    if (event.type !== "message.part.updated") return;
+    const part = event.properties?.part;
+    if (
+      part?.type !== "tool" ||
+      part.state?.status !== "error" ||
+      typeof part.callID !== "string"
+    ) {
+      return;
+    }
+    return part;
+  }
+
+  function isNonExecutionFailure(state) {
+    if (state.metadata?.interrupted === true) return true;
+    if (state.error === "Tool execution aborted") return true;
+    return (
+      typeof state.error === "string" &&
+      PERMISSION_FAILURE_PREFIXES.some((prefix) => state.error.startsWith(prefix))
+    );
+  }
+
+  function handleTerminalToolError(event, sessionID) {
+    const part = terminalToolError(event);
+    if (!part || (part.sessionID && part.sessionID !== sessionID)) return false;
+
+    // Claim before queueing so duplicate events and a late after-hook cannot
+    // report the same call twice. Terminal errors for other tool families and
+    // non-execution outcomes still retire their otherwise orphaned records.
+    const call = claimCall(part.callID, sessionID);
+    if (!call) return true;
+    if (isNonExecutionFailure(part.state)) return true;
+    if (call.targets.length === 0 || call.targets.some((target) => target.kind !== "mcp")) {
+      return true;
+    }
+
+    const record = sessions.get(sessionID) ?? state(sessionID);
+    if (record.ended) return true;
+    const output = {
+      output: part.state.error,
+      metadata: part.state.metadata,
+      isError: true,
+    };
+    queue(record, async () => {
+      const contexts = await runPostHooks(sessionID, call, output);
+      record.pending.push(...contexts);
+    });
+    return true;
+  }
+
   function finalize(record) {
     // Mark ended before queueing so delete and dispose converge on the same
     // promise. Records remain present through SessionEnd for missing-hook
@@ -736,20 +812,9 @@ export const AgentGuardPlugin = async ({ directory, client }) => {
     "tool.execute.after": async (input, output) => {
       // Use identities captured before execution. Re-resolving MCP state here
       // could route the post-hook differently if a server disconnects mid-call.
-      const call = calls.get(input.callID);
+      const call = claimCall(input.callID, input.sessionID);
       if (!call) return;
-      calls.delete(input.callID);
-      const contexts = [...call.contexts];
-
-      for (const target of call.targets) {
-        const result = await advisory(
-          input.sessionID,
-          hookFor(target.kind, "post"),
-          toolPayload(input.sessionID, target.cwd, "PostToolUse", target, output),
-          target.cwd,
-        );
-        if (result.context) contexts.push(result.context);
-      }
+      const contexts = await runPostHooks(input.sessionID, call, output);
       appendOutputContext(output, contexts);
     },
 
@@ -758,6 +823,8 @@ export const AgentGuardPlugin = async ({ directory, client }) => {
       // return immediately; direct callbacks and dispose provide the awaits.
       const sessionID = sessionIDFromEvent(event);
       if (!sessionID) return Promise.resolve();
+
+      if (handleTerminalToolError(event, sessionID)) return Promise.resolve();
 
       if (event.type === "session.created") {
         state(sessionID);

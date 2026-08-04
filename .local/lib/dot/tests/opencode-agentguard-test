@@ -144,6 +144,31 @@ async function plugin(config = {}, client) {
   return hooks;
 }
 
+function toolErrorEvent({ sessionID, callID, tool, input, error, metadata }) {
+  return {
+    type: "message.part.updated",
+    properties: {
+      sessionID,
+      part: {
+        id: `prt-${callID}`,
+        messageID: `msg-${sessionID}`,
+        sessionID,
+        type: "tool",
+        callID,
+        tool,
+        state: {
+          status: "error",
+          input,
+          error,
+          ...(metadata === undefined ? {} : { metadata }),
+          time: { start: 1, end: 2 },
+        },
+      },
+      time: 2,
+    },
+  };
+}
+
 async function check(name, fn) {
   try {
     await fn();
@@ -508,6 +533,254 @@ await check("maps MCP protocol errors to the canonical post-hook status", async 
   } finally {
     await hooks?.dispose();
   }
+});
+
+await check("routes terminal MCP failures through the post hook", async () => {
+  clearLog();
+  let hooks;
+  behavior("agent-hook-pre-mcp", { stdout: JSON.stringify({ context: "pre failure context" }) });
+  behavior("agent-hook-post-mcp", {
+    stdout: JSON.stringify({ context: "post failure context" }),
+  });
+  try {
+    hooks = await plugin({ mcp: { docs: { type: "local" } } });
+    const failures = [
+      ["protocol-error-call", "MCP server returned an error result"],
+      ["transport-error-call", "MCP transport closed before a response"],
+    ];
+    for (const [callID, error] of failures) {
+      const input = { query: callID };
+      await hooks["tool.execute.before"](
+        { tool: "docs_lookup", sessionID: "terminal-mcp", callID },
+        { args: input },
+      );
+      void hooks.event({
+        event: toolErrorEvent({
+          sessionID: "terminal-mcp",
+          callID,
+          tool: "docs_lookup",
+          input,
+          error,
+          metadata: { source: "mcp" },
+        }),
+      });
+    }
+
+    const output = { message: {}, parts: [{ type: "text", text: "continue" }] };
+    await hooks["chat.message"]({ sessionID: "terminal-mcp", agent: "build" }, output);
+
+    const posts = logs().filter((record) => record.hook === "agent-hook-post-mcp");
+    assert.equal(posts.length, 2);
+    assert.deepEqual(
+      posts.map((record) => record.payload.tool_response.output),
+      failures.map(([, error]) => error),
+    );
+    assert.ok(posts.every((record) => record.payload.tool_result_is_error === true));
+    assert.ok(posts.every((record) => record.payload.tool_response.metadata.source === "mcp"));
+    assert.match(output.message.system, /pre failure context/);
+    assert.match(output.message.system, /post failure context/);
+  } finally {
+    await hooks?.dispose();
+    clearBehavior("agent-hook-pre-mcp");
+    clearBehavior("agent-hook-post-mcp");
+  }
+});
+
+await check("deduplicates repeated terminal MCP error events", async () => {
+  clearLog();
+  const hooks = await plugin({ mcp: { docs: { type: "local" } } });
+  const input = { query: "duplicate" };
+  await hooks["tool.execute.before"](
+    { tool: "docs_lookup", sessionID: "duplicate-error", callID: "duplicate-error-call" },
+    { args: input },
+  );
+  const event = toolErrorEvent({
+    sessionID: "duplicate-error",
+    callID: "duplicate-error-call",
+    tool: "docs_lookup",
+    input,
+    error: "MCP server returned an error result",
+  });
+  void hooks.event({ event });
+  void hooks.event({ event });
+  await hooks.dispose();
+
+  assert.equal(logs().filter((record) => record.hook === "agent-hook-post-mcp").length, 1);
+});
+
+await check("does not claim terminal errors from another session", async () => {
+  clearLog();
+  const hooks = await plugin({ mcp: { docs: { type: "local" } } });
+  const input = { query: "session ownership" };
+  const call = { tool: "docs_lookup", sessionID: "owning-session", callID: "owned-call" };
+  await hooks["tool.execute.before"](call, { args: input });
+  void hooks.event({
+    event: toolErrorEvent({
+      ...call,
+      sessionID: "other-session",
+      input,
+      error: "unrelated terminal error",
+    }),
+  });
+  await hooks["tool.execute.after"](
+    { ...call, args: input },
+    { output: "owned result", isError: true, metadata: {} },
+  );
+  await hooks.dispose();
+
+  const posts = logs().filter((record) => record.hook === "agent-hook-post-mcp");
+  assert.equal(posts.length, 1);
+  assert.equal(posts[0].payload.tool_response.output, "owned result");
+});
+
+await check("claims MCP failures once across event and after-hook ordering", async () => {
+  clearLog();
+  const hooks = await plugin({ mcp: { docs: { type: "local" } } });
+  const eventFirstInput = { query: "event first" };
+  const eventFirst = {
+    tool: "docs_lookup",
+    sessionID: "terminal-ordering",
+    callID: "event-first-call",
+  };
+  await hooks["tool.execute.before"](eventFirst, { args: eventFirstInput });
+  void hooks.event({
+    event: toolErrorEvent({
+      ...eventFirst,
+      input: eventFirstInput,
+      error: "MCP server returned an error result",
+    }),
+  });
+  await hooks["tool.execute.after"](
+    { ...eventFirst, args: eventFirstInput },
+    { output: "late result", isError: true, metadata: {} },
+  );
+
+  const afterFirstInput = { query: "after first" };
+  const afterFirst = {
+    tool: "docs_lookup",
+    sessionID: "terminal-ordering",
+    callID: "after-first-call",
+  };
+  await hooks["tool.execute.before"](afterFirst, { args: afterFirstInput });
+  await hooks["tool.execute.after"](
+    { ...afterFirst, args: afterFirstInput },
+    { output: "direct result", isError: true, metadata: {} },
+  );
+  void hooks.event({
+    event: toolErrorEvent({
+      ...afterFirst,
+      input: afterFirstInput,
+      error: "late terminal event",
+    }),
+  });
+  await hooks.dispose();
+
+  const posts = logs().filter((record) => record.hook === "agent-hook-post-mcp");
+  assert.equal(posts.length, 2);
+  assert.deepEqual(
+    posts.map((record) => record.payload.tool_response.output).sort(),
+    ["MCP server returned an error result", "direct result"],
+  );
+});
+
+await check("does not count interrupted MCP calls as server failures", async () => {
+  clearLog();
+  const hooks = await plugin({ mcp: { docs: { type: "local" } } });
+  const input = { query: "cancelled" };
+  const call = {
+    tool: "docs_lookup",
+    sessionID: "interrupted-mcp",
+    callID: "interrupted-mcp-call",
+  };
+  await hooks["tool.execute.before"](call, { args: input });
+  void hooks.event({
+    event: toolErrorEvent({
+      ...call,
+      input,
+      error: "Tool execution aborted",
+      metadata: { interrupted: true },
+    }),
+  });
+  await hooks["tool.execute.after"](
+    { ...call, args: input },
+    { output: "late result", isError: true, metadata: {} },
+  );
+  await hooks.dispose();
+
+  assert.equal(logs().filter((record) => record.hook === "agent-hook-post-mcp").length, 0);
+});
+
+await check("does not count cancelled MCP calls without interruption metadata", async () => {
+  clearLog();
+  const hooks = await plugin({ mcp: { docs: { type: "local" } } });
+  const input = { query: "cancelled without metadata" };
+  const call = {
+    tool: "docs_lookup",
+    sessionID: "cancelled-mcp",
+    callID: "cancelled-mcp-call",
+  };
+  await hooks["tool.execute.before"](call, { args: input });
+  void hooks.event({
+    event: toolErrorEvent({
+      ...call,
+      input,
+      error: "Tool execution aborted",
+    }),
+  });
+  await hooks["tool.execute.after"](
+    { ...call, args: input },
+    { output: "late result", isError: true, metadata: {} },
+  );
+  await hooks.dispose();
+
+  assert.equal(logs().filter((record) => record.hook === "agent-hook-post-mcp").length, 0);
+});
+
+await check("does not count permission denials as MCP server failures", async () => {
+  clearLog();
+  const hooks = await plugin({ mcp: { docs: { type: "local" } } });
+  const denials = [
+    ["interactive-denial", "The user rejected permission to use this specific tool call."],
+    [
+      "corrected-denial",
+      "The user rejected permission to use this specific tool call with the following feedback: no",
+    ],
+    [
+      "configured-denial",
+      "The user has specified a rule which prevents you from using this specific tool call.",
+    ],
+  ];
+  for (const [callID, error] of denials) {
+    const input = { query: callID };
+    const call = { tool: "docs_lookup", sessionID: "permission-denials", callID };
+    await hooks["tool.execute.before"](call, { args: input });
+    void hooks.event({ event: toolErrorEvent({ ...call, input, error }) });
+    await hooks["tool.execute.after"](
+      { ...call, args: input },
+      { output: "late result", isError: true, metadata: {} },
+    );
+  }
+  await hooks.dispose();
+
+  assert.equal(logs().filter((record) => record.hook === "agent-hook-post-mcp").length, 0);
+});
+
+await check("does not synthesize post hooks for direct-tool errors", async () => {
+  clearLog();
+  const hooks = await plugin();
+  const input = { command: "exit 1" };
+  const call = { tool: "bash", sessionID: "direct-error", callID: "direct-error-call" };
+  await hooks["tool.execute.before"](call, { args: input });
+  void hooks.event({
+    event: toolErrorEvent({ ...call, input, error: "Command exited with code 1" }),
+  });
+  await hooks["tool.execute.after"](
+    { ...call, args: input },
+    { output: "late result", metadata: { exit: 1 } },
+  );
+  await hooks.dispose();
+
+  assert.equal(logs().filter((record) => record.hook === "agent-hook-post-bash").length, 0);
 });
 
 await check("serializes lazy session start before the first prompt", async () => {
