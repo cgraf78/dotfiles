@@ -70,6 +70,9 @@ ignored, because it otherwise fails open and looks like a no-op.
   `~/.gstack/dotfiles-opencode-skills`, allowlists supported frontmatter,
   rewrites runtime paths, omits the recursive Codex wrapper, and maintains
   OpenCode's runtime asset root without invoking Bun or upstream setup.
+  The shell environment disables OpenCode's Claude skill fallback so this
+  native tree is not advertised a second time under Claude-compatible names;
+  CLAUDE.md rule fallback remains enabled.
 - [`cache.sh`](cache.sh) implements the warm `dot update` fast path. Watch
   entries use mtimes to skip expensive validation only when every watched source
   and target is no newer than the cache; otherwise the slower fingerprint path

@@ -14,6 +14,7 @@ _test_prefer_system_git || exit 1
 HOOK="$HOME/.local/lib/dot/core/merge-hooks/agent-rules.sh"
 PLAYBOOK_LIB="$HOME/.local/lib/dot/core/agent-playbooks.sh"
 RULE_FAMILY="$HOME/.config/dot/merge-hooks.d/agent-rules/rules.d"
+NATIVE_TARGETS="$HOME/.config/dot/merge-hooks.d/agent-rules/targets.d/80-targets.replace/50-native.txt"
 PLAYBOOK_FAMILY="$HOME/.config/dot/agent-playbooks.d"
 if [[ -f "$PLAYBOOK_LIB" ]]; then
   # shellcheck source=/dev/null
@@ -84,6 +85,12 @@ _assert_contains "agent rules: scope directs edits to source fragments" \
   "$SCOPE_RULES_TEXT"
 _assert_contains "agent rules: scope avoids generated target edits" \
   "generated runtime target" "$SCOPE_RULES_TEXT"
+# OpenCode can fall back to Claude's global file today, but that compatibility
+# path is optional runtime behavior. A native target keeps the shared rules
+# available if compatibility is disabled and makes ownership visible to doctor
+# and operators alongside the Claude, Codex, and Gemini targets.
+_assert_contains "agent rules: native profile includes OpenCode" \
+  '$HOME/.config/opencode/AGENTS.md' "$(cat "$NATIVE_TARGETS")"
 _assert_contains "agent rules: memory policy uses Hive Memory" \
   "Hive Memory is available through the \`hm\` command" "$MEMORY_RULES_TEXT"
 _assert_contains "agent rules: memory policy requires project-aware writes" \
@@ -513,6 +520,7 @@ EOF
 cat >"$FIXTURE/.config/dot/merge-hooks.d/agent-rules/targets.d/80-targets.replace/50-native.txt" <<'EOF'
 $HOME/.claude/CLAUDE.md
 ~/.codex/AGENTS.md
+$HOME/.config/opencode/AGENTS.md
 EOF
 printf '%s\n' "local claude note" >"$FIXTURE/.claude/CLAUDE.md"
 
@@ -529,6 +537,8 @@ _assert_contains "agent rules merge: preserves rule id markers" \
   "agent-rule-id: test-main" "$(cat "$FIXTURE/.claude/CLAUDE.md")"
 _assert_contains "agent rules merge: expands tilde target" \
   "style rules" "$(cat "$FIXTURE/.codex/AGENTS.md")"
+_assert_contains "agent rules merge: writes native OpenCode target" \
+  "style rules" "$(cat "$FIXTURE/.config/opencode/AGENTS.md")"
 
 INVALID_PLAYBOOK_FIXTURE=$(_tmpdir)
 mkdir -p \
@@ -640,6 +650,8 @@ if [[ -e "$FIXTURE/.codex/AGENTS.md" ]]; then
 else
   _pass "agent rules merge: prunes stale native target after profile switch"
 fi
+_assert_file_missing "agent rules merge: prunes stale OpenCode target after profile switch" \
+  "$FIXTURE/.config/opencode/AGENTS.md"
 _assert_file_content "agent rules merge: preserves unmanaged text while pruning stale block" \
   "local claude note" "$FIXTURE/.claude/CLAUDE.md"
 

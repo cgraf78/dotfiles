@@ -1,0 +1,743 @@
+// dot-managed:opencode-agentguard-plugin
+
+import { spawn, spawnSync } from "node:child_process";
+import { constants as fsConstants } from "node:fs";
+import { access } from "node:fs/promises";
+import path from "node:path";
+
+// These agents are OpenCode bookkeeping, not user-delegated workers. Starting
+// memory/security lifecycles for them would create noise and orphan sessions;
+// real task subagents deliberately remain guarded.
+const INTERNAL_AGENTS = new Set(["title", "summary", "compaction"]);
+
+// OpenCode's generic MCP helpers use different names from the server-prefixed
+// tools it synthesizes. Keep that vocabulary in one table so pre/post mapping
+// cannot silently drift between resource operations.
+const RESOURCE_TOOLS = new Map([
+  ["read_mcp_resource", "read_resource"],
+  ["list_mcp_resources", "list_resources"],
+  ["list_mcp_resource_templates", "list_resource_templates"],
+]);
+const LIST_RESOURCE_TOOLS = new Set(["list_mcp_resources", "list_mcp_resource_templates"]);
+const TIMEOUTS = new Map([
+  ["agent-hook-pre-bash", 600_000],
+  ["agent-hook-post-bash", 120_000],
+  ["agent-hook-post-edit", 60_000],
+  ["agent-hook-session-end", 30_000],
+]);
+const DEFAULT_TIMEOUT = 10_000;
+const CALL_TTL = 6 * 60 * 60 * 1_000;
+const MAX_CALLS = 1_024;
+const CONTEXT_HEADING = "AgentGuard context";
+
+// Node can create a private POSIX session but cannot enumerate its members.
+// The usual command-line shortcuts are not portable here: Apple's pkill omits
+// the `-s` selector, while Apple's `ps sess` field is an opaque kernel pointer
+// rather than the numeric session ID. Python is already a dotfiles toolchain
+// prerequisite and exposes getsid(2), so this small helper can ask the kernel
+// directly and keep the cleanup boundary identical on macOS and Linux.
+const POSIX_SESSION_KILLER = `
+import os
+import signal
+import subprocess
+import sys
+
+session_id = int(sys.argv[1])
+
+# Use two snapshots so a helper forked at the edge of the first pass is still
+# found after the session leader has been signaled. Zombies may appear again in
+# the second snapshot until Node reaps them; signaling one is harmless.
+for _ in range(2):
+    result = subprocess.run(
+        ["ps", "-A", "-o", "pid="],
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise SystemExit(1)
+
+    members = []
+    for line in result.stdout.splitlines():
+        try:
+            pid = int(line)
+            if os.getsid(pid) == session_id:
+                members.append(pid)
+        except (PermissionError, ProcessLookupError, ValueError):
+            pass
+
+    # Stop helpers before the leader. That closes the window in which a shell
+    # could create another child after its current descendants were enumerated.
+    members.sort(key=lambda pid: pid == session_id)
+    for pid in members:
+        try:
+            # Revalidate the kernel-owned SID immediately before signaling so
+            # PID reuse or a deliberate setsid(2) cannot widen the kill scope.
+            if os.getsid(pid) == session_id:
+                os.kill(pid, signal.SIGKILL)
+        except (PermissionError, ProcessLookupError):
+            pass
+`;
+
+// Long-running Bash checks need the same practical budget as the Claude and
+// Codex integrations. Tests scale these values instead of weakening production
+// behavior.
+function timeoutFor(hook) {
+  const scale = Number.parseFloat(process.env.DOT_OPENCODE_AGENTGUARD_TIMEOUT_SCALE ?? "1");
+  const safeScale = Number.isFinite(scale) && scale > 0 ? scale : 1;
+  return Math.max(1, Math.round((TIMEOUTS.get(hook) ?? DEFAULT_TIMEOUT) * safeScale));
+}
+
+function sanitizeMcpName(value) {
+  return value.replace(/[^A-Za-z0-9_-]/g, "_");
+}
+
+function contextFrom(parsed) {
+  // AgentGuard supports both its compact response and the Claude-compatible
+  // hook envelope. Accepting both keeps this adapter policy-free.
+  const context = parsed?.context ?? parsed?.hookSpecificOutput?.additionalContext;
+  return typeof context === "string" && context.trim() ? context.trim() : "";
+}
+
+function appendContext(original, contexts) {
+  // Append under a stable boundary rather than parsing or rewriting display
+  // text. OpenCode and AgentGuard can then evolve their prose independently.
+  const usable = contexts.filter((item) => typeof item === "string" && item.trim());
+  if (usable.length === 0) return original;
+  const prefix = original ? `${original}\n\n` : "";
+  return `${prefix}<${CONTEXT_HEADING}>\n${usable.join("\n\n")}\n</${CONTEXT_HEADING}>`;
+}
+
+// AgentGuard owns one stable cross-runtime schema. Translate OpenCode's native
+// camel-case arguments here instead of teaching individual guard hooks about
+// another runtime.
+function canonicalToolInput(tool, args) {
+  if (tool === "bash") {
+    return {
+      command: args.command,
+      ...(args.timeout === undefined ? {} : { timeout: args.timeout }),
+      ...(args.workdir === undefined ? {} : { workdir: args.workdir }),
+    };
+  }
+  if (tool === "edit") {
+    return {
+      ...args,
+      file_path: args.filePath,
+      old_string: args.oldString,
+      new_string: args.newString,
+      replace_all: args.replaceAll,
+    };
+  }
+  if (tool === "write") {
+    return {
+      ...args,
+      file_path: args.filePath,
+      content: args.content,
+    };
+  }
+  if (tool === "apply_patch" || tool === "patch") {
+    return {
+      ...args,
+      patch: args.patchText ?? args.patch,
+    };
+  }
+  return args;
+}
+
+function directTarget(tool, args) {
+  // AgentGuard's edit policy covers all filesystem mutation primitives. Keep
+  // OpenCode's visible Write name for audit clarity while routing it through
+  // the same pre/post-edit executable.
+  if (tool === "bash") {
+    return { kind: "bash", name: "Bash", input: canonicalToolInput(tool, args) };
+  }
+  if (tool === "edit") {
+    return { kind: "edit", name: "Edit", input: canonicalToolInput(tool, args) };
+  }
+  if (tool === "write") {
+    return { kind: "edit", name: "Write", input: canonicalToolInput(tool, args) };
+  }
+  if (tool === "apply_patch" || tool === "patch") {
+    return { kind: "edit", name: "Edit", input: canonicalToolInput(tool, args) };
+  }
+}
+
+function mcpTargets(tool, args, servers) {
+  const resourceName = RESOURCE_TOOLS.get(tool);
+  if (resourceName) {
+    if (typeof args.server === "string" && args.server) {
+      return [{ kind: "mcp", name: `mcp__${args.server}__${resourceName}`, input: args }];
+    }
+    if (LIST_RESOURCE_TOOLS.has(tool)) {
+      // An unscoped list may contact every active server. Fan out before the
+      // operation so one server-specific denial blocks the aggregate request.
+      return servers.map((server) => ({
+        kind: "mcp",
+        name: `mcp__${server}__${resourceName}`,
+        input: { ...args, server },
+      }));
+    }
+    return [];
+  }
+
+  // OpenCode flattens MCP identity into "sanitized-server_tool". A prefix can
+  // be ambiguous after sanitization, and guessing would let the wrong server's
+  // policy authorize a call, so ambiguity must fail closed.
+  const matches = servers
+    .map((server) => ({ server, prefix: `${sanitizeMcpName(server)}_` }))
+    .filter(({ prefix }) => tool.startsWith(prefix) && tool.length > prefix.length);
+  if (matches.length > 1) {
+    throw new Error(`Ambiguous MCP tool identity for ${tool}`);
+  }
+  if (matches.length === 0) return [];
+
+  const match = matches[0];
+  return [
+    {
+      kind: "mcp",
+      name: `mcp__${match.server}__${tool.slice(match.prefix.length)}`,
+      input: args,
+    },
+  ];
+}
+
+function targetsFor(tool, args, servers) {
+  const direct = directTarget(tool, args);
+  return direct ? [direct] : mcpTargets(tool, args, servers);
+}
+
+function targetCwd(target, directory) {
+  // This mirrors OpenCode's current Bash contract: absolute workdirs win and
+  // ordinary relative values resolve from the plugin's project directory.
+  // Home shorthand and shell quoting are not part of that path API.
+  if (target.kind === "bash" && typeof target.input.workdir === "string" && target.input.workdir) {
+    return path.resolve(directory, target.input.workdir);
+  }
+  return directory;
+}
+
+function hookFor(kind, phase) {
+  return `agent-hook-${phase}-${kind}`;
+}
+
+function basePayload(sessionID, directory, eventName) {
+  return {
+    session_id: sessionID,
+    cwd: directory,
+    hook_event_name: eventName,
+  };
+}
+
+function toolPayload(sessionID, directory, eventName, target, response) {
+  return {
+    ...basePayload(sessionID, directory, eventName),
+    tool_name: target.name,
+    tool_input: target.input,
+    ...(response === undefined ? {} : { tool_response: response }),
+  };
+}
+
+function toolResponse(target, output) {
+  // Never infer execution status from OpenCode's human-readable output. The
+  // structured metadata is the only stable machine contract.
+  if (target.kind === "bash") {
+    const metadata = output.metadata ?? {};
+    let exitCode;
+    if (Object.hasOwn(metadata, "exit")) {
+      // OpenCode reports a null exit for signal termination. AgentGuard treats
+      // an absent status as success, so preserve the failure explicitly.
+      exitCode = metadata.exit === null ? 1 : metadata.exit;
+    } else if (Object.hasOwn(metadata, "exit_code")) {
+      exitCode = metadata.exit_code;
+    } else if (Object.hasOwn(metadata, "status")) {
+      exitCode = metadata.status;
+    }
+    return {
+      stdout: output.output,
+      ...(metadata.stderr === undefined ? {} : { stderr: metadata.stderr }),
+      ...(exitCode === undefined ? {} : { exit_code: exitCode }),
+      metadata: output.metadata,
+    };
+  }
+  return {
+    output: output.output,
+    metadata: output.metadata,
+  };
+}
+
+async function executable(hook) {
+  // Prefer the source-managed installation even when a caller's PATH is stale,
+  // while retaining PATH fallback for portable/test AgentGuard installs.
+  const home = process.env.HOME ?? process.env.USERPROFILE;
+  if (home) {
+    const local = path.join(home, ".local", "bin", hook);
+    try {
+      await access(local, fsConstants.X_OK);
+      return local;
+    } catch {
+      // Fall through to PATH for non-dotfiles and test installations.
+    }
+  }
+
+  for (const directory of (process.env.PATH ?? "").split(path.delimiter)) {
+    if (!directory) continue;
+    const candidate = path.join(directory, hook);
+    try {
+      await access(candidate, fsConstants.X_OK);
+      return candidate;
+    } catch {
+      // Continue through PATH.
+    }
+  }
+}
+
+function spawnHook(command, hook, payload, directory, sessionID) {
+  return new Promise((resolve, reject) => {
+    const home = process.env.HOME ?? process.env.USERPROFILE ?? "";
+    // A timed-out hook may have spawned helpers. A separate POSIX process group
+    // lets us enforce the timeout across the whole tree instead of leaving
+    // detached descendants to mutate state after OpenCode has denied the call.
+    const grouped = process.platform !== "win32";
+    const child = spawn("bash", ["-c", 'exec "$1"', "agentguard", command], {
+      cwd: directory,
+      detached: grouped,
+      env: {
+        ...process.env,
+        AGENTGUARD_NAME: "opencode",
+        AGENTGUARD_SESSION_ID: sessionID,
+        BASH_ENV: path.join(home, ".config", "shell", "env-noninteractive.sh"),
+      },
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+
+    function terminate() {
+      if (grouped && child.pid) {
+        // `detached` gives every hook a private session, but shells may place
+        // background helpers in additional process groups inside that session.
+        // A negative PID reaches only the leader's group; enumerate the full
+        // session or a denied hook could leave a helper alive to mutate files.
+        //
+        // This synchronous call runs only while handling a timeout or protocol
+        // failure. Waiting for it here preserves the stronger invariant that
+        // no owned session member is left running when the hook promise rejects.
+        const sessionKill = spawnSync("python3", ["-c", POSIX_SESSION_KILLER, String(child.pid)], {
+          stdio: "ignore",
+          timeout: 2_000,
+        });
+        if (sessionKill.status === 0) return;
+
+        // A damaged or unusually minimal environment may omit Python or ps.
+        // The original process group remains a safe, narrower fallback because
+        // this adapter created it and retained its leader PID for this boundary.
+        try {
+          process.kill(-child.pid, "SIGKILL");
+          return;
+        } catch {
+          // The group may have exited between detection and cleanup.
+        }
+      }
+      child.kill("SIGKILL");
+    }
+
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      terminate();
+      reject(new Error(`${hook} timed out after ${timeoutFor(hook)}ms`));
+    }, timeoutFor(hook));
+
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.stdin.on("error", (error) => {
+      // A hook that exits before consuming a large payload can raise EPIPE on
+      // the parent stream. Without a listener Node terminates OpenCode; treating
+      // it as a protocol failure keeps protected pre-hooks fail closed.
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      terminate();
+      reject(new Error(`${hook} input failed: ${error.message}`));
+    });
+    child.on("error", (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(new Error(`${hook} launch failed: ${error.message}`));
+    });
+    child.on("close", (code, signal) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({ code: code ?? 1, signal, stdout, stderr });
+    });
+    child.stdin.end(`${JSON.stringify(payload)}\n`);
+  });
+}
+
+export const AgentGuardPlugin = async ({ directory, client }) => {
+  // Session records serialize lifecycle events that OpenCode intentionally
+  // dispatches without awaiting. Call records are separate because concurrent
+  // tools need their own pre-hook context and cleanup boundary.
+  const sessions = new Map();
+  const calls = new Map();
+  let configState;
+  let runtimeMcpServers;
+  let reportedMcpStatusFailure = false;
+
+  function state(sessionID) {
+    let record = sessions.get(sessionID);
+    if (!record || record.ended) {
+      record = {
+        id: sessionID,
+        chain: Promise.resolve(),
+        start: undefined,
+        pending: [],
+        generation: 0,
+        stoppedGeneration: -1,
+        ended: false,
+        end: undefined,
+        missing: new Set(),
+        touched: Date.now(),
+      };
+      sessions.set(sessionID, record);
+    }
+    record.touched = Date.now();
+    return record;
+  }
+
+  function log(error) {
+    console.error(
+      `[opencode-agentguard] ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  function configuredMcpServers() {
+    return Object.entries(configState?.mcp ?? {})
+      .filter(([, info]) => info?.enabled !== false)
+      .map(([name]) => name);
+  }
+
+  async function activeMcpServers() {
+    const fallback = runtimeMcpServers ?? configuredMcpServers();
+    if (typeof client?.mcp?.status !== "function") return fallback;
+
+    try {
+      // Config hooks share a mutable object, but OpenCode can also add MCP
+      // servers at runtime without touching it. The local status endpoint is
+      // the authoritative inventory for actual tool exposure and also excludes
+      // disabled/failed servers that could create false prefix ambiguity.
+      const response = await client.mcp.status();
+      if (!response?.data || typeof response.data !== "object") {
+        throw new Error("MCP status returned no data");
+      }
+      runtimeMcpServers = Object.entries(response.data)
+        .filter(([, status]) => status?.status === "connected")
+        .map(([name]) => name);
+      reportedMcpStatusFailure = false;
+      return runtimeMcpServers;
+    } catch (error) {
+      // A transient local API failure must not erase the last known inventory.
+      // Log once until recovery so normal tool use does not flood stderr.
+      if (!reportedMcpStatusFailure) {
+        reportedMcpStatusFailure = true;
+        const reason = error instanceof Error ? error.message : String(error);
+        log(`MCP status unavailable; using last known inventory: ${reason}`);
+      }
+      return fallback;
+    }
+  }
+
+  // Protected pre-hooks distinguish an unavailable AgentGuard installation
+  // from a broken installed hook: bootstrap absence is advisory, but a hook
+  // that launches and violates the protocol must fail closed.
+  async function invoke(sessionID, hook, payload, protectedPre = false, cwd = directory) {
+    const command = await executable(hook);
+    if (!command) {
+      // Finalization marks a record ended before SessionEnd runs. Reuse that
+      // record for its last missing-hook notice instead of creating a new
+      // active session while the old one is being removed.
+      const record = sessions.get(sessionID) ?? state(sessionID);
+      if (!record.missing.has(hook)) {
+        record.missing.add(hook);
+        log(`${hook} unavailable; skipping`);
+      }
+      return { missing: true, context: "" };
+    }
+
+    const result = await spawnHook(command, hook, payload, cwd, sessionID);
+    let parsed;
+    if (result.stdout.trim()) {
+      try {
+        parsed = JSON.parse(result.stdout);
+      } catch (error) {
+        if (protectedPre || result.code === 0) {
+          throw new Error(`Invalid AgentGuard output from ${hook}: ${error.message}`);
+        }
+      }
+    }
+    const context = contextFrom(parsed);
+
+    if (result.code === 0) {
+      if (result.stderr.trim()) log(result.stderr.trim());
+      return { missing: false, context };
+    }
+    if (protectedPre && result.code === 2) {
+      throw new Error(
+        result.stderr.trim() || context || result.stdout.trim() || `${hook} denied the tool`,
+      );
+    }
+    throw new Error(
+      result.stderr.trim() ||
+        `${hook} failed with ${result.signal ? `signal ${result.signal}` : `exit ${result.code}`}`,
+    );
+  }
+
+  function advisory(sessionID, hook, payload, cwd = directory) {
+    // Completed work cannot be rolled back. Post/lifecycle hooks therefore log
+    // protocol failures while protected pre-hooks above retain deny semantics.
+    return invoke(sessionID, hook, payload, false, cwd).catch((error) => {
+      log(error);
+      return { missing: false, context: "" };
+    });
+  }
+
+  function queue(record, work) {
+    // Store the continuation synchronously before returning. That synchronous
+    // write is the barrier that makes later awaited callbacks observe work from
+    // OpenCode's fire-and-forget event dispatcher.
+    const next = record.chain.catch(log).then(work);
+    record.chain = next.catch(log);
+    return next;
+  }
+
+  function ensureStarted(record) {
+    // Startup is lazy because session.created has no agent identity; waiting
+    // for the first real message is what lets internal maintenance agents stay
+    // outside AgentGuard without racing duplicate starts.
+    if (!record.start) {
+      record.start = invoke(
+        record.id,
+        "agent-hook-session-start",
+        basePayload(record.id, directory, "SessionStart"),
+      )
+        .then((result) => {
+          if (result.context) record.pending.push(result.context);
+          return result;
+        })
+        .catch((error) => {
+          log(error);
+          return { missing: false, context: "" };
+        });
+    }
+    return record.start;
+  }
+
+  function removeCalls(sessionID) {
+    for (const [callID, call] of calls) {
+      if (call.sessionID === sessionID) calls.delete(callID);
+    }
+  }
+
+  function finalize(record) {
+    // Mark ended before queueing so delete and dispose converge on the same
+    // promise. Records remain present through SessionEnd for missing-hook
+    // notice ownership, then disappear only after all queued work completes.
+    if (record.end) return record.end;
+    record.ended = true;
+    record.end = queue(record, async () => {
+      await record.start;
+      if (record.start) {
+        await advisory(
+          record.id,
+          "agent-hook-session-end",
+          basePayload(record.id, directory, "SessionEnd"),
+        );
+      }
+      removeCalls(record.id);
+      if (sessions.get(record.id) === record) sessions.delete(record.id);
+    });
+    return record.end;
+  }
+
+  function prune() {
+    // Never expire active sessions: manufacturing SessionEnd from elapsed time
+    // can race a later prompt into a second SessionStart. Only orphaned tool
+    // calls are bounded because OpenCode may never deliver their after-hook.
+    const cutoff = Date.now() - CALL_TTL;
+    for (const [callID, call] of calls) {
+      if (call.touched < cutoff) calls.delete(callID);
+    }
+    while (calls.size > MAX_CALLS) calls.delete(calls.keys().next().value);
+  }
+
+  function sessionIDFromEvent(event) {
+    return event.properties?.sessionID ?? event.properties?.info?.id;
+  }
+
+  return {
+    config: async (config) => {
+      // Retain the shared object rather than a startup snapshot. Plugins run
+      // config hooks sequentially and a later plugin may mutate MCP entries.
+      configState = config;
+    },
+
+    "shell.env": async (input, output) => {
+      // Hook subprocesses already receive this identity, but OpenCode launches
+      // the actual Bash tool separately. Carry the same two generic AgentGuard
+      // keys into that shell so the dotfiles `hm` launcher can associate direct
+      // `hm remember` and `hm note` writes with this OpenCode session. Keep Hive
+      // vocabulary out of the adapter: the launcher remains the single owner of
+      // HIVE_MEMORY_* translation, just as it is for Claude and Codex.
+      output.env.AGENTGUARD_NAME = "opencode";
+      if (input.sessionID) {
+        output.env.AGENTGUARD_SESSION_ID = input.sessionID;
+      } else {
+        // OpenCode overlays these entries on process.env after this callback,
+        // so deleting the key here would let an outer Claude/Codex session leak
+        // straight back in. An explicit empty value masks that parent identity;
+        // the hm launcher then creates an OpenCode-local fallback instead of
+        // clearing another agent's pending reminder.
+        output.env.AGENTGUARD_SESSION_ID = "";
+      }
+    },
+
+    "chat.message": async (input, output) => {
+      if (INTERNAL_AGENTS.has(input.agent)) return;
+      prune();
+      const record = state(input.sessionID);
+      await queue(record, async () => {
+        await ensureStarted(record);
+        record.generation += 1;
+
+        const prompt = output.parts
+          .filter((part) => part.type === "text" && typeof part.text === "string")
+          .map((part) => part.text)
+          .join("\n");
+        const result = await advisory(input.sessionID, "agent-hook-prompt-submit", {
+          ...basePayload(input.sessionID, directory, "UserPromptSubmit"),
+          prompt,
+        });
+        // Stop can arrive through the unawaited event channel between prompts.
+        // Drain its queued context together with startup and this prompt so no
+        // lifecycle guidance is lost or attached to the wrong generation.
+        const contexts = record.pending.splice(0);
+        if (result.context) contexts.push(result.context);
+        output.message.system = appendContext(output.message.system ?? "", contexts);
+      });
+    },
+
+    "permission.ask": async (input) => {
+      // OpenCode has a first-class permission callback, so notification hooks
+      // do not need brittle matching against generic event display strings.
+      await advisory(input.sessionID, "agent-hook-notification", {
+        ...basePayload(input.sessionID, directory, "PermissionRequest"),
+        permission: input,
+      });
+    },
+
+    "tool.execute.before": async (input, output) => {
+      prune();
+      // Direct tools never need a status round trip. Every other tool may be a
+      // runtime-added MCP tool, so refresh identity before deciding it is
+      // unrelated and therefore safe to skip.
+      const servers = directTarget(input.tool, output.args) ? [] : await activeMcpServers();
+      const targets = targetsFor(input.tool, output.args, servers).map((target) => ({
+        ...target,
+        cwd: targetCwd(target, directory),
+      }));
+      if (targets.length === 0) return;
+
+      const contexts = [];
+      for (const target of targets) {
+        const result = await invoke(
+          input.sessionID,
+          hookFor(target.kind, "pre"),
+          toolPayload(input.sessionID, target.cwd, "PreToolUse", target),
+          true,
+          target.cwd,
+        );
+        if (result.context) contexts.push(result.context);
+      }
+      calls.set(input.callID, {
+        sessionID: input.sessionID,
+        targets,
+        contexts,
+        touched: Date.now(),
+      });
+      prune();
+    },
+
+    "tool.execute.after": async (input, output) => {
+      // Use identities captured before execution. Re-resolving MCP state here
+      // could route the post-hook differently if a server disconnects mid-call.
+      const call = calls.get(input.callID);
+      if (!call) return;
+      calls.delete(input.callID);
+      const contexts = [...call.contexts];
+
+      for (const target of call.targets) {
+        const result = await advisory(
+          input.sessionID,
+          hookFor(target.kind, "post"),
+          toolPayload(
+            input.sessionID,
+            target.cwd,
+            "PostToolUse",
+            target,
+            toolResponse(target, output),
+          ),
+          target.cwd,
+        );
+        if (result.context) contexts.push(result.context);
+      }
+      output.output = appendContext(output.output, contexts);
+    },
+
+    event: ({ event }) => {
+      // OpenCode discards this callback's promise. Queue durable work now and
+      // return immediately; direct callbacks and dispose provide the awaits.
+      const sessionID = sessionIDFromEvent(event);
+      if (!sessionID) return Promise.resolve();
+
+      if (event.type === "session.created") {
+        state(sessionID);
+        return Promise.resolve();
+      }
+      const record = sessions.get(sessionID);
+      if (!record) return Promise.resolve();
+      record.touched = Date.now();
+
+      if (event.type === "session.idle") {
+        queue(record, async () => {
+          // OpenCode may emit duplicate idle events. Generation ownership makes
+          // Stop exactly once without suppressing it after the next message.
+          if (!record.start || record.stoppedGeneration === record.generation) return;
+          record.stoppedGeneration = record.generation;
+          const result = await advisory(
+            sessionID,
+            "agent-hook-stop",
+            basePayload(sessionID, directory, "Stop"),
+          );
+          if (result.context) record.pending.push(result.context);
+        });
+      } else if (event.type === "session.deleted") {
+        void finalize(record);
+      }
+      return Promise.resolve();
+    },
+
+    dispose: async () => {
+      await Promise.all([...sessions.values()].map(finalize));
+    },
+  };
+};

@@ -86,6 +86,7 @@ program	.local/lib/dot/core/merge-hooks/iterm2.sh
 program	.local/lib/dot/core/merge-hooks/karabiner.sh
 program	.local/lib/dot/core/merge-hooks/mise.sh
 program	.local/lib/dot/core/merge-hooks/nvim.sh
+program	.local/lib/dot/core/merge-hooks/opencode.sh
 program	.local/lib/dot/core/merge-hooks/sapling.sh
 program	.local/lib/dot/core/merge-hooks/ssh.sh
 program	.local/lib/dot/core/merge-hooks/tmux.sh
@@ -163,6 +164,7 @@ program	.local/lib/dot/tests/harness-isolation-test
 program	.local/lib/dot/tests/helpers.sh
 program	.local/lib/dot/tests/lua-test
 program	.local/lib/dot/tests/nvim-test
+program	.local/lib/dot/tests/opencode-agentguard-test
 program	.local/lib/dot/tests/prompt-test
 program	.local/lib/dot/tests/schema-refresh-workflow-test
 program	.local/lib/dot/tests/shdeps-hooks-test

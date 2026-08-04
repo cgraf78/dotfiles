@@ -28,11 +28,38 @@ _dr_run_agent_hook() {
   rmdir "$tmp" 2>/dev/null || true
   return "$rc"
 }
+
+_dr_check_opencode_agentguard() {
+  command -v opencode >/dev/null 2>&1 || return 0
+
+  local plugin="$HOME/.config/opencode/plugins/dotfiles-agentguard.js"
+  local marker='// dot-managed:opencode-agentguard-plugin'
+  local first_line=""
+
+  if [[ ! -e "$plugin" && ! -L "$plugin" ]]; then
+    _dr_warn "OpenCode AgentGuard plugin missing" "run 'dot update'"
+    return 0
+  fi
+  if [[ ! -f "$plugin" || -L "$plugin" ]]; then
+    _dr_warn "OpenCode AgentGuard plugin unmanaged" "$(_dr_tilde "$plugin")"
+    return 0
+  fi
+
+  IFS= read -r first_line <"$plugin" || true
+  if [[ "$first_line" == "$marker" ]]; then
+    _dr_ok "OpenCode AgentGuard plugin installed" "$(_dr_tilde "$plugin")"
+  else
+    _dr_warn "OpenCode AgentGuard plugin unmanaged" "$(_dr_tilde "$plugin")"
+  fi
+}
+
 _dr_check_agent_hooks() {
   _dr_section "Agent hooks"
 
   local pre_bash="$HOME/.local/bin/agent-hook-pre-bash"
   local stop_hook="$HOME/.local/bin/agent-hook-stop"
+
+  _dr_check_opencode_agentguard
 
   if [[ ! -x "$pre_bash" ]]; then
     _dr_warn "agent pre-bash hook unavailable" "$(_dr_tilde "$pre_bash")"

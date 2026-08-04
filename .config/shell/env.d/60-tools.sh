@@ -34,6 +34,14 @@ fi
 export AGENTGUARD_EDIT_CHURN_WARN="${AGENTGUARD_EDIT_CHURN_WARN:-10}"
 export AGENTGUARD_EDIT_CHURN_BLOCK="${AGENTGUARD_EDIT_CHURN_BLOCK:-20}"
 
+# Dotfiles installs a transformed, OpenCode-native gstack tree. Leaving
+# OpenCode's Claude skill compatibility enabled would discover the same gstack
+# workflows a second time from ~/.claude/skills, mostly under different names,
+# and make model routing ambiguous. Disable only the Claude skill fallback;
+# CLAUDE.md compatibility stays available for projects that have not adopted
+# AGENTS.md.
+export OPENCODE_DISABLE_CLAUDE_CODE_SKILLS="${OPENCODE_DISABLE_CLAUDE_CODE_SKILLS:-1}"
+
 # shellcheck disable=SC1091  # optional local tool bootstrap script
 [ -f "$HOME/.atuin/bin/env" ] && . "$HOME/.atuin/bin/env"
 # shellcheck disable=SC1091  # optional local rust bootstrap script

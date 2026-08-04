@@ -25,7 +25,7 @@ _hive_memory_link_launcher() {
   # Keep the PATH-visible command named `hm`, but point it at the dotfiles
   # launcher. The generic upstream binary lives behind `hm-core` so the
   # launcher can add agent session context without the core tool knowing about
-  # Claude, Codex, Gemini, or this dotfiles layout.
+  # Claude, Codex, Gemini, OpenCode, or this dotfiles layout.
   ln -sf "$launcher" "$bin_dir/hm"
 }
 

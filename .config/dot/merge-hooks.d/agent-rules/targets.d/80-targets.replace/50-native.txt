@@ -1,3 +1,4 @@
 $HOME/.claude/CLAUDE.md
 $HOME/.codex/AGENTS.md
+$HOME/.config/opencode/AGENTS.md
 $HOME/.gemini/GEMINI.md

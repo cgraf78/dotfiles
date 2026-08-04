@@ -6,7 +6,8 @@ Memory binary stays in the `cgraf78/hive-memory` dependency repo.
 The launcher adds runtime context that is intentionally not part of the generic
 tool:
 
-- detects Claude, Codex, Gemini, or explicit `HIVE_MEMORY_AGENT_ID`
+- detects Claude, Codex, Gemini, OpenCode's generic AgentGuard identity, or an
+  explicit `HIVE_MEMORY_AGENT_ID`
 - derives a best-effort session id for direct agent shell commands
 - infers the current project path for agent calls
 - preserves the public command name as `hm` while executing the internal
