@@ -22,6 +22,121 @@ dot_core_test_merges() {
     "precommit.sley = $TEST_HOME/.local/share/sl-hooks/sley-commit-gate" \
     "$(_merge_hook_expand_home 'precommit.sley = $HOME/.local/share/sl-hooks/sley-commit-gate')"
 
+  echo "=== OpenCode AgentGuard merge hook ==="
+
+  opencode_hook="$REAL_HOME/.local/lib/dot/core/merge-hooks/opencode.sh"
+  if [[ ! -r "$opencode_hook" ]]; then
+    _fail "OpenCode merge: hook exists"
+  else
+    opencode_home="$TEST_HOME/opencode-merge-home"
+    opencode_source="$opencode_home/source"
+    opencode_plugins="$opencode_home/.config/opencode/plugins"
+    opencode_target="$opencode_plugins/dotfiles-agentguard.js"
+    opencode_other="$opencode_plugins/unrelated.js"
+    opencode_link_target="$opencode_home/unmanaged-target.js"
+    mkdir -p "$opencode_source" "$opencode_plugins"
+    cat >"$opencode_source/agentguard.js" <<'OPENCODE_PLUGIN'
+// dot-managed:opencode-agentguard-plugin
+export const AgentGuardPlugin = async () => ({})
+OPENCODE_PLUGIN
+    printf '%s\n' 'export const unrelated = true' >"$opencode_other"
+
+    _run_opencode_merge_for_test() {
+      unset -f merge 2>/dev/null
+      # shellcheck source=/dev/null
+      . "$opencode_hook"
+      merge
+    }
+
+    HOME="$opencode_home" DOT_OPENCODE_SOURCE_DIR="$opencode_source" \
+      _run_opencode_merge_for_test
+    _assert_eq "OpenCode merge: installs the managed plugin" "yes" \
+      "$(test -f "$opencode_target" && test ! -L "$opencode_target" && printf yes || printf no)"
+    _assert_exit "OpenCode merge: installed bytes match the source" 0 \
+      "$(
+        cmp -s "$opencode_source/agentguard.js" "$opencode_target"
+        printf '%s' "$?"
+      )"
+    _assert_eq "OpenCode merge: preserves unrelated plugins" \
+      "export const unrelated = true" "$(cat "$opencode_other")"
+
+    opencode_identity_before=$(
+      stat -c '%i:%Y' "$opencode_target" 2>/dev/null ||
+        stat -f '%i:%m' "$opencode_target"
+    )
+    opencode_listing_before=$(
+      printf '%s\n' "$opencode_plugins"/* | sed 's#.*/##' | LC_ALL=C sort
+    )
+    HOME="$opencode_home" DOT_OPENCODE_SOURCE_DIR="$opencode_source" \
+      _run_opencode_merge_for_test
+    opencode_identity_after=$(
+      stat -c '%i:%Y' "$opencode_target" 2>/dev/null ||
+        stat -f '%i:%m' "$opencode_target"
+    )
+    _assert_eq "OpenCode merge: unchanged rerun preserves inode and mtime" \
+      "$opencode_identity_before" "$opencode_identity_after"
+    _assert_eq "OpenCode merge: unchanged rerun creates no sibling or duplicate" \
+      "$opencode_listing_before" \
+      "$(printf '%s\n' "$opencode_plugins"/* | sed 's#.*/##' | LC_ALL=C sort)"
+
+    cat >"$opencode_source/agentguard.js" <<'OPENCODE_PLUGIN'
+// dot-managed:opencode-agentguard-plugin
+export const AgentGuardPlugin = async () => ({ event: async () => {} })
+OPENCODE_PLUGIN
+    HOME="$opencode_home" DOT_OPENCODE_SOURCE_DIR="$opencode_source" \
+      _run_opencode_merge_for_test
+    _assert_exit "OpenCode merge: changed managed source updates the target" 0 \
+      "$(
+        cmp -s "$opencode_source/agentguard.js" "$opencode_target"
+        printf '%s' "$?"
+      )"
+
+    opencode_managed_before=$(cat "$opencode_target")
+    printf '%s\n' 'export const malformedSource = true' \
+      >"$opencode_source/agentguard.js"
+    HOME="$opencode_home" DOT_OPENCODE_SOURCE_DIR="$opencode_source" \
+      _run_opencode_merge_for_test >/dev/null 2>&1
+    _assert_eq "OpenCode merge: invalid source marker preserves the managed target" \
+      "$opencode_managed_before" "$(cat "$opencode_target")"
+    cat >"$opencode_source/agentguard.js" <<'OPENCODE_PLUGIN'
+// dot-managed:opencode-agentguard-plugin
+export const AgentGuardPlugin = async () => ({ event: async () => {} })
+OPENCODE_PLUGIN
+
+    printf '%s\n' 'export const userOwned = true' >"$opencode_target"
+    HOME="$opencode_home" DOT_OPENCODE_SOURCE_DIR="$opencode_source" \
+      _run_opencode_merge_for_test >/dev/null 2>&1
+    _assert_eq "OpenCode merge: preserves an unmanaged regular target" \
+      "export const userOwned = true" "$(cat "$opencode_target")"
+
+    rm -f "$opencode_target"
+    printf '%s\n' 'export const linkTarget = true' >"$opencode_link_target"
+    ln -s "$opencode_link_target" "$opencode_target"
+    HOME="$opencode_home" DOT_OPENCODE_SOURCE_DIR="$opencode_source" \
+      _run_opencode_merge_for_test >/dev/null 2>&1
+    _assert_eq "OpenCode merge: preserves an unmanaged target symlink" "yes" \
+      "$(test -L "$opencode_target" && printf yes || printf no)"
+    _assert_eq "OpenCode merge: does not modify a symlink target" \
+      "export const linkTarget = true" "$(cat "$opencode_link_target")"
+
+    rm -f "$opencode_target" "$opencode_source/agentguard.js"
+    cat >"$opencode_target" <<'OPENCODE_PLUGIN'
+// dot-managed:opencode-agentguard-plugin
+export const AgentGuardPlugin = async () => ({})
+OPENCODE_PLUGIN
+    HOME="$opencode_home" DOT_OPENCODE_SOURCE_DIR="$opencode_source" \
+      _run_opencode_merge_for_test
+    _assert_eq "OpenCode merge: prunes a marked target when source is absent" \
+      "no" "$(test -e "$opencode_target" && printf yes || printf no)"
+
+    printf '%s\n' 'export const userOwned = true' >"$opencode_target"
+    HOME="$opencode_home" DOT_OPENCODE_SOURCE_DIR="$opencode_source" \
+      _run_opencode_merge_for_test >/dev/null 2>&1
+    _assert_eq "OpenCode merge: absent source preserves an unmanaged target" \
+      "export const userOwned = true" "$(cat "$opencode_target")"
+    unset -f _run_opencode_merge_for_test merge 2>/dev/null
+  fi
+
   echo "=== tmux merge hook ==="
 
   tmux_home="$TEST_HOME/tmux-merge-home"
