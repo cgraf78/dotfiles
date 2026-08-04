@@ -1,6 +1,6 @@
 // dot-managed:opencode-agentguard-plugin
 
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { constants as fsConstants } from "node:fs";
 import { access } from "node:fs/promises";
 import path from "node:path";
@@ -29,6 +29,56 @@ const DEFAULT_TIMEOUT = 10_000;
 const CALL_TTL = 6 * 60 * 60 * 1_000;
 const MAX_CALLS = 1_024;
 const CONTEXT_HEADING = "AgentGuard context";
+
+// Node can create a private POSIX session but cannot enumerate its members.
+// The usual command-line shortcuts are not portable here: Apple's pkill omits
+// the `-s` selector, while Apple's `ps sess` field is an opaque kernel pointer
+// rather than the numeric session ID. Python is already a dotfiles toolchain
+// prerequisite and exposes getsid(2), so this small helper can ask the kernel
+// directly and keep the cleanup boundary identical on macOS and Linux.
+const POSIX_SESSION_KILLER = `
+import os
+import signal
+import subprocess
+import sys
+
+session_id = int(sys.argv[1])
+
+# Use two snapshots so a helper forked at the edge of the first pass is still
+# found after the session leader has been signaled. Zombies may appear again in
+# the second snapshot until Node reaps them; signaling one is harmless.
+for _ in range(2):
+    result = subprocess.run(
+        ["ps", "-A", "-o", "pid="],
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise SystemExit(1)
+
+    members = []
+    for line in result.stdout.splitlines():
+        try:
+            pid = int(line)
+            if os.getsid(pid) == session_id:
+                members.append(pid)
+        except (PermissionError, ProcessLookupError, ValueError):
+            pass
+
+    # Stop helpers before the leader. That closes the window in which a shell
+    # could create another child after its current descendants were enumerated.
+    members.sort(key=lambda pid: pid == session_id)
+    for pid in members:
+        try:
+            # Revalidate the kernel-owned SID immediately before signaling so
+            # PID reuse or a deliberate setsid(2) cannot widen the kill scope.
+            if os.getsid(pid) == session_id:
+                os.kill(pid, signal.SIGKILL)
+        except (PermissionError, ProcessLookupError):
+            pass
+`;
 
 // Long-running Bash checks need the same practical budget as the Claude and
 // Codex integrations. Tests scale these values instead of weakening production
@@ -266,6 +316,23 @@ function spawnHook(command, hook, payload, directory, sessionID) {
 
     function terminate() {
       if (grouped && child.pid) {
+        // `detached` gives every hook a private session, but shells may place
+        // background helpers in additional process groups inside that session.
+        // A negative PID reaches only the leader's group; enumerate the full
+        // session or a denied hook could leave a helper alive to mutate files.
+        //
+        // This synchronous call runs only while handling a timeout or protocol
+        // failure. Waiting for it here preserves the stronger invariant that
+        // no owned session member is left running when the hook promise rejects.
+        const sessionKill = spawnSync("python3", ["-c", POSIX_SESSION_KILLER, String(child.pid)], {
+          stdio: "ignore",
+          timeout: 2_000,
+        });
+        if (sessionKill.status === 0) return;
+
+        // A damaged or unusually minimal environment may omit Python or ps.
+        // The original process group remains a safe, narrower fallback because
+        // this adapter created it and retained its leader PID for this boundary.
         try {
           process.kill(-child.pid, "SIGKILL");
           return;

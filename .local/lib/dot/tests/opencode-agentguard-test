@@ -608,22 +608,46 @@ await check("fails closed when a protected hook closes stdin early", async () =>
   clearLog();
   const hookPath = path.join(home, ".local/bin/agent-hook-pre-edit");
   const hookScript = path.join(root, "close-input-hook.sh");
+  const descendantReady = path.join(root, "closed-input-descendant-ready");
   const descendantMarker = path.join(root, "closed-input-descendant-survived");
-  const descendantDelayMs = 2_000;
+  const darwinBin = path.join(root, "darwin-bin");
+  const savedPath = process.env.PATH;
+  const descendantDelayMs = 1_000;
+  fs.mkdirSync(darwinBin);
+  fs.writeFileSync(path.join(darwinBin, "pkill"), "#!/bin/sh\nexit 2\n", {
+    mode: 0o755,
+  });
   fs.writeFileSync(
     hookScript,
     `#!/bin/sh
+python3 - "${descendantReady}" "${descendantMarker}" "${descendantDelayMs / 1_000}" <<'PY' &
+import os
+import pathlib
+import sys
+import time
+
+# A hook helper is allowed to create its own process group. macOS does this for
+# some background jobs, so killing only the hook leader's group is not enough;
+# every process in the isolated hook session must be stopped on protocol error.
+os.setpgrp()
+pathlib.Path(sys.argv[1]).write_text("ready", encoding="utf-8")
+time.sleep(float(sys.argv[3]))
+pathlib.Path(sys.argv[2]).write_text("alive", encoding="utf-8")
+PY
+while [ ! -s "${descendantReady}" ]; do
+  sleep 0.01
+done
 exec 0<&-
-(
-  sleep ${descendantDelayMs / 1_000}
-  printf alive >"${descendantMarker}"
-) &
 sleep 5
 `,
   );
   fs.chmodSync(hookScript, 0o755);
   fs.rmSync(hookPath);
   fs.symlinkSync(hookScript, hookPath);
+  // Apple's pkill omits the session selector supported by procps-ng. Put an
+  // equivalent invalid-usage result first on PATH so Linux catches any cleanup
+  // implementation that silently relies on the non-portable `pkill -s`.
+  process.env.PATH = `${darwinBin}${path.delimiter}${savedPath}`;
   try {
     const hooks = await plugin();
     await assert.rejects(
@@ -639,14 +663,14 @@ sleep 5
       ),
       /input failed/i,
     );
-    // EPIPE delivery includes OS pipe-buffer and scheduler behavior. A 200 ms
-    // descendant could mutate before macOS reported the closed input under the
-    // parallel CI load, which tested notification latency rather than whether
-    // the adapter kills the process group once the failure is observable.
+    // The ready handshake makes the separate process group deterministic before
+    // stdin closes. Waiting past its write deadline then tests cleanup itself,
+    // without depending on when macOS schedules the EPIPE notification.
     await new Promise((resolve) => setTimeout(resolve, descendantDelayMs + 250));
     assert.equal(fs.existsSync(descendantMarker), false);
     await hooks.dispose();
   } finally {
+    process.env.PATH = savedPath;
     fs.rmSync(hookPath);
     fs.symlinkSync(path.join(root, "hook-fixture.mjs"), hookPath);
   }
