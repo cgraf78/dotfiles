@@ -133,6 +133,30 @@ _write_stub "$bin/interactive-transport" \
   'printf "%s\n" "$$" >"$ET_TUNNEL_TEST_TRANSPORT_PID"' \
   'trap "" INT' \
   '[[ -z "${ET_TUNNEL_TEST_TRANSPORT_COUNT:-}" ]] || printf "1\n" >>"$ET_TUNNEL_TEST_TRANSPORT_COUNT"' \
+  'if [[ -n "${ET_TUNNEL_TEST_RESUME_MARKER:-}" ]]; then' \
+  '  resume_ready="$ET_TUNNEL_TEST_RESUME_MARKER.ready"' \
+  '  resume_pid_file="$ET_TUNNEL_TEST_RESUME_MARKER.pid"' \
+  '  rm -f "$resume_ready" "$resume_pid_file" "$ET_TUNNEL_TEST_RESUME_MARKER"' \
+  '  "$ET_TUNNEL_TEST_PYTHON" - "$resume_ready" "$ET_TUNNEL_TEST_RESUME_MARKER" <<PY >/dev/null 2>&1 &' \
+  'import signal' \
+  'import sys' \
+  'def mark_resumed(_signum, _frame):' \
+  '    open(sys.argv[2], "wb").close()' \
+  'signal.signal(signal.SIGCONT, mark_resumed)' \
+  'open(sys.argv[1], "wb").close()' \
+  'while True:' \
+  '    signal.pause()' \
+  'PY' \
+  '  resume_observer=$!' \
+  '  printf "%s\n" "$resume_observer" >"$resume_pid_file"' \
+  '  # Stay alive to avoid SIGCHLD during read; group cleanup is asserted by the test.' \
+  '  for _ in {1..50}; do [[ -e "$resume_ready" ]] && break; sleep 0.1; done' \
+  '  if [[ ! -e "$resume_ready" ]]; then' \
+  '    printf "resume observer did not become ready\n" >&2' \
+  '    kill "$resume_observer" 2>/dev/null || true' \
+  '    exit 1' \
+  '  fi' \
+  'fi' \
   'ps -o pid=,pgid=,tpgid=,stat= -p "$$" >"$ET_TUNNEL_TEST_AUTH_STATE"' \
   'printf "Passcode: "' \
   'IFS= read -r answer' \

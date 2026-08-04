@@ -429,6 +429,7 @@ _assert_contains "terminal gate: preserves a worker failure before readiness" \
 interactive_transport_pid_file="$tmp/interactive-transport.pid"
 interactive_auth_result="$tmp/interactive-auth.result"
 interactive_auth_state="$tmp/interactive-auth.state"
+interactive_resume_marker="$tmp/interactive-resumed"
 interactive_exit=0
 PATH="$bin:/usr/local/bin:/usr/bin:/bin" \
   HOME="$test_home" \
@@ -437,9 +438,12 @@ PATH="$bin:/usr/local/bin:/usr/bin:/bin" \
   ET_TUNNEL_TEST_TRANSPORT_PID="$interactive_transport_pid_file" \
   ET_TUNNEL_TEST_AUTH_RESULT="$interactive_auth_result" \
   ET_TUNNEL_TEST_AUTH_STATE="$interactive_auth_state" \
+  ET_TUNNEL_TEST_PYTHON="$test_python" \
+  ET_TUNNEL_TEST_RESUME_MARKER="$interactive_resume_marker" \
   ET_TUNNEL_TRANSPORT="$bin/interactive-transport" \
   "$test_python" - "$BASH" "$SCRIPT" "$interactive_transport_pid_file" \
-  "$interactive_auth_result" "$interactive_auth_state" <<'PY' || interactive_exit=$?
+  "$interactive_auth_result" "$interactive_auth_state" \
+  "$interactive_resume_marker" <<'PY' || interactive_exit=$?
 import fcntl
 import os
 import pty
@@ -450,7 +454,7 @@ import sys
 import termios
 import time
 
-bash, script, transport_pid_file, auth_result, auth_state = sys.argv[1:]
+bash, script, transport_pid_file, auth_result, auth_state, resume_marker = sys.argv[1:]
 
 def reap_child(pid, timeout):
     deadline = time.monotonic() + timeout
@@ -478,6 +482,13 @@ def wait_process_gone(pid, timeout):
         time.sleep(0.05)
     return False
 
+def read_pty(fd, output):
+    try:
+        chunk = os.read(fd, 4096)
+    except OSError:
+        return output, False
+    return output + chunk, bool(chunk)
+
 # Create a new session and explicitly acquire the slave as its controlling TTY,
 # matching an actual terminal tab rather than Python's inherited test terminal.
 master, slave = pty.openpty()
@@ -496,20 +507,23 @@ output = b""
 sent = False
 suspend_sent = False
 suspend_observed = False
+continue_observed = False
+resume_observed = False
 authenticated = False
 adapter_gone_before_cleanup = False
+observer_gone_before_cleanup = False
 foreground_at_prompt = False
 launcher_reaped = False
 status = None
 transport_pid = None
+observer_pid = None
 prompt_deadline = time.monotonic() + 20
 try:
     while time.monotonic() < prompt_deadline:
         readable, _, _ = select.select([master], [], [], 0.1)
         if readable:
-            try:
-                output += os.read(master, 4096)
-            except OSError:
+            output, pty_open = read_pty(master, output)
+            if not pty_open:
                 break
         if not suspend_sent and b"Passcode: " in output:
             os.write(master, b"\x1a")
@@ -519,27 +533,51 @@ try:
     while suspend_sent and time.monotonic() < suspend_deadline:
         readable, _, _ = select.select([master], [], [], 0.1)
         if readable:
-            try:
-                output += os.read(master, 4096)
-            except OSError:
+            output, pty_open = read_pty(master, output)
+            if not pty_open:
                 break
         if b"^Z" in output:
             suspend_observed = True
             break
-    if suspend_observed:
-        # Wait until the terminal driver has emitted the visible ^Z echo before
-        # sending the passcode. On macOS, writing earlier can race the resumed
-        # credential reader and turn this into a test of PTY buffering instead.
-        termios.tcdrain(master)
+    resume_deadline = time.monotonic() + 20
+    while suspend_observed and time.monotonic() < resume_deadline:
+        readable, _, _ = select.select([master], [], [], 0.1)
+        if readable:
+            output, pty_open = read_pty(master, output)
+            if not pty_open:
+                break
+        if os.path.exists(resume_marker):
+            continue_observed = True
+            try:
+                with open(transport_pid_file, "r", encoding="utf-8") as pid_file:
+                    transport_pid = int(pid_file.read().strip())
+                transport_state = subprocess.run(
+                    ["ps", "-o", "stat=", "-p", str(transport_pid)],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                ).stdout.strip()
+                transport_pgid = os.getpgid(transport_pid)
+                resume_observed = (
+                    bool(transport_state)
+                    and not transport_state.startswith(("T", "Z"))
+                    and os.tcgetpgrp(master) == transport_pgid
+                )
+            except (FileNotFoundError, OSError, ProcessLookupError, ValueError):
+                pass
+            if resume_observed:
+                break
+    if resume_observed:
+        # The ^Z echo precedes signal handling. Wait for proof that the worker
+        # resumed its process group so the terminal cannot flush this input.
         os.write(master, b"test-passcode\n")
         sent = True
     auth_deadline = time.monotonic() + 20
     while sent and time.monotonic() < auth_deadline:
         readable, _, _ = select.select([master], [], [], 0.1)
         if readable:
-            try:
-                output += os.read(master, 4096)
-            except OSError:
+            output, pty_open = read_pty(master, output)
+            if not pty_open:
                 break
         if os.path.exists(auth_result):
             with open(auth_result, "r", encoding="utf-8") as result:
@@ -577,13 +615,26 @@ try:
             transport_pid = int(pid_file.read().strip())
     except (FileNotFoundError, ValueError):
         pass
+    try:
+        with open(f"{resume_marker}.pid", "r", encoding="utf-8") as pid_file:
+            observer_pid = int(pid_file.read().strip())
+    except (FileNotFoundError, ValueError):
+        pass
     if launcher_reaped and transport_pid is not None:
         adapter_gone_before_cleanup = wait_process_gone(transport_pid, 5)
+    if launcher_reaped and observer_pid is not None:
+        observer_gone_before_cleanup = wait_process_gone(observer_pid, 5)
 finally:
     if not adapter_gone_before_cleanup and transport_pid is not None:
         try:
             if os.getsid(transport_pid) == child:
                 os.killpg(os.getpgid(transport_pid), signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    if not observer_gone_before_cleanup and observer_pid is not None:
+        try:
+            if os.getsid(observer_pid) == child:
+                os.killpg(os.getpgid(observer_pid), signal.SIGKILL)
         except ProcessLookupError:
             pass
     if not launcher_reaped:
@@ -604,19 +655,23 @@ exit_code = os.waitstatus_to_exitcode(status) if status is not None else None
 success = (
     suspend_sent
     and suspend_observed
+    and resume_observed
     and authenticated
     and foreground_at_prompt
     and launcher_reaped
     and adapter_gone_before_cleanup
+    and observer_gone_before_cleanup
     and exit_code == 130
 )
 if not success:
     sys.stderr.write(
         f"suspend_sent={suspend_sent} suspend_observed={suspend_observed} "
+        f"continue_observed={continue_observed} resume_observed={resume_observed} "
         f"authenticated={authenticated} "
         f"foreground_at_prompt={foreground_at_prompt} "
         f"launcher_reaped={launcher_reaped} "
-        f"adapter_gone={adapter_gone_before_cleanup} exit={exit_code}\n"
+        f"adapter_gone={adapter_gone_before_cleanup} "
+        f"observer_gone={observer_gone_before_cleanup} exit={exit_code}\n"
     )
     sys.stderr.buffer.write(output)
 sys.exit(0 if success else 1)
