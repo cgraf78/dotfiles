@@ -125,6 +125,15 @@ reason, with parsed context and standard output as fallbacks. Post-tool,
 notification, and lifecycle failures are logged and cannot retroactively fail
 completed work.
 
+OpenCode launches Bash tools separately from hook subprocesses. The adapter's
+`shell.env` callback therefore sets `AGENTGUARD_NAME=opencode` and the supplied
+OpenCode session ID for the tool shell itself. It preserves unrelated
+environment entries and masks an inherited AgentGuard session ID with an empty
+overlay value when OpenCode does not supply one. That explicit mask matters
+because OpenCode merges the hook output over its parent environment after the
+callback. The dotfiles `hm` launcher consumes these generic keys and owns
+translation to `HIVE_MEMORY_AGENT_ID` and `HIVE_MEMORY_SESSION_ID`.
+
 ## Exact Payload Translation
 
 Payloads use AgentGuard's existing keys: `session_id`, `cwd`,
@@ -169,9 +178,9 @@ ordinary parts of a relative path unless OpenCode changes its own resolver.
 
 ## OpenCode Callback Model
 
-OpenCode awaits direct hooks such as `chat.message`, `permission.ask`, and
-`tool.execute.before/after`, but dispatches the generic `event` callback without
-awaiting it. The adapter handles them separately.
+OpenCode awaits direct hooks such as `chat.message`, `permission.ask`,
+`shell.env`, and `tool.execute.before/after`, but dispatches the generic `event`
+callback without awaiting it. The adapter handles them separately.
 
 ### Direct hooks
 
@@ -185,10 +194,32 @@ awaiting it. The adapter handles them separately.
 - `tool.execute.after` retrieves only that `callID`, runs the post-hook, appends
   clearly delimited guard context to `output.output`, and deletes the entry.
 - `permission.ask` runs the notification hook best-effort.
+- `shell.env` supplies generic OpenCode agent/session identity to Bash commands,
+  allowing direct Hive Memory writes to coordinate with hook reminders.
 
 Agent names `title`, `summary`, and `compaction` are internal maintenance
 sessions and do not start AgentGuard lifecycle or memory hooks. Task subagents
 retain their own session IDs and remain guarded.
+
+### Claude and Codex parity
+
+The OpenCode adapter covers the same configured shared integration categories:
+
+| Category | OpenCode bridge |
+| --- | --- |
+| global rules and playbook routing | native `~/.config/opencode/AGENTS.md` generated target |
+| gstack skills | native transformed tree with duplicate Claude skill fallback disabled |
+| startup and finalization | `session.created`, first `chat.message`, `session.deleted`, `dispose` |
+| prompts and response completion | `chat.message`, `session.idle` |
+| host attention | `permission.ask` |
+| Bash, edit/write/patch, MCP | `tool.execute.before/after` |
+| direct Hive Memory writes | `shell.env` agent and session identity |
+| task subagents | distinct non-maintenance session IDs |
+| installation and health | ownership-aware `dot update` merge plus `dot doctor` |
+
+Runtime-specific UI features that Claude or Codex may own outside the shared
+AgentGuard configuration are not duplicated. The parity contract is the shared
+AgentGuard/Hive integration configured in this dotfiles repository.
 
 ### Event callback
 
@@ -260,8 +291,9 @@ Installation tests must prove:
 
 Adapter tests must prove:
 
-1. exact environment, effective Bash working directory, event names, and JSON
-   translations, including normal and signal-termination exit metadata;
+1. exact environment, shell agent/session identity, effective Bash working
+   directory, event names, and JSON translations, including normal and
+   signal-termination exit metadata;
 2. lazy start is exactly once and reaches the first prompt;
 3. delayed unawaited lifecycle events serialize before later direct hooks;
 4. duplicate idle events produce one Stop per message generation;
@@ -279,6 +311,8 @@ Adapter tests must prove:
     global-plugin path;
 13. active sessions survive clock advancement and session-record pressure
     without synthetic lifecycle transitions.
+14. the real dotfiles `hm` launcher derives `opencode` plus the OpenCode session
+    ID from the injected Bash environment.
 
 The focused and final commands are:
 

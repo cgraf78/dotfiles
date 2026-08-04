@@ -26,8 +26,10 @@ fi
 if declare -F dot_shdeps_dep_source >/dev/null 2>&1; then
   # Reuse the same public detector API as the agent hooks so normal `hm`
   # commands and hook invocations agree on whether the caller is Claude, Codex,
-  # Gemini, or a human shell. The generic hm-core binary stays vendor-neutral;
-  # this launcher owns dotfiles/runtime-specific inference.
+  # Gemini, OpenCode, or a human shell. OpenCode arrives through the generic
+  # AgentGuard override because it has no runtime-specific shell variable. The
+  # generic hm-core binary stays vendor-neutral; this launcher owns
+  # dotfiles/runtime-specific inference.
   dot_shdeps_dep_source cgraf78/agentguard lib/agentguard/agentguard.sh 2>/dev/null || true
 fi
 

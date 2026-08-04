@@ -140,7 +140,9 @@ exists, do not add an invented placeholder schema.
 - OpenCode has no declarative command-hook schema, so its merge hook installs a
   thin dotfiles-owned protocol adapter through OpenCode's global plugin
   directory. The adapter reuses the same `agent-hook-*` scripts as Claude,
-  Codex, and Gemini without duplicating AgentGuard policy.
+  Codex, and Gemini without duplicating AgentGuard policy, and supplies the
+  OpenCode session identity to Bash commands so direct Hive Memory writes share
+  the same receipt/reminder lifecycle.
 - SSH config merges tracked family fragments plus overlay `.ssh` host aliases.
 - Global ignore patterns are assembled from `ignore/ignore.d` source files.
 - The mise hook runs `mise install` for versions declared under

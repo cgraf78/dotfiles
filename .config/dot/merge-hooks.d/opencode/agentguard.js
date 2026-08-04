@@ -524,6 +524,26 @@ export const AgentGuardPlugin = async ({ directory, client }) => {
       configState = config;
     },
 
+    "shell.env": async (input, output) => {
+      // Hook subprocesses already receive this identity, but OpenCode launches
+      // the actual Bash tool separately. Carry the same two generic AgentGuard
+      // keys into that shell so the dotfiles `hm` launcher can associate direct
+      // `hm remember` and `hm note` writes with this OpenCode session. Keep Hive
+      // vocabulary out of the adapter: the launcher remains the single owner of
+      // HIVE_MEMORY_* translation, just as it is for Claude and Codex.
+      output.env.AGENTGUARD_NAME = "opencode";
+      if (input.sessionID) {
+        output.env.AGENTGUARD_SESSION_ID = input.sessionID;
+      } else {
+        // OpenCode overlays these entries on process.env after this callback,
+        // so deleting the key here would let an outer Claude/Codex session leak
+        // straight back in. An explicit empty value masks that parent identity;
+        // the hm launcher then creates an OpenCode-local fallback instead of
+        // clearing another agent's pending reminder.
+        output.env.AGENTGUARD_SESSION_ID = "";
+      }
+    },
+
     "chat.message": async (input, output) => {
       if (INTERNAL_AGENTS.has(input.agent)) return;
       prune();

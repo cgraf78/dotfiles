@@ -961,9 +961,10 @@ EOF
         *":$HOME/.local/bin:"*) local_bin=yes ;;
         *) local_bin=no ;;
       esac
-      printf "bash=%s\nbash_env=%s\ngit=%s\ngh_token=%s\nlocal_bin=%s\nload_count=%s\nzsh_count=%s\n" \
+      printf "bash=%s\nbash_env=%s\ngit=%s\ngh_token=%s\nlocal_bin=%s\nopencode_claude_skills=%s\nload_count=%s\nzsh_count=%s\n" \
         "$(command -v bash)" "${BASH_ENV:-}" "$(command -v git)" "${GH_TOKEN:-}" \
-        "$local_bin" "${SHELL_ENV_TEST_LOAD_COUNT:-0}" "${SHELL_ENV_TEST_ZSH_COUNT:-0}"'
+        "$local_bin" "${OPENCODE_DISABLE_CLAUDE_CODE_SKILLS:-}" \
+        "${SHELL_ENV_TEST_LOAD_COUNT:-0}" "${SHELL_ENV_TEST_ZSH_COUNT:-0}"'
     )
     if [[ -x /opt/homebrew/bin/bash ]]; then
       _assert_contains "zsh login: env.d puts Homebrew before system bash" \
@@ -977,6 +978,15 @@ EOF
       "gh_token=shell-gh-token" "$_login_env"
     _assert_contains "zsh login: env.d prepends local bin" \
       "local_bin=yes" "$_login_env"
+    _assert_contains "zsh login: OpenCode uses only native skill registrations" \
+      "opencode_claude_skills=1" "$_login_env"
+    # shellcheck disable=SC2016 # The nested Bash, not this test shell, expands the fixture HOME and override.
+    _opencode_skill_override=$(
+      env -i HOME="$_zsh_home" OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=0 \
+        /bin/bash -c '. "$HOME/.config/shell/env.d/60-tools.sh"; printf "%s\n" "$OPENCODE_DISABLE_CLAUDE_CODE_SKILLS"'
+    )
+    _assert_eq "shell env: explicit OpenCode Claude-skill override survives" \
+      "0" "$_opencode_skill_override"
     _assert_contains "zsh login: env.d loads once" \
       "load_count=1" "$_login_env"
     _assert_contains "zsh login: zsh env.d files load once" \

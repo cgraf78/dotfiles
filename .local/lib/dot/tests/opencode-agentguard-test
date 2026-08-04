@@ -96,6 +96,7 @@ done
 
 cat >"$test_root/test.mjs" <<'TEST_SCRIPT'
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -105,10 +106,15 @@ const home = process.env.DOT_TEST_HOME;
 const logPath = process.env.DOT_TEST_HOOK_LOG;
 const behaviorDir = process.env.DOT_TEST_HOOK_BEHAVIOR_DIR;
 const pluginPath = process.env.DOT_TEST_PLUGIN;
+const hmLauncher = process.env.DOT_TEST_HM_LAUNCHER;
 const sourceDirectory = path.join(root, "workspace");
 fs.mkdirSync(sourceDirectory, { recursive: true });
 process.env.HOME = home;
-process.env.DOT_OPENCODE_AGENTGUARD_TIMEOUT_SCALE = "0.01";
+// Keep normal fixture hooks comfortably above process-startup jitter. The full
+// dotfiles runner executes suites in parallel, so a blanket 100 ms budget turns
+// ordinary Node startup into a load-sensitive failure instead of testing the
+// adapter contract. The one timeout test below narrows this scale temporarily.
+process.env.DOT_OPENCODE_AGENTGUARD_TIMEOUT_SCALE = "0.1";
 
 const { AgentGuardPlugin } = await import(`${pathToFileURL(pluginPath).href}?test=${Date.now()}`);
 
@@ -156,6 +162,7 @@ await check("exports the complete OpenCode hook surface", async () => {
     "config",
     "chat.message",
     "permission.ask",
+    "shell.env",
     "tool.execute.before",
     "tool.execute.after",
     "event",
@@ -163,6 +170,92 @@ await check("exports the complete OpenCode hook surface", async () => {
   ]) {
     assert.equal(typeof hooks[name], "function", name);
   }
+});
+
+await check("injects OpenCode identity into shell commands for Hive Memory", async () => {
+  const hooks = await plugin();
+  const output = {
+    env: {
+      PATH: "/fixture/bin",
+      CUSTOM_ENV: "preserved",
+      AGENTGUARD_NAME: "stale-agent",
+      AGENTGUARD_SESSION_ID: "stale-session",
+    },
+  };
+  await hooks["shell.env"](
+    { cwd: sourceDirectory, sessionID: "shell-session", callID: "shell-call" },
+    output,
+  );
+  assert.deepEqual(output.env, {
+    PATH: "/fixture/bin",
+    CUSTOM_ENV: "preserved",
+    AGENTGUARD_NAME: "opencode",
+    AGENTGUARD_SESSION_ID: "shell-session",
+  });
+
+  const hmCore = path.join(root, "hm-core");
+  fs.writeFileSync(
+    hmCore,
+    `#!/bin/sh
+printf 'agent=%s\\n' "\${HIVE_MEMORY_AGENT_ID:-}"
+printf 'session=%s\\n' "\${HIVE_MEMORY_SESSION_ID:-}"
+`,
+  );
+  fs.chmodSync(hmCore, 0o755);
+  const launched = spawnSync(hmLauncher, ["env-probe"], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      ...output.env,
+      HOME: home,
+      HIVE_MEMORY_CORE: hmCore,
+      PATH: process.env.PATH,
+    },
+  });
+  assert.equal(launched.status, 0, launched.stderr);
+  assert.equal(launched.stdout, "agent=opencode\nsession=shell-session\n");
+
+  const ambientSession = process.env.AGENTGUARD_SESSION_ID;
+  process.env.AGENTGUARD_SESSION_ID = "outer-agent-session";
+  const sessionless = {
+    env: {
+      CUSTOM_ENV: "preserved",
+    },
+  };
+  try {
+    await hooks["shell.env"]({ cwd: sourceDirectory }, sessionless);
+    assert.deepEqual(sessionless.env, {
+      CUSTOM_ENV: "preserved",
+      AGENTGUARD_NAME: "opencode",
+      AGENTGUARD_SESSION_ID: "",
+    });
+
+    // OpenCode applies the hook's output as an overlay on process.env. Exercise
+    // that exact composition so a deletion-only implementation cannot hide the
+    // inherited outer-agent session in this regression test.
+    const sessionlessLaunch = spawnSync(hmLauncher, ["env-probe"], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        ...sessionless.env,
+        HOME: home,
+        HIVE_MEMORY_AGENT_ID: "",
+        HIVE_MEMORY_SESSION_ID: "",
+        HIVE_MEMORY_CORE: hmCore,
+        PATH: process.env.PATH,
+      },
+    });
+    assert.equal(sessionlessLaunch.status, 0, sessionlessLaunch.stderr);
+    assert.match(sessionlessLaunch.stdout, /^agent=opencode\nsession=opencode-\d+\n$/);
+    assert.doesNotMatch(sessionlessLaunch.stdout, /outer-agent-session/);
+  } finally {
+    if (ambientSession === undefined) {
+      delete process.env.AGENTGUARD_SESSION_ID;
+    } else {
+      process.env.AGENTGUARD_SESSION_ID = ambientSession;
+    }
+  }
+  await hooks.dispose();
 });
 
 await check("translates Bash, edit, write, patch, and MCP payloads", async () => {
@@ -553,18 +646,24 @@ await check("fails closed when a protected hook times out", async () => {
   clearLog();
   const descendantMarker = path.join(root, "timeout-descendant-survived");
   behavior("agent-hook-pre-edit", { delayMs: 250, descendantMarker });
-  const hooks = await plugin();
-  await assert.rejects(
-    hooks["tool.execute.before"](
-      { tool: "edit", sessionID: "timeout", callID: "timeout-call" },
-      { args: { filePath: "a", oldString: "b", newString: "c" } },
-    ),
-    /timed out/i,
-  );
-  await new Promise((resolve) => setTimeout(resolve, 350));
-  assert.equal(fs.existsSync(descendantMarker), false);
-  await hooks.dispose();
-  clearBehavior("agent-hook-pre-edit");
+  const normalTimeoutScale = process.env.DOT_OPENCODE_AGENTGUARD_TIMEOUT_SCALE;
+  process.env.DOT_OPENCODE_AGENTGUARD_TIMEOUT_SCALE = "0.01";
+  try {
+    const hooks = await plugin();
+    await assert.rejects(
+      hooks["tool.execute.before"](
+        { tool: "edit", sessionID: "timeout", callID: "timeout-call" },
+        { args: { filePath: "a", oldString: "b", newString: "c" } },
+      ),
+      /timed out/i,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    assert.equal(fs.existsSync(descendantMarker), false);
+    await hooks.dispose();
+  } finally {
+    process.env.DOT_OPENCODE_AGENTGUARD_TIMEOUT_SCALE = normalTimeoutScale;
+    clearBehavior("agent-hook-pre-edit");
+  }
 });
 
 await check("keeps post-hook failures advisory", async () => {
@@ -732,6 +831,7 @@ TEST_SCRIPT
 DOT_TEST_ROOT="$test_root" \
   DOT_TEST_HOME="$fixture_home" \
   DOT_TEST_PLUGIN="$test_root/agentguard.mjs" \
+  DOT_TEST_HM_LAUNCHER="$HOME/.local/lib/dot/hive-memory/hm-launcher" \
   DOT_TEST_HOOK_LOG="$hook_log" \
   DOT_TEST_HOOK_BEHAVIOR_DIR="$behavior_dir" \
   node "$test_root/test.mjs" || exit 1
@@ -749,7 +849,11 @@ import { AgentGuardPlugin } from "./dotfiles-agentguard.js";
 
 export const CharacterizationPlugin = async (input) => {
   const hooks = await AgentGuardPlugin(input);
-  if (typeof hooks.config !== "function" || typeof hooks["tool.execute.before"] !== "function") {
+  if (
+    typeof hooks.config !== "function" ||
+    typeof hooks["shell.env"] !== "function" ||
+    typeof hooks["tool.execute.before"] !== "function"
+  ) {
     throw new Error("AgentGuard adapter returned an incomplete hook surface");
   }
   fs.writeFileSync(process.env.DOT_TEST_OPENCODE_LOAD_MARKER, "loaded");

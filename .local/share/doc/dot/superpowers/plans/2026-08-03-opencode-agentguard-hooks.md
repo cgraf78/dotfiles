@@ -151,7 +151,9 @@ configured MCP -> mcp__server__tool/original arguments
 
 Also assert `cwd`, `AGENTGUARD_NAME=opencode`,
 `AGENTGUARD_SESSION_ID`, event names, Bash post `stdout`, and the documented
-timeout override.
+timeout override. Exercise `shell.env` through the real dotfiles `hm` launcher
+and assert that direct commands derive the `opencode` agent plus session ID
+without replacing unrelated environment entries.
 
 - [ ] **Step 2: Run the adapter test and verify RED**
 
@@ -171,6 +173,7 @@ Implement the source plugin with only:
 export const AgentGuardPlugin = async ({ directory, client }) => {
   return {
     config: async (config) => {},
+    "shell.env": async (input, output) => {},
     "chat.message": async (input, output) => {},
     "permission.ask": async (input) => {},
     "tool.execute.before": async (input, output) => {},
@@ -297,6 +300,11 @@ Commit the plugin and tests with the repository message format.
 - Modify: `.local/lib/dot/core/doctor/agent-hooks.sh`
 - Modify: `.local/lib/dot/tests/core/doctor.sh`
 - Modify: `.config/dot/merge-hooks.d/README.md`
+- Modify: `.config/dot/merge-hooks.d/agent-rules/targets.d/80-targets.replace/50-native.txt`
+- Modify: `.config/shell/env.d/60-tools.sh`
+- Modify: `.local/lib/dot/gstack-register/README.md`
+- Modify: `.local/lib/dot/tests/agent-rules-test`
+- Modify: `.local/lib/dot/tests/core/static.sh`
 
 **Interfaces:**
 
@@ -333,14 +341,21 @@ Add a helper that checks the target only when `opencode` is on `PATH`, verifies
 regular non-symlink ownership, and emits OK or warning. Add the OpenCode source
 and output to the merge-hook Configs table and explain that this thin
 dotfiles-owned adapter reuses AgentGuard while OpenCode lacks a declarative hook
-schema.
+schema. Add `~/.config/opencode/AGENTS.md` to the native global-rule targets so
+OpenCode does not depend on its optional Claude-compatibility fallback, and
+verify that the generator writes and prunes that target like the existing
+Claude and Codex targets. Disable only OpenCode's Claude skill fallback because
+dotfiles already installs a transformed native gstack tree; leaving both
+enabled advertises the same workflows under two name sets. Preserve CLAUDE.md
+rule fallback for projects without AGENTS.md and preserve an explicit user
+override of the environment default.
 
 - [ ] **Step 4: Run focused verification**
 
 Run:
 
 ```bash
-./.local/bin/dot-test core-doctor core-static workflow-consistency
+./.local/bin/dot-test agent-rules core-doctor core-static workflow-consistency
 ```
 
 Expected: all suites pass with zero failures.
