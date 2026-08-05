@@ -174,17 +174,34 @@ gate_bin="$tmp/gate-bin"
 gate_bash_env="$tmp/gate-bash-env"
 mkdir -p "$gate_runtime_root" "$gate_bin"
 _write_stub "$gate_bin/ps" \
-  'for arg in "$@"; do [[ "$arg" != tpgid= ]] || { sleep 0.05; exit 1; }; done' \
+  'for arg in "$@"; do' \
+  '  if [[ "$arg" == tpgid= ]]; then' \
+  '    if [[ -n "${ET_TUNNEL_TEST_PROBE_HELD:-}" ]]; then' \
+  '      : >"$ET_TUNNEL_TEST_PROBE_HELD"' \
+  '      # The helper ignores common signals, so retain an abnormal-exit bound.' \
+  '      probe_wait=0' \
+  '      while [[ ! -e "$ET_TUNNEL_TEST_PROBE_RELEASE" ]] && ((probe_wait < 600)); do' \
+  '        sleep 0.05' \
+  '        probe_wait=$((probe_wait + 1))' \
+  '      done' \
+  '    fi' \
+  '    sleep 0.05' \
+  '    exit 1' \
+  '  fi' \
+  'done' \
   "exec $real_ps_q \"\$@\""
 # Bash 3.2 sources BASH_ENV before making the script's positional parameters
 # available. Classify on the first script command instead: ordinary Bash
 # subprocesses remove the DEBUG trap immediately, while the sentinel worker
 # retains it until its internal function call, before worker signal traps run.
 _write_stub "$gate_bash_env" \
-  'if [[ -n "${ET_TUNNEL_TEST_WORKER_START_MODE:-}" ]]; then' \
+  'if [[ -n "${ET_TUNNEL_TEST_WORKER_START_MODE:-}${ET_TUNNEL_TEST_GATE_TIMEOUT:-}" ]]; then' \
   "  trap '" \
   '    if [[ "$BASH_COMMAND" == run_transport_worker\ * ]]; then' \
   '      trap - DEBUG' \
+  '      if [[ -n "${ET_TUNNEL_TEST_GATE_TIMEOUT:-}" ]]; then' \
+  '        FOREGROUND_GATE_TIMEOUT="$ET_TUNNEL_TEST_GATE_TIMEOUT"' \
+  '      fi' \
   '      case "$ET_TUNNEL_TEST_WORKER_START_MODE" in' \
   '        block)' \
   '          : >"$ET_TUNNEL_TEST_WORKER_BLOCKED"' \
@@ -251,6 +268,8 @@ def run_case(port, cancel=False, startup_mode=""):
         pass
     blocked_marker = f"{results_file}.{port}.blocked"
     gate_fifo = f"{results_file}.{port}.gate"
+    probe_held = f"{results_file}.{port}.probe-held"
+    probe_release = f"{results_file}.{port}.probe-release"
     if startup_mode == "block":
         os.mkfifo(gate_fifo)
     # The gate is meaningful only with a controlling PTY: without one, the
@@ -272,6 +291,16 @@ def run_case(port, cancel=False, startup_mode=""):
                 "ET_TUNNEL_TEST_WORKER_GATE": gate_fifo,
             }
         )
+        if cancel and not startup_mode:
+            # Keep the worker's own gate deadline beyond this case's 20-second
+            # test bound so it cannot replace the cancellation outcome.
+            environment.update(
+                {
+                    "ET_TUNNEL_TEST_GATE_TIMEOUT": "30",
+                    "ET_TUNNEL_TEST_PROBE_HELD": probe_held,
+                    "ET_TUNNEL_TEST_PROBE_RELEASE": probe_release,
+                }
+            )
         os.execve(
             bash,
             ["bash", script, "gateway.example", str(port), "service.internal", "443"],
@@ -284,6 +313,7 @@ def run_case(port, cancel=False, startup_mode=""):
     reaped = False
     cancel_sent = False
     blocked_seen = False
+    probe_held_seen = False
     ready_before_cancel = False
     launcher_foreground = False
     worker_foreground = False
@@ -303,6 +333,7 @@ def run_case(port, cancel=False, startup_mode=""):
                     terminal_pgid = os.tcgetpgrp(master)
                     launcher_foreground = terminal_pgid == child
                     worker_foreground = terminal_pgid == worker_pid
+                    probe_held_seen = os.path.exists(probe_held)
                     if startup_mode == "block" and os.path.exists(blocked_marker):
                         blocked_seen = True
                         ready_before_cancel = worker_ready
@@ -311,7 +342,17 @@ def run_case(port, cancel=False, startup_mode=""):
                     # The normal gate case covers cancellation after the worker
                     # really owns the terminal. The startup case above instead
                     # requires Ctrl-C to remain with the launcher.
-                    elif not startup_mode and worker_foreground:
+                    # Keep the deliberately broken foreground probe parked
+                    # while cancellation is observed. Otherwise its independent
+                    # ten-second deadline can overtake this PTY write on a busy
+                    # runner and turn the fixture into a race between failures.
+                    elif (
+                        not startup_mode
+                        and worker_ready
+                        and worker_foreground
+                        and probe_held_seen
+                    ):
+                        ready_before_cancel = worker_ready
                         os.write(master, b"\x03")
                         cancel_sent = True
                 except OSError:
@@ -322,6 +363,7 @@ def run_case(port, cancel=False, startup_mode=""):
                 reaped = True
                 break
     finally:
+        open(probe_release, "ab").close()
         if status is None:
             if worker_pid is not None:
                 try:
@@ -351,6 +393,7 @@ def run_case(port, cancel=False, startup_mode=""):
         "foreground": worker_foreground,
         "launcher_foreground": launcher_foreground,
         "output": output,
+        "probe_held": probe_held_seen,
         "ready": ready_before_cancel,
         "reaped": reaped,
         "runtime_clean": not os.listdir(runtime_root),
@@ -370,6 +413,8 @@ cancelled = (
     cancel_case["cancel_sent"]
     and cancel_case["exit"] == 130
     and cancel_case["reaped"]
+    and cancel_case["probe_held"]
+    and cancel_case["ready"]
     and not cancel_case["adapter"]
 )
 startup_cancelled = (
