@@ -180,10 +180,7 @@ _dot_update_lock_install_traps() {
   # Ignore handled signals before cleanup starts. `_dot_cleanup_all` preserves
   # that disposition, so lock-release subprocesses remain protected too.
   trap '_dot_cleanup_ignore_signals; _dot_cleanup_all || true; _dot_update_lock_release' EXIT
-  trap '_dot_cleanup_signal 129' HUP
-  trap '_dot_cleanup_signal 130' INT
-  trap '_dot_cleanup_signal 131' QUIT
-  trap '_dot_cleanup_signal 143' TERM
+  _dot_cleanup_install_signal_traps
 }
 
 _dot_update_lock_reenter() {

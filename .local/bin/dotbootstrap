@@ -156,18 +156,40 @@ _require_bootstrap_tools() {
   exit 1
 }
 
+_bootstrap_overlay_sync_failed() {
+  local status="$1"
+  if [[ "${_bootstrap_overlay_error_reported:-0}" -eq 0 ]]; then
+    echo "  error: required overlay sync failed — bootstrap incomplete." >&2
+    _bootstrap_overlay_error_reported=1
+  fi
+  return "$status"
+}
+
 _bootstrap_sync_overlays() {
-  local pull_rc=0
+  local pull_rc=0 saved_err_trap="" _bootstrap_overlay_error_reported=0
+  local had_errtrace=0
   _ensure_shdeps
   _merge_overlay_ssh_configs
   _discover_overlays
 
-  # Capture the worker status explicitly. Relying on `set -e` here would skip
-  # the incomplete-bootstrap diagnostic when the parallel coordinator itself
-  # fails before it can record a per-overlay status.
-  _pull_overlays || pull_rc=$?
+  # Keep `_pull_overlays` as a bare command so the script's errexit contract
+  # remains active inside its complete call tree. An ERR trap supplies the
+  # actionable bootstrap diagnostic without putting the function on the left
+  # side of `||`, which would silently disable errexit in every nested worker.
+  saved_err_trap=$(trap -p ERR)
+  [[ "$-" == *E* ]] && had_errtrace=1
+  set -E
+  trap '_bootstrap_overlay_sync_failed $?' ERR
+  _pull_overlays
+  pull_rc=$?
+  if [[ -n "$saved_err_trap" ]]; then
+    eval "$saved_err_trap"
+  else
+    trap - ERR
+  fi
+  [[ "$had_errtrace" -eq 1 ]] || set +E
   if [[ "$pull_rc" -ne 0 || "${DOT_PULL_OVERLAY_FAILED:-0}" -gt 0 ]]; then
-    echo "  error: required overlay sync failed — bootstrap incomplete." >&2
+    _bootstrap_overlay_sync_failed 1 || true
     return 1
   fi
 }
@@ -308,10 +330,7 @@ fi
 # the update lock. Keep its async work and private scratch under the same exit
 # cleanup contract without changing the caller's interactive process group.
 trap '_dot_cleanup_ignore_signals; _dot_cleanup_all' EXIT
-trap '_dot_cleanup_signal 129' HUP
-trap '_dot_cleanup_signal 130' INT
-trap '_dot_cleanup_signal 131' QUIT
-trap '_dot_cleanup_signal 143' TERM
+_dot_cleanup_install_signal_traps
 
 # ---------------------------------------------------------------------------
 # Overlay repos: discover, clone/pull

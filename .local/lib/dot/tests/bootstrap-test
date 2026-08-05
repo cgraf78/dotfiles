@@ -180,6 +180,46 @@ if $_bootstrap_run_unit; then
   _assert_contains "overlay sync: worker failure explains incomplete bootstrap" \
     "required overlay sync failed" "$_overlay_sync_out"
 
+  # Do not place the coordinator on the left side of `||`: Bash disables
+  # errexit throughout a function invoked from that context, which can turn an
+  # unexpected worker-internal failure into a false success.
+  _overlay_internal_marker=$(_tmpdir)/continued
+  _overlay_internal_output=$(_tmpdir)/output
+  _overlay_internal_rc=0
+  _overlay_internal_had_errexit=0
+  [[ "$-" == *e* ]] && _overlay_internal_had_errexit=1
+  set +e
+  (
+    set -e
+    # shellcheck disable=SC2329  # Invoked indirectly by the helper under test.
+    _ensure_shdeps() { :; }
+    # shellcheck disable=SC2329  # Invoked indirectly by the helper under test.
+    _merge_overlay_ssh_configs() { :; }
+    # shellcheck disable=SC2329  # Invoked indirectly by the helper under test.
+    _discover_overlays() { :; }
+    # shellcheck disable=SC2329  # Invoked indirectly by the helper under test.
+    _pull_overlays() {
+      false
+      : >"$_overlay_internal_marker"
+    }
+    _bootstrap_sync_overlays 2>&1
+  ) >"$_overlay_internal_output" 2>&1
+  _overlay_internal_rc=$?
+  [[ "$_overlay_internal_had_errexit" -eq 0 ]] || set -e
+  _overlay_internal_out=$(cat "$_overlay_internal_output")
+  if [[ "$_overlay_internal_rc" -ne 0 ]]; then
+    _pass "overlay sync: unexpected internal failure retains errexit"
+  else
+    _fail "overlay sync: unexpected internal failure retains errexit"
+  fi
+  if [[ ! -e "$_overlay_internal_marker" ]]; then
+    _pass "overlay sync: unexpected internal failure stops coordinator work"
+  else
+    _fail "overlay sync: unexpected internal failure stops coordinator work"
+  fi
+  _assert_contains "overlay sync: unexpected failure explains incomplete bootstrap" \
+    "required overlay sync failed" "$_overlay_internal_out"
+
   # ---------------------------------------------------------------------------
   # Tests: merge-wezterm
   # ---------------------------------------------------------------------------

@@ -140,7 +140,11 @@ _dot_cleanup_process_backend() {
   if [[ -r "/proc/$$/stat" ]]; then
     printf -v "$output_name" '%s' proc
   else
-    printf -v "$output_name" '%s' ps
+    # Portable `ps` exposes process start time only to the second on macOS.
+    # That is not a strong enough PID-reuse identity for signalling arbitrary
+    # descendants, so non-/proc platforms deliberately keep exact-job cleanup
+    # and fail closed on process-tree discovery.
+    printf -v "$output_name" '%s' none
   fi
 }
 
@@ -161,21 +165,10 @@ _dot_cleanup_observe_proc() {
   DOT_CLEANUP_OBS_ID="proc:${20}"
 }
 
-_dot_cleanup_observe_ps() {
-  local pid="$1" row ppid state weekday month day clock year extra
-  row=$(LC_ALL=C TZ=UTC0 command ps -o ppid=,stat=,lstart= -p "$pid" 2>/dev/null) || return 1
-  read -r ppid state weekday month day clock year extra <<<"$row"
-  [[ "$ppid" =~ ^[0-9]+$ && -n "$state" && -n "$year" && -z "$extra" ]] || return 1
-  DOT_CLEANUP_OBS_PPID=$ppid
-  DOT_CLEANUP_OBS_STATE=$state
-  DOT_CLEANUP_OBS_ID="ps:$weekday $month $day $clock $year"
-}
-
 _dot_cleanup_observe_process() {
   local backend="$1" pid="$2"
   case "$backend" in
     proc) _dot_cleanup_observe_proc "$pid" ;;
-    ps) _dot_cleanup_observe_ps "$pid" ;;
     *) return 2 ;;
   esac
 }
@@ -195,6 +188,7 @@ _dot_cleanup_descendant_records() {
   local -a queue_pids=("$root") queue_identities=("$root_identity") queue_depths=(0)
   local -A seen=(["$root"]=1)
 
+  [[ "$backend" == proc ]] || return 0
   [[ "$root" =~ ^[1-9][0-9]*$ && -n "$root_identity" ]] || return 0
   command -v pgrep >/dev/null 2>&1 || return 0
   _dot_cleanup_observe_process "$backend" "$root" || return 0
@@ -207,7 +201,7 @@ _dot_cleanup_descendant_records() {
     index=$((index + 1))
     ((depth < 64)) || continue
 
-    children=$(command pgrep -P "$parent" 2>/dev/null || true)
+    children=$(command pgrep -P "$parent" . 2>/dev/null || true)
     # shellcheck disable=SC2086  # pgrep emits a whitespace-delimited PID list.
     for child in $children; do
       [[ "$child" =~ ^[1-9][0-9]*$ && "$child" != "$$" &&
@@ -261,7 +255,9 @@ _dot_cleanup_remove_path() {
 _dot_cleanup_close_fd() {
   local fd="$1"
   if [[ "$fd" =~ ^[0-9]+$ ]]; then
-    exec {fd}>&- 2>/dev/null || true
+    # Redirection on a bare `exec` persists in the current shell. Scope stderr
+    # to this group so closing one progress FD cannot silence later diagnostics.
+    { exec {fd}>&-; } 2>/dev/null || true
   fi
   _dot_cleanup_unregister_fd "$fd"
 }
@@ -410,11 +406,15 @@ _dot_cleanup_all() {
   DOT_CLEANUP_RUNNING=0
 }
 
-_dot_cleanup_prepare_subshell() {
-  _dot_cleanup_reset
-  trap '_dot_cleanup_ignore_signals; _dot_cleanup_all' EXIT
+_dot_cleanup_install_signal_traps() {
   trap '_dot_cleanup_signal 129' HUP
   trap '_dot_cleanup_signal 130' INT
   trap '_dot_cleanup_signal 131' QUIT
   trap '_dot_cleanup_signal 143' TERM
+}
+
+_dot_cleanup_prepare_subshell() {
+  _dot_cleanup_reset
+  trap '_dot_cleanup_ignore_signals; _dot_cleanup_all' EXIT
+  _dot_cleanup_install_signal_traps
 }

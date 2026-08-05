@@ -342,9 +342,9 @@ trap ': >"$CASE_DIR/unexpected-term"' TERM
 trap_before=$(trap -p TERM)
 _dot_cleanup_all
 trap_after=$(trap -p TERM)
-[[ ! -e "$CASE_DIR/unexpected-kill" ]]
-[[ "${#DOT_CLEANUP_PIDS[@]}" -eq 0 ]]
-[[ "$trap_after" == "$trap_before" ]]
+[[ ! -e "$CASE_DIR/unexpected-kill" ]] || exit 1
+[[ "${#DOT_CLEANUP_PIDS[@]}" -eq 0 ]] || : >"$CASE_DIR/registry-not-empty"
+[[ "$trap_after" == "$trap_before" ]] || : >"$CASE_DIR/trap-not-restored"
 FIXTURE
   chmod +x "$case_dir/fixture.sh"
 
@@ -356,7 +356,12 @@ FIXTURE
   else
     _fail "completed job: retained status is reaped without signalling its PID"
   fi
-  if [[ ! -e "$case_dir/unexpected-term" ]]; then
+  if [[ ! -e "$case_dir/registry-not-empty" ]]; then
+    _pass "completed job: exact wait empties the PID registry"
+  else
+    _fail "completed job: exact wait empties the PID registry"
+  fi
+  if [[ ! -e "$case_dir/trap-not-restored" ]]; then
     _pass "completed job: explicit cleanup restores the caller's signal trap"
   else
     _fail "completed job: explicit cleanup restores the caller's signal trap"
@@ -374,6 +379,9 @@ set -eu
 
 # shellcheck source=/dev/null
 . "$SOURCE_HOME/.local/lib/dot/core/init.sh"
+
+_dot_cleanup_process_backend cleanup_backend
+printf '%s\n' "$cleanup_backend" >"$CASE_DIR/cleanup-backend"
 
 (
   _dot_cleanup_prepare_subshell
@@ -407,7 +415,14 @@ sleep 30 &
 unrelated=$!
 _dot_cleanup_all
 
-descendant_state=$(ps -o stat= -p "$descendant" 2>/dev/null || true)
+for ((attempt = 0; attempt < 40; attempt++)); do
+  descendant_state=$(ps -o stat= -p "$descendant" 2>/dev/null || true)
+  if ! kill -0 "$descendant" 2>/dev/null ||
+    [[ "$descendant_state" =~ ^[[:space:]]*Z ]]; then
+    break
+  fi
+  sleep 0.05
+done
 if kill -0 "$descendant" 2>/dev/null &&
   [[ ! "$descendant_state" =~ ^[[:space:]]*Z ]]; then
   : >"$CASE_DIR/descendant-survived"
@@ -421,10 +436,16 @@ FIXTURE
   _with_timeout 15 env SOURCE_HOME="$SOURCE_HOME" CASE_DIR="$case_dir" \
     bash "$case_dir/fixture.sh" || fixture_rc=$?
   _assert_exit "descendant cleanup: fixture succeeds" 0 "$fixture_rc"
-  if [[ ! -e "$case_dir/descendant-survived" ]]; then
-    _pass "descendant cleanup: registered worker's external descendant is gone"
+  if [[ "$(cat "$case_dir/cleanup-backend")" == proc ]]; then
+    if [[ ! -e "$case_dir/descendant-survived" ]]; then
+      _pass "descendant cleanup: strong identity removes external descendant"
+    else
+      _fail "descendant cleanup: strong identity removes external descendant"
+    fi
+  elif [[ -e "$case_dir/descendant-survived" ]]; then
+    _pass "descendant cleanup: weak identity leaves external descendant untouched"
   else
-    _fail "descendant cleanup: registered worker's external descendant is gone"
+    _fail "descendant cleanup: weak identity leaves external descendant untouched"
   fi
   if [[ -e "$case_dir/unrelated-survived" ]]; then
     _pass "descendant cleanup: unrelated sibling remains untouched"
@@ -603,14 +624,19 @@ set -u
 # shellcheck source=/dev/null
 . "$SOURCE_HOME/.local/lib/dot/core/init.sh"
 
-# Deliver a second signal at the exact boundary between the first signal's
-# request to exit and EXIT cleanup entering its running state. The first signal
-# must remain authoritative and cleanup must still finish.
-eval "$(declare -f _dot_cleanup_all | sed '1s/_dot_cleanup_all/_dot_cleanup_all_original/')"
-_dot_cleanup_all() {
+# Re-enter the signal handler after the first signal has set RUNNING but before
+# cleanup installs ignored dispositions. The re-entrancy guard must keep TERM
+# authoritative without recursively starting another cleanup.
+eval "$(declare -f _dot_cleanup_ignore_signals | sed '1s/_dot_cleanup_ignore_signals/_dot_cleanup_ignore_signals_original/')"
+_dot_cleanup_ignore_signals() {
+  : >"$CASE_DIR/second-signal-attempted"
+  _dot_cleanup_signal 129
+  _dot_cleanup_ignore_signals_original
+}
+eval "$(declare -f _dot_cleanup_owned | sed '1s/_dot_cleanup_owned/_dot_cleanup_owned_original/')"
+_dot_cleanup_owned() {
   : >"$CASE_DIR/cleanup-started"
-  builtin kill -HUP "$BASHPID"
-  _dot_cleanup_all_original
+  _dot_cleanup_owned_original
   : >"$CASE_DIR/cleanup-finished"
 }
 
@@ -626,7 +652,8 @@ FIXTURE
   SOURCE_HOME="$SOURCE_HOME" CASE_DIR="$case_dir" \
     bash "$case_dir/fixture.sh" || fixture_rc=$?
   _assert_exit "first signal latch: TERM status remains authoritative" 143 "$fixture_rc"
-  if [[ -e "$case_dir/cleanup-finished" && ! -e "$case_dir/owned" ]]; then
+  if [[ -e "$case_dir/second-signal-attempted" &&
+    -e "$case_dir/cleanup-finished" && ! -e "$case_dir/owned" ]]; then
     _pass "first signal latch: second signal cannot abort cleanup"
   else
     _fail "first signal latch: second signal cannot abort cleanup"
@@ -708,8 +735,8 @@ printf 'first diagnostic\n' >"$result_dir/001.log"
 printf 'second diagnostic\n' >"$result_dir/002.log"
 _dot_cleanup_register_path "$result_dir"
 _pull_overlay_drain_workers "$result_dir" >"$CASE_DIR/output"
-[[ ! -e "$result_dir" ]]
-[[ "${#DOT_CLEANUP_PATHS[@]}" -eq 0 ]]
+[[ ! -e "$result_dir" ]] || exit 1
+[[ "${#DOT_CLEANUP_PATHS[@]}" -eq 0 ]] || exit 1
 FIXTURE
   chmod +x "$case_dir/fixture.sh"
 
@@ -815,6 +842,115 @@ PY
     "DOT_PTY_OK" "$pty_out"
 }
 
+_run_fd_close_preserves_stderr_case() {
+  local case_dir fixture_rc=0
+  case_dir=$(_tmpdir)
+
+  cat >"$case_dir/fixture.sh" <<'FIXTURE'
+#!/usr/bin/env bash
+set -eu
+
+# shellcheck source=/dev/null
+. "$SOURCE_HOME/.local/lib/dot/core/init.sh"
+
+exec {progress_fd}>"$CASE_DIR/progress"
+_dot_cleanup_register_fd "$progress_fd"
+_dot_cleanup_close_fd "$progress_fd"
+printf 'stderr-after-close\n' >&2
+FIXTURE
+  chmod +x "$case_dir/fixture.sh"
+
+  SOURCE_HOME="$SOURCE_HOME" CASE_DIR="$case_dir" \
+    bash "$case_dir/fixture.sh" 2>"$case_dir/stderr" || fixture_rc=$?
+  _assert_exit "descriptor cleanup: fixture succeeds" 0 "$fixture_rc"
+  _assert_contains "descriptor cleanup: later diagnostics retain stderr" \
+    "stderr-after-close" "$(cat "$case_dir/stderr")"
+}
+
+_run_pgrep_pattern_case() {
+  local case_dir fixture_rc=0
+  case_dir=$(_tmpdir)
+  mkdir -p "$case_dir/bin"
+
+  cat >"$case_dir/bin/pgrep" <<'PGREP'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$CASE_DIR/pgrep-args"
+[[ "$#" -eq 3 && "$1" == -P && "$2" == 41001 && "$3" == . ]] || exit 91
+printf '41002\n'
+PGREP
+  chmod +x "$case_dir/bin/pgrep"
+
+  cat >"$case_dir/fixture.sh" <<'FIXTURE'
+#!/usr/bin/env bash
+set -eu
+
+# shellcheck source=/dev/null
+. "$SOURCE_HOME/.local/lib/dot/core/init.sh"
+
+_dot_cleanup_observe_process() {
+  case "$2" in
+    41001)
+      DOT_CLEANUP_OBS_PPID=1
+      DOT_CLEANUP_OBS_STATE=S
+      DOT_CLEANUP_OBS_ID=root-identity
+      ;;
+    41002)
+      DOT_CLEANUP_OBS_PPID=41001
+      DOT_CLEANUP_OBS_STATE=S
+      DOT_CLEANUP_OBS_ID=child-identity
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+PATH="$CASE_DIR/bin:$PATH"
+records=$(_dot_cleanup_descendant_records proc 41001 root-identity)
+[[ "$records" == $'41002\tchild-identity\t1' ]]
+FIXTURE
+  chmod +x "$case_dir/fixture.sh"
+
+  SOURCE_HOME="$SOURCE_HOME" CASE_DIR="$case_dir" \
+    bash "$case_dir/fixture.sh" || fixture_rc=$?
+  _assert_exit "descendant discovery: pgrep receives a portable match pattern" \
+    0 "$fixture_rc"
+}
+
+_run_weak_identity_fails_closed_case() {
+  local case_dir fixture_rc=0
+  case_dir=$(_tmpdir)
+  mkdir -p "$case_dir/bin"
+
+  cat >"$case_dir/bin/pgrep" <<'PGREP'
+#!/usr/bin/env bash
+: >"$CASE_DIR/unexpected-pgrep"
+printf '42002\n'
+PGREP
+  chmod +x "$case_dir/bin/pgrep"
+
+  cat >"$case_dir/fixture.sh" <<'FIXTURE'
+#!/usr/bin/env bash
+set -eu
+
+# shellcheck source=/dev/null
+. "$SOURCE_HOME/.local/lib/dot/core/init.sh"
+
+_dot_cleanup_observe_process() {
+  DOT_CLEANUP_OBS_PPID=42001
+  DOT_CLEANUP_OBS_STATE=S
+  DOT_CLEANUP_OBS_ID='ps:coarse-second'
+}
+
+PATH="$CASE_DIR/bin:$PATH"
+records=$(_dot_cleanup_descendant_records ps 42001 'ps:coarse-second')
+[[ -z "$records" && ! -e "$CASE_DIR/unexpected-pgrep" ]]
+FIXTURE
+  chmod +x "$case_dir/fixture.sh"
+
+  SOURCE_HOME="$SOURCE_HOME" CASE_DIR="$case_dir" \
+    bash "$case_dir/fixture.sh" || fixture_rc=$?
+  _assert_exit "descendant discovery: weak ps identity fails closed" 0 "$fixture_rc"
+}
+
 echo "=== Owned resource cleanup on cancellation ==="
 _run_resource_cancel_case run "logged command"
 _run_resource_cancel_case run "TERM-resistant logged command" TERM 143 1
@@ -841,6 +977,9 @@ _run_first_signal_latch_case
 _run_recreated_path_case
 _run_overlay_drain_case
 _run_interactive_pty_case
+_run_fd_close_preserves_stderr_case
+_run_pgrep_pattern_case
+_run_weak_identity_fails_closed_case
 _check_bash4_nounset_array_guards
 
 _test_summary
