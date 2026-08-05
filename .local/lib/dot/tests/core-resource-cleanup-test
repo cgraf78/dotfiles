@@ -223,6 +223,9 @@ PY
     local registration_count=0 first_registered=""
     if [[ -f "$case_dir/pid-registrations" ]]; then
       registration_count=$(wc -l <"$case_dir/pid-registrations")
+      # BSD wc right-aligns counts; compare the numeric value, not its display
+      # padding, so this ownership assertion is identical across the matrix.
+      registration_count=${registration_count//[[:space:]]/}
       IFS=$'\t' read -r _ first_registered <"$case_dir/pid-registrations" || true
     fi
     # A stopped outer group leader cannot run a nested supervisor's wait. Keep
