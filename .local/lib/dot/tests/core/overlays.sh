@@ -1417,6 +1417,55 @@ CONF
   target=$(readlink "$TEST_HOME/.testrc_work")
   _assert_contains "link: relative symlink" ".dotfiles-work/home" "$target"
 
+  # A manual cutover replaces the Git descriptor with a same-name local
+  # descriptor before one update. The existing manifest must transfer
+  # authority directly: retained files move to the new source, removed files
+  # disappear, and new files appear without a cleanup-only pass.
+  cutover_git_root="$TEST_HOME/.dotfiles-cutover"
+  cutover_local_root="$TEST_HOME/local cutover source"
+  cutover_git_conf="$TEST_HOME/.config/dot/overlays.d/30-cutover.conf"
+  cutover_local_conf="$TEST_HOME/.config/dot/overlays.d/30-cutover.local.conf"
+  dot_fixture_clone_repo "$OVERLAY_BARE" "$cutover_git_root"
+  mkdir -p "$cutover_git_root/home" "$cutover_local_root/home"
+  printf 'Git retained value\n' >"$cutover_git_root/home/.cutover-retained"
+  printf 'Git removed value\n' >"$cutover_git_root/home/.cutover-removed"
+  cat >"$cutover_git_conf" <<CONF
+url=$OVERLAY_BARE
+CONF
+  _discover_overlays
+  _link_overlays >/dev/null 2>&1
+  _assert_contains "local cutover: starts on Git source" \
+    ".dotfiles-cutover/home/.cutover-retained" \
+    "$(readlink "$TEST_HOME/.cutover-retained" 2>/dev/null || true)"
+
+  printf 'local retained value\n' >"$cutover_local_root/home/.cutover-retained"
+  printf 'local added value\n' >"$cutover_local_root/home/.cutover-added"
+  rm -f "$cutover_git_conf"
+  cat >"$cutover_local_conf" <<CONF
+sync=none
+path=$cutover_local_root
+CONF
+  _discover_overlays
+  _preflight_local_overlays
+  _unstash_overlay_overrides
+  _link_overlays >/dev/null 2>&1
+  _assert_eq "local cutover: one pass repoints retained link" \
+    "$cutover_local_root/home/.cutover-retained" \
+    "$(readlink "$TEST_HOME/.cutover-retained" 2>/dev/null || true)"
+  _assert_eq "local cutover: one pass links new file" \
+    "$cutover_local_root/home/.cutover-added" \
+    "$(readlink "$TEST_HOME/.cutover-added" 2>/dev/null || true)"
+  if [[ ! -e "$TEST_HOME/.cutover-removed" && ! -L "$TEST_HOME/.cutover-removed" ]]; then
+    _pass "local cutover: one pass removes retired link"
+  else
+    _fail "local cutover: one pass removes retired link"
+  fi
+
+  rm -f "$cutover_local_conf"
+  rm -rf "$cutover_git_root" "$cutover_local_root"
+  _discover_overlays
+  _link_overlays >/dev/null 2>&1
+
   # A filesystem overlay participates in the same ownership lifecycle without
   # becoming part of the synchronized repository set. Its link target records
   # the configured source exactly so path changes and descriptor removal are

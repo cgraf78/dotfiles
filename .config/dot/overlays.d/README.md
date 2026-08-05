@@ -130,23 +130,22 @@ removes its managed link on the next successful update. Removing the descriptor
 removes all of its managed links without needing the source tree to remain
 available; user-replaced paths are preserved.
 
-For a manual cutover from a Git overlay, avoid running both descriptors with
-the same name at once:
+For a manual cutover from a Git overlay, replace its descriptors before running
+`dot`:
 
-1. Pause scheduled updates and back up the source plus any user files at paths
-   the overlay owns.
-2. Remove the tracked Git descriptor upstream, run `dot update` to receive that
-   change, then run it once more with no same-name replacement descriptor. The
-   second pass guarantees rediscovery and cleanup even when the first pull did
-   not need to re-exec the CLI.
-3. Verify a placeholder `*.local.conf` path is ignored with `git check-ignore`
-   before putting a private path in it.
-4. Place the filesystem source and local descriptor, then run `dot update` and
-   `dot doctor`.
+1. Remove the Git `*.conf` descriptor and any companion `.ssh` file.
+2. Place a same-name `*.local.conf` descriptor for the filesystem source. For
+   example, replace `10-project.conf` with `10-project.local.conf`; both name
+   the overlay `project`, so do not leave them present at the same time.
+3. Run `dot update`, then `dot doctor` to verify the result.
 
-To roll back, remove the local descriptor and run `dot update` before restoring
-the previous Git descriptor. This keeps each cleanup pass under one source of
-authority and requires no compatibility mode.
+That update directly repoints retained managed links to the filesystem source,
+removes links for files that are no longer provided, and adds links for new
+files. The previous Git checkout is left untouched but is no longer managed by
+`dot`, so it can be removed separately after verification if desired.
+
+To roll back, replace the local descriptor with the previous Git descriptor
+and companion `.ssh` file before running `dot update`.
 
 ## Private Overlays
 
