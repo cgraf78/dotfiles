@@ -564,6 +564,25 @@ PY
   echo ""
   echo "=== Git ignore safety ==="
 
+  if git -C "$_lint_root" ls-files --error-unmatch -- \
+    .config/dot/overlays.d/.gitignore >/dev/null 2>&1; then
+    _pass "overlay descriptors: machine-local ignore rule is tracked"
+  else
+    _fail "overlay descriptors: machine-local ignore rule is tracked"
+  fi
+  if git -C "$_lint_root" check-ignore -q --no-index \
+    .config/dot/overlays.d/10-example.local.conf; then
+    _pass "overlay descriptors: machine-local suffix is ignored"
+  else
+    _fail "overlay descriptors: machine-local suffix is ignored"
+  fi
+  if git -C "$_lint_root" check-ignore -q --no-index \
+    .config/dot/overlays.d/10-example.conf; then
+    _fail "overlay descriptors: ordinary descriptors remain trackable"
+  else
+    _pass "overlay descriptors: ordinary descriptors remain trackable"
+  fi
+
   _ignore_fixture=$(_tmpdir)
   git -C "$_ignore_fixture" init -q
   git -C "$_ignore_fixture" config core.excludesFile "$_lint_root/.config/git/ignore"

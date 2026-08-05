@@ -561,6 +561,40 @@ CONF
         git -C "$_work" push >/dev/null 2>&1
       }
 
+      # A real infrastructure re-exec must rediscover and revalidate local
+      # sources before finalization. Simulate an external source disappearing
+      # after the first launcher's preflight but during its fast-forward pull.
+      reexec_local_source="$TEST_HOME/reexec local source"
+      reexec_local_conf="$TEST_HOME/.config/dot/overlays.d/15-filesystem.local.conf"
+      reexec_hooks=$(_tmpdir)
+      mkdir -p "$reexec_local_source/home"
+      printf '%s\n' "must not be linked" \
+        >"$reexec_local_source/home/.reexec-local-link"
+      cat >"$reexec_local_conf" <<CONF
+sync=none
+path=$reexec_local_source
+CONF
+      cat >"$reexec_hooks/post-merge" <<HOOK
+#!/usr/bin/env bash
+mv "$reexec_local_source" "$reexec_local_source.missing"
+HOOK
+      chmod +x "$reexec_hooks/post-merge"
+      $GIT config core.hooksPath "$reexec_hooks"
+      _seed_infra_update local-preflight
+      reexec_local_rc=0
+      reexec_local_result=$("$BIN_DIR/dot" update 2>&1) || reexec_local_rc=$?
+      _assert_exit "update reexec local preflight: missing source fails" \
+        1 "$reexec_local_rc"
+      _assert_contains "update reexec local preflight: rediscovery reports source" \
+        "overlay source is unavailable" "$reexec_local_result"
+      _assert_not_contains "update reexec local preflight: finalization does not start" \
+        "[3/5] Tools" "$reexec_local_result"
+      _assert_file_missing "update reexec local preflight: source file is not linked" \
+        "$TEST_HOME/.reexec-local-link"
+      $GIT config --unset-all core.hooksPath
+      rm -f "$reexec_local_conf"
+      rm -rf "$reexec_local_source.missing"
+
       _seed_infra_update nonverbose
       result=$("$BIN_DIR/dot" update 2>&1)
       _assert_not_contains "update reexec: suppresses raw infrastructure banner" \
@@ -631,6 +665,58 @@ CONF
     _assert_contains "diff: shows cloned overlay" "==> work dotfiles" "$result"
     _assert_contains "diff: includes overlay diff" "+changed" "$result"
 
+    SIMPLE_LOCAL_SOURCE="$TEST_HOME/simple local source"
+    mkdir -p "$SIMPLE_LOCAL_SOURCE/home"
+    git -C "$SIMPLE_LOCAL_SOURCE" init -q
+    printf '%s\n' "externally managed" >"$SIMPLE_LOCAL_SOURCE/source-file"
+    printf '%s\n' "filesystem update value" \
+      >"$SIMPLE_LOCAL_SOURCE/home/.filesystem-update-link"
+    cat >"$TEST_HOME/.config/dot/overlays.d/15-filesystem.local.conf" <<CONF
+sync=none
+path=$SIMPLE_LOCAL_SOURCE
+CONF
+    result=$("$BIN_DIR/dot" status --short 2>&1)
+    _assert_not_contains "status local overlay: omits externally managed source" \
+      "filesystem dotfiles" "$result"
+    result=$("$BIN_DIR/dot" fetch 2>&1)
+    _assert_not_contains "fetch local overlay: omits externally managed source" \
+      "filesystem dotfiles" "$result"
+    result=$("$BIN_DIR/dot" push 2>&1)
+    _assert_not_contains "push local overlay: omits externally managed source" \
+      "filesystem dotfiles" "$result"
+    result=$("$BIN_DIR/dot" diff 2>&1)
+    _assert_not_contains "diff local overlay: omits externally managed source" \
+      "filesystem dotfiles" "$result"
+
+    # Exercise every update-side repo helper with no base repo and only the
+    # filesystem overlay active. A local git function records any accidental
+    # invocation, including calls from the cron dirty and normalization paths.
+    LOCAL_GIT_CALL_LOG="$TEST_HOME/filesystem-git-calls"
+    rm -f "$LOCAL_GIT_CALL_LOG"
+    _filesystem_overlay_no_git_probe() {
+      # shellcheck disable=SC2034  # read dynamically by repo helpers.
+      local DOTFILES="$TEST_HOME/no-base-repo-for-filesystem-guard"
+      # shellcheck disable=SC2034  # read dynamically by repo helpers.
+      local -a OVERLAYS=(
+        "filesystem|$SIMPLE_LOCAL_SOURCE||$TEST_HOME/.config/dot/overlays.d/15-filesystem.local.conf|false||none"
+      )
+      # shellcheck disable=SC2329  # invoked indirectly by repo helpers.
+      git() {
+        printf '%s\n' "$*" >>"$LOCAL_GIT_CALL_LOG"
+        return 0
+      }
+      _ensure_repo_config
+      _pull_overlays >/dev/null 2>&1
+      _is_worktree_dirty >/dev/null 2>&1 || true
+      _try_resolve_dirty >/dev/null 2>&1 || true
+      _normalize_filtered >/dev/null 2>&1
+      unset -f git
+    }
+    _filesystem_overlay_no_git_probe
+    unset -f _filesystem_overlay_no_git_probe
+    _assert_file_missing "update helpers: never invoke Git for a filesystem source" \
+      "$LOCAL_GIT_CALL_LOG"
+
     rm -rf "$SIMPLE_OVERLAY_DIR"
     result=$("$BIN_DIR/dot" status --short 2>&1)
     _assert_contains "status missing overlay: still shows base repo" "==> dotfiles" "$result"
@@ -683,6 +769,58 @@ CONF
     _assert_file_exists "update: generic tool install dir exists" "$TEST_HOME/.local/share/fixture/test-tool/bin/test-tool"
     _assert_file_exists "update: generic tool linked into PATH" "$TEST_HOME/.local/bin/test-tool"
     _assert_file_content "update: generic hook ran" "$TEST_HOME/.local/share/fixture/hook-pack" "$TEST_HOME/.test-hooks/hook-pack"
+    _assert_eq "update local overlay: links the filesystem source end to end" \
+      "$SIMPLE_LOCAL_SOURCE/home/.filesystem-update-link" \
+      "$(readlink "$TEST_HOME/.filesystem-update-link" 2>/dev/null || true)"
+    _assert_file_content "update local overlay: leaves source repository content untouched" \
+      "externally managed" "$SIMPLE_LOCAL_SOURCE/source-file"
+
+    # Cleanup must rely on the exact target stored in the manifest, not on the
+    # descriptor or source remaining available for inspection.
+    rm -f "$TEST_HOME/.config/dot/overlays.d/15-filesystem.local.conf"
+    rm -rf "$SIMPLE_LOCAL_SOURCE"
+
+    # An active filesystem descriptor is a precondition for the whole update,
+    # including repository pull and merge hooks. Queue a remote change, then
+    # prove a missing source prevents that change from reaching HOME.
+    preflight_remote_work=$(_tmpdir)
+    dot_fixture_clone_repo "$REMOTE_BARE" "$preflight_remote_work"
+    printf '%s\n' "queued while local source is unavailable" \
+      >"$preflight_remote_work/.preflight-remote-change"
+    git -C "$preflight_remote_work" add .preflight-remote-change
+    git -C "$preflight_remote_work" commit -m "queue preflight fixture" >/dev/null 2>&1
+    git -C "$preflight_remote_work" push >/dev/null 2>&1
+    preflight_head_before=$($GIT rev-parse HEAD)
+    preflight_hook_before=$(cat "$TEST_HOME/.test-hooks/hook-pack")
+    mkdir -p "$TEST_HOME/.config/dot/overlays.d"
+    cat >"$TEST_HOME/.config/dot/overlays.d/15-filesystem.local.conf" <<CONF
+sync=none
+path=$TEST_HOME/missing filesystem source
+CONF
+    preflight_rc=0
+    preflight_result=$(
+      SHDEPS_TEST_TOOL_REPO="$TEST_TOOL_ORIGIN" \
+        SHDEPS_HOOK_PACK_REPO="$HOOK_PACK_ORIGIN" \
+        "$BIN_DIR/dot" update 2>&1
+    ) || preflight_rc=$?
+    _assert_exit "update local preflight: missing source fails update" 1 "$preflight_rc"
+    _assert_contains "update local preflight: diagnostic names unavailable source" \
+      "overlay source is unavailable" "$preflight_result"
+    _assert_eq "update local preflight: repository pull is blocked" \
+      "$preflight_head_before" "$($GIT rev-parse HEAD)"
+    _assert_file_missing "update local preflight: queued file is not checked out" \
+      "$TEST_HOME/.preflight-remote-change"
+    _assert_file_content "update local preflight: merge output is untouched" \
+      "$preflight_hook_before" "$TEST_HOME/.test-hooks/hook-pack"
+    rm -f "$TEST_HOME/.config/dot/overlays.d/15-filesystem.local.conf"
+
+    # Let the normal flow consume the queued commit once its local prerequisite
+    # is no longer active, keeping later fixtures on the remote tip.
+    SHDEPS_TEST_TOOL_REPO="$TEST_TOOL_ORIGIN" \
+      SHDEPS_HOOK_PACK_REPO="$HOOK_PACK_ORIGIN" \
+      "$BIN_DIR/dot" update >/dev/null 2>&1
+    _assert_file_missing "update local overlay: descriptor removal cleans the link end to end" \
+      "$TEST_HOME/.filesystem-update-link"
 
     finalize_marker_dir=$(_tmpdir)
     finalize_rc=0
@@ -997,6 +1135,19 @@ CONF
     _saved_deps=$(cat "$TEST_HOME/.config/shdeps/deps.conf")
     : >"$TEST_HOME/.config/shdeps/deps.conf"
 
+    # A filesystem source may itself be a dirty Git checkout. Cron must ignore
+    # that repository state and still reach the normal link finalization path.
+    CRON_LOCAL_SOURCE="$TEST_HOME/cron local source"
+    mkdir -p "$CRON_LOCAL_SOURCE/home"
+    git -C "$CRON_LOCAL_SOURCE" init -q
+    printf '%s\n' "dirty external state" >"$CRON_LOCAL_SOURCE/untracked"
+    printf '%s\n' "cron filesystem value" \
+      >"$CRON_LOCAL_SOURCE/home/.cron-filesystem-link"
+    cat >"$TEST_HOME/.config/dot/overlays.d/15-cron.local.conf" <<CONF
+sync=none
+path=$CRON_LOCAL_SOURCE
+CONF
+
     # Dirty worktree + --cron → exits immediately (no pull)
     echo "dirty" >>"$TEST_HOME/.testrc"
     result=$("$BIN_DIR/dot" update --cron 2>&1)
@@ -1006,6 +1157,9 @@ CONF
     # Clean worktree + --cron → runs but stays completely silent on success.
     result=$("$BIN_DIR/dot" update --cron 2>&1)
     _assert_eq "cron clean: no output" "" "$result"
+    _assert_eq "cron local overlay: dirty source repo does not block linking" \
+      "$CRON_LOCAL_SOURCE/home/.cron-filesystem-link" \
+      "$(readlink "$TEST_HOME/.cron-filesystem-link" 2>/dev/null || true)"
 
     # Non-cron callers may still request quiet output explicitly: it should
     # suppress success output but still run the normal update path. Keep this next
@@ -1014,6 +1168,8 @@ CONF
     result=$("$BIN_DIR/dot" update --skip-pull --quiet 2>&1)
     _assert_eq "quiet update: no output" "" "$result"
 
+    rm -f "$TEST_HOME/.config/dot/overlays.d/15-cron.local.conf"
+    rm -rf "$CRON_LOCAL_SOURCE"
     printf '%s\n' "$_saved_deps" >"$TEST_HOME/.config/shdeps/deps.conf"
     mv "$_saved_overlay_conf.bak" "$_saved_overlay_conf"
   fi

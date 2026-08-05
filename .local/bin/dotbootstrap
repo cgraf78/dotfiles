@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # First-time bootstrap for all machines. Clones the bare git repo,
-# checks out dotfiles, clones overlay repos, installs deps, and sets
+# checks out dotfiles, prepares overlays, installs deps, and sets
 # up auto-update cron.  For day-to-day updates, use 'dot update' instead.
 #
-# Base bare repo at ~/.dotfiles. Overlay repos are discovered from
+# Base bare repo at ~/.dotfiles. Overlays are discovered from
 # config files in ~/.config/dot/overlays.d/*.conf after base checkout.
 #
 # Usage (fresh machine):
@@ -289,12 +289,13 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Overlay repos: discover, clone/pull
+# Overlays: discover, validate, then clone/pull Git sources
 # ---------------------------------------------------------------------------
 
 _ensure_shdeps
-_merge_overlay_ssh_configs
 _discover_overlays
+_preflight_local_overlays
+_merge_overlay_ssh_configs
 _pull_overlays
 if [[ "${DOT_PULL_OVERLAY_FAILED:-0}" -gt 0 ]]; then
   echo "  error: required overlay sync failed — bootstrap incomplete." >&2

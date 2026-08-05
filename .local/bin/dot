@@ -41,8 +41,15 @@ esac
 # process-wide lock before bootstrapping dependencies and then discover after
 # shdeps supplies the configured platform/host filters.
 case "${1:-}" in
-  update | pull) ;;
-  *) _discover_overlays ;;
+  update | pull | "" | -h | --help | help) ;;
+  doctor)
+    # Doctor reports malformed descriptors as a health failure instead of
+    # exiting before it can render an actionable section.
+    _discover_overlays || true
+    ;;
+  *)
+    _discover_overlays || exit 1
+    ;;
 esac
 
 # ---------------------------------------------------------------------------
@@ -66,7 +73,8 @@ case "${1:-}" in
       exit "$_dot_update_lock_rc"
     fi
     _ensure_shdeps
-    _discover_overlays
+    _discover_overlays || exit 1
+    _preflight_local_overlays || exit 1
     _dot_update_rc=0
     _dot_update "$@" || _dot_update_rc=$?
     exit "$_dot_update_rc"
@@ -87,8 +95,8 @@ case "${1:-}" in
     cat <<EOF
 usage: dot <command> [<args>]
 
-Multi-repo commands (base + overlays):
-  update           Sync everything: pull repos, merge configs, update deps
+Repository commands use the base repo plus Git-managed overlays:
+  update           Pull repos, apply all overlays, merge configs, update deps
   pull             Same as update
   fetch            Fetch base + all active overlays
   push             Push base + all active overlays

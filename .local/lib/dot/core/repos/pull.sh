@@ -384,8 +384,10 @@ _pull_overlay_active() {
 _pull_overlay_count() {
   local entry count=0
   for entry in "${OVERLAYS[@]+"${OVERLAYS[@]}"}"; do
-    local name path url _conf optional ssh_file
-    IFS='|' read -r name path url _conf optional ssh_file <<<"$entry"
+    local name path url _conf optional ssh_file sync
+    IFS='|' read -r name path url _conf optional ssh_file sync <<<"$entry"
+    sync="${sync:-git}"
+    [[ "$sync" == "git" ]] || continue
     if _pull_overlay_active "$name" "$path" "$url" "$optional" "$ssh_file"; then
       count=$((count + 1))
     fi
@@ -595,9 +597,9 @@ _pull_overlay_record_status() {
 }
 
 _pull_overlays_serial() {
-  local entry name path url _conf optional ssh_file status
+  local entry name path url _conf optional ssh_file sync status
   for entry in "${_active_entries[@]+"${_active_entries[@]}"}"; do
-    IFS='|' read -r name path url _conf optional ssh_file <<<"$entry"
+    IFS='|' read -r name path url _conf optional ssh_file sync <<<"$entry"
     _done=$((_done + 1))
     _dot_maybe_stage_progress "$name" "$_done" "$_total"
     _pull_overlay "$name" "$path" "$url" "$optional" "$ssh_file" "$@"
@@ -616,10 +618,12 @@ _pull_overlays() {
   DOT_PULL_OVERLAY_CHANGED_ITEMS=""
   DOT_PULL_OVERLAY_FAILED=0
   DOT_PULL_OVERLAY_SKIPPED=0
-  local name path url _conf optional ssh_file status
+  local name path url _conf optional ssh_file sync status
   local -a _active_entries=()
   for entry in "${OVERLAYS[@]+"${OVERLAYS[@]}"}"; do
-    IFS='|' read -r name path url _conf optional ssh_file <<<"$entry"
+    IFS='|' read -r name path url _conf optional ssh_file sync <<<"$entry"
+    sync="${sync:-git}"
+    [[ "$sync" == "git" ]] || continue
     if ! _pull_overlay_active "$name" "$path" "$url" "$optional" "$ssh_file"; then
       continue
     fi
@@ -644,7 +648,7 @@ _pull_overlays() {
   _jobs="$(_dot_update_jobs)"
 
   for entry in "${_active_entries[@]+"${_active_entries[@]}"}"; do
-    IFS='|' read -r name path url _conf optional ssh_file <<<"$entry"
+    IFS='|' read -r name path url _conf optional ssh_file sync <<<"$entry"
     _done=$((_done + 1))
     _dot_maybe_stage_progress "$name" "$_done" "$_total"
     _idx=$((_idx + 1))
@@ -673,7 +677,7 @@ _pull_overlays() {
 
   _idx=0
   for entry in "${_active_entries[@]+"${_active_entries[@]}"}"; do
-    IFS='|' read -r name path url _conf optional ssh_file <<<"$entry"
+    IFS='|' read -r name path url _conf optional ssh_file sync <<<"$entry"
     _idx=$((_idx + 1))
     local _prefix _rc
     _prefix="$(_pull_overlay_result_prefix "$_result_dir" "$_idx")"

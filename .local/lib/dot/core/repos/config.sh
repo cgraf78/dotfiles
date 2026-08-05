@@ -133,10 +133,12 @@ _ensure_repo_config() {
     [[ "$DOT_REPO_CONFIG_FSMONITOR_OK" -eq 1 ]] ||
       $GIT config core.fsmonitor false 2>/dev/null || true
   fi
-  local entry
+  local entry sync
   for entry in "${OVERLAYS[@]+"${OVERLAYS[@]}"}"; do
     local path url
-    IFS='|' read -r _ path url _ <<<"$entry"
+    IFS='|' read -r _ path url _ _ _ sync <<<"$entry"
+    sync="${sync:-git}"
+    [[ "$sync" == "git" ]] || continue
     if _overlay_checkout_matches "$path" "$url"; then
       _apply_repo_config git -C "$path"
     fi
