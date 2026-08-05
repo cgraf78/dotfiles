@@ -131,7 +131,7 @@ _dr_check_overlays() {
           batch_ok=1
         fi
       fi
-      rm -f "$readlink_file"
+      _dot_cleanup_remove_path "$readlink_file" || true
     fi
 
     local i actual expected_lexical expected

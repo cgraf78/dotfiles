@@ -3,10 +3,14 @@
 
 _logfile_create() {
   local log=""
+  _dot_cleanup_begin_registration
   if ! log=$(mktemp 2>/dev/null); then
+    _dot_cleanup_end_registration
     REPLY=""
     return 1
   fi
+  _dot_cleanup_register_path "$log"
+  _dot_cleanup_end_registration
   REPLY="$log"
 }
 
@@ -28,17 +32,25 @@ _run_to_log_with_ticks() {
   fi
 
   local tmpdir="" status_file="" child rc=0
+  _dot_cleanup_begin_registration
   if ! tmpdir=$(mktemp -d 2>/dev/null); then
+    _dot_cleanup_end_registration
     "$@" >"$log" 2>&1
     return $?
   fi
+  _dot_cleanup_register_path "$tmpdir"
+  _dot_cleanup_end_registration
   status_file="$tmpdir/status"
 
+  _dot_cleanup_begin_registration
   (
+    _dot_cleanup_prepare_subshell
     "$@" >"$log" 2>&1
     printf '%s' "$?" >"$status_file"
   ) &
   child=$!
+  _dot_cleanup_register_pid "$child"
+  _dot_cleanup_end_registration
 
   while [[ ! -s "$status_file" ]]; do
     if ! kill -0 "$child" 2>/dev/null; then
@@ -49,8 +61,9 @@ _run_to_log_with_ticks() {
   done
 
   wait "$child" 2>/dev/null || true
+  _dot_cleanup_unregister_pid "$child"
   rc=$(cat "$status_file" 2>/dev/null || printf '1')
-  rm -rf "$tmpdir"
+  _dot_cleanup_remove_path "$tmpdir" || true
   return "$rc"
 }
 
@@ -67,12 +80,12 @@ _run_quiet_logged() {
   log="$REPLY"
 
   if _run_to_log_with_ticks "$log" "$@"; then
-    rm -f "$log"
+    _dot_cleanup_remove_path "$log" || true
     return 0
   fi
 
   _logfile_print "$label" "$log"
-  rm -f "$log"
+  _dot_cleanup_remove_path "$log" || true
   _warn "  warning: $warning"
   return 0
 }

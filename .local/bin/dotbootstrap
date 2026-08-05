@@ -156,6 +156,22 @@ _require_bootstrap_tools() {
   exit 1
 }
 
+_bootstrap_sync_overlays() {
+  local pull_rc=0
+  _ensure_shdeps
+  _merge_overlay_ssh_configs
+  _discover_overlays
+
+  # Capture the worker status explicitly. Relying on `set -e` here would skip
+  # the incomplete-bootstrap diagnostic when the parallel coordinator itself
+  # fails before it can record a per-overlay status.
+  _pull_overlays || pull_rc=$?
+  if [[ "$pull_rc" -ne 0 || "${DOT_PULL_OVERLAY_FAILED:-0}" -gt 0 ]]; then
+    echo "  error: required overlay sync failed — bootstrap incomplete." >&2
+    return 1
+  fi
+}
+
 # When sourced for testing, export functions without running main logic.
 if [[ "${DOTBOOTSTRAP_SOURCED:-}" == 1 ]]; then return 0; fi
 
@@ -288,18 +304,20 @@ else
   exit 1
 fi
 
+# Bootstrap is a top-level process just like `dot update`, but it does not own
+# the update lock. Keep its async work and private scratch under the same exit
+# cleanup contract without changing the caller's interactive process group.
+trap '_dot_cleanup_ignore_signals; _dot_cleanup_all' EXIT
+trap '_dot_cleanup_signal 129' HUP
+trap '_dot_cleanup_signal 130' INT
+trap '_dot_cleanup_signal 131' QUIT
+trap '_dot_cleanup_signal 143' TERM
+
 # ---------------------------------------------------------------------------
 # Overlay repos: discover, clone/pull
 # ---------------------------------------------------------------------------
 
-_ensure_shdeps
-_merge_overlay_ssh_configs
-_discover_overlays
-_pull_overlays
-if [[ "${DOT_PULL_OVERLAY_FAILED:-0}" -gt 0 ]]; then
-  echo "  error: required overlay sync failed — bootstrap incomplete." >&2
-  exit 1
-fi
+_bootstrap_sync_overlays
 
 # ---------------------------------------------------------------------------
 # Finalize: deps, overlay symlinks, config merges, normalize

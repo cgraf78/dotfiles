@@ -337,25 +337,36 @@ _shdeps_update_finished() {
 _run_shdeps_update_ui() {
   local status_file="" fifo="" tmpdir=""
   _dot_update_prepare_shdeps_jobs
+  _dot_cleanup_begin_registration
   if ! tmpdir=$(mktemp -d 2>/dev/null); then
+    _dot_cleanup_end_registration
     _run_shdeps_update_command
     return $?
   fi
+  _dot_cleanup_register_path "$tmpdir"
+  _dot_cleanup_end_registration
   status_file="$tmpdir/status"
   fifo="$tmpdir/progress"
   if ! mkfifo "$fifo" 2>/dev/null; then
-    rm -rf "$tmpdir"
+    _dot_cleanup_remove_path "$tmpdir" || true
     _run_shdeps_update_command
     return $?
   fi
   _shdeps_ui_reset
   local line progress_fd child rc=0
+  _dot_cleanup_begin_registration
   exec {progress_fd}<>"$fifo"
+  _dot_cleanup_register_fd "$progress_fd"
+  _dot_cleanup_end_registration
+  _dot_cleanup_begin_registration
   (
+    _dot_cleanup_prepare_subshell
     _run_shdeps_update_command jsonl >"$fifo"
     printf '%s' "$?" >"$status_file"
   ) &
   child=$!
+  _dot_cleanup_register_pid "$child"
+  _dot_cleanup_end_registration
   while :; do
     if IFS= read -r -t "${DOT_UI_TICK_SECONDS:-0.2}" -u "$progress_fd" line; then
       _handle_shdeps_event "$line"
@@ -375,10 +386,11 @@ _run_shdeps_update_ui() {
     [[ "${DOT_UI_SHDEPS_PROMPT_ACTIVE:-0}" -eq 1 ]] || _ui_stage_tick
   done
   wait "$child" 2>/dev/null || true
-  exec {progress_fd}>&-
+  _dot_cleanup_unregister_pid "$child"
+  _dot_cleanup_close_fd "$progress_fd"
   _shdeps_print_verbose_items
   rc=$(cat "$status_file" 2>/dev/null || printf '1')
-  rm -rf "$tmpdir"
+  _dot_cleanup_remove_path "$tmpdir" || true
   return "$rc"
 }
 

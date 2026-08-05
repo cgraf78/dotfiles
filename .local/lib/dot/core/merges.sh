@@ -123,10 +123,12 @@ _merge_result_prefix() {
 
 _run_merge_hook_capture() {
   local _idx="$1" _script="$2" _result_dir="$3"
-  local _prefix _started_ms _elapsed_ms _merge_rc=0
+  local _prefix _started_ms _elapsed_ms _merge_rc=0 _hook_pid
+  _dot_cleanup_prepare_subshell
   _prefix="$(_merge_result_prefix "$_result_dir" "$_idx")"
   _started_ms="$(_ui_now_ms)"
 
+  _dot_cleanup_begin_registration
   (
     unset -f merge 2>/dev/null
     # shellcheck source=/dev/null
@@ -141,7 +143,16 @@ _run_merge_hook_capture() {
       printf '1' >"$_prefix.has_merge"
       exit 1
     fi
-  ) >"$_prefix.log" 2>&1 || _merge_rc=$?
+  ) >"$_prefix.log" 2>&1 &
+  _hook_pid=$!
+  _dot_cleanup_register_pid "$_hook_pid"
+  _dot_cleanup_end_registration
+  if wait "$_hook_pid"; then
+    _merge_rc=0
+  else
+    _merge_rc=$?
+  fi
+  _dot_cleanup_unregister_pid "$_hook_pid"
 
   _elapsed_ms=$(($(_ui_now_ms) - _started_ms))
   printf '%s' "$_merge_rc" >"$_prefix.rc"
@@ -170,7 +181,7 @@ _print_merge_capture() {
 }
 
 _run_merge_hook_batch() {
-  local _result_dir _jobs _running=0
+  local _result_dir _jobs _running=0 _pid
   local _hook_spec _hook_key _script _hook_label
   local _capture_prefix _capture_rc
   local _idx=0 _n_merged=0 _n_failed=0
@@ -181,10 +192,14 @@ _run_merge_hook_batch() {
     return 0
   }
 
+  _dot_cleanup_begin_registration
   _result_dir=$(mktemp -d) || {
+    _dot_cleanup_end_registration
     REPLY=0
     return 0
   }
+  _dot_cleanup_register_path "$_result_dir"
+  _dot_cleanup_end_registration
   _jobs="$(_merge_parallel_jobs)"
 
   for _hook_spec in "${_specs[@]}"; do
@@ -204,11 +219,16 @@ _run_merge_hook_batch() {
       fi
     fi
 
+    _dot_cleanup_begin_registration
     _run_merge_hook_capture "$_idx" "$_script" "$_result_dir" &
-    _pids+=("$!")
+    _pid=$!
+    _pids+=("$_pid")
+    _dot_cleanup_register_pid "$_pid"
+    _dot_cleanup_end_registration
     _running=$((_running + 1))
     if [[ "$_running" -ge "$_jobs" ]]; then
       wait "${_pids[0]}" 2>/dev/null || true
+      _dot_cleanup_unregister_pid "${_pids[0]}"
       _pids=("${_pids[@]:1}")
       _running=$((_running - 1))
     fi
@@ -216,6 +236,7 @@ _run_merge_hook_batch() {
 
   for _pid in "${_pids[@]}"; do
     wait "$_pid" 2>/dev/null || true
+    _dot_cleanup_unregister_pid "$_pid"
   done
 
   _idx=0
@@ -232,7 +253,7 @@ _run_merge_hook_batch() {
     fi
   done
 
-  rm -rf "$_result_dir"
+  _dot_cleanup_remove_path "$_result_dir" || true
   DOT_MERGE_FAILED_COUNT=$((${DOT_MERGE_FAILED_COUNT:-0} + _n_failed))
   REPLY="$_n_merged"
 }

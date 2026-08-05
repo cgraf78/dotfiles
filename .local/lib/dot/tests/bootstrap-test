@@ -17,6 +17,7 @@ set -o pipefail
 export NO_COLOR=1
 
 BIN_DIR="${HOME}/.local/bin"
+BOOTSTRAP_TEST_PATH="$PATH"
 
 # shellcheck source=helpers.sh
 . "$HOME/.local/lib/dot/tests/helpers.sh"
@@ -159,6 +160,25 @@ if $_bootstrap_run_unit; then
   _preflight_git_out=$(PATH="$_curl_only_dir" _require_bootstrap_tools 2>&1) || true
   _assert_contains "preflight: reports the missing git" "- git" "$_preflight_git_out"
   _assert_not_contains "preflight: does not flag present curl" "- curl" "$_preflight_git_out"
+
+  # A worker-level overlay failure must take the same explicit incomplete path
+  # as a required overlay failure. In particular, `set -e` must not bypass the
+  # diagnostic or let bootstrap continue into finalization.
+  _overlay_sync_rc=0
+  _overlay_sync_out=$(
+    # shellcheck disable=SC2329  # Invoked indirectly by the helper under test.
+    _ensure_shdeps() { :; }
+    # shellcheck disable=SC2329  # Invoked indirectly by the helper under test.
+    _merge_overlay_ssh_configs() { :; }
+    # shellcheck disable=SC2329  # Invoked indirectly by the helper under test.
+    _discover_overlays() { :; }
+    # shellcheck disable=SC2329  # Invoked indirectly by the helper under test.
+    _pull_overlays() { return 17; }
+    _bootstrap_sync_overlays 2>&1
+  ) || _overlay_sync_rc=$?
+  _assert_exit "overlay sync: worker failure returns non-zero" 1 "$_overlay_sync_rc"
+  _assert_contains "overlay sync: worker failure explains incomplete bootstrap" \
+    "required overlay sync failed" "$_overlay_sync_out"
 
   # ---------------------------------------------------------------------------
   # Tests: merge-wezterm
@@ -532,7 +552,7 @@ EOF
     BACKUP="$_hashed_home/.dotfiles-backup/hashed-git"
     BRANCH="$_hashed_branch"
     GIT="git --git-dir=$DOTFILES --work-tree=$HOME"
-    PATH="$_hashed_home/.local/bin:$PATH"
+    PATH="$_hashed_home/.local/bin:$BOOTSTRAP_TEST_PATH"
     hash -r
     git --version >/dev/null
     rc=0
@@ -827,6 +847,139 @@ SSH
     _pass "overlay: required failure does not write done marker"
   else
     _fail "overlay: required failure does not write done marker"
+  fi
+
+  # Exercise the actual top-level signal traps, not only the resource helper
+  # in isolation. A blocking Git wrapper keeps a real overlay worker alive
+  # until dotbootstrap is terminated; the bounded waits keep a regression from
+  # hanging the test suite that is meant to detect it.
+  FRESH_CANCEL=$(_tmpdir)
+  git clone --bare "$BASE_ORIGIN" "$FRESH_CANCEL/.dotfiles" >/dev/null 2>&1
+  mkdir -p "$FRESH_CANCEL/.config/dot/overlays.d"
+  cat >"$FRESH_CANCEL/.config/dot/overlays.d/10-work.conf" <<CONF
+url=$WORK_ORIGIN
+CONF
+  CANCEL_BIN=$(_tmpdir)
+  CANCEL_TMP=$(_tmpdir)
+  CANCEL_READY="$CANCEL_TMP/clone-ready"
+  CANCEL_CHILD_PID="$CANCEL_TMP/clone.pid"
+  CANCEL_OUT="$CANCEL_TMP/bootstrap.out"
+  # Bypass the dotfiles-aware Git launcher: with the blocking wrapper first on
+  # PATH, the launcher would quite correctly discover that wrapper as `git`
+  # and recurse instead of reaching the platform binary.
+  REAL_GIT=$(PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin command -v git)
+  REAL_PYTHON=$(command -v python3)
+  cat >"$CANCEL_BIN/git" <<'SH'
+#!/usr/bin/env bash
+if [[ "${1:-}" == clone && "${2:-}" == "$DOT_TEST_BLOCK_CLONE_URL" ]]; then
+  exec "$DOT_TEST_REAL_PYTHON" - "$DOT_TEST_BLOCK_READY" "$DOT_TEST_BLOCK_PID" <<'PY'
+import os
+import pathlib
+import signal
+import sys
+import time
+
+for sig in (signal.SIGHUP, signal.SIGINT, signal.SIGQUIT, signal.SIGTERM):
+    signal.signal(sig, signal.SIG_IGN)
+pathlib.Path(sys.argv[2]).write_text(f"{os.getpid()}\n", encoding="ascii")
+pathlib.Path(sys.argv[1]).touch()
+while True:
+    time.sleep(60)
+PY
+fi
+exec "$DOT_TEST_REAL_GIT" "$@"
+SH
+  chmod +x "$CANCEL_BIN/git"
+
+  DOTBOOTSTRAP_SOURCED="" \
+    HOME="$FRESH_CANCEL" \
+    TMPDIR="$CANCEL_TMP" \
+    PATH="$CANCEL_BIN:$BOOTSTRAP_TEST_PATH" \
+    DOT_TEST_REAL_GIT="$REAL_GIT" \
+    DOT_TEST_REAL_PYTHON="$REAL_PYTHON" \
+    DOT_TEST_BLOCK_CLONE_URL="$WORK_ORIGIN" \
+    DOT_TEST_BLOCK_READY="$CANCEL_READY" \
+    DOT_TEST_BLOCK_PID="$CANCEL_CHILD_PID" \
+    SHDEPS_TEST_TOOL_REPO="$TEST_TOOL_ORIGIN" \
+    SHDEPS_HOOK_PACK_REPO="$HOOK_PACK_ORIGIN" \
+    "$BIN_DIR/dotbootstrap" >"$CANCEL_OUT" 2>&1 &
+  cancel_bootstrap_pid=$!
+
+  cancel_ready=0
+  for _ in {1..200}; do
+    if [[ -f "$CANCEL_READY" ]]; then
+      cancel_ready=1
+      break
+    fi
+    jobs -pr | grep -qx "$cancel_bootstrap_pid" || break
+    sleep 0.05
+  done
+  if [[ "$cancel_ready" -eq 1 ]]; then
+    _pass "cancellation: real bootstrap reaches an owned overlay worker"
+  else
+    _fail "cancellation: real bootstrap reaches an owned overlay worker"
+  fi
+
+  # The result directory is registered before the clone starts. Preserve the
+  # harness-owned control files while checking that private worker scratch is
+  # present and subsequently removed.
+  cancel_scratch_before=$(find "$CANCEL_TMP" -mindepth 1 -maxdepth 1 \
+    ! -name clone-ready ! -name clone.pid ! -name bootstrap.out -print -quit)
+  if [[ -n "$cancel_scratch_before" ]]; then
+    _pass "cancellation: real bootstrap registers private worker scratch"
+  else
+    _fail "cancellation: real bootstrap registers private worker scratch"
+  fi
+
+  kill -TERM "$cancel_bootstrap_pid" 2>/dev/null || true
+  cancel_timed_out=1
+  for _ in {1..200}; do
+    if ! jobs -pr | grep -qx "$cancel_bootstrap_pid"; then
+      cancel_timed_out=0
+      break
+    fi
+    sleep 0.05
+  done
+  if [[ "$cancel_timed_out" -eq 1 ]]; then
+    kill -KILL "$cancel_bootstrap_pid" 2>/dev/null || true
+  fi
+  cancel_rc=0
+  wait "$cancel_bootstrap_pid" 2>/dev/null || cancel_rc=$?
+
+  _assert_eq "cancellation: real bootstrap cleanup stays within its deadline" \
+    "0" "$cancel_timed_out"
+  _assert_exit "cancellation: real bootstrap preserves TERM status" 143 "$cancel_rc"
+
+  cancel_external_pid=$(cat "$CANCEL_CHILD_PID" 2>/dev/null || true)
+  cancel_external_live=1
+  for _ in {1..40}; do
+    cancel_external_state=$(ps -o stat= -p "$cancel_external_pid" 2>/dev/null || true)
+    if [[ -z "$cancel_external_pid" ]] ||
+      ! kill -0 "$cancel_external_pid" 2>/dev/null ||
+      [[ "$cancel_external_state" =~ ^[[:space:]]*Z ]]; then
+      cancel_external_live=0
+      break
+    fi
+    sleep 0.05
+  done
+  if [[ -n "$cancel_external_pid" && "$cancel_external_live" -eq 0 ]]; then
+    _pass "cancellation: real bootstrap leaves no external clone process"
+  else
+    _fail "cancellation: real bootstrap leaves no external clone process"
+    kill -KILL "$cancel_external_pid" 2>/dev/null || true
+  fi
+
+  cancel_scratch_after=$(find "$CANCEL_TMP" -mindepth 1 -maxdepth 1 \
+    ! -name clone-ready ! -name clone.pid ! -name bootstrap.out -print -quit)
+  if [[ -z "$cancel_scratch_after" ]]; then
+    _pass "cancellation: real bootstrap removes private worker scratch"
+  else
+    _fail "cancellation: real bootstrap removes private worker scratch"
+  fi
+  if [[ ! -e "$FRESH_CANCEL/.dotbootstrap-done" ]]; then
+    _pass "cancellation: real bootstrap does not write done marker"
+  else
+    _fail "cancellation: real bootstrap does not write done marker"
   fi
 fi
 
