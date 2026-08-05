@@ -80,6 +80,11 @@ case "${1:-}" in
     exit 0
     ;;
   doctor)
+    # Doctor normally removes its diagnostic scratch files inline, but a signal
+    # can arrive after registration and before that removal. It has no update
+    # lock to install the shared cleanup owner, so own those resources here.
+    trap '_dot_cleanup_ignore_signals; _dot_cleanup_all' EXIT
+    _dot_cleanup_install_signal_traps
     _dot_doctor
     exit $?
     ;;
