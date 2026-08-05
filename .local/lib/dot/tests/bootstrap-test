@@ -1003,7 +1003,11 @@ SH
 
   kill -TERM "$cancel_bootstrap_pid" 2>/dev/null || true
   cancel_timed_out=1
-  for _ in {1..200}; do
+  # Poll the actual job state; the 30-second cap is only a deadlock watchdog.
+  # Loaded CI runners can spend more than ten seconds scheduling nested cleanup
+  # even though each owner is making progress, so the old cap was a flaky test
+  # deadline rather than a product invariant.
+  for _ in {1..600}; do
     if ! jobs -pr | grep -qx "$cancel_bootstrap_pid"; then
       cancel_timed_out=0
       break
@@ -1038,11 +1042,13 @@ SH
   elif [[ -r "/proc/$$/stat" ]]; then
     _fail "cancellation: strong identity removes external clone process"
     kill -KILL "$cancel_external_pid" 2>/dev/null || true
+  elif [[ -n "$cancel_external_pid" && "$cancel_external_live" -eq 0 ]]; then
+    # Bootstrap tests are noninteractive. On a weak-identity host the owned
+    # worker group must therefore contain the clone and finish cleanup before
+    # the outer bootstrap releases its state.
+    _pass "cancellation: weak noninteractive group removes external clone process"
   elif [[ -n "$cancel_external_pid" ]]; then
-    # Without a stable process identity, production deliberately limits cleanup
-    # to exact Bash jobs. Parent-only delivery therefore makes no claim about a
-    # TERM-ignoring external descendant; the fixture still owns and removes it.
-    _pass "cancellation: weak identity makes no external descendant claim"
+    _fail "cancellation: weak noninteractive group removes external clone process"
     kill -KILL "$cancel_external_pid" 2>/dev/null || true
   else
     _fail "cancellation: weak identity records external clone process"

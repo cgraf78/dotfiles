@@ -68,7 +68,7 @@ set -eu
 # shellcheck source=/dev/null
 . "$SOURCE_HOME/.local/lib/dot/core/init.sh"
 
-if [[ "$IGNORE_TERM" == 3 ]]; then
+if [[ "$IGNORE_TERM" == 2 || "$IGNORE_TERM" == 3 ]]; then
   eval "$(declare -f _dot_cleanup_owned | sed '1s/_dot_cleanup_owned/_dot_cleanup_owned_original/')"
   _dot_cleanup_owned() {
     : >"$CASE_DIR/cleanup-started"
@@ -215,10 +215,13 @@ PY
     kill -"$signal" "$fixture_pid"
   fi
   if [[ "$ignore_term" == 2 ]]; then
-    if _wait_for_file "$case_dir/worker-term-seen"; then
+    # Group cleanup now SIGSTOPs the exact leader as a non-reusable PGID anchor,
+    # so its TERM trap intentionally cannot run. Inject the second signal after
+    # the parent cleanup has started instead of waiting on that obsolete marker.
+    if _wait_for_file "$case_dir/cleanup-started"; then
       kill -HUP "$fixture_pid"
     else
-      _fail "$label: worker observes cooperative TERM"
+      _fail "$label: first signal begins cleanup"
     fi
   elif [[ "$ignore_term" == 3 ]]; then
     if _wait_for_file "$case_dir/cleanup-started"; then
@@ -712,6 +715,9 @@ _check_bash4_nounset_array_guards() {
   _assert_contains "Bash 4 nounset: PID cleanup guards an empty array" \
     'for pid in "${pids[@]+"${pids[@]}"}"' "$source"
   # shellcheck disable=SC2016  # Literal source patterns for Bash 4 compatibility.
+  _assert_contains "Bash 4 nounset: group snapshot guards an empty array" \
+    'root_groups=("${DOT_CLEANUP_PID_GROUPS[@]+"${DOT_CLEANUP_PID_GROUPS[@]}"}")' "$source"
+  # shellcheck disable=SC2016  # Literal source patterns for Bash 4 compatibility.
   _assert_contains "Bash 4 nounset: path cleanup guards an empty array" \
     'for path in "${paths[@]+"${paths[@]}"}"' "$source"
 }
@@ -796,6 +802,9 @@ set -u
 # shellcheck source=/dev/null
 . "$SOURCE_HOME/.local/lib/dot/core/init.sh"
 
+# Force the platform branch where worker grouping is conditional. A real
+# controlling TTY must keep the prompt-capable worker in the foreground group.
+_dot_cleanup_process_backend() { printf -v "$1" '%s' none; }
 _ui_live_enabled() { return 0; }
 _ui_stage_tick() { :; }
 _read_fixture_tty() {
@@ -1027,12 +1036,18 @@ set -uT
 
 DOT_CLEANUP_PIDS=(101 202)
 DOT_CLEANUP_PID_IDENTITIES=(identity-101 identity-202)
+DOT_CLEANUP_PID_GROUPS=(101 202)
 _dot_cleanup_owned() {
-  printf 'pids=%s\nidentities=%s\n' \
+  printf 'pids=%s\nidentities=%s\ngroups=%s\n' \
     "${DOT_CLEANUP_PIDS[*]}" "${DOT_CLEANUP_PID_IDENTITIES[*]}" \
+    "${DOT_CLEANUP_PID_GROUPS[*]}" \
     >"$CASE_DIR/cleanup-snapshot"
 }
 
+# Signals only latch the authoritative status and hand blocking cleanup to the
+# owner's EXIT trap. Model that complete ownership contract so this race test
+# still observes the three arrays at the actual cleanup boundary.
+trap '_dot_cleanup_all' EXIT
 trap '_dot_cleanup_signal 143' TERM
 debug_fired=0
 _signal_between_pid_fields() {
@@ -1052,8 +1067,8 @@ FIXTURE
   SOURCE_HOME="$SOURCE_HOME" CASE_DIR="$case_dir" \
     bash "$case_dir/fixture.sh" || fixture_rc=$?
   _assert_exit "PID unregister: deferred TERM status is preserved" 143 "$fixture_rc"
-  _assert_file_content "PID unregister: PID and identity remain paired" \
-    $'pids=202\nidentities=identity-202' "$case_dir/cleanup-snapshot"
+  _assert_file_content "PID unregister: PID, identity, and group remain paired" \
+    $'pids=202\nidentities=identity-202\ngroups=202' "$case_dir/cleanup-snapshot"
 }
 
 _run_owner_exit_status_case() {
@@ -1075,6 +1090,489 @@ FIXTURE
 
   SOURCE_HOME="$SOURCE_HOME" bash "$case_dir/fixture.sh" || fixture_rc=$?
   _assert_exit "owner EXIT cleanup: preserves the command status" 37 "$fixture_rc"
+}
+
+_run_mktemp_publication_race_case() {
+  local signal="$1" expected_status="$2"
+  local case_dir fixture_pid fixture_rc=0 allocated="" real_mktemp=""
+  local had_monitor=0 saved_quit=""
+  local -a fixture_command
+  case_dir=$(_tmpdir)
+  mkdir -p "$case_dir/bin" "$case_dir/tmp"
+  real_mktemp=$(type -P mktemp)
+
+  cat >"$case_dir/bin/mktemp" <<'SHIM'
+#!/usr/bin/env bash
+set -u
+
+path=$("$DOT_TEST_REAL_MKTEMP" "$@") || exit $?
+printf '%s\n' "$path" >"$DOT_TEST_ALLOCATED_PATH"
+# Model terminal-group delivery after allocation but before stdout publishes
+# the pathname. A normal command substitution shares the parent's group and is
+# killed here; an isolated allocator is outside that group and can publish.
+kill -"$DOT_TEST_SIGNAL" -- "-$DOT_TEST_PARENT_PGID"
+printf '%s\n' "$path"
+SHIM
+  chmod +x "$case_dir/bin/mktemp"
+
+  cat >"$case_dir/fixture.sh" <<'FIXTURE'
+#!/usr/bin/env bash
+set -u
+
+# shellcheck source=/dev/null
+. "$SOURCE_HOME/.local/lib/dot/core/resources.sh"
+trap '_dot_cleanup_all' EXIT
+trap '_dot_cleanup_signal 129' HUP
+trap '_dot_cleanup_signal 130' INT
+trap '_dot_cleanup_signal 131' QUIT
+trap '_dot_cleanup_signal 143' TERM
+
+DOT_TEST_PARENT_PID=${BASHPID:-$$}
+DOT_TEST_PARENT_PGID=$(ps -o pgid= -p "$DOT_TEST_PARENT_PID")
+DOT_TEST_PARENT_PGID=${DOT_TEST_PARENT_PGID//[[:space:]]/}
+export DOT_TEST_PARENT_PID DOT_TEST_PARENT_PGID
+_dot_cleanup_mktemp -d "$TMPDIR/atomic.XXXXXX"
+exit 99
+FIXTURE
+  chmod +x "$case_dir/fixture.sh"
+
+  fixture_command=(bash "$case_dir/fixture.sh")
+  if [[ "$signal" == QUIT ]]; then
+    cat >"$case_dir/reset-quit.py" <<'PY'
+import os
+import signal
+import sys
+
+signal.signal(signal.SIGQUIT, signal.SIG_DFL)
+os.execvp("bash", ["bash", sys.argv[1]])
+PY
+    fixture_command=(python3 "$case_dir/reset-quit.py" "$case_dir/fixture.sh")
+    saved_quit=$(trap -p QUIT)
+    trap '' QUIT
+  fi
+
+  [[ "$-" == *m* ]] && had_monitor=1
+  set -m
+  PATH="$case_dir/bin:$PATH" \
+    TMPDIR="$case_dir/tmp" \
+    SOURCE_HOME="$SOURCE_HOME" \
+    DOT_TEST_REAL_MKTEMP="$real_mktemp" \
+    DOT_TEST_ALLOCATED_PATH="$case_dir/allocated.path" \
+    DOT_TEST_SIGNAL="$signal" \
+    "${fixture_command[@]}" &
+  fixture_pid=$!
+  [[ "$had_monitor" == 1 ]] || set +m
+  if [[ "$signal" == QUIT ]]; then
+    if [[ -n "$saved_quit" ]]; then
+      eval "$saved_quit"
+    else
+      trap - QUIT
+    fi
+  fi
+  wait "$fixture_pid" || fixture_rc=$?
+
+  [[ -f "$case_dir/allocated.path" ]] && allocated=$(<"$case_dir/allocated.path")
+  _assert_exit "mktemp publication: deferred $signal remains authoritative" \
+    "$expected_status" "$fixture_rc"
+  if [[ -n "$allocated" && ! -e "$allocated" ]]; then
+    _pass "mktemp publication: allocated path is registered before $signal cleanup"
+  else
+    _fail "mktemp publication: allocated path is registered before $signal cleanup"
+    [[ -n "$allocated" ]] && rm -rf -- "$allocated"
+  fi
+}
+
+_run_mktemp_contract_case() {
+  local mode="$1" expected_rc="$2" monitor_mode="${3:-on}"
+  local case_dir fixture_rc=0 allocated="" real_mktemp="" real_mkdir=""
+  case_dir=$(_tmpdir)
+  mkdir -p "$case_dir/bin" "$case_dir/tmp"
+  real_mktemp=$(type -P mktemp)
+  real_mkdir=$(type -P mkdir)
+
+  cat >"$case_dir/bin/mktemp" <<'SHIM'
+#!/usr/bin/env bash
+set -u
+
+case "$DOT_TEST_ALLOCATOR_MODE" in
+  normal) exec "$DOT_TEST_REAL_MKTEMP" "$@" ;;
+  fail) exit 73 ;;
+  publish-fail)
+    path=$("$DOT_TEST_REAL_MKTEMP" "$@") || exit $?
+    printf '%s\n' "$path" >"$DOT_TEST_ALLOCATED_PATH"
+    printf '%s\n' "$path"
+    exit 73
+    ;;
+  newline-path)
+    path="$TMPDIR/allocated
+path"
+    "$DOT_TEST_REAL_MKDIR" -p -- "$path" || exit $?
+    printf '%s\n' "$path" >"$DOT_TEST_ALLOCATED_PATH"
+    printf '%s\n' "$path"
+    ;;
+  *) exit 2 ;;
+esac
+SHIM
+  chmod +x "$case_dir/bin/mktemp"
+
+  cat >"$case_dir/fixture.sh" <<'FIXTURE'
+#!/usr/bin/env bash
+set -u
+
+# shellcheck source=/dev/null
+. "$SOURCE_HOME/.local/lib/dot/core/resources.sh"
+if [[ "$DOT_TEST_MONITOR_MODE" == on ]]; then
+  set -m
+else
+  set +m
+fi
+before_monitor=0
+[[ "$-" == *m* ]] && before_monitor=1
+allocator_rc=0
+_dot_cleanup_mktemp -d "$TMPDIR/contract.XXXXXX" || allocator_rc=$?
+path=$REPLY
+after_monitor=0
+[[ "$-" == *m* ]] && after_monitor=1
+registered=${#DOT_CLEANUP_PATHS[@]}
+existed=0
+[[ -n "$path" && -d "$path" ]] && existed=1
+[[ -z "$path" ]] || _dot_cleanup_remove_path "$path" || true
+printf 'rc=%s\nbefore_monitor=%s\nafter_monitor=%s\nregistered=%s\nexisted=%s\nremaining=%s\n' \
+  "$allocator_rc" "$before_monitor" "$after_monitor" "$registered" \
+  "$existed" "${#DOT_CLEANUP_PATHS[@]}" >"$CASE_DIR/report"
+FIXTURE
+  chmod +x "$case_dir/fixture.sh"
+
+  PATH="$case_dir/bin:$PATH" \
+    TMPDIR="$case_dir/tmp" \
+    SOURCE_HOME="$SOURCE_HOME" \
+    CASE_DIR="$case_dir" \
+    DOT_TEST_REAL_MKTEMP="$real_mktemp" \
+    DOT_TEST_REAL_MKDIR="$real_mkdir" \
+    DOT_TEST_ALLOCATOR_MODE="$mode" \
+    DOT_TEST_MONITOR_MODE="$monitor_mode" \
+    DOT_TEST_ALLOCATED_PATH="$case_dir/allocated.path" \
+    bash "$case_dir/fixture.sh" || fixture_rc=$?
+
+  _assert_exit "mktemp $mode monitor-$monitor_mode: fixture succeeds" 0 "$fixture_rc"
+  _assert_contains "mktemp $mode monitor-$monitor_mode: returns expected helper status" \
+    "rc=$expected_rc" "$(cat "$case_dir/report")"
+  if [[ "$monitor_mode" == on ]]; then
+    _assert_contains "mktemp $mode: preserves pre-enabled monitor mode" \
+      $'before_monitor=1\nafter_monitor=1' "$(cat "$case_dir/report")"
+  else
+    _assert_contains "mktemp $mode: preserves disabled monitor mode" \
+      $'before_monitor=0\nafter_monitor=0' "$(cat "$case_dir/report")"
+  fi
+  if [[ "$mode" == normal || "$mode" == newline-path ]]; then
+    _assert_contains "mktemp $mode: registers the live allocation" \
+      $'registered=1\nexisted=1\nremaining=0' "$(cat "$case_dir/report")"
+    if [[ "$mode" == newline-path ]]; then
+      allocated=$(<"$case_dir/allocated.path")
+      # The red line-delimited implementation truncates this path. Remove the
+      # exact fixture allocation even when the assertion above catches it.
+      [[ ! -e "$allocated" ]] || rm -rf -- "$allocated"
+    fi
+  else
+    [[ -f "$case_dir/allocated.path" ]] && allocated=$(<"$case_dir/allocated.path")
+    _assert_contains "mktemp $mode: failure leaves no registered path" \
+      $'registered=0\nexisted=0\nremaining=0' "$(cat "$case_dir/report")"
+    if [[ -z "$allocated" || ! -e "$allocated" ]]; then
+      _pass "mktemp $mode: failure leaves no allocated path"
+    else
+      _fail "mktemp $mode: failure leaves no allocated path"
+      rm -rf -- "$allocated"
+    fi
+  fi
+}
+
+_run_noninteractive_group_case() {
+  local backend="$1" label="$2" disable_discovery="${3:-0}"
+  local case_dir fixture_pid fixture_rc=0 leaf_pid="" unrelated_pid=""
+  local leaf_state="" had_monitor=0
+  case_dir=$(_tmpdir)
+  mkdir -p "$case_dir/home" "$case_dir/state" "$case_dir/tmp"
+
+  cat >"$case_dir/leaf.py" <<'PY'
+import os
+import pathlib
+import signal
+import sys
+import time
+
+root = pathlib.Path(sys.argv[1])
+signal.signal(signal.SIGHUP, signal.SIG_IGN)
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+(root / "leaf.pid").write_text(f"{os.getpid()}\n", encoding="ascii")
+(root / "ready").touch()
+while True:
+    time.sleep(1)
+PY
+
+  cat >"$case_dir/fixture.sh" <<'FIXTURE'
+#!/usr/bin/env bash
+set -eu
+
+# shellcheck source=/dev/null
+. "$SOURCE_HOME/.local/lib/dot/core/init.sh"
+_dot_cleanup_process_backend() { printf -v "$1" '%s' "$DOT_TEST_BACKEND"; }
+if [[ "$DOT_TEST_DISABLE_DISCOVERY" == 1 ]]; then
+  # Model a procfs host without the optional pgrep helper. Noninteractive
+  # ownership must not depend on descendant discovery being installed.
+  _dot_cleanup_descendant_records() { return 0; }
+fi
+_dot_cleanup_has_controlling_tty() { return 1; }
+_ui_live_enabled() { return 0; }
+_ui_stage_tick() { :; }
+
+export HOME="$CASE_DIR/home"
+export XDG_STATE_HOME="$CASE_DIR/state"
+_dot_update_lock_acquire
+trap '_dot_cleanup_on_exit; _dot_update_lock_release' EXIT
+trap '_dot_cleanup_signal 143' TERM
+
+sleep 30 &
+printf '%s\n' "$!" >"$CASE_DIR/unrelated.pid"
+_run_to_log_with_ticks "$CASE_DIR/leaf.log" python3 "$CASE_DIR/leaf.py" "$CASE_DIR"
+FIXTURE
+  chmod +x "$case_dir/fixture.sh"
+
+  [[ "$-" == *m* ]] && had_monitor=1
+  set -m
+  SOURCE_HOME="$SOURCE_HOME" CASE_DIR="$case_dir" TMPDIR="$case_dir/tmp" \
+    DOT_TEST_BACKEND="$backend" DOT_TEST_DISABLE_DISCOVERY="$disable_discovery" \
+    bash "$case_dir/fixture.sh" &
+  fixture_pid=$!
+  [[ "$had_monitor" == 1 ]] || set +m
+
+  if ! _wait_for_file "$case_dir/ready"; then
+    _fail "$label: external child becomes ready"
+    kill -KILL -- "-$fixture_pid" 2>/dev/null || true
+    wait "$fixture_pid" 2>/dev/null || true
+    return
+  fi
+  leaf_pid=$(<"$case_dir/leaf.pid")
+  unrelated_pid=$(<"$case_dir/unrelated.pid")
+  kill -TERM "$fixture_pid"
+  if _wait_for_pid_bounded "$fixture_pid"; then
+    fixture_rc=$WAIT_PID_RC
+  else
+    _fail "$label: fixture exits within five seconds"
+    kill -KILL "$leaf_pid" "$unrelated_pid" 2>/dev/null || true
+    return
+  fi
+
+  for _ in {1..40}; do
+    leaf_state=$(ps -o stat= -p "$leaf_pid" 2>/dev/null || true)
+    if ! kill -0 "$leaf_pid" 2>/dev/null ||
+      [[ "$leaf_state" =~ ^[[:space:]]*Z ]]; then
+      break
+    fi
+    sleep 0.05
+  done
+  _assert_exit "$label: preserves TERM status" 143 "$fixture_rc"
+  if ! kill -0 "$leaf_pid" 2>/dev/null ||
+    [[ "$leaf_state" =~ ^[[:space:]]*Z ]]; then
+    _pass "$label: removes TERM-ignoring external child"
+  else
+    _fail "$label: removes TERM-ignoring external child"
+  fi
+  if [[ ! -e "$case_dir/state/dot/update.lock.d" ]]; then
+    _pass "$label: releases lock after child cleanup"
+  else
+    _fail "$label: releases lock after child cleanup"
+  fi
+  if kill -0 "$unrelated_pid" 2>/dev/null; then
+    _pass "$label: unrelated sibling survives"
+  else
+    _fail "$label: unrelated sibling survives"
+  fi
+  kill -KILL "$leaf_pid" "$unrelated_pid" 2>/dev/null || true
+  wait "$unrelated_pid" 2>/dev/null || true
+}
+
+_run_mktemp_fast_exit_stress_case() {
+  local case_dir fixture_rc=0
+  case_dir=$(_tmpdir)
+  mkdir -p "$case_dir/tmp"
+
+  cat >"$case_dir/fixture.sh" <<'FIXTURE'
+#!/usr/bin/env bash
+set -uT
+
+# shellcheck source=/dev/null
+. "$SOURCE_HOME/.local/lib/dot/core/resources.sh"
+
+# Force the scheduler window that made the original unnamed coprocess unsafe:
+# a tiny allocator may exit and let Bash unset COPROC_PID before the next
+# command captures it. The production handshake must keep the child alive
+# through that exact assignment, independent of ordinary scheduler luck.
+delayed_capture=0
+trap 'if [[ "$delayed_capture" == 0 &&
+  "$BASH_COMMAND" == "allocator_pid=\$COPROC_PID" ]]; then
+  delayed_capture=1
+  trap - DEBUG
+  sleep 0.1
+fi' DEBUG
+_dot_cleanup_mktemp -d "$TMPDIR/forced-fast.XXXXXX" || exit $?
+path=$REPLY
+[[ -d "$path" ]] || exit 90
+_dot_cleanup_remove_path "$path" || exit $?
+
+# Keep a repeated real-allocation check as a second line of defense against
+# descriptor lifetime and nounset regressions that do not need forced timing.
+for ((attempt = 0; attempt < 200; attempt++)); do
+  _dot_cleanup_mktemp -d "$TMPDIR/fast.XXXXXX" || exit $?
+  path=$REPLY
+  [[ -d "$path" ]] || exit 91
+  _dot_cleanup_remove_path "$path" || exit $?
+done
+[[ "${#DOT_CLEANUP_PATHS[@]}" -eq 0 ]]
+FIXTURE
+  chmod +x "$case_dir/fixture.sh"
+
+  SOURCE_HOME="$SOURCE_HOME" TMPDIR="$case_dir/tmp" \
+    bash "$case_dir/fixture.sh" 2>"$case_dir/stderr" || fixture_rc=$?
+  _assert_exit "mktemp fast exit: repeated allocation stays nounset-safe" 0 "$fixture_rc"
+  _assert_eq "mktemp fast exit: repeated allocation leaves no scratch" \
+    0 "$(_scratch_entry_count "$case_dir/tmp")"
+  _assert_eq "mktemp fast exit: repeated allocation emits no descriptor errors" \
+    "" "$(cat "$case_dir/stderr")"
+}
+
+_run_owned_group_leader_exit_case() {
+  local case_dir fixture_rc=0
+  case_dir=$(_tmpdir)
+  mkdir -p "$case_dir/tmp"
+
+  cat >"$case_dir/leaf.py" <<'PY'
+import os
+import pathlib
+import signal
+import sys
+import time
+
+root = pathlib.Path(sys.argv[1])
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+(root / "leaf.pid").write_text(f"{os.getpid()}\n", encoding="ascii")
+(root / "ready").touch()
+while True:
+    time.sleep(1)
+PY
+
+  cat >"$case_dir/fixture.sh" <<'FIXTURE'
+#!/usr/bin/env bash
+set -u
+
+# shellcheck source=/dev/null
+. "$SOURCE_HOME/.local/lib/dot/core/resources.sh"
+
+had_monitor=0
+[[ "$-" == *m* ]] && had_monitor=1
+set -m
+(
+  # The leader is allowed to finish during graceful shutdown. Its external
+  # child deliberately is not, so the owner must retain its already-validated
+  # group claim through KILL escalation instead of keying it to leader liveness.
+  set +m
+  trap 'exit 0' TERM
+  python3 "$CASE_DIR/leaf.py" "$CASE_DIR" &
+  wait "$!"
+) &
+leader=$!
+[[ "$had_monitor" == 1 ]] || set +m
+_dot_cleanup_register_pid "$leader" "$leader"
+
+for ((attempt = 0; attempt < 200; attempt++)); do
+  [[ -f "$CASE_DIR/ready" ]] && break
+  sleep 0.01
+done
+[[ -f "$CASE_DIR/ready" ]] || exit 91
+leaf=$(<"$CASE_DIR/leaf.pid")
+
+# Observe cleanup from outside the owned group. A safe escalation must keep an
+# actual original member stopped in that PGID; a bare numeric group claim can
+# become reusable after a cooperative leader exits.
+(
+  for ((attempt = 0; attempt < 200; attempt++)); do
+    leader_state=$(ps -o stat= -p "$leader" 2>/dev/null || true)
+    if [[ "$leader_state" =~ ^[[:space:]]*T ]]; then
+      : >"$CASE_DIR/leader-anchored"
+      exit 0
+    fi
+    kill -0 "$leader" 2>/dev/null || exit 0
+    sleep 0.01
+  done
+) &
+observer=$!
+
+_dot_cleanup_all
+wait "$observer" 2>/dev/null || true
+leaf_state=$(ps -o stat= -p "$leaf" 2>/dev/null || true)
+leaf_alive=0
+if kill -0 "$leaf" 2>/dev/null &&
+  [[ ! "$leaf_state" =~ ^[[:space:]]*Z ]]; then
+  leaf_alive=1
+fi
+leader_anchored=0
+[[ ! -f "$CASE_DIR/leader-anchored" ]] || leader_anchored=1
+printf 'leader_anchored=%s\nleaf_alive=%s\npids=%s\ngroups=%s\n' \
+  "$leader_anchored" "$leaf_alive" \
+  "${#DOT_CLEANUP_PIDS[@]}" "${#DOT_CLEANUP_PID_GROUPS[@]}" \
+  >"$CASE_DIR/report"
+
+# The red version leaks this orphan. Keep the regression test itself bounded
+# and leave no process behind even when the assertions below fail.
+kill -KILL "$leaf" 2>/dev/null || true
+FIXTURE
+  chmod +x "$case_dir/fixture.sh"
+
+  SOURCE_HOME="$SOURCE_HOME" CASE_DIR="$case_dir" TMPDIR="$case_dir/tmp" \
+    bash "$case_dir/fixture.sh" || fixture_rc=$?
+  _assert_exit "owned group leader exit: fixture completes" 0 "$fixture_rc"
+  _assert_file_content "owned group leader exit: original leader anchors escalation" \
+    $'leader_anchored=1\nleaf_alive=0\npids=0\ngroups=0' "$case_dir/report"
+}
+
+_run_noninteractive_stdin_case() {
+  local case_dir fixture_rc=0
+  case_dir=$(_tmpdir)
+  mkdir -p "$case_dir/tmp"
+  printf '%s\n' payload >"$case_dir/stdin"
+
+  cat >"$case_dir/fixture.sh" <<'FIXTURE'
+#!/usr/bin/env bash
+set -u
+
+# shellcheck source=/dev/null
+. "$SOURCE_HOME/.local/lib/dot/core/init.sh"
+_ui_live_enabled() { return 0; }
+_ui_stage_tick() { :; }
+_read_worker_stdin() {
+  local line=""
+  if IFS= read -r line; then
+    printf 'child=%s\n' "$line"
+  else
+    printf 'child=eof\n'
+  fi
+}
+
+_run_to_log_with_ticks "$CASE_DIR/worker.log" _read_worker_stdin
+if IFS= read -r parent_line; then
+  printf 'parent=%s\n' "$parent_line" >"$CASE_DIR/parent.report"
+else
+  printf 'parent=eof\n' >"$CASE_DIR/parent.report"
+fi
+FIXTURE
+  chmod +x "$case_dir/fixture.sh"
+
+  SOURCE_HOME="$SOURCE_HOME" CASE_DIR="$case_dir" TMPDIR="$case_dir/tmp" \
+    bash "$case_dir/fixture.sh" <"$case_dir/stdin" || fixture_rc=$?
+  _assert_exit "noninteractive stdin: fixture completes" 0 "$fixture_rc"
+  _assert_file_content "noninteractive stdin: isolated worker receives EOF" \
+    'child=eof' "$case_dir/worker.log"
+  _assert_file_content "noninteractive stdin: parent input remains untouched" \
+    'parent=payload' "$case_dir/parent.report"
 }
 
 _run_resource_resourcing_case() {
@@ -1149,6 +1647,22 @@ _run_pgrep_pattern_case
 _run_weak_identity_fails_closed_case
 _run_subshell_err_trap_case
 _run_unregister_atomicity_case
+_run_mktemp_publication_race_case HUP 129
+_run_mktemp_publication_race_case INT 130
+_run_mktemp_publication_race_case QUIT 131
+_run_mktemp_publication_race_case TERM 143
+_run_mktemp_contract_case normal 0
+_run_mktemp_contract_case fail 1
+_run_mktemp_contract_case publish-fail 1
+_run_mktemp_contract_case normal 0 off
+_run_mktemp_contract_case fail 1 off
+_run_mktemp_contract_case newline-path 0 off
+_run_mktemp_fast_exit_stress_case
+_run_noninteractive_group_case none "weak noninteractive group"
+_run_noninteractive_group_case proc \
+  "proc noninteractive group without descendant discovery" 1
+_run_owned_group_leader_exit_case
+_run_noninteractive_stdin_case
 _run_owner_exit_status_case
 _run_resource_resourcing_case
 _check_bash4_nounset_array_guards

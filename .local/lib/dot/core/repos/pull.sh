@@ -644,18 +644,15 @@ _pull_overlays() {
   fi
 
   local _result_dir=""
-  _dot_cleanup_begin_registration
-  if ! _result_dir=$(mktemp -d 2>/dev/null); then
-    _dot_cleanup_end_registration
+  if ! _dot_cleanup_mktemp -d 2>/dev/null; then
     _pull_overlays_serial "$@"
     DOT_REPO_PROGRESS_DONE="$_done"
     REPLY=$(_join_comma "${_summaries[@]}")
     return 0
   fi
-  _dot_cleanup_register_path "$_result_dir"
-  _dot_cleanup_end_registration
+  _result_dir=$REPLY
 
-  local _jobs _running=0 _idx=0 _pid
+  local _jobs _running=0 _idx=0 _pid _group=""
   local -a _pids=()
   _jobs="$(_dot_update_jobs)"
 
@@ -665,10 +662,14 @@ _pull_overlays() {
     _dot_maybe_stage_progress "$name" "$_done" "$_total"
     _idx=$((_idx + 1))
     _dot_cleanup_begin_registration
-    _pull_overlay_capture "$_idx" "$_result_dir" "$name" "$path" "$url" "$optional" "$ssh_file" "$@" &
+    _dot_cleanup_prepare_job_launch
+    _pull_overlay_capture "$_idx" "$_result_dir" "$name" "$path" "$url" "$optional" "$ssh_file" "$@" \
+      <&"$DOT_CLEANUP_LAUNCH_STDIN_FD" &
     _pid=$!
+    _dot_cleanup_finish_job_launch "$_pid"
+    _group=$REPLY
     _pids+=("$_pid")
-    _dot_cleanup_register_pid "$_pid"
+    _dot_cleanup_register_pid "$_pid" "$_group"
     _dot_cleanup_end_registration
     _running=$((_running + 1))
     if [[ "$_running" -ge "$_jobs" ]]; then

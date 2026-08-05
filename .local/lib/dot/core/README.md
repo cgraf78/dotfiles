@@ -25,6 +25,9 @@ The basic runtime is split into focused helper modules:
 - `log.sh` owns color constants and quiet-aware logging helpers.
 - `progress-ui.sh` owns live `dot update` progress rendering and summary text.
 - `run.sh` owns command execution helpers that capture logs and tick live UI.
+- `resources.sh` owns interruption-safe child, process-group, descriptor, and
+  temporary-path cleanup. Parallel callers must register through this API so
+  cancellation finishes owned work before update-lock release.
 - `platform.sh` owns platform and privilege helpers.
 - `overlays.sh` owns overlay config parsing and active-overlay discovery.
 - `merge-block.sh` owns marked-block assembly for generated configs that need

@@ -335,16 +335,13 @@ _shdeps_update_finished() {
 }
 
 _run_shdeps_update_ui() {
-  local status_file="" fifo="" tmpdir=""
+  local status_file="" fifo="" tmpdir="" child_group=""
   _dot_update_prepare_shdeps_jobs
-  _dot_cleanup_begin_registration
-  if ! tmpdir=$(mktemp -d 2>/dev/null); then
-    _dot_cleanup_end_registration
+  if ! _dot_cleanup_mktemp -d 2>/dev/null; then
     _run_shdeps_update_command
     return $?
   fi
-  _dot_cleanup_register_path "$tmpdir"
-  _dot_cleanup_end_registration
+  tmpdir=$REPLY
   status_file="$tmpdir/status"
   fifo="$tmpdir/progress"
   if ! mkfifo "$fifo" 2>/dev/null; then
@@ -359,13 +356,16 @@ _run_shdeps_update_ui() {
   _dot_cleanup_register_fd "$progress_fd"
   _dot_cleanup_end_registration
   _dot_cleanup_begin_registration
+  _dot_cleanup_prepare_job_launch
   (
     _dot_cleanup_prepare_subshell
     _run_shdeps_update_command jsonl >"$fifo"
     printf '%s' "$?" >"$status_file"
-  ) &
+  ) <&"$DOT_CLEANUP_LAUNCH_STDIN_FD" &
   child=$!
-  _dot_cleanup_register_pid "$child"
+  _dot_cleanup_finish_job_launch "$child"
+  child_group=$REPLY
+  _dot_cleanup_register_pid "$child" "$child_group"
   _dot_cleanup_end_registration
   while :; do
     if IFS= read -r -t "${DOT_UI_TICK_SECONDS:-0.2}" -u "$progress_fd" line; then

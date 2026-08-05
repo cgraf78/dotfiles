@@ -123,7 +123,7 @@ _merge_result_prefix() {
 
 _run_merge_hook_capture() {
   local _idx="$1" _script="$2" _result_dir="$3"
-  local _prefix _started_ms _elapsed_ms _merge_rc=0 _hook_pid
+  local _prefix _started_ms _elapsed_ms _merge_rc=0 _hook_pid _hook_group=""
   # Keep hook/helper scratch beneath the coordinator-owned batch root. If this
   # worker must be killed on a weak-discovery platform, the parent can still
   # remove every temporary path created through the ordinary TMPDIR contract.
@@ -134,6 +134,7 @@ _run_merge_hook_capture() {
   _started_ms="$(_ui_now_ms)"
 
   _dot_cleanup_begin_registration
+  _dot_cleanup_prepare_job_launch
   (
     unset -f merge 2>/dev/null
     # shellcheck source=/dev/null
@@ -148,9 +149,11 @@ _run_merge_hook_capture() {
       printf '1' >"$_prefix.has_merge"
       exit 1
     fi
-  ) >"$_prefix.log" 2>&1 &
+  ) <&"$DOT_CLEANUP_LAUNCH_STDIN_FD" >"$_prefix.log" 2>&1 &
   _hook_pid=$!
-  _dot_cleanup_register_pid "$_hook_pid"
+  _dot_cleanup_finish_job_launch "$_hook_pid"
+  _hook_group=$REPLY
+  _dot_cleanup_register_pid "$_hook_pid" "$_hook_group"
   _dot_cleanup_end_registration
   if wait "$_hook_pid"; then
     _merge_rc=0
@@ -186,7 +189,7 @@ _print_merge_capture() {
 }
 
 _run_merge_hook_batch() {
-  local _result_dir _jobs _running=0 _pid
+  local _result_dir _jobs _running=0 _pid _group=""
   local _hook_spec _hook_key _script _hook_label
   local _capture_prefix _capture_rc
   local _idx=0 _n_merged=0 _n_failed=0
@@ -204,14 +207,11 @@ _run_merge_hook_batch() {
     return 0
   }
 
-  _dot_cleanup_begin_registration
-  _result_dir=$(mktemp -d) || {
-    _dot_cleanup_end_registration
+  if ! _dot_cleanup_mktemp -d; then
     REPLY=0
     return 0
-  }
-  _dot_cleanup_register_path "$_result_dir"
-  _dot_cleanup_end_registration
+  fi
+  _result_dir=$REPLY
   _jobs="$(_merge_parallel_jobs)"
 
   for _hook_spec in "${_specs[@]}"; do
@@ -232,10 +232,14 @@ _run_merge_hook_batch() {
     fi
 
     _dot_cleanup_begin_registration
-    _run_merge_hook_capture "$_idx" "$_script" "$_result_dir" &
+    _dot_cleanup_prepare_job_launch
+    _run_merge_hook_capture "$_idx" "$_script" "$_result_dir" \
+      <&"$DOT_CLEANUP_LAUNCH_STDIN_FD" &
     _pid=$!
+    _dot_cleanup_finish_job_launch "$_pid"
+    _group=$REPLY
     _pids+=("$_pid")
-    _dot_cleanup_register_pid "$_pid"
+    _dot_cleanup_register_pid "$_pid" "$_group"
     _dot_cleanup_end_registration
     _running=$((_running + 1))
     if [[ "$_running" -ge "$_jobs" ]]; then
