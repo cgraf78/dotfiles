@@ -2,7 +2,7 @@
 # Overlay link and skip-worktree management.
 #
 # Overlays intentionally shadow selected base-dotfiles paths with symlinks from
-# `.dotfiles-<name>/home`. The base repo must mark those tracked paths
+# their configured `home/` source. The base repo must mark those tracked paths
 # skip-worktree while the overlay owns them, then restore the tracked version
 # before pulling so Git never tries to merge through a symlink.
 
@@ -16,11 +16,25 @@ _overlay_link_target() {
   REPLY="${prefix}.dotfiles-$name/home/$rel"
 }
 
+_overlay_record_link_target() {
+  local rel="$1" name="$2" path="$3" sync="${4:-git}"
+  case "$sync" in
+    git) _overlay_link_target "$rel" "$name" ;;
+    none) REPLY="$path/home/$rel" ;;
+    *) return 1 ;;
+  esac
+}
+
 _overlay_link_matches() {
   local rel="$1" name="$2" target
   [[ -n "$name" ]] || return 1
-  _overlay_link_target "$rel" "$name"
-  target="$REPLY"
+  if (($# >= 3)); then
+    target="$3"
+  else
+    _overlay_link_target "$rel" "$name"
+    target="$REPLY"
+  fi
+  [[ -n "$target" ]] || return 1
   [[ -L "$HOME/$rel" && "$(readlink "$HOME/$rel")" == "$target" ]]
 }
 
@@ -28,9 +42,10 @@ _overlay_link_matches() {
 # missing manifest recover a live link without treating an arbitrary path as
 # overlay-owned.
 _overlay_active_provides() {
-  local rel="$1" entry name path
+  local rel="$1" entry name path sync
   for entry in "${OVERLAYS[@]+"${OVERLAYS[@]}"}"; do
-    IFS='|' read -r name path _ <<<"$entry"
+    IFS='|' read -r name path _ _ _ _ sync <<<"$entry"
+    sync="${sync:-git}"
     if [[ -f "$path/home/$rel" || -L "$path/home/$rel" ]]; then
       return 0
     fi
@@ -39,11 +54,14 @@ _overlay_active_provides() {
 }
 
 _overlay_active_link_matches() {
-  local rel="$1" entry name path
+  local rel="$1" entry name path sync target
   for entry in "${OVERLAYS[@]+"${OVERLAYS[@]}"}"; do
-    IFS='|' read -r name path _ <<<"$entry"
+    IFS='|' read -r name path _ _ _ _ sync <<<"$entry"
+    sync="${sync:-git}"
+    _overlay_record_link_target "$rel" "$name" "$path" "$sync" || continue
+    target="$REPLY"
     if [[ (-f "$path/home/$rel" || -L "$path/home/$rel") ]] &&
-      _overlay_link_matches "$rel" "$name"; then
+      _overlay_link_matches "$rel" "$name" "$target"; then
       return 0
     fi
   done
@@ -88,11 +106,19 @@ _overlay_file_identity() {
 }
 
 _overlay_parse_manifest_record() {
-  local line="$1" rel owner
+  local line="$1" rel owner target remainder
   [[ "$line" == *$'\t'* ]] || return 1
   rel="${line%%$'\t'*}"
-  owner="${line#*$'\t'}"
-  [[ "$owner" != *$'\t'* ]] || return 1
+  remainder="${line#*$'\t'}"
+  if [[ "$remainder" == *$'\t'* ]]; then
+    owner="${remainder%%$'\t'*}"
+    target="${remainder#*$'\t'}"
+    [[ "$target" != *$'\t'* && -n "$target" ]] || return 1
+  else
+    owner="$remainder"
+    _overlay_link_target "$rel" "$owner"
+    target="$REPLY"
+  fi
   case "$rel" in
     "" | /* | . | .. | ./* | ../* | */./* | */../* | */. | */.. | */ | *//*)
       return 1
@@ -101,16 +127,30 @@ _overlay_parse_manifest_record() {
   case "$owner" in
     "" | . | .. | */*) return 1 ;;
   esac
+  [[ "$target" != *$'\r'* && "$target" != *$'\n'* ]] || return 1
   REPLY_REL="$rel"
   REPLY_OWNER="$owner"
+  REPLY_TARGET="$target"
+}
+
+_overlay_manifest_safe() {
+  local path="$1" line exact_targets=0 links
+  local REPLY_REL REPLY_OWNER REPLY_TARGET
+  [[ -f "$path" && ! -L "$path" && -O "$path" ]] || return 1
+  links=$(stat -c '%h' "$path" 2>/dev/null || stat -f '%l' "$path" 2>/dev/null) || return 1
+  [[ "$links" == "1" ]] || return 1
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    _overlay_parse_manifest_record "$line" || return 1
+    [[ "${line#*$'\t'}" != *$'\t'* ]] || exact_targets=1
+  done <"$path"
+  # Legacy two-column files never exposed source paths and may predate the
+  # private-mode invariant. Exact-target manifests can contain absolute local
+  # paths, so only accept them when their mode is private.
+  [[ "$exact_targets" -eq 0 ]] || _overlay_private_regular_file "$path"
 }
 
 _overlay_pending_manifest_safe() {
-  local path="$1" line REPLY_REL REPLY_OWNER
-  _overlay_private_regular_file "$path" || return 1
-  while IFS= read -r line || [[ -n "$line" ]]; do
-    _overlay_parse_manifest_record "$line" || return 1
-  done <"$path"
+  _overlay_private_regular_file "$1" && _overlay_manifest_safe "$1"
 }
 
 # Selected, legacy, and write-ahead manifests may each describe a live link
@@ -121,7 +161,7 @@ _overlay_authority_files() {
   _overlay_pending_manifest_path
   pending="$REPLY"
   if [[ -e "$DOT_OVERLAY_MANIFEST" || -L "$DOT_OVERLAY_MANIFEST" ]]; then
-    if [[ ! -f "$DOT_OVERLAY_MANIFEST" || -L "$DOT_OVERLAY_MANIFEST" ]]; then
+    if ! _overlay_manifest_safe "$DOT_OVERLAY_MANIFEST"; then
       REPLY="$DOT_OVERLAY_MANIFEST"
       return 1
     fi
@@ -136,6 +176,15 @@ _overlay_authority_files() {
   OVERLAY_AUTHORITY_MANIFESTS=()
   for candidate in "$DOT_OVERLAY_MANIFEST" "$DOT_OVERLAY_LEGACY_MANIFEST" "$pending"; do
     [[ -f "$candidate" && ! -L "$candidate" ]] || continue
+    if [[ "$candidate" == "$pending" ]]; then
+      _overlay_pending_manifest_safe "$candidate" || {
+        REPLY="$candidate"
+        return 1
+      }
+    elif ! _overlay_manifest_safe "$candidate"; then
+      REPLY="$candidate"
+      return 1
+    fi
     duplicate=0
     for existing in "${OVERLAY_AUTHORITY_MANIFESTS[@]+"${OVERLAY_AUTHORITY_MANIFESTS[@]}"}"; do
       if [[ "$existing" == "$candidate" ]]; then
@@ -150,16 +199,14 @@ _overlay_authority_files() {
 
 # Populates the caller's dynamically scoped associative authority maps.
 _overlay_load_authority() {
-  local manifest line rel owner target REPLY_REL REPLY_OWNER
+  local manifest line rel target REPLY_REL REPLY_OWNER REPLY_TARGET
   _overlay_authority_files || return 1
   for manifest in "${OVERLAY_AUTHORITY_MANIFESTS[@]+"${OVERLAY_AUTHORITY_MANIFESTS[@]}"}"; do
     while IFS= read -r line || [[ -n "$line" ]]; do
-      _overlay_parse_manifest_record "$line" || continue
+      _overlay_parse_manifest_record "$line" || return 1
       rel="$REPLY_REL"
-      owner="$REPLY_OWNER"
+      target="$REPLY_TARGET"
       _overlay_path_is_authority "$rel" && continue
-      _overlay_link_target "$rel" "$owner"
-      target="$REPLY"
       _overlay_authority_paths["$rel"]=1
       _overlay_authority_targets["$rel"$'\t'"$target"]=1
     done <"$manifest"
@@ -183,23 +230,27 @@ _overlay_path_is_authority() {
 }
 
 _overlay_append_manifest_records() {
-  local source="$1" destination="$2" line REPLY_REL REPLY_OWNER
+  local source="$1" destination="$2" line REPLY_REL REPLY_OWNER REPLY_TARGET
   while IFS= read -r line || [[ -n "$line" ]]; do
-    _overlay_parse_manifest_record "$line" || continue
+    _overlay_parse_manifest_record "$line" || return 1
     _overlay_path_is_authority "$REPLY_REL" && continue
-    printf '%s\t%s\n' "$REPLY_REL" "$REPLY_OWNER" >>"$destination" || return 1
+    printf '%s\t%s\t%s\n' "$REPLY_REL" "$REPLY_OWNER" "$REPLY_TARGET" \
+      >>"$destination" || return 1
   done <"$source"
 }
 
 _overlay_append_candidates() {
-  local destination="$1" name="$2" path="$3" inventory="$4"
-  local overlay_home="$path/home" src rel rc=0 REPLY_REL REPLY_OWNER
+  local destination="$1" name="$2" path="$3" inventory="$4" sync="${5:-git}"
+  local overlay_home="$path/home" src rel target rc=0
+  local REPLY_REL REPLY_OWNER REPLY_TARGET
   [[ -f "$inventory" && ! -L "$inventory" ]] || return 1
   while IFS= read -r -d '' src; do
     rel="${src#"$overlay_home"/}"
     _overlay_path_is_authority "$rel" && continue
-    if ! _overlay_parse_manifest_record "$rel"$'\t'"$name" ||
-      ! printf '%s\t%s\n' "$rel" "$name" >>"$destination"; then
+    _overlay_record_link_target "$rel" "$name" "$path" "$sync" || return 1
+    target="$REPLY"
+    if ! _overlay_parse_manifest_record "$rel"$'\t'"$name"$'\t'"$target" ||
+      ! printf '%s\t%s\t%s\n' "$rel" "$name" "$target" >>"$destination"; then
       rc=1
       break
     fi
@@ -208,12 +259,22 @@ _overlay_append_candidates() {
 }
 
 _overlay_prepare_inventories() {
-  local root="$1" entry name path url inventory index=0
+  local root="$1" entry name path url sync inventory index=0
+  local source_root_real source_root_identity
   for entry in "${OVERLAYS[@]+"${OVERLAYS[@]}"}"; do
-    IFS='|' read -r name path url _ <<<"$entry"
+    IFS='|' read -r name path url _ _ _ sync <<<"$entry"
+    sync="${sync:-git}"
     [[ -d "$path/home" ]] || continue
-    _overlay_is_worktree "$path" || continue
-    _overlay_checkout_matches "$path" "$url" || continue
+    if [[ "$sync" == "git" ]]; then
+      _overlay_is_worktree "$path" || continue
+      _overlay_checkout_matches "$path" "$url" || continue
+    else
+      source_root_real=$(cd -P -- "$path/home" 2>/dev/null && pwd -P) || return 1
+      _overlay_file_identity "$source_root_real" || return 1
+      source_root_identity="$REPLY"
+      _overlay_inventory_source_roots["$name"]="$source_root_real"
+      _overlay_inventory_source_identities["$name"]="$source_root_identity"
+    fi
     index=$((index + 1))
     inventory="$root/$index"
     : >"$inventory" || return 1
@@ -224,11 +285,42 @@ _overlay_prepare_inventories() {
   done
 }
 
+_overlay_local_source_snapshot_matches() {
+  local path="$1" expected_root="$2" expected_identity="$3"
+  local current_root
+  REPLY=""
+  if [[ -z "$expected_root" || -z "$expected_identity" ]]; then
+    REPLY="$path/home (missing inventory identity)"
+    return 1
+  fi
+  current_root=$(cd -P -- "$path/home" 2>/dev/null && pwd -P) || {
+    REPLY="$path/home"
+    return 1
+  }
+  if [[ "$current_root" != "$expected_root" ]]; then
+    REPLY="$path/home (source root changed)"
+    return 1
+  fi
+  if ! _overlay_file_identity "$current_root" ||
+    [[ "$REPLY" != "$expected_identity" ]]; then
+    REPLY="$path/home (source root replaced)"
+    return 1
+  fi
+  REPLY=""
+}
+
+_overlay_local_inventory_entry_current() {
+  local path="$1" src="$2" rel="$3" expected_root="$4" expected_identity="$5"
+  _overlay_local_source_snapshot_matches \
+    "$path" "$expected_root" "$expected_identity" || return 1
+  _overlay_local_source_entry_validate "$path" "$src" "$rel" "$expected_root"
+}
+
 # Publish old authority plus every exact link target this run may create before
 # the first HOME or Git index mutation. The over-approximation is safe because
 # cleanup still requires a live symlink to match a recorded generated target.
 _overlay_publish_pending() {
-  local pending build manifest entry name path inventory
+  local pending build manifest entry name path sync inventory
   if ! _overlay_authority_files; then
     _warn "  warning: unsafe overlay recovery manifest; refusing to link: $REPLY"
     return 1
@@ -252,10 +344,11 @@ _overlay_publish_pending() {
     fi
   done
   for entry in "${OVERLAYS[@]+"${OVERLAYS[@]}"}"; do
-    IFS='|' read -r name path _ <<<"$entry"
+    IFS='|' read -r name path _ _ _ _ sync <<<"$entry"
+    sync="${sync:-git}"
     inventory="${_overlay_inventory_files[$name]-}"
     [[ -n "$inventory" ]] || continue
-    if ! _overlay_append_candidates "$build" "$name" "$path" "$inventory"; then
+    if ! _overlay_append_candidates "$build" "$name" "$path" "$inventory" "$sync"; then
       _warn "  warning: could not inventory $name overlay recovery authority"
       rm -f -- "$build"
       return 1
@@ -275,8 +368,9 @@ _overlay_publish_pending() {
 }
 
 _overlay_record_final() {
-  local rel="$1" owner="$2"
-  printf '%s\t%s\n' "$rel" "$owner" >>"$_overlay_manifest_new" || return 1
+  local rel="$1" owner="$2" target="$3"
+  printf '%s\t%s\t%s\n' "$rel" "$owner" "$target" \
+    >>"$_overlay_manifest_new" || return 1
   _overlay_current_paths["$rel"]=1
 }
 
@@ -286,6 +380,10 @@ _overlay_record_final() {
 # checkout. _link_overlays re-symlinks owned paths after pull.
 _overlay_restore_tracked_path() {
   local rel="$1"
+  if ! _overlay_destination_outside_local_sources "$rel"; then
+    _warn "  warning: refusing to restore a base path inside a local overlay source: ${REPLY:-$rel}"
+    return 1
+  fi
   # shellcheck disable=SC2086  # $GIT is intentionally word-split (multi-word command).
   if ! $GIT update-index --no-skip-worktree "$rel" 2>/dev/null; then
     _warn "  warning: could not clear overlay index state: $rel"
@@ -334,21 +432,31 @@ _unstash_overlay_overrides() {
 }
 
 # Link a single overlay's home/ directory into $HOME.
-# Creates relative symlinks. Sets skip-worktree on base-repo files
+# Creates record-specific symlinks. Sets skip-worktree on base-repo files
 # that overlay symlinks shadow.
 # Appends linked paths to $_overlay_manifest_new (set by _link_overlays).
 # Uses $_base_tracked (associative array) for O(1) tracked-file lookups.
 # Sets REPLY to display text and reports the outcome through REPLY_STATUS
 # (changed|current, or empty when there is no overlay home to process).
 _link_overlay() {
-  local name="$1" path="$2" inventory="$3"
+  local name="$1" path="$2" inventory="$3" sync="${4:-git}"
   local overlay_home="$path/home"
+  local source_root_real="" source_root_identity=""
   REPLY=""
   REPLY_STATUS=""
   [[ -d "$overlay_home" ]] || return 0
   [[ -f "$inventory" && ! -L "$inventory" ]] || return 1
   if [[ "${DOT_VERBOSE:-0}" -eq 1 ]]; then
     _ui_status running "$name overlay: linking"
+  fi
+  if [[ "$sync" == "none" ]]; then
+    source_root_real="${_overlay_inventory_source_roots[$name]-}"
+    source_root_identity="${_overlay_inventory_source_identities[$name]-}"
+    if ! _overlay_local_source_snapshot_matches \
+      "$path" "$source_root_real" "$source_root_identity"; then
+      _warn "  warning: $name overlay source changed after inventory: $overlay_home"
+      return 1
+    fi
   fi
   local linked=0
   local current=0
@@ -359,29 +467,45 @@ _link_overlay() {
       _warn "  skip (reserved overlay authority path): $rel"
       continue
     fi
+    if [[ "$sync" == "none" ]] && ! _overlay_local_inventory_entry_current \
+      "$path" "$src" "$rel" "$source_root_real" "$source_root_identity"; then
+      _warn "  warning: $name overlay source changed after inventory: ${REPLY:-$src}"
+      return 1
+    fi
+    if ! _overlay_destination_outside_local_sources "$rel"; then
+      _warn "  warning: $name overlay destination is unsafe: ${REPLY:-$rel}"
+      return 1
+    fi
     mkdir -p "$(dirname "$dst")" || return 1
     local target
-    _overlay_link_target "$rel" "$name"
+    _overlay_record_link_target "$rel" "$name" "$path" "$sync" || return 1
     target="$REPLY"
     if [[ -L "$dst" && "$(readlink "$dst")" == "$target" ]]; then
+      if [[ "$sync" == "none" ]] && ! _overlay_local_inventory_entry_current \
+        "$path" "$src" "$rel" "$source_root_real" "$source_root_identity"; then
+        _warn "  warning: $name overlay source changed before link acceptance: ${REPLY:-$src}"
+        return 1
+      fi
       if [[ -n "${_base_tracked[$rel]+x}" ]]; then
         $GIT update-index --skip-worktree "$rel" 2>/dev/null || return 1
       fi
-      _overlay_record_final "$rel" "$name" || return 1
+      _overlay_record_final "$rel" "$name" "$target" || return 1
       current=$((current + 1))
       continue
     fi
     # Validate the destination before replacing it. A tracked regular file is
-    # safe only when it is unchanged from the index; a symlink is safe only when
-    # it is another active overlay's exact generated target. Everything else may
-    # be user-owned state and must survive relinking.
+    # safe only when it is unchanged from the index. Filesystem-managed sources
+    # require exact active or manifest authority before replacing any symlink;
+    # Git overlays retain their historical replacement of untracked symlinks.
+    # Everything else may be user-owned state and must survive relinking.
     # Scope: this validates the leaf $dst only. A pre-existing symlinked PARENT
     # component (e.g. the user's own `$HOME/.config -> /elsewhere`) is honored,
     # not blocked — that is the user's intentional layout, and `find` never
     # descends an overlay-shipped symlinked dir, so an overlay cannot inject one.
     if [[ -L "$dst" ]]; then
-      if [[ -n "${_base_tracked[$rel]+x}" ]] &&
-        ! _overlay_active_link_matches "$rel"; then
+      if [[ "$sync" == "none" || -n "${_base_tracked[$rel]+x}" ]] &&
+        ! _overlay_active_link_matches "$rel" &&
+        ! _overlay_authority_link_matches "$rel"; then
         _warn "  skip (would replace unmanaged symlink): $rel"
         continue
       fi
@@ -399,6 +523,17 @@ _link_overlay() {
         continue
       fi
     fi
+    # Re-check immediately before the link mutation. A previous writer in this
+    # run may have introduced a symlinked parent after the initial preflight.
+    if ! _overlay_destination_outside_local_sources "$rel"; then
+      _warn "  warning: $name overlay destination became unsafe: ${REPLY:-$rel}"
+      return 1
+    fi
+    if [[ "$sync" == "none" ]] && ! _overlay_local_inventory_entry_current \
+      "$path" "$src" "$rel" "$source_root_real" "$source_root_identity"; then
+      _warn "  warning: $name overlay source changed before link creation: ${REPLY:-$src}"
+      return 1
+    fi
     # `-n` (no-dereference): if $dst is a symlink to a directory, replace the
     # symlink itself instead of creating the new link *inside* that directory.
     ln -sfn "$target" "$dst" || return 1
@@ -413,7 +548,7 @@ _link_overlay() {
         _log "  linked: $rel"
       fi
     fi
-    _overlay_record_final "$rel" "$name" || return 1
+    _overlay_record_final "$rel" "$name" "$target" || return 1
   done <"$inventory"
   if [[ "$linked" -gt 0 ]]; then
     REPLY_STATUS="changed"
@@ -434,6 +569,9 @@ _link_overlay() {
 # Link all active overlays and clean up stale symlinks from removed overlays.
 _link_overlays() {
   local manifest="$DOT_OVERLAY_MANIFEST" pending
+  if ! _preflight_local_overlays; then
+    return 1
+  fi
   if ! mkdir -p "${manifest%/*}"; then
     _warn "  warning: could not create overlay manifest directory: ${manifest%/*}"
     return 1
@@ -448,6 +586,8 @@ _link_overlays() {
   local -A _overlay_authority_targets=()
   local -A _overlay_current_paths=()
   local -A _overlay_inventory_files=()
+  local -A _overlay_inventory_source_roots=()
+  local -A _overlay_inventory_source_identities=()
   local -a OVERLAY_AUTHORITY_MANIFESTS=()
   if ! _overlay_load_authority; then
     _warn "  warning: unsafe overlay recovery manifest; refusing to link: $REPLY"
@@ -467,9 +607,11 @@ _link_overlays() {
   local _overlay_total=0
   local _entry
   for _entry in "${OVERLAYS[@]+"${OVERLAYS[@]}"}"; do
-    local _name _path _url
-    IFS='|' read -r _name _path _url _ <<<"$_entry"
-    if [[ -d "$_path/home" ]] && _overlay_checkout_matches "$_path" "$_url"; then
+    local _name _path _url _sync
+    IFS='|' read -r _name _path _url _ _ _ _sync <<<"$_entry"
+    _sync="${_sync:-git}"
+    if [[ -d "$_path/home" ]] &&
+      { [[ "$_sync" == "none" ]] || _overlay_checkout_matches "$_path" "$_url"; }; then
       _has_overlay_home=1
       _overlay_total=$((_overlay_total + 1))
     fi
@@ -537,24 +679,27 @@ _link_overlays() {
   local _overlay_changed=0
   local -a _overlay_changed_items=()
   for entry in "${OVERLAYS[@]+"${OVERLAYS[@]}"}"; do
-    local name path url actual_origin expected_url status
-    IFS='|' read -r name path url _ <<<"$entry"
+    local name path url sync actual_origin expected_url status
+    IFS='|' read -r name path url _ _ _ sync <<<"$entry"
+    sync="${sync:-git}"
     [[ -d "$path/home" ]] || continue
-    if ! _overlay_is_worktree "$path"; then
-      _warn "  warning: $name overlay path exists but is not a Git worktree; leaving it untouched: $path"
-      continue
-    fi
-    if ! _overlay_checkout_matches "$path" "$url"; then
-      actual_origin="$REPLY"
-      _overlay_effective_url "$url"
-      expected_url="$REPLY"
-      _overlay_origin_mismatch "$name" "$path" "$expected_url" "$actual_origin"
-      continue
+    if [[ "$sync" == "git" ]]; then
+      if ! _overlay_is_worktree "$path"; then
+        _warn "  warning: $name overlay path exists but is not a Git worktree; leaving it untouched: $path"
+        continue
+      fi
+      if ! _overlay_checkout_matches "$path" "$url"; then
+        actual_origin="$REPLY"
+        _overlay_effective_url "$url"
+        expected_url="$REPLY"
+        _overlay_origin_mismatch "$name" "$path" "$expected_url" "$actual_origin"
+        continue
+      fi
     fi
     _overlay_done=$((_overlay_done + 1))
     _dot_maybe_stage_progress "$name" "$_overlay_done" "$_overlay_total"
     local inventory="${_overlay_inventory_files[$name]-}"
-    if [[ -z "$inventory" ]] || ! _link_overlay "$name" "$path" "$inventory"; then
+    if [[ -z "$inventory" ]] || ! _link_overlay "$name" "$path" "$inventory" "$sync"; then
       _warn "  warning: could not link $name overlay; recovery authority retained: $pending"
       rm -f -- "$_overlay_manifest_new"
       rm -rf -- "$inventory_root"
@@ -591,6 +736,12 @@ _link_overlays() {
         _warn "  skip (stale overlay link was replaced): $rel"
         continue
       fi
+      if ! _overlay_destination_outside_local_sources "$rel"; then
+        _warn "  warning: refusing to clean a link inside a local overlay source: ${REPLY:-$rel}"
+        rm -f -- "$_overlay_manifest_new"
+        rm -rf -- "$inventory_root"
+        return 1
+      fi
       if [[ "$stale_header" -eq 0 &&
         ("${DOT_UI_TOTAL:-0}" -eq 0 || "${DOT_VERBOSE:-0}" -eq 1) ]]; then
         _log_header "==> Cleaning stale overlay symlinks..."
@@ -611,8 +762,7 @@ _link_overlays() {
       continue
     fi
     if [[ -n "${_base_tracked[$rel]+x}" ]]; then
-      if ! $GIT update-index --no-skip-worktree "$rel" 2>/dev/null ||
-        ! $GIT checkout -- "$rel" 2>/dev/null; then
+      if ! _overlay_restore_tracked_path "$rel"; then
         _warn "  warning: could not restore stale base path: $rel"
         rm -f -- "$_overlay_manifest_new"
         rm -rf -- "$inventory_root"

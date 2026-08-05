@@ -120,6 +120,92 @@ CONF
   _assert_contains "one conf: url" "git@example.com:work.git" "${OVERLAYS[0]}"
   _assert_contains "one conf: path" ".dotfiles-work" "${OVERLAYS[0]}"
 
+  # Filesystem overlays use the normal descriptor directory but declare that
+  # repository synchronization is external. Their configured path may contain
+  # spaces and a leading ~/ is expanded without evaluating shell syntax.
+  local_overlay_root="$TEST_HOME/local overlay"
+  mkdir -p "$local_overlay_root/home"
+  cat >"$TEST_HOME/.config/dot/overlays.d/15-filesystem.local.conf" <<'CONF'
+sync=none
+path=~/local overlay
+CONF
+  if _discover_overlays; then
+    _pass "local descriptor: discovery succeeds"
+  else
+    _fail "local descriptor: discovery succeeds"
+  fi
+  _assert_eq "local descriptor: normal directory and local suffix preserve name" \
+    "filesystem" "$(_overlay_name "15-filesystem.local.conf" none)"
+  _assert_eq "local descriptor: record carries explicit sync type" \
+    "filesystem|$local_overlay_root||$TEST_HOME/.config/dot/overlays.d/15-filesystem.local.conf|false||none" \
+    "${OVERLAYS[1]}"
+  if _preflight_local_overlays; then
+    _pass "local descriptor: readable source passes preflight"
+  else
+    _fail "local descriptor: readable source passes preflight"
+  fi
+
+  printf '%s\n' "unreadable" >"$local_overlay_root/home/unreadable"
+  chmod 000 "$local_overlay_root/home/unreadable"
+  if _preflight_local_overlays >/dev/null 2>&1; then
+    _fail "local descriptor: unreadable regular file fails preflight"
+  else
+    _pass "local descriptor: unreadable regular file fails preflight"
+  fi
+  chmod 600 "$local_overlay_root/home/unreadable"
+  rm -f "$local_overlay_root/home/unreadable"
+
+  ln -s missing-target "$local_overlay_root/home/dangling"
+  if _preflight_local_overlays >/dev/null 2>&1; then
+    _fail "local descriptor: dangling source symlink fails preflight"
+  else
+    _pass "local descriptor: dangling source symlink fails preflight"
+  fi
+  rm -f "$local_overlay_root/home/dangling"
+
+  printf '%s\n' "readable target" >"$local_overlay_root/home/symlink-target"
+  ln -s symlink-target "$local_overlay_root/home/readable-symlink"
+  if _preflight_local_overlays; then
+    _pass "local descriptor: readable source symlink passes preflight"
+  else
+    _fail "local descriptor: readable source symlink passes preflight"
+  fi
+  rm -f \
+    "$local_overlay_root/home/readable-symlink" \
+    "$local_overlay_root/home/symlink-target"
+
+  # A source below HOME must not be able to map one of its files back into its
+  # own home/ tree. Otherwise linking that destination would replace source
+  # content and make later inventory/cleanup results depend on mutation order.
+  mkdir -p "$local_overlay_root/home/local overlay/home"
+  printf '%s\n' "source must survive" \
+    >"$local_overlay_root/home/local overlay/home/recursive"
+  if _preflight_local_overlays >/dev/null 2>&1; then
+    _fail "local descriptor: self-targeting destination fails preflight"
+  else
+    _pass "local descriptor: self-targeting destination fails preflight"
+  fi
+  if _link_overlays >/dev/null 2>&1; then
+    _fail "local descriptor: linker rejects self-targeting destination"
+  else
+    _pass "local descriptor: linker rejects self-targeting destination"
+  fi
+  _assert_file_content "local descriptor: rejected link leaves source intact" \
+    "source must survive" "$local_overlay_root/home/local overlay/home/recursive"
+  _assert_file_missing "local descriptor: rejected link writes no manifest" \
+    "$DOT_OVERLAY_MANIFEST"
+  rm -rf "$local_overlay_root/home/local overlay"
+
+  mv "$local_overlay_root" "$local_overlay_root.missing"
+  if _preflight_local_overlays >/dev/null 2>&1; then
+    _fail "local descriptor: missing source fails preflight"
+  else
+    _pass "local descriptor: missing source fails preflight"
+  fi
+  mv "$local_overlay_root.missing" "$local_overlay_root"
+  rm -f "$TEST_HOME/.config/dot/overlays.d/15-filesystem.local.conf"
+  _discover_overlays
+
   # Multiple confs → sorted order
   cat >"$TEST_HOME/.config/dot/overlays.d/20-nas.conf" <<'CONF'
 url=git@example.com:nas.git
@@ -129,19 +215,27 @@ CONF
   _assert_contains "two confs: first is work" "work|" "${OVERLAYS[0]}"
   _assert_contains "two confs: second is nas" "nas|" "${OVERLAYS[1]}"
 
-  # Missing url → skipped
+  # A legacy Git descriptor without a URL is skipped, preserving every valid
+  # overlay already discovered around it.
   cat >"$TEST_HOME/.config/dot/overlays.d/30-bad.conf" <<'CONF'
 platforms=linux
 CONF
-  _discover_overlays
-  _assert_eq "missing url: skipped" "2" "${#OVERLAYS[@]}"
+  if _discover_overlays >/dev/null 2>&1; then
+    _pass "missing url: discovery continues"
+  else
+    _fail "missing url: discovery continues"
+  fi
+  _assert_eq "missing url: valid overlays remain active" "2" "${#OVERLAYS[@]}"
   rm -f "$TEST_HOME/.config/dot/overlays.d/30-bad.conf"
+  _discover_overlays
 
   # Duplicate names → warned and skipped
   cat >"$TEST_HOME/.config/dot/overlays.d/99-work.conf" <<'CONF'
 url=git@example.com:other-work.git
 CONF
-  result=$(_discover_overlays 2>&1)
+  discovery_log="$(_tmpdir)/unknown-git-key.log"
+  _discover_overlays >"$discovery_log" 2>&1
+  result=$(cat "$discovery_log")
   _assert_eq "duplicate: still two" "2" "${#OVERLAYS[@]}"
   _assert_contains "duplicate: warns" "duplicate overlay name" "$result"
   rm -f "$TEST_HOME/.config/dot/overlays.d/99-work.conf"
@@ -151,6 +245,10 @@ CONF
   _assert_eq "name: 20-my-nas.conf" "my-nas" "$(_overlay_name "20-my-nas.conf")"
   _assert_eq "name: work.conf" "work" "$(_overlay_name "work.conf")"
   _assert_eq "name: 5-x.conf" "x" "$(_overlay_name "5-x.conf")"
+  _assert_eq "name: Git descriptor retains local suffix" \
+    "work.local" "$(_overlay_name "10-work.local.conf")"
+  _assert_eq "name: filesystem descriptor strips local suffix" \
+    "work" "$(_overlay_name "10-work.local.conf" none)"
   # Regression: a name that looks like an echo flag (e.g. "-n") must survive.
   # _overlay_name uses printf, not echo, so the leading dash is not consumed.
   _assert_eq "name: leading-dash echo-flag-like" "-n" "$(_overlay_name "10--n.conf")"
@@ -167,14 +265,107 @@ CONF
   _assert_contains "comments: url parsed" "git@example.com:commented.git" "${OVERLAYS[2]}"
   rm -f "$TEST_HOME/.config/dot/overlays.d/30-commented.conf"
 
-  # Unknown key warns
+  # Legacy Git descriptors keep their tolerant parser contract: unknown keys
+  # warn, while recognized values still produce an active overlay.
   cat >"$TEST_HOME/.config/dot/overlays.d/30-typo.conf" <<'CONF'
 url=git@example.com:typo.git
 unknown_key=linux
 CONF
-  result=$(_discover_overlays 2>&1)
-  _assert_contains "unknown key: warns" "unknown key" "$result"
+  discovery_log="$(_tmpdir)/unknown-git-key.log"
+  _discover_overlays >"$discovery_log" 2>&1
+  result=$(cat "$discovery_log")
+  _assert_eq "unknown Git key: descriptor remains active" "3" "${#OVERLAYS[@]}"
+  _assert_contains "unknown Git key: warning is retained" "unknown key in" "$result"
+  _assert_contains "unknown Git key: URL is retained" \
+    "git@example.com:typo.git" "${OVERLAYS[2]}"
   rm -f "$TEST_HOME/.config/dot/overlays.d/30-typo.conf"
+  _discover_overlays
+
+  cat >"$TEST_HOME/.config/dot/overlays.d/30-optional.conf" <<'CONF'
+url=git@example.com:optional.git
+optional=maybe
+CONF
+  discovery_log="$(_tmpdir)/invalid-git-optional.log"
+  _discover_overlays >"$discovery_log" 2>&1
+  result=$(cat "$discovery_log")
+  _assert_eq "invalid Git optional: descriptor remains active" "3" "${#OVERLAYS[@]}"
+  _assert_contains "invalid Git optional: warning is retained" \
+    "unknown optional value" "$result"
+  _assert_contains "invalid Git optional: value remains non-optional" \
+    "|maybe||git" "${OVERLAYS[2]}"
+  rm -f "$TEST_HOME/.config/dot/overlays.d/30-optional.conf"
+
+  cat >"$TEST_HOME/.config/dot/overlays.d/30-duplicate.conf" <<'CONF'
+url=git@example.com:first.git
+url=git@example.com:last.git
+optional=false
+optional=true
+CONF
+  _discover_overlays
+  _assert_eq "duplicate Git keys: descriptor remains active" "3" "${#OVERLAYS[@]}"
+  _assert_contains "duplicate Git keys: last URL wins" \
+    "git@example.com:last.git" "${OVERLAYS[2]}"
+  _assert_contains "duplicate Git keys: last optional value wins" \
+    "|true||git" "${OVERLAYS[2]}"
+  rm -f "$TEST_HOME/.config/dot/overlays.d/30-duplicate.conf"
+  _discover_overlays
+
+  # Filesystem descriptor syntax is new and fail-closed. A typo must never be
+  # reinterpreted as an intentional overlay removal.
+  cat >"$TEST_HOME/.config/dot/overlays.d/30-invalid.local.conf" <<CONF
+sync=none
+path=$local_overlay_root
+unknown_key=value
+CONF
+  if _discover_overlays >/dev/null 2>&1; then
+    _fail "invalid local key: discovery fails closed"
+  else
+    _pass "invalid local key: discovery fails closed"
+  fi
+  _assert_eq "invalid local key: partial overlays are discarded" "0" "${#OVERLAYS[@]}"
+
+  cat >"$TEST_HOME/.config/dot/overlays.d/30-invalid.local.conf" <<'CONF'
+sync=none
+CONF
+  if _discover_overlays >/dev/null 2>&1; then
+    _fail "missing local path: discovery fails closed"
+  else
+    _pass "missing local path: discovery fails closed"
+  fi
+
+  cat >"$TEST_HOME/.config/dot/overlays.d/30-invalid.local.conf" <<CONF
+sync=none
+path=$local_overlay_root
+path=$local_overlay_root
+CONF
+  if _discover_overlays >/dev/null 2>&1; then
+    _fail "duplicate local path: discovery fails closed"
+  else
+    _pass "duplicate local path: discovery fails closed"
+  fi
+
+  cat >"$TEST_HOME/.config/dot/overlays.d/30-invalid.local.conf" <<'CONF'
+sync=none
+sync=git
+url=git@example.com:wrong-mode.git
+CONF
+  if _discover_overlays >/dev/null 2>&1; then
+    _fail "duplicate sync mode: discovery fails closed"
+  else
+    _pass "duplicate sync mode: discovery fails closed"
+  fi
+
+  cat >"$TEST_HOME/.config/dot/overlays.d/30-invalid.local.conf" <<CONF
+url=git@example.com:ambiguous.git
+path=$local_overlay_root
+CONF
+  if _discover_overlays >/dev/null 2>&1; then
+    _fail "local path without sync mode: discovery fails closed"
+  else
+    _pass "local path without sync mode: discovery fails closed"
+  fi
+  rm -f "$TEST_HOME/.config/dot/overlays.d/30-invalid.local.conf"
+  _discover_overlays
 
   # Filtered duplicates must not leak their optional/key metadata into the
   # active overlay. The overlay name is the same after prefix stripping, but
@@ -201,7 +392,7 @@ platforms=active-test-platform
 optional=false
 CONF
   result=$(_discover_overlays 2>&1)
-  _assert_eq "filtered duplicate: active overlay count unchanged" "3" "${#OVERLAYS[@]}"
+  _assert_eq "filtered duplicate: active overlay count unchanged" "2" "${#OVERLAYS[@]}"
   _assert_contains "filtered duplicate: active optional false survives" "|false|" "${OVERLAYS[0]}"
   _assert_not_contains "filtered duplicate: filtered ssh does not leak" \
     "05-work.ssh" "${OVERLAYS[0]}"
@@ -1224,6 +1415,145 @@ CONF
   target=$(readlink "$TEST_HOME/.testrc_work")
   _assert_contains "link: relative symlink" ".dotfiles-work/home" "$target"
 
+  # A filesystem overlay participates in the same ownership lifecycle without
+  # becoming part of the synchronized repository set. Its link target records
+  # the configured source exactly so path changes and descriptor removal are
+  # safe even when the source tree later disappears.
+  local_lifecycle_root="$TEST_HOME/local lifecycle source"
+  local_lifecycle_next="$TEST_HOME/local lifecycle next"
+  local_descriptor="$TEST_HOME/.config/dot/overlays.d/15-filesystem.local.conf"
+  mkdir -p "$local_lifecycle_root/home"
+  printf 'local lifecycle value\n' >"$local_lifecycle_root/home/.filesystem-local"
+  printf 'base filesystem value\n' >"$TEST_HOME/.filesystem-tracked"
+  $GIT add .filesystem-tracked
+  $GIT commit -m "add filesystem overlay fixture" >/dev/null 2>&1
+  printf 'local filesystem value\n' >"$local_lifecycle_root/home/.filesystem-tracked"
+  cat >"$local_descriptor" <<CONF
+sync=none
+path=$local_lifecycle_root
+CONF
+  _discover_overlays
+  _link_overlays >/dev/null 2>&1
+  _assert_eq "local link: preserves exact configured target" \
+    "$local_lifecycle_root/home/.filesystem-local" \
+    "$(readlink "$TEST_HOME/.filesystem-local" 2>/dev/null || true)"
+  if [[ -L "$TEST_HOME/.filesystem-tracked" ]]; then
+    _pass "local link: shadows a tracked base file"
+  else
+    _fail "local link: shadows a tracked base file"
+  fi
+  local_tracked_flag=$($GIT ls-files -v .filesystem-tracked 2>/dev/null | cut -c1)
+  _assert_eq "local link: tracked base file is hidden" "S" "$local_tracked_flag"
+  manifest_content=$(cat "$DOT_OVERLAY_MANIFEST")
+  _assert_contains "local link: manifest records exact target" \
+    $'.filesystem-local\tfilesystem\t'"$local_lifecycle_root/home/.filesystem-local" \
+    "$manifest_content"
+
+  # A filesystem-managed source must not replace a user-owned symlink, even
+  # when the destination is untracked. Unlike a Git checkout, this source may
+  # change outside dot between validation and linking, so ownership must be
+  # established by an exact active or manifest-authorized target.
+  local_real_target="$TEST_HOME/.filesystem-real-target"
+  mkdir -p "$local_real_target"
+  ln -s "$local_real_target" "$TEST_HOME/.filesystem-symdir"
+  printf 'local symlink fixture\n' \
+    >"$local_lifecycle_root/home/.filesystem-symdir"
+  result=$(_link_overlays 2>&1)
+  _assert_contains "local link: warns before replacing unmanaged symlink" \
+    "would replace unmanaged symlink" "$result"
+  _assert_eq "local link: preserves unmanaged symlink target" \
+    "$local_real_target" \
+    "$(readlink "$TEST_HOME/.filesystem-symdir" 2>/dev/null || true)"
+  _assert_file_missing "local link: does not write through unmanaged symlink" \
+    "$local_real_target/.filesystem-symdir"
+  rm -f \
+    "$local_lifecycle_root/home/.filesystem-symdir" \
+    "$TEST_HOME/.filesystem-symdir"
+  rm -rf "$local_real_target"
+
+  manifest_before="$manifest_content"
+  mv "$local_lifecycle_root" "$local_lifecycle_root.missing"
+  if _link_overlays >/dev/null 2>&1; then
+    _fail "local preflight: missing active source blocks linking"
+  else
+    _pass "local preflight: missing active source blocks linking"
+  fi
+  _assert_eq "local preflight: existing link is untouched" \
+    "$local_lifecycle_root/home/.filesystem-local" \
+    "$(readlink "$TEST_HOME/.filesystem-local" 2>/dev/null || true)"
+  _assert_file_content "local preflight: manifest is untouched" \
+    "$manifest_before" "$DOT_OVERLAY_MANIFEST"
+  mv "$local_lifecycle_root.missing" "$local_lifecycle_root"
+
+  mkdir -p "$local_lifecycle_next/home"
+  printf 'new local lifecycle value\n' >"$local_lifecycle_next/home/.filesystem-local"
+  printf 'new local filesystem value\n' >"$local_lifecycle_next/home/.filesystem-tracked"
+  cat >"$local_descriptor" <<CONF
+sync=none
+path=$local_lifecycle_next
+CONF
+  _discover_overlays
+  _link_overlays >/dev/null 2>&1
+  _assert_eq "local link: descriptor path change replaces owned link" \
+    "$local_lifecycle_next/home/.filesystem-local" \
+    "$(readlink "$TEST_HOME/.filesystem-local" 2>/dev/null || true)"
+
+  rm -f "$local_lifecycle_next/home/.filesystem-local"
+  _link_overlays >/dev/null 2>&1
+  if [[ ! -e "$TEST_HOME/.filesystem-local" && ! -L "$TEST_HOME/.filesystem-local" ]]; then
+    _pass "local link: removed source file removes managed link"
+  else
+    _fail "local link: removed source file removes managed link"
+  fi
+
+  printf 'remove with descriptor value\n' >"$local_lifecycle_next/home/.filesystem-remove"
+  _link_overlays >/dev/null 2>&1
+  rm -f "$local_descriptor"
+  rm -rf "$local_lifecycle_next"
+  _discover_overlays
+  _link_overlays >/dev/null 2>&1
+  if [[ ! -e "$TEST_HOME/.filesystem-remove" && ! -L "$TEST_HOME/.filesystem-remove" ]]; then
+    _pass "local link: descriptor removal cleans links without source access"
+  else
+    _fail "local link: descriptor removal cleans links without source access"
+  fi
+  _assert_file_content "local link: descriptor removal restores tracked base file" \
+    "base filesystem value" "$TEST_HOME/.filesystem-tracked"
+  local_tracked_flag=$($GIT ls-files -v .filesystem-tracked 2>/dev/null | cut -c1)
+  _assert_not_contains "local link: descriptor removal clears tracked index state" \
+    "S" "$local_tracked_flag"
+
+  mkdir -p "$local_lifecycle_root/home"
+  printf 'replacement fixture\n' >"$local_lifecycle_root/home/.filesystem-replaced"
+  cat >"$local_descriptor" <<CONF
+sync=none
+path=$local_lifecycle_root
+CONF
+  _discover_overlays
+  _link_overlays >/dev/null 2>&1
+  rm -f "$TEST_HOME/.filesystem-replaced"
+  printf 'user replacement\n' >"$TEST_HOME/.filesystem-replaced"
+  rm -f "$local_descriptor"
+  _discover_overlays
+  _link_overlays >/dev/null 2>&1
+  _assert_file_content "local link: descriptor removal preserves user replacement" \
+    "user replacement" "$TEST_HOME/.filesystem-replaced"
+  rm -f "$TEST_HOME/.filesystem-replaced"
+  rm -rf "$local_lifecycle_root"
+
+  # Read legacy two-column authority, then rewrite every surviving record in
+  # the exact-target three-column format on the next successful link pass.
+  legacy_build=$(mktemp "${DOT_OVERLAY_MANIFEST}.legacy.XXXXXX")
+  awk -F '\t' '{ print $1 "\t" $2 }' "$DOT_OVERLAY_MANIFEST" >"$legacy_build"
+  chmod 600 "$legacy_build"
+  mv "$legacy_build" "$DOT_OVERLAY_MANIFEST"
+  _link_overlays >/dev/null 2>&1
+  if awk -F '\t' 'NF != 3 { exit 1 }' "$DOT_OVERLAY_MANIFEST"; then
+    _pass "overlay manifest: legacy records migrate to exact targets"
+  else
+    _fail "overlay manifest: legacy records migrate to exact targets"
+  fi
+
   # Result accounting must use structured state, not words in the display
   # label. Overlay names may contain spaces, including the word "linked".
   linked_name="status linked fixture"
@@ -1571,6 +1901,7 @@ Host test-alias
   User git
   IdentityFile ~/.ssh/test-key
 SSH
+  _discover_overlays
   _merge_overlay_ssh_configs
   _assert_file_exists "overlay ssh: config created" "$SSH_CONFIG"
   ssh_content=$(cat "$SSH_CONFIG")
@@ -1622,7 +1953,218 @@ SSH
   perms=$(stat -c '%a' "$SSH_CONFIG" 2>/dev/null || stat -f '%Lp' "$SSH_CONFIG" 2>/dev/null)
   _assert_eq "overlay ssh: config is 600" "600" "$perms"
 
+  rm -f "$TEST_HOME/.config/dot/overlays.d/10-work.ssh"
+  _discover_overlays
+  _merge_overlay_ssh_configs
+  ssh_content=$(cat "$SSH_CONFIG")
+  _assert_contains "overlay ssh: source removal preserves hand-managed entries" \
+    "Host myserver" "$ssh_content"
+  _assert_not_contains "overlay ssh: source removal prunes managed alias" \
+    "Host test-alias" "$ssh_content"
+  _assert_not_contains "overlay ssh: source removal prunes managed marker" \
+    "dot-managed:overlay-ssh:" "$ssh_content"
+
+  # A filesystem source is controlled outside dot and may change between the
+  # preflight inventory and the link loop. Both a vanished entry and a replaced
+  # source root must fail closed without publishing a dangling or unvalidated
+  # home link.
+  source_race_saved_manifest="$DOT_OVERLAY_MANIFEST"
+  source_race_saved_legacy="$DOT_OVERLAY_LEGACY_MANIFEST"
+  _local_source_inventory_race() {
+    local mode="$1"
+    local race_root="$TEST_HOME/local source race $mode"
+    local race_rel=".filesystem-race-$mode"
+    local race_manifest="$TEST_HOME/local-source-race-$mode/dot/overlay-links"
+    local race_pending="${race_manifest}.pending"
+    local race_find_calls=0 race_rc=0
+
+    mkdir -p "$race_root/home"
+    printf '%s\n' "validated source" >"$race_root/home/$race_rel"
+    DOT_OVERLAY_MANIFEST="$race_manifest"
+    DOT_OVERLAY_LEGACY_MANIFEST="$TEST_HOME/no-local-source-race-legacy-$mode"
+    OVERLAYS=("filesystem-race-$mode|$race_root|||||none")
+
+    # shellcheck disable=SC2329  # source validation and inventory call this fixture.
+    find() {
+      command find "$@"
+      if [[ "${1:-}" == "$race_root/home" ]]; then
+        race_find_calls=$((race_find_calls + 1))
+        if [[ "$race_find_calls" -eq 2 ]]; then
+          case "$mode" in
+            disappear)
+              rm -f "$race_root/home/$race_rel"
+              ;;
+            replace)
+              mv "$race_root/home" "$race_root/home.original"
+              mkdir -p "$race_root/home"
+              printf '%s\n' "unvalidated replacement" >"$race_root/home/$race_rel"
+              ;;
+          esac
+        fi
+      fi
+    }
+    _link_overlays >/dev/null 2>&1 || race_rc=$?
+    unset -f find
+
+    if [[ "$race_rc" -ne 0 ]]; then
+      _pass "local source race ($mode): linking fails closed"
+    else
+      _fail "local source race ($mode): linking fails closed"
+    fi
+    if [[ ! -e "$TEST_HOME/$race_rel" && ! -L "$TEST_HOME/$race_rel" ]]; then
+      _pass "local source race ($mode): no home link is published"
+    else
+      _fail "local source race ($mode): no home link is published"
+    fi
+    _assert_file_exists "local source race ($mode): pending authority is retained" \
+      "$race_pending"
+
+    rm -f "$TEST_HOME/$race_rel" "$race_manifest" "$race_pending"
+    rm -rf "$race_root" "${race_manifest%/dot/overlay-links}"
+  }
+  _local_source_inventory_race disappear
+  _local_source_inventory_race replace
+  unset -f _local_source_inventory_race
+  DOT_OVERLAY_MANIFEST="$source_race_saved_manifest"
+  DOT_OVERLAY_LEGACY_MANIFEST="$source_race_saved_legacy"
+
+  # An earlier overlay can create a symlinked destination parent that points
+  # into a later local overlay's source. The later overlay must re-check the
+  # physical parent at the mutation boundary instead of trusting the initial
+  # all-overlay preflight snapshot.
+  parent_overlay_root="$TEST_HOME/parent overlay source"
+  child_overlay_root="$TEST_HOME/child overlay source"
+  parent_overlay_conf="$TEST_HOME/.config/dot/overlays.d/15-parent.local.conf"
+  child_overlay_conf="$TEST_HOME/.config/dot/overlays.d/16-child.local.conf"
+  mkdir -p \
+    "$parent_overlay_root/home" \
+    "$child_overlay_root/home/redirect" \
+    "$child_overlay_root/home/.revalidate-parent"
+  ln -s "$child_overlay_root/home/redirect" \
+    "$parent_overlay_root/home/.revalidate-parent"
+  printf '%s\n' "source child" \
+    >"$child_overlay_root/home/.revalidate-parent/child"
+  cat >"$parent_overlay_conf" <<CONF
+sync=none
+path=$parent_overlay_root
+CONF
+  cat >"$child_overlay_conf" <<CONF
+sync=none
+path=$child_overlay_root
+CONF
+  _discover_overlays
+  if _link_overlays >/dev/null 2>&1; then
+    _fail "local mutation boundary: later overlay rejects redirected parent"
+  else
+    _pass "local mutation boundary: later overlay rejects redirected parent"
+  fi
+  _assert_file_missing "local mutation boundary: source tree remains unmodified" \
+    "$child_overlay_root/home/redirect/child"
+  _overlay_pending_manifest_path
+  mutation_pending_manifest="$REPLY"
+  rm -f \
+    "$parent_overlay_conf" \
+    "$child_overlay_conf" \
+    "$TEST_HOME/.revalidate-parent" \
+    "$DOT_OVERLAY_MANIFEST" \
+    "$mutation_pending_manifest"
+
+  # The inverse ordering is just as important: a local overlay may first link
+  # a parent into its own source, then a later Git overlay may try to write
+  # below that parent. Every writer must protect every active local source,
+  # regardless of the writer's own synchronization mode.
+  earlier_overlay_root="$TEST_HOME/earlier overlay source"
+  later_overlay_root="$TEST_HOME/.dotfiles-later"
+  later_overlay_origin="$TEST_HOME/later-overlay-origin"
+  earlier_overlay_conf="$TEST_HOME/.config/dot/overlays.d/17-earlier.local.conf"
+  later_overlay_conf="$TEST_HOME/.config/dot/overlays.d/18-later.conf"
+  mkdir -p \
+    "$earlier_overlay_root/home/redirect" \
+    "$later_overlay_root/home/.revalidate-reverse"
+  ln -s "$earlier_overlay_root/home/redirect" \
+    "$earlier_overlay_root/home/.revalidate-reverse"
+  printf '%s\n' "Git child" \
+    >"$later_overlay_root/home/.revalidate-reverse/child"
+  git init --bare -q "$later_overlay_origin"
+  git init -q "$later_overlay_root"
+  git -C "$later_overlay_root" remote add origin "$later_overlay_origin"
+  cat >"$earlier_overlay_conf" <<CONF
+sync=none
+path=$earlier_overlay_root
+CONF
+  cat >"$later_overlay_conf" <<CONF
+url=$later_overlay_origin
+CONF
+  _discover_overlays
+  if _link_overlays >/dev/null 2>&1; then
+    _fail "local mutation boundary: later Git overlay rejects earlier source redirect"
+  else
+    _pass "local mutation boundary: later Git overlay rejects earlier source redirect"
+  fi
+  if [[ ! -e "$earlier_overlay_root/home/redirect/child" &&
+    ! -L "$earlier_overlay_root/home/redirect/child" ]]; then
+    _pass "local mutation boundary: earlier source remains unmodified"
+  else
+    _fail "local mutation boundary: earlier source remains unmodified"
+  fi
+  _overlay_pending_manifest_path
+  mutation_pending_manifest="$REPLY"
+  rm -f \
+    "$earlier_overlay_conf" \
+    "$later_overlay_conf" \
+    "$TEST_HOME/.revalidate-reverse" \
+    "$DOT_OVERLAY_MANIFEST" \
+    "$mutation_pending_manifest"
+
+  # Stale cleanup can restore a tracked leaf that is currently missing. If an
+  # active local overlay has redirected its parent into the local source, the
+  # restore must fail before Git replaces that parent link and writes through
+  # it.
+  stale_guard_root="$TEST_HOME/stale guard source"
+  stale_guard_conf="$TEST_HOME/.config/dot/overlays.d/19-stale-guard.local.conf"
+  stale_guard_rel=".revalidate-stale/child"
+  mkdir -p "$TEST_HOME/.revalidate-stale"
+  printf '%s\n' "base child" >"$TEST_HOME/$stale_guard_rel"
+  $GIT add "$stale_guard_rel"
+  $GIT commit -m "add stale restore safety fixture" >/dev/null 2>&1
+  $GIT update-index --skip-worktree "$stale_guard_rel"
+  rm -rf "$TEST_HOME/.revalidate-stale"
+  mkdir -p "$stale_guard_root/home/redirect"
+  ln -s "$stale_guard_root/home/redirect" \
+    "$stale_guard_root/home/.revalidate-stale"
+  cat >"$stale_guard_conf" <<CONF
+sync=none
+path=$stale_guard_root
+CONF
+  _overlay_link_target "$stale_guard_rel" retired
+  printf '%s\t%s\t%s\n' "$stale_guard_rel" retired "$REPLY" \
+    >"$DOT_OVERLAY_MANIFEST"
+  chmod 600 "$DOT_OVERLAY_MANIFEST"
+  _discover_overlays
+  if _link_overlays >/dev/null 2>&1; then
+    _fail "local cleanup boundary: unsafe tracked restore fails closed"
+  else
+    _pass "local cleanup boundary: unsafe tracked restore fails closed"
+  fi
+  if [[ -L "$TEST_HOME/.revalidate-stale" ]]; then
+    _pass "local cleanup boundary: active parent link remains intact"
+  else
+    _fail "local cleanup boundary: active parent link remains intact"
+  fi
+  if [[ ! -e "$stale_guard_root/home/redirect/child" &&
+    ! -L "$stale_guard_root/home/redirect/child" ]]; then
+    _pass "local cleanup boundary: local source remains unmodified"
+  else
+    _fail "local cleanup boundary: local source remains unmodified"
+  fi
+
   # Clean up
   rm -rf "$SSH_DIR"
-  rm -f "$TEST_HOME/.config/dot/overlays.d/10-work.ssh"
+  rm -f \
+    "$TEST_HOME/.config/dot/overlays.d/10-work.ssh" \
+    "$parent_overlay_conf" \
+    "$child_overlay_conf" \
+    "$earlier_overlay_conf" \
+    "$later_overlay_conf" \
+    "$stale_guard_conf"
 }

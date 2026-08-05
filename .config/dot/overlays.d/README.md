@@ -1,6 +1,6 @@
-# Overlay Repositories
+# Dot Overlays
 
-Overlay repos extend the base dotfiles with work, machine-specific, or
+Overlays extend the base dotfiles with work, machine-specific, or
 project-specific files. Each overlay is declared by a config file in this
 directory.
 
@@ -36,7 +36,9 @@ platforms=linux
 hosts=workbox1
 ```
 
-- `url` is required.
+- `sync` defaults to `git`; set it to `none` only for a filesystem-managed
+  source as described below.
+- `url` is required for Git overlays.
 - `optional` is optional. Set it to `true` for private overlays that should be
   used when available but skipped when the current machine cannot clone or pull
   them. Leave it unset for required overlays; missing keys or clone failures are
@@ -95,6 +97,56 @@ No extra overlay-specific plugin point is needed. Symlinking into `$HOME` makes
 overlay-provided files appear in the same directories that `dot update` already
 scans, such as `merge-hooks.d`, `hooks.d`, shell config directories, and
 `.local/bin`.
+
+## Filesystem-Managed Sources
+
+Use a machine-local `*.local.conf` descriptor when another tool or a manual
+setup step already places the overlay source on disk. These descriptors live in
+the normal `~/.config/dot/overlays.d/` directory and are ignored by the public
+base repository:
+
+```text
+sync=none
+path=~/projects/example-overlay
+```
+
+The source uses the same `home/` layout as a Git overlay. `dot update` links its
+files and runs the normal merge, dependency, and cleanup lifecycle, but it does
+not run Git, synchronize, configure, or otherwise manage the source repository.
+The filesystem overlay is also omitted from `dot fetch`, `dot push`,
+`dot status`, and `dot diff`.
+
+`path` must be an absolute path or start with `~/`. It may contain spaces. A
+`sync=none` descriptor cannot also set `url`, `optional`, or use a companion
+`.ssh` file. Its `.local.conf` suffix is not part of the overlay name, so
+`10-project.local.conf` names the overlay `project`.
+
+An active filesystem source must have a readable, searchable `home/` directory
+and readable file entries. Source symlinks must resolve to usable files or
+directories. If validation fails, `dot update` stops before repository
+synchronization or finalization; `dotbootstrap` validates after the base
+checkout and before overlay pulls or finalization. Removing a source file
+removes its managed link on the next successful update. Removing the descriptor
+removes all of its managed links without needing the source tree to remain
+available; user-replaced paths are preserved.
+
+For a manual cutover from a Git overlay, avoid running both descriptors with
+the same name at once:
+
+1. Pause scheduled updates and back up the source plus any user files at paths
+   the overlay owns.
+2. Remove the tracked Git descriptor upstream, run `dot update` to receive that
+   change, then run it once more with no same-name replacement descriptor. The
+   second pass guarantees rediscovery and cleanup even when the first pull did
+   not need to re-exec the CLI.
+3. Verify a placeholder `*.local.conf` path is ignored with `git check-ignore`
+   before putting a private path in it.
+4. Place the filesystem source and local descriptor, then run `dot update` and
+   `dot doctor`.
+
+To roll back, remove the local descriptor and run `dot update` before restoring
+the previous Git descriptor. This keeps each cleanup pass under one source of
+authority and requires no compatibility mode.
 
 ## Private Overlays
 

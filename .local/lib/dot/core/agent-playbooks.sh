@@ -65,9 +65,30 @@ _dot_playbook_overlay_source_tracked() {
   esac
 }
 
+_dot_playbook_local_source_trusted() {
+  local rel="$1" owner="$2" target="$3"
+  local entry name path sync expected source root_real
+  for entry in "${OVERLAYS[@]+"${OVERLAYS[@]}"}"; do
+    IFS='|' read -r name path _ _ _ _ sync <<<"$entry"
+    sync="${sync:-git}"
+    [[ "$name" == "$owner" && "$sync" == "none" ]] || continue
+
+    _overlay_record_link_target "$rel" "$name" "$path" "$sync" || return 2
+    expected="$REPLY"
+    [[ "$target" == "$expected" ]] || return 2
+    source="$path/home/$rel"
+    [[ -f "$source" && ! -L "$source" && -r "$source" ]] || return 2
+    root_real=$(cd -P -- "$path/home" 2>/dev/null && pwd -P) || return 2
+    _dot_playbook_below_root "$source" "$root_real" || return 2
+    return 0
+  done
+  return 1
+}
+
 _dot_playbook_overlay_files() {
   local -a OVERLAY_AUTHORITY_MANIFESTS=()
-  local manifest line tracked_status REPLY_REL REPLY_OWNER
+  local manifest line tracked_status local_status git_target
+  local REPLY_REL REPLY_OWNER REPLY_TARGET
 
   _overlay_authority_files || return 1
   for manifest in "${OVERLAY_AUTHORITY_MANIFESTS[@]+"${OVERLAY_AUTHORITY_MANIFESTS[@]}"}"; do
@@ -75,11 +96,28 @@ _dot_playbook_overlay_files() {
       _overlay_parse_manifest_record "$line" || continue
       case "$REPLY_REL" in
         .config/dot/agent-playbooks.d/*.md)
-          _overlay_link_matches "$REPLY_REL" "$REPLY_OWNER" || continue
-          if _dot_playbook_overlay_source_tracked "$REPLY_REL" "$REPLY_OWNER"; then
-            tracked_status=0
+          _overlay_link_matches "$REPLY_REL" "$REPLY_OWNER" "$REPLY_TARGET" || continue
+          if _dot_playbook_local_source_trusted \
+            "$REPLY_REL" "$REPLY_OWNER" "$REPLY_TARGET"; then
+            local_status=0
           else
-            tracked_status=$?
+            local_status=$?
+          fi
+          if [[ "$local_status" -eq 0 ]]; then
+            tracked_status=0
+          elif [[ "$local_status" -eq 2 ]]; then
+            return 1
+          else
+            _overlay_record_link_target "$REPLY_REL" "$REPLY_OWNER" \
+              "$HOME/.dotfiles-$REPLY_OWNER" git || return 1
+            git_target="$REPLY"
+            if [[ "$REPLY_TARGET" != "$git_target" ]]; then
+              tracked_status=1
+            elif _dot_playbook_overlay_source_tracked "$REPLY_REL" "$REPLY_OWNER"; then
+              tracked_status=0
+            else
+              tracked_status=$?
+            fi
           fi
           [[ "$tracked_status" -eq 1 ]] && continue
           [[ "$tracked_status" -eq 0 ]] || return 1

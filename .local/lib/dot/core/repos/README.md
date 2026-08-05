@@ -1,17 +1,20 @@
-# Repo Runtime
+# Repo And Overlay Runtime
 
-`core/repos` owns every `dot` operation that treats the base bare repo and
-active overlay repos as one repo set.
+`core/repos` owns the Git repo set formed by the base bare repo and active Git
+overlays. It also owns the link and cleanup lifecycle shared by Git overlays
+and filesystem-managed overlays.
 
 The public source point is `api.sh`; callers should not source individual
 modules. The split exists to keep the main invariants reviewable:
 
 - the base dotfiles repo is bare and must be invoked through `$GIT`
-- overlays are normal Git repos and must use `git -C <path>`
+- Git overlays are normal repos and must use `git -C <path>`
+- filesystem-managed overlays participate in linking but never enter the Git
+  repo set
 - simple commands only touch repos that already exist locally
 - pull/update may clone missing overlays when their configured remote is
   available, or when their deploy key is available for deploy-key overlays
-- overlay links shadow base files with symlinks and `skip-worktree`
+- every overlay type shadows base files with symlinks and `skip-worktree`
 - cron dirty-state repair must only fix content-clean or remote-matching files
 
 ## Public Surface
@@ -35,7 +38,8 @@ when every helper is effectively public.
 - `git.sh` centralizes base-vs-overlay repo iteration and Git invocation.
 - `dirty.sh` handles dirty checks, out-of-band write repair, and filter normalization.
 - `pull.sh` owns base/overlay pull behavior and update progress reporting.
-- `overlays.sh` owns overlay symlink manifests and `skip-worktree` handling.
+- `overlays.sh` owns shared overlay symlink manifests, cleanup, source-target
+  authority, and `skip-worktree` handling.
 - `commands.sh` owns fetch, push, diff, and status command wrappers.
 
 ## Update Flow
@@ -46,12 +50,15 @@ That helper intentionally does only repo synchronization:
 1. apply repo config and normalize content-clean dirty paths
 2. restore any base files currently hidden by overlay symlinks
 3. pull the base repo
-4. clone or pull pull-eligible overlays, running independent overlay repo syncs
-   in parallel up to `DOT_UPDATE_JOBS`
+4. clone or pull eligible Git overlays, running independent overlay repo syncs
+   in parallel up to `DOT_UPDATE_JOBS`; filesystem-managed sources are omitted
+   from this repo phase
 5. report one repo-stage summary back to the update dashboard
 
-After that, update calls `_link_overlays` to recreate overlay symlinks and
-re-apply `skip-worktree` for tracked base files shadowed by overlays.
+After that, update calls `_link_overlays` to recreate symlinks from every active
+overlay source and re-apply `skip-worktree` for tracked base files shadowed by
+overlays. Filesystem sources must pass the shared preflight before any repo or
+home mutation.
 
 Overlay linking itself stays serial. Overlay discovery order defines
 last-overlay-wins behavior for conflicting files, and the link step writes one
@@ -68,6 +75,8 @@ URL and any required deploy key is present. Optional overlays are attempted
 when active, but missing deploy keys and clone or pull failures are skipped so
 private overlays can be declared in the base repo without breaking machines
 that lack access. Required overlays report missing keys and failed syncs.
+Filesystem-managed overlays are omitted from every repo command; `dot` only
+validates their source trees and applies their normal link lifecycle.
 
 The overlay manifest in the selected state directory is the cleanup authority
 for symlinks created by older runs. If an overlay file disappears, the manifest

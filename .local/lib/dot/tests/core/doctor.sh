@@ -422,6 +422,72 @@ SH
     "merge-managed config output symlink" "$result"
   rm -f "$TEST_HOME/.codex/config.toml"
 
+  doctor_local_root="$TEST_HOME/doctor local source"
+  doctor_local_conf="$TEST_HOME/.config/dot/overlays.d/15-filesystem.local.conf"
+  doctor_local_rel=.doctor-local-link
+  mkdir -p "$doctor_local_root/home" "$TEST_HOME/.local/state/dot"
+  printf '%s\n' "local doctor value" >"$doctor_local_root/home/$doctor_local_rel"
+  cat >"$doctor_local_conf" <<CONF
+sync=none
+path=$doctor_local_root
+CONF
+  ln -s "$doctor_local_root/home/$doctor_local_rel" "$TEST_HOME/$doctor_local_rel"
+  printf '%s\t%s\t%s\n' \
+    "$doctor_local_rel" filesystem "$doctor_local_root/home/$doctor_local_rel" \
+    >"$TEST_HOME/.local/state/dot/overlay-links"
+  chmod 600 "$TEST_HOME/.local/state/dot/overlay-links"
+  _discover_overlays
+  result=$(_dr_check_overlays 2>&1 || true)
+  _assert_contains "doctor: reports a healthy filesystem overlay source" \
+    "filesystem: local source available" "$result"
+  _assert_contains "doctor: accepts filesystem overlay exact-target links" \
+    "overlay symlinks healthy" "$result"
+  _assert_not_contains "doctor: filesystem overlay is never reported as uncloned" \
+    "filesystem: not cloned" "$result"
+
+  chmod 000 "$doctor_local_root/home/$doctor_local_rel"
+  result=$(_dr_check_overlays 2>&1 || true)
+  _assert_contains "doctor: reports an unreadable filesystem overlay source" \
+    "filesystem: local source unavailable" "$result"
+  chmod 600 "$doctor_local_root/home/$doctor_local_rel"
+
+  doctor_local_next="$TEST_HOME/doctor local source next"
+  mkdir -p "$doctor_local_next/home"
+  printf '%s\n' "next local doctor value" \
+    >"$doctor_local_next/home/$doctor_local_rel"
+  cat >"$doctor_local_conf" <<CONF
+sync=none
+path=$doctor_local_next
+CONF
+  _discover_overlays
+  result=$(_dr_check_overlays 2>&1 || true)
+  _assert_contains "doctor: flags a stale link after local source path changes" \
+    "overlay symlink issue" "$result"
+  cat >"$doctor_local_conf" <<CONF
+sync=none
+path=$doctor_local_root
+CONF
+  _discover_overlays
+
+  cat >"$TEST_HOME/.config/dot/overlays.d/16-invalid.local.conf" <<CONF
+sync=none
+path=$doctor_local_root
+unexpected=value
+CONF
+  rm -f "$TEST_HOME/$doctor_local_rel"
+  result=$("$BIN_DIR/dot" doctor 2>&1 || true)
+  _assert_contains "doctor: malformed descriptor is an explicit failure" \
+    "overlay descriptor invalid" "$result"
+  _assert_contains "doctor: malformed descriptor still checks stale manifest state" \
+    "overlay symlink issue" "$result"
+  rm -f \
+    "$TEST_HOME/.config/dot/overlays.d/16-invalid.local.conf" \
+    "$doctor_local_conf" \
+    "$TEST_HOME/$doctor_local_rel" \
+    "$TEST_HOME/.local/state/dot/overlay-links"
+  rm -rf "$doctor_local_root" "$doctor_local_next"
+  _discover_overlays
+
   doctor_overlay_bare=$(_tmpdir)
   doctor_wrong_target=$(_tmpdir)/wrong-target
   git init --bare "$doctor_overlay_bare" >/dev/null 2>&1
@@ -552,7 +618,7 @@ SH
   )
   _assert_contains "doctor: noncanonical overlay target remains an issue" \
     "overlay symlink issue" "$result"
-  _assert_file_exists "doctor: noncanonical overlay target uses physical fallback" \
+  _assert_file_missing "doctor: malformed manifest is rejected before physical fallback" \
     "$doctor_physical_fallback_log"
   rm -rf "$doctor_escape_overlay"
 

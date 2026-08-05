@@ -19,9 +19,11 @@ _repo_each_existing() {
     "$callback" base dotfiles "$HOME" "" "$@" || return $?
   fi
 
-  local entry name path url
+  local entry name path url sync
   for entry in "${OVERLAYS[@]+"${OVERLAYS[@]}"}"; do
-    IFS='|' read -r name path url _ <<<"$entry"
+    IFS='|' read -r name path url _ _ _ sync <<<"$entry"
+    sync="${sync:-git}"
+    [[ "$sync" == "git" ]] || continue
     [[ -d "$path/.git" ]] || continue
     "$callback" overlay "$name" "$path" "$url" "$@" || return $?
   done
