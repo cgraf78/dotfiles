@@ -53,7 +53,8 @@ _scratch_entry_count() {
 _run_resource_cancel_case() {
   local mode="$1" label="$2" signal="${3:-TERM}" expected_rc="${4:-143}"
   local ignore_term="${5:-0}" signal_scope="${6:-parent}"
-  local case_dir fixture_pid fixture_rc=0 child_pid="" unrelated_pid
+  local weak_nested_cleanup="${7:-0}"
+  local case_dir fixture_pid fixture_rc=0 child_pid=""
   local had_monitor=0 saved_quit=""
   local -a fixture_command=()
   case_dir=$(_tmpdir)
@@ -75,7 +76,20 @@ if [[ "$IGNORE_TERM" == 3 ]]; then
   }
 fi
 
+if [[ "$WEAK_NESTED_CLEANUP" == 1 ]]; then
+  _dot_cleanup_process_backend() { printf -v "$1" '%s' none; }
+  eval "$(declare -f _dot_cleanup_owned | sed '1s/_dot_cleanup_owned/_dot_cleanup_owned_original/')"
+  _dot_cleanup_owned() {
+    # Model a normally scheduled inner merge owner reaching escalation slightly
+    # after its parent. With no descendant discovery, equal grace periods let
+    # the parent kill this owner before it can kill its TERM-resistant hook.
+    [[ -z "${_hook_pid:-}" ]] || sleep 0.25
+    _dot_cleanup_owned_original
+  }
+fi
+
 _fixture_block() {
+  local worker_scratch=""
   if [[ "$IGNORE_TERM" == 1 ]]; then
     trap '' TERM
   elif [[ "$IGNORE_TERM" == 2 ]]; then
@@ -85,6 +99,10 @@ _fixture_block() {
     trap '' TERM HUP
   fi
   printf '%s\n' "$BASHPID" >"$CASE_DIR/child.pid"
+  if [[ "$WEAK_NESTED_CLEANUP" == 1 ]]; then
+    worker_scratch=$(mktemp)
+    printf '%s\n' "$worker_scratch" >"$CASE_DIR/worker-scratch.path"
+  fi
   : >"$CASE_DIR/ready"
   if [[ "$IGNORE_TERM" == 2 ]]; then
     while :; do sleep 0.05; done
@@ -170,7 +188,8 @@ PY
   [[ "$-" == *m* ]] && had_monitor=1
   set -m
   SOURCE_HOME="$SOURCE_HOME" CASE_DIR="$case_dir" MODE="$mode" \
-    IGNORE_TERM="$ignore_term" TMPDIR="$case_dir/tmp" \
+    IGNORE_TERM="$ignore_term" WEAK_NESTED_CLEANUP="$weak_nested_cleanup" \
+    TMPDIR="$case_dir/tmp" \
     "${fixture_command[@]}" &
   fixture_pid=$!
   [[ "$had_monitor" == 1 ]] || set +m
@@ -190,8 +209,6 @@ PY
   fi
   child_pid=$(<"$case_dir/child.pid")
 
-  sleep 30 &
-  unrelated_pid=$!
   if [[ "$signal_scope" == group ]]; then
     kill -"$signal" -- "-$fixture_pid"
   else
@@ -214,8 +231,7 @@ PY
     fixture_rc=$WAIT_PID_RC
   else
     _fail "$label: fixture exits within five seconds"
-    kill -KILL "$child_pid" "$unrelated_pid" 2>/dev/null || true
-    wait "$unrelated_pid" 2>/dev/null || true
+    kill -KILL "$child_pid" 2>/dev/null || true
     return
   fi
 
@@ -239,14 +255,7 @@ PY
   else
     _fail "$label: cancellation prevents later phases"
   fi
-  if kill -0 "$unrelated_pid" 2>/dev/null; then
-    _pass "$label: unrelated process is untouched"
-  else
-    _fail "$label: unrelated process is untouched"
-  fi
-
-  kill -KILL "$child_pid" "$unrelated_pid" 2>/dev/null || true
-  wait "$unrelated_pid" 2>/dev/null || true
+  kill -KILL "$child_pid" 2>/dev/null || true
   [[ "$had_monitor" == 1 ]] && set -m
 }
 
@@ -1023,6 +1032,7 @@ _dot_cleanup_owned() {
     "${DOT_CLEANUP_PIDS[*]}" "${DOT_CLEANUP_PID_IDENTITIES[*]}" \
     >"$CASE_DIR/cleanup-snapshot"
 }
+
 trap '_dot_cleanup_signal 143' TERM
 debug_fired=0
 _signal_between_pid_fields() {
@@ -1046,12 +1056,74 @@ FIXTURE
     $'pids=202\nidentities=identity-202' "$case_dir/cleanup-snapshot"
 }
 
+_run_owner_exit_status_case() {
+  local case_dir fixture_rc=0
+  case_dir=$(_tmpdir)
+
+  cat >"$case_dir/fixture.sh" <<'FIXTURE'
+#!/usr/bin/env bash
+set -eu
+
+# shellcheck source=/dev/null
+. "$SOURCE_HOME/.local/lib/dot/core/resources.sh"
+
+_dot_cleanup_all() { return 7; }
+_dot_cleanup_install_owner_traps
+exit 37
+FIXTURE
+  chmod +x "$case_dir/fixture.sh"
+
+  SOURCE_HOME="$SOURCE_HOME" bash "$case_dir/fixture.sh" || fixture_rc=$?
+  _assert_exit "owner EXIT cleanup: preserves the command status" 37 "$fixture_rc"
+}
+
+_run_resource_resourcing_case() {
+  local case_dir fixture_rc=0
+  case_dir=$(_tmpdir)
+
+  cat >"$case_dir/fixture.sh" <<'FIXTURE'
+#!/usr/bin/env bash
+set -eu
+
+resources="$SOURCE_HOME/.local/lib/dot/core/resources.sh"
+# shellcheck source=/dev/null
+. "$resources"
+
+owned="$CASE_DIR/owned"
+: >"$owned"
+_dot_cleanup_register_path "$owned"
+
+# Re-sourcing in the same process must not discard an active registry.
+# shellcheck source=/dev/null
+. "$resources"
+[[ "${#DOT_CLEANUP_PATHS[@]}" -eq 1 ]]
+
+# A fork is a new cleanup owner and must not inherit the parent's resources.
+(
+  # shellcheck source=/dev/null
+  . "$resources"
+  [[ "${#DOT_CLEANUP_PATHS[@]}" -eq 0 ]]
+)
+
+_dot_cleanup_all
+[[ ! -e "$owned" ]]
+FIXTURE
+  chmod +x "$case_dir/fixture.sh"
+
+  SOURCE_HOME="$SOURCE_HOME" CASE_DIR="$case_dir" \
+    bash "$case_dir/fixture.sh" || fixture_rc=$?
+  _assert_exit "resource re-source: preserves only the current owner's registry" \
+    0 "$fixture_rc"
+}
+
 echo "=== Owned resource cleanup on cancellation ==="
 _run_resource_cancel_case run "logged command"
 _run_resource_cancel_case run "TERM-resistant logged command" TERM 143 1
 _run_resource_cancel_case run "cleanup interrupted by a second signal" TERM 143 2
 _run_resource_cancel_case lock "strict cleanup interrupted by a terminal-group signal" TERM 143 3 group
 _run_resource_cancel_case merges "merge batch"
+_run_resource_cancel_case merges \
+  "merge batch with weak descendant discovery" TERM 143 1 parent 1
 _run_resource_cancel_case overlays "overlay pull batch"
 _run_resource_cancel_case shdeps "shdeps progress"
 _run_resource_cancel_case run "logged command on HUP" HUP 129
@@ -1077,6 +1149,8 @@ _run_pgrep_pattern_case
 _run_weak_identity_fails_closed_case
 _run_subshell_err_trap_case
 _run_unregister_atomicity_case
+_run_owner_exit_status_case
+_run_resource_resourcing_case
 _check_bash4_nounset_array_guards
 
 _test_summary

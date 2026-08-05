@@ -550,6 +550,10 @@ _pull_overlay_capture() {
   local _idx="$1" _result_dir="$2" name="$3" path="$4" url="$5" optional="$6" ssh_file="$7"
   shift 7
   local _prefix _rc=0
+  # Capture-worker helpers may allocate their own logs. Contain them in the
+  # parent-owned result root so forced worker termination cannot leak storage.
+  local TMPDIR="$_result_dir"
+  export TMPDIR
   _dot_cleanup_prepare_subshell
   _prefix="$(_pull_overlay_result_prefix "$_result_dir" "$_idx")"
   REPLY_STATUS=""

@@ -564,14 +564,14 @@ SH
       done
       [[ "$ready" -eq 1 ]] || exit 90
 
-      find "$TMPDIR" -mindepth 1 -maxdepth 1 -type f -print \
+      find "$TMPDIR" -mindepth 1 -maxdepth 1 -print \
         >"$DOCTOR_CANCEL_READY.before"
       kill -TERM -- "-$leader"
       doctor_rc=0
       wait "$leader" || doctor_rc=$?
       leader=""
       printf "%s\n" "$doctor_rc" >"$DOCTOR_CANCEL_READY.rc"
-      find "$TMPDIR" -mindepth 1 -maxdepth 1 -type f -print \
+      find "$TMPDIR" -mindepth 1 -maxdepth 1 -print \
         >"$DOCTOR_CANCEL_READY.after"
     ' || doctor_cancel_fixture_rc=$?
   _assert_exit "doctor cancellation: fixture completes within deadline" \
@@ -579,9 +579,9 @@ SH
   _assert_file_content "doctor cancellation: preserves TERM status" \
     "143" "$doctor_cancel_dir/ready.rc"
   doctor_cancel_before=$(cat "$doctor_cancel_dir/ready.before" 2>/dev/null || true)
-  _assert_contains "doctor cancellation: reaches a registered readlink tempfile" \
-    "$doctor_cancel_tmp/tmp." "$doctor_cancel_before"
-  _assert_file_content "doctor cancellation: removes its registered tempfile" \
+  _assert_contains "doctor cancellation: reaches a registered operation root" \
+    "$doctor_cancel_tmp/dot-doctor." "$doctor_cancel_before"
+  _assert_file_content "doctor cancellation: removes its registered scratch root" \
     "" "$doctor_cancel_dir/ready.after"
 
   for doctor_link_suffix in one two; do

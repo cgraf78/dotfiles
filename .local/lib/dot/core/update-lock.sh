@@ -179,7 +179,7 @@ _dot_update_lock_install_traps() {
   # persistent failure on every later update.
   # Ignore handled signals before cleanup starts. `_dot_cleanup_all` preserves
   # that disposition, so lock-release subprocesses remain protected too.
-  trap '_dot_cleanup_ignore_signals; _dot_cleanup_all || true; _dot_update_lock_release' EXIT
+  trap '_dot_cleanup_on_exit; _dot_update_lock_release' EXIT
   _dot_cleanup_install_signal_traps
 }
 

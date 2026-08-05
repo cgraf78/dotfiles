@@ -329,8 +329,7 @@ fi
 # Bootstrap is a top-level process just like `dot update`, but it does not own
 # the update lock. Keep its async work and private scratch under the same exit
 # cleanup contract without changing the caller's interactive process group.
-trap '_dot_cleanup_ignore_signals; _dot_cleanup_all' EXIT
-_dot_cleanup_install_signal_traps
+_dot_cleanup_install_owner_traps
 
 # ---------------------------------------------------------------------------
 # Overlay repos: discover, clone/pull

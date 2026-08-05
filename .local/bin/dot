@@ -80,11 +80,17 @@ case "${1:-}" in
     exit 0
     ;;
   doctor)
-    # Doctor normally removes its diagnostic scratch files inline, but a signal
-    # can arrive after registration and before that removal. It has no update
-    # lock to install the shared cleanup owner, so own those resources here.
-    trap '_dot_cleanup_ignore_signals; _dot_cleanup_all' EXIT
-    _dot_cleanup_install_signal_traps
+    # Scope every diagnostic and child-tool tempfile beneath one registered
+    # operation root. This covers future plain mktemp sites as well as today's
+    # files and cache directories without duplicating registration at each use.
+    _dot_cleanup_install_owner_traps
+    if ! _dot_cleanup_mktemp -d \
+      "${TMPDIR:-/tmp}/dot-doctor.XXXXXX" 2>/dev/null; then
+      _warn "  error: unable to create private dot doctor scratch"
+      exit 1
+    fi
+    TMPDIR=$REPLY
+    export TMPDIR
     _dot_doctor
     exit $?
     ;;

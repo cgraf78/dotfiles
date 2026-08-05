@@ -9,9 +9,16 @@ _dot_cleanup_reset() {
   DOT_CLEANUP_REGISTRATION_DEPTH=0
   DOT_CLEANUP_PENDING_STATUS=0
   DOT_CLEANUP_RUNNING=0
+  DOT_CLEANUP_GRACE_ATTEMPTS=20
+  DOT_CLEANUP_OWNER_PID=${BASHPID:-$$}
 }
 
-_dot_cleanup_reset
+# Sourcing shared helpers twice in one process must not discard resources that
+# process already owns. A fork gets a new BASHPID and starts with an empty
+# registry; explicit worker setup below still resets unconditionally.
+if [[ "${DOT_CLEANUP_OWNER_PID:-}" != "${BASHPID:-$$}" ]]; then
+  _dot_cleanup_reset
+fi
 
 _dot_cleanup_ignore_signals() {
   # A trap protects this shell, but external commands spawned by cleanup reset
@@ -93,6 +100,19 @@ _dot_cleanup_register_fd() {
   local fd="$1"
   [[ "$fd" =~ ^[0-9]+$ ]] || return 2
   DOT_CLEANUP_FDS+=("$fd")
+}
+
+_dot_cleanup_mktemp() {
+  local path=""
+  _dot_cleanup_begin_registration
+  if ! path=$(mktemp "$@"); then
+    _dot_cleanup_end_registration
+    REPLY=""
+    return 1
+  fi
+  _dot_cleanup_register_path "$path"
+  _dot_cleanup_end_registration
+  REPLY="$path"
 }
 
 _dot_cleanup_unregister_pid() {
@@ -349,7 +369,7 @@ _dot_cleanup_owned() {
     done
   done
 
-  for ((attempt = 0; attempt < 20; attempt++)); do
+  for ((attempt = 0; attempt < DOT_CLEANUP_GRACE_ATTEMPTS; attempt++)); do
     active=0
     if [[ ${descendant_pids[*]+set} == set ]]; then
       for index in "${!descendant_pids[@]}"; do
@@ -421,6 +441,18 @@ _dot_cleanup_install_signal_traps() {
   trap '_dot_cleanup_signal 130' INT
   trap '_dot_cleanup_signal 131' QUIT
   trap '_dot_cleanup_signal 143' TERM
+}
+
+_dot_cleanup_on_exit() {
+  _dot_cleanup_ignore_signals
+  # Cleanup is best effort at process exit. Never let a secondary removal error
+  # replace the command or signal status that caused the owner to exit.
+  _dot_cleanup_all || true
+}
+
+_dot_cleanup_install_owner_traps() {
+  trap '_dot_cleanup_on_exit' EXIT
+  _dot_cleanup_install_signal_traps
 }
 
 _dot_cleanup_prepare_subshell() {

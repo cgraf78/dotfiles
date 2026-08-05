@@ -2,16 +2,10 @@
 # Command execution helpers with quiet logging and live UI ticks.
 
 _logfile_create() {
-  local log=""
-  _dot_cleanup_begin_registration
-  if ! log=$(mktemp 2>/dev/null); then
-    _dot_cleanup_end_registration
+  if ! _dot_cleanup_mktemp 2>/dev/null; then
     REPLY=""
     return 1
   fi
-  _dot_cleanup_register_path "$log"
-  _dot_cleanup_end_registration
-  REPLY="$log"
 }
 
 _logfile_print() {

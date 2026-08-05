@@ -180,6 +180,34 @@ if $_bootstrap_run_unit; then
   _assert_contains "overlay sync: worker failure explains incomplete bootstrap" \
     "required overlay sync failed" "$_overlay_sync_out"
 
+  # The real bootstrap calls this as a bare command under errexit so failures
+  # inside the coordinator stay fatal. In that production context Bash exits
+  # with the original worker status rather than the normalized conditional-call
+  # status asserted above.
+  _overlay_production_output=$(_tmpdir)/overlay-production.output
+  _overlay_production_rc=0
+  _overlay_production_had_errexit=0
+  [[ "$-" == *e* ]] && _overlay_production_had_errexit=1
+  set +e
+  (
+    set -e
+    # shellcheck disable=SC2329  # Invoked indirectly by the helper under test.
+    _ensure_shdeps() { :; }
+    # shellcheck disable=SC2329  # Invoked indirectly by the helper under test.
+    _merge_overlay_ssh_configs() { :; }
+    # shellcheck disable=SC2329  # Invoked indirectly by the helper under test.
+    _discover_overlays() { :; }
+    # shellcheck disable=SC2329  # Invoked indirectly by the helper under test.
+    _pull_overlays() { return 17; }
+    _bootstrap_sync_overlays
+  ) >"$_overlay_production_output" 2>&1
+  _overlay_production_rc=$?
+  [[ "$_overlay_production_had_errexit" -eq 0 ]] || set -e
+  _assert_exit "overlay sync: production errexit preserves worker status" \
+    17 "$_overlay_production_rc"
+  _assert_contains "overlay sync: production failure explains incomplete bootstrap" \
+    "required overlay sync failed" "$(cat "$_overlay_production_output")"
+
   # Do not place the coordinator on the left side of `||`: Bash disables
   # errexit throughout a function invoked from that context, which can turn an
   # unexpected worker-internal failure into a false success.
@@ -904,10 +932,10 @@ CONF
   CANCEL_READY="$CANCEL_TMP/clone-ready"
   CANCEL_CHILD_PID="$CANCEL_TMP/clone.pid"
   CANCEL_OUT="$CANCEL_TMP/bootstrap.out"
-  # Bypass the dotfiles-aware Git launcher: with the blocking wrapper first on
-  # PATH, the launcher would quite correctly discover that wrapper as `git`
-  # and recurse instead of reaching the platform binary.
-  REAL_GIT=$(PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin command -v git)
+  # Delegate through the tracked launcher in explicit-real mode. Its normal
+  # PATH-aware resolution works on nonstandard layouts without rediscovering
+  # this blocking wrapper or hardcoding platform install prefixes.
+  REAL_GIT="$BIN_DIR/git"
   REAL_PYTHON=$(command -v python3)
   cat >"$CANCEL_BIN/git" <<'SH'
 #!/usr/bin/env bash
@@ -927,7 +955,8 @@ while True:
     time.sleep(60)
 PY
 fi
-exec "$DOT_TEST_REAL_GIT" "$@"
+DOT_GIT_REAL=1 PATH="$DOT_TEST_REAL_GIT_PATH" \
+  exec "$DOT_TEST_REAL_GIT" "$@"
 SH
   chmod +x "$CANCEL_BIN/git"
 
@@ -936,6 +965,7 @@ SH
     TMPDIR="$CANCEL_TMP" \
     PATH="$CANCEL_BIN:$BOOTSTRAP_TEST_PATH" \
     DOT_TEST_REAL_GIT="$REAL_GIT" \
+    DOT_TEST_REAL_GIT_PATH="$BOOTSTRAP_TEST_PATH" \
     DOT_TEST_REAL_PYTHON="$REAL_PYTHON" \
     DOT_TEST_BLOCK_CLONE_URL="$WORK_ORIGIN" \
     DOT_TEST_BLOCK_READY="$CANCEL_READY" \

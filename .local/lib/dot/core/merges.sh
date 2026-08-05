@@ -124,6 +124,11 @@ _merge_result_prefix() {
 _run_merge_hook_capture() {
   local _idx="$1" _script="$2" _result_dir="$3"
   local _prefix _started_ms _elapsed_ms _merge_rc=0 _hook_pid
+  # Keep hook/helper scratch beneath the coordinator-owned batch root. If this
+  # worker must be killed on a weak-discovery platform, the parent can still
+  # remove every temporary path created through the ordinary TMPDIR contract.
+  local TMPDIR="$_result_dir"
+  export TMPDIR
   _dot_cleanup_prepare_subshell
   _prefix="$(_merge_result_prefix "$_result_dir" "$_idx")"
   _started_ms="$(_ui_now_ms)"
@@ -185,6 +190,13 @@ _run_merge_hook_batch() {
   local _hook_spec _hook_key _script _hook_label
   local _capture_prefix _capture_rc
   local _idx=0 _n_merged=0 _n_failed=0
+  # On platforms without strong descendant identity, the outer batch can only
+  # signal its capture worker. Give that owner longer than the hook's normal
+  # one-second grace so it can escalate and reap a TERM-resistant hook before
+  # the batch escalates the worker. The capture worker resets its copied cleanup
+  # state, including this value, in _dot_cleanup_prepare_subshell.
+  # shellcheck disable=SC2034 # Read dynamically by _dot_cleanup_owned.
+  local DOT_CLEANUP_GRACE_ATTEMPTS=40
   local -a _specs=("$@") _pids=()
 
   ((${#_specs[@]} > 0)) || {
