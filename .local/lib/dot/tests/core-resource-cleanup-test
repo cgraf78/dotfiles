@@ -951,6 +951,32 @@ FIXTURE
   _assert_exit "descendant discovery: weak ps identity fails closed" 0 "$fixture_rc"
 }
 
+_run_subshell_err_trap_case() {
+  local case_dir fixture_rc=0
+  case_dir=$(_tmpdir)
+
+  cat >"$case_dir/fixture.sh" <<'FIXTURE'
+#!/usr/bin/env bash
+set -uE
+
+# shellcheck source=/dev/null
+. "$SOURCE_HOME/.local/lib/dot/core/init.sh"
+
+trap ': >"$CASE_DIR/inherited-err-fired"' ERR
+(
+  _dot_cleanup_prepare_subshell
+  false
+  exit 0
+)
+[[ ! -e "$CASE_DIR/inherited-err-fired" ]]
+FIXTURE
+  chmod +x "$case_dir/fixture.sh"
+
+  SOURCE_HOME="$SOURCE_HOME" CASE_DIR="$case_dir" \
+    bash "$case_dir/fixture.sh" || fixture_rc=$?
+  _assert_exit "subshell cleanup: inherited ERR trap is cleared" 0 "$fixture_rc"
+}
+
 echo "=== Owned resource cleanup on cancellation ==="
 _run_resource_cancel_case run "logged command"
 _run_resource_cancel_case run "TERM-resistant logged command" TERM 143 1
@@ -980,6 +1006,7 @@ _run_interactive_pty_case
 _run_fd_close_preserves_stderr_case
 _run_pgrep_pattern_case
 _run_weak_identity_fails_closed_case
+_run_subshell_err_trap_case
 _check_bash4_nounset_array_guards
 
 _test_summary

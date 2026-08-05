@@ -415,6 +415,10 @@ _dot_cleanup_install_signal_traps() {
 
 _dot_cleanup_prepare_subshell() {
   _dot_cleanup_reset
+  # errtrace can copy a coordinator's ERR policy into background workers. The
+  # worker reports through its result files, so an inherited handler would emit
+  # duplicate diagnostics or run parent-only recovery inside the subshell.
+  trap - ERR
   trap '_dot_cleanup_ignore_signals; _dot_cleanup_all' EXIT
   _dot_cleanup_install_signal_traps
 }
