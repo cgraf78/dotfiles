@@ -36,11 +36,11 @@ MOCK
 
   # Determine repo root and git command.
   # Bare dotfiles repo when available; regular checkout (CI) as fallback.
-  # Use --git-dir only (no --work-tree) for old bare checkouts. Add
-  # `ls-tree --full-tree` below so discovery is not scoped by the caller's CWD
-  # when the test is launched from inside another repo under $HOME.
+  # Use --git-dir only (no --work-tree) for old bare checkouts, and anchor Git
+  # at the source root so relative pathspecs do not inherit the caller's CWD.
+  # Keep `ls-tree --full-tree` below for explicit whole-tree discovery.
   _lint_root="$REAL_HOME"
-  _lint_git=(git --git-dir="${REAL_HOME}/.dotfiles")
+  _lint_git=(git -C "$REAL_HOME" --git-dir="${REAL_HOME}/.dotfiles")
   if ! "${_lint_git[@]}" rev-parse HEAD >/dev/null 2>&1; then
     _lint_root="$(cd "${BIN_DIR}/../.." && pwd)"
     _lint_git=(git -C "${_lint_root}")
@@ -564,23 +564,29 @@ PY
   echo ""
   echo "=== Git ignore safety ==="
 
-  if git -C "$_lint_root" ls-files --error-unmatch -- \
+  if "${_lint_git[@]}" ls-files --error-unmatch -- \
     .config/dot/overlays.d/.gitignore >/dev/null 2>&1; then
     _pass "overlay descriptors: machine-local ignore rule is tracked"
   else
     _fail "overlay descriptors: machine-local ignore rule is tracked"
   fi
-  if git -C "$_lint_root" check-ignore -q --no-index \
+  # check-ignore requires a work tree even when _lint_git targets the live
+  # bare dotfiles repository.
+  if "${_lint_git[@]}" --work-tree="$_lint_root" check-ignore -q --no-index \
     .config/dot/overlays.d/10-example.local.conf; then
     _pass "overlay descriptors: machine-local suffix is ignored"
   else
     _fail "overlay descriptors: machine-local suffix is ignored"
   fi
-  if git -C "$_lint_root" check-ignore -q --no-index \
-    .config/dot/overlays.d/10-example.conf; then
+  "${_lint_git[@]}" --work-tree="$_lint_root" check-ignore -q --no-index \
+    .config/dot/overlays.d/10-example.conf
+  _ordinary_descriptor_status=$?
+  if ((_ordinary_descriptor_status == 0)); then
     _fail "overlay descriptors: ordinary descriptors remain trackable"
-  else
+  elif ((_ordinary_descriptor_status == 1)); then
     _pass "overlay descriptors: ordinary descriptors remain trackable"
+  else
+    _fail "overlay descriptors: ordinary descriptor ignore check runs successfully"
   fi
 
   _ignore_fixture=$(_tmpdir)
