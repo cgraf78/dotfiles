@@ -74,8 +74,13 @@ _dot_cleanup_register_pid() {
       identity=$DOT_CLEANUP_OBS_ID
     fi
   fi
+  # The caller defers signals across child launch and registration. Nest a
+  # smaller critical region here so the parallel arrays are never observable
+  # with only one half of the new record present.
+  _dot_cleanup_begin_registration
   DOT_CLEANUP_PIDS+=("$pid")
   DOT_CLEANUP_PID_IDENTITIES+=("$identity")
+  _dot_cleanup_end_registration
 }
 
 _dot_cleanup_register_path() {
@@ -93,11 +98,16 @@ _dot_cleanup_register_fd() {
 _dot_cleanup_unregister_pid() {
   local pid="$1" index
   [[ ${DOT_CLEANUP_PIDS[*]+set} == set ]] || return 0
+  # Snapshotting compacts these sparse arrays independently. Defer handled
+  # signals until both fields are gone so cleanup cannot pair a surviving PID
+  # with the removed worker's process identity.
+  _dot_cleanup_begin_registration
   for index in "${!DOT_CLEANUP_PIDS[@]}"; do
     [[ "${DOT_CLEANUP_PIDS[$index]}" == "$pid" ]] || continue
     unset "DOT_CLEANUP_PIDS[$index]"
     unset "DOT_CLEANUP_PID_IDENTITIES[$index]"
   done
+  _dot_cleanup_end_registration
 }
 
 _dot_cleanup_unregister_path() {

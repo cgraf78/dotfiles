@@ -977,6 +977,47 @@ FIXTURE
   _assert_exit "subshell cleanup: inherited ERR trap is cleared" 0 "$fixture_rc"
 }
 
+_run_unregister_atomicity_case() {
+  local case_dir fixture_rc=0
+  case_dir=$(_tmpdir)
+
+  cat >"$case_dir/fixture.sh" <<'FIXTURE'
+#!/usr/bin/env bash
+set -uT
+
+# shellcheck source=/dev/null
+. "$SOURCE_HOME/.local/lib/dot/core/init.sh"
+
+DOT_CLEANUP_PIDS=(101 202)
+DOT_CLEANUP_PID_IDENTITIES=(identity-101 identity-202)
+_dot_cleanup_owned() {
+  printf 'pids=%s\nidentities=%s\n' \
+    "${DOT_CLEANUP_PIDS[*]}" "${DOT_CLEANUP_PID_IDENTITIES[*]}" \
+    >"$CASE_DIR/cleanup-snapshot"
+}
+trap '_dot_cleanup_signal 143' TERM
+debug_fired=0
+_signal_between_pid_fields() {
+  if [[ "$debug_fired" -eq 0 &&
+    "$BASH_COMMAND" == 'unset "DOT_CLEANUP_PID_IDENTITIES[$index]"' ]]; then
+    debug_fired=1
+    trap - DEBUG
+    kill -TERM "$BASHPID"
+  fi
+}
+trap _signal_between_pid_fields DEBUG
+_dot_cleanup_unregister_pid 101
+exit 99
+FIXTURE
+  chmod +x "$case_dir/fixture.sh"
+
+  SOURCE_HOME="$SOURCE_HOME" CASE_DIR="$case_dir" \
+    bash "$case_dir/fixture.sh" || fixture_rc=$?
+  _assert_exit "PID unregister: deferred TERM status is preserved" 143 "$fixture_rc"
+  _assert_file_content "PID unregister: PID and identity remain paired" \
+    $'pids=202\nidentities=identity-202' "$case_dir/cleanup-snapshot"
+}
+
 echo "=== Owned resource cleanup on cancellation ==="
 _run_resource_cancel_case run "logged command"
 _run_resource_cancel_case run "TERM-resistant logged command" TERM 143 1
@@ -1007,6 +1048,7 @@ _run_fd_close_preserves_stderr_case
 _run_pgrep_pattern_case
 _run_weak_identity_fails_closed_case
 _run_subshell_err_trap_case
+_run_unregister_atomicity_case
 _check_bash4_nounset_array_guards
 
 _test_summary
