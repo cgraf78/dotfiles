@@ -147,7 +147,9 @@ CONF
 
   printf '%s\n' "unreadable" >"$local_overlay_root/home/unreadable"
   chmod 000 "$local_overlay_root/home/unreadable"
-  if _preflight_local_overlays >/dev/null 2>&1; then
+  if [[ -r "$local_overlay_root/home/unreadable" ]]; then
+    _pass "local descriptor: privileged runner bypasses unreadable fixture"
+  elif _preflight_local_overlays >/dev/null 2>&1; then
     _fail "local descriptor: unreadable regular file fails preflight"
   else
     _pass "local descriptor: unreadable regular file fails preflight"

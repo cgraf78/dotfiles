@@ -446,9 +446,13 @@ CONF
     "filesystem: not cloned" "$result"
 
   chmod 000 "$doctor_local_root/home/$doctor_local_rel"
-  result=$(_dr_check_overlays 2>&1 || true)
-  _assert_contains "doctor: reports an unreadable filesystem overlay source" \
-    "filesystem: local source unavailable" "$result"
+  if [[ -r "$doctor_local_root/home/$doctor_local_rel" ]]; then
+    _pass "doctor: privileged runner bypasses unreadable source fixture"
+  else
+    result=$(_dr_check_overlays 2>&1 || true)
+    _assert_contains "doctor: reports an unreadable filesystem overlay source" \
+      "filesystem: local source unavailable" "$result"
+  fi
   chmod 600 "$doctor_local_root/home/$doctor_local_rel"
 
   doctor_local_next="$TEST_HOME/doctor local source next"
