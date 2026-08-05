@@ -156,12 +156,27 @@ _dot_cleanup_mktemp_allocator() {
 
 _dot_cleanup_mktemp() {
   local path="" allocator_status="" allocator_pid="" read_fd="" write_fd=""
-  local allocator_rc=0 status_read_rc=1 path_read_rc=1 had_monitor=0
+  local allocator_rc=0 status_read_rc=1 path_read_rc=1 had_monitor=0 tmp_root=""
+  local -a allocator_args=("$@")
   # Bash writes unnamed-coprocess state into these special variables. Make
   # them function-local so allocating dot scratch cannot overwrite a coprocess
   # that belongs to the caller.
   local COPROC_PID=""
   local -a COPROC=()
+
+  # GNU mktemp consults TMPDIR when no template is provided, while BSD mktemp
+  # may select its platform default instead. Always make the operation root
+  # explicit for the two shorthand forms used by dot so nested worker scratch
+  # stays beneath its registered parent on every supported platform.
+  if [[ "$#" -eq 0 || ("$#" -eq 1 && "$1" == -d) ]]; then
+    tmp_root=${TMPDIR:-/tmp}
+    tmp_root=${tmp_root%/}
+    if [[ "$#" -eq 0 ]]; then
+      allocator_args=("$tmp_root/dot.XXXXXXXX")
+    else
+      allocator_args=(-d "$tmp_root/dot.XXXXXXXX")
+    fi
+  fi
 
   _dot_cleanup_begin_registration
   [[ "$-" == *m* ]] && had_monitor=1
@@ -173,7 +188,7 @@ _dot_cleanup_mktemp() {
   # Restore monitor mode immediately after capture; the already-created group
   # remains isolated while the parent synchronously drains and reaps it.
   set -m
-  coproc _dot_cleanup_mktemp_allocator "$@"
+  coproc _dot_cleanup_mktemp_allocator "${allocator_args[@]}"
   allocator_pid=$COPROC_PID
   read_fd=${COPROC[0]}
   write_fd=${COPROC[1]}

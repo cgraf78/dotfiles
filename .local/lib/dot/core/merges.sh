@@ -121,6 +121,24 @@ _merge_result_prefix() {
   printf '%s/%03d' "$_dir" "$_idx"
 }
 
+_run_merge_hook_body() {
+  local _script="$1" _prefix="$2"
+
+  unset -f merge 2>/dev/null
+  # shellcheck source=/dev/null
+  if . "$_script"; then
+    if declare -f merge &>/dev/null; then
+      printf '1' >"$_prefix.has_merge"
+      merge
+    else
+      printf '0' >"$_prefix.has_merge"
+    fi
+  else
+    printf '1' >"$_prefix.has_merge"
+    return 1
+  fi
+}
+
 _run_merge_hook_capture() {
   local _idx="$1" _script="$2" _result_dir="$3"
   local _prefix _started_ms _elapsed_ms _merge_rc=0 _hook_pid _hook_group=""
@@ -133,34 +151,33 @@ _run_merge_hook_capture() {
   _prefix="$(_merge_result_prefix "$_result_dir" "$_idx")"
   _started_ms="$(_ui_now_ms)"
 
-  _dot_cleanup_begin_registration
-  _dot_cleanup_prepare_job_launch
-  (
-    unset -f merge 2>/dev/null
-    # shellcheck source=/dev/null
-    if . "$_script"; then
-      if declare -f merge &>/dev/null; then
-        printf '1' >"$_prefix.has_merge"
-        merge
-      else
-        printf '0' >"$_prefix.has_merge"
-      fi
-    else
-      printf '1' >"$_prefix.has_merge"
-      exit 1
-    fi
-  ) <&"$DOT_CLEANUP_LAUNCH_STDIN_FD" >"$_prefix.log" 2>&1 &
-  _hook_pid=$!
-  _dot_cleanup_finish_job_launch "$_hook_pid"
-  _hook_group=$REPLY
-  _dot_cleanup_register_pid "$_hook_pid" "$_hook_group"
-  _dot_cleanup_end_registration
-  if wait "$_hook_pid"; then
-    _merge_rc=0
+  if [[ "${DOT_CLEANUP_INHERIT_GROUP:-0}" == 1 ]]; then
+    # The outer coordinator already owns this capture process and its entire
+    # group. Running the hook here makes the process that records readiness the
+    # exact child the coordinator can wait and reap. A nested supervisor cannot
+    # reap its hook after the outer leader is stopped as the non-reusable PGID
+    # anchor, which left orphan zombies on container runners with a passive PID
+    # 1. Interactive capture workers still use the nested path below so a
+    # parent-only signal can cancel work outside a private group.
+    _run_merge_hook_body "$_script" "$_prefix" >"$_prefix.log" 2>&1 || _merge_rc=$?
   else
-    _merge_rc=$?
+    _dot_cleanup_begin_registration
+    _dot_cleanup_prepare_job_launch
+    (
+      _run_merge_hook_body "$_script" "$_prefix"
+    ) <&"$DOT_CLEANUP_LAUNCH_STDIN_FD" >"$_prefix.log" 2>&1 &
+    _hook_pid=$!
+    _dot_cleanup_finish_job_launch "$_hook_pid"
+    _hook_group=$REPLY
+    _dot_cleanup_register_pid "$_hook_pid" "$_hook_group"
+    _dot_cleanup_end_registration
+    if wait "$_hook_pid"; then
+      _merge_rc=0
+    else
+      _merge_rc=$?
+    fi
+    _dot_cleanup_unregister_pid "$_hook_pid"
   fi
-  _dot_cleanup_unregister_pid "$_hook_pid"
 
   _elapsed_ms=$(($(_ui_now_ms) - _started_ms))
   printf '%s' "$_merge_rc" >"$_prefix.rc"
@@ -193,11 +210,13 @@ _run_merge_hook_batch() {
   local _hook_spec _hook_key _script _hook_label
   local _capture_prefix _capture_rc
   local _idx=0 _n_merged=0 _n_failed=0
-  # On platforms without strong descendant identity, the outer batch can only
-  # signal its capture worker. Give that owner longer than the hook's normal
-  # one-second grace so it can escalate and reap a TERM-resistant hook before
-  # the batch escalates the worker. The capture worker resets its copied cleanup
-  # state, including this value, in _dot_cleanup_prepare_subshell.
+  # Prompt-capable workers stay in the terminal group and retain the nested
+  # supervisor path above. On a platform without strong descendant identity,
+  # the outer batch can signal only that capture worker. Give it longer than
+  # the hook's normal one-second grace so it can reap a TERM-resistant hook
+  # before the batch escalates. Noninteractive workers use one owned group and
+  # run their hook directly. The capture worker resets its copied cleanup state,
+  # including this value, in _dot_cleanup_prepare_subshell.
   # shellcheck disable=SC2034 # Read dynamically by _dot_cleanup_owned.
   local DOT_CLEANUP_GRACE_ATTEMPTS=40
   local -a _specs=("$@") _pids=()

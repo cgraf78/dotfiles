@@ -54,6 +54,7 @@ _run_resource_cancel_case() {
   local mode="$1" label="$2" signal="${3:-TERM}" expected_rc="${4:-143}"
   local ignore_term="${5:-0}" signal_scope="${6:-parent}"
   local weak_nested_cleanup="${7:-0}"
+  local expect_direct_worker="${8:-0}"
   local case_dir fixture_pid fixture_rc=0 child_pid=""
   local had_monitor=0 saved_quit=""
   local -a fixture_command=()
@@ -67,6 +68,14 @@ set -eu
 
 # shellcheck source=/dev/null
 . "$SOURCE_HOME/.local/lib/dot/core/init.sh"
+
+if [[ "$EXPECT_DIRECT_WORKER" == 1 ]]; then
+  eval "$(declare -f _dot_cleanup_register_pid | sed '1s/_dot_cleanup_register_pid/_dot_cleanup_register_pid_original/')"
+  _dot_cleanup_register_pid() {
+    printf '%s\t%s\n' "${BASHPID:-$$}" "$1" >>"$CASE_DIR/pid-registrations"
+    _dot_cleanup_register_pid_original "$@"
+  }
+fi
 
 if [[ "$IGNORE_TERM" == 2 || "$IGNORE_TERM" == 3 ]]; then
   eval "$(declare -f _dot_cleanup_owned | sed '1s/_dot_cleanup_owned/_dot_cleanup_owned_original/')"
@@ -189,6 +198,7 @@ PY
   set -m
   SOURCE_HOME="$SOURCE_HOME" CASE_DIR="$case_dir" MODE="$mode" \
     IGNORE_TERM="$ignore_term" WEAK_NESTED_CLEANUP="$weak_nested_cleanup" \
+    EXPECT_DIRECT_WORKER="$expect_direct_worker" \
     TMPDIR="$case_dir/tmp" \
     "${fixture_command[@]}" &
   fixture_pid=$!
@@ -208,6 +218,19 @@ PY
     return
   fi
   child_pid=$(<"$case_dir/child.pid")
+
+  if [[ "$expect_direct_worker" == 1 ]]; then
+    local registration_count=0 first_registered=""
+    if [[ -f "$case_dir/pid-registrations" ]]; then
+      registration_count=$(wc -l <"$case_dir/pid-registrations")
+      IFS=$'\t' read -r _ first_registered <"$case_dir/pid-registrations" || true
+    fi
+    # A stopped outer group leader cannot run a nested supervisor's wait. Keep
+    # the actual hook in the registered capture process so the top-level owner
+    # can reap that exact PID on platforms whose init does not reap orphans.
+    _assert_eq "$label: group-contained hook is the directly owned worker" \
+      "1:$child_pid" "$registration_count:$first_registered"
+  fi
 
   if [[ "$signal_scope" == group ]]; then
     kill -"$signal" -- "-$fixture_pid"
@@ -1286,6 +1309,54 @@ FIXTURE
   fi
 }
 
+_run_mktemp_default_root_case() {
+  local case_dir fixture_rc=0 real_mktemp=""
+  case_dir=$(_tmpdir)
+  mkdir -p "$case_dir/bin" "$case_dir/tmp"
+  real_mktemp=$(type -P mktemp)
+
+  cat >"$case_dir/bin/mktemp" <<'SHIM'
+#!/usr/bin/env bash
+set -u
+
+printf '%s\n' "$*" >>"$CASE_DIR/mktemp-args"
+exec "$DOT_TEST_REAL_MKTEMP" "$@"
+SHIM
+  chmod +x "$case_dir/bin/mktemp"
+
+  cat >"$case_dir/fixture.sh" <<'FIXTURE'
+#!/usr/bin/env bash
+set -u
+
+# shellcheck source=/dev/null
+. "$SOURCE_HOME/.local/lib/dot/core/resources.sh"
+_dot_cleanup_mktemp || exit $?
+file=$REPLY
+_dot_cleanup_mktemp -d || exit $?
+dir=$REPLY
+printf 'file=%s\ndir=%s\n' "$file" "$dir" >"$CASE_DIR/report"
+_dot_cleanup_remove_path "$file" || true
+_dot_cleanup_remove_path "$dir" || true
+FIXTURE
+  chmod +x "$case_dir/fixture.sh"
+
+  PATH="$case_dir/bin:$PATH" \
+    TMPDIR="$case_dir/tmp" \
+    SOURCE_HOME="$SOURCE_HOME" \
+    CASE_DIR="$case_dir" \
+    DOT_TEST_REAL_MKTEMP="$real_mktemp" \
+    bash "$case_dir/fixture.sh" || fixture_rc=$?
+
+  _assert_exit "mktemp default root: fixture succeeds" 0 "$fixture_rc"
+  _assert_file_content "mktemp default root: allocator receives explicit templates" \
+    "$case_dir/tmp/dot.XXXXXXXX
+-d $case_dir/tmp/dot.XXXXXXXX" "$case_dir/mktemp-args"
+  _assert_contains "mktemp default root: file stays under TMPDIR" \
+    "file=$case_dir/tmp/" "$(cat "$case_dir/report")"
+  _assert_contains "mktemp default root: directory stays under TMPDIR" \
+    "dir=$case_dir/tmp/" "$(cat "$case_dir/report")"
+}
+
 _run_noninteractive_group_case() {
   local backend="$1" label="$2" disable_discovery="${3:-0}"
   local case_dir fixture_pid fixture_rc=0 leaf_pid="" unrelated_pid=""
@@ -1619,7 +1690,7 @@ _run_resource_cancel_case run "logged command"
 _run_resource_cancel_case run "TERM-resistant logged command" TERM 143 1
 _run_resource_cancel_case run "cleanup interrupted by a second signal" TERM 143 2
 _run_resource_cancel_case lock "strict cleanup interrupted by a terminal-group signal" TERM 143 3 group
-_run_resource_cancel_case merges "merge batch"
+_run_resource_cancel_case merges "merge batch" TERM 143 0 parent 0 1
 _run_resource_cancel_case merges \
   "merge batch with weak descendant discovery" TERM 143 1 parent 1
 _run_resource_cancel_case overlays "overlay pull batch"
@@ -1657,6 +1728,7 @@ _run_mktemp_contract_case publish-fail 1
 _run_mktemp_contract_case normal 0 off
 _run_mktemp_contract_case fail 1 off
 _run_mktemp_contract_case newline-path 0 off
+_run_mktemp_default_root_case
 _run_mktemp_fast_exit_stress_case
 _run_noninteractive_group_case none "weak noninteractive group"
 _run_noninteractive_group_case proc \
