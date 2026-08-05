@@ -54,7 +54,8 @@ _run_resource_cancel_case() {
   local mode="$1" label="$2" signal="${3:-TERM}" expected_rc="${4:-143}"
   local ignore_term="${5:-0}" signal_scope="${6:-parent}"
   local case_dir fixture_pid fixture_rc=0 child_pid="" unrelated_pid
-  local had_monitor=0
+  local had_monitor=0 saved_quit=""
+  local -a fixture_command=()
   case_dir=$(_tmpdir)
   mkdir -p "$case_dir/tmp"
   mkfifo "$case_dir/gate"
@@ -148,13 +149,38 @@ esac
 FIXTURE
   chmod +x "$case_dir/fixture.sh"
 
+  fixture_command=(bash "$case_dir/fixture.sh")
+  if [[ "$signal" == QUIT ]]; then
+    cat >"$case_dir/reset-quit.py" <<'PY'
+import os
+import signal
+import sys
+
+# Bash cannot trap SIGQUIT when its parent started it with that signal ignored,
+# which is how several container runtimes launch their shell. Reset the inherited
+# disposition before exec so this fixture tests dot's handler, not runner policy.
+signal.signal(signal.SIGQUIT, signal.SIG_DFL)
+os.execvp("bash", ["bash", sys.argv[1]])
+PY
+    fixture_command=(python3 "$case_dir/reset-quit.py" "$case_dir/fixture.sh")
+    saved_quit=$(trap -p QUIT)
+    trap '' QUIT
+  fi
+
   [[ "$-" == *m* ]] && had_monitor=1
   set -m
   SOURCE_HOME="$SOURCE_HOME" CASE_DIR="$case_dir" MODE="$mode" \
     IGNORE_TERM="$ignore_term" TMPDIR="$case_dir/tmp" \
-    bash "$case_dir/fixture.sh" &
+    "${fixture_command[@]}" &
   fixture_pid=$!
   [[ "$had_monitor" == 1 ]] || set +m
+  if [[ "$signal" == QUIT ]]; then
+    if [[ -n "$saved_quit" ]]; then
+      eval "$saved_quit"
+    else
+      trap - QUIT
+    fi
+  fi
 
   if ! _wait_for_file "$case_dir/ready"; then
     _fail "$label: worker becomes ready"
@@ -188,6 +214,8 @@ FIXTURE
     fixture_rc=$WAIT_PID_RC
   else
     _fail "$label: fixture exits within five seconds"
+    kill -KILL "$child_pid" "$unrelated_pid" 2>/dev/null || true
+    wait "$unrelated_pid" 2>/dev/null || true
     return
   fi
 
