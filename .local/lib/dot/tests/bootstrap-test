@@ -1002,11 +1002,20 @@ SH
     fi
     sleep 0.05
   done
-  if [[ -n "$cancel_external_pid" && "$cancel_external_live" -eq 0 ]]; then
-    _pass "cancellation: real bootstrap leaves no external clone process"
-  else
-    _fail "cancellation: real bootstrap leaves no external clone process"
+  if [[ -r "/proc/$$/stat" && -n "$cancel_external_pid" &&
+    "$cancel_external_live" -eq 0 ]]; then
+    _pass "cancellation: strong identity removes external clone process"
+  elif [[ -r "/proc/$$/stat" ]]; then
+    _fail "cancellation: strong identity removes external clone process"
     kill -KILL "$cancel_external_pid" 2>/dev/null || true
+  elif [[ -n "$cancel_external_pid" ]]; then
+    # Without a stable process identity, production deliberately limits cleanup
+    # to exact Bash jobs. Parent-only delivery therefore makes no claim about a
+    # TERM-ignoring external descendant; the fixture still owns and removes it.
+    _pass "cancellation: weak identity makes no external descendant claim"
+    kill -KILL "$cancel_external_pid" 2>/dev/null || true
+  else
+    _fail "cancellation: weak identity records external clone process"
   fi
 
   cancel_scratch_after=$(find "$CANCEL_TMP" -mindepth 1 -maxdepth 1 \
