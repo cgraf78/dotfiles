@@ -46,8 +46,31 @@ MOCK
     _lint_git=(git -C "${_lint_root}")
   fi
 
+  _ci_actions_lock="$_lint_root/.github/cgraf78-actions.lock"
+  _ci_actions_sha=missing-lock
+  # Mirror the provider's cheap local-file invariants here. The hosted verifier
+  # remains authoritative, but local tests should reject an executable or
+  # untracked dependency decision before a push ever reaches GitHub.
+  if [[ -f "$_ci_actions_lock" && ! -L "$_ci_actions_lock" &&
+    ! -x "$_ci_actions_lock" ]] &&
+    "${_lint_git[@]}" ls-files --error-unmatch -- \
+      .github/cgraf78-actions.lock >/dev/null 2>&1; then
+    _ci_actions_text=$(cat "$_ci_actions_lock")
+    if [[ "$_ci_actions_text" =~ ^[0-9a-f]{40}$ ]] &&
+      [[ $(wc -l <"$_ci_actions_lock") -eq 1 ]]; then
+      _ci_actions_sha=$_ci_actions_text
+      _pass "CI workflow: has one canonical cgraf78/actions lock"
+    else
+      _fail "CI workflow: has one canonical cgraf78/actions lock"
+    fi
+  else
+    _fail "CI workflow: has one canonical cgraf78/actions lock"
+  fi
+
   _ci_workflow=$(cat "$_lint_root/.github/workflows/test.yml")
-  _ci_has_public_pin=0
+  _ci_retry_workflow=$(cat "$_lint_root/.github/workflows/retry-infrastructure.yml")
+  _ci_shell_ref_total=0
+  _ci_shell_ref_locked=0
   _ci_forwards_secrets=0
   _ci_in_jobs=0
   _ci_in_shell_job=0
@@ -59,9 +82,26 @@ MOCK
   _ci_termux_update_line=0
   _ci_termux_smoke_line=0
   _ci_termux_uses_base_profile=0
+  _ci_push_branches_total=0
+  _ci_main_branch_count=0
+  _ci_schedule_total=0
+  _ci_schedule_count=0
+  _ci_in_on=0
+  _ci_event=
   while IFS= read -r _ci_line; do
     _ci_line_number=$((_ci_line_number + 1))
     _ci_code=${_ci_line%%#*}
+    if [[ "$_ci_code" =~ ^on:[[:space:]]*$ ]]; then
+      _ci_in_on=1
+      _ci_event=
+    elif ((_ci_in_on)) && [[ -n "${_ci_code//[[:space:]]/}" ]] &&
+      [[ "$_ci_code" =~ ^[^[:space:]] ]]; then
+      _ci_in_on=0
+      _ci_event=
+    elif ((_ci_in_on)) &&
+      [[ "$_ci_code" =~ ^[[:space:]]{2}([a-zA-Z0-9_-]+): ]]; then
+      _ci_event=${BASH_REMATCH[1]}
+    fi
     if [[ "$_ci_code" =~ ^jobs:[[:space:]]*$ ]]; then
       _ci_in_jobs=1
     elif ((_ci_in_jobs)) && [[ "$_ci_code" =~ ^[^[:space:]] ]]; then
@@ -85,8 +125,14 @@ MOCK
       [[ ! "$_ci_code" =~ ^[[:space:]]{6} ]]; then
       _ci_in_shell_with=0
     fi
-    if [[ "$_ci_code" =~ ^[[:space:]]*uses:[[:space:]]+cgraf78/actions/\.github/workflows/shell-ci\.yml@([0-9a-f]{40})[[:space:]]*$ ]]; then
-      _ci_has_public_pin=1
+    if ((_ci_in_shell_job)) &&
+      [[ "$_ci_code" == *'cgraf78/actions/.github/workflows/shell-ci.yml@'* ]]; then
+      _ci_shell_ref_total=$((_ci_shell_ref_total + 1))
+    fi
+    if ((_ci_in_shell_job)) &&
+      [[ "$_ci_code" =~ ^[[:space:]]{4}uses:[[:space:]]+cgraf78/actions/\.github/workflows/shell-ci\.yml@([0-9a-f]{40})[[:space:]]*$ ]] &&
+      [[ "${BASH_REMATCH[1]}" == "$_ci_actions_sha" ]]; then
+      _ci_shell_ref_locked=$((_ci_shell_ref_locked + 1))
     fi
     if ((_ci_in_shell_with)) &&
       [[ "$_ci_code" =~ ^[[:space:]]{8}set[[:space:]]+-euo[[:space:]]+pipefail[[:space:]]*$ ]]; then
@@ -107,12 +153,164 @@ MOCK
     if [[ "$_ci_code" =~ ^[[:space:]]*secrets: ]]; then
       _ci_forwards_secrets=1
     fi
+    if [[ "$_ci_event" == push ]] &&
+      [[ "$_ci_code" =~ ^[[:space:]]{4}branches: ]]; then
+      _ci_push_branches_total=$((_ci_push_branches_total + 1))
+      if [[ "$_ci_code" =~ ^[[:space:]]{4}branches:[[:space:]]+\[main\][[:space:]]*$ ]]; then
+        _ci_main_branch_count=$((_ci_main_branch_count + 1))
+      fi
+    fi
+    if [[ "$_ci_event" == schedule ]] &&
+      [[ "$_ci_code" =~ ^[[:space:]]{4}-[[:space:]]+cron: ]]; then
+      _ci_schedule_total=$((_ci_schedule_total + 1))
+      if [[ "$_ci_code" =~ ^[[:space:]]{4}-[[:space:]]+cron:[[:space:]]+\"17[[:space:]]+9[[:space:]]+\*[[:space:]]+\*[[:space:]]+\*\"[[:space:]]*$ ]]; then
+        _ci_schedule_count=$((_ci_schedule_count + 1))
+      fi
+    fi
   done <<<"$_ci_workflow"
-  if ((_ci_has_public_pin)); then
-    _pass "CI workflow: pins public dependency setup immutably"
-  else
-    _fail "CI workflow: pins public dependency setup immutably"
-  fi
+  # Check both cardinality and value. Otherwise one correct entry could hide a
+  # second stale entry while still making the expected-value count equal one.
+  _assert_eq "CI workflow: has one shared Shell CI reference" \
+    "1" "$_ci_shell_ref_total"
+  _assert_eq "CI workflow: uses the locked shared Shell CI revision" \
+    "1" "$_ci_shell_ref_locked"
+  _assert_eq "CI workflow: has one maintained push branch declaration" \
+    "1" "$_ci_push_branches_total"
+  _assert_eq "CI workflow: pushes only the maintained main branch" \
+    "1" "$_ci_main_branch_count"
+  _assert_eq "CI workflow: has one portfolio schedule" \
+    "1" "$_ci_schedule_total"
+  _assert_eq "CI workflow: keeps its portfolio schedule offset" \
+    "1" "$_ci_schedule_count"
+  _ci_actions_sync=$(awk '
+    /^  actions-sync:$/ { capture = 1; job = $1 }
+    capture && /^  [a-zA-Z0-9_-]+:/ && $1 != job { exit }
+    capture { print }
+  ' <<<"$_ci_workflow")
+  _ci_sync_job_count=0
+  _ci_sync_name_count=0
+  _ci_sync_runner_count=0
+  _ci_sync_permissions_count=0
+  _ci_sync_permission_entry_count=0
+  _ci_sync_contents_count=0
+  _ci_sync_credentials_total=0
+  _ci_sync_credentials_count=0
+  _ci_sync_checkout_total=0
+  _ci_sync_checkout_count=0
+  _ci_sync_verifier_total=0
+  _ci_sync_verifier_count=0
+  _ci_sync_in_permissions=0
+  _ci_sync_in_checkout=0
+  _ci_sync_in_checkout_with=0
+  while IFS= read -r _ci_sync_line; do
+    _ci_sync_code=${_ci_sync_line%%#*}
+    [[ "$_ci_sync_code" =~ ^[[:space:]]{2}actions-sync:[[:space:]]*$ ]] &&
+      _ci_sync_job_count=$((_ci_sync_job_count + 1))
+    [[ "$_ci_sync_code" =~ ^[[:space:]]{4}name:[[:space:]]+cgraf78/actions[[:space:]]+sync[[:space:]]*$ ]] &&
+      _ci_sync_name_count=$((_ci_sync_name_count + 1))
+    [[ "$_ci_sync_code" =~ ^[[:space:]]{4}runs-on:[[:space:]]+ubuntu-24\.04[[:space:]]*$ ]] &&
+      _ci_sync_runner_count=$((_ci_sync_runner_count + 1))
+    if [[ "$_ci_sync_code" =~ ^[[:space:]]{4}permissions:[[:space:]]*$ ]]; then
+      _ci_sync_permissions_count=$((_ci_sync_permissions_count + 1))
+      _ci_sync_in_permissions=1
+    elif ((_ci_sync_in_permissions)) &&
+      [[ -n "${_ci_sync_code//[[:space:]]/}" ]] &&
+      [[ ! "$_ci_sync_code" =~ ^[[:space:]]{6} ]]; then
+      _ci_sync_in_permissions=0
+    fi
+    if ((_ci_sync_in_permissions)) &&
+      [[ "$_ci_sync_code" =~ ^[[:space:]]{6}[^[:space:]] ]]; then
+      _ci_sync_permission_entry_count=$((_ci_sync_permission_entry_count + 1))
+    fi
+    if ((_ci_sync_in_permissions)) &&
+      [[ "$_ci_sync_code" =~ ^[[:space:]]{6}contents:[[:space:]]+read[[:space:]]*$ ]]; then
+      _ci_sync_contents_count=$((_ci_sync_contents_count + 1))
+    fi
+    # Step state makes a matching credential line count only for checkout,
+    # rather than for an unrelated action's `with` block in the same job.
+    if [[ "$_ci_sync_code" =~ ^[[:space:]]{6}-[[:space:]] ]]; then
+      _ci_sync_in_checkout=0
+      _ci_sync_in_checkout_with=0
+    fi
+    # Totals deliberately use a scoped substring instead of reimplementing
+    # YAML. Quoted or flow-style extras therefore fail cardinality, while the
+    # one accepted line below must retain the simple canonical form.
+    if [[ "$_ci_sync_code" == *'actions/checkout@'* ]]; then
+      _ci_sync_checkout_total=$((_ci_sync_checkout_total + 1))
+    fi
+    if [[ "$_ci_sync_code" =~ ^[[:space:]]{6}-[[:space:]]+uses:[[:space:]]+actions/checkout@([0-9a-f]{40})[[:space:]]*$ ]]; then
+      _ci_sync_checkout_count=$((_ci_sync_checkout_count + 1))
+      _ci_sync_in_checkout=1
+    elif ((_ci_sync_in_checkout)) &&
+      [[ "$_ci_sync_code" =~ ^[[:space:]]{8}with:[[:space:]]*$ ]]; then
+      _ci_sync_in_checkout_with=1
+    elif ((_ci_sync_in_checkout_with)) &&
+      [[ -n "${_ci_sync_code//[[:space:]]/}" ]] &&
+      [[ ! "$_ci_sync_code" =~ ^[[:space:]]{10} ]]; then
+      _ci_sync_in_checkout_with=0
+    fi
+    if ((_ci_sync_in_checkout_with)) &&
+      [[ "$_ci_sync_code" =~ ^[[:space:]]{10}persist-credentials: ]]; then
+      _ci_sync_credentials_total=$((_ci_sync_credentials_total + 1))
+      if [[ "$_ci_sync_code" =~ ^[[:space:]]{10}persist-credentials:[[:space:]]+false[[:space:]]*$ ]]; then
+        _ci_sync_credentials_count=$((_ci_sync_credentials_count + 1))
+      fi
+    fi
+    # Count only active YAML. A commented example must never satisfy the test
+    # while the synchronization gate itself has silently been disabled.
+    if [[ "$_ci_sync_code" == *'cgraf78/actions/.github/actions/verify-consumer-sync@'* ]]; then
+      _ci_sync_verifier_total=$((_ci_sync_verifier_total + 1))
+    fi
+    if [[ "$_ci_sync_code" =~ ^[[:space:]]{6}-[[:space:]]+uses:[[:space:]]+cgraf78/actions/\.github/actions/verify-consumer-sync@([0-9a-f]{40})[[:space:]]*$ ]] &&
+      [[ "${BASH_REMATCH[1]}" == "$_ci_actions_sha" ]]; then
+      _ci_sync_verifier_count=$((_ci_sync_verifier_count + 1))
+    fi
+  done <<<"$_ci_actions_sync"
+  _assert_eq "CI workflow: has the required actions synchronization job" \
+    "1" "$_ci_sync_job_count"
+  _assert_eq "CI workflow: gives synchronization a stable check name" \
+    "1" "$_ci_sync_name_count"
+  _assert_eq "CI workflow: synchronization uses the standard runner" \
+    "1" "$_ci_sync_runner_count"
+  _assert_eq "CI workflow: synchronization has job-level permissions" \
+    "1" "$_ci_sync_permissions_count"
+  _assert_eq "CI workflow: synchronization grants only one permission" \
+    "1" "$_ci_sync_permission_entry_count"
+  _assert_eq "CI workflow: synchronization has read-only contents access" \
+    "1" "$_ci_sync_contents_count"
+  _assert_eq "CI workflow: synchronization configures checkout credentials once" \
+    "1" "$_ci_sync_credentials_total"
+  _assert_eq "CI workflow: synchronization does not persist credentials" \
+    "1" "$_ci_sync_credentials_count"
+  _assert_eq "CI workflow: synchronization has one checkout step" \
+    "1" "$_ci_sync_checkout_total"
+  _assert_eq "CI workflow: synchronization checkout is immutable" \
+    "1" "$_ci_sync_checkout_count"
+  _assert_eq "CI workflow: synchronization has one verifier step" \
+    "1" "$_ci_sync_verifier_total"
+  _assert_eq "CI workflow: verifier uses the locked actions revision" \
+    "1" "$_ci_sync_verifier_count"
+  _ci_retry_job=$(awk '
+    /^  retry:$/ { capture = 1; job = $1 }
+    capture && /^  [a-zA-Z0-9_-]+:/ && $1 != job { exit }
+    capture { print }
+  ' <<<"$_ci_retry_workflow")
+  _ci_retry_ref_total=0
+  _ci_retry_ref_count=0
+  while IFS= read -r _ci_retry_line; do
+    _ci_retry_code=${_ci_retry_line%%#*}
+    if [[ "$_ci_retry_code" == *'cgraf78/actions/.github/actions/infra-retry@'* ]]; then
+      _ci_retry_ref_total=$((_ci_retry_ref_total + 1))
+    fi
+    if [[ "$_ci_retry_code" =~ ^[[:space:]]{6}-[[:space:]]+uses:[[:space:]]+cgraf78/actions/\.github/actions/infra-retry@([0-9a-f]{40})[[:space:]]*$ ]] &&
+      [[ "${BASH_REMATCH[1]}" == "$_ci_actions_sha" ]]; then
+      _ci_retry_ref_count=$((_ci_retry_ref_count + 1))
+    fi
+  done <<<"$_ci_retry_job"
+  _assert_eq "CI workflow: infrastructure retry has one shared action reference" \
+    "1" "$_ci_retry_ref_total"
+  _assert_eq "CI workflow: infrastructure retry uses the locked revision" \
+    "1" "$_ci_retry_ref_count"
   _assert_contains "CI workflow: delegates the typed ShellCheck inventory" \
     "shellcheck-inventory-path: .github/shellcheck-files.txt" "$_ci_workflow"
   _assert_contains "CI workflow: scopes the dynamic-source exclusion" \
@@ -186,6 +384,22 @@ MOCK
     "fetch-depth: 0" "$_ci_cold_bootstrap"
   _assert_contains "CI workflow: cold bootstrap uses the stdin install path" \
     "bash -s init <\"\$bootstrap\"" "$_ci_cold_bootstrap"
+  _ci_cold_prereq_total=0
+  _ci_cold_prereq_count=0
+  while IFS= read -r _ci_cold_line; do
+    _ci_cold_code=${_ci_cold_line%%#*}
+    if [[ "$_ci_cold_code" == *'cgraf78/actions/.github/actions/shell-ci-prereqs@'* ]]; then
+      _ci_cold_prereq_total=$((_ci_cold_prereq_total + 1))
+    fi
+    if [[ "$_ci_cold_code" =~ ^[[:space:]]{8}uses:[[:space:]]+cgraf78/actions/\.github/actions/shell-ci-prereqs@([0-9a-f]{40})[[:space:]]*$ ]] &&
+      [[ "${BASH_REMATCH[1]}" == "$_ci_actions_sha" ]]; then
+      _ci_cold_prereq_count=$((_ci_cold_prereq_count + 1))
+    fi
+  done <<<"$_ci_cold_bootstrap"
+  _assert_eq "CI workflow: cold bootstrap has one shared prerequisite reference" \
+    "1" "$_ci_cold_prereq_total"
+  _assert_eq "CI workflow: cold bootstrap uses locked shared prerequisites" \
+    "1" "$_ci_cold_prereq_count"
   _assert_contains "CI workflow: cold bootstrap follows with a normal update" \
     "          retry dot update" "$_ci_cold_bootstrap"
   _assert_contains "CI workflow: cold bootstrap preserves terminal retry failures" \
