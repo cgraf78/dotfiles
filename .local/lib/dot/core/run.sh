@@ -25,7 +25,7 @@ _run_to_log_with_ticks() {
     return $?
   fi
 
-  local tmpdir="" status_file="" child child_group="" rc=0
+  local tmpdir="" status_file="" child rc=0
   if ! _dot_cleanup_mktemp -d 2>/dev/null; then
     "$@" >"$log" 2>&1
     return $?
@@ -33,8 +33,7 @@ _run_to_log_with_ticks() {
   tmpdir=$REPLY
   status_file="$tmpdir/status"
 
-  _dot_cleanup_begin_registration
-  _dot_cleanup_prepare_job_launch
+  _dot_cleanup_begin_job_launch
   (
     _dot_cleanup_prepare_subshell
     "$@" >"$log" 2>&1
@@ -42,9 +41,6 @@ _run_to_log_with_ticks() {
   ) <&"$DOT_CLEANUP_LAUNCH_STDIN_FD" &
   child=$!
   _dot_cleanup_finish_job_launch "$child"
-  child_group=$REPLY
-  _dot_cleanup_register_pid "$child" "$child_group"
-  _dot_cleanup_end_registration
 
   while [[ ! -s "$status_file" ]]; do
     if ! kill -0 "$child" 2>/dev/null; then

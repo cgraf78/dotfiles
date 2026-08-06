@@ -342,7 +342,11 @@ _dot_cleanup_should_isolate_job() {
   ! _dot_cleanup_has_controlling_tty
 }
 
-_dot_cleanup_prepare_job_launch() {
+# Start one indivisible launch/publication region. Callers still own the actual
+# asynchronous command and immediate `$!` capture because redirections differ;
+# `_dot_cleanup_finish_job_launch` publishes that PID before releasing signals.
+_dot_cleanup_begin_job_launch() {
+  _dot_cleanup_begin_registration
   DOT_CLEANUP_LAUNCH_ISOLATED=0
   DOT_CLEANUP_LAUNCH_RESTORE_MONITOR=0
   DOT_CLEANUP_LAUNCH_STDIN_FD=0
@@ -370,13 +374,12 @@ _dot_cleanup_prepare_job_launch() {
 }
 
 _dot_cleanup_finish_job_launch() {
-  local pid="$1" stdin_fd="${DOT_CLEANUP_LAUNCH_STDIN_FD:-0}"
+  local pid="$1" stdin_fd="${DOT_CLEANUP_LAUNCH_STDIN_FD:-0}" group=""
 
-  REPLY=""
   if [[ "$DOT_CLEANUP_LAUNCH_ISOLATED" -eq 1 ]]; then
     # Bash job control guarantees PGID == leader PID for the asynchronous job
     # just launched while monitor mode was enabled.
-    REPLY="$pid"
+    group="$pid"
     unset DOT_CLEANUP_INHERIT_GROUP
   fi
   if [[ "$DOT_CLEANUP_LAUNCH_RESTORE_MONITOR" -eq 1 ]]; then
@@ -388,6 +391,8 @@ _dot_cleanup_finish_job_launch() {
   DOT_CLEANUP_LAUNCH_ISOLATED=0
   DOT_CLEANUP_LAUNCH_RESTORE_MONITOR=0
   DOT_CLEANUP_LAUNCH_STDIN_FD=0
+  _dot_cleanup_register_pid "$pid" "$group"
+  _dot_cleanup_end_registration
 }
 
 _dot_cleanup_group_job_active() {

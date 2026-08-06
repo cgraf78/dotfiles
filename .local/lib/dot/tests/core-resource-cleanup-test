@@ -316,11 +316,11 @@ _on_term() {
 }
 trap _on_term TERM
 
-_dot_cleanup_begin_registration
+_dot_cleanup_begin_job_launch
 owned_dir=$(mktemp -d "$TMPDIR/race.XXXXXX") || exit 1
 (
   while [[ ! -e "$CASE_DIR/gates/child-continue" ]]; do sleep 0.01; done
-) &
+) <&"$DOT_CLEANUP_LAUNCH_STDIN_FD" &
 child=$!
 printf '%s\n' "$child" >"$CASE_DIR/child.pid"
 : >"$CASE_DIR/ready"
@@ -329,8 +329,7 @@ printf '%s\n' "$child" >"$CASE_DIR/child.pid"
 # gate then proves cleanup cannot observe a half-published ownership record.
 while [[ ! -e "$CASE_DIR/gates/continue" ]]; do sleep 0.01; done
 _dot_cleanup_register_path "$owned_dir"
-_dot_cleanup_register_pid "$child"
-_dot_cleanup_end_registration
+_dot_cleanup_finish_job_launch "$child"
 exit 99
 FIXTURE
   chmod +x "$case_dir/fixture.sh"
