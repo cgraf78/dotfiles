@@ -525,6 +525,40 @@ JSON
       '"command":"pre-base"' "$claude_json"
     _assert_contains "claude merge: later-layer SessionStart hook is added" \
       '"command":"start-work"' "$claude_json"
+
+    # --- Muse settings: hook arrays merge per event, not replaced ---
+    # Parity with Claude: Muse must also merge per-event, not replace.
+    muse_common="$TEST_HOME/.config/dot/merge-hooks.d/muse-probe-common.json"
+    muse_work="$TEST_HOME/.config/dot/merge-hooks.d/muse-probe-work.json"
+    muse_dst="$TEST_HOME/.config/testapp/muse-settings.json"
+    cat >"$muse_common" <<'JSON'
+{
+  "permissions": { "allow": ["Read"] },
+  "hooks": {
+    "Stop": [{"hooks": [{"type": "command", "command": "stop-base"}]}],
+    "PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "pre-base"}]}]
+  }
+}
+JSON
+    cat >"$muse_work" <<'JSON'
+{
+  "hooks": {
+    "SessionStart": [{"hooks": [{"type": "command", "command": "start-work"}]}]
+  }
+}
+JSON
+    cp "$muse_common" "$muse_dst"
+    (
+      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/muse.sh"
+      _merge_muse_settings "$muse_work" "$muse_dst"
+    )
+    muse_json=$(jq -c . "$muse_dst")
+    _assert_contains "muse merge: base Stop hook survives a later layer" \
+      '"command":"stop-base"' "$muse_json"
+    _assert_contains "muse merge: base PreToolUse hook survives" \
+      '"command":"pre-base"' "$muse_json"
+    _assert_contains "muse merge: later-layer SessionStart hook is added" \
+      '"command":"start-work"' "$muse_json"
   else
     echo "  SKIP: merge hook support jq assertions (jq unavailable)"
   fi
