@@ -17,6 +17,7 @@ set -o pipefail
 export NO_COLOR=1
 
 BIN_DIR="${HOME}/.local/bin"
+BOOTSTRAP_TEST_PATH="$PATH"
 
 # shellcheck source=helpers.sh
 . "$HOME/.local/lib/dot/tests/helpers.sh"
@@ -159,6 +160,99 @@ if $_bootstrap_run_unit; then
   _preflight_git_out=$(PATH="$_curl_only_dir" _require_bootstrap_tools 2>&1) || true
   _assert_contains "preflight: reports the missing git" "- git" "$_preflight_git_out"
   _assert_not_contains "preflight: does not flag present curl" "- curl" "$_preflight_git_out"
+
+  # A worker-level overlay failure must take the same explicit incomplete path
+  # as a required overlay failure. In particular, `set -e` must not bypass the
+  # diagnostic or let bootstrap continue into finalization.
+  _overlay_sync_rc=0
+  _overlay_sync_out=$(
+    # shellcheck disable=SC2329  # Invoked indirectly by the helper under test.
+    _ensure_shdeps() { :; }
+    # shellcheck disable=SC2329  # Invoked indirectly by the helper under test.
+    _merge_overlay_ssh_configs() { :; }
+    # shellcheck disable=SC2329  # Invoked indirectly by the helper under test.
+    _discover_overlays() { :; }
+    # shellcheck disable=SC2329  # Invoked indirectly by the helper under test.
+    _preflight_local_overlays() { :; }
+    # shellcheck disable=SC2329  # Invoked indirectly by the helper under test.
+    _pull_overlays() { return 17; }
+    _bootstrap_sync_overlays 2>&1
+  ) || _overlay_sync_rc=$?
+  _assert_exit "overlay sync: worker failure returns non-zero" 1 "$_overlay_sync_rc"
+  _assert_contains "overlay sync: worker failure explains incomplete bootstrap" \
+    "required overlay sync failed" "$_overlay_sync_out"
+
+  # The real bootstrap calls this as a bare command under errexit so failures
+  # inside the coordinator stay fatal. In that production context Bash exits
+  # with the original worker status rather than the normalized conditional-call
+  # status asserted above.
+  _overlay_production_output=$(_tmpdir)/overlay-production.output
+  _overlay_production_rc=0
+  _overlay_production_had_errexit=0
+  [[ "$-" == *e* ]] && _overlay_production_had_errexit=1
+  set +e
+  (
+    set -e
+    # shellcheck disable=SC2329  # Invoked indirectly by the helper under test.
+    _ensure_shdeps() { :; }
+    # shellcheck disable=SC2329  # Invoked indirectly by the helper under test.
+    _merge_overlay_ssh_configs() { :; }
+    # shellcheck disable=SC2329  # Invoked indirectly by the helper under test.
+    _discover_overlays() { :; }
+    # shellcheck disable=SC2329  # Invoked indirectly by the helper under test.
+    _preflight_local_overlays() { :; }
+    # shellcheck disable=SC2329  # Invoked indirectly by the helper under test.
+    _pull_overlays() { return 17; }
+    _bootstrap_sync_overlays
+  ) >"$_overlay_production_output" 2>&1
+  _overlay_production_rc=$?
+  [[ "$_overlay_production_had_errexit" -eq 0 ]] || set -e
+  _assert_exit "overlay sync: production errexit preserves worker status" \
+    17 "$_overlay_production_rc"
+  _assert_contains "overlay sync: production failure explains incomplete bootstrap" \
+    "required overlay sync failed" "$(cat "$_overlay_production_output")"
+
+  # Do not place the coordinator on the left side of `||`: Bash disables
+  # errexit throughout a function invoked from that context, which can turn an
+  # unexpected worker-internal failure into a false success.
+  _overlay_internal_marker=$(_tmpdir)/continued
+  _overlay_internal_output=$(_tmpdir)/output
+  _overlay_internal_rc=0
+  _overlay_internal_had_errexit=0
+  [[ "$-" == *e* ]] && _overlay_internal_had_errexit=1
+  set +e
+  (
+    set -e
+    # shellcheck disable=SC2329  # Invoked indirectly by the helper under test.
+    _ensure_shdeps() { :; }
+    # shellcheck disable=SC2329  # Invoked indirectly by the helper under test.
+    _merge_overlay_ssh_configs() { :; }
+    # shellcheck disable=SC2329  # Invoked indirectly by the helper under test.
+    _discover_overlays() { :; }
+    # shellcheck disable=SC2329  # Invoked indirectly by the helper under test.
+    _preflight_local_overlays() { :; }
+    # shellcheck disable=SC2329  # Invoked indirectly by the helper under test.
+    _pull_overlays() {
+      false
+      : >"$_overlay_internal_marker"
+    }
+    _bootstrap_sync_overlays 2>&1
+  ) >"$_overlay_internal_output" 2>&1
+  _overlay_internal_rc=$?
+  [[ "$_overlay_internal_had_errexit" -eq 0 ]] || set -e
+  _overlay_internal_out=$(cat "$_overlay_internal_output")
+  if [[ "$_overlay_internal_rc" -ne 0 ]]; then
+    _pass "overlay sync: unexpected internal failure retains errexit"
+  else
+    _fail "overlay sync: unexpected internal failure retains errexit"
+  fi
+  if [[ ! -e "$_overlay_internal_marker" ]]; then
+    _pass "overlay sync: unexpected internal failure stops coordinator work"
+  else
+    _fail "overlay sync: unexpected internal failure stops coordinator work"
+  fi
+  _assert_contains "overlay sync: unexpected failure explains incomplete bootstrap" \
+    "required overlay sync failed" "$_overlay_internal_out"
 
   # ---------------------------------------------------------------------------
   # Tests: merge-wezterm
@@ -532,7 +626,7 @@ EOF
     BACKUP="$_hashed_home/.dotfiles-backup/hashed-git"
     BRANCH="$_hashed_branch"
     GIT="git --git-dir=$DOTFILES --work-tree=$HOME"
-    PATH="$_hashed_home/.local/bin:$PATH"
+    PATH="$_hashed_home/.local/bin:$BOOTSTRAP_TEST_PATH"
     hash -r
     git --version >/dev/null
     rc=0
@@ -829,6 +923,155 @@ SSH
     _fail "overlay: required failure does not write done marker"
   fi
 
+  # Exercise the actual top-level signal traps, not only the resource helper
+  # in isolation. A blocking Git wrapper keeps a real overlay worker alive
+  # until dotbootstrap is terminated; the bounded waits keep a regression from
+  # hanging the test suite that is meant to detect it.
+  FRESH_CANCEL=$(_tmpdir)
+  git clone --bare "$BASE_ORIGIN" "$FRESH_CANCEL/.dotfiles" >/dev/null 2>&1
+  mkdir -p "$FRESH_CANCEL/.config/dot/overlays.d"
+  cat >"$FRESH_CANCEL/.config/dot/overlays.d/10-work.conf" <<CONF
+url=$WORK_ORIGIN
+CONF
+  CANCEL_BIN=$(_tmpdir)
+  CANCEL_TMP=$(_tmpdir)
+  CANCEL_READY="$CANCEL_TMP/clone-ready"
+  CANCEL_CHILD_PID="$CANCEL_TMP/clone.pid"
+  CANCEL_OUT="$CANCEL_TMP/bootstrap.out"
+  # Delegate through the tracked launcher in explicit-real mode. Its normal
+  # PATH-aware resolution works on nonstandard layouts without rediscovering
+  # this blocking wrapper or hardcoding platform install prefixes.
+  REAL_GIT="$BIN_DIR/git"
+  REAL_PYTHON=$(command -v python3)
+  cat >"$CANCEL_BIN/git" <<'SH'
+#!/usr/bin/env bash
+if [[ "${1:-}" == clone && "${2:-}" == "$DOT_TEST_BLOCK_CLONE_URL" ]]; then
+  exec "$DOT_TEST_REAL_PYTHON" - "$DOT_TEST_BLOCK_READY" "$DOT_TEST_BLOCK_PID" <<'PY'
+import os
+import pathlib
+import signal
+import sys
+import time
+
+for sig in (signal.SIGHUP, signal.SIGINT, signal.SIGQUIT, signal.SIGTERM):
+    signal.signal(sig, signal.SIG_IGN)
+pathlib.Path(sys.argv[2]).write_text(f"{os.getpid()}\n", encoding="ascii")
+pathlib.Path(sys.argv[1]).touch()
+while True:
+    time.sleep(60)
+PY
+fi
+DOT_GIT_REAL=1 PATH="$DOT_TEST_REAL_GIT_PATH" \
+  exec "$DOT_TEST_REAL_GIT" "$@"
+SH
+  chmod +x "$CANCEL_BIN/git"
+
+  DOTBOOTSTRAP_SOURCED="" \
+    HOME="$FRESH_CANCEL" \
+    TMPDIR="$CANCEL_TMP" \
+    PATH="$CANCEL_BIN:$BOOTSTRAP_TEST_PATH" \
+    DOT_TEST_REAL_GIT="$REAL_GIT" \
+    DOT_TEST_REAL_GIT_PATH="$BOOTSTRAP_TEST_PATH" \
+    DOT_TEST_REAL_PYTHON="$REAL_PYTHON" \
+    DOT_TEST_BLOCK_CLONE_URL="$WORK_ORIGIN" \
+    DOT_TEST_BLOCK_READY="$CANCEL_READY" \
+    DOT_TEST_BLOCK_PID="$CANCEL_CHILD_PID" \
+    SHDEPS_TEST_TOOL_REPO="$TEST_TOOL_ORIGIN" \
+    SHDEPS_HOOK_PACK_REPO="$HOOK_PACK_ORIGIN" \
+    "$BIN_DIR/dotbootstrap" >"$CANCEL_OUT" 2>&1 &
+  cancel_bootstrap_pid=$!
+
+  cancel_ready=0
+  for _ in {1..200}; do
+    if [[ -f "$CANCEL_READY" ]]; then
+      cancel_ready=1
+      break
+    fi
+    jobs -pr | grep -qx "$cancel_bootstrap_pid" || break
+    sleep 0.05
+  done
+  if [[ "$cancel_ready" -eq 1 ]]; then
+    _pass "cancellation: real bootstrap reaches an owned overlay worker"
+  else
+    _fail "cancellation: real bootstrap reaches an owned overlay worker"
+  fi
+
+  # The result directory is registered before the clone starts. Preserve the
+  # harness-owned control files while checking that private worker scratch is
+  # present and subsequently removed.
+  cancel_scratch_before=$(find "$CANCEL_TMP" -mindepth 1 -maxdepth 1 \
+    ! -name clone-ready ! -name clone.pid ! -name bootstrap.out -print -quit)
+  if [[ -n "$cancel_scratch_before" ]]; then
+    _pass "cancellation: real bootstrap registers private worker scratch"
+  else
+    _fail "cancellation: real bootstrap registers private worker scratch"
+  fi
+
+  kill -TERM "$cancel_bootstrap_pid" 2>/dev/null || true
+  cancel_timed_out=1
+  # Poll the actual job state; the 30-second cap is only a deadlock watchdog.
+  # Loaded CI runners can spend more than ten seconds scheduling nested cleanup
+  # even though each owner is making progress, so the old cap was a flaky test
+  # deadline rather than a product invariant.
+  for _ in {1..600}; do
+    if ! jobs -pr | grep -qx "$cancel_bootstrap_pid"; then
+      cancel_timed_out=0
+      break
+    fi
+    sleep 0.05
+  done
+  if [[ "$cancel_timed_out" -eq 1 ]]; then
+    kill -KILL "$cancel_bootstrap_pid" 2>/dev/null || true
+  fi
+  cancel_rc=0
+  wait "$cancel_bootstrap_pid" 2>/dev/null || cancel_rc=$?
+
+  _assert_eq "cancellation: real bootstrap cleanup stays within its deadline" \
+    "0" "$cancel_timed_out"
+  _assert_exit "cancellation: real bootstrap preserves TERM status" 143 "$cancel_rc"
+
+  cancel_external_pid=$(cat "$CANCEL_CHILD_PID" 2>/dev/null || true)
+  cancel_external_live=1
+  for _ in {1..40}; do
+    cancel_external_state=$(ps -o stat= -p "$cancel_external_pid" 2>/dev/null || true)
+    if [[ -z "$cancel_external_pid" ]] ||
+      ! kill -0 "$cancel_external_pid" 2>/dev/null ||
+      [[ "$cancel_external_state" =~ ^[[:space:]]*Z ]]; then
+      cancel_external_live=0
+      break
+    fi
+    sleep 0.05
+  done
+  if [[ -r "/proc/$$/stat" && -n "$cancel_external_pid" &&
+    "$cancel_external_live" -eq 0 ]]; then
+    _pass "cancellation: strong identity removes external clone process"
+  elif [[ -r "/proc/$$/stat" ]]; then
+    _fail "cancellation: strong identity removes external clone process"
+    kill -KILL "$cancel_external_pid" 2>/dev/null || true
+  elif [[ -n "$cancel_external_pid" && "$cancel_external_live" -eq 0 ]]; then
+    # Bootstrap tests are noninteractive. On a weak-identity host the owned
+    # worker group must therefore contain the clone and finish cleanup before
+    # the outer bootstrap releases its state.
+    _pass "cancellation: weak noninteractive group removes external clone process"
+  elif [[ -n "$cancel_external_pid" ]]; then
+    _fail "cancellation: weak noninteractive group removes external clone process"
+    kill -KILL "$cancel_external_pid" 2>/dev/null || true
+  else
+    _fail "cancellation: weak identity records external clone process"
+  fi
+
+  cancel_scratch_after=$(find "$CANCEL_TMP" -mindepth 1 -maxdepth 1 \
+    ! -name clone-ready ! -name clone.pid ! -name bootstrap.out -print -quit)
+  if [[ -z "$cancel_scratch_after" ]]; then
+    _pass "cancellation: real bootstrap removes private worker scratch"
+  else
+    _fail "cancellation: real bootstrap removes private worker scratch"
+  fi
+  if [[ ! -e "$FRESH_CANCEL/.dotbootstrap-done" ]]; then
+    _pass "cancellation: real bootstrap does not write done marker"
+  else
+    _fail "cancellation: real bootstrap does not write done marker"
+  fi
   # A machine-local descriptor can point at an already-present source tree;
   # bootstrap links it without cloning or otherwise managing that tree.
   FRESH_LOCAL=$(_tmpdir)

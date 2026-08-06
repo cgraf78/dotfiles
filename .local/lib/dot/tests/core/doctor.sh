@@ -578,6 +578,82 @@ CONF
     "overlay symlinks healthy" "$result"
   _assert_file_content "doctor: incomplete batch retries each link separately" \
     $'3\n1\n1\n1' "$doctor_readlink_short_log"
+
+  doctor_cancel_dir=$(_tmpdir)
+  doctor_cancel_bin="$doctor_cancel_dir/bin"
+  doctor_cancel_tmp="$doctor_cancel_dir/tmp"
+  mkdir -p "$doctor_cancel_bin" "$doctor_cancel_tmp"
+  doctor_real_readlink=$(command -v readlink)
+  cat >"$doctor_cancel_bin/readlink" <<'SH'
+#!/usr/bin/env bash
+for arg in "$@"; do
+  if [[ "$arg" == "$DOCTOR_CANCEL_LINK" ]]; then
+    : >"$DOCTOR_CANCEL_READY"
+    trap 'exit 143' TERM
+    while :; do
+      sleep 1
+    done
+  fi
+done
+exec "$DOCTOR_REAL_READLINK" "$@"
+SH
+  chmod +x "$doctor_cancel_bin/readlink"
+
+  doctor_cancel_fixture_rc=0
+  # shellcheck disable=SC2016 # The inner shell expands fixture environment.
+  DOCTOR_CANCEL_LINK="$TEST_HOME/.doctor-overlay-link" \
+    DOCTOR_CANCEL_READY="$doctor_cancel_dir/ready" \
+    DOCTOR_REAL_READLINK="$doctor_real_readlink" \
+    DOT_DOCTOR_BIN="$BIN_DIR/dot" \
+    TMPDIR="$doctor_cancel_tmp" \
+    PATH="$doctor_cancel_bin:$PATH" \
+    _with_timeout 8 bash -c '
+      set -uo pipefail
+      leader=""
+      cleanup() {
+        [[ -n "$leader" ]] || return 0
+        kill -KILL -- "-$leader" 2>/dev/null || true
+        wait "$leader" 2>/dev/null || true
+      }
+      trap cleanup EXIT
+      trap "exit 124" HUP INT TERM
+
+      set -m
+      "$DOT_DOCTOR_BIN" doctor >"$DOCTOR_CANCEL_READY.output" 2>&1 &
+      leader=$!
+      set +m
+
+      ready=0
+      for ((attempt = 0; attempt < 500; attempt++)); do
+        if [[ -e "$DOCTOR_CANCEL_READY" ]]; then
+          ready=1
+          break
+        fi
+        kill -0 "$leader" 2>/dev/null || break
+        sleep 0.01
+      done
+      [[ "$ready" -eq 1 ]] || exit 90
+
+      find "$TMPDIR" -mindepth 1 -maxdepth 1 -print \
+        >"$DOCTOR_CANCEL_READY.before"
+      kill -TERM -- "-$leader"
+      doctor_rc=0
+      wait "$leader" || doctor_rc=$?
+      leader=""
+      printf "%s\n" "$doctor_rc" >"$DOCTOR_CANCEL_READY.rc"
+      find "$TMPDIR" -mindepth 1 -maxdepth 1 -print \
+        >"$DOCTOR_CANCEL_READY.after"
+    ' || doctor_cancel_fixture_rc=$?
+  _assert_exit "doctor cancellation: fixture completes within deadline" \
+    0 "$doctor_cancel_fixture_rc"
+  _assert_file_content "doctor cancellation: preserves TERM status" \
+    "143" "$doctor_cancel_dir/ready.rc"
+  doctor_cancel_before=$(cat "$doctor_cancel_dir/ready.before" 2>/dev/null || true)
+  _assert_contains "doctor cancellation: reaches a registered operation root" \
+    "$doctor_cancel_tmp/dot-doctor." "$doctor_cancel_before"
+  _assert_file_content "doctor cancellation: removes its registered scratch root" \
+    "" "$doctor_cancel_dir/ready.after"
+
   for doctor_link_suffix in one two; do
     doctor_link_rel=".doctor-overlay-link-$doctor_link_suffix"
     rm -f \

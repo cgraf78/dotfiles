@@ -104,6 +104,7 @@ program	.local/lib/dot/core/repos/dirty.sh
 program	.local/lib/dot/core/repos/git.sh
 program	.local/lib/dot/core/repos/overlays.sh
 program	.local/lib/dot/core/repos/pull.sh
+program	.local/lib/dot/core/resources.sh
 program	.local/lib/dot/core/run.sh
 program	.local/lib/dot/core/shdeps-assets.sh
 program	.local/lib/dot/core/shdeps-ui.sh
@@ -141,6 +142,7 @@ program	.local/lib/dot/tests/core-merges-test
 program	.local/lib/dot/tests/core-overlays-test
 program	.local/lib/dot/tests/core-pull-test
 program	.local/lib/dot/tests/core-reexec-test
+program	.local/lib/dot/tests/core-resource-cleanup-test
 program	.local/lib/dot/tests/core-static-test
 program	.local/lib/dot/tests/core-test
 program	.local/lib/dot/tests/core-update-test

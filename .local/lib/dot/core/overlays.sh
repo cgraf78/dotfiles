@@ -309,14 +309,18 @@ _overlay_local_source_validate() {
     REPLY="$overlay_home"
     return 1
   }
-  inventory=$(mktemp 2>/dev/null) || {
+  # Inventory traversal can be slow on externally managed trees. Register the
+  # scratch file at allocation time so a top-level signal removes it even when
+  # Bash exits before the normal post-find cleanup below.
+  if ! _dot_cleanup_mktemp 2>/dev/null; then
     REPLY="could not validate inventory for $overlay_home"
     return 1
-  }
+  fi
+  inventory=$REPLY
   if ! find "$overlay_home" \( -type f -o -type l \) ! -name '*.~[0-9]*~' -print0 \
     >"$inventory"; then
     REPLY="could not read inventory for $overlay_home"
-    rm -f -- "$inventory"
+    _dot_cleanup_remove_path "$inventory" || true
     return 1
   fi
 
@@ -328,7 +332,7 @@ _overlay_local_source_validate() {
       break
     fi
   done <"$inventory"
-  rm -f -- "$inventory"
+  _dot_cleanup_remove_path "$inventory" || true
   [[ "$invalid_inventory" -eq 0 ]] || return 1
   REPLY=""
 }

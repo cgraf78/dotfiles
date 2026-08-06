@@ -156,6 +156,45 @@ _require_bootstrap_tools() {
   exit 1
 }
 
+_bootstrap_overlay_sync_failed() {
+  local status="$1"
+  if [[ "${_bootstrap_overlay_error_reported:-0}" -eq 0 ]]; then
+    echo "  error: required overlay sync failed — bootstrap incomplete." >&2
+    _bootstrap_overlay_error_reported=1
+  fi
+  return "$status"
+}
+
+_bootstrap_sync_overlays() {
+  local pull_rc=0 saved_err_trap="" _bootstrap_overlay_error_reported=0
+  local had_errtrace=0
+  _ensure_shdeps
+  _discover_overlays
+  _preflight_local_overlays
+  _merge_overlay_ssh_configs
+
+  # Keep `_pull_overlays` as a bare command so the script's errexit contract
+  # remains active inside its complete call tree. An ERR trap supplies the
+  # actionable bootstrap diagnostic without putting the function on the left
+  # side of `||`, which would silently disable errexit in every nested worker.
+  saved_err_trap=$(trap -p ERR)
+  [[ "$-" == *E* ]] && had_errtrace=1
+  set -E
+  trap '_bootstrap_overlay_sync_failed $?' ERR
+  _pull_overlays
+  pull_rc=$?
+  if [[ -n "$saved_err_trap" ]]; then
+    eval "$saved_err_trap"
+  else
+    trap - ERR
+  fi
+  [[ "$had_errtrace" -eq 1 ]] || set +E
+  if [[ "$pull_rc" -ne 0 || "${DOT_PULL_OVERLAY_FAILED:-0}" -gt 0 ]]; then
+    _bootstrap_overlay_sync_failed 1 || true
+    return 1
+  fi
+}
+
 # When sourced for testing, export functions without running main logic.
 if [[ "${DOTBOOTSTRAP_SOURCED:-}" == 1 ]]; then return 0; fi
 
@@ -288,19 +327,16 @@ else
   exit 1
 fi
 
+# Bootstrap is a top-level process just like `dot update`, but it does not own
+# the update lock. Keep its async work and private scratch under the same exit
+# cleanup contract without changing the caller's interactive process group.
+_dot_cleanup_install_owner_traps
+
 # ---------------------------------------------------------------------------
 # Overlays: discover, validate, then clone/pull Git sources
 # ---------------------------------------------------------------------------
 
-_ensure_shdeps
-_discover_overlays
-_preflight_local_overlays
-_merge_overlay_ssh_configs
-_pull_overlays
-if [[ "${DOT_PULL_OVERLAY_FAILED:-0}" -gt 0 ]]; then
-  echo "  error: required overlay sync failed — bootstrap incomplete." >&2
-  exit 1
-fi
+_bootstrap_sync_overlays
 
 # ---------------------------------------------------------------------------
 # Finalize: deps, overlay symlinks, config merges, normalize

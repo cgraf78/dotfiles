@@ -116,7 +116,7 @@ _pull_repo() {
     [[ -z "$visible_log" ]] || _log_dim "$visible_log"
   fi
 
-  rm -f "$log"
+  _dot_cleanup_remove_path "$log" || true
   return "$rc"
 }
 
@@ -552,6 +552,11 @@ _pull_overlay_capture() {
   local _idx="$1" _result_dir="$2" name="$3" path="$4" url="$5" optional="$6" ssh_file="$7"
   shift 7
   local _prefix _rc=0
+  # Capture-worker helpers may allocate their own logs. Contain them in the
+  # parent-owned result root so forced worker termination cannot leak storage.
+  local TMPDIR="$_result_dir"
+  export TMPDIR
+  _dot_cleanup_prepare_subshell
   _prefix="$(_pull_overlay_result_prefix "$_result_dir" "$_idx")"
   REPLY_STATUS=""
   _pull_overlay "$name" "$path" "$url" "$optional" "$ssh_file" "$@" >"$_prefix.log" 2>&1 || _rc=$?
@@ -560,12 +565,19 @@ _pull_overlay_capture() {
 }
 
 _pull_overlay_drain_workers() {
-  local _result_dir="$1" _pid
+  local _result_dir="$1" _pid _log
   shift
   for _pid in "$@"; do
     wait "$_pid" 2>/dev/null || true
+    _dot_cleanup_unregister_pid "$_pid"
   done
-  rm -rf "$_result_dir"
+  # Preserve diagnostics already captured by siblings when a coordinator
+  # worker itself fails before the normal ordered rendering pass.
+  for _log in "$_result_dir"/*.log; do
+    [[ -f "$_log" ]] || continue
+    [[ ! -s "$_log" ]] || cat "$_log"
+  done
+  _dot_cleanup_remove_path "$_result_dir" || true
 }
 
 _pull_overlay_record_status() {
@@ -636,12 +648,13 @@ _pull_overlays() {
   fi
 
   local _result_dir=""
-  if ! _result_dir=$(mktemp -d 2>/dev/null); then
+  if ! _dot_cleanup_mktemp -d 2>/dev/null; then
     _pull_overlays_serial "$@"
     DOT_REPO_PROGRESS_DONE="$_done"
     REPLY=$(_join_comma "${_summaries[@]}")
     return 0
   fi
+  _result_dir=$REPLY
 
   local _jobs _running=0 _idx=0 _pid
   local -a _pids=()
@@ -652,16 +665,22 @@ _pull_overlays() {
     _done=$((_done + 1))
     _dot_maybe_stage_progress "$name" "$_done" "$_total"
     _idx=$((_idx + 1))
-    _pull_overlay_capture "$_idx" "$_result_dir" "$name" "$path" "$url" "$optional" "$ssh_file" "$@" &
-    _pids+=("$!")
+    _dot_cleanup_begin_job_launch
+    _pull_overlay_capture "$_idx" "$_result_dir" "$name" "$path" "$url" "$optional" "$ssh_file" "$@" \
+      <&"$DOT_CLEANUP_LAUNCH_STDIN_FD" &
+    _pid=$!
+    _dot_cleanup_finish_job_launch "$_pid"
+    _pids+=("$_pid")
     _running=$((_running + 1))
     if [[ "$_running" -ge "$_jobs" ]]; then
       _pid="${_pids[0]}"
       _pids=("${_pids[@]:1}")
       if ! wait "$_pid" 2>/dev/null; then
+        _dot_cleanup_unregister_pid "$_pid"
         _pull_overlay_drain_workers "$_result_dir" "${_pids[@]}"
         return 1
       fi
+      _dot_cleanup_unregister_pid "$_pid"
       _running=$((_running - 1))
     fi
   done
@@ -670,9 +689,11 @@ _pull_overlays() {
     _pid="${_pids[0]}"
     _pids=("${_pids[@]:1}")
     if ! wait "$_pid" 2>/dev/null; then
+      _dot_cleanup_unregister_pid "$_pid"
       _pull_overlay_drain_workers "$_result_dir" "${_pids[@]}"
       return 1
     fi
+    _dot_cleanup_unregister_pid "$_pid"
   done
 
   _idx=0
@@ -691,7 +712,7 @@ _pull_overlays() {
     # leave it out of the tally and the summary entirely.
     _pull_overlay_record_status "$name" "$status"
   done
-  rm -rf "$_result_dir"
+  _dot_cleanup_remove_path "$_result_dir" || true
   DOT_REPO_PROGRESS_DONE="$_done"
   REPLY=$(_join_comma "${_summaries[@]}")
 }

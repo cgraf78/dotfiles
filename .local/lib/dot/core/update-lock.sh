@@ -9,6 +9,10 @@ if ! declare -F _dot_xdg_path >/dev/null 2>&1; then
   # shellcheck source=xdg.sh disable=SC1091
   . "${BASH_SOURCE[0]%/*}/xdg.sh"
 fi
+if ! declare -F _dot_cleanup_all >/dev/null 2>&1; then
+  # shellcheck source=resources.sh disable=SC1091
+  . "${BASH_SOURCE[0]%/*}/resources.sh"
+fi
 
 _dot_update_lock_path() {
   _dot_xdg_path state "dot/update.lock.d"
@@ -170,11 +174,13 @@ _dot_update_lock_release() {
 }
 
 _dot_update_lock_install_traps() {
-  trap '_dot_update_lock_release' EXIT
-  trap 'exit 129' HUP
-  trap 'exit 130' INT
-  trap 'exit 131' QUIT
-  trap 'exit 143' TERM
+  # Lock release must run even if an unexpected cleanup command fails under
+  # errexit; leaving the lock behind would turn a cleanup defect into a second
+  # persistent failure on every later update.
+  # Ignore handled signals before cleanup starts. `_dot_cleanup_all` preserves
+  # that disposition, so lock-release subprocesses remain protected too.
+  trap '_dot_cleanup_on_exit; _dot_update_lock_release' EXIT
+  _dot_cleanup_install_signal_traps
 }
 
 _dot_update_lock_reenter() {
