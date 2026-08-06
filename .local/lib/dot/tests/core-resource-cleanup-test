@@ -324,6 +324,9 @@ owned_dir=$(mktemp -d "$TMPDIR/race.XXXXXX") || exit 1
 child=$!
 printf '%s\n' "$child" >"$CASE_DIR/child.pid"
 : >"$CASE_DIR/ready"
+# Freeze after allocation and launch but before either resource is published.
+# Both signals must latch while registration depth is nonzero; releasing this
+# gate then proves cleanup cannot observe a half-published ownership record.
 while [[ ! -e "$CASE_DIR/gates/continue" ]]; do sleep 0.01; done
 _dot_cleanup_register_path "$owned_dir"
 _dot_cleanup_register_pid "$child"
@@ -594,6 +597,10 @@ _run_cleanup_signal_shield_case() {
   case_dir=$(_tmpdir)
   mkdir -p "$case_dir/bin" "$case_dir/home" "$case_dir/owned" "$case_dir/state"
 
+  # Make each external removal a handshake: the first is owned scratch and the
+  # second is the update lock. Sending terminal-group signals while each shim is
+  # blocked proves ignored dispositions protect cleanup subprocesses too, not
+  # merely the shell executing the EXIT trap.
   cat >"$case_dir/bin/rm" <<'RM'
 #!/usr/bin/env bash
 set -eu

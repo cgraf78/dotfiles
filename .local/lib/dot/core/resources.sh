@@ -290,6 +290,13 @@ _dot_cleanup_unregister_fd() {
 _dot_cleanup_job_matches() {
   local target="$1" mode="${2:-all}" job
   local jobs_output=""
+  # Bash's job table is the ownership proof here; kill -0 would accept an
+  # unrelated process after numeric PID reuse. The `all` lookup gates only the
+  # optional process-identity snapshot at registration; the exact child PID is
+  # recorded regardless so a fast completion remains waitable by its parent.
+  # Signalling explicitly unions running and stopped jobs: a completed job must
+  # never authorize a signal, while a leader stopped as a PGID anchor remains
+  # active cleanup state.
   case "$mode" in
     active) jobs_output=$(
       jobs -pr
@@ -442,6 +449,9 @@ _dot_cleanup_descendant_records() {
   _dot_cleanup_observe_process "$backend" "$root" || return 0
   [[ "$DOT_CLEANUP_OBS_ID" == "$root_identity" ]] || return 0
 
+  # Keep EXIT cleanup bounded even if a child is rapidly forking or procfs
+  # reports a pathological tree. Hitting either cap fails closed: only the
+  # identity-validated records already emitted are eligible for signalling.
   while ((index < ${#queue_pids[@]} && index < 512)); do
     parent=${queue_pids[$index]}
     parent_identity=${queue_identities[$index]}
