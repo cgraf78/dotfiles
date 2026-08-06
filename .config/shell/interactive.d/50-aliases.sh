@@ -246,3 +246,8 @@ _codex_allow_all() {
 codex() {
   _codex_allow_all "$@"
 }
+
+# Muse - disable approval and sandboxing (see risk-acceptance note above).
+muse() {
+  command muse --yolo "$@"
+}
