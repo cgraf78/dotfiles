@@ -173,6 +173,8 @@ if $_bootstrap_run_unit; then
     # shellcheck disable=SC2329  # Invoked indirectly by the helper under test.
     _discover_overlays() { :; }
     # shellcheck disable=SC2329  # Invoked indirectly by the helper under test.
+    _preflight_local_overlays() { :; }
+    # shellcheck disable=SC2329  # Invoked indirectly by the helper under test.
     _pull_overlays() { return 17; }
     _bootstrap_sync_overlays 2>&1
   ) || _overlay_sync_rc=$?
@@ -197,6 +199,8 @@ if $_bootstrap_run_unit; then
     _merge_overlay_ssh_configs() { :; }
     # shellcheck disable=SC2329  # Invoked indirectly by the helper under test.
     _discover_overlays() { :; }
+    # shellcheck disable=SC2329  # Invoked indirectly by the helper under test.
+    _preflight_local_overlays() { :; }
     # shellcheck disable=SC2329  # Invoked indirectly by the helper under test.
     _pull_overlays() { return 17; }
     _bootstrap_sync_overlays
@@ -225,6 +229,8 @@ if $_bootstrap_run_unit; then
     _merge_overlay_ssh_configs() { :; }
     # shellcheck disable=SC2329  # Invoked indirectly by the helper under test.
     _discover_overlays() { :; }
+    # shellcheck disable=SC2329  # Invoked indirectly by the helper under test.
+    _preflight_local_overlays() { :; }
     # shellcheck disable=SC2329  # Invoked indirectly by the helper under test.
     _pull_overlays() {
       false
@@ -1066,6 +1072,64 @@ SH
   else
     _fail "cancellation: real bootstrap does not write done marker"
   fi
+  # A machine-local descriptor can point at an already-present source tree;
+  # bootstrap links it without cloning or otherwise managing that tree.
+  FRESH_LOCAL=$(_tmpdir)
+  LOCAL_BOOTSTRAP_SOURCE="$FRESH_LOCAL/local source"
+  git clone --bare "$BASE_ORIGIN" "$FRESH_LOCAL/.dotfiles" >/dev/null 2>&1
+  mkdir -p \
+    "$FRESH_LOCAL/.config/dot/overlays.d" \
+    "$LOCAL_BOOTSTRAP_SOURCE/home"
+  printf '%s\n' "local bootstrap value" \
+    >"$LOCAL_BOOTSTRAP_SOURCE/home/.local-bootstrap-fixture"
+  cat >"$FRESH_LOCAL/.config/dot/overlays.d/15-filesystem.local.conf" <<CONF
+sync=none
+path=$LOCAL_BOOTSTRAP_SOURCE
+CONF
+  local_result=$(
+    DOTBOOTSTRAP_SOURCED="" \
+      HOME="$FRESH_LOCAL" \
+      SHDEPS_TEST_TOOL_REPO="$TEST_TOOL_ORIGIN" \
+      SHDEPS_HOOK_PACK_REPO="$HOOK_PACK_ORIGIN" \
+      "$BIN_DIR/dotbootstrap" 2>&1
+  )
+  _assert_contains "local overlay: bootstrap applies overlays" \
+    "Overlays" "$local_result"
+  _assert_eq "local overlay: bootstrap preserves exact link target" \
+    "$LOCAL_BOOTSTRAP_SOURCE/home/.local-bootstrap-fixture" \
+    "$(readlink "$FRESH_LOCAL/.local-bootstrap-fixture" 2>/dev/null || true)"
+  _assert_file_exists "local overlay: bootstrap writes done marker" \
+    "$FRESH_LOCAL/.dotbootstrap-done"
+  if [[ ! -e "$FRESH_LOCAL/.dotfiles-filesystem" ]]; then
+    _pass "local overlay: bootstrap creates no overlay checkout"
+  else
+    _fail "local overlay: bootstrap creates no overlay checkout"
+  fi
+
+  # A missing active source fails before overlay links, dependency updates, or
+  # merge hooks can make a half-configured install look successful.
+  FRESH_LOCAL_MISSING=$(_tmpdir)
+  git clone --bare "$BASE_ORIGIN" "$FRESH_LOCAL_MISSING/.dotfiles" >/dev/null 2>&1
+  mkdir -p "$FRESH_LOCAL_MISSING/.config/dot/overlays.d"
+  cat >"$FRESH_LOCAL_MISSING/.config/dot/overlays.d/15-filesystem.local.conf" <<CONF
+sync=none
+path=$FRESH_LOCAL_MISSING/missing source
+CONF
+  local_missing_rc=0
+  local_missing_result=$(
+    DOTBOOTSTRAP_SOURCED="" \
+      HOME="$FRESH_LOCAL_MISSING" \
+      SHDEPS_TEST_TOOL_REPO="$TEST_TOOL_ORIGIN" \
+      SHDEPS_HOOK_PACK_REPO="$HOOK_PACK_ORIGIN" \
+      "$BIN_DIR/dotbootstrap" 2>&1
+  ) || local_missing_rc=$?
+  _assert_exit "local overlay: missing source fails bootstrap" 1 "$local_missing_rc"
+  _assert_contains "local overlay: missing source is diagnosed" \
+    "overlay source is unavailable" "$local_missing_result"
+  _assert_file_missing "local overlay: missing source writes no done marker" \
+    "$FRESH_LOCAL_MISSING/.dotbootstrap-done"
+  _assert_file_missing "local overlay: missing source runs no merge hooks" \
+    "$FRESH_LOCAL_MISSING/.test-hooks/hook-pack"
 fi
 
 # ---- Filter skipping ----

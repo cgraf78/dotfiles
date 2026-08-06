@@ -236,6 +236,11 @@ _dot_update() {
     esac
   done
 
+  # The launcher performs this before entering update. Keep a defensive gate
+  # here for sourced callers so SSH, repository, and HOME mutations cannot
+  # precede validation of an active filesystem overlay.
+  _preflight_local_overlays || return 1
+
   _ui_begin 5
 
   # Cron updates must never fight with active local edits. First discard

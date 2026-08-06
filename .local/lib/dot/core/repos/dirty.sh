@@ -13,10 +13,12 @@ _is_worktree_dirty() {
       return 0
     fi
   fi
-  local entry
+  local entry sync
   for entry in "${OVERLAYS[@]+"${OVERLAYS[@]}"}"; do
     local path
-    IFS='|' read -r _ path _ <<<"$entry"
+    IFS='|' read -r _ path _ _ _ _ sync <<<"$entry"
+    sync="${sync:-git}"
+    [[ "$sync" == "git" ]] || continue
     if [[ -d "$path/.git" ]]; then
       if ! git -C "$path" diff-index --quiet HEAD 2>/dev/null; then
         return 0
@@ -51,10 +53,12 @@ _try_resolve_dirty() {
       dirty=1
     fi
   fi
-  local entry
+  local entry sync
   for entry in "${OVERLAYS[@]+"${OVERLAYS[@]}"}"; do
     local path
-    IFS='|' read -r _ path _ <<<"$entry"
+    IFS='|' read -r _ path _ _ _ _ sync <<<"$entry"
+    sync="${sync:-git}"
+    [[ "$sync" == "git" ]] || continue
     if [[ -d "$path/.git" ]] && ! git -C "$path" diff-index --quiet HEAD 2>/dev/null; then
       git -C "$path" fetch --quiet origin 2>/dev/null || true
       if _dirty_files_match_ref "$path" git -C "$path"; then
@@ -118,11 +122,13 @@ _normalize_repo() {
 
 # Re-checkout files that are stat-dirty but content-clean across base + overlays.
 _normalize_filtered() {
-  local entry path record pid
+  local entry path record pid sync
   local -a records=() pids=()
   [[ ! -d "$DOTFILES" ]] || records+=("base|")
   for entry in "${OVERLAYS[@]+"${OVERLAYS[@]}"}"; do
-    IFS='|' read -r _ path _ <<<"$entry"
+    IFS='|' read -r _ path _ _ _ _ sync <<<"$entry"
+    sync="${sync:-git}"
+    [[ "$sync" == "git" ]] || continue
     [[ ! -d "$path/.git" ]] || records+=("overlay|$path")
   done
 

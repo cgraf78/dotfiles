@@ -5,7 +5,7 @@ by bootstrap, shell startup, and health checks.
 
 ## Responsibilities
 
-- repository discovery for the base bare repo and overlays
+- overlay descriptor discovery and base-plus-Git repo orchestration
 - update, fetch, push, status, diff, and cron orchestration
 - merge-hook execution
 - bootstrap-safe shell loading
@@ -42,7 +42,8 @@ The basic runtime is split into focused helper modules:
 - `merges.sh` owns merge-hook discovery from core implementation scripts,
   progress labels, output capture, and verbose/default rendering.
 
-[`repos/`](repos/README.md) owns base-plus-overlay repo-set behavior.
+[`repos/`](repos/README.md) owns base-plus-Git repo-set behavior and the shared
+link lifecycle for every overlay source.
 `repos/api.sh` is the source point for command dispatch and update
 orchestration; its focused modules keep repo config, bare-vs-overlay Git
 invocation, pull behavior, overlay linking, dirty-state normalization, and
@@ -72,8 +73,10 @@ output and summary accounting.
 
 ## Update Flow
 
-`dot update` pulls the base repo and active overlays, links overlay files, runs
-dependency updates, runs merge hooks, and refreshes generated state.
+`dot update` validates active filesystem overlays, pulls the base repo and
+active Git overlays, links files from every active overlay, runs dependency
+updates, runs merge hooks, and refreshes generated state. Filesystem overlay
+sources are never passed to Git by the repo runtime.
 
 `DOT_UPDATE_JOBS` is the top-level concurrency knob for update subwork that can
 run in parallel. It defaults to the host CPU count. `DOT_MERGE_JOBS` and

@@ -1694,6 +1694,66 @@ FIXTURE
     0 "$fixture_rc"
 }
 
+_run_local_overlay_preflight_cancel_case() {
+  local case_dir fixture_pid fixture_rc=0 had_monitor=0
+  case_dir=$(_tmpdir)
+  mkdir -p "$case_dir/tmp" "$case_dir/overlay/home"
+  printf '%s\n' fixture >"$case_dir/overlay/home/file"
+
+  cat >"$case_dir/fixture.sh" <<'FIXTURE'
+#!/usr/bin/env bash
+set -eu
+
+# shellcheck source=/dev/null
+. "$SOURCE_HOME/.local/lib/dot/core/init.sh"
+
+# Hold the inventory scan after its output file exists. A top-level signal must
+# not strand that file merely because preflight had not reached its normal rm.
+find() {
+  : >"$CASE_DIR/ready"
+  while :; do sleep 0.05; done
+}
+
+_dot_cleanup_install_owner_traps
+OVERLAYS=("fixture|$CASE_DIR/overlay|||||none")
+_preflight_local_overlays
+: >"$CASE_DIR/later-phase"
+FIXTURE
+  chmod +x "$case_dir/fixture.sh"
+
+  [[ "$-" == *m* ]] && had_monitor=1
+  set -m
+  SOURCE_HOME="$SOURCE_HOME" CASE_DIR="$case_dir" TMPDIR="$case_dir/tmp" \
+    bash "$case_dir/fixture.sh" &
+  fixture_pid=$!
+  [[ "$had_monitor" == 1 ]] || set +m
+
+  if ! _wait_for_file "$case_dir/ready"; then
+    _fail "local overlay preflight cancellation: scan becomes ready"
+    kill -KILL -- "-$fixture_pid" 2>/dev/null || true
+    wait "$fixture_pid" 2>/dev/null || true
+    return
+  fi
+  kill -TERM "$fixture_pid"
+  if _wait_for_pid_bounded "$fixture_pid"; then
+    fixture_rc=$WAIT_PID_RC
+  else
+    _fail "local overlay preflight cancellation: fixture exits within five seconds"
+    return
+  fi
+
+  _assert_exit "local overlay preflight cancellation: preserves TERM status" \
+    143 "$fixture_rc"
+  _assert_eq "local overlay preflight cancellation: removes inventory scratch" \
+    0 "$(_scratch_entry_count "$case_dir/tmp")"
+  if [[ ! -e "$case_dir/later-phase" ]]; then
+    _pass "local overlay preflight cancellation: prevents later phases"
+  else
+    _fail "local overlay preflight cancellation: prevents later phases"
+  fi
+  [[ "$had_monitor" == 1 ]] && set -m
+}
+
 echo "=== Owned resource cleanup on cancellation ==="
 _run_resource_cancel_case run "logged command"
 _run_resource_cancel_case run "TERM-resistant logged command" TERM 143 1
@@ -1746,6 +1806,7 @@ _run_owned_group_leader_exit_case
 _run_noninteractive_stdin_case
 _run_owner_exit_status_case
 _run_resource_resourcing_case
+_run_local_overlay_preflight_cancel_case
 _check_bash4_nounset_array_guards
 
 _test_summary

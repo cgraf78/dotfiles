@@ -335,10 +335,12 @@ EOF
   fi
 
   DISCOVERY_FIXTURE=$(_tmpdir)
+  DISCOVERY_LOCAL_SOURCE="$DISCOVERY_FIXTURE/local source"
   mkdir -p \
     "$DISCOVERY_FIXTURE/.config/dot/agent-playbooks.d/nested/deeper" \
     "$DISCOVERY_FIXTURE/.config/dot/agent-playbooks.d/unmanaged" \
     "$DISCOVERY_FIXTURE/.dotfiles-private/home/.config/dot/agent-playbooks.d/private" \
+    "$DISCOVERY_LOCAL_SOURCE/home/.config/dot/agent-playbooks.d/local" \
     "$DISCOVERY_FIXTURE/.local/state/dot"
   cat >"$DISCOVERY_FIXTURE/.config/dot/agent-playbooks.d/nested/deeper/base.md" <<'EOF'
 # Nested Base
@@ -363,6 +365,12 @@ EOF
 
 <!-- agent-rule-id: untracked-overlay -->
 <!-- agent-rule-trigger: This must not be indexed -->
+EOF
+  cat >"$DISCOVERY_LOCAL_SOURCE/home/.config/dot/agent-playbooks.d/local/local.md" <<'EOF'
+# Managed Local Overlay
+
+<!-- agent-rule-id: managed-local-overlay -->
+<!-- agent-rule-trigger: Testing managed local overlays -->
 EOF
   git init -q --bare "$DISCOVERY_FIXTURE/.dotfiles"
   git --git-dir="$DISCOVERY_FIXTURE/.dotfiles" \
@@ -390,22 +398,31 @@ EOF
   ln -s "$discovery_untracked_target" "$DISCOVERY_FIXTURE/$discovery_untracked_rel"
   printf '%s\t%s\n' "$discovery_untracked_rel" private \
     >>"$DISCOVERY_FIXTURE/.local/state/dot/overlay-links"
+  discovery_local_rel=.config/dot/agent-playbooks.d/local/local.md
+  discovery_local_target="$DISCOVERY_LOCAL_SOURCE/home/$discovery_local_rel"
+  mkdir -p "$DISCOVERY_FIXTURE/${discovery_local_rel%/*}"
+  ln -s "$discovery_local_target" "$DISCOVERY_FIXTURE/$discovery_local_rel"
+  printf '%s\t%s\t%s\n' \
+    "$discovery_local_rel" local "$discovery_local_target" \
+    >>"$DISCOVERY_FIXTURE/.local/state/dot/overlay-links"
   chmod 600 "$DISCOVERY_FIXTURE/.local/state/dot/overlay-links"
   ln -s "$DISCOVERY_FIXTURE/.config/dot/agent-playbooks.d/nested/deeper/base.md" \
     "$DISCOVERY_FIXTURE/.config/dot/agent-playbooks.d/unmanaged/link.md"
 
   discovery_listing=$(
-    HOME="$DISCOVERY_FIXTURE" \
-      DOT_OVERLAY_MANIFEST="$DISCOVERY_FIXTURE/.local/state/dot/overlay-links" \
-      DOT_OVERLAY_LEGACY_MANIFEST="$DISCOVERY_FIXTURE/.local/state/dot/legacy-overlay-links" \
-      _dot_playbook_files
+    HOME="$DISCOVERY_FIXTURE"
+    DOT_OVERLAY_MANIFEST="$DISCOVERY_FIXTURE/.local/state/dot/overlay-links"
+    DOT_OVERLAY_LEGACY_MANIFEST="$DISCOVERY_FIXTURE/.local/state/dot/legacy-overlay-links"
+    OVERLAYS=("local|$DISCOVERY_LOCAL_SOURCE|||||none")
+    _dot_playbook_files
   )
   discovery_nested_listing=$(
     cd "$DISCOVERY_FIXTURE/.config" || exit
-    HOME="$DISCOVERY_FIXTURE" \
-      DOT_OVERLAY_MANIFEST="$DISCOVERY_FIXTURE/.local/state/dot/overlay-links" \
-      DOT_OVERLAY_LEGACY_MANIFEST="$DISCOVERY_FIXTURE/.local/state/dot/legacy-overlay-links" \
-      _dot_playbook_files
+    HOME="$DISCOVERY_FIXTURE"
+    DOT_OVERLAY_MANIFEST="$DISCOVERY_FIXTURE/.local/state/dot/overlay-links"
+    DOT_OVERLAY_LEGACY_MANIFEST="$DISCOVERY_FIXTURE/.local/state/dot/legacy-overlay-links"
+    OVERLAYS=("local|$DISCOVERY_LOCAL_SOURCE|||||none")
+    _dot_playbook_files
   )
   _assert_contains "agent rules: discovery includes recursively nested tracked playbook" \
     "$DISCOVERY_FIXTURE/.config/dot/agent-playbooks.d/nested/deeper/base.md" \
@@ -416,6 +433,8 @@ EOF
   _assert_contains "agent rules: discovery includes exact managed overlay symlink" \
     "$DISCOVERY_FIXTURE/.config/dot/agent-playbooks.d/private/overlay.md" \
     "$discovery_listing"
+  _assert_contains "agent rules: discovery includes exact managed local overlay symlink" \
+    "$DISCOVERY_FIXTURE/$discovery_local_rel" "$discovery_listing"
   _assert_not_contains "agent rules: discovery excludes untracked regular files" \
     "$DISCOVERY_FIXTURE/.config/dot/agent-playbooks.d/unmanaged/file.md" \
     "$discovery_listing"
@@ -424,6 +443,26 @@ EOF
     "$discovery_listing"
   _assert_not_contains "agent rules: discovery excludes untracked overlay sources" \
     "$DISCOVERY_FIXTURE/$discovery_untracked_rel" "$discovery_listing"
+
+  # A stale exact-target record from a removed filesystem descriptor must not
+  # inherit trust from a same-name Git checkout. The manifest target identifies
+  # the local source, so only an active matching sync=none descriptor can
+  # authorize it.
+  mkdir -p "$DISCOVERY_FIXTURE/.dotfiles-local/home/${discovery_local_rel%/*}"
+  cp "$DISCOVERY_LOCAL_SOURCE/home/$discovery_local_rel" \
+    "$DISCOVERY_FIXTURE/.dotfiles-local/home/$discovery_local_rel"
+  git -C "$DISCOVERY_FIXTURE/.dotfiles-local" init -q
+  git -C "$DISCOVERY_FIXTURE/.dotfiles-local" add "home/$discovery_local_rel"
+  discovery_stale_local_listing=$(
+    HOME="$DISCOVERY_FIXTURE"
+    DOT_OVERLAY_MANIFEST="$DISCOVERY_FIXTURE/.local/state/dot/overlay-links"
+    DOT_OVERLAY_LEGACY_MANIFEST="$DISCOVERY_FIXTURE/.local/state/dot/legacy-overlay-links"
+    # shellcheck disable=SC2034  # read dynamically by _dot_playbook_files.
+    OVERLAYS=()
+    _dot_playbook_files
+  )
+  _assert_not_contains "agent rules: stale local target gets no same-name Git trust" \
+    "$DISCOVERY_FIXTURE/$discovery_local_rel" "$discovery_stale_local_listing"
 
   mv "$DISCOVERY_FIXTURE/.dotfiles-private/home/$discovery_rel" \
     "$DISCOVERY_FIXTURE/.dotfiles-private/home/$discovery_rel.missing"

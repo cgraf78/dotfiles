@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # First-time bootstrap for all machines. Clones the bare git repo,
-# checks out dotfiles, clones overlay repos, installs deps, and sets
+# checks out dotfiles, prepares overlays, installs deps, and sets
 # up auto-update cron.  For day-to-day updates, use 'dot update' instead.
 #
-# Base bare repo at ~/.dotfiles. Overlay repos are discovered from
+# Base bare repo at ~/.dotfiles. Overlays are discovered from
 # config files in ~/.config/dot/overlays.d/*.conf after base checkout.
 #
 # Usage (fresh machine):
@@ -169,8 +169,9 @@ _bootstrap_sync_overlays() {
   local pull_rc=0 saved_err_trap="" _bootstrap_overlay_error_reported=0
   local had_errtrace=0
   _ensure_shdeps
-  _merge_overlay_ssh_configs
   _discover_overlays
+  _preflight_local_overlays
+  _merge_overlay_ssh_configs
 
   # Keep `_pull_overlays` as a bare command so the script's errexit contract
   # remains active inside its complete call tree. An ERR trap supplies the
@@ -332,7 +333,7 @@ fi
 _dot_cleanup_install_owner_traps
 
 # ---------------------------------------------------------------------------
-# Overlay repos: discover, clone/pull
+# Overlays: discover, validate, then clone/pull Git sources
 # ---------------------------------------------------------------------------
 
 _bootstrap_sync_overlays

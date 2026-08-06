@@ -2,29 +2,40 @@
 # dot doctor: Overlays checks.
 
 _dr_check_overlays() {
-  local conf_dir conf_count=0
+  local conf_dir conf_count=0 manifest="$DOT_OVERLAY_MANIFEST"
   conf_dir="$(_overlay_conf_dir)"
   [[ -d "$conf_dir" ]] && conf_count=$(find "$conf_dir" -maxdepth 1 -name '*.conf' -type f 2>/dev/null | wc -l | tr -d ' ')
   _dr_section "Overlays ($conf_count configured)"
 
-  if [[ "$conf_count" -eq 0 ]]; then
+  local discovery_invalid=0
+  if [[ -n "${DOT_OVERLAY_DISCOVERY_ERROR:-}" ]]; then
+    _dr_fail "overlay descriptor invalid" "$DOT_OVERLAY_DISCOVERY_ERROR"
+    discovery_invalid=1
+  fi
+
+  if [[ "$conf_count" -eq 0 && ! -f "$manifest" ]]; then
     _dr_skip "no overlays to check"
     return 0
+  elif [[ "$conf_count" -eq 0 ]]; then
+    _dr_skip "no active overlay descriptors"
   fi
 
   # Walk each conf, check against the parsed OVERLAYS array (filtered set).
-  declare -A overlay_paths=()
-  local f name want_url
+  declare -A overlay_paths=() overlay_syncs=()
+  local f name want_url descriptor_sync
   for f in "$conf_dir"/*.conf; do
+    [[ "$discovery_invalid" -eq 0 ]] || break
     [[ -f "$f" ]] || continue
-    name=$(_overlay_name "$f")
+    descriptor_sync=$(awk -F= '/^sync=/ {sub(/^sync=/, ""); print; exit}' "$f")
+    name=$(_overlay_name "$f" "${descriptor_sync:-git}")
     # Extract URL from conf directly (OVERLAYS may have filtered it out).
     want_url=$(awk -F= '/^url=/ {sub(/^url=/, ""); print; exit}' "$f")
 
     # Is this overlay active for this host?
-    local active=0 entry path _conf optional ssh_file
+    local active=0 entry path _conf optional ssh_file sync
     for entry in "${OVERLAYS[@]+"${OVERLAYS[@]}"}"; do
-      IFS='|' read -r n path _ _conf optional ssh_file <<<"$entry"
+      IFS='|' read -r n path _ _conf optional ssh_file sync <<<"$entry"
+      sync="${sync:-git}"
       if [[ "$n" == "$name" && "$_conf" == "$f" ]]; then
         active=1
         break
@@ -36,6 +47,17 @@ _dr_check_overlays() {
       continue
     fi
     overlay_paths["$name"]="$path"
+    overlay_syncs["$name"]="$sync"
+
+    if [[ "$sync" == "none" ]]; then
+      if _overlay_local_source_validate "$path"; then
+        _dr_ok "$name: local source available" "$(_dr_tilde "$path")"
+      else
+        _dr_fail "$name: local source unavailable" \
+          "$(_dr_tilde "${REPLY:-$path/home}")"
+      fi
+      continue
+    fi
 
     # Optional overlays are allowed to be unavailable on a machine. Required
     # overlays are not: a declared-but-missing deploy key means the machine
@@ -86,17 +108,27 @@ _dr_check_overlays() {
   # Validate that links still resolve to that overlay, not merely to any
   # existing file, so stale/manual relinks are visible before hooks depend on
   # the wrong policy files.
-  local manifest="$DOT_OVERLAY_MANIFEST"
   if [[ -f "$manifest" ]]; then
-    declare -A manifest_owners=()
+    declare -A manifest_owners=() manifest_targets=() manifest_exact=()
     # Keep the parser's dynamically scoped outputs local even though this call
     # uses it only as a validator and deliberately retains the raw values.
     # shellcheck disable=SC2034
-    local issue_count=0 rel overlay_name REPLY_REL REPLY_OWNER
-    local -a link_rels=() link_owners=() link_dsts=() link_targets=()
-    while IFS=$'\t' read -r rel overlay_name _; do
-      [[ -n "$rel" ]] || continue
+    local issue_count=0 rel overlay_name line REPLY_REL REPLY_OWNER REPLY_TARGET
+    local -a link_rels=() link_owners=() link_dsts=() link_expected=() link_exact=() link_targets=()
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      if ! _overlay_parse_manifest_record "$line"; then
+        ((issue_count++)) || true
+        continue
+      fi
+      rel="$REPLY_REL"
+      overlay_name="$REPLY_OWNER"
       manifest_owners["$rel"]="$overlay_name"
+      manifest_targets["$rel"]="$REPLY_TARGET"
+      if [[ "${line#*$'\t'}" == *$'\t'* ]]; then
+        manifest_exact["$rel"]=1
+      else
+        manifest_exact["$rel"]=0
+      fi
     done <"$manifest"
 
     for rel in "${!manifest_owners[@]}"; do
@@ -119,6 +151,8 @@ _dr_check_overlays() {
       link_rels+=("$rel")
       link_owners+=("$overlay_name")
       link_dsts+=("$dst")
+      link_expected+=("${manifest_targets[$rel]}")
+      link_exact+=("${manifest_exact[$rel]}")
     done
 
     local batch_ok=0 readlink_file="" readlink_output_count=0
@@ -134,7 +168,7 @@ _dr_check_overlays() {
       _dot_cleanup_remove_path "$readlink_file" || true
     fi
 
-    local i actual expected_lexical expected
+    local i actual expected_lexical expected current_target
     for ((i = 0; i < ${#link_dsts[@]}; i++)); do
       rel="${link_rels[$i]}"
       overlay_name="${link_owners[$i]}"
@@ -146,14 +180,27 @@ _dr_check_overlays() {
         actual=$(readlink "$dst" 2>/dev/null || true)
       fi
 
-      # Managed links normally retain dot's deterministic relative target.
-      # Check that cheap representation first; physical resolution remains the
-      # compatibility fallback for equivalent absolute or hand-normalized links.
-      if _overlay_parse_manifest_record "$rel"$'\t'"$overlay_name"; then
-        _overlay_link_target "$rel" "$overlay_name"
-        expected_lexical="$REPLY"
-        [[ "$actual" == "$expected_lexical" ]] && continue
+      expected_lexical="${link_expected[$i]}"
+      if ! _overlay_record_link_target "$rel" "$overlay_name" \
+        "${overlay_paths[$overlay_name]}" "${overlay_syncs[$overlay_name]}"; then
+        ((issue_count++)) || true
+        continue
       fi
+      current_target="$REPLY"
+
+      # Three-column manifests make the literal link target part of the
+      # authority contract, but the current descriptor remains authoritative
+      # after a local source path changes. The physical fallback remains only
+      # for legacy two-column records created before exact targets were stored.
+      if [[ "${link_exact[$i]}" -eq 1 ]]; then
+        if [[ "$expected_lexical" != "$current_target" ||
+          "$actual" != "$current_target" ]]; then
+          ((issue_count++)) || true
+        fi
+        continue
+      fi
+
+      [[ "$actual" == "$current_target" ]] && continue
 
       expected="${overlay_paths[$overlay_name]}/home/$rel"
       if ! _dr_symlink_points_to "$dst" "$expected"; then

@@ -6,12 +6,13 @@
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20WSL-lightgrey.svg)](#)
 
 Base dotfiles are managed as a bare git repository with `$HOME` as the working
-tree, plus optional overlay repos for work, machine-specific, or
+tree, plus optional Git or filesystem overlays for work, machine-specific, or
 project-specific files.
 
 - `~/.dotfiles` is the base bare repo.
-- `~/.dotfiles-<name>` repos are overlays discovered from
-  `~/.config/dot/overlays.d/*.conf`.
+- `~/.dotfiles-<name>` repos are Git overlays discovered from
+  `~/.config/dot/overlays.d/*.conf`; `sync=none` descriptors can point at
+  sources managed outside dot.
 - Overlay files live under each overlay's `home/` directory and are symlinked
   into `$HOME` by `dot update`.
 
@@ -45,23 +46,24 @@ curl -sL cgraf78.github.io/d | bash
 source ~/.bashrc  # or: source ~/.zshrc
 ```
 
-`dotbootstrap` clones the base repo, clones matching overlays that are
-accessible, skips optional overlays that are not accessible on the current
+`dotbootstrap` clones the base repo and matching Git overlays, validates and
+applies matching filesystem overlays whose descriptors and sources are already
+present, skips optional Git overlays that are not accessible on the current
 machine, backs up conflicting files under `~/.dotfiles-backup/`, and installs
 the auto-update cron.
 
 ## Usage
 
 ```bash
-dot update                  # sync repos, merge configs, update deps
+dot update                  # sync repos, apply overlays, merge configs, update deps
 dot update -v               # verbose update
 dot update --force          # bypass TTL caches and force reinstalls
 dot update --cron           # quiet update, skipped when any repo is dirty
 dot pull                    # alias for update
-dot fetch                   # fetch base + overlays
-dot push                    # push base + overlays
-dot status                  # status for base + overlays
-dot diff                    # diff for base + overlays
+dot fetch                   # fetch base + Git overlays
+dot push                    # push base + Git overlays
+dot status                  # status for base + Git overlays
+dot diff                    # diff for base + Git overlays
 dot cron                    # show installed cron entries
 dot doctor                  # run installation health checks
 ```
@@ -79,7 +81,7 @@ git commit
 dot push
 ```
 
-Overlay repos are regular checkouts and are managed with
+Git overlay repos are regular checkouts and are managed with
 `git -C ~/.dotfiles-<name>`.
 
 ## Dependency Docs
