@@ -1,16 +1,5 @@
 {
   "hooks": {
-    "Notification": [
-      {
-        "hooks": [
-          {
-            "command": "env AGENTGUARD_NAME=muse AGENTGUARD_SESSION_ID=\"${MUSE_SESSION_ID:-$PPID}\" agent-hook-notification",
-            "type": "command"
-          }
-        ],
-        "matcher": ""
-      }
-    ],
     "PostToolUse": [
       {
         "hooks": [
@@ -73,17 +62,6 @@
           }
         ],
         "matcher": "mcp__"
-      }
-    ],
-    "SessionEnd": [
-      {
-        "hooks": [
-          {
-            "command": "env AGENTGUARD_NAME=muse AGENTGUARD_SESSION_ID=\"${MUSE_SESSION_ID:-$PPID}\" agent-hook-session-end",
-            "timeout": 30,
-            "type": "command"
-          }
-        ]
       }
     ],
     "SessionStart": [

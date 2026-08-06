@@ -97,4 +97,23 @@ merge() {
   for src in "${src_files[@]}"; do
     _merge_muse_settings "$src" "$dst"
   done
+
+  # Prune unsupported hook events that previously caused UnsupportedEvent warnings.
+  # Muse 0.1.x does not support Notification/SessionEnd (Claude-only); clean
+  # up stale generated config from earlier parity attempts.
+  if [[ -f "$dst" ]] && jq empty "$dst" 2>/dev/null; then
+    local tmp
+    _merge_hook_tmp_for "$dst" || return 0
+    tmp="$REPLY"
+    if jq --sort-keys --indent 2 'del(.hooks.Notification) | del(.hooks.SessionEnd)' "$dst" >"$tmp" 2>/dev/null; then
+      # Only replace if content actually changed (avoid touching mtime unnecessarily).
+      if ! cmp -s "$dst" "$tmp" 2>/dev/null; then
+        _merge_hook_commit_tmp "$tmp" "$dst"
+      else
+        rm -f "$tmp"
+      fi
+    else
+      rm -f "$tmp"
+    fi
+  fi
 }
