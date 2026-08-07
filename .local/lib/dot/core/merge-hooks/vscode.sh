@@ -1266,6 +1266,36 @@ _vscode_local_extensions() {
   done < <(_vscode_local_extension_sources)
 }
 
+# Emit the config-bearing variant records that should drive settings and
+# keybinding reconciliation. Multiple extension hosts can deliberately share a
+# single user config directory (for example, stable and insiders builds). Each
+# _merge_vscode_config call fully reconciles that directory, so replaying every
+# host does duplicate work and makes the final result depend on the last call
+# anyway. Keep that existing last-declaration-wins policy explicitly while
+# leaving the full variant list intact for extension registration below.
+_vscode_config_variants() {
+  local -a variants=("$@")
+  local i j line rest cfg_dir later_rest later_cfg_dir superseded
+
+  for ((i = 0; i < ${#variants[@]}; i++)); do
+    line="${variants[$i]}"
+    rest="${line#*	}"
+    cfg_dir="${rest%%	*}"
+    [[ -n "$cfg_dir" ]] || continue
+
+    superseded=0
+    for ((j = i + 1; j < ${#variants[@]}; j++)); do
+      later_rest="${variants[$j]#*	}"
+      later_cfg_dir="${later_rest%%	*}"
+      if [[ "$later_cfg_dir" == "$cfg_dir" ]]; then
+        superseded=1
+        break
+      fi
+    done
+    ((superseded)) || printf '%s\n' "$line"
+  done
+}
+
 # Main: deploy extensions, settings, and keybindings to all VS Code variants.
 merge() {
   _vscode_install_declared_extensions || return $?
@@ -1273,6 +1303,7 @@ merge() {
   command -v jq &>/dev/null || return 0
 
   local -a variants=()
+  local -a config_variants=()
   local line
   while IFS= read -r line; do
     variants+=("$line")
@@ -1282,6 +1313,13 @@ merge() {
   _merge_vscode_remote_mcp_auth
 
   ((${#variants[@]} > 0)) || return 0
+
+  # Config reconciliation is keyed by its destination rather than by the
+  # extension host. Build this smaller list once; extension pruning and local
+  # extension installation must still visit every original variant.
+  while IFS= read -r line; do
+    config_variants+=("$line")
+  done < <(_vscode_config_variants "${variants[@]}")
 
   local _ext_spec _ext_id _ext_src _ext_disabled_opts _ext_name
   local ext_dir cfg_dir opts rest merge_rc=0
@@ -1318,13 +1356,13 @@ merge() {
     done
   done < <(_vscode_local_extensions)
 
-  # Merge settings and keybindings.
-  # Variants are independent, so keep processing after one fails. Preserve the
-  # aggregate failure explicitly: the hook runner deliberately invokes merge
-  # in a context where Bash errexit is not a reliable error boundary, and a
-  # later successful variant must not make a partial deployment look healthy.
+  # Merge settings and keybindings. Config destinations are independent, so
+  # keep processing after one fails. Preserve the aggregate failure explicitly:
+  # the hook runner deliberately invokes merge in a context where Bash errexit
+  # is not a reliable error boundary, and a later successful destination must
+  # not make a partial deployment look healthy.
   _log "  VS Code"
-  for line in "${variants[@]}"; do
+  for line in ${config_variants[@]+"${config_variants[@]}"}; do
     rest="${line#*	}"
     cfg_dir="${rest%%	*}"
     opts="${rest#*	}"
