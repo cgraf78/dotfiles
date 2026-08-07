@@ -633,6 +633,13 @@ else
   _fail "gstack: post hook uses real state directory"
 fi
 
+# Warm re-arming is a dot-convergence optimization. Load the same signal-safe
+# resource owner that core dot uses before exercising its timestamp fence;
+# standalone shdeps hook calls deliberately validate without creating an
+# unowned temporary file.
+# shellcheck source=../core/resources.sh disable=SC1091
+. "$REAL_HOME/.local/lib/dot/core/resources.sh"
+
 eval "$(declare -f _dot_gstack_register_claude |
   sed '1s/_dot_gstack_register_claude/_orig_dot_gstack_register_claude/')"
 eval "$(declare -f _dot_gstack_register_codex |
@@ -645,8 +652,20 @@ eval "$(declare -f _dot_gstack_target_fingerprint |
   sed '1s/_dot_gstack_target_fingerprint/_orig_dot_gstack_target_fingerprint/')"
 _gstack_full_register_log=$(_tmpdir)/gstack-full-register.log
 _gstack_fingerprint_log=$(_tmpdir)/gstack-fingerprint.log
+_gstack_fingerprint_race_marker=$(_tmpdir)/gstack-fingerprint-race
 : >"$_gstack_full_register_log"
 : >"$_gstack_fingerprint_log"
+
+_gstack_touch_newer_than() {
+  local path="$1" reference="$2" deadline=$((SECONDS + 3))
+
+  while [[ ! "$path" -nt "$reference" ]]; do
+    touch "$path"
+    [[ "$path" -nt "$reference" ]] && return 0
+    ((SECONDS < deadline)) || return 1
+    sleep 0.05
+  done
+}
 # shellcheck disable=SC2329  # dot_gstack_register_all invokes this by name.
 _dot_gstack_register_claude() {
   printf 'claude\n' >>"$_gstack_full_register_log"
@@ -664,7 +683,21 @@ _dot_gstack_register_gemini() {
 }
 # shellcheck disable=SC2329  # dot_gstack_register_all invokes this by name.
 _dot_gstack_source_fingerprint() {
+  local fence
   printf 'source\n' >>"$_gstack_fingerprint_log"
+  if [[ -f "$_gstack_fingerprint_race_marker" ]]; then
+    rm -f "$_gstack_fingerprint_race_marker"
+    # The production code creates this validation-start fence immediately
+    # before invoking the fingerprint. Move a watched parent strictly after it
+    # to model a concurrent mutation without relying on clock resolution. The
+    # glob deliberately mirrors cache.sh's allocator template; divergence fails
+    # the later "forces one more proof" assertion rather than weakening it.
+    for fence in "$_gstack_home/.gstack/.dotfiles-registration-cache-v1.rearm.tmp."*; do
+      [[ -f "$fence" ]] || continue
+      _gstack_touch_newer_than "$_gstack_home/.claude/skills" "$fence" || return 1
+      break
+    done
+  fi
   _orig_dot_gstack_source_fingerprint "$@"
 }
 # shellcheck disable=SC2329  # dot_gstack_register_all invokes this by name.
@@ -682,6 +715,91 @@ _assert_eq "gstack: current registration skips full rewrite path" \
   "" "$(cat "$_gstack_full_register_log")"
 _assert_eq "gstack: current registration skips fingerprint scans" \
   "" "$(cat "$_gstack_fingerprint_log")"
+
+# A parent-directory mtime change can conservatively invalidate the watch fast
+# path even when the source and every managed target are still byte-for-byte
+# current. The first call must do the full fingerprint proof. Once that proof
+# succeeds, the cache should be re-armed so every later warm update does not
+# repeat the same expensive scan indefinitely.
+if _gstack_touch_newer_than \
+  "$_gstack_home/.claude/skills" \
+  "$_gstack_home/.gstack/.dotfiles-registration-cache-v1"; then
+  _pass "gstack: test invalidation is newer than the cache"
+else
+  _fail "gstack: test invalidation is newer than the cache"
+fi
+: >"$_gstack_full_register_log"
+: >"$_gstack_fingerprint_log"
+if dot_gstack_register_all; then
+  _pass "gstack: unchanged parent mtime invalidation validates successfully"
+else
+  _fail "gstack: unchanged parent mtime invalidation validates successfully"
+fi
+_assert_eq "gstack: unchanged parent mtime does not rewrite registrations" \
+  "" "$(cat "$_gstack_full_register_log")"
+_assert_contains "gstack: unchanged parent mtime performs one fingerprint proof" \
+  "source" "$(cat "$_gstack_fingerprint_log")"
+: >"$_gstack_fingerprint_log"
+if dot_gstack_register_all; then
+  _pass "gstack: validated parent mtime re-arms the watch cache"
+else
+  _fail "gstack: validated parent mtime re-arms the watch cache"
+fi
+_assert_eq "gstack: re-armed watch cache skips repeated fingerprint scans" \
+  "" "$(cat "$_gstack_fingerprint_log")"
+
+# A mutation during fingerprint validation must not be hidden by re-arming the
+# cache to a later completion timestamp. The next call must validate again;
+# only that race-free proof may restore the watch fast path.
+if _gstack_touch_newer_than \
+  "$_gstack_home/.claude/skills" \
+  "$_gstack_home/.gstack/.dotfiles-registration-cache-v1"; then
+  _pass "gstack: race fixture starts with an invalidated cache"
+else
+  _fail "gstack: race fixture starts with an invalidated cache"
+fi
+: >"$_gstack_fingerprint_race_marker"
+: >"$_gstack_fingerprint_log"
+dot_gstack_register_all || _fail "gstack: concurrent invalidation validates successfully"
+_assert_contains "gstack: concurrent invalidation performs fingerprint proof" \
+  "source" "$(cat "$_gstack_fingerprint_log")"
+: >"$_gstack_fingerprint_log"
+dot_gstack_register_all || _fail "gstack: concurrent invalidation remains visible"
+_assert_contains "gstack: concurrent invalidation forces one more proof" \
+  "source" "$(cat "$_gstack_fingerprint_log")"
+: >"$_gstack_fingerprint_log"
+dot_gstack_register_all || _fail "gstack: race-free proof re-arms cache"
+_assert_eq "gstack: race-free proof restores watch fast path" \
+  "" "$(cat "$_gstack_fingerprint_log")"
+
+# Interactive merge hooks execute the hook body in a nested Bash child. That
+# child inherits the parent's registry variables but not its caught traps, so
+# production must establish a child-owned cleanup context before allocating the
+# fence. Verify that real execution shape still re-arms the parent-visible
+# cache and leaves no sibling scratch behind.
+if _gstack_touch_newer_than \
+  "$_gstack_home/.claude/skills" \
+  "$_gstack_home/.gstack/.dotfiles-registration-cache-v1"; then
+  _pass "gstack: nested hook fixture starts with an invalidated cache"
+else
+  _fail "gstack: nested hook fixture starts with an invalidated cache"
+fi
+: >"$_gstack_fingerprint_log"
+(dot_gstack_register_all) || _fail "gstack: nested hook validation succeeds"
+_assert_contains "gstack: nested hook performs fingerprint proof" \
+  "source" "$(cat "$_gstack_fingerprint_log")"
+: >"$_gstack_fingerprint_log"
+dot_gstack_register_all || _fail "gstack: nested hook re-arms cache"
+_assert_eq "gstack: nested hook restores watch fast path" \
+  "" "$(cat "$_gstack_fingerprint_log")"
+_gstack_rearm_scratch=''
+for _gstack_rearm_candidate in \
+  "$_gstack_home/.gstack/.dotfiles-registration-cache-v1.rearm.tmp."*; do
+  [[ -e "$_gstack_rearm_candidate" ]] || continue
+  _gstack_rearm_scratch=$_gstack_rearm_candidate
+  break
+done
+_assert_eq "gstack: nested hook removes re-arm scratch" "" "$_gstack_rearm_scratch"
 
 ln -sfn "$_gstack_repo" "$_gstack_home/.claude/skills/gstack"
 ln -sfn gstack/open-gstack-browser "$_gstack_home/.claude/skills/connect-chrome"

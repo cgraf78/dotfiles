@@ -460,7 +460,7 @@ _dot_gstack_emit_registration_watch_entries() {
 }
 
 _dot_gstack_registration_cache_current() {
-  local gstack_dir="$1" cache_file source_fingerprint target_fingerprint
+  local gstack_dir="$1" cache_file source_fingerprint target_fingerprint rearm_fence=''
   local cached_source='' cached_target='' key value
 
   # A symlinked state directory means the old install shape still needs the
@@ -485,8 +485,33 @@ _dot_gstack_registration_cache_current() {
 
   [ -n "$cached_source" ] && [ -n "$cached_target" ] || return 1
 
+  # Capture the start of validation rather than touching the cache after it.
+  # A watched path can change while the fingerprints below are being computed;
+  # using a completion timestamp would make that concurrent change look older
+  # than the cache and could hide it indefinitely. An earlier fence preserves
+  # the race in the safe direction: the next update validates once more.
+  # The re-arm is an optimization, so require dot's signal-safe allocator when
+  # it is available rather than risking an unowned temp file on interruption.
+  # Interactive merge hooks run in a nested Bash child: Bash clears inherited
+  # caught traps there, and the copied registry still names the parent owner.
+  # Reset that stale copy before allocation so this exact child owns its fence
+  # and reinstalls cleanup traps. Standalone registration still validates
+  # correctly; without the allocator it simply skips the optional re-arm.
+  if declare -F _dot_cleanup_prepare_subshell >/dev/null 2>&1 &&
+    [[ "${DOT_CLEANUP_OWNER_PID:-}" != "${BASHPID:-$$}" ]]; then
+    _dot_cleanup_prepare_subshell
+  fi
+  if declare -F _dot_cleanup_mktemp >/dev/null 2>&1 &&
+    [[ "${DOT_CLEANUP_OWNER_PID:-}" == "${BASHPID:-$$}" ]] &&
+    _dot_cleanup_mktemp "${cache_file}.rearm.tmp.XXXXXX"; then
+    rearm_fence="$REPLY"
+  fi
+
   source_fingerprint=$(_dot_gstack_source_fingerprint "$gstack_dir")
-  [ "$source_fingerprint" = "$cached_source" ] || return 1
+  if [ "$source_fingerprint" != "$cached_source" ]; then
+    [ -z "$rearm_fence" ] || _dot_cleanup_remove_path "$rearm_fence" || true
+    return 1
+  fi
 
   # Recompute target state after source matches. This is the expensive part we
   # are trying to avoid most of the time, but it is still much cheaper than
@@ -495,7 +520,21 @@ _dot_gstack_registration_cache_current() {
   _DOT_GSTACK_TARGET_FRESHNESS_CACHE_FILE="$cache_file"
   target_fingerprint=$(_dot_gstack_target_fingerprint "$gstack_dir")
   _DOT_GSTACK_TARGET_FRESHNESS_CACHE_FILE=''
-  [ "$target_fingerprint" = "$cached_target" ] || return 1
+  if [ "$target_fingerprint" != "$cached_target" ]; then
+    [ -z "$rearm_fence" ] || _dot_cleanup_remove_path "$rearm_fence" || true
+    return 1
+  fi
+
+  # A newer watched parent can conservatively send us through the full source
+  # and target proof even when no registration changed. Once both fingerprints
+  # match, the existing watch inventory is authoritative again. Re-arm to the
+  # pre-validation fence, not wall-clock completion, so concurrent mutations
+  # remain visible. Failure is advisory because validation still succeeded.
+  if [ -n "$rearm_fence" ]; then
+    touch -r "$rearm_fence" "$cache_file" 2>/dev/null || true
+    _dot_cleanup_remove_path "$rearm_fence" || true
+  fi
+  return 0
 }
 
 _dot_gstack_write_registration_cache() {
