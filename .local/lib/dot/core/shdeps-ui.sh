@@ -29,6 +29,14 @@ _shdeps_group_label() {
 # _shdeps_group_label.
 _SHDEPS_KNOWN_GROUPS=(packages github-releases github-repos cargo go uv npm custom other)
 
+# The parent holds the progress FIFO open read/write so it can keep rendering
+# while shdeps is quiet. That deliberately prevents EOF from signaling normal
+# completion. Have the producer append one non-JSON control line instead: FIFO
+# ordering proves every earlier JSONL event has already been written, allowing
+# the normal path to finish immediately while killed children still use the
+# conservative process/status polling fallback below.
+_SHDEPS_PROGRESS_COMPLETE=$'\036dot-shdeps-progress-complete'
+
 _shdeps_summary_text() {
   local changed="$1" current="$2" skipped="$3" failed="$4" warnings="${5:-0}"
   local -a parts=()
@@ -360,11 +368,17 @@ _run_shdeps_update_ui() {
     _dot_cleanup_prepare_subshell
     _run_shdeps_update_command jsonl >"$fifo"
     printf '%s' "$?" >"$status_file"
+    printf '%s\n' "$_SHDEPS_PROGRESS_COMPLETE" >"$fifo"
   ) <&"$DOT_CLEANUP_LAUNCH_STDIN_FD" &
   child=$!
   _dot_cleanup_finish_job_launch "$child"
   while :; do
     if IFS= read -r -t "${DOT_UI_TICK_SECONDS:-0.2}" -u "$progress_fd" line; then
+      if [[ "$line" == *"$_SHDEPS_PROGRESS_COMPLETE" ]]; then
+        line=${line%"$_SHDEPS_PROGRESS_COMPLETE"}
+        [[ -z "$line" ]] || _handle_shdeps_event "$line"
+        break
+      fi
       _handle_shdeps_event "$line"
       continue
     fi
@@ -375,6 +389,11 @@ _run_shdeps_update_ui() {
       # Cover all three because the parent holds the fifo open R/W, so EOF cannot
       # distinguish completion. An empty status file becomes rc=1 below.
       while IFS= read -r -t "${DOT_UI_TICK_SECONDS:-0.2}" -u "$progress_fd" line; do
+        if [[ "$line" == *"$_SHDEPS_PROGRESS_COMPLETE" ]]; then
+          line=${line%"$_SHDEPS_PROGRESS_COMPLETE"}
+          [[ -z "$line" ]] || _handle_shdeps_event "$line"
+          break
+        fi
         _handle_shdeps_event "$line"
       done
       break
