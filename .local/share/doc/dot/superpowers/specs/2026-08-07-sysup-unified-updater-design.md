@@ -1,0 +1,132 @@
+# Unified System Updater (`sysup`) Design
+
+## Problem
+
+`archup` upgrades Arch hosts and verifies the failure modes most likely to leave
+services broken afterward. Debian-based hosts (`taylor`, `metro`) have no
+equivalent, and there is no single command that works on every host in the
+fleet.
+
+## Goals
+
+- A Debian/Ubuntu upgrade helper, `debup`, with post-upgrade checks equivalent
+  in spirit to `archup`'s.
+- A `sysup` front door that detects the OS family and runs the right backend.
+- One authoritative copy of the logic both backends share, rather than a second
+  copy of `archup`'s systemd and snapshot handling.
+
+## Non-goals
+
+- Cross-release OS upgrades. `debup` never edits APT sources and never invokes
+  `do-release-upgrade`.
+- macOS/Homebrew support. `sysup` errors clearly on unsupported families; a
+  `brewup` backend can be added later without changing the contract.
+- Remote execution. `sysup` upgrades the host it runs on.
+
+## Architecture
+
+```text
+.local/bin/sysup        dispatcher: detect family -> exec backend
+.local/bin/archup       Arch backend
+.local/bin/debup        Debian backend
+.local/lib/dot/sysup/
+  detect.sh    OS family vocabulary and detection
+  common.sh    logging, privilege, package-diff, and the shared run driver
+  systemd.sh   failed units and service restarts for upgraded packages
+```
+
+`common.sh` owns the run orchestration. Each backend supplies hook functions and
+then calls `sysup_main "$@"`. This keeps the ordering guarantees (snapshot before
+upgrade, diff after, checks before restarts, failed-unit report last) in one
+place, so a fix to that sequence applies to every family.
+
+### Backend contract
+
+Required hooks:
+
+| Hook | Responsibility |
+| --- | --- |
+| `sysup_backend_require` | Verify the host family and required commands |
+| `sysup_backend_snapshot` | Print `<package> <version>` lines, sorted |
+| `sysup_backend_package_files <pkg>` | Print the files a package owns |
+| `sysup_backend_upgrade [args...]` | Perform the upgrade |
+| `sysup_backend_usage` | Print `--help` text |
+
+Optional hooks, with defaults in `common.sh`:
+
+| Hook | Default | Override |
+| --- | --- | --- |
+| `sysup_backend_parse_arg <arg>` | unhandled (arg falls through to the package manager) | `debup` adds `--autoremove`, `--full-upgrade` |
+| `sysup_backend_preamble` | no-op | `archup` lists foreign packages; `debup` lists held packages |
+| `sysup_backend_checks` | no-op | family-specific post-upgrade verification |
+| `sysup_backend_restart_services <pkg...>` | shared systemd restart | `debup` prefers `needrestart` |
+
+Backends set `SYSUP_BACKEND_NAME` for user-facing messages and may append to
+`SYSUP_EXTRA_UPGRADED_PACKAGES` for packages a version diff cannot detect
+(`archup` rebuilds AUR packages at an unchanged version).
+
+Hooks take single-token flags only. A flag needing its own argument would
+require extending the parser contract.
+
+### Run sequence
+
+1. Parse shared flags; unrecognized arguments pass through to the package
+   manager.
+2. `sysup_backend_require`, then `sysup_backend_preamble`.
+3. Unless `--check-only`: snapshot packages, warm `sudo`, upgrade, snapshot
+   again, and diff to get the upgraded set.
+4. `sysup_backend_checks`.
+5. Restart active services shipped by upgraded packages, unless
+   `--no-restart-upgraded-services`.
+6. With `--restart-failed`, restart failed enabled units.
+7. Report failed systemd units.
+
+Steps 4 through 7 each contribute to the exit status rather than short-circuiting,
+so one run surfaces every problem.
+
+## Detection
+
+`sysup_os_family` maps `/etc/os-release` `ID`, then each `ID_LIKE` token, to a
+family. `/etc/arch-release` and `/etc/debian_version` are fallbacks for
+derivatives with an unhelpful `os-release`. `SYSUP_FAMILY_COMMANDS` is the single
+map from family to backend command, used by both the dispatcher and the
+per-backend family guard.
+
+`sysup` resolves the backend next to itself via `BASH_SOURCE`, not through
+`PATH`, so a worktree copy dispatches within that checkout.
+
+## `debup` behavior
+
+Upgrade, as root, with `DEBIAN_FRONTEND=noninteractive`:
+
+- `apt-get update`
+- `apt-get --with-new-pkgs upgrade -y` — installs new dependencies so kernel ABI
+  bumps land, but never removes a package. `--full-upgrade` opts into
+  `full-upgrade`, which permits removals to resolve dependencies. Neither crosses
+  an OS release.
+- `apt-get autoclean -y`
+- `autoremove` reports candidates only; `--autoremove` performs it with `--purge`.
+
+Conffiles use `--force-confdef --force-confold`, so a package never silently
+replaces a locally modified config file. `DPkg::Lock::Timeout` waits for the lock
+instead of failing immediately, because `unattended-upgrades` runs on these
+hosts. `NEEDRESTART_MODE=l` keeps `needrestart`'s APT hook from prompting
+mid-upgrade; `debup` drives the restart itself afterward.
+
+Checks:
+
+| Check | Severity |
+| --- | --- |
+| `dpkg --audit` and `apt-get check` | fatal |
+| Reboot required (`/var/run/reboot-required`) | advisory |
+| Pending conffiles (`.dpkg-dist`/`.dpkg-new`/`.ucf-dist` under `/etc`) | advisory |
+| Failed systemd units | fatal |
+
+## Testing
+
+- `archup-test` keeps its existing assertions against the renamed shared
+  functions. It is the regression net for the refactor.
+- `debup-test` mocks `apt-get`, `dpkg`, `dpkg-query`, and `systemctl` to cover
+  the upgrade verb, autoremove opt-in, each check, and `needrestart` preference.
+- `sysup-test` covers family detection from fixture `os-release` files and
+  dispatch to the correct backend.

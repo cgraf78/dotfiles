@@ -1,0 +1,278 @@
+#!/usr/bin/env bash
+# debup - the Debian backend for sysup.
+#
+# Shared run sequence, systemd handling, and family detection live in
+# ~/.local/lib/dot/sysup; this file only supplies the apt/dpkg specifics.
+#
+# This upgrades packages within the installed release. It never edits APT
+# sources and never performs a release upgrade.
+set -Eeuo pipefail
+
+# Read by the sysup library sourced below, for messages and the family guard.
+# shellcheck disable=SC2034
+SYSUP_BACKEND_NAME=debup
+
+_debup_lib_dir() {
+  local src="${BASH_SOURCE[0]}"
+  (cd "$(dirname "$src")/../lib/dot/sysup" >/dev/null 2>&1 && pwd -P)
+}
+
+# shellcheck source=../lib/dot/sysup/common.sh
+. "$(_debup_lib_dir)/common.sh"
+
+# `upgrade --with-new-pkgs` installs new dependencies, so kernel ABI bumps and
+# renamed packages land, but never removes an installed package. `--full-upgrade`
+# opts into removals when a dependency change requires them.
+DEBUP_UPGRADE_VERB=upgrade
+DEBUP_AUTOREMOVE=0
+
+# Seconds apt waits for the dpkg lock. These hosts run unattended-upgrades, so a
+# collision is expected rather than exceptional and should be waited out.
+DEBUP_LOCK_TIMEOUT="${DEBUP_LOCK_TIMEOUT:-300}"
+
+# System paths the advisory checks read. Overridable so tests can point them at
+# a fixture tree instead of the live system.
+DEBUP_REBOOT_REQUIRED_FILE="${DEBUP_REBOOT_REQUIRED_FILE:-/var/run/reboot-required}"
+DEBUP_CONFFILE_ROOT="${DEBUP_CONFFILE_ROOT:-/etc}"
+
+sysup_backend_usage() {
+  cat <<'EOF'
+Usage: debup [--full-upgrade] [--autoremove] [--check-only]
+             [--no-restart-upgraded-services] [--restart-failed] [--]
+             [extra apt-get args...]
+
+Upgrade a Debian or Ubuntu host within its installed release, then verify the
+failure modes most likely to leave services broken after the upgrade.
+
+Default flow:
+  1. sudo credential warmup
+  2. apt-get update
+  3. apt-get --with-new-pkgs upgrade, keeping locally modified config files
+  4. apt-get autoclean
+  5. restart services shipped by upgraded packages, preferring needrestart
+  6. check dpkg/apt integrity, pending config files, reboot flag, failed units
+
+Options:
+  --full-upgrade                  use apt-get full-upgrade, allowing packages to
+                                  be removed to resolve dependencies. Stays
+                                  within the installed release.
+  --autoremove                    purge packages no longer required, instead of
+                                  only reporting them
+EOF
+  sysup_usage_common_options
+  cat <<'EOF'
+
+Extra arguments are passed through to the apt-get upgrade invocation.
+
+debup never performs a release upgrade; use the distribution's documented
+release-upgrade procedure for that.
+EOF
+}
+
+# apt options shared by every invocation.
+#
+# force-confdef/force-confold keep a package from replacing a config file that
+# was modified locally; the pending-conffile check reports what needs merging.
+debup_apt_options() {
+  printf '%s\n' \
+    -o "DPkg::Lock::Timeout=$DEBUP_LOCK_TIMEOUT" \
+    -o 'Dpkg::Options::=--force-confdef' \
+    -o 'Dpkg::Options::=--force-confold'
+}
+
+debup_apt_get() {
+  local -a options=()
+
+  mapfile -t options < <(debup_apt_options)
+
+  # needrestart hooks into apt and prompts interactively by default, which would
+  # stall an unattended run. Restrict it to listing; debup drives the restart
+  # itself once the package diff is known.
+  sysup_run_as_root env \
+    DEBIAN_FRONTEND=noninteractive \
+    NEEDRESTART_MODE=l \
+    apt-get "${options[@]}" "$@"
+}
+
+debup_held_packages() {
+  apt-mark showhold 2>/dev/null | sort
+}
+
+debup_reboot_required() {
+  [[ -f "$DEBUP_REBOOT_REQUIRED_FILE" ]]
+}
+
+# Config files a package upgrade could not install because the local copy
+# diverged. They are inert until merged, so the new defaults are not in effect.
+#
+# This runs unprivileged, so a root-only directory under /etc is skipped rather
+# than reported. That is the right trade for an advisory check: escalating to
+# root just to list filenames is not worth it.
+debup_pending_conffiles() {
+  find "$DEBUP_CONFFILE_ROOT" \
+    \( -name '*.dpkg-dist' -o -name '*.dpkg-new' -o -name '*.ucf-dist' \) \
+    -type f -print 2>/dev/null | sort
+}
+
+check_package_integrity() {
+  local audit status=0
+
+  sysup_log "checking dpkg and apt integrity"
+
+  audit="$(dpkg --audit 2>&1 || true)"
+  if [[ -n "$audit" ]]; then
+    printf '%s\n' "$audit"
+    printf '\nerror: dpkg reports packages in a broken state\n' >&2
+    status=1
+  fi
+
+  if ! sysup_run_as_root apt-get check; then
+    printf '\nerror: apt reports unmet dependencies\n' >&2
+    status=1
+  fi
+
+  ((status == 0)) && printf 'ok: dpkg and apt report a consistent package state\n'
+  return "$status"
+}
+
+# Advisory: the upgrade succeeded, but its result is not fully live yet.
+report_pending_state() {
+  local -a conffiles=()
+  local packages
+
+  sysup_log "checking for pending post-upgrade work"
+
+  if debup_reboot_required; then
+    printf 'reboot required to complete this upgrade\n'
+    if [[ -r "$DEBUP_REBOOT_REQUIRED_FILE.pkgs" ]]; then
+      packages="$(sort -u "$DEBUP_REBOOT_REQUIRED_FILE.pkgs" 2>/dev/null || true)"
+      [[ -z "$packages" ]] || printf '  %s\n' "$packages"
+    fi
+  else
+    printf 'ok: no reboot required\n'
+  fi
+
+  mapfile -t conffiles < <(debup_pending_conffiles)
+  if ((${#conffiles[@]})); then
+    printf '\nconfig files awaiting a manual merge:\n'
+    printf '  %s\n' "${conffiles[@]}"
+  else
+    printf 'ok: no config files awaiting a manual merge\n'
+  fi
+}
+
+report_autoremovable() {
+  local output
+
+  output="$(apt-get --simulate --assume-no autoremove 2>/dev/null |
+    sed -n 's/^Remv \([^ ]*\).*/  \1/p' || true)"
+
+  if [[ -z "$output" ]]; then
+    printf 'ok: no packages are eligible for autoremove\n'
+    return 0
+  fi
+
+  sysup_log "packages no longer required"
+  printf '%s\n' "$output"
+  printf '\nhint: run: debup --autoremove\n'
+}
+
+# ---------------------------------------------------------------------------
+# sysup backend hooks
+# ---------------------------------------------------------------------------
+
+sysup_backend_require() {
+  sysup_require_family debian || return
+  sysup_need_cmds apt-get dpkg dpkg-query find sort
+}
+
+sysup_backend_preamble() {
+  local -a held=()
+
+  mapfile -t held < <(debup_held_packages)
+  sysup_log "held packages (${#held[@]})"
+  if ((${#held[@]})); then
+    # Held packages are deliberately excluded from the upgrade, so surface them
+    # rather than letting a pinned package silently go stale.
+    printf '  %s\n' "${held[@]}"
+  else
+    printf '  (none)\n'
+  fi
+}
+
+# dpkg-query also lists packages that were removed but kept their config, so
+# restrict the snapshot to the fully installed ones.
+sysup_backend_snapshot() {
+  dpkg-query -W -f '${db:Status-Abbrev}\t${Package}\t${Version}\n' 2>/dev/null |
+    while IFS=$'\t' read -r state pkg version; do
+      [[ "$state" == ii* ]] || continue
+      [[ -n "$pkg" ]] || continue
+      printf '%s %s\n' "$pkg" "$version"
+    done | sort
+}
+
+sysup_backend_package_files() {
+  dpkg -L "$1"
+}
+
+sysup_backend_parse_arg() {
+  case "$1" in
+    --full-upgrade)
+      DEBUP_UPGRADE_VERB=full-upgrade
+      ;;
+    --autoremove)
+      DEBUP_AUTOREMOVE=1
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+sysup_backend_checks() {
+  local status=0
+
+  check_package_integrity || status=1
+  # Advisory: a pending reboot or unmerged config file is expected output from a
+  # successful upgrade, not a failure, so it never changes the exit status.
+  report_pending_state
+  return "$status"
+}
+
+# needrestart is the canonical Debian answer here: it inspects running processes
+# for deleted mappings rather than inferring from package contents, so it also
+# catches services linking an upgraded library they do not own.
+sysup_backend_restart_services() {
+  if command -v needrestart >/dev/null 2>&1; then
+    sysup_log "restarting services reported by needrestart"
+    sysup_run_as_root needrestart -r a
+    return
+  fi
+
+  sysup_restart_upgraded_services "$@"
+}
+
+sysup_backend_upgrade() {
+  local -a extra_args=("$@")
+
+  debup_apt_get update || return
+
+  if [[ "$DEBUP_UPGRADE_VERB" == upgrade ]]; then
+    debup_apt_get --with-new-pkgs upgrade -y "${extra_args[@]+"${extra_args[@]}"}" || return
+  else
+    debup_apt_get full-upgrade -y "${extra_args[@]+"${extra_args[@]}"}" || return
+  fi
+
+  if ((DEBUP_AUTOREMOVE)); then
+    sysup_log "purging packages no longer required"
+    debup_apt_get --purge autoremove -y || return
+  else
+    report_autoremovable
+  fi
+
+  debup_apt_get autoclean -y
+}
+
+if [[ "${SYSUP_SOURCE_ONLY:-0}" != 1 ]]; then
+  sysup_main "$@"
+fi
