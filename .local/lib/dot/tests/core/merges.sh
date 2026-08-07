@@ -1284,14 +1284,13 @@ EOF
           and .command == "workbench.action.terminal.sendSequence"
           and .when == "terminalFocus && termnav.nvimFocused"
         )] | length' "$keybindings_file")"
-      _assert_eq "vscode $platform terminal: tmux pane navigation is extension-independent" \
+      _assert_eq "vscode $platform terminal: explicit tmux pane controls are extension-independent" \
         '[]' \
         "$(jq -c '[
           . as $bindings
           | (
               [
                 {key: "ctrl+h", text: "\u0008"},
-                {key: "ctrl+j", text: "\u000a"},
                 {key: "ctrl+k", text: "\u000b"},
                 {key: "ctrl+l", text: "\u000c"}
               ][]
@@ -1310,6 +1309,12 @@ EOF
             )
           | $wanted.key
         ]' "$keybindings_file")"
+      _assert_eq "vscode $platform terminal: Ctrl+J avoids sendSequence newline normalization" \
+        "0" \
+        "$(jq '[.[] | select(
+          .key == "ctrl+j"
+          and .command == "workbench.action.terminal.sendSequence"
+        )] | length' "$keybindings_file")"
       _assert_eq "vscode $platform terminal: tmux pane navigation has no focus-only duplicates" \
         "0" \
         "$(jq '[.[] | select(
@@ -1356,6 +1361,12 @@ EOF
         )] | length' "$keybindings_file")"
 
       if [[ "$platform" == "macOS" ]]; then
+        _assert_eq "vscode macOS terminal: Cmd+J keeps native workbench ownership" \
+          "0" \
+          "$(jq '[.[] | select(
+            .key == "cmd+j"
+            and ((.when // "") | contains("terminalFocus"))
+          )] | length' "$keybindings_file")"
         _assert_eq "vscode macOS terminal: Karabiner-translated Ctrl+/ is extension-independent" \
           "1" \
           "$(jq '[.[] | select(
@@ -1504,8 +1515,8 @@ EOF
       _assert_eq "vscode $platform terminal: Ctrl+F reaches nvim" \
         "1" \
         "$(jq '[.[] | select(.key == "ctrl+f" and .command == "workbench.action.terminal.sendSequence" and .when == "terminalFocus && termnav.nvimFocused" and .args.text == "\u0006")] | length' "$keybindings_file")"
-      _assert_eq "vscode $platform terminal: every Ctrl letter reaches its terminal owner" \
-        "26" \
+      _assert_eq "vscode $platform terminal: synthesized Ctrl letters exclude native Ctrl+J" \
+        "25" \
         "$(jq '[
           .[]
           | select(.key | test("^ctrl\\+[a-z]$"))
@@ -1520,6 +1531,31 @@ EOF
       _assert_eq "vscode $platform terminal: Ctrl+Shift+G reaches nvim distinctly" \
         "1" \
         "$(jq '[.[] | select(.key == "ctrl+shift+g" and .command == "workbench.action.terminal.sendSequence" and .when == "terminalFocus && termnav.nvimFocused" and .args.text == "\u001b[103;6u")] | length' "$keybindings_file")"
+    }
+
+    _assert_vscode_terminal_native_settings() {
+      local settings_file="$1"
+      local platform="$2"
+
+      _assert_eq "vscode $platform terminal: Ctrl+J bypasses the workbench panel shortcut once" \
+        "1" \
+        "$(jq '[.["terminal.integrated.commandsToSkipShell"][]? | select(
+          . == "-workbench.action.togglePanel"
+        )] | length' "$settings_file")"
+      _assert_eq "vscode $platform terminal: positive panel skip cannot override Ctrl+J passthrough" \
+        "0" \
+        "$(jq '[.["terminal.integrated.commandsToSkipShell"][]? | select(
+          . == "workbench.action.togglePanel"
+        )] | length' "$settings_file")"
+    }
+
+    _assert_vscode_terminal_local_settings_preserved() {
+      local settings_file="$1"
+      local platform="$2"
+
+      _assert_eq "vscode $platform terminal: local skip-shell policy survives Ctrl+J passthrough" \
+        '["workbench.action.quickOpen","-local.terminalCommand","-workbench.action.togglePanel"]' \
+        "$(jq -c '.["terminal.integrated.commandsToSkipShell"]' "$settings_file")"
     }
 
     _add_vscode_stale_terminal_native_keybindings() {
@@ -1545,6 +1581,12 @@ EOF
           "command": "workbench.action.terminal.sendSequence",
           "args": {"text": "\u000a"},
           "when": "terminalFocus && termnav.nvimFocused"
+        },
+        {
+          "key": "ctrl+j",
+          "command": "workbench.action.terminal.sendSequence",
+          "args": {"text": "\u000a"},
+          "when": "terminalFocus"
         },
         {
           "key": "ctrl+k",
@@ -1694,8 +1736,9 @@ EOF
   }
 ]
 JSON
-      # Exercise upgrades from the #80/#90 focus-gated terminal controls and
-      # the #98 tab generation, including machines that skipped releases.
+      # Exercise upgrades from the #80/#90 focus-gated terminal controls, the
+      # #98 tab generation, and the normalized #100 Ctrl+J route, including
+      # machines that skipped releases.
       _add_vscode_stale_terminal_native_keybindings "$keybindings_file"
     }
 
@@ -2468,6 +2511,11 @@ JSON
       "name": "stale-json",
       "url": "file:///Users/chris/stale.schema.json"
     }
+  ],
+  "terminal.integrated.commandsToSkipShell": [
+    "workbench.action.quickOpen",
+    "workbench.action.togglePanel",
+    "-local.terminalCommand"
   ],
   "yaml.schemas": {
     "file:///Users/chris/stale.schema.json": ["/Users/chris/stale.yml"]
@@ -3974,6 +4022,10 @@ JSON
       "$(jq '[.[] | select(.key == "alt+shift+]" and .command == "workbench.action.terminal.sendSequence" and .when == "terminalFocus" and .args.text == "\u001b}")] | length' "$vscode_keybindings_file")"
     _assert_vscode_terminal_clipboard_keybindings "$vscode_keybindings_file" "linux"
     _assert_vscode_focus_fallback_keybindings "$vscode_keybindings_file" "Linux"
+    _assert_vscode_terminal_native_settings \
+      "$vscode_home/.config/Code/User/settings.json" "Linux"
+    _assert_vscode_terminal_local_settings_preserved \
+      "$vscode_home/.config/Code/User/settings.json" "Linux"
     vscode_extensions=$(jq -c . "$vscode_home/.vscode/extensions/extensions.json")
     _assert_contains "vscode sley: extension registered" \
       '"id":"cgraf.sley-tools"' "$vscode_extensions"
@@ -4048,6 +4100,8 @@ JSON
     _assert_vscode_macos_karabiner_terminal_keybindings "$vscode_mac_keybindings"
     _assert_vscode_terminal_clipboard_keybindings "$vscode_mac_keybindings" "macOS"
     _assert_vscode_focus_fallback_keybindings "$vscode_mac_keybindings" "macOS"
+    _assert_vscode_terminal_native_settings \
+      "$vscode_home/Library/Application Support/Code/User/settings.json" "macOS"
 
     rm -rf "$vscode_home/.config/Code/User"
 
@@ -4157,6 +4211,8 @@ JSON
       )] | length' "$vscode_home/.config/NoTermnav/User/keybindings.json")"
     _assert_vscode_focus_fallback_keybindings \
       "$vscode_home/.config/NoTermnav/User/keybindings.json" "Linux"
+    _assert_vscode_terminal_native_settings \
+      "$vscode_home/.config/NoTermnav/User/settings.json" "Linux no-Termnav"
     _assert_vscode_native_tab_handling \
       "$vscode_home/.config/NoTermnav/User/keybindings.json" "Linux"
 
@@ -4187,6 +4243,9 @@ JSON
       _assert_vscode_focus_fallback_keybindings \
         "$vscode_no_termnav_config/keybindings.json" \
         "$vscode_no_termnav_label"
+      _assert_vscode_terminal_native_settings \
+        "$vscode_no_termnav_config/settings.json" \
+        "$vscode_no_termnav_label no-Termnav"
       _assert_vscode_native_tab_handling \
         "$vscode_no_termnav_config/keybindings.json" \
         "$vscode_no_termnav_label"
@@ -4314,7 +4373,12 @@ EOF
     mkdir -p "$win_code_user" "$win_ext_dir/keep-existing-extension-1.0.0"
     cat >"$win_code_user/settings.json" <<'JSON'
 {
-  "editor.tabSize": 4
+  "editor.tabSize": 4,
+  "terminal.integrated.commandsToSkipShell": [
+    "workbench.action.quickOpen",
+    "workbench.action.togglePanel",
+    "-local.terminalCommand"
+  ]
 }
 JSON
     # Windows shares the Ctrl baseline but must never claim macOS Cmd-shaped
@@ -4389,6 +4453,10 @@ JSON
       "$win_code_user/keybindings.json" "Windows"
     _assert_vscode_focus_fallback_keybindings \
       "$win_code_user/keybindings.json" "Windows"
+    _assert_vscode_terminal_native_settings \
+      "$win_code_user/settings.json" "Windows"
+    _assert_vscode_terminal_local_settings_preserved \
+      "$win_code_user/settings.json" "Windows"
     _assert_vscode_focus_keybinding_migration \
       "$win_code_user/keybindings.json" "Windows"
     _assert_vscode_keybinding_precedence \

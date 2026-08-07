@@ -430,5 +430,15 @@
     "when": "terminalFocus && terminalHasBeenCreated && !terminalEditorFocus || terminalFocus && terminalProcessSupported && !terminalEditorFocus",
     "dotfiles.retire": true,
     "dotfiles.retire-proof": "legacy-local:280f7f8"
+  },
+
+  // sendSequence routes through terminal sendText, which rewrites LF to CR.
+  // Retire this exact generation so native Ctrl+J can reach xterm instead.
+  {
+    "key": "ctrl+j",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u000a" },
+    "when": "terminalFocus",
+    "dotfiles.retire": true
   }
 ]

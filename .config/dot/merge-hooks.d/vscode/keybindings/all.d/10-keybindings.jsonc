@@ -58,7 +58,9 @@
   },
   // These are terminal-native controls and must reach the pty in every terminal
   // pane, including shells and extensionless variants. VS Code keeps its normal
-  // sidebar and editor-tab shortcuts whenever terminal focus is absent.
+  // sidebar and editor-tab shortcuts whenever terminal focus is absent. Ctrl+J
+  // is deliberately absent: sendSequence normalizes its LF byte to CR, so the
+  // commandsToSkipShell exception in settings lets xterm encode it natively.
   {
     "key": "ctrl+b",
     "command": "workbench.action.terminal.sendSequence",
@@ -69,12 +71,6 @@
     "key": "ctrl+h",
     "command": "workbench.action.terminal.sendSequence",
     "args": { "text": "\u0008" },
-    "when": "terminalFocus"
-  },
-  {
-    "key": "ctrl+j",
-    "command": "workbench.action.terminal.sendSequence",
-    "args": { "text": "\u000a" },
     "when": "terminalFocus"
   },
   {
