@@ -1,7 +1,23 @@
 #!/usr/bin/env bash
+# archup - the Arch backend for sysup.
+#
+# Shared run sequence, systemd handling, and family detection live in
+# ~/.local/lib/dot/sysup; this file only supplies the pacman/yay specifics.
 set -Eeuo pipefail
 
-usage() {
+# Read by the sysup library sourced below, for messages and the family guard.
+# shellcheck disable=SC2034
+SYSUP_BACKEND_NAME=archup
+
+_archup_lib_dir() {
+  local src="${BASH_SOURCE[0]}"
+  (cd "$(dirname "$src")/../lib/dot/sysup" >/dev/null 2>&1 && pwd -P)
+}
+
+# shellcheck source=../lib/dot/sysup/common.sh
+. "$(_archup_lib_dir)/common.sh"
+
+sysup_backend_usage() {
   cat <<'EOF'
 Usage: archup [--check-only] [--no-restart-upgraded-services] [--restart-failed] [--] [extra upgrade args...]
 
@@ -17,155 +33,158 @@ Default flow:
   5. report failed systemd units when systemd is available
 
 Options:
-  --check-only                    skip the upgrade; only run post-upgrade checks
-  --no-restart-upgraded-services  skip automatic restart of active services
-                                  shipped by upgraded or rebuilt packages
-  --restart-failed                restart currently failed enabled systemd units
-                                  after checks
-  -h, --help                      show this help
+EOF
+  sysup_usage_common_options
+  cat <<'EOF'
 
 Extra arguments are passed through to the selected upgrade command.
 EOF
-}
-
-need_cmds() {
-  local missing=() cmd
-
-  for cmd in "$@"; do
-    command -v "$cmd" >/dev/null 2>&1 || missing+=("$cmd")
-  done
-
-  if ((${#missing[@]})); then
-    printf 'error: missing required command(s): %s\n' "${missing[*]}" >&2
-    return 1
-  fi
-}
-
-require_arch_linux() {
-  local kernel os_id os_like
-
-  kernel="$(uname -s 2>/dev/null || true)"
-  if [[ "$kernel" != "Linux" ]]; then
-    printf 'error: archup only supports Arch Linux hosts; detected kernel: %s\n' "${kernel:-unknown}" >&2
-    return 1
-  fi
-
-  if [[ -r /etc/arch-release ]]; then
-    return 0
-  fi
-
-  if [[ -r /etc/os-release ]]; then
-    # shellcheck disable=SC1091
-    os_id="$(
-      . /etc/os-release
-      printf '%s' "${ID:-}"
-    )"
-    # shellcheck disable=SC1091
-    os_like="$(
-      . /etc/os-release
-      printf '%s' "${ID_LIKE:-}"
-    )"
-
-    if [[ "$os_id" == "arch" || " $os_like " == *" arch "* ]]; then
-      return 0
-    fi
-  fi
-
-  {
-    printf 'error: archup only supports Arch Linux hosts'
-    if [[ -n "${os_id:-}" || -n "${os_like:-}" ]]; then
-      printf '; detected ID=%s ID_LIKE=%s' "${os_id:-unknown}" "${os_like:-unknown}"
-    fi
-    printf '\n'
-  } >&2
-  return 1
-}
-
-log() {
-  printf '\n==> %s\n' "$*"
-}
-
-run_as_root() {
-  if ((EUID == 0)); then
-    "$@"
-    return
-  fi
-
-  need_cmds sudo || return
-  sudo "$@"
 }
 
 foreign_packages() {
   pacman -Qqm | sort
 }
 
-package_snapshot() {
-  pacman -Q | sort
-}
-
-changed_packages() {
-  local before="$1" after="$2"
-  local pkg version
-  declare -A before_versions=()
-
-  while read -r pkg version _; do
-    [[ -n "${pkg:-}" ]] || continue
-    before_versions["$pkg"]="$version"
-  done <"$before"
-
-  while read -r pkg version _; do
-    [[ -n "${pkg:-}" ]] || continue
-    [[ -n "${before_versions[$pkg]+set}" ]] || continue
-    [[ "${before_versions[$pkg]}" != "$version" ]] || continue
-    printf '%s\n' "$pkg"
-  done <"$after"
-}
-
-unique_packages() {
-  printf '%s\n' "$@" | while IFS= read -r pkg; do
-    [[ -n "$pkg" ]] && printf '%s\n' "$pkg"
-  done | sort -u
-}
-
 aur_rebuild_targets() {
-  local pkg
+  local pkg lookup_status status=0
 
   while IFS= read -r pkg; do
     [[ -n "$pkg" ]] || continue
-    yay -Si --aur "$pkg" >/dev/null 2>&1 || continue
-    printf '%s\n' "$pkg"
-  done
-}
-
-warn_non_aur_foreign_packages() {
-  local pkg found=0
-
-  while IFS= read -r pkg; do
-    yay -Si --aur "$pkg" >/dev/null 2>&1 && continue
-
-    if ((found == 0)); then
-      log "foreign packages not found in AUR"
-      found=1
+    if _archup_aur_package_status "$pkg"; then
+      printf '%s\n' "$pkg"
+      continue
+    else
+      lookup_status=$?
     fi
 
-    printf '  %s\n' "$pkg"
-  done < <(foreign_packages)
+    ((lookup_status == 1)) && continue
+    printf 'warning: could not verify whether %s can be rebuilt from AUR; skipped automatic rebuild\n' \
+      "$pkg" >&2
+    status=2
+  done
+
+  return "$status"
 }
 
-scan_foreign_package_libs() {
-  local mode="${1:-report}"
-  local pkg file desc missing found=0 pkg_printed
+# yay reports every requested package as missing when the AUR query itself
+# fails. Under a stable C locale, a lone "not found" diagnostic proves absence;
+# any additional diagnostic means membership is unverified instead.
+#
+# Returns 0 when present, 1 when confirmed absent, and 2 when the lookup failed.
+_archup_aur_package_status() {
+  local pkg="$1" output line other_output=""
+  local saw_missing=0 saw_other=0
+
+  if output="$(LC_ALL=C NO_COLOR=1 yay -Si --aur "$pkg" 2>&1)"; then
+    return 0
+  fi
+
+  while IFS= read -r line; do
+    [[ -n "$line" ]] || continue
+    if [[ "$line" == *"No AUR package found for"* && "$line" == *"$pkg"* ]]; then
+      saw_missing=1
+      continue
+    fi
+
+    other_output+="${other_output:+$'\n'}$line"
+    saw_other=1
+  done <<<"$output"
+
+  if ((saw_missing && saw_other == 0)); then
+    return 1
+  fi
+
+  if [[ -n "$other_output" ]]; then
+    printf '%s\n' "$other_output" >&2
+  else
+    printf 'yay could not query AUR package %s and returned no diagnostic\n' "$pkg" >&2
+  fi
+  return 2
+}
+
+# Foreign packages missing from the AUR cannot be rebuilt automatically, so the
+# operator has to know they are now their own responsibility.
+warn_non_aur_foreign_packages() {
+  local packages pkg lookup_status
+  local missing_found=0 unverified_found=0
+
+  if ! packages="$(foreign_packages)"; then
+    printf 'warning: could not list foreign packages; AUR membership is unverified\n' >&2
+    return 0
+  fi
 
   while IFS= read -r pkg; do
+    [[ -n "$pkg" ]] || continue
+    if _archup_aur_package_status "$pkg"; then
+      continue
+    else
+      lookup_status=$?
+    fi
+
+    if ((lookup_status == 1)); then
+      if ((missing_found == 0)); then
+        sysup_log "foreign packages not found in AUR"
+        missing_found=1
+      fi
+      printf '  %s\n' "$pkg"
+      continue
+    fi
+
+    if ((unverified_found == 0)); then
+      sysup_log "could not verify AUR membership for foreign packages"
+      unverified_found=1
+    fi
+    printf '  %s\n' "$pkg"
+  done <<<"$packages"
+}
+
+# A repository upgrade can bump a shared library past the soname an AUR package
+# was built against. The package still looks installed and current, but its
+# binaries no longer load, so scan the ones built locally.
+scan_foreign_package_libs() {
+  local mode="${1:-report}"
+  local packages pkg listing file desc dependencies missing line
+  local found=0 pkg_printed
+
+  if ! packages="$(foreign_packages)"; then
+    printf 'error: could not list foreign packages; missing-library state is unverified\n' >&2
+    return 2
+  fi
+
+  while IFS= read -r pkg; do
+    [[ -n "$pkg" ]] || continue
     pkg_printed=0
+
+    if ! listing="$(pacman -Qlq "$pkg")"; then
+      printf 'error: could not list files owned by %s; missing-library state is unverified\n' \
+        "$pkg" >&2
+      return 2
+    fi
 
     while IFS= read -r file; do
       [[ -f "$file" ]] || continue
 
-      desc="$(file -b "$file" 2>/dev/null || true)"
+      if ! desc="$(file -b "$file")"; then
+        printf 'error: could not identify %s with file; missing-library state is unverified\n' \
+          "$file" >&2
+        return 2
+      fi
       [[ "$desc" == *ELF* ]] || continue
+      # Static executables and relocatable objects have no runtime shared-library
+      # dependencies; ldd legitimately rejects them.
+      [[ "$desc" == *"dynamically linked"* ]] || continue
 
-      missing="$(ldd "$file" 2>/dev/null | grep 'not found' || true)"
+      if ! dependencies="$(ldd "$file")"; then
+        printf 'error: could not inspect shared-library dependencies for %s; state is unverified\n' \
+          "$file" >&2
+        return 2
+      fi
+
+      missing=""
+      while IFS= read -r line; do
+        [[ "$line" == *"not found"* ]] || continue
+        missing+="${missing:+$'\n'}$line"
+      done <<<"$dependencies"
       [[ -n "$missing" ]] || continue
 
       if [[ "$mode" == "packages" ]]; then
@@ -187,308 +206,136 @@ scan_foreign_package_libs() {
         printf '    %s\n' "$line"
       done <<<"$missing"
       found=1
-    done < <(pacman -Qlq "$pkg" 2>/dev/null)
-  done < <(foreign_packages)
+    done <<<"$listing"
+  done <<<"$packages"
 
   ((found == 0))
 }
 
 broken_foreign_packages() {
-  scan_foreign_package_libs packages || true
+  local status=0
+
+  scan_foreign_package_libs packages || status=$?
+  case "$status" in
+    0 | 1) return 0 ;;
+    *) return "$status" ;;
+  esac
 }
 
 scan_missing_libs() {
-  log "checking foreign packages for missing shared libraries"
+  local status=0
 
-  if scan_foreign_package_libs report; then
-    printf 'ok: no missing shared libraries found in foreign packages\n'
-    return 0
-  fi
+  sysup_log "checking foreign packages for missing shared libraries"
 
-  printf '\nerror: at least one foreign package has missing libraries\n' >&2
-  return 1
+  scan_foreign_package_libs report || status=$?
+  case "$status" in
+    0)
+      printf 'ok: no missing shared libraries found in foreign packages\n'
+      return 0
+      ;;
+    1)
+      printf '\nerror: at least one foreign package has missing libraries\n' >&2
+      return 1
+      ;;
+    *)
+      printf '\nerror: could not complete the foreign-package library scan\n' >&2
+      return 1
+      ;;
+  esac
 }
 
-failed_units() {
-  command -v systemctl >/dev/null 2>&1 || return 0
-  systemctl --failed --no-legend --plain 2>/dev/null || true
+# ---------------------------------------------------------------------------
+# sysup backend hooks
+# ---------------------------------------------------------------------------
+
+sysup_backend_require() {
+  sysup_require_family arch || return
+  sysup_need_cmds pacman file ldd sort
 }
 
-report_failed_units() {
-  local failed restartable=()
+sysup_backend_preamble() {
+  local -a packages=()
+  local package_listing
 
-  log "checking failed systemd units"
-
-  if ! command -v systemctl >/dev/null 2>&1; then
-    printf 'skipped: systemctl is not available\n'
-    return 0
+  if ! package_listing="$(foreign_packages)"; then
+    printf 'error: could not list foreign packages\n' >&2
+    return 1
   fi
-
-  failed="$(failed_units)"
-
-  if [[ -z "$failed" ]]; then
-    printf 'ok: no failed systemd units\n'
-    return 0
+  if [[ -n "$package_listing" ]]; then
+    mapfile -t packages <<<"$package_listing"
   fi
-
-  printf '%s\n' "$failed"
-  while read -r unit _; do
-    [[ -n "${unit:-}" ]] || continue
-    [[ "$(systemctl is-enabled "$unit" 2>/dev/null || true)" == "enabled" ]] || continue
-    restartable+=("$unit")
-  done <<<"$failed"
-
-  if ((${#restartable[@]})); then
-    printf '\nhint: run: archup --restart-failed\n' >&2
-    printf 'hint: failed enabled units: %s\n' "${restartable[*]}" >&2
+  sysup_log "foreign packages (${#packages[@]})"
+  if ((${#packages[@]})); then
+    printf '  %s\n' "${packages[@]}"
+  else
+    printf '  (none)\n'
   fi
-
-  printf '\nerror: systemd has failed units\n' >&2
-  return 1
 }
 
-restart_failed_units() {
-  local failed unit state
-  local units=()
-
-  if ! command -v systemctl >/dev/null 2>&1; then
-    printf 'skipped: systemctl is not available\n'
-    return 0
-  fi
-
-  failed="$(failed_units)"
-  [[ -n "$failed" ]] || return 0
-
-  while read -r unit _; do
-    [[ -n "${unit:-}" ]] || continue
-    state="$(systemctl is-enabled "$unit" 2>/dev/null || true)"
-    [[ "$state" == "enabled" ]] || continue
-    units+=("$unit")
-  done <<<"$failed"
-
-  if ((${#units[@]} == 0)); then
-    printf 'no failed enabled units to restart\n'
-    return 0
-  fi
-
-  log "restarting failed enabled units: ${units[*]}"
-  run_as_root systemctl reset-failed "${units[@]}"
-  run_as_root systemctl restart "${units[@]}"
+sysup_backend_snapshot() {
+  pacman -Q | sort
 }
 
-active_service_units() {
-  systemctl list-units --type=service --state=active --no-legend --plain 2>/dev/null |
-    while read -r unit _; do
-      [[ -n "${unit:-}" ]] || continue
-      printf '%s\n' "$unit"
-    done
+sysup_backend_package_files() {
+  pacman -Qlq "$1"
 }
 
-service_units_for_packages() {
-  local pkg file unit
-
-  for pkg in "$@"; do
-    while IFS= read -r file; do
-      case "$file" in
-        /usr/lib/systemd/system/*.service | /etc/systemd/system/*.service)
-          unit="${file##*/}"
-          printf '%s\n' "$unit"
-          ;;
-      esac
-    done < <(pacman -Qlq "$pkg" 2>/dev/null)
-  done
+sysup_backend_checks() {
+  scan_missing_libs
 }
 
-upgraded_active_service_units() {
-  local -a owned_units=()
-  local -a active_units=()
-  local owned active prefix
-
-  mapfile -t owned_units < <(service_units_for_packages "$@")
-  ((${#owned_units[@]})) || return 0
-
-  mapfile -t active_units < <(active_service_units)
-  ((${#active_units[@]})) || return 0
-
-  for owned in "${owned_units[@]}"; do
-    [[ -n "$owned" ]] || continue
-    if [[ "$owned" == *@.service ]]; then
-      prefix="${owned%@.service}"
-      for active in "${active_units[@]}"; do
-        [[ "$active" == "$prefix@"*.service ]] && printf '%s\n' "$active"
-      done
-      continue
-    fi
-
-    for active in "${active_units[@]}"; do
-      [[ "$active" == "$owned" ]] && printf '%s\n' "$active"
-    done
-  done | sort -u
-}
-
-restart_upgraded_services() {
-  local -a units=()
-
-  if (($# == 0)); then
-    printf 'ok: no packages upgraded or rebuilt during this run\n'
-    return 0
-  fi
-
-  if ! command -v systemctl >/dev/null 2>&1; then
-    printf 'skipped: systemctl is not available\n'
-    return 0
-  fi
-
-  mapfile -t units < <(upgraded_active_service_units "$@")
-  if ((${#units[@]} == 0)); then
-    printf 'ok: no active services shipped by upgraded or rebuilt packages\n'
-    return 0
-  fi
-
-  log "restarting active services from upgraded or rebuilt packages: ${units[*]}"
-  run_as_root systemctl daemon-reload
-  run_as_root systemctl try-restart "${units[@]}"
-}
-
-ARCHUP_REBUILT_PACKAGES=()
-
-upgrade_system() {
+sysup_backend_upgrade() {
   local -a extra_args=("$@")
   local -a broken_packages=()
   local -a rebuild_targets=()
-  ARCHUP_REBUILT_PACKAGES=()
+  local broken_output="" rebuild_output=""
+  local scan_status=0 rebuild_status=0
+  SYSUP_EXTRA_UPGRADED_PACKAGES=()
 
   if command -v yay >/dev/null 2>&1; then
-    yay -Syu --devel "${extra_args[@]}" || return
+    yay -Syu --devel "${extra_args[@]+"${extra_args[@]}"}" || return
 
-    mapfile -t broken_packages < <(broken_foreign_packages)
+    broken_output="$(broken_foreign_packages)" || scan_status=$?
+    if ((scan_status != 0)); then
+      printf 'warning: automatic AUR rebuild scan was incomplete; continuing to post-upgrade checks\n' >&2
+      warn_non_aur_foreign_packages
+      return 0
+    fi
+    if [[ -n "$broken_output" ]]; then
+      mapfile -t broken_packages <<<"$broken_output"
+    fi
     if ((${#broken_packages[@]} == 0)); then
-      log "no broken foreign package libraries found after upgrade"
+      sysup_log "no broken foreign package libraries found after upgrade"
       warn_non_aur_foreign_packages
       return
     fi
 
-    mapfile -t rebuild_targets < <(printf '%s\n' "${broken_packages[@]}" | aur_rebuild_targets)
+    rebuild_output="$(printf '%s\n' "${broken_packages[@]}" | aur_rebuild_targets)" || rebuild_status=$?
+    if [[ -n "$rebuild_output" ]]; then
+      mapfile -t rebuild_targets <<<"$rebuild_output"
+    fi
     if ((${#rebuild_targets[@]})); then
-      log "rebuilding broken AUR packages (${#rebuild_targets[@]})"
+      sysup_log "rebuilding broken AUR packages (${#rebuild_targets[@]})"
       printf '  %s\n' "${rebuild_targets[@]}"
-      yay -S --aur --rebuild --redownload --answerclean All "${extra_args[@]}" "${rebuild_targets[@]}" || return
-      ARCHUP_REBUILT_PACKAGES+=("${rebuild_targets[@]}")
-    else
-      log "broken foreign packages are not available in AUR"
+      # yay can install one target and fail later (another target or a hook).
+      # Mark every attempted same-version rebuild before invoking it so the
+      # driver's best-effort failure path restarts any service that did change.
+      # Restarting an untouched active service is the safe conservative case.
+      SYSUP_EXTRA_UPGRADED_PACKAGES+=("${rebuild_targets[@]}")
+      yay -S --aur --rebuild --redownload --answerclean All \
+        "${extra_args[@]+"${extra_args[@]}"}" "${rebuild_targets[@]}" || return
+    elif ((rebuild_status == 0)); then
+      sysup_log "broken foreign packages are not available in AUR"
     fi
 
     warn_non_aur_foreign_packages
     return
   fi
 
-  log "yay not found; upgrading repository packages only"
-  run_as_root pacman -Syu "${extra_args[@]}"
+  sysup_log "yay not found; upgrading repository packages only"
+  sysup_run_as_root pacman -Syu "${extra_args[@]+"${extra_args[@]}"}"
 }
 
-main() {
-  local check_only=0 restart_failed=0 restart_upgraded=1
-  local -a upgrade_args=()
-  local -a packages=()
-  local -a upgraded_packages=()
-  local before_packages="" after_packages=""
-  local upgrade_status=0
-
-  while (($#)); do
-    case "$1" in
-      --check-only)
-        check_only=1
-        ;;
-      --no-restart-upgraded-services)
-        restart_upgraded=0
-        ;;
-      --restart-failed)
-        restart_failed=1
-        ;;
-      -h | --help)
-        usage
-        return 0
-        ;;
-      --)
-        shift
-        upgrade_args+=("$@")
-        break
-        ;;
-      *)
-        upgrade_args+=("$1")
-        ;;
-    esac
-    shift
-  done
-
-  require_arch_linux || return
-  need_cmds pacman file ldd grep sort || return
-
-  mapfile -t packages < <(foreign_packages)
-  log "foreign packages (${#packages[@]})"
-  if ((${#packages[@]})); then
-    printf '  %s\n' "${packages[@]}"
-  else
-    printf '  (none)\n'
-  fi
-
-  if ((check_only == 0)); then
-    before_packages=$(mktemp) || return
-    after_packages=$(mktemp) || {
-      upgrade_status=$?
-      rm -f "$before_packages"
-      return "$upgrade_status"
-    }
-
-    # Avoid a process-wide EXIT trap here. `archup` is sourceable for tests, and
-    # clobbering a caller's trap is worse than making this block a little more
-    # explicit. Track status manually so every failed path still removes the
-    # package snapshots before returning.
-    package_snapshot >"$before_packages" || upgrade_status=$?
-
-    if ((upgrade_status == 0)); then
-      log "warming sudo credentials"
-      if ((EUID != 0)); then
-        need_cmds sudo || upgrade_status=$?
-        if ((upgrade_status == 0)); then
-          sudo -v || upgrade_status=$?
-        fi
-      fi
-    fi
-
-    if ((upgrade_status == 0)); then
-      log "upgrading system"
-      upgrade_system "${upgrade_args[@]}" || upgrade_status=$?
-    fi
-
-    if ((upgrade_status == 0)); then
-      package_snapshot >"$after_packages" || upgrade_status=$?
-    fi
-    if ((upgrade_status == 0)); then
-      mapfile -t upgraded_packages < <(changed_packages "$before_packages" "$after_packages")
-      mapfile -t upgraded_packages < <(unique_packages "${upgraded_packages[@]}" "${ARCHUP_REBUILT_PACKAGES[@]}")
-    fi
-    rm -f "$before_packages" "$after_packages"
-    if ((upgrade_status != 0)); then
-      return "$upgrade_status"
-    fi
-  fi
-
-  local status=0
-  scan_missing_libs || status=1
-
-  if ((restart_upgraded)); then
-    restart_upgraded_services "${upgraded_packages[@]}" || status=1
-  fi
-
-  if ((restart_failed)); then
-    restart_failed_units || status=1
-  fi
-
-  report_failed_units || status=1
-  return "$status"
-}
-
-if [[ "${ARCHUP_SOURCE_ONLY:-0}" != 1 ]]; then
-  main "$@"
+if [[ "${SYSUP_SOURCE_ONLY:-0}" != 1 ]]; then
+  sysup_main "$@"
 fi

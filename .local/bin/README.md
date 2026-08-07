@@ -16,10 +16,30 @@ component; files here should stay thin and command-shaped.
   the base bare repo.
 - `nvim` reuses an existing Neovim pane in the current tmux window for simple
   interactive-shell file opens, then falls back to the real Neovim binary.
+- `sysup` upgrades this host by detecting its OS family and running the
+  matching backend, forwarding every argument. Run the backend directly for its
+  own help text and family-specific flags.
 - `archup` upgrades Arch hosts, rebuilds broken AUR packages when `yay` is
   available, restarts active systemd services shipped by upgraded or rebuilt
   packages, and runs post-upgrade checks for missing shared libraries and
   failed systemd units.
+- `debup` upgrades Debian and Ubuntu hosts within their installed release. It
+  runs `apt-get --with-new-pkgs upgrade` so new dependencies install but no
+  package is removed; `--full-upgrade` permits removals, and neither crosses a
+  release. Locally modified config files are always kept. `apt-get update` is
+  retried on lock contention, because `DPkg::Lock::Timeout` covers only the
+  dpkg locks and `unattended-upgrades` holds the lists lock routinely. Services
+  are restarted through `needrestart` when it is installed, otherwise by
+  mapping upgraded packages to their active units. Post-upgrade checks cover
+  dpkg and apt integrity, held packages, a pending reboot, and config files
+  awaiting a manual merge; the reboot check prefers `needrestart`'s kernel
+  status, since stock Debian never writes `/var/run/reboot-required`.
+  `--autoremove` purges packages no longer required, which is otherwise only
+  reported. `--check-only` never restarts a service.
+
+  The three share their run sequence, systemd handling, and OS detection
+  through `~/.local/lib/dot/sysup`; each backend supplies only its package
+  manager specifics.
 - `et-tunnel VIA LOCAL_PORT TARGET TARGET_PORT` exposes a remote TCP endpoint
   on local loopback through an Eternal Terminal server. It stays in the
   foreground and lets ET recover from roaming and network loss. A token-owned,

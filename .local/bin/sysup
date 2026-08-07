@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+# sysup - upgrade this host with the backend for its OS family.
+set -Eeuo pipefail
+
+_sysup_lib_dir() {
+  local src="${BASH_SOURCE[0]}"
+  (cd "$(dirname "$src")/../lib/dot/sysup" >/dev/null 2>&1 && pwd -P)
+}
+
+_SYSUP_BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -P)"
+
+# shellcheck source=../lib/dot/sysup/detect.sh
+. "$(_sysup_lib_dir)/detect.sh"
+
+usage() {
+  cat <<EOF
+Usage: sysup [backend args...]
+
+Detect this host's OS family and run its upgrade backend, forwarding every
+argument. Supported families: $(sysup_supported_families).
+
+  arch    -> archup
+  debian  -> debup
+
+Run the backend directly when you want its help text or family-specific flags.
+EOF
+}
+
+# Prefer the backend next to this script so a worktree copy dispatches within
+# that checkout rather than to whichever copy happens to be first on PATH.
+resolve_backend() {
+  local backend="$1"
+
+  if [[ -x "$_SYSUP_BIN_DIR/$backend" ]]; then
+    printf '%s\n' "$_SYSUP_BIN_DIR/$backend"
+    return 0
+  fi
+
+  command -v "$backend" 2>/dev/null
+}
+
+main() {
+  local family backend backend_path help=0
+
+  case "${1:-}" in
+    -h | --help) help=1 ;;
+  esac
+
+  if ! family=$(sysup_os_family); then
+    # Help still has to work on a host sysup cannot upgrade.
+    if ((help)); then
+      usage
+      return 0
+    fi
+    printf 'error: sysup does not support this host; detected %s\n' \
+      "$(sysup_os_description)" >&2
+    printf 'supported families: %s\n' "$(sysup_supported_families)" >&2
+    return 1
+  fi
+
+  backend="$(sysup_family_command "$family")"
+  if ! backend_path=$(resolve_backend "$backend"); then
+    printf 'error: %s host detected but the %s backend is not installed\n' \
+      "$(sysup_family_label "$family")" "$backend" >&2
+    return 1
+  fi
+
+  # Show the dispatcher's own usage first, then let the backend print the flags
+  # that actually apply to this host.
+  if ((help)); then
+    usage
+    printf '\n'
+  fi
+
+  exec "$backend_path" "$@"
+}
+
+main "$@"
