@@ -52,6 +52,9 @@ depending on a particular `/var` versus `/private/var` spelling.
 - `validate-commit-msg-test` tests commit message policy.
 - `tmux-test` tests tmux config integration.
 - `wezterm-test` tests WezTerm config integration.
+- `agent-yolo-wrappers-test` pins where the agent shell wrappers place their
+  skip-approval flags, because each CLI accepts that flag on a different set of
+  subcommands.
 - `nvim-test` tests Neovim config.
 - `lua-test` tests dotfiles-owned Lua bootstrap helpers.
 - `workflow-consistency-test` compares the Checkrun/Sley policy projection
