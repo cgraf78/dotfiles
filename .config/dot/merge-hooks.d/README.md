@@ -102,6 +102,12 @@ apply because they are editor policy, not Sley extension registration. Only
 `$HOME`, `${HOME}`, `~`, `${APPDATA}`, `${WSL_APPDATA}`, and
 `${VSCODE_APPLICATIONS_DIR}` are expanded in paths.
 
+Every active row receives its own extension registration. When multiple rows
+share a `config_dir`, settings and keybindings are reconciled once using the
+last declaration for that directory; place the intended config options on that
+last row. This avoids repeating a complete config merge for editor builds that
+share one user profile while keeping their extension inventories independent.
+
 VS Code local extensions are declared by files under
 `vscode/local-extensions.d/`. Each non-comment row is
 `extension_id<TAB>source_dir<TAB>disabled_by_variant_options`. The third column
