@@ -160,6 +160,56 @@ DOTRUNNER
   _assert_contains "dot-test filters: overlapping selections run each suite once" \
     "Running 2 test suites" "$_dot_runner_filter_output"
 
+  # The automatic worker cap smooths process-heavy full runs on high-core
+  # hosts. Exercise it through the public runner rather than duplicating the
+  # helper's arithmetic here, and prove an explicit operator choice still wins.
+  _dot_runner_jobs_tests=$(_tmpdir)
+  _dot_runner_jobs_bin=$(_tmpdir)
+  for _dot_runner_job_index in {1..25}; do
+    cat >"$_dot_runner_jobs_tests/job-$_dot_runner_job_index-test" <<'DOTRUNNER'
+#!/usr/bin/env bash
+printf 'Results: 1 passed, 0 failed\n'
+DOTRUNNER
+    chmod +x "$_dot_runner_jobs_tests/job-$_dot_runner_job_index-test"
+  done
+  cat >"$_dot_runner_jobs_bin/getconf" <<'DOTRUNNER'
+#!/usr/bin/env bash
+printf '64\n'
+DOTRUNNER
+  chmod +x "$_dot_runner_jobs_bin/getconf"
+
+  _dot_runner_default_jobs_output=$(
+    # Shared CI sets DOT_TEST_JOBS to bound each platform container. This
+    # fixture owns the automatic-selection case, so isolate it from that
+    # operator override before exercising the public runner.
+    unset DOT_TEST_JOBS
+    PATH="$_dot_runner_jobs_bin:$PATH" DOT_TEST_TESTS_DIR="$_dot_runner_jobs_tests" \
+      DOT_TEST_NO_COLOR=1 "$BIN_DIR/dot-test" 2>&1
+  )
+  _assert_contains "dot-test jobs: automatic high-core selection is capped" \
+    "Running 25 test suites with up to 24 jobs" \
+    "$_dot_runner_default_jobs_output"
+
+  _dot_runner_explicit_jobs_output=$(
+    PATH="$_dot_runner_jobs_bin:$PATH" DOT_TEST_TESTS_DIR="$_dot_runner_jobs_tests" \
+      DOT_TEST_JOBS=25 DOT_TEST_NO_COLOR=1 "$BIN_DIR/dot-test" 2>&1
+  )
+  _assert_contains "dot-test jobs: explicit worker selection overrides the cap" \
+    "Running 25 test suites with up to 25 jobs" \
+    "$_dot_runner_explicit_jobs_output"
+
+  _dot_runner_flag_jobs_output=$(
+    PATH="$_dot_runner_jobs_bin:$PATH" DOT_TEST_TESTS_DIR="$_dot_runner_jobs_tests" \
+      DOT_TEST_NO_COLOR=1 "$BIN_DIR/dot-test" -j 25 2>&1
+  )
+  _assert_contains "dot-test jobs: -j worker selection overrides the cap" \
+    "Running 25 test suites with up to 25 jobs" \
+    "$_dot_runner_flag_jobs_output"
+
+  _assert_contains "dot-test shards: static wrapper suppresses runner coverage" \
+    "DOT_CORE_SHARD=static" \
+    "$(cat "$HOME/.local/lib/dot/tests/core-static-test")"
+
   _dot_runner_timeout_tests=$(_tmpdir)
   cat >"$_dot_runner_timeout_tests/hang-test" <<'DOTRUNNER'
 #!/usr/bin/env bash
