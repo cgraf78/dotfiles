@@ -127,6 +127,7 @@ program	.local/lib/dot/gstack-register/targets.sh
 program	.local/lib/dot/hive-memory/hm-launcher
 program	.local/lib/dot/launcher-real.sh
 program	.local/lib/dot/tests/agent-rules-test
+program	.local/lib/dot/tests/agent-yolo-wrappers-test
 program	.local/lib/dot/tests/android-ci-smoke
 program	.local/lib/dot/tests/archup-test
 program	.local/lib/dot/tests/bootstrap-edge-test
