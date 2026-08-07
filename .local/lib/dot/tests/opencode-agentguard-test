@@ -110,11 +110,12 @@ const hmLauncher = process.env.DOT_TEST_HM_LAUNCHER;
 const sourceDirectory = path.join(root, "workspace");
 fs.mkdirSync(sourceDirectory, { recursive: true });
 process.env.HOME = home;
-// Keep normal fixture hooks comfortably above process-startup jitter. The full
-// dotfiles runner executes suites in parallel, so a blanket 100 ms budget turns
-// ordinary Node startup into a load-sensitive failure instead of testing the
-// adapter contract. The one timeout test below narrows this scale temporarily.
-process.env.DOT_OPENCODE_AGENTGUARD_TIMEOUT_SCALE = "0.1";
+// Give ordinary fixtures five seconds rather than the former one-second budget.
+// The full dotfiles runner executes every suite in parallel, and both macOS CI
+// and a loaded local run have taken multiple seconds to schedule a healthy Node
+// child. Five seconds keeps default-hook failures prompt; the suite ceiling still
+// bounds long-hook defects, while the case below tests fail-closed timeout behavior.
+process.env.DOT_OPENCODE_AGENTGUARD_TIMEOUT_SCALE = "0.5";
 
 const { AgentGuardPlugin } = await import(`${pathToFileURL(pluginPath).href}?test=${Date.now()}`);
 
@@ -136,6 +137,21 @@ function clearLog() {
 function logs() {
   const raw = fs.readFileSync(logPath, "utf8").trim();
   return raw ? raw.split("\n").map((line) => JSON.parse(line)) : [];
+}
+
+async function waitForProcessExit(pid, description) {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    const result = spawnSync("ps", ["-o", "stat=", "-p", String(pid)], {
+      encoding: "utf8",
+    });
+    const state = result.status === 0 ? result.stdout.trim() : "";
+    // A zombie can no longer mutate state; its parent or init only needs to reap
+    // the already-dead process. BSD and procps ps both place Z first in STAT.
+    if (!state || state.startsWith("Z")) return;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  assert.fail(`${description} process ${pid} survived cleanup`);
 }
 
 async function plugin(config = {}, client) {
@@ -1043,11 +1059,11 @@ await check("fails closed when a protected hook closes stdin early", async () =>
   clearLog();
   const hookPath = path.join(home, ".local/bin/agent-hook-pre-edit");
   const hookScript = path.join(root, "close-input-hook.sh");
-  const descendantReady = path.join(root, "closed-input-descendant-ready");
-  const descendantMarker = path.join(root, "closed-input-descendant-survived");
+  const hookGroup = path.join(root, "closed-input-hook-group");
+  const groupReady = path.join(root, "closed-input-group-ready");
+  const separateReady = path.join(root, "closed-input-separate-ready");
   const darwinBin = path.join(root, "darwin-bin");
   const savedPath = process.env.PATH;
-  const descendantDelayMs = 1_000;
   fs.mkdirSync(darwinBin);
   fs.writeFileSync(path.join(darwinBin, "pkill"), "#!/bin/sh\nexit 2\n", {
     mode: 0o755,
@@ -1055,21 +1071,30 @@ await check("fails closed when a protected hook closes stdin early", async () =>
   fs.writeFileSync(
     hookScript,
     `#!/bin/sh
-python3 - "${descendantReady}" "${descendantMarker}" "${descendantDelayMs / 1_000}" <<'PY' &
+printf '%s\n' "$$" >"${hookGroup}"
+python3 - "${groupReady}" "${separateReady}" <<'PY' &
 import os
 import pathlib
 import sys
 import time
 
-# A hook helper is allowed to create its own process group. macOS does this for
-# some background jobs, so killing only the hook leader's group is not enough;
-# every process in the isolated hook session must be stopped on protocol error.
-os.setpgrp()
-pathlib.Path(sys.argv[1]).write_text("ready", encoding="utf-8")
-time.sleep(float(sys.argv[3]))
-pathlib.Path(sys.argv[2]).write_text("alive", encoding="utf-8")
+def wait_for_cleanup(ready):
+    identity = f"{os.getpid()} {os.getpgrp()}"
+    pathlib.Path(ready).write_text(identity, encoding="utf-8")
+    time.sleep(30)
+
+# Exercise both cleanup layers. An ordinary descendant must die with the hook's
+# process group; a helper that creates another process group must still be found
+# by the broader private-session sweep used for macOS background jobs.
+if os.fork() == 0:
+    wait_for_cleanup(sys.argv[1])
+    os._exit(0)
+if os.fork() == 0:
+    os.setpgrp()
+    wait_for_cleanup(sys.argv[2])
+    os._exit(0)
 PY
-while [ ! -s "${descendantReady}" ]; do
+while [ ! -s "${groupReady}" ] || [ ! -s "${separateReady}" ]; do
   sleep 0.01
 done
 exec 0<&-
@@ -1098,11 +1123,26 @@ sleep 5
       ),
       /input failed/i,
     );
-    // The ready handshake makes the separate process group deterministic before
-    // stdin closes. Waiting past its write deadline then tests cleanup itself,
-    // without depending on when macOS schedules the EPIPE notification.
-    await new Promise((resolve) => setTimeout(resolve, descendantDelayMs + 250));
-    assert.equal(fs.existsSync(descendantMarker), false);
+    // The shell closes stdin only after both descendants publish their PIDs, so
+    // these checks cannot pass merely because a busy runner had not scheduled
+    // their creation. Poll process state instead of guessing at a write delay.
+    assert.equal(fs.existsSync(groupReady), true);
+    assert.equal(fs.existsSync(separateReady), true);
+    const hookPgid = Number.parseInt(fs.readFileSync(hookGroup, "utf8"), 10);
+    const [groupPid, groupPgid] = fs.readFileSync(groupReady, "utf8").split(" ").map(Number);
+    const [separatePid, separatePgid] = fs
+      .readFileSync(separateReady, "utf8")
+      .split(" ")
+      .map(Number);
+    assert.equal(Number.isSafeInteger(hookPgid) && hookPgid > 1, true);
+    assert.equal(Number.isSafeInteger(groupPid) && groupPid > 1, true);
+    assert.equal(Number.isSafeInteger(groupPgid) && groupPgid > 1, true);
+    assert.equal(Number.isSafeInteger(separatePid) && separatePid > 1, true);
+    assert.equal(Number.isSafeInteger(separatePgid) && separatePgid > 1, true);
+    assert.equal(groupPgid, hookPgid);
+    assert.notEqual(separatePgid, hookPgid);
+    await waitForProcessExit(groupPid, "ordinary descendant");
+    await waitForProcessExit(separatePid, "separate-process-group descendant");
     await hooks.dispose();
   } finally {
     process.env.PATH = savedPath;
@@ -1113,8 +1153,7 @@ sleep 5
 
 await check("fails closed when a protected hook times out", async () => {
   clearLog();
-  const descendantMarker = path.join(root, "timeout-descendant-survived");
-  behavior("agent-hook-pre-edit", { delayMs: 250, descendantMarker });
+  behavior("agent-hook-pre-edit", { delayMs: 250 });
   const normalTimeoutScale = process.env.DOT_OPENCODE_AGENTGUARD_TIMEOUT_SCALE;
   process.env.DOT_OPENCODE_AGENTGUARD_TIMEOUT_SCALE = "0.01";
   try {
@@ -1126,8 +1165,6 @@ await check("fails closed when a protected hook times out", async () => {
       ),
       /timed out/i,
     );
-    await new Promise((resolve) => setTimeout(resolve, 350));
-    assert.equal(fs.existsSync(descendantMarker), false);
     await hooks.dispose();
   } finally {
     process.env.DOT_OPENCODE_AGENTGUARD_TIMEOUT_SCALE = normalTimeoutScale;

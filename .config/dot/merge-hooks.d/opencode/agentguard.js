@@ -49,9 +49,11 @@ import sys
 
 session_id = int(sys.argv[1])
 
-# Use two snapshots so a helper forked at the edge of the first pass is still
-# found after the session leader has been signaled. Zombies may appear again in
-# the second snapshot until Node reaps them; signaling one is harmless.
+# The adapter kills the leader's process group before this broader sweep. Most
+# hooks and descendants are therefore already stopped, closing the fork race
+# before we enumerate helpers that deliberately moved into another group. Use
+# two snapshots because those escaped helpers can still be disappearing while
+# Node reaps the original group.
 for _ in range(2):
     result = subprocess.run(
         ["ps", "-A", "-o", "pid="],
@@ -72,8 +74,9 @@ for _ in range(2):
         except (PermissionError, ProcessLookupError, ValueError):
             pass
 
-    # Stop helpers before the leader. That closes the window in which a shell
-    # could create another child after its current descendants were enumerated.
+    # Stop helpers before any surviving leader. The common leader group was
+    # already killed atomically; this order keeps a separately grouped helper
+    # from outliving another escaped process that it owns.
     members.sort(key=lambda pid: pid == session_id)
     for pid in members:
         try:
@@ -367,10 +370,23 @@ function spawnHook(command, hook, payload, directory, sessionID, runtimeName) {
 
     function terminate() {
       if (grouped && child.pid) {
-        // `detached` gives every hook a private session, but shells may place
-        // background helpers in additional process groups inside that session.
-        // A negative PID reaches only the leader's group; enumerate the full
-        // session or a denied hook could leave a helper alive to mutate files.
+        let groupKilled = false;
+        try {
+          // `detached` makes the child a private session and process-group
+          // leader. Kill that group first: the kernel selects all ordinary
+          // descendants in one operation, so none can fork between a userspace
+          // process snapshot and the signal that is meant to stop it.
+          process.kill(-child.pid, "SIGKILL");
+          groupKilled = true;
+        } catch {
+          // It may have exited between timeout detection and cleanup. Still
+          // sweep the session because a separately grouped helper can remain.
+        }
+
+        // Shells may place background helpers in additional process groups
+        // inside the private session. A negative PID cannot reach those groups;
+        // enumerate the full session or a denied hook could leave one alive to
+        // mutate files after OpenCode has returned.
         //
         // This synchronous call runs only while handling a timeout or protocol
         // failure. Waiting for it here preserves the stronger invariant that
@@ -379,10 +395,10 @@ function spawnHook(command, hook, payload, directory, sessionID, runtimeName) {
           stdio: "ignore",
           timeout: 2_000,
         });
-        if (sessionKill.status === 0) return;
+        if (sessionKill.status === 0 || groupKilled) return;
 
         // A damaged or unusually minimal environment may omit Python or ps.
-        // The original process group remains a safe, narrower fallback because
+        // Retry the original process group as a safe, narrower fallback because
         // this adapter created it and retained its leader PID for this boundary.
         try {
           process.kill(-child.pid, "SIGKILL");
