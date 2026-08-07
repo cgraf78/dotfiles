@@ -15,6 +15,7 @@
 #   DOT_CORE_SHARD=doctor ./core-test
 #   DOT_CORE_SHARD=pull ./core-test
 #   DOT_CORE_SHARD=reexec ./core-test
+#   DOT_CORE_SHARD=static ./core-test
 #   DOT_CORE_SHARD=update ./core-test
 
 set -o pipefail
@@ -98,6 +99,12 @@ case "$_core_shard" in
   reexec)
     _core_run_commands=true
     _core_run_reexec=true
+    ;;
+  static)
+    # runner.sh executes before static.sh, whose DOT_CORE_STATIC_ONLY path exits
+    # before fixture setup. Keeping this as a real empty shard therefore
+    # suppresses duplicate runner coverage after the static checks finish; the
+    # ordinary core-test suite remains the single owner in full dot-test runs.
     ;;
   update)
     _core_run_commands=true

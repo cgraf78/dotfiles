@@ -264,7 +264,7 @@ _mark_fail() { _mark red "✗" "$1" "$2"; }
 _mark_skip() { _mark yellow "○" "$1" "$2"; }
 
 _default_jobs() {
-  local n=""
+  local n="" default_cap=24
   n=$(getconf _NPROCESSORS_ONLN 2>/dev/null || true)
   if [[ -z "$n" && "$(uname -s)" = "Darwin" ]]; then
     n=$(sysctl -n hw.ncpu 2>/dev/null || true)
@@ -273,6 +273,12 @@ _default_jobs() {
     '' | *[!0-9]*) n=4 ;;
   esac
   [[ "$n" -lt 1 ]] && n=1
+
+  # Bound peak host load on high-core machines. Measured wall time is flat from
+  # 24 workers through unbounded 44/55-way runs, while 12 workers does lengthen
+  # the critical path. Cap only automatic selection so explicit -j and
+  # DOT_TEST_JOBS requests still win.
+  [[ "$n" -gt "$default_cap" ]] && n=$default_cap
   printf '%s\n' "$n"
 }
 
