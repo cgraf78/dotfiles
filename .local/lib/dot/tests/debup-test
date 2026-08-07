@@ -178,8 +178,12 @@ _debup_reset() {
   DEBUP_AUTOREMOVE=0
   rm -f "$DEBUP_REBOOT_REQUIRED_FILE" "$DEBUP_REBOOT_REQUIRED_FILE.pkgs"
   rm -rf "${DEBUP_FIXTURE_ETC:?}"/*
-  # needrestart is absent unless a test installs the mock.
+  # needrestart is absent unless a test installs the mock. Clear bash's command
+  # hash too: a prior direct invocation (which is what happens when the suite
+  # runs as root and sysup_run_as_root skips sudo) leaves the deleted path
+  # cached, and `command -v` would keep reporting it as installed.
   rm -f "$DEBUP_MOCK_BIN/needrestart"
+  hash -r
 }
 
 _debup_install_needrestart() {
@@ -401,6 +405,25 @@ DEBUP_MOCK_ACTIVE_UNITS="ssh.service"
 _debup_main
 _assert_eq "debup main: a clean upgrade succeeds (output: $DEBUP_RESULT)" \
   "0" "$DEBUP_STATUS"
+
+# Running as root skips the sudo mock, so commands execute in this shell and
+# get hashed. A needrestart mock installed and then removed must not leave the
+# backend believing needrestart is still available.
+_debup_install_needrestart
+sysup_run_as_root_orig=$(declare -f sysup_run_as_root)
+sysup_run_as_root() { "$@"; }
+sysup_backend_restart_services openssh-server >/dev/null 2>&1
+_debup_reset
+DEBUP_MOCK_INSTALLED="ii openssh-server 1.0"
+DEBUP_MOCK_UPGRADED="ii openssh-server 2.0"
+DEBUP_MOCK_PACKAGE_FILES=$'openssh-server /usr/lib/systemd/system/ssh.service'
+DEBUP_MOCK_ACTIVE_UNITS="ssh.service"
+_debup_main
+eval "$sysup_run_as_root_orig"
+_assert_eq "debup main: a removed needrestart does not linger in the command hash (output: $DEBUP_RESULT)" \
+  "0" "$DEBUP_STATUS"
+_assert_contains "debup main: falls back to the built-in restart once needrestart is gone" \
+  "try-restart ssh.service" "$(cat "$DEBUP_SYSTEMCTL_LOG")"
 systemctl_log=$(cat "$DEBUP_SYSTEMCTL_LOG")
 _assert_contains "debup main: restarts services for packages whose version changed" \
   "try-restart ssh.service" "$systemctl_log"
