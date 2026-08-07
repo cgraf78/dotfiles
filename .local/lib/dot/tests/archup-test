@@ -24,6 +24,9 @@ _archup_mock_reset() {
   declare -gA ARCHUP_AUR_PACKAGES=()
   declare -gA ARCHUP_LDD_OUTPUT=()
   ARCHUP_ACTIVE_UNITS=()
+  ARCHUP_FAILED_UNITS=""
+  ARCHUP_DISABLED_UNITS=""
+  ARCHUP_SYSTEMCTL_QUERY_STATUS=0
   ARCHUP_YAY_FAIL_UPGRADE=0
   ARCHUP_SYSTEMCTL_LOG="$ARCHUP_MOCK_ROOT/systemctl-commands.log"
   : >"$ARCHUP_SYSTEMCTL_LOG"
@@ -132,9 +135,19 @@ systemctl() {
       printf '%s\n' "$*" >>"$ARCHUP_SYSTEMCTL_LOG"
       ;;
     --failed)
+      ((ARCHUP_SYSTEMCTL_QUERY_STATUS == 0)) || {
+        printf 'Failed to connect to bus: Connection refused\n' >&2
+        return "$ARCHUP_SYSTEMCTL_QUERY_STATUS"
+      }
+      [[ -z "$ARCHUP_FAILED_UNITS" ]] || printf '%s\n' "$ARCHUP_FAILED_UNITS"
       ;;
     is-enabled)
-      printf 'enabled\n'
+      # $2 is the unit; the fixture lists the ones that are not enabled.
+      if [[ " $ARCHUP_DISABLED_UNITS " == *" $2 "* ]]; then
+        printf 'disabled\n'
+      else
+        printf 'enabled\n'
+      fi
       ;;
     *)
       printf 'unexpected systemctl args: %s\n' "$*" >&2
@@ -335,5 +348,57 @@ _assert_contains "archup main: failed upgrade block returns original status" \
   "status=7" "$result"
 _assert_not_contains "archup main: failed upgrade block removes snapshots" \
   "snapshot." "$result"
+
+echo ""
+echo "=== archup: failed unit reporting ==="
+
+_archup_mock_reset
+ARCHUP_FAILED_UNITS="postgresql.service loaded failed failed PostgreSQL"
+set +e
+result=$(sysup_report_failed_units 2>&1)
+status=$?
+set -e
+_assert_eq "archup failed units: a failed unit fails the run" "1" "$status"
+_assert_contains "archup failed units: names the failed unit" \
+  "postgresql.service" "$result"
+# The hint was hardcoded to archup before the shared library existed; debup must
+# not tell users to run archup.
+_assert_contains "archup failed units: hint names the running backend" \
+  "archup --restart-failed" "$result"
+
+# An unverifiable unit state must never be reported as healthy: that is the
+# exact claim this tool exists to make.
+_archup_mock_reset
+ARCHUP_SYSTEMCTL_QUERY_STATUS=1
+set +e
+result=$(sysup_report_failed_units 2>&1)
+status=$?
+set -e
+_assert_eq "archup failed units: an unreachable systemd fails the run" "1" "$status"
+_assert_contains "archup failed units: says the state is unverified" \
+  "unverified" "$result"
+_assert_not_contains "archup failed units: never claims health it did not verify" \
+  "ok: no failed systemd units" "$result"
+
+_archup_mock_reset
+ARCHUP_FAILED_UNITS="broken.service loaded failed failed Broken"
+sysup_restart_failed_units >/dev/null 2>&1
+systemctl_commands=$(cat "$ARCHUP_SYSTEMCTL_LOG")
+_assert_contains "archup restart-failed: clears the failed state first" \
+  "reset-failed broken.service" "$systemctl_commands"
+_assert_contains "archup restart-failed: restarts the failed enabled unit" \
+  "restart broken.service" "$systemctl_commands"
+
+# A disabled unit failed on a manual or dependency-triggered start. Restarting it
+# here would start a service the host is deliberately not running.
+_archup_mock_reset
+ARCHUP_FAILED_UNITS="offbydesign.service loaded failed failed Off"
+ARCHUP_DISABLED_UNITS="offbydesign.service"
+result=$(sysup_restart_failed_units 2>&1)
+systemctl_commands=$(cat "$ARCHUP_SYSTEMCTL_LOG")
+_assert_not_contains "archup restart-failed: leaves disabled failed units alone" \
+  "restart offbydesign.service" "$systemctl_commands"
+_assert_contains "archup restart-failed: says why it restarted nothing" \
+  "no failed enabled units to restart" "$result"
 
 _test_summary

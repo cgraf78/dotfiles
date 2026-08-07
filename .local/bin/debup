@@ -28,7 +28,14 @@ DEBUP_AUTOREMOVE=0
 
 # Seconds apt waits for the dpkg lock. These hosts run unattended-upgrades, so a
 # collision is expected rather than exceptional and should be waited out.
+#
+# This covers only the dpkg locks (Debian #1012173). `apt-get update` takes the
+# lists lock instead, which has no wait, so that step is retried separately.
 DEBUP_LOCK_TIMEOUT="${DEBUP_LOCK_TIMEOUT:-300}"
+
+# Bounded retry for `apt-get update`, whose lists lock ignores the timeout above.
+DEBUP_UPDATE_ATTEMPTS="${DEBUP_UPDATE_ATTEMPTS:-5}"
+DEBUP_UPDATE_RETRY_DELAY="${DEBUP_UPDATE_RETRY_DELAY:-30}"
 
 # System paths the advisory checks read. Overridable so tests can point them at
 # a fixture tree instead of the live system.
@@ -98,7 +105,44 @@ debup_held_packages() {
   apt-mark showhold 2>/dev/null | sort
 }
 
+# `apt-get update` fails immediately on lock contention rather than waiting, and
+# unattended-upgrades holds that lock routinely on these hosts. Retry instead of
+# aborting a whole run over a collision that clears on its own.
+debup_apt_update() {
+  local attempt=1
+
+  while :; do
+    debup_apt_get update && return 0
+    ((attempt < DEBUP_UPDATE_ATTEMPTS)) || break
+    printf 'apt-get update failed (attempt %s/%s); retrying in %ss\n' \
+      "$attempt" "$DEBUP_UPDATE_ATTEMPTS" "$DEBUP_UPDATE_RETRY_DELAY" >&2
+    sleep "$DEBUP_UPDATE_RETRY_DELAY"
+    attempt=$((attempt + 1))
+  done
+
+  printf 'error: apt-get update failed after %s attempts\n' "$DEBUP_UPDATE_ATTEMPTS" >&2
+  return 1
+}
+
+# Ubuntu writes the reboot flag from update-notifier-common. Debian dropped that
+# package, so on stock Debian nothing creates it and the file alone is a false
+# negative after a kernel upgrade. Prefer needrestart's kernel status, which is
+# derived from the running kernel rather than from a package hook.
+#
+# NEEDRESTART-KSTA: 0 unknown, 1 none pending, 2 ABI-compatible upgrade pending,
+# 3 version upgrade pending.
 debup_reboot_required() {
+  local ksta
+
+  if command -v needrestart >/dev/null 2>&1; then
+    ksta="$(sysup_run_as_root needrestart -b -k 2>/dev/null |
+      sed -n 's/^NEEDRESTART-KSTA: //p' | head -n1)"
+    case "$ksta" in
+      2 | 3) return 0 ;;
+      1) return 1 ;;
+    esac
+  fi
+
   [[ -f "$DEBUP_REBOOT_REQUIRED_FILE" ]]
 }
 
@@ -119,15 +163,24 @@ check_package_integrity() {
 
   sysup_log "checking dpkg and apt integrity"
 
-  audit="$(dpkg --audit 2>&1 || true)"
+  # `dpkg --audit` always exits 0 and writes its problem report to stdout, so
+  # non-empty stdout is the only available signal. Deliberately do not fold in
+  # stderr: dpkg emits unrelated warnings there (a missing *.list file, say),
+  # and treating those as breakage would fail every run on such a host forever.
+  audit="$(dpkg --audit)"
   if [[ -n "$audit" ]]; then
     printf '%s\n' "$audit"
     printf '\nerror: dpkg reports packages in a broken state\n' >&2
     status=1
   fi
 
-  if ! sysup_run_as_root apt-get check; then
-    printf '\nerror: apt reports unmet dependencies\n' >&2
+  # Routed through debup_apt_get so this takes the same lock timeout as the
+  # upgrade; `apt-get check` opens the cache with a lock and would otherwise
+  # fail outright against a concurrent unattended-upgrades run.
+  if ! debup_apt_get check; then
+    # sysup_run_as_root fails for privilege reasons too, so do not assert a
+    # cause the exit status does not establish.
+    printf '\nerror: apt-get check failed; see its output above (a privilege failure looks the same here)\n' >&2
     status=1
   fi
 
@@ -137,16 +190,15 @@ check_package_integrity() {
 
 # Advisory: the upgrade succeeded, but its result is not fully live yet.
 report_pending_state() {
-  local -a conffiles=()
-  local packages
+  local -a conffiles=() packages=()
 
   sysup_log "checking for pending post-upgrade work"
 
   if debup_reboot_required; then
     printf 'reboot required to complete this upgrade\n'
     if [[ -r "$DEBUP_REBOOT_REQUIRED_FILE.pkgs" ]]; then
-      packages="$(sort -u "$DEBUP_REBOOT_REQUIRED_FILE.pkgs" 2>/dev/null || true)"
-      [[ -z "$packages" ]] || printf '  %s\n' "$packages"
+      mapfile -t packages < <(sort -u "$DEBUP_REBOOT_REQUIRED_FILE.pkgs" 2>/dev/null || true)
+      ((${#packages[@]} == 0)) || printf '  %s\n' "${packages[@]}"
     fi
   else
     printf 'ok: no reboot required\n'
@@ -162,10 +214,19 @@ report_pending_state() {
 }
 
 report_autoremovable() {
-  local output
+  local simulated output
 
-  output="$(apt-get --simulate --assume-no autoremove 2>/dev/null |
-    sed -n 's/^Remv \([^ ]*\).*/  \1/p' || true)"
+  # --simulate takes no lock and needs no root, so this runs unprivileged.
+  if ! simulated="$(apt-get --simulate autoremove 2>&1)"; then
+    printf '%s\n' "$simulated" >&2
+    printf 'warning: could not determine which packages are no longer required\n' >&2
+    return 0
+  fi
+
+  # `Remv`/`Purg` are untranslated literals from pkgSimulate, so this parse is
+  # locale-independent. Purg appears when APT::Get::Purge is set host-wide.
+  output="$(printf '%s\n' "$simulated" |
+    sed -n 's/^\(Remv\|Purg\) \([^ ]*\).*/  \2/p')"
 
   if [[ -z "$output" ]]; then
     printf 'ok: no packages are eligible for autoremove\n'
@@ -183,7 +244,7 @@ report_autoremovable() {
 
 sysup_backend_require() {
   sysup_require_family debian || return
-  sysup_need_cmds apt-get dpkg dpkg-query find sort
+  sysup_need_cmds apt-get apt-mark dpkg dpkg-query find sed sort
 }
 
 sysup_backend_preamble() {
@@ -202,8 +263,12 @@ sysup_backend_preamble() {
 
 # dpkg-query also lists packages that were removed but kept their config, so
 # restrict the snapshot to the fully installed ones.
+#
+# binary:Package, not Package: it appends the architecture for foreign-arch
+# packages. A bare name would collapse the two rows of a multi-arch pair into
+# one version, hiding an upgrade, and `dpkg -L` rejects it as ambiguous.
 sysup_backend_snapshot() {
-  dpkg-query -W -f '${db:Status-Abbrev}\t${Package}\t${Version}\n' 2>/dev/null |
+  dpkg-query -W -f '${db:Status-Abbrev}\t${binary:Package}\t${Version}\n' 2>/dev/null |
     while IFS=$'\t' read -r state pkg version; do
       [[ "$state" == ii* ]] || continue
       [[ -n "$pkg" ]] || continue
@@ -255,7 +320,7 @@ sysup_backend_restart_services() {
 sysup_backend_upgrade() {
   local -a extra_args=("$@")
 
-  debup_apt_get update || return
+  debup_apt_update || return
 
   if [[ "$DEBUP_UPGRADE_VERB" == upgrade ]]; then
     debup_apt_get --with-new-pkgs upgrade -y "${extra_args[@]+"${extra_args[@]}"}" || return
@@ -270,7 +335,13 @@ sysup_backend_upgrade() {
     report_autoremovable
   fi
 
-  debup_apt_get autoclean -y
+  # Reclaiming the package cache is cosmetic. Its status must not become this
+  # function's status: the driver treats a failed upgrade as fatal and skips
+  # every post-upgrade check and service restart, which would be badly wrong
+  # after the packages themselves installed successfully.
+  debup_apt_get autoclean -y ||
+    printf 'warning: apt-get autoclean failed; the package cache was not reclaimed\n' >&2
+  return 0
 }
 
 if [[ "${SYSUP_SOURCE_ONLY:-0}" != 1 ]]; then

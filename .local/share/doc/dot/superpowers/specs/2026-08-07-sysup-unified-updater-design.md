@@ -99,26 +99,38 @@ per-backend family guard.
 
 Upgrade, as root, with `DEBIAN_FRONTEND=noninteractive`:
 
-- `apt-get update`
+- `apt-get update`, retried on failure
 - `apt-get --with-new-pkgs upgrade -y` — installs new dependencies so kernel ABI
   bumps land, but never removes a package. `--full-upgrade` opts into
   `full-upgrade`, which permits removals to resolve dependencies. Neither crosses
   an OS release.
-- `apt-get autoclean -y`
+- `apt-get autoclean -y`, advisory — a failure to reclaim the cache must not
+  cancel the checks and restarts that make the upgrade safe.
 - `autoremove` reports candidates only; `--autoremove` performs it with `--purge`.
 
 Conffiles use `--force-confdef --force-confold`, so a package never silently
-replaces a locally modified config file. `DPkg::Lock::Timeout` waits for the lock
-instead of failing immediately, because `unattended-upgrades` runs on these
-hosts. `NEEDRESTART_MODE=l` keeps `needrestart`'s APT hook from prompting
-mid-upgrade; `debup` drives the restart itself afterward.
+replaces a locally modified config file. `NEEDRESTART_MODE=l` keeps
+`needrestart`'s APT hook from prompting mid-upgrade; `debup` drives the restart
+itself afterward.
+
+`DPkg::Lock::Timeout` covers only the two dpkg locks, not the lists lock that
+`apt-get update` takes (Debian #1012173), so `update` gets its own bounded retry.
+`unattended-upgrades` holds that lock routinely on these hosts, and a collision
+must not abort the run. Note that `unattended-upgrades` itself is python-apt and
+does not run `apt-get`; the verb above is equivalent in effect, not identical in
+implementation.
+
+`--check-only` must not mutate the host, and the driver enforces that centrally
+by skipping the restart step entirely. A backend cannot be trusted to infer it
+from an empty package list: `debup` defers to `needrestart`, which discovers work
+on its own.
 
 Checks:
 
 | Check | Severity |
 | --- | --- |
 | `dpkg --audit` and `apt-get check` | fatal |
-| Reboot required (`/var/run/reboot-required`) | advisory |
+| Reboot required (`needrestart -b -k`, falling back to `/var/run/reboot-required`) | advisory |
 | Pending conffiles (`.dpkg-dist`/`.dpkg-new`/`.ucf-dist` under `/etc`) | advisory |
 | Failed systemd units | fatal |
 

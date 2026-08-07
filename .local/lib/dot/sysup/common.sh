@@ -133,7 +133,7 @@ sysup_main() {
   local check_only=0 restart_failed=0 restart_upgraded=1
   local -a upgrade_args=()
   local -a upgraded_packages=()
-  local before_packages="" after_packages=""
+  local before_packages="" after_packages="" stage=""
   local upgrade_status=0 status=0
 
   while (($#)); do
@@ -178,19 +178,23 @@ sysup_main() {
     # and clobbering a caller's trap is worse than making this block a little
     # more explicit. Track status manually so every failed path still removes
     # the package snapshots before returning.
+    stage="reading the package list"
     sysup_backend_snapshot >"$before_packages" || upgrade_status=$?
 
     if ((upgrade_status == 0)); then
       sysup_log "warming sudo credentials"
+      stage="acquiring sudo credentials"
       sysup_warm_sudo || upgrade_status=$?
     fi
 
     if ((upgrade_status == 0)); then
       sysup_log "upgrading system"
+      stage="the system upgrade"
       sysup_backend_upgrade "${upgrade_args[@]+"${upgrade_args[@]}"}" || upgrade_status=$?
     fi
 
     if ((upgrade_status == 0)); then
+      stage="re-reading the package list after the upgrade"
       sysup_backend_snapshot >"$after_packages" || upgrade_status=$?
     fi
     if ((upgrade_status == 0)); then
@@ -201,6 +205,11 @@ sysup_main() {
     fi
     rm -f "$before_packages" "$after_packages"
     if ((upgrade_status != 0)); then
+      # Name the stage. Without this the caller gets a bare exit code, and an
+      # after-snapshot failure in particular means the host was already modified
+      # but the checks and restarts below never ran.
+      printf '\nerror: %s failed (status %s); post-upgrade checks and service restarts were skipped\n' \
+        "$stage" "$upgrade_status" >&2
       return "$upgrade_status"
     fi
   fi
@@ -209,7 +218,11 @@ sysup_main() {
   # short-circuiting, so one run surfaces every problem it can see.
   sysup_backend_checks || status=1
 
-  if ((restart_upgraded)); then
+  # Nothing was upgraded under --check-only, so there is nothing to restart.
+  # This is a guarantee of the driver rather than of each backend: a backend
+  # whose restart hook ignores its argument list (debup defers to needrestart,
+  # which discovers work on its own) must not mutate the host on a check run.
+  if ((restart_upgraded && check_only == 0)); then
     sysup_backend_restart_services "${upgraded_packages[@]+"${upgraded_packages[@]}"}" || status=1
   fi
 
