@@ -226,12 +226,17 @@ lg() {
   fi
 }
 
-# Risk acceptance (single-user dev machine): the Claude and Codex wrappers below
-# run with interactive permission prompts DISABLED, so the agents act with full
+# Risk acceptance (single-user dev machine): the agent wrappers below run with
+# interactive permission prompts DISABLED, so the agents act with full
 # unsandboxed shell access. This is deliberate — command safety is enforced by
 # the agentguard pre-bash/pre-edit hooks (destructive-command guards) rather than
 # by per-action approval. Do NOT carry this default onto shared or multi-user
 # hosts, where interactive approval should stay on.
+#
+# Flag placement differs per CLI. Claude and Codex accept their approval flags
+# ahead of any subcommand, so those wrappers can prepend unconditionally. Muse
+# and opencode accept theirs only on the commands that actually run an agent, so
+# those wrappers route by invocation shape — see each note below.
 
 # Claude - disable permission checks (see risk-acceptance note above).
 claude() {
@@ -248,6 +253,47 @@ codex() {
 }
 
 # Muse - disable approval and sandboxing (see risk-acceptance note above).
+#
+# `--yolo` is a root option, but Muse rejects a subcommand that follows root
+# options ("`skills` is a command, not a root option"), so it can only be
+# prepended for the bare TUI/prompt form. `exec` and `resume` take it after the
+# subcommand name; the remaining subcommands reject it outright. Keep the
+# pass-through list in sync with `muse --help`: a stale entry can only make that
+# one subcommand fail loudly, never send a listed one down the wrong path.
 muse() {
-  command muse --yolo "$@"
+  case "${1-}" in
+    exec | resume)
+      local muse_cmd="$1"
+      shift
+      command muse "$muse_cmd" --yolo "$@"
+      ;;
+    export | trace | skills | sandbox | session-message | auth | login | logout | init)
+      command muse "$@"
+      ;;
+    *)
+      command muse --yolo "$@"
+      ;;
+  esac
+}
+
+# opencode - auto-approve every permission that is not explicitly denied (see
+# risk-acceptance note above).
+#
+# `--auto` is only accepted by the two commands that run tools: the default TUI
+# and `run`. Every other subcommand (`models`, `providers`, `serve`, `pr`, ...)
+# rejects it as an unknown option, and a leading `--auto` silently binds the
+# subcommand name to the default command's `[project]` positional instead
+# (`opencode --auto models` tries to open ./models). The default command's
+# positional is a directory, so an existing path means TUI and any other bare
+# word means subcommand — no subcommand list to keep in sync.
+opencode() {
+  if [[ "${1-}" == "run" ]]; then
+    shift
+    command opencode run --auto "$@"
+  elif [[ $# -eq 0 || "${1-}" == -* || -d "${1-}" ]]; then
+    # Default TUI: no args, leading flags, or a project directory.
+    command opencode --auto "$@"
+  else
+    command opencode "$@"
+  fi
 }
