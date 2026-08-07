@@ -148,6 +148,8 @@ DEBUP_FIXTURE_ETC=$(_tmpdir)
 # shellcheck disable=SC2034 # read by the sourced debup under test.
 DEBUP_CONFFILE_ROOT="$DEBUP_FIXTURE_ETC"
 DEBUP_REBOOT_REQUIRED_FILE="$(_tmpdir)/reboot-required"
+# shellcheck disable=SC2034 # read by the sourced debup under test.
+DEBUP_NEEDRESTART="$DEBUP_MOCK_BIN/needrestart"
 
 # The suite runs on Arch, so the family guard has to be neutralized the same way
 # archup-test does. One case later restores the real guard to prove it runs.

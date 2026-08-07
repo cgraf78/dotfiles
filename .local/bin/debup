@@ -37,6 +37,11 @@ DEBUP_LOCK_TIMEOUT="${DEBUP_LOCK_TIMEOUT:-300}"
 DEBUP_UPDATE_ATTEMPTS="${DEBUP_UPDATE_ATTEMPTS:-5}"
 DEBUP_UPDATE_RETRY_DELAY="${DEBUP_UPDATE_RETRY_DELAY:-30}"
 
+# The needrestart command, resolved through PATH by default. Overridable so
+# tests can select a fixture, or point at a path that does not exist to
+# exercise the built-in fallback on a host where needrestart is installed.
+DEBUP_NEEDRESTART="${DEBUP_NEEDRESTART:-needrestart}"
+
 # System paths the advisory checks read. Overridable so tests can point them at
 # a fixture tree instead of the live system.
 DEBUP_REBOOT_REQUIRED_FILE="${DEBUP_REBOOT_REQUIRED_FILE:-/var/run/reboot-required}"
@@ -101,6 +106,10 @@ debup_apt_get() {
     apt-get "${options[@]}" "$@"
 }
 
+debup_have_needrestart() {
+  command -v "$DEBUP_NEEDRESTART" >/dev/null 2>&1
+}
+
 debup_held_packages() {
   apt-mark showhold 2>/dev/null | sort
 }
@@ -134,8 +143,8 @@ debup_apt_update() {
 debup_reboot_required() {
   local ksta
 
-  if command -v needrestart >/dev/null 2>&1; then
-    ksta="$(sysup_run_as_root needrestart -b -k 2>/dev/null |
+  if debup_have_needrestart; then
+    ksta="$(sysup_run_as_root "$DEBUP_NEEDRESTART" -b -k 2>/dev/null |
       sed -n 's/^NEEDRESTART-KSTA: //p' | head -n1)"
     case "$ksta" in
       2 | 3) return 0 ;;
@@ -308,9 +317,9 @@ sysup_backend_checks() {
 # for deleted mappings rather than inferring from package contents, so it also
 # catches services linking an upgraded library they do not own.
 sysup_backend_restart_services() {
-  if command -v needrestart >/dev/null 2>&1; then
+  if debup_have_needrestart; then
     sysup_log "restarting services reported by needrestart"
-    sysup_run_as_root needrestart -r a
+    sysup_run_as_root "$DEBUP_NEEDRESTART" -r a
     return
   fi
 
