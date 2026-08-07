@@ -372,6 +372,24 @@
       },
       {
         "fileMatch": [
+          "$HOME/**/.claude-plugin/marketplace.json",
+          "**/**/.claude-plugin/marketplace.json",
+          "**/.claude-plugin/marketplace.json"
+        ],
+        "name": "Claude Code plugin marketplace",
+        "url": "https://www.schemastore.org/claude-code-marketplace.json"
+      },
+      {
+        "fileMatch": [
+          "$HOME/**/.claude-plugin/plugin.json",
+          "**/**/.claude-plugin/plugin.json",
+          "**/.claude-plugin/plugin.json"
+        ],
+        "name": "Claude Code plugin manifest",
+        "url": "https://www.schemastore.org/claude-code-plugin-manifest.json"
+      },
+      {
+        "fileMatch": [
           "$HOME/.config/dot/merge-hooks.d/claude/settings.d/*.json",
           "$HOME/.config/dot/merge-hooks.d/claude/settings.d/*.replace/*.json",
           "**/.config/dot/merge-hooks.d/claude/settings.d/*.json",
@@ -426,6 +444,7 @@
       ".*/\\.config/checkrun/ruff\\.toml$": "https://www.schemastore.org/ruff.json",
       ".*/\\.config/checkrun/rumdl\\.toml$": "https://raw.githubusercontent.com/SchemaStore/schemastore/master/src/schemas/json/rumdl.json",
       ".*/\\.config/checkrun/rustfmt\\.toml$": "https://www.schemastore.org/rustfmt.json",
+      ".*/\\.config/checkrun/shfmt\\.toml$": "shdeps:cgraf78/checkrun/share/checkrun/schemas/shfmt-config.schema.json",
       ".*/\\.config/checkrun/stylua\\.toml$": "https://www.schemastore.org/stylua.json",
       ".*/\\.config/checkrun/taplo\\.toml$": "https://www.schemastore.org/taplo.json",
       ".*/\\.config/checkrun/typos\\.toml$": "https://raw.githubusercontent.com/crate-ci/typos/master/config.schema.json",
@@ -457,6 +476,7 @@
       "^$HOME/\\.config/checkrun/ruff\\.toml$": "https://www.schemastore.org/ruff.json",
       "^$HOME/\\.config/checkrun/rumdl\\.toml$": "https://raw.githubusercontent.com/SchemaStore/schemastore/master/src/schemas/json/rumdl.json",
       "^$HOME/\\.config/checkrun/rustfmt\\.toml$": "https://www.schemastore.org/rustfmt.json",
+      "^$HOME/\\.config/checkrun/shfmt\\.toml$": "shdeps:cgraf78/checkrun/share/checkrun/schemas/shfmt-config.schema.json",
       "^$HOME/\\.config/checkrun/stylua\\.toml$": "https://www.schemastore.org/stylua.json",
       "^$HOME/\\.config/checkrun/taplo\\.toml$": "https://www.schemastore.org/taplo.json",
       "^$HOME/\\.config/checkrun/typos\\.toml$": "https://raw.githubusercontent.com/crate-ci/typos/master/config.schema.json",
@@ -484,6 +504,19 @@
       "^$HOME/uv\\.toml$": "https://raw.githubusercontent.com/SchemaStore/schemastore/master/src/schemas/json/uv.json"
     },
     "yaml": {
+      "file://$HOME/.local/share/checkrun/schemas/clang-format-21.schema.json": [
+        "$HOME/.clang-format",
+        "$HOME/_clang-format",
+        "**/.clang-format",
+        "**/_clang-format",
+        ".clang-format",
+        "_clang-format"
+      ],
+      "file://$HOME/.local/share/checkrun/schemas/clangd.schema.json": [
+        "$HOME/.clangd",
+        "**/.clangd",
+        ".clangd"
+      ],
       "https://golangci-lint.run/jsonschema/golangci.v2.jsonschema.json": [
         "$HOME/.config/checkrun/golangci-lint.yaml",
         "$HOME/.config/checkrun/golangci-lint.yml",
@@ -547,6 +580,16 @@
         ".config/checkrun/rubocop.yaml",
         ".config/checkrun/rubocop.yml"
       ],
+      "https://www.schemastore.org/clang-format-21.x.json": [
+        "$HOME/.config/checkrun/clang-format",
+        "**/.config/checkrun/clang-format",
+        ".config/checkrun/clang-format"
+      ],
+      "https://www.schemastore.org/clang-tidy.json": [
+        "$HOME/.clang-tidy",
+        "**/.clang-tidy",
+        ".clang-tidy"
+      ],
       "https://www.schemastore.org/dependabot-2.0.json": [
         "$HOME/.github/dependabot.yaml",
         "$HOME/.github/dependabot.yml",
@@ -554,6 +597,25 @@
         "**/.github/dependabot.yml",
         ".github/dependabot.yaml",
         ".github/dependabot.yml"
+      ],
+      "https://www.schemastore.org/github-action.json": [
+        "$HOME/action.yaml",
+        "$HOME/action.yml",
+        "**/action.yaml",
+        "**/action.yml",
+        "action.yaml",
+        "action.yml"
+      ],
+      "https://www.schemastore.org/github-cli-config.json": [
+        "$HOME/.config/dot/merge-hooks.d/gh/config.d/*.yaml",
+        "$HOME/.config/dot/merge-hooks.d/gh/config.d/*.yml",
+        "$HOME/.config/gh/config.yml",
+        "**/.config/dot/merge-hooks.d/gh/config.d/*.yaml",
+        "**/.config/dot/merge-hooks.d/gh/config.d/*.yml",
+        "**/.config/gh/config.yml",
+        ".config/dot/merge-hooks.d/gh/config.d/*.yaml",
+        ".config/dot/merge-hooks.d/gh/config.d/*.yml",
+        ".config/gh/config.yml"
       ],
       "https://www.schemastore.org/github-workflow.json": [
         "$HOME/.github/workflows/*.yaml",

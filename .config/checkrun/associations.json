@@ -12,6 +12,15 @@
       "note": "Dotfiles owns this policy instance; checkrun owns the schema that defines the policy document shape."
     },
     {
+      "name": "Checkrun shfmt fallback config",
+      "format": "toml",
+      "dependency": "cgraf78/checkrun",
+      "schema": "share/checkrun/schemas/shfmt-config.schema.json",
+      "matches": [".config/checkrun/shfmt.toml"],
+      "enforce": true,
+      "note": "Checkrun translates this fallback policy into shfmt flags, so Checkrun owns the schema contract."
+    },
+    {
       "name": "Sley verify registry",
       "format": "json",
       "dependency": "cgraf78/sley",
@@ -107,6 +116,19 @@
       "note": "Track the XDG lazygit config path because the shared config is intentionally platform-neutral."
     },
     {
+      "name": "GitHub CLI config layers",
+      "format": "yaml",
+      "schema": "github-cli-config.schema.json",
+      "source": "https://www.schemastore.org/github-cli-config.json",
+      "matches": [
+        ".config/dot/merge-hooks.d/gh/config.d/*.yml",
+        ".config/dot/merge-hooks.d/gh/config.d/*.yaml",
+        ".config/gh/config.yml"
+      ],
+      "enforce": true,
+      "note": "Validate each merge-hook source layer and the generated XDG config without reading the credential-bearing hosts file."
+    },
+    {
       "name": "Biome fallback config",
       "format": "json",
       "schema": "biome.schema.json",
@@ -153,6 +175,24 @@
       ],
       "enforce": true,
       "note": "Merge-hook source layers are valid Claude settings documents before they are merged into the generated destination config."
+    },
+    {
+      "name": "Claude Code plugin manifest",
+      "format": "json",
+      "schema": "claude-code-plugin-manifest.schema.json",
+      "source": "https://www.schemastore.org/claude-code-plugin-manifest.json",
+      "matches": ["**/.claude-plugin/plugin.json"],
+      "enforce": true,
+      "note": "Validate distributable Claude Code plugin metadata before installation or marketplace publication."
+    },
+    {
+      "name": "Claude Code plugin marketplace",
+      "format": "json",
+      "schema": "claude-code-marketplace.schema.json",
+      "source": "https://www.schemastore.org/claude-code-marketplace.json",
+      "matches": ["**/.claude-plugin/marketplace.json"],
+      "enforce": true,
+      "note": "Validate Claude Code marketplace catalogs and their plugin source declarations."
     },
     {
       "name": "Gemini CLI settings layers",
@@ -235,6 +275,15 @@
       "matches": [".github/workflows/*.yml", ".github/workflows/*.yaml"],
       "enforce": false,
       "note": "GitHub workflow YAML has a focused SchemaStore schema for editor help; keep advisory because PyYAML treats the key 'on' as a boolean while actionlint and zizmor provide native validation."
+    },
+    {
+      "name": "GitHub Action metadata",
+      "format": "yaml",
+      "schema": "github-action.schema.json",
+      "source": "https://www.schemastore.org/github-action.json",
+      "matches": ["action.yml", "action.yaml"],
+      "enforce": false,
+      "note": "Keep advisory because PyYAML's YAML 1.1 scalar rules can coerce valid action keys and values such as on, off, yes, and no."
     },
     {
       "name": "Renovate config",
@@ -330,6 +379,41 @@
       "matches": [".config/nextest.toml"],
       "enforce": true,
       "note": "nextest repository config is project-local test policy and has a first-party schema."
+    },
+    {
+      "name": "clang-format fallback config",
+      "format": "yaml",
+      "schema": "clang-format-21.schema.json",
+      "source": "https://www.schemastore.org/clang-format-21.x.json",
+      "matches": [".config/checkrun/clang-format"],
+      "enforce": true,
+      "note": "The shared fallback is maintained against the installed LLVM 21 formatter, so version-specific validation can be enforced."
+    },
+    {
+      "name": "clang-format project config",
+      "format": "yaml",
+      "schema": "clang-format-21.schema.json",
+      "matches": [".clang-format", "_clang-format"],
+      "enforce": false,
+      "note": "Expose schema feedback for project configs without enforcing LLVM 21 options on repositories that intentionally target another formatter version."
+    },
+    {
+      "name": "clang-tidy project config",
+      "format": "yaml",
+      "schema": "clang-tidy.schema.json",
+      "source": "https://www.schemastore.org/clang-tidy.json",
+      "matches": [".clang-tidy"],
+      "enforce": false,
+      "note": "Keep project configs advisory because available checks and options vary with the repository's LLVM toolchain."
+    },
+    {
+      "name": "clangd project config",
+      "format": "yaml",
+      "schema": "clangd.schema.json",
+      "editorSource": "https://www.schemastore.org/clangd.json",
+      "matches": [".clangd"],
+      "enforce": false,
+      "note": "Keep project configs advisory because clangd configuration keys evolve with the repository's language-server version; the pinned payload bundles SchemaStore's base path definition for offline use."
     },
     {
       "name": "golangci-lint fallback config",
