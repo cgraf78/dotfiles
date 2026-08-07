@@ -114,12 +114,14 @@ sysup_active_units() {
 # silently drop it from the restart set, so say so rather than skipping quietly.
 sysup_service_units_for_packages() {
   local pkg file listing
+  local status=0
 
   for pkg in "$@"; do
     if ! listing="$(sysup_backend_package_files "$pkg" 2>&1)"; then
       printf '%s\n' "$listing" >&2
       printf 'warning: could not list files owned by %s; its services will not be restarted\n' \
         "$pkg" >&2
+      status=1
       continue
     fi
 
@@ -137,6 +139,8 @@ sysup_service_units_for_packages() {
       esac
     done <<<"$listing"
   done
+
+  return "$status"
 }
 
 # Intersect the units shipped by the given packages with the units currently
@@ -146,13 +150,17 @@ sysup_upgraded_active_service_units() {
   local -a active_units=()
   local owned active prefix
 
-  local active_listing suffix
+  local owned_listing active_listing suffix
+  local discovery_status=0
 
-  mapfile -t owned_units < <(sysup_service_units_for_packages "$@")
-  ((${#owned_units[@]})) || return 0
+  owned_listing="$(sysup_service_units_for_packages "$@")" || discovery_status=$?
+  if [[ -n "$owned_listing" ]]; then
+    mapfile -t owned_units <<<"$owned_listing"
+  fi
+  ((${#owned_units[@]})) || return "$discovery_status"
 
-  active_listing="$(sysup_active_units)" || return
-  [[ -n "$active_listing" ]] || return 0
+  active_listing="$(sysup_active_units)" || return 1
+  [[ -n "$active_listing" ]] || return "$discovery_status"
   mapfile -t active_units <<<"$active_listing"
 
   for owned in "${owned_units[@]}"; do
@@ -171,13 +179,21 @@ sysup_upgraded_active_service_units() {
     for active in "${active_units[@]}"; do
       [[ "$active" == "$owned" ]] && printf '%s\n' "$active"
     done
-  done | sort -u
+  done | sort -u || return 1
+
+  return "$discovery_status"
 }
 
 sysup_restart_upgraded_services() {
   local -a units=()
+  local unit_listing
+  local discovery_status=0
 
   if (($# == 0)); then
+    if [[ "${SYSUP_PACKAGE_DIFF_UNVERIFIED:-0}" == 1 ]]; then
+      printf 'error: could not determine which packages changed; upgraded service restarts are unverified\n' >&2
+      return 1
+    fi
     printf 'ok: no packages upgraded during this run\n'
     return 0
   fi
@@ -187,8 +203,15 @@ sysup_restart_upgraded_services() {
     return 0
   fi
 
-  mapfile -t units < <(sysup_upgraded_active_service_units "$@")
+  unit_listing="$(sysup_upgraded_active_service_units "$@")" || discovery_status=$?
+  if [[ -n "$unit_listing" ]]; then
+    mapfile -t units <<<"$unit_listing"
+  fi
   if ((${#units[@]} == 0)); then
+    if ((discovery_status != 0)); then
+      printf 'error: could not fully determine active services from upgraded packages; service restarts are unverified\n' >&2
+      return "$discovery_status"
+    fi
     printf 'ok: no active services shipped by upgraded packages\n'
     return 0
   fi
@@ -199,5 +222,10 @@ sysup_restart_upgraded_services() {
   sysup_run_as_root systemctl daemon-reload || return
   # try-restart, not restart: a unit that stopped between the listing and now
   # must not be started back up by an upgrade.
-  sysup_run_as_root systemctl try-restart "${units[@]}"
+  sysup_run_as_root systemctl try-restart "${units[@]}" || return
+
+  if ((discovery_status != 0)); then
+    printf 'error: could not fully determine active services from upgraded packages; some service restarts are unverified\n' >&2
+    return "$discovery_status"
+  fi
 }

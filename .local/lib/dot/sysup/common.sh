@@ -134,7 +134,9 @@ sysup_main() {
   local -a upgrade_args=()
   local -a upgraded_packages=()
   local before_packages="" after_packages="" stage=""
+  local changed_listing="" unique_listing=""
   local upgrade_status=0 status=0
+  local followup_status=0 upgrade_attempted=0 package_diff_known=0
 
   while (($#)); do
     case "$1" in
@@ -190,27 +192,57 @@ sysup_main() {
     if ((upgrade_status == 0)); then
       sysup_log "upgrading system"
       stage="the system upgrade"
+      upgrade_attempted=1
       sysup_backend_upgrade "${upgrade_args[@]+"${upgrade_args[@]}"}" || upgrade_status=$?
     fi
 
-    if ((upgrade_status == 0)); then
-      stage="re-reading the package list after the upgrade"
-      sysup_backend_snapshot >"$after_packages" || upgrade_status=$?
-    fi
-    if ((upgrade_status == 0)); then
-      mapfile -t upgraded_packages < <(sysup_changed_packages "$before_packages" "$after_packages")
-      mapfile -t upgraded_packages < <(sysup_unique_packages \
-        "${upgraded_packages[@]+"${upgraded_packages[@]}"}" \
-        "${SYSUP_EXTRA_UPGRADED_PACKAGES[@]+"${SYSUP_EXTRA_UPGRADED_PACKAGES[@]}"}")
+    # Package managers can install some packages and still return non-zero.
+    # Once the upgrade command has started, always take the second snapshot so
+    # checks and service restarts can cover whatever actually changed.
+    if ((upgrade_attempted)); then
+      followup_status=0
+      sysup_backend_snapshot >"$after_packages" || followup_status=$?
+      if ((followup_status == 0)); then
+        changed_listing="$(sysup_changed_packages "$before_packages" "$after_packages")" ||
+          followup_status=$?
+      fi
+      if ((followup_status == 0)); then
+        upgraded_packages=()
+        if [[ -n "$changed_listing" ]]; then
+          mapfile -t upgraded_packages <<<"$changed_listing"
+        fi
+        unique_listing="$(sysup_unique_packages \
+          "${upgraded_packages[@]+"${upgraded_packages[@]}"}" \
+          "${SYSUP_EXTRA_UPGRADED_PACKAGES[@]+"${SYSUP_EXTRA_UPGRADED_PACKAGES[@]}"}")" ||
+          followup_status=$?
+      fi
+      if ((followup_status == 0)); then
+        upgraded_packages=()
+        if [[ -n "$unique_listing" ]]; then
+          mapfile -t upgraded_packages <<<"$unique_listing"
+        fi
+        package_diff_known=1
+      else
+        if ((upgrade_status == 0)); then
+          upgrade_status=$followup_status
+          stage="re-reading or comparing the package list after the upgrade"
+        else
+          printf '\nerror: could not re-read or compare the package list after the failed upgrade (status %s); upgraded-package service discovery is unavailable\n' \
+            "$followup_status" >&2
+        fi
+      fi
     fi
     rm -f "$before_packages" "$after_packages"
-    if ((upgrade_status != 0)); then
+    if ((upgrade_status != 0 && upgrade_attempted == 0)); then
       # Name the stage. Without this the caller gets a bare exit code, and an
-      # after-snapshot failure in particular means the host was already modified
-      # but the checks and restarts below never ran.
+      # early failure otherwise gives no indication that no mutation occurred.
       printf '\nerror: %s failed (status %s); post-upgrade checks and service restarts were skipped\n' \
         "$stage" "$upgrade_status" >&2
       return "$upgrade_status"
+    fi
+    if ((upgrade_status != 0)); then
+      printf '\nerror: %s failed (status %s); continuing with best-effort post-upgrade checks and service restarts\n' \
+        "$stage" "$upgrade_status" >&2
     fi
   fi
 
@@ -223,13 +255,20 @@ sysup_main() {
   # whose restart hook ignores its argument list (debup defers to needrestart,
   # which discovers work on its own) must not mutate the host on a check run.
   if ((restart_upgraded && check_only == 0)); then
-    sysup_backend_restart_services "${upgraded_packages[@]+"${upgraded_packages[@]}"}" || status=1
+    if ((package_diff_known)); then
+      sysup_backend_restart_services "${upgraded_packages[@]+"${upgraded_packages[@]}"}" || status=1
+    else
+      SYSUP_PACKAGE_DIFF_UNVERIFIED=1 sysup_backend_restart_services || status=1
+    fi
   fi
 
-  if ((restart_failed)); then
+  # --check-only is a strict no-mutation mode, including when a conflicting
+  # restart request is also present.
+  if ((restart_failed && check_only == 0)); then
     sysup_restart_failed_units || status=1
   fi
 
   sysup_report_failed_units || status=1
+  ((upgrade_status == 0)) || return "$upgrade_status"
   return "$status"
 }

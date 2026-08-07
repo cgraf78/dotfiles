@@ -121,7 +121,9 @@ debup_apt_update() {
   local attempt=1
 
   while :; do
-    debup_apt_get update && return 0
+    # apt-get otherwise exits zero when one repository fails and stale indexes
+    # are reused, which would turn a missed security update into a clean run.
+    debup_apt_get -o APT::Update::Error-Mode=any update && return 0
     ((attempt < DEBUP_UPDATE_ATTEMPTS)) || break
     printf 'apt-get update failed (attempt %s/%s); retrying in %ss\n' \
       "$attempt" "$DEBUP_UPDATE_ATTEMPTS" "$DEBUP_UPDATE_RETRY_DELAY" >&2
@@ -141,26 +143,41 @@ debup_apt_update() {
 # NEEDRESTART-KSTA: 0 unknown, 1 none pending, 2 ABI-compatible upgrade pending,
 # 3 version upgrade pending.
 debup_reboot_required() {
-  local ksta
+  local output ksta="" line
 
   if debup_have_needrestart; then
-    ksta="$(sysup_run_as_root "$DEBUP_NEEDRESTART" -b -k 2>/dev/null |
-      sed -n 's/^NEEDRESTART-KSTA: //p' | head -n1)"
-    case "$ksta" in
-      2 | 3) return 0 ;;
-      1) return 1 ;;
-    esac
+    if output="$(sysup_run_as_root "$DEBUP_NEEDRESTART" -b -k 2>&1)"; then
+      while IFS= read -r line; do
+        case "$line" in
+          "NEEDRESTART-KSTA: "*)
+            ksta="${line#NEEDRESTART-KSTA: }"
+            break
+            ;;
+        esac
+      done <<<"$output"
+      case "$ksta" in
+        2 | 3) return 0 ;;
+        1) return 1 ;;
+      esac
+    fi
+
+    # A positive flag remains conclusive even if needrestart failed or emitted
+    # an unfamiliar response. An absent flag is not a clean result on stock
+    # Debian, where no package normally creates it.
+    [[ -f "$DEBUP_REBOOT_REQUIRED_FILE" ]] && return 0
+    return 2
   fi
 
-  [[ -f "$DEBUP_REBOOT_REQUIRED_FILE" ]]
+  [[ -f "$DEBUP_REBOOT_REQUIRED_FILE" ]] && return 0
+  return 2
 }
 
 # Config files a package upgrade could not install because the local copy
 # diverged. They are inert until merged, so the new defaults are not in effect.
 #
-# This runs unprivileged, so a root-only directory under /etc is skipped rather
-# than reported. That is the right trade for an advisory check: escalating to
-# root just to list filenames is not worth it.
+# This runs unprivileged, so a root-only directory under /etc can make the scan
+# incomplete. The caller reports that uncertainty rather than escalating just
+# to list filenames.
 debup_pending_conffiles() {
   find "$DEBUP_CONFFILE_ROOT" \
     \( -name '*.dpkg-dist' -o -name '*.dpkg-new' -o -name '*.ucf-dist' \) \
@@ -176,8 +193,10 @@ check_package_integrity() {
   # non-empty stdout is the only available signal. Deliberately do not fold in
   # stderr: dpkg emits unrelated warnings there (a missing *.list file, say),
   # and treating those as breakage would fail every run on such a host forever.
-  audit="$(dpkg --audit)"
-  if [[ -n "$audit" ]]; then
+  if ! audit="$(dpkg --audit)"; then
+    printf '\nerror: dpkg --audit failed; package database state is unverified\n' >&2
+    status=1
+  elif [[ -n "$audit" ]]; then
     printf '%s\n' "$audit"
     printf '\nerror: dpkg reports packages in a broken state\n' >&2
     status=1
@@ -200,6 +219,7 @@ check_package_integrity() {
 # Advisory: the upgrade succeeded, but its result is not fully live yet.
 report_pending_state() {
   local -a conffiles=() packages=()
+  local conffile_listing="" reboot_status=0 conffile_status=0
 
   sysup_log "checking for pending post-upgrade work"
 
@@ -210,14 +230,25 @@ report_pending_state() {
       ((${#packages[@]} == 0)) || printf '  %s\n' "${packages[@]}"
     fi
   else
-    printf 'ok: no reboot required\n'
+    reboot_status=$?
+    if ((reboot_status == 1)); then
+      printf 'ok: no reboot required\n'
+    else
+      printf 'warning: could not determine whether a reboot is required; install or repair needrestart and check again\n' >&2
+    fi
   fi
 
-  mapfile -t conffiles < <(debup_pending_conffiles)
+  conffile_listing="$(debup_pending_conffiles)" || conffile_status=$?
+  if [[ -n "$conffile_listing" ]]; then
+    mapfile -t conffiles <<<"$conffile_listing"
+  fi
   if ((${#conffiles[@]})); then
     printf '\nconfig files awaiting a manual merge:\n'
     printf '  %s\n' "${conffiles[@]}"
-  else
+  fi
+  if ((conffile_status != 0)); then
+    printf 'warning: could not completely scan for config files awaiting a manual merge\n' >&2
+  elif ((${#conffiles[@]} == 0)); then
     printf 'ok: no config files awaiting a manual merge\n'
   fi
 }
@@ -260,8 +291,15 @@ sysup_backend_require() {
 
 sysup_backend_preamble() {
   local -a held=()
+  local held_listing
 
-  mapfile -t held < <(debup_held_packages)
+  if ! held_listing="$(debup_held_packages)"; then
+    printf 'error: could not list held packages; upgrade eligibility is unverified\n' >&2
+    return 1
+  fi
+  if [[ -n "$held_listing" ]]; then
+    mapfile -t held <<<"$held_listing"
+  fi
   sysup_log "held packages (${#held[@]})"
   if ((${#held[@]})); then
     # Held packages are deliberately excluded from the upgrade, so surface them
@@ -272,8 +310,10 @@ sysup_backend_preamble() {
   fi
 }
 
-# dpkg-query also lists packages that were removed but kept their config, so
-# restrict the snapshot to the fully installed ones.
+# dpkg-query also lists packages that were removed but kept their config. Keep
+# packages whose desired state is installed, including unpacked/half-configured
+# states: a failed upgrade can already have replaced their files, and the
+# failure-recovery path still needs to discover and restart their services.
 #
 # binary:Package, not Package: it appends the architecture for foreign-arch
 # packages. A bare name would collapse the two rows of a multi-arch pair into
@@ -281,7 +321,7 @@ sysup_backend_preamble() {
 sysup_backend_snapshot() {
   dpkg-query -W -f '${db:Status-Abbrev}\t${binary:Package}\t${Version}\n' 2>/dev/null |
     while IFS=$'\t' read -r state pkg version; do
-      [[ "$state" == ii* ]] || continue
+      [[ "$state" == i* ]] || continue
       [[ -n "$pkg" ]] || continue
       printf '%s %s\n' "$pkg" "$version"
     done | sort

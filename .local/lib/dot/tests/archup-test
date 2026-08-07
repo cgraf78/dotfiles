@@ -27,7 +27,15 @@ _archup_mock_reset() {
   ARCHUP_FAILED_UNITS=""
   ARCHUP_DISABLED_UNITS=""
   ARCHUP_SYSTEMCTL_QUERY_STATUS=0
+  ARCHUP_SYSTEMCTL_ACTIVE_QUERY_STATUS=0
   ARCHUP_YAY_FAIL_UPGRADE=0
+  ARCHUP_YAY_FAIL_REBUILD=0
+  ARCHUP_YAY_AUR_QUERY_STATUS=0
+  ARCHUP_YAY_AUR_QUERY_ERROR=""
+  ARCHUP_PACMAN_FOREIGN_STATUS=0
+  ARCHUP_PACMAN_FILES_STATUS=0
+  ARCHUP_FILE_STATUS=0
+  ARCHUP_LDD_STATUS=0
   ARCHUP_SYSTEMCTL_LOG="$ARCHUP_MOCK_ROOT/systemctl-commands.log"
   : >"$ARCHUP_SYSTEMCTL_LOG"
 }
@@ -71,9 +79,17 @@ pacman() {
       done
       ;;
     -Qqm)
+      if ((ARCHUP_PACMAN_FOREIGN_STATUS != 0)); then
+        printf 'mock pacman foreign-package query failed\n' >&2
+        return "$ARCHUP_PACMAN_FOREIGN_STATUS"
+      fi
       printf '%s\n' "${ARCHUP_PACKAGES[@]}"
       ;;
     -Qlq)
+      if ((ARCHUP_PACMAN_FILES_STATUS != 0)); then
+        printf 'mock pacman file listing failed for %s\n' "$2" >&2
+        return "$ARCHUP_PACMAN_FILES_STATUS"
+      fi
       printf '%s\n' "${ARCHUP_PACKAGE_FILES[$2]:-}"
       ;;
     *)
@@ -85,8 +101,16 @@ pacman() {
 
 yay() {
   if [[ "$1" == "-Si" && "$2" == "--aur" ]]; then
-    [[ "${ARCHUP_AUR_PACKAGES[$3]:-0}" == 1 ]]
-    return
+    if ((ARCHUP_YAY_AUR_QUERY_STATUS != 0)); then
+      printf '%s\n' "$ARCHUP_YAY_AUR_QUERY_ERROR" >&2
+      printf ' -> No AUR package found for %s\n' "$3" >&2
+      return "$ARCHUP_YAY_AUR_QUERY_STATUS"
+    fi
+    if [[ "${ARCHUP_AUR_PACKAGES[$3]:-0}" == 1 ]]; then
+      return 0
+    fi
+    printf ' -> No AUR package found for %s\n' "$3" >&2
+    return 1
   fi
 
   if [[ "$1" == "-Syu" ]]; then
@@ -100,18 +124,30 @@ yay() {
     done
   fi
 
+  if [[ "$1" == "-S" && "$2" == "--aur" ]] && ((ARCHUP_YAY_FAIL_REBUILD != 0)); then
+    return "$ARCHUP_YAY_FAIL_REBUILD"
+  fi
+
   printf '%s\n' "$*" >>"$ARCHUP_YAY_COMMAND_LOG"
 }
 
 file() {
+  if ((ARCHUP_FILE_STATUS != 0)); then
+    printf 'mock file inspection failed for %s\n' "${2:-}" >&2
+    return "$ARCHUP_FILE_STATUS"
+  fi
   if [[ "$1" == *.service ]]; then
     printf 'ASCII text\n'
     return
   fi
-  printf 'ELF 64-bit LSB executable\n'
+  printf 'ELF 64-bit LSB pie executable, dynamically linked\n'
 }
 
 ldd() {
+  if ((ARCHUP_LDD_STATUS != 0)); then
+    printf 'mock ldd inspection failed for %s\n' "$1" >&2
+    return "$ARCHUP_LDD_STATUS"
+  fi
   printf '%s\n' "${ARCHUP_LDD_OUTPUT[$1]:-}"
 }
 
@@ -126,6 +162,10 @@ sudo() {
 systemctl() {
   case "$1" in
     list-units)
+      if ((ARCHUP_SYSTEMCTL_ACTIVE_QUERY_STATUS != 0)); then
+        printf 'Failed to connect to bus: Connection refused\n' >&2
+        return "$ARCHUP_SYSTEMCTL_ACTIVE_QUERY_STATUS"
+      fi
       local unit
       for unit in "${ARCHUP_ACTIVE_UNITS[@]}"; do
         printf '%s loaded active running mock unit\n' "$unit"
@@ -189,6 +229,92 @@ _assert_contains "archup broken: reports scoped rebuild" \
   "rebuilding broken AUR packages (1)" "$result"
 
 echo ""
+echo "=== archup: missing-library scan failures ==="
+
+_archup_mock_reset
+_archup_mock_add_package unlisted-package 1 ok
+ARCHUP_PACMAN_FILES_STATUS=7
+set +e
+result=$(scan_missing_libs 2>&1)
+status=$?
+set -e
+_assert_eq "archup scan: package-file listing failure fails the check" "1" "$status"
+_assert_contains "archup scan: package-file listing failure is actionable" \
+  "could not list files owned by unlisted-package" "$result"
+_assert_not_contains "archup scan: package-file listing failure never claims an all-clear" \
+  "ok: no missing shared libraries" "$result"
+
+_archup_mock_reset
+_archup_mock_add_package unreadable-binary 1 ok
+ARCHUP_FILE_STATUS=6
+set +e
+result=$(scan_missing_libs 2>&1)
+status=$?
+set -e
+_assert_eq "archup scan: file inspection failure fails the check" "1" "$status"
+_assert_contains "archup scan: file inspection failure is actionable" \
+  "could not identify" "$result"
+_assert_not_contains "archup scan: file inspection failure never claims an all-clear" \
+  "ok: no missing shared libraries" "$result"
+
+_archup_mock_reset
+_archup_mock_add_package unloadable-binary 1 ok
+ARCHUP_LDD_STATUS=5
+set +e
+result=$(scan_missing_libs 2>&1)
+status=$?
+set -e
+_assert_eq "archup scan: ldd failure fails the check" "1" "$status"
+_assert_contains "archup scan: ldd failure is actionable" \
+  "could not inspect shared-library dependencies" "$result"
+_assert_not_contains "archup scan: ldd failure never claims an all-clear" \
+  "ok: no missing shared libraries" "$result"
+
+_archup_mock_reset
+ARCHUP_PACMAN_FOREIGN_STATUS=4
+set +e
+result=$(scan_missing_libs 2>&1)
+status=$?
+set -e
+_assert_eq "archup scan: foreign-package query failure fails the check" "1" "$status"
+_assert_contains "archup scan: foreign-package query failure is actionable" \
+  "could not list foreign packages" "$result"
+_assert_not_contains "archup scan: foreign-package query failure never claims an all-clear" \
+  "ok: no missing shared libraries" "$result"
+
+echo ""
+echo "=== archup: AUR lookup failures ==="
+
+_archup_mock_reset
+_archup_mock_add_package local-only 0 ok
+result=$(warn_non_aur_foreign_packages 2>&1)
+_assert_contains "archup AUR lookup: confirmed absence remains visible" \
+  "foreign packages not found in AUR" "$result"
+_assert_not_contains "archup AUR lookup: confirmed absence is not called unverified" \
+  "could not verify" "$result"
+
+_archup_mock_reset
+_archup_mock_add_package lookup-unknown 0 ok
+ARCHUP_YAY_AUR_QUERY_STATUS=28
+ARCHUP_YAY_AUR_QUERY_ERROR="request failed: AUR is unavailable"
+result=$(warn_non_aur_foreign_packages 2>&1)
+_assert_contains "archup AUR lookup: outage is reported as unverified" \
+  "could not verify AUR membership" "$result"
+_assert_not_contains "archup AUR lookup: outage is not reported as package absence" \
+  "foreign packages not found in AUR" "$result"
+
+_archup_mock_reset
+_archup_mock_add_package broken-lookup-unknown 1 broken
+ARCHUP_YAY_AUR_QUERY_STATUS=28
+ARCHUP_YAY_AUR_QUERY_ERROR="request failed: AUR is unavailable"
+# shellcheck disable=SC2119 # The sysup driver passes upgrade args; this call has none.
+result=$(sysup_backend_upgrade 2>&1)
+_assert_contains "archup AUR rebuild: outage says the rebuild decision is unverified" \
+  "could not verify whether broken-lookup-unknown can be rebuilt from AUR" "$result"
+_assert_not_contains "archup AUR rebuild: outage is not reported as package absence" \
+  "broken foreign packages are not available in AUR" "$result"
+
+echo ""
 echo "=== archup: upgraded service restarts ==="
 
 before_packages=$(_tmpfile)
@@ -219,6 +345,35 @@ _assert_contains "archup restart: restarts active service from upgraded package"
   "try-restart upgraded.service" "$systemctl_commands"
 _assert_contains "archup restart: reports upgraded service restart" \
   "restarting active services from upgraded packages" "$result"
+
+_archup_mock_reset
+_archup_mock_add_package unlistable-service 1 ok
+_archup_mock_add_service unlistable-service unlistable.service
+ARCHUP_ACTIVE_UNITS=(unlistable.service)
+ARCHUP_PACMAN_FILES_STATUS=7
+set +e
+result=$(sysup_restart_upgraded_services unlistable-service 2>&1)
+status=$?
+set -e
+_assert_eq "archup restart: package-file query failure fails service discovery" "1" "$status"
+_assert_contains "archup restart: package-file query failure says restarts are incomplete" \
+  "could not fully determine active services" "$result"
+_assert_not_contains "archup restart: package-file query failure never claims no services exist" \
+  "ok: no active services" "$result"
+
+_archup_mock_reset
+_archup_mock_add_package unreachable-systemd-service 1 ok
+_archup_mock_add_service unreachable-systemd-service unreachable.service
+ARCHUP_SYSTEMCTL_ACTIVE_QUERY_STATUS=9
+set +e
+result=$(sysup_restart_upgraded_services unreachable-systemd-service 2>&1)
+status=$?
+set -e
+_assert_eq "archup restart: unreachable systemd fails service discovery" "1" "$status"
+_assert_contains "archup restart: unreachable systemd says restarts are unverified" \
+  "could not fully determine active services" "$result"
+_assert_not_contains "archup restart: unreachable systemd never claims no services exist" \
+  "ok: no active services" "$result"
 
 _archup_mock_reset
 _archup_mock_add_package templated-service 1 ok
@@ -279,6 +434,20 @@ sysup_main >/dev/null 2>&1 || true
 systemctl_commands=$(cat "$ARCHUP_SYSTEMCTL_LOG")
 _assert_contains "archup main: restarts same-version rebuilt AUR services" \
   "try-restart rebuilt.service" "$systemctl_commands"
+
+_archup_mock_reset
+_archup_mock_add_package partial-rebuild-service 1 broken 1.0
+_archup_mock_add_service partial-rebuild-service partial-rebuild.service
+ARCHUP_ACTIVE_UNITS=(partial-rebuild.service)
+ARCHUP_YAY_FAIL_REBUILD=42
+set +e
+sysup_main >/dev/null 2>&1
+status=$?
+set -e
+systemctl_commands=$(cat "$ARCHUP_SYSTEMCTL_LOG")
+_assert_eq "archup main: failed rebuild preserves the yay status" "42" "$status"
+_assert_contains "archup main: failed same-version rebuild still restarts its service" \
+  "try-restart partial-rebuild.service" "$systemctl_commands"
 
 set +e
 result=$(

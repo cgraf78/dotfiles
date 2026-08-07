@@ -3,9 +3,8 @@
 ## Problem
 
 `archup` upgrades Arch hosts and verifies the failure modes most likely to leave
-services broken afterward. Debian-based hosts (`taylor`, `metro`) have no
-equivalent, and there is no single command that works on every host in the
-fleet.
+services broken afterward. Debian-based hosts have no equivalent, and there is
+no single command that works on every supported host.
 
 ## Goals
 
@@ -84,13 +83,19 @@ require extending the parser contract.
 Steps 4 through 7 each contribute to the exit status rather than short-circuiting,
 so one run surfaces every problem.
 
+Once the package-manager command starts, those follow-up steps also run after a
+failure: an upgrade can install some packages before returning nonzero. The
+driver re-snapshots best-effort, restarts services for anything it can prove
+changed, reports unverified discovery explicitly, and preserves the original
+package-manager status.
+
 ## Detection
 
 `sysup_os_family` maps `/etc/os-release` `ID`, then each `ID_LIKE` token, to a
 family. `/etc/arch-release` and `/etc/debian_version` are fallbacks for
-derivatives with an unhelpful `os-release`. `SYSUP_FAMILY_COMMANDS` is the single
-map from family to backend command, used by both the dispatcher and the
-per-backend family guard.
+derivatives with an unhelpful `os-release`. `_sysup_family_table` is the single
+family table; `sysup_family_command` and `sysup_family_label` expose it to both
+the dispatcher and the per-backend family guard.
 
 `sysup` resolves the backend next to itself via `BASH_SOURCE`, not through
 `PATH`, so a worktree copy dispatches within that checkout.
