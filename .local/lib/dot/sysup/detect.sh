@@ -5,18 +5,45 @@
 # are the durable identifiers: they select a backend command, a human label, and
 # the guard each backend runs before touching a package manager.
 
-# Family -> backend command. The dispatcher and the backend guards both read
-# this, so a new family is added in exactly one place.
-declare -A SYSUP_FAMILY_COMMANDS=(
-  [arch]=archup
-  [debian]=debup
-)
+# The family vocabulary: `family|backend command|human label`, one row per
+# supported family. A new family is added here and nowhere else.
+#
+# A plain table rather than associative arrays because those need bash 4, and
+# macOS still ships bash 3.2 as /bin/bash. This file is what tells an
+# unsupported host so — it has to survive the oldest shell it can land on and
+# print that message, not abort with an unbound-variable error.
+_sysup_family_table() {
+  printf '%s\n' \
+    'arch|archup|Arch Linux' \
+    'debian|debup|Debian-based'
+}
 
-# Family -> human label, used only in messages.
-declare -A SYSUP_FAMILY_LABELS=(
-  [arch]='Arch Linux'
-  [debian]='Debian-based'
-)
+_sysup_family_field() {
+  local want="$1" field="$2" family command label
+
+  while IFS='|' read -r family command label; do
+    [[ "$family" == "$want" ]] || continue
+    case "$field" in
+      command) printf '%s\n' "$command" ;;
+      label) printf '%s\n' "$label" ;;
+    esac
+    return 0
+  done <<EOF
+$(_sysup_family_table)
+EOF
+
+  return 1
+}
+
+# Backend command for a family. Read by the dispatcher and the backend guards.
+sysup_family_command() {
+  _sysup_family_field "$1" command
+}
+
+# Human label for a family, used only in messages.
+sysup_family_label() {
+  _sysup_family_field "$1" label
+}
 
 # Filesystem root the OS identification files are read from. Overridable so
 # tests can point detection at a fixture tree instead of the live system.
@@ -32,7 +59,10 @@ sysup_os_release_field() {
   (
     # shellcheck disable=SC1090,SC1091 # Host file, path varies for tests.
     . "$path"
-    printf '%s' "${!field:-}"
+    case "$field" in
+      ID) printf '%s' "${ID:-}" ;;
+      ID_LIKE) printf '%s' "${ID_LIKE:-}" ;;
+    esac
   )
 }
 
@@ -84,14 +114,7 @@ sysup_os_description() {
 
 # Print supported families as a sorted, comma-separated list.
 sysup_supported_families() {
-  local family
-  local -a families=()
-
-  for family in "${!SYSUP_FAMILY_COMMANDS[@]}"; do
-    families+=("$family")
-  done
-
-  printf '%s\n' "${families[@]}" | sort | paste -sd, -
+  _sysup_family_table | cut -d'|' -f1 | sort | paste -sd, -
 }
 
 # Fail unless this host belongs to `family`. Backends call this first so running
@@ -103,8 +126,8 @@ sysup_require_family() {
   [[ "$got" == "$want" ]] && return 0
 
   printf 'error: %s only supports %s hosts; detected %s\n' \
-    "${SYSUP_BACKEND_NAME:-${SYSUP_FAMILY_COMMANDS[$want]}}" \
-    "${SYSUP_FAMILY_LABELS[$want]}" \
+    "${SYSUP_BACKEND_NAME:-$(sysup_family_command "$want")}" \
+    "$(sysup_family_label "$want")" \
     "$(sysup_os_description)" >&2
   return 1
 }

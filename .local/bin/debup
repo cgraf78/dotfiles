@@ -234,8 +234,10 @@ report_autoremovable() {
 
   # `Remv`/`Purg` are untranslated literals from pkgSimulate, so this parse is
   # locale-independent. Purg appears when APT::Get::Purge is set host-wide.
+  #
+  # -E, because `\|` alternation is a GNU sed extension that BSD sed ignores.
   output="$(printf '%s\n' "$simulated" |
-    sed -n 's/^\(Remv\|Purg\) \([^ ]*\).*/  \2/p')"
+    sed -E -n 's/^(Remv|Purg) ([^ ]*).*/  \2/p')"
 
   if [[ -z "$output" ]]; then
     printf 'ok: no packages are eligible for autoremove\n'

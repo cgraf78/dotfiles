@@ -230,6 +230,10 @@ _assert_contains "sysup dispatch: --help still reaches the backend" \
 _assert_eq "sysup dispatch: --help forwards to the backend for its flags" \
   "debup --help" "$(cat "$SYSUP_DISPATCH_LOG")"
 
+# Restricting PATH to the system directories also picks the system bash, which
+# on macOS is 3.2. That is deliberate: the dispatcher has to reach its
+# unsupported-host and missing-backend messages under the oldest shell it can
+# land on, rather than aborting inside the library it sources.
 rm "$SYSUP_FIXTURE/bin/debup"
 os_root=$(_sysup_os_root)
 _sysup_write_os_release "$os_root" 'ID=debian'
@@ -240,5 +244,41 @@ set -e
 _assert_eq "sysup dispatch: missing backend fails" "1" "$status"
 _assert_contains "sysup dispatch: missing backend names what to install" \
   "debup backend is not installed" "$result"
+
+echo ""
+echo "=== sysup: dispatcher portability ==="
+
+# The dispatcher and detect.sh are the only parts that must run on a host sysup
+# cannot upgrade, so they are held to bash 3.2 (what macOS ships as /bin/bash).
+# The backends and the shared driver are Linux-only and may use bash 4 freely.
+detect_source=$(cat "$HOME/.local/lib/dot/sysup/detect.sh")
+dispatcher_source=$(cat "$HOME/.local/bin/sysup")
+_assert_contains "sysup portability: detect.sh was read for the scan" \
+  "sysup_os_family" "$detect_source"
+_assert_contains "sysup portability: the dispatcher was read for the scan" \
+  "resolve_backend" "$dispatcher_source"
+for portability_source in "$detect_source" "$dispatcher_source"; do
+  _assert_not_contains "sysup portability: no associative arrays (need bash 4)" \
+    "declare -A" "$portability_source"
+  _assert_not_contains "sysup portability: no mapfile (needs bash 4)" \
+    "mapfile" "$portability_source"
+  _assert_not_contains "sysup portability: no \${var^^} case conversion (needs bash 4)" \
+    '^^' "$portability_source"
+done
+
+# The family lookups replaced associative arrays; prove they still resolve.
+_assert_eq "sysup families: arch resolves to its backend" \
+  "archup" "$(sysup_family_command arch)"
+_assert_eq "sysup families: debian resolves to its backend" \
+  "debup" "$(sysup_family_command debian)"
+_assert_eq "sysup families: arch resolves to its label" \
+  "Arch Linux" "$(sysup_family_label arch)"
+_assert_eq "sysup families: debian resolves to its label" \
+  "Debian-based" "$(sysup_family_label debian)"
+set +e
+sysup_family_command fedora >/dev/null
+status=$?
+set -e
+_assert_eq "sysup families: an unknown family has no backend" "1" "$status"
 
 _test_summary

@@ -58,10 +58,10 @@ main() {
     return 1
   fi
 
-  backend="${SYSUP_FAMILY_COMMANDS[$family]}"
+  backend="$(sysup_family_command "$family")"
   if ! backend_path=$(resolve_backend "$backend"); then
     printf 'error: %s host detected but the %s backend is not installed\n' \
-      "${SYSUP_FAMILY_LABELS[$family]}" "$backend" >&2
+      "$(sysup_family_label "$family")" "$backend" >&2
     return 1
   fi
 
