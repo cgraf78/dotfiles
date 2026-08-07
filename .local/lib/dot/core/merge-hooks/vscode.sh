@@ -288,13 +288,38 @@ _merge_vscode_settings() {
     return
   fi
 
-  # Merge: local settings * dotfiles settings (recursive merge, dotfiles win)
-  # Using * instead of + so nested objects (like "[python]") are merged
-  # recursively — local-only nested keys are preserved.
+  # Merge: local settings * dotfiles settings (recursive merge, dotfiles win).
+  # Using * instead of + keeps local-only nested keys in objects like
+  # "[python]". commandsToSkipShell is VS Code's additive command policy, so
+  # preserve unrelated local/Settings Sync entries while letting each managed
+  # entry replace its positive or negative counterpart by command id.
   _merge_hook_tmp_for "$dst" || return 1
   out="$REPLY"
   if ! jq -n --indent 4 --sort-keys --slurpfile s "$src_clean" --slurpfile d "$dst_clean" \
-    '$d[0] * $s[0]' >"$out"; then
+    '
+    def valid_command_list:
+      type == "array" and all(.[]; type == "string");
+    def command_id:
+      if startswith("-") then .[1:] else . end;
+    def merge_command_policy($local; $managed):
+      reduce $managed[] as $entry (
+        ($local | if valid_command_list then . else [] end);
+        [.[] | select(command_id != ($entry | command_id))] + [$entry]
+      );
+
+    ($d[0] * $s[0]) as $merged
+    | if (
+        $s[0] | has("terminal.integrated.commandsToSkipShell")
+        and (."terminal.integrated.commandsToSkipShell" | valid_command_list)
+      )
+      then $merged
+        | ."terminal.integrated.commandsToSkipShell" = merge_command_policy(
+            $d[0]."terminal.integrated.commandsToSkipShell";
+            $s[0]."terminal.integrated.commandsToSkipShell"
+          )
+      else $merged
+      end
+    ' >"$out"; then
     _warn "    warning: settings merge failed for $(basename "$(dirname "$(dirname "$dst")")") — skipping"
     rm -f "$out"
   else

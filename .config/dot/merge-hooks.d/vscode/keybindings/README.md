@@ -18,28 +18,34 @@ Use this decision order:
 1. If VS Code and xterm already deliver the desired key in every relevant
    client, add nothing. A Neovim mapping alone is not a reason to manage a VS
    Code binding.
-2. If the terminal owns the chord whenever it is focused, add the common route
+2. If a default workbench command captures a key that xterm encodes natively,
+   remove that command from `terminal.integrated.commandsToSkipShell` rather
+   than adding a send-sequence route. `Ctrl-J` requires this path because VS
+   Code's `sendSequence` command normalizes its LF byte to CR. The settings
+   merge preserves unrelated local and Settings Sync entries; for a command
+   managed here, the managed positive or negative form wins by command ID.
+3. If the terminal owns the chord whenever it is focused, add the common route
    to `all.d/10-keybindings.jsonc` with plain `terminalFocus`. This includes
    terminal protocol normalization and explicit decisions that tmux/shell
    behavior outranks a workbench shortcut.
-3. If overriding normal VS Code behavior is valid only while Neovim owns the
+4. If overriding normal VS Code behavior is valid only while Neovim owns the
    active pane, add it to `all.d/20-nvim-focus.jsonc` with exactly
    `terminalFocus && termnav.nvimFocused`.
-4. If the VS Code client owns a behavior such as copy, paste, quick-open, or
+5. If the VS Code client owns a behavior such as copy, paste, quick-open, or
    terminal toggle, define the disjoint client and terminal conditions in
    `all.d/10-keybindings.jsonc`; do not infer Neovim from a missing context key.
-5. Add a platform entry only when the platform changes the physical chord or
+6. Add a platform entry only when the platform changes the physical chord or
    desired client behavior. In particular, `macos.d/10-keybindings.jsonc`
    translates Karabiner's output but mirrors the ownership decision from steps
-   2-4; it does not create a separate macOS focus policy.
-6. Encode Ctrl letters and exact C0 controls as their byte. For a modified key
+   3-5; it does not create a separate macOS focus policy.
+7. Encode Ctrl letters and exact C0 controls as their byte. For a modified key
    with no exact C0 identity, use CSI-u: `ESC [ <ASCII> ; <modifier> u`. Ctrl is
    5 and Ctrl+Shift is 6. Legacy terminals encode physical Ctrl+/ as Ctrl-_
    (`0x1f`), so Neovim intentionally maps both spellings.
-7. When changing or deleting an existing managed object, copy the complete old
+8. When changing or deleting an existing managed object, copy the complete old
    object into `all.d/00-retirements.jsonc` and add `dotfiles.retire: true`.
    Never place active policy in that file.
-8. Extend `core-merges` for Linux, macOS, and Windows with and without Termnav,
+9. Extend `core-merges` for Linux, macOS, and Windows with and without Termnav,
    seed any stale generation that must be removed, and add a Neovim keymap test
    when terminal encoding aliases or CSI-u identity matter.
 
@@ -116,14 +122,18 @@ workbench behavior continues outside the terminal, while terminal-native
 controls continue reaching shell and tmux.
 
 The common terminal-native inventory is intentionally narrow: `Ctrl-B` for the
-tmux prefix, `Ctrl-H/J/K/L` for tmux pane navigation, both `Ctrl-Tab` directions
-for layered tab navigation, and Ctrl+/ normalization to the conventional
-Ctrl-_ byte. Clipboard chords keep their explicit client-side paste policy,
-while Shift+Enter and Alt+Shift+bracket already have their own terminal routes.
-Keeping all four pane directions explicit also protects Linux and Windows from
-VS Code's global Ctrl+J panel action and Ctrl+K chord prefix. This keeps
-workbench shortcuts intact outside terminal focus without making terminal
-transport depend on the Neovim sensor.
+tmux prefix, explicit `Ctrl-H/K/L` pane controls, native `Ctrl-J` passthrough,
+both `Ctrl-Tab` directions for layered tab navigation, and Ctrl+/ normalization
+to the conventional Ctrl-_ byte. Clipboard chords keep their explicit
+client-side paste policy, while Shift+Enter and Alt+Shift+bracket already have
+their own terminal routes. Removing `workbench.action.togglePanel` from the
+terminal skip-shell set protects native Ctrl-J from VS Code's global panel
+shortcut without passing LF through `sendSequence`'s CR normalization. The
+explicit Ctrl-K route still protects against VS Code's chord prefix. Workbench
+shortcuts remain intact outside terminal focus, and terminal transport does not
+depend on the Neovim sensor. On macOS, VS Code's terminal handler continues to
+retain Meta-key workbench commands, so Cmd-J still toggles the panel while raw
+Ctrl-J reaches xterm.
 Local tmux window cycling does not need the adapter. Bubbling past a one-window
 tmux session to another VS Code terminal tab still does: without that command
 bridge the outer request fails closed instead of rerouting the chord to editor
