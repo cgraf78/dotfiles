@@ -174,6 +174,41 @@ MOCK
   unset SHDEPS_ALLOW_GH_AUTH_TOKEN DOT_SHDEPS_ALLOW_GH_AUTH_TOKEN
   _define_shdeps_update_fixture
 
+  # A completed producer has already flushed every JSONL event before it
+  # publishes completion. The adapter must consume that marker directly rather
+  # than reaching the timeout-based process/status fallback. Recording that
+  # seam proves the behavior without a scheduler-sensitive wall-clock budget.
+  # ShellCheck cannot follow the adapter's indirect function dispatch, but this
+  # fixture is consumed immediately by _run_shdeps_update_ui below.
+  # shellcheck disable=SC2329
+  shdeps_update() {
+    # Omit the final newline to prove the control marker remains recognizable
+    # when it shares a FIFO record with the producer's final valid JSON event.
+    printf '%s' \
+      '{"event":"summary","status":"ok","changed":0,"current":0,"skipped":0,"failed":0}'
+  }
+  _saved_shdeps_update_finished="$(declare -f _shdeps_update_finished)"
+  eval "$(declare -f _shdeps_update_finished |
+    sed '1s/_shdeps_update_finished/_orig_shdeps_update_finished/')"
+  _shdeps_finished_poll_log=$(_tmpdir)/shdeps-finished-poll.log
+  : >"$_shdeps_finished_poll_log"
+  # shellcheck disable=SC2329  # _run_shdeps_update_ui invokes this test seam.
+  _shdeps_update_finished() {
+    printf 'polled\n' >>"$_shdeps_finished_poll_log"
+    _orig_shdeps_update_finished "$@"
+  }
+  # Keep scheduler starvation from reaching the valid status-file fallback
+  # between the producer's status write and its immediately following marker.
+  DOT_UI_TICK_SECONDS=2
+  _run_shdeps_update_ui >/dev/null 2>&1
+  _assert_eq "shdeps UI completion: normal completion avoids timeout polling" \
+    "" "$(cat "$_shdeps_finished_poll_log")"
+  unset DOT_UI_TICK_SECONDS
+  eval "$_saved_shdeps_update_finished"
+  unset -f _orig_shdeps_update_finished
+  unset _saved_shdeps_update_finished _shdeps_finished_poll_log
+  _define_shdeps_update_fixture
+
   DOT_VERBOSE=0
   DOT_QUIET=0
   export DOT_UPDATE_SUBPHASE_THRESHOLD_MS=0
