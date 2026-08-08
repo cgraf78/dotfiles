@@ -4,7 +4,6 @@ program	.bashrc
 program	.bash_profile
 program	.config/dot/merge-hooks.d/codex/api.sh
 program	.config/shdeps/hooks.d/cargo.sh
-program	.config/shdeps/hooks.d/cgraf78/agentguard.sh
 program	.config/shdeps/hooks.d/cgraf78/hive-memory.sh
 program	.config/shdeps/hooks.d/clangd.sh
 program	.config/shdeps/hooks.d/cmake-language-server.sh

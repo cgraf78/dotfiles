@@ -40,16 +40,3 @@ dotfiles and install the dependency binary behind it. The Neovim hook is the
 main example: `~/.local/bin/nvim` stays the tmux-aware launcher, while shdeps
 manages the real Neovim binary at a private path. On Android/Termux, the hook
 uses Termux's native `neovim` package and links its binary behind that launcher.
-
-## Cross-repository PR staging
-
-`cgraf78/agentguard.sh` is a deliberately temporary bridge for the paired
-AgentGuard and dotfiles pull requests. A dotfiles pull-request bootstrap cannot
-normally see an unmerged commit in another repository, so the hook stages the
-immutable provider commit only inside `cgraf78/dotfiles` GitHub PR jobs. It
-never changes fleet installs or developer clones, and all per-agent merge code
-continues to resolve provider assets through the ordinary Shdeps API.
-
-Remove the hook after AgentGuard PR #75 lands. At that point the default branch
-contains the integration assets and retaining a commit pin would only add
-maintenance cost without improving safety.

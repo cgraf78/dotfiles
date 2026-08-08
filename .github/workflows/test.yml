@@ -43,15 +43,6 @@ jobs:
         DOT_CORE_SKIP_SHELLCHECK=1 .local/bin/dot-test
       termux-command: |-
         set -euo pipefail
-        # The Android command crosses an ADB boundary, so it does not inherit
-        # GitHub's normal job identity variables. Recreate only the public PR
-        # identity needed by the temporary AgentGuard dependency bridge; the
-        # hook still pins an immutable commit and refuses developer checkouts.
-        if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-          export GITHUB_ACTIONS=true
-          export GITHUB_EVENT_NAME=pull_request
-          export GITHUB_REPOSITORY=cgraf78/dotfiles
-        fi
         HOME="$PWD" PATH="$PWD/.local/bin:$PATH" .local/bin/dot update --skip-pull
         HOME="$PWD" PATH="$PWD/.local/bin:$PATH" bash .local/lib/dot/tests/android-ci-smoke
       termux-profiles: base,neovim
