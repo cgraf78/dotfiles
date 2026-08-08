@@ -307,7 +307,10 @@ _assert_exit "auto-detect git (has Testing): exit 0" 0 "$__VAL_RC"
 
 echo "=== Validator: COMMIT_MSG_SKIP ==="
 
-__VAL_OUT=$(printf 'bad' | COMMIT_MSG_SKIP=1 "$VALIDATOR" --strict 2>&1)
+# The skip path intentionally exits before reading stdin. Feed it without an
+# upstream process so pipefail cannot turn that expected early exit into the
+# writer's timing-dependent SIGPIPE status.
+__VAL_OUT=$(COMMIT_MSG_SKIP=1 "$VALIDATOR" --strict <<<"bad" 2>&1)
 __VAL_RC=$?
 _assert_exit "COMMIT_MSG_SKIP: exit 0" 0 "$__VAL_RC"
 
