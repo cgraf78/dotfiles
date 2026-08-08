@@ -21,6 +21,12 @@ BEL and never need access to the workstation audio system.
 Ctrl-click file opening is split across the tools that each own a piece of
 state:
 
+`termnav-module.lua` first uses companion modules copied beside the config for
+native Windows startup. On Unix it resolves Termnav through Shdeps' stable
+`$SHDEPS_LUA_DIR/shdeps/bootstrap.lua` entrypoint (default
+`~/.local/lib/shdeps/shdeps/bootstrap.lua`), leaving install-selection policy
+in Shdeps and dependency behavior in Termnav.
+
 1. `eza-nvim-links` runs `eza --hyperlink`, preserving real paths for commands
    such as `ll some/dir`. Local listings keep hostless `file://` OSC-8 targets.
    SSH sessions inside tmux rewrite those targets to `file://host/path`.

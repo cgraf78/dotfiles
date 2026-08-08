@@ -56,7 +56,8 @@ depending on a particular `/var` versus `/private/var` spelling.
   skip-approval flags, because each CLI accepts that flag on a different set of
   subcommands.
 - `nvim-test` tests Neovim config.
-- `lua-test` tests dotfiles-owned Lua bootstrap helpers.
+- `lua-test` verifies the Neovim and WezTerm adapters consume Shdeps' stable
+  provider-owned Lua bootstrap without a dotfiles discovery layer.
 - `workflow-consistency-test` compares the Checkrun/Sley policy projection
   across Checkrun plans, generated VS Code settings, the local VS Code
   extension, Neovim language policy, and Sley hook/human invocation paths. Its

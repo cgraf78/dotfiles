@@ -173,14 +173,18 @@ echo "=== Shdeps implementation isolation ==="
 fixture_home=$(_tmpdir)
 fixture_shdeps="$fixture_home/git/shdeps"
 mkdir -p "$fixture_shdeps/completions" "$fixture_shdeps/man/man1" \
+  "$fixture_shdeps/lua/shdeps" \
   "$fixture_shdeps/target/release"
 printf '%s\n' 'fixture installer' >"$fixture_shdeps/install.sh"
 printf '%s\n' 'fixture library' >"$fixture_shdeps/shdeps.sh"
 printf '%s\n' 'fixture completion' >"$fixture_shdeps/completions/shdeps.bash"
 printf '%s\n' 'fixture manual' >"$fixture_shdeps/man/man1/shdeps.1"
+printf '%s\n' 'fixture lua module' >"$fixture_shdeps/lua/shdeps.lua"
+printf '%s\n' 'fixture lua core' >"$fixture_shdeps/lua/shdeps/core.lua"
+printf '%s\n' 'fixture lua bootstrap' >"$fixture_shdeps/lua/shdeps/bootstrap.lua"
 git -C "$fixture_shdeps" init -q
 _git_set_test_identity git -C "$fixture_shdeps"
-git -C "$fixture_shdeps" add install.sh shdeps.sh completions man
+git -C "$fixture_shdeps" add install.sh shdeps.sh completions lua man
 git -C "$fixture_shdeps" -c core.hooksPath=/dev/null commit -qm fixture
 fixture_head=$(git -C "$fixture_shdeps" rev-parse --short=8 HEAD)
 cat >"$fixture_shdeps/shdeps" <<'SHDEPS'
@@ -212,6 +216,8 @@ if [[ "$snapshot_rc" -eq 0 ]]; then
     "fixture installer" "$DOT_TEST_SHDEPS_SNAPSHOT/install.sh"
   _assert_file_content "shdeps snapshot: library is copied" \
     "fixture library" "$DOT_TEST_SHDEPS_SNAPSHOT/shdeps.sh"
+  _assert_file_content "shdeps snapshot: Lua bootstrap is copied" \
+    "fixture lua bootstrap" "$DOT_TEST_SHDEPS_SNAPSHOT/lua/shdeps/bootstrap.lua"
   _assert_contains "shdeps snapshot: binary matches development HEAD" \
     "$fixture_head" "$("$DOT_TEST_SHDEPS_SNAPSHOT/shdeps" version)"
   _assert_file_missing "shdeps snapshot: omits live install metadata" \

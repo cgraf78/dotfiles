@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# lua-test — dotfiles Lua bootstrap helpers.
+# lua-test — dotfiles consumers of the provider-owned shdeps Lua bootstrap.
 
 set -o pipefail
 export NO_COLOR=1
@@ -46,26 +46,35 @@ _lua_run() {
   return 127
 }
 
-echo "=== lua: shdeps bootstrap loader ==="
+echo "=== lua: provider-owned shdeps bootstrap ==="
 
-fixture=$(_tmpdir)
-script=$(_tmpdir)/shdeps-loader-test.lua
-mkdir -p "$fixture/shdeps/lua/shdeps"
-cat >"$fixture/shdeps/lua/shdeps/bootstrap.lua" <<'LUA'
+fixture=$(_tmpdir)/dot-home
+script=$(_tmpdir)/shdeps-consumer-test.lua
+mkdir -p \
+  "$fixture/.config/nvim/lua/config" \
+  "$fixture/.config/wezterm" \
+  "$fixture/.local/lib/shdeps/shdeps" \
+  "$fixture/assets"
+cp "$HOME/.config/nvim/lua/config/dot-runtime.lua" \
+  "$fixture/.config/nvim/lua/config/dot-runtime.lua"
+cp "$HOME/.config/wezterm/termnav-module.lua" \
+  "$fixture/.config/wezterm/termnav-module.lua"
+printf '%s\n' 'return { marker = "termnav" }' >"$fixture/assets/termnav.lua"
+
+cat >"$fixture/.local/lib/shdeps/shdeps/bootstrap.lua" <<'LUA'
 local M = {}
 
-function M.load(options)
+function M.new(options)
   options = options or {}
   return {
-    new = function()
-      return {
-        dep_file = function(name, relative_path)
-          return table.concat({ options.home, name, relative_path }, "|")
-        end,
-        env = function()
-          return { HOME = options.home }
-        end,
-      }
+    dep_file = function(name, relative_path)
+      if name == "cgraf78/termnav" then
+        return options.home .. "/assets/termnav.lua"
+      end
+      return table.concat({ options.home, name, relative_path }, "|")
+    end,
+    env = function()
+      return { HOME = options.home }
     end,
   }
 end
@@ -74,20 +83,24 @@ return M
 LUA
 
 cat >"$script" <<'LUA'
-local loader = dofile(os.getenv("DOTFILES_HOME") .. "/.local/lib/dot/lua/shdeps-loader.lua")
-local api = loader.new({ home = os.getenv("TEST_HOME") })
+local home = os.getenv("TEST_HOME")
+local runtime = dofile(home .. "/.config/nvim/lua/config/dot-runtime.lua")
+local api = runtime.shdeps()
 print(api.dep_file("cgraf78/tool", "lib/tool/init.lua"))
 print(api.env().HOME)
+
+local termnav = dofile(home .. "/.config/wezterm/termnav-module.lua")
+  .load("missing-copied-module.lua", "lib/termnav/wezterm/link-routes.lua")
+print(termnav.marker)
 LUA
 
 result=$(
-  SHDEPS_DIR="$fixture/shdeps" \
-    SHDEPS_GIT_DEV_DIR="$fixture/no-git" \
-    DOTFILES_HOME="$HOME" \
-    TEST_HOME="$fixture/home" \
+  SHDEPS_LUA_DIR="$fixture/.local/lib/shdeps" \
+    TEST_HOME="$fixture" \
     _lua_run "$script"
 )
-expected="$(printf '%s|cgraf78/tool|lib/tool/init.lua\n%s' "$fixture/home" "$fixture/home")"
-_assert_eq "shdeps loader delegates to upstream Lua API" "$expected" "$result"
+expected="$(printf '%s|cgraf78/tool|lib/tool/init.lua\n%s\ntermnav' "$fixture" "$fixture")"
+_assert_eq "Lua consumers delegate directly to shdeps' stable bootstrap" \
+  "$expected" "$result"
 
 _test_summary

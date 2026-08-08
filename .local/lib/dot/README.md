@@ -13,9 +13,6 @@ lives in shdeps-managed dependency repos; call those public APIs through
   target repair, caching, and migration from older install shapes.
 - [`hive-memory/`](hive-memory/README.md) owns dotfiles-specific launcher glue
   for the standalone Hive Memory binary.
-- [`lua/`](lua/README.md) owns dotfiles Lua helpers. Its shdeps loader finds
-  shdeps' `lua/shdeps/bootstrap.lua` entrypoint; shdeps owns Lua API
-  discovery, dependency resolution, and child-process environment behavior.
 - [`tests/`](tests/README.md) owns dotfiles test suites and their shared
   harness.
 
