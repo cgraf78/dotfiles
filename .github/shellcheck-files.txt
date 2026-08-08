@@ -70,6 +70,7 @@ program	.local/lib/dot/core/doctor/shell.sh
 program	.local/lib/dot/core/doctor/tools.sh
 program	.local/lib/dot/core/families.sh
 program	.local/lib/dot/core/init.sh
+program	.local/lib/dot/core/launcher-real.sh
 program	.local/lib/dot/core/log.sh
 program	.local/lib/dot/core/merge-block.sh
 program	.local/lib/dot/core/merge-hooks.sh
@@ -125,7 +126,6 @@ program	.local/lib/dot/gstack-register/opencode.sh
 program	.local/lib/dot/gstack-register/paths.sh
 program	.local/lib/dot/gstack-register/source.sh
 program	.local/lib/dot/gstack-register/targets.sh
-program	.local/lib/dot/launcher-real.sh
 program	.local/lib/dot/sysup/common.sh
 program	.local/lib/dot/sysup/detect.sh
 program	.local/lib/dot/sysup/systemd.sh

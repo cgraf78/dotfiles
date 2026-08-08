@@ -2,8 +2,8 @@
 # Shared real-binary resolution for PATH-visible dotfiles launchers.
 
 if ! declare -F _dot_xdg_path >/dev/null 2>&1; then
-  # shellcheck source=core/xdg.sh disable=SC1091
-  . "${BASH_SOURCE[0]%/*}/core/xdg.sh"
+  # shellcheck source=xdg.sh disable=SC1091
+  . "${BASH_SOURCE[0]%/*}/xdg.sh"
 fi
 
 _dot_launcher_physical_dir() {
