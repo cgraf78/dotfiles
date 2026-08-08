@@ -228,6 +228,114 @@ _bootstrap_shdeps() {
   return 1
 }
 
+_dot_shdeps_preserves_release_launchers() {
+  local binary="${_SHDEPSW_BIN:-}"
+  [[ -n "$binary" && -x "$binary" ]] || return 1
+  command "$binary" __api capability \
+    release-archive-launcher-preservation-v1 >/dev/null 2>&1
+}
+
+_dot_shdeps_adopt_active_binary() {
+  local binary="" version=""
+  # A source-checkout update can leave the wrapper's original target/debug
+  # path intact while activating a newly built sibling. Re-run the wrapper's
+  # own resolver, then update its dispatch variable before probing. This makes
+  # the capability check and the later shdeps_update call execute the exact
+  # same path. Release installs normally resolve to the same stable pathname,
+  # whose inode was atomically replaced by self-update.
+  if declare -f _shdepsw_resolve_binary >/dev/null 2>&1; then
+    binary=$(_shdepsw_resolve_binary 2>/dev/null) || binary=""
+  fi
+  [[ -n "$binary" ]] || binary="${_SHDEPSW_BIN:-}"
+  [[ -n "$binary" && -x "$binary" ]] || return 1
+  # Bootstrap validated the previously selected binary. A self-update may
+  # activate a different path, so validate the sourceable wrapper contract
+  # again before making old wrapper functions dispatch through it.
+  version=$(command "$binary" __api version 2>/dev/null) || return 1
+  [[ "$version" == abi:1 ]] || return 1
+  _SHDEPSW_BIN="$binary"
+}
+
+_dot_shdeps_adopt_hive_archive_launcher() {
+  local binary="${_SHDEPSW_BIN:-}" launcher="$HOME/.local/bin/hm"
+  local launcher_marker=""
+  local expected_marker="# Dotfiles-owned front door for the generic \`hm\` binary."
+
+  # Only the tracked front door can supply the explicit intent Shdeps needs to
+  # disambiguate a legacy bin-link ledger. The same on-disk shape can otherwise
+  # be left by an interrupted archive-to-raw conversion, so neither repository
+  # should infer ownership from the ledger alone. Fresh installs and customized
+  # hm commands have nothing for this one-time migration to authorize.
+  [[ -n "$binary" && -x "$binary" ]] || return 1
+  [[ -f "$launcher" && ! -L "$launcher" && -x "$launcher" ]] || return 0
+  {
+    IFS= read -r _
+    IFS= read -r launcher_marker
+  } <"$launcher" || return 0
+  [[ "$launcher_marker" == "$expected_marker" ]] || return 0
+
+  if [[ "${DOT_QUIET:-0}" -eq 1 || "${SHDEPS_QUIET:-0}" == 1 ]]; then
+    command "$binary" __api adopt-release-archive-launcher \
+      cgraf78/hive-memory hm >/dev/null 2>&1
+  else
+    command "$binary" __api adopt-release-archive-launcher \
+      cgraf78/hive-memory hm >/dev/null
+  fi
+}
+
+_dot_shdeps_enable_release_launcher_preservation() {
+  if ! _dot_shdeps_adopt_hive_archive_launcher; then
+    if [[ "${DOT_QUIET:-0}" -ne 1 && "${SHDEPS_QUIET:-0}" != 1 ]]; then
+      _warn "  warning: shdeps could not adopt the legacy Hive Memory archive — skipping dependency install"
+    fi
+    return 1
+  fi
+  export DOT_SHDEPS_RELEASE_LAUNCHER_PRESERVATION=1
+}
+
+_dot_shdeps_require_release_launcher_preservation() {
+  local self_update_status=0
+  unset DOT_SHDEPS_RELEASE_LAUNCHER_PRESERVATION
+  if _dot_shdeps_preserves_release_launchers; then
+    _dot_shdeps_enable_release_launcher_preservation
+    return
+  fi
+
+  # The old process can replace its binary during self-update, but it keeps
+  # executing the old dependency installer afterward. That installer would
+  # overwrite a tracked ~/.local/bin launcher in the same `dot update`. Run
+  # self-update as a separate phase, then execute the capability probe through
+  # the stable path again before allowing any dependency install to start.
+  # This one-time gate protects every fleet machine independently; release
+  # ordering or a successful update on this host cannot protect another host's
+  # first convergence.
+  if ! declare -f shdeps_self_update >/dev/null 2>&1; then
+    if [[ "${DOT_QUIET:-0}" -ne 1 && "${SHDEPS_QUIET:-0}" != 1 ]]; then
+      _warn "  warning: shdeps cannot verify tracked launcher preservation — skipping dependency install"
+    fi
+    return 1
+  fi
+  if [[ "${DOT_QUIET:-0}" -eq 1 || "${SHDEPS_QUIET:-0}" == 1 ]]; then
+    shdeps_self_update >/dev/null 2>&1 || self_update_status=$?
+  else
+    shdeps_self_update || self_update_status=$?
+  fi
+  if [[ "$self_update_status" -ne 0 ]]; then
+    if [[ "${DOT_QUIET:-0}" -ne 1 && "${SHDEPS_QUIET:-0}" != 1 ]]; then
+      _warn "  warning: shdeps self-update failed before tracked launcher migration — skipping dependency install"
+    fi
+    return 1
+  fi
+  if ! _dot_shdeps_adopt_active_binary ||
+    ! _dot_shdeps_preserves_release_launchers; then
+    if [[ "${DOT_QUIET:-0}" -ne 1 && "${SHDEPS_QUIET:-0}" != 1 ]]; then
+      _warn "  warning: updated shdeps cannot preserve tracked launchers — skipping dependency install"
+    fi
+    return 1
+  fi
+  _dot_shdeps_enable_release_launcher_preservation
+}
+
 # Defer shdeps bootstrap until needed — commands like status, diff, push,
 # and fetch don't use shdeps and shouldn't pay the startup cost.
 _ensure_shdeps() {
