@@ -2738,11 +2738,17 @@ JSON
 
     vscode_home=$(_tmpdir)
     vscode_bin=$(_tmpdir)/bin
+    # Use the actual Sley-owned payload in this consumer integration fixture.
+    # A repository-local copy would make local-extension reconciliation pass
+    # even if dotfiles and the provider published incompatible contracts.
+    vscode_sley_root="${DOT_TEST_SLEY_ROOT:-${DOT_TEST_HOST_HOME:-$REAL_HOME}/.local/share/cgraf78/sley}"
+    vscode_sley_source="$vscode_sley_root/share/sley/vscode/sley-tools-0.0.1"
     export DOT_VSCODE_EXTENSIONS_SKIP=1
     mkdir -p \
       "$vscode_bin" \
       "$vscode_home/.config/Code/User" \
       "$vscode_home/.config/dot/merge-hooks.d" \
+      "$vscode_home/.local/share/cgraf78/sley/share/sley/vscode" \
       "$vscode_home/.local/share/cgraf78/termnav/share/termnav/vscode/termnav-0.3.0" \
       "$vscode_home/.local/share/dot-vscode-extensions" \
       "$vscode_home/.vscode/extensions"
@@ -2829,8 +2835,15 @@ JSON
   "dotfiles.prefixProbe": true
 }
 JSON
-    cp -R "$REAL_HOME/.local/share/dot-vscode-extensions/sley-tools-0.0.1" \
+    cp -R "$vscode_sley_source" \
+      "$vscode_home/.local/share/cgraf78/sley/share/sley/vscode/sley-tools-0.0.1"
+    # Model an in-place fleet upgrade from the old dotfiles-owned payload.
+    # The provider keeps the same extension basename, so basename-only pruning
+    # cannot distinguish this stale live link from the desired Sley-owned one.
+    cp -R "$vscode_sley_source" \
       "$vscode_home/.local/share/dot-vscode-extensions/sley-tools-0.0.1"
+    ln -s "$vscode_home/.local/share/dot-vscode-extensions/sley-tools-0.0.1" \
+      "$vscode_home/.vscode/extensions/sley-tools-0.0.1"
     cat >"$vscode_home/.local/share/cgraf78/termnav/share/termnav/vscode/termnav-0.3.0/package.json" <<'JSON'
 {
   "name": "termnav",
@@ -2882,7 +2895,7 @@ JSON
       "$vscode_home/.config/NoSley/User" \
       "$vscode_home/.config/NoTermnav/User" \
       "$vscode_home/.local/share/cgraf78/termnav/share/termnav/vscode/termnav-0.2.0"
-    ln -s "$vscode_home/.local/share/dot-vscode-extensions/sley-tools-0.0.1" \
+    ln -s "$vscode_home/.local/share/cgraf78/sley/share/sley/vscode/sley-tools-0.0.1" \
       "$vscode_home/.vscode-nosley/extensions/sley-tools-0.0.1"
     cat >"$vscode_home/.vscode-nosley/extensions/extensions.json" <<'JSON'
 [
@@ -4380,6 +4393,9 @@ JSON
     else
       _fail "vscode sley: extension symlink deployed"
     fi
+    _assert_eq "vscode sley: existing same-version link migrates to provider" \
+      "$vscode_home/.local/share/cgraf78/sley/share/sley/vscode/sley-tools-0.0.1" \
+      "$(readlink "$vscode_home/.vscode/extensions/sley-tools-0.0.1")"
     if [[ -L "$vscode_home/.vscode/extensions/termnav-0.3.0" ]]; then
       _pass "vscode termnav: extension symlink deployed"
     else

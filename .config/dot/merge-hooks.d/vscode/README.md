@@ -14,13 +14,20 @@ source families and private helpers live in this directory.
   targets.
 - `local-extensions.d/` declares local extension directories that should be
   symlinked into active variants. Its third TSV column names comma-separated
-  variant options that disable that extension. The Termnav adapter uses
+  variant options that disable that extension. The Sley adapter is loaded from
+  shdeps' stable `$HOME/.local/share/cgraf78/sley` dependency root. Sley owns
+  the extension implementation and its detailed behavioral suite; this merge
+  hook owns only activation, the `no-sley` opt-out, and a compatibility smoke
+  test. Keeping that boundary explicit prevents editor behavior from drifting
+  into a second consumer-owned copy while preserving local deployment policy.
+  The Termnav adapter uses
   `no-termnav`; opting out unregisters it and prunes identifiable older
   dot-managed symlinked generations even when the configured current payload
   is unavailable. Otherwise the adapter is loaded from shdeps' stable
   `$HOME/.local/share/cgraf78/termnav` dependency root so local, remote, and WSL
   extension hosts share the same window-scoped tab bridge. Its versioned source
-  directory must stay aligned with the adapter manifest.
+  directory must stay aligned with the adapter manifest. The same alignment
+  requirement applies to Sley's versioned source directory.
   After first registration, reload or restart each editor window, then relaunch
   its existing terminal or tmux clients so they receive the adapter socket.
   Relaunch those clients again after a later editor or extension-host restart.
