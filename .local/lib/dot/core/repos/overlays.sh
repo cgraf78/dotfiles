@@ -476,7 +476,13 @@ _link_overlay() {
       _warn "  warning: $name overlay destination is unsafe: ${REPLY:-$rel}"
       return 1
     fi
-    mkdir -p "$(dirname "$dst")" || return 1
+    # Warm convergence visits every managed link even though its parent almost
+    # always exists. Keep the repair path for a missing/non-directory parent,
+    # but avoid spawning both dirname and mkdir for every already-current link.
+    # `-d` deliberately follows a symlink to a directory, matching mkdir -p's
+    # support for user-owned parent-directory indirection documented below.
+    local dst_parent="${dst%/*}"
+    [[ -d "$dst_parent" ]] || mkdir -p "$dst_parent" || return 1
     local target
     _overlay_record_link_target "$rel" "$name" "$path" "$sync" || return 1
     target="$REPLY"
