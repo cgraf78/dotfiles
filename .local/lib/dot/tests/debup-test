@@ -259,6 +259,14 @@ EOF
 
 echo "=== debup: upgrade verb ==="
 
+usage=$(sysup_backend_usage)
+_assert_contains "debup usage: documents unattended package installation" \
+  "upgrade packages noninteractively" "$usage"
+_assert_contains "debup usage: documents checks before service restarts" \
+  "run dpkg/apt, pending-config, and reboot-required checks" "$usage"
+_assert_contains "debup usage: documents failed-unit reporting last" \
+  "report failed systemd units" "$usage"
+
 _debup_reset
 DEBUP_MOCK_INSTALLED="ii base 1.0"
 sysup_backend_upgrade >/dev/null 2>&1

@@ -62,12 +62,14 @@ Upgrade a Debian or Ubuntu host within its installed release, then verify the
 failure modes most likely to leave services broken after the upgrade.
 
 Default flow:
-  1. sudo credential warmup
-  2. apt-get update
-  3. apt-get --with-new-pkgs upgrade, keeping locally modified config files
-  4. apt-get autoclean
-  5. restart services shipped by upgraded packages, preferring needrestart
-  6. check dpkg/apt integrity, pending config files, reboot flag, failed units
+  1. report held packages
+  2. warm sudo credentials
+  3. update package lists and upgrade packages noninteractively
+  4. optionally autoremove unused packages, then autoclean the package cache
+  5. run dpkg/apt, pending-config, and reboot-required checks
+  6. restart services affected by upgraded packages, preferring needrestart
+  7. optionally restart failed enabled units with --restart-failed
+  8. report failed systemd units when systemd is available
 
 Options:
   --full-upgrade                  use apt-get full-upgrade, allowing packages to
@@ -79,7 +81,8 @@ EOF
   sysup_usage_common_options
   cat <<'EOF'
 
-Extra arguments are passed through to the apt-get upgrade invocation.
+Extra arguments are passed through to the apt-get upgrade invocation. Package
+installation is noninteractive by default.
 
 debup never performs a release upgrade; use the distribution's documented
 release-upgrade procedure for that.

@@ -19,25 +19,31 @@ _archup_lib_dir() {
 
 sysup_backend_usage() {
   cat <<'EOF'
-Usage: archup [--check-only] [--no-restart-upgraded-services] [--restart-failed] [--] [extra upgrade args...]
+Usage: archup [--check-only] [--no-restart-upgraded-services]
+              [--restart-failed] [--] [extra yay/pacman args...]
 
 Upgrade an Arch host, rebuilding broken AUR packages when yay is available,
 then verify the failure modes most likely to leave services broken after the
 upgrade.
 
 Default flow:
-  1. sudo credential warmup
-  2. yay -Syu --devel or, when yay is not installed: sudo pacman -Syu
-  3. rebuild installed AUR packages whose ELF files have missing libraries
-  4. restart active systemd services shipped by packages upgraded or rebuilt in this run
-  5. report failed systemd units when systemd is available
+  1. report installed foreign packages
+  2. warm sudo credentials
+  3. upgrade packages noninteractively with yay, or pacman when yay is absent
+  4. rebuild installed AUR packages whose ELF files have missing libraries
+  5. run post-upgrade shared-library checks
+  6. restart active services shipped by packages upgraded or rebuilt in this run
+  7. optionally restart failed enabled units with --restart-failed
+  8. report failed systemd units when systemd is available
 
 Options:
 EOF
   sysup_usage_common_options
   cat <<'EOF'
 
-Extra arguments are passed through to the selected upgrade command.
+Extra arguments are passed to both yay upgrade and automatic AUR rebuild
+invocations, or to the pacman fallback. Package installation is noninteractive
+by default; pass --confirm after -- to restore package-manager prompts.
 EOF
 }
 
@@ -293,15 +299,28 @@ sysup_backend_checks() {
 }
 
 sysup_backend_upgrade() {
-  local -a extra_args=("$@")
+  local confirmation_arg=--noconfirm arg
+  local -a upgrade_args=()
   local -a broken_packages=()
   local -a rebuild_targets=()
   local broken_output="" rebuild_output=""
   local scan_status=0 rebuild_status=0
+
+  # yay tracks its own no-confirm state separately from the options it passes
+  # to pacman, so giving it both flags restores pacman's prompt but not yay's
+  # menus. Normalize the pair so the caller's last choice controls both.
+  for arg in "$@"; do
+    case "$arg" in
+      --confirm | --noconfirm) confirmation_arg="$arg" ;;
+      *) upgrade_args+=("$arg") ;;
+    esac
+  done
+  upgrade_args=("$confirmation_arg" "${upgrade_args[@]}")
+
   SYSUP_EXTRA_UPGRADED_PACKAGES=()
 
   if command -v yay >/dev/null 2>&1; then
-    yay -Syu --devel "${extra_args[@]+"${extra_args[@]}"}" || return
+    yay -Syu --devel "${upgrade_args[@]}" || return
 
     broken_output="$(broken_foreign_packages)" || scan_status=$?
     if ((scan_status != 0)); then
@@ -331,7 +350,7 @@ sysup_backend_upgrade() {
       # Restarting an untouched active service is the safe conservative case.
       SYSUP_EXTRA_UPGRADED_PACKAGES+=("${rebuild_targets[@]}")
       yay -S --aur --rebuild --redownload --answerclean All \
-        "${extra_args[@]+"${extra_args[@]}"}" "${rebuild_targets[@]}" || return
+        "${upgrade_args[@]}" "${rebuild_targets[@]}" || return
     elif ((rebuild_status == 0)); then
       sysup_log "broken foreign packages are not available in AUR"
     fi
@@ -341,7 +360,7 @@ sysup_backend_upgrade() {
   fi
 
   sysup_log "yay not found; upgrading repository packages only"
-  sysup_run_as_root pacman -Syu "${extra_args[@]+"${extra_args[@]}"}"
+  sysup_run_as_root pacman -Syu "${upgrade_args[@]}"
 }
 
 if [[ "${SYSUP_SOURCE_ONLY:-0}" != 1 ]]; then
