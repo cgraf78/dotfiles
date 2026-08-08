@@ -705,38 +705,45 @@ _assert_contains "sley hook format-file: delegates to autoformat" "autoformat:--
 _assert_contains "sley hook lint-file: delegates to autolint json path" "autolint:--json app.py" "$(cat "$log")"
 _assert_contains "sley check: delegates scoped files to autolint" "autolint:-- app.py" "$(cat "$log")"
 
-# ---------------------------------------------------------------------------
-# Codex: every configured hook event has a trust-refresh label
-# ---------------------------------------------------------------------------
-# codex/refresh-trust.py silently skips any configured hook event that is not in
-# EVENT_LABELS, so its trusted_hash never gets written and Codex won't trust it.
-# Guard against future drift: a new [[hooks.<Event>]] in the config must gain a
-# matching EVENT_LABELS entry. (This is how the SessionEnd gap was missed.)
-_codex_common="$HOME/.config/dot/merge-hooks.d/codex/config.d/10-settings.toml"
+# Codex trust records are consumer-owned mutable state, but the native event set
+# is provider-owned. Compare the currently installed AgentGuard asset with the
+# local trust serializer when that asset is available; this catches a future
+# provider event without copying AgentGuard's event list back into dotfiles.
+_codex_native=$(
+  SHDEPS_CONF_DIR="$HOME/.config/shdeps" \
+    shdeps dep-file \
+    cgraf78/agentguard \
+    share/agentguard/integrations/codex/hooks.toml \
+    2>/dev/null || true
+)
 _codex_trust="$HOME/.config/dot/merge-hooks.d/codex/refresh-trust.py"
-if command -v python3 >/dev/null 2>&1 && [[ -f "$_codex_common" && -f "$_codex_trust" ]]; then
+if [[ -r "$_codex_native" && -f "$_codex_trust" ]]; then
   _codex_unmapped=$(
-    python3 - "$_codex_common" "$_codex_trust" <<'PY'
+    python3 - "$_codex_native" "$_codex_trust" <<'PY'
 import importlib.util
 import sys
 import tomllib
 
-common, trust = sys.argv[1], sys.argv[2]
-with open(common, "rb") as fh:
-    events = set(tomllib.load(fh).get("hooks", {}).keys())
+native, trust = sys.argv[1], sys.argv[2]
+with open(native, "rb") as fh:
+    events = set(tomllib.load(fh).get("hooks", {}))
 spec = importlib.util.spec_from_file_location("codex_refresh_trust", trust)
 mod = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(mod)  # top-level only; main() is __main__-guarded
+spec.loader.exec_module(mod)
 print(",".join(sorted(events - set(mod.EVENT_LABELS))))
 PY
   )
   if [[ -z "$_codex_unmapped" ]]; then
-    _pass "codex: every configured hook event maps in EVENT_LABELS"
+    _pass "codex: installed AgentGuard events have trust labels"
   else
-    _fail "codex: hook events missing from EVENT_LABELS: $_codex_unmapped"
+    _fail "codex: installed AgentGuard events missing trust labels: $_codex_unmapped"
   fi
 else
-  echo "SKIP: codex trust-label consistency (python3 or config files unavailable)"
+  # This cross-repository assertion is opportunistic in an isolated dotfiles
+  # checkout. Do not mark the whole workflow suite skipped when AgentGuard has
+  # not been installed yet; provider CI owns the native event contract, and a
+  # fleet update exercises this check once both repositories are present.
+  echo "NOTE: Codex AgentGuard trust compatibility not checked (provider asset unavailable)"
 fi
 
 _test_summary

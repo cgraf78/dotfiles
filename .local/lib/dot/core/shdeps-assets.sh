@@ -50,3 +50,37 @@ dot_shdeps_dep_source() {
   # shellcheck disable=SC1090 # dependency asset path is resolved by shdeps.
   . "$asset"
 }
+
+# Resolve one of AgentGuard's native agent-integration assets.
+#
+# Keep the repository and provider layout behind this single boundary. Merge
+# hooks should know only which runtime they activate and which native file type
+# that runtime consumes; AgentGuard owns the event vocabulary, matchers,
+# commands, and adapter implementation under the resolved directory. Besides
+# keeping dotfiles thin, this makes normal shdeps rules (development-clone
+# precedence, install roots, filters, and fleet updates) apply uniformly to
+# every supported agent.
+#
+# Args: $1 = agent directory name, $2 = asset filename
+# Prints: resolved dependency path on stdout
+dot_agentguard_integration_file() {
+  local agent="$1" asset="$2"
+  dot_shdeps_dep_file \
+    cgraf78/agentguard \
+    "share/agentguard/integrations/$agent/$asset"
+}
+
+# Print the provider-owned first-line marker for AgentGuard's OpenCode adapter.
+#
+# The installer and doctor both need this cross-repository identity, but neither
+# should duplicate the literal: a future provider migration must have exactly
+# one consumer-side compatibility boundary. AgentGuard documents and tests the
+# current value beside the asset; dotfiles keeps the retired marker separately
+# so it is accepted only as a local migration input.
+dot_agentguard_opencode_marker() {
+  printf '%s\n' '// agentguard-managed:opencode-plugin'
+}
+
+dot_agentguard_opencode_legacy_marker() {
+  printf '%s\n' '// dot-managed:opencode-agentguard-plugin'
+}

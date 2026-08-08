@@ -17,7 +17,10 @@ by bootstrap, shell startup, and health checks.
 The public command surface is `~/.local/bin/dot` and `~/.local/bin/dotbootstrap`.
 Callers should source `init.sh` rather than individual implementation files.
 Small hook and shell-startup integrations may source `shdeps-assets.sh` when
-they need a file from a shdeps-managed dependency repo.
+they need a file from a shdeps-managed dependency repo. Agent integrations use
+`dot_agentguard_integration_file` from that module so individual hooks name only
+their runtime and native asset; the provider repository remains the authority
+for integration layout and behavior.
 
 The basic runtime is split into focused helper modules:
 
@@ -36,9 +39,12 @@ The basic runtime is split into focused helper modules:
   immediate `.replace` groups select one lexical winner, and consumers receive
   the final source stream without duplicating structural policy.
 - `merge-hooks.sh` owns common merge-hook mechanics: tracked source path
-  resolution, parser-tool probes, sibling-temp writes, and the generic JSON
-  layer merge shape. Hooks keep target-specific policy local but use these
-  helpers for repeated file-safety behavior.
+  resolution, parser-tool probes, sibling-temp writes, the generic JSON layer
+  merge shape, and the thin AgentGuard JSON consumer. The latter executes
+  AgentGuard's provider-owned reconciliation filter and owns only failure-safe
+  staging; hook/event ownership remains outside dotfiles. Hooks keep
+  target-specific policy local but use these helpers for repeated file-safety
+  behavior.
 - `merges.sh` owns merge-hook discovery from core implementation scripts,
   progress labels, output capture, and verbose/default rendering.
 

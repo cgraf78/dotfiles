@@ -1,6 +1,14 @@
 # OpenCode AgentGuard Hooks Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Superseded (2026-08-07):** This plan describes the completed, original
+> dotfiles-owned adapter. The adapter and its behavioral suite have since moved
+> to `share/agentguard/integrations/opencode/` in AgentGuard. Dotfiles now owns
+> only provider resolution and safe installation; file paths and tasks below are
+> retained as historical implementation evidence, not current instructions.
+>
+> Historical execution note: the original implementation used a task-by-task
+> agent workflow. It is complete; do not execute this plan against the current
+> dotfiles layout.
 
 **Goal:** Install an idempotent, source-managed OpenCode plugin that translates
 OpenCode callbacks into the existing AgentGuard hook protocol.

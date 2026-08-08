@@ -317,12 +317,10 @@ MOCK
     "shellcheck-exclude-codes: SC1091" "$_ci_workflow"
   _assert_contains "CI workflow: skips only redundant platform ShellCheck" \
     "DOT_CORE_SKIP_SHELLCHECK=1 .local/bin/dot-test" "$_ci_workflow"
-  _assert_contains "CI workflow: pins the public OpenCode smoke version" \
-    "OPENCODE_TEST_VERSION: 1.18.13" "$_ci_workflow"
-  _assert_contains "CI workflow: installs the pinned public OpenCode smoke version" \
-    "opencode-ai@\$OPENCODE_TEST_VERSION" "$_ci_workflow"
-  _assert_contains "CI workflow: runs the focused OpenCode adapter smoke" \
-    ".local/bin/dot-test -v opencode-agentguard" "$_ci_workflow"
+  _assert_not_contains "CI workflow: leaves provider-owned OpenCode smoke upstream" \
+    "OPENCODE_TEST_VERSION" "$_ci_workflow"
+  _assert_not_contains "CI workflow: does not run the provider adapter suite" \
+    "opencode-agentguard" "$_ci_workflow"
   if ((_ci_forces_dotfiles_update)); then
     _pass "CI workflow: refreshes shdeps before dependency resolution"
   else

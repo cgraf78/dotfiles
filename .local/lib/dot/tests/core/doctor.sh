@@ -33,7 +33,7 @@ SH
     "OpenCode AgentGuard plugin unmanaged" "$result"
 
   cat >"$doctor_opencode_home/.config/opencode/plugins/dotfiles-agentguard.js" <<'PLUGIN'
-// dot-managed:opencode-agentguard-plugin
+// agentguard-managed:opencode-plugin
 export const AgentGuardPlugin = async () => ({});
 PLUGIN
   mv "$doctor_opencode_bin/opencode" "$doctor_opencode_bin/compatible-opencode"

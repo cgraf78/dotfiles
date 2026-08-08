@@ -22,6 +22,56 @@ dot_core_test_merges() {
     "precommit.sley = $TEST_HOME/.local/share/sl-hooks/sley-commit-gate" \
     "$(_merge_hook_expand_home 'precommit.sley = $HOME/.local/share/sl-hooks/sley-commit-gate')"
 
+  yq_resolver_home="$TEST_HOME/yq-resolver-home"
+  yq_resolver_path="$TEST_HOME/yq-resolver-path"
+  mkdir -p "$yq_resolver_home/.local/bin" "$yq_resolver_path"
+  cat >"$yq_resolver_path/yq" <<'YQ'
+#!/usr/bin/env bash
+printf '%s\n' 'yq 3.4.3'
+YQ
+  cat >"$yq_resolver_home/.local/bin/yq" <<'YQ'
+#!/usr/bin/env bash
+printf '%s\n' 'yq (https://github.com/mikefarah/yq/) version v4.53.3'
+YQ
+  chmod +x "$yq_resolver_path/yq" "$yq_resolver_home/.local/bin/yq"
+  _assert_eq "merge hook support: Shdeps yq survives an unrefreshed bootstrap PATH" \
+    "$yq_resolver_home/.local/bin/yq" \
+    "$(HOME="$yq_resolver_home" PATH="$yq_resolver_path:/usr/bin:/bin" \
+      _merge_hook_mikefarah_yq 2>/dev/null || true)"
+
+  if declare -F dot_agentguard_integration_file >/dev/null 2>&1; then
+    agentguard_resolved=$(
+      (
+        # shellcheck disable=SC2329 # Invoked through the resolver under test.
+        dot_shdeps_dep_file() {
+          _assert_eq "AgentGuard resolver: requests the dependency repository" \
+            "cgraf78/agentguard" "$1" >&2
+          printf '/resolved/%s\n' "$2"
+        }
+        dot_agentguard_integration_file claude hooks.json
+      )
+    )
+    _assert_eq "AgentGuard resolver: maps an agent asset without local layout knowledge" \
+      "/resolved/share/agentguard/integrations/claude/hooks.json" \
+      "$agentguard_resolved"
+  else
+    _fail "AgentGuard resolver: shared dependency asset helper exists"
+  fi
+
+  codex_api="$REAL_HOME/.config/dot/merge-hooks.d/codex/api.sh"
+  _assert_exit "Codex API fallback: clean shell loads AgentGuard asset resolver" 0 \
+    "$(
+      # shellcheck disable=SC2016 # $1 expands inside the clean child shell.
+      env -i HOME="$TEST_HOME" PATH="/usr/bin:/bin" \
+        /bin/bash --noprofile --norc -c '
+          # Source the public helper exactly as its header advertises: without
+          # dot runtime initialization or test-provided function stubs.
+          . "$1"
+          declare -F dot_agentguard_integration_file >/dev/null
+        ' bash "$codex_api"
+      printf '%s' "$?"
+    )"
+
   echo "=== OpenCode AgentGuard merge hook ==="
 
   opencode_hook="$REAL_HOME/.local/lib/dot/core/merge-hooks/opencode.sh"
@@ -36,20 +86,24 @@ dot_core_test_merges() {
     opencode_link_target="$opencode_home/unmanaged-target.js"
     mkdir -p "$opencode_source" "$opencode_plugins"
     cat >"$opencode_source/agentguard.js" <<'OPENCODE_PLUGIN'
-// dot-managed:opencode-agentguard-plugin
+// agentguard-managed:opencode-plugin
 export const AgentGuardPlugin = async () => ({})
 OPENCODE_PLUGIN
     printf '%s\n' 'export const unrelated = true' >"$opencode_other"
 
-    _run_opencode_merge_for_test() {
+    _run_opencode_merge_for_test() (
       unset -f merge 2>/dev/null
       # shellcheck source=/dev/null
       . "$opencode_hook"
+      # shellcheck disable=SC2329 # Invoked by the sourced merge hook.
+      dot_agentguard_integration_file() {
+        [[ "$1" == "opencode" && "$2" == "agentguard.js" ]] || return 1
+        printf '%s\n' "$opencode_source/agentguard.js"
+      }
       merge
-    }
+    )
 
-    HOME="$opencode_home" DOT_OPENCODE_SOURCE_DIR="$opencode_source" \
-      _run_opencode_merge_for_test
+    HOME="$opencode_home" _run_opencode_merge_for_test
     _assert_eq "OpenCode merge: installs the managed plugin" "yes" \
       "$(test -f "$opencode_target" && test ! -L "$opencode_target" && printf yes || printf no)"
     _assert_exit "OpenCode merge: installed bytes match the source" 0 \
@@ -67,8 +121,7 @@ OPENCODE_PLUGIN
     opencode_listing_before=$(
       printf '%s\n' "$opencode_plugins"/* | sed 's#.*/##' | LC_ALL=C sort
     )
-    HOME="$opencode_home" DOT_OPENCODE_SOURCE_DIR="$opencode_source" \
-      _run_opencode_merge_for_test
+    HOME="$opencode_home" _run_opencode_merge_for_test
     opencode_identity_after=$(
       stat -c '%i:%Y' "$opencode_target" 2>/dev/null ||
         stat -f '%i:%m' "$opencode_target"
@@ -80,11 +133,10 @@ OPENCODE_PLUGIN
       "$(printf '%s\n' "$opencode_plugins"/* | sed 's#.*/##' | LC_ALL=C sort)"
 
     cat >"$opencode_source/agentguard.js" <<'OPENCODE_PLUGIN'
-// dot-managed:opencode-agentguard-plugin
+// agentguard-managed:opencode-plugin
 export const AgentGuardPlugin = async () => ({ event: async () => {} })
 OPENCODE_PLUGIN
-    HOME="$opencode_home" DOT_OPENCODE_SOURCE_DIR="$opencode_source" \
-      _run_opencode_merge_for_test
+    HOME="$opencode_home" _run_opencode_merge_for_test
     _assert_exit "OpenCode merge: changed managed source updates the target" 0 \
       "$(
         cmp -s "$opencode_source/agentguard.js" "$opencode_target"
@@ -94,26 +146,30 @@ OPENCODE_PLUGIN
     opencode_managed_before=$(cat "$opencode_target")
     printf '%s\n' 'export const malformedSource = true' \
       >"$opencode_source/agentguard.js"
-    HOME="$opencode_home" DOT_OPENCODE_SOURCE_DIR="$opencode_source" \
-      _run_opencode_merge_for_test >/dev/null 2>&1
+    HOME="$opencode_home" _run_opencode_merge_for_test >/dev/null 2>&1
     _assert_eq "OpenCode merge: invalid source marker preserves the managed target" \
       "$opencode_managed_before" "$(cat "$opencode_target")"
     cat >"$opencode_source/agentguard.js" <<'OPENCODE_PLUGIN'
 // dot-managed:opencode-agentguard-plugin
+export const AgentGuardPlugin = async () => ({ staleProvider: true })
+OPENCODE_PLUGIN
+    HOME="$opencode_home" _run_opencode_merge_for_test >/dev/null 2>&1
+    _assert_eq "OpenCode merge: legacy marker is accepted only on an installed target" \
+      "$opencode_managed_before" "$(cat "$opencode_target")"
+    cat >"$opencode_source/agentguard.js" <<'OPENCODE_PLUGIN'
+// agentguard-managed:opencode-plugin
 export const AgentGuardPlugin = async () => ({ event: async () => {} })
 OPENCODE_PLUGIN
 
     printf '%s\n' 'export const userOwned = true' >"$opencode_target"
-    HOME="$opencode_home" DOT_OPENCODE_SOURCE_DIR="$opencode_source" \
-      _run_opencode_merge_for_test >/dev/null 2>&1
+    HOME="$opencode_home" _run_opencode_merge_for_test >/dev/null 2>&1
     _assert_eq "OpenCode merge: preserves an unmanaged regular target" \
       "export const userOwned = true" "$(cat "$opencode_target")"
 
     rm -f "$opencode_target"
     printf '%s\n' 'export const linkTarget = true' >"$opencode_link_target"
     ln -s "$opencode_link_target" "$opencode_target"
-    HOME="$opencode_home" DOT_OPENCODE_SOURCE_DIR="$opencode_source" \
-      _run_opencode_merge_for_test >/dev/null 2>&1
+    HOME="$opencode_home" _run_opencode_merge_for_test >/dev/null 2>&1
     _assert_eq "OpenCode merge: preserves an unmanaged target symlink" "yes" \
       "$(test -L "$opencode_target" && printf yes || printf no)"
     _assert_eq "OpenCode merge: does not modify a symlink target" \
@@ -121,21 +177,205 @@ OPENCODE_PLUGIN
 
     rm -f "$opencode_target" "$opencode_source/agentguard.js"
     cat >"$opencode_target" <<'OPENCODE_PLUGIN'
-// dot-managed:opencode-agentguard-plugin
+// agentguard-managed:opencode-plugin
 export const AgentGuardPlugin = async () => ({})
 OPENCODE_PLUGIN
-    HOME="$opencode_home" DOT_OPENCODE_SOURCE_DIR="$opencode_source" \
-      _run_opencode_merge_for_test
-    _assert_eq "OpenCode merge: prunes a marked target when source is absent" \
-      "no" "$(test -e "$opencode_target" && printf yes || printf no)"
+    opencode_missing_output=$(HOME="$opencode_home" \
+      _run_opencode_merge_for_test 2>&1)
+    opencode_missing_status=$?
+    _assert_exit "OpenCode merge: absent dependency is a failed refresh" \
+      1 "$opencode_missing_status"
+    _assert_contains "OpenCode merge: absent dependency reports the failed refresh" \
+      "AgentGuard opencode integration unavailable" "$opencode_missing_output"
+    _assert_eq "OpenCode merge: absent dependency preserves last known-good plugin" \
+      "yes" "$(test -e "$opencode_target" && printf yes || printf no)"
 
+    rm -f "$opencode_target"
+    opencode_missing_output=$(HOME="$opencode_home" \
+      _run_opencode_merge_for_test 2>&1)
+    opencode_missing_status=$?
+    _assert_exit "OpenCode merge: cold bootstrap without provider fails visibly" \
+      1 "$opencode_missing_status"
+    _assert_eq "OpenCode merge: cold bootstrap does not install a partial plugin" \
+      "missing" "$(test -e "$opencode_target" && printf present || printf missing)"
+
+    cat >"$opencode_target" <<'OPENCODE_PLUGIN'
+// dot-managed:opencode-agentguard-plugin
+export const AgentGuardPlugin = async () => ({ legacy: true })
+OPENCODE_PLUGIN
+    cat >"$opencode_source/agentguard.js" <<'OPENCODE_PLUGIN'
+// agentguard-managed:opencode-plugin
+export const AgentGuardPlugin = async () => ({ current: true })
+OPENCODE_PLUGIN
+    HOME="$opencode_home" _run_opencode_merge_for_test
+    _assert_exit "OpenCode merge: legacy ownership marker migrates to provider marker" 0 \
+      "$(
+        cmp -s "$opencode_source/agentguard.js" "$opencode_target"
+        printf '%s' "$?"
+      )"
+
+    rm -f "$opencode_source/agentguard.js"
     printf '%s\n' 'export const userOwned = true' >"$opencode_target"
-    HOME="$opencode_home" DOT_OPENCODE_SOURCE_DIR="$opencode_source" \
-      _run_opencode_merge_for_test >/dev/null 2>&1
+    opencode_missing_output=$(HOME="$opencode_home" \
+      _run_opencode_merge_for_test 2>&1)
+    opencode_missing_status=$?
+    _assert_exit "OpenCode merge: absent source with unmanaged target still fails refresh" \
+      1 "$opencode_missing_status"
     _assert_eq "OpenCode merge: absent source preserves an unmanaged target" \
       "export const userOwned = true" "$(cat "$opencode_target")"
     unset -f _run_opencode_merge_for_test merge 2>/dev/null
   fi
+
+  echo "=== Native AgentGuard JSON layers ==="
+
+  agentguard_fixture="$TEST_HOME/agentguard-integration-assets"
+  mkdir -p \
+    "$agentguard_fixture/_shared" \
+    "$agentguard_fixture/claude" \
+    "$agentguard_fixture/gemini" \
+    "$agentguard_fixture/muse"
+
+  # These fixtures intentionally use made-up events and commands. This suite
+  # owns the consumer contract: dotfiles passes the live and incoming documents
+  # to provider-owned reconciliation, commits its result atomically, and then
+  # applies local policy. AgentGuard's own suite owns the real command-ownership
+  # predicate and per-agent vocabulary.
+  for json_agent in claude gemini muse; do
+    printf '{"hooks":{"ProviderEvent":[{"hooks":[{"type":"command","command":"provider-%s-v2"}]}]}}\n' \
+      "$json_agent" >"$agentguard_fixture/$json_agent/hooks.json"
+  done
+  cat >"$agentguard_fixture/_shared/reconcile-hooks.jq" <<'JQ'
+# Neutral provider fixture: replace the provider-owned event generation, retire
+# a provider event, and preserve every other live setting. The production
+# ownership rules belong to AgentGuard and are tested there.
+($d[0] // {}) as $live |
+$s[0] as $provider |
+($live * ($provider | del(.hooks))) |
+.hooks = (($live.hooks // {}) + ($provider.hooks // {})) |
+del(.hooks.ProviderRetired)
+JQ
+
+  json_agent_home="$TEST_HOME/json-agent-merge-home"
+  mkdir -p \
+    "$json_agent_home/.config/dot/merge-hooks.d/claude/settings.d" \
+    "$json_agent_home/.config/dot/merge-hooks.d/gemini/settings.d" \
+    "$json_agent_home/.config/dot/merge-hooks.d/muse/settings.d"
+  printf '{"permissions":{"allow":["LocalClaudePolicy"]}}\n' \
+    >"$json_agent_home/.config/dot/merge-hooks.d/claude/settings.d/20-policy.json"
+  printf '{"permissions":{"allow":["LocalMusePolicy"]}}\n' \
+    >"$json_agent_home/.config/dot/merge-hooks.d/muse/settings.d/20-policy.json"
+
+  _run_agentguard_json_merge_for_test() (
+    local agent="$1" home="$2"
+    unset -f merge 2>/dev/null
+    # shellcheck source=/dev/null
+    . "$REAL_HOME/.local/lib/dot/core/merge-hooks/$agent.sh"
+    # shellcheck disable=SC2329 # Invoked by the sourced merge hook.
+    dot_agentguard_integration_file() {
+      if [[ "$1" == "$agent" && "$2" == "hooks.json" ]]; then
+        printf '%s/%s/hooks.json\n' "$agentguard_fixture" "$agent"
+      elif [[ "$1" == "_shared" && "$2" == "reconcile-hooks.jq" ]]; then
+        printf '%s/_shared/reconcile-hooks.jq\n' "$agentguard_fixture"
+      else
+        return 1
+      fi
+    }
+    HOME="$home" merge
+  )
+
+  for json_agent in claude gemini muse; do
+    case "$json_agent" in
+      claude) json_target="$json_agent_home/.claude/settings.json" ;;
+      gemini) json_target="$json_agent_home/.gemini/settings.json" ;;
+      muse) json_target="$json_agent_home/.config/muse/settings.json" ;;
+    esac
+    mkdir -p "${json_target%/*}"
+    json_legacy="$json_agent_home/$json_agent-legacy-settings.json"
+    cat >"$json_legacy" <<JSON
+{
+  "hooks": {
+    "ProviderEvent": [{"hooks": [{"type": "command", "command": "provider-$json_agent-v1"}]}],
+    "ProviderRetired": [{"hooks": [{"type": "command", "command": "provider-$json_agent-retired"}]}],
+    "UserEvent": [{"hooks": [{"type": "command", "command": "user-$json_agent"}]}]
+  },
+  "userState": "$json_agent-state"
+}
+JSON
+    if [[ "$json_agent" == "gemini" ]]; then
+      cp "$json_legacy" "$json_target"
+    else
+      ln -s "$json_legacy" "$json_target"
+    fi
+
+    json_merge_output=$(HOME="$json_agent_home" \
+      _run_agentguard_json_merge_for_test "$json_agent" "$json_agent_home" 2>&1)
+    json_merge_status=$?
+    _assert_exit "$json_agent consumer: provider reconciliation succeeds" \
+      0 "$json_merge_status"
+    _assert_eq "$json_agent consumer: installs the current provider generation" \
+      "provider-$json_agent-v2" \
+      "$(jq -r '.hooks.ProviderEvent[0].hooks[0].command' "$json_target")"
+    _assert_eq "$json_agent consumer: retires the previous provider event" \
+      "false" "$(jq -r '.hooks | has("ProviderRetired")' "$json_target")"
+    _assert_eq "$json_agent consumer: preserves user-owned hooks and state" \
+      "user-$json_agent|$json_agent-state" \
+      "$(jq -r '[.hooks.UserEvent[0].hooks[0].command, .userState] | join("|")' "$json_target")"
+    if [[ "$json_agent" != "gemini" ]]; then
+      _assert_eq "$json_agent consumer: replaces a legacy symlink only after reconciliation" \
+        "regular" "$(test -L "$json_target" && printf link || printf regular)"
+      _assert_eq "$json_agent consumer: does not mutate the legacy symlink source" \
+        "provider-$json_agent-v1" \
+        "$(jq -r '.hooks.ProviderEvent[0].hooks[0].command' "$json_legacy")"
+    fi
+  done
+  _assert_eq "claude consumer: layers local policy after provider config" \
+    "LocalClaudePolicy" \
+    "$(jq -r '.permissions.allow[0]' "$json_agent_home/.claude/settings.json")"
+  _assert_eq "muse consumer: layers local policy after provider config" \
+    "LocalMusePolicy" \
+    "$(jq -r '.permissions.allow[0]' "$json_agent_home/.config/muse/settings.json")"
+
+  rm -f \
+    "$agentguard_fixture/claude/hooks.json" \
+    "$agentguard_fixture/gemini/hooks.json" \
+    "$agentguard_fixture/muse/hooks.json"
+  for json_agent in claude gemini muse; do
+    case "$json_agent" in
+      claude) json_target="$json_agent_home/.claude/settings.json" ;;
+      gemini) json_target="$json_agent_home/.gemini/settings.json" ;;
+      muse) json_target="$json_agent_home/.config/muse/settings.json" ;;
+    esac
+    if [[ "$json_agent" != "gemini" ]]; then
+      json_last_good="$json_agent_home/$json_agent-last-good.json"
+      cp "$json_target" "$json_last_good"
+      rm -f "$json_target"
+      ln -s "$json_last_good" "$json_target"
+    fi
+    json_merge_output=$(HOME="$json_agent_home" \
+      _run_agentguard_json_merge_for_test "$json_agent" "$json_agent_home" 2>&1)
+    json_merge_status=$?
+    _assert_exit "$json_agent consumer: missing required provider is a failed refresh" \
+      1 "$json_merge_status"
+    _assert_contains "$json_agent consumer: missing provider reports the failed refresh" \
+      "AgentGuard $json_agent integration unavailable" "$json_merge_output"
+  done
+  _assert_eq "agent consumers: missing provider assets preserve live native hooks" \
+    "provider-claude-v2|provider-gemini-v2|provider-muse-v2" \
+    "$(
+      jq -r '.hooks.ProviderEvent[0].hooks[0].command' \
+        "$json_agent_home/.claude/settings.json" \
+        "$json_agent_home/.gemini/settings.json" \
+        "$json_agent_home/.config/muse/settings.json" |
+        paste -sd '|' -
+    )"
+  _assert_eq "agent consumers: missing provider preserves legacy target symlinks" \
+    "link|link" \
+    "$(
+      test -L "$json_agent_home/.claude/settings.json" && printf link || printf regular
+      printf '|'
+      test -L "$json_agent_home/.config/muse/settings.json" && printf link || printf regular
+    )"
+  unset -f _run_agentguard_json_merge_for_test merge 2>/dev/null
 
   echo "=== tmux merge hook ==="
 
@@ -5230,17 +5470,39 @@ EOF
 
   CLAUDE_DIR="$TEST_HOME/.claude"
   CLAUDE_SETTINGS="$CLAUDE_DIR/settings.json"
+  CLAUDE_AGENTGUARD_ASSETS="$TEST_HOME/agentguard-claude-assets"
   rm -rf "$CLAUDE_DIR"
-  mkdir -p "$CLAUDE_DIR" "$TEST_HOME/.config/dot/merge-hooks.d/claude/settings.d"
+  mkdir -p \
+    "$CLAUDE_DIR" \
+    "$CLAUDE_AGENTGUARD_ASSETS/_shared" \
+    "$CLAUDE_AGENTGUARD_ASSETS/claude" \
+    "$TEST_HOME/.config/dot/merge-hooks.d/claude/settings.d"
+  printf '{"hooks": {}}\n' >"$CLAUDE_AGENTGUARD_ASSETS/claude/hooks.json"
+  cat >"$CLAUDE_AGENTGUARD_ASSETS/_shared/reconcile-hooks.jq" <<'JQ'
+# This section tests dotfiles' later Claude policy merge, not AgentGuard's
+# provider semantics. Preserve the live fixture so the local layer remains the
+# only variable under test.
+($d[0] // {})
+JQ
 
   _CLAUDE_HOOK="$REAL_HOME/.local/lib/dot/core/merge-hooks/claude.sh"
 
-  _run_claude_merge() {
+  _run_claude_merge() (
     unset -f merge _merge_claude_settings 2>/dev/null
     # shellcheck source=/dev/null
     . "$_CLAUDE_HOOK"
+    # shellcheck disable=SC2329 # Invoked by the sourced merge hook.
+    dot_agentguard_integration_file() {
+      if [[ "$1" == "claude" && "$2" == "hooks.json" ]]; then
+        printf '%s/claude/hooks.json\n' "$CLAUDE_AGENTGUARD_ASSETS"
+      elif [[ "$1" == "_shared" && "$2" == "reconcile-hooks.jq" ]]; then
+        printf '%s/_shared/reconcile-hooks.jq\n' "$CLAUDE_AGENTGUARD_ASSETS"
+      else
+        return 1
+      fi
+    }
     merge
-  }
+  )
 
   rm -rf "$TEST_HOME/.config/dot/merge-hooks.d/claude/settings.d"
   mkdir -p "$TEST_HOME/.config/dot/merge-hooks.d/claude/settings.d"
@@ -5376,8 +5638,11 @@ JSON
 
   CODEX_DIR="$TEST_HOME/.codex"
   CODEX_CONFIG="$CODEX_DIR/config.toml"
+  CODEX_AGENTGUARD_ASSETS="$TEST_HOME/agentguard-codex-assets"
   rm -rf "$CODEX_DIR"
   mkdir -p "$CODEX_DIR" \
+    "$CODEX_AGENTGUARD_ASSETS/_shared" \
+    "$CODEX_AGENTGUARD_ASSETS/codex" \
     "$TEST_HOME/.config/dot/merge-hooks.d/codex/config.d/50-environment.replace" \
     "$TEST_HOME/.config/dot/merge-hooks.d/codex/profiles/allow_all.d/50-environment.replace" \
     "$TEST_HOME/.config/dot/merge-hooks.d/codex/profiles/experimental.d"
@@ -5399,46 +5664,70 @@ exit 2
 MOCK
   chmod +x "$_CODEX_BIN/codex"
 
-  _run_codex_merge() {
+  _run_codex_merge() (
     unset -f merge _merge_codex_config _trust_codex_dotfile_hooks 2>/dev/null
     # shellcheck source=/dev/null
     . "$_CODEX_HOOK"
-    PATH="$_CODEX_BIN:$PATH" merge >/dev/null
-  }
+    # shellcheck disable=SC2329 # Invoked by Codex source discovery.
+    dot_agentguard_integration_file() {
+      if [[ "$1" == "codex" && "$2" == "hooks.toml" ]]; then
+        printf '%s/codex/hooks.toml\n' "$CODEX_AGENTGUARD_ASSETS"
+      elif [[ "$1" == "_shared" && "$2" == "reconcile-hooks.jq" ]]; then
+        printf '%s/_shared/reconcile-hooks.jq\n' "$CODEX_AGENTGUARD_ASSETS"
+      else
+        return 1
+      fi
+    }
+    PATH="$_CODEX_BIN:$PATH" merge
+  )
+
+  # A neutral provider fixture proves the dependency layer participates in
+  # merge, cache, and trust handling without copying AgentGuard's real Codex
+  # compatibility map into this consumer suite.
+  cat >"$CODEX_AGENTGUARD_ASSETS/_shared/reconcile-hooks.jq" <<'JQ'
+# Neutral provider contract fixture. Replace incoming provider event arrays,
+# retire one provider event, and preserve consumer-owned hook metadata/state.
+($d[0] // {}) as $live |
+$s[0] as $provider |
+($live * ($provider | del(.hooks))) |
+.hooks = (($live.hooks // {}) + ($provider.hooks // {})) |
+del(.hooks.ProviderRetired)
+JQ
+  cat >"$CODEX_AGENTGUARD_ASSETS/codex/hooks.toml" <<'TOML'
+[features]
+hooks = true
+
+[[hooks.PreToolUse]]
+matcher = "ProviderShell"
+[[hooks.PreToolUse.hooks]]
+type = "command"
+command = "provider-pre-shell"
+timeout = 120
+
+[[hooks.PreToolUse]]
+matcher = "ProviderEdit"
+[[hooks.PreToolUse.hooks]]
+type = "command"
+command = "provider-pre-edit"
+timeout = 10
+
+[[hooks.PostToolUse]]
+matcher = "ProviderEdit"
+[[hooks.PostToolUse.hooks]]
+type = "command"
+command = "provider-post-edit"
+timeout = 60
+TOML
 
   cat >"$TEST_HOME/.config/dot/merge-hooks.d/codex/config.d/10-settings.toml" <<'TOML'
 model = "common-model"
 project_doc_fallback_filenames = ["AGENTS.md", "CLAUDE.md"]
-
-[features]
-hooks = true
 
 [projects."/home/testuser"]
 trust_level = "trusted"
 
 [tui]
 status_line = ["model-with-reasoning"]
-
-[[hooks.PreToolUse]]
-matcher = "Bash|exec_command|functions[.]exec_command"
-[[hooks.PreToolUse.hooks]]
-type = "command"
-command = "env AGENTGUARD_NAME=codex AGENTGUARD_SESSION_ID=\"${CODEX_THREAD_ID:-}\" agent-hook-pre-bash"
-timeout = 120
-
-[[hooks.PreToolUse]]
-matcher = "Edit|Write|apply_patch|functions[.]apply_patch"
-[[hooks.PreToolUse.hooks]]
-type = "command"
-command = "env AGENTGUARD_NAME=codex AGENTGUARD_SESSION_ID=\"${CODEX_THREAD_ID:-}\" agent-hook-pre-edit"
-timeout = 10
-
-[[hooks.PostToolUse]]
-matcher = "Edit|Write|apply_patch|functions[.]apply_patch"
-[[hooks.PostToolUse.hooks]]
-type = "command"
-command = "env AGENTGUARD_NAME=codex AGENTGUARD_SESSION_ID=\"${CODEX_THREAD_ID:-}\" agent-hook-post-edit"
-timeout = 60
 TOML
 
   cat >"$TEST_HOME/.config/dot/merge-hooks.d/codex/config.d/50-environment.replace/80-work.toml" <<'TOML'
@@ -5463,6 +5752,17 @@ model = "local-default"
 
 [tui.model_availability_nux]
 "gpt-5.5" = 2
+
+[[hooks.PreToolUse]]
+matcher = "RetiredProviderShell"
+[[hooks.PreToolUse.hooks]]
+type = "command"
+command = "provider-pre-shell-v1"
+
+[[hooks.ProviderRetired]]
+[[hooks.ProviderRetired.hooks]]
+type = "command"
+command = "provider-retired"
 TOML
 
   _CODEX_ALIAS_PARENT=$(_tmpdir)
@@ -5563,12 +5863,14 @@ assert data["projects"]["/work/project"]["trust_level"] == "trusted"
 assert data["mcp_servers"]["example"]["tools"]["lookup"]["approval_mode"] == "approve"
 assert data["notice"]["model_migrations"]["gpt-5.3-codex"] == "gpt-5.4"
 assert data["tui"]["model_availability_nux"]["gpt-5.5"] == 2
-assert data["hooks"]["PreToolUse"][0]["matcher"] == "Bash|exec_command|functions[.]exec_command"
-assert data["hooks"]["PreToolUse"][0]["hooks"][0]["command"] == 'env AGENTGUARD_NAME=codex AGENTGUARD_SESSION_ID="${CODEX_THREAD_ID:-}" agent-hook-pre-bash'
-assert data["hooks"]["PreToolUse"][1]["matcher"] == "Edit|Write|apply_patch|functions[.]apply_patch"
-assert data["hooks"]["PreToolUse"][1]["hooks"][0]["command"] == 'env AGENTGUARD_NAME=codex AGENTGUARD_SESSION_ID="${CODEX_THREAD_ID:-}" agent-hook-pre-edit'
-assert data["hooks"]["PostToolUse"][0]["matcher"] == "Edit|Write|apply_patch|functions[.]apply_patch"
-assert data["hooks"]["PostToolUse"][0]["hooks"][0]["command"] == 'env AGENTGUARD_NAME=codex AGENTGUARD_SESSION_ID="${CODEX_THREAD_ID:-}" agent-hook-post-edit'
+assert data["hooks"]["PreToolUse"][0]["matcher"] == "ProviderShell"
+assert data["hooks"]["PreToolUse"][0]["hooks"][0]["command"] == "provider-pre-shell"
+assert data["hooks"]["PreToolUse"][1]["matcher"] == "ProviderEdit"
+assert data["hooks"]["PreToolUse"][1]["hooks"][0]["command"] == "provider-pre-edit"
+assert data["hooks"]["PostToolUse"][0]["matcher"] == "ProviderEdit"
+assert data["hooks"]["PostToolUse"][0]["hooks"][0]["command"] == "provider-post-edit"
+assert "ProviderRetired" not in data["hooks"]
+assert "provider-pre-shell-v1" not in str(data["hooks"])
 state = data["hooks"]["state"]
 config_path = pathlib.Path(sys.argv[1]).resolve()
 shell_key = f"{config_path}:pre_tool_use:0:0"
@@ -5595,6 +5897,33 @@ PY
   else
     _fail "codex hook: merges common/work, preserves local state, and trusts managed hooks"
   fi
+
+  mv \
+    "$CODEX_AGENTGUARD_ASSETS/codex/hooks.toml" \
+    "$CODEX_AGENTGUARD_ASSETS/codex/hooks.toml.unavailable"
+  codex_before_missing=$(cat "$CODEX_CONFIG")
+  codex_missing_output=$(_run_codex_merge 2>&1)
+  codex_missing_status=$?
+  _assert_exit "codex consumer: missing provider asset is a failed refresh" \
+    1 "$codex_missing_status"
+  _assert_contains "codex consumer: missing provider asset reports the failed refresh" \
+    "AgentGuard codex integration unavailable" "$codex_missing_output"
+  _assert_eq "codex consumer: missing provider asset preserves the whole live config" \
+    "$codex_before_missing" "$(cat "$CODEX_CONFIG")"
+  _assert_eq "codex consumer: missing provider asset preserves live hook tables" \
+    "provider-pre-shell" \
+    "$(
+      python3 - "$CODEX_CONFIG" <<'PY'
+import sys
+import tomllib
+
+with open(sys.argv[1], "rb") as f:
+    print(tomllib.load(f)["hooks"]["PreToolUse"][0]["hooks"][0]["command"])
+PY
+    )"
+  mv \
+    "$CODEX_AGENTGUARD_ASSETS/codex/hooks.toml.unavailable" \
+    "$CODEX_AGENTGUARD_ASSETS/codex/hooks.toml"
 
   # Profile overlays: common + work fragments merge into the per-profile file,
   # later layers win, source layers override pre-existing local keys, and local
@@ -5647,8 +5976,15 @@ PY
 
   codex_content_before_cache_probe=$(cat "$CODEX_CONFIG")
   saved_path=$PATH
-  PATH="/usr/bin:/bin" _run_codex_merge 2>/dev/null
+  codex_cache_output=""
+  codex_cache_status=0
+  codex_cache_output=$(PATH="/usr/bin:/bin" _run_codex_merge 2>&1) ||
+    codex_cache_status=$?
   PATH=$saved_path
+  _assert_exit "codex hook: warm cache succeeds without merge dependencies" \
+    0 "$codex_cache_status"
+  _assert_eq "codex hook: warm cache emits no missing-dependency warning" \
+    "" "$codex_cache_output"
   _assert_eq "codex hook: warm cache skips yq when inputs are unchanged" \
     "$codex_content_before_cache_probe" "$(cat "$CODEX_CONFIG")"
 

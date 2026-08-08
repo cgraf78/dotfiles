@@ -127,10 +127,24 @@ _merge_hook_jq_available() {
 }
 
 _merge_hook_mikefarah_yq() {
-  local yq_bin=""
-  yq_bin=$(command -v yq 2>/dev/null) || return 1
-  "$yq_bin" --version 2>/dev/null | grep -qi 'mikefarah' || return 1
-  printf '%s\n' "$yq_bin"
+  local path_yq="" shdeps_yq="" yq_bin
+  path_yq=$(command -v yq 2>/dev/null) || path_yq=""
+  [[ -z "${HOME:-}" ]] || shdeps_yq="$HOME/.local/bin/yq"
+
+  # A cold `dot update` can install Mike Farah's yq earlier in this same
+  # non-login process. Shdeps has already created its stable public link, but
+  # the caller may not have refreshed PATH yet (notably the shared CI bootstrap
+  # action). Check that canonical link after PATH. Identity validation remains
+  # mandatory for both candidates because some systems expose the unrelated
+  # Python yq under the same command name.
+  for yq_bin in "$path_yq" "$shdeps_yq"; do
+    [[ -n "$yq_bin" && -x "$yq_bin" ]] || continue
+    if "$yq_bin" --version 2>/dev/null | grep -qi 'mikefarah'; then
+      printf '%s\n' "$yq_bin"
+      return 0
+    fi
+  done
+  return 1
 }
 
 _merge_hook_tmp_for() {
@@ -195,4 +209,75 @@ _merge_hook_jq_layer() {
   fi
 
   _merge_hook_commit_tmp "$tmp" "$dst"
+}
+
+# Reconcile one AgentGuard-owned JSON hook generation with a live settings file.
+#
+# AgentGuard owns both the native fragment and the jq program that recognizes
+# its previous commands. Keeping that recognition upstream is important: a
+# normal recursive merge can add hooks but cannot retire an event or replace a
+# command whose text changed, while hard-coded deletion lists here would make
+# dotfiles a second implementation of every agent's compatibility policy.
+#
+# Dot owns only the configuration-manager mechanics around that provider
+# operation: resolve both assets through Shdeps, preserve the target on every
+# failure, and atomically replace it after jq has produced valid JSON. Reading a
+# legacy symlink as the destination and renaming the sibling temp over the link
+# also realizes the live content without ever unlinking it before a successful
+# provider refresh.
+#
+# Args: $1 = human-readable settings label
+#       $2 = AgentGuard runtime directory name
+#       $3 = generated settings destination
+_merge_hook_agentguard_json_layer() {
+  local label="$1" agent="$2" dst="$3"
+  local src="" reconciler="" live="/dev/null" tmp=""
+
+  src=$(dot_agentguard_integration_file "$agent" hooks.json 2>/dev/null) || src=""
+  reconciler=$(dot_agentguard_integration_file _shared reconcile-hooks.jq 2>/dev/null) ||
+    reconciler=""
+  if [[ ! -r "$src" || ! -r "$reconciler" ]]; then
+    _warn "    warning: AgentGuard $agent integration unavailable — preserving $dst"
+    return 1
+  fi
+  if ! jq empty "$src" 2>/dev/null; then
+    _warn "    warning: invalid AgentGuard $agent integration — preserving $dst"
+    return 1
+  fi
+
+  if [[ -e "$dst" || -L "$dst" ]]; then
+    if [[ -s "$dst" ]] && jq empty "$dst" 2>/dev/null; then
+      live="$dst"
+    else
+      # Match the long-standing generated-config recovery policy, but keep the
+      # unreadable target in place until the complete replacement is ready.
+      _warn "    warning: corrupt $dst — rebuilding"
+    fi
+  fi
+
+  mkdir -p "${dst%/*}"
+  _merge_hook_tmp_for "$dst" || return 1
+  tmp="$REPLY"
+  if ! jq -n --sort-keys --indent 2 \
+    --arg agent "$agent" \
+    --slurpfile d "$live" \
+    --slurpfile s "$src" \
+    -f "$reconciler" >"$tmp" ||
+    [[ ! -s "$tmp" ]] || ! jq empty "$tmp" 2>/dev/null; then
+    _warn "    warning: AgentGuard $label reconciliation failed — preserving $dst"
+    rm -f "$tmp"
+    return 1
+  fi
+
+  # A regular converged target should keep its inode and mtime. A symlink is
+  # intentionally replaced even when its resolved bytes already match, because
+  # completing that one-time ownership migration is part of this operation.
+  if [[ ! -L "$dst" ]] && cmp -s "$tmp" "$dst" 2>/dev/null; then
+    rm -f "$tmp"
+    return 0
+  fi
+  if ! _merge_hook_commit_tmp "$tmp" "$dst"; then
+    rm -f "$tmp"
+    return 1
+  fi
 }

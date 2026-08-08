@@ -4,6 +4,7 @@ program	.bashrc
 program	.bash_profile
 program	.config/dot/merge-hooks.d/codex/api.sh
 program	.config/shdeps/hooks.d/cargo.sh
+program	.config/shdeps/hooks.d/cgraf78/agentguard.sh
 program	.config/shdeps/hooks.d/cgraf78/hive-memory.sh
 program	.config/shdeps/hooks.d/clangd.sh
 program	.config/shdeps/hooks.d/cmake-language-server.sh
@@ -174,7 +175,6 @@ program	.local/lib/dot/tests/harness-isolation-test
 program	.local/lib/dot/tests/helpers.sh
 program	.local/lib/dot/tests/lua-test
 program	.local/lib/dot/tests/nvim-test
-program	.local/lib/dot/tests/opencode-agentguard-test
 program	.local/lib/dot/tests/prompt-test
 program	.local/lib/dot/tests/schema-associations-test
 program	.local/lib/dot/tests/schema-refresh-workflow-test

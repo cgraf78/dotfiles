@@ -1,24 +1,35 @@
 # OpenCode
 
-The `opencode` merge hook installs
-[`agentguard.js`](agentguard.js) as the global OpenCode plugin
+The `opencode` merge hook is only an installer. It resolves AgentGuard's
+provider-owned `share/agentguard/integrations/opencode/agentguard.js` through
+shdeps and copies those bytes to the global OpenCode plugin path
 `~/.config/opencode/plugins/dotfiles-agentguard.js`.
 
-The source and generated file carry a stable ownership marker. The hook updates
-or removes only a regular, non-symlink target with that marker; an unmanaged
-file or symlink at the same path is preserved with a warning. Unchanged bytes
-are not rewritten, so repeat `dot update` runs preserve the file's inode and
-modification time.
+All OpenCode event translation, command execution, session bookkeeping,
+timeouts, and compatibility tests belong to AgentGuard. This directory does not
+carry a local adapter copy. That ownership boundary matters because OpenCode
+needs executable glue rather than a declarative hook fragment; letting the
+consumer patch that glue would immediately fork its behavior.
+
+## Installation safety
+
+The provider source carries `// agentguard-managed:opencode-plugin` as its first
+line. The hook updates only a regular, non-symlink target bearing that marker or
+the legacy dotfiles marker used before this extraction. The legacy form is
+migrated in place on the next successful install. An unmanaged file or symlink
+at the same path is always preserved with a warning.
+
+Missing or invalid provider source also preserves the installed target and is
+reported as a failed refresh. That visibility matters on a cold bootstrap,
+where there is no last-known-good plugin to preserve. A dependency can be
+temporarily unavailable during a coordinated repository rollout; treating that
+condition as an explicit disable request would remove protection at exactly the
+wrong time. Unchanged bytes are not rewritten, so repeat `dot update` runs
+preserve inode and modification time.
 
 OpenCode discovers the global plugin directory automatically. No
 `opencode.jsonc` entry is generated. A running OpenCode process keeps the plugin
 version it loaded at startup, so changes take effect on the next process.
-
-The adapter also supplies `AGENTGUARD_NAME=opencode` and the active session ID
-through OpenCode's `shell.env` callback. This gives direct `hm remember` and
-`hm note` commands the same Hive Memory receipt/reminder identity available in
-Claude and Codex, while the shared `hm` launcher remains the sole owner of
-`HIVE_MEMORY_*` translation.
 
 The shared agent-rule merge also writes OpenCode's native global rule target at
 `~/.config/opencode/AGENTS.md`. OpenCode can fall back to Claude's global rules,

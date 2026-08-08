@@ -43,6 +43,15 @@ jobs:
         DOT_CORE_SKIP_SHELLCHECK=1 .local/bin/dot-test
       termux-command: |-
         set -euo pipefail
+        # The Android command crosses an ADB boundary, so it does not inherit
+        # GitHub's normal job identity variables. Recreate only the public PR
+        # identity needed by the temporary AgentGuard dependency bridge; the
+        # hook still pins an immutable commit and refuses developer checkouts.
+        if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+          export GITHUB_ACTIONS=true
+          export GITHUB_EVENT_NAME=pull_request
+          export GITHUB_REPOSITORY=cgraf78/dotfiles
+        fi
         HOME="$PWD" PATH="$PWD/.local/bin:$PATH" .local/bin/dot update --skip-pull
         HOME="$PWD" PATH="$PWD/.local/bin:$PATH" bash .local/lib/dot/tests/android-ci-smoke
       termux-profiles: base,neovim
@@ -62,33 +71,6 @@ jobs:
       # verifies every unavoidable cgraf78/actions literal still matches that
       # single reviewed dependency decision.
       - uses: cgraf78/actions/.github/actions/verify-consumer-sync@0c8c5f1c615fd61b48cc7d5de5225ca491665d80
-
-  opencode:
-    name: Public OpenCode adapter
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    env:
-      OPENCODE_TEST_VERSION: 1.18.13
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Install pinned OpenCode
-        shell: bash
-        run: |-
-          set -euo pipefail
-          prefix="$RUNNER_TEMP/opencode"
-          npm install --prefix "$prefix" --no-save --package-lock=false \
-            "opencode-ai@$OPENCODE_TEST_VERSION"
-          echo "$prefix/node_modules/.bin" >>"$GITHUB_PATH"
-
-      - name: Test OpenCode adapter
-        shell: bash
-        run: |-
-          set -euo pipefail
-          test "$(opencode --version)" = "$OPENCODE_TEST_VERSION"
-          .local/bin/dot-test -v opencode-agentguard
 
   cold-bootstrap:
     name: Cold Ubuntu bootstrap
