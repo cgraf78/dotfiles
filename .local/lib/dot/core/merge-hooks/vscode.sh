@@ -1322,6 +1322,7 @@ merge() {
   done < <(_vscode_config_variants "${variants[@]}")
 
   local _ext_spec _ext_id _ext_src _ext_disabled_opts _ext_name
+  local _ext_link _ext_target _legacy_ext_src
   local ext_dir cfg_dir opts rest merge_rc=0
   for line in "${variants[@]}"; do
     ext_dir="${line%%	*}"
@@ -1349,8 +1350,26 @@ merge() {
       _prune_vscode_extension_versions \
         "$_ext_id" "$_ext_src" "$_ext_name" "$ext_dir/extensions.json"
       mkdir -p "$ext_dir"
-      if [[ ! -e "$ext_dir/$_ext_name" ]]; then
-        ln -sf "$_ext_src" "$ext_dir/$_ext_name"
+      _ext_link="$ext_dir/$_ext_name"
+
+      # A provider extraction can retain the package basename while changing
+      # its ownership root. In that case version pruning deliberately keeps the
+      # current basename, and a live old symlink also makes the missing-path
+      # install guard a no-op. Retarget only the exact historical dotfiles
+      # payload root: arbitrary live same-name links and regular directories
+      # remain user-owned, while fleet upgrades stop executing the removed copy.
+      _legacy_ext_src="$HOME/.local/share/dot-vscode-extensions/$_ext_name"
+      if [[ -L "$_ext_link" && -e "$_ext_link" ]] &&
+        _ext_target=$(readlink "$_ext_link"); then
+        [[ "$_ext_target" == /* ]] || _ext_target="$ext_dir/$_ext_target"
+        if [[ "$_ext_target" == "$_legacy_ext_src" &&
+          "$_ext_target" != "$_ext_src" ]]; then
+          rm -f -- "$_ext_link"
+        fi
+      fi
+
+      if [[ ! -e "$_ext_link" ]]; then
+        ln -sf "$_ext_src" "$_ext_link"
       fi
       _ensure_vscode_extension "$_ext_id" "$_ext_name" "$ext_dir/extensions.json"
     done

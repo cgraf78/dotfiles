@@ -18,6 +18,20 @@ for _cmd in checkrun sley jq node nvim git; do
   fi
 done
 
+# This suite intentionally crosses the provider boundary: Sley owns the
+# extension behavior, while dotfiles owns settings and activation policy. A
+# dependent PR supplies its exact provider checkout explicitly; normal runs use
+# the stable shdeps link from the host fleet. Do not fall back to a copied
+# dotfiles fixture, because that would let the two repositories drift together
+# while this compatibility gate remained green.
+sley_provider_root="${DOT_TEST_SLEY_ROOT:-${DOT_TEST_HOST_HOME:-$HOME}/.local/share/cgraf78/sley}"
+sley_extension_path="$sley_provider_root/share/sley/vscode/sley-tools-0.0.1"
+if [[ ! -r "$sley_extension_path/package.json" ||
+  ! -r "$sley_extension_path/extension.js" ]]; then
+  echo "workflow-consistency-test: Sley VS Code provider asset unavailable: $sley_extension_path" >&2
+  exit 1
+fi
+
 _json_array_contains() {
   local file="$1" jq_filter="$2" value="$3"
   jq -e --arg value "$value" "$jq_filter | index(\$value) != null" "$file" >/dev/null
@@ -117,7 +131,6 @@ _assert_no_low_level_dispatch() {
     .config/nvim/lua/plugins/formatting.lua \
     .config/nvim/lua/plugins/linting.lua \
     .config/nvim/lua/plugins/sley.lua \
-    .local/share/dot-vscode-extensions/sley-tools-0.0.1 \
     .local/share/git-hooks \
     .local/share/sl-hooks \
     >"$work/workflow-surface-files.txt"
@@ -318,7 +331,7 @@ else
   _fail "workflow fixture: shape is valid"
 fi
 
-if [[ -e "$HOME/.local/share/dot-vscode-extensions/sley-tools-0.0.1/language-map.json" ]]; then
+if [[ -e "$sley_extension_path/language-map.json" ]]; then
   _fail "vscode extension: local language map is absent"
 else
   _pass "vscode extension: local language map is absent"
@@ -450,7 +463,8 @@ done < <(
   ' "$fixture"
 )
 
-DOTFILES_HOME="$HOME" node - "$cap" "$settings" "$fixture" "$repo" <<'NODE'
+DOTFILES_HOME="$HOME" SLEY_VSCODE_EXTENSION_PATH="$sley_extension_path" \
+  node - "$cap" "$settings" "$fixture" "$repo" <<'NODE'
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const Module = require("node:module");
@@ -461,10 +475,8 @@ const cap = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
 const settings = JSON.parse(fs.readFileSync(process.argv[3], "utf8"));
 const fixture = JSON.parse(fs.readFileSync(process.argv[4], "utf8"));
 const repo = process.argv[5];
-const extensionPath = path.join(
-  root,
-  ".local/share/dot-vscode-extensions/sley-tools-0.0.1",
-);
+const extensionPath = process.env.SLEY_VSCODE_EXTENSION_PATH;
+assert.ok(extensionPath, "SLEY_VSCODE_EXTENSION_PATH is required");
 const languageMap = cap.editorLanguageIds?.vscode || {};
 
 const originalLoad = Module._load;

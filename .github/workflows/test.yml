@@ -27,6 +27,20 @@ jobs:
       shellcheck-exclude-codes: SC1091
       shellcheck-inventory-path: .github/shellcheck-files.txt
       test-command: |-
+        # Temporary cross-repository PR bridge: the consumer tests must run
+        # against the exact Sley payload under review, while normal shdeps
+        # resolution can only see Sley's default branch. Keep this fetch
+        # limited to PR checks and immutable by commit ID; remove it after the
+        # provider PR lands, before this consumer merges.
+        if [[ "${GITHUB_EVENT_NAME:-}" == "pull_request" ]]; then
+          export DOT_TEST_SLEY_ROOT="$RUNNER_TEMP/dotfiles-sley-provider"
+          git init -q "$DOT_TEST_SLEY_ROOT"
+          git -C "$DOT_TEST_SLEY_ROOT" remote add origin https://github.com/cgraf78/sley.git
+          git -C "$DOT_TEST_SLEY_ROOT" fetch --no-tags --depth=1 origin ad0cc444f4c89d388109a216f09f0c31237d99a7
+          git -C "$DOT_TEST_SLEY_ROOT" -c advice.detachedHead=false checkout --detach FETCH_HEAD
+          test "$(git -C "$DOT_TEST_SLEY_ROOT" rev-parse HEAD)" = ad0cc444f4c89d388109a216f09f0c31237d99a7
+        fi
+
         # Pin retirement validation to the event's immutable predecessor.
         # Fetching a branch name here would race a newer main push and compare
         # this checkout with source it never contained.
