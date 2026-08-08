@@ -165,12 +165,16 @@ _dot_update_sync_repos() {
 
 _dot_update_finalize() {
   local update_status="${1:-0}" shdeps_ready=0
+  # Capability proof belongs to this convergence only. Clear any inherited or
+  # stale shell value before bootstrap so a failed `_ensure_shdeps` cannot
+  # authorize the destructive half of a later migration through merge hooks.
+  unset DOT_SHDEPS_RELEASE_LAUNCHER_PRESERVATION
   if [[ "${DOT_UI_TOTAL:-0}" -le 0 ]]; then
     _ui_begin 4
   fi
   _ensure_repo_config
   _link_overlays || update_status=1
-  if _ensure_shdeps; then
+  if _ensure_shdeps && _dot_shdeps_require_release_launcher_preservation; then
     shdeps_ready=1
   else
     update_status=1

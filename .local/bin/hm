@@ -10,17 +10,53 @@
 
 set -euo pipefail
 
-_hm_core="${HIVE_MEMORY_CORE:-$HOME/.local/share/hive-memory/bin/hm-core}"
+_hm_launcher_lib="${BASH_SOURCE[0]%/*}/../lib/dot/launcher-real.sh"
+if [[ ! -f "$_hm_launcher_lib" ]]; then
+  _hm_launcher_lib="${HOME:-}/.local/lib/dot/launcher-real.sh"
+fi
+# shellcheck disable=SC1090
+. "$_hm_launcher_lib" || {
+  printf 'hm launcher: could not load launcher helper\n' >&2
+  exit 127
+}
 
-if [[ ! -x "$_hm_core" ]]; then
-  printf 'hm: core binary missing at %s\n' "$_hm_core" >&2
-  printf 'hm: run dot update to install Hive Memory\n' >&2
+_hm_self=$(_dot_launcher_file_id "${BASH_SOURCE[0]}") || _hm_self="${BASH_SOURCE[0]}"
+_hm_marker="# Dotfiles-owned front door for the generic \`hm\` binary."
+_hm_stable_core="${HOME:-}/.local/share/cgraf78/hive-memory/hm"
+_hm_legacy_core="${HOME:-}/.local/share/hive-memory/bin/hm-core"
+
+# Hive Memory's archive payload has a stable Shdeps-owned location, so there is
+# no reason to search PATH and risk selecting this launcher again or an
+# unrelated command with the same short name. The shared candidate check still
+# gives hm the same executable, identity, and marker-copy defenses as the git
+# and nvim launchers.
+if [[ -n "${HIVE_MEMORY_CORE:-}" ]]; then
+  _hm_core="$HIVE_MEMORY_CORE"
+  _dot_launcher_candidate_ok "$_hm_core" "$_hm_self" "$_hm_marker" || _hm_core=""
+else
+  _hm_core=""
+  for _hm_candidate in "$_hm_stable_core" "$_hm_legacy_core"; do
+    if _dot_launcher_candidate_ok "$_hm_candidate" "$_hm_self" "$_hm_marker"; then
+      _hm_core="$_hm_candidate"
+      break
+    fi
+  done
+fi
+
+if [[ -z "$_hm_core" ]]; then
+  if [[ -n "${HIVE_MEMORY_CORE:-}" ]]; then
+    printf 'hm launcher: real hm not found at %s\n' "$HIVE_MEMORY_CORE" >&2
+  else
+    printf 'hm launcher: real hm not found at %s or %s\n' \
+      "$_hm_stable_core" "$_hm_legacy_core" >&2
+  fi
+  printf 'hm launcher: run dot update to install Hive Memory\n' >&2
   exit 127
 fi
 
-if [[ -r "$HOME/.local/lib/dot/core/shdeps-assets.sh" ]]; then
-  # shellcheck source=../core/shdeps-assets.sh
-  . "$HOME/.local/lib/dot/core/shdeps-assets.sh"
+if [[ -r "${HOME:-}/.local/lib/dot/core/shdeps-assets.sh" ]]; then
+  # shellcheck disable=SC1091 # Runtime HOME selects the installed helper.
+  . "${HOME:-}/.local/lib/dot/core/shdeps-assets.sh"
 fi
 
 if declare -F dot_shdeps_dep_source >/dev/null 2>&1; then
@@ -28,7 +64,7 @@ if declare -F dot_shdeps_dep_source >/dev/null 2>&1; then
   # commands and hook invocations agree on whether the caller is Claude, Codex,
   # Gemini, OpenCode, or a human shell. OpenCode arrives through the generic
   # AgentGuard override because it has no runtime-specific shell variable. The
-  # generic hm-core binary stays vendor-neutral; this launcher owns
+  # generic Hive Memory binary stays vendor-neutral; this launcher owns
   # dotfiles/runtime-specific inference.
   dot_shdeps_dep_source cgraf78/agentguard lib/agentguard/agentguard.sh 2>/dev/null || true
 fi
@@ -104,6 +140,6 @@ if [[ "$_hm_agent_runtime" == 1 && -z "${HIVE_MEMORY_PROJECT:-}" && "${HIVE_MEMO
   fi
 fi
 
-# Preserve the public command name in help/errors even though dotfiles stores
-# the real executable under a collision-free internal name.
+# Preserve the public command name in help/errors even though the release
+# executable lives in Shdeps' private archive root.
 exec -a hm "$_hm_core" "$@"

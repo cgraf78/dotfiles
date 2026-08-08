@@ -651,6 +651,188 @@ MOCK
   # shellcheck disable=SC2034  # reset shared UI state for later sourced-helper tests.
   DOT_UI_LIVE_ACTIVE=0
 
+  echo ""
+  echo "=== Shdeps launcher-preservation capability ==="
+
+  _shdeps_cap_dir=$(_tmpdir)
+  _shdeps_cap_active="$_shdeps_cap_dir/shdeps"
+  _shdeps_cap_new="$_shdeps_cap_dir/shdeps-new"
+  _shdeps_cap_update_marker="$_shdeps_cap_dir/self-update-ran"
+  cat >"$_shdeps_cap_new" <<'SH'
+#!/usr/bin/env bash
+if [[ "$#" -eq 2 && "$1" == __api && "$2" == version ]]; then
+  printf '%s\n' 'abi:1'
+  exit 0
+fi
+if [[ "$#" -eq 3 && "$1" == __api && "$2" == capability &&
+  "$3" == release-archive-launcher-preservation-v1 ]]; then
+  exit 0
+fi
+if [[ "$#" -eq 4 && "$1" == __api &&
+  "$2" == adopt-release-archive-launcher &&
+  "$3" == cgraf78/hive-memory && "$4" == hm ]]; then
+  if [[ -n "${SHDEPS_CAP_ADOPT_LOG:-}" ]]; then
+    printf '%s\n' "$3 $4" >"$SHDEPS_CAP_ADOPT_LOG"
+  fi
+  exit "${SHDEPS_CAP_ADOPT_STATUS:-0}"
+fi
+if [[ "$#" -eq 1 && "$1" == update ]]; then
+  printf '%s\n' 'activated' >"$SHDEPS_CAP_UPDATE_BINARY_LOG"
+  exit 0
+fi
+exit 1
+SH
+  chmod +x "$_shdeps_cap_new"
+
+  cp "$_shdeps_cap_new" "$_shdeps_cap_active"
+  (
+    # shellcheck disable=SC2329  # invoked indirectly by the capability preflight.
+    _shdepsw_resolve_binary() { printf '%s\n' "$_shdeps_cap_active"; }
+    _SHDEPSW_BIN="$_shdeps_cap_active"
+    # shellcheck disable=SC2329  # must remain unused on the warm capability path.
+    shdeps_self_update() { : >"$_shdeps_cap_update_marker"; }
+    _dot_shdeps_require_release_launcher_preservation
+  )
+  _assert_file_missing "shdeps capability: supported binary skips self-update" \
+    "$_shdeps_cap_update_marker"
+
+  _shdeps_cap_home=$(_tmpdir)
+  _shdeps_cap_adopt_log="$_shdeps_cap_dir/adopted-launcher"
+  mkdir -p "$_shdeps_cap_home/.local/bin"
+  cp "$REAL_HOME/.local/bin/hm" "$_shdeps_cap_home/.local/bin/hm"
+  (
+    # shellcheck disable=SC2329  # invoked indirectly by the capability preflight.
+    _shdepsw_resolve_binary() { printf '%s\n' "$_shdeps_cap_active"; }
+    _SHDEPSW_BIN="$_shdeps_cap_active"
+    # shellcheck disable=SC2329  # warm capability path must not self-update.
+    shdeps_self_update() { : >"$_shdeps_cap_update_marker"; }
+    HOME="$_shdeps_cap_home" SHDEPS_CAP_ADOPT_LOG="$_shdeps_cap_adopt_log" \
+      _dot_shdeps_require_release_launcher_preservation
+  )
+  _assert_file_content "shdeps capability: tracked hm explicitly adopts its legacy archive" \
+    "cgraf78/hive-memory hm" "$_shdeps_cap_adopt_log"
+  _assert_file_missing "shdeps capability: launcher adoption stays on warm path" \
+    "$_shdeps_cap_update_marker"
+
+  _shdeps_cap_result=$(
+    # shellcheck disable=SC2329  # invoked indirectly by the capability preflight.
+    _shdepsw_resolve_binary() { printf '%s\n' "$_shdeps_cap_active"; }
+    _SHDEPSW_BIN="$_shdeps_cap_active"
+    # shellcheck disable=SC2329  # warm capability path must not self-update.
+    shdeps_self_update() { : >"$_shdeps_cap_update_marker"; }
+    if HOME="$_shdeps_cap_home" SHDEPS_CAP_ADOPT_STATUS=1 DOT_QUIET=1 \
+      _dot_shdeps_require_release_launcher_preservation; then
+      printf '%s\n' 'rc=0'
+    else
+      printf 'rc=%s proof=%s\n' "$?" \
+        "${DOT_SHDEPS_RELEASE_LAUNCHER_PRESERVATION:-unset}"
+    fi
+  )
+  _assert_contains "shdeps capability: ambiguous launcher adoption fails closed" \
+    "rc=1 proof=unset" "$_shdeps_cap_result"
+
+  cat >"$_shdeps_cap_active" <<'SH'
+#!/usr/bin/env bash
+exit 1
+SH
+  chmod +x "$_shdeps_cap_active"
+  _shdeps_cap_result=$(
+    # shellcheck disable=SC2329  # invoked indirectly by the capability preflight.
+    _shdepsw_resolve_binary() {
+      if [[ -e "$_shdeps_cap_update_marker" ]]; then
+        printf '%s\n' "$_shdeps_cap_new"
+      else
+        printf '%s\n' "$_shdeps_cap_active"
+      fi
+    }
+    _SHDEPSW_BIN="$_shdeps_cap_active"
+    # shellcheck disable=SC2329  # invoked by the capability preflight.
+    shdeps_self_update() {
+      : >"$_shdeps_cap_update_marker"
+    }
+    # Model the sourceable wrapper: its public update function dispatches via
+    # the mutable binary path selected when the wrapper was sourced.
+    shdeps_update() { command "$_SHDEPSW_BIN" update; }
+    export SHDEPS_CAP_UPDATE_BINARY_LOG="$_shdeps_cap_dir/update-binary"
+    if _dot_shdeps_require_release_launcher_preservation && shdeps_update; then
+      printf '%s\n' 'rc=0'
+    else
+      printf 'rc=%s\n' "$?"
+    fi
+  )
+  _assert_contains "shdeps capability: old binary self-updates before dependency work" \
+    "rc=0" "$_shdeps_cap_result"
+  _assert_file_exists "shdeps capability: missing capability invokes self-update once" \
+    "$_shdeps_cap_update_marker"
+  _assert_file_content "shdeps capability: dependency work uses the probed activated binary" \
+    "activated" "$_shdeps_cap_dir/update-binary"
+  if "$_shdeps_cap_active" __api capability \
+    release-archive-launcher-preservation-v1 >/dev/null 2>&1; then
+    _fail "shdeps capability: post-update probe does not reuse stale cached binary"
+  else
+    _pass "shdeps capability: post-update probe does not reuse stale cached binary"
+  fi
+
+  cat >"$_shdeps_cap_active" <<'SH'
+#!/usr/bin/env bash
+exit 1
+SH
+  chmod +x "$_shdeps_cap_active"
+  _shdeps_cap_result=$(
+    # shellcheck disable=SC2329  # invoked indirectly by the capability preflight.
+    _shdepsw_resolve_binary() { printf '%s\n' "$_shdeps_cap_active"; }
+    _SHDEPSW_BIN="$_shdeps_cap_active"
+    # shellcheck disable=SC2329  # invoked by the capability preflight.
+    shdeps_self_update() { return 73; }
+    if DOT_QUIET=1 _dot_shdeps_require_release_launcher_preservation; then
+      printf '%s\n' 'rc=0'
+    else
+      printf 'rc=%s\n' "$?"
+    fi
+  )
+  _assert_contains "shdeps capability: failed self-update fails closed" \
+    "rc=1" "$_shdeps_cap_result"
+
+  _shdeps_cap_result=$(
+    # shellcheck disable=SC2329  # invoked indirectly by the capability preflight.
+    _shdepsw_resolve_binary() { printf '%s\n' "$_shdeps_cap_active"; }
+    _SHDEPSW_BIN="$_shdeps_cap_active"
+    # shellcheck disable=SC2329  # invoked by the capability preflight.
+    shdeps_self_update() { :; }
+    if DOT_QUIET=1 _dot_shdeps_require_release_launcher_preservation; then
+      printf '%s\n' 'rc=0'
+    else
+      printf 'rc=%s\n' "$?"
+    fi
+  )
+  _assert_contains "shdeps capability: successful but insufficient update fails closed" \
+    "rc=1" "$_shdeps_cap_result"
+
+  _shdeps_cap_incompatible="$_shdeps_cap_dir/shdeps-incompatible"
+  cat >"$_shdeps_cap_incompatible" <<'SH'
+#!/usr/bin/env bash
+case "${1:-}:${2:-}" in
+  __api:version) printf '%s\n' 'abi:2'; exit 0 ;;
+  __api:capability) exit 0 ;;
+esac
+exit 1
+SH
+  chmod +x "$_shdeps_cap_incompatible"
+  _shdeps_cap_result=$(
+    # shellcheck disable=SC2329  # invoked indirectly by the capability preflight.
+    _shdepsw_resolve_binary() { printf '%s\n' "$_shdeps_cap_incompatible"; }
+    _SHDEPSW_BIN="$_shdeps_cap_active"
+    # shellcheck disable=SC2329  # invoked by the capability preflight.
+    shdeps_self_update() { :; }
+    if DOT_QUIET=1 _dot_shdeps_require_release_launcher_preservation; then
+      printf '%s\n' 'rc=0'
+    else
+      printf 'rc=%s\n' "$?"
+    fi
+  )
+  _assert_contains "shdeps capability: incompatible replacement ABI fails closed" \
+    "rc=1" "$_shdeps_cap_result"
+
   _shdeps_fb_home=$(_tmpdir)
   _shdeps_fb_bin="$_shdeps_fb_home/bin"
   _shdeps_fb_log="$_shdeps_fb_home/git.log"

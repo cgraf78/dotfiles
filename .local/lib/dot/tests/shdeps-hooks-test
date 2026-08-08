@@ -1170,7 +1170,7 @@ _assert_eq "gstack migrate: unexpected symlink still points to its original targ
   "$_gm_elsewhere" "$(readlink "$_gm_home2/.gstack")"
 _assert_contains "gstack migrate: warns on unexpected symlink target" "unexpected" "$_gm_out"
 
-echo "=== Hive Memory hook ==="
+echo "=== Hive Memory dependency ==="
 
 _hive_memory_dep=$(
   awk '$1 == "cgraf78/hive-memory" { print; exit }' \
@@ -1193,105 +1193,12 @@ if [[ -z "$_hive_memory_base_config" ]]; then
 else
   _fail "hive-memory: base does not track personal store config"
 fi
-
-_hive_memory_hook="$REAL_HOME/.config/shdeps/hooks.d/cgraf78/hive-memory.sh"
-
-# shellcheck source=/dev/null
-. "$_hive_memory_hook"
-
-_hm_home=$(_tmpdir)
-_hm_bin=$(_tmpdir)
-mkdir -p "$_hm_home/cgraf78/hive-memory"
-cat >"$_hm_home/cgraf78/hive-memory/hm" <<'HM'
-#!/usr/bin/env bash
-if [ "${1:-}" = "env-probe" ]; then
-  printf 'agent=%s\n' "${HIVE_MEMORY_AGENT_ID:-}"
-  printf 'session=%s\n' "${HIVE_MEMORY_SESSION_ID:-}"
-  printf 'project=%s\n' "${HIVE_MEMORY_PROJECT:-}"
-  exit 0
-fi
-echo "hm 0.1.0"
-HM
-chmod +x "$_hm_home/cgraf78/hive-memory/hm"
-
-_saved_path=$PATH
-PATH="/usr/bin:/bin"
-# shellcheck disable=SC2329  # hook install calls this by name.
-shdeps_install_dir() { echo "$_hm_home"; }
-# shellcheck disable=SC2329  # hook install calls this by name.
-shdeps_bin_dir() { echo "$_hm_bin"; }
-
-if post "cgraf78/hive-memory"; then
-  _pass "hive-memory: post hook succeeds"
-else
-  _fail "hive-memory: post hook succeeds"
-fi
-_assert_file_exists "hive-memory: post hook moves release binary to core path" "$_hm_home/hive-memory/bin/hm-core"
-if [[ -L "$_hm_bin/hm" ]]; then
-  _pass "hive-memory: linked hm launcher into PATH"
-else
-  _fail "hive-memory: linked hm launcher into PATH"
-fi
-PATH="$_hm_bin:$PATH"
-export HIVE_MEMORY_CORE="$_hm_home/hive-memory/bin/hm-core"
-# Baseline scrub for every hm env-probe case: clear all ambient agent-identity
-# and project vars so each probe exercises only the vars it sets, regardless of
-# which agent runs the suite (Claude exports CLAUDE_CODE_SESSION_ID, Codex
-# CODEX_THREAD_ID, etc.). env applies operands left to right, so each probe
-# appends its own overrides after this array and they win.
-_hm_scrub_env=(
-  AGENTGUARD_PROCESS_DETECT=0
-  CODEX_THREAD_ID=
-  CODEX_INTERNAL_ORIGINATOR_OVERRIDE=
-  CLAUDE_CODE_CURRENT_SESSION_ID=
-  CLAUDE_CODE_SESSION_ID=
-  AGENTGUARD_NAME=
-  GEMINI_PROJECT_DIR=
-  HIVE_MEMORY_AGENT_ID=
-  HIVE_MEMORY_SESSION_ID=
-  HIVE_MEMORY_PROJECT=
-)
-_hm_plain_probe=$(env "${_hm_scrub_env[@]}" "$_hm_bin/hm" env-probe)
-_assert_contains "hive-memory: launcher leaves human agent unset" \
-  "agent=" "$_hm_plain_probe"
-_assert_contains "hive-memory: launcher leaves human session unset" \
-  "session=" "$_hm_plain_probe"
-_hm_env_probe=$(env "${_hm_scrub_env[@]}" \
-  CODEX_THREAD_ID="codex-session-1" \
-  "$_hm_bin/hm" env-probe)
-_assert_contains "hive-memory: launcher detects Codex agent" \
-  "agent=codex" "$_hm_env_probe"
-_assert_contains "hive-memory: launcher exports Codex session" \
-  "session=codex-session-1" "$_hm_env_probe"
-_assert_contains "hive-memory: launcher exports project hint" \
-  "project=$(pwd)" "$_hm_env_probe"
-_hm_dot_agent_probe=$(env "${_hm_scrub_env[@]}" \
-  AGENTGUARD_NAME="codex" \
-  "$_hm_bin/hm" env-probe)
-_assert_contains "hive-memory: launcher uses explicit dot agent name" \
-  "agent=codex" "$_hm_dot_agent_probe"
-_assert_contains "hive-memory: launcher synthesizes dot agent session" \
-  "session=codex-" "$_hm_dot_agent_probe"
-_hm_explicit_agent_probe=$(env "${_hm_scrub_env[@]}" \
-  AGENTGUARD_NAME="codex" \
-  CODEX_THREAD_ID="codex-session-2" \
-  HIVE_MEMORY_AGENT_ID="custom-agent" \
-  "$_hm_bin/hm" env-probe)
-_assert_contains "hive-memory: launcher preserves explicit agent override" \
-  "agent=custom-agent" "$_hm_explicit_agent_probe"
-_assert_contains "hive-memory: launcher keeps detected runtime session" \
-  "session=codex-session-2" "$_hm_explicit_agent_probe"
-_hm_no_project_probe=$(env "${_hm_scrub_env[@]}" \
-  AGENTGUARD_NAME="codex" \
-  CODEX_THREAD_ID="codex-session-3" \
-  HIVE_MEMORY_PROJECT_INFER=0 \
-  "$_hm_bin/hm" env-probe)
-_assert_eq "hive-memory: launcher keeps project unset when inference disabled" \
-  "project=" "$(printf '%s\n' "$_hm_no_project_probe" | grep '^project=')"
-
-PATH=$_saved_path
-unset HIVE_MEMORY_CORE
-unset -f post uninstall shdeps_install_dir shdeps_bin_dir
+_assert_file_exists "hive-memory: launcher is tracked with other public commands" \
+  "$REAL_HOME/.local/bin/hm"
+_assert_file_missing "hive-memory: no dependency-specific install hook remains" \
+  "$REAL_HOME/.config/shdeps/hooks.d/cgraf78/hive-memory.sh"
+_assert_file_missing "hive-memory: no private launcher path remains" \
+  "$REAL_HOME/.local/lib/dot/hive-memory/hm-launcher"
 
 echo "=== RuboCop hook ==="
 

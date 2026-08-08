@@ -4,7 +4,6 @@ program	.bashrc
 program	.bash_profile
 program	.config/dot/merge-hooks.d/codex/api.sh
 program	.config/shdeps/hooks.d/cargo.sh
-program	.config/shdeps/hooks.d/cgraf78/hive-memory.sh
 program	.config/shdeps/hooks.d/clangd.sh
 program	.config/shdeps/hooks.d/cmake-language-server.sh
 program	.config/shdeps/hooks.d/cmakelang.sh
@@ -48,6 +47,7 @@ program	.local/bin/dot
 program	.local/bin/dot-test
 program	.local/bin/dotbootstrap
 program	.local/bin/git
+program	.local/bin/hm
 program	.local/bin/nvim
 program	.local/bin/shell-time
 program	.local/bin/sysup
@@ -125,7 +125,6 @@ program	.local/lib/dot/gstack-register/opencode.sh
 program	.local/lib/dot/gstack-register/paths.sh
 program	.local/lib/dot/gstack-register/source.sh
 program	.local/lib/dot/gstack-register/targets.sh
-program	.local/lib/dot/hive-memory/hm-launcher
 program	.local/lib/dot/launcher-real.sh
 program	.local/lib/dot/sysup/common.sh
 program	.local/lib/dot/sysup/detect.sh

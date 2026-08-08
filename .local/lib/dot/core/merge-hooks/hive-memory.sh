@@ -28,6 +28,59 @@ _hive_memory_warn() {
   _warn "    warning: Hive Memory $1"
 }
 
+_hive_memory_remove_legacy_core() {
+  [[ -n "${HOME:-}" ]] || return 0
+
+  local legacy_dir="$HOME/.local/share/hive-memory/bin"
+  local legacy_core="$legacy_dir/hm-core"
+  local stable_core="$HOME/.local/share/cgraf78/hive-memory/hm"
+  local launcher="$HOME/.local/bin/hm"
+  local launcher_marker
+  local expected_marker="# Dotfiles-owned front door for the generic \`hm\` binary."
+
+  # This migration must be a no-op forever after it succeeds. Returning before
+  # even probing the replacement also avoids removing an independently created
+  # empty namespace on every future `dot update`.
+  [[ -e "$legacy_core" || -L "$legacy_core" ]] || return 0
+
+  # A failed capability preflight skips dependency convergence but still runs
+  # merge hooks so unrelated configuration can repair itself. Keep the legacy
+  # core in that case: the stable payload may work now, but an older Shdeps is
+  # still capable of replacing the tracked launcher on a later run. The update
+  # orchestrator exports this proof only after probing the active binary.
+  [[ "${DOT_SHDEPS_RELEASE_LAUNCHER_PRESERVATION:-0}" == 1 ]] || return 0
+
+  # Older dotfiles copied every Hive release into a second private path so a
+  # generated ~/.local/bin/hm symlink could point at the launcher. The launcher
+  # is now tracked directly and delegates to Shdeps' archive payload, so that
+  # copy becomes unreachable duplicate storage only after the replacement is
+  # demonstrably usable. Merge hooks still run when the earlier dependency
+  # phase fails, so deleting first could turn a transient network failure into
+  # a missing `hm` command. Exercise the tracked launcher against the exact new
+  # core before removing only the old dotfiles-owned filename.
+  # Do not trust an old generated symlink, an unrelated user command, or a
+  # partially written replacement to authorize deletion. The new front door is
+  # a tracked regular file with a stable ownership marker; verify that shape
+  # before exercising it against the exact replacement core.
+  [[ -f "$launcher" && ! -L "$launcher" ]] || return 0
+  {
+    IFS= read -r _
+    IFS= read -r launcher_marker
+  } <"$launcher" || return 0
+  [[ "$launcher_marker" == "$expected_marker" ]] || return 0
+
+  if [[ ! -f "$stable_core" || -L "$stable_core" || ! -x "$stable_core" ||
+    ! -x "$launcher" ]] ||
+    ! HIVE_MEMORY_CORE="$stable_core" "$launcher" --version >/dev/null 2>&1; then
+    return 0
+  fi
+  if ! rm -f -- "$legacy_core"; then
+    _hive_memory_warn "could not remove obsolete core copy: $legacy_core"
+    return 0
+  fi
+  rmdir "$legacy_dir" "${legacy_dir%/*}" 2>/dev/null || true
+}
+
 _hive_memory_default_store_spec() {
   local config="$1"
 
@@ -139,6 +192,7 @@ _hive_memory_check_config() {
 
 merge() {
   local config
+  _hive_memory_remove_legacy_core
   _hive_memory_config || return 0
   config="$REPLY"
 
