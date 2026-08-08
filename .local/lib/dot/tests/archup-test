@@ -23,6 +23,7 @@ _archup_mock_reset() {
   declare -gA ARCHUP_PACKAGE_UPGRADE_VERSIONS=()
   declare -gA ARCHUP_AUR_PACKAGES=()
   declare -gA ARCHUP_LDD_OUTPUT=()
+  ARCHUP_LDD_REJECTED_FILES=""
   ARCHUP_ACTIVE_UNITS=()
   ARCHUP_FAILED_UNITS=""
   ARCHUP_DISABLED_UNITS=""
@@ -63,6 +64,16 @@ _archup_mock_add_package() {
       return 2
       ;;
   esac
+}
+
+_archup_mock_add_debug_file() {
+  local pkg="$1"
+  local file="$ARCHUP_MOCK_ROOT/$pkg/debug/$pkg.debug"
+
+  mkdir -p "$(dirname "$file")"
+  : >"$file"
+  ARCHUP_PACKAGE_FILES["$pkg"]+=$'\n'"$file"
+  ARCHUP_LDD_REJECTED_FILES+=" $file"
 }
 
 _archup_mock_add_service() {
@@ -147,6 +158,10 @@ ldd() {
   if ((ARCHUP_LDD_STATUS != 0)); then
     printf 'mock ldd inspection failed for %s\n' "$1" >&2
     return "$ARCHUP_LDD_STATUS"
+  fi
+  if [[ " $ARCHUP_LDD_REJECTED_FILES " == *" $1 "* ]]; then
+    printf '\tnot a dynamic executable\n' >&2
+    return 1
   fi
   printf '%s\n' "${ARCHUP_LDD_OUTPUT[$1]:-}"
 }
@@ -569,5 +584,83 @@ _assert_not_contains "archup restart-failed: leaves disabled failed units alone"
   "restart offbydesign.service" "$systemctl_commands"
 _assert_contains "archup restart-failed: says why it restarted nothing" \
   "no failed enabled units to restart" "$result"
+
+echo ""
+echo "=== archup: separated debug info ==="
+
+# Regression: /usr/lib/debug/**/*.debug reports itself as dynamically linked but
+# is never loaded, so ldd rejects it. Treating that as an unverified scan failed
+# every run on a host with any *-debug package installed.
+_archup_mock_reset
+_archup_mock_add_package debugged-pkg 1 ok
+_archup_mock_add_debug_file debugged-pkg
+set +e
+result=$(scan_missing_libs 2>&1)
+status=$?
+set -e
+_assert_eq "archup debug info: a .debug file does not fail the library scan" \
+  "0" "$status"
+_assert_contains "archup debug info: the scan still reports a clean result" \
+  "no missing shared libraries" "$result"
+_assert_not_contains "archup debug info: does not claim the state is unverified" \
+  "unverified" "$result"
+
+# The hardening this preserves: a genuine ldd failure on a loadable object must
+# still fail the scan rather than being skipped.
+_archup_mock_reset
+_archup_mock_add_package normal-pkg 1 ok
+ARCHUP_LDD_STATUS=1
+set +e
+result=$(scan_missing_libs 2>&1)
+status=$?
+set -e
+ARCHUP_LDD_STATUS=0
+_assert_eq "archup debug info: a real ldd failure still fails the scan" \
+  "1" "$status"
+_assert_contains "archup debug info: a real ldd failure is reported as unverified" \
+  "unverified" "$result"
+
+echo ""
+echo "=== archup: empty upgrade set ==="
+
+# Regression: with nothing to upgrade both package sets are empty, and
+# sysup_unique_packages returned 1 under `set -o pipefail` because its filter
+# left a failed test as the pipeline status. The driver checks that status, so
+# an ordinary no-op run reported that it could not determine what changed.
+set +e
+unique_result=$(sysup_unique_packages)
+unique_status=$?
+set -e
+_assert_eq "archup unique packages: no arguments is a success" "0" "$unique_status"
+_assert_eq "archup unique packages: no arguments prints nothing" "" "$unique_result"
+
+set +e
+unique_result=$(sysup_unique_packages "" "")
+unique_status=$?
+set -e
+_assert_eq "archup unique packages: only empty arguments is a success" \
+  "0" "$unique_status"
+_assert_eq "archup unique packages: only empty arguments prints nothing" \
+  "" "$unique_result"
+
+set +e
+unique_result=$(sysup_unique_packages zsh bash zsh "")
+unique_status=$?
+set -e
+_assert_eq "archup unique packages: real arguments succeed" "0" "$unique_status"
+_assert_eq "archup unique packages: deduplicates and sorts" \
+  $'bash\nzsh' "$unique_result"
+
+_archup_mock_reset
+_archup_mock_add_package steady-pkg 1 ok 1.0
+set +e
+result=$(sysup_main 2>&1)
+status=$?
+set -e
+_assert_eq "archup main: a run with nothing to upgrade succeeds" "0" "$status"
+_assert_not_contains "archup main: does not claim the package diff failed" \
+  "could not determine which packages changed" "$result"
+_assert_not_contains "archup main: does not claim the package list comparison failed" \
+  "comparing the package list" "$result"
 
 _test_summary

@@ -173,6 +173,14 @@ scan_foreign_package_libs() {
       # Static executables and relocatable objects have no runtime shared-library
       # dependencies; ldd legitimately rejects them.
       [[ "$desc" == *"dynamically linked"* ]] || continue
+      # Separated debug info is never loaded at runtime, so it has no library
+      # dependencies to verify. It still reports itself as dynamically linked
+      # (with an empty interpreter), so the check above does not exclude it and
+      # ldd rejects it. Every `*-debug` package ships these, which makes them
+      # common among foreign packages.
+      case "$file" in
+        /usr/lib/debug/* | *.debug) continue ;;
+      esac
 
       if ! dependencies="$(ldd "$file")"; then
         printf 'error: could not inspect shared-library dependencies for %s; state is unverified\n' \

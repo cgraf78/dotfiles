@@ -80,10 +80,24 @@ sysup_changed_packages() {
   done <"$after"
 }
 
+# Print the unique, non-empty package names among the arguments.
+#
+# An empty result is a success, not a failure: "nothing was upgraded" is the
+# normal outcome of a run with no pending updates, and the caller checks this
+# status. Collect into an array rather than filtering inside a pipeline, so an
+# all-empty argument list cannot leave a failed test as the pipeline's status
+# under `set -o pipefail`.
 sysup_unique_packages() {
-  printf '%s\n' "$@" | while IFS= read -r pkg; do
-    [[ -n "$pkg" ]] && printf '%s\n' "$pkg"
-  done | sort -u
+  local pkg
+  local -a names=()
+
+  for pkg in "$@"; do
+    [[ -n "$pkg" ]] || continue
+    names+=("$pkg")
+  done
+
+  ((${#names[@]})) || return 0
+  printf '%s\n' "${names[@]}" | sort -u
 }
 
 # ---------------------------------------------------------------------------
