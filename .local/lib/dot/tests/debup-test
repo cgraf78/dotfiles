@@ -799,4 +799,61 @@ _assert_contains "debup main: names the host it refused" \
 _assert_eq "debup main: runs no apt command on the wrong family" \
   "" "$(cat "$DEBUP_APT_LOG")"
 
+echo ""
+echo "=== debup: needrestart resolution ==="
+
+# Regression: needrestart installs into /usr/sbin, which a normal user's PATH
+# omits on Debian. debup runs unprivileged and escalates per command, so
+# detecting with the caller's PATH reported needrestart missing on a host where
+# it was installed, and the needrestart restart path was silently never used.
+_debup_reset
+debup_sbin=$(_tmpdir)
+# shellcheck disable=SC2034 # read by the sourced debup under test.
+DEBUP_NEEDRESTART_SEARCH_PATH="$debup_sbin"
+# shellcheck disable=SC2034 # read by the sourced debup under test.
+DEBUP_NEEDRESTART=needrestart
+
+set +e
+debup_needrestart_path >/dev/null
+status=$?
+set -e
+_assert_eq "debup needrestart: absent everywhere is not found" "1" "$status"
+
+# Present only in an sbin directory the caller's PATH does not include.
+printf '#!/usr/bin/env bash\nexit 0\n' >"$debup_sbin/needrestart"
+chmod +x "$debup_sbin/needrestart"
+set +e
+resolved=$(debup_needrestart_path)
+status=$?
+set -e
+_assert_eq "debup needrestart: found in sbin despite not being on PATH" "0" "$status"
+_assert_eq "debup needrestart: resolves to an absolute path" \
+  "$debup_sbin/needrestart" "$resolved"
+
+# The restart hook must actually use it once resolution succeeds.
+_debup_reset
+# shellcheck disable=SC2034 # read by the sourced debup under test.
+DEBUP_NEEDRESTART_SEARCH_PATH="$debup_sbin"
+# shellcheck disable=SC2034 # read by the sourced debup under test.
+DEBUP_NEEDRESTART=needrestart
+cat >"$debup_sbin/needrestart" <<EOF
+#!/usr/bin/env bash
+printf '%s\\n' "\$*" >>"$DEBUP_NEEDRESTART_LOG"
+exit 0
+EOF
+chmod +x "$debup_sbin/needrestart"
+DEBUP_MOCK_PACKAGE_FILES=$'openssh-server /usr/lib/systemd/system/ssh.service'
+DEBUP_MOCK_ACTIVE_UNITS="ssh.service"
+sysup_backend_restart_services openssh-server >/dev/null 2>&1
+_assert_contains "debup needrestart: sbin-only needrestart drives the restart" \
+  "-r a" "$(cat "$DEBUP_NEEDRESTART_LOG")"
+_assert_not_contains "debup needrestart: built-in restart is not used as well" \
+  "try-restart" "$(cat "$DEBUP_SYSTEMCTL_LOG")"
+
+rm -f "$debup_sbin/needrestart"
+# shellcheck disable=SC2034 # read by the sourced debup under test.
+DEBUP_NEEDRESTART_SEARCH_PATH="/usr/local/sbin:/usr/sbin:/sbin"
+# shellcheck disable=SC2034 # read by the sourced debup under test.
+DEBUP_NEEDRESTART="$DEBUP_MOCK_BIN/needrestart"
+
 _test_summary
