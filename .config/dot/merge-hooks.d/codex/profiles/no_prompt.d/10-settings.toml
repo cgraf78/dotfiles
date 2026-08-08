@@ -1,9 +1,0 @@
-# `codex --profile no_prompt` overlay: skip approvals but keep the sandbox at
-# workspace-write (vs allow_all's full access), with network allowed inside it.
-# Model, reasoning effort, and feature toggles inherit from the base config
-# (its medium reasoning default is what no_prompt wants, so it's not repeated).
-approval_policy = "never"
-sandbox_mode = "workspace-write"
-
-[sandbox_workspace_write]
-network_access = true
