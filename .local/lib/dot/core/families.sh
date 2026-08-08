@@ -24,7 +24,10 @@
 _dot_family_is_file_candidate() {
   local path="$1" base
   [[ -f "$path" ]] || return 1
-  base="$(basename "$path")"
+  # Every candidate comes from a non-trailing glob path. Shell suffix removal
+  # is therefore equivalent to basename here, without starting a process for
+  # every fragment considered during each convergence run.
+  base="${path##*/}"
   case "$base" in
     .* | *~ | *.tmp | *.tmp.* | *.bak | *.swp | *.swo | *.DS_Store)
       return 1
@@ -75,7 +78,7 @@ _dot_family_emit_direct_keys() {
 
   for file in "$dir"/*; do
     _dot_family_is_file_candidate "$file" || continue
-    base="$(basename "$file")"
+    base="${file##*/}"
     _dot_family_key_matches "$base" "$@" || continue
     printf '%s\n' "$base"
   done
@@ -102,7 +105,7 @@ _dot_family_emit_replace_keys() {
 
   for group in "$dir"/*.replace; do
     [[ -d "$group" ]] || continue
-    group_base="$(basename "$group")"
+    group_base="${group##*/}"
     selected_base=""
 
     # The group winner is selected before the final stream sort. This keeps the
@@ -110,7 +113,7 @@ _dot_family_emit_replace_keys() {
     # ordinary numeric filename prefixes express priority inside the group.
     while IFS= read -r file; do
       [[ -n "$file" ]] || continue
-      file_base="$(basename "$file")"
+      file_base="${file##*/}"
       key="$group_base/$file_base"
       _dot_family_key_matches "$key" "$@" || continue
       selected_base="$file_base"

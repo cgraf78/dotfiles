@@ -184,11 +184,17 @@ _print_merge_capture() {
   local _hook_key="$1" _idx="$2" _result_dir="$3"
   local _prefix _has_merge _merge_rc _elapsed_ms _merge_status=ok
   _prefix="$(_merge_result_prefix "$_result_dir" "$_idx")"
-  _has_merge="$(cat "$_prefix.has_merge" 2>/dev/null || printf '0')"
+  # The coordinator owns these single-scalar files. Bash's direct file form
+  # preserves command-substitution newline handling and the existing fallback
+  # values without starting three `cat` processes for every completed hook.
+  _has_merge=0
+  { _has_merge="$(<"$_prefix.has_merge")"; } 2>/dev/null || _has_merge=0
   [[ "$_has_merge" -eq 1 ]] || return 1
 
-  _merge_rc="$(cat "$_prefix.rc" 2>/dev/null || printf '1')"
-  _elapsed_ms="$(cat "$_prefix.elapsed_ms" 2>/dev/null || printf '0')"
+  _merge_rc=1
+  { _merge_rc="$(<"$_prefix.rc")"; } 2>/dev/null || _merge_rc=1
+  _elapsed_ms=0
+  { _elapsed_ms="$(<"$_prefix.elapsed_ms")"; } 2>/dev/null || _elapsed_ms=0
   [[ "$_merge_rc" -eq 0 ]] || _merge_status=warning
 
   if [[ "${DOT_VERBOSE:-0}" -eq 1 && "${DOT_QUIET:-0}" -ne 1 ]]; then
@@ -271,7 +277,8 @@ _run_merge_hook_batch() {
     IFS=$'\t' read -r _hook_key _script <<<"$_hook_spec"
     _idx=$((_idx + 1))
     _capture_prefix="$(_merge_result_prefix "$_result_dir" "$_idx")"
-    _capture_rc="$(cat "$_capture_prefix.rc" 2>/dev/null || printf '1')"
+    _capture_rc=1
+    { _capture_rc="$(<"$_capture_prefix.rc")"; } 2>/dev/null || _capture_rc=1
     if _print_merge_capture "$_hook_key" "$_idx" "$_result_dir"; then
       _n_merged=$((_n_merged + 1))
     fi
