@@ -1398,8 +1398,39 @@ CONF
   DOT_OVERLAY_LEGACY_MANIFEST="$tempfail_saved_legacy_manifest"
 
   # Link overlay — creates symlinks
+  parent_probe="$TEST_HOME/.config/parent-probe"
+  mkdir -p "$OVERLAY_DIR/home/.config/parent-probe"
+  printf 'parent probe\n' >"$OVERLAY_DIR/home/.config/parent-probe/config.conf"
+  parent_mkdir_log=$(_tmpdir)/parent-mkdir.log
+  : >"$parent_mkdir_log"
+  # shellcheck disable=SC2329  # _link_overlays invokes this test seam.
+  mkdir() {
+    local arg last_arg=""
+    for arg in "$@"; do
+      last_arg="$arg"
+    done
+    printf '%s\n' "$last_arg" >>"$parent_mkdir_log"
+    command mkdir "$@"
+  }
   _discover_overlays
-  result=$(_link_overlays 2>&1)
+  parent_link_rc=0
+  result=$(_link_overlays 2>&1) || parent_link_rc=$?
+  _assert_eq "link parent creation: cold probe converges" "0" "$parent_link_rc"
+  if grep -Fqx "$parent_probe" "$parent_mkdir_log"; then
+    _pass "link parent creation: missing destination parent invokes mkdir"
+  else
+    _fail "link parent creation: missing destination parent invokes mkdir"
+  fi
+  : >"$parent_mkdir_log"
+  parent_link_rc=0
+  _link_overlays >/dev/null 2>&1 || parent_link_rc=$?
+  unset -f mkdir
+  _assert_eq "link idempotent: existing-parent probe converges" "0" "$parent_link_rc"
+  if grep -Fqx "$parent_probe" "$parent_mkdir_log"; then
+    _fail "link idempotent: avoids mkdir for existing destination parent"
+  else
+    _pass "link idempotent: avoids mkdir for existing destination parent"
+  fi
   _assert_contains "link: shows stage" "Overlays" "$result"
   _assert_contains "link: reports new symlinks" "linked:" "$result"
   if [[ -L "$TEST_HOME/.config/test/config.conf" ]]; then
