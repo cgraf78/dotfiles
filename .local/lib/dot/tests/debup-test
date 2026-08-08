@@ -808,10 +808,14 @@ echo "=== debup: needrestart resolution ==="
 # it was installed, and the needrestart restart path was silently never used.
 _debup_reset
 debup_sbin=$(_tmpdir)
+# A name no host can ship, so `command -v` cannot find a real needrestart and
+# the sbin search path is the only thing under test. Ubuntu and WSL images do
+# install needrestart, and CI runs as root with /usr/sbin on PATH.
+debup_nr_fixture="needrestart-sysup-test-fixture"
 # shellcheck disable=SC2034 # read by the sourced debup under test.
 DEBUP_NEEDRESTART_SEARCH_PATH="$debup_sbin"
 # shellcheck disable=SC2034 # read by the sourced debup under test.
-DEBUP_NEEDRESTART=needrestart
+DEBUP_NEEDRESTART="$debup_nr_fixture"
 
 set +e
 debup_needrestart_path >/dev/null
@@ -820,28 +824,28 @@ set -e
 _assert_eq "debup needrestart: absent everywhere is not found" "1" "$status"
 
 # Present only in an sbin directory the caller's PATH does not include.
-printf '#!/usr/bin/env bash\nexit 0\n' >"$debup_sbin/needrestart"
-chmod +x "$debup_sbin/needrestart"
+printf '#!/usr/bin/env bash\nexit 0\n' >"$debup_sbin/$debup_nr_fixture"
+chmod +x "$debup_sbin/$debup_nr_fixture"
 set +e
 resolved=$(debup_needrestart_path)
 status=$?
 set -e
 _assert_eq "debup needrestart: found in sbin despite not being on PATH" "0" "$status"
 _assert_eq "debup needrestart: resolves to an absolute path" \
-  "$debup_sbin/needrestart" "$resolved"
+  "$debup_sbin/$debup_nr_fixture" "$resolved"
 
 # The restart hook must actually use it once resolution succeeds.
 _debup_reset
 # shellcheck disable=SC2034 # read by the sourced debup under test.
 DEBUP_NEEDRESTART_SEARCH_PATH="$debup_sbin"
 # shellcheck disable=SC2034 # read by the sourced debup under test.
-DEBUP_NEEDRESTART=needrestart
-cat >"$debup_sbin/needrestart" <<EOF
+DEBUP_NEEDRESTART="$debup_nr_fixture"
+cat >"$debup_sbin/$debup_nr_fixture" <<EOF
 #!/usr/bin/env bash
 printf '%s\\n' "\$*" >>"$DEBUP_NEEDRESTART_LOG"
 exit 0
 EOF
-chmod +x "$debup_sbin/needrestart"
+chmod +x "$debup_sbin/$debup_nr_fixture"
 DEBUP_MOCK_PACKAGE_FILES=$'openssh-server /usr/lib/systemd/system/ssh.service'
 DEBUP_MOCK_ACTIVE_UNITS="ssh.service"
 sysup_backend_restart_services openssh-server >/dev/null 2>&1
@@ -850,7 +854,7 @@ _assert_contains "debup needrestart: sbin-only needrestart drives the restart" \
 _assert_not_contains "debup needrestart: built-in restart is not used as well" \
   "try-restart" "$(cat "$DEBUP_SYSTEMCTL_LOG")"
 
-rm -f "$debup_sbin/needrestart"
+rm -f "$debup_sbin/$debup_nr_fixture"
 # shellcheck disable=SC2034 # read by the sourced debup under test.
 DEBUP_NEEDRESTART_SEARCH_PATH="/usr/local/sbin:/usr/sbin:/sbin"
 # shellcheck disable=SC2034 # read by the sourced debup under test.
