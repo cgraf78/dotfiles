@@ -6241,7 +6241,7 @@ HM
     unset -f merge _hive_memory_config _hive_memory_default_store_spec \
       _hive_memory_cloud_root_for \
       _hive_memory_warn _hive_memory_init_default_store \
-      _hive_memory_check_config hm 2>/dev/null
+      _hive_memory_check_config _hive_memory_remove_legacy_core hm 2>/dev/null
     # shellcheck source=/dev/null
     . "$_HIVE_HOOK"
     # shellcheck disable=SC2329 # merge resolves this fixture through command lookup.
@@ -6272,6 +6272,101 @@ description = "Personal memory"
 sensitivity = "private"
 TOML
   }
+
+  _HIVE_LEGACY_HOME=$(_tmpdir)
+  mkdir -p "$_HIVE_LEGACY_HOME/.local/share/hive-memory/bin" \
+    "$_HIVE_LEGACY_HOME/.local/share/cgraf78/hive-memory" \
+    "$_HIVE_LEGACY_HOME/.local/bin"
+  printf 'old copied binary\n' >"$_HIVE_LEGACY_HOME/.local/share/hive-memory/bin/hm-core"
+  printf 'unrelated state\n' >"$_HIVE_LEGACY_HOME/.local/share/hive-memory/keep"
+  cat >"$_HIVE_LEGACY_HOME/.local/share/cgraf78/hive-memory/hm" <<'HM'
+#!/usr/bin/env bash
+printf 'hm 1.0.0\n'
+HM
+  cat >"$_HIVE_LEGACY_HOME/.local/bin/hm" <<'HM'
+#!/usr/bin/env bash
+# Dotfiles-owned front door for the generic `hm` binary.
+exec "$HIVE_MEMORY_CORE" "$@"
+HM
+  chmod +x "$_HIVE_LEGACY_HOME/.local/share/cgraf78/hive-memory/hm" \
+    "$_HIVE_LEGACY_HOME/.local/bin/hm"
+  (
+    HOME="$_HIVE_LEGACY_HOME"
+    export HOME
+    _run_hive_merge
+  ) >/dev/null 2>&1
+  _assert_file_exists "hive hook migration: unproven shdeps keeps legacy fallback" \
+    "$_HIVE_LEGACY_HOME/.local/share/hive-memory/bin/hm-core"
+  mv "$_HIVE_LEGACY_HOME/.local/share/cgraf78/hive-memory/hm" \
+    "$_HIVE_LEGACY_HOME/.local/share/cgraf78/hive-memory/hm.real"
+  ln -s "$_HIVE_LEGACY_HOME/.local/share/hive-memory/bin/hm-core" \
+    "$_HIVE_LEGACY_HOME/.local/share/cgraf78/hive-memory/hm"
+  (
+    HOME="$_HIVE_LEGACY_HOME"
+    DOT_SHDEPS_RELEASE_LAUNCHER_PRESERVATION=1
+    export HOME DOT_SHDEPS_RELEASE_LAUNCHER_PRESERVATION
+    _run_hive_merge
+  ) >/dev/null 2>&1
+  _assert_file_exists "hive hook migration: stable core symlink cannot authorize deletion" \
+    "$_HIVE_LEGACY_HOME/.local/share/hive-memory/bin/hm-core"
+  rm "$_HIVE_LEGACY_HOME/.local/share/cgraf78/hive-memory/hm"
+  mv "$_HIVE_LEGACY_HOME/.local/share/cgraf78/hive-memory/hm.real" \
+    "$_HIVE_LEGACY_HOME/.local/share/cgraf78/hive-memory/hm"
+  (
+    HOME="$_HIVE_LEGACY_HOME"
+    DOT_SHDEPS_RELEASE_LAUNCHER_PRESERVATION=1
+    export HOME DOT_SHDEPS_RELEASE_LAUNCHER_PRESERVATION
+    _run_hive_merge
+  ) >/dev/null 2>&1
+  _assert_file_missing "hive hook migration: removes obsolete copied core binary" \
+    "$_HIVE_LEGACY_HOME/.local/share/hive-memory/bin/hm-core"
+  _assert_file_exists "hive hook migration: preserves unrelated Hive state" \
+    "$_HIVE_LEGACY_HOME/.local/share/hive-memory/keep"
+
+  _HIVE_SYMLINK_HOME=$(_tmpdir)
+  mkdir -p "$_HIVE_SYMLINK_HOME/.local/share/hive-memory/bin" \
+    "$_HIVE_SYMLINK_HOME/.local/share/cgraf78/hive-memory" \
+    "$_HIVE_SYMLINK_HOME/.local/lib/dot/hive-memory" \
+    "$_HIVE_SYMLINK_HOME/.local/bin"
+  printf 'old copied binary\n' >"$_HIVE_SYMLINK_HOME/.local/share/hive-memory/bin/hm-core"
+  cp "$_HIVE_LEGACY_HOME/.local/share/cgraf78/hive-memory/hm" \
+    "$_HIVE_SYMLINK_HOME/.local/share/cgraf78/hive-memory/hm"
+  cp "$_HIVE_LEGACY_HOME/.local/bin/hm" \
+    "$_HIVE_SYMLINK_HOME/.local/lib/dot/hive-memory/hm-launcher"
+  ln -s ../lib/dot/hive-memory/hm-launcher "$_HIVE_SYMLINK_HOME/.local/bin/hm"
+  (
+    HOME="$_HIVE_SYMLINK_HOME"
+    DOT_SHDEPS_RELEASE_LAUNCHER_PRESERVATION=1
+    export HOME DOT_SHDEPS_RELEASE_LAUNCHER_PRESERVATION
+    _run_hive_merge
+  ) >/dev/null 2>&1
+  _assert_file_exists "hive hook migration: old symlink launcher cannot authorize deletion" \
+    "$_HIVE_SYMLINK_HOME/.local/share/hive-memory/bin/hm-core"
+
+  _HIVE_FAILED_HOME=$(_tmpdir)
+  mkdir -p "$_HIVE_FAILED_HOME/.local/share/hive-memory/bin"
+  printf 'last working core\n' >"$_HIVE_FAILED_HOME/.local/share/hive-memory/bin/hm-core"
+  (
+    HOME="$_HIVE_FAILED_HOME"
+    DOT_SHDEPS_RELEASE_LAUNCHER_PRESERVATION=1
+    export HOME DOT_SHDEPS_RELEASE_LAUNCHER_PRESERVATION
+    _run_hive_merge
+  ) >/dev/null 2>&1
+  _assert_file_exists "hive hook migration: failed dependency refresh keeps legacy core" \
+    "$_HIVE_FAILED_HOME/.local/share/hive-memory/bin/hm-core"
+
+  _HIVE_EMPTY_LEGACY_HOME=$(_tmpdir)
+  mkdir -p "$_HIVE_EMPTY_LEGACY_HOME/.local/share/hive-memory/bin"
+  (
+    HOME="$_HIVE_EMPTY_LEGACY_HOME"
+    export HOME
+    _run_hive_merge
+  ) >/dev/null 2>&1
+  if [[ -d "$_HIVE_EMPTY_LEGACY_HOME/.local/share/hive-memory/bin" ]]; then
+    _pass "hive hook migration: absent owned core leaves empty namespace alone"
+  else
+    _fail "hive hook migration: absent owned core leaves empty namespace alone"
+  fi
 
   _hive_default_config=$(
     unset HIVE_MEMORY_CONFIG XDG_CONFIG_HOME

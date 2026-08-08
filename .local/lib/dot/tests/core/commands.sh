@@ -832,6 +832,8 @@ CONF
       # shellcheck disable=SC2329  # invoked dynamically by update finalization.
       _ensure_shdeps() { :; }
       # shellcheck disable=SC2329  # invoked dynamically by update finalization.
+      _dot_shdeps_require_release_launcher_preservation() { :; }
+      # shellcheck disable=SC2329  # invoked dynamically by update finalization.
       _run_shdeps_update_ui() { return 1; }
       # shellcheck disable=SC2329  # invoked dynamically by update finalization.
       _shdeps_print_group_summaries() { :; }
@@ -848,6 +850,66 @@ CONF
     _assert_file_exists "update finalize: dependency failure still runs cleanup" \
       "$finalize_marker_dir/cleanup"
 
+    stale_proof_marker_dir=$(_tmpdir)
+    stale_proof_rc=0
+    (
+      # shellcheck disable=SC2329  # invoked dynamically by update finalization.
+      _ensure_repo_config() { :; }
+      # shellcheck disable=SC2329  # invoked dynamically by update finalization.
+      _link_overlays() { :; }
+      # shellcheck disable=SC2329  # invoked dynamically by update finalization.
+      _ensure_shdeps() { return 1; }
+      # shellcheck disable=SC2329  # must not run when shdeps bootstrap fails.
+      _run_shdeps_update_ui() { : >"$stale_proof_marker_dir/update"; }
+      # shellcheck disable=SC2329  # invoked dynamically by update finalization.
+      _shdeps_print_group_summaries() { :; }
+      # shellcheck disable=SC2329  # observes the proof inherited by merge hooks.
+      _run_merges() {
+        printf '%s\n' "${DOT_SHDEPS_RELEASE_LAUNCHER_PRESERVATION:-unset}" \
+          >"$stale_proof_marker_dir/proof"
+      }
+      # shellcheck disable=SC2329  # invoked dynamically by update finalization.
+      _normalize_filtered() { :; }
+      DOT_SHDEPS_RELEASE_LAUNCHER_PRESERVATION=1 \
+        DOT_QUIET=1 DOT_UI_TOTAL=0 _dot_update_finalize
+    ) || stale_proof_rc=$?
+    _assert_exit "update finalize: bootstrap failure is nonzero with stale proof" \
+      1 "$stale_proof_rc"
+    _assert_file_missing "update finalize: bootstrap failure skips dependency work" \
+      "$stale_proof_marker_dir/update"
+    _assert_file_content "update finalize: bootstrap failure clears stale capability proof" \
+      "unset" "$stale_proof_marker_dir/proof"
+
+    capability_marker_dir=$(_tmpdir)
+    capability_rc=0
+    (
+      # shellcheck disable=SC2329  # invoked dynamically by update finalization.
+      _ensure_repo_config() { :; }
+      # shellcheck disable=SC2329  # invoked dynamically by update finalization.
+      _link_overlays() { :; }
+      # shellcheck disable=SC2329  # invoked dynamically by update finalization.
+      _ensure_shdeps() { :; }
+      # shellcheck disable=SC2329  # invoked dynamically by update finalization.
+      _dot_shdeps_require_release_launcher_preservation() { return 1; }
+      # shellcheck disable=SC2329  # must not run after capability preflight fails.
+      _run_shdeps_update_ui() { : >"$capability_marker_dir/update"; }
+      # shellcheck disable=SC2329  # invoked dynamically by update finalization.
+      _shdeps_print_group_summaries() { :; }
+      # shellcheck disable=SC2329  # invoked dynamically by update finalization.
+      _run_merges() { : >"$capability_marker_dir/merges"; }
+      # shellcheck disable=SC2329  # invoked dynamically by update finalization.
+      _normalize_filtered() { : >"$capability_marker_dir/cleanup"; }
+      DOT_QUIET=1 DOT_UI_TOTAL=0 _dot_update_finalize
+    ) || capability_rc=$?
+    _assert_exit "update finalize: missing preservation capability is nonzero" \
+      1 "$capability_rc"
+    _assert_file_missing "update finalize: old shdeps never reaches dependency work" \
+      "$capability_marker_dir/update"
+    _assert_file_exists "update finalize: capability failure still runs merges" \
+      "$capability_marker_dir/merges"
+    _assert_file_exists "update finalize: capability failure still runs cleanup" \
+      "$capability_marker_dir/cleanup"
+
     overlay_marker_dir=$(_tmpdir)
     overlay_rc=0
     (
@@ -857,6 +919,8 @@ CONF
       _link_overlays() { return 1; }
       # shellcheck disable=SC2329  # invoked dynamically by update finalization.
       _ensure_shdeps() { :; }
+      # shellcheck disable=SC2329  # invoked dynamically by update finalization.
+      _dot_shdeps_require_release_launcher_preservation() { :; }
       # shellcheck disable=SC2329  # invoked dynamically by update finalization.
       _run_shdeps_update_ui() { return 0; }
       # shellcheck disable=SC2329  # invoked dynamically by update finalization.
@@ -882,6 +946,8 @@ CONF
       _link_overlays() { :; }
       # shellcheck disable=SC2329  # invoked dynamically by update finalization.
       _ensure_shdeps() { :; }
+      # shellcheck disable=SC2329  # invoked dynamically by update finalization.
+      _dot_shdeps_require_release_launcher_preservation() { :; }
       # shellcheck disable=SC2329  # invoked dynamically by update finalization.
       _run_shdeps_update_ui() {
         # shellcheck disable=SC2034  # consumed dynamically by the finalizer.

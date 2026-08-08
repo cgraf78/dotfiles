@@ -987,6 +987,141 @@ MOCK
   fi
 
   # ---------------------------------------------------------------------------
+  # Tests: Hive Memory launcher
+  # ---------------------------------------------------------------------------
+
+  echo ""
+  echo "=== hm launcher ==="
+
+  HM_LAUNCHER_HOME=$(_tmpdir)
+  HM_LAUNCHER_REAL="$HM_LAUNCHER_HOME/.local/share/cgraf78/hive-memory/hm"
+  mkdir -p "${HM_LAUNCHER_REAL%/*}"
+  cat >"$HM_LAUNCHER_REAL" <<'MOCK'
+#!/usr/bin/env bash
+if [[ "${1:-}" == env-probe ]]; then
+  printf 'agent=%s\n' "${HIVE_MEMORY_AGENT_ID:-}"
+  printf 'session=%s\n' "${HIVE_MEMORY_SESSION_ID:-}"
+  printf 'project=%s\n' "${HIVE_MEMORY_PROJECT:-}"
+else
+  printf 'real:%s\n' "$*"
+fi
+MOCK
+  chmod +x "$HM_LAUNCHER_REAL"
+
+  # Clear ambient runtime identity for every probe so the assertions describe
+  # only the environment each case supplies, regardless of which agent runs
+  # dot-test. Later env operands intentionally override this baseline.
+  HM_LAUNCHER_SCRUB_ENV=(
+    AGENTGUARD_PROCESS_DETECT=0
+    AGENTGUARD_SESSION_ID=
+    CODEX_THREAD_ID=
+    CODEX_INTERNAL_ORIGINATOR_OVERRIDE=
+    CLAUDE_CODE_CURRENT_SESSION_ID=
+    CLAUDE_CODE_SESSION_ID=
+    AGENTGUARD_NAME=
+    GEMINI_PROJECT_DIR=
+    HIVE_MEMORY_AGENT_ID=
+    HIVE_MEMORY_CORE=
+    HIVE_MEMORY_PROJECT_INFER=
+    HIVE_MEMORY_SESSION_ID=
+    HIVE_MEMORY_PROJECT=
+  )
+
+  result=$(env "${HM_LAUNCHER_SCRUB_ENV[@]}" HOME="$HM_LAUNCHER_HOME" \
+    "$BIN_DIR/hm" recall --limit 2)
+  _assert_eq "hm launcher: delegates to stable Shdeps archive path" \
+    "real:recall --limit 2" "$result"
+
+  result=$(env "${HM_LAUNCHER_SCRUB_ENV[@]}" HOME="$HM_LAUNCHER_HOME" \
+    HIVE_MEMORY_CORE= "$BIN_DIR/hm" recall --limit 3)
+  _assert_eq "hm launcher: empty core override keeps historical default behavior" \
+    "real:recall --limit 3" "$result"
+
+  HM_LAUNCHER_LEGACY="$HM_LAUNCHER_HOME/.local/share/hive-memory/bin/hm-core"
+  mkdir -p "${HM_LAUNCHER_LEGACY%/*}"
+  cp "$HM_LAUNCHER_REAL" "$HM_LAUNCHER_LEGACY"
+  rm -f "$HM_LAUNCHER_REAL"
+  result=$(env "${HM_LAUNCHER_SCRUB_ENV[@]}" HOME="$HM_LAUNCHER_HOME" \
+    "$BIN_DIR/hm" recall --limit 1)
+  _assert_eq "hm launcher: failed first migration keeps the legacy core usable" \
+    "real:recall --limit 1" "$result"
+  cp "$HM_LAUNCHER_LEGACY" "$HM_LAUNCHER_REAL"
+
+  HM_LAUNCHER_OVERRIDE=$(_tmpdir)/hm-real
+  cp "$HM_LAUNCHER_REAL" "$HM_LAUNCHER_OVERRIDE"
+  result=$(env "${HM_LAUNCHER_SCRUB_ENV[@]}" HOME="$HM_LAUNCHER_HOME" \
+    HIVE_MEMORY_CORE="$HM_LAUNCHER_OVERRIDE" "$BIN_DIR/hm" search query)
+  _assert_eq "hm launcher: explicit core override remains supported" \
+    "real:search query" "$result"
+
+  _hm_plain_probe=$(env "${HM_LAUNCHER_SCRUB_ENV[@]}" \
+    HOME="$HM_LAUNCHER_HOME" "$BIN_DIR/hm" env-probe)
+  _assert_contains "hm launcher: leaves human agent unset" \
+    "agent=" "$_hm_plain_probe"
+  _assert_contains "hm launcher: leaves human session unset" \
+    "session=" "$_hm_plain_probe"
+
+  _hm_env_probe=$(env "${HM_LAUNCHER_SCRUB_ENV[@]}" \
+    HOME="$HM_LAUNCHER_HOME" CODEX_THREAD_ID="codex-session-1" \
+    "$BIN_DIR/hm" env-probe)
+  _assert_contains "hm launcher: detects Codex agent" \
+    "agent=codex" "$_hm_env_probe"
+  _assert_contains "hm launcher: exports Codex session" \
+    "session=codex-session-1" "$_hm_env_probe"
+  _assert_contains "hm launcher: exports project hint" \
+    "project=$(pwd)" "$_hm_env_probe"
+
+  _hm_dot_agent_probe=$(env "${HM_LAUNCHER_SCRUB_ENV[@]}" \
+    HOME="$HM_LAUNCHER_HOME" AGENTGUARD_NAME="codex" \
+    "$BIN_DIR/hm" env-probe)
+  _assert_contains "hm launcher: uses explicit AgentGuard name" \
+    "agent=codex" "$_hm_dot_agent_probe"
+  _assert_contains "hm launcher: synthesizes AgentGuard session" \
+    "session=codex-" "$_hm_dot_agent_probe"
+
+  _hm_explicit_agent_probe=$(env "${HM_LAUNCHER_SCRUB_ENV[@]}" \
+    HOME="$HM_LAUNCHER_HOME" AGENTGUARD_NAME="codex" \
+    CODEX_THREAD_ID="codex-session-2" HIVE_MEMORY_AGENT_ID="custom-agent" \
+    "$BIN_DIR/hm" env-probe)
+  _assert_contains "hm launcher: preserves explicit agent override" \
+    "agent=custom-agent" "$_hm_explicit_agent_probe"
+  _assert_contains "hm launcher: keeps detected runtime session" \
+    "session=codex-session-2" "$_hm_explicit_agent_probe"
+
+  _hm_no_project_probe=$(env "${HM_LAUNCHER_SCRUB_ENV[@]}" \
+    HOME="$HM_LAUNCHER_HOME" AGENTGUARD_NAME="codex" \
+    CODEX_THREAD_ID="codex-session-3" HIVE_MEMORY_PROJECT_INFER=0 \
+    "$BIN_DIR/hm" env-probe)
+  _assert_eq "hm launcher: keeps project unset when inference is disabled" \
+    "project=" "$(printf '%s\n' "$_hm_no_project_probe" | grep '^project=')"
+
+  _hm_missing_output=""
+  _hm_missing_rc=0
+  _hm_missing_output=$(env "${HM_LAUNCHER_SCRUB_ENV[@]}" \
+    HOME="$HM_LAUNCHER_HOME" HIVE_MEMORY_CORE="$HM_LAUNCHER_HOME/missing" \
+    "$BIN_DIR/hm" --version 2>&1) || _hm_missing_rc=$?
+  _assert_eq "hm launcher: missing core exits like a missing command" \
+    "127" "$_hm_missing_rc"
+  _assert_contains "hm launcher: missing core names the rejected path" \
+    "$HM_LAUNCHER_HOME/missing" "$_hm_missing_output"
+
+  _hm_self_rc=0
+  env "${HM_LAUNCHER_SCRUB_ENV[@]}" HOME="$HM_LAUNCHER_HOME" \
+    HIVE_MEMORY_CORE="$BIN_DIR/hm" "$BIN_DIR/hm" --version \
+    >/dev/null 2>&1 || _hm_self_rc=$?
+  _assert_eq "hm launcher: direct self override is rejected" "127" "$_hm_self_rc"
+
+  HM_LAUNCHER_COPY=$(_tmpdir)/hm-copy
+  cp "$BIN_DIR/hm" "$HM_LAUNCHER_COPY"
+  chmod +x "$HM_LAUNCHER_COPY"
+  _hm_copy_rc=0
+  env "${HM_LAUNCHER_SCRUB_ENV[@]}" HOME="$HM_LAUNCHER_HOME" \
+    HIVE_MEMORY_CORE="$HM_LAUNCHER_COPY" "$BIN_DIR/hm" --version \
+    >/dev/null 2>&1 || _hm_copy_rc=$?
+  _assert_eq "hm launcher: another launcher copy is rejected by marker" \
+    "127" "$_hm_copy_rc"
+
+  # ---------------------------------------------------------------------------
   # Tests: sley launcher
   # ---------------------------------------------------------------------------
 
