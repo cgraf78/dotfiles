@@ -114,7 +114,6 @@ own it:
 | Command entry points | [`.local/bin/README.md`](../../../../.local/bin/README.md) |
 | Runtime library layout | [`.local/lib/dot/README.md`](../../../../.local/lib/dot/README.md) |
 | `dot` core runtime | [`.local/lib/dot/core/README.md`](../../../../.local/lib/dot/core/README.md) |
-| Dot Lua helpers | [`.local/lib/dot/lua/README.md`](../../../../.local/lib/dot/lua/README.md) |
 | Dot documentation index | [`.local/share/doc/dot/README.md`](README.md) |
 | Schema payloads | [`.local/share/checkrun/schemas/README.md`](../../../../.local/share/checkrun/schemas/README.md) |
 | Test suites | [`.local/lib/dot/tests/README.md`](../../../../.local/lib/dot/tests/README.md) |

@@ -120,11 +120,13 @@ _test_use_host_shdeps() {
   export SHDEPS_INSTALL_DIR SHDEPS_BIN_DIR SHDEPS_GIT_DEV_DIR
   unset SHDEPS_TEST_PLATFORM SHDEPS_TEST_HOST
 
-  unset SHDEPS_LIB SHDEPS_DIR
+  unset SHDEPS_LIB SHDEPS_DIR SHDEPS_LUA_DIR
   if [[ -f "$dependency_home/git/shdeps/shdeps.sh" ]]; then
     export SHDEPS_LIB="$dependency_home/git/shdeps/shdeps.sh"
+    export SHDEPS_LUA_DIR="$dependency_home/git/shdeps/lua"
   elif [[ -f "$dependency_home/.local/share/shdeps/shdeps.sh" ]]; then
     export SHDEPS_DIR="$dependency_home/.local/share/shdeps"
+    export SHDEPS_LUA_DIR="$dependency_home/.local/share/shdeps/lua"
   fi
 }
 
@@ -241,7 +243,10 @@ _test_prepare_shdeps_snapshot() {
   cp "$source_dir/install.sh" "$source_dir/shdeps.sh" "$snapshot/" || return 1
   cp -L "$binary" "$snapshot/shdeps" || return 1
   chmod +x "$snapshot/shdeps" || return 1
-  for optional in completions man; do
+  # Keep the isolated payload coherent with the public installer surface. In
+  # particular, current install.sh publishes the Lua tree during activation;
+  # omitting it would make snapshot-backed tests exercise an impossible release.
+  for optional in completions lua man; do
     [[ -e "$source_dir/$optional" ]] || continue
     cp -R "$source_dir/$optional" "$snapshot/" || return 1
   done
@@ -476,7 +481,7 @@ _mock_home() {
   unset MISE_DATA_DIR MISE_STATE_DIR MISE_CACHE_DIR
   unset SHDEPS_CONF_DIR SHDEPS_HOOKS_DIR SHDEPS_STATE_DIR
   unset SHDEPS_INSTALL_DIR SHDEPS_BIN_DIR SHDEPS_GIT_DEV_DIR
-  unset SHDEPS_DIR SHDEPS_BIN
+  unset SHDEPS_DIR SHDEPS_BIN SHDEPS_LUA_DIR
   # Isolate tests from real user and system Git config (e.g. core.fsmonitor or
   # commit signing can spawn external processes). Use an empty writable global
   # file so fixture `git config --global` calls still succeed.
