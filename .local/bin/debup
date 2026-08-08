@@ -42,6 +42,11 @@ DEBUP_UPDATE_RETRY_DELAY="${DEBUP_UPDATE_RETRY_DELAY:-30}"
 # exercise the built-in fallback on a host where needrestart is installed.
 DEBUP_NEEDRESTART="${DEBUP_NEEDRESTART:-needrestart}"
 
+# Directories searched when the caller's PATH does not carry needrestart. These
+# are the sbin entries sudo's secure_path provides, which is where it will
+# actually be run from.
+DEBUP_NEEDRESTART_SEARCH_PATH="${DEBUP_NEEDRESTART_SEARCH_PATH:-/usr/local/sbin:/usr/sbin:/sbin}"
+
 # System paths the advisory checks read. Overridable so tests can point them at
 # a fixture tree instead of the live system.
 DEBUP_REBOOT_REQUIRED_FILE="${DEBUP_REBOOT_REQUIRED_FILE:-/var/run/reboot-required}"
@@ -106,8 +111,40 @@ debup_apt_get() {
     apt-get "${options[@]}" "$@"
 }
 
-debup_have_needrestart() {
-  command -v "$DEBUP_NEEDRESTART" >/dev/null 2>&1
+# Resolve needrestart to an absolute path, or return 1 when it is not installed.
+#
+# needrestart lives in /usr/sbin, which a normal user's PATH omits on Debian.
+# debup runs unprivileged and escalates per command, so detection sees the
+# caller's PATH while execution sees sudo's secure_path -- which does include
+# the sbin directories. Detecting with the caller's PATH alone reports
+# needrestart missing on a host where it is installed and runs fine, and debup
+# then silently falls back to the built-in restart path.
+#
+# Resolving to one absolute path keeps detection and execution in agreement.
+debup_needrestart_path() {
+  local candidate dir
+
+  # An explicit path (tests, or a deliberate override) is used as given.
+  case "$DEBUP_NEEDRESTART" in
+    */*)
+      [[ -x "$DEBUP_NEEDRESTART" ]] || return 1
+      printf '%s\n' "$DEBUP_NEEDRESTART"
+      return 0
+      ;;
+  esac
+
+  if candidate="$(command -v "$DEBUP_NEEDRESTART" 2>/dev/null)"; then
+    printf '%s\n' "$candidate"
+    return 0
+  fi
+
+  while IFS= read -r dir; do
+    [[ -n "$dir" && -x "$dir/$DEBUP_NEEDRESTART" ]] || continue
+    printf '%s\n' "$dir/$DEBUP_NEEDRESTART"
+    return 0
+  done < <(tr ':' '\n' <<<"$DEBUP_NEEDRESTART_SEARCH_PATH")
+
+  return 1
 }
 
 debup_held_packages() {
@@ -143,10 +180,10 @@ debup_apt_update() {
 # NEEDRESTART-KSTA: 0 unknown, 1 none pending, 2 ABI-compatible upgrade pending,
 # 3 version upgrade pending.
 debup_reboot_required() {
-  local output ksta="" line
+  local output ksta="" line needrestart
 
-  if debup_have_needrestart; then
-    if output="$(sysup_run_as_root "$DEBUP_NEEDRESTART" -b -k 2>&1)"; then
+  if needrestart="$(debup_needrestart_path)"; then
+    if output="$(sysup_run_as_root "$needrestart" -b -k 2>&1)"; then
       while IFS= read -r line; do
         case "$line" in
           "NEEDRESTART-KSTA: "*)
@@ -359,9 +396,11 @@ sysup_backend_checks() {
 # for deleted mappings rather than inferring from package contents, so it also
 # catches services linking an upgraded library they do not own.
 sysup_backend_restart_services() {
-  if debup_have_needrestart; then
+  local needrestart
+
+  if needrestart="$(debup_needrestart_path)"; then
     sysup_log "restarting services reported by needrestart"
-    sysup_run_as_root "$DEBUP_NEEDRESTART" -r a
+    sysup_run_as_root "$needrestart" -r a
     return
   fi
 
