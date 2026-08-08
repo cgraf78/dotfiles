@@ -119,15 +119,20 @@ _assert_wrapper_argv "muse session-message is left alone" \
   "[session-message][serve]" muse session-message serve
 
 echo
-echo "=== claude and codex: flags are accepted ahead of any subcommand ==="
+echo "=== claude and codex: native yolo flags precede every invocation ==="
 
 _assert_wrapper_argv "claude prepends --dangerously-skip-permissions" \
   "[--dangerously-skip-permissions]" claude
 _assert_wrapper_argv "claude keeps the flag ahead of subcommands" \
   "[--dangerously-skip-permissions][mcp][list]" claude mcp list
-_assert_wrapper_argv "codex prepends its allow-all profile" \
-  "[--profile][allow_all][--ask-for-approval][never]" codex
-_assert_wrapper_argv "codex keeps the flags ahead of subcommands" \
-  "[--profile][allow_all][--ask-for-approval][never][mcp][list]" codex mcp list
+_assert_wrapper_argv "codex prepends its native yolo flag" \
+  "[--dangerously-bypass-approvals-and-sandbox]" codex
+_assert_wrapper_argv "codex keeps the native flag ahead of runtime commands" \
+  "[--dangerously-bypass-approvals-and-sandbox][mcp][list]" codex mcp list
+_assert_wrapper_argv "codex keeps the native flag ahead of administrative commands" \
+  "[--dangerously-bypass-approvals-and-sandbox][update]" codex update
+_assert_wrapper_argv "codex preserves quoted prompts" \
+  "[--dangerously-bypass-approvals-and-sandbox][fix the tests]" \
+  codex "fix the tests"
 
 _test_summary

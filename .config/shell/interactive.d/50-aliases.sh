@@ -233,23 +233,19 @@ lg() {
 # by per-action approval. Do NOT carry this default onto shared or multi-user
 # hosts, where interactive approval should stay on.
 #
-# Flag placement differs per CLI. Claude and Codex accept their approval flags
-# ahead of any subcommand, so those wrappers can prepend unconditionally. Muse
-# and opencode accept theirs only on the commands that actually run an agent, so
-# those wrappers route by invocation shape — see each note below.
+# Flag placement differs per CLI. Claude and Codex accept their native yolo
+# flags ahead of every invocation, so those wrappers prepend unconditionally.
+# Muse and opencode accept theirs only on the commands that actually run an
+# agent, so those wrappers route by invocation shape — see each note below.
 
 # Claude - disable permission checks (see risk-acceptance note above).
 claude() {
   command claude --dangerously-skip-permissions "$@"
 }
 
-# Codex - disable permission checks (see risk-acceptance note above).
-_codex_allow_all() {
-  command codex --profile allow_all --ask-for-approval never "$@"
-}
-
+# Codex - disable approval and sandboxing (see risk-acceptance note above).
 codex() {
-  _codex_allow_all "$@"
+  command codex --dangerously-bypass-approvals-and-sandbox "$@"
 }
 
 # Muse - disable approval and sandboxing (see risk-acceptance note above).
