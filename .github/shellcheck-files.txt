@@ -174,7 +174,6 @@ program	.local/lib/dot/tests/harness-isolation-test
 program	.local/lib/dot/tests/helpers.sh
 program	.local/lib/dot/tests/lua-test
 program	.local/lib/dot/tests/nvim-test
-program	.local/lib/dot/tests/opencode-agentguard-test
 program	.local/lib/dot/tests/prompt-test
 program	.local/lib/dot/tests/schema-associations-test
 program	.local/lib/dot/tests/schema-refresh-workflow-test

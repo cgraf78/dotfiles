@@ -16,6 +16,15 @@ if ! declare -F _merge_hook_source >/dev/null 2>&1; then
   # shellcheck source=../../../../.local/lib/dot/core/merge-hooks.sh
   . "$_DOT_CODEX_CONFIG_DIR/../../../../.local/lib/dot/core/merge-hooks.sh"
 fi
+if ! declare -F dot_agentguard_integration_file >/dev/null 2>&1; then
+  # AgentGuard assets are resolved by the shared Shdeps adapter, not by the
+  # merge library above. The normal dot runtime loads both libraries before this
+  # module, but its documented clean-shell/test fallback must be complete too;
+  # otherwise source discovery fails only in the very environments the fallback
+  # exists to support.
+  # shellcheck source=../../../../.local/lib/dot/core/shdeps-assets.sh
+  . "$_DOT_CODEX_CONFIG_DIR/../../../../.local/lib/dot/core/shdeps-assets.sh"
+fi
 
 _codex_toml_renderer() {
   printf '%s\n' "$_DOT_CODEX_CONFIG_DIR/toml-render.py"
@@ -54,7 +63,23 @@ _codex_profiles() {
 #
 # Args: none
 # Returns absolute TOML fragment paths on stdout, one per line.
+_codex_agentguard_source() {
+  dot_agentguard_integration_file codex hooks.toml
+}
+
+_codex_agentguard_reconciler() {
+  dot_agentguard_integration_file _shared reconcile-hooks.jq
+}
+
 _codex_config_sources() {
+  local agentguard_src=""
+
+  # This complete stream feeds cache signatures. The actual merge preflights
+  # both AgentGuard assets and applies the first source through the provider's
+  # ownership-aware reconciler rather than treating it as an ordinary layer.
+  agentguard_src=$(_codex_agentguard_source 2>/dev/null) || agentguard_src=""
+  [[ -r "$agentguard_src" ]] && printf '%s\n' "$agentguard_src"
+
   _merge_hook_family_files_matching codex/config.d '*.toml' '*.replace/*.toml'
 }
 
@@ -91,18 +116,20 @@ _codex_config_cache_file() {
 }
 
 _codex_config_signature() {
-  local dst="$1" helper="$2"
+  local dst="$1" helper="$2" reconciler=""
+  reconciler=$(_codex_agentguard_reconciler 2>/dev/null) || reconciler=""
 
   {
-    # v5 moves layer discovery from hard-coded source names into fragment
-    # families. Include the full discovered stream so adding, removing, or
-    # replacing any fragment forces one modern merge before the cache can skip
-    # future no-op dot updates.
-    printf 'version\t%s\n' 'dotfiles-codex-config-merge-v5'
+    # v6 adds provider-owned generation reconciliation. Include the full source
+    # stream and the reconciliation program so either a native mapping change or
+    # an ownership-rule migration forces one complete merge before the cache can
+    # skip future no-op updates.
+    printf 'version\t%s\n' 'dotfiles-codex-config-merge-v6'
     local source
     while IFS= read -r source; do
       _codex_file_fingerprint "$source"
     done < <(_codex_config_sources)
+    _codex_file_fingerprint "$reconciler"
     _codex_file_fingerprint "$helper"
     _codex_file_fingerprint "$dst"
 
@@ -218,6 +245,86 @@ _merge_codex_config() {
   }
 }
 
+# Apply AgentGuard's complete Codex generation before ordinary dotfiles layers.
+#
+# Codex stores both declarative hook arrays and mutable trust metadata below the
+# same TOML tree. Convert each document to JSON, let AgentGuard's shared jq
+# program replace only its prior commands/events, then render the result through
+# the existing stable TOML writer. This keeps runtime ownership upstream while
+# preserving Codex state and user hooks that dotfiles does not own.
+_merge_codex_agentguard_config() {
+  local src="$1" dst="$2" reconciler="$3"
+  local yq_bin="" dst_json="" src_json="" merged_json="" out=""
+
+  yq_bin=$(_codex_yq) || {
+    _warn "    warning: mikefarah/yq not found; skipping Codex config merge"
+    return 1
+  }
+  command -v jq >/dev/null 2>&1 || {
+    _warn "    warning: jq not found; skipping Codex AgentGuard reconciliation"
+    return 1
+  }
+  command -v python3 >/dev/null 2>&1 || {
+    _warn "    warning: python3 not found; skipping Codex config merge"
+    return 1
+  }
+
+  dst_json=$(mktemp) || return 1
+  src_json=$(mktemp) || {
+    rm -f "$dst_json"
+    return 1
+  }
+  merged_json=$(mktemp) || {
+    rm -f "$dst_json" "$src_json"
+    return 1
+  }
+  _dot_sibling_tmp_for "$dst" || {
+    rm -f "$dst_json" "$src_json" "$merged_json"
+    return 1
+  }
+  out="$REPLY"
+
+  if [[ -s "$dst" ]] &&
+    "$yq_bin" eval --input-format toml '.' "$dst" >/dev/null 2>&1; then
+    if ! "$yq_bin" eval --input-format toml --output-format json '.' \
+      "$dst" >"$dst_json"; then
+      _warn "    warning: Codex config conversion failed; preserving target"
+      rm -f "$dst_json" "$src_json" "$merged_json" "$out"
+      return 1
+    fi
+  else
+    # Preserve an unreadable target until every later conversion succeeds. The
+    # final sibling rename recovers it atomically instead of deleting first.
+    [[ ! -e "$dst" && ! -L "$dst" ]] ||
+      _warn "    warning: corrupt $dst — rebuilding"
+    printf '{}\n' >"$dst_json"
+  fi
+
+  if ! "$yq_bin" eval --input-format toml --output-format json '.' \
+    "$src" >"$src_json" ||
+    ! jq -n --sort-keys --indent 2 \
+      --arg agent codex \
+      --slurpfile d "$dst_json" \
+      --slurpfile s "$src_json" \
+      -f "$reconciler" >"$merged_json" ||
+    [[ ! -s "$merged_json" ]] || ! jq empty "$merged_json" 2>/dev/null ||
+    ! python3 "$(_codex_toml_renderer)" render-json "$merged_json" >"$out"; then
+    _warn "    warning: Codex AgentGuard reconciliation failed; preserving target"
+    rm -f "$dst_json" "$src_json" "$merged_json" "$out"
+    return 1
+  fi
+
+  rm -f "$dst_json" "$src_json" "$merged_json"
+  if [[ ! -L "$dst" ]] && cmp -s "$out" "$dst" 2>/dev/null; then
+    rm -f "$out"
+    return 0
+  fi
+  if ! mv "$out" "$dst"; then
+    rm -f "$out"
+    return 1
+  fi
+}
+
 _trust_codex_dotfile_hooks() {
   local dst="$1"
   local out
@@ -289,15 +396,23 @@ _inject_codex_home_trust() {
 
 dot_codex_config_merge() {
   local dst="$HOME/.codex/config.toml"
-  local trust_helper
+  local trust_helper agentguard_src="" agentguard_reconciler=""
   trust_helper="$(_merge_hook_source codex/refresh-trust.py)"
+
+  agentguard_src=$(_codex_agentguard_source 2>/dev/null) || agentguard_src=""
+  agentguard_reconciler=$(_codex_agentguard_reconciler 2>/dev/null) ||
+    agentguard_reconciler=""
+  if [[ ! -r "$agentguard_src" || ! -r "$agentguard_reconciler" ]]; then
+    _warn "    warning: AgentGuard codex integration unavailable — preserving $dst"
+    return 1
+  fi
 
   local -a config_sources=()
   local source
   while IFS= read -r source; do
+    [[ "$source" == "$agentguard_src" ]] && continue
     config_sources+=("$source")
   done < <(_codex_config_sources)
-  ((${#config_sources[@]} > 0)) || return 0
 
   # The Codex merge is intentionally heavier than most hooks: yq preserves
   # local CLI-owned state while Python serializes TOML in a shape Codex parses
@@ -312,21 +427,14 @@ dot_codex_config_merge() {
 
   _log "  Codex"
 
-  # Older dotfiles linked ~/.codex/config.toml directly from an overlay. Copy
-  # that resolved file before removing the symlink so Codex-owned counters and
-  # migration notices survive the move to merge-managed config.
-  if [[ -L "$dst" ]]; then
-    local realized=""
-    realized=$(mktemp) || return 0
-    if [[ -f "$dst" ]]; then
-      cp "$dst" "$realized"
-    fi
-    rm -f "$dst"
-    mv "$realized" "$dst"
-  fi
+  # The provider pass reads through a legacy symlink and renames a fully
+  # rendered sibling temp over it only after success, preserving Codex-owned
+  # state without an unlink-before-refresh failure window.
+  _merge_codex_agentguard_config \
+    "$agentguard_src" "$dst" "$agentguard_reconciler" || return 1
 
   for source in "${config_sources[@]}"; do
-    _merge_codex_config "$source" "$dst" || return 0
+    _merge_codex_config "$source" "$dst" || return 1
   done
 
   _inject_codex_home_trust "$dst"
@@ -340,10 +448,10 @@ dot_codex_config_merge() {
   while IFS= read -r profile; do
     profile_dst="$HOME/.codex/$profile.config.toml"
     while IFS= read -r source; do
-      _merge_codex_config "$source" "$profile_dst" || return 0
+      _merge_codex_config "$source" "$profile_dst" || return 1
     done < <(_codex_profile_sources "$profile")
   done < <(_codex_profiles)
 
-  _trust_codex_dotfile_hooks "$dst" || return 0
+  _trust_codex_dotfile_hooks "$dst" || return 1
   _codex_write_config_cache "$dst" "$trust_helper" || true
 }

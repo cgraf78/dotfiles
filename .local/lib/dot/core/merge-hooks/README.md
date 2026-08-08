@@ -54,6 +54,28 @@ For example, `agent-rules.sh` reads
 additional family layers under those same paths without changing this
 implementation directory.
 
+### Dependency-owned integration assets
+
+Some hooks activate an integration whose portable implementation belongs to a
+shdeps dependency rather than to this dotfiles repository. Resolve such assets
+through the focused helper in `../shdeps-assets.sh`, then keep the local hook to
+installation, merge order, and failure policy.
+
+The AgentGuard consumers are the reference shape: Claude, Codex, Gemini, and
+Muse apply provider-owned native config generations through AgentGuard's shared
+reconciliation filter; OpenCode safely installs a provider-owned plugin.
+Dotfiles must not duplicate event names, matchers, commands, timeouts,
+historical ownership predicates, retirement lists, or adapter logic. That
+detail is both reusable and fast-moving, so a consumer copy would drift even
+though `dot update` keeps repository versions synchronized.
+
+Failure to resolve a provider asset is not a removal signal. Hooks should
+preserve the complete last-known-good target, report the refresh failure, and
+avoid applying later policy layers against a missing security base. Legitimate
+retirement is expressed by AgentGuard's reconciliation program, not a local
+absence heuristic, so a transient dependency or bootstrap failure cannot
+silently turn off guarding.
+
 ## Hook Shape
 
 Each hook script should define a `merge` function. The merge runner sources each

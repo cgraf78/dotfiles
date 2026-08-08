@@ -87,12 +87,14 @@ merge() {
   while IFS= read -r src; do
     src_files+=("$src")
   done < <(_merge_hook_family_files_matching claude/settings.d '*.json' '*.replace/*.json')
-  ((${#src_files[@]} > 0)) || return 0
 
   _log "  Claude Code"
 
-  # Remove symlink if present (transition from overlay-link model)
-  [[ -L "$dst" ]] && rm -f "$dst"
+  # AgentGuard supplies the complete current generation and its generic
+  # ownership-aware reconciler. Do not apply later policy layers unless that
+  # required base refresh succeeds; this preserves the entire last-known-good
+  # target during a dependency or coordinated-rollout gap.
+  _merge_hook_agentguard_json_layer "Claude settings" claude "$dst" || return 1
 
   for src in "${src_files[@]}"; do
     _merge_claude_settings "$src" "$dst"

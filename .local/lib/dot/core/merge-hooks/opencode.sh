@@ -1,32 +1,49 @@
 # shellcheck shell=bash
-# Install the source-managed OpenCode AgentGuard plugin.
+# Install AgentGuard's provider-owned OpenCode plugin.
 
-_dot_opencode_hook_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)" || return
-_dot_opencode_source_dir="${DOT_OPENCODE_SOURCE_DIR:-$_dot_opencode_hook_dir/../../../../../.config/dot/merge-hooks.d/opencode}"
-_dot_opencode_marker='// dot-managed:opencode-agentguard-plugin'
+_dot_opencode_provider_source() {
+  local source="$1" first_line=""
+
+  [[ -f "$source" && ! -L "$source" ]] || return 1
+  IFS= read -r first_line <"$source" || true
+  # Unlike an installed target, a freshly resolved provider asset has no
+  # migration reason to use dotfiles' retired marker. Requiring AgentGuard's
+  # marker here prevents an old or misresolved consumer file from being
+  # promoted as the new canonical adapter.
+  [[ "$first_line" == "$(dot_agentguard_opencode_marker)" ]]
+}
 
 _dot_opencode_managed_target() {
   local target="$1" first_line=""
 
   [[ -f "$target" && ! -L "$target" ]] || return 1
   IFS= read -r first_line <"$target" || true
-  [[ "$first_line" == "$_dot_opencode_marker" ]]
+  # Accept the old dotfiles marker only as a migration input. The next
+  # successful install replaces it with AgentGuard's marker, after which the
+  # provider can evolve the adapter without dotfiles owning its identity.
+  [[ "$first_line" == "$(dot_agentguard_opencode_marker)" ||
+  "$first_line" == "$(dot_agentguard_opencode_legacy_marker)" ]]
 }
 
 merge() {
-  local src="$_dot_opencode_source_dir/agentguard.js"
+  local src=""
+  # Retain the historical target filename so an update replaces the existing
+  # managed plugin in place instead of briefly loading two copies. The filename
+  # is an installation detail; all executable bytes come from AgentGuard.
   local dst="$HOME/.config/opencode/plugins/dotfiles-agentguard.js"
   local tmp=""
 
+  # Dependency resolution can be unavailable during bootstrap, an interrupted
+  # update, or the coordinated rollout of the provider repository. Preserve a
+  # previously installed plugin in every such case; absence is not evidence
+  # that the user intentionally disabled AgentGuard.
+  src=$(dot_agentguard_integration_file opencode agentguard.js 2>/dev/null) || src=""
   if [[ ! -f "$src" ]]; then
-    if _dot_opencode_managed_target "$dst"; then
-      _log "  OpenCode"
-      rm -f "$dst"
-    fi
-    return 0
+    _warn "    warning: AgentGuard opencode integration unavailable — preserving $dst"
+    return 1
   fi
 
-  if ! _dot_opencode_managed_target "$src"; then
+  if ! _dot_opencode_provider_source "$src"; then
     _warn "    warning: invalid OpenCode AgentGuard plugin source — preserving target"
     return 1
   fi

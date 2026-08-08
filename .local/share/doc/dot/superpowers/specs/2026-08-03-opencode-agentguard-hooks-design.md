@@ -1,5 +1,12 @@
 # OpenCode AgentGuard Hooks Design
 
+> **Superseded (2026-08-07):** This document records the original dotfiles-owned
+> implementation. The reusable adapter, runtime contract, and behavioral tests
+> now live under `share/agentguard/integrations/opencode/` in AgentGuard.
+> Dotfiles retains only the thin provider-asset installer documented in
+> `.config/dot/merge-hooks.d/opencode/README.md`; paths and ownership statements
+> below are historical and must not guide new work.
+
 ## Goal
 
 Install a source-managed global OpenCode plugin from the dotfiles merge-hook

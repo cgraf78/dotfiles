@@ -27,11 +27,13 @@ merge() {
   while IFS= read -r src; do
     src_files+=("$src")
   done < <(_merge_hook_family_files_matching gemini/settings.d '*.json' '*.replace/*.json')
-  ((${#src_files[@]} > 0)) || return 0
 
   _log "  Gemini CLI"
 
-  [[ -L "$dst" ]] && rm -f "$dst"
+  # Reconciliation is provider-owned so event retirement and command changes
+  # stay reusable outside this dotfiles repository. A failed required refresh
+  # leaves the whole generated target unchanged and fails the merge hook.
+  _merge_hook_agentguard_json_layer "Gemini settings" gemini "$dst" || return 1
 
   for src in "${src_files[@]}"; do
     _merge_gemini_settings "$src" "$dst"

@@ -500,93 +500,61 @@ EOF
   _assert_not_contains "filter user mixed: current user excluded first" "mixed-skip-this-user" "$result"
   _assert_contains "filter user mixed: current user included" "mixed-keep-this-user" "$result"
 
-  echo "=== Agent hook config contract ==="
+  echo "=== Agent integration ownership contract ==="
 
   agent_config_contract=$(
     REAL_HOME="$REAL_HOME" python3 <<'PY'
 import json
 import pathlib
-import re
 import sys
 import tomllib
 
 root = pathlib.Path(__import__("os").environ["REAL_HOME"])
-files = [
-    root / ".config/dot/merge-hooks.d/claude/settings.d/10-agentguard.json",
-    root / ".config/dot/merge-hooks.d/codex/config.d/10-settings.toml",
-    root / ".config/dot/merge-hooks.d/gemini/settings.d/10-agentguard.json",
-]
-agent_hook = re.compile(r"env AGENTGUARD_NAME=(claude|codex|gemini)\b[^\n]*\bagent-hook-")
-missing = []
-for path in files:
-    for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-        match = agent_hook.search(line)
-        if match and "AGENTGUARD_SESSION_ID=" not in line:
-            missing.append(f"{path.relative_to(root)}:{lineno}:{line.strip()}")
+errors = []
+
+# AgentGuard owns native lifecycle vocabulary and adapter behavior. Dotfiles
+# intentionally retains only user policy plus the generic machinery that
+# resolves and installs those assets. This negative contract keeps a future
+# hook tweak from quietly recreating a second, drifting integration copy here.
+config_root = root / ".config/dot/merge-hooks.d"
+owned_dirs = [config_root / name for name in ("claude", "codex", "gemini", "muse", "opencode")]
+for directory in owned_dirs:
+    for path in directory.rglob("*"):
+        if not path.is_file() or path.name == "README.md":
+            continue
+        text = path.read_text(encoding="utf-8")
+        if "agent-hook-" in text or "AGENTGUARD_NAME=" in text:
+            errors.append(f"{path.relative_to(root)}: contains provider-owned integration code")
+
+for agent in ("claude", "muse"):
+    policy = config_root / agent / "settings.d/20-permissions.json"
+    if not policy.is_file():
+        errors.append(f"{policy.relative_to(root)}: missing local permission policy")
+        continue
+    with policy.open("r", encoding="utf-8") as f:
+        data = json.load(f)
+    if "permissions" not in data or "hooks" in data:
+        errors.append(f"{policy.relative_to(root)}: must contain permissions without hooks")
 
 codex_config = root / ".config/dot/merge-hooks.d/codex/config.d/10-settings.toml"
 with codex_config.open("rb") as f:
     codex_data = tomllib.load(f)
-if codex_data.get("features", {}).get("hooks") is not True:
-    missing.append(f"{codex_config.relative_to(root)}: missing [features].hooks = true")
+if codex_data.get("features", {}).get("hooks") is not None or "hooks" in codex_data:
+    errors.append(f"{codex_config.relative_to(root)}: contains provider-owned hook config")
 
-gemini_config = root / ".config/dot/merge-hooks.d/gemini/settings.d/10-agentguard.json"
-with gemini_config.open("r", encoding="utf-8") as f:
-    gemini_data = json.load(f)
-gemini_hooks = gemini_data.get("hooks", {})
-expected_gemini_events = [
-    "AfterAgent",
-    "AfterTool",
-    "BeforeAgent",
-    "BeforeTool",
-    "Notification",
-    "SessionEnd",
-    "SessionStart",
-]
-if sorted(gemini_hooks) != expected_gemini_events:
-    missing.append(
-        f"{gemini_config.relative_to(root)}: unexpected Gemini events "
-        f"{sorted(gemini_hooks)}"
-    )
+gemini_json = list((config_root / "gemini/settings.d").glob("*.json"))
+if gemini_json:
+    errors.append("gemini/settings.d: local JSON integration fragment remains")
 
-claude_events = {"PostToolUse", "PreToolUse", "Stop", "UserPromptSubmit"}
-leaked_events = sorted(claude_events.intersection(gemini_hooks))
-if leaked_events:
-    missing.append(
-        f"{gemini_config.relative_to(root)}: Claude event names leaked "
-        f"{leaked_events}"
-    )
+opencode_adapter = config_root / "opencode/agentguard.js"
+if opencode_adapter.exists():
+    errors.append(f"{opencode_adapter.relative_to(root)}: provider adapter remains in dotfiles")
 
-gemini_matchers = [
-    entry.get("matcher")
-    for entries in gemini_hooks.values()
-    for entry in entries
-    if entry.get("matcher")
-]
-for matcher in ("run_shell_command", "replace|write_file"):
-    if matcher not in gemini_matchers:
-        missing.append(f"{gemini_config.relative_to(root)}: missing {matcher} matcher")
-for matcher in ("Bash", "Edit"):
-    if matcher in gemini_matchers:
-        missing.append(f"{gemini_config.relative_to(root)}: contains Claude matcher {matcher}")
-
-for entries in gemini_hooks.values():
-    for entry in entries:
-        for hook in entry.get("hooks", []):
-            command = hook.get("command", "")
-            if not (
-                command.startswith("env AGENTGUARD_NAME=gemini ")
-                and " agent-hook-" in command
-            ):
-                missing.append(
-                    f"{gemini_config.relative_to(root)}: invalid Gemini hook command "
-                    f"{command}"
-                )
-
-if missing:
-    print("\n".join(missing))
+if errors:
+    print("\n".join(errors))
     sys.exit(1)
 PY
   )
-  _assert_eq "agent hook config: concrete agents set session env" "" "$agent_config_contract"
+  _assert_eq "agent integration ownership: dotfiles contains policy, not adapters" \
+    "" "$agent_config_contract"
 }

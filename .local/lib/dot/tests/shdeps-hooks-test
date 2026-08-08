@@ -167,7 +167,7 @@ _assert_contains "bat: Termux command keeps the native binary name" \
   "android:bat,apt:batcat" \
   "$(awk '$1 == "bat" && $2 == "pkg" { print; exit }' "$REAL_HOME/.config/shdeps/10-deps.conf")"
 
-for _termux_native in difftastic direnv dust gum lazygit mise; do
+for _termux_native in difftastic direnv dust gum lazygit mise yq; do
   _assert_contains "$_termux_native: Termux uses the native package" \
     "os:macos,os:android" \
     "$(awk -v name="$_termux_native" '$1 == name && $2 == "pkg" { print; exit }' "$REAL_HOME/.config/shdeps/10-deps.conf")"
@@ -176,7 +176,7 @@ done
 for _termux_upstream in \
   Wilfred/difftastic direnv/direnv bootandy/dust charmbracelet/gum \
   Decodetalkers/neocmakelsp editorconfig-checker/editorconfig-checker \
-  jesseduffield/lazygit jdx/mise; do
+  jesseduffield/lazygit jdx/mise mikefarah/yq; do
   _assert_contains "$_termux_upstream: upstream install excludes Android" \
     "os:!macos,os:!android" \
     "$(awk -v name="$_termux_upstream" '$1 == name { print; exit }' "$REAL_HOME/.config/shdeps/10-deps.conf")"

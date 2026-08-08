@@ -72,10 +72,11 @@ runtime API.
 | VS Code | `vscode/settings.d/`, `vscode/keybindings/`, `vscode/extensions.d/`, `vscode/variants.d/`, `vscode/local-extensions.d/` | VS Code config dirs |
 | iTerm2 | `iterm2/profiles.d/*.json`, `iterm2/defaults.d/*.tsv` | iTerm2 DynamicProfiles and global defaults |
 | Karabiner | `karabiner/profiles.d/*.json` | Karabiner config |
-| Claude Code | `claude/settings.d/` | `~/.claude/settings.json` |
-| Codex CLI | `codex/config.d/`, `codex/profiles/<name>.d/` | `~/.codex/config.toml` |
-| OpenCode | `opencode/agentguard.js` | `~/.config/opencode/plugins/dotfiles-agentguard.js` |
-| Gemini CLI | `gemini/settings.d/` | `~/.gemini/settings.json` |
+| Claude Code | AgentGuard `claude/hooks.json`, then `claude/settings.d/` | `~/.claude/settings.json` |
+| Codex CLI | AgentGuard `codex/hooks.toml`, then `codex/config.d/` and `codex/profiles/<name>.d/` | `~/.codex/config.toml` |
+| OpenCode | AgentGuard `opencode/agentguard.js` | `~/.config/opencode/plugins/dotfiles-agentguard.js` |
+| Gemini CLI | AgentGuard `gemini/hooks.json`, then `gemini/settings.d/` | `~/.gemini/settings.json` |
+| Muse Code | AgentGuard `muse/hooks.json`, then `muse/settings.d/` | `~/.config/muse/settings.json` |
 | Agent rules | `agent-rules/rules.d/*.md`, `agent-rules/targets.d/*.txt` | configured agent rule target files |
 | Git | tracked XDG config | one portable include in `~/.gitconfig` when needed |
 | GitHub CLI | `gh/config.d/*.yml` | `~/.config/gh/config.yml` |
@@ -134,21 +135,24 @@ exists, do not add an invented placeholder schema.
   semantics or mistaking genuine local bindings for dotfiles.
 - Karabiner dotfiles profiles from `karabiner/profiles.d` replace local profiles with the same name;
   local-only profiles are preserved.
-- Claude, Codex, and Gemini settings are layered from their source families.
-  Direct fragments aggregate, while `.replace` groups can model personal/work
-  or other mutually-exclusive environment choices.
+- Claude, Codex, Gemini, and Muse prepend dependency-owned native AgentGuard
+  generations before their local source families. AgentGuard also supplies the
+  shared ownership-aware reconciliation filter that replaces its previous
+  commands and retires removed events without touching user hooks or mutable
+  runtime state. Dotfiles owns only asset resolution, native serialization,
+  atomic replacement, and local policy. If either required provider asset is
+  missing, the hook reports a failed refresh and preserves the whole live
+  target instead of applying a policy-only partial update.
 - Agent rules are assembled from ordered `agent-rules/rules.d` source
   fragments into one generated aggregate. `agent-rules/targets.d` selects
   the runtime target file set; overlays can use `.replace` groups to choose one
   mutually-exclusive target profile for a machine.
-- Gemini uses the same `agent-hook-*` scripts as Claude and Codex, with Gemini
-  event names and tool matchers.
-- OpenCode has no declarative command-hook schema, so its merge hook installs a
-  thin dotfiles-owned protocol adapter through OpenCode's global plugin
-  directory. The adapter reuses the same `agent-hook-*` scripts as Claude,
-  Codex, and Gemini without duplicating AgentGuard policy, and supplies the
-  OpenCode session identity to Bash commands so direct Hive Memory writes share
-  the same receipt/reminder lifecycle.
+- OpenCode has no declarative command-hook schema, so its merge hook safely
+  installs AgentGuard's provider-owned protocol adapter through OpenCode's
+  global plugin directory. Dotfiles owns only resolution, managed-target
+  protection, atomic replacement, and last-known-good preservation. A missing
+  provider is reported as a failed refresh even when an installed copy can be
+  preserved.
 - SSH config merges tracked family fragments plus overlay `.ssh` host aliases.
 - Global ignore patterns are assembled from `ignore/ignore.d` source files.
 - The mise hook runs `mise install` for versions declared under
