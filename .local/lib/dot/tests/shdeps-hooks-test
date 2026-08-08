@@ -343,7 +343,7 @@ _assert_eq "gstack: repository dependency is managed by shdeps" \
 
 echo "=== shdeps dependency repos ==="
 
-for _dependency in agentguard checkrun cmdblocks sley termnav; do
+for _dependency in agentguard checkrun cmdblocks ettun sley termnav; do
   _dependency_dep=$(
     awk -v name="cgraf78/$_dependency" '$1 == name { print; exit }' \
       "$REAL_HOME/.config/shdeps/10-deps.conf"
@@ -351,6 +351,19 @@ for _dependency in agentguard checkrun cmdblocks sley termnav; do
   _assert_eq "dependency repo: $_dependency is managed by shdeps" \
     "github" "$(awk '{ print $2 }' <<<"$_dependency_dep")"
 done
+
+# The standalone ettun repository owns tunnel behavior, but dotfiles still
+# owns fleet provisioning.  Keep that boundary explicit so moving the behavior
+# tests cannot accidentally make a fresh Mac install omit the ET client that
+# ettun invokes at runtime.
+_ettun_et_dep=$(awk '$1 == "eternal-terminal" { print; exit }' \
+  "$REAL_HOME/.config/shdeps/10-deps.conf")
+_assert_eq "ettun dependency: Eternal Terminal is package-managed" "pkg" \
+  "$(awk '{ print $2 }' <<<"$_ettun_et_dep")"
+_assert_eq "ettun dependency: Eternal Terminal exposes et" "et" \
+  "$(awk '{ print $3 }' <<<"$_ettun_et_dep")"
+_assert_contains "ettun dependency: Eternal Terminal remains macOS policy" \
+  "os:macos" "$_ettun_et_dep"
 
 for _dependency in watchexec/watchexec fujiapple852/trippy; do
   _dependency_dep=$(awk -v name="$_dependency" '$1 == name { print; exit }' \

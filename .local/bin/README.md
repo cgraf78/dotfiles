@@ -43,41 +43,19 @@ component; files here should stay thin and command-shaped.
   The three share their CLI conventions, run sequence, systemd handling, and OS
   detection through `~/.local/lib/dot/sysup`; each backend supplies only its
   package-manager specifics.
-- `et-tunnel VIA LOCAL_PORT TARGET TARGET_PORT` exposes a remote TCP endpoint
-  on local loopback through an Eternal Terminal server. It stays in the
-  foreground and lets ET recover from roaming and network loss. A token-owned,
-  loopback-only `socat` or `ncat` supervisor cleans up on `Ctrl-C`; the next
-  same-client launch also reclaims an interrupted cleanup. Remote bind
-  conflicts retry five distinct port sets. The ET client is managed on macOS.
-  Both ends need `base64`, `gzip`, and a SHA-256 tool (`sha256sum`, `shasum`, or
-  `openssl`); VIA also needs `/bin/sh`, `etserver`, `flock`, and `socat`
-  (preferred) or `ncat`. The `flock` lock serializes
-  same-client startup and is released by the kernel even after abrupt
-  termination. The `ncat` fallback is suitable for long-lived
-  full-duplex protocols such as RDP and VNC, but protocols that half-close
-  their request before reading a response need `socat` for transparent EOF
-  handling. Set `ET_TUNNEL_TRANSPORT` to an executable adapter for connection
-  environments that wrap ET. The adapter receives `VIA`, the complete
-  comma-separated ET tunnel specification, and a bounded remote bootstrap
-  command as three positional arguments. After ET connects, the launcher
-  reads a constant role banner to distinguish the bootstrap listener from the
-  supervisor, then uploads the digest-bound payload through the same private
-  control forward with an input limit and overall deadline. This keeps the
-  transport contract to two forwarded channels for compatibility with older ET
-  servers. The adapter must remain in the foreground for the lifetime of the ET
-  connection.
 
 ## Hook And Tool Front Doors
 
 - `validate-commit-msg` checks commit message policy.
 
-Reusable tool commands such as `sley`, `agent-hook-*`,
+Reusable tool commands such as `ettun`, `sley`, `agent-hook-*`,
 `claude-session-name`, `autoformat`, `autolint`, `checkrun`,
 `git-absorb-and-rebase`, `tmux-save-session`, `tmux-restore-session`,
 `tmux-clip-paste`, `wezterm-switch-tab`, and `wezterm-move-tab` are installed
 by `shdeps` from their owning dependency repos. The WezTerm tab switch/move
 helpers are owned by `termnav`; tmux session save/restore and clip paste are
-owned by `tmux-tools`.
+owned by `tmux-tools`. The resilient ET tunnel command is owned by `ettun`;
+dotfiles only declares that dependency.
 
 ## Terminal Helpers
 
