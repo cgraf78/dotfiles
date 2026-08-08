@@ -54,6 +54,31 @@ _codex_profiles() {
   done | LC_ALL=C sort -u
 }
 
+# Print profile names whose source families were intentionally removed.
+#
+# Removing a family stops future rendering, but it cannot remove an overlay
+# produced by an older dot update. Keep the exact former dot-owned names here
+# so cleanup stays narrow and does not infer ownership from arbitrary files in
+# ~/.codex.
+_codex_retired_profiles() {
+  printf '%s\n' allow_all no_prompt
+}
+
+_codex_prune_retired_profiles() {
+  local profile path
+
+  while IFS= read -r profile; do
+    path="$HOME/.codex/$profile.config.toml"
+
+    # A directory at a retired path is not an output this hook could have
+    # generated. Remove only regular files and symlinks, including dangling
+    # symlinks left by the older generated-config layout.
+    if [[ -f "$path" || -L "$path" ]]; then
+      rm -f -- "$path" || return 1
+    fi
+  done < <(_codex_retired_profiles)
+}
+
 # Print the main Codex config source stream.
 #
 # The hook treats this as the only authoritative config-layer discovery path.
@@ -397,6 +422,12 @@ _inject_codex_home_trust() {
 dot_codex_config_merge() {
   local dst="$HOME/.codex/config.toml"
   local trust_helper agentguard_src="" agentguard_reconciler=""
+
+  # Retirement is independent of the current provider and source signature.
+  # Run it before both provider preflight and the cache fast path so stale
+  # policy cannot survive an otherwise skipped or partially unavailable update.
+  _codex_prune_retired_profiles || return 1
+
   trust_helper="$(_merge_hook_source codex/refresh-trust.py)"
 
   agentguard_src=$(_codex_agentguard_source 2>/dev/null) || agentguard_src=""

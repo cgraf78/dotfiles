@@ -542,6 +542,23 @@ with codex_config.open("rb") as f:
 if codex_data.get("features", {}).get("hooks") is not None or "hooks" in codex_data:
     errors.append(f"{codex_config.relative_to(root)}: contains provider-owned hook config")
 
+# Bare Codex follows each machine's local model state. Deliberate model policy
+# belongs only in explicitly selected profile overlays, not the shared base.
+base_model_policy = {
+    "model",
+    "model_provider",
+    "model_reasoning_effort",
+    "model_reasoning_summary",
+    "model_verbosity",
+    "service_tier",
+}
+managed_model_policy = sorted(base_model_policy.intersection(codex_data))
+if managed_model_policy:
+    errors.append(
+        f"{codex_config.relative_to(root)}: contains base model policy: "
+        + ", ".join(managed_model_policy)
+    )
+
 gemini_json = list((config_root / "gemini/settings.d").glob("*.json"))
 if gemini_json:
     errors.append("gemini/settings.d: local JSON integration fragment remains")

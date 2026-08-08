@@ -1,14 +1,8 @@
+# Base settings shared by bare `codex` and named profiles. Model policy belongs
+# only in the explicitly selected overlays under codex/profiles/<name>.d;
+# config.toml leaves Codex free to preserve or choose the machine-local model,
+# reasoning, verbosity, provider, and service tier.
 project_doc_fallback_filenames = ["AGENTS.md", "CLAUDE.md", "CONTRIBUTING.md"]
-
-# Base defaults (formerly the `default` profile). Bare `codex` uses these base
-# keys directly. Named profiles live in standalone ~/.codex/<name>.config.toml
-# overlays rendered from the codex/profiles/<name>.d fragments; `--profile NAME`
-# loads config.toml first, then layers the matching overlay on top, so base
-# [hooks]/[mcp_servers]/[tui] still apply under every profile (including the
-# allow_all alias).
-model = "gpt-5.5"
-model_reasoning_effort = "medium"
-model_verbosity = "medium"
 
 [features]
 # Opted-in feature toggles, tracked here so they survive Codex's own config

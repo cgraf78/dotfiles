@@ -5660,7 +5660,7 @@ JSON
     "$CODEX_AGENTGUARD_ASSETS/_shared" \
     "$CODEX_AGENTGUARD_ASSETS/codex" \
     "$TEST_HOME/.config/dot/merge-hooks.d/codex/config.d/50-environment.replace" \
-    "$TEST_HOME/.config/dot/merge-hooks.d/codex/profiles/allow_all.d/50-environment.replace" \
+    "$TEST_HOME/.config/dot/merge-hooks.d/codex/profiles/layered.d/50-environment.replace" \
     "$TEST_HOME/.config/dot/merge-hooks.d/codex/profiles/experimental.d"
 
   _CODEX_HOOK="$REAL_HOME/.local/lib/dot/core/merge-hooks/codex.sh"
@@ -5793,7 +5793,7 @@ TOML
   # Named profiles render as standalone ~/.codex/<name>.config.toml overlays.
   # Layer a common + work profile fragment and seed the overlay with local CLI
   # state to verify merge order and state preservation below.
-  cat >"$TEST_HOME/.config/dot/merge-hooks.d/codex/profiles/allow_all.d/10-settings.toml" <<'TOML'
+  cat >"$TEST_HOME/.config/dot/merge-hooks.d/codex/profiles/layered.d/10-settings.toml" <<'TOML'
 approval_policy = "never"
 model_reasoning_effort = "high"
 
@@ -5801,15 +5801,20 @@ model_reasoning_effort = "high"
 web_search_request = true
 TOML
 
-  cat >"$TEST_HOME/.config/dot/merge-hooks.d/codex/profiles/allow_all.d/50-environment.replace/80-work.toml" <<'TOML'
+  cat >"$TEST_HOME/.config/dot/merge-hooks.d/codex/profiles/layered.d/50-environment.replace/80-work.toml" <<'TOML'
 model_reasoning_effort = "low"
 sandbox_mode = "danger-full-access"
 TOML
 
-  cat >"$CODEX_DIR/allow_all.config.toml" <<'TOML'
+  cat >"$CODEX_DIR/layered.config.toml" <<'TOML'
 model = "local-allow"
 approval_policy = "on-request"
 TOML
+
+  # These profiles were previously dot-managed. Removing their source families
+  # must also retire generated outputs instead of leaving stale policy behind.
+  printf 'sandbox_mode = "danger-full-access"\n' >"$CODEX_DIR/allow_all.config.toml"
+  printf 'sandbox_mode = "workspace-write"\n' >"$CODEX_DIR/no_prompt.config.toml"
 
   cat >"$TEST_HOME/.config/dot/merge-hooks.d/codex/profiles/experimental.d/10-settings.toml" <<'TOML'
 model = "experimental-model"
@@ -5917,6 +5922,10 @@ PY
   mv \
     "$CODEX_AGENTGUARD_ASSETS/codex/hooks.toml" \
     "$CODEX_AGENTGUARD_ASSETS/codex/hooks.toml.unavailable"
+  # Recreate the former generated outputs after a successful merge. Even a
+  # provider failure must still perform the independent retirement cleanup.
+  printf 'sandbox_mode = "danger-full-access"\n' >"$CODEX_DIR/allow_all.config.toml"
+  printf 'sandbox_mode = "workspace-write"\n' >"$CODEX_DIR/no_prompt.config.toml"
   codex_before_missing=$(cat "$CODEX_CONFIG")
   codex_missing_output=$(_run_codex_merge 2>&1)
   codex_missing_status=$?
@@ -5941,10 +5950,15 @@ PY
     "$CODEX_AGENTGUARD_ASSETS/codex/hooks.toml.unavailable" \
     "$CODEX_AGENTGUARD_ASSETS/codex/hooks.toml"
 
+  _assert_file_missing "codex hook: retires generated allow_all profile" \
+    "$CODEX_DIR/allow_all.config.toml"
+  _assert_file_missing "codex hook: retires generated no_prompt profile" \
+    "$CODEX_DIR/no_prompt.config.toml"
+
   # Profile overlays: common + work fragments merge into the per-profile file,
   # later layers win, source layers override pre-existing local keys, and local
   # CLI-owned keys without a source counterpart survive.
-  if python3 - "$CODEX_DIR/allow_all.config.toml" <<'PY'; then
+  if python3 - "$CODEX_DIR/layered.config.toml" <<'PY'; then
 import sys
 import tomllib
 
