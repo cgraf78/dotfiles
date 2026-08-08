@@ -163,6 +163,8 @@ sysup_upgraded_active_service_units() {
   [[ -n "$active_listing" ]] || return "$discovery_status"
   mapfile -t active_units <<<"$active_listing"
 
+  # Keep ordinary non-matches successful: with pipefail, a trailing
+  # `[[ ... ]] && printf` would make valid discovery depend on unit ordering.
   for owned in "${owned_units[@]}"; do
     [[ -n "$owned" ]] || continue
     # A template unit ships no runnable instance of its own; its running
@@ -171,13 +173,17 @@ sysup_upgraded_active_service_units() {
       prefix="${owned%@.*}"
       suffix=".${owned##*.}"
       for active in "${active_units[@]}"; do
-        [[ "$active" == "$prefix@"*"$suffix" ]] && printf '%s\n' "$active"
+        if [[ "$active" == "$prefix@"*"$suffix" ]]; then
+          printf '%s\n' "$active" || return
+        fi
       done
       continue
     fi
 
     for active in "${active_units[@]}"; do
-      [[ "$active" == "$owned" ]] && printf '%s\n' "$active"
+      if [[ "$active" == "$owned" ]]; then
+        printf '%s\n' "$active" || return
+      fi
     done
   done | sort -u || return 1
 
