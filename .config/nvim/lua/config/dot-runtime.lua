@@ -19,12 +19,16 @@ end
 
 function M.shdeps()
   if not shdeps_cache then
-    -- Tests and plugin code may temporarily point HOME at fixture trees. The
-    -- loader itself is shipped by dotfiles, so load it relative to this module
-    -- rather than the current process environment; dependency resolution then
-    -- delegates to shdeps' public Lua API.
     local home = dot_home()
-    shdeps_cache = dofile(home .. "/.local/lib/dot/lua/shdeps-loader.lua").new({ home = home })
+    local lua_dir = os.getenv("SHDEPS_LUA_DIR")
+    if type(lua_dir) ~= "string" or lua_dir == "" then
+      lua_dir = home .. "/.local/lib/shdeps"
+    end
+
+    -- Shdeps owns this stable bootstrap link and retargets it whenever the
+    -- active implementation changes. Dotfiles therefore supplies only its
+    -- effective home; source/release discovery remains provider policy.
+    shdeps_cache = dofile(lua_dir .. "/shdeps/bootstrap.lua").new({ home = home })
   end
   return shdeps_cache
 end

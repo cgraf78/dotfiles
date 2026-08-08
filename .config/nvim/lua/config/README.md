@@ -25,4 +25,7 @@ directory when they need shared policy or setup timing.
 
 `dot-runtime.lua` resolves the dotfiles checkout from its own path rather than
 from the process `HOME`, so tests and fixture homes can run without confusing
-dependency lookup.
+dependency lookup. It loads Shdeps through the provider-owned
+`$SHDEPS_LUA_DIR/shdeps/bootstrap.lua` entrypoint (default
+`~/.local/lib/shdeps/shdeps/bootstrap.lua`); source, developer, and release
+selection belongs to Shdeps rather than this config.

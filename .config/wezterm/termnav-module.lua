@@ -41,7 +41,15 @@ function M.load(copied_name, relative_path)
   end
 
   local home = dot_home()
-  local shdeps = dofile(home .. "/.local/lib/dot/lua/shdeps-loader.lua").new({ home = home })
+  local lua_dir = os.getenv("SHDEPS_LUA_DIR")
+  if type(lua_dir) ~= "string" or lua_dir == "" then
+    lua_dir = home .. "/.local/lib/shdeps"
+  end
+
+  -- The copied-module path above keeps native Windows startup self-contained.
+  -- Everywhere else, Shdeps' stable bootstrap link owns install discovery, so
+  -- this adapter only names the dependency asset it needs.
+  local shdeps = dofile(lua_dir .. "/shdeps/bootstrap.lua").new({ home = home })
   local module_path = shdeps.dep_file("cgraf78/termnav", relative_path)
   if not module_path then
     error("termnav module not found through shdeps: " .. relative_path)
