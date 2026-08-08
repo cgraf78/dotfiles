@@ -388,14 +388,26 @@ GIT_CONFIG
   printf '%s\n' "ignored" >"$family_dir/.hidden.json"
   printf '%s\n' "ignored" >"$family_dir/99-temp.json~"
 
+  family_basename_log="$TEST_HOME/family-basename.log"
+  basename() {
+    printf '%s\n' "$*" >>"$family_basename_log"
+    command basename "$@"
+  }
+  basename "$family_dir/10-core.json" >/dev/null
+  _assert_file_content "family stream: basename test seam observes a control call" \
+    "$family_dir/10-core.json" "$family_basename_log"
+  : >"$family_basename_log"
   family_files=$(
     while IFS= read -r family_file; do
       printf '%s\n' "${family_file#"$family_dir/"}"
     done < <(dot_family_files "$family_dir") | paste -sd '|' -
   )
+  unset -f basename
   _assert_eq "family stream: aggregate files and replace winners are ordered" \
     $'10-core.json|50-env.replace/80-work.json|70-mode.replace/20-light.json|85-tab\tname.json|90-extra.json' \
     "$family_files"
+  _assert_file_content "family stream: discovery avoids basename processes" \
+    "" "$family_basename_log"
   _assert_eq "merge hook family: replace relpath preserves group identity" \
     "50-env.replace/80-work.json" \
     "$(_merge_hook_family_relpath example.d "$family_dir/50-env.replace/80-work.json")"
@@ -6283,6 +6295,25 @@ GH
   _assert_eq "merge warning summary separates successes from failures" \
     "2 configs merged, 1 config hook failed" "$(_merge_warning_summary 3 1)"
 
+  missing_capture_dir="$TEST_HOME/missing-merge-capture"
+  mkdir -p "$missing_capture_dir"
+  missing_capture_rc=0
+  missing_capture_output=$(
+    _print_merge_capture missing 1 "$missing_capture_dir" 2>&1
+  ) || missing_capture_rc=$?
+  _assert_exit "merge metadata: missing presence marker stays a no-op" \
+    1 "$missing_capture_rc"
+  _assert_eq "merge metadata: missing presence marker stays silent" \
+    "" "$missing_capture_output"
+
+  printf '1' >"$missing_capture_dir/001.has_merge"
+  : >"$missing_capture_dir/001.log"
+  missing_capture_output=$(
+    _print_merge_capture missing 1 "$missing_capture_dir" 2>&1
+  )
+  _assert_not_contains "merge metadata: missing result scalars stay silent" \
+    "No such file or directory" "$missing_capture_output"
+
   # Create test merge implementation scripts. Hook discovery is driven by
   # implementations, not by optional config directories.
   mkdir -p "$TEST_HOME/.config/dot/merge-hooks.d" \
@@ -6316,11 +6347,28 @@ MERGE
   printf '%s\n' "# Orphan merge inputs" \
     >"$TEST_HOME/.config/dot/merge-hooks.d/orphan/README.md"
 
+  merge_metadata_cat_log="$TEST_HOME/merge-metadata-cat.log"
+  cat() {
+    case "${1:-}" in
+      *.has_merge | *.rc | *.elapsed_ms)
+        printf '%s\n' "$1" >>"$merge_metadata_cat_log"
+        ;;
+    esac
+    command cat "$@"
+  }
+  printf '0' >"$TEST_HOME/merge-metadata-control.rc"
+  cat "$TEST_HOME/merge-metadata-control.rc" >/dev/null
+  _assert_file_content "merge metadata: cat test seam observes a control call" \
+    "$TEST_HOME/merge-metadata-control.rc" "$merge_metadata_cat_log"
+  : >"$merge_metadata_cat_log"
   # Default mode: stdout suppressed, summary line shown
   result=$(_run_merges 2>&1)
+  unset -f cat
   _assert_contains "merge stage printed" "Configs" "$result"
   _assert_contains "default: summary line" "3 configs merged" "$result"
   _assert_not_contains "default: individual output suppressed" "Test app" "$result"
+  _assert_file_content "merge metadata: result collection avoids cat processes" \
+    "" "$merge_metadata_cat_log"
 
   mkdir -p "$TEST_HOME/.config/dot/merge-hooks.d/dirapp"
   printf '%s\n' "# Dir app merge inputs" \
