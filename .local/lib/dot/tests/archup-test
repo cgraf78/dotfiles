@@ -351,15 +351,24 @@ rm -f "$before_packages" "$after_packages"
 _archup_mock_reset
 _archup_mock_add_package upgraded-service 1 ok
 _archup_mock_add_service upgraded-service upgraded.service
-ARCHUP_ACTIVE_UNITS=(upgraded.service)
+ARCHUP_ACTIVE_UNITS=(upgraded.service unrelated.service)
+set +e
 result=$(sysup_restart_upgraded_services upgraded-service 2>&1)
+status=$?
+set -e
 systemctl_commands=$(cat "$ARCHUP_SYSTEMCTL_LOG")
+_assert_eq "archup restart: a later unrelated unit does not fail service discovery" \
+  "0" "$status"
 _assert_contains "archup restart: reloads systemd before service restart" \
   "daemon-reload" "$systemctl_commands"
 _assert_contains "archup restart: restarts active service from upgraded package" \
   "try-restart upgraded.service" "$systemctl_commands"
+_assert_not_contains "archup restart: ignores a later unrelated active unit" \
+  "unrelated.service" "$systemctl_commands"
 _assert_contains "archup restart: reports upgraded service restart" \
   "restarting active services from upgraded packages" "$result"
+_assert_not_contains "archup restart: a later unrelated unit is not unverified" \
+  "could not fully determine active services" "$result"
 
 _archup_mock_reset
 _archup_mock_add_package unlistable-service 1 ok
