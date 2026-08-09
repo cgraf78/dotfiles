@@ -7,21 +7,16 @@ their target-native config directories.
 ## Directories
 
 - `overlays.d/` declares optional overlay repositories and their SSH aliases.
-- `agent-playbooks.d/` contains agent-agnostic guidance loaded only when a
-  matching trigger appears in the always-loaded rule index.
 - `merge-hooks.d/` owns per-hook declarative config directories, merge source
   layers, and cron source files consumed by `dot update`.
-- `merge-hooks.d/agent-rules/rules.d/` contains ordered source fragments for
-  the standalone `agent-rules-sync` provider.
 - `merge-hooks.d/agent-rules/targets.d/` selects the generated agent rule
-  target files for the current overlay profile. Dot resolves those inputs and
-  trusted playbooks into a private generated manifest; the provider owns
-  rendering and publication.
+  target files for the current overlay profile. Dot resolves those inputs with
+  trusted prose from `~/.config/agent-rules/` into a private generated
+  manifest; the provider owns rendering and publication.
 
 Related directories document their local conventions near the files they own.
-For agent rule merge inputs, `merge-hooks.d/agent-rules/README.md` documents
-both the `rules.d/` and `targets.d/` family directories so README files are not
-treated as family inputs.
+For agent rule orchestration, `merge-hooks.d/agent-rules/README.md` documents
+the target family and its boundary with the first-class content tree.
 
 ## Ordered Config Families
 
@@ -46,8 +41,9 @@ mutual-exclusion, use the family `.replace` convention documented under
   match files that live in `merge-hooks.d`.
 - Keep overlay repository declarations in `overlays.d`.
 
-This keeps `dot update` discoverable: config is in `.config/dot`, shared code
-is in `.local/lib/dot`, and generated app output is outside both.
+This keeps `dot update` discoverable: dot-specific config is in `.config/dot`,
+agent prose is in `.config/agent-rules`, shared code is in `.local/lib/dot`, and
+generated app output is outside all three.
 
 When adding or changing tracked JSON, JSONC, YAML, or TOML config in this
 tree, check whether `~/.config/checkrun/associations.json` needs a schema

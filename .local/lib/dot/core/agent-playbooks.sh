@@ -10,8 +10,11 @@ if ! declare -F _overlay_authority_files >/dev/null 2>&1; then
   . "${BASH_SOURCE[0]%/*}/repos/overlays.sh"
 fi
 
+# Playbooks are user-authored agent policy, not an implementation detail of
+# dot's merge runner. Keep their canonical path beside the always-loaded rules
+# while this library retains dot-specific trust checks for overlay links.
 _dot_playbook_root() {
-  printf '%s\n' "$HOME/.config/dot/agent-playbooks.d"
+  printf '%s\n' "$HOME/.config/agent-rules/playbooks.d"
 }
 
 _dot_playbook_below_root() {
@@ -33,13 +36,13 @@ _dot_playbook_base_files() {
       git -c core.fsmonitor=false -c core.hooksPath=/dev/null \
         -C "$HOME" \
         --git-dir="$git_dir" --work-tree="$HOME" ls-files -- \
-        ':(top,glob).config/dot/agent-playbooks.d/**/*.md'
+        ':(top,glob).config/agent-rules/playbooks.d/**/*.md'
     ) || return 1
   else
     listing=$(
       git -c core.fsmonitor=false -c core.hooksPath=/dev/null \
         -C "$HOME" ls-files -- \
-        ':(top,glob).config/dot/agent-playbooks.d/**/*.md'
+        ':(top,glob).config/agent-rules/playbooks.d/**/*.md'
     ) || return 1
   fi
   while IFS= read -r rel; do
@@ -95,7 +98,7 @@ _dot_playbook_overlay_files() {
     while IFS= read -r line || [[ -n "$line" ]]; do
       _overlay_parse_manifest_record "$line" || continue
       case "$REPLY_REL" in
-        .config/dot/agent-playbooks.d/*.md)
+        .config/agent-rules/playbooks.d/*.md)
           _overlay_link_matches "$REPLY_REL" "$REPLY_OWNER" "$REPLY_TARGET" || continue
           if _dot_playbook_local_source_trusted \
             "$REPLY_REL" "$REPLY_OWNER" "$REPLY_TARGET"; then

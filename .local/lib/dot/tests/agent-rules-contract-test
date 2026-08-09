@@ -87,9 +87,9 @@ _target_state() {
 echo "=== agent rules semantic artifact contract ==="
 
 FIXTURE=$(_tmpdir)
-RULE_ROOT="$FIXTURE/.config/dot/merge-hooks.d/agent-rules/rules.d"
+RULE_ROOT="$FIXTURE/.config/agent-rules/rules.d"
 TARGET_ROOT="$FIXTURE/.config/dot/merge-hooks.d/agent-rules/targets.d/80-targets.replace"
-PLAYBOOK_ROOT="$FIXTURE/.config/dot/agent-playbooks.d"
+PLAYBOOK_ROOT="$FIXTURE/.config/agent-rules/playbooks.d"
 mkdir -p \
   "$RULE_ROOT" \
   "$TARGET_ROOT" \
@@ -150,8 +150,8 @@ chmod 640 "$FIXTURE/.claude/CLAUDE.md"
 
 git init -q --bare "$FIXTURE/.dotfiles"
 git --git-dir="$FIXTURE/.dotfiles" --work-tree="$FIXTURE" add \
-  .config/dot/agent-playbooks.d/alpha/one.md \
-  .config/dot/agent-playbooks.d/zeta/two.md
+  .config/agent-rules/playbooks.d/alpha/one.md \
+  .config/agent-rules/playbooks.d/zeta/two.md
 
 _run_agent_rules_merge "$FIXTURE"
 

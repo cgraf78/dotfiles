@@ -48,14 +48,14 @@ those inputs. Keep those responsibilities separate:
   paths
 - document each configured hook instance with a README in its config directory
 
-For example, `agent-rules.sh` reads
-`~/.config/dot/merge-hooks.d/agent-rules/rules.d/` and
+For example, `agent-rules.sh` reads prose from the first-class
+`~/.config/agent-rules/` tree while target-profile policy remains under
 `~/.config/dot/merge-hooks.d/agent-rules/targets.d/`. Overlays can contribute
-additional family layers under those same paths without changing this
-implementation directory. The hook also resolves only playbooks authorized by
-dot's overlay manifests, writes that dot-specific selection to a private state
-manifest, and delegates all generic rendering and target lifecycle behavior to
-the `agent-rules-sync` command.
+additional family layers under those same relative content or policy paths
+without changing this implementation directory. The hook resolves only
+playbooks authorized by dot's overlay manifests, writes that dot-specific
+selection to a private state manifest, and delegates all generic rendering and
+target lifecycle behavior to the `agent-rules-sync` command.
 
 ### Dependency-owned integration assets
 

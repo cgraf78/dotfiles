@@ -144,7 +144,7 @@ Testing
 
 - [ ] **Step 1: Review the final branch**
 
-Read `~/.config/dot/agent-playbooks.d/review/fresh-eyes.md`, review the complete
+Read `~/.config/agent-rules/playbooks.d/review/fresh-eyes.md`, review the complete
 `origin/main..HEAD` diff for correctness, platform compatibility, stale
 references, scope, and public-data safety, then resolve every actionable
 finding.

@@ -54,8 +54,11 @@ _dot_agent_rules_expand_target() {
 }
 
 _dot_agent_rules_sources() {
-  _merge_hook_family_files_matching \
-    agent-rules/rules.d \
+  # The prose has a first-class config home; only target-profile selection
+  # remains merge-hook config. The generic family helper still provides the
+  # established numeric ordering and .replace semantics at this new root.
+  dot_family_files_matching \
+    "$HOME/.config/agent-rules/rules.d" \
     '[0-9][0-9][0-9]-*.md' \
     '[0-9][0-9][0-9]-*.replace/*.md'
 }
@@ -136,7 +139,7 @@ _dot_agent_rules_write_manifest() {
 
   _dot_agent_rules_manifest_path || return 1
   manifest="$REPLY"
-  rule_root="$HOME/.config/dot/merge-hooks.d/agent-rules/rules.d"
+  rule_root="$HOME/.config/agent-rules/rules.d"
   playbook_root=$(_dot_playbook_root) || return 1
   _dot_agent_rules_manifest_field_valid "$rule_root" || return 1
   _dot_agent_rules_manifest_field_valid "$playbook_root" || return 1

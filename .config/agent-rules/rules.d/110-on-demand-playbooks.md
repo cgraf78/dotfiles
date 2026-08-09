@@ -3,7 +3,7 @@
 <!-- agent-rule-id: global-on-demand-playbooks -->
 
 Detailed guidance lives in agent-agnostic Markdown playbooks under
-`~/.config/dot/agent-playbooks.d/`, against which the paths below resolve.
+`~/.config/agent-rules/playbooks.d/`, against which the paths below resolve.
 Before the first affected action, read each playbook whose trigger matches the
 task. Do not load unrelated playbooks. Repository-local instructions take
 precedence when they are more specific.

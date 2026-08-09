@@ -1,11 +1,13 @@
 # Agent Rule Policy
 
-This directory contains the dotfiles-owned policy consumed by the standalone
-[`agent-rules-sync`](https://github.com/cgraf78/agent-rules-sync) provider. The split is
-intentional:
+This directory contains dotfiles-specific orchestration policy for the
+standalone
+[`agent-rules-sync`](https://github.com/cgraf78/agent-rules-sync) provider. The
+split is intentional:
 
-- dotfiles owns the actual rule and playbook prose, overlay trust, source
-  ordering, and the target profile selected for this fleet;
+- `~/.config/agent-rules/` owns the actual rule and playbook prose;
+- dotfiles owns overlay trust, source ordering, and the target profile selected
+  for this fleet;
 - `agent-rules-sync` owns generic manifest validation, playbook-route rendering,
   target adapters, managed-block publication, migration, stale cleanup, and
   uninstall behavior.
@@ -21,14 +23,14 @@ Agent-specific merge hooks such as `claude`, `codex`, `gemini`, `muse`, and
 `opencode` remain separate. They own settings, permissions, profiles, and
 AgentGuard integration; this provider only publishes shared rule documents.
 
-## Rule Sources
+## Content Inputs
 
-`rules.d/` contains concise, always-loaded Markdown fragments. Active files are
-concatenated in family order by the provider. Use three-digit numeric prefixes
-to make ordering explicit, and keep each `agent-rule-id` unique across rules
-and playbooks.
+`~/.config/agent-rules/rules.d/` contains concise, always-loaded Markdown
+fragments. Active files are concatenated in family order by the provider. Use
+three-digit numeric prefixes to make ordering explicit, and keep each
+`agent-rule-id` unique across rules and playbooks.
 
-Task-specific detail belongs in `~/.config/dot/agent-playbooks.d/`. The one
+Task-specific detail belongs in `~/.config/agent-rules/playbooks.d/`. The one
 on-demand routing fragment contains
 `<!-- agent-rules-sync-playbook-index -->`; the provider replaces that marker with
 the ordered trigger and route list. Each playbook must declare exactly one
@@ -52,6 +54,7 @@ resolves these entries to absolute `target-file` records. The provider then
 preserves unmanaged text, writes private files atomically, and removes only its
 own managed blocks when a target becomes stale.
 
-Generated runtime rule files and the resolved manifest are outputs. Edit the
-source fragments, playbooks, or target policy here, then run `dot update` and
-the relevant dotfiles tests.
+Generated runtime rule files and the resolved manifest are outputs. Edit prose
+under `~/.config/agent-rules/` or target policy here, then run `dot update` and
+the relevant dotfiles tests. The source-tree README documents rule and playbook
+formats in detail.
