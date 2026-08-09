@@ -343,13 +343,41 @@ _assert_eq "gstack: repository dependency is managed by shdeps" \
 
 echo "=== shdeps dependency repos ==="
 
-for _dependency in agentguard checkrun cmdblocks ettun sley termnav; do
+for _dependency in agentguard checkrun cmdblocks ettun sley sysup termnav; do
   _dependency_dep=$(
     awk -v name="cgraf78/$_dependency" '$1 == name { print; exit }' \
       "$REAL_HOME/.config/shdeps/10-deps.conf"
   )
   _assert_eq "dependency repo: $_dependency is managed by shdeps" \
     "github" "$(awk '{ print $2 }' <<<"$_dependency_dep")"
+done
+
+# The provider owns the complete updater, including both family backends and
+# its behavior suites. Check Git ownership rather than filesystem presence:
+# after shdeps converges, ~/.local/bin/sysup is expected to exist as an
+# untracked dependency link on live machines.
+for _sysup_path in \
+  .local/bin/sysup \
+  .local/bin/archup \
+  .local/bin/debup \
+  .local/lib/dot/sysup/common.sh \
+  .local/lib/dot/sysup/detect.sh \
+  .local/lib/dot/sysup/systemd.sh \
+  .local/lib/dot/tests/sysup-test \
+  .local/lib/dot/tests/archup-test \
+  .local/lib/dot/tests/debup-test \
+  .local/share/doc/dot/superpowers/specs/2026-08-07-sysup-unified-updater-design.md; do
+  _sysup_tracked=$(
+    git --git-dir="$REAL_HOME/.dotfiles" --work-tree="$REAL_HOME" \
+      ls-files -- "$_sysup_path" 2>/dev/null ||
+      git -C "$REAL_HOME" ls-files -- "$_sysup_path" 2>/dev/null ||
+      true
+  )
+  if [[ -z "$_sysup_tracked" ]]; then
+    _pass "sysup ownership: dotfiles does not track $_sysup_path"
+  else
+    _fail "sysup ownership: dotfiles does not track $_sysup_path"
+  fi
 done
 
 # The standalone ettun repository owns tunnel behavior, but dotfiles still
