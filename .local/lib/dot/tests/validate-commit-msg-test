@@ -123,6 +123,78 @@ EOF
 )" --format sl
 _assert_exit "valid sl message: exit 0" 0 "$__VAL_RC"
 
+echo "=== Validator: Markdown section headings ==="
+
+_validate "$(
+  cat <<'EOF'
+Fix the Git integration
+
+## Summary
+
+- preserve the existing behavior
+
+## Testing
+
+- ran the focused suite
+EOF
+)" --format git --strict
+_assert_exit "Markdown git headings: exit 0" 0 "$__VAL_RC"
+
+_validate "$(
+  cat <<'EOF'
+Fix the Sapling integration
+
+## Summary
+
+- preserve the existing behavior
+
+## Test Plan
+
+- ran the focused suite
+EOF
+)" --format sl --strict
+_assert_exit "Markdown sl headings: exit 0" 0 "$__VAL_RC"
+
+# Format inference must recognize the rendered Test Plan heading too. Without
+# this check, the validator can parse the heading but still choose Git policy
+# and incorrectly require a Testing section.
+_validate "$(
+  cat <<'EOF'
+Fix automatic format detection
+
+## Summary
+
+- recognize Markdown headings
+
+## Test Plan
+
+- ran the focused suite
+EOF
+)" --strict
+_assert_exit "Markdown Test Plan auto-detection: exit 0" 0 "$__VAL_RC"
+
+# A prose heading that merely starts with the same words is not the Sapling
+# section. Keep Git format inference exact so unrelated notes cannot make a
+# valid Git message fail for a missing Test Plan.
+_validate "$(
+  cat <<'EOF'
+Fix automatic format detection
+
+## Summary
+
+- keep section matching exact
+
+## Testing
+
+- ran the focused suite
+
+## Test Planning Notes
+
+- no Sapling section is present
+EOF
+)" --strict
+_assert_exit "Markdown Test Planning prose keeps Git format" 0 "$__VAL_RC"
+
 echo "=== Validator: inline section content ==="
 
 _validate "$(
@@ -235,6 +307,29 @@ Testing
 _assert_exit "empty Summary (strict): blocked" 1 "$__VAL_RC"
 _assert_contains "empty Summary: reported" "empty" "$__VAL_OUT"
 
+_validate "Fix something
+
+## Summary
+
+## Testing
+
+- x" --format git --strict
+_assert_exit "empty Markdown Summary: blocked" 1 "$__VAL_RC"
+_assert_contains "empty Markdown Summary: reported" "empty" "$__VAL_OUT"
+
+for next_heading in '## TESTING' '## Testing  '; do
+  _validate "Fix something
+
+## Summary
+
+$next_heading
+
+- x" --format git --strict
+  _assert_exit "empty Markdown Summary before '$next_heading': blocked" 1 "$__VAL_RC"
+  _assert_contains "empty Markdown Summary before '$next_heading': reported" \
+    "empty" "$__VAL_OUT"
+done
+
 echo "=== Validator: placeholder sections ==="
 
 _validate "Fix something
@@ -343,6 +438,49 @@ EOF
 __VAL_OUT=$("$VALIDATOR" --format git --file "$tmpf" 2>&1)
 __VAL_RC=$?
 _assert_exit "--file mode: strips comments, exit 0" 0 "$__VAL_RC"
+
+# The commit-msg hook uses --file. Git's default comment marker is also `#`,
+# so comment removal must distinguish real one-marker template lines from the
+# Markdown headings used by this repository's commit convention.
+tmpf=$(_tmpdir)/markdown-msg.txt
+cat >"$tmpf" <<'EOF'
+Fix `something` in the codebase
+
+# This is a git comment line
+
+## Summary
+
+- fixed the thing
+
+## Testing
+
+- ran the test
+EOF
+
+__VAL_OUT=$("$VALIDATOR" --format git --strict --file "$tmpf" 2>&1)
+__VAL_RC=$?
+_assert_exit "--file mode: preserves Markdown headings" 0 "$__VAL_RC"
+
+# Make comment removal observable: if this one-marker template line survives,
+# the parser would mistake it for Summary content and let the empty section
+# pass strict validation.
+tmpf=$(_tmpdir)/comment-only-summary.txt
+cat >"$tmpf" <<'EOF'
+Fix `something` in the codebase
+
+## Summary
+
+# This is a git comment line, not summary content
+
+## Testing
+
+- ran the test
+EOF
+
+__VAL_OUT=$("$VALIDATOR" --format git --strict --file "$tmpf" 2>&1)
+__VAL_RC=$?
+_assert_exit "--file mode: comment is not section content" 1 "$__VAL_RC"
+_assert_contains "--file mode: comment leaves Summary empty" "empty" "$__VAL_OUT"
 
 # ===========================================================================
 # Git hook: end-to-end
