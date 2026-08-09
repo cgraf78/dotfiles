@@ -4128,8 +4128,9 @@ JSON
     # --- MCP auth edge cases: scoping, corruption recovery, race safety ---
     vscode_mcp_edge_home=$(_tmpdir)
 
-    # Cursor never installs nabheet.vscode-ide-mcp (extensions.py restricts it
-    # to editor = "vscode"), so it must never receive the secret setting.
+    # Cursor never installs nabheet.vscode-ide-mcp (the declarative marketplace
+    # profiles target editor = "vscode"), so it must never receive the secret
+    # setting.
     vscode_mcp_applicable_rc=0
     # shellcheck disable=SC2016 # The inner shell expands fixture env variables.
     env HOME="$vscode_mcp_edge_home" REAL_HOME="$REAL_HOME" bash -c '

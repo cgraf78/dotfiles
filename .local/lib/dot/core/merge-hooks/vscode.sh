@@ -1126,8 +1126,8 @@ _vscode_local_extension_sources() {
 
 _vscode_extension_manifest_sources() {
   # Extension manifests are TOML fragments. Each file may be incomplete; the
-  # Python helper validates the aggregate after dot core has selected the family
-  # stream and any .replace winners.
+  # vscode-exts provider validates the aggregate after dot core has selected the
+  # family stream and any .replace winners.
   _merge_hook_family_files_matching vscode/extensions.d '*.toml' '*.replace/*.toml'
 }
 
@@ -1135,14 +1135,15 @@ _vscode_install_declared_extensions() {
   # Broader merge tests focus on settings/keybindings/local-extension behavior
   # and should not accidentally call a developer's real VS Code CLI. Production
   # dot updates leave this unset; the dedicated vscode-extensions-test exercises
-  # this helper with fake CLIs.
+  # this adapter with a fake provider.
   [[ "${DOT_VSCODE_EXTENSIONS_SKIP:-0}" = 1 ]] && return 0
 
-  command -v python3 >/dev/null 2>&1 || return 0
-
-  local helper
-  helper="$(_merge_hook_dir)/vscode/extensions.py"
-  [[ -f "$helper" ]] || return 0
+  # vscode-exts owns manifest parsing, platform discovery, locking, and editor
+  # CLI behavior. Dot owns only activation timing and selection of its overlay
+  # fragment stream. Resolve the dependency once so the adapter cannot drift
+  # into a second implementation or accidentally fall through to XDG discovery.
+  local provider
+  provider=$(command -v vscode-exts) || return 0
 
   local -a args=()
   local manifest
@@ -1153,10 +1154,37 @@ _vscode_install_declared_extensions() {
   ((${#args[@]} > 0)) || return 0
 
   # Runtime extension installation is advisory, but malformed manifest fragments
-  # are dotfiles configuration errors. The helper keeps network/gallery failures
-  # at exit 0 after warning; exit 2 is reserved for invalid aggregate policy.
+  # are dotfiles configuration errors. The provider keeps network/gallery
+  # failures at exit 0 after warning; exit 2 is reserved for invalid aggregate
+  # policy.
   local rc=0
-  python3 "$helper" "${args[@]}" || rc=$?
+  (
+    # The provider intentionally has no dependency on dotfiles names. Preserve
+    # Dot's established WSL and timeout controls at this activation boundary,
+    # while letting an explicitly provider-scoped value win. Keep the exports
+    # inside a subshell so one merge hook cannot affect another consumer.
+    local compat_windows_home=""
+    if [[ -z "${VSCODE_EXTS_WINDOWS_HOME+x}" ]]; then
+      compat_windows_home="${DOT_TEST_WINDOWS_HOME:-${DOT_WINDOWS_HOME:-${DOT_VSCODE_WINDOWS_HOME:-}}}"
+      if [[ -n "$compat_windows_home" ]]; then
+        VSCODE_EXTS_WINDOWS_HOME="$compat_windows_home"
+        export VSCODE_EXTS_WINDOWS_HOME
+      fi
+    fi
+    if [[ -z "${VSCODE_EXTS_TIMEOUT_SECONDS+x}" &&
+      -n "${DOT_VSCODE_EXTENSIONS_TIMEOUT_SECONDS:-}" ]]; then
+      VSCODE_EXTS_TIMEOUT_SECONDS="$DOT_VSCODE_EXTENSIONS_TIMEOUT_SECONDS"
+      export VSCODE_EXTS_TIMEOUT_SECONDS
+    fi
+    if [[ -z "${VSCODE_EXTS_TEST_MODE+x}" && "${DOT_TEST:-0}" = 1 ]]; then
+      # Preserve the old resolver's safety boundary: an isolated Dot test must
+      # never discover and write through to the real Windows profile in WSL.
+      VSCODE_EXTS_TEST_MODE=1
+      export VSCODE_EXTS_TEST_MODE
+    fi
+
+    "$provider" "${args[@]}"
+  ) || rc=$?
   if [[ "$rc" -eq 2 ]]; then
     _warn "    warning: invalid VS Code extension manifest"
     return "$rc"

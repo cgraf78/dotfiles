@@ -96,8 +96,8 @@ dot_wsl_windows_home() {
   local appdata
 
   # DOT_WINDOWS_HOME is the generic override for shell hooks. Keep the old test
-  # variable for existing tests and let VS Code-specific callers keep their own
-  # compatibility alias in the Python resolver.
+  # variable for existing tests; VS Code's activation adapter maps this policy
+  # and its older compatibility alias into the provider's public namespace.
   if [ -n "${DOT_TEST_WINDOWS_HOME:-}" ]; then
     REPLY="$DOT_TEST_WINDOWS_HOME"
     return 0

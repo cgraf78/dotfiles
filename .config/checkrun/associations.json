@@ -230,15 +230,18 @@
       "note": "Merge-hook JSONC keybinding layers are merged into keybindings.json; keep this editor-only because VS Code owns the keybinding schema."
     },
     {
-      "name": "VS Code extension manifest fragments",
+      "name": "VS Code extension manifests",
       "format": "toml",
-      "schema": "dot-vscode-extensions.schema.json",
+      "dependency": "cgraf78/vscode-exts",
+      "schema": "share/vscode-exts/schemas/extensions.schema.json",
       "matches": [
         ".config/dot/merge-hooks.d/vscode/extensions.d/*.toml",
-        ".config/dot/merge-hooks.d/vscode/extensions.d/*.replace/*.toml"
+        ".config/dot/merge-hooks.d/vscode/extensions.d/*.replace/*.toml",
+        ".config/vscode-exts/extensions.toml",
+        ".config/vscode-exts/extensions.d/*.toml"
       ],
       "enforce": true,
-      "note": "Each file is a merge-hook source fragment; profiles may be incomplete until the sorted fragment set is aggregated by the VS Code helper."
+      "note": "vscode-exts owns the manifest contract and schema. Dot-managed files remain overlay fragments and may be incomplete until dot selects the ordered stream for the provider."
     },
     {
       "name": "Docker Compose config",

@@ -7,9 +7,15 @@ source families and private helpers live in this directory.
 - `keybindings/` layers shared and platform-specific `keybindings.jsonc`
   fragments.
 - `extensions.d/` declares marketplace extension bundles and install profiles.
-  The default managed-extension manifest lives in a `.replace` group so an
-  overlay can replace the whole managed-extension policy with an empty
-  manifest.
+  Dot selects the ordered overlay stream, including `.replace` winners, and
+  passes those files explicitly to the shdeps-provided `vscode-exts` command.
+  The provider owns the manifest model, validation, platform discovery,
+  locking, and additive installation. The default managed-extension manifest
+  stays in a `.replace` group so an overlay can replace the whole personal
+  extension policy with an empty manifest.
+  The thin adapter translates Dot's established `DOT_WINDOWS_HOME` and timeout
+  controls to provider-native names; explicitly set `VSCODE_EXTS_*` values take
+  precedence.
 - `variants.d/` declares VS Code, VS Code Insiders, Cursor, and remote variant
   targets.
 - `local-extensions.d/` declares local extension directories that should be

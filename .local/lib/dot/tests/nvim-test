@@ -15,6 +15,13 @@ export NO_COLOR=1
 _require_compatible_libc "nvim-test"
 _test_use_host_runtime_dirs
 _test_use_host_shdeps
+# Resolve dependencies against the configuration under test, not the host's
+# previously installed copy. This matters whenever a dotfiles branch introduces
+# a new provider: the implementation may already be available in the shared
+# development checkout while the live fleet configuration cannot declare it
+# until the branch lands and `dot update` runs.
+SHDEPS_CONF_DIR="$HOME/.config/shdeps"
+export SHDEPS_CONF_DIR
 _test_prefer_system_git after-dotfiles || exit 1
 
 # Run a lua snippet headlessly in nvim. Prepends the nvim config lua dir
@@ -2293,6 +2300,7 @@ result=$(PATH="$CHECKRUN_METADATA_BIN:$PATH" \
     ["cgraf78/checkrun"] = true,
     ["cgraf78/grafhome-ca"] = true,
     ["cgraf78/sley"] = true,
+    ["cgraf78/vscode-exts"] = true,
   }
   local total_calls = 0
   for dep, calls in pairs(dep_calls) do
@@ -2306,7 +2314,7 @@ result=$(PATH="$CHECKRUN_METADATA_BIN:$PATH" \
     end
     total_calls = total_calls + calls
   end
-  if total_calls ~= 3 then
+  if total_calls ~= 4 then
     print("unexpected-dependency-root-count:" .. total_calls)
     return
   end
@@ -2490,10 +2498,20 @@ result=$(_nvim_lua '
 _assert_eq "editor metadata: adapters receive direct in-memory config" "ok" "$result"
 
 result=$(_nvim_lua '
+  local runtime = require("config.dot-runtime")
+  local schema_path = runtime.dep_file(
+    "cgraf78/vscode-exts",
+    "share/vscode-exts/schemas/extensions.schema.json"
+  )
+  if not schema_path then
+    print("provider-schema-not-resolved")
+    return
+  end
+
   vim.env.HOME = "/tmp/home +#%.test"
   package.loaded["config.checkrun-nvim"] = nil
   local schemas = require("config.checkrun-nvim").schema_opts().config
-  local expected_uri = vim.uri_from_fname(vim.env.HOME .. "/.local/share/checkrun/schemas/dot-vscode-extensions.schema.json")
+  local expected_uri = vim.uri_from_fname(schema_path)
   local saw_regex = false
   local saw_uri = false
   for pattern, url in pairs(schemas.toml or {}) do
@@ -2509,12 +2527,12 @@ result=$(_nvim_lua '
     return
   end
   if not saw_uri then
-    print("home-file-uri-not-encoded")
+    print("provider-schema-uri-not-resolved")
     return
   end
   print("ok")
 ')
-_assert_eq "editor metadata: hostile HOME is regex-escaped and URI-encoded" "ok" "$result"
+_assert_eq "editor metadata: hostile HOME is regex-escaped and provider schema resolves" "ok" "$result"
 
 malformed_metadata_root=$(_tmpdir)
 mkdir -p "$malformed_metadata_root/lua/config"
