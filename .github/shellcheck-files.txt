@@ -114,15 +114,6 @@ program	.local/lib/dot/core/update-lock.sh
 program	.local/lib/dot/core/update.sh
 program	.local/lib/dot/core/windows.sh
 program	.local/lib/dot/core/xdg.sh
-program	.local/lib/dot/gstack-register/api.sh
-program	.local/lib/dot/gstack-register/cache.sh
-program	.local/lib/dot/gstack-register/generated.sh
-program	.local/lib/dot/gstack-register/managed.sh
-program	.local/lib/dot/gstack-register/migration.sh
-program	.local/lib/dot/gstack-register/opencode.sh
-program	.local/lib/dot/gstack-register/paths.sh
-program	.local/lib/dot/gstack-register/source.sh
-program	.local/lib/dot/gstack-register/targets.sh
 program	.local/lib/dot/tests/agent-rules-test
 program	.local/lib/dot/tests/agent-yolo-wrappers-test
 program	.local/lib/dot/tests/android-ci-smoke
@@ -154,7 +145,6 @@ program	.local/lib/dot/tests/core/runner.sh
 program	.local/lib/dot/tests/core/static.sh
 program	.local/lib/dot/tests/fixtures.sh
 program	.local/lib/dot/tests/githook-test
-program	.local/lib/dot/tests/gstack-opencode-test
 program	.local/lib/dot/tests/gstack-register-test
 program	.local/lib/dot/tests/harness-isolation-test
 program	.local/lib/dot/tests/helpers.sh

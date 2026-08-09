@@ -34,7 +34,7 @@ DEPENDENCY_HOME="${DOT_TEST_HOST_HOME:-$SOURCE_HOME}"
 # Production activation uses Shdeps' stable Sley checkout under the real home.
 # DOT_TEST_SLEY_ROOT lets cross-repository development exercise an unmerged
 # provider worktree without copying its implementation back into dotfiles.
-DOT_SLEY_ROOT=${DOT_TEST_SLEY_ROOT:-$SOURCE_HOME/.local/share/cgraf78/sley}
+DOT_SLEY_ROOT=${DOT_TEST_SLEY_ROOT:-$DEPENDENCY_HOME/.local/share/cgraf78/sley}
 export DOT_SLEY_ROOT
 # This suite tests the hooks, not the dotfiles-aware Git launcher. Keep Git's
 # login-shell and SCM telemetry state inside a fixture HOME, while reading the

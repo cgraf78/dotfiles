@@ -1,9 +1,5 @@
 #!/usr/bin/env bash
-# gstack-register-test - upstream gstack skill discovery and the user exclude list.
-
-# Sources the registration modules from the checkout selected by dot-test and
-# points them at fixture directories instead of the real gstack checkout.
-# shellcheck disable=SC1090,SC1091,SC2034
+# gstack-register-test - dotfiles policy and provider activation boundary.
 
 set -o pipefail
 export NO_COLOR=1
@@ -11,114 +7,104 @@ export NO_COLOR=1
 # shellcheck source=helpers.sh
 . "$HOME/.local/lib/dot/tests/helpers.sh"
 
+source_home=$HOME
+deps="$source_home/.config/shdeps/10-deps.conf"
+shdeps_hook="$source_home/.config/shdeps/hooks.d/garrytan/gstack.sh"
+merge_hook="$source_home/.local/lib/dot/core/merge-hooks/gstack.sh"
+
+dependency_order=$(
+  awk '$1 == "cgraf78/gstack-register" || $1 == "garrytan/gstack" {
+    print $1 " " $2
+  }' "$deps"
+)
+_assert_eq "gstack ownership: provider installs before upstream checkout" \
+  $'cgraf78/gstack-register github\ngarrytan/gstack github' \
+  "$dependency_order"
+
+_assert_file_exists "gstack policy: XDG exclusion file is tracked" \
+  "$source_home/.config/gstack-register/skills-exclude"
+_assert_file_missing "gstack policy: dot-private exclusion path is retired" \
+  "$source_home/.config/dot/gstack-skills-exclude"
+
+consumer_implementation=$(
+  git -C "$source_home" ls-files -- .local/lib/dot/gstack-register 2>/dev/null || true
+)
+_assert_eq "gstack ownership: reusable implementation is absent from dotfiles" \
+  "" "$consumer_implementation"
+
 work=$(_tmpdir)
-source_home="$HOME"
-lib="$source_home/.local/lib/dot/gstack-register"
+fixture_home="$work/home"
+mock_bin="$work/bin"
+call_log="$work/gstack-register.log"
+mkdir -p "$fixture_home/.local/share/garrytan/gstack" "$mock_bin"
 
-# shellcheck source=../gstack-register/paths.sh
-. "$lib/paths.sh"
-# shellcheck source=../gstack-register/source.sh
-. "$lib/source.sh"
+cat >"$mock_bin/gstack-register" <<'SH'
+#!/usr/bin/env bash
+: "${DOT_TEST_GSTACK_REGISTER_LOG:?}"
+printf '%s\n' "$*" >>"$DOT_TEST_GSTACK_REGISTER_LOG"
+exit "${DOT_TEST_GSTACK_REGISTER_STATUS:-0}"
+SH
+chmod +x "$mock_bin/gstack-register"
 
-gstack_dir="$work/gstack"
-mkdir -p "$gstack_dir"
+saved_home=$HOME
+saved_path=$PATH
+HOME=$fixture_home
+PATH="$mock_bin:/usr/bin:/bin"
+export HOME PATH
+export DOT_TEST_GSTACK_REGISTER_LOG=$call_log
 
-# Upstream ships each skill as a directory with a SKILL.md whose name field
-# matches the directory. Mirror that shape, plus the non-skill directories the
-# scanner has always skipped.
-for name in browse qa ios-qa ios-fix ship diagram; do
-  mkdir -p "$gstack_dir/$name"
-  printf -- '---\nname: %s\ndescription: fixture %s\n---\n' "$name" "$name" \
-    >"$gstack_dir/$name/SKILL.md"
-done
-for name in node_modules browser-skills openclaw test; do
-  mkdir -p "$gstack_dir/$name"
-  printf -- '---\nname: %s\n---\n' "$name" >"$gstack_dir/$name/SKILL.md"
-done
-mkdir -p "$gstack_dir/not-a-skill"
+# shellcheck source=/dev/null
+. "$shdeps_hook"
+: >"$call_log"
+post "garrytan/gstack"
+uninstall "garrytan/gstack"
+_assert_file_content "gstack shdeps adapter: dispatches sync and uninstall" \
+  $'sync\nuninstall' "$call_log"
 
-_scan_names() {
-  _dot_gstack_reset_source_cache
-  _dot_gstack_each_source_skill "$gstack_dir" | while IFS= read -r dir; do
-    basename "$dir"
-  done | LC_ALL=C sort | tr '\n' ' '
-}
+DOT_TEST_GSTACK_REGISTER_STATUS=17
+export DOT_TEST_GSTACK_REGISTER_STATUS
+set +e
+post "garrytan/gstack"
+post_status=$?
+set -e
+_assert_exit "gstack shdeps adapter: preserves provider failure" 17 "$post_status"
+unset DOT_TEST_GSTACK_REGISTER_STATUS
 
-# --- baseline: no exclude file -------------------------------------------
-export DOT_GSTACK_SKILL_EXCLUDE_FILE="$work/absent-exclude-list"
-_assert_eq "source scan: skips non-skill dirs when no exclude file exists" \
-  "browse diagram ios-fix ios-qa qa ship " "$(_scan_names)"
+# shellcheck source=/dev/null
+. "$merge_hook"
+: >"$call_log"
+merge
+merge
+_assert_file_content "gstack merge adapter: reconciles on every dot update" \
+  $'sync\nsync' "$call_log"
 
-# --- exclusions by bare and prefixed name --------------------------------
-exclude="$work/exclude"
-export DOT_GSTACK_SKILL_EXCLUDE_FILE="$exclude"
-cat >"$exclude" <<'EOF'
-# Comment lines and blanks are ignored.
-browse
+DOT_TEST_GSTACK_REGISTER_STATUS=19
+export DOT_TEST_GSTACK_REGISTER_STATUS
+set +e
+merge
+merge_status=$?
+set -e
+_assert_exit "gstack merge adapter: preserves provider failure" 19 "$merge_status"
+unset DOT_TEST_GSTACK_REGISTER_STATUS
 
-gstack-ios-qa
-  ios-fix
-EOF
-_assert_eq "exclude list: honors bare, gstack-prefixed, and indented names" \
-  "diagram qa ship " "$(_scan_names)"
-
-# --- trailing line without a newline -------------------------------------
-printf 'browse\nqa' >"$exclude"
-_assert_eq "exclude list: applies a final line with no trailing newline" \
-  "diagram ios-fix ios-qa ship " "$(_scan_names)"
-
-# --- inline comment on an entry ------------------------------------------
-printf 'browse # not used on this host\n' >"$exclude"
-_assert_eq "exclude list: strips inline comments from an entry" \
-  "diagram ios-fix ios-qa qa ship " "$(_scan_names)"
-
-# --- empty and comment-only files are no-ops ------------------------------
-printf '# nothing excluded\n\n' >"$exclude"
-_assert_eq "exclude list: comment-only file excludes nothing" \
-  "browse diagram ios-fix ios-qa qa ship " "$(_scan_names)"
-
-# --- built-in skips cannot be re-enabled ----------------------------------
-printf '\n' >"$exclude"
-_assert_not_contains "source scan: node_modules is never a skill" "node_modules" "$(_scan_names)"
-_assert_not_contains "source scan: dirs without SKILL.md are ignored" "not-a-skill" "$(_scan_names)"
-
-# --- unmatched entries warn instead of failing open silently --------------
-printf 'gstack-typo-here\nbrowse\n' >"$exclude"
-_dot_gstack_reset_source_cache
-warn_output=$(_dot_gstack_load_source_skills "$gstack_dir" 2>&1 >/dev/null)
-_assert_contains "exclude list: warns about an entry matching no upstream skill" \
-  "gstack-typo-here" "$warn_output"
-_assert_not_contains "exclude list: does not warn about an entry that matched" \
-  "gstack-browse" "$warn_output"
-
-# A typo must not drop unrelated skills.
-_assert_eq "exclude list: a typo leaves other skills registered" \
-  "diagram ios-fix ios-qa qa ship " "$(_scan_names)"
-
-# --- the loaded inventory reflects exclusions -----------------------------
-printf 'browse\nqa\n' >"$exclude"
-_dot_gstack_reset_source_cache
-_dot_gstack_load_source_skills "$gstack_dir" 2>/dev/null
-_assert_eq "source inventory: excluded skills are absent from the name index" \
-  "" "${_DOT_GSTACK_SOURCE_CODEX_NAME_EXISTS["gstack-browse"]+present}"
-_assert_eq "source inventory: retained skills stay in the name index" \
-  "present" "${_DOT_GSTACK_SOURCE_CODEX_NAME_EXISTS["gstack-ship"]+present}"
-
-# The cache fingerprint must move when the list changes, or a warm dot update
-# would keep serving the pre-edit registration set.
-# shellcheck source=../gstack-register/managed.sh
-. "$lib/managed.sh" 2>/dev/null || true
-# shellcheck source=../gstack-register/cache.sh
-. "$lib/cache.sh"
-_dot_gstack_reset_source_cache
-before=$(_dot_gstack_source_fingerprint "$gstack_dir")
-printf 'browse\n' >"$exclude"
-_dot_gstack_reset_source_cache
-after=$(_dot_gstack_source_fingerprint "$gstack_dir")
-if [ "$before" != "$after" ]; then
-  _pass "cache: source fingerprint changes when the exclude list changes"
+# Partial installs and isolated merge-hook runs may not have exposed the
+# provider command. The upstream post hook remains the authoritative first
+# registration pass once shdeps installs both dependencies.
+: >"$call_log"
+PATH=/usr/bin:/bin
+hash -r
+if merge; then
+  _pass "gstack merge adapter: missing provider is a safe no-op"
 else
-  _fail "cache: source fingerprint changes when the exclude list changes"
+  _fail "gstack merge adapter: missing provider is a safe no-op"
 fi
+_assert_file_content "gstack merge adapter: missing provider launches nothing" \
+  "" "$call_log"
+
+HOME=$saved_home
+PATH=$saved_path
+export HOME PATH
+unset DOT_TEST_GSTACK_REGISTER_LOG
+unset -f post uninstall merge
 
 _test_summary

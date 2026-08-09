@@ -6,10 +6,11 @@
 #
 # One name per line. Bare (`browse`) and prefixed (`gstack-browse`) both work.
 # `#` starts a comment. A name matching no upstream skill is warned about on
-# `dot update`, not silently ignored.
+# `dot update`, not silently ignored. Format and validation are owned by the
+# gstack-register provider; this file contains only dotfiles policy choices.
 #
-# Read by ~/.local/lib/dot/gstack-register/source.sh; changes apply on the next
-# `dot update`.
+# Read from the provider's normal XDG config path. Changes apply on the next
+# `dot update` or explicit `gstack-register sync`.
 
 # iOS — no iOS or SwiftUI development on this fleet.
 ios-clean

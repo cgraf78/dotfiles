@@ -1,19 +1,13 @@
 # shellcheck shell=bash
-# gstack install-shape migration.
+# Reconcile gstack's agent registrations on every dot update.
 #
-# shdeps post hooks only run when a dependency changes. This merge hook keeps
-# `dot update` refreshing lightweight registrations so newly installed agents
-# pick up gstack without requiring gstack itself to update.
-
-_dot_gstack_register_lib="${DOT_GSTACK_REGISTER_LIB:-$HOME/.local/lib/dot/gstack-register/api.sh}"
-# shellcheck source=../../gstack-register/api.sh disable=SC1091
-. "$_dot_gstack_register_lib"
+# The shdeps hook covers checkout changes; this second activation point covers
+# policy edits and agents installed after the last gstack update. All reusable
+# behavior belongs to the provider, leaving this consumer intentionally thin.
 
 merge() {
-  local dir
-  dir=$(dot_gstack_dir)
+  local provider
+  provider=$(command -v gstack-register) || return 0
 
-  [[ -d "$dir" ]] || return 0
-
-  dot_gstack_register_all
+  "$provider" sync
 }
