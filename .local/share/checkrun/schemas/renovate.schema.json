@@ -1,8 +1,8 @@
 {
   "$id": "https://docs.renovatebot.com/renovate-schema.json",
-  "title": "JSON schema for Renovate 44.14.10 config files (https://renovatebot.com/)",
+  "title": "JSON schema for Renovate 44.14.12 config files (https://renovatebot.com/)",
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "x-renovate-version": "44.14.10",
+  "x-renovate-version": "44.14.12",
   "allowComments": true,
   "type": "object",
   "definitions": {
