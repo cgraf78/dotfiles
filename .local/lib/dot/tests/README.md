@@ -47,6 +47,10 @@ depending on a particular `/var` versus `/private/var` spelling.
 - `githook-test` tests dotfiles' Sley hook activation and the special bare-home
   policy through real Git operations. Sley's own commit-hook suite owns the
   reusable Git sequencer and Sapling skip-decision matrix.
+- `gstack-register-test` tests only dotfiles' provider dependency ordering,
+  XDG exclusion policy location, and shdeps/merge-hook activation. The
+  gstack-register repository owns generated artifacts, agent adapters, cache,
+  migration, collision, and cleanup behavior.
 - `agent-hook-work-test` tests work-specific `agentguard` hook extensions.
   Installed base hook smoke checks live in `dot doctor`, and detailed hook
   behavior lives in the `agentguard` repo.

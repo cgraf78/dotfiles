@@ -8,9 +8,6 @@ lives in shdeps-managed dependency repos; call those public APIs through
   update orchestration, repository discovery, merge orchestration, doctor
   checks, shell loading, and terminal UI helpers. Doctor checks are organized as
   focused section modules under `core/doctor/`.
-- [`gstack-register/`](gstack-register/README.md) owns dotfiles-specific gstack
-  skill registration for installed agents, including generated skill trees,
-  target repair, caching, and migration from older install shapes.
 - [`tests/`](tests/README.md) owns dotfiles test suites and their shared
   harness.
 

@@ -1,14 +1,15 @@
 # shellcheck shell=bash
-# Post-install hook for gstack.
-
-_dot_gstack_register_lib="${DOT_GSTACK_REGISTER_LIB:-$HOME/.local/lib/dot/gstack-register/api.sh}"
-# shellcheck source=../../../../.local/lib/dot/gstack-register/api.sh disable=SC1091
-. "$_dot_gstack_register_lib"
+# Keep registration coupled to the upstream checkout lifecycle. The provider
+# owns every agent-specific transform and cleanup rule; this hook owns only the
+# decision to reconcile immediately after shdeps changes gstack.
 
 post() {
-  dot_gstack_register_all
+  gstack-register sync
 }
 
 uninstall() {
-  dot_gstack_unregister_all
+  # The provider can identify its outputs after the checkout is gone, so this
+  # remains safe regardless of whether shdeps calls cleanup before or after
+  # removing the upstream source directory.
+  gstack-register uninstall
 }
