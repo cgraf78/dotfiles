@@ -11,8 +11,6 @@ lives in shdeps-managed dependency repos; call those public APIs through
 - [`gstack-register/`](gstack-register/README.md) owns dotfiles-specific gstack
   skill registration for installed agents, including generated skill trees,
   target repair, caching, and migration from older install shapes.
-- [`../../bin/hm`](../../bin/hm) is the dotfiles-specific front door for the
-  standalone Hive Memory binary.
 - [`tests/`](tests/README.md) owns dotfiles test suites and their shared
   harness.
 

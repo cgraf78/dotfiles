@@ -10,9 +10,9 @@
 
 set -euo pipefail
 
-_hm_launcher_lib="${BASH_SOURCE[0]%/*}/../lib/dot/launcher-real.sh"
+_hm_launcher_lib="${BASH_SOURCE[0]%/*}/../lib/dot/core/launcher-real.sh"
 if [[ ! -f "$_hm_launcher_lib" ]]; then
-  _hm_launcher_lib="${HOME:-}/.local/lib/dot/launcher-real.sh"
+  _hm_launcher_lib="${HOME:-}/.local/lib/dot/core/launcher-real.sh"
 fi
 # shellcheck disable=SC1090
 . "$_hm_launcher_lib" || {

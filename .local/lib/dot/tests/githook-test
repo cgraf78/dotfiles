@@ -51,8 +51,8 @@ export DOT_GIT_REAL
 # Tests that deliberately copy the tracked Git launcher to an isolated PATH
 # still need its fallback library after HOME moves away from the source tree.
 mkdir -p "$HOME/.local/lib/dot/core"
-ln -s "$SOURCE_HOME/.local/lib/dot/launcher-real.sh" \
-  "$HOME/.local/lib/dot/launcher-real.sh"
+ln -s "$SOURCE_HOME/.local/lib/dot/core/launcher-real.sh" \
+  "$HOME/.local/lib/dot/core/launcher-real.sh"
 ln -s "$SOURCE_HOME/.local/lib/dot/core/xdg.sh" \
   "$HOME/.local/lib/dot/core/xdg.sh"
 

@@ -109,8 +109,8 @@ _gh_token_seed_failure_stamp_path
 _assert_eq "GitHub token seed: failure stamp uses shared XDG state policy" \
   "$work/runtime-state/dot/gh-token-seed-failed.stamp" "$REPLY"
 
-# shellcheck source=../launcher-real.sh
-. "$source_home/.local/lib/dot/launcher-real.sh"
+# shellcheck source=../core/launcher-real.sh
+. "$source_home/.local/lib/dot/core/launcher-real.sh"
 newline_cache="$work/cache"$'\n'
 XDG_CACHE_HOME="$newline_cache"
 _dot_launcher_cache_path git
