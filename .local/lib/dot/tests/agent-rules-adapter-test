@@ -24,9 +24,9 @@ fixture_home="$work/home"
 mock_bin="$work/bin"
 call_log="$work/agent-rules-sync.log"
 manifest_copy="$work/manifest.tsv"
-rule_root="$fixture_home/.config/dot/merge-hooks.d/agent-rules/rules.d"
+rule_root="$fixture_home/.config/agent-rules/rules.d"
 target_root="$fixture_home/.config/dot/merge-hooks.d/agent-rules/targets.d/80-targets.replace"
-playbook_root="$fixture_home/.config/dot/agent-playbooks.d"
+playbook_root="$fixture_home/.config/agent-rules/playbooks.d"
 manifest="$fixture_home/.local/state/dot/agent-rules-sync-manifest-v1.tsv"
 mkdir -p \
   "$mock_bin" \
@@ -75,8 +75,8 @@ EOF
 # files or exact overlay-authorized links. This fixture models the base case.
 git init -q --bare "$fixture_home/.dotfiles"
 git --git-dir="$fixture_home/.dotfiles" --work-tree="$fixture_home" add \
-  .config/dot/agent-playbooks.d/alpha/one.md \
-  .config/dot/agent-playbooks.d/zeta/two.md
+  .config/agent-rules/playbooks.d/alpha/one.md \
+  .config/agent-rules/playbooks.d/zeta/two.md
 
 cat >"$mock_bin/agent-rules-sync" <<'EOF'
 #!/usr/bin/env bash

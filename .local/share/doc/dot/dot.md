@@ -92,6 +92,7 @@ own it:
 | Area | README |
 | --- | --- |
 | Dot config directories | [`.config/dot/README.md`](../../../../.config/dot/README.md) |
+| Agent rule and playbook prose | [`.config/agent-rules/README.md`](../../../../.config/agent-rules/README.md) |
 | Agent rule merge inputs | [`.config/dot/merge-hooks.d/agent-rules/README.md`](../../../../.config/dot/merge-hooks.d/agent-rules/README.md) |
 | ds sessions | [`.config/ds/README.md`](../../../../.config/ds/README.md) |
 | Overlay repos | [`.config/dot/overlays.d/README.md`](../../../../.config/dot/overlays.d/README.md) |

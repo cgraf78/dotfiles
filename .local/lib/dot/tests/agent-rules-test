@@ -12,14 +12,21 @@ _test_prefer_system_git || exit 1
 . "$HOME/.local/lib/dot/core/repos/overlays.sh"
 
 PLAYBOOK_LIB="$HOME/.local/lib/dot/core/agent-playbooks.sh"
-RULE_FAMILY="$HOME/.config/dot/merge-hooks.d/agent-rules/rules.d"
+RULE_HOOK="$HOME/.local/lib/dot/core/merge-hooks/agent-rules.sh"
+RULE_FAMILY="$HOME/.config/agent-rules/rules.d"
 NATIVE_TARGETS="$HOME/.config/dot/merge-hooks.d/agent-rules/targets.d/80-targets.replace/50-native.txt"
-PLAYBOOK_FAMILY="$HOME/.config/dot/agent-playbooks.d"
+PLAYBOOK_FAMILY="$HOME/.config/agent-rules/playbooks.d"
 if [[ -f "$PLAYBOOK_LIB" ]]; then
   # shellcheck source=/dev/null
   . "$PLAYBOOK_LIB"
 else
   _fail "agent rules: playbook library exists"
+fi
+if [[ -f "$RULE_HOOK" ]]; then
+  # shellcheck source=/dev/null
+  . "$RULE_HOOK"
+else
+  _fail "agent rules: merge hook exists"
 fi
 OVERLAY_AUTHORITY_MANIFESTS=()
 if ! _overlay_authority_files; then
@@ -50,7 +57,7 @@ WORKFLOW_RULES_TEXT=$(cat "$RULE_FAMILY/070-engineering-workflow.md")
 _assert_contains "agent rules: scope explains generated targets" \
   "This rule set is generated from source fragments" "$SCOPE_RULES_TEXT"
 _assert_contains "agent rules: scope directs edits to source fragments" \
-  ".config/dot/merge-hooks.d/agent-rules/rules.d/" \
+  ".config/agent-rules/rules.d/" \
   "$SCOPE_RULES_TEXT"
 _assert_contains "agent rules: scope avoids generated target edits" \
   "generated runtime target" "$SCOPE_RULES_TEXT"
@@ -72,14 +79,14 @@ _assert_contains "agent rules: branch pushes name the destination" \
   'git push <remote> <source>:refs/heads/<destination>' "$GIT_RULES_TEXT"
 
 lifecycle_anchor_paths=$(printf '%s\n' "$WORKFLOW_RULES_TEXT" |
-  grep -Eo '`~/.config/dot/agent-playbooks.d/[^`]+\.md`' | tr -d '`')
+  grep -Eo '`~/.config/agent-rules/playbooks.d/[^`]+\.md`' | tr -d '`')
 lifecycle_anchor_count=$(printf '%s\n' "$lifecycle_anchor_paths" | sed '/^$/d' | wc -l | tr -d '[:space:]')
 _assert_eq "agent rules: two lifecycle-critical playbook anchors remain in core" \
   "2" "$lifecycle_anchor_count"
 _assert_contains "agent rules: worktree lifecycle anchor remains in core" \
-  '~/.config/dot/agent-playbooks.d/git/worktrees.md' "$lifecycle_anchor_paths"
+  '~/.config/agent-rules/playbooks.d/git/worktrees.md' "$lifecycle_anchor_paths"
 _assert_contains "agent rules: fresh-eyes lifecycle anchor remains in core" \
-  '~/.config/dot/agent-playbooks.d/review/fresh-eyes.md' "$lifecycle_anchor_paths"
+  '~/.config/agent-rules/playbooks.d/review/fresh-eyes.md' "$lifecycle_anchor_paths"
 while IFS= read -r lifecycle_anchor; do
   [[ -n "$lifecycle_anchor" ]] || continue
   _assert_file_exists "agent rules: lifecycle anchor exists: $lifecycle_anchor" \
@@ -92,8 +99,7 @@ rule_files=()
 while IFS= read -r rule_file; do
   rule_files+=("$rule_file")
 done < <(
-  . "$HOME/.local/lib/dot/core/merge-hooks.sh"
-  _merge_hook_family_files_matching agent-rules/rules.d '[0-9][0-9][0-9]-*.md' '[0-9][0-9][0-9]-*.replace/*.md'
+  _dot_agent_rules_sources
 )
 
 playbook_files=()
@@ -290,36 +296,36 @@ EOF
   DISCOVERY_FIXTURE=$(_tmpdir)
   DISCOVERY_LOCAL_SOURCE="$DISCOVERY_FIXTURE/local source"
   mkdir -p \
-    "$DISCOVERY_FIXTURE/.config/dot/agent-playbooks.d/nested/deeper" \
-    "$DISCOVERY_FIXTURE/.config/dot/agent-playbooks.d/unmanaged" \
-    "$DISCOVERY_FIXTURE/.dotfiles-private/home/.config/dot/agent-playbooks.d/private" \
-    "$DISCOVERY_LOCAL_SOURCE/home/.config/dot/agent-playbooks.d/local" \
+    "$DISCOVERY_FIXTURE/.config/agent-rules/playbooks.d/nested/deeper" \
+    "$DISCOVERY_FIXTURE/.config/agent-rules/playbooks.d/unmanaged" \
+    "$DISCOVERY_FIXTURE/.dotfiles-private/home/.config/agent-rules/playbooks.d/private" \
+    "$DISCOVERY_LOCAL_SOURCE/home/.config/agent-rules/playbooks.d/local" \
     "$DISCOVERY_FIXTURE/.local/state/dot"
-  cat >"$DISCOVERY_FIXTURE/.config/dot/agent-playbooks.d/nested/deeper/base.md" <<'EOF'
+  cat >"$DISCOVERY_FIXTURE/.config/agent-rules/playbooks.d/nested/deeper/base.md" <<'EOF'
 # Nested Base
 
 <!-- agent-rule-id: nested-base -->
 <!-- agent-rule-trigger: Testing nested discovery -->
 EOF
-  cat >"$DISCOVERY_FIXTURE/.config/dot/agent-playbooks.d/unmanaged/file.md" <<'EOF'
+  cat >"$DISCOVERY_FIXTURE/.config/agent-rules/playbooks.d/unmanaged/file.md" <<'EOF'
 # Unmanaged
 
 <!-- agent-rule-id: unmanaged -->
 <!-- agent-rule-trigger: This must not be indexed -->
 EOF
-  cat >"$DISCOVERY_FIXTURE/.dotfiles-private/home/.config/dot/agent-playbooks.d/private/overlay.md" <<'EOF'
+  cat >"$DISCOVERY_FIXTURE/.dotfiles-private/home/.config/agent-rules/playbooks.d/private/overlay.md" <<'EOF'
 # Managed Overlay
 
 <!-- agent-rule-id: managed-overlay -->
 <!-- agent-rule-trigger: Testing managed overlays -->
 EOF
-  cat >"$DISCOVERY_FIXTURE/.dotfiles-private/home/.config/dot/agent-playbooks.d/private/untracked.md" <<'EOF'
+  cat >"$DISCOVERY_FIXTURE/.dotfiles-private/home/.config/agent-rules/playbooks.d/private/untracked.md" <<'EOF'
 # Untracked Overlay
 
 <!-- agent-rule-id: untracked-overlay -->
 <!-- agent-rule-trigger: This must not be indexed -->
 EOF
-  cat >"$DISCOVERY_LOCAL_SOURCE/home/.config/dot/agent-playbooks.d/local/local.md" <<'EOF'
+  cat >"$DISCOVERY_LOCAL_SOURCE/home/.config/agent-rules/playbooks.d/local/local.md" <<'EOF'
 # Managed Local Overlay
 
 <!-- agent-rule-id: managed-local-overlay -->
@@ -328,11 +334,11 @@ EOF
   git init -q --bare "$DISCOVERY_FIXTURE/.dotfiles"
   git --git-dir="$DISCOVERY_FIXTURE/.dotfiles" \
     --work-tree="$DISCOVERY_FIXTURE" add \
-    .config/dot/agent-playbooks.d/nested/deeper/base.md
+    .config/agent-rules/playbooks.d/nested/deeper/base.md
   git -C "$DISCOVERY_FIXTURE/.dotfiles-private" init -q
   git -C "$DISCOVERY_FIXTURE/.dotfiles-private" add \
-    home/.config/dot/agent-playbooks.d/private/overlay.md
-  discovery_rel=.config/dot/agent-playbooks.d/private/overlay.md
+    home/.config/agent-rules/playbooks.d/private/overlay.md
+  discovery_rel=.config/agent-rules/playbooks.d/private/overlay.md
   discovery_target=$(
     HOME="$DISCOVERY_FIXTURE"
     _overlay_link_target "$discovery_rel" private
@@ -342,7 +348,7 @@ EOF
   ln -s "$discovery_target" "$DISCOVERY_FIXTURE/$discovery_rel"
   printf '%s\t%s\n' "$discovery_rel" private \
     >"$DISCOVERY_FIXTURE/.local/state/dot/overlay-links"
-  discovery_untracked_rel=.config/dot/agent-playbooks.d/private/untracked.md
+  discovery_untracked_rel=.config/agent-rules/playbooks.d/private/untracked.md
   discovery_untracked_target=$(
     HOME="$DISCOVERY_FIXTURE"
     _overlay_link_target "$discovery_untracked_rel" private
@@ -351,7 +357,7 @@ EOF
   ln -s "$discovery_untracked_target" "$DISCOVERY_FIXTURE/$discovery_untracked_rel"
   printf '%s\t%s\n' "$discovery_untracked_rel" private \
     >>"$DISCOVERY_FIXTURE/.local/state/dot/overlay-links"
-  discovery_local_rel=.config/dot/agent-playbooks.d/local/local.md
+  discovery_local_rel=.config/agent-rules/playbooks.d/local/local.md
   discovery_local_target="$DISCOVERY_LOCAL_SOURCE/home/$discovery_local_rel"
   mkdir -p "$DISCOVERY_FIXTURE/${discovery_local_rel%/*}"
   ln -s "$discovery_local_target" "$DISCOVERY_FIXTURE/$discovery_local_rel"
@@ -359,8 +365,8 @@ EOF
     "$discovery_local_rel" local "$discovery_local_target" \
     >>"$DISCOVERY_FIXTURE/.local/state/dot/overlay-links"
   chmod 600 "$DISCOVERY_FIXTURE/.local/state/dot/overlay-links"
-  ln -s "$DISCOVERY_FIXTURE/.config/dot/agent-playbooks.d/nested/deeper/base.md" \
-    "$DISCOVERY_FIXTURE/.config/dot/agent-playbooks.d/unmanaged/link.md"
+  ln -s "$DISCOVERY_FIXTURE/.config/agent-rules/playbooks.d/nested/deeper/base.md" \
+    "$DISCOVERY_FIXTURE/.config/agent-rules/playbooks.d/unmanaged/link.md"
 
   discovery_listing=$(
     HOME="$DISCOVERY_FIXTURE"
@@ -378,21 +384,21 @@ EOF
     _dot_playbook_files
   )
   _assert_contains "agent rules: discovery includes recursively nested tracked playbook" \
-    "$DISCOVERY_FIXTURE/.config/dot/agent-playbooks.d/nested/deeper/base.md" \
+    "$DISCOVERY_FIXTURE/.config/agent-rules/playbooks.d/nested/deeper/base.md" \
     "$discovery_listing"
   _assert_contains "agent rules: discovery is independent of caller directory" \
-    "$DISCOVERY_FIXTURE/.config/dot/agent-playbooks.d/nested/deeper/base.md" \
+    "$DISCOVERY_FIXTURE/.config/agent-rules/playbooks.d/nested/deeper/base.md" \
     "$discovery_nested_listing"
   _assert_contains "agent rules: discovery includes exact managed overlay symlink" \
-    "$DISCOVERY_FIXTURE/.config/dot/agent-playbooks.d/private/overlay.md" \
+    "$DISCOVERY_FIXTURE/.config/agent-rules/playbooks.d/private/overlay.md" \
     "$discovery_listing"
   _assert_contains "agent rules: discovery includes exact managed local overlay symlink" \
     "$DISCOVERY_FIXTURE/$discovery_local_rel" "$discovery_listing"
   _assert_not_contains "agent rules: discovery excludes untracked regular files" \
-    "$DISCOVERY_FIXTURE/.config/dot/agent-playbooks.d/unmanaged/file.md" \
+    "$DISCOVERY_FIXTURE/.config/agent-rules/playbooks.d/unmanaged/file.md" \
     "$discovery_listing"
   _assert_not_contains "agent rules: discovery excludes arbitrary symlinks" \
-    "$DISCOVERY_FIXTURE/.config/dot/agent-playbooks.d/unmanaged/link.md" \
+    "$DISCOVERY_FIXTURE/.config/agent-rules/playbooks.d/unmanaged/link.md" \
     "$discovery_listing"
   _assert_not_contains "agent rules: discovery excludes untracked overlay sources" \
     "$DISCOVERY_FIXTURE/$discovery_untracked_rel" "$discovery_listing"
@@ -432,7 +438,7 @@ EOF
   mv "$DISCOVERY_FIXTURE/.dotfiles-private/home/$discovery_rel.missing" \
     "$DISCOVERY_FIXTURE/.dotfiles-private/home/$discovery_rel"
 
-  discovery_broken_rel=.config/dot/agent-playbooks.d/private/broken.md
+  discovery_broken_rel=.config/agent-rules/playbooks.d/private/broken.md
   mkdir -p "$DISCOVERY_FIXTURE/.dotfiles-broken/home/${discovery_broken_rel%/*}"
   cp "$DISCOVERY_FIXTURE/.dotfiles-private/home/$discovery_rel" \
     "$DISCOVERY_FIXTURE/.dotfiles-broken/home/$discovery_broken_rel"

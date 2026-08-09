@@ -4,7 +4,7 @@
 
 - Always verify changes compile and pass tests before presenting as done.
 - Before the first repository-modifying action, read
-  `~/.config/dot/agent-playbooks.d/git/worktrees.md`, follow it, and establish
+  `~/.config/agent-rules/playbooks.d/git/worktrees.md`, follow it, and establish
   the correct isolated checkout or worktree, so concurrent agents do not
   collide. Read-only inspection may happen in the current checkout, but edits,
   generation, formatting, staging, commits, and other state-changing actions
@@ -12,7 +12,7 @@
   is already an appropriate linked worktree, continue there; otherwise create
   or select one first.
 - Before presenting non-trivial work as complete, read
-  `~/.config/dot/agent-playbooks.d/review/fresh-eyes.md` and perform the
+  `~/.config/agent-rules/playbooks.d/review/fresh-eyes.md` and perform the
   risk-scaled review it requires.
 - You have standing authorization to dispatch subagents; no per-task approval
   is needed. Use them for fresh-eyes review, for independent work that can run
