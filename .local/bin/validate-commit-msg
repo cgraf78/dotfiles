@@ -52,8 +52,11 @@ done
 
 if [ -n "$file" ]; then
   [ ! -f "$file" ] && exit 0
-  # Strip git comment lines (core.commentChar default: #)
-  msg=$(grep -v '^#' <"$file")
+  # Git's default comment marker is `#`, while this repository's conventional
+  # commit sections are Markdown headings such as `## Summary`. Template
+  # comments use exactly one leading marker, so remove those without erasing
+  # the two-or-more-marker headings that are part of the actual message.
+  msg=$(grep -vE '^#([^#]|$)' <"$file")
 else
   msg=$(cat)
 fi
@@ -111,8 +114,15 @@ fi
 
 # ── Sections ──────────────────────────────────────────────────────────
 
+# Keep one grammar for every section decision. Markdown headings use at least
+# two markers so they remain distinguishable from Git's one-marker template
+# comments; plain and colon-style headers remain supported for compatibility.
+_section_prefix_re='[[:space:]]*(#{2,6}[[:space:]]+)?'
+_section_suffix_re='(:|[[:space:]]*$)'
+
 if [ -z "$format" ]; then
-  if printf '%s\n' "$msg" | grep -qiE '^[[:space:]]*Test Plan'; then
+  if printf '%s\n' "$msg" |
+    grep -qiE "^${_section_prefix_re}Test Plan${_section_suffix_re}"; then
     format=sl
   else
     format=git
@@ -123,7 +133,9 @@ _check_section() {
   local name="$1"
 
   local hline
-  hline=$(printf '%s\n' "$msg" | grep -niE "^[[:space:]]*${name}(:|[[:space:]]*$)" | head -1 | cut -d: -f1)
+  hline=$(printf '%s\n' "$msg" |
+    grep -niE "^${_section_prefix_re}${name}${_section_suffix_re}" |
+    head -1 | cut -d: -f1)
 
   if [ -z "$hline" ]; then
     _check "missing '${name}' section"
@@ -141,12 +153,20 @@ _check_section() {
   fi
 
   # Content on subsequent lines. Stop at known section headers
-  # (case-insensitive via bracket globs) or metadata lines.
-  local content=''
+  # or metadata lines. Bash has no scoped case-insensitive regex operator, so
+  # spell the known names with portable bracket pairs rather than changing a
+  # process-wide `nocasematch` setting.
+  local content='' known_section_re
+  known_section_re="^${_section_prefix_re}("
+  known_section_re+='[Ss][Uu][Mm][Mm][Aa][Rr][Yy]|'
+  known_section_re+='[Tt][Ee][Ss][Tt][Ii][Nn][Gg]|'
+  known_section_re+='[Tt][Ee][Ss][Tt][[:space:]]+[Pp][Ll][Aa][Nn]'
+  known_section_re+=")${_section_suffix_re}"
   while IFS= read -r _line; do
+    if [[ "$_line" =~ $known_section_re ]]; then
+      break
+    fi
     case "$_line" in
-      [Ss]ummary | [Ss]ummary:* | [Tt]esting | [Tt]esting:* | \
-        [Tt]est\ [Pp]lan | [Tt]est\ [Pp]lan:*) break ;;
       "Differential Revision:"* | "Reviewed By:"* | "Reviewers:"*) break ;;
     esac
     [[ "$_line" =~ ^[[:space:]]*$ ]] && continue
