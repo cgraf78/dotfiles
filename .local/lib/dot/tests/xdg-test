@@ -96,12 +96,9 @@ _assert_eq "overlay manifest: writer and doctor share XDG state path" \
 
 # shellcheck source=../core/merge-hooks/agent-rules.sh
 . "$source_home/.local/lib/dot/core/merge-hooks/agent-rules.sh"
-_agent_rules_cache_path
-_assert_eq "agent rules: current cache uses shared XDG state policy" \
-  "$work/runtime-state/dot/agent-rules-publish-cache-v3" "$REPLY"
-_agent_rules_legacy_cache_path
-_assert_eq "agent rules: migration cache uses shared XDG state policy" \
-  "$work/runtime-state/dot/agent-rules-publish-cache-v1" "$REPLY"
+_dot_agent_rules_manifest_path
+_assert_eq "agent rules: resolved manifest uses shared XDG state policy" \
+  "$work/runtime-state/dot/agent-rules-manifest-v1.tsv" "$REPLY"
 
 # shellcheck source=../core/merge-hooks/gh.sh
 . "$source_home/.local/lib/dot/core/merge-hooks/gh.sh"

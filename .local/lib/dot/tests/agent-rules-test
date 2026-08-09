@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# agent-rules-test — tests for generated agent rule aggregates.
+# agent-rules-test — tests for dotfiles-owned agent rule policy.
 
 # shellcheck disable=SC1091,SC2016,SC2030,SC2031,SC2088
 # Route extraction intentionally matches literal Markdown backticks.
@@ -11,7 +11,6 @@ _test_prefer_system_git || exit 1
 . "$HOME/.local/lib/dot/core/constants.sh"
 . "$HOME/.local/lib/dot/core/repos/overlays.sh"
 
-HOOK="$HOME/.local/lib/dot/core/merge-hooks/agent-rules.sh"
 PLAYBOOK_LIB="$HOME/.local/lib/dot/core/agent-playbooks.sh"
 RULE_FAMILY="$HOME/.config/dot/merge-hooks.d/agent-rules/rules.d"
 NATIVE_TARGETS="$HOME/.config/dot/merge-hooks.d/agent-rules/targets.d/80-targets.replace/50-native.txt"
@@ -40,36 +39,6 @@ _managed_overlay_owner_for_path() {
     done <"$manifest"
   done
   return 1
-}
-
-_run_agent_rules_merge() {
-  local fixture="$1"
-  (
-    HOME="$fixture"
-    # Merge behavior is fixture-local. Do not inherit absolute XDG roots from
-    # the suite runner or the invoking user's shell when HOME changes.
-    unset XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME
-    export DOT_OVERLAY_MANIFEST="$fixture/.local/state/dot/overlay-links"
-    export DOT_OVERLAY_LEGACY_MANIFEST="$fixture/.local/state/dot/legacy-overlay-links"
-    # The sourced merge hook calls these callbacks; shellcheck cannot see that
-    # indirection from this test fixture.
-    # shellcheck disable=SC2329
-    _log() { :; }
-    # shellcheck disable=SC2329
-    _warn() { printf '%s\n' "$*" >&2; }
-    # shellcheck source=/dev/null
-    source "$HOOK"
-    merge
-  )
-}
-
-_managed_body() {
-  local file="$1"
-  awk '
-    /^# dot-managed:agent-rules:aggregate begin$/ { in_block = 1; next }
-    /^# dot-managed:agent-rules:aggregate end$/ { in_block = 0; next }
-    in_block { print }
-  ' "$file"
 }
 
 echo "=== global memory rules ==="
@@ -198,7 +167,7 @@ else
   _pass "agent rules: discovered ${#routing_files[@]} routing index files"
   routing_source=$(cat "${routing_files[@]}")
   _assert_contains "agent rules: routing source has generated index marker" \
-    "<!-- dot-playbook-index -->" "$routing_source"
+    "<!-- agent-rules-playbook-index -->" "$routing_source"
   _assert_not_contains "agent rules: routing source has no maintained route list" \
     "languages/python.md" "$routing_source"
 
@@ -268,10 +237,15 @@ while IFS= read -r route_path; do
   _assert_playbook_route "$PLAYBOOK_FAMILY" "$route_path"
 done <<<"$route_paths"
 
+# Dotfiles owns the prose budget, while the provider owns exact rendering.
+# Counting source bytes plus the generated route index is intentionally a
+# conservative upper bound because it also counts the replaced marker.
 rendered_rules=$(
-  # shellcheck source=/dev/null
-  . "$HOOK"
-  _agent_rules_render
+  for rule_file in "${rule_files[@]}"; do
+    cat "$rule_file"
+    printf '\n\n'
+  done
+  printf '%s\n' "$ROUTING_TEXT"
 )
 core_bytes=$(printf '%s\n' "$rendered_rules" | wc -c)
 if ((core_bytes <= 20000)); then
@@ -311,27 +285,6 @@ EOF
     _fail "agent rules: parser rejects duplicate top-level triggers"
   else
     _pass "agent rules: parser rejects duplicate top-level triggers"
-  fi
-
-  if (
-    # shellcheck source=/dev/null
-    . "$HOOK"
-    _agent_rules_expand_playbook_index \
-      'inline <!-- dot-playbook-index --> marker'
-  ) >/dev/null 2>&1; then
-    _fail "agent rules: inline generated-index marker is rejected"
-  else
-    _pass "agent rules: inline generated-index marker is rejected"
-  fi
-  if (
-    # shellcheck source=/dev/null
-    . "$HOOK"
-    _agent_rules_expand_playbook_index \
-      $'<!-- dot-playbook-index -->\n<!-- dot-playbook-index -->'
-  ) >/dev/null 2>&1; then
-    _fail "agent rules: duplicate generated-index markers are rejected"
-  else
-    _pass "agent rules: duplicate generated-index markers are rejected"
   fi
 
   DISCOVERY_FIXTURE=$(_tmpdir)
@@ -455,7 +408,9 @@ EOF
   git -C "$DISCOVERY_FIXTURE/.dotfiles-local" add "home/$discovery_local_rel"
   discovery_stale_local_listing=$(
     HOME="$DISCOVERY_FIXTURE"
+    # shellcheck disable=SC2034  # read dynamically by _dot_playbook_files.
     DOT_OVERLAY_MANIFEST="$DISCOVERY_FIXTURE/.local/state/dot/overlay-links"
+    # shellcheck disable=SC2034  # read dynamically by _dot_playbook_files.
     DOT_OVERLAY_LEGACY_MANIFEST="$DISCOVERY_FIXTURE/.local/state/dot/legacy-overlay-links"
     # shellcheck disable=SC2034  # read dynamically by _dot_playbook_files.
     OVERLAYS=()
@@ -498,281 +453,5 @@ EOF
     _pass "agent rules: discovery fails on an invalid overlay repository"
   fi
 fi
-
-echo "=== agent rules merge ==="
-
-MARKER_FIXTURE=$(_tmpdir)
-mkdir -p \
-  "$MARKER_FIXTURE/.config/dot/agent-playbooks.d/test" \
-  "$MARKER_FIXTURE/.config/dot/merge-hooks.d/agent-rules/rules.d" \
-  "$MARKER_FIXTURE/.config/dot/merge-hooks.d/agent-rules/targets.d/80-targets.replace"
-cat >"$MARKER_FIXTURE/.config/dot/agent-playbooks.d/test/example.md" <<'EOF'
-# Example
-
-<!-- agent-rule-id: marker-example -->
-<!-- agent-rule-trigger: Testing marker ownership -->
-EOF
-printf '%s\n' '# No marker' \
-  >"$MARKER_FIXTURE/.config/dot/merge-hooks.d/agent-rules/rules.d/000-main.md"
-printf '%s\n' '$HOME/.claude/CLAUDE.md' \
-  >"$MARKER_FIXTURE/.config/dot/merge-hooks.d/agent-rules/targets.d/80-targets.replace/50-native.conf"
-git init -q --bare "$MARKER_FIXTURE/.dotfiles"
-git --git-dir="$MARKER_FIXTURE/.dotfiles" --work-tree="$MARKER_FIXTURE" add \
-  .config/dot/agent-playbooks.d/test/example.md
-if _run_agent_rules_merge "$MARKER_FIXTURE"; then
-  _fail "agent rules merge: playbooks without an index marker fail the update"
-else
-  _pass "agent rules merge: playbooks without an index marker fail the update"
-fi
-printf '%s\n' '<!-- dot-playbook-index -->' \
-  >>"$MARKER_FIXTURE/.config/dot/merge-hooks.d/agent-rules/rules.d/000-main.md"
-printf '%s\n' '<!-- dot-playbook-index -->' \
-  >"$MARKER_FIXTURE/.config/dot/merge-hooks.d/agent-rules/rules.d/010-duplicate.md"
-if _run_agent_rules_merge "$MARKER_FIXTURE"; then
-  _fail "agent rules merge: index markers in two fragments fail the update"
-else
-  _pass "agent rules merge: index markers in two fragments fail the update"
-fi
-
-FIXTURE=$(_tmpdir)
-mkdir -p \
-  "$FIXTURE/.config/dot/merge-hooks.d/agent-rules/rules.d" \
-  "$FIXTURE/.config/dot/merge-hooks.d/agent-rules/targets.d/80-targets.replace" \
-  "$FIXTURE/.claude" \
-  "$FIXTURE/.codex"
-cat >"$FIXTURE/.config/dot/merge-hooks.d/agent-rules/rules.d/000-main.md" <<'EOF'
-# Main
-
-<!-- agent-rule-id: test-main -->
-## Main Rule
-
-main rules
-EOF
-cat >"$FIXTURE/.config/dot/merge-hooks.d/agent-rules/rules.d/010-style.md" <<'EOF'
-# Style
-
-<!-- agent-rule-id: test-style -->
-## Style Rule
-
-style rules
-EOF
-cat >"$FIXTURE/.config/dot/merge-hooks.d/agent-rules/targets.d/80-targets.replace/50-native.txt" <<'EOF'
-$HOME/.claude/CLAUDE.md
-~/.codex/AGENTS.md
-$HOME/.config/opencode/AGENTS.md
-EOF
-printf '%s\n' "local claude note" >"$FIXTURE/.claude/CLAUDE.md"
-
-_run_agent_rules_merge "$FIXTURE"
-
-_assert_contains "agent rules merge: preserves unmanaged target text" \
-  "local claude note" "$(cat "$FIXTURE/.claude/CLAUDE.md")"
-_assert_contains "agent rules merge: writes managed block" \
-  "# dot-managed:agent-rules:aggregate begin" "$(cat "$FIXTURE/.claude/CLAUDE.md")"
-_assert_contains "agent rules merge: writes generated warning" \
-  "Generated by dot. Do not edit this block directly." \
-  "$(cat "$FIXTURE/.claude/CLAUDE.md")"
-_assert_contains "agent rules merge: preserves rule id markers" \
-  "agent-rule-id: test-main" "$(cat "$FIXTURE/.claude/CLAUDE.md")"
-_assert_contains "agent rules merge: expands tilde target" \
-  "style rules" "$(cat "$FIXTURE/.codex/AGENTS.md")"
-_assert_contains "agent rules merge: writes native OpenCode target" \
-  "style rules" "$(cat "$FIXTURE/.config/opencode/AGENTS.md")"
-
-INVALID_PLAYBOOK_FIXTURE=$(_tmpdir)
-mkdir -p \
-  "$INVALID_PLAYBOOK_FIXTURE/.config/dot/agent-playbooks.d/test" \
-  "$INVALID_PLAYBOOK_FIXTURE/.config/dot/merge-hooks.d/agent-rules/rules.d" \
-  "$INVALID_PLAYBOOK_FIXTURE/.config/dot/merge-hooks.d/agent-rules/targets.d/80-targets.replace" \
-  "$INVALID_PLAYBOOK_FIXTURE/.claude"
-cat >"$INVALID_PLAYBOOK_FIXTURE/.config/dot/agent-playbooks.d/test/example.md" <<'EOF'
-# Example
-
-<!-- agent-rule-id: test-example -->
-<!-- agent-rule-trigger: Testing A & B metadata handling -->
-EOF
-cat >"$INVALID_PLAYBOOK_FIXTURE/.config/dot/merge-hooks.d/agent-rules/rules.d/110-on-demand-playbooks.md" <<'EOF'
-# On-Demand Playbooks
-
-<!-- agent-rule-id: test-on-demand-playbooks -->
-
-<!-- dot-playbook-index -->
-EOF
-printf '%s\n' '$HOME/.claude/CLAUDE.md' \
-  >"$INVALID_PLAYBOOK_FIXTURE/.config/dot/merge-hooks.d/agent-rules/targets.d/80-targets.replace/50-native.conf"
-git -C "$INVALID_PLAYBOOK_FIXTURE" init -q
-git -C "$INVALID_PLAYBOOK_FIXTURE" add .config/dot/agent-playbooks.d/test/example.md
-_run_agent_rules_merge "$INVALID_PLAYBOOK_FIXTURE"
-valid_generated_rules=$(cat "$INVALID_PLAYBOOK_FIXTURE/.claude/CLAUDE.md")
-_assert_contains "agent rules merge: preserves ampersands in trigger text" \
-  "Testing A & B metadata handling" "$valid_generated_rules"
-sed '/agent-rule-trigger:/d' \
-  "$INVALID_PLAYBOOK_FIXTURE/.config/dot/agent-playbooks.d/test/example.md" \
-  >"$INVALID_PLAYBOOK_FIXTURE/example.md.tmp"
-mv "$INVALID_PLAYBOOK_FIXTURE/example.md.tmp" \
-  "$INVALID_PLAYBOOK_FIXTURE/.config/dot/agent-playbooks.d/test/example.md"
-if _run_agent_rules_merge "$INVALID_PLAYBOOK_FIXTURE"; then
-  _fail "agent rules merge: invalid playbook metadata fails the update"
-else
-  _pass "agent rules merge: invalid playbook metadata fails the update"
-fi
-_assert_file_content \
-  "agent rules merge: invalid playbook metadata preserves last valid output" \
-  "$valid_generated_rules" "$INVALID_PLAYBOOK_FIXTURE/.claude/CLAUDE.md"
-
-TAMPER_FIXTURE=$(_tmpdir)
-mkdir -p \
-  "$TAMPER_FIXTURE/.config/dot/agent-playbooks.d/keep" \
-  "$TAMPER_FIXTURE/.config/dot/agent-playbooks.d/escape" \
-  "$TAMPER_FIXTURE/.config/dot/merge-hooks.d/agent-rules/rules.d" \
-  "$TAMPER_FIXTURE/.config/dot/merge-hooks.d/agent-rules/targets.d/80-targets.replace" \
-  "$TAMPER_FIXTURE/.claude"
-for name in keep escape; do
-  cat >"$TAMPER_FIXTURE/.config/dot/agent-playbooks.d/$name/$name.md" <<EOF
-# $name
-
-<!-- agent-rule-id: test-$name -->
-<!-- agent-rule-trigger: Testing $name -->
-EOF
-done
-cat >"$TAMPER_FIXTURE/.config/dot/merge-hooks.d/agent-rules/rules.d/110-on-demand-playbooks.md" <<'EOF'
-# On-Demand Playbooks
-
-<!-- agent-rule-id: tamper-on-demand-playbooks -->
-
-<!-- dot-playbook-index -->
-EOF
-printf '%s\n' '$HOME/.claude/CLAUDE.md' \
-  >"$TAMPER_FIXTURE/.config/dot/merge-hooks.d/agent-rules/targets.d/80-targets.replace/50-native.conf"
-git init -q --bare "$TAMPER_FIXTURE/.dotfiles"
-git --git-dir="$TAMPER_FIXTURE/.dotfiles" --work-tree="$TAMPER_FIXTURE" add \
-  .config/dot/agent-playbooks.d/keep/keep.md \
-  .config/dot/agent-playbooks.d/escape/escape.md
-_run_agent_rules_merge "$TAMPER_FIXTURE"
-untampered_rules=$(cat "$TAMPER_FIXTURE/.claude/CLAUDE.md")
-mv "$TAMPER_FIXTURE/.config/dot/agent-playbooks.d/escape" \
-  "$TAMPER_FIXTURE/external-escape-playbooks"
-ln -s "$TAMPER_FIXTURE/external-escape-playbooks" \
-  "$TAMPER_FIXTURE/.config/dot/agent-playbooks.d/escape"
-if _run_agent_rules_merge "$TAMPER_FIXTURE"; then
-  _fail "agent rules merge: tracked playbook path tampering fails the update"
-else
-  _pass "agent rules merge: tracked playbook path tampering fails the update"
-fi
-_assert_file_content \
-  "agent rules merge: tracked playbook tampering preserves last valid output" \
-  "$untampered_rules" "$TAMPER_FIXTURE/.claude/CLAUDE.md"
-
-managed_body="$(_managed_body "$FIXTURE/.claude/CLAUDE.md")"
-main_line=$(printf '%s\n' "$managed_body" | grep -n "main rules" | cut -d: -f1)
-style_line=$(printf '%s\n' "$managed_body" | grep -n "style rules" | cut -d: -f1)
-if [[ -n "$main_line" && -n "$style_line" && "$main_line" -lt "$style_line" ]]; then
-  _pass "agent rules merge: preserves source order in aggregate"
-else
-  _fail "agent rules merge: preserves source order in aggregate"
-fi
-
-_run_agent_rules_merge "$FIXTURE"
-_assert_file_exists "agent rules merge: writes publish cache" \
-  "$FIXTURE/.local/state/dot/agent-rules-publish-cache-v3"
-_assert_contains "agent rules merge: idempotent rerun keeps managed block" \
-  "style rules" "$(_managed_body "$FIXTURE/.claude/CLAUDE.md")"
-
-cat >"$FIXTURE/.config/dot/merge-hooks.d/agent-rules/targets.d/80-targets.replace/80-alt.conf" <<'EOF'
-$HOME/.agent-alt/AGENTS.md
-EOF
-_run_agent_rules_merge "$FIXTURE"
-_assert_contains "agent rules merge: replace group selects alternate target" \
-  "main rules" "$(cat "$FIXTURE/.agent-alt/AGENTS.md")"
-if [[ -e "$FIXTURE/.codex/AGENTS.md" ]]; then
-  _fail "agent rules merge: prunes stale native target after profile switch"
-else
-  _pass "agent rules merge: prunes stale native target after profile switch"
-fi
-_assert_file_missing "agent rules merge: prunes stale OpenCode target after profile switch" \
-  "$FIXTURE/.config/opencode/AGENTS.md"
-_assert_file_content "agent rules merge: preserves unmanaged text while pruning stale block" \
-  "local claude note" "$FIXTURE/.claude/CLAUDE.md"
-
-LEGACY_FIXTURE=$(_tmpdir)
-mkdir -p \
-  "$LEGACY_FIXTURE/.config/agent-rules/shared" \
-  "$LEGACY_FIXTURE/.config/dot/merge-hooks.d/agent-rules/rules.d" \
-  "$LEGACY_FIXTURE/.config/dot/merge-hooks.d/agent-rules/targets.d/80-targets.replace" \
-  "$LEGACY_FIXTURE/.claude/rules"
-printf '%s\n' "legacy source" >"$LEGACY_FIXTURE/.config/agent-rules/shared/old.md"
-ln -s "$LEGACY_FIXTURE/.config/agent-rules/shared/old.md" \
-  "$LEGACY_FIXTURE/.claude/rules/shared-old.md"
-cat >"$LEGACY_FIXTURE/.config/dot/merge-hooks.d/agent-rules/rules.d/000-main.md" <<'EOF'
-# Main
-
-<!-- agent-rule-id: legacy-main -->
-## Main Rule
-
-main rules
-EOF
-printf '%s\n' "\$HOME/.claude/CLAUDE.md" \
-  >"$LEGACY_FIXTURE/.config/dot/merge-hooks.d/agent-rules/targets.d/80-targets.replace/50-native.conf"
-mkdir -p "$LEGACY_FIXTURE/.local/state/dot"
-cat >"$LEGACY_FIXTURE/.local/state/dot/agent-rules-publish-cache-v1" <<EOF
-version	dotfiles-agent-rules-cache-v2
-target	$LEGACY_FIXTURE/.claude/rules
-desired	$LEGACY_FIXTURE/.claude/rules/shared-old.md
-watch	current	$LEGACY_FIXTURE/.claude/rules/shared-old.md
-EOF
-_run_agent_rules_merge "$LEGACY_FIXTURE"
-_assert_file_missing "agent rules merge: prunes legacy fragment symlink targets" \
-  "$LEGACY_FIXTURE/.claude/rules/shared-old.md"
-
-MISSING_FIXTURE=$(_tmpdir)
-mkdir -p "$MISSING_FIXTURE/.config/dot/merge-hooks.d/agent-rules/targets.d/80-targets.replace"
-printf '%s\n' "\$HOME/.claude/CLAUDE.md" \
-  >"$MISSING_FIXTURE/.config/dot/merge-hooks.d/agent-rules/targets.d/80-targets.replace/50-native.conf"
-_run_agent_rules_merge "$MISSING_FIXTURE"
-if [[ -e "$MISSING_FIXTURE/.claude/CLAUDE.md" ]]; then
-  _fail "agent rules merge: no target created when source family is absent"
-else
-  _pass "agent rules merge: no target created when source family is absent"
-fi
-
-EMPTY_SOURCE_FIXTURE=$(_tmpdir)
-mkdir -p \
-  "$EMPTY_SOURCE_FIXTURE/.config/dot/merge-hooks.d/agent-rules/rules.d" \
-  "$EMPTY_SOURCE_FIXTURE/.config/dot/merge-hooks.d/agent-rules/targets.d/80-targets.replace" \
-  "$EMPTY_SOURCE_FIXTURE/.claude"
-printf '%s\n' "# Main" >"$EMPTY_SOURCE_FIXTURE/.config/dot/merge-hooks.d/agent-rules/rules.d/000-main.md"
-printf '%s\n' "\$HOME/.claude/CLAUDE.md" \
-  >"$EMPTY_SOURCE_FIXTURE/.config/dot/merge-hooks.d/agent-rules/targets.d/80-targets.replace/50-native.conf"
-printf '%s\n' "local claude note" >"$EMPTY_SOURCE_FIXTURE/.claude/CLAUDE.md"
-_run_agent_rules_merge "$EMPTY_SOURCE_FIXTURE"
-rm -f "$EMPTY_SOURCE_FIXTURE/.config/dot/merge-hooks.d/agent-rules/rules.d/000-main.md"
-_run_agent_rules_merge "$EMPTY_SOURCE_FIXTURE"
-_assert_file_content "agent rules merge: prunes current target block when source family empties" \
-  "local claude note" "$EMPTY_SOURCE_FIXTURE/.claude/CLAUDE.md"
-
-NO_TARGET_FIXTURE=$(_tmpdir)
-mkdir -p "$NO_TARGET_FIXTURE/.config/dot/merge-hooks.d/agent-rules/rules.d"
-printf '%s\n' "# Main" >"$NO_TARGET_FIXTURE/.config/dot/merge-hooks.d/agent-rules/rules.d/000-main.md"
-_run_agent_rules_merge "$NO_TARGET_FIXTURE"
-if [[ -e "$NO_TARGET_FIXTURE/.claude/CLAUDE.md" ]]; then
-  _fail "agent rules merge: no target created without configured targets"
-else
-  _pass "agent rules merge: no target created without configured targets"
-fi
-
-REMOVED_TARGET_FIXTURE=$(_tmpdir)
-mkdir -p \
-  "$REMOVED_TARGET_FIXTURE/.config/dot/merge-hooks.d/agent-rules/rules.d" \
-  "$REMOVED_TARGET_FIXTURE/.config/dot/merge-hooks.d/agent-rules/targets.d/80-targets.replace" \
-  "$REMOVED_TARGET_FIXTURE/.claude"
-printf '%s\n' "# Main" >"$REMOVED_TARGET_FIXTURE/.config/dot/merge-hooks.d/agent-rules/rules.d/000-main.md"
-printf '%s\n' "\$HOME/.claude/CLAUDE.md" \
-  >"$REMOVED_TARGET_FIXTURE/.config/dot/merge-hooks.d/agent-rules/targets.d/80-targets.replace/50-native.conf"
-printf '%s\n' "local claude note" >"$REMOVED_TARGET_FIXTURE/.claude/CLAUDE.md"
-_run_agent_rules_merge "$REMOVED_TARGET_FIXTURE"
-rm -f "$REMOVED_TARGET_FIXTURE/.config/dot/merge-hooks.d/agent-rules/targets.d/80-targets.replace/50-native.conf"
-_run_agent_rules_merge "$REMOVED_TARGET_FIXTURE"
-_assert_file_content "agent rules merge: prunes current block when target profile is removed" \
-  "local claude note" "$REMOVED_TARGET_FIXTURE/.claude/CLAUDE.md"
 
 _test_summary

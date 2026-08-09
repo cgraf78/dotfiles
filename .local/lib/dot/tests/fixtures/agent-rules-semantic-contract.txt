@@ -25,11 +25,12 @@ Final payload.
 .claude/CLAUDE.md|present|mode=600|managed=1
 .codex/AGENTS.md|present|mode=600|managed=1
 .config/opencode/AGENTS.md|present|mode=600|managed=1
+.gemini/GEMINI.md|present|mode=600|managed=1
 [initial-unmanaged]
 local claude note
 keep this line
 [invalid-metadata]
-status=2
+status=nonzero
 last-good-content=yes
 last-good-mode=yes
 [profile-switch]
@@ -37,6 +38,7 @@ last-good-mode=yes
 .claude/CLAUDE.md|present|mode=600|managed=0
 .codex/AGENTS.md|absent
 .config/opencode/AGENTS.md|absent
+.gemini/GEMINI.md|absent
 [stale-claude-unmanaged]
 local claude note
 keep this line

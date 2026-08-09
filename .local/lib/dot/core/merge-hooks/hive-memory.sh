@@ -1,10 +1,11 @@
 # shellcheck shell=bash
 # Initialize Hive Memory store state and verify managed config still loads.
 #
-# Dotfiles owns bootstrap and the static agent guidance generated from
-# merge-hooks.d/agent-rules/rules.d, while `hm hook` owns dynamic, project-aware
+# Dotfiles owns bootstrap and the static guidance selected from
+# merge-hooks.d/agent-rules/rules.d; the standalone agent-rules provider owns
+# publishing that selection. `hm hook` separately owns dynamic, project-aware
 # memory context. Do not install generated include markers into agent rule
-# targets: adapter-specific include blocks would make the generated rule body
+# targets: adapter-specific include blocks would make the shared generated body
 # noisy and ambiguous. Hooks are the runtime context path.
 
 if ! declare -F _dot_xdg_path >/dev/null 2>&1; then

@@ -1,48 +1,56 @@
-# Agent Rule Merge Inputs
+# Agent Rule Policy
 
-The `agent-rules` merge hook renders generated global agent rule files from two
-family-aggregator inputs. Its executable implementation lives at
-`~/.local/lib/dot/core/merge-hooks/agent-rules.sh`.
+This directory contains the dotfiles-owned policy consumed by the standalone
+[`agent-rules`](https://github.com/cgraf78/agent-rules) provider. The split is
+intentional:
 
-- `rules.d/` contains concise, always-loaded Markdown source fragments.
-- `targets.d/` contains declarative target profiles.
+- dotfiles owns the actual rule and playbook prose, overlay trust, source
+  ordering, and the target profile selected for this fleet;
+- `agent-rules` owns generic manifest validation, playbook-route rendering,
+  target adapters, managed-block publication, migration, stale cleanup, and
+  uninstall behavior.
 
-Task-specific guidance lives in `~/.config/dot/agent-playbooks.d/` and is
-referenced by the generated on-demand playbook index in `rules.d/`. Each
-playbook's opening metadata block must contain exactly one non-empty
-`<!-- agent-rule-trigger: ... -->` line beside its `agent-rule-id`. Keep the
-`<!-- dot-playbook-index -->` marker in the on-demand core fragment; `dot
-update` replaces it with the human-readable trigger list. Playbook bodies are
-not merged into runtime targets.
+The small `agent-rules.sh` merge hook resolves the active families and trusted
+playbooks into a versioned TSV manifest, writes it privately and atomically to
+`$XDG_STATE_HOME/dot/agent-rules-manifest-v1.tsv`, then runs `agent-rules sync`.
+The manifest contains paths and routes rather than copying rule or playbook
+prose. It is generated machine state, not a user-maintained config file.
 
-Generated runtime rule files are outputs, not source. Edit these family inputs,
-then run `dot update` and the relevant dotfiles tests.
+Agent-specific merge hooks such as `claude`, `codex`, `gemini`, `muse`, and
+`opencode` remain separate. They own settings, permissions, profiles, and
+AgentGuard integration; this provider only publishes shared rule documents.
 
 ## Rule Sources
 
-`rules.d/` contains the source fragments for generated global agent rule files.
-`dot update` concatenates the active Markdown fragments in family order and
-writes the result into the configured runtime target files.
+`rules.d/` contains concise, always-loaded Markdown fragments. Active files are
+concatenated in family order by the provider. Use three-digit numeric prefixes
+to make ordering explicit, and keep each `agent-rule-id` unique across rules
+and playbooks.
 
-Use three-digit numeric prefixes to make ordering explicit. Keep the aggregate
-small: language, tool, troubleshooting, and detailed workflow guidance belongs
-in an on-demand playbook. Overlay repositories can add concise routing or core
-fragments directly or use `.replace` groups when a rule family must be mutually
-exclusive.
+Task-specific detail belongs in `~/.config/dot/agent-playbooks.d/`. The one
+on-demand routing fragment contains
+`<!-- agent-rules-playbook-index -->`; the provider replaces that marker with
+the ordered trigger and route list. Each playbook must declare exactly one
+non-empty `<!-- agent-rule-trigger: ... -->` in its opening metadata block.
+Playbook bodies are routed but are not copied into the always-loaded aggregate.
 
-Do not edit generated runtime files directly. Edit these source fragments, then
-run `dot update` and the relevant dotfiles tests.
+Overlay repositories may add ordered fragments or use `.replace` groups when a
+rule family must be mutually exclusive. Dotfiles validates that playbooks are
+tracked base files or exact links authorized by an active overlay before it
+places them in the provider manifest.
 
-## Rule Targets
+## Target Policy
 
-`targets.d/` selects where the generated agent rule aggregate is written. Each
-active `*.txt` file is a newline-delimited list of target files. Supported path
-forms are absolute paths, `$HOME/...`, and `~/...`. The hook still accepts the
-legacy `*.conf` suffix for older overlays.
+`targets.d/` selects the runtime files that receive the generated aggregate.
+Each active `*.txt` file is a newline-delimited list of target files. Supported
+path forms are absolute paths, `$HOME/...`, and `~/...`; the legacy `*.conf`
+suffix remains accepted for existing overlays.
 
-Use a `.replace` group when environments are mutually exclusive. For example, a
-personal machine can select native agent global files, while an overlay on
-another machine can replace that profile with a different single loader target.
+Use a `.replace` group for mutually exclusive machine profiles. Dotfiles
+resolves these entries to absolute `target-file` records. The provider then
+preserves unmanaged text, writes private files atomically, and removes only its
+own managed blocks when a target becomes stale.
 
-Targets receive a dot-managed block. Unmanaged text outside that block is
-preserved, and stale managed blocks are pruned when the active profile changes.
+Generated runtime rule files and the resolved manifest are outputs. Edit the
+source fragments, playbooks, or target policy here, then run `dot update` and
+the relevant dotfiles tests.
