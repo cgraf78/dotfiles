@@ -114,6 +114,8 @@ program	.local/lib/dot/core/update-lock.sh
 program	.local/lib/dot/core/update.sh
 program	.local/lib/dot/core/windows.sh
 program	.local/lib/dot/core/xdg.sh
+program	.local/lib/dot/tests/agent-rules-adapter-test
+program	.local/lib/dot/tests/agent-rules-contract-test
 program	.local/lib/dot/tests/agent-rules-test
 program	.local/lib/dot/tests/agent-yolo-wrappers-test
 program	.local/lib/dot/tests/android-ci-smoke

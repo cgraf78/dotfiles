@@ -51,6 +51,13 @@ depending on a particular `/var` versus `/private/var` spelling.
   XDG exclusion policy location, and shdeps/merge-hook activation. The
   gstack-register repository owns generated artifacts, agent adapters, cache,
   migration, collision, and cleanup behavior.
+- `agent-rules-test` tests dotfiles-owned rule prose policy, IDs, routing, and
+  trusted playbook discovery. `agent-rules-adapter-test` tests dependency and
+  resolved-manifest dispatch. `agent-rules-contract-test` compares the complete
+  synthetic runtime artifact contract when an installed provider is available;
+  extraction work can set `DOT_TEST_AGENT_RULES_SYNC_PROVIDER` to an isolated
+  provider checkout. Generic parsing, rendering, publication, migration, and
+  cleanup tests live in the `agent-rules-sync` repository.
 - `agent-hook-work-test` tests work-specific `agentguard` hook extensions.
   Installed base hook smoke checks live in `dot doctor`, and detailed hook
   behavior lives in the `agentguard` repo.
