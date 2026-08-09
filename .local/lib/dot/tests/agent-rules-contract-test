@@ -1,0 +1,230 @@
+#!/usr/bin/env bash
+# agent-rules-contract-test — stable semantic contract for provider extraction.
+
+# shellcheck disable=SC1091,SC2016
+# Route extraction intentionally matches literal Markdown backticks.
+set -o pipefail
+export NO_COLOR=1
+
+. "$HOME/.local/lib/dot/tests/helpers.sh"
+_test_prefer_system_git || exit 1
+
+HOOK="$HOME/.local/lib/dot/core/merge-hooks/agent-rules.sh"
+EXPECTED="$HOME/.local/lib/dot/tests/fixtures/agent-rules-semantic-contract.txt"
+
+_run_agent_rules_merge() {
+  local fixture="$1"
+  (
+    HOME="$fixture"
+    # The fixture models a separate machine. Inherited host XDG paths would
+    # make the contract depend on the runner and could mutate real state.
+    unset XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME
+    export DOT_OVERLAY_MANIFEST="$fixture/.local/state/dot/overlay-links"
+    export DOT_OVERLAY_LEGACY_MANIFEST="$fixture/.local/state/dot/legacy-overlay-links"
+    # The sourced merge hook calls these callbacks dynamically.
+    # shellcheck disable=SC2329
+    _log() { :; }
+    # shellcheck disable=SC2329
+    _warn() { printf '%s\n' "$*" >&2; }
+    # shellcheck source=/dev/null
+    source "$HOOK"
+    merge
+  )
+}
+
+_managed_body() {
+  local file="$1"
+  awk '
+    /^# dot-managed:agent-rules:aggregate begin$/ { in_block = 1; next }
+    /^# dot-managed:agent-rules:aggregate end$/ { in_block = 0; next }
+    in_block { print }
+  ' "$file"
+}
+
+_semantic_payload() {
+  local file="$1"
+  # Generator ownership comments and source paths intentionally change during
+  # extraction. The first synthetic heading is the stable payload boundary.
+  _managed_body "$file" | awk '
+    /^# First Rules$/ { in_payload = 1 }
+    in_payload { print }
+  '
+}
+
+_unmanaged_body() {
+  local file="$1"
+  awk '
+    /^# dot-managed:agent-rules:aggregate begin$/ { in_block = 1; next }
+    /^# dot-managed:agent-rules:aggregate end$/ { in_block = 0; next }
+    !in_block { print }
+  ' "$file" | sed '/^[[:space:]]*$/d'
+}
+
+_file_mode() {
+  stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1" 2>/dev/null
+}
+
+_target_state() {
+  local fixture="$1" relative="$2" managed_count
+  local file="$fixture/$relative"
+  if [[ ! -f "$file" ]]; then
+    printf '%s|absent\n' "$relative"
+    return
+  fi
+  managed_count=$(grep -c '^# dot-managed:agent-rules:aggregate begin$' "$file" || true)
+  printf '%s|present|mode=%s|managed=%s\n' \
+    "$relative" "$(_file_mode "$file")" "$managed_count"
+}
+
+echo "=== agent rules semantic artifact contract ==="
+
+FIXTURE=$(_tmpdir)
+RULE_ROOT="$FIXTURE/.config/dot/merge-hooks.d/agent-rules/rules.d"
+TARGET_ROOT="$FIXTURE/.config/dot/merge-hooks.d/agent-rules/targets.d/80-targets.replace"
+PLAYBOOK_ROOT="$FIXTURE/.config/dot/agent-playbooks.d"
+mkdir -p \
+  "$RULE_ROOT" \
+  "$TARGET_ROOT" \
+  "$PLAYBOOK_ROOT/alpha" \
+  "$PLAYBOOK_ROOT/zeta" \
+  "$FIXTURE/.claude"
+
+cat >"$RULE_ROOT/000-first.md" <<'EOF'
+# First Rules
+
+<!-- agent-rule-id: contract-first -->
+
+First payload.
+EOF
+cat >"$RULE_ROOT/050-on-demand-playbooks.md" <<'EOF'
+# Playbook Routes
+
+<!-- agent-rule-id: contract-on-demand-playbooks -->
+
+<!-- dot-playbook-index -->
+EOF
+cat >"$RULE_ROOT/100-final.md" <<'EOF'
+# Final Rules
+
+<!-- agent-rule-id: contract-final -->
+
+Final payload.
+EOF
+cat >"$PLAYBOOK_ROOT/alpha/one.md" <<'EOF'
+# Alpha
+
+<!-- agent-rule-id: contract-alpha -->
+<!-- agent-rule-trigger: Alpha & beta work -->
+
+Alpha body is deliberately routed rather than always loaded.
+EOF
+cat >"$PLAYBOOK_ROOT/zeta/two.md" <<'EOF'
+# Zeta
+
+<!-- agent-rule-id: contract-zeta -->
+<!-- agent-rule-trigger: Zeta review -->
+
+Zeta body is deliberately routed rather than always loaded.
+EOF
+cat >"$TARGET_ROOT/50-native.txt" <<'EOF'
+$HOME/.claude/CLAUDE.md
+~/.codex/AGENTS.md
+$HOME/.config/opencode/AGENTS.md
+EOF
+cat >"$FIXTURE/.claude/CLAUDE.md" <<'EOF'
+local claude note
+keep this line
+EOF
+# Publication currently makes both new and rewritten targets private. Lock
+# that behavior explicitly instead of inheriting the fixture's initial mode.
+chmod 640 "$FIXTURE/.claude/CLAUDE.md"
+
+git init -q --bare "$FIXTURE/.dotfiles"
+git --git-dir="$FIXTURE/.dotfiles" --work-tree="$FIXTURE" add \
+  .config/dot/agent-playbooks.d/alpha/one.md \
+  .config/dot/agent-playbooks.d/zeta/two.md
+
+_run_agent_rules_merge "$FIXTURE"
+
+CLAUDE_TARGET="$FIXTURE/.claude/CLAUDE.md"
+INITIAL_TARGETS=$(
+  _target_state "$FIXTURE" '.claude/CLAUDE.md'
+  _target_state "$FIXTURE" '.codex/AGENTS.md'
+  _target_state "$FIXTURE" '.config/opencode/AGENTS.md'
+)
+LAST_GOOD=$(_tmpfile)
+cp "$CLAUDE_TARGET" "$LAST_GOOD"
+LAST_GOOD_MODE=$(_file_mode "$CLAUDE_TARGET")
+
+# Invalid metadata must fail before publication. This is the transaction
+# boundary the standalone provider must preserve, not merely a parser detail.
+sed '/agent-rule-trigger:/d' "$PLAYBOOK_ROOT/alpha/one.md" >"$FIXTURE/one.md.tmp"
+mv "$FIXTURE/one.md.tmp" "$PLAYBOOK_ROOT/alpha/one.md"
+INVALID_STDERR=$(_tmpfile)
+if _run_agent_rules_merge "$FIXTURE" 2>"$INVALID_STDERR"; then
+  INVALID_STATUS=0
+else
+  INVALID_STATUS=$?
+fi
+if cmp -s "$LAST_GOOD" "$CLAUDE_TARGET"; then
+  INVALID_CONTENT_UNCHANGED=yes
+else
+  INVALID_CONTENT_UNCHANGED=no
+fi
+if [[ "$(_file_mode "$CLAUDE_TARGET")" == "$LAST_GOOD_MODE" ]]; then
+  INVALID_MODE_UNCHANGED=yes
+else
+  INVALID_MODE_UNCHANGED=no
+fi
+
+# Restore the fixture, then select an alternate profile. The prior native
+# targets exercise both stale-file deletion and managed-block pruning where
+# unmanaged text must survive.
+cat >"$PLAYBOOK_ROOT/alpha/one.md" <<'EOF'
+# Alpha
+
+<!-- agent-rule-id: contract-alpha -->
+<!-- agent-rule-trigger: Alpha & beta work -->
+
+Alpha body is deliberately routed rather than always loaded.
+EOF
+cat >"$TARGET_ROOT/80-alternate.txt" <<'EOF'
+$HOME/.agent-alt/AGENTS.md
+EOF
+_run_agent_rules_merge "$FIXTURE"
+
+ACTUAL=$(_tmpfile)
+{
+  printf '%s\n' 'contract=agent-rules-semantics-v1' '[initial-payload]'
+  _semantic_payload "$LAST_GOOD"
+  printf '%s\n' '[initial-routes]'
+  _semantic_payload "$LAST_GOOD" | sed -n '/^- .*: `.*\.md`$/p'
+  printf '%s\n' '[initial-targets]'
+  printf '%s\n' "$INITIAL_TARGETS"
+  printf '%s\n' '[initial-unmanaged]'
+  _unmanaged_body "$LAST_GOOD"
+  printf '%s\n' \
+    '[invalid-metadata]' \
+    "status=$INVALID_STATUS" \
+    "last-good-content=$INVALID_CONTENT_UNCHANGED" \
+    "last-good-mode=$INVALID_MODE_UNCHANGED" \
+    '[profile-switch]'
+  _target_state "$FIXTURE" '.agent-alt/AGENTS.md'
+  _target_state "$FIXTURE" '.claude/CLAUDE.md'
+  _target_state "$FIXTURE" '.codex/AGENTS.md'
+  _target_state "$FIXTURE" '.config/opencode/AGENTS.md'
+  printf '%s\n' '[stale-claude-unmanaged]'
+  _unmanaged_body "$FIXTURE/.claude/CLAUDE.md"
+} >"$ACTUAL"
+
+if cmp -s "$EXPECTED" "$ACTUAL"; then
+  _pass "agent rules contract: semantic artifact matches the extraction baseline"
+else
+  _fail "agent rules contract: semantic artifact matches the extraction baseline"
+  diff -u "$EXPECTED" "$ACTUAL" >&2 || true
+fi
+
+_assert_contains "agent rules contract: invalid metadata reports its category" \
+  "invalid agent playbook metadata" "$(cat "$INVALID_STDERR")"
+
+_test_summary

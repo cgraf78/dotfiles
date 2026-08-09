@@ -1,0 +1,42 @@
+contract=agent-rules-semantics-v1
+[initial-payload]
+# First Rules
+
+<!-- agent-rule-id: contract-first -->
+
+First payload.
+
+# Playbook Routes
+
+<!-- agent-rule-id: contract-on-demand-playbooks -->
+
+- Alpha & beta work: `alpha/one.md`
+- Zeta review: `zeta/two.md`
+
+# Final Rules
+
+<!-- agent-rule-id: contract-final -->
+
+Final payload.
+[initial-routes]
+- Alpha & beta work: `alpha/one.md`
+- Zeta review: `zeta/two.md`
+[initial-targets]
+.claude/CLAUDE.md|present|mode=600|managed=1
+.codex/AGENTS.md|present|mode=600|managed=1
+.config/opencode/AGENTS.md|present|mode=600|managed=1
+[initial-unmanaged]
+local claude note
+keep this line
+[invalid-metadata]
+status=2
+last-good-content=yes
+last-good-mode=yes
+[profile-switch]
+.agent-alt/AGENTS.md|present|mode=600|managed=1
+.claude/CLAUDE.md|present|mode=600|managed=0
+.codex/AGENTS.md|absent
+.config/opencode/AGENTS.md|absent
+[stale-claude-unmanaged]
+local claude note
+keep this line
