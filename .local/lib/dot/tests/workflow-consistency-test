@@ -132,7 +132,6 @@ _assert_no_low_level_dispatch() {
     .config/nvim/lua/plugins/linting.lua \
     .config/nvim/lua/plugins/sley.lua \
     .local/share/git-hooks \
-    .local/share/sl-hooks \
     >"$work/workflow-surface-files.txt"
 
   DOTFILES_HOME="$HOME" python3 - "$work/low-level-tools.txt" "$work/workflow-surface-files.txt" >"$violations" <<'PY'

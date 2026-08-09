@@ -44,7 +44,9 @@ depending on a particular `/var` versus `/private/var` spelling.
   reachability as a product failure.
   `DOT_BOOTSTRAP_SHARD=all ./bootstrap-test` still runs the original
   monolithic coverage shape for audits.
-- `githook-test` tests Git hooks.
+- `githook-test` tests dotfiles' Sley hook activation and the special bare-home
+  policy through real Git operations. Sley's own commit-hook suite owns the
+  reusable Git sequencer and Sapling skip-decision matrix.
 - `agent-hook-work-test` tests work-specific `agentguard` hook extensions.
   Installed base hook smoke checks live in `dot doctor`, and detailed hook
   behavior lives in the `agentguard` repo.

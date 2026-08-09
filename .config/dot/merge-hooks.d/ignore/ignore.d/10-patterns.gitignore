@@ -40,13 +40,12 @@ __pycache__/
 
 # XDG data and state. The `.local/share/*` rule hides high-noise XDG runtime
 # data from `rg "$HOME"`, but the dotfiles ship their own files under
-# `.local/share/` (git-hooks, sl-hooks, dotfiles installer artifacts, doc).
+# `.local/share/` (Git activation hooks, installer artifacts, and docs).
 # Re-include those explicitly so a HOME-wide search still finds hook code.
 .local/share/*
 !.local/share/checkrun/
 !.local/share/doc/
 !.local/share/git-hooks/
-!.local/share/sl-hooks/
 .local/state/
 
 # Language toolchains

@@ -29,3 +29,8 @@ dependency lookup. It loads Shdeps through the provider-owned
 `$SHDEPS_LUA_DIR/shdeps/bootstrap.lua` entrypoint (default
 `~/.local/lib/shdeps/shdeps/bootstrap.lua`); source, developer, and release
 selection belongs to Shdeps rather than this config.
+
+`checkrun-nvim.lua` follows the same boundary: Checkrun owns validation and
+materialization of its editor-metadata contract, while the local shim only
+selects dotfiles' checked JSON projection and resolves `shdeps:` assets through
+`dot-runtime.lua`. Do not copy the contract parser back into this directory.
