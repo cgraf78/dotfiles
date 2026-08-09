@@ -40,9 +40,7 @@ program	.config/shell/interactive.d/57-marks.sh
 program	.config/shell/interactive.d/59-prompt.sh
 program	.config/shell/interactive.d/60-prompt.bash
 program	.config/shell/interactive.d/70-integrations.bash
-program	.local/bin/archup
 program	.local/bin/clip
-program	.local/bin/debup
 program	.local/bin/dot
 program	.local/bin/dot-test
 program	.local/bin/dotbootstrap
@@ -50,7 +48,6 @@ program	.local/bin/git
 program	.local/bin/hm
 program	.local/bin/nvim
 program	.local/bin/shell-time
-program	.local/bin/sysup
 program	.local/bin/tmux-continuum-default-server
 program	.local/bin/tmux-continuum-save-gate
 program	.local/bin/validate-commit-msg
@@ -126,13 +123,9 @@ program	.local/lib/dot/gstack-register/opencode.sh
 program	.local/lib/dot/gstack-register/paths.sh
 program	.local/lib/dot/gstack-register/source.sh
 program	.local/lib/dot/gstack-register/targets.sh
-program	.local/lib/dot/sysup/common.sh
-program	.local/lib/dot/sysup/detect.sh
-program	.local/lib/dot/sysup/systemd.sh
 program	.local/lib/dot/tests/agent-rules-test
 program	.local/lib/dot/tests/agent-yolo-wrappers-test
 program	.local/lib/dot/tests/android-ci-smoke
-program	.local/lib/dot/tests/archup-test
 program	.local/lib/dot/tests/bootstrap-edge-test
 program	.local/lib/dot/tests/bootstrap-fresh-test
 program	.local/lib/dot/tests/bootstrap-overlay-test
@@ -159,7 +152,6 @@ program	.local/lib/dot/tests/core/merges.sh
 program	.local/lib/dot/tests/core/overlays.sh
 program	.local/lib/dot/tests/core/runner.sh
 program	.local/lib/dot/tests/core/static.sh
-program	.local/lib/dot/tests/debup-test
 program	.local/lib/dot/tests/fixtures.sh
 program	.local/lib/dot/tests/githook-test
 program	.local/lib/dot/tests/gstack-opencode-test
@@ -172,7 +164,6 @@ program	.local/lib/dot/tests/prompt-test
 program	.local/lib/dot/tests/schema-associations-test
 program	.local/lib/dot/tests/schema-refresh-workflow-test
 program	.local/lib/dot/tests/shdeps-hooks-test
-program	.local/lib/dot/tests/sysup-test
 program	.local/lib/dot/tests/tmux-continuum-test
 program	.local/lib/dot/tests/tmux-test
 program	.local/lib/dot/tests/tool-init-test
