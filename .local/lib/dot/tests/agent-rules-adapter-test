@@ -12,7 +12,7 @@ source_home=$HOME
 deps="$source_home/.config/shdeps/10-deps.conf"
 hook="$source_home/.local/lib/dot/core/merge-hooks/agent-rules.sh"
 
-if awk '$1 == "cgraf78/agent-rules" && $2 == "github" { found = 1 }
+if awk '$1 == "cgraf78/agent-rules-sync" && $2 == "github" { found = 1 }
   END { exit !found }' "$deps"; then
   _pass "agent rules ownership: standalone provider is a dependency"
 else
@@ -22,12 +22,12 @@ fi
 work=$(_tmpdir)
 fixture_home="$work/home"
 mock_bin="$work/bin"
-call_log="$work/agent-rules.log"
+call_log="$work/agent-rules-sync.log"
 manifest_copy="$work/manifest.tsv"
 rule_root="$fixture_home/.config/dot/merge-hooks.d/agent-rules/rules.d"
 target_root="$fixture_home/.config/dot/merge-hooks.d/agent-rules/targets.d/80-targets.replace"
 playbook_root="$fixture_home/.config/dot/agent-playbooks.d"
-manifest="$fixture_home/.local/state/dot/agent-rules-manifest-v1.tsv"
+manifest="$fixture_home/.local/state/dot/agent-rules-sync-manifest-v1.tsv"
 mkdir -p \
   "$mock_bin" \
   "$rule_root" \
@@ -78,17 +78,17 @@ git --git-dir="$fixture_home/.dotfiles" --work-tree="$fixture_home" add \
   .config/dot/agent-playbooks.d/alpha/one.md \
   .config/dot/agent-playbooks.d/zeta/two.md
 
-cat >"$mock_bin/agent-rules" <<'EOF'
+cat >"$mock_bin/agent-rules-sync" <<'EOF'
 #!/usr/bin/env bash
-: "${DOT_TEST_AGENT_RULES_LOG:?}"
-: "${DOT_TEST_AGENT_RULES_MANIFEST_COPY:?}"
-printf '%s\n' "$*" >>"$DOT_TEST_AGENT_RULES_LOG"
-if [[ "${1:-}" == sync && "${2:-}" == --manifest && -n "${3:-}" ]]; then
-  cp "$3" "$DOT_TEST_AGENT_RULES_MANIFEST_COPY"
+: "${DOT_TEST_AGENT_RULES_SYNC_LOG:?}"
+: "${DOT_TEST_AGENT_RULES_SYNC_MANIFEST_COPY:?}"
+printf '%s\n' "$*" >>"$DOT_TEST_AGENT_RULES_SYNC_LOG"
+if [[ "${1:-}" == --manifest && -n "${2:-}" ]]; then
+  cp "$2" "$DOT_TEST_AGENT_RULES_SYNC_MANIFEST_COPY"
 fi
-exit "${DOT_TEST_AGENT_RULES_STATUS:-0}"
+exit "${DOT_TEST_AGENT_RULES_SYNC_STATUS:-0}"
 EOF
-chmod +x "$mock_bin/agent-rules"
+chmod +x "$mock_bin/agent-rules-sync"
 
 _run_merge() {
   local path="$1"
@@ -99,8 +99,8 @@ _run_merge() {
     export HOME PATH
     export DOT_OVERLAY_MANIFEST="$fixture_home/.local/state/dot/overlay-links"
     export DOT_OVERLAY_LEGACY_MANIFEST="$fixture_home/.local/state/dot/legacy-overlay-links"
-    export DOT_TEST_AGENT_RULES_LOG="$call_log"
-    export DOT_TEST_AGENT_RULES_MANIFEST_COPY="$manifest_copy"
+    export DOT_TEST_AGENT_RULES_SYNC_LOG="$call_log"
+    export DOT_TEST_AGENT_RULES_SYNC_MANIFEST_COPY="$manifest_copy"
     # The sourced hook calls these merge-runner callbacks dynamically.
     # shellcheck disable=SC2329
     _log() { :; }
@@ -116,14 +116,14 @@ _run_merge() {
 _run_merge "$mock_bin:/usr/bin:/bin"
 
 _assert_file_content "agent rules adapter: invokes provider with private manifest" \
-  "sync --manifest $manifest" "$call_log"
+  "--manifest $manifest" "$call_log"
 _assert_file_exists "agent rules adapter: writes resolved manifest" "$manifest"
 _assert_file_content "agent rules adapter: provider observes complete manifest" \
   "$(cat "$manifest")" "$manifest_copy"
 
 expected_manifest=$(_tmpfile)
 {
-  printf 'version\tagent-rules-manifest-v1\n'
+  printf 'version\tagent-rules-sync-manifest-v1\n'
   printf 'rule-root\t%s\n' "$rule_root"
   printf 'playbook-root\t%s\n' "$playbook_root"
   printf 'rule\t%s\n' "$rule_root/000-first.md"
@@ -143,13 +143,13 @@ _assert_not_contains "agent rules adapter: manifest does not copy rule prose" \
 _assert_not_contains "agent rules adapter: manifest does not copy playbook prose" \
   "Alpha private playbook body" "$(cat "$manifest")"
 
-export DOT_TEST_AGENT_RULES_STATUS=23
+export DOT_TEST_AGENT_RULES_SYNC_STATUS=23
 set +e
 _run_merge "$mock_bin:/usr/bin:/bin"
 provider_status=$?
 set -e
 _assert_exit "agent rules adapter: preserves provider failure" 23 "$provider_status"
-unset DOT_TEST_AGENT_RULES_STATUS
+unset DOT_TEST_AGENT_RULES_SYNC_STATUS
 
 # A failed trust/discovery pass must neither replace the last good manifest nor
 # launch the provider with a partial policy view.

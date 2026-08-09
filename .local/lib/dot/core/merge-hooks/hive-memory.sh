@@ -2,7 +2,7 @@
 # Initialize Hive Memory store state and verify managed config still loads.
 #
 # Dotfiles owns bootstrap and the static guidance selected from
-# merge-hooks.d/agent-rules/rules.d; the standalone agent-rules provider owns
+# merge-hooks.d/agent-rules/rules.d; the standalone agent-rules-sync provider owns
 # publishing that selection. `hm hook` separately owns dynamic, project-aware
 # memory context. Do not install generated include markers into agent rule
 # targets: adapter-specific include blocks would make the shared generated body

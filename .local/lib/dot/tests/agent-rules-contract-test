@@ -11,10 +11,10 @@ _test_prefer_system_git || exit 1
 
 HOOK="$HOME/.local/lib/dot/core/merge-hooks/agent-rules.sh"
 EXPECTED="$HOME/.local/lib/dot/tests/fixtures/agent-rules-semantic-contract.txt"
-PROVIDER="${DOT_TEST_AGENT_RULES_PROVIDER:-$(command -v agent-rules 2>/dev/null || true)}"
+PROVIDER="${DOT_TEST_AGENT_RULES_SYNC_PROVIDER:-$(command -v agent-rules-sync 2>/dev/null || true)}"
 
 if [[ ! -x "$PROVIDER" ]]; then
-  echo "SKIP: agent-rules provider is not installed"
+  echo "SKIP: agent-rules-sync provider is not installed"
   exit 0
 fi
 
@@ -42,8 +42,8 @@ _run_agent_rules_merge() {
 _managed_body() {
   local file="$1"
   awk '
-    /^# (dot-managed:agent-rules:aggregate|agent-rules:aggregate) begin$/ { in_block = 1; next }
-    /^# (dot-managed:agent-rules:aggregate|agent-rules:aggregate) end$/ { in_block = 0; next }
+    /^# (dot-managed:agent-rules:aggregate|agent-rules-sync:aggregate) begin$/ { in_block = 1; next }
+    /^# (dot-managed:agent-rules:aggregate|agent-rules-sync:aggregate) end$/ { in_block = 0; next }
     in_block { print }
   ' "$file"
 }
@@ -61,8 +61,8 @@ _semantic_payload() {
 _unmanaged_body() {
   local file="$1"
   awk '
-    /^# (dot-managed:agent-rules:aggregate|agent-rules:aggregate) begin$/ { in_block = 1; next }
-    /^# (dot-managed:agent-rules:aggregate|agent-rules:aggregate) end$/ { in_block = 0; next }
+    /^# (dot-managed:agent-rules:aggregate|agent-rules-sync:aggregate) begin$/ { in_block = 1; next }
+    /^# (dot-managed:agent-rules:aggregate|agent-rules-sync:aggregate) end$/ { in_block = 0; next }
     !in_block { print }
   ' "$file" | sed '/^[[:space:]]*$/d'
 }
@@ -78,7 +78,7 @@ _target_state() {
     printf '%s|absent\n' "$relative"
     return
   fi
-  managed_count=$(grep -Ec '^# (dot-managed:agent-rules:aggregate|agent-rules:aggregate) begin$' \
+  managed_count=$(grep -Ec '^# (dot-managed:agent-rules:aggregate|agent-rules-sync:aggregate) begin$' \
     "$file" || true)
   printf '%s|present|mode=%s|managed=%s\n' \
     "$relative" "$(_file_mode "$file")" "$managed_count"
@@ -109,7 +109,7 @@ cat >"$RULE_ROOT/050-on-demand-playbooks.md" <<'EOF'
 
 <!-- agent-rule-id: contract-on-demand-playbooks -->
 
-<!-- agent-rules-playbook-index -->
+<!-- agent-rules-sync-playbook-index -->
 EOF
 cat >"$RULE_ROOT/100-final.md" <<'EOF'
 # Final Rules
@@ -162,6 +162,24 @@ INITIAL_TARGETS=$(
   _target_state "$FIXTURE" '.config/opencode/AGENTS.md'
   _target_state "$FIXTURE" '.gemini/GEMINI.md'
 )
+
+# Every native adapter receives the same semantic body. Comparing each target
+# separately prevents an adapter-specific wrapper or stale compatibility path
+# from passing the aggregate existence checks while changing runtime policy.
+CLAUDE_PAYLOAD=$(_semantic_payload "$CLAUDE_TARGET")
+for relative in \
+  '.codex/AGENTS.md' \
+  '.config/opencode/AGENTS.md' \
+  '.gemini/GEMINI.md'; do
+  NATIVE_TARGET="$FIXTURE/$relative"
+  if [[ -f "$NATIVE_TARGET" ]] &&
+    [[ "$(_semantic_payload "$NATIVE_TARGET")" == "$CLAUDE_PAYLOAD" ]]; then
+    _pass "agent rules contract: $relative matches the Claude payload"
+  else
+    _fail "agent rules contract: $relative matches the Claude payload"
+  fi
+done
+
 LAST_GOOD=$(_tmpfile)
 cp "$CLAUDE_TARGET" "$LAST_GOOD"
 LAST_GOOD_MODE=$(_file_mode "$CLAUDE_TARGET")

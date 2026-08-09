@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# Resolve dotfiles-owned rule policy for the standalone agent-rules provider.
+# Resolve dotfiles-owned rule policy for the standalone agent-rules-sync provider.
 #
 # Dotfiles deliberately retains source ordering, overlay trust, and target
 # selection. The provider owns all generic parsing, rendering, publication,
@@ -30,7 +30,7 @@ fi
 # The manifest is generated state rather than user configuration: its records
 # contain resolved overlay paths which can differ across machines and runs.
 _dot_agent_rules_manifest_path() {
-  _dot_xdg_path state "dot/agent-rules-manifest-v1.tsv"
+  _dot_xdg_path state "dot/agent-rules-sync-manifest-v1.tsv"
 }
 
 # Expand the intentionally small target-file policy language without sourcing
@@ -148,7 +148,7 @@ _dot_agent_rules_write_manifest() {
   tmp="$REPLY"
 
   {
-    printf 'version\tagent-rules-manifest-v1\n' &&
+    printf 'version\tagent-rules-sync-manifest-v1\n' &&
       printf 'rule-root\t%s\n' "$rule_root" &&
       printf 'playbook-root\t%s\n' "$playbook_root" &&
       _dot_agent_rules_emit_rules &&
@@ -171,7 +171,7 @@ _dot_agent_rules_write_manifest() {
 
 merge() {
   local provider manifest
-  provider=$(command -v agent-rules) || return 0
+  provider=$(command -v agent-rules-sync) || return 0
 
   _dot_agent_rules_write_manifest || {
     _warn "    warning: invalid agent rule policy; keeping existing generated rules"
@@ -180,5 +180,5 @@ merge() {
   manifest="$REPLY"
 
   _log "  Agent rules"
-  "$provider" sync --manifest "$manifest"
+  "$provider" --manifest "$manifest"
 }

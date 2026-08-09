@@ -167,7 +167,7 @@ else
   _pass "agent rules: discovered ${#routing_files[@]} routing index files"
   routing_source=$(cat "${routing_files[@]}")
   _assert_contains "agent rules: routing source has generated index marker" \
-    "<!-- agent-rules-playbook-index -->" "$routing_source"
+    "<!-- agent-rules-sync-playbook-index -->" "$routing_source"
   _assert_not_contains "agent rules: routing source has no maintained route list" \
     "languages/python.md" "$routing_source"
 

@@ -77,7 +77,7 @@ runtime API.
 | OpenCode | AgentGuard `opencode/agentguard.js` | `~/.config/opencode/plugins/dotfiles-agentguard.js` |
 | Gemini CLI | AgentGuard `gemini/hooks.json`, then `gemini/settings.d/` | `~/.gemini/settings.json` |
 | Muse Code | AgentGuard `muse/hooks.json`, then `muse/settings.d/` | `~/.config/muse/settings.json` |
-| Agent rules | `agent-rules/rules.d/*.md`, trusted `agent-playbooks.d/**/*.md`, `agent-rules/targets.d/*.txt` | private resolved manifest consumed by the `agent-rules` provider |
+| Agent rules | `agent-rules/rules.d/*.md`, trusted `agent-playbooks.d/**/*.md`, `agent-rules/targets.d/*.txt` | private resolved manifest consumed by the `agent-rules-sync` provider |
 | Git | tracked XDG config | one portable include in `~/.gitconfig` when needed |
 | GitHub CLI | `gh/config.d/*.yml` | `~/.config/gh/config.yml` |
 | Neovim | `nvim/` | Lazy-managed plugins updated headlessly when Neovim is idle |
@@ -146,7 +146,7 @@ exists, do not add an invented placeholder schema.
 - The agent-rules hook retains dot-specific policy only: it resolves ordered
   `agent-rules/rules.d` fragments, validates trusted playbooks, expands the
   active `agent-rules/targets.d` profile, and atomically writes a private
-  manifest under dot's XDG state directory. The standalone `agent-rules`
+  manifest under dot's XDG state directory. The standalone `agent-rules-sync`
   dependency validates that manifest and owns generic rendering, publication,
   migration, stale cleanup, and uninstall behavior. Per-agent hooks remain
   responsible for settings and AgentGuard integration, not shared rule prose.

@@ -12,7 +12,7 @@ their target-native config directories.
 - `merge-hooks.d/` owns per-hook declarative config directories, merge source
   layers, and cron source files consumed by `dot update`.
 - `merge-hooks.d/agent-rules/rules.d/` contains ordered source fragments for
-  the standalone `agent-rules` provider.
+  the standalone `agent-rules-sync` provider.
 - `merge-hooks.d/agent-rules/targets.d/` selects the generated agent rule
   target files for the current overlay profile. Dot resolves those inputs and
   trusted playbooks into a private generated manifest; the provider owns

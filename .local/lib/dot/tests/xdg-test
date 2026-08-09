@@ -98,7 +98,7 @@ _assert_eq "overlay manifest: writer and doctor share XDG state path" \
 . "$source_home/.local/lib/dot/core/merge-hooks/agent-rules.sh"
 _dot_agent_rules_manifest_path
 _assert_eq "agent rules: resolved manifest uses shared XDG state policy" \
-  "$work/runtime-state/dot/agent-rules-manifest-v1.tsv" "$REPLY"
+  "$work/runtime-state/dot/agent-rules-sync-manifest-v1.tsv" "$REPLY"
 
 # shellcheck source=../core/merge-hooks/gh.sh
 . "$source_home/.local/lib/dot/core/merge-hooks/gh.sh"

@@ -1,18 +1,19 @@
 # Agent Rule Policy
 
 This directory contains the dotfiles-owned policy consumed by the standalone
-[`agent-rules`](https://github.com/cgraf78/agent-rules) provider. The split is
+[`agent-rules-sync`](https://github.com/cgraf78/agent-rules-sync) provider. The split is
 intentional:
 
 - dotfiles owns the actual rule and playbook prose, overlay trust, source
   ordering, and the target profile selected for this fleet;
-- `agent-rules` owns generic manifest validation, playbook-route rendering,
+- `agent-rules-sync` owns generic manifest validation, playbook-route rendering,
   target adapters, managed-block publication, migration, stale cleanup, and
   uninstall behavior.
 
 The small `agent-rules.sh` merge hook resolves the active families and trusted
 playbooks into a versioned TSV manifest, writes it privately and atomically to
-`$XDG_STATE_HOME/dot/agent-rules-manifest-v1.tsv`, then runs `agent-rules sync`.
+`$XDG_STATE_HOME/dot/agent-rules-sync-manifest-v1.tsv`, then runs
+`agent-rules-sync --manifest`.
 The manifest contains paths and routes rather than copying rule or playbook
 prose. It is generated machine state, not a user-maintained config file.
 
@@ -29,7 +30,7 @@ and playbooks.
 
 Task-specific detail belongs in `~/.config/dot/agent-playbooks.d/`. The one
 on-demand routing fragment contains
-`<!-- agent-rules-playbook-index -->`; the provider replaces that marker with
+`<!-- agent-rules-sync-playbook-index -->`; the provider replaces that marker with
 the ordered trigger and route list. Each playbook must declare exactly one
 non-empty `<!-- agent-rule-trigger: ... -->` in its opening metadata block.
 Playbook bodies are routed but are not copied into the always-loaded aggregate.

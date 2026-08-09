@@ -55,7 +55,7 @@ additional family layers under those same paths without changing this
 implementation directory. The hook also resolves only playbooks authorized by
 dot's overlay manifests, writes that dot-specific selection to a private state
 manifest, and delegates all generic rendering and target lifecycle behavior to
-the `agent-rules` command.
+the `agent-rules-sync` command.
 
 ### Dependency-owned integration assets
 
