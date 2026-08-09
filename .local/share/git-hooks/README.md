@@ -5,23 +5,35 @@ This directory is the global Git hook directory selected by
 
 ## Hooks
 
-- `sley-commit-gate` delegates to `sley ready --fix --commit`.
-- `pre-commit` gates normal `git commit` and `git commit --amend`.
-- `pre-merge-commit` gates automatic merge commits.
-- `pre-applypatch` gates commits created by `git am`.
-- `prepare-commit-msg` gates sequencer commits that bypass `pre-commit`, such
-  as `git cherry-pick`, `git revert`, and conflict-resolved `git rebase
-  --continue`.
+- `pre-commit`, `pre-merge-commit`, `pre-applypatch`, and
+  `prepare-commit-msg` are activation shims for Sley's generic Git hooks.
+- `sley-provider-hook` resolves the Shdeps-managed Sley checkout, verifies the
+  requested provider hook is executable, and dispatches without evaluating a
+  command string.
+- `sley-commit-gate` adds the one dotfiles-specific policy described below,
+  then delegates the portable readiness behavior to Sley.
 - `commit-msg` delegates to `validate-commit-msg --format git`.
 
-The commit-readiness hooks run for human and agent commits through the same
-path. The shared gate sets `SLEY_SKIP_UNTRACKED=1` for the base bare dotfiles
-repo so commit checks stay scoped to staged files instead of walking all of
-`$HOME`.
+Sley owns the reusable decisions about ordinary commits, merges, patches, and
+Git sequencer operations. Keeping those implementations in Sley gives direct
+Sley users the same behavior and prevents this activation directory from
+becoming a fork.
+
+Dotfiles retains one intentionally local rule: `sley-commit-gate` sets
+`SLEY_SKIP_UNTRACKED=1` for the base bare dotfiles repo. That unusual repo uses
+all of `$HOME` as its work tree, so an untracked-file walk would be both
+expensive and unrelated to the staged commit scope. Sley does not need to know
+that personal repository layout.
+
+Normal activation resolves Sley at
+`~/.local/share/cgraf78/sley/share/sley/hooks/git/`. `DOT_SLEY_ROOT` may point
+at a Sley checkout for cross-repository development and integration tests; it
+is not required on fleet machines because `dot update` keeps the stable Shdeps
+checkout current.
 
 ## Policy
 
-Keep hooks thin. Shared readiness behavior belongs in `sley`, formatting and
+Keep hooks thin. Portable readiness behavior belongs in Sley, formatting and
 linting policy belongs in Checkrun, and commit-message policy belongs in
 `validate-commit-msg`.
 

@@ -40,8 +40,10 @@ drift.
 - Diagnostics route through `sley hook lint-file --json`.
 - Language capabilities and JSON/YAML/TOML schema associations are generated
   by `checkrun editor-metadata --json` into
-  `checkrun-editor-metadata.json`. Neovim materializes its portable `$HOME` and
-  `shdeps:` references in Lua so startup never waits for Checkrun or Python.
+  `checkrun-editor-metadata.json`. Checkrun's reusable Neovim adapter validates
+  and materializes that portable contract in Lua, so startup never waits for
+  Checkrun or Python. The local `checkrun-nvim.lua` shim supplies only the
+  checked projection path and a Shdeps asset resolver.
 
 Keeping these paths shared means Neovim gets the same behavior as `autolint`,
 agent hooks, Git hooks, and Sapling hooks.

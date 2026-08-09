@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# sley-commit-gate — shared Git commit-readiness gate.
+# sley-commit-gate — add dotfiles policy before Sley's generic gate.
 
 set -u
 
@@ -16,12 +16,8 @@ if [ "${SLEY_SKIP_UNTRACKED:-0}" != "1" ] &&
   fi
 fi
 
-if ! command -v sley >/dev/null 2>&1; then
-  {
-    echo "sley-commit-gate: sley not found on PATH."
-    echo "sley-commit-gate: install sley, fix PATH, or use Git's native --no-verify bypass if this commit must skip hooks."
-  } >&2
-  exit 1
-fi
-
-exec sley ready --fix --commit
+# Everything after the bare-repository policy belongs to Sley. Keeping this
+# final dispatch separate makes the ownership boundary visible and prevents a
+# future Sley fix from being reimplemented in dotfiles.
+hook_dir=$(cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd) || exit 1
+exec "$hook_dir/sley-provider-hook" sley-commit-gate "$@"

@@ -98,9 +98,7 @@ own it:
 | Config merge hooks and cron | [`.config/dot/merge-hooks.d/README.md`](../../../../.config/dot/merge-hooks.d/README.md) |
 | Git config | [`.config/git/README.md`](../../../../.config/git/README.md) |
 | Git hooks | [`.local/share/git-hooks/README.md`](../../../../.local/share/git-hooks/README.md) |
-| Sapling hooks | [`.local/share/sl-hooks/README.md`](../../../../.local/share/sl-hooks/README.md) |
 | Hive Memory config | [`.config/hive-memory/README.md`](../../../../.config/hive-memory/README.md) |
-| Hive Memory launcher | [`.local/lib/dot/hive-memory/README.md`](../../../../.local/lib/dot/hive-memory/README.md) |
 | Shell loading | [`.config/shell/README.md`](../../../../.config/shell/README.md) |
 | Dependency installs | [`.config/shdeps/README.md`](../../../../.config/shdeps/README.md) |
 | Pinned tool versions | [`.config/mise/README.md`](../../../../.config/mise/README.md) |

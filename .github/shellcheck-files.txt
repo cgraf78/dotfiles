@@ -180,6 +180,6 @@ program	.local/share/git-hooks/pre-commit
 program	.local/share/git-hooks/pre-merge-commit
 program	.local/share/git-hooks/prepare-commit-msg
 program	.local/share/git-hooks/sley-commit-gate
-program	.local/share/sl-hooks/sley-commit-gate
+program	.local/share/git-hooks/sley-provider-hook
 program	.profile
 program	.zprofile

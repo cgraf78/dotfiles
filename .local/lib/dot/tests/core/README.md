@@ -12,7 +12,8 @@ files own topic-specific coverage.
 - `launchers.sh` covers PATH-visible launchers such as `dot`, `git`, `nvim`,
   and `sley`.
 - `main.sh` covers core command and bootstrap-adjacent behavior.
-- `merges.sh` covers config merge hooks and generated output.
+- `merges.sh` covers config merge hooks and generated output, including
+  activation of Sley's provider-owned Sapling gate at its stable Shdeps path.
 - `overlays.sh` covers overlay discovery, syncing, linking, and cleanup.
 - `runner.sh` covers the `dot-test` runner itself.
 - `static.sh` covers static checks.

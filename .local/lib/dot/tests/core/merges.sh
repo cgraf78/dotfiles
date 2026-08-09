@@ -19,8 +19,8 @@ dot_core_test_merges() {
     "$(_merge_hook_expand_home '~/bin')"
   # shellcheck disable=SC2016 # Exercise literal placeholders from config files.
   _assert_eq "merge hook support: expands \$HOME inside native config line" \
-    "precommit.sley = $TEST_HOME/.local/share/sl-hooks/sley-commit-gate" \
-    "$(_merge_hook_expand_home 'precommit.sley = $HOME/.local/share/sl-hooks/sley-commit-gate')"
+    "precommit.sley = $TEST_HOME/.local/share/cgraf78/sley/share/sley/hooks/sapling/sley-commit-gate" \
+    "$(_merge_hook_expand_home 'precommit.sley = $HOME/.local/share/cgraf78/sley/share/sley/hooks/sapling/sley-commit-gate')"
 
   yq_resolver_home="$TEST_HOME/yq-resolver-home"
   yq_resolver_path="$TEST_HOME/yq-resolver-path"
@@ -4999,128 +4999,29 @@ EOF
     "$mb_family_inode_before" "$mb_family_inode_after"
 
   echo ""
-  echo "=== Sapling native sley commit gate ==="
-
-  sl_gate="$REAL_HOME/.local/share/sl-hooks/sley-commit-gate"
-  sl_gate_home=$(_tmpdir)
-  sl_gate_bin=$(_tmpdir)/bin
-  sl_gate_log=$(_tmpdir)/sley.log
-  mkdir -p "$sl_gate_bin"
-  cat >"$sl_gate_bin/sley" <<'EOF'
-#!/usr/bin/env bash
-printf '%s\n' "$*" >>"$SL_GATE_LOG"
-exit "${SL_GATE_RC:-0}"
-EOF
-  cat >"$sl_gate_bin/sl" <<'EOF'
-#!/usr/bin/env bash
-case "$1" in
-  status)
-    printf '%s' "${SL_STATUS_OUTPUT:-}"
-    exit "${SL_STATUS_RC:-0}"
-    ;;
-esac
-exit 2
-EOF
-  chmod +x "$sl_gate_bin/sley" "$sl_gate_bin/sl"
-
-  SL_GATE_LOG="$sl_gate_log" PATH="$sl_gate_bin:$PATH" HOME="$sl_gate_home" \
-    bash "$sl_gate" >/dev/null 2>&1
-  sl_gate_rc=$?
-  _assert_exit "sl sley gate: exits with sley rc" 0 "$sl_gate_rc"
-  _assert_file_content "sl sley gate: runs full ready commit scope" \
-    "ready --fix --commit" "$sl_gate_log"
-  _assert_not_contains "sl sley gate: does not exclude verify" \
-    "--exclude verify" "$(cat "$sl_gate_log")"
-
-  : >"$sl_gate_log"
-  SL_GATE_LOG="$sl_gate_log" SL_GATE_RC=1 PATH="$sl_gate_bin:$PATH" HOME="$sl_gate_home" \
-    bash "$sl_gate" >/dev/null 2>&1
-  sl_gate_rc=$?
-  _assert_exit "sl sley gate: propagates blocking sley rc" 1 "$sl_gate_rc"
-  _assert_file_content "sl sley gate: still runs verify for blocking checks" \
-    "ready --fix --commit" "$sl_gate_log"
-
-  : >"$sl_gate_log"
-  SL_GATE_LOG="$sl_gate_log" PATH="$sl_gate_bin:$PATH" HOME="$sl_gate_home" \
-    bash "$sl_gate" amend -m "message only" >/dev/null 2>&1
-  sl_gate_rc=$?
-  _assert_exit "sl sley gate: skips amend with no pending changes" 0 "$sl_gate_rc"
-  _assert_file_content "sl sley gate: metadata-only amend does not run sley" "" "$sl_gate_log"
-
-  : >"$sl_gate_log"
-  SL_GATE_LOG="$sl_gate_log" SL_STATUS_OUTPUT="M changed.cpp" PATH="$sl_gate_bin:$PATH" HOME="$sl_gate_home" \
-    bash "$sl_gate" amend -m "message plus changes" >/dev/null 2>&1
-  sl_gate_rc=$?
-  _assert_exit "sl sley gate: runs amend when files are pending" 0 "$sl_gate_rc"
-  _assert_file_content "sl sley gate: amend with pending changes runs sley" \
-    "ready --fix --commit" "$sl_gate_log"
-
-  : >"$sl_gate_log"
-  SL_GATE_LOG="$sl_gate_log" SL_STATUS_OUTPUT="M changed.cpp" PATH="$sl_gate_bin:$PATH" HOME="$sl_gate_home" \
-    bash "$sl_gate" absorb --dry-run >/dev/null 2>&1
-  sl_gate_rc=$?
-  _assert_exit "sl sley gate: skips absorb dry-run" 0 "$sl_gate_rc"
-  _assert_file_content "sl sley gate: absorb dry-run does not run sley" "" "$sl_gate_log"
-
-  : >"$sl_gate_log"
-  SL_GATE_LOG="$sl_gate_log" PATH="$sl_gate_bin:$PATH" HOME="$sl_gate_home" \
-    bash "$sl_gate" absorb -a >/dev/null 2>&1
-  sl_gate_rc=$?
-  _assert_exit "sl sley gate: skips absorb with no pending changes" 0 "$sl_gate_rc"
-  _assert_file_content "sl sley gate: empty absorb does not run sley" "" "$sl_gate_log"
-
-  missing_sley_path=$(_tmpdir)
-  SL_GATE_LOG="$sl_gate_log" PATH="$missing_sley_path:/usr/bin:/bin" HOME="$sl_gate_home" \
-    bash "$sl_gate" amend >/dev/null 2>"$sl_gate_home/missing-sley.err"
-  sl_gate_rc=$?
-  _assert_exit "sl sley gate: missing sley blocks" 1 "$sl_gate_rc"
-  _assert_contains "sl sley gate: missing sley reports requirement" \
-    "sley is required" "$(cat "$sl_gate_home/missing-sley.err")"
-
-  : >"$sl_gate_log"
-  SL_GATE_LOG="$sl_gate_log" PATH="$sl_gate_bin:$PATH" HOME="$sl_gate_home" \
-    bash "$sl_gate" rebase --abort >/dev/null 2>&1
-  sl_gate_rc=$?
-  _assert_exit "sl sley gate: skips rebase abort" 0 "$sl_gate_rc"
-  _assert_file_content "sl sley gate: rebase abort does not run sley" "" "$sl_gate_log"
-
-  : >"$sl_gate_log"
-  SL_GATE_LOG="$sl_gate_log" PATH="$sl_gate_bin:$PATH" HOME="$sl_gate_home" \
-    bash "$sl_gate" graft --dry-run >/dev/null 2>&1
-  sl_gate_rc=$?
-  _assert_exit "sl sley gate: skips graft dry-run" 0 "$sl_gate_rc"
-  _assert_file_content "sl sley gate: graft dry-run does not run sley" "" "$sl_gate_log"
-
-  : >"$sl_gate_log"
-  SL_GATE_LOG="$sl_gate_log" PATH="$sl_gate_bin:$PATH" HOME="$sl_gate_home" \
-    bash "$sl_gate" import --no-commit patch.diff >/dev/null 2>&1
-  sl_gate_rc=$?
-  _assert_exit "sl sley gate: skips import no-commit" 0 "$sl_gate_rc"
-  _assert_file_content "sl sley gate: import no-commit does not run sley" "" "$sl_gate_log"
-
-  : >"$sl_gate_log"
-  SL_GATE_LOG="$sl_gate_log" PATH="$sl_gate_bin:$PATH" HOME="$sl_gate_home" \
-    bash "$sl_gate" histedit --show-plan >/dev/null 2>&1
-  sl_gate_rc=$?
-  _assert_exit "sl sley gate: skips histedit show-plan" 0 "$sl_gate_rc"
-  _assert_file_content "sl sley gate: histedit show-plan does not run sley" "" "$sl_gate_log"
-
-  : >"$sl_gate_log"
-  SL_GATE_LOG="$sl_gate_log" PATH="$sl_gate_bin:$PATH" HOME="$sl_gate_home" \
-    HG_ARGS="--cwd /tmp/repo rebase --abort --reason 'probe pre-rebase native hook - sl help rebase'" \
-    bash "$sl_gate" >/dev/null 2>&1
-  sl_gate_rc=$?
-  _assert_exit "sl sley gate: parses HG_ARGS for skip decisions" 0 "$sl_gate_rc"
-  _assert_file_content "sl sley gate: HG_ARGS rebase abort does not run sley" "" "$sl_gate_log"
-
-  echo ""
   echo "=== Sapling hook merge ==="
+
+  # Sley owns the executable and its behavior. This suite only needs an
+  # executable at the public installation path to exercise dot's activation
+  # and merge policy; Sley's own suite covers the gate itself.
+  _install_sapling_gate_fixture() {
+    local fixture_home="$1"
+    local gate="$fixture_home/.local/share/cgraf78/sley/share/sley/hooks/sapling/sley-commit-gate"
+    mkdir -p "${gate%/*}"
+    printf '#!/usr/bin/env bash\nexit 0\n' >"$gate"
+    chmod +x "$gate"
+  }
+
+  sl_gate_bin=$(_tmpdir)/bin
+  mkdir -p "$sl_gate_bin"
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$sl_gate_bin/sl"
+  chmod +x "$sl_gate_bin/sl"
 
   sl_missing_hook_home=$(_tmpdir)
   mkdir -p "$sl_missing_hook_home/.config/dot/merge-hooks.d/sapling/hgrc.d"
   cat >"$sl_missing_hook_home/.config/dot/merge-hooks.d/sapling/hgrc.d/10-sley.hgrc" <<'EOF'
 [hooks]
-precommit.sley = $HOME/.local/share/sl-hooks/sley-commit-gate
+precommit.sley = $HOME/.local/share/cgraf78/sley/share/sley/hooks/sapling/sley-commit-gate
 EOF
   cat >"$sl_missing_hook_home/.hgrc" <<'EOF'
 # dot-managed:hgrc:sley-legacy begin
@@ -5143,18 +5044,15 @@ EOF
   _assert_contains "sapling hook merge: missing gate preserves legacy block" \
     "/old/legacy/hook" "$(cat "$sl_missing_hook_home/.hgrc")"
   _assert_not_contains "sapling hook merge: missing gate does not install broken hook" \
-    "$sl_missing_hook_home/.local/share/sl-hooks/sley-commit-gate" \
+    "$sl_missing_hook_home/.local/share/cgraf78/sley/share/sley/hooks/sapling/sley-commit-gate" \
     "$(cat "$sl_missing_hook_home/.hgrc")"
 
   sl_non_hook_home=$(_tmpdir)
-  mkdir -p \
-    "$sl_non_hook_home/.local/share/sl-hooks" \
-    "$sl_non_hook_home/.config/dot/merge-hooks.d/sapling/hgrc.d"
-  cp "$sl_gate" "$sl_non_hook_home/.local/share/sl-hooks/sley-commit-gate"
-  chmod +x "$sl_non_hook_home/.local/share/sl-hooks/sley-commit-gate"
+  mkdir -p "$sl_non_hook_home/.config/dot/merge-hooks.d/sapling/hgrc.d"
+  _install_sapling_gate_fixture "$sl_non_hook_home"
   cat >"$sl_non_hook_home/.config/dot/merge-hooks.d/sapling/hgrc.d/10-mixed.hgrc" <<'EOF'
 [hooks]
-precommit.sley = $HOME/.local/share/sl-hooks/sley-commit-gate
+precommit.sley = $HOME/.local/share/cgraf78/sley/share/sley/hooks/sapling/sley-commit-gate
 [ui]
 username = Test User <test@example.com>
 EOF
@@ -5172,29 +5070,26 @@ EOF
   _assert_contains "sapling hook merge: non-hook assignment preserved" \
     "username = Test User <test@example.com>" "$sl_non_hook_hgrc"
   _assert_contains "sapling hook merge: non-hook assignment does not block hooks" \
-    "precommit.sley = $sl_non_hook_home/.local/share/sl-hooks/sley-commit-gate" \
+    "precommit.sley = $sl_non_hook_home/.local/share/cgraf78/sley/share/sley/hooks/sapling/sley-commit-gate" \
     "$sl_non_hook_hgrc"
 
   sl_hook_home=$(_tmpdir)
-  mkdir -p \
-    "$sl_hook_home/.local/share/sl-hooks" \
-    "$sl_hook_home/.config/dot/merge-hooks.d/sapling/hgrc.d"
-  cp "$sl_gate" "$sl_hook_home/.local/share/sl-hooks/sley-commit-gate"
-  chmod +x "$sl_hook_home/.local/share/sl-hooks/sley-commit-gate"
+  mkdir -p "$sl_hook_home/.config/dot/merge-hooks.d/sapling/hgrc.d"
+  _install_sapling_gate_fixture "$sl_hook_home"
   cat >"$sl_hook_home/.config/dot/merge-hooks.d/sapling/hgrc.d/10-sley.ini" <<'EOF'
 [hooks]
-precommit.sley = $HOME/.local/share/sl-hooks/sley-commit-gate
-pre-amend.sley = $HOME/.local/share/sl-hooks/sley-commit-gate
-pre-absorb.sley = $HOME/.local/share/sl-hooks/sley-commit-gate
-pre-record.sley = $HOME/.local/share/sl-hooks/sley-commit-gate
-pre-continue.sley = $HOME/.local/share/sl-hooks/sley-commit-gate
-pre-backout.sley = $HOME/.local/share/sl-hooks/sley-commit-gate
-pre-graft.sley = $HOME/.local/share/sl-hooks/sley-commit-gate
-pre-import.sley = $HOME/.local/share/sl-hooks/sley-commit-gate
-pre-fold.sley = $HOME/.local/share/sl-hooks/sley-commit-gate
-pre-split.sley = $HOME/.local/share/sl-hooks/sley-commit-gate
-pre-rebase.sley = $HOME/.local/share/sl-hooks/sley-commit-gate
-pre-histedit.sley = $HOME/.local/share/sl-hooks/sley-commit-gate
+precommit.sley = $HOME/.local/share/cgraf78/sley/share/sley/hooks/sapling/sley-commit-gate
+pre-amend.sley = $HOME/.local/share/cgraf78/sley/share/sley/hooks/sapling/sley-commit-gate
+pre-absorb.sley = $HOME/.local/share/cgraf78/sley/share/sley/hooks/sapling/sley-commit-gate
+pre-record.sley = $HOME/.local/share/cgraf78/sley/share/sley/hooks/sapling/sley-commit-gate
+pre-continue.sley = $HOME/.local/share/cgraf78/sley/share/sley/hooks/sapling/sley-commit-gate
+pre-backout.sley = $HOME/.local/share/cgraf78/sley/share/sley/hooks/sapling/sley-commit-gate
+pre-graft.sley = $HOME/.local/share/cgraf78/sley/share/sley/hooks/sapling/sley-commit-gate
+pre-import.sley = $HOME/.local/share/cgraf78/sley/share/sley/hooks/sapling/sley-commit-gate
+pre-fold.sley = $HOME/.local/share/cgraf78/sley/share/sley/hooks/sapling/sley-commit-gate
+pre-split.sley = $HOME/.local/share/cgraf78/sley/share/sley/hooks/sapling/sley-commit-gate
+pre-rebase.sley = $HOME/.local/share/cgraf78/sley/share/sley/hooks/sapling/sley-commit-gate
+pre-histedit.sley = $HOME/.local/share/cgraf78/sley/share/sley/hooks/sapling/sley-commit-gate
 EOF
   cat >"$sl_hook_home/.hgrc" <<'EOF'
 # dot-managed:hgrc:sley-legacy begin
@@ -5216,29 +5111,29 @@ EOF
   '
   sl_hook_hgrc=$(cat "$sl_hook_home/.hgrc")
   _assert_contains "sapling hook merge: installs precommit gate" \
-    "precommit.sley = $sl_hook_home/.local/share/sl-hooks/sley-commit-gate" "$sl_hook_hgrc"
+    "precommit.sley = $sl_hook_home/.local/share/cgraf78/sley/share/sley/hooks/sapling/sley-commit-gate" "$sl_hook_hgrc"
   _assert_contains "sapling hook merge: installs pre-amend gate" \
-    "pre-amend.sley = $sl_hook_home/.local/share/sl-hooks/sley-commit-gate" "$sl_hook_hgrc"
+    "pre-amend.sley = $sl_hook_home/.local/share/cgraf78/sley/share/sley/hooks/sapling/sley-commit-gate" "$sl_hook_hgrc"
   _assert_contains "sapling hook merge: installs pre-absorb gate" \
-    "pre-absorb.sley = $sl_hook_home/.local/share/sl-hooks/sley-commit-gate" "$sl_hook_hgrc"
+    "pre-absorb.sley = $sl_hook_home/.local/share/cgraf78/sley/share/sley/hooks/sapling/sley-commit-gate" "$sl_hook_hgrc"
   _assert_contains "sapling hook merge: installs pre-record gate" \
-    "pre-record.sley = $sl_hook_home/.local/share/sl-hooks/sley-commit-gate" "$sl_hook_hgrc"
+    "pre-record.sley = $sl_hook_home/.local/share/cgraf78/sley/share/sley/hooks/sapling/sley-commit-gate" "$sl_hook_hgrc"
   _assert_contains "sapling hook merge: installs pre-continue gate" \
-    "pre-continue.sley = $sl_hook_home/.local/share/sl-hooks/sley-commit-gate" "$sl_hook_hgrc"
+    "pre-continue.sley = $sl_hook_home/.local/share/cgraf78/sley/share/sley/hooks/sapling/sley-commit-gate" "$sl_hook_hgrc"
   _assert_contains "sapling hook merge: installs pre-backout gate" \
-    "pre-backout.sley = $sl_hook_home/.local/share/sl-hooks/sley-commit-gate" "$sl_hook_hgrc"
+    "pre-backout.sley = $sl_hook_home/.local/share/cgraf78/sley/share/sley/hooks/sapling/sley-commit-gate" "$sl_hook_hgrc"
   _assert_contains "sapling hook merge: installs pre-graft gate" \
-    "pre-graft.sley = $sl_hook_home/.local/share/sl-hooks/sley-commit-gate" "$sl_hook_hgrc"
+    "pre-graft.sley = $sl_hook_home/.local/share/cgraf78/sley/share/sley/hooks/sapling/sley-commit-gate" "$sl_hook_hgrc"
   _assert_contains "sapling hook merge: installs pre-import gate" \
-    "pre-import.sley = $sl_hook_home/.local/share/sl-hooks/sley-commit-gate" "$sl_hook_hgrc"
+    "pre-import.sley = $sl_hook_home/.local/share/cgraf78/sley/share/sley/hooks/sapling/sley-commit-gate" "$sl_hook_hgrc"
   _assert_contains "sapling hook merge: installs pre-fold gate" \
-    "pre-fold.sley = $sl_hook_home/.local/share/sl-hooks/sley-commit-gate" "$sl_hook_hgrc"
+    "pre-fold.sley = $sl_hook_home/.local/share/cgraf78/sley/share/sley/hooks/sapling/sley-commit-gate" "$sl_hook_hgrc"
   _assert_contains "sapling hook merge: installs pre-split gate" \
-    "pre-split.sley = $sl_hook_home/.local/share/sl-hooks/sley-commit-gate" "$sl_hook_hgrc"
+    "pre-split.sley = $sl_hook_home/.local/share/cgraf78/sley/share/sley/hooks/sapling/sley-commit-gate" "$sl_hook_hgrc"
   _assert_contains "sapling hook merge: installs pre-rebase gate" \
-    "pre-rebase.sley = $sl_hook_home/.local/share/sl-hooks/sley-commit-gate" "$sl_hook_hgrc"
+    "pre-rebase.sley = $sl_hook_home/.local/share/cgraf78/sley/share/sley/hooks/sapling/sley-commit-gate" "$sl_hook_hgrc"
   _assert_contains "sapling hook merge: installs pre-histedit gate" \
-    "pre-histedit.sley = $sl_hook_home/.local/share/sl-hooks/sley-commit-gate" "$sl_hook_hgrc"
+    "pre-histedit.sley = $sl_hook_home/.local/share/cgraf78/sley/share/sley/hooks/sapling/sley-commit-gate" "$sl_hook_hgrc"
   _assert_contains "sapling hook merge: uses renamed source label" \
     "# source: .config/dot/merge-hooks.d/sapling/hgrc.d" "$sl_hook_hgrc"
   _assert_not_contains "sapling hook merge: legacy hook absent" \
