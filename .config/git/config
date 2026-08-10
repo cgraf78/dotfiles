@@ -3,7 +3,7 @@
 	editor = nvim
 	excludesFile = ~/.config/git/ignore
 	untrackedcache = true
-	hooksPath = ~/.local/share/git-hooks
+	hooksPath = ~/.local/lib/dot/git-hooks
 
 [interactive]
 	diffFilter = delta --color-only

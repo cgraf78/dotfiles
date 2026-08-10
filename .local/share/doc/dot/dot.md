@@ -98,7 +98,7 @@ own it:
 | Overlay repos | [`.config/dot/overlays.d/README.md`](../../../../.config/dot/overlays.d/README.md) |
 | Config merge hooks and cron | [`.config/dot/merge-hooks.d/README.md`](../../../../.config/dot/merge-hooks.d/README.md) |
 | Git config | [`.config/git/README.md`](../../../../.config/git/README.md) |
-| Git hooks | [`.local/share/git-hooks/README.md`](../../../../.local/share/git-hooks/README.md) |
+| Git hooks | [`.local/lib/dot/git-hooks/README.md`](../../../../.local/lib/dot/git-hooks/README.md) |
 | Hive Memory config | [`.config/hive-memory/README.md`](../../../../.config/hive-memory/README.md) |
 | Shell loading | [`.config/shell/README.md`](../../../../.config/shell/README.md) |
 | Dependency installs | [`.config/shdeps/README.md`](../../../../.config/shdeps/README.md) |

@@ -8,6 +8,10 @@ lives in shdeps-managed dependency repos; call those public APIs through
   update orchestration, repository discovery, merge orchestration, doctor
   checks, shell loading, and terminal UI helpers. Doctor checks are organized as
   focused section modules under `core/doctor/`.
+- [`git-hooks/`](git-hooks/README.md) owns the executable Git activation and
+  dotfiles-specific commit policy that Git invokes directly. It is deliberately
+  outside `core/`: these hooks are part of the dotfiles runtime, but not part of
+  the `dot` command runtime.
 - [`tests/`](tests/README.md) owns dotfiles test suites and their shared
   harness.
 

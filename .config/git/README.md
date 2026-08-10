@@ -15,9 +15,12 @@ identity, remotes, or aliases belong in `~/.config/git/config-work`; dev-server
 overrides belong in `~/.config/git/config-devserver`. `config` includes those
 files when present, ordered from broad personal defaults to narrower overrides.
 
-Git hooks live under [`~/.local/share/git-hooks`](../../.local/share/git-hooks/README.md)
-because Git's `core.hooksPath` expects an executable hook directory, not files
-beside the config.
+Git hooks live under
+[`~/.local/lib/dot/git-hooks`](../../.local/lib/dot/git-hooks/README.md).
+They are executable dotfiles-owned policy, so they belong in the dot runtime
+library rather than XDG's architecture-independent data directory. They remain
+a sibling of `core/` because Git invokes them directly; they are not part of
+the `dot` command runtime.
 
 The PATH-visible [`git`](../../.local/bin/README.md) launcher is separate from
 this config. It routes `$HOME` and non-repo descendants to the base bare

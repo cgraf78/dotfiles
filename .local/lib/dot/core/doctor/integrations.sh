@@ -78,7 +78,7 @@ _dr_check_shell_integrations() {
 _dr_check_git_hooks() {
   _dr_section "Git hooks"
 
-  local want_hooks="$HOME/.local/share/git-hooks"
+  local want_hooks="$HOME/.local/lib/dot/git-hooks"
   # Check global first, then fall back to the dotfiles repo-local config.
   local actual_hooks scope=""
   actual_hooks=$(git config --get --global core.hooksPath 2>/dev/null || echo "")
