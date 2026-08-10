@@ -9,9 +9,12 @@ lives in shdeps-managed dependency repos; call those public APIs through
   checks, shell loading, and terminal UI helpers. Doctor checks are organized as
   focused section modules under `core/doctor/`.
 - [`git-hooks/`](git-hooks/README.md) owns the executable Git activation and
-  dotfiles-specific commit policy that Git invokes directly. It is deliberately
-  outside `core/`: these hooks are part of the dotfiles runtime, but not part of
-  the `dot` command runtime.
+  dotfiles-specific policy adapters that Git invokes directly. It is
+  deliberately outside `core/`: these hooks are part of the dotfiles runtime,
+  but not part of the `dot` command runtime.
+- [`sley-hooks/`](sley-hooks/README.md) owns advanced dotfiles policy providers
+  reached through Sley's generic SCM hook APIs. The providers are internal
+  implementation, not PATH-visible commands.
 - [`tests/`](tests/README.md) owns dotfiles test suites and their shared
   harness.
 

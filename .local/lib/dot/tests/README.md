@@ -62,7 +62,8 @@ depending on a particular `/var` versus `/private/var` spelling.
   Installed base hook smoke checks live in `dot doctor`, and detailed hook
   behavior lives in the `agentguard` repo.
 - `shdeps-hooks-test` tests dotfiles-specific shdeps hooks.
-- `validate-commit-msg-test` tests commit message policy.
+- `validate-commit-msg-test` tests dotfiles commit-message policy and its Sley
+  Git-hook routing.
 - `tmux-test` tests tmux config integration.
 - `wezterm-test` tests WezTerm config integration.
 - `agent-yolo-wrappers-test` pins where the agent shell wrappers place their

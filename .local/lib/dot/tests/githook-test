@@ -39,7 +39,8 @@ DEPENDENCY_HOME="${DOT_TEST_HOST_HOME:-$SOURCE_HOME}"
 # DOT_TEST_SLEY_ROOT lets cross-repository development exercise an unmerged
 # provider worktree without copying its implementation back into dotfiles.
 DOT_SLEY_ROOT=${DOT_TEST_SLEY_ROOT:-$DEPENDENCY_HOME/.local/share/cgraf78/sley}
-export DOT_SLEY_ROOT
+SLEY_TEST_REAL_BIN="$DOT_SLEY_ROOT/bin/sley"
+export DOT_SLEY_ROOT SLEY_TEST_REAL_BIN
 # This suite tests the hooks, not the dotfiles-aware Git launcher. Keep Git's
 # login-shell and SCM telemetry state inside a fixture HOME, while reading the
 # real dotfiles tool policy and installed Mise toolchain.
@@ -88,7 +89,7 @@ _NO_AGENT_ENV=(
   AGENTGUARD_PROCESS_DETECT=0
 )
 
-for hook in pre-commit pre-merge-commit pre-applypatch prepare-commit-msg \
+for hook in pre-commit pre-merge-commit pre-applypatch prepare-commit-msg commit-msg \
   sley-commit-gate sley-provider-hook; do
   if [ ! -x "$HOOK_DIR/$hook" ]; then
     echo "githook-test: hook not found or not executable at $HOOK_DIR/$hook" >&2
@@ -112,6 +113,39 @@ activation_rc=$?
 _assert_exit "provider activation: unknown hook is rejected" 1 "$activation_rc"
 _assert_contains "provider activation: unknown hook is named" \
   "unsupported Sley hook: unsupported-hook" "$(cat "$activation_output")"
+
+# DOT_SLEY_ROOT selects a development checkout. It must select that checkout's
+# CLI as well as its hook file; mixing a new hook with an older PATH-installed
+# command is precisely the version skew this test escape hatch exists to avoid.
+activation_root=$(_tmpdir)
+activation_shadow_bin=$(_mock_bin)
+activation_cli_log=$(_tmpdir)/sley-cli.log
+mkdir -p "$activation_root/bin" "$activation_root/share/sley/hooks/git"
+cat >"$activation_root/share/sley/hooks/git/pre-commit" <<'EOF'
+#!/usr/bin/env bash
+sley hook-from-selected-root
+EOF
+cat >"$activation_root/bin/sley" <<'EOF'
+#!/usr/bin/env bash
+printf 'selected:%s\n' "$*" >"$ACTIVATION_CLI_LOG"
+EOF
+cat >"$activation_shadow_bin/sley" <<'EOF'
+#!/usr/bin/env bash
+printf 'shadow:%s\n' "$*" >"$ACTIVATION_CLI_LOG"
+exit 7
+EOF
+chmod +x \
+  "$activation_root/share/sley/hooks/git/pre-commit" \
+  "$activation_root/bin/sley" \
+  "$activation_shadow_bin/sley"
+ACTIVATION_CLI_LOG="$activation_cli_log" \
+  DOT_SLEY_ROOT="$activation_root" \
+  PATH="$activation_shadow_bin:$PATH" \
+  "$HOOK_DIR/sley-provider-hook" pre-commit
+activation_rc=$?
+_assert_exit "provider activation: selected checkout CLI succeeds" 0 "$activation_rc"
+_assert_file_content "provider activation: selected checkout CLI wins PATH" \
+  "selected:hook-from-selected-root" "$activation_cli_log"
 
 echo "=== Prepare-commit-msg ordinary commit fast path ==="
 
@@ -195,10 +229,12 @@ _commit() {
   __COMMIT_RC=$?
 }
 
-_mock_sley_ready_bin() {
-  local mock_bin
-  mock_bin=$(_mock_bin)
-  cat >"$mock_bin/sley" <<'EOF'
+_mock_sley_ready_root() {
+  local mock_root
+  mock_root=$(_tmpdir)
+  mkdir -p "$mock_root/bin" "$mock_root/share/sley"
+  ln -s "$DOT_SLEY_ROOT/share/sley/hooks" "$mock_root/share/sley/hooks"
+  cat >"$mock_root/bin/sley" <<'EOF'
 #!/usr/bin/env bash
 [ "$1" = "ready" ] || exit 0
 shift
@@ -208,20 +244,25 @@ printf 'mock-pwd=%s\n' "$PWD"
 [ -n "${MOCK_SLEY_OUT:-}" ] && printf '%s\n' "$MOCK_SLEY_OUT"
 exit "${MOCK_SLEY_RC:-0}"
 EOF
-  chmod +x "$mock_bin/sley"
-  printf '%s\n' "$mock_bin"
+  chmod +x "$mock_root/bin/sley"
+  printf '%s\n' "$mock_root"
 }
 
 # Mock sley that passes the `ready` gate (so pre-commit does not block) but
 # returns MOCK_SECRETS_RC for `secrets --message-file`, so the commit-msg
 # message scan can be exercised in isolation. Records the secrets invocation.
-_mock_sley_secrets_bin() {
-  local mock_bin
-  mock_bin=$(_mock_bin)
-  cat >"$mock_bin/sley" <<'EOF'
+_mock_sley_secrets_root() {
+  local mock_root
+  mock_root=$(_tmpdir)
+  mkdir -p "$mock_root/bin" "$mock_root/share/sley"
+  ln -s "$DOT_SLEY_ROOT/share/sley/hooks" "$mock_root/share/sley/hooks"
+  cat >"$mock_root/bin/sley" <<'EOF'
 #!/usr/bin/env bash
 case "$1" in
   ready) exit 0 ;;
+  hook)
+    exec "$SLEY_TEST_REAL_BIN" "$@"
+    ;;
   secrets)
     printf 'mock-secrets-args=%s\n' "$*"
     exit "${MOCK_SECRETS_RC:-0}"
@@ -229,8 +270,8 @@ case "$1" in
   *) exit 0 ;;
 esac
 EOF
-  chmod +x "$mock_bin/sley"
-  printf '%s\n' "$mock_bin"
+  chmod +x "$mock_root/bin/sley"
+  printf '%s\n' "$mock_root"
 }
 
 # ---------------------------------------------------------------------------
@@ -289,7 +330,7 @@ fi
 
 echo "=== Git commit-producing operations run sley ready ==="
 
-mock_sley=$(_mock_sley_ready_bin)
+mock_sley_root=$(_mock_sley_ready_root)
 
 repo=$(_new_repo)
 cat >"$repo/commit.txt" <<'EOF'
@@ -297,7 +338,7 @@ commit
 EOF
 (cd "$repo" && git add commit.txt)
 _commit "$repo" "mock-commit" \
-  PATH="$mock_sley:$PATH" \
+  DOT_SLEY_ROOT="$mock_sley_root" \
   MOCK_SLEY_RC=1
 _assert_exit "git commit: pre-commit blocks through sley" 1 "$__COMMIT_RC"
 _assert_contains "git commit: runs sley ready" "mock-sley=1" "$__COMMIT_OUT"
@@ -318,7 +359,7 @@ __COMMIT_OUT=$(
   cd "$repo" &&
     env "${_NO_AGENT_ENV[@]}" \
       GIT_CONFIG_GLOBAL="$repo/.gitconfig-test" \
-      PATH="$mock_sley:$PATH" \
+      DOT_SLEY_ROOT="$mock_sley_root" \
       MOCK_SLEY_RC=1 \
       git commit --amend --no-edit 2>&1
 )
@@ -352,7 +393,7 @@ __COMMIT_OUT=$(
   cd "$repo" &&
     env "${_NO_AGENT_ENV[@]}" \
       GIT_CONFIG_GLOBAL="$repo/.gitconfig-test" \
-      PATH="$mock_sley:$PATH" \
+      DOT_SLEY_ROOT="$mock_sley_root" \
       MOCK_SLEY_RC=1 \
       git merge --no-ff --no-edit feature 2>&1
 )
@@ -388,7 +429,7 @@ __COMMIT_OUT=$(
   cd "$repo" &&
     env "${_NO_AGENT_ENV[@]}" \
       GIT_CONFIG_GLOBAL="$repo/.gitconfig-test" \
-      PATH="$mock_sley:$PATH" \
+      DOT_SLEY_ROOT="$mock_sley_root" \
       MOCK_SLEY_RC=1 \
       git am "$patch_file" 2>&1
 )
@@ -416,7 +457,7 @@ __COMMIT_OUT=$(
   cd "$repo" &&
     env "${_NO_AGENT_ENV[@]}" \
       GIT_CONFIG_GLOBAL="$repo/.gitconfig-test" \
-      PATH="$mock_sley:$PATH" \
+      DOT_SLEY_ROOT="$mock_sley_root" \
       MOCK_SLEY_RC=1 \
       git cherry-pick --no-edit "$cherry_commit" 2>&1
 )
@@ -440,7 +481,7 @@ __COMMIT_OUT=$(
   cd "$repo" &&
     env "${_NO_AGENT_ENV[@]}" \
       GIT_CONFIG_GLOBAL="$repo/.gitconfig-test" \
-      PATH="$mock_sley:$PATH" \
+      DOT_SLEY_ROOT="$mock_sley_root" \
       MOCK_SLEY_RC=1 \
       git revert --no-edit HEAD 2>&1
 )
@@ -477,7 +518,7 @@ __COMMIT_OUT=$(
     env "${_NO_AGENT_ENV[@]}" \
       GIT_CONFIG_GLOBAL="$repo/.gitconfig-test" \
       GIT_EDITOR=: \
-      PATH="$mock_sley:$PATH" \
+      DOT_SLEY_ROOT="$mock_sley_root" \
       MOCK_SLEY_RC=1 \
       git rebase --continue 2>&1
 )
@@ -513,14 +554,14 @@ _assert_not_contains "partial-stage: no false-positive format reject" \
   "sley fix:" "$__COMMIT_OUT"
 
 # ---------------------------------------------------------------------------
-# Tests: fail closed when sley is not on PATH
+# Tests: fail closed when the selected Sley root has no CLI
 # ---------------------------------------------------------------------------
 
-echo "=== Fail closed: sley not on PATH ==="
+echo "=== Fail closed: selected Sley root has no CLI ==="
 
-_empty_path=$(_mock_bin)
-ln -s "$(command -v bash)" "$_empty_path/bash"
-ln -s "$(command -v git)" "$_empty_path/git"
+missing_cli_root=$(_tmpdir)
+mkdir -p "$missing_cli_root/share/sley"
+ln -s "$DOT_SLEY_ROOT/share/sley/hooks" "$missing_cli_root/share/sley/hooks"
 
 repo=$(_new_repo)
 cat >"$repo/fixable.py" <<'EOF'
@@ -532,13 +573,13 @@ __COMMIT_OUT=$(
   cd "$repo" &&
     env "${_NO_AGENT_ENV[@]}" \
       GIT_CONFIG_GLOBAL="$repo/.gitconfig-test" \
-      PATH="$_empty_path:/usr/bin:/bin" \
+      DOT_SLEY_ROOT="$missing_cli_root" \
       git commit -m "notools" 2>&1
 )
 __COMMIT_RC=$?
-_assert_exit "sley not on PATH: commit fails closed" 1 "$__COMMIT_RC"
-_assert_contains "sley not on PATH: explains missing tool" \
-  "sley not found on PATH" "$__COMMIT_OUT"
+_assert_exit "missing selected Sley CLI: commit fails closed" 1 "$__COMMIT_RC"
+_assert_contains "missing selected Sley CLI: explains recovery" \
+  "Sley CLI is missing or not executable" "$__COMMIT_OUT"
 
 # ---------------------------------------------------------------------------
 # Tests: bare dotfiles repo performance guard
@@ -548,11 +589,12 @@ echo "=== Bare dotfiles repo: untracked HOME walk skipped ==="
 
 repo=$(_tmpdir)
 bare="$repo/.dotfiles"
-mock_bin=$(_mock_bin)
+mock_root=$(_tmpdir)
 record="$repo/sley-env"
-mkdir -p "$repo/.config/lazygit"
+mkdir -p "$repo/.config/lazygit" "$mock_root/bin" "$mock_root/share/sley"
+ln -s "$DOT_SLEY_ROOT/share/sley/hooks" "$mock_root/share/sley/hooks"
 git init -q --bare "$bare"
-cat >"$mock_bin/sley" <<EOF
+cat >"$mock_root/bin/sley" <<EOF
 #!/usr/bin/env bash
 # Record only the readiness invocation. SLEY_SKIP_UNTRACKED tunes the untracked
 # file walk, which is exclusive to the readiness/file-scan path. The commit-msg
@@ -561,7 +603,7 @@ cat >"$mock_bin/sley" <<EOF
 [ "\$1" = ready ] && printf '%s\n' "\${SLEY_SKIP_UNTRACKED:-unset}" >"$record"
 exit 0
 EOF
-chmod +x "$mock_bin/sley"
+chmod +x "$mock_root/bin/sley"
 cat >"$repo/.config/lazygit/config.yml" <<'EOF'
 git:
   diffRenderers: []
@@ -580,7 +622,7 @@ __COMMIT_OUT=$(
       GIT_DIR="$bare" \
       GIT_WORK_TREE="$repo" \
       GIT_CONFIG_GLOBAL="$repo/.gitconfig-test" \
-      PATH="$mock_bin:$PATH" \
+      DOT_SLEY_ROOT="$mock_root" \
       git commit -m "bare-home" 2>&1
 )
 __COMMIT_RC=$?
@@ -649,14 +691,15 @@ _assert_contains "agent session: sley ready output is visible" \
 # ---------------------------------------------------------------------------
 echo "=== commit-msg: scans the commit message via sley secrets ==="
 
-mock_ss=$(_mock_sley_secrets_bin)
+mock_secrets_root=$(_mock_sley_secrets_root)
 
 # A secret in the message is blocking (pre-commit's `ready` passes, so the block
 # comes from the commit-msg message scan).
 repo=$(_new_repo)
 printf 'code\n' >"$repo/f.txt"
 (cd "$repo" && git add f.txt)
-_commit "$repo" "add a feature" PATH="$mock_ss:$PATH" MOCK_SECRETS_RC=1
+_commit "$repo" "add a feature" \
+  DOT_SLEY_ROOT="$mock_secrets_root" MOCK_SECRETS_RC=1
 _assert_exit "commit-msg: message secret blocks the commit" 1 "$__COMMIT_RC"
 _assert_contains "commit-msg: runs sley secrets --message-file" \
   "mock-secrets-args=secrets --message-file" "$__COMMIT_OUT"
@@ -665,26 +708,30 @@ _assert_contains "commit-msg: runs sley secrets --message-file" \
 repo=$(_new_repo)
 printf 'code\n' >"$repo/f.txt"
 (cd "$repo" && git add f.txt)
-_commit "$repo" "add a feature" PATH="$mock_ss:$PATH" MOCK_SECRETS_RC=0
+_commit "$repo" "add a feature" \
+  DOT_SLEY_ROOT="$mock_secrets_root" MOCK_SECRETS_RC=0
 _assert_exit "commit-msg: clean message commits" 0 "$__COMMIT_RC"
 _assert_contains "commit-msg: clean commit still ran the scan" \
   "mock-secrets-args=secrets --message-file" "$__COMMIT_OUT"
 
-# The secrets scan must not swallow validate-commit-msg's blocking exit: a
-# title >100 chars is a validate hard error, and a clean secrets scan (rc 0)
-# must still let that failure block the commit.
+# The secrets scan must not swallow the message provider's blocking exit: a
+# title >100 chars is a policy hard error, and a clean secrets scan (rc 0) must
+# still let that failure block the commit.
 repo=$(_new_repo)
 printf 'code\n' >"$repo/f.txt"
 (cd "$repo" && git add f.txt)
 _long_title="this commit title is deliberately far too long to be acceptable and comfortably exceeds the one hundred character hard limit"
-_commit "$repo" "$_long_title" PATH="$mock_ss:$PATH" MOCK_SECRETS_RC=0
+_commit "$repo" "$_long_title" \
+  DOT_SLEY_ROOT="$mock_secrets_root" MOCK_SECRETS_RC=0
 _assert_exit "commit-msg: clean scan still lets a validate hard error block" 1 "$__COMMIT_RC"
 
 # GITHOOK_COMMITMSG_SKIP bypasses the whole hook, including the scan.
 repo=$(_new_repo)
 printf 'code\n' >"$repo/f.txt"
 (cd "$repo" && git add f.txt)
-_commit "$repo" "add a feature" PATH="$mock_ss:$PATH" MOCK_SECRETS_RC=1 GITHOOK_COMMITMSG_SKIP=1
+_commit "$repo" "add a feature" \
+  DOT_SLEY_ROOT="$mock_secrets_root" MOCK_SECRETS_RC=1 \
+  GITHOOK_COMMITMSG_SKIP=1
 _assert_exit "commit-msg: GITHOOK_COMMITMSG_SKIP bypasses the scan" 0 "$__COMMIT_RC"
 
 # ---------------------------------------------------------------------------

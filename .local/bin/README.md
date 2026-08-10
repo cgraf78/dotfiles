@@ -17,10 +17,6 @@ component; files here should stay thin and command-shaped.
 - `nvim` reuses an existing Neovim pane in the current tmux window for simple
   interactive-shell file opens, then falls back to the real Neovim binary.
 
-## Hook And Tool Front Doors
-
-- `validate-commit-msg` checks commit message policy.
-
 Reusable tool commands such as `ettun`, `sley`, `sysup`, `agent-hook-*`,
 `claude-session-name`, `autoformat`, `autolint`, `checkrun`,
 `git-absorb-and-rebase`, `tmux-continuum-default-server`,
