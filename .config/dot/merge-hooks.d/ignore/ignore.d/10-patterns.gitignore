@@ -28,6 +28,7 @@ ProgramData/
 .jj/
 .sl/
 .svn/
+.worktrees/
 node_modules/
 __pycache__/
 .mypy_cache/
@@ -37,6 +38,12 @@ __pycache__/
 .direnv/
 .npm/
 .bun/
+
+# Sensitive local configuration. Search tools bypass Git's ignore policy, so
+# keep credential-bearing paths out of interactive file and content results.
+.ssh/
+.config/gh/
+.config/rclone/
 
 # XDG data and state. The `.local/share/*` rule hides high-noise XDG runtime
 # data from `rg "$HOME"`, but the dotfiles ship their own files under

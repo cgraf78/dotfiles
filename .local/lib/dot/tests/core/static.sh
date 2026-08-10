@@ -828,6 +828,37 @@ PY
     _pass "git ignore: protects local auth and SSH material"
   fi
 
+  _searchable_config_ok=1
+  for _config_path in ".config/opencode/opencode.jsonc" ".config/pi/settings.json"; do
+    mkdir -p "$_ignore_fixture/$(dirname "$_config_path")"
+    touch "$_ignore_fixture/$_config_path"
+    if git -C "$_ignore_fixture" check-ignore -q "$_config_path"; then
+      _fail "git ignore: keeps $_config_path visible to non-Git consumers"
+      _searchable_config_ok=0
+    fi
+  done
+  if [[ "$_searchable_config_ok" -eq 1 ]]; then
+    _pass "git ignore: keeps ordinary tool config visible to non-Git consumers"
+  fi
+
+  _search_ignore="$_lint_root/.config/dot/merge-hooks.d/ignore/ignore.d/10-patterns.gitignore"
+  _search_policy_ok=1
+  for _search_pattern in ".ssh/" ".config/gh/" ".config/rclone/" ".worktrees/"; do
+    if ! grep -Fxq "$_search_pattern" "$_search_ignore"; then
+      _fail "search ignore: excludes $_search_pattern when VCS ignores are bypassed"
+      _search_policy_ok=0
+    fi
+  done
+  for _search_pattern in ".config/opencode/" ".config/pi/"; do
+    if grep -Fxq "$_search_pattern" "$_search_ignore"; then
+      _fail "search ignore: keeps $_search_pattern searchable"
+      _search_policy_ok=0
+    fi
+  done
+  if [[ "$_search_policy_ok" -eq 1 ]]; then
+    _pass "search ignore: owns sensitive and high-noise exclusions"
+  fi
+
   echo ""
   echo "=== Checkrun policy ==="
 
