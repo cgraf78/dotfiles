@@ -112,6 +112,13 @@ program	.local/lib/dot/core/update-lock.sh
 program	.local/lib/dot/core/update.sh
 program	.local/lib/dot/core/windows.sh
 program	.local/lib/dot/core/xdg.sh
+program	.local/lib/dot/git-hooks/commit-msg
+program	.local/lib/dot/git-hooks/pre-applypatch
+program	.local/lib/dot/git-hooks/pre-commit
+program	.local/lib/dot/git-hooks/pre-merge-commit
+program	.local/lib/dot/git-hooks/prepare-commit-msg
+program	.local/lib/dot/git-hooks/sley-commit-gate
+program	.local/lib/dot/git-hooks/sley-provider-hook
 program	.local/lib/dot/tests/agent-rules-adapter-test
 program	.local/lib/dot/tests/agent-rules-contract-test
 program	.local/lib/dot/tests/agent-rules-test
@@ -164,12 +171,5 @@ program	.local/lib/dot/tests/wezterm-test
 program	.local/lib/dot/tests/workflow-consistency-test
 program	.local/lib/dot/tests/xdg-test
 program	.local/lib/dot/tests/zsh-completion-test
-program	.local/share/git-hooks/commit-msg
-program	.local/share/git-hooks/pre-applypatch
-program	.local/share/git-hooks/pre-commit
-program	.local/share/git-hooks/pre-merge-commit
-program	.local/share/git-hooks/prepare-commit-msg
-program	.local/share/git-hooks/sley-commit-gate
-program	.local/share/git-hooks/sley-provider-hook
 program	.profile
 program	.zprofile

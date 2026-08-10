@@ -29,7 +29,11 @@ export MISE_GLOBAL_CONFIG_FILE="$SOURCE_HOME/.config/mise/config.toml"
 
 _require_compatible_libc "githook-test"
 
-HOOK_DIR="$SOURCE_HOME/.local/share/git-hooks"
+# Treat the configured hook directory as the public activation contract. This
+# keeps the behavioral suite independent of where dotfiles stores its private
+# implementation while still proving that every configured hook is runnable.
+HOOK_DIR=$(HOME="$SOURCE_HOME" git config \
+  --file "$SOURCE_HOME/.config/git/config" --path --get core.hooksPath)
 DEPENDENCY_HOME="${DOT_TEST_HOST_HOME:-$SOURCE_HOME}"
 # Production activation uses Shdeps' stable Sley checkout under the real home.
 # DOT_TEST_SLEY_ROOT lets cross-repository development exercise an unmerged

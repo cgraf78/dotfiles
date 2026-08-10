@@ -96,6 +96,7 @@ _assert_plan_tools_include() {
 
 _assert_no_low_level_dispatch() {
   local registry="$1" violations="$2"
+  local hook_dir hook_rel
 
   if ! command -v agentguard-classify-command >/dev/null 2>&1; then
     _fail "workflow surfaces: agentguard classifier is available"
@@ -121,6 +122,16 @@ _assert_no_low_level_dispatch() {
     | .[]
   ' "$registry" >"$work/low-level-tools.txt"
 
+  hook_dir=$(git config --file "$HOME/.config/git/config" \
+    --path --get core.hooksPath)
+  case "$hook_dir" in
+    "$HOME"/*) hook_rel="${hook_dir#"$HOME"/}" ;;
+    *)
+      _fail "workflow surfaces: configured Git hooks stay inside dotfiles"
+      return
+      ;;
+  esac
+
   git -C "$HOME" ls-files -- \
     .config/dot/merge-hooks.d \
     .config/nvim/README.md \
@@ -131,7 +142,7 @@ _assert_no_low_level_dispatch() {
     .config/nvim/lua/plugins/formatting.lua \
     .config/nvim/lua/plugins/linting.lua \
     .config/nvim/lua/plugins/sley.lua \
-    .local/share/git-hooks \
+    "$hook_rel" \
     >"$work/workflow-surface-files.txt"
 
   DOTFILES_HOME="$HOME" python3 - "$work/low-level-tools.txt" "$work/workflow-surface-files.txt" >"$violations" <<'PY'

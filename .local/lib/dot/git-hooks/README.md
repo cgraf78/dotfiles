@@ -3,6 +3,11 @@
 This directory is the global Git hook directory selected by
 `~/.config/git/config` through `core.hooksPath`.
 
+It lives under `~/.local/lib/dot` because these files are executable,
+dotfiles-owned runtime policy. It is a sibling of `core/`, rather than part of
+it, because Git invokes these entry points directly and the `dot` command does
+not load or dispatch them.
+
 ## Hooks
 
 - `pre-commit`, `pre-merge-commit`, `pre-applypatch`, and
