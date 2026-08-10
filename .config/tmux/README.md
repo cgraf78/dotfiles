@@ -9,7 +9,8 @@ terminal navigation stack.
 - Ctrl-click routing delegates to `tmux-follow-click` from the `termnav`
   dependency when the foreground pane is not already handling mouse events.
 - File opens route through `nvim-tmux-open`, also owned by `termnav`.
-- Manual session export/restore and clipboard-history paste use `tmux-tools`.
+- The default-server Continuum coordinator, its cheap save gate, and
+  clipboard-history paste use `tmux-tools`.
 - Automatic session persistence uses TPM, `tmux-resurrect`, and
   `tmux-continuum`, installed as shdeps-managed repository checkouts.
 - Ctrl-Tab window switching forwards into Neovim/fzf and nested terminal apps,
@@ -91,17 +92,20 @@ keeps at least five snapshots and otherwise removes files older than 30 days.
 Snapshots use a private host-specific directory so machines sharing a home
 directory do not overwrite one another's state.
 
-The existing prefix+S and prefix+R bindings remain available for explicit
-`tmux-tools` exports and restores. Keep the TPM block at the end of `tmux.conf`
-and keep continuum last in the plugin list. Continuum injects autosave through
-`status-right`, so a later plugin or status assignment would silently disable
-periodic saves.
+Keep the TPM block at the end of `tmux.conf` and keep continuum last in the
+plugin list. Continuum injects autosave through `status-right`, so a later
+plugin or status assignment would silently disable periodic saves. The older
+manual save/restore commands and their prefix+S/prefix+R bindings were retired:
+this configuration uses tmux-resurrect as the single persistence mechanism.
 
 Upstream continuum normally gives persistence ownership to the first tmux
 server for the user. This config loads continuum with saving and restoring
-disabled, then synchronously enables the native save script and resurrect
-restore only for the normal default `ds` server. That keeps ownership stable
-even when an isolated socket was already running. Additional servers started
-with `tmux -L` or `tmux -S` do not auto-save or auto-restore, and this
-host-specific snapshot directory is not socket-scoped. Use additional servers
-only for isolated temporary work.
+disabled, then invokes the generic `tmux-continuum-default-server` provider
+from `tmux-tools`. Dotfiles supplies only the policy options: the provider
+enables the native save script and resurrect restore for the normal default
+server, and publishes a generic restore signal that DS can consume without the
+provider depending on DS. That keeps ownership stable even when an isolated
+socket was already running. Additional servers started with `tmux -L` or
+`tmux -S` do not auto-save or auto-restore, and this host-specific snapshot
+directory is not socket-scoped. Use additional servers only for isolated
+temporary work.
