@@ -39,10 +39,6 @@ node_modules/
 .config/gh/
 .config/rclone/
 
-# Local per-machine tool state / config (not tracked)
-.config/pi/
-.config/opencode/
-
 **/.claude/settings.local.json
 
 # Neovim lazy.nvim lockfile — intentionally untracked; run `:Lazy restore` if
