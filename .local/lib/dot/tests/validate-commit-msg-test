@@ -15,7 +15,10 @@ export NO_COLOR=1
 . "$HOME/.local/lib/dot/tests/helpers.sh"
 
 VALIDATOR="$HOME/.local/bin/validate-commit-msg"
-HOOK_DIR="$HOME/.local/share/git-hooks"
+# Exercise the hook selected by the tracked Git configuration rather than a
+# second test-owned path. A storage-only refactor must preserve this behavior.
+HOOK_DIR=$(git config --file "$HOME/.config/git/config" \
+  --path --get core.hooksPath)
 COMMIT_MSG_HOOK="$HOOK_DIR/commit-msg"
 
 if [ ! -x "$VALIDATOR" ]; then
