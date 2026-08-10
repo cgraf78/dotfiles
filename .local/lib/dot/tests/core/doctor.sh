@@ -120,7 +120,36 @@ HEALTH
 
   doctor_shdeps_bin=$(_tmpdir)
   doctor_path="$doctor_shdeps_bin:$TEST_HOME/.local/bin:$PATH"
+  doctor_nvim_log=$(_tmpdir)/nvim.log
   mkdir -p "$doctor_shdeps_bin" "$TEST_HOME/.local/bin" "$TEST_HOME/.local/share/cgraf78"
+
+  cat >"$doctor_shdeps_bin/nvim" <<'SH'
+#!/usr/bin/env bash
+_doctor_nvim_log() {
+  [[ -z "${DOCTOR_NVIM_LOG:-}" ]] || printf '%s\n' "$1" >>"$DOCTOR_NVIM_LOG"
+}
+
+if [[ "${1:-}" == "--version" ]]; then
+  printf '%s\n' 'NVIM v0.12.0-test'
+  _doctor_nvim_log 'version'
+  exit 0
+fi
+
+guard=0
+late=0
+previous=""
+for arg in "$@"; do
+  if [[ "$previous" == "--cmd" \
+    && "$arg" == "lua vim.g.disable_session_restore = true" ]]; then
+    guard=1
+  elif [[ "$arg" == -c || "$arg" == +* ]] && [[ "$guard" -eq 0 ]]; then
+    late=1
+  fi
+  previous="$arg"
+done
+_doctor_nvim_log "probe guard=$guard late=$late"
+SH
+  chmod +x "$doctor_shdeps_bin/nvim"
 
   _doctor_make_dependency() {
     local dependency="$1"
@@ -213,7 +242,8 @@ printf '{}\n'
 SH
   chmod +x "$TEST_HOME/.local/share/cgraf78/agentguard/bin/agent-hook-stop"
 
-  result=$(PATH="$doctor_path" "$BIN_DIR/dot" doctor 2>&1 || true)
+  result=$(DOCTOR_NVIM_LOG="$doctor_nvim_log" PATH="$doctor_path" \
+    "$BIN_DIR/dot" doctor 2>&1 || true)
 
   _assert_contains "doctor: title banner" "dot doctor" "$result"
   _assert_contains "doctor: Shell environment section" "Shell environment" "$result"
@@ -237,6 +267,19 @@ SH
   _assert_contains "doctor: Config merges section" "Config merges" "$result"
   _assert_contains "doctor: Cron section" "Cron" "$result"
   _assert_contains "doctor: summary line" "passed" "$result"
+  doctor_nvim_expected_probes=2
+  if command -v timeout >/dev/null 2>&1 || command -v gtimeout >/dev/null 2>&1; then
+    doctor_nvim_expected_probes=3
+  fi
+  doctor_nvim_probe_count=$(awk '/^probe / { count++ } END { print count + 0 }' \
+    "$doctor_nvim_log")
+  doctor_nvim_unguarded_count=$(awk \
+    '/^probe / && $0 != "probe guard=1 late=0" { count++ } END { print count + 0 }' \
+    "$doctor_nvim_log")
+  _assert_eq "doctor: runs every available full-config nvim probe" \
+    "$doctor_nvim_expected_probes" "$doctor_nvim_probe_count"
+  _assert_eq "doctor: isolates every full-config nvim probe from user sessions" \
+    "0" "$doctor_nvim_unguarded_count"
 
   doctor_ci_home=$(_tmpdir)
   mkdir -p \

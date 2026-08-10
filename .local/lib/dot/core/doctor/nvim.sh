@@ -1,6 +1,10 @@
 # shellcheck shell=bash
 # dot doctor: Nvim checks.
 
+# Doctor loads the user's full config for realistic diagnostics, but must not
+# let those noninteractive probes restore or save interactive workspace state.
+_DR_NVIM_SESSION_GUARD=(--cmd 'lua vim.g.disable_session_restore = true')
+
 _dr_csv() {
   local IFS=,
   printf '%s' "$*"
@@ -65,7 +69,8 @@ LUA
 
   # Set mason_disabled before init.lua loads. This lets LazyVim resolve enabled
   # LSP servers without allowing Mason to install packages during doctor.
-  policy_out=$(nvim -i NONE --headless --cmd 'lua vim.g.mason_disabled = true' \
+  policy_out=$(nvim -i NONE --headless "${_DR_NVIM_SESSION_GUARD[@]}" \
+    --cmd 'lua vim.g.mason_disabled = true' \
     +"luafile $query_file" +"qa!" 2>&1)
   exit_code=$?
   rm -f "$query_file"
@@ -167,7 +172,8 @@ _dr_check_nvim() {
   # Doctor is diagnostic, not a bootstrap path. Force Mason off before init.lua
   # loads so devservers without npm/network access do not try editor-local
   # installs just because a health check ran.
-  nvim_err=$(nvim -i NONE --headless --cmd 'lua vim.g.mason_disabled = true' -c 'qa!' 2>&1)
+  nvim_err=$(nvim -i NONE --headless "${_DR_NVIM_SESSION_GUARD[@]}" \
+    --cmd 'lua vim.g.mason_disabled = true' -c 'qa!' 2>&1)
   exit_code=$?
 
   if [[ $exit_code -ne 0 ]]; then
@@ -199,7 +205,8 @@ _dr_check_nvim() {
 
   if [[ -z "$timeout_cmd" ]]; then
     _dr_skip "checkhealth" "timeout command not available"
-  elif $timeout_cmd nvim -i NONE --headless --cmd 'lua vim.g.mason_disabled = true' \
+  elif $timeout_cmd nvim -i NONE --headless "${_DR_NVIM_SESSION_GUARD[@]}" \
+    --cmd 'lua vim.g.mason_disabled = true' \
     +"checkhealth" +"w! $health_file" +"qa!" 2>/dev/null; then
     local health_errors ignored_health_errors health_counts
     health_counts=$(_dr_nvim_health_error_counts "$health_file" 2>/dev/null || true)
