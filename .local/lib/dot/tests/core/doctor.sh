@@ -149,7 +149,7 @@ SH
   _doctor_make_dependency cmdblocks term-notify-sound tmux-copy-last-output
   _doctor_make_dependency git-tools git-absorb-and-rebase
   _doctor_make_dependency tmux-tools \
-    tmux-save-session tmux-restore-session tmux-clip-paste
+    tmux-continuum-default-server tmux-continuum-save-gate tmux-clip-paste
   _doctor_make_dependency ds ds
   _doctor_make_dependency agentguard \
     agent-hook-notification \
@@ -386,8 +386,8 @@ SH
   rm -f "$TEST_HOME/.local/bin/term-notify-sound"
   rm -f "$TEST_HOME/.local/bin/tmux-copy-last-output"
   rm -f "$TEST_HOME/.local/bin/git-absorb-and-rebase"
-  rm -f "$TEST_HOME/.local/bin/tmux-save-session"
-  rm -f "$TEST_HOME/.local/bin/tmux-restore-session"
+  rm -f "$TEST_HOME/.local/bin/tmux-continuum-default-server"
+  rm -f "$TEST_HOME/.local/bin/tmux-continuum-save-gate"
   rm -f "$TEST_HOME/.local/bin/tmux-clip-paste"
   rm -f "$TEST_HOME/.local/bin/wezterm-switch-tab"
   rm -f "$TEST_HOME/.local/bin/agent-hook-notification"

@@ -23,14 +23,15 @@ component; files here should stay thin and command-shaped.
 
 Reusable tool commands such as `ettun`, `sley`, `sysup`, `agent-hook-*`,
 `claude-session-name`, `autoformat`, `autolint`, `checkrun`,
-`git-absorb-and-rebase`, `tmux-save-session`, `tmux-restore-session`,
-`tmux-clip-paste`, `wezterm-switch-tab`, and `wezterm-move-tab` are installed
-by `shdeps` from their owning dependency repos. The WezTerm tab switch/move
-helpers are owned by `termnav`; tmux session save/restore and clip paste are
-owned by `tmux-tools`. The resilient ET tunnel command is owned by `ettun`;
-the unified system updater is owned by `sysup`. Only the `sysup` front door is
+`git-absorb-and-rebase`, `tmux-continuum-default-server`,
+`tmux-continuum-save-gate`, `tmux-clip-paste`, `wezterm-switch-tab`, and
+`wezterm-move-tab` are installed by `shdeps` from their owning dependency
+repos. The WezTerm tab switch/move helpers are owned by `termnav`; the generic
+Continuum default-server coordinator, its save gate, and clip paste are owned
+by `tmux-tools`. The resilient ET tunnel command is owned by `ettun`; the
+unified system updater is owned by `sysup`. Only the `sysup` front door is
 public; its Arch and Debian family backends are provider-internal details.
-Dotfiles only declares those dependencies.
+Dotfiles only declares those dependencies and activates them as policy needs.
 
 ## Terminal Helpers
 
