@@ -368,7 +368,20 @@ EOF
   ln -s "$DISCOVERY_FIXTURE/.config/agent-rules/playbooks.d/nested/deeper/base.md" \
     "$DISCOVERY_FIXTURE/.config/agent-rules/playbooks.d/unmanaged/link.md"
 
+  discovery_git_bin=$(_mock_bin)
+  discovery_git_log="$DISCOVERY_FIXTURE/git-discovery.log"
+  discovery_system_git=$(command -v git)
+  cat >"$discovery_git_bin/git" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$DISCOVERY_GIT_LOG"
+exec "$DISCOVERY_SYSTEM_GIT" "$@"
+EOF
+  chmod +x "$discovery_git_bin/git"
+  export DISCOVERY_GIT_LOG="$discovery_git_log"
+  export DISCOVERY_SYSTEM_GIT="$discovery_system_git"
+
   discovery_listing=$(
+    PATH="$discovery_git_bin:$PATH"
     HOME="$DISCOVERY_FIXTURE"
     DOT_OVERLAY_MANIFEST="$DISCOVERY_FIXTURE/.local/state/dot/overlay-links"
     DOT_OVERLAY_LEGACY_MANIFEST="$DISCOVERY_FIXTURE/.local/state/dot/legacy-overlay-links"
@@ -383,6 +396,14 @@ EOF
     OVERLAYS=("local|$DISCOVERY_LOCAL_SOURCE|||||none")
     _dot_playbook_files
   )
+  discovery_inventory_calls=$(awk '/ ls-files -z / { count++ } END { print count + 0 }' \
+    "$discovery_git_log")
+  discovery_per_path_calls=$(awk '/ ls-files --error-unmatch / { count++ } END { print count + 0 }' \
+    "$discovery_git_log")
+  _assert_eq "agent rules: discovery inventories each Git owner once" \
+    "1" "$discovery_inventory_calls"
+  _assert_eq "agent rules: discovery avoids per-playbook Git probes" \
+    "0" "$discovery_per_path_calls"
   _assert_contains "agent rules: discovery includes recursively nested tracked playbook" \
     "$DISCOVERY_FIXTURE/.config/agent-rules/playbooks.d/nested/deeper/base.md" \
     "$discovery_listing"
@@ -402,6 +423,27 @@ EOF
     "$discovery_listing"
   _assert_not_contains "agent rules: discovery excludes untracked overlay sources" \
     "$DISCOVERY_FIXTURE/$discovery_untracked_rel" "$discovery_listing"
+
+  # A discovery inventory is only valid for one top-level call. Prove that a
+  # later call observes an index update instead of reusing stale trust state.
+  git -C "$DISCOVERY_FIXTURE/.dotfiles-private" add \
+    "home/$discovery_untracked_rel"
+  discovery_refreshed_listing=$(
+    PATH="$discovery_git_bin:$PATH"
+    HOME="$DISCOVERY_FIXTURE"
+    DOT_OVERLAY_MANIFEST="$DISCOVERY_FIXTURE/.local/state/dot/overlay-links"
+    DOT_OVERLAY_LEGACY_MANIFEST="$DISCOVERY_FIXTURE/.local/state/dot/legacy-overlay-links"
+    OVERLAYS=("local|$DISCOVERY_LOCAL_SOURCE|||||none")
+    _dot_playbook_files
+  )
+  discovery_refreshed_inventory_calls=$(
+    awk '/ ls-files -z / { count++ } END { print count + 0 }' \
+      "$discovery_git_log"
+  )
+  _assert_contains "agent rules: later discovery observes newly tracked source" \
+    "$DISCOVERY_FIXTURE/$discovery_untracked_rel" "$discovery_refreshed_listing"
+  _assert_eq "agent rules: later discovery refreshes Git inventory" \
+    "2" "$discovery_refreshed_inventory_calls"
 
   # A stale exact-target record from a removed filesystem descriptor must not
   # inherit trust from a same-name Git checkout. The manifest target identifies
