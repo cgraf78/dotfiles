@@ -78,11 +78,39 @@ if [[ "$EXPECT_DIRECT_WORKER" == 1 ]]; then
 fi
 
 if [[ "$IGNORE_TERM" == 2 || "$IGNORE_TERM" == 3 ]]; then
+  cleanup_marker_owner_pid=${BASHPID:-$$}
+  cleanup_marker_owner_subshell=${BASH_SUBSHELL:-0}
   eval "$(declare -f _dot_cleanup_owned | sed '1s/_dot_cleanup_owned/_dot_cleanup_owned_original/')"
   _dot_cleanup_owned() {
-    : >"$CASE_DIR/cleanup-started"
+    # This override is inherited by every Bash subshell launched below. Only
+    # the fixture owner may publish the synchronization marker: otherwise a
+    # descendant can wake the outer harness before the owner's EXIT cleanup
+    # has installed ignored signal dispositions, turning the test itself into
+    # a race between two different cleanup owners.
+    # BASH_SUBSHELL keeps the distinction on macOS Bash 3.2, where BASHPID is
+    # unavailable and $$ retains the outer shell's value inside `( ... )`.
+    if [[ "${BASHPID:-$$}" == "$cleanup_marker_owner_pid" &&
+      "${BASH_SUBSHELL:-0}" == "$cleanup_marker_owner_subshell" ]]; then
+      : >"$CASE_DIR/cleanup-started"
+    fi
     _dot_cleanup_owned_original
   }
+fi
+
+if [[ "$IGNORE_TERM" == 3 ]]; then
+  # Exercise the marker override in a nested cleanup owner before the real
+  # worker starts. The outer harness must never mistake a descendant's cleanup
+  # for the top-level fixture reaching its authoritative EXIT cleanup.
+  (
+    # Exercise the Bash 3.2 fallback even when the host shell provides BASHPID.
+    # Unsetting the special variable is confined to this probe subshell.
+    unset BASHPID
+    _dot_cleanup_owned
+  )
+  if [[ -e "$CASE_DIR/cleanup-started" ]]; then
+    : >"$CASE_DIR/nested-cleanup-published-owner-marker"
+    rm -f "$CASE_DIR/cleanup-started"
+  fi
 fi
 
 if [[ "$WEAK_NESTED_CLEANUP" == 1 ]]; then
@@ -218,6 +246,12 @@ PY
     return
   fi
   child_pid=$(<"$case_dir/child.pid")
+
+  if [[ "$ignore_term" == 3 ]]; then
+    _assert_file_missing \
+      "$label: nested cleanup cannot publish the owner marker" \
+      "$case_dir/nested-cleanup-published-owner-marker"
+  fi
 
   if [[ "$expect_direct_worker" == 1 ]]; then
     local registration_count=0 first_registered=""
