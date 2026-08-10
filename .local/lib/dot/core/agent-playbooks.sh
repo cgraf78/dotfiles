@@ -55,17 +55,45 @@ _dot_playbook_base_files() {
 }
 
 # Overlay playbooks must be exact symlinks authorized by the overlay manifest.
+_dot_playbook_overlay_tracked_load() {
+  local owner="$1" repo="$HOME/.dotfiles-$1" listing tracked
+  local -a pipeline_status=()
+
+  # An overlay can contribute many playbooks, but Git's index is already the
+  # complete trust authority for all of them. Inventory that narrow subtree
+  # once per owner instead of starting one Git process for every manifest row.
+  # Keep the command status visible: an invalid repository must still fail the
+  # entire discovery rather than looking like an overlay with no playbooks.
+  listing=$(
+    git -c core.fsmonitor=false -c core.hooksPath=/dev/null \
+      --git-dir="$repo/.git" --work-tree="$repo" \
+      ls-files -z -- \
+      ':(top,glob)home/.config/agent-rules/playbooks.d/**/*.md' |
+      while IFS= read -r -d '' tracked; do
+        # Overlay manifests cannot encode CR/LF path records. Ignore such Git
+        # entries rather than converting them into ambiguous newline records.
+        [[ "$tracked" != *$'\n'* && "$tracked" != *$'\r'* ]] || continue
+        printf '%s\n' "${tracked#home/}"
+      done
+    pipeline_status=("${PIPESTATUS[@]}")
+    [[ "${pipeline_status[0]:-1}" -eq 0 &&
+      "${pipeline_status[1]:-1}" -eq 0 ]] || exit 2
+  ) || return 2
+
+  while IFS= read -r tracked; do
+    [[ -n "$tracked" ]] || continue
+    _dot_playbook_overlay_tracked_paths["$owner"$'\t'"$tracked"]=1
+  done <<<"$listing"
+  _dot_playbook_overlay_tracked_loaded["$owner"]=1
+}
+
 _dot_playbook_overlay_source_tracked() {
-  local rel="$1" repo="$HOME/.dotfiles-$2" rc
-  git -c core.fsmonitor=false -c core.hooksPath=/dev/null \
-    --git-dir="$repo/.git" --work-tree="$repo" \
-    ls-files --error-unmatch -- "home/$rel" >/dev/null 2>&1
-  rc=$?
-  case "$rc" in
-    0) return 0 ;;
-    1) return 1 ;;
-    *) return 2 ;;
-  esac
+  local rel="$1" owner="$2"
+
+  if [[ -z "${_dot_playbook_overlay_tracked_loaded[$owner]+x}" ]]; then
+    _dot_playbook_overlay_tracked_load "$owner" || return 2
+  fi
+  [[ -n "${_dot_playbook_overlay_tracked_paths["$owner"$'\t'"$rel"]+x}" ]]
 }
 
 _dot_playbook_local_source_trusted() {
@@ -90,6 +118,10 @@ _dot_playbook_local_source_trusted() {
 
 _dot_playbook_overlay_files() {
   local -a OVERLAY_AUTHORITY_MANIFESTS=()
+  # Dynamically scoped into _dot_playbook_overlay_source_tracked so each
+  # top-level discovery gets a fresh, invocation-local trust inventory.
+  local -A _dot_playbook_overlay_tracked_loaded=()
+  local -A _dot_playbook_overlay_tracked_paths=()
   local manifest line tracked_status local_status git_target
   local REPLY_REL REPLY_OWNER REPLY_TARGET
 
