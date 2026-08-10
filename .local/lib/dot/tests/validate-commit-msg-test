@@ -1121,6 +1121,12 @@ _assert_exit "extraction+validation: placeholder message blocked" 1 "$__VAL_RC"
 echo "=== Git hook: internal policy provider is independent of PATH ==="
 
 _message_sley_root=$(_mock_sley_message_root)
+# Keep the Bash that is running the suite while excluding the normal user bin
+# directories where a legacy validator could live. On macOS, /usr/bin/bash is
+# Bash 3.2 and is below Sley's documented Bash 4 minimum; replacing PATH with
+# only /usr/bin:/bin would test an unsupported runtime rather than provider
+# independence.
+_provider_test_path=${BASH%/*}:/usr/bin:/bin
 
 repo=$(_new_repo)
 echo "x = 1" >"$repo/test.py"
@@ -1130,7 +1136,7 @@ __COMMIT_OUT=$(
   cd "$repo" &&
     GIT_CONFIG_GLOBAL="$repo/.gitconfig-test" \
       DOT_SLEY_ROOT="$_message_sley_root" \
-      PATH="/usr/bin:/bin" \
+      PATH="$_provider_test_path" \
       git commit -m "$_long_pathless_title" 2>&1
 )
 __COMMIT_RC=$?
@@ -1169,7 +1175,7 @@ printf '%s\n' "Some commit title" >"$_hook_msg"
 # its provider-neutral path and independent secret gate, while dotfiles keeps
 # the previous advisory fail-open behavior visible.
 _hook_out=$(DOT_COMMIT_MSG_VALIDATOR=/nonexistent/dotfiles-validator \
-  DOT_SLEY_ROOT="$_message_sley_root" PATH="/usr/bin:/bin" \
+  DOT_SLEY_ROOT="$_message_sley_root" PATH="$_provider_test_path" \
   "$COMMIT_MSG_HOOK" "$_hook_msg" 2>&1)
 _hook_rc=$?
 _assert_exit "hook: missing validator exits 0 (non-blocking)" 0 "$_hook_rc"
