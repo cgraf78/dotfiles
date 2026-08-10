@@ -13,8 +13,8 @@ not load or dispatch them.
 - `pre-commit`, `pre-merge-commit`, `pre-applypatch`, `prepare-commit-msg`, and
   `commit-msg` are activation shims for Sley's generic Git hooks.
 - `sley-provider-hook` resolves the Shdeps-managed Sley checkout, verifies the
-  requested provider hook is executable, and dispatches without evaluating a
-  command string.
+  requested provider hook and matching CLI are executable, and dispatches
+  without evaluating a command string.
 - `sley-commit-gate` adds the one dotfiles-specific policy described below,
   then delegates the portable readiness behavior to Sley.
 - `commit-msg` selects dotfiles' advanced message-policy provider before
@@ -32,10 +32,11 @@ expensive and unrelated to the staged commit scope. Sley does not need to know
 that personal repository layout.
 
 Normal activation resolves Sley at
-`~/.local/share/cgraf78/sley/share/sley/hooks/git/`. `DOT_SLEY_ROOT` may point
-at a Sley checkout for cross-repository development and integration tests; it
-is not required on fleet machines because `dot update` keeps the stable Shdeps
-checkout current.
+`~/.local/share/cgraf78/sley/`, using both its `share/sley/hooks/git/` hooks and
+its `bin/sley` CLI. `DOT_SLEY_ROOT` may point at a complete Sley checkout for
+cross-repository development and integration tests; selecting both artifacts
+from one root prevents hook/CLI version skew. The override is not required on
+fleet machines because `dot update` keeps the stable Shdeps checkout current.
 
 ## Policy
 

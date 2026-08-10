@@ -22,6 +22,7 @@ esac
 # installs use Shdeps' stable checkout path, which `dot update` keeps current.
 sley_root=${DOT_SLEY_ROOT:-${HOME:?}/.local/share/cgraf78/sley}
 provider_hook=$sley_root/share/sley/hooks/git/$hook_name
+sley_cli=$sley_root/bin/sley
 if [ ! -x "$provider_hook" ]; then
   {
     echo "sley-provider-hook: Sley hook is missing or not executable: $provider_hook"
@@ -29,6 +30,19 @@ if [ ! -x "$provider_hook" ]; then
   } >&2
   exit 1
 fi
+if [ ! -x "$sley_cli" ]; then
+  {
+    echo "sley-provider-hook: Sley CLI is missing or not executable: $sley_cli"
+    echo "sley-provider-hook: run dot update, or set DOT_SLEY_ROOT to a complete Sley checkout while developing."
+  } >&2
+  exit 1
+fi
+
+# The provider hooks intentionally invoke `sley` by name so they remain
+# portable when installed outside dotfiles. Bind that lookup to the same root
+# as the selected hook here; otherwise DOT_SLEY_ROOT could combine a new hook
+# with an older fleet-installed CLI and fail only at runtime.
+export PATH="$sley_root/bin${PATH:+:$PATH}"
 
 # Git's hook wrappers must use the one dotfiles-owned policy adapter below.
 # The adapter recognizes the special bare-$HOME dotfiles work tree; Sley's

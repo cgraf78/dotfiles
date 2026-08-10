@@ -102,22 +102,41 @@ _commit() {
   __COMMIT_RC=$?
 }
 
-# Put the real Sley message-validation operation behind a deliberately tiny
-# PATH fixture while making its independent secret gate deterministic. This
-# proves that dotfiles no longer relies on a PATH-visible policy executable.
-_mock_sley_message_bin() {
-  local mock_bin
-  mock_bin=$(_mock_bin)
-  cat >"$mock_bin/sley" <<'EOF'
+# Put the real Sley message-validation operation behind a complete checkout
+# fixture while making its independent secret gate deterministic. Production
+# intentionally selects hooks and CLI from one root, so the test mirrors that
+# dependency boundary instead of relying on ambient PATH order.
+_mock_sley_message_root() {
+  local mock_root
+  mock_root=$(_tmpdir)
+  mkdir -p "$mock_root/bin" "$mock_root/share/sley"
+  ln -s "$DOT_SLEY_ROOT/share/sley/hooks" "$mock_root/share/sley/hooks"
+  cat >"$mock_root/bin/sley" <<'EOF'
 #!/usr/bin/env bash
 if [ "${1:-}" = secrets ]; then
   exit 0
 fi
 exec "$SLEY_TEST_REAL_BIN" "$@"
 EOF
-  chmod +x "$mock_bin/sley"
-  printf '%s\n' "$mock_bin"
+  chmod +x "$mock_root/bin/sley"
+  printf '%s\n' "$mock_root"
 }
+
+# Sley's executable-provider contract passes one opaque path. Prove the local
+# policy adapter does not reinterpret an option-shaped filename as its legacy
+# direct-CLI flags.
+opaque_provider_dir=$(_tmpdir)
+opaque_provider_title=$(printf '%0.s-' {1..101})
+printf '%s\n' "$opaque_provider_title" >"$opaque_provider_dir/--strict"
+__VAL_OUT=$(
+  cd "$opaque_provider_dir" || exit 1
+  "$SLEY_TEST_REAL_BIN" hook validate-message \
+    --validator "$VALIDATOR" --message-file --strict 2>&1
+)
+__VAL_RC=$?
+_assert_exit "provider path: option-shaped filename remains opaque" 1 "$__VAL_RC"
+_assert_contains "provider path: option-shaped file receives normal policy" \
+  "max 100" "$__VAL_OUT"
 
 # ===========================================================================
 # Validator: git format
@@ -1101,7 +1120,7 @@ _assert_exit "extraction+validation: placeholder message blocked" 1 "$__VAL_RC"
 
 echo "=== Git hook: internal policy provider is independent of PATH ==="
 
-_message_sley_path=$(_mock_sley_message_bin)
+_message_sley_root=$(_mock_sley_message_root)
 
 repo=$(_new_repo)
 echo "x = 1" >"$repo/test.py"
@@ -1110,7 +1129,8 @@ _long_pathless_title=$(printf '%0.s-' {1..105})
 __COMMIT_OUT=$(
   cd "$repo" &&
     GIT_CONFIG_GLOBAL="$repo/.gitconfig-test" \
-      PATH="$_message_sley_path:/usr/bin:/bin" \
+      DOT_SLEY_ROOT="$_message_sley_root" \
+      PATH="/usr/bin:/bin" \
       git commit -m "$_long_pathless_title" 2>&1
 )
 __COMMIT_RC=$?
@@ -1149,7 +1169,7 @@ printf '%s\n' "Some commit title" >"$_hook_msg"
 # its provider-neutral path and independent secret gate, while dotfiles keeps
 # the previous advisory fail-open behavior visible.
 _hook_out=$(DOT_COMMIT_MSG_VALIDATOR=/nonexistent/dotfiles-validator \
-  PATH="$_message_sley_path:/usr/bin:/bin" \
+  DOT_SLEY_ROOT="$_message_sley_root" PATH="/usr/bin:/bin" \
   "$COMMIT_MSG_HOOK" "$_hook_msg" 2>&1)
 _hook_rc=$?
 _assert_exit "hook: missing validator exits 0 (non-blocking)" 0 "$_hook_rc"

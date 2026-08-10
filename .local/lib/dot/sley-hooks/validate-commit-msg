@@ -35,6 +35,17 @@ format="${COMMIT_MSG_FORMAT:-}"
 file=''
 strict="${COMMIT_MSG_STRICT:-0}"
 
+# Sley's provider API supplies exactly one opaque message-file path. Recognize
+# that form before parsing the retained direct-CLI flags so a legitimate file
+# named `--strict`, `--format`, or `--file` cannot change policy or switch the
+# validator to stdin. A lone flag remains a direct-CLI flag when no such file
+# exists, preserving the historical `echo ... | validate-commit-msg --strict`
+# interface used by policy tests and advanced callers.
+if [ "$#" -eq 1 ] && [ -f "$1" ]; then
+  file=$1
+  shift
+fi
+
 while [ $# -gt 0 ]; do
   case "$1" in
     --format)
