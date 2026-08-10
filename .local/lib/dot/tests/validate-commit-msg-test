@@ -351,6 +351,25 @@ Summary: TODO
 Test Plan: N/A" --format sl --strict
 _assert_exit "inline placeholder (strict): blocked" 1 "$__VAL_RC"
 
+# Lock the complete diagnostic order for a message that exercises title,
+# spacing, and section-content policy at once. The implementation is moving
+# behind a provider boundary; matching only the final exit status would miss a
+# dropped check or reordered output that makes hook diagnostics less useful.
+_validate "Fix something.
+Summary
+TODO
+Testing
+TBD" --format git --strict
+_assert_exit "combined policy failures: blocked" 1 "$__VAL_RC"
+_assert_eq "combined policy failures: exact diagnostics preserved" "$(
+  cat <<'EOF'
+commit-msg: title ends with a period
+commit-msg: missing blank line after title
+commit-msg: 'Summary' is a placeholder
+commit-msg: 'Testing' is a placeholder
+EOF
+)" "$__VAL_OUT"
+
 # ===========================================================================
 # Validator: title-only commits
 # ===========================================================================
@@ -484,6 +503,26 @@ __VAL_OUT=$("$VALIDATOR" --format git --strict --file "$tmpf" 2>&1)
 __VAL_RC=$?
 _assert_exit "--file mode: comment is not section content" 1 "$__VAL_RC"
 _assert_contains "--file mode: comment leaves Summary empty" "empty" "$__VAL_OUT"
+
+# Provider APIs pass message files as opaque paths. Preserve quoting before the
+# validator moves out of PATH so whitespace cannot turn one message into
+# multiple callback arguments during the refactor.
+spaced_dir="$(_tmpdir)/message fixture"
+mkdir -p "$spaced_dir"
+spaced_message="$spaced_dir/commit message.txt"
+cat >"$spaced_message" <<'EOF'
+Fix a path quoting regression
+
+Summary
+- preserve the complete filename
+
+Testing
+- run the commit message suite
+EOF
+__VAL_OUT=$("$VALIDATOR" --format git --strict --file "$spaced_message" 2>&1)
+__VAL_RC=$?
+_assert_exit "--file mode: whitespace in message path is preserved" 0 "$__VAL_RC"
+_assert_eq "--file mode: whitespace path emits no diagnostics" "" "$__VAL_OUT"
 
 # ===========================================================================
 # Git hook: end-to-end
