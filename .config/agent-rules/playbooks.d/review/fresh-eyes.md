@@ -4,9 +4,10 @@
 <!-- agent-rule-trigger: Completing non-trivial work -->
 
 For any non-trivial work, use at least one fresh-eyes review pass before
-calling the task complete. Prefer adversarial subagents when the runtime and
-workflow can support them safely, and choose reviewers with distinct axes
-instead of asking several agents the same broad question.
+calling the task complete. Prefer a mix of adversarial expert subagent
+reviewers when the runtime and workflow can safely support them. Give those
+reviewers complementary domain expertise and distinct axes instead of asking
+several generalists the same broad question.
 
 - Use this for implementation, refactoring, debugging, design changes,
   configuration changes, and durable documentation/rule updates.
