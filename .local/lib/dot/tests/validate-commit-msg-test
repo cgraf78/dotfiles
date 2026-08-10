@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# commit-msg-test — unit tests for validate-commit-msg and the
-# commit-msg git hook.
+# validate-commit-msg-test — unit tests for dotfiles message policy and its
+# Sley-backed Git hook.
 #
-# Tests the reusable validator directly (stdin mode) and through
-# the git commit-msg hook (end-to-end). Covers both git and sl
-# formats, strict/non-strict modes, and edge cases.
+# Tests the internal policy provider directly and through the Git commit-msg
+# hook (end-to-end). Covers both Git and Sapling formats, strict/non-strict
+# modes, the Sley provider seam, and edge cases.
 #
 # Usage: commit-msg-test
 
@@ -14,12 +14,16 @@ export NO_COLOR=1
 # shellcheck source=helpers.sh
 . "$HOME/.local/lib/dot/tests/helpers.sh"
 
-VALIDATOR="$HOME/.local/bin/validate-commit-msg"
+VALIDATOR="$HOME/.local/lib/dot/sley-hooks/validate-commit-msg"
 # Exercise the hook selected by the tracked Git configuration rather than a
 # second test-owned path. A storage-only refactor must preserve this behavior.
 HOOK_DIR=$(git config --file "$HOME/.config/git/config" \
   --path --get core.hooksPath)
 COMMIT_MSG_HOOK="$HOOK_DIR/commit-msg"
+DOT_SLEY_ROOT=${DOT_TEST_SLEY_ROOT:-${DOT_TEST_HOST_HOME:-$HOME}/.local/share/cgraf78/sley}
+SLEY_TEST_REAL_BIN="$DOT_SLEY_ROOT/bin/sley"
+DOT_TEST_COMMIT_MSG_HOOK=$COMMIT_MSG_HOOK
+export DOT_SLEY_ROOT SLEY_TEST_REAL_BIN DOT_TEST_COMMIT_MSG_HOOK
 
 if [ ! -x "$VALIDATOR" ]; then
   echo "commit-msg-test: validator not found at $VALIDATOR" >&2
@@ -27,6 +31,10 @@ if [ ! -x "$VALIDATOR" ]; then
 fi
 if [ ! -x "$COMMIT_MSG_HOOK" ]; then
   echo "commit-msg-test: commit-msg hook not found at $COMMIT_MSG_HOOK" >&2
+  exit 1
+fi
+if [ ! -x "$SLEY_TEST_REAL_BIN" ]; then
+  echo "commit-msg-test: Sley development/runtime binary not found at $SLEY_TEST_REAL_BIN" >&2
   exit 1
 fi
 
@@ -50,7 +58,14 @@ _new_repo() {
   (
     cd "$repo" || exit 1
     mkdir -p "$hook_dir"
-    ln -s "$COMMIT_MSG_HOOK" "$hook_dir/commit-msg"
+    # Execute the configured hook by its real path. A symlinked individual
+    # file would make BASH_SOURCE point at this fixture directory, separating
+    # the hook from its sibling activation shim in a way production never does.
+    cat >"$hook_dir/commit-msg" <<'EOF'
+#!/usr/bin/env bash
+exec "$DOT_TEST_COMMIT_MSG_HOOK" "$@"
+EOF
+    chmod +x "$hook_dir/commit-msg"
     export GIT_CONFIG_GLOBAL="$repo/.gitconfig-test"
     : >"$GIT_CONFIG_GLOBAL"
     git init -q
@@ -85,6 +100,23 @@ _commit() {
         git commit -m "$msg" 2>&1
   )
   __COMMIT_RC=$?
+}
+
+# Put the real Sley message-validation operation behind a deliberately tiny
+# PATH fixture while making its independent secret gate deterministic. This
+# proves that dotfiles no longer relies on a PATH-visible policy executable.
+_mock_sley_message_bin() {
+  local mock_bin
+  mock_bin=$(_mock_bin)
+  cat >"$mock_bin/sley" <<'EOF'
+#!/usr/bin/env bash
+if [ "${1:-}" = secrets ]; then
+  exit 0
+fi
+exec "$SLEY_TEST_REAL_BIN" "$@"
+EOF
+  chmod +x "$mock_bin/sley"
+  printf '%s\n' "$mock_bin"
 }
 
 # ===========================================================================
@@ -523,6 +555,15 @@ __VAL_OUT=$("$VALIDATOR" --format git --strict --file "$spaced_message" 2>&1)
 __VAL_RC=$?
 _assert_exit "--file mode: whitespace in message path is preserved" 0 "$__VAL_RC"
 _assert_eq "--file mode: whitespace path emits no diagnostics" "" "$__VAL_OUT"
+
+# Sley's advanced-provider API passes one positional message-file path. Select
+# the profile through the environment so Sley remains unaware of policy names.
+__VAL_OUT=$(COMMIT_MSG_FORMAT=git COMMIT_MSG_STRICT=1 \
+  "$VALIDATOR" "$spaced_message" 2>&1)
+__VAL_RC=$?
+_assert_exit "Sley provider mode: positional message path is accepted" 0 "$__VAL_RC"
+_assert_eq "Sley provider mode: emits no diagnostics for a valid message" \
+  "" "$__VAL_OUT"
 
 # ===========================================================================
 # Git hook: end-to-end
@@ -1055,27 +1096,28 @@ __VAL_RC=$?
 _assert_exit "extraction+validation: placeholder message blocked" 1 "$__VAL_RC"
 
 # ===========================================================================
-# Git hook: graceful no-op when validator missing
+# Git hook: policy provider does not depend on PATH
 # ===========================================================================
 
-echo "=== Git hook: graceful no-op when validator missing ==="
+echo "=== Git hook: internal policy provider is independent of PATH ==="
 
-_empty_path=$(_mock_bin)
-ln -s "$(command -v bash)" "$_empty_path/bash"
-ln -s "$(command -v git)" "$_empty_path/git"
+_message_sley_path=$(_mock_sley_message_bin)
 
 repo=$(_new_repo)
 echo "x = 1" >"$repo/test.py"
 (cd "$repo" && git add test.py)
-# validate-commit-msg NOT on this PATH — hook should no-op
+_long_pathless_title=$(printf '%0.s-' {1..105})
 __COMMIT_OUT=$(
   cd "$repo" &&
     GIT_CONFIG_GLOBAL="$repo/.gitconfig-test" \
-      PATH="$_empty_path" \
-      git commit -m "no validator on PATH" 2>&1
+      PATH="$_message_sley_path:/usr/bin:/bin" \
+      git commit -m "$_long_pathless_title" 2>&1
 )
 __COMMIT_RC=$?
-_assert_exit "validator missing: commit succeeds" 0 "$__COMMIT_RC"
+_assert_exit "internal provider: blocks without a PATH-visible validator" \
+  1 "$__COMMIT_RC"
+_assert_contains "internal provider: reports the same title policy" \
+  "max 100" "$__COMMIT_OUT"
 
 # ===========================================================================
 # Git hook: strict mode via env
@@ -1097,20 +1139,22 @@ _assert_exit "strict via env: missing sections blocks" 1 "$__COMMIT_RC"
 _assert_contains "strict via env: reports Summary" "Summary" "$__COMMIT_OUT"
 
 # ===========================================================================
-# Hook: validator missing from PATH (fail-open must be visible, not silent)
+# Hook: configured policy provider missing (fail-open must remain visible)
 # ===========================================================================
 
-echo "=== Hook: missing validate-commit-msg warns but does not block ==="
+echo "=== Hook: missing dotfiles policy provider warns but does not block ==="
 _hook_msg="$(_tmpdir)/msg"
 printf '%s\n' "Some commit title" >"$_hook_msg"
-# Run the hook with a PATH that cannot resolve validate-commit-msg (it lives in
-# ~/.local/bin, excluded here). The hook must still exit 0 (advisory), but now
-# print a warning so a missing/broken validator is not silently a no-op.
-_hook_out=$(PATH="/usr/bin:/bin" "$COMMIT_MSG_HOOK" "$_hook_msg" 2>&1)
+# Point the explicit integration seam at a missing file. Sley must still run
+# its provider-neutral path and independent secret gate, while dotfiles keeps
+# the previous advisory fail-open behavior visible.
+_hook_out=$(DOT_COMMIT_MSG_VALIDATOR=/nonexistent/dotfiles-validator \
+  PATH="$_message_sley_path:/usr/bin:/bin" \
+  "$COMMIT_MSG_HOOK" "$_hook_msg" 2>&1)
 _hook_rc=$?
 _assert_exit "hook: missing validator exits 0 (non-blocking)" 0 "$_hook_rc"
 _assert_contains "hook: missing validator warns on stderr" \
-  "validate-commit-msg not found" "$_hook_out"
+  "dotfiles message validator is not executable" "$_hook_out"
 
 # ===========================================================================
 # Summary

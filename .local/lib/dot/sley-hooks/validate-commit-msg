@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
-# validate-commit-msg — validate commit message format.
+# validate-commit-msg — enforce dotfiles-owned commit message policy.
 #
-# Reusable validator for git commit-msg hooks and agent-driven Sapling hooks.
-# Checks title structure and required sections.
+# This is an advanced Sley message-validation provider, not a user-facing
+# command. Sley owns the reusable hook transport and passes one message-file
+# path; dotfiles owns the opinionated Git and Sapling message grammar below.
+# Keeping that split prevents personal policy from leaking into Sley's generic
+# SCM support while every integration still travels through the same API.
 #
 # Usage:
+#   validate-commit-msg MESSAGE_FILE
 #   validate-commit-msg [--format git|sl] [--strict] --file FILE
 #   echo "message" | validate-commit-msg [--format git|sl] [--strict]
 #
@@ -15,6 +19,7 @@
 # Knobs:
 #   COMMIT_MSG_SKIP=1     skip all validation
 #   COMMIT_MSG_STRICT=1   same as --strict
+#   COMMIT_MSG_FORMAT=... select git or sl when Sley supplies the file path
 #
 # Exit codes:
 #   0   clean or warnings only
@@ -26,7 +31,7 @@ set -u
 
 # ── Args ──────────────────────────────────────────────────────────────
 
-format=''
+format="${COMMIT_MSG_FORMAT:-}"
 file=''
 strict="${COMMIT_MSG_STRICT:-0}"
 
@@ -44,7 +49,13 @@ while [ $# -gt 0 ]; do
       strict=1
       shift
       ;;
-    *) shift ;;
+    *)
+      # Sley's executable-provider contract is intentionally a single opaque
+      # path. Preserve --file and stdin for direct policy tests and legacy
+      # callers, but make the provider form the simplest and primary one.
+      [ -z "$file" ] && file=$1
+      shift
+      ;;
   esac
 done
 

@@ -48,7 +48,7 @@ program	.local/bin/git
 program	.local/bin/hm
 program	.local/bin/nvim
 program	.local/bin/shell-time
-program	.local/bin/validate-commit-msg
+program	.local/lib/dot/sley-hooks/validate-commit-msg
 program	.local/lib/dot/core/agent-playbooks.sh
 program	.local/lib/dot/core/constants.sh
 program	.local/lib/dot/core/doctor.sh

@@ -39,7 +39,8 @@ DEPENDENCY_HOME="${DOT_TEST_HOST_HOME:-$SOURCE_HOME}"
 # DOT_TEST_SLEY_ROOT lets cross-repository development exercise an unmerged
 # provider worktree without copying its implementation back into dotfiles.
 DOT_SLEY_ROOT=${DOT_TEST_SLEY_ROOT:-$DEPENDENCY_HOME/.local/share/cgraf78/sley}
-export DOT_SLEY_ROOT
+SLEY_TEST_REAL_BIN="$DOT_SLEY_ROOT/bin/sley"
+export DOT_SLEY_ROOT SLEY_TEST_REAL_BIN
 # This suite tests the hooks, not the dotfiles-aware Git launcher. Keep Git's
 # login-shell and SCM telemetry state inside a fixture HOME, while reading the
 # real dotfiles tool policy and installed Mise toolchain.
@@ -222,6 +223,9 @@ _mock_sley_secrets_bin() {
 #!/usr/bin/env bash
 case "$1" in
   ready) exit 0 ;;
+  hook)
+    exec "$SLEY_TEST_REAL_BIN" "$@"
+    ;;
   secrets)
     printf 'mock-secrets-args=%s\n' "$*"
     exit "${MOCK_SECRETS_RC:-0}"
@@ -670,9 +674,9 @@ _assert_exit "commit-msg: clean message commits" 0 "$__COMMIT_RC"
 _assert_contains "commit-msg: clean commit still ran the scan" \
   "mock-secrets-args=secrets --message-file" "$__COMMIT_OUT"
 
-# The secrets scan must not swallow validate-commit-msg's blocking exit: a
-# title >100 chars is a validate hard error, and a clean secrets scan (rc 0)
-# must still let that failure block the commit.
+# The secrets scan must not swallow the message provider's blocking exit: a
+# title >100 chars is a policy hard error, and a clean secrets scan (rc 0) must
+# still let that failure block the commit.
 repo=$(_new_repo)
 printf 'code\n' >"$repo/f.txt"
 (cd "$repo" && git add f.txt)

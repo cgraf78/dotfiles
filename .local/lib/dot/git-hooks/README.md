@@ -10,14 +10,15 @@ not load or dispatch them.
 
 ## Hooks
 
-- `pre-commit`, `pre-merge-commit`, `pre-applypatch`, and
-  `prepare-commit-msg` are activation shims for Sley's generic Git hooks.
+- `pre-commit`, `pre-merge-commit`, `pre-applypatch`, `prepare-commit-msg`, and
+  `commit-msg` are activation shims for Sley's generic Git hooks.
 - `sley-provider-hook` resolves the Shdeps-managed Sley checkout, verifies the
   requested provider hook is executable, and dispatches without evaluating a
   command string.
 - `sley-commit-gate` adds the one dotfiles-specific policy described below,
   then delegates the portable readiness behavior to Sley.
-- `commit-msg` delegates to `validate-commit-msg --format git`.
+- `commit-msg` selects dotfiles' advanced message-policy provider before
+  dispatching to Sley's generic finalized-message hook.
 
 Sley owns the reusable decisions about ordinary commits, merges, patches, and
 Git sequencer operations. Keeping those implementations in Sley gives direct
@@ -38,9 +39,9 @@ checkout current.
 
 ## Policy
 
-Keep hooks thin. Portable readiness behavior belongs in Sley, formatting and
-linting policy belongs in Checkrun, and commit-message policy belongs in
-`validate-commit-msg`.
+Keep hooks thin. Portable readiness and commit-message provider dispatch belong
+in Sley, formatting and linting policy belongs in Checkrun, and the local
+commit-message grammar belongs in `../sley-hooks/validate-commit-msg`.
 
 Hooks that only add advisory checks may degrade gracefully when a dependency is
 not installed yet. Hooks that enforce commit readiness should fail closed and
