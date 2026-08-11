@@ -40,13 +40,17 @@ alias gll='git log --oneline --all --graph --decorate'
 # Termnav's shell loader runs later in startup, before a user can invoke these
 # functions. Keep only the consumer choice here: plain paths for terminals that
 # need native linkification, semantic OSC-8 links for Termnav-capable routers.
+# Translate the dotfiles-specific policy once into Termnav's reusable marker so
+# a subsequently launched tmux client carries the same decision. Termnav stays
+# independent of the private DOT_ namespace while attached panes retain the
+# pre-extraction behavior.
+if [[ "${DOT_VSCODE_TERMINAL:-}" == 1 ]]; then
+  export TERMNAV_FILE_LINKS_PLAIN=1
+fi
+
 # If the dependency failed to load, fail safely to plain output rather than
 # emitting links that no installed router can open.
 _dot_file_links_need_plain_output() {
-  # This explicit override is dotfiles policy, not terminal detection. Keep it
-  # here so managed shells can force native linkification without teaching the
-  # generic Termnav provider about a DOT_-namespaced consumer contract.
-  [[ "${DOT_VSCODE_TERMINAL:-}" == 1 ]] && return 0
   typeset -f termnav_file_links_need_plain_output >/dev/null 2>&1 || return 0
   termnav_file_links_need_plain_output
 }

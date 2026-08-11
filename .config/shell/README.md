@@ -45,8 +45,9 @@ thin loaders. The ordered files in this directory hold the actual shell policy.
 - `53-wezterm.sh` is the small ordering exception: it loads Termnav's shell API
   before interactive commands can use it. Termnav owns terminal classification
   and pane metadata; `50-aliases.sh` retains only the local `eza`/`rg` choice
-  and the explicit `DOT_VSCODE_TERMINAL` consumer override. The loader also
-  retires the old dotfiles prompt callback when a long-lived shell is reloaded.
+  and maps the explicit `DOT_VSCODE_TERMINAL` consumer policy to Termnav's
+  generic `TERMNAV_FILE_LINKS_PLAIN` input. The loader also retires the old
+  dotfiles prompt callback when a long-lived shell is reloaded.
 - Generated tool initialization is cached below an absolute `XDG_CACHE_HOME`,
   falling back to `$HOME/.cache`; cache generation is skipped when neither
   root is available.
