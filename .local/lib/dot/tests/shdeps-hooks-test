@@ -343,7 +343,7 @@ _assert_eq "gstack: repository dependency is managed by shdeps" \
 
 echo "=== shdeps dependency repos ==="
 
-for _dependency in agentguard checkrun cmdblocks ettun sley sysup termnav; do
+for _dependency in agentguard checkrun cmdblocks ettun fwdports sley sysup termnav; do
   _dependency_dep=$(
     awk -v name="cgraf78/$_dependency" '$1 == name { print; exit }' \
       "$REAL_HOME/.config/shdeps/10-deps.conf"
