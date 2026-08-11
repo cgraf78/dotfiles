@@ -746,7 +746,7 @@ EOF
   NVIM_LAUNCHER_CWD="$NVIM_LAUNCHER_HOME/project"
   NVIM_LAUNCHER_XDG_CACHE="$NVIM_LAUNCHER_HOME/xdg-cache"
   NVIM_LAUNCHER_CACHE="$NVIM_LAUNCHER_XDG_CACHE/dot/nvim-real"
-  NVIM_LAUNCHER_PS_LOG="$NVIM_LAUNCHER_HOME/ps.log"
+  NVIM_LAUNCHER_PROVIDER="$NVIM_LAUNCHER_HOME/termnav-nvim-launcher.sh"
   mkdir -p "$NVIM_LAUNCHER_HOME/.local/share/neovim/neovim/bin" "$NVIM_LAUNCHER_CWD"
 
   cat >"$NVIM_LAUNCHER_HOME/.local/share/neovim/neovim/bin/nvim" <<'MOCK'
@@ -755,185 +755,83 @@ printf 'real:%s\n' "$*"
 MOCK
   chmod +x "$NVIM_LAUNCHER_HOME/.local/share/neovim/neovim/bin/nvim"
 
-  cat >"$NVIM_LAUNCHER_BIN/nvim-tmux-open" <<'MOCK'
-#!/usr/bin/env bash
-printf 'open:%s\n' "$*"
-exit "${NVIM_TMUX_OPEN_RC:-0}"
+  cat >"$NVIM_LAUNCHER_PROVIDER" <<'MOCK'
+termnav_nvim_try_reuse() {
+  printf 'provider:%s\n' "$*"
+  [[ "${NVIM_TEST_REUSE:-0}" == 1 ]]
+}
 MOCK
-  chmod +x "$NVIM_LAUNCHER_BIN/nvim-tmux-open"
 
-  cat >"$NVIM_LAUNCHER_BIN/ps" <<'MOCK'
+  cat >"$NVIM_LAUNCHER_BIN/shdeps" <<'MOCK'
 #!/usr/bin/env bash
-[[ -z "${NVIM_LAUNCHER_PS_LOG:-}" ]] || printf '%s\n' "$*" >>"$NVIM_LAUNCHER_PS_LOG"
-case "$*" in
-  "-ww -o comm= -o args= -p "*)
-    printf '%s %s\n' \
-      "${NVIM_LAUNCHER_PARENT_COMMAND:-zsh}" \
-      "${NVIM_LAUNCHER_PARENT_ARGS:-${NVIM_LAUNCHER_PARENT_COMMAND:--zsh}}"
-    ;;
-  "-o comm= -p "*)
-    printf '%s\n' "${NVIM_LAUNCHER_PARENT_COMMAND:-zsh}"
-    ;;
-  "-o args= -p "*)
-    printf '%s\n' "${NVIM_LAUNCHER_PARENT_ARGS:-${NVIM_LAUNCHER_PARENT_COMMAND:--zsh}}"
-    ;;
-  *)
-    exit 1
-    ;;
-esac
+[[ "${NVIM_TEST_PROVIDER_MISSING:-0}" != 1 ]] || exit 1
+[[ "$*" == "dep-file cgraf78/termnav lib/termnav/nvim-open/launcher.sh" ]] || exit 2
+printf '%s\n' "$NVIM_LAUNCHER_PROVIDER"
 MOCK
-  chmod +x "$NVIM_LAUNCHER_BIN/ps"
+  chmod +x "$NVIM_LAUNCHER_BIN/shdeps"
 
-  : >"$NVIM_LAUNCHER_PS_LOG"
   result=$(
     cd "$NVIM_LAUNCHER_CWD" || exit
-    NVIM_LAUNCHER_PROC_ROOT="$NVIM_LAUNCHER_HOME/proc"
-    mkdir -p "$NVIM_LAUNCHER_PROC_ROOT/$BASHPID"
-    printf 'zsh\n' >"$NVIM_LAUNCHER_PROC_ROOT/$BASHPID/comm"
-    printf 'zsh\0-zsh\0' >"$NVIM_LAUNCHER_PROC_ROOT/$BASHPID/cmdline"
     HOME="$NVIM_LAUNCHER_HOME" XDG_CACHE_HOME="$NVIM_LAUNCHER_XDG_CACHE" \
-      PATH="$NVIM_LAUNCHER_BIN:$PATH" TMUX="/tmp/tmux.sock,1,0" \
-      NVIM_LAUNCHER_ALLOW_NONTTY=1 NVIM_LAUNCHER_PS_LOG="$NVIM_LAUNCHER_PS_LOG" \
-      NVIM_LAUNCHER_PROC_ROOT="$NVIM_LAUNCHER_PROC_ROOT" \
+      PATH="$NVIM_LAUNCHER_BIN:$PATH" \
+      NVIM_LAUNCHER_PROVIDER="$NVIM_LAUNCHER_PROVIDER" \
+      NVIM_TEST_REUSE=1 \
       "$BIN_DIR/nvim" src/app.lua
-    rc=$?
-    exit "$rc"
   )
-  _assert_eq "nvim launcher: tmux file open reuses existing pane" \
-    "open:cli src/app.lua $NVIM_LAUNCHER_CWD" "$result"
+  _assert_eq "nvim launcher: delegates pane reuse to Termnav" \
+    "provider:src/app.lua" "$result"
   _assert_file_missing "nvim launcher: preferred binary does not create fallback cache" \
     "$NVIM_LAUNCHER_CACHE"
-  _assert_eq "nvim launcher: readable procfs avoids the ps fallback" \
-    "0" "$(wc -l <"$NVIM_LAUNCHER_PS_LOG" | tr -d ' ')"
-
-  _run_nvim_with_proc_parent() {
-    local parent="$1"
-    shift
-    (
-      cd "$NVIM_LAUNCHER_CWD" || exit
-      proc_root="$NVIM_LAUNCHER_HOME/proc-parent"
-      mkdir -p "$proc_root/$BASHPID"
-      printf '%s\n' "$parent" >"$proc_root/$BASHPID/comm"
-      printf '%s\0' "$@" >"$proc_root/$BASHPID/cmdline"
-      HOME="$NVIM_LAUNCHER_HOME" XDG_CACHE_HOME="$NVIM_LAUNCHER_XDG_CACHE" \
-        PATH="$NVIM_LAUNCHER_BIN:$PATH" TMUX="/tmp/tmux.sock,1,0" \
-        NVIM_LAUNCHER_ALLOW_NONTTY=1 NVIM_LAUNCHER_PS_LOG="$NVIM_LAUNCHER_PS_LOG" \
-        NVIM_LAUNCHER_PROC_ROOT="$proc_root" "$BIN_DIR/nvim" src/app.lua
-      rc=$?
-      exit "$rc"
-    )
-  }
-
-  : >"$NVIM_LAUNCHER_PS_LOG"
-  result=$(_run_nvim_with_proc_parent bash bash -c 'nvim src/app.lua')
-  _assert_eq "nvim launcher: procfs rejects shell command parents" \
-    "real:src/app.lua" "$result"
-  result=$(_run_nvim_with_proc_parent bash bash './script with spaces')
-  _assert_eq "nvim launcher: procfs rejects shell script parents" \
-    "real:src/app.lua" "$result"
-  result=$(_run_nvim_with_proc_parent git git commit)
-  _assert_eq "nvim launcher: procfs rejects non-shell parents" \
-    "real:src/app.lua" "$result"
-  result=$(_run_nvim_with_proc_parent zsh '/opt/My Shell/zsh')
-  _assert_eq "nvim launcher: procfs preserves a spaced shell argv element" \
-    "open:cli src/app.lua $NVIM_LAUNCHER_CWD" "$result"
-  _assert_eq "nvim launcher: authoritative procfs rejections do not invoke ps" \
-    "0" "$(wc -l <"$NVIM_LAUNCHER_PS_LOG" | tr -d ' ')"
-
-  NVIM_EMPTY_PROC_ROOT="$NVIM_LAUNCHER_HOME/proc-empty"
-  : >"$NVIM_LAUNCHER_PS_LOG"
-  result=$(
-    cd "$NVIM_LAUNCHER_CWD" || exit
-    mkdir -p "$NVIM_EMPTY_PROC_ROOT/$BASHPID"
-    printf 'zsh\n' >"$NVIM_EMPTY_PROC_ROOT/$BASHPID/comm"
-    : >"$NVIM_EMPTY_PROC_ROOT/$BASHPID/cmdline"
-    HOME="$NVIM_LAUNCHER_HOME" XDG_CACHE_HOME="$NVIM_LAUNCHER_XDG_CACHE" \
-      PATH="$NVIM_LAUNCHER_BIN:$PATH" TMUX="/tmp/tmux.sock,1,0" \
-      NVIM_LAUNCHER_ALLOW_NONTTY=1 NVIM_LAUNCHER_PS_LOG="$NVIM_LAUNCHER_PS_LOG" \
-      NVIM_LAUNCHER_PROC_ROOT="$NVIM_EMPTY_PROC_ROOT" "$BIN_DIR/nvim" src/app.lua
-    rc=$?
-    exit "$rc"
-  )
-  _assert_eq "nvim launcher: empty procfs argv falls back to ps" \
-    "open:cli src/app.lua $NVIM_LAUNCHER_CWD" "$result"
-  _assert_eq "nvim launcher: empty procfs argv inspects its parent once" \
-    "1" "$(wc -l <"$NVIM_LAUNCHER_PS_LOG" | tr -d ' ')"
 
   NVIM_REUSE_HOME=$(_tmpdir)
-  NVIM_REUSE_PROC_ROOT="$NVIM_REUSE_HOME/proc"
   result=$(
     cd "$NVIM_LAUNCHER_CWD" || exit
-    mkdir -p "$NVIM_REUSE_PROC_ROOT/$BASHPID"
-    printf 'zsh\n' >"$NVIM_REUSE_PROC_ROOT/$BASHPID/comm"
-    printf 'zsh\0-zsh\0' >"$NVIM_REUSE_PROC_ROOT/$BASHPID/cmdline"
     HOME="$NVIM_REUSE_HOME" XDG_CACHE_HOME="$NVIM_REUSE_HOME/cache" \
-      PATH="$NVIM_LAUNCHER_BIN:/usr/bin:/bin" TMUX="/tmp/tmux.sock,1,0" \
-      NVIM_LAUNCHER_ALLOW_NONTTY=1 NVIM_LAUNCHER_PROC_ROOT="$NVIM_REUSE_PROC_ROOT" \
+      PATH="$NVIM_LAUNCHER_BIN:/usr/bin:/bin" \
+      NVIM_LAUNCHER_PROVIDER="$NVIM_LAUNCHER_PROVIDER" \
+      NVIM_TEST_REUSE=1 \
       "$BIN_DIR/nvim" src/app.lua
-    rc=$?
-    exit "$rc"
   )
-  _assert_eq "nvim launcher: successful reuse does not require a fallback binary" \
-    "open:cli src/app.lua $NVIM_LAUNCHER_CWD" "$result"
+  _assert_eq "nvim launcher: provider success does not require a fallback binary" \
+    "provider:src/app.lua" "$result"
   _assert_file_missing "nvim launcher: successful reuse skips fallback resolution" \
     "$NVIM_REUSE_HOME/cache/dot/nvim-real"
 
   mkdir -p "${NVIM_LAUNCHER_CACHE%/*}"
   printf 'fallback-cache-sentinel\n' >"$NVIM_LAUNCHER_CACHE"
 
-  : >"$NVIM_LAUNCHER_PS_LOG"
   result=$(
-    cd "$NVIM_LAUNCHER_CWD" &&
-      HOME="$NVIM_LAUNCHER_HOME" XDG_CACHE_HOME="$NVIM_LAUNCHER_XDG_CACHE" \
-        PATH="$NVIM_LAUNCHER_BIN:$PATH" TMUX="/tmp/tmux.sock,1,0" \
-        NVIM_LAUNCHER_ALLOW_NONTTY=1 NVIM_LAUNCHER_PROC_ROOT=/nonexistent \
-        NVIM_TMUX_OPEN_RC=1 "$BIN_DIR/nvim" src/app.lua
+    cd "$NVIM_LAUNCHER_CWD" || exit
+    HOME="$NVIM_LAUNCHER_HOME" XDG_CACHE_HOME="$NVIM_LAUNCHER_XDG_CACHE" \
+      PATH="$NVIM_LAUNCHER_BIN:$PATH" \
+      NVIM_LAUNCHER_PROVIDER="$NVIM_LAUNCHER_PROVIDER" \
+      "$BIN_DIR/nvim" src/app.lua
   )
-  expected="$(printf 'open:cli src/app.lua %s\nreal:src/app.lua' "$NVIM_LAUNCHER_CWD")"
-  _assert_eq "nvim launcher: no reusable pane falls back to real nvim" "$expected" "$result"
+  expected="$(printf 'provider:src/app.lua\nreal:src/app.lua')"
+  _assert_eq "nvim launcher: provider refusal falls back to real nvim" "$expected" "$result"
   _assert_file_content "nvim launcher: preferred binary preserves fallback cache" \
     "fallback-cache-sentinel" "$NVIM_LAUNCHER_CACHE"
 
   result=$(
-    cd "$NVIM_LAUNCHER_CWD" &&
-      HOME="$NVIM_LAUNCHER_HOME" XDG_CACHE_HOME="$NVIM_LAUNCHER_XDG_CACHE" \
-        PATH="$NVIM_LAUNCHER_BIN:$PATH" TMUX="/tmp/tmux.sock,1,0" \
-        NVIM_LAUNCHER_ALLOW_NONTTY=1 NVIM_LAUNCHER_PROC_ROOT=/nonexistent \
-        NVIM_LAUNCHER_PS_LOG="$NVIM_LAUNCHER_PS_LOG" \
-        "$BIN_DIR/nvim" --headless src/app.lua
+    cd "$NVIM_LAUNCHER_CWD" || exit
+    HOME="$NVIM_LAUNCHER_HOME" XDG_CACHE_HOME="$NVIM_LAUNCHER_XDG_CACHE" \
+      PATH="$NVIM_LAUNCHER_BIN:$PATH" \
+      NVIM_LAUNCHER_PROVIDER="$NVIM_LAUNCHER_PROVIDER" \
+      "$BIN_DIR/nvim" --headless src/app.lua
   )
-  _assert_eq "nvim launcher: flags bypass pane reuse" "real:--headless src/app.lua" "$result"
-  _assert_file_content "nvim launcher: ineligible arguments skip parent inspection" \
-    "" "$NVIM_LAUNCHER_PS_LOG"
+  _assert_eq "nvim launcher: forwards the complete argv to Termnav and real nvim" \
+    "$(printf 'provider:--headless src/app.lua\nreal:--headless src/app.lua')" "$result"
 
   result=$(
-    cd "$NVIM_LAUNCHER_CWD" &&
-      HOME="$NVIM_LAUNCHER_HOME" XDG_CACHE_HOME="$NVIM_LAUNCHER_XDG_CACHE" \
-        PATH="$NVIM_LAUNCHER_BIN:$PATH" TMUX="/tmp/tmux.sock,1,0" \
-        NVIM_LAUNCHER_ALLOW_NONTTY=1 NVIM_LAUNCHER_PROC_ROOT=/nonexistent \
-        NVIM_LAUNCHER_PARENT_COMMAND=git "$BIN_DIR/nvim" .git/COMMIT_EDITMSG
+    cd "$NVIM_LAUNCHER_CWD" || exit
+    HOME="$NVIM_LAUNCHER_HOME" XDG_CACHE_HOME="$NVIM_LAUNCHER_XDG_CACHE" \
+      PATH="$NVIM_LAUNCHER_BIN:$PATH" \
+      NVIM_LAUNCHER_PROVIDER="$NVIM_LAUNCHER_PROVIDER" \
+      NVIM_TEST_PROVIDER_MISSING=1 \
+      "$BIN_DIR/nvim" src/app.lua
   )
-  _assert_eq "nvim launcher: editor-style parent bypasses pane reuse" \
-    "real:.git/COMMIT_EDITMSG" "$result"
-
-  result=$(
-    cd "$NVIM_LAUNCHER_CWD" &&
-      HOME="$NVIM_LAUNCHER_HOME" XDG_CACHE_HOME="$NVIM_LAUNCHER_XDG_CACHE" \
-        PATH="$NVIM_LAUNCHER_BIN:$PATH" TMUX="/tmp/tmux.sock,1,0" \
-        NVIM_LAUNCHER_ALLOW_NONTTY=1 NVIM_LAUNCHER_PROC_ROOT=/nonexistent \
-        NVIM_LAUNCHER_PARENT_COMMAND=bash \
-        NVIM_LAUNCHER_PARENT_ARGS="bash ./script-that-runs-nvim" "$BIN_DIR/nvim" src/app.lua
-  )
-  _assert_eq "nvim launcher: shell script parent bypasses pane reuse" \
+  _assert_eq "nvim launcher: missing Termnav provider falls back to real nvim" \
     "real:src/app.lua" "$result"
-
-  result=$(
-    cd "$NVIM_LAUNCHER_CWD" &&
-      HOME="$NVIM_LAUNCHER_HOME" XDG_CACHE_HOME="$NVIM_LAUNCHER_XDG_CACHE" \
-        PATH="$NVIM_LAUNCHER_BIN:$PATH" \
-        "$BIN_DIR/nvim" src/app.lua
-  )
-  _assert_eq "nvim launcher: outside tmux launches real nvim" "real:src/app.lua" "$result"
 
   NVIM_PATH_HOME=$(_tmpdir)
   NVIM_PATH_BIN=$(_mock_bin)

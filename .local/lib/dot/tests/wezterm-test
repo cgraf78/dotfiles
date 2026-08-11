@@ -67,108 +67,52 @@ _wezterm_has_lua_runner() {
   _wezterm_working_nvim >/dev/null
 }
 
-_tmux_context_probe() {
-  local shell="$1" tmux_value="$2" termnav_available="$3" stale_hook="$4"
-  local resourced_tmux="$5" resourced_termnav="$6" nvim_value="$7"
-  local -a shell_args=()
+echo "=== WezTerm shell integration ownership ==="
 
-  case "$shell" in
-    bash) shell_args=(--noprofile --norc) ;;
-    zsh) shell_args=(-f) ;;
-  esac
-
-  : >"$tmux_context_log"
-  # shellcheck disable=SC2016 # Expansions run in the probed child shell.
-  HOME="$tmux_context_home" \
-    TMUX="$tmux_value" \
-    NVIM="$nvim_value" \
-    DOT_TMUX_TEST_TERMNAV="$termnav_available" \
-    DOT_TMUX_TEST_STALE_HOOK="$stale_hook" \
-    DOT_TMUX_TEST_RESOURCED_TMUX="$resourced_tmux" \
-    DOT_TMUX_TEST_RESOURCED_TERMNAV="$resourced_termnav" \
-    DOT_TMUX_TEST_LOG="$tmux_context_log" \
-    DOT_TMUX_CONTEXT_SHELL="$tmux_context_shell" \
-    "$shell" "${shell_args[@]}" -c '
-      existing_precmd() { :; }
-      precmd_functions=(existing_precmd)
-      if [[ "$DOT_TMUX_TEST_STALE_HOOK" == 1 ]]; then
-        precmd_functions+=(_dot_wezterm_publish_tmux_context)
-      fi
-
-      . "$DOT_TMUX_CONTEXT_SHELL"
-      cycle=0
-      while [[ "$cycle" -lt 3 ]]; do
-        for callback in "${precmd_functions[@]}"; do
-          "$callback"
-        done
-        cycle=$((cycle + 1))
-      done
-
-      printf "hooks=%s\n" "${precmd_functions[*]}"
-      printf "after-prompts=%s\n" "$(wc -l <"$DOT_TMUX_TEST_LOG" | tr -d " ")"
-      TMUX="$DOT_TMUX_TEST_RESOURCED_TMUX"
-      DOT_TMUX_TEST_TERMNAV="$DOT_TMUX_TEST_RESOURCED_TERMNAV"
-      export TMUX DOT_TMUX_TEST_TERMNAV
-      . "$DOT_TMUX_CONTEXT_SHELL"
-      printf "after-resource=%s\n" "$(wc -l <"$DOT_TMUX_TEST_LOG" | tr -d " ")"
-      cat "$DOT_TMUX_TEST_LOG"
-    ' 2>&1
-}
-
-echo "=== WezTerm shell context publication ==="
-
-tmux_context_direct_calls=$(grep -c '^_dot_wezterm_publish_tmux_context$' "$tmux_context_shell" || true)
-_assert_eq "DOT_TMUX has one source-time publication call" \
-  "1" "$tmux_context_direct_calls"
-_assert_not_contains "DOT_TMUX publication is not registered with zsh prompts" \
-  "add-zsh-hook precmd _dot_wezterm_publish_tmux_context" "$tmux_context_content"
-_assert_not_contains "DOT_TMUX publication is not registered with Bash prompts" \
-  "precmd_functions+=(_dot_wezterm_publish_tmux_context)" "$tmux_context_content"
+_assert_contains "shell integration resolves Termnav through shdeps" \
+  "dot_shdeps_dep_source cgraf78/termnav share/termnav/shell.sh" "$tmux_context_content"
+_assert_not_contains "shell integration does not define a new tmux publisher" \
+  "_dot_wezterm_publish_tmux_context()" "$tmux_context_content"
+_assert_not_contains "shell integration does not publish raw tmux protocol state" \
+  "DOT_TMUX" "$tmux_context_content"
 
 tmux_context_home=$(_tmpdir)
-tmux_context_log=$(_tmpdir)/publications.log
 mkdir -p "$tmux_context_home/.local/lib/dot/core"
 cat >"$tmux_context_home/.local/lib/dot/core/shdeps-assets.sh" <<'EOF'
-dot_shdeps_dep_source() {
-  [[ "${DOT_TMUX_TEST_TERMNAV:-1}" == 1 ]] || return 0
-  _termnav_wezterm_set_user_var() {
-    printf '<%s>=<%s>\n' "$1" "$2" >>"$DOT_TMUX_TEST_LOG"
-  }
-  _termnav_wezterm_active() {
-    [[ -z "${NVIM:-}" ]]
-  }
-}
+dot_shdeps_dep_source() { return 0; }
 EOF
 
 for test_shell in bash zsh; do
   if [[ "$test_shell" == zsh ]] && ! command -v zsh >/dev/null 2>&1; then
-    echo "  - skipping DOT_TMUX zsh runtime tests (zsh unavailable)"
+    echo "  - skipping legacy tmux-hook cleanup in zsh (zsh unavailable)"
     continue
   fi
-
-  stale_context=$(_tmux_context_probe \
-    "$test_shell" /tmp/dot-tmux,1,0 1 1 /tmp/dot-tmux,1,0 1 "")
-  _assert_eq "$test_shell removes stale DOT_TMUX prompt publication" \
-    "$(printf 'hooks=existing_precmd\nafter-prompts=1\nafter-resource=2\n<DOT_TMUX>=<true>\n<DOT_TMUX>=<true>')" \
-    "$stale_context"
-
-  changed_context=$(_tmux_context_probe \
-    "$test_shell" /tmp/dot-tmux,1,0 1 0 "" 1 "")
-  _assert_eq "$test_shell refreshes DOT_TMUX after context changes and re-source" \
-    "$(printf 'hooks=existing_precmd\nafter-prompts=1\nafter-resource=2\n<DOT_TMUX>=<true>\n<DOT_TMUX>=<>')" \
-    "$changed_context"
-
-  recovered_context=$(_tmux_context_probe \
-    "$test_shell" /tmp/dot-tmux,1,0 0 0 /tmp/dot-tmux,1,0 1 "")
-  _assert_eq "$test_shell publishes DOT_TMUX when Termnav appears before re-source" \
-    "$(printf 'hooks=existing_precmd\nafter-prompts=0\nafter-resource=1\n<DOT_TMUX>=<true>')" \
-    "$recovered_context"
-
-  nvim_context=$(_tmux_context_probe \
-    "$test_shell" /tmp/dot-tmux,1,0 1 0 /tmp/dot-tmux,1,0 1 /tmp/nvim.sock)
-  _assert_eq "$test_shell does not publish DOT_TMUX inside Neovim" \
-    $'hooks=existing_precmd\nafter-prompts=0\nafter-resource=0' \
-    "$nvim_context"
+  if [[ "$test_shell" == bash ]]; then
+    shell_args=(--noprofile --norc)
+  else
+    shell_args=(-f)
+  fi
+  legacy_cleanup=$(
+    # The single-quoted program is intentionally evaluated by the selected
+    # child shell, where TMUX_CONTEXT_SHELL and the seeded hooks exist.
+    # shellcheck disable=SC2016
+    HOME="$tmux_context_home" \
+      TMUX_CONTEXT_SHELL="$tmux_context_shell" \
+      "$test_shell" "${shell_args[@]}" -c '
+        keep_prompt_hook() { :; }
+        _dot_wezterm_publish_tmux_context() { :; }
+        precmd_functions=(keep_prompt_hook _dot_wezterm_publish_tmux_context)
+        source "$TMUX_CONTEXT_SHELL"
+        printf "hooks=%s\n" "${precmd_functions[*]}"
+        if typeset -f _dot_wezterm_publish_tmux_context >/dev/null 2>&1; then
+          printf "legacy-function=present\n"
+        else
+          printf "legacy-function=absent\n"
+        fi
+      '
+  )
+  _assert_eq "$test_shell reload retires the dotfiles-owned tmux callback" \
+    "$(printf 'hooks=keep_prompt_hook\nlegacy-function=absent')" "$legacy_cleanup"
 done
 
 echo "=== WezTerm mouse and route integration ==="
@@ -187,8 +131,12 @@ _assert_contains "wezterm delegates open-uri routing to termnav wrapper" \
   'load_config_module("link-routes.lua")' "$content"
 _assert_contains "wezterm key policy reads nvim pane state through termnav" \
   "termnav_routes.is_nvim" "$content"
+_assert_contains "wezterm key policy reads tmux pane state through termnav" \
+  "termnav_routes.is_tmux" "$content"
 _assert_not_contains "wezterm config does not read termnav protocol vars directly" \
   "get_user_vars().IS_NVIM" "$content"
+_assert_not_contains "wezterm config does not read tmux protocol vars directly" \
+  "get_user_vars().DOT_TMUX" "$content"
 _assert_contains "wezterm delegates public link rules to termnav wrapper" \
   'load_config_module("public-link-rules.lua")' "$content"
 _assert_contains "wezterm hyperlink rules load overlay extensions" \
@@ -755,8 +703,14 @@ _assert_contains "eza aliases emit semantic file hyperlinks" \
   "--hyperlink" "$alias_content"
 _assert_contains "eza aliases route through the nvim-aware hyperlink wrapper" \
   "eza-nvim-links" "$alias_content"
-_assert_contains "eza aliases detect VS Code integrated terminals" \
-  "_dot_vscode_file_link_terminal" "$alias_content"
+_assert_contains "file-link aliases delegate terminal classification to Termnav" \
+  "termnav_file_links_need_plain_output" "$alias_content"
+_assert_contains "file-link aliases map dotfiles policy to Termnav's generic marker" \
+  "TERMNAV_FILE_LINKS_PLAIN" "$alias_content"
+_assert_not_contains "file-link aliases do not retain terminal marker policy" \
+  "_dot_env_has_vscode_marker" "$alias_content"
+_assert_not_contains "file-link aliases do not inspect tmux clients" \
+  "#{client_pid}" "$alias_content"
 _assert_contains "ripgrep emits semantic file hyperlinks" \
   "--hyperlink-format=file://{host}{path}:{line}:{column}" "$ripgrep_content"
 
@@ -781,233 +735,80 @@ printf 'rg'
 printf ' %s' "$@"
 printf '\n'
 SH
-cat >"$alias_probe_bin/tmux" <<'SH'
-#!/usr/bin/env bash
-if [[ "$1" == "display-message" && "$2" == "-p" && "$3" == "#{client_pid}" ]]; then
-  printf '%s\n' "${DOT_TEST_TMUX_CLIENT_PID:-}"
-  exit 0
-fi
-exit 1
-SH
-cat >"$alias_probe_bin/ps" <<'SH'
-#!/usr/bin/env bash
-if [[ "$*" == "eww -p ${DOT_TEST_TMUX_CLIENT_PID:-}" && -n "${DOT_TEST_PS_ENV:-}" ]]; then
-  printf '%s\n' "$DOT_TEST_PS_ENV"
-  exit 0
-fi
-exit 1
-SH
-chmod +x "$alias_probe_bin/eza" "$alias_probe_bin/eza-nvim-links" "$alias_probe_bin/rg" "$alias_probe_bin/tmux" "$alias_probe_bin/ps"
-
-alias_probe_proc="$alias_probe_home/proc"
-alias_probe_client_pid=424242
-alias_probe_wsl_client_pid=424243
-alias_probe_wsl_wezterm_client_pid=424244
-mkdir -p "$alias_probe_proc/$alias_probe_client_pid"
-printf 'TERM_PROGRAM=vscode\0VSCODE_IPC_HOOK_CLI=/tmp/vscode.sock\0VSCODE_AGENT_FOLDER=/tmp/vscode-server\0' \
-  >"$alias_probe_proc/$alias_probe_client_pid/environ"
-mkdir -p "$alias_probe_proc/$alias_probe_wsl_client_pid"
-printf 'TERM=xterm-256color\0WSL_DISTRO_NAME=archlinux\0WSL_INTEROP=/run/WSL/1_interop\0' \
-  >"$alias_probe_proc/$alias_probe_wsl_client_pid/environ"
-mkdir -p "$alias_probe_proc/$alias_probe_wsl_wezterm_client_pid"
-printf 'WEZTERM_PANE=7\0WSL_DISTRO_NAME=archlinux\0WSL_INTEROP=/run/WSL/1_interop\0' \
-  >"$alias_probe_proc/$alias_probe_wsl_wezterm_client_pid/environ"
+chmod +x "$alias_probe_bin/eza" "$alias_probe_bin/eza-nvim-links" "$alias_probe_bin/rg"
 
 _probe_command() {
-  local command_name="$1"
-  shift
-  # shellcheck disable=SC2016 # The inner shell expands its own positional args.
-  env -i "$@" HOME="$HOME" PATH="$alias_probe_bin:/usr/bin:/bin" bash -c \
-    'source "$1"; shift; "$@"' _ \
-    "$HOME/.config/shell/interactive.d/50-aliases.sh" "$command_name" fixture
+  local mode="$1" command_name="$2"
+  shift 2
+  # shellcheck disable=SC2016 # The inner shell supplies the provider contract.
+  env -i "$@" TERMNAV_TEST_FILE_LINK_MODE="$mode" \
+    HOME="$HOME" PATH="$alias_probe_bin:/usr/bin:/bin" bash -c '
+      termnav_file_links_need_plain_output() {
+        [[ "$TERMNAV_TEST_FILE_LINK_MODE" == plain ||
+          "${TERMNAV_FILE_LINKS_PLAIN:-}" == 1 ]]
+      }
+      source "$1"
+      shift
+      "$@"
+    ' _ "$HOME/.config/shell/interactive.d/50-aliases.sh" "$command_name" fixture
 }
 
 _probe_prealiased_command() {
   local command_name="$1"
-  shift
-  # shellcheck disable=SC2016 # The inner shell expands its own positional args.
-  env -i "$@" HOME="$HOME" PATH="$alias_probe_bin:/usr/bin:/bin" zsh -f -c \
-    'alias ls="ls -G"; alias rg="rg --hidden"; source "$1"; shift; "$@"' _ \
-    "$HOME/.config/shell/interactive.d/50-aliases.sh" "$command_name" fixture
+  # shellcheck disable=SC2016 # The inner shell supplies the provider contract.
+  env -i HOME="$HOME" PATH="$alias_probe_bin:/usr/bin:/bin" zsh -f -c '
+    termnav_file_links_need_plain_output() { return 1; }
+    alias ls="ls -G"
+    alias rg="rg --hidden"
+    source "$1"
+    shift
+    "$@"
+  ' _ "$HOME/.config/shell/interactive.d/50-aliases.sh" "$command_name" fixture
 }
 
-_probe_prealiased_source() {
-  # shellcheck disable=SC2016 # The inner shell expands its own positional args.
-  env -i HOME="$HOME" PATH="$alias_probe_bin:/usr/bin:/bin" zsh -f -c \
-    'alias ls="ls -G"; alias rg="rg --hidden"; source "$1"' _ \
-    "$HOME/.config/shell/interactive.d/50-aliases.sh" 2>&1
-}
-
-wezterm_ls_probe=$(_probe_command ls TERM_PROGRAM=WezTerm)
-wezterm_stale_vscode_ls_probe=$(
-  _probe_command ls TERM_PROGRAM=WezTerm \
-    VSCODE_IPC_HOOK_CLI=/tmp/stale-vscode.sock \
-    SSH_CONNECTION="client 123 host 22"
+rich_ls_probe=$(_probe_command rich ls)
+plain_ls_probe=$(_probe_command plain ls)
+rich_rg_probe=$(_probe_command rich rg)
+plain_rg_probe=$(_probe_command plain rg)
+prealiased_ls_probe=$(_probe_prealiased_command ls)
+prealiased_rg_probe=$(_probe_prealiased_command rg)
+missing_provider_ls_probe=$(
+  # shellcheck disable=SC2016 # The inner shell expands its own source path.
+  env -i HOME="$HOME" PATH="$alias_probe_bin:/usr/bin:/bin" bash -c \
+    'source "$1"; ls fixture' _ "$HOME/.config/shell/interactive.d/50-aliases.sh"
 )
-tmux_stale_vscode_ls_probe=$(
-  _probe_command ls TERM_PROGRAM=vscode \
-    TMUX=/tmp/stale-tmux,1,0 \
-    SSH_CONNECTION="client 123 host 22"
-)
-tmux_vscode_client_ls_probe=$(
-  _probe_command ls TERM_PROGRAM=WezTerm \
-    TMUX=/tmp/real-tmux,1,0 \
-    DOT_TEST_TMUX_CLIENT_PID="$alias_probe_client_pid" \
-    DOT_TEST_PROC_ROOT="$alias_probe_proc"
-)
-tmux_vscode_ps_client_ls_probe=$(
-  _probe_command ls TERM_PROGRAM=WezTerm \
-    TMUX=/tmp/real-tmux,1,0 \
-    DOT_TEST_TMUX_CLIENT_PID="$alias_probe_client_pid" \
-    DOT_TEST_PROC_ROOT="$alias_probe_home/missing-proc" \
-    DOT_TEST_PS_ENV="TERM_PROGRAM=vscode VSCODE_IPC_HOOK_CLI=/tmp/vscode.sock"
-)
-tmux_wsl_client_ls_probe=$(
-  _probe_command ls TERM_PROGRAM=tmux \
-    TMUX=/tmp/wsl-tmux,1,0 \
-    DOT_TEST_TMUX_CLIENT_PID="$alias_probe_wsl_client_pid" \
-    DOT_TEST_PROC_ROOT="$alias_probe_proc"
-)
-tmux_wsl_wezterm_client_ls_probe=$(
-  _probe_command ls TERM_PROGRAM=tmux \
-    TMUX=/tmp/wsl-wezterm-tmux,1,0 \
-    DOT_TEST_TMUX_CLIENT_PID="$alias_probe_wsl_wezterm_client_pid" \
-    DOT_TEST_PROC_ROOT="$alias_probe_proc"
-)
-prealiased_ls_probe=$(_probe_prealiased_command ls TERM_PROGRAM=WezTerm)
-prealiased_source_probe=$(_probe_prealiased_source)
-vscode_local_ls_probe=$(_probe_command ls TERM_PROGRAM=vscode)
-vscode_remote_ls_probe=$(_probe_command ls TERM_PROGRAM=vscode SSH_CONNECTION="client 123 host 22")
-vscode_marker_ls_probe=$(_probe_command ls DOT_VSCODE_TERMINAL=1)
-wsl_unmarked_ls_probe=$(
-  _probe_command ls TERM=xterm-256color \
-    WSL_DISTRO_NAME=archlinux \
-    WSL_INTEROP=/run/WSL/1_interop
-)
-wsl_wezterm_ls_probe=$(
-  _probe_command ls TERM_PROGRAM=WezTerm \
-    WSL_DISTRO_NAME=archlinux \
-    WSL_INTEROP=/run/WSL/1_interop
-)
-wsl_wezterm_pane_ls_probe=$(
-  _probe_command ls WEZTERM_PANE=7 \
-    WSL_DISTRO_NAME=archlinux \
-    WSL_INTEROP=/run/WSL/1_interop
-)
-wezterm_rg_probe=$(_probe_command rg TERM_PROGRAM=WezTerm)
-wezterm_stale_vscode_rg_probe=$(
-  _probe_command rg TERM_PROGRAM=WezTerm \
-    VSCODE_IPC_HOOK_CLI=/tmp/stale-vscode.sock \
-    SSH_CONNECTION="client 123 host 22"
-)
-tmux_stale_vscode_rg_probe=$(
-  _probe_command rg TERM_PROGRAM=vscode \
-    TMUX=/tmp/stale-tmux,1,0 \
-    SSH_CONNECTION="client 123 host 22"
-)
-tmux_vscode_client_rg_probe=$(
-  _probe_command rg TERM_PROGRAM=WezTerm \
-    TMUX=/tmp/real-tmux,1,0 \
-    DOT_TEST_TMUX_CLIENT_PID="$alias_probe_client_pid" \
-    DOT_TEST_PROC_ROOT="$alias_probe_proc"
-)
-tmux_vscode_ps_client_rg_probe=$(
-  _probe_command rg TERM_PROGRAM=WezTerm \
-    TMUX=/tmp/real-tmux,1,0 \
-    DOT_TEST_TMUX_CLIENT_PID="$alias_probe_client_pid" \
-    DOT_TEST_PROC_ROOT="$alias_probe_home/missing-proc" \
-    DOT_TEST_PS_ENV="TERM_PROGRAM=vscode VSCODE_IPC_HOOK_CLI=/tmp/vscode.sock"
-)
-tmux_wsl_client_rg_probe=$(
-  _probe_command rg TERM_PROGRAM=tmux \
-    TMUX=/tmp/wsl-tmux,1,0 \
-    DOT_TEST_TMUX_CLIENT_PID="$alias_probe_wsl_client_pid" \
-    DOT_TEST_PROC_ROOT="$alias_probe_proc"
-)
-tmux_wsl_wezterm_client_rg_probe=$(
-  _probe_command rg TERM_PROGRAM=tmux \
-    TMUX=/tmp/wsl-wezterm-tmux,1,0 \
-    DOT_TEST_TMUX_CLIENT_PID="$alias_probe_wsl_wezterm_client_pid" \
-    DOT_TEST_PROC_ROOT="$alias_probe_proc"
-)
-prealiased_rg_probe=$(_probe_prealiased_command rg TERM_PROGRAM=WezTerm)
-vscode_local_rg_probe=$(_probe_command rg TERM_PROGRAM=vscode)
-vscode_remote_rg_probe=$(_probe_command rg TERM_PROGRAM=vscode SSH_CONNECTION="client 123 host 22")
-vscode_marker_rg_probe=$(_probe_command rg DOT_VSCODE_TERMINAL=1)
-wsl_unmarked_rg_probe=$(
-  _probe_command rg TERM=xterm-256color \
-    WSL_DISTRO_NAME=archlinux \
-    WSL_INTEROP=/run/WSL/1_interop
-)
-wsl_wezterm_rg_probe=$(
-  _probe_command rg TERM_PROGRAM=WezTerm \
-    WSL_DISTRO_NAME=archlinux \
-    WSL_INTEROP=/run/WSL/1_interop
-)
-wsl_wezterm_pane_rg_probe=$(
-  _probe_command rg WEZTERM_PANE=7 \
-    WSL_DISTRO_NAME=archlinux \
-    WSL_INTEROP=/run/WSL/1_interop
+explicit_vscode_ls_probe=$(_probe_command rich ls DOT_VSCODE_TERMINAL=1)
+explicit_vscode_rg_probe=$(_probe_command rich rg DOT_VSCODE_TERMINAL=1)
+explicit_vscode_marker=$(
+  # shellcheck disable=SC2016 # The child reports the adapter's exported value.
+  env -i DOT_VSCODE_TERMINAL=1 HOME="$HOME" \
+    PATH="$alias_probe_bin:/usr/bin:/bin" bash -c '
+      termnav_file_links_need_plain_output() { return 1; }
+      source "$1"
+      printf "%s\n" "${TERMNAV_FILE_LINKS_PLAIN:-missing}"
+    ' _ "$HOME/.config/shell/interactive.d/50-aliases.sh"
 )
 
-_assert_eq "eza functions keep termnav wrapper outside VS Code integrated terminals" \
-  "eza-nvim-links --group-directories-first fixture" "$wezterm_ls_probe"
-_assert_eq "eza functions ignore stale VS Code env in WezTerm terminals" \
-  "eza-nvim-links --group-directories-first fixture" "$wezterm_stale_vscode_ls_probe"
-_assert_eq "eza functions ignore stale VS Code env in tmux panes" \
-  "eza-nvim-links --group-directories-first fixture" "$tmux_stale_vscode_ls_probe"
-_assert_eq "eza functions detect VS Code through tmux client env" \
-  "eza --group-directories-first fixture" "$tmux_vscode_client_ls_probe"
-_assert_eq "eza functions detect VS Code through tmux client process env" \
-  "eza --group-directories-first fixture" "$tmux_vscode_ps_client_ls_probe"
-_assert_eq "eza functions disable OSC hyperlinks for unmarked WSL tmux clients" \
-  "eza --group-directories-first fixture" "$tmux_wsl_client_ls_probe"
-_assert_eq "eza functions keep termnav links for WSL WezTerm tmux clients" \
-  "eza-nvim-links --group-directories-first fixture" "$tmux_wsl_wezterm_client_ls_probe"
+_assert_eq "eza functions use Termnav links for rich output" \
+  "eza-nvim-links --group-directories-first fixture" "$rich_ls_probe"
+_assert_eq "eza functions use plain output when Termnav requests it" \
+  "eza --group-directories-first fixture" "$plain_ls_probe"
+_assert_eq "eza functions fail safely to plain output without Termnav" \
+  "eza --group-directories-first fixture" "$missing_provider_ls_probe"
+_assert_eq "eza functions preserve the explicit dotfiles VS Code override" \
+  "eza --group-directories-first fixture" "$explicit_vscode_ls_probe"
+_assert_eq "dotfiles exports its explicit VS Code policy through Termnav's marker" \
+  "1" "$explicit_vscode_marker"
 _assert_eq "eza functions replace preexisting zsh aliases safely" \
   "eza-nvim-links --group-directories-first fixture" "$prealiased_ls_probe"
-_assert_eq "eza functions source cleanly over preexisting zsh aliases" \
-  "" "$prealiased_source_probe"
-_assert_eq "eza functions disable OSC hyperlinks in local VS Code terminals" \
-  "eza --group-directories-first fixture" "$vscode_local_ls_probe"
-_assert_eq "eza functions disable OSC hyperlinks in VS Code Remote terminals" \
-  "eza --group-directories-first fixture" "$vscode_remote_ls_probe"
-_assert_eq "eza functions disable OSC hyperlinks with explicit VS Code marker" \
-  "eza --group-directories-first fixture" "$vscode_marker_ls_probe"
-_assert_eq "eza functions disable OSC hyperlinks in unmarked WSL terminals" \
-  "eza --group-directories-first fixture" "$wsl_unmarked_ls_probe"
-_assert_eq "eza functions keep termnav links in WSL WezTerm terminals" \
-  "eza-nvim-links --group-directories-first fixture" "$wsl_wezterm_ls_probe"
-_assert_eq "eza functions keep termnav links with WSL WEZTERM_PANE marker" \
-  "eza-nvim-links --group-directories-first fixture" "$wsl_wezterm_pane_ls_probe"
-_assert_eq "rg function keeps normal ripgrep outside VS Code integrated terminals" \
-  "rg fixture" "$wezterm_rg_probe"
-_assert_eq "rg function ignores stale VS Code env in WezTerm terminals" \
-  "rg fixture" "$wezterm_stale_vscode_rg_probe"
-_assert_eq "rg function ignores stale VS Code env in tmux panes" \
-  "rg fixture" "$tmux_stale_vscode_rg_probe"
-_assert_eq "rg function detects VS Code through tmux client env" \
-  "rg --hyperlink-format=none fixture" "$tmux_vscode_client_rg_probe"
-_assert_eq "rg function detects VS Code through tmux client process env" \
-  "rg --hyperlink-format=none fixture" "$tmux_vscode_ps_client_rg_probe"
-_assert_eq "rg function disables file hyperlinks for unmarked WSL tmux clients" \
-  "rg --hyperlink-format=none fixture" "$tmux_wsl_client_rg_probe"
-_assert_eq "rg function keeps normal ripgrep for WSL WezTerm tmux clients" \
-  "rg fixture" "$tmux_wsl_wezterm_client_rg_probe"
 _assert_eq "rg function replaces preexisting zsh aliases safely" \
   "rg fixture" "$prealiased_rg_probe"
-_assert_eq "rg function disables file hyperlinks in local VS Code terminals" \
-  "rg --hyperlink-format=none fixture" "$vscode_local_rg_probe"
-_assert_eq "rg function disables file hyperlinks in VS Code Remote terminals" \
-  "rg --hyperlink-format=none fixture" "$vscode_remote_rg_probe"
-_assert_eq "rg function disables file hyperlinks with explicit VS Code marker" \
-  "rg --hyperlink-format=none fixture" "$vscode_marker_rg_probe"
-_assert_eq "rg function disables file hyperlinks in unmarked WSL terminals" \
-  "rg --hyperlink-format=none fixture" "$wsl_unmarked_rg_probe"
-_assert_eq "rg function keeps normal ripgrep in WSL WezTerm terminals" \
-  "rg fixture" "$wsl_wezterm_rg_probe"
-_assert_eq "rg function keeps normal ripgrep with WSL WEZTERM_PANE marker" \
-  "rg fixture" "$wsl_wezterm_pane_rg_probe"
+_assert_eq "rg function keeps semantic links for rich output" \
+  "rg fixture" "$rich_rg_probe"
+_assert_eq "rg function disables semantic links for plain output" \
+  "rg --hyperlink-format=none fixture" "$plain_rg_probe"
+_assert_eq "rg function preserves the explicit dotfiles VS Code override" \
+  "rg --hyperlink-format=none fixture" "$explicit_vscode_rg_probe"
 
 echo
 echo "=== WezTerm file hyperlink regex behavior ==="

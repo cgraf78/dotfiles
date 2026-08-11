@@ -27,15 +27,18 @@ native Windows startup. On Unix it resolves Termnav through Shdeps' stable
 `~/.local/lib/shdeps/shdeps/bootstrap.lua`), leaving install-selection policy
 in Shdeps and dependency behavior in Termnav.
 
-1. `eza-nvim-links` runs `eza --hyperlink`, preserving real paths for commands
-   such as `ll some/dir`. Local listings keep hostless `file://` OSC-8 targets.
-   SSH sessions inside tmux rewrite those targets to `file://host/path`.
+1. Termnav classifies the active terminal or attached tmux client. The shell
+   aliases choose plain `eza`/`rg` output when native linkification is required,
+   or `eza-nvim-links` and semantic `rg` links when a Termnav-capable router is
+   present. Local listings keep hostless `file://` OSC-8 targets; SSH sessions
+   inside tmux rewrite those targets to `file://host/path`.
 2. `rg` uses `--hyperlink-format=file://{host}{path}:{line}:{column}` with
    `nvim-link-host` so search results carry absolute local or remote targets.
 3. tmux advertises `hyperlinks` in `terminal-features` so it re-emits OSC-8
    targets to WezTerm.
-4. Shell and nvim sessions publish pane-local cwd context with WezTerm user
-   vars so fallback regex links resolve relative paths from the clicked pane.
+4. Termnav's shell and nvim integrations publish pane-local cwd and tmux context
+   through its private WezTerm user-var protocol, so fallback regex links and
+   key routing resolve against the producing pane.
 5. WezTerm routes local `file://`, `nvim-open://`, and `lazygit-edit://` links
    to `~/.local/bin/nvim-tmux-open` when it owns the mouse event.
 6. In tmux/nvim mouse-reporting panes, WezTerm intentionally does not steal
@@ -46,7 +49,9 @@ in Shdeps and dependency behavior in Termnav.
    SSH ControlMaster connection for hosts listed in
    `TERMNAV_SSH_CONTROL_HOSTS`, and otherwise falls back to sending a remote
    tmux command through an existing host-matched SSH pane.
-8. `nvim-tmux-open` prefers Neovim RPC sockets published by
+8. The local `nvim` launcher delegates its conservative pane-reuse decision to
+   Termnav and retains only real-editor discovery. `nvim-tmux-open` then prefers
+   Neovim RPC sockets published by
    `~/.config/nvim/lua/config/nvim-tmux-open.lua`; old tmux keystrokes are only
    used for sessions without the RPC publisher.
 
