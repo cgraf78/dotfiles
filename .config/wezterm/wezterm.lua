@@ -142,9 +142,7 @@ local function is_nvim(pane)
 end
 
 local function is_tmux(pane)
-  return pane:get_user_vars().DOT_TMUX == "true"
-    or termnav_routes.foreground_basename(pane) == "tmux"
-    or termnav_routes.remote_tmux_pane(pane)
+  return termnav_routes.is_tmux(pane)
 end
 
 local function nvim_tmux_or_wezterm(nvim_key, nvim_mods, tmux_key, tmux_mods, wezterm_action)
