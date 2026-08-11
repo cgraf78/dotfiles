@@ -1,8 +1,8 @@
 {
   "$id": "https://docs.renovatebot.com/renovate-schema.json",
-  "title": "JSON schema for Renovate 44.17.1 config files (https://renovatebot.com/)",
+  "title": "JSON schema for Renovate 44.23.0 config files (https://renovatebot.com/)",
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "x-renovate-version": "44.17.1",
+  "x-renovate-version": "44.23.0",
   "allowComments": true,
   "type": "object",
   "definitions": {
@@ -1655,6 +1655,10 @@
           "type": "string",
           "description": "A constraint for the `flux` Containerbase tool"
         },
+        "gh": {
+          "type": "string",
+          "description": "A constraint for the `gh` Containerbase tool"
+        },
         "gleam": {
           "type": "string",
           "description": "A constraint for the `gleam` Containerbase tool"
@@ -3026,8 +3030,8 @@
       "type": "string"
     },
     "gitIgnoredAuthors": {
-      "description": "Git authors which are ignored by Renovate. Must conform to [RFC5322](https://datatracker.ietf.org/doc/html/rfc5322).\nSee also: https://docs.renovatebot.com/configuration-options/#gitignoredauthors",
-      "markdownDescription": "Git authors which are ignored by Renovate. Must conform to [RFC5322](https://datatracker.ietf.org/doc/html/rfc5322).\n\nSee also: [gitIgnoredAuthors](https://docs.renovatebot.com/configuration-options/#gitignoredauthors)",
+      "description": "Git author emails ignored by Renovate. Entries can be exact [RFC5322](https://datatracker.ietf.org/doc/html/rfc5322) strings, glob patterns, or regex patterns using Renovate regex syntax.\nSee also: https://docs.renovatebot.com/configuration-options/#gitignoredauthors",
+      "markdownDescription": "Git author emails ignored by Renovate. Entries can be exact [RFC5322](https://datatracker.ietf.org/doc/html/rfc5322) strings, glob patterns, or regex patterns using Renovate regex syntax.\n\nSee also: [gitIgnoredAuthors](https://docs.renovatebot.com/configuration-options/#gitignoredauthors)",
       "type": "array",
       "items": {
         "type": "string"
@@ -4155,6 +4159,11 @@
         "flux": {
           "type": "object",
           "description": "Install the `flux` Containerbase tool",
+          "additionalProperties": false
+        },
+        "gh": {
+          "type": "object",
+          "description": "Install the `gh` Containerbase tool",
           "additionalProperties": false
         },
         "gleam": {
