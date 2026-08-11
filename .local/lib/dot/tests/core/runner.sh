@@ -160,6 +160,51 @@ DOTRUNNER
   _assert_contains "dot-test filters: overlapping selections run each suite once" \
     "Running 2 test suites" "$_dot_runner_filter_output"
 
+  _dot_runner_priority_tests=$(_tmpdir)
+  _dot_runner_priority_log="$(_tmpdir)/order.log"
+  cat >"$_dot_runner_priority_tests/alpha-test" <<'DOTRUNNER'
+#!/usr/bin/env bash
+printf '%s\n' "${0##*/}" >>"$DOT_TEST_ORDER_LOG"
+printf 'Results: 1 passed, 0 failed\n'
+DOTRUNNER
+  cat >"$_dot_runner_priority_tests/agent-hook-late-test" <<'DOTRUNNER'
+#!/usr/bin/env bash
+printf '%s\n' "${0##*/}" >>"$DOT_TEST_ORDER_LOG"
+printf 'Results: 1 passed, 0 failed\n'
+DOTRUNNER
+  cat >"$_dot_runner_priority_tests/z-critical-test" <<'DOTRUNNER'
+#!/usr/bin/env bash
+# dot-test-priority: early
+printf '%s\n' "${0##*/}" >>"$DOT_TEST_ORDER_LOG"
+printf 'Results: 1 passed, 0 failed\n'
+DOTRUNNER
+  chmod +x "$_dot_runner_priority_tests"/*-test
+
+  _dot_runner_priority_output=$(
+    DOT_TEST_TESTS_DIR="$_dot_runner_priority_tests" DOT_TEST_JOBS=1 \
+      DOT_TEST_ORDER_LOG="$_dot_runner_priority_log" DOT_TEST_NO_COLOR=1 \
+      "$BIN_DIR/dot-test" 2>&1
+  )
+  _dot_runner_priority_rc=$?
+  _assert_exit "dot-test priority: full run finishes" \
+    0 "$_dot_runner_priority_rc"
+  _assert_eq "dot-test priority: early suite enters the first worker wave" \
+    $'z-critical-test\nalpha-test\nagent-hook-late-test' \
+    "$(cat "$_dot_runner_priority_log")"
+
+  : >"$_dot_runner_priority_log"
+  _dot_runner_priority_sequential_output=$(
+    DOT_TEST_TESTS_DIR="$_dot_runner_priority_tests" \
+      DOT_TEST_ORDER_LOG="$_dot_runner_priority_log" DOT_TEST_NO_COLOR=1 \
+      "$BIN_DIR/dot-test" -s 2>&1
+  )
+  _dot_runner_priority_sequential_rc=$?
+  _assert_exit "dot-test priority: sequential run finishes" \
+    0 "$_dot_runner_priority_sequential_rc"
+  _assert_eq "dot-test priority: sequential run preserves baseline-first order" \
+    $'alpha-test\nz-critical-test\nagent-hook-late-test' \
+    "$(cat "$_dot_runner_priority_log")"
+
   # The automatic worker cap smooths process-heavy full runs on high-core
   # hosts. Exercise it through the public runner rather than duplicating the
   # helper's arithmetic here, and prove an explicit operator choice still wins.

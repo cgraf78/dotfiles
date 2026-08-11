@@ -282,6 +282,20 @@ _default_jobs() {
   printf '%s\n' "$n"
 }
 
+_dot_test_runs_early() {
+  local script="$1" line scanned=0
+
+  # Keep priority self-contained with the suite, but inspect only its header.
+  # The bound makes discovery cost independent of suite size and avoids treating
+  # a fixture or assertion in the test body as scheduling metadata.
+  while IFS= read -r line; do
+    [[ "$line" == "# dot-test-priority: early" ]] && return 0
+    scanned=$((scanned + 1))
+    [[ "$scanned" -ge 20 ]] && break
+  done <"$script"
+  return 1
+}
+
 # Discover tests
 scripts=()
 if [[ ${#filter[@]} -gt 0 ]]; then
@@ -317,19 +331,24 @@ else
     [[ -x "$f" ]] && scripts+=("$f")
   done
 
-  # Full-suite runs should start broad baseline suites before the many
-  # agent-hook shards. With bounded parallelism this keeps long-running suites
-  # such as core and sley on the critical path immediately instead of queuing
-  # them behind hook shards.
+  # Parallel full-suite runs should start explicitly measured critical-path
+  # suites, then broad baseline suites, before the many agent-hook shards. A
+  # stable partition preserves discovery order within each group, so adding a
+  # priority marker cannot reshuffle unrelated suites.
+  early_scripts=()
   non_agent_scripts=()
   agent_scripts=()
   for f in "${scripts[@]}"; do
-    case "$(basename "$f")" in
+    if $parallel && _dot_test_runs_early "$f"; then
+      early_scripts+=("$f")
+      continue
+    fi
+    case "${f##*/}" in
       agent-hook-*) agent_scripts+=("$f") ;;
       *) non_agent_scripts+=("$f") ;;
     esac
   done
-  scripts=("${non_agent_scripts[@]}" "${agent_scripts[@]}")
+  scripts=("${early_scripts[@]}" "${non_agent_scripts[@]}" "${agent_scripts[@]}")
 fi
 
 if [[ ${#scripts[@]} -eq 0 ]]; then
