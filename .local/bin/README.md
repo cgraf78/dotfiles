@@ -17,17 +17,18 @@ component; files here should stay thin and command-shaped.
 - `nvim` reuses an existing Neovim pane in the current tmux window for simple
   interactive-shell file opens, then falls back to the real Neovim binary.
 
-Reusable tool commands such as `ettun`, `sley`, `sysup`, `agent-hook-*`,
-`claude-session-name`, `autoformat`, `autolint`, `checkrun`,
+Reusable tool commands such as `ettun`, `fwdports`, `sley`, `sysup`,
+`agent-hook-*`, `claude-session-name`, `autoformat`, `autolint`, `checkrun`,
 `git-absorb-and-rebase`, `tmux-continuum-default-server`,
 `tmux-continuum-save-gate`, `tmux-clip-paste`, `wezterm-switch-tab`, and
 `wezterm-move-tab` are installed by `shdeps` from their owning dependency
 repos. The WezTerm tab switch/move helpers are owned by `termnav`; the generic
 Continuum default-server coordinator, its save gate, and clip paste are owned
 by `tmux-tools`. The resilient ET tunnel command is owned by `ettun`; the
-unified system updater is owned by `sysup`. Only the `sysup` front door is
-public; its Arch and Debian family backends are provider-internal details.
-Dotfiles only declares those dependencies and activates them as policy needs.
+generic forwarding controller is owned by `fwdports`; the unified system
+updater is owned by `sysup`. Only the `sysup` front door is public; its Arch
+and Debian family backends are provider-internal details. Dotfiles only
+declares those dependencies and activates them as policy needs.
 
 ## Terminal Helpers
 
