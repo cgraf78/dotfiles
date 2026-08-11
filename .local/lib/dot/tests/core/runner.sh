@@ -192,6 +192,19 @@ DOTRUNNER
     $'z-critical-test\nalpha-test\nagent-hook-late-test' \
     "$(cat "$_dot_runner_priority_log")"
 
+  : >"$_dot_runner_priority_log"
+  _dot_runner_priority_sequential_output=$(
+    DOT_TEST_TESTS_DIR="$_dot_runner_priority_tests" \
+      DOT_TEST_ORDER_LOG="$_dot_runner_priority_log" DOT_TEST_NO_COLOR=1 \
+      "$BIN_DIR/dot-test" -s 2>&1
+  )
+  _dot_runner_priority_sequential_rc=$?
+  _assert_exit "dot-test priority: sequential run finishes" \
+    0 "$_dot_runner_priority_sequential_rc"
+  _assert_eq "dot-test priority: sequential run preserves baseline-first order" \
+    $'alpha-test\nz-critical-test\nagent-hook-late-test' \
+    "$(cat "$_dot_runner_priority_log")"
+
   # The automatic worker cap smooths process-heavy full runs on high-core
   # hosts. Exercise it through the public runner rather than duplicating the
   # helper's arithmetic here, and prove an explicit operator choice still wins.
