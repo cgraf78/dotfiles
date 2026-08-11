@@ -331,15 +331,15 @@ else
     [[ -x "$f" ]] && scripts+=("$f")
   done
 
-  # Full-suite runs should start explicitly measured critical-path suites, then
-  # broad baseline suites, before the many agent-hook shards. A stable partition
-  # preserves discovery order within each group, so adding a priority marker
-  # cannot reshuffle unrelated suites.
+  # Parallel full-suite runs should start explicitly measured critical-path
+  # suites, then broad baseline suites, before the many agent-hook shards. A
+  # stable partition preserves discovery order within each group, so adding a
+  # priority marker cannot reshuffle unrelated suites.
   early_scripts=()
   non_agent_scripts=()
   agent_scripts=()
   for f in "${scripts[@]}"; do
-    if _dot_test_runs_early "$f"; then
+    if $parallel && _dot_test_runs_early "$f"; then
       early_scripts+=("$f")
       continue
     fi

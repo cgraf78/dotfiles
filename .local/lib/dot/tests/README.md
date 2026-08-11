@@ -15,18 +15,18 @@ dot-test -v               # verbose output in parallel mode
 dot-test -l               # list available tests
 ```
 
-Full runs preserve discovery order within scheduling groups, with unmarked
-`agent-hook-*` suites running after the broad baseline suites. A suite that has
-been measured on the full-run critical path may put this exact marker within
-its first 20 lines to enter the first worker wave:
+Parallel full runs preserve discovery order within scheduling groups, with
+unmarked `agent-hook-*` suites running after the broad baseline suites. A suite
+that has been measured on the full-run critical path may put this exact marker
+within its first 20 lines to enter the first worker wave:
 
 ```bash
 # dot-test-priority: early
 ```
 
 Use the marker only when end-to-end measurements show a wall-clock benefit;
-it is not a general importance label and does not affect explicitly filtered
-selections.
+it is not a general importance label and does not affect sequential or
+explicitly filtered runs.
 
 Run `dot-test` from the checkout under test and let the runner detect the source
 tree. This works for both the live dotfiles home and linked git worktrees:
