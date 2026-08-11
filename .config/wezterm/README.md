@@ -25,7 +25,10 @@ state:
 native Windows startup. On Unix it resolves Termnav through Shdeps' stable
 `$SHDEPS_LUA_DIR/shdeps/bootstrap.lua` entrypoint (default
 `~/.local/lib/shdeps/shdeps/bootstrap.lua`), leaving install-selection policy
-in Shdeps and dependency behavior in Termnav.
+in Shdeps and dependency behavior in Termnav. The loader registers the exact
+resolved asset with WezTerm's configuration reload watcher so a Termnav update
+cannot leave callbacks using an older in-memory module until the next unrelated
+config edit.
 
 1. Termnav classifies the active terminal or attached tmux client. The shell
    aliases choose plain `eza`/`rg` output when native linkification is required,

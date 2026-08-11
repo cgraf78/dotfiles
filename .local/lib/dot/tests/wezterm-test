@@ -281,8 +281,11 @@ LUA
 return {
   new = function()
     return {
-      is_nvim = function()
-        return false
+      is_nvim = function(pane)
+        return pane.route == "nvim"
+      end,
+      is_tmux = function(pane)
+        return pane.route == "tmux"
       end,
       setup = function() end,
     }
@@ -433,8 +436,33 @@ LUA
     copy_action(window, pane)
     print(performed[1].action .. ':' .. performed[1].value .. ',' .. performed[2].action)
     print(paste_action.action .. ':' .. paste_action.value)
+
+    local ctrl_tab = find_binding(config_table.keys, 'Tab', 'CTRL')
+    local ctrl_shift_tab = find_binding(config_table.keys, 'Tab', 'CTRL|SHIFT')
+    performed = {}
+    ctrl_tab(window, { route = 'tmux' })
+    ctrl_shift_tab(window, { route = 'tmux' })
+    print(performed[1].action .. ':' .. performed[1].value.key .. ':' .. performed[1].value.mods)
+    print(performed[2].action .. ':' .. performed[2].value.key .. ':' .. performed[2].value.mods)
+
+    performed = {}
+    ctrl_tab(window, { route = 'wezterm' })
+    ctrl_shift_tab(window, { route = 'wezterm' })
+    print(performed[1].action .. ':' .. performed[1].value)
+    print(performed[2].action .. ':' .. performed[2].value)
   ")
-  expected="$(printf 'true\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\nfalse\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\nSendKey:c:CTRL\nCopyTo:Clipboard,ClearSelection\nPasteFrom:Clipboard')"
+  expected=$(
+    printf '%s\n' \
+      true true true true true true true false \
+      true true true true true true true true \
+      'SendKey:c:CTRL' \
+      'CopyTo:Clipboard,ClearSelection' \
+      'PasteFrom:Clipboard' \
+      'SendKey:Tab:CTRL' \
+      'SendKey:Tab:CTRL|SHIFT' \
+      'ActivateTabRelative:1' \
+      'ActivateTabRelative:-1'
+  )
   _assert_eq "wezterm preserves terminal chords and owns client clipboard actions" \
     "$expected" "$nvim_key_result"
 

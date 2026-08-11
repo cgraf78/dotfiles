@@ -10,6 +10,21 @@ local function readable(path)
   return false
 end
 
+local function watch_for_reload(path)
+  -- WezTerm watches its primary config automatically, but a Termnav asset may
+  -- live in a shdeps checkout outside that config tree. Without an explicit
+  -- watch, shdeps can update the file on disk while the running terminal keeps
+  -- callbacks closed over the old Lua table until some unrelated config edit.
+  -- Register the exact file chosen below so provider updates reload the whole
+  -- configuration and all callbacks together.
+  local ok, wezterm = pcall(require, "wezterm")
+  if not ok or type(wezterm.add_to_config_reload_watch_list) ~= "function" then
+    return
+  end
+
+  wezterm.add_to_config_reload_watch_list(path)
+end
+
 local function source_dir()
   -- selene: allow(global_usage)
   local config_dir = rawget(_G, "dotfiles_wezterm_config_dir")
@@ -37,6 +52,7 @@ function M.load(copied_name, relative_path)
   local dir = source_dir()
   local copied = dir and (dir .. "/" .. copied_name)
   if readable(copied) then
+    watch_for_reload(copied)
     return dofile(copied)
   end
 
@@ -55,6 +71,7 @@ function M.load(copied_name, relative_path)
     error("termnav module not found through shdeps: " .. relative_path)
   end
 
+  watch_for_reload(module_path)
   return dofile(module_path)
 end
 
