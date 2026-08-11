@@ -705,6 +705,8 @@ _assert_contains "eza aliases route through the nvim-aware hyperlink wrapper" \
   "eza-nvim-links" "$alias_content"
 _assert_contains "file-link aliases delegate terminal classification to Termnav" \
   "termnav_file_links_need_plain_output" "$alias_content"
+_assert_contains "file-link aliases map dotfiles policy to Termnav's generic marker" \
+  "TERMNAV_FILE_LINKS_PLAIN" "$alias_content"
 _assert_not_contains "file-link aliases do not retain terminal marker policy" \
   "_dot_env_has_vscode_marker" "$alias_content"
 _assert_not_contains "file-link aliases do not inspect tmux clients" \
@@ -742,7 +744,8 @@ _probe_command() {
   env -i "$@" TERMNAV_TEST_FILE_LINK_MODE="$mode" \
     HOME="$HOME" PATH="$alias_probe_bin:/usr/bin:/bin" bash -c '
       termnav_file_links_need_plain_output() {
-        [[ "$TERMNAV_TEST_FILE_LINK_MODE" == plain ]]
+        [[ "$TERMNAV_TEST_FILE_LINK_MODE" == plain ||
+          "${TERMNAV_FILE_LINKS_PLAIN:-}" == 1 ]]
       }
       source "$1"
       shift
@@ -776,6 +779,15 @@ missing_provider_ls_probe=$(
 )
 explicit_vscode_ls_probe=$(_probe_command rich ls DOT_VSCODE_TERMINAL=1)
 explicit_vscode_rg_probe=$(_probe_command rich rg DOT_VSCODE_TERMINAL=1)
+explicit_vscode_marker=$(
+  # shellcheck disable=SC2016 # The child reports the adapter's exported value.
+  env -i DOT_VSCODE_TERMINAL=1 HOME="$HOME" \
+    PATH="$alias_probe_bin:/usr/bin:/bin" bash -c '
+      termnav_file_links_need_plain_output() { return 1; }
+      source "$1"
+      printf "%s\n" "${TERMNAV_FILE_LINKS_PLAIN:-missing}"
+    ' _ "$HOME/.config/shell/interactive.d/50-aliases.sh"
+)
 
 _assert_eq "eza functions use Termnav links for rich output" \
   "eza-nvim-links --group-directories-first fixture" "$rich_ls_probe"
@@ -785,6 +797,8 @@ _assert_eq "eza functions fail safely to plain output without Termnav" \
   "eza --group-directories-first fixture" "$missing_provider_ls_probe"
 _assert_eq "eza functions preserve the explicit dotfiles VS Code override" \
   "eza --group-directories-first fixture" "$explicit_vscode_ls_probe"
+_assert_eq "dotfiles exports its explicit VS Code policy through Termnav's marker" \
+  "1" "$explicit_vscode_marker"
 _assert_eq "eza functions replace preexisting zsh aliases safely" \
   "eza-nvim-links --group-directories-first fixture" "$prealiased_ls_probe"
 _assert_eq "rg function replaces preexisting zsh aliases safely" \
