@@ -59,7 +59,12 @@ cp "$HOME/.config/nvim/lua/config/dot-runtime.lua" \
   "$fixture/.config/nvim/lua/config/dot-runtime.lua"
 cp "$HOME/.config/wezterm/termnav-module.lua" \
   "$fixture/.config/wezterm/termnav-module.lua"
-printf '%s\n' 'return { marker = "termnav" }' >"$fixture/assets/termnav.lua"
+printf '%s\n' \
+  'return { marker = "link-routes" }' \
+  >"$fixture/assets/termnav-link-routes.lua"
+printf '%s\n' \
+  'return { marker = "public-link-rules" }' \
+  >"$fixture/assets/termnav-public-link-rules.lua"
 
 cat >"$fixture/.local/lib/shdeps/shdeps/bootstrap.lua" <<'LUA'
 local M = {}
@@ -69,7 +74,12 @@ function M.new(options)
   return {
     dep_file = function(name, relative_path)
       if name == "cgraf78/termnav" then
-        return options.home .. "/assets/termnav.lua"
+        if relative_path == "lib/termnav/wezterm/link-routes.lua" then
+          return options.home .. "/assets/termnav-link-routes.lua"
+        end
+        if relative_path == "lib/termnav/wezterm/public-link-rules.lua" then
+          return options.home .. "/assets/termnav-public-link-rules.lua"
+        end
       end
       return table.concat({ options.home, name, relative_path }, "|")
     end,
@@ -84,14 +94,33 @@ LUA
 
 cat >"$script" <<'LUA'
 local home = os.getenv("TEST_HOME")
+local watched = {}
+package.preload.wezterm = function()
+  return {
+    add_to_config_reload_watch_list = function(path)
+      table.insert(watched, path)
+    end,
+  }
+end
+
 local runtime = dofile(home .. "/.config/nvim/lua/config/dot-runtime.lua")
 local api = runtime.shdeps()
 print(api.dep_file("cgraf78/tool", "lib/tool/init.lua"))
 print(api.env().HOME)
 
-local termnav = dofile(home .. "/.config/wezterm/termnav-module.lua")
-  .load("missing-copied-module.lua", "lib/termnav/wezterm/link-routes.lua")
-print(termnav.marker)
+local termnav_loader = dofile(home .. "/.config/wezterm/termnav-module.lua")
+local link_routes = termnav_loader.load(
+  "missing-link-routes.lua",
+  "lib/termnav/wezterm/link-routes.lua"
+)
+local public_link_rules = termnav_loader.load(
+  "missing-public-link-rules.lua",
+  "lib/termnav/wezterm/public-link-rules.lua"
+)
+table.sort(watched)
+print(link_routes.marker)
+print(public_link_rules.marker)
+print(table.concat(watched, "\n"))
 LUA
 
 result=$(
@@ -99,8 +128,16 @@ result=$(
     TEST_HOME="$fixture" \
     _lua_run "$script"
 )
-expected="$(printf '%s|cgraf78/tool|lib/tool/init.lua\n%s\ntermnav' "$fixture" "$fixture")"
-_assert_eq "Lua consumers delegate directly to shdeps' stable bootstrap" \
+expected=$(
+  printf '%s\n' \
+    "$fixture|cgraf78/tool|lib/tool/init.lua" \
+    "$fixture" \
+    "link-routes" \
+    "public-link-rules" \
+    "$fixture/assets/termnav-link-routes.lua" \
+    "$fixture/assets/termnav-public-link-rules.lua"
+)
+_assert_eq "Lua consumers resolve and watch provider assets through shdeps" \
   "$expected" "$result"
 
 _test_summary
