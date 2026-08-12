@@ -1,8 +1,8 @@
 {
   "$id": "https://docs.renovatebot.com/renovate-schema.json",
-  "title": "JSON schema for Renovate 44.23.0 config files (https://renovatebot.com/)",
+  "title": "JSON schema for Renovate 44.24.3 config files (https://renovatebot.com/)",
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "x-renovate-version": "44.23.0",
+  "x-renovate-version": "44.24.3",
   "allowComments": true,
   "type": "object",
   "definitions": {
@@ -1596,7 +1596,9 @@
       "description": "Configuration object to define language or manager version constraints.\nSee also: https://docs.renovatebot.com/configuration-options/#constraints",
       "markdownDescription": "Configuration object to define language or manager version constraints.\n\nSee also: [constraints](https://docs.renovatebot.com/configuration-options/#constraints)",
       "type": "object",
-      "default": {},
+      "default": {
+        "ghActionsLock": "v0.1.6"
+      },
       "additionalProperties": false,
       "properties": {
         "bazelisk": {
@@ -1783,6 +1785,10 @@
           "type": "string",
           "description": "A constraint for the `vendir` Containerbase tool"
         },
+        "ghActionsLock": {
+          "type": "string",
+          "description": "Used in the `github-actions` manager to specify a release tag for the [`github/gh-actions-lock`](https://github.com/github/gh-actions-lock) `gh` CLI extension, which regenerates `.github/workflows/actions.lock`.\n\nMust be a full release tag, prefixed with `v`, such as `v0.1.7`. Set it to an empty string to always install the latest release."
+        },
         "go": {
           "type": "string",
           "description": "Used in the `gomod` manager to specify the version of the Go toolchain to use.\n\nIn precedence order:\n\n1. config: `constraints.go`\n1. `go.mod`: `toolchain` directive\n1. `go.mod`: `go` directive\n\nNOTE that the `constraints.golang` is not used (https://github.com/renovatebot/renovate/issues/42601)\n  "
@@ -1842,6 +1848,10 @@
       "default": {},
       "additionalProperties": false,
       "properties": {
+        "ghActionsLock": {
+          "type": "string",
+          "description": "Used in the `github-actions` manager to specify a release tag for the [`github/gh-actions-lock`](https://github.com/github/gh-actions-lock) `gh` CLI extension, which regenerates `.github/workflows/actions.lock`.\n\nMust be a full release tag, prefixed with `v`, such as `v0.1.7`. Set it to an empty string to always install the latest release."
+        },
         "go": {
           "type": "string",
           "description": "Used in the `gomod` manager to specify the version of the Go toolchain to use.\n\nIn precedence order:\n\n1. config: `constraints.go`\n1. `go.mod`: `toolchain` directive\n1. `go.mod`: `go` directive\n\nNOTE that the `constraints.golang` is not used (https://github.com/renovatebot/renovate/issues/42601)\n  "
