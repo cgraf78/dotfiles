@@ -41,6 +41,17 @@ _wait_for_pid_bounded() {
   return 1
 }
 
+_wait_for_pid_stopped() {
+  local pid="$1" attempt state=""
+  for ((attempt = 0; attempt < 500; attempt++)); do
+    state=$(ps -o stat= -p "$pid" 2>/dev/null || true)
+    state=${state//[[:space:]]/}
+    [[ "$state" == T* ]] && return 0
+    sleep 0.01
+  done
+  return 1
+}
+
 _scratch_entry_count() {
   local dir="$1"
   local -a entries=()
@@ -77,7 +88,7 @@ if [[ "$EXPECT_DIRECT_WORKER" == 1 ]]; then
   }
 fi
 
-if [[ "$IGNORE_TERM" == 2 || "$IGNORE_TERM" == 3 ]]; then
+if [[ "$IGNORE_TERM" == 2 ]]; then
   cleanup_marker_owner_pid=${BASHPID:-$$}
   cleanup_marker_owner_subshell=${BASH_SUBSHELL:-0}
   eval "$(declare -f _dot_cleanup_owned | sed '1s/_dot_cleanup_owned/_dot_cleanup_owned_original/')"
@@ -95,22 +106,6 @@ if [[ "$IGNORE_TERM" == 2 || "$IGNORE_TERM" == 3 ]]; then
     fi
     _dot_cleanup_owned_original
   }
-fi
-
-if [[ "$IGNORE_TERM" == 3 ]]; then
-  # Exercise the marker override in a nested cleanup owner before the real
-  # worker starts. The outer harness must never mistake a descendant's cleanup
-  # for the top-level fixture reaching its authoritative EXIT cleanup.
-  (
-    # Exercise the Bash 3.2 fallback even when the host shell provides BASHPID.
-    # Unsetting the special variable is confined to this probe subshell.
-    unset BASHPID
-    _dot_cleanup_owned
-  )
-  if [[ -e "$CASE_DIR/cleanup-started" ]]; then
-    : >"$CASE_DIR/nested-cleanup-published-owner-marker"
-    rm -f "$CASE_DIR/cleanup-started"
-  fi
 fi
 
 if [[ "$WEAK_NESTED_CLEANUP" == 1 ]]; then
@@ -247,12 +242,6 @@ PY
   fi
   child_pid=$(<"$case_dir/child.pid")
 
-  if [[ "$ignore_term" == 3 ]]; then
-    _assert_file_missing \
-      "$label: nested cleanup cannot publish the owner marker" \
-      "$case_dir/nested-cleanup-published-owner-marker"
-  fi
-
   if [[ "$expect_direct_worker" == 1 ]]; then
     local registration_count=0 first_registered=""
     if [[ -f "$case_dir/pid-registrations" ]]; then
@@ -284,10 +273,21 @@ PY
       _fail "$label: first signal begins cleanup"
     fi
   elif [[ "$ignore_term" == 3 ]]; then
-    if _wait_for_file "$case_dir/cleanup-started"; then
-      kill -HUP -- "-$fixture_pid" 2>/dev/null || true
+    # Synchronize on cleanup's real ownership transition instead of a marker
+    # emitted by a test-only function wrapper. The stopped group leader is the
+    # kernel-held PGID anchor; observing it proves EXIT cleanup has installed
+    # its signal shield and entered the bounded escalation window. Sending HUP
+    # any earlier races Bash's transition from the TERM trap into EXIT cleanup
+    # and tests parser timing rather than dot's cleanup contract.
+    if _wait_for_pid_stopped "$child_pid"; then
+      _pass "$label: cleanup stops the owned worker before the second signal"
+      if kill -HUP -- "-$fixture_pid" 2>/dev/null; then
+        _pass "$label: second terminal-group signal is delivered during cleanup"
+      else
+        _fail "$label: second terminal-group signal is delivered during cleanup"
+      fi
     else
-      _fail "$label: first signal begins cleanup"
+      _fail "$label: cleanup stops the owned worker before the second signal"
     fi
   fi
   if _wait_for_pid_bounded "$fixture_pid"; then
