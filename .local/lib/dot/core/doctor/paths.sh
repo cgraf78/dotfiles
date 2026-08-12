@@ -3,6 +3,12 @@
 #
 # shellcheck disable=SC2088  # tilde strings here are display text.
 
+# Resolve directory indirection without dereferencing the final component. That
+# lets doctor compare equivalent targets through symlinked parents or `..` while
+# preserving the managed leaf's identity. Fully resolving the leaf could make its
+# eventual destination look equivalent to the intended leaf itself. Use portable
+# shell splitting plus pwd -P instead of relying on platform-specific realpath or
+# readlink -f behavior across macOS and Linux.
 _dr_physical_path() {
   local path="$1" dir base
   while [[ "$path" != / && "$path" == */ ]]; do

@@ -258,6 +258,12 @@ _overlay_append_candidates() {
   return "$rc"
 }
 
+# Freeze each provider's candidate set before publishing pending recovery
+# authority or mutating HOME and the Git index. The same NUL-delimited inventory
+# drives both authority publication and linking, so every link attempted by this
+# run was covered by its recovery record first. Externally managed sources can
+# change independently, so retain their physical root and identity for the
+# revalidation performed at each later acceptance and mutation boundary.
 _overlay_prepare_inventories() {
   local root="$1" entry name path url sync inventory index=0
   local source_root_real source_root_identity
