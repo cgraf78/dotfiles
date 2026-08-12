@@ -2508,23 +2508,18 @@ result=$(_nvim_lua '
     return
   end
 
-  vim.env.HOME = "/tmp/home +#%.test"
+  -- Checkrun owns URL materialization, HOME escaping, and malformed-input
+  -- normalization. This consumer assertion stops at the useful integration
+  -- boundary: dotfiles must pass its shdeps resolver into the provider so an
+  -- external schema becomes a real URI in the Neovim configuration.
   package.loaded["config.checkrun-nvim"] = nil
   local schemas = require("config.checkrun-nvim").schema_opts().config
   local expected_uri = vim.uri_from_fname(schema_path)
-  local saw_regex = false
   local saw_uri = false
-  for pattern, url in pairs(schemas.toml or {}) do
-    if pattern:find("^/tmp/home \\+#%\\.test/", 1, true) then
-      saw_regex = true
-    end
+  for _, url in pairs(schemas.toml or {}) do
     if url == expected_uri then
       saw_uri = true
     end
-  end
-  if not saw_regex then
-    print("home-regex-not-escaped")
-    return
   end
   if not saw_uri then
     print("provider-schema-uri-not-resolved")
@@ -2532,34 +2527,7 @@ result=$(_nvim_lua '
   end
   print("ok")
 ')
-_assert_eq "editor metadata: hostile HOME is regex-escaped and provider schema resolves" "ok" "$result"
-
-malformed_metadata_root=$(_tmpdir)
-mkdir -p "$malformed_metadata_root/lua/config"
-cp "$HOME/.config/nvim/lua/config/checkrun-nvim.lua" \
-  "$malformed_metadata_root/lua/config/checkrun-nvim.lua"
-cat >"$malformed_metadata_root/checkrun-editor-metadata.json" <<'EOF'
-{
-  "version": 1,
-  "capabilities": {"version": 2, "filetypes": {}},
-  "schemas": {
-    "json": {"url": "shdeps:malformed", "fileMatch": []},
-    "yaml": ["not-an-object"],
-    "toml": ["https://example.invalid/schema"]
-  }
-}
-EOF
-result=$(DOT_TEST_MALFORMED_CHECKRUN_MODULE="$malformed_metadata_root/lua/config/checkrun-nvim.lua" \
-  _nvim_lua '
-    local checkrun = dofile(vim.env.DOT_TEST_MALFORMED_CHECKRUN_MODULE)
-    local schemas = checkrun.schema_opts().config
-    if #schemas.json ~= 0 or next(schemas.yaml) ~= nil or next(schemas.toml) ~= nil then
-      print("malformed-schema-survived")
-      return
-    end
-    print("ok")
-  ')
-_assert_eq "editor metadata: malformed versioned schemas degrade to empty" "ok" "$result"
+_assert_eq "editor metadata: dotfiles resolves provider schema assets" "ok" "$result"
 
 schema_policy_path=$(
   shdeps dep-file cgraf78/checkrun lib/checkrun/schemas/schema_policy.py 2>/dev/null

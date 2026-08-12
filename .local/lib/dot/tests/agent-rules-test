@@ -28,26 +28,6 @@ if [[ -f "$RULE_HOOK" ]]; then
 else
   _fail "agent rules: merge hook exists"
 fi
-OVERLAY_AUTHORITY_MANIFESTS=()
-if ! _overlay_authority_files; then
-  _fail "agent rules: overlay authority manifests are safe: $REPLY"
-fi
-
-_managed_overlay_owner_for_path() {
-  local relative="$1" manifest line REPLY_REL REPLY_OWNER
-  for manifest in "${OVERLAY_AUTHORITY_MANIFESTS[@]+"${OVERLAY_AUTHORITY_MANIFESTS[@]}"}"; do
-    while IFS= read -r line || [[ -n "$line" ]]; do
-      _overlay_parse_manifest_record "$line" || continue
-      if [[ "$REPLY_REL" == "$relative" ]] &&
-        _overlay_link_matches "$relative" "$REPLY_OWNER"; then
-        printf '%s\n' "$REPLY_OWNER"
-        return 0
-      fi
-    done <"$manifest"
-  done
-  return 1
-}
-
 echo "=== global memory rules ==="
 
 SCOPE_RULES_TEXT=$(cat "$RULE_FAMILY/000-global-rules.md")
@@ -93,7 +73,7 @@ while IFS= read -r lifecycle_anchor; do
     "$HOME/${lifecycle_anchor#\~/}"
 done <<<"$lifecycle_anchor_paths"
 
-echo "=== agent rule ids ==="
+echo "=== selected agent policy ==="
 
 rule_files=()
 while IFS= read -r rule_file; do
@@ -118,46 +98,6 @@ if ((${#playbook_files[@]} == 0)); then
   _fail "agent rules: playbooks exist"
 fi
 
-rule_ids=$(
-  for rule_file in "${rule_files[@]}" "${playbook_files[@]}"; do
-    grep -hEo 'agent-rule-id: [a-z0-9-]+' "$rule_file" 2>/dev/null || true
-  done | awk '{print $2}'
-)
-duplicate_rule_ids=$(printf '%s\n' "$rule_ids" | sed '/^$/d' | sort | uniq -d)
-if [[ -z "$duplicate_rule_ids" ]]; then
-  _pass "agent rules: rule ids are unique"
-else
-  _fail "agent rules: duplicate rule ids: $duplicate_rule_ids"
-fi
-
-for rule_file in "${rule_files[@]}"; do
-  if grep -qE 'agent-rule-id: [a-z0-9-]+' "$rule_file"; then
-    _pass "agent rules: $(basename "$rule_file") has rule id"
-  else
-    _fail "agent rules: $rule_file has no rule id"
-  fi
-done
-
-for playbook_file in "${playbook_files[@]}"; do
-  if grep -qE 'agent-rule-id: [a-z0-9-]+' "$playbook_file"; then
-    _pass "agent rules: ${playbook_file#"$PLAYBOOK_FAMILY/"} has rule id"
-  else
-    _fail "agent rules: $playbook_file has no rule id"
-  fi
-
-  trigger_count=$(grep -cE '^<!--[[:space:]]*agent-rule-trigger: .+ -->$' \
-    "$playbook_file" 2>/dev/null || true)
-  _assert_eq \
-    "agent rules: ${playbook_file#"$PLAYBOOK_FAMILY/"} owns one trigger" \
-    "1" "$trigger_count"
-  if declare -F _dot_playbook_trigger >/dev/null 2>&1 &&
-    _dot_playbook_trigger "$playbook_file" >/dev/null; then
-    _pass "agent rules: ${playbook_file#"$PLAYBOOK_FAMILY/"} trigger parses"
-  else
-    _fail "agent rules: ${playbook_file#"$PLAYBOOK_FAMILY/"} trigger parses"
-  fi
-done
-
 echo "=== on-demand playbooks ==="
 
 routing_files=()
@@ -168,7 +108,6 @@ for rule_file in "${rule_files[@]}"; do
 done
 if ((${#routing_files[@]} == 0)); then
   _fail "agent rules: on-demand routing index exists"
-  ROUTING_TEXT=""
 else
   _pass "agent rules: discovered ${#routing_files[@]} routing index files"
   routing_source=$(cat "${routing_files[@]}")
@@ -176,83 +115,57 @@ else
     "<!-- agent-rules-sync-playbook-index -->" "$routing_source"
   _assert_not_contains "agent rules: routing source has no maintained route list" \
     "languages/python.md" "$routing_source"
+fi
 
-  if declare -F _dot_playbook_index >/dev/null 2>&1; then
-    ROUTING_TEXT=$(_dot_playbook_index) ||
-      _fail "agent rules: generated routing index renders"
-  else
-    ROUTING_TEXT=""
-  fi
+# Exercise the selected policy through the public provider instead of carrying
+# a second trigger parser and index renderer in dotfiles. The adapter test owns
+# exact manifest construction; this integration check owns acceptance of the
+# current prose and the resulting prompt-size budget.
+provider=${DOT_TEST_AGENT_RULES_SYNC_PROVIDER:-$(command -v agent-rules-sync 2>/dev/null || true)}
+provider_work=$(_tmpdir)
+provider_manifest="$provider_work/manifest.tsv"
+provider_target="$provider_work/AGENTS.md"
+provider_stderr="$provider_work/provider.err"
+{
+  printf 'version\tagent-rules-sync-manifest-v1\n'
+  printf 'rule-root\t%s\n' "$RULE_FAMILY"
+  printf 'playbook-root\t%s\n' "$PLAYBOOK_FAMILY"
+  for rule_file in "${rule_files[@]}"; do
+    printf 'rule\t%s\n' "$rule_file"
+  done
+  for playbook_file in "${playbook_files[@]}"; do
+    playbook_rel=${playbook_file#"$PLAYBOOK_FAMILY/"}
+    printf 'playbook\t%s\t%s\n' "$playbook_rel" "$playbook_file"
+  done
+  printf 'target-file\t%s\n' "$provider_target"
+} >"$provider_manifest"
+
+if [[ -x "$provider" ]]; then
+  HOME="$HOME" XDG_STATE_HOME="$provider_work/state" \
+    "$provider" --manifest "$provider_manifest" \
+    >"$provider_work/provider.out" 2>"$provider_stderr"
+  provider_status=$?
+else
+  provider_status=127
+  printf 'agent-rules-sync provider is not installed\n' >"$provider_stderr"
+fi
+if [[ "$provider_status" -eq 0 ]]; then
+  _pass "agent rules: provider accepts selected policy"
+else
+  _fail "agent rules: provider accepts selected policy: $(cat "$provider_stderr")"
+fi
+
+if [[ -f "$provider_target" ]]; then
+  rendered_rules=$(cat "$provider_target")
+else
+  rendered_rules=""
 fi
 for playbook_file in "${playbook_files[@]}"; do
   playbook_rel=${playbook_file#"$PLAYBOOK_FAMILY/"}
-  _assert_contains "agent rules: routes $playbook_rel" \
-    "\`$playbook_rel\`" "$ROUTING_TEXT"
+  _assert_contains "agent rules: provider routes $playbook_rel" \
+    "\`$playbook_rel\`" "$rendered_rules"
 done
 
-route_paths=""
-if ((${#routing_files[@]} > 0)); then
-  route_paths=$(
-    printf '%s\n' "$ROUTING_TEXT" |
-      grep -Eo '`[^`]+\.md`' |
-      tr -d '`' |
-      LC_ALL=C sort -u
-  )
-fi
-
-_assert_playbook_route() {
-  local root="$1" route="$2" target relative owner root_real target_dir_real
-  target="$root/$route"
-
-  case "$route" in
-    /* | '~'* | '$'* | ./* | ../* | */../* | */..)
-      _fail "agent rules: route is a safe relative path: $route"
-      return
-      ;;
-  esac
-  if [[ -L "$target" ]]; then
-    relative=${target#"$HOME/"}
-    owner=$(_managed_overlay_owner_for_path "$relative" 2>/dev/null || true)
-    if [[ -n "$owner" ]]; then
-      _pass "agent rules: route exists in managed overlay: $route"
-    else
-      _fail "agent rules: route symlink is owned by an active overlay: $route"
-    fi
-    return
-  fi
-  if [[ ! -f "$target" ]]; then
-    _fail "agent rules: route exists: $route (file not found: $target)"
-    return
-  fi
-  root_real=$(cd "$root" && pwd -P) || {
-    _fail "agent rules: playbook root resolves: $root"
-    return
-  }
-  target_dir_real=$(cd "${target%/*}" && pwd -P) || {
-    _fail "agent rules: route parent resolves: $route"
-    return
-  }
-  case "$target_dir_real/" in
-    "$root_real/"*) _pass "agent rules: route exists: $route" ;;
-    *) _fail "agent rules: route stays below playbook root: $route" ;;
-  esac
-}
-
-while IFS= read -r route_path; do
-  [[ -n "$route_path" ]] || continue
-  _assert_playbook_route "$PLAYBOOK_FAMILY" "$route_path"
-done <<<"$route_paths"
-
-# Dotfiles owns the prose budget, while the provider owns exact rendering.
-# Counting source bytes plus the generated route index is intentionally a
-# conservative upper bound because it also counts the replaced marker.
-rendered_rules=$(
-  for rule_file in "${rule_files[@]}"; do
-    cat "$rule_file"
-    printf '\n\n'
-  done
-  printf '%s\n' "$ROUTING_TEXT"
-)
 core_bytes=$(printf '%s\n' "$rendered_rules" | wc -c)
 if ((core_bytes <= 20000)); then
   _pass "agent rules: rendered always-loaded rules are $core_bytes / 20000 bytes"
@@ -260,39 +173,9 @@ else
   _fail "agent rules: rendered always-loaded rules are $core_bytes bytes (limit: 20000)"
 fi
 
-echo "=== playbook metadata and discovery ==="
+echo "=== playbook discovery ==="
 
-if declare -F _dot_playbook_trigger >/dev/null 2>&1; then
-  META_FIXTURE=$(_tmpdir)
-  cat >"$META_FIXTURE/valid.md" <<'EOF'
-# Valid
-
-<!-- agent-rule-id: valid -->
-<!-- agent-rule-trigger: A valid trigger -->
-
-Body.
-
-## Later
-<!-- agent-rule-trigger: A body decoy -->
-EOF
-  _assert_eq "agent rules: parser ignores body trigger decoys" \
-    "A valid trigger" "$(_dot_playbook_trigger "$META_FIXTURE/valid.md")"
-
-  cat >"$META_FIXTURE/duplicate.md" <<'EOF'
-# Duplicate
-
-<!-- agent-rule-id: duplicate -->
-<!-- agent-rule-trigger: First -->
-<!-- agent-rule-trigger: Second -->
-
-Body.
-EOF
-  if _dot_playbook_trigger "$META_FIXTURE/duplicate.md" >/dev/null 2>&1; then
-    _fail "agent rules: parser rejects duplicate top-level triggers"
-  else
-    _pass "agent rules: parser rejects duplicate top-level triggers"
-  fi
-
+if declare -F _dot_playbook_files >/dev/null 2>&1; then
   DISCOVERY_FIXTURE=$(_tmpdir)
   DISCOVERY_LOCAL_SOURCE="$DISCOVERY_FIXTURE/local source"
   mkdir -p \

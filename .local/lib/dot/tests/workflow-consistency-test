@@ -23,7 +23,10 @@ done
 # dependent PR supplies its exact provider checkout explicitly; normal runs use
 # the stable shdeps link from the host fleet. Do not fall back to a copied
 # dotfiles fixture, because that would let the two repositories drift together
-# while this compatibility gate remained green.
+# while this compatibility gate remained green. Sley's own suite owns extension
+# packaging and diagnostic-exclusion behavior; this suite calls only the
+# selector/support surfaces needed to compare provider capabilities with
+# dotfiles' editor policy.
 sley_provider_root="${DOT_TEST_SLEY_ROOT:-${DOT_TEST_HOST_HOME:-$HOME}/.local/share/cgraf78/sley}"
 sley_extension_path="$sley_provider_root/share/sley/vscode/sley-tools-0.0.1"
 if [[ ! -r "$sley_extension_path/package.json" ||
@@ -341,12 +344,6 @@ else
   _fail "workflow fixture: shape is valid"
 fi
 
-if [[ -e "$sley_extension_path/language-map.json" ]]; then
-  _fail "vscode extension: local language map is absent"
-else
-  _pass "vscode extension: local language map is absent"
-fi
-
 checkrun capabilities --json >"$cap"
 checkrun registry --json >"$registry"
 
@@ -480,7 +477,6 @@ const fs = require("node:fs");
 const Module = require("node:module");
 const path = require("node:path");
 
-const root = process.env.DOTFILES_HOME;
 const cap = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
 const settings = JSON.parse(fs.readFileSync(process.argv[3], "utf8"));
 const fixture = JSON.parse(fs.readFileSync(process.argv[4], "utf8"));
@@ -562,27 +558,6 @@ try {
     }
   }
 
-  assert.equal(
-    extension._test.isDiagnosticExcluded(
-      document(path.join(root, ".vscode/extensions/example/package.json"), "json", "{}"),
-      [".vscode/extensions/**"],
-    ),
-    true,
-  );
-  assert.equal(
-    extension._test.isDiagnosticExcluded(
-      document(path.join(root, ".config/nvim/init.lua"), "lua", "require('config.lazy')"),
-      [".vscode/extensions/**", ".local/share/nvim/**"],
-    ),
-    false,
-  );
-  assert.equal(
-    extension._test.isDiagnosticExcluded(
-      document(path.join(root, "node_modules/tool/index.js"), "javascript", ""),
-      ["**/node_modules/**"],
-    ),
-    true,
-  );
 } finally {
   Module._load = originalLoad;
 }
@@ -667,65 +642,10 @@ done < <(
   ' "$fixture"
 )
 
-check_mock_bin=$(_mock_bin)
-check_log="$work/checkrun-check.log"
-checkrun_bin=$(_test_realpath "$(command -v checkrun)")
-checkrun_real_dir=$(cd -P -- "$(dirname -- "$checkrun_bin")" && pwd)
-checkrun_mock_root=$(_tmpdir)
-mkdir -p "$checkrun_mock_root/bin" "$checkrun_mock_root/lib/checkrun"
-cp "$checkrun_bin" "$checkrun_mock_root/bin/checkrun"
-cp "$checkrun_real_dir/../lib/checkrun/common.sh" "$checkrun_mock_root/lib/checkrun/common.sh"
-cat >"$check_mock_bin/autolint" <<'MOCK'
-#!/usr/bin/env bash
-printf 'autolint:%s\n' "$*" >>"$CHECKRUN_CHECK_LOG"
-MOCK
-chmod +x "$check_mock_bin/autolint"
-ln -s "$check_mock_bin/autolint" "$checkrun_mock_root/bin/autolint"
-CHECKRUN_CHECK_LOG="$check_log" "$checkrun_mock_root/bin/checkrun" check -- "$repo/app.py"
-_assert_contains "checkrun check: delegates to autolint" "autolint:-- $repo/app.py" "$(cat "$check_log")"
-
-echo "=== workflow consistency: sley invocation paths ==="
-
-sley_repo=$(_tmpdir)
-git -C "$sley_repo" init -q
-_git_set_test_identity git -C "$sley_repo"
-git -C "$sley_repo" config core.hooksPath /dev/null
-printf 'print("clean")\n' >"$sley_repo/app.py"
-git -C "$sley_repo" add app.py
-git -C "$sley_repo" commit -q -m initial
-printf 'print("dirty")\n' >"$sley_repo/app.py"
-
-mock_bin=$(_mock_bin)
-log="$work/sley-hooks.log"
-cat >"$mock_bin/autoformat" <<'MOCK'
-#!/usr/bin/env bash
-printf 'autoformat:%s\n' "$*" >>"$SLEY_WORKFLOW_LOG"
-MOCK
-cat >"$mock_bin/autolint" <<'MOCK'
-#!/usr/bin/env bash
-printf 'autolint:%s\n' "$*" >>"$SLEY_WORKFLOW_LOG"
-MOCK
-chmod +x "$mock_bin/autoformat" "$mock_bin/autolint"
-
-(
-  cd "$sley_repo" || exit 1
-  SLEY_EXTENSION_DIR="$work/no-extensions" \
-    SLEY_WORKFLOW_LOG="$log" \
-    PATH="$mock_bin:$PATH" \
-    sley hook format-file app.py
-  SLEY_EXTENSION_DIR="$work/no-extensions" \
-    SLEY_WORKFLOW_LOG="$log" \
-    PATH="$mock_bin:$PATH" \
-    sley hook lint-file --json app.py
-  SLEY_EXTENSION_DIR="$work/no-extensions" \
-    SLEY_WORKFLOW_LOG="$log" \
-    PATH="$mock_bin:$PATH" \
-    sley check --path app.py >/dev/null
-)
-
-_assert_contains "sley hook format-file: delegates to autoformat" "autoformat:-- app.py" "$(cat "$log")"
-_assert_contains "sley hook lint-file: delegates to autolint json path" "autolint:--json app.py" "$(cat "$log")"
-_assert_contains "sley check: delegates scoped files to autolint" "autolint:-- app.py" "$(cat "$log")"
+# Checkrun owns CLI-to-runner dispatch, and Sley owns its format/lint/check
+# execution paths. Their repository suites cover those isolated mechanics.
+# This consumer suite stops at the plans and editor projections above, where
+# dotfiles policy actually composes with both providers.
 
 # Codex trust records are consumer-owned mutable state, but the native event set
 # is provider-owned. Compare the currently installed AgentGuard asset with the

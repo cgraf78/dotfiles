@@ -22,8 +22,6 @@ wezterm_switch_tab_path='~/.local/bin/wezterm-switch-tab'
 wezterm_move_tab_path='~/.local/bin/wezterm-move-tab'
 # shellcheck disable=SC2088 # tmux expands this literal path in its own shell.
 termnav_switch_tab_path='~/.local/bin/termnav-switch-tab'
-wezterm_switch_tab_content=$(cat "$tmux_tool_home/.local/bin/wezterm-switch-tab" 2>/dev/null || true)
-wezterm_move_tab_content=$(cat "$tmux_tool_home/.local/bin/wezterm-move-tab" 2>/dev/null || true)
 ctrl_tab_config_line=$(printf '%s\n' "$tmux_content" | grep '^bind-key -n C-Tab ' || true)
 ctrl_shift_tab_config_line=$(printf '%s\n' "$tmux_content" | grep '^bind-key -n C-BTab ' || true)
 move_tab_left_config_line=$(printf '%s\n' "$tmux_content" | grep "^bind-key -n 'M-{' " || true)
@@ -226,24 +224,9 @@ _assert_contains "tmux clipboard history uses tmux-tools handoff path" \
   'clip pick > "$(tmux-clip-paste --path)"' "$tmux_content"
 _assert_contains "tmux clipboard history pastes after picker exits" \
   "run-shell tmux-clip-paste" "$tmux_content"
-_assert_contains "tmux Ctrl-Tab helper bubbles to WezTerm when session has one window" \
-  "DOT_SWITCH_TAB" "$wezterm_switch_tab_content"
-_assert_contains "tmux Ctrl-Tab helper can bubble one level to parent tmux" \
-  "DOT_PARENT_SWITCH_TAB" "$wezterm_switch_tab_content"
-_assert_contains "tmux Alt-Shift-bracket helper bubbles tab moves to WezTerm" \
-  "DOT_MOVE_TAB" "$wezterm_move_tab_content"
-_assert_contains "tmux Alt-Shift-bracket helper can bubble one level to parent tmux" \
-  "DOT_PARENT_MOVE_TAB" "$wezterm_move_tab_content"
-switch_parent_tty=$(_tmpdir)/wezterm-switch-parent.out
-"$tmux_tool_home/.local/bin/wezterm-switch-tab" --parent next --tty "$switch_parent_tty"
-switch_parent_osc=$(cat "$switch_parent_tty")
-_assert_contains "tmux Ctrl-Tab helper wraps parent bubble for nested tmux passthrough" \
-  $'\033Ptmux;\033\033]1337;SetUserVar=DOT_PARENT_SWITCH_TAB=' "$switch_parent_osc"
-move_parent_tty=$(_tmpdir)/wezterm-move-parent.out
-"$tmux_tool_home/.local/bin/wezterm-move-tab" --parent left --tty "$move_parent_tty"
-move_parent_osc=$(cat "$move_parent_tty")
-_assert_contains "tmux Alt-Shift-bracket helper wraps parent bubble for nested tmux passthrough" \
-  $'\033Ptmux;\033\033]1337;SetUserVar=DOT_PARENT_MOVE_TAB=' "$move_parent_osc"
+# Termnav owns the helpers' protocol encoding and tests it in its own suite.
+# Dotfiles needs only to prove that the configured commands are installed and
+# that tmux invokes them with the local routing policy asserted below.
 _assert_contains "tmux defines private parent-bubble key for next tab" \
   'set -s user-keys[0] "\033[777001u"' "$tmux_content"
 _assert_contains "tmux defines private parent-bubble key for previous tab" \

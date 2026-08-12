@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# Discover trusted agent playbooks and render their human routing index.
+# Discover the trusted playbooks selected by dotfiles policy.
 
 if [[ -z "${DOT_OVERLAY_MANIFEST+x}" ]]; then
   # shellcheck source=constants.sh disable=SC1091
@@ -171,67 +171,4 @@ _dot_playbook_files() {
     _dot_playbook_overlay_files || exit
   ) || return 1
   printf '%s\n' "$listing" | sed '/^$/d' | LC_ALL=C sort -u
-}
-
-# Return the one trigger declared in the contiguous metadata block at the top.
-_dot_playbook_trigger() {
-  local file="$1" line trigger="" count=0 title_seen=0 metadata_seen=0
-
-  while IFS= read -r line || [[ -n "$line" ]]; do
-    case "$line" in
-      "") continue ;;
-      '# '*)
-        if ((title_seen || metadata_seen)); then
-          break
-        fi
-        title_seen=1
-        ;;
-      '<!-- agent-rule-id: '*' -->')
-        metadata_seen=1
-        ;;
-      '<!-- agent-rule-trigger: '*' -->')
-        metadata_seen=1
-        trigger=${line#'<!-- agent-rule-trigger: '}
-        trigger=${trigger%' -->'}
-        [[ -n "$trigger" ]] || return 1
-        count=$((count + 1))
-        ;;
-      *) break ;;
-    esac
-  done <"$file"
-
-  [[ "$count" -eq 1 ]] || return 1
-  printf '%s\n' "$trigger"
-}
-
-_dot_playbook_render_index() {
-  local root="$1" file rel trigger
-  shift
-
-  for file in "$@"; do
-    case "$file" in
-      "$root"/*.md) ;;
-      *) return 1 ;;
-    esac
-    rel=${file#"$root"/}
-    case "$rel" in
-      "" | /* | ./* | ../* | */../* | */.. | *'`'*) return 1 ;;
-    esac
-    trigger=$(_dot_playbook_trigger "$file") || return 1
-    printf -- "- %s: \`%s\`\n" "$trigger" "$rel"
-  done
-}
-
-_dot_playbook_index() {
-  local root file listing
-  local -a files=()
-
-  root=$(_dot_playbook_root) || return 1
-  listing=$(_dot_playbook_files) || return 1
-  while IFS= read -r file; do
-    [[ -n "$file" ]] || continue
-    files+=("$file")
-  done <<<"$listing"
-  ((${#files[@]} > 0)) || return 1
-  _dot_playbook_render_index "$root" "${files[@]}"
 }

@@ -57,27 +57,30 @@ depending on a particular `/var` versus `/private/var` spelling.
   reachability as a product failure.
   `DOT_BOOTSTRAP_SHARD=all ./bootstrap-test` still runs the original
   monolithic coverage shape for audits.
-- `githook-test` tests dotfiles' Sley hook activation and the special bare-home
-  policy through real Git operations. Sley's own commit-hook suite owns the
-  reusable Git sequencer and Sapling skip-decision matrix.
+- `githook-test` tests dotfiles' Sley checkout selection, activation shims,
+  commit-message provider choice, and the special bare-home policy. Sley's own
+  commit-hook suite owns readiness, Git sequencer behavior, secret scanning,
+  and the Sapling skip-decision matrix.
+- `git-shell-workflows-test` tests the dotfiles adapter that supplies local fzf
+  and editor policy plus the established short command names. The `git-tools`
+  repository owns branch, log, status, stash, and worktree behavior.
 - `gstack-register-test` tests only dotfiles' provider dependency ordering,
   XDG exclusion policy location, and shdeps/merge-hook activation. The
   gstack-register repository owns generated artifacts, agent adapters, cache,
   migration, collision, and cleanup behavior.
 - `agent-rules-test` tests dotfiles-owned rule prose policy, IDs, routing, and
-  trusted playbook discovery. `agent-rules-adapter-test` tests dependency and
-  resolved-manifest dispatch. `agent-rules-contract-test` compares the complete
-  synthetic runtime artifact contract when an installed provider is available;
-  extraction work can set `DOT_TEST_AGENT_RULES_SYNC_PROVIDER` to an isolated
-  provider checkout. Generic parsing, rendering, publication, migration, and
-  cleanup tests live in the `agent-rules-sync` repository.
+  trusted playbook discovery, including rendering the selected policy through
+  the installed provider. `agent-rules-adapter-test` tests dependency and
+  resolved-manifest dispatch. Generic parsing, rendering, publication,
+  migration, and cleanup tests live in the `agent-rules-sync` repository.
 - `agent-hook-work-test` tests work-specific `agentguard` hook extensions.
   Installed base hook smoke checks live in `dot doctor`, and detailed hook
   behavior lives in the `agentguard` repo.
 - `shdeps-hooks-test` tests dotfiles-specific shdeps hooks.
 - `validate-commit-msg-test` tests dotfiles commit-message policy and its Sley
   Git-hook routing.
-- `tmux-test` tests tmux config integration.
+- `tmux-test` tests tmux config integration. Termnav owns the protocol encoding
+  of the tab-routing helpers that the config activates.
 - `wezterm-test` tests WezTerm config integration.
 - `agent-yolo-wrappers-test` pins where the agent shell wrappers place their
   skip-approval flags, because each CLI accepts that flag on a different set of
@@ -87,7 +90,7 @@ depending on a particular `/var` versus `/private/var` spelling.
   provider-owned Lua bootstrap without a dotfiles discovery layer.
 - `workflow-consistency-test` compares the Checkrun/Sley policy projection
   across Checkrun plans, generated VS Code settings, the local VS Code
-  extension, Neovim language policy, and Sley hook/human invocation paths. Its
+  extension, and Neovim language policy. Its
   representative language matrix lives in
   `fixtures/common-language-policy.json` so cross-surface expectations stay in
   one place. It also guards production workflow surfaces against direct

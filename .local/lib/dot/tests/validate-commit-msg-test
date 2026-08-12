@@ -636,15 +636,6 @@ EOF
 _assert_exit "missing sections (non-strict): warns, commit succeeds" 0 "$__COMMIT_RC"
 _assert_contains "missing sections: warns about Summary" "Summary" "$__COMMIT_OUT"
 
-echo "=== Git hook: GITHOOK_COMMITMSG_SKIP ==="
-
-repo=$(_new_repo)
-echo "x = 1" >"$repo/test.py"
-(cd "$repo" && git add test.py)
-long_title=$(printf '%0.s-' {1..105})
-_commit "$repo" "$long_title" env GITHOOK_COMMITMSG_SKIP=1
-_assert_exit "GITHOOK_COMMITMSG_SKIP: bypasses validation" 0 "$__COMMIT_RC"
-
 # ===========================================================================
 # Validator: boundary title lengths
 # ===========================================================================
@@ -1163,24 +1154,6 @@ EOF
 )" env COMMIT_MSG_STRICT=1
 _assert_exit "strict via env: missing sections blocks" 1 "$__COMMIT_RC"
 _assert_contains "strict via env: reports Summary" "Summary" "$__COMMIT_OUT"
-
-# ===========================================================================
-# Hook: configured policy provider missing (fail-open must remain visible)
-# ===========================================================================
-
-echo "=== Hook: missing dotfiles policy provider warns but does not block ==="
-_hook_msg="$(_tmpdir)/msg"
-printf '%s\n' "Some commit title" >"$_hook_msg"
-# Point the explicit integration seam at a missing file. Sley must still run
-# its provider-neutral path and independent secret gate, while dotfiles keeps
-# the previous advisory fail-open behavior visible.
-_hook_out=$(DOT_COMMIT_MSG_VALIDATOR=/nonexistent/dotfiles-validator \
-  DOT_SLEY_ROOT="$_message_sley_root" PATH="$_provider_test_path" \
-  "$COMMIT_MSG_HOOK" "$_hook_msg" 2>&1)
-_hook_rc=$?
-_assert_exit "hook: missing validator exits 0 (non-blocking)" 0 "$_hook_rc"
-_assert_contains "hook: missing validator warns on stderr" \
-  "dotfiles message validator is not executable" "$_hook_out"
 
 # ===========================================================================
 # Summary

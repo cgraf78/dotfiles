@@ -10,6 +10,10 @@ echo "=== VS Code Sley integration ==="
 
 asset_rel=share/sley/vscode/sley-tools-0.0.1
 expected_source="\$HOME/.local/share/cgraf78/sley/$asset_rel"
+declared_id=$(
+  awk -F '\t' '$1 == "cgraf.sley-tools" { print $1; exit }' \
+    "$HOME/.config/dot/merge-hooks.d/vscode/local-extensions.d/10-extensions.tsv"
+)
 declared_source=$(
   awk -F '\t' '$1 == "cgraf.sley-tools" { print $2; exit }' \
     "$HOME/.config/dot/merge-hooks.d/vscode/local-extensions.d/10-extensions.tsv"
@@ -33,23 +37,18 @@ _assert_file_missing "vscode sley: dotfiles carries no extension entry point" \
 provider_root="${DOT_TEST_SLEY_ROOT:-${DOT_TEST_HOST_HOME:-$HOME}/.local/share/cgraf78/sley}"
 extension_dir="$provider_root/$asset_rel"
 manifest="$extension_dir/package.json"
-entrypoint="$extension_dir/extension.js"
 
 _assert_file_exists "vscode sley: provider publishes manifest" "$manifest"
-_assert_file_exists "vscode sley: provider publishes entry point" "$entrypoint"
 
+# Sley owns its versioned directory and entry-point packaging invariants. The
+# useful consumer contract is narrower: the extension ID that dotfiles
+# activates must match the package published at the configured dependency path.
 if [[ -r "$manifest" ]]; then
   package_name=$(jq -r '.name // ""' "$manifest")
-  package_version=$(jq -r '.version // ""' "$manifest")
   package_publisher=$(jq -r '.publisher // ""' "$manifest")
-  package_main=$(jq -r '.main // ""' "$manifest")
 
-  _assert_eq "vscode sley: provider package id is stable" \
-    "cgraf.sley-tools" "$package_publisher.$package_name"
-  _assert_eq "vscode sley: versioned directory matches package metadata" \
-    "$package_name-$package_version" "${extension_dir##*/}"
-  _assert_eq "vscode sley: declared entry point matches published file" \
-    "./extension.js" "$package_main"
+  _assert_eq "vscode sley: declared ID matches provider package" \
+    "$declared_id" "$package_publisher.$package_name"
 fi
 
 _test_summary
