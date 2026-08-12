@@ -49,14 +49,17 @@ pane navigation at the outer tmux layer, where forwarding Ctrl-h would instead
 produce backspace. Foreground-process-group checks prevent stale background
 transports or nested clients from stealing the chord.
 
-Ctrl-Tab bindings should preserve nested tab ownership. Forward the key into
+Ctrl-Tab bindings share pane-navigation's focus ownership. Forward the key into
 Neovim/fzf when those programs own the pane, and through interactive remote
-transports such as `ssh` and `mosh` so a tmux or Neovim session on the remote
-host gets the first chance to handle it. The transport detector only trusts the
-pane's foreground process group; stale SSH helper processes can remain attached
-to a tty after the shell is foreground again and must not steal the chord. Also
-forward when the foreground process is itself a bare nested tmux/screen client
-with `#{mouse_any_flag}` set — that combination means some inner layer we can't
+transports such as `ssh` and `mosh` only when propagated mouse reporting proves
+that a tmux, screen, Neovim, or other mouse-aware application is active on the
+remote host. A plain remote shell remains at the current tmux layer, so the
+chord switches its windows instead of reaching the shell as an unusable escape
+sequence. The transport detector only trusts the pane's foreground process
+group; stale SSH helper processes can remain attached to a tty after the shell
+is foreground again and must not steal the chord. Also forward when the
+foreground process is itself a bare nested tmux/screen client with
+`#{mouse_any_flag}` set — that combination means some inner layer we can't
 inspect via `ps` wants raw input. `#{mouse_any_flag}` alone is not enough:
 plain TUIs (Claude Code, codex, `htop -m`, ...) can enable mouse reporting for
 their own scrolling/clicking without wanting to own Ctrl-Tab, so the flag is

@@ -345,10 +345,10 @@ _assert_exit "tmux pane navigation leaves unrelated mouse-aware TUIs at the oute
   1 "$unrelated_mouse_app_rc"
 _assert_eq "tmux terminal app detector uses one combined process-group scan" \
   "1" "$(grep -o 'ps -o' <<<"$terminal_app_detector_line" | wc -l | tr -d ' ')"
-_assert_contains "tmux Ctrl-Tab forwards SSH/mosh panes instead of switching parent tmux" \
-  "\"\$is_terminal_app\"" "$ctrl_tab_config_line"
-_assert_contains "tmux Ctrl-Shift-Tab forwards SSH/mosh panes instead of switching parent tmux" \
-  "\"\$is_terminal_app\"" "$ctrl_shift_tab_config_line"
+_assert_contains "tmux Ctrl-Tab shares pane-navigation focus ownership" \
+  "\"\$is_pane_navigation\"" "$ctrl_tab_config_line"
+_assert_contains "tmux Ctrl-Shift-Tab shares pane-navigation focus ownership" \
+  "\"\$is_pane_navigation\"" "$ctrl_shift_tab_config_line"
 _assert_contains "tmux terminal app detector checks mouse-aware nested panes" \
   "#{mouse_any_flag}" "$terminal_app_detector_line"
 _assert_contains "tmux Ctrl-Tab forwards CSI-u sequence into nested terminal apps" \
@@ -506,15 +506,26 @@ if command -v tmux >/dev/null 2>&1; then
   pane_navigation_runtime_rc=$?
   _assert_exit "tmux runtime pane fallback executes after config expansion" \
     0 "$pane_navigation_runtime_rc"
-  terminal_app_runtime_filter=$(printf '%s\n' "$ctrl_tab_root_line" |
+  tab_focus_runtime_filter=$(printf '%s\n' "$ctrl_tab_root_line" |
     sed -n "s/.*awk -v mouse='#{mouse_any_flag}' '\(.*\)'\" \"send-keys Escape.*/\1/p")
   _assert_contains "tmux runtime Ctrl-Tab fallback extraction is non-empty" \
-    'END { exit !found }' "$terminal_app_runtime_filter"
+    'END { exit !found }' "$tab_focus_runtime_filter"
+  reverse_tab_focus_runtime_filter=$(printf '%s\n' "$ctrl_shift_tab_root_line" |
+    sed -n "s/.*awk -v mouse='#{mouse_any_flag}' '\(.*\)'\" \"send-keys Escape.*/\1/p")
+  _assert_contains "tmux runtime Ctrl-Shift-Tab fallback extraction is non-empty" \
+    'END { exit !found }' "$reverse_tab_focus_runtime_filter"
+  _assert_eq "tmux runtime tab directions share the same focus predicate" \
+    "$tab_focus_runtime_filter" "$reverse_tab_focus_runtime_filter"
   printf 'S+ ssh 39056 39056\n' |
-    awk -v mouse=0 "$terminal_app_runtime_filter"
-  terminal_app_runtime_rc=$?
-  _assert_exit "tmux runtime Ctrl-Tab fallback executes after config expansion" \
-    0 "$terminal_app_runtime_rc"
+    awk -v mouse=0 "$tab_focus_runtime_filter"
+  plain_ssh_tab_runtime_rc=$?
+  _assert_exit "tmux runtime Ctrl-Tab keeps a plain SSH shell at the outer layer" \
+    1 "$plain_ssh_tab_runtime_rc"
+  printf 'S+ ssh 39056 39056\n' |
+    awk -v mouse=1 "$tab_focus_runtime_filter"
+  focused_remote_tab_runtime_rc=$?
+  _assert_exit "tmux runtime Ctrl-Tab forwards into a mouse-aware remote application" \
+    0 "$focused_remote_tab_runtime_rc"
   _assert_contains "tmux runtime Ctrl-Tab forwards SSH/mosh panes" \
     "ssh|mosh" "$ctrl_tab_root_line"
   _assert_contains "tmux runtime Ctrl-Tab reads the native foreground command" \
