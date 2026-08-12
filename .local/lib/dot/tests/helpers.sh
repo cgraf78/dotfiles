@@ -130,6 +130,19 @@ _test_use_host_shdeps() {
   fi
 }
 
+# Editor-policy suites should exercise the managed Neovim payload directly;
+# core-launchers-test owns the public wrapper. Resolve the host payload when a
+# worktree HOME is active so this accommodation stays in test code.
+_test_managed_nvim_bin() {
+  local dependency_home="${DOT_TEST_HOST_HOME:-$HOME}"
+
+  REPLY="$dependency_home/.local/share/neovim/neovim/bin/nvim"
+  if [[ ! -x "$REPLY" || -d "$REPLY" ]]; then
+    printf 'test harness: managed Neovim not found at %s\n' "$REPLY" >&2
+    return 1
+  fi
+}
+
 # Suites that exercise higher-level editor or dependency policy should not
 # accidentally use a site-specific Git wrapper. By default the selected Git is
 # first on PATH. The after-dotfiles mode keeps the tracked launcher first while

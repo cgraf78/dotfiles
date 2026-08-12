@@ -53,16 +53,16 @@ _hive_memory_remove_legacy_core() {
 
   # Older dotfiles copied every Hive release into a second private path so a
   # generated ~/.local/bin/hm symlink could point at the launcher. The launcher
-  # is now tracked directly and delegates to Shdeps' archive payload, so that
-  # copy becomes unreachable duplicate storage only after the replacement is
-  # demonstrably usable. Merge hooks still run when the earlier dependency
+  # is now tracked directly and delegates to Shdeps' fixed archive payload, so
+  # that copy becomes unreachable duplicate storage only after the replacement
+  # is demonstrably usable. Merge hooks still run when the earlier dependency
   # phase fails, so deleting first could turn a transient network failure into
-  # a missing `hm` command. Exercise the tracked launcher against the exact new
-  # core before removing only the old dotfiles-owned filename.
+  # a missing `hm` command. Exercise the tracked launcher's normal fixed-path
+  # delegation before removing only the old dotfiles-owned filename.
   # Do not trust an old generated symlink, an unrelated user command, or a
   # partially written replacement to authorize deletion. The new front door is
   # a tracked regular file with a stable ownership marker; verify that shape
-  # before exercising it against the exact replacement core.
+  # before exercising its normal fixed-path delegation.
   [[ -f "$launcher" && ! -L "$launcher" ]] || return 0
   {
     IFS= read -r _
@@ -72,7 +72,7 @@ _hive_memory_remove_legacy_core() {
 
   if [[ ! -f "$stable_core" || -L "$stable_core" || ! -x "$stable_core" ||
     ! -x "$launcher" ]] ||
-    ! HIVE_MEMORY_CORE="$stable_core" "$launcher" --version >/dev/null 2>&1; then
+    ! "$launcher" --version >/dev/null 2>&1; then
     return 0
   fi
   if ! rm -f -- "$legacy_core"; then

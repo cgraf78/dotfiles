@@ -15,9 +15,12 @@ component; files here should stay thin and command-shaped.
 - `git` routes normal repositories to real Git and `$HOME` dotfiles paths to
   the base bare repo.
 - `hm` delegates to the standalone Hive Memory binary and maps AgentGuard's
-  reusable agent/session identity into Hive Memory's environment contract.
+  reusable agent/session identity into Hive Memory's environment contract. A
+  completed `dot update` provides both dependencies; missing assets are treated
+  as an installation error instead of activating compatibility behavior.
 - `nvim` reuses an existing Neovim pane in the current tmux window for simple
-  interactive-shell file opens, then falls back to the real Neovim binary.
+  interactive-shell file opens, otherwise launching the Shdeps-managed Neovim
+  binary at its fixed private path.
 
 Reusable tool commands such as `ettun`, `fwdports`, `sley`, `sysup`,
 `agent-hook-*`, `claude-session-name`, `autoformat`, `autolint`, `checkrun`,
