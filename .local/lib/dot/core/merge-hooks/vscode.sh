@@ -119,14 +119,12 @@ PY
     return 1
   fi
 
-  # On NTFS via WSL, O_TRUNC at open time (shell redirect, cp) fails with
-  # EACCES when another process holds the file open (e.g. VS Code watching
-  # settings.json). mv -f avoids this by copying without O_TRUNC when it falls
-  # back across filesystem boundaries, but that leaves stale trailing bytes
-  # when the new content is shorter. Fix: record the expected size, let mv -f
-  # write the bytes, then explicitly truncate via ftruncate() (SetEndOfFile on
-  # Windows), which succeeds on an already-open write handle even when O_TRUNC
-  # at open time is blocked.
+  # WSL already returned through the verified in-place writer above. Other
+  # platforms use ordinary mv: sibling temporaries take its rename path, while
+  # general mktemp callers may require its cross-filesystem copy fallback. Keep
+  # the post-move size normalization as defensive compatibility only. Once mv
+  # succeeds the new config is published, so that optional normalization must
+  # not turn publication success into a merge failure.
   size=$(wc -c <"$tmp")
   if mv -f -- "$tmp" "$dst"; then
     truncate -s "$size" "$dst" 2>/dev/null || true
