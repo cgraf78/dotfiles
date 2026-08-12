@@ -22,8 +22,7 @@ thin loaders. The ordered files in this directory hold the actual shell policy.
     ├── 54-tool-init.sh
     ├── 55-ssh.sh
     ├── 56-dot.sh
-    ├── 57-fzf-git.sh
-    ├── 57-git-worktree.sh
+    ├── 57-git-tools.sh
     ├── 57-marks.sh
     ├── 59-prompt.sh
     ├── 60-prompt.bash
@@ -42,6 +41,9 @@ thin loaders. The ordered files in this directory hold the actual shell policy.
 - Sourceable shell APIs from dependency repos load from the relevant
   `70-integrations.*` file through `54-tool-init.sh` helpers and shdeps;
   `env.d/` stays limited to non-interactive-safe exports.
+- `57-git-tools.sh` retains only local picker/editor policy, worktree
+  placement, and prompt shorthand. The reusable Git and worktree workflows
+  come from git-tools through both `70-integrations.*` loaders.
 - `53-wezterm.sh` is the small ordering exception: it loads Termnav's shell API
   before interactive commands can use it. Termnav owns terminal classification
   and pane metadata; `50-aliases.sh` retains only the local `eza`/`rg` choice

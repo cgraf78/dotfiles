@@ -32,3 +32,16 @@ prunes obsolete generations and old Zsh versions during successful refreshes.
 Dependency-owned shell APIs should load through shdeps helpers rather than by
 hard-coded install paths. That keeps local clones, release installs, and future
 install layouts behind one lookup path.
+
+## Git workflow ownership
+
+`57-git-tools.sh` is a consumer adapter for git-tools' sourceable shell API. It
+defines the local fzf layouts, editor hook, `~/worktrees` placement policy, and
+the existing `gbr`, `glo`, `gst`, `gstash`, `gw`, `gwl`, `gwd`, and `gwp`
+commands. It does not implement Git selection or worktree lifecycle behavior.
+
+Both `70-integrations.bash` and `70-integrations.zsh` resolve
+`share/git-tools/shell.sh` through shdeps and `_tool_init`. Keep the adapter in
+the shared layer so its hooks exist before either shell-specific loader sources
+the provider. This ordering is what allows dotfiles policy to customize the
+provider without copying it.

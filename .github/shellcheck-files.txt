@@ -34,8 +34,7 @@ program	.config/shell/interactive.d/53-wezterm.sh
 program	.config/shell/interactive.d/54-tool-init.sh
 program	.config/shell/interactive.d/55-ssh.sh
 program	.config/shell/interactive.d/56-dot.sh
-program	.config/shell/interactive.d/57-fzf-git.sh
-program	.config/shell/interactive.d/57-git-worktree.sh
+program	.config/shell/interactive.d/57-git-tools.sh
 program	.config/shell/interactive.d/57-marks.sh
 program	.config/shell/interactive.d/59-prompt.sh
 program	.config/shell/interactive.d/60-prompt.bash

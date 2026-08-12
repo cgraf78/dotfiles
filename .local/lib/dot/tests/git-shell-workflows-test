@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Characterize the public short commands before their implementation moves to
-# git-tools.  Keep these assertions at the user-visible boundary: the provider
-# may change ownership and internal function names, but these workflows must
-# continue to select the same Git objects, edit the same paths, and use the same
-# worktree layout.
+# Characterize the public short commands across their ownership move to
+# git-tools. Keep these assertions at the user-visible boundary: the provider
+# may change internals, but these workflows must continue to select the same
+# Git objects, edit the same paths, and use the same worktree layout.
+# Zero-argument calls below are intentional API cases.
+# shellcheck disable=SC2119
 
 set -o pipefail
 export NO_COLOR=1
@@ -18,6 +19,22 @@ SOURCE_HOME="${DOT_TEST_SOURCE_HOME:-$HOME}"
 # be redirected through host- or work-specific launcher policy.
 _test_prefer_system_git
 
+# Resolve the real provider before the fixture replaces HOME. A test-only path
+# override lets the cross-repository change be verified from an isolated
+# git-tools worktree; normal local and CI runs exercise shdeps' public lookup
+# contract instead of assuming any checkout or installation layout.
+git_tools_shell="${DOT_TEST_GIT_TOOLS_SHELL:-}"
+if [[ -z "$git_tools_shell" ]]; then
+  git_tools_shell=$(
+    SHDEPS_CONF_DIR="$SOURCE_HOME/.config/shdeps" \
+      shdeps dep-file cgraf78/git-tools share/git-tools/shell.sh 2>/dev/null
+  ) || git_tools_shell=""
+fi
+if [[ ! -r "$git_tools_shell" ]]; then
+  _fail "git-tools shell provider is available (file not found: $git_tools_shell)"
+  _test_summary
+fi
+
 test_root=$(_tmpdir)
 fixture_home="$test_root/home"
 fixture_bin=$(_mock_bin)
@@ -25,6 +42,7 @@ repo="$test_root/repo"
 fzf_args="$test_root/fzf-args"
 fzf_input="$test_root/fzf-input"
 editor_log="$test_root/editor-args"
+fzf_function_log="$test_root/fzf-function"
 mkdir -p "$fixture_home" "$repo"
 
 cat >"$fixture_bin/fzf" <<'EOF'
@@ -64,17 +82,41 @@ EDITOR="$fixture_bin/editor"
 FZF_TEST_ARGS_LOG="$fzf_args"
 FZF_TEST_INPUT_LOG="$fzf_input"
 EDITOR_TEST_LOG="$editor_log"
+FZF_TEST_FUNCTION_LOG="$fzf_function_log"
 export PATH HOME EDITOR FZF_TEST_ARGS_LOG FZF_TEST_INPUT_LOG EDITOR_TEST_LOG
+export FZF_TEST_FUNCTION_LOG
 
-# Source the exact current runtime order. The ownership refactor must preserve
-# this public command surface even after these implementation files become a
-# thin adapter over git-tools.
+# The pre-refactor commands honored a consumer-defined fzf shell function.
+# Keep that composition point while the provider hook supplies local flags.
+fzf() {
+  printf 'called\n' >>"$FZF_TEST_FUNCTION_LOG"
+  command fzf "$@"
+}
+
+# Source the exact current runtime order: shared dotfiles policy first, then the
+# dependency provider normally loaded by 70-integrations. Loading the resolved
+# provider directly keeps this suite focused on behavior while the assertions
+# below separately lock both Bash and zsh loader declarations.
 # shellcheck disable=SC1090
 . "$SOURCE_HOME/.config/shell/interactive.d/56-dot.sh"
 # shellcheck disable=SC1090
-. "$SOURCE_HOME/.config/shell/interactive.d/57-fzf-git.sh"
+. "$SOURCE_HOME/.config/shell/interactive.d/57-git-tools.sh"
 # shellcheck disable=SC1090
-. "$SOURCE_HOME/.config/shell/interactive.d/57-git-worktree.sh"
+. "$git_tools_shell"
+
+_assert_eq "resolved git-tools provider publishes its loaded marker" \
+  "1" "${GIT_TOOLS_SHELL_LOADED:-}"
+_assert_file_missing "retired fzf Git implementation stays removed" \
+  "$SOURCE_HOME/.config/shell/interactive.d/57-fzf-git.sh"
+_assert_file_missing "retired worktree implementation stays removed" \
+  "$SOURCE_HOME/.config/shell/interactive.d/57-git-worktree.sh"
+for loader in 70-integrations.bash 70-integrations.zsh; do
+  loader_content=$(cat "$SOURCE_HOME/.config/shell/interactive.d/$loader")
+  _assert_contains "$loader declares the cached git-tools integration" \
+    "_tool_init git-tools _tool_shdeps_source_emit" "$loader_content"
+  _assert_contains "$loader resolves the provider through shdeps" \
+    "cgraf78/git-tools share/git-tools/shell.sh" "$loader_content"
+done
 
 for function_name in gbr glo gst gstash gw gwl gwd gwp; do
   if declare -F "$function_name" >/dev/null; then
@@ -118,6 +160,8 @@ _assert_contains "branch picker keeps dotfiles preview layout" \
   "$(cat "$fzf_args")"
 _assert_contains "branch picker keeps its prompt" "--prompt=branch> " \
   "$(cat "$fzf_args")"
+_assert_file_exists "branch picker honors an existing fzf shell function" \
+  "$fzf_function_log"
 
 git -C "$repo" switch -q main
 printf 'latest\n' >"$repo/latest.txt"
@@ -173,9 +217,14 @@ _assert_contains "existing worktree reuse changes directory" \
   "cwd=$expected_root/topic" "$existing_output"
 
 FZF_TEST_MATCH="$expected_root/topic"
-list_output=$(cd "$repo" && gwl && printf 'cwd=%s\n' "$PWD")
-_assert_contains "worktree picker enters the selected worktree" \
-  "cwd=$expected_root/topic" "$list_output"
+# Git and the shell may spell the same macOS directory as `/var/...` and
+# `/private/var/...`. This assertion is about the directory the picker enters,
+# so compare physical paths instead of treating that platform alias as a
+# behavioral difference.
+expected_topic_physical=$(cd "$expected_root/topic" && pwd -P)
+list_cwd=$(cd "$repo" && gwl && pwd -P)
+_assert_eq "worktree picker enters the selected worktree" \
+  "$expected_topic_physical" "$list_cwd"
 _assert_contains "worktree picker keeps dotfiles compact layout" \
   "--height 40% --reverse" "$(cat "$fzf_args")"
 
@@ -210,5 +259,29 @@ else
 fi
 _assert_file_content "worktree prune preserves nonempty directories" \
   "keep" "$expected_root/nonempty/file"
+
+if command -v zsh >/dev/null 2>&1; then
+  zsh_result=$(
+    SOURCE_HOME="$SOURCE_HOME" \
+      GIT_TOOLS_TEST_PROVIDER="$git_tools_shell" \
+      HOME="$fixture_home" \
+      zsh -dfc '
+        set -e
+        _fzf_preview=(--height 70% --reverse)
+        _fzf_pick=(--height 40% --reverse)
+        _edit_file() { :; }
+        source "$SOURCE_HOME/.config/shell/interactive.d/57-git-tools.sh"
+        source "$GIT_TOOLS_TEST_PROVIDER"
+        for name in gbr glo gst gstash gw gwl gwd gwp; do
+          typeset -f "$name" >/dev/null
+        done
+        [[ "$GIT_TOOLS_WORKTREE_PARENT" == "$HOME/worktrees" ]]
+        print -r -- ok
+      '
+  )
+  _assert_eq "zsh loads the same adapter and provider surface" ok "$zsh_result"
+else
+  echo "  SKIP: zsh not installed"
+fi
 
 _test_summary
