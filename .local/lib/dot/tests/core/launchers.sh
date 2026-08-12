@@ -697,42 +697,9 @@ EOF
   result=$(PATH="$BIN_DIR:$PATH" git absorb-and-rebase -h 2>&1 || true)
   _assert_contains "git absorb-and-rebase: dependency command is installed" \
     "Usage: git absorb-and-rebase" "$result"
-
-  if PATH="$BIN_DIR:$PATH" git absorb --version >/dev/null 2>&1; then
-    ABSORB_DOT_HOME=$(_tmpdir)
-    mkdir -p "$ABSORB_DOT_HOME/.config/test"
-    git init --bare --initial-branch=main "$ABSORB_DOT_HOME/.dotfiles" >/dev/null
-    ABSORB_DOT_GIT=(git --git-dir="$ABSORB_DOT_HOME/.dotfiles" --work-tree="$ABSORB_DOT_HOME")
-    _git_set_test_identity "${ABSORB_DOT_GIT[@]}"
-    "${ABSORB_DOT_GIT[@]}" config core.hooksPath /dev/null
-    printf 'base\n' >"$ABSORB_DOT_HOME/.bashrc"
-    "${ABSORB_DOT_GIT[@]}" add .bashrc
-    "${ABSORB_DOT_GIT[@]}" commit -m "base" >/dev/null
-    ABSORB_DOT_BASE=$("${ABSORB_DOT_GIT[@]}" rev-parse HEAD)
-    printf 'alpha\n' >"$ABSORB_DOT_HOME/.config/test/file"
-    "${ABSORB_DOT_GIT[@]}" add .config/test/file
-    "${ABSORB_DOT_GIT[@]}" commit -m "add dot file" >/dev/null
-    printf 'beta\n' >"$ABSORB_DOT_HOME/.config/test/other"
-    "${ABSORB_DOT_GIT[@]}" add .config/test/other
-    "${ABSORB_DOT_GIT[@]}" commit -m "add other dot file" >/dev/null
-    printf 'alpha fixed\n' >"$ABSORB_DOT_HOME/.config/test/file"
-    "${ABSORB_DOT_GIT[@]}" add .config/test/file
-    result=$(
-      cd "$ABSORB_DOT_HOME/.config/test" &&
-        BASH_ENV='' HOME="$ABSORB_DOT_HOME" PATH="$BIN_DIR:$PATH" GIT_SEQUENCE_EDITOR=false \
-          "$BIN_DIR/git" absorb-and-rebase --base "$ABSORB_DOT_BASE" 2>&1
-    )
-    _assert_contains "git absorb-and-rebase: works through dotfiles git launcher" \
-      "git absorb-and-rebase: base $ABSORB_DOT_BASE" "$result"
-    result=$("${ABSORB_DOT_GIT[@]}" log --format=%s --reverse "$ABSORB_DOT_BASE"..HEAD)
-    expected="$(printf 'add dot file\nadd other dot file')"
-    _assert_eq "git absorb-and-rebase: autosquashes bare dotfiles fixups" "$expected" "$result"
-    result=$("${ABSORB_DOT_GIT[@]}" show HEAD~1:.config/test/file)
-    _assert_eq "git absorb-and-rebase: folds bare dotfiles staged fix" \
-      "alpha fixed" "$result"
-  else
-    echo "  SKIP: git absorb-and-rebase launcher rewrite smoke (git-absorb missing)"
-  fi
+  # Git-tools owns absorb and autosquash semantics, including explicit bare
+  # GIT_DIR/GIT_WORK_TREE layouts. Dotfiles only needs to prove that Git can
+  # discover the installed dependency command through its launcher.
 
   # ---------------------------------------------------------------------------
   # Tests: nvim launcher
