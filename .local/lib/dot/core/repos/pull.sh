@@ -542,7 +542,12 @@ _pull_overlay() {
   return 0
 }
 
-# Pull all active overlays.
+# Active Git overlays are separate synchronization units, so their pulls can
+# overlap within the bound from _dot_update_jobs. A worker cannot return shell
+# state to its parent, so each writes indexed log, status, and exit-code files in
+# parent-owned scratch; the parent then replays declaration order for stable UI
+# and tallies the structured statuses. If scratch allocation is unavailable, the
+# serial path preserves the same pull and status behavior without parallel state.
 _pull_overlay_result_prefix() {
   local _dir="$1" _idx="$2"
   printf '%s/%03d' "$_dir" "$_idx"

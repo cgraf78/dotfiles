@@ -123,6 +123,12 @@ _parse_overlay_conf() {
   ssh_file="${file%.conf}.ssh"
   [[ -f "$ssh_file" ]] || ssh_file=""
 
+  # Externally managed sources bypass Git checkout and origin validation before
+  # their files drive HOME mutations. Treat ambiguity in that newer descriptor
+  # shape as an error rather than guessing which local tree owns a path. Git
+  # descriptors predate this strict schema, so retain their historical permissive
+  # parsing, including warning-only unknown keys, instead of making existing
+  # overlays fail after an update.
   if [[ "$sync" == "none" || "$seen_path" -gt 0 ]]; then
     [[ -z "$strict_error" ]] || _overlay_conf_invalid "$file" "$strict_error" || return
     [[ "$sync" == "none" ]] || _overlay_conf_invalid "$file" "path requires sync=none" || return
