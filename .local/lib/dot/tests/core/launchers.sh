@@ -1055,6 +1055,55 @@ MOCK
   _assert_eq "hm launcher: keeps project unset when inference is disabled" \
     "project=" "$(printf '%s\n' "$_hm_no_project_probe" | grep '^project=')"
 
+  # Exercise the provider boundary independently of AgentGuard's own detection
+  # matrix. This fixture intentionally returns an opaque session value: if the
+  # launcher reconstructs session policy from the agent name, the assertion
+  # fails and catches the ownership drift.
+  HM_AGENTGUARD_API=$(_tmpdir)/agentguard.sh
+  cat >"$HM_AGENTGUARD_API" <<'MOCK'
+agentguard_agent_name() {
+  printf '%s\n' "provider-agent"
+}
+
+agentguard_session_id() {
+  if [[ "${1:-}" == "custom-agent" ]]; then
+    printf '%s\n' "custom-provider-session"
+    return 0
+  fi
+  printf '%s\n' "provider-session"
+}
+MOCK
+  HM_AGENTGUARD_BIN=$(_mock_bin)
+  cat >"$HM_AGENTGUARD_BIN/shdeps" <<'MOCK'
+#!/usr/bin/env bash
+if [[ "$1" == dep-file && "$2" == cgraf78/agentguard && \
+  "$3" == lib/agentguard/agentguard.sh ]]; then
+  printf '%s\n' "$HM_AGENTGUARD_API"
+  exit 0
+fi
+exit 1
+MOCK
+  chmod +x "$HM_AGENTGUARD_BIN/shdeps"
+  mkdir -p "$HM_LAUNCHER_HOME/.local/lib/dot/core"
+  cp "$CORE_TEST_MODULE_DIR/../../core/shdeps-assets.sh" \
+    "$HM_LAUNCHER_HOME/.local/lib/dot/core/shdeps-assets.sh"
+  _hm_provider_probe=$(env "${HM_LAUNCHER_SCRUB_ENV[@]}" \
+    HOME="$HM_LAUNCHER_HOME" PATH="$HM_AGENTGUARD_BIN:$PATH" \
+    HM_AGENTGUARD_API="$HM_AGENTGUARD_API" \
+    "$BIN_DIR/hm" env-probe)
+  _assert_contains "hm launcher: consumes AgentGuard agent identity" \
+    "agent=provider-agent" "$_hm_provider_probe"
+  _assert_contains "hm launcher: consumes AgentGuard session identity" \
+    "session=provider-session" "$_hm_provider_probe"
+
+  _hm_provider_override_probe=$(env "${HM_LAUNCHER_SCRUB_ENV[@]}" \
+    HOME="$HM_LAUNCHER_HOME" PATH="$HM_AGENTGUARD_BIN:$PATH" \
+    HM_AGENTGUARD_API="$HM_AGENTGUARD_API" \
+    HIVE_MEMORY_AGENT_ID="custom-agent" \
+    "$BIN_DIR/hm" env-probe)
+  _assert_contains "hm launcher: gives AgentGuard the Hive fallback namespace" \
+    "session=custom-provider-session" "$_hm_provider_override_probe"
+
   _hm_missing_output=""
   _hm_missing_rc=0
   _hm_missing_output=$(env "${HM_LAUNCHER_SCRUB_ENV[@]}" \
