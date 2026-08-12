@@ -63,7 +63,8 @@ depending on a particular `/var` versus `/private/var` spelling.
   and the Sapling skip-decision matrix.
 - `git-shell-workflows-test` tests the dotfiles adapter that supplies local fzf
   and editor policy plus the established short command names. The `git-tools`
-  repository owns branch, log, status, stash, and worktree behavior.
+  repository owns branch, log, status, stash, worktree, and absorb/rebase
+  behavior, including separate bare Git-directory and work-tree layouts.
 - `gstack-register-test` tests only dotfiles' provider dependency ordering,
   XDG exclusion policy location, and shdeps/merge-hook activation. The
   gstack-register repository owns generated artifacts, agent adapters, cache,
@@ -85,7 +86,9 @@ depending on a particular `/var` versus `/private/var` spelling.
 - `agent-yolo-wrappers-test` pins where the agent shell wrappers place their
   skip-approval flags, because each CLI accepts that flag on a different set of
   subcommands.
-- `nvim-test` tests Neovim config.
+- `nvim-test` tests Neovim config and thin dependency wiring. Sley owns its
+  formatter/linter adapter shapes, while Termnav owns its Neovim event and
+  publication lifecycle.
 - `lua-test` verifies the Neovim and WezTerm adapters consume Shdeps' stable
   provider-owned Lua bootstrap without a dotfiles discovery layer.
 - `workflow-consistency-test` compares the Checkrun/Sley policy projection

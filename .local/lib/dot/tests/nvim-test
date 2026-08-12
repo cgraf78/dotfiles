@@ -2352,19 +2352,25 @@ result=$(_nvim_lua '
 _assert_eq "sley hook format: nvim maps supported format filetypes" "ok" "$result"
 
 result=$(_nvim_lua '
+  local marker = { owner = "sley" }
+  local calls = 0
+  package.loaded["config.sley-nvim"] = {
+    module = function()
+      return {
+        conform_formatter = function()
+          calls = calls + 1
+          return marker
+        end,
+      }
+    end,
+  }
   local specs = dofile(vim.fn.expand("~/.config/nvim/lua/plugins/formatting.lua"))
-  local formatter = specs[1].opts.formatters.sley
-  if formatter.command ~= "sley" then
-    print("bad-command:" .. tostring(formatter.command))
-    return
-  end
-  if table.concat(formatter.args, " ") ~= ("hook format-file " .. "$" .. "FILENAME") then
-    print("bad-args:" .. table.concat(formatter.args, " "))
-    return
-  end
-  print("ok")
+  print(tostring(specs[1].opts.formatters.sley == marker))
+  print(calls)
 ')
-_assert_eq "sley hook format: nvim command uses hook CLI" "ok" "$result"
+expected="$(printf 'true\n1')"
+_assert_eq "sley hook format: nvim wires the provider formatter unchanged" \
+  "$expected" "$result"
 
 result=$(_nvim_lua '
   local specs = dofile(vim.fn.expand("~/.config/nvim/lua/plugins/linting.lua"))
@@ -2387,23 +2393,29 @@ result=$(_nvim_lua '
 _assert_eq "sley hook lint: nvim maps supported lint filetypes" "ok" "$result"
 
 result=$(_nvim_lua '
+  local marker = { owner = "sley" }
+  local received
+  package.loaded["config.sley-nvim"] = {
+    module = function()
+      return {
+        nvim_lint_linter = function(options)
+          received = options
+          return marker
+        end,
+      }
+    end,
+  }
   local specs = dofile(vim.fn.expand("~/.config/nvim/lua/plugins/linting.lua"))
-  local linter = specs[1].opts.linters.sley
-  if linter.cmd ~= "sley" then
-    print("bad-command:" .. tostring(linter.cmd))
-    return
-  end
-  if table.concat(linter.args, " ") ~= "hook lint-file --json" then
-    print("bad-args:" .. table.concat(linter.args, " "))
-    return
-  end
-  if linter.append_fname ~= true then
-    print("missing-append-fname")
-    return
-  end
-  print("ok")
+  print(tostring(specs[1].opts.linters.sley == marker))
+  print(type(received.condition))
+  vim.b.autolint_disabled = nil
+  print(tostring(received.condition()))
+  vim.b.autolint_disabled = true
+  print(tostring(received.condition()))
 ')
-_assert_eq "sley hook lint: nvim command uses hook CLI" "ok" "$result"
+expected="$(printf 'true\nfunction\ntrue\nfalse')"
+_assert_eq "sley hook lint: nvim supplies local disable policy to provider" \
+  "$expected" "$result"
 
 result=$(_nvim_lua '
   local specs = dofile(vim.fn.expand("~/.config/nvim/lua/plugins/linting.lua"))
@@ -3523,47 +3535,36 @@ echo ""
 echo "=== termnav nvim wrappers ==="
 
 result=$(_nvim_lua '
-  local writes = {}
-  local opener_setup_count = 0
   package.loaded["config.termnav"] = nil
-
+  local calls = {}
+  local marker = {}
+  package.loaded["config.dot-runtime"] = {
+    load_dep = function(dependency, path)
+      print(dependency)
+      print(path)
+      return {
+        setup = function(options)
+          calls[#calls + 1] = options
+          return marker
+        end,
+      }
+    end,
+  }
   local termnav = require("config.termnav")
-  local ctx = termnav.setup({
-    publish_delay_ms = -1,
-    opener = {
-      setup = function()
-        opener_setup_count = opener_setup_count + 1
-      end,
-      server = function()
-        return "nvim.sock"
-      end,
-    },
-    wezterm_vars = {
-      set = function(name, value)
-        writes[#writes + 1] = name .. "=" .. tostring(value or "")
-        return true
-      end,
-    },
-  })
-  vim.api.nvim_exec_autocmds("BufEnter", {})
-  vim.api.nvim_exec_autocmds("WinEnter", {})
-  vim.api.nvim_exec_autocmds("FocusGained", {})
-  print(ctx.group_name)
-  print(opener_setup_count)
-  print(#writes)
-
-  local old_cwd = vim.fn.getcwd()
-  local temp_cwd = vim.fn.tempname()
-  vim.fn.mkdir(temp_cwd, "p")
-  vim.cmd("lcd " .. vim.fn.fnameescape(temp_cwd))
-  vim.api.nvim_exec_autocmds("DirChanged", {})
-  local changed_count = #writes
-  vim.api.nvim_exec_autocmds("DirChanged", {})
-  print(#writes - changed_count)
-  vim.cmd("lcd " .. vim.fn.fnameescape(old_cwd))
+  local default_options = { publish_delay_ms = 17 }
+  print(tostring(termnav.setup(default_options) == marker))
+  print(tostring(calls[1] == default_options))
+  print(calls[1].group_name)
+  print(calls[1].publish_delay_ms)
+  termnav.setup({ group_name = "caller_group" })
+  print(calls[2].group_name)
 ')
-expected="$(printf 'dot_termnav\n1\n6\n0')"
-_assert_eq "termnav wrapper: delegates protocol setup while preserving dotfiles policy" \
+expected="$(printf '%s\n%s\ntrue\ntrue\n%s\n17\n%s' \
+  'cgraf78/termnav' \
+  'lib/termnav/nvim/setup.lua' \
+  'dot_termnav' \
+  'caller_group')"
+_assert_eq "termnav wrapper: resolves provider and applies only local group policy" \
   "$expected" "$result"
 
 result=$(_nvim_lua '
