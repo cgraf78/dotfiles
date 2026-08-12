@@ -40,6 +40,15 @@ Mouse bindings should preserve nested behavior. When `#{mouse_any_flag}` is
 set, tmux forwards the event inward with `send-keys -M`; only bare terminal
 panes should be handled by the outer tmux layer.
 
+Ctrl-h/j/k/l bindings should follow focused pane ownership across nested tmux
+layers. Editors and fzf receive the chord directly. Interactive transports and
+nested multiplexers receive it only while their inner content has enabled
+mouse reporting; that signal distinguishes a focused remote tmux, screen, or
+terminal application from a plain remote shell. A plain SSH/mosh shell keeps
+pane navigation at the outer tmux layer, where forwarding Ctrl-h would instead
+produce backspace. Foreground-process-group checks prevent stale background
+transports or nested clients from stealing the chord.
+
 Ctrl-Tab bindings should preserve nested tab ownership. Forward the key into
 Neovim/fzf when those programs own the pane, and through interactive remote
 transports such as `ssh` and `mosh` so a tmux or Neovim session on the remote

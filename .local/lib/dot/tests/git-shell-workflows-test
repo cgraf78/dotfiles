@@ -14,6 +14,12 @@ SOURCE_HOME="${DOT_TEST_SOURCE_HOME:-$HOME}"
 # shellcheck source=helpers.sh
 . "$SOURCE_HOME/.local/lib/dot/tests/helpers.sh"
 
+# Worktree tests read policy from the checkout under test while resolving the
+# dependency artifact from the host installation that dot-test exposes.
+_test_use_host_shdeps
+SHDEPS_CONF_DIR="$SOURCE_HOME/.config/shdeps"
+export SHDEPS_CONF_DIR
+
 # The PATH-visible dotfiles Git launcher is itself under test elsewhere. These
 # workflows need an ordinary Git executable so the fixture repository cannot
 # be redirected through host- or work-specific launcher policy.
