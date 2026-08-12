@@ -1,0 +1,287 @@
+#!/usr/bin/env bash
+# Characterize the public short commands across their ownership move to
+# git-tools. Keep these assertions at the user-visible boundary: the provider
+# may change internals, but these workflows must continue to select the same
+# Git objects, edit the same paths, and use the same worktree layout.
+# Zero-argument calls below are intentional API cases.
+# shellcheck disable=SC2119
+
+set -o pipefail
+export NO_COLOR=1
+
+SOURCE_HOME="${DOT_TEST_SOURCE_HOME:-$HOME}"
+
+# shellcheck source=helpers.sh
+. "$SOURCE_HOME/.local/lib/dot/tests/helpers.sh"
+
+# The PATH-visible dotfiles Git launcher is itself under test elsewhere. These
+# workflows need an ordinary Git executable so the fixture repository cannot
+# be redirected through host- or work-specific launcher policy.
+_test_prefer_system_git
+
+# Resolve the real provider before the fixture replaces HOME. A test-only path
+# override lets the cross-repository change be verified from an isolated
+# git-tools worktree; normal local and CI runs exercise shdeps' public lookup
+# contract instead of assuming any checkout or installation layout.
+git_tools_shell="${DOT_TEST_GIT_TOOLS_SHELL:-}"
+if [[ -z "$git_tools_shell" ]]; then
+  git_tools_shell=$(
+    SHDEPS_CONF_DIR="$SOURCE_HOME/.config/shdeps" \
+      shdeps dep-file cgraf78/git-tools share/git-tools/shell.sh 2>/dev/null
+  ) || git_tools_shell=""
+fi
+if [[ ! -r "$git_tools_shell" ]]; then
+  _fail "git-tools shell provider is available (file not found: $git_tools_shell)"
+  _test_summary
+fi
+
+test_root=$(_tmpdir)
+fixture_home="$test_root/home"
+fixture_bin=$(_mock_bin)
+repo="$test_root/repo"
+fzf_args="$test_root/fzf-args"
+fzf_input="$test_root/fzf-input"
+editor_log="$test_root/editor-args"
+fzf_function_log="$test_root/fzf-function"
+mkdir -p "$fixture_home" "$repo"
+
+cat >"$fixture_bin/fzf" <<'EOF'
+#!/usr/bin/env bash
+set -u
+
+printf '%s\n' "$*" >"$FZF_TEST_ARGS_LOG"
+: >"$FZF_TEST_INPUT_LOG"
+
+if [[ "${FZF_TEST_CANCEL:-0}" == 1 ]]; then
+  cat >>"$FZF_TEST_INPUT_LOG"
+  exit 130
+fi
+
+selection=""
+while IFS= read -r line || [[ -n "$line" ]]; do
+  printf '%s\n' "$line" >>"$FZF_TEST_INPUT_LOG"
+  if [[ -z "$selection" ]]; then
+    if [[ -z "${FZF_TEST_MATCH:-}" || "$line" == *"$FZF_TEST_MATCH"* ]]; then
+      selection="$line"
+    fi
+  fi
+done
+
+[[ -z "$selection" ]] || printf '%s\n' "$selection"
+EOF
+
+cat >"$fixture_bin/editor" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$@" >"$EDITOR_TEST_LOG"
+EOF
+chmod +x "$fixture_bin/fzf" "$fixture_bin/editor"
+
+PATH="$fixture_bin:$PATH"
+HOME="$fixture_home"
+EDITOR="$fixture_bin/editor"
+FZF_TEST_ARGS_LOG="$fzf_args"
+FZF_TEST_INPUT_LOG="$fzf_input"
+EDITOR_TEST_LOG="$editor_log"
+FZF_TEST_FUNCTION_LOG="$fzf_function_log"
+export PATH HOME EDITOR FZF_TEST_ARGS_LOG FZF_TEST_INPUT_LOG EDITOR_TEST_LOG
+export FZF_TEST_FUNCTION_LOG
+
+# The pre-refactor commands honored a consumer-defined fzf shell function.
+# Keep that composition point while the provider hook supplies local flags.
+fzf() {
+  printf 'called\n' >>"$FZF_TEST_FUNCTION_LOG"
+  command fzf "$@"
+}
+
+# Source the exact current runtime order: shared dotfiles policy first, then the
+# dependency provider normally loaded by 70-integrations. Loading the resolved
+# provider directly keeps this suite focused on behavior while the assertions
+# below separately lock both Bash and zsh loader declarations.
+# shellcheck disable=SC1090
+. "$SOURCE_HOME/.config/shell/interactive.d/56-dot.sh"
+# shellcheck disable=SC1090
+. "$SOURCE_HOME/.config/shell/interactive.d/57-git-tools.sh"
+# shellcheck disable=SC1090
+. "$git_tools_shell"
+
+_assert_eq "resolved git-tools provider publishes its loaded marker" \
+  "1" "${GIT_TOOLS_SHELL_LOADED:-}"
+_assert_file_missing "retired fzf Git implementation stays removed" \
+  "$SOURCE_HOME/.config/shell/interactive.d/57-fzf-git.sh"
+_assert_file_missing "retired worktree implementation stays removed" \
+  "$SOURCE_HOME/.config/shell/interactive.d/57-git-worktree.sh"
+for loader in 70-integrations.bash 70-integrations.zsh; do
+  loader_content=$(cat "$SOURCE_HOME/.config/shell/interactive.d/$loader")
+  _assert_contains "$loader declares the cached git-tools integration" \
+    "_tool_init git-tools _tool_shdeps_source_emit" "$loader_content"
+  _assert_contains "$loader resolves the provider through shdeps" \
+    "cgraf78/git-tools share/git-tools/shell.sh" "$loader_content"
+done
+
+for function_name in gbr glo gst gstash gw gwl gwd gwp; do
+  if declare -F "$function_name" >/dev/null; then
+    _pass "public function exists: $function_name"
+  else
+    _fail "public function exists: $function_name"
+  fi
+done
+
+git init -q "$repo"
+git -C "$repo" config user.email test@example.com
+git -C "$repo" config user.name "Git Shell Test"
+git -C "$repo" checkout -q -b main
+printf 'base\n' >"$repo/tracked.txt"
+git -C "$repo" add tracked.txt
+git -C "$repo" commit -q -m base
+base_oid=$(git -C "$repo" rev-parse HEAD)
+
+echo "=== Repository guard ==="
+outside_output=""
+outside_rc=0
+outside_output=$(cd "$test_root" && gbr 2>&1) || outside_rc=$?
+_assert_exit "commands reject a non-repository directory" 1 "$outside_rc"
+_assert_eq "repository rejection remains actionable" \
+  "error: not in a git repo" "$outside_output"
+
+echo
+echo "=== fzf Git workflows ==="
+git -C "$repo" branch feature "$base_oid"
+git -C "$repo" update-ref refs/remotes/origin/feature "$base_oid"
+
+FZF_TEST_MATCH=feature
+export FZF_TEST_MATCH
+(cd "$repo" && gbr >/dev/null)
+_assert_eq "branch picker switches to the selected branch" feature \
+  "$(git -C "$repo" branch --show-current)"
+feature_count=$(awk 'index($0, "feature") { count++ } END { print count + 0 }' "$fzf_input")
+_assert_eq "branch picker deduplicates local and origin branches" 1 "$feature_count"
+_assert_contains "branch picker keeps dotfiles preview layout" \
+  "--height 70% --reverse --preview-window=bottom,60%,border-top" \
+  "$(cat "$fzf_args")"
+_assert_contains "branch picker keeps its prompt" "--prompt=branch> " \
+  "$(cat "$fzf_args")"
+_assert_file_exists "branch picker honors an existing fzf shell function" \
+  "$fzf_function_log"
+
+git -C "$repo" switch -q main
+printf 'latest\n' >"$repo/latest.txt"
+git -C "$repo" add latest.txt
+git -C "$repo" commit -q -m "latest subject"
+FZF_TEST_MATCH="latest subject"
+commit_output=$(cd "$repo" && glo)
+_assert_contains "commit picker shows the selected commit" \
+  "latest subject" "$commit_output"
+_assert_contains "commit picker includes the selected patch" \
+  "latest.txt" "$commit_output"
+
+printf 'modified\n' >>"$repo/tracked.txt"
+FZF_TEST_MATCH=tracked.txt
+(cd "$repo" && gst)
+_assert_file_content "changed-file picker opens the selected path" \
+  "tracked.txt" "$editor_log"
+git -C "$repo" restore tracked.txt
+
+printf 'stash base\n' >"$repo/stash.txt"
+git -C "$repo" add stash.txt
+git -C "$repo" commit -q -m "add stash fixture"
+printf 'stash restored\n' >"$repo/stash.txt"
+git -C "$repo" stash push -q -m "characterization stash"
+FZF_TEST_MATCH="characterization stash"
+printf 'y\n' | (cd "$repo" && gstash >/dev/null)
+_assert_eq "stash picker pops the selected stash after confirmation" \
+  "" "$(git -C "$repo" stash list)"
+_assert_file_content "stash picker restores the selected changes" \
+  "stash restored" "$repo/stash.txt"
+git -C "$repo" restore stash.txt
+
+echo
+echo "=== Git worktree workflows ==="
+expected_root="$fixture_home/worktrees/repo"
+actual_root=$(cd "$repo" && _worktree_root)
+_assert_eq "worktree root uses HOME, repository name, and worktrees" \
+  "$expected_root" "$actual_root"
+
+create_output=$(cd "$repo" && gw topic main &&
+  printf 'cwd=%s\nbranch=%s\n' "$PWD" "$(git branch --show-current)")
+_assert_contains "worktree create reports its destination" \
+  "created worktree: $expected_root/topic" "$create_output"
+_assert_contains "worktree create enters the new worktree" \
+  "cwd=$expected_root/topic" "$create_output"
+_assert_contains "worktree create checks out the requested branch" \
+  "branch=topic" "$create_output"
+
+existing_output=$(cd "$repo" && gw topic && printf 'cwd=%s\n' "$PWD")
+_assert_contains "existing worktree is reused" \
+  "switched to existing worktree: $expected_root/topic" "$existing_output"
+_assert_contains "existing worktree reuse changes directory" \
+  "cwd=$expected_root/topic" "$existing_output"
+
+FZF_TEST_MATCH="$expected_root/topic"
+# Git and the shell may spell the same macOS directory as `/var/...` and
+# `/private/var/...`. This assertion is about the directory the picker enters,
+# so compare physical paths instead of treating that platform alias as a
+# behavioral difference.
+expected_topic_physical=$(cd "$expected_root/topic" && pwd -P)
+list_cwd=$(cd "$repo" && gwl && pwd -P)
+_assert_eq "worktree picker enters the selected worktree" \
+  "$expected_topic_physical" "$list_cwd"
+_assert_contains "worktree picker keeps dotfiles compact layout" \
+  "--height 40% --reverse" "$(cat "$fzf_args")"
+
+remove_output=$(cd "$repo" && gwd topic)
+_assert_contains "worktree removal reports the removed path" \
+  "removed worktree: $expected_root/topic" "$remove_output"
+if [[ ! -e "$expected_root/topic" ]]; then
+  _pass "worktree removal removes the selected worktree"
+else
+  _fail "worktree removal removes the selected worktree"
+fi
+
+main_remove_output=""
+main_remove_rc=0
+main_remove_output=$(cd "$repo" && gwd 2>&1) || main_remove_rc=$?
+_assert_exit "worktree removal refuses the main worktree" 1 "$main_remove_rc"
+_assert_eq "main-worktree refusal remains actionable" \
+  "error: cannot remove the main worktree" "$main_remove_output"
+
+slash_output=$(cd "$repo" && gw nested/slash main && printf 'cwd=%s\n' "$PWD")
+_assert_contains "slash branch names use filesystem-safe worktree paths" \
+  "cwd=$expected_root/nested__slash" "$slash_output"
+(cd "$repo" && gwd nested/slash >/dev/null)
+
+mkdir -p "$expected_root/empty" "$expected_root/nonempty"
+printf 'keep\n' >"$expected_root/nonempty/file"
+(cd "$repo" && gwp >/dev/null)
+if [[ ! -d "$expected_root/empty" ]]; then
+  _pass "worktree prune removes empty worktree directories"
+else
+  _fail "worktree prune removes empty worktree directories"
+fi
+_assert_file_content "worktree prune preserves nonempty directories" \
+  "keep" "$expected_root/nonempty/file"
+
+if command -v zsh >/dev/null 2>&1; then
+  zsh_result=$(
+    SOURCE_HOME="$SOURCE_HOME" \
+      GIT_TOOLS_TEST_PROVIDER="$git_tools_shell" \
+      HOME="$fixture_home" \
+      zsh -dfc '
+        set -e
+        _fzf_preview=(--height 70% --reverse)
+        _fzf_pick=(--height 40% --reverse)
+        _edit_file() { :; }
+        source "$SOURCE_HOME/.config/shell/interactive.d/57-git-tools.sh"
+        source "$GIT_TOOLS_TEST_PROVIDER"
+        for name in gbr glo gst gstash gw gwl gwd gwp; do
+          typeset -f "$name" >/dev/null
+        done
+        [[ "$GIT_TOOLS_WORKTREE_PARENT" == "$HOME/worktrees" ]]
+        print -r -- ok
+      '
+  )
+  _assert_eq "zsh loads the same adapter and provider surface" ok "$zsh_result"
+else
+  echo "  SKIP: zsh not installed"
+fi
+
+_test_summary

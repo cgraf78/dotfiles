@@ -59,15 +59,6 @@ _edit_file() {
   fi
 }
 
-# Guard for git helpers: fail with a consistent message unless run inside a
-# git work tree. Callers use: _require_git_repo || return
-_require_git_repo() {
-  if ! git rev-parse --git-dir &>/dev/null; then
-    echo "error: not in a git repo" >&2
-    return 1
-  fi
-}
-
 # Require external commands, reporting any missing ones. The caller name is
 # passed explicitly because these helpers are sourced in zsh too, where bash's
 # $FUNCNAME is unavailable. Callers use: _need_cmds <name> <cmd>... || return
