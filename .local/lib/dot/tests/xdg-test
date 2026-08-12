@@ -118,15 +118,6 @@ _dot_launcher_cache_path git
 _assert_eq "launcher cache: relative cache home uses HOME fallback" \
   "$fixture_home/.cache/dot/git-real" "$REPLY"
 
-DOT_GIT_LAUNCHER_SOURCED=1
-# shellcheck source=../../../bin/git
-# shellcheck disable=SC1094 # The guarded launcher is linted independently.
-. "$source_home/.local/bin/git"
-unset DOT_GIT_LAUNCHER_SOURCED
-_dot_git_nested_cache_path
-_assert_eq "git nested cache: relative cache home uses HOME fallback" \
-  "$fixture_home/.cache/dot/git-nested-worktree-roots" "$REPLY"
-
 XDG_DATA_HOME="relative/data"
 marks_one=$(cd "$lock_cwd_one" && HOME="$fixture_home" XDG_DATA_HOME="relative/data" \
   bash -c '. "$1"; printf "%s" "$_MARKS_DIR"' \

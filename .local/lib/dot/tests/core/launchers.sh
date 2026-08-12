@@ -708,11 +708,31 @@ EOF
   echo ""
   echo "=== nvim launcher ==="
 
+  # These launchers run only after dot has converged the managed dependency
+  # set. Keep that fleet contract explicit here so test fixtures, old install
+  # layouts, and duplicated provider inference cannot creep back into the
+  # production entry points.
+  _hm_launcher_source=$(cat "$BIN_DIR/hm")
+  _nvim_launcher_source=$(cat "$BIN_DIR/nvim")
+  _git_launcher_source=$(cat "$BIN_DIR/git")
+  _assert_not_contains "launchers: production code is independent of dot-test" \
+    "DOT_TEST_" "$_hm_launcher_source$_nvim_launcher_source$_git_launcher_source"
+  _assert_not_contains "hm launcher: has no core-path override" \
+    "HIVE_MEMORY_CORE" "$_hm_launcher_source"
+  _assert_not_contains "hm launcher: has no legacy core fallback" \
+    ".local/share/hive-memory/bin/hm-core" "$_hm_launcher_source"
+  _assert_not_contains "hm launcher: does not infer Codex identity" \
+    "CODEX_THREAD_ID" "$_hm_launcher_source"
+  _assert_not_contains "hm launcher: does not infer Claude identity" \
+    "CLAUDE_CODE_SESSION_ID" "$_hm_launcher_source"
+  _assert_not_contains "nvim launcher: does not search for alternate editors" \
+    "_dot_launcher_find_real" "$_nvim_launcher_source"
+  _assert_not_contains "git launcher: has no source-only test mode" \
+    "DOT_GIT_LAUNCHER_SOURCED" "$_git_launcher_source"
+
   NVIM_LAUNCHER_HOME=$(_tmpdir)
   NVIM_LAUNCHER_BIN=$(_mock_bin)
   NVIM_LAUNCHER_CWD="$NVIM_LAUNCHER_HOME/project"
-  NVIM_LAUNCHER_XDG_CACHE="$NVIM_LAUNCHER_HOME/xdg-cache"
-  NVIM_LAUNCHER_CACHE="$NVIM_LAUNCHER_XDG_CACHE/dot/nvim-real"
   NVIM_LAUNCHER_PROVIDER="$NVIM_LAUNCHER_HOME/termnav-nvim-launcher.sh"
   mkdir -p "$NVIM_LAUNCHER_HOME/.local/share/neovim/neovim/bin" "$NVIM_LAUNCHER_CWD"
 
@@ -739,117 +759,55 @@ MOCK
 
   result=$(
     cd "$NVIM_LAUNCHER_CWD" || exit
-    HOME="$NVIM_LAUNCHER_HOME" XDG_CACHE_HOME="$NVIM_LAUNCHER_XDG_CACHE" \
-      PATH="$NVIM_LAUNCHER_BIN:$PATH" \
+    HOME="$NVIM_LAUNCHER_HOME" PATH="$NVIM_LAUNCHER_BIN:$PATH" \
       NVIM_LAUNCHER_PROVIDER="$NVIM_LAUNCHER_PROVIDER" \
       NVIM_TEST_REUSE=1 \
       "$BIN_DIR/nvim" src/app.lua
   )
   _assert_eq "nvim launcher: delegates pane reuse to Termnav" \
     "provider:src/app.lua" "$result"
-  _assert_file_missing "nvim launcher: preferred binary does not create fallback cache" \
-    "$NVIM_LAUNCHER_CACHE"
 
   NVIM_REUSE_HOME=$(_tmpdir)
   result=$(
     cd "$NVIM_LAUNCHER_CWD" || exit
-    HOME="$NVIM_REUSE_HOME" XDG_CACHE_HOME="$NVIM_REUSE_HOME/cache" \
-      PATH="$NVIM_LAUNCHER_BIN:/usr/bin:/bin" \
+    HOME="$NVIM_REUSE_HOME" PATH="$NVIM_LAUNCHER_BIN:/usr/bin:/bin" \
       NVIM_LAUNCHER_PROVIDER="$NVIM_LAUNCHER_PROVIDER" \
       NVIM_TEST_REUSE=1 \
       "$BIN_DIR/nvim" src/app.lua
   )
   _assert_eq "nvim launcher: provider success does not require a fallback binary" \
     "provider:src/app.lua" "$result"
-  _assert_file_missing "nvim launcher: successful reuse skips fallback resolution" \
-    "$NVIM_REUSE_HOME/cache/dot/nvim-real"
-
-  mkdir -p "${NVIM_LAUNCHER_CACHE%/*}"
-  printf 'fallback-cache-sentinel\n' >"$NVIM_LAUNCHER_CACHE"
 
   result=$(
     cd "$NVIM_LAUNCHER_CWD" || exit
-    HOME="$NVIM_LAUNCHER_HOME" XDG_CACHE_HOME="$NVIM_LAUNCHER_XDG_CACHE" \
-      PATH="$NVIM_LAUNCHER_BIN:$PATH" \
+    HOME="$NVIM_LAUNCHER_HOME" PATH="$NVIM_LAUNCHER_BIN:$PATH" \
       NVIM_LAUNCHER_PROVIDER="$NVIM_LAUNCHER_PROVIDER" \
       "$BIN_DIR/nvim" src/app.lua
   )
   expected="$(printf 'provider:src/app.lua\nreal:src/app.lua')"
   _assert_eq "nvim launcher: provider refusal falls back to real nvim" "$expected" "$result"
-  _assert_file_content "nvim launcher: preferred binary preserves fallback cache" \
-    "fallback-cache-sentinel" "$NVIM_LAUNCHER_CACHE"
 
   result=$(
     cd "$NVIM_LAUNCHER_CWD" || exit
-    HOME="$NVIM_LAUNCHER_HOME" XDG_CACHE_HOME="$NVIM_LAUNCHER_XDG_CACHE" \
-      PATH="$NVIM_LAUNCHER_BIN:$PATH" \
+    HOME="$NVIM_LAUNCHER_HOME" PATH="$NVIM_LAUNCHER_BIN:$PATH" \
       NVIM_LAUNCHER_PROVIDER="$NVIM_LAUNCHER_PROVIDER" \
       "$BIN_DIR/nvim" --headless src/app.lua
   )
   _assert_eq "nvim launcher: forwards the complete argv to Termnav and real nvim" \
     "$(printf 'provider:--headless src/app.lua\nreal:--headless src/app.lua')" "$result"
 
-  result=$(
+  _nvim_missing_rc=0
+  _nvim_missing_output=$(
     cd "$NVIM_LAUNCHER_CWD" || exit
-    HOME="$NVIM_LAUNCHER_HOME" XDG_CACHE_HOME="$NVIM_LAUNCHER_XDG_CACHE" \
-      PATH="$NVIM_LAUNCHER_BIN:$PATH" \
+    HOME="$NVIM_LAUNCHER_HOME" PATH="$NVIM_LAUNCHER_BIN:$PATH" \
       NVIM_LAUNCHER_PROVIDER="$NVIM_LAUNCHER_PROVIDER" \
       NVIM_TEST_PROVIDER_MISSING=1 \
-      "$BIN_DIR/nvim" src/app.lua
-  )
-  _assert_eq "nvim launcher: missing Termnav provider falls back to real nvim" \
-    "real:src/app.lua" "$result"
-
-  NVIM_PATH_HOME=$(_tmpdir)
-  NVIM_PATH_BIN=$(_mock_bin)
-  NVIM_PATH_XDG_CACHE="$NVIM_PATH_HOME/xdg-cache"
-  NVIM_PATH_CACHE="$NVIM_PATH_XDG_CACHE/dot/nvim-real"
-  cat >"$NVIM_PATH_BIN/nvim" <<'MOCK'
-#!/usr/bin/env bash
-printf 'path-real:%s\n' "$*"
-MOCK
-  chmod +x "$NVIM_PATH_BIN/nvim"
-  result=$(
-    cd "$NVIM_LAUNCHER_CWD" &&
-      HOME="$NVIM_PATH_HOME" XDG_CACHE_HOME="$NVIM_PATH_XDG_CACHE" \
-        PATH="$NVIM_PATH_BIN:$BIN_DIR:/usr/bin:/bin" \
-        "$BIN_DIR/nvim" src/app.lua
-  )
-  _assert_eq "nvim launcher: path fallback skips wrapper" "path-real:src/app.lua" "$result"
-  expected="$(printf '%s\n%s' \
-    "$NVIM_PATH_BIN/nvim" "$NVIM_PATH_BIN:$BIN_DIR:/usr/bin:/bin")"
-  _assert_file_content "nvim launcher: path fallback caches resolved binary" \
-    "$expected" "$NVIM_PATH_CACHE"
-
-  NVIM_CROSS_HOME=$(_tmpdir)
-  NVIM_CROSS_WRAPPER_BIN=$(_tmpdir)
-  NVIM_CROSS_REAL_BIN=$(_tmpdir)
-  NVIM_CROSS_XDG_CACHE="$NVIM_CROSS_HOME/xdg-cache"
-  cp "$BIN_DIR/nvim" "$NVIM_CROSS_WRAPPER_BIN/nvim"
-  chmod +x "$NVIM_CROSS_WRAPPER_BIN/nvim"
-  cat >"$NVIM_CROSS_REAL_BIN/nvim" <<'MOCK'
-#!/usr/bin/env bash
-printf 'cross-real:%s\n' "$*"
-MOCK
-  chmod +x "$NVIM_CROSS_REAL_BIN/nvim"
-  _nvim_cross_timeout=""
-  if command -v timeout >/dev/null 2>&1; then
-    _nvim_cross_timeout=$(command -v timeout)
-  elif command -v gtimeout >/dev/null 2>&1; then
-    _nvim_cross_timeout=$(command -v gtimeout)
-  fi
-  if [[ -n "$_nvim_cross_timeout" ]]; then
-    result=$(
-      cd "$NVIM_LAUNCHER_CWD" &&
-        HOME="$NVIM_CROSS_HOME" XDG_CACHE_HOME="$NVIM_CROSS_XDG_CACHE" \
-          PATH="$BIN_DIR:$NVIM_CROSS_WRAPPER_BIN:$NVIM_CROSS_REAL_BIN:/usr/bin:/bin" \
-          "$_nvim_cross_timeout" 3s "$BIN_DIR/nvim" --headless src/app.lua
-    )
-    _assert_eq "nvim launcher cross-account path: skips other launcher copies" \
-      "cross-real:--headless src/app.lua" "$result"
-  else
-    _pass "nvim launcher cross-account path: timeout unavailable, skipped"
-  fi
+      "$BIN_DIR/nvim" src/app.lua 2>&1
+  ) || _nvim_missing_rc=$?
+  _assert_eq "nvim launcher: missing Termnav is a broken installation" \
+    "127" "$_nvim_missing_rc"
+  _assert_contains "nvim launcher: missing Termnav suggests repair" \
+    "run dot update" "$_nvim_missing_output"
 
   # ---------------------------------------------------------------------------
   # Tests: Hive Memory launcher
@@ -873,171 +831,23 @@ fi
 MOCK
   chmod +x "$HM_LAUNCHER_REAL"
 
-  # Clear ambient runtime identity for every probe so the assertions describe
-  # only the environment each case supplies, regardless of which agent runs
-  # dot-test. Later env operands intentionally override this baseline.
-  HM_LAUNCHER_SCRUB_ENV=(
-    AGENTGUARD_PROCESS_DETECT=0
-    AGENTGUARD_SESSION_ID=
-    CODEX_THREAD_ID=
-    CODEX_INTERNAL_ORIGINATOR_OVERRIDE=
-    CLAUDE_CODE_CURRENT_SESSION_ID=
-    CLAUDE_CODE_SESSION_ID=
-    AGENTGUARD_NAME=
-    GEMINI_PROJECT_DIR=
-    HIVE_MEMORY_AGENT_ID=
-    HIVE_MEMORY_CORE=
-    HIVE_MEMORY_PROJECT_INFER=
-    HIVE_MEMORY_SESSION_ID=
-    HIVE_MEMORY_PROJECT=
-  )
-
-  result=$(env "${HM_LAUNCHER_SCRUB_ENV[@]}" HOME="$HM_LAUNCHER_HOME" \
-    "$BIN_DIR/hm" recall --limit 2)
-  _assert_eq "hm launcher: delegates to stable Shdeps archive path" \
-    "real:recall --limit 2" "$result"
-
-  result=$(env "${HM_LAUNCHER_SCRUB_ENV[@]}" HOME="$HM_LAUNCHER_HOME" \
-    HIVE_MEMORY_CORE= "$BIN_DIR/hm" recall --limit 3)
-  _assert_eq "hm launcher: empty core override keeps historical default behavior" \
-    "real:recall --limit 3" "$result"
-
-  HM_LAUNCHER_LEGACY="$HM_LAUNCHER_HOME/.local/share/hive-memory/bin/hm-core"
-  mkdir -p "${HM_LAUNCHER_LEGACY%/*}"
-  cp "$HM_LAUNCHER_REAL" "$HM_LAUNCHER_LEGACY"
-  rm -f "$HM_LAUNCHER_REAL"
-  result=$(env "${HM_LAUNCHER_SCRUB_ENV[@]}" HOME="$HM_LAUNCHER_HOME" \
-    "$BIN_DIR/hm" recall --limit 1)
-  _assert_eq "hm launcher: failed first migration keeps the legacy core usable" \
-    "real:recall --limit 1" "$result"
-  cp "$HM_LAUNCHER_LEGACY" "$HM_LAUNCHER_REAL"
-
-  HM_LAUNCHER_OVERRIDE=$(_tmpdir)/hm-real
-  cp "$HM_LAUNCHER_REAL" "$HM_LAUNCHER_OVERRIDE"
-  result=$(env "${HM_LAUNCHER_SCRUB_ENV[@]}" HOME="$HM_LAUNCHER_HOME" \
-    HIVE_MEMORY_CORE="$HM_LAUNCHER_OVERRIDE" "$BIN_DIR/hm" search query)
-  _assert_eq "hm launcher: explicit core override remains supported" \
-    "real:search query" "$result"
-
-  _hm_plain_probe=$(env "${HM_LAUNCHER_SCRUB_ENV[@]}" \
-    HOME="$HM_LAUNCHER_HOME" "$BIN_DIR/hm" env-probe)
-  _assert_contains "hm launcher: leaves human agent unset" \
-    "agent=" "$_hm_plain_probe"
-  _assert_contains "hm launcher: leaves human session unset" \
-    "session=" "$_hm_plain_probe"
-  _assert_eq "hm launcher: leaves human project unset" \
-    "project=" "$(printf '%s\n' "$_hm_plain_probe" | grep '^project=')"
-
-  _hm_env_probe=$(env "${HM_LAUNCHER_SCRUB_ENV[@]}" \
-    HOME="$HM_LAUNCHER_HOME" CODEX_THREAD_ID="codex-session-1" \
-    "$BIN_DIR/hm" env-probe)
-  _assert_contains "hm launcher: detects Codex agent" \
-    "agent=codex" "$_hm_env_probe"
-  _assert_contains "hm launcher: exports Codex session" \
-    "session=codex-session-1" "$_hm_env_probe"
-  _assert_contains "hm launcher: exports project hint" \
-    "project=$(pwd)" "$_hm_env_probe"
-
-  _hm_dot_agent_probe=$(env "${HM_LAUNCHER_SCRUB_ENV[@]}" \
-    HOME="$HM_LAUNCHER_HOME" AGENTGUARD_NAME="codex" \
-    "$BIN_DIR/hm" env-probe)
-  _assert_contains "hm launcher: uses explicit AgentGuard name" \
-    "agent=codex" "$_hm_dot_agent_probe"
-  _assert_contains "hm launcher: synthesizes AgentGuard session" \
-    "session=codex-" "$_hm_dot_agent_probe"
-
-  _hm_neutral_session_probe=$(env "${HM_LAUNCHER_SCRUB_ENV[@]}" \
-    HOME="$HM_LAUNCHER_HOME" AGENTGUARD_SESSION_ID="neutral-session" \
-    CODEX_THREAD_ID="codex-session-shadowed" \
-    "$BIN_DIR/hm" env-probe)
-  _assert_contains "hm launcher: neutral AgentGuard session wins" \
-    "session=neutral-session" "$_hm_neutral_session_probe"
-
-  _hm_claude_current_probe=$(env "${HM_LAUNCHER_SCRUB_ENV[@]}" \
-    HOME="$HM_LAUNCHER_HOME" \
-    CLAUDE_CODE_CURRENT_SESSION_ID="claude-current" \
-    CLAUDE_CODE_SESSION_ID="claude-fallback" \
-    "$BIN_DIR/hm" env-probe)
-  _assert_contains "hm launcher: detects Claude agent" \
-    "agent=claude" "$_hm_claude_current_probe"
-  _assert_contains "hm launcher: prefers Claude current session" \
-    "session=claude-current" "$_hm_claude_current_probe"
-
-  _hm_claude_fallback_probe=$(env "${HM_LAUNCHER_SCRUB_ENV[@]}" \
-    HOME="$HM_LAUNCHER_HOME" CLAUDE_CODE_SESSION_ID="claude-fallback" \
-    "$BIN_DIR/hm" env-probe)
-  _assert_contains "hm launcher: accepts Claude subprocess session" \
-    "session=claude-fallback" "$_hm_claude_fallback_probe"
-
-  _hm_gemini_project="$HM_LAUNCHER_HOME/gemini-project"
-  _hm_gemini_probe=$(env "${HM_LAUNCHER_SCRUB_ENV[@]}" \
-    HOME="$HM_LAUNCHER_HOME" GEMINI_PROJECT_DIR="$_hm_gemini_project" \
-    "$BIN_DIR/hm" env-probe)
-  _assert_contains "hm launcher: detects Gemini agent" \
-    "agent=gemini" "$_hm_gemini_probe"
-  _assert_contains "hm launcher: synthesizes Gemini session" \
-    "session=gemini-" "$_hm_gemini_probe"
-  _assert_contains "hm launcher: uses Gemini project hint" \
-    "project=$_hm_gemini_project" "$_hm_gemini_probe"
-
-  _hm_named_agent_probe=$(env "${HM_LAUNCHER_SCRUB_ENV[@]}" \
-    HOME="$HM_LAUNCHER_HOME" AGENTGUARD_NAME="example-agent" \
-    "$BIN_DIR/hm" env-probe)
-  _assert_contains "hm launcher: keeps compatible AgentGuard identity" \
-    "agent=example-agent" "$_hm_named_agent_probe"
-  _assert_contains "hm launcher: namespaces compatible agent session" \
-    "session=example-agent-" "$_hm_named_agent_probe"
-
-  _hm_explicit_only_probe=$(env "${HM_LAUNCHER_SCRUB_ENV[@]}" \
-    HOME="$HM_LAUNCHER_HOME" HIVE_MEMORY_AGENT_ID="custom-agent" \
-    "$BIN_DIR/hm" env-probe)
-  _assert_contains "hm launcher: explicit Hive agent enables context" \
-    "agent=custom-agent" "$_hm_explicit_only_probe"
-  _assert_contains "hm launcher: explicit Hive agent gets a session" \
-    "session=custom-agent-" "$_hm_explicit_only_probe"
-
-  _hm_explicit_agent_probe=$(env "${HM_LAUNCHER_SCRUB_ENV[@]}" \
-    HOME="$HM_LAUNCHER_HOME" AGENTGUARD_NAME="codex" \
-    CODEX_THREAD_ID="codex-session-2" HIVE_MEMORY_AGENT_ID="custom-agent" \
-    "$BIN_DIR/hm" env-probe)
-  _assert_contains "hm launcher: preserves explicit agent override" \
-    "agent=custom-agent" "$_hm_explicit_agent_probe"
-  _assert_contains "hm launcher: keeps detected runtime session" \
-    "session=codex-session-2" "$_hm_explicit_agent_probe"
-
-  _hm_explicit_context_probe=$(env "${HM_LAUNCHER_SCRUB_ENV[@]}" \
-    HOME="$HM_LAUNCHER_HOME" CODEX_THREAD_ID="codex-session-shadowed" \
-    HIVE_MEMORY_SESSION_ID="hive-session" \
-    HIVE_MEMORY_PROJECT="/explicit/project" \
-    "$BIN_DIR/hm" env-probe)
-  _assert_contains "hm launcher: preserves explicit Hive session" \
-    "session=hive-session" "$_hm_explicit_context_probe"
-  _assert_contains "hm launcher: preserves explicit Hive project" \
-    "project=/explicit/project" "$_hm_explicit_context_probe"
-
-  _hm_no_project_probe=$(env "${HM_LAUNCHER_SCRUB_ENV[@]}" \
-    HOME="$HM_LAUNCHER_HOME" AGENTGUARD_NAME="codex" \
-    CODEX_THREAD_ID="codex-session-3" HIVE_MEMORY_PROJECT_INFER=0 \
-    "$BIN_DIR/hm" env-probe)
-  _assert_eq "hm launcher: keeps project unset when inference is disabled" \
-    "project=" "$(printf '%s\n' "$_hm_no_project_probe" | grep '^project=')"
-
-  # Exercise the provider boundary independently of AgentGuard's own detection
-  # matrix. This fixture intentionally returns an opaque session value: if the
-  # launcher reconstructs session policy from the agent name, the assertion
-  # fails and catches the ownership drift.
+  # The launcher consumes AgentGuard as a required provider. Keep the fixture
+  # opaque so this suite tests only dotfiles' Hive mapping; AgentGuard's own
+  # suite owns runtime-specific detection and session precedence.
   HM_AGENTGUARD_API=$(_tmpdir)/agentguard.sh
   cat >"$HM_AGENTGUARD_API" <<'MOCK'
 agentguard_agent_name() {
-  printf '%s\n' "provider-agent"
+  printf '%s\n' "${HM_TEST_AGENT:-unknown}"
 }
 
 agentguard_session_id() {
-  if [[ "${1:-}" == "custom-agent" ]]; then
-    printf '%s\n' "custom-provider-session"
-    return 0
+  if [[ -n "${HM_TEST_SESSION:-}" ]]; then
+    printf '%s\n' "$HM_TEST_SESSION"
+  elif [[ -n "${1:-}" ]]; then
+    printf 'fallback:%s\n' "$1"
+  else
+    return 1
   fi
-  printf '%s\n' "provider-session"
 }
 MOCK
   HM_AGENTGUARD_BIN=$(_mock_bin)
@@ -1051,51 +861,105 @@ fi
 exit 1
 MOCK
   chmod +x "$HM_AGENTGUARD_BIN/shdeps"
-  mkdir -p "$HM_LAUNCHER_HOME/.local/lib/dot/core"
-  cp "$CORE_TEST_MODULE_DIR/../../core/shdeps-assets.sh" \
-    "$HM_LAUNCHER_HOME/.local/lib/dot/core/shdeps-assets.sh"
+
+  # Clear ambient runtime identity for every probe so the assertions describe
+  # only the environment each case supplies, regardless of which agent runs
+  # dot-test. Later env operands intentionally override this baseline.
+  HM_LAUNCHER_SCRUB_ENV=(
+    GEMINI_PROJECT_DIR=
+    HM_AGENTGUARD_API="$HM_AGENTGUARD_API"
+    HM_TEST_AGENT=unknown
+    HM_TEST_SESSION=
+    HIVE_MEMORY_AGENT_ID=
+    HIVE_MEMORY_PROJECT_INFER=
+    HIVE_MEMORY_SESSION_ID=
+    HIVE_MEMORY_PROJECT=
+    PATH="$HM_AGENTGUARD_BIN:$PATH"
+  )
+
+  result=$(env "${HM_LAUNCHER_SCRUB_ENV[@]}" HOME="$HM_LAUNCHER_HOME" \
+    "$BIN_DIR/hm" recall --limit 2)
+  _assert_eq "hm launcher: delegates to stable Shdeps archive path" \
+    "real:recall --limit 2" "$result"
+
+  _hm_plain_probe=$(env "${HM_LAUNCHER_SCRUB_ENV[@]}" \
+    HOME="$HM_LAUNCHER_HOME" "$BIN_DIR/hm" env-probe)
+  _assert_eq "hm launcher: leaves human agent unset" \
+    "agent=" "$(printf '%s\n' "$_hm_plain_probe" | grep '^agent=')"
+  _assert_eq "hm launcher: leaves human session unset" \
+    "session=" "$(printf '%s\n' "$_hm_plain_probe" | grep '^session=')"
+  _assert_eq "hm launcher: leaves human project unset" \
+    "project=" "$(printf '%s\n' "$_hm_plain_probe" | grep '^project=')"
+
   _hm_provider_probe=$(env "${HM_LAUNCHER_SCRUB_ENV[@]}" \
-    HOME="$HM_LAUNCHER_HOME" PATH="$HM_AGENTGUARD_BIN:$PATH" \
-    HM_AGENTGUARD_API="$HM_AGENTGUARD_API" \
-    "$BIN_DIR/hm" env-probe)
+    HOME="$HM_LAUNCHER_HOME" HM_TEST_AGENT="provider-agent" \
+    HM_TEST_SESSION="provider-session" "$BIN_DIR/hm" env-probe)
   _assert_contains "hm launcher: consumes AgentGuard agent identity" \
     "agent=provider-agent" "$_hm_provider_probe"
   _assert_contains "hm launcher: consumes AgentGuard session identity" \
     "session=provider-session" "$_hm_provider_probe"
+  _assert_contains "hm launcher: maps agent calls to the current project" \
+    "project=$(pwd)" "$_hm_provider_probe"
 
-  _hm_provider_override_probe=$(env "${HM_LAUNCHER_SCRUB_ENV[@]}" \
-    HOME="$HM_LAUNCHER_HOME" PATH="$HM_AGENTGUARD_BIN:$PATH" \
-    HM_AGENTGUARD_API="$HM_AGENTGUARD_API" \
-    HIVE_MEMORY_AGENT_ID="custom-agent" \
+  _hm_gemini_project="$HM_LAUNCHER_HOME/gemini-project"
+  _hm_gemini_probe=$(env "${HM_LAUNCHER_SCRUB_ENV[@]}" \
+    HOME="$HM_LAUNCHER_HOME" HM_TEST_AGENT=gemini \
+    HM_TEST_SESSION="gemini-session" \
+    GEMINI_PROJECT_DIR="$_hm_gemini_project" "$BIN_DIR/hm" env-probe)
+  _assert_contains "hm launcher: uses Gemini's precise project hint" \
+    "project=$_hm_gemini_project" "$_hm_gemini_probe"
+
+  _hm_explicit_only_probe=$(env "${HM_LAUNCHER_SCRUB_ENV[@]}" \
+    HOME="$HM_LAUNCHER_HOME" HIVE_MEMORY_AGENT_ID="custom-agent" \
     "$BIN_DIR/hm" env-probe)
+  _assert_contains "hm launcher: preserves an explicit Hive agent" \
+    "agent=custom-agent" "$_hm_explicit_only_probe"
   _assert_contains "hm launcher: gives AgentGuard the Hive fallback namespace" \
-    "session=custom-provider-session" "$_hm_provider_override_probe"
+    "session=fallback:custom-agent" "$_hm_explicit_only_probe"
+
+  _hm_explicit_context_probe=$(env "${HM_LAUNCHER_SCRUB_ENV[@]}" \
+    HOME="$HM_LAUNCHER_HOME" HM_TEST_AGENT="provider-agent" \
+    HM_TEST_SESSION="provider-session" \
+    HIVE_MEMORY_SESSION_ID="hive-session" \
+    HIVE_MEMORY_PROJECT="/explicit/project" \
+    "$BIN_DIR/hm" env-probe)
+  _assert_contains "hm launcher: preserves explicit Hive session" \
+    "session=hive-session" "$_hm_explicit_context_probe"
+  _assert_contains "hm launcher: preserves explicit Hive project" \
+    "project=/explicit/project" "$_hm_explicit_context_probe"
+
+  _hm_no_project_probe=$(env "${HM_LAUNCHER_SCRUB_ENV[@]}" \
+    HOME="$HM_LAUNCHER_HOME" HM_TEST_AGENT="provider-agent" \
+    HM_TEST_SESSION="provider-session" HIVE_MEMORY_PROJECT_INFER=0 \
+    "$BIN_DIR/hm" env-probe)
+  _assert_eq "hm launcher: keeps project unset when inference is disabled" \
+    "project=" "$(printf '%s\n' "$_hm_no_project_probe" | grep '^project=')"
 
   _hm_missing_output=""
   _hm_missing_rc=0
+  mv "$HM_LAUNCHER_REAL" "$HM_LAUNCHER_REAL.saved"
   _hm_missing_output=$(env "${HM_LAUNCHER_SCRUB_ENV[@]}" \
-    HOME="$HM_LAUNCHER_HOME" HIVE_MEMORY_CORE="$HM_LAUNCHER_HOME/missing" \
-    "$BIN_DIR/hm" --version 2>&1) || _hm_missing_rc=$?
+    HOME="$HM_LAUNCHER_HOME" "$BIN_DIR/hm" --version 2>&1) || _hm_missing_rc=$?
+  mv "$HM_LAUNCHER_REAL.saved" "$HM_LAUNCHER_REAL"
   _assert_eq "hm launcher: missing core exits like a missing command" \
     "127" "$_hm_missing_rc"
   _assert_contains "hm launcher: missing core names the rejected path" \
-    "$HM_LAUNCHER_HOME/missing" "$_hm_missing_output"
+    "$HM_LAUNCHER_REAL" "$_hm_missing_output"
 
-  _hm_self_rc=0
-  env "${HM_LAUNCHER_SCRUB_ENV[@]}" HOME="$HM_LAUNCHER_HOME" \
-    HIVE_MEMORY_CORE="$BIN_DIR/hm" "$BIN_DIR/hm" --version \
-    >/dev/null 2>&1 || _hm_self_rc=$?
-  _assert_eq "hm launcher: direct self override is rejected" "127" "$_hm_self_rc"
-
-  HM_LAUNCHER_COPY=$(_tmpdir)/hm-copy
-  cp "$BIN_DIR/hm" "$HM_LAUNCHER_COPY"
-  chmod +x "$HM_LAUNCHER_COPY"
-  _hm_copy_rc=0
-  env "${HM_LAUNCHER_SCRUB_ENV[@]}" HOME="$HM_LAUNCHER_HOME" \
-    HIVE_MEMORY_CORE="$HM_LAUNCHER_COPY" "$BIN_DIR/hm" --version \
-    >/dev/null 2>&1 || _hm_copy_rc=$?
-  _assert_eq "hm launcher: another launcher copy is rejected by marker" \
-    "127" "$_hm_copy_rc"
+  HM_MISSING_PROVIDER_BIN=$(_mock_bin)
+  cat >"$HM_MISSING_PROVIDER_BIN/shdeps" <<'MOCK'
+#!/usr/bin/env bash
+exit 1
+MOCK
+  chmod +x "$HM_MISSING_PROVIDER_BIN/shdeps"
+  _hm_provider_missing_rc=0
+  _hm_provider_missing_output=$(env "${HM_LAUNCHER_SCRUB_ENV[@]}" \
+    HOME="$HM_LAUNCHER_HOME" PATH="$HM_MISSING_PROVIDER_BIN:$PATH" \
+    "$BIN_DIR/hm" --version 2>&1) || _hm_provider_missing_rc=$?
+  _assert_eq "hm launcher: missing AgentGuard is a broken installation" \
+    "127" "$_hm_provider_missing_rc"
+  _assert_contains "hm launcher: missing AgentGuard suggests repair" \
+    "run dot update" "$_hm_provider_missing_output"
 
   # ---------------------------------------------------------------------------
   # Tests: Sley consumer policy
@@ -1154,29 +1018,38 @@ $SLEY_ENV_HOME" "$result"
     "repo: git" "$result"
 
   echo ""
-  echo "=== git launcher argument parsing ==="
+  echo "=== git launcher argument routing ==="
 
-  # Source the launcher in a subshell (DOT_GIT_LAUNCHER_SOURCED skips the exec
-  # flow and contains the launcher's `set -u`), run the parser, and echo the
-  # resolved subcommand so assertions stay in the main shell where the pass/fail
-  # counters live. Regression: bare `--exec-path` takes no value, so it must not
-  # swallow the following subcommand.
-  _git_parse_cmd() {
-    # shellcheck disable=SC2034  # read by the sourced launcher to skip its exec flow.
-    local DOT_GIT_LAUNCHER_SOURCED=1
-    # shellcheck source=/dev/null
-    . "$REAL_HOME/.local/bin/git"
-    _dot_git_parse_invocation "$@"
-    # shellcheck disable=SC2154  # _dot_git_command is set by _dot_git_parse_invocation.
-    printf '%s' "$_dot_git_command"
+  # Exercise parsing through the public command. `clone` must bypass the bare
+  # HOME repo; if a global option accidentally swallows it, the fake real Git
+  # observes the injected dotfiles environment and makes the regression visible
+  # without a source-only mode in production.
+  GIT_PARSE_BIN=$(_mock_bin)
+  GIT_PARSE_CACHE=$(_tmpdir)
+  cat >"$GIT_PARSE_BIN/git" <<'MOCK'
+#!/usr/bin/env bash
+if [[ -n "${GIT_DIR:-}" || -n "${GIT_WORK_TREE:-}" ]]; then
+  printf 'dotfiles\n'
+else
+  printf 'real\n'
+fi
+MOCK
+  chmod +x "$GIT_PARSE_BIN/git"
+  _git_parse_route() {
+    (
+      cd "$TEST_HOME" || exit
+      XDG_CACHE_HOME="$GIT_PARSE_CACHE" \
+        PATH="$BIN_DIR:$GIT_PARSE_BIN:/usr/bin:/bin" \
+        "$BIN_DIR/git" "$@"
+    )
   }
-  parsed=$(_git_parse_cmd --exec-path status)
-  _assert_eq "git parse: bare --exec-path keeps subcommand" "status" "$parsed"
-  parsed=$(_git_parse_cmd --exec-path=/custom/path status)
-  _assert_eq "git parse: --exec-path=VALUE keeps subcommand" "status" "$parsed"
-  parsed=$(_git_parse_cmd -c user.name=foo status)
-  _assert_eq "git parse: -c consumes its value, keeps subcommand" "status" "$parsed"
-  parsed=$(_git_parse_cmd --namespace ns status)
+  result=$(_git_parse_route --exec-path clone)
+  _assert_eq "git parse: bare --exec-path keeps subcommand" "real" "$result"
+  result=$(_git_parse_route --exec-path=/custom/path clone)
+  _assert_eq "git parse: --exec-path=VALUE keeps subcommand" "real" "$result"
+  result=$(_git_parse_route -c user.name=foo clone)
+  _assert_eq "git parse: -c consumes its value, keeps subcommand" "real" "$result"
+  result=$(_git_parse_route --namespace ns clone)
   _assert_eq "git parse: --namespace consumes its value, keeps subcommand" \
-    "status" "$parsed"
+    "real" "$result"
 }

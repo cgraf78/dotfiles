@@ -1,76 +1,32 @@
 #!/usr/bin/env bash
-# nvim launcher - reuse an existing Neovim pane in the current tmux window for
-# simple file opens, otherwise delegate to the real nvim binary.
+# Reuse a suitable Neovim tmux pane, or launch the managed editor.
 
-set -u
+set -euo pipefail
 
-_nvim_launcher_lib="${BASH_SOURCE[0]%/*}/../lib/dot/core/launcher-real.sh"
-if [[ ! -f "$_nvim_launcher_lib" ]]; then
-  _nvim_launcher_lib="${HOME:-}/.local/lib/dot/core/launcher-real.sh"
-fi
-# shellcheck disable=SC1090
-. "$_nvim_launcher_lib" || {
-  printf 'nvim launcher: could not load launcher helper\n' >&2
+# The launcher is installed only as part of a converged dot update. Termnav owns
+# the reusable pane-selection policy, while dotfiles owns this small wiring
+# layer; an unavailable provider means the installation needs repair.
+# shellcheck source=../lib/dot/core/shdeps-assets.sh disable=SC1091
+. "${BASH_SOURCE[0]%/*}/../lib/dot/core/shdeps-assets.sh"
+if ! dot_shdeps_dep_source \
+  cgraf78/termnav \
+  lib/termnav/nvim-open/launcher.sh; then
+  printf 'nvim launcher: Termnav unavailable; run dot update\n' >&2
   exit 127
-}
-
-# Termnav owns the reusable safety decision for opening a simple prompt-typed
-# file in an existing tmux Neovim pane. Keep dependency resolution here so the
-# provider remains location-independent, and fail open to the real editor when
-# Termnav is not yet installed during bootstrap or a partial fleet update.
-_nvim_shdeps_lib="${BASH_SOURCE[0]%/*}/../lib/dot/core/shdeps-assets.sh"
-if [[ ! -f "$_nvim_shdeps_lib" ]]; then
-  _nvim_shdeps_lib="${HOME:-}/.local/lib/dot/core/shdeps-assets.sh"
-fi
-if [[ -f "$_nvim_shdeps_lib" ]]; then
-  # shellcheck disable=SC1090
-  . "$_nvim_shdeps_lib"
-  dot_shdeps_dep_source \
-    cgraf78/termnav \
-    lib/termnav/nvim-open/launcher.sh 2>/dev/null || true
 fi
 
-_real_nvim() {
-  local self marker candidate
-  self=$(_dot_launcher_file_id "${BASH_SOURCE[0]}") || self="${BASH_SOURCE[0]}"
-  marker="# nvim launcher - reuse an existing Neovim pane in the current tmux window for"
-
-  # Keep the launcher and real editor in separate locations. shdeps owns this
-  # private binary path, while ~/.local/bin/nvim remains the tmux-aware public
-  # launcher. Looking here before PATH gives every platform the same stable
-  # delegation target and avoids depending on whether a package manager exposes
-  # its binary in the non-interactive PATH used by CI, hooks, or editor callers.
-  # dot-test worktrees deliberately set HOME to the source checkout, which does
-  # not contain shdeps-installed binaries. Only borrow the host binary while
-  # HOME is still that source checkout; unit tests and callers sometimes set
-  # HOME to a fixture and must keep resolving against that fixture first.
-  if [[ -n "${DOT_TEST_HOST_HOME:-}" && "${DOT_TEST_SOURCE_HOME:-}" == "${HOME:-}" ]]; then
-    candidate="$DOT_TEST_HOST_HOME/.local/share/neovim/neovim/bin/nvim"
-    if _dot_launcher_candidate_ok "$candidate" "$self" "$marker"; then
-      _dot_launcher_cache_write nvim "$candidate"
-      printf '%s\n' "$candidate"
-      return 0
-    fi
-  fi
-
-  candidate="$HOME/.local/share/neovim/neovim/bin/nvim"
-  if _dot_launcher_candidate_ok "$candidate" "$self" "$marker"; then
-    printf '%s\n' "$candidate"
-    return 0
-  fi
-
-  _dot_launcher_find_real nvim "$self" "$marker" \
-    /opt/homebrew/bin/nvim /usr/local/bin/nvim /usr/bin/nvim /bin/nvim
-}
-
-if typeset -f termnav_nvim_try_reuse >/dev/null 2>&1 &&
-  termnav_nvim_try_reuse "$@"; then
+if termnav_nvim_try_reuse "$@"; then
   exit 0
 fi
 
-real_nvim=$(_real_nvim) || {
-  printf 'nvim launcher: real nvim not found on PATH\n' >&2
+# Shdeps keeps the real editor behind this tracked public launcher. Treat the
+# fixed target as the contract instead of searching PATH and risking another
+# launcher copy or silently accepting an incomplete update.
+_nvim_real="${HOME:?}/.local/share/neovim/neovim/bin/nvim"
+if [[ ! -x "$_nvim_real" || -d "$_nvim_real" ]]; then
+  printf 'nvim launcher: real nvim not found at %s; run dot update\n' \
+    "$_nvim_real" >&2
   exit 127
-}
+fi
 
-exec "$real_nvim" "$@"
+exec "$_nvim_real" "$@"

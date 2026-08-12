@@ -15,6 +15,14 @@ export NO_COLOR=1
 _require_compatible_libc "nvim-test"
 _test_use_host_runtime_dirs
 _test_use_host_shdeps
+
+# This suite tests Neovim configuration, not the dotfiles launcher (covered by
+# core-launchers-test). Worktree runs intentionally make HOME the source tree,
+# so select the already-converged host payload here instead of teaching the
+# production launcher about dot-test's alternate HOME.
+_test_managed_nvim_bin || exit 1
+NVIM_TEST_BIN=$REPLY
+
 # Resolve dependencies against the configuration under test, not the host's
 # previously installed copy. This matters whenever a dotfiles branch introduces
 # a new provider: the implementation may already be available in the shared
@@ -31,7 +39,7 @@ _nvim_lua() {
   # Keep headless tests off the user's ShaDa file. `dot-test` runs suites in
   # parallel, and concurrent nvim processes can otherwise fight over
   # ~/.local/state/nvim/shada/main.shada.
-  nvim --headless --noplugin -u NONE -i NONE \
+  "$NVIM_TEST_BIN" --headless --noplugin -u NONE -i NONE \
     -c "lua package.path='$_lua_dir/?.lua;' .. package.path; $1" \
     -c 'qa!' 2>&1
 }
@@ -76,7 +84,7 @@ _run_nvim_startup() {
 
   # The smoke test opens a fixture file and must not overwrite the user's
   # nvim-workspace session when the full config saves on VimLeavePre.
-  _with_timeout "$timeout_seconds" nvim -i NONE --headless \
+  _with_timeout "$timeout_seconds" "$NVIM_TEST_BIN" -i NONE --headless \
     --cmd 'lua vim.g.disable_session_restore = true' \
     --cmd 'lua vim.g.mason_disabled = true' \
     "$file" '+qa!'

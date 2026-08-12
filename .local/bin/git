@@ -3,12 +3,10 @@
 
 set -u
 
-_dot_git_launcher_lib="${BASH_SOURCE[0]%/*}/../lib/dot/core/launcher-real.sh"
-if [ ! -f "$_dot_git_launcher_lib" ]; then
-  _dot_git_launcher_lib="${HOME:-}/.local/lib/dot/core/launcher-real.sh"
-fi
-# shellcheck disable=SC1090
-. "$_dot_git_launcher_lib" || {
+# The helper is tracked beside this launcher; copied standalone launchers are
+# not a supported install shape.
+# shellcheck source=../lib/dot/core/launcher-real.sh disable=SC1091
+. "${BASH_SOURCE[0]%/*}/../lib/dot/core/launcher-real.sh" || {
   printf 'git launcher: could not load launcher helper\n' >&2
   exit 2
 }
@@ -174,12 +172,6 @@ _dot_git_scm_config_probe() {
 _dot_git_nested_cache_path() {
   _dot_xdg_path cache "dot/git-nested-worktree-roots"
 }
-
-# When sourced for testing, expose the helper functions without resolving real
-# git or running the launcher flow below.
-if [ "${DOT_GIT_LAUNCHER_SOURCED:-}" = 1 ]; then
-  return 0
-fi
 
 _dot_git_real=$(_dot_git_real_git) ||
   _dot_git_die "could not find real git outside ~/.local/bin"

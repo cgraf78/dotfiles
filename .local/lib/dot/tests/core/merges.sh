@@ -6182,7 +6182,7 @@ HM
   cat >"$_HIVE_LEGACY_HOME/.local/bin/hm" <<'HM'
 #!/usr/bin/env bash
 # Dotfiles-owned front door for the generic `hm` binary.
-exec "$HIVE_MEMORY_CORE" "$@"
+exec "$HOME/.local/share/cgraf78/hive-memory/hm" "$@"
 HM
   chmod +x "$_HIVE_LEGACY_HOME/.local/share/cgraf78/hive-memory/hm" \
     "$_HIVE_LEGACY_HOME/.local/bin/hm"

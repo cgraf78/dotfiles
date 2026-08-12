@@ -7,8 +7,8 @@
 # That makes Neovim a special shdeps case, like Git. A normal pkg or
 # github:release dep links its command directly into SHDEPS_BIN_DIR, which would
 # overwrite or compete with the launcher path. This hook keeps that public path
-# reserved for dotfiles and installs the real binary at the private target the
-# launcher resolves first:
+# reserved for dotfiles and installs the real binary at the fixed private target
+# to which the launcher delegates:
 #
 #   $(shdeps_install_dir)/neovim/neovim/bin/nvim
 #

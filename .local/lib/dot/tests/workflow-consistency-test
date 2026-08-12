@@ -10,8 +10,10 @@ export NO_COLOR=1
 _require_compatible_libc "workflow-consistency-test"
 _test_use_host_runtime_dirs
 _test_use_host_shdeps
+_test_managed_nvim_bin || exit 1
+NVIM_TEST_BIN=$REPLY
 
-for _cmd in checkrun sley jq node nvim git; do
+for _cmd in checkrun sley jq node git; do
   if ! command -v "$_cmd" >/dev/null 2>&1; then
     echo "SKIP: workflow-consistency-test ($_cmd unavailable)"
     exit 0
@@ -358,7 +360,7 @@ echo "=== workflow consistency: editor projections ==="
 . "$HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
 _vscode_checkrun_settings "$settings" 1
 
-nvim --headless --noplugin -u NONE -i NONE \
+"$NVIM_TEST_BIN" --headless --noplugin -u NONE -i NONE \
   -c "lua package.path='$HOME/.config/nvim/lua/?.lua;' .. package.path; local opts=require('config.nvim-workspace').options(); vim.fn.writefile({vim.json.encode(opts.shell)}, '$home_shell_policy')" \
   -c 'qa!'
 
@@ -564,7 +566,7 @@ try {
 NODE
 _assert_exit "vscode extension: fixture support matches Checkrun capabilities" 0 "$?"
 
-nvim --headless --noplugin -u NONE -i NONE \
+"$NVIM_TEST_BIN" --headless --noplugin -u NONE -i NONE \
   -c "lua package.path='$HOME/.config/nvim/lua/?.lua;' .. package.path; local p=require('config.language-policy'); vim.fn.writefile({vim.json.encode({formatters=p.sley_formatters_by_ft(), linters=p.sley_linters_by_ft()})}, '$nvim_policy')" \
   -c 'qa!'
 
