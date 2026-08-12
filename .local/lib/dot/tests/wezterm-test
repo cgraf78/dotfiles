@@ -163,6 +163,14 @@ _assert_contains "wezterm parent-bubble move-left uses private tmux key sequence
   "[777003u" "$content"
 _assert_contains "wezterm parent-bubble move-right uses private tmux key sequence" \
   "[777004u" "$content"
+_assert_contains "wezterm listens for parent pane-selection requests" \
+  "DOT_PARENT_SELECT_PANE" "$content"
+_assert_contains "wezterm validates parent pane-selection directions" \
+  'parent_pane_select_keys[direction]' "$content"
+for key in 777005 777006 777007 777008; do
+  _assert_contains "wezterm parent-pane routing uses private key $key" \
+    "[$key" "$content"
+done
 _assert_contains "termnav wrapper resolver resolves termnav through shdeps" \
   'shdeps.dep_file("cgraf78/termnav"' "$termnav_wrapper"
 _assert_contains "link route wrapper loads termnav route module" \

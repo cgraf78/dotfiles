@@ -47,7 +47,11 @@ mouse reporting; that signal distinguishes a focused remote tmux, screen, or
 terminal application from a plain remote shell. A plain SSH/mosh shell keeps
 pane navigation at the outer tmux layer, where forwarding Ctrl-h would instead
 produce backspace. Foreground-process-group checks prevent stale background
-transports or nested clients from stealing the chord.
+transports or nested clients from stealing the chord. When a remote nested
+tmux owns the chord but has no pane in that direction, `wezterm-select-pane`
+uses WezTerm to replay a private `User4`-`User7` key into the parent tmux. The
+private handler selects only at that parent layer; another edge is a no-op, so
+the loopback cannot recurse indefinitely.
 
 Ctrl-Tab bindings share pane-navigation's focus ownership. Forward the key into
 Neovim/fzf when those programs own the pane, and through interactive remote

@@ -80,6 +80,12 @@ WezTerm client to activate a tab. For remote nested chains whose parent tmux
 socket is not locally reachable, `DOT_PARENT_SWITCH_TAB` still lets
 WezTerm bounce a private `User0`/`User1` key into that parent layer.
 
+Pane navigation uses the same remote loopback. At a nested tmux pane edge,
+`wezterm-select-pane` emits `DOT_PARENT_SELECT_PANE`; WezTerm translates its
+direction into private `User4`-`User7` input for the parent tmux. An available
+inner pane still wins, and the private parent binding is intentionally one-hop
+so an outer edge remains a harmless no-op.
+
 WezTerm also owns `Alt-Shift-[` and `Alt-Shift-]` tab moves only outside
 Neovim/tmux panes. In terminal-owned panes the key is forwarded inward as
 Meta-left-brace or Meta-right-brace so Neovim BufferLine or tmux windows can

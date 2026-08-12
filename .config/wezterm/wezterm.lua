@@ -218,6 +218,12 @@ local parent_tab_move_keys = {
   left = "\x1b[777003u",
   right = "\x1b[777004u",
 }
+local parent_pane_select_keys = {
+  left = "\x1b[777005u",
+  down = "\x1b[777006u",
+  up = "\x1b[777007u",
+  right = "\x1b[777008u",
+}
 
 if is_macos then
   table.insert(font_names, "Menlo")
@@ -458,6 +464,12 @@ wezterm.on("user-var-changed", function(window, pane, name, value)
   elseif name == "DOT_PARENT_MOVE_TAB" and value ~= "" then
     local direction = value:match("^([^:]+):") or value
     local sequence = parent_tab_move_keys[direction]
+    if sequence then
+      window:perform_action(act.SendString(sequence), pane)
+    end
+  elseif name == "DOT_PARENT_SELECT_PANE" and value ~= "" then
+    local direction = value:match("^([^:]+):") or value
+    local sequence = parent_pane_select_keys[direction]
     if sequence then
       window:perform_action(act.SendString(sequence), pane)
     end

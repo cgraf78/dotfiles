@@ -16,10 +16,14 @@ _assert_contains "tmux prefers zsh for newly restored panes" \
 # shellcheck disable=SC2088 # tmux expands this literal path in its own shell.
 tmux_follow_installed_path='~/.local/bin/tmux-follow-click'
 tmux_tool_home="${DOT_TEST_HOST_HOME:-$HOME}"
+wezterm_select_pane_executable="${DOT_TEST_TERMNAV_ROOT:+$DOT_TEST_TERMNAV_ROOT/bin/wezterm-select-pane}"
+wezterm_select_pane_executable="${wezterm_select_pane_executable:-$tmux_tool_home/.local/bin/wezterm-select-pane}"
 # shellcheck disable=SC2088 # tmux expands this literal path in its own shell.
 wezterm_switch_tab_path='~/.local/bin/wezterm-switch-tab'
 # shellcheck disable=SC2088 # tmux expands this literal path in its own shell.
 wezterm_move_tab_path='~/.local/bin/wezterm-move-tab'
+# shellcheck disable=SC2088 # tmux expands this literal path in its own shell.
+wezterm_select_pane_path='~/.local/bin/wezterm-select-pane'
 # shellcheck disable=SC2088 # tmux expands this literal path in its own shell.
 termnav_switch_tab_path='~/.local/bin/termnav-switch-tab'
 ctrl_tab_config_line=$(printf '%s\n' "$tmux_content" | grep '^bind-key -n C-Tab ' || true)
@@ -109,6 +113,8 @@ _assert_executable "tmux WezTerm tab switch helper is installed" \
   "$tmux_tool_home/.local/bin/wezterm-switch-tab"
 _assert_executable "tmux WezTerm tab move helper is installed" \
   "$tmux_tool_home/.local/bin/wezterm-move-tab"
+_assert_executable "tmux WezTerm pane selection helper is installed" \
+  "$wezterm_select_pane_executable"
 _assert_contains "tmux Ctrl-c copies and exits copy mode" \
   "bind -T copy-mode-vi C-c send-keys -X copy-pipe-and-cancel" "$tmux_content"
 _assert_contains "tmux Ctrl-c records history without requiring a host clipboard" \
@@ -235,6 +241,14 @@ _assert_contains "tmux defines private parent-bubble key for moving left" \
   'set -s user-keys[2] "\033[777003u"' "$tmux_content"
 _assert_contains "tmux defines private parent-bubble key for moving right" \
   'set -s user-keys[3] "\033[777004u"' "$tmux_content"
+_assert_contains "tmux defines private parent-pane key for left" \
+  'set -s user-keys[4] "\033[777005u"' "$tmux_content"
+_assert_contains "tmux defines private parent-pane key for down" \
+  'set -s user-keys[5] "\033[777006u"' "$tmux_content"
+_assert_contains "tmux defines private parent-pane key for up" \
+  'set -s user-keys[6] "\033[777007u"' "$tmux_content"
+_assert_contains "tmux defines private parent-pane key for right" \
+  'set -s user-keys[7] "\033[777008u"' "$tmux_content"
 _assert_contains "tmux detects when its client is another tmux" \
   "is_nested_tmux_client=" "$tmux_content"
 _assert_contains "tmux Ctrl-Tab checks session window count before switching" \
@@ -258,6 +272,13 @@ _assert_eq "tmux vim navigation evaluates all four routes as formats" \
 # shellcheck disable=SC2016 # tmux expands this detector name, not the test shell.
 _assert_eq "tmux pane navigation uses one shared focus classifier" \
   "4" "$(grep -c '\$is_pane_navigation' <<<"$vim_navigation_bindings")"
+_assert_eq "tmux pane navigation checks all four local edges" \
+  "4" "$(grep -Ec '#\{pane_at_(left|bottom|top|right)\}' <<<"$vim_navigation_bindings")"
+# shellcheck disable=SC2016 # testing literal tmux variable references.
+_assert_eq "tmux pane navigation bubbles all four remote edges" \
+  "4" "$(grep -c '\$select_parent_pane_' <<<"$vim_navigation_bindings")"
+_assert_eq "tmux defines all four parent-pane helper routes" \
+  "4" "$(grep -c "$wezterm_select_pane_path --parent" <<<"$tmux_content")"
 _assert_contains "tmux pane navigation requires inner mouse focus for transports" \
   "mouse == 1" "$pane_navigation_detector_line"
 _assert_contains "tmux pane navigation recognizes nested remote transports" \
@@ -407,16 +428,27 @@ if command -v tmux >/dev/null 2>&1; then
   ctrl_tab_root_line=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root C-Tab ' || true)
   ctrl_shift_tab_root_line=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root C-BTab ' || true)
   pane_navigation_root_line=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root C-h ' || true)
+  pane_navigation_down_root_line=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root C-j ' || true)
+  pane_navigation_up_root_line=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root C-k ' || true)
+  pane_navigation_right_root_line=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root C-l ' || true)
   move_tab_left_root_line=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root "M-{"' || true)
   move_tab_right_root_line=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root "M-}"' || true)
   parent_next_root_line=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root User0 ' || true)
   parent_previous_root_line=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root User1 ' || true)
   parent_move_left_root_line=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root User2 ' || true)
   parent_move_right_root_line=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root User3 ' || true)
+  parent_pane_left_root_line=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root User4 ' || true)
+  parent_pane_down_root_line=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root User5 ' || true)
+  parent_pane_up_root_line=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root User6 ' || true)
+  parent_pane_right_root_line=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root User7 ' || true)
   parent_key_0=$(tmux -S "$socket" show-options -s -v user-keys[0])
   parent_key_1=$(tmux -S "$socket" show-options -s -v user-keys[1])
   parent_key_2=$(tmux -S "$socket" show-options -s -v user-keys[2])
   parent_key_3=$(tmux -S "$socket" show-options -s -v user-keys[3])
+  parent_key_4=$(tmux -S "$socket" show-options -s -v user-keys[4])
+  parent_key_5=$(tmux -S "$socket" show-options -s -v user-keys[5])
+  parent_key_6=$(tmux -S "$socket" show-options -s -v user-keys[6])
+  parent_key_7=$(tmux -S "$socket" show-options -s -v user-keys[7])
   mode_keys=$(tmux -S "$socket" show-window-options -g -v mode-keys)
   tmux -S "$socket" kill-server
 
@@ -427,6 +459,10 @@ if command -v tmux >/dev/null 2>&1; then
   parent_key_1=${parent_key_1/#_/$'\033'}
   parent_key_2=${parent_key_2/#_/$'\033'}
   parent_key_3=${parent_key_3/#_/$'\033'}
+  parent_key_4=${parent_key_4/#_/$'\033'}
+  parent_key_5=${parent_key_5/#_/$'\033'}
+  parent_key_6=${parent_key_6/#_/$'\033'}
+  parent_key_7=${parent_key_7/#_/$'\033'}
 
   _assert_eq "tmux runtime mode-keys is vi" "vi" "$mode_keys"
   _assert_eq "tmux runtime parent-bubble next key sequence is configured" \
@@ -437,6 +473,30 @@ if command -v tmux >/dev/null 2>&1; then
     $'\033[777003u' "$parent_key_2"
   _assert_eq "tmux runtime parent-bubble move-right key sequence is configured" \
     $'\033[777004u' "$parent_key_3"
+  _assert_eq "tmux runtime parent-pane left key sequence is configured" \
+    $'\033[777005u' "$parent_key_4"
+  _assert_eq "tmux runtime parent-pane down key sequence is configured" \
+    $'\033[777006u' "$parent_key_5"
+  _assert_eq "tmux runtime parent-pane up key sequence is configured" \
+    $'\033[777007u' "$parent_key_6"
+  _assert_eq "tmux runtime parent-pane right key sequence is configured" \
+    $'\033[777008u' "$parent_key_7"
+  _assert_contains "tmux runtime parent-pane left selects locally" \
+    "select-pane -L" "$parent_pane_left_root_line"
+  _assert_contains "tmux runtime parent-pane down selects locally" \
+    "select-pane -D" "$parent_pane_down_root_line"
+  _assert_contains "tmux runtime parent-pane up selects locally" \
+    "select-pane -U" "$parent_pane_up_root_line"
+  _assert_contains "tmux runtime parent-pane right selects locally" \
+    "select-pane -R" "$parent_pane_right_root_line"
+  _assert_contains "tmux runtime Ctrl-h bubbles at the left edge" \
+    "$wezterm_select_pane_path --parent left" "$pane_navigation_root_line"
+  _assert_contains "tmux runtime Ctrl-j bubbles at the bottom edge" \
+    "$wezterm_select_pane_path --parent down" "$pane_navigation_down_root_line"
+  _assert_contains "tmux runtime Ctrl-k bubbles at the top edge" \
+    "$wezterm_select_pane_path --parent up" "$pane_navigation_up_root_line"
+  _assert_contains "tmux runtime Ctrl-l bubbles at the right edge" \
+    "$wezterm_select_pane_path --parent right" "$pane_navigation_right_root_line"
   _assert_contains "tmux runtime Ctrl-c copies and cancels" \
     "copy-pipe-and-cancel" "$copy_keys"
   _assert_contains "tmux runtime Enter uses the captured copy path" \
