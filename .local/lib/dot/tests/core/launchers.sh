@@ -958,6 +958,8 @@ MOCK
     "agent=" "$_hm_plain_probe"
   _assert_contains "hm launcher: leaves human session unset" \
     "session=" "$_hm_plain_probe"
+  _assert_eq "hm launcher: leaves human project unset" \
+    "project=" "$(printf '%s\n' "$_hm_plain_probe" | grep '^project=')"
 
   _hm_env_probe=$(env "${HM_LAUNCHER_SCRUB_ENV[@]}" \
     HOME="$HM_LAUNCHER_HOME" CODEX_THREAD_ID="codex-session-1" \
@@ -977,6 +979,56 @@ MOCK
   _assert_contains "hm launcher: synthesizes AgentGuard session" \
     "session=codex-" "$_hm_dot_agent_probe"
 
+  _hm_neutral_session_probe=$(env "${HM_LAUNCHER_SCRUB_ENV[@]}" \
+    HOME="$HM_LAUNCHER_HOME" AGENTGUARD_SESSION_ID="neutral-session" \
+    CODEX_THREAD_ID="codex-session-shadowed" \
+    "$BIN_DIR/hm" env-probe)
+  _assert_contains "hm launcher: neutral AgentGuard session wins" \
+    "session=neutral-session" "$_hm_neutral_session_probe"
+
+  _hm_claude_current_probe=$(env "${HM_LAUNCHER_SCRUB_ENV[@]}" \
+    HOME="$HM_LAUNCHER_HOME" \
+    CLAUDE_CODE_CURRENT_SESSION_ID="claude-current" \
+    CLAUDE_CODE_SESSION_ID="claude-fallback" \
+    "$BIN_DIR/hm" env-probe)
+  _assert_contains "hm launcher: detects Claude agent" \
+    "agent=claude" "$_hm_claude_current_probe"
+  _assert_contains "hm launcher: prefers Claude current session" \
+    "session=claude-current" "$_hm_claude_current_probe"
+
+  _hm_claude_fallback_probe=$(env "${HM_LAUNCHER_SCRUB_ENV[@]}" \
+    HOME="$HM_LAUNCHER_HOME" CLAUDE_CODE_SESSION_ID="claude-fallback" \
+    "$BIN_DIR/hm" env-probe)
+  _assert_contains "hm launcher: accepts Claude subprocess session" \
+    "session=claude-fallback" "$_hm_claude_fallback_probe"
+
+  _hm_gemini_project="$HM_LAUNCHER_HOME/gemini-project"
+  _hm_gemini_probe=$(env "${HM_LAUNCHER_SCRUB_ENV[@]}" \
+    HOME="$HM_LAUNCHER_HOME" GEMINI_PROJECT_DIR="$_hm_gemini_project" \
+    "$BIN_DIR/hm" env-probe)
+  _assert_contains "hm launcher: detects Gemini agent" \
+    "agent=gemini" "$_hm_gemini_probe"
+  _assert_contains "hm launcher: synthesizes Gemini session" \
+    "session=gemini-" "$_hm_gemini_probe"
+  _assert_contains "hm launcher: uses Gemini project hint" \
+    "project=$_hm_gemini_project" "$_hm_gemini_probe"
+
+  _hm_named_agent_probe=$(env "${HM_LAUNCHER_SCRUB_ENV[@]}" \
+    HOME="$HM_LAUNCHER_HOME" AGENTGUARD_NAME="example-agent" \
+    "$BIN_DIR/hm" env-probe)
+  _assert_contains "hm launcher: keeps compatible AgentGuard identity" \
+    "agent=example-agent" "$_hm_named_agent_probe"
+  _assert_contains "hm launcher: namespaces compatible agent session" \
+    "session=example-agent-" "$_hm_named_agent_probe"
+
+  _hm_explicit_only_probe=$(env "${HM_LAUNCHER_SCRUB_ENV[@]}" \
+    HOME="$HM_LAUNCHER_HOME" HIVE_MEMORY_AGENT_ID="custom-agent" \
+    "$BIN_DIR/hm" env-probe)
+  _assert_contains "hm launcher: explicit Hive agent enables context" \
+    "agent=custom-agent" "$_hm_explicit_only_probe"
+  _assert_contains "hm launcher: explicit Hive agent gets a session" \
+    "session=custom-agent-" "$_hm_explicit_only_probe"
+
   _hm_explicit_agent_probe=$(env "${HM_LAUNCHER_SCRUB_ENV[@]}" \
     HOME="$HM_LAUNCHER_HOME" AGENTGUARD_NAME="codex" \
     CODEX_THREAD_ID="codex-session-2" HIVE_MEMORY_AGENT_ID="custom-agent" \
@@ -986,12 +1038,71 @@ MOCK
   _assert_contains "hm launcher: keeps detected runtime session" \
     "session=codex-session-2" "$_hm_explicit_agent_probe"
 
+  _hm_explicit_context_probe=$(env "${HM_LAUNCHER_SCRUB_ENV[@]}" \
+    HOME="$HM_LAUNCHER_HOME" CODEX_THREAD_ID="codex-session-shadowed" \
+    HIVE_MEMORY_SESSION_ID="hive-session" \
+    HIVE_MEMORY_PROJECT="/explicit/project" \
+    "$BIN_DIR/hm" env-probe)
+  _assert_contains "hm launcher: preserves explicit Hive session" \
+    "session=hive-session" "$_hm_explicit_context_probe"
+  _assert_contains "hm launcher: preserves explicit Hive project" \
+    "project=/explicit/project" "$_hm_explicit_context_probe"
+
   _hm_no_project_probe=$(env "${HM_LAUNCHER_SCRUB_ENV[@]}" \
     HOME="$HM_LAUNCHER_HOME" AGENTGUARD_NAME="codex" \
     CODEX_THREAD_ID="codex-session-3" HIVE_MEMORY_PROJECT_INFER=0 \
     "$BIN_DIR/hm" env-probe)
   _assert_eq "hm launcher: keeps project unset when inference is disabled" \
     "project=" "$(printf '%s\n' "$_hm_no_project_probe" | grep '^project=')"
+
+  # Exercise the provider boundary independently of AgentGuard's own detection
+  # matrix. This fixture intentionally returns an opaque session value: if the
+  # launcher reconstructs session policy from the agent name, the assertion
+  # fails and catches the ownership drift.
+  HM_AGENTGUARD_API=$(_tmpdir)/agentguard.sh
+  cat >"$HM_AGENTGUARD_API" <<'MOCK'
+agentguard_agent_name() {
+  printf '%s\n' "provider-agent"
+}
+
+agentguard_session_id() {
+  if [[ "${1:-}" == "custom-agent" ]]; then
+    printf '%s\n' "custom-provider-session"
+    return 0
+  fi
+  printf '%s\n' "provider-session"
+}
+MOCK
+  HM_AGENTGUARD_BIN=$(_mock_bin)
+  cat >"$HM_AGENTGUARD_BIN/shdeps" <<'MOCK'
+#!/usr/bin/env bash
+if [[ "$1" == dep-file && "$2" == cgraf78/agentguard && \
+  "$3" == lib/agentguard/agentguard.sh ]]; then
+  printf '%s\n' "$HM_AGENTGUARD_API"
+  exit 0
+fi
+exit 1
+MOCK
+  chmod +x "$HM_AGENTGUARD_BIN/shdeps"
+  mkdir -p "$HM_LAUNCHER_HOME/.local/lib/dot/core"
+  cp "$CORE_TEST_MODULE_DIR/../../core/shdeps-assets.sh" \
+    "$HM_LAUNCHER_HOME/.local/lib/dot/core/shdeps-assets.sh"
+  _hm_provider_probe=$(env "${HM_LAUNCHER_SCRUB_ENV[@]}" \
+    HOME="$HM_LAUNCHER_HOME" PATH="$HM_AGENTGUARD_BIN:$PATH" \
+    HM_AGENTGUARD_API="$HM_AGENTGUARD_API" \
+    "$BIN_DIR/hm" env-probe)
+  _assert_contains "hm launcher: consumes AgentGuard agent identity" \
+    "agent=provider-agent" "$_hm_provider_probe"
+  _assert_contains "hm launcher: consumes AgentGuard session identity" \
+    "session=provider-session" "$_hm_provider_probe"
+
+  _hm_provider_override_probe=$(env "${HM_LAUNCHER_SCRUB_ENV[@]}" \
+    HOME="$HM_LAUNCHER_HOME" PATH="$HM_AGENTGUARD_BIN:$PATH" \
+    HM_AGENTGUARD_API="$HM_AGENTGUARD_API" \
+    HIVE_MEMORY_AGENT_ID="custom-agent" \
+    "$BIN_DIR/hm" env-probe)
+  _assert_contains "hm launcher: gives AgentGuard the Hive fallback namespace" \
+    "session=custom-provider-session" "$_hm_provider_override_probe"
 
   _hm_missing_output=""
   _hm_missing_rc=0

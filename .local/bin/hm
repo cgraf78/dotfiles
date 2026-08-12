@@ -5,8 +5,8 @@
 # Agent sessions still need a small amount of host-specific glue, though:
 # `hm remember` can only write a session receipt when it sees the active agent
 # session id, and hook policy uses those receipts to clear end-of-session memory
-# reminders. Keep that runtime detection here rather than baking dotfiles or
-# agent-specific launch details into the generic binary.
+# reminders. AgentGuard owns reusable runtime detection; this launcher only maps
+# its generic result into Hive Memory's environment contract.
 
 set -euo pipefail
 
@@ -64,17 +64,22 @@ if declare -F dot_shdeps_dep_source >/dev/null 2>&1; then
   # commands and hook invocations agree on whether the caller is Claude, Codex,
   # Gemini, OpenCode, or a human shell. OpenCode arrives through the generic
   # AgentGuard override because it has no runtime-specific shell variable. The
-  # generic Hive Memory binary stays vendor-neutral; this launcher owns
-  # dotfiles/runtime-specific inference.
+  # generic Hive Memory binary stays vendor-neutral; AgentGuard owns reusable
+  # inference and this launcher owns only the Hive-specific variable mapping.
   dot_shdeps_dep_source cgraf78/agentguard lib/agentguard/agentguard.sh 2>/dev/null || true
 fi
 
 _hm_agent_runtime=0
 _hm_explicit_agent="${HIVE_MEMORY_AGENT_ID:-}"
 _hm_detected_agent=""
+_hm_detected_session=""
+_hm_has_session_api=0
 if declare -F agentguard_agent_name >/dev/null 2>&1; then
   _hm_detected_agent=$(agentguard_agent_name)
   [[ "$_hm_detected_agent" != "unknown" ]] || _hm_detected_agent=""
+fi
+if declare -F agentguard_session_id >/dev/null 2>&1; then
+  _hm_has_session_api=1
 fi
 
 # Keep the launcher useful in minimal shdeps/test environments where the
@@ -94,6 +99,34 @@ if [[ -z "$_hm_detected_agent" ]]; then
 fi
 _hm_agent_name="${_hm_explicit_agent:-$_hm_detected_agent}"
 
+if [[ "$_hm_has_session_api" == 1 ]]; then
+  # Hive may deliberately relabel a compatible generic agent. Pass that label
+  # as AgentGuard's generic fallback namespace so the shared implementation can
+  # preserve Hive's existing receipt keys without learning Hive-specific env
+  # variables. Runtime-native ids and Codex/Claude/Gemini fallbacks still win.
+  if ! _hm_detected_session=$(agentguard_session_id "$_hm_explicit_agent"); then
+    _hm_detected_session=""
+  fi
+fi
+
+# A fleet update normally installs the public API before this launcher is used.
+# Keep the prior environment contract only as a narrow bootstrap/partial-update
+# fallback: old AgentGuard versions still provide the name API, while an absent
+# provider still needs direct Hive writes to coordinate their receipts.
+if [[ "$_hm_has_session_api" == 0 ]]; then
+  case "$_hm_detected_agent" in
+    codex)
+      _hm_detected_session="${AGENTGUARD_SESSION_ID:-${CODEX_THREAD_ID:-}}"
+      ;;
+    claude)
+      _hm_detected_session="${AGENTGUARD_SESSION_ID:-${CLAUDE_CODE_CURRENT_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:-}}}"
+      ;;
+    *)
+      _hm_detected_session="${AGENTGUARD_SESSION_ID:-}"
+      ;;
+  esac
+fi
+
 # Only infer context inside known agent runtimes. Human shells should keep the
 # plain `hm` behavior unless they explicitly export HIVE_MEMORY_* themselves.
 if [[ -n "$_hm_agent_name" ]]; then
@@ -105,27 +138,10 @@ if [[ -n "$_hm_agent_name" ]]; then
   # calls should still get enough context to coordinate pending-memory receipts
   # when the runtime exposes a durable id.
   if [[ -z "${HIVE_MEMORY_SESSION_ID:-}" ]]; then
-    # If the caller explicitly overrides the agent label, still prefer the
-    # detected runtime for session-id selection. A manually named Codex command
-    # should coordinate with the Codex session, not fall back to a synthetic
-    # "custom-$PPID" key just because the display label changed.
-    case "${_hm_detected_agent:-$_hm_agent_name}" in
-      codex)
-        export HIVE_MEMORY_SESSION_ID="${AGENTGUARD_SESSION_ID:-${CODEX_THREAD_ID:-codex-$PPID}}"
-        ;;
-      claude)
-        export HIVE_MEMORY_SESSION_ID="${AGENTGUARD_SESSION_ID:-${CLAUDE_CODE_CURRENT_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:-claude-$PPID}}}"
-        ;;
-      gemini)
-        # Gemini does not expose a stable session id to shell subprocesses. The
-        # parent CLI process is stable across hook calls in the same session,
-        # matching the hook helper's fallback and preserving receipt coordination.
-        export HIVE_MEMORY_SESSION_ID="${AGENTGUARD_SESSION_ID:-gemini-$PPID}"
-        ;;
-      *)
-        export HIVE_MEMORY_SESSION_ID="${AGENTGUARD_SESSION_ID:-$_hm_agent_name-$PPID}"
-        ;;
-    esac
+    # AgentGuard owns runtime-specific ids and precedence. The generic fallback
+    # is needed only for an explicit Hive-only label or a runtime without a
+    # native id; either way it contains no agent-specific policy.
+    export HIVE_MEMORY_SESSION_ID="${_hm_detected_session:-$_hm_agent_name-$PPID}"
   fi
 fi
 

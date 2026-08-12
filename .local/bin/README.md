@@ -14,6 +14,8 @@ component; files here should stay thin and command-shaped.
 - `dot-test` runs the dotfiles test suite.
 - `git` routes normal repositories to real Git and `$HOME` dotfiles paths to
   the base bare repo.
+- `hm` delegates to the standalone Hive Memory binary and maps AgentGuard's
+  reusable agent/session identity into Hive Memory's environment contract.
 - `nvim` reuses an existing Neovim pane in the current tmux window for simple
   interactive-shell file opens, then falls back to the real Neovim binary.
 
