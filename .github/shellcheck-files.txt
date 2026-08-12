@@ -151,6 +151,7 @@ program	.local/lib/dot/tests/core/overlays.sh
 program	.local/lib/dot/tests/core/runner.sh
 program	.local/lib/dot/tests/core/static.sh
 program	.local/lib/dot/tests/fixtures.sh
+program	.local/lib/dot/tests/git-shell-workflows-test
 program	.local/lib/dot/tests/githook-test
 program	.local/lib/dot/tests/gstack-register-test
 program	.local/lib/dot/tests/harness-isolation-test
