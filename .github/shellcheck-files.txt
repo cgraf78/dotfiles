@@ -119,7 +119,6 @@ program	.local/lib/dot/git-hooks/prepare-commit-msg
 program	.local/lib/dot/git-hooks/sley-commit-gate
 program	.local/lib/dot/git-hooks/sley-provider-hook
 program	.local/lib/dot/tests/agent-rules-adapter-test
-program	.local/lib/dot/tests/agent-rules-contract-test
 program	.local/lib/dot/tests/agent-rules-test
 program	.local/lib/dot/tests/agent-yolo-wrappers-test
 program	.local/lib/dot/tests/android-ci-smoke

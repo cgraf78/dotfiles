@@ -1131,86 +1131,52 @@ MOCK
     "127" "$_hm_copy_rc"
 
   # ---------------------------------------------------------------------------
-  # Tests: sley launcher
+  # Tests: Sley consumer policy
   # ---------------------------------------------------------------------------
 
   echo ""
-  echo "=== sley launcher ==="
+  echo "=== Sley consumer policy ==="
 
-  SLEY_BIN="${DOT_TEST_HOST_HOME:-$HOME}/.local/bin/sley"
-
-  result=$(cd "$TEST_HOME" && "$SLEY_BIN" 2>&1)
-  _assert_exit "sley launcher help: no args exits 0" 0 "$?"
-  _assert_contains "sley launcher help: no args prints usage" \
-    "Usage: sley COMMAND" "$result"
-
-  result=$(cd "$TEST_HOME" && "$SLEY_BIN" -h 2>&1)
-  _assert_exit "sley launcher help: -h exits 0" 0 "$?"
-  _assert_contains "sley launcher help: -h prints usage" \
-    "Usage: sley COMMAND" "$result"
-
-  result=$(cd "$TEST_HOME" && "$SLEY_BIN" --help 2>&1)
-  _assert_exit "sley launcher help: --help exits 0" 0 "$?"
-  _assert_contains "sley launcher help: --help prints usage" \
-    "Usage: sley COMMAND" "$result"
+  # Sley owns help, repository discovery, status, and change scoping. Dotfiles
+  # owns only the local decision to opt its unusual bare-HOME repository into
+  # Sley's generic fallback API, so exercise that environment boundary without
+  # carrying a second behavioral suite for the provider.
+  SLEY_ENV_FILE="$REAL_HOME/.config/shell/env.d/60-tools.sh"
+  # Keep child-shell probes in variables so their parameter expansion remains
+  # visibly deferred until after env has established each synthetic HOME.
+  # shellcheck disable=SC2016
+  SLEY_ENV_VALUES_PROBE='. "$1"; printf "%s\n%s\n" "${SLEY_BARE_REPO_GIT_DIR-}" "${SLEY_BARE_REPO_WORK_TREE-}"'
+  # shellcheck disable=SC2016
+  SLEY_ENV_PRESENCE_PROBE='. "$1"; printf "%s:%s\n" "${SLEY_BARE_REPO_GIT_DIR+set}" "${SLEY_BARE_REPO_WORK_TREE+set}"'
+  SLEY_ENV_HOME=$(_tmpdir)
+  mkdir -p "$SLEY_ENV_HOME/.dotfiles"
+  result=$(
+    env -i HOME="$SLEY_ENV_HOME" PATH=/usr/bin:/bin \
+      /bin/bash -c "$SLEY_ENV_VALUES_PROBE" \
+      _ "$SLEY_ENV_FILE"
+  )
+  _assert_eq "sley policy: bare dotfiles home configures the provider API" \
+    "$SLEY_ENV_HOME/.dotfiles
+$SLEY_ENV_HOME" "$result"
 
   result=$(
-    cd "$TEST_HOME" &&
-      SLEY_BARE_REPO_GIT_DIR="$DOTFILES" SLEY_BARE_REPO_WORK_TREE="$TEST_HOME" \
-        "$SLEY_BIN" status 2>&1 || true
+    env -i HOME="$SLEY_ENV_HOME" PATH=/usr/bin:/bin \
+      SLEY_BARE_REPO_GIT_DIR=/custom/git \
+      SLEY_BARE_REPO_WORK_TREE=/custom/work \
+      /bin/bash -c "$SLEY_ENV_VALUES_PROBE" \
+      _ "$SLEY_ENV_FILE"
   )
-  _assert_not_contains "sley launcher base: detects git repo" \
-    "unsupported repo" "$result"
-  _assert_contains "sley launcher base: emits status header" "repo: git" "$result"
-  _assert_contains "sley launcher base: root is the work tree (\$HOME)" \
-    "root: $TEST_HOME_PHYSICAL" "$result"
+  _assert_eq "sley policy: explicit provider configuration wins" \
+    $'/custom/git\n/custom/work' "$result"
 
-  echo "untracked" >"$TEST_HOME/.launcher-untracked"
+  SLEY_PLAIN_HOME=$(_tmpdir)
   result=$(
-    cd "$TEST_HOME" &&
-      SLEY_BARE_REPO_GIT_DIR="$DOTFILES" SLEY_BARE_REPO_WORK_TREE="$TEST_HOME" \
-        "$SLEY_BIN" status --json 2>&1 || true
+    env -i HOME="$SLEY_PLAIN_HOME" PATH=/usr/bin:/bin \
+      /bin/bash -c "$SLEY_ENV_PRESENCE_PROBE" \
+      _ "$SLEY_ENV_FILE"
   )
-  _assert_contains "sley launcher base: untracked walk skipped" \
-    '"untracked":0' "$result"
-  _assert_contains "sley launcher base: clean repo reports not dirty" \
-    '"dirty":false' "$result"
-  rm -f "$TEST_HOME/.launcher-untracked"
-
-  mkdir -p "$TEST_HOME/.config/nvim" "$TEST_HOME/.config/zsh"
-  echo "old nvim" >"$TEST_HOME/.config/nvim/init.lua"
-  echo "old zsh" >"$TEST_HOME/.config/zsh/.zshrc"
-  $GIT add .config/nvim/init.lua .config/zsh/.zshrc
-  $GIT commit -m "add launcher scope files" >/dev/null 2>&1
-  echo "new nvim" >"$TEST_HOME/.config/nvim/init.lua"
-  echo "new zsh" >"$TEST_HOME/.config/zsh/.zshrc"
-  result=$(
-    cd "$TEST_HOME/.config/nvim" &&
-      SLEY_BARE_REPO_GIT_DIR="$DOTFILES" SLEY_BARE_REPO_WORK_TREE="$TEST_HOME" \
-        "$SLEY_BIN" changes 2>&1 || true
-  )
-  _assert_contains "sley launcher subdir: auto path includes cwd changes" \
-    ".config/nvim/init.lua" "$result"
-  _assert_not_contains "sley launcher subdir: auto path excludes sibling changes" \
-    ".config/zsh/.zshrc" "$result"
-  $GIT checkout -- .config/nvim/init.lua .config/zsh/.zshrc
-
-  NORMAL_HOME_REPO="$TEST_HOME/git/project"
-  mkdir -p "$NORMAL_HOME_REPO"
-  NORMAL_HOME_REPO_PHYSICAL=$(cd "$NORMAL_HOME_REPO" && pwd -P)
-  git -C "$NORMAL_HOME_REPO" init -q
-  _git_set_test_identity git -C "$NORMAL_HOME_REPO"
-  result=$(cd "$NORMAL_HOME_REPO" && "$SLEY_BIN" status --json 2>&1 || true)
-  _assert_contains "sley launcher normal repo under home: uses nested repo" \
-    "\"root\":\"$NORMAL_HOME_REPO_PHYSICAL\"" "$result"
-
-  result=$(
-    cd "$TEST_HOME/.config/nvim" &&
-      GIT_DIR="$NORMAL_HOME_REPO/.git" GIT_WORK_TREE="$NORMAL_HOME_REPO" \
-        "$SLEY_BIN" status --json 2>&1 || true
-  )
-  _assert_contains "sley launcher explicit env: uses provided repo" \
-    "\"root\":\"$NORMAL_HOME_REPO_PHYSICAL\"" "$result"
+  _assert_eq "sley policy: ordinary homes do not enable bare-repo fallback" \
+    ":" "$result"
 
   result=$("$BIN_DIR/dot" sley status 2>&1 || true)
   _assert_contains "sley removed: dot reports unknown command" \
