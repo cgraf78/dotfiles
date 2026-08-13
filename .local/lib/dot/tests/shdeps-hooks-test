@@ -191,6 +191,30 @@ _assert_eq "ast-grep: fallback uses the official release archive" \
 _assert_contains "ast-grep: release fallback excludes unsupported and native-package targets" \
   "mgr:!brew,mgr:!pacman,mgr:!apk,os:!android" "$_ast_grep_release"
 
+_duckdb_pkg=$(
+  awk '$1 == "duckdb" && $2 == "pkg" { print; exit }' \
+    "$REAL_HOME/.config/shdeps/10-deps.conf"
+)
+_assert_eq "duckdb: prefers native package managers" \
+  "pkg" "$(awk '{ print $2 }' <<<"$_duckdb_pkg")"
+_assert_eq "duckdb: package check uses the upstream command" \
+  "duckdb" "$(awk '{ print $3 }' <<<"$_duckdb_pkg")"
+for _duckdb_native_pkg in brew pacman; do
+  _assert_contains "duckdb: $_duckdb_native_pkg uses the native package" \
+    "$_duckdb_native_pkg:duckdb" "$_duckdb_pkg"
+done
+_assert_contains "duckdb: native route is limited to package catalogs that carry it" \
+  "mgr:brew,mgr:pacman" "$_duckdb_pkg"
+
+_duckdb_release=$(
+  awk '$1 == "duckdb/duckdb" && $2 == "github:release" { print; exit }' \
+    "$REAL_HOME/.config/shdeps/10-deps.conf"
+)
+_assert_eq "duckdb: fallback uses the official release archive" \
+  "github:release" "$(awk '{ print $2 }' <<<"$_duckdb_release")"
+_assert_contains "duckdb: release fallback excludes Android and native-package targets" \
+  "mgr:!brew,mgr:!pacman,os:!android" "$_duckdb_release"
+
 for _termux_native in difftastic direnv dust gum lazygit mise yq; do
   _assert_contains "$_termux_native: Termux uses the native package" \
     "os:macos,os:android" \
