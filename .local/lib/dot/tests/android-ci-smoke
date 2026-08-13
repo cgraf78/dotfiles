@@ -18,7 +18,7 @@ deps="$root/.config/shdeps/10-deps.conf"
 
 [[ -r "$toolchains" && -r "$deps" ]] || fail "shdeps configuration is unavailable"
 
-awk '$1 == "cargo" && $2 == "pkg" && $0 ~ /android:rust/ { found = 1 }
+awk '$1 == "cargo" && $2 == "pkg" && $0 ~ /android:rust/ && $0 ~ /mgr:!brew,mgr:!pacman/ { found = 1 }
      END { exit !found }' "$toolchains" ||
   fail "Rust toolchain lacks its Android package mapping"
 awk '$1 == "uv" && $2 == "pkg" && $0 ~ /os:macos,os:android/ { found = 1 }

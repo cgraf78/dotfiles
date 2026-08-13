@@ -194,6 +194,9 @@ _assert_eq "ast-grep: fallback uses the upstream Cargo crate" \
   "cargo" "$(awk '{ print $2 }' <<<"$_ast_grep_cargo")"
 _assert_contains "ast-grep: Cargo fallback covers managers without a native package" \
   "mgr:!brew,mgr:!pacman" "$_ast_grep_cargo"
+_assert_contains "ast-grep: fallback platforms bootstrap Cargo natively" \
+  "mgr:!brew,mgr:!pacman" \
+  "$(awk '$1 == "cargo" && $2 == "pkg" { print; exit }' "$REAL_HOME/.config/shdeps/10-deps.conf")"
 
 for _termux_native in difftastic direnv dust gum lazygit mise yq; do
   _assert_contains "$_termux_native: Termux uses the native package" \
