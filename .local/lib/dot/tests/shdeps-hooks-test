@@ -167,6 +167,30 @@ _assert_contains "bat: Termux command keeps the native binary name" \
   "android:bat,apt:batcat" \
   "$(awk '$1 == "bat" && $2 == "pkg" { print; exit }' "$REAL_HOME/.config/shdeps/10-deps.conf")"
 
+_ast_grep_pkg=$(
+  awk '$1 == "ast-grep" && $2 == "pkg" { print; exit }' \
+    "$REAL_HOME/.config/shdeps/10-deps.conf"
+)
+_assert_eq "ast-grep: prefers native package managers" \
+  "pkg" "$(awk '{ print $2 }' <<<"$_ast_grep_pkg")"
+_assert_eq "ast-grep: package check uses the upstream command" \
+  "ast-grep" "$(awk '{ print $3 }' <<<"$_ast_grep_pkg")"
+for _ast_grep_native_pkg in brew pacman; do
+  _assert_contains "ast-grep: $_ast_grep_native_pkg uses the native package" \
+    "$_ast_grep_native_pkg:ast-grep" "$_ast_grep_pkg"
+done
+_assert_contains "ast-grep: native route is limited to package catalogs that carry it" \
+  "mgr:brew,mgr:pacman" "$_ast_grep_pkg"
+
+_ast_grep_release=$(
+  awk '$1 == "ast-grep/ast-grep" && $2 == "github:release" { print; exit }' \
+    "$REAL_HOME/.config/shdeps/10-deps.conf"
+)
+_assert_eq "ast-grep: fallback uses the official release archive" \
+  "github:release" "$(awk '{ print $2 }' <<<"$_ast_grep_release")"
+_assert_contains "ast-grep: release fallback excludes unsupported and native-package targets" \
+  "mgr:!brew,mgr:!pacman,mgr:!apk,os:!android" "$_ast_grep_release"
+
 for _termux_native in difftastic direnv dust gum lazygit mise yq; do
   _assert_contains "$_termux_native: Termux uses the native package" \
     "os:macos,os:android" \
