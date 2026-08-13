@@ -16,6 +16,7 @@ RULE_HOOK="$HOME/.local/lib/dot/core/merge-hooks/agent-rules.sh"
 RULE_FAMILY="$HOME/.config/agent-rules/rules.d"
 NATIVE_TARGETS="$HOME/.config/dot/merge-hooks.d/agent-rules/targets.d/80-targets.replace/50-native.txt"
 PLAYBOOK_FAMILY="$HOME/.config/agent-rules/playbooks.d"
+TOOL_SELECTION_PLAYBOOK="$PLAYBOOK_FAMILY/tools/selection.md"
 if [[ -f "$PLAYBOOK_LIB" ]]; then
   # shellcheck source=/dev/null
   . "$PLAYBOOK_LIB"
@@ -58,6 +59,22 @@ _assert_contains "agent rules: memory policy forbids secrets" \
 _assert_contains "agent rules: branch pushes name the destination" \
   'git push <remote> <source>:refs/heads/<destination>' "$GIT_RULES_TEXT"
 
+_assert_file_exists "agent rules: tool selection playbook exists" \
+  "$TOOL_SELECTION_PLAYBOOK"
+if [[ -f "$TOOL_SELECTION_PLAYBOOK" ]]; then
+  TOOL_SELECTION_TEXT=$(cat "$TOOL_SELECTION_PLAYBOOK")
+  _assert_contains "agent rules: tool selection playbook has a routed trigger" \
+    "agent-rule-trigger: Discovering available local capabilities" "$TOOL_SELECTION_TEXT"
+  _assert_contains "agent rules: tool selection verifies live availability" \
+    'command -v <tool>' "$TOOL_SELECTION_TEXT"
+  _assert_contains "agent rules: tool selection distinguishes managed inventory" \
+    'shdeps list' "$TOOL_SELECTION_TEXT"
+  _assert_contains "agent rules: tool selection discovers alternate entry points" \
+    'shdeps dep-links <dependency>' "$TOOL_SELECTION_TEXT"
+  _assert_contains "agent rules: tool selection preserves install authorization" \
+    "is not authorization to install it" "$TOOL_SELECTION_TEXT"
+fi
+
 lifecycle_anchor_paths=$(printf '%s\n' "$WORKFLOW_RULES_TEXT" |
   grep -Eo '`~/.config/agent-rules/playbooks.d/[^`]+\.md`' | tr -d '`')
 lifecycle_anchor_count=$(printf '%s\n' "$lifecycle_anchor_paths" | sed '/^$/d' | wc -l | tr -d '[:space:]')
@@ -97,6 +114,8 @@ done <<<"$playbook_listing"
 if ((${#playbook_files[@]} == 0)); then
   _fail "agent rules: playbooks exist"
 fi
+_assert_contains "agent rules: tool selection playbook is discovered" \
+  "$TOOL_SELECTION_PLAYBOOK" "$playbook_listing"
 
 echo "=== on-demand playbooks ==="
 
