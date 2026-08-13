@@ -15,6 +15,7 @@ output=$(
   python3 - "$policy" "$schema_dir" <<'PY' 2>&1
 import json
 import sys
+import tomllib
 from pathlib import Path
 
 policy_path = Path(sys.argv[1])
@@ -22,7 +23,37 @@ schema_dir = Path(sys.argv[2])
 policy = json.loads(policy_path.read_text(encoding="utf-8"))
 associations = {item["name"]: item for item in policy["associations"]}
 
+bottom_config = tomllib.loads(
+    (policy_path.parent.parent / "bottom/bottom.toml").read_text(encoding="utf-8")
+)
+deprecated_bottom_flags = {
+    "group_processes",
+    "case_sensitive",
+    "whole_word",
+    "regex",
+    "process_memory_as_value",
+    "enable_cache_memory",
+    "hide_avg_cpu",
+}
+assert deprecated_bottom_flags.isdisjoint(bottom_config["flags"])
+assert bottom_config["processes"] == {
+    "default_grouped": True,
+    "case_sensitive": False,
+    "whole_word": False,
+    "regex": True,
+    "default_memory_value": True,
+}
+assert bottom_config["memory_graph"]["cache_memory"] is True
+assert bottom_config["cpu"]["hide_avg_cpu"] is True
+
 expected = {
+    "bottom config": {
+        "format": "toml",
+        "schema": "bottom.schema.json",
+        "source": "https://raw.githubusercontent.com/ClementTsang/bottom/0.14.7/schema/v0.14.7/bottom.json",
+        "matches": [".config/bottom/bottom.toml"],
+        "enforce": True,
+    },
     "GitHub Action metadata": {
         "format": "yaml",
         "schema": "github-action.schema.json",
@@ -100,6 +131,7 @@ for name, wanted in expected.items():
         )
 
 for filename in (
+    "bottom.schema.json",
     "github-action.schema.json",
     "clang-format-21.schema.json",
     "github-cli-config.schema.json",
@@ -109,6 +141,14 @@ for filename in (
     "clangd.schema.json",
 ):
     assert (schema_dir / filename).is_file(), f"missing pinned payload: {filename}"
+
+bottom_schema = json.loads(
+    (schema_dir / "bottom.schema.json").read_text(encoding="utf-8")
+)
+assert bottom_schema["$id"] == (
+    "https://github.com/ClementTsang/bottom/blob/main/schema/0.14.7/bottom.json"
+)
+assert bottom_schema["title"] == "Schema for bottom's config file (v0.14.7)"
 
 clangd_schema = json.loads(
     (schema_dir / "clangd.schema.json").read_text(encoding="utf-8")
