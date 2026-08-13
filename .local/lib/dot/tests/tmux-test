@@ -92,8 +92,14 @@ _assert_contains "tmux uses vi keys in copy mode" \
   "set -g mode-keys vi" "$tmux_content"
 _assert_contains "tmux keeps Escape responsive" \
   "set -s escape-time 10" "$tmux_content"
-_assert_contains "tmux pane labels expose human and stable targets" \
-  "set -g pane-border-format ' #I.#P (#{pane_id})  #{pane_current_command} '" \
+_assert_contains "tmux brightens only inactive pane labels and exposes both targets" \
+  "set -g pane-border-format '#{?pane_active,,#[fg=#898989]} #I.#P (#{pane_id})  #{pane_current_command} '" \
+  "$tmux_content"
+_assert_contains "tmux inactive pane rules stay visually subordinate" \
+  "setw -g pane-border-style 'fg=#333333'" \
+  "$tmux_content"
+_assert_contains "tmux active pane labels retain the active style" \
+  "setw -g pane-active-border-style 'fg=cyan,bold'" \
   "$tmux_content"
 _assert_contains "tmux advertises OSC-8 hyperlinks and extended keys" \
   "xterm-256color:extkeys:hyperlinks" "$tmux_content"
@@ -415,6 +421,9 @@ if command -v tmux >/dev/null 2>&1; then
   socket_dir=$(_tmpdir)
   socket="$socket_dir/tmux.sock"
   tmux -S "$socket" -f /dev/null new-session -d -s dot-tmux-test 'sleep 60'
+  active_pane=$(tmux -S "$socket" display-message -p '#{pane_id}')
+  inactive_pane=$(tmux -S "$socket" split-window -d -P -F '#{pane_id}' 'sleep 60')
+  tmux -S "$socket" select-pane -t "$active_pane"
   # Model a long-lived server that loaded the previous configuration. The
   # refactored config must actively remove these bindings during a reload;
   # deleting their source lines alone would leave them live until restart.
@@ -450,6 +459,14 @@ if command -v tmux >/dev/null 2>&1; then
   parent_key_6=$(tmux -S "$socket" show-options -s -v user-keys[6])
   parent_key_7=$(tmux -S "$socket" show-options -s -v user-keys[7])
   mode_keys=$(tmux -S "$socket" show-window-options -g -v mode-keys)
+  pane_border_format=$(tmux -S "$socket" show-options -g -v pane-border-format)
+  pane_border_style=$(tmux -S "$socket" show-window-options -g -v pane-border-style)
+  pane_active_border_style=$(tmux -S "$socket" show-window-options -g \
+    -v pane-active-border-style)
+  active_pane_border=$(tmux -S "$socket" display-message -p \
+    -t "$active_pane" "$pane_border_format")
+  inactive_pane_border=$(tmux -S "$socket" display-message -p \
+    -t "$inactive_pane" "$pane_border_format")
   tmux -S "$socket" kill-server
 
   # Some distro tmux builds sanitize a leading control byte as `_` when an
@@ -465,6 +482,19 @@ if command -v tmux >/dev/null 2>&1; then
   parent_key_7=${parent_key_7/#_/$'\033'}
 
   _assert_eq "tmux runtime mode-keys is vi" "vi" "$mode_keys"
+  _assert_eq "tmux runtime keeps inactive-label contrast conditional" \
+    '#{?pane_active,,#[fg=#898989]} #I.#P (#{pane_id})  #{pane_current_command} ' \
+    "$pane_border_format"
+  _assert_eq "tmux runtime keeps inactive pane rules dim" \
+    'fg=#333333' "$pane_border_style"
+  _assert_contains "tmux runtime keeps the active pane label cyan" \
+    'fg=cyan' "$pane_active_border_style"
+  _assert_contains "tmux runtime keeps the active pane label bold" \
+    'bold' "$pane_active_border_style"
+  _assert_not_contains "tmux runtime omits the inactive override from the active label" \
+    '#[fg=#898989]' "$active_pane_border"
+  _assert_contains "tmux runtime brightens the inactive pane label" \
+    '#[fg=#898989]' "$inactive_pane_border"
   _assert_eq "tmux runtime parent-bubble next key sequence is configured" \
     $'\033[777001u' "$parent_key_0"
   _assert_eq "tmux runtime parent-bubble previous key sequence is configured" \
