@@ -3,14 +3,20 @@
 [flags]
 rate = 1000
 default_widget_type = "proc"
-group_processes = true
+battery = true
+
+[processes]
+default_grouped = true
 case_sensitive = false
 whole_word = false
 regex = true
+default_memory_value = true
+
+[memory_graph]
+cache_memory = true
+
+[cpu]
 hide_avg_cpu = true
-enable_cache_memory = true
-battery = true
-process_memory_as_value = true
 
 # Layout: CPU + Memory top, Network + Disk middle, Processes bottom
 [[row]]

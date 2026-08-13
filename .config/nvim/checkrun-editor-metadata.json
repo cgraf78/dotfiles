@@ -440,7 +440,7 @@
     "toml": {
       ".*/Cargo\\.toml$": "https://www.schemastore.org/cargo.json",
       ".*/Makefile\\.toml$": "https://www.schemastore.org/cargo-make.json",
-      ".*/\\.config/bottom/bottom\\.toml$": "https://raw.githubusercontent.com/ClementTsang/bottom/main/schema/v0.10/bottom.json",
+      ".*/\\.config/bottom/bottom\\.toml$": "https://raw.githubusercontent.com/ClementTsang/bottom/0.14.7/schema/v0.14.7/bottom.json",
       ".*/\\.config/checkrun/ruff\\.toml$": "https://www.schemastore.org/ruff.json",
       ".*/\\.config/checkrun/rumdl\\.toml$": "https://raw.githubusercontent.com/SchemaStore/schemastore/master/src/schemas/json/rumdl.json",
       ".*/\\.config/checkrun/rustfmt\\.toml$": "https://www.schemastore.org/rustfmt.json",
@@ -474,7 +474,7 @@
       ".*/uv\\.toml$": "https://raw.githubusercontent.com/SchemaStore/schemastore/master/src/schemas/json/uv.json",
       "^$HOME/Cargo\\.toml$": "https://www.schemastore.org/cargo.json",
       "^$HOME/Makefile\\.toml$": "https://www.schemastore.org/cargo-make.json",
-      "^$HOME/\\.config/bottom/bottom\\.toml$": "https://raw.githubusercontent.com/ClementTsang/bottom/main/schema/v0.10/bottom.json",
+      "^$HOME/\\.config/bottom/bottom\\.toml$": "https://raw.githubusercontent.com/ClementTsang/bottom/0.14.7/schema/v0.14.7/bottom.json",
       "^$HOME/\\.config/checkrun/ruff\\.toml$": "https://www.schemastore.org/ruff.json",
       "^$HOME/\\.config/checkrun/rumdl\\.toml$": "https://raw.githubusercontent.com/SchemaStore/schemastore/master/src/schemas/json/rumdl.json",
       "^$HOME/\\.config/checkrun/rustfmt\\.toml$": "https://www.schemastore.org/rustfmt.json",
