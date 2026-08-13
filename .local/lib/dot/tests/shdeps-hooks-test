@@ -182,21 +182,14 @@ done
 _assert_contains "ast-grep: native route is limited to package catalogs that carry it" \
   "mgr:brew,mgr:pacman" "$_ast_grep_pkg"
 
-_assert_eq "ast-grep: glibc-only GitHub assets are not a portable fallback" \
-  "" \
-  "$(awk '$1 == "ast-grep/ast-grep" { print; exit }' "$REAL_HOME/.config/shdeps/10-deps.conf")"
-
-_ast_grep_cargo=$(
-  awk '$1 == "ast-grep" && $2 == "cargo" { print; exit }' \
+_ast_grep_release=$(
+  awk '$1 == "ast-grep/ast-grep" && $2 == "github:release" { print; exit }' \
     "$REAL_HOME/.config/shdeps/10-deps.conf"
 )
-_assert_eq "ast-grep: fallback uses the upstream Cargo crate" \
-  "cargo" "$(awk '{ print $2 }' <<<"$_ast_grep_cargo")"
-_assert_contains "ast-grep: Cargo fallback covers managers without a native package" \
-  "mgr:!brew,mgr:!pacman,os:!android" "$_ast_grep_cargo"
-_assert_eq "ast-grep: fallback platforms bootstrap Cargo natively" \
-  "pkg" \
-  "$(awk '$1 == "cargo" { print $2; exit }' "$REAL_HOME/.config/shdeps/00-toolchains.conf")"
+_assert_eq "ast-grep: fallback uses the official release archive" \
+  "github:release" "$(awk '{ print $2 }' <<<"$_ast_grep_release")"
+_assert_contains "ast-grep: release fallback excludes unsupported and native-package targets" \
+  "mgr:!brew,mgr:!pacman,mgr:!apk,os:!android" "$_ast_grep_release"
 
 for _termux_native in difftastic direnv dust gum lazygit mise yq; do
   _assert_contains "$_termux_native: Termux uses the native package" \
