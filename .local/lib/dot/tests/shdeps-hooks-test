@@ -84,6 +84,260 @@ _assert_contains "rust-src: Termux rust package bundles sources" \
   "android:rust" \
   "$(awk '$1 == "rust-src" && $2 == "pkg" { print; exit }' "$REAL_HOME/.config/shdeps/00-toolchains.conf")"
 
+echo "=== Python toolchain hook ==="
+
+_python_dep=$(
+  awk '$1 == "python" { print; exit }' \
+    "$REAL_HOME/.config/shdeps/00-toolchains.conf"
+)
+_assert_eq "python: shared interpreter uses the system package manager" \
+  "pkg" "$(awk '{ print $2 }' <<<"$_python_dep")"
+_assert_eq "python: dependency exposes the conventional python3 command" \
+  "python3" "$(awk '{ print $3 }' <<<"$_python_dep")"
+_assert_contains "python: Debian installs the shared python3 package" \
+  "apt:python3" "$_python_dep"
+
+_python_minimum_dep=$(
+  awk '$1 == "python-minimum" { print; exit }' \
+    "$REAL_HOME/.config/shdeps/00-toolchains.conf"
+)
+_assert_eq "python: minimum-version policy runs after package installation" \
+  "custom" "$(awk '{ print $2 }' <<<"$_python_minimum_dep")"
+_assert_eq "python: minimum-version policy checks the selected python3" \
+  "python3" "$(awk '{ print $3 }' <<<"$_python_minimum_dep")"
+
+_python_hook="$REAL_HOME/.config/shdeps/hooks.d/python-minimum.sh"
+_assert_file_exists "python: custom hook is tracked" "$_python_hook"
+if [[ -f $_python_hook ]]; then
+  _python_saved_shdeps_bin_dir=$(declare -f shdeps_bin_dir 2>/dev/null || true)
+  _python_saved_shdeps_install_dir=$(declare -f shdeps_install_dir 2>/dev/null || true)
+  _python_saved_shdeps_pkg_install_for_mgr=$(
+    declare -f shdeps_pkg_install_for_mgr 2>/dev/null || true
+  )
+  _python_saved_shdeps_platform_match=$(
+    declare -f shdeps_platform_match 2>/dev/null || true
+  )
+  _python_saved_shdeps_warn=$(declare -f shdeps_warn 2>/dev/null || true)
+  # shellcheck source=/dev/null
+  . "$_python_hook"
+
+  _python_bin=$(_mock_bin)
+  _python_calls=$(_tmpdir)/calls.log
+  cat >"$_python_bin/python3" <<'EOF'
+#!/bin/bash
+printf 'python3:%s\n' "$*" >>"$PYTHON_TEST_CALLS"
+case "${1:-}" in
+  --version)
+    printf 'Python %s\n' "$PYTHON_TEST_VERSION"
+    ;;
+  -I)
+    [[ ${2:-} == -S && ${3:-} == -c ]] || exit 2
+    major=${PYTHON_TEST_VERSION%%.*}
+    rest=${PYTHON_TEST_VERSION#*.}
+    minor=${rest%%.*}
+    if [[ $major -gt 3 || $major -eq 3 && $minor -ge 11 ]]; then
+      exit 0
+    fi
+    exit 1
+    ;;
+  *) exit 2 ;;
+esac
+EOF
+  chmod +x "$_python_bin/python3"
+
+  _python_saved_path=$PATH
+  export PYTHON_TEST_CALLS=$_python_calls
+  export PYTHON_TEST_VERSION=3.10.14
+  PATH="$_python_bin:$_python_saved_path"
+  if exists python; then
+    _fail "python: 3.10 does not satisfy the toolchain floor"
+  else
+    _pass "python: 3.10 does not satisfy the toolchain floor"
+  fi
+  export PYTHON_TEST_VERSION=3.11.0
+  if exists python; then
+    _pass "python: 3.11 satisfies the toolchain floor"
+  else
+    _fail "python: 3.11 satisfies the toolchain floor"
+  fi
+  export PYTHON_TEST_VERSION=3.14.2
+  if exists python; then
+    _pass "python: newer versions remain accepted"
+  else
+    _fail "python: newer versions remain accepted"
+  fi
+  _assert_contains "python: version probe encodes the 3.11 floor" \
+    "sys.version_info >= (3, 11)" "$(cat "$_python_calls")"
+  _assert_eq "python: status reports the selected interpreter version" \
+    "Python 3.14.2" "$(version python)"
+
+  PATH=$_python_saved_path
+  _python_system_bin=$(_mock_bin)
+  _python_public_bin=$(_tmpdir)
+  _python_install_root=$(_tmpdir)
+  _python_brew_prefix=$(_tmpdir)
+  mkdir -p "$_python_brew_prefix/bin"
+  _python_tools=$(_mock_bin)
+  for _python_tool in bash cat chmod env ln mkdir mv readlink rm rmdir; do
+    ln -s "$(command -v "$_python_tool")" "$_python_tools/$_python_tool"
+  done
+  _python_package_calls=$(_tmpdir)/package-calls.log
+  _python_warnings=$(_tmpdir)/warnings.log
+  cat >"$_python_system_bin/python3" <<'EOF'
+#!/bin/bash
+case "${1:-}" in
+  --version) printf 'Python 3.10.14\n' ;;
+  -I) exit 1 ;;
+  *) exit 2 ;;
+esac
+EOF
+  chmod +x "$_python_system_bin/python3"
+  cat >"$_python_system_bin/brew" <<'EOF'
+#!/bin/bash
+[[ $* == "--prefix python@3.12" ]] || exit 2
+printf '%s\n' "$PYTHON_TEST_BREW_PREFIX"
+EOF
+  chmod +x "$_python_system_bin/brew"
+  export PYTHON_TEST_BREW_PREFIX=$_python_brew_prefix
+  # shellcheck disable=SC2329  # the sourced hook invokes this public API.
+  shdeps_platform_match() { return 1; }
+  # shellcheck disable=SC2329  # the sourced hook invokes this public API.
+  shdeps_pkg_install_for_mgr() {
+    printf '%s\n' "$*" >>"$_python_package_calls"
+    cat >"$PYTHON_TEST_BREW_PREFIX/bin/python3.12" <<'PYTHON'
+#!/bin/bash
+case "${1:-}" in
+  --version) printf 'Python 3.12.99\n' ;;
+  -I) [[ ${2:-} == -S && ${3:-} == -c ]] ;;
+  *) exit 2 ;;
+esac
+PYTHON
+    chmod +x "$PYTHON_TEST_BREW_PREFIX/bin/python3.12"
+  }
+  # shellcheck disable=SC2329  # the sourced hook invokes this public API.
+  shdeps_bin_dir() { printf '%s\n' "$_python_public_bin"; }
+  # shellcheck disable=SC2329  # the sourced hook invokes this public API.
+  shdeps_install_dir() { printf '%s\n' "$_python_install_root"; }
+  # shellcheck disable=SC2329  # the sourced hook invokes this public API.
+  shdeps_warn() { printf '%s\n' "$*" >>"$_python_warnings"; }
+
+  PATH="$_python_public_bin:$_python_system_bin:$_python_tools"
+  if install python-minimum; then
+    _pass "python: native versioned package satisfies the minimum"
+  else
+    _fail "python: native versioned package satisfies the minimum"
+  fi
+  _assert_contains "python: native fallback covers Debian and Ubuntu" \
+    "apt:python3.11-venv" "$(cat "$_python_package_calls")"
+  _assert_contains "python: native fallback covers Red Hat-family systems" \
+    "dnf:python3.11" "$(cat "$_python_package_calls")"
+  _assert_contains "python: native fallback covers Homebrew" \
+    "brew:python@3.12" "$(cat "$_python_package_calls")"
+  _assert_file_exists "python: native fallback creates a tiny managed wrapper" \
+    "$_python_install_root/python-minimum/python3"
+  _assert_eq "python: public python3 selects the managed wrapper" \
+    "$_python_install_root/python-minimum/python3" \
+    "$(readlink "$_python_public_bin/python3")"
+  _assert_eq "python: native fallback reports the shared interpreter" \
+    "Python 3.12.99" "$(version python-minimum)"
+
+  uninstall python-minimum
+  _assert_file_missing "python: uninstall removes only the managed public wrapper" \
+    "$_python_public_bin/python3"
+  _assert_file_exists "python: uninstall leaves the shared system interpreter" \
+    "$_python_brew_prefix/bin/python3.12"
+
+  PATH=$_python_saved_path
+  _python_uv_bin=$(_mock_bin)
+  _python_uv_public_bin=$(_tmpdir)
+  _python_uv_install_root=$(_tmpdir)
+  cat >"$_python_uv_bin/python3" <<'EOF'
+#!/bin/bash
+case "${1:-}" in
+  --version) printf 'Python 3.10.14\n' ;;
+  -I) exit 1 ;;
+  *) exit 2 ;;
+esac
+EOF
+  chmod +x "$_python_uv_bin/python3"
+  cat >"$_python_uv_bin/uv" <<'EOF'
+#!/bin/bash
+printf 'uv:%s\n' "$*" >>"$PYTHON_TEST_CALLS"
+[[ $* == "python install --default --upgrade 3.12" ]] || exit 2
+cat >"$PYTHON_TEST_PUBLIC_BIN/python3" <<'PYTHON'
+#!/bin/bash
+case "${1:-}" in
+  --version) printf 'Python 3.12.99\n' ;;
+  -I) [[ ${2:-} == -S && ${3:-} == -c ]] ;;
+  *) exit 2 ;;
+esac
+PYTHON
+chmod +x "$PYTHON_TEST_PUBLIC_BIN/python3"
+EOF
+  chmod +x "$_python_uv_bin/uv"
+  export PYTHON_TEST_PUBLIC_BIN=$_python_uv_public_bin
+  # shellcheck disable=SC2329  # the sourced hook invokes this public API.
+  shdeps_pkg_install_for_mgr() {
+    printf '%s\n' "$*" >>"$_python_package_calls"
+    return 1
+  }
+  # shellcheck disable=SC2329  # the sourced hook invokes this public API.
+  shdeps_bin_dir() { printf '%s\n' "$_python_uv_public_bin"; }
+  # shellcheck disable=SC2329  # the sourced hook invokes this public API.
+  shdeps_install_dir() { printf '%s\n' "$_python_uv_install_root"; }
+  PATH="$_python_uv_public_bin:$_python_uv_bin:$_python_tools"
+  if install python-minimum; then
+    _pass "python: uv fallback installs a supported interpreter"
+  else
+    _fail "python: uv fallback installs a supported interpreter"
+  fi
+  PATH=$_python_saved_path
+  _assert_contains "python: uv fallback selects the maintained 3.12 line" \
+    "uv:python install --default --upgrade 3.12" "$(cat "$_python_calls")"
+
+  _python_empty_bin=$(_mock_bin)
+  # shellcheck disable=SC2329  # the sourced hook invokes this public API.
+  shdeps_bin_dir() { printf '%s\n' "$_python_public_bin"; }
+  # shellcheck disable=SC2329  # the sourced hook invokes this public API.
+  shdeps_install_dir() { printf '%s\n' "$_python_install_root"; }
+  PATH=$_python_empty_bin
+  if install python-minimum; then
+    _fail "python: missing uv fails visibly"
+  else
+    _pass "python: missing uv fails visibly"
+  fi
+  PATH=$_python_saved_path
+  _assert_contains "python: missing uv diagnostic is actionable" \
+    "uv is unavailable" "$(cat "$_python_warnings")"
+
+  unset PYTHON_TEST_BREW_PREFIX PYTHON_TEST_CALLS PYTHON_TEST_PUBLIC_BIN \
+    PYTHON_TEST_VERSION
+  unset -f exists install uninstall version shdeps_warn shdeps_bin_dir \
+    shdeps_install_dir shdeps_pkg_install_for_mgr shdeps_platform_match \
+    _python_expose _python_install_system _python_supported \
+    _python_supported_alternate _python_supported_path
+  [[ -z $_python_saved_shdeps_bin_dir ]] ||
+    eval "$_python_saved_shdeps_bin_dir"
+  [[ -z $_python_saved_shdeps_install_dir ]] ||
+    eval "$_python_saved_shdeps_install_dir"
+  [[ -z $_python_saved_shdeps_pkg_install_for_mgr ]] ||
+    eval "$_python_saved_shdeps_pkg_install_for_mgr"
+  [[ -z $_python_saved_shdeps_platform_match ]] ||
+    eval "$_python_saved_shdeps_platform_match"
+  [[ -z $_python_saved_shdeps_warn ]] || eval "$_python_saved_shdeps_warn"
+  _assert_eq "python: restores the shared platform helper" \
+    "$_python_saved_shdeps_platform_match" \
+    "$(declare -f shdeps_platform_match 2>/dev/null || true)"
+  if declare -f _python_supported_path &>/dev/null; then
+    _fail "python: test cleanup removes every private hook helper"
+  else
+    _pass "python: test cleanup removes every private hook helper"
+  fi
+  unset _python_saved_shdeps_bin_dir _python_saved_shdeps_install_dir \
+    _python_saved_shdeps_pkg_install_for_mgr \
+    _python_saved_shdeps_platform_match _python_saved_shdeps_warn
+fi
+
 echo "=== cmake-language-server hook ==="
 
 _cmake_language_server_hook="$REAL_HOME/.config/shdeps/hooks.d/cmake-language-server.sh"
@@ -286,6 +540,8 @@ shdeps_bin_dir() { echo "$_nvim_bin"; }
 shdeps_pkg_mgr() { echo brew; }
 # shellcheck disable=SC2329  # hook calls this public shdeps API by name.
 shdeps_reinstall() { return 1; }
+# shellcheck disable=SC2329  # hook calls this public shdeps API by name.
+shdeps_platform_match() { return 1; }
 # shellcheck disable=SC2329  # hook calls this public shdeps API by name.
 shdeps_pkg_install_for_mgr() {
   printf 'pkg:%s\n' "$*" >>"$_nvim_calls"

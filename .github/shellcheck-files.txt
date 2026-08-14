@@ -13,6 +13,7 @@ program	.config/shdeps/hooks.d/google-java-format.sh
 program	.config/shdeps/hooks.d/neovim/neovim.sh
 program	.config/shdeps/hooks.d/nerd-fonts.sh
 program	.config/shdeps/hooks.d/php-cs-fixer.sh
+program	.config/shdeps/hooks.d/python-minimum.sh
 program	.config/shdeps/hooks.d/rcaloras/bash-preexec.sh
 program	.config/shdeps/hooks.d/rubocop.sh
 program	.config/shdeps/hooks.d/rust-toolchain.sh
