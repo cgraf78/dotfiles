@@ -21,10 +21,12 @@ dot_fixture_base_repo() {
 }
 
 dot_fixture_copy_core() {
+  local engine_root="${1:-$REAL_HOME/.local/lib/dot/core}"
+
   mkdir -p "$TEST_HOME/.local/lib/dot/core"
-  cp "$REAL_HOME/.local/lib/dot/core/"*.sh "$TEST_HOME/.local/lib/dot/core/"
-  cp -R "$REAL_HOME/.local/lib/dot/core/doctor" "$TEST_HOME/.local/lib/dot/core/"
-  cp -R "$REAL_HOME/.local/lib/dot/core/repos" "$TEST_HOME/.local/lib/dot/core/"
+  cp "$engine_root/"*.sh "$TEST_HOME/.local/lib/dot/core/"
+  cp -R "$engine_root/doctor" "$TEST_HOME/.local/lib/dot/core/"
+  cp -R "$engine_root/repos" "$TEST_HOME/.local/lib/dot/core/"
 }
 
 dot_fixture_write_shdeps_config() {
@@ -62,8 +64,10 @@ dot_fixture_seed_bootstrap_files() {
 }
 
 dot_fixture_source_core_init() {
+  local engine_root="${1:-$TEST_HOME/.local/lib/dot/core}"
+
   # shellcheck source=/dev/null
-  . "$TEST_HOME/.local/lib/dot/core/init.sh"
+  . "$engine_root/init.sh"
   _ensure_shdeps
 }
 
