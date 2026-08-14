@@ -611,6 +611,152 @@ PY
     done <<<"$_merge_hook_layout_errors"
   fi
 
+  echo ""
+  echo "=== Embedded core dependency boundary ==="
+
+  # The standalone-dot extraction must move engine mechanics without silently
+  # turning today's client-policy imports into a public API.  Keep both sides
+  # of that boundary explicit before any files move: source edges identify
+  # every direct runtime consumer, while the AST-derived symbol ledger
+  # identifies the private functions and globals each base hook/doctor module
+  # currently gets from another embedded core file.
+  _core_boundary_scanner="$_lint_root/.local/lib/dot/tests/core-boundary-inventory.py"
+  _core_boundary_tracked=$(_tmpdir)/tracked-files
+  "${_lint_git[@]}" ls-files >"$_core_boundary_tracked"
+  for _core_boundary_spec in \
+    "sources|runtime source|embedded-core-sources-v1.tsv" \
+    "tests|test migration|embedded-core-tests-v1.tsv" \
+    "symbols|hook and doctor symbol|embedded-core-symbols-v1.tsv"; do
+    IFS='|' read -r _core_boundary_kind _core_boundary_label \
+      _core_boundary_fixture <<<"$_core_boundary_spec"
+    _core_boundary_expected=$(_tmpdir)/expected.tsv
+    _core_boundary_actual=$(_tmpdir)/actual.tsv
+    awk 'NF && $0 !~ /^[[:space:]]*#/' \
+      "$_lint_root/.local/lib/dot/tests/fixtures/$_core_boundary_fixture" \
+      >"$_core_boundary_expected"
+
+    if python3 "$_core_boundary_scanner" "$_core_boundary_kind" \
+      "$_lint_root" "$_core_boundary_tracked" >"$_core_boundary_actual"; then
+      if cmp -s "$_core_boundary_expected" "$_core_boundary_actual"; then
+        _pass "embedded core boundary: $_core_boundary_label inventory is explicit"
+      else
+        _fail "embedded core boundary: $_core_boundary_label inventory drifted"
+        diff -u "$_core_boundary_expected" "$_core_boundary_actual" >&2 || true
+      fi
+    else
+      _fail "embedded core boundary: $_core_boundary_label inventory scan runs"
+    fi
+  done
+
+  # Keep the scanner honest with the dependency shapes most likely to defeat a
+  # line-oriented grep.  These are test fixtures, not supported syntax: they
+  # prove constant path composition and symlink imports are visible, heredoc
+  # prose is ignored, and semantic function/variable references stay in the
+  # symbol ledger even when they are not ordinary expansions or direct calls.
+  _core_boundary_fixture_root=$(_tmpdir)
+  _core_boundary_fixture_core="$_core_boundary_fixture_root/.local/lib/dot/core"
+  mkdir -p "$_core_boundary_fixture_root/.local/bin" \
+    "$_core_boundary_fixture_core/merge-hooks"
+  cat >"$_core_boundary_fixture_core/xdg.sh" <<'FIXTURE'
+# shellcheck shell=bash
+FIXTURE
+  cat >"$_core_boundary_fixture_core/helper.sh" <<'FIXTURE'
+# shellcheck shell=bash
+_helper() { :; }
+_printed_only() { :; }
+FIXTURE
+  cat >"$_core_boundary_fixture_core/constants.sh" <<'FIXTURE'
+# shellcheck shell=bash
+DOTFILES=${HOME}/.dotfiles
+ORDER_GLOBAL=outside
+OTHER_GLOBAL=outside
+RHS_GLOBAL=outside
+TRAP_GLOBAL=outside
+UNSET_GLOBAL=outside
+FIXTURE
+  cat >"$_core_boundary_fixture_core/merge-hooks/test.sh" <<'FIXTURE'
+# shellcheck shell=bash
+merge() { trap '_helper' EXIT; [[ -v DOTFILES ]]; }
+noise() { trap 'printf "%s\n" _printed_only' EXIT; unset _printed_only; }
+command_noise() { command _printed_only; type -P _printed_only >/dev/null; }
+trap_value() { trap 'printf "%s\n" "$TRAP_GLOBAL"' EXIT; }
+shadow() { local OTHER_GLOBAL=local; }
+use_global() { printf '%s\n' "$OTHER_GLOBAL"; unset UNSET_GLOBAL; }
+before_local() { printf '%s\n' "$ORDER_GLOBAL"; local ORDER_GLOBAL=local; }
+rhs_local() { local RHS_GLOBAL="$RHS_GLOBAL/suffix"; }
+FIXTURE
+  cat >"$_core_boundary_fixture_root/.local/bin/split" <<'FIXTURE'
+#!/usr/bin/env -S bash
+core="$HOME/.local/lib/dot/core"
+. "$core/xdg.sh"
+FIXTURE
+  cat >"$_core_boundary_fixture_root/.local/bin/scope" <<'FIXTURE'
+#!/usr/bin/env bash
+probe() { local core="$HOME/.local/lib/dot/core"; :; }
+run() { local core=/tmp; . "$core/xdg.sh"; }
+FIXTURE
+  # shellcheck disable=SC2016  # generated fixture must retain literal $HOME.
+  _core_boundary_heredoc_literal='$HOME/.local/lib/dot/'core/xdg.sh
+  cat >"$_core_boundary_fixture_root/.local/bin/heredoc" <<FIXTURE
+#!/usr/bin/env bash
+cat <<'TEXT'
+$_core_boundary_heredoc_literal
+TEXT
+FIXTURE
+  chmod +x "$_core_boundary_fixture_root/.local/bin/split" \
+    "$_core_boundary_fixture_root/.local/bin/heredoc" \
+    "$_core_boundary_fixture_root/.local/bin/scope"
+  ln -s '../lib/dot/'core/xdg.sh \
+    "$_core_boundary_fixture_root/.local/bin/direct-link"
+  _core_boundary_fixture_owner=.local/lib/dot/core
+  cat >"$_core_boundary_fixture_root/tracked" <<TRACKED
+.local/bin/direct-link
+.local/bin/heredoc
+.local/bin/scope
+.local/bin/split
+$_core_boundary_fixture_owner/constants.sh
+$_core_boundary_fixture_owner/helper.sh
+$_core_boundary_fixture_owner/merge-hooks/test.sh
+$_core_boundary_fixture_owner/xdg.sh
+TRACKED
+
+  cat >"$_core_boundary_fixture_root/sources.expected" <<EXPECTED
+.local/bin/direct-link	xdg.sh	$_core_boundary_fixture_owner/xdg.sh
+.local/bin/split	xdg.sh	$_core_boundary_fixture_owner/xdg.sh
+EXPECTED
+  if python3 "$_core_boundary_scanner" sources \
+    "$_core_boundary_fixture_root" "$_core_boundary_fixture_root/tracked" \
+    >"$_core_boundary_fixture_root/sources.actual" &&
+    cmp -s "$_core_boundary_fixture_root/sources.expected" \
+      "$_core_boundary_fixture_root/sources.actual"; then
+    _pass "embedded core boundary scanner: resolves split and symlink sources only"
+  else
+    _fail "embedded core boundary scanner: resolves split and symlink sources only"
+    diff -u "$_core_boundary_fixture_root/sources.expected" \
+      "$_core_boundary_fixture_root/sources.actual" >&2 || true
+  fi
+
+  cat >"$_core_boundary_fixture_root/symbols.expected" <<EXPECTED
+function	$_core_boundary_fixture_owner/merge-hooks/test.sh	_helper	$_core_boundary_fixture_owner/helper.sh
+variable	$_core_boundary_fixture_owner/merge-hooks/test.sh	DOTFILES	$_core_boundary_fixture_owner/constants.sh
+variable	$_core_boundary_fixture_owner/merge-hooks/test.sh	ORDER_GLOBAL	$_core_boundary_fixture_owner/constants.sh
+variable	$_core_boundary_fixture_owner/merge-hooks/test.sh	OTHER_GLOBAL	$_core_boundary_fixture_owner/constants.sh
+variable	$_core_boundary_fixture_owner/merge-hooks/test.sh	RHS_GLOBAL	$_core_boundary_fixture_owner/constants.sh
+variable	$_core_boundary_fixture_owner/merge-hooks/test.sh	TRAP_GLOBAL	$_core_boundary_fixture_owner/constants.sh
+variable	$_core_boundary_fixture_owner/merge-hooks/test.sh	UNSET_GLOBAL	$_core_boundary_fixture_owner/constants.sh
+EXPECTED
+  if python3 "$_core_boundary_scanner" symbols \
+    "$_core_boundary_fixture_root" "$_core_boundary_fixture_root/tracked" \
+    >"$_core_boundary_fixture_root/symbols.actual" &&
+    cmp -s "$_core_boundary_fixture_root/symbols.expected" \
+      "$_core_boundary_fixture_root/symbols.actual"; then
+    _pass "embedded core boundary scanner: resolves trap and variable-existence symbols"
+  else
+    _fail "embedded core boundary scanner: resolves trap and variable-existence symbols"
+    diff -u "$_core_boundary_fixture_root/symbols.expected" \
+      "$_core_boundary_fixture_root/symbols.actual" >&2 || true
+  fi
+
   _account_portability_errors=$(
     python3 - "$_lint_root" "$_mktemp_tracked" <<'PY'
 import sys
