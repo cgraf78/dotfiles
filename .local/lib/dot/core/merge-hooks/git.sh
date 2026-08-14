@@ -2,6 +2,7 @@
 # Keep the tracked XDG Git config in the effective global configuration stack.
 
 merge() {
+  _dot_tool_present git || return 0
   local managed="$HOME/.config/git/config"
   [[ -f "$managed" ]] || return 0
 

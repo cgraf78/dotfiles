@@ -10,6 +10,7 @@ _ignore_sources() {
 }
 
 merge() {
+  _dot_tool_present ignore || return 0
   local dst="$HOME/.ignore"
 
   local -a src_files=()

@@ -18,7 +18,7 @@ _merge_gemini_settings() {
 }
 
 merge() {
-  command -v gemini >/dev/null 2>&1 || return 0
+  _dot_tool_present gemini || return 0
   _merge_hook_jq_available || return 0
 
   local dst="$HOME/.gemini/settings.json"

@@ -171,10 +171,10 @@ _nvim_lazy_lock_acquire() {
 }
 
 merge() {
+  _dot_tool_present nvim || return 0
   local config="$HOME/.config/nvim/init.lua" data lazy lock probe_rc nvim_rc
 
   [[ -r "$config" ]] || return 0
-  command -v nvim >/dev/null 2>&1 || return 0
   command -v pgrep >/dev/null 2>&1 || return 0
   pgrep -x nvim >/dev/null 2>&1
   probe_rc=$?

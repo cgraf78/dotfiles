@@ -62,6 +62,7 @@ _ssh_prune_managed_family() {
 }
 
 merge() {
+  _dot_tool_present ssh || return 0
   local dst="$HOME/.ssh/config"
 
   local -a src_files=()

@@ -182,6 +182,7 @@ _cron_source_files() {
 }
 
 merge() {
+  _dot_tool_present cron || return 0
   local cron_marker="# dot-managed-cron"
 
   local -a _cron_sources

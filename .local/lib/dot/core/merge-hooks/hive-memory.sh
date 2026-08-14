@@ -192,12 +192,12 @@ _hive_memory_check_config() {
 }
 
 merge() {
+  _dot_tool_present hive-memory || return 0
   local config
   _hive_memory_remove_legacy_core
   _hive_memory_config || return 0
   config="$REPLY"
 
-  command -v hm >/dev/null 2>&1 || return 0
   [[ -f "$config" ]] || return 0
 
   _log "  Hive Memory"

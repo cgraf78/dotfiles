@@ -26,6 +26,6 @@ _dot_codex_trust_helper="${DOT_CODEX_TRUST_HELPER:-$_dot_codex_source_dir/refres
 . "$_dot_codex_config_lib"
 
 merge() {
-  command -v codex >/dev/null 2>&1 || return 0
+  _dot_tool_present codex || return 0
   dot_codex_config_merge
 }

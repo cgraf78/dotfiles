@@ -6,6 +6,7 @@
 # behavior belongs to the provider, leaving this consumer intentionally thin.
 
 merge() {
+  _dot_tool_present gstack || return 0
   local provider
   provider=$(command -v gstack-register) || return 0
 

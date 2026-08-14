@@ -11,6 +11,8 @@ source_home=$HOME
 deps="$source_home/.config/shdeps/10-deps.conf"
 shdeps_hook="$source_home/.config/shdeps/hooks.d/garrytan/gstack.sh"
 merge_hook="$source_home/.local/lib/dot/core/merge-hooks/gstack.sh"
+# shellcheck source=/dev/null
+. "$source_home/.local/lib/dot/core/platform.sh"
 
 dependency_order=$(
   awk '$1 == "cgraf78/gstack-register" || $1 == "garrytan/gstack" {

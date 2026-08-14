@@ -276,6 +276,8 @@ if $_bootstrap_run_unit; then
     mkdir -p "$WEZ_HOME/.config/wezterm/hyperlink-rules.d"
     echo "return { work_links = true }" >"$WEZ_HOME/.config/wezterm/hyperlink-rules.d/80-work.lua"
     mkdir -p "$WEZ_HOME/bin" "$WEZ_HOME/termnav-src"
+    : >"$WEZ_HOME/bin/wezterm.exe"
+    chmod +x "$WEZ_HOME/bin/wezterm.exe"
     echo "return { termnav = true }" >"$WEZ_HOME/termnav-src/link-routes.lua"
     echo "return { termnav_public = true }" >"$WEZ_HOME/termnav-src/public-link-rules.lua"
     cat >"$WEZ_HOME/bin/shdeps" <<EOF

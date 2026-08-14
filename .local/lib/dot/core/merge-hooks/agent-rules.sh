@@ -173,6 +173,7 @@ _dot_agent_rules_write_manifest() {
 }
 
 merge() {
+  _dot_tool_present agent-rules || return 0
   local provider manifest
   provider=$(command -v agent-rules-sync) || return 0
 

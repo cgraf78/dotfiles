@@ -107,6 +107,7 @@ _wezterm_copy_shdeps_asset() {
 }
 
 merge() {
+  _dot_tool_present wezterm || return 0
   local config_dir="$HOME/.config/wezterm"
   local src="$config_dir/wezterm.lua"
   [[ -f "$src" ]] || return 0
