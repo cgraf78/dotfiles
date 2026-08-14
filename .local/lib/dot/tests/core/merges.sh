@@ -7260,6 +7260,204 @@ GH
   _assert_not_contains "merge metadata: missing result scalars stay silent" \
     "No such file or directory" "$missing_capture_output"
 
+  # Characterize the generic worker boundary before the runner moves to its
+  # standalone repository. Keep this fixture isolated from the application
+  # hooks below: it describes scheduling and shell lifecycle contracts, not any
+  # one product's merge behavior.
+  merge_lifecycle_home=$(_tmpdir)
+  merge_lifecycle_cwd=$(_tmpdir)
+  merge_lifecycle_cwd_physical=$(cd "$merge_lifecycle_cwd" && pwd -P)
+  merge_lifecycle_input=$merge_lifecycle_home/caller-input
+  merge_lifecycle_report=$merge_lifecycle_home/observer-report
+  merge_lifecycle_parent_report=$merge_lifecycle_home/parent-report
+  mkdir -p "$merge_lifecycle_home/.local/lib/dot/core/merge-hooks"
+  printf '%s\n' 'caller payload' >"$merge_lifecycle_input"
+
+  cat >"$merge_lifecycle_home/.local/lib/dot/core/merge-hooks/10-mutator.sh" <<'MERGE'
+merge() {
+    # Every hook gets a fresh worker. Deliberately mutate process-wide shell
+    # state here so the following hook proves none of it crosses that boundary.
+    export DOT_MERGE_LIFECYCLE_LEAK=present
+    set +E
+    set +o pipefail
+    shopt -s nullglob
+    trap ':' USR1
+    merge_lifecycle_leaked_function() { :; }
+    printf '\n  Mutator label  \n  Mutator detail  \n'
+}
+MERGE
+
+  cat >"$merge_lifecycle_home/.local/lib/dot/core/merge-hooks/20-observer.sh" <<'MERGE'
+merge() {
+    local stdin_state=payload pipefail_state=off nullglob_state=off
+    local errtrace_state=off monitor_state=off err_trap_state=set
+    local exit_trap_state=missing term_trap_state=missing usr1_trap_state=set
+    local leak_state=absent function_state=absent
+
+    if ! IFS= read -r _merge_lifecycle_line; then
+        stdin_state=eof
+    fi
+    shopt -qo pipefail && pipefail_state=on
+    shopt -q nullglob && nullglob_state=on
+    [[ "$-" == *E* ]] && errtrace_state=on
+    [[ "$-" == *m* ]] && monitor_state=on
+    [[ -z "$(trap -p ERR)" ]] && err_trap_state=clear
+    case "$(trap -p EXIT)" in
+      *'_dot_cleanup_ignore_signals; _dot_cleanup_all'*) exit_trap_state=cleanup ;;
+    esac
+    case "$(trap -p TERM)" in
+      *'_dot_cleanup_signal 143'*) term_trap_state=cleanup ;;
+    esac
+    [[ -z "$(trap -p USR1)" ]] && usr1_trap_state=clear
+    [[ -z "${DOT_MERGE_LIFECYCLE_LEAK+x}" ]] || leak_state=present
+    declare -F merge_lifecycle_leaked_function >/dev/null 2>&1 && function_state=present
+
+    {
+        printf 'cwd=%s\n' "$(pwd -P)"
+        printf 'stdin=%s\n' "$stdin_state"
+        printf 'inherited=%s\n' "${DOT_MERGE_LIFECYCLE_INHERITED-unset}"
+        printf 'pipefail=%s\n' "$pipefail_state"
+        printf 'nullglob=%s\n' "$nullglob_state"
+        printf 'errtrace=%s\n' "$errtrace_state"
+        printf 'monitor=%s\n' "$monitor_state"
+        printf 'err_trap=%s\n' "$err_trap_state"
+        printf 'exit_trap=%s\n' "$exit_trap_state"
+        printf 'term_trap=%s\n' "$term_trap_state"
+        printf 'usr1_trap=%s\n' "$usr1_trap_state"
+        printf 'variable_leak=%s\n' "$leak_state"
+        printf 'function_leak=%s\n' "$function_state"
+    } >"$HOME/observer-report"
+    printf 'Observer label\n'
+}
+MERGE
+
+  cat >"$merge_lifecycle_home/.local/lib/dot/core/merge-hooks/cron.sh" <<'MERGE'
+merge() {
+    printf 'Serial label\n'
+}
+MERGE
+
+  cat >"$merge_lifecycle_home/.local/lib/dot/core/merge-hooks/z-after.sh" <<'MERGE'
+merge() {
+    printf 'After label\n'
+}
+MERGE
+
+  merge_lifecycle_specs=$(
+    HOME="$merge_lifecycle_home" _merge_hook_specs |
+      while IFS=$'\t' read -r hook_key _; do
+        printf '%s\n' "$hook_key"
+      done |
+      paste -sd '|' -
+  )
+  _assert_eq "merge lifecycle: discovery order is bytewise by hook key" \
+    "10-mutator|20-observer|cron|z-after" "$merge_lifecycle_specs"
+
+  _trace_merge_lifecycle_batches_for_test() {
+    local HOME="$merge_lifecycle_home"
+    # shellcheck disable=SC2034 # Read dynamically by _run_merges UI helpers.
+    local DOT_QUIET=1 DOT_UI_TOTAL=0
+    local trace=$merge_lifecycle_home/batch-trace
+    : >"$trace"
+    # Record only the scheduler boundary. The actual worker path runs below;
+    # this seam avoids timing assertions when proving where the serial hook
+    # splits the parallel batches.
+    # shellcheck disable=SC2329 # Invoked indirectly by _run_merges.
+    _run_merge_hook_batch() {
+      local hook_spec hook_key _ hook_keys=""
+      for hook_spec in "$@"; do
+        IFS=$'\t' read -r hook_key _ <<<"$hook_spec"
+        hook_keys+="${hook_keys:+,}$hook_key"
+      done
+      printf '%s\n' "$hook_keys" >>"$trace"
+      REPLY=0
+    }
+    _run_merges >/dev/null
+    paste -sd '|' "$trace"
+  }
+  merge_lifecycle_batches=$(_trace_merge_lifecycle_batches_for_test)
+  unset -f _trace_merge_lifecycle_batches_for_test
+  _assert_eq "merge lifecycle: cron splits the surrounding parallel batches" \
+    "10-mutator,20-observer|cron|z-after" "$merge_lifecycle_batches"
+
+  _run_merge_lifecycle_for_test() {
+    local HOME="$merge_lifecycle_home"
+    local DOT_VERBOSE=1 DOT_MERGE_JOBS=1
+    export HOME DOT_VERBOSE DOT_MERGE_JOBS
+    export DOT_MERGE_LIFECYCLE_INHERITED=visible
+    unset DOT_MERGE_LIFECYCLE_LEAK
+    unset -f merge_lifecycle_leaked_function 2>/dev/null
+    set -E
+    set -o pipefail
+    shopt -u nullglob
+    trap ': >"$HOME/parent-err-fired"' ERR
+    # The generic cleanup layer intentionally preserves a controlling TTY for
+    # prompt-capable jobs. Force its noninteractive branch so this contract is
+    # deterministic in CI and when dot-test is launched manually in a shell.
+    # shellcheck disable=SC2329 # Invoked indirectly by the cleanup launcher.
+    _dot_cleanup_has_controlling_tty() { return 1; }
+
+    cd "$merge_lifecycle_cwd" || return
+    _run_merges <"$merge_lifecycle_input"
+
+    {
+      shopt -qo pipefail && printf 'pipefail=on\n' || printf 'pipefail=off\n'
+      shopt -q nullglob && printf 'nullglob=on\n' || printf 'nullglob=off\n'
+      [[ "$-" == *E* ]] && printf 'errtrace=on\n' || printf 'errtrace=off\n'
+      [[ -z "${DOT_MERGE_LIFECYCLE_LEAK+x}" ]] &&
+        printf 'variable_leak=absent\n' || printf 'variable_leak=present\n'
+      declare -F merge_lifecycle_leaked_function >/dev/null 2>&1 &&
+        printf 'function_leak=present\n' || printf 'function_leak=absent\n'
+      case "$(trap -p ERR)" in
+        *parent-err-fired*) printf 'err_trap=preserved\n' ;;
+        *) printf 'err_trap=changed\n' ;;
+      esac
+    } >"$merge_lifecycle_parent_report"
+  }
+  merge_lifecycle_output=$(_run_merge_lifecycle_for_test)
+  unset -f _run_merge_lifecycle_for_test
+  _assert_file_content "merge lifecycle: fresh worker has the documented context" \
+    "cwd=$merge_lifecycle_cwd_physical
+stdin=eof
+inherited=visible
+pipefail=on
+nullglob=off
+errtrace=on
+monitor=off
+err_trap=clear
+exit_trap=cleanup
+term_trap=cleanup
+usr1_trap=clear
+variable_leak=absent
+function_leak=absent" \
+    "$merge_lifecycle_report"
+  _assert_file_content "merge lifecycle: hook mutations do not escape to coordinator" \
+    "pipefail=on
+nullglob=off
+errtrace=on
+variable_leak=absent
+function_leak=absent
+err_trap=preserved" \
+    "$merge_lifecycle_parent_report"
+  _assert_file_missing "merge lifecycle: worker does not fire coordinator ERR trap" \
+    "$merge_lifecycle_home/parent-err-fired"
+  _assert_contains "merge lifecycle: first nonblank captured line is the label" \
+    "ok       Mutator label" "$merge_lifecycle_output"
+  _assert_contains "merge lifecycle: later captured lines are subordinate details" \
+    "    Mutator detail" "$merge_lifecycle_output"
+  merge_lifecycle_render_order=$(
+    printf '%s\n' "$merge_lifecycle_output" |
+      awk '
+        /Mutator label/ { print "mutator" }
+        /Observer label/ { print "observer" }
+        /After label/ { print "after" }
+        /Serial label/ { print "serial" }
+      ' |
+      paste -sd '|' -
+  )
+  _assert_eq "merge lifecycle: captured results render in discovery order" \
+    "mutator|observer|serial|after" "$merge_lifecycle_render_order"
+
   # Create test merge implementation scripts. Hook discovery is driven by
   # implementations, not by optional config directories.
   mkdir -p "$TEST_HOME/.config/dot/merge-hooks.d" \
