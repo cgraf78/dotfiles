@@ -7438,10 +7438,13 @@ MERGE
       )"
   done
 
-  # Failing merge script doesn't abort
+  # A worker's private exit status must not leak through the public update
+  # contract. Use a non-1 failure here so this characterization catches an
+  # implementation that accidentally returns the last worker status instead
+  # of the aggregate operational-failure status.
   cat >"$TEST_HOME/.local/lib/dot/core/merge-hooks/failapp.sh" <<'MERGE'
 merge() {
-    return 1
+    return 7
 }
 MERGE
 
@@ -7449,7 +7452,7 @@ MERGE
   merge_failure_rc=0
   result=$(_run_merges 2>&1) || merge_failure_rc=$?
   export DOT_VERBOSE=0
-  _assert_exit "failing merge hook: aggregate status is nonzero" \
+  _assert_exit "failing merge hook: aggregate status is exactly one" \
     1 "$merge_failure_rc"
   _assert_contains "surviving merges still run" "Test app" "$result"
   _assert_contains "verbose: failing hook gets warning row" "warning  failapp" "$result"
