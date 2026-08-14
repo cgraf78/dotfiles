@@ -1635,8 +1635,12 @@
               "description": "URL template or GitHub repo for precompiled Ruby binaries.",
               "type": "string"
             },
+            "ruby_build_cli_opts": {
+              "description": "CLI options passed directly to ruby-build before the version and install prefix.",
+              "type": "string"
+            },
             "ruby_build_opts": {
-              "description": "Options to pass to ruby-build.",
+              "description": "Configure arguments passed through ruby-build after `--`.",
               "type": "string"
             },
             "ruby_build_repo": {
@@ -2567,6 +2571,18 @@
             "type": "string"
           },
           "type": "array"
+        }
+      }
+    },
+    "tool_config": {
+      "description": "policy for tools declared by configs sharing the containing config root",
+      "type": "object",
+      "unevaluatedProperties": false,
+      "properties": {
+        "locked": {
+          "default": false,
+          "description": "require tools declared by this config root to resolve and install from their lockfiles",
+          "type": "boolean"
         }
       }
     },
@@ -4916,6 +4932,10 @@
     "task_config": {
       "description": "configuration for task execution and management",
       "$ref": "#/$defs/task_config"
+    },
+    "tool_config": {
+      "description": "policy for tools declared by this config root",
+      "$ref": "#/$defs/tool_config"
     },
     "tasks": {
       "additionalProperties": {

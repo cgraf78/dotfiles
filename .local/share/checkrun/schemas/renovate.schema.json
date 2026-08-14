@@ -1,8 +1,8 @@
 {
   "$id": "https://docs.renovatebot.com/renovate-schema.json",
-  "title": "JSON schema for Renovate 44.27.0 config files (https://renovatebot.com/)",
+  "title": "JSON schema for Renovate 44.29.4 config files (https://renovatebot.com/)",
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "x-renovate-version": "44.27.0",
+  "x-renovate-version": "44.29.4",
   "allowComments": true,
   "type": "object",
   "definitions": {
@@ -6417,6 +6417,7 @@
           "gomodMassage",
           "gomodTidy",
           "gomodTidy1.17",
+          "gomodTidyAll",
           "gomodTidyE",
           "gomodUpdateImportPaths",
           "gomodSkipVendor",
