@@ -2,6 +2,50 @@
 # main.sh - main shard UI and helper coverage.
 
 dot_core_test_main() {
+  echo "=== Explicit engine fixture root ==="
+
+  local fixture_saved_home="$TEST_HOME" fixture_saved_ensure_shdeps
+  local fixture_source_root fixture_target_home fixture_explicit_init
+  fixture_source_root=$(_tmpdir)
+  fixture_target_home=$(_tmpdir)
+  mkdir -p "$fixture_source_root/doctor" "$fixture_source_root/repos"
+  printf '%s\n' '# explicit engine sentinel' >"$fixture_source_root/sentinel.sh"
+  printf '%s\n' '# explicit doctor sentinel' >"$fixture_source_root/doctor/sentinel.sh"
+  printf '%s\n' '# explicit repo sentinel' >"$fixture_source_root/repos/sentinel.sh"
+
+  TEST_HOME="$fixture_target_home"
+  dot_fixture_copy_core "$fixture_source_root"
+  _assert_file_content "fixture engine root: copies explicit core modules" \
+    '# explicit engine sentinel' \
+    "$fixture_target_home/.local/lib/dot/core/sentinel.sh"
+  _assert_file_content "fixture engine root: copies explicit doctor modules" \
+    '# explicit doctor sentinel' \
+    "$fixture_target_home/.local/lib/dot/core/doctor/sentinel.sh"
+  _assert_file_content "fixture engine root: copies explicit repository modules" \
+    '# explicit repo sentinel' \
+    "$fixture_target_home/.local/lib/dot/core/repos/sentinel.sh"
+
+  mkdir -p "$fixture_target_home/.local/lib/dot/core"
+  fixture_saved_ensure_shdeps=$(declare -f _ensure_shdeps)
+  cat >"$fixture_target_home/.local/lib/dot/core/init.sh" <<'INIT'
+DOT_FIXTURE_INIT_SOURCE=default
+_ensure_shdeps() { DOT_FIXTURE_SHDEPS_SOURCE=default; }
+INIT
+  fixture_explicit_init=$(_tmpdir)
+  cat >"$fixture_explicit_init/init.sh" <<'INIT'
+DOT_FIXTURE_INIT_SOURCE=explicit
+_ensure_shdeps() { DOT_FIXTURE_SHDEPS_SOURCE=explicit; }
+INIT
+  unset DOT_FIXTURE_INIT_SOURCE DOT_FIXTURE_SHDEPS_SOURCE
+  dot_fixture_source_core_init "$fixture_explicit_init"
+  _assert_eq "fixture engine root: sources explicit init module" \
+    explicit "${DOT_FIXTURE_INIT_SOURCE:-unset}"
+  _assert_eq "fixture engine root: bootstraps through explicit init module" \
+    explicit "${DOT_FIXTURE_SHDEPS_SOURCE:-unset}"
+  unset DOT_FIXTURE_INIT_SOURCE DOT_FIXTURE_SHDEPS_SOURCE
+  eval "$fixture_saved_ensure_shdeps"
+  TEST_HOME="$fixture_saved_home"
+
   echo ""
   echo "=== Update UI helpers ==="
 
