@@ -7,6 +7,98 @@ dot_core_test_doctor() {
 
   _dot_doctor_load
 
+  echo "=== Base repository topologies ==="
+
+  # Exercise every repository shape accepted by the current doctor through the
+  # same public section check. Keeping these as real Git repositories prevents
+  # the standalone extraction from accidentally preserving only the spelling
+  # of today's command wrapper while changing which client layouts are valid.
+  _doctor_base_repo_topology_result() {
+    local topology="$1" fixture_home fixture_git_dir
+    fixture_home=$(_tmpdir)
+    fixture_home=$(cd "$fixture_home" && pwd -P)
+    fixture_git_dir="$fixture_home/.dotfiles"
+
+    mkdir -p "$fixture_home/.local/bin"
+    cat >"$fixture_home/.local/bin/dot" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+    chmod +x "$fixture_home/.local/bin/dot"
+
+    case "$topology" in
+      legacy-bare)
+        git init --bare "$fixture_git_dir" >/dev/null 2>&1
+        ;;
+      canonical-worktree)
+        git init --bare "$fixture_git_dir" >/dev/null 2>&1
+        git --git-dir="$fixture_git_dir" config core.bare false
+        git --git-dir="$fixture_git_dir" config core.worktree "$fixture_home"
+        ;;
+      ordinary-checkout | unrelated-checkout)
+        git -C "$fixture_home" init >/dev/null 2>&1
+        if [[ "$topology" == ordinary-checkout ]]; then
+          mkdir -p "$fixture_home/.local/lib/dot/core/doctor"
+          printf '%s\n' '# fixture doctor entry point' \
+            >"$fixture_home/.local/lib/dot/core/doctor.sh"
+          printf '%s\n' '# fixture doctor runtime' \
+            >"$fixture_home/.local/lib/dot/core/doctor/runtime.sh"
+          git -C "$fixture_home" add \
+            .local/bin/dot \
+            .local/lib/dot/core/doctor.sh \
+            .local/lib/dot/core/doctor/runtime.sh
+        else
+          printf '%s\n' '# unrelated repository' >"$fixture_home/README.md"
+          git -C "$fixture_home" add README.md
+        fi
+        ;;
+      *)
+        printf 'unknown doctor topology fixture: %s\n' "$topology" >&2
+        return 2
+        ;;
+    esac
+
+    (
+      _DR_PASS_COUNT=0
+      _DR_WARN_COUNT=0
+      _DR_FAIL_COUNT=0
+      HOME="$fixture_home" \
+        DOTFILES="$fixture_git_dir" \
+        GIT="git --git-dir=$fixture_git_dir --work-tree=$fixture_home" \
+        DOT_BIN="$fixture_home/.local/bin/dot" \
+        _dr_check_base_repo
+    )
+  }
+
+  result=$(_doctor_base_repo_topology_result legacy-bare)
+  _assert_contains "doctor topology: accepts legacy core.bare client" \
+    "core.bare = true" "$result"
+  _assert_contains "doctor topology: legacy client resolves HOME work tree" \
+    "work-tree resolves to \$HOME" "$result"
+  _assert_not_contains "doctor topology: legacy client is not reported missing" \
+    ".dotfiles missing" "$result"
+
+  result=$(_doctor_base_repo_topology_result canonical-worktree)
+  _assert_contains "doctor topology: accepts canonical explicit worktree client" \
+    "core.bare = false with explicit worktree" "$result"
+  _assert_contains "doctor topology: canonical client resolves HOME work tree" \
+    "work-tree resolves to \$HOME" "$result"
+  _assert_not_contains "doctor topology: canonical client is not reported missing" \
+    ".dotfiles missing" "$result"
+
+  result=$(_doctor_base_repo_topology_result ordinary-checkout)
+  _assert_contains "doctor topology: accepts identified checkout rooted at HOME" \
+    "dotfiles checkout exists (regular checkout rooted at \$HOME)" "$result"
+  _assert_not_contains "doctor topology: identified HOME checkout needs no separate git dir" \
+    ".dotfiles missing" "$result"
+
+  result=$(_doctor_base_repo_topology_result unrelated-checkout)
+  _assert_contains "doctor topology: rejects unrelated checkout rooted at HOME" \
+    ".dotfiles missing" "$result"
+  _assert_not_contains "doctor topology: unrelated HOME checkout is not a dotfiles client" \
+    "dotfiles checkout exists" "$result"
+  unset -f _doctor_base_repo_topology_result
+
   doctor_opencode_home=$(_tmpdir)
   doctor_opencode_bin=$(_tmpdir)
   mkdir -p "$doctor_opencode_home/.config/opencode/plugins"
