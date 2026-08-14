@@ -78,6 +78,7 @@ _merge_muse_settings() {
 }
 
 merge() {
+  command -v muse >/dev/null 2>&1 || return 0
   _merge_hook_jq_available || return 0
 
   local dst="$HOME/.config/muse/settings.json"
