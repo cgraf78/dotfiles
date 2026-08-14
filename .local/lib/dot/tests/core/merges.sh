@@ -1,6 +1,37 @@
 # shellcheck shell=bash
 # merges.sh - merge hook coverage.
 
+_dot_test_merge_hook_names() {
+  local source_home="$1" tracked_hooks tracked_path hook_name
+  local -a git_args=()
+
+  if [[ -e "$source_home/.git" || -L "$source_home/.git" ]]; then
+    git_args=(
+      -c "safe.directory=$source_home"
+      -C "$source_home"
+    )
+  elif [[ -d "$source_home/.dotfiles" ]]; then
+    git_args=(
+      -C "$source_home"
+      "--git-dir=$source_home/.dotfiles"
+      "--work-tree=$source_home"
+    )
+  else
+    printf 'merge hook test: cannot resolve base repository for %s\n' \
+      "$source_home" >&2
+    return 1
+  fi
+
+  tracked_hooks=$(git "${git_args[@]}" ls-files -- \
+    ':(glob).local/lib/dot/core/merge-hooks/*.sh') || return 1
+  while IFS= read -r tracked_path; do
+    [[ -n "$tracked_path" ]] || continue
+    hook_name="${tracked_path##*/}"
+    hook_name="${hook_name%.sh}"
+    printf '%s\n' "$hook_name"
+  done <<<"$tracked_hooks" | LC_ALL=C sort
+}
+
 dot_core_test_merges() {
   echo ""
   echo "=== Tool presence capability ==="
@@ -139,17 +170,59 @@ TOOL_COMMANDS
       agent-rules claude codex cron gemini gh git gstack hive-memory ignore \
       iterm2 karabiner mise muse nvim opencode sapling ssh tmux vscode wezterm
   )
-  classified_hooks=$(
-    for hook_path in "$REAL_HOME/.local/lib/dot/core/merge-hooks"/*.sh; do
-      hook_name="${hook_path##*/}"
-      hook_name="${hook_name%.sh}"
-      case "$hook_name" in
-        grafhome-ca-host-policy | grafhome-ca-user-renewal) continue ;;
-      esac
-      printf '%s\n' "$hook_name"
-    done | LC_ALL=C sort
-  )
-  _assert_eq "merge hook gates: every non-policy hook is classified" \
+
+  merge_hook_inventory_home=$(_tmpdir)
+  mkdir -p "$merge_hook_inventory_home/.local/lib/dot/core/merge-hooks/lib"
+  printf '# tracked base hook\n' \
+    >"$merge_hook_inventory_home/.local/lib/dot/core/merge-hooks/git.sh"
+  printf '# tracked support file, not a top-level hook\n' \
+    >"$merge_hook_inventory_home/.local/lib/dot/core/merge-hooks/lib/support.sh"
+  printf '# untracked overlay hook\n' \
+    >"$merge_hook_inventory_home/.local/lib/dot/core/merge-hooks/overlay-extension.sh"
+  git -C "$merge_hook_inventory_home" init -q
+  git -C "$merge_hook_inventory_home" add \
+    .local/lib/dot/core/merge-hooks/git.sh \
+    .local/lib/dot/core/merge-hooks/lib/support.sh
+  git -C "$merge_hook_inventory_home" \
+    -c user.name='Dot Test' -c user.email=dot-test.invalid \
+    -c commit.gpgsign=false commit -qm fixture
+  _assert_eq "merge hook gates: conventional checkout inventories only base hooks" \
+    "git" "$(_dot_test_merge_hook_names "$merge_hook_inventory_home")"
+  _assert_eq "merge hook gates: checkout ownership mismatch inventories base hooks" \
+    "git" "$(GIT_TEST_ASSUME_DIFFERENT_OWNER=1 \
+      _dot_test_merge_hook_names "$merge_hook_inventory_home")"
+
+  merge_hook_linked_parent=$(_tmpdir)
+  merge_hook_linked_home="$merge_hook_linked_parent/home"
+  git -C "$merge_hook_inventory_home" worktree add -q -b linked-layout \
+    "$merge_hook_linked_home"
+  printf '# untracked overlay hook\n' \
+    >"$merge_hook_linked_home/.local/lib/dot/core/merge-hooks/overlay-extension.sh"
+  _assert_eq "merge hook gates: linked worktree inventories only base hooks" \
+    "git" "$(_dot_test_merge_hook_names "$merge_hook_linked_home")"
+  _assert_eq "merge hook gates: linked ownership mismatch inventories base hooks" \
+    "git" "$(GIT_TEST_ASSUME_DIFFERENT_OWNER=1 \
+      _dot_test_merge_hook_names "$merge_hook_linked_home")"
+
+  merge_hook_dotfiles_home=$(_tmpdir)
+  mkdir -p "$merge_hook_dotfiles_home/.local/lib/dot/core/merge-hooks/lib"
+  printf '# tracked base hook\n' \
+    >"$merge_hook_dotfiles_home/.local/lib/dot/core/merge-hooks/git.sh"
+  printf '# tracked support file, not a top-level hook\n' \
+    >"$merge_hook_dotfiles_home/.local/lib/dot/core/merge-hooks/lib/support.sh"
+  printf '# untracked overlay hook\n' \
+    >"$merge_hook_dotfiles_home/.local/lib/dot/core/merge-hooks/overlay-extension.sh"
+  git init --bare -q "$merge_hook_dotfiles_home/.dotfiles"
+  git -C "$merge_hook_dotfiles_home" \
+    "--git-dir=$merge_hook_dotfiles_home/.dotfiles" \
+    "--work-tree=$merge_hook_dotfiles_home" add \
+    .local/lib/dot/core/merge-hooks/git.sh \
+    .local/lib/dot/core/merge-hooks/lib/support.sh
+  _assert_eq "merge hook gates: live dotfiles layout inventories only base hooks" \
+    "git" "$(_dot_test_merge_hook_names "$merge_hook_dotfiles_home")"
+
+  classified_hooks=$(_dot_test_merge_hook_names "$REAL_HOME")
+  _assert_eq "merge hook gates: every base hook is classified" \
     "$(printf '%s\n' "$tool_gated_hooks" | LC_ALL=C sort)" "$classified_hooks"
 
   while IFS= read -r hook_name; do
