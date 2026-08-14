@@ -1324,6 +1324,7 @@ _vscode_config_variants() {
 
 # Main: deploy extensions, settings, and keybindings to all VS Code variants.
 merge() {
+  _dot_tool_present vscode || return 0
   _vscode_install_declared_extensions || return $?
 
   command -v jq &>/dev/null || return 0

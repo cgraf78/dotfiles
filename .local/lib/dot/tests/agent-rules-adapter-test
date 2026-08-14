@@ -11,6 +11,8 @@ _test_prefer_system_git || exit 1
 source_home=$HOME
 deps="$source_home/.config/shdeps/10-deps.conf"
 hook="$source_home/.local/lib/dot/core/merge-hooks/agent-rules.sh"
+# shellcheck source=/dev/null
+. "$source_home/.local/lib/dot/core/platform.sh"
 
 if awk '$1 == "cgraf78/agent-rules-sync" && $2 == "github" { found = 1 }
   END { exit !found }' "$deps"; then

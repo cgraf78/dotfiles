@@ -72,7 +72,7 @@ _mise_publish_tmux() {
 }
 
 merge() {
-  mise --version &>/dev/null 2>&1 || return 0
+  _dot_tool_present mise || return 0
 
   local config="$HOME/.config/mise/config.toml"
   if [[ ! -f "$config" ]]; then

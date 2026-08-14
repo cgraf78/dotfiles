@@ -3,6 +3,187 @@
 
 dot_core_test_merges() {
   echo ""
+  echo "=== Tool presence capability ==="
+
+  local tool_platform_impl tool_command_impl tool_path_impl
+  tool_platform_impl=$(declare -f _dot_tool_platform)
+  tool_command_impl=$(declare -f _dot_tool_command_present)
+  tool_path_impl=$(declare -f _dot_tool_path_exists)
+
+  _tool_presence_platform=Linux
+  _tool_presence_commands=""
+  _tool_presence_paths=""
+
+  # shellcheck disable=SC2329 # Invoked by the capability helper under test.
+  _dot_tool_platform() {
+    printf '%s\n' "$_tool_presence_platform"
+  }
+  # shellcheck disable=SC2329 # Invoked by the capability helper under test.
+  _dot_tool_command_present() {
+    case ":$_tool_presence_commands:" in
+      *":$1:"*) return 0 ;;
+      *) return 1 ;;
+    esac
+  }
+  # shellcheck disable=SC2329 # Invoked by the capability helper under test.
+  _dot_tool_path_exists() {
+    case ":$_tool_presence_paths:" in
+      *":$1:"*) return 0 ;;
+      *) return 1 ;;
+    esac
+  }
+
+  while IFS=: read -r logical_tool native_command; do
+    _tool_presence_commands="$native_command"
+    _assert_exit "tool presence: $logical_tool resolves $native_command" 0 \
+      "$(
+        _dot_tool_present "$logical_tool"
+        printf '%s' "$?"
+      )"
+  done <<'TOOL_COMMANDS'
+agent-rules:agent-rules-sync
+claude:claude
+codex:codex
+cron:crontab
+gemini:gemini
+gh:gh
+git:git
+gstack:gstack-register
+hive-memory:hm
+mise:mise
+muse:muse
+nvim:nvim
+opencode:opencode
+sapling:sl
+ssh:ssh
+tmux:tmux
+TOOL_COMMANDS
+
+  _tool_presence_commands=fdfind
+  _assert_exit "tool presence: shared ignore policy accepts Debian fd" 0 \
+    "$(
+      _dot_tool_present ignore
+      printf '%s' "$?"
+    )"
+
+  _tool_presence_commands=""
+  _assert_exit "tool presence: absent command-backed tool is rejected" 1 \
+    "$(
+      _dot_tool_present ssh
+      printf '%s' "$?"
+    )"
+
+  _tool_presence_platform=Darwin
+  _tool_presence_paths="$HOME/Applications/iTerm.app"
+  _assert_exit "tool presence: macOS user app bundle enables iTerm2" 0 \
+    "$(
+      _dot_tool_present iterm2
+      printf '%s' "$?"
+    )"
+
+  _tool_presence_paths="/Applications/Karabiner-Elements.app"
+  _assert_exit "tool presence: macOS app bundle enables Karabiner" 0 \
+    "$(
+      _dot_tool_present karabiner
+      printf '%s' "$?"
+    )"
+
+  _tool_presence_paths="/Applications/Visual Studio Code - Insiders.app"
+  _assert_exit "tool presence: any macOS editor variant enables VS Code" 0 \
+    "$(
+      _dot_tool_present vscode
+      printf '%s' "$?"
+    )"
+
+  _tool_presence_platform=WSL
+  _tool_presence_commands=wezterm.exe
+  _tool_presence_paths=""
+  _assert_exit "tool presence: WSL accepts the Windows WezTerm command" 0 \
+    "$(
+      _dot_tool_present wezterm
+      printf '%s' "$?"
+    )"
+
+  _tool_presence_commands=codium-insiders.exe
+  _assert_exit "tool presence: WSL accepts VSCodium Insiders executable" 0 \
+    "$(
+      _dot_tool_present vscode
+      printf '%s' "$?"
+    )"
+
+  _tool_presence_platform=Linux
+  _tool_presence_commands=""
+  _tool_presence_paths="$HOME/.cursor-server"
+  _assert_exit "tool presence: remote editor server enables VS Code merge" 0 \
+    "$(
+      _dot_tool_present vscode
+      printf '%s' "$?"
+    )"
+
+  _tool_presence_paths=""
+  _assert_exit "tool presence: unknown logical tools fail closed" 1 \
+    "$(
+      _dot_tool_present not-a-tool
+      printf '%s' "$?"
+    )"
+
+  eval "$tool_platform_impl"
+  eval "$tool_command_impl"
+  eval "$tool_path_impl"
+
+  echo "=== Merge hook tool gates ==="
+
+  tool_gated_hooks=$(
+    printf '%s\n' \
+      agent-rules claude codex cron gemini gh git gstack hive-memory ignore \
+      iterm2 karabiner mise muse nvim opencode sapling ssh tmux vscode wezterm
+  )
+  classified_hooks=$(
+    for hook_path in "$REAL_HOME/.local/lib/dot/core/merge-hooks"/*.sh; do
+      hook_name="${hook_path##*/}"
+      hook_name="${hook_name%.sh}"
+      case "$hook_name" in
+        grafhome-ca-host-policy | grafhome-ca-user-renewal) continue ;;
+      esac
+      printf '%s\n' "$hook_name"
+    done | LC_ALL=C sort
+  )
+  _assert_eq "merge hook gates: every non-policy hook is classified" \
+    "$(printf '%s\n' "$tool_gated_hooks" | LC_ALL=C sort)" "$classified_hooks"
+
+  while IFS= read -r hook_name; do
+    hook_path="$REAL_HOME/.local/lib/dot/core/merge-hooks/$hook_name.sh"
+    first_merge_statement=$(
+      awk '
+        /^merge\(\)[[:space:]]*\{/ { in_merge = 1; next }
+        in_merge && /^[[:space:]]*$/ { next }
+        in_merge && /^[[:space:]]*#/ { next }
+        in_merge {
+          sub(/^[[:space:]]+/, "")
+          print
+          exit
+        }
+      ' "$hook_path"
+    )
+    _assert_eq "$hook_name merge: tool guard is the first operation" \
+      "_dot_tool_present $hook_name || return 0" "$first_merge_statement"
+
+    absent_hook_output=$(
+      (
+        unset -f merge 2>/dev/null
+        # shellcheck source=/dev/null
+        . "$hook_path"
+        # shellcheck disable=SC2329 # Invoked indirectly by the sourced hook.
+        _dot_tool_present() { return 1; }
+        merge
+      ) 2>&1
+    )
+    absent_hook_status=$?
+    _assert_exit "$hook_name merge: absent tool is a successful no-op" \
+      0 "$absent_hook_status"
+    _assert_eq "$hook_name merge: absent tool is silent" "" "$absent_hook_output"
+  done <<<"$tool_gated_hooks"
+
   echo "=== Merge hook support helpers ==="
 
   mkdir -p "$TEST_HOME/.config/dot/merge-hooks.d" "$TEST_HOME/.config/testapp"
@@ -151,6 +332,13 @@ YQ
       "present" "$(test -e "$agent_gate_marker" && printf present || printf missing)"
   done
   unset -f _run_agent_cli_gate_for_test merge 2>/dev/null
+
+  # The remaining cases exercise each hook's merge behavior, not platform
+  # discovery. Keep those fixtures deterministic even when they run in clean
+  # child shells or on CI hosts without the corresponding desktop application.
+  # shellcheck disable=SC2329 # Invoked indirectly by sourced hooks.
+  _dot_tool_present() { return 0; }
+  export -f _dot_tool_present
 
   echo "=== OpenCode AgentGuard merge hook ==="
 

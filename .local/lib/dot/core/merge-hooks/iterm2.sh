@@ -93,6 +93,7 @@ _iterm2_defaults() {
 
 # Main: copy dynamic profile and apply global preferences.
 merge() {
+  _dot_tool_present iterm2 || return 0
   [[ "$(uname)" == "Darwin" ]] || return 0
 
   _iterm2_has_profiles || _iterm2_has_defaults || return 0

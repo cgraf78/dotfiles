@@ -34,6 +34,7 @@ _karabiner_build_source() {
 
 # Main: merge dotfiles profiles into local Karabiner config.
 merge() {
+  _dot_tool_present karabiner || return 0
   [[ "$(uname)" == "Darwin" ]] || return 0
 
   _merge_hook_jq_available || return 0

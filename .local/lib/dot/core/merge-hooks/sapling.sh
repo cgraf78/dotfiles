@@ -51,7 +51,7 @@ _sapling_hook_commands_ready() {
 }
 
 merge() {
-  command -v sl >/dev/null 2>&1 || return 0
+  _dot_tool_present sapling || return 0
 
   local dst="$HOME/.hgrc"
 
