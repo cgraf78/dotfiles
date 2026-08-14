@@ -54,6 +54,7 @@ _dot_tool_present() {
     gemini) _dot_tool_any_command gemini ;;
     gh) _dot_tool_any_command gh ;;
     git) _dot_tool_any_command git ;;
+    grafhome-ca) _dot_tool_any_command grafhome-ca ;;
     gstack) _dot_tool_any_command gstack-register ;;
     hive-memory) _dot_tool_any_command hm ;;
     ignore) _dot_tool_any_command rg fd fdfind ;;

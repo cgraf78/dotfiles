@@ -48,6 +48,7 @@ cron:crontab
 gemini:gemini
 gh:gh
 git:git
+grafhome-ca:grafhome-ca
 gstack:gstack-register
 hive-memory:hm
 mise:mise
