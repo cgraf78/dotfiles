@@ -72,6 +72,86 @@ YQ
       printf '%s' "$?"
     )"
 
+  echo "=== Agent CLI merge hook gates ==="
+
+  agent_gate_home="$TEST_HOME/agent-cli-gate-home"
+  agent_gate_empty_path="$TEST_HOME/agent-cli-gate-empty-path"
+  agent_gate_marker="$agent_gate_home/downstream-reached"
+  mkdir -p "$agent_gate_home" "$agent_gate_empty_path"
+
+  _run_agent_cli_gate_for_test() (
+    local agent="$1" cli_present="$2"
+
+    unset -f merge codex claude gemini opencode muse 2>/dev/null
+    # shellcheck source=/dev/null
+    . "$REAL_HOME/.local/lib/dot/core/merge-hooks/$agent.sh"
+    case "$agent" in
+      codex)
+        # shellcheck disable=SC2329 # Invoked indirectly by the sourced hook.
+        dot_codex_config_merge() { : >"$agent_gate_marker"; }
+        ;;
+      claude | gemini | muse)
+        # shellcheck disable=SC2329 # Invoked indirectly by the sourced hook.
+        _merge_hook_jq_available() {
+          : >"$agent_gate_marker"
+          return 1
+        }
+        ;;
+      opencode)
+        # shellcheck disable=SC2329 # Invoked indirectly by the sourced hook.
+        dot_agentguard_integration_file() {
+          : >"$agent_gate_marker"
+          return 1
+        }
+        # shellcheck disable=SC2329 # Invoked indirectly by the sourced hook.
+        _warn() { :; }
+        ;;
+    esac
+    if [[ "$cli_present" == yes ]]; then
+      eval "$agent() { :; }"
+    fi
+    HOME="$agent_gate_home" PATH="$agent_gate_empty_path" merge
+  )
+
+  for agent in codex claude gemini opencode muse; do
+    case "$agent" in
+      codex) agent_gate_target="$agent_gate_home/.codex/config.toml" ;;
+      claude) agent_gate_target="$agent_gate_home/.claude/settings.json" ;;
+      gemini) agent_gate_target="$agent_gate_home/.gemini/settings.json" ;;
+      opencode)
+        agent_gate_target="$agent_gate_home/.config/opencode/plugins/dotfiles-agentguard.js"
+        ;;
+      muse) agent_gate_target="$agent_gate_home/.config/muse/settings.json" ;;
+    esac
+    mkdir -p "${agent_gate_target%/*}"
+    printf 'preserved-%s\n' "$agent" >"$agent_gate_target"
+
+    rm -f "$agent_gate_marker"
+    agent_gate_output=$(_run_agent_cli_gate_for_test "$agent" no 2>&1)
+    agent_gate_status=$?
+    _assert_exit "$agent merge: absent CLI is a successful no-op" \
+      0 "$agent_gate_status"
+    _assert_eq "$agent merge: absent CLI emits no output" \
+      "" "$agent_gate_output"
+    _assert_eq "$agent merge: absent CLI does not reach downstream work" \
+      "missing" "$(test -e "$agent_gate_marker" && printf present || printf missing)"
+    _assert_eq "$agent merge: absent CLI preserves existing state" \
+      "preserved-$agent" "$(cat "$agent_gate_target")"
+
+    rm -f "$agent_gate_marker"
+    _run_agent_cli_gate_for_test "$agent" yes >/dev/null 2>&1
+    agent_gate_installed_status=$?
+    case "$agent" in
+      opencode) agent_gate_expected_status=1 ;;
+      *) agent_gate_expected_status=0 ;;
+    esac
+    _assert_exit "$agent merge: installed CLI retains downstream status" \
+      "$agent_gate_expected_status" "$agent_gate_installed_status"
+    _assert_eq "$agent merge: installed CLI reaches existing merge behavior" \
+      "present" "$(test -e "$agent_gate_marker" && printf present || printf missing)"
+  done
+  unset -f _run_agent_cli_gate_for_test merge 2>/dev/null
+
   echo "=== OpenCode AgentGuard merge hook ==="
 
   opencode_hook="$REAL_HOME/.local/lib/dot/core/merge-hooks/opencode.sh"
@@ -95,6 +175,8 @@ OPENCODE_PLUGIN
       unset -f merge 2>/dev/null
       # shellcheck source=/dev/null
       . "$opencode_hook"
+      # shellcheck disable=SC2329 # Detected indirectly by command -v.
+      opencode() { :; }
       # shellcheck disable=SC2329 # Invoked by the sourced merge hook.
       dot_agentguard_integration_file() {
         [[ "$1" == "opencode" && "$2" == "agentguard.js" ]] || return 1
@@ -270,6 +352,7 @@ JQ
     unset -f merge 2>/dev/null
     # shellcheck source=/dev/null
     . "$REAL_HOME/.local/lib/dot/core/merge-hooks/$agent.sh"
+    eval "$agent() { :; }"
     # shellcheck disable=SC2329 # Invoked by the sourced merge hook.
     dot_agentguard_integration_file() {
       if [[ "$1" == "$agent" && "$2" == "hooks.json" ]]; then
@@ -5403,6 +5486,8 @@ JQ
     unset -f merge _merge_claude_settings 2>/dev/null
     # shellcheck source=/dev/null
     . "$_CLAUDE_HOOK"
+    # shellcheck disable=SC2329 # Detected indirectly by command -v.
+    claude() { :; }
     # shellcheck disable=SC2329 # Invoked by the sourced merge hook.
     dot_agentguard_integration_file() {
       if [[ "$1" == "claude" && "$2" == "hooks.json" ]]; then

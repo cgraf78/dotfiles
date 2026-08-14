@@ -78,6 +78,7 @@ _merge_claude_settings() {
 }
 
 merge() {
+  command -v claude >/dev/null 2>&1 || return 0
   _merge_hook_jq_available || return 0
 
   local dst="$HOME/.claude/settings.json"
