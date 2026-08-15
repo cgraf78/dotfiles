@@ -38,6 +38,12 @@ _client_path_contains 'Neovim launcher loads the dotfiles-owned Shdeps helper' \
   .local/bin/nvim '../lib/dotfiles/shdeps-assets.sh'
 _client_path_contains 'Git hooksPath uses the dotfiles-owned hook tree' \
   .config/git/config '.local/lib/dotfiles/git-hooks'
+# The config intentionally stores this literal expansion.
+# shellcheck disable=SC2016
+_client_path_contains 'dot activates the standalone extension root' \
+  .config/dot/config 'extensions_dir=$HOME/.local/lib/dotfiles'
+_client_path_contains 'dot activates the Shdeps provider' \
+  .config/dot/config 'dependency_provider=shdeps'
 _client_path_contains 'Shdeps owns the standalone dot dependency' \
   .config/shdeps/10-deps.conf 'cgraf78/dot                                github:repo      dot'
 _client_path_contains 'dot forwarder retains the explicit embedded fallback' \
