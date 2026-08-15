@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# Static ownership checks for dotfiles consumers after the standalone split.
+
+set -u
+
+source_home=${DOT_TEST_SOURCE_HOME:-$HOME}
+# shellcheck source=helpers.sh
+. "$source_home/.local/lib/dotfiles/tests/helpers.sh"
+
+_client_path_contains() {
+  local label=$1 path=$2 expected=$3
+  _assert_contains "$label" "$expected" "$(<"$source_home/$path")"
+}
+
+_client_path_contains 'bash loads the dotfiles-owned shell loader' \
+  .bashrc '.local/lib/dotfiles/shell-loader.sh'
+_client_path_contains 'zsh loads the dotfiles-owned shell loader' \
+  .zshrc '.local/lib/dotfiles/shell-loader.sh'
+_client_path_contains 'zprofile loads the dotfiles-owned shell loader' \
+  .zprofile '.local/lib/dotfiles/shell-loader.sh'
+_client_path_contains 'noninteractive shell loads the dotfiles-owned shell loader' \
+  .config/shell/env-noninteractive.sh '.local/lib/dotfiles/shell-loader.sh'
+_client_path_contains 'WSL aliases load the dotfiles-owned Windows helper' \
+  .config/shell/interactive.d/51-aliases-wsl.sh '.local/lib/dotfiles/windows.sh'
+_client_path_contains 'WezTerm shell policy loads the dotfiles-owned Shdeps helper' \
+  .config/shell/interactive.d/53-wezterm.sh '.local/lib/dotfiles/shdeps-assets.sh'
+_client_path_contains 'tool initialization loads the dotfiles-owned Shdeps helper' \
+  .config/shell/interactive.d/54-tool-init.sh '.local/lib/dotfiles/shdeps-assets.sh'
+_client_path_contains 'marks consume the public standalone XDG library' \
+  .config/shell/interactive.d/57-marks.sh '.local/lib/dot/xdg.sh'
+_client_path_contains 'clipboard consumes the public standalone XDG library' \
+  .local/bin/clip '.local/lib/dot/xdg.sh'
+_client_path_contains 'Git launcher loads the dotfiles-owned launcher helper' \
+  .local/bin/git '../lib/dotfiles/launcher-real.sh'
+_client_path_contains 'Hive Memory launcher loads the dotfiles-owned Shdeps helper' \
+  .local/bin/hm '../lib/dotfiles/shdeps-assets.sh'
+_client_path_contains 'Neovim launcher loads the dotfiles-owned Shdeps helper' \
+  .local/bin/nvim '../lib/dotfiles/shdeps-assets.sh'
+_client_path_contains 'Git hooksPath uses the dotfiles-owned hook tree' \
+  .config/git/config '.local/lib/dotfiles/git-hooks'
+
+if [[ -L $source_home/.local/bin/dot-test ]] &&
+  [[ $(readlink "$source_home/.local/bin/dot-test") == ../lib/dotfiles/tests/run ]]; then
+  _pass 'dot-test is the exact dotfiles-owned relative symlink'
+else
+  _fail 'dot-test is the exact dotfiles-owned relative symlink'
+fi
+
+selected_paths=(
+  .bashrc
+  .zshrc
+  .zprofile
+  .config/shell/env-noninteractive.sh
+  .config/shell/interactive.d/51-aliases-wsl.sh
+  .config/shell/interactive.d/53-wezterm.sh
+  .config/shell/interactive.d/54-tool-init.sh
+  .config/shell/interactive.d/57-marks.sh
+  .local/bin/clip
+  .local/bin/git
+  .local/bin/hm
+  .local/bin/nvim
+  .config/git/config
+)
+old_references=$(
+  grep -nE '\.local/lib/dot/core/(shell-loader|windows|shdeps-assets|launcher-real)\.sh|\.local/lib/dot/(git-hooks|sley-hooks)' \
+    "${selected_paths[@]/#/$source_home/}" 2>/dev/null || true
+)
+_assert_eq 'activated consumers contain no retired client-helper paths' '' "$old_references"
+
+xdg_fallbacks=$(grep -hF '.local/lib/dot/core/xdg.sh' \
+  "$source_home/.config/shell/interactive.d/57-marks.sh" \
+  "$source_home/.local/bin/clip" \
+  "$source_home/.local/lib/dotfiles/launcher-real.sh" | awk 'END { print NR }')
+_assert_eq 'dual-path window keeps only three explicit XDG fallbacks' 3 "$xdg_fallbacks"
+
+_test_summary

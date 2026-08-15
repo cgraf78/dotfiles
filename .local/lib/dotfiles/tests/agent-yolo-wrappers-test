@@ -1,0 +1,138 @@
+#!/usr/bin/env bash
+# agent-yolo-wrappers-test — agent CLI wrappers in 50-aliases.sh must inject
+# their skip-approval flag only where the CLI accepts it.
+#
+# Muse and opencode reject their flag ahead of most subcommands, so a wrapper
+# that blindly prepends it breaks `muse skills`, `opencode models`, and friends.
+# These cases pin the argv each invocation shape produces.
+
+set -o pipefail
+export NO_COLOR=1
+
+# shellcheck disable=SC1091 # dotfiles test helper lives under HOME.
+. "${BASH_SOURCE[0]%/*}/helpers.sh"
+
+aliases_file="$HOME/.config/shell/interactive.d/50-aliases.sh"
+test_root=$(_tmpdir)
+mock_bin="$test_root/bin"
+project_dir="$test_root/project"
+mkdir -p "$mock_bin" "$project_dir"
+
+# The wrappers dispatch through `command <agent>`, so PATH stubs that echo their
+# argv are enough to observe flag placement without launching a real agent. Each
+# argument is bracketed so a wrapper that splits or merges a quoted argument
+# (a prompt with spaces, say) fails instead of matching by accident.
+for agent in claude codex muse opencode; do
+  cat >"$mock_bin/$agent" <<'EOF'
+#!/usr/bin/env bash
+printf '[%s]' "$@"
+printf '\n'
+EOF
+  chmod +x "$mock_bin/$agent"
+done
+
+# Source the alias file in $shell and run one wrapper invocation, echoing the
+# argv the stub received. Both shells are covered because the file is sourced by
+# interactive bash and zsh alike.
+_probe_wrapper() {
+  local shell="$1"
+  shift
+  # Resolve against the caller's PATH: the probe itself runs with a minimal PATH
+  # that need not contain the shell (Homebrew zsh, for instance).
+  local shell_bin
+  shell_bin=$(command -v "$shell")
+  local rc_opts=()
+  case "$shell" in
+    # Startup files must stay out: the host's own zshenv/profile puts the real
+    # agent binaries ahead of the stubs on PATH and the probe would then run
+    # them for real.
+    zsh) rc_opts=(-f) ;;
+    bash) rc_opts=(--norc --noprofile) ;;
+  esac
+  # shellcheck disable=SC2016 # The inner shell expands its own positional args.
+  env -i HOME="$HOME" PATH="$mock_bin:/usr/bin:/bin" \
+    "$shell_bin" ${rc_opts[@]+"${rc_opts[@]}"} -c \
+    'source "$1" >/dev/null 2>&1; shift; "$@"' _ "$aliases_file" "$@"
+}
+
+# Assert one invocation shape in every shell that sources the alias file.
+_assert_wrapper_argv() {
+  local label="$1" expected="$2"
+  shift 2
+  local shell probe
+  for shell in bash zsh; do
+    command -v "$shell" >/dev/null 2>&1 || continue
+    probe=$(_probe_wrapper "$shell" "$@")
+    _assert_eq "$label ($shell)" "$expected" "$probe"
+  done
+}
+
+echo "=== opencode: --auto only where opencode accepts it ==="
+
+# `--auto` is valid on the default TUI command...
+_assert_wrapper_argv "opencode with no args gets --auto" \
+  "[--auto]" opencode
+_assert_wrapper_argv "opencode with root flags gets --auto" \
+  "[--auto][--model][foo/bar]" opencode --model foo/bar
+_assert_wrapper_argv "opencode with a project directory gets --auto" \
+  "[--auto][$project_dir]" opencode "$project_dir"
+
+# ...and on `run`, but only after the subcommand name.
+_assert_wrapper_argv "opencode run takes --auto after the subcommand" \
+  "[run][--auto][hello world]" opencode run "hello world"
+_assert_wrapper_argv "opencode run keeps caller flags after --auto" \
+  "[run][--auto][--model][foo/bar][hi]" opencode run --model foo/bar hi
+
+# Every other subcommand rejects it, so the wrapper must pass through untouched.
+_assert_wrapper_argv "opencode models is left alone" \
+  "[models]" opencode models
+_assert_wrapper_argv "opencode providers is left alone" \
+  "[providers][login]" opencode providers login
+_assert_wrapper_argv "opencode upgrade is left alone" \
+  "[upgrade]" opencode upgrade
+
+echo
+echo "=== muse: --yolo only where muse accepts it ==="
+
+_assert_wrapper_argv "muse with no args gets --yolo" \
+  "[--yolo]" muse
+_assert_wrapper_argv "muse with root flags gets --yolo" \
+  "[--yolo][--provider][echo]" muse --provider echo
+# A prompt is a positional, not a subcommand, so it still runs yolo.
+_assert_wrapper_argv "muse with a prompt gets --yolo" \
+  "[--yolo][fix the tests]" muse "fix the tests"
+
+# Muse rejects a subcommand that follows root options, so `exec` and `resume`
+# take the flag on the far side of the subcommand name.
+_assert_wrapper_argv "muse exec takes --yolo after the subcommand" \
+  "[exec][--yolo][hello world]" muse exec "hello world"
+_assert_wrapper_argv "muse resume takes --yolo after the subcommand" \
+  "[resume][--yolo][--last]" muse resume --last
+
+_assert_wrapper_argv "muse skills is left alone" \
+  "[skills][list]" muse skills list
+_assert_wrapper_argv "muse export is left alone" \
+  "[export][--last]" muse export --last
+_assert_wrapper_argv "muse login is left alone" \
+  "[login]" muse login
+_assert_wrapper_argv "muse session-message is left alone" \
+  "[session-message][serve]" muse session-message serve
+
+echo
+echo "=== claude and codex: native yolo flags precede every invocation ==="
+
+_assert_wrapper_argv "claude prepends --dangerously-skip-permissions" \
+  "[--dangerously-skip-permissions]" claude
+_assert_wrapper_argv "claude keeps the flag ahead of subcommands" \
+  "[--dangerously-skip-permissions][mcp][list]" claude mcp list
+_assert_wrapper_argv "codex prepends its native yolo flag" \
+  "[--dangerously-bypass-approvals-and-sandbox]" codex
+_assert_wrapper_argv "codex keeps the native flag ahead of runtime commands" \
+  "[--dangerously-bypass-approvals-and-sandbox][mcp][list]" codex mcp list
+_assert_wrapper_argv "codex keeps the native flag ahead of administrative commands" \
+  "[--dangerously-bypass-approvals-and-sandbox][update]" codex update
+_assert_wrapper_argv "codex preserves quoted prompts" \
+  "[--dangerously-bypass-approvals-and-sandbox][fix the tests]" \
+  codex "fix the tests"
+
+_test_summary

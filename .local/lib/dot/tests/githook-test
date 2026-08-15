@@ -210,7 +210,7 @@ _assert_not_contains "other bare repositories do not skip untracked files" \
 echo
 echo "=== Commit-message policy selection ==="
 
-default_validator="$SOURCE_HOME/.local/lib/dot/sley-hooks/validate-commit-msg"
+default_validator="$SOURCE_HOME/.local/lib/dotfiles/sley-hooks/validate-commit-msg"
 : >"$provider_log"
 : >"$cli_log"
 SLEY_COMMIT_MESSAGE_TEMPLATE="ambient-template" \

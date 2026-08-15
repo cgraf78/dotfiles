@@ -4,6 +4,13 @@
 dot_core_test_runner() {
   echo "=== dot-test runner ==="
 
+  if [[ -L "$BIN_DIR/dot-test" ]] &&
+    [[ $(readlink "$BIN_DIR/dot-test") == ../lib/dotfiles/tests/run ]]; then
+    _pass "dot-test entry point is the exact dotfiles-owned relative symlink"
+  else
+    _fail "dot-test entry point is the exact dotfiles-owned relative symlink"
+  fi
+
   _dot_runner_tests=$(_tmpdir)
   _dot_runner_bin=$(_tmpdir)
   _dot_runner_input="$(_tmpdir)/stdin.txt"
@@ -441,16 +448,25 @@ DOTRUNNER
   _dot_runner_source_tests=$(_tmpdir)
   _dot_runner_source_log=$(_tmpdir)/source-home.log
   mkdir -p "$_dot_runner_source_home/.local/bin" \
-    "$_dot_runner_source_home/.local/lib/dot/core" \
-    "$_dot_runner_source_home/.local/lib/dot/tests" \
+    "$_dot_runner_source_home/.local/lib/dotfiles/tests" \
+    "$_dot_runner_host_home/.local/lib/dot" \
     "$_dot_runner_host_home/git/shdeps" \
     "$_dot_runner_host_home/.local/share/mise" \
     "$_dot_runner_host_home/.local/state/mise" \
     "$_dot_runner_host_home/.cache/mise"
-  cp "$BIN_DIR/dot-test" "$_dot_runner_source_home/.local/bin/dot-test"
-  cp "$REAL_HOME/.local/lib/dot/core/ui.sh" "$_dot_runner_source_home/.local/lib/dot/core/ui.sh"
-  cp "$REAL_HOME/.local/lib/dot/tests/timeout.py" \
-    "$_dot_runner_source_home/.local/lib/dot/tests/timeout.py"
+  cp "$REAL_HOME/.local/lib/dotfiles/tests/run" \
+    "$_dot_runner_source_home/.local/lib/dotfiles/tests/run"
+  ln -s ../lib/dotfiles/tests/run \
+    "$_dot_runner_source_home/.local/bin/dot-test"
+  cat >"$_dot_runner_host_home/.local/lib/dot/ui.sh" <<'DOTRUNNER'
+dot_ui_color_hex() { printf '%s' "$1"; }
+dot_ui_hex_to_rgb() { printf '0;0;0'; }
+dot_ui_has_gum() { return 1; }
+dot_ui_title() { printf '\n%s\n\n' "$*"; }
+dot_ui_summary_box() { shift; printf '%s\n' "$*"; }
+DOTRUNNER
+  cp "$REAL_HOME/.local/lib/dotfiles/tests/timeout.py" \
+    "$_dot_runner_source_home/.local/lib/dotfiles/tests/timeout.py"
   printf '%s\n' '# fake shdeps' >"$_dot_runner_host_home/git/shdeps/shdeps.sh"
   cat >"$_dot_runner_source_tests/home-test" <<'DOTRUNNER'
 #!/usr/bin/env bash
@@ -464,7 +480,8 @@ DOTRUNNER
 }
 printf 'Results: 1 passed, 0 failed\n'
 DOTRUNNER
-  chmod +x "$_dot_runner_source_home/.local/bin/dot-test" "$_dot_runner_source_tests/home-test"
+  chmod +x "$_dot_runner_source_home/.local/lib/dotfiles/tests/run" \
+    "$_dot_runner_source_tests/home-test"
   env -u SHDEPS_LIB -u SHDEPS_DIR -u MISE_DATA_DIR -u MISE_STATE_DIR -u MISE_CACHE_DIR \
     DOT_TEST_SOURCE_HOME="$_dot_runner_source_home" \
     DOT_TEST_HOST_HOME="$_dot_runner_host_home" \

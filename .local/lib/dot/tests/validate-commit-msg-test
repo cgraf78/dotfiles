@@ -14,7 +14,7 @@ export NO_COLOR=1
 # shellcheck source=helpers.sh
 . "$HOME/.local/lib/dot/tests/helpers.sh"
 
-VALIDATOR="$HOME/.local/lib/dot/sley-hooks/validate-commit-msg"
+VALIDATOR="$HOME/.local/lib/dotfiles/sley-hooks/validate-commit-msg"
 # Exercise the hook selected by the tracked Git configuration rather than a
 # second test-owned path. A storage-only refactor must preserve this behavior.
 HOOK_DIR=$(git config --file "$HOME/.config/git/config" \

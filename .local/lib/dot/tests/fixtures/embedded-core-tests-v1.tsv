@@ -60,10 +60,7 @@
 .local/lib/dot/tests/core/merges.sh	merge-hooks/tmux.sh	.local/lib/dot/core/merge-hooks/tmux.sh
 .local/lib/dot/tests/core/merges.sh	merge-hooks/vscode.sh	.local/lib/dot/core/merge-hooks/vscode.sh
 .local/lib/dot/tests/core/merges.sh	merge-hooks/z-after.sh	.local/lib/dot/core/merge-hooks/z-after.sh
-.local/lib/dot/tests/core/runner.sh	ui.sh	.local/lib/dot/core/ui.sh
 .local/lib/dot/tests/core/static.sh	constants.sh	.local/lib/dot/core/constants.sh
-.local/lib/dot/tests/core/static.sh	shell-loader.sh	.local/lib/dot/core/shell-loader.sh
-.local/lib/dot/tests/core/static.sh	windows.sh	.local/lib/dot/core/windows.sh
 .local/lib/dot/tests/gstack-register-test	merge-hooks/gstack.sh	.local/lib/dot/core/merge-hooks/gstack.sh
 .local/lib/dot/tests/gstack-register-test	platform.sh	.local/lib/dot/core/platform.sh
 .local/lib/dot/tests/vscode-extensions-test	log.sh	.local/lib/dot/core/log.sh
@@ -71,7 +68,6 @@
 .local/lib/dot/tests/wezterm-test	shdeps-assets.sh	.local/lib/dot/core/shdeps-assets.sh
 .local/lib/dot/tests/workflow-consistency-test	merge-hooks/vscode.sh	.local/lib/dot/core/merge-hooks/vscode.sh
 .local/lib/dot/tests/xdg-test	constants.sh	.local/lib/dot/core/constants.sh
-.local/lib/dot/tests/xdg-test	launcher-real.sh	.local/lib/dot/core/launcher-real.sh
 .local/lib/dot/tests/xdg-test	merge-hooks/agent-rules.sh	.local/lib/dot/core/merge-hooks/agent-rules.sh
 .local/lib/dot/tests/xdg-test	merge-hooks/gh.sh	.local/lib/dot/core/merge-hooks/gh.sh
 .local/lib/dot/tests/xdg-test	update-lock.sh	.local/lib/dot/core/update-lock.sh

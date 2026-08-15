@@ -9,8 +9,8 @@ set -euo pipefail
 # `dot update` installs the tracked adapter and its declared dependencies as one
 # converged unit. A missing helper or provider is therefore a broken install to
 # repair, not an alternate runtime mode for this launcher to emulate.
-# shellcheck source=../lib/dot/core/shdeps-assets.sh disable=SC1091
-. "${BASH_SOURCE[0]%/*}/../lib/dot/core/shdeps-assets.sh"
+# shellcheck source=../lib/dotfiles/shdeps-assets.sh disable=SC1091
+. "${BASH_SOURCE[0]%/*}/../lib/dotfiles/shdeps-assets.sh"
 if ! dot_shdeps_dep_source cgraf78/agentguard lib/agentguard/agentguard.sh; then
   printf 'hm launcher: AgentGuard unavailable; run dot update\n' >&2
   exit 127

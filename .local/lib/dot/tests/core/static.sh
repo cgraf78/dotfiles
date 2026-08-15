@@ -921,7 +921,7 @@ PY
   _int_rel=$(sed -n 2p <<<"$_shell_dir_probe")
 
   for _pair in \
-    "shell-loader.sh|.local/lib/dot/core/shell-loader.sh|$_env_rel" \
+    "shell-loader.sh|.local/lib/dotfiles/shell-loader.sh|$_env_rel" \
     ".bashrc|.bashrc|$_int_rel" \
     ".zshrc|.zshrc|$_int_rel"; do
     IFS='|' read -r _label _rel _needle <<<"$_pair"
@@ -1150,9 +1150,13 @@ PY
     # Copy the shared loader body (sourced by .zshrc)
     mkdir -p "$_zsh_home/.config/shell" \
       "$_zsh_home/.local/bin" \
-      "$_zsh_home/.local/lib/dot/core"
-    cp "${_lint_root}/.local/lib/dot/core/shell-loader.sh" "$_zsh_home/.local/lib/dot/core/shell-loader.sh"
-    cp "${_lint_root}/.local/lib/dot/core/windows.sh" "$_zsh_home/.local/lib/dot/core/windows.sh"
+      "$_zsh_home/.local/lib/dotfiles"
+    cp "${_lint_root}/.local/lib/dotfiles/shell-loader.sh" \
+      "$_zsh_home/.local/lib/dotfiles/shell-loader.sh"
+    cp "${_lint_root}/.local/lib/dotfiles/windows.sh" \
+      "$_zsh_home/.local/lib/dotfiles/windows.sh"
+    cp "${_lint_root}/.local/lib/dotfiles/shdeps-assets.sh" \
+      "$_zsh_home/.local/lib/dotfiles/shdeps-assets.sh"
     cp "${_lint_root}/.config/shell/env-noninteractive.sh" \
       "$_zsh_home/.config/shell/env-noninteractive.sh"
     # Copy shell config dirs (only regular files from the repo)
@@ -1301,7 +1305,7 @@ EOF
     # shellcheck disable=SC2016 # inner zsh intentionally expands HOME/REPLY.
     _fake_cmd_probe=$(
       env -i HOME="$_zsh_home" PATH="$_fake_cmd_probe_bin:/usr/bin:/bin" DOT_TEST=0 \
-        zsh -fc '. "$HOME/.local/lib/dot/core/windows.sh";
+        zsh -fc '. "$HOME/.local/lib/dotfiles/windows.sh";
           if dot_wsl_windows_home; then printf "resolved:%s\n" "$REPLY"; else printf "unresolved\n"; fi' 2>/dev/null
     )
     _assert_eq "windows helper: PATH cmd.exe is not trusted as profile authority" \
@@ -1327,7 +1331,7 @@ EOF
       env -i HOME="$_zsh_home" PATH="$_paired_probe_bin:/usr/bin:/bin" DOT_TEST=0 \
         DOT_TEST_WINDOWS_CMD_EXE="$_paired_probe_bin/cmd.exe" bash -c '
           id() { printf "chris\n"; }
-          . "$HOME/.local/lib/dot/core/windows.sh"
+          . "$HOME/.local/lib/dotfiles/windows.sh"
           if dot_wsl_is_paired_windows_account; then printf "paired\n"; else printf "unpaired\n"; fi'
     )
     _assert_eq "windows helper: paired account matches case-insensitively" \
@@ -1338,7 +1342,7 @@ EOF
       env -i HOME="$_zsh_home" PATH="$_paired_probe_bin:/usr/bin:/bin" DOT_TEST=0 \
         DOT_TEST_WINDOWS_CMD_EXE="$_paired_probe_bin/cmd.exe" bash -c '
           id() { printf "root\n"; }
-          . "$HOME/.local/lib/dot/core/windows.sh"
+          . "$HOME/.local/lib/dotfiles/windows.sh"
           if dot_wsl_is_paired_windows_account; then printf "paired\n"; else printf "unpaired\n"; fi'
     )
     _assert_eq "windows helper: second Linux account (e.g. root) is not paired" \
@@ -1354,7 +1358,7 @@ EOF
       env -i HOME="$_zsh_home" PATH="/usr/bin:/bin" DOT_TEST=0 \
         DOT_TEST_WINDOWS_CMD_EXE="$_paired_probe_bin/does-not-exist" bash -c '
           id() { printf "chris\n"; }
-          . "$HOME/.local/lib/dot/core/windows.sh"
+          . "$HOME/.local/lib/dotfiles/windows.sh"
           if dot_wsl_is_paired_windows_account; then printf "paired\n"; else printf "unpaired\n"; fi'
     )
     _assert_eq "windows helper: unresolvable Windows account defaults to unpaired" \
@@ -1363,7 +1367,7 @@ EOF
     # shellcheck disable=SC2016 # inner bash intentionally expands HOME/REPLY.
     _paired_override_probe=$(
       env -i HOME="$_zsh_home" PATH="/usr/bin:/bin" DOT_TEST_WSL_PAIRED_ACCOUNT=1 bash -c '
-        . "$HOME/.local/lib/dot/core/windows.sh"
+        . "$HOME/.local/lib/dotfiles/windows.sh"
         if dot_wsl_is_paired_windows_account; then printf "paired\n"; else printf "unpaired\n"; fi'
     )
     _assert_eq "windows helper: DOT_TEST_WSL_PAIRED_ACCOUNT overrides resolution" \
@@ -1379,7 +1383,7 @@ EOF
       env -i HOME="$_zsh_home" PATH="$_paired_probe_bin:/usr/bin:/bin" DOT_TEST=0 \
         DOT_TEST_WINDOWS_CMD_EXE="$_paired_probe_bin/cmd.exe" bash -c '
           id() { printf "root\n"; }
-          . "$HOME/.local/lib/dot/core/windows.sh"
+          . "$HOME/.local/lib/dotfiles/windows.sh"
           if dot_wsl_writable_windows_home; then printf "resolved:%s\n" "$REPLY"; else printf "refused\n"; fi'
     )
     _assert_eq "windows helper: writable home is refused for an unpaired account" \
@@ -1393,7 +1397,7 @@ EOF
     _writable_home_paired_probe=$(
       env -i HOME="$_zsh_home" PATH="$_wsl_probe_bin:/usr/bin:/bin" DOT_TEST=0 \
         DOT_TEST_WINDOWS_CMD_EXE="$_wsl_probe_bin/cmd.exe" DOT_TEST_WSL_PAIRED_ACCOUNT=1 bash -c '
-          . "$HOME/.local/lib/dot/core/windows.sh"
+          . "$HOME/.local/lib/dotfiles/windows.sh"
           if dot_wsl_writable_windows_home; then printf "resolved:%s\n" "$REPLY"; else printf "refused\n"; fi'
     )
     _assert_eq "windows helper: writable home matches dot_wsl_windows_home when paired" \
@@ -1597,7 +1601,8 @@ EOF
     _assert_eq "zsh login interactive: env.d loads only once" "1" "$_login_interactive_count"
 
     # 3. Interactive smoke test: loads env.d + interactive.d
-    if _zsh_output=$(HOME="$_zsh_home" PATH="$_zsh_path" zsh -ic 'exit' 2>&1); then
+    if _zsh_output=$(HOME="$_zsh_home" ZDOTDIR="$_zsh_home" \
+      PATH="$_zsh_path" zsh -ic 'exit' 2>&1); then
       _pass "zsh interactive: starts and exits cleanly"
     else
       _fail "zsh interactive: starts and exits cleanly"

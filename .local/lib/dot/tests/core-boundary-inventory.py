@@ -33,6 +33,7 @@ from typing import Any
 
 CORE_ROOT = ".local/lib/dot/core/"
 TEST_ROOT = ".local/lib/dot/tests/"
+CLIENT_TEST_ROOT = ".local/lib/dotfiles/tests/"
 HOOK_CONFIG_ROOT = ".config/dot/merge-hooks.d/"
 
 IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -172,7 +173,7 @@ def source_inventory(root: Path, tracked: Iterable[str]) -> None:
         # Core owns its internal imports.  Tests use a separate, deliberately
         # broader ledger because fixture copies and path assertions must move
         # even when they are not literal source commands.
-        if relative.startswith((CORE_ROOT, TEST_ROOT)):
+        if relative.startswith((CORE_ROOT, TEST_ROOT, CLIENT_TEST_ROOT)):
             continue
 
         path = root / relative

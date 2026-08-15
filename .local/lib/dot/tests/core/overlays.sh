@@ -1,7 +1,45 @@
 # shellcheck shell=bash
+# shellcheck disable=SC2030,SC2031
+# PATH changes intentionally stay inside fixture command substitutions.
 # overlays.sh - overlay coverage.
 
 dot_core_test_overlays() {
+  _overlay_test_move_wrapper() {
+    local directory
+    directory=$(_mock_bin)
+    cat >"$directory/mv" <<'MOCK'
+#!/usr/bin/env bash
+set -e
+last=${!#}
+if [[ $last == "$DOT_TEST_MOVE_DEST" ]]; then
+  case $DOT_TEST_MOVE_MODE in
+    fail) exit 1 ;;
+    directory) mkdir -p "$last" ;;
+    terminate)
+      "$DOT_TEST_REAL_MV" "$@" || exit
+      kill -TERM "$PPID"
+      exit 0
+      ;;
+  esac
+fi
+exec "$DOT_TEST_REAL_MV" "$@"
+MOCK
+    cat >"$directory/ln" <<'MOCK'
+#!/usr/bin/env bash
+set -e
+last=${!#}
+"$DOT_TEST_REAL_LN" "$@"
+if [[ $last == "$DOT_TEST_MOVE_DEST" && $DOT_TEST_MOVE_MODE == terminate ]]; then
+  kill -TERM "$PPID"
+fi
+MOCK
+    chmod +x "$directory/mv" "$directory/ln"
+    REPLY=$directory
+  }
+  local real_mv real_ln real_git
+  real_mv=$(type -P mv)
+  real_ln=$(type -P ln)
+  real_git=$(type -P git)
   echo ""
   echo "=== Overlay discovery ==="
 
@@ -74,19 +112,17 @@ dot_core_test_overlays() {
   ln -s "$REPLY" "$TEST_HOME/failed-manifest-path"
   $GIT update-index --skip-worktree failed-manifest-path
   DOT_OVERLAY_MANIFEST="$failed_manifest"
-  # shellcheck disable=SC2329  # _link_overlays calls this failure fixture.
-  mv() {
-    if [[ "${2:-}" == "$DOT_OVERLAY_MANIFEST" ]]; then
-      return 1
-    fi
-    command mv "$@"
-  }
-  if _link_overlays >/dev/null 2>&1; then
+  _overlay_test_move_wrapper
+  failed_move_bin=$REPLY
+  if PATH="$failed_move_bin:$PATH" DOT_TEST_REAL_MV=$real_mv \
+    DOT_TEST_REAL_LN=$real_ln \
+    DOT_TEST_MOVE_MODE=fail DOT_TEST_MOVE_DEST=$DOT_OVERLAY_MANIFEST \
+    _link_overlays >/dev/null 2>&1; then
     _fail "overlay manifest migration: failed selected write propagates"
   else
     _pass "overlay manifest migration: failed selected write propagates"
   fi
-  unset -f mv
+  unset DOT_MOVE_BIN DOT_MOVE_MODE
   _assert_file_content "overlay manifest migration: failed write restores stale tracked file" \
     "base failed value" "$TEST_HOME/failed-manifest-path"
   failed_flag=$($GIT ls-files -v failed-manifest-path 2>/dev/null | cut -c1)
@@ -1185,6 +1221,15 @@ CONF
   _discover_overlays
   _link_overlays >/dev/null 2>&1
   restore_pull_probe="$TEST_HOME/restore-pull-probe"
+  restore_git_bin=$(_mock_bin)
+  cat >"$restore_git_bin/git" <<'MOCK'
+#!/usr/bin/env bash
+for arg in "$@"; do
+  [[ $arg == checkout ]] && exit 1
+done
+exec "$DOT_TEST_REAL_GIT" "$@"
+MOCK
+  chmod +x "$restore_git_bin/git"
   result=$(
     # shellcheck disable=SC2329  # invoked indirectly by _repo_pull_all.
     _ensure_repo_config() { :; }
@@ -1194,15 +1239,8 @@ CONF
     _pull_base() { printf 'base\n' >>"$restore_pull_probe"; }
     # shellcheck disable=SC2329  # must remain uncalled after restore failure.
     _pull_overlays() { printf 'overlays\n' >>"$restore_pull_probe"; }
-    # shellcheck disable=SC2329  # intercepts the checkout attempted by unstash.
-    git() {
-      local arg
-      for arg in "$@"; do
-        [[ "$arg" == "checkout" ]] && return 1
-      done
-      command git "$@"
-    }
-    if _repo_pull_all >/dev/null 2>&1; then
+    if PATH="$restore_git_bin:$PATH" DOT_TEST_REAL_GIT=$real_git \
+      _repo_pull_all >/dev/null 2>&1; then
       printf 'success\n'
     else
       printf 'failed\n'
@@ -1229,19 +1267,17 @@ CONF
   DOT_OVERLAY_MANIFEST="$directory_race_manifest"
   DOT_OVERLAY_LEGACY_MANIFEST="$TEST_HOME/no-directory-race-legacy"
   _discover_overlays
-  # shellcheck disable=SC2329  # _link_overlays calls this race fixture.
-  mv() {
-    if [[ "${2:-}" == "$DOT_OVERLAY_MANIFEST" ]]; then
-      mkdir -p "$DOT_OVERLAY_MANIFEST"
-    fi
-    command mv "$@"
-  }
-  if _link_overlays >/dev/null 2>&1; then
+  _overlay_test_move_wrapper
+  directory_move_bin=$REPLY
+  if PATH="$directory_move_bin:$PATH" DOT_TEST_REAL_MV=$real_mv \
+    DOT_TEST_REAL_LN=$real_ln \
+    DOT_TEST_MOVE_MODE=directory DOT_TEST_MOVE_DEST=$DOT_OVERLAY_MANIFEST \
+    _link_overlays >/dev/null 2>&1; then
     _fail "link recovery publication: directory race propagates"
   else
     _pass "link recovery publication: directory race propagates"
   fi
-  unset -f mv
+  unset DOT_MOVE_BIN DOT_MOVE_MODE
   if [[ -d "$directory_race_manifest" ]]; then
     _pass "link recovery publication: replacement directory is preserved"
   else
@@ -1278,19 +1314,17 @@ CONF
   DOT_OVERLAY_MANIFEST="$recovery_manifest"
   DOT_OVERLAY_LEGACY_MANIFEST="$recovery_legacy"
   _discover_overlays
-  # shellcheck disable=SC2329  # _link_overlays calls this failure fixture.
-  mv() {
-    if [[ "${2:-}" == "$DOT_OVERLAY_MANIFEST" ]]; then
-      return 1
-    fi
-    command mv "$@"
-  }
-  if _link_overlays >/dev/null 2>&1; then
+  _overlay_test_move_wrapper
+  recovery_move_bin=$REPLY
+  if PATH="$recovery_move_bin:$PATH" DOT_TEST_REAL_MV=$real_mv \
+    DOT_TEST_REAL_LN=$real_ln \
+    DOT_TEST_MOVE_MODE=fail DOT_TEST_MOVE_DEST=$DOT_OVERLAY_MANIFEST \
+    _link_overlays >/dev/null 2>&1; then
     _fail "link recovery final commit: failure propagates"
   else
     _pass "link recovery final commit: failure propagates"
   fi
-  unset -f mv
+  unset DOT_MOVE_BIN DOT_MOVE_MODE
   if [[ -L "$TEST_HOME/.recovery-tracked" ]]; then
     _pass "link recovery final commit: tracked link was created"
   else
@@ -1356,20 +1390,22 @@ CONF
   DOT_OVERLAY_MANIFEST="$crash_manifest"
   DOT_OVERLAY_LEGACY_MANIFEST="$TEST_HOME/no-crash-legacy"
   OVERLAYS=("crash|$crash_overlay|$OVERLAY_BARE||false|")
+  _overlay_test_move_wrapper
+  crash_move_bin=$REPLY
   if {
     (
-      # shellcheck disable=SC2329  # _link_overlays calls this signal fixture.
-      ln() {
-        command ln "$@" || return
-        kill -TERM "$BASHPID"
-      }
-      _link_overlays
+      PATH="$crash_move_bin:$PATH" DOT_TEST_REAL_MV=$real_mv \
+        DOT_TEST_REAL_LN=$real_ln \
+        DOT_TEST_MOVE_MODE=terminate \
+        DOT_TEST_MOVE_DEST="$TEST_HOME/.crash-recovery" \
+        _link_overlays
     )
   } >/dev/null 2>&1; then
     _fail "link recovery signal: interrupted run fails"
   else
     _pass "link recovery signal: interrupted run fails"
   fi
+  unset DOT_MOVE_BIN DOT_MOVE_MODE
   if [[ -L "$TEST_HOME/.crash-recovery" ]]; then
     _pass "link recovery signal: mutation occurred before termination"
   else

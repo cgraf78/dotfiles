@@ -106,17 +106,17 @@ _gh_token_seed_failure_stamp_path
 _assert_eq "GitHub token seed: failure stamp uses shared XDG state policy" \
   "$work/runtime-state/dot/gh-token-seed-failed.stamp" "$REPLY"
 
-# shellcheck source=../core/launcher-real.sh
-. "$source_home/.local/lib/dot/core/launcher-real.sh"
+# shellcheck source=../../dotfiles/launcher-real.sh
+. "$source_home/.local/lib/dotfiles/launcher-real.sh"
 newline_cache="$work/cache"$'\n'
 XDG_CACHE_HOME="$newline_cache"
 _dot_launcher_cache_path git
 _assert_eq "launcher cache: cache path preserves trailing newline bytes" \
-  "$newline_cache/dot/git-real" "$REPLY"
+  "$newline_cache/dotfiles/git-real" "$REPLY"
 XDG_CACHE_HOME="relative/cache"
 _dot_launcher_cache_path git
 _assert_eq "launcher cache: relative cache home uses HOME fallback" \
-  "$fixture_home/.cache/dot/git-real" "$REPLY"
+  "$fixture_home/.cache/dotfiles/git-real" "$REPLY"
 
 XDG_DATA_HOME="relative/data"
 marks_one=$(cd "$lock_cwd_one" && HOME="$fixture_home" XDG_DATA_HOME="relative/data" \
@@ -130,7 +130,7 @@ _assert_eq "marks: relative data home uses HOME fallback" \
   "$fixture_home/.local/share/marks" "$marks_one"
 # shellcheck disable=SC2016  # zsh receives the runtime expressions.
 marks_zsh=$(cd "$lock_cwd_two" && env -i PATH="$PATH" HOME="$fixture_home" \
-  XDG_DATA_HOME="relative/data" zsh -dfc \
+  DOT_TEST_SOURCE_HOME="$source_home" XDG_DATA_HOME="relative/data" zsh -dfc \
   '. "$1"; printf "%s" "$_MARKS_DIR"' \
   _ "$source_home/.config/shell/interactive.d/57-marks.sh")
 _assert_eq "marks: zsh uses the shared HOME fallback" "$fixture_home/.local/share/marks" \
@@ -139,7 +139,7 @@ _assert_eq "marks: zsh uses the shared HOME fallback" "$fixture_home/.local/shar
 absolute_data="$work/no-home-data"
 # shellcheck disable=SC2016  # zsh receives the runtime expressions.
 marks_zsh_no_home=$(cd "$lock_cwd_two" && env -i PATH="$PATH" \
-  XDG_DATA_HOME="$absolute_data" zsh -dfc \
+  DOT_TEST_SOURCE_HOME="$source_home" XDG_DATA_HOME="$absolute_data" zsh -dfc \
   'unset HOME; . "$1"; printf "%s" "$_MARKS_DIR"' \
   _ "$source_home/.config/shell/interactive.d/57-marks.sh")
 _assert_eq "marks: zsh accepts absolute data home without HOME" "$absolute_data/marks" \

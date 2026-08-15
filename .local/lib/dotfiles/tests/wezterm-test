@@ -1,0 +1,904 @@
+#!/usr/bin/env bash
+# wezterm-test - dotfiles WezTerm config and termnav wrapper integration.
+
+set -o pipefail
+export NO_COLOR=1
+
+# shellcheck source=helpers.sh
+. "${BASH_SOURCE[0]%/*}/helpers.sh"
+
+real_home="$HOME"
+config="$HOME/.config/wezterm/wezterm.lua"
+link_routes="$HOME/.config/wezterm/link-routes.lua"
+public_link_rules="$HOME/.config/wezterm/public-link-rules.lua"
+termnav_module="$HOME/.config/wezterm/termnav-module.lua"
+content=$(cat "$config")
+route_wrapper=$(cat "$link_routes")
+public_rule_wrapper=$(cat "$public_link_rules")
+termnav_wrapper=$(cat "$termnav_module")
+alias_content=$(cat "$HOME/.config/shell/interactive.d/50-aliases.sh")
+ripgrep_content=$(cat "$HOME/.config/ripgrep/config")
+tmux_context_shell="$HOME/.config/shell/interactive.d/53-wezterm.sh"
+tmux_context_content=$(cat "$tmux_context_shell")
+
+_wezterm_lua() {
+  local code="$1" nvim_bin script
+
+  if command -v lua >/dev/null 2>&1; then
+    lua -e "$code"
+    return
+  fi
+
+  nvim_bin=$(_wezterm_working_nvim || true)
+  if [[ -n "$nvim_bin" && -x "$nvim_bin" ]]; then
+    script=$(_tmpdir)/wezterm-lua.lua
+    printf '%s\n' "$code" >"$script"
+    _with_timeout 10s "$nvim_bin" --headless --noplugin -u NONE -i NONE -l "$script" 2>&1
+    return
+  fi
+
+  printf '%s\n' "wezterm-test: no Lua runner found" >&2
+  return 127
+}
+
+_wezterm_working_nvim() {
+  local candidate
+
+  for candidate in \
+    "$real_home/.local/share/neovim/neovim/bin/nvim" \
+    "$(command -v nvim 2>/dev/null || true)"; do
+    [[ -n "$candidate" && -x "$candidate" ]] || continue
+
+    # Alpine can see the bootstrapped glibc-linked nvim binary as executable
+    # even though musl cannot run it. Probe the binary before using it as the
+    # Lua host so the suite falls back cleanly instead of reporting a timeout
+    # from the dynamic loader.
+    if _with_timeout 10s "$candidate" --version >/dev/null 2>&1; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+_wezterm_has_lua_runner() {
+  command -v lua >/dev/null 2>&1 && return 0
+  _wezterm_working_nvim >/dev/null
+}
+
+echo "=== WezTerm shell integration ownership ==="
+
+_assert_contains "shell integration resolves Termnav through shdeps" \
+  "dot_shdeps_dep_source cgraf78/termnav share/termnav/shell.sh" "$tmux_context_content"
+_assert_not_contains "shell integration does not define a new tmux publisher" \
+  "_dot_wezterm_publish_tmux_context()" "$tmux_context_content"
+_assert_not_contains "shell integration does not publish raw tmux protocol state" \
+  "DOT_TMUX" "$tmux_context_content"
+
+tmux_context_home=$(_tmpdir)
+mkdir -p "$tmux_context_home/.local/lib/dotfiles"
+cat >"$tmux_context_home/.local/lib/dotfiles/shdeps-assets.sh" <<'EOF'
+dot_shdeps_dep_source() { return 0; }
+EOF
+
+for test_shell in bash zsh; do
+  if [[ "$test_shell" == zsh ]] && ! command -v zsh >/dev/null 2>&1; then
+    echo "  - skipping legacy tmux-hook cleanup in zsh (zsh unavailable)"
+    continue
+  fi
+  if [[ "$test_shell" == bash ]]; then
+    shell_args=(--noprofile --norc)
+  else
+    shell_args=(-f)
+  fi
+  legacy_cleanup=$(
+    # The single-quoted program is intentionally evaluated by the selected
+    # child shell, where TMUX_CONTEXT_SHELL and the seeded hooks exist.
+    # shellcheck disable=SC2016
+    HOME="$tmux_context_home" \
+      TMUX_CONTEXT_SHELL="$tmux_context_shell" \
+      "$test_shell" "${shell_args[@]}" -c '
+        keep_prompt_hook() { :; }
+        _dot_wezterm_publish_tmux_context() { :; }
+        precmd_functions=(keep_prompt_hook _dot_wezterm_publish_tmux_context)
+        source "$TMUX_CONTEXT_SHELL"
+        printf "hooks=%s\n" "${precmd_functions[*]}"
+        if typeset -f _dot_wezterm_publish_tmux_context >/dev/null 2>&1; then
+          printf "legacy-function=present\n"
+        else
+          printf "legacy-function=absent\n"
+        fi
+      '
+  )
+  _assert_eq "$test_shell reload retires the dotfiles-owned tmux callback" \
+    "$(printf 'hooks=keep_prompt_hook\nlegacy-function=absent')" "$legacy_cleanup"
+done
+
+echo "=== WezTerm mouse and route integration ==="
+
+_assert_contains "ctrl-click opens links through open-uri on mouse up" \
+  'action = act.CompleteSelectionOrOpenLinkAtMouseCursor("ClipboardAndPrimarySelection"),' "$content"
+_assert_contains "ctrl-click mouse down is swallowed before tmux sees it" \
+  "action = act.Nop," "$content"
+_assert_contains "shift remains the generic mouse-reporting bypass" \
+  'bypass_mouse_reporting_modifiers = "SHIFT",' "$content"
+_assert_contains "wezterm handles the standard terminal bell event" \
+  'wezterm.on("bell"' "$content"
+_assert_contains "wezterm configures bell rendering through platform policy" \
+  "audible_bell = audible_bell," "$content"
+_assert_contains "wezterm delegates open-uri routing to termnav wrapper" \
+  'load_config_module("link-routes.lua")' "$content"
+_assert_contains "wezterm key policy reads nvim pane state through termnav" \
+  "termnav_routes.is_nvim" "$content"
+_assert_contains "wezterm key policy reads tmux pane state through termnav" \
+  "termnav_routes.is_tmux" "$content"
+_assert_not_contains "wezterm config does not read termnav protocol vars directly" \
+  "get_user_vars().IS_NVIM" "$content"
+_assert_not_contains "wezterm config does not read tmux protocol vars directly" \
+  "get_user_vars().DOT_TMUX" "$content"
+_assert_contains "wezterm delegates public link rules to termnav wrapper" \
+  'load_config_module("public-link-rules.lua")' "$content"
+_assert_contains "wezterm hyperlink rules load overlay extensions" \
+  "hyperlink-rules.d" "$content"
+_assert_contains "wezterm hyperlink rule extensions can append rules" \
+  "apply_hyperlink_rule_extensions" "$content"
+_assert_contains "wezterm listens for bubbled child tab-switch requests" \
+  "DOT_SWITCH_TAB" "$content"
+_assert_contains "wezterm validates bubbled tab-switch directions" \
+  'direction == "next" or direction == "previous"' "$content"
+_assert_contains "wezterm listens for child requests to bubble tab switches to parent tmux" \
+  "DOT_PARENT_SWITCH_TAB" "$content"
+_assert_contains "wezterm parent-bubble next uses private tmux key sequence" \
+  "[777001u" "$content"
+_assert_contains "wezterm parent-bubble previous uses private tmux key sequence" \
+  "[777002u" "$content"
+_assert_contains "wezterm listens for bubbled child tab-move requests" \
+  "DOT_MOVE_TAB" "$content"
+_assert_contains "wezterm validates bubbled tab-move directions" \
+  'direction == "left" or direction == "right"' "$content"
+_assert_contains "wezterm listens for child requests to bubble tab moves to parent tmux" \
+  "DOT_PARENT_MOVE_TAB" "$content"
+_assert_contains "wezterm parent-bubble move-left uses private tmux key sequence" \
+  "[777003u" "$content"
+_assert_contains "wezterm parent-bubble move-right uses private tmux key sequence" \
+  "[777004u" "$content"
+_assert_contains "wezterm listens for parent pane-selection requests" \
+  "DOT_PARENT_SELECT_PANE" "$content"
+_assert_contains "wezterm validates parent pane-selection directions" \
+  'parent_pane_select_keys[direction]' "$content"
+for key in 777005 777006 777007 777008; do
+  _assert_contains "wezterm parent-pane routing uses private key $key" \
+    "[$key" "$content"
+done
+_assert_contains "termnav wrapper resolver resolves termnav through shdeps" \
+  'shdeps.dep_file("cgraf78/termnav"' "$termnav_wrapper"
+_assert_contains "link route wrapper loads termnav route module" \
+  "lib/termnav/wezterm/link-routes.lua" "$route_wrapper"
+_assert_contains "public link wrapper loads termnav public link module" \
+  "lib/termnav/wezterm/public-link-rules.lua" "$public_rule_wrapper"
+
+route_copy_home=$(_tmpdir)
+public_copy_home=$(_tmpdir)
+nvim_key_home=$(_tmpdir)
+
+if _wezterm_has_lua_runner; then
+  bell_home=$(_tmpdir)
+  cp "$config" "$bell_home/wezterm.lua"
+  cp "$link_routes" "$bell_home/link-routes.lua"
+  cp "$public_link_rules" "$bell_home/public-link-rules.lua"
+  cp "$termnav_module" "$bell_home/termnav-module.lua"
+  cat >"$bell_home/termnav-link-routes.lua" <<'LUA'
+return {
+  new = function()
+    return {
+      is_nvim = function()
+        return false
+      end,
+      setup = function() end,
+    }
+  end,
+}
+LUA
+  cat >"$bell_home/termnav-public-link-rules.lua" <<'LUA'
+return {
+  add_public_link_rules = function(rules)
+    return rules
+  end,
+}
+LUA
+
+  _wezterm_bell_probe() {
+    local target_triple="$1"
+
+    HOME="$bell_home/missing-home" _wezterm_lua "
+      local handlers = {}
+      local spawned = {}
+      local fake_action = {
+        DisableDefaultAssignment = { action = 'DisableDefaultAssignment' },
+      }
+      setmetatable(fake_action, {
+        __index = function(_, name)
+          return function(value)
+            return { action = name, value = value }
+          end
+        end,
+      })
+      package.preload.wezterm = function()
+        return {
+          action = fake_action,
+          action_callback = function(fn)
+            return fn
+          end,
+          background_child_process = function(command)
+            table.insert(spawned, command)
+          end,
+          config_dir = '$bell_home',
+          default_hyperlink_rules = function()
+            return {}
+          end,
+          font_with_fallback = function(names)
+            return names
+          end,
+          glob = function()
+            return {}
+          end,
+          on = function(name, handler)
+            handlers[name] = handler
+          end,
+          target_triple = '$target_triple',
+        }
+      end
+
+      local config_table = dofile('$bell_home/wezterm.lua')
+      print(config_table.audible_bell)
+      print(type(handlers.bell))
+      if handlers.bell then
+        handlers.bell({}, {})
+      end
+      print(tostring(#spawned))
+      print(spawned[1] and table.concat(spawned[1], '|') or 'none')
+    "
+  }
+
+  macos_bell_result=$(_wezterm_bell_probe x86_64-apple-darwin)
+  _assert_eq "wezterm renders BEL audibly on macOS" \
+    "$(printf 'Disabled\nfunction\n1\nafplay|/System/Library/Sounds/Glass.aiff')" \
+    "$macos_bell_result"
+
+  linux_bell_result=$(_wezterm_bell_probe x86_64-unknown-linux-gnu)
+  _assert_eq "wezterm renders BEL audibly on Linux" \
+    "$(printf 'Disabled\nfunction\n1\npaplay|/usr/share/sounds/freedesktop/stereo/bell.oga')" \
+    "$linux_bell_result"
+
+  windows_bell_result=$(_wezterm_bell_probe x86_64-pc-windows-msvc)
+  _assert_eq "wezterm renders BEL audibly on Windows" \
+    "$(printf 'Disabled\nfunction\n1\npowershell.exe|-NoProfile|-NonInteractive|-Command|[System.Media.SystemSounds]::Asterisk.Play()')" \
+    "$windows_bell_result"
+
+  unknown_bell_result=$(_wezterm_bell_probe unknown-target)
+  _assert_eq "wezterm retains SystemBeep as the unknown-platform fallback" \
+    "$(printf 'SystemBeep\nfunction\n0\nnone')" \
+    "$unknown_bell_result"
+
+  cp "$config" "$nvim_key_home/.wezterm.lua"
+  cp "$link_routes" "$nvim_key_home/link-routes.lua"
+  cp "$public_link_rules" "$nvim_key_home/public-link-rules.lua"
+  cp "$termnav_module" "$nvim_key_home/termnav-module.lua"
+  cat >"$nvim_key_home/termnav-link-routes.lua" <<'LUA'
+return {
+  new = function()
+    return {
+      is_nvim = function(pane)
+        return pane.route == "nvim"
+      end,
+      is_tmux = function(pane)
+        return pane.route == "tmux"
+      end,
+      setup = function() end,
+    }
+  end,
+}
+LUA
+  cat >"$nvim_key_home/termnav-public-link-rules.lua" <<'LUA'
+return {
+  add_public_link_rules = function(rules)
+    return rules
+  end,
+}
+LUA
+  nvim_key_result=$(HOME="$nvim_key_home/missing-home" _wezterm_lua "
+    local fake_action = {
+      ClearSelection = { action = 'ClearSelection' },
+      DisableDefaultAssignment = { action = 'DisableDefaultAssignment' },
+    }
+    setmetatable(fake_action, {
+      __index = function(_, name)
+        return function(value)
+          return { action = name, value = value }
+        end
+      end,
+    })
+    package.preload.wezterm = function()
+      return {
+        action = fake_action,
+        action_callback = function(fn)
+          return fn
+        end,
+        config_dir = '$nvim_key_home',
+        default_hyperlink_rules = function()
+          return {}
+        end,
+        font_with_fallback = function(names)
+          return names
+        end,
+        glob = function()
+          return {}
+        end,
+        on = function() end,
+        target_triple = 'x86_64-unknown-linux-gnu',
+      }
+    end
+
+    local function has_passthrough(keys, key, mods, sent_key, sent_mods)
+      for _, item in ipairs(keys) do
+        local action = item.action
+        local value = type(action) == 'table' and action.value or nil
+        if item.key == key
+          and item.mods == mods
+          and type(action) == 'table'
+          and action.action == 'SendKey'
+          and value.key == sent_key
+          and value.mods == sent_mods
+        then
+          return true
+        end
+      end
+      return false
+    end
+
+    local function has_action(keys, key, mods, action_name)
+      for _, item in ipairs(keys) do
+        local action = item.action
+        if item.key == key
+          and item.mods == mods
+          and type(action) == 'table'
+          and action.action == action_name
+        then
+          return true
+        end
+      end
+      return false
+    end
+
+    local function has_string(keys, key, mods, value)
+      for _, item in ipairs(keys) do
+        local action = item.action
+        if item.key == key
+          and item.mods == mods
+          and type(action) == 'table'
+          and action.action == 'SendString'
+          and action.value == value
+        then
+          return true
+        end
+      end
+      return false
+    end
+
+    local function has_callback(keys, key, mods)
+      for _, item in ipairs(keys) do
+        if item.key == key and item.mods == mods and type(item.action) == 'function' then
+          return true
+        end
+      end
+      return false
+    end
+
+    local function find_binding(keys, key, mods)
+      for _, item in ipairs(keys) do
+        if item.key == key and item.mods == mods then
+          return item.action
+        end
+      end
+      return nil
+    end
+
+    local config_table = dofile('$nvim_key_home/.wezterm.lua')
+    print(tostring(has_passthrough(config_table.keys, '.', 'CTRL', '.', 'CTRL')))
+    print(tostring(has_passthrough(config_table.keys, '/', 'CTRL', '/', 'CTRL')))
+    print(tostring(has_passthrough(config_table.keys, 'F2', 'NONE', 'F2', nil)))
+    print(tostring(has_passthrough(config_table.keys, 'F12', 'NONE', 'F12', nil)))
+    print(tostring(has_passthrough(config_table.keys, 'F12', 'SHIFT', 'F12', 'SHIFT')))
+    print(tostring(has_passthrough(config_table.keys, 'v', 'CTRL|SHIFT', 'v', 'CTRL|SHIFT')))
+    print(tostring(has_passthrough(config_table.keys, 'g', 'CTRL', 'g', 'CTRL')))
+    print(tostring(has_passthrough(config_table.keys, 'g', 'CTRL|SHIFT', 'g', 'CTRL|SHIFT')))
+    print(tostring(has_string(config_table.keys, 'e', 'CTRL|SHIFT', '\027[101;6u')))
+    print(tostring(has_string(config_table.keys, 'm', 'CTRL|SHIFT', '\027[109;6u')))
+    print(tostring(has_action(config_table.keys, 'f', 'CTRL|SHIFT', 'DisableDefaultAssignment')))
+    print(tostring(has_action(config_table.keys, 'p', 'CTRL|SHIFT', 'DisableDefaultAssignment')))
+    print(tostring(has_callback(config_table.keys, 'Tab', 'CTRL')))
+    print(tostring(has_callback(config_table.keys, 'Tab', 'CTRL|SHIFT')))
+    print(tostring(has_callback(config_table.keys, '{', 'ALT|SHIFT')))
+    print(tostring(has_callback(config_table.keys, '}', 'ALT|SHIFT')))
+
+    local copy_action = find_binding(config_table.keys, 'c', 'CTRL')
+    local paste_action = find_binding(config_table.keys, 'v', 'CTRL')
+    local selection = ''
+    local performed = {}
+    local pane = {}
+    local window = {
+      get_selection_text_for_pane = function()
+        return selection
+      end,
+      perform_action = function(_, action)
+        table.insert(performed, action)
+      end,
+    }
+
+    copy_action(window, pane)
+    print(performed[1].action .. ':' .. performed[1].value.key .. ':' .. performed[1].value.mods)
+
+    selection = 'selected terminal text'
+    performed = {}
+    copy_action(window, pane)
+    print(performed[1].action .. ':' .. performed[1].value .. ',' .. performed[2].action)
+    print(paste_action.action .. ':' .. paste_action.value)
+
+    local ctrl_tab = find_binding(config_table.keys, 'Tab', 'CTRL')
+    local ctrl_shift_tab = find_binding(config_table.keys, 'Tab', 'CTRL|SHIFT')
+    performed = {}
+    ctrl_tab(window, { route = 'tmux' })
+    ctrl_shift_tab(window, { route = 'tmux' })
+    print(performed[1].action .. ':' .. performed[1].value.key .. ':' .. performed[1].value.mods)
+    print(performed[2].action .. ':' .. performed[2].value.key .. ':' .. performed[2].value.mods)
+
+    performed = {}
+    ctrl_tab(window, { route = 'wezterm' })
+    ctrl_shift_tab(window, { route = 'wezterm' })
+    print(performed[1].action .. ':' .. performed[1].value)
+    print(performed[2].action .. ':' .. performed[2].value)
+  ")
+  expected=$(
+    printf '%s\n' \
+      true true true true true true true false \
+      true true true true true true true true \
+      'SendKey:c:CTRL' \
+      'CopyTo:Clipboard,ClearSelection' \
+      'PasteFrom:Clipboard' \
+      'SendKey:Tab:CTRL' \
+      'SendKey:Tab:CTRL|SHIFT' \
+      'ActivateTabRelative:1' \
+      'ActivateTabRelative:-1'
+  )
+  _assert_eq "wezterm preserves terminal chords and owns client clipboard actions" \
+    "$expected" "$nvim_key_result"
+
+  cp "$link_routes" "$route_copy_home/link-routes.lua"
+  cp "$termnav_module" "$route_copy_home/termnav-module.lua"
+  printf '%s\n' "return { copied = true }" >"$route_copy_home/termnav-link-routes.lua"
+  route_copy_result=$(HOME="$route_copy_home/missing-home" _wezterm_lua "
+    local routes = dofile('$route_copy_home/link-routes.lua')
+    print(tostring(routes.copied))
+  ")
+  _assert_eq "link route wrapper loads copied termnav module without shdeps" \
+    "true" "$route_copy_result"
+
+  route_no_debug_result=$(HOME="$route_copy_home/missing-home" _wezterm_lua "
+    debug = nil
+    dotfiles_wezterm_config_dir = '$route_copy_home'
+    local routes = dofile('$route_copy_home/link-routes.lua')
+    print(tostring(routes.copied))
+  ")
+  _assert_eq "link route wrapper works in WezTerm without debug library" \
+    "true" "$route_no_debug_result"
+
+  wsl_copy_home=$(_tmpdir)
+  cp "$config" "$wsl_copy_home/.wezterm.lua"
+  cp "$link_routes" "$wsl_copy_home/link-routes.lua"
+  cp "$public_link_rules" "$wsl_copy_home/public-link-rules.lua"
+  cp "$termnav_module" "$wsl_copy_home/termnav-module.lua"
+  cat >"$wsl_copy_home/termnav-link-routes.lua" <<'LUA'
+return {
+  new = function()
+    return {
+      is_nvim = function()
+        return false
+      end,
+      setup = function()
+        _G.termnav_route_setup_called = true
+      end,
+    }
+  end,
+}
+LUA
+  cat >"$wsl_copy_home/termnav-public-link-rules.lua" <<'LUA'
+return {
+  add_public_link_rules = function(rules)
+    table.insert(rules, { copied_public_rule = true })
+    return rules
+  end,
+}
+LUA
+  wsl_copy_result=$(HOME="$wsl_copy_home/missing-home" TERMNAV_SSH_CONTROL_HOSTS=wsl.example _wezterm_lua "
+    local fake_action = {
+      DisableDefaultAssignment = { action = 'DisableDefaultAssignment' },
+    }
+    setmetatable(fake_action, {
+      __index = function(_, name)
+        return function(value)
+          return { action = name, value = value }
+        end
+      end,
+    })
+    package.preload.wezterm = function()
+      return {
+        action = fake_action,
+        action_callback = function(fn)
+          return fn
+        end,
+        config_dir = '$wsl_copy_home',
+        default_hyperlink_rules = function()
+          return {}
+        end,
+        font_with_fallback = function(names)
+          return names
+        end,
+        glob = function()
+          return {}
+        end,
+        on = function() end,
+        target_triple = 'x86_64-unknown-linux-gnu',
+      }
+    end
+
+    local config_table = dofile('$wsl_copy_home/.wezterm.lua')
+    print(tostring(termnav_route_setup_called == true))
+    print(tostring(config_table.hyperlink_rules[1].copied_public_rule == true))
+    print(config_table.set_environment_variables.TERMNAV_SSH_CONTROL_HOSTS)
+  ")
+  expected="$(printf 'true\ntrue\nwsl.example')"
+  _assert_eq "WSL copied WezTerm config loads with copied termnav companions" \
+    "$expected" "$wsl_copy_result"
+
+  termnav_hosts_home=$(_tmpdir)
+  cp "$config" "$termnav_hosts_home/wezterm.lua"
+  cp "$link_routes" "$termnav_hosts_home/link-routes.lua"
+  cp "$public_link_rules" "$termnav_hosts_home/public-link-rules.lua"
+  cp "$termnav_module" "$termnav_hosts_home/termnav-module.lua"
+  cat >"$termnav_hosts_home/termnav-link-routes.lua" <<'LUA'
+return {
+  new = function()
+    return {
+      is_nvim = function()
+        return false
+      end,
+      setup = function() end,
+    }
+  end,
+}
+LUA
+  cat >"$termnav_hosts_home/termnav-public-link-rules.lua" <<'LUA'
+return {
+  add_public_link_rules = function(rules)
+    return rules
+  end,
+}
+LUA
+  printf ' file-host.example,other-host.example \n' >"$termnav_hosts_home/termnav-ssh-control-hosts"
+  termnav_hosts_result=$(HOME="$termnav_hosts_home/missing-home" _wezterm_lua "
+    local original_getenv = os.getenv
+    os.getenv = function(name)
+      if name == 'TERMNAV_SSH_CONTROL_HOSTS' then
+        return nil
+      end
+      return original_getenv(name)
+    end
+
+    local fake_action = {
+      DisableDefaultAssignment = { action = 'DisableDefaultAssignment' },
+    }
+    setmetatable(fake_action, {
+      __index = function(_, name)
+        return function(value)
+          return { action = name, value = value }
+        end
+      end,
+    })
+    package.preload.wezterm = function()
+      return {
+        action = fake_action,
+        action_callback = function(fn)
+          return fn
+        end,
+        config_dir = '$termnav_hosts_home',
+        default_hyperlink_rules = function()
+          return {}
+        end,
+        font_with_fallback = function(names)
+          return names
+        end,
+        glob = function()
+          return {}
+        end,
+        on = function() end,
+        target_triple = 'x86_64-unknown-linux-gnu',
+      }
+    end
+
+    local config_table = dofile('$termnav_hosts_home/wezterm.lua')
+    print(config_table.set_environment_variables.TERMNAV_SSH_CONTROL_HOSTS)
+  ")
+  _assert_eq "WezTerm ControlMaster hosts load from local config file" \
+    "file-host.example,other-host.example" "$termnav_hosts_result"
+
+  termnav_empty_home=$(_tmpdir)
+  cp "$config" "$termnav_empty_home/wezterm.lua"
+  cp "$link_routes" "$termnav_empty_home/link-routes.lua"
+  cp "$public_link_rules" "$termnav_empty_home/public-link-rules.lua"
+  cp "$termnav_module" "$termnav_empty_home/termnav-module.lua"
+  cat >"$termnav_empty_home/termnav-link-routes.lua" <<'LUA'
+return {
+  new = function()
+    return {
+      is_nvim = function()
+        return false
+      end,
+      setup = function() end,
+    }
+  end,
+}
+LUA
+  cat >"$termnav_empty_home/termnav-public-link-rules.lua" <<'LUA'
+return {
+  add_public_link_rules = function(rules)
+    return rules
+  end,
+}
+LUA
+  termnav_empty_result=$(HOME="$termnav_empty_home/missing-home" _wezterm_lua "
+    local original_getenv = os.getenv
+    os.getenv = function(name)
+      if name == 'TERMNAV_SSH_CONTROL_HOSTS' then
+        return nil
+      end
+      return original_getenv(name)
+    end
+
+    local fake_action = {
+      DisableDefaultAssignment = { action = 'DisableDefaultAssignment' },
+    }
+    setmetatable(fake_action, {
+      __index = function(_, name)
+        return function(value)
+          return { action = name, value = value }
+        end
+      end,
+    })
+    package.preload.wezterm = function()
+      return {
+        action = fake_action,
+        action_callback = function(fn)
+          return fn
+        end,
+        config_dir = '$termnav_empty_home',
+        default_hyperlink_rules = function()
+          return {}
+        end,
+        font_with_fallback = function(names)
+          return names
+        end,
+        glob = function()
+          return {}
+        end,
+        on = function() end,
+        target_triple = 'x86_64-unknown-linux-gnu',
+      }
+    end
+
+    local config_table = dofile('$termnav_empty_home/wezterm.lua')
+    print(config_table.set_environment_variables.TERMNAV_SSH_CONTROL_HOSTS)
+  ")
+  _assert_eq "WezTerm ControlMaster hosts default empty without env or file" \
+    "" "$termnav_empty_result"
+
+  cp "$public_link_rules" "$public_copy_home/public-link-rules.lua"
+  cp "$termnav_module" "$public_copy_home/termnav-module.lua"
+  cat >"$public_copy_home/termnav-public-link-rules.lua" <<'LUA'
+return {
+  add_public_link_rules = function(rules)
+    table.insert(rules, { copied = true })
+    return rules
+  end,
+}
+LUA
+  public_copy_result=$(HOME="$public_copy_home/missing-home" _wezterm_lua "
+    local module = dofile('$public_copy_home/public-link-rules.lua')
+    local rules = {}
+    module.add_public_link_rules(rules)
+    print(tostring(rules[1].copied))
+  ")
+  _assert_eq "public link wrapper loads copied termnav module without shdeps" \
+    "true" "$public_copy_result"
+
+  public_no_debug_result=$(HOME="$public_copy_home/missing-home" _wezterm_lua "
+    debug = nil
+    dotfiles_wezterm_config_dir = '$public_copy_home'
+    local module = dofile('$public_copy_home/public-link-rules.lua')
+    local rules = {}
+    module.add_public_link_rules(rules)
+    print(tostring(rules[1].copied))
+  ")
+  _assert_eq "public link wrapper works in WezTerm without debug library" \
+    "true" "$public_no_debug_result"
+else
+  echo "SKIP: WezTerm copied-wrapper Lua checks (no Lua runner found)"
+fi
+
+_assert_contains "eza aliases emit semantic file hyperlinks" \
+  "--hyperlink" "$alias_content"
+_assert_contains "eza aliases route through the nvim-aware hyperlink wrapper" \
+  "eza-nvim-links" "$alias_content"
+_assert_contains "file-link aliases delegate terminal classification to Termnav" \
+  "termnav_file_links_need_plain_output" "$alias_content"
+_assert_contains "file-link aliases map dotfiles policy to Termnav's generic marker" \
+  "TERMNAV_FILE_LINKS_PLAIN" "$alias_content"
+_assert_not_contains "file-link aliases do not retain terminal marker policy" \
+  "_dot_env_has_vscode_marker" "$alias_content"
+_assert_not_contains "file-link aliases do not inspect tmux clients" \
+  "#{client_pid}" "$alias_content"
+_assert_contains "ripgrep emits semantic file hyperlinks" \
+  "--hyperlink-format=file://{host}{path}:{line}:{column}" "$ripgrep_content"
+
+alias_probe_home=$(_tmpdir)
+alias_probe_bin="$alias_probe_home/bin"
+mkdir -p "$alias_probe_bin"
+cat >"$alias_probe_bin/eza" <<'SH'
+#!/usr/bin/env bash
+printf 'eza'
+printf ' %s' "$@"
+printf '\n'
+SH
+cat >"$alias_probe_bin/eza-nvim-links" <<'SH'
+#!/usr/bin/env bash
+printf 'eza-nvim-links'
+printf ' %s' "$@"
+printf '\n'
+SH
+cat >"$alias_probe_bin/rg" <<'SH'
+#!/usr/bin/env bash
+printf 'rg'
+printf ' %s' "$@"
+printf '\n'
+SH
+chmod +x "$alias_probe_bin/eza" "$alias_probe_bin/eza-nvim-links" "$alias_probe_bin/rg"
+
+_probe_command() {
+  local mode="$1" command_name="$2"
+  shift 2
+  # shellcheck disable=SC2016 # The inner shell supplies the provider contract.
+  env -i "$@" TERMNAV_TEST_FILE_LINK_MODE="$mode" \
+    HOME="$HOME" PATH="$alias_probe_bin:/usr/bin:/bin" bash -c '
+      termnav_file_links_need_plain_output() {
+        [[ "$TERMNAV_TEST_FILE_LINK_MODE" == plain ||
+          "${TERMNAV_FILE_LINKS_PLAIN:-}" == 1 ]]
+      }
+      source "$1"
+      shift
+      "$@"
+    ' _ "$HOME/.config/shell/interactive.d/50-aliases.sh" "$command_name" fixture
+}
+
+_probe_prealiased_command() {
+  local command_name="$1"
+  # shellcheck disable=SC2016 # The inner shell supplies the provider contract.
+  env -i HOME="$HOME" PATH="$alias_probe_bin:/usr/bin:/bin" zsh -f -c '
+    termnav_file_links_need_plain_output() { return 1; }
+    alias ls="ls -G"
+    alias rg="rg --hidden"
+    source "$1"
+    shift
+    "$@"
+  ' _ "$HOME/.config/shell/interactive.d/50-aliases.sh" "$command_name" fixture
+}
+
+rich_ls_probe=$(_probe_command rich ls)
+plain_ls_probe=$(_probe_command plain ls)
+rich_rg_probe=$(_probe_command rich rg)
+plain_rg_probe=$(_probe_command plain rg)
+prealiased_ls_probe=$(_probe_prealiased_command ls)
+prealiased_rg_probe=$(_probe_prealiased_command rg)
+missing_provider_ls_probe=$(
+  # shellcheck disable=SC2016 # The inner shell expands its own source path.
+  env -i HOME="$HOME" PATH="$alias_probe_bin:/usr/bin:/bin" bash -c \
+    'source "$1"; ls fixture' _ "$HOME/.config/shell/interactive.d/50-aliases.sh"
+)
+explicit_vscode_ls_probe=$(_probe_command rich ls DOT_VSCODE_TERMINAL=1)
+explicit_vscode_rg_probe=$(_probe_command rich rg DOT_VSCODE_TERMINAL=1)
+explicit_vscode_marker=$(
+  # shellcheck disable=SC2016 # The child reports the adapter's exported value.
+  env -i DOT_VSCODE_TERMINAL=1 HOME="$HOME" \
+    PATH="$alias_probe_bin:/usr/bin:/bin" bash -c '
+      termnav_file_links_need_plain_output() { return 1; }
+      source "$1"
+      printf "%s\n" "${TERMNAV_FILE_LINKS_PLAIN:-missing}"
+    ' _ "$HOME/.config/shell/interactive.d/50-aliases.sh"
+)
+
+_assert_eq "eza functions use Termnav links for rich output" \
+  "eza-nvim-links --group-directories-first fixture" "$rich_ls_probe"
+_assert_eq "eza functions use plain output when Termnav requests it" \
+  "eza --group-directories-first fixture" "$plain_ls_probe"
+_assert_eq "eza functions fail safely to plain output without Termnav" \
+  "eza --group-directories-first fixture" "$missing_provider_ls_probe"
+_assert_eq "eza functions preserve the explicit dotfiles VS Code override" \
+  "eza --group-directories-first fixture" "$explicit_vscode_ls_probe"
+_assert_eq "dotfiles exports its explicit VS Code policy through Termnav's marker" \
+  "1" "$explicit_vscode_marker"
+_assert_eq "eza functions replace preexisting zsh aliases safely" \
+  "eza-nvim-links --group-directories-first fixture" "$prealiased_ls_probe"
+_assert_eq "rg function replaces preexisting zsh aliases safely" \
+  "rg fixture" "$prealiased_rg_probe"
+_assert_eq "rg function keeps semantic links for rich output" \
+  "rg fixture" "$rich_rg_probe"
+_assert_eq "rg function disables semantic links for plain output" \
+  "rg --hyperlink-format=none fixture" "$plain_rg_probe"
+_assert_eq "rg function preserves the explicit dotfiles VS Code override" \
+  "rg --hyperlink-format=none fixture" "$explicit_vscode_rg_probe"
+
+echo
+echo "=== WezTerm file hyperlink regex behavior ==="
+
+regex_test=$(_tmpdir)/wezterm-regex-test.py
+cat >"$regex_test" <<'PY'
+import re
+import sys
+
+config_path = sys.argv[1]
+content = open(config_path, encoding="utf-8").read()
+patterns = re.findall(r"regex = \[\[(.*?)\]\]", content)
+if len(patterns) != 5:
+    raise SystemExit(f"expected 5 file hyperlink regexes, found {len(patterns)}")
+
+compiled = [re.compile(pattern) for pattern in patterns]
+
+
+def custom_matches(text):
+    spans = []
+    matches = []
+    for pattern in compiled:
+        for match in pattern.finditer(text):
+            start, end = match.span()
+            if any(start < span_end and end > span_start for span_start, span_end in spans):
+                continue
+            spans.append((start, end))
+            matches.append(match.group(0))
+    return matches
+
+
+positives = {
+    "src/foo.cpp:42": ["src/foo.cpp:42"],
+    "'./project dir/src/file with spaces.cpp:12'": ["'./project dir/src/file with spaces.cpp:12'"],
+}
+negatives = [
+    "'v1.2.3'",
+    '"https://example.com/path"',
+]
+
+for text, expected in positives.items():
+    actual = custom_matches(text)
+    if actual != expected:
+        raise SystemExit(f"{text!r}: expected {expected!r}, got {actual!r}")
+
+for text in negatives:
+    actual = custom_matches(text)
+    if actual:
+        raise SystemExit(f"{text!r}: expected no custom match, got {actual!r}")
+
+print("ok")
+PY
+regex_output=$(python3 "$regex_test" "$config")
+_assert_eq "WezTerm file fallback regexes cover nvim-open paths" \
+  "ok" "$regex_output"
+
+_test_summary
