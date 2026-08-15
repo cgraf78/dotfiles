@@ -5541,7 +5541,7 @@ EOF
   SSHD_LOG="$TEST_HOME/sshd-merge.log"
 
   _run_sshd_merge() {
-    unset -f merge _sshd_effective_uid _sshd_config_root \
+    unset -f merge _sshd_effective_uid _sshd_config_root _sshd_ready \
       _sshd_set_owner 2>/dev/null
     # shellcheck source=/dev/null
     . "$_SSHD_HOOK"
@@ -5549,6 +5549,8 @@ EOF
     _sshd_effective_uid() { printf '%s\n' 0; }
     # shellcheck disable=SC2329 # Invoked indirectly by merge.
     _sshd_config_root() { printf '%s\n' "$SSHD_TEST_ROOT"; }
+    # shellcheck disable=SC2329 # Invoked indirectly by merge.
+    _sshd_ready() { return "${SSHD_READY_STATUS:-0}"; }
     # shellcheck disable=SC2329 # Invoked indirectly by merge.
     _sshd_set_owner() { printf 'owner:%s\n' "$1" >>"$SSHD_LOG"; }
     merge
@@ -5576,6 +5578,11 @@ EOF
   _assert_file_missing "sshd hook: missing include directory is unsupported" "$SSHD_DEST"
 
   mkdir -p "$SSHD_TEST_ROOT/sshd_config.d"
+  export SSHD_READY_STATUS=1
+  _run_sshd_merge >/dev/null 2>&1
+  _assert_file_missing "sshd hook: unready server is unsupported" "$SSHD_DEST"
+  export SSHD_READY_STATUS=0
+
   # shellcheck disable=SC2329 # Invoked indirectly by the hook under test.
   sshd() {
     printf 'validate:%s\n' "$*" >>"$SSHD_LOG"
@@ -5708,11 +5715,11 @@ EOF
   _assert_file_missing "sshd hook: symlink target is never created" \
     "$TEST_HOME/sshd-symlink-target"
 
-  unset SSHD_VALIDATE_STATUS SSHD_SERVICE_STATUS SSH_SERVICE_STATUS
+  unset SSHD_READY_STATUS SSHD_VALIDATE_STATUS SSHD_SERVICE_STATUS SSH_SERVICE_STATUS
   unset SSHD_SYSV_STATUS SSH_SYSV_STATUS SSHD_LAUNCHD_STATUS
   unset SSHD_RELOAD_STATUS SSHD_LOG
   unset -f sshd systemctl service launchctl _run_sshd_merge _sshd_effective_uid \
-    _sshd_config_root _sshd_set_owner
+    _sshd_config_root _sshd_ready _sshd_set_owner
 
   echo ""
   echo "=== SSH config merge hook ==="

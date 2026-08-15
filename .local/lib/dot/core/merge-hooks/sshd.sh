@@ -13,6 +13,10 @@ _sshd_set_owner() {
   chown 0:0 "$1"
 }
 
+_sshd_ready() {
+  sshd -t -f "$1" >/dev/null 2>&1
+}
+
 _sshd_validate() {
   local main_config="$1" effective
   sshd -t -f "$main_config" || return 1
@@ -146,6 +150,7 @@ merge() {
   main_config="$root/sshd_config"
   include_dir="$root/sshd_config.d"
   [[ -f "$main_config" && -d "$include_dir" ]] || return 0
+  _sshd_ready "$main_config" || return 0
 
   destination="$include_dir/60-termnav-relay.conf"
   _sshd_install "$source" "$destination" "$main_config"
