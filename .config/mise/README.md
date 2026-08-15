@@ -8,8 +8,8 @@ This directory pins tool versions used by the dotfiles toolchain.
 - `mise.lock` pins resolved versions for reproducible installs.
 
 `dot update` runs `mise install` through the merge hook in
-`~/.local/lib/dot/core/merge-hooks/mise.sh`. CI does the same after bootstrap, then
-checks that required lint and formatting tools are available.
+`~/.local/lib/dotfiles/merge-hooks.d/mise.sh`. CI does the same after
+bootstrap, then checks that required lint and formatting tools are available.
 
 ## Policy
 

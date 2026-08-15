@@ -16,11 +16,10 @@ overrides belong in `~/.config/git/config-devserver`. `config` includes those
 files when present, ordered from broad personal defaults to narrower overrides.
 
 Git hooks live under
-[`~/.local/lib/dot/git-hooks`](../../.local/lib/dot/git-hooks/README.md).
+[`~/.local/lib/dotfiles/git-hooks`](../../.local/lib/dotfiles/git-hooks/README.md).
 They are executable dotfiles-owned policy, so they belong in the dot runtime
-library rather than XDG's architecture-independent data directory. They remain
-a sibling of `core/` because Git invokes them directly; they are not part of
-the `dot` command runtime.
+library rather than XDG's architecture-independent data directory. Git invokes
+them directly; they are not part of the standalone `dot` runtime.
 
 The PATH-visible [`git`](../../.local/bin/README.md) launcher is separate from
 this config. It routes `$HOME` and non-repo descendants to the base bare

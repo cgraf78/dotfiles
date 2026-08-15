@@ -6,4 +6,4 @@ family is `config.d/`, which contains ordered SSH config fragments. Prefer
 legacy `*.ssh-config` fragments.
 
 The executable hook implementation lives at
-`~/.local/lib/dot/core/merge-hooks/ssh.sh`.
+`~/.local/lib/dotfiles/merge-hooks.d/ssh.sh`.

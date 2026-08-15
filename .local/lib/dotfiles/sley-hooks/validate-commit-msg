@@ -1,0 +1,225 @@
+#!/usr/bin/env bash
+# validate-commit-msg — enforce dotfiles-owned commit message policy.
+#
+# This is an advanced Sley message-validation provider, not a user-facing
+# command. Sley owns the reusable hook transport and passes one message-file
+# path; dotfiles owns the opinionated Git and Sapling message grammar below.
+# Keeping that split prevents personal policy from leaking into Sley's generic
+# SCM support while every integration still travels through the same API.
+#
+# Usage:
+#   validate-commit-msg MESSAGE_FILE
+#   validate-commit-msg [--format git|sl] [--strict] --file FILE
+#   echo "message" | validate-commit-msg [--format git|sl] [--strict]
+#
+# Formats:
+#   git   requires Summary + Testing sections (default)
+#   sl    requires Summary + Test Plan sections
+#
+# Knobs:
+#   COMMIT_MSG_SKIP=1     skip all validation
+#   COMMIT_MSG_STRICT=1   same as --strict
+#   COMMIT_MSG_FORMAT=... select git or sl when Sley supplies the file path
+#
+# Exit codes:
+#   0   clean or warnings only
+#   1   blocking errors found
+
+set -u
+
+[ "${COMMIT_MSG_SKIP:-0}" = "1" ] && exit 0
+
+# ── Args ──────────────────────────────────────────────────────────────
+
+format="${COMMIT_MSG_FORMAT:-}"
+file=''
+strict="${COMMIT_MSG_STRICT:-0}"
+
+# Sley's provider API supplies exactly one opaque message-file path. Recognize
+# that form before parsing the retained direct-CLI flags so a legitimate file
+# named `--strict`, `--format`, or `--file` cannot change policy or switch the
+# validator to stdin. A lone flag remains a direct-CLI flag when no such file
+# exists, preserving the historical `echo ... | validate-commit-msg --strict`
+# interface used by policy tests and advanced callers.
+if [ "$#" -eq 1 ] && [ -f "$1" ]; then
+  file=$1
+  shift
+fi
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --format)
+      format="${2:-}"
+      shift 2
+      ;;
+    --file)
+      file="${2:-}"
+      shift 2
+      ;;
+    --strict)
+      strict=1
+      shift
+      ;;
+    *)
+      # Sley's executable-provider contract is intentionally a single opaque
+      # path. Preserve --file and stdin for direct policy tests and legacy
+      # callers, but make the provider form the simplest and primary one.
+      [ -z "$file" ] && file=$1
+      shift
+      ;;
+  esac
+done
+
+# ── Read message ──────────────────────────────────────────────────────
+
+if [ -n "$file" ]; then
+  [ ! -f "$file" ] && exit 0
+  # Git's default comment marker is `#`, while this repository's conventional
+  # commit sections are Markdown headings such as `## Summary`. Template
+  # comments use exactly one leading marker, so remove those without erasing
+  # the two-or-more-marker headings that are part of the actual message.
+  msg=$(grep -vE '^#([^#]|$)' <"$file")
+else
+  msg=$(cat)
+fi
+
+# Strip trailing blank lines (awk for BSD sed portability)
+msg=$(printf '%s\n' "$msg" | awk '
+  { lines[NR] = $0 }
+  /[^[:space:]]/ { last = NR }
+  END { for (i = 1; i <= last; i++) print lines[i] }
+')
+[ -z "$msg" ] && exit 0
+
+title=${msg%%$'\n'*}
+title=${title#"${title%%[![:space:]]*}"}
+line_count=$(printf '%s\n' "$msg" | wc -l | tr -d ' ')
+
+# ── Diagnostics ───────────────────────────────────────────────────────
+
+warns=0
+errs=0
+_warn() {
+  printf 'commit-msg: %s\n' "$1" >&2
+  warns=$((warns + 1))
+}
+_err() {
+  printf 'commit-msg: %s\n' "$1" >&2
+  errs=$((errs + 1))
+}
+_check() { if [ "$strict" = 1 ]; then _err "$1"; else _warn "$1"; fi; }
+
+# ── Skip special commits ─────────────────────────────────────────────
+
+case "$title" in
+  Merge\ * | fixup!\ * | squash!\ * | amend!\ * | Revert\ *) exit 0 ;;
+esac
+
+# ── Title ─────────────────────────────────────────────────────────────
+
+tlen=${#title}
+if [ "$tlen" -gt 100 ]; then
+  _err "title is $tlen chars (max 100)"
+elif [ "$tlen" -gt 72 ]; then
+  _warn "title is $tlen chars (prefer ≤72)"
+fi
+
+case "$title" in
+  *.) _check "title ends with a period" ;;
+esac
+
+if [ "$line_count" -gt 1 ]; then
+  rest=${msg#*$'\n'}
+  second=${rest%%$'\n'*}
+  [ -n "$second" ] && _check "missing blank line after title"
+fi
+
+# ── Sections ──────────────────────────────────────────────────────────
+
+# Keep one grammar for every section decision. Markdown headings use at least
+# two markers so they remain distinguishable from Git's one-marker template
+# comments; plain and colon-style headers remain supported for compatibility.
+_section_prefix_re='[[:space:]]*(#{2,6}[[:space:]]+)?'
+_section_suffix_re='(:|[[:space:]]*$)'
+
+if [ -z "$format" ]; then
+  if printf '%s\n' "$msg" |
+    grep -qiE "^${_section_prefix_re}Test Plan${_section_suffix_re}"; then
+    format=sl
+  else
+    format=git
+  fi
+fi
+
+_check_section() {
+  local name="$1"
+
+  local hline
+  hline=$(printf '%s\n' "$msg" |
+    grep -niE "^${_section_prefix_re}${name}${_section_suffix_re}" |
+    head -1 | cut -d: -f1)
+
+  if [ -z "$hline" ]; then
+    _check "missing '${name}' section"
+    return
+  fi
+
+  # Inline content on the header line (e.g., "Summary: content here")
+  local inline
+  inline=$(printf '%s\n' "$msg" | sed -n "${hline}p" | sed -E 's/^[[:space:]]*[^:]+:?[[:space:]]*//')
+  if [ -n "$inline" ]; then
+    if printf '%s\n' "$inline" | grep -qiE '^(TODO|TBD|FIXME|N/?A)[[:space:]]*$'; then
+      _check "'${name}' is a placeholder"
+    fi
+    return
+  fi
+
+  # Content on subsequent lines. Stop at known section headers
+  # or metadata lines. Bash has no scoped case-insensitive regex operator, so
+  # spell the known names with portable bracket pairs rather than changing a
+  # process-wide `nocasematch` setting.
+  local content='' known_section_re
+  known_section_re="^${_section_prefix_re}("
+  known_section_re+='[Ss][Uu][Mm][Mm][Aa][Rr][Yy]|'
+  known_section_re+='[Tt][Ee][Ss][Tt][Ii][Nn][Gg]|'
+  known_section_re+='[Tt][Ee][Ss][Tt][[:space:]]+[Pp][Ll][Aa][Nn]'
+  known_section_re+=")${_section_suffix_re}"
+  while IFS= read -r _line; do
+    if [[ "$_line" =~ $known_section_re ]]; then
+      break
+    fi
+    case "$_line" in
+      "Differential Revision:"* | "Reviewed By:"* | "Reviewers:"*) break ;;
+    esac
+    [[ "$_line" =~ ^[[:space:]]*$ ]] && continue
+    content="$_line"
+    break
+  done < <(printf '%s\n' "$msg" | tail -n +"$((hline + 1))" | head -10)
+
+  if [ -z "$content" ]; then
+    _check "'${name}' section is empty"
+  elif printf '%s\n' "$content" | grep -qiE '^[[:space:]]*(TODO|TBD|FIXME|N/?A)[[:space:]]*$'; then
+    _check "'${name}' is a placeholder"
+  fi
+}
+
+# Title-only commits: skip section checks in non-strict mode
+if [ "$line_count" -le 2 ] && [ "$strict" != 1 ]; then
+  : # one-liner, no sections expected
+else
+  case "$format" in
+    sl)
+      _check_section "Summary"
+      _check_section "Test Plan"
+      ;;
+    *)
+      _check_section "Summary"
+      _check_section "Testing"
+      ;;
+  esac
+fi
+
+# ── Result ────────────────────────────────────────────────────────────
+
+[ "$errs" -gt 0 ] && exit 1
+exit 0
