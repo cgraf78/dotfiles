@@ -9,7 +9,7 @@ This directory pins tool versions used by the dotfiles toolchain.
   installs across supported platforms.
 
 `dot update` runs `mise install --locked` through the merge hook in
-`~/.local/lib/dot/core/merge-hooks/mise.sh`. CI revalidates the lock after
+`~/.local/lib/dotfiles/merge-hooks.d/mise.sh`. CI revalidates the lock after
 bootstrap, exercises representative locked installs, and checks that required
 tools are available.
 

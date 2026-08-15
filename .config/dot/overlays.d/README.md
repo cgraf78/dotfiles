@@ -75,7 +75,7 @@ my-overlay-repo/
 │   ├── .config/dot/merge-hooks.d/myapp/README.md
 │   ├── .config/shdeps/hooks.d/mytool.sh
 │   ├── .local/bin/my-script
-│   └── .local/lib/dot/core/merge-hooks/myapp.sh
+│   └── .local/lib/dotfiles/merge-hooks.d/myapp.sh
 └── README.md
 ```
 
@@ -187,11 +187,13 @@ url=github-dotfiles-work:user/dotfiles-work.git
 optional=true
 ```
 
-`dot update` and `dotbootstrap` merge these SSH snippets into `~/.ssh/config`.
-Machines without the key skip the optional overlay until the key is installed.
-For a required deploy-key overlay, a missing key is an error. For a new machine
-that should use a required deploy-key overlay, copy the private key before
-bootstrapping or add it later and rerun `dot update`.
+The dotfiles-owned `pre-sync.d/10-overlay-ssh.sh` extension merges these
+snippets into `~/.ssh/config` before repository synchronization. Standalone
+`dot` provides only the generic pre-sync lifecycle and never interprets SSH
+syntax. Machines without the key skip the optional overlay until the key is
+installed. For a required deploy-key overlay, a missing key is an error. For a
+new machine that should use a required deploy-key overlay, copy the private key
+before bootstrapping or add it later and rerun `dot update`.
 
 ## Removal
 

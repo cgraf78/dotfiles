@@ -1,7 +1,7 @@
 # Claude Merge Hook
 
 This directory declares the `claude` merge-hook instance. The executable hook
-at `~/.local/lib/dot/core/merge-hooks/claude.sh` builds the source stream in this
+at `~/.local/lib/dotfiles/merge-hooks.d/claude.sh` builds the source stream in this
 order:
 
 1. AgentGuard's native `claude/hooks.json` generation and shared

@@ -17,7 +17,7 @@ The ownership boundary is intentionally narrow:
   since the last upstream update.
 
 The executable merge adapter lives at
-`~/.local/lib/dot/core/merge-hooks/gstack.sh`. It deliberately contains no
+`~/.local/lib/dotfiles/merge-hooks.d/gstack.sh`. It deliberately contains no
 registration fallback: if a partial install or isolated merge-hook run lacks
 the provider, it is a no-op. The upstream post-install hook performs the first
 reconciliation once shdeps installs both dependencies.

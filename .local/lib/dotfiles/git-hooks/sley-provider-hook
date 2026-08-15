@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# sley-provider-hook — activate one of Sley's repository-owned Git hooks.
+
+set -u
+
+hook_name=${1:-}
+case "$hook_name" in
+  pre-commit | pre-merge-commit | pre-applypatch | prepare-commit-msg | commit-msg | sley-commit-gate)
+    shift
+    ;;
+  *)
+    echo "sley-provider-hook: unsupported Sley hook: ${hook_name:-<missing>}" >&2
+    exit 1
+    ;;
+esac
+
+# Sley owns the portable hook implementations. Dotfiles deliberately keeps
+# only this activation shim so fixes to Git sequencing or readiness behavior
+# are reusable by every Sley installation instead of being copied here.
+#
+# DOT_SLEY_ROOT is an integration-test/development escape hatch. Normal fleet
+# installs use Shdeps' stable checkout path, which `dot update` keeps current.
+sley_root=${DOT_SLEY_ROOT:-${HOME:?}/.local/share/cgraf78/sley}
+provider_hook=$sley_root/share/sley/hooks/git/$hook_name
+sley_cli=$sley_root/bin/sley
+if [ ! -x "$provider_hook" ]; then
+  {
+    echo "sley-provider-hook: Sley hook is missing or not executable: $provider_hook"
+    echo "sley-provider-hook: run dot update, or set DOT_SLEY_ROOT to a Sley checkout while developing."
+  } >&2
+  exit 1
+fi
+if [ ! -x "$sley_cli" ]; then
+  {
+    echo "sley-provider-hook: Sley CLI is missing or not executable: $sley_cli"
+    echo "sley-provider-hook: run dot update, or set DOT_SLEY_ROOT to a complete Sley checkout while developing."
+  } >&2
+  exit 1
+fi
+
+# The provider hooks intentionally invoke `sley` by name so they remain
+# portable when installed outside dotfiles. Bind that lookup to the same root
+# as the selected hook here; otherwise DOT_SLEY_ROOT could combine a new hook
+# with an older fleet-installed CLI and fail only at runtime.
+export PATH="$sley_root/bin${PATH:+:$PATH}"
+
+# Git's hook wrappers must use the one dotfiles-owned policy adapter below.
+# The adapter recognizes the special bare-$HOME dotfiles work tree; Sley's
+# generic gate intentionally has no knowledge of that personal repository
+# layout.
+hook_dir=$(cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd) || exit 1
+export SLEY_GIT_COMMIT_GATE="$hook_dir/sley-commit-gate"
+
+exec "$provider_hook" "$@"
