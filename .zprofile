@@ -5,5 +5,5 @@
 # stays in ~/.zshrc. _shell_load_env is guarded so login+interactive zsh does
 # not double-prepend PATH.
 
-. "$HOME/.local/lib/dot/core/shell-loader.sh"
+. "$HOME/.local/lib/dotfiles/shell-loader.sh"
 _shell_load_env zsh

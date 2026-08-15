@@ -229,7 +229,7 @@ EOF
   _git_exact_root_cache=$(_tmpdir)
   _git_exact_root_log="$(_tmpdir)/git-exact-root.log"
   _git_exact_root_base="$TEST_HOME/git/exact-root"
-  mkdir -p "$_git_exact_root_base" "$_git_exact_root_cache/dot"
+  mkdir -p "$_git_exact_root_base" "$_git_exact_root_cache/dotfiles"
   cat >"$_git_exact_root_bin/git" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"$GIT_EXACT_ROOT_LOG"
@@ -263,7 +263,7 @@ EOF
 
     for _git_exact_mode in cwd explicit-c; do
       : >"$_git_exact_root_log"
-      printf 'sentinel\n' >"$_git_exact_root_cache/dot/git-nested-worktree-roots"
+      printf 'sentinel\n' >"$_git_exact_root_cache/dotfiles/git-nested-worktree-roots"
       if [[ "$_git_exact_mode" == cwd ]]; then
         result=$(
           cd "$_git_exact_root" &&
@@ -290,7 +290,7 @@ EOF
       _assert_eq "git launcher exact root ($_git_exact_marker, $_git_exact_mode): executes only requested git" \
         "$_git_exact_expected" "$(cat "$_git_exact_root_log")"
       _assert_eq "git launcher exact root ($_git_exact_marker, $_git_exact_mode): leaves cache untouched" \
-        "sentinel" "$(cat "$_git_exact_root_cache/dot/git-nested-worktree-roots")"
+        "sentinel" "$(cat "$_git_exact_root_cache/dotfiles/git-nested-worktree-roots")"
     done
   done
 
@@ -303,7 +303,7 @@ EOF
   _git_cached_probe_other_subdir="$_git_cached_probe_other/project/src"
   mkdir -p \
     "$_git_cached_probe_bin" \
-    "$_git_cached_probe_cache/dot" \
+    "$_git_cached_probe_cache/dotfiles" \
     "$_git_cached_probe_root/.git" \
     "$_git_cached_probe_subdir" \
     "$_git_cached_probe_other/.git" \
@@ -346,7 +346,7 @@ EOF
   _assert_eq "git launcher nested Git cache: cold call reaches real git" \
     "real-git-status" "$result"
 
-  _git_cached_probe_file="$_git_cached_probe_cache/dot/git-nested-worktree-roots"
+  _git_cached_probe_file="$_git_cached_probe_cache/dotfiles/git-nested-worktree-roots"
   _git_cached_probe_inode=$(
     stat -c '%i' "$_git_cached_probe_file" 2>/dev/null ||
       stat -f '%i' "$_git_cached_probe_file"
@@ -481,7 +481,7 @@ EOF
       _git_stale_cache=$(_tmpdir)
       _git_stale_root="$TEST_HOME/git/stale-$_git_stale_marker-$_git_stale_mode"
       _git_stale_leaf="$_git_stale_root/project"
-      mkdir -p "$_git_stale_cache/dot" "$_git_stale_leaf"
+      mkdir -p "$_git_stale_cache/dotfiles" "$_git_stale_leaf"
       case "$_git_stale_mode" in
         file)
           printf 'malformed marker\n' >"$_git_stale_root/.$_git_stale_marker"
@@ -491,7 +491,7 @@ EOF
           ;;
       esac
       printf 'sl\t%s\n' "$_git_stale_root" \
-        >"$_git_stale_cache/dot/git-nested-worktree-roots"
+        >"$_git_stale_cache/dotfiles/git-nested-worktree-roots"
 
       result=$(
         cd "$_git_stale_leaf" &&
@@ -505,7 +505,7 @@ EOF
       _assert_eq "git launcher nested cache: invalidates stale $_git_stale_marker $_git_stale_mode marker" \
         "dotfiles-status" "$result"
       _assert_eq "git launcher nested cache: removes stale $_git_stale_marker $_git_stale_mode entry" \
-        "" "$(cat "$_git_stale_cache/dot/git-nested-worktree-roots")"
+        "" "$(cat "$_git_stale_cache/dotfiles/git-nested-worktree-roots")"
     done
   done
   : >"$_git_nested_probe_log"

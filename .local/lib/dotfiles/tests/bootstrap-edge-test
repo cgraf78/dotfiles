@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# bootstrap-edge-test — filter and broken-clone bootstrap flows split from bootstrap-test.
+
+DOT_BOOTSTRAP_SHARD=edge exec "$HOME/.local/lib/dotfiles/tests/bootstrap-test"

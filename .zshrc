@@ -1,6 +1,6 @@
 # ~/.zshrc: thin loader — config lives in ~/.config/shell/
 
-. "$HOME/.local/lib/dot/core/shell-loader.sh"
+. "$HOME/.local/lib/dotfiles/shell-loader.sh"
 
 # Environment
 _shell_load_env zsh

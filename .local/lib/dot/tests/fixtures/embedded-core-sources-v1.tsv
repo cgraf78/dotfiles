@@ -1,20 +1,10 @@
 # Current runtime files that directly source or link an embedded dot-core module.
 # Columns: consumer path, module below core/, tracked module owner.
 # This is a migration ledger, not a supported API declaration.
-.bashrc	shell-loader.sh	.local/lib/dot/core/shell-loader.sh
 .config/dot/merge-hooks.d/codex/api.sh	merge-hooks.sh	.local/lib/dot/core/merge-hooks.sh
 .config/dot/merge-hooks.d/codex/api.sh	shdeps-assets.sh	.local/lib/dot/core/shdeps-assets.sh
-.config/shell/env-noninteractive.sh	shell-loader.sh	.local/lib/dot/core/shell-loader.sh
-.config/shell/interactive.d/51-aliases-wsl.sh	windows.sh	.local/lib/dot/core/windows.sh
-.config/shell/interactive.d/53-wezterm.sh	shdeps-assets.sh	.local/lib/dot/core/shdeps-assets.sh
-.config/shell/interactive.d/54-tool-init.sh	shdeps-assets.sh	.local/lib/dot/core/shdeps-assets.sh
 .config/shell/interactive.d/57-marks.sh	xdg.sh	.local/lib/dot/core/xdg.sh
 .local/bin/clip	xdg.sh	.local/lib/dot/core/xdg.sh
 .local/bin/dot	init.sh	.local/lib/dot/core/init.sh
-.local/bin/dot-test	ui.sh	.local/lib/dot/core/ui.sh
 .local/bin/dotbootstrap	init.sh	.local/lib/dot/core/init.sh
-.local/bin/git	launcher-real.sh	.local/lib/dot/core/launcher-real.sh
-.local/bin/hm	shdeps-assets.sh	.local/lib/dot/core/shdeps-assets.sh
-.local/bin/nvim	shdeps-assets.sh	.local/lib/dot/core/shdeps-assets.sh
-.zprofile	shell-loader.sh	.local/lib/dot/core/shell-loader.sh
-.zshrc	shell-loader.sh	.local/lib/dot/core/shell-loader.sh
+.local/lib/dotfiles/launcher-real.sh	xdg.sh	.local/lib/dot/core/xdg.sh

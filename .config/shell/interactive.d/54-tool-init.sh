@@ -89,7 +89,7 @@ _tool_shdeps_source_emit() {
   local dep="$1"
   local asset_path="$2"
   local asset
-  local shdeps_assets="$HOME/.local/lib/dot/core/shdeps-assets.sh"
+  local shdeps_assets="$HOME/.local/lib/dotfiles/shdeps-assets.sh"
 
   [[ -r "$shdeps_assets" ]] || return 1
   # shellcheck disable=SC1090  # stable dotfiles helper path under $HOME

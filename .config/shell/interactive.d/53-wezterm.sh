@@ -1,8 +1,8 @@
 # shellcheck shell=bash
 # Load Termnav's WezTerm/tmux shell integration from the shdeps API.
 
-# shellcheck source=../../.local/lib/dot/core/shdeps-assets.sh
-. "$HOME/.local/lib/dot/core/shdeps-assets.sh"
+# shellcheck source=../../../.local/lib/dotfiles/shdeps-assets.sh
+. "$HOME/.local/lib/dotfiles/shdeps-assets.sh"
 
 dot_shdeps_dep_source cgraf78/termnav share/termnav/shell.sh 2>/dev/null || true
 
