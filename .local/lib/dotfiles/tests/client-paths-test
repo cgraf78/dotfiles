@@ -38,6 +38,8 @@ _client_path_contains 'Neovim launcher loads the dotfiles-owned Shdeps helper' \
   .local/bin/nvim '../lib/dotfiles/shdeps-assets.sh'
 _client_path_contains 'Git hooksPath uses the dotfiles-owned hook tree' \
   .config/git/config '.local/lib/dotfiles/git-hooks'
+_client_path_contains 'Shdeps owns the standalone dot dependency' \
+  .config/shdeps/10-deps.conf 'cgraf78/dot                                github:repo      dot'
 _client_path_contains 'dot forwarder retains the explicit embedded fallback' \
   .local/bin/dot '.local/lib/dotfiles/legacy-dot-launcher.sh'
 
