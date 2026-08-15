@@ -453,6 +453,7 @@ MOCK
 
   _sc_files=()
   while IFS= read -r _tracked; do
+    [[ "$_tracked" != .local/lib/dotfiles/tests/* ]] || continue
     _f="${_lint_root}/${_tracked}"
     [[ -f "$_f" && ! -L "$_f" ]] || continue
     case "$_tracked" in
@@ -803,7 +804,10 @@ blocked_literals = (
 
 for rel in tracked.read_text().splitlines():
     rel = rel.strip()
-    if not rel or rel.startswith(".local/lib/dot/tests/"):
+    if not rel or rel.startswith((
+        ".local/lib/dot/tests/",
+        ".local/lib/dotfiles/tests/",
+    )):
         continue
     if not rel.startswith(runtime_prefixes):
         continue
@@ -874,7 +878,10 @@ def predictable_temp_line(line):
 
 for rel in tracked.read_text().splitlines():
     rel = rel.strip()
-    if not rel or rel.startswith(".local/lib/dot/tests/"):
+    if not rel or rel.startswith((
+        ".local/lib/dot/tests/",
+        ".local/lib/dotfiles/tests/",
+    )):
         continue
     path = root / rel
     if not path.is_file() or path.is_symlink():

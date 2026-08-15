@@ -1,174 +1,169 @@
 #!/usr/bin/env bash
-# Smart dotfiles manager.
-#
-# One base bare repo at ~/.dotfiles, plus overlay repos discovered
-# from config files in ~/.config/dot/overlays.d/*.conf.
-#
-# Commands:
-#   dot update [-v] [-f]       Sync everything (-v: verbose, -f: force)
-#   dot pull                   Same as update
-#   dot fetch/push/status/diff Operates on base + all active overlays
-#   dot cron                   Show installed cron entries
+# Generated client-owned adapter for deployments that retain a regular
+# ~/.local/bin/dot file. During the migration window it prefers the validated
+# standalone checkout and otherwise invokes the retained embedded launcher.
+# After that fallback is retired, the same bytes print the recovery installer.
 
 set -euo pipefail
+CDPATH=
 
-# Pre-scan flags that affect shdeps before sourcing init.sh. `dot update`
-# bootstraps shdeps before the full command parser runs, so bootstrap-visible
-# env like force and quiet has to be exported here as well as in the normal
-# parser below.
-case "${1:-}" in
-  update | pull)
-    for _arg in "$@"; do
-      case "$_arg" in
-        -f | --force)
-          export SHDEPS_FORCE=1
-          ;;
-        --cron | --quiet)
-          export DOT_QUIET=1
-          export SHDEPS_QUIET=1
-          ;;
-      esac
-    done
-    unset _arg
-    ;;
-esac
+dot_client_error() {
+  printf 'dot: %s\n' "$*" >&2
+}
 
-# shellcheck source=../../.local/lib/dot/core/init.sh
-. "$HOME/.local/lib/dot/core/init.sh"
+dot_client_normalized_absolute() {
+  case $1 in
+    '' | / | */ | *//* | */./* | */. | */../* | */.. | *$'\n'* | *$'\r'*)
+      return 1
+      ;;
+    /*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
 
-# Read-only commands skip shdeps bootstrap — non-matching overlay dirs simply
-# won't exist, so unfiltered discovery is harmless. Updates acquire their
-# process-wide lock before bootstrapping dependencies and then discover after
-# shdeps supplies the configured platform/host filters.
-case "${1:-}" in
-  update | pull | "" | -h | --help | help) ;;
-  doctor)
-    # Doctor reports malformed descriptors as a health failure instead of
-    # exiting before it can render an actionable section.
-    _discover_overlays || true
-    ;;
-  *)
-    _discover_overlays || exit 1
-    ;;
-esac
+dot_client_read_lock() {
+  local lock=$1 size header revision_line extra=''
 
-# ---------------------------------------------------------------------------
-# Global flags
-# ---------------------------------------------------------------------------
-
-: "${DOT_QUIET:=0}"
-: "${DOT_VERBOSE:=0}"
-
-# ---------------------------------------------------------------------------
-# Commands that work without the bare repo
-# ---------------------------------------------------------------------------
-
-case "${1:-}" in
-  update)
-    shift
-    _dot_update_lock_rc=0
-    _dot_update_lock_acquire "$@" || _dot_update_lock_rc=$?
-    if [[ "$_dot_update_lock_rc" -ne 0 ]]; then
-      [[ "$_dot_update_lock_rc" -eq 75 && "${DOT_UPDATE_LOCK_CRON_MODE:-0}" -eq 1 ]] && exit 0
-      exit "$_dot_update_lock_rc"
+  [[ -f "$lock" && ! -L "$lock" ]] || return 1
+  size=$(wc -c <"$lock" 2>/dev/null) || return 2
+  size=${size//[[:space:]]/}
+  case $size in
+    '' | *[!0-9]*) return 2 ;;
+  esac
+  [[ ${#size} -le 4 && $size -le 1024 ]] || return 2
+  {
+    IFS= read -r header || return 2
+    IFS= read -r revision_line || return 2
+    if IFS= read -r extra || [[ -n $extra ]]; then
+      return 2
     fi
-    _ensure_shdeps
-    _discover_overlays || exit 1
-    _preflight_local_overlays || exit 1
-    _dot_update_rc=0
-    _dot_update "$@" || _dot_update_rc=$?
-    exit "$_dot_update_rc"
-    ;;
-  pull)
-    shift
-    exec "$0" update "$@"
-    ;;
-  cron)
-    crontab -l 2>/dev/null || echo "  no crontab installed"
-    exit 0
-    ;;
-  doctor)
-    # Scope every diagnostic and child-tool tempfile beneath one registered
-    # operation root. This covers future plain mktemp sites as well as today's
-    # files and cache directories without duplicating registration at each use.
-    _dot_cleanup_install_owner_traps
-    if ! _dot_cleanup_mktemp -d \
-      "${TMPDIR:-/tmp}/dot-doctor.XXXXXX" 2>/dev/null; then
-      _warn "  error: unable to create private dot doctor scratch"
-      exit 1
-    fi
-    TMPDIR=$REPLY
-    export TMPDIR
-    _dot_doctor
-    exit $?
-    ;;
-  "" | -h | --help | help)
-    cat <<EOF
-usage: dot <command> [<args>]
+  } <"$lock"
+  [[ $header == 'cgraf78 dot client cutover v1' &&
+    $revision_line == minimum_revision=* ]] || return 2
+  DOT_CLIENT_MINIMUM_REVISION=${revision_line#minimum_revision=}
+  [[ $DOT_CLIENT_MINIMUM_REVISION =~ ^[0-9a-f]{40}$ ]] || return 2
+}
 
-Repository commands use the base repo plus Git-managed overlays:
-  update           Pull repos, apply all overlays, merge configs, update deps
-  pull             Same as update
-  fetch            Fetch base + all active overlays
-  push             Push base + all active overlays
-  status           Show status of base + all active overlays
-  diff             Show diff of base + all active overlays
-  cron             Show installed cron entries
-  doctor           Run health checks on the installation
+dot_client_git() (
+  unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY
+  unset GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_INDEX_FILE GIT_CONFIG
+  unset GIT_CONFIG_GLOBAL GIT_CONFIG_SYSTEM GIT_CONFIG_COUNT
+  exec "$DOT_CLIENT_GIT" "$@"
+)
 
-Flags (update only):
-  -v, --verbose   Show every dep and merge hook individually
-  -f, --force     Bypass TTL caches and force reinstalls
-  --cron          Quiet mode for cron: skip pull if worktree dirty, suppress output
-  --quiet         Suppress normal output without cron dirty-worktree behavior
+dot_client_standalone_ready() {
+  local checkout=$1 runtime=$2 lock=$3 launcher=$4 template
+  local checkout_physical top top_physical head lock_status=0
 
-Overlays are configured in ~/.config/dot/overlays.d/*.conf.
-'update' installs tracked cron entries from ~/.config/dot/merge-hooks.d/cron/cron.d
-and machine-local cron.local entries into the user crontab.
-EOF
-    exit 0
-    ;;
-esac
+  dot_client_read_lock "$lock" || lock_status=$?
+  if [[ $lock_status -ne 0 ]]; then
+    [[ $lock_status -eq 1 ]] && return 1
+    dot_client_error "malformed cutover lock: $lock"
+    return 2
+  fi
+  [[ -f "$runtime" && ! -L "$runtime" && -x "$runtime" ]] || return 1
+  template=$checkout/support/client-launcher.sh
+  [[ -f "$template" && ! -L "$template" ]] || return 1
+  cmp -s "$launcher" "$template" || return 1
+  DOT_CLIENT_GIT=$(type -P git 2>/dev/null) || return 1
+  dot_client_normalized_absolute "$DOT_CLIENT_GIT" || return 1
+  [[ -f "$DOT_CLIENT_GIT" && -x "$DOT_CLIENT_GIT" ]] || return 1
+  checkout_physical=$(cd -P -- "$checkout" 2>/dev/null && pwd -P) || return 1
+  top=$(dot_client_git -C "$checkout" rev-parse --show-toplevel 2>/dev/null) ||
+    return 1
+  top_physical=$(cd -P -- "$top" 2>/dev/null && pwd -P) || return 1
+  [[ $top_physical == "$checkout_physical" ]] || return 1
+  head=$(dot_client_git -C "$checkout" rev-parse --verify 'HEAD^{commit}' 2>/dev/null) ||
+    return 1
+  [[ $head =~ ^[0-9a-f]{40}$ ]] || return 1
+  if ! dot_client_git -C "$checkout" merge-base --is-ancestor \
+    "$DOT_CLIENT_MINIMUM_REVISION" "$head" >/dev/null 2>&1; then
+    return 1
+  fi
+}
 
-# ---------------------------------------------------------------------------
-# Commands below require the bare repo
-# ---------------------------------------------------------------------------
-
-if [[ ! -d "$DOTFILES" ]]; then
-  cat >&2 <<EOF
-error: bare repo not found at $DOTFILES
-
-Clone it first:
-  git clone --bare git@github.com:cgraf78/dotfiles.git $DOTFILES
-  $DOTFILES/../.local/bin/dotbootstrap
-EOF
+[[ -n ${HOME:-} ]] || {
+  dot_client_error 'HOME is not set'
   exit 1
+}
+
+launcher_parent=$(cd -P -- "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd -P) || {
+  dot_client_error 'cannot resolve the client launcher'
+  exit 1
+}
+launcher=$launcher_parent/${BASH_SOURCE[0]##*/}
+[[ -f "$launcher" && ! -L "$launcher" ]] || {
+  dot_client_error "client launcher is not a regular file: $launcher"
+  exit 1
+}
+
+cutover_lock=${DOT_CLIENT_CUTOVER_LOCK:-$HOME/.local/lib/dotfiles/dot-cutover.lock}
+handoff_helper=${DOT_CLIENT_HANDOFF_HELPER:-$HOME/.local/lib/dotfiles/dot-library-handoff.sh}
+legacy_launcher=${DOT_CLIENT_LEGACY_LAUNCHER:-$HOME/.local/lib/dotfiles/legacy-dot-launcher.sh}
+for client_path in "$cutover_lock" "$handoff_helper" "$legacy_launcher"; do
+  dot_client_normalized_absolute "$client_path" || {
+    dot_client_error "client migration path must be normalized and absolute: $client_path"
+    exit 1
+  }
+done
+
+if [[ -e "$handoff_helper" || -L "$handoff_helper" ]]; then
+  [[ -f "$handoff_helper" && ! -L "$handoff_helper" && -x "$handoff_helper" ]] || {
+    dot_client_error "library handoff helper is unsafe: $handoff_helper"
+    exit 1
+  }
+  "$handoff_helper" recover || {
+    dot_client_error 'library handoff recovery failed'
+    exit 1
+  }
 fi
 
-case "${1:-}" in
-  fetch)
-    shift
-    _repo_fetch_all "$@"
+install_home=${SHDEPS_INSTALL_DIR:-$HOME/.local/share}
+while [[ "$install_home" != / && "$install_home" == */ ]]; do
+  install_home=${install_home%/}
+done
+case $install_home in
+  '' | *//* | */./* | */. | */../* | */.. | *$'\n'* | *$'\r'*)
+    dot_client_error 'SHDEPS_INSTALL_DIR must be normalized'
+    exit 1
     ;;
-  push)
-    shift
-    _repo_push_all "$@"
-    ;;
-  diff)
-    shift
-    _repo_diff_all "$@"
-    ;;
-  status)
-    shift
-    _repo_status_all "$@"
-    ;;
+  /) checkout=/cgraf78/dot ;;
+  /*) checkout=$install_home/cgraf78/dot ;;
   *)
-    printf 'dot: unknown command: %s\n' "$1" >&2
-    if [[ "$1" == "git" ]]; then
-      printf 'tip: use the PATH-visible "git" launcher for raw base-repo operations\n' >&2
-    else
-      printf 'tip: use "git %s" for raw base-repo operations\n' "$1" >&2
-    fi
+    dot_client_error 'SHDEPS_INSTALL_DIR must be an absolute path'
     exit 1
     ;;
 esac
+dot_runtime=$checkout/bin/dot
+
+standalone_status=0
+dot_client_standalone_ready \
+  "$checkout" "$dot_runtime" "$cutover_lock" "$launcher" || standalone_status=$?
+case $standalone_status in
+  0) exec "$dot_runtime" "$@" ;;
+  1) ;;
+  *) exit "$standalone_status" ;;
+esac
+
+if [[ -f "$legacy_launcher" && ! -L "$legacy_launcher" &&
+  -x "$legacy_launcher" ]]; then
+  if [[ -f "$handoff_helper" && ! -L "$handoff_helper" &&
+    -x "$handoff_helper" ]]; then
+    "$handoff_helper" restore || {
+      dot_client_error 'library handoff restoration failed'
+      exit 1
+    }
+  fi
+  exec "$legacy_launcher" "$@"
+fi
+if [[ -e "$legacy_launcher" || -L "$legacy_launcher" ]]; then
+  dot_client_error "embedded launcher is unsafe: $legacy_launcher"
+  exit 1
+fi
+
+cat >&2 <<EOF
+dot: standalone runtime is unavailable: $dot_runtime
+reinstall it with:
+  curl -fsSL https://raw.githubusercontent.com/cgraf78/dot/main/install.sh | bash
+EOF
+exit 1

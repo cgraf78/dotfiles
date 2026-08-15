@@ -1,0 +1,186 @@
+#!/usr/bin/env bash
+# Durable legacy-library-to-standalone-link handoff acceptance tests.
+
+set -euo pipefail
+
+source_home=${DOT_TEST_SOURCE_HOME:-$HOME}
+# shellcheck source=helpers.sh
+. "$source_home/.local/lib/dotfiles/tests/helpers.sh"
+
+tmp=$(_tmpdir)
+case_home=$tmp/home
+state=$tmp/state
+checkout=$case_home/.local/share/cgraf78/dot
+client_lib=$case_home/.local/lib/dotfiles
+legacy=$case_home/.local/lib/dot
+backup=$case_home/.local/lib/.dot-library-handoff-v1
+helper=$client_lib/dot-library-handoff.sh
+transaction=$state/dot/library-handoff-v1/transaction
+capability=$state/dot/library-handoff-v1/capability
+
+mkdir -p "$checkout/bin" "$checkout/lib/dot/public" "$checkout/support" \
+  "$client_lib" "$legacy/core" "$case_home/.local/bin"
+cp "$source_home/.local/lib/dotfiles/dot-library-handoff.sh" "$helper"
+cp "$source_home/.local/lib/dotfiles/dot-library-tree.py" "$client_lib/"
+cp "$source_home/.local/bin/dot" "$case_home/.local/bin/dot"
+cp "$source_home/.local/bin/dot" "$checkout/support/client-launcher.sh"
+printf 'legacy engine\n' >"$legacy/core/init.sh"
+printf 'client policy\n' >"$legacy/policy"
+printf 'public api\n' >"$checkout/lib/dot/public/api-version.sh"
+cat >"$checkout/bin/dot" <<'RUNTIME'
+#!/usr/bin/env bash
+exit 0
+RUNTIME
+chmod 0755 "$helper" "$checkout/bin/dot" "$case_home/.local/bin/dot"
+git -C "$checkout" init --quiet
+git -C "$checkout" config user.name 'Dot Test'
+git -C "$checkout" config user.email dot-test@example.invalid
+git -C "$checkout" add bin/dot lib/dot/public/api-version.sh \
+  support/client-launcher.sh
+git -c core.hooksPath= -C "$checkout" commit --quiet -m fixture
+revision=$(git -C "$checkout" rev-parse HEAD)
+printf 'cgraf78 dot client cutover v1\nminimum_revision=%s\n' "$revision" \
+  >"$client_lib/dot-cutover.lock"
+
+run_handoff() {
+  HOME=$case_home XDG_STATE_HOME=$state \
+    DOT_CLIENT_CUTOVER_LOCK=$client_lib/dot-cutover.lock \
+    "$helper" "$@"
+}
+
+run_handoff prepare
+_assert_file_exists 'handoff prepare writes capability authority' "$capability"
+_assert_eq 'handoff capability inventory reports prepared' prepared \
+  "$(run_handoff status)"
+run_handoff apply
+if [[ -L $legacy &&
+  $(readlink "$legacy") == "$checkout/lib/dot/public" ]]; then
+  _pass 'handoff publishes the canonical public-library link'
+else
+  _fail 'handoff publishes the canonical public-library link'
+fi
+_assert_file_exists 'handoff retains the exact legacy generation' \
+  "$backup/previous/core/init.sh"
+_assert_file_exists 'handoff retains recovery authority' "$transaction"
+_assert_eq 'handoff capability inventory reports committed' committed \
+  "$(run_handoff status)"
+run_handoff recover
+_assert_file_exists 'idempotent recovery retains restoration-horizon backup' \
+  "$backup/previous/policy"
+
+run_handoff restore
+_assert_file_content 'handoff restore recovers the legacy engine' \
+  'legacy engine' "$legacy/core/init.sh"
+_assert_file_missing 'handoff restore clears transaction authority' "$transaction"
+_assert_file_missing 'handoff restore clears the private backup' "$backup"
+
+for failpoint in after-record after-backup-dir after-move; do
+  set +e
+  HOME=$case_home XDG_STATE_HOME=$state \
+    DOT_CLIENT_CUTOVER_LOCK=$client_lib/dot-cutover.lock \
+    DOT_LIBRARY_HANDOFF_FAILPOINT=$failpoint \
+    "$helper" apply >/dev/null 2>&1
+  failpoint_status=$?
+  set -e
+  _assert_eq "handoff failpoint $failpoint exits at the requested boundary" \
+    97 "$failpoint_status"
+  run_handoff recover
+  _assert_file_content "handoff failpoint $failpoint restores the legacy tree" \
+    'legacy engine' "$legacy/core/init.sh"
+done
+
+pause_marker=$tmp/handoff-paused
+HOME=$case_home XDG_STATE_HOME=$state \
+  DOT_CLIENT_CUTOVER_LOCK=$client_lib/dot-cutover.lock \
+  DOT_LIBRARY_HANDOFF_FAILPOINT=pause-after-move \
+  DOT_LIBRARY_HANDOFF_PAUSE_MARKER=$pause_marker \
+  "$helper" apply >/dev/null 2>&1 &
+paused_pid=$!
+for _ in {1..100}; do
+  [[ -e $pause_marker ]] && break
+  kill -0 "$paused_pid" 2>/dev/null || break
+  sleep 0.02
+done
+if [[ -e $pause_marker ]]; then
+  _pass 'handoff signal fixture reaches the parked-tree boundary'
+else
+  _fail 'handoff signal fixture reaches the parked-tree boundary'
+fi
+kill -TERM "$paused_pid" 2>/dev/null || true
+set +e
+wait "$paused_pid"
+signal_status=$?
+set -e
+_assert_eq 'handoff caught TERM preserves signal status' 143 "$signal_status"
+_assert_file_content 'handoff caught TERM restores the legacy tree' \
+  'legacy engine' "$legacy/core/init.sh"
+_assert_file_missing 'handoff caught TERM consumes transaction authority' \
+  "$transaction"
+
+set +e
+HOME=$case_home XDG_STATE_HOME=$state \
+  DOT_CLIENT_CUTOVER_LOCK=$client_lib/dot-cutover.lock \
+  DOT_LIBRARY_HANDOFF_FAILPOINT=after-link \
+  "$helper" apply >/dev/null 2>&1
+after_link_status=$?
+set -e
+_assert_eq 'handoff after-link failpoint exits at the requested boundary' \
+  97 "$after_link_status"
+run_handoff recover
+if [[ -L $legacy && -d $backup/previous ]]; then
+  _pass 'after-link recovery preserves the committed link and exact backup'
+else
+  _fail 'after-link recovery preserves the committed link and exact backup'
+fi
+run_handoff restore
+
+# A late foreign winner is preserved while the exact parked generation remains
+# recoverable. Once the operator moves the collision aside, recovery restores
+# the old tree rather than upgrading the foreign object to ownership.
+set +e
+HOME=$case_home XDG_STATE_HOME=$state \
+  DOT_CLIENT_CUTOVER_LOCK=$client_lib/dot-cutover.lock \
+  DOT_LIBRARY_HANDOFF_FAILPOINT=after-move \
+  "$helper" apply >/dev/null 2>&1
+foreign_status=$?
+set -e
+_assert_eq 'handoff collision fixture parks the legacy tree' 97 "$foreign_status"
+printf 'foreign\n' >"$legacy"
+set +e
+run_handoff recover >/dev/null 2>&1
+recover_status=$?
+set -e
+_assert_eq 'handoff recovery rejects a late foreign winner' 1 "$recover_status"
+_assert_file_content 'handoff recovery preserves late foreign bytes' \
+  foreign "$legacy"
+_assert_file_exists 'handoff recovery preserves the exact parked backup' \
+  "$backup/previous/core/init.sh"
+rm -f -- "$legacy"
+run_handoff recover
+_assert_file_content 'handoff recovery restores after collision is removed' \
+  'legacy engine' "$legacy/core/init.sh"
+
+run_handoff apply
+set +e
+HOME=$case_home XDG_STATE_HOME=$state \
+  DOT_CLIENT_CUTOVER_LOCK=$client_lib/dot-cutover.lock \
+  DOT_LIBRARY_HANDOFF_FAILPOINT=after-retired-move \
+  "$helper" retire >/dev/null 2>&1
+retire_status=$?
+set -e
+_assert_eq 'handoff retirement failpoint exits at the requested boundary' \
+  97 "$retire_status"
+run_handoff recover
+if [[ -L $legacy &&
+  $(readlink "$legacy") == "$checkout/lib/dot/public" ]]; then
+  _pass 'retirement recovery preserves the public-library link'
+else
+  _fail 'retirement recovery preserves the public-library link'
+fi
+_assert_file_missing 'retirement recovery removes the legacy backup' "$backup"
+_assert_file_missing 'retirement recovery consumes transaction authority' \
+  "$transaction"
+_assert_eq 'handoff capability inventory reports retired' retired \
+  "$(run_handoff status)"
+
+_test_summary

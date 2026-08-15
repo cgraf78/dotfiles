@@ -189,6 +189,7 @@ program	.local/lib/dotfiles/doctor.d/lib/nvim.sh
 program	.local/lib/dotfiles/doctor.d/lib/shdeps-assets.sh
 program	.local/lib/dotfiles/doctor.d/lib/shell.sh
 program	.local/lib/dotfiles/doctor.d/lib/tools.sh
+program	.local/lib/dotfiles/dot-library-handoff.sh
 program	.local/lib/dotfiles/git-hooks/commit-msg
 program	.local/lib/dotfiles/git-hooks/pre-applypatch
 program	.local/lib/dotfiles/git-hooks/pre-commit
@@ -197,6 +198,7 @@ program	.local/lib/dotfiles/git-hooks/prepare-commit-msg
 program	.local/lib/dotfiles/git-hooks/sley-commit-gate
 program	.local/lib/dotfiles/git-hooks/sley-provider-hook
 program	.local/lib/dotfiles/launcher-real.sh
+program	.local/lib/dotfiles/legacy-dot-launcher.sh
 program	.local/lib/dotfiles/merge-hooks.d/agent-rules.sh
 program	.local/lib/dotfiles/merge-hooks.d/claude.sh
 program	.local/lib/dotfiles/merge-hooks.d/codex.sh
@@ -224,6 +226,7 @@ program	.local/lib/dotfiles/merge-hooks.d/tmux.sh
 program	.local/lib/dotfiles/merge-hooks.d/vscode.sh
 program	.local/lib/dotfiles/merge-hooks.d/wezterm.sh
 program	.local/lib/dotfiles/pre-sync.d/10-overlay-ssh.sh
+program	.local/lib/dotfiles/pre-sync.d/90-library-handoff.sh
 program	.local/lib/dotfiles/shdeps-assets.sh
 program	.local/lib/dotfiles/shell-loader.sh
 program	.local/lib/dotfiles/sley-hooks/validate-commit-msg
@@ -237,6 +240,7 @@ program	.local/lib/dotfiles/tests/bootstrap-overlay-test
 program	.local/lib/dotfiles/tests/bootstrap-shortcut-test
 program	.local/lib/dotfiles/tests/bootstrap-test
 program	.local/lib/dotfiles/tests/client-extensions-test
+program	.local/lib/dotfiles/tests/client-handoff-test
 program	.local/lib/dotfiles/tests/client-paths-test
 program	.local/lib/dotfiles/tests/clip-test
 program	.local/lib/dotfiles/tests/core-cron-test
