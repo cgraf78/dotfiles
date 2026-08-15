@@ -291,6 +291,8 @@ _assert_eq "tmux defines all four parent-pane helper routes" \
   "4" "$(grep -c "$wezterm_select_pane_path --parent" <<<"$tmux_content")"
 _assert_eq "tmux routes all four edges through client-scoped SSH relays" \
   "4" "$(grep -c "$termnav_relay_path send pane" <<<"$tmux_content")"
+_assert_eq "tmux routes both window-move chords through client-scoped SSH relays" \
+  "2" "$(grep -c "$termnav_relay_path send move" <<<"$tmux_content")"
 _assert_contains "tmux Ctrl-Tab uses the relay-aware tab router" \
   "$termnav_switch_tab_path next" "$switch_tab_next_line"
 _assert_contains "tmux Ctrl-Shift-Tab uses the reverse relay-aware tab router" \
