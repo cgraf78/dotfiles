@@ -22,7 +22,7 @@ _sshd_validate() {
   sshd -t -f "$main_config" || return 1
   effective=$(sshd -T -f "$main_config") || return 1
   awk '
-    $1 == "acceptenv" {
+    tolower($1) == "acceptenv" {
       for (i = 2; i <= NF; i++)
         if ($i == "TERMNAV_PARENT_RELAY") found = 1
     }

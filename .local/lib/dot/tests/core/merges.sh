@@ -5586,7 +5586,8 @@ EOF
   # shellcheck disable=SC2329 # Invoked indirectly by the hook under test.
   sshd() {
     printf 'validate:%s\n' "$*" >>"$SSHD_LOG"
-    [[ "$1" == -T ]] && printf 'acceptenv TERMNAV_PARENT_RELAY\n'
+    [[ "$1" == -T ]] &&
+      printf '%s TERMNAV_PARENT_RELAY\n' "${SSHD_EFFECTIVE_KEY:-acceptenv}"
     return "${SSHD_VALIDATE_STATUS:-0}"
   }
   # shellcheck disable=SC2329 # Invoked indirectly by the hook under test.
@@ -5623,9 +5624,11 @@ EOF
   export SSHD_SYSV_STATUS=1 SSH_SYSV_STATUS=1 SSHD_LAUNCHD_STATUS=1
   export SSHD_RELOAD_STATUS=0 SSHD_LOG
 
+  export SSHD_EFFECTIVE_KEY=AcceptEnv
   : >"$SSHD_LOG"
   _run_sshd_merge >/dev/null 2>&1
-  _assert_file_exists "sshd hook: installs managed fragment" "$SSHD_DEST"
+  _assert_file_exists \
+    "sshd hook: accepts title-case OpenSSH effective keys" "$SSHD_DEST"
   _assert_eq "sshd hook: installs exact declarative content" \
     "$(cat "$SSHD_SOURCE")" "$(cat "$SSHD_DEST")"
   sshd_mode=$(stat -c '%a' "$SSHD_DEST" 2>/dev/null ||
@@ -5641,6 +5644,7 @@ EOF
   _assert_contains "sshd hook: reloads active sshd service" \
     "systemctl:reload sshd.service" "$sshd_log"
 
+  export SSHD_EFFECTIVE_KEY=acceptenv
   : >"$SSHD_LOG"
   _run_sshd_merge >/dev/null 2>&1
   _assert_eq "sshd hook: unchanged config performs no validation or reload" \
@@ -5717,7 +5721,7 @@ EOF
 
   unset SSHD_READY_STATUS SSHD_VALIDATE_STATUS SSHD_SERVICE_STATUS SSH_SERVICE_STATUS
   unset SSHD_SYSV_STATUS SSH_SYSV_STATUS SSHD_LAUNCHD_STATUS
-  unset SSHD_RELOAD_STATUS SSHD_LOG
+  unset SSHD_RELOAD_STATUS SSHD_EFFECTIVE_KEY SSHD_LOG
   unset -f sshd systemctl service launchctl _run_sshd_merge _sshd_effective_uid \
     _sshd_config_root _sshd_ready _sshd_set_owner
 
