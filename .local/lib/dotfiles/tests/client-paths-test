@@ -38,6 +38,21 @@ _client_path_contains 'Neovim launcher loads the dotfiles-owned Shdeps helper' \
   .local/bin/nvim '../lib/dotfiles/shdeps-assets.sh'
 _client_path_contains 'Git hooksPath uses the dotfiles-owned hook tree' \
   .config/git/config '.local/lib/dotfiles/git-hooks'
+_client_path_contains 'dot forwarder retains the explicit embedded fallback' \
+  .local/bin/dot '.local/lib/dotfiles/legacy-dot-launcher.sh'
+
+if [[ $(git hash-object "$source_home/.local/bin/dot") == 4fc4a57e1f3a09f6e8f97ea0f6c2dab3ce746c6a ]]; then
+  _pass 'dot forwarder matches the reviewed standalone template'
+else
+  _fail 'dot forwarder matches the reviewed standalone template'
+fi
+if [[ -x $source_home/.local/lib/dotfiles/dot-library-handoff.sh &&
+  -f $source_home/.local/lib/dotfiles/dot-library-tree.py &&
+  -x $source_home/.local/lib/dotfiles/pre-sync.d/90-library-handoff.sh ]]; then
+  _pass 'dot library handoff helpers are installed together'
+else
+  _fail 'dot library handoff helpers are installed together'
+fi
 
 if [[ -L $source_home/.local/bin/dot-test ]] &&
   [[ $(readlink "$source_home/.local/bin/dot-test") == ../lib/dotfiles/tests/run ]]; then
@@ -59,6 +74,7 @@ selected_paths=(
   .local/bin/git
   .local/bin/hm
   .local/bin/nvim
+  .local/bin/dot
   .config/git/config
 )
 old_references=$(

@@ -84,7 +84,7 @@ _ensure_shdeps
 BACKUP="$TEST_HOME/.dotfiles-backup/test"
 BRANCH=""
 export DOTBOOTSTRAP_SOURCED=1
-# shellcheck source=../../bin/dotbootstrap
+# shellcheck source=../../../bin/dotbootstrap
 . "$BIN_DIR/dotbootstrap"
 
 # ---------------------------------------------------------------------------

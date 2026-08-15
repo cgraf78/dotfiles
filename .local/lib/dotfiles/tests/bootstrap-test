@@ -78,13 +78,13 @@ dot_fixture_base_repo
 dot_fixture_seed_bootstrap_files
 
 # Source shared helpers and dotbootstrap functions (without running main logic)
-# shellcheck source=../core/init.sh
+# shellcheck source=../../dot/core/init.sh
 . "$REAL_HOME/.local/lib/dot/core/init.sh"
 _ensure_shdeps
 BACKUP="$TEST_HOME/.dotfiles-backup/test"
 BRANCH=""
 export DOTBOOTSTRAP_SOURCED=1
-# shellcheck source=../../bin/dotbootstrap
+# shellcheck source=../../../bin/dotbootstrap
 . "$BIN_DIR/dotbootstrap"
 
 # ---------------------------------------------------------------------------

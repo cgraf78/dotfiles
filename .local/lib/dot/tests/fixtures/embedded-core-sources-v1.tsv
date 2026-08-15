@@ -5,6 +5,6 @@
 .config/dot/merge-hooks.d/codex/api.sh	shdeps-assets.sh	.local/lib/dot/core/shdeps-assets.sh
 .config/shell/interactive.d/57-marks.sh	xdg.sh	.local/lib/dot/core/xdg.sh
 .local/bin/clip	xdg.sh	.local/lib/dot/core/xdg.sh
-.local/bin/dot	init.sh	.local/lib/dot/core/init.sh
 .local/bin/dotbootstrap	init.sh	.local/lib/dot/core/init.sh
 .local/lib/dotfiles/launcher-real.sh	xdg.sh	.local/lib/dot/core/xdg.sh
+.local/lib/dotfiles/legacy-dot-launcher.sh	init.sh	.local/lib/dot/core/init.sh
