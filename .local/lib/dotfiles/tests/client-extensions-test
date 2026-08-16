@@ -12,15 +12,36 @@ dot_root=$(_test_dot_root) || {
   _fail 'client extensions: standalone dot checkout is available'
   _test_summary
 }
-client_root=$source_home/.local/lib/dotfiles
+client_source_root=$source_home/.local/lib/dotfiles
 fixture_home=$(_tmpdir)
-mkdir -p "$fixture_home/.config/dot/overlays.d" "$fixture_home/.ssh"
+client_root=$fixture_home/.local/lib/dotfiles
+mkdir -p \
+  "$fixture_home/.cache" \
+  "$fixture_home/.config/git" \
+  "$fixture_home/.config/dot/overlays.d" \
+  "$client_root" \
+  "$fixture_home/.local/share" \
+  "$fixture_home/.local/state/dot" \
+  "$fixture_home/.ssh"
 chmod 0700 "$fixture_home" "$fixture_home/.ssh"
+ln -s "$dot_root/lib/dot/public" "$fixture_home/.local/lib/dot"
+cp -R "$client_source_root/doctor.d" "$client_root/doctor.d"
+cp -R "$client_source_root/merge-hooks.d" "$client_root/merge-hooks.d"
+cp -R "$client_source_root/pre-sync.d" "$client_root/pre-sync.d"
+
+fixture_overlay_manifest=$fixture_home/.local/state/dot/overlay-links
+: >"$fixture_overlay_manifest"
+chmod 0600 "$fixture_overlay_manifest"
 
 export DOT_SOURCE_ROOT=$dot_root
 export DOT_EXTENSIONS_DIR=$client_root
 export DOT_EXTENSION_API=1
+export DOT_QUIET=1
 export HOME=$fixture_home
+export XDG_CACHE_HOME=$fixture_home/.cache
+export XDG_CONFIG_HOME=$fixture_home/.config
+export XDG_DATA_HOME=$fixture_home/.local/share
+export XDG_STATE_HOME=$fixture_home/.local/state
 
 # shellcheck source=/dev/null
 . "$dot_root/lib/dot/public/xdg.sh"
@@ -44,8 +65,64 @@ _client_worker_run() {
   return "$rc"
 }
 
+# Installed client extensions can be overlay-owned symlinks. Recreate that
+# ownership protocol inside the isolated HOME instead of borrowing the live
+# manifest or letting extension code operate on the caller's real HOME. Local
+# shared clones keep this fixture network-free while still exercising the
+# worker's origin, manifest, and symlink-target validation.
+_client_fixture_extension() {
+  local installed=$1 rel target source_installed resolved overlay_root overlay_name
+  local fixture_overlay descriptor origin source_rel
+
+  if [[ ! -L $installed ]]; then
+    REPLY=$installed
+    return 0
+  fi
+
+  case $installed in
+    "$fixture_home"/*) rel=${installed#"$fixture_home"/} ;;
+    *) return 1 ;;
+  esac
+  target=$(readlink "$installed") || return 1
+  case $installed in
+    "$client_root"/*) source_installed=$client_source_root/${installed#"$client_root"/} ;;
+    *) return 1 ;;
+  esac
+  resolved=$(_test_realpath "$source_installed") || return 1
+  overlay_root=$(git -C "${resolved%/*}" rev-parse --show-toplevel 2>/dev/null) ||
+    return 1
+  case $overlay_root in
+    "$source_home"/.dotfiles-*) overlay_name=${overlay_root#"$source_home"/.dotfiles-} ;;
+    *) return 1 ;;
+  esac
+  [[ -n $overlay_name && $overlay_name != */* ]] || return 1
+
+  fixture_overlay=$fixture_home/.dotfiles-$overlay_name
+  if [[ ! -d $fixture_overlay/.git ]]; then
+    git clone --quiet --shared -- "$overlay_root" "$fixture_overlay" || return 1
+    origin=$(git -C "$fixture_overlay" remote get-url origin 2>/dev/null) || return 1
+    descriptor=$fixture_home/.config/dot/overlays.d/90-$overlay_name.conf
+    printf 'url=%s\n' "$origin" >"$descriptor" || return 1
+  fi
+
+  source_rel=${resolved#"$overlay_root"/}
+  [[ $source_rel != "$resolved" ]] || return 1
+  mkdir -p "$fixture_overlay/${source_rel%/*}" || return 1
+  cp -p -- "$resolved" "$fixture_overlay/$source_rel" || return 1
+
+  printf '%s\t%s\t%s\n' "$rel" "$overlay_name" "$target" >>"$fixture_overlay_manifest" ||
+    return 1
+  REPLY=$installed
+}
+
 for hook in "$client_root/merge-hooks.d"/*.sh; do
-  if _client_worker_run merge "$hook"; then
+  worker_hook=$hook
+  if ! _client_fixture_extension "$hook"; then
+    _fail "client merge hook fixture preserves overlay ownership: ${hook##*/}"
+    continue
+  fi
+  worker_hook=$REPLY
+  if _client_worker_run merge "$worker_hook"; then
     _pass "client merge hook loads through standalone worker: ${hook##*/}"
   else
     _fail "client merge hook loads through standalone worker: ${hook##*/}"
@@ -53,7 +130,13 @@ for hook in "$client_root/merge-hooks.d"/*.sh; do
 done
 
 for extension in "$client_root/doctor.d"/[0-9]*.sh; do
-  if _client_worker_run doctor "$extension"; then
+  worker_extension=$extension
+  if ! _client_fixture_extension "$extension"; then
+    _fail "client doctor extension fixture preserves overlay ownership: ${extension##*/}"
+    continue
+  fi
+  worker_extension=$REPLY
+  if _client_worker_run doctor "$worker_extension"; then
     _pass "client doctor extension loads through standalone worker: ${extension##*/}"
   else
     _fail "client doctor extension loads through standalone worker: ${extension##*/}"
