@@ -24,9 +24,15 @@ mkdir -p "$home" "$seed" "$fixture/no-hooks"
 # under review instead of whichever revision the shared repository currently
 # names as main.
 dot_revision=$(git -C "$dot_root" rev-parse HEAD) || exit 1
-git init --bare --initial-branch=main "$dot_origin" >/dev/null
-git -C "$dot_root" push "$dot_origin" \
-  "$dot_revision:refs/heads/main" >/dev/null
+# GitHub checks out pull requests with depth one. Pushing that shallow boundary
+# into a newly initialized receiver is intentionally rejected by Git, even
+# though the candidate object itself is complete. A bare clone transfers the
+# source's available object boundary without requiring older history or a
+# network fetch; publish main only after confirming the clone still names the
+# exact candidate under test.
+git clone --quiet --bare --no-local --depth=1 "$dot_root" "$dot_origin"
+[[ $(git --git-dir="$dot_origin" rev-parse HEAD) == "$dot_revision" ]] || exit 1
+git --git-dir="$dot_origin" update-ref refs/heads/main "$dot_revision"
 git --git-dir="$dot_origin" symbolic-ref HEAD refs/heads/main
 
 git init --bare --initial-branch=main "$origin" >/dev/null

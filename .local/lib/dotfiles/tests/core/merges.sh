@@ -4259,6 +4259,11 @@ JSON
       _warn() { printf "%s\n" "$*" >&2; }
       # shellcheck source=/dev/null
       . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/vscode.sh"
+      # The hook compatibility layer installs the real host capability
+      # predicate. This fixture deliberately has no editor marker because it
+      # exercises variant failure aggregation, so select the hook explicitly
+      # rather than depending on an ambient VS Code binary from the CI host.
+      _dot_tool_present() { [[ $1 == vscode ]]; }
       _vscode_local_extensions() { :; }
       _vscode_variants() {
         printf "%s\t%s\n" \
@@ -5058,6 +5063,10 @@ EOF
       _warn() { printf "%s\n" "$*" >&2; }
       # shellcheck source=/dev/null
       . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/vscode.sh"
+      # This synthetic profile uses a nonstandard extension directory so the
+      # generic host detector cannot infer VS Code. Keep the cleanup test about
+      # Termnav ownership instead of whichever editor happens to be installed.
+      _dot_tool_present() { [[ $1 == vscode ]]; }
       merge
     '
     _assert_eq \
