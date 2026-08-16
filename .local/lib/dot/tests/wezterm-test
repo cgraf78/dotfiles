@@ -307,7 +307,10 @@ return {
   end,
 }
 LUA
+  relay_commit_log=$(_tmpdir)/relay-commit.log
+  relay_commit_action_log=$(_tmpdir)/relay-commit-action.log
   nvim_key_result=$(HOME="$nvim_key_home/missing-home" _wezterm_lua "
+    local event_handlers = {}
     local fake_action = {
       ClearSelection = { action = 'ClearSelection' },
       DisableDefaultAssignment = { action = 'DisableDefaultAssignment' },
@@ -335,7 +338,9 @@ LUA
         glob = function()
           return {}
         end,
-        on = function() end,
+        on = function(name, handler)
+          event_handlers[name] = handler
+        end,
         target_triple = 'x86_64-unknown-linux-gnu',
       }
     end
@@ -436,6 +441,15 @@ LUA
       end,
     }
 
+    event_handlers['user-var-changed'](window, pane, 'DOT_RELAY_COMMIT', 'nonce')
+    local relay_log = assert(io.open('$relay_commit_log', 'wb'))
+    relay_log:write(performed[1].value)
+    relay_log:close()
+    local relay_action_log = assert(io.open('$relay_commit_action_log', 'w'))
+    relay_action_log:write(performed[1].action)
+    relay_action_log:close()
+    performed = {}
+
     copy_action(window, pane)
     print(performed[1].action .. ':' .. performed[1].value.key .. ':' .. performed[1].value.mods)
 
@@ -473,6 +487,10 @@ LUA
   )
   _assert_eq "wezterm preserves terminal chords and owns client clipboard actions" \
     "$expected" "$nvim_key_result"
+  _assert_eq "wezterm relay commit replays the exact private tmux key" \
+    "$(printf '\033[777009u')" "$(cat "$relay_commit_log")"
+  _assert_eq "wezterm relay commit uses SendString into the emitting pane" \
+    "SendString" "$(cat "$relay_commit_action_log")"
 
   cp "$link_routes" "$route_copy_home/link-routes.lua"
   cp "$termnav_module" "$route_copy_home/termnav-module.lua"
