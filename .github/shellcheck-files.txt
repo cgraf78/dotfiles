@@ -94,6 +94,7 @@ program	.local/lib/dotfiles/merge-hooks.d/nvim.sh
 program	.local/lib/dotfiles/merge-hooks.d/opencode.sh
 program	.local/lib/dotfiles/merge-hooks.d/sapling.sh
 program	.local/lib/dotfiles/merge-hooks.d/ssh.sh
+program	.local/lib/dotfiles/merge-hooks.d/sshd.serial.sh
 program	.local/lib/dotfiles/merge-hooks.d/tmux.sh
 program	.local/lib/dotfiles/merge-hooks.d/vscode.sh
 program	.local/lib/dotfiles/merge-hooks.d/wezterm.sh
@@ -138,6 +139,7 @@ program	.local/lib/dotfiles/tests/run
 program	.local/lib/dotfiles/tests/schema-associations-test
 program	.local/lib/dotfiles/tests/schema-refresh-workflow-test
 program	.local/lib/dotfiles/tests/shdeps-hooks-test
+program	.local/lib/dotfiles/tests/sshd-hook-test
 program	.local/lib/dotfiles/tests/tmux-continuum-test
 program	.local/lib/dotfiles/tests/tmux-test
 program	.local/lib/dotfiles/tests/tool-init-test

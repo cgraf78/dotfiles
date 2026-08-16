@@ -18,7 +18,8 @@ _sshd_ready() {
 }
 
 _sshd_validate() {
-  local main_config="$1" effective
+  local main_config=$1 effective
+
   sshd -t -f "$main_config" || return 1
   effective=$(sshd -T -f "$main_config") || return 1
   awk '
@@ -60,30 +61,30 @@ _sshd_reload() {
 }
 
 _sshd_install() {
-  local source="$1" destination="$2" main_config="$3"
-  local candidate backup="" pending="${destination}.reload-pending"
+  local source=$1 destination=$2 main_config=$3
+  local candidate backup='' pending=${destination}.reload-pending
   local had_destination=0
 
   # A managed system path must never redirect dot's root write elsewhere.
-  [[ ! -L "$destination" ]] || {
+  [[ ! -L $destination ]] || {
     printf 'sshd merge: refusing symlink destination: %s\n' "$destination" >&2
     return 1
   }
-  [[ ! -e "$destination" || -f "$destination" ]] || {
+  [[ ! -e $destination || -f $destination ]] || {
     printf 'sshd merge: refusing non-file destination: %s\n' "$destination" >&2
     return 1
   }
 
-  if [[ -f "$destination" ]] && cmp -s "$source" "$destination"; then
-    if [[ -f "$pending" ]]; then
+  if [[ -f $destination ]] && cmp -s "$source" "$destination"; then
+    if [[ -f $pending ]]; then
       _sshd_reload || return 1
       rm -f "$pending"
     fi
     return 0
   fi
 
-  _dot_sibling_tmp_for "$destination" || return 1
-  candidate="$REPLY"
+  dot_sibling_tmp_for "$destination" || return 1
+  candidate=$REPLY
   cp "$source" "$candidate" || {
     rm -f "$candidate"
     return 1
@@ -97,12 +98,12 @@ _sshd_install() {
     return 1
   }
 
-  if [[ -f "$destination" ]]; then
-    _dot_sibling_tmp_for "$destination" || {
+  if [[ -f $destination ]]; then
+    dot_sibling_tmp_for "$destination" || {
       rm -f "$candidate"
       return 1
     }
-    backup="$REPLY"
+    backup=$REPLY
     cp -p "$destination" "$backup" || {
       rm -f "$candidate" "$backup"
       return 1
@@ -110,14 +111,14 @@ _sshd_install() {
     had_destination=1
   fi
 
-  mv "$candidate" "$destination" || {
+  dot_commit_tmp "$candidate" "$destination" || {
     rm -f "$candidate" "$backup"
     return 1
   }
 
   if ! _sshd_validate "$main_config"; then
-    if [[ "$had_destination" -eq 1 ]]; then
-      mv "$backup" "$destination" || return 1
+    if [[ $had_destination -eq 1 ]]; then
+      dot_commit_tmp "$backup" "$destination" || return 1
     else
       rm -f "$destination"
     fi
@@ -138,20 +139,20 @@ _sshd_install() {
 }
 
 merge() {
-  [[ "$(_sshd_effective_uid)" == 0 ]] || return 0
-  _dot_tool_present sshd || return 0
+  [[ $(_sshd_effective_uid) == 0 ]] || return 0
+  dot_tool_present sshd || return 0
 
-  local source root main_config include_dir destination
-  source="$(_merge_hook_source \
-    sshd/sshd_config.d/60-termnav-relay.conf)"
-  [[ -f "$source" ]] || return 0
+  local family source root main_config include_dir destination
+  family=$(dot_hook_family sshd) || return 1
+  source=$family/sshd_config.d/60-termnav-relay.conf
+  [[ -f $source ]] || return 0
 
-  root="$(_sshd_config_root)"
-  main_config="$root/sshd_config"
-  include_dir="$root/sshd_config.d"
-  [[ -f "$main_config" && -d "$include_dir" ]] || return 0
+  root=$(_sshd_config_root)
+  main_config=$root/sshd_config
+  include_dir=$root/sshd_config.d
+  [[ -f $main_config && -d $include_dir ]] || return 0
   _sshd_ready "$main_config" || return 0
 
-  destination="$include_dir/60-termnav-relay.conf"
+  destination=$include_dir/60-termnav-relay.conf
   _sshd_install "$source" "$destination" "$main_config"
 }
