@@ -88,6 +88,7 @@ nvim:nvim
 opencode:opencode
 sapling:sl
 ssh:ssh
+sshd:sshd
 tmux:tmux
 TOOL_COMMANDS
 
@@ -170,6 +171,7 @@ TOOL_COMMANDS
       agent-rules claude codex cron gemini gh git gstack hive-memory ignore \
       iterm2 karabiner mise muse nvim opencode sapling ssh tmux vscode wezterm
   )
+  root_gated_hooks=sshd
 
   merge_hook_inventory_home=$(_tmpdir)
   mkdir -p "$merge_hook_inventory_home/.local/lib/dot/core/merge-hooks/lib"
@@ -223,7 +225,8 @@ TOOL_COMMANDS
 
   classified_hooks=$(_dot_test_merge_hook_names "$REAL_HOME")
   _assert_eq "merge hook gates: every base hook is classified" \
-    "$(printf '%s\n' "$tool_gated_hooks" | LC_ALL=C sort)" "$classified_hooks"
+    "$(printf '%s\n%s\n' "$tool_gated_hooks" "$root_gated_hooks" | LC_ALL=C sort)" \
+    "$classified_hooks"
 
   while IFS= read -r hook_name; do
     hook_path="$REAL_HOME/.local/lib/dot/core/merge-hooks/$hook_name.sh"
@@ -257,6 +260,47 @@ TOOL_COMMANDS
       0 "$absent_hook_status"
     _assert_eq "$hook_name merge: absent tool is silent" "" "$absent_hook_output"
   done <<<"$tool_gated_hooks"
+
+  while IFS= read -r hook_name; do
+    hook_path="$REAL_HOME/.local/lib/dot/core/merge-hooks/$hook_name.sh"
+    first_merge_statement=$(
+      awk '
+        /^merge\(\)[[:space:]]*\{/ { in_merge = 1; next }
+        in_merge && /^[[:space:]]*$/ { next }
+        in_merge && /^[[:space:]]*#/ { next }
+        in_merge {
+          sub(/^[[:space:]]+/, "")
+          print
+          exit
+        }
+      ' "$hook_path"
+    )
+    # shellcheck disable=SC2016 # Compare the literal source guard.
+    _assert_eq "$hook_name merge: privilege guard is the first operation" \
+      '[[ "$(_sshd_effective_uid)" == 0 ]] || return 0' \
+      "$first_merge_statement"
+
+    nonroot_hook_output=$(
+      (
+        unset -f merge 2>/dev/null
+        # shellcheck source=/dev/null
+        . "$hook_path"
+        # shellcheck disable=SC2329 # Invoked indirectly by merge.
+        _sshd_effective_uid() { printf '%s\n' 1000; }
+        # shellcheck disable=SC2329 # Must prove the root guard skips this.
+        _dot_tool_present() {
+          printf 'unexpected tool probe\n' >&2
+          return 0
+        }
+        merge
+      ) 2>&1
+    )
+    nonroot_hook_status=$?
+    _assert_exit "$hook_name merge: non-root run is a successful no-op" \
+      0 "$nonroot_hook_status"
+    _assert_eq "$hook_name merge: non-root run is silent" \
+      "" "$nonroot_hook_output"
+  done <<<"$root_gated_hooks"
 
   echo "=== Merge hook support helpers ==="
 
@@ -5487,6 +5531,201 @@ EOF
 
   echo ""
   unset -f jq
+  echo "=== SSH server config merge hook ==="
+
+  _SSHD_HOOK="$REAL_HOME/.local/lib/dot/core/merge-hooks/sshd.sh"
+  SSHD_TEST_ROOT="$TEST_HOME/sshd-root"
+  SSHD_SOURCE_DIR="$TEST_HOME/.config/dot/merge-hooks.d/sshd/sshd_config.d"
+  SSHD_SOURCE="$SSHD_SOURCE_DIR/60-termnav-relay.conf"
+  SSHD_DEST="$SSHD_TEST_ROOT/sshd_config.d/60-termnav-relay.conf"
+  SSHD_LOG="$TEST_HOME/sshd-merge.log"
+
+  _run_sshd_merge() {
+    unset -f merge _sshd_effective_uid _sshd_config_root _sshd_ready \
+      _sshd_set_owner 2>/dev/null
+    # shellcheck source=/dev/null
+    . "$_SSHD_HOOK"
+    # shellcheck disable=SC2329 # Invoked indirectly by merge.
+    _sshd_effective_uid() { printf '%s\n' 0; }
+    # shellcheck disable=SC2329 # Invoked indirectly by merge.
+    _sshd_config_root() { printf '%s\n' "$SSHD_TEST_ROOT"; }
+    # shellcheck disable=SC2329 # Invoked indirectly by merge.
+    _sshd_ready() { return "${SSHD_READY_STATUS:-0}"; }
+    # shellcheck disable=SC2329 # Invoked indirectly by merge.
+    _sshd_set_owner() { printf 'owner:%s\n' "$1" >>"$SSHD_LOG"; }
+    merge
+  }
+
+  rm -rf "$SSHD_TEST_ROOT" "$SSHD_SOURCE_DIR"
+  mkdir -p "$SSHD_SOURCE_DIR"
+  printf 'AcceptEnv TERMNAV_PARENT_RELAY\n' >"$SSHD_SOURCE"
+  : >"$SSHD_LOG"
+
+  # shellcheck disable=SC2329 # Invoked indirectly by merge.
+  _dot_tool_present() { return 1; }
+  _assert_exit "sshd hook: absent sshd is a successful no-op" 0 \
+    "$(
+      _run_sshd_merge >/dev/null 2>&1
+      printf '%s' "$?"
+    )"
+  _assert_file_missing "sshd hook: absent sshd does not create config" "$SSHD_DEST"
+
+  # shellcheck disable=SC2329 # Invoked indirectly by merge.
+  _dot_tool_present() { return 0; }
+  mkdir -p "$SSHD_TEST_ROOT"
+  printf 'Port 22\n' >"$SSHD_TEST_ROOT/sshd_config"
+  _run_sshd_merge >/dev/null 2>&1
+  _assert_file_missing "sshd hook: missing include directory is unsupported" "$SSHD_DEST"
+
+  mkdir -p "$SSHD_TEST_ROOT/sshd_config.d"
+  export SSHD_READY_STATUS=1
+  _run_sshd_merge >/dev/null 2>&1
+  _assert_file_missing "sshd hook: unready server is unsupported" "$SSHD_DEST"
+  export SSHD_READY_STATUS=0
+
+  # shellcheck disable=SC2329 # Invoked indirectly by the hook under test.
+  sshd() {
+    printf 'validate:%s\n' "$*" >>"$SSHD_LOG"
+    [[ "$1" == -T ]] &&
+      printf '%s TERMNAV_PARENT_RELAY\n' "${SSHD_EFFECTIVE_KEY:-acceptenv}"
+    return "${SSHD_VALIDATE_STATUS:-0}"
+  }
+  # shellcheck disable=SC2329 # Invoked indirectly by the hook under test.
+  systemctl() {
+    printf 'systemctl:%s\n' "$*" >>"$SSHD_LOG"
+    case "$1:${3:-$2}" in
+      is-active:sshd.service) return "${SSHD_SERVICE_STATUS:-0}" ;;
+      is-active:ssh.service) return "${SSH_SERVICE_STATUS:-1}" ;;
+      reload:*) return "${SSHD_RELOAD_STATUS:-0}" ;;
+    esac
+    return 1
+  }
+  # shellcheck disable=SC2329 # Invoked indirectly by the hook under test.
+  service() {
+    printf 'service:%s\n' "$*" >>"$SSHD_LOG"
+    case "$1:$2" in
+      sshd:status) return "${SSHD_SYSV_STATUS:-1}" ;;
+      ssh:status) return "${SSH_SYSV_STATUS:-1}" ;;
+      *:reload) return "${SSHD_RELOAD_STATUS:-0}" ;;
+    esac
+    return 1
+  }
+  # shellcheck disable=SC2329 # Invoked indirectly by the hook under test.
+  launchctl() {
+    printf 'launchctl:%s\n' "$*" >>"$SSHD_LOG"
+    case "$1:$2" in
+      print:system/com.openssh.sshd) return "${SSHD_LAUNCHD_STATUS:-1}" ;;
+      kickstart:-k) return "${SSHD_RELOAD_STATUS:-0}" ;;
+    esac
+    return 1
+  }
+  export -f sshd systemctl service launchctl
+  export SSHD_VALIDATE_STATUS=0 SSHD_SERVICE_STATUS=0 SSH_SERVICE_STATUS=1
+  export SSHD_SYSV_STATUS=1 SSH_SYSV_STATUS=1 SSHD_LAUNCHD_STATUS=1
+  export SSHD_RELOAD_STATUS=0 SSHD_LOG
+
+  export SSHD_EFFECTIVE_KEY=AcceptEnv
+  : >"$SSHD_LOG"
+  _run_sshd_merge >/dev/null 2>&1
+  _assert_file_exists \
+    "sshd hook: accepts title-case OpenSSH effective keys" "$SSHD_DEST"
+  _assert_eq "sshd hook: installs exact declarative content" \
+    "$(cat "$SSHD_SOURCE")" "$(cat "$SSHD_DEST")"
+  sshd_mode=$(stat -c '%a' "$SSHD_DEST" 2>/dev/null ||
+    stat -f '%Lp' "$SSHD_DEST")
+  _assert_eq "sshd hook: installs system config mode" "644" "$sshd_mode"
+  sshd_log=$(cat "$SSHD_LOG")
+  _assert_contains "sshd hook: validates full server config" \
+    "validate:-t -f $SSHD_TEST_ROOT/sshd_config" "$sshd_log"
+  _assert_contains "sshd hook: checks effective AcceptEnv policy" \
+    "validate:-T -f $SSHD_TEST_ROOT/sshd_config" "$sshd_log"
+  _assert_contains "sshd hook: sets root ownership through adapter" \
+    "owner:" "$sshd_log"
+  _assert_contains "sshd hook: reloads active sshd service" \
+    "systemctl:reload sshd.service" "$sshd_log"
+
+  export SSHD_EFFECTIVE_KEY=acceptenv
+  : >"$SSHD_LOG"
+  _run_sshd_merge >/dev/null 2>&1
+  _assert_eq "sshd hook: unchanged config performs no validation or reload" \
+    "" "$(cat "$SSHD_LOG")"
+
+  printf 'AcceptEnv TERMNAV_PARENT_RELAY\n# update\n' >"$SSHD_SOURCE"
+  export SSHD_SERVICE_STATUS=1 SSH_SERVICE_STATUS=0
+  : >"$SSHD_LOG"
+  _run_sshd_merge >/dev/null 2>&1
+  _assert_contains "sshd hook: updates changed fragment" \
+    "# update" "$(cat "$SSHD_DEST")"
+  _assert_contains "sshd hook: reloads Debian ssh service fallback" \
+    "systemctl:reload ssh.service" "$(cat "$SSHD_LOG")"
+
+  printf 'AcceptEnv TERMNAV_PARENT_RELAY\n# sysv\n' >"$SSHD_SOURCE"
+  export SSHD_SERVICE_STATUS=1 SSH_SERVICE_STATUS=1 SSHD_SYSV_STATUS=0
+  : >"$SSHD_LOG"
+  _run_sshd_merge >/dev/null 2>&1
+  _assert_contains "sshd hook: reloads active SysV sshd service" \
+    "service:sshd reload" "$(cat "$SSHD_LOG")"
+
+  printf 'AcceptEnv TERMNAV_PARENT_RELAY\n# launchd\n' >"$SSHD_SOURCE"
+  export SSHD_SYSV_STATUS=1 SSHD_LAUNCHD_STATUS=0
+  : >"$SSHD_LOG"
+  _run_sshd_merge >/dev/null 2>&1
+  _assert_contains "sshd hook: reloads active macOS launchd service" \
+    "launchctl:kickstart -k system/com.openssh.sshd" "$(cat "$SSHD_LOG")"
+
+  printf 'known-good\n' >"$SSHD_DEST"
+  printf 'invalid replacement\n' >"$SSHD_SOURCE"
+  export SSHD_VALIDATE_STATUS=1 SSHD_SERVICE_STATUS=0 SSH_SERVICE_STATUS=1
+  export SSHD_LAUNCHD_STATUS=1
+  : >"$SSHD_LOG"
+  sshd_validation_status=0
+  _run_sshd_merge >/dev/null 2>&1 || sshd_validation_status=$?
+  _assert_exit "sshd hook: validation failure propagates" 1 "$sshd_validation_status"
+  _assert_eq "sshd hook: validation failure restores previous fragment" \
+    "known-good" "$(cat "$SSHD_DEST")"
+  _assert_not_contains "sshd hook: validation failure does not reload" \
+    "systemctl:reload" "$(cat "$SSHD_LOG")"
+
+  rm -f "$SSHD_DEST"
+  : >"$SSHD_LOG"
+  sshd_validation_status=0
+  _run_sshd_merge >/dev/null 2>&1 || sshd_validation_status=$?
+  _assert_exit "sshd hook: invalid first install propagates" 1 "$sshd_validation_status"
+  _assert_file_missing "sshd hook: invalid first install is removed" "$SSHD_DEST"
+
+  export SSHD_VALIDATE_STATUS=0 SSHD_RELOAD_STATUS=1
+  : >"$SSHD_LOG"
+  sshd_reload_status=0
+  _run_sshd_merge >/dev/null 2>&1 || sshd_reload_status=$?
+  _assert_exit "sshd hook: reload failure propagates" 1 "$sshd_reload_status"
+  _assert_file_exists "sshd hook: validated fragment remains after reload failure" "$SSHD_DEST"
+  _assert_file_exists "sshd hook: reload failure records pending activation" \
+    "$SSHD_DEST.reload-pending"
+
+  export SSHD_RELOAD_STATUS=0
+  : >"$SSHD_LOG"
+  _run_sshd_merge >/dev/null 2>&1
+  _assert_contains "sshd hook: unchanged pending config retries reload" \
+    "systemctl:reload sshd.service" "$(cat "$SSHD_LOG")"
+  _assert_file_missing "sshd hook: successful retry clears pending activation" \
+    "$SSHD_DEST.reload-pending"
+
+  rm -f "$SSHD_DEST"
+  ln -s "$TEST_HOME/sshd-symlink-target" "$SSHD_DEST"
+  : >"$SSHD_LOG"
+  sshd_symlink_status=0
+  _run_sshd_merge >/dev/null 2>&1 || sshd_symlink_status=$?
+  _assert_exit "sshd hook: symlink destination is rejected" 1 "$sshd_symlink_status"
+  _assert_file_missing "sshd hook: symlink target is never created" \
+    "$TEST_HOME/sshd-symlink-target"
+
+  unset SSHD_READY_STATUS SSHD_VALIDATE_STATUS SSHD_SERVICE_STATUS SSH_SERVICE_STATUS
+  unset SSHD_SYSV_STATUS SSH_SYSV_STATUS SSHD_LAUNCHD_STATUS
+  unset SSHD_RELOAD_STATUS SSHD_EFFECTIVE_KEY SSHD_LOG
+  unset -f sshd systemctl service launchctl _run_sshd_merge _sshd_effective_uid \
+    _sshd_config_root _sshd_ready _sshd_set_owner
+
+  echo ""
   echo "=== SSH config merge hook ==="
 
   SSH_DIR="$TEST_HOME/.ssh"
@@ -7184,6 +7423,13 @@ MERGE
       _merge_hook_is_serial cron >/dev/null 2>&1
       printf '%s' "$?"
     )"
+  for serial_hook in sshd grafhome-ca-host-policy; do
+    _assert_exit "parallel merges: $serial_hook stays serial around sshd state" \
+      0 "$(
+        _merge_hook_is_serial "$serial_hook" >/dev/null 2>&1
+        printf '%s' "$?"
+      )"
+  done
   for parallel_hook in gstack hive-memory mclone mise; do
     _assert_exit "parallel merges: $parallel_hook hook has no serial barrier" \
       1 "$(

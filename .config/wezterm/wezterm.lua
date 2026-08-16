@@ -473,6 +473,10 @@ wezterm.on("user-var-changed", function(window, pane, name, value)
     if sequence then
       window:perform_action(act.SendString(sequence), pane)
     end
+  elseif name == "DOT_RELAY_COMMIT" and value ~= "" then
+    -- Two-phase termnav relay: replay commit key to trigger the relayed
+    -- action in the outer host after the prepare phase completes.
+    window:perform_action(act.SendString("\x1b[777009u"), pane)
   end
 end)
 

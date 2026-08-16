@@ -64,6 +64,7 @@ _dot_tool_present() {
     opencode) _dot_tool_any_command opencode ;;
     sapling) _dot_tool_any_command sl ;;
     ssh) _dot_tool_any_command ssh ;;
+    sshd) _dot_tool_any_command sshd ;;
     tmux) _dot_tool_any_command tmux ;;
     iterm2)
       platform="$(_dot_tool_platform)"

@@ -26,8 +26,12 @@ wezterm_move_tab_path='~/.local/bin/wezterm-move-tab'
 wezterm_select_pane_path='~/.local/bin/wezterm-select-pane'
 # shellcheck disable=SC2088 # tmux expands this literal path in its own shell.
 termnav_switch_tab_path='~/.local/bin/termnav-switch-tab'
+# shellcheck disable=SC2088 # tmux expands this literal path in its own shell.
+termnav_relay_path='~/.local/bin/termnav-relay'
 ctrl_tab_config_line=$(printf '%s\n' "$tmux_content" | grep '^bind-key -n C-Tab ' || true)
 ctrl_shift_tab_config_line=$(printf '%s\n' "$tmux_content" | grep '^bind-key -n C-BTab ' || true)
+switch_tab_next_line=$(printf '%s\n' "$tmux_content" | grep '^switch_tab_next=' || true)
+switch_tab_previous_line=$(printf '%s\n' "$tmux_content" | grep '^switch_tab_previous=' || true)
 move_tab_left_config_line=$(printf '%s\n' "$tmux_content" | grep "^bind-key -n 'M-{' " || true)
 move_tab_right_config_line=$(printf '%s\n' "$tmux_content" | grep "^bind-key -n 'M-}' " || true)
 vim_navigation_bindings=$(
@@ -255,6 +259,49 @@ _assert_contains "tmux defines private parent-pane key for up" \
   'set -s user-keys[6] "\033[777007u"' "$tmux_content"
 _assert_contains "tmux defines private parent-pane key for right" \
   'set -s user-keys[7] "\033[777008u"' "$tmux_content"
+_assert_contains "tmux defines private commit key" \
+  'set -s user-keys[8] "\033[777009u"' "$tmux_content"
+# Commit is a foreground run-shell so tmux pauses that client's input until the
+# per-client FIFO directive is claimed and executed.
+commit_binding_line=$(printf '%s\n' "$tmux_content" | grep '^bind-key -n User8 ' || true)
+_assert_contains "tmux commit binding runs relay commit foreground" \
+  "bind-key -n User8 run-shell '" "$commit_binding_line"
+_assert_contains "tmux commit binding routes through per-client FIFO commit" \
+  'termnav-relay commit --tmux-socket #{socket_path} --client-tty #{q:client_tty} --client-pid #{client_pid}' "$commit_binding_line"
+_assert_not_contains "tmux commit binding is foreground, not background" \
+  "run-shell -b" "$commit_binding_line"
+_assert_not_contains "tmux commit binding quotes client_tty" \
+  ' #{client_tty}' "$commit_binding_line"
+move_parent_tab_left_line=$(printf '%s\n' "$tmux_content" | grep '^move_parent_tab_left=' || true)
+move_parent_tab_right_line=$(printf '%s\n' "$tmux_content" | grep '^move_parent_tab_right=' || true)
+select_parent_pane_left_line=$(printf '%s\n' "$tmux_content" | grep '^select_parent_pane_left=' || true)
+select_parent_pane_down_line=$(printf '%s\n' "$tmux_content" | grep '^select_parent_pane_down=' || true)
+select_parent_pane_up_line=$(printf '%s\n' "$tmux_content" | grep '^select_parent_pane_up=' || true)
+select_parent_pane_right_line=$(printf '%s\n' "$tmux_content" | grep '^select_parent_pane_right=' || true)
+_assert_contains "tmux move parent tab left falls back only on declined exit 3" \
+  'if [ $? -eq 3 ]' "$move_parent_tab_left_line"
+_assert_not_contains "tmux move parent tab left does not use unconditional fallback" \
+  '|| ~/.local/bin/wezterm-' "$move_parent_tab_left_line"
+_assert_contains "tmux move parent tab right falls back only on declined exit 3" \
+  'if [ $? -eq 3 ]' "$move_parent_tab_right_line"
+_assert_not_contains "tmux move parent tab right does not use unconditional fallback" \
+  '|| ~/.local/bin/wezterm-' "$move_parent_tab_right_line"
+_assert_contains "tmux select parent pane left falls back only on declined exit 3" \
+  'if [ $? -eq 3 ]' "$select_parent_pane_left_line"
+_assert_not_contains "tmux select parent pane left does not use unconditional fallback" \
+  '|| ~/.local/bin/wezterm-' "$select_parent_pane_left_line"
+_assert_contains "tmux select parent pane down falls back only on declined exit 3" \
+  'if [ $? -eq 3 ]' "$select_parent_pane_down_line"
+_assert_not_contains "tmux select parent pane down does not use unconditional fallback" \
+  '|| ~/.local/bin/wezterm-' "$select_parent_pane_down_line"
+_assert_contains "tmux select parent pane up falls back only on declined exit 3" \
+  'if [ $? -eq 3 ]' "$select_parent_pane_up_line"
+_assert_not_contains "tmux select parent pane up does not use unconditional fallback" \
+  '|| ~/.local/bin/wezterm-' "$select_parent_pane_up_line"
+_assert_contains "tmux select parent pane right falls back only on declined exit 3" \
+  'if [ $? -eq 3 ]' "$select_parent_pane_right_line"
+_assert_not_contains "tmux select parent pane right does not use unconditional fallback" \
+  '|| ~/.local/bin/wezterm-' "$select_parent_pane_right_line"
 _assert_contains "tmux detects when its client is another tmux" \
   "is_nested_tmux_client=" "$tmux_content"
 _assert_contains "tmux Ctrl-Tab checks session window count before switching" \
@@ -285,6 +332,14 @@ _assert_eq "tmux pane navigation bubbles all four remote edges" \
   "4" "$(grep -c '\$select_parent_pane_' <<<"$vim_navigation_bindings")"
 _assert_eq "tmux defines all four parent-pane helper routes" \
   "4" "$(grep -c "$wezterm_select_pane_path --parent" <<<"$tmux_content")"
+_assert_eq "tmux routes all four edges through client-scoped SSH relays" \
+  "4" "$(grep -c "$termnav_relay_path send pane" <<<"$tmux_content")"
+_assert_eq "tmux routes both window-move chords through client-scoped SSH relays" \
+  "2" "$(grep -c "$termnav_relay_path send move" <<<"$tmux_content")"
+_assert_contains "tmux Ctrl-Tab uses the relay-aware tab router" \
+  "$termnav_switch_tab_path next" "$switch_tab_next_line"
+_assert_contains "tmux Ctrl-Shift-Tab uses the reverse relay-aware tab router" \
+  "$termnav_switch_tab_path previous" "$switch_tab_previous_line"
 _assert_contains "tmux pane navigation requires inner mouse focus for transports" \
   "mouse == 1" "$pane_navigation_detector_line"
 _assert_contains "tmux pane navigation recognizes nested remote transports" \
