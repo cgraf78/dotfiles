@@ -41,10 +41,12 @@ directory when extra nesting would not make the layout clearer.
 The standalone merge runner discovers readable scripts from
 `~/.local/lib/dotfiles/merge-hooks.d/` in lexical order, then runs independent
 hooks in fresh workers while preserving explicit `.serial.sh` barriers for
-singleton external state. Currently only `cron.serial.sh` is serial because it
-read-modify-writes the user crontab and installs it as one complete replacement.
-Non-shell helper files and declarative config in this directory are inert unless
-a hook explicitly loads them.
+singleton external state. Use the suffix only when overlapping execution would
+make a target unsafe: `cron.serial.sh` read-modify-writes the user crontab, and
+`sshd.serial.sh` validates and reloads one system SSH service. The runner strips
+`.serial` from each hook's identity and sort key. Non-shell helper files and
+declarative config in this directory are inert unless a hook explicitly loads
+them.
 
 A failed hook prints its log and does not suppress later hooks, but it is an
 operational failure: the aggregate `dot update` status is exactly 1.

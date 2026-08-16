@@ -6,9 +6,10 @@ the configured extension root. Declarative inputs remain under
 code live here.
 
 Each readable top-level `*.sh` file defines `merge()` with no arguments. The
-filename supplies the public identity. `cron.serial.sh` is the one serial
-barrier because it read-modify-writes the singleton user crontab; `.serial` is
-stripped from its identity and sort key.
+filename supplies the public identity. A `*.serial.sh` suffix creates a barrier
+for hooks that mutate singleton external state; current examples are the
+crontab writer and the system SSH policy installer. `.serial` is stripped from
+the hook identity and sort key.
 
 Hooks run in fresh Bash workers with private temporary storage. They use the
 documented hook API and load client support through `dot_hook_source`. A hook

@@ -123,6 +123,8 @@ _assert_contains 'sshd hook: validates the full server config' \
   "validate:-t -f $SSHD_ROOT/sshd_config" "$log"
 _assert_contains 'sshd hook: checks effective AcceptEnv policy' \
   "validate:-T -f $SSHD_ROOT/sshd_config" "$log"
+_assert_contains 'sshd hook: sets root ownership through adapter' \
+  'owner:' "$log"
 _assert_contains 'sshd hook: reloads the active sshd service' \
   'systemctl:reload sshd.service' "$log"
 
@@ -130,6 +132,32 @@ _assert_contains 'sshd hook: reloads the active sshd service' \
 run_sshd_merge >/dev/null 2>&1
 _assert_eq 'sshd hook: unchanged policy performs no validation or reload' \
   '' "$(cat "$LOG")"
+
+printf 'AcceptEnv TERMNAV_PARENT_RELAY\n# update\n' >"$SOURCE"
+SSHD_SERVICE_STATUS=1
+SSH_SERVICE_STATUS=0
+: >"$LOG"
+run_sshd_merge >/dev/null 2>&1
+_assert_contains 'sshd hook: updates a changed policy fragment' \
+  '# update' "$(cat "$DESTINATION")"
+_assert_contains 'sshd hook: reloads the Debian ssh service fallback' \
+  'systemctl:reload ssh.service' "$(cat "$LOG")"
+
+printf 'AcceptEnv TERMNAV_PARENT_RELAY\n# sysv\n' >"$SOURCE"
+SSH_SERVICE_STATUS=1
+SSHD_SYSV_STATUS=0
+: >"$LOG"
+run_sshd_merge >/dev/null 2>&1
+_assert_contains 'sshd hook: reloads the active SysV sshd service' \
+  'service:sshd reload' "$(cat "$LOG")"
+
+printf 'AcceptEnv TERMNAV_PARENT_RELAY\n# launchd\n' >"$SOURCE"
+SSHD_SYSV_STATUS=1
+SSHD_LAUNCHD_STATUS=0
+: >"$LOG"
+run_sshd_merge >/dev/null 2>&1
+_assert_contains 'sshd hook: reloads the active macOS launchd service' \
+  'launchctl:kickstart -k system/com.openssh.sshd' "$(cat "$LOG")"
 
 printf 'known-good\n' >"$DESTINATION"
 printf 'invalid replacement\n' >"$SOURCE"
@@ -143,8 +171,19 @@ _assert_eq 'sshd hook: validation failure restores prior policy' \
 _assert_not_contains 'sshd hook: validation failure does not reload' \
   'systemctl:reload' "$(cat "$LOG")"
 
+rm -f "$DESTINATION"
+: >"$LOG"
+status=0
+run_sshd_merge >/dev/null 2>&1 || status=$?
+_assert_exit 'sshd hook: invalid first install propagates' 1 "$status"
+_assert_file_missing 'sshd hook: invalid first install is removed' \
+  "$DESTINATION"
+
 printf 'AcceptEnv TERMNAV_PARENT_RELAY\n' >"$SOURCE"
 SSHD_VALIDATE_STATUS=0
+SSHD_SERVICE_STATUS=0
+SSH_SERVICE_STATUS=1
+SSHD_LAUNCHD_STATUS=1
 SSHD_RELOAD_STATUS=1
 : >"$LOG"
 status=0
