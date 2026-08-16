@@ -5,11 +5,13 @@
 [![Bash Version](https://img.shields.io/badge/bash-%3E%3D4.0-blue.svg)](https://www.gnu.org/software/bash/)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20WSL-lightgrey.svg)](#)
 
-Base dotfiles are managed as a bare git repository with `$HOME` as the working
-tree, plus optional Git or filesystem overlays for work, machine-specific, or
-project-specific files.
+Base dotfiles use a separate Git directory with `$HOME` as the working tree,
+plus optional Git or filesystem overlays for work, machine-specific, or
+project-specific files. Fresh clients use `core.bare=false` with an explicit
+`core.worktree`; the standalone engine also accepts the older fleet
+`core.bare=true` representation.
 
-- `~/.dotfiles` is the base bare repo.
+- `~/.dotfiles` is the base client Git directory.
 - `~/.dotfiles-<name>` repos are Git overlays discovered from
   `~/.config/dot/overlays.d/*.conf`; `sync=none` descriptors can point at
   sources managed outside dot.
@@ -23,7 +25,8 @@ macOS requires Bash 4+ (`brew install bash`). The system Bash 3.2 is too old.
 Personal machine:
 
 ```bash
-curl -sL cgraf78.github.io/d | bash
+curl -fsSL https://raw.githubusercontent.com/cgraf78/dot/main/install.sh |
+  bash -s -- --init git@github.com:cgraf78/dotfiles.git
 source ~/.bashrc  # or: source ~/.zshrc
 ```
 
@@ -31,7 +34,8 @@ Machine with a private overlay using normal GitHub SSH access:
 
 ```bash
 # Bootstrap the base repo and any matching overlays that your SSH key can read.
-curl -sL cgraf78.github.io/d | bash
+curl -fsSL https://raw.githubusercontent.com/cgraf78/dot/main/install.sh |
+  bash -s -- --init git@github.com:cgraf78/dotfiles.git
 source ~/.bashrc  # or: source ~/.zshrc
 ```
 
@@ -42,11 +46,12 @@ Machine with a private overlay that uses a dedicated deploy key:
 scp <source>:~/.ssh/<deploy-key> ~/.ssh/
 chmod 600 ~/.ssh/<deploy-key>
 
-curl -sL cgraf78.github.io/d | bash
+curl -fsSL https://raw.githubusercontent.com/cgraf78/dot/main/install.sh |
+  bash -s -- --init git@github.com:cgraf78/dotfiles.git
 source ~/.bashrc  # or: source ~/.zshrc
 ```
 
-`dotbootstrap` clones the base repo and matching Git overlays, validates and
+`dot init` clones the base repo and matching Git overlays, validates and
 applies matching filesystem overlays whose descriptors and sources are already
 present, skips optional Git overlays that are not accessible on the current
 machine, backs up conflicting files under `~/.dotfiles-backup/`, and installs
@@ -68,12 +73,14 @@ dot cron                    # show installed cron entries
 dot doctor                  # run installation health checks
 ```
 
-`update`, `pull`, `cron`, and `doctor` work before the bare repo exists.
+`update`, `pull`, `cron`, and `doctor` work before the client Git directory
+exists.
 `fetch`, `push`, `status`, and `diff` require it.
 
 Use plain `git` for raw Git operations on the base repo. The tracked
-`~/.local/bin/git` launcher routes `$HOME` and non-repo descendants to the bare
-dotfiles repo, while normal Git and Sapling checkouts still use real Git:
+`~/.local/bin/git` launcher routes `$HOME` and non-repo descendants to the
+separate dotfiles Git directory, while normal Git and Sapling checkouts still
+use real Git:
 
 ```bash
 git add <file>
@@ -98,7 +105,7 @@ own it:
 | Overlay repos | [`.config/dot/overlays.d/README.md`](../../../../.config/dot/overlays.d/README.md) |
 | Config merge hooks and cron | [`.config/dot/merge-hooks.d/README.md`](../../../../.config/dot/merge-hooks.d/README.md) |
 | Git config | [`.config/git/README.md`](../../../../.config/git/README.md) |
-| Git hooks | [`.local/lib/dot/git-hooks/README.md`](../../../../.local/lib/dot/git-hooks/README.md) |
+| Git hooks | [`.local/lib/dotfiles/git-hooks/README.md`](../../../../.local/lib/dotfiles/git-hooks/README.md) |
 | Hive Memory config | [`.config/hive-memory/README.md`](../../../../.config/hive-memory/README.md) |
 | Shell loading | [`.config/shell/README.md`](../../../../.config/shell/README.md) |
 | Dependency installs | [`.config/shdeps/README.md`](../../../../.config/shdeps/README.md) |
@@ -111,12 +118,12 @@ own it:
 | Checkrun policy | [`.config/checkrun/README.md`](../../../../.config/checkrun/README.md) |
 | Sley verification policy | [`.config/sley/verify.d/README.md`](../../../../.config/sley/verify.d/README.md) |
 | Command entry points | [`.local/bin/README.md`](../../../../.local/bin/README.md) |
-| Runtime library layout | [`.local/lib/dot/README.md`](../../../../.local/lib/dot/README.md) |
-| `dot` core runtime | [`.local/lib/dot/core/README.md`](../../../../.local/lib/dot/core/README.md) |
-| Dot documentation index | [`.local/share/doc/dot/README.md`](README.md) |
+| Dotfiles-owned integration library | [`.local/lib/dotfiles/README.md`](../../../../.local/lib/dotfiles/README.md) |
+| Standalone `dot` engine | [cgraf78/dot](https://github.com/cgraf78/dot) |
+| Dotfiles documentation index | [`.local/share/doc/dotfiles/README.md`](README.md) |
 | Schema payloads | [`.local/share/checkrun/schemas/README.md`](../../../../.local/share/checkrun/schemas/README.md) |
-| Test suites | [`.local/lib/dot/tests/README.md`](../../../../.local/lib/dot/tests/README.md) |
-| Core test modules | [`.local/lib/dot/tests/core/README.md`](../../../../.local/lib/dot/tests/core/README.md) |
+| Test suites | [`.local/lib/dotfiles/tests/README.md`](../../../../.local/lib/dotfiles/tests/README.md) |
+| Client-policy test modules | [`.local/lib/dotfiles/tests/core/README.md`](../../../../.local/lib/dotfiles/tests/core/README.md) |
 
 ## Operating Model
 
@@ -146,16 +153,16 @@ Required-stage failures are different: repository sync, overlay linking,
 dependency installation, and config merge hook failures make `dot update`
 return nonzero. The command remains best effort and runs every later safe stage
 before returning, so one failed dependency does not prevent config convergence
-or cleanup. An initial shdeps bootstrap failure stops before overlay discovery
-because platform and host filters are not available safely.
+or cleanup. Platform and host filtering are provider-independent, so clients
+using `dependency_provider=none` retain the same overlay and hook selection.
 
 Advisory dependency warnings, optional overlay skips, cron's dirty-worktree
 skip, cron lock contention, and best-effort worktree normalization retain a
 zero exit status.
 
-If a pull updates dot infrastructure such as `.local/lib/dot/` or
-`.local/bin/dot`, the command re-execs itself so the remainder of the update
-uses the new code.
+If Shdeps advances the standalone dot checkout during an update, dot re-execs
+the validated checkout-relative runtime once so the remainder uses the new
+revision.
 
 Base files use `[ -f ]` guards and ordered config directories so overlays can
 contribute extra files without patching base files. Every machine is a peer:
@@ -197,7 +204,7 @@ Run all local tests with:
 dot-test
 ```
 
-The suite auto-discovers `*-test` scripts under `~/.local/lib/dot/tests/` and
+The suite auto-discovers `*-test` scripts under `~/.local/lib/dotfiles/tests/` and
 runs them in parallel by default. See the
-[`tests` README](../../../../.local/lib/dot/tests/README.md) for suite names,
+[`tests` README](../../../../.local/lib/dotfiles/tests/README.md) for suite names,
 options, and CI coverage.

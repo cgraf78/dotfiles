@@ -3,7 +3,7 @@ dot_hook_source merge-hooks.d/lib/compat.sh || return
 
 # shellcheck shell=bash
 # Merge Karabiner-Elements profiles from dotfiles into the local config.
-# Shared by dotbootstrap and dot (on pull).
+# Applied by standalone dot during initialization and update.
 # macOS only — no-ops silently on other platforms.
 # Requires jq.
 #

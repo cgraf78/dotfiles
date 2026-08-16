@@ -679,7 +679,7 @@ for _sysup_path in \
   .local/lib/dotfiles/tests/sysup-test \
   .local/lib/dotfiles/tests/archup-test \
   .local/lib/dotfiles/tests/debup-test \
-  .local/share/doc/dot/superpowers/specs/2026-08-07-sysup-unified-updater-design.md; do
+  .local/share/doc/dotfiles/superpowers/specs/2026-08-07-sysup-unified-updater-design.md; do
   _sysup_tracked=$(
     git --git-dir="$REAL_HOME/.dotfiles" --work-tree="$REAL_HOME" \
       ls-files -- "$_sysup_path" 2>/dev/null ||

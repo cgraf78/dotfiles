@@ -6,7 +6,7 @@ dot_core_test_cron() {
   echo "=== Cron file install ==="
 
   # Source the cron merge hook so we can call merge() directly.
-  _CRON_HOOK="$REAL_HOME/.local/lib/dot/core/merge-hooks/cron.sh"
+  _CRON_HOOK="$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/cron.serial.sh"
 
   _run_cron_merge() {
     unset -f merge 2>/dev/null
@@ -18,7 +18,8 @@ dot_core_test_cron() {
   dot_fixture_mock_crontab
   mkdir -p \
     "$TEST_HOME/.config/dot/merge-hooks.d/cron/cron.d" \
-    "$TEST_HOME/.config/dot/merge-hooks.d/cron/path.d"
+    "$TEST_HOME/.config/dot/merge-hooks.d/cron/path.d" \
+    "$TEST_HOME/.local/bin"
   cat >"$TEST_HOME/.config/dot/merge-hooks.d/cron/path.d/10-defaults.txt" <<'EOF'
 $HOME/.local/bin
 $HOME/bin

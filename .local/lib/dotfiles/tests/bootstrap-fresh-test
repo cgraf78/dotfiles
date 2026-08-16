@@ -1,4 +1,0 @@
-#!/usr/bin/env bash
-# bootstrap-fresh-test — fresh base bootstrap flow split from bootstrap-test.
-
-DOT_BOOTSTRAP_SHARD=fresh exec "$HOME/.local/lib/dotfiles/tests/bootstrap-test"

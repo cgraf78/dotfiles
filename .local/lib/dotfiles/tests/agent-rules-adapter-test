@@ -8,11 +8,13 @@ export NO_COLOR=1
 . "${BASH_SOURCE[0]%/*}/helpers.sh"
 _test_prefer_system_git || exit 1
 
-source_home=$HOME
+source_home=${DOT_TEST_SOURCE_HOME:-$HOME}
 deps="$source_home/.config/shdeps/10-deps.conf"
-hook="$source_home/.local/lib/dot/core/merge-hooks/agent-rules.sh"
-# shellcheck source=/dev/null
-. "$source_home/.local/lib/dot/core/platform.sh"
+hook="$source_home/.local/lib/dotfiles/merge-hooks.d/agent-rules.sh"
+_test_load_dot_merge_api || {
+  _fail 'agent rules adapter: standalone dot checkout is available'
+  _test_summary
+}
 
 if awk '$1 == "cgraf78/agent-rules-sync" && $2 == "github" { found = 1 }
   END { exit !found }' "$deps"; then

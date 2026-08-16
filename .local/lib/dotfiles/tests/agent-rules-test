@@ -8,14 +8,29 @@ export NO_COLOR=1
 
 . "${BASH_SOURCE[0]%/*}/helpers.sh"
 _test_prefer_system_git || exit 1
-. "$HOME/.local/lib/dot/core/constants.sh"
-. "$HOME/.local/lib/dot/core/repos/overlays.sh"
+source_home=${DOT_TEST_SOURCE_HOME:-$HOME}
+HOME=$source_home
+export HOME
+dot_root=$(_test_dot_root) || {
+  _fail 'agent rules: standalone dot checkout is available'
+  _test_summary
+}
+_test_load_dot_merge_api || {
+  _fail 'agent rules: standalone merge API is available'
+  _test_summary
+}
+# The client playbook helper shares the standalone overlay manifest grammar.
+# Load only that read-only protocol for its trust fixtures.
+# shellcheck source=/dev/null
+. "$dot_root/lib/dot/repos/config.sh"
+# shellcheck source=/dev/null
+. "$dot_root/lib/dot/repos/overlays.sh"
 
-PLAYBOOK_LIB="$HOME/.local/lib/dot/core/agent-playbooks.sh"
-RULE_HOOK="$HOME/.local/lib/dot/core/merge-hooks/agent-rules.sh"
-RULE_FAMILY="$HOME/.config/agent-rules/rules.d"
-NATIVE_TARGETS="$HOME/.config/dot/merge-hooks.d/agent-rules/targets.d/80-targets.replace/50-native.txt"
-PLAYBOOK_FAMILY="$HOME/.config/agent-rules/playbooks.d"
+PLAYBOOK_LIB="$source_home/.local/lib/dotfiles/merge-hooks.d/lib/agent-playbooks.sh"
+RULE_HOOK="$source_home/.local/lib/dotfiles/merge-hooks.d/agent-rules.sh"
+RULE_FAMILY="$source_home/.config/agent-rules/rules.d"
+NATIVE_TARGETS="$source_home/.config/dot/merge-hooks.d/agent-rules/targets.d/80-targets.replace/50-native.txt"
+PLAYBOOK_FAMILY="$source_home/.config/agent-rules/playbooks.d"
 TOOL_SELECTION_PLAYBOOK="$PLAYBOOK_FAMILY/tools/selection.md"
 if [[ -f "$PLAYBOOK_LIB" ]]; then
   # shellcheck source=/dev/null

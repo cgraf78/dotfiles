@@ -3,7 +3,7 @@ dot_hook_source merge-hooks.d/lib/compat.sh || return
 
 # shellcheck shell=bash
 # Merge Muse Code settings into ~/.config/muse/settings.json.
-# Shared by dotbootstrap and dot (on pull).
+# Applied by standalone dot during initialization and update.
 # Requires jq.
 #
 # Layers come from muse/settings.d. Direct files aggregate in lexical order;

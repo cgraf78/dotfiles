@@ -4,28 +4,11 @@
 set -u
 
 source_home=${DOT_TEST_SOURCE_HOME:-$HOME}
-host_home=${DOT_TEST_HOST_HOME:-$HOME}
 
 # shellcheck source=helpers.sh
 . "$source_home/.local/lib/dotfiles/tests/helpers.sh"
 
-_client_dot_root() {
-  local candidate
-
-  for candidate in \
-    "${DOT_TEST_DOT_ROOT:-}" \
-    "$host_home/git/dot" \
-    "$host_home/.local/share/cgraf78/dot"; do
-    [[ -n $candidate && -r $candidate/lib/dot/extension-worker.sh ]] || continue
-    (cd -P -- "$candidate" && pwd -P)
-    return
-  done
-
-  printf 'client extensions: standalone dot checkout not found\n' >&2
-  return 1
-}
-
-dot_root=$(_client_dot_root) || {
+dot_root=$(_test_dot_root) || {
   _fail 'client extensions: standalone dot checkout is available'
   _test_summary
 }
@@ -76,6 +59,19 @@ for extension in "$client_root/doctor.d"/[0-9]*.sh; do
     _fail "client doctor extension loads through standalone worker: ${extension##*/}"
   fi
 done
+
+# A remote editor installation can be present but deliberately unavailable to
+# this account (for example, an administrator-owned Cursor server directory).
+# Discovery is advisory client policy: the hook must leave that tree alone and
+# continue reconciling any other usable editor variants.
+mkdir "$fixture_home/.cursor-server"
+chmod 000 "$fixture_home/.cursor-server"
+if _client_worker_run merge "$client_root/merge-hooks.d/vscode.sh"; then
+  _pass 'client VS Code hook skips an inaccessible remote editor root'
+else
+  _fail 'client VS Code hook skips an inaccessible remote editor root'
+fi
+chmod 0700 "$fixture_home/.cursor-server"
 
 old_reference_output=$(
   grep -RInE \

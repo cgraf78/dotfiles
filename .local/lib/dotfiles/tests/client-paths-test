@@ -95,6 +95,6 @@ xdg_fallbacks=$(grep -hF '.local/lib/dot/core/xdg.sh' \
   "$source_home/.config/shell/interactive.d/57-marks.sh" \
   "$source_home/.local/bin/clip" \
   "$source_home/.local/lib/dotfiles/launcher-real.sh" | awk 'END { print NR }')
-_assert_eq 'dual-path window keeps only three explicit XDG fallbacks' 3 "$xdg_fallbacks"
+_assert_eq 'standalone cutover removes every embedded XDG fallback' 0 "$xdg_fallbacks"
 
 _test_summary

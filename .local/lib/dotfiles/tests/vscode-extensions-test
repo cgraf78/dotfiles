@@ -7,6 +7,19 @@ export NO_COLOR=1
 # shellcheck source=helpers.sh
 . "${BASH_SOURCE[0]%/*}/helpers.sh"
 
+source_home=${DOT_TEST_SOURCE_HOME:-$HOME}
+_test_load_dot_merge_api || {
+  _fail 'vscode-exts adapter: standalone dot checkout is available'
+  _test_summary
+}
+client_root=$source_home/.local/lib/dotfiles
+
+# Load the standalone extension API, then the real client-owned hook. This
+# keeps the adapter tests on the same public boundary used by `dot update`
+# without retaining an embedded engine copy in the consumer repository.
+# shellcheck source=/dev/null
+. "$client_root/merge-hooks.d/vscode.sh"
+
 work=$(_tmpdir)
 hook_tmp="$work/hook"
 mock_bin="$work/bin"
@@ -20,16 +33,6 @@ touch "$hook_tmp/vscode/extensions.d/50-managed-extensions.replace/50-default.to
 touch "$hook_tmp/vscode/extensions.d/50-managed-extensions.replace/80-work.toml"
 touch "$hook_tmp/vscode/extensions.d/80-extra.toml"
 touch "$hook_tmp/vscode/extensions.d/not-extensions.txt"
-
-# The merge-hook runner normally provides shared logging before loading the
-# instance. Source that real boundary here so warning status and text are tested
-# without a suite-local stand-in.
-# shellcheck source=.local/lib/dot/core/log.sh
-. "$HOME/.local/lib/dot/core/log.sh"
-
-# shellcheck source=.local/lib/dot/core/merge-hooks/vscode.sh
-# shellcheck disable=SC1091
-. "$HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
 
 _merge_hook_dir() {
   printf '%s\n' "$hook_tmp"
@@ -162,8 +165,8 @@ PATH="$empty_bin" _vscode_install_declared_extensions
 _assert_exit "vscode-exts adapter: missing optional provider succeeds" 0 "$?"
 
 python3 - \
-  "$HOME/.config/checkrun/associations.json" \
-  "$HOME/.config/shdeps/10-deps.conf" <<'PY'
+  "$source_home/.config/checkrun/associations.json" \
+  "$source_home/.config/shdeps/10-deps.conf" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -186,18 +189,18 @@ PY
 _assert_exit "vscode-exts ownership: dependency and provider schema are declared" 0 "$?"
 
 _assert_file_missing "vscode-exts ownership: consumer Python implementation is retired" \
-  "$HOME/.config/dot/merge-hooks.d/vscode/extensions.py"
+  "$source_home/.config/dot/merge-hooks.d/vscode/extensions.py"
 _assert_file_missing "vscode-exts ownership: consumer schema duplicate is retired" \
-  "$HOME/.local/share/checkrun/schemas/dot-vscode-extensions.schema.json"
+  "$source_home/.local/share/checkrun/schemas/dot-vscode-extensions.schema.json"
 
 _assert_file_exists "vscode-exts policy: default managed manifest remains replaceable" \
-  "$HOME/.config/dot/merge-hooks.d/vscode/extensions.d/50-managed-extensions.replace/50-default.toml"
+  "$source_home/.config/dot/merge-hooks.d/vscode/extensions.d/50-managed-extensions.replace/50-default.toml"
 _assert_file_missing "vscode-exts policy: old direct managed manifest path stays absent" \
-  "$HOME/.config/dot/merge-hooks.d/vscode/extensions.d/10-extensions.toml"
+  "$source_home/.config/dot/merge-hooks.d/vscode/extensions.d/10-extensions.toml"
 
 python3 - \
-  "$HOME/.config/dot/merge-hooks.d/vscode/local-extensions.d" \
-  "$HOME/.config/dot/merge-hooks.d/vscode/extensions.d/50-managed-extensions.replace/50-default.toml" <<'PY'
+  "$source_home/.config/dot/merge-hooks.d/vscode/local-extensions.d" \
+  "$source_home/.config/dot/merge-hooks.d/vscode/extensions.d/50-managed-extensions.replace/50-default.toml" <<'PY'
 import sys
 import tomllib
 from pathlib import Path

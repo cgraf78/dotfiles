@@ -3,7 +3,7 @@ dot_hook_source merge-hooks.d/lib/compat.sh || return
 
 # shellcheck shell=bash
 # Merge VS Code settings and keybindings from dotfiles into local config.
-# Shared by dotbootstrap and dot (on pull).
+# Applied by standalone dot during initialization and update.
 # Requires jq.
 
 if ! declare -F dot_hook_family >/dev/null 2>&1; then
@@ -1202,7 +1202,11 @@ _vscode_remote_settings_dirs() {
     "$HOME/.vscode-server-insiders" \
     "$HOME/.vscode-remote" \
     "$HOME/.cursor-server"; do
-    [[ -d "$root" ]] || continue
+    # A server root can exist without being owned or writable by this account
+    # (for example, a deliberately disabled administrator-owned installation).
+    # Treat discovery as advisory and never make that unrelated tree a reason
+    # for the whole client-policy update to fail.
+    [[ -d "$root" && -x "$root" && -w "$root" ]] || continue
     printf '%s/data/Machine\n' "$root"
   done
 }

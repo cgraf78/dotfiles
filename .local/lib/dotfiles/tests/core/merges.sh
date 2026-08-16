@@ -23,11 +23,12 @@ _dot_test_merge_hook_names() {
   fi
 
   tracked_hooks=$(git "${git_args[@]}" ls-files -- \
-    ':(glob).local/lib/dot/core/merge-hooks/*.sh') || return 1
+    ':(glob).local/lib/dotfiles/merge-hooks.d/*.sh') || return 1
   while IFS= read -r tracked_path; do
     [[ -n "$tracked_path" ]] || continue
     hook_name="${tracked_path##*/}"
     hook_name="${hook_name%.sh}"
+    hook_name="${hook_name%.serial}"
     printf '%s\n' "$hook_name"
   done <<<"$tracked_hooks" | LC_ALL=C sort
 }
@@ -172,17 +173,17 @@ TOOL_COMMANDS
   )
 
   merge_hook_inventory_home=$(_tmpdir)
-  mkdir -p "$merge_hook_inventory_home/.local/lib/dot/core/merge-hooks/lib"
+  mkdir -p "$merge_hook_inventory_home/.local/lib/dotfiles/merge-hooks.d/lib"
   printf '# tracked base hook\n' \
-    >"$merge_hook_inventory_home/.local/lib/dot/core/merge-hooks/git.sh"
+    >"$merge_hook_inventory_home/.local/lib/dotfiles/merge-hooks.d/git.sh"
   printf '# tracked support file, not a top-level hook\n' \
-    >"$merge_hook_inventory_home/.local/lib/dot/core/merge-hooks/lib/support.sh"
+    >"$merge_hook_inventory_home/.local/lib/dotfiles/merge-hooks.d/lib/support.sh"
   printf '# untracked overlay hook\n' \
-    >"$merge_hook_inventory_home/.local/lib/dot/core/merge-hooks/overlay-extension.sh"
+    >"$merge_hook_inventory_home/.local/lib/dotfiles/merge-hooks.d/overlay-extension.sh"
   git -C "$merge_hook_inventory_home" init -q
   git -C "$merge_hook_inventory_home" add \
-    .local/lib/dot/core/merge-hooks/git.sh \
-    .local/lib/dot/core/merge-hooks/lib/support.sh
+    .local/lib/dotfiles/merge-hooks.d/git.sh \
+    .local/lib/dotfiles/merge-hooks.d/lib/support.sh
   git -C "$merge_hook_inventory_home" \
     -c user.name='Dot Test' -c user.email=dot-test.invalid \
     -c commit.gpgsign=false commit -qm fixture
@@ -197,7 +198,7 @@ TOOL_COMMANDS
   git -C "$merge_hook_inventory_home" worktree add -q -b linked-layout \
     "$merge_hook_linked_home"
   printf '# untracked overlay hook\n' \
-    >"$merge_hook_linked_home/.local/lib/dot/core/merge-hooks/overlay-extension.sh"
+    >"$merge_hook_linked_home/.local/lib/dotfiles/merge-hooks.d/overlay-extension.sh"
   _assert_eq "merge hook gates: linked worktree inventories only base hooks" \
     "git" "$(_dot_test_merge_hook_names "$merge_hook_linked_home")"
   _assert_eq "merge hook gates: linked ownership mismatch inventories base hooks" \
@@ -205,19 +206,19 @@ TOOL_COMMANDS
       _dot_test_merge_hook_names "$merge_hook_linked_home")"
 
   merge_hook_dotfiles_home=$(_tmpdir)
-  mkdir -p "$merge_hook_dotfiles_home/.local/lib/dot/core/merge-hooks/lib"
+  mkdir -p "$merge_hook_dotfiles_home/.local/lib/dotfiles/merge-hooks.d/lib"
   printf '# tracked base hook\n' \
-    >"$merge_hook_dotfiles_home/.local/lib/dot/core/merge-hooks/git.sh"
+    >"$merge_hook_dotfiles_home/.local/lib/dotfiles/merge-hooks.d/git.sh"
   printf '# tracked support file, not a top-level hook\n' \
-    >"$merge_hook_dotfiles_home/.local/lib/dot/core/merge-hooks/lib/support.sh"
+    >"$merge_hook_dotfiles_home/.local/lib/dotfiles/merge-hooks.d/lib/support.sh"
   printf '# untracked overlay hook\n' \
-    >"$merge_hook_dotfiles_home/.local/lib/dot/core/merge-hooks/overlay-extension.sh"
+    >"$merge_hook_dotfiles_home/.local/lib/dotfiles/merge-hooks.d/overlay-extension.sh"
   git init --bare -q "$merge_hook_dotfiles_home/.dotfiles"
   git -C "$merge_hook_dotfiles_home" \
     "--git-dir=$merge_hook_dotfiles_home/.dotfiles" \
     "--work-tree=$merge_hook_dotfiles_home" add \
-    .local/lib/dot/core/merge-hooks/git.sh \
-    .local/lib/dot/core/merge-hooks/lib/support.sh
+    .local/lib/dotfiles/merge-hooks.d/git.sh \
+    .local/lib/dotfiles/merge-hooks.d/lib/support.sh
   _assert_eq "merge hook gates: live dotfiles layout inventories only base hooks" \
     "git" "$(_dot_test_merge_hook_names "$merge_hook_dotfiles_home")"
 
@@ -226,7 +227,9 @@ TOOL_COMMANDS
     "$(printf '%s\n' "$tool_gated_hooks" | LC_ALL=C sort)" "$classified_hooks"
 
   while IFS= read -r hook_name; do
-    hook_path="$REAL_HOME/.local/lib/dot/core/merge-hooks/$hook_name.sh"
+    hook_file=$hook_name
+    [[ $hook_file == cron ]] && hook_file=cron.serial
+    hook_path="$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/$hook_file.sh"
     first_merge_statement=$(
       awk '
         /^merge\(\)[[:space:]]*\{/ { in_merge = 1; next }
@@ -313,17 +316,27 @@ YQ
     _fail "AgentGuard resolver: shared dependency asset helper exists"
   fi
 
-  codex_api="$REAL_HOME/.config/dot/merge-hooks.d/codex/api.sh"
-  _assert_exit "Codex API fallback: clean shell loads AgentGuard asset resolver" 0 \
+  codex_api="$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/lib/codex/api.sh"
+  _assert_exit "Codex API boundary: clean shell rejects direct private loading" 1 \
     "$(
       # shellcheck disable=SC2016 # $1 expands inside the clean child shell.
       env -i HOME="$TEST_HOME" PATH="/usr/bin:/bin" \
         /bin/bash --noprofile --norc -c '
-          # Source the public helper exactly as its header advertises: without
-          # dot runtime initialization or test-provided function stubs.
           . "$1"
-          declare -F dot_agentguard_integration_file >/dev/null
         ' bash "$codex_api"
+      printf '%s' "$?"
+    )"
+  _assert_exit "Codex API boundary: public extension API supplies dependencies" 0 \
+    "$(
+      # shellcheck disable=SC2016 # $1 and $2 expand in the clean child shell.
+      env -i HOME="$TEST_HOME" PATH="/usr/bin:/bin" \
+        REAL_HOME="$REAL_HOME" DOT_TEST_SOURCE_HOME="$REAL_HOME" \
+        DOT_TEST_DOT_ROOT="$DOT_SOURCE_ROOT" \
+        /bin/bash --noprofile --norc -c '
+          . "$1"
+          . "$2"
+          declare -F dot_agentguard_integration_file >/dev/null
+        ' bash "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh" "$codex_api"
       printf '%s' "$?"
     )"
 
@@ -339,7 +352,7 @@ YQ
 
     unset -f merge codex claude gemini opencode muse 2>/dev/null
     # shellcheck source=/dev/null
-    . "$REAL_HOME/.local/lib/dot/core/merge-hooks/$agent.sh"
+    . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/$agent.sh"
     case "$agent" in
       codex)
         # shellcheck disable=SC2329 # Invoked indirectly by the sourced hook.
@@ -416,7 +429,7 @@ YQ
 
   echo "=== OpenCode AgentGuard merge hook ==="
 
-  opencode_hook="$REAL_HOME/.local/lib/dot/core/merge-hooks/opencode.sh"
+  opencode_hook="$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/opencode.sh"
   if [[ ! -r "$opencode_hook" ]]; then
     _fail "OpenCode merge: hook exists"
   else
@@ -613,7 +626,7 @@ JQ
     local agent="$1" home="$2"
     unset -f merge 2>/dev/null
     # shellcheck source=/dev/null
-    . "$REAL_HOME/.local/lib/dot/core/merge-hooks/$agent.sh"
+    . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/$agent.sh"
     eval "$agent() { :; }"
     # shellcheck disable=SC2329 # Invoked by the sourced merge hook.
     dot_agentguard_integration_file() {
@@ -646,11 +659,7 @@ JQ
   "userState": "$json_agent-state"
 }
 JSON
-    if [[ "$json_agent" == "gemini" ]]; then
-      cp "$json_legacy" "$json_target"
-    else
-      ln -s "$json_legacy" "$json_target"
-    fi
+    cp "$json_legacy" "$json_target"
 
     json_merge_output=$(HOME="$json_agent_home" \
       _run_agentguard_json_merge_for_test "$json_agent" "$json_agent_home" 2>&1)
@@ -665,13 +674,9 @@ JSON
     _assert_eq "$json_agent consumer: preserves user-owned hooks and state" \
       "user-$json_agent|$json_agent-state" \
       "$(jq -r '[.hooks.UserEvent[0].hooks[0].command, .userState] | join("|")' "$json_target")"
-    if [[ "$json_agent" != "gemini" ]]; then
-      _assert_eq "$json_agent consumer: replaces a legacy symlink only after reconciliation" \
-        "regular" "$(test -L "$json_target" && printf link || printf regular)"
-      _assert_eq "$json_agent consumer: does not mutate the legacy symlink source" \
-        "provider-$json_agent-v1" \
-        "$(jq -r '.hooks.ProviderEvent[0].hooks[0].command' "$json_legacy")"
-    fi
+    _assert_eq "$json_agent consumer: does not mutate the source fixture" \
+      "provider-$json_agent-v1" \
+      "$(jq -r '.hooks.ProviderEvent[0].hooks[0].command' "$json_legacy")"
   done
   _assert_eq "claude consumer: layers local policy after provider config" \
     "LocalClaudePolicy" \
@@ -745,7 +750,7 @@ TMUX
   _run_tmux_merge_for_test() {
     unset -f merge 2>/dev/null
     # shellcheck source=/dev/null
-    . "$REAL_HOME/.local/lib/dot/core/merge-hooks/tmux.sh"
+    . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/tmux.sh"
     merge
   }
 
@@ -803,7 +808,7 @@ PGREP
   _run_nvim_merge_for_test() {
     unset -f merge 2>/dev/null
     # shellcheck source=/dev/null
-    . "$REAL_HOME/.local/lib/dot/core/merge-hooks/nvim.sh"
+    . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/nvim.sh"
     merge
   }
 
@@ -936,12 +941,14 @@ GIT_CONFIG
 
   HOME="$git_home" GIT_CONFIG_GLOBAL="$git_home/.gitconfig" \
     bash -c '
+      . "$2"
       _log() { printf "%s\n" "$*"; }
       _warn() { printf "%s\n" "$*" >&2; }
       . "$1"
       merge
       merge
-    ' _ "$REAL_HOME/.local/lib/dot/core/merge-hooks/git.sh"
+    ' _ "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/git.sh" \
+    "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
 
   _assert_eq "Git config merge: managed push policy becomes globally effective" \
     "simple" \
@@ -1112,7 +1119,7 @@ JSON
     cp "$claude_common" "$claude_dst"
     (
       # shellcheck disable=SC1091  # real dotfiles hook path.
-      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/claude.sh"
+      . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/claude.sh"
       _merge_claude_settings "$claude_work" "$claude_dst"
     )
     claude_json=$(jq -c . "$claude_dst")
@@ -1146,7 +1153,7 @@ JSON
 JSON
     cp "$muse_common" "$muse_dst"
     (
-      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/muse.sh"
+      . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/muse.sh"
       _merge_muse_settings "$muse_work" "$muse_dst"
     )
     muse_json=$(jq -c . "$muse_dst")
@@ -1387,6 +1394,7 @@ JSON
     mkdir -p \
       "$karabiner_home/.config/dot/merge-hooks.d/karabiner/profiles.d" \
       "$karabiner_home/.config/karabiner" \
+      "$karabiner_home/Applications/Karabiner-Elements.app" \
       "$karabiner_bin"
     cat >"$karabiner_home/.config/dot/merge-hooks.d/karabiner/profiles.d/10-profiles.json" <<'JSON'
 {
@@ -1423,7 +1431,7 @@ EOF
     _run_karabiner_merge_for_test() {
       unset -f merge 2>/dev/null
       # shellcheck source=/dev/null
-      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/karabiner.sh"
+      . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/karabiner.sh"
       merge
     }
     HOME="$karabiner_home" PATH="$karabiner_bin:$PATH" _run_karabiner_merge_for_test
@@ -1475,7 +1483,7 @@ YAML
     _run_gh_merge_for_test() {
       unset -f merge 2>/dev/null
       # shellcheck source=/dev/null
-      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/gh.sh"
+      . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/gh.sh"
       merge
     }
     gh_mock_bin=$(_mock_bin)
@@ -1524,7 +1532,7 @@ YAML
     _run_gh_merge_nested_hosts_for_test() {
       unset -f merge 2>/dev/null
       # shellcheck source=/dev/null
-      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/gh.sh"
+      . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/gh.sh"
       merge
     }
     HOME="$gh_home" PATH="$gh_mock_bin:$PATH" _run_gh_merge_nested_hosts_for_test
@@ -1542,7 +1550,7 @@ YAML
     _run_gh_merge_existing_for_test() {
       unset -f merge 2>/dev/null
       # shellcheck source=/dev/null
-      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/gh.sh"
+      . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/gh.sh"
       merge
     }
     HOME="$gh_home" PATH="$gh_mock_bin:$PATH" _run_gh_merge_existing_for_test
@@ -1560,7 +1568,7 @@ YAML
     _run_gh_merge_fallback_for_test() {
       unset -f merge 2>/dev/null
       # shellcheck source=/dev/null
-      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/gh.sh"
+      . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/gh.sh"
       merge
     }
     HOME="$gh_home" PATH="$gh_mock_bin:$PATH" _run_gh_merge_fallback_for_test
@@ -1574,7 +1582,7 @@ YAML
     _run_gh_merge_failed_fallback_for_test() {
       unset -f merge 2>/dev/null
       # shellcheck source=/dev/null
-      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/gh.sh"
+      . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/gh.sh"
       merge
     }
     DOT_QUIET=1 GH_MOCK_FAIL=1 HOME="$gh_home" PATH="$gh_mock_bin:$PATH" _run_gh_merge_failed_fallback_for_test
@@ -1600,7 +1608,7 @@ YAML
     _run_gh_merge_manual_retry_for_test() {
       unset -f merge 2>/dev/null
       # shellcheck source=/dev/null
-      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/gh.sh"
+      . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/gh.sh"
       merge
     }
     HOME="$gh_home" PATH="$gh_mock_bin:$PATH" _run_gh_merge_manual_retry_for_test
@@ -1622,6 +1630,7 @@ YAML
   mkdir -p \
     "$iterm2_home/.config/dot/merge-hooks.d/iterm2/defaults.d" \
     "$iterm2_home/.config/dot/merge-hooks.d/iterm2/profiles.d" \
+    "$iterm2_home/Applications/iTerm.app" \
     "$iterm2_home/Library/Application Support/iTerm2/DynamicProfiles" \
     "$iterm2_bin"
   printf '%s\n' '{"Name": "Dotfiles"}' \
@@ -1655,7 +1664,7 @@ EOF
   _run_iterm2_merge_for_test() {
     unset -f merge 2>/dev/null
     # shellcheck source=/dev/null
-    . "$REAL_HOME/.local/lib/dot/core/merge-hooks/iterm2.sh"
+    . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/iterm2.sh"
     merge
   }
   HOME="$iterm2_home" \
@@ -3586,11 +3595,12 @@ EOF
     # shellcheck disable=SC2016 # The inner shell expands fixture env variables.
     vscode_default_linux_variants=$(env HOME="$vscode_variants_home" REAL_HOME="$REAL_HOME" bash -c '
       set -euo pipefail
+      . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
       _is_wsl() { return 1; }
       uname() { printf "Linux\n"; }
       _warn() { :; }
       # shellcheck source=/dev/null
-      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+      . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/vscode.sh"
       _vscode_variants | sort
     ')
     vscode_expected_linux_variants=$(printf '%s\n' \
@@ -3636,10 +3646,11 @@ PY
       PARTIAL_TMP="$partial_commit_dir/settings.json.tmp" \
       PARTIAL_DST="$partial_commit_dir/settings.json" bash -c '
       set -euo pipefail
+      . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
       _is_wsl() { return 0; }
       _warn() { printf "%s\n" "$*" >&2; }
       # shellcheck source=/dev/null
-      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+      . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/vscode.sh"
       _vscode_commit_tmp "$PARTIAL_TMP" "$PARTIAL_DST"
     ' || partial_commit_rc=$?
     _assert_eq "vscode commit: WSL partial replacement exits cleanly" \
@@ -3667,6 +3678,7 @@ PY
     # shellcheck disable=SC2016 # The inner shell owns the command override.
     env REAL_HOME="$REAL_HOME" WSL_FAILURE_DIR="$wsl_missing_python_dir" bash -c '
       set -euo pipefail
+      . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
       _is_wsl() { return 0; }
       command() {
         if [[ "${1:-}" == "-v" && "${2:-}" == "python3" ]]; then
@@ -3676,7 +3688,7 @@ PY
       }
       _warn() { :; }
       # shellcheck source=/dev/null
-      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+      . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/vscode.sh"
       _vscode_commit_tmp \
         "$WSL_FAILURE_DIR/keybindings.json.tmp" \
         "$WSL_FAILURE_DIR/keybindings.json"
@@ -3743,9 +3755,10 @@ JSON
       DOT_TEST_MV_LOG="$vscode_mv_log" \
       HOME_DELAYED="$vscode_delayed_upgrade_dir" bash -c '
       set -euo pipefail
+      . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
       _warn() { printf "%s\n" "$*" >&2; }
       # shellcheck source=/dev/null
-      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+      . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/vscode.sh"
       _merge_vscode_keybindings \
         "$HOME_DELAYED/source.json" \
         "$HOME_DELAYED/keybindings.json" \
@@ -3781,9 +3794,10 @@ JSON
     env HOME="$vscode_home" REAL_HOME="$REAL_HOME" PATH="$vscode_bin:$PATH" \
       DOT_TEST_MV_LOG="$vscode_mv_log" SYNC_DIR="$vscode_sync_a" bash -c '
       set -euo pipefail
+      . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
       _warn() { printf "%s\n" "$*" >&2; }
       # shellcheck source=/dev/null
-      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+      . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/vscode.sh"
       _merge_vscode_keybindings \
         "$SYNC_DIR/source.json" "$SYNC_DIR/keybindings.json" macos
     '
@@ -3806,9 +3820,10 @@ JSON
     env HOME="$vscode_home" REAL_HOME="$REAL_HOME" PATH="$vscode_bin:$PATH" \
       DOT_TEST_MV_LOG="$vscode_mv_log" SYNC_DIR="$vscode_sync_a" bash -c '
       set -euo pipefail
+      . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
       _warn() { printf "%s\n" "$*" >&2; }
       # shellcheck source=/dev/null
-      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+      . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/vscode.sh"
       _merge_vscode_keybindings \
         "$SYNC_DIR/source.json" "$SYNC_DIR/keybindings.json" macos
     '
@@ -3839,9 +3854,10 @@ JSON
     env HOME="$vscode_home" REAL_HOME="$REAL_HOME" PATH="$vscode_bin:$PATH" \
       DOT_TEST_MV_LOG="$vscode_mv_log" SYNC_DIR="$vscode_sync_b" bash -c '
       set -euo pipefail
+      . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
       _warn() { printf "%s\n" "$*" >&2; }
       # shellcheck source=/dev/null
-      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+      . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/vscode.sh"
       _merge_vscode_keybindings \
         "$SYNC_DIR/source.json" "$SYNC_DIR/keybindings.json" linux
     '
@@ -3867,9 +3883,10 @@ JSON
       DOT_TEST_MV_LOG="$vscode_mv_log" \
       FIRST_RUN_DIR="$vscode_first_run_dir" bash -c '
       set -euo pipefail
+      . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
       _warn() { printf "%s\n" "$*" >&2; }
       # shellcheck source=/dev/null
-      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+      . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/vscode.sh"
       _merge_vscode_keybindings \
         "$FIRST_RUN_DIR/source.json" \
         "$FIRST_RUN_DIR/keybindings.json" \
@@ -3897,11 +3914,12 @@ JSON
       PATH="$vscode_bin:$PATH" DOT_TEST_MV_LOG="$vscode_mv_log" \
       DOT_TEST_MV_FAIL_ONCE_MARKER="$vscode_aggregate_failure_marker" bash -c '
       set -uo pipefail
+      . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
       _is_wsl() { return 1; }
       uname() { printf "Linux\n"; }
       _warn() { printf "%s\n" "$*" >&2; }
       # shellcheck source=/dev/null
-      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+      . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/vscode.sh"
       _vscode_settings_sources() { :; }
       _vscode_checkrun_settings() { printf "{}\n" >"$1"; }
       _remove_vscode_generated_checkrun_settings() { :; }
@@ -3932,11 +3950,12 @@ JSON
     env HOME="$vscode_aggregate_failure_home" REAL_HOME="$REAL_HOME" \
       PATH="$vscode_bin:$PATH" DOT_TEST_MV_LOG="$vscode_mv_log" bash -c '
       set -uo pipefail
+      . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
       _is_wsl() { return 1; }
       uname() { printf "Linux\n"; }
       _warn() { printf "%s\n" "$*" >&2; }
       # shellcheck source=/dev/null
-      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+      . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/vscode.sh"
       _vscode_settings_sources() { :; }
       _vscode_checkrun_settings() { printf "{}\n" >"$1"; }
       _remove_vscode_generated_checkrun_settings() { :; }
@@ -3957,11 +3976,12 @@ JSON
     env HOME="$vscode_aggregate_failure_home" REAL_HOME="$REAL_HOME" \
       PATH="$vscode_bin:$PATH" DOT_TEST_MV_LOG="$vscode_mv_log" bash -c '
       set -uo pipefail
+      . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
       _is_wsl() { return 1; }
       uname() { printf "Linux\n"; }
       _warn() { printf "%s\n" "$*" >&2; }
       # shellcheck source=/dev/null
-      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+      . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/vscode.sh"
       _vscode_settings_sources() { :; }
       _vscode_checkrun_settings() { printf "{}\n" >"$1"; }
       _remove_vscode_generated_checkrun_settings() { :; }
@@ -3994,9 +4014,10 @@ JSON
       DOT_TEST_MV_FAIL_SUFFIX="/keybindings.json" \
       DESTINATION_FAILURE_DIR="$vscode_destination_failure_dir" bash -c '
       set -uo pipefail
+      . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
       _warn() { printf "%s\n" "$*" >&2; }
       # shellcheck source=/dev/null
-      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+      . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/vscode.sh"
       _merge_vscode_keybindings \
         "$DESTINATION_FAILURE_DIR/source.json" \
         "$DESTINATION_FAILURE_DIR/keybindings.json" \
@@ -4021,9 +4042,10 @@ JSON
       DOT_TEST_MV_LOG="$vscode_mv_log" \
       DESTINATION_FAILURE_DIR="$vscode_destination_failure_dir" bash -c '
       set -euo pipefail
+      . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
       _warn() { printf "%s\n" "$*" >&2; }
       # shellcheck source=/dev/null
-      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+      . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/vscode.sh"
       _merge_vscode_keybindings \
         "$DESTINATION_FAILURE_DIR/source.json" \
         "$DESTINATION_FAILURE_DIR/keybindings.json" \
@@ -4038,12 +4060,13 @@ JSON
     env HOME="$vscode_home" REAL_HOME="$REAL_HOME" PATH="$vscode_bin:$PATH" \
       DOT_TEST_MV_LOG="$vscode_mv_log" DOT_TEST_VSCODE_HOSTNAME="fixture-host" bash -c '
       set -uo pipefail
+      . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
       _is_wsl() { return 1; }
       uname() { printf "Linux\n"; }
       _log() { :; }
       _warn() { printf "%s\n" "$*" >&2; }
       # shellcheck source=/dev/null
-      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+      . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/vscode.sh"
       _vscode_variants() {
         printf "%s\t%s\n" "$HOME/.vscode/extensions" "$HOME/.config/Code/User"
       }
@@ -4157,12 +4180,13 @@ JSON
     env HOME="$vscode_home" REAL_HOME="$REAL_HOME" PATH="$vscode_bin:$PATH" \
       DOT_TEST_MV_LOG="$vscode_mv_log" DOT_TEST_VSCODE_HOSTNAME="fixture-host" bash -c '
       set -euo pipefail
+      . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
       _is_wsl() { return 1; }
       uname() { printf "Linux\n"; }
       _log() { :; }
       _warn() { printf "%s\n" "$*" >&2; }
       # shellcheck source=/dev/null
-      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+      . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/vscode.sh"
       _vscode_variants() {
         printf "%s\t%s\n" "$HOME/.vscode/extensions" "$HOME/.config/Code/User"
       }
@@ -4185,12 +4209,13 @@ JSON
     env HOME="$vscode_home" REAL_HOME="$REAL_HOME" PATH="$vscode_bin:$PATH" \
       DOT_TEST_MV_LOG="$vscode_mv_log" DOT_TEST_VSCODE_HOSTNAME="fixture-host" bash -c '
       set -uo pipefail
+      . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
       _is_wsl() { return 1; }
       uname() { printf "Linux\n"; }
       _log() { :; }
       _warn() { printf "%s\n" "$*" >&2; }
       # shellcheck source=/dev/null
-      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+      . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/vscode.sh"
       _vscode_variants() {
         printf "%s\t%s\n" "$HOME/.vscode/extensions" "$HOME/.config/Code/User"
       }
@@ -4221,12 +4246,13 @@ JSON
       PATH="$vscode_bin:$PATH" DOT_TEST_MV_LOG="$vscode_mv_log" \
       DOT_TEST_VSCODE_HOSTNAME="fixture-host" bash -c '
       set -uo pipefail
+      . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
       _is_wsl() { return 1; }
       uname() { printf "Linux\n"; }
       _log() { :; }
       _warn() { printf "%s\n" "$*" >&2; }
       # shellcheck source=/dev/null
-      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+      . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/vscode.sh"
       _vscode_local_extensions() { :; }
       _vscode_variants() {
         printf "%s\t%s\n" \
@@ -4256,10 +4282,11 @@ JSON
     env HOME="$vscode_home" REAL_HOME="$REAL_HOME" \
       VSCODE_SHARED_CONFIG_LOG="$vscode_shared_config_log" bash -c '
       set -euo pipefail
+      . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
       _log() { :; }
       _warn() { printf "%s\n" "$*" >&2; }
       # shellcheck source=/dev/null
-      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+      . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/vscode.sh"
       _vscode_install_declared_extensions() { :; }
       _merge_vscode_remote_window_titles() { :; }
       _merge_vscode_remote_mcp_auth() { :; }
@@ -4302,9 +4329,10 @@ JSON
       VSCODE_SHARED_SEQUENCE_DIR="$vscode_shared_sequence_dir" \
       VSCODE_SHARED_FINAL_DIR="$vscode_shared_final_dir" bash -c '
       set -euo pipefail
+      . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
       _warn() { printf "%s\n" "$*" >&2; }
       # shellcheck source=/dev/null
-      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+      . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/vscode.sh"
       _merge_vscode_config "$VSCODE_SHARED_SEQUENCE_DIR" ""
       _merge_vscode_config "$VSCODE_SHARED_SEQUENCE_DIR" "no-sley"
       _merge_vscode_config "$VSCODE_SHARED_FINAL_DIR" "no-sley"
@@ -4383,12 +4411,13 @@ JSON
     env HOME="$vscode_home" REAL_HOME="$REAL_HOME" PATH="$vscode_bin:$PATH" \
       DOT_TEST_MV_LOG="$vscode_mv_log" DOT_TEST_VSCODE_HOSTNAME="fixture-host" bash -c '
       set -euo pipefail
+      . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
       _is_wsl() { return 1; }
       uname() { printf "Linux\n"; }
       _log() { :; }
       _warn() { printf "%s\n" "$*" >&2; }
       # shellcheck source=/dev/null
-      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+      . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/vscode.sh"
       _vscode_variants() {
         printf "%s\t%s\n" "$HOME/.vscode/extensions" "$HOME/.config/Code/User"
       }
@@ -4452,12 +4481,13 @@ JSON
     env HOME="$vscode_home" REAL_HOME="$REAL_HOME" PATH="$vscode_bin:$PATH" \
       DOT_TEST_MV_LOG="$vscode_mv_log" DOT_TEST_VSCODE_HOSTNAME="fixture-host" bash -c '
       set -uo pipefail
+      . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
       _is_wsl() { return 1; }
       uname() { printf "Linux\n"; }
       _log() { :; }
       _warn() { printf "%s\n" "$*" >&2; }
       # shellcheck source=/dev/null
-      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+      . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/vscode.sh"
       _vscode_variants() {
         printf "%s\t%s\n" "$HOME/.vscode/extensions" "$HOME/.config/Code/User"
       }
@@ -4480,9 +4510,10 @@ JSON
     # shellcheck disable=SC2016 # The inner shell expands fixture env variables.
     env HOME="$vscode_mcp_edge_home" REAL_HOME="$REAL_HOME" bash -c '
       set -euo pipefail
+      . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
       _warn() { :; }
       # shellcheck source=/dev/null
-      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+      . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/vscode.sh"
       _vscode_mcp_auth_applicable "$HOME/Library/Application Support/Cursor/User/settings.json" && exit 1
       _vscode_mcp_auth_applicable "$HOME/.cursor-server/data/Machine/settings.json" && exit 1
       _vscode_mcp_auth_applicable "$HOME/.config/Code/User/settings.json" || exit 1
@@ -4495,8 +4526,9 @@ JSON
     vscode_mcp_relative_path=$(env HOME="$vscode_mcp_edge_home" \
       XDG_STATE_HOME=relative/state REAL_HOME="$REAL_HOME" bash -c '
       set -euo pipefail
+      . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
       # shellcheck source=/dev/null
-      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+      . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/vscode.sh"
       _vscode_mcp_auth_token_path
       printf "%s" "$REPLY"
     ')
@@ -4508,8 +4540,9 @@ JSON
     # shellcheck disable=SC2016 # The inner shell expands fixture env variables.
     env -u HOME -u XDG_STATE_HOME REAL_HOME="$REAL_HOME" bash -c '
       set -euo pipefail
+      . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
       # shellcheck source=/dev/null
-      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+      . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/vscode.sh"
       _vscode_mcp_auth_token_path
     ' >/dev/null 2>&1 || vscode_mcp_missing_path_rc=$?
     _assert_eq "vscode mcp auth: missing state roots fail closed" \
@@ -4520,9 +4553,10 @@ JSON
     env -u HOME XDG_STATE_HOME="$vscode_mcp_newline_state" \
       REAL_HOME="$REAL_HOME" bash -c '
       set -euo pipefail
+      . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
       _warn() { :; }
       # shellcheck source=/dev/null
-      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+      . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/vscode.sh"
       _vscode_mcp_auth_token
     '
     _assert_file_exists "vscode mcp auth: absolute XDG state works without HOME" \
@@ -4538,9 +4572,10 @@ JSON
     # shellcheck disable=SC2016 # The inner shell expands fixture env variables.
     vscode_mcp_malformed_token=$(env HOME="$vscode_mcp_edge_home" REAL_HOME="$REAL_HOME" bash -c '
       set -euo pipefail
+      . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
       _warn() { :; }
       # shellcheck source=/dev/null
-      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+      . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/vscode.sh"
       _vscode_mcp_auth_token
       printf "%s" "$REPLY"
     ')
@@ -4561,9 +4596,10 @@ JSON
     env HOME="$vscode_mcp_edge_home" REAL_HOME="$REAL_HOME" \
       TMPDIR="$_DOT_TEST_TMP_ROOT" bash -c '
       set -uo pipefail
+      . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
       _warn() { :; }
       # shellcheck source=/dev/null
-      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+      . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/vscode.sh"
       out1=$(mktemp); out2=$(mktemp)
       ( _vscode_mcp_auth_token && printf "%s" "$REPLY" >"$out1" ) &
       pid1=$!
@@ -4596,9 +4632,10 @@ JSON
     # shellcheck disable=SC2016 # The inner shell expands fixture env variables.
     env HOME="$vscode_mcp_edge_home" REAL_HOME="$REAL_HOME" bash -c '
       set -euo pipefail
+      . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
       _warn() { :; }
       # shellcheck source=/dev/null
-      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+      . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/vscode.sh"
       _vscode_mcp_auth_token || true
     '
     if [[ -d "$vscode_mcp_foreign_lock" ]]; then
@@ -4614,9 +4651,10 @@ JSON
     vscode_mcp_warn_output=$(env HOME="$vscode_mcp_edge_home" REAL_HOME="$REAL_HOME" \
       TMPDIR="$_DOT_TEST_TMP_ROOT" bash -c '
       set -euo pipefail
+      . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
       _warn() { printf "%s\n" "$*"; }
       # shellcheck source=/dev/null
-      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+      . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/vscode.sh"
       _vscode_mcp_auth_token() { return 1; }
       out=$(mktemp)
       _vscode_mcp_auth_settings "$out"
@@ -4767,12 +4805,13 @@ JSON
     env HOME="$vscode_home" REAL_HOME="$REAL_HOME" PATH="$vscode_bin:$PATH" \
       DOT_TEST_MV_LOG="$vscode_mv_log" bash -c '
       set -euo pipefail
+      . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
       _is_wsl() { return 1; }
       uname() { printf "Darwin\n"; }
       _log() { :; }
       _warn() { printf "%s\n" "$*" >&2; }
       # shellcheck source=/dev/null
-      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+      . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/vscode.sh"
       _vscode_variants() {
         printf "%s\t%s\n" "$HOME/.vscode/extensions" "$HOME/Library/Application Support/Code/User"
       }
@@ -4798,12 +4837,13 @@ JSON
     env HOME="$vscode_home" REAL_HOME="$REAL_HOME" PATH="$vscode_bin:$PATH" \
       DOT_TEST_MV_LOG="$vscode_mv_log" DOT_TEST_VSCODE_HOSTNAME="remote-only-host" bash -c '
       set -euo pipefail
+      . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
       _is_wsl() { return 1; }
       uname() { printf "Linux\n"; }
       _log() { :; }
       _warn() { printf "%s\n" "$*" >&2; }
       # shellcheck source=/dev/null
-      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+      . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/vscode.sh"
       merge
     ' || remote_rc=$?
     _assert_eq "vscode sley: extension-only merge exits cleanly" "0" "$remote_rc"
@@ -4834,12 +4874,13 @@ JSON
       DOT_TEST_MV_LOG="$vscode_mv_log" \
       DOT_TEST_VSCODE_HOSTNAME="server-only-host" bash -c '
       set -euo pipefail
+      . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
       _is_wsl() { return 1; }
       uname() { printf "Linux\n"; }
       _log() { :; }
       _warn() { printf "%s\n" "$*" >&2; }
       # shellcheck source=/dev/null
-      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+      . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/vscode.sh"
       merge
     '
     vscode_server_only_title_expected="server-only-host\${separator}\${activeRepositoryBranchName}\${separator}\${rootNameShort}\${separator}\${activeEditorShort}"
@@ -4910,11 +4951,12 @@ JSON
         DOT_TEST_VSCODE_CONFIG="$vscode_no_termnav_config" \
         DOT_TEST_VSCODE_PLATFORM="$vscode_no_termnav_platform" bash -c '
         set -euo pipefail
+        . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
         _is_wsl() { return 1; }
         _log() { :; }
         _warn() { printf "%s\n" "$*" >&2; }
         # shellcheck source=/dev/null
-        . "$REAL_HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+        . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/vscode.sh"
         _vscode_keybinding_platform() {
           printf "%s\n" "$DOT_TEST_VSCODE_PLATFORM"
         }
@@ -5003,12 +5045,13 @@ EOF
     env HOME="$vscode_missing_termnav_home" REAL_HOME="$REAL_HOME" \
       PATH="$vscode_bin:$PATH" DOT_TEST_MV_LOG="$vscode_mv_log" bash -c '
       set -euo pipefail
+      . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
       _is_wsl() { return 1; }
       uname() { printf "Linux\n"; }
       _log() { :; }
       _warn() { printf "%s\n" "$*" >&2; }
       # shellcheck source=/dev/null
-      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+      . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/vscode.sh"
       merge
     '
     _assert_eq \
@@ -5084,12 +5127,13 @@ JSON
       DOT_TEST_WINDOWS_APPDATA="$win_appdata" DOT_TEST_MV_LOG="$vscode_mv_log" \
       DOT_TEST_WSL_PAIRED_ACCOUNT=1 bash -c '
         set -euo pipefail
+        . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
         _is_wsl() { return 0; }
         uname() { printf "Linux\n"; }
         _log() { :; }
         _warn() { printf "%s\n" "$*" >&2; }
         # shellcheck source=/dev/null
-        . "$REAL_HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+        . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/vscode.sh"
         merge
       ' || wsl_rc=$?
     _assert_eq "vscode wsl: merge exits cleanly" "0" "$wsl_rc"
@@ -5161,12 +5205,13 @@ JSON
       DOT_TEST_WINDOWS_APPDATA="$win_appdata" DOT_TEST_MV_LOG="$vscode_mv_log" \
       DOT_TEST_WSL_PAIRED_ACCOUNT=0 bash -c '
         set -euo pipefail
+        . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
         _is_wsl() { return 0; }
         uname() { printf "Linux\n"; }
         _log() { :; }
         _warn() { printf "%s\n" "$*" >&2; }
         # shellcheck source=/dev/null
-        . "$REAL_HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+        . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/vscode.sh"
         merge
       ' || wsl_unpaired_rc=$?
     _assert_eq "vscode wsl unpaired: merge exits cleanly" "0" "$wsl_unpaired_rc"
@@ -5200,10 +5245,11 @@ EOF
     native_variant_paired=$(HOME="$vscode_native_variant_home" REAL_HOME="$REAL_HOME" \
       DOT_TEST=1 DOT_TEST_WSL_PAIRED_ACCOUNT=1 bash -c '
         set -euo pipefail
+        . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
         _is_wsl() { return 0; }
         uname() { printf "Linux\n"; }
         # shellcheck source=/dev/null
-        . "$REAL_HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+        . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/vscode.sh"
         _vscode_variants
       ')
     _assert_contains "vscode wsl variant overlay: paired account sees native-platform TSV variant" \
@@ -5213,10 +5259,11 @@ EOF
     native_variant_unpaired=$(HOME="$vscode_native_variant_home" REAL_HOME="$REAL_HOME" \
       DOT_TEST=1 DOT_TEST_WSL_PAIRED_ACCOUNT=0 bash -c '
         set -euo pipefail
+        . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
         _is_wsl() { return 0; }
         uname() { printf "Linux\n"; }
         # shellcheck source=/dev/null
-        . "$REAL_HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+        . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/vscode.sh"
         _vscode_variants
       ')
     _assert_not_contains "vscode wsl variant overlay: unpaired account skips native-platform TSV variant" \
@@ -5232,8 +5279,9 @@ EOF
     expand_path_absolute="$expand_path_home/.vscode/extensions"
     expand_path_result=$(HOME="$expand_path_home" REAL_HOME="$REAL_HOME" bash -c '
       set -euo pipefail
+      . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
       # shellcheck source=/dev/null
-      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+      . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/vscode.sh"
       _vscode_expand_path "$1"
     ' _ "$expand_path_absolute")
     _assert_eq "vscode expand path: absolute path under HOME is left unchanged" \
@@ -5241,8 +5289,9 @@ EOF
 
     expand_path_tilde_result=$(HOME="$expand_path_home" REAL_HOME="$REAL_HOME" bash -c '
       set -euo pipefail
+      . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
       # shellcheck source=/dev/null
-      . "$REAL_HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+      . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/vscode.sh"
       _vscode_expand_path "~/.vscode/extensions"
     ')
     _assert_eq "vscode expand path: ~/ placeholder still expands to HOME" \
@@ -5250,99 +5299,6 @@ EOF
   else
     echo "  SKIP: VS Code Sley merge hook assertions (jq unavailable)"
   fi
-
-  echo ""
-  echo "=== Marked-block helpers ==="
-
-  # Regression: the marker is interpolated into a sed address, so basic regex
-  # metacharacters must be escaped. Two look-alike blocks whose markers differ
-  # only at a metacharacter position; stripping the metachar marker must remove
-  # only the exact block and leave the literal look-alike intact. With an
-  # unescaped marker, `.` matches the look-alike's char and the wrong block (or
-  # both) gets deleted.
-  mb_keep=$(_mb_build 'dot-managed:aXb' "/src/keep" "payload-keep")
-  mb_drop=$(_mb_build 'dot-managed:a.b' "/src/drop" "payload-drop")
-  mb_two=$(printf '%s\n\n%s\n' "$mb_keep" "$mb_drop")
-  mb_result=$(_mb_strip 'dot-managed:a.b' "$mb_two")
-  _assert_contains "mb_strip: escaped marker keeps look-alike block" \
-    "payload-keep" "$mb_result"
-  _assert_not_contains "mb_strip: escaped marker removes only the exact block" \
-    "payload-drop" "$mb_result"
-
-  # Regression: _mb_merge writes through a PID-namespaced temp then renames; the
-  # destination must end up 0600 with the block body and no temp left behind.
-  mb_dst="$TEST_HOME/.config/testapp/mb-merge-out"
-  rm -f "$mb_dst" "$mb_dst".tmp.*
-  mb_block=$(_mb_build 'dot-managed:mbtest' "/src/mb" "merged-body")
-  _mb_merge "$mb_dst" "$mb_block"
-  _assert_file_exists "mb_merge: creates destination" "$mb_dst"
-  _assert_contains "mb_merge: writes block body" "merged-body" "$(cat "$mb_dst")"
-  mb_perms=$(stat -c '%a' "$mb_dst" 2>/dev/null || stat -f '%Lp' "$mb_dst" 2>/dev/null)
-  _assert_eq "mb_merge: destination is 600" "600" "$mb_perms"
-  mb_inode_before=$(stat -c '%i' "$mb_dst" 2>/dev/null ||
-    stat -f '%i' "$mb_dst" 2>/dev/null)
-  _mb_merge "$mb_dst" "$mb_block"
-  mb_inode_after=$(stat -c '%i' "$mb_dst" 2>/dev/null ||
-    stat -f '%i' "$mb_dst" 2>/dev/null)
-  _assert_eq "mb_merge: unchanged merge skips replacement" \
-    "$mb_inode_before" "$mb_inode_after"
-  shopt -s nullglob
-  mb_leftovers=("$mb_dst".tmp.*)
-  shopt -u nullglob
-  _assert_eq "mb_merge: leaves no PID temp files" "0" "${#mb_leftovers[@]}"
-  rm -f "$mb_dst"
-
-  mb_family_dst="$TEST_HOME/.config/testapp/mb-family-out"
-  cat >"$mb_family_dst" <<'EOF'
-
-manual first
-
-
-
-manual second
-
-# dot-managed:family:old begin
-old generated
-# dot-managed:family:old end
-
-
-EOF
-  mb_family_block=$(_mb_build '# dot-managed:family:new' "/src/new" "new generated")
-  mb_family_block_two=$(_mb_build \
-    '# dot-managed:family:second' "/src/second" "second generated")
-  _mb_merge_family "$mb_family_dst" "# dot-managed:family:" \
-    "$mb_family_block" "$mb_family_block_two"
-  mb_family_content=$(cat "$mb_family_dst")
-  _assert_contains "mb_merge_family: preserves manual content" \
-    "manual first" "$mb_family_content"
-  _assert_not_contains "mb_merge_family: prunes stale family block" \
-    "old generated" "$mb_family_content"
-  _assert_contains "mb_merge_family: writes replacement block" \
-    "new generated" "$mb_family_content"
-  printf 'manual first\n\nmanual second\n\n%s\n\n%s\n' \
-    "$mb_family_block" "$mb_family_block_two" >"$mb_family_dst.prev"
-  if cmp -s "$mb_family_dst.prev" "$mb_family_dst"; then
-    _pass "mb_merge_family: keeps normalized exact multi-block layout"
-  else
-    _fail "mb_merge_family: keeps normalized exact multi-block layout"
-  fi
-  mb_family_perms=$(stat -c '%a' "$mb_family_dst" 2>/dev/null ||
-    stat -f '%Lp' "$mb_family_dst" 2>/dev/null)
-  _assert_eq "mb_merge_family: destination is 600" "600" "$mb_family_perms"
-  cp "$mb_family_dst" "$mb_family_dst.prev"
-  mb_family_inode_before=$(stat -c '%i' "$mb_family_dst" 2>/dev/null ||
-    stat -f '%i' "$mb_family_dst" 2>/dev/null)
-  _mb_merge_family "$mb_family_dst" "# dot-managed:family:" \
-    "$mb_family_block" "$mb_family_block_two"
-  mb_family_inode_after=$(stat -c '%i' "$mb_family_dst" 2>/dev/null ||
-    stat -f '%i' "$mb_family_dst" 2>/dev/null)
-  if cmp -s "$mb_family_dst.prev" "$mb_family_dst"; then
-    _pass "mb_merge_family: unchanged merge is stable"
-  else
-    _fail "mb_merge_family: unchanged merge is stable"
-  fi
-  _assert_eq "mb_merge_family: unchanged merge skips replacement" \
-    "$mb_family_inode_before" "$mb_family_inode_after"
 
   echo ""
   echo "=== Sapling hook merge ==="
@@ -5380,11 +5336,10 @@ EOF
   # shellcheck disable=SC2016 # The inner shell expands REAL_HOME from env.
   env HOME="$sl_missing_hook_home" REAL_HOME="$REAL_HOME" PATH="$sl_gate_bin:$PATH" bash -c '
     set -euo pipefail
-    # shellcheck source=/dev/null
-    . "$REAL_HOME/.local/lib/dot/core/merge-block.sh"
+    . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
     _log() { :; }
     # shellcheck source=/dev/null
-    . "$REAL_HOME/.local/lib/dot/core/merge-hooks/sapling.sh"
+    . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/sapling.sh"
     merge
   '
   _assert_contains "sapling hook merge: missing gate preserves legacy block" \
@@ -5405,11 +5360,10 @@ EOF
   # shellcheck disable=SC2016 # The inner shell expands REAL_HOME from env.
   env HOME="$sl_non_hook_home" REAL_HOME="$REAL_HOME" PATH="$sl_gate_bin:$PATH" bash -c '
     set -euo pipefail
-    # shellcheck source=/dev/null
-    . "$REAL_HOME/.local/lib/dot/core/merge-block.sh"
+    . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
     _log() { :; }
     # shellcheck source=/dev/null
-    . "$REAL_HOME/.local/lib/dot/core/merge-hooks/sapling.sh"
+    . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/sapling.sh"
     merge
   '
   sl_non_hook_hgrc=$(cat "$sl_non_hook_home/.hgrc")
@@ -5448,11 +5402,10 @@ EOF
   # shellcheck disable=SC2016 # The inner shell expands REAL_HOME from env.
   env HOME="$sl_hook_home" REAL_HOME="$REAL_HOME" PATH="$sl_gate_bin:$PATH" bash -c '
     set -euo pipefail
-    # shellcheck source=/dev/null
-    . "$REAL_HOME/.local/lib/dot/core/merge-block.sh"
+    . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
     _log() { :; }
     # shellcheck source=/dev/null
-    . "$REAL_HOME/.local/lib/dot/core/merge-hooks/sapling.sh"
+    . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/sapling.sh"
     merge
   '
   sl_hook_hgrc=$(cat "$sl_hook_home/.hgrc")
@@ -5495,7 +5448,7 @@ EOF
   mkdir -p "$TEST_HOME/.config/dot/merge-hooks.d/ssh/config.d"
 
   # Source the SSH merge hook so we can call merge() directly.
-  _SSH_HOOK="$REAL_HOME/.local/lib/dot/core/merge-hooks/ssh.sh"
+  _SSH_HOOK="$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/ssh.sh"
 
   _run_ssh_merge() {
     unset -f merge 2>/dev/null
@@ -5689,7 +5642,7 @@ EXISTING
   rm -f "$IGNORE_FILE"
   rm -rf "$TEST_HOME/.config/dot/merge-hooks.d/ignore/ignore.d"
   mkdir -p "$TEST_HOME/.config/dot/merge-hooks.d/ignore/ignore.d"
-  _IGNORE_HOOK="$REAL_HOME/.local/lib/dot/core/merge-hooks/ignore.sh"
+  _IGNORE_HOOK="$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/ignore.sh"
 
   _run_ignore_merge() {
     unset -f merge _ignore_sources 2>/dev/null
@@ -5742,7 +5695,7 @@ EOF
 ($d[0] // {})
 JQ
 
-  _CLAUDE_HOOK="$REAL_HOME/.local/lib/dot/core/merge-hooks/claude.sh"
+  _CLAUDE_HOOK="$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/claude.sh"
 
   _run_claude_merge() (
     unset -f merge _merge_claude_settings 2>/dev/null
@@ -5906,7 +5859,7 @@ JSON
     "$TEST_HOME/.config/dot/merge-hooks.d/codex/profiles/layered.d/50-environment.replace" \
     "$TEST_HOME/.config/dot/merge-hooks.d/codex/profiles/experimental.d"
 
-  _CODEX_HOOK="$REAL_HOME/.local/lib/dot/core/merge-hooks/codex.sh"
+  _CODEX_HOOK="$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/codex.sh"
   _CODEX_BIN=$(_mock_bin)
   _CODEX_VERSION_PROBE="$TEST_HOME/.codex-version-probe"
   export DOT_TEST_CODEX_VERSION_PROBE="$_CODEX_VERSION_PROBE"
@@ -6447,7 +6400,7 @@ with open(sys.argv[1], 'rb') as f: tomllib.load(f)
   echo ""
   echo "=== Hive Memory merge hook ==="
 
-  _HIVE_HOOK="$REAL_HOME/.local/lib/dot/core/merge-hooks/hive-memory.sh"
+  _HIVE_HOOK="$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/hive-memory.sh"
   _HIVE_BIN=$(_mock_bin)
   _HIVE_LOG=$(_tmpdir)/hm.log
 
@@ -6830,7 +6783,7 @@ TOML
   echo ""
   echo "=== Mise merge hook ==="
 
-  _MISE_HOOK="$REAL_HOME/.local/lib/dot/core/merge-hooks/mise.sh"
+  _MISE_HOOK="$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/mise.sh"
 
   _run_mise_merge() {
     unset -f merge 2>/dev/null
@@ -6980,469 +6933,4 @@ GH
     _fail "mise hook: env token also skips gh"
   fi
 
-  # ---------------------------------------------------------------------------
-  # Tests: _run_merges
-  # ---------------------------------------------------------------------------
-
-  echo ""
-  echo "=== Merge scripts ==="
-
-  # No merge scripts → no-op
-  result=$(_run_merges 2>&1)
-  _assert_eq "no merge scripts → no output" "" "$result"
-  _assert_eq "merge summary: singular" "1 config merged" "$(_merge_summary 1)"
-  _assert_eq "merge summary: plural" "2 configs merged" "$(_merge_summary 2)"
-  _assert_eq "merge failure summary: singular" \
-    "1 config hook failed" "$(_merge_failure_summary 1)"
-  _assert_eq "merge failure summary: plural" \
-    "2 config hooks failed" "$(_merge_failure_summary 2)"
-  _assert_eq "merge warning summary separates successes from failures" \
-    "2 configs merged, 1 config hook failed" "$(_merge_warning_summary 3 1)"
-
-  missing_capture_dir="$TEST_HOME/missing-merge-capture"
-  mkdir -p "$missing_capture_dir"
-  missing_capture_rc=0
-  missing_capture_output=$(
-    _print_merge_capture missing 1 "$missing_capture_dir" 2>&1
-  ) || missing_capture_rc=$?
-  _assert_exit "merge metadata: missing presence marker stays a no-op" \
-    1 "$missing_capture_rc"
-  _assert_eq "merge metadata: missing presence marker stays silent" \
-    "" "$missing_capture_output"
-
-  printf '1' >"$missing_capture_dir/001.has_merge"
-  : >"$missing_capture_dir/001.log"
-  missing_capture_output=$(
-    _print_merge_capture missing 1 "$missing_capture_dir" 2>&1
-  )
-  _assert_not_contains "merge metadata: missing result scalars stay silent" \
-    "No such file or directory" "$missing_capture_output"
-
-  # Characterize the generic worker boundary before the runner moves to its
-  # standalone repository. Keep this fixture isolated from the application
-  # hooks below: it describes scheduling and shell lifecycle contracts, not any
-  # one product's merge behavior.
-  merge_lifecycle_home=$(_tmpdir)
-  merge_lifecycle_cwd=$(_tmpdir)
-  merge_lifecycle_cwd_physical=$(cd "$merge_lifecycle_cwd" && pwd -P)
-  merge_lifecycle_input=$merge_lifecycle_home/caller-input
-  merge_lifecycle_report=$merge_lifecycle_home/observer-report
-  merge_lifecycle_parent_report=$merge_lifecycle_home/parent-report
-  mkdir -p "$merge_lifecycle_home/.local/lib/dot/core/merge-hooks"
-  printf '%s\n' 'caller payload' >"$merge_lifecycle_input"
-
-  cat >"$merge_lifecycle_home/.local/lib/dot/core/merge-hooks/10-mutator.sh" <<'MERGE'
-merge() {
-    # Every hook gets a fresh worker. Deliberately mutate process-wide shell
-    # state here so the following hook proves none of it crosses that boundary.
-    export DOT_MERGE_LIFECYCLE_LEAK=present
-    set +E
-    set +o pipefail
-    shopt -s nullglob
-    trap ':' USR1
-    merge_lifecycle_leaked_function() { :; }
-    printf '\n  Mutator label  \n  Mutator detail  \n'
-}
-MERGE
-
-  cat >"$merge_lifecycle_home/.local/lib/dot/core/merge-hooks/20-observer.sh" <<'MERGE'
-merge() {
-    local stdin_state=payload pipefail_state=off nullglob_state=off
-    local errtrace_state=off monitor_state=off err_trap_state=set
-    local exit_trap_state=missing term_trap_state=missing usr1_trap_state=set
-    local leak_state=absent function_state=absent
-
-    if ! IFS= read -r _merge_lifecycle_line; then
-        stdin_state=eof
-    fi
-    shopt -qo pipefail && pipefail_state=on
-    shopt -q nullglob && nullglob_state=on
-    [[ "$-" == *E* ]] && errtrace_state=on
-    [[ "$-" == *m* ]] && monitor_state=on
-    [[ -z "$(trap -p ERR)" ]] && err_trap_state=clear
-    case "$(trap -p EXIT)" in
-      *'_dot_cleanup_ignore_signals; _dot_cleanup_all'*) exit_trap_state=cleanup ;;
-    esac
-    case "$(trap -p TERM)" in
-      *'_dot_cleanup_signal 143'*) term_trap_state=cleanup ;;
-    esac
-    [[ -z "$(trap -p USR1)" ]] && usr1_trap_state=clear
-    [[ -z "${DOT_MERGE_LIFECYCLE_LEAK+x}" ]] || leak_state=present
-    declare -F merge_lifecycle_leaked_function >/dev/null 2>&1 && function_state=present
-
-    {
-        printf 'cwd=%s\n' "$(pwd -P)"
-        printf 'stdin=%s\n' "$stdin_state"
-        printf 'inherited=%s\n' "${DOT_MERGE_LIFECYCLE_INHERITED-unset}"
-        printf 'pipefail=%s\n' "$pipefail_state"
-        printf 'nullglob=%s\n' "$nullglob_state"
-        printf 'errtrace=%s\n' "$errtrace_state"
-        printf 'monitor=%s\n' "$monitor_state"
-        printf 'err_trap=%s\n' "$err_trap_state"
-        printf 'exit_trap=%s\n' "$exit_trap_state"
-        printf 'term_trap=%s\n' "$term_trap_state"
-        printf 'usr1_trap=%s\n' "$usr1_trap_state"
-        printf 'variable_leak=%s\n' "$leak_state"
-        printf 'function_leak=%s\n' "$function_state"
-    } >"$HOME/observer-report"
-    printf 'Observer label\n'
-}
-MERGE
-
-  cat >"$merge_lifecycle_home/.local/lib/dot/core/merge-hooks/cron.sh" <<'MERGE'
-merge() {
-    printf 'Serial label\n'
-}
-MERGE
-
-  cat >"$merge_lifecycle_home/.local/lib/dot/core/merge-hooks/z-after.sh" <<'MERGE'
-merge() {
-    printf 'After label\n'
-}
-MERGE
-
-  merge_lifecycle_specs=$(
-    HOME="$merge_lifecycle_home" _merge_hook_specs |
-      while IFS=$'\t' read -r hook_key _; do
-        printf '%s\n' "$hook_key"
-      done |
-      paste -sd '|' -
-  )
-  _assert_eq "merge lifecycle: discovery order is bytewise by hook key" \
-    "10-mutator|20-observer|cron|z-after" "$merge_lifecycle_specs"
-
-  _trace_merge_lifecycle_batches_for_test() {
-    local HOME="$merge_lifecycle_home"
-    # shellcheck disable=SC2034 # Read dynamically by _run_merges UI helpers.
-    local DOT_QUIET=1 DOT_UI_TOTAL=0
-    local trace=$merge_lifecycle_home/batch-trace
-    : >"$trace"
-    # Record only the scheduler boundary. The actual worker path runs below;
-    # this seam avoids timing assertions when proving where the serial hook
-    # splits the parallel batches.
-    # shellcheck disable=SC2329 # Invoked indirectly by _run_merges.
-    _run_merge_hook_batch() {
-      local hook_spec hook_key _ hook_keys=""
-      for hook_spec in "$@"; do
-        IFS=$'\t' read -r hook_key _ <<<"$hook_spec"
-        hook_keys+="${hook_keys:+,}$hook_key"
-      done
-      printf '%s\n' "$hook_keys" >>"$trace"
-      REPLY=0
-    }
-    _run_merges >/dev/null
-    paste -sd '|' "$trace"
-  }
-  merge_lifecycle_batches=$(_trace_merge_lifecycle_batches_for_test)
-  unset -f _trace_merge_lifecycle_batches_for_test
-  _assert_eq "merge lifecycle: cron splits the surrounding parallel batches" \
-    "10-mutator,20-observer|cron|z-after" "$merge_lifecycle_batches"
-
-  _run_merge_lifecycle_for_test() {
-    local HOME="$merge_lifecycle_home"
-    local DOT_VERBOSE=1 DOT_MERGE_JOBS=1
-    export HOME DOT_VERBOSE DOT_MERGE_JOBS
-    export DOT_MERGE_LIFECYCLE_INHERITED=visible
-    unset DOT_MERGE_LIFECYCLE_LEAK
-    unset -f merge_lifecycle_leaked_function 2>/dev/null
-    set -E
-    set -o pipefail
-    shopt -u nullglob
-    trap ': >"$HOME/parent-err-fired"' ERR
-    # The generic cleanup layer intentionally preserves a controlling TTY for
-    # prompt-capable jobs. Force its noninteractive branch so this contract is
-    # deterministic in CI and when dot-test is launched manually in a shell.
-    # shellcheck disable=SC2329 # Invoked indirectly by the cleanup launcher.
-    _dot_cleanup_has_controlling_tty() { return 1; }
-
-    cd "$merge_lifecycle_cwd" || return
-    _run_merges <"$merge_lifecycle_input"
-
-    {
-      shopt -qo pipefail && printf 'pipefail=on\n' || printf 'pipefail=off\n'
-      shopt -q nullglob && printf 'nullglob=on\n' || printf 'nullglob=off\n'
-      [[ "$-" == *E* ]] && printf 'errtrace=on\n' || printf 'errtrace=off\n'
-      [[ -z "${DOT_MERGE_LIFECYCLE_LEAK+x}" ]] &&
-        printf 'variable_leak=absent\n' || printf 'variable_leak=present\n'
-      declare -F merge_lifecycle_leaked_function >/dev/null 2>&1 &&
-        printf 'function_leak=present\n' || printf 'function_leak=absent\n'
-      case "$(trap -p ERR)" in
-        *parent-err-fired*) printf 'err_trap=preserved\n' ;;
-        *) printf 'err_trap=changed\n' ;;
-      esac
-    } >"$merge_lifecycle_parent_report"
-  }
-  merge_lifecycle_output=$(_run_merge_lifecycle_for_test)
-  unset -f _run_merge_lifecycle_for_test
-  _assert_file_content "merge lifecycle: fresh worker has the documented context" \
-    "cwd=$merge_lifecycle_cwd_physical
-stdin=eof
-inherited=visible
-pipefail=on
-nullglob=off
-errtrace=on
-monitor=off
-err_trap=clear
-exit_trap=cleanup
-term_trap=cleanup
-usr1_trap=clear
-variable_leak=absent
-function_leak=absent" \
-    "$merge_lifecycle_report"
-  _assert_file_content "merge lifecycle: hook mutations do not escape to coordinator" \
-    "pipefail=on
-nullglob=off
-errtrace=on
-variable_leak=absent
-function_leak=absent
-err_trap=preserved" \
-    "$merge_lifecycle_parent_report"
-  _assert_file_missing "merge lifecycle: worker does not fire coordinator ERR trap" \
-    "$merge_lifecycle_home/parent-err-fired"
-  _assert_contains "merge lifecycle: first nonblank captured line is the label" \
-    "ok       Mutator label" "$merge_lifecycle_output"
-  _assert_contains "merge lifecycle: later captured lines are subordinate details" \
-    "    Mutator detail" "$merge_lifecycle_output"
-  merge_lifecycle_render_order=$(
-    printf '%s\n' "$merge_lifecycle_output" |
-      awk '
-        /Mutator label/ { print "mutator" }
-        /Observer label/ { print "observer" }
-        /After label/ { print "after" }
-        /Serial label/ { print "serial" }
-      ' |
-      paste -sd '|' -
-  )
-  _assert_eq "merge lifecycle: captured results render in discovery order" \
-    "mutator|observer|serial|after" "$merge_lifecycle_render_order"
-
-  # Create test merge implementation scripts. Hook discovery is driven by
-  # implementations, not by optional config directories.
-  mkdir -p "$TEST_HOME/.config/dot/merge-hooks.d" \
-    "$TEST_HOME/.local/lib/dot/core/merge-hooks"
-  cat >"$TEST_HOME/.local/lib/dot/core/merge-hooks/testapp.sh" <<'MERGE'
-merge() {
-    echo "Test app"
-    echo "tool says everything is current"
-}
-MERGE
-
-  cat >"$TEST_HOME/.local/lib/dot/core/merge-hooks/otherapp.sh" <<'MERGE'
-merge() {
-    echo "Other app"
-}
-MERGE
-  cat >"$TEST_HOME/.local/lib/dot/core/merge-hooks/no-config.sh" <<'MERGE'
-merge() {
-    echo "No config app"
-}
-MERGE
-  mkdir -p "$TEST_HOME/.config/dot/merge-hooks.d/testapp"
-  printf '%s\n' "# Test app merge inputs" \
-    >"$TEST_HOME/.config/dot/merge-hooks.d/testapp/README.md"
-  cat >"$TEST_HOME/.config/dot/merge-hooks.d/legacyapp.sh" <<'MERGE'
-merge() {
-    echo "Legacy config app"
-}
-MERGE
-  mkdir -p "$TEST_HOME/.config/dot/merge-hooks.d/orphan"
-  printf '%s\n' "# Orphan merge inputs" \
-    >"$TEST_HOME/.config/dot/merge-hooks.d/orphan/README.md"
-
-  merge_metadata_cat_log="$TEST_HOME/merge-metadata-cat.log"
-  cat() {
-    case "${1:-}" in
-      *.has_merge | *.rc | *.elapsed_ms)
-        printf '%s\n' "$1" >>"$merge_metadata_cat_log"
-        ;;
-    esac
-    command cat "$@"
-  }
-  printf '0' >"$TEST_HOME/merge-metadata-control.rc"
-  cat "$TEST_HOME/merge-metadata-control.rc" >/dev/null
-  _assert_file_content "merge metadata: cat test seam observes a control call" \
-    "$TEST_HOME/merge-metadata-control.rc" "$merge_metadata_cat_log"
-  : >"$merge_metadata_cat_log"
-  # Default mode: stdout suppressed, summary line shown
-  result=$(_run_merges 2>&1)
-  unset -f cat
-  _assert_contains "merge stage printed" "Configs" "$result"
-  _assert_contains "default: summary line" "3 configs merged" "$result"
-  _assert_not_contains "default: individual output suppressed" "Test app" "$result"
-  _assert_file_content "merge metadata: result collection avoids cat processes" \
-    "" "$merge_metadata_cat_log"
-
-  mkdir -p "$TEST_HOME/.config/dot/merge-hooks.d/dirapp"
-  printf '%s\n' "# Dir app merge inputs" \
-    >"$TEST_HOME/.config/dot/merge-hooks.d/dirapp/README.md"
-  cat >"$TEST_HOME/.local/lib/dot/core/merge-hooks/dirapp.sh" <<'MERGE'
-merge() {
-    echo "Dir app"
-}
-MERGE
-  cat >"$TEST_HOME/.config/dot/merge-hooks.d/dirapp.sh" <<'MERGE'
-merge() {
-    echo "Legacy dir app"
-}
-MERGE
-
-  result=$(_run_merges 2>&1)
-  _assert_contains "script hook: optional config dir is not required" \
-    "4 configs merged" "$result"
-
-  export DOT_VERBOSE=1
-  result=$(_run_merges 2>&1)
-  export DOT_VERBOSE=0
-  _assert_contains "script hook: matching implementation runs" \
-    "Dir app" "$result"
-  _assert_contains "script hook: implementation can run without config dir" \
-    "No config app" "$result"
-  _assert_not_contains "script hook: config-only legacy hook ignored" \
-    "Legacy config app" "$result"
-  _assert_not_contains "script hook: same-key legacy config hook ignored" \
-    "Legacy dir app" "$result"
-
-  export DOT_UI_FORCE_LIVE=1
-  export DOT_UI_ASCII=1
-  _assert_eq "merge label: preserves hook stem separators" \
-    "hive-memory" \
-    "$(_merge_label_from_script "$TEST_HOME/.local/lib/dot/core/merge-hooks/hive-memory.sh")"
-  _assert_eq "merge progress: uses hook label without product remap" \
-    "hive-memory        [########] 1/1" \
-    "$(_merge_progress_detail 1 1 "hive-memory")"
-  _ui_begin 5
-  result=$(_run_merges 2>&1)
-  unset DOT_UI_FORCE_LIVE DOT_UI_ASCII
-  _assert_contains "merge progress: live status names current hook" \
-    "testapp            [########] 4/4" "$result"
-  _assert_contains "merge progress: uses progress bar before current hook" \
-    "otherapp           [######--] 3/4" "$result"
-  _assert_not_contains "merge progress: app label does not trail the counter" \
-    "2/2 testapp" "$result"
-
-  export DOT_UPDATE_HOOK_THRESHOLD_MS=0
-  result=$(_run_merges 2>&1)
-  _assert_not_contains "default: slow config summary stays hidden" \
-    "slow config:" "$result"
-  _assert_not_contains "default: slow hook labels stay hidden" \
-    "testapp" "$result"
-
-  # Verbose mode: individual hook output visible
-  export DOT_VERBOSE=1
-  result=$(_run_merges 2>&1)
-  export DOT_VERBOSE=0
-  _assert_contains "verbose: prints hook label as result row" \
-    "ok       Test app" "$result"
-  _assert_contains "verbose: prints hook runtime on result row" \
-    "Test app                     " "$result"
-  _assert_contains "verbose: prints hook-owned output as subordinate detail" \
-    "    tool says everything is current" "$result"
-  _assert_not_contains "verbose: hook-owned output is not another ok row" \
-    "ok       tool says everything is current" "$result"
-  _assert_contains "verbose: runs otherapp merge" "Other app" "$result"
-  unset DOT_UPDATE_HOOK_THRESHOLD_MS
-
-  # Quiet mode should still run merges without tripping log redirection bugs.
-  DOT_QUIET=1
-  result=$(_run_merges 2>&1)
-  DOT_QUIET=0
-  : "$DOT_QUIET"
-  _assert_eq "quiet merges: no output on success" "" "$result"
-
-  cat >"$TEST_HOME/.local/lib/dot/core/merge-hooks/parallel-a.sh" <<'MERGE'
-merge() {
-    echo "Parallel A"
-    for _i in 1 2 3 4 5 6 7 8 9 10; do
-        [ -f "$HOME/parallel-b-started" ] && return 0
-        sleep 0.05
-    done
-    return 1
-}
-MERGE
-
-  cat >"$TEST_HOME/.local/lib/dot/core/merge-hooks/parallel-b.sh" <<'MERGE'
-merge() {
-    echo "Parallel B"
-    touch "$HOME/parallel-b-started"
-}
-MERGE
-
-  rm -f "$TEST_HOME/parallel-b-started"
-  export DOT_VERBOSE=1
-  export DOT_MERGE_JOBS=4
-  result=$(_run_merges 2>&1)
-  export DOT_VERBOSE=0
-  unset DOT_MERGE_JOBS
-  _assert_contains "parallel merges: earlier hook can observe later hook" \
-    "Parallel A" "$result"
-  _assert_not_contains "parallel merges: earlier hook is not failed before later hook starts" \
-    "warning  Parallel A" "$result"
-  _assert_exit "parallel merges: cron hook stays serial" \
-    0 "$(
-      _merge_hook_is_serial cron >/dev/null 2>&1
-      printf '%s' "$?"
-    )"
-  for parallel_hook in gstack hive-memory mclone mise; do
-    _assert_exit "parallel merges: $parallel_hook hook has no serial barrier" \
-      1 "$(
-        _merge_hook_is_serial "$parallel_hook" >/dev/null 2>&1
-        printf '%s' "$?"
-      )"
-  done
-
-  # A worker's private exit status must not leak through the public update
-  # contract. Use a non-1 failure here so this characterization catches an
-  # implementation that accidentally returns the last worker status instead
-  # of the aggregate operational-failure status.
-  cat >"$TEST_HOME/.local/lib/dot/core/merge-hooks/failapp.sh" <<'MERGE'
-merge() {
-    return 7
-}
-MERGE
-
-  export DOT_VERBOSE=1
-  merge_failure_rc=0
-  result=$(_run_merges 2>&1) || merge_failure_rc=$?
-  export DOT_VERBOSE=0
-  _assert_exit "failing merge hook: aggregate status is exactly one" \
-    1 "$merge_failure_rc"
-  _assert_contains "surviving merges still run" "Test app" "$result"
-  _assert_contains "verbose: failing hook gets warning row" "warning  failapp" "$result"
-  _assert_not_contains "verbose: failing hook is not marked ok" "ok       failapp" "$result"
-  _assert_contains "verbose: config stage reports aggregate hook failure" \
-    "1 config hook failed" "$result"
-
-  result=$(_run_merges 2>&1)
-  _assert_contains "default: config stage reports aggregate hook failure" \
-    "1 config hook failed" "$result"
-
-  rm -f "$TEST_HOME/.config/dot/merge-hooks.d"/*.sh
-  rm -f "$TEST_HOME/.local/lib/dot/core/merge-hooks"/*.sh
-  rm -rf "$TEST_HOME/.config/dot/merge-hooks.d/dirapp"
-
-  # Regression: a dangling hook symlink (overlay hook whose target was removed)
-  # must not derail the Configs phase. Hook discovery still sees the dead link by
-  # name, so before the [[ -r ]] guard `. "$_script"` failed on the missing file
-  # and the merge run stalled mid-way. The guard skips it: surviving hooks still
-  # run and the broken link is excluded from the merged count.
-  cat >"$TEST_HOME/.local/lib/dot/core/merge-hooks/goodapp.sh" <<'MERGE'
-merge() {
-    echo "Good app"
-}
-MERGE
-  ln -s "$TEST_HOME/.local/lib/dot/core/merge-hooks/missing-target.sh" \
-    "$TEST_HOME/.local/lib/dot/core/merge-hooks/dangling.sh"
-
-  export DOT_VERBOSE=1
-  result=$(_run_merges 2>&1)
-  export DOT_VERBOSE=0
-  _assert_contains "dangling hook: surviving hooks still run" "Good app" "$result"
-  _assert_not_contains "dangling hook: broken link never sourced" \
-    "No such file" "$result"
-
-  result=$(_run_merges 2>&1)
-  _assert_contains "dangling hook: excluded from merged count" \
-    "1 config merged" "$result"
-
-  rm -f "$TEST_HOME/.local/lib/dot/core/merge-hooks"/*.sh
 }

@@ -140,7 +140,7 @@ error: bare repo not found at $DOTFILES
 
 Clone it first:
   git clone --bare git@github.com:cgraf78/dotfiles.git $DOTFILES
-  $DOTFILES/../.local/bin/dotbootstrap
+  curl -fsSL https://raw.githubusercontent.com/cgraf78/dot/main/install.sh | bash -s -- --init git@github.com:cgraf78/dotfiles.git
 EOF
   exit 1
 fi

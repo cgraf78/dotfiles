@@ -3,7 +3,7 @@ dot_hook_source merge-hooks.d/lib/compat.sh || return
 
 # shellcheck shell=bash
 # Merge GitHub CLI preferences from dotfiles into the local gh config.
-# Shared by dotbootstrap and dot (on pull).
+# Applied by standalone dot during initialization and update.
 # Requires yq.
 #
 # Policy: dotfiles keys overwrite matching local keys.

@@ -117,15 +117,12 @@ _cron_user_match() {
   _cron_value_match "$spec" "$current"
 }
 
-# Check if current host/platform/user passes the active cron filter.
-# Uses shdeps public match functions when available; includes all if not.
+# Check if current host/platform/user passes the active cron filter. Platform
+# and host matching are provider-independent extension APIs, so the same client
+# policy remains correct when dependency_provider=none.
 _cron_filter_match() {
-  if declare -f shdeps_platform_match &>/dev/null; then
-    shdeps_platform_match "$_cron_filter_platforms" || return 1
-  fi
-  if declare -f shdeps_host_match &>/dev/null; then
-    shdeps_host_match "$_cron_filter_hosts" || return 1
-  fi
+  dot_hook_platform_match "$_cron_filter_platforms" || return 1
+  dot_hook_host_match "$_cron_filter_hosts" || return 1
   _cron_user_match "$_cron_filter_users" || return 1
   return 0
 }

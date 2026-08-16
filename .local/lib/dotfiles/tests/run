@@ -102,41 +102,16 @@ _dot_test_configure_home() {
 
 _dot_test_configure_home
 
-if [[ -n ${DOT_TEST_TESTS_DIR:-} ]]; then
-  TESTS_DIR=$DOT_TEST_TESTS_DIR
-elif [[ -r $DOT_TEST_HOST_HOME/.local/lib/dot/api-version.sh ]]; then
-  TESTS_DIR=$HOME/.local/lib/dotfiles/tests
-else
-  # Short dual-path window: the dotfiles-owned runner lands before the public
-  # library handoff and retained-suite pruning. Keep executing the established
-  # inventory until the standalone API link is authoritative.
-  TESTS_DIR=$HOME/.local/lib/dot/tests
-fi
+TESTS_DIR=${DOT_TEST_TESTS_DIR:-$HOME/.local/lib/dotfiles/tests}
 
 _dot_test_ui=${DOT_TEST_PUBLIC_UI:-$DOT_TEST_HOST_HOME/.local/lib/dot/ui.sh}
-_dot_test_legacy_ui=false
-if [[ ! -r $_dot_test_ui ]]; then
-  # Short dual-path window: the test runner moves before the public library
-  # handoff. Remove this fallback once every supported source revision has the
-  # standalone library link.
-  _dot_test_ui=$HOME/.local/lib/dot/core/ui.sh
-  _dot_test_legacy_ui=true
-fi
 [[ -r $_dot_test_ui ]] || {
   printf 'dot-test: public UI library is unavailable: %s\n' "$_dot_test_ui" >&2
   exit 2
 }
 # shellcheck source=/dev/null
 . "$_dot_test_ui"
-if $_dot_test_legacy_ui; then
-  dot_ui_color_hex() { _dot_ui_color_hex "$@"; }
-  dot_ui_hex_to_rgb() { _dot_ui_hex_to_rgb "$@"; }
-  dot_ui_has_gum() { _dot_ui_has_gum; }
-  dot_ui_title() { _dot_ui_title "$@"; }
-  dot_ui_summary_box() { _dot_ui_summary_box "$@"; }
-fi
 unset _dot_test_ui
-unset _dot_test_legacy_ui
 
 # Classify a finished suite from its exit code and captured output.
 #

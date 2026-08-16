@@ -2,124 +2,11 @@
 # launchers.sh - launcher coverage.
 
 dot_core_test_launchers() {
-  echo ""
-  echo "=== Normalize filtered ==="
-
-  echo "modified" >"$TEST_HOME/.testrc"
-  $GIT add .testrc
-  $GIT commit -m "modified" >/dev/null 2>&1
-
-  # Touch the file so stat differs (mtime) but content is same
-  cp "$TEST_HOME/.testrc" "$TEST_HOME/.testrc.tmp"
-  mv "$TEST_HOME/.testrc.tmp" "$TEST_HOME/.testrc"
-
-  # File should show as "dirty" in diff-files (stat mismatch) but not in diff
-  dirty=$($GIT diff-files --name-only 2>/dev/null || true)
-  if [[ -n "$dirty" ]]; then
-    # Stat-dirty but content-clean — dot status normalizes it as a side effect
-    "$BIN_DIR/dot" status >/dev/null 2>&1
-    dirty_after=$($GIT diff-files --name-only 2>/dev/null || true)
-    _assert_eq "normalize: clears phantom dirty file" "" "$dirty_after"
-  else
-    _pass "normalize: file not stat-dirty (nothing to test)"
-  fi
-
-  # ---------------------------------------------------------------------------
-  # Tests: dot command routing (via subprocess)
-  # ---------------------------------------------------------------------------
-
-  echo ""
-  echo "=== Command routing ==="
-
-  # dot status shows base dotfiles header
-  result=$("$BIN_DIR/dot" status 2>&1)
-  _assert_contains "status: base header" "dotfiles" "$result"
-
-  # dot status without overlay dir: no overlay section
-  _assert_not_contains "status: no overlay section without overlay dir" "work dotfiles" "$result"
-
-  # dot status with overlay dir: shows both
-  dot_fixture_file_origin OVERLAY_BARE "f" "x"
-  OVERLAY_DIR="$TEST_HOME/.dotfiles-work"
-  dot_fixture_clone_repo "$OVERLAY_BARE" "$OVERLAY_DIR"
-
-  result=$("$BIN_DIR/dot" status 2>&1)
-  _assert_contains "status: base with overlay dir" "dotfiles" "$result"
-  _assert_contains "status: overlay section present" "work dotfiles" "$result"
-
-  _discover_overlays
-  normalize_sync=$(_tmpdir)
-  mkdir -p "$normalize_sync"
-  # shellcheck disable=SC2329 # invoked indirectly by _normalize_filtered.
-  _normalize_dirty_files() {
-    local kind=base started=$SECONDS
-    [[ "$*" != *" -C $OVERLAY_DIR"* ]] || kind=overlay
-    : >"$normalize_sync/$kind.started"
-    while [[ ! -e "$normalize_sync/base.started" || ! -e "$normalize_sync/overlay.started" ]]; do
-      if ((SECONDS - started >= 5)); then
-        : >"$normalize_sync/not-concurrent"
-        break
-      fi
-      sleep 0.01
-    done
-    : >"$normalize_sync/$kind.finished"
-  }
-  _normalize_filtered
-  _assert_file_missing "normalize parallel: repositories overlap" \
-    "$normalize_sync/not-concurrent"
-  _assert_file_exists "normalize parallel: drains base worker" \
-    "$normalize_sync/base.finished"
-  _assert_file_exists "normalize parallel: drains overlay worker" \
-    "$normalize_sync/overlay.finished"
-  unset -f _normalize_dirty_files
-  # shellcheck disable=SC1091 # restore the production helper after the canary.
-  . "$_DOT_REPOS_DIR/dirty.sh"
-
-  rm -rf "$OVERLAY_DIR" "$OVERLAY_BARE"
-
-  # dot with no args shows usage
-  result=$("$BIN_DIR/dot" 2>&1 || true)
-  _assert_contains "no args: usage" "usage:" "$result"
-
-  # dot --help / -h / help print usage and exit 0 (not "unknown command")
-  local _help_flag
-  for _help_flag in --help -h help; do
-    result=$("$BIN_DIR/dot" "$_help_flag" 2>&1)
-    _assert_exit "help ($_help_flag): exits 0" 0 "$?"
-    _assert_contains "help ($_help_flag): shows usage" "usage: dot" "$result"
-    _assert_not_contains "help ($_help_flag): not treated as unknown" "unknown command" "$result"
-  done
-
-  # git launcher forwards args with flags against the base repo
+  # The standalone repository owns dot command routing. This retained suite
+  # covers only the dotfiles-owned launchers and consumer policy.
   echo "tag-test" >"$TEST_HOME/.testrc"
   $GIT add .testrc
   $GIT commit -m "tag test" >/dev/null 2>&1
-
-  # dot <unknown> prints error with hint
-  result=$("$BIN_DIR/dot" log 2>&1 || true)
-  _assert_contains "unknown cmd: error" "unknown command" "$result"
-  _assert_contains "unknown cmd: hint" "git log" "$result"
-
-  # dot <unknown> exits non-zero
-  if "$BIN_DIR/dot" nosuchcommand 2>/dev/null; then
-    _fail "unknown cmd: exits non-zero"
-  else
-    _pass "unknown cmd: exits non-zero"
-  fi
-
-  # dot <unknown> hint includes the actual command name
-  result=$("$BIN_DIR/dot" branch 2>&1 || true)
-  _assert_contains "unknown cmd: hint matches arg" "git branch" "$result"
-
-  # dot <unknown> outputs on stderr only
-  stdout=$("$BIN_DIR/dot" nosuchcommand 2>/dev/null || true)
-  _assert_eq "unknown cmd: nothing on stdout" "" "$stdout"
-
-  result=$("$BIN_DIR/dot" git log 2>&1 || true)
-  _assert_contains "git removed: dot reports unknown command" \
-    "unknown command: git" "$result"
-  _assert_contains "git removed: dot suggests launcher" \
-    "PATH-visible \"git\" launcher" "$result"
 
   # ---------------------------------------------------------------------------
   # Tests: git launcher
@@ -1008,14 +895,6 @@ $SLEY_ENV_HOME" "$result"
   )
   _assert_eq "sley policy: ordinary homes do not enable bare-repo fallback" \
     ":" "$result"
-
-  result=$("$BIN_DIR/dot" sley status 2>&1 || true)
-  _assert_contains "sley removed: dot reports unknown command" \
-    "unknown command: sley" "$result"
-  _assert_contains "sley removed: dot suggests raw git fallback" \
-    "git sley" "$result"
-  _assert_not_contains "sley removed: does not run sley status" \
-    "repo: git" "$result"
 
   echo ""
   echo "=== git launcher argument routing ==="

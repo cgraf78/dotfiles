@@ -3,7 +3,7 @@ dot_hook_source merge-hooks.d/lib/compat.sh || return
 
 # shellcheck shell=bash
 # Merge SSH host definitions from dotfiles into ~/.ssh/config.
-# Shared by dotbootstrap and dot (on pull).
+# Applied by standalone dot during initialization and update.
 #
 # Each ssh/config.d source file gets its own marked block in ~/.ssh/config,
 # delineated by comment markers. Content inside markers is pasted verbatim
