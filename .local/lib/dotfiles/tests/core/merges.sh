@@ -830,6 +830,14 @@ PGREP
 
   : >"$nvim_log"
   HOME="$nvim_home" XDG_STATE_HOME="$nvim_state" XDG_DATA_HOME="$nvim_data" \
+    PREFIX=/data/data/com.termux/files/usr PATH="$nvim_bin:$PATH" \
+    DOT_TEST_NVIM_LOCK="$nvim_lock" DOT_TEST_NVIM_LOG="$nvim_log" \
+    DOT_TEST_PGREP_STATUS=1 _run_nvim_merge_for_test
+  _assert_eq "nvim merge: skips automatic Lazy updates on Android" \
+    "" "$(cat "$nvim_log")"
+
+  : >"$nvim_log"
+  HOME="$nvim_home" XDG_STATE_HOME="$nvim_state" XDG_DATA_HOME="$nvim_data" \
     PATH="$nvim_bin:$PATH" DOT_TEST_NVIM_LOCK="$nvim_lock" DOT_TEST_NVIM_LOG="$nvim_log" \
     DOT_TEST_PGREP_STATUS=0 _run_nvim_merge_for_test
   _assert_eq "nvim merge: does not update plugins beneath a running editor" "" "$(cat "$nvim_log")"

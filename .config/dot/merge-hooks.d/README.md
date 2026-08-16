@@ -76,7 +76,7 @@ Codex inputs and their documentation remain in [`codex/`](codex/README.md).
 | Agent rules | `~/.config/agent-rules/rules.d/*.md`, trusted `~/.config/agent-rules/playbooks.d/**/*.md`, `agent-rules/targets.d/*.txt` | private resolved manifest consumed by the `agent-rules-sync` provider |
 | Git | tracked XDG config | one portable include in `~/.gitconfig` when needed |
 | GitHub CLI | `gh/config.d/*.yml` | `~/.config/gh/config.yml` |
-| Neovim | `nvim/` | Lazy-managed plugins updated headlessly when Neovim is idle |
+| Neovim | `nvim/` | Lazy-managed plugins updated headlessly when Neovim is idle; Android keeps its native package path and skips this unattended update |
 | SSH | `ssh/config.d/*.ssh_config` plus overlay `.ssh` files | `~/.ssh/config` |
 | tmux | tracked `~/.config/tmux/tmux.conf` | running default tmux server |
 | Git ignore | `ignore/ignore.d/` | global gitignore |

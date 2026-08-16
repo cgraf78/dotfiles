@@ -9,6 +9,9 @@ REAL_HOME=${DOT_TEST_SOURCE_HOME:-$HOME}
 TEST_HOME=$(_tmpdir)
 export HOME=$TEST_HOME
 export DOT_TEST_SOURCE_HOME=$REAL_HOME
+# The fixture owns a complete synthetic HOME. Host workflow XDG roots must not
+# redirect its family lookup outside that tree.
+unset XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME XDG_RUNTIME_DIR
 _test_load_dot_merge_api || {
   _fail 'sshd hook: standalone merge API is unavailable'
   _test_summary

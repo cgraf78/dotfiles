@@ -17,8 +17,14 @@ fixture=$(cd "$fixture" && pwd -P)
 home=$fixture/home
 origin=$fixture/origin.git
 seed=$fixture/seed
+ambient_xdg=$fixture/ambient-xdg
 mkdir -p "$home" "$seed"
 mkdir -p "$fixture/no-hooks"
+export XDG_CONFIG_HOME=$ambient_xdg/config
+export XDG_DATA_HOME=$ambient_xdg/data
+export XDG_STATE_HOME=$ambient_xdg/state
+export XDG_CACHE_HOME=$ambient_xdg/cache
+export XDG_RUNTIME_DIR=$ambient_xdg/runtime
 
 git init --bare --initial-branch=main "$origin" >/dev/null
 git -C "$seed" init --initial-branch=main >/dev/null
@@ -63,7 +69,8 @@ git -C "$seed" commit -m update >/dev/null
 git -C "$seed" push origin main >/dev/null
 
 update_status=0
-HOME="$home" PATH="$home/.local/bin:$PATH" \
+HOME="$home" XDG_CONFIG_HOME='' XDG_DATA_HOME='' XDG_STATE_HOME='' \
+  XDG_CACHE_HOME='' XDG_RUNTIME_DIR='' PATH="$home/.local/bin:$PATH" \
   "$dot_root/bin/dot" update >"$fixture/update.out" 2>"$fixture/update.err" ||
   update_status=$?
 _assert_eq 'standalone update integration exits successfully' 0 "$update_status"
@@ -82,7 +89,8 @@ _assert_eq 'standalone update integration records upstream revision' \
   "$expected_revision" "$actual_revision"
 
 second_status=0
-HOME="$home" PATH="$home/.local/bin:$PATH" \
+HOME="$home" XDG_CONFIG_HOME='' XDG_DATA_HOME='' XDG_STATE_HOME='' \
+  XDG_CACHE_HOME='' XDG_RUNTIME_DIR='' PATH="$home/.local/bin:$PATH" \
   "$dot_root/bin/dot" update >/dev/null 2>"$fixture/second.err" || second_status=$?
 _assert_eq 'standalone update integration is idempotent' 0 "$second_status"
 
