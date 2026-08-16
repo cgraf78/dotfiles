@@ -52,6 +52,12 @@ _merge_hook_is_serial() {
       # crontab writer could be overwritten by the generated replacement.
       return 0
       ;;
+    grafhome-ca-host-policy | sshd)
+      # Both hooks can validate and reload the singleton sshd configuration.
+      # Keep them out of parallel batches so one never validates while the
+      # other is between its atomic fragment install and service reload.
+      return 0
+      ;;
     *) return 1 ;;
   esac
 }
