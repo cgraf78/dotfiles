@@ -171,6 +171,11 @@ TOOL_COMMANDS
       agent-rules claude codex cron gemini gh git gstack hive-memory ignore \
       iterm2 karabiner mise muse nvim opencode sapling ssh tmux vscode wezterm
   )
+  # The privileged sshd hook has root, server-readiness, validation, and reload
+  # policy that does not fit the generic user-tool gate below. Keep it in the
+  # complete ownership inventory while its dedicated suite exercises that
+  # intentionally different contract.
+  dedicated_policy_hooks=sshd
 
   merge_hook_inventory_home=$(_tmpdir)
   mkdir -p "$merge_hook_inventory_home/.local/lib/dotfiles/merge-hooks.d/lib"
@@ -224,7 +229,8 @@ TOOL_COMMANDS
 
   classified_hooks=$(_dot_test_merge_hook_names "$REAL_HOME")
   _assert_eq "merge hook gates: every base hook is classified" \
-    "$(printf '%s\n' "$tool_gated_hooks" | LC_ALL=C sort)" "$classified_hooks"
+    "$(printf '%s\n' "$tool_gated_hooks" "$dedicated_policy_hooks" | LC_ALL=C sort)" \
+    "$classified_hooks"
 
   while IFS= read -r hook_name; do
     hook_file=$hook_name
