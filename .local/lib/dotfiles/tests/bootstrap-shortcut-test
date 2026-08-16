@@ -15,8 +15,19 @@ fixture=$(_tmpdir)
 fixture=$(cd "$fixture" && pwd -P)
 home=$fixture/home
 origin=$fixture/client.git
+dot_origin=$fixture/dot.git
 seed=$fixture/seed
 mkdir -p "$home" "$seed" "$fixture/no-hooks"
+
+# The generated installer deliberately follows the public main branch. Build a
+# local main at the exact candidate revision so a worktree run tests the engine
+# under review instead of whichever revision the shared repository currently
+# names as main.
+dot_revision=$(git -C "$dot_root" rev-parse HEAD) || exit 1
+git init --bare --initial-branch=main "$dot_origin" >/dev/null
+git -C "$dot_root" push "$dot_origin" \
+  "$dot_revision:refs/heads/main" >/dev/null
+git --git-dir="$dot_origin" symbolic-ref HEAD refs/heads/main
 
 git init --bare --initial-branch=main "$origin" >/dev/null
 git -C "$seed" init --initial-branch=main >/dev/null
@@ -37,13 +48,16 @@ git --git-dir="$origin" symbolic-ref HEAD refs/heads/main
 
 install_status=0
 HOME="$home" PATH="$PATH" \
-  CGRAF78_CHECKOUT_INSTALL_REPO_URL="file://$dot_root" \
+  CGRAF78_CHECKOUT_INSTALL_REPO_URL="file://$dot_origin" \
   CGRAF78_CHECKOUT_INSTALL_DIR="$home/.local/share/cgraf78/dot" \
   SHDEPS_INSTALL_DIR="$home/.local/share" \
   bash -s -- --init "$origin" <"$dot_root/install.sh" \
   >"$fixture/install.out" 2>"$fixture/install.err" || install_status=$?
 
 _assert_eq 'public shortcut installs and initializes through dot' 0 "$install_status"
+_assert_eq 'public shortcut installs the exact standalone revision' \
+  "$dot_revision" \
+  "$(git -C "$home/.local/share/cgraf78/dot" rev-parse HEAD 2>/dev/null || printf missing)"
 _assert_file_content 'public shortcut checks out the bound client repository' \
   '# fixture client' "$home/.bashrc"
 if [[ -L $home/.local/bin/dot && -L $home/.local/lib/dot ]]; then

@@ -49,7 +49,9 @@ _client_path_contains 'Shdeps owns the standalone dot dependency' \
 _client_path_contains 'dot forwarder retains the standalone recovery installer' \
   .local/bin/dot 'raw.githubusercontent.com/cgraf78/dot/main/install.sh'
 
-if [[ $(git hash-object "$source_home/.local/bin/dot") == 4fc4a57e1f3a09f6e8f97ea0f6c2dab3ce746c6a ]]; then
+if dot_root=$(_test_dot_root) &&
+  git --no-pager diff --no-index --quiet --no-ext-diff --no-textconv -- \
+    "$source_home/.local/bin/dot" "$dot_root/support/client-launcher.sh"; then
   _pass 'dot forwarder matches the reviewed standalone template'
 else
   _fail 'dot forwarder matches the reviewed standalone template'
