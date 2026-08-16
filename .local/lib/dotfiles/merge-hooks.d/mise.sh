@@ -38,6 +38,7 @@ _mise_retire_tmux() {
     rm -f "$link"
   fi
   [[ -L "$managed_link" ]] && rm -f "$managed_link"
+  return 0
 }
 
 _mise_publish_tmux() {
@@ -76,6 +77,11 @@ _mise_publish_tmux() {
 
 merge() {
   _dot_tool_present mise || return 0
+  # Mise's tracked global toolset targets Linux and macOS release assets.
+  # Termux dependencies come from its native packages instead; asking Mise to
+  # resolve them as Android assets produces deterministic unsupported-platform
+  # failures and cannot install a useful generation.
+  dot_hook_platform_match android && return 0
 
   local config="$HOME/.config/mise/config.toml"
   if [[ ! -f "$config" ]]; then

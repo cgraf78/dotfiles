@@ -6844,6 +6844,19 @@ exit 0
 GH
   chmod +x "$MOCK_BIN/gh"
 
+  # Mise's tracked global toolset has no Android release assets. The Termux
+  # dependency layer supplies its supported tools directly, so the hook must
+  # not invoke mise or publish its optional tmux indirection there.
+  rm -f "$TEST_HOME/.mise-env.log" "$TEST_HOME/.mise-calls.log"
+  PREFIX=/data/data/com.termux/files/usr \
+    MISE_TMUX_BIN="$_mise_tmux_one" _run_mise_merge
+  if [[ ! -e "$TEST_HOME/.mise-env.log" &&
+    ! -e "$TEST_HOME/.mise-calls.log" ]]; then
+    _pass "mise hook: skips unsupported Android tool synchronization"
+  else
+    _fail "mise hook: skips unsupported Android tool synchronization"
+  fi
+
   # Non-interactive merge never calls gh.
   rm -f "$TEST_HOME/.mise-env.log" "$TEST_HOME/.mise-calls.log" "$TEST_HOME/.gh-calls.log"
   MISE_TMUX_BIN="$_mise_tmux_one" _run_mise_merge
@@ -6901,6 +6914,18 @@ GH
   else
     _fail "mise hook: removed tmux retires the managed link"
   fi
+
+  # Fresh extension workers enable errexit. A missing resolved tmux binary is
+  # still a normal no-op, even when no old managed link exists to remove.
+  set +e
+  (
+    set -e
+    MISE_TMUX_BIN="$_mise_tmux_two" MISE_TMUX_WHICH_RC=1 _run_mise_merge
+  )
+  _mise_missing_tmux_status=$?
+  set -e
+  _assert_eq "mise hook: missing tmux is successful under strict worker options" \
+    0 "$_mise_missing_tmux_status"
 
   rm -f "$TEST_HOME/.local/bin/tmux"
   printf '%s\n' 'user-owned tmux' >"$TEST_HOME/.local/bin/tmux"
