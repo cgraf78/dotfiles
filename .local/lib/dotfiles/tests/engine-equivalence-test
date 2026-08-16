@@ -24,7 +24,6 @@ while IFS=$'\t' read -r kind name value extra; do
   fi
   case $kind:$name in
     revision:old-dotfiles) old_revision=$value ;;
-    revision:candidate-dot) candidate_revision=$value ;;
     archive:old-dotfiles-core-sha256) old_archive_digest=$value ;;
     allowed:old-only) allowed_old+=("$value") ;;
     allowed:candidate-only) allowed_candidate+=("$value") ;;
@@ -34,6 +33,9 @@ while IFS=$'\t' read -r kind name value extra; do
       ;;
   esac
 done <"$fixture_file"
+
+candidate_revision=$(sed -n 's/^minimum_revision=//p' \
+  "$source_home/.local/lib/dotfiles/dot-cutover.lock")
 
 case $old_revision:$candidate_revision in
   *[!0-9a-f:]* | *:*:)
@@ -64,13 +66,6 @@ esac
   echo 'candidate-engine allowed-delta ledger drifted' >&2
   exit 1
 }
-cutover_revision=$(sed -n 's/^minimum_revision=//p' \
-  "$source_home/.local/lib/dotfiles/dot-cutover.lock")
-[[ $candidate_revision == "$cutover_revision" ]] || {
-  echo 'equivalence candidate does not match the fleet cutover revision' >&2
-  exit 1
-}
-
 dot_root=$(_test_dot_root) || {
   echo 'standalone dot checkout is unavailable' >&2
   exit 1

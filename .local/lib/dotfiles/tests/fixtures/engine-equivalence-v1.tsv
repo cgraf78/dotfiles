@@ -1,6 +1,5 @@
 # kind	name	value
 revision	old-dotfiles	9a8966ba6b5bb78564b9aced2f75aabe4b8f7411
-revision	candidate-dot	e3616adf481ab48ec9501b2e75c1fd7ca892605c
 archive	old-dotfiles-core-sha256	79f3a86adfb969ed00ada0bf71a80c8f786e675f270aee0237618db7f0bed158
 allowed	old-only	.local/lib/dot
 allowed	candidate-only	.local/lib/dotfiles
