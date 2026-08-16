@@ -10,6 +10,7 @@ source_home=${DOT_TEST_SOURCE_HOME:-$HOME}
 fixture_file=$source_home/.local/lib/dotfiles/tests/fixtures/engine-equivalence-v1.tsv
 old_revision=
 candidate_revision=
+old_archive_digest=
 allowed_old=()
 allowed_candidate=()
 
@@ -24,6 +25,7 @@ while IFS=$'\t' read -r kind name value extra; do
   case $kind:$name in
     revision:old-dotfiles) old_revision=$value ;;
     revision:candidate-dot) candidate_revision=$value ;;
+    archive:old-dotfiles-core-sha256) old_archive_digest=$value ;;
     allowed:old-only) allowed_old+=("$value") ;;
     allowed:candidate-only) allowed_candidate+=("$value") ;;
     *)
@@ -41,6 +43,16 @@ case $old_revision:$candidate_revision in
 esac
 [[ ${#old_revision} -eq 40 && ${#candidate_revision} -eq 40 ]] || {
   echo 'engine revisions must be full 40-character object IDs' >&2
+  exit 1
+}
+case $old_archive_digest in
+  *[!0-9a-f]* | '')
+    echo 'invalid old-engine archive digest' >&2
+    exit 1
+    ;;
+esac
+[[ ${#old_archive_digest} -eq 64 ]] || {
+  echo 'old-engine archive digest must be a full SHA-256 value' >&2
   exit 1
 }
 [[ ${#allowed_old[@]} -eq 1 && ${allowed_old[0]} == .local/lib/dot ]] || {
@@ -63,10 +75,6 @@ dot_root=$(_test_dot_root) || {
   echo 'standalone dot checkout is unavailable' >&2
   exit 1
 }
-git -C "$source_home" cat-file -e "$old_revision^{commit}" 2>/dev/null || {
-  echo "old embedded revision is unavailable: $old_revision" >&2
-  exit 1
-}
 git -C "$dot_root" cat-file -e "$candidate_revision^{commit}" 2>/dev/null || {
   echo "candidate standalone revision is unavailable: $candidate_revision" >&2
   exit 1
@@ -84,11 +92,61 @@ mkdir -p "$old_home" "$candidate_home" "$candidate_engine" \
 chmod 0700 "$old_home" "$candidate_home" "$candidate_engine" \
   "$old_tmp" "$candidate_tmp"
 
-git -C "$source_home" archive "$old_revision" .local/lib/dot/core |
-  tar -x -C "$old_home" || {
+old_archive=$source_home/.local/lib/dotfiles/tests/fixtures/engine-equivalence-old-core.tar.gz
+if ! python3 - "$old_archive" "$old_home" "$old_archive_digest" \
+  "$old_revision" <<'PY'; then
+import hashlib
+import io
+import inspect
+import os
+from pathlib import PurePosixPath
+import sys
+import tarfile
+
+archive_path, destination, expected_digest, expected_revision = sys.argv[1:]
+with open(archive_path, "rb") as stream:
+    payload = stream.read()
+if hashlib.sha256(payload).hexdigest() != expected_digest:
+    raise SystemExit("old-engine archive digest mismatch")
+
+with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as archive:
+    if archive.pax_headers.get("comment") != expected_revision:
+        raise SystemExit("old-engine archive revision mismatch")
+    members = archive.getmembers()
+    allowed_directories = {
+        ".local",
+        ".local/lib",
+        ".local/lib/dot",
+        ".local/lib/dot/core",
+    }
+    for member in members:
+        path = PurePosixPath(member.name)
+        if (
+            path.is_absolute()
+            or ".." in path.parts
+            or not (
+                (member.isdir() and member.name in allowed_directories)
+                or member.name.startswith(".local/lib/dot/core/")
+            )
+            or not (member.isdir() or member.isfile())
+        ):
+            raise SystemExit(f"unsafe old-engine archive member: {member.name!r}")
+    extraction_options = {}
+    if "filter" in inspect.signature(archive.extractall).parameters:
+        extraction_options["filter"] = "fully_trusted"
+    archive.extractall(destination, members=members, **extraction_options)
+
+# Match command-line tar's normal umask treatment for the parent directories
+# that are visible in the equivalence inventory. The archived engine subtree
+# itself remains byte- and mode-exact beneath the explicit old-only ledger.
+current_umask = os.umask(0)
+os.umask(current_umask)
+for relative in (".local", ".local/lib"):
+    os.chmod(os.path.join(destination, relative), 0o777 & ~current_umask)
+PY
   echo 'could not extract the old embedded engine' >&2
   exit 1
-}
+fi
 git -C "$dot_root" archive "$candidate_revision" |
   tar -x -C "$candidate_engine" || {
   echo 'could not extract the candidate standalone engine' >&2

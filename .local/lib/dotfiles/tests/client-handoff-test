@@ -17,11 +17,12 @@ backup=$case_home/.local/lib/.dot-library-handoff-v1
 helper=$client_lib/dot-library-handoff.sh
 transaction=$state/dot/library-handoff-v1/transaction
 capability=$state/dot/library-handoff-v1/capability
+handoff_fixture=$source_home/.local/lib/dotfiles/tests/fixtures/handoff-v1
 
 mkdir -p "$checkout/bin" "$checkout/lib/dot/public" "$checkout/support" \
   "$client_lib" "$legacy/core" "$case_home/.local/bin"
-cp "$source_home/.local/lib/dotfiles/dot-library-handoff.sh" "$helper"
-cp "$source_home/.local/lib/dotfiles/dot-library-tree.py" "$client_lib/"
+cp "$handoff_fixture/dot-library-handoff.sh" "$helper"
+cp "$handoff_fixture/dot-library-tree.py" "$client_lib/dot-library-tree.py"
 cp "$source_home/.local/bin/dot" "$case_home/.local/bin/dot"
 cp "$source_home/.local/bin/dot" "$checkout/support/client-launcher.sh"
 printf 'legacy engine\n' >"$legacy/core/init.sh"

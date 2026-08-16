@@ -46,21 +46,25 @@ _client_path_contains 'dot activates the Shdeps provider' \
   .config/dot/config 'dependency_provider=shdeps'
 _client_path_contains 'Shdeps owns the standalone dot dependency' \
   .config/shdeps/10-deps.conf 'cgraf78/dot                                github:repo      dot'
-_client_path_contains 'dot forwarder retains the explicit embedded fallback' \
-  .local/bin/dot '.local/lib/dotfiles/legacy-dot-launcher.sh'
+_client_path_contains 'dot forwarder retains the standalone recovery installer' \
+  .local/bin/dot 'raw.githubusercontent.com/cgraf78/dot/main/install.sh'
 
 if [[ $(git hash-object "$source_home/.local/bin/dot") == 4fc4a57e1f3a09f6e8f97ea0f6c2dab3ce746c6a ]]; then
   _pass 'dot forwarder matches the reviewed standalone template'
 else
   _fail 'dot forwarder matches the reviewed standalone template'
 fi
-if [[ -x $source_home/.local/lib/dotfiles/dot-library-handoff.sh &&
-  -f $source_home/.local/lib/dotfiles/dot-library-tree.py &&
-  -x $source_home/.local/lib/dotfiles/pre-sync.d/90-library-handoff.sh ]]; then
-  _pass 'dot library handoff helpers are installed together'
-else
-  _fail 'dot library handoff helpers are installed together'
-fi
+for retired_path in \
+  .local/lib/dotfiles/dot-library-handoff.sh \
+  .local/lib/dotfiles/dot-library-tree.py \
+  .local/lib/dotfiles/legacy-dot-launcher.sh \
+  .local/lib/dotfiles/pre-sync.d/90-library-handoff.sh; do
+  if [[ ! -e $source_home/$retired_path && ! -L $source_home/$retired_path ]]; then
+    _pass "temporary cutover helper is absent: $retired_path"
+  else
+    _fail "temporary cutover helper is absent: $retired_path"
+  fi
+done
 
 if [[ -L $source_home/.local/bin/dot-test ]] &&
   [[ $(readlink "$source_home/.local/bin/dot-test") == ../lib/dotfiles/tests/run ]]; then
