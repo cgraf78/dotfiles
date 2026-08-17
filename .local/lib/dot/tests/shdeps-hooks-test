@@ -449,7 +449,8 @@ _assert_contains "duckdb: release fallback excludes Android and native-package t
   "mgr:!brew,mgr:!pacman,os:!android" "$_duckdb_release"
 
 _bpftrace_deps=$(
-  awk '$1 == "bpftrace" || $1 == "bpftrace/bpftrace" || $3 == "bpftrace" { print }' \
+  awk '$1 ~ /(^|\/)bpftrace$/ || \
+    $3 ~ /(^|,)([^,:]+:)?bpftrace(,|$)/ { print }' \
     "$REAL_HOME/.config/shdeps/"*.conf
 )
 _assert_eq "bpftrace: dependency stays disabled" "" "$_bpftrace_deps"
