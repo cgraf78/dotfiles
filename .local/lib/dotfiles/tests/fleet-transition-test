@@ -74,7 +74,7 @@ shdeps_self_update() {
 shdeps_update() {
   local checkout=$SHDEPS_INSTALL_DIR/cgraf78/dot
 
-  printf 'update\n' >>"$SHDEPS_FAKE_LOG"
+  printf 'force=%s\n' "${SHDEPS_FORCE:-unset}" >>"$SHDEPS_FAKE_LOG"
   [[ ${SHDEPS_FAKE_FAIL:-0} -eq 0 ]] || return 73
   mkdir -p "${checkout%/*}"
   if [[ ! -d $checkout/.git ]]; then
@@ -169,16 +169,24 @@ run_case_dot() {
 prepare_case success || exit 1
 first_output=''
 first_status=0
-first_output=$(run_case_dot update --cron 2>&1) || first_status=$?
+first_output=$(run_case_dot update --cron --force 2>&1) || first_status=$?
 _assert_exit 'old main crosses directly to preparation successfully' 0 "$first_status"
 _assert_eq 'old-main cron transition remains silent' '' "$first_output"
 _assert_not_contains 'old-main transition never loses the runtime' \
   'standalone runtime is unavailable' "$first_output"
 _assert_file_content 'old-main reexec stays on retained legacy engine' \
-  $'arg=update\narg=--skip-pull\narg=--cron' "$CASE_LEGACY_LOG"
+  $'arg=update\narg=--skip-pull\narg=--cron\narg=--force' "$CASE_LEGACY_LOG"
+_assert_file_content 'forced preparation reaches Shdeps as forced' \
+  'force=1' "$CASE_LOG"
 
 minimum_revision=$(sed -n 's/^minimum_revision=//p' \
   "$CASE_HOME/.local/lib/dotfiles/dot-cutover.lock")
+if git -C "$dot_root" merge-base --is-ancestor \
+  "$minimum_revision" HEAD >/dev/null 2>&1; then
+  _pass 'tested standalone checkout contains the locked minimum revision'
+else
+  _fail 'tested standalone checkout contains the locked minimum revision'
+fi
 _assert_file_exists 'successful convergence installs standalone Dot' \
   "$CASE_HOME/.local/share/cgraf78/dot/bin/dot"
 if [[ -d $CASE_XDG_ROOT/state/dot/client-ready-v2/$minimum_revision &&
@@ -200,17 +208,17 @@ _assert_file_exists 'fleet transition retains the embedded engine' \
 
 second_output=''
 second_status=0
-second_output=$(run_case_dot update --cron 2>&1) || second_status=$?
+second_output=$(run_case_dot update --cron --force 2>&1) || second_status=$?
 _assert_exit 'second preparation cron remains successful' 0 "$second_status"
 _assert_eq 'second preparation cron remains silent' '' "$second_output"
 _assert_file_content 'prepare phase remains legacy on the second invocation' \
-  $'arg=update\narg=--skip-pull\narg=--cron\narg=update\narg=--cron' \
+  $'arg=update\narg=--skip-pull\narg=--cron\narg=--force\narg=update\narg=--cron\narg=--force' \
   "$CASE_LEGACY_LOG"
 
 prepare_case failure || exit 1
 failure_output=''
 failure_status=0
-failure_output=$(run_case_dot update --cron 2>&1) || failure_status=$?
+failure_output=$(run_case_dot update --cron --force 2>&1) || failure_status=$?
 if [[ $failure_status -ne 0 ]]; then
   _pass 'failed dependency convergence remains nonzero'
 else
