@@ -478,26 +478,11 @@ _assert_eq "bpftrace: installs through the native package manager" \
 _assert_contains "bpftrace: is limited to Linux and WSL" \
   "os:!macos,os:!android" "$_bpftrace_dep"
 
-_neocmakelsp_pkg=$(
-  awk '$1 == "neocmakelsp" && $2 == "pkg" { print; exit }' \
+_neocmakelsp_deps=$(
+  awk '$1 == "neocmakelsp" || $1 == "Decodetalkers/neocmakelsp" { print }' \
     "$REAL_HOME/.config/shdeps/10-deps.conf"
 )
-_assert_eq "neocmakelsp: prefers supported native package managers" \
-  "pkg" "$(awk '{ print $2 }' <<<"$_neocmakelsp_pkg")"
-_assert_contains "neocmakelsp: native route is limited to package catalogs that carry it" \
-  "mgr:brew,mgr:apk,mgr:android" "$_neocmakelsp_pkg"
-
-_neocmakelsp_cargo=$(
-  awk '$1 == "neocmakelsp" && $2 == "cargo" { print; exit }' \
-    "$REAL_HOME/.config/shdeps/10-deps.conf"
-)
-_assert_eq "neocmakelsp: portable fallback uses the upstream crate" \
-  "cargo" "$(awk '{ print $2 }' <<<"$_neocmakelsp_cargo")"
-_assert_contains "neocmakelsp: cargo fallback excludes native and unsupported targets" \
-  "mgr:!brew,mgr:!apk,mgr:!android,os:!macos,os:!android" "$_neocmakelsp_cargo"
-_assert_not_contains "neocmakelsp: retired GitHub owner is absent" \
-  "Decodetalkers/neocmakelsp" \
-  "$(cat "$REAL_HOME/.config/shdeps/10-deps.conf")"
+_assert_eq "neocmakelsp: dependency stays disabled" "" "$_neocmakelsp_deps"
 
 for _termux_native in difftastic direnv dust gum lazygit mise yq; do
   _assert_contains "$_termux_native: Termux uses the native package" \
