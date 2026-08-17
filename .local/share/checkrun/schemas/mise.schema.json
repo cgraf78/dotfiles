@@ -608,13 +608,6 @@
               "description": "Use cosign to verify aqua tool signatures.",
               "type": "boolean"
             },
-            "cosign_extra_args": {
-              "description": "Extra arguments to pass to cosign when verifying aqua tool signatures.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
             "github_attestations": {
               "default": true,
               "description": "Enable GitHub Artifact Attestations verification for aqua tools.",
@@ -1905,6 +1898,10 @@
                 },
                 "remote_url": {
                   "description": "[experimental] Base URL for the remote build-cache service.",
+                  "type": "string"
+                },
+                "stats_report": {
+                  "description": "[experimental] File to write action-cache session statistics to.",
                   "type": "string"
                 }
               }
