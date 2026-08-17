@@ -473,14 +473,11 @@ _assert_eq "duckdb: fallback uses the official release archive" \
 _assert_contains "duckdb: release fallback excludes Android and native-package targets" \
   "mgr:!brew,mgr:!pacman,os:!android" "$_duckdb_release"
 
-_bpftrace_dep=$(
-  awk '$1 == "bpftrace" && $2 == "pkg" { print; exit }' \
+_bpftrace_deps=$(
+  awk '$1 == "bpftrace" { print }' \
     "$REAL_HOME/.config/shdeps/10-deps.conf"
 )
-_assert_eq "bpftrace: installs through the native package manager" \
-  "pkg" "$(awk '{ print $2 }' <<<"$_bpftrace_dep")"
-_assert_contains "bpftrace: is limited to Linux and WSL" \
-  "os:!macos,os:!android" "$_bpftrace_dep"
+_assert_eq "bpftrace: dependency stays disabled" "" "$_bpftrace_deps"
 
 _neocmakelsp_deps=$(
   awk '$1 == "neocmakelsp" || $1 == "Decodetalkers/neocmakelsp" { print }' \
