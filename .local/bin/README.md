@@ -4,16 +4,22 @@ This README covers dotfiles-owned command entry points tracked in this repo.
 At runtime, `~/.local/bin` also contains shdeps-managed links and other local
 installs that are not tracked by dotfiles.
 
-Shared implementation should live under `~/.local/lib/dot` or another owning
+Shared client implementation should live under `~/.local/lib/dotfiles` or another owning
 component; files here should stay thin and command-shaped.
 
 ## Dotfiles Commands
 
-- `dot` manages the base bare repo and active overlays.
-- `dotbootstrap` installs or repairs a dotfiles checkout.
+- `dot` manages the base client repository and active overlays.
+- The public bootstrap shortcut installs standalone dot and binds this client:
+
+  ```bash
+  curl -fsSL https://raw.githubusercontent.com/cgraf78/dot/main/install.sh |
+    bash -s -- --init git@github.com:cgraf78/dotfiles.git
+  ```
+
 - `dot-test` runs the dotfiles test suite.
 - `git` routes normal repositories to real Git and `$HOME` dotfiles paths to
-  the base bare repo.
+  the separate client Git directory.
 - `hm` delegates to the standalone Hive Memory binary and maps AgentGuard's
   reusable agent/session identity into Hive Memory's environment contract. A
   completed `dot update` provides both dependencies; missing assets are treated
@@ -44,4 +50,4 @@ When adding a new script, keep reusable logic out of `.local/bin` once it has a
 second consumer.
 
 Work-specific scripts are documented separately in
-`~/.local/share/doc/dot/work-scripts.md` when the work overlay is present.
+`~/.local/share/doc/dotfiles/work-scripts.md` when the work overlay is present.

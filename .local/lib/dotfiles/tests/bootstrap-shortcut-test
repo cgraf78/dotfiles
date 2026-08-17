@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+# The public /d shortcut is only a bound client URL over dot's installer.
+
+set -u
+
+source_home=${DOT_TEST_SOURCE_HOME:-$HOME}
+# shellcheck source=helpers.sh
+. "$source_home/.local/lib/dotfiles/tests/helpers.sh"
+
+dot_root=$(_test_dot_root) || {
+  echo 'standalone dot checkout is unavailable' >&2
+  exit 1
+}
+fixture=$(_tmpdir)
+fixture=$(cd "$fixture" && pwd -P)
+home=$fixture/home
+origin=$fixture/client.git
+dot_origin=$fixture/dot.git
+seed=$fixture/seed
+mkdir -p "$home" "$seed" "$fixture/no-hooks"
+
+# The generated installer deliberately follows the public main branch. Build a
+# local main at the exact candidate revision so a worktree run tests the engine
+# under review instead of whichever revision the shared repository currently
+# names as main.
+dot_revision=$(git -C "$dot_root" rev-parse HEAD) || exit 1
+# GitHub checks out pull requests with depth one. Pushing that shallow boundary
+# into a newly initialized receiver is intentionally rejected by Git, even
+# though the candidate object itself is complete. A bare clone transfers the
+# source's available object boundary without requiring older history or a
+# network fetch; publish main only after confirming the clone still names the
+# exact candidate under test.
+git clone --quiet --bare --no-local --depth=1 "$dot_root" "$dot_origin"
+[[ $(git --git-dir="$dot_origin" rev-parse HEAD) == "$dot_revision" ]] || exit 1
+git --git-dir="$dot_origin" update-ref refs/heads/main "$dot_revision"
+git --git-dir="$dot_origin" symbolic-ref HEAD refs/heads/main
+
+git init --bare --initial-branch=main "$origin" >/dev/null
+git -C "$seed" init --initial-branch=main >/dev/null
+_git_set_test_identity git -C "$seed"
+git -C "$seed" config core.hooksPath "$fixture/no-hooks"
+mkdir -p "$seed/.config/dot"
+cat >"$seed/.config/dot/config" <<'CONF'
+version=1
+extension_api=1
+dependency_provider=none
+CONF
+printf '%s\n' '# fixture client' >"$seed/.bashrc"
+git -C "$seed" add .
+git -C "$seed" commit -m initial >/dev/null
+git -C "$seed" remote add origin "$origin"
+git -C "$seed" push -u origin main >/dev/null
+git --git-dir="$origin" symbolic-ref HEAD refs/heads/main
+
+install_status=0
+HOME="$home" PATH="$PATH" \
+  CGRAF78_CHECKOUT_INSTALL_REPO_URL="file://$dot_origin" \
+  CGRAF78_CHECKOUT_INSTALL_DIR="$home/.local/share/cgraf78/dot" \
+  SHDEPS_INSTALL_DIR="$home/.local/share" \
+  bash -s -- --init "$origin" <"$dot_root/install.sh" \
+  >"$fixture/install.out" 2>"$fixture/install.err" || install_status=$?
+
+_assert_eq 'public shortcut installs and initializes through dot' 0 "$install_status"
+_assert_eq 'public shortcut installs the exact standalone revision' \
+  "$dot_revision" \
+  "$(git -C "$home/.local/share/cgraf78/dot" rev-parse HEAD 2>/dev/null || printf missing)"
+_assert_file_content 'public shortcut checks out the bound client repository' \
+  '# fixture client' "$home/.bashrc"
+if [[ -L $home/.local/bin/dot && -L $home/.local/lib/dot ]]; then
+  _pass 'public shortcut publishes the command and public library links'
+else
+  _fail 'public shortcut publishes the command and public library links'
+fi
+_assert_eq 'public shortcut records the selected client revision' \
+  "$(git -C "$seed" rev-parse HEAD)" \
+  "$(git --git-dir="$home/.dotfiles" rev-parse HEAD 2>/dev/null || printf missing)"
+
+shortcut_doc=$(<"$source_home/.local/bin/README.md")
+_assert_contains 'public shortcut documentation installs standalone dot' \
+  'raw.githubusercontent.com/cgraf78/dot/main/install.sh' "$shortcut_doc"
+_assert_contains 'public shortcut documentation binds the client repository' \
+  'bash -s -- --init git@github.com:cgraf78/dotfiles.git' "$shortcut_doc"
+_assert_not_contains 'public shortcut documentation no longer invokes dotbootstrap' \
+  'dotbootstrap' "$shortcut_doc"
+
+_test_summary

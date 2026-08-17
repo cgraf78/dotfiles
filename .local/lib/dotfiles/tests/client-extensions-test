@@ -1,0 +1,208 @@
+#!/usr/bin/env bash
+# Client policy compatibility against the standalone dot extension contract.
+
+set -u
+
+source_home=${DOT_TEST_SOURCE_HOME:-$HOME}
+
+# shellcheck source=helpers.sh
+. "$source_home/.local/lib/dotfiles/tests/helpers.sh"
+
+dot_root=$(_test_dot_root) || {
+  _fail 'client extensions: standalone dot checkout is available'
+  _test_summary
+}
+client_source_root=$source_home/.local/lib/dotfiles
+fixture_home=$(_tmpdir)
+client_root=$fixture_home/.local/lib/dotfiles
+mkdir -p \
+  "$fixture_home/.cache" \
+  "$fixture_home/.config/git" \
+  "$fixture_home/.config/dot/overlays.d" \
+  "$client_root" \
+  "$fixture_home/.local/share" \
+  "$fixture_home/.local/state/dot" \
+  "$fixture_home/.ssh"
+chmod 0700 "$fixture_home" "$fixture_home/.ssh"
+ln -s "$dot_root/lib/dot/public" "$fixture_home/.local/lib/dot"
+cp -R "$client_source_root/doctor.d" "$client_root/doctor.d"
+cp -R "$client_source_root/merge-hooks.d" "$client_root/merge-hooks.d"
+cp -R "$client_source_root/pre-sync.d" "$client_root/pre-sync.d"
+
+fixture_overlay_manifest=$fixture_home/.local/state/dot/overlay-links
+: >"$fixture_overlay_manifest"
+chmod 0600 "$fixture_overlay_manifest"
+
+export DOT_SOURCE_ROOT=$dot_root
+export DOT_EXTENSIONS_DIR=$client_root
+export DOT_EXTENSION_API=1
+export DOT_QUIET=1
+export HOME=$fixture_home
+export XDG_CACHE_HOME=$fixture_home/.cache
+export XDG_CONFIG_HOME=$fixture_home/.config
+export XDG_DATA_HOME=$fixture_home/.local/share
+export XDG_STATE_HOME=$fixture_home/.local/state
+
+# shellcheck source=/dev/null
+. "$dot_root/lib/dot/public/xdg.sh"
+# shellcheck source=/dev/null
+. "$dot_root/lib/dot/extension-worker-launch.sh"
+
+_client_worker_run() {
+  local mode=$1 script=$2 temporary result output rc=0
+
+  temporary=$(_tmpdir)
+  chmod 0700 "$temporary"
+  result=$temporary/result
+  : >"$result"
+  chmod 0600 "$result"
+  output=$(PATH=/usr/bin:/bin _dot_extension_worker_run \
+    "$mode" "$script" "$temporary" "$result" 2>&1) || rc=$?
+  if [[ -n $output ]]; then
+    printf '%s\n' "$output" >&2
+    return 1
+  fi
+  return "$rc"
+}
+
+# Installed client extensions can be overlay-owned symlinks. Recreate that
+# ownership protocol inside the isolated HOME instead of borrowing the live
+# manifest or letting extension code operate on the caller's real HOME. Local
+# shared clones keep this fixture network-free while still exercising the
+# worker's origin, manifest, and symlink-target validation.
+_client_fixture_extension() {
+  local installed=$1 rel target source_installed resolved overlay_root overlay_name
+  local fixture_overlay descriptor origin source_rel
+
+  if [[ ! -L $installed ]]; then
+    REPLY=$installed
+    return 0
+  fi
+
+  case $installed in
+    "$fixture_home"/*) rel=${installed#"$fixture_home"/} ;;
+    *) return 1 ;;
+  esac
+  target=$(readlink "$installed") || return 1
+  case $installed in
+    "$client_root"/*) source_installed=$client_source_root/${installed#"$client_root"/} ;;
+    *) return 1 ;;
+  esac
+  resolved=$(_test_realpath "$source_installed") || return 1
+  overlay_root=$(git -C "${resolved%/*}" rev-parse --show-toplevel 2>/dev/null) ||
+    return 1
+  case $overlay_root in
+    "$source_home"/.dotfiles-*) overlay_name=${overlay_root#"$source_home"/.dotfiles-} ;;
+    *) return 1 ;;
+  esac
+  [[ -n $overlay_name && $overlay_name != */* ]] || return 1
+
+  fixture_overlay=$fixture_home/.dotfiles-$overlay_name
+  if [[ ! -d $fixture_overlay/.git ]]; then
+    git clone --quiet --shared -- "$overlay_root" "$fixture_overlay" || return 1
+    origin=$(git -C "$fixture_overlay" remote get-url origin 2>/dev/null) || return 1
+    descriptor=$fixture_home/.config/dot/overlays.d/90-$overlay_name.conf
+    printf 'url=%s\n' "$origin" >"$descriptor" || return 1
+  fi
+
+  source_rel=${resolved#"$overlay_root"/}
+  [[ $source_rel != "$resolved" ]] || return 1
+  mkdir -p "$fixture_overlay/${source_rel%/*}" || return 1
+  cp -p -- "$resolved" "$fixture_overlay/$source_rel" || return 1
+
+  printf '%s\t%s\t%s\n' "$rel" "$overlay_name" "$target" >>"$fixture_overlay_manifest" ||
+    return 1
+  REPLY=$installed
+}
+
+for hook in "$client_root/merge-hooks.d"/*.sh; do
+  worker_hook=$hook
+  if ! _client_fixture_extension "$hook"; then
+    _fail "client merge hook fixture preserves overlay ownership: ${hook##*/}"
+    continue
+  fi
+  worker_hook=$REPLY
+  if _client_worker_run merge "$worker_hook"; then
+    _pass "client merge hook loads through standalone worker: ${hook##*/}"
+  else
+    _fail "client merge hook loads through standalone worker: ${hook##*/}"
+  fi
+done
+
+for extension in "$client_root/doctor.d"/[0-9]*.sh; do
+  worker_extension=$extension
+  if ! _client_fixture_extension "$extension"; then
+    _fail "client doctor extension fixture preserves overlay ownership: ${extension##*/}"
+    continue
+  fi
+  worker_extension=$REPLY
+  if _client_worker_run doctor "$worker_extension"; then
+    _pass "client doctor extension loads through standalone worker: ${extension##*/}"
+  else
+    _fail "client doctor extension loads through standalone worker: ${extension##*/}"
+  fi
+done
+
+# A remote editor installation can be present but deliberately unavailable to
+# this account (for example, an administrator-owned Cursor server directory).
+# Discovery is advisory client policy: the hook must leave that tree alone and
+# continue reconciling any other usable editor variants.
+mkdir "$fixture_home/.cursor-server"
+chmod 000 "$fixture_home/.cursor-server"
+if _client_worker_run merge "$client_root/merge-hooks.d/vscode.sh"; then
+  _pass 'client VS Code hook skips an inaccessible remote editor root'
+else
+  _fail 'client VS Code hook skips an inaccessible remote editor root'
+fi
+chmod 0700 "$fixture_home/.cursor-server"
+
+old_reference_output=$(
+  grep -RInE \
+    '\.local/lib/dot/(core|git-hooks|sley-hooks)|\.config/dot/merge-hooks\.d/codex/(api|refresh-trust|toml-render)' \
+    "$client_root/merge-hooks.d" "$client_root/doctor.d" 2>/dev/null || true
+)
+_assert_eq 'dormant client extensions do not source embedded implementation paths' \
+  '' "$old_reference_output"
+
+cat >"$fixture_home/.config/dot/overlays.d/10-private.ssh" <<'SSH'
+Host github-private
+  HostName github.com
+  User git
+  IdentityFile ~/.ssh/id_private
+SSH
+cat >"$fixture_home/.ssh/config" <<'SSH'
+Host github.com
+  HostName github.com
+  ProxyCommand ssh proxy.example -W %h:%p
+
+Host hand-managed
+  HostName hand.example
+SSH
+
+pre_sync=$client_root/pre-sync.d/10-overlay-ssh.sh
+if _client_worker_run pre-sync "$pre_sync"; then
+  _pass 'client pre-sync SSH policy runs through standalone worker'
+else
+  _fail 'client pre-sync SSH policy runs through standalone worker'
+fi
+ssh_config=$(<"$fixture_home/.ssh/config")
+_assert_contains 'client pre-sync SSH policy preserves hand-managed config' \
+  'Host hand-managed' "$ssh_config"
+_assert_contains 'client pre-sync SSH policy publishes managed alias' \
+  '# dot-managed:overlay-ssh:10-private' "$ssh_config"
+_assert_contains 'client pre-sync SSH policy preserves inherited proxy command' \
+  'ProxyCommand ssh proxy.example -W %h:%p' "$ssh_config"
+
+rm -f "$fixture_home/.config/dot/overlays.d/10-private.ssh"
+if _client_worker_run pre-sync "$pre_sync"; then
+  _pass 'client pre-sync SSH policy retires stale aliases'
+else
+  _fail 'client pre-sync SSH policy retires stale aliases'
+fi
+ssh_config=$(<"$fixture_home/.ssh/config")
+_assert_contains 'client pre-sync SSH retirement preserves hand-managed config' \
+  'Host hand-managed' "$ssh_config"
+_assert_not_contains 'client pre-sync SSH retirement removes managed alias' \
+  '# dot-managed:overlay-ssh:' "$ssh_config"
+
+_test_summary

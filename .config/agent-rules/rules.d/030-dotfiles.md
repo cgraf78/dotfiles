@@ -3,7 +3,7 @@
 <!-- agent-rule-id: global-dotfiles-management -->
 
 Base bare repo at `~/.dotfiles`, plus overlay repos discovered from
-`~/.config/dot/overlays.d/*.conf`. See `~/.local/share/doc/dot/dot.md`
+`~/.config/dot/overlays.d/*.conf`. See `~/.local/share/doc/dotfiles/dot.md`
 for full documentation.
 
 - Use the PATH-visible `git` launcher for base dotfiles when you are in

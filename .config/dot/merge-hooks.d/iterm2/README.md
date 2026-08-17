@@ -16,4 +16,4 @@ domain<TAB>key<TAB>type<TAB>value
 Supported types are `bool`, `int`, `string`, and `plist`.
 
 The executable hook implementation lives at
-`~/.local/lib/dot/core/merge-hooks/iterm2.sh`.
+`~/.local/lib/dotfiles/merge-hooks.d/iterm2.sh`.

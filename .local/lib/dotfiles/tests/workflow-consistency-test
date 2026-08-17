@@ -1,0 +1,695 @@
+#!/usr/bin/env bash
+# workflow-consistency-test — cross-surface Checkrun/Sley policy consistency.
+
+set -euo pipefail
+export NO_COLOR=1
+
+# shellcheck source=helpers.sh
+. "${BASH_SOURCE[0]%/*}/helpers.sh"
+
+_require_compatible_libc "workflow-consistency-test"
+_test_use_host_runtime_dirs
+_test_use_host_shdeps
+_test_managed_nvim_bin || exit 1
+NVIM_TEST_BIN=$REPLY
+
+for _cmd in checkrun sley jq node git; do
+  if ! command -v "$_cmd" >/dev/null 2>&1; then
+    echo "SKIP: workflow-consistency-test ($_cmd unavailable)"
+    exit 0
+  fi
+done
+
+# This suite intentionally crosses the provider boundary: Sley owns the
+# extension behavior, while dotfiles owns settings and activation policy. A
+# dependent PR supplies its exact provider checkout explicitly; normal runs use
+# the stable shdeps link from the host fleet. Do not fall back to a copied
+# dotfiles fixture, because that would let the two repositories drift together
+# while this compatibility gate remained green. Sley's own suite owns extension
+# packaging and diagnostic-exclusion behavior; this suite calls only the
+# selector/support surfaces needed to compare provider capabilities with
+# dotfiles' editor policy.
+sley_provider_root="${DOT_TEST_SLEY_ROOT:-${DOT_TEST_HOST_HOME:-$HOME}/.local/share/cgraf78/sley}"
+sley_extension_path="$sley_provider_root/share/sley/vscode/sley-tools-0.0.1"
+if [[ ! -r "$sley_extension_path/package.json" ||
+  ! -r "$sley_extension_path/extension.js" ]]; then
+  echo "workflow-consistency-test: Sley VS Code provider asset unavailable: $sley_extension_path" >&2
+  exit 1
+fi
+
+_json_array_contains() {
+  local file="$1" jq_filter="$2" value="$3"
+  jq -e --arg value "$value" "$jq_filter | index(\$value) != null" "$file" >/dev/null
+}
+
+_assert_json_contains() {
+  local desc="$1" file="$2" jq_filter="$3" value="$4"
+  if _json_array_contains "$file" "$jq_filter" "$value"; then
+    _pass "$desc"
+  else
+    _fail "$desc (missing $value at $jq_filter)"
+  fi
+}
+
+_assert_json_lacks() {
+  local desc="$1" file="$2" jq_filter="$3" value="$4"
+  if _json_array_contains "$file" "$jq_filter" "$value"; then
+    _fail "$desc (unexpected $value at $jq_filter)"
+  else
+    _pass "$desc"
+  fi
+}
+
+_assert_plan_steps() {
+  local desc="$1" plan="$2" path="$3" phase="$4" expected="$5"
+  if jq -e --arg path "$path" --arg phase "$phase" --arg expected "$expected" '
+    any(.files[];
+      .path == $path and
+      (((.[$phase].steps // []) | length > 0) == ($expected == "true"))
+    )
+  ' "$plan" >/dev/null; then
+    _pass "$desc"
+  else
+    _fail "$desc (unexpected $phase plan steps for $path)"
+  fi
+}
+
+_assert_plan_filetype() {
+  local desc="$1" plan="$2" path="$3" filetype="$4"
+  if jq -e --arg path "$path" --arg filetype "$filetype" '
+    any(.files[]; .path == $path and .filetype == $filetype)
+  ' "$plan" >/dev/null; then
+    _pass "$desc"
+  else
+    _fail "$desc (missing $path filetype $filetype)"
+  fi
+}
+
+_assert_plan_tools_include() {
+  local desc="$1" plan="$2" path="$3" phase="$4" tool="$5"
+  if jq -e --arg path "$path" --arg phase "$phase" --arg tool "$tool" '
+    any(.files[];
+      .path == $path and
+      any(.[$phase].steps[]?; .tool == $tool)
+    )
+  ' "$plan" >/dev/null; then
+    _pass "$desc"
+  else
+    _fail "$desc (missing $tool for $path $phase)"
+  fi
+}
+
+_assert_no_low_level_dispatch() {
+  local registry="$1" violations="$2"
+  local hook_dir hook_rel
+
+  if ! command -v agentguard-classify-command >/dev/null 2>&1; then
+    _fail "workflow surfaces: agentguard classifier is available"
+    return
+  fi
+
+  # Keep this guardrail tied to Checkrun's registry so dotfiles does not grow a
+  # second hand-maintained language-tool vocabulary. The extras cover tools that
+  # are intentionally discussed as future/verify candidates but are not
+  # automatic Checkrun registry tools today.
+  jq -r '
+    [
+      .selectors[]? | ((.format // []) + (.lint // []))[]?.tool,
+      .crossCutting.lint[]?.tool,
+      "mypy",
+      "pyre",
+      "prettier"
+    ]
+    | flatten
+    | map(select(type == "string" and test("^[A-Za-z0-9_.+-]+$")))
+    | map(select(. as $tool | ["cargo", "crontab", "php", "tmux", "zsh"] | index($tool) | not))
+    | unique
+    | .[]
+  ' "$registry" >"$work/low-level-tools.txt"
+
+  hook_dir=$(git config --file "$HOME/.config/git/config" \
+    --path --get core.hooksPath)
+  case "$hook_dir" in
+    "$HOME"/*) hook_rel="${hook_dir#"$HOME"/}" ;;
+    *)
+      _fail "workflow surfaces: configured Git hooks stay inside dotfiles"
+      return
+      ;;
+  esac
+
+  git -C "$HOME" ls-files -- \
+    .config/dot/merge-hooks.d \
+    .config/nvim/README.md \
+    .config/nvim/lua/config/checkrun-nvim.lua \
+    .config/nvim/lua/config/language-policy.lua \
+    .config/nvim/lua/config/schema-policy.lua \
+    .config/nvim/lua/config/sley-nvim.lua \
+    .config/nvim/lua/plugins/formatting.lua \
+    .config/nvim/lua/plugins/linting.lua \
+    .config/nvim/lua/plugins/sley.lua \
+    "$hook_rel" \
+    >"$work/workflow-surface-files.txt"
+
+  DOTFILES_HOME="$HOME" python3 - "$work/low-level-tools.txt" "$work/workflow-surface-files.txt" >"$violations" <<'PY'
+import json
+import os
+import re
+import subprocess
+import sys
+
+home = os.environ["DOTFILES_HOME"]
+tools_path, files_path = sys.argv[1], sys.argv[2]
+
+with open(tools_path, encoding="utf-8") as handle:
+    tools = [line.strip() for line in handle if line.strip()]
+
+tool_names = set(tools)
+tool_pattern = "|".join(re.escape(tool) for tool in sorted(tools, key=len, reverse=True))
+
+
+def loose_tool_pattern(tool: str) -> str:
+    # This is only a broad performance prefilter; AgentGuard remains the
+    # authority for shell spelling. Allow simple quote/backslash seams inside
+    # tool names so Bash-equivalent forms like `ru"ff"` still get classified.
+    seam = r"""(?:["'\\])*"""
+    return seam.join(re.escape(char) for char in tool)
+
+
+loose_tool_pattern_re = "|".join(loose_tool_pattern(tool) for tool in sorted(tools, key=len, reverse=True))
+tool_token_re = re.compile(rf"(^|[^A-Za-z0-9_.+-])(?:{loose_tool_pattern_re})(?:$|[^A-Za-z0-9_.+-])")
+js_exec_re = re.compile(rf"\b(?:execFile|spawn|run)\(\s*['\"]({tool_pattern})['\"]")
+lua_job_re = re.compile(rf"\bjobstart\(\s*\{{\s*['\"]({tool_pattern})['\"]")
+lua_cmd_re = re.compile(rf"\bcmd\s*=\s*\{{\s*['\"]({tool_pattern})['\"]")
+cmd_value_re = re.compile(r'"(?:cmd|command)"\s*:\s*("(?:\\.|[^"\\])*")')
+
+
+def classify_commands(commands: list[str]) -> dict[str, set[str]]:
+    normalized = [command.rstrip("\n") for command in commands]
+    unique = list(dict.fromkeys(command for command in normalized if "\n" not in command and tool_token_re.search(command)))
+    classified: dict[str, set[str]] = {}
+    if not unique:
+        return classified
+
+    # AgentGuard owns Bash-ish command classification for hooks. Reusing its
+    # batch API here keeps this policy test focused on surface ownership instead
+    # of growing a second, subtly different shell parser in dotfiles.
+    result = subprocess.run(
+        ["agentguard-classify-command", "--json-lines"],
+        input="".join(f"{command}\n" for command in unique),
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=True,
+    )
+    for line in result.stdout.splitlines():
+        payload = json.loads(line)
+        classified[payload["input"]] = {
+            item.get("basename", "")
+            for item in payload.get("commands", [])
+            if isinstance(item, dict) and isinstance(item.get("basename"), str)
+        }
+    return classified
+
+
+def has_tool_command(command: str, classified: dict[str, set[str]]) -> bool:
+    return bool(classified.get(command.rstrip("\n"), set()) & tool_names)
+
+
+def json_command_values(line: str) -> list[str]:
+    values = []
+    for match in cmd_value_re.finditer(line):
+        try:
+            values.append(json.loads(match.group(1)))
+        except json.JSONDecodeError:
+            continue
+    return values
+
+
+parser_examples = [
+    "if ! prettier --check .; then",
+    "{ prettier --check .; }",
+    "env -u GIT_DIR prettier --check .",
+    "xargs -r -n 1 prettier --check",
+    'env -u GIT_DIR ru"ff" check .',
+    r"ru\ff check .",
+    "prettier --check .\n",
+]
+parser_classified = classify_commands(parser_examples + ['prettier --check .'])
+for parser_example in parser_examples:
+    if not has_tool_command(parser_example, parser_classified):
+        print(f"<parser-self-test>: expected direct tool command in: {parser_example}")
+
+if not any(has_tool_command(command, parser_classified) for command in json_command_values('"command": "prettier --check ."')):
+    print('<parser-self-test>: expected direct tool command in JSON command key')
+
+
+def active_code(line: str, relpath: str) -> str:
+    stripped = line.lstrip()
+    if stripped.startswith("#") or stripped.startswith("--"):
+        return ""
+    if '"Bash(' in line:
+        return ""
+    if relpath.endswith(".js"):
+        return re.sub(r"//.*$", "", line)
+    return line
+
+
+with open(files_path, encoding="utf-8") as handle:
+    relpaths = [line.strip() for line in handle if line.strip()]
+
+violations: set[tuple[str, int, str]] = set()
+shell_checks: list[tuple[str, int, str, str]] = []
+
+for relpath in relpaths:
+    path = os.path.join(home, relpath)
+    try:
+        with open(path, encoding="utf-8") as handle:
+            lines = handle.readlines()
+    except FileNotFoundError:
+        # git ls-files still reports a tracked path while the current commit is
+        # deleting it. Only skip paths Git itself sees as deleted; other missing
+        # files, such as broken symlink targets or checkout damage, should keep
+        # failing this broad workflow-surface scan.
+        status = subprocess.run(
+            ["git", "-C", home, "status", "--porcelain=v1", "--", relpath],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        if status.returncode == 0 and any(line[:2] in {" D", "D "} for line in status.stdout.splitlines()):
+            continue
+        raise
+    except UnicodeDecodeError:
+        continue
+
+    for line_no, line in enumerate(lines, 1):
+        code = active_code(line, relpath)
+        if not code:
+            continue
+
+        if js_exec_re.search(code) or lua_job_re.search(code) or lua_cmd_re.search(code):
+            violations.add((relpath, line_no, line.rstrip()))
+
+        if tool_token_re.search(code):
+            shell_checks.append((relpath, line_no, line.rstrip(), code))
+        for command in json_command_values(code):
+            if tool_token_re.search(command):
+                shell_checks.append((relpath, line_no, line.rstrip(), command))
+
+classified = classify_commands([command for _, _, _, command in shell_checks])
+for relpath, line_no, line_text, command in shell_checks:
+    if has_tool_command(command, classified):
+        violations.add((relpath, line_no, line_text))
+
+for relpath, line_no, line_text in sorted(violations):
+    print(f"{relpath}:{line_no}: {line_text}")
+PY
+
+  if [[ -s "$violations" ]]; then
+    _fail "workflow surfaces: low-level tools stay behind Checkrun/Sley"
+    sed 's/^/    /' "$violations" >&2
+  else
+    _pass "workflow surfaces: low-level tools stay behind Checkrun/Sley"
+  fi
+}
+
+echo "=== workflow consistency: capability projections ==="
+
+work=$(_tmpdir)
+cap="$work/checkrun-capabilities.json"
+registry="$work/checkrun-registry.json"
+settings="$work/vscode-settings.json"
+nvim_policy="$work/nvim-policy.json"
+home_shell_policy="$work/home-shell-policy.json"
+fixture="$HOME/.local/lib/dotfiles/tests/fixtures/common-language-policy.json"
+
+if [[ ! -f "$fixture" ]]; then
+  _fail "workflow consistency: common language policy fixture exists"
+fi
+
+if jq -e '
+  .version == 1 and
+  (.languages | type == "array" and length > 0) and
+  (([.languages[].id] | unique | length) == (.languages | length)) and
+  all(.languages[];
+    (.id | type == "string" and length > 0) and
+    (.path | type == "string" and length > 0) and
+    (.filetype | type == "string" and length > 0) and
+    (.vscodeLanguages | type == "array" and length > 0) and
+    (.format | type == "boolean") and
+    (.lint | type == "boolean")
+  )
+' "$fixture" >/dev/null; then
+  _pass "workflow fixture: shape is valid"
+else
+  _fail "workflow fixture: shape is valid"
+fi
+
+checkrun capabilities --json >"$cap"
+checkrun registry --json >"$registry"
+
+echo "=== workflow consistency: boundary guardrails ==="
+
+_assert_no_low_level_dispatch "$registry" "$work/low-level-dispatch-violations.txt"
+
+echo "=== workflow consistency: editor projections ==="
+
+# shellcheck source=.local/lib/dotfiles/tests/load-merge-api.sh
+# shellcheck disable=SC1091
+. "$HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
+# shellcheck source=.local/lib/dotfiles/merge-hooks.d/vscode.sh
+. "$HOME/.local/lib/dotfiles/merge-hooks.d/vscode.sh"
+_vscode_checkrun_settings "$settings" 1
+
+"$NVIM_TEST_BIN" --headless --noplugin -u NONE -i NONE \
+  -c "lua package.path='$HOME/.config/nvim/lua/?.lua;' .. package.path; local opts=require('config.nvim-workspace').options(); vim.fn.writefile({vim.json.encode(opts.shell)}, '$home_shell_policy')" \
+  -c 'qa!'
+
+node - "$HOME/.vscode/settings.json" "$home_shell_policy" <<'NODE'
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+
+const settings = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+const shell = JSON.parse(fs.readFileSync(process.argv[3], "utf8"));
+
+const parts = [...shell.home_files];
+for (const dir of shell.home_dirs) {
+  if (dir.glob) {
+    parts.push(dir.glob);
+  }
+}
+parts.push(...shell.home_globs);
+
+assert.equal(settings["bashIde.globPattern"], `{${parts.join(",")}}`);
+NODE
+_assert_exit "workflow editors: HOME Bash globs match for VS Code and nvim" 0 "$?"
+
+repo=$(_tmpdir)
+repo_real=$(_test_realpath "$repo")
+node - "$fixture" "$repo" <<'NODE'
+const fs = require("node:fs");
+const path = require("node:path");
+
+const fixture = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+const root = process.argv[3];
+
+for (const item of fixture.languages) {
+  const target = path.join(root, item.path);
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.writeFileSync(target, item.content || "");
+}
+NODE
+_assert_exit "workflow fixture: sample files materialize" 0 "$?"
+
+while IFS=$'\t' read -r filetype phase expected; do
+  [[ -n "$filetype" ]] || continue
+  if [[ "$expected" == "true" ]]; then
+    _assert_json_contains "checkrun capabilities: $filetype $phase" "$cap" ".filetypes.$phase" "$filetype"
+  else
+    _assert_json_lacks "checkrun capabilities: $filetype not $phase" "$cap" ".filetypes.$phase" "$filetype"
+  fi
+done < <(
+  jq -r '
+    .languages[]
+    | [.filetype, "format", (.format | tostring)],
+      [.filetype, "lint", (.lint | tostring)]
+    | @tsv
+  ' "$fixture"
+)
+
+if jq -n --slurpfile cap "$cap" --slurpfile fixture "$fixture" '
+  all($fixture[0].languages[];
+    ($cap[0].editorLanguageIds.vscode[.filetype] // [.filetype]) == .vscodeLanguages
+  )
+' | jq -e '. == true' >/dev/null; then
+  _pass "checkrun capabilities: editor language aliases match fixture"
+else
+  _fail "checkrun capabilities: editor language aliases match fixture"
+fi
+
+while IFS=$'\t' read -r language expected; do
+  [[ -n "$language" ]] || continue
+  key="[$language]"
+  if [[ "$expected" == "true" ]]; then
+    if jq -e --arg key "$key" '
+      .[$key]["editor.defaultFormatter"] == "cgraf.sley-tools" and
+      .[$key]["editor.formatOnSave"] == true
+    ' "$settings" >/dev/null; then
+      _pass "vscode settings: $language uses sley formatter"
+    else
+      _fail "vscode settings: $language uses sley formatter"
+    fi
+  elif jq -e --arg key "$key" '.[$key]["editor.defaultFormatter"] == "cgraf.sley-tools"' \
+    "$settings" >/dev/null; then
+    _fail "vscode settings: $language does not use sley formatter"
+  else
+    _pass "vscode settings: $language does not use sley formatter"
+  fi
+done < <(
+  jq -r '
+    .languages[]
+    | .format as $format
+    | .vscodeLanguages[]
+    | [., ($format | tostring)]
+    | @tsv
+  ' "$fixture" | sort -u
+)
+
+while IFS=$'\t' read -r key value; do
+  [[ -n "$key" ]] || continue
+  if jq -e --arg key "$key" --arg value "$value" '
+    .["files.associations"][$key] == $value
+  ' "$settings" >/dev/null; then
+    _pass "vscode settings: $key associates as $value"
+  else
+    _fail "vscode settings: $key associates as $value"
+  fi
+done < <(
+  jq -r '
+    .languages[]
+    | select(.association)
+    | [.association.key, .association.value]
+    | @tsv
+  ' "$fixture"
+)
+
+DOTFILES_HOME="$HOME" SLEY_VSCODE_EXTENSION_PATH="$sley_extension_path" \
+  node - "$cap" "$settings" "$fixture" "$repo" <<'NODE'
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const Module = require("node:module");
+const path = require("node:path");
+
+const cap = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+const settings = JSON.parse(fs.readFileSync(process.argv[3], "utf8"));
+const fixture = JSON.parse(fs.readFileSync(process.argv[4], "utf8"));
+const repo = process.argv[5];
+const extensionPath = process.env.SLEY_VSCODE_EXTENSION_PATH;
+assert.ok(extensionPath, "SLEY_VSCODE_EXTENSION_PATH is required");
+const languageMap = cap.editorLanguageIds?.vscode || {};
+
+const originalLoad = Module._load;
+Module._load = function load(request, parent, isMain) {
+  if (request === "vscode") {
+    return {
+      Diagnostic: class {},
+      DiagnosticSeverity: { Error: 0, Warning: 1, Information: 2, Hint: 3 },
+      Position: class {},
+      Range: class {},
+      TextEdit: {},
+      commands: {},
+      languages: {},
+      window: {},
+      workspace: {
+        getConfiguration: () => ({ get: () => undefined }),
+        getWorkspaceFolder: (uri) => (
+          uri?.fsPath?.startsWith(`${process.env.DOTFILES_HOME}/`)
+            ? { uri: { fsPath: process.env.DOTFILES_HOME } }
+            : undefined
+        ),
+      },
+    };
+  }
+  return originalLoad.call(this, request, parent, isMain);
+};
+
+try {
+  const extension = require(path.join(extensionPath, "extension.js"));
+  const byLanguage = extension._test.languageToFiletypes(languageMap);
+  const selectorLanguages = new Set(
+    extension._test
+      .providerSelector(cap.filetypes, languageMap, "format")
+      .map((item) => item.language)
+      .filter(Boolean),
+  );
+  const settingsLanguages = Object.entries(settings)
+    .filter(([key, value]) => /^\[.+\]$/.test(key) && value?.["editor.defaultFormatter"] === "cgraf.sley-tools")
+    .map(([key]) => key.slice(1, -1))
+    .sort();
+
+  assert.deepEqual([...selectorLanguages].sort(), settingsLanguages);
+
+  function document(filePath, languageId, text) {
+    return {
+      isUntitled: false,
+      languageId,
+      uri: {
+        fsPath: filePath,
+        scheme: "file",
+      },
+      getText() {
+        return text;
+      },
+    };
+  }
+
+  for (const item of fixture.languages) {
+    const filePath = path.join(repo, item.path);
+    const text = fs.readFileSync(filePath, "utf8");
+    for (const languageId of item.vscodeLanguages) {
+      const doc = document(filePath, languageId, text);
+      assert.equal(
+        extension._test.supports(doc, cap.filetypes, byLanguage, "format"),
+        item.format,
+        `${item.id}/${languageId}: VS Code extension format support`,
+      );
+      assert.equal(
+        extension._test.supports(doc, cap.filetypes, byLanguage, "lint"),
+        item.lint,
+        `${item.id}/${languageId}: VS Code extension lint support`,
+      );
+    }
+  }
+
+} finally {
+  Module._load = originalLoad;
+}
+NODE
+_assert_exit "vscode extension: fixture support matches Checkrun capabilities" 0 "$?"
+
+"$NVIM_TEST_BIN" --headless --noplugin -u NONE -i NONE \
+  -c "lua package.path='$HOME/.config/nvim/lua/?.lua;' .. package.path; local p=require('config.language-policy'); vim.fn.writefile({vim.json.encode({formatters=p.sley_formatters_by_ft(), linters=p.sley_linters_by_ft()})}, '$nvim_policy')" \
+  -c 'qa!'
+
+if jq -n --slurpfile cap "$cap" --slurpfile nvim "$nvim_policy" '
+  def keys_sorted($obj): $obj | keys | sort;
+  ($cap[0].filetypes.format | sort) == keys_sorted($nvim[0].formatters) and
+  ($cap[0].filetypes.lint | sort) == keys_sorted($nvim[0].linters) and
+  all($nvim[0].formatters[]; . == ["sley"]) and
+  all($nvim[0].linters[]; . == ["sley"])
+' | jq -e '. == true' >/dev/null; then
+  _pass "nvim policy: sley maps mirror checkrun capabilities"
+else
+  _fail "nvim policy: sley maps mirror checkrun capabilities"
+fi
+
+while IFS=$'\t' read -r filetype phase expected; do
+  [[ -n "$filetype" ]] || continue
+  key=$([[ "$phase" == "format" ]] && printf 'formatters' || printf 'linters')
+  if [[ "$expected" == "true" ]]; then
+    if jq -e --arg key "$key" --arg filetype "$filetype" '
+      .[$key][$filetype] == ["sley"]
+    ' "$nvim_policy" >/dev/null; then
+      _pass "nvim policy: $filetype $phase uses sley"
+    else
+      _fail "nvim policy: $filetype $phase uses sley"
+    fi
+  elif jq -e --arg key "$key" --arg filetype "$filetype" '.[$key][$filetype] == ["sley"]' \
+    "$nvim_policy" >/dev/null; then
+    _fail "nvim policy: $filetype does not $phase through sley"
+  else
+    _pass "nvim policy: $filetype does not $phase through sley"
+  fi
+done < <(
+  jq -r '
+    .languages[]
+    | [.filetype, "format", (.format | tostring)],
+      [.filetype, "lint", (.lint | tostring)]
+    | @tsv
+  ' "$fixture" | sort -u
+)
+
+echo "=== workflow consistency: checkrun plans ==="
+
+format_plan="$work/format-plan.json"
+lint_plan="$work/lint-plan.json"
+mapfile -t fixture_paths < <(jq -r --arg repo "$repo_real" '.languages[] | $repo + "/" + .path' "$fixture")
+checkrun plan --json --phase format "${fixture_paths[@]}" >"$format_plan"
+checkrun plan --json --phase lint "${fixture_paths[@]}" >"$lint_plan"
+
+while IFS=$'\t' read -r path absolute_path filetype phase expected; do
+  [[ -n "$path" ]] || continue
+  plan=$([[ "$phase" == "format" ]] && printf '%s' "$format_plan" || printf '%s' "$lint_plan")
+  _assert_plan_filetype "checkrun plan: $path infers $filetype" "$plan" "$absolute_path" "$filetype"
+  _assert_plan_steps "checkrun plan: $path $phase steps match fixture" "$plan" "$absolute_path" "$phase" "$expected"
+done < <(
+  jq -r --arg repo "$repo_real" '
+    .languages[]
+    | [.path, ($repo + "/" + .path), .filetype, "format", (.format | tostring)],
+      [.path, ($repo + "/" + .path), .filetype, "lint", (.lint | tostring)]
+    | @tsv
+  ' "$fixture"
+)
+
+while IFS=$'\t' read -r path absolute_path phase tool; do
+  [[ -n "$path" ]] || continue
+  plan=$([[ "$phase" == "format" ]] && printf '%s' "$format_plan" || printf '%s' "$lint_plan")
+  _assert_plan_tools_include "checkrun plan: $path $phase includes $tool" "$plan" "$absolute_path" "$phase" "$tool"
+done < <(
+  jq -r --arg repo "$repo_real" '
+    .languages[]
+    | .path as $path
+    | (.lintTools // [])[]
+    | [$path, ($repo + "/" + $path), "lint", .]
+    | @tsv
+  ' "$fixture"
+)
+
+# Checkrun owns CLI-to-runner dispatch, and Sley owns its format/lint/check
+# execution paths. Their repository suites cover those isolated mechanics.
+# This consumer suite stops at the plans and editor projections above, where
+# dotfiles policy actually composes with both providers.
+
+# Codex trust records are consumer-owned mutable state, but the native event set
+# is provider-owned. Compare the currently installed AgentGuard asset with the
+# local trust serializer when that asset is available; this catches a future
+# provider event without copying AgentGuard's event list back into dotfiles.
+_codex_native=$(
+  SHDEPS_CONF_DIR="$HOME/.config/shdeps" \
+    shdeps dep-file \
+    cgraf78/agentguard \
+    share/agentguard/integrations/codex/hooks.toml \
+    2>/dev/null || true
+)
+_codex_trust="$HOME/.local/lib/dotfiles/merge-hooks.d/lib/codex/refresh-trust.py"
+if [[ -r "$_codex_native" && -f "$_codex_trust" ]]; then
+  _codex_unmapped=$(
+    python3 - "$_codex_native" "$_codex_trust" <<'PY'
+import importlib.util
+import sys
+import tomllib
+
+native, trust = sys.argv[1], sys.argv[2]
+with open(native, "rb") as fh:
+    events = set(tomllib.load(fh).get("hooks", {}))
+spec = importlib.util.spec_from_file_location("codex_refresh_trust", trust)
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+print(",".join(sorted(events - set(mod.EVENT_LABELS))))
+PY
+  )
+  if [[ -z "$_codex_unmapped" ]]; then
+    _pass "codex: installed AgentGuard events have trust labels"
+  else
+    _fail "codex: installed AgentGuard events missing trust labels: $_codex_unmapped"
+  fi
+else
+  # This cross-repository assertion is opportunistic in an isolated dotfiles
+  # checkout. Do not mark the whole workflow suite skipped when AgentGuard has
+  # not been installed yet; provider CI owns the native event contract, and a
+  # fleet update exercises this check once both repositories are present.
+  echo "NOTE: Codex AgentGuard trust compatibility not checked (provider asset unavailable)"
+fi
+
+_test_summary

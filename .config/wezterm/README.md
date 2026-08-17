@@ -120,7 +120,7 @@ non-WezTerm/non-VS Code local terminal remains supported through `clip paste`.
 The same link shapes are recognized in three places: WezTerm's Lua
 `open-uri` handler, tmux's `tmux-follow-click` fallback, and the final
 `nvim-tmux-open` helper. Keep common examples in
-`~/.local/lib/dot/tests/fixtures/nvim-link-routes.tsv` so tests can prove those
+`~/.local/lib/dotfiles/tests/fixtures/nvim-link-routes.tsv` so tests can prove those
 entry points continue to agree without forcing the Lua and shell implementations
 through an awkward shared parser.
 

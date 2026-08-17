@@ -1,0 +1,2 @@
+# Deterministic compressed fixture; spellchecking its binary bytes is noise.
+.local/lib/dotfiles/tests/fixtures/engine-equivalence-old-core.tar.gz

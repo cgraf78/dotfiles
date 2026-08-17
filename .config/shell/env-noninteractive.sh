@@ -19,5 +19,5 @@ else
 fi
 
 # shellcheck disable=SC1091  # stable path under $HOME, deployed by dotfiles
-. "$HOME/.local/lib/dot/core/shell-loader.sh"
+. "$HOME/.local/lib/dotfiles/shell-loader.sh"
 _shell_load_env "$_shell_ext"
