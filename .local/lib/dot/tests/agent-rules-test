@@ -1,0 +1,407 @@
+#!/usr/bin/env bash
+# agent-rules-test — tests for dotfiles-owned agent rule policy.
+
+# shellcheck disable=SC1091,SC2016,SC2030,SC2031,SC2088
+# Route extraction intentionally matches literal Markdown backticks.
+set -o pipefail
+export NO_COLOR=1
+
+. "$HOME/.local/lib/dot/tests/helpers.sh"
+_test_prefer_system_git || exit 1
+. "$HOME/.local/lib/dot/core/constants.sh"
+. "$HOME/.local/lib/dot/core/repos/overlays.sh"
+
+PLAYBOOK_LIB="$HOME/.local/lib/dot/core/agent-playbooks.sh"
+RULE_HOOK="$HOME/.local/lib/dot/core/merge-hooks/agent-rules.sh"
+RULE_FAMILY="$HOME/.config/agent-rules/rules.d"
+NATIVE_TARGETS="$HOME/.config/dot/merge-hooks.d/agent-rules/targets.d/80-targets.replace/50-native.txt"
+PLAYBOOK_FAMILY="$HOME/.config/agent-rules/playbooks.d"
+TOOL_SELECTION_PLAYBOOK="$PLAYBOOK_FAMILY/tools/selection.md"
+if [[ -f "$PLAYBOOK_LIB" ]]; then
+  # shellcheck source=/dev/null
+  . "$PLAYBOOK_LIB"
+else
+  _fail "agent rules: playbook library exists"
+fi
+if [[ -f "$RULE_HOOK" ]]; then
+  # shellcheck source=/dev/null
+  . "$RULE_HOOK"
+else
+  _fail "agent rules: merge hook exists"
+fi
+echo "=== global memory rules ==="
+
+SCOPE_RULES_TEXT=$(cat "$RULE_FAMILY/000-global-rules.md")
+MEMORY_RULES_TEXT=$(cat "$RULE_FAMILY/010-durable-memory.md")
+GIT_RULES_TEXT=$(cat "$RULE_FAMILY/050-git-and-github.md")
+WORKFLOW_RULES_TEXT=$(cat "$RULE_FAMILY/070-engineering-workflow.md")
+_assert_contains "agent rules: scope explains generated targets" \
+  "This rule set is generated from source fragments" "$SCOPE_RULES_TEXT"
+_assert_contains "agent rules: scope directs edits to source fragments" \
+  ".config/agent-rules/rules.d/" \
+  "$SCOPE_RULES_TEXT"
+_assert_contains "agent rules: scope avoids generated target edits" \
+  "generated runtime target" "$SCOPE_RULES_TEXT"
+# OpenCode can fall back to Claude's global file today, but that compatibility
+# path is optional runtime behavior. A native target keeps the shared rules
+# available if compatibility is disabled and makes ownership visible to doctor
+# and operators alongside the Claude, Codex, and Gemini targets.
+_assert_contains "agent rules: native profile includes OpenCode" \
+  '$HOME/.config/opencode/AGENTS.md' "$(cat "$NATIVE_TARGETS")"
+_assert_contains "agent rules: memory policy uses Hive Memory" \
+  "Hive Memory is available through the \`hm\` command" "$MEMORY_RULES_TEXT"
+_assert_contains "agent rules: memory policy requires project-aware writes" \
+  "pass \`--project <file-or-repo-path>\`" "$MEMORY_RULES_TEXT"
+_assert_contains "agent rules: memory policy handles pending reminders" \
+  "If a prompt or hook reminder says memory is pending" "$MEMORY_RULES_TEXT"
+_assert_contains "agent rules: memory policy forbids secrets" \
+  "Do not store secrets or sensitive credentials" "$MEMORY_RULES_TEXT"
+_assert_contains "agent rules: branch pushes name the destination" \
+  'git push <remote> <source>:refs/heads/<destination>' "$GIT_RULES_TEXT"
+
+_assert_file_exists "agent rules: tool selection playbook exists" \
+  "$TOOL_SELECTION_PLAYBOOK"
+if [[ -f "$TOOL_SELECTION_PLAYBOOK" ]]; then
+  TOOL_SELECTION_TEXT=$(cat "$TOOL_SELECTION_PLAYBOOK")
+  _assert_contains "agent rules: tool selection playbook has a routed trigger" \
+    "agent-rule-trigger: Discovering available local capabilities" "$TOOL_SELECTION_TEXT"
+  _assert_contains "agent rules: tool selection verifies live availability" \
+    'command -v <tool>' "$TOOL_SELECTION_TEXT"
+  _assert_contains "agent rules: tool selection distinguishes managed inventory" \
+    'shdeps list' "$TOOL_SELECTION_TEXT"
+  _assert_contains "agent rules: tool selection discovers alternate entry points" \
+    'shdeps dep-links <dependency>' "$TOOL_SELECTION_TEXT"
+  _assert_contains "agent rules: tool selection preserves install authorization" \
+    "is not authorization to install it" "$TOOL_SELECTION_TEXT"
+fi
+
+lifecycle_anchor_paths=$(printf '%s\n' "$WORKFLOW_RULES_TEXT" |
+  grep -Eo '`~/.config/agent-rules/playbooks.d/[^`]+\.md`' | tr -d '`')
+lifecycle_anchor_count=$(printf '%s\n' "$lifecycle_anchor_paths" | sed '/^$/d' | wc -l | tr -d '[:space:]')
+_assert_eq "agent rules: two lifecycle-critical playbook anchors remain in core" \
+  "2" "$lifecycle_anchor_count"
+_assert_contains "agent rules: worktree lifecycle anchor remains in core" \
+  '~/.config/agent-rules/playbooks.d/git/worktrees.md' "$lifecycle_anchor_paths"
+_assert_contains "agent rules: fresh-eyes lifecycle anchor remains in core" \
+  '~/.config/agent-rules/playbooks.d/review/fresh-eyes.md' "$lifecycle_anchor_paths"
+while IFS= read -r lifecycle_anchor; do
+  [[ -n "$lifecycle_anchor" ]] || continue
+  _assert_file_exists "agent rules: lifecycle anchor exists: $lifecycle_anchor" \
+    "$HOME/${lifecycle_anchor#\~/}"
+done <<<"$lifecycle_anchor_paths"
+
+echo "=== selected agent policy ==="
+
+rule_files=()
+while IFS= read -r rule_file; do
+  rule_files+=("$rule_file")
+done < <(
+  _dot_agent_rules_sources
+)
+
+playbook_files=()
+playbook_listing=""
+if declare -F _dot_playbook_files >/dev/null 2>&1; then
+  playbook_listing=$(_dot_playbook_files) ||
+    _fail "agent rules: playbook discovery succeeds"
+else
+  _fail "agent rules: playbook discovery helper exists"
+fi
+while IFS= read -r playbook_file; do
+  [[ -n "$playbook_file" ]] || continue
+  playbook_files+=("$playbook_file")
+done <<<"$playbook_listing"
+if ((${#playbook_files[@]} == 0)); then
+  _fail "agent rules: playbooks exist"
+fi
+_assert_contains "agent rules: tool selection playbook is discovered" \
+  "$TOOL_SELECTION_PLAYBOOK" "$playbook_listing"
+
+echo "=== on-demand playbooks ==="
+
+routing_files=()
+for rule_file in "${rule_files[@]}"; do
+  grep -qE 'agent-rule-id: [a-z0-9-]*on-demand-playbooks[[:space:]]*-->' \
+    "$rule_file" || continue
+  routing_files+=("$rule_file")
+done
+if ((${#routing_files[@]} == 0)); then
+  _fail "agent rules: on-demand routing index exists"
+else
+  _pass "agent rules: discovered ${#routing_files[@]} routing index files"
+  routing_source=$(cat "${routing_files[@]}")
+  _assert_contains "agent rules: routing source has generated index marker" \
+    "<!-- agent-rules-sync-playbook-index -->" "$routing_source"
+  _assert_not_contains "agent rules: routing source has no maintained route list" \
+    "languages/python.md" "$routing_source"
+fi
+
+# Exercise the selected policy through the public provider instead of carrying
+# a second trigger parser and index renderer in dotfiles. The adapter test owns
+# exact manifest construction; this integration check owns acceptance of the
+# current prose and the resulting prompt-size budget.
+provider=${DOT_TEST_AGENT_RULES_SYNC_PROVIDER:-$(command -v agent-rules-sync 2>/dev/null || true)}
+provider_work=$(_tmpdir)
+provider_manifest="$provider_work/manifest.tsv"
+provider_target="$provider_work/AGENTS.md"
+provider_stderr="$provider_work/provider.err"
+{
+  printf 'version\tagent-rules-sync-manifest-v1\n'
+  printf 'rule-root\t%s\n' "$RULE_FAMILY"
+  printf 'playbook-root\t%s\n' "$PLAYBOOK_FAMILY"
+  for rule_file in "${rule_files[@]}"; do
+    printf 'rule\t%s\n' "$rule_file"
+  done
+  for playbook_file in "${playbook_files[@]}"; do
+    playbook_rel=${playbook_file#"$PLAYBOOK_FAMILY/"}
+    printf 'playbook\t%s\t%s\n' "$playbook_rel" "$playbook_file"
+  done
+  printf 'target-file\t%s\n' "$provider_target"
+} >"$provider_manifest"
+
+if [[ -x "$provider" ]]; then
+  HOME="$HOME" XDG_STATE_HOME="$provider_work/state" \
+    "$provider" --manifest "$provider_manifest" \
+    >"$provider_work/provider.out" 2>"$provider_stderr"
+  provider_status=$?
+else
+  provider_status=127
+  printf 'agent-rules-sync provider is not installed\n' >"$provider_stderr"
+fi
+if [[ "$provider_status" -eq 0 ]]; then
+  _pass "agent rules: provider accepts selected policy"
+else
+  _fail "agent rules: provider accepts selected policy: $(cat "$provider_stderr")"
+fi
+
+if [[ -f "$provider_target" ]]; then
+  rendered_rules=$(cat "$provider_target")
+else
+  rendered_rules=""
+fi
+for playbook_file in "${playbook_files[@]}"; do
+  playbook_rel=${playbook_file#"$PLAYBOOK_FAMILY/"}
+  _assert_contains "agent rules: provider routes $playbook_rel" \
+    "\`$playbook_rel\`" "$rendered_rules"
+done
+
+core_bytes=$(printf '%s\n' "$rendered_rules" | wc -c)
+if ((core_bytes <= 20000)); then
+  _pass "agent rules: rendered always-loaded rules are $core_bytes / 20000 bytes"
+else
+  _fail "agent rules: rendered always-loaded rules are $core_bytes bytes (limit: 20000)"
+fi
+
+echo "=== playbook discovery ==="
+
+if declare -F _dot_playbook_files >/dev/null 2>&1; then
+  DISCOVERY_FIXTURE=$(_tmpdir)
+  DISCOVERY_LOCAL_SOURCE="$DISCOVERY_FIXTURE/local source"
+  mkdir -p \
+    "$DISCOVERY_FIXTURE/.config/agent-rules/playbooks.d/nested/deeper" \
+    "$DISCOVERY_FIXTURE/.config/agent-rules/playbooks.d/unmanaged" \
+    "$DISCOVERY_FIXTURE/.dotfiles-private/home/.config/agent-rules/playbooks.d/private" \
+    "$DISCOVERY_LOCAL_SOURCE/home/.config/agent-rules/playbooks.d/local" \
+    "$DISCOVERY_FIXTURE/.local/state/dot"
+  cat >"$DISCOVERY_FIXTURE/.config/agent-rules/playbooks.d/nested/deeper/base.md" <<'EOF'
+# Nested Base
+
+<!-- agent-rule-id: nested-base -->
+<!-- agent-rule-trigger: Testing nested discovery -->
+EOF
+  cat >"$DISCOVERY_FIXTURE/.config/agent-rules/playbooks.d/unmanaged/file.md" <<'EOF'
+# Unmanaged
+
+<!-- agent-rule-id: unmanaged -->
+<!-- agent-rule-trigger: This must not be indexed -->
+EOF
+  cat >"$DISCOVERY_FIXTURE/.dotfiles-private/home/.config/agent-rules/playbooks.d/private/overlay.md" <<'EOF'
+# Managed Overlay
+
+<!-- agent-rule-id: managed-overlay -->
+<!-- agent-rule-trigger: Testing managed overlays -->
+EOF
+  cat >"$DISCOVERY_FIXTURE/.dotfiles-private/home/.config/agent-rules/playbooks.d/private/untracked.md" <<'EOF'
+# Untracked Overlay
+
+<!-- agent-rule-id: untracked-overlay -->
+<!-- agent-rule-trigger: This must not be indexed -->
+EOF
+  cat >"$DISCOVERY_LOCAL_SOURCE/home/.config/agent-rules/playbooks.d/local/local.md" <<'EOF'
+# Managed Local Overlay
+
+<!-- agent-rule-id: managed-local-overlay -->
+<!-- agent-rule-trigger: Testing managed local overlays -->
+EOF
+  git init -q --bare "$DISCOVERY_FIXTURE/.dotfiles"
+  git --git-dir="$DISCOVERY_FIXTURE/.dotfiles" \
+    --work-tree="$DISCOVERY_FIXTURE" add \
+    .config/agent-rules/playbooks.d/nested/deeper/base.md
+  git -C "$DISCOVERY_FIXTURE/.dotfiles-private" init -q
+  git -C "$DISCOVERY_FIXTURE/.dotfiles-private" add \
+    home/.config/agent-rules/playbooks.d/private/overlay.md
+  discovery_rel=.config/agent-rules/playbooks.d/private/overlay.md
+  discovery_target=$(
+    HOME="$DISCOVERY_FIXTURE"
+    _overlay_link_target "$discovery_rel" private
+    printf '%s\n' "$REPLY"
+  )
+  mkdir -p "$DISCOVERY_FIXTURE/${discovery_rel%/*}"
+  ln -s "$discovery_target" "$DISCOVERY_FIXTURE/$discovery_rel"
+  printf '%s\t%s\n' "$discovery_rel" private \
+    >"$DISCOVERY_FIXTURE/.local/state/dot/overlay-links"
+  discovery_untracked_rel=.config/agent-rules/playbooks.d/private/untracked.md
+  discovery_untracked_target=$(
+    HOME="$DISCOVERY_FIXTURE"
+    _overlay_link_target "$discovery_untracked_rel" private
+    printf '%s\n' "$REPLY"
+  )
+  ln -s "$discovery_untracked_target" "$DISCOVERY_FIXTURE/$discovery_untracked_rel"
+  printf '%s\t%s\n' "$discovery_untracked_rel" private \
+    >>"$DISCOVERY_FIXTURE/.local/state/dot/overlay-links"
+  discovery_local_rel=.config/agent-rules/playbooks.d/local/local.md
+  discovery_local_target="$DISCOVERY_LOCAL_SOURCE/home/$discovery_local_rel"
+  mkdir -p "$DISCOVERY_FIXTURE/${discovery_local_rel%/*}"
+  ln -s "$discovery_local_target" "$DISCOVERY_FIXTURE/$discovery_local_rel"
+  printf '%s\t%s\t%s\n' \
+    "$discovery_local_rel" local "$discovery_local_target" \
+    >>"$DISCOVERY_FIXTURE/.local/state/dot/overlay-links"
+  chmod 600 "$DISCOVERY_FIXTURE/.local/state/dot/overlay-links"
+  ln -s "$DISCOVERY_FIXTURE/.config/agent-rules/playbooks.d/nested/deeper/base.md" \
+    "$DISCOVERY_FIXTURE/.config/agent-rules/playbooks.d/unmanaged/link.md"
+
+  discovery_git_bin=$(_mock_bin)
+  discovery_git_log="$DISCOVERY_FIXTURE/git-discovery.log"
+  discovery_system_git=$(command -v git)
+  cat >"$discovery_git_bin/git" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$DISCOVERY_GIT_LOG"
+exec "$DISCOVERY_SYSTEM_GIT" "$@"
+EOF
+  chmod +x "$discovery_git_bin/git"
+  export DISCOVERY_GIT_LOG="$discovery_git_log"
+  export DISCOVERY_SYSTEM_GIT="$discovery_system_git"
+
+  discovery_listing=$(
+    PATH="$discovery_git_bin:$PATH"
+    HOME="$DISCOVERY_FIXTURE"
+    DOT_OVERLAY_MANIFEST="$DISCOVERY_FIXTURE/.local/state/dot/overlay-links"
+    DOT_OVERLAY_LEGACY_MANIFEST="$DISCOVERY_FIXTURE/.local/state/dot/legacy-overlay-links"
+    OVERLAYS=("local|$DISCOVERY_LOCAL_SOURCE|||||none")
+    _dot_playbook_files
+  )
+  discovery_nested_listing=$(
+    cd "$DISCOVERY_FIXTURE/.config" || exit
+    HOME="$DISCOVERY_FIXTURE"
+    DOT_OVERLAY_MANIFEST="$DISCOVERY_FIXTURE/.local/state/dot/overlay-links"
+    DOT_OVERLAY_LEGACY_MANIFEST="$DISCOVERY_FIXTURE/.local/state/dot/legacy-overlay-links"
+    OVERLAYS=("local|$DISCOVERY_LOCAL_SOURCE|||||none")
+    _dot_playbook_files
+  )
+  discovery_inventory_calls=$(awk '/ ls-files -z / { count++ } END { print count + 0 }' \
+    "$discovery_git_log")
+  discovery_per_path_calls=$(awk '/ ls-files --error-unmatch / { count++ } END { print count + 0 }' \
+    "$discovery_git_log")
+  _assert_eq "agent rules: discovery inventories each Git owner once" \
+    "1" "$discovery_inventory_calls"
+  _assert_eq "agent rules: discovery avoids per-playbook Git probes" \
+    "0" "$discovery_per_path_calls"
+  _assert_contains "agent rules: discovery includes recursively nested tracked playbook" \
+    "$DISCOVERY_FIXTURE/.config/agent-rules/playbooks.d/nested/deeper/base.md" \
+    "$discovery_listing"
+  _assert_contains "agent rules: discovery is independent of caller directory" \
+    "$DISCOVERY_FIXTURE/.config/agent-rules/playbooks.d/nested/deeper/base.md" \
+    "$discovery_nested_listing"
+  _assert_contains "agent rules: discovery includes exact managed overlay symlink" \
+    "$DISCOVERY_FIXTURE/.config/agent-rules/playbooks.d/private/overlay.md" \
+    "$discovery_listing"
+  _assert_contains "agent rules: discovery includes exact managed local overlay symlink" \
+    "$DISCOVERY_FIXTURE/$discovery_local_rel" "$discovery_listing"
+  _assert_not_contains "agent rules: discovery excludes untracked regular files" \
+    "$DISCOVERY_FIXTURE/.config/agent-rules/playbooks.d/unmanaged/file.md" \
+    "$discovery_listing"
+  _assert_not_contains "agent rules: discovery excludes arbitrary symlinks" \
+    "$DISCOVERY_FIXTURE/.config/agent-rules/playbooks.d/unmanaged/link.md" \
+    "$discovery_listing"
+  _assert_not_contains "agent rules: discovery excludes untracked overlay sources" \
+    "$DISCOVERY_FIXTURE/$discovery_untracked_rel" "$discovery_listing"
+
+  # A discovery inventory is only valid for one top-level call. Prove that a
+  # later call observes an index update instead of reusing stale trust state.
+  git -C "$DISCOVERY_FIXTURE/.dotfiles-private" add \
+    "home/$discovery_untracked_rel"
+  discovery_refreshed_listing=$(
+    PATH="$discovery_git_bin:$PATH"
+    HOME="$DISCOVERY_FIXTURE"
+    DOT_OVERLAY_MANIFEST="$DISCOVERY_FIXTURE/.local/state/dot/overlay-links"
+    DOT_OVERLAY_LEGACY_MANIFEST="$DISCOVERY_FIXTURE/.local/state/dot/legacy-overlay-links"
+    OVERLAYS=("local|$DISCOVERY_LOCAL_SOURCE|||||none")
+    _dot_playbook_files
+  )
+  discovery_refreshed_inventory_calls=$(
+    awk '/ ls-files -z / { count++ } END { print count + 0 }' \
+      "$discovery_git_log"
+  )
+  _assert_contains "agent rules: later discovery observes newly tracked source" \
+    "$DISCOVERY_FIXTURE/$discovery_untracked_rel" "$discovery_refreshed_listing"
+  _assert_eq "agent rules: later discovery refreshes Git inventory" \
+    "2" "$discovery_refreshed_inventory_calls"
+
+  # A stale exact-target record from a removed filesystem descriptor must not
+  # inherit trust from a same-name Git checkout. The manifest target identifies
+  # the local source, so only an active matching sync=none descriptor can
+  # authorize it.
+  mkdir -p "$DISCOVERY_FIXTURE/.dotfiles-local/home/${discovery_local_rel%/*}"
+  cp "$DISCOVERY_LOCAL_SOURCE/home/$discovery_local_rel" \
+    "$DISCOVERY_FIXTURE/.dotfiles-local/home/$discovery_local_rel"
+  git -C "$DISCOVERY_FIXTURE/.dotfiles-local" init -q
+  git -C "$DISCOVERY_FIXTURE/.dotfiles-local" add "home/$discovery_local_rel"
+  discovery_stale_local_listing=$(
+    HOME="$DISCOVERY_FIXTURE"
+    # shellcheck disable=SC2034  # read dynamically by _dot_playbook_files.
+    DOT_OVERLAY_MANIFEST="$DISCOVERY_FIXTURE/.local/state/dot/overlay-links"
+    # shellcheck disable=SC2034  # read dynamically by _dot_playbook_files.
+    DOT_OVERLAY_LEGACY_MANIFEST="$DISCOVERY_FIXTURE/.local/state/dot/legacy-overlay-links"
+    # shellcheck disable=SC2034  # read dynamically by _dot_playbook_files.
+    OVERLAYS=()
+    _dot_playbook_files
+  )
+  _assert_not_contains "agent rules: stale local target gets no same-name Git trust" \
+    "$DISCOVERY_FIXTURE/$discovery_local_rel" "$discovery_stale_local_listing"
+
+  mv "$DISCOVERY_FIXTURE/.dotfiles-private/home/$discovery_rel" \
+    "$DISCOVERY_FIXTURE/.dotfiles-private/home/$discovery_rel.missing"
+  if HOME="$DISCOVERY_FIXTURE" \
+    DOT_OVERLAY_MANIFEST="$DISCOVERY_FIXTURE/.local/state/dot/overlay-links" \
+    DOT_OVERLAY_LEGACY_MANIFEST="$DISCOVERY_FIXTURE/.local/state/dot/legacy-overlay-links" \
+    _dot_playbook_files >/dev/null 2>&1; then
+    _fail "agent rules: discovery fails on a missing tracked overlay source"
+  else
+    _pass "agent rules: discovery fails on a missing tracked overlay source"
+  fi
+  mv "$DISCOVERY_FIXTURE/.dotfiles-private/home/$discovery_rel.missing" \
+    "$DISCOVERY_FIXTURE/.dotfiles-private/home/$discovery_rel"
+
+  discovery_broken_rel=.config/agent-rules/playbooks.d/private/broken.md
+  mkdir -p "$DISCOVERY_FIXTURE/.dotfiles-broken/home/${discovery_broken_rel%/*}"
+  cp "$DISCOVERY_FIXTURE/.dotfiles-private/home/$discovery_rel" \
+    "$DISCOVERY_FIXTURE/.dotfiles-broken/home/$discovery_broken_rel"
+  discovery_broken_target=$(
+    HOME="$DISCOVERY_FIXTURE"
+    _overlay_link_target "$discovery_broken_rel" broken
+    printf '%s\n' "$REPLY"
+  )
+  ln -s "$discovery_broken_target" "$DISCOVERY_FIXTURE/$discovery_broken_rel"
+  printf '%s\t%s\n' "$discovery_broken_rel" broken \
+    >>"$DISCOVERY_FIXTURE/.local/state/dot/overlay-links"
+  if HOME="$DISCOVERY_FIXTURE" \
+    DOT_OVERLAY_MANIFEST="$DISCOVERY_FIXTURE/.local/state/dot/overlay-links" \
+    DOT_OVERLAY_LEGACY_MANIFEST="$DISCOVERY_FIXTURE/.local/state/dot/legacy-overlay-links" \
+    _dot_playbook_files >/dev/null 2>&1; then
+    _fail "agent rules: discovery fails on an invalid overlay repository"
+  else
+    _pass "agent rules: discovery fails on an invalid overlay repository"
+  fi
+fi
+
+_test_summary

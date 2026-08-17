@@ -3,14 +3,18 @@
 # Named directory bookmarks with fuzzy jumping.
 # Complements zoxide (frecency) with explicit named bookmarks.
 
-if ! typeset -f dot_xdg_path >/dev/null 2>&1; then
-  _dot_marks_library_home=${DOT_TEST_HOST_HOME:-${HOME:-}}
-  _dot_marks_xdg=$_dot_marks_library_home/.local/lib/dot/xdg.sh
-  # shellcheck source=../../../.local/lib/dot/xdg.sh disable=SC1091
-  . "$_dot_marks_xdg"
-  unset _dot_marks_library_home _dot_marks_xdg
+if ! typeset -f _dot_xdg_path >/dev/null 2>&1; then
+  if [[ -n "${ZSH_VERSION:-}" ]]; then
+    # shellcheck disable=SC2296  # zsh's current sourced-file expansion.
+    _dot_marks_source="${(%):-%N}"
+  else
+    _dot_marks_source="${BASH_SOURCE[0]}"
+  fi
+  # shellcheck source=../../../.local/lib/dot/core/xdg.sh disable=SC1091
+  . "${_dot_marks_source%/*}/../../../.local/lib/dot/core/xdg.sh"
+  unset _dot_marks_source
 fi
-dot_xdg_path data marks || return
+_dot_xdg_path data marks || return
 _MARKS_DIR="$REPLY"
 
 _valid_mark_name() {

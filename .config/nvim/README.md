@@ -50,5 +50,5 @@ agent hooks, Git hooks, and Sapling hooks.
 
 ## Tests
 
-`~/.local/lib/dotfiles/tests/nvim-test` checks the Neovim config and its shared
+`~/.local/lib/dot/tests/nvim-test` checks the Neovim config and its shared
 policy integrations.

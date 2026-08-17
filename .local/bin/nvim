@@ -6,8 +6,8 @@ set -euo pipefail
 # The launcher is installed only as part of a converged dot update. Termnav owns
 # the reusable pane-selection policy, while dotfiles owns this small wiring
 # layer; an unavailable provider means the installation needs repair.
-# shellcheck source=../lib/dotfiles/shdeps-assets.sh disable=SC1091
-. "${BASH_SOURCE[0]%/*}/../lib/dotfiles/shdeps-assets.sh"
+# shellcheck source=../lib/dot/core/shdeps-assets.sh disable=SC1091
+. "${BASH_SOURCE[0]%/*}/../lib/dot/core/shdeps-assets.sh"
 if ! dot_shdeps_dep_source \
   cgraf78/termnav \
   lib/termnav/nvim-open/launcher.sh; then

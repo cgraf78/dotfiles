@@ -1,7 +1,7 @@
 # Gemini Merge Hook
 
 This directory declares the `gemini` merge-hook instance. The executable hook
-at `~/.local/lib/dotfiles/merge-hooks.d/gemini.sh` resolves AgentGuard's native
+at `~/.local/lib/dot/core/merge-hooks/gemini.sh` resolves AgentGuard's native
 `gemini/hooks.json` generation and AgentGuard's shared reconciler through
 shdeps, then merges any optional local layers from `settings.d/`.
 

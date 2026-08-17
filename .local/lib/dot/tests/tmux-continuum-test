@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# Verify dotfiles remains the policy/activation layer for tmux persistence.
+#
+# The reusable default-server coordinator and save gate belong to tmux-tools,
+# where every consumer gets the same socket, quoting, and restore semantics.
+# Keeping this suite at the consumer boundary prevents those implementations
+# from quietly growing back into dotfiles while tmux-tools owns their detailed
+# behavioral tests.
+
+set -euo pipefail
+
+# shellcheck source=helpers.sh
+. "$HOME/.local/lib/dot/tests/helpers.sh"
+
+tmux_config="$HOME/.config/tmux/tmux.conf"
+shdeps_config="$HOME/.config/shdeps/10-deps.conf"
+shellcheck_inventory="$HOME/.github/shellcheck-files.txt"
+tmux_content=$(cat "$tmux_config")
+inventory_content=$(cat "$shellcheck_inventory")
+
+echo "=== tmux continuum provider boundary ==="
+
+tracked_provider_commands=""
+while IFS= read -r provider_path; do
+  # A deletion under test is still present in HEAD until the change is
+  # committed. Count only tracked paths that exist in the tested worktree;
+  # shdeps-managed untracked links in a real HOME remain valid consumers.
+  if [[ -e "$HOME/$provider_path" || -L "$HOME/$provider_path" ]]; then
+    tracked_provider_commands+="${tracked_provider_commands:+$'\n'}$provider_path"
+  fi
+done < <(
+  git -C "$HOME" ls-files -- \
+    .local/bin/tmux-continuum-default-server \
+    .local/bin/tmux-continuum-save-gate
+)
+_assert_eq "provider boundary: command implementations are not dotfiles-owned" \
+  "" "$tracked_provider_commands"
+
+tmux_tools_health=$(
+  awk '$1 == "cgraf78/tmux-tools" { print $3 }' "$shdeps_config"
+)
+_assert_eq "provider boundary: shdeps health-checks the surviving coordinator" \
+  "tmux-continuum-default-server" "$tmux_tools_health"
+
+_assert_contains "provider boundary: dotfiles chooses the save interval" \
+  "set -g @tmux-tools-continuum-save-interval '5'" "$tmux_content"
+_assert_contains "provider boundary: isolated servers begin without restore ownership" \
+  "set -g @tmux-tools-resurrect-auto-restore 'off'" "$tmux_content"
+_assert_contains "provider boundary: dotfiles activates the provider command" \
+  "run-shell '~/.local/bin/tmux-continuum-default-server'" "$tmux_content"
+
+# DS owns the metadata hooks, but the coordinator signal is intentionally
+# generic: tmux-tools publishes it and DS merely consumes it.
+_assert_contains "provider boundary: DS metadata save hook remains activated" \
+  "set -g @resurrect-hook-post-save-layout 'ds resurrect save'" "$tmux_content"
+_assert_contains "provider boundary: DS restore-begin hook remains activated" \
+  "set -g @resurrect-hook-pre-restore-all 'ds resurrect begin'" "$tmux_content"
+_assert_contains "provider boundary: DS metadata restore hook remains activated" \
+  "set -g @resurrect-hook-post-restore-all 'ds resurrect restore'" "$tmux_content"
+
+_assert_not_contains "provider boundary: no coordinator option is DS-namespaced" \
+  "@ds-continuum-save-interval" "$tmux_content"
+_assert_not_contains "provider boundary: no provider signal is DS-namespaced" \
+  "@ds-resurrect-auto-restore" "$tmux_content"
+_assert_not_contains "provider boundary: retired helper leaves ShellCheck inventory" \
+  ".local/bin/tmux-continuum-default-server" "$inventory_content"
+_assert_not_contains "provider boundary: retired gate leaves ShellCheck inventory" \
+  ".local/bin/tmux-continuum-save-gate" "$inventory_content"
+
+_test_summary

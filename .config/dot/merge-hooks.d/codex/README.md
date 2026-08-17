@@ -1,15 +1,14 @@
 # Codex Merge Hook Instance
 
-This directory declares the `codex` merge-hook instance and contains its
-declarative source families.
+This directory declares the `codex` merge-hook instance. Codex declarative
+source families and private merge helpers live in this directory.
 
-The executable hook and its private implementation helpers live under
-`~/.local/lib/dotfiles/merge-hooks.d/`.
+The executable hook implementation lives at
+`~/.local/lib/dot/core/merge-hooks/codex.sh`.
 
 ## Integration ownership
 
-The client-owned Codex helper resolves AgentGuard's native `codex/hooks.toml`
-generation and shared
+`api.sh` resolves AgentGuard's native `codex/hooks.toml` generation and shared
 `_shared/reconcile-hooks.jq` through shdeps. It converts the live and provider
 TOML documents to JSON, lets AgentGuard replace only its historical generation,
 then renders the result through the existing stable TOML serializer. AgentGuard
@@ -30,5 +29,4 @@ whole last-known-good `~/.codex/config.toml`; local policy is deferred until the
 security base is available again.
 
 When changing an agent-specific hook, edit AgentGuard. When changing how Codex
-state is safely merged, cached, or trusted on this fleet, edit the helper under
-`~/.local/lib/dotfiles/merge-hooks.d/lib/codex/`.
+state is safely merged, cached, or trusted on this fleet, edit the helper here.

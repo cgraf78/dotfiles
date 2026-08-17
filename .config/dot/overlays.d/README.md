@@ -8,7 +8,7 @@ directory.
 
 1. Create a conf file such as `10-work.conf`.
 2. Track it in the base repo with `git add` from `$HOME`.
-3. Run `dot update` (or `dot init URL` on a new client).
+3. Run `dot update` or `dotbootstrap`.
 
 When the overlay matches the current machine and its remote is reachable,
 `dot update` clones it to `~/.dotfiles-<name>` and symlinks files from its
@@ -75,7 +75,7 @@ my-overlay-repo/
 │   ├── .config/dot/merge-hooks.d/myapp/README.md
 │   ├── .config/shdeps/hooks.d/mytool.sh
 │   ├── .local/bin/my-script
-│   └── .local/lib/dotfiles/merge-hooks.d/myapp.sh
+│   └── .local/lib/dot/core/merge-hooks/myapp.sh
 └── README.md
 ```
 
@@ -124,7 +124,7 @@ The filesystem overlay is also omitted from `dot fetch`, `dot push`,
 An active filesystem source must have a readable, searchable `home/` directory
 and readable file entries. Source symlinks must resolve to usable files or
 directories. If validation fails, `dot update` stops before repository
-synchronization or finalization; `dot init` validates after the base
+synchronization or finalization; `dotbootstrap` validates after the base
 checkout and before overlay pulls or finalization. Removing a source file
 removes its managed link on the next successful update. Removing the descriptor
 removes all of its managed links without needing the source tree to remain
@@ -150,7 +150,7 @@ and companion `.ssh` file before running `dot update`.
 ## Private Overlays
 
 Use `optional=true` for private overlays that should not exist on every
-machine. `dot update` and `dot init` try to clone or pull optional overlays
+machine. `dot update` and `dotbootstrap` try to clone or pull optional overlays
 when the configured Git URL is accessible, but a failed clone or pull is treated
 as "not available here" instead of failing the whole update. This is the right
 shape for personal private overlays that should automatically appear on
@@ -187,13 +187,11 @@ url=github-dotfiles-work:user/dotfiles-work.git
 optional=true
 ```
 
-The dotfiles-owned `pre-sync.d/10-overlay-ssh.sh` extension merges these
-snippets into `~/.ssh/config` before repository synchronization. Standalone
-`dot` provides only the generic pre-sync lifecycle and never interprets SSH
-syntax. Machines without the key skip the optional overlay until the key is
-installed. For a required deploy-key overlay, a missing key is an error. For a
-new machine that should use a required deploy-key overlay, copy the private key
-before bootstrapping or add it later and rerun `dot update`.
+`dot update` and `dotbootstrap` merge these SSH snippets into `~/.ssh/config`.
+Machines without the key skip the optional overlay until the key is installed.
+For a required deploy-key overlay, a missing key is an error. For a new machine
+that should use a required deploy-key overlay, copy the private key before
+bootstrapping or add it later and rerun `dot update`.
 
 ## Removal
 

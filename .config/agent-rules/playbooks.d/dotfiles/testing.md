@@ -13,7 +13,7 @@ a linked git worktree.
   `.local/bin/dot-test`.
 - Ordinary suites should not care whether they are running from the live home or
   a linked worktree. If a suite needs host-installed tools, use the existing
-  helpers in `.local/lib/dotfiles/tests/helpers.sh` instead of hard-coding host paths.
+  helpers in `.local/lib/dot/tests/helpers.sh` instead of hard-coding host paths.
 - When comparing paths on macOS, canonicalize only assertions that care about
   filesystem identity rather than visible spelling, because `/var` and
   `/private/var` may both appear in the same test run.

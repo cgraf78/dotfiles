@@ -9,7 +9,7 @@ expands `$HOME`, `${HOME}`, and `~` so fragments can stay portable across
 machines.
 
 The executable hook implementation lives at
-`~/.local/lib/dotfiles/merge-hooks.d/sapling.sh`.
+`~/.local/lib/dot/core/merge-hooks/sapling.sh`.
 
 `hgrc.d/10-sley.ini` directly activates Sley's provider-owned Sapling commit
 gate from its stable Shdeps checkout. The hgrc entries are the activation

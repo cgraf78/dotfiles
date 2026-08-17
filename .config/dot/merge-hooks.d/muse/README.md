@@ -1,7 +1,7 @@
 # Muse Merge Hook
 
 This directory declares the `muse` merge-hook instance. The executable hook at
-`~/.local/lib/dotfiles/merge-hooks.d/muse.sh` prepends AgentGuard's native
+`~/.local/lib/dot/core/merge-hooks/muse.sh` prepends AgentGuard's native
 `muse/hooks.json` generation plus AgentGuard's shared reconciler, resolved
 through shdeps, before local `settings.d/` layers.
 
