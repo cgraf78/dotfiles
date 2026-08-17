@@ -250,6 +250,7 @@ program	.local/lib/dotfiles/tests/core-resource-cleanup-test
 program	.local/lib/dotfiles/tests/core-static-test
 program	.local/lib/dotfiles/tests/core-test
 program	.local/lib/dotfiles/tests/core-update-test
+program	.local/lib/dotfiles/tests/cutover-preparation-test
 program	.local/lib/dotfiles/tests/core/commands.sh
 program	.local/lib/dotfiles/tests/core/cron.sh
 program	.local/lib/dotfiles/tests/core/doctor.sh
