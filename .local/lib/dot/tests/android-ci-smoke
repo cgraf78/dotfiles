@@ -56,6 +56,9 @@ awk '$1 == "cgraf78\/hive-memory" && $2 == "github" &&
        $0 ~ /os:!android/ { found = 1 }
      END { exit !found }' "$deps" ||
   fail "Hive Memory GitHub install is not excluded on Android"
+if command -v neocmakelsp >/dev/null || command -v superhtml >/dev/null; then
+  fail "unsupported desktop LSP providers were installed on Android"
+fi
 
 command -v nvim >/dev/null || fail "Termux Neovim package did not provide nvim"
 nvim --version 2>&1 | awk 'NR == 1 && $1 == "NVIM" { found = 1 }
@@ -65,6 +68,10 @@ PATH="$root/.local/bin:$PATH" NVIM_LAUNCHER_FORCE_NEW=1 nvim --version 2>&1 |
   awk 'NR == 1 && $1 == "NVIM" { found = 1 }
        END { exit !found }' ||
   fail "dotfiles nvim launcher does not delegate on Android"
+PATH="$root/.local/bin:$PATH" NVIM_LAUNCHER_FORCE_NEW=1 nvim --headless \
+  --cmd 'lua vim.g.disable_session_restore = true' \
+  '+qa!' >/dev/null 2>&1 ||
+  fail "dotfiles nvim config does not start cleanly on Android"
 
 command -v watchexec >/dev/null || fail "dot update did not install Watchexec"
 watchexec --version >/dev/null 2>&1 ||

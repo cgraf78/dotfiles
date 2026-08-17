@@ -41,6 +41,28 @@ jobs:
           git fetch --no-tags --depth=1 origin "+$DOT_VSCODE_KEYBINDING_BASE_SHA:refs/remotes/origin/dot-keybinding-base"
         fi
         DOT_CORE_SKIP_SHELLCHECK=1 .local/bin/dot-test
+        lsp_mise_backends=(
+          github:neocmakelsp/neocmakelsp
+          github:kristoff-it/superhtml
+        )
+        # The shared bootstrap skips the unsupported global mise toolset on
+        # Alpine, so install only these musl-capable backends there. Elsewhere,
+        # validate the complete lock after bootstrap and force one Ubuntu
+        # reinstall to exercise the locked glibc release assets too.
+        if [[ -f /etc/alpine-release ]]; then
+          mise install --locked "${lsp_mise_backends[@]}"
+        else
+          mise install --locked --dry-run
+          if [[ -r /etc/os-release ]] &&
+            grep -q '^ID=ubuntu$' /etc/os-release &&
+            ! grep -qi microsoft /proc/version; then
+            mise install --locked --force "${lsp_mise_backends[@]}"
+          fi
+        fi
+        command -v neocmakelsp >/dev/null
+        neocmakelsp --version >/dev/null
+        command -v superhtml >/dev/null
+        superhtml version >/dev/null
       termux-command: |-
         set -euo pipefail
         HOME="$PWD" PATH="$PWD/.local/bin:$PATH" .local/bin/dot update --skip-pull
