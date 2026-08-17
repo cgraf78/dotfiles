@@ -32,9 +32,9 @@ vim.g.loaded_perl_provider = 0
 vim.g.loaded_python3_provider = 0
 vim.g.loaded_ruby_provider = 0
 
--- Set vim.g.mason_disabled = true in environments where network
--- egress to npm/pip/go-install is blocked and LSP binaries are
--- provided out-of-band.
+-- Set vim.g.mason_disabled = true in other environments where network egress
+-- to npm/pip/go-install is blocked and LSP binaries are provided out-of-band.
+-- mason-policy.lua disables Mason automatically on Android.
 
 --- Override in a work overlay to detect large repos where recursive filesystem
 --- traversal is prohibitively expensive. With no args, checks the current

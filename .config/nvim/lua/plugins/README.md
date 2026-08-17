@@ -13,7 +13,9 @@ under `lua/config/`.
 - Prefer dependency-owned adapters through `shdeps` for behavior shared with
   hooks or command-line tools.
 - Keep editor-only fallback installers behind `mason-policy.lua`; shdeps,
-  mise, and system packages remain authoritative.
+  mise, and system commands remain authoritative. Do not add an LSP package
+  directly to Mason's eager install list: mason-lspconfig already installs it
+  when the external command is absent.
 - Use late `zz-*` specs only when ordering is the point. For example,
   `zz-mason-policy.lua` wraps final LSP setup after normal language specs have
   registered their servers.
