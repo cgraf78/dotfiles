@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   shell:
-    uses: cgraf78/actions/.github/workflows/shell-ci.yml@cdf7f290b1fb24c18da7a7c8001494c6a0eec2dc
+    uses: cgraf78/actions/.github/workflows/shell-ci.yml@bd759d37ae4bd86414a24625f742ddf73f478406
     with:
       # CI restores shdeps between runs. Refresh the resolver before it
       # validates dependency releases and installed-tool smoke checks.
@@ -62,7 +62,7 @@ jobs:
       # files, so `.github/cgraf78-actions.lock` cannot be interpolated. This gate
       # verifies every unavoidable cgraf78/actions literal still matches that
       # single reviewed dependency decision.
-      - uses: cgraf78/actions/.github/actions/verify-consumer-sync@cdf7f290b1fb24c18da7a7c8001494c6a0eec2dc
+      - uses: cgraf78/actions/.github/actions/verify-consumer-sync@bd759d37ae4bd86414a24625f742ddf73f478406
 
   cold-bootstrap:
     name: Cold Ubuntu bootstrap
@@ -76,7 +76,7 @@ jobs:
           persist-credentials: false
 
       - name: Install bootstrap prerequisites
-        uses: cgraf78/actions/.github/actions/shell-ci-prereqs@cdf7f290b1fb24c18da7a7c8001494c6a0eec2dc
+        uses: cgraf78/actions/.github/actions/shell-ci-prereqs@bd759d37ae4bd86414a24625f742ddf73f478406
         with:
           matrix-name: Ubuntu
           setup: dotfiles
