@@ -8,4 +8,4 @@ are:
 - `../cron.local`: optional untracked machine-local cron entries
 
 The executable hook implementation lives at
-`~/.local/lib/dotfiles/merge-hooks.d/cron.sh`.
+`~/.local/lib/dot/core/merge-hooks/cron.sh`.

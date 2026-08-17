@@ -3,13 +3,13 @@
 `dot update` runs merge hooks declared from this directory to turn tracked
 source layers into generated config files. Declarative hook inputs live here;
 executable hook implementations live under
-`~/.local/lib/dotfiles/merge-hooks.d/`.
+`~/.local/lib/dot/core/merge-hooks/`.
 
 ## Conventions
 
 - merge-hook instance names are unprefixed and must match their executable
   script name, e.g. `claude/` pairs with
-  `~/.local/lib/dotfiles/merge-hooks.d/claude.sh`
+  `~/.local/lib/dot/core/merge-hooks/claude.sh`
 - executable hook scripts drive merge execution; config directories are
   optional inputs consumed by those scripts
 - config directories that exist should have a `README.md`, even when they have
@@ -38,28 +38,32 @@ Codex keeps config layers, profile overlays, and merge implementation code under
 `codex/`. Single-family targets can stay directly under their hook instance
 directory when extra nesting would not make the layout clearer.
 
-The standalone merge runner discovers readable scripts from
-`~/.local/lib/dotfiles/merge-hooks.d/` in lexical order, then runs independent
-hooks in fresh workers while preserving explicit `.serial.sh` barriers for
-singleton external state. Use the suffix only when overlapping execution would
-make a target unsafe: `cron.serial.sh` read-modify-writes the user crontab, and
-`sshd.serial.sh` validates and reloads one system SSH service. The runner strips
-`.serial` from each hook's identity and sort key. Non-shell helper files and
-declarative config in this directory are inert unless a hook explicitly loads
-them.
+The merge runner discovers readable scripts from
+`~/.local/lib/dot/core/merge-hooks/` in lexical order, then runs independent
+hooks in parallel while preserving explicit serial barriers for singleton
+external state. A hook should become serial only when the implementation can
+name the specific shared-state hazard; currently only the cron hook is serial
+because it read-modify-writes the user crontab and installs it as one complete
+replacement. Non-shell helper files and declarative config in this directory are
+inert unless a hook explicitly calls them.
 
-A failed hook prints its log and does not suppress later hooks, but it is an
-operational failure: the aggregate `dot update` status is exactly 1.
+A failed hook is advisory to the overall update: the runner prints its log,
+marks the Configs stage with a warning, and continues other hooks, while
+`dot update` still exits successfully. Unattended monitoring that needs to
+escalate config failures must inspect the warning output or captured log rather
+than relying only on the process exit status.
 
-Shared mechanics come from the versioned standalone hook API: source-family
-lookup, portable home-placeholder expansion, sibling-temp writes, managed
-blocks, and generic JSON layers. Product policy should live in declarative
-source files under this directory whenever practical; hook implementations
-should interpret that config and own only target-specific apply logic.
+Shared mechanics live in `~/.local/lib/dot/core/merge-hooks.sh`: source-file
+lookup, portable home-placeholder expansion, parser-tool probes,
+sibling-temp writes, and the generic JSON layer merge used by simple config
+hooks. Product policy should live in declarative source files under this
+directory whenever practical; hook implementations should interpret that config
+and own only target-specific apply logic.
 
 The Codex hook delegates its larger TOML/profile/trust workflow to private
-helpers under `~/.local/lib/dotfiles/merge-hooks.d/lib/codex/`. Declarative
-Codex inputs and their documentation remain in [`codex/`](codex/README.md).
+helpers in [`codex/`](codex/README.md). That keeps the compatibility path
+for older Codex versions covered without implying the code is a reusable dot
+runtime API.
 
 ## Configs
 
@@ -76,7 +80,7 @@ Codex inputs and their documentation remain in [`codex/`](codex/README.md).
 | Agent rules | `~/.config/agent-rules/rules.d/*.md`, trusted `~/.config/agent-rules/playbooks.d/**/*.md`, `agent-rules/targets.d/*.txt` | private resolved manifest consumed by the `agent-rules-sync` provider |
 | Git | tracked XDG config | one portable include in `~/.gitconfig` when needed |
 | GitHub CLI | `gh/config.d/*.yml` | `~/.config/gh/config.yml` |
-| Neovim | `nvim/` | Lazy-managed plugins updated headlessly when Neovim is idle; Android keeps its native package path and skips this unattended update |
+| Neovim | `nvim/` | Lazy-managed plugins updated headlessly when Neovim is idle |
 | SSH | `ssh/config.d/*.ssh_config` plus overlay `.ssh` files | `~/.ssh/config` |
 | tmux | tracked `~/.config/tmux/tmux.conf` | running default tmux server |
 | Git ignore | `ignore/ignore.d/` | global gitignore |
@@ -153,13 +157,10 @@ exists, do not add an invented placeholder schema.
   protection, atomic replacement, and last-known-good preservation. A missing
   provider is reported as a failed refresh even when an installed copy can be
   preserved.
-- SSH config merges tracked family fragments. Overlay `.ssh` host aliases are
-  prepared earlier by the dotfiles-owned pre-sync extension so they are
-  available for the first private clone.
+- SSH config merges tracked family fragments plus overlay `.ssh` host aliases.
 - Global ignore patterns are assembled from `ignore/ignore.d` source files.
 - The mise hook runs `mise install` for versions declared under
-  `~/.config/mise` on supported Linux and macOS hosts. Termux uses its native
-  Android packages instead of requesting unavailable release assets.
+  `~/.config/mise`.
 
 ## Cron
 

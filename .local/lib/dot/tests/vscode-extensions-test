@@ -1,0 +1,230 @@
+#!/usr/bin/env bash
+# vscode-extensions-test — dotfiles policy and vscode-exts activation boundary.
+
+set -euo pipefail
+export NO_COLOR=1
+
+# shellcheck source=helpers.sh
+. "$HOME/.local/lib/dot/tests/helpers.sh"
+
+work=$(_tmpdir)
+hook_tmp="$work/hook"
+mock_bin="$work/bin"
+empty_bin="$work/empty-bin"
+mkdir -p \
+  "$hook_tmp/vscode/extensions.d/50-managed-extensions.replace" \
+  "$mock_bin" \
+  "$empty_bin"
+touch "$hook_tmp/vscode/extensions.d/10-extensions.toml"
+touch "$hook_tmp/vscode/extensions.d/50-managed-extensions.replace/50-default.toml"
+touch "$hook_tmp/vscode/extensions.d/50-managed-extensions.replace/80-work.toml"
+touch "$hook_tmp/vscode/extensions.d/80-extra.toml"
+touch "$hook_tmp/vscode/extensions.d/not-extensions.txt"
+
+# The merge-hook runner normally provides shared logging before loading the
+# instance. Source that real boundary here so warning status and text are tested
+# without a suite-local stand-in.
+# shellcheck source=.local/lib/dot/core/log.sh
+. "$HOME/.local/lib/dot/core/log.sh"
+
+# shellcheck source=.local/lib/dot/core/merge-hooks/vscode.sh
+# shellcheck disable=SC1091
+. "$HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+
+_merge_hook_dir() {
+  printf '%s\n' "$hook_tmp"
+}
+
+_assert_eq "vscode-exts adapter: dot selects aggregate manifests in order" \
+  "$hook_tmp/vscode/extensions.d/10-extensions.toml
+$hook_tmp/vscode/extensions.d/50-managed-extensions.replace/80-work.toml
+$hook_tmp/vscode/extensions.d/80-extra.toml" \
+  "$(_vscode_extension_manifest_sources)"
+
+cat >"$mock_bin/vscode-exts" <<'SH'
+#!/usr/bin/env bash
+set -u
+
+: "${DOT_TEST_VSCODE_EXTS_LOG:?}"
+printf '%s\n' "$@" >"$DOT_TEST_VSCODE_EXTS_LOG"
+if [[ -n "${DOT_TEST_VSCODE_EXTS_ENV_LOG:-}" ]]; then
+  printf 'windows-home=%s\ntimeout=%s\ntest-mode=%s\n' \
+    "${VSCODE_EXTS_WINDOWS_HOME-<unset>}" \
+    "${VSCODE_EXTS_TIMEOUT_SECONDS-<unset>}" \
+    "${VSCODE_EXTS_TEST_MODE-<unset>}" \
+    >"$DOT_TEST_VSCODE_EXTS_ENV_LOG"
+fi
+exit "${DOT_TEST_VSCODE_EXTS_STATUS:-0}"
+SH
+chmod +x "$mock_bin/vscode-exts"
+
+provider_log="$work/provider.log"
+PATH="$mock_bin:$PATH" \
+  DOT_TEST_VSCODE_EXTS_LOG="$provider_log" \
+  _vscode_install_declared_extensions
+_assert_exit "vscode-exts adapter: successful provider invocation succeeds" 0 "$?"
+_assert_eq "vscode-exts adapter: forwards only selected manifests" \
+  "--manifest
+$hook_tmp/vscode/extensions.d/10-extensions.toml
+--manifest
+$hook_tmp/vscode/extensions.d/50-managed-extensions.replace/80-work.toml
+--manifest
+$hook_tmp/vscode/extensions.d/80-extra.toml" \
+  "$(cat "$provider_log" 2>/dev/null || true)"
+
+# Dot's established environment remains an integration contract even though
+# the standalone provider deliberately exposes only its own namespace. The
+# adapter should translate without exporting either value back into the caller.
+provider_env_log="$work/provider-env.log"
+unset VSCODE_EXTS_WINDOWS_HOME VSCODE_EXTS_TIMEOUT_SECONDS VSCODE_EXTS_TEST_MODE
+PATH="$mock_bin:$PATH" \
+  DOT_TEST_VSCODE_EXTS_LOG="$provider_log" \
+  DOT_TEST_VSCODE_EXTS_ENV_LOG="$provider_env_log" \
+  DOT_TEST=1 \
+  DOT_WINDOWS_HOME="$work/windows-home" \
+  DOT_VSCODE_EXTENSIONS_TIMEOUT_SECONDS=17 \
+  _vscode_install_declared_extensions
+_assert_file_content "vscode-exts adapter: translates dot runtime controls" \
+  "windows-home=$work/windows-home
+timeout=17
+test-mode=1" "$provider_env_log"
+# shellcheck disable=SC2031 # Deliberately prove subshell exports did not escape.
+_assert_eq "vscode-exts adapter: translation does not mutate caller environment" \
+  "::" \
+  "${VSCODE_EXTS_WINDOWS_HOME+set}:${VSCODE_EXTS_TIMEOUT_SECONDS+set}:${VSCODE_EXTS_TEST_MODE+set}"
+
+PATH="$mock_bin:$PATH" \
+  DOT_TEST_VSCODE_EXTS_LOG="$provider_log" \
+  DOT_TEST_VSCODE_EXTS_ENV_LOG="$provider_env_log" \
+  DOT_TEST=1 \
+  _vscode_install_declared_extensions
+_assert_file_content "vscode-exts adapter: isolated dot runs disable host discovery" \
+  "windows-home=<unset>
+timeout=<unset>
+test-mode=1" "$provider_env_log"
+
+PATH="$mock_bin:$PATH" \
+  DOT_TEST_VSCODE_EXTS_LOG="$provider_log" \
+  DOT_TEST_VSCODE_EXTS_ENV_LOG="$provider_env_log" \
+  DOT_WINDOWS_HOME="$work/dot-windows-home" \
+  DOT_VSCODE_EXTENSIONS_TIMEOUT_SECONDS=17 \
+  VSCODE_EXTS_WINDOWS_HOME="$work/provider-windows-home" \
+  VSCODE_EXTS_TIMEOUT_SECONDS=23 \
+  VSCODE_EXTS_TEST_MODE=0 \
+  _vscode_install_declared_extensions
+_assert_file_content "vscode-exts adapter: explicit provider controls take precedence" \
+  "windows-home=$work/provider-windows-home
+timeout=23
+test-mode=0" "$provider_env_log"
+
+PATH="$mock_bin:$PATH" \
+  DOT_TEST_VSCODE_EXTS_LOG="$provider_log" \
+  DOT_TEST_VSCODE_EXTS_ENV_LOG="$provider_env_log" \
+  DOT_TEST=0 \
+  DOT_VSCODE_WINDOWS_HOME="$work/legacy-vscode-windows-home" \
+  _vscode_install_declared_extensions
+_assert_file_content "vscode-exts adapter: preserves the prior VS Code home alias" \
+  "windows-home=$work/legacy-vscode-windows-home
+timeout=<unset>
+test-mode=<unset>" "$provider_env_log"
+
+unset invalid_rc
+PATH="$mock_bin:$PATH" \
+  DOT_TEST_VSCODE_EXTS_LOG="$provider_log" \
+  DOT_TEST_VSCODE_EXTS_STATUS=2 \
+  _vscode_install_declared_extensions \
+  >"$work/invalid.out" 2>"$work/invalid.err" || invalid_rc=$?
+_assert_exit "vscode-exts adapter: invalid manifest status remains fatal" \
+  2 "${invalid_rc:-0}"
+_assert_contains "vscode-exts adapter: invalid manifest warning is actionable" \
+  "invalid VS Code extension manifest" "$(cat "$work/invalid.err")"
+
+unset advisory_rc
+PATH="$mock_bin:$PATH" \
+  DOT_TEST_VSCODE_EXTS_LOG="$provider_log" \
+  DOT_TEST_VSCODE_EXTS_STATUS=7 \
+  _vscode_install_declared_extensions \
+  >"$work/advisory.out" 2>"$work/advisory.err" || advisory_rc=$?
+_assert_exit "vscode-exts adapter: unexpected provider failure remains advisory" \
+  0 "${advisory_rc:-0}"
+_assert_contains "vscode-exts adapter: advisory failure is visible" \
+  "VS Code extension install failed" "$(cat "$work/advisory.err")"
+
+rm -f "$provider_log"
+PATH="$mock_bin:$PATH" \
+  DOT_TEST_VSCODE_EXTS_LOG="$provider_log" \
+  DOT_VSCODE_EXTENSIONS_SKIP=1 \
+  _vscode_install_declared_extensions
+_assert_exit "vscode-exts adapter: test skip succeeds" 0 "$?"
+_assert_file_missing "vscode-exts adapter: test skip launches no provider" "$provider_log"
+
+PATH="$empty_bin" _vscode_install_declared_extensions
+_assert_exit "vscode-exts adapter: missing optional provider succeeds" 0 "$?"
+
+python3 - \
+  "$HOME/.config/checkrun/associations.json" \
+  "$HOME/.config/shdeps/10-deps.conf" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+associations = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))["associations"]
+entry = next(item for item in associations if item["name"] == "VS Code extension manifests")
+assert entry["dependency"] == "cgraf78/vscode-exts"
+assert entry["schema"] == "share/vscode-exts/schemas/extensions.schema.json"
+assert entry["matches"] == [
+    ".config/dot/merge-hooks.d/vscode/extensions.d/*.toml",
+    ".config/dot/merge-hooks.d/vscode/extensions.d/*.replace/*.toml",
+    ".config/vscode-exts/extensions.toml",
+    ".config/vscode-exts/extensions.d/*.toml",
+]
+
+deps = Path(sys.argv[2]).read_text(encoding="utf-8").splitlines()
+records = [line.split() for line in deps if line and not line.startswith("#")]
+assert ["cgraf78/vscode-exts", "github"] in records
+PY
+_assert_exit "vscode-exts ownership: dependency and provider schema are declared" 0 "$?"
+
+_assert_file_missing "vscode-exts ownership: consumer Python implementation is retired" \
+  "$HOME/.config/dot/merge-hooks.d/vscode/extensions.py"
+_assert_file_missing "vscode-exts ownership: consumer schema duplicate is retired" \
+  "$HOME/.local/share/checkrun/schemas/dot-vscode-extensions.schema.json"
+
+_assert_file_exists "vscode-exts policy: default managed manifest remains replaceable" \
+  "$HOME/.config/dot/merge-hooks.d/vscode/extensions.d/50-managed-extensions.replace/50-default.toml"
+_assert_file_missing "vscode-exts policy: old direct managed manifest path stays absent" \
+  "$HOME/.config/dot/merge-hooks.d/vscode/extensions.d/10-extensions.toml"
+
+python3 - \
+  "$HOME/.config/dot/merge-hooks.d/vscode/local-extensions.d" \
+  "$HOME/.config/dot/merge-hooks.d/vscode/extensions.d/50-managed-extensions.replace/50-default.toml" <<'PY'
+import sys
+import tomllib
+from pathlib import Path
+
+local_extensions_dir = Path(sys.argv[1])
+manifest = tomllib.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
+
+local_ids = set()
+for path in sorted(local_extensions_dir.glob("*.tsv")):
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        local_ids.add(line.split("\t", 1)[0].lower())
+
+declared_ids = {
+    spec.split("@", 1)[0].lower()
+    for bundle in manifest.get("bundle", {}).values()
+    for spec in bundle.get("extensions", [])
+}
+overlap = sorted(local_ids & declared_ids)
+if overlap:
+    raise SystemExit(
+        "dotfiles-owned local extensions must not be marketplace-managed: "
+        + ", ".join(overlap)
+    )
+PY
+_assert_exit "vscode-exts policy: marketplace and local extensions stay disjoint" 0 "$?"
+
+_test_summary

@@ -17,12 +17,11 @@ permissions:
 
 jobs:
   shell:
-    uses: cgraf78/actions/.github/workflows/shell-ci.yml@93aa1a87fecfca887d27886f89cc63d388419068
+    uses: cgraf78/actions/.github/workflows/shell-ci.yml@2a6119d7886443929e1961a0e11b8dafa71c1978
     with:
       # CI restores shdeps between runs. Refresh the resolver before it
       # validates dependency releases and installed-tool smoke checks.
       force-dotfiles-update: true
-      dotfiles-provider: true
       matrix-set: full
       setup: dotfiles
       shellcheck-exclude-codes: SC1091
@@ -66,8 +65,8 @@ jobs:
         superhtml version >/dev/null
       termux-command: |-
         set -euo pipefail
-        HOME="$PWD" PATH="$PWD/.local/bin:$PATH" .local/bin/dot update
-        HOME="$PWD" PATH="$PWD/.local/bin:$PATH" bash .local/lib/dotfiles/tests/android-ci-smoke
+        HOME="$PWD" PATH="$PWD/.local/bin:$PATH" .local/bin/dot update --skip-pull
+        HOME="$PWD" PATH="$PWD/.local/bin:$PATH" bash .local/lib/dot/tests/android-ci-smoke
       termux-profiles: base,neovim
 
   actions-sync:
@@ -84,7 +83,7 @@ jobs:
       # files, so `.github/cgraf78-actions.lock` cannot be interpolated. This gate
       # verifies every unavoidable cgraf78/actions literal still matches that
       # single reviewed dependency decision.
-      - uses: cgraf78/actions/.github/actions/verify-consumer-sync@93aa1a87fecfca887d27886f89cc63d388419068
+      - uses: cgraf78/actions/.github/actions/verify-consumer-sync@2a6119d7886443929e1961a0e11b8dafa71c1978
 
   cold-bootstrap:
     name: Cold Ubuntu bootstrap
@@ -98,43 +97,25 @@ jobs:
           persist-credentials: false
 
       - name: Install bootstrap prerequisites
-        uses: cgraf78/actions/.github/actions/shell-ci-prereqs@93aa1a87fecfca887d27886f89cc63d388419068
+        uses: cgraf78/actions/.github/actions/shell-ci-prereqs@2a6119d7886443929e1961a0e11b8dafa71c1978
         with:
           matrix-name: Ubuntu
           setup: dotfiles
 
-      - name: Create exact client and engine inputs
+      - name: Create an exact origin and conventional user
         shell: bash
         run: |-
           set -euo pipefail
 
           staging=$(mktemp -d /tmp/dotfiles-cold-bootstrap.XXXXXXXX)
           chmod 0755 "$staging"
-          dot_revision=$(sed -n 's/^minimum_revision=//p' \
-            "$GITHUB_WORKSPACE/.local/lib/dotfiles/dot-cutover.lock")
-          [[ "$dot_revision" =~ ^[0-9a-f]{40}$ ]]
-          curl -fsSL \
-            "https://raw.githubusercontent.com/cgraf78/dot/$dot_revision/install.sh" \
-            -o "$staging/install.sh"
-          chmod 0644 "$staging/install.sh"
-          dot_origin="$staging/dot-origin.git"
-          git clone --bare --no-tags --single-branch \
-            https://github.com/cgraf78/dot.git "$dot_origin"
-          git --git-dir="$dot_origin" cat-file -e "$dot_revision^{commit}"
-          git --git-dir="$dot_origin" update-ref refs/heads/main "$dot_revision"
-          git --git-dir="$dot_origin" symbolic-ref HEAD refs/heads/main
-          test "$(git --git-dir="$dot_origin" rev-parse refs/heads/main)" = \
-            "$dot_revision"
+          cp "$GITHUB_WORKSPACE/.local/bin/dotbootstrap" "$staging/dotbootstrap"
           origin="$staging/origin.git"
           git init --bare "$origin"
           git push "$origin" "$GITHUB_SHA:refs/heads/main"
           git --git-dir="$origin" symbolic-ref HEAD refs/heads/main
-          {
-            echo "COLD_DOT_INSTALLER=$staging/install.sh"
-            echo "COLD_DOT_ORIGIN=$dot_origin"
-            echo "COLD_DOT_REVISION=$dot_revision"
-            echo "COLD_DOTFILES_ORIGIN=$origin"
-          } >>"$GITHUB_ENV"
+          echo "COLD_BOOTSTRAP_SCRIPT=$staging/dotbootstrap" >>"$GITHUB_ENV"
+          echo "COLD_DOTFILES_ORIGIN=$origin" >>"$GITHUB_ENV"
 
           sudo useradd --create-home --shell /bin/bash dotfiles-ci
           echo 'dotfiles-ci ALL=(ALL) NOPASSWD:ALL' |
@@ -153,14 +134,11 @@ jobs:
 
           sudo --preserve-env=CI,GH_TOKEN,GITHUB_TOKEN -H -u dotfiles-ci \
             bash -s -- \
-            "$COLD_DOT_INSTALLER" "$COLD_DOTFILES_ORIGIN" "$GITHUB_SHA" \
-            "$COLD_DOT_ORIGIN" "$COLD_DOT_REVISION" <<'BASH'
+            "$COLD_BOOTSTRAP_SCRIPT" "$COLD_DOTFILES_ORIGIN" "$GITHUB_SHA" <<'BASH'
           set -euo pipefail
-          installer=$1
+          bootstrap=$1
           origin=$2
           expected=$3
-          dot_origin=$4
-          dot_expected=$5
 
           test "$HOME" = /home/dotfiles-ci
           # sudo -H sets HOME but keeps the runner cwd, which this user cannot traverse.
@@ -191,22 +169,14 @@ jobs:
           test ! -e "$HOME/.cache/mise"
           export GIT_TERMINAL_PROMPT=0
           export GIT_SSH_COMMAND='ssh -o BatchMode=yes -o ConnectTimeout=5'
-          export CGRAF78_CHECKOUT_INSTALL_REPO_URL=$dot_origin
-          export SHDEPS_DOT_REPO=$dot_origin
 
           # Preserve the clean-install signal: only the idempotent post-bootstrap
           # network phases below receive bounded retries.
-          bash -s -- --init "$origin" <"$installer"
+          DOTBOOTSTRAP_DOTFILES_REPO="$origin" DOTFILES_BRANCH=main \
+            bash -s init <"$bootstrap"
 
           export PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:$PATH"
-          test -f "$HOME/.local/state/dot/init/completed"
-          test -d "$HOME/.local/share/cgraf78/dot/.git"
-          test -x "$HOME/.local/bin/dot"
-          test -L "$HOME/.local/lib/dot"
-          test "$(readlink "$HOME/.local/lib/dot")" = \
-            "$HOME/.local/share/cgraf78/dot/lib/dot/public"
-          test "$(git -C "$HOME/.local/share/cgraf78/dot" rev-parse HEAD)" = \
-            "$dot_expected"
+          test -e "$HOME/.dotbootstrap-done"
           test "$(git --git-dir="$HOME/.dotfiles" rev-parse HEAD)" = "$expected"
 
           retry dot update
@@ -218,7 +188,5 @@ jobs:
           done
           dot doctor
 
-          test "$(git -C "$HOME/.local/share/cgraf78/dot" rev-parse HEAD)" = \
-            "$dot_expected"
           test "$(git --git-dir="$HOME/.dotfiles" rev-parse HEAD)" = "$expected"
           BASH

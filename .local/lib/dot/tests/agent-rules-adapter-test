@@ -1,0 +1,184 @@
+#!/usr/bin/env bash
+# agent-rules-adapter-test — dotfiles policy and provider activation boundary.
+
+# shellcheck disable=SC1091,SC2016
+set -o pipefail
+export NO_COLOR=1
+
+. "$HOME/.local/lib/dot/tests/helpers.sh"
+_test_prefer_system_git || exit 1
+
+source_home=$HOME
+deps="$source_home/.config/shdeps/10-deps.conf"
+hook="$source_home/.local/lib/dot/core/merge-hooks/agent-rules.sh"
+# shellcheck source=/dev/null
+. "$source_home/.local/lib/dot/core/platform.sh"
+
+if awk '$1 == "cgraf78/agent-rules-sync" && $2 == "github" { found = 1 }
+  END { exit !found }' "$deps"; then
+  _pass "agent rules ownership: standalone provider is a dependency"
+else
+  _fail "agent rules ownership: standalone provider is a dependency"
+fi
+
+work=$(_tmpdir)
+fixture_home="$work/home"
+mock_bin="$work/bin"
+call_log="$work/agent-rules-sync.log"
+manifest_copy="$work/manifest.tsv"
+rule_root="$fixture_home/.config/agent-rules/rules.d"
+target_root="$fixture_home/.config/dot/merge-hooks.d/agent-rules/targets.d/80-targets.replace"
+playbook_root="$fixture_home/.config/agent-rules/playbooks.d"
+manifest="$fixture_home/.local/state/dot/agent-rules-sync-manifest-v1.tsv"
+mkdir -p \
+  "$mock_bin" \
+  "$rule_root" \
+  "$target_root" \
+  "$playbook_root/alpha" \
+  "$playbook_root/zeta"
+
+cat >"$rule_root/000-first.md" <<'EOF'
+# First
+
+<!-- agent-rule-id: adapter-first -->
+
+First private policy body.
+EOF
+cat >"$rule_root/100-last.md" <<'EOF'
+# Last
+
+<!-- agent-rule-id: adapter-last -->
+
+Last private policy body.
+EOF
+cat >"$playbook_root/alpha/one.md" <<'EOF'
+# Alpha
+
+<!-- agent-rule-id: adapter-alpha -->
+<!-- agent-rule-trigger: Alpha work -->
+
+Alpha private playbook body.
+EOF
+cat >"$playbook_root/zeta/two.md" <<'EOF'
+# Zeta
+
+<!-- agent-rule-id: adapter-zeta -->
+<!-- agent-rule-trigger: Zeta work -->
+
+Zeta private playbook body.
+EOF
+cat >"$target_root/50-native.txt" <<'EOF'
+$HOME/.claude/CLAUDE.md
+~/.codex/AGENTS.md
+$HOME/.claude/CLAUDE.md # duplicate by policy, emitted once
+EOF
+
+# Dot's trusted-playbook boundary intentionally accepts only tracked base
+# files or exact overlay-authorized links. This fixture models the base case.
+git init -q --bare "$fixture_home/.dotfiles"
+git --git-dir="$fixture_home/.dotfiles" --work-tree="$fixture_home" add \
+  .config/agent-rules/playbooks.d/alpha/one.md \
+  .config/agent-rules/playbooks.d/zeta/two.md
+
+cat >"$mock_bin/agent-rules-sync" <<'EOF'
+#!/usr/bin/env bash
+: "${DOT_TEST_AGENT_RULES_SYNC_LOG:?}"
+: "${DOT_TEST_AGENT_RULES_SYNC_MANIFEST_COPY:?}"
+printf '%s\n' "$*" >>"$DOT_TEST_AGENT_RULES_SYNC_LOG"
+if [[ "${1:-}" == --manifest && -n "${2:-}" ]]; then
+  cp "$2" "$DOT_TEST_AGENT_RULES_SYNC_MANIFEST_COPY"
+fi
+exit "${DOT_TEST_AGENT_RULES_SYNC_STATUS:-0}"
+EOF
+chmod +x "$mock_bin/agent-rules-sync"
+
+_run_merge() {
+  local path="$1"
+  (
+    HOME="$fixture_home"
+    PATH="$path"
+    unset XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME
+    export HOME PATH
+    export DOT_OVERLAY_MANIFEST="$fixture_home/.local/state/dot/overlay-links"
+    export DOT_OVERLAY_LEGACY_MANIFEST="$fixture_home/.local/state/dot/legacy-overlay-links"
+    export DOT_TEST_AGENT_RULES_SYNC_LOG="$call_log"
+    export DOT_TEST_AGENT_RULES_SYNC_MANIFEST_COPY="$manifest_copy"
+    # The sourced hook calls these merge-runner callbacks dynamically.
+    # shellcheck disable=SC2329
+    _log() { :; }
+    # shellcheck disable=SC2329
+    _warn() { printf '%s\n' "$*" >&2; }
+    # shellcheck source=/dev/null
+    source "$hook"
+    merge
+  )
+}
+
+: >"$call_log"
+_run_merge "$mock_bin:/usr/bin:/bin"
+
+_assert_file_content "agent rules adapter: invokes provider with private manifest" \
+  "--manifest $manifest" "$call_log"
+_assert_file_exists "agent rules adapter: writes resolved manifest" "$manifest"
+_assert_file_content "agent rules adapter: provider observes complete manifest" \
+  "$(cat "$manifest")" "$manifest_copy"
+
+expected_manifest=$(_tmpfile)
+{
+  printf 'version\tagent-rules-sync-manifest-v1\n'
+  printf 'rule-root\t%s\n' "$rule_root"
+  printf 'playbook-root\t%s\n' "$playbook_root"
+  printf 'rule\t%s\n' "$rule_root/000-first.md"
+  printf 'rule\t%s\n' "$rule_root/100-last.md"
+  printf 'playbook\talpha/one.md\t%s\n' "$playbook_root/alpha/one.md"
+  printf 'playbook\tzeta/two.md\t%s\n' "$playbook_root/zeta/two.md"
+  printf 'target-file\t%s\n' "$fixture_home/.claude/CLAUDE.md"
+  printf 'target-file\t%s\n' "$fixture_home/.codex/AGENTS.md"
+} >"$expected_manifest"
+_assert_file_content "agent rules adapter: manifest preserves policy order and routes" \
+  "$(cat "$expected_manifest")" "$manifest"
+
+manifest_mode=$(stat -c '%a' "$manifest" 2>/dev/null || stat -f '%Lp' "$manifest" 2>/dev/null)
+_assert_eq "agent rules adapter: manifest is private" "600" "$manifest_mode"
+_assert_not_contains "agent rules adapter: manifest does not copy rule prose" \
+  "First private policy body" "$(cat "$manifest")"
+_assert_not_contains "agent rules adapter: manifest does not copy playbook prose" \
+  "Alpha private playbook body" "$(cat "$manifest")"
+
+export DOT_TEST_AGENT_RULES_SYNC_STATUS=23
+set +e
+_run_merge "$mock_bin:/usr/bin:/bin"
+provider_status=$?
+set -e
+_assert_exit "agent rules adapter: preserves provider failure" 23 "$provider_status"
+unset DOT_TEST_AGENT_RULES_SYNC_STATUS
+
+# A failed trust/discovery pass must neither replace the last good manifest nor
+# launch the provider with a partial policy view.
+last_good=$(_tmpfile)
+cp "$manifest" "$last_good"
+rm -f "$playbook_root/alpha/one.md"
+: >"$call_log"
+if _run_merge "$mock_bin:/usr/bin:/bin" >/dev/null 2>&1; then
+  _fail "agent rules adapter: invalid playbook discovery fails before dispatch"
+else
+  _pass "agent rules adapter: invalid playbook discovery fails before dispatch"
+fi
+_assert_file_content "agent rules adapter: discovery failure preserves last manifest" \
+  "$(cat "$last_good")" "$manifest"
+_assert_file_content "agent rules adapter: discovery failure launches no provider" \
+  "" "$call_log"
+
+# Partial bootstrap environments can source merge hooks before the dependency
+# executable is visible. The next normal dot update will install it before the
+# merge phase, so this narrow case remains a safe no-op.
+: >"$call_log"
+if _run_merge "/usr/bin:/bin"; then
+  _pass "agent rules adapter: missing provider is a safe no-op"
+else
+  _fail "agent rules adapter: missing provider is a safe no-op"
+fi
+_assert_file_content "agent rules adapter: missing provider launches nothing" \
+  "" "$call_log"
+
+_test_summary

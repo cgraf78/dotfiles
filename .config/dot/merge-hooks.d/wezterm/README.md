@@ -5,4 +5,4 @@ declarative source fragments under `merge-hooks.d`: the hook copies the tracked
 `~/.config/wezterm` configuration into the Windows home when running under WSL.
 
 The executable hook implementation lives at
-`~/.local/lib/dotfiles/merge-hooks.d/wezterm.sh`.
+`~/.local/lib/dot/core/merge-hooks/wezterm.sh`.

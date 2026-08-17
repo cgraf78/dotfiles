@@ -1,16 +1,12 @@
 # Dot Config
 
-`~/.config/dot` contains declarative configuration consumed by the standalone
-`dot` manager and the dotfiles-owned extensions it runs. Executable client
-policy belongs under `~/.local/lib/dotfiles`; generated configs belong in their
-target-native config directories.
+`~/.config/dot` contains configuration that drives the dotfiles manager itself.
+Runtime code belongs under `~/.local/lib/dot`; generated configs belong in
+their target-native config directories.
 
 ## Directories
 
-- `config` enables the dotfiles extension root and optional Shdeps provider.
-- `overlays.d/` declares optional overlay repositories. Companion `.ssh`
-  snippets are consumed by the client-owned pre-sync hook before a private
-  overlay clone is attempted.
+- `overlays.d/` declares optional overlay repositories and their SSH aliases.
 - `merge-hooks.d/` owns per-hook declarative config directories, merge source
   layers, and cron source files consumed by `dot update`.
 - `merge-hooks.d/agent-rules/targets.d/` selects the generated agent rule
@@ -38,8 +34,7 @@ mutual-exclusion, use the family `.replace` convention documented under
 
 ## Boundaries
 
-- Keep executable merge behavior in
-  `~/.local/lib/dotfiles/merge-hooks.d/*.sh`.
+- Keep executable merge behavior in `~/.local/lib/dot/core/merge-hooks/*.sh`.
 - Keep optional merge source data under
   `merge-hooks.d/<script-name>/`, matching the hook implementation name.
 - Keep Checkrun policy in `.config/checkrun`, even when schema associations
@@ -47,10 +42,8 @@ mutual-exclusion, use the family `.replace` convention documented under
 - Keep overlay repository declarations in `overlays.d`.
 
 This keeps `dot update` discoverable: dot-specific config is in `.config/dot`,
-agent prose is in `.config/agent-rules`, dotfiles-owned code is in
-`.local/lib/dotfiles`, and generated app output is outside all three. The
-standalone engine itself remains checkout-relative and is not copied into this
-client tree.
+agent prose is in `.config/agent-rules`, shared code is in `.local/lib/dot`, and
+generated app output is outside all three.
 
 When adding or changing tracked JSON, JSONC, YAML, or TOML config in this
 tree, check whether `~/.config/checkrun/associations.json` needs a schema
