@@ -334,6 +334,24 @@ MOCK
   else
     _fail "CI workflow: installs the configured dotfiles provider before tests"
   fi
+  _assert_contains "CI workflow: verifies NeoCMakeLSP after dependency refresh" \
+    "neocmakelsp --version" "$_ci_workflow"
+  _assert_contains "CI workflow: verifies SuperHTML after dependency refresh" \
+    "superhtml version" "$_ci_workflow"
+  _assert_contains "CI workflow: Alpine explicitly installs locked LSP backends" \
+    "if [[ -f /etc/alpine-release ]]; then" "$_ci_workflow"
+  _assert_contains "CI workflow: Alpine targets the NeoCMakeLSP provider" \
+    "github:neocmakelsp/neocmakelsp" "$_ci_workflow"
+  _assert_contains "CI workflow: Alpine targets the SuperHTML provider" \
+    "github:kristoff-it/superhtml" "$_ci_workflow"
+  _assert_contains "CI workflow: non-Alpine validates the complete Mise lock" \
+    "mise install --locked --dry-run" "$_ci_workflow"
+  _assert_contains "CI workflow: Ubuntu reinstalls LSP backends from the lock" \
+    "mise install --locked --force" "$_ci_workflow"
+  _assert_contains "CI workflow: locked reinstall uses local Ubuntu detection" \
+    "grep -q '^ID=ubuntu$' /etc/os-release" "$_ci_workflow"
+  _assert_contains "CI workflow: locked Ubuntu reinstall excludes WSL" \
+    "! grep -qi microsoft /proc/version" "$_ci_workflow"
   if ((_ci_uses_full_matrix)); then
     _pass "CI workflow: requests full platform matrix"
   else
@@ -742,6 +760,13 @@ PY
   done
   if [[ "$_searchable_config_ok" -eq 1 ]]; then
     _pass "git ignore: keeps ordinary tool config visible to non-Git consumers"
+  fi
+
+  if "${_lint_git[@]}" ls-files --error-unmatch -- \
+    .config/mise/mise.lock >/dev/null 2>&1; then
+    _pass "git policy: tracked Mise lockfile remains reproducible"
+  else
+    _fail "git policy: tracked Mise lockfile remains reproducible"
   fi
 
   _search_ignore="$_lint_root/.config/dot/merge-hooks.d/ignore/ignore.d/10-patterns.gitignore"

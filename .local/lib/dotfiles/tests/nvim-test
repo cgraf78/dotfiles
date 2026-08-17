@@ -3108,6 +3108,73 @@ _assert_eq "mason-policy: mason path appends after managed tools" "append" "$res
 
 result=$(_nvim_lua '
   local policy = dofile(vim.fn.expand("~/.config/nvim/lua/config/mason-policy.lua"))
+  local original_path = vim.env.PATH
+  vim.env.PATH = "/usr/bin:/bin"
+  local opts = { ensure_installed = { "stylua" } }
+  policy.apply_mason_opts(opts)
+  print(tostring(vim.tbl_contains(opts.ensure_installed, "stylua")))
+  print(tostring(vim.tbl_contains(opts.ensure_installed, "biome")))
+  print(tostring(vim.tbl_contains(opts.ensure_installed, "neocmakelsp")))
+  print(tostring(vim.tbl_contains(opts.ensure_installed, "rust-analyzer")))
+  vim.env.PATH = original_path
+')
+expected="$(printf 'true\nfalse\nfalse\ntrue')"
+_assert_eq "mason-policy: mason only eagerly installs non-lsp fallback packages" "$expected" "$result"
+
+result=$(_nvim_lua '
+  local policy = dofile(vim.fn.expand("~/.config/nvim/lua/config/mason-policy.lua"))
+  local original_path = vim.env.PATH
+  local bin_dir = vim.fn.tempname()
+  vim.fn.mkdir(bin_dir, "p")
+  for _, cmd in ipairs({ "stylua", "cmake-format", "cmake-lint", "codelldb" }) do
+    local path = bin_dir .. "/" .. cmd
+    vim.fn.writefile({ "#!/bin/sh" }, path)
+    vim.fn.setfperm(path, "rwx------")
+  end
+  vim.env.PATH = bin_dir
+  local opts = {
+    ensure_installed = { "stylua", "cmakelang", "cmakelint", "cmakelint", "codelldb" },
+  }
+  policy.apply_mason_opts(opts)
+  print(tostring(vim.tbl_contains(opts.ensure_installed, "stylua")))
+  print(tostring(vim.tbl_contains(opts.ensure_installed, "cmakelang")))
+  local cmakelint_count = 0
+  for _, package in ipairs(opts.ensure_installed) do
+    if package == "cmakelint" then
+      cmakelint_count = cmakelint_count + 1
+    end
+  end
+  print(cmakelint_count)
+  print(tostring(vim.tbl_contains(opts.ensure_installed, "codelldb")))
+  vim.fn.delete(bin_dir .. "/cmake-lint")
+  local partial_opts = { ensure_installed = { "cmakelang" } }
+  policy.apply_mason_opts(partial_opts)
+  print(tostring(vim.tbl_contains(partial_opts.ensure_installed, "cmakelang")))
+  vim.env.PATH = original_path
+  vim.fn.delete(bin_dir, "rf")
+')
+expected="$(printf 'false\nfalse\n1\ntrue\ntrue')"
+_assert_eq "mason-policy: external tools suppress duplicate mason installs" "$expected" "$result"
+
+result=$(_nvim_lua '
+  local policy = dofile(vim.fn.expand("~/.config/nvim/lua/config/mason-policy.lua"))
+  local original_path = vim.env.PATH
+  local bin_dir = vim.fn.tempname()
+  vim.fn.mkdir(bin_dir, "p")
+  local rust_analyzer = bin_dir .. "/rust-analyzer"
+  vim.fn.writefile({ "#!/bin/sh" }, rust_analyzer)
+  vim.fn.setfperm(rust_analyzer, "rwx------")
+  vim.env.PATH = bin_dir
+  local opts = { ensure_installed = {} }
+  policy.apply_mason_opts(opts)
+  print(tostring(vim.tbl_contains(opts.ensure_installed, "rust-analyzer")))
+  vim.env.PATH = original_path
+  vim.fn.delete(bin_dir, "rf")
+')
+_assert_eq "mason-policy: external rust-analyzer suppresses duplicate mason install" "false" "$result"
+
+result=$(_nvim_lua '
+  local policy = dofile(vim.fn.expand("~/.config/nvim/lua/config/mason-policy.lua"))
   local server_packages = policy.lsp_server_packages()
   print(server_packages.biome)
   print(server_packages.cssls)
@@ -3125,13 +3192,17 @@ _assert_eq "mason-policy: exposes lsp server/package drift source" "$expected" "
 
 result=$(_nvim_lua '
   local policy = dofile(vim.fn.expand("~/.config/nvim/lua/config/mason-policy.lua"))
+  local original_prefix = vim.env.PREFIX
   vim.g.mason_disabled = true
   print(tostring(policy.mason_enabled()))
   vim.g.mason_disabled = false
   print(tostring(policy.mason_enabled()))
+  vim.env.PREFIX = "/data/data/com.termux/files/usr"
+  print(tostring(policy.mason_enabled()))
+  vim.env.PREFIX = original_prefix
 ')
-expected="$(printf 'false\ntrue')"
-_assert_eq "mason-policy: global flag gates mason plugins" "$expected" "$result"
+expected="$(printf 'false\ntrue\nfalse')"
+_assert_eq "mason-policy: global and Android policy gate mason plugins" "$expected" "$result"
 
 result=$(_nvim_lua '
   local specs = dofile(vim.fn.expand("~/.config/nvim/lua/plugins/zz-mason-policy.lua"))
@@ -3221,6 +3292,36 @@ result=$(_nvim_lua '
 ')
 expected="$(printf 'nil\ntrue')"
 _assert_eq "mason-policy: enabled mason leaves installation gaps to mason" "$expected" "$result"
+
+result=$(_nvim_lua '
+  local policy = dofile(vim.fn.expand("~/.config/nvim/lua/config/mason-policy.lua"))
+  local original_path = vim.env.PATH
+  vim.env.PATH = "/usr/bin:/bin"
+  local opts = {
+    servers = {
+      available = { cmd = { "sh" } },
+      missing = { cmd = { "definitely-not-a-real-lsp-binary" } },
+    },
+    setup = {},
+  }
+  policy.apply_lsp_policy(opts)
+  print(tostring(opts.servers.available.mason))
+  print(tostring(opts.servers.missing.mason))
+  vim.env.PATH = original_path
+')
+expected="$(printf 'false\nnil')"
+_assert_eq "mason-policy: available external servers disable mason ownership" "$expected" "$result"
+
+result=$(_nvim_lua '
+  local policy = dofile(vim.fn.expand("~/.config/nvim/lua/config/mason-policy.lua"))
+  vim.lsp.config("available_true", { cmd = { "sh" } })
+  local opts = { servers = { available_true = true }, setup = {} }
+  policy.apply_lsp_policy(opts)
+  print(type(opts.servers.available_true))
+  print(tostring(opts.servers.available_true.mason))
+')
+expected="$(printf 'table\nfalse')"
+_assert_eq "mason-policy: shorthand servers honor external ownership" "$expected" "$result"
 
 # ---------------------------------------------------------------------------
 # Tests: nvim-workspace integration

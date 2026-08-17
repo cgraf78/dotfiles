@@ -342,7 +342,7 @@ EOF
     _python_saved_shdeps_platform_match _python_saved_shdeps_warn
 fi
 
-echo "=== cmake-language-server hook ==="
+echo "=== cmake-language-server retirement hook ==="
 
 _cmake_language_server_hook="$REAL_HOME/.config/shdeps/hooks.d/cmake-language-server.sh"
 # shellcheck source=/dev/null
@@ -353,66 +353,41 @@ _cmake_language_server_calls=$(_tmpdir)/calls.log
 cat >"$_cmake_language_server_bin/uv" <<'EOF'
 #!/usr/bin/env bash
 printf 'uv:%s\n' "$*" >>"$CMAKE_LANGUAGE_SERVER_TEST_CALLS"
-case "${CMAKE_LANGUAGE_SERVER_TEST_INVENTORY:-valid}" in
-  valid)
-    printf 'other-tool v9.8.7 (/tools/other-tool)\n'
-    printf '%s\n' '- other-tool (/bin/other-tool)'
-    printf 'cmake-language-server v0.1.11 (/tools/cmake-language-server)\n'
-    printf -- '- cmake-language-server (%s)\n' "$CMAKE_LANGUAGE_SERVER_TEST_ACTIVE"
-    ;;
-  empty) ;;
-  malformed)
-    printf 'cmake-language-server not-a-version (/tools/cmake-language-server)\n'
-    printf -- '- cmake-language-server (%s)\n' "$CMAKE_LANGUAGE_SERVER_TEST_ACTIVE"
-    ;;
-  shadowed)
-    printf 'cmake-language-server v9.8.7 (/tools/cmake-language-server)\n'
-    printf '%s\n' '- cmake-language-server (/different/bin/cmake-language-server)'
-    ;;
-esac
 EOF
 chmod +x "$_cmake_language_server_bin/uv"
-cat >"$_cmake_language_server_bin/cmake-language-server" <<'EOF'
-#!/usr/bin/env bash
-printf 'cmake-language-server:%s\n' "$*" >>"$CMAKE_LANGUAGE_SERVER_TEST_CALLS"
-exit 99
-EOF
-chmod +x "$_cmake_language_server_bin/cmake-language-server"
 
 _cmake_language_server_saved_path=$PATH
 PATH="$_cmake_language_server_bin:/usr/bin:/bin"
 export CMAKE_LANGUAGE_SERVER_TEST_CALLS="$_cmake_language_server_calls"
-export CMAKE_LANGUAGE_SERVER_TEST_ACTIVE="$_cmake_language_server_bin/cmake-language-server"
 
-CMAKE_LANGUAGE_SERVER_TEST_INVENTORY=valid
-export CMAKE_LANGUAGE_SERVER_TEST_INVENTORY
-_assert_eq "cmake-language-server: version comes from uv inventory" \
-  "cmake-language-server 0.1.11" "$(version)"
-
-CMAKE_LANGUAGE_SERVER_TEST_INVENTORY=empty
-export CMAKE_LANGUAGE_SERVER_TEST_INVENTORY
-_assert_eq "cmake-language-server: empty uv inventory omits version detail" \
-  "" "$(version)"
-
-CMAKE_LANGUAGE_SERVER_TEST_INVENTORY=malformed
-export CMAKE_LANGUAGE_SERVER_TEST_INVENTORY
-_assert_eq "cmake-language-server: malformed uv version is not reported" \
-  "" "$(version)"
-
-CMAKE_LANGUAGE_SERVER_TEST_INVENTORY=shadowed
-export CMAKE_LANGUAGE_SERVER_TEST_INVENTORY
-_assert_eq "cmake-language-server: shadowed uv install is not reported" \
-  "" "$(version)"
-
-_assert_eq "cmake-language-server: status queries the uv inventory" \
-  $'uv:tool list --show-paths\nuv:tool list --show-paths\nuv:tool list --show-paths\nuv:tool list --show-paths' \
-  "$(cat "$_cmake_language_server_calls")"
-_assert_not_contains "cmake-language-server: status never launches the Python CLI" \
-  "cmake-language-server:" "$(cat "$_cmake_language_server_calls")"
+_cmake_language_server_active_lifecycle=
+for _cmake_language_server_function in exists version install post; do
+  if declare -F "$_cmake_language_server_function" >/dev/null; then
+    _cmake_language_server_active_lifecycle=$_cmake_language_server_function
+    break
+  fi
+done
+if [[ -z $_cmake_language_server_active_lifecycle ]]; then
+  _pass "cmake-language-server: retirement hook exposes no active lifecycle"
+else
+  _fail "cmake-language-server: retirement hook exposes no active lifecycle"
+fi
+_assert_exit "cmake-language-server: retirement hook rejects another dependency" \
+  1 "$(
+    uninstall another-tool >/dev/null 2>&1
+    printf '%s' "$?"
+  )"
+_assert_exit "cmake-language-server: retirement hook removes the legacy uv tool" \
+  0 "$(
+    uninstall cmake-language-server >/dev/null 2>&1
+    printf '%s' "$?"
+  )"
+_assert_file_content "cmake-language-server: retirement uses the uv inventory owner" \
+  "uv:tool uninstall cmake-language-server" "$_cmake_language_server_calls"
 PATH=$_cmake_language_server_saved_path
-unset CMAKE_LANGUAGE_SERVER_TEST_ACTIVE CMAKE_LANGUAGE_SERVER_TEST_CALLS
-unset CMAKE_LANGUAGE_SERVER_TEST_INVENTORY
+unset CMAKE_LANGUAGE_SERVER_TEST_CALLS
 unset -f exists version install uninstall
+unset _cmake_language_server_active_lifecycle _cmake_language_server_function
 
 _assert_contains "uv: Termux uses the native package" \
   "os:macos,os:android" \
@@ -473,20 +448,55 @@ _assert_eq "duckdb: fallback uses the official release archive" \
 _assert_contains "duckdb: release fallback excludes Android and native-package targets" \
   "mgr:!brew,mgr:!pacman,os:!android" "$_duckdb_release"
 
-_bpftrace_dep=$(
-  awk '$1 == "bpftrace" && $2 == "pkg" { print; exit }' \
-    "$REAL_HOME/.config/shdeps/10-deps.conf"
+_bpftrace_deps=$(
+  awk '$1 ~ /(^|\/)bpftrace$/ || \
+    $3 ~ /(^|,)([^,:]+:)?bpftrace(,|$)/ { print }' \
+    "$REAL_HOME/.config/shdeps/"*.conf
 )
-_assert_eq "bpftrace: installs through the native package manager" \
-  "pkg" "$(awk '{ print $2 }' <<<"$_bpftrace_dep")"
-_assert_contains "bpftrace: is limited to Linux and WSL" \
-  "os:!macos,os:!android" "$_bpftrace_dep"
+_assert_eq "bpftrace: dependency stays disabled" "" "$_bpftrace_deps"
 
 _neocmakelsp_deps=$(
-  awk '$1 == "neocmakelsp" || $1 == "Decodetalkers/neocmakelsp" { print }' \
+  awk '$1 == "Decodetalkers/neocmakelsp" || \
+    $1 == "neocmakelsp/neocmakelsp" || \
+    ($1 == "neocmakelsp" && $2 != "pkg") { print }' \
     "$REAL_HOME/.config/shdeps/10-deps.conf"
 )
-_assert_eq "neocmakelsp: dependency stays disabled" "" "$_neocmakelsp_deps"
+_assert_eq "neocmakelsp: shdeps has no competing release provider" "" "$_neocmakelsp_deps"
+
+_mise_config=$(cat "$REAL_HOME/.config/mise/config.toml")
+_assert_contains "neocmakelsp: mise uses the current upstream release provider" \
+  '"github:neocmakelsp/neocmakelsp" = { version = "latest", os = ["linux"] }' \
+  "$_mise_config"
+_assert_contains "neocmakelsp: macOS keeps the native package provider" \
+  "os:macos" \
+  "$(awk '$1 == "neocmakelsp" && $2 == "pkg" { print }' "$REAL_HOME/.config/shdeps/10-deps.conf")"
+_mise_lock=$(cat "$REAL_HOME/.config/mise/mise.lock")
+_assert_contains "neocmakelsp: tracked lock records the release provider" \
+  '[[tools."github:neocmakelsp/neocmakelsp"]]' "$_mise_lock"
+_assert_contains "neocmakelsp: tracked lock pins the release backend" \
+  'backend = "github:neocmakelsp/neocmakelsp"' "$_mise_lock"
+
+_superhtml_deps=$(awk '$1 == "superhtml" { print }' "$REAL_HOME/.config/shdeps/10-deps.conf")
+_assert_contains "superhtml: macOS keeps the native package provider" \
+  "os:macos" "$_superhtml_deps"
+_assert_contains "superhtml: mise uses the release provider on Linux" \
+  '"github:kristoff-it/superhtml" = { version = "latest", os = ["linux"] }' \
+  "$_mise_config"
+_assert_not_contains "superhtml: deprecated ubi provider is retired" \
+  '"ubi:kristoff-it/superhtml"' "$_mise_config"
+_assert_contains "superhtml: tracked lock records the release provider" \
+  '[[tools."github:kristoff-it/superhtml"]]' "$_mise_lock"
+_assert_not_contains "superhtml: tracked lock retires the UBI provider" \
+  '[[tools."ubi:kristoff-it/superhtml"]]' "$_mise_lock"
+
+_cmake_language_server_dep=$(
+  awk '$1 == "cmake-language-server" { print }' \
+    "$REAL_HOME/.config/shdeps/10-deps.conf"
+)
+_assert_eq "cmake-language-server: stale shdeps provider is retired" \
+  "" "$_cmake_language_server_dep"
+_assert_file_exists "cmake-language-server: prune keeps a retirement hook" \
+  "$REAL_HOME/.config/shdeps/hooks.d/cmake-language-server.sh"
 
 for _termux_native in difftastic direnv dust gum lazygit mise yq; do
   _assert_contains "$_termux_native: Termux uses the native package" \

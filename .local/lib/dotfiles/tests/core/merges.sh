@@ -6872,7 +6872,10 @@ GH
   _assert_contains "mise hook: leaves token empty in non-interactive mode" "MISE_GITHUB_TOKEN=" "$result"
   result=$(cat "$TEST_HOME/.mise-calls.log")
   _assert_contains "mise hook: trusts config" "trust $TEST_HOME/.config/mise/config.toml" "$result"
-  _assert_contains "mise hook: runs install" "install" "$result"
+  _assert_contains "mise hook: installs only locked tool releases" \
+    "install --locked" "$result"
+  _assert_contains "mise hook: prunes the retired SuperHTML UBI payload" \
+    "prune --tools --yes ubi:kristoff-it/superhtml" "$result"
   if [[ -L "$TEST_HOME/.local/bin/tmux" ]]; then
     _pass "mise hook: publishes direct tmux executable"
   else
