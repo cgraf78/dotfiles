@@ -1,0 +1,183 @@
+#!/usr/bin/env bash
+# schema-associations-test - pinned Checkrun schema coverage and ownership.
+
+set -euo pipefail
+export NO_COLOR=1
+
+# shellcheck source=helpers.sh
+. "$HOME/.local/lib/dotfiles/legacy-dot/tests/helpers.sh"
+
+policy="$HOME/.config/checkrun/associations.json"
+schema_dir="$HOME/.local/share/checkrun/schemas"
+
+set +e
+output=$(
+  python3 - "$policy" "$schema_dir" <<'PY' 2>&1
+import json
+import sys
+import tomllib
+from pathlib import Path
+
+policy_path = Path(sys.argv[1])
+schema_dir = Path(sys.argv[2])
+policy = json.loads(policy_path.read_text(encoding="utf-8"))
+associations = {item["name"]: item for item in policy["associations"]}
+
+bottom_config = tomllib.loads(
+    (policy_path.parent.parent / "bottom/bottom.toml").read_text(encoding="utf-8")
+)
+deprecated_bottom_flags = {
+    "group_processes",
+    "case_sensitive",
+    "whole_word",
+    "regex",
+    "process_memory_as_value",
+    "enable_cache_memory",
+    "hide_avg_cpu",
+}
+assert deprecated_bottom_flags.isdisjoint(bottom_config["flags"])
+assert bottom_config["processes"] == {
+    "default_grouped": True,
+    "case_sensitive": False,
+    "whole_word": False,
+    "regex": True,
+    "default_memory_value": True,
+}
+assert bottom_config["memory_graph"]["cache_memory"] is True
+assert bottom_config["cpu"]["hide_avg_cpu"] is True
+
+expected = {
+    "bottom config": {
+        "format": "toml",
+        "schema": "bottom.schema.json",
+        "source": "https://raw.githubusercontent.com/ClementTsang/bottom/0.14.7/schema/v0.14.7/bottom.json",
+        "matches": [".config/bottom/bottom.toml"],
+        "enforce": True,
+    },
+    "GitHub Action metadata": {
+        "format": "yaml",
+        "schema": "github-action.schema.json",
+        "source": "https://www.schemastore.org/github-action.json",
+        "matches": ["action.yml", "action.yaml"],
+        "enforce": False,
+    },
+    "clang-format fallback config": {
+        "format": "yaml",
+        "schema": "clang-format-21.schema.json",
+        "source": "https://www.schemastore.org/clang-format-21.x.json",
+        "matches": [".config/checkrun/clang-format"],
+        "enforce": True,
+    },
+    "clang-format project config": {
+        "format": "yaml",
+        "schema": "clang-format-21.schema.json",
+        "matches": [".clang-format", "_clang-format"],
+        "enforce": False,
+    },
+    "GitHub CLI config layers": {
+        "format": "yaml",
+        "schema": "github-cli-config.schema.json",
+        "source": "https://www.schemastore.org/github-cli-config.json",
+        "matches": [
+            ".config/dot/merge-hooks.d/gh/config.d/*.yml",
+            ".config/dot/merge-hooks.d/gh/config.d/*.yaml",
+            ".config/gh/config.yml",
+        ],
+        "enforce": True,
+    },
+    "Claude Code plugin manifest": {
+        "format": "json",
+        "schema": "claude-code-plugin-manifest.schema.json",
+        "source": "https://www.schemastore.org/claude-code-plugin-manifest.json",
+        "matches": ["**/.claude-plugin/plugin.json"],
+        "enforce": True,
+    },
+    "Claude Code plugin marketplace": {
+        "format": "json",
+        "schema": "claude-code-marketplace.schema.json",
+        "source": "https://www.schemastore.org/claude-code-marketplace.json",
+        "matches": ["**/.claude-plugin/marketplace.json"],
+        "enforce": True,
+    },
+    "Checkrun shfmt fallback config": {
+        "format": "toml",
+        "dependency": "cgraf78/checkrun",
+        "schema": "share/checkrun/schemas/shfmt-config.schema.json",
+        "matches": [".config/checkrun/shfmt.toml"],
+        "enforce": True,
+    },
+    "clang-tidy project config": {
+        "format": "yaml",
+        "schema": "clang-tidy.schema.json",
+        "source": "https://www.schemastore.org/clang-tidy.json",
+        "matches": [".clang-tidy"],
+        "enforce": False,
+    },
+    "clangd project config": {
+        "format": "yaml",
+        "schema": "clangd.schema.json",
+        "editorSource": "https://www.schemastore.org/clangd.json",
+        "matches": [".clangd"],
+        "enforce": False,
+    },
+}
+
+for name, wanted in expected.items():
+    actual = associations.get(name)
+    assert actual is not None, f"missing association: {name}"
+    for key, value in wanted.items():
+        assert actual.get(key) == value, (
+            f"{name}: expected {key}={value!r}, got {actual.get(key)!r}"
+        )
+
+for filename in (
+    "bottom.schema.json",
+    "github-action.schema.json",
+    "clang-format-21.schema.json",
+    "github-cli-config.schema.json",
+    "claude-code-plugin-manifest.schema.json",
+    "claude-code-marketplace.schema.json",
+    "clang-tidy.schema.json",
+    "clangd.schema.json",
+):
+    assert (schema_dir / filename).is_file(), f"missing pinned payload: {filename}"
+
+bottom_schema = json.loads(
+    (schema_dir / "bottom.schema.json").read_text(encoding="utf-8")
+)
+assert bottom_schema["$id"] == (
+    "https://github.com/ClementTsang/bottom/blob/main/schema/0.14.7/bottom.json"
+)
+assert bottom_schema["title"] == "Schema for bottom's config file (v0.14.7)"
+
+clangd_schema = json.loads(
+    (schema_dir / "clangd.schema.json").read_text(encoding="utf-8")
+)
+assert clangd_schema["definitions"]["path"] == {
+    "type": "string",
+    "minLength": 1,
+}
+
+pending = [clangd_schema]
+references = []
+while pending:
+    value = pending.pop()
+    if isinstance(value, dict):
+        references.extend(
+            child for key, child in value.items() if key == "$ref"
+        )
+        pending.extend(value.values())
+    elif isinstance(value, list):
+        pending.extend(value)
+assert references and all(ref.startswith("#") for ref in references), references
+PY
+)
+rc=$?
+set -e
+
+_assert_exit "schema associations: requested policy and payloads are complete" 0 "$rc"
+if [[ "$rc" -ne 0 ]]; then
+  printf '%s\n' "$output" >&2
+fi
+
+_test_summary

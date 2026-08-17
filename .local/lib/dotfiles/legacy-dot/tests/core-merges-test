@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# core-merges-test — config merge-hook coverage split from core-test.
+
+DOT_CORE_SKIP_STATIC=1 DOT_CORE_SHARD=merges exec "$HOME/.local/lib/dotfiles/legacy-dot/tests/core-test"

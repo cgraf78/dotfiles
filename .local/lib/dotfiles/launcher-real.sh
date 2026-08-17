@@ -6,7 +6,7 @@ if ! declare -F dot_xdg_path >/dev/null 2>&1; then
   _dot_launcher_xdg=$_dot_launcher_library_home/.local/lib/dot/xdg.sh
   if [[ ! -r $_dot_launcher_xdg ]]; then
     _dot_launcher_library_home=${DOT_TEST_SOURCE_HOME:-${HOME:-}}
-    _dot_launcher_xdg=$_dot_launcher_library_home/.local/lib/dot/core/xdg.sh
+    _dot_launcher_xdg=$_dot_launcher_library_home/.local/lib/dotfiles/legacy-dot/core/xdg.sh
   fi
   # shellcheck source=../dot/xdg.sh disable=SC1091
   . "$_dot_launcher_xdg"

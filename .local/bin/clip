@@ -16,7 +16,7 @@ _dot_clip_library_home=${DOT_TEST_HOST_HOME:-${HOME:-}}
 _dot_clip_xdg=$_dot_clip_library_home/.local/lib/dot/xdg.sh
 if [[ ! -r $_dot_clip_xdg ]]; then
   _dot_clip_library_home=${DOT_TEST_SOURCE_HOME:-${HOME:-}}
-  _dot_clip_xdg=$_dot_clip_library_home/.local/lib/dot/core/xdg.sh
+  _dot_clip_xdg=$_dot_clip_library_home/.local/lib/dotfiles/legacy-dot/core/xdg.sh
 fi
 # shellcheck source=../lib/dot/xdg.sh disable=SC1091
 . "$_dot_clip_xdg"

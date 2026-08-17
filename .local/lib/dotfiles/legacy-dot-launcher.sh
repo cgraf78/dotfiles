@@ -11,6 +11,7 @@
 #   dot cron                   Show installed cron entries
 
 set -euo pipefail
+CDPATH=
 
 # Pre-scan flags that affect shdeps before sourcing init.sh. `dot update`
 # bootstraps shdeps before the full command parser runs, so bootstrap-visible
@@ -33,8 +34,19 @@ case "${1:-}" in
     ;;
 esac
 
-# shellcheck source=../dot/core/init.sh
-. "$HOME/.local/lib/dot/core/init.sh"
+legacy_parent=$(cd -P -- "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd -P) || {
+  printf 'dot: cannot resolve the frozen rescue runtime\n' >&2
+  exit 1
+}
+DOT_LEGACY_ROOT=$legacy_parent/legacy-dot
+export DOT_LEGACY_ROOT
+[[ -d $DOT_LEGACY_ROOT && ! -L $DOT_LEGACY_ROOT ]] || {
+  printf 'dot: frozen rescue runtime is unavailable: %s\n' "$DOT_LEGACY_ROOT" >&2
+  exit 1
+}
+
+# shellcheck source=legacy-dot/core/init.sh
+. "$legacy_parent/legacy-dot/core/init.sh"
 
 # Read-only commands skip shdeps bootstrap — non-matching overlay dirs simply
 # won't exist, so unfiltered discovery is harmless. Updates acquire their

@@ -72,17 +72,8 @@ shdeps_self_update() {
 }
 
 shdeps_update() {
-  local checkout=$SHDEPS_INSTALL_DIR/cgraf78/dot
-
   printf 'force=%s\n' "${SHDEPS_FORCE:-unset}" >>"$SHDEPS_FAKE_LOG"
   [[ ${SHDEPS_FAKE_FAIL:-0} -eq 0 ]] || return 73
-  mkdir -p "${checkout%/*}"
-  if [[ ! -d $checkout/.git ]]; then
-    git clone --quiet "$SHDEPS_FAKE_DOT_ORIGIN" "$checkout" || return
-  else
-    git -C "$checkout" fetch --quiet origin || return
-  fi
-  git -C "$checkout" checkout --quiet "$SHDEPS_FAKE_DOT_REVISION"
 }
 
 # Keep this transition test focused on the engine boundary. The normal suites
@@ -155,8 +146,6 @@ run_case_dot() {
     SHDEPS_FAKE_BINARY=$SHDEPS_FAKE_ROOT/shdeps \
     SHDEPS_FAKE_LOG=$CASE_LOG \
     SHDEPS_FAKE_FAIL=$CASE_FAIL \
-    SHDEPS_FAKE_DOT_ORIGIN=$dot_root \
-    SHDEPS_FAKE_DOT_REVISION=$(git -C "$dot_root" rev-parse HEAD) \
     SHDEPS_INSTALL_DIR=$CASE_HOME/.local/share \
     SHDEPS_GIT_DEV_DIR=$CASE_HOME/.fixture-dev \
     DOT_CLIENT_LEGACY_LAUNCHER=$CASE_LEGACY_WRAPPER \
@@ -187,23 +176,18 @@ if git -C "$dot_root" merge-base --is-ancestor \
 else
   _fail 'tested standalone checkout contains the locked minimum revision'
 fi
-_assert_file_exists 'successful convergence installs standalone Dot' \
+_assert_file_missing 'namespace preparation does not install standalone Dot' \
   "$CASE_HOME/.local/share/cgraf78/dot/bin/dot"
-if [[ -d $CASE_XDG_ROOT/state/dot/client-ready-v2/$minimum_revision &&
-  ! -L $CASE_XDG_ROOT/state/dot/client-ready-v2/$minimum_revision ]]; then
-  _pass 'successful convergence publishes private client readiness'
-else
-  _fail 'successful convergence publishes private client readiness'
-fi
-_assert_eq 'successful convergence hardens the Dot state directory' 700 \
-  "$(stat -c '%a' "$CASE_XDG_ROOT/state/dot" 2>/dev/null ||
-    stat -f '%Lp' "$CASE_XDG_ROOT/state/dot")"
+_assert_file_missing 'namespace preparation does not publish client readiness' \
+  "$CASE_XDG_ROOT/state/dot/client-ready-v2/$minimum_revision"
 if [[ -f $CASE_HOME/.local/bin/dot && ! -L $CASE_HOME/.local/bin/dot ]]; then
   _pass 'fleet transition preserves the regular client adapter'
 else
   _fail 'fleet transition preserves the regular client adapter'
 fi
-_assert_file_exists 'fleet transition retains the embedded engine' \
+_assert_file_exists 'fleet transition retains the frozen rescue engine' \
+  "$CASE_HOME/.local/lib/dotfiles/legacy-dot/core/update.sh"
+_assert_file_missing 'fleet transition vacates the public library namespace' \
   "$CASE_HOME/.local/lib/dot/core/update.sh"
 
 second_output=''
@@ -229,7 +213,9 @@ failed_revision=$(sed -n 's/^minimum_revision=//p' \
   "$CASE_HOME/.local/lib/dotfiles/dot-cutover.lock")
 _assert_file_missing 'failed convergence publishes no readiness' \
   "$CASE_XDG_ROOT/state/dot/client-ready-v2/$failed_revision"
-_assert_file_exists 'failed convergence retains the embedded engine' \
+_assert_file_exists 'failed convergence retains the frozen rescue engine' \
+  "$CASE_HOME/.local/lib/dotfiles/legacy-dot/core/update.sh"
+_assert_file_missing 'failed convergence keeps the public library namespace vacant' \
   "$CASE_HOME/.local/lib/dot/core/update.sh"
 continuity_output=''
 continuity_status=0

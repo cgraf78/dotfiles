@@ -311,9 +311,9 @@ else
 fi
 
 # Shared helpers (available after checkout).
-if [[ -f "$HOME/.local/lib/dot/core/init.sh" ]]; then
-  # shellcheck source=../../.local/lib/dot/core/init.sh
-  . "$HOME/.local/lib/dot/core/init.sh"
+if [[ -f "$HOME/.local/lib/dotfiles/legacy-dot/core/init.sh" ]]; then
+  # shellcheck source=../lib/dotfiles/legacy-dot/core/init.sh
+  . "$HOME/.local/lib/dotfiles/legacy-dot/core/init.sh"
 else
   # A missing core library means the checkout failed or there is no bare repo —
   # the machine is only half-configured. Fail loudly and do NOT write the

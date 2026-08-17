@@ -38,8 +38,11 @@ _client_path_contains 'Neovim launcher loads the dotfiles-owned Shdeps helper' \
   .local/bin/nvim '../lib/dotfiles/shdeps-assets.sh'
 _client_path_contains 'Git hooksPath uses the dotfiles-owned hook tree' \
   .config/git/config '.local/lib/dotfiles/git-hooks'
-_client_path_contains 'Shdeps owns the standalone dot dependency' \
-  .config/shdeps/10-deps.conf 'cgraf78/dot                                github:repo      dot'
+if git -C "$source_home" grep -q -F 'cgraf78/dot' -- .config/shdeps/10-deps.conf; then
+  _fail 'namespace preparation does not provision standalone Dot'
+else
+  _pass 'namespace preparation does not provision standalone Dot'
+fi
 _client_path_contains 'dot forwarder retains the explicit embedded fallback' \
   .local/bin/dot '.local/lib/dotfiles/legacy-dot-launcher.sh'
 
@@ -50,10 +53,11 @@ if dot_root=$(_test_dot_root) &&
 else
   _fail 'dot forwarder matches the reviewed standalone template'
 fi
-if [[ -x $source_home/.local/lib/dotfiles/dot-client-readiness.sh ]]; then
-  _pass 'dot client readiness writer is installed'
+if [[ ! -e $source_home/.local/lib/dotfiles/dot-client-readiness.sh &&
+  ! -L $source_home/.local/lib/dotfiles/dot-client-readiness.sh ]]; then
+  _pass 'namespace preparation ships no readiness writer'
 else
-  _fail 'dot client readiness writer is installed'
+  _fail 'namespace preparation ships no readiness writer'
 fi
 
 if [[ -L $source_home/.local/bin/dot-test ]] &&
@@ -85,7 +89,7 @@ old_references=$(
 )
 _assert_eq 'activated consumers contain no retired client-helper paths' '' "$old_references"
 
-xdg_fallbacks=$(grep -hF '.local/lib/dot/core/xdg.sh' \
+xdg_fallbacks=$(grep -hF '.local/lib/dotfiles/legacy-dot/core/xdg.sh' \
   "$source_home/.config/shell/interactive.d/57-marks.sh" \
   "$source_home/.local/bin/clip" \
   "$source_home/.local/lib/dotfiles/launcher-real.sh" | awk 'END { print NR }')

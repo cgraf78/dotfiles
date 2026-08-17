@@ -48,34 +48,30 @@ _assert_file_content 'preparation adapter preserves update argv' \
   "$log"
 
 if [[ -x $source_home/.local/lib/dotfiles/legacy-dot-launcher.sh ]]; then
-  _pass 'preparation retains the executable embedded launcher'
+  _pass 'preparation retains the executable rescue launcher'
 else
-  _fail 'preparation retains the executable embedded launcher'
+  _fail 'preparation retains the executable rescue launcher'
 fi
-_assert_contains 'preparation asks Shdeps to stage standalone Dot' \
-  'cgraf78/dot                                github:repo      dot' \
+_assert_not_contains 'namespace preparation does not provision standalone Dot early' \
+  'cgraf78/dot' \
   "$(<"$source_home/.config/shdeps/10-deps.conf")"
 _assert_contains 'preparation lock cannot activate standalone Dot' \
   'phase=prepare' \
   "$(<"$source_home/.local/lib/dotfiles/dot-cutover.lock")"
 
-HOME=$case_home XDG_STATE_HOME=$state \
-  DOT_CLIENT_CUTOVER_LOCK=$client_root/dot-cutover.lock \
-  "$source_home/.local/lib/dotfiles/dot-client-readiness.sh" write
 minimum_revision=$(sed -n 's/^minimum_revision=//p' \
   "$client_root/dot-cutover.lock")
-if [[ -d $state/dot/client-ready-v2/$minimum_revision &&
-  ! -L $state/dot/client-ready-v2/$minimum_revision ]]; then
-  _pass 'preparation records a revision-keyed private readiness generation'
-else
-  _fail 'preparation records a revision-keyed private readiness generation'
-fi
-_assert_eq 'preparation readiness generation is private' 700 \
-  "$(stat -c '%a' "$state/dot/client-ready-v2/$minimum_revision" 2>/dev/null ||
-    stat -f '%Lp' "$state/dot/client-ready-v2/$minimum_revision")"
+_assert_file_missing 'namespace preparation ships no readiness writer' \
+  "$source_home/.local/lib/dotfiles/dot-client-readiness.sh"
+_assert_file_missing 'namespace preparation publishes no activation authority' \
+  "$state/dot/client-ready-v2/$minimum_revision"
 _assert_file_missing 'preparation does not enable standalone configuration' \
   "$source_home/.config/dot/config"
-_assert_file_exists 'preparation retains the embedded updater' \
+_assert_file_exists 'preparation retains the frozen rescue updater' \
+  "$source_home/.local/lib/dotfiles/legacy-dot/core/update.sh"
+_assert_file_missing 'preparation vacates the public library namespace' \
   "$source_home/.local/lib/dot/core/update.sh"
+_assert_eq 'preparation tracks no public library files' '' \
+  "$(git -C "$source_home" ls-files '.local/lib/dot/**')"
 
 _test_summary

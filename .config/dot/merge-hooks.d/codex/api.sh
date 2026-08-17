@@ -13,8 +13,8 @@ if ! declare -F _merge_hook_source >/dev/null 2>&1; then
   # The normal dot runtime sources merge-hooks.sh before it sources hooks. This
   # fallback keeps the private Codex helper debuggable from a shell and reliable
   # in tests that source the real hook while HOME points at a fixture.
-  # shellcheck source=../../../../.local/lib/dot/core/merge-hooks.sh
-  . "$_DOT_CODEX_CONFIG_DIR/../../../../.local/lib/dot/core/merge-hooks.sh"
+  # shellcheck source=../../../../.local/lib/dotfiles/legacy-dot/core/merge-hooks.sh
+  . "$_DOT_CODEX_CONFIG_DIR/../../../../.local/lib/dotfiles/legacy-dot/core/merge-hooks.sh"
 fi
 if ! declare -F dot_agentguard_integration_file >/dev/null 2>&1; then
   # AgentGuard assets are resolved by the shared Shdeps adapter, not by the
@@ -22,8 +22,8 @@ if ! declare -F dot_agentguard_integration_file >/dev/null 2>&1; then
   # module, but its documented clean-shell/test fallback must be complete too;
   # otherwise source discovery fails only in the very environments the fallback
   # exists to support.
-  # shellcheck source=../../../../.local/lib/dot/core/shdeps-assets.sh
-  . "$_DOT_CODEX_CONFIG_DIR/../../../../.local/lib/dot/core/shdeps-assets.sh"
+  # shellcheck source=../../../../.local/lib/dotfiles/legacy-dot/core/shdeps-assets.sh
+  . "$_DOT_CODEX_CONFIG_DIR/../../../../.local/lib/dotfiles/legacy-dot/core/shdeps-assets.sh"
 fi
 
 _codex_toml_renderer() {

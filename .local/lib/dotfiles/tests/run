@@ -110,7 +110,7 @@ else
   # Short dual-path window: the dotfiles-owned runner lands before the public
   # library handoff and retained-suite pruning. Keep executing the established
   # inventory until the standalone API link is authoritative.
-  TESTS_DIR=$HOME/.local/lib/dot/tests
+  TESTS_DIR=$HOME/.local/lib/dotfiles/legacy-dot/tests
 fi
 
 _dot_test_ui=${DOT_TEST_PUBLIC_UI:-$DOT_TEST_HOST_HOME/.local/lib/dot/ui.sh}
@@ -119,7 +119,7 @@ if [[ ! -r $_dot_test_ui ]]; then
   # Short dual-path window: the test runner moves before the public library
   # handoff. Remove this fallback once every supported source revision has the
   # standalone library link.
-  _dot_test_ui=$HOME/.local/lib/dot/core/ui.sh
+  _dot_test_ui=$HOME/.local/lib/dotfiles/legacy-dot/core/ui.sh
   _dot_test_legacy_ui=true
 fi
 [[ -r $_dot_test_ui ]] || {
