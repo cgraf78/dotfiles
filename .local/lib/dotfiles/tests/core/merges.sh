@@ -6960,7 +6960,12 @@ GH
 
   # GitHub Actions token feeds mise when a dedicated mise token is absent.
   rm -f "$TEST_HOME/.mise-env.log" "$TEST_HOME/.mise-calls.log" "$TEST_HOME/.gh-calls.log"
-  MISE_TMUX_BIN="$_mise_tmux_two" GITHUB_TOKEN='token-from-actions' _run_mise_merge
+  (
+    # The shared CI bootstrap exports its real Mise token. Isolate this
+    # fallback fixture so it proves GITHUB_TOKEN behavior on every runner.
+    unset MISE_GITHUB_TOKEN
+    MISE_TMUX_BIN="$_mise_tmux_two" GITHUB_TOKEN='token-from-actions' _run_mise_merge
+  )
   result=$(cat "$TEST_HOME/.mise-env.log")
   _assert_contains "mise hook: uses GitHub Actions token" "MISE_GITHUB_TOKEN=token-from-actions" "$result"
   if [[ ! -e "$TEST_HOME/.gh-calls.log" ]]; then
