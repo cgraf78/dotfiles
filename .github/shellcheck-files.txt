@@ -141,6 +141,8 @@ program	.local/lib/dot/tests/core-resource-cleanup-test
 program	.local/lib/dot/tests/core-static-test
 program	.local/lib/dot/tests/core-test
 program	.local/lib/dot/tests/core-update-test
+program	.local/lib/dot/tests/cutover-preparation-test
+program	.local/lib/dot/tests/fleet-transition-test
 program	.local/lib/dot/tests/core/commands.sh
 program	.local/lib/dot/tests/core/cron.sh
 program	.local/lib/dot/tests/core/doctor.sh
@@ -189,7 +191,7 @@ program	.local/lib/dotfiles/doctor.d/lib/nvim.sh
 program	.local/lib/dotfiles/doctor.d/lib/shdeps-assets.sh
 program	.local/lib/dotfiles/doctor.d/lib/shell.sh
 program	.local/lib/dotfiles/doctor.d/lib/tools.sh
-program	.local/lib/dotfiles/dot-library-handoff.sh
+program	.local/lib/dotfiles/dot-client-readiness.sh
 program	.local/lib/dotfiles/git-hooks/commit-msg
 program	.local/lib/dotfiles/git-hooks/pre-applypatch
 program	.local/lib/dotfiles/git-hooks/pre-commit
@@ -226,7 +228,6 @@ program	.local/lib/dotfiles/merge-hooks.d/tmux.sh
 program	.local/lib/dotfiles/merge-hooks.d/vscode.sh
 program	.local/lib/dotfiles/merge-hooks.d/wezterm.sh
 program	.local/lib/dotfiles/pre-sync.d/10-overlay-ssh.sh
-program	.local/lib/dotfiles/pre-sync.d/90-library-handoff.sh
 program	.local/lib/dotfiles/shdeps-assets.sh
 program	.local/lib/dotfiles/shell-loader.sh
 program	.local/lib/dotfiles/sley-hooks/validate-commit-msg
@@ -240,7 +241,6 @@ program	.local/lib/dotfiles/tests/bootstrap-overlay-test
 program	.local/lib/dotfiles/tests/bootstrap-shortcut-test
 program	.local/lib/dotfiles/tests/bootstrap-test
 program	.local/lib/dotfiles/tests/client-extensions-test
-program	.local/lib/dotfiles/tests/client-handoff-test
 program	.local/lib/dotfiles/tests/client-paths-test
 program	.local/lib/dotfiles/tests/clip-test
 program	.local/lib/dotfiles/tests/core-cron-test
@@ -255,6 +255,7 @@ program	.local/lib/dotfiles/tests/core-static-test
 program	.local/lib/dotfiles/tests/core-test
 program	.local/lib/dotfiles/tests/core-update-test
 program	.local/lib/dotfiles/tests/cutover-preparation-test
+program	.local/lib/dotfiles/tests/fleet-transition-test
 program	.local/lib/dotfiles/tests/core/commands.sh
 program	.local/lib/dotfiles/tests/core/cron.sh
 program	.local/lib/dotfiles/tests/core/doctor.sh

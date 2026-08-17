@@ -15,10 +15,9 @@ machine policy those generic interfaces execute.
   and Sley directly.
 - `shell-loader.sh`, `launcher-real.sh`, `windows.sh`, and
   `shdeps-assets.sh` are client helpers used outside the extension workers.
-- `dot-cutover.lock`, `dot-library-handoff.sh`, and `dot-library-tree.py`
-  bind the permanent client forwarder to one reviewed standalone revision and
-  make the one-time public-library handoff recoverable. The retained
-  `legacy-dot-launcher.sh` exists only through the declared restoration horizon.
+- `dot-cutover.lock` and `dot-client-readiness.sh` keep preparation dormant
+  until a later fleet-visible activation revision. The retained
+  `legacy-dot-launcher.sh` remains the only runtime during preparation.
 - `tests/` owns the retained dotfiles consumer and integration suite.
 
 Executable extensions use only the versioned public hook or doctor API. They

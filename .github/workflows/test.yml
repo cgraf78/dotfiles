@@ -40,6 +40,15 @@ jobs:
         else
           git fetch --no-tags --depth=1 origin "+$DOT_VSCODE_KEYBINDING_BASE_SHA:refs/remotes/origin/dot-keybinding-base"
         fi
+        # The fleet transition fixture executes the exact pre-cutover updater.
+        # Keep its one historical revision in the fixture lock, then fetch it
+        # only when a shallow checkout does not already contain that object.
+        dot_cutover_baseline=$(sed -n 's/^revision=//p' \
+          .local/lib/dotfiles/tests/cutover-baseline.lock)
+        if ! git cat-file -e "$dot_cutover_baseline^{commit}" 2>/dev/null; then
+          git fetch --no-tags --depth=1 origin \
+            "+$dot_cutover_baseline:refs/remotes/origin/dot-cutover-baseline"
+        fi
         DOT_CORE_SKIP_SHELLCHECK=1 .local/bin/dot-test
         lsp_mise_backends=(
           github:neocmakelsp/neocmakelsp

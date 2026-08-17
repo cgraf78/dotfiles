@@ -1,0 +1,228 @@
+#!/usr/bin/env bash
+# Exercise the real old-main updater across the fleet-preparation boundary.
+
+set -u
+
+source_home=${DOT_TEST_SOURCE_HOME:-$HOME}
+# shellcheck source=helpers.sh
+. "$source_home/.local/lib/dotfiles/tests/helpers.sh"
+
+dot_root=$(_test_dot_root) || {
+  echo 'fleet-transition-test: standalone Dot checkout is unavailable' >&2
+  exit 1
+}
+baseline_lock=$source_home/.local/lib/dotfiles/tests/cutover-baseline.lock
+baseline_header='' baseline_line='' baseline_extra=''
+{
+  IFS= read -r baseline_header
+  IFS= read -r baseline_line
+  IFS= read -r baseline_extra || true
+} <"$baseline_lock"
+if [[ $baseline_header != 'cgraf78 dot fleet transition baseline v1' ||
+  $baseline_line != revision=* || -n $baseline_extra ]]; then
+  echo 'fleet-transition-test: malformed baseline lock' >&2
+  exit 1
+fi
+baseline_revision=${baseline_line#revision=}
+if [[ ! $baseline_revision =~ ^[0-9a-f]{40}$ ]] ||
+  ! git -C "$source_home" cat-file -e "$baseline_revision^{commit}" 2>/dev/null; then
+  echo "fleet-transition-test: unavailable baseline revision: $baseline_revision" >&2
+  exit 1
+fi
+
+candidate_source=${DOT_CUTOVER_CANDIDATE_REVISION:-HEAD}
+candidate_tree=$(git -C "$source_home" rev-parse \
+  "$candidate_source^{tree}") || exit 1
+candidate_revision=$(
+  printf '%s\n' 'fleet preparation candidate' |
+    GIT_AUTHOR_NAME='Dot tests' \
+      GIT_AUTHOR_EMAIL='dot-tests@example.invalid' \
+      GIT_COMMITTER_NAME='Dot tests' \
+      GIT_COMMITTER_EMAIL='dot-tests@example.invalid' \
+      git -C "$source_home" commit-tree "$candidate_tree" \
+      -p "$baseline_revision"
+) || exit 1
+if [[ ! $candidate_revision =~ ^[0-9a-f]{40}$ ]] ||
+  ! git -C "$source_home" cat-file -e "$candidate_revision^{commit}" 2>/dev/null; then
+  echo "fleet-transition-test: unavailable candidate revision: $candidate_revision" >&2
+  exit 1
+fi
+
+make_fake_shdeps() {
+  local fake_root
+
+  fake_root=$(_tmpdir)
+
+  mkdir -p "$fake_root"
+  cat >"$fake_root/install.sh" <<'INSTALL'
+# shellcheck shell=bash
+# shellcheck source=/dev/null
+. "${SHDEPS_LIB%/*}/shdeps.sh"
+INSTALL
+  cat >"$fake_root/shdeps.sh" <<'SHDEPS'
+# shellcheck shell=bash
+_SHDEPSW_BIN=$SHDEPS_FAKE_BINARY
+
+_shdepsw_resolve_binary() {
+  printf '%s\n' "$SHDEPS_FAKE_BINARY"
+}
+
+shdeps_self_update() {
+  return 0
+}
+
+shdeps_update() {
+  local checkout=$SHDEPS_INSTALL_DIR/cgraf78/dot
+
+  printf 'update\n' >>"$SHDEPS_FAKE_LOG"
+  [[ ${SHDEPS_FAKE_FAIL:-0} -eq 0 ]] || return 73
+  mkdir -p "${checkout%/*}"
+  if [[ ! -d $checkout/.git ]]; then
+    git clone --quiet "$SHDEPS_FAKE_DOT_ORIGIN" "$checkout" || return
+  else
+    git -C "$checkout" fetch --quiet origin || return
+  fi
+  git -C "$checkout" checkout --quiet "$SHDEPS_FAKE_DOT_REVISION"
+}
+
+# Keep this transition test focused on the engine boundary. The normal suites
+# own overlay, merge-hook, and worktree-normalization behavior independently.
+OVERLAYS=()
+_discover_overlays() { return 0; }
+_preflight_local_overlays() { return 0; }
+_link_overlays() { return 0; }
+_run_merges() { return 0; }
+_normalize_filtered() { return 0; }
+SHDEPS
+  cat >"$fake_root/shdeps" <<'BINARY'
+#!/usr/bin/env bash
+case "${1:-} ${2:-} ${3:-}" in
+  '__api version ') printf '%s\n' 'abi:1' ;;
+  '__api capability release-archive-launcher-preservation-v1') exit 0 ;;
+  '__api adopt-release-archive-launcher') exit 0 ;;
+  *) exit 2 ;;
+esac
+BINARY
+  chmod 0755 "$fake_root/shdeps"
+  SHDEPS_FAKE_ROOT=$fake_root
+}
+
+prepare_case() {
+  local mode=$1 origin fixture_git
+
+  CASE_HOME=$(_tmpdir)
+  origin=$(_tmpdir)
+  git init --bare "$origin" >/dev/null 2>&1
+  git -C "$source_home" push --quiet "$origin" \
+    "$baseline_revision:refs/heads/main" || return
+  git --git-dir="$origin" symbolic-ref HEAD refs/heads/main
+
+  mkdir -p "$CASE_HOME"
+  git init --bare "$CASE_HOME/.dotfiles" >/dev/null 2>&1
+  fixture_git="git --git-dir=$CASE_HOME/.dotfiles --work-tree=$CASE_HOME"
+  $fixture_git remote add origin "$origin"
+  $fixture_git fetch --quiet origin
+  $fixture_git checkout --quiet -B main origin/main
+  $fixture_git branch --set-upstream-to=origin/main main >/dev/null 2>&1
+
+  git -C "$source_home" push --quiet "$origin" \
+    "$candidate_revision:refs/heads/main" || return
+
+  make_fake_shdeps
+  CASE_LOG=$SHDEPS_FAKE_ROOT/update.log
+  CASE_LEGACY_LOG=$SHDEPS_FAKE_ROOT/legacy.log
+  CASE_LEGACY_WRAPPER=$SHDEPS_FAKE_ROOT/legacy-wrapper
+  CASE_XDG_ROOT=$(_tmpdir)
+  cat >"$CASE_LEGACY_WRAPPER" <<'WRAPPER'
+#!/usr/bin/env bash
+printf 'arg=%s\n' "$@" >>"$DOT_FLEET_LEGACY_LOG"
+exec "$HOME/.local/lib/dotfiles/legacy-dot-launcher.sh" "$@"
+WRAPPER
+  chmod 0755 "$CASE_LEGACY_WRAPPER"
+  CASE_FAIL=0
+  [[ $mode == success ]] || CASE_FAIL=1
+}
+
+run_case_dot() {
+  HOME=$CASE_HOME \
+    XDG_CONFIG_HOME=$CASE_XDG_ROOT/config \
+    XDG_STATE_HOME=$CASE_XDG_ROOT/state \
+    XDG_CACHE_HOME=$CASE_XDG_ROOT/cache \
+    XDG_DATA_HOME=$CASE_XDG_ROOT/data \
+    SHDEPS_LIB=$SHDEPS_FAKE_ROOT/shdeps.sh \
+    SHDEPS_FAKE_BINARY=$SHDEPS_FAKE_ROOT/shdeps \
+    SHDEPS_FAKE_LOG=$CASE_LOG \
+    SHDEPS_FAKE_FAIL=$CASE_FAIL \
+    SHDEPS_FAKE_DOT_ORIGIN=$dot_root \
+    SHDEPS_FAKE_DOT_REVISION=$(git -C "$dot_root" rev-parse HEAD) \
+    SHDEPS_INSTALL_DIR=$CASE_HOME/.local/share \
+    SHDEPS_GIT_DEV_DIR=$CASE_HOME/.fixture-dev \
+    DOT_CLIENT_LEGACY_LAUNCHER=$CASE_LEGACY_WRAPPER \
+    DOT_CLIENT_HANDOFF_HELPER=$CASE_HOME/.fixture-missing-handoff \
+    DOT_FLEET_LEGACY_LOG=$CASE_LEGACY_LOG \
+    DOT_UI_TICK_SECONDS=0.01 \
+    "$CASE_HOME/.local/bin/dot" "$@"
+}
+
+prepare_case success || exit 1
+first_output=''
+first_status=0
+first_output=$(run_case_dot update --cron 2>&1) || first_status=$?
+_assert_exit 'old main crosses directly to preparation successfully' 0 "$first_status"
+_assert_eq 'old-main cron transition remains silent' '' "$first_output"
+_assert_not_contains 'old-main transition never loses the runtime' \
+  'standalone runtime is unavailable' "$first_output"
+_assert_file_content 'old-main reexec stays on retained legacy engine' \
+  $'arg=update\narg=--skip-pull\narg=--cron' "$CASE_LEGACY_LOG"
+
+minimum_revision=$(sed -n 's/^minimum_revision=//p' \
+  "$CASE_HOME/.local/lib/dotfiles/dot-cutover.lock")
+_assert_file_exists 'successful convergence installs standalone Dot' \
+  "$CASE_HOME/.local/share/cgraf78/dot/bin/dot"
+if [[ -d $CASE_XDG_ROOT/state/dot/client-ready-v2/$minimum_revision &&
+  ! -L $CASE_XDG_ROOT/state/dot/client-ready-v2/$minimum_revision ]]; then
+  _pass 'successful convergence publishes private client readiness'
+else
+  _fail 'successful convergence publishes private client readiness'
+fi
+if [[ -f $CASE_HOME/.local/bin/dot && ! -L $CASE_HOME/.local/bin/dot ]]; then
+  _pass 'fleet transition preserves the regular client adapter'
+else
+  _fail 'fleet transition preserves the regular client adapter'
+fi
+_assert_file_exists 'fleet transition retains the embedded engine' \
+  "$CASE_HOME/.local/lib/dot/core/update.sh"
+
+second_output=''
+second_status=0
+second_output=$(run_case_dot update --cron 2>&1) || second_status=$?
+_assert_exit 'second preparation cron remains successful' 0 "$second_status"
+_assert_eq 'second preparation cron remains silent' '' "$second_output"
+_assert_file_content 'prepare phase remains legacy on the second invocation' \
+  $'arg=update\narg=--skip-pull\narg=--cron\narg=update\narg=--cron' \
+  "$CASE_LEGACY_LOG"
+
+prepare_case failure || exit 1
+failure_output=''
+failure_status=0
+failure_output=$(run_case_dot update --cron 2>&1) || failure_status=$?
+if [[ $failure_status -ne 0 ]]; then
+  _pass 'failed dependency convergence remains nonzero'
+else
+  _fail 'failed dependency convergence remains nonzero'
+fi
+_assert_eq 'failed cron transition remains silent' '' "$failure_output"
+failed_revision=$(sed -n 's/^minimum_revision=//p' \
+  "$CASE_HOME/.local/lib/dotfiles/dot-cutover.lock")
+_assert_file_missing 'failed convergence publishes no readiness' \
+  "$CASE_XDG_ROOT/state/dot/client-ready-v2/$failed_revision"
+_assert_file_exists 'failed convergence retains the embedded engine' \
+  "$CASE_HOME/.local/lib/dot/core/update.sh"
+continuity_output=''
+continuity_status=0
+continuity_output=$(run_case_dot --help 2>&1) || continuity_status=$?
+_assert_exit 'failed convergence preserves command continuity' 0 "$continuity_status"
+_assert_contains 'failed convergence still reaches legacy help' \
+  'usage: dot <command>' "$continuity_output"
+
+_test_summary

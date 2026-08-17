@@ -13,9 +13,12 @@ client_root=$case_home/.local/lib/dotfiles
 launcher=$case_home/.local/bin/dot
 legacy=$client_root/legacy-dot-launcher.sh
 log=$tmp/legacy.log
+state=$case_home/.local/state
 
 mkdir -p "$case_home/.local/bin" "$client_root"
 cp "$source_home/.local/bin/dot" "$launcher"
+cp "$source_home/.local/lib/dotfiles/dot-cutover.lock" \
+  "$client_root/dot-cutover.lock"
 cat >"$legacy" <<'LEGACY'
 #!/usr/bin/env bash
 printf 'quiet=%s force=%s\n' \
@@ -27,9 +30,9 @@ chmod 0755 "$launcher" "$legacy"
 
 run_prepared_launcher() {
   HOME=$case_home \
+    XDG_STATE_HOME=$state \
     DOT_PREPARATION_LOG=$log \
     DOT_CLIENT_CUTOVER_LOCK=$client_root/dot-cutover.lock \
-    DOT_CLIENT_READY=$tmp/missing-ready \
     DOT_CLIENT_HANDOFF_HELPER=$client_root/missing-handoff-helper \
     DOT_CLIENT_LEGACY_LAUNCHER=$legacy \
     SHDEPS_INSTALL_DIR=$case_home/.local/share \
@@ -52,8 +55,24 @@ fi
 _assert_contains 'preparation asks Shdeps to stage standalone Dot' \
   'cgraf78/dot                                github:repo      dot' \
   "$(<"$source_home/.config/shdeps/10-deps.conf")"
-_assert_file_content 'preparation lock cannot activate standalone Dot' \
-  'phase=prepare' "$source_home/.local/lib/dotfiles/dot-cutover.lock"
+_assert_contains 'preparation lock cannot activate standalone Dot' \
+  'phase=prepare' \
+  "$(<"$source_home/.local/lib/dotfiles/dot-cutover.lock")"
+
+HOME=$case_home XDG_STATE_HOME=$state \
+  DOT_CLIENT_CUTOVER_LOCK=$client_root/dot-cutover.lock \
+  "$source_home/.local/lib/dotfiles/dot-client-readiness.sh" write
+minimum_revision=$(sed -n 's/^minimum_revision=//p' \
+  "$client_root/dot-cutover.lock")
+if [[ -d $state/dot/client-ready-v2/$minimum_revision &&
+  ! -L $state/dot/client-ready-v2/$minimum_revision ]]; then
+  _pass 'preparation records a revision-keyed private readiness generation'
+else
+  _fail 'preparation records a revision-keyed private readiness generation'
+fi
+_assert_eq 'preparation readiness generation is private' 700 \
+  "$(stat -c '%a' "$state/dot/client-ready-v2/$minimum_revision" 2>/dev/null ||
+    stat -f '%Lp' "$state/dot/client-ready-v2/$minimum_revision")"
 _assert_file_missing 'preparation does not enable standalone configuration' \
   "$source_home/.config/dot/config"
 _assert_file_exists 'preparation retains the embedded updater' \

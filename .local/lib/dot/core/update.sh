@@ -78,8 +78,17 @@ _dot_update_prepare_shdeps_jobs() {
 }
 
 _dot_update_reexec() {
-  local cron_mode="$1"
+  local cron_mode="$1" front_door="$0" candidate="${DOT_CLIENT_FRONT_DOOR:-}"
   shift
+
+  # Once the adapter has delegated to the retained launcher, $0 names that
+  # implementation detail. Re-enter the exact public front door so later
+  # infrastructure updates cannot bypass phase/readiness policy. Ignore an
+  # ambient override unless it is the installed regular launcher generation.
+  if [[ -n $candidate && -f $candidate && ! -L $candidate && -x $candidate &&
+    -f $DOT_BIN && ! -L $DOT_BIN && $candidate -ef $DOT_BIN ]]; then
+    front_door=$candidate
+  fi
 
   [[ "${DOT_VERBOSE:-0}" -eq 1 ]] &&
     _ui_status changed "dot infrastructure updated, re-running"
@@ -90,7 +99,17 @@ _dot_update_reexec() {
   [[ "${DOT_VERBOSE:-0}" -eq 1 ]] && reexec_flags+=(--verbose)
 
   export DOT_REEXEC=1
-  exec "$0" update "${reexec_flags[@]}" "$@"
+  exec "$front_door" update "${reexec_flags[@]}" "$@"
+}
+
+_dot_update_publish_client_readiness() {
+  local helper="$HOME/.local/lib/dotfiles/dot-client-readiness.sh"
+
+  if [[ ! -e $helper && ! -L $helper ]]; then
+    return 0
+  fi
+  [[ -f $helper && ! -L $helper && -x $helper ]] || return 1
+  "$helper" write
 }
 
 _dot_update_reexec_if_needed() {
@@ -201,6 +220,12 @@ _dot_update_finalize() {
   elif [[ "${DOT_UI_TOTAL:-0}" -gt 0 ]]; then
     _ui_stage_start "Cleanup" "normalizing worktree"
     _ui_stage_finish ok "no base repo"
+  fi
+  if [[ "$update_status" -eq 0 ]] && ! _dot_update_publish_client_readiness; then
+    update_status=1
+    if [[ "${DOT_QUIET:-0}" -ne 1 ]]; then
+      _warn "  warning: standalone Dot preparation could not be recorded"
+    fi
   fi
   _ui_done "$update_status"
   return "$update_status"

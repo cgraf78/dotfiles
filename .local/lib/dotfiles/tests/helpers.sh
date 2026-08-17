@@ -130,6 +130,20 @@ _test_use_host_shdeps() {
   fi
 }
 
+_test_dot_root() {
+  local host_home=${DOT_TEST_HOST_HOME:-$HOME} candidate
+
+  for candidate in \
+    "${DOT_TEST_DOT_ROOT:-}" \
+    "$host_home/git/dot" \
+    "$host_home/.local/share/cgraf78/dot"; do
+    [[ -n $candidate && -r $candidate/lib/dot/extension-worker.sh ]] || continue
+    (cd -P -- "$candidate" && pwd -P)
+    return
+  done
+  return 1
+}
+
 # Editor-policy suites should exercise the managed Neovim payload directly;
 # core-launchers-test owns the public wrapper. Resolve the host payload when a
 # worktree HOME is active so this accommodation stays in test code.
