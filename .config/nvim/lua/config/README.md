@@ -14,8 +14,11 @@ consume.
   `nvim-workspace.lua`.
 - Keep shared language capability policy in `language-policy.lua`; plugin
   specs should consume that policy instead of retyping filetype lists.
-- Keep LSP fallback package policy in `mason-policy.lua`; `dot doctor` checks
-  this against enabled language servers so drift is visible.
+- Keep LSP provider and fallback policy in `mason-policy.lua`; external
+  shdeps, mise, and system commands are authoritative, while Mason fills only
+  missing editor-local tools on supported hosts. Mason stays disabled on
+  Android. `dot doctor` checks the server inventory against enabled language
+  servers so drift is visible.
 
 ## Loading
 

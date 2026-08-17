@@ -1,19 +1,18 @@
 # Global mise config — tools that mise manages at the user level.
 #
 # Loaded by mise automatically from $XDG_CONFIG_HOME/mise/config.toml.
-# The `jdx/mise` post-install hook in shdeps runs `mise install`
-# after mise itself is installed or updated, so any additions here
-# are picked up on the next `dot update`.
+# The dot merge hook runs `mise install --locked` on every `dot update`, so
+# additions here are picked up even when the mise package itself does not change.
 #
-# Global formatter/linter toolset migrated from shdeps. Prefer the
+# Global developer toolset migrated from shdeps. Prefer the
 # `aqua:<owner>/<repo>` backend when a tool ships prebuilt
 # github-release binaries — it avoids compilation (cargo) and
 # package-manager egress (npm) that bite on locked-down hosts.
 # Aqua handles asset naming, checksum verification, and execute
 # bits correctly out of the box; the `ubi:` backend assumes a `v`
-# tag prefix that some projects (e.g. selene) don't use, and the
-# raw `github:` backend doesn't force the execute bit on macOS zip
-# payloads.
+# tag prefix that some projects (e.g. selene) don't use. Use the
+# raw `github:` backend only when upstream assets are predictable and the
+# committed lock covers every configured platform.
 #
 # `rvben/rumdl` uses `ubi:` instead of `aqua:` because aqua's
 # baked-in registry entry enables SLSA attestation verification,
@@ -21,10 +20,8 @@
 # release\.yml`) doesn't match the relative path
 # (`.github/workflows/release.yml`) in rumdl's published
 # provenance. Aqua rejects the install. The real fix is a
-# regex update in aquaproj/aqua-registry; until that ships,
-# route rumdl through `ubi:`. Integrity is still enforced
-# via the committed `mise.lock` hashes — mise verifies every
-# subsequent install against the recorded SHA256.
+# regex update in aquaproj/aqua-registry; until that ships, route rumdl
+# through `ubi:`. Integrity is still enforced by the committed lock hashes.
 
 [tools]
 # GitHub release binaries via aqua.
@@ -48,6 +45,16 @@
 "aqua:tamasfe/taplo" = "latest"
 "aqua:zizmorcore/zizmor" = "latest"
 
+# NeoCMakeLSP publishes portable Linux archives but has no Aqua registry entry.
+# Let mise lock those releases directly instead of falling back from a missing
+# Shdeps asset to a source checkout. Homebrew remains the native macOS owner;
+# Android is excluded because upstream publishes no Bionic binary.
+"github:neocmakelsp/neocmakelsp" = { version = "latest", os = ["linux"] }
+
+# SuperHTML likewise has no Aqua registry entry. Lock its portable Linux archive
+# directly while retaining Homebrew as the macOS owner.
+"github:kristoff-it/superhtml" = { version = "latest", os = ["linux"] }
+
 # Pin `tmux` via mise so every machine gets a modern build regardless
 # of what the distro ships. `tmux` 3.5a has a bracketed-paste tracking
 # regression: it parses the child's `\e[?2004h` request but never wraps
@@ -57,6 +64,5 @@
 "aqua:tmux/tmux-builds" = "latest"
 
 # See the note above for why rumdl uses `ubi:` instead of `aqua:`.
-"ubi:kristoff-it/superhtml" = "latest"
 "ubi:reteps/dockerfmt" = "latest"
 "ubi:rvben/rumdl" = "latest"
