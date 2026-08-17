@@ -96,9 +96,11 @@ _normalize_filtered() { return 0; }
 SHDEPS
   cat >"$fake_root/shdeps" <<'BINARY'
 #!/usr/bin/env bash
-case "${1:-} ${2:-} ${3:-}" in
-  '__api version ') printf '%s\n' 'abi:1' ;;
-  '__api capability release-archive-launcher-preservation-v1') exit 0 ;;
+case "${1:-} ${2:-}" in
+  '__api version') printf '%s\n' 'abi:1' ;;
+  '__api capability')
+    [[ ${3:-} == release-archive-launcher-preservation-v1 ]]
+    ;;
   '__api adopt-release-archive-launcher') exit 0 ;;
   *) exit 2 ;;
 esac
@@ -185,6 +187,9 @@ if [[ -d $CASE_XDG_ROOT/state/dot/client-ready-v2/$minimum_revision &&
 else
   _fail 'successful convergence publishes private client readiness'
 fi
+_assert_eq 'successful convergence hardens the Dot state directory' 700 \
+  "$(stat -c '%a' "$CASE_XDG_ROOT/state/dot" 2>/dev/null ||
+    stat -f '%Lp' "$CASE_XDG_ROOT/state/dot")"
 if [[ -f $CASE_HOME/.local/bin/dot && ! -L $CASE_HOME/.local/bin/dot ]]; then
   _pass 'fleet transition preserves the regular client adapter'
 else

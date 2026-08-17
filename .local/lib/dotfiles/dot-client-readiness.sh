@@ -72,6 +72,15 @@ dot_client_ready_ensure_directory() {
   if [[ ! -e $path && ! -L $path ]]; then
     mkdir -m 0700 "$path" || return 1
   fi
+  [[ -d $path && ! -L $path ]] || return 1
+  dot_client_ready_stat "$path" || return 1
+  [[ $DOT_CLIENT_READY_UID == "$(id -u)" ]] || return 1
+  if [[ $DOT_CLIENT_READY_MODE != 700 ]]; then
+    # Older update-lock versions created the Dot-owned state directory with
+    # the caller's default mode. Harden that recognized user-owned directory
+    # before placing activation authority beneath it.
+    chmod 0700 "$path" || return 1
+  fi
   dot_client_ready_private_directory "$path"
 }
 
