@@ -84,6 +84,71 @@ dot push
 Git overlay repos are regular checkouts and are managed with
 `git -C ~/.dotfiles-<name>`.
 
+## Tool Installation and Ownership
+
+`dot update` converges tools through several providers. Each command has one
+authoritative owner on a given platform, although the owner may differ between
+platforms when package availability, signing, or compatibility requires it.
+Fallback providers must not shadow the authoritative installation.
+
+Choose an owner according to the guarantees the tool needs, not merely which
+installer is capable of installing it:
+
+| Requirement | Preferred owner |
+| --- | --- |
+| Current package in an existing trusted system repository | `shdeps:pkg` |
+| Portable executable needing a reviewed version and asset digest | mise |
+| Repository checkout or automatically updated latest-compatible dependency | `shdeps:github` |
+| Special wrapper, asset layout, or lifecycle handling | `shdeps:custom` |
+| Neovim plugin code | Lazy |
+| Missing editor-local executable on a supported workstation | Mason fallback |
+| Project-specific runtime or tool version | Project-local mise config |
+
+Prefer `shdeps:pkg` when the platform package is sufficiently current and
+preserves required behavior. Package-manager ownership combines normal
+automatic updates with the trusted repository's integrity or authentication
+mechanisms and lifecycle.
+Do not switch merely because a package name exists: compare it with the current
+upstream version, retain documented compatibility floors and bug fixes, and
+avoid adding an unrelated third-party repository solely to call an install a
+system package. Similar tools with ambiguous package names, such as unrelated
+`yq` implementations, also require an explicit package mapping.
+For formatters and other output-producing tools, a package can still be
+unsuitable when independently advancing platform versions would make results
+diverge; keep those tools under one lock or update platform providers together
+with compatibility tests.
+
+When no suitable package exists, prefer mise for standalone release binaries
+whose version or output affects builds, generated files, CI, or editor behavior.
+The tracked `mise.lock` binds installs to reviewed release assets. Prefer Aqua
+registry entries, then direct GitHub releases with complete locked platform
+coverage; use UBI only for a documented backend-specific exception. A fuzzy
+selector such as `latest` remains at its locked version until an intentional
+`mise lock --bump` refresh, so lock updates should be reviewed and tested rather
+than silently performed during normal convergence. If frequent updates are
+desired, use a scheduled reviewed lock-bump workflow rather than weakening the
+locked-install contract.
+
+Use `shdeps:github` when repository ownership or automatic latest-compatible
+updates are more important than a locked release asset. The generic `github`
+method should choose between a release and checkout; force `github:repo` when a
+source tree is required and `github:release` when falling back to a checkout
+would be incorrect. Prefer upstream-published checksums for release binaries,
+but do not treat a checksum downloaded beside an asset as independent publisher
+authentication.
+
+Lazy owns Neovim plugin code, not general-purpose language servers, formatters,
+or linters. Externally installed commands from shdeps, mise, or the host remain
+authoritative. Mason fills only missing editor-local tools where downloads are
+supported and stays disabled on Android. A package may remain Mason-owned when
+Neovim consumes assets beyond its command, such as `codelldb`'s LLDB libraries.
+
+Avoid ad hoc global Cargo, Go, uv, npm, gem, and similar installs. Declare a
+global dependency through shdeps or mise, and use a project-local mise config
+when a repository needs its own runtime or tool version. Provider migrations
+are complete only after the previous installation and any obsolete tracked
+state have a safe retirement path.
+
 ## Dependency Docs
 
 This file is the high-level map. Detailed behavior lives beside the files that
