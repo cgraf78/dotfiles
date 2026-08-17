@@ -71,6 +71,10 @@ Hooks run only for their matching dependency. They are the right place for
 cross-platform gaps that package managers do not cover cleanly, such as PHAR,
 JAR, RubyGem, release-asset, or `uv` wrappers.
 
+When a custom dependency is removed, a retirement-only hook may temporarily
+retain just `uninstall()` so `shdeps prune` can clean older manifests without
+keeping an obsolete installer active.
+
 Optional tools that require an already-installed language runtime should skip
 themselves when that runtime is absent instead of installing the runtime as a
 hidden dependency.
