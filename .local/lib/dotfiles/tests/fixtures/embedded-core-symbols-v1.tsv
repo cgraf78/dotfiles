@@ -183,6 +183,9 @@ function	.local/lib/dot/core/merge-hooks/ssh.sh	_mb_merge_family	.local/lib/dot/
 function	.local/lib/dot/core/merge-hooks/ssh.sh	_mb_strip_family	.local/lib/dot/core/merge-block.sh
 function	.local/lib/dot/core/merge-hooks/ssh.sh	_merge_hook_family_files_matching	.local/lib/dot/core/merge-hooks.sh
 function	.local/lib/dot/core/merge-hooks/ssh.sh	_merge_hook_family_marker_name	.local/lib/dot/core/merge-hooks.sh
+function	.local/lib/dot/core/merge-hooks/sshd.sh	_dot_sibling_tmp_for	.local/lib/dot/core/temp.sh
+function	.local/lib/dot/core/merge-hooks/sshd.sh	_dot_tool_present	.local/lib/dot/core/platform.sh
+function	.local/lib/dot/core/merge-hooks/sshd.sh	_merge_hook_source	.local/lib/dot/core/merge-hooks.sh
 function	.local/lib/dot/core/merge-hooks/tmux.sh	_dot_tool_present	.local/lib/dot/core/platform.sh
 function	.local/lib/dot/core/merge-hooks/tmux.sh	_log	.local/lib/dot/core/log.sh
 function	.local/lib/dot/core/merge-hooks/vscode.sh	_dot_tool_present	.local/lib/dot/core/platform.sh

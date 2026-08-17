@@ -56,6 +56,7 @@
 .local/lib/dot/tests/core/merges.sh	merge-hooks/parallel-b.sh	.local/lib/dot/core/merge-hooks/parallel-b.sh
 .local/lib/dot/tests/core/merges.sh	merge-hooks/sapling.sh	.local/lib/dot/core/merge-hooks/sapling.sh
 .local/lib/dot/tests/core/merges.sh	merge-hooks/ssh.sh	.local/lib/dot/core/merge-hooks/ssh.sh
+.local/lib/dot/tests/core/merges.sh	merge-hooks/sshd.sh	.local/lib/dot/core/merge-hooks/sshd.sh
 .local/lib/dot/tests/core/merges.sh	merge-hooks/testapp.sh	.local/lib/dot/core/merge-hooks/testapp.sh
 .local/lib/dot/tests/core/merges.sh	merge-hooks/tmux.sh	.local/lib/dot/core/merge-hooks/tmux.sh
 .local/lib/dot/tests/core/merges.sh	merge-hooks/vscode.sh	.local/lib/dot/core/merge-hooks/vscode.sh
