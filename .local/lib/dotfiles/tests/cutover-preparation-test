@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Verify that fleet bootstrap prepares standalone Dot without activating it.
+# Verify that fleet bootstrap keeps rescue fallback while activation is gated
+# by the exact standalone topology proof.
 
 set -u
 
@@ -143,7 +144,7 @@ _assert_file_content 'quiet client-surface retry remains silent' \
 
 cutover_lock=$source_home/.local/lib/dotfiles/dot-cutover.lock
 _assert_file_content 'bootstrap uses the versioned topology lock' \
-  $'cgraf78 dot client cutover v4\nphase=prepare\nminimum_revision='"$(sed -n 's/^minimum_revision=//p' "$cutover_lock")"$'\nreadiness_generation=client-topology-prepare-v1' \
+  $'cgraf78 dot client cutover v4\nphase=active\nminimum_revision='"$(sed -n 's/^minimum_revision=//p' "$cutover_lock")"$'\nreadiness_generation=client-topology-prepare-v1' \
   "$cutover_lock"
 
 minimum_revision=$(sed -n 's/^minimum_revision=//p' \

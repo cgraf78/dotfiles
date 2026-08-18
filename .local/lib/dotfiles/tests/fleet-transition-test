@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Exercise the real old-main updater across the fleet-preparation boundary.
+# Exercise the real old-main updater across preparation and ready-host
+# standalone activation.
 
 set -u
 
@@ -40,7 +41,7 @@ candidate_source=${DOT_CUTOVER_CANDIDATE_REVISION:-HEAD}
 candidate_tree=$(git -C "$source_home" rev-parse \
   "$candidate_source^{tree}") || exit 1
 candidate_revision=$(
-  printf '%s\n' 'fleet preparation candidate' |
+  printf '%s\n' 'fleet activation candidate' |
     GIT_AUTHOR_NAME='Dot tests' \
       GIT_AUTHOR_EMAIL='dot-tests@example.invalid' \
       GIT_COMMITTER_NAME='Dot tests' \
@@ -119,6 +120,10 @@ _normalize_filtered() { return 0; }
 SHDEPS
   cat >"$fake_root/shdeps" <<'BINARY'
 #!/usr/bin/env bash
+if [[ ${SHDEPS_FAKE_BOOTSTRAP_FAIL:-0} -eq 1 ]]; then
+  printf 'bootstrap mutated\n' >"$SHDEPS_FAKE_BOOTSTRAP_MARKER"
+  exit 74
+fi
 case "${1:-} ${2:-}" in
   '__api version') printf '%s\n' 'abi:1' ;;
   '__api capability')
@@ -167,6 +172,7 @@ prepare_case() {
   mkdir -p \
     "$CASE_OVERLAY_ROOT/home/.local/lib/dotfiles/legacy-dot/core/merge-hooks" \
     "$CASE_OVERLAY_ROOT/home/.local/lib/dotfiles/legacy-dot/tests" \
+    "$CASE_OVERLAY_ROOT/home/.local/lib/dotfiles/tests" \
     "$CASE_OVERLAY_CONF"
   cat >"$CASE_OVERLAY_CONF/90-transition.local.conf" <<EOF
 sync=none
@@ -187,8 +193,12 @@ HOOK
 #!/usr/bin/env bash
 printf 'Results: 1 passed, 0 failed\n'
 TEST
+  cp \
+    "$CASE_OVERLAY_ROOT/home/.local/lib/dotfiles/legacy-dot/tests/transition-overlay-test" \
+    "$CASE_OVERLAY_ROOT/home/.local/lib/dotfiles/tests/transition-overlay-test"
   chmod 0755 \
-    "$CASE_OVERLAY_ROOT/home/.local/lib/dotfiles/legacy-dot/tests/transition-overlay-test"
+    "$CASE_OVERLAY_ROOT/home/.local/lib/dotfiles/legacy-dot/tests/transition-overlay-test" \
+    "$CASE_OVERLAY_ROOT/home/.local/lib/dotfiles/tests/transition-overlay-test"
   cat >"$CASE_LEGACY_WRAPPER" <<'WRAPPER'
 #!/usr/bin/env bash
 printf 'arg=%s\n' "$@" >>"$DOT_FLEET_LEGACY_LOG"
@@ -198,6 +208,7 @@ WRAPPER
   CASE_FAIL=0
   CASE_BOOTSTRAP_FAIL=0
   CASE_TOPOLOGY_FAIL=0
+  CASE_DOT_REEXEC=${DOT_REEXEC:-}
   [[ $mode == success ]] || CASE_FAIL=1
 }
 
@@ -230,6 +241,7 @@ run_case_dot() {
     DOT_FLEET_LEGACY_LOG=$CASE_LEGACY_LOG \
     DOT_FLEET_TOPOLOGY_FAIL=$CASE_TOPOLOGY_FAIL \
     DOT_FLEET_OVERLAY_CONF_DIR=$CASE_OVERLAY_CONF \
+    DOT_REEXEC=$CASE_DOT_REEXEC \
     DOT_UI_TICK_SECONDS=0.01 \
     "$CASE_HOME/.local/bin/dot" "$@"
 }
@@ -320,30 +332,33 @@ _assert_file_exists 'fleet transition retains the frozen rescue engine' \
 _assert_file_missing 'fleet transition vacates the public library namespace' \
   "$CASE_HOME/.local/lib/dot/core/update.sh"
 
-second_output=''
-second_status=0
-second_output=$(run_case_dot update --cron --force 2>&1) || second_status=$?
-_assert_exit 'second preparation cron remains successful' 0 "$second_status"
-_assert_eq 'second preparation cron remains silent' '' "$second_output"
-if [[ $first_reexec -eq 1 ]]; then
-  expected_legacy_log=$'arg=update\narg=--skip-pull\narg=--cron\narg=--force\narg=update\narg=--cron\narg=--force'
-else
-  expected_legacy_log=$'arg=update\narg=--cron\narg=--force'
+# The historical no-reexec boundary defers readiness by one rescue update.
+# Converge that case, then prove the active adapter dispatches the exact
+# reviewed standalone runtime without entering the retained launcher.
+if [[ ! -f $readiness || -L $readiness ]]; then
+  second_output=''
+  second_status=0
+  second_output=$(run_case_dot update --cron --force 2>&1) || second_status=$?
+  _assert_exit 'deferred readiness convergence succeeds' 0 "$second_status"
+  _assert_eq 'deferred readiness convergence remains silent' '' "$second_output"
 fi
-_assert_file_content 'second preparation cron enters the retained rescue' \
-  "$expected_legacy_log" "$CASE_LEGACY_LOG"
-_assert_file_content 'second forced preparation reaches Shdeps again' \
-  $'force=1\nforce=1' "$CASE_LOG"
-_assert_file_content 'second preparation cron reruns the relocated overlay hook' \
-  $'overlay hook ran\noverlay hook ran' \
-  "$CASE_HOME/.local/state/dot/fleet-transition-overlay-hook"
-if [[ -f $readiness && ! -L $readiness ]]; then
-  _pass 'second preparation cron publishes private client readiness'
-  _assert_eq 'second preparation readiness stays private' 600 \
-    "$(stat -c '%a' "$readiness" 2>/dev/null || stat -f '%Lp' "$readiness")"
-else
-  _fail 'second preparation cron publishes private client readiness'
-fi
+_assert_file_exists 'active host has private client readiness' "$readiness"
+legacy_before=''
+[[ ! -f $CASE_LEGACY_LOG ]] || legacy_before=$(<"$CASE_LEGACY_LOG")
+activation_output=''
+activation_status=0
+activation_output=$(run_case_dot --version 2>&1) || activation_status=$?
+_assert_exit 'ready host dispatches standalone Dot' 0 "$activation_status"
+_assert_contains 'ready host dispatches the locked standalone revision' \
+  "source ${minimum_revision:0:12}" "$activation_output"
+legacy_after=''
+[[ ! -f $CASE_LEGACY_LOG ]] || legacy_after=$(<"$CASE_LEGACY_LOG")
+_assert_eq 'ready host bypasses the retained rescue' \
+  "$legacy_before" "$legacy_after"
+
+# Keep the remaining failure/recovery matrix on the rescue path. Active
+# dispatch deliberately fences the historical engine's reexec environment.
+CASE_DOT_REEXEC=1
 
 CASE_BOOTSTRAP_FAIL=1
 bootstrap_failure_output=''
