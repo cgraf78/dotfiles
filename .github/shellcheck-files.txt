@@ -176,6 +176,7 @@ program	.local/lib/dotfiles/legacy-dot/tests/workflow-consistency-test
 program	.local/lib/dotfiles/legacy-dot/tests/xdg-test
 program	.local/lib/dotfiles/legacy-dot/tests/zsh-completion-test
 program	.local/lib/dotfiles/agent-playbooks.sh
+program	.local/lib/dotfiles/dot-client-readiness.sh
 program	.local/lib/dotfiles/doctor.d/10-shell.sh
 program	.local/lib/dotfiles/doctor.d/20-tools.sh
 program	.local/lib/dotfiles/doctor.d/30-shell-integrations.sh

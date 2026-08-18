@@ -15,10 +15,15 @@ machine policy those generic interfaces execute.
   and Sley directly.
 - `shell-loader.sh`, `launcher-real.sh`, `windows.sh`, and
   `shdeps-assets.sh` are client helpers used outside the extension workers.
-- `dot-cutover.lock` keeps this namespace-only preparation dormant. A later
-  fleet-bootstrap revision provisions the runtime and publishes host readiness
-  after every active overlay has vacated the public library namespace. The
-  retained `legacy-dot-launcher.sh` remains the only runtime during preparation.
+- `dot-cutover.lock` is the single fleet rollout authority. In `phase=prepare`,
+  Shdeps installs the reviewed standalone checkout and its public API, then a
+  successful client convergence publishes private, topology-versioned host
+  readiness. The retained `legacy-dot-launcher.sh` remains the only selected
+  runtime until a separate revision changes the phase.
+- `dot-client-readiness.sh` validates the regular adapter, public API link,
+  standalone revision, and parsed client configuration before publishing that
+  proof. A failure leaves the rescue authoritative and is retried by the next
+  scheduled update.
 - `tests/` owns the retained dotfiles consumer and integration suite.
 
 Executable extensions use only the versioned public hook or doctor API. They

@@ -110,6 +110,16 @@ _dot_update_reexec() {
   exec "$front_door" update "${reexec_flags[@]}" "$@"
 }
 
+_dot_update_publish_client_readiness() {
+  local helper="$HOME/.local/lib/dotfiles/dot-client-readiness.sh"
+
+  if [[ ! -e $helper && ! -L $helper ]]; then
+    return 0
+  fi
+  [[ -f $helper && ! -L $helper && -x $helper ]] || return 1
+  "$helper" write
+}
+
 _dot_update_reexec_if_needed() {
   local cron_mode="$1" head_before="$2"
   shift 2
@@ -218,6 +228,12 @@ _dot_update_finalize() {
   elif [[ "${DOT_UI_TOTAL:-0}" -gt 0 ]]; then
     _ui_stage_start "Cleanup" "normalizing worktree"
     _ui_stage_finish ok "no base repo"
+  fi
+  if [[ "$update_status" -eq 0 ]] && ! _dot_update_publish_client_readiness; then
+    update_status=1
+    if [[ "${DOT_QUIET:-0}" -ne 1 ]]; then
+      _warn "  warning: standalone Dot preparation could not be recorded"
+    fi
   fi
   _ui_done "$update_status"
   return "$update_status"

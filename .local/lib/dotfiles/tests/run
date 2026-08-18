@@ -102,16 +102,25 @@ _dot_test_configure_home() {
 
 _dot_test_configure_home
 
+_dot_test_cutover_phase=''
+_dot_test_cutover_lock=$HOME/.local/lib/dotfiles/dot-cutover.lock
+if [[ -f $_dot_test_cutover_lock && ! -L $_dot_test_cutover_lock ]]; then
+  _dot_test_cutover_phase=$(sed -n '2s/^phase=//p' \
+    "$_dot_test_cutover_lock" 2>/dev/null || true)
+fi
 if [[ -n ${DOT_TEST_TESTS_DIR:-} ]]; then
   TESTS_DIR=$DOT_TEST_TESTS_DIR
-elif [[ -r $DOT_TEST_HOST_HOME/.local/lib/dot/api-version.sh ]]; then
+elif [[ $_dot_test_cutover_phase != prepare &&
+  -r $DOT_TEST_HOST_HOME/.local/lib/dot/api-version.sh ]]; then
   TESTS_DIR=$HOME/.local/lib/dotfiles/tests
 else
-  # Short dual-path window: the dotfiles-owned runner lands before the public
-  # library handoff and retained-suite pruning. Keep executing the established
-  # inventory until the standalone API link is authoritative.
+  # Installing the public API is preparation, not engine activation. Continue
+  # executing the rescue inventory until the tracked phase changes so tests
+  # exercise the same implementation as `dot update` on this host.
   TESTS_DIR=$HOME/.local/lib/dotfiles/legacy-dot/tests
 fi
+unset _dot_test_cutover_lock
+unset _dot_test_cutover_phase
 
 _dot_test_ui=${DOT_TEST_PUBLIC_UI:-$DOT_TEST_HOST_HOME/.local/lib/dot/ui.sh}
 _dot_test_legacy_ui=false

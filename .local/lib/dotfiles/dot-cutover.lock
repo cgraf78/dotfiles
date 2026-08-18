@@ -1,3 +1,4 @@
-cgraf78 dot client cutover v2
+cgraf78 dot client cutover v3
 phase=prepare
-minimum_revision=f0f60e8b685c7d4213b4b44328e226508367aa9d
+minimum_revision=adfaad0d35b2ddc15b43bc11d0a61b62cc2eaad1
+readiness_generation=client-topology-v1

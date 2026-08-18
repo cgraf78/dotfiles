@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
-# Verify that the fleet-preparation prefix cannot activate standalone Dot.
+# Verify that fleet bootstrap prepares standalone Dot without activating it.
 
 set -u
 
 source_home=${DOT_TEST_SOURCE_HOME:-$HOME}
 # shellcheck source=helpers.sh
 . "$source_home/.local/lib/dotfiles/tests/helpers.sh"
+
+dot_root=$(_test_dot_root) || {
+  echo 'cutover-preparation-test: standalone Dot checkout is unavailable' >&2
+  exit 1
+}
 
 tmp=$(_tmpdir)
 case_home=$tmp/home
@@ -52,26 +57,130 @@ if [[ -x $source_home/.local/lib/dotfiles/legacy-dot-launcher.sh ]]; then
 else
   _fail 'preparation retains the executable rescue launcher'
 fi
-_assert_not_contains 'namespace preparation does not provision standalone Dot early' \
-  'cgraf78/dot' \
+_assert_contains 'bootstrap preparation provisions standalone Dot through Shdeps' \
+  'cgraf78/dot                                github:repo      dot' \
   "$(<"$source_home/.config/shdeps/10-deps.conf")"
-_assert_contains 'preparation lock cannot activate standalone Dot' \
-  'phase=prepare' \
-  "$(<"$source_home/.local/lib/dotfiles/dot-cutover.lock")"
+
+cutover_lock=$source_home/.local/lib/dotfiles/dot-cutover.lock
+_assert_file_content 'bootstrap uses the versioned topology lock' \
+  $'cgraf78 dot client cutover v3\nphase=prepare\nminimum_revision='"$(sed -n 's/^minimum_revision=//p' "$cutover_lock")"$'\nreadiness_generation=client-topology-v1' \
+  "$cutover_lock"
 
 minimum_revision=$(sed -n 's/^minimum_revision=//p' \
-  "$client_root/dot-cutover.lock")
-_assert_file_missing 'namespace preparation ships no readiness writer' \
-  "$source_home/.local/lib/dotfiles/dot-client-readiness.sh"
-_assert_file_missing 'namespace preparation publishes no activation authority' \
-  "$state/dot/client-ready-v2/$minimum_revision"
-_assert_eq 'preparation does not track standalone configuration' '' \
+  "$cutover_lock")
+if git -C "$dot_root" merge-base --is-ancestor \
+  "$minimum_revision" HEAD >/dev/null 2>&1; then
+  _pass 'bootstrap lock names a public Dot ancestor'
+else
+  _fail 'bootstrap lock names a public Dot ancestor'
+fi
+if git --no-pager diff --no-index --quiet --no-ext-diff --no-textconv -- \
+  "$source_home/.local/bin/dot" "$dot_root/support/client-launcher.sh"; then
+  _pass 'bootstrap adapter matches the locked standalone template'
+else
+  _fail 'bootstrap adapter matches the locked standalone template'
+fi
+if [[ -f $source_home/.local/lib/dotfiles/dot-client-readiness.sh &&
+  ! -L $source_home/.local/lib/dotfiles/dot-client-readiness.sh &&
+  -x $source_home/.local/lib/dotfiles/dot-client-readiness.sh ]]; then
+  _pass 'bootstrap ships the private readiness writer'
+else
+  _fail 'bootstrap ships the private readiness writer'
+fi
+_assert_file_missing 'tracked bootstrap tree publishes no host readiness by itself' \
+  "$state/dot/client-ready-v3/client-topology-v1/$minimum_revision"
+_assert_eq 'bootstrap tracks standalone client configuration' \
+  '.config/dot/config' \
   "$(git -C "$source_home" ls-files -- .config/dot/config)"
+_assert_file_content 'bootstrap stages the final standalone client configuration' \
+  $'version=1\nextension_api=1\nextensions_dir=$HOME/.local/lib/dotfiles\ndependency_provider=shdeps' \
+  "$source_home/.config/dot/config"
 _assert_file_exists 'preparation retains the frozen rescue updater' \
   "$source_home/.local/lib/dotfiles/legacy-dot/core/update.sh"
 _assert_file_missing 'preparation vacates the public library namespace' \
   "$source_home/.local/lib/dot/core/update.sh"
 _assert_eq 'preparation tracks no public library files' '' \
   "$(git -C "$source_home" ls-files '.local/lib/dot/**')"
+
+readiness_helper=$source_home/.local/lib/dotfiles/dot-client-readiness.sh
+readiness_generation=$(sed -n 's/^readiness_generation=//p' "$cutover_lock")
+
+prepare_readiness_case() {
+  READY_HOME=$(_tmpdir)
+  READY_CHECKOUT=$READY_HOME/.local/share/cgraf78/dot
+  READY_STATE=$READY_HOME/.local/state
+  READY_PATH=$READY_STATE/dot/client-ready-v3/$readiness_generation/$minimum_revision
+  mkdir -p \
+    "$READY_HOME/.config/dot" \
+    "$READY_HOME/.local/bin" \
+    "$READY_HOME/.local/lib/dotfiles" \
+    "${READY_CHECKOUT%/*}"
+  ln -s "$dot_root" "$READY_CHECKOUT"
+  cp "$source_home/.local/bin/dot" "$READY_HOME/.local/bin/dot"
+  cp "$cutover_lock" "$READY_HOME/.local/lib/dotfiles/dot-cutover.lock"
+  cp "$source_home/.config/dot/config" "$READY_HOME/.config/dot/config"
+  ln -s "$READY_CHECKOUT/lib/dot/public" "$READY_HOME/.local/lib/dot"
+}
+
+run_readiness_case() {
+  HOME=$READY_HOME \
+    XDG_CONFIG_HOME=$READY_HOME/.config \
+    XDG_STATE_HOME=$READY_STATE \
+    SHDEPS_INSTALL_DIR=$READY_HOME/.local/share \
+    DOT_CLIENT_CUTOVER_LOCK=$READY_HOME/.local/lib/dotfiles/dot-cutover.lock \
+    "$readiness_helper" write
+}
+
+prepare_readiness_case
+readiness_status=0
+run_readiness_case || readiness_status=$?
+_assert_exit 'validated client topology publishes readiness' 0 "$readiness_status"
+if [[ -d $READY_PATH && ! -L $READY_PATH ]]; then
+  _pass 'validated client topology publishes the expected generation'
+else
+  _fail 'validated client topology publishes the expected generation'
+fi
+
+prepare_readiness_case
+# shellcheck disable=SC2016 # The client config owns this literal HOME token.
+printf '%s\n' \
+  'version=1' \
+  'extension_api=1' \
+  'extensions_dir=$HOME/.local/lib/dotfiles' \
+  'dependency_provider=none' >"$READY_HOME/.config/dot/config"
+invalid_config_status=0
+run_readiness_case >/dev/null 2>&1 || invalid_config_status=$?
+if [[ $invalid_config_status -ne 0 ]]; then
+  _pass 'invalid standalone client configuration denies readiness'
+else
+  _fail 'invalid standalone client configuration denies readiness'
+fi
+_assert_file_missing 'invalid client configuration publishes no readiness' \
+  "$READY_PATH"
+
+prepare_readiness_case
+unlink "$READY_HOME/.local/lib/dot"
+ln -s "$READY_HOME/.local/lib/foreign" "$READY_HOME/.local/lib/dot"
+invalid_library_status=0
+run_readiness_case >/dev/null 2>&1 || invalid_library_status=$?
+if [[ $invalid_library_status -ne 0 ]]; then
+  _pass 'foreign public library link denies readiness'
+else
+  _fail 'foreign public library link denies readiness'
+fi
+_assert_file_missing 'foreign public library publishes no readiness' \
+  "$READY_PATH"
+
+prepare_readiness_case
+printf '\n# changed after install\n' >>"$READY_HOME/.local/bin/dot"
+invalid_adapter_status=0
+run_readiness_case >/dev/null 2>&1 || invalid_adapter_status=$?
+if [[ $invalid_adapter_status -ne 0 ]]; then
+  _pass 'changed client adapter denies readiness'
+else
+  _fail 'changed client adapter denies readiness'
+fi
+_assert_file_missing 'changed client adapter publishes no readiness' \
+  "$READY_PATH"
 
 _test_summary

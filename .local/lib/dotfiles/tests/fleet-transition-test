@@ -78,8 +78,20 @@ shdeps_self_update() {
 }
 
 shdeps_update() {
+  local checkout=$SHDEPS_INSTALL_DIR/cgraf78/dot
+
   printf 'force=%s\n' "${SHDEPS_FORCE:-unset}" >>"$SHDEPS_FAKE_LOG"
   [[ ${SHDEPS_FAKE_FAIL:-0} -eq 0 ]] || return 73
+  mkdir -p "${checkout%/*}"
+  if [[ ! -d $checkout/.git ]]; then
+    git clone --quiet --no-checkout "$SHDEPS_FAKE_DOT_ORIGIN" "$checkout" || return
+  else
+    git -C "$checkout" fetch --quiet origin || return
+  fi
+  git -C "$checkout" -c advice.detachedHead=false checkout --quiet --detach \
+    "$SHDEPS_FAKE_DOT_REVISION" || return
+  bash "$checkout/support/install-checkout.sh" \
+    >"$SHDEPS_FAKE_INSTALL_LOG" 2>&1
 }
 
 # Keep external repository traffic and unrelated base hooks out of this
@@ -140,9 +152,9 @@ prepare_case() {
 
   make_fake_shdeps
   CASE_LOG=$SHDEPS_FAKE_ROOT/update.log
+  CASE_INSTALL_LOG=$SHDEPS_FAKE_ROOT/install.log
   CASE_LEGACY_LOG=$SHDEPS_FAKE_ROOT/legacy.log
   CASE_LEGACY_WRAPPER=$SHDEPS_FAKE_ROOT/legacy-wrapper
-  CASE_XDG_ROOT=$(_tmpdir)
   CASE_OVERLAY_ROOT=$(_tmpdir)
   CASE_OVERLAY_CONF=$(_tmpdir)
   mkdir -p \
@@ -185,14 +197,17 @@ run_case_test() {
 
 run_case_dot() {
   HOME=$CASE_HOME \
-    XDG_CONFIG_HOME=$CASE_XDG_ROOT/config \
-    XDG_STATE_HOME=$CASE_XDG_ROOT/state \
-    XDG_CACHE_HOME=$CASE_XDG_ROOT/cache \
-    XDG_DATA_HOME=$CASE_XDG_ROOT/data \
+    XDG_CONFIG_HOME=$CASE_HOME/.config \
+    XDG_STATE_HOME=$CASE_HOME/.local/state \
+    XDG_CACHE_HOME=$CASE_HOME/.cache \
+    XDG_DATA_HOME=$CASE_HOME/.local/share \
     SHDEPS_LIB=$SHDEPS_FAKE_ROOT/shdeps.sh \
     SHDEPS_FAKE_BINARY=$SHDEPS_FAKE_ROOT/shdeps \
     SHDEPS_FAKE_LOG=$CASE_LOG \
+    SHDEPS_FAKE_INSTALL_LOG=$CASE_INSTALL_LOG \
     SHDEPS_FAKE_FAIL=$CASE_FAIL \
+    SHDEPS_FAKE_DOT_ORIGIN=$dot_root \
+    SHDEPS_FAKE_DOT_REVISION=$(git -C "$dot_root" rev-parse HEAD) \
     SHDEPS_INSTALL_DIR=$CASE_HOME/.local/share \
     SHDEPS_GIT_DEV_DIR=$CASE_HOME/.fixture-dev \
     DOT_CLIENT_LEGACY_LAUNCHER=$CASE_LEGACY_WRAPPER \
@@ -245,10 +260,28 @@ if git -C "$dot_root" merge-base --is-ancestor \
 else
   _fail 'tested standalone checkout contains the locked minimum revision'
 fi
-_assert_file_missing 'namespace preparation does not install standalone Dot' \
+_assert_file_exists 'bootstrap preparation installs standalone Dot' \
   "$CASE_HOME/.local/share/cgraf78/dot/bin/dot"
-_assert_file_missing 'namespace preparation does not publish client readiness' \
-  "$CASE_XDG_ROOT/state/dot/client-ready-v2/$minimum_revision"
+_assert_contains 'bootstrap preserves the regular client adapter' \
+  'preserved client-owned dot adapter' "$(<"$CASE_INSTALL_LOG")"
+_assert_contains 'bootstrap publishes the standalone public library' \
+  'installed dot public library' "$(<"$CASE_INSTALL_LOG")"
+if [[ -L $CASE_HOME/.local/lib/dot ]] &&
+  [[ $(readlink "$CASE_HOME/.local/lib/dot") == "$CASE_HOME/.local/share/cgraf78/dot/lib/dot/public" ]]; then
+  _pass 'bootstrap publishes the exact standalone public library link'
+else
+  _fail 'bootstrap publishes the exact standalone public library link'
+fi
+readiness_generation=$(sed -n 's/^readiness_generation=//p' \
+  "$CASE_HOME/.local/lib/dotfiles/dot-cutover.lock")
+readiness=$CASE_HOME/.local/state/dot/client-ready-v3/$readiness_generation/$minimum_revision
+if [[ -d $readiness && ! -L $readiness ]]; then
+  _pass 'successful convergence publishes private client readiness'
+  _assert_eq 'successful convergence makes readiness private' 700 \
+    "$(stat -c '%a' "$readiness" 2>/dev/null || stat -f '%Lp' "$readiness")"
+else
+  _fail 'successful convergence publishes private client readiness'
+fi
 if [[ -f $CASE_HOME/.local/bin/dot && ! -L $CASE_HOME/.local/bin/dot ]]; then
   _pass 'fleet transition preserves the regular client adapter'
 else
@@ -295,8 +328,12 @@ fi
 _assert_eq 'failed cron transition remains silent' '' "$failure_output"
 failed_revision=$(sed -n 's/^minimum_revision=//p' \
   "$CASE_HOME/.local/lib/dotfiles/dot-cutover.lock")
+failed_generation=$(sed -n 's/^readiness_generation=//p' \
+  "$CASE_HOME/.local/lib/dotfiles/dot-cutover.lock")
 _assert_file_missing 'failed convergence publishes no readiness' \
-  "$CASE_XDG_ROOT/state/dot/client-ready-v2/$failed_revision"
+  "$CASE_HOME/.local/state/dot/client-ready-v3/$failed_generation/$failed_revision"
+_assert_file_missing 'failed convergence publishes no public library link' \
+  "$CASE_HOME/.local/lib/dot"
 _assert_file_exists 'failed convergence retains the frozen rescue engine' \
   "$CASE_HOME/.local/lib/dotfiles/legacy-dot/core/update.sh"
 _assert_file_missing 'failed convergence keeps the public library namespace vacant' \
