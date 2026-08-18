@@ -279,6 +279,7 @@ program	.local/lib/dotfiles/tests/vscode-extensions-test
 program	.local/lib/dotfiles/tests/vscode-sley-test
 program	.local/lib/dotfiles/tests/wezterm-test
 program	.local/lib/dotfiles/tests/workflow-consistency-test
+program	.local/lib/dotfiles/tests/xdg-test
 program	.local/lib/dotfiles/tests/zsh-completion-test
 program	.local/lib/dotfiles/windows.sh
 program	.profile

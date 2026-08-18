@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+# xdg-test - dotfiles-owned consumers of the standalone XDG API.
+
+set -o pipefail
+export NO_COLOR=1
+
+# shellcheck source=helpers.sh
+. "${BASH_SOURCE[0]%/*}/helpers.sh"
+
+work=$(_tmpdir)
+source_home=$HOME
+fixture_home=$work/home
+cwd_one=$work/cwd-one
+cwd_two=$work/cwd-two
+mkdir -p "$fixture_home" "$cwd_one" "$cwd_two"
+
+echo "=== Client XDG consumers ==="
+
+newline_cache="$work/cache"$'\n'
+launcher_cache=$(
+  HOME=$fixture_home XDG_CACHE_HOME=$newline_cache \
+    bash -c '. "$1"; _dot_launcher_cache_path git; printf "%s" "$REPLY"' \
+    _ "$source_home/.local/lib/dotfiles/launcher-real.sh"
+)
+_assert_eq "launcher cache: preserves absolute XDG bytes" \
+  "$newline_cache/dotfiles/git-real" "$launcher_cache"
+
+launcher_cache=$(
+  HOME=$fixture_home XDG_CACHE_HOME=relative/cache \
+    bash -c '. "$1"; _dot_launcher_cache_path git; printf "%s" "$REPLY"' \
+    _ "$source_home/.local/lib/dotfiles/launcher-real.sh"
+)
+_assert_eq "launcher cache: relative XDG uses HOME fallback" \
+  "$fixture_home/.cache/dotfiles/git-real" "$launcher_cache"
+
+marks_one=$(cd "$cwd_one" && HOME=$fixture_home XDG_DATA_HOME=relative/data \
+  bash -c '. "$1"; printf "%s" "$_MARKS_DIR"' \
+  _ "$source_home/.config/shell/interactive.d/57-marks.sh")
+marks_two=$(cd "$cwd_two" && HOME=$fixture_home XDG_DATA_HOME=relative/data \
+  bash -c '. "$1"; printf "%s" "$_MARKS_DIR"' \
+  _ "$source_home/.config/shell/interactive.d/57-marks.sh")
+_assert_eq "marks: relative XDG has one cwd-independent location" \
+  "$marks_one" "$marks_two"
+_assert_eq "marks: relative XDG uses HOME fallback" \
+  "$fixture_home/.local/share/marks" "$marks_one"
+
+absolute_data=$work/no-home-data
+# shellcheck disable=SC2016 # zsh receives the runtime expressions.
+marks_no_home=$(cd "$cwd_two" && env -u HOME XDG_DATA_HOME="$absolute_data" \
+  zsh -dfc '. "$1"; printf "%s" "$_MARKS_DIR"' \
+  _ "$source_home/.config/shell/interactive.d/57-marks.sh")
+_assert_eq "marks: absolute XDG works without HOME" \
+  "$absolute_data/marks" "$marks_no_home"
+
+gh_stamp=$(
+  HOME=$fixture_home XDG_STATE_HOME=$work/state \
+    bash -c '. "$1"; . "$2"; _gh_token_seed_failure_stamp_path; printf "%s" "$REPLY"' \
+    _ "$source_home/.local/lib/dotfiles/tests/load-merge-api.sh" \
+    "$source_home/.local/lib/dotfiles/merge-hooks.d/gh.sh"
+)
+_assert_eq "GitHub token seed: failure stamp uses standalone XDG policy" \
+  "$work/state/dot/gh-token-seed-failed.stamp" "$gh_stamp"
+
+mkdir -p "$fixture_home/.local/share/clip"
+printf 'fallback entry' >"$fixture_home/.local/share/clip/fallback"
+clip_output=$(cd "$cwd_one" && HOME=$fixture_home XDG_DATA_HOME=relative/data \
+  "$source_home/.local/bin/clip" list)
+_assert_contains "clip: relative XDG reads HOME fallback" \
+  "fallback entry" "$clip_output"
+
+mkdir -p "$absolute_data/clip"
+printf 'absolute entry' >"$absolute_data/clip/absolute"
+clip_output=$(cd "$cwd_two" && env -u HOME XDG_DATA_HOME="$absolute_data" \
+  "$source_home/.local/bin/clip" list)
+_assert_contains "clip: absolute XDG works without HOME" \
+  "absolute entry" "$clip_output"
+
+_test_summary

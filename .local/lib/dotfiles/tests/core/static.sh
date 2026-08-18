@@ -142,7 +142,7 @@ MOCK
       _ci_termux_strict_line=$_ci_line_number
     fi
     if ((_ci_in_shell_with)) &&
-      [[ "$_ci_code" =~ ^[[:space:]]{8}HOME=\"\$PWD\"[[:space:]]+PATH=\"\$PWD/\.local/bin:\$PATH\"[[:space:]]+\.local/bin/dot[[:space:]]+update[[:space:]]+--skip-pull[[:space:]]*$ ]]; then
+      [[ "$_ci_code" =~ ^[[:space:]]{8}HOME=\"\$PWD\"[[:space:]]+PATH=\"\$PWD/\.local/bin:\$PATH\"[[:space:]]+\"\$PWD/\.local/share/cgraf78/dot/bin/dot\"[[:space:]]+update[[:space:]]*$ ]]; then
       _ci_termux_update_line=$_ci_line_number
     fi
     if ((_ci_in_shell_with)) &&
@@ -581,6 +581,141 @@ PY
     while IFS= read -r _line; do
       printf '    %s\n' "$_line" >&2
     done <<<"$_mktemp_template_errors"
+  fi
+
+  _account_portability_errors=$(
+    python3 - "$_lint_root" "$_mktemp_tracked" <<'PY'
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+tracked = Path(sys.argv[2])
+blocked_literals = (
+    "/mnt/c/Users/$USER",
+    "/mnt/c/Users/${USER}",
+    "/mnt/c/Users/chris",
+    "/mnt/c/Users/Chris",
+    "/mnt/c/Users/cgraf",
+    "C:\\Users\\chris",
+    "C:\\Users\\Chris",
+    "C:\\Users\\cgraf",
+    "/home/chris",
+    "/home/cgraf",
+)
+
+
+def client_runtime_path(rel):
+    return (
+        rel.startswith(".bash")
+        or rel.startswith(".config/")
+        or rel.startswith(".local/bin/")
+        or rel.startswith(".local/lib/dotfiles/")
+    )
+
+
+for rel in tracked.read_text().splitlines():
+    rel = rel.strip()
+    if not rel or rel.startswith((
+        ".local/lib/dotfiles/legacy-dot/",
+        ".local/lib/dotfiles/tests/",
+    )):
+        continue
+    if not client_runtime_path(rel):
+        continue
+    path = root / rel
+    if not path.is_file() or path.is_symlink():
+        continue
+    try:
+        text = path.read_text(errors="ignore")
+    except OSError:
+        continue
+    for lineno, line in enumerate(text.splitlines(), 1):
+        for literal in blocked_literals:
+            if literal not in line:
+                continue
+            print(
+                f"{rel}:{lineno}: ask Windows for USERPROFILE; "
+                f"do not hardcode local account path {literal!r}"
+            )
+            break
+        if rel == ".config/hive-memory/config.toml" and line.strip() in {
+            'user_id = "chris"',
+            'user_id = "cgraf"',
+            'user_id = "Chris"',
+        }:
+            print(f"{rel}:{lineno}: use auto or a machine-local override for user_id")
+PY
+  )
+  if [[ -z "$_account_portability_errors" ]]; then
+    _pass "account portability: runtime code avoids local username assumptions"
+  else
+    _fail "account portability: runtime code avoids local username assumptions"
+    while IFS= read -r _line; do
+      printf '    %s\n' "$_line" >&2
+    done <<<"$_account_portability_errors"
+  fi
+
+  _predictable_temp_errors=$(
+    python3 - "$_lint_root" "$_mktemp_tracked" <<'PY'
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+tracked = Path(sys.argv[2])
+temp_words = (
+    "tmp",
+    "cache",
+    "manifest",
+    "backup",
+    "out",
+    "state",
+)
+
+
+def shell_like(path, text):
+    if path.suffix in {".sh", ".bash"}:
+        return True
+    first = text.splitlines()[0] if text.splitlines() else ""
+    return first.startswith("#!/usr/bin/env bash") or first.startswith("#!/bin/bash")
+
+
+def predictable_temp_line(line):
+    stripped = line.strip()
+    if not stripped or stripped.startswith("#") or ".$$" not in line:
+        return False
+    if any(word in line.lower() for word in temp_words):
+        return True
+    return ">" in line or "mv " in line or "cp " in line
+
+
+for rel in tracked.read_text().splitlines():
+    rel = rel.strip()
+    if not rel or rel.startswith((
+        ".local/lib/dotfiles/legacy-dot/",
+        ".local/lib/dotfiles/tests/",
+    )):
+        continue
+    path = root / rel
+    if not path.is_file() or path.is_symlink():
+        continue
+    try:
+        text = path.read_text(errors="ignore")
+    except OSError:
+        continue
+    if not shell_like(path, text):
+        continue
+    for lineno, line in enumerate(text.splitlines(), 1):
+        if predictable_temp_line(line):
+            print(f"{rel}:{lineno}: use mktemp instead of predictable PID-suffixed names")
+PY
+  )
+  if [[ -z "$_predictable_temp_errors" ]]; then
+    _pass "temp files: no predictable PID-suffixed names"
+  else
+    _fail "temp files: no predictable PID-suffixed names"
+    while IFS= read -r _line; do
+      printf '    %s\n' "$_line" >&2
+    done <<<"$_predictable_temp_errors"
   fi
 
   _merge_hook_layout_errors=$(
