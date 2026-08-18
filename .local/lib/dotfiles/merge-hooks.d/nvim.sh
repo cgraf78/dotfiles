@@ -182,8 +182,8 @@ merge() {
 
   [[ -r "$config" ]] || return 0
   command -v pgrep >/dev/null 2>&1 || return 0
-  pgrep -x nvim >/dev/null 2>&1
-  probe_rc=$?
+  probe_rc=0
+  pgrep -x nvim >/dev/null 2>&1 || probe_rc=$?
   [[ "$probe_rc" -eq 1 ]] || return 0
 
   # Match Neovim's stdpath defaults while rejecting relative XDG values.
@@ -196,8 +196,8 @@ merge() {
 
   # Recheck after acquiring the lock. A Neovim that starts in the interval
   # above blocks in config.lazy-update-lock, and this probe then defers.
-  pgrep -x nvim >/dev/null 2>&1
-  probe_rc=$?
+  probe_rc=0
+  pgrep -x nvim >/dev/null 2>&1 || probe_rc=$?
   if [[ "$probe_rc" -ne 1 ]]; then
     _nvim_lazy_lock_release
     trap - EXIT HUP INT QUIT TERM
