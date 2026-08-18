@@ -98,7 +98,7 @@ own it:
 | Overlay repos | [`.config/dot/overlays.d/README.md`](../../../../.config/dot/overlays.d/README.md) |
 | Config merge hooks and cron | [`.config/dot/merge-hooks.d/README.md`](../../../../.config/dot/merge-hooks.d/README.md) |
 | Git config | [`.config/git/README.md`](../../../../.config/git/README.md) |
-| Git hooks | [`.local/lib/dot/git-hooks/README.md`](../../../../.local/lib/dot/git-hooks/README.md) |
+| Git hooks | [`.local/lib/dotfiles/git-hooks/README.md`](../../../../.local/lib/dotfiles/git-hooks/README.md) |
 | Hive Memory config | [`.config/hive-memory/README.md`](../../../../.config/hive-memory/README.md) |
 | Shell loading | [`.config/shell/README.md`](../../../../.config/shell/README.md) |
 | Dependency installs | [`.config/shdeps/README.md`](../../../../.config/shdeps/README.md) |
@@ -111,12 +111,12 @@ own it:
 | Checkrun policy | [`.config/checkrun/README.md`](../../../../.config/checkrun/README.md) |
 | Sley verification policy | [`.config/sley/verify.d/README.md`](../../../../.config/sley/verify.d/README.md) |
 | Command entry points | [`.local/bin/README.md`](../../../../.local/bin/README.md) |
-| Runtime library layout | [`.local/lib/dot/README.md`](../../../../.local/lib/dot/README.md) |
-| `dot` core runtime | [`.local/lib/dot/core/README.md`](../../../../.local/lib/dot/core/README.md) |
+| Client runtime layout | [`.local/lib/dotfiles/README.md`](../../../../.local/lib/dotfiles/README.md) |
+| Frozen rescue runtime | [`.local/lib/dotfiles/legacy-dot/core/README.md`](../../../../.local/lib/dotfiles/legacy-dot/core/README.md) |
 | Dot documentation index | [`.local/share/doc/dot/README.md`](README.md) |
 | Schema payloads | [`.local/share/checkrun/schemas/README.md`](../../../../.local/share/checkrun/schemas/README.md) |
-| Test suites | [`.local/lib/dot/tests/README.md`](../../../../.local/lib/dot/tests/README.md) |
-| Core test modules | [`.local/lib/dot/tests/core/README.md`](../../../../.local/lib/dot/tests/core/README.md) |
+| Test runner and client suites | [`.local/lib/dotfiles/tests/README.md`](../../../../.local/lib/dotfiles/tests/README.md) |
+| Frozen rescue suites | [`.local/lib/dotfiles/legacy-dot/tests/README.md`](../../../../.local/lib/dotfiles/legacy-dot/tests/README.md) |
 
 ## Operating Model
 
@@ -153,9 +153,9 @@ Advisory dependency warnings, optional overlay skips, cron's dirty-worktree
 skip, cron lock contention, and best-effort worktree normalization retain a
 zero exit status.
 
-If a pull updates dot infrastructure such as `.local/lib/dot/` or
-`.local/bin/dot`, the command re-execs itself so the remainder of the update
-uses the new code.
+If a pull updates tracked client or rescue infrastructure such as
+`.local/lib/dotfiles/legacy-dot/` or `.local/bin/dot`, the command re-execs
+itself so the remainder of the update uses the new code.
 
 Base files use `[ -f ]` guards and ordered config directories so overlays can
 contribute extra files without patching base files. Every machine is a peer:
@@ -197,7 +197,9 @@ Run all local tests with:
 dot-test
 ```
 
-The suite auto-discovers `*-test` scripts under `~/.local/lib/dot/tests/` and
-runs them in parallel by default. See the
-[`tests` README](../../../../.local/lib/dot/tests/README.md) for suite names,
-options, and CI coverage.
+The dotfiles-owned runner lives under `~/.local/lib/dotfiles/tests/`. During
+fleet preparation it executes the frozen rescue suites under
+`~/.local/lib/dotfiles/legacy-dot/tests/`; after the standalone public API is
+authoritative it selects the client suites. See the
+[`tests` README](../../../../.local/lib/dotfiles/tests/README.md) for suite
+names, options, and CI coverage.

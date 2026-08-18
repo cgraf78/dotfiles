@@ -898,6 +898,25 @@ PY
   fi
 
   echo ""
+  echo "=== Documentation paths ==="
+  _dot_operating_doc=$(<"$_lint_root/.local/share/doc/dot/dot.md")
+  _git_hook_doc=$(<"$_lint_root/.local/lib/dotfiles/git-hooks/README.md")
+  _hive_memory_doc=$(<"$_lint_root/.config/hive-memory/README.md")
+  _local_bin_doc=$(<"$_lint_root/.local/bin/README.md")
+  _assert_contains "docs: operating guide links the relocated rescue core" \
+    ".local/lib/dotfiles/legacy-dot/core/README.md" "$_dot_operating_doc"
+  _assert_contains "docs: Git hook policy names the client-owned namespace" \
+    '.local/lib/dotfiles' "$_git_hook_doc"
+  _assert_contains "docs: Hive Memory points at its tracked launcher" \
+    '.local/bin/hm' "$_hive_memory_doc"
+  _assert_contains "docs: command guidance uses the client-owned library" \
+    '.local/lib/dotfiles' "$_local_bin_doc"
+  _assert_not_contains "docs: operating guide drops deleted core links" \
+    ".local/lib/dot/core/README.md" "$_dot_operating_doc"
+  _assert_not_contains "docs: operating guide drops deleted test links" \
+    ".local/lib/dot/tests/README.md" "$_dot_operating_doc"
+
+  echo ""
   echo "=== Shell config dir constants ==="
 
   # The shell-startup hot path (.bashrc, .zshrc, shell-loader.sh) keeps

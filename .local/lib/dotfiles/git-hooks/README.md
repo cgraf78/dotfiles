@@ -3,10 +3,10 @@
 This directory is the global Git hook directory selected by
 `~/.config/git/config` through `core.hooksPath`.
 
-It lives under `~/.local/lib/dot` because these files are executable,
-dotfiles-owned runtime policy. It is a sibling of `core/`, rather than part of
-it, because Git invokes these entry points directly and the `dot` command does
-not load or dispatch them.
+It lives under `~/.local/lib/dotfiles` because these files are executable,
+dotfiles-owned client policy. It is separate from the standalone Dot public
+library and frozen rescue core because Git invokes these entry points directly;
+neither runtime loads or dispatches them.
 
 ## Hooks
 

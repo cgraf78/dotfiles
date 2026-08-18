@@ -14,8 +14,8 @@ as storage roots and default store names.
   preferences and project facts are automatic while incidents, references, and
   raw notes remain searchable instead of being injected into every session.
 - Keep command implementation and schema behavior in the Hive Memory repo.
-- Keep agent-runtime detection in the dotfiles launcher under
-  [`~/.local/lib/dot/hive-memory`](../../.local/lib/dot/hive-memory/README.md).
+- Keep agent-runtime detection in the tracked dotfiles launcher
+  [`.local/bin/hm`](../../.local/bin/hm).
 
 Dotfiles installs the PATH-visible `hm` command through a shdeps hook. That
 hook points `hm` at the dotfiles launcher, while the upstream binary remains

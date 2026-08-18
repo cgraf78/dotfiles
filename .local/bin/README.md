@@ -4,8 +4,9 @@ This README covers dotfiles-owned command entry points tracked in this repo.
 At runtime, `~/.local/bin` also contains shdeps-managed links and other local
 installs that are not tracked by dotfiles.
 
-Shared implementation should live under `~/.local/lib/dot` or another owning
-component; files here should stay thin and command-shaped.
+Shared client implementation should live under `~/.local/lib/dotfiles` or
+another owning component; `~/.local/lib/dot` is reserved for the standalone
+public API. Files here should stay thin and command-shaped.
 
 ## Dotfiles Commands
 
