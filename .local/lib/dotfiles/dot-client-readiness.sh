@@ -285,7 +285,10 @@ dot_client_ready_revoke() {
   fi
   # The path is authority only inside the exact private directory chain the
   # writer created. Do not follow a substituted state parent to another tree.
-  dot_client_ready_private_directory "$dot_state" || return 1
+  # The update lock may have created this recognized user-owned state root
+  # with the caller's default mode before revocation runs. Apply the same
+  # bounded hardening rule as the writer; deeper authority parents stay strict.
+  dot_client_ready_ensure_directory "$dot_state" || return 1
   if [[ ! -e $readiness_root && ! -L $readiness_root ]]; then
     return 0
   fi
