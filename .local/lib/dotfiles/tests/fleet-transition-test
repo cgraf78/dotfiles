@@ -343,6 +343,7 @@ if [[ ! -f $readiness || -L $readiness ]]; then
   _assert_eq 'deferred readiness convergence remains silent' '' "$second_output"
 fi
 _assert_file_exists 'active host has private client readiness' "$readiness"
+CASE_DOT_REEXEC=''
 legacy_before=''
 [[ ! -f $CASE_LEGACY_LOG ]] || legacy_before=$(<"$CASE_LEGACY_LOG")
 activation_output=''
