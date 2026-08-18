@@ -818,6 +818,15 @@ PGREP
     "$(test -d "$nvim_lock" && printf yes || printf no)"
 
   : >"$nvim_log"
+  HOME="$nvim_home" PREFIX=/data/data/com.termux/files/usr \
+    XDG_STATE_HOME="$nvim_state" XDG_DATA_HOME="$nvim_data" \
+    PATH="$nvim_bin:$PATH" DOT_TEST_NVIM_LOCK="$nvim_lock" \
+    DOT_TEST_NVIM_LOG="$nvim_log" DOT_TEST_PGREP_STATUS=1 \
+    _run_nvim_merge_for_test
+  _assert_eq "nvim merge: Android skips unattended Lazy update" "" \
+    "$(cat "$nvim_log")"
+
+  : >"$nvim_log"
   HOME="$nvim_home" XDG_STATE_HOME="$nvim_state" XDG_DATA_HOME="$nvim_data" \
     PATH="$nvim_bin:$PATH" DOT_TEST_NVIM_LOCK="$nvim_lock" DOT_TEST_NVIM_LOG="$nvim_log" \
     DOT_TEST_PGREP_STATUS=0 _run_nvim_merge_for_test
@@ -6875,6 +6884,10 @@ printf '%s\n' "gh-token"
 exit 0
 GH
   chmod +x "$MOCK_BIN/gh"
+
+  # Full-provider CI can export a real Mise token. This fixture owns the token
+  # precedence cases below, so do not let ambient credentials choose the path.
+  unset MISE_GITHUB_TOKEN GITHUB_TOKEN
 
   # Non-interactive merge never calls gh.
   rm -f "$TEST_HOME/.mise-env.log" "$TEST_HOME/.mise-calls.log" "$TEST_HOME/.gh-calls.log"

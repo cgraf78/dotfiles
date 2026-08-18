@@ -172,6 +172,9 @@ _nvim_lazy_lock_acquire() {
 
 merge() {
   _dot_tool_present nvim || return 0
+  # The frozen rescue predates the public hook platform API. Preserve the same
+  # Termux policy during preparation; this branch leaves with rescue cleanup.
+  [[ -n ${PREFIX:-} && $PREFIX == */com.termux/* ]] && return 0
   local config="$HOME/.config/nvim/init.lua" data lazy lock probe_rc nvim_rc
 
   [[ -r "$config" ]] || return 0
