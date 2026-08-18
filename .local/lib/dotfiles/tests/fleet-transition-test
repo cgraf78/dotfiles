@@ -113,6 +113,10 @@ prepare_case() {
   CASE_HOME=$(_tmpdir)
   origin=$(_tmpdir)
   git init --bare "$origin" >/dev/null 2>&1
+  # GitHub checks out the PR tip shallowly, then the workflow fetches the
+  # historical baseline as a second shallow root. This fixture intentionally
+  # publishes both exact commits into its disposable origin.
+  git -C "$origin" config receive.shallowUpdate true
   git -C "$source_home" push --quiet "$origin" \
     "$baseline_revision:refs/heads/main" || return
   git --git-dir="$origin" symbolic-ref HEAD refs/heads/main
@@ -121,7 +125,7 @@ prepare_case() {
   git init --bare "$CASE_HOME/.dotfiles" >/dev/null 2>&1
   fixture_git="git --git-dir=$CASE_HOME/.dotfiles --work-tree=$CASE_HOME"
   $fixture_git remote add origin "$origin"
-  $fixture_git fetch --quiet origin
+  $fixture_git fetch --quiet --update-shallow origin
   $fixture_git checkout --quiet -B main origin/main
   $fixture_git branch --set-upstream-to=origin/main main >/dev/null 2>&1
 
