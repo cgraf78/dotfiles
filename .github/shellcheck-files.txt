@@ -41,6 +41,7 @@ program	.config/shell/interactive.d/59-prompt.sh
 program	.config/shell/interactive.d/60-prompt.bash
 program	.config/shell/interactive.d/70-integrations.bash
 program	.local/bin/clip
+program	.local/bin/dot
 program	.local/bin/dot-test
 program	.local/bin/dotbootstrap
 program	.local/bin/git
