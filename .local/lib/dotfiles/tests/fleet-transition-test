@@ -62,6 +62,10 @@ make_fake_shdeps() {
   mkdir -p "$fake_root"
   cat >"$fake_root/install.sh" <<'INSTALL'
 # shellcheck shell=bash
+if [[ ${SHDEPS_FAKE_BOOTSTRAP_FAIL:-0} -eq 1 ]]; then
+  printf 'bootstrap mutated\n' >"$SHDEPS_FAKE_BOOTSTRAP_MARKER"
+  return 74
+fi
 # shellcheck source=/dev/null
 . "${SHDEPS_LIB%/*}/shdeps.sh"
 INSTALL
@@ -153,6 +157,7 @@ prepare_case() {
   make_fake_shdeps
   CASE_LOG=$SHDEPS_FAKE_ROOT/update.log
   CASE_INSTALL_LOG=$SHDEPS_FAKE_ROOT/install.log
+  CASE_BOOTSTRAP_MARKER=$SHDEPS_FAKE_ROOT/bootstrap-failed
   CASE_LEGACY_LOG=$SHDEPS_FAKE_ROOT/legacy.log
   CASE_LEGACY_WRAPPER=$SHDEPS_FAKE_ROOT/legacy-wrapper
   CASE_OVERLAY_ROOT=$(_tmpdir)
@@ -189,6 +194,7 @@ exec "$HOME/.local/lib/dotfiles/legacy-dot-launcher.sh" "$@"
 WRAPPER
   chmod 0755 "$CASE_LEGACY_WRAPPER"
   CASE_FAIL=0
+  CASE_BOOTSTRAP_FAIL=0
   CASE_TOPOLOGY_FAIL=0
   [[ $mode == success ]] || CASE_FAIL=1
 }
@@ -211,6 +217,8 @@ run_case_dot() {
     SHDEPS_FAKE_BINARY=$SHDEPS_FAKE_ROOT/shdeps \
     SHDEPS_FAKE_LOG=$CASE_LOG \
     SHDEPS_FAKE_INSTALL_LOG=$CASE_INSTALL_LOG \
+    SHDEPS_FAKE_BOOTSTRAP_FAIL=$CASE_BOOTSTRAP_FAIL \
+    SHDEPS_FAKE_BOOTSTRAP_MARKER=$CASE_BOOTSTRAP_MARKER \
     SHDEPS_FAKE_FAIL=$CASE_FAIL \
     SHDEPS_FAKE_DOT_ORIGIN=$dot_root \
     SHDEPS_FAKE_DOT_REVISION=$(git -C "$dot_root" rev-parse HEAD) \
@@ -334,6 +342,31 @@ if [[ -f $readiness && ! -L $readiness ]]; then
 else
   _fail 'second preparation cron publishes private client readiness'
 fi
+
+CASE_BOOTSTRAP_FAIL=1
+bootstrap_failure_output=''
+bootstrap_failure_status=0
+bootstrap_failure_output=$(run_case_dot update --cron --force 2>&1) ||
+  bootstrap_failure_status=$?
+if [[ $bootstrap_failure_status -ne 0 ]]; then
+  _pass 'early bootstrap failure remains nonzero'
+else
+  _fail 'early bootstrap failure remains nonzero'
+fi
+_assert_eq 'early bootstrap failure remains silent' '' "$bootstrap_failure_output"
+_assert_file_content 'early bootstrap failure crosses a mutating boundary' \
+  'bootstrap mutated' "$CASE_BOOTSTRAP_MARKER"
+_assert_file_missing 'early bootstrap failure revokes stale readiness' \
+  "$readiness"
+
+CASE_BOOTSTRAP_FAIL=0
+recovery_output=''
+recovery_status=0
+recovery_output=$(run_case_dot update --cron --force 2>&1) || recovery_status=$?
+_assert_exit 'post-bootstrap-failure convergence succeeds' 0 "$recovery_status"
+_assert_eq 'post-bootstrap-failure cron remains silent' '' "$recovery_output"
+_assert_file_exists 'post-bootstrap-failure convergence republishes readiness' \
+  "$readiness"
 
 # A later client-topology failure must revoke the last successful proof before
 # any mutation and remain silent in cron mode.

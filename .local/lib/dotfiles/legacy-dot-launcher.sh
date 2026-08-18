@@ -84,6 +84,10 @@ case "${1:-}" in
       [[ "$_dot_update_lock_rc" -eq 75 && "${DOT_UPDATE_LOCK_CRON_MODE:-0}" -eq 1 ]] && exit 0
       exit "$_dot_update_lock_rc"
     fi
+    # Bootstrap can repair or replace Shdeps before the normal update state
+    # machine begins. Revoke the previous convergence proof immediately after
+    # taking the shared lock so even that early mutating boundary fails closed.
+    _dot_update_revoke_client_readiness || exit 1
     _ensure_shdeps
     _discover_overlays || exit 1
     _preflight_local_overlays || exit 1
