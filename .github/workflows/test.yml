@@ -22,6 +22,7 @@ jobs:
       # CI restores shdeps between runs. Refresh the resolver before it
       # validates dependency releases and installed-tool smoke checks.
       force-dotfiles-update: true
+      dotfiles-provider: true
       matrix-set: full
       setup: dotfiles
       shellcheck-exclude-codes: SC1091
