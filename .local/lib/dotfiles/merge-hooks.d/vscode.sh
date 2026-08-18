@@ -1197,7 +1197,10 @@ _vscode_remote_settings_dirs() {
     "$HOME/.vscode-server-insiders" \
     "$HOME/.vscode-remote" \
     "$HOME/.cursor-server"; do
-    [[ -d "$root" ]] || continue
+    # Server roots are discovered opportunistically. An inaccessible leftover
+    # (for example, one created by a privileged installer) is not a client
+    # config surface and must not make every dot update fail.
+    [[ -d "$root" && -x "$root" ]] || continue
     printf '%s/data/Machine\n' "$root"
   done
 }
