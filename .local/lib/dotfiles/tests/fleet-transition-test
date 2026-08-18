@@ -94,8 +94,11 @@ shdeps_update() {
   fi
   git -C "$checkout" -c advice.detachedHead=false checkout --quiet --detach \
     "$SHDEPS_FAKE_DOT_REVISION" || return
-  bash "$checkout/support/install-checkout.sh" \
-    >"$SHDEPS_FAKE_INSTALL_LOG" 2>&1
+  # Real Shdeps owns only the generic checkout. The client hook owns Dot's
+  # public adapter/library publication and must make the same boundary work.
+  # shellcheck source=/dev/null
+  . "$SHDEPS_HOOKS_DIR/cgraf78/dot.sh" || return
+  post cgraf78/dot
 }
 
 # Keep external repository traffic and unrelated base hooks out of this
@@ -156,7 +159,6 @@ prepare_case() {
 
   make_fake_shdeps
   CASE_LOG=$SHDEPS_FAKE_ROOT/update.log
-  CASE_INSTALL_LOG=$SHDEPS_FAKE_ROOT/install.log
   CASE_BOOTSTRAP_MARKER=$SHDEPS_FAKE_ROOT/bootstrap-failed
   CASE_LEGACY_LOG=$SHDEPS_FAKE_ROOT/legacy.log
   CASE_LEGACY_WRAPPER=$SHDEPS_FAKE_ROOT/legacy-wrapper
@@ -216,7 +218,6 @@ run_case_dot() {
     SHDEPS_LIB=$SHDEPS_FAKE_ROOT/shdeps.sh \
     SHDEPS_FAKE_BINARY=$SHDEPS_FAKE_ROOT/shdeps \
     SHDEPS_FAKE_LOG=$CASE_LOG \
-    SHDEPS_FAKE_INSTALL_LOG=$CASE_INSTALL_LOG \
     SHDEPS_FAKE_BOOTSTRAP_FAIL=$CASE_BOOTSTRAP_FAIL \
     SHDEPS_FAKE_BOOTSTRAP_MARKER=$CASE_BOOTSTRAP_MARKER \
     SHDEPS_FAKE_FAIL=$CASE_FAIL \
@@ -277,10 +278,11 @@ else
 fi
 _assert_file_exists 'bootstrap preparation installs standalone Dot' \
   "$CASE_HOME/.local/share/cgraf78/dot/bin/dot"
-_assert_contains 'bootstrap preserves the regular client adapter' \
-  'preserved client-owned dot adapter' "$(<"$CASE_INSTALL_LOG")"
-_assert_contains 'bootstrap publishes the standalone public library' \
-  'installed dot public library' "$(<"$CASE_INSTALL_LOG")"
+if [[ -f $CASE_HOME/.local/bin/dot && ! -L $CASE_HOME/.local/bin/dot ]]; then
+  _pass 'bootstrap preserves the regular client adapter'
+else
+  _fail 'bootstrap preserves the regular client adapter'
+fi
 if [[ -L $CASE_HOME/.local/lib/dot ]] &&
   [[ $(readlink "$CASE_HOME/.local/lib/dot") == "$CASE_HOME/.local/share/cgraf78/dot/lib/dot/public" ]]; then
   _pass 'bootstrap publishes the exact standalone public library link'
