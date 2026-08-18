@@ -10,8 +10,16 @@ _dr_check_shell_integrations() {
     return 0
   }
 
+  # Doctor workers run in an owned background process group. An interactive
+  # child shell would suspend itself while trying to take foreground terminal
+  # control. The shell-environment checks separately verify that each rc file
+  # selects this loader, so exercise the same loader and interactive layer
+  # directly without job control here.
   output=$(
-    XDG_CACHE_HOME="$cache" bash --noprofile -ic '
+    XDG_CACHE_HOME="$cache" bash --noprofile --norc -c '
+      . "$HOME/.local/lib/dotfiles/shell-loader.sh"
+      _shell_load_env bash
+      _shell_source_dir "$HOME/.config/shell/interactive.d" bash
       printf "loaded=%s\n" "${SLEY_SHELL_LOADED:-0}"
       printf "termnav=%s\n" "${TERMNAV_SHELL_LOADED:-0}"
       declare -F _sley_shell_complete >/dev/null && printf "%s\n" "bash_complete=yes"
@@ -45,7 +53,10 @@ _dr_check_shell_integrations() {
   }
 
   output=$(
-    XDG_CACHE_HOME="$cache" zsh -ic '
+    XDG_CACHE_HOME="$cache" zsh -f -c '
+      . "$HOME/.local/lib/dotfiles/shell-loader.sh"
+      _shell_load_env zsh
+      _shell_source_dir "$HOME/.config/shell/interactive.d" zsh
       (( ${+functions[_sley_zsh_register]} )) && _sley_zsh_register
       print -r -- "loaded=${SLEY_SHELL_LOADED:-0}"
       print -r -- "termnav=${TERMNAV_SHELL_LOADED:-0}"

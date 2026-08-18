@@ -3,7 +3,8 @@
 
 dot_core_test_doctor() {
   local result expected drift doctor_bin doctor_direct_tool doctor_hm_bin
-  local doctor_no_hm_bin doctor_nvim_log dependency root cmd
+  local doctor_no_hm_bin doctor_nvim_log doctor_real_bash doctor_shell_marker
+  local dependency root cmd
 
   echo ""
   echo "=== Dotfiles doctor extensions ==="
@@ -214,6 +215,27 @@ exit 0
 SH
   chmod +x "$TEST_HOME/.local/bin/agent-hook-pre-bash" \
     "$TEST_HOME/.local/bin/agent-hook-stop" "$doctor_bin/nvim"
+
+  doctor_real_bash=$(command -v bash)
+  doctor_shell_marker=$doctor_bin/interactive-bash
+  cat >"$doctor_bin/bash" <<'SH'
+#!/bin/sh
+for arg in "$@"; do
+  case $arg in
+    -i*) : >"$DOCTOR_BASH_INTERACTIVE_MARKER" ;;
+  esac
+done
+exec "$DOCTOR_REAL_BASH" "$@"
+SH
+  chmod +x "$doctor_bin/bash"
+
+  result=$(DOCTOR_REAL_BASH="$doctor_real_bash" \
+    DOCTOR_BASH_INTERACTIVE_MARKER="$doctor_shell_marker" \
+    HOME="$TEST_HOME" PATH="$doctor_bin:$TEST_HOME/.local/bin:$PATH" \
+    _doctor_records _dr_check_shell_integrations)
+  _assert_eq "doctor integration: shell probe avoids interactive job control" \
+    "no" "$(test -e "$doctor_shell_marker" && printf yes || printf no)"
+  rm -f "$doctor_bin/bash"
 
   result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$TEST_HOME/.local/bin:$PATH" \
     "$DOT_SOURCE_ROOT/bin/dot" doctor 2>&1 || true)
