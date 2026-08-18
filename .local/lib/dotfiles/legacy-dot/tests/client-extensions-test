@@ -5,9 +5,16 @@ set -u
 
 source_home=${DOT_TEST_SOURCE_HOME:-$HOME}
 host_home=${DOT_TEST_HOST_HOME:-$HOME}
+cutover_phase=$(sed -n 's/^phase=//p' \
+  "$source_home/.local/lib/dotfiles/dot-cutover.lock")
 
 # shellcheck source=helpers.sh
 . "$source_home/.local/lib/dotfiles/legacy-dot/tests/helpers.sh"
+
+if [[ -z ${DOT_TEST_DOT_ROOT:-} && $cutover_phase == prepare ]]; then
+  echo 'SKIP: standalone client extensions are not active during preparation'
+  exit 0
+fi
 
 _client_dot_root() {
   local candidate
@@ -65,6 +72,9 @@ _client_worker_run() {
 }
 
 for hook in "$client_root/merge-hooks.d"/*.sh; do
+  # During preparation, overlay repositories exercise their hook targets
+  # independently; this fixture HOME has no private overlay authority.
+  [[ $cutover_phase == prepare && -L $hook ]] && continue
   if _client_worker_run merge "$hook"; then
     _pass "client merge hook loads through standalone worker: ${hook##*/}"
   else

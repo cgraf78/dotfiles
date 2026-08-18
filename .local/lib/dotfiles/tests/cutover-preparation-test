@@ -65,8 +65,8 @@ _assert_file_missing 'namespace preparation ships no readiness writer' \
   "$source_home/.local/lib/dotfiles/dot-client-readiness.sh"
 _assert_file_missing 'namespace preparation publishes no activation authority' \
   "$state/dot/client-ready-v2/$minimum_revision"
-_assert_file_missing 'preparation does not enable standalone configuration' \
-  "$source_home/.config/dot/config"
+_assert_eq 'preparation does not track standalone configuration' '' \
+  "$(git -C "$source_home" ls-files -- .config/dot/config)"
 _assert_file_exists 'preparation retains the frozen rescue updater' \
   "$source_home/.local/lib/dotfiles/legacy-dot/core/update.sh"
 _assert_file_missing 'preparation vacates the public library namespace' \
