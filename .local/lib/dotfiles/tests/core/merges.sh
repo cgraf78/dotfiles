@@ -3605,7 +3605,7 @@ EOF
     vscode_default_linux_variants=$(env HOME="$vscode_variants_home" REAL_HOME="$REAL_HOME" bash -c '
       set -euo pipefail
       . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
-      _is_wsl() { return 1; }
+      dot_hook_platform_match() { return 1; }
       uname() { printf "Linux\n"; }
       _warn() { :; }
       # shellcheck source=/dev/null
@@ -3656,7 +3656,7 @@ PY
       PARTIAL_DST="$partial_commit_dir/settings.json" bash -c '
       set -euo pipefail
       . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
-      _is_wsl() { return 0; }
+      dot_hook_platform_match() { [[ $1 == wsl ]]; }
       _warn() { printf "%s\n" "$*" >&2; }
       # shellcheck source=/dev/null
       . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/vscode.sh"
@@ -3688,7 +3688,7 @@ PY
     env REAL_HOME="$REAL_HOME" WSL_FAILURE_DIR="$wsl_missing_python_dir" bash -c '
       set -euo pipefail
       . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
-      _is_wsl() { return 0; }
+      dot_hook_platform_match() { [[ $1 == wsl ]]; }
       command() {
         if [[ "${1:-}" == "-v" && "${2:-}" == "python3" ]]; then
           return 1
@@ -3924,7 +3924,7 @@ JSON
       DOT_TEST_MV_FAIL_ONCE_MARKER="$vscode_aggregate_failure_marker" bash -c '
       set -uo pipefail
       . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
-      _is_wsl() { return 1; }
+      dot_hook_platform_match() { return 1; }
       uname() { printf "Linux\n"; }
       _warn() { printf "%s\n" "$*" >&2; }
       # shellcheck source=/dev/null
@@ -3960,7 +3960,7 @@ JSON
       PATH="$vscode_bin:$PATH" DOT_TEST_MV_LOG="$vscode_mv_log" bash -c '
       set -uo pipefail
       . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
-      _is_wsl() { return 1; }
+      dot_hook_platform_match() { return 1; }
       uname() { printf "Linux\n"; }
       _warn() { printf "%s\n" "$*" >&2; }
       # shellcheck source=/dev/null
@@ -3986,7 +3986,7 @@ JSON
       PATH="$vscode_bin:$PATH" DOT_TEST_MV_LOG="$vscode_mv_log" bash -c '
       set -uo pipefail
       . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
-      _is_wsl() { return 1; }
+      dot_hook_platform_match() { return 1; }
       uname() { printf "Linux\n"; }
       _warn() { printf "%s\n" "$*" >&2; }
       # shellcheck source=/dev/null
@@ -4070,7 +4070,7 @@ JSON
       DOT_TEST_MV_LOG="$vscode_mv_log" DOT_TEST_VSCODE_HOSTNAME="fixture-host" bash -c '
       set -uo pipefail
       . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
-      _is_wsl() { return 1; }
+      dot_hook_platform_match() { return 1; }
       uname() { printf "Linux\n"; }
       _log() { :; }
       _warn() { printf "%s\n" "$*" >&2; }
@@ -4190,7 +4190,7 @@ JSON
       DOT_TEST_MV_LOG="$vscode_mv_log" DOT_TEST_VSCODE_HOSTNAME="fixture-host" bash -c '
       set -euo pipefail
       . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
-      _is_wsl() { return 1; }
+      dot_hook_platform_match() { return 1; }
       uname() { printf "Linux\n"; }
       _log() { :; }
       _warn() { printf "%s\n" "$*" >&2; }
@@ -4219,7 +4219,7 @@ JSON
       DOT_TEST_MV_LOG="$vscode_mv_log" DOT_TEST_VSCODE_HOSTNAME="fixture-host" bash -c '
       set -uo pipefail
       . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
-      _is_wsl() { return 1; }
+      dot_hook_platform_match() { return 1; }
       uname() { printf "Linux\n"; }
       _log() { :; }
       _warn() { printf "%s\n" "$*" >&2; }
@@ -4256,7 +4256,7 @@ JSON
       DOT_TEST_VSCODE_HOSTNAME="fixture-host" bash -c '
       set -uo pipefail
       . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
-      _is_wsl() { return 1; }
+      dot_hook_platform_match() { return 1; }
       uname() { printf "Linux\n"; }
       _log() { :; }
       _warn() { printf "%s\n" "$*" >&2; }
@@ -4426,7 +4426,7 @@ JSON
       DOT_TEST_MV_LOG="$vscode_mv_log" DOT_TEST_VSCODE_HOSTNAME="fixture-host" bash -c '
       set -euo pipefail
       . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
-      _is_wsl() { return 1; }
+      dot_hook_platform_match() { return 1; }
       uname() { printf "Linux\n"; }
       _log() { :; }
       _warn() { printf "%s\n" "$*" >&2; }
@@ -4496,7 +4496,7 @@ JSON
       DOT_TEST_MV_LOG="$vscode_mv_log" DOT_TEST_VSCODE_HOSTNAME="fixture-host" bash -c '
       set -uo pipefail
       . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
-      _is_wsl() { return 1; }
+      dot_hook_platform_match() { return 1; }
       uname() { printf "Linux\n"; }
       _log() { :; }
       _warn() { printf "%s\n" "$*" >&2; }
@@ -4820,7 +4820,7 @@ JSON
       DOT_TEST_MV_LOG="$vscode_mv_log" bash -c '
       set -euo pipefail
       . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
-      _is_wsl() { return 1; }
+      dot_hook_platform_match() { return 1; }
       uname() { printf "Darwin\n"; }
       _log() { :; }
       _warn() { printf "%s\n" "$*" >&2; }
@@ -4852,7 +4852,7 @@ JSON
       DOT_TEST_MV_LOG="$vscode_mv_log" DOT_TEST_VSCODE_HOSTNAME="remote-only-host" bash -c '
       set -euo pipefail
       . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
-      _is_wsl() { return 1; }
+      dot_hook_platform_match() { return 1; }
       uname() { printf "Linux\n"; }
       _log() { :; }
       _warn() { printf "%s\n" "$*" >&2; }
@@ -4889,7 +4889,7 @@ JSON
       DOT_TEST_VSCODE_HOSTNAME="server-only-host" bash -c '
       set -euo pipefail
       . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
-      _is_wsl() { return 1; }
+      dot_hook_platform_match() { return 1; }
       uname() { printf "Linux\n"; }
       _log() { :; }
       _warn() { printf "%s\n" "$*" >&2; }
@@ -4966,7 +4966,7 @@ JSON
         DOT_TEST_VSCODE_PLATFORM="$vscode_no_termnav_platform" bash -c '
         set -euo pipefail
         . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
-        _is_wsl() { return 1; }
+        dot_hook_platform_match() { return 1; }
         _log() { :; }
         _warn() { printf "%s\n" "$*" >&2; }
         # shellcheck source=/dev/null
@@ -5060,7 +5060,7 @@ EOF
       PATH="$vscode_bin:$PATH" DOT_TEST_MV_LOG="$vscode_mv_log" bash -c '
       set -euo pipefail
       . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
-      _is_wsl() { return 1; }
+      dot_hook_platform_match() { return 1; }
       uname() { printf "Linux\n"; }
       _log() { :; }
       _warn() { printf "%s\n" "$*" >&2; }
@@ -5146,7 +5146,7 @@ JSON
       DOT_TEST_WSL_PAIRED_ACCOUNT=1 bash -c '
         set -euo pipefail
         . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
-        _is_wsl() { return 0; }
+        dot_hook_platform_match() { [[ $1 == wsl ]]; }
         uname() { printf "Linux\n"; }
         _log() { :; }
         _warn() { printf "%s\n" "$*" >&2; }
@@ -5224,7 +5224,7 @@ JSON
       DOT_TEST_WSL_PAIRED_ACCOUNT=0 bash -c '
         set -euo pipefail
         . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
-        _is_wsl() { return 0; }
+        dot_hook_platform_match() { [[ $1 == wsl ]]; }
         uname() { printf "Linux\n"; }
         _log() { :; }
         _warn() { printf "%s\n" "$*" >&2; }
@@ -5264,7 +5264,7 @@ EOF
       DOT_TEST=1 DOT_TEST_WSL_PAIRED_ACCOUNT=1 bash -c '
         set -euo pipefail
         . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
-        _is_wsl() { return 0; }
+        dot_hook_platform_match() { [[ $1 == wsl ]]; }
         uname() { printf "Linux\n"; }
         # shellcheck source=/dev/null
         . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/vscode.sh"
@@ -5278,7 +5278,7 @@ EOF
       DOT_TEST=1 DOT_TEST_WSL_PAIRED_ACCOUNT=0 bash -c '
         set -euo pipefail
         . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
-        _is_wsl() { return 0; }
+        dot_hook_platform_match() { [[ $1 == wsl ]]; }
         uname() { printf "Linux\n"; }
         # shellcheck source=/dev/null
         . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/vscode.sh"

@@ -162,8 +162,6 @@ _test_load_dot_merge_api() {
   # shellcheck source=/dev/null
   . "$dot_root/lib/dot/log.sh"
   # shellcheck source=/dev/null
-  . "$dot_root/lib/dot/platform.sh"
-  # shellcheck source=/dev/null
   . "$dot_root/lib/dot/temp.sh"
   # shellcheck source=/dev/null
   . "$dot_root/lib/dot/merge-block.sh"

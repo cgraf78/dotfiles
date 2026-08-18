@@ -62,7 +62,7 @@ _client_worker_run() {
   result=$temporary/result
   : >"$result"
   chmod 0600 "$result"
-  output=$(PATH=/usr/bin:/bin _dot_extension_worker_run \
+  output=$(PATH=${CLIENT_WORKER_PATH:-/usr/bin:/bin} _dot_extension_worker_run \
     "$mode" "$script" "$temporary" "$result" 2>&1) || rc=$?
   if [[ -n $output ]]; then
     printf '%s\n' "$output" >&2
@@ -81,6 +81,26 @@ for hook in "$client_root/merge-hooks.d"/*.sh; do
     _fail "client merge hook loads through standalone worker: ${hook##*/}"
   fi
 done
+
+worker_bin=$(_tmpdir)
+windows_home=$fixture_home/windows-home
+cat >"$worker_bin/wezterm" <<'WEZTERM'
+#!/usr/bin/env bash
+exit 0
+WEZTERM
+chmod +x "$worker_bin/wezterm"
+mkdir -p "$fixture_home/.config/wezterm" "$windows_home"
+printf 'return {}\n' >"$fixture_home/.config/wezterm/wezterm.lua"
+if CLIENT_WORKER_PATH="$worker_bin:/usr/bin:/bin" \
+  WSL_DISTRO_NAME=Ubuntu DOT_TEST_WINDOWS_HOME=$windows_home \
+  DOT_TEST_WSL_PAIRED_ACCOUNT=1 DOT_QUIET=1 \
+  _client_worker_run merge "$client_root/merge-hooks.d/wezterm.sh"; then
+  _pass 'client WSL worker runs WezTerm hook through public platform API'
+else
+  _fail 'client WSL worker runs WezTerm hook through public platform API'
+fi
+_assert_file_content 'client WSL worker copies WezTerm config through public platform API' \
+  'return {}' "$windows_home/.wezterm.lua"
 
 for extension in "$client_root/doctor.d"/[0-9]*.sh; do
   if _client_worker_run doctor "$extension"; then

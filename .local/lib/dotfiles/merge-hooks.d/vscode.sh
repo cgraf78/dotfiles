@@ -45,12 +45,7 @@ _DOT_VSCODE_KEYBINDING_REVIEW_PROOF='review-build:7030e8e'
 _DOT_VSCODE_KEYBINDING_LEGACY_PROOF='legacy-local:280f7f8'
 
 _vscode_is_wsl() {
-  if command -v _is_wsl >/dev/null 2>&1; then
-    _is_wsl
-    return
-  fi
-
-  [[ -n "${WSL_DISTRO_NAME:-}" || -n "${WSL_INTEROP:-}" ]]
+  dot_hook_platform_match wsl
 }
 
 _vscode_commit_tmp() {

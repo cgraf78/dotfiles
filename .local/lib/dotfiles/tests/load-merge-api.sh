@@ -26,8 +26,6 @@ export DOT_SOURCE_ROOT DOT_EXTENSIONS_DIR DOT_EXTENSION_API
 # shellcheck source=/dev/null
 . "$_dot_test_api_root/lib/dot/log.sh"
 # shellcheck source=/dev/null
-. "$_dot_test_api_root/lib/dot/platform.sh"
-# shellcheck source=/dev/null
 . "$_dot_test_api_root/lib/dot/temp.sh"
 # shellcheck source=/dev/null
 . "$_dot_test_api_root/lib/dot/merge-block.sh"
