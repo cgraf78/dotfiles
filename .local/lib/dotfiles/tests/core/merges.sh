@@ -814,9 +814,21 @@ PGREP
   }
 
   : >"$nvim_log"
-  HOME="$nvim_home" XDG_STATE_HOME="$nvim_state" XDG_DATA_HOME="$nvim_data" \
-    PATH="$nvim_bin:$PATH" DOT_TEST_NVIM_LOCK="$nvim_lock" DOT_TEST_NVIM_LOG="$nvim_log" \
-    DOT_TEST_PGREP_STATUS=1 _run_nvim_merge_for_test
+  nvim_strict_status=0
+  (
+    set -euo pipefail
+    HOME="$nvim_home" XDG_STATE_HOME="$nvim_state" XDG_DATA_HOME="$nvim_data" \
+      PATH="$nvim_bin:$PATH" DOT_TEST_NVIM_LOCK="$nvim_lock" DOT_TEST_NVIM_LOG="$nvim_log" \
+      DOT_TEST_PGREP_STATUS=1 _run_nvim_merge_for_test
+  ) &
+  nvim_strict_pid=$!
+  if wait "$nvim_strict_pid"; then
+    nvim_strict_status=0
+  else
+    nvim_strict_status=$?
+  fi
+  _assert_eq "nvim merge: idle update succeeds in strict extension worker" \
+    "0" "$nvim_strict_status"
   _assert_eq "nvim merge: updates plugins headlessly when the editor is idle" \
     "--headless --cmd lua vim.g.disable_session_restore = true +Lazy! update +qa" \
     "$(cat "$nvim_log")"
