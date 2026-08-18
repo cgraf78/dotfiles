@@ -156,7 +156,8 @@ exists, do not add an invented placeholder schema.
   available for the first private clone.
 - Global ignore patterns are assembled from `ignore/ignore.d` source files.
 - The mise hook runs `mise install` for versions declared under
-  `~/.config/mise`.
+  `~/.config/mise` on supported Linux and macOS hosts. Termux uses its native
+  Android packages instead of requesting unavailable release assets.
 
 ## Cron
 

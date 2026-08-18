@@ -1,4 +1,97 @@
 #!/usr/bin/env bash
-# core-update-test — dot update/push/worktree/cron coverage split from core-test.
+# One retained end-to-end client integration: standalone update plus a
+# dotfiles-owned merge hook.
 
-DOT_CORE_SKIP_STATIC=1 DOT_CORE_SHARD=update exec "$HOME/.local/lib/dotfiles/tests/core-test"
+set -u
+
+source_home=${DOT_TEST_SOURCE_HOME:-$HOME}
+# shellcheck source=helpers.sh
+. "$source_home/.local/lib/dotfiles/tests/helpers.sh"
+
+dot_root=$(_test_dot_root) || {
+  echo 'standalone dot checkout is unavailable' >&2
+  exit 1
+}
+fixture=$(_tmpdir)
+fixture=$(cd "$fixture" && pwd -P)
+home=$fixture/home
+origin=$fixture/origin.git
+seed=$fixture/seed
+ambient_xdg=$fixture/ambient-xdg
+mkdir -p "$home" "$seed"
+mkdir -p "$fixture/no-hooks"
+export XDG_CONFIG_HOME=$ambient_xdg/config
+export XDG_DATA_HOME=$ambient_xdg/data
+export XDG_STATE_HOME=$ambient_xdg/state
+export XDG_CACHE_HOME=$ambient_xdg/cache
+export XDG_RUNTIME_DIR=$ambient_xdg/runtime
+
+git init --bare --initial-branch=main "$origin" >/dev/null
+git -C "$seed" init --initial-branch=main >/dev/null
+_git_set_test_identity git -C "$seed"
+git -C "$seed" config core.hooksPath "$fixture/no-hooks"
+mkdir -p "$seed/.config/dot" "$seed/.local/lib/dotfiles/merge-hooks.d"
+cat >"$seed/.config/dot/config" <<'CONF'
+version=1
+extension_api=1
+extensions_dir=$HOME/.local/lib/dotfiles
+dependency_provider=none
+CONF
+cat >"$seed/.local/lib/dotfiles/merge-hooks.d/10-client.sh" <<'HOOK'
+# shellcheck shell=bash
+merge() {
+  printf '%s\n' client-hook-ran >"$HOME/.client-hook-output"
+}
+HOOK
+printf '%s\n' before >"$seed/.testrc"
+git -C "$seed" add .
+git -C "$seed" commit -m initial >/dev/null
+git -C "$seed" remote add origin "$origin"
+git -C "$seed" push -u origin main >/dev/null
+
+git init --bare "$home/.dotfiles" >/dev/null
+git --git-dir="$home/.dotfiles" config core.bare false
+git --git-dir="$home/.dotfiles" config core.worktree "$home"
+git --git-dir="$home/.dotfiles" config core.fsmonitor false
+git --git-dir="$home/.dotfiles" config status.showUntrackedFiles no
+git --git-dir="$home/.dotfiles" config core.hooksPath "$fixture/no-hooks"
+git --git-dir="$home/.dotfiles" remote add origin "$origin"
+git --git-dir="$home/.dotfiles" config \
+  remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
+git --git-dir="$home/.dotfiles" fetch origin main >/dev/null
+git --git-dir="$home/.dotfiles" symbolic-ref HEAD refs/heads/main
+git --git-dir="$home/.dotfiles" branch --track main origin/main >/dev/null
+git --git-dir="$home/.dotfiles" --work-tree="$home" reset --hard main >/dev/null
+
+printf '%s\n' after >"$seed/.testrc"
+git -C "$seed" add .testrc
+git -C "$seed" commit -m update >/dev/null
+git -C "$seed" push origin main >/dev/null
+
+update_status=0
+HOME="$home" XDG_CONFIG_HOME='' XDG_DATA_HOME='' XDG_STATE_HOME='' \
+  XDG_CACHE_HOME='' XDG_RUNTIME_DIR='' PATH="$home/.local/bin:$PATH" \
+  "$dot_root/bin/dot" update >"$fixture/update.out" 2>"$fixture/update.err" ||
+  update_status=$?
+_assert_eq 'standalone update integration exits successfully' 0 "$update_status"
+_assert_file_content 'standalone update integration advances client content' \
+  after "$home/.testrc"
+_assert_file_content 'standalone update integration runs client merge hook' \
+  client-hook-ran "$home/.client-hook-output"
+expected_revision=$(git -C "$seed" rev-parse HEAD 2>/dev/null || printf missing)
+actual_revision=$(git --git-dir="$home/.dotfiles" rev-parse HEAD 2>/dev/null || printf absent)
+if [[ $expected_revision != missing ]]; then
+  _pass 'standalone update integration has an upstream revision'
+else
+  _fail 'standalone update integration has an upstream revision'
+fi
+_assert_eq 'standalone update integration records upstream revision' \
+  "$expected_revision" "$actual_revision"
+
+second_status=0
+HOME="$home" XDG_CONFIG_HOME='' XDG_DATA_HOME='' XDG_STATE_HOME='' \
+  XDG_CACHE_HOME='' XDG_RUNTIME_DIR='' PATH="$home/.local/bin:$PATH" \
+  "$dot_root/bin/dot" update >/dev/null 2>"$fixture/second.err" || second_status=$?
+_assert_eq 'standalone update integration is idempotent' 0 "$second_status"
+
+_test_summary

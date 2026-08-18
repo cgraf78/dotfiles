@@ -7,12 +7,14 @@ export NO_COLOR=1
 # shellcheck source=helpers.sh
 . "${BASH_SOURCE[0]%/*}/helpers.sh"
 
-source_home=$HOME
+source_home=${DOT_TEST_SOURCE_HOME:-$HOME}
 deps="$source_home/.config/shdeps/10-deps.conf"
 shdeps_hook="$source_home/.config/shdeps/hooks.d/garrytan/gstack.sh"
-merge_hook="$source_home/.local/lib/dot/core/merge-hooks/gstack.sh"
-# shellcheck source=/dev/null
-. "$source_home/.local/lib/dot/core/platform.sh"
+merge_hook="$source_home/.local/lib/dotfiles/merge-hooks.d/gstack.sh"
+_test_load_dot_merge_api || {
+  _fail 'gstack policy: standalone dot checkout is available'
+  _test_summary
+}
 
 dependency_order=$(
   awk '$1 == "cgraf78/gstack-register" || $1 == "garrytan/gstack" {

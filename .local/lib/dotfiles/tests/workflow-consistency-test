@@ -355,9 +355,11 @@ _assert_no_low_level_dispatch "$registry" "$work/low-level-dispatch-violations.t
 
 echo "=== workflow consistency: editor projections ==="
 
-# shellcheck source=.local/lib/dot/core/merge-hooks/vscode.sh
+# shellcheck source=.local/lib/dotfiles/tests/load-merge-api.sh
 # shellcheck disable=SC1091
-. "$HOME/.local/lib/dot/core/merge-hooks/vscode.sh"
+. "$HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
+# shellcheck source=.local/lib/dotfiles/merge-hooks.d/vscode.sh
+. "$HOME/.local/lib/dotfiles/merge-hooks.d/vscode.sh"
 _vscode_checkrun_settings "$settings" 1
 
 "$NVIM_TEST_BIN" --headless --noplugin -u NONE -i NONE \
@@ -660,7 +662,7 @@ _codex_native=$(
     share/agentguard/integrations/codex/hooks.toml \
     2>/dev/null || true
 )
-_codex_trust="$HOME/.config/dot/merge-hooks.d/codex/refresh-trust.py"
+_codex_trust="$HOME/.local/lib/dotfiles/merge-hooks.d/lib/codex/refresh-trust.py"
 if [[ -r "$_codex_native" && -f "$_codex_trust" ]]; then
   _codex_unmapped=$(
     python3 - "$_codex_native" "$_codex_trust" <<'PY'
