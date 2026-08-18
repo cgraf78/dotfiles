@@ -188,7 +188,7 @@ def source_inventory(root: Path, tracked: Iterable[str]) -> None:
             # Avoid parsing unrelated mixed Bash/Zsh fragments.  A core source
             # assembled from variables must still spell both ownership path
             # components somewhere in the file to be statically attributable.
-            if "lib/dot" not in text or "core" not in text:
+            if "core" not in text or ("lib/dot" not in text and "legacy-dot" not in text):
                 continue
             modules = sourced_modules(path)
 
