@@ -260,6 +260,11 @@ _dot_update_ensure_dot_client_surfaces() (
   local hook=$HOME/.config/shdeps/hooks.d/cgraf78/dot.sh
 
   _dot_update_dot_client_surfaces_current && return 0
+  # Generic bootstrap fixtures and downstream clients may use this frozen
+  # updater without declaring Dot. Recovery is applicable only when the
+  # reviewed dependency hook is part of the converged client configuration;
+  # a malformed or dangling hook still fails closed below.
+  [[ -e $hook || -L $hook ]] || return 0
   [[ -f $hook && ! -L $hook ]] || return 1
   # Reuse the reviewed dependency hook instead of duplicating installer
   # arguments. Shdeps can record a checkout before a post-hook failure; this
