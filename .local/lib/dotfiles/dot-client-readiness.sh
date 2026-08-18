@@ -191,33 +191,28 @@ dot_client_ready_validate_config() (
 )
 
 dot_client_ready_validate_topology() {
-  local checkout launcher runtime template public_link public_source head
+  local lock=$1 checkout launcher runtime public_link public_source
 
   dot_client_ready_resolve_checkout || return 1
   checkout=$DOT_CLIENT_READY_CHECKOUT
   launcher=$HOME/.local/bin/dot
   runtime=$checkout/bin/dot
-  template=$checkout/support/client-launcher.sh
   public_link=$HOME/.local/lib/dot
   public_source=$checkout/lib/dot/public
 
-  [[ -f $launcher && ! -L $launcher && -x $launcher ]] || return 1
-  [[ -f $runtime && ! -L $runtime && -x $runtime ]] || return 1
-  [[ -f $template && ! -L $template && -x $template ]] || return 1
+  # Reuse the adapter's complete checkout-authority proof before sourcing or
+  # executing any standalone bytes. This keeps one Git trust boundary for the
+  # preparation writer and active dispatch instead of letting them drift.
+  DOT_CLIENT_CUTOVER_LOCK=$lock \
+    "$launcher" __client validate-checkout || return 1
   [[ -d $HOME/.local/lib/dotfiles && ! -L $HOME/.local/lib/dotfiles ]] ||
     return 1
   dot_client_ready_exact_link "$public_link" "$public_source" || return 1
+  dot_client_ready_config_path || return 1
+  dot_client_ready_validate_config "$checkout" || return 1
   DOT_CLIENT_READY_GIT=$(type -P git 2>/dev/null) || return 1
   dot_client_ready_normalized_absolute "$DOT_CLIENT_READY_GIT" || return 1
   [[ -f $DOT_CLIENT_READY_GIT && -x $DOT_CLIENT_READY_GIT ]] || return 1
-  dot_client_ready_exact_file "$launcher" "$template" || return 1
-  head=$(dot_client_ready_git -C "$checkout" rev-parse --verify \
-    'HEAD^{commit}' 2>/dev/null) || return 1
-  [[ $head =~ ^[0-9a-f]{40}$ ]] || return 1
-  dot_client_ready_git -C "$checkout" merge-base --is-ancestor \
-    "$DOT_CLIENT_READY_REVISION" "$head" >/dev/null 2>&1 || return 1
-  dot_client_ready_config_path || return 1
-  dot_client_ready_validate_config "$checkout" || return 1
   DOT_CLIENT_READY_CONFIG_OID=$(dot_client_ready_git -C "$checkout" hash-object \
     --no-filters -- "$DOT_CLIENT_READY_CONFIG_PATH" 2>/dev/null) || return 1
   [[ $DOT_CLIENT_READY_CONFIG_OID =~ ^[0-9a-f]{40}$ ]] || return 1
@@ -250,7 +245,7 @@ dot_client_ready_write() {
   dot_client_ready_normalized_absolute "$lock" || return 1
   dot_client_ready_state_home || return 1
   dot_client_ready_read_lock "$lock" || return 1
-  dot_client_ready_validate_topology || return 1
+  dot_client_ready_validate_topology "$lock" || return 1
 
   mkdir -p "$DOT_CLIENT_READY_STATE_HOME" || return 1
   [[ -d $DOT_CLIENT_READY_STATE_HOME && ! -L $DOT_CLIENT_READY_STATE_HOME ]] ||

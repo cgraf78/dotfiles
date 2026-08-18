@@ -210,9 +210,9 @@ prepare_readiness_case() {
   mkdir -p \
     "$READY_HOME/.config/dot" \
     "$READY_HOME/.local/bin" \
-    "$READY_HOME/.local/lib/dotfiles" \
-    "${READY_CHECKOUT%/*}"
-  ln -s "$dot_root" "$READY_CHECKOUT"
+    "$READY_HOME/.local/lib/dotfiles"
+  git clone --quiet --no-checkout --no-hardlinks "$dot_root" "$READY_CHECKOUT"
+  git -C "$READY_CHECKOUT" checkout --quiet "$minimum_revision"
   cp "$source_home/.local/bin/dot" "$READY_HOME/.local/bin/dot"
   cp "$cutover_lock" "$READY_HOME/.local/lib/dotfiles/dot-cutover.lock"
   cp "$source_home/.config/dot/config" "$READY_HOME/.config/dot/config"
@@ -355,6 +355,22 @@ else
   _fail 'changed client adapter denies readiness'
 fi
 _assert_file_missing 'changed client adapter publishes no readiness' \
+  "$READY_PATH"
+
+prepare_readiness_case
+dirty_checkout_log=$READY_HOME/dirty-checkout-code.log
+printf '\nprintf '\''dirty checkout code executed\\n'\'' >"%s"\n' \
+  "$dirty_checkout_log" >>"$READY_CHECKOUT/lib/dot/config.sh"
+dirty_checkout_status=0
+run_readiness_case >/dev/null 2>&1 || dirty_checkout_status=$?
+if [[ $dirty_checkout_status -ne 0 ]]; then
+  _pass 'dirty standalone checkout denies readiness'
+else
+  _fail 'dirty standalone checkout denies readiness'
+fi
+_assert_file_missing 'dirty standalone code is not executed before validation' \
+  "$dirty_checkout_log"
+_assert_file_missing 'dirty standalone checkout publishes no readiness' \
   "$READY_PATH"
 
 retired_home=$(_tmpdir)

@@ -17,13 +17,12 @@ permissions:
 
 jobs:
   shell:
-    uses: cgraf78/actions/.github/workflows/shell-ci.yml@54d3a59b2709bafde7bc58ea95aaf72805830c2a
+    uses: cgraf78/actions/.github/workflows/shell-ci.yml@1c488eba9817449d1968d90d83c5ac2d1ed7654d
     with:
       # CI restores shdeps between runs. Refresh the resolver before it
       # validates dependency releases and installed-tool smoke checks.
       force-dotfiles-update: true
       matrix-set: full
-      profiles: python
       setup: dotfiles
       shellcheck-exclude-codes: SC1091
       shellcheck-inventory-path: .github/shellcheck-files.txt
@@ -92,7 +91,7 @@ jobs:
         set -euo pipefail
         HOME="$PWD" PATH="$PWD/.local/bin:$PATH" .local/bin/dot update --skip-pull
         HOME="$PWD" PATH="$PWD/.local/bin:$PATH" bash .local/lib/dotfiles/legacy-dot/tests/android-ci-smoke
-      termux-profiles: base,neovim,python
+      termux-profiles: base,neovim
 
   actions-sync:
     name: cgraf78/actions sync
@@ -108,7 +107,7 @@ jobs:
       # files, so `.github/cgraf78-actions.lock` cannot be interpolated. This gate
       # verifies every unavoidable cgraf78/actions literal still matches that
       # single reviewed dependency decision.
-      - uses: cgraf78/actions/.github/actions/verify-consumer-sync@54d3a59b2709bafde7bc58ea95aaf72805830c2a
+      - uses: cgraf78/actions/.github/actions/verify-consumer-sync@1c488eba9817449d1968d90d83c5ac2d1ed7654d
 
   cold-bootstrap:
     name: Cold Ubuntu bootstrap
@@ -122,7 +121,7 @@ jobs:
           persist-credentials: false
 
       - name: Install bootstrap prerequisites
-        uses: cgraf78/actions/.github/actions/shell-ci-prereqs@54d3a59b2709bafde7bc58ea95aaf72805830c2a
+        uses: cgraf78/actions/.github/actions/shell-ci-prereqs@1c488eba9817449d1968d90d83c5ac2d1ed7654d
         with:
           matrix-name: Ubuntu
           setup: dotfiles
