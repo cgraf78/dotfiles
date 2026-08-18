@@ -5,8 +5,8 @@ set -u
 
 # The helper is tracked beside this launcher; copied standalone launchers are
 # not a supported install shape.
-# shellcheck source=../lib/dot/core/launcher-real.sh disable=SC1091
-. "${BASH_SOURCE[0]%/*}/../lib/dot/core/launcher-real.sh" || {
+# shellcheck source=../lib/dotfiles/launcher-real.sh disable=SC1091
+. "${BASH_SOURCE[0]%/*}/../lib/dotfiles/launcher-real.sh" || {
   printf 'git launcher: could not load launcher helper\n' >&2
   exit 2
 }
@@ -170,7 +170,7 @@ _dot_git_scm_config_probe() {
 }
 
 _dot_git_nested_cache_path() {
-  _dot_xdg_path cache "dot/git-nested-worktree-roots"
+  dot_xdg_path cache "dotfiles/git-nested-worktree-roots"
 }
 
 _dot_git_real=$(_dot_git_real_git) ||

@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+# Verify that the fleet-preparation prefix cannot activate standalone Dot.
+
+set -u
+
+source_home=${DOT_TEST_SOURCE_HOME:-$HOME}
+# shellcheck source=helpers.sh
+. "$source_home/.local/lib/dotfiles/tests/helpers.sh"
+
+tmp=$(_tmpdir)
+case_home=$tmp/home
+client_root=$case_home/.local/lib/dotfiles
+launcher=$case_home/.local/bin/dot
+legacy=$client_root/legacy-dot-launcher.sh
+log=$tmp/legacy.log
+state=$case_home/.local/state
+
+mkdir -p "$case_home/.local/bin" "$client_root"
+cp "$source_home/.local/bin/dot" "$launcher"
+cp "$source_home/.local/lib/dotfiles/dot-cutover.lock" \
+  "$client_root/dot-cutover.lock"
+cat >"$legacy" <<'LEGACY'
+#!/usr/bin/env bash
+printf 'quiet=%s force=%s\n' \
+  "${SHDEPS_QUIET:-unset}" "${SHDEPS_FORCE:-unset}" >"$DOT_PREPARATION_LOG"
+printf 'arg=%s\n' "$@" >>"$DOT_PREPARATION_LOG"
+exit 23
+LEGACY
+chmod 0755 "$launcher" "$legacy"
+
+run_prepared_launcher() {
+  HOME=$case_home \
+    XDG_STATE_HOME=$state \
+    DOT_PREPARATION_LOG=$log \
+    DOT_CLIENT_CUTOVER_LOCK=$client_root/dot-cutover.lock \
+    DOT_CLIENT_HANDOFF_HELPER=$client_root/missing-handoff-helper \
+    DOT_CLIENT_LEGACY_LAUNCHER=$legacy \
+    SHDEPS_INSTALL_DIR=$case_home/.local/share \
+    "$launcher" "$@"
+}
+
+prepared_status=0
+run_prepared_launcher update --skip-pull --cron --force || prepared_status=$?
+_assert_exit 'preparation adapter forwards the legacy launcher status' \
+  23 "$prepared_status"
+_assert_file_content 'preparation adapter preserves update argv' \
+  $'quiet=unset force=unset\narg=update\narg=--skip-pull\narg=--cron\narg=--force' \
+  "$log"
+
+if [[ -x $source_home/.local/lib/dotfiles/legacy-dot-launcher.sh ]]; then
+  _pass 'preparation retains the executable rescue launcher'
+else
+  _fail 'preparation retains the executable rescue launcher'
+fi
+_assert_not_contains 'namespace preparation does not provision standalone Dot early' \
+  'cgraf78/dot' \
+  "$(<"$source_home/.config/shdeps/10-deps.conf")"
+_assert_contains 'preparation lock cannot activate standalone Dot' \
+  'phase=prepare' \
+  "$(<"$source_home/.local/lib/dotfiles/dot-cutover.lock")"
+
+minimum_revision=$(sed -n 's/^minimum_revision=//p' \
+  "$client_root/dot-cutover.lock")
+_assert_file_missing 'namespace preparation ships no readiness writer' \
+  "$source_home/.local/lib/dotfiles/dot-client-readiness.sh"
+_assert_file_missing 'namespace preparation publishes no activation authority' \
+  "$state/dot/client-ready-v2/$minimum_revision"
+_assert_file_missing 'preparation does not enable standalone configuration' \
+  "$source_home/.config/dot/config"
+_assert_file_exists 'preparation retains the frozen rescue updater' \
+  "$source_home/.local/lib/dotfiles/legacy-dot/core/update.sh"
+_assert_file_missing 'preparation vacates the public library namespace' \
+  "$source_home/.local/lib/dot/core/update.sh"
+_assert_eq 'preparation tracks no public library files' '' \
+  "$(git -C "$source_home" ls-files '.local/lib/dot/**')"
+
+_test_summary

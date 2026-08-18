@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# bootstrap-shortcut-test - README curl-pipe bootstrap flow split from bootstrap-test.
+
+DOT_BOOTSTRAP_SHARD=shortcut exec "$HOME/.local/lib/dotfiles/tests/bootstrap-test"

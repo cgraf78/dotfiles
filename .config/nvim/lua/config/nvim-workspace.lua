@@ -43,8 +43,8 @@ local home_dirs = {
     glob = ".config/shell/**/" .. shell_glob,
   },
   {
-    prefix = ".local/lib/dot/",
-    glob = ".local/lib/dot/**/" .. shell_glob,
+    prefix = ".local/lib/dotfiles/legacy-dot/",
+    glob = ".local/lib/dotfiles/legacy-dot/**/" .. shell_glob,
   },
   {
     prefix = ".local/share/cgraf78/",

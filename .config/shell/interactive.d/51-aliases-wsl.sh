@@ -29,8 +29,8 @@ alias pbpaste='powershell.exe -NoProfile -Command Get-Clipboard'
 
 [[ -n "${WSL_DISTRO_NAME:-}" ]] || return 0
 
-# shellcheck source=../../../.local/lib/dot/core/windows.sh
-. "$HOME/.local/lib/dot/core/windows.sh"
+# shellcheck source=../../../.local/lib/dotfiles/windows.sh
+. "$HOME/.local/lib/dotfiles/windows.sh"
 
 # Cache Windows home path. Do not infer it from the WSL username: Windows and
 # Linux account names are independent, and VS Code/WezTerm need the profile

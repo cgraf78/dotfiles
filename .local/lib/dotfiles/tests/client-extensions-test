@@ -1,0 +1,132 @@
+#!/usr/bin/env bash
+# Client policy compatibility against the standalone dot extension contract.
+
+set -u
+
+source_home=${DOT_TEST_SOURCE_HOME:-$HOME}
+host_home=${DOT_TEST_HOST_HOME:-$HOME}
+
+# shellcheck source=helpers.sh
+. "$source_home/.local/lib/dotfiles/tests/helpers.sh"
+
+_client_dot_root() {
+  local candidate
+
+  for candidate in \
+    "${DOT_TEST_DOT_ROOT:-}" \
+    "$host_home/git/dot" \
+    "$host_home/.local/share/cgraf78/dot"; do
+    [[ -n $candidate && -r $candidate/lib/dot/extension-worker.sh ]] || continue
+    (cd -P -- "$candidate" && pwd -P)
+    return
+  done
+
+  printf 'client extensions: standalone dot checkout not found\n' >&2
+  return 1
+}
+
+dot_root=$(_client_dot_root) || {
+  _fail 'client extensions: standalone dot checkout is available'
+  _test_summary
+}
+client_root=$source_home/.local/lib/dotfiles
+fixture_home=$(_tmpdir)
+mkdir -p "$fixture_home/.config/dot/overlays.d" "$fixture_home/.ssh"
+chmod 0700 "$fixture_home" "$fixture_home/.ssh"
+
+export DOT_SOURCE_ROOT=$dot_root
+export DOT_EXTENSIONS_DIR=$client_root
+export DOT_EXTENSION_API=1
+export HOME=$fixture_home
+# The fixture owns its HOME-derived client config. Hosted runners may export
+# unrelated XDG roots; do not let those redirect the descriptor under test.
+unset XDG_CONFIG_HOME XDG_STATE_HOME XDG_CACHE_HOME XDG_DATA_HOME XDG_RUNTIME_DIR
+
+# shellcheck source=/dev/null
+. "$dot_root/lib/dot/public/xdg.sh"
+# shellcheck source=/dev/null
+. "$dot_root/lib/dot/extension-worker-launch.sh"
+
+_client_worker_run() {
+  local mode=$1 script=$2 temporary result output rc=0
+
+  temporary=$(_tmpdir)
+  chmod 0700 "$temporary"
+  result=$temporary/result
+  : >"$result"
+  chmod 0600 "$result"
+  output=$(PATH=/usr/bin:/bin _dot_extension_worker_run \
+    "$mode" "$script" "$temporary" "$result" 2>&1) || rc=$?
+  if [[ -n $output ]]; then
+    printf '%s\n' "$output" >&2
+    return 1
+  fi
+  return "$rc"
+}
+
+for hook in "$client_root/merge-hooks.d"/*.sh; do
+  if _client_worker_run merge "$hook"; then
+    _pass "client merge hook loads through standalone worker: ${hook##*/}"
+  else
+    _fail "client merge hook loads through standalone worker: ${hook##*/}"
+  fi
+done
+
+for extension in "$client_root/doctor.d"/[0-9]*.sh; do
+  if _client_worker_run doctor "$extension"; then
+    _pass "client doctor extension loads through standalone worker: ${extension##*/}"
+  else
+    _fail "client doctor extension loads through standalone worker: ${extension##*/}"
+  fi
+done
+
+old_reference_output=$(
+  grep -RInE \
+    '\.local/lib/dot/(core|git-hooks|sley-hooks)|\.config/dot/merge-hooks\.d/codex/(api|refresh-trust|toml-render)' \
+    "$client_root/merge-hooks.d" "$client_root/doctor.d" 2>/dev/null || true
+)
+_assert_eq 'dormant client extensions do not source embedded implementation paths' \
+  '' "$old_reference_output"
+
+cat >"$fixture_home/.config/dot/overlays.d/10-private.ssh" <<'SSH'
+Host github-private
+  HostName github.com
+  User git
+  IdentityFile ~/.ssh/id_private
+SSH
+cat >"$fixture_home/.ssh/config" <<'SSH'
+Host github.com
+  HostName github.com
+  ProxyCommand ssh proxy.example -W %h:%p
+
+Host hand-managed
+  HostName hand.example
+SSH
+
+pre_sync=$client_root/pre-sync.d/10-overlay-ssh.sh
+if _client_worker_run pre-sync "$pre_sync"; then
+  _pass 'client pre-sync SSH policy runs through standalone worker'
+else
+  _fail 'client pre-sync SSH policy runs through standalone worker'
+fi
+ssh_config=$(<"$fixture_home/.ssh/config")
+_assert_contains 'client pre-sync SSH policy preserves hand-managed config' \
+  'Host hand-managed' "$ssh_config"
+_assert_contains 'client pre-sync SSH policy publishes managed alias' \
+  '# dot-managed:overlay-ssh:10-private' "$ssh_config"
+_assert_contains 'client pre-sync SSH policy preserves inherited proxy command' \
+  'ProxyCommand ssh proxy.example -W %h:%p' "$ssh_config"
+
+rm -f "$fixture_home/.config/dot/overlays.d/10-private.ssh"
+if _client_worker_run pre-sync "$pre_sync"; then
+  _pass 'client pre-sync SSH policy retires stale aliases'
+else
+  _fail 'client pre-sync SSH policy retires stale aliases'
+fi
+ssh_config=$(<"$fixture_home/.ssh/config")
+_assert_contains 'client pre-sync SSH retirement preserves hand-managed config' \
+  'Host hand-managed' "$ssh_config"
+_assert_not_contains 'client pre-sync SSH retirement removes managed alias' \
+  '# dot-managed:overlay-ssh:' "$ssh_config"
+
+_test_summary

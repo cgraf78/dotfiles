@@ -15,4 +15,4 @@ the next run retries after the editor exits or another updater releases the
 lock.
 
 The executable implementation lives at
-`~/.local/lib/dot/core/merge-hooks/nvim.sh`.
+`~/.local/lib/dotfiles/merge-hooks.d/nvim.sh`.

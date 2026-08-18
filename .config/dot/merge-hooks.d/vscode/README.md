@@ -39,4 +39,4 @@ source families and private helpers live in this directory.
   Relaunch those clients again after a later editor or extension-host restart.
 
 The executable hook implementation lives at
-`~/.local/lib/dot/core/merge-hooks/vscode.sh`.
+`~/.local/lib/dotfiles/merge-hooks.d/vscode.sh`.

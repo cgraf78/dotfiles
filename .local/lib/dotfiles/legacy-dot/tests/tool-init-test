@@ -1,0 +1,316 @@
+#!/usr/bin/env bash
+# tool-init-test — _tool_init cache lifecycle: cold generate, warm reuse, and
+# (the durable guard) regenerate as soon as the tool is newer than its cache,
+# so an upgraded tool's init applies on the next shell instead of staying
+# masked by a stale cache until the 7-day timer or a manual reloadsh.
+
+# shellcheck disable=SC1091 # dotfiles test helper lives under HOME.
+. "$HOME/.local/lib/dotfiles/legacy-dot/tests/helpers.sh"
+
+# shellcheck disable=SC1090 # function-under-test lives under HOME.
+. "$HOME/.config/shell/interactive.d/54-tool-init.sh"
+
+REAL_FIND=$(command -v find)
+REAL_STAT=$(command -v stat)
+REAL_DATE=$(command -v date)
+TEST_TMPDIR=$(_tmpdir)
+export XDG_CACHE_HOME="$TEST_TMPDIR/cache"
+BIN="$TEST_TMPDIR/bin"
+mkdir -p "$BIN"
+PATH="$BIN:$PATH"
+
+# Test runner is bash, so _tool_init keys the cache as <name>.bash.
+CACHE="$XDG_CACHE_HOME/shell/footool.bash"
+
+ORIGINAL_HOME="$HOME"
+HOME="$TEST_TMPDIR/fallback-home"
+XDG_CACHE_HOME=relative/cache
+_tool_cache_dir
+_assert_eq "cache root: relative XDG cache falls back below HOME" \
+  "$HOME/.cache/shell" "$REPLY"
+
+NEWLINE_CACHE="$TEST_TMPDIR/newline-cache"$'\n'
+unset HOME
+XDG_CACHE_HOME="$NEWLINE_CACHE"
+_tool_cache_dir
+_assert_eq "cache root: absolute XDG cache works without HOME" \
+  "$NEWLINE_CACHE/shell" "$REPLY"
+
+unset HOME XDG_CACHE_HOME
+REPLY="stale"
+if _tool_cache_dir; then
+  _fail "cache root: missing XDG cache and HOME fails closed"
+else
+  _pass "cache root: missing XDG cache and HOME fails closed"
+fi
+_assert_eq "cache root: unavailable roots clear stale output" "" "$REPLY"
+__atuin_sourced=1
+__wezterm_sourced=1
+_clear_tool_cache
+_assert_eq "cache clear: still resets source guards without a cache root" \
+  "" "${__atuin_sourced+set}"
+_assert_eq "cache clear: resets all source guards without a cache root" \
+  "" "${__wezterm_sourced+set}"
+
+HOME="$ORIGINAL_HOME"
+XDG_CACHE_HOME="$TEST_TMPDIR/cache"
+
+COMPLETION_CACHE="$XDG_CACHE_HOME/shell/zsh-completions/5.9/generation/_git.zwc"
+mkdir -p "${COMPLETION_CACHE%/*}"
+: >"$COMPLETION_CACHE"
+: >"$XDG_CACHE_HOME/shell/flat-cache"
+_clear_tool_cache
+_assert_file_missing "cache clear: removes generated tool init" \
+  "$XDG_CACHE_HOME/shell/flat-cache"
+_assert_file_exists "cache clear: preserves identity-validated completion bytecode" \
+  "$COMPLETION_CACHE"
+# The test called the real find before installing its later instrumentation.
+hash -r
+
+# A fake tool: `footool __emit` prints an init line that records its version, so
+# the test can tell which generation was sourced. Each write bumps its mtime.
+_write_footool() {
+  local ver="$1"
+  cat >"$BIN/footool" <<EOF
+#!/usr/bin/env bash
+[ "\$1" = "__emit" ] && printf 'FOOTOOL_VER=$ver\n'
+EOF
+  chmod +x "$BIN/footool"
+}
+
+echo ""
+echo "=== tool-init: cold start generates and sources the cache ==="
+_write_footool 1
+unset FOOTOOL_VER
+_tool_init footool footool __emit
+_assert_file_exists "cold: cache created" "$CACHE"
+_assert_eq "cold: sourced the generated init" "1" "${FOOTOOL_VER:-}"
+
+echo ""
+echo "=== tool-init: warm cache is reused when the tool is not newer ==="
+# Rewrite the tool to emit a new version but make it far OLDER than the cache;
+# the fresh cache must be reused, not regenerated.
+_write_footool 2
+touch -t 202401010000 "$BIN/footool"
+unset FOOTOOL_VER
+_tool_init footool footool __emit
+_assert_eq "warm: reused cache, did not regenerate" "1" "${FOOTOOL_VER:-}"
+
+echo ""
+echo "=== tool-init: a tool newer than the cache forces regeneration ==="
+# Sleep past 1s mtime granularity, then upgrade the tool. Its mtime now exceeds
+# the cache's, so _tool_init must regenerate even though the cache is recent.
+sleep 1.1
+_write_footool 3
+unset FOOTOOL_VER
+_tool_init footool footool __emit
+_assert_eq "upgrade: regenerated because tool is newer than cache" "3" "${FOOTOOL_VER:-}"
+
+echo ""
+echo "=== tool-init: a tool with no file mtime (function) falls back to the timer ==="
+# A tool that resolves to a shell function has no file mtime, so the
+# regenerate-on-upgrade check must be skipped (not error) and the fresh cache
+# reused — the 7-day timer alone governs.
+funcfoo() { [ "$1" = "__emit" ] && printf 'FUNCFOO_VER=%s\n' "${FUNCFOO_GEN:-0}"; }
+FUNCFOO_GEN=1
+unset FUNCFOO_VER
+_tool_init funcfoo funcfoo __emit
+_assert_eq "function tool: cold start generates" "1" "${FUNCFOO_VER:-}"
+# "Upgrade" the function's output; with no file mtime the fresh cache is reused.
+FUNCFOO_GEN=2
+unset FUNCFOO_VER
+_tool_init funcfoo funcfoo __emit
+_assert_eq "function tool: no file mtime, fresh cache reused (timer-only)" "1" "${FUNCFOO_VER:-}"
+
+echo ""
+echo "=== tool-init: a FAILING regen keeps the last good cache (no empty overwrite) ==="
+# Regen is forced (tool newer than cache), but the tool now exits nonzero. The
+# previous good cache (ver 3) must survive and be sourced — a transiently broken
+# tool must not blank out a working integration for up to 7 days.
+sleep 1.1
+cat >"$BIN/footool" <<'EOF'
+#!/usr/bin/env bash
+exit 1
+EOF
+chmod +x "$BIN/footool"
+unset FOOTOOL_VER
+_tool_init footool footool __emit
+_assert_eq "fail-regen: kept + sourced the last good cache" "3" "${FOOTOOL_VER:-}"
+if compgen -G "$CACHE.tmp.*" >/dev/null; then
+  _fail "fail-regen: left a temp file behind"
+else
+  _pass "fail-regen: left no temp file behind"
+fi
+
+echo ""
+echo "=== tool-init: EMPTY (but exit 0) regen output is rejected, keeps good cache ==="
+# A tool that succeeds but emits nothing must also not replace the good cache,
+# else a fresh-mtime empty cache would look valid and disable the integration.
+sleep 1.1
+cat >"$BIN/footool" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+chmod +x "$BIN/footool"
+unset FOOTOOL_VER
+_tool_init footool footool __emit
+_assert_eq "empty-regen: kept + sourced the last good cache" "3" "${FOOTOOL_VER:-}"
+
+echo ""
+echo "=== tool-init: cold start with a failing tool creates no cache (nothing sourced) ==="
+# No prior cache + failing tool -> no cache written, and _tool_init must not try
+# to source a missing/empty cache.
+cat >"$BIN/failtool" <<'EOF'
+#!/usr/bin/env bash
+exit 1
+EOF
+chmod +x "$BIN/failtool"
+FAILCACHE="$XDG_CACHE_HOME/shell/failtool.bash"
+_tool_init failtool failtool __emit
+if [[ ! -e "$FAILCACHE" ]]; then
+  _pass "cold-fail: no cache created for a failing tool"
+else
+  _fail "cold-fail: no cache created for a failing tool"
+fi
+
+echo ""
+echo "=== tool-init: cache paths preserve XDG bytes ==="
+newlinefoo() { printf 'NEWLINEFOO_LOADED=1\n'; }
+unset HOME NEWLINEFOO_LOADED
+XDG_CACHE_HOME="$NEWLINE_CACHE"
+_tool_init newlinefoo newlinefoo
+_assert_file_exists "newline cache: generated at exact XDG path" \
+  "$NEWLINE_CACHE/shell/newlinefoo.bash"
+_assert_eq "newline cache: generated init is sourced" "1" "${NEWLINEFOO_LOADED:-}"
+_assert_file_missing "newline cache: path was not truncated by command substitution" \
+  "${NEWLINE_CACHE%$'\n'}/shell/newlinefoo.bash"
+
+echo ""
+echo "=== tool-init: warm Bash caches batch filesystem metadata probes ==="
+METADATA_LOG="$TEST_TMPDIR/metadata.log"
+export METADATA_LOG REAL_FIND REAL_STAT
+cat >"$BIN/find" <<'EOF'
+#!/usr/bin/env bash
+printf 'find:%s\n' "$*" >>"$METADATA_LOG"
+exec "$REAL_FIND" "$@"
+EOF
+cat >"$BIN/stat" <<'EOF'
+#!/usr/bin/env bash
+printf 'stat\n' >>"$METADATA_LOG"
+exec "$REAL_STAT" "$@"
+EOF
+cat >"$BIN/perfa" <<'EOF'
+#!/usr/bin/env bash
+printf 'perfa:generate\n' >>"$METADATA_LOG"
+printf 'PERFA_LOADED=1\n'
+EOF
+cat >"$BIN/perfb" <<'EOF'
+#!/usr/bin/env bash
+printf 'perfb:generate\n' >>"$METADATA_LOG"
+printf 'PERFB_LOADED=1\n'
+EOF
+chmod +x "$BIN/find" "$BIN/stat" "$BIN/perfa" "$BIN/perfb"
+
+XDG_CACHE_HOME="$TEST_TMPDIR/perf-cache"
+unset __tool_cache_scan_dir __tool_cache_fresh_files
+_tool_init perfa perfa
+_tool_init perfb perfb
+: >"$METADATA_LOG"
+unset __tool_cache_scan_dir __tool_cache_fresh_files PERFA_LOADED PERFB_LOADED
+_tool_init perfa perfa
+_tool_init perfb perfb
+
+_find_count=$(grep -c '^find:' "$METADATA_LOG" || true)
+_stat_count=$(grep -c '^stat$' "$METADATA_LOG" || true)
+_generate_count=$(grep -c ':generate$' "$METADATA_LOG" || true)
+_assert_eq "warm metadata: scans the cache directory once" "1" "$_find_count"
+_assert_eq "warm metadata: uses no per-tool stat processes" "0" "$_stat_count"
+_assert_eq "warm metadata: does not regenerate integrations" "0" "$_generate_count"
+_assert_eq "warm metadata: first cached integration is sourced" "1" "${PERFA_LOADED:-}"
+_assert_eq "warm metadata: second cached integration is sourced" "1" "${PERFB_LOADED:-}"
+
+: >"$METADATA_LOG"
+unset __tool_cache_scan_dir __tool_cache_fresh_files PERFA_LOADED
+set -f
+_tool_init perfa perfa
+_generate_count=$(grep -c ':generate$' "$METADATA_LOG" || true)
+_assert_eq "warm metadata: noglob does not regenerate integration" \
+  "0" "$_generate_count"
+_assert_contains "warm metadata: caller noglob setting is restored" "f" "$-"
+set +f
+
+echo ""
+echo "=== tool-init: batch scan follows cache-directory symlinks only one level ==="
+SYMLINK_CACHE_ROOT="$TEST_TMPDIR/symlink-cache"
+SYMLINK_CACHE_TARGET="$TEST_TMPDIR/symlink-cache-target"
+mkdir -p "$SYMLINK_CACHE_ROOT" "$SYMLINK_CACHE_TARGET/shell/nested"
+ln -s "$SYMLINK_CACHE_TARGET/shell" "$SYMLINK_CACHE_ROOT/shell"
+printf 'nested\n' >"$SYMLINK_CACHE_TARGET/shell/nested/not-a-cache"
+XDG_CACHE_HOME="$SYMLINK_CACHE_ROOT"
+unset __tool_cache_scan_dir __tool_cache_fresh_files PERFA_LOADED
+_tool_init perfa perfa
+: >"$METADATA_LOG"
+unset __tool_cache_scan_dir __tool_cache_fresh_files PERFA_LOADED
+_tool_init perfa perfa
+
+_find_count=$(grep -c '^find:' "$METADATA_LOG" || true)
+_stat_count=$(grep -c '^stat$' "$METADATA_LOG" || true)
+_generate_count=$(grep -c ':generate$' "$METADATA_LOG" || true)
+_assert_eq "symlink metadata: warm cache uses one batch scan" "1" "$_find_count"
+_assert_eq "symlink metadata: warm cache uses no stat process" "0" "$_stat_count"
+_assert_eq "symlink metadata: warm cache is not regenerated" "0" "$_generate_count"
+_assert_contains "symlink metadata: find receives the direct cache file" \
+  "$SYMLINK_CACHE_ROOT/shell/perfa.bash" "$(cat "$METADATA_LOG")"
+_assert_not_contains "symlink metadata: find does not traverse the cache directory" \
+  "find:$SYMLINK_CACHE_ROOT/shell " "$(cat "$METADATA_LOG")"
+_assert_eq "symlink metadata: cached integration is sourced" "1" "${PERFA_LOADED:-}"
+
+echo ""
+echo "=== tool-init: warm Zsh cache checks stay in-process ==="
+if command -v zsh >/dev/null 2>&1; then
+  ZSH_METADATA_LOG="$TEST_TMPDIR/zsh-metadata.log"
+  ZSH_CACHE_ROOT="$TEST_TMPDIR/zsh-cache"
+  ZSH_CACHE="$ZSH_CACHE_ROOT/shell/zshfoo.zsh"
+  mkdir -p "$ZSH_CACHE_ROOT/shell"
+  printf 'ZSHFOO_LOADED=1\n' >"$ZSH_CACHE"
+  cat >"$BIN/zshfoo" <<'EOF'
+#!/usr/bin/env bash
+printf 'ZSHFOO_LOADED=2\n'
+EOF
+  cat >"$BIN/date" <<'EOF'
+#!/usr/bin/env bash
+printf 'date:%s\n' "$*" >>"$ZSH_METADATA_LOG"
+exec "$REAL_DATE" "$@"
+EOF
+  chmod +x "$BIN/zshfoo" "$BIN/date"
+  touch -t 202401010000 "$BIN/zshfoo"
+  : >"$ZSH_METADATA_LOG"
+
+  zsh_output=$(
+    export DOT_TEST_SOURCE_HOME PATH REAL_DATE ZSH_METADATA_LOG
+    export XDG_CACHE_HOME="$ZSH_CACHE_ROOT"
+    zsh -dfc '
+      strftime_before=$(whence -w strftime)
+      source "$DOT_TEST_SOURCE_HOME/.config/shell/interactive.d/54-tool-init.sh"
+      _tool_init zshfoo zshfoo
+      print -r -- "loaded=${ZSHFOO_LOADED:-}"
+      print -r -- "stat=$(whence -w stat)"
+      if [[ "$(whence -w strftime)" == "$strftime_before" ]]; then
+        print -r -- "strftime=unchanged"
+      fi
+    '
+  )
+
+  _assert_eq "warm Zsh metadata: uses no external clock process" \
+    "" "$(cat "$ZSH_METADATA_LOG")"
+  _assert_contains "warm Zsh metadata: reuses and sources the cache" \
+    "loaded=1" "$zsh_output"
+  _assert_contains "warm Zsh metadata: does not shadow external stat" \
+    "stat=stat: command" "$zsh_output"
+  _assert_contains "warm Zsh metadata: does not install a global strftime builtin" \
+    "strftime=unchanged" "$zsh_output"
+else
+  echo "  SKIP: zsh not installed"
+fi
+
+_test_summary
