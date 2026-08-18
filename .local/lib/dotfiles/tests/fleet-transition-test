@@ -275,12 +275,17 @@ fi
 readiness_generation=$(sed -n 's/^readiness_generation=//p' \
   "$CASE_HOME/.local/lib/dotfiles/dot-cutover.lock")
 readiness=$CASE_HOME/.local/state/dot/client-ready-v3/$readiness_generation/$minimum_revision
-if [[ -d $readiness && ! -L $readiness ]]; then
-  _pass 'successful convergence publishes private client readiness'
-  _assert_eq 'successful convergence makes readiness private' 700 \
-    "$(stat -c '%a' "$readiness" 2>/dev/null || stat -f '%Lp' "$readiness")"
+if [[ $first_reexec -eq 1 ]]; then
+  if [[ -d $readiness && ! -L $readiness ]]; then
+    _pass 'reexec convergence publishes private client readiness'
+    _assert_eq 'reexec convergence makes readiness private' 700 \
+      "$(stat -c '%a' "$readiness" 2>/dev/null || stat -f '%Lp' "$readiness")"
+  else
+    _fail 'reexec convergence publishes private client readiness'
+  fi
 else
-  _fail 'successful convergence publishes private client readiness'
+  _assert_file_missing 'loaded old engine defers readiness to the rescue' \
+    "$readiness"
 fi
 if [[ -f $CASE_HOME/.local/bin/dot && ! -L $CASE_HOME/.local/bin/dot ]]; then
   _pass 'fleet transition preserves the regular client adapter'
@@ -315,6 +320,13 @@ _assert_file_content 'second forced preparation reaches Shdeps again' \
 _assert_file_content 'second preparation cron reruns the relocated overlay hook' \
   $'overlay hook ran\noverlay hook ran' \
   "$CASE_HOME/.local/state/dot/fleet-transition-overlay-hook"
+if [[ -d $readiness && ! -L $readiness ]]; then
+  _pass 'second preparation cron publishes private client readiness'
+  _assert_eq 'second preparation readiness stays private' 700 \
+    "$(stat -c '%a' "$readiness" 2>/dev/null || stat -f '%Lp' "$readiness")"
+else
+  _fail 'second preparation cron publishes private client readiness'
+fi
 
 prepare_case failure || exit 1
 failure_output=''
