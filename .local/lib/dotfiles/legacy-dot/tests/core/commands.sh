@@ -550,6 +550,28 @@ CONF
     fi
 
     if $_core_run_reexec; then
+      # The infrastructure detector must consume the whole Git stream. An
+      # early successful matcher can otherwise SIGPIPE a large producer and,
+      # under pipefail, hide the change it just found.
+      _infra_git=$(_tmpfile)
+      cat >"$_infra_git" <<'GIT'
+#!/usr/bin/env bash
+awk 'BEGIN {
+  print ".local/bin/dot"
+  for (i = 0; i < 200000; i++)
+    print ".config/generated/long-infrastructure-tail-" i
+}'
+GIT
+      chmod +x "$_infra_git"
+      _saved_git=$GIT
+      GIT=$_infra_git
+      if _dot_update_infra_changed before after; then
+        _pass "update reexec detector: drains a large matched Git stream"
+      else
+        _fail "update reexec detector: drains a large matched Git stream"
+      fi
+      GIT=$_saved_git
+
       _seed_infra_update() {
         local _stamp="$1" _work
         _work=$(_tmpdir)

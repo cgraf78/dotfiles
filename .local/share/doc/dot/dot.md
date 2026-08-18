@@ -220,7 +220,10 @@ zero exit status.
 
 If a pull updates tracked client or rescue infrastructure such as
 `.local/lib/dotfiles/legacy-dot/` or `.local/bin/dot`, the command re-execs
-itself so the remainder of the update uses the new code.
+itself so the remainder of the update uses the new code. During the one-time
+jump from the pre-extraction updater, its historical change detector may safely
+finish in the already-loaded process instead; the next invocation enters the
+relocated rescue, whose detector consumes the complete Git change stream.
 
 Base files use `[ -f ]` guards and ordered config directories so overlays can
 contribute extra files without patching base files. Every machine is a peer:

@@ -150,7 +150,7 @@ EOF
   cat >"$CASE_OVERLAY_ROOT/home/.local/lib/dotfiles/legacy-dot/core/merge-hooks/transition.sh" <<'HOOK'
 merge() {
   mkdir -p "$HOME/.local/state/dot"
-  printf 'overlay hook ran\n' >"$HOME/.local/state/dot/fleet-transition-overlay-hook"
+  printf 'overlay hook ran\n' >>"$HOME/.local/state/dot/fleet-transition-overlay-hook"
 }
 HOOK
   cat >"$CASE_OVERLAY_ROOT/home/.local/lib/dotfiles/legacy-dot/tests/transition-overlay-test" <<'TEST'
@@ -205,8 +205,20 @@ _assert_exit 'old main crosses directly to preparation successfully' 0 "$first_s
 _assert_eq 'old-main cron transition remains silent' '' "$first_output"
 _assert_not_contains 'old-main transition never loses the runtime' \
   'standalone runtime is unavailable' "$first_output"
-_assert_file_content 'old-main reexec stays on retained legacy engine' \
-  $'arg=update\narg=--skip-pull\narg=--cron\narg=--force' "$CASE_LEGACY_LOG"
+# The historical detector uses `git diff | grep -q` under pipefail. Depending
+# on pipe scheduling, Git may observe SIGPIPE after grep finds the early
+# launcher match; that safely keeps the already-loaded engine in memory instead
+# of re-execing. Accept only those two exact boundaries.
+first_reexec=0
+if [[ ! -e $CASE_LEGACY_LOG ]]; then
+  _pass 'old-main first cron safely continues in the loaded engine'
+elif [[ -f $CASE_LEGACY_LOG ]] &&
+  [[ $(<"$CASE_LEGACY_LOG") == $'arg=update\narg=--skip-pull\narg=--cron\narg=--force' ]]; then
+  first_reexec=1
+  _pass 'old-main first cron safely reexecs the retained engine'
+else
+  _fail 'old-main first cron follows a recognized engine boundary'
+fi
 _assert_file_content 'forced preparation reaches Shdeps as forced' \
   'force=1' "$CASE_LOG"
 _assert_file_content 'old-main transition runs the relocated overlay hook' \
@@ -236,6 +248,12 @@ if [[ -f $CASE_HOME/.local/bin/dot && ! -L $CASE_HOME/.local/bin/dot ]]; then
 else
   _fail 'fleet transition preserves the regular client adapter'
 fi
+if git --no-pager diff --no-index --quiet --no-ext-diff --no-textconv -- \
+  "$source_home/.local/bin/dot" "$CASE_HOME/.local/bin/dot"; then
+  _pass 'fleet transition publishes the exact candidate adapter'
+else
+  _fail 'fleet transition publishes the exact candidate adapter'
+fi
 _assert_file_exists 'fleet transition retains the frozen rescue engine' \
   "$CASE_HOME/.local/lib/dotfiles/legacy-dot/core/update.sh"
 _assert_file_missing 'fleet transition vacates the public library namespace' \
@@ -246,9 +264,18 @@ second_status=0
 second_output=$(run_case_dot update --cron --force 2>&1) || second_status=$?
 _assert_exit 'second preparation cron remains successful' 0 "$second_status"
 _assert_eq 'second preparation cron remains silent' '' "$second_output"
-_assert_file_content 'prepare phase remains legacy on the second invocation' \
-  $'arg=update\narg=--skip-pull\narg=--cron\narg=--force\narg=update\narg=--cron\narg=--force' \
-  "$CASE_LEGACY_LOG"
+if [[ $first_reexec -eq 1 ]]; then
+  expected_legacy_log=$'arg=update\narg=--skip-pull\narg=--cron\narg=--force\narg=update\narg=--cron\narg=--force'
+else
+  expected_legacy_log=$'arg=update\narg=--cron\narg=--force'
+fi
+_assert_file_content 'second preparation cron enters the retained rescue' \
+  "$expected_legacy_log" "$CASE_LEGACY_LOG"
+_assert_file_content 'second forced preparation reaches Shdeps again' \
+  $'force=1\nforce=1' "$CASE_LOG"
+_assert_file_content 'second preparation cron reruns the relocated overlay hook' \
+  $'overlay hook ran\noverlay hook ran' \
+  "$CASE_HOME/.local/state/dot/fleet-transition-overlay-hook"
 
 prepare_case failure || exit 1
 failure_output=''

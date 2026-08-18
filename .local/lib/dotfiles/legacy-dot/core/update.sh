@@ -36,8 +36,16 @@ _dot_update_infra_changed() {
   # merge hooks, shdeps, or the user's next shell.
   # The `.local/bin/dot` alternative is the worktree-relative form of DOT_BIN;
   # kept literal here because it is one arm of an anchored, dot-escaped regex.
+  # Drain the complete producer stream before reporting a match. An early
+  # `grep -q` can close the pipe after the launcher entry, make Git observe
+  # SIGPIPE under pipefail, and incorrectly turn a real change into no change.
   $GIT diff --name-only "$head_before" "$head_after" 2>/dev/null |
-    grep -qE '^(\.local/lib/dotfiles/legacy-dot/|\.local/bin/dot$)'
+    awk '
+      /^\.local\/lib\/dotfiles\/legacy-dot\// || $0 == ".local/bin/dot" {
+        matched = 1
+      }
+      END { exit matched ? 0 : 1 }
+    '
 }
 
 _dot_update_infra_has_conflicts() {
