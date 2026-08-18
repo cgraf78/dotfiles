@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
-# Verify that the fleet-preparation prefix cannot activate standalone Dot.
+# Verify that fleet bootstrap prepares standalone Dot without activating it.
 
 set -u
 
 source_home=${DOT_TEST_SOURCE_HOME:-$HOME}
 # shellcheck source=helpers.sh
 . "$source_home/.local/lib/dotfiles/tests/helpers.sh"
+
+dot_root=$(_test_dot_root) || {
+  echo 'cutover-preparation-test: standalone Dot checkout is unavailable' >&2
+  exit 1
+}
 
 tmp=$(_tmpdir)
 case_home=$tmp/home
@@ -52,26 +57,413 @@ if [[ -x $source_home/.local/lib/dotfiles/legacy-dot-launcher.sh ]]; then
 else
   _fail 'preparation retains the executable rescue launcher'
 fi
-_assert_not_contains 'namespace preparation does not provision standalone Dot early' \
-  'cgraf78/dot' \
+_assert_contains 'bootstrap preparation provisions standalone Dot through Shdeps' \
+  'cgraf78/dot                                github:repo      dot' \
   "$(<"$source_home/.config/shdeps/10-deps.conf")"
-_assert_contains 'preparation lock cannot activate standalone Dot' \
-  'phase=prepare' \
-  "$(<"$source_home/.local/lib/dotfiles/dot-cutover.lock")"
+
+hook_home=$(_tmpdir)
+hook_checkout=$hook_home/.local/share/cgraf78/dot
+hook_log=$hook_home/install-paths
+mkdir -p "$hook_checkout/support"
+cat >"$hook_checkout/support/install-checkout.sh" <<'INSTALLER'
+printf 'prefix=%s\nbin=%s\nlibrary=%s\n' \
+  "$PREFIX" "$BIN_DIR" "$DOT_PUBLIC_LIB" >"$DOT_INSTALL_ENV_LOG"
+INSTALLER
+hook_status=0
+HOME=$hook_home \
+  PREFIX=/data/data/com.termux/files/usr \
+  SHDEPS_INSTALL_DIR=$hook_home/.local/share \
+  DOT_INSTALL_ENV_LOG=$hook_log \
+  bash -c '. "$1"; post cgraf78/dot' \
+  _ "$source_home/.config/shdeps/hooks.d/cgraf78/dot.sh" || hook_status=$?
+_assert_exit 'Dot post hook installs client surfaces successfully' 0 "$hook_status"
+_assert_file_content 'Dot post hook ignores a platform package prefix' \
+  "prefix=$hook_home/.local
+bin=$hook_home/.local/bin
+library=$hook_home/.local/lib/dot" \
+  "$hook_log"
+
+cutover_lock=$source_home/.local/lib/dotfiles/dot-cutover.lock
+_assert_file_content 'bootstrap uses the versioned topology lock' \
+  $'cgraf78 dot client cutover v4\nphase=prepare\nminimum_revision='"$(sed -n 's/^minimum_revision=//p' "$cutover_lock")"$'\nreadiness_generation=client-topology-prepare-v1' \
+  "$cutover_lock"
 
 minimum_revision=$(sed -n 's/^minimum_revision=//p' \
-  "$client_root/dot-cutover.lock")
-_assert_file_missing 'namespace preparation ships no readiness writer' \
-  "$source_home/.local/lib/dotfiles/dot-client-readiness.sh"
-_assert_file_missing 'namespace preparation publishes no activation authority' \
-  "$state/dot/client-ready-v2/$minimum_revision"
-_assert_eq 'preparation does not track standalone configuration' '' \
+  "$cutover_lock")
+if git -C "$dot_root" merge-base --is-ancestor \
+  "$minimum_revision" HEAD >/dev/null 2>&1; then
+  _pass 'bootstrap lock names a public Dot ancestor'
+else
+  _fail 'bootstrap lock names a public Dot ancestor'
+fi
+if git --no-pager diff --no-index --quiet --no-ext-diff --no-textconv -- \
+  "$source_home/.local/bin/dot" "$dot_root/support/client-launcher.sh"; then
+  _pass 'bootstrap adapter matches the locked standalone template'
+else
+  _fail 'bootstrap adapter matches the locked standalone template'
+fi
+if [[ -f $source_home/.local/lib/dotfiles/dot-client-readiness.sh &&
+  ! -L $source_home/.local/lib/dotfiles/dot-client-readiness.sh &&
+  -x $source_home/.local/lib/dotfiles/dot-client-readiness.sh ]]; then
+  _pass 'bootstrap ships the private readiness writer'
+else
+  _fail 'bootstrap ships the private readiness writer'
+fi
+_assert_file_missing 'tracked bootstrap tree publishes no host readiness by itself' \
+  "$state/dot/client-ready-v4/client-topology-prepare-v1/$minimum_revision"
+_assert_eq 'bootstrap tracks standalone client configuration' \
+  '.config/dot/config' \
   "$(git -C "$source_home" ls-files -- .config/dot/config)"
+_assert_file_content 'bootstrap stages the final standalone client configuration' \
+  $'version=1\nextension_api=1\nextensions_dir=$HOME/.local/lib/dotfiles\ndependency_provider=shdeps' \
+  "$source_home/.config/dot/config"
+_assert_contains 'CI deterministically covers loaded-engine continuation' \
+  'DOT_REEXEC=1 .local/bin/dot-test -s fleet-transition' \
+  "$(<"$source_home/.github/workflows/test.yml")"
 _assert_file_exists 'preparation retains the frozen rescue updater' \
   "$source_home/.local/lib/dotfiles/legacy-dot/core/update.sh"
 _assert_file_missing 'preparation vacates the public library namespace' \
   "$source_home/.local/lib/dot/core/update.sh"
 _assert_eq 'preparation tracks no public library files' '' \
   "$(git -C "$source_home" ls-files '.local/lib/dot/**')"
+
+readiness_generation=$(sed -n 's/^readiness_generation=//p' "$cutover_lock")
+
+run_inventory_selection_case() {
+  local mode=$1 expected=$2 fixture host lock output
+
+  fixture=$(_tmpdir)
+  host=$(_tmpdir)
+  lock=$fixture/.local/lib/dotfiles/dot-cutover.lock
+  mkdir -p \
+    "$fixture/.local/bin" \
+    "$fixture/.local/lib/dotfiles/tests" \
+    "$fixture/.local/lib/dotfiles/legacy-dot/tests" \
+    "$host/.local/lib"
+  cp "$source_home/.local/bin/dot-test" "$fixture/.local/bin/dot-test"
+  cp "$source_home/.local/lib/dotfiles/tests/run" \
+    "$fixture/.local/lib/dotfiles/tests/run"
+  cp "$source_home/.local/lib/dotfiles/tests/timeout.py" \
+    "$fixture/.local/lib/dotfiles/tests/timeout.py"
+  ln -s "$dot_root/lib/dot/public" "$host/.local/lib/dot"
+  printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    "printf 'inventory=current\\n'" \
+    "printf 'Results: 1 passed, 0 failed\\n'" \
+    >"$fixture/.local/lib/dotfiles/tests/inventory-selection-test"
+  printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    "printf 'inventory=rescue\\n'" \
+    "printf 'Results: 1 passed, 0 failed\\n'" \
+    >"$fixture/.local/lib/dotfiles/legacy-dot/tests/inventory-selection-test"
+  chmod 0755 \
+    "$fixture/.local/bin/dot-test" \
+    "$fixture/.local/lib/dotfiles/tests/run" \
+    "$fixture/.local/lib/dotfiles/tests/timeout.py" \
+    "$fixture/.local/lib/dotfiles/tests/inventory-selection-test" \
+    "$fixture/.local/lib/dotfiles/legacy-dot/tests/inventory-selection-test"
+
+  case $mode in
+    active | prepare)
+      printf '%s\n' \
+        'cgraf78 dot client cutover v4' \
+        "phase=$mode" \
+        "minimum_revision=$minimum_revision" \
+        "readiness_generation=$readiness_generation" >"$lock"
+      ;;
+    malformed)
+      printf 'broken\n' >"$lock"
+      ;;
+    symlink)
+      printf '%s\n' \
+        'cgraf78 dot client cutover v4' \
+        'phase=active' \
+        "minimum_revision=$minimum_revision" \
+        "readiness_generation=$readiness_generation" >"$fixture/real-lock"
+      ln -s "$fixture/real-lock" "$lock"
+      ;;
+    missing) ;;
+  esac
+
+  output=$(HOME=$fixture \
+    DOT_TEST_SOURCE_HOME=$fixture \
+    DOT_TEST_HOST_HOME=$host \
+    DOT_TEST_PUBLIC_UI=$host/.local/lib/dot/ui.sh \
+    "$fixture/.local/bin/dot-test" -s inventory-selection 2>&1) || true
+  _assert_contains "test inventory $mode authority selects $expected" \
+    "inventory=$expected" "$output"
+}
+
+run_inventory_selection_case active current
+run_inventory_selection_case prepare rescue
+run_inventory_selection_case missing rescue
+run_inventory_selection_case malformed rescue
+run_inventory_selection_case symlink rescue
+
+readiness_helper=$source_home/.local/lib/dotfiles/dot-client-readiness.sh
+
+prepare_readiness_case() {
+  READY_HOME=$(_tmpdir)
+  READY_CHECKOUT=$READY_HOME/.local/share/cgraf78/dot
+  READY_STATE=$READY_HOME/.local/state
+  READY_PATH=$READY_STATE/dot/client-ready-v4/$readiness_generation/$minimum_revision
+  mkdir -p \
+    "$READY_HOME/.config/dot" \
+    "$READY_HOME/.local/bin" \
+    "$READY_HOME/.local/lib/dotfiles"
+  git clone --quiet --no-checkout --no-hardlinks "$dot_root" "$READY_CHECKOUT"
+  git -C "$READY_CHECKOUT" checkout --quiet "$minimum_revision"
+  cp "$source_home/.local/bin/dot" "$READY_HOME/.local/bin/dot"
+  cp "$cutover_lock" "$READY_HOME/.local/lib/dotfiles/dot-cutover.lock"
+  cp "$source_home/.config/dot/config" "$READY_HOME/.config/dot/config"
+  ln -s "$READY_CHECKOUT/lib/dot/public" "$READY_HOME/.local/lib/dot"
+}
+
+run_readiness_case() {
+  HOME=$READY_HOME \
+    XDG_CONFIG_HOME=$READY_HOME/.config \
+    XDG_STATE_HOME=$READY_STATE \
+    SHDEPS_INSTALL_DIR=$READY_HOME/.local/share \
+    DOT_CLIENT_CUTOVER_LOCK=$READY_HOME/.local/lib/dotfiles/dot-cutover.lock \
+    "$readiness_helper" write
+}
+
+revoke_readiness_case() {
+  HOME=$READY_HOME \
+    XDG_CONFIG_HOME=$READY_HOME/.config \
+    XDG_STATE_HOME=$READY_STATE \
+    SHDEPS_INSTALL_DIR=$READY_HOME/.local/share \
+    DOT_CLIENT_CUTOVER_LOCK=$READY_HOME/.local/lib/dotfiles/dot-cutover.lock \
+    "$readiness_helper" revoke
+}
+
+prepare_readiness_case
+readiness_status=0
+run_readiness_case || readiness_status=$?
+_assert_exit 'validated client topology publishes readiness' 0 "$readiness_status"
+if [[ -f $READY_PATH && ! -L $READY_PATH ]]; then
+  _pass 'validated client topology publishes the expected generation'
+  _assert_eq 'validated readiness record stays private' 600 \
+    "$(stat -c '%a' "$READY_PATH" 2>/dev/null || stat -f '%Lp' "$READY_PATH")"
+  _assert_contains 'validated readiness records the exact config authority' \
+    "config_path=$READY_HOME/.config/dot/config" "$(<"$READY_PATH")"
+else
+  _fail 'validated client topology publishes the expected generation'
+fi
+revoke_status=0
+revoke_readiness_case || revoke_status=$?
+_assert_exit 'readiness revocation succeeds before update mutation' \
+  0 "$revoke_status"
+_assert_file_missing 'readiness revocation removes the old authority' \
+  "$READY_PATH"
+
+assert_revoke_preserves_symlinked_parent() {
+  local label=$1 parent=$2 suffix=$3 foreign_root foreign_parent status=0
+
+  foreign_root=$(_tmpdir)
+  foreign_parent=$foreign_root/owned
+  mv "$parent" "$foreign_parent"
+  ln -s "$foreign_parent" "$parent"
+  revoke_readiness_case >/dev/null 2>&1 || status=$?
+  if [[ $status -ne 0 ]]; then
+    _pass "readiness revocation rejects symlinked $label"
+  else
+    _fail "readiness revocation rejects symlinked $label"
+  fi
+  _assert_file_exists "readiness revocation preserves the $label record" \
+    "$foreign_parent/$suffix"
+}
+
+prepare_readiness_case
+run_readiness_case
+assert_revoke_preserves_symlinked_parent \
+  'Dot state parent' \
+  "$READY_STATE/dot" \
+  "client-ready-v4/$readiness_generation/$minimum_revision"
+
+prepare_readiness_case
+run_readiness_case
+assert_revoke_preserves_symlinked_parent \
+  'readiness root' \
+  "$READY_STATE/dot/client-ready-v4" \
+  "$readiness_generation/$minimum_revision"
+
+prepare_readiness_case
+run_readiness_case
+assert_revoke_preserves_symlinked_parent \
+  'generation root' \
+  "$READY_STATE/dot/client-ready-v4/$readiness_generation" \
+  "$minimum_revision"
+
+prepare_readiness_case
+run_readiness_case
+saved_dot_state=$READY_STATE/dot.saved
+empty_dot_state=$(_tmpdir)
+mv "$READY_STATE/dot" "$saved_dot_state"
+ln -s "$empty_dot_state" "$READY_STATE/dot"
+hidden_record_status=0
+revoke_readiness_case >/dev/null 2>&1 || hidden_record_status=$?
+if [[ $hidden_record_status -ne 0 ]]; then
+  _pass 'readiness revocation rejects a parent that hides the active record'
+else
+  _fail 'readiness revocation rejects a parent that hides the active record'
+fi
+unlink "$READY_STATE/dot"
+mv "$saved_dot_state" "$READY_STATE/dot"
+_assert_file_exists 'failed revocation preserves the hidden readiness record' \
+  "$READY_PATH"
+
+prepare_readiness_case
+# shellcheck disable=SC2016 # The client config owns this literal HOME token.
+printf '%s\n' \
+  'version=1' \
+  'extension_api=1' \
+  'extensions_dir=$HOME/.local/lib/dotfiles' \
+  'dependency_provider=none' >"$READY_HOME/.config/dot/config"
+invalid_config_output=''
+invalid_config_status=0
+invalid_config_output=$(DOT_QUIET=1 run_readiness_case 2>&1) || invalid_config_status=$?
+if [[ $invalid_config_status -ne 0 ]]; then
+  _pass 'invalid standalone client configuration denies readiness'
+else
+  _fail 'invalid standalone client configuration denies readiness'
+fi
+_assert_file_missing 'invalid client configuration publishes no readiness' \
+  "$READY_PATH"
+_assert_eq 'quiet readiness failure remains silent' '' "$invalid_config_output"
+
+prepare_readiness_case
+unlink "$READY_HOME/.local/lib/dot"
+ln -s "$READY_HOME/.local/lib/foreign" "$READY_HOME/.local/lib/dot"
+invalid_library_status=0
+run_readiness_case >/dev/null 2>&1 || invalid_library_status=$?
+if [[ $invalid_library_status -ne 0 ]]; then
+  _pass 'foreign public library link denies readiness'
+else
+  _fail 'foreign public library link denies readiness'
+fi
+_assert_file_missing 'foreign public library publishes no readiness' \
+  "$READY_PATH"
+
+prepare_readiness_case
+printf '\n# changed after install\n' >>"$READY_HOME/.local/bin/dot"
+invalid_adapter_status=0
+run_readiness_case >/dev/null 2>&1 || invalid_adapter_status=$?
+if [[ $invalid_adapter_status -ne 0 ]]; then
+  _pass 'changed client adapter denies readiness'
+else
+  _fail 'changed client adapter denies readiness'
+fi
+_assert_file_missing 'changed client adapter publishes no readiness' \
+  "$READY_PATH"
+
+prepare_readiness_case
+dirty_checkout_log=$READY_HOME/dirty-checkout-code.log
+printf '\nprintf '\''dirty checkout code executed\\n'\'' >"%s"\n' \
+  "$dirty_checkout_log" >>"$READY_CHECKOUT/lib/dot/config.sh"
+dirty_checkout_status=0
+run_readiness_case >/dev/null 2>&1 || dirty_checkout_status=$?
+if [[ $dirty_checkout_status -ne 0 ]]; then
+  _pass 'dirty standalone checkout denies readiness'
+else
+  _fail 'dirty standalone checkout denies readiness'
+fi
+_assert_file_missing 'dirty standalone code is not executed before validation' \
+  "$dirty_checkout_log"
+_assert_file_missing 'dirty standalone checkout publishes no readiness' \
+  "$READY_PATH"
+
+retired_home=$(_tmpdir)
+mkdir -p \
+  "$retired_home/.local/lib/dot/agents/work/nested" \
+  "$retired_home/.local/lib/dot/core/merge-hooks/personal" \
+  "$retired_home/.local/lib/dot/tests/work"
+retired_cleanup_status=0
+HOME=$retired_home bash -c \
+  '. "$1"; _dot_update_remove_retired_public_directory' \
+  _ "$source_home/.local/lib/dotfiles/legacy-dot/core/update.sh" ||
+  retired_cleanup_status=$?
+_assert_exit 'retired empty public directory cleanup succeeds' \
+  0 "$retired_cleanup_status"
+_assert_file_missing 'retired nested public directory tree is removed' \
+  "$retired_home/.local/lib/dot"
+
+mkdir -p "$retired_home/.local/lib/dot"
+printf 'foreign\n' >"$retired_home/.local/lib/dot/foreign"
+nonempty_cleanup_status=0
+HOME=$retired_home bash -c \
+  '. "$1"; _dot_update_remove_retired_public_directory' \
+  _ "$source_home/.local/lib/dotfiles/legacy-dot/core/update.sh" ||
+  nonempty_cleanup_status=$?
+if [[ $nonempty_cleanup_status -ne 0 ]]; then
+  _pass 'nonempty retired public directory fails closed'
+else
+  _fail 'nonempty retired public directory fails closed'
+fi
+_assert_file_content 'nonempty retired public directory preserves foreign data' \
+  'foreign' "$retired_home/.local/lib/dot/foreign"
+
+rm -rf "$retired_home/.local/lib/dot"
+mkdir -p "$retired_home/.local/lib/dot/empty-foreign/nested"
+printf 'foreign\n' >"$retired_home/.local/lib/dot/foreign"
+mixed_cleanup_status=0
+HOME=$retired_home bash -c \
+  '. "$1"; _dot_update_remove_retired_public_directory' \
+  _ "$source_home/.local/lib/dotfiles/legacy-dot/core/update.sh" ||
+  mixed_cleanup_status=$?
+if [[ $mixed_cleanup_status -ne 0 ]]; then
+  _pass 'mixed retired public directory fails closed'
+else
+  _fail 'mixed retired public directory fails closed'
+fi
+if [[ -d $retired_home/.local/lib/dot/empty-foreign &&
+  ! -L $retired_home/.local/lib/dot/empty-foreign ]]; then
+  _pass 'mixed retired cleanup preserves empty foreign parent'
+else
+  _fail 'mixed retired cleanup preserves empty foreign parent'
+fi
+if [[ -d $retired_home/.local/lib/dot/empty-foreign/nested &&
+  ! -L $retired_home/.local/lib/dot/empty-foreign/nested ]]; then
+  _pass 'mixed retired cleanup preserves empty foreign descendant'
+else
+  _fail 'mixed retired cleanup preserves empty foreign descendant'
+fi
+_assert_file_content 'mixed retired cleanup preserves foreign data' \
+  'foreign' "$retired_home/.local/lib/dot/foreign"
+
+rm -rf "$retired_home/.local/lib/dot"
+foreign_owner_dir=$retired_home/.local/lib/dot/foreign-owner
+mkdir -p "$foreign_owner_dir/nested"
+fake_stat_bin=$(_tmpdir)
+real_stat=$(type -P stat)
+cat >"$fake_stat_bin/stat" <<'STAT'
+#!/usr/bin/env bash
+path=${!#}
+if [[ $path == "$FOREIGN_OWNER_PATH" ]]; then
+  output=$("$REAL_STAT" "$@") || exit
+  printf '999999 %s\n' "${output#* }"
+else
+  exec "$REAL_STAT" "$@"
+fi
+STAT
+chmod 0755 "$fake_stat_bin/stat"
+foreign_owner_status=0
+HOME=$retired_home \
+  PATH="$fake_stat_bin:$PATH" \
+  REAL_STAT=$real_stat \
+  FOREIGN_OWNER_PATH=$foreign_owner_dir \
+  bash -c '. "$1"; _dot_update_remove_retired_public_directory' \
+  _ "$source_home/.local/lib/dotfiles/legacy-dot/core/update.sh" ||
+  foreign_owner_status=$?
+if [[ $foreign_owner_status -ne 0 ]]; then
+  _pass 'foreign-owned retired public directory fails closed'
+else
+  _fail 'foreign-owned retired public directory fails closed'
+fi
+if [[ -d $foreign_owner_dir/nested && ! -L $foreign_owner_dir/nested ]]; then
+  _pass 'foreign-owned retired cleanup preserves the complete tree'
+else
+  _fail 'foreign-owned retired cleanup preserves the complete tree'
+fi
 
 _test_summary

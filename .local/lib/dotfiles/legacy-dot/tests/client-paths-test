@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Keep the current client ownership contract visible while rescue tests remain
+# the preparation-phase inventory.
+
+exec "$HOME/.local/lib/dotfiles/tests/client-paths-test" "$@"

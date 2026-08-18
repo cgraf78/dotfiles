@@ -110,6 +110,81 @@ _dot_update_reexec() {
   exec "$front_door" update "${reexec_flags[@]}" "$@"
 }
 
+_dot_update_publish_client_readiness() {
+  local helper="$HOME/.local/lib/dotfiles/dot-client-readiness.sh"
+
+  if [[ ! -e $helper && ! -L $helper ]]; then
+    return 0
+  fi
+  [[ -f $helper && ! -L $helper && -x $helper ]] || return 1
+  "$helper" write
+}
+
+_dot_update_revoke_client_readiness() {
+  local helper="$HOME/.local/lib/dotfiles/dot-client-readiness.sh"
+  local lock="$HOME/.local/lib/dotfiles/dot-cutover.lock"
+
+  if [[ ! -e $helper && ! -L $helper ]]; then
+    # Pre-migration fixtures have neither file. Once a cutover lock exists, the
+    # matching helper is required so a stale proof cannot survive mutation.
+    [[ ! -e $lock && ! -L $lock ]]
+    return
+  fi
+  [[ -f $helper && ! -L $helper && -x $helper ]] || return 1
+  "$helper" revoke
+}
+
+_dot_update_path_owner_device() {
+  local output
+
+  if output=$(stat -c '%u %d' "$1" 2>/dev/null); then
+    :
+  elif output=$(stat -f '%u %d' "$1" 2>/dev/null); then
+    :
+  else
+    return 1
+  fi
+  printf '%s\n' "$output"
+}
+
+_dot_update_retired_public_tree_prunable() (
+  local root=$1 expected_uid root_identity expected_device path identity
+  local path_uid path_device
+
+  set -o pipefail
+  [[ -d $root && ! -L $root ]] || exit 1
+  expected_uid=$(id -u) || exit 1
+  root_identity=$(_dot_update_path_owner_device "$root") || exit 1
+  [[ ${root_identity%% *} == "$expected_uid" ]] || exit 1
+  expected_device=${root_identity#* }
+
+  find "$root" -xdev -print0 2>/dev/null |
+    while IFS= read -r -d '' path; do
+      [[ -d $path && ! -L $path ]] || exit 1
+      identity=$(_dot_update_path_owner_device "$path") || exit 1
+      path_uid=${identity%% *}
+      path_device=${identity#* }
+      [[ $path_uid == "$expected_uid" &&
+        $path_device == "$expected_device" ]] || exit 1
+    done
+)
+
+_dot_update_remove_retired_public_directory() {
+  local public_path="$HOME/.local/lib/dot"
+
+  if [[ ! -e $public_path && ! -L $public_path ]]; then
+    return 0
+  fi
+  # Overlay unlinking can leave the former embedded namespace as an empty real
+  # directory tree. Prune only empty directories from the recognized retired
+  # root; any link, file, or nonempty directory remains untouched and makes the
+  # standalone installer's no-clobber boundary fail closed.
+  [[ -d $public_path && ! -L $public_path ]] || return 0
+  _dot_update_retired_public_tree_prunable "$public_path" || return 1
+  find "$public_path" -depth -type d -exec rmdir {} \; 2>/dev/null || return 1
+  [[ ! -e $public_path && ! -L $public_path ]]
+}
+
 _dot_update_reexec_if_needed() {
   local cron_mode="$1" head_before="$2"
   shift 2
@@ -191,6 +266,7 @@ _dot_update_finalize() {
   fi
   _ensure_repo_config
   _link_overlays || update_status=1
+  _dot_update_remove_retired_public_directory || update_status=1
   if _ensure_shdeps && _dot_shdeps_require_release_launcher_preservation; then
     shdeps_ready=1
   else
@@ -218,6 +294,12 @@ _dot_update_finalize() {
   elif [[ "${DOT_UI_TOTAL:-0}" -gt 0 ]]; then
     _ui_stage_start "Cleanup" "normalizing worktree"
     _ui_stage_finish ok "no base repo"
+  fi
+  if [[ "$update_status" -eq 0 ]] && ! _dot_update_publish_client_readiness; then
+    update_status=1
+    if [[ "${DOT_QUIET:-0}" -ne 1 ]]; then
+      _warn "  warning: standalone Dot preparation could not be recorded"
+    fi
   fi
   _ui_done "$update_status"
   return "$update_status"
@@ -256,6 +338,11 @@ _dot_update() {
       *) break ;;
     esac
   done
+
+  # Revoke the previous successful convergence proof before any repository,
+  # overlay, or dependency mutation. Only the final successful convergence may
+  # publish a fresh proof for a later fleet-wide activation phase.
+  _dot_update_revoke_client_readiness || return 1
 
   # The launcher performs this before entering update. Keep a defensive gate
   # here for sourced callers so SSH, repository, and HOME mutations cannot

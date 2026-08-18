@@ -175,6 +175,9 @@ _nvim_lazy_lock_acquire() {
 
 merge() {
   _dot_tool_present nvim || return 0
+  # Termux owns Neovim through its native package path. Running Lazy's
+  # unattended desktop/server update during Android bootstrap is not portable.
+  dot_hook_platform_match android && return 0
   local config="$HOME/.config/nvim/init.lua" data lazy lock probe_rc nvim_rc
 
   [[ -r "$config" ]] || return 0

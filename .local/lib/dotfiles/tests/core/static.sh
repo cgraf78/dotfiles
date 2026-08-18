@@ -76,6 +76,7 @@ MOCK
   _ci_in_shell_job=0
   _ci_in_shell_with=0
   _ci_forces_dotfiles_update=0
+  _ci_installs_dotfiles_provider=0
   _ci_uses_full_matrix=0
   _ci_line_number=0
   _ci_termux_strict_line=0
@@ -121,6 +122,8 @@ MOCK
       _ci_uses_full_matrix=1
     elif ((_ci_in_shell_with)) && [[ "$_ci_code" =~ ^[[:space:]]{6}force-dotfiles-update:[[:space:]]+true[[:space:]]*$ ]]; then
       _ci_forces_dotfiles_update=1
+    elif ((_ci_in_shell_with)) && [[ "$_ci_code" =~ ^[[:space:]]{6}dotfiles-provider:[[:space:]]+true[[:space:]]*$ ]]; then
+      _ci_installs_dotfiles_provider=1
     elif ((_ci_in_shell_with)) && [[ -n "${_ci_code//[[:space:]]/}" ]] &&
       [[ ! "$_ci_code" =~ ^[[:space:]]{6} ]]; then
       _ci_in_shell_with=0
@@ -334,6 +337,11 @@ MOCK
     _pass "CI workflow: refreshes shdeps before dependency resolution"
   else
     _fail "CI workflow: refreshes shdeps before dependency resolution"
+  fi
+  if ((_ci_installs_dotfiles_provider)); then
+    _pass "CI workflow: installs the configured dotfiles provider before tests"
+  else
+    _fail "CI workflow: installs the configured dotfiles provider before tests"
   fi
   if ((_ci_uses_full_matrix)); then
     _pass "CI workflow: requests full platform matrix"

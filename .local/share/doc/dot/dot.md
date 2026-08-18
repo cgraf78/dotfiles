@@ -267,7 +267,8 @@ dot-test
 
 The dotfiles-owned runner lives under `~/.local/lib/dotfiles/tests/`. During
 fleet preparation it executes the frozen rescue suites under
-`~/.local/lib/dotfiles/legacy-dot/tests/`; after the standalone public API is
-authoritative it selects the client suites. See the
+`~/.local/lib/dotfiles/legacy-dot/tests/`, even after Shdeps publishes the
+standalone public API. It selects the client suites only after the tracked
+cutover phase activates the standalone engine. See the
 [`tests` README](../../../../.local/lib/dotfiles/tests/README.md) for suite
 names, options, and CI coverage.

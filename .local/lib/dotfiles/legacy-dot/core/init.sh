@@ -224,7 +224,9 @@ _bootstrap_shdeps() {
     fi
   fi
 
-  _warn "  warning: failed to install shdeps — skipping dependency install"
+  if [[ "${DOT_QUIET:-0}" -ne 1 ]]; then
+    _warn "  warning: failed to install shdeps — skipping dependency install"
+  fi
   return 1
 }
 

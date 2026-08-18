@@ -62,6 +62,10 @@ make_fake_shdeps() {
   mkdir -p "$fake_root"
   cat >"$fake_root/install.sh" <<'INSTALL'
 # shellcheck shell=bash
+if [[ ${SHDEPS_FAKE_BOOTSTRAP_FAIL:-0} -eq 1 ]]; then
+  printf 'bootstrap mutated\n' >"$SHDEPS_FAKE_BOOTSTRAP_MARKER"
+  return 74
+fi
 # shellcheck source=/dev/null
 . "${SHDEPS_LIB%/*}/shdeps.sh"
 INSTALL
@@ -78,8 +82,23 @@ shdeps_self_update() {
 }
 
 shdeps_update() {
+  local checkout=$SHDEPS_INSTALL_DIR/cgraf78/dot
+
   printf 'force=%s\n' "${SHDEPS_FORCE:-unset}" >>"$SHDEPS_FAKE_LOG"
   [[ ${SHDEPS_FAKE_FAIL:-0} -eq 0 ]] || return 73
+  mkdir -p "${checkout%/*}"
+  if [[ ! -d $checkout/.git ]]; then
+    git clone --quiet --no-checkout "$SHDEPS_FAKE_DOT_ORIGIN" "$checkout" || return
+  else
+    git -C "$checkout" fetch --quiet origin || return
+  fi
+  git -C "$checkout" -c advice.detachedHead=false checkout --quiet --detach \
+    "$SHDEPS_FAKE_DOT_REVISION" || return
+  # Real Shdeps owns only the generic checkout. The client hook owns Dot's
+  # public adapter/library publication and must make the same boundary work.
+  # shellcheck source=/dev/null
+  . "$SHDEPS_HOOKS_DIR/cgraf78/dot.sh" || return
+  post cgraf78/dot
 }
 
 # Keep external repository traffic and unrelated base hooks out of this
@@ -140,9 +159,9 @@ prepare_case() {
 
   make_fake_shdeps
   CASE_LOG=$SHDEPS_FAKE_ROOT/update.log
+  CASE_BOOTSTRAP_MARKER=$SHDEPS_FAKE_ROOT/bootstrap-failed
   CASE_LEGACY_LOG=$SHDEPS_FAKE_ROOT/legacy.log
   CASE_LEGACY_WRAPPER=$SHDEPS_FAKE_ROOT/legacy-wrapper
-  CASE_XDG_ROOT=$(_tmpdir)
   CASE_OVERLAY_ROOT=$(_tmpdir)
   CASE_OVERLAY_CONF=$(_tmpdir)
   mkdir -p \
@@ -157,6 +176,11 @@ EOF
 merge() {
   mkdir -p "$HOME/.local/state/dot"
   printf 'overlay hook ran\n' >>"$HOME/.local/state/dot/fleet-transition-overlay-hook"
+  if [[ ${DOT_FLEET_TOPOLOGY_FAIL:-0} -eq 1 ]]; then
+    printf '%s\n' \
+      'version=1' \
+      'dependency_provider=none' >"$HOME/.config/dot/config"
+  fi
 }
 HOOK
   cat >"$CASE_OVERLAY_ROOT/home/.local/lib/dotfiles/legacy-dot/tests/transition-overlay-test" <<'TEST'
@@ -172,6 +196,8 @@ exec "$HOME/.local/lib/dotfiles/legacy-dot-launcher.sh" "$@"
 WRAPPER
   chmod 0755 "$CASE_LEGACY_WRAPPER"
   CASE_FAIL=0
+  CASE_BOOTSTRAP_FAIL=0
+  CASE_TOPOLOGY_FAIL=0
   [[ $mode == success ]] || CASE_FAIL=1
 }
 
@@ -185,19 +211,24 @@ run_case_test() {
 
 run_case_dot() {
   HOME=$CASE_HOME \
-    XDG_CONFIG_HOME=$CASE_XDG_ROOT/config \
-    XDG_STATE_HOME=$CASE_XDG_ROOT/state \
-    XDG_CACHE_HOME=$CASE_XDG_ROOT/cache \
-    XDG_DATA_HOME=$CASE_XDG_ROOT/data \
+    XDG_CONFIG_HOME=$CASE_HOME/.config \
+    XDG_STATE_HOME=$CASE_HOME/.local/state \
+    XDG_CACHE_HOME=$CASE_HOME/.cache \
+    XDG_DATA_HOME=$CASE_HOME/.local/share \
     SHDEPS_LIB=$SHDEPS_FAKE_ROOT/shdeps.sh \
     SHDEPS_FAKE_BINARY=$SHDEPS_FAKE_ROOT/shdeps \
     SHDEPS_FAKE_LOG=$CASE_LOG \
+    SHDEPS_FAKE_BOOTSTRAP_FAIL=$CASE_BOOTSTRAP_FAIL \
+    SHDEPS_FAKE_BOOTSTRAP_MARKER=$CASE_BOOTSTRAP_MARKER \
     SHDEPS_FAKE_FAIL=$CASE_FAIL \
+    SHDEPS_FAKE_DOT_ORIGIN=$dot_root \
+    SHDEPS_FAKE_DOT_REVISION=$(git -C "$dot_root" rev-parse HEAD) \
     SHDEPS_INSTALL_DIR=$CASE_HOME/.local/share \
     SHDEPS_GIT_DEV_DIR=$CASE_HOME/.fixture-dev \
     DOT_CLIENT_LEGACY_LAUNCHER=$CASE_LEGACY_WRAPPER \
     DOT_CLIENT_HANDOFF_HELPER=$CASE_HOME/.fixture-missing-handoff \
     DOT_FLEET_LEGACY_LOG=$CASE_LEGACY_LOG \
+    DOT_FLEET_TOPOLOGY_FAIL=$CASE_TOPOLOGY_FAIL \
     DOT_FLEET_OVERLAY_CONF_DIR=$CASE_OVERLAY_CONF \
     DOT_UI_TICK_SECONDS=0.01 \
     "$CASE_HOME/.local/bin/dot" "$@"
@@ -245,10 +276,34 @@ if git -C "$dot_root" merge-base --is-ancestor \
 else
   _fail 'tested standalone checkout contains the locked minimum revision'
 fi
-_assert_file_missing 'namespace preparation does not install standalone Dot' \
+_assert_file_exists 'bootstrap preparation installs standalone Dot' \
   "$CASE_HOME/.local/share/cgraf78/dot/bin/dot"
-_assert_file_missing 'namespace preparation does not publish client readiness' \
-  "$CASE_XDG_ROOT/state/dot/client-ready-v2/$minimum_revision"
+if [[ -f $CASE_HOME/.local/bin/dot && ! -L $CASE_HOME/.local/bin/dot ]]; then
+  _pass 'bootstrap preserves the regular client adapter'
+else
+  _fail 'bootstrap preserves the regular client adapter'
+fi
+if [[ -L $CASE_HOME/.local/lib/dot ]] &&
+  [[ $(readlink "$CASE_HOME/.local/lib/dot") == "$CASE_HOME/.local/share/cgraf78/dot/lib/dot/public" ]]; then
+  _pass 'bootstrap publishes the exact standalone public library link'
+else
+  _fail 'bootstrap publishes the exact standalone public library link'
+fi
+readiness_generation=$(sed -n 's/^readiness_generation=//p' \
+  "$CASE_HOME/.local/lib/dotfiles/dot-cutover.lock")
+readiness=$CASE_HOME/.local/state/dot/client-ready-v4/$readiness_generation/$minimum_revision
+if [[ $first_reexec -eq 1 ]]; then
+  if [[ -f $readiness && ! -L $readiness ]]; then
+    _pass 'reexec convergence publishes private client readiness'
+    _assert_eq 'reexec convergence makes readiness private' 600 \
+      "$(stat -c '%a' "$readiness" 2>/dev/null || stat -f '%Lp' "$readiness")"
+  else
+    _fail 'reexec convergence publishes private client readiness'
+  fi
+else
+  _assert_file_missing 'loaded old engine defers readiness to the rescue' \
+    "$readiness"
+fi
 if [[ -f $CASE_HOME/.local/bin/dot && ! -L $CASE_HOME/.local/bin/dot ]]; then
   _pass 'fleet transition preserves the regular client adapter'
 else
@@ -282,6 +337,53 @@ _assert_file_content 'second forced preparation reaches Shdeps again' \
 _assert_file_content 'second preparation cron reruns the relocated overlay hook' \
   $'overlay hook ran\noverlay hook ran' \
   "$CASE_HOME/.local/state/dot/fleet-transition-overlay-hook"
+if [[ -f $readiness && ! -L $readiness ]]; then
+  _pass 'second preparation cron publishes private client readiness'
+  _assert_eq 'second preparation readiness stays private' 600 \
+    "$(stat -c '%a' "$readiness" 2>/dev/null || stat -f '%Lp' "$readiness")"
+else
+  _fail 'second preparation cron publishes private client readiness'
+fi
+
+CASE_BOOTSTRAP_FAIL=1
+bootstrap_failure_output=''
+bootstrap_failure_status=0
+bootstrap_failure_output=$(run_case_dot update --cron --force 2>&1) ||
+  bootstrap_failure_status=$?
+if [[ $bootstrap_failure_status -ne 0 ]]; then
+  _pass 'early bootstrap failure remains nonzero'
+else
+  _fail 'early bootstrap failure remains nonzero'
+fi
+_assert_eq 'early bootstrap failure remains silent' '' "$bootstrap_failure_output"
+_assert_file_content 'early bootstrap failure crosses a mutating boundary' \
+  'bootstrap mutated' "$CASE_BOOTSTRAP_MARKER"
+_assert_file_missing 'early bootstrap failure revokes stale readiness' \
+  "$readiness"
+
+CASE_BOOTSTRAP_FAIL=0
+recovery_output=''
+recovery_status=0
+recovery_output=$(run_case_dot update --cron --force 2>&1) || recovery_status=$?
+_assert_exit 'post-bootstrap-failure convergence succeeds' 0 "$recovery_status"
+_assert_eq 'post-bootstrap-failure cron remains silent' '' "$recovery_output"
+_assert_file_exists 'post-bootstrap-failure convergence republishes readiness' \
+  "$readiness"
+
+# A later client-topology failure must revoke the last successful proof before
+# any mutation and remain silent in cron mode.
+CASE_TOPOLOGY_FAIL=1
+third_output=''
+third_status=0
+third_output=$(run_case_dot update --cron --force 2>&1) || third_status=$?
+if [[ $third_status -ne 0 ]]; then
+  _pass 'failed later convergence remains nonzero'
+else
+  _fail 'failed later convergence remains nonzero'
+fi
+_assert_eq 'failed later cron remains silent' '' "$third_output"
+_assert_file_missing 'failed later convergence revokes stale readiness' \
+  "$readiness"
 
 prepare_case failure || exit 1
 failure_output=''
@@ -295,8 +397,12 @@ fi
 _assert_eq 'failed cron transition remains silent' '' "$failure_output"
 failed_revision=$(sed -n 's/^minimum_revision=//p' \
   "$CASE_HOME/.local/lib/dotfiles/dot-cutover.lock")
+failed_generation=$(sed -n 's/^readiness_generation=//p' \
+  "$CASE_HOME/.local/lib/dotfiles/dot-cutover.lock")
 _assert_file_missing 'failed convergence publishes no readiness' \
-  "$CASE_XDG_ROOT/state/dot/client-ready-v2/$failed_revision"
+  "$CASE_HOME/.local/state/dot/client-ready-v4/$failed_generation/$failed_revision"
+_assert_file_missing 'failed convergence publishes no public library link' \
+  "$CASE_HOME/.local/lib/dot"
 _assert_file_exists 'failed convergence retains the frozen rescue engine' \
   "$CASE_HOME/.local/lib/dotfiles/legacy-dot/core/update.sh"
 _assert_file_missing 'failed convergence keeps the public library namespace vacant' \
