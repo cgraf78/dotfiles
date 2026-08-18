@@ -23,6 +23,7 @@ jobs:
       # validates dependency releases and installed-tool smoke checks.
       force-dotfiles-update: true
       matrix-set: full
+      profiles: python
       setup: dotfiles
       shellcheck-exclude-codes: SC1091
       shellcheck-inventory-path: .github/shellcheck-files.txt
@@ -91,7 +92,7 @@ jobs:
         set -euo pipefail
         HOME="$PWD" PATH="$PWD/.local/bin:$PATH" .local/bin/dot update --skip-pull
         HOME="$PWD" PATH="$PWD/.local/bin:$PATH" bash .local/lib/dotfiles/legacy-dot/tests/android-ci-smoke
-      termux-profiles: base,neovim
+      termux-profiles: base,neovim,python
 
   actions-sync:
     name: cgraf78/actions sync
