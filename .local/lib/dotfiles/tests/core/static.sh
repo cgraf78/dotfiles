@@ -632,6 +632,8 @@ PY
   # currently gets from another embedded core file.
   _core_boundary_scanner="$_lint_root/.local/lib/dotfiles/tests/core-boundary-inventory.py"
   _core_boundary_tracked=$(_tmpdir)/tracked-files
+  _core_boundary_has_shfmt=0
+  command -v shfmt >/dev/null 2>&1 && _core_boundary_has_shfmt=1
   "${_lint_git[@]}" ls-files >"$_core_boundary_tracked"
   for _core_boundary_spec in \
     "sources|runtime source|embedded-core-sources-v1.tsv" \
@@ -639,6 +641,10 @@ PY
     "symbols|hook and doctor symbol|embedded-core-symbols-v1.tsv"; do
     IFS='|' read -r _core_boundary_kind _core_boundary_label \
       _core_boundary_fixture <<<"$_core_boundary_spec"
+    if [[ $_core_boundary_kind != tests && $_core_boundary_has_shfmt -eq 0 ]]; then
+      echo "  SKIP: embedded core boundary $_core_boundary_label inventory (shfmt unavailable)"
+      continue
+    fi
     _core_boundary_expected=$(_tmpdir)/expected.tsv
     _core_boundary_actual=$(_tmpdir)/actual.tsv
     awk 'NF && $0 !~ /^[[:space:]]*#/' \
@@ -734,7 +740,9 @@ TRACKED
 .local/bin/direct-link	xdg.sh	$_core_boundary_fixture_owner/xdg.sh
 .local/bin/split	xdg.sh	$_core_boundary_fixture_owner/xdg.sh
 EXPECTED
-  if python3 "$_core_boundary_scanner" sources \
+  if [[ $_core_boundary_has_shfmt -eq 0 ]]; then
+    echo "  SKIP: embedded core boundary source-shape scanner (shfmt unavailable)"
+  elif python3 "$_core_boundary_scanner" sources \
     "$_core_boundary_fixture_root" "$_core_boundary_fixture_root/tracked" \
     >"$_core_boundary_fixture_root/sources.actual" &&
     cmp -s "$_core_boundary_fixture_root/sources.expected" \
@@ -755,7 +763,9 @@ variable	$_core_boundary_fixture_owner/merge-hooks/test.sh	RHS_GLOBAL	$_core_bou
 variable	$_core_boundary_fixture_owner/merge-hooks/test.sh	TRAP_GLOBAL	$_core_boundary_fixture_owner/constants.sh
 variable	$_core_boundary_fixture_owner/merge-hooks/test.sh	UNSET_GLOBAL	$_core_boundary_fixture_owner/constants.sh
 EXPECTED
-  if python3 "$_core_boundary_scanner" symbols \
+  if [[ $_core_boundary_has_shfmt -eq 0 ]]; then
+    echo "  SKIP: embedded core boundary symbol-shape scanner (shfmt unavailable)"
+  elif python3 "$_core_boundary_scanner" symbols \
     "$_core_boundary_fixture_root" "$_core_boundary_fixture_root/tracked" \
     >"$_core_boundary_fixture_root/symbols.actual" &&
     cmp -s "$_core_boundary_fixture_root/symbols.expected" \

@@ -38,6 +38,9 @@ export DOT_SOURCE_ROOT=$dot_root
 export DOT_EXTENSIONS_DIR=$client_root
 export DOT_EXTENSION_API=1
 export HOME=$fixture_home
+# The fixture owns its HOME-derived client config. Hosted runners may export
+# unrelated XDG roots; do not let those redirect the descriptor under test.
+unset XDG_CONFIG_HOME XDG_STATE_HOME XDG_CACHE_HOME XDG_DATA_HOME XDG_RUNTIME_DIR
 
 # shellcheck source=/dev/null
 . "$dot_root/lib/dot/public/xdg.sh"
