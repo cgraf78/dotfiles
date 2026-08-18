@@ -4909,9 +4909,10 @@ JSON
     else
       chmod 000 "$vscode_inaccessible_remote_home/.cursor-server"
     fi
-    vscode_inaccessible_remote_rc=0
+    vscode_inaccessible_remote_dirs=""
     # shellcheck disable=SC2016 # The inner shell expands fixture env variables.
-    env HOME="$vscode_inaccessible_remote_home" REAL_HOME="$REAL_HOME" \
+    vscode_inaccessible_remote_dirs=$(env \
+      HOME="$vscode_inaccessible_remote_home" REAL_HOME="$REAL_HOME" \
       PATH="$vscode_bin:$PATH" DOT_TEST_MV_LOG="$vscode_mv_log" \
       DOT_TEST_VSCODE_HOSTNAME="inaccessible-remote-host" bash -c '
       set -euo pipefail
@@ -4922,17 +4923,15 @@ JSON
       _warn() { printf "%s\n" "$*" >&2; }
       # shellcheck source=/dev/null
       . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/vscode.sh"
-      merge
-    ' >/dev/null 2>&1 || vscode_inaccessible_remote_rc=$?
+      _vscode_remote_settings_dirs
+    ')
     if ((EUID == 0)); then
       chown 0 "$vscode_inaccessible_remote_home/.cursor-server"
     else
       chmod 700 "$vscode_inaccessible_remote_home/.cursor-server"
     fi
-    _assert_eq "vscode remote settings: inaccessible server root is ignored" \
-      "0" "$vscode_inaccessible_remote_rc"
-    _assert_file_missing "vscode remote settings: inaccessible server root remains untouched" \
-      "$vscode_inaccessible_remote_home/.cursor-server/data/Machine/settings.json"
+    _assert_eq "vscode remote settings: inaccessible server root is not discovered" \
+      "" "$vscode_inaccessible_remote_dirs"
 
     vscode_nosley_extensions=$(jq -c . "$vscode_home/.vscode-nosley/extensions/extensions.json")
     _assert_not_contains "vscode sley: no-sley variant unregisters formatter extension" \
