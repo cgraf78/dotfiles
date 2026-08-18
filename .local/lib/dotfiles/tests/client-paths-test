@@ -60,11 +60,12 @@ else
   _fail 'namespace preparation ships no readiness writer'
 fi
 
-if [[ -L $source_home/.local/bin/dot-test ]] &&
-  [[ $(readlink "$source_home/.local/bin/dot-test") == ../lib/dotfiles/tests/run ]]; then
-  _pass 'dot-test is the exact dotfiles-owned relative symlink'
+if [[ -f $source_home/.local/bin/dot-test &&
+  ! -L $source_home/.local/bin/dot-test &&
+  -x $source_home/.local/bin/dot-test ]]; then
+  _pass 'dot-test is a regular dotfiles-owned client trampoline'
 else
-  _fail 'dot-test is the exact dotfiles-owned relative symlink'
+  _fail 'dot-test is a regular dotfiles-owned client trampoline'
 fi
 
 selected_paths=(

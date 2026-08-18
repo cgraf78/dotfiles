@@ -4,12 +4,14 @@
 dot_core_test_runner() {
   echo "=== dot-test runner ==="
 
-  if [[ -L "$BIN_DIR/dot-test" ]] &&
-    [[ $(readlink "$BIN_DIR/dot-test") == ../lib/dotfiles/tests/run ]]; then
-    _pass "dot-test entry point is the exact dotfiles-owned relative symlink"
+  if [[ -f "$BIN_DIR/dot-test" && ! -L "$BIN_DIR/dot-test" &&
+    -x "$BIN_DIR/dot-test" ]]; then
+    _pass "dot-test entry point is a regular client trampoline"
   else
-    _fail "dot-test entry point is the exact dotfiles-owned relative symlink"
+    _fail "dot-test entry point is a regular client trampoline"
   fi
+
+  _dot_runner_impl="$REAL_HOME/.local/lib/dotfiles/tests/run"
 
   _dot_runner_tests=$(_tmpdir)
   _dot_runner_bin=$(_tmpdir)
@@ -88,7 +90,7 @@ DOTRUNNER
     0 "$_dot_runner_concurrent_one_rc"
   _assert_exit "dot-test temp lifecycle: second concurrent runner succeeds" \
     0 "$_dot_runner_concurrent_two_rc"
-  _dot_runner_wait_block=$(sed -n '/^_wait_job_bounded()/,/^}/p' "$BIN_DIR/dot-test")
+  _dot_runner_wait_block=$(sed -n '/^_wait_job_bounded()/,/^}/p' "$_dot_runner_impl")
   # These are literal implementation contracts, not shell expressions here.
   # shellcheck disable=SC2016
   _assert_contains "dot-test wait: uses a complete polling budget" \
@@ -456,7 +458,7 @@ DOTRUNNER
     "$_dot_runner_host_home/.cache/mise"
   cp "$REAL_HOME/.local/lib/dotfiles/tests/run" \
     "$_dot_runner_source_home/.local/lib/dotfiles/tests/run"
-  ln -s ../lib/dotfiles/tests/run \
+  cp "$REAL_HOME/.local/bin/dot-test" \
     "$_dot_runner_source_home/.local/bin/dot-test"
   cat >"$_dot_runner_host_home/.local/lib/dot/ui.sh" <<'DOTRUNNER'
 dot_ui_color_hex() { printf '%s' "$1"; }
@@ -480,7 +482,8 @@ DOTRUNNER
 }
 printf 'Results: 1 passed, 0 failed\n'
 DOTRUNNER
-  chmod +x "$_dot_runner_source_home/.local/lib/dotfiles/tests/run" \
+  chmod +x "$_dot_runner_source_home/.local/bin/dot-test" \
+    "$_dot_runner_source_home/.local/lib/dotfiles/tests/run" \
     "$_dot_runner_source_tests/home-test"
   env -u SHDEPS_LIB -u SHDEPS_DIR -u MISE_DATA_DIR -u MISE_STATE_DIR -u MISE_CACHE_DIR \
     DOT_TEST_SOURCE_HOME="$_dot_runner_source_home" \
