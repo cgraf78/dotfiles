@@ -169,6 +169,11 @@ EOF
 merge() {
   mkdir -p "$HOME/.local/state/dot"
   printf 'overlay hook ran\n' >>"$HOME/.local/state/dot/fleet-transition-overlay-hook"
+  if [[ ${DOT_FLEET_TOPOLOGY_FAIL:-0} -eq 1 ]]; then
+    printf '%s\n' \
+      'version=1' \
+      'dependency_provider=none' >"$HOME/.config/dot/config"
+  fi
 }
 HOOK
   cat >"$CASE_OVERLAY_ROOT/home/.local/lib/dotfiles/legacy-dot/tests/transition-overlay-test" <<'TEST'
@@ -184,6 +189,7 @@ exec "$HOME/.local/lib/dotfiles/legacy-dot-launcher.sh" "$@"
 WRAPPER
   chmod 0755 "$CASE_LEGACY_WRAPPER"
   CASE_FAIL=0
+  CASE_TOPOLOGY_FAIL=0
   [[ $mode == success ]] || CASE_FAIL=1
 }
 
@@ -213,6 +219,7 @@ run_case_dot() {
     DOT_CLIENT_LEGACY_LAUNCHER=$CASE_LEGACY_WRAPPER \
     DOT_CLIENT_HANDOFF_HELPER=$CASE_HOME/.fixture-missing-handoff \
     DOT_FLEET_LEGACY_LOG=$CASE_LEGACY_LOG \
+    DOT_FLEET_TOPOLOGY_FAIL=$CASE_TOPOLOGY_FAIL \
     DOT_FLEET_OVERLAY_CONF_DIR=$CASE_OVERLAY_CONF \
     DOT_UI_TICK_SECONDS=0.01 \
     "$CASE_HOME/.local/bin/dot" "$@"
@@ -274,11 +281,11 @@ else
 fi
 readiness_generation=$(sed -n 's/^readiness_generation=//p' \
   "$CASE_HOME/.local/lib/dotfiles/dot-cutover.lock")
-readiness=$CASE_HOME/.local/state/dot/client-ready-v3/$readiness_generation/$minimum_revision
+readiness=$CASE_HOME/.local/state/dot/client-ready-v4/$readiness_generation/$minimum_revision
 if [[ $first_reexec -eq 1 ]]; then
-  if [[ -d $readiness && ! -L $readiness ]]; then
+  if [[ -f $readiness && ! -L $readiness ]]; then
     _pass 'reexec convergence publishes private client readiness'
-    _assert_eq 'reexec convergence makes readiness private' 700 \
+    _assert_eq 'reexec convergence makes readiness private' 600 \
       "$(stat -c '%a' "$readiness" 2>/dev/null || stat -f '%Lp' "$readiness")"
   else
     _fail 'reexec convergence publishes private client readiness'
@@ -320,13 +327,28 @@ _assert_file_content 'second forced preparation reaches Shdeps again' \
 _assert_file_content 'second preparation cron reruns the relocated overlay hook' \
   $'overlay hook ran\noverlay hook ran' \
   "$CASE_HOME/.local/state/dot/fleet-transition-overlay-hook"
-if [[ -d $readiness && ! -L $readiness ]]; then
+if [[ -f $readiness && ! -L $readiness ]]; then
   _pass 'second preparation cron publishes private client readiness'
-  _assert_eq 'second preparation readiness stays private' 700 \
+  _assert_eq 'second preparation readiness stays private' 600 \
     "$(stat -c '%a' "$readiness" 2>/dev/null || stat -f '%Lp' "$readiness")"
 else
   _fail 'second preparation cron publishes private client readiness'
 fi
+
+# A later client-topology failure must revoke the last successful proof before
+# any mutation and remain silent in cron mode.
+CASE_TOPOLOGY_FAIL=1
+third_output=''
+third_status=0
+third_output=$(run_case_dot update --cron --force 2>&1) || third_status=$?
+if [[ $third_status -ne 0 ]]; then
+  _pass 'failed later convergence remains nonzero'
+else
+  _fail 'failed later convergence remains nonzero'
+fi
+_assert_eq 'failed later cron remains silent' '' "$third_output"
+_assert_file_missing 'failed later convergence revokes stale readiness' \
+  "$readiness"
 
 prepare_case failure || exit 1
 failure_output=''
@@ -343,7 +365,7 @@ failed_revision=$(sed -n 's/^minimum_revision=//p' \
 failed_generation=$(sed -n 's/^readiness_generation=//p' \
   "$CASE_HOME/.local/lib/dotfiles/dot-cutover.lock")
 _assert_file_missing 'failed convergence publishes no readiness' \
-  "$CASE_HOME/.local/state/dot/client-ready-v3/$failed_generation/$failed_revision"
+  "$CASE_HOME/.local/state/dot/client-ready-v4/$failed_generation/$failed_revision"
 _assert_file_missing 'failed convergence publishes no public library link' \
   "$CASE_HOME/.local/lib/dot"
 _assert_file_exists 'failed convergence retains the frozen rescue engine' \

@@ -120,6 +120,35 @@ _dot_update_publish_client_readiness() {
   "$helper" write
 }
 
+_dot_update_revoke_client_readiness() {
+  local helper="$HOME/.local/lib/dotfiles/dot-client-readiness.sh"
+  local lock="$HOME/.local/lib/dotfiles/dot-cutover.lock"
+
+  if [[ ! -e $helper && ! -L $helper ]]; then
+    # Pre-migration fixtures have neither file. Once a cutover lock exists, the
+    # matching helper is required so a stale proof cannot survive mutation.
+    [[ ! -e $lock && ! -L $lock ]]
+    return
+  fi
+  [[ -f $helper && ! -L $helper && -x $helper ]] || return 1
+  "$helper" revoke
+}
+
+_dot_update_remove_retired_public_directory() {
+  local public_path="$HOME/.local/lib/dot"
+
+  if [[ ! -e $public_path && ! -L $public_path ]]; then
+    return 0
+  fi
+  # Overlay unlinking can leave the former embedded namespace as an empty real
+  # directory tree. Prune only empty directories from the recognized retired
+  # root; any link, file, or nonempty directory remains untouched and makes the
+  # standalone installer's no-clobber boundary fail closed.
+  [[ -d $public_path && ! -L $public_path ]] || return 0
+  find "$public_path" -depth -type d -exec rmdir {} \; 2>/dev/null || return 1
+  [[ ! -e $public_path && ! -L $public_path ]]
+}
+
 _dot_update_reexec_if_needed() {
   local cron_mode="$1" head_before="$2"
   shift 2
@@ -201,6 +230,7 @@ _dot_update_finalize() {
   fi
   _ensure_repo_config
   _link_overlays || update_status=1
+  _dot_update_remove_retired_public_directory || update_status=1
   if _ensure_shdeps && _dot_shdeps_require_release_launcher_preservation; then
     shdeps_ready=1
   else
@@ -272,6 +302,11 @@ _dot_update() {
       *) break ;;
     esac
   done
+
+  # Revoke the previous successful convergence proof before any repository,
+  # overlay, or dependency mutation. Only the final successful convergence may
+  # publish a fresh proof for a later fleet-wide activation phase.
+  _dot_update_revoke_client_readiness || return 1
 
   # The launcher performs this before entering update. Keep a defensive gate
   # here for sourced callers so SSH, repository, and HOME mutations cannot

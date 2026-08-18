@@ -63,7 +63,7 @@ _assert_contains 'bootstrap preparation provisions standalone Dot through Shdeps
 
 cutover_lock=$source_home/.local/lib/dotfiles/dot-cutover.lock
 _assert_file_content 'bootstrap uses the versioned topology lock' \
-  $'cgraf78 dot client cutover v3\nphase=prepare\nminimum_revision='"$(sed -n 's/^minimum_revision=//p' "$cutover_lock")"$'\nreadiness_generation=client-topology-v1' \
+  $'cgraf78 dot client cutover v4\nphase=prepare\nminimum_revision='"$(sed -n 's/^minimum_revision=//p' "$cutover_lock")"$'\nreadiness_generation=client-topology-prepare-v1' \
   "$cutover_lock"
 
 minimum_revision=$(sed -n 's/^minimum_revision=//p' \
@@ -88,7 +88,7 @@ else
   _fail 'bootstrap ships the private readiness writer'
 fi
 _assert_file_missing 'tracked bootstrap tree publishes no host readiness by itself' \
-  "$state/dot/client-ready-v3/client-topology-v1/$minimum_revision"
+  "$state/dot/client-ready-v4/client-topology-prepare-v1/$minimum_revision"
 _assert_eq 'bootstrap tracks standalone client configuration' \
   '.config/dot/config' \
   "$(git -C "$source_home" ls-files -- .config/dot/config)"
@@ -109,7 +109,7 @@ prepare_readiness_case() {
   READY_HOME=$(_tmpdir)
   READY_CHECKOUT=$READY_HOME/.local/share/cgraf78/dot
   READY_STATE=$READY_HOME/.local/state
-  READY_PATH=$READY_STATE/dot/client-ready-v3/$readiness_generation/$minimum_revision
+  READY_PATH=$READY_STATE/dot/client-ready-v4/$readiness_generation/$minimum_revision
   mkdir -p \
     "$READY_HOME/.config/dot" \
     "$READY_HOME/.local/bin" \
@@ -131,15 +131,34 @@ run_readiness_case() {
     "$readiness_helper" write
 }
 
+revoke_readiness_case() {
+  HOME=$READY_HOME \
+    XDG_CONFIG_HOME=$READY_HOME/.config \
+    XDG_STATE_HOME=$READY_STATE \
+    SHDEPS_INSTALL_DIR=$READY_HOME/.local/share \
+    DOT_CLIENT_CUTOVER_LOCK=$READY_HOME/.local/lib/dotfiles/dot-cutover.lock \
+    "$readiness_helper" revoke
+}
+
 prepare_readiness_case
 readiness_status=0
 run_readiness_case || readiness_status=$?
 _assert_exit 'validated client topology publishes readiness' 0 "$readiness_status"
-if [[ -d $READY_PATH && ! -L $READY_PATH ]]; then
+if [[ -f $READY_PATH && ! -L $READY_PATH ]]; then
   _pass 'validated client topology publishes the expected generation'
+  _assert_eq 'validated readiness record stays private' 600 \
+    "$(stat -c '%a' "$READY_PATH" 2>/dev/null || stat -f '%Lp' "$READY_PATH")"
+  _assert_contains 'validated readiness records the exact config authority' \
+    "config_path=$READY_HOME/.config/dot/config" "$(<"$READY_PATH")"
 else
   _fail 'validated client topology publishes the expected generation'
 fi
+revoke_status=0
+revoke_readiness_case || revoke_status=$?
+_assert_exit 'readiness revocation succeeds before update mutation' \
+  0 "$revoke_status"
+_assert_file_missing 'readiness revocation removes the old authority' \
+  "$READY_PATH"
 
 prepare_readiness_case
 # shellcheck disable=SC2016 # The client config owns this literal HOME token.
@@ -148,8 +167,9 @@ printf '%s\n' \
   'extension_api=1' \
   'extensions_dir=$HOME/.local/lib/dotfiles' \
   'dependency_provider=none' >"$READY_HOME/.config/dot/config"
+invalid_config_output=''
 invalid_config_status=0
-run_readiness_case >/dev/null 2>&1 || invalid_config_status=$?
+invalid_config_output=$(DOT_QUIET=1 run_readiness_case 2>&1) || invalid_config_status=$?
 if [[ $invalid_config_status -ne 0 ]]; then
   _pass 'invalid standalone client configuration denies readiness'
 else
@@ -157,6 +177,7 @@ else
 fi
 _assert_file_missing 'invalid client configuration publishes no readiness' \
   "$READY_PATH"
+_assert_eq 'quiet readiness failure remains silent' '' "$invalid_config_output"
 
 prepare_readiness_case
 unlink "$READY_HOME/.local/lib/dot"
@@ -182,5 +203,35 @@ else
 fi
 _assert_file_missing 'changed client adapter publishes no readiness' \
   "$READY_PATH"
+
+retired_home=$(_tmpdir)
+mkdir -p \
+  "$retired_home/.local/lib/dot/agents/work/nested" \
+  "$retired_home/.local/lib/dot/core/merge-hooks/personal" \
+  "$retired_home/.local/lib/dot/tests/work"
+retired_cleanup_status=0
+HOME=$retired_home bash -c \
+  '. "$1"; _dot_update_remove_retired_public_directory' \
+  _ "$source_home/.local/lib/dotfiles/legacy-dot/core/update.sh" ||
+  retired_cleanup_status=$?
+_assert_exit 'retired empty public directory cleanup succeeds' \
+  0 "$retired_cleanup_status"
+_assert_file_missing 'retired nested public directory tree is removed' \
+  "$retired_home/.local/lib/dot"
+
+mkdir -p "$retired_home/.local/lib/dot"
+printf 'foreign\n' >"$retired_home/.local/lib/dot/foreign"
+nonempty_cleanup_status=0
+HOME=$retired_home bash -c \
+  '. "$1"; _dot_update_remove_retired_public_directory' \
+  _ "$source_home/.local/lib/dotfiles/legacy-dot/core/update.sh" ||
+  nonempty_cleanup_status=$?
+if [[ $nonempty_cleanup_status -ne 0 ]]; then
+  _pass 'nonempty retired public directory fails closed'
+else
+  _fail 'nonempty retired public directory fails closed'
+fi
+_assert_file_content 'nonempty retired public directory preserves foreign data' \
+  'foreign' "$retired_home/.local/lib/dot/foreign"
 
 _test_summary
