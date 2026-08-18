@@ -285,14 +285,23 @@ dot_client_ready_revoke() {
   readiness_root=$dot_state/client-ready-v4
   generation_root=$readiness_root/$DOT_CLIENT_READY_GENERATION
   readiness=$generation_root/$DOT_CLIENT_READY_REVISION
-  if [[ ! -e $readiness && ! -L $readiness ]]; then
+  if [[ ! -e $dot_state && ! -L $dot_state ]]; then
     return 0
   fi
   # The path is authority only inside the exact private directory chain the
   # writer created. Do not follow a substituted state parent to another tree.
   dot_client_ready_private_directory "$dot_state" || return 1
+  if [[ ! -e $readiness_root && ! -L $readiness_root ]]; then
+    return 0
+  fi
   dot_client_ready_private_directory "$readiness_root" || return 1
+  if [[ ! -e $generation_root && ! -L $generation_root ]]; then
+    return 0
+  fi
   dot_client_ready_private_directory "$generation_root" || return 1
+  if [[ ! -e $readiness && ! -L $readiness ]]; then
+    return 0
+  fi
   # Remove only the exact private v4 record. Unexpected type, mode, owner, or
   # link count stops the update before it can mutate under stale authority.
   dot_client_ready_private_file "$readiness" || return 1

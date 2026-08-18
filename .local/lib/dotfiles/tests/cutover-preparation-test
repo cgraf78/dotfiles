@@ -296,6 +296,24 @@ assert_revoke_preserves_symlinked_parent \
   "$minimum_revision"
 
 prepare_readiness_case
+run_readiness_case
+saved_dot_state=$READY_STATE/dot.saved
+empty_dot_state=$(_tmpdir)
+mv "$READY_STATE/dot" "$saved_dot_state"
+ln -s "$empty_dot_state" "$READY_STATE/dot"
+hidden_record_status=0
+revoke_readiness_case >/dev/null 2>&1 || hidden_record_status=$?
+if [[ $hidden_record_status -ne 0 ]]; then
+  _pass 'readiness revocation rejects a parent that hides the active record'
+else
+  _fail 'readiness revocation rejects a parent that hides the active record'
+fi
+unlink "$READY_STATE/dot"
+mv "$saved_dot_state" "$READY_STATE/dot"
+_assert_file_exists 'failed revocation preserves the hidden readiness record' \
+  "$READY_PATH"
+
+prepare_readiness_case
 # shellcheck disable=SC2016 # The client config owns this literal HOME token.
 printf '%s\n' \
   'version=1' \
