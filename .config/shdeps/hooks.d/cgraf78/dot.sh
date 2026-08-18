@@ -3,10 +3,11 @@
 # two public entry points, including preservation of the client-owned adapter.
 
 post() {
+  local install_home=${SHDEPS_INSTALL_DIR:-$HOME/.local/share}
   local checkout installer
 
   [[ ${1:-} == cgraf78/dot ]] || return 2
-  checkout=${SHDEPS_INSTALL_DIR%/}/cgraf78/dot
+  checkout=${install_home%/}/cgraf78/dot
   installer=$checkout/support/install-checkout.sh
   [[ -f $installer && ! -L $installer ]] || return 1
   # PREFIX identifies Termux's system package tree, not this client's public
