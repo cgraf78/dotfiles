@@ -8,9 +8,8 @@ target-native config directories.
 ## Directories
 
 - `config` enables the dotfiles extension root and optional Shdeps provider.
-  Fleet preparation validates this file before recording host readiness, but
-  the retained rescue remains authoritative until the tracked cutover phase is
-  activated.
+  The standalone runtime parses this file before loading extensions or the
+  dependency provider.
 - `overlays.d/` declares optional overlay repositories. Companion `.ssh`
   snippets are consumed by the client-owned pre-sync hook before a private
   overlay clone is attempted.

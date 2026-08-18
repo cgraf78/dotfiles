@@ -142,7 +142,7 @@ MOCK
       _ci_termux_strict_line=$_ci_line_number
     fi
     if ((_ci_in_shell_with)) &&
-      [[ "$_ci_code" =~ ^[[:space:]]{8}HOME=\"\$PWD\"[[:space:]]+PATH=\"\$PWD/\.local/bin:\$PATH\"[[:space:]]+\"\$PWD/\.local/share/cgraf78/dot/bin/dot\"[[:space:]]+update[[:space:]]*$ ]]; then
+      [[ "$_ci_code" =~ ^[[:space:]]{8}HOME=\"\$PWD\"[[:space:]]+PATH=\"\$PWD/\.local/bin:\$PATH\"[[:space:]]+dot[[:space:]]+update[[:space:]]*$ ]]; then
       _ci_termux_update_line=$_ci_line_number
     fi
     if ((_ci_in_shell_with)) &&
@@ -320,15 +320,6 @@ MOCK
     "shellcheck-exclude-codes: SC1091" "$_ci_workflow"
   _assert_contains "CI workflow: skips only redundant platform ShellCheck" \
     "DOT_CORE_SKIP_SHELLCHECK=1 .local/bin/dot-test" "$_ci_workflow"
-  _assert_contains "CI workflow: derives the Dot test revision from the cutover lock" \
-    "s/^minimum_revision=//p" "$_ci_workflow"
-  # These are literal workflow snippets; the test shell must not expand them.
-  # shellcheck disable=SC2016
-  _assert_contains "CI workflow: fetches the exact reviewed Dot test revision" \
-    'fetch --no-tags --depth=1 origin "$dot_test_revision"' "$_ci_workflow"
-  # shellcheck disable=SC2016
-  _assert_contains "CI workflow: exports the isolated Dot test checkout" \
-    'export DOT_TEST_DOT_ROOT=$dot_test_root' "$_ci_workflow"
   _assert_not_contains "CI workflow: leaves provider-owned OpenCode smoke upstream" \
     "OPENCODE_TEST_VERSION" "$_ci_workflow"
   _assert_not_contains "CI workflow: does not run the provider adapter suite" \
@@ -615,10 +606,7 @@ def client_runtime_path(rel):
 
 for rel in tracked.read_text().splitlines():
     rel = rel.strip()
-    if not rel or rel.startswith((
-        ".local/lib/dotfiles/legacy-dot/",
-        ".local/lib/dotfiles/tests/",
-    )):
+    if not rel or rel.startswith(".local/lib/dotfiles/tests/"):
         continue
     if not client_runtime_path(rel):
         continue
@@ -690,10 +678,7 @@ def predictable_temp_line(line):
 
 for rel in tracked.read_text().splitlines():
     rel = rel.strip()
-    if not rel or rel.startswith((
-        ".local/lib/dotfiles/legacy-dot/",
-        ".local/lib/dotfiles/tests/",
-    )):
+    if not rel or rel.startswith(".local/lib/dotfiles/tests/"):
         continue
     path = root / rel
     if not path.is_file() or path.is_symlink():

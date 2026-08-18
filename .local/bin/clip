@@ -14,15 +14,13 @@ set -euo pipefail
 
 _dot_clip_library_home=${DOT_TEST_HOST_HOME:-${HOME:-}}
 _dot_clip_xdg=$_dot_clip_library_home/.local/lib/dot/xdg.sh
-if [[ ! -r $_dot_clip_xdg ]]; then
-  _dot_clip_library_home=${DOT_TEST_SOURCE_HOME:-${HOME:-}}
-  _dot_clip_xdg=$_dot_clip_library_home/.local/lib/dotfiles/legacy-dot/core/xdg.sh
-fi
+[[ -r $_dot_clip_xdg ]] || {
+  printf 'clip: standalone Dot public XDG library is unavailable: %s\n' \
+    "$_dot_clip_xdg" >&2
+  exit 1
+}
 # shellcheck source=../lib/dot/xdg.sh disable=SC1091
 . "$_dot_clip_xdg"
-if ! declare -F dot_xdg_path >/dev/null 2>&1; then
-  dot_xdg_path() { _dot_xdg_path "$@"; }
-fi
 if ! dot_xdg_path data clip; then
   printf 'clip: HOME is not set and XDG_DATA_HOME is not absolute\n' >&2
   exit 1

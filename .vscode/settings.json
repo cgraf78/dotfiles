@@ -1,5 +1,5 @@
 {
-  "bashIde.globPattern": "{.bashrc,.bash_profile,.profile,.zshenv,.zprofile,.zshrc,.config/dot/merge-hooks.d/**/*@(.sh|.inc|.bash|.zsh|.command),.config/shdeps/hooks.d/**/*@(.sh|.inc|.bash|.zsh|.command),.config/shell/**/*@(.sh|.inc|.bash|.zsh|.command),.local/lib/dotfiles/legacy-dot/**/*@(.sh|.inc|.bash|.zsh|.command),.local/share/cgraf78/**/*@(.sh|.inc|.bash|.zsh|.command),.local/share/cgraf78/*/bin/*}",
+  "bashIde.globPattern": "{.bashrc,.bash_profile,.profile,.zshenv,.zprofile,.zshrc,.config/dot/merge-hooks.d/**/*@(.sh|.inc|.bash|.zsh|.command),.config/shdeps/hooks.d/**/*@(.sh|.inc|.bash|.zsh|.command),.config/shell/**/*@(.sh|.inc|.bash|.zsh|.command),.local/share/cgraf78/**/*@(.sh|.inc|.bash|.zsh|.command),.local/share/cgraf78/*/bin/*}",
   "cmake.ignoreCMakeListsMissing": true,
   "files.watcherExclude": {
     ".bun/install/cache/**": true,

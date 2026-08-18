@@ -1,4 +1,0 @@
-#!/usr/bin/env bash
-# bootstrap-overlay-test — overlay/re-run bootstrap flows split from bootstrap-test.
-
-DOT_BOOTSTRAP_SHARD=overlay exec "$HOME/.local/lib/dotfiles/legacy-dot/tests/bootstrap-test"

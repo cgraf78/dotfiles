@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# The public /d shortcut is only a bound client URL over dot's installer.
+# The retained dotfiles bootstrap is a thin client binding over Dot's public
+# installer and initialization command.
 
 set -u
 
@@ -17,7 +18,8 @@ home=$fixture/home
 origin=$fixture/client.git
 dot_origin=$fixture/dot.git
 seed=$fixture/seed
-mkdir -p "$home" "$seed" "$fixture/no-hooks"
+fake_bin=$fixture/bin
+mkdir -p "$home" "$seed" "$fixture/no-hooks" "$fake_bin"
 
 # The generated installer deliberately follows the public main branch. Build a
 # local main at the exact candidate revision so a worktree run tests the engine
@@ -46,33 +48,83 @@ extension_api=1
 dependency_provider=none
 CONF
 printf '%s\n' '# fixture client' >"$seed/.bashrc"
+mkdir -p "$seed/.local/bin"
+cp "$source_home/.local/bin/dotbootstrap" "$seed/.local/bin/dotbootstrap"
+cp "$source_home/.local/bin/dot" "$seed/.local/bin/dot"
 git -C "$seed" add .
 git -C "$seed" commit -m initial >/dev/null
 git -C "$seed" remote add origin "$origin"
 git -C "$seed" push -u origin main >/dev/null
 git --git-dir="$origin" symbolic-ref HEAD refs/heads/main
 
-install_status=0
-HOME="$home" PATH="$PATH" \
+cat >"$fake_bin/curl" <<'CURL'
+#!/usr/bin/env bash
+set -e
+cat "$DOT_TEST_DOT_INSTALLER"
+CURL
+chmod 0755 "$fake_bin/curl"
+
+bootstrap_status=0
+HOME="$home" PATH="$fake_bin:$PATH" \
+  DOT_TEST_DOT_INSTALLER="$dot_root/install.sh" \
+  DOTBOOTSTRAP_DOTFILES_REPO="file://$origin" \
+  DOTFILES_BRANCH=main \
   CGRAF78_CHECKOUT_INSTALL_REPO_URL="file://$dot_origin" \
   CGRAF78_CHECKOUT_INSTALL_DIR="$home/.local/share/cgraf78/dot" \
   SHDEPS_INSTALL_DIR="$home/.local/share" \
-  bash -s -- --init "$origin" <"$dot_root/install.sh" \
-  >"$fixture/install.out" 2>"$fixture/install.err" || install_status=$?
+  bash "$source_home/.local/bin/dotbootstrap" init \
+  >"$fixture/bootstrap.out" 2>"$fixture/bootstrap.err" || bootstrap_status=$?
+if [[ $bootstrap_status -ne 0 ]]; then
+  cat "$fixture/bootstrap.err" >&2
+fi
 
-_assert_eq 'public shortcut installs and initializes through dot' 0 "$install_status"
-_assert_eq 'public shortcut installs the exact standalone revision' \
+_assert_eq 'dotfiles bootstrap installs and initializes through dot' 0 "$bootstrap_status"
+_assert_eq 'dotfiles bootstrap installs the exact standalone revision' \
   "$dot_revision" \
   "$(git -C "$home/.local/share/cgraf78/dot" rev-parse HEAD 2>/dev/null || printf missing)"
-_assert_file_content 'public shortcut checks out the bound client repository' \
+_assert_file_content 'dotfiles bootstrap checks out the bound client repository' \
   '# fixture client' "$home/.bashrc"
-if [[ -L $home/.local/bin/dot && -L $home/.local/lib/dot ]]; then
-  _pass 'public shortcut publishes the command and public library links'
+if [[ -f $home/.local/bin/dot && ! -L $home/.local/bin/dot &&
+  -x $home/.local/bin/dot && -L $home/.local/lib/dot ]]; then
+  _pass 'dotfiles bootstrap keeps the client front door and public library link'
 else
-  _fail 'public shortcut publishes the command and public library links'
+  _fail 'dotfiles bootstrap keeps the client front door and public library link'
 fi
-_assert_eq 'public shortcut records the selected client revision' \
+if git --no-pager diff --no-index --quiet --no-ext-diff --no-textconv -- \
+  "$source_home/.local/bin/dot" "$home/.local/bin/dot"; then
+  _pass 'dotfiles bootstrap publishes the reviewed client front door'
+else
+  _fail 'dotfiles bootstrap publishes the reviewed client front door'
+fi
+_assert_eq 'dotfiles bootstrap records the selected client revision' \
   "$(git -C "$seed" rev-parse HEAD)" \
   "$(git --git-dir="$home/.dotfiles" rev-parse HEAD 2>/dev/null || printf missing)"
+_assert_file_exists 'dotfiles bootstrap records successful completion' \
+  "$home/.dotbootstrap-done"
+
+reconfigure_status=0
+HOME="$home" PATH="$home/.local/bin:$PATH" \
+  bash "$home/.local/bin/dotbootstrap" \
+  >"$fixture/reconfigure.out" 2>"$fixture/reconfigure.err" || reconfigure_status=$?
+_assert_eq 'dotfiles bootstrap reconfigures through standalone update' \
+  0 "$reconfigure_status"
+
+# The permanent client front door remains present when the Shdeps-owned
+# checkout is lost. Reconfigure must recognize that the command cannot enter a
+# runtime, reinstall Dot, and then continue through the same update path.
+mv "$home/.local/share/cgraf78/dot" "$fixture/removed-dot"
+repair_status=0
+HOME="$home" PATH="$fake_bin:$home/.local/bin:$PATH" \
+  DOT_TEST_DOT_INSTALLER="$dot_root/install.sh" \
+  CGRAF78_CHECKOUT_INSTALL_REPO_URL="file://$dot_origin" \
+  CGRAF78_CHECKOUT_INSTALL_DIR="$home/.local/share/cgraf78/dot" \
+  SHDEPS_INSTALL_DIR="$home/.local/share" \
+  bash "$home/.local/bin/dotbootstrap" \
+  >"$fixture/repair.out" 2>"$fixture/repair.err" || repair_status=$?
+_assert_eq 'dotfiles bootstrap repairs a missing standalone checkout' \
+  0 "$repair_status"
+_assert_eq 'dotfiles bootstrap repairs to the exact standalone revision' \
+  "$dot_revision" \
+  "$(git -C "$home/.local/share/cgraf78/dot" rev-parse HEAD 2>/dev/null || printf missing)"
 
 _test_summary

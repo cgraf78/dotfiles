@@ -1,346 +1,74 @@
 #!/usr/bin/env bash
-# First-time bootstrap for all machines. Clones the bare git repo,
-# checks out dotfiles, prepares overlays, installs deps, and sets
-# up auto-update cron.  For day-to-day updates, use 'dot update' instead.
-#
-# Base bare repo at ~/.dotfiles. Overlays are discovered from
-# config files in ~/.config/dot/overlays.d/*.conf after base checkout.
-#
-# Usage (fresh machine):
-#   curl -sL https://raw.githubusercontent.com/cgraf78/dotfiles/main/.local/bin/dotbootstrap | bash -s init
-#
-# Usage (reconfigure existing machine):
-#   ~/.local/bin/dotbootstrap
+# Client shortcut for initializing or reconverging this dotfiles checkout.
+# Dot owns installation, repository transactions, overlays, dependencies, and
+# extension execution; this client binds only its repository URL and branch.
 
 set -euo pipefail
+CDPATH=
 
-# ---------------------------------------------------------------------------
-# Functions
-# ---------------------------------------------------------------------------
-
-# Print usage. Kept side-effect-free so `--help` is safe to run on any machine,
-# even before prerequisites are checked or a repo is cloned.
 _usage() {
   cat <<'EOF'
-dotbootstrap — first-time setup / reconfigure for dotfiles.
+dotbootstrap — initialize or reconfigure this dotfiles client.
 
 Usage:
-  dotbootstrap          Reconfigure this machine: fetch + checkout the base
-                        repo, sync overlays, install deps, merge configs.
-  dotbootstrap init     Fresh machine: clone the bare repo, then reconfigure.
+  dotbootstrap          Reconverge an existing client through dot update.
+  dotbootstrap init     Install Dot and initialize this client repository.
   dotbootstrap --help   Show this help and exit.
-
-For day-to-day updates use 'dot update' instead.
 EOF
 }
 
-# Determine which branch to check out.
-# Priority:
-#   1) DOTFILES_BRANCH env var (explicit override)
-#   2) current local branch in the bare repo (if it exists)
-#   3) origin/HEAD (default branch)
-#   4) main (fallback)
-_detect_branch() {
-  if [[ -n "${DOTFILES_BRANCH:-}" ]]; then
-    BRANCH="$DOTFILES_BRANCH"
-    return 0
-  fi
-
-  # If repo exists and has a current branch, prefer it (useful for testing).
-  if [[ -d "$DOTFILES" ]]; then
-    local cur
-    cur=$($GIT symbolic-ref -q --short HEAD 2>/dev/null || true)
-    if [[ -n "$cur" ]]; then
-      BRANCH="$cur"
-      return 0
-    fi
-  fi
-
-  local origin_head
-  origin_head=$($GIT symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null || true)
-  origin_head=${origin_head#origin/}
-  BRANCH="${origin_head:-main}"
-}
-
-# Move any existing files out of the way, then force-checkout.
-# Uses checkout -f because a normal checkout treats missing worktree files
-# (from the backup) as local deletions and skips recreating them.
-_backup_and_checkout() {
-  mkdir -p "$BACKUP"
-  local count=0
-  while IFS= read -r f || [[ -n "$f" ]]; do
-    if [[ -e "$HOME/$f" ]]; then
-      mkdir -p "$BACKUP/$(dirname "$f")"
-      mv "$HOME/$f" "$BACKUP/$f"
-      ((count++)) || true
-    fi
-  done < <($GIT ls-tree -r "$BRANCH" --name-only)
-  if [[ $count -gt 0 ]]; then
-    echo "  backed up $count conflicting files to $BACKUP"
-  fi
-
-  # The backup can move a tracked command launcher that Bash already resolved
-  # from PATH. Clear that cached path before checkout so Git can be resolved
-  # from the remaining PATH entries instead of the now-missing launcher.
-  hash -r
-
-  echo "  checking out $BRANCH..."
-  # Capture checkout status before filtering its display text. A pipeline plus
-  # `|| true` would overwrite PIPESTATUS and turn a failed checkout into success.
-  local checkout_output checkout_rc
-  if checkout_output=$($GIT checkout -f "$BRANCH" 2>&1); then
-    checkout_rc=0
-  else
-    checkout_rc=$?
-  fi
-  if [[ -n "$checkout_output" ]]; then
-    printf '%s\n' "$checkout_output" |
-      grep -v "^Already on\|^Your branch is up to date" || true
-  fi
-  if [[ $checkout_rc -ne 0 ]]; then
-    echo "  error: git checkout of $BRANCH failed (exit $checkout_rc)" >&2
-    return "$checkout_rc"
-  fi
-  rmdir "$BACKUP" 2>/dev/null || true
-}
-
-# Fail fast with one actionable message when a prerequisite the bootstrap relies
-# on is missing, instead of a cryptic "command not found" partway through a
-# clone. The bootstrap clones with `git` and installs shdeps with `curl`; shdeps
-# then installs everything else but cannot install itself without these. Bash 4+
-# is required because the dot modules use Bash 4 features (associative arrays,
-# mapfile) — macOS ships 3.2, so catch that here with a clear message.
-_require_bootstrap_tools() {
-  local missing=() tool reason
-  for tool in git curl; do
-    command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
-  done
-
-  local bash_too_old=0
-  if [[ "${BASH_VERSINFO:-0}" -lt 4 ]]; then
-    bash_too_old=1
-  fi
-
-  if [[ "${#missing[@]}" -eq 0 && "$bash_too_old" -eq 0 ]]; then
-    return 0
-  fi
-
-  {
-    echo "dotbootstrap: cannot continue — missing prerequisites:"
-    if [[ "$bash_too_old" -eq 1 ]]; then
-      echo "  - bash >= 4  (found ${BASH_VERSION:-unknown})"
-    fi
-    # Guard the iteration: under `set -u`, expanding an empty array errors on
-    # older Bash, which would mask this very message in the bash-too-old case.
-    if [[ "${#missing[@]}" -gt 0 ]]; then
-      for tool in "${missing[@]}"; do
-        case "$tool" in
-          git) reason="clones the dotfiles repo" ;;
-          curl) reason="fetches the bootstrap script and installs shdeps" ;;
-          *) reason="" ;;
-        esac
-        if [[ -n "$reason" ]]; then
-          echo "  - $tool  ($reason)"
-        else
-          echo "  - $tool"
-        fi
-      done
-    fi
-    echo
-    echo "Install them, then re-run the bootstrap:"
-    echo "  Debian/Ubuntu:  sudo apt-get update && sudo apt-get install -y git curl bash"
-    echo "  Fedora/RHEL:    sudo dnf install -y git curl bash"
-    echo "  Arch:           sudo pacman -S --needed git curl bash"
-    echo "  macOS:          brew install git curl bash"
-  } >&2
-  exit 1
-}
-
-_bootstrap_overlay_sync_failed() {
-  local status="$1"
-  if [[ "${_bootstrap_overlay_error_reported:-0}" -eq 0 ]]; then
-    echo "  error: required overlay sync failed — bootstrap incomplete." >&2
-    _bootstrap_overlay_error_reported=1
-  fi
-  return "$status"
-}
-
-_bootstrap_sync_overlays() {
-  local pull_rc=0 saved_err_trap="" _bootstrap_overlay_error_reported=0
-  local had_errtrace=0
-  _ensure_shdeps
-  _discover_overlays
-  _preflight_local_overlays
-  _merge_overlay_ssh_configs
-
-  # Keep `_pull_overlays` as a bare command so the script's errexit contract
-  # remains active inside its complete call tree. An ERR trap supplies the
-  # actionable bootstrap diagnostic without putting the function on the left
-  # side of `||`, which would silently disable errexit in every nested worker.
-  saved_err_trap=$(trap -p ERR)
-  [[ "$-" == *E* ]] && had_errtrace=1
-  set -E
-  trap '_bootstrap_overlay_sync_failed $?' ERR
-  _pull_overlays
-  pull_rc=$?
-  if [[ -n "$saved_err_trap" ]]; then
-    eval "$saved_err_trap"
-  else
-    trap - ERR
-  fi
-  [[ "$had_errtrace" -eq 1 ]] || set +E
-  if [[ "$pull_rc" -ne 0 || "${DOT_PULL_OVERLAY_FAILED:-0}" -gt 0 ]]; then
-    _bootstrap_overlay_sync_failed 1 || true
+_require_tool() {
+  command -v "$1" >/dev/null 2>&1 || {
+    printf 'dotbootstrap: required command is unavailable: %s\n' "$1" >&2
     return 1
+  }
+}
+
+_install_dot() {
+  _require_tool curl || return
+  curl -fsSL https://raw.githubusercontent.com/cgraf78/dot/main/install.sh |
+    bash
+}
+
+_initialize_client() {
+  local repository=${DOTBOOTSTRAP_DOTFILES_REPO:-git@github.com:cgraf78/dotfiles.git}
+
+  _require_tool git || return
+  _require_tool curl || return
+  if [[ -n ${DOTFILES_BRANCH:-} ]]; then
+    curl -fsSL https://raw.githubusercontent.com/cgraf78/dot/main/install.sh |
+      bash -s -- --init --yes --branch "$DOTFILES_BRANCH" "$repository"
+  else
+    curl -fsSL https://raw.githubusercontent.com/cgraf78/dot/main/install.sh |
+      bash -s -- --init --yes "$repository"
   fi
 }
 
-# When sourced for testing, export functions without running main logic.
-if [[ "${DOTBOOTSTRAP_SOURCED:-}" == 1 ]]; then return 0; fi
-
-# Handle help and reject unknown arguments before ANY side effect (prereq
-# checks, clones, fetch, or the backup-and-force-checkout below). Only `init`
-# and the no-arg reconfigure form are valid; a stray arg like `--help` must not
-# fall through to the destructive setup path.
-case "${1:-}" in
+case ${1:-} in
   -h | --help | help)
+    [[ $# -eq 1 ]] || exit 2
     _usage
     exit 0
     ;;
-  init | "") ;;
+  init)
+    [[ $# -eq 1 ]] || {
+      _usage >&2
+      exit 2
+    }
+    _initialize_client
+    ;;
+  '')
+    [[ $# -eq 0 ]] || exit 2
+    if ! "$HOME/.local/bin/dot" --version >/dev/null 2>&1; then
+      _install_dot
+    fi
+    "$HOME/.local/bin/dot" update --force
+    ;;
   *)
-    echo "dotbootstrap: unknown argument: $1" >&2
-    echo >&2
+    printf 'dotbootstrap: unknown argument: %s\n\n' "$1" >&2
     _usage >&2
     exit 2
     ;;
 esac
 
-# Verify prerequisites before any clone (covers both `init` and reconfigure).
-_require_bootstrap_tools
-
-# ---------------------------------------------------------------------------
-# Init mode: clone bare repo and re-exec
-# ---------------------------------------------------------------------------
-# Supports standalone curl invocation:
-#   curl -sL https://raw.githubusercontent.com/cgraf78/dotfiles/main/.local/bin/dotbootstrap | bash -s init
-
-if [[ "${1:-}" == "init" ]]; then
-  DOTFILES_REPO="${DOTBOOTSTRAP_DOTFILES_REPO:-git@github.com:cgraf78/dotfiles.git}"
-  DOTFILES="$HOME/.dotfiles"
-  shift
-
-  if [[ -d "$DOTFILES" ]]; then
-    echo "error: $DOTFILES already exists" >&2
-    exit 1
-  fi
-
-  echo "==> Cloning bare repo..."
-  git clone --bare "$DOTFILES_REPO" "$DOTFILES"
-
-  echo "==> Checking out dotbootstrap..."
-  git --git-dir="$DOTFILES" --work-tree="$HOME" checkout main -- .local/bin/dotbootstrap
-
-  echo "==> Running dotbootstrap..."
-  exec "$HOME/.local/bin/dotbootstrap" "$@"
-fi
-
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
-
-DOTFILES="$HOME/.dotfiles"
-DOTFILES_REPO="${DOTBOOTSTRAP_DOTFILES_REPO:-git@github.com:cgraf78/dotfiles.git}"
-# Match _backup_dir() format in the repos pull module (can't call it — not
-# checked out yet).
-BACKUP="$HOME/.dotfiles-backup/$(date +%Y%m%d%H%M%S)"
-# Optional: DOTFILES_BRANCH=<branch> to override detected branch.
-BRANCH=""
-
-GIT="git --git-dir=$DOTFILES --work-tree=$HOME"
-
-# ---------------------------------------------------------------------------
-# Base repo: clone or configure
-# ---------------------------------------------------------------------------
-
-echo "==> Setting up machine..."
-
-if [[ -d "$DOTFILES" ]]; then
-  # ---------------------------------------------------------------------------
-  # Configure git (before fetch so refspec is correct)
-  # ---------------------------------------------------------------------------
-
-  $GIT config status.showUntrackedFiles no
-
-  # Ensure standard fetch refspec.
-  $GIT config remote.origin.fetch "+refs/heads/*:refs/remotes/origin/*"
-
-  origin_url=$($GIT remote get-url origin 2>/dev/null || true)
-  case "$origin_url" in
-    https://github.com/cgraf78/dotfiles | https://github.com/cgraf78/dotfiles.git)
-      # dotbootstrap must be able to fix legacy HTTPS clones before it can
-      # fetch updated repo helpers. Keep this inline instead of sourcing the
-      # repos runtime, which may not exist yet on fresh machines.
-      $GIT remote set-url origin "$DOTFILES_REPO" 2>/dev/null || true
-      ;;
-  esac
-
-  # Set push URL to SSH (also harmless when origin is already SSH).
-  $GIT config remote.origin.pushUrl "git@github.com:cgraf78/dotfiles.git"
-
-  # ---------------------------------------------------------------------------
-  # Fetch, detect branch, checkout
-  # ---------------------------------------------------------------------------
-
-  echo "==> Pulling dotfiles..."
-  if ! $GIT fetch --quiet origin; then
-    echo "  warning: fetch failed (continuing with existing local state)" >&2
-  fi
-
-  _detect_branch
-  echo "  branch: $BRANCH"
-
-  # Set branch tracking.
-  $GIT config "branch.$BRANCH.remote" origin
-  $GIT config "branch.$BRANCH.merge" "refs/heads/$BRANCH"
-
-  # Ensure clean full checkout.
-  _backup_and_checkout
-else
-  echo "  no bare repo at $DOTFILES — skipping git setup"
-fi
-
-# Shared helpers (available after checkout).
-if [[ -f "$HOME/.local/lib/dotfiles/legacy-dot/core/init.sh" ]]; then
-  # shellcheck source=../lib/dotfiles/legacy-dot/core/init.sh
-  . "$HOME/.local/lib/dotfiles/legacy-dot/core/init.sh"
-else
-  # A missing core library means the checkout failed or there is no bare repo —
-  # the machine is only half-configured. Fail loudly and do NOT write the
-  # success marker, so automation can't mistake this for a completed bootstrap.
-  {
-    echo "  error: core/init.sh not found — bootstrap incomplete."
-    echo "  the dotfiles core library is missing (checkout failed, or no bare"
-    echo "  repo present). Run 'dotbootstrap init' on a fresh machine, or fix"
-    echo "  the repo state, then re-run."
-  } >&2
-  exit 1
-fi
-
-# Bootstrap is a top-level process just like `dot update`, but it does not own
-# the update lock. Keep its async work and private scratch under the same exit
-# cleanup contract without changing the caller's interactive process group.
-_dot_cleanup_install_owner_traps
-
-# ---------------------------------------------------------------------------
-# Overlays: discover, validate, then clone/pull Git sources
-# ---------------------------------------------------------------------------
-
-_bootstrap_sync_overlays
-
-# ---------------------------------------------------------------------------
-# Finalize: deps, overlay symlinks, config merges, normalize
-# ---------------------------------------------------------------------------
-
-_dot_update_finalize
 touch "$HOME/.dotbootstrap-done"

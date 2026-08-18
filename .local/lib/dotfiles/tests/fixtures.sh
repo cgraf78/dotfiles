@@ -29,8 +29,8 @@ dot_fixture_copy_core() {
 
   # Client-policy tests execute the standalone engine from its own checkout and
   # copy only the consumer-owned extensions into the fixture HOME. Keeping this
-  # helper name avoids churn in the retained application suites while ensuring
-  # no embedded engine tree is recreated after cutover.
+  # helper name avoids churn in the retained application suites without
+  # recreating a private engine tree.
   mkdir -p "$TEST_HOME/.config/dot" "$TEST_HOME/.local/lib/dotfiles"
   cp -R "$source_home/.local/lib/dotfiles/merge-hooks.d" \
     "$TEST_HOME/.local/lib/dotfiles/"

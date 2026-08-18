@@ -38,15 +38,16 @@ _client_path_contains 'Neovim launcher loads the dotfiles-owned Shdeps helper' \
   .local/bin/nvim '../lib/dotfiles/shdeps-assets.sh'
 _client_path_contains 'Git hooksPath uses the dotfiles-owned hook tree' \
   .config/git/config '.local/lib/dotfiles/git-hooks'
-_client_path_contains 'dot forwarder retains the explicit embedded fallback' \
-  .local/bin/dot '.local/lib/dotfiles/legacy-dot-launcher.sh'
 
 if dot_root=$(_test_dot_root) &&
+  [[ -f $source_home/.local/bin/dot &&
+    ! -L $source_home/.local/bin/dot &&
+    -x $source_home/.local/bin/dot ]] &&
   git --no-pager diff --no-index --quiet --no-ext-diff --no-textconv -- \
     "$source_home/.local/bin/dot" "$dot_root/support/client-launcher.sh"; then
-  _pass 'dot forwarder matches the reviewed standalone template'
+  _pass 'dot front door matches the reviewed permanent launcher template'
 else
-  _fail 'dot forwarder matches the reviewed standalone template'
+  _fail 'dot front door matches the reviewed permanent launcher template'
 fi
 
 if [[ -f $source_home/.local/bin/dot-test &&
@@ -77,12 +78,6 @@ old_references=$(
   grep -nE '\.local/lib/dot/core/(shell-loader|windows|shdeps-assets|launcher-real)\.sh|\.local/lib/dot/(git-hooks|sley-hooks)' \
     "${selected_paths[@]/#/$source_home/}" 2>/dev/null || true
 )
-_assert_eq 'activated consumers contain no retired client-helper paths' '' "$old_references"
-
-xdg_fallbacks=$(grep -hF '.local/lib/dotfiles/legacy-dot/core/xdg.sh' \
-  "$source_home/.config/shell/interactive.d/57-marks.sh" \
-  "$source_home/.local/bin/clip" \
-  "$source_home/.local/lib/dotfiles/launcher-real.sh" | awk 'END { print NR }')
-_assert_eq 'dual-path window keeps only two explicit XDG fallbacks' 2 "$xdg_fallbacks"
+_assert_eq 'standalone consumers contain no retired client-helper paths' '' "$old_references"
 
 _test_summary
