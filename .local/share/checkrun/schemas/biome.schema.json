@@ -9494,6 +9494,20 @@
       "type": "object",
       "additionalProperties": false
     },
+    "NoUnsafeTypeAssertionConfiguration": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/RulePlainConfiguration"
+        },
+        {
+          "$ref": "#/$defs/RuleWithNoUnsafeTypeAssertionOptions"
+        }
+      ]
+    },
+    "NoUnsafeTypeAssertionOptions": {
+      "type": "object",
+      "additionalProperties": false
+    },
     "NoUntrustedLicensesConfiguration": {
       "oneOf": [
         {
@@ -10911,6 +10925,17 @@
             }
           ]
         },
+        "noUnsafeTypeAssertion": {
+          "description": "Disallow TypeScript type assertions other than const assertions.\nSee https://biomejs.dev/linter/rules/no-unsafe-type-assertion",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NoUnsafeTypeAssertionConfiguration"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "noUntrustedLicenses": {
           "description": "Disallow dependencies with untrusted licenses.\nSee https://biomejs.dev/linter/rules/no-untrusted-licenses",
           "anyOf": [
@@ -11006,6 +11031,17 @@
             }
           ]
         },
+        "useAstroClientOnlyDirectiveValue": {
+          "description": "Require a value for Astro's client:only directive.\nSee https://biomejs.dev/linter/rules/use-astro-client-only-directive-value",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UseAstroClientOnlyDirectiveValueConfiguration"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "useAwaitThenable": {
           "description": "Enforce that await is only used on Promise values.\nSee https://biomejs.dev/linter/rules/use-await-thenable",
           "anyOf": [
@@ -11033,6 +11069,17 @@
           "anyOf": [
             {
               "$ref": "#/$defs/UseConsistentTestItConfiguration"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "useControlLabel": {
+          "description": "Enforce that interactive control elements have an accessible label.\nSee https://biomejs.dev/linter/rules/use-control-label",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UseControlLabelConfiguration"
             },
             {
               "type": "null"
@@ -11165,6 +11212,17 @@
           "anyOf": [
             {
               "$ref": "#/$defs/UseNamedCaptureGroupConfiguration"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "useNamedLayer": {
+          "description": "Disallow anonymous cascade layers.\nSee https://biomejs.dev/linter/rules/use-named-layer",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UseNamedLayerConfiguration"
             },
             {
               "type": "null"
@@ -11319,6 +11377,17 @@
           "anyOf": [
             {
               "$ref": "#/$defs/UseSvelteRequireEachKeyConfiguration"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "useTailwindShorthandClasses": {
+          "description": "Enforce using fewer Tailwind utilities instead of multiple utilities that are functionally the same.\nSee https://biomejs.dev/linter/rules/use-tailwind-shorthand-classes",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UseTailwindShorthandClassesConfiguration"
             },
             {
               "type": "null"
@@ -12450,6 +12519,11 @@
     "RuleDomain": {
       "description": "Rule domains",
       "oneOf": [
+        {
+          "description": "Astro framework rules",
+          "type": "string",
+          "const": "astro"
+        },
         {
           "description": "Drizzle ORM rules",
           "type": "string",
@@ -17515,6 +17589,21 @@
         "level"
       ]
     },
+    "RuleWithNoUnsafeTypeAssertionOptions": {
+      "type": "object",
+      "properties": {
+        "level": {
+          "$ref": "#/$defs/RulePlainConfiguration"
+        },
+        "options": {
+          "$ref": "#/$defs/NoUnsafeTypeAssertionOptions"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "level"
+      ]
+    },
     "RuleWithNoUntrustedLicensesOptions": {
       "type": "object",
       "properties": {
@@ -18835,6 +18924,21 @@
         "level"
       ]
     },
+    "RuleWithUseAstroClientOnlyDirectiveValueOptions": {
+      "type": "object",
+      "properties": {
+        "level": {
+          "$ref": "#/$defs/RulePlainConfiguration"
+        },
+        "options": {
+          "$ref": "#/$defs/UseAstroClientOnlyDirectiveValueOptions"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "level"
+      ]
+    },
     "RuleWithUseAtIndexOptions": {
       "type": "object",
       "properties": {
@@ -19298,6 +19402,21 @@
         },
         "options": {
           "$ref": "#/$defs/UseConstOptions"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "level"
+      ]
+    },
+    "RuleWithUseControlLabelOptions": {
+      "type": "object",
+      "properties": {
+        "level": {
+          "$ref": "#/$defs/RulePlainConfiguration"
+        },
+        "options": {
+          "$ref": "#/$defs/UseControlLabelOptions"
         }
       },
       "additionalProperties": false,
@@ -20505,6 +20624,21 @@
         "level"
       ]
     },
+    "RuleWithUseNamedLayerOptions": {
+      "type": "object",
+      "properties": {
+        "level": {
+          "$ref": "#/$defs/RulePlainConfiguration"
+        },
+        "options": {
+          "$ref": "#/$defs/UseNamedLayerOptions"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "level"
+      ]
+    },
     "RuleWithUseNamespaceKeywordOptions": {
       "type": "object",
       "properties": {
@@ -21483,6 +21617,31 @@
         },
         "options": {
           "$ref": "#/$defs/UseSymbolDescriptionOptions"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "level"
+      ]
+    },
+    "RuleWithUseTailwindShorthandClassesOptions": {
+      "type": "object",
+      "properties": {
+        "fix": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FixKind"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "level": {
+          "$ref": "#/$defs/RulePlainConfiguration"
+        },
+        "options": {
+          "$ref": "#/$defs/UseTailwindShorthandClassesOptions"
         }
       },
       "additionalProperties": false,
@@ -25477,6 +25636,20 @@
       "type": "object",
       "additionalProperties": false
     },
+    "UseAstroClientOnlyDirectiveValueConfiguration": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/RulePlainConfiguration"
+        },
+        {
+          "$ref": "#/$defs/RuleWithUseAstroClientOnlyDirectiveValueOptions"
+        }
+      ]
+    },
+    "UseAstroClientOnlyDirectiveValueOptions": {
+      "type": "object",
+      "additionalProperties": false
+    },
     "UseAtIndexConfiguration": {
       "oneOf": [
         {
@@ -26005,6 +26178,21 @@
       ]
     },
     "UseConstOptions": {
+      "type": "object",
+      "additionalProperties": false
+    },
+    "UseControlLabelConfiguration": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/RulePlainConfiguration"
+        },
+        {
+          "$ref": "#/$defs/RuleWithUseControlLabelOptions"
+        }
+      ]
+    },
+    "UseControlLabelOptions": {
+      "description": "Configuration for the `useControlLabel` lint rule.",
       "type": "object",
       "additionalProperties": false
     },
@@ -27171,6 +27359,20 @@
       "type": "object",
       "additionalProperties": false
     },
+    "UseNamedLayerConfiguration": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/RulePlainConfiguration"
+        },
+        {
+          "$ref": "#/$defs/RuleWithUseNamedLayerOptions"
+        }
+      ]
+    },
+    "UseNamedLayerOptions": {
+      "type": "object",
+      "additionalProperties": false
+    },
     "UseNamespaceKeywordConfiguration": {
       "oneOf": [
         {
@@ -28160,6 +28362,20 @@
       ]
     },
     "UseSymbolDescriptionOptions": {
+      "type": "object",
+      "additionalProperties": false
+    },
+    "UseTailwindShorthandClassesConfiguration": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/RulePlainConfiguration"
+        },
+        {
+          "$ref": "#/$defs/RuleWithUseTailwindShorthandClassesOptions"
+        }
+      ]
+    },
+    "UseTailwindShorthandClassesOptions": {
       "type": "object",
       "additionalProperties": false
     },
