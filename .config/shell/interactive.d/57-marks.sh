@@ -6,15 +6,9 @@
 if ! typeset -f dot_xdg_path >/dev/null 2>&1; then
   _dot_marks_library_home=${DOT_TEST_HOST_HOME:-${HOME:-}}
   _dot_marks_xdg=$_dot_marks_library_home/.local/lib/dot/xdg.sh
-  if [[ ! -r $_dot_marks_xdg ]]; then
-    _dot_marks_library_home=${DOT_TEST_SOURCE_HOME:-${HOME:-}}
-    _dot_marks_xdg=$_dot_marks_library_home/.local/lib/dotfiles/legacy-dot/core/xdg.sh
-  fi
+  [[ -r $_dot_marks_xdg ]] || return 1
   # shellcheck source=../../../.local/lib/dot/xdg.sh disable=SC1091
   . "$_dot_marks_xdg"
-  if ! typeset -f dot_xdg_path >/dev/null 2>&1; then
-    dot_xdg_path() { _dot_xdg_path "$@"; }
-  fi
   unset _dot_marks_library_home _dot_marks_xdg
 fi
 dot_xdg_path data marks || return

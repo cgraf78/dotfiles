@@ -560,15 +560,6 @@ _mock_home() {
   REAL_HOME="$HOME"
   TEST_HOME=$(_tmpdir)
   export HOME="$TEST_HOME"
-  # During the additive cutover the tracked command is the permanent
-  # forwarder, while these retained embedded-engine fixtures still exercise a
-  # fake HOME. Route only their temporary fallback through the source tree's
-  # exact legacy launcher; that launcher continues to load the fixture's copied
-  # core from the rebound HOME.
-  if [[ -x "$REAL_HOME/.local/lib/dotfiles/legacy-dot-launcher.sh" ]]; then
-    DOT_CLIENT_LEGACY_LAUNCHER=$REAL_HOME/.local/lib/dotfiles/legacy-dot-launcher.sh
-    export DOT_CLIENT_LEGACY_LAUNCHER
-  fi
   # Clear caller-owned absolute roots so every tool uses its standard HOME
   # default. This also keeps nested fresh-HOME subprocesses isolated to their
   # own HOME instead of pinning them to the outer fixture's directories.

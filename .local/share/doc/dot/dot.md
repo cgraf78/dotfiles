@@ -46,10 +46,9 @@ curl -sL cgraf78.github.io/d | bash
 source ~/.bashrc  # or: source ~/.zshrc
 ```
 
-`dotbootstrap` clones the base repo and matching Git overlays, validates and
-applies matching filesystem overlays whose descriptors and sources are already
-present, skips optional Git overlays that are not accessible on the current
-machine, backs up conflicting files under `~/.dotfiles-backup/`, and installs
+`dotbootstrap` delegates installation and initialization to standalone Dot.
+Dot clones the base repo and accessible overlays, applies matching filesystem
+overlays, backs up conflicting files under `~/.dotfiles-backup/`, and installs
 the auto-update cron.
 
 ## Usage
@@ -177,11 +176,9 @@ own it:
 | Sley verification policy | [`.config/sley/verify.d/README.md`](../../../../.config/sley/verify.d/README.md) |
 | Command entry points | [`.local/bin/README.md`](../../../../.local/bin/README.md) |
 | Client runtime layout | [`.local/lib/dotfiles/README.md`](../../../../.local/lib/dotfiles/README.md) |
-| Frozen rescue runtime | [`.local/lib/dotfiles/legacy-dot/core/README.md`](../../../../.local/lib/dotfiles/legacy-dot/core/README.md) |
 | Dot documentation index | [`.local/share/doc/dot/README.md`](README.md) |
 | Schema payloads | [`.local/share/checkrun/schemas/README.md`](../../../../.local/share/checkrun/schemas/README.md) |
 | Test runner and client suites | [`.local/lib/dotfiles/tests/README.md`](../../../../.local/lib/dotfiles/tests/README.md) |
-| Frozen rescue suites | [`.local/lib/dotfiles/legacy-dot/tests/README.md`](../../../../.local/lib/dotfiles/legacy-dot/tests/README.md) |
 
 ## Operating Model
 
@@ -218,12 +215,8 @@ Advisory dependency warnings, optional overlay skips, cron's dirty-worktree
 skip, cron lock contention, and best-effort worktree normalization retain a
 zero exit status.
 
-If a pull updates tracked client or rescue infrastructure such as
-`.local/lib/dotfiles/legacy-dot/` or `.local/bin/dot`, the command re-execs
-itself so the remainder of the update uses the new code. During the one-time
-jump from the pre-extraction updater, its historical change detector may safely
-finish in the already-loaded process instead; the next invocation enters the
-relocated rescue, whose detector consumes the complete Git change stream.
+When a pull updates tracked client policy, the standalone runtime re-execs the
+update so the remainder of the command uses the new policy.
 
 Base files use `[ -f ]` guards and ordered config directories so overlays can
 contribute extra files without patching base files. Every machine is a peer:
@@ -265,10 +258,7 @@ Run all local tests with:
 dot-test
 ```
 
-The dotfiles-owned runner lives under `~/.local/lib/dotfiles/tests/`. During
-fleet preparation it executes the frozen rescue suites under
-`~/.local/lib/dotfiles/legacy-dot/tests/`, even after Shdeps publishes the
-standalone public API. It selects the client suites only after the tracked
-cutover phase activates the standalone engine. See the
+The dotfiles-owned runner lives under `~/.local/lib/dotfiles/tests/` and uses
+the standalone Dot test UI. See the
 [`tests` README](../../../../.local/lib/dotfiles/tests/README.md) for suite
 names, options, and CI coverage.

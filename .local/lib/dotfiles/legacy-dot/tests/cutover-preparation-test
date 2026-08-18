@@ -1,4 +1,0 @@
-#!/usr/bin/env bash
-# Compatibility entry point while the embedded suite inventory remains active.
-
-exec "$HOME/.local/lib/dotfiles/tests/cutover-preparation-test" "$@"

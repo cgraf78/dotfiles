@@ -3344,9 +3344,7 @@ result=$(_nvim_lua '
   print(opts.shell.home_dirs[4].prefix)
   print(opts.shell.home_dirs[4].glob)
   print(opts.shell.home_dirs[5].prefix)
-  print(opts.shell.home_dirs[5].glob)
-  print(opts.shell.home_dirs[6].prefix)
-  print(tostring(opts.shell.home_dirs[6].direct))
+  print(tostring(opts.shell.home_dirs[5].direct))
   print(tostring(opts.shell.overlay.enabled))
   print(opts.shell.overlay.root_prefix)
   print(opts.shell.overlay.home_dir)
@@ -3354,24 +3352,29 @@ result=$(_nvim_lua '
   print(table.concat(opts.navigation.path_first_filetypes, ","))
   print(tostring(opts.navigation.prefer_shell_for_home_paths))
 ')
-expected="$(printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\ntrue\ntrue\n%s\n%s\n500\n%s\ntrue' \
-  '*@(.sh|.inc|.bash|.zsh|.command)' \
-  '.bashrc,.bash_profile,.profile,.zshenv,.zprofile,.zshrc' \
-  '.local/share/cgraf78/*/bin/*' \
-  '.config/dot/merge-hooks.d/' \
-  '.config/dot/merge-hooks.d/**/*@(.sh|.inc|.bash|.zsh|.command)' \
-  '.config/shdeps/hooks.d/' \
-  '.config/shdeps/hooks.d/**/*@(.sh|.inc|.bash|.zsh|.command)' \
-  '.config/shell/' \
-  '.config/shell/**/*@(.sh|.inc|.bash|.zsh|.command)' \
-  '.local/lib/dotfiles/legacy-dot/' \
-  '.local/lib/dotfiles/legacy-dot/**/*@(.sh|.inc|.bash|.zsh|.command)' \
-  '.local/share/cgraf78/' \
-  '.local/share/cgraf78/**/*@(.sh|.inc|.bash|.zsh|.command)' \
-  '.local/bin/' \
-  '.dotfiles-' \
-  'home' \
-  'bash,sh,zsh')"
+expected=$(
+  cat <<'EOF'
+*@(.sh|.inc|.bash|.zsh|.command)
+.bashrc,.bash_profile,.profile,.zshenv,.zprofile,.zshrc
+.local/share/cgraf78/*/bin/*
+.config/dot/merge-hooks.d/
+.config/dot/merge-hooks.d/**/*@(.sh|.inc|.bash|.zsh|.command)
+.config/shdeps/hooks.d/
+.config/shdeps/hooks.d/**/*@(.sh|.inc|.bash|.zsh|.command)
+.config/shell/
+.config/shell/**/*@(.sh|.inc|.bash|.zsh|.command)
+.local/share/cgraf78/
+.local/share/cgraf78/**/*@(.sh|.inc|.bash|.zsh|.command)
+.local/bin/
+true
+true
+.dotfiles-
+home
+500
+bash,sh,zsh
+true
+EOF
+)
 _assert_eq "nvim-workspace: dotfiles passes session, shell, and navigation policy" \
   "$expected" "$result"
 

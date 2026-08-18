@@ -33,6 +33,33 @@ launcher_cache=$(
 _assert_eq "launcher cache: relative XDG uses HOME fallback" \
   "$fixture_home/.cache/dotfiles/git-real" "$launcher_cache"
 
+# GitHub checkout cleanup replaces HOME after the test step while continuing
+# to invoke the repository's PATH-visible Git launcher. Model that topology
+# without borrowing the live host library: the client helper must load the
+# checkout-adjacent standalone XDG API and emit no loader diagnostics.
+isolated_client=$work/isolated-client
+isolated_home=$work/isolated-home
+isolated_launcher=$isolated_client/.local/lib/dotfiles/launcher-real.sh
+isolated_xdg=$isolated_client/.local/lib/dot/xdg.sh
+isolated_error=$work/isolated-launcher.err
+dot_root=$(_test_dot_root)
+mkdir -p "${isolated_launcher%/*}" "${isolated_xdg%/*}" "$isolated_home"
+cp "$source_home/.local/lib/dotfiles/launcher-real.sh" "$isolated_launcher"
+cp "$dot_root/lib/dot/public/xdg.sh" "$isolated_xdg"
+# shellcheck disable=SC2016 # The fixture shell expands its own runtime values.
+if isolated_cache=$(env -u DOT_TEST_HOST_HOME HOME="$isolated_home" \
+  XDG_CACHE_HOME=relative/cache \
+  bash -c '. "$1"; _dot_launcher_cache_path git; printf "%s" "$REPLY"' \
+  _ "$isolated_launcher" 2>"$isolated_error"); then
+  _pass "launcher cleanup: temporary HOME loads checkout-adjacent public XDG"
+else
+  _fail "launcher cleanup: temporary HOME loads checkout-adjacent public XDG"
+fi
+_assert_eq "launcher cleanup: relative XDG still uses temporary HOME" \
+  "$isolated_home/.cache/dotfiles/git-real" "$isolated_cache"
+_assert_eq "launcher cleanup: emits no XDG loader errors" '' \
+  "$(<"$isolated_error")"
+
 marks_one=$(cd "$cwd_one" && HOME=$fixture_home XDG_DATA_HOME=relative/data \
   bash -c '. "$1"; printf "%s" "$_MARKS_DIR"' \
   _ "$source_home/.config/shell/interactive.d/57-marks.sh")

@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   shell:
-    uses: cgraf78/actions/.github/workflows/shell-ci.yml@d0ec9f510c47080cedd1c7561092dcd7b241fdc2
+    uses: cgraf78/actions/.github/workflows/shell-ci.yml@11a88248d44426f96cdf137e77846a62cf8b4671
     with:
       # CI restores shdeps between runs. Refresh the resolver before it
       # validates dependency releases and installed-tool smoke checks.
@@ -41,31 +41,7 @@ jobs:
         else
           git fetch --no-tags --depth=1 origin "+$DOT_VSCODE_KEYBINDING_BASE_SHA:refs/remotes/origin/dot-keybinding-base"
         fi
-        # The fleet transition fixture executes the exact pre-cutover updater.
-        # Keep its one historical revision in the fixture lock, then fetch it
-        # only when a shallow checkout does not already contain that object.
-        dot_cutover_baseline=$(sed -n 's/^revision=//p' \
-          .local/lib/dotfiles/tests/cutover-baseline.lock)
-        if ! git cat-file -e "$dot_cutover_baseline^{commit}" 2>/dev/null; then
-          git fetch --no-tags --depth=1 origin \
-            "+$dot_cutover_baseline:refs/remotes/origin/dot-cutover-baseline"
-        fi
-        # Bootstrap provisions Dot on the product path, but contract tests also
-        # need one deterministic checkout before the dependency setup step.
-        # Derive it from the same cutover lock instead of maintaining a second
-        # revision.
-        dot_test_revision=$(sed -n 's/^minimum_revision=//p' \
-          .local/lib/dotfiles/dot-cutover.lock)
-        [[ $dot_test_revision =~ ^[0-9a-f]{40}$ ]]
-        dot_test_root=$RUNNER_TEMP/dot-under-test
-        git init -q "$dot_test_root"
-        git -C "$dot_test_root" remote add origin https://github.com/cgraf78/dot.git
-        git -C "$dot_test_root" fetch --no-tags --depth=1 origin "$dot_test_revision"
-        git -C "$dot_test_root" checkout -q --detach FETCH_HEAD
-        [[ $(git -C "$dot_test_root" rev-parse HEAD) == "$dot_test_revision" ]]
-        export DOT_TEST_DOT_ROOT=$dot_test_root
         DOT_CORE_SKIP_SHELLCHECK=1 .local/bin/dot-test
-        DOT_REEXEC=1 .local/bin/dot-test -s fleet-transition
         lsp_mise_backends=(
           github:neocmakelsp/neocmakelsp
           github:kristoff-it/superhtml
@@ -90,10 +66,7 @@ jobs:
         superhtml version >/dev/null
       termux-command: |-
         set -euo pipefail
-        # install-staged deliberately leaves activation readiness unpublished.
-        # Exercise the installed standalone runtime directly so Android CI
-        # covers current hooks instead of the retained rescue path.
-        HOME="$PWD" PATH="$PWD/.local/bin:$PATH" "$PWD/.local/share/cgraf78/dot/bin/dot" update
+        HOME="$PWD" PATH="$PWD/.local/bin:$PATH" dot update
         HOME="$PWD" PATH="$PWD/.local/bin:$PATH" bash .local/lib/dotfiles/tests/android-ci-smoke
       termux-profiles: base,neovim
 
@@ -111,7 +84,7 @@ jobs:
       # files, so `.github/cgraf78-actions.lock` cannot be interpolated. This gate
       # verifies every unavoidable cgraf78/actions literal still matches that
       # single reviewed dependency decision.
-      - uses: cgraf78/actions/.github/actions/verify-consumer-sync@d0ec9f510c47080cedd1c7561092dcd7b241fdc2
+      - uses: cgraf78/actions/.github/actions/verify-consumer-sync@11a88248d44426f96cdf137e77846a62cf8b4671
 
   cold-bootstrap:
     name: Cold Ubuntu bootstrap
@@ -125,7 +98,7 @@ jobs:
           persist-credentials: false
 
       - name: Install bootstrap prerequisites
-        uses: cgraf78/actions/.github/actions/shell-ci-prereqs@d0ec9f510c47080cedd1c7561092dcd7b241fdc2
+        uses: cgraf78/actions/.github/actions/shell-ci-prereqs@11a88248d44426f96cdf137e77846a62cf8b4671
         with:
           matrix-name: Ubuntu
           setup: dotfiles

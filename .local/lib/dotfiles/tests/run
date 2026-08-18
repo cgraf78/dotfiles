@@ -102,80 +102,20 @@ _dot_test_configure_home() {
 
 _dot_test_configure_home
 
-_dot_test_active_cutover() (
-  local lock=$1 line count=0 header='' phase_line=''
-  local revision_line='' generation_line='' revision generation
-
-  LC_ALL=C
-  shopt -u nocasematch 2>/dev/null || true
-  [[ -f $lock && ! -L $lock ]] || return 1
-  while IFS= read -r line || [[ -n $line ]]; do
-    count=$((count + 1))
-    case $count in
-      1) header=$line ;;
-      2) phase_line=$line ;;
-      3) revision_line=$line ;;
-      4) generation_line=$line ;;
-      *) return 1 ;;
-    esac
-  done <"$lock"
-  [[ $count -eq 4 && $header == 'cgraf78 dot client cutover v4' &&
-    $phase_line == phase=active && $revision_line == minimum_revision=* &&
-    $generation_line == readiness_generation=* ]] || return 1
-  revision=${revision_line#minimum_revision=}
-  [[ ${#revision} -eq 40 ]] || return 1
-  case $revision in
-    *[!0-9a-f]*) return 1 ;;
-  esac
-  generation=${generation_line#readiness_generation=}
-  [[ ${#generation} -ge 1 && ${#generation} -le 64 ]] || return 1
-  case $generation in
-    [0-9a-z]*) ;;
-    *) return 1 ;;
-  esac
-  case $generation in
-    *[!0-9a-z-]*) return 1 ;;
-  esac
-)
-
-_dot_test_cutover_lock=$HOME/.local/lib/dotfiles/dot-cutover.lock
 if [[ -n ${DOT_TEST_TESTS_DIR:-} ]]; then
   TESTS_DIR=$DOT_TEST_TESTS_DIR
-elif _dot_test_active_cutover "$_dot_test_cutover_lock" &&
-  [[ -r $DOT_TEST_HOST_HOME/.local/lib/dot/api-version.sh ]]; then
-  TESTS_DIR=$HOME/.local/lib/dotfiles/tests
 else
-  # Installing the public API is preparation, not engine activation. Continue
-  # executing the rescue inventory until the tracked phase changes so tests
-  # exercise the same implementation as `dot update` on this host.
-  TESTS_DIR=$HOME/.local/lib/dotfiles/legacy-dot/tests
+  TESTS_DIR=$HOME/.local/lib/dotfiles/tests
 fi
-unset _dot_test_cutover_lock
 
 _dot_test_ui=${DOT_TEST_PUBLIC_UI:-$DOT_TEST_HOST_HOME/.local/lib/dot/ui.sh}
-_dot_test_legacy_ui=false
-if [[ ! -r $_dot_test_ui ]]; then
-  # Short dual-path window: the test runner moves before the public library
-  # handoff. Remove this fallback once every supported source revision has the
-  # standalone library link.
-  _dot_test_ui=$HOME/.local/lib/dotfiles/legacy-dot/core/ui.sh
-  _dot_test_legacy_ui=true
-fi
 [[ -r $_dot_test_ui ]] || {
   printf 'dot-test: public UI library is unavailable: %s\n' "$_dot_test_ui" >&2
   exit 2
 }
 # shellcheck source=/dev/null
 . "$_dot_test_ui"
-if $_dot_test_legacy_ui; then
-  dot_ui_color_hex() { _dot_ui_color_hex "$@"; }
-  dot_ui_hex_to_rgb() { _dot_ui_hex_to_rgb "$@"; }
-  dot_ui_has_gum() { _dot_ui_has_gum; }
-  dot_ui_title() { _dot_ui_title "$@"; }
-  dot_ui_summary_box() { _dot_ui_summary_box "$@"; }
-fi
 unset _dot_test_ui
-unset _dot_test_legacy_ui
 
 # Classify a finished suite from its exit code and captured output.
 #

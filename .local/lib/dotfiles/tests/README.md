@@ -49,10 +49,6 @@ depending on a particular `/var` versus `/private/var` spelling.
 - `bootstrap-shortcut-test` pipes the local standalone installer through
   `--init` against a local client origin. It never reaches the developer's real
   GitHub account.
-- `cutover-preparation-test` and `fleet-transition-test` are temporary rollout
-  gates for the tracked phase, private readiness proof, and exact old-client
-  transition. Remove them with the frozen rescue after fleet activation is
-  observed; they are not permanent client architecture.
 - `githook-test` tests dotfiles' Sley checkout selection, activation shims,
   commit-message provider choice, and the special bare-home policy. Sley's own
   commit-hook suite owns readiness, Git sequencer behavior, secret scanning,

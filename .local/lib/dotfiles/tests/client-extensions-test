@@ -5,16 +5,10 @@ set -u
 
 source_home=${DOT_TEST_SOURCE_HOME:-$HOME}
 host_home=${DOT_TEST_HOST_HOME:-$HOME}
-cutover_phase=$(sed -n 's/^phase=//p' \
-  "$source_home/.local/lib/dotfiles/dot-cutover.lock")
 
 # shellcheck source=helpers.sh
 . "$source_home/.local/lib/dotfiles/tests/helpers.sh"
-
-if [[ -z ${DOT_TEST_DOT_ROOT:-} && $cutover_phase == prepare ]]; then
-  echo 'SKIP: standalone client extensions are not active during preparation'
-  exit 0
-fi
+_test_prefer_system_git first || exit 1
 
 _client_dot_root() {
   local candidate
@@ -36,14 +30,93 @@ dot_root=$(_client_dot_root) || {
   _fail 'client extensions: standalone dot checkout is available'
   _test_summary
 }
-client_root=$source_home/.local/lib/dotfiles
 fixture_home=$(_tmpdir)
 mkdir -p "$fixture_home/.config/dot/overlays.d" "$fixture_home/.ssh"
 chmod 0700 "$fixture_home" "$fixture_home/.ssh"
 
+# Mirror only the executable client surface into the fixture HOME. A composed
+# checkout can contain overlay-owned symlinks here; validating those links from
+# a different HOME would correctly fail because the worker would see neither
+# their overlay checkouts nor the private publication manifest. Recreate that
+# authority with local, no-network clones so the test exercises the same
+# symlink validation as production without executing hooks against live state.
+_client_extension_fixture() {
+  local source_client=$source_home/.local/lib/dotfiles
+  local conf name url source_overlay fixture_overlay extension_dir
+  local link source_link source_resolved fixture_resolved target rel authority
+  local authority_name authority_source authority_fixture source_overlay_home
+  local fixture_overlay_home owner manifest
+  local -a authorities=()
+
+  mkdir -p "$fixture_home/.local/lib/dotfiles" "$fixture_home/.config/git"
+  for extension_dir in merge-hooks.d doctor.d pre-sync.d; do
+    cp -R "$source_client/$extension_dir" \
+      "$fixture_home/.local/lib/dotfiles/" || return 1
+  done
+
+  for conf in "$source_home"/.config/dot/overlays.d/*.conf; do
+    [[ -f $conf ]] || continue
+    cp "$conf" "$fixture_home/.config/dot/overlays.d/" || return 1
+    name=${conf##*/}
+    name=${name%.conf}
+    if [[ $name =~ ^[0-9]+-(.+)$ ]]; then
+      name=${BASH_REMATCH[1]}
+    fi
+    url=$(sed -n 's/^url=//p' "$conf")
+    source_overlay=$source_home/.dotfiles-$name
+    [[ -d $source_overlay ]] || source_overlay=$host_home/.dotfiles-$name
+    fixture_overlay=$fixture_home/.dotfiles-$name
+    [[ -n $url && -d $source_overlay ]] || continue
+    git -C "$source_overlay" rev-parse --is-inside-work-tree \
+      >/dev/null 2>&1 || continue
+    git -c core.hooksPath=/dev/null clone --quiet --no-local \
+      "$source_overlay" "$fixture_overlay" || return 1
+    git -C "$fixture_overlay" remote set-url origin "$url" || return 1
+    authorities+=("$name|$source_overlay|$fixture_overlay")
+  done
+
+  manifest=$fixture_home/.local/state/dot/overlay-links
+  mkdir -p "${manifest%/*}" || return 1
+  : >"$manifest" || return 1
+  chmod 0600 "$manifest" || return 1
+
+  while IFS= read -r -d '' link; do
+    source_link=$source_home/${link#"$fixture_home"/}
+    source_resolved=$(_test_realpath "$source_link") || return 1
+    fixture_resolved=$(_test_realpath "$link") || return 1
+    owner=
+    for authority in "${authorities[@]+"${authorities[@]}"}"; do
+      IFS='|' read -r authority_name authority_source authority_fixture \
+        <<<"$authority"
+      source_overlay_home=$(_test_realpath "$authority_source/home") || return 1
+      fixture_overlay_home=$(_test_realpath "$authority_fixture/home") || return 1
+      case $source_resolved in
+        "$source_overlay_home"/*)
+          case $fixture_resolved in
+            "$fixture_overlay_home"/*) owner=$authority_name ;;
+            *) return 1 ;;
+          esac
+          break
+          ;;
+      esac
+    done
+    [[ -n $owner ]] || return 1
+    target=$(readlink "$link") || return 1
+    rel=${link#"$fixture_home"/}
+    printf '%s\t%s\t%s\n' "$rel" "$owner" "$target" >>"$manifest" || return 1
+  done < <(find "$fixture_home/.local/lib/dotfiles" -type l -print0)
+}
+
+if ! _client_extension_fixture; then
+  _fail 'client extensions: isolated composed authority is available'
+  _test_summary
+fi
+client_root=$fixture_home/.local/lib/dotfiles
+
 export DOT_SOURCE_ROOT=$dot_root
 export DOT_EXTENSIONS_DIR=$client_root
 export DOT_EXTENSION_API=1
+export DOT_QUIET=1
 export HOME=$fixture_home
 # The fixture owns its HOME-derived client config. Hosted runners may export
 # unrelated XDG roots; do not let those redirect the descriptor under test.
@@ -72,9 +145,6 @@ _client_worker_run() {
 }
 
 for hook in "$client_root/merge-hooks.d"/*.sh; do
-  # During preparation, overlay repositories exercise their hook targets
-  # independently; this fixture HOME has no private overlay authority.
-  [[ $cutover_phase == prepare && -L $hook ]] && continue
   if _client_worker_run merge "$hook"; then
     _pass "client merge hook loads through standalone worker: ${hook##*/}"
   else

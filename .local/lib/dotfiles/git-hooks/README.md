@@ -5,8 +5,8 @@ This directory is the global Git hook directory selected by
 
 It lives under `~/.local/lib/dotfiles` because these files are executable,
 dotfiles-owned client policy. It is separate from the standalone Dot public
-library and frozen rescue core because Git invokes these entry points directly;
-neither runtime loads or dispatches them.
+library because Git invokes these entry points directly; the runtime does not
+load or dispatch them.
 
 ## Hooks
 

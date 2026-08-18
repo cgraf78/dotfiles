@@ -10,8 +10,10 @@ public API. Files here should stay thin and command-shaped.
 
 ## Dotfiles Commands
 
-- `dot` manages the base bare repo and active overlays.
-- `dotbootstrap` installs or repairs a dotfiles checkout.
+- `dot` is the stable client-owned cron and interactive front door for the
+  standalone Dot runtime.
+- `dotbootstrap` delegates installation and client initialization to Dot, or
+  reconverges an existing client through `dot update --force`.
 - `dot-test` runs the dotfiles test suite.
 - `git` routes normal repositories to real Git and `$HOME` dotfiles paths to
   the base bare repo.
@@ -22,6 +24,10 @@ public API. Files here should stay thin and command-shaped.
 - `nvim` reuses an existing Neovim pane in the current tmux window for simple
   interactive-shell file opens, otherwise launching the Shdeps-managed Neovim
   binary at its fixed private path.
+
+The tracked `dot` file is an exact copy of Dot's reviewed permanent launcher
+template. It binds the Shdeps-owned checkout to the installed public-library
+link, then enters that checkout's runtime; implementation remains in Dot.
 
 Reusable tool commands such as `ettun`, `fwdports`, `sley`, `sysup`,
 `agent-hook-*`, `claude-session-name`, `autoformat`, `autolint`, `checkrun`,
