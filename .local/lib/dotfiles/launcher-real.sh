@@ -2,18 +2,25 @@
 # Shared real-binary resolution for PATH-visible dotfiles launchers.
 
 if ! declare -F dot_xdg_path >/dev/null 2>&1; then
-  _dot_launcher_library_home=${DOT_TEST_HOST_HOME:-${HOME:-}}
-  _dot_launcher_xdg=$_dot_launcher_library_home/.local/lib/dot/xdg.sh
-  if [[ ! -r $_dot_launcher_xdg ]]; then
-    _dot_launcher_library_home=${DOT_TEST_SOURCE_HOME:-${HOME:-}}
-    _dot_launcher_xdg=$_dot_launcher_library_home/.local/lib/dotfiles/legacy-dot/core/xdg.sh
+  _dot_launcher_client_dir=$(cd -P -- "${BASH_SOURCE[0]%/*}" 2>/dev/null && pwd -P) ||
+    return 1
+  _dot_launcher_xdg=
+  if [[ -n ${DOT_TEST_HOST_HOME:-} ]]; then
+    _dot_launcher_xdg=$DOT_TEST_HOST_HOME/.local/lib/dot/xdg.sh
   fi
+  if [[ ! -r $_dot_launcher_xdg ]]; then
+    _dot_launcher_xdg=${_dot_launcher_client_dir%/dotfiles}/dot/xdg.sh
+  fi
+  if [[ ! -r $_dot_launcher_xdg ]]; then
+    _dot_launcher_xdg=$_dot_launcher_client_dir/legacy-dot/core/xdg.sh
+  fi
+  [[ -r $_dot_launcher_xdg ]] || return 1
   # shellcheck source=../dot/xdg.sh disable=SC1091
   . "$_dot_launcher_xdg"
   if ! declare -F dot_xdg_path >/dev/null 2>&1; then
     dot_xdg_path() { _dot_xdg_path "$@"; }
   fi
-  unset _dot_launcher_library_home _dot_launcher_xdg
+  unset _dot_launcher_client_dir _dot_launcher_xdg
 fi
 
 _dot_launcher_physical_dir() {

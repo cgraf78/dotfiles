@@ -131,6 +131,7 @@ program	.local/lib/dotfiles/legacy-dot/tests/bootstrap-overlay-test
 program	.local/lib/dotfiles/legacy-dot/tests/bootstrap-shortcut-test
 program	.local/lib/dotfiles/legacy-dot/tests/bootstrap-test
 program	.local/lib/dotfiles/legacy-dot/tests/client-extensions-test
+program	.local/lib/dotfiles/legacy-dot/tests/client-paths-test
 program	.local/lib/dotfiles/legacy-dot/tests/clip-test
 program	.local/lib/dotfiles/legacy-dot/tests/core-cron-test
 program	.local/lib/dotfiles/legacy-dot/tests/core-doctor-test

@@ -270,7 +270,7 @@ dot_client_ready_write() {
 }
 
 dot_client_ready_revoke() {
-  local lock dot_state readiness
+  local lock dot_state readiness_root generation_root readiness
 
   [[ -n ${HOME:-} ]] || return 1
   lock=${DOT_CLIENT_CUTOVER_LOCK:-$HOME/.local/lib/dotfiles/dot-cutover.lock}
@@ -282,10 +282,17 @@ dot_client_ready_revoke() {
   else
     dot_state=$DOT_CLIENT_READY_STATE_HOME/dot
   fi
-  readiness=$dot_state/client-ready-v4/$DOT_CLIENT_READY_GENERATION/$DOT_CLIENT_READY_REVISION
+  readiness_root=$dot_state/client-ready-v4
+  generation_root=$readiness_root/$DOT_CLIENT_READY_GENERATION
+  readiness=$generation_root/$DOT_CLIENT_READY_REVISION
   if [[ ! -e $readiness && ! -L $readiness ]]; then
     return 0
   fi
+  # The path is authority only inside the exact private directory chain the
+  # writer created. Do not follow a substituted state parent to another tree.
+  dot_client_ready_private_directory "$dot_state" || return 1
+  dot_client_ready_private_directory "$readiness_root" || return 1
+  dot_client_ready_private_directory "$generation_root" || return 1
   # Remove only the exact private v4 record. Unexpected type, mode, owner, or
   # link count stops the update before it can mutate under stale authority.
   dot_client_ready_private_file "$readiness" || return 1

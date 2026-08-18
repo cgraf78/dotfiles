@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   shell:
-    uses: cgraf78/actions/.github/workflows/shell-ci.yml@2a6119d7886443929e1961a0e11b8dafa71c1978
+    uses: cgraf78/actions/.github/workflows/shell-ci.yml@93aa1a87fecfca887d27886f89cc63d388419068
     with:
       # CI restores shdeps between runs. Refresh the resolver before it
       # validates dependency releases and installed-tool smoke checks.
@@ -49,9 +49,10 @@ jobs:
           git fetch --no-tags --depth=1 origin \
             "+$dot_cutover_baseline:refs/remotes/origin/dot-cutover-baseline"
         fi
-        # Namespace preparation deliberately does not provision Dot on the
-        # product path. Give the contract tests one isolated checkout derived
-        # from the same cutover lock instead of maintaining a second revision.
+        # Bootstrap provisions Dot on the product path, but contract tests also
+        # need one deterministic checkout before the dependency setup step.
+        # Derive it from the same cutover lock instead of maintaining a second
+        # revision.
         dot_test_revision=$(sed -n 's/^minimum_revision=//p' \
           .local/lib/dotfiles/dot-cutover.lock)
         [[ $dot_test_revision =~ ^[0-9a-f]{40}$ ]]
@@ -63,6 +64,7 @@ jobs:
         [[ $(git -C "$dot_test_root" rev-parse HEAD) == "$dot_test_revision" ]]
         export DOT_TEST_DOT_ROOT=$dot_test_root
         DOT_CORE_SKIP_SHELLCHECK=1 .local/bin/dot-test
+        DOT_REEXEC=1 .local/bin/dot-test -s fleet-transition
         lsp_mise_backends=(
           github:neocmakelsp/neocmakelsp
           github:kristoff-it/superhtml
@@ -105,7 +107,7 @@ jobs:
       # files, so `.github/cgraf78-actions.lock` cannot be interpolated. This gate
       # verifies every unavoidable cgraf78/actions literal still matches that
       # single reviewed dependency decision.
-      - uses: cgraf78/actions/.github/actions/verify-consumer-sync@2a6119d7886443929e1961a0e11b8dafa71c1978
+      - uses: cgraf78/actions/.github/actions/verify-consumer-sync@93aa1a87fecfca887d27886f89cc63d388419068
 
   cold-bootstrap:
     name: Cold Ubuntu bootstrap
@@ -119,7 +121,7 @@ jobs:
           persist-credentials: false
 
       - name: Install bootstrap prerequisites
-        uses: cgraf78/actions/.github/actions/shell-ci-prereqs@2a6119d7886443929e1961a0e11b8dafa71c1978
+        uses: cgraf78/actions/.github/actions/shell-ci-prereqs@93aa1a87fecfca887d27886f89cc63d388419068
         with:
           matrix-name: Ubuntu
           setup: dotfiles

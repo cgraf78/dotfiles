@@ -38,11 +38,6 @@ _client_path_contains 'Neovim launcher loads the dotfiles-owned Shdeps helper' \
   .local/bin/nvim '../lib/dotfiles/shdeps-assets.sh'
 _client_path_contains 'Git hooksPath uses the dotfiles-owned hook tree' \
   .config/git/config '.local/lib/dotfiles/git-hooks'
-if git -C "$source_home" grep -q -F 'cgraf78/dot' -- .config/shdeps/10-deps.conf; then
-  _fail 'namespace preparation does not provision standalone Dot'
-else
-  _pass 'namespace preparation does not provision standalone Dot'
-fi
 _client_path_contains 'dot forwarder retains the explicit embedded fallback' \
   .local/bin/dot '.local/lib/dotfiles/legacy-dot-launcher.sh'
 
@@ -52,12 +47,6 @@ if dot_root=$(_test_dot_root) &&
   _pass 'dot forwarder matches the reviewed standalone template'
 else
   _fail 'dot forwarder matches the reviewed standalone template'
-fi
-if [[ ! -e $source_home/.local/lib/dotfiles/dot-client-readiness.sh &&
-  ! -L $source_home/.local/lib/dotfiles/dot-client-readiness.sh ]]; then
-  _pass 'namespace preparation ships no readiness writer'
-else
-  _fail 'namespace preparation ships no readiness writer'
 fi
 
 if [[ -f $source_home/.local/bin/dot-test &&
@@ -94,6 +83,6 @@ xdg_fallbacks=$(grep -hF '.local/lib/dotfiles/legacy-dot/core/xdg.sh' \
   "$source_home/.config/shell/interactive.d/57-marks.sh" \
   "$source_home/.local/bin/clip" \
   "$source_home/.local/lib/dotfiles/launcher-real.sh" | awk 'END { print NR }')
-_assert_eq 'dual-path window keeps only three explicit XDG fallbacks' 3 "$xdg_fallbacks"
+_assert_eq 'dual-path window keeps only two explicit XDG fallbacks' 2 "$xdg_fallbacks"
 
 _test_summary

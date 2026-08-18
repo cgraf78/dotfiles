@@ -128,6 +128,32 @@ dot_core_test_launchers() {
   echo ""
   echo "=== git launcher ==="
 
+  _git_temporary_home=$(_tmpdir)
+  _git_temporary_bin=$(_tmpdir)
+  _git_temporary_cache=$(_tmpdir)
+  cat >"$_git_temporary_bin/git" <<'EOF'
+#!/usr/bin/env bash
+case "${1:-}" in
+  --version | version)
+    printf 'git version temporary-home\n'
+    ;;
+  *)
+    exit 1
+    ;;
+esac
+EOF
+  chmod +x "$_git_temporary_bin/git"
+  result=$(
+    cd "$REAL_HOME" &&
+      env -u DOT_TEST_HOST_HOME -u DOT_TEST_SOURCE_HOME \
+        HOME="$_git_temporary_home" \
+        XDG_CACHE_HOME="$_git_temporary_cache" \
+        PATH="$REAL_HOME/.local/bin:$_git_temporary_bin:/usr/bin:/bin" \
+        "$REAL_HOME/.local/bin/git" version 2>&1
+  )
+  _assert_eq "git launcher temporary HOME: loads support beside itself" \
+    "git version temporary-home" "$result"
+
   result=$(cd "$TEST_HOME" && "$BIN_DIR/git" log --format=%s -1 2>&1)
   _assert_contains "git launcher base: routes HOME to bare dotfiles" \
     "tag test" "$result"

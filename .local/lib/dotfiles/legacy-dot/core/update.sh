@@ -134,6 +134,41 @@ _dot_update_revoke_client_readiness() {
   "$helper" revoke
 }
 
+_dot_update_path_owner_device() {
+  local output
+
+  if output=$(stat -c '%u %d' "$1" 2>/dev/null); then
+    :
+  elif output=$(stat -f '%u %d' "$1" 2>/dev/null); then
+    :
+  else
+    return 1
+  fi
+  printf '%s\n' "$output"
+}
+
+_dot_update_retired_public_tree_prunable() (
+  local root=$1 expected_uid root_identity expected_device path identity
+  local path_uid path_device
+
+  set -o pipefail
+  [[ -d $root && ! -L $root ]] || exit 1
+  expected_uid=$(id -u) || exit 1
+  root_identity=$(_dot_update_path_owner_device "$root") || exit 1
+  [[ ${root_identity%% *} == "$expected_uid" ]] || exit 1
+  expected_device=${root_identity#* }
+
+  find "$root" -xdev -print0 2>/dev/null |
+    while IFS= read -r -d '' path; do
+      [[ -d $path && ! -L $path ]] || exit 1
+      identity=$(_dot_update_path_owner_device "$path") || exit 1
+      path_uid=${identity%% *}
+      path_device=${identity#* }
+      [[ $path_uid == "$expected_uid" &&
+        $path_device == "$expected_device" ]] || exit 1
+    done
+)
+
 _dot_update_remove_retired_public_directory() {
   local public_path="$HOME/.local/lib/dot"
 
@@ -145,6 +180,7 @@ _dot_update_remove_retired_public_directory() {
   # root; any link, file, or nonempty directory remains untouched and makes the
   # standalone installer's no-clobber boundary fail closed.
   [[ -d $public_path && ! -L $public_path ]] || return 0
+  _dot_update_retired_public_tree_prunable "$public_path" || return 1
   find "$public_path" -depth -type d -exec rmdir {} \; 2>/dev/null || return 1
   [[ ! -e $public_path && ! -L $public_path ]]
 }
