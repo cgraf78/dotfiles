@@ -25,12 +25,23 @@ dot_fixture_base_repo() {
 }
 
 dot_fixture_copy_core() {
-  local engine_root="${1:-${DOT_TEST_ENGINE_ROOT:-$REAL_HOME/.local/lib/dot/core}}"
+  local source_home=${DOT_TEST_SOURCE_HOME:-$REAL_HOME}
 
-  mkdir -p "$TEST_HOME/.local/lib/dot/core"
-  cp "$engine_root/"*.sh "$TEST_HOME/.local/lib/dot/core/"
-  cp -R "$engine_root/doctor" "$TEST_HOME/.local/lib/dot/core/"
-  cp -R "$engine_root/repos" "$TEST_HOME/.local/lib/dot/core/"
+  # Client-policy tests execute the standalone engine from its own checkout and
+  # copy only the consumer-owned extensions into the fixture HOME. Keeping this
+  # helper name avoids churn in the retained application suites while ensuring
+  # no embedded engine tree is recreated after cutover.
+  mkdir -p "$TEST_HOME/.config/dot" "$TEST_HOME/.local/lib/dotfiles"
+  cp -R "$source_home/.local/lib/dotfiles/merge-hooks.d" \
+    "$TEST_HOME/.local/lib/dotfiles/"
+  cp -R "$source_home/.local/lib/dotfiles/doctor.d" \
+    "$TEST_HOME/.local/lib/dotfiles/"
+  cat >"$TEST_HOME/.config/dot/config" <<'CONF'
+version=1
+extension_api=1
+extensions_dir=$HOME/.local/lib/dotfiles
+dependency_provider=none
+CONF
 }
 
 dot_fixture_write_shdeps_config() {
@@ -68,11 +79,24 @@ dot_fixture_seed_bootstrap_files() {
 }
 
 dot_fixture_source_core_init() {
-  local engine_root="${1:-${DOT_TEST_ENGINE_ROOT:-$TEST_HOME/.local/lib/dot/core}}"
+  local dot_root
 
+  dot_root=$(_test_dot_root) || return 1
+  DOT_SOURCE_ROOT=$dot_root
+  DOT_CONFIG_VERSION=1
+  DOT_EXTENSION_API=1
+  DOT_EXTENSIONS_DIR=$TEST_HOME/.local/lib/dotfiles
+  DOT_DEPENDENCY_PROVIDER=none
+  export DOT_SOURCE_ROOT DOT_CONFIG_VERSION DOT_EXTENSION_API
+  export DOT_EXTENSIONS_DIR DOT_DEPENDENCY_PROVIDER
   # shellcheck source=/dev/null
-  . "$engine_root/init.sh"
-  _ensure_shdeps
+  . "$dot_root/lib/dot/public/xdg.sh"
+  # shellcheck source=/dev/null
+  . "$dot_root/lib/dot/runtime.sh"
+  # Retained client-policy suites probe logical application presence and
+  # provider adapters directly; production hooks load this compatibility layer
+  # through the public hook API in their isolated workers.
+  dot_hook_source merge-hooks.d/lib/compat.sh
 }
 
 dot_fixture_seed_repo() {

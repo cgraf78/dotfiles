@@ -142,7 +142,7 @@ MOCK
       _ci_termux_strict_line=$_ci_line_number
     fi
     if ((_ci_in_shell_with)) &&
-      [[ "$_ci_code" =~ ^[[:space:]]{8}HOME=\"\$PWD\"[[:space:]]+PATH=\"\$PWD/\.local/bin:\$PATH\"[[:space:]]+\.local/bin/dot[[:space:]]+update[[:space:]]+--skip-pull[[:space:]]*$ ]]; then
+      [[ "$_ci_code" =~ ^[[:space:]]{8}HOME=\"\$PWD\"[[:space:]]+PATH=\"\$PWD/\.local/bin:\$PATH\"[[:space:]]+\"\$PWD/\.local/share/cgraf78/dot/bin/dot\"[[:space:]]+update[[:space:]]*$ ]]; then
       _ci_termux_update_line=$_ci_line_number
     fi
     if ((_ci_in_shell_with)) &&
@@ -386,7 +386,9 @@ MOCK
     "unset XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME XDG_RUNTIME_DIR" \
     "$_ci_cold_bootstrap"
   _ci_cold_home_line=$(grep -nF "          cd \"\$HOME\"" <<<"$_ci_cold_bootstrap" | cut -d: -f1)
-  _ci_cold_init_line=$(grep -nF "            bash -s init <\"\$bootstrap\"" <<<"$_ci_cold_bootstrap" | cut -d: -f1)
+  _ci_cold_init_line=$(grep -nF \
+    "            bash -s init <\"\$bootstrap\"" \
+    <<<"$_ci_cold_bootstrap" | cut -d: -f1)
   if [[ -n "$_ci_cold_home_line" && -n "$_ci_cold_init_line" &&
     "$_ci_cold_home_line" -lt "$_ci_cold_init_line" ]]; then
     _pass "CI workflow: cold bootstrap starts from the conventional HOME"
@@ -581,210 +583,6 @@ PY
     done <<<"$_mktemp_template_errors"
   fi
 
-  _merge_hook_layout_errors=$(
-    python3 - "$_lint_root" "$_mktemp_tracked" <<'PY'
-import sys
-from pathlib import Path
-
-root = Path(sys.argv[1])
-tracked = Path(sys.argv[2])
-config_root = Path(".config/dot/merge-hooks.d")
-legacy_script_root = root / ".local/lib/dot/core/merge-hooks.d"
-script_root = root / ".local/lib/dot/core/merge-hooks"
-
-if legacy_script_root.exists():
-    print(f"{legacy_script_root.relative_to(root)}: merge hook implementations belong under .local/lib/dot/core/merge-hooks")
-
-config_names = set()
-config_scripts = []
-for line in tracked.read_text().splitlines():
-    rel = Path(line.strip())
-    if not rel.parts or rel.parts[: len(config_root.parts)] != config_root.parts:
-        continue
-    remainder = rel.relative_to(config_root)
-    if len(remainder.parts) == 1:
-        if remainder.suffix == ".sh":
-            config_scripts.append(rel)
-        continue
-    config_names.add(remainder.parts[0])
-
-for rel in sorted(config_scripts):
-    print(f"{rel}: merge hook scripts belong under .local/lib/dot/core/merge-hooks")
-
-for name in sorted(config_names):
-    path = config_root / name
-    if len(name) >= 3 and name[:2].isdigit() and name[2] == "-":
-        print(f"{path}: top-level hook instance dirs must be unprefixed")
-    script = script_root / f"{name}.sh"
-    if not script.is_file():
-        print(f"{path}: missing matching script {script.relative_to(root)}")
-PY
-  )
-  if [[ -z "$_merge_hook_layout_errors" ]]; then
-    _pass "merge hook layout: config dirs match unprefixed core scripts"
-  else
-    _fail "merge hook layout: config dirs match unprefixed core scripts"
-    while IFS= read -r _line; do
-      printf '    %s\n' "$_line" >&2
-    done <<<"$_merge_hook_layout_errors"
-  fi
-
-  echo ""
-  echo "=== Embedded core dependency boundary ==="
-
-  # The standalone-dot extraction must move engine mechanics without silently
-  # turning today's client-policy imports into a public API.  Keep both sides
-  # of that boundary explicit before any files move: source edges identify
-  # every direct runtime consumer, while the AST-derived symbol ledger
-  # identifies the private functions and globals each base hook/doctor module
-  # currently gets from another embedded core file.
-  _core_boundary_scanner="$_lint_root/.local/lib/dotfiles/tests/core-boundary-inventory.py"
-  _core_boundary_tracked=$(_tmpdir)/tracked-files
-  _core_boundary_has_shfmt=0
-  command -v shfmt >/dev/null 2>&1 && _core_boundary_has_shfmt=1
-  "${_lint_git[@]}" ls-files >"$_core_boundary_tracked"
-  for _core_boundary_spec in \
-    "sources|runtime source|embedded-core-sources-v1.tsv" \
-    "tests|test migration|embedded-core-tests-v1.tsv" \
-    "symbols|hook and doctor symbol|embedded-core-symbols-v1.tsv"; do
-    IFS='|' read -r _core_boundary_kind _core_boundary_label \
-      _core_boundary_fixture <<<"$_core_boundary_spec"
-    if [[ $_core_boundary_kind != tests && $_core_boundary_has_shfmt -eq 0 ]]; then
-      echo "  SKIP: embedded core boundary $_core_boundary_label inventory (shfmt unavailable)"
-      continue
-    fi
-    _core_boundary_expected=$(_tmpdir)/expected.tsv
-    _core_boundary_actual=$(_tmpdir)/actual.tsv
-    awk 'NF && $0 !~ /^[[:space:]]*#/' \
-      "$_lint_root/.local/lib/dotfiles/tests/fixtures/$_core_boundary_fixture" \
-      >"$_core_boundary_expected"
-
-    if python3 "$_core_boundary_scanner" "$_core_boundary_kind" \
-      "$_lint_root" "$_core_boundary_tracked" >"$_core_boundary_actual"; then
-      if cmp -s "$_core_boundary_expected" "$_core_boundary_actual"; then
-        _pass "embedded core boundary: $_core_boundary_label inventory is explicit"
-      else
-        _fail "embedded core boundary: $_core_boundary_label inventory drifted"
-        diff -u "$_core_boundary_expected" "$_core_boundary_actual" >&2 || true
-      fi
-    else
-      _fail "embedded core boundary: $_core_boundary_label inventory scan runs"
-    fi
-  done
-
-  # Keep the scanner honest with the dependency shapes most likely to defeat a
-  # line-oriented grep.  These are test fixtures, not supported syntax: they
-  # prove constant path composition and symlink imports are visible, heredoc
-  # prose is ignored, and semantic function/variable references stay in the
-  # symbol ledger even when they are not ordinary expansions or direct calls.
-  _core_boundary_fixture_root=$(_tmpdir)
-  _core_boundary_fixture_core="$_core_boundary_fixture_root/.local/lib/dot/core"
-  mkdir -p "$_core_boundary_fixture_root/.local/bin" \
-    "$_core_boundary_fixture_core/merge-hooks"
-  cat >"$_core_boundary_fixture_core/xdg.sh" <<'FIXTURE'
-# shellcheck shell=bash
-FIXTURE
-  cat >"$_core_boundary_fixture_core/helper.sh" <<'FIXTURE'
-# shellcheck shell=bash
-_helper() { :; }
-_printed_only() { :; }
-FIXTURE
-  cat >"$_core_boundary_fixture_core/constants.sh" <<'FIXTURE'
-# shellcheck shell=bash
-DOTFILES=${HOME}/.dotfiles
-ORDER_GLOBAL=outside
-OTHER_GLOBAL=outside
-RHS_GLOBAL=outside
-TRAP_GLOBAL=outside
-UNSET_GLOBAL=outside
-FIXTURE
-  cat >"$_core_boundary_fixture_core/merge-hooks/test.sh" <<'FIXTURE'
-# shellcheck shell=bash
-merge() { trap '_helper' EXIT; [[ -v DOTFILES ]]; }
-noise() { trap 'printf "%s\n" _printed_only' EXIT; unset _printed_only; }
-command_noise() { command _printed_only; type -P _printed_only >/dev/null; }
-trap_value() { trap 'printf "%s\n" "$TRAP_GLOBAL"' EXIT; }
-shadow() { local OTHER_GLOBAL=local; }
-use_global() { printf '%s\n' "$OTHER_GLOBAL"; unset UNSET_GLOBAL; }
-before_local() { printf '%s\n' "$ORDER_GLOBAL"; local ORDER_GLOBAL=local; }
-rhs_local() { local RHS_GLOBAL="$RHS_GLOBAL/suffix"; }
-FIXTURE
-  cat >"$_core_boundary_fixture_root/.local/bin/split" <<'FIXTURE'
-#!/usr/bin/env -S bash
-core="$HOME/.local/lib/dot/core"
-. "$core/xdg.sh"
-FIXTURE
-  cat >"$_core_boundary_fixture_root/.local/bin/scope" <<'FIXTURE'
-#!/usr/bin/env bash
-probe() { local core="$HOME/.local/lib/dot/core"; :; }
-run() { local core=/tmp; . "$core/xdg.sh"; }
-FIXTURE
-  # shellcheck disable=SC2016  # generated fixture must retain literal $HOME.
-  _core_boundary_heredoc_literal='$HOME/.local/lib/dot/'core/xdg.sh
-  cat >"$_core_boundary_fixture_root/.local/bin/heredoc" <<FIXTURE
-#!/usr/bin/env bash
-cat <<'TEXT'
-$_core_boundary_heredoc_literal
-TEXT
-FIXTURE
-  chmod +x "$_core_boundary_fixture_root/.local/bin/split" \
-    "$_core_boundary_fixture_root/.local/bin/heredoc" \
-    "$_core_boundary_fixture_root/.local/bin/scope"
-  ln -s '../lib/dot/'core/xdg.sh \
-    "$_core_boundary_fixture_root/.local/bin/direct-link"
-  _core_boundary_fixture_owner=.local/lib/dot/core
-  cat >"$_core_boundary_fixture_root/tracked" <<TRACKED
-.local/bin/direct-link
-.local/bin/heredoc
-.local/bin/scope
-.local/bin/split
-$_core_boundary_fixture_owner/constants.sh
-$_core_boundary_fixture_owner/helper.sh
-$_core_boundary_fixture_owner/merge-hooks/test.sh
-$_core_boundary_fixture_owner/xdg.sh
-TRACKED
-
-  cat >"$_core_boundary_fixture_root/sources.expected" <<EXPECTED
-.local/bin/direct-link	xdg.sh	$_core_boundary_fixture_owner/xdg.sh
-.local/bin/split	xdg.sh	$_core_boundary_fixture_owner/xdg.sh
-EXPECTED
-  if [[ $_core_boundary_has_shfmt -eq 0 ]]; then
-    echo "  SKIP: embedded core boundary source-shape scanner (shfmt unavailable)"
-  elif python3 "$_core_boundary_scanner" sources \
-    "$_core_boundary_fixture_root" "$_core_boundary_fixture_root/tracked" \
-    >"$_core_boundary_fixture_root/sources.actual" &&
-    cmp -s "$_core_boundary_fixture_root/sources.expected" \
-      "$_core_boundary_fixture_root/sources.actual"; then
-    _pass "embedded core boundary scanner: resolves split and symlink sources only"
-  else
-    _fail "embedded core boundary scanner: resolves split and symlink sources only"
-    diff -u "$_core_boundary_fixture_root/sources.expected" \
-      "$_core_boundary_fixture_root/sources.actual" >&2 || true
-  fi
-
-  cat >"$_core_boundary_fixture_root/symbols.expected" <<EXPECTED
-function	$_core_boundary_fixture_owner/merge-hooks/test.sh	_helper	$_core_boundary_fixture_owner/helper.sh
-variable	$_core_boundary_fixture_owner/merge-hooks/test.sh	DOTFILES	$_core_boundary_fixture_owner/constants.sh
-variable	$_core_boundary_fixture_owner/merge-hooks/test.sh	ORDER_GLOBAL	$_core_boundary_fixture_owner/constants.sh
-variable	$_core_boundary_fixture_owner/merge-hooks/test.sh	OTHER_GLOBAL	$_core_boundary_fixture_owner/constants.sh
-variable	$_core_boundary_fixture_owner/merge-hooks/test.sh	RHS_GLOBAL	$_core_boundary_fixture_owner/constants.sh
-variable	$_core_boundary_fixture_owner/merge-hooks/test.sh	TRAP_GLOBAL	$_core_boundary_fixture_owner/constants.sh
-variable	$_core_boundary_fixture_owner/merge-hooks/test.sh	UNSET_GLOBAL	$_core_boundary_fixture_owner/constants.sh
-EXPECTED
-  if [[ $_core_boundary_has_shfmt -eq 0 ]]; then
-    echo "  SKIP: embedded core boundary symbol-shape scanner (shfmt unavailable)"
-  elif python3 "$_core_boundary_scanner" symbols \
-    "$_core_boundary_fixture_root" "$_core_boundary_fixture_root/tracked" \
-    >"$_core_boundary_fixture_root/symbols.actual" &&
-    cmp -s "$_core_boundary_fixture_root/symbols.expected" \
-      "$_core_boundary_fixture_root/symbols.actual"; then
-    _pass "embedded core boundary scanner: resolves trap and variable-existence symbols"
-  else
-    _fail "embedded core boundary scanner: resolves trap and variable-existence symbols"
-    diff -u "$_core_boundary_fixture_root/symbols.expected" \
-      "$_core_boundary_fixture_root/symbols.actual" >&2 || true
-  fi
-
   _account_portability_errors=$(
     python3 - "$_lint_root" "$_mktemp_tracked" <<'PY'
 import sys
@@ -792,12 +590,6 @@ from pathlib import Path
 
 root = Path(sys.argv[1])
 tracked = Path(sys.argv[2])
-runtime_prefixes = (
-    ".bash",
-    ".config",
-    ".local/bin",
-    ".local/lib/dot",
-)
 blocked_literals = (
     "/mnt/c/Users/$USER",
     "/mnt/c/Users/${USER}",
@@ -811,14 +603,24 @@ blocked_literals = (
     "/home/cgraf",
 )
 
+
+def client_runtime_path(rel):
+    return (
+        rel.startswith(".bash")
+        or rel.startswith(".config/")
+        or rel.startswith(".local/bin/")
+        or rel.startswith(".local/lib/dotfiles/")
+    )
+
+
 for rel in tracked.read_text().splitlines():
     rel = rel.strip()
     if not rel or rel.startswith((
-        ".local/lib/dot/tests/",
+        ".local/lib/dotfiles/legacy-dot/",
         ".local/lib/dotfiles/tests/",
     )):
         continue
-    if not rel.startswith(runtime_prefixes):
+    if not client_runtime_path(rel):
         continue
     path = root / rel
     if not path.is_file() or path.is_symlink():
@@ -885,10 +687,11 @@ def predictable_temp_line(line):
         return True
     return ">" in line or "mv " in line or "cp " in line
 
+
 for rel in tracked.read_text().splitlines():
     rel = rel.strip()
     if not rel or rel.startswith((
-        ".local/lib/dot/tests/",
+        ".local/lib/dotfiles/legacy-dot/",
         ".local/lib/dotfiles/tests/",
     )):
         continue
@@ -903,7 +706,7 @@ for rel in tracked.read_text().splitlines():
         continue
     for lineno, line in enumerate(text.splitlines(), 1):
         if predictable_temp_line(line):
-            print(f"{rel}:{lineno}: use mktemp or _dot_sibling_tmp_for instead of predictable PID-suffixed names")
+            print(f"{rel}:{lineno}: use mktemp instead of predictable PID-suffixed names")
 PY
   )
   if [[ -z "$_predictable_temp_errors" ]]; then
@@ -915,45 +718,74 @@ PY
     done <<<"$_predictable_temp_errors"
   fi
 
-  echo ""
-  echo "=== Documentation paths ==="
-  _dot_operating_doc=$(<"$_lint_root/.local/share/doc/dot/dot.md")
-  _git_hook_doc=$(<"$_lint_root/.local/lib/dotfiles/git-hooks/README.md")
-  _hive_memory_doc=$(<"$_lint_root/.config/hive-memory/README.md")
-  _local_bin_doc=$(<"$_lint_root/.local/bin/README.md")
-  _assert_contains "docs: operating guide links the relocated rescue core" \
-    ".local/lib/dotfiles/legacy-dot/core/README.md" "$_dot_operating_doc"
-  _assert_contains "docs: Git hook policy names the client-owned namespace" \
-    '.local/lib/dotfiles' "$_git_hook_doc"
-  _assert_contains "docs: Hive Memory points at its tracked launcher" \
-    '.local/bin/hm' "$_hive_memory_doc"
-  _assert_contains "docs: command guidance uses the client-owned library" \
-    '.local/lib/dotfiles' "$_local_bin_doc"
-  _assert_not_contains "docs: operating guide drops deleted core links" \
-    ".local/lib/dot/core/README.md" "$_dot_operating_doc"
-  _assert_not_contains "docs: operating guide drops deleted test links" \
-    ".local/lib/dot/tests/README.md" "$_dot_operating_doc"
+  _merge_hook_layout_errors=$(
+    python3 - "$_lint_root" "$_mktemp_tracked" <<'PY'
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+tracked = Path(sys.argv[2])
+config_root = Path(".config/dot/merge-hooks.d")
+legacy_script_roots = (
+    root / ".local/lib/dot/core/merge-hooks.d",
+    root / ".local/lib/dot/core/merge-hooks",
+)
+script_root = root / ".local/lib/dotfiles/merge-hooks.d"
+
+for legacy_script_root in legacy_script_roots:
+    if legacy_script_root.exists():
+        print(
+            f"{legacy_script_root.relative_to(root)}: merge hook implementations "
+            "belong under .local/lib/dotfiles/merge-hooks.d"
+        )
+
+config_names = set()
+config_scripts = []
+for line in tracked.read_text().splitlines():
+    rel = Path(line.strip())
+    if not rel.parts or rel.parts[: len(config_root.parts)] != config_root.parts:
+        continue
+    remainder = rel.relative_to(config_root)
+    if len(remainder.parts) == 1:
+        if remainder.suffix == ".sh":
+            config_scripts.append(rel)
+        continue
+    config_names.add(remainder.parts[0])
+
+for rel in sorted(config_scripts):
+    print(f"{rel}: merge hook scripts belong under .local/lib/dotfiles/merge-hooks.d")
+
+for name in sorted(config_names):
+    path = config_root / name
+    if len(name) >= 3 and name[:2].isdigit() and name[2] == "-":
+        print(f"{path}: top-level hook instance dirs must be unprefixed")
+    # SSHD is a privileged pre-sync policy with its own test and deliberately
+    # has no ordinary user merge-hook script.
+    if name == "sshd":
+        continue
+    scripts = (script_root / f"{name}.sh", script_root / f"{name}.serial.sh")
+    if not any(script.is_file() for script in scripts):
+        expected = " or ".join(str(script.relative_to(root)) for script in scripts)
+        print(f"{path}: missing matching script {expected}")
+PY
+  )
+  if [[ -z "$_merge_hook_layout_errors" ]]; then
+    _pass "merge hook layout: config dirs match unprefixed client scripts"
+  else
+    _fail "merge hook layout: config dirs match unprefixed client scripts"
+    while IFS= read -r _line; do
+      printf '    %s\n' "$_line" >&2
+    done <<<"$_merge_hook_layout_errors"
+  fi
 
   echo ""
   echo "=== Shell config dir constants ==="
 
-  # The shell-startup hot path (.bashrc, .zshrc, shell-loader.sh) keeps
-  # env.d/interactive.d as literals so startup never sources constants.sh, while
-  # the cold-path doctor validates those dirs via the DOT_SHELL_* constants.
-  # Guard against the two drifting apart: read the canonical constants (in a
-  # subshell with a sentinel HOME so nothing leaks) and assert each hot-path
-  # owner still spells the same relative path. Either side changing alone — the
-  # constant or the literal — fails this check.
-  _shell_dir_probe=$(
-    HOME=/probe-home
-    # shellcheck source=/dev/null
-    . "$_lint_root/.local/lib/dot/core/constants.sh"
-    # shellcheck disable=SC2154  # DOT_SHELL_* come from the sourced constants.sh
-    printf '%s\n%s\n' \
-      "${DOT_SHELL_ENV_DIR#"$HOME/"}" "${DOT_SHELL_INTERACTIVE_DIR#"$HOME/"}"
-  )
-  _env_rel=$(sed -n 1p <<<"$_shell_dir_probe")
-  _int_rel=$(sed -n 2p <<<"$_shell_dir_probe")
+  # These directories are client policy, not part of the standalone engine.
+  # Keep the startup entry points and the dotfiles-owned loader aligned without
+  # importing a retired private runtime module.
+  _env_rel=.config/shell/env.d
+  _int_rel=.config/shell/interactive.d
 
   for _pair in \
     "shell-loader.sh|.local/lib/dotfiles/shell-loader.sh|$_env_rel" \
@@ -1038,6 +870,13 @@ PY
   done
   if [[ "$_searchable_config_ok" -eq 1 ]]; then
     _pass "git ignore: keeps ordinary tool config visible to non-Git consumers"
+  fi
+
+  if "${_lint_git[@]}" ls-files --error-unmatch -- \
+    .config/mise/mise.lock >/dev/null 2>&1; then
+    _pass "git policy: tracked Mise lockfile remains reproducible"
+  else
+    _fail "git policy: tracked Mise lockfile remains reproducible"
   fi
 
   _search_ignore="$_lint_root/.config/dot/merge-hooks.d/ignore/ignore.d/10-patterns.gitignore"

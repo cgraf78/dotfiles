@@ -90,8 +90,11 @@ jobs:
         superhtml version >/dev/null
       termux-command: |-
         set -euo pipefail
-        HOME="$PWD" PATH="$PWD/.local/bin:$PATH" .local/bin/dot update --skip-pull
-        HOME="$PWD" PATH="$PWD/.local/bin:$PATH" bash .local/lib/dotfiles/legacy-dot/tests/android-ci-smoke
+        # install-staged deliberately leaves activation readiness unpublished.
+        # Exercise the installed standalone runtime directly so Android CI
+        # covers current hooks instead of the retained rescue path.
+        HOME="$PWD" PATH="$PWD/.local/bin:$PATH" "$PWD/.local/share/cgraf78/dot/bin/dot" update
+        HOME="$PWD" PATH="$PWD/.local/bin:$PATH" bash .local/lib/dotfiles/tests/android-ci-smoke
       termux-profiles: base,neovim
 
   actions-sync:

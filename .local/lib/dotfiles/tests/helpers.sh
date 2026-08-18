@@ -144,6 +144,65 @@ _test_dot_root() {
   return 1
 }
 
+# Load the public merge-extension API for tests that exercise client policy
+# functions directly. Production still executes hooks in isolated workers;
+# these unit tests intentionally keep the functions in-process so they can
+# probe narrow adapters and failure paths without duplicating engine code.
+_test_load_dot_merge_api() {
+  local source_home=${DOT_TEST_SOURCE_HOME:-$HOME} dot_root
+
+  dot_root=$(_test_dot_root) || return 1
+  DOT_SOURCE_ROOT=$dot_root
+  DOT_EXTENSIONS_DIR=$source_home/.local/lib/dotfiles
+  DOT_EXTENSION_API=1
+  export DOT_SOURCE_ROOT DOT_EXTENSIONS_DIR DOT_EXTENSION_API
+
+  # shellcheck source=/dev/null
+  . "$dot_root/lib/dot/public/xdg.sh"
+  # shellcheck source=/dev/null
+  . "$dot_root/lib/dot/log.sh"
+  # shellcheck source=/dev/null
+  . "$dot_root/lib/dot/temp.sh"
+  # shellcheck source=/dev/null
+  . "$dot_root/lib/dot/merge-block.sh"
+  # shellcheck source=/dev/null
+  . "$dot_root/lib/dot/families.sh"
+  # shellcheck source=/dev/null
+  . "$dot_root/lib/dot/merge-hooks.sh"
+  # shellcheck source=/dev/null
+  . "$dot_root/lib/dot/extension-trust.sh"
+  # shellcheck source=/dev/null
+  . "$dot_root/lib/dot/hook-api.sh"
+}
+
+# Load the standalone doctor extension API plus the dotfiles-owned application
+# checks for focused in-process tests. Production still runs each extension in
+# a fresh worker; these tests exercise the client policy helpers without
+# importing private coordinator state.
+_test_load_dot_doctor_api() {
+  local extension_home=${1:-${DOT_TEST_SOURCE_HOME:-$HOME}} dot_root module
+
+  dot_root=$(_test_dot_root) || return 1
+  DOT_SOURCE_ROOT=$dot_root
+  DOT_EXTENSIONS_DIR=$extension_home/.local/lib/dotfiles
+  DOT_EXTENSION_API=1
+  DOT_DOCTOR_RESULT_FILE=${DOT_DOCTOR_RESULT_FILE:-$extension_home/.doctor-results.tsv}
+  export DOT_SOURCE_ROOT DOT_EXTENSIONS_DIR DOT_EXTENSION_API
+  export DOT_DOCTOR_RESULT_FILE
+  : >"$DOT_DOCTOR_RESULT_FILE"
+
+  # shellcheck source=/dev/null
+  . "$dot_root/lib/dot/public/xdg.sh"
+  # shellcheck source=/dev/null
+  . "$dot_root/lib/dot/extension-trust.sh"
+  # shellcheck source=/dev/null
+  . "$dot_root/lib/dot/doctor-api.sh"
+  dot_doctor_source doctor.d/lib/compat.sh || return 1
+  for module in agent-hooks cron integrations nvim shell tools; do
+    dot_doctor_source "doctor.d/lib/$module.sh" || return 1
+  done
+}
+
 # Editor-policy suites should exercise the managed Neovim payload directly;
 # core-launchers-test owns the public wrapper. Resolve the host payload when a
 # worktree HOME is active so this accommodation stays in test code.

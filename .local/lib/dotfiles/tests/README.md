@@ -40,23 +40,19 @@ depending on a particular `/var` versus `/private/var` spelling.
 
 ## Suites
 
-- `core-test` and `core-*-test` shard core `dot` coverage. `core-test` is the
-  orchestrator: it selects shards, prepares the shared fixture home, sources
-  topic modules from [`core/`](core/README.md), and calls their explicit
-  `dot_core_test_*` functions. Doctor section modules under `core/doctor/` are
-  loaded lazily by the doctor tests that need private `_dr_*` helpers.
-  `DOT_CORE_SHARD=all ./core-test` still runs the original monolithic coverage
-  shape for audits.
-- `bootstrap-test` and `bootstrap-*-test` shard `dotbootstrap` coverage. The
-  shards share one source script through `DOT_BOOTSTRAP_SHARD`.
-  `bootstrap-shortcut-test` runs the README curl-pipe install command against
-  the live `cgraf78.github.io/d` shortcut with local fixture repos so CI covers
-  the public first-install entrypoint without requiring private SSH state. If
-  the live shortcut URL is unreachable from the current network before the
-  script can be fetched, the shard reports `SKIP:` instead of treating network
-  reachability as a product failure.
-  `DOT_BOOTSTRAP_SHARD=all ./bootstrap-test` still runs the original
-  monolithic coverage shape for audits.
+- `core-test` owns the dotfiles test runner. Its focused shards retain
+  application merge-hook, cron, launcher, doctor-extension, and static-policy
+  coverage; generic engine behavior lives in the standalone dot repository.
+- `core-update-test` is the one retained end-to-end client integration: a real
+  standalone update advances a local client origin and runs a dotfiles-owned
+  merge hook.
+- `bootstrap-shortcut-test` pipes the local standalone installer through
+  `--init` against a local client origin. It never reaches the developer's real
+  GitHub account.
+- `cutover-preparation-test` and `fleet-transition-test` are temporary rollout
+  gates for the tracked phase, private readiness proof, and exact old-client
+  transition. Remove them with the frozen rescue after fleet activation is
+  observed; they are not permanent client architecture.
 - `githook-test` tests dotfiles' Sley checkout selection, activation shims,
   commit-message provider choice, and the special bare-home policy. Sley's own
   commit-hook suite owns readiness, Git sequencer behavior, secret scanning,

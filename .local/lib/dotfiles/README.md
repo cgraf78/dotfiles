@@ -15,11 +15,12 @@ machine policy those generic interfaces execute.
   and Sley directly.
 - `shell-loader.sh`, `launcher-real.sh`, `windows.sh`, and
   `shdeps-assets.sh` are client helpers used outside the extension workers.
-- `dot-cutover.lock` is the single fleet rollout authority. In `phase=prepare`,
-  Shdeps installs the reviewed standalone checkout and its public API, then a
-  successful client convergence publishes private, topology-versioned host
-  readiness. The retained `legacy-dot-launcher.sh` remains the only selected
-  runtime until a separate revision changes the phase.
+- `dot-cutover.lock` is the single fleet rollout authority. In `phase=active`,
+  the regular adapter selects the reviewed standalone checkout only when its
+  private, topology-versioned readiness proof and the live client topology
+  both match the lock. A missing, stale, or invalid proof keeps the retained
+  `legacy-dot-launcher.sh` rescue authoritative while the next update retries
+  convergence.
 - `dot-client-readiness.sh` validates the regular adapter, public API link,
   standalone revision, and parsed client configuration before publishing that
   proof. A failure leaves the rescue authoritative and is retried by the next

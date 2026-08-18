@@ -1,22 +1,18 @@
 #!/usr/bin/env bash
 # core-test — unit tests for the dot dotfiles manager.
 #
-# Creates temp directories with mock git repos to test command routing,
-# overlay handling, normalize/filtered logic, and merge scripts.
+# Creates temp directories with mock Git repositories to test dotfiles-owned
+# client launchers, application hooks, doctor extensions, and static policy.
 #
 # Usage:
 #   dot-test core              run all core shards
 #   DOT_CORE_SHARD=all ./core-test
 #   DOT_CORE_SHARD=main ./core-test
-#   DOT_CORE_SHARD=overlays ./core-test
 #   DOT_CORE_SHARD=merges ./core-test
 #   DOT_CORE_SHARD=launchers ./core-test
 #   DOT_CORE_SHARD=cron-config ./core-test
 #   DOT_CORE_SHARD=doctor ./core-test
-#   DOT_CORE_SHARD=pull ./core-test
-#   DOT_CORE_SHARD=reexec ./core-test
 #   DOT_CORE_SHARD=static ./core-test
-#   DOT_CORE_SHARD=update ./core-test
 
 set -o pipefail
 export NO_COLOR=1
@@ -43,36 +39,20 @@ _test_prepare_shdeps_snapshot "$REAL_HOME" "$DEPENDENCY_HOME" || exit 1
 
 _core_shard="${DOT_CORE_SHARD:-main}"
 _core_run_main=false
-_core_run_ui=false
-_core_run_overlays=false
 _core_run_merges=false
 _core_run_launchers=false
 _core_run_cron_config=false
 _core_run_doctor=false
-_core_run_commands=false
-_core_run_pull=false
-_core_run_reexec=false
-_core_run_update=false
 case "$_core_shard" in
   all)
     _core_run_main=true
-    _core_run_ui=true
-    _core_run_overlays=true
     _core_run_merges=true
     _core_run_launchers=true
     _core_run_cron_config=true
     _core_run_doctor=true
-    _core_run_commands=true
-    _core_run_pull=true
-    _core_run_reexec=true
-    _core_run_update=true
     ;;
   main)
     _core_run_main=true
-    _core_run_ui=true
-    ;;
-  overlays)
-    _core_run_overlays=true
     ;;
   merges)
     _core_run_merges=true
@@ -86,29 +66,11 @@ case "$_core_shard" in
   doctor)
     _core_run_doctor=true
     ;;
-  commands)
-    _core_run_commands=true
-    _core_run_pull=true
-    _core_run_reexec=true
-    _core_run_update=true
-    ;;
-  pull)
-    _core_run_commands=true
-    _core_run_pull=true
-    ;;
-  reexec)
-    _core_run_commands=true
-    _core_run_reexec=true
-    ;;
   static)
     # runner.sh executes before static.sh, whose DOT_CORE_STATIC_ONLY path exits
     # before fixture setup. Keeping this as a real empty shard therefore
     # suppresses duplicate runner coverage after the static checks finish; the
     # ordinary core-test suite remains the single owner in full dot-test runs.
-    ;;
-  update)
-    _core_run_commands=true
-    _core_run_update=true
     ;;
   *)
     echo "unknown DOT_CORE_SHARD: $_core_shard" >&2
@@ -121,18 +83,12 @@ CORE_TEST_MODULE_DIR="$HOME/.local/lib/dotfiles/tests/core"
 . "$CORE_TEST_MODULE_DIR/runner.sh"
 # shellcheck source=core/static.sh
 . "$CORE_TEST_MODULE_DIR/static.sh"
-# shellcheck source=core/main.sh
-. "$CORE_TEST_MODULE_DIR/main.sh"
-# shellcheck source=core/overlays.sh
-. "$CORE_TEST_MODULE_DIR/overlays.sh"
 # shellcheck source=core/merges.sh
 . "$CORE_TEST_MODULE_DIR/merges.sh"
 # shellcheck source=core/launchers.sh
 . "$CORE_TEST_MODULE_DIR/launchers.sh"
 # shellcheck source=core/doctor.sh
 . "$CORE_TEST_MODULE_DIR/doctor.sh"
-# shellcheck source=core/commands.sh
-. "$CORE_TEST_MODULE_DIR/commands.sh"
 # shellcheck source=core/cron.sh
 . "$CORE_TEST_MODULE_DIR/cron.sh"
 
@@ -161,8 +117,7 @@ dot_core_setup() {
   # shellcheck disable=SC2034
   DEFAULT_BRANCH=$($GIT branch --show-current 2>/dev/null || echo "master")
 
-  if ! $_core_run_overlays &&
-    { $_core_run_doctor || $_core_run_commands || $_core_run_launchers; } &&
+  if { $_core_run_doctor || $_core_run_launchers; } &&
     [[ ! -f "$TEST_HOME/.config/dot/overlays.d/10-work.conf" ]]; then
     mkdir -p "$TEST_HOME/.config/dot/overlays.d"
     cat >"$TEST_HOME/.config/dot/overlays.d/10-work.conf" <<'CONF'
@@ -189,14 +144,6 @@ fi
 
 dot_core_setup
 
-if $_core_run_ui; then
-  dot_core_test_main
-fi
-
-if $_core_run_overlays; then
-  dot_core_test_overlays
-fi
-
 if $_core_run_merges; then
   dot_core_test_merges
 fi
@@ -207,10 +154,6 @@ fi
 
 if $_core_run_doctor; then
   dot_core_test_doctor
-fi
-
-if $_core_run_commands; then
-  dot_core_test_commands
 fi
 
 if $_core_run_cron_config; then
