@@ -49,6 +49,19 @@ jobs:
           git fetch --no-tags --depth=1 origin \
             "+$dot_cutover_baseline:refs/remotes/origin/dot-cutover-baseline"
         fi
+        # Namespace preparation deliberately does not provision Dot on the
+        # product path. Give the contract tests one isolated checkout derived
+        # from the same cutover lock instead of maintaining a second revision.
+        dot_test_revision=$(sed -n 's/^minimum_revision=//p' \
+          .local/lib/dotfiles/dot-cutover.lock)
+        [[ $dot_test_revision =~ ^[0-9a-f]{40}$ ]]
+        dot_test_root=$RUNNER_TEMP/dot-under-test
+        git init -q "$dot_test_root"
+        git -C "$dot_test_root" remote add origin https://github.com/cgraf78/dot.git
+        git -C "$dot_test_root" fetch --no-tags --depth=1 origin "$dot_test_revision"
+        git -C "$dot_test_root" checkout -q --detach FETCH_HEAD
+        [[ $(git -C "$dot_test_root" rev-parse HEAD) == "$dot_test_revision" ]]
+        export DOT_TEST_DOT_ROOT=$dot_test_root
         DOT_CORE_SKIP_SHELLCHECK=1 .local/bin/dot-test
         lsp_mise_backends=(
           github:neocmakelsp/neocmakelsp

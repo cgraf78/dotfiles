@@ -317,6 +317,15 @@ MOCK
     "shellcheck-exclude-codes: SC1091" "$_ci_workflow"
   _assert_contains "CI workflow: skips only redundant platform ShellCheck" \
     "DOT_CORE_SKIP_SHELLCHECK=1 .local/bin/dot-test" "$_ci_workflow"
+  _assert_contains "CI workflow: derives the Dot test revision from the cutover lock" \
+    "s/^minimum_revision=//p" "$_ci_workflow"
+  # These are literal workflow snippets; the test shell must not expand them.
+  # shellcheck disable=SC2016
+  _assert_contains "CI workflow: fetches the exact reviewed Dot test revision" \
+    'fetch --no-tags --depth=1 origin "$dot_test_revision"' "$_ci_workflow"
+  # shellcheck disable=SC2016
+  _assert_contains "CI workflow: exports the isolated Dot test checkout" \
+    'export DOT_TEST_DOT_ROOT=$dot_test_root' "$_ci_workflow"
   _assert_not_contains "CI workflow: leaves provider-owned OpenCode smoke upstream" \
     "OPENCODE_TEST_VERSION" "$_ci_workflow"
   _assert_not_contains "CI workflow: does not run the provider adapter suite" \
