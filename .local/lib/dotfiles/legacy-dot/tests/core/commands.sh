@@ -978,6 +978,8 @@ CONF
         DOT_UI_SHDEPS_SUMMARY="1 warning, 2 current"
         return 0
       }
+      # shellcheck disable=SC2329  # isolates dependency-warning semantics.
+      _dot_update_ensure_dot_client_surfaces() { :; }
       # shellcheck disable=SC2329  # invoked dynamically by update finalization.
       _shdeps_print_group_summaries() { :; }
       # shellcheck disable=SC2329  # invoked dynamically by update finalization.
