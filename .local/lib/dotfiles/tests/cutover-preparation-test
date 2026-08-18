@@ -86,6 +86,24 @@ bin=$hook_home/.local/bin
 library=$hook_home/.local/lib/dot" \
   "$hook_log"
 
+rm -f -- "$hook_log"
+default_install_status=0
+# shellcheck disable=SC2016  # $1 expands inside the fixture shell.
+env -u SHDEPS_INSTALL_DIR \
+  HOME="$hook_home" \
+  PREFIX=/data/data/com.termux/files/usr \
+  DOT_INSTALL_ENV_LOG="$hook_log" \
+  bash -u -c '. "$1"; post cgraf78/dot' \
+  _ "$source_home/.config/shdeps/hooks.d/cgraf78/dot.sh" ||
+  default_install_status=$?
+_assert_exit 'Dot post hook defaults an unset Shdeps install root' \
+  0 "$default_install_status"
+_assert_file_content 'default Shdeps root retains HOME-local client surfaces' \
+  "prefix=$hook_home/.local
+bin=$hook_home/.local/bin
+library=$hook_home/.local/lib/dot" \
+  "$hook_log"
+
 mkdir -p "$hook_home/.config/shdeps/hooks.d/cgraf78"
 cp "$source_home/.config/shdeps/hooks.d/cgraf78/dot.sh" \
   "$hook_home/.config/shdeps/hooks.d/cgraf78/dot.sh"
