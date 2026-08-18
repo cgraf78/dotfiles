@@ -1200,7 +1200,7 @@ _vscode_remote_settings_dirs() {
     # Server roots are discovered opportunistically. An inaccessible leftover
     # (for example, one created by a privileged installer) is not a client
     # config surface and must not make every dot update fail.
-    [[ -d "$root" && -x "$root" ]] || continue
+    [[ -d "$root" && -O "$root" && -x "$root" ]] || continue
     printf '%s/data/Machine\n' "$root"
   done
 }

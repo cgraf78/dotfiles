@@ -4904,7 +4904,11 @@ JSON
 
     vscode_inaccessible_remote_home=$(_tmpdir)
     mkdir -p "$vscode_inaccessible_remote_home/.cursor-server"
-    chmod 000 "$vscode_inaccessible_remote_home/.cursor-server"
+    if ((EUID == 0)); then
+      chown 1 "$vscode_inaccessible_remote_home/.cursor-server"
+    else
+      chmod 000 "$vscode_inaccessible_remote_home/.cursor-server"
+    fi
     vscode_inaccessible_remote_rc=0
     # shellcheck disable=SC2016 # The inner shell expands fixture env variables.
     env HOME="$vscode_inaccessible_remote_home" REAL_HOME="$REAL_HOME" \
@@ -4920,7 +4924,11 @@ JSON
       . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/vscode.sh"
       merge
     ' >/dev/null 2>&1 || vscode_inaccessible_remote_rc=$?
-    chmod 700 "$vscode_inaccessible_remote_home/.cursor-server"
+    if ((EUID == 0)); then
+      chown 0 "$vscode_inaccessible_remote_home/.cursor-server"
+    else
+      chmod 700 "$vscode_inaccessible_remote_home/.cursor-server"
+    fi
     _assert_eq "vscode remote settings: inaccessible server root is ignored" \
       "0" "$vscode_inaccessible_remote_rc"
     _assert_file_missing "vscode remote settings: inaccessible server root remains untouched" \
