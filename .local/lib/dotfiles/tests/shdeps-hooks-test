@@ -29,10 +29,18 @@ _assert_not_contains "tree-sitter: no upstream release binary on Linux" \
 for _bounded_hook in google-java-format nerd-fonts php-cs-fixer wezterm; do
   _bounded_hook_source=$(cat \
     "$REAL_HOME/.config/shdeps/hooks.d/$_bounded_hook.sh")
-  _assert_contains "$_bounded_hook: downloads use the bounded Shdeps transport" \
-    "shdeps_curl" "$_bounded_hook_source"
+  case $_bounded_hook in
+    php-cs-fixer) _bounded_hook_expected_calls=1 ;;
+    *) _bounded_hook_expected_calls=2 ;;
+  esac
+  _bounded_hook_actual_calls=$(rg -c \
+    '(^|[=(;![:space:]])shdeps_curl[[:space:]]' \
+    <<<"$_bounded_hook_source" || true)
+  _assert_eq "$_bounded_hook: every download uses the bounded Shdeps transport" \
+    "$_bounded_hook_expected_calls" "$_bounded_hook_actual_calls"
   _bounded_hook_direct_curl=$(rg -n \
-    '(^[[:space:]]*|\$\()curl[[:space:]]' <<<"$_bounded_hook_source" || true)
+    '(^|[=(;![:space:]])curl[[:space:]]' <<<"$_bounded_hook_source" |
+    rg -v 'command -v curl' || true)
   _assert_eq "$_bounded_hook: no direct curl invocation remains" \
     "" "$_bounded_hook_direct_curl"
 done
@@ -1351,6 +1359,7 @@ else
 fi
 
 _curl_bin=$(_mock_bin)
+: >"$_shdeps_curl_calls"
 cat >"$_curl_bin/curl" <<'EOF'
 #!/usr/bin/env bash
 out=""
@@ -1391,6 +1400,9 @@ _assert_contains "google-java-format: wrapper uses pinned Java" \
   "$("$_bin/google-java-format" --version 2>/dev/null || true)"
 _assert_contains "google-java-format: downloads cross the Shdeps transport boundary" \
   "https://api.github.com/repos/google/google-java-format/releases/latest" \
+  "$(cat "$_shdeps_curl_calls")"
+_assert_contains "google-java-format: asset crosses the Shdeps transport boundary" \
+  "https://example.test/google-java-format-all-deps.jar" \
   "$(cat "$_shdeps_curl_calls")"
 
 unset -f shdeps_curl
