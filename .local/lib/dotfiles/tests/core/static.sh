@@ -81,6 +81,7 @@ MOCK
   _ci_uses_full_matrix=0
   _ci_line_number=0
   _ci_termux_strict_line=0
+  _ci_termux_verbose_line=0
   _ci_termux_update_line=0
   _ci_termux_smoke_line=0
   _ci_termux_uses_base_profile=0
@@ -142,6 +143,10 @@ MOCK
     if ((_ci_in_shell_with)) &&
       [[ "$_ci_code" =~ ^[[:space:]]{8}set[[:space:]]+-euo[[:space:]]+pipefail[[:space:]]*$ ]]; then
       _ci_termux_strict_line=$_ci_line_number
+    fi
+    if ((_ci_in_shell_with)) &&
+      [[ "$_ci_code" =~ ^[[:space:]]{8}export[[:space:]]+DOT_VERBOSE=1[[:space:]]*$ ]]; then
+      _ci_termux_verbose_line=$_ci_line_number
     fi
     if ((_ci_in_shell_with)) &&
       [[ "$_ci_code" =~ ^[[:space:]]{8}HOME=\"\$PWD\"[[:space:]]+PATH=\"\$PWD/\.local/bin:\$PATH\"[[:space:]]+dot[[:space:]]+update[[:space:]]*$ ]]; then
@@ -360,6 +365,12 @@ MOCK
   else
     _fail "CI workflow: propagates Termux dot update failures"
   fi
+  if ((_ci_termux_verbose_line > _ci_termux_strict_line && \
+    _ci_termux_verbose_line < _ci_termux_update_line)); then
+    _pass "CI workflow: enables verbose Termux Dot output"
+  else
+    _fail "CI workflow: enables verbose Termux Dot output"
+  fi
   if ((_ci_termux_uses_base_profile)); then
     _pass "CI workflow: provides Termux bootstrap prerequisites"
   else
@@ -436,6 +447,8 @@ MOCK
     "1" "$_ci_cold_prereq_count"
   _assert_contains "CI workflow: cold bootstrap follows with a normal update" \
     "          retry dot update" "$_ci_cold_bootstrap"
+  _assert_contains "CI workflow: cold bootstrap enables verbose Dot output" \
+    "          export DOT_VERBOSE=1" "$_ci_cold_bootstrap"
   _assert_contains "CI workflow: cold bootstrap preserves terminal retry failures" \
     $'              else\n                rc=$?\n              fi' \
     "$_ci_cold_bootstrap"
