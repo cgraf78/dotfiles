@@ -1,7 +1,7 @@
 # shellcheck shell=bash
-# Client-owned compatibility helpers while concrete hooks move off the embedded
-# engine. Every implementation below is either client policy or a thin adapter
-# to the standalone hook API; no standalone private function is imported.
+# Client-owned hook helpers. Every implementation below is either client policy
+# or a thin adapter to the standalone hook API; no standalone private function
+# is imported.
 
 dot_hook_source merge-hooks.d/lib/windows.sh || return
 dot_hook_source merge-hooks.d/lib/agent-playbooks.sh || return

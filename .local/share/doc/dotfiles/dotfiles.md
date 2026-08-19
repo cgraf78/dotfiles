@@ -5,16 +5,20 @@
 [![Bash Version](https://img.shields.io/badge/bash-%3E%3D4.0-blue.svg)](https://www.gnu.org/software/bash/)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20WSL-lightgrey.svg)](#)
 
-Base dotfiles are managed as a bare git repository with `$HOME` as the working
-tree, plus optional Git or filesystem overlays for work, machine-specific, or
-project-specific files.
+Base dotfiles use `~/.dotfiles` as a separate Git directory with `$HOME` as the
+worktree, plus optional Git or filesystem overlays for environment-specific
+files.
 
-- `~/.dotfiles` is the base bare repo.
+- Fresh `dot init` clients set `core.bare=false` and an explicit absolute
+  `core.worktree=$HOME` in `~/.dotfiles`. Existing legacy bare clients remain
+  supported.
 - `~/.dotfiles-<name>` repos are Git overlays discovered from
   `~/.config/dot/overlays.d/*.conf`; `sync=none` descriptors can point at
   sources managed outside dot.
 - Overlay files live under each overlay's `home/` directory and are symlinked
   into `$HOME` by `dot update`.
+- `~/.local/lib/dotfiles` is the dotfiles client's executable policy runtime.
+  The standalone Dot checkout and its public API remain separate.
 
 macOS requires Bash 4+ (`brew install bash`). The system Bash 3.2 is too old.
 
@@ -23,7 +27,7 @@ macOS requires Bash 4+ (`brew install bash`). The system Bash 3.2 is too old.
 Personal machine:
 
 ```bash
-curl -sL cgraf78.github.io/d | bash
+curl -fsSL cgraf78.github.io/d | bash
 source ~/.bashrc  # or: source ~/.zshrc
 ```
 
@@ -31,7 +35,7 @@ Machine with a private overlay using normal GitHub SSH access:
 
 ```bash
 # Bootstrap the base repo and any matching overlays that your SSH key can read.
-curl -sL cgraf78.github.io/d | bash
+curl -fsSL cgraf78.github.io/d | bash
 source ~/.bashrc  # or: source ~/.zshrc
 ```
 
@@ -42,14 +46,27 @@ Machine with a private overlay that uses a dedicated deploy key:
 scp <source>:~/.ssh/<deploy-key> ~/.ssh/
 chmod 600 ~/.ssh/<deploy-key>
 
-curl -sL cgraf78.github.io/d | bash
+curl -fsSL cgraf78.github.io/d | bash
 source ~/.bashrc  # or: source ~/.zshrc
 ```
 
-`dotbootstrap` delegates installation and initialization to standalone Dot.
-Dot clones the base repo and accessible overlays, applies matching filesystem
-overlays, backs up conflicting files under `~/.dotfiles-backup/`, and installs
-the auto-update cron.
+The public shortcut delegates to standalone Dot and selects this client
+repository. `dot init` owns repository initialization, conflict backup, overlay
+convergence, and extension execution. It backs up conflicting files under
+`~/.dot-backup/` and installs the auto-update cron.
+
+## Recovery
+
+When the base client Git directory can be discarded, recovery stays a clean
+reinitialization rather than a compatibility migration:
+
+```bash
+rm -rf ~/.dotfiles
+curl -fsSL cgraf78.github.io/d | bash
+```
+
+Dot recreates the canonical separate Git directory and preserves conflicting
+worktree files through its normal initialization backup.
 
 ## Usage
 
@@ -59,6 +76,7 @@ dot update -v               # verbose update
 dot update --force          # bypass TTL caches and force reinstalls
 dot update --cron           # quiet update, skipped when any repo is dirty
 dot pull                    # alias for update
+dot init REPOSITORY_URL     # initialize or resume the base client repository
 dot fetch                   # fetch base + Git overlays
 dot push                    # push base + Git overlays
 dot status                  # status for base + Git overlays
@@ -67,12 +85,12 @@ dot cron                    # show installed cron entries
 dot doctor                  # run installation health checks
 ```
 
-`update`, `pull`, `cron`, and `doctor` work before the bare repo exists.
+`init`, `update`, `pull`, `cron`, and `doctor` work before the client repo exists.
 `fetch`, `push`, `status`, and `diff` require it.
 
 Use plain `git` for raw Git operations on the base repo. The tracked
-`~/.local/bin/git` launcher routes `$HOME` and non-repo descendants to the bare
-dotfiles repo, while normal Git and Sapling checkouts still use real Git:
+`~/.local/bin/git` launcher routes `$HOME` and non-repo descendants to the base
+client Git directory, while normal Git and Sapling checkouts still use real Git:
 
 ```bash
 git add <file>
@@ -176,7 +194,7 @@ own it:
 | Sley verification policy | [`.config/sley/verify.d/README.md`](../../../../.config/sley/verify.d/README.md) |
 | Command entry points | [`.local/bin/README.md`](../../../../.local/bin/README.md) |
 | Client runtime layout | [`.local/lib/dotfiles/README.md`](../../../../.local/lib/dotfiles/README.md) |
-| Dot documentation index | [`.local/share/doc/dot/README.md`](README.md) |
+| Dotfiles documentation index | [`.local/share/doc/dotfiles/README.md`](README.md) |
 | Schema payloads | [`.local/share/checkrun/schemas/README.md`](../../../../.local/share/checkrun/schemas/README.md) |
 | Test runner and client suites | [`.local/lib/dotfiles/tests/README.md`](../../../../.local/lib/dotfiles/tests/README.md) |
 

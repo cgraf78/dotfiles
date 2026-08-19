@@ -26,10 +26,11 @@ Sley users the same behavior and prevents this activation directory from
 becoming a fork.
 
 Dotfiles retains one intentionally local rule: `sley-commit-gate` sets
-`SLEY_SKIP_UNTRACKED=1` for the base bare dotfiles repo. That unusual repo uses
-all of `$HOME` as its work tree, so an untracked-file walk would be both
-expensive and unrelated to the staged commit scope. Sley does not need to know
-that personal repository layout.
+`SLEY_SKIP_UNTRACKED=1` for the base dotfiles client. Its separate Git directory
+uses all of `$HOME` as the worktree, in both the canonical explicit-worktree
+layout and the supported legacy bare layout, so an untracked-file walk would be
+both expensive and unrelated to the staged commit scope. Sley does not need to
+know that personal repository layout.
 
 Normal activation resolves Sley at
 `~/.local/share/cgraf78/sley/`, using both its `share/sley/hooks/git/` hooks and

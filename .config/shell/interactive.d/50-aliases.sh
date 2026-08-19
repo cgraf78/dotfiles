@@ -108,7 +108,7 @@ if command -v rg >/dev/null 2>&1; then
 fi
 
 # Smart lazygit: the git launcher makes `$HOME` look like a real repo, but
-# lazygit still needs explicit bare-repo args for that shape.
+# lazygit still needs explicit Git-directory and worktree args for that shape.
 lg() {
   local git_dir
   git_dir=$(git rev-parse --absolute-git-dir 2>/dev/null || true)

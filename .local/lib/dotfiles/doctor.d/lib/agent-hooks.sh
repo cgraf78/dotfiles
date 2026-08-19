@@ -45,10 +45,7 @@ _dr_check_opencode_agentguard() {
   fi
 
   IFS= read -r first_line <"$plugin" || true
-  # The legacy marker remains healthy during the coordinated rollout. The
-  # installer upgrades it in place as soon as the provider asset resolves.
-  if [[ "$first_line" == "$(dot_agentguard_opencode_marker)" ||
-  "$first_line" == "$(dot_agentguard_opencode_legacy_marker)" ]]; then
+  if [[ "$first_line" == "$(dot_agentguard_opencode_marker)" ]]; then
     _dr_ok "OpenCode AgentGuard plugin installed" "$(_dr_tilde "$plugin")"
   else
     _dr_warn "OpenCode AgentGuard plugin unmanaged" "$(_dr_tilde "$plugin")"

@@ -22,6 +22,7 @@ library rather than XDG's architecture-independent data directory. Git invokes
 them directly; they are not part of the standalone `dot` runtime.
 
 The PATH-visible [`git`](../../.local/bin/README.md) launcher is separate from
-this config. It routes `$HOME` and non-repo descendants to the base bare
-dotfiles repo, while this directory configures Git once the target repo has
-already been selected.
+this config. It routes `$HOME` and non-repo descendants to the base client Git
+directory, whether it uses the canonical explicit-worktree layout or the
+supported legacy bare layout. This directory configures Git after the target
+repo has been selected.

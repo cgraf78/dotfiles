@@ -3,7 +3,7 @@ dot_hook_source merge-hooks.d/lib/compat.sh || return
 
 # shellcheck shell=bash
 # Merge Codex CLI config into ~/.codex/config.toml.
-# Shared by dotbootstrap and dot (on pull).
+# Runs during standalone Dot client convergence.
 # Requires mikefarah/yq from shdeps and python3.
 #
 # Layers come from codex/config.d. Direct files aggregate in lexical order;

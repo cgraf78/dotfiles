@@ -5,16 +5,17 @@ if [ -d "$HOME/.bun/bin" ]; then
   export BUN_INSTALL="$HOME/.bun"
 fi
 
-# Opt into Sley's optional bare-repo fallback for the base dotfiles worktree.
-# Sley owns the generic API; this dotfiles layer supplies the local bare repo
-# path so plain `sley status` from HOME still behaves like the git launcher.
+# Opt into Sley's separate-Git-dir fallback for the base dotfiles worktree. The
+# provider's historical BARE_REPO variable names cover both the canonical
+# explicit-worktree layout and supported legacy bare clients.
 if [ -z "${SLEY_BARE_REPO_GIT_DIR+x}" ] && [ -d "$HOME/.dotfiles" ]; then
   export SLEY_BARE_REPO_GIT_DIR="$HOME/.dotfiles"
   export SLEY_BARE_REPO_WORK_TREE="$HOME"
 fi
 
-# Agentguard owns the generic protected bare-Git guard; dotfiles supplies the
-# local bare-repo convention and user-facing remediation text through env.
+# AgentGuard owns the generic protected separate-Git-dir guard. Its historical
+# BARE_GIT variable names cover both supported client layouts; dotfiles supplies
+# the local path and user-facing remediation text through env.
 if [ -z "${AGENTGUARD_PROTECTED_BARE_GIT_DIR+x}" ] && [ -d "$HOME/.dotfiles" ]; then
   export AGENTGUARD_PROTECTED_BARE_GIT_DIR="$HOME/.dotfiles"
   export AGENTGUARD_PROTECTED_BARE_GIT_WORK_TREE="$HOME"

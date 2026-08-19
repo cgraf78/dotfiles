@@ -9,10 +9,8 @@ _dot_opencode_provider_source() {
 
   [[ -f "$source" && ! -L "$source" ]] || return 1
   IFS= read -r first_line <"$source" || true
-  # Unlike an installed target, a freshly resolved provider asset has no
-  # migration reason to use dotfiles' retired marker. Requiring AgentGuard's
-  # marker here prevents an old or misresolved consumer file from being
-  # promoted as the new canonical adapter.
+  # Requiring AgentGuard's marker prevents an old or misresolved consumer file
+  # from being promoted as the canonical adapter.
   [[ "$first_line" == "$(dot_agentguard_opencode_marker)" ]]
 }
 
@@ -21,11 +19,7 @@ _dot_opencode_managed_target() {
 
   [[ -f "$target" && ! -L "$target" ]] || return 1
   IFS= read -r first_line <"$target" || true
-  # Accept the old dotfiles marker only as a migration input. The next
-  # successful install replaces it with AgentGuard's marker, after which the
-  # provider can evolve the adapter without dotfiles owning its identity.
-  [[ "$first_line" == "$(dot_agentguard_opencode_marker)" ||
-  "$first_line" == "$(dot_agentguard_opencode_legacy_marker)" ]]
+  [[ "$first_line" == "$(dot_agentguard_opencode_marker)" ]]
 }
 
 merge() {
@@ -37,10 +31,9 @@ merge() {
   local dst="$HOME/.config/opencode/plugins/dotfiles-agentguard.js"
   local tmp=""
 
-  # Dependency resolution can be unavailable during bootstrap, an interrupted
-  # update, or the coordinated rollout of the provider repository. Preserve a
-  # previously installed plugin in every such case; absence is not evidence
-  # that the user intentionally disabled AgentGuard.
+  # Dependency resolution can be unavailable during bootstrap or an interrupted
+  # update. Preserve a previously installed plugin in either case; absence is
+  # not evidence that the user intentionally disabled AgentGuard.
   src=$(dot_agentguard_integration_file opencode agentguard.js 2>/dev/null) || src=""
   if [[ ! -f "$src" ]]; then
     dot_hook_warn "    warning: AgentGuard opencode integration unavailable — preserving $dst"
