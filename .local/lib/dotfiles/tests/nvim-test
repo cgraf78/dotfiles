@@ -333,6 +333,27 @@ _assert_eq "startup timeout: session enumeration uses portable PID snapshots" "0
 rc=0
 python3 - "$_DOT_TEST_TIMEOUT_PY" <<'PY' || rc=$?
 import importlib.util
+import sys
+
+spec = importlib.util.spec_from_file_location("dot_timeout", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+
+
+def run_ps(argv, **kwargs):
+    assert argv == ["ps", "-A", "-o", "pid="]
+    assert kwargs["timeout"] == 1
+    raise module.subprocess.TimeoutExpired(argv, kwargs["timeout"])
+
+
+module.subprocess.run = run_ps
+assert module.list_session_pids(123) is None
+PY
+_assert_eq "startup timeout: stalled session enumeration falls back safely" "0" "$rc"
+
+rc=0
+python3 - "$_DOT_TEST_TIMEOUT_PY" <<'PY' || rc=$?
+import importlib.util
 import signal
 import sys
 
