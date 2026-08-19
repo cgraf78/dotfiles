@@ -6,6 +6,7 @@ export NO_COLOR=1
 
 # shellcheck source=helpers.sh
 . "${BASH_SOURCE[0]%/*}/helpers.sh"
+_test_prefer_system_git after-dotfiles || exit 1
 
 source_home=${DOT_TEST_SOURCE_HOME:-$HOME}
 deps="$source_home/.config/shdeps/10-deps.conf"
