@@ -276,5 +276,11 @@ SH
   _assert_contains "doctor integration: flags a missing bash startup file" \
     ".bashrc missing" "$result"
 
+  rm -rf "$TEST_HOME/.config/shell/env.d"
+  result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$TEST_HOME/.local/bin:$PATH" \
+    "$DOT_SOURCE_ROOT/bin/dot" doctor 2>&1 || true)
+  _assert_contains "doctor integration: missing shell config recommends convergence" \
+    "run dot update --force" "$result"
+
   unset -f _doctor_records
 }

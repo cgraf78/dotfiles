@@ -110,12 +110,10 @@ jobs:
 
           staging=$(mktemp -d /tmp/dotfiles-cold-bootstrap.XXXXXXXX)
           chmod 0755 "$staging"
-          cp "$GITHUB_WORKSPACE/.local/bin/dotbootstrap" "$staging/dotbootstrap"
           origin="$staging/origin.git"
           git init --bare "$origin"
           git push "$origin" "$GITHUB_SHA:refs/heads/main"
           git --git-dir="$origin" symbolic-ref HEAD refs/heads/main
-          echo "COLD_BOOTSTRAP_SCRIPT=$staging/dotbootstrap" >>"$GITHUB_ENV"
           echo "COLD_DOTFILES_ORIGIN=$origin" >>"$GITHUB_ENV"
 
           sudo useradd --create-home --shell /bin/bash dotfiles-ci
@@ -135,11 +133,10 @@ jobs:
 
           sudo --preserve-env=CI,GH_TOKEN,GITHUB_TOKEN -H -u dotfiles-ci \
             bash -s -- \
-            "$COLD_BOOTSTRAP_SCRIPT" "$COLD_DOTFILES_ORIGIN" "$GITHUB_SHA" <<'BASH'
+            "$COLD_DOTFILES_ORIGIN" "$GITHUB_SHA" <<'BASH'
           set -euo pipefail
-          bootstrap=$1
-          origin=$2
-          expected=$3
+          origin=$1
+          expected=$2
 
           test "$HOME" = /home/dotfiles-ci
           # sudo -H sets HOME but keeps the runner cwd, which this user cannot traverse.
@@ -171,13 +168,17 @@ jobs:
           export GIT_TERMINAL_PROMPT=0
           export GIT_SSH_COMMAND='ssh -o BatchMode=yes -o ConnectTimeout=5'
 
-          # Preserve the clean-install signal: only the idempotent post-bootstrap
-          # network phases below receive bounded retries.
-          DOTBOOTSTRAP_DOTFILES_REPO="$origin" DOTFILES_BRANCH=main \
-            bash -s init <"$bootstrap"
+          # Preserve the clean-install signal: only the idempotent post-init
+          # network phases below receive bounded retries. The public shortcut
+          # owns standalone Dot installation and `dot init` dispatch.
+          export DOTBOOTSTRAP_DOTFILES_REPO="file://$origin"
+          export DOTFILES_BRANCH=main
+          curl -fsSL https://cgraf78.github.io/d | bash
 
           export PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:$PATH"
-          test -e "$HOME/.dotbootstrap-done"
+          test ! -e "$HOME/.git"
+          test "$(git --git-dir="$HOME/.dotfiles" config --bool core.bare)" = false
+          test "$(git --git-dir="$HOME/.dotfiles" config core.worktree)" = "$HOME"
           test "$(git --git-dir="$HOME/.dotfiles" rev-parse HEAD)" = "$expected"
 
           retry dot update

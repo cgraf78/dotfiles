@@ -12,11 +12,9 @@ public API. Files here should stay thin and command-shaped.
 
 - `dot` is the stable client-owned cron and interactive front door for the
   standalone Dot runtime.
-- `dotbootstrap` delegates installation and client initialization to Dot, or
-  reconverges an existing client through `dot update --force`.
 - `dot-test` runs the dotfiles test suite.
 - `git` routes normal repositories to real Git and `$HOME` dotfiles paths to
-  the base bare repo.
+  the base client Git directory.
 - `hm` delegates to the standalone Hive Memory binary and maps AgentGuard's
   reusable agent/session identity into Hive Memory's environment contract. A
   completed `dot update` provides both dependencies; missing assets are treated
@@ -28,6 +26,9 @@ public API. Files here should stay thin and command-shaped.
 The tracked `dot` file is an exact copy of Dot's reviewed permanent launcher
 template. It binds the Shdeps-owned checkout to the installed public-library
 link, then enters that checkout's runtime; implementation remains in Dot.
+The public `cgraf78.github.io/d` shortcut delegates installation to standalone
+Dot and selects this client repository; `dot init` owns the initialization
+transaction. No second dotfiles-owned bootstrap command is installed.
 
 Reusable tool commands such as `ettun`, `fwdports`, `sley`, `sysup`,
 `agent-hook-*`, `claude-session-name`, `autoformat`, `autolint`, `checkrun`,
@@ -49,6 +50,3 @@ declares those dependencies and activates them as policy needs.
 
 When adding a new script, keep reusable logic out of `.local/bin` once it has a
 second consumer.
-
-Work-specific scripts are documented separately in
-`~/.local/share/doc/dot/work-scripts.md` when the work overlay is present.

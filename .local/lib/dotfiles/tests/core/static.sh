@@ -34,10 +34,11 @@ MOCK
   # Tests: static analysis (shellcheck, JSON sorting)
   # ---------------------------------------------------------------------------
 
-  # Determine repo root and git command.
-  # Bare dotfiles repo when available; regular checkout (CI) as fallback.
-  # Use --git-dir only (no --work-tree) for old bare checkouts, and anchor Git
-  # at the source root so relative pathspecs do not inherit the caller's CWD.
+  # Determine repo root and git command. A separate client Git directory is the
+  # canonical live layout; a regular checkout (CI or a linked worktree) is the
+  # fallback. Use --git-dir only so both the canonical explicit-worktree layout
+  # and supported legacy bare clients can inspect the committed tree directly.
+  # Anchor Git at the source root so pathspecs do not inherit the caller's CWD.
   # Keep `ls-tree --full-tree` below for explicit whole-tree discovery.
   _lint_root="$REAL_HOME"
   _lint_git=(git -C "$REAL_HOME" --git-dir="${REAL_HOME}/.dotfiles")
@@ -378,7 +379,7 @@ MOCK
     "$_ci_cold_bootstrap"
   _ci_cold_home_line=$(grep -nF "          cd \"\$HOME\"" <<<"$_ci_cold_bootstrap" | cut -d: -f1)
   _ci_cold_init_line=$(grep -nF \
-    "            bash -s init <\"\$bootstrap\"" \
+    "          curl -fsSL https://cgraf78.github.io/d | bash" \
     <<<"$_ci_cold_bootstrap" | cut -d: -f1)
   if [[ -n "$_ci_cold_home_line" && -n "$_ci_cold_init_line" &&
     "$_ci_cold_home_line" -lt "$_ci_cold_init_line" ]]; then
@@ -390,8 +391,21 @@ MOCK
     "git push \"\$origin\" \"\$GITHUB_SHA:refs/heads/main\"" "$_ci_cold_bootstrap"
   _assert_contains "CI workflow: cold bootstrap origin has complete history" \
     "fetch-depth: 0" "$_ci_cold_bootstrap"
-  _assert_contains "CI workflow: cold bootstrap uses the stdin install path" \
-    "bash -s init <\"\$bootstrap\"" "$_ci_cold_bootstrap"
+  _assert_contains "CI workflow: cold bootstrap exercises the public shortcut" \
+    "curl -fsSL https://cgraf78.github.io/d | bash" \
+    "$_ci_cold_bootstrap"
+  _assert_contains "CI workflow: public shortcut receives the exact candidate origin" \
+    "export DOTBOOTSTRAP_DOTFILES_REPO=\"file://\$origin\"" \
+    "$_ci_cold_bootstrap"
+  _assert_contains "CI workflow: public shortcut receives the candidate branch" \
+    "export DOTFILES_BRANCH=main" \
+    "$_ci_cold_bootstrap"
+  _assert_contains "CI workflow: fresh client is explicitly non-bare" \
+    'config --bool core.bare)" = false' "$_ci_cold_bootstrap"
+  _assert_contains "CI workflow: fresh client records HOME as its worktree" \
+    "config core.worktree)\" = \"\$HOME\"" "$_ci_cold_bootstrap"
+  _assert_contains "CI workflow: fresh client keeps Git metadata outside its worktree" \
+    "test ! -e \"\$HOME/.git\"" "$_ci_cold_bootstrap"
   _ci_cold_prereq_total=0
   _ci_cold_prereq_count=0
   while IFS= read -r _ci_cold_line; do
@@ -425,6 +439,15 @@ MOCK
     "actions/cache" "$_ci_cold_bootstrap"
   _assert_not_contains "CI workflow: cold bootstrap does not skip pulling" \
     "--skip-pull" "$_ci_cold_bootstrap"
+  echo "=== Current client entry points ==="
+
+  _assert_file_exists "client docs: main guide is present" \
+    "$_lint_root/.local/share/doc/dotfiles/dotfiles.md"
+  _assert_file_exists "client docs: index is present" \
+    "$_lint_root/.local/share/doc/dotfiles/README.md"
+  _assert_contains "client docs: rule points at the main guide" \
+    "${_tilde:-~}/.local/share/doc/dotfiles/dotfiles.md" \
+    "$(<"$_lint_root/.config/agent-rules/rules.d/030-dotfiles.md")"
   _assert_not_contains "CI workflow: has no obsolete ds deploy key" \
     "DS_DEPLOY_KEY" "$_ci_workflow"
   if ((_ci_forwards_secrets)); then
@@ -798,8 +821,8 @@ PY
   else
     _fail "overlay descriptors: machine-local ignore rule is tracked"
   fi
-  # check-ignore requires a work tree even when _lint_git targets the live
-  # bare dotfiles repository.
+  # check-ignore requires a worktree when _lint_git targets the separate live
+  # client Git directory.
   if "${_lint_git[@]}" --work-tree="$_lint_root" check-ignore -q --no-index \
     .config/dot/overlays.d/10-example.local.conf; then
     _pass "overlay descriptors: machine-local suffix is ignored"
@@ -1014,9 +1037,9 @@ PY
     # Copy shell config dirs (only regular files from the repo)
     for _dir in env.d interactive.d; do
       mkdir -p "$_zsh_home/.config/shell/$_dir"
-      # Use HEAD, not the bare repo index. These static fixtures should reflect
+      # Use HEAD, not the separate client repo index. These fixtures should reflect
       # the committed dotfiles tree even if a previous amend/rebase left the
-      # bare index stale while the work tree itself is clean.
+      # index stale while the worktree itself is clean.
       while IFS= read -r _tracked; do
         _f="${_lint_root}/${_tracked}"
         [[ -f "$_f" && ! -L "$_f" ]] || continue

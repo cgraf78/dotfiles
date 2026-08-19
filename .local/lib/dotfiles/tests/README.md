@@ -46,9 +46,6 @@ depending on a particular `/var` versus `/private/var` spelling.
 - `core-update-test` is the one retained end-to-end client integration: a real
   standalone update advances a local client origin and runs a dotfiles-owned
   merge hook.
-- `bootstrap-shortcut-test` pipes the local standalone installer through
-  `--init` against a local client origin. It never reaches the developer's real
-  GitHub account.
 - `githook-test` tests dotfiles' Sley checkout selection, activation shims,
   commit-message provider choice, and the special bare-home policy. Sley's own
   commit-hook suite owns readiness, Git sequencer behavior, secret scanning,

@@ -9,6 +9,6 @@ CI workflows already run `dot-test` directly; keeping the policy here preserves
 the intended command shape for agents or future Sley-driven verification.
 
 When enabling or adding rules, keep commands repo-scoped and avoid relying on
-the bare dotfiles Git environment leaking in. The existing command explicitly
+the base dotfiles Git environment leaking in. The existing command explicitly
 unsets `GIT_DIR`, `GIT_WORK_TREE`, and `SLEY_SKIP_UNTRACKED` before running
 `dot-test` so verification exercises the public command path.

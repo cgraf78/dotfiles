@@ -89,7 +89,7 @@ _dr_check_shell() {
     if [[ -d "$dir" ]]; then
       _dr_ok "$label/ exists"
     else
-      _dr_fail "$label/ missing" "shell config won't load — run dotbootstrap"
+      _dr_fail "$label/ missing" "shell config won't load — run dot update --force"
     fi
   done
 }

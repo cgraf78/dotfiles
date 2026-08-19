@@ -3,7 +3,7 @@ dot_hook_source merge-hooks.d/lib/compat.sh || return
 
 # shellcheck shell=bash
 # Merge VS Code settings and keybindings from dotfiles into local config.
-# Shared by dotbootstrap and dot (on pull).
+# Runs during standalone Dot client convergence.
 # Requires jq.
 
 if ! declare -F dot_hook_family >/dev/null 2>&1; then

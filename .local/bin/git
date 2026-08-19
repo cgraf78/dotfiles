@@ -324,8 +324,8 @@ if [ -n "${GIT_DIR:-}" ] || [ -n "${GIT_WORK_TREE:-}" ] ||
 fi
 
 # Repo-creating commands are not dotfiles operations. Let real Git handle them
-# even when launched from $HOME, where the bare dotfiles repo is otherwise the
-# ambient context.
+# even when launched from $HOME, where the base client repository is otherwise
+# the ambient context.
 if _dot_git_passthrough_command; then
   exec "$_dot_git_real" "$@"
 fi
@@ -340,7 +340,7 @@ case "$_dot_git_command" in
     ;;
 esac
 
-# Only invocations rooted in $HOME can resolve to the bare dotfiles repo, so the
+# Only invocations rooted in $HOME can resolve to the base dotfiles client, so the
 # work-tree probes below (which each spawn a real git / sl child process) are
 # meaningful only there. Resolve $HOME and bail to real Git first for every cwd
 # outside it: that path always ended in a plain `exec "$_dot_git_real"` anyway,
@@ -355,7 +355,7 @@ case "$_dot_git_effective_cwd" in
     ;;
 esac
 
-# The HOME root itself is the bare dotfiles work tree. Nested repository probes
+# The HOME root itself is the base dotfiles worktree. Nested repository probes
 # only matter for descendants under HOME, and skipping them keeps high-frequency
 # ambient `git` calls from spawning unnecessary Git/Sapling ownership checks.
 if [ "$_dot_git_effective_cwd" = "$_dot_git_home_phys" ]; then
@@ -374,7 +374,7 @@ if _dot_git_cached_nested_worktree "$_dot_git_effective_cwd"; then
 fi
 
 # Inside $HOME: a nested real Git or Sapling checkout owns the cwd, so route it
-# to real Git instead of silently rewriting it onto the bare dotfiles repo.
+# to real Git instead of silently rewriting it onto the base dotfiles client.
 if _dot_git_nested_root=$(_dot_git_git_worktree_root "$_dot_git_effective_cwd"); then
   _dot_git_cache_nested_root git "$_dot_git_nested_root"
   exec "$_dot_git_real" "$@"

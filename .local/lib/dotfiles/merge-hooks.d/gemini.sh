@@ -3,7 +3,7 @@ dot_hook_source merge-hooks.d/lib/compat.sh || return
 
 # shellcheck shell=bash
 # Merge Gemini CLI settings into ~/.gemini/settings.json.
-# Shared by dotbootstrap and dot (on pull).
+# Runs during standalone Dot client convergence.
 # Requires jq.
 #
 # Layers come from gemini/settings.d. Direct files aggregate in lexical order;

@@ -3,7 +3,7 @@ dot_hook_source merge-hooks.d/lib/compat.sh || return
 
 # shellcheck shell=bash
 # Merge iTerm2 settings from dotfiles into the local iTerm2 config.
-# Shared by dotbootstrap and dot (on pull).
+# Runs during standalone Dot client convergence.
 # macOS only — no-ops silently on other platforms.
 #
 # Declarative sources:

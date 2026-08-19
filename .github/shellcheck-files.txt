@@ -43,7 +43,6 @@ program	.config/shell/interactive.d/70-integrations.bash
 program	.local/bin/clip
 program	.local/bin/dot
 program	.local/bin/dot-test
-program	.local/bin/dotbootstrap
 program	.local/bin/git
 program	.local/bin/hm
 program	.local/bin/nvim
@@ -107,7 +106,6 @@ program	.local/lib/dotfiles/tests/agent-rules-adapter-test
 program	.local/lib/dotfiles/tests/agent-rules-test
 program	.local/lib/dotfiles/tests/agent-yolo-wrappers-test
 program	.local/lib/dotfiles/tests/android-ci-smoke
-program	.local/lib/dotfiles/tests/bootstrap-shortcut-test
 program	.local/lib/dotfiles/tests/client-extensions-test
 program	.local/lib/dotfiles/tests/client-paths-test
 program	.local/lib/dotfiles/tests/clip-test

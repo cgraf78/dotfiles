@@ -3,7 +3,7 @@ dot_hook_source merge-hooks.d/lib/compat.sh || return
 
 # shellcheck shell=bash
 # Merge Claude Code settings into ~/.claude/settings.json.
-# Shared by dotbootstrap and dot (on pull).
+# Runs during standalone Dot client convergence.
 # Requires jq.
 #
 # Layers come from claude/settings.d. Direct files aggregate in lexical order;
