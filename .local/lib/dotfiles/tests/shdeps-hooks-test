@@ -1383,6 +1383,7 @@ if [[ -f $_cmakelang_hook ]]; then
   cat >"$_cmakelang_bin/uv" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"$CMAKELANG_TEST_CALLS"
+printf 'uv diagnostic\n' >&2
 mkdir -p "$UV_TOOL_BIN_DIR"
 : >"$UV_TOOL_BIN_DIR/cmake-format"
 : >"$UV_TOOL_BIN_DIR/cmake-lint"
@@ -1395,12 +1396,13 @@ EOF
   # shellcheck source=/dev/null
   . "$_cmakelang_hook"
   # shellcheck disable=SC2329  # the sourced hook invokes this public API.
-  shdeps_pkg_install() { return 1; }
+  shdeps_pkg_install_for_mgr() { return 1; }
   # shellcheck disable=SC2329  # the sourced hook invokes this public API.
   shdeps_install_dir() { printf '%s\n' "$_cmakelang_install_root"; }
   # shellcheck disable=SC2329  # the sourced hook invokes this public API.
   shdeps_bin_dir() { printf '%s\n' "$_cmakelang_public_bin"; }
-  if install cmakelang; then
+  _cmakelang_output=""
+  if _cmakelang_output=$(install cmakelang 2>&1); then
     _pass "cmakelang: install works without GNU timeout"
   else
     _fail "cmakelang: install works without GNU timeout"
@@ -1410,6 +1412,16 @@ EOF
     "tool install --force cmakelang" "$(cat "$_cmakelang_calls")"
   _assert_file_exists "cmakelang: fallback links cmake-format" \
     "$_cmakelang_public_bin/cmake-format"
+  _assert_file_exists "cmakelang: fallback links cmake-lint" \
+    "$_cmakelang_public_bin/cmake-lint"
+  _assert_contains "cmakelang: uv diagnostics remain visible" \
+    "uv diagnostic" "$_cmakelang_output"
+
+  _cmakelang_source=$(cat "$_cmakelang_hook")
+  _assert_contains "cmakelang: GNU timeout keeps the five-minute bound" \
+    'timeout)" 300)' "$_cmakelang_source"
+  _assert_contains "cmakelang: Homebrew gtimeout keeps the five-minute bound" \
+    'gtimeout)" 300)' "$_cmakelang_source"
 fi
 
 _test_summary

@@ -122,7 +122,7 @@ MOCK
     elif ((_ci_in_shell_with)) && [[ "$_ci_code" =~ ^[[:space:]]{6}matrix-set:[[:space:]]+full[[:space:]]*$ ]]; then
       _ci_uses_full_matrix=1
     elif ((_ci_in_shell_with)) &&
-      [[ "$_ci_code" =~ ^[[:space:]]{6}force-dotfiles-update:[[:space:]]+\$\{\{.*schedule.*workflow_dispatch.*\}\}[[:space:]]*$ ]]; then
+      [[ "$_ci_code" == "      force-dotfiles-update: \${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}" ]]; then
       _ci_forces_dotfiles_update=1
     elif ((_ci_in_shell_with)) && [[ "$_ci_code" =~ ^[[:space:]]{6}dotfiles-provider:[[:space:]]+true[[:space:]]*$ ]]; then
       _ci_installs_dotfiles_provider=1

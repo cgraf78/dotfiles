@@ -37,13 +37,13 @@ install() {
   # own. Suppressing its output as well made a stalled resolve indistinguishable
   # from a slow one: a CI run sat here for 375s with nothing to show for it.
   # Bound it where the platform provides a timeout command and let its
-  # diagnostics through. macOS ships neither GNU timeout nor gtimeout; the CI
-  # step deadline remains its backstop there, while local installs must still
-  # work without requiring Homebrew coreutils solely for this hook.
+  # diagnostics through. macOS ships neither GNU timeout nor gtimeout, so keep
+  # the install working there without requiring Homebrew coreutils solely for
+  # this hook. The shared CI action owns the outer platform-step deadline.
   if command -v timeout &>/dev/null; then
-    timeout_cmd=(timeout 300)
+    timeout_cmd=("$(command -v timeout)" 300)
   elif command -v gtimeout &>/dev/null; then
-    timeout_cmd=(gtimeout 300)
+    timeout_cmd=("$(command -v gtimeout)" 300)
   fi
   env \
     "UV_TOOL_DIR=$install_dir/tools" \
