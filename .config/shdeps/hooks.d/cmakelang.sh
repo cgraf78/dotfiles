@@ -29,17 +29,26 @@ install() {
   fi
 
   local install_dir bin_dir
+  local -a timeout_cmd=()
   install_dir="$(shdeps_install_dir)/cmakelang"
   bin_dir=$(shdeps_bin_dir)
   mkdir -p "$bin_dir"
   # `uv tool install` resolves and downloads from PyPI with no timeout of its
   # own. Suppressing its output as well made a stalled resolve indistinguishable
   # from a slow one: a CI run sat here for 375s with nothing to show for it.
-  # Bound it and let its diagnostics through.
+  # Bound it where the platform provides a timeout command and let its
+  # diagnostics through. macOS ships neither GNU timeout nor gtimeout; the CI
+  # step deadline remains its backstop there, while local installs must still
+  # work without requiring Homebrew coreutils solely for this hook.
+  if command -v timeout &>/dev/null; then
+    timeout_cmd=(timeout 300)
+  elif command -v gtimeout &>/dev/null; then
+    timeout_cmd=(gtimeout 300)
+  fi
   env \
     "UV_TOOL_DIR=$install_dir/tools" \
     "UV_TOOL_BIN_DIR=$install_dir/bin" \
-    timeout 300 uv tool install --force cmakelang >&2 || return 1
+    "${timeout_cmd[@]}" uv tool install --force cmakelang >&2 || return 1
 
   ln -sf "$install_dir/bin/cmake-format" "$bin_dir/cmake-format"
   ln -sf "$install_dir/bin/cmake-lint" "$bin_dir/cmake-lint"

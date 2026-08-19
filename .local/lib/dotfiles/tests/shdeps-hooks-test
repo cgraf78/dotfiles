@@ -1367,4 +1367,49 @@ _assert_contains "google-java-format: wrapper uses pinned Java" \
   "MOCK-JAVA -jar $_home/google-java-format/google-java-format.jar --version" \
   "$("$_bin/google-java-format" --version 2>/dev/null || true)"
 
+echo "=== cmakelang hook ==="
+
+_cmakelang_hook="$REAL_HOME/.config/shdeps/hooks.d/cmakelang.sh"
+_assert_file_exists "cmakelang: custom hook is tracked" "$_cmakelang_hook"
+if [[ -f $_cmakelang_hook ]]; then
+  _cmakelang_bin=$(_mock_bin)
+  _cmakelang_public_bin=$(_tmpdir)
+  _cmakelang_install_root=$(_tmpdir)
+  _cmakelang_calls=$(_tmpdir)/uv-calls.log
+  for _cmakelang_tool in bash env ln mkdir; do
+    ln -s "$(command -v "$_cmakelang_tool")" \
+      "$_cmakelang_bin/$_cmakelang_tool"
+  done
+  cat >"$_cmakelang_bin/uv" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$CMAKELANG_TEST_CALLS"
+mkdir -p "$UV_TOOL_BIN_DIR"
+: >"$UV_TOOL_BIN_DIR/cmake-format"
+: >"$UV_TOOL_BIN_DIR/cmake-lint"
+EOF
+  chmod +x "$_cmakelang_bin/uv"
+
+  export CMAKELANG_TEST_CALLS=$_cmakelang_calls
+  _cmakelang_saved_path=$PATH
+  PATH=$_cmakelang_bin
+  # shellcheck source=/dev/null
+  . "$_cmakelang_hook"
+  # shellcheck disable=SC2329  # the sourced hook invokes this public API.
+  shdeps_pkg_install() { return 1; }
+  # shellcheck disable=SC2329  # the sourced hook invokes this public API.
+  shdeps_install_dir() { printf '%s\n' "$_cmakelang_install_root"; }
+  # shellcheck disable=SC2329  # the sourced hook invokes this public API.
+  shdeps_bin_dir() { printf '%s\n' "$_cmakelang_public_bin"; }
+  if install cmakelang; then
+    _pass "cmakelang: install works without GNU timeout"
+  else
+    _fail "cmakelang: install works without GNU timeout"
+  fi
+  PATH=$_cmakelang_saved_path
+  _assert_contains "cmakelang: fallback still runs the uv install" \
+    "tool install --force cmakelang" "$(cat "$_cmakelang_calls")"
+  _assert_file_exists "cmakelang: fallback links cmake-format" \
+    "$_cmakelang_public_bin/cmake-format"
+fi
+
 _test_summary
