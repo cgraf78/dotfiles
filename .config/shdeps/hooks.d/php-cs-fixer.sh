@@ -55,7 +55,7 @@ install() {
   install_dir="$(shdeps_install_dir)/php-cs-fixer"
   phar="$install_dir/php-cs-fixer.phar"
   mkdir -p "$install_dir"
-  curl -fsSL --no-netrc \
+  shdeps_curl -fsSL --no-netrc \
     "https://cs.symfony.com/download/php-cs-fixer-v3.phar" \
     -o "$phar" || return 1
 

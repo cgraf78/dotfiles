@@ -48,7 +48,7 @@ install() {
   }
 
   local release_json asset_url latest_tag install_dir jar
-  release_json=$(curl -fsSL --no-netrc -H "Authorization:" \
+  release_json=$(shdeps_curl -fsSL --no-netrc -H "Authorization:" \
     "https://api.github.com/repos/google/google-java-format/releases/latest" 2>/dev/null) || {
     shdeps_warn "  warning: couldn't fetch google-java-format release info"
     return 1
@@ -66,7 +66,7 @@ install() {
   install_dir="$(shdeps_install_dir)/google-java-format"
   jar="$install_dir/google-java-format.jar"
   mkdir -p "$install_dir"
-  curl -fsSL --no-netrc "$asset_url" -o "$jar" || return 1
+  shdeps_curl -fsSL --no-netrc "$asset_url" -o "$jar" || return 1
 
   # Pin the resolved Java path so an unrelated `java` later on PATH cannot
   # break the formatter; shdeps_write_wrapper handles the bin dir and chmod.
