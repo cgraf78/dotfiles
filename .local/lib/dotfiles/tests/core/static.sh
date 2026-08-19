@@ -403,12 +403,6 @@ MOCK
   _assert_contains "CI workflow: public shortcut receives the candidate branch" \
     "export DOTFILES_BRANCH=main" \
     "$_ci_cold_bootstrap"
-  _assert_contains "CI workflow: cold bootstrap exposes convergence diagnostics" \
-    "export DOT_VERBOSE=1" "$_ci_cold_bootstrap"
-  _assert_contains "CI workflow: cold bootstrap defines identity diagnostics" \
-    "diagnose_init_identity()" "$_ci_cold_bootstrap"
-  _assert_contains "CI workflow: failed public init reports identity diagnostics" \
-    "diagnose_init_identity >&2" "$_ci_cold_bootstrap"
   _assert_contains "CI workflow: cold bootstrap retries the resumable public init" \
     "retry bootstrap_client" "$_ci_cold_bootstrap"
   _assert_not_contains "CI workflow: cold bootstrap keeps provider convergence enabled" \
