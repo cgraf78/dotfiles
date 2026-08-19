@@ -72,7 +72,7 @@ install() {
   fi
 
   local release_json latest_tag
-  release_json=$(curl -fsSL --no-netrc -H "Authorization:" \
+  release_json=$(shdeps_curl -fsSL --no-netrc -H "Authorization:" \
     "https://api.github.com/repos/wez/wezterm/releases/latest" 2>/dev/null) || {
     shdeps_warn "  warning: couldn't fetch wezterm release info"
     return 1
@@ -115,7 +115,7 @@ install() {
 
   local tmp
   tmp=$(mktemp) || return 1
-  if ! curl -fsSL "$asset_url" -o "$tmp" 2>/dev/null; then
+  if ! shdeps_curl -fsSL "$asset_url" -o "$tmp" 2>/dev/null; then
     rm -f "$tmp"
     shdeps_warn "  warning: failed to download wezterm"
     return 1

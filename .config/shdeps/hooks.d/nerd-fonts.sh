@@ -86,7 +86,7 @@ install() {
   # Fetch latest nerd-fonts version once for the GitHub fallback path
   local nf_version=""
   if command -v curl &>/dev/null; then
-    nf_version=$(curl -fsSL --no-netrc -H "Authorization:" \
+    nf_version=$(shdeps_curl -fsSL --no-netrc -H "Authorization:" \
       "https://api.github.com/repos/ryanoasis/nerd-fonts/releases/latest" 2>/dev/null |
       grep -o '"tag_name":[[:space:]]*"[^"]*"' | cut -d'"' -f4) || true
   fi
@@ -132,7 +132,7 @@ install() {
     url="https://github.com/ryanoasis/nerd-fonts/releases/download/$nf_version/$nerd_zip.zip"
     tmp=$(mktemp -d) || continue
     local dest="$HOME/.local/share/fonts/$font_dir"
-    if curl -fsSL "$url" -o "$tmp/font.zip" 2>/dev/null; then
+    if shdeps_curl -fsSL "$url" -o "$tmp/font.zip" 2>/dev/null; then
       mkdir -p "$dest"
       unzip -qo "$tmp/font.zip" '*.ttf' -d "$dest" 2>/dev/null || true
       if command -v fc-cache &>/dev/null; then fc-cache -f "$dest" 2>/dev/null || true; fi

@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   shell:
-    uses: cgraf78/actions/.github/workflows/shell-ci.yml@164cc8e8aaa9e13dd0e4b8ca1a24404799d8072d
+    uses: cgraf78/actions/.github/workflows/shell-ci.yml@4912ed9a64123b3bb633f4da38e9a26c04fdbc1a
     with:
       # CI restores shdeps between runs. Refresh the resolver before it
       # validates dependency releases and installed-tool smoke checks.
@@ -75,6 +75,7 @@ jobs:
         superhtml version >/dev/null
       termux-command: |-
         set -euo pipefail
+        export DOT_VERBOSE=1
         HOME="$PWD" PATH="$PWD/.local/bin:$PATH" dot update
         HOME="$PWD" PATH="$PWD/.local/bin:$PATH" bash .local/lib/dotfiles/tests/android-ci-smoke
       termux-profiles: base,neovim
@@ -93,7 +94,7 @@ jobs:
       # files, so `.github/cgraf78-actions.lock` cannot be interpolated. This gate
       # verifies every unavoidable cgraf78/actions literal still matches that
       # single reviewed dependency decision.
-      - uses: cgraf78/actions/.github/actions/verify-consumer-sync@164cc8e8aaa9e13dd0e4b8ca1a24404799d8072d
+      - uses: cgraf78/actions/.github/actions/verify-consumer-sync@4912ed9a64123b3bb633f4da38e9a26c04fdbc1a
 
   cold-bootstrap:
     name: Cold Ubuntu bootstrap
@@ -107,7 +108,7 @@ jobs:
           persist-credentials: false
 
       - name: Install bootstrap prerequisites
-        uses: cgraf78/actions/.github/actions/shell-ci-prereqs@164cc8e8aaa9e13dd0e4b8ca1a24404799d8072d
+        uses: cgraf78/actions/.github/actions/shell-ci-prereqs@4912ed9a64123b3bb633f4da38e9a26c04fdbc1a
         with:
           matrix-name: Ubuntu
           setup: dotfiles
@@ -176,6 +177,7 @@ jobs:
           test ! -e "$HOME/.cache/mise"
           export GIT_TERMINAL_PROMPT=0
           export GIT_SSH_COMMAND='ssh -o BatchMode=yes -o ConnectTimeout=5'
+          export DOT_VERBOSE=1
 
           # The public shortcut owns standalone Dot installation and `dot init`
           # dispatch. Initialization is transactional and resumable, so retry
