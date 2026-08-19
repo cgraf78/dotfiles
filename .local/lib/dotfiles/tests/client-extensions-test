@@ -144,24 +144,61 @@ _client_worker_run() {
   return "$rc"
 }
 
+# Exercise OpenCode on every host through Shdeps' public dep-file boundary.
+# Otherwise hosts without a system OpenCode binary silently skip this hook.
+opencode_worker_bin=$(_tmpdir)
+agentguard_asset=$(_tmpdir)/opaque-agentguard-opencode.js
+agentguard_path_record=$fixture_home/.config/shdeps/test-agentguard-asset-path
+mkdir -p "$fixture_home/.config/shdeps"
+cat >"$agentguard_asset" <<'AGENTGUARD'
+// agentguard-managed:opencode-plugin
+export default {};
+AGENTGUARD
+printf '%s\n' "$agentguard_asset" >"$agentguard_path_record"
+cat >"$opencode_worker_bin/opencode" <<'OPENCODE'
+#!/usr/bin/env bash
+exit 0
+OPENCODE
+cat >"$opencode_worker_bin/shdeps" <<'SHDEPS'
+#!/usr/bin/env bash
+set -u
+
+[[ $# -eq 3 ]] || exit 64
+[[ $1 == dep-file ]] || exit 64
+[[ $2 == cgraf78/agentguard ]] || exit 64
+[[ $3 == share/agentguard/integrations/opencode/agentguard.js ]] || exit 64
+[[ ${SHDEPS_CONF_DIR:-} == "$HOME/.config/shdeps" ]] || exit 64
+path_record=$SHDEPS_CONF_DIR/test-agentguard-asset-path
+[[ -f $path_record ]] || exit 1
+IFS= read -r asset <"$path_record" || exit 1
+[[ -f $asset ]] || exit 1
+printf '%s\n' "$asset"
+SHDEPS
+chmod +x "$opencode_worker_bin/opencode" "$opencode_worker_bin/shdeps"
+
 for hook in "$client_root/merge-hooks.d"/*.sh; do
-  if _client_worker_run merge "$hook"; then
+  worker_path=/usr/bin:/bin
+  [[ ${hook##*/} == opencode.sh ]] && worker_path=$opencode_worker_bin:/usr/bin:/bin
+  if CLIENT_WORKER_PATH=$worker_path _client_worker_run merge "$hook"; then
     _pass "client merge hook loads through standalone worker: ${hook##*/}"
   else
     _fail "client merge hook loads through standalone worker: ${hook##*/}"
   fi
 done
+_assert_file_content 'client OpenCode hook installs the resolved AgentGuard asset' \
+  $'// agentguard-managed:opencode-plugin\nexport default {};' \
+  "$fixture_home/.config/opencode/plugins/dotfiles-agentguard.js"
 
-worker_bin=$(_tmpdir)
 windows_home=$fixture_home/windows-home
-cat >"$worker_bin/wezterm" <<'WEZTERM'
+wezterm_worker_bin=$(_tmpdir)
+cat >"$wezterm_worker_bin/wezterm" <<'WEZTERM'
 #!/usr/bin/env bash
 exit 0
 WEZTERM
-chmod +x "$worker_bin/wezterm"
+chmod +x "$wezterm_worker_bin/wezterm"
 mkdir -p "$fixture_home/.config/wezterm" "$windows_home"
 printf 'return {}\n' >"$fixture_home/.config/wezterm/wezterm.lua"
-if CLIENT_WORKER_PATH="$worker_bin:/usr/bin:/bin" \
+if CLIENT_WORKER_PATH="$wezterm_worker_bin:/usr/bin:/bin" \
   WSL_DISTRO_NAME=Ubuntu DOT_TEST_WINDOWS_HOME=$windows_home \
   DOT_TEST_WSL_PAIRED_ACCOUNT=1 DOT_QUIET=1 \
   _client_worker_run merge "$client_root/merge-hooks.d/wezterm.sh"; then
