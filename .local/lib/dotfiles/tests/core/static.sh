@@ -121,7 +121,8 @@ MOCK
       _ci_in_shell_with=1
     elif ((_ci_in_shell_with)) && [[ "$_ci_code" =~ ^[[:space:]]{6}matrix-set:[[:space:]]+full[[:space:]]*$ ]]; then
       _ci_uses_full_matrix=1
-    elif ((_ci_in_shell_with)) && [[ "$_ci_code" =~ ^[[:space:]]{6}force-dotfiles-update:[[:space:]]+true[[:space:]]*$ ]]; then
+    elif ((_ci_in_shell_with)) &&
+      [[ "$_ci_code" =~ ^[[:space:]]{6}force-dotfiles-update:[[:space:]]+\$\{\{.*schedule.*workflow_dispatch.*\}\}[[:space:]]*$ ]]; then
       _ci_forces_dotfiles_update=1
     elif ((_ci_in_shell_with)) && [[ "$_ci_code" =~ ^[[:space:]]{6}dotfiles-provider:[[:space:]]+true[[:space:]]*$ ]]; then
       _ci_installs_dotfiles_provider=1
@@ -325,10 +326,14 @@ MOCK
     "OPENCODE_TEST_VERSION" "$_ci_workflow"
   _assert_not_contains "CI workflow: does not run the provider adapter suite" \
     "opencode-agentguard" "$_ci_workflow"
+  # Forcing the refresh bypasses the restored shdeps cache, so it belongs on the
+  # runs that exist to validate dependency releases. Push and pull request runs
+  # deliberately do not opt in; asserting the trigger expression keeps that
+  # scoping from silently widening back to every event.
   if ((_ci_forces_dotfiles_update)); then
-    _pass "CI workflow: refreshes shdeps before dependency resolution"
+    _pass "CI workflow: refreshes shdeps on scheduled and manual runs"
   else
-    _fail "CI workflow: refreshes shdeps before dependency resolution"
+    _fail "CI workflow: refreshes shdeps on scheduled and manual runs"
   fi
   if ((_ci_installs_dotfiles_provider)); then
     _pass "CI workflow: installs the configured dotfiles provider before tests"
