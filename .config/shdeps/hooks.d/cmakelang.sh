@@ -32,10 +32,14 @@ install() {
   install_dir="$(shdeps_install_dir)/cmakelang"
   bin_dir=$(shdeps_bin_dir)
   mkdir -p "$bin_dir"
+  # `uv tool install` resolves and downloads from PyPI with no timeout of its
+  # own. Suppressing its output as well made a stalled resolve indistinguishable
+  # from a slow one: a CI run sat here for 375s with nothing to show for it.
+  # Bound it and let its diagnostics through.
   env \
     "UV_TOOL_DIR=$install_dir/tools" \
     "UV_TOOL_BIN_DIR=$install_dir/bin" \
-    uv tool install --force cmakelang &>/dev/null || return 1
+    timeout 300 uv tool install --force cmakelang >&2 || return 1
 
   ln -sf "$install_dir/bin/cmake-format" "$bin_dir/cmake-format"
   ln -sf "$install_dir/bin/cmake-lint" "$bin_dir/cmake-lint"
