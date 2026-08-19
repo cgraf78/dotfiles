@@ -184,6 +184,10 @@ _cron_source_files() {
 
 merge() {
   _dot_tool_present cron || return 0
+  local cron_command
+  _dot_account_scoped_command \
+    "cron merge" crontab "${DOT_TEST_CRONTAB:-}" || return 0
+  cron_command="$REPLY"
   local cron_marker="# dot-managed-cron"
 
   local -a _cron_sources
@@ -199,7 +203,7 @@ merge() {
   done
 
   local current
-  current=$(crontab -l 2>/dev/null || true)
+  current=$("$cron_command" -l 2>/dev/null || true)
 
   # No active entries — strip any existing managed block and return.
   if [[ -z "$_cron_parsed" ]]; then
@@ -207,9 +211,9 @@ merge() {
       local stripped
       stripped="$(dot_managed_block_strip "$cron_marker" "$current")"
       if [[ -n "$stripped" ]]; then
-        echo "$stripped" | crontab -
+        echo "$stripped" | "$cron_command" -
       else
-        crontab -r 2>/dev/null || true
+        "$cron_command" -r 2>/dev/null || true
       fi
     fi
     return 0
@@ -246,5 +250,5 @@ merge() {
     new_crontab="$managed_block"
   fi
 
-  echo "$new_crontab" | crontab -
+  echo "$new_crontab" | "$cron_command" -
 }

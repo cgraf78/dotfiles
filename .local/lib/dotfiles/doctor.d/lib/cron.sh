@@ -9,8 +9,11 @@ _dr_check_cron() {
     return 0
   fi
 
-  local crontab_out
-  crontab_out=$(crontab -l 2>/dev/null || echo "")
+  local crontab_out crontab_command
+  _dr_account_scoped_command \
+    "Cron" crontab "${DOT_TEST_CRONTAB:-}" || return 0
+  crontab_command="$REPLY"
+  crontab_out=$("$crontab_command" -l 2>/dev/null || echo "")
   if [[ -z "$crontab_out" ]]; then
     _dr_warn "user crontab is empty" "run 'dot update' to install tracked entries"
     return 0

@@ -76,6 +76,10 @@ _mise_publish_tmux() {
   fi
 }
 
+_mise_interactive() {
+  [[ -t 0 && -t 1 ]]
+}
+
 merge() {
   _dot_tool_present mise || return 0
   # Mise's tracked global toolset targets Linux and macOS release assets.
@@ -99,9 +103,14 @@ merge() {
 
   # Headless cron runs on Linux can leak a session bus/keyring pair when
   # `gh auth token` wakes up the credential stack, so only fall back to
-  # `gh` when the merge is running interactively.
-  if [[ -z "$github_token" ]] && [[ -t 0 && -t 1 ]] && command -v gh &>/dev/null; then
-    github_token="$(gh auth token 2>/dev/null || true)"
+  # `gh` when the merge is running interactively and owns the account HOME.
+  if [[ -z "$github_token" ]] && _mise_interactive; then
+    local gh_command
+    if _dot_account_scoped_command \
+      "Mise GitHub token lookup" gh "${DOT_TEST_GH:-}"; then
+      gh_command="$REPLY"
+      github_token="$("$gh_command" auth token 2>/dev/null || true)"
+    fi
   fi
 
   if [[ -n "$github_token" ]]; then

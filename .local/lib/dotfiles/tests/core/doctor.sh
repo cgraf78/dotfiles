@@ -2,7 +2,7 @@
 # doctor.sh - dotfiles-owned doctor extension coverage.
 
 dot_core_test_doctor() {
-  local result expected drift doctor_bin doctor_direct_tool doctor_hm_bin
+  local result expected drift doctor_bin doctor_crontab_log doctor_direct_tool doctor_hm_bin
   local doctor_no_hm_bin doctor_nvim_log doctor_real_bash doctor_shell_marker
   local dependency root cmd
 
@@ -21,6 +21,96 @@ dot_core_test_doctor() {
     return "$status"
   }
 
+  REPLY=
+  doctor_account_home_status=0
+  _dr_account_home || doctor_account_home_status=$?
+  doctor_account_scope_home=$REPLY
+  _assert_eq "doctor account scope: account HOME resolves" \
+    "0" "$doctor_account_home_status"
+
+  doctor_termux_account_status=0
+  doctor_termux_account_home=$(dot_fixture_termux_account_home \
+    "$REAL_HOME/.local/lib/dotfiles/doctor.d/lib/compat.sh" \
+    _dr_account_home) || doctor_termux_account_status=$?
+  if [[ "$doctor_termux_account_status" -eq 77 ]]; then
+    echo "  - skipping doctor Termux account HOME check (mount namespace unavailable)"
+  else
+    _assert_eq "doctor account scope: Termux account HOME resolves" \
+      "0" "$doctor_termux_account_status"
+    _assert_eq "doctor account scope: Termux uses the fixed application HOME" \
+      "/data/data/com.termux/files/home" "$doctor_termux_account_home"
+  fi
+
+  doctor_account_scope_status=0
+  doctor_account_scope_command=$(
+    env BASH_ENV='' HOME="$doctor_account_scope_home" DOT_TEST=0 \
+      bash -s -- "$REAL_HOME/.local/lib/dotfiles/doctor.d/lib/compat.sh" <<'BASH'
+dot_doctor_source() { return 0; }
+dot_doctor_skip() { :; }
+. "$1" || exit
+_dr_account_scoped_command "account scope test" id "" || exit
+printf '%s' "$REPLY"
+BASH
+  ) || doctor_account_scope_status=$?
+  _assert_eq "doctor account scope: actual account HOME is accepted" \
+    "0" "$doctor_account_scope_status"
+  if [[ -n "$doctor_account_scope_command" && -x "$doctor_account_scope_command" ]]; then
+    _pass "doctor account scope: production command resolves from PATH"
+  else
+    _fail "doctor account scope: production command resolves from PATH"
+  fi
+
+  doctor_account_spoof_home=$(_tmpdir)
+  doctor_account_spoof_bin=$(_tmpdir)
+  cat >"$doctor_account_spoof_bin/getent" <<'SH'
+#!/usr/bin/env bash
+[[ "${1:-}" == "passwd" && -n "${2:-}" ]] || exit 1
+printf '%s:x:1:1::%s:/bin/sh\n' "$2" "$ACCOUNT_SPOOF_HOME"
+SH
+  chmod +x "$doctor_account_spoof_bin/getent"
+
+  doctor_account_hash_spoof_status=0
+  env BASH_ENV='' HOME="$doctor_account_spoof_home" DOT_TEST=0 \
+    PATH="$doctor_account_spoof_bin:$PATH" \
+    ACCOUNT_SPOOF_GETENT="$doctor_account_spoof_bin/getent" \
+    ACCOUNT_SPOOF_HOME="$doctor_account_spoof_home" \
+    bash -s -- "$REAL_HOME/.local/lib/dotfiles/doctor.d/lib/compat.sh" <<'BASH' || doctor_account_hash_spoof_status=$?
+hash -p "$ACCOUNT_SPOOF_GETENT" getent
+dot_doctor_source() { return 0; }
+dot_doctor_skip() { :; }
+. "$1" || exit
+if _dr_account_scoped_command "account scope spoof" id ""; then
+  exit 1
+fi
+BASH
+  _assert_eq "doctor account scope: command hash cannot authorize a synthetic HOME" \
+    "0" "$doctor_account_hash_spoof_status"
+
+  doctor_account_command_spoof_status=0
+  env BASH_ENV='' HOME="$doctor_account_spoof_home" DOT_TEST=0 \
+    PATH="$doctor_account_spoof_bin:$PATH" \
+    ACCOUNT_SPOOF_GETENT="$doctor_account_spoof_bin/getent" \
+    ACCOUNT_SPOOF_HOME="$doctor_account_spoof_home" \
+    bash -s -- "$REAL_HOME/.local/lib/dotfiles/doctor.d/lib/compat.sh" <<'BASH' || doctor_account_command_spoof_status=$?
+# shellcheck disable=SC2329 # Invoked by the account resolver under test.
+command() {
+  if [[ "${1:-}" == "-p" && "${2:-}" == "getent" ]]; then
+    shift 2
+    "$ACCOUNT_SPOOF_GETENT" "$@"
+    return
+  fi
+  builtin command "$@"
+}
+dot_doctor_source() { return 0; }
+dot_doctor_skip() { :; }
+. "$1" || exit
+if _dr_account_scoped_command "account scope spoof" id ""; then
+  exit 1
+fi
+BASH
+  _assert_eq "doctor account scope: command function cannot authorize a synthetic HOME" \
+    "0" "$doctor_account_command_spoof_status"
+
   doctor_bin=$(_tmpdir)
   mkdir -p "$doctor_bin" "$TEST_HOME/.config/opencode/plugins"
   cat >"$doctor_bin/opencode" <<'SH'
@@ -28,6 +118,58 @@ dot_core_test_doctor() {
 exit 0
 SH
   chmod +x "$doctor_bin/opencode"
+
+  mkdir -p "$TEST_HOME/.config/dot/merge-hooks.d/cron/cron.d"
+  printf '%s\n' '*/30 * * * * dot update --cron --force' \
+    >"$TEST_HOME/.config/dot/merge-hooks.d/cron/cron.d/10-update.cron"
+  doctor_crontab_log=$(_tmpfile)
+  cat >"$doctor_bin/crontab" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$DOT_TEST_CRONTAB_LOG"
+printf '%s\n' '*/30 * * * * dot update --cron --force'
+SH
+  chmod +x "$doctor_bin/crontab"
+
+  : >"$doctor_crontab_log"
+  result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$PATH" \
+    DOT_TEST_CRONTAB_LOG="$doctor_crontab_log" \
+    _doctor_records _dr_check_cron)
+  _assert_eq "doctor cron: test mode requires an explicit double" \
+    "" "$(cat "$doctor_crontab_log")"
+  _assert_contains "doctor cron: missing test double is reported" \
+    "test crontab" "$result"
+
+  : >"$doctor_crontab_log"
+  result=$(DOT_TEST=0 HOME="$TEST_HOME" PATH="$doctor_bin:$PATH" \
+    DOT_TEST_CRONTAB_LOG="$doctor_crontab_log" \
+    _doctor_records _dr_check_cron)
+  _assert_eq "doctor cron: non-account HOME skips the account crontab" \
+    "" "$(cat "$doctor_crontab_log")"
+  _assert_contains "doctor cron: non-account HOME is reported" \
+    "account home" "$result"
+
+  doctor_no_crontab_bin=$(_tmpdir)
+  ln -s "$(command -v cat)" "$doctor_no_crontab_bin/cat"
+  result=$(
+    # shellcheck disable=SC2329 # Invoked indirectly by the Cron doctor check.
+    _dr_account_home() {
+      REPLY=$HOME
+    }
+    DOT_TEST=0 HOME="$TEST_HOME" PATH="$doctor_no_crontab_bin" \
+      _doctor_records _dr_check_cron
+  )
+  _assert_contains "doctor cron: missing production crontab is reported" \
+    "crontab not found" "$result"
+
+  : >"$doctor_crontab_log"
+  result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$PATH" \
+    DOT_TEST_CRONTAB="$doctor_bin/crontab" \
+    DOT_TEST_CRONTAB_LOG="$doctor_crontab_log" \
+    _doctor_records _dr_check_cron)
+  _assert_eq "doctor cron: explicit test double is invoked" \
+    "-l" "$(cat "$doctor_crontab_log")"
+  _assert_contains "doctor cron: explicit test state is diagnosed" \
+    "auto-update cron entry present" "$result"
 
   result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$PATH" \
     _doctor_records _dr_check_opencode_agentguard)
@@ -247,6 +389,8 @@ SH
   rm -f "$doctor_bin/bash"
 
   result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$TEST_HOME/.local/bin:$PATH" \
+    DOT_TEST_CRONTAB="$doctor_bin/crontab" \
+    DOT_TEST_CRONTAB_LOG="$doctor_crontab_log" \
     "$DOT_SOURCE_ROOT/bin/dot" doctor 2>&1 || true)
   _assert_contains "doctor integration: renders the standalone title" \
     "dot doctor" "$result"
@@ -272,6 +416,8 @@ SH
 
   rm -f "$TEST_HOME/.bashrc"
   result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$TEST_HOME/.local/bin:$PATH" \
+    DOT_TEST_CRONTAB="$doctor_bin/crontab" \
+    DOT_TEST_CRONTAB_LOG="$doctor_crontab_log" \
     "$DOT_SOURCE_ROOT/bin/dot" doctor 2>&1 || true)
   _assert_contains "doctor integration: flags a missing bash startup file" \
     ".bashrc missing" "$result"

@@ -194,6 +194,8 @@ dot_fixture_mock_crontab() {
   touch "$MOCK_CRONTAB"
   MOCK_BIN=$(_mock_bin)
   export PATH="$MOCK_BIN:$PATH"
+  DOT_TEST_CRONTAB="$MOCK_BIN/crontab"
+  export DOT_TEST_CRONTAB
   cat >"$MOCK_BIN/crontab" <<CRON
 #!/bin/bash
 case "\${1:-}" in
@@ -204,4 +206,40 @@ case "\${1:-}" in
 esac
 CRON
   chmod +x "$MOCK_BIN/crontab"
+}
+
+dot_fixture_termux_account_home() {
+  local compat_path="$1" resolver="$2" fixture
+
+  if [[ ! -d /data ]] || ! command -v unshare >/dev/null 2>&1 ||
+    ! command -v mount >/dev/null 2>&1 ||
+    ! unshare --user --map-root-user --mount --propagation private true \
+      >/dev/null 2>&1; then
+    return 77
+  fi
+
+  fixture=$(_tmpdir)
+  mkdir -p \
+    "$fixture/data/com.termux/files/usr/bin" \
+    "$fixture/data/com.termux/files/home"
+  cat >"$fixture/data/com.termux/files/usr/bin/id" <<'SH'
+#!/bin/sh
+printf '%s\n' termux-test
+SH
+  chmod +x "$fixture/data/com.termux/files/usr/bin/id"
+
+  BASH_ENV='' DOT_TERMUX_DATA_ROOT="$fixture" \
+    unshare --user --map-root-user --mount --propagation private \
+    "${BASH:-bash}" -s -- "$compat_path" "$resolver" <<'BASH'
+mount --bind "$DOT_TERMUX_DATA_ROOT" /data || exit 77
+dot_hook_source() { return 0; }
+dot_doctor_source() { return 0; }
+# shellcheck disable=SC1090 # The compatibility path belongs to this checkout.
+. "$1" || exit
+case "$2" in
+  _dot_account_home | _dr_account_home) "$2" || exit ;;
+  *) exit 2 ;;
+esac
+printf '%s\n' "$REPLY"
+BASH
 }

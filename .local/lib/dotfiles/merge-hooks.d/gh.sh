@@ -90,9 +90,12 @@ _gh_token_seed_clear_failed() {
 }
 
 _gh_token_from_cli() {
-  local output token timeout_seconds
+  local output token timeout_seconds gh_command
   command -v gh >/dev/null 2>&1 || return 1
   _gh_token_seed_failed_recently && return 1
+  _dot_account_scoped_command \
+    "GitHub token lookup" gh "${DOT_TEST_GH:-}" || return 1
+  gh_command="$REPLY"
 
   timeout_seconds="${DOT_GH_TOKEN_SEED_TIMEOUT_SECONDS:-5}"
   case "$timeout_seconds" in
@@ -100,17 +103,17 @@ _gh_token_from_cli() {
   esac
 
   if command -v timeout >/dev/null 2>&1; then
-    output=$(timeout "${timeout_seconds}s" gh auth token 2>/dev/null) || {
+    output=$(timeout "${timeout_seconds}s" "$gh_command" auth token 2>/dev/null) || {
       _gh_token_seed_mark_failed
       return 1
     }
   elif command -v gtimeout >/dev/null 2>&1; then
-    output=$(gtimeout "${timeout_seconds}s" gh auth token 2>/dev/null) || {
+    output=$(gtimeout "${timeout_seconds}s" "$gh_command" auth token 2>/dev/null) || {
       _gh_token_seed_mark_failed
       return 1
     }
   else
-    output=$(gh auth token 2>/dev/null) || {
+    output=$("$gh_command" auth token 2>/dev/null) || {
       _gh_token_seed_mark_failed
       return 1
     }

@@ -39,6 +39,38 @@ EOF
 /usr/bin
 EOF
 
+  # A crontab belongs to the account, not to an arbitrary HOME supplied by a
+  # fixture, installer probe, or recovery command.
+  cat >"$TEST_HOME/.config/dot/merge-hooks.d/cron/cron.d/10-base.cron" <<'EOF'
+*/30 * * * * $HOME/.local/bin/dot update --cron
+EOF
+  : >"$MOCK_CRONTAB"
+  non_account_output=$(
+    DOT_TEST=0
+    export DOT_TEST
+    _run_cron_merge 2>&1
+  )
+  non_account_rc=$?
+  _assert_exit "non-account HOME: merge skips account crontab" 0 "$non_account_rc"
+  result=$(crontab -l 2>/dev/null)
+  _assert_eq "non-account HOME: crontab remains unchanged" "" "$result"
+  _assert_contains "non-account HOME: skip is reported" \
+    "account home" "$non_account_output"
+  : >"$MOCK_CRONTAB"
+
+  missing_double_output=$(
+    unset DOT_TEST_CRONTAB
+    _run_cron_merge 2>&1
+  )
+  missing_double_rc=$?
+  _assert_exit "test mode: missing crontab double skips merge" \
+    0 "$missing_double_rc"
+  result=$(crontab -l 2>/dev/null)
+  _assert_eq "test mode: system crontab remains unreachable" "" "$result"
+  _assert_contains "test mode: missing crontab double is reported" \
+    "test crontab" "$missing_double_output"
+  : >"$MOCK_CRONTAB"
+
   # No cron file → no-op
   rm -f "$TEST_HOME/.config/dot/merge-hooks.d/cron/cron.d/10-base.cron"
   _run_cron_merge 2>/dev/null

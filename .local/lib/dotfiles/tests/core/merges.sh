@@ -37,6 +37,96 @@ dot_core_test_merges() {
   echo ""
   echo "=== Tool presence capability ==="
 
+  REPLY=
+  account_home_status=0
+  _dot_account_home || account_home_status=$?
+  account_scope_home=$REPLY
+  _assert_eq "account scope: account HOME resolves" \
+    "0" "$account_home_status"
+
+  termux_account_status=0
+  termux_account_home=$(dot_fixture_termux_account_home \
+    "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/lib/compat.sh" \
+    _dot_account_home) || termux_account_status=$?
+  if [[ "$termux_account_status" -eq 77 ]]; then
+    echo "  - skipping Termux account HOME check (mount namespace unavailable)"
+  else
+    _assert_eq "account scope: Termux account HOME resolves" \
+      "0" "$termux_account_status"
+    _assert_eq "account scope: Termux uses the fixed application HOME" \
+      "/data/data/com.termux/files/home" "$termux_account_home"
+  fi
+
+  account_scope_status=0
+  account_scope_command=$(
+    env BASH_ENV='' HOME="$account_scope_home" DOT_TEST=0 \
+      bash -s -- "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/lib/compat.sh" <<'BASH'
+dot_hook_source() { return 0; }
+dot_hook_warn() { :; }
+. "$1" || exit
+_dot_account_scoped_command "account scope test" id "" || exit
+printf '%s' "$REPLY"
+BASH
+  ) || account_scope_status=$?
+  _assert_eq "account scope: actual account HOME is accepted" \
+    "0" "$account_scope_status"
+  if [[ -n "$account_scope_command" && -x "$account_scope_command" ]]; then
+    _pass "account scope: production command resolves from PATH"
+  else
+    _fail "account scope: production command resolves from PATH"
+  fi
+
+  account_spoof_home=$(_tmpdir)
+  account_spoof_bin=$(_tmpdir)
+  cat >"$account_spoof_bin/getent" <<'SH'
+#!/usr/bin/env bash
+[[ "${1:-}" == "passwd" && -n "${2:-}" ]] || exit 1
+printf '%s:x:1:1::%s:/bin/sh\n' "$2" "$ACCOUNT_SPOOF_HOME"
+SH
+  chmod +x "$account_spoof_bin/getent"
+
+  account_hash_spoof_status=0
+  env BASH_ENV='' HOME="$account_spoof_home" DOT_TEST=0 \
+    PATH="$account_spoof_bin:$PATH" \
+    ACCOUNT_SPOOF_GETENT="$account_spoof_bin/getent" \
+    ACCOUNT_SPOOF_HOME="$account_spoof_home" \
+    bash -s -- "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/lib/compat.sh" <<'BASH' || account_hash_spoof_status=$?
+hash -p "$ACCOUNT_SPOOF_GETENT" getent
+dot_hook_source() { return 0; }
+dot_hook_warn() { :; }
+. "$1" || exit
+if _dot_account_scoped_command "account scope spoof" id ""; then
+  exit 1
+fi
+BASH
+  _assert_eq "account scope: command hash cannot authorize a synthetic HOME" \
+    "0" "$account_hash_spoof_status"
+
+  account_command_spoof_status=0
+  env BASH_ENV='' HOME="$account_spoof_home" DOT_TEST=0 \
+    PATH="$account_spoof_bin:$PATH" \
+    ACCOUNT_SPOOF_GETENT="$account_spoof_bin/getent" \
+    ACCOUNT_SPOOF_HOME="$account_spoof_home" \
+    bash -s -- "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/lib/compat.sh" <<'BASH' || account_command_spoof_status=$?
+# shellcheck disable=SC2329 # Invoked by the account resolver under test.
+command() {
+  if [[ "${1:-}" == "-p" && "${2:-}" == "getent" ]]; then
+    shift 2
+    "$ACCOUNT_SPOOF_GETENT" "$@"
+    return
+  fi
+  builtin command "$@"
+}
+dot_hook_source() { return 0; }
+dot_hook_warn() { :; }
+. "$1" || exit
+if _dot_account_scoped_command "account scope spoof" id ""; then
+  exit 1
+fi
+BASH
+  _assert_eq "account scope: command function cannot authorize a synthetic HOME" \
+    "0" "$account_command_spoof_status"
+
   local tool_platform_impl tool_command_impl tool_path_impl
   tool_platform_impl=$(declare -f _dot_tool_platform)
   tool_command_impl=$(declare -f _dot_tool_command_present)
@@ -733,7 +823,26 @@ TMUX
 
   : >"$tmux_server"
   : >"$tmux_log"
-  HOME="$tmux_home" PATH="$tmux_bin:$PATH" DOT_TEST_TMUX_LOG="$tmux_log" \
+  tmux_missing_double_output=$(HOME="$tmux_home" PATH="$tmux_bin:$PATH" \
+    DOT_TEST_TMUX_LOG="$tmux_log" DOT_TEST_TMUX_SERVER="$tmux_server" \
+    _run_tmux_merge_for_test 2>&1)
+  _assert_eq "tmux merge: test mode requires an explicit double" \
+    "" "$(cat "$tmux_log")"
+  _assert_contains "tmux merge: missing test double is reported" \
+    "test tmux" "$tmux_missing_double_output"
+
+  : >"$tmux_log"
+  tmux_non_account_output=$(DOT_TEST=0 HOME="$tmux_home" \
+    PATH="$tmux_bin:$PATH" DOT_TEST_TMUX_LOG="$tmux_log" \
+    DOT_TEST_TMUX_SERVER="$tmux_server" _run_tmux_merge_for_test 2>&1)
+  _assert_eq "tmux merge: non-account HOME leaves the user server untouched" \
+    "" "$(cat "$tmux_log")"
+  _assert_contains "tmux merge: non-account HOME is reported" \
+    "account home" "$tmux_non_account_output"
+
+  : >"$tmux_log"
+  HOME="$tmux_home" PATH="$tmux_bin:$PATH" DOT_TEST_TMUX="$tmux_bin/tmux" \
+    DOT_TEST_TMUX_LOG="$tmux_log" \
     DOT_TEST_TMUX_SERVER="$tmux_server" _run_tmux_merge_for_test
   tmux_expected=$(printf 'has-session\nsource-file %s' \
     "$tmux_home/.config/tmux/tmux.conf")
@@ -742,7 +851,8 @@ TMUX
 
   rm -f "$tmux_server"
   : >"$tmux_log"
-  HOME="$tmux_home" PATH="$tmux_bin:$PATH" DOT_TEST_TMUX_LOG="$tmux_log" \
+  HOME="$tmux_home" PATH="$tmux_bin:$PATH" DOT_TEST_TMUX="$tmux_bin/tmux" \
+    DOT_TEST_TMUX_LOG="$tmux_log" \
     DOT_TEST_TMUX_SERVER="$tmux_server" _run_tmux_merge_for_test
   _assert_eq "tmux merge: skips reload when no server is running" \
     "has-session" "$(cat "$tmux_log")"
@@ -1570,7 +1680,31 @@ YAML
       . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/gh.sh"
       merge
     }
-    HOME="$gh_home" PATH="$gh_mock_bin:$PATH" _run_gh_merge_fallback_for_test
+
+    gh_missing_double_output=$(HOME="$gh_home" PATH="$gh_mock_bin:$PATH" \
+      _run_gh_merge_fallback_for_test 2>&1)
+    if [[ ! -e "$gh_home/.gh-calls.log" && ! -e "$gh_home/.config/gh/github-pat" ]]; then
+      _pass "gh merge: test mode requires an explicit credential double"
+    else
+      _fail "gh merge: test mode requires an explicit credential double"
+    fi
+    _assert_contains "gh merge: missing credential double is reported" \
+      "test gh" "$gh_missing_double_output"
+
+    rm -f "$gh_home/.config/gh/github-pat" "$gh_home/.gh-calls.log"
+    gh_non_account_output=$(DOT_TEST=0 HOME="$gh_home" \
+      PATH="$gh_mock_bin:$PATH" _run_gh_merge_fallback_for_test 2>&1)
+    if [[ ! -e "$gh_home/.gh-calls.log" && ! -e "$gh_home/.config/gh/github-pat" ]]; then
+      _pass "gh merge: non-account HOME leaves credentials unread"
+    else
+      _fail "gh merge: non-account HOME leaves credentials unread"
+    fi
+    _assert_contains "gh merge: non-account HOME is reported" \
+      "account home" "$gh_non_account_output"
+
+    rm -f "$gh_home/.config/gh/github-pat" "$gh_home/.gh-calls.log"
+    HOME="$gh_home" PATH="$gh_mock_bin:$PATH" DOT_TEST_GH="$gh_mock_bin/gh" \
+      _run_gh_merge_fallback_for_test
     unset -f _run_gh_merge_fallback_for_test merge 2>/dev/null
     _assert_file_content "gh merge: falls back to gh auth token when hosts.yml has no token" \
       "fallback-token" "$gh_home/.config/gh/github-pat"
@@ -1584,8 +1718,10 @@ YAML
       . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/gh.sh"
       merge
     }
-    DOT_QUIET=1 GH_MOCK_FAIL=1 HOME="$gh_home" PATH="$gh_mock_bin:$PATH" _run_gh_merge_failed_fallback_for_test
-    DOT_QUIET=1 GH_MOCK_FAIL=1 HOME="$gh_home" PATH="$gh_mock_bin:$PATH" _run_gh_merge_failed_fallback_for_test
+    DOT_QUIET=1 GH_MOCK_FAIL=1 HOME="$gh_home" PATH="$gh_mock_bin:$PATH" \
+      DOT_TEST_GH="$gh_mock_bin/gh" _run_gh_merge_failed_fallback_for_test
+    DOT_QUIET=1 GH_MOCK_FAIL=1 HOME="$gh_home" PATH="$gh_mock_bin:$PATH" \
+      DOT_TEST_GH="$gh_mock_bin/gh" _run_gh_merge_failed_fallback_for_test
     unset -f _run_gh_merge_failed_fallback_for_test merge 2>/dev/null
     _gh_fallback_call_count=$(wc -l <"$gh_home/.gh-calls.log" | tr -d ' ')
     _assert_eq "gh merge: failed keyring fallback is throttled" "1" "$_gh_fallback_call_count"
@@ -1610,7 +1746,8 @@ YAML
       . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/gh.sh"
       merge
     }
-    HOME="$gh_home" PATH="$gh_mock_bin:$PATH" _run_gh_merge_manual_retry_for_test
+    HOME="$gh_home" PATH="$gh_mock_bin:$PATH" DOT_TEST_GH="$gh_mock_bin/gh" \
+      _run_gh_merge_manual_retry_for_test
     unset -f _run_gh_merge_manual_retry_for_test merge 2>/dev/null
     _assert_file_content "gh merge: manual update retries keyring fallback after prior quiet failure" \
       "fallback-token" "$gh_home/.config/gh/github-pat"
@@ -1666,8 +1803,31 @@ EOF
     . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/iterm2.sh"
     merge
   }
+
+  : >"$iterm2_defaults_log"
+  iterm2_missing_double_output=$(HOME="$iterm2_home" \
+    PATH="$iterm2_bin:$PATH" \
+    DOT_TEST_DEFAULTS_LOG="$iterm2_defaults_log" \
+    _run_iterm2_merge_for_test 2>&1)
+  _assert_eq "iterm2 defaults: test mode requires an explicit double" \
+    "" "$(cat "$iterm2_defaults_log")"
+  _assert_contains "iterm2 defaults: missing test double is reported" \
+    "test defaults" "$iterm2_missing_double_output"
+
+  : >"$iterm2_defaults_log"
+  iterm2_non_account_output=$(DOT_TEST=0 HOME="$iterm2_home" \
+    PATH="$iterm2_bin:$PATH" \
+    DOT_TEST_DEFAULTS_LOG="$iterm2_defaults_log" \
+    _run_iterm2_merge_for_test 2>&1)
+  _assert_eq "iterm2 defaults: non-account HOME leaves preferences untouched" \
+    "" "$(cat "$iterm2_defaults_log")"
+  _assert_contains "iterm2 defaults: non-account HOME is reported" \
+    "account home" "$iterm2_non_account_output"
+
+  : >"$iterm2_defaults_log"
   HOME="$iterm2_home" \
     PATH="$iterm2_bin:$PATH" \
+    DOT_TEST_DEFAULTS="$iterm2_bin/defaults" \
     DOT_TEST_DEFAULTS_LOG="$iterm2_defaults_log" \
     _run_iterm2_merge_for_test
   unset -f _run_iterm2_merge_for_test merge 2>/dev/null
@@ -6825,14 +6985,15 @@ TOML
   _MISE_HOOK="$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/mise.sh"
 
   _run_mise_merge() {
+    local interactive=${1:-0}
+
     unset -f merge 2>/dev/null
     # shellcheck source=/dev/null
     . "$_MISE_HOOK"
-    # Drop stdin/stdout TTYs so the hook's `-t 0 && -t 1` interactivity
-    # probe is deterministic regardless of whether the test itself is
-    # invoked from a terminal (CI / piped runs naturally have no tty;
-    # manual `dot-test` from a terminal would otherwise inherit one and
-    # make the hook call `gh`, breaking the non-interactive assertions).
+    # shellcheck disable=SC2329 # Invoked indirectly by the sourced hook.
+    _mise_interactive() {
+      [[ "$interactive" -eq 1 ]]
+    }
     merge </dev/null >/dev/null
   }
 
@@ -6914,6 +7075,40 @@ GH
   else
     _fail "mise hook: skips gh in non-interactive mode"
   fi
+
+  unset DOT_TEST_GH
+  rm -f "$TEST_HOME/.mise-env.log" "$TEST_HOME/.mise-calls.log" "$TEST_HOME/.gh-calls.log"
+  _mise_missing_double_output=$(
+    MISE_TMUX_BIN="$_mise_tmux_one" _run_mise_merge 1 2>&1
+  )
+  _assert_contains "mise hook: interactive test mode requires an explicit gh double" \
+    "test gh" "$_mise_missing_double_output"
+  if [[ ! -e "$TEST_HOME/.gh-calls.log" ]]; then
+    _pass "mise hook: missing interactive double cannot reach gh"
+  else
+    _fail "mise hook: missing interactive double cannot reach gh"
+  fi
+
+  rm -f "$TEST_HOME/.mise-env.log" "$TEST_HOME/.mise-calls.log" "$TEST_HOME/.gh-calls.log"
+  _mise_non_account_output=$(
+    DOT_TEST=0 MISE_TMUX_BIN="$_mise_tmux_one" _run_mise_merge 1 2>&1
+  )
+  _assert_contains "mise hook: interactive non-account HOME is rejected" \
+    "HOME is not the account home: $TEST_HOME" "$_mise_non_account_output"
+  if [[ ! -e "$TEST_HOME/.gh-calls.log" ]]; then
+    _pass "mise hook: non-account HOME cannot reach gh"
+  else
+    _fail "mise hook: non-account HOME cannot reach gh"
+  fi
+
+  rm -f "$TEST_HOME/.mise-env.log" "$TEST_HOME/.mise-calls.log" "$TEST_HOME/.gh-calls.log"
+  DOT_TEST_GH="$MOCK_BIN/gh" MISE_TMUX_BIN="$_mise_tmux_one" \
+    _run_mise_merge 1
+  _assert_eq "mise hook: explicit interactive gh double is invoked" \
+    "auth token" "$(cat "$TEST_HOME/.gh-calls.log")"
+  _assert_contains "mise hook: interactive gh token feeds mise" \
+    "MISE_GITHUB_TOKEN=gh-token" "$(cat "$TEST_HOME/.mise-env.log")"
+  unset DOT_TEST_GH
 
   MISE_TMUX_BIN="$_mise_tmux_two" _run_mise_merge
   _assert_eq "mise hook: refreshes direct tmux link after upgrades" \
