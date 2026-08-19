@@ -168,17 +168,19 @@ jobs:
           export GIT_TERMINAL_PROMPT=0
           export GIT_SSH_COMMAND='ssh -o BatchMode=yes -o ConnectTimeout=5'
 
-          # Preserve the clean-install signal: only the idempotent post-init
-          # network phases below receive bounded retries. The public shortcut
-          # owns standalone Dot installation and `dot init` dispatch. Keep the
-          # initial repository transaction independent of provider network
-          # availability; the normal update immediately below performs and
-          # retries full dependency convergence.
+          # The public shortcut owns standalone Dot installation and `dot init`
+          # dispatch. Initialization is transactional and resumable, so retry
+          # the complete boundary for transient provider/network failures; a
+          # deterministic defect still fails after the bounded attempts.
           export DOTFILES_REPOSITORY="file://$origin"
           export DOTFILES_BRANCH=main
-          export DOT_INIT_SKIP_PROVIDER=1
-          curl -fsSL https://cgraf78.github.io/d | bash
-          unset DOT_INIT_SKIP_PROVIDER
+          bootstrap_client() {
+            curl -fsSL https://cgraf78.github.io/d | bash
+          }
+          if ! retry bootstrap_client; then
+            "$HOME/.local/share/cgraf78/dot/bin/dot" init --status >&2 || true
+            exit 1
+          fi
 
           export PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:$PATH"
           test ! -e "$HOME/.git"

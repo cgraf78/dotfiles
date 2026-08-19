@@ -379,16 +379,7 @@ MOCK
     "$_ci_cold_bootstrap"
   _ci_cold_home_line=$(grep -nF "          cd \"\$HOME\"" <<<"$_ci_cold_bootstrap" | cut -d: -f1)
   _ci_cold_init_line=$(grep -nF \
-    "          curl -fsSL https://cgraf78.github.io/d | bash" \
-    <<<"$_ci_cold_bootstrap" | cut -d: -f1)
-  _ci_cold_skip_provider_line=$(grep -nF \
-    "          export DOT_INIT_SKIP_PROVIDER=1" \
-    <<<"$_ci_cold_bootstrap" | cut -d: -f1)
-  _ci_cold_unset_provider_line=$(grep -nF \
-    "          unset DOT_INIT_SKIP_PROVIDER" \
-    <<<"$_ci_cold_bootstrap" | cut -d: -f1)
-  _ci_cold_update_line=$(grep -nF \
-    "          retry dot update" \
+    "curl -fsSL https://cgraf78.github.io/d | bash" \
     <<<"$_ci_cold_bootstrap" | cut -d: -f1)
   if [[ -n "$_ci_cold_home_line" && -n "$_ci_cold_init_line" &&
     "$_ci_cold_home_line" -lt "$_ci_cold_init_line" ]]; then
@@ -403,12 +394,19 @@ MOCK
   _assert_contains "CI workflow: cold bootstrap exercises the public shortcut" \
     "curl -fsSL https://cgraf78.github.io/d | bash" \
     "$_ci_cold_bootstrap"
+  _assert_contains "CI workflow: failed public init reports its transaction phase" \
+    "\"\$HOME/.local/share/cgraf78/dot/bin/dot\" init --status >&2 || true" \
+    "$_ci_cold_bootstrap"
   _assert_contains "CI workflow: public shortcut receives the exact candidate origin" \
     "export DOTFILES_REPOSITORY=\"file://\$origin\"" \
     "$_ci_cold_bootstrap"
   _assert_contains "CI workflow: public shortcut receives the candidate branch" \
     "export DOTFILES_BRANCH=main" \
     "$_ci_cold_bootstrap"
+  _assert_contains "CI workflow: cold bootstrap retries the resumable public init" \
+    "retry bootstrap_client" "$_ci_cold_bootstrap"
+  _assert_not_contains "CI workflow: cold bootstrap keeps provider convergence enabled" \
+    "DOT_INIT_SKIP_PROVIDER" "$_ci_cold_bootstrap"
   _assert_contains "CI workflow: fresh client is explicitly non-bare" \
     'config --bool core.bare)" = false' "$_ci_cold_bootstrap"
   _assert_contains "CI workflow: fresh client records HOME as its worktree" \
@@ -433,15 +431,6 @@ MOCK
     "1" "$_ci_cold_prereq_count"
   _assert_contains "CI workflow: cold bootstrap follows with a normal update" \
     "          retry dot update" "$_ci_cold_bootstrap"
-  if [[ -n "$_ci_cold_skip_provider_line" && -n "$_ci_cold_init_line" &&
-    -n "$_ci_cold_unset_provider_line" && -n "$_ci_cold_update_line" &&
-    "$_ci_cold_skip_provider_line" -lt "$_ci_cold_init_line" &&
-    "$_ci_cold_init_line" -lt "$_ci_cold_unset_provider_line" &&
-    "$_ci_cold_unset_provider_line" -lt "$_ci_cold_update_line" ]]; then
-    _pass "CI workflow: only initial repository publication skips provider convergence"
-  else
-    _fail "CI workflow: only initial repository publication skips provider convergence"
-  fi
   _assert_contains "CI workflow: cold bootstrap preserves terminal retry failures" \
     $'              else\n                rc=$?\n              fi' \
     "$_ci_cold_bootstrap"
