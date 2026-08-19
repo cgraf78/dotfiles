@@ -162,6 +162,74 @@ jobs:
             done
           }
 
+          diagnose_init_identity() {
+            local record="$HOME/.local/state/dot/init/transaction/record"
+            local git_dir="$HOME/.dotfiles"
+            local marker="$git_dir/dot-init-generation-v1"
+            local record_git_dir record_worktree record_dev record_ino
+            local record_nonce record_commit record_identity actual_identity
+            local marker_nonce marker_commit marker_identity branch head bare worktree
+            local record_authority=no git_authority=no marker_authority=no
+            local record_git_dir_match=no record_worktree_match=no identity_match=no
+            local marker_nonce_match=no marker_commit_match=no marker_identity_match=no
+            local origin_match=no branch_match=no head_match=no bare_match=no
+            local worktree_match=no
+            local -a urls=()
+
+            record_value() {
+              sed -n "s/^$1=//p" "$record" 2>/dev/null
+            }
+            marker_value() {
+              sed -n "s/^$1=//p" "$marker" 2>/dev/null
+            }
+
+            [[ -f $record && ! -L $record && -O $record ]] && record_authority=yes
+            [[ -d $git_dir && ! -L $git_dir ]] && git_authority=yes
+            [[ -f $marker && ! -L $marker && -O $marker ]] && marker_authority=yes
+            record_git_dir=$(record_value git_dir || true)
+            record_worktree=$(record_value worktree || true)
+            record_dev=$(record_value git_dev || true)
+            record_ino=$(record_value git_ino || true)
+            record_nonce=$(record_value nonce || true)
+            record_commit=$(record_value commit || true)
+            record_identity=$(record_value identity || true)
+            actual_identity=$(stat -c '%d:%i' "$git_dir" 2>/dev/null || true)
+            marker_nonce=$(marker_value nonce || true)
+            marker_commit=$(marker_value commit || true)
+            marker_identity=$(marker_value identity || true)
+            mapfile -t urls < <(
+              git --git-dir="$git_dir" config --get-all remote.origin.url 2>/dev/null || true
+            )
+            branch=$(git --git-dir="$git_dir" symbolic-ref --short HEAD 2>/dev/null || true)
+            head=$(git --git-dir="$git_dir" rev-parse HEAD 2>/dev/null || true)
+            bare=$(git --git-dir="$git_dir" config --bool core.bare 2>/dev/null || true)
+            worktree=$(git --git-dir="$git_dir" config core.worktree 2>/dev/null || true)
+
+            [[ $record_git_dir == "$git_dir" ]] && record_git_dir_match=yes
+            [[ $record_worktree == "$HOME" ]] && record_worktree_match=yes
+            [[ "$record_dev:$record_ino" == "$actual_identity" ]] && identity_match=yes
+            [[ $marker_nonce == "$record_nonce" ]] && marker_nonce_match=yes
+            [[ $marker_commit == "$record_commit" ]] && marker_commit_match=yes
+            [[ $marker_identity == "$record_identity" ]] && marker_identity_match=yes
+            [[ ${#urls[@]} -eq 1 && ${urls[0]} == "file://$origin" ]] && origin_match=yes
+            [[ $branch == main ]] && branch_match=yes
+            [[ $head == "$expected" ]] && head_match=yes
+            [[ $bare == false ]] && bare_match=yes
+            [[ $worktree == "$HOME" ]] && worktree_match=yes
+
+            printf '%s\n' '--- dot init identity diagnostic ---'
+            printf 'record.authority=%s git.authority=%s marker.authority=%s\n' \
+              "$record_authority" "$git_authority" "$marker_authority"
+            printf 'record.git_dir=%s record.worktree=%s git.identity=%s\n' \
+              "$record_git_dir_match" "$record_worktree_match" "$identity_match"
+            printf 'marker.nonce=%s marker.commit=%s marker.identity=%s\n' \
+              "$marker_nonce_match" "$marker_commit_match" "$marker_identity_match"
+            printf 'origin.count=%s origin.match=%s branch=%s head=%s\n' \
+              "${#urls[@]}" "$origin_match" "$branch_match" "$head_match"
+            printf 'core.bare=%s core.worktree=%s\n' "$bare_match" "$worktree_match"
+            return 0
+          }
+
           test ! -e "$HOME/.dotfiles"
           test ! -e "$HOME/.local/share/shdeps"
           test ! -e "$HOME/.cache/mise"
@@ -174,10 +242,12 @@ jobs:
           # deterministic defect still fails after the bounded attempts.
           export DOTFILES_REPOSITORY="file://$origin"
           export DOTFILES_BRANCH=main
+          export DOT_VERBOSE=1
           bootstrap_client() {
             curl -fsSL https://cgraf78.github.io/d | bash
           }
           if ! retry bootstrap_client; then
+            diagnose_init_identity >&2
             "$HOME/.local/share/cgraf78/dot/bin/dot" init --status >&2 || true
             exit 1
           fi
