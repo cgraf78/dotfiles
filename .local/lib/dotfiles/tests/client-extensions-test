@@ -144,15 +144,47 @@ _client_worker_run() {
   return "$rc"
 }
 
+# Exercise OpenCode on every host through Shdeps' public dep-file boundary.
+# Otherwise hosts without a system OpenCode binary silently skip this hook.
+worker_bin=$(_tmpdir)
+agentguard_asset=$fixture_home/.local/share/cgraf78/agentguard/share/agentguard/integrations/opencode/agentguard.js
+mkdir -p "$fixture_home/.config/shdeps" "${agentguard_asset%/*}"
+cat >"$agentguard_asset" <<'AGENTGUARD'
+// agentguard-managed:opencode-plugin
+export default {};
+AGENTGUARD
+cat >"$worker_bin/opencode" <<'OPENCODE'
+#!/usr/bin/env bash
+exit 0
+OPENCODE
+cat >"$worker_bin/shdeps" <<'SHDEPS'
+#!/usr/bin/env bash
+set -u
+
+[[ $# -eq 3 ]] || exit 64
+[[ $1 == dep-file ]] || exit 64
+[[ $2 == cgraf78/agentguard ]] || exit 64
+[[ $3 == share/agentguard/integrations/opencode/agentguard.js ]] || exit 64
+[[ ${SHDEPS_CONF_DIR:-} == "$HOME/.config/shdeps" ]] || exit 64
+asset=$HOME/.local/share/cgraf78/agentguard/$3
+[[ -f $asset ]] || exit 1
+printf '%s\n' "$asset"
+SHDEPS
+chmod +x "$worker_bin/opencode" "$worker_bin/shdeps"
+
 for hook in "$client_root/merge-hooks.d"/*.sh; do
-  if _client_worker_run merge "$hook"; then
+  worker_path=/usr/bin:/bin
+  [[ ${hook##*/} == opencode.sh ]] && worker_path=$worker_bin:/usr/bin:/bin
+  if CLIENT_WORKER_PATH=$worker_path _client_worker_run merge "$hook"; then
     _pass "client merge hook loads through standalone worker: ${hook##*/}"
   else
     _fail "client merge hook loads through standalone worker: ${hook##*/}"
   fi
 done
+_assert_file_content 'client OpenCode hook installs the resolved AgentGuard asset' \
+  $'// agentguard-managed:opencode-plugin\nexport default {};' \
+  "$fixture_home/.config/opencode/plugins/dotfiles-agentguard.js"
 
-worker_bin=$(_tmpdir)
 windows_home=$fixture_home/windows-home
 cat >"$worker_bin/wezterm" <<'WEZTERM'
 #!/usr/bin/env bash
