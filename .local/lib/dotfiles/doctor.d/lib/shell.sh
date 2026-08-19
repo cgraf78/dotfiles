@@ -35,12 +35,23 @@ _dr_check_shell() {
     _dr_warn "EDITOR not set" "tools that spawn an editor may fall back to vi"
   fi
 
-  # BASH_ENV configured — only needed for bash non-interactive paths
-  if [[ -n "${BASH_ENV:-}" ]]; then
-    if [[ -f "$BASH_ENV" ]]; then
-      _dr_ok "BASH_ENV" "$(_dr_tilde "$BASH_ENV")"
+  # The standalone doctor worker deliberately strips BASH_ENV before loading
+  # client code. Probe the managed bash startup path instead of inspecting the
+  # worker's sanitized control environment.
+  local managed_bash_env
+  # shellcheck disable=SC2016 # The selected child Bash expands its own HOME/BASH_ENV.
+  if ! managed_bash_env=$(BASH_ENV='' "$BASH" --noprofile --norc -c '
+    [[ -f $HOME/.bashrc ]] || exit 1
+    . "$HOME/.bashrc"
+    printf "%s\n" "${BASH_ENV:-}"
+  ' 2>/dev/null); then
+    managed_bash_env=""
+  fi
+  if [[ -n $managed_bash_env ]]; then
+    if [[ -f $managed_bash_env ]]; then
+      _dr_ok "BASH_ENV" "$(_dr_tilde "$managed_bash_env")"
     else
-      _dr_fail "BASH_ENV set but target missing" "$BASH_ENV"
+      _dr_fail "BASH_ENV set but target missing" "$managed_bash_env"
     fi
   else
     _dr_warn "BASH_ENV unset" "non-interactive bash subshells won't inherit env.d"
