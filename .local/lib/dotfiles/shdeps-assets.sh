@@ -71,16 +71,8 @@ dot_agentguard_integration_file() {
 }
 
 # Print the provider-owned first-line marker for AgentGuard's OpenCode adapter.
-#
-# The installer and doctor both need this cross-repository identity, but neither
-# should duplicate the literal: a future provider migration must have exactly
-# one consumer-side compatibility boundary. AgentGuard documents and tests the
-# current value beside the asset; dotfiles keeps the retired marker separately
-# so it is accepted only as a local migration input.
+# The installer and doctor share this cross-repository identity rather than
+# duplicating its literal at each consumer boundary.
 dot_agentguard_opencode_marker() {
   printf '%s\n' '// agentguard-managed:opencode-plugin'
-}
-
-dot_agentguard_opencode_legacy_marker() {
-  printf '%s\n' '// dot-managed:opencode-agentguard-plugin'
 }

@@ -45,9 +45,9 @@ fi
 export PATH="$sley_root/bin${PATH:+:$PATH}"
 
 # Git's hook wrappers must use the one dotfiles-owned policy adapter below.
-# The adapter recognizes the special bare-$HOME dotfiles work tree; Sley's
-# generic gate intentionally has no knowledge of that personal repository
-# layout.
+# The adapter recognizes the base client's separate Git directory and HOME
+# worktree; Sley's generic gate intentionally has no knowledge of that client
+# repository layout.
 hook_dir=$(cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd) || exit 1
 export SLEY_GIT_COMMIT_GATE="$hook_dir/sley-commit-gate"
 

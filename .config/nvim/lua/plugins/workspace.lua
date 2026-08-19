@@ -21,8 +21,8 @@ return {
     "cgraf78/nvim-workspace",
     init = function()
       -- LazyVim installs its default <leader>gg on VeryLazy. Override one tick
-      -- later so lazygit keeps nvim-workspace's root and bare-repo policy while
-      -- the mapping still lives with the workspace integration.
+      -- later so lazygit keeps nvim-workspace's root and base-client repository
+      -- policy while the mapping still lives with the workspace integration.
       vim.api.nvim_create_autocmd("User", {
         pattern = "VeryLazy",
         callback = function()

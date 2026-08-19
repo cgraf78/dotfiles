@@ -506,13 +506,6 @@ OPENCODE_PLUGIN
     _assert_eq "OpenCode merge: invalid source marker preserves the managed target" \
       "$opencode_managed_before" "$(cat "$opencode_target")"
     cat >"$opencode_source/agentguard.js" <<'OPENCODE_PLUGIN'
-// dot-managed:opencode-agentguard-plugin
-export const AgentGuardPlugin = async () => ({ staleProvider: true })
-OPENCODE_PLUGIN
-    HOME="$opencode_home" _run_opencode_merge_for_test >/dev/null 2>&1
-    _assert_eq "OpenCode merge: legacy marker is accepted only on an installed target" \
-      "$opencode_managed_before" "$(cat "$opencode_target")"
-    cat >"$opencode_source/agentguard.js" <<'OPENCODE_PLUGIN'
 // agentguard-managed:opencode-plugin
 export const AgentGuardPlugin = async () => ({ event: async () => {} })
 OPENCODE_PLUGIN
@@ -554,21 +547,6 @@ OPENCODE_PLUGIN
       1 "$opencode_missing_status"
     _assert_eq "OpenCode merge: cold bootstrap does not install a partial plugin" \
       "missing" "$(test -e "$opencode_target" && printf present || printf missing)"
-
-    cat >"$opencode_target" <<'OPENCODE_PLUGIN'
-// dot-managed:opencode-agentguard-plugin
-export const AgentGuardPlugin = async () => ({ legacy: true })
-OPENCODE_PLUGIN
-    cat >"$opencode_source/agentguard.js" <<'OPENCODE_PLUGIN'
-// agentguard-managed:opencode-plugin
-export const AgentGuardPlugin = async () => ({ current: true })
-OPENCODE_PLUGIN
-    HOME="$opencode_home" _run_opencode_merge_for_test
-    _assert_exit "OpenCode merge: legacy ownership marker migrates to provider marker" 0 \
-      "$(
-        cmp -s "$opencode_source/agentguard.js" "$opencode_target"
-        printf '%s' "$?"
-      )"
 
     rm -f "$opencode_source/agentguard.js"
     printf '%s\n' 'export const userOwned = true' >"$opencode_target"

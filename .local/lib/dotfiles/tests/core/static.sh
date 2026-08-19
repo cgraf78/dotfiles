@@ -381,6 +381,15 @@ MOCK
   _ci_cold_init_line=$(grep -nF \
     "          curl -fsSL https://cgraf78.github.io/d | bash" \
     <<<"$_ci_cold_bootstrap" | cut -d: -f1)
+  _ci_cold_skip_provider_line=$(grep -nF \
+    "          export DOT_INIT_SKIP_PROVIDER=1" \
+    <<<"$_ci_cold_bootstrap" | cut -d: -f1)
+  _ci_cold_unset_provider_line=$(grep -nF \
+    "          unset DOT_INIT_SKIP_PROVIDER" \
+    <<<"$_ci_cold_bootstrap" | cut -d: -f1)
+  _ci_cold_update_line=$(grep -nF \
+    "          retry dot update" \
+    <<<"$_ci_cold_bootstrap" | cut -d: -f1)
   if [[ -n "$_ci_cold_home_line" && -n "$_ci_cold_init_line" &&
     "$_ci_cold_home_line" -lt "$_ci_cold_init_line" ]]; then
     _pass "CI workflow: cold bootstrap starts from the conventional HOME"
@@ -395,7 +404,7 @@ MOCK
     "curl -fsSL https://cgraf78.github.io/d | bash" \
     "$_ci_cold_bootstrap"
   _assert_contains "CI workflow: public shortcut receives the exact candidate origin" \
-    "export DOTBOOTSTRAP_DOTFILES_REPO=\"file://\$origin\"" \
+    "export DOTFILES_REPOSITORY=\"file://\$origin\"" \
     "$_ci_cold_bootstrap"
   _assert_contains "CI workflow: public shortcut receives the candidate branch" \
     "export DOTFILES_BRANCH=main" \
@@ -424,6 +433,15 @@ MOCK
     "1" "$_ci_cold_prereq_count"
   _assert_contains "CI workflow: cold bootstrap follows with a normal update" \
     "          retry dot update" "$_ci_cold_bootstrap"
+  if [[ -n "$_ci_cold_skip_provider_line" && -n "$_ci_cold_init_line" &&
+    -n "$_ci_cold_unset_provider_line" && -n "$_ci_cold_update_line" &&
+    "$_ci_cold_skip_provider_line" -lt "$_ci_cold_init_line" &&
+    "$_ci_cold_init_line" -lt "$_ci_cold_unset_provider_line" &&
+    "$_ci_cold_unset_provider_line" -lt "$_ci_cold_update_line" ]]; then
+    _pass "CI workflow: only initial repository publication skips provider convergence"
+  else
+    _fail "CI workflow: only initial repository publication skips provider convergence"
+  fi
   _assert_contains "CI workflow: cold bootstrap preserves terminal retry failures" \
     $'              else\n                rc=$?\n              fi' \
     "$_ci_cold_bootstrap"

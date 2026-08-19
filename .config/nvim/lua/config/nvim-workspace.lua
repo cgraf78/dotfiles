@@ -4,9 +4,9 @@ local shell_glob = "*@(.sh|.inc|.bash|.zsh|.command)"
 local shell_filetypes = { "bash", "sh", "zsh" }
 local vcs_markers = { ".git", ".hg", ".jj", ".svn" }
 local vcs_root_env = {
-  -- The PATH-visible git launcher treats HOME as the bare dotfiles repo. Root
-  -- probes need real Git semantics unless they explicitly opt into the bare
-  -- dotfiles worktree below.
+  -- The PATH-visible git launcher treats HOME as the base dotfiles client.
+  -- Root probes need real Git semantics unless they explicitly opt into the
+  -- client worktree below.
   DOT_GIT_REAL = "1",
   SLEY_SKIP_BARE_REPO_FALLBACK = "1",
 }
@@ -216,7 +216,7 @@ local function dotfiles_tracked_root(cwd)
   local tracked_root = tracked ~= "" and root or false
   -- Workspace pickers commonly ask about the same path several times in one
   -- interaction. Keep only that result in memory, and bind it to the complete
-  -- bare-index identity so staging or atomic index replacement invalidates it.
+  -- client-index identity so staging or atomic index replacement invalidates it.
   if cache_key then
     dotfiles_tracked_cache = { key = cache_key, root = tracked_root }
   end
@@ -230,8 +230,8 @@ local function sley_root(cwd, env, opts)
   end
 
   -- HOME contains many non-project directories. Falling through to `sley status`
-  -- there made opening ordinary dotfiles wait on a repo-wide probe; the bare
-  -- dotfiles case is handled above with a cheap tracked-path query.
+  -- there made opening ordinary dotfiles wait on a repo-wide probe; the base
+  -- client case is handled above with a cheap tracked-path query.
   if contains(home(), cwd) then
     return nil
   end

@@ -4,7 +4,7 @@
 # Sley owns generic readiness, sequencer detection, commit-message dispatch,
 # and secret scanning, all of which are covered in Sley's commit-hooks suite.
 # Dotfiles owns the global Git activation path, consistent provider selection,
-# its commit-message validator choice, and one special bare-$HOME optimization.
+# its commit-message validator choice, and one base-client HOME optimization.
 # Keeping this suite on those responsibilities prevents the reusable behavior
 # from accumulating a second, slower integration suite here.
 
@@ -16,7 +16,7 @@ SOURCE_HOME="${DOT_TEST_SOURCE_HOME:-$HOME}"
 # shellcheck source=helpers.sh
 . "$SOURCE_HOME/.local/lib/dotfiles/tests/helpers.sh"
 
-# The hooks call Git only to recognize the bare dotfiles layout. Use an
+# The hooks call Git only to recognize the base client layout. Use an
 # ordinary Git binary so that test fixtures do not recurse through the
 # dotfiles-aware launcher that is covered by the core launcher suite.
 _test_prefer_system_git
@@ -164,7 +164,7 @@ _assert_hook_dispatch "prepare-commit-msg" prepare-commit-msg prepare-commit-msg
   " <$message_file> <merge> <abc123>" "$message_file" merge abc123
 
 echo
-echo "=== Bare dotfiles repository policy ==="
+echo "=== Base client repository policy ==="
 
 # A normal invocation must remain a pure Sley delegation. Only the unusual
 # base dotfiles shape is allowed to suppress Sley's untracked HOME walk.
@@ -188,9 +188,9 @@ env -u SLEY_SKIP_UNTRACKED \
   GIT_WORK_TREE="$fixture_home" \
   DOT_SLEY_ROOT="$provider_root" \
   "$HOOK_DIR/sley-commit-gate"
-_assert_contains "bare HOME gate disables only the untracked walk" \
+_assert_contains "legacy bare HOME gate disables only the untracked walk" \
   "skip-untracked=1" "$(cat "$provider_log")"
-_assert_file_content "bare HOME gate still delegates to Sley" \
+_assert_file_content "legacy bare HOME gate still delegates to Sley" \
   "cli <from-sley-commit-gate>" "$cli_log"
 
 other_bare="$fixture_home/.other-bare"

@@ -20,8 +20,8 @@ function M.setup()
   vim.keymap.set("n", "<C-LeftMouse>", follow_item, { desc = "Follow Item" })
 
   -- LazyVim also owns <leader>gg. The workspace plugin spec calls this setup
-  -- after VeryLazy so this map keeps nvim-workspace's root and bare-repo
-  -- policy while still overriding LazyVim's default lazygit binding.
+  -- after VeryLazy so this map keeps nvim-workspace's root and base-client
+  -- repository policy while still overriding LazyVim's default lazygit binding.
   if vim.fn.executable("lazygit") == 1 then
     vim.keymap.set("n", "<leader>gg", open_lazygit, { desc = "Lazygit (Root Dir)" })
   end

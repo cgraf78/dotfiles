@@ -14,10 +14,9 @@ consumer patch that glue would immediately fork its behavior.
 ## Installation safety
 
 The provider source carries `// agentguard-managed:opencode-plugin` as its first
-line. The hook updates only a regular, non-symlink target bearing that marker or
-the legacy dotfiles marker used before this extraction. The legacy form is
-migrated in place on the next successful install. An unmanaged file or symlink
-at the same path is always preserved with a warning.
+line. The hook updates only a regular, non-symlink target bearing that marker.
+An unmanaged file or symlink at the same path is always preserved with a
+warning.
 
 Missing or invalid provider source also preserves the installed target and is
 reported as a failed refresh. That visibility matters on a cold bootstrap,
