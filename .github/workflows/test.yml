@@ -21,7 +21,16 @@ jobs:
     with:
       # CI restores shdeps between runs. Refresh the resolver before it
       # validates dependency releases and installed-tool smoke checks.
-      force-dotfiles-update: true
+      #
+      # Scope that refresh to the scheduled and manual runs. Forcing it bypasses
+      # the restored shdeps cache, so every platform re-resolved and re-fetched
+      # the full dependency set on every push and pull request - roughly 66
+      # reinstalls per job across the matrix, purely to re-derive what the cache
+      # already held. That is the traffic that keeps wedging a transfer and
+      # stalling a job for tens of minutes. Release-freshness coverage is not
+      # lost: the nightly schedule still forces the full resolve, and the
+      # cold-bootstrap job installs from scratch on the same trigger.
+      force-dotfiles-update: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
       dotfiles-provider: true
       matrix-set: full
       setup: dotfiles
