@@ -26,6 +26,17 @@ _assert_not_contains "tree-sitter: no upstream release binary on Linux" \
   "tree-sitter/tree-sitter                   github:release" \
   "$(cat "$REAL_HOME/.config/shdeps/10-deps.conf")"
 
+for _bounded_hook in google-java-format nerd-fonts php-cs-fixer wezterm; do
+  _bounded_hook_source=$(cat \
+    "$REAL_HOME/.config/shdeps/hooks.d/$_bounded_hook.sh")
+  _assert_contains "$_bounded_hook: downloads use the bounded Shdeps transport" \
+    "shdeps_curl" "$_bounded_hook_source"
+  _bounded_hook_direct_curl=$(rg -n \
+    '(^[[:space:]]*|\$\()curl[[:space:]]' <<<"$_bounded_hook_source" || true)
+  _assert_eq "$_bounded_hook: no direct curl invocation remains" \
+    "" "$_bounded_hook_direct_curl"
+done
+
 _gitleaks_dep=$(
   awk '$1 == "gitleaks/gitleaks" { print; exit }' \
     "$REAL_HOME/.config/shdeps/10-deps.conf"
@@ -1231,6 +1242,15 @@ else
 fi
 
 _curl_bin=$(_mock_bin)
+_shdeps_curl_calls=$(_tmpdir)/shdeps-curl-calls.log
+# Hook subprocesses receive this public API from Shdeps' generated prelude.
+# The unit fixture keeps the same call boundary while its PATH-local curl
+# supplies deterministic response bytes.
+# shellcheck disable=SC2329  # sourced hooks invoke this public API.
+shdeps_curl() {
+  printf '%s\n' "$*" >>"$_shdeps_curl_calls"
+  command curl "$@"
+}
 cat >"$_curl_bin/curl" <<'EOF'
 #!/usr/bin/env bash
 out=""
@@ -1262,6 +1282,9 @@ _assert_file_missing "php-cs-fixer: successful install clears skip marker" \
 _assert_contains "php-cs-fixer: wrapper uses pinned PHP" \
   "MOCK-PHP $_home/php-cs-fixer/php-cs-fixer.phar --version" \
   "$("$_bin/php-cs-fixer" --version 2>/dev/null || true)"
+_assert_contains "php-cs-fixer: download crosses the Shdeps transport boundary" \
+  "https://cs.symfony.com/download/php-cs-fixer-v3.phar" \
+  "$(cat "$_shdeps_curl_calls")"
 
 unset -f exists version install uninstall shdeps_pkg_install_for_mgr \
   shdeps_github_release_install shdeps_bin_dir
@@ -1366,6 +1389,11 @@ _assert_file_missing "google-java-format: successful install clears skip marker"
 _assert_contains "google-java-format: wrapper uses pinned Java" \
   "MOCK-JAVA -jar $_home/google-java-format/google-java-format.jar --version" \
   "$("$_bin/google-java-format" --version 2>/dev/null || true)"
+_assert_contains "google-java-format: downloads cross the Shdeps transport boundary" \
+  "https://api.github.com/repos/google/google-java-format/releases/latest" \
+  "$(cat "$_shdeps_curl_calls")"
+
+unset -f shdeps_curl
 
 echo "=== cmakelang hook ==="
 
