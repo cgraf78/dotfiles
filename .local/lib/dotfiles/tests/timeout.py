@@ -15,6 +15,7 @@ from types import FrameType
 process: subprocess.Popen | None = None
 interrupted_signal: int | None = None
 handled_signals = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
+PROCESS_SNAPSHOT_TIMEOUT_SECONDS = 1
 
 
 class ForwardedSignal(Exception):
@@ -60,8 +61,9 @@ def list_session_pids(session_id: int) -> list[int] | None:
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             text=True,
+            timeout=PROCESS_SNAPSHOT_TIMEOUT_SECONDS,
         )
-    except (OSError, subprocess.CalledProcessError):
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
         return None
 
     pids: list[int] = []
