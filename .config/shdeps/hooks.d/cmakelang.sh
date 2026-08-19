@@ -39,7 +39,7 @@ install() {
   # Bound it where the platform provides a timeout command and let its
   # diagnostics through. macOS ships neither GNU timeout nor gtimeout, so keep
   # the install working there without requiring Homebrew coreutils solely for
-  # this hook. The shared CI action owns the outer platform-step deadline.
+  # this hook.
   if command -v timeout &>/dev/null; then
     timeout_cmd=("$(command -v timeout)" 300)
   elif command -v gtimeout &>/dev/null; then
