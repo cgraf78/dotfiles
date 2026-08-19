@@ -167,12 +167,17 @@ jobs:
             local git_dir="$HOME/.dotfiles"
             local marker="$git_dir/dot-init-generation-v1"
             local record_git_dir record_worktree record_dev record_ino
-            local record_nonce record_commit record_identity actual_identity
-            local marker_nonce marker_commit marker_identity branch head bare worktree
+            local record_nonce record_commit record_identity record_branch actual_identity
+            local marker_nonce marker_commit marker_identity marker_header marker_lines
+            local marker_nonce_count marker_commit_count marker_identity_count
+            local branch head bare worktree origin_real origin_identity
             local record_authority=no git_authority=no marker_authority=no
             local record_git_dir_match=no record_worktree_match=no identity_match=no
+            local record_identity_match=no record_branch_match=no record_commit_match=no
+            local marker_header_match=no marker_shape_match=no
             local marker_nonce_match=no marker_commit_match=no marker_identity_match=no
-            local origin_match=no branch_match=no head_match=no bare_match=no
+            local origin_match=no origin_identity_match=no branch_match=no
+            local head_match=no head_record_match=no head_valid=no bare_match=no
             local worktree_match=no
             local -a urls=()
 
@@ -193,13 +198,24 @@ jobs:
             record_nonce=$(record_value nonce || true)
             record_commit=$(record_value commit || true)
             record_identity=$(record_value identity || true)
+            record_branch=$(record_value branch || true)
             actual_identity=$(stat -c '%d:%i' "$git_dir" 2>/dev/null || true)
+            marker_header=$(sed -n '1p' "$marker" 2>/dev/null || true)
+            marker_lines=$(wc -l <"$marker" 2>/dev/null || true)
+            marker_lines=${marker_lines//[[:space:]]/}
             marker_nonce=$(marker_value nonce || true)
             marker_commit=$(marker_value commit || true)
             marker_identity=$(marker_value identity || true)
+            marker_nonce_count=$(grep -c '^nonce=' "$marker" 2>/dev/null || true)
+            marker_commit_count=$(grep -c '^commit=' "$marker" 2>/dev/null || true)
+            marker_identity_count=$(grep -c '^identity=' "$marker" 2>/dev/null || true)
             mapfile -t urls < <(
               git --git-dir="$git_dir" config --get-all remote.origin.url 2>/dev/null || true
             )
+            if [[ ${#urls[@]} -eq 1 && ${urls[0]} == file://* ]]; then
+              origin_real=$(realpath "${urls[0]#file://}" 2>/dev/null || true)
+              [[ -z $origin_real ]] || origin_identity=file://$origin_real
+            fi
             branch=$(git --git-dir="$git_dir" symbolic-ref --short HEAD 2>/dev/null || true)
             head=$(git --git-dir="$git_dir" rev-parse HEAD 2>/dev/null || true)
             bare=$(git --git-dir="$git_dir" config --bool core.bare 2>/dev/null || true)
@@ -208,12 +224,23 @@ jobs:
             [[ $record_git_dir == "$git_dir" ]] && record_git_dir_match=yes
             [[ $record_worktree == "$HOME" ]] && record_worktree_match=yes
             [[ "$record_dev:$record_ino" == "$actual_identity" ]] && identity_match=yes
+            [[ $record_identity == "file://$origin" ]] && record_identity_match=yes
+            [[ $record_branch == main ]] && record_branch_match=yes
+            [[ $record_commit == "$expected" ]] && record_commit_match=yes
+            [[ $marker_header == 'cgraf78 dot client generation v1' ]] && marker_header_match=yes
+            if [[ $marker_lines == 4 && $marker_nonce_count == 1 &&
+              $marker_commit_count == 1 && $marker_identity_count == 1 ]]; then
+              marker_shape_match=yes
+            fi
             [[ $marker_nonce == "$record_nonce" ]] && marker_nonce_match=yes
             [[ $marker_commit == "$record_commit" ]] && marker_commit_match=yes
             [[ $marker_identity == "$record_identity" ]] && marker_identity_match=yes
             [[ ${#urls[@]} -eq 1 && ${urls[0]} == "file://$origin" ]] && origin_match=yes
+            [[ $origin_identity == "$record_identity" ]] && origin_identity_match=yes
             [[ $branch == main ]] && branch_match=yes
             [[ $head == "$expected" ]] && head_match=yes
+            [[ $head == "$record_commit" ]] && head_record_match=yes
+            [[ $head =~ ^[0-9a-fA-F]{40}$|^[0-9a-fA-F]{64}$ ]] && head_valid=yes
             [[ $bare == false ]] && bare_match=yes
             [[ $worktree == "$HOME" ]] && worktree_match=yes
 
@@ -222,11 +249,36 @@ jobs:
               "$record_authority" "$git_authority" "$marker_authority"
             printf 'record.git_dir=%s record.worktree=%s git.identity=%s\n' \
               "$record_git_dir_match" "$record_worktree_match" "$identity_match"
-            printf 'marker.nonce=%s marker.commit=%s marker.identity=%s\n' \
+            printf 'record.identity=%s record.branch=%s record.commit=%s\n' \
+              "$record_identity_match" "$record_branch_match" "$record_commit_match"
+            printf 'marker.header=%s marker.shape=%s marker.nonce=%s marker.commit=%s marker.identity=%s\n' \
+              "$marker_header_match" "$marker_shape_match" \
               "$marker_nonce_match" "$marker_commit_match" "$marker_identity_match"
-            printf 'origin.count=%s origin.match=%s branch=%s head=%s\n' \
-              "${#urls[@]}" "$origin_match" "$branch_match" "$head_match"
+            printf 'origin.count=%s origin.match=%s origin.identity=%s branch=%s\n' \
+              "${#urls[@]}" "$origin_match" "$origin_identity_match" "$branch_match"
+            printf 'head.expected=%s head.record=%s head.valid=%s\n' \
+              "$head_match" "$head_record_match" "$head_valid"
             printf 'core.bare=%s core.worktree=%s\n' "$bare_match" "$worktree_match"
+            return 0
+          }
+
+          trace_init_resume() {
+            local trace="$HOME/.local/state/dot/init-resume.trace"
+
+            (
+              unset GH_TOKEN GITHUB_TOKEN MISE_GITHUB_TOKEN
+              umask 077
+              : >"$trace"
+              exec 9>>"$trace"
+              export BASH_XTRACEFD=9 SHELLOPTS
+              export PS4='+${BASH_SOURCE##*/}:${LINENO}:${FUNCNAME[0]:-main}: '
+              set -x
+              "$HOME/.local/share/cgraf78/dot/bin/dot" init --yes \
+                --branch main "file://$origin"
+            ) >/dev/null 2>&1 || true
+            printf '%s\n' '--- dot init resume trace (tail) ---'
+            tail -n 400 "$trace" || true
+            rm -f -- "$trace"
             return 0
           }
 
@@ -248,6 +300,7 @@ jobs:
           }
           if ! retry bootstrap_client; then
             diagnose_init_identity >&2
+            trace_init_resume >&2
             "$HOME/.local/share/cgraf78/dot/bin/dot" init --status >&2 || true
             exit 1
           fi
