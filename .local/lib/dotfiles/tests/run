@@ -102,6 +102,49 @@ _dot_test_configure_home() {
 
 _dot_test_configure_home
 
+_dot_test_select_system_git() {
+  local candidate rejected
+  local -a candidates=()
+
+  [[ -z ${DOT_TEST_SYSTEM_GIT:-} ]] || candidates+=("$DOT_TEST_SYSTEM_GIT")
+  candidates+=(/usr/bin/git /bin/git /opt/homebrew/bin/git)
+  [[ -z ${PREFIX:-} ]] || candidates+=("$PREFIX/bin/git")
+
+  for candidate in "${candidates[@]}"; do
+    [[ $candidate == /* && -x $candidate && ! -d $candidate ]] || continue
+    for rejected in "$HOME/.local/bin/git" "$DOT_TEST_HOST_HOME/.local/bin/git"; do
+      [[ ! -e $rejected || ! $candidate -ef $rejected ]] || continue 2
+    done
+    printf '%s\n' "$candidate"
+    return 0
+  done
+
+  return 1
+}
+
+_dot_test_configure_git_backend() {
+  local backend_dir="$1" candidate source_bin
+
+  candidate=$(_dot_test_select_system_git) || {
+    echo 'dot-test: could not find a system Git executable' >&2
+    return 1
+  }
+  mkdir -m 700 "$backend_dir" || return 1
+  ln -s "$candidate" "$backend_dir/git" || return 1
+
+  # Keep the tracked launcher first for its integration coverage, but give it
+  # a deterministic host-Git backend before site wrappers. Suites that need
+  # raw Git can still move DOT_TEST_SYSTEM_GIT first with the shared helper.
+  source_bin=$HOME/.local/bin
+  case $PATH in
+    "$source_bin") PATH="$source_bin:$backend_dir" ;;
+    "$source_bin:"*) PATH="$source_bin:$backend_dir:${PATH#"$source_bin:"}" ;;
+    *) PATH="$source_bin:$backend_dir:$PATH" ;;
+  esac
+  DOT_TEST_SYSTEM_GIT=$candidate
+  export DOT_TEST_SYSTEM_GIT PATH
+}
+
 if [[ -n ${DOT_TEST_TESTS_DIR:-} ]]; then
   TESTS_DIR=$DOT_TEST_TESTS_DIR
 else
@@ -513,6 +556,7 @@ if ! printf '%s\t%s\n' "$$" "$_dot_test_now" >"$tmpdir/.dot-test-owner-v2"; then
   echo "dot-test: could not mark temporary directory" >&2
   exit 1
 fi
+_dot_test_configure_git_backend "$tmpdir/system-git" || exit 2
 
 # shellcheck disable=SC2329 # Signal traps invoke this cancellation handler.
 _cancel_suite() {

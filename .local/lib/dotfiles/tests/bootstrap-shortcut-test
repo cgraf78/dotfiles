@@ -7,7 +7,6 @@ set -u
 source_home=${DOT_TEST_SOURCE_HOME:-$HOME}
 # shellcheck source=helpers.sh
 . "$source_home/.local/lib/dotfiles/tests/helpers.sh"
-_test_prefer_system_git first || exit 1
 
 dot_root=$(_test_dot_root) || {
   echo 'standalone dot checkout is unavailable' >&2
