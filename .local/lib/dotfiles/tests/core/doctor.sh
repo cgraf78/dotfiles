@@ -172,9 +172,18 @@ SH
     "$TEST_HOME/.config/shell/interactive.d" \
     "$TEST_HOME/.config/shdeps"
   # shellcheck disable=SC2016 # Fixture startup files must retain literal HOME.
-  printf '%s\n' '. "$HOME/.local/lib/dotfiles/shell-loader.sh"' >"$TEST_HOME/.bashrc"
+  printf '%s\n' \
+    '. "$HOME/.local/lib/dotfiles/shell-loader.sh"' \
+    '_shell_load_env bash' \
+    >"$TEST_HOME/.bashrc"
   # shellcheck disable=SC2016 # Fixture startup files must retain literal HOME.
   printf '%s\n' '. "$HOME/.local/lib/dotfiles/shell-loader.sh"' >"$TEST_HOME/.zshrc"
+  # shellcheck disable=SC2016 # Fixture startup files must retain literal HOME.
+  printf '%s\n' \
+    'export BASH_ENV="$HOME/.config/shell/env-noninteractive.sh"' \
+    >"$TEST_HOME/.config/shell/env.d/50-core.sh"
+  printf '%s\n' '# managed noninteractive shell fixture' \
+    >"$TEST_HOME/.config/shell/env-noninteractive.sh"
   printf '%s\n' 'fixture/tool github:repo tool' >"$TEST_HOME/.config/shdeps/deps.conf"
   git --git-dir="$DOTFILES" config core.hooksPath \
     "$TEST_HOME/.local/lib/dotfiles/git-hooks"
@@ -254,6 +263,10 @@ SH
     "agent pre-bash guards raw dotfiles git status" "$result"
   _assert_contains "doctor integration: smokes the stop hook" \
     "agent stop hook runs" "$result"
+  _assert_contains "doctor integration: validates managed BASH_ENV" \
+    "BASH_ENV (~/.config/shell/env-noninteractive.sh)" "$result"
+  _assert_not_contains "doctor integration: ignores sanitized worker BASH_ENV" \
+    "BASH_ENV unset" "$result"
   _assert_contains "doctor integration: renders an aggregate summary" \
     "passed" "$result"
 
