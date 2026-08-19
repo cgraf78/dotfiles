@@ -59,13 +59,13 @@ _iterm2_has_defaults() {
 
 # Write one iTerm2 global preference row via defaults.
 _iterm2_write_default() {
-  local domain="$1" key="$2" type="$3" value="$4"
+  local defaults_command="$1" domain="$2" key="$3" type="$4" value="$5"
 
   case "$type" in
-    bool) defaults write "$domain" "$key" -bool "$value" ;;
-    int) defaults write "$domain" "$key" -int "$value" ;;
-    string) defaults write "$domain" "$key" -string "$value" ;;
-    plist) defaults write "$domain" "$key" "$value" ;;
+    bool) "$defaults_command" write "$domain" "$key" -bool "$value" ;;
+    int) "$defaults_command" write "$domain" "$key" -int "$value" ;;
+    string) "$defaults_command" write "$domain" "$key" -string "$value" ;;
+    plist) "$defaults_command" write "$domain" "$key" "$value" ;;
     *)
       dot_hook_warn "    warning: unsupported iTerm2 defaults type: $type"
       return 0
@@ -75,7 +75,11 @@ _iterm2_write_default() {
 
 # Write iTerm2 global preferences via declarative TSV fragments.
 _iterm2_defaults() {
-  local source line domain key type value extra
+  local source line domain key type value extra defaults_command
+
+  _dot_account_scoped_command \
+    "iTerm2 defaults" defaults "${DOT_TEST_DEFAULTS:-}" || return 0
+  defaults_command="$REPLY"
 
   while IFS= read -r source; do
     while IFS= read -r line || [[ -n "$line" ]]; do
@@ -89,7 +93,7 @@ _iterm2_defaults() {
       fi
 
       value="${value//\\n/$'\n'}"
-      _iterm2_write_default "$domain" "$key" "$type" "$value"
+      _iterm2_write_default "$defaults_command" "$domain" "$key" "$type" "$value"
     done <"$source"
   done < <(dot_hook_family_files_matching iterm2/defaults.d '*.tsv' '*.replace/*.tsv')
 }

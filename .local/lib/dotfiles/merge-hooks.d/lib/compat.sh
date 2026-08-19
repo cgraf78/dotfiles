@@ -31,6 +31,92 @@ _dot_tool_any_path() {
   return 1
 }
 
+_dot_account_home() {
+  local account entry name _password _uid _gid _gecos home _shell
+  local candidate id_command="" getent_command=""
+
+  REPLY=
+  for candidate in \
+    /data/data/com.termux/files/usr/bin/id \
+    /usr/bin/id \
+    /bin/id; do
+    [[ -x "$candidate" ]] || continue
+    id_command=$candidate
+    break
+  done
+  [[ -n "$id_command" ]] || return 1
+  account=$("$id_command" -un 2>/dev/null) || return 1
+  case "$account" in
+    "" | *[!A-Za-z0-9._-]*) return 1 ;;
+  esac
+
+  # Account authority must not come from a caller-controlled HOME or PATH.
+  for candidate in \
+    /usr/bin/getent \
+    /bin/getent \
+    /data/data/com.termux/files/usr/bin/getent; do
+    [[ -x "$candidate" ]] || continue
+    getent_command=$candidate
+    break
+  done
+  if [[ -n "$getent_command" ]]; then
+    entry=$("$getent_command" passwd "$account" 2>/dev/null) || entry=
+    if IFS=: read -r name _password _uid _gid _gecos home _shell <<<"$entry" &&
+      [[ "$name" == "$account" ]]; then
+      REPLY=$home
+    fi
+  fi
+
+  if [[ -z "$REPLY" &&
+    "$id_command" == /data/data/com.termux/files/usr/bin/id &&
+    -d /data/data/com.termux/files/home ]]; then
+    REPLY=/data/data/com.termux/files/home
+  fi
+
+  if [[ -z "$REPLY" && -x /usr/bin/dscl ]]; then
+    entry=$(/usr/bin/dscl /Search -read "/Users/$account" NFSHomeDirectory 2>/dev/null) || entry=
+    case "$entry" in
+      "NFSHomeDirectory: "*) REPLY=${entry#NFSHomeDirectory: } ;;
+    esac
+  fi
+
+  if [[ -z "$REPLY" && -r /etc/passwd ]]; then
+    while IFS=: read -r name _password _uid _gid _gecos home _shell; do
+      [[ "$name" == "$account" ]] || continue
+      REPLY=$home
+      break
+    done </etc/passwd
+  fi
+
+  [[ "$REPLY" == /* && -d "$REPLY" ]]
+}
+
+_dot_account_scoped_command() {
+  local label="$1" command_name="$2" test_command="${3:-}"
+  local account_home
+
+  if [[ "${DOT_TEST:-0}" == "1" ]]; then
+    if [[ -z "$test_command" || ! -x "$test_command" ]]; then
+      dot_hook_warn "  warning: $label skipped: test $command_name is not configured"
+      return 1
+    fi
+    REPLY="$test_command"
+    return 0
+  fi
+
+  if ! _dot_account_home; then
+    dot_hook_warn "  warning: $label skipped: account home could not be resolved"
+    return 1
+  fi
+  account_home="$REPLY"
+  if [[ ! -d "$HOME" || ! "$HOME" -ef "$account_home" ]]; then
+    dot_hook_warn "  warning: $label skipped: HOME is not the account home: $HOME"
+    return 1
+  fi
+
+  REPLY=$(command -v "$command_name" 2>/dev/null) || return 1
+}
+
 _dot_tool_platform() {
   local kernel
 

@@ -144,6 +144,29 @@ _client_worker_run() {
   return "$rc"
 }
 
+client_crontab=$(_tmpdir)/crontab
+cat >"$client_crontab" <<'CRONTAB'
+#!/usr/bin/env bash
+set -u
+
+case ${1:-} in
+  -l) exit 1 ;;
+  -) cat >/dev/null ;;
+  -r) : ;;
+  *) exit 64 ;;
+esac
+CRONTAB
+chmod +x "$client_crontab"
+export DOT_TEST_CRONTAB=$client_crontab
+
+client_gh=$(_tmpdir)/gh
+cat >"$client_gh" <<'GH'
+#!/usr/bin/env bash
+exit 1
+GH
+chmod +x "$client_gh"
+export DOT_TEST_GH=$client_gh
+
 # Exercise OpenCode on every host through Shdeps' public dep-file boundary.
 # Otherwise hosts without a system OpenCode binary silently skip this hook.
 opencode_worker_bin=$(_tmpdir)
