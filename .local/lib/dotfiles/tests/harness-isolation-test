@@ -28,6 +28,16 @@ if [[ "${DOT_TEST:-0}" = 1 ]]; then
     "$TMPDIR/xdg-cache" "${XDG_CACHE_HOME:-}"
   _assert_eq "harness runtime: runner isolates XDG state" \
     "$TMPDIR/xdg-state" "${XDG_STATE_HOME:-}"
+  IFS=: read -r runner_source_bin runner_git_bin _ <<<"$PATH"
+  _assert_eq "harness runtime: source launchers remain first" \
+    "$SOURCE_HOME/.local/bin" "$runner_source_bin"
+  _assert_eq "harness runtime: isolated Git backend follows launchers" \
+    "${TMPDIR%/*}/system-git" "$runner_git_bin"
+  if [[ -x $runner_git_bin/git && ! -d $runner_git_bin/git ]]; then
+    _pass "harness runtime: isolated Git backend is executable"
+  else
+    _fail "harness runtime: isolated Git backend is executable"
+  fi
 fi
 
 echo "=== Host tool data isolation ==="
