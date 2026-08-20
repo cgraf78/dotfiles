@@ -8,8 +8,15 @@ target-native config directories.
 ## Directories
 
 - `config` enables the dotfiles extension root and optional Shdeps provider.
-  The standalone runtime parses this file before loading extensions or the
-  dependency provider.
+  This development fleet sets `shdeps_update_policy=latest`, allowing a valid
+  user-owned `~/git/shdeps` checkout for `cgraf78/shdeps` to follow its current
+  revision even when it is newer than Dot's reviewed fallback lock. Without a
+  valid local checkout, the pinned installer remains the bootstrap trust anchor
+  while the managed release path checks for and installs the newest available
+  release on every update. Network or metadata failures retain Shdeps' existing
+  last-known-good behavior and must not be reported as reaching the latest
+  release. The standalone runtime parses this file before loading extensions or
+  the dependency provider.
 - `overlays.d/` declares optional overlay repositories. Companion `.ssh`
   snippets are consumed by the client-owned pre-sync hook before a private
   overlay clone is attempted.
