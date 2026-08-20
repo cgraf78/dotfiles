@@ -162,9 +162,10 @@ exists, do not add an invented placeholder schema.
 ## Cron
 
 The cron hook installs entries from ordered tracked fragments under `cron/cron.d/`
-and optional untracked `cron.local`. The default entry runs
-`dot update --cron --force` every 30 minutes so dependency refresh caches do not
-defer scheduled updates.
+and optional untracked `cron.local`. The default entry runs `dot update --cron`
+every 30 minutes. The configured `shdeps_update_policy` remains authoritative:
+this fleet's `latest` policy requests a fresh Shdeps check, while a future
+`pinned` policy would not be overridden by the scheduler.
 
 Use `cron/cron.d/` for overlay-owned jobs. Direct files are parsed in lexical order,
 `.replace` groups contribute their selected winner, and `cron.local` is parsed
@@ -183,7 +184,7 @@ Filter directives restrict following entries until the next directive:
 
 ```text
 # Runs everywhere.
-*/30 * * * * dot update --cron --force && shdeps prune -y > /dev/null
+*/30 * * * * dot update --cron && shdeps prune -y > /dev/null
 
 # filter: hosts=nas
 0 3 * * * $HOME/.local/bin/backup-nas

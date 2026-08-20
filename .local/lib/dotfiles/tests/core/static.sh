@@ -73,6 +73,14 @@ MOCK
   _assert_eq "Dot config: latest policy activates Shdeps refresh" \
     "latest:1" "$_dot_shdeps_policy_probe"
 
+  _dot_update_cron=$(
+    grep -Ev '^[[:space:]]*(#|$)' \
+      "$_lint_root/.config/dot/merge-hooks.d/cron/cron.d/10-update.cron"
+  )
+  _assert_eq "Dot cron: honors the configured Shdeps update policy" \
+    '*/30 * * * * dot update --cron && shdeps prune -y > /dev/null' \
+    "$_dot_update_cron"
+
   _ci_actions_lock="$_lint_root/.github/cgraf78-actions.lock"
   _ci_actions_sha=missing-lock
   # Mirror the provider's cheap local-file invariants here. The hosted verifier
