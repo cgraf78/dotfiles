@@ -214,8 +214,14 @@ The base dotfiles repo still syncs first. After that, pull-eligible overlay
 repos sync in parallel up to `DOT_UPDATE_JOBS`; overlay linking stays ordered
 because overlay order controls which file wins when overlays overlap.
 
-shdeps owns its own self-update policy; dot only ensures shdeps is available and
-then invokes the configured dependency update pass.
+Dot's `shdeps_update_policy` controls how the provider is selected. The default
+`pinned` policy keeps Dot's lock as the immutable revision and installer trust
+boundary. This fleet uses `latest`: each update follows a valid user-owned
+`cgraf78/shdeps` development checkout when present, or forces the managed
+release path to check for the newest available release through the pinned
+bootstrap. Network or metadata failures may retain a compatible last-known-good
+managed release; `dot doctor` reports the active policy, selected source, and
+revision or fallback diagnostics.
 
 Dependency warnings remain non-fatal, but `dot update` shows their count and
 the affected dependency details. For example, a user-owned local checkout that
