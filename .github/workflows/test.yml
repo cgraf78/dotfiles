@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   shell:
-    uses: cgraf78/actions/.github/workflows/shell-ci.yml@8a3df730c5b7007a09c51a8cf55b56d5365044c6
+    uses: cgraf78/actions/.github/workflows/shell-ci.yml@de3f6086e36a77eec8ee62f2c9871266e4b5c05c
     with:
       # CI restores shdeps between runs. Refresh the resolver before it
       # validates dependency releases and installed-tool smoke checks.
@@ -31,6 +31,10 @@ jobs:
       # lost: the nightly schedule still forces the full resolve, and the
       # cold-bootstrap job installs from scratch on the same trigger.
       force-dotfiles-update: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+      # Keep the tracked fleet policy at latest, but make ordinary push and
+      # pull-request jobs consume their restored provider deterministically.
+      # Scheduled and manual runs retain the full latest-release coverage.
+      dotfiles-shdeps-update-policy: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'latest' || 'pinned' }}
       dotfiles-provider: true
       matrix-set: full
       setup: dotfiles
@@ -94,7 +98,7 @@ jobs:
       # files, so `.github/cgraf78-actions.lock` cannot be interpolated. This gate
       # verifies every unavoidable cgraf78/actions literal still matches that
       # single reviewed dependency decision.
-      - uses: cgraf78/actions/.github/actions/verify-consumer-sync@8a3df730c5b7007a09c51a8cf55b56d5365044c6
+      - uses: cgraf78/actions/.github/actions/verify-consumer-sync@de3f6086e36a77eec8ee62f2c9871266e4b5c05c
 
   cold-bootstrap:
     name: Cold Ubuntu bootstrap
@@ -108,7 +112,7 @@ jobs:
           persist-credentials: false
 
       - name: Install bootstrap prerequisites
-        uses: cgraf78/actions/.github/actions/shell-ci-prereqs@8a3df730c5b7007a09c51a8cf55b56d5365044c6
+        uses: cgraf78/actions/.github/actions/shell-ci-prereqs@de3f6086e36a77eec8ee62f2c9871266e4b5c05c
         with:
           matrix-name: Ubuntu
           setup: dotfiles
