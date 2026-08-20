@@ -51,13 +51,26 @@ install() {
     return 0
   }
 
-  local install_dir phar
+  local install_dir phar phar_tmp
   install_dir="$(shdeps_install_dir)/php-cs-fixer"
   phar="$install_dir/php-cs-fixer.phar"
   mkdir -p "$install_dir"
-  shdeps_curl -fsSL --no-netrc \
+  phar_tmp=$(mktemp "$install_dir/.php-cs-fixer.phar.XXXXXX") || {
+    shdeps_warn "  warning: php-cs-fixer asset staging failed"
+    return 1
+  }
+  if ! shdeps_curl -fsSL --no-netrc \
     "https://cs.symfony.com/download/php-cs-fixer-v3.phar" \
-    -o "$phar" || return 1
+    -o "$phar_tmp"; then
+    rm -f -- "$phar_tmp"
+    shdeps_warn "  warning: php-cs-fixer asset download failed"
+    return 1
+  fi
+  if ! mv -f -- "$phar_tmp" "$phar"; then
+    rm -f -- "$phar_tmp"
+    shdeps_warn "  warning: php-cs-fixer asset publication failed"
+    return 1
+  fi
 
   shdeps_write_wrapper php-cs-fixer "$php" -- "$phar" >/dev/null || return 1
   shdeps_unskip php-cs-fixer

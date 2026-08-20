@@ -47,10 +47,10 @@ install() {
     return 0
   }
 
-  local release_json asset_url latest_tag install_dir jar
+  local release_json asset_url latest_tag install_dir jar jar_tmp
   release_json=$(shdeps_curl -fsSL --no-netrc -H "Authorization:" \
-    "https://api.github.com/repos/google/google-java-format/releases/latest" 2>/dev/null) || {
-    shdeps_warn "  warning: couldn't fetch google-java-format release info"
+    "https://api.github.com/repos/google/google-java-format/releases/latest") || {
+    shdeps_warn "  warning: google-java-format metadata download failed"
     return 1
   }
   latest_tag=$(echo "$release_json" | grep -o '"tag_name":[[:space:]]*"[^"]*"' | cut -d'"' -f4)
@@ -66,7 +66,20 @@ install() {
   install_dir="$(shdeps_install_dir)/google-java-format"
   jar="$install_dir/google-java-format.jar"
   mkdir -p "$install_dir"
-  shdeps_curl -fsSL --no-netrc "$asset_url" -o "$jar" || return 1
+  jar_tmp=$(mktemp "$install_dir/.google-java-format.jar.XXXXXX") || {
+    shdeps_warn "  warning: google-java-format asset staging failed"
+    return 1
+  }
+  if ! shdeps_curl -fsSL --no-netrc "$asset_url" -o "$jar_tmp"; then
+    rm -f -- "$jar_tmp"
+    shdeps_warn "  warning: google-java-format asset download failed"
+    return 1
+  fi
+  if ! mv -f -- "$jar_tmp" "$jar"; then
+    rm -f -- "$jar_tmp"
+    shdeps_warn "  warning: google-java-format asset publication failed"
+    return 1
+  fi
 
   # Pin the resolved Java path so an unrelated `java` later on PATH cannot
   # break the formatter; shdeps_write_wrapper handles the bin dir and chmod.
