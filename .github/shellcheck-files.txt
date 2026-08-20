@@ -130,6 +130,7 @@ program	.local/lib/dotfiles/tests/harness-isolation-test
 program	.local/lib/dotfiles/tests/helpers.sh
 program	.local/lib/dotfiles/tests/load-merge-api.sh
 program	.local/lib/dotfiles/tests/lua-test
+program	.local/lib/dotfiles/tests/mise-refresh-workflow-test
 program	.local/lib/dotfiles/tests/nvim-test
 program	.local/lib/dotfiles/tests/prompt-test
 program	.local/lib/dotfiles/tests/run
