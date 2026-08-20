@@ -1251,6 +1251,7 @@ fi
 
 _curl_bin=$(_mock_bin)
 _shdeps_curl_calls=$(_tmpdir)/shdeps-curl-calls.log
+_php_cs_fixer_warnings=$(_tmpdir)/php-cs-fixer-warnings.log
 # Hook subprocesses receive this public API from Shdeps' generated prelude.
 # The unit fixture keeps the same call boundary while its PATH-local curl
 # supplies deterministic response bytes.
@@ -1259,6 +1260,8 @@ shdeps_curl() {
   printf '%s\n' "$*" >>"$_shdeps_curl_calls"
   command curl "$@"
 }
+# shellcheck disable=SC2329  # sourced hooks invoke this public API.
+shdeps_warn() { printf '%s\n' "$*" >>"$_php_cs_fixer_warnings"; }
 cat >"$_curl_bin/curl" <<'EOF'
 #!/usr/bin/env bash
 out=""
@@ -1272,11 +1275,34 @@ for arg in "$@"; do
 done
 
 [[ -n "$out" ]] || exit 1
+if [[ ${DOT_TEST_CURL_FAIL_PHASE:-} == asset ]]; then
+  printf '%s\n' 'partial phar' >"$out"
+  printf '%s\n' 'curl: (56) simulated transport failure' >&2
+  exit 56
+fi
 printf '%s\n' "mock phar" >"$out"
 EOF
 chmod +x "$_curl_bin/curl"
 
 PATH="$_curl_bin:/usr/bin:/bin"
+if DOT_TEST_CURL_FAIL_PHASE=asset install 2>/dev/null; then
+  _fail "php-cs-fixer: failed asset download fails the install"
+else
+  _pass "php-cs-fixer: failed asset download fails the install"
+fi
+_assert_contains "php-cs-fixer: failed asset names the safe download phase" \
+  "php-cs-fixer asset download failed" \
+  "$(cat "$_php_cs_fixer_warnings")"
+_assert_not_contains "php-cs-fixer: failed asset warning omits its URL" \
+  "https://" "$(cat "$_php_cs_fixer_warnings")"
+_assert_file_missing "php-cs-fixer: failed asset publishes no partial PHAR" \
+  "$_home/php-cs-fixer/php-cs-fixer.phar"
+if compgen -G "$_home/php-cs-fixer/.php-cs-fixer.phar.*" >/dev/null; then
+  _fail "php-cs-fixer: failed asset leaves no download temporary"
+else
+  _pass "php-cs-fixer: failed asset leaves no download temporary"
+fi
+
 if install; then
   _pass "php-cs-fixer: existing PHP installs PHAR wrapper"
 else
@@ -1360,6 +1386,9 @@ fi
 
 _curl_bin=$(_mock_bin)
 : >"$_shdeps_curl_calls"
+_google_java_format_warnings=$(_tmpdir)/google-java-format-warnings.log
+# shellcheck disable=SC2329  # sourced hooks invoke this public API.
+shdeps_warn() { printf '%s\n' "$*" >>"$_google_java_format_warnings"; }
 cat >"$_curl_bin/curl" <<'EOF'
 #!/usr/bin/env bash
 out=""
@@ -1374,10 +1403,19 @@ done
 
 case "$*" in
   *"/releases/latest"*)
+    if [[ ${DOT_TEST_CURL_FAIL_PHASE:-} == metadata ]]; then
+      printf '%s\n' 'curl: (22) simulated metadata failure' >&2
+      exit 22
+    fi
     printf '%s\n' '{"tag_name":"v1.27.0","assets":[{"browser_download_url":"https://example.test/google-java-format-all-deps.jar"}]}'
     ;;
   *)
     [[ -n "$out" ]] || exit 1
+    if [[ ${DOT_TEST_CURL_FAIL_PHASE:-} == asset ]]; then
+      printf '%s\n' 'partial jar' >"$out"
+      printf '%s\n' 'curl: (56) simulated asset failure' >&2
+      exit 56
+    fi
     printf '%s\n' "mock jar" >"$out"
     ;;
 esac
@@ -1385,6 +1423,38 @@ EOF
 chmod +x "$_curl_bin/curl"
 
 PATH="$_curl_bin:/usr/bin:/bin"
+if DOT_TEST_CURL_FAIL_PHASE=metadata install 2>/dev/null; then
+  _fail "google-java-format: failed metadata download fails the install"
+else
+  _pass "google-java-format: failed metadata download fails the install"
+fi
+_assert_contains "google-java-format: failed metadata names the safe phase" \
+  "google-java-format metadata download failed" \
+  "$(cat "$_google_java_format_warnings")"
+_assert_not_contains "google-java-format: failed metadata warning omits its URL" \
+  "https://" "$(cat "$_google_java_format_warnings")"
+_assert_file_missing "google-java-format: failed metadata publishes no JAR" \
+  "$_home/google-java-format/google-java-format.jar"
+
+: >"$_google_java_format_warnings"
+if DOT_TEST_CURL_FAIL_PHASE=asset install 2>/dev/null; then
+  _fail "google-java-format: failed asset download fails the install"
+else
+  _pass "google-java-format: failed asset download fails the install"
+fi
+_assert_contains "google-java-format: failed asset names the safe phase" \
+  "google-java-format asset download failed" \
+  "$(cat "$_google_java_format_warnings")"
+_assert_not_contains "google-java-format: failed asset warning omits its URL" \
+  "https://" "$(cat "$_google_java_format_warnings")"
+_assert_file_missing "google-java-format: failed asset publishes no partial JAR" \
+  "$_home/google-java-format/google-java-format.jar"
+if compgen -G "$_home/google-java-format/.google-java-format.jar.*" >/dev/null; then
+  _fail "google-java-format: failed asset leaves no download temporary"
+else
+  _pass "google-java-format: failed asset leaves no download temporary"
+fi
+
 if install; then
   _pass "google-java-format: existing Java installs jar wrapper"
 else
