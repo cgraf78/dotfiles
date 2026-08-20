@@ -1,2 +1,2 @@
 # vim: set ft=crontab:
-*/30 * * * * dot update --cron --force && shdeps prune -y > /dev/null
+*/30 * * * * dot update --cron && shdeps prune -y > /dev/null
