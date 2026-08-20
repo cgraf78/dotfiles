@@ -47,6 +47,14 @@ MOCK
     _lint_git=(git -C "${_lint_root}")
   fi
 
+  _dot_config="$_lint_root/.config/dot/config"
+  _dot_shdeps_policy_total=$(grep -c '^shdeps_update_policy=' "$_dot_config" || true)
+  _dot_shdeps_latest_total=$(grep -c '^shdeps_update_policy=latest$' "$_dot_config" || true)
+  _assert_eq "Dot config: declares one Shdeps update policy" \
+    "1" "$_dot_shdeps_policy_total"
+  _assert_eq "Dot config: follows the latest Shdeps release policy" \
+    "1" "$_dot_shdeps_latest_total"
+
   _ci_actions_lock="$_lint_root/.github/cgraf78-actions.lock"
   _ci_actions_sha=missing-lock
   # Mirror the provider's cheap local-file invariants here. The hosted verifier
