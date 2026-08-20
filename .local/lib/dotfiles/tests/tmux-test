@@ -418,6 +418,11 @@ _assert_not_contains "tmux Ctrl-Tab fallback does not embed inline shell command
   'payload=$(' "$tmux_content"
 
 if command -v tmux >/dev/null 2>&1; then
+  normalize_tmux_key_listing() {
+    # tmux 3.7 aligns non-repeatable bindings with an extra space.
+    sed -E 's/^bind-key[[:space:]]+-T /bind-key -T /'
+  }
+
   socket_dir=$(_tmpdir)
   socket="$socket_dir/tmux.sock"
   tmux -S "$socket" -f /dev/null new-session -d -s dot-tmux-test 'sleep 60'
@@ -430,10 +435,13 @@ if command -v tmux >/dev/null 2>&1; then
   tmux -S "$socket" bind-key -T prefix S run-shell tmux-save-session
   tmux -S "$socket" bind-key -T prefix R run-shell tmux-restore-session
   tmux -S "$socket" source-file "$tmux_config"
-  copy_keys=$(tmux -S "$socket" list-keys -T copy-mode-vi)
+  copy_keys=$(tmux -S "$socket" list-keys -T copy-mode-vi |
+    normalize_tmux_key_listing)
   enter_copy_key=$(awk '/bind-key -T copy-mode-vi Enter/ { print }' <<<"$copy_keys")
-  root_keys=$(tmux -S "$socket" list-keys -T root)
-  prefix_keys=$(tmux -S "$socket" list-keys -T prefix)
+  root_keys=$(tmux -S "$socket" list-keys -T root |
+    normalize_tmux_key_listing)
+  prefix_keys=$(tmux -S "$socket" list-keys -T prefix |
+    normalize_tmux_key_listing)
   ctrl_tab_root_line=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root C-Tab ' || true)
   ctrl_shift_tab_root_line=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root C-BTab ' || true)
   pane_navigation_root_line=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root C-h ' || true)
