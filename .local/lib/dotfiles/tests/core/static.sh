@@ -70,8 +70,8 @@ MOCK
         printf "%s:%s\n" "$DOT_SHDEPS_UPDATE_POLICY" "${SHDEPS_FORCE:-unset}"
       '
   ) || _dot_shdeps_policy_probe=failed
-  _assert_eq "Dot config: latest policy activates Shdeps refresh" \
-    "latest:1" "$_dot_shdeps_policy_probe"
+  _assert_eq "Dot config: latest policy does not force dependency updates" \
+    "latest:unset" "$_dot_shdeps_policy_probe"
 
   _dot_update_cron=$(
     grep -Ev '^[[:space:]]*(#|$)' \
