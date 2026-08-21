@@ -419,6 +419,27 @@ _assert_contains "bat: Termux command keeps the native binary name" \
   "android:bat,apt:batcat" \
   "$(awk '$1 == "bat" && $2 == "pkg" { print; exit }' "$REAL_HOME/.config/shdeps/10-deps.conf")"
 
+_eza_pkg=$(
+  awk '$1 == "eza" && $2 == "pkg" { print; exit }' \
+    "$REAL_HOME/.config/shdeps/10-deps.conf"
+)
+_assert_eq "eza: keeps native package management where available" \
+  "pkg" "$(awk '{ print $2 }' <<<"$_eza_pkg")"
+_assert_contains "eza: skips the unavailable DNF package" \
+  "dnf:NONE" "$_eza_pkg"
+_assert_not_contains "eza: remains package-managed by Homebrew" \
+  "brew:NONE" "$_eza_pkg"
+_eza_release=$(
+  awk '$1 == "eza-community/eza" { print; exit }' \
+    "$REAL_HOME/.config/shdeps/10-deps.conf"
+)
+_assert_eq "eza: DNF fallback uses the official release archive" \
+  "github:release" "$(awk '{ print $2 }' <<<"$_eza_release")"
+_assert_eq "eza: release fallback checks the eza command" \
+  "eza" "$(awk '{ print $3 }' <<<"$_eza_release")"
+_assert_contains "eza: release fallback is limited to DNF systems" \
+  "mgr:dnf" "$_eza_release"
+
 _ast_grep_pkg=$(
   awk '$1 == "ast-grep" && $2 == "pkg" { print; exit }' \
     "$REAL_HOME/.config/shdeps/10-deps.conf"
@@ -679,7 +700,148 @@ else
   _fail "wezterm: CI install path is a no-op"
 fi
 
-unset -f exists version install shdeps_platform shdeps_pkg_mgr
+_wezterm_calls=$(_tmpdir)/calls.log
+_wezterm_mgr=dnf
+_wezterm_release='centos|9'
+_wezterm_machine=x86_64
+_wezterm_release_json='{"tag_name":"20240203-110809-5046fc22","assets":[{"browser_download_url":"https://github.com/wez/wezterm/releases/download/20240203-110809-5046fc22/wezterm-20240203_110809_5046fc22-1.centos9.x86_64.rpm"}]}'
+# shellcheck disable=SC2329  # hook calls this public shdeps API by name.
+shdeps_platform() { echo linux; }
+# shellcheck disable=SC2329  # hook calls this public shdeps API by name.
+shdeps_pkg_mgr() { echo "$_wezterm_mgr"; }
+# shellcheck disable=SC2329  # hook calls this public shdeps API by name.
+shdeps_require_sudo() { return 0; }
+# shellcheck disable=SC2329  # hook calls this private helper by name.
+_wezterm_os_release() { echo "$_wezterm_release"; }
+# shellcheck disable=SC2329  # hook calls this platform command by name.
+uname() { echo "$_wezterm_machine"; }
+# shellcheck disable=SC2329  # hook calls this public shdeps API by name.
+shdeps_warn() { printf 'warn:%s\n' "$*" >>"$_wezterm_calls"; }
+# shellcheck disable=SC2329  # hook calls this public shdeps API by name.
+shdeps_curl() {
+  local arg output=""
+  for arg in "$@"; do
+    if [[ "$arg" == https://api.github.com/* ]]; then
+      printf '%s\n' "$_wezterm_release_json"
+      return 0
+    fi
+  done
+  while (($#)); do
+    if [[ "$1" == -o ]]; then
+      output="$2"
+      shift 2
+    else
+      printf 'curl:%s\n' "$1" >>"$_wezterm_calls"
+      shift
+    fi
+  done
+  [[ -z "$output" ]] || : >"$output"
+}
+# shellcheck disable=SC2329  # hook invokes sudo by name.
+sudo() { printf 'sudo:%s\n' "$*" >>"$_wezterm_calls"; }
+_assert_eq "wezterm: Ubuntu keeps its native release asset" \
+  "Ubuntu24.04" "$(_wezterm_asset_pattern ubuntu 24.04)"
+_assert_eq "wezterm: Debian keeps its native release asset" \
+  "Debian12" "$(_wezterm_asset_pattern debian 12)"
+_assert_eq "wezterm: Fedora keeps its native release asset" \
+  "Fedora42" "$(_wezterm_asset_pattern fedora 42)"
+for _wezterm_rhel_id in centos rhel rocky almalinux; do
+  _assert_eq "wezterm: $_wezterm_rhel_id uses the CentOS-compatible RPM" \
+    "centos9" "$(_wezterm_asset_pattern "$_wezterm_rhel_id" 9.6 2>/dev/null)"
+done
+if CI='' DISPLAY=:99 install "wezterm"; then
+  _pass "wezterm: CentOS desktop installs the official CentOS major-version RPM"
+else
+  _fail "wezterm: CentOS desktop installs the official CentOS major-version RPM"
+fi
+_assert_contains "wezterm: CentOS desktop selects the CentOS 9 release asset" \
+  "wezterm-20240203_110809_5046fc22-1.centos9.x86_64.rpm" \
+  "$(cat "$_wezterm_calls" 2>/dev/null)"
+
+_wezterm_mgr=apt
+_wezterm_release='ubuntu|22.04'
+_wezterm_release_json='{"tag_name":"20240203-110809-5046fc22","assets":[{"browser_download_url":"https://github.com/wez/wezterm/releases/download/20240203-110809-5046fc22/wezterm-20240203_110809_5046fc22-1.Ubuntu22.04.arm64.deb"},{"browser_download_url":"https://github.com/wez/wezterm/releases/download/20240203-110809-5046fc22/wezterm-20240203_110809_5046fc22-1.Ubuntu22.04.deb"}]}'
+_wezterm_machine=x86_64
+: >"$_wezterm_calls"
+if CI='' DISPLAY=:99 install "wezterm"; then
+  _pass "wezterm: x86_64 Debian-family desktop installs a native asset"
+else
+  _fail "wezterm: x86_64 Debian-family desktop installs a native asset"
+fi
+_assert_contains "wezterm: x86_64 Debian-family desktop selects the generic amd64 package" \
+  "wezterm-20240203_110809_5046fc22-1.Ubuntu22.04.deb" \
+  "$(cat "$_wezterm_calls")"
+_assert_not_contains "wezterm: x86_64 Debian-family desktop rejects the ARM package" \
+  ".Ubuntu22.04.arm64.deb" "$(cat "$_wezterm_calls")"
+
+_wezterm_machine=aarch64
+: >"$_wezterm_calls"
+if CI='' DISPLAY=:99 install "wezterm"; then
+  _pass "wezterm: ARM Debian-family desktop installs a native asset"
+else
+  _fail "wezterm: ARM Debian-family desktop installs a native asset"
+fi
+_assert_contains "wezterm: ARM Debian-family desktop selects the arm64 package" \
+  ".Ubuntu22.04.arm64.deb" "$(cat "$_wezterm_calls")"
+
+_wezterm_mgr=dnf
+_wezterm_release='centos|9'
+_wezterm_release_json='{"tag_name":"20240203-110809-5046fc22","assets":[{"browser_download_url":"https://github.com/wez/wezterm/releases/download/20240203-110809-5046fc22/wezterm-20240203_110809_5046fc22-1.centos9.x86_64.rpm"}]}'
+: >"$_wezterm_calls"
+if CI='' DISPLAY=:99 install "wezterm"; then
+  _fail "wezterm: ARM RHEL-family desktop rejects x86_64-only releases"
+else
+  _pass "wezterm: ARM RHEL-family desktop rejects x86_64-only releases"
+fi
+_assert_not_contains "wezterm: ARM RHEL-family desktop does not download the x86_64 RPM" \
+  "curl:https://github.com/wez/wezterm/releases/download/20240203-110809-5046fc22/wezterm-20240203_110809_5046fc22-1.centos9.x86_64.rpm" \
+  "$(cat "$_wezterm_calls")"
+
+unset -f exists version install shdeps_platform shdeps_pkg_mgr \
+  shdeps_require_sudo shdeps_curl shdeps_warn sudo uname \
+  _wezterm_arch _wezterm_asset_pattern _wezterm_os_release \
+  _wezterm_select_asset
+
+echo "=== xclip hook ==="
+
+_xclip_hook="$REAL_HOME/.config/shdeps/hooks.d/xclip.sh"
+# shellcheck source=/dev/null
+. "$_xclip_hook"
+_xclip_calls=$(_tmpdir)/calls.log
+# shellcheck disable=SC2329  # hook calls this public shdeps API by name.
+shdeps_pkg_mgr() { echo dnf; }
+# shellcheck disable=SC2329  # hook calls this public shdeps API by name.
+shdeps_require_sudo() { return 0; }
+# shellcheck disable=SC2329  # hook calls this platform command by name.
+uname() { echo Linux; }
+# shellcheck disable=SC2329  # hook invokes sudo by name.
+sudo() { printf 'sudo:%s\n' "$*" >>"$_xclip_calls"; }
+if DISPLAY=:99 install "xclip"; then
+  _pass "xclip: graphical DNF session installs the package"
+else
+  _fail "xclip: graphical DNF session installs the package"
+fi
+_assert_file_content "xclip: graphical DNF session uses dnf" \
+  "sudo:dnf install -y xclip" "$_xclip_calls"
+if DISPLAY='' install "xclip"; then
+  _pass "xclip: headless Linux session remains skipped"
+else
+  _fail "xclip: headless Linux session remains skipped"
+fi
+_assert_file_content "xclip: headless Linux does not invoke dnf" \
+  "sudo:dnf install -y xclip" "$_xclip_calls"
+# shellcheck disable=SC2329  # hook calls this platform command by name.
+uname() { echo Darwin; }
+if DISPLAY=:99 install "xclip"; then
+  _pass "xclip: macOS remains outside the Linux-only hook"
+else
+  _fail "xclip: macOS remains outside the Linux-only hook"
+fi
+_assert_file_content "xclip: macOS does not invoke dnf" \
+  "sudo:dnf install -y xclip" "$_xclip_calls"
+
+unset -f exists version install shdeps_pkg_mgr shdeps_require_sudo sudo uname \
+  _xclip_applicable
 
 echo "=== gstack hook ==="
 
