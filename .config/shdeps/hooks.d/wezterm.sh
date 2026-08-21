@@ -5,6 +5,59 @@ _wezterm_ver() {
   wezterm --version 2>/dev/null | awk '{v=$2; if (v ~ /^[0-9a-f]{40}$/) print "commit " substr(v,1,7); else print v}'
 }
 
+_wezterm_os_release() {
+  local distro_id="" distro_ver=""
+  if [[ -f /etc/os-release ]]; then
+    # shellcheck disable=SC1091
+    . /etc/os-release
+    distro_id="${ID:-}"
+    distro_ver="${VERSION_ID:-}"
+  fi
+  printf '%s|%s\n' "$distro_id" "$distro_ver"
+}
+
+_wezterm_asset_pattern() {
+  local distro_id="$1" distro_ver="$2"
+  case "$distro_id" in
+    ubuntu) printf 'Ubuntu%s\n' "$distro_ver" ;;
+    debian) printf 'Debian%s\n' "$distro_ver" ;;
+    fedora) printf 'Fedora%s\n' "$distro_ver" ;;
+    centos | rhel | rocky | almalinux)
+      printf 'centos%s\n' "${distro_ver%%.*}"
+      ;;
+  esac
+}
+
+_wezterm_arch() {
+  case "$(uname -m)" in
+    x86_64 | amd64) printf 'x86_64\n' ;;
+    aarch64 | arm64) printf 'arm64\n' ;;
+  esac
+}
+
+_wezterm_select_asset() {
+  local all_urls="$1" pattern="$2" ext="$3" arch="$4"
+  local asset lower_pattern lower_asset suffix
+
+  lower_pattern=$(printf '%s' "$pattern" | tr '[:upper:]' '[:lower:]')
+  case "$ext:$arch" in
+    deb:x86_64) suffix="${lower_pattern}.deb" ;;
+    deb:arm64) suffix="${lower_pattern}.arm64.deb" ;;
+    rpm:x86_64) suffix="${lower_pattern}.x86_64.rpm" ;;
+    *) return 1 ;;
+  esac
+
+  while IFS= read -r asset; do
+    lower_asset=$(printf '%s' "$asset" | tr '[:upper:]' '[:lower:]')
+    if [[ "$lower_asset" == *"$suffix" ]]; then
+      printf '%s\n' "$asset"
+      return 0
+    fi
+  done <<<"$all_urls"
+
+  return 1
+}
+
 exists() {
   # WSL: WezTerm runs as a Windows-native app; not managed here.
   local platform
@@ -83,33 +136,27 @@ install() {
     return 1
   fi
 
-  local distro_id="" distro_ver=""
-  if [[ -f /etc/os-release ]]; then
-    # shellcheck disable=SC1091
-    . /etc/os-release
-    distro_id="${ID:-}"
-    distro_ver="${VERSION_ID:-}"
-  fi
+  local distro_id="" distro_ver="" distro_release arch
+  distro_release=$(_wezterm_os_release)
+  distro_id=${distro_release%%|*}
+  distro_ver=${distro_release#*|}
+  arch=$(_wezterm_arch)
 
   local all_urls asset_url=""
   all_urls=$(echo "$release_json" |
     grep -o '"browser_download_url":[[:space:]]*"[^"]*\.'"$ext"'"' |
     cut -d'"' -f4)
 
-  if [[ -n "$distro_id" && -n "$distro_ver" ]]; then
+  if [[ -n "$distro_id" && -n "$distro_ver" && -n "$arch" ]]; then
     local pattern=""
-    case "$distro_id" in
-      ubuntu) pattern="Ubuntu${distro_ver}" ;;
-      debian) pattern="Debian${distro_ver}" ;;
-      fedora) pattern="Fedora${distro_ver}" ;;
-    esac
+    pattern=$(_wezterm_asset_pattern "$distro_id" "$distro_ver")
     if [[ -n "$pattern" ]]; then
-      asset_url=$(echo "$all_urls" | grep -i "$pattern" | head -1)
+      asset_url=$(_wezterm_select_asset "$all_urls" "$pattern" "$ext" "$arch")
     fi
   fi
 
   if [[ -z "$asset_url" ]]; then
-    shdeps_warn "  warning: no .$ext asset matched ${distro_id:-unknown} ${distro_ver:-} for wezterm $latest_tag"
+    shdeps_warn "  warning: no .$ext asset matched ${distro_id:-unknown} ${distro_ver:-} ${arch:-unknown} for wezterm $latest_tag"
     return 1
   fi
 
