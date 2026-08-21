@@ -160,10 +160,16 @@ install() {
     return 1
   fi
 
-  local tmp
-  tmp=$(mktemp) || return 1
+  local tmp_dir tmp
+  tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/wezterm.XXXXXX") || {
+    shdeps_warn "  warning: couldn't create wezterm package staging directory"
+    return 1
+  }
+  tmp="$tmp_dir/wezterm.$ext"
   if ! shdeps_curl -fsSL "$asset_url" -o "$tmp" 2>/dev/null; then
-    rm -f "$tmp"
+    if ! rm -rf "$tmp_dir"; then
+      shdeps_warn "  warning: failed to clean up wezterm package staging directory"
+    fi
     shdeps_warn "  warning: failed to download wezterm"
     return 1
   fi
@@ -176,7 +182,10 @@ install() {
       ;;
     rpm) sudo dnf install -y "$tmp" &>/dev/null || rc=$? ;;
   esac
-  rm -f "$tmp"
+  if ! rm -rf "$tmp_dir"; then
+    shdeps_warn "  warning: failed to clean up wezterm package staging directory"
+    return 1
+  fi
 
   [[ $rc -eq 0 ]]
 }
