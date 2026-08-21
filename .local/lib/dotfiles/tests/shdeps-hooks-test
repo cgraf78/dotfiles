@@ -819,6 +819,7 @@ _wezterm_calls=$(_tmpdir)/calls.log
 _wezterm_mgr=dnf
 _wezterm_release='centos|9'
 _wezterm_machine=x86_64
+_wezterm_tmp_parent=$(_tmpdir)
 _wezterm_release_json='{"tag_name":"20240203-110809-5046fc22","assets":[{"browser_download_url":"https://github.com/wez/wezterm/releases/download/20240203-110809-5046fc22/wezterm-20240203_110809_5046fc22-1.centos9.x86_64.rpm"}]}'
 # shellcheck disable=SC2329  # hook calls this public shdeps API by name.
 shdeps_platform() { echo linux; }
@@ -832,6 +833,18 @@ _wezterm_os_release() { echo "$_wezterm_release"; }
 uname() { echo "$_wezterm_machine"; }
 # shellcheck disable=SC2329  # hook calls this public shdeps API by name.
 shdeps_warn() { printf 'warn:%s\n' "$*" >>"$_wezterm_calls"; }
+# shellcheck disable=SC2329  # hook invokes the platform temporary-file helper.
+mktemp() {
+  printf 'mktemp:%s\n' "$*" >>"$_wezterm_calls"
+  if [[ ${1:-} == -d ]]; then
+    rm -rf "$_wezterm_tmp_parent/stage"
+    mkdir -p "$_wezterm_tmp_parent/stage"
+    printf '%s\n' "$_wezterm_tmp_parent/stage"
+  else
+    : >"$_wezterm_tmp_parent/extensionless"
+    printf '%s\n' "$_wezterm_tmp_parent/extensionless"
+  fi
+}
 # shellcheck disable=SC2329  # hook calls this public shdeps API by name.
 shdeps_curl() {
   local arg output=""
@@ -850,10 +863,16 @@ shdeps_curl() {
       shift
     fi
   done
+  if [[ -n ${_wezterm_download_fail:-} ]]; then
+    return 1
+  fi
   [[ -z "$output" ]] || : >"$output"
 }
 # shellcheck disable=SC2329  # hook invokes sudo by name.
-sudo() { printf 'sudo:%s\n' "$*" >>"$_wezterm_calls"; }
+sudo() {
+  printf 'sudo:%s\n' "$*" >>"$_wezterm_calls"
+  [[ -z ${_wezterm_sudo_fail:-} ]]
+}
 _assert_eq "wezterm: Ubuntu keeps its native release asset" \
   "Ubuntu24.04" "$(_wezterm_asset_pattern ubuntu 24.04)"
 _assert_eq "wezterm: Debian keeps its native release asset" \
@@ -872,6 +891,61 @@ fi
 _assert_contains "wezterm: CentOS desktop selects the CentOS 9 release asset" \
   "wezterm-20240203_110809_5046fc22-1.centos9.x86_64.rpm" \
   "$(cat "$_wezterm_calls" 2>/dev/null)"
+_assert_contains "wezterm: CentOS stages an RPM filename for DNF" \
+  "sudo:dnf install -y $_wezterm_tmp_parent/stage/wezterm.rpm" \
+  "$(cat "$_wezterm_calls")"
+_assert_file_missing "wezterm: CentOS removes its package staging directory" \
+  "$_wezterm_tmp_parent/stage"
+
+_wezterm_sudo_fail=1
+: >"$_wezterm_calls"
+if CI='' DISPLAY=:99 install "wezterm"; then
+  _fail "wezterm: failed DNF install remains visible"
+else
+  _pass "wezterm: failed DNF install remains visible"
+fi
+unset _wezterm_sudo_fail
+_assert_file_missing "wezterm: failed DNF install removes its staging directory" \
+  "$_wezterm_tmp_parent/stage"
+
+_wezterm_download_fail=1
+: >"$_wezterm_calls"
+if CI='' DISPLAY=:99 install "wezterm"; then
+  _fail "wezterm: failed RPM download remains visible"
+else
+  _pass "wezterm: failed RPM download remains visible"
+fi
+unset _wezterm_download_fail
+_assert_file_missing "wezterm: failed RPM download removes its staging directory" \
+  "$_wezterm_tmp_parent/stage"
+_assert_not_contains "wezterm: failed RPM download does not invoke DNF" \
+  "sudo:" "$(cat "$_wezterm_calls")"
+
+# shellcheck disable=SC2329  # hook invokes the platform cleanup command.
+rm() {
+  local arg last=""
+  for arg in "$@"; do
+    last=$arg
+  done
+  if [[ -n ${_wezterm_cleanup_fail:-} && $last == "$_wezterm_tmp_parent/stage" ]]; then
+    return 1
+  fi
+  command rm "$@"
+}
+_wezterm_download_fail=1
+_wezterm_cleanup_fail=1
+: >"$_wezterm_calls"
+if CI='' DISPLAY=:99 install "wezterm"; then
+  _fail "wezterm: failed download and cleanup remains visible"
+else
+  _pass "wezterm: failed download and cleanup remains visible"
+fi
+unset _wezterm_download_fail _wezterm_cleanup_fail
+_assert_contains "wezterm: failed download reports staging cleanup failure" \
+  "failed to clean up wezterm package staging directory" \
+  "$(cat "$_wezterm_calls")"
+unset -f rm
+command rm -rf "$_wezterm_tmp_parent/stage"
 
 _wezterm_mgr=apt
 _wezterm_release='ubuntu|22.04'
@@ -888,6 +962,11 @@ _assert_contains "wezterm: x86_64 Debian-family desktop selects the generic amd6
   "$(cat "$_wezterm_calls")"
 _assert_not_contains "wezterm: x86_64 Debian-family desktop rejects the ARM package" \
   ".Ubuntu22.04.arm64.deb" "$(cat "$_wezterm_calls")"
+_assert_contains "wezterm: Debian stages a DEB filename for dpkg" \
+  "sudo:dpkg -i $_wezterm_tmp_parent/stage/wezterm.deb" \
+  "$(cat "$_wezterm_calls")"
+_assert_file_missing "wezterm: Debian removes its package staging directory" \
+  "$_wezterm_tmp_parent/stage"
 
 _wezterm_machine=aarch64
 : >"$_wezterm_calls"
@@ -912,7 +991,7 @@ _assert_not_contains "wezterm: ARM RHEL-family desktop does not download the x86
   "curl:https://github.com/wez/wezterm/releases/download/20240203-110809-5046fc22/wezterm-20240203_110809_5046fc22-1.centos9.x86_64.rpm" \
   "$(cat "$_wezterm_calls")"
 
-unset -f exists version install shdeps_platform shdeps_pkg_mgr \
+unset -f exists version install mktemp shdeps_platform shdeps_pkg_mgr \
   shdeps_require_sudo shdeps_curl shdeps_warn sudo uname \
   _wezterm_arch _wezterm_asset_pattern _wezterm_os_release \
   _wezterm_select_asset
