@@ -16,11 +16,15 @@ _test_prefer_system_git || exit 1
 
 echo "=== shdeps hook policy ==="
 
+# These two hooks must retain a historical manifest identity while delegating
+# upstream archive selection and activation to the native release helper.
 _release_helpers=$(
   rg -l 'shdeps_github_release_install' "$REAL_HOME/.config/shdeps/hooks.d" |
-    sed "\|^$REAL_HOME/.config/shdeps/hooks.d/neovim/neovim.sh$|d" || true
+    sed \
+      -e "\|^$REAL_HOME/.config/shdeps/hooks.d/neovim/neovim.sh$|d" \
+      -e "\|^$REAL_HOME/.config/shdeps/hooks.d/eza.sh$|d" || true
 )
-_assert_eq "custom hooks do not hide native github:release update policy" \
+_assert_eq "other custom hooks do not hide native github:release update policy" \
   "" "$_release_helpers"
 _assert_not_contains "tree-sitter: no upstream release binary on Linux" \
   "tree-sitter/tree-sitter                   github:release" \
@@ -425,20 +429,131 @@ _eza_pkg=$(
 )
 _assert_eq "eza: keeps native package management where available" \
   "pkg" "$(awk '{ print $2 }' <<<"$_eza_pkg")"
-_assert_contains "eza: skips the unavailable DNF package" \
-  "dnf:NONE" "$_eza_pkg"
-_assert_not_contains "eza: remains package-managed by Homebrew" \
-  "brew:NONE" "$_eza_pkg"
-_eza_release=$(
-  awk '$1 == "eza-community/eza" { print; exit }' \
+_assert_contains "eza: native package declaration excludes DNF" \
+  "mgr:!dnf" "$_eza_pkg"
+_assert_not_contains "eza: native package declaration does not rename the dependency" \
+  "eza-community/eza" "$_eza_pkg"
+_eza_custom=$(
+  awk '$1 == "eza" && $2 == "custom" { print; exit }' \
     "$REAL_HOME/.config/shdeps/10-deps.conf"
 )
-_assert_eq "eza: DNF fallback uses the official release archive" \
-  "github:release" "$(awk '{ print $2 }' <<<"$_eza_release")"
-_assert_eq "eza: release fallback checks the eza command" \
-  "eza" "$(awk '{ print $3 }' <<<"$_eza_release")"
-_assert_contains "eza: release fallback is limited to DNF systems" \
-  "mgr:dnf" "$_eza_release"
+_assert_eq "eza: DNF fallback preserves the manifest identity" \
+  "custom" "$(awk '{ print $2 }' <<<"$_eza_custom")"
+_assert_eq "eza: DNF fallback checks the eza command" \
+  "eza" "$(awk '{ print $3 }' <<<"$_eza_custom")"
+_assert_contains "eza: custom release fallback is limited to DNF systems" \
+  "mgr:dnf" "$_eza_custom"
+_assert_eq "eza: no renamed dependency competes for the command" \
+  "" "$(awk '$1 == "eza-community/eza" { print }' "$REAL_HOME/.config/shdeps/10-deps.conf")"
+
+_eza_hook="$REAL_HOME/.config/shdeps/hooks.d/eza.sh"
+_assert_file_exists "eza: DNF release hook is tracked" "$_eza_hook"
+if [[ -f $_eza_hook ]]; then
+  _eza_install_root=$(_tmpdir)
+  _eza_public_bin=$(_tmpdir)
+  _eza_cargo_bin=$(_mock_bin)
+  _eza_state=$(_tmpdir)
+  _eza_calls=$(_tmpdir)/release-calls.log
+  _eza_saved_state_dir_set=${SHDEPS_STATE_DIR+x}
+  _eza_saved_state_dir=${SHDEPS_STATE_DIR:-}
+  SHDEPS_STATE_DIR=$_eza_state
+  export SHDEPS_STATE_DIR
+  cat >"$_eza_cargo_bin/eza" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' 'v0.14.2 cargo'
+EOF
+  chmod +x "$_eza_cargo_bin/eza"
+
+  # shellcheck source=/dev/null
+  . "$_eza_hook"
+  # shellcheck disable=SC2329  # the sourced hook invokes this public API.
+  shdeps_install_dir() { printf '%s\n' "$_eza_install_root"; }
+  # shellcheck disable=SC2329  # the sourced hook invokes this public API.
+  shdeps_bin_dir() { printf '%s\n' "$_eza_public_bin"; }
+  # shellcheck disable=SC2329  # test double for the release installer boundary.
+  shdeps_github_release_install() {
+    printf '%s\n' "$*" >>"$_eza_calls"
+    mkdir -p "$_eza_install_root/eza/bin"
+    printf '%s\n' 'v1 archive' >"$_eza_install_root/eza/.shdeps-release-layout"
+    cat >"$_eza_install_root/eza/bin/eza" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' 'eza - A modern, maintained replacement for ls'
+printf '%s\n' 'v0.20.24 [+git]'
+EOF
+    chmod +x "$_eza_install_root/eza/bin/eza"
+    ln -s "$_eza_install_root/eza/bin/eza" "$_eza_public_bin/eza"
+  }
+  # shellcheck disable=SC2329  # test double for custom cleanup.
+  shdeps_unlink_extras() { return 0; }
+
+  _eza_saved_path=$PATH
+  PATH="$_eza_cargo_bin:/usr/bin:/bin"
+  if exists eza; then
+    _fail "eza: an unrelated Cargo binary does not satisfy the managed release"
+  else
+    _pass "eza: an unrelated Cargo binary does not satisfy the managed release"
+  fi
+  if install eza; then
+    _pass "eza: DNF hook installs the managed upstream release"
+  else
+    _fail "eza: DNF hook installs the managed upstream release"
+  fi
+  _assert_file_content "eza: release helper keeps the stable dependency identity" \
+    "eza eza eza-community/eza" "$_eza_calls"
+  if exists eza; then
+    _pass "eza: managed release satisfies the hook"
+  else
+    _fail "eza: managed release satisfies the hook"
+  fi
+  _assert_eq "eza: version comes from the managed release" \
+    "v0.20.24 [+git]" "$(version eza)"
+
+  printf '%s\n' "$_eza_public_bin/eza" >"$_eza_state/eza.binlinks"
+  uninstall eza
+  _assert_file_missing "eza: uninstall removes its managed public command" \
+    "$_eza_public_bin/eza"
+  _assert_file_missing "eza: uninstall removes its managed release root" \
+    "$_eza_install_root/eza"
+  _assert_file_missing "eza: uninstall removes stale release link state" \
+    "$_eza_state/eza.binlinks"
+
+  install eza
+
+  _eza_foreign=$(_tmpdir)/foreign-eza
+  printf '%s\n' '#!/usr/bin/env bash' 'exit 0' >"$_eza_foreign"
+  chmod +x "$_eza_foreign"
+  rm -f "$_eza_public_bin/eza"
+  ln -s "$_eza_foreign" "$_eza_public_bin/eza"
+  uninstall eza
+  _assert_file_exists "eza: uninstall preserves a foreign public command" \
+    "$_eza_public_bin/eza"
+  _assert_file_missing "eza: uninstall removes its marked release root" \
+    "$_eza_install_root/eza"
+
+  rm -f "$_eza_public_bin/eza"
+  mkdir -p "$_eza_install_root/eza/bin"
+  printf '%s\n' '#!/usr/bin/env bash' 'exit 0' \
+    >"$_eza_install_root/eza/bin/eza"
+  chmod +x "$_eza_install_root/eza/bin/eza"
+  ln -s "$_eza_install_root/eza/bin/eza" "$_eza_public_bin/eza"
+  uninstall eza
+  _assert_file_exists "eza: uninstall preserves an unmarked install root" \
+    "$_eza_install_root/eza/bin/eza"
+  _assert_file_exists "eza: uninstall preserves a link into an unmarked root" \
+    "$_eza_public_bin/eza"
+
+  PATH=$_eza_saved_path
+  if [[ -n $_eza_saved_state_dir_set ]]; then
+    SHDEPS_STATE_DIR=$_eza_saved_state_dir
+    export SHDEPS_STATE_DIR
+  else
+    unset SHDEPS_STATE_DIR
+  fi
+  unset -f exists install uninstall version shdeps_bin_dir \
+    shdeps_github_release_install shdeps_install_dir shdeps_unlink_extras \
+    _eza_managed _eza_public_bin _eza_public_link_owned \
+    _eza_release_root _eza_release_root_owned
+fi
 
 _ast_grep_pkg=$(
   awk '$1 == "ast-grep" && $2 == "pkg" { print; exit }' \
@@ -1694,6 +1809,123 @@ EOF
     'timeout)" 300)' "$_cmakelang_source"
   _assert_contains "cmakelang: Homebrew gtimeout keeps the five-minute bound" \
     'gtimeout)" 300)' "$_cmakelang_source"
+fi
+
+echo "=== eza stable-identity transition ==="
+
+if [[ -f $_eza_hook ]] &&
+  _test_prepare_shdeps_snapshot "$REAL_HOME" "${DOT_TEST_HOST_HOME:-}"; then
+  _eza_transition_home=$(_tmpdir)
+  _eza_transition_conf=$_eza_transition_home/conf
+  _eza_transition_hooks=$_eza_transition_conf/hooks.d
+  _eza_transition_state=$_eza_transition_home/state
+  _eza_transition_install=$_eza_transition_home/share
+  _eza_transition_bin=$_eza_transition_home/bin
+  _eza_transition_tools=$(_mock_bin)
+  _eza_transition_apt_tools=$(_mock_bin)
+  mkdir -p \
+    "$_eza_transition_hooks" \
+    "$_eza_transition_state" \
+    "$_eza_transition_install/eza/bin" \
+    "$_eza_transition_bin"
+
+  printf '%s\n' \
+    'eza pkg eza - mgr:!dnf' \
+    'eza custom eza - mgr:dnf' \
+    >"$_eza_transition_conf/deps.conf"
+  ln -s "$_eza_hook" "$_eza_transition_hooks/eza.sh"
+  printf '%s\n' 'eza|pkg|eza|' >"$_eza_transition_state/manifest"
+  printf '%s\n' 'v1 archive' \
+    >"$_eza_transition_install/eza/.shdeps-release-layout"
+  cat >"$_eza_transition_install/eza/bin/eza" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' 'eza - A modern, maintained replacement for ls'
+printf '%s\n' 'v0.20.24 [+git]'
+EOF
+  chmod +x "$_eza_transition_install/eza/bin/eza"
+  ln -s "$_eza_transition_install/eza/bin/eza" \
+    "$_eza_transition_bin/eza"
+  for _eza_transition_tool in awk bash hostname readlink uname; do
+    ln -s "$(command -v "$_eza_transition_tool")" \
+      "$_eza_transition_tools/$_eza_transition_tool"
+    ln -s "$(command -v "$_eza_transition_tool")" \
+      "$_eza_transition_apt_tools/$_eza_transition_tool"
+  done
+  ln -s "$SHDEPS_RUST_CLI" "$_eza_transition_tools/shdeps"
+  ln -s "$SHDEPS_RUST_CLI" "$_eza_transition_apt_tools/shdeps"
+  ln -s "$_eza_transition_install/eza/bin/eza" \
+    "$_eza_transition_apt_tools/eza"
+  cat >"$_eza_transition_tools/dnf" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+  chmod +x "$_eza_transition_tools/dnf"
+  cat >"$_eza_transition_apt_tools/apt-get" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+  cat >"$_eza_transition_apt_tools/dpkg-query" <<'EOF'
+#!/usr/bin/env bash
+printf 'install ok installed\teza\t0.20.24\n'
+EOF
+  chmod +x \
+    "$_eza_transition_apt_tools/apt-get" \
+    "$_eza_transition_apt_tools/dpkg-query"
+
+  _eza_transition_apt_output=$(
+    HOME="$_eza_transition_home" \
+      PATH="$_eza_transition_apt_tools" \
+      SHDEPS_LIB='' \
+      SHDEPS_CONF_DIR="$_eza_transition_conf" \
+      SHDEPS_HOOKS_DIR="$_eza_transition_hooks" \
+      SHDEPS_STATE_DIR="$_eza_transition_state" \
+      SHDEPS_INSTALL_DIR="$_eza_transition_install" \
+      SHDEPS_BIN_DIR="$_eza_transition_bin" \
+      SHDEPS_GIT_DEV_DIR="$_eza_transition_home/git" \
+      "$SHDEPS_RUST_CLI" list 2>&1
+  )
+  _assert_eq "eza: non-DNF systems select the package declaration" \
+    "pkg" "$(awk '$1 == "eza" { print $2; exit }' <<<"$_eza_transition_apt_output")"
+
+  _eza_transition_prune_output=$(
+    HOME="$_eza_transition_home" \
+      PATH="$_eza_transition_tools" \
+      SHDEPS_LIB='' \
+      SHDEPS_CONF_DIR="$_eza_transition_conf" \
+      SHDEPS_HOOKS_DIR="$_eza_transition_hooks" \
+      SHDEPS_STATE_DIR="$_eza_transition_state" \
+      SHDEPS_INSTALL_DIR="$_eza_transition_install" \
+      SHDEPS_BIN_DIR="$_eza_transition_bin" \
+      SHDEPS_GIT_DEV_DIR="$_eza_transition_home/git" \
+      "$SHDEPS_RUST_CLI" prune 2>&1
+  )
+  _eza_transition_prune_rc=$?
+  _assert_exit "eza: configured old identity is not prunable" \
+    0 "$_eza_transition_prune_rc"
+  _assert_contains "eza: prune reports no orphan for the stable identity" \
+    "No orphaned deps found." "$_eza_transition_prune_output"
+
+  _eza_transition_update_output=$(
+    HOME="$_eza_transition_home" \
+      PATH="$_eza_transition_tools" \
+      SHDEPS_LIB='' \
+      SHDEPS_CONF_DIR="$_eza_transition_conf" \
+      SHDEPS_HOOKS_DIR="$_eza_transition_hooks" \
+      SHDEPS_STATE_DIR="$_eza_transition_state" \
+      SHDEPS_INSTALL_DIR="$_eza_transition_install" \
+      SHDEPS_BIN_DIR="$_eza_transition_bin" \
+      SHDEPS_GIT_DEV_DIR="$_eza_transition_home/git" \
+      "$SHDEPS_RUST_CLI" -q update 2>&1
+  )
+  _eza_transition_update_rc=$?
+  _assert_exit "eza: DNF provider transition succeeds without prune and retry" \
+    0 "$_eza_transition_update_rc"
+  _assert_not_contains "eza: stable identity avoids an identity-handoff error" \
+    "unsupported dependency identity handoff" "$_eza_transition_update_output"
+  _assert_file_content "eza: update records the same identity with its DNF method" \
+    "eza|custom|eza|" "$_eza_transition_state/manifest"
+else
+  _fail "eza: stable-identity transition fixture is available"
 fi
 
 _test_summary

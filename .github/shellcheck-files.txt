@@ -7,6 +7,7 @@ program	.config/shdeps/hooks.d/clangd.sh
 program	.config/shdeps/hooks.d/cmake-language-server.sh
 program	.config/shdeps/hooks.d/cmakelang.sh
 program	.config/shdeps/hooks.d/editorconfig-checker.sh
+program	.config/shdeps/hooks.d/eza.sh
 program	.config/shdeps/hooks.d/cgraf78/dot.sh
 program	.config/shdeps/hooks.d/garrytan/gstack.sh
 program	.config/shdeps/hooks.d/google-java-format.sh
