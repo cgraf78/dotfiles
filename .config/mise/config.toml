@@ -55,13 +55,11 @@
 # directly while retaining Homebrew as the macOS owner.
 "github:kristoff-it/superhtml" = { version = "latest", os = ["linux"] }
 
-# Pin `tmux` via mise so every machine gets a modern build regardless
-# of what the distro ships. `tmux` 3.5a has a bracketed-paste tracking
-# regression: it parses the child's `\e[?2004h` request but never wraps
-# pastes with `\e[200~…\e[201~` when forwarding to the child. Apps that
-# opt into bracketed paste then see each newline in a multi-line paste
-# as `Enter` and submit mid-paste. 3.6a fixes it.
-"aqua:tmux/tmux-builds" = "latest"
+# Pin `tmux` via mise so every machine gets the same reliable build regardless
+# of what the distro ships. 3.6b includes the bracketed-paste fix introduced in
+# 3.6a, while 3.7b is implicated in server CPU busy loops after attached SSH
+# clients disconnect.
+"aqua:tmux/tmux-builds" = "3.6b"
 
 # See the note above for why rumdl uses `ubi:` instead of `aqua:`.
 "ubi:reteps/dockerfmt" = "latest"
