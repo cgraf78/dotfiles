@@ -862,6 +862,10 @@
           "description": "TTL for cached environments",
           "type": "string"
         },
+        "env_conf_d": {
+          "description": "Enable environment-specific filenames in conf.d directories.",
+          "type": "boolean"
+        },
         "env_file": {
           "description": "Path to a file containing environment variables to automatically load.",
           "type": "string"
@@ -1160,6 +1164,11 @@
           "items": {
             "type": "string"
           }
+        },
+        "idiomatic_version_file_ignore_minimum_versions": {
+          "default": false,
+          "description": "Ignore idiomatic version file fields that only declare a minimum compatible version.",
+          "type": "boolean"
         },
         "ignored_config_paths": {
           "default": [],
