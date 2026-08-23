@@ -281,6 +281,91 @@ LUA
     "$(printf 'SystemBeep\nfunction\n0\nnone')" \
     "$unknown_bell_result"
 
+  _wezterm_renderer_probe() {
+    local target_triple="$1" adapters="$2"
+
+    HOME="$bell_home/missing-home" _wezterm_lua "
+      local fake_action = {
+        DisableDefaultAssignment = { action = 'DisableDefaultAssignment' },
+      }
+      setmetatable(fake_action, {
+        __index = function(_, name)
+          return function(value)
+            return { action = name, value = value }
+          end
+        end,
+      })
+      package.preload.wezterm = function()
+        return {
+          action = fake_action,
+          action_callback = function(fn)
+            return fn
+          end,
+          background_child_process = function() end,
+          config_dir = '$bell_home',
+          default_hyperlink_rules = function()
+            return {}
+          end,
+          font_with_fallback = function(names)
+            return names
+          end,
+          glob = function()
+            return {}
+          end,
+          gui = {
+            enumerate_gpus = function()
+              return $adapters
+            end,
+          },
+          on = function() end,
+          target_triple = '$target_triple',
+        }
+      end
+
+      local config_table = dofile('$bell_home/wezterm.lua')
+      local adapter = config_table.webgpu_preferred_adapter
+      print(tostring(config_table.front_end))
+      print(tostring(config_table.webgpu_power_preference))
+      print(adapter and adapter.backend or 'nil')
+      print(adapter and adapter.name or 'nil')
+    "
+  }
+
+  windows_renderer_result=$(_wezterm_renderer_probe x86_64-pc-windows-msvc \
+    "{
+      { backend = 'Vulkan', device_type = 'DiscreteGpu', name = 'Quadro Vulkan' },
+      { backend = 'Dx12', device_type = 'Cpu', name = 'Basic Renderer' },
+      { backend = 'Dx12', device_type = 'DiscreteGpu', name = 'Quadro DX12' },
+    }")
+  _assert_eq "wezterm prefers the discrete DX12 adapter on Windows" \
+    "$(printf 'WebGpu\nHighPerformance\nDx12\nQuadro DX12')" \
+    "$windows_renderer_result"
+
+  windows_fallback_result=$(_wezterm_renderer_probe x86_64-pc-windows-msvc \
+    "{
+      { backend = 'Vulkan', device_type = 'DiscreteGpu', name = 'Quadro Vulkan' },
+      { backend = 'Dx12', device_type = 'Cpu', name = 'Basic Renderer' },
+    }")
+  _assert_eq "wezterm leaves Windows adapter selection open when discrete DX12 is unavailable" \
+    "$(printf 'WebGpu\nHighPerformance\nnil\nnil')" \
+    "$windows_fallback_result"
+
+  windows_error_result=$(_wezterm_renderer_probe x86_64-pc-windows-msvc \
+    "(function() error('enumeration failed') end)()")
+  _assert_eq "wezterm leaves Windows adapter selection open when GPU enumeration fails" \
+    "$(printf 'WebGpu\nHighPerformance\nnil\nnil')" \
+    "$windows_error_result"
+
+  linux_renderer_result=$(_wezterm_renderer_probe x86_64-unknown-linux-gnu "{}")
+  _assert_eq "wezterm enables WebGPU without pinning a Linux adapter" \
+    "$(printf 'WebGpu\nnil\nnil\nnil')" \
+    "$linux_renderer_result"
+
+  macos_renderer_result=$(_wezterm_renderer_probe x86_64-apple-darwin "{}")
+  _assert_eq "wezterm retains WebGPU without adapter policy on macOS" \
+    "$(printf 'WebGpu\nnil\nnil\nnil')" \
+    "$macos_renderer_result"
+
   cp "$config" "$nvim_key_home/.wezterm.lua"
   cp "$link_routes" "$nvim_key_home/link-routes.lua"
   cp "$public_link_rules" "$nvim_key_home/public-link-rules.lua"

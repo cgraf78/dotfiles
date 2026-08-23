@@ -36,6 +36,25 @@ local function append_all(dst, src)
   end
 end
 
+local function dx12_adapter()
+  if type(wezterm.gui) ~= "table" or type(wezterm.gui.enumerate_gpus) ~= "function" then
+    return nil
+  end
+
+  local ok, adapters = pcall(wezterm.gui.enumerate_gpus)
+  if not ok or type(adapters) ~= "table" then
+    return nil
+  end
+
+  for _, adapter in ipairs(adapters) do
+    if adapter.backend == "Dx12" and adapter.device_type == "DiscreteGpu" then
+      return adapter
+    end
+  end
+
+  return nil
+end
+
 -- Copied WSL wrappers do not always have debug source paths, so pass the active
 -- config dir through a short-lived global that termnav-module.lua can read.
 -- selene: allow(global_usage)
@@ -203,6 +222,8 @@ local default_prog
 local window_decorations = "TITLE|RESIZE"
 local macos_window_background_blur = 0
 local front_end
+local webgpu_power_preference
+local webgpu_preferred_adapter
 local freetype_load_target
 local freetype_render_target
 local bell_command
@@ -249,6 +270,11 @@ elseif is_windows then
   font_size = 9.0
   tab_font_size = 9.0
   line_height = 1.0
+  -- Prefer the native Windows GPU API instead of accepting WebGPU's first
+  -- enumerated backend, which can be Vulkan even when discrete DX12 is ready.
+  front_end = "WebGpu"
+  webgpu_power_preference = "HighPerformance"
+  webgpu_preferred_adapter = dx12_adapter()
   -- WSL needs an explicit program; can't use the login shell.
   default_prog = { "wsl.exe", "-d", "archlinux", "--cd", "~", "--exec", "/bin/zsh", "-l" }
   bell_command = {
@@ -263,6 +289,8 @@ elseif is_linux then
   font_size = 9.5
   tab_font_size = 9.5
   line_height = 1.0
+  -- WebGPU uses Vulkan on Linux while retaining automatic adapter selection.
+  front_end = "WebGpu"
   bell_command = { "paplay", "/usr/share/sounds/freedesktop/stereo/bell.oga" }
 else
   table.insert(font_names, "monospace")
@@ -513,6 +541,8 @@ return {
   font_size = font_size,
   line_height = line_height,
   front_end = front_end,
+  webgpu_power_preference = webgpu_power_preference,
+  webgpu_preferred_adapter = webgpu_preferred_adapter,
   freetype_load_target = freetype_load_target,
   freetype_render_target = freetype_render_target,
   enable_scroll_bar = false,
