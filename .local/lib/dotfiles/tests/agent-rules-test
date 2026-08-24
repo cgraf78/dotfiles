@@ -32,6 +32,10 @@ RULE_FAMILY="$source_home/.config/agent-rules/rules.d"
 NATIVE_TARGETS="$source_home/.config/dot/merge-hooks.d/agent-rules/targets.d/80-targets.replace/50-native.txt"
 PLAYBOOK_FAMILY="$source_home/.config/agent-rules/playbooks.d"
 TOOL_SELECTION_PLAYBOOK="$PLAYBOOK_FAMILY/tools/selection.md"
+DOTFILES_OWNERSHIP_PLAYBOOK="$PLAYBOOK_FAMILY/dotfiles/ownership-and-extraction.md"
+PERFORMANCE_PLAYBOOK="$PLAYBOOK_FAMILY/performance/investigation.md"
+GITHUB_PLAYBOOK="$PLAYBOOK_FAMILY/git/github-pr-lifecycle.md"
+CONFLICT_PLAYBOOK="$PLAYBOOK_FAMILY/git/conflict-resolution.md"
 if [[ -f "$PLAYBOOK_LIB" ]]; then
   # shellcheck source=/dev/null
   . "$PLAYBOOK_LIB"
@@ -71,7 +75,9 @@ _assert_contains "agent rules: memory policy handles pending reminders" \
   "If a prompt or hook reminder says memory is pending" "$MEMORY_RULES_TEXT"
 _assert_contains "agent rules: memory policy forbids secrets" \
   "Do not store secrets or sensitive credentials" "$MEMORY_RULES_TEXT"
-_assert_contains "agent rules: branch pushes name the destination" \
+_assert_contains "agent rules: GitHub lifecycle remains routed from core" \
+  '~/.config/agent-rules/playbooks.d/git/github-pr-lifecycle.md' "$GIT_RULES_TEXT"
+_assert_not_contains "agent rules: detailed branch push procedure is on demand" \
   'git push <remote> <source>:refs/heads/<destination>' "$GIT_RULES_TEXT"
 
 _assert_file_exists "agent rules: tool selection playbook exists" \
@@ -88,6 +94,63 @@ if [[ -f "$TOOL_SELECTION_PLAYBOOK" ]]; then
     'shdeps dep-links <dependency>' "$TOOL_SELECTION_TEXT"
   _assert_contains "agent rules: tool selection preserves install authorization" \
     "is not authorization to install it" "$TOOL_SELECTION_TEXT"
+fi
+
+_assert_file_exists "agent rules: dotfiles ownership playbook exists" \
+  "$DOTFILES_OWNERSHIP_PLAYBOOK"
+if [[ -f "$DOTFILES_OWNERSHIP_PLAYBOOK" ]]; then
+  DOTFILES_OWNERSHIP_TEXT=$(cat "$DOTFILES_OWNERSHIP_PLAYBOOK")
+  _assert_contains "agent rules: dotfiles ownership playbook has a routed trigger" \
+    "agent-rule-trigger: Extracting reusable functionality from dotfiles" \
+    "$DOTFILES_OWNERSHIP_TEXT"
+  _assert_contains "agent rules: dotfiles ownership requires a durable boundary" \
+    "second real consumer" "$DOTFILES_OWNERSHIP_TEXT"
+  _assert_contains "agent rules: dotfiles ownership preserves public boundaries" \
+    "private topology" "$DOTFILES_OWNERSHIP_TEXT"
+fi
+
+_assert_file_exists "agent rules: performance investigation playbook exists" \
+  "$PERFORMANCE_PLAYBOOK"
+if [[ -f "$PERFORMANCE_PLAYBOOK" ]]; then
+  PERFORMANCE_TEXT=$(cat "$PERFORMANCE_PLAYBOOK")
+  _assert_contains "agent rules: performance playbook has a routed trigger" \
+    "agent-rule-trigger: Investigating or changing startup, hook, CLI, test-runner, or activation performance" \
+    "$PERFORMANCE_TEXT"
+  _assert_contains "agent rules: performance work starts from realistic measurement" \
+    "representative workload" "$PERFORMANCE_TEXT"
+  _assert_contains "agent rules: performance playbook includes a profiling ladder" \
+    'strace -f -c' "$PERFORMANCE_TEXT"
+  _assert_contains "agent rules: performance playbook separates measurement from profiling" \
+    "Benchmark and profile separately" "$PERFORMANCE_TEXT"
+  _assert_contains "agent rules: performance work has a stop rule" \
+    "Stop when" "$PERFORMANCE_TEXT"
+fi
+
+_assert_file_exists "agent rules: GitHub lifecycle playbook exists" \
+  "$GITHUB_PLAYBOOK"
+if [[ -f "$GITHUB_PLAYBOOK" ]]; then
+  GITHUB_PLAYBOOK_TEXT=$(cat "$GITHUB_PLAYBOOK")
+  _assert_contains "agent rules: GitHub lifecycle playbook has a routed trigger" \
+    "agent-rule-trigger: Pushing a branch to GitHub or creating, updating, landing, or cleaning up a GitHub pull request" \
+    "$GITHUB_PLAYBOOK_TEXT"
+  _assert_contains "agent rules: branch pushes name the destination" \
+    'git push <remote> <source>:refs/heads/<destination>' \
+    "$GITHUB_PLAYBOOK_TEXT"
+  _assert_contains "agent rules: GitHub lifecycle verifies pull request state" \
+    "verify that it is still open" "$GITHUB_PLAYBOOK_TEXT"
+fi
+
+_assert_file_exists "agent rules: conflict resolution playbook exists" \
+  "$CONFLICT_PLAYBOOK"
+if [[ -f "$CONFLICT_PLAYBOOK" ]]; then
+  CONFLICT_PLAYBOOK_TEXT=$(cat "$CONFLICT_PLAYBOOK")
+  _assert_contains "agent rules: conflict playbook has a routed trigger" \
+    "agent-rule-trigger: Resolving a Git or Sapling merge, rebase, restack, or histedit conflict" \
+    "$CONFLICT_PLAYBOOK_TEXT"
+  _assert_contains "agent rules: conflict resolution checks marker remnants" \
+    '<<<<<<<' "$CONFLICT_PLAYBOOK_TEXT"
+  _assert_contains "agent rules: conflict resolution checks duplicated content" \
+    "duplicated declarations" "$CONFLICT_PLAYBOOK_TEXT"
 fi
 
 lifecycle_anchor_paths=$(printf '%s\n' "$WORKFLOW_RULES_TEXT" |
@@ -131,6 +194,14 @@ if ((${#playbook_files[@]} == 0)); then
 fi
 _assert_contains "agent rules: tool selection playbook is discovered" \
   "$TOOL_SELECTION_PLAYBOOK" "$playbook_listing"
+_assert_contains "agent rules: dotfiles ownership playbook is discovered" \
+  "$DOTFILES_OWNERSHIP_PLAYBOOK" "$playbook_listing"
+_assert_contains "agent rules: performance investigation playbook is discovered" \
+  "$PERFORMANCE_PLAYBOOK" "$playbook_listing"
+_assert_contains "agent rules: GitHub lifecycle playbook is discovered" \
+  "$GITHUB_PLAYBOOK" "$playbook_listing"
+_assert_contains "agent rules: conflict resolution playbook is discovered" \
+  "$CONFLICT_PLAYBOOK" "$playbook_listing"
 
 echo "=== on-demand playbooks ==="
 
