@@ -39,6 +39,11 @@ GITHUB_PLAYBOOK="$PLAYBOOK_FAMILY/git/github-pr-lifecycle.md"
 CONFLICT_PLAYBOOK="$PLAYBOOK_FAMILY/git/conflict-resolution.md"
 BACKGROUND_PROCESS_PLAYBOOK="$PLAYBOOK_FAMILY/engineering/background-process-lifecycle.md"
 TRANSACTIONAL_STATE_PLAYBOOK="$PLAYBOOK_FAMILY/engineering/transactional-state.md"
+INVESTIGATION_PLAYBOOK="$PLAYBOOK_FAMILY/engineering/investigation.md"
+GENERATED_ARTIFACTS_PLAYBOOK="$PLAYBOOK_FAMILY/engineering/generated-artifacts.md"
+AUTHENTICATION_PLAYBOOK="$PLAYBOOK_FAMILY/security/authentication.md"
+RELEASE_PLAYBOOK="$PLAYBOOK_FAMILY/git/releases.md"
+STATE_ISOLATION_PLAYBOOK="$PLAYBOOK_FAMILY/testing/state-isolation.md"
 MEMORY_HYGIENE_PLAYBOOK="$PLAYBOOK_FAMILY/memory/hygiene.md"
 AGENT_RULES_MAINTENANCE_PLAYBOOK="$PLAYBOOK_FAMILY/agent-rules/maintenance.md"
 SHELL_PLAYBOOK="$PLAYBOOK_FAMILY/languages/shell.md"
@@ -114,7 +119,29 @@ if [[ -f "$TOOL_SELECTION_PLAYBOOK" ]]; then
     'shdeps dep-links <dependency>' "$TOOL_SELECTION_TEXT"
   _assert_contains "agent rules: tool selection preserves install authorization" \
     "is not authorization to install it" "$TOOL_SELECTION_TEXT"
+  _assert_contains "agent rules: tool selection traces managed provenance" \
+    "declaration -> owning manager" "$TOOL_SELECTION_TEXT"
 fi
+
+for playbook_spec in \
+  "$INVESTIGATION_PLAYBOOK|agent-rule-trigger: Diagnosing a bug, failure, incident, or unexpected behavior|exact operation|end-to-end consumer path" \
+  "$GENERATED_ARTIFACTS_PLAYBOOK|agent-rule-trigger: Changing or repairing a generated artifact family|canonical producer|not only the file named" \
+  "$AUTHENTICATION_PLAYBOOK|agent-rule-trigger: Investigating or changing authentication, passwords, credentials, PAM, login policy, or service accounts|secret entry|actual client login" \
+  "$RELEASE_PLAYBOOK|agent-rule-trigger: Publishing, verifying, or cleaning up a software release|authoritative release|immutable release" \
+  "$STATE_ISOLATION_PLAYBOOK|agent-rule-trigger: Testing applications or plugins that can write user configuration, state, cache, sessions, history, or credentials|plugin-owned persistence|live user paths"; do
+  IFS='|' read -r playbook_path trigger_contract first_contract second_contract <<<"$playbook_spec"
+  _assert_file_exists "agent rules: workflow playbook exists: $playbook_path" \
+    "$playbook_path"
+  if [[ -f "$playbook_path" ]]; then
+    playbook_text=$(cat "$playbook_path")
+    _assert_contains "agent rules: workflow playbook trigger: $trigger_contract" \
+      "$trigger_contract" "$playbook_text"
+    _assert_contains "agent rules: workflow playbook contract: $first_contract" \
+      "$first_contract" "$playbook_text"
+    _assert_contains "agent rules: workflow playbook contract: $second_contract" \
+      "$second_contract" "$playbook_text"
+  fi
+done
 
 _assert_file_exists "agent rules: dotfiles operations playbook exists" \
   "$DOTFILES_OPERATIONS_PLAYBOOK"
@@ -171,12 +198,14 @@ _assert_file_exists "agent rules: memory hygiene playbook exists" \
 if [[ -f "$MEMORY_HYGIENE_PLAYBOOK" ]]; then
   MEMORY_HYGIENE_TEXT=$(cat "$MEMORY_HYGIENE_PLAYBOOK")
   _assert_contains "agent rules: memory hygiene playbook has a routed trigger" \
-    "agent-rule-trigger: Writing, correcting, superseding, reconciling, retagging, or scoping durable memory" \
+    "agent-rule-trigger: Writing, correcting, superseding, reconciling, retagging, scoping, troubleshooting, or auditing durable memory and its retrieval health" \
     "$MEMORY_HYGIENE_TEXT"
   _assert_contains "agent rules: memory corrections supersede stale facts" \
     'hm remember --supersedes <id>' "$MEMORY_HYGIENE_TEXT"
   _assert_contains "agent rules: memory metadata uses supported commands" \
     "hand-edit stored records because" "$MEMORY_HYGIENE_TEXT"
+  _assert_contains "agent rules: memory health separates retrieval dimensions" \
+    "Separate store reachability" "$MEMORY_HYGIENE_TEXT"
 fi
 
 _assert_file_exists "agent rules: maintenance playbook exists" \
@@ -190,6 +219,10 @@ if [[ -f "$AGENT_RULES_MAINTENANCE_PLAYBOOK" ]]; then
     "Generated runtime targets" "$AGENT_RULES_MAINTENANCE_TEXT"
   _assert_contains "agent rules: maintenance reviews context cost" \
     "aggregate context cost" "$AGENT_RULES_MAINTENANCE_TEXT"
+  _assert_contains "agent rules: maintenance requires a promotion contract" \
+    "failure prevented" "$AGENT_RULES_MAINTENANCE_TEXT"
+  _assert_contains "agent rules: maintenance curates existing playbooks" \
+    "Narrow, merge, split, move, or retire" "$AGENT_RULES_MAINTENANCE_TEXT"
 fi
 
 _assert_contains "agent rules: shell playbook verifies minimum runtime" \
@@ -303,6 +336,16 @@ _assert_contains "agent rules: memory hygiene playbook is discovered" \
   "$MEMORY_HYGIENE_PLAYBOOK" "$playbook_listing"
 _assert_contains "agent rules: maintenance playbook is discovered" \
   "$AGENT_RULES_MAINTENANCE_PLAYBOOK" "$playbook_listing"
+_assert_contains "agent rules: investigation playbook is discovered" \
+  "$INVESTIGATION_PLAYBOOK" "$playbook_listing"
+_assert_contains "agent rules: generated artifacts playbook is discovered" \
+  "$GENERATED_ARTIFACTS_PLAYBOOK" "$playbook_listing"
+_assert_contains "agent rules: authentication playbook is discovered" \
+  "$AUTHENTICATION_PLAYBOOK" "$playbook_listing"
+_assert_contains "agent rules: release playbook is discovered" \
+  "$RELEASE_PLAYBOOK" "$playbook_listing"
+_assert_contains "agent rules: state isolation playbook is discovered" \
+  "$STATE_ISOLATION_PLAYBOOK" "$playbook_listing"
 
 echo "=== on-demand playbooks ==="
 

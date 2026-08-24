@@ -15,6 +15,8 @@ several generalists the same broad question.
   a small local change; use multiple parallel reviewers for broad,
   security-sensitive, cross-repo, workflow, data-migration, or
   high-blast-radius changes.
+- Call a self-review a self-review, not fresh-eyes or independent review. Those
+  terms require a reviewer that did not produce the work.
 - Assign concrete axes such as correctness, edge cases, concurrency,
   security/privacy, maintainability, tests/CI, developer experience,
   compatibility, and adherence to these agent rules.
@@ -24,6 +26,9 @@ several generalists the same broad question.
 - Treat reviewer output as evidence to triage, not as truth. Validate material
   findings against the code and discard low-confidence or change-for-change's
   sake suggestions.
+- After actionable fixes, rerun affected checks. For high-risk work or an
+  explicitly requested independent-review gate, continue with a new independent
+  pass until the current diff receives a clean review.
 - Do not delegate when the user explicitly asks for no extra review, the work
   is an urgent operational command, the reviewer would need unavailable tools
   or private context, or the workflow must run in the main session. In those
