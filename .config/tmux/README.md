@@ -44,7 +44,7 @@ Ctrl-h/j/k/l bindings should follow focused pane ownership across nested tmux
 layers. Editors and fzf receive the chord directly. Interactive transports and
 nested multiplexers receive it only while their inner content has enabled
 mouse reporting; that signal distinguishes a focused remote tmux, screen, or
-terminal application from a plain remote shell. A plain SSH/mosh shell keeps
+terminal application from a plain remote shell. A plain SSH/mosh/ET shell keeps
 pane navigation at the outer tmux layer, where forwarding Ctrl-h would instead
 produce backspace. Foreground-process-group checks prevent stale background
 transports or nested clients from stealing the chord. When a remote nested
@@ -55,9 +55,9 @@ the loopback cannot recurse indefinitely.
 
 Ctrl-Tab bindings share pane-navigation's focus ownership. Forward the key into
 Neovim/fzf when those programs own the pane, and through interactive remote
-transports such as `ssh` and `mosh` only when propagated mouse reporting proves
-that a tmux, screen, Neovim, or other mouse-aware application is active on the
-remote host. A plain remote shell remains at the current tmux layer, so the
+transports such as `ssh`, `mosh`, and ET only when propagated mouse reporting
+proves that a tmux, screen, Neovim, or other mouse-aware application is active
+on the remote host. A plain remote shell remains at the current tmux layer, so the
 chord switches its windows instead of reaching the shell as an unusable escape
 sequence. The transport detector only trusts the pane's foreground process
 group; stale SSH helper processes can remain attached to a tty after the shell

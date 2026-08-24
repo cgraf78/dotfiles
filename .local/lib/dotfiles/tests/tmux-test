@@ -65,9 +65,11 @@ if command -v tmux >/dev/null 2>&1; then
   native_shell_match=$(tmux -S "$syntax_socket" display-message -p \
     '#{m/r:^g?(view|l?n?vim?x?|fzf)(diff)?$,bash}')
   native_ssh_match=$(tmux -S "$syntax_socket" display-message -p \
-    '#{m/r:^(ssh|mosh|mosh-client|mosh-server)$,ssh}')
+    '#{m/r:^(ssh|mosh|mosh-client|mosh-server|et)$,ssh}')
+  native_et_match=$(tmux -S "$syntax_socket" display-message -p \
+    '#{m/r:^(ssh|mosh|mosh-client|mosh-server|et)$,et}')
   native_background_ssh_match=$(tmux -S "$syntax_socket" display-message -p \
-    '#{m/r:^(ssh|mosh|mosh-client|mosh-server)$,bash}')
+    '#{m/r:^(ssh|mosh|mosh-client|mosh-server|et)$,bash}')
   native_nested_mouse_match=$(tmux -S "$syntax_socket" display-message -p \
     '#{||:0,#{&&:1,#{m/r:^(tmux|screen)(:.*)?$,tmux: client}}}')
   tmux -S "$syntax_socket" kill-server
@@ -77,6 +79,7 @@ if command -v tmux >/dev/null 2>&1; then
   _assert_eq "tmux native detector matches fzf" "1" "$native_fzf_match"
   _assert_eq "tmux native detector leaves shells at the tmux layer" "0" "$native_shell_match"
   _assert_eq "tmux native detector matches foreground ssh" "1" "$native_ssh_match"
+  _assert_eq "tmux native detector matches foreground ET" "1" "$native_et_match"
   _assert_eq "tmux native detector ignores background ssh after shell resumes" \
     "0" "$native_background_ssh_match"
   _assert_eq "tmux native detector matches mouse-aware nested clients" \
@@ -263,8 +266,8 @@ _assert_contains "tmux Ctrl-Tab forwards direct nvim/fzf panes via CSI-u helper"
   "\"\$send_ctrl_tab\"" "$ctrl_tab_config_line"
 _assert_contains "tmux Ctrl-Shift-Tab forwards direct nvim/fzf panes via CSI-u helper" \
   "\"\$send_ctrl_shift_tab\"" "$ctrl_shift_tab_config_line"
-_assert_contains "tmux detects SSH/mosh panes as terminal app-owned for nested remotes" \
-  "ssh|mosh|mosh-client|mosh-server" "$terminal_app_detector_line"
+_assert_contains "tmux detects remote transports as terminal app-owned" \
+  "ssh|mosh|mosh-client|mosh-server|et" "$terminal_app_detector_line"
 _assert_contains "tmux foreground app detector uses native pane command metadata" \
   "#{pane_current_command}" "$foreground_app_detectors"
 _assert_contains "tmux foreground app detector retains pipeline fallback" \
@@ -288,13 +291,13 @@ _assert_eq "tmux defines all four parent-pane helper routes" \
 _assert_contains "tmux pane navigation requires inner mouse focus for transports" \
   "mouse == 1" "$pane_navigation_detector_line"
 _assert_contains "tmux pane navigation recognizes nested remote transports" \
-  "ssh|mosh|mosh-client|mosh-server" "$pane_navigation_detector_line"
+  "ssh|mosh|mosh-client|mosh-server|et" "$pane_navigation_detector_line"
 _assert_contains "tmux pane navigation recognizes nested multiplexers" \
   "tmux|screen" "$pane_navigation_detector_line"
 _assert_contains "tmux foreground app detector matches editors and fzf natively" \
   "view|l?n?vim?x?|fzf" "$foreground_app_detectors"
-_assert_contains "tmux foreground app detector matches SSH and mosh natively" \
-  "ssh|mosh|mosh-client|mosh-server" "$foreground_app_detectors"
+_assert_contains "tmux foreground app detector matches remote transports natively" \
+  "ssh|mosh|mosh-client|mosh-server|et" "$foreground_app_detectors"
 foreground_vim_filter=$(
   cat <<'AWK'
 $3 == $4 && $1 !~ /^[TXZ]/ && $2 ~ /^g?(view|l?n?vim?x?|fzf)(diff)?$/ { found = 1 }
@@ -308,7 +311,7 @@ _assert_exit "tmux process-group fallback matches fzf behind a pipeline producer
   0 "$pipeline_vim_rc"
 foreground_terminal_filter=$(
   cat <<'AWK'
-$1 !~ /^[TXZ]/ && $(NF-1) == $NF && ($2 ~ /^(g?(view|l?n?vim?x?|fzf)(diff)?|ssh|mosh|mosh-client|mosh-server)$/ || (mouse == 1 && $2 ~ /^(tmux|screen):?$/)) { found = 1 }
+$1 !~ /^[TXZ]/ && $(NF-1) == $NF && ($2 ~ /^(g?(view|l?n?vim?x?|fzf)(diff)?|ssh|mosh|mosh-client|mosh-server|et)$/ || (mouse == 1 && $2 ~ /^(tmux|screen):?$/)) { found = 1 }
 END { exit !found }
 AWK
 )
@@ -329,7 +332,7 @@ _assert_exit "tmux process-group fallback ignores background transports and clie
   1 "$background_terminal_rc"
 foreground_pane_navigation_filter=$(
   cat <<'AWK'
-$1 !~ /^[TXZ]/ && $(NF-1) == $NF && ($2 ~ /^g?(view|l?n?vim?x?|fzf)(diff)?$/ || (mouse == 1 && $2 ~ /^(ssh|mosh|mosh-client|mosh-server|tmux|screen):?$/)) { found = 1 }
+$1 !~ /^[TXZ]/ && $(NF-1) == $NF && ($2 ~ /^g?(view|l?n?vim?x?|fzf)(diff)?$/ || (mouse == 1 && $2 ~ /^(ssh|mosh|mosh-client|mosh-server|et|tmux|screen):?$/)) { found = 1 }
 END { exit !found }
 AWK
 )
@@ -377,9 +380,9 @@ _assert_contains "tmux Alt-Shift-[ forwards Meta-left-brace sequence" \
   "send_alt_shift_left_bracket=\"send-keys Escape '{'\"" "$tmux_content"
 _assert_contains "tmux Alt-Shift-] forwards Meta-right-brace sequence" \
   "send_alt_shift_right_bracket=\"send-keys Escape '}'\"" "$tmux_content"
-_assert_contains "tmux Alt-Shift-[ forwards SSH/mosh panes instead of moving parent tmux" \
+_assert_contains "tmux Alt-Shift-[ forwards remote transports instead of moving parent tmux" \
   "\"\$is_terminal_app\"" "$move_tab_left_config_line"
-_assert_contains "tmux Alt-Shift-] forwards SSH/mosh panes instead of moving parent tmux" \
+_assert_contains "tmux Alt-Shift-] forwards remote transports instead of moving parent tmux" \
   "\"\$is_terminal_app\"" "$move_tab_right_config_line"
 _assert_contains "tmux Alt-Shift-[ stops at first tmux window before bubbling" \
   "#{>:#{window_index},#{base-index}}" "$tmux_content"
@@ -607,14 +610,24 @@ if command -v tmux >/dev/null 2>&1; then
   focused_remote_tab_runtime_rc=$?
   _assert_exit "tmux runtime Ctrl-Tab forwards into a mouse-aware remote application" \
     0 "$focused_remote_tab_runtime_rc"
-  _assert_contains "tmux runtime Ctrl-Tab forwards SSH/mosh panes" \
-    "ssh|mosh" "$ctrl_tab_root_line"
+  printf 'S+ et 39056 39056\n' |
+    awk -v mouse=0 "$tab_focus_runtime_filter"
+  plain_et_tab_runtime_rc=$?
+  _assert_exit "tmux runtime Ctrl-Tab keeps a plain ET shell at the outer layer" \
+    1 "$plain_et_tab_runtime_rc"
+  printf 'S+ et 39056 39056\n' |
+    awk -v mouse=1 "$tab_focus_runtime_filter"
+  focused_et_tab_runtime_rc=$?
+  _assert_exit "tmux runtime Ctrl-Tab forwards into a mouse-aware ET session" \
+    0 "$focused_et_tab_runtime_rc"
+  _assert_contains "tmux runtime Ctrl-Tab forwards remote transports" \
+    "ssh|mosh|mosh-client|mosh-server|et" "$ctrl_tab_root_line"
   _assert_contains "tmux runtime Ctrl-Tab reads the native foreground command" \
     "#{pane_current_command}" "$ctrl_tab_root_line"
   _assert_eq "tmux runtime Ctrl-Tab retains one pipeline classifier" \
     "1" "$(grep -o 'ps -o' <<<"$ctrl_tab_root_line" | wc -l | tr -d ' ')"
-  _assert_contains "tmux runtime Ctrl-Shift-Tab forwards SSH/mosh panes" \
-    "ssh|mosh" "$ctrl_shift_tab_root_line"
+  _assert_contains "tmux runtime Ctrl-Shift-Tab forwards remote transports" \
+    "ssh|mosh|mosh-client|mosh-server|et" "$ctrl_shift_tab_root_line"
   _assert_contains "tmux runtime Ctrl-Tab forwards into nested terminal apps" \
     "#{mouse_any_flag}" "$ctrl_tab_root_line"
   _assert_contains "tmux runtime Ctrl-Shift-Tab forwards into nested terminal apps" \
@@ -627,10 +640,10 @@ if command -v tmux >/dev/null 2>&1; then
     "send-keys Escape '{'" "$move_tab_left_root_line"
   _assert_contains "tmux runtime Alt-Shift-] forwards direct nvim/fzf panes" \
     "send-keys Escape '}'" "$move_tab_right_root_line"
-  _assert_contains "tmux runtime Alt-Shift-[ forwards SSH/mosh panes" \
-    "ssh|mosh" "$move_tab_left_root_line"
-  _assert_contains "tmux runtime Alt-Shift-] forwards SSH/mosh panes" \
-    "ssh|mosh" "$move_tab_right_root_line"
+  _assert_contains "tmux runtime Alt-Shift-[ forwards remote transports" \
+    "ssh|mosh|mosh-client|mosh-server|et" "$move_tab_left_root_line"
+  _assert_contains "tmux runtime Alt-Shift-] forwards remote transports" \
+    "ssh|mosh|mosh-client|mosh-server|et" "$move_tab_right_root_line"
   _assert_contains "tmux runtime Alt-Shift-[ forwards into nested terminal apps" \
     "#{mouse_any_flag}" "$move_tab_left_root_line"
   _assert_contains "tmux runtime Alt-Shift-] forwards into nested terminal apps" \
