@@ -7,6 +7,12 @@
   libraries. Preserve zsh, POSIX, and shared-shell runtime contracts; do not add
   Bash-only features such as `${BASH_SOURCE[0]}` or arrays unless the file is
   already Bash-only.
+- Establish the minimum supported shell and operating systems before using
+  convenience features. If Bash 3.2 is supported, avoid `mapfile`, associative
+  arrays, and newer builtins, and verify with the actual minimum shell.
+- Avoid unguarded GNU-only assumptions such as `readlink -f`, `stat -c`, and
+  `sed -r` when the script supports macOS or BSD userlands. Test the real target
+  platform when compatibility is part of the contract.
 - Add `# shellcheck shell=bash` when a Bash file's extension or shebang is not
   enough for tools to infer the shell.
 - Prefer `set -u` or scoped strictness for public entry points. Do not blindly

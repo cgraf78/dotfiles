@@ -33,9 +33,16 @@ NATIVE_TARGETS="$source_home/.config/dot/merge-hooks.d/agent-rules/targets.d/80-
 PLAYBOOK_FAMILY="$source_home/.config/agent-rules/playbooks.d"
 TOOL_SELECTION_PLAYBOOK="$PLAYBOOK_FAMILY/tools/selection.md"
 DOTFILES_OWNERSHIP_PLAYBOOK="$PLAYBOOK_FAMILY/dotfiles/ownership-and-extraction.md"
+DOTFILES_OPERATIONS_PLAYBOOK="$PLAYBOOK_FAMILY/dotfiles/operations.md"
 PERFORMANCE_PLAYBOOK="$PLAYBOOK_FAMILY/performance/investigation.md"
 GITHUB_PLAYBOOK="$PLAYBOOK_FAMILY/git/github-pr-lifecycle.md"
 CONFLICT_PLAYBOOK="$PLAYBOOK_FAMILY/git/conflict-resolution.md"
+BACKGROUND_PROCESS_PLAYBOOK="$PLAYBOOK_FAMILY/engineering/background-process-lifecycle.md"
+TRANSACTIONAL_STATE_PLAYBOOK="$PLAYBOOK_FAMILY/engineering/transactional-state.md"
+MEMORY_HYGIENE_PLAYBOOK="$PLAYBOOK_FAMILY/memory/hygiene.md"
+AGENT_RULES_MAINTENANCE_PLAYBOOK="$PLAYBOOK_FAMILY/agent-rules/maintenance.md"
+SHELL_PLAYBOOK="$PLAYBOOK_FAMILY/languages/shell.md"
+CPP_PLAYBOOK="$PLAYBOOK_FAMILY/languages/cpp.md"
 if [[ -f "$PLAYBOOK_LIB" ]]; then
   # shellcheck source=/dev/null
   . "$PLAYBOOK_LIB"
@@ -52,8 +59,11 @@ echo "=== global memory rules ==="
 
 SCOPE_RULES_TEXT=$(cat "$RULE_FAMILY/000-global-rules.md")
 MEMORY_RULES_TEXT=$(cat "$RULE_FAMILY/010-durable-memory.md")
+DOTFILES_RULES_TEXT=$(cat "$RULE_FAMILY/030-dotfiles.md")
+COMMAND_RULES_TEXT=$(cat "$RULE_FAMILY/040-shell-and-commands.md")
 GIT_RULES_TEXT=$(cat "$RULE_FAMILY/050-git-and-github.md")
 WORKFLOW_RULES_TEXT=$(cat "$RULE_FAMILY/070-engineering-workflow.md")
+TESTING_RULES_TEXT=$(cat "$RULE_FAMILY/080-testing.md")
 _assert_contains "agent rules: scope explains generated targets" \
   "This rule set is generated from source fragments" "$SCOPE_RULES_TEXT"
 _assert_contains "agent rules: scope directs edits to source fragments" \
@@ -75,10 +85,20 @@ _assert_contains "agent rules: memory policy handles pending reminders" \
   "If a prompt or hook reminder says memory is pending" "$MEMORY_RULES_TEXT"
 _assert_contains "agent rules: memory policy forbids secrets" \
   "Do not store secrets or sensitive credentials" "$MEMORY_RULES_TEXT"
+_assert_contains "agent rules: memory maintenance remains routed from core" \
+  '~/.config/agent-rules/playbooks.d/memory/hygiene.md' "$MEMORY_RULES_TEXT"
+_assert_contains "agent rules: dotfiles operations remain routed from core" \
+  '~/.config/agent-rules/playbooks.d/dotfiles/operations.md' "$DOTFILES_RULES_TEXT"
+_assert_contains "agent rules: verification preserves required command status" \
+  "inspect the status of every required command" "$COMMAND_RULES_TEXT"
 _assert_contains "agent rules: GitHub lifecycle remains routed from core" \
   '~/.config/agent-rules/playbooks.d/git/github-pr-lifecycle.md' "$GIT_RULES_TEXT"
 _assert_not_contains "agent rules: detailed branch push procedure is on demand" \
   'git push <remote> <source>:refs/heads/<destination>' "$GIT_RULES_TEXT"
+_assert_not_contains "agent rules: C++ interface detail is on demand" \
+  "Always update .h and .cpp" "$WORKFLOW_RULES_TEXT"
+_assert_contains "agent rules: asynchronous tests use condition-based waiting" \
+  "poll the observable condition with a" "$TESTING_RULES_TEXT"
 
 _assert_file_exists "agent rules: tool selection playbook exists" \
   "$TOOL_SELECTION_PLAYBOOK"
@@ -96,6 +116,17 @@ if [[ -f "$TOOL_SELECTION_PLAYBOOK" ]]; then
     "is not authorization to install it" "$TOOL_SELECTION_TEXT"
 fi
 
+_assert_file_exists "agent rules: dotfiles operations playbook exists" \
+  "$DOTFILES_OPERATIONS_PLAYBOOK"
+if [[ -f "$DOTFILES_OPERATIONS_PLAYBOOK" ]]; then
+  DOTFILES_OPERATIONS_TEXT=$(cat "$DOTFILES_OPERATIONS_PLAYBOOK")
+  _assert_contains "agent rules: dotfiles operations has a routed trigger" \
+    "agent-rule-trigger: Operating or modifying the base dotfiles repository" \
+    "$DOTFILES_OPERATIONS_TEXT"
+  _assert_contains "agent rules: dotfiles operations verifies installed state" \
+    "dot update -f" "$DOTFILES_OPERATIONS_TEXT"
+fi
+
 _assert_file_exists "agent rules: dotfiles ownership playbook exists" \
   "$DOTFILES_OWNERSHIP_PLAYBOOK"
 if [[ -f "$DOTFILES_OWNERSHIP_PLAYBOOK" ]]; then
@@ -108,6 +139,63 @@ if [[ -f "$DOTFILES_OWNERSHIP_PLAYBOOK" ]]; then
   _assert_contains "agent rules: dotfiles ownership preserves public boundaries" \
     "private topology" "$DOTFILES_OWNERSHIP_TEXT"
 fi
+
+_assert_file_exists "agent rules: background process playbook exists" \
+  "$BACKGROUND_PROCESS_PLAYBOOK"
+if [[ -f "$BACKGROUND_PROCESS_PLAYBOOK" ]]; then
+  BACKGROUND_PROCESS_TEXT=$(cat "$BACKGROUND_PROCESS_PLAYBOOK")
+  _assert_contains "agent rules: background process playbook has a routed trigger" \
+    "agent-rule-trigger: Launching, supervising, cancelling, or testing background processes" \
+    "$BACKGROUND_PROCESS_TEXT"
+  _assert_contains "agent rules: background process cleanup reaps children" \
+    "Reap every owned child" "$BACKGROUND_PROCESS_TEXT"
+  _assert_contains "agent rules: background process tests reject fixed sleeps" \
+    "bounded deadline rather than relying on fixed" "$BACKGROUND_PROCESS_TEXT"
+fi
+
+_assert_file_exists "agent rules: transactional state playbook exists" \
+  "$TRANSACTIONAL_STATE_PLAYBOOK"
+if [[ -f "$TRANSACTIONAL_STATE_PLAYBOOK" ]]; then
+  TRANSACTIONAL_STATE_TEXT=$(cat "$TRANSACTIONAL_STATE_PLAYBOOK")
+  _assert_contains "agent rules: transactional state playbook has a routed trigger" \
+    "agent-rule-trigger: Writing or replacing persistent configuration" \
+    "$TRANSACTIONAL_STATE_TEXT"
+  _assert_contains "agent rules: transactional state preserves prior content" \
+    "Preserve the previous" "$TRANSACTIONAL_STATE_TEXT"
+  _assert_contains "agent rules: transactional state avoids false durability claims" \
+    "Do not claim crash durability" "$TRANSACTIONAL_STATE_TEXT"
+fi
+
+_assert_file_exists "agent rules: memory hygiene playbook exists" \
+  "$MEMORY_HYGIENE_PLAYBOOK"
+if [[ -f "$MEMORY_HYGIENE_PLAYBOOK" ]]; then
+  MEMORY_HYGIENE_TEXT=$(cat "$MEMORY_HYGIENE_PLAYBOOK")
+  _assert_contains "agent rules: memory hygiene playbook has a routed trigger" \
+    "agent-rule-trigger: Writing, correcting, superseding, reconciling, retagging, or scoping durable memory" \
+    "$MEMORY_HYGIENE_TEXT"
+  _assert_contains "agent rules: memory corrections supersede stale facts" \
+    'hm remember --supersedes <id>' "$MEMORY_HYGIENE_TEXT"
+  _assert_contains "agent rules: memory metadata uses supported commands" \
+    "hand-edit stored records because" "$MEMORY_HYGIENE_TEXT"
+fi
+
+_assert_file_exists "agent rules: maintenance playbook exists" \
+  "$AGENT_RULES_MAINTENANCE_PLAYBOOK"
+if [[ -f "$AGENT_RULES_MAINTENANCE_PLAYBOOK" ]]; then
+  AGENT_RULES_MAINTENANCE_TEXT=$(cat "$AGENT_RULES_MAINTENANCE_PLAYBOOK")
+  _assert_contains "agent rules: maintenance playbook has a routed trigger" \
+    "agent-rule-trigger: Adding, moving, auditing, or changing agent rules or playbooks" \
+    "$AGENT_RULES_MAINTENANCE_TEXT"
+  _assert_contains "agent rules: maintenance protects generated outputs" \
+    "Generated runtime targets" "$AGENT_RULES_MAINTENANCE_TEXT"
+  _assert_contains "agent rules: maintenance reviews context cost" \
+    "aggregate context cost" "$AGENT_RULES_MAINTENANCE_TEXT"
+fi
+
+_assert_contains "agent rules: shell playbook verifies minimum runtime" \
+  "verify with the actual minimum shell" "$(cat "$SHELL_PLAYBOOK")"
+_assert_contains "agent rules: C++ interface consistency is language-scoped" \
+  "Update declarations and definitions consistently" "$(cat "$CPP_PLAYBOOK")"
 
 _assert_file_exists "agent rules: performance investigation playbook exists" \
   "$PERFORMANCE_PLAYBOOK"
@@ -138,6 +226,9 @@ if [[ -f "$GITHUB_PLAYBOOK" ]]; then
     "$GITHUB_PLAYBOOK_TEXT"
   _assert_contains "agent rules: GitHub lifecycle verifies pull request state" \
     "verify that it is still open" "$GITHUB_PLAYBOOK_TEXT"
+  _assert_contains "agent rules: GitHub lifecycle keeps internal audits private" \
+    "Perform privacy, secret, and repository-boundary reviews silently" \
+    "$GITHUB_PLAYBOOK_TEXT"
 fi
 
 _assert_file_exists "agent rules: conflict resolution playbook exists" \
@@ -196,12 +287,22 @@ _assert_contains "agent rules: tool selection playbook is discovered" \
   "$TOOL_SELECTION_PLAYBOOK" "$playbook_listing"
 _assert_contains "agent rules: dotfiles ownership playbook is discovered" \
   "$DOTFILES_OWNERSHIP_PLAYBOOK" "$playbook_listing"
+_assert_contains "agent rules: dotfiles operations playbook is discovered" \
+  "$DOTFILES_OPERATIONS_PLAYBOOK" "$playbook_listing"
 _assert_contains "agent rules: performance investigation playbook is discovered" \
   "$PERFORMANCE_PLAYBOOK" "$playbook_listing"
 _assert_contains "agent rules: GitHub lifecycle playbook is discovered" \
   "$GITHUB_PLAYBOOK" "$playbook_listing"
 _assert_contains "agent rules: conflict resolution playbook is discovered" \
   "$CONFLICT_PLAYBOOK" "$playbook_listing"
+_assert_contains "agent rules: background process playbook is discovered" \
+  "$BACKGROUND_PROCESS_PLAYBOOK" "$playbook_listing"
+_assert_contains "agent rules: transactional state playbook is discovered" \
+  "$TRANSACTIONAL_STATE_PLAYBOOK" "$playbook_listing"
+_assert_contains "agent rules: memory hygiene playbook is discovered" \
+  "$MEMORY_HYGIENE_PLAYBOOK" "$playbook_listing"
+_assert_contains "agent rules: maintenance playbook is discovered" \
+  "$AGENT_RULES_MAINTENANCE_PLAYBOOK" "$playbook_listing"
 
 echo "=== on-demand playbooks ==="
 
