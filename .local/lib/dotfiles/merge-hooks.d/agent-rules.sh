@@ -134,24 +134,14 @@ _dot_agent_rules_emit_targets() {
   done <<<"$listing"
 }
 
-# Build the complete manifest beside its destination and rename it only after
-# every dot-owned trust and policy input has resolved. This keeps the previous
-# good manifest intact if an overlay link is stale or a path cannot be encoded.
-_dot_agent_rules_write_manifest() {
-  local manifest tmp rule_root playbook_root
+_dot_agent_rules_build_manifest() {
+  local destination="$1" rule_root playbook_root
 
-  _dot_agent_rules_manifest_path || return 1
-  manifest="$REPLY"
   rule_root="$HOME/.config/agent-rules/rules.d"
   playbook_root=$(_dot_playbook_root) || return 1
+  _dot_agent_rules_manifest_field_valid "$destination" || return 1
   _dot_agent_rules_manifest_field_valid "$rule_root" || return 1
   _dot_agent_rules_manifest_field_valid "$playbook_root" || return 1
-
-  # mkdir honors the caller's existing state directory, while a newly created
-  # directory is private even under an unexpectedly permissive umask.
-  (umask 077 && mkdir -p "$(dirname "$manifest")") || return 1
-  dot_sibling_tmp_for "$manifest" || return 1
-  tmp="$REPLY"
 
   {
     printf 'version\tagent-rules-sync-manifest-v1\n' &&
@@ -160,7 +150,24 @@ _dot_agent_rules_write_manifest() {
       _dot_agent_rules_emit_rules &&
       _dot_agent_rules_emit_playbooks "$playbook_root" &&
       _dot_agent_rules_emit_targets
-  } >"$tmp" || {
+  } >"$destination"
+}
+
+# Build the complete manifest beside its destination and rename it only after
+# every dot-owned trust and policy input has resolved. This keeps the previous
+# good manifest intact if an overlay link is stale or a path cannot be encoded.
+_dot_agent_rules_write_manifest() {
+  local manifest tmp
+
+  _dot_agent_rules_manifest_path || return 1
+  manifest="$REPLY"
+  # mkdir honors the caller's existing state directory, while a newly created
+  # directory is private even under an unexpectedly permissive umask.
+  (umask 077 && mkdir -p "$(dirname "$manifest")") || return 1
+  dot_sibling_tmp_for "$manifest" || return 1
+  tmp="$REPLY"
+
+  _dot_agent_rules_build_manifest "$tmp" || {
     rm -f "$tmp"
     return 1
   }
@@ -173,6 +180,135 @@ _dot_agent_rules_write_manifest() {
     return 1
   }
   REPLY="$manifest"
+}
+
+_dot_agent_rules_extract_block() {
+  local source="$1" destination="$2"
+
+  awk '
+    $0 == "# agent-rules-sync:aggregate begin" {
+      if (found || in_block) bad = 1
+      found = 1
+      in_block = 1
+    }
+    in_block { print }
+    $0 == "# agent-rules-sync:aggregate end" {
+      if (!in_block) bad = 1
+      in_block = 0
+    }
+    END { if (bad || !found || in_block) exit 1 }
+  ' "$source" >"$destination"
+}
+
+_dot_agent_rules_check_installed() {
+  local provider manifest work expected render_manifest rendered target mode
+  local expected_normalized actual_normalized status=0
+
+  REPLY='provider-missing'
+  provider=$(command -v agent-rules-sync) || return 1
+  REPLY='manifest-path-failed'
+  _dot_agent_rules_manifest_path || return 1
+  manifest="$REPLY"
+  REPLY='manifest-missing'
+  [[ -f "$manifest" ]] || return 1
+  mode=$(stat -c '%a' "$manifest" 2>/dev/null || stat -f '%Lp' "$manifest" 2>/dev/null) || {
+    REPLY='manifest-mode-unreadable'
+    return 1
+  }
+  if [[ "$mode" != 600 ]]; then
+    REPLY='manifest-mode'
+    return 1
+  fi
+  REPLY='temporary-workspace-failed'
+  work=$(mktemp -d 2>/dev/null || mktemp -d -t dot-agent-rules-check) || return 1
+  expected="$work/expected.tsv"
+  render_manifest="$work/render.tsv"
+  rendered="$work/AGENTS.md"
+  expected_normalized="$work/expected.normalized"
+  actual_normalized="$work/actual.normalized"
+
+  REPLY='source-selection-failed'
+  _dot_agent_rules_build_manifest "$expected" || status=1
+  if [[ "$status" -eq 0 ]] && ! cmp -s "$expected" "$manifest"; then
+    REPLY='manifest-mismatch'
+    status=1
+  fi
+  if [[ "$status" -eq 0 ]]; then
+    awk -F '\t' -v target="$rendered" \
+      '$1 == "target-file" { next } { print } END { print "target-file\t" target }' \
+      "$expected" >"$render_manifest" || {
+      REPLY='render-manifest-failed'
+      status=1
+    }
+  fi
+  # The provider's normal sync also maintains durable inventory and prunes
+  # stale targets. Fully isolate its HOME and XDG roots so this render probe
+  # cannot observe or mutate the installed provider state.
+  if [[ "$status" -eq 0 ]] && ! (
+    HOME="$work/home"
+    XDG_CONFIG_HOME="$work/config"
+    XDG_DATA_HOME="$work/data"
+    XDG_STATE_HOME="$work/state"
+    XDG_CACHE_HOME="$work/cache"
+    export HOME XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME
+    "$provider" --manifest "$render_manifest" >/dev/null 2>&1
+  ); then
+    REPLY='render-failed'
+    status=1
+  fi
+  if [[ "$status" -eq 0 ]]; then
+    _dot_agent_rules_extract_block "$rendered" "$expected_normalized.block" || {
+      REPLY='render-block-invalid'
+      status=1
+    }
+  fi
+  if [[ "$status" -eq 0 ]]; then
+    awk '!normalized && /^# manifest: / { normalized = 1; next } { print }' \
+      "$expected_normalized.block" >"$expected_normalized" || {
+      REPLY='render-normalization-failed'
+      status=1
+    }
+  fi
+  if [[ "$status" -eq 0 ]]; then
+    while IFS=$'\t' read -r record target _rest; do
+      [[ "$record" == target-file ]] || continue
+      [[ -f "$target" ]] || {
+        REPLY=$'target-missing\t'"$target"
+        status=1
+        break
+      }
+      mode=$(stat -c '%a' "$target" 2>/dev/null || stat -f '%Lp' "$target" 2>/dev/null) || {
+        REPLY=$'target-mode-unreadable\t'"$target"
+        status=1
+        break
+      }
+      if [[ "$mode" != 600 ]]; then
+        REPLY=$'target-mode\t'"$target"
+        status=1
+        break
+      fi
+      _dot_agent_rules_extract_block "$target" "$actual_normalized.block" || {
+        REPLY=$'target-block-invalid\t'"$target"
+        status=1
+        break
+      }
+      awk '!normalized && /^# manifest: / { normalized = 1; next } { print }' \
+        "$actual_normalized.block" >"$actual_normalized" || {
+        REPLY=$'target-normalization-failed\t'"$target"
+        status=1
+        break
+      }
+      cmp -s "$expected_normalized" "$actual_normalized" || {
+        REPLY=$'target-mismatch\t'"$target"
+        status=1
+        break
+      }
+    done <"$expected"
+  fi
+
+  rm -rf "$work"
+  [[ "$status" -eq 0 ]] && REPLY='current'
+  return "$status"
 }
 
 merge() {

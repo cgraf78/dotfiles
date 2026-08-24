@@ -9,9 +9,9 @@
   constraints, and cross-system assumptions. Don't restate WHAT the code does,
   and large blocks of code with no comments are discouraged.
 - **Docstrings** for classes, public methods, and non-trivial private methods.
-  Skip simple getters/setters and obvious helpers. Use Doxygen style: `/** */`
-  blocks with `@brief`, `@param`, `@tparam`, `@return`, `@note`. Use
-  `/// @brief` for one-liners.
+  Skip simple getters/setters and obvious helpers. Use the language-native
+  documentation syntax and follow the applicable language playbook for exact
+  conventions.
 - Follow any applicable language playbook referenced by the on-demand index in
   addition to these global style rules.
 - **Keep code tidy** - delete dead comments, commented-out code, and debugging

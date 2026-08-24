@@ -48,6 +48,7 @@ MEMORY_HYGIENE_PLAYBOOK="$PLAYBOOK_FAMILY/memory/hygiene.md"
 AGENT_RULES_MAINTENANCE_PLAYBOOK="$PLAYBOOK_FAMILY/agent-rules/maintenance.md"
 SHELL_PLAYBOOK="$PLAYBOOK_FAMILY/languages/shell.md"
 CPP_PLAYBOOK="$PLAYBOOK_FAMILY/languages/cpp.md"
+WORKTREE_PLAYBOOK="$PLAYBOOK_FAMILY/git/worktrees.md"
 if [[ -f "$PLAYBOOK_LIB" ]]; then
   # shellcheck source=/dev/null
   . "$PLAYBOOK_LIB"
@@ -69,6 +70,7 @@ COMMAND_RULES_TEXT=$(cat "$RULE_FAMILY/040-shell-and-commands.md")
 GIT_RULES_TEXT=$(cat "$RULE_FAMILY/050-git-and-github.md")
 WORKFLOW_RULES_TEXT=$(cat "$RULE_FAMILY/070-engineering-workflow.md")
 TESTING_RULES_TEXT=$(cat "$RULE_FAMILY/080-testing.md")
+CODE_STYLE_RULES_TEXT=$(cat "$RULE_FAMILY/100-code-style.md")
 _assert_contains "agent rules: scope explains generated targets" \
   "This rule set is generated from source fragments" "$SCOPE_RULES_TEXT"
 _assert_contains "agent rules: scope directs edits to source fragments" \
@@ -104,6 +106,10 @@ _assert_not_contains "agent rules: C++ interface detail is on demand" \
   "Always update .h and .cpp" "$WORKFLOW_RULES_TEXT"
 _assert_contains "agent rules: asynchronous tests use condition-based waiting" \
   "poll the observable condition with a" "$TESTING_RULES_TEXT"
+_assert_contains "agent rules: global docstrings use language-native syntax" \
+  "language-native" "$CODE_STYLE_RULES_TEXT"
+_assert_not_contains "agent rules: global docstrings do not impose Doxygen" \
+  "Use Doxygen style" "$CODE_STYLE_RULES_TEXT"
 
 _assert_file_exists "agent rules: tool selection playbook exists" \
   "$TOOL_SELECTION_PLAYBOOK"
@@ -262,6 +268,17 @@ if [[ -f "$GITHUB_PLAYBOOK" ]]; then
   _assert_contains "agent rules: GitHub lifecycle keeps internal audits private" \
     "Perform privacy, secret, and repository-boundary reviews silently" \
     "$GITHUB_PLAYBOOK_TEXT"
+  _assert_contains "agent rules: published rebases require lease-protected pushes" \
+    "--force-with-lease" "$GITHUB_PLAYBOOK_TEXT"
+  _assert_contains "agent rules: published rebases preserve the expected remote head" \
+    "expected old remote head" "$GITHUB_PLAYBOOK_TEXT"
+fi
+
+_assert_file_exists "agent rules: worktree playbook exists" "$WORKTREE_PLAYBOOK"
+if [[ -f "$WORKTREE_PLAYBOOK" ]]; then
+  _assert_contains "agent rules: worktree bootstrap avoids pre-isolation ignore edits" \
+    "already-ignored or external sibling worktree root" \
+    "$(cat "$WORKTREE_PLAYBOOK")"
 fi
 
 _assert_file_exists "agent rules: conflict resolution playbook exists" \

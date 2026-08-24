@@ -3,6 +3,9 @@
 <!-- agent-rule-id: language-cpp-style -->
 <!-- agent-rule-trigger: Editing C++ -->
 
+- Use Doxygen documentation blocks (`/** */`) with `@brief`, `@param`,
+  `@tparam`, `@return`, and `@note` where applicable. Use `/// @brief` for
+  one-line API documentation.
 - Update declarations and definitions consistently when an interface spans
   headers and implementation files.
 - `std::unique_ptr` for single ownership, `std::shared_ptr` only when truly
