@@ -54,10 +54,12 @@ program	.local/lib/dotfiles/doctor.d/20-tools.sh
 program	.local/lib/dotfiles/doctor.d/30-shell-integrations.sh
 program	.local/lib/dotfiles/doctor.d/31-git-hooks.sh
 program	.local/lib/dotfiles/doctor.d/40-agent-hooks.sh
+program	.local/lib/dotfiles/doctor.d/41-agent-rules.sh
 program	.local/lib/dotfiles/doctor.d/50-hive-memory.sh
 program	.local/lib/dotfiles/doctor.d/60-cron.sh
 program	.local/lib/dotfiles/doctor.d/70-nvim.sh
 program	.local/lib/dotfiles/doctor.d/lib/agent-hooks.sh
+program	.local/lib/dotfiles/doctor.d/lib/agent-rules.sh
 program	.local/lib/dotfiles/doctor.d/lib/compat.sh
 program	.local/lib/dotfiles/doctor.d/lib/cron.sh
 program	.local/lib/dotfiles/doctor.d/lib/integrations.sh

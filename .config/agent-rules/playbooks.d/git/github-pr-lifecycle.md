@@ -16,8 +16,9 @@ explicit and verifiable.
 - Before updating an existing pull request, verify that it is still open. If it
   was merged or closed, create a new branch and pull request instead of assuming
   another push will update it.
-- If `origin/main` has moved and the branch is being touched again, rebase it and
-  rerun the checks affected by the new base.
+- If `origin/main` has moved and the branch is being touched again, determine
+  whether the repository requires an up-to-date branch and whether the change is
+  affected before rebasing. Rerun checks affected by a new base.
 
 ## Commit and push safely
 
@@ -33,6 +34,11 @@ explicit and verifiable.
 - Do not assume the intended commit is `HEAD`. When uncommitted changes belong
   to multiple existing commits, leave them unstaged and use an appropriate
   history-aware routing tool such as `git absorb-and-rebase`.
+- Before rewriting a published pull-request branch, verify the pull request is
+  open, record the expected old remote head, and follow repository policy for
+  history updates. When a rewrite is authorized, push the explicit destination
+  with `--force-with-lease=<destination>:<expected-old-oid>` and then verify both
+  the remote branch and pull-request head. Never use an unrestricted force push.
 - Name the remote, source commit, and full destination explicitly:
   `git push <remote> <source>:refs/heads/<destination>`. Do not rely on inherited
   upstream configuration for feature-branch publication.

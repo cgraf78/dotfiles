@@ -20,8 +20,11 @@ work in the same repository without colliding.
   normally under `.worktrees/<branch-name>/`, from the latest `origin/main`
   unless the task explicitly targets another base.
 - Before creating a project-local worktree directory, verify `.worktrees/` or
-  the chosen worktree directory is ignored. If it is not ignored, add the ignore
-  rule first.
+  the chosen worktree directory is ignored. If it is not ignored, use an
+  already-ignored or external sibling worktree root. Do not modify ignore policy
+  from the non-isolated checkout merely to bootstrap the current task; make a
+  desired repository-wide ignore convention its own intentional change from an
+  isolated checkout.
 - Use descriptive branch names that make concurrent agent work easy to identify.
 - Do not create a worktree for read-only inspection, quick command output,
   emergency operational commands, or when the user explicitly asks to work in
