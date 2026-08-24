@@ -18,6 +18,8 @@ tmux_follow_installed_path='~/.local/bin/tmux-follow-click'
 tmux_tool_home="${DOT_TEST_HOST_HOME:-$HOME}"
 wezterm_select_pane_executable="${DOT_TEST_TERMNAV_ROOT:+$DOT_TEST_TERMNAV_ROOT/bin/wezterm-select-pane}"
 wezterm_select_pane_executable="${wezterm_select_pane_executable:-$tmux_tool_home/.local/bin/wezterm-select-pane}"
+termnav_tmux_context_executable="${DOT_TEST_TERMNAV_ROOT:+$DOT_TEST_TERMNAV_ROOT/bin/termnav-tmux-context}"
+termnav_tmux_context_executable="${termnav_tmux_context_executable:-$tmux_tool_home/.local/bin/termnav-tmux-context}"
 # shellcheck disable=SC2088 # tmux expands this literal path in its own shell.
 wezterm_switch_tab_path='~/.local/bin/wezterm-switch-tab'
 # shellcheck disable=SC2088 # tmux expands this literal path in its own shell.
@@ -124,6 +126,17 @@ _assert_executable "tmux WezTerm tab move helper is installed" \
   "$tmux_tool_home/.local/bin/wezterm-move-tab"
 _assert_executable "tmux WezTerm pane selection helper is installed" \
   "$wezterm_select_pane_executable"
+_assert_executable "tmux client context publisher is installed" \
+  "$termnav_tmux_context_executable"
+_assert_contains "tmux publishes ownership whenever a client attaches" \
+  'set-hook -g client-attached[100]' "$tmux_content"
+_assert_contains "tmux client attach hook targets the triggering client" \
+  'termnav-tmux-context --tty #{q:client_tty} --client-termname #{q:client_termname}' \
+  "$tmux_content"
+_assert_contains "tmux client attach hook excludes control-mode clients" \
+  '#{==:#{client_control_mode},0}' "$tmux_content"
+_assert_not_contains "tmux client attach publication is not backgrounded" \
+  'client-attached[100] '\''run-shell -b' "$tmux_content"
 _assert_contains "tmux Ctrl-c copies and exits copy mode" \
   "bind -T copy-mode-vi C-c send-keys -X copy-pipe-and-cancel" "$tmux_content"
 _assert_contains "tmux Ctrl-c records history without requiring a host clipboard" \
@@ -438,6 +451,11 @@ if command -v tmux >/dev/null 2>&1; then
   tmux -S "$socket" bind-key -T prefix S run-shell tmux-save-session
   tmux -S "$socket" bind-key -T prefix R run-shell tmux-restore-session
   tmux -S "$socket" source-file "$tmux_config"
+  client_attached_hook=$(tmux -S "$socket" show-hooks -g client-attached)
+  control_attach_out=$(printf 'detach-client\n' |
+    tmux -S "$socket" -C attach-session -t dot-tmux-test 2>&1)
+  control_attach_rc=$?
+  control_attach_messages=$(tmux -S "$socket" show-messages)
   copy_keys=$(tmux -S "$socket" list-keys -T copy-mode-vi |
     normalize_tmux_key_listing)
   enter_copy_key=$(awk '/bind-key -T copy-mode-vi Enter/ { print }' <<<"$copy_keys")
@@ -493,6 +511,19 @@ if command -v tmux >/dev/null 2>&1; then
   parent_key_7=${parent_key_7/#_/$'\033'}
 
   _assert_eq "tmux runtime mode-keys is vi" "vi" "$mode_keys"
+  _assert_contains "tmux runtime installs its owned client-attached hook slot" \
+    "client-attached[100]" "$client_attached_hook"
+  _assert_contains "tmux runtime excludes clients without a terminal tty" \
+    'if-shell -F "#{==:#{client_control_mode},0}"' "$client_attached_hook"
+  _assert_contains "tmux runtime keeps client attachment publication synchronous" \
+    'run-shell "\~/.local/bin/termnav-tmux-context' "$client_attached_hook"
+  _assert_exit "tmux control client attaches and detaches cleanly" \
+    0 "$control_attach_rc"
+  _assert_contains "tmux control client receives a clean protocol exit" \
+    "%exit" "$control_attach_out"
+  _assert_not_contains "tmux control client does not invoke the context publisher" \
+    'command: run-shell "\~/.local/bin/termnav-tmux-context' \
+    "$control_attach_messages"
   _assert_eq "tmux runtime keeps inactive-label contrast conditional" \
     '#{?pane_active,,#[fg=#898989]} #I.#P (#{pane_id})  #{pane_current_command} ' \
     "$pane_border_format"
