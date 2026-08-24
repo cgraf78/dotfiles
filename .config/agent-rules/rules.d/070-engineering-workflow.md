@@ -27,7 +27,6 @@
   checked continuously instead of only at the end.
 - When a repo uses `checkrun`, use `checkrun format` and `checkrun lint` for
   local formatting and lint verification, matching the commit hook behavior.
-- Always update .h and .cpp files consistently when changing interfaces.
 - Read and understand existing code, ownership, and conventions before
   proposing changes, and match the patterns already in the file. Ask when
   unresolved ambiguity about which architectural layer owns a responsibility

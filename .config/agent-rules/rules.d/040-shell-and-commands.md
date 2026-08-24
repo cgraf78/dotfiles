@@ -6,6 +6,9 @@
 - Don't chain separately-permitted commands with `&&`; use individual Bash
   calls to avoid permission prompts. In particular use `git -C <path>` rather
   than `cd <path> && git`.
+- When piping, grouping, or sequencing verification commands, preserve and
+  inspect the status of every required command. Do not infer success solely
+  from the final pipeline or command status.
 - When inspecting tmux sessions, prefer non-attached commands like
   `capture-pane`, `list-panes`, `list-windows`. Attaching a small client
   shrinks the user's pane size; only attach if truly necessary.

@@ -24,6 +24,9 @@ explicit and verifiable.
 - Follow the repository's commit and pull-request template. Write the pull
   request description so it can serve as the squash-merge commit body, leading
   with what changed and why.
+- Perform privacy, secret, and repository-boundary reviews silently. Mention
+  them in the pull-request description only when a result or constraint is
+  material to reviewers.
 - Amend an unpushed commit instead of stacking a corrective commit. Before an
   amend, fixup, or rebase, verify the commit is unpushed with
   `git log --oneline origin/main..HEAD` or an equivalent comparison.
