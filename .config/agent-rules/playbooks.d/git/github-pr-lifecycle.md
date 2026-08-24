@@ -50,3 +50,12 @@ explicit and verifiable.
 - Do not treat a successful local push, stale pull-request page, or queued CI as
   proof that the requested remote state has been reached; query the authoritative
   remote state before reporting completion.
+- Pass an explicit repository to `gh` when the current directory may belong to
+  another checkout. Distinguish absent checks, queued checks, a selector job
+  that never acquired a runner or steps, and a test job that actually failed.
+- If a landing command fails, query pull-request state before retrying. The
+  remote merge may have completed before local synchronization or cleanup
+  failed.
+- After a squash merge, `git branch -d` may reject the local branch because its
+  original commit is not an ancestor. Verify the pull request is merged and the
+  branch tree matches current `origin/main` before any forced local deletion.

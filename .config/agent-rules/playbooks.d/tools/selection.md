@@ -58,6 +58,31 @@ installation would expand the requested scope.
   authorize installation, system changes, network publication, or privileged
   tracing.
 
+## Diagnose Managed Tool Failures
+
+An executable on `PATH` is not proof that its provider, cache, or installed
+payload is healthy. Trace the complete provenance chain before pinning,
+reinstalling, or changing managers:
+
+```text
+declaration -> owning manager -> platform filter -> resolver or method
+  -> upstream metadata -> cache or installed payload -> managed link -> PATH
+```
+
+- Check overlapping Shdeps, mise, hook, package-manager, and tracked-command
+  ownership before editing a selector or lock.
+- Inspect the resolver's effective configuration and state root. Environment
+  overrides can still resolve to a live global project instead of the intended
+  worktree.
+- Compare the public command, managed link, installation payload, cached
+  metadata, and upstream release shape. `command -v` establishes only the first
+  boundary.
+- Distinguish a transient or incomplete upstream publication from a durable
+  local defect. Do not add a pin or fallback until the failed provider contract
+  is identified.
+- Generate lock or resolved state in an isolated configuration root when the
+  tool cannot reliably target the worktree, then copy back only reviewed output.
+
 ## High-Leverage Tools Agents May Overlook
 
 Check these before writing custom scripts or falling back to broad text

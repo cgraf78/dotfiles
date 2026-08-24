@@ -1,7 +1,7 @@
 # Durable Memory Hygiene
 
 <!-- agent-rule-id: memory-durable-hygiene -->
-<!-- agent-rule-trigger: Writing, correcting, superseding, reconciling, retagging, or scoping durable memory -->
+<!-- agent-rule-trigger: Writing, correcting, superseding, reconciling, retagging, scoping, troubleshooting, or auditing durable memory and its retrieval health -->
 
 Keep durable memory current, discoverable, and narrowly scoped. Search before
 writing so a correction updates prior knowledge instead of creating an
@@ -40,3 +40,17 @@ unresolved contradiction.
   evidence or a clearly stated invariant.
 - Never store secrets, credentials, access tokens, or private data outside its
   authorized scope.
+
+## Diagnose memory health and retrieval
+
+- Separate store reachability, synchronization status, index freshness,
+  conflicts, query latency, project resolution, and result relevance. A slow or
+  irrelevant query is not evidence of corruption.
+- Check `hm sync-status` and the resolved store and project before forcing a
+  refresh or concluding that a memory is missing.
+- Prefer a non-destructive index refresh when canonical data is healthy but the
+  local index is stale. Do not delete, redact, reconcile, or retag records during
+  a health review without separate authorization for those content mutations.
+- Treat doctor warnings and timing as diagnostic evidence. Verify whether reads
+  complete and whether canonical and indexed state agree before declaring the
+  service unavailable.

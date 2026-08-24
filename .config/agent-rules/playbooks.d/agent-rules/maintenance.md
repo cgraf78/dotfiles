@@ -29,6 +29,42 @@ than editing generated outputs.
 - Keep compatibility and provider mechanics in their owning documentation;
   rules should state the behavioral contract an agent must follow.
 
+## Decide what deserves a playbook
+
+- Promote guidance when it recurs across materially different tasks, encodes a
+  hard safety or authorization boundary, captures a non-obvious decision
+  procedure, or identifies an authoritative owner or verification path that
+  agents would otherwise repeatedly rediscover.
+- Express a candidate as `trigger -> decision or procedure -> failure prevented
+  -> verification`. If one of those parts is missing, retain the observation in
+  documentation or durable memory until the workflow is clear.
+- Do not promote guidance merely because an incident was difficult, a command
+  was useful once, or current host, version, path, identifier, address, and
+  workaround details are worth remembering.
+- Keep repository and service facts in their authoritative documentation. Keep
+  point-in-time evidence and uncertain observations in durable memory rather
+  than turning them into behavioral policy.
+- One demonstrated hard safety boundary can justify promotion. Otherwise prefer
+  evidence from multiple independent tasks before generalizing.
+
+## Curate the playbook set
+
+- Review recent user corrections, rollbacks, repeated investigations, durable
+  memory, and session summaries by reusable workflow rather than by incident.
+- Classify each candidate as already covered, an existing-playbook refinement, a
+  new playbook, documentation or memory only, or a one-off to discard.
+- Prefer extending the existing topical owner when its trigger already matches.
+  Create a new playbook only for a cohesive procedure with a distinct trigger.
+- Audit older playbooks for duplication, conflicting instructions, stale facts,
+  broad triggers, misplaced private content, and procedures that should move to
+  authoritative product or repository documentation.
+- Narrow, merge, split, move, or retire playbooks when their loading boundary no
+  longer matches actual tasks. Verify that historical motivating tasks would
+  load the new route and unrelated tasks would not.
+- Lead with durable behavior and decision criteria. Include exact commands only
+  when their form is itself stable; avoid turning playbooks into system
+  inventories.
+
 ## Change and verify
 
 - For cross-repository changes, separate provider and consumer pull requests,
