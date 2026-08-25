@@ -8,7 +8,7 @@ publication for normal tmux shells.
 
 ## Design
 
-`53-wezterm.sh` will defer to Termnav's existing
+`53-termnav.sh` will defer to Termnav's existing
 `_termnav_wezterm_active` predicate before it publishes `DOT_TMUX`. That
 predicate already classifies `$NVIM` as an ineligible context, while retaining
 the normal WezTerm, tmux, and remote-shell cases. The change remains on the

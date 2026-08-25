@@ -48,10 +48,14 @@ terminal application from a plain remote shell. A plain SSH/mosh/ET shell keeps
 pane navigation at the outer tmux layer, where forwarding Ctrl-h would instead
 produce backspace. Foreground-process-group checks prevent stale background
 transports or nested clients from stealing the chord. When a remote nested
-tmux owns the chord but has no pane in that direction, `wezterm-select-pane`
-uses WezTerm to replay a private `User4`-`User7` key into the parent tmux. The
-private handler selects only at that parent layer; another edge is a no-op, so
-the loopback cannot recurse indefinitely.
+tmux owns the chord but has no pane in that direction, `termnav-relay` sends
+the semantic request to the nearest parent tmux scope. The outer terminal
+supplies an ordered, read-only DECRQM response as the commit barrier;
+`User9`-`User13` cover every legal response state in WezTerm, xterm.js, and
+other conforming terminals without a custom extension. Intermediate tmux
+layers forward the private `User8` commit key. The older
+`wezterm-select-pane` path remains only as the explicit-decline fallback for
+connections opened before a relay was installed.
 
 Ctrl-Tab bindings share pane-navigation's focus ownership. Forward the key into
 Neovim/fzf when those programs own the pane, and through interactive remote
@@ -74,8 +78,8 @@ triggering client's PID, TTY, and shell-quoted terminal type to
 with multiple windows, or uses the outer client's per-window VS Code socket or
 WezTerm TTY. Only clients actively showing the parent pane are eligible; a
 unique focused client breaks an activity tie, and unresolved ties fail closed.
-The private `User0`/`User1` loopback remains for remote nested tmux chains
-whose parent server is not locally reachable.
+The private `User0`/`User1` loopback remains for legacy remote nested tmux
+chains whose parent server is not locally reachable through a relay.
 
 Alt-Shift-bracket tab-move bindings follow the same ownership rule, except edge
 handling stops at the tmux layer when a multi-window tmux session is already at

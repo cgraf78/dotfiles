@@ -32,7 +32,7 @@ program	.config/shell/interactive.d/51-aliases-linux.sh
 program	.config/shell/interactive.d/51-aliases-macos.sh
 program	.config/shell/interactive.d/51-aliases-wsl.sh
 program	.config/shell/interactive.d/52-cursor.sh
-program	.config/shell/interactive.d/53-wezterm.sh
+program	.config/shell/interactive.d/53-termnav.sh
 program	.config/shell/interactive.d/54-tool-init.sh
 program	.config/shell/interactive.d/55-ssh.sh
 program	.config/shell/interactive.d/56-dot.sh

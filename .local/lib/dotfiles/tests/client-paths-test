@@ -22,8 +22,8 @@ _client_path_contains 'noninteractive shell loads the dotfiles-owned shell loade
   .config/shell/env-noninteractive.sh '.local/lib/dotfiles/shell-loader.sh'
 _client_path_contains 'WSL aliases load the dotfiles-owned Windows helper' \
   .config/shell/interactive.d/51-aliases-wsl.sh '.local/lib/dotfiles/windows.sh'
-_client_path_contains 'WezTerm shell policy loads the dotfiles-owned Shdeps helper' \
-  .config/shell/interactive.d/53-wezterm.sh '.local/lib/dotfiles/shdeps-assets.sh'
+_client_path_contains 'Termnav shell policy loads the dotfiles-owned Shdeps helper' \
+  .config/shell/interactive.d/53-termnav.sh '.local/lib/dotfiles/shdeps-assets.sh'
 _client_path_contains 'tool initialization loads the dotfiles-owned Shdeps helper' \
   .config/shell/interactive.d/54-tool-init.sh '.local/lib/dotfiles/shdeps-assets.sh'
 _client_path_contains 'marks consume the public standalone XDG library' \
@@ -56,7 +56,7 @@ selected_paths=(
   .zprofile
   .config/shell/env-noninteractive.sh
   .config/shell/interactive.d/51-aliases-wsl.sh
-  .config/shell/interactive.d/53-wezterm.sh
+  .config/shell/interactive.d/53-termnav.sh
   .config/shell/interactive.d/54-tool-init.sh
   .config/shell/interactive.d/57-marks.sh
   .local/bin/clip
