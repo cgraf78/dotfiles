@@ -6,7 +6,7 @@
 
 **Architecture:** The dotfiles shell integration delegates eligibility to Termnav's existing context predicate. Its focused runtime test extends the current publisher probe, keeping the behavior and test ownership local to the WezTerm integration.
 
-**Tech Stack:** Bash/Zsh sourceable shell integration, Termnav API stub, dotfiles `dot-test` runner.
+**Tech Stack:** Bash/Zsh sourceable shell integration, Termnav API stub, dotfiles `dot test` runner.
 
 ## Global Constraints
 
@@ -35,7 +35,7 @@ Extend `_tmux_context_probe` to receive and export an `NVIM` value, then add a B
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `./.local/bin/dot-test -s wezterm`
+Run: `./.local/bin/dot test -s wezterm`
 
 Expected: the new embedded-Neovim assertions fail because the current publisher calls `_termnav_wezterm_set_user_var` unconditionally.
 
@@ -45,7 +45,7 @@ Make `_dot_wezterm_publish_tmux_context` return before publishing unless `_termn
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `./.local/bin/dot-test -s wezterm`
+Run: `./.local/bin/dot test -s wezterm`
 
 Expected: all publisher and existing WezTerm integration checks pass for Bash and Zsh.
 

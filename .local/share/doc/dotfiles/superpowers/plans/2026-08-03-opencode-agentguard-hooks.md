@@ -75,7 +75,7 @@ symlinks, marked-target pruning, and no temporary siblings.
 Run:
 
 ```bash
-./.local/bin/dot-test core-merges
+./.local/bin/dot test core-merges
 ```
 
 Expected: the OpenCode section fails because `opencode.sh` and its source do
@@ -107,7 +107,7 @@ semantics, and the generated path.
 Run:
 
 ```bash
-./.local/bin/dot-test core-merges core-static
+./.local/bin/dot test core-merges core-static
 ```
 
 Expected: both suites pass with zero failures.
@@ -168,7 +168,7 @@ without replacing unrelated environment entries.
 Run:
 
 ```bash
-./.local/bin/dot-test opencode-agentguard
+./.local/bin/dot test opencode-agentguard
 ```
 
 Expected: failure because the source file does not yet export a working plugin.
@@ -216,7 +216,7 @@ failures throw, missing executables do not, and post failures only log.
 Run:
 
 ```bash
-./.local/bin/dot-test opencode-agentguard
+./.local/bin/dot test opencode-agentguard
 ```
 
 Expected: suite summary reports zero failures.
@@ -265,7 +265,7 @@ hook to reproduce OpenCode's real dispatch behavior.
 Run:
 
 ```bash
-./.local/bin/dot-test opencode-agentguard
+./.local/bin/dot test opencode-agentguard
 ```
 
 Expected: the new ordering, deduplication, or isolation assertions fail.
@@ -290,7 +290,7 @@ without parsing original display text.
 Run:
 
 ```bash
-./.local/bin/dot-test opencode-agentguard core-merges
+./.local/bin/dot test opencode-agentguard core-merges
 ```
 
 Expected: both suites pass with zero failures.
@@ -338,7 +338,7 @@ warns without making the overall agent-hook section fatal.
 Run:
 
 ```bash
-./.local/bin/dot-test core-doctor
+./.local/bin/dot test core-doctor
 ```
 
 Expected: new OpenCode doctor assertions fail.
@@ -363,7 +363,7 @@ override of the environment default.
 Run:
 
 ```bash
-./.local/bin/dot-test agent-rules core-doctor core-static workflow-consistency
+./.local/bin/dot test agent-rules core-doctor core-static workflow-consistency
 ```
 
 Expected: all suites pass with zero failures.
@@ -404,8 +404,8 @@ Expected: every command exits zero.
 Run:
 
 ```bash
-./.local/bin/dot-test core-merges opencode-agentguard core-doctor core-static workflow-consistency
-./.local/bin/dot-test
+./.local/bin/dot test core-merges opencode-agentguard core-doctor core-static workflow-consistency
+./.local/bin/dot test
 ```
 
 Expected: every selected and discovered suite passes or reports an intentional

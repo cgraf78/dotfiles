@@ -50,14 +50,6 @@ else
   _fail 'dot front door matches the reviewed permanent launcher template'
 fi
 
-if [[ -f $source_home/.local/bin/dot-test &&
-  ! -L $source_home/.local/bin/dot-test &&
-  -x $source_home/.local/bin/dot-test ]]; then
-  _pass 'dot-test is a regular dotfiles-owned client trampoline'
-else
-  _fail 'dot-test is a regular dotfiles-owned client trampoline'
-fi
-
 selected_paths=(
   .bashrc
   .zshrc

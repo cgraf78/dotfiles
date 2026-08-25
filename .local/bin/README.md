@@ -12,7 +12,7 @@ public API. Files here should stay thin and command-shaped.
 
 - `dot` is the stable client-owned cron and interactive front door for the
   standalone Dot runtime.
-- `dot-test` runs the dotfiles test suite.
+- `dot test` runs the dotfiles test suite.
 - `git` routes normal repositories to real Git and `$HOME` dotfiles paths to
   the base client Git directory.
 - `hm` delegates to the standalone Hive Memory binary and maps AgentGuard's

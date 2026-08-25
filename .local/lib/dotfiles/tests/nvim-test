@@ -19,7 +19,7 @@ _test_use_host_shdeps
 # This suite tests Neovim configuration, not the dotfiles launcher (covered by
 # core-launchers-test). Worktree runs intentionally make HOME the source tree,
 # so select the already-converged host payload here instead of teaching the
-# production launcher about dot-test's alternate HOME.
+# production launcher about dot test's alternate HOME.
 _test_managed_nvim_bin || exit 1
 NVIM_TEST_BIN=$REPLY
 
@@ -36,7 +36,7 @@ _test_prefer_system_git after-dotfiles || exit 1
 # to package.path so dofile'd modules can resolve their require() calls.
 _nvim_lua() {
   local _lua_dir="$HOME/.config/nvim/lua"
-  # Keep headless tests off the user's ShaDa file. `dot-test` runs suites in
+  # Keep headless tests off the user's ShaDa file. `dot test` runs suites in
   # parallel, and concurrent nvim processes can otherwise fight over
   # ~/.local/state/nvim/shada/main.shada.
   "$NVIM_TEST_BIN" --headless --noplugin -u NONE -i NONE \
@@ -63,13 +63,13 @@ _nvim_startup_budget() {
   if [[ -n "${NVIM_STARTUP_BUDGET_SECONDS:-}" ]]; then
     printf '%s\n' "$NVIM_STARTUP_BUDGET_SECONDS"
   elif [[ "${DOT_TEST_PARALLEL:-0}" = 1 && "${DOT_TEST_JOBS:-1}" =~ ^[0-9]+$ && "${DOT_TEST_JOBS:-1}" -gt 1 ]]; then
-    # The full config smoke test runs real startup/shutdown while dot-test may
+    # The full config smoke test runs real startup/shutdown while dot test may
     # also be driving shell, Git, bootstrap, and editor suites. Keep direct
     # single-suite runs strict, but scale the parallel-run budget with load.
     printf '%s\n' "$((6 + DOT_TEST_JOBS * 2))"
   elif [[ -n "${WSL_DISTRO_NAME:-}" || -n "${WSL_INTEROP:-}" ]]; then
     # WSL terminal sessions can be CPU- and IO-constrained under the full
-    # parallel dot-test load. Keep the smoke test meaningful without making it
+    # parallel dot test load. Keep the smoke test meaningful without making it
     # fail only because the host is busy.
     printf '15\n'
   else
@@ -219,224 +219,6 @@ eval "$saved_run_nvim_startup"
 _assert_eq "startup preparation: does not retry a child status 124" "124" "$startup_rc"
 _assert_file_content "startup preparation: child status 124 runs once" "120" \
   "$startup_mock_log"
-_assert_process_stopped() {
-  local desc="$1" pid="$2" started=$SECONDS state
-
-  while kill -0 "$pid" 2>/dev/null; do
-    state=$(ps -o stat= -p "$pid" 2>/dev/null) || break
-    [[ "$state" =~ ^[[:space:]]*Z ]] && break
-    if ((SECONDS - started >= 5)); then
-      _fail "$desc"
-      kill -KILL "$pid" 2>/dev/null || true
-      return
-    fi
-    sleep 0.05
-  done
-  _pass "$desc"
-}
-
-timeout_mock_bin=$(_mock_bin)
-timeout_marker=$(_tmpdir)/external-timeout-called
-timeout_expired_marker=$(_tmpdir)/watchdog-expired
-cat >"$timeout_mock_bin/timeout" <<'EOF'
-#!/usr/bin/env bash
-: >"$DOT_TEST_TIMEOUT_MARKER"
-exit 99
-EOF
-chmod +x "$timeout_mock_bin/timeout"
-rc=0
-PATH="$timeout_mock_bin:$PATH" \
-  DOT_TEST_TIMEOUT_MARKER="$timeout_marker" \
-  DOT_TEST_TIMEOUT_EXPIRED_FILE="$timeout_expired_marker" \
-  _with_timeout 1 bash -c 'sleep 5' || rc=$?
-_assert_eq "startup timeout: portable watchdog returns timeout status" "124" "$rc"
-_assert_file_exists "startup timeout: watchdog records actual expiration" \
-  "$timeout_expired_marker"
-_assert_file_missing "startup timeout: portable watchdog bypasses external timeout" \
-  "$timeout_marker"
-
-rm -f "$timeout_expired_marker"
-rc=0
-DOT_TEST_TIMEOUT_EXPIRED_FILE="$timeout_expired_marker" \
-  _with_timeout 5 bash -c 'exit 124' || rc=$?
-_assert_eq "startup timeout: child status 124 is preserved" "124" "$rc"
-_assert_file_missing "startup timeout: child status 124 is not expiration" \
-  "$timeout_expired_marker"
-
-rc=0
-# shellcheck disable=SC2016 # expansion must happen in the supervised child.
-DOT_TEST_TIMEOUT_EXPIRED_FILE="$timeout_expired_marker" \
-  _with_timeout 5 bash -c '[[ -z "${DOT_TEST_TIMEOUT_EXPIRED_FILE+x}" ]]' || rc=$?
-_assert_eq "startup timeout: marker path is private to the supervisor" "0" "$rc"
-
-timeout_fixture_home=$(_tmpdir)
-rc=0
-HOME="$timeout_fixture_home" _with_timeout 1 true || rc=$?
-_assert_eq "startup timeout: watchdog survives fixture HOME changes" "0" "$rc"
-
-timeout_fixture_dir=$(_tmpdir)
-timeout_descendant_pid="$timeout_fixture_dir/descendant.pid"
-cat >"$timeout_fixture_dir/child.py" <<'PY'
-#!/usr/bin/env python3
-import os
-import signal
-import sys
-import time
-
-signal.signal(signal.SIGTERM, signal.SIG_IGN)
-with open(sys.argv[1], "w", encoding="utf-8") as file:
-    file.write(str(os.getpid()))
-time.sleep(30)
-PY
-cat >"$timeout_fixture_dir/parent.sh" <<'SH'
-#!/usr/bin/env bash
-trap 'exit 0' TERM
-python3 "$DOT_TEST_TIMEOUT_CHILD" "$DOT_TEST_TIMEOUT_DESCENDANT_PID" &
-wait
-SH
-chmod +x "$timeout_fixture_dir/child.py" "$timeout_fixture_dir/parent.sh"
-rc=0
-DOT_TEST_TIMEOUT_CHILD="$timeout_fixture_dir/child.py" \
-  DOT_TEST_TIMEOUT_DESCENDANT_PID="$timeout_descendant_pid" \
-  _with_timeout 1 "$timeout_fixture_dir/parent.sh" || rc=$?
-_assert_eq "startup timeout: descendant watchdog returns timeout status" "124" "$rc"
-descendant_pid=$(cat "$timeout_descendant_pid")
-_assert_process_stopped "startup timeout: descendant that ignores TERM is killed" \
-  "$descendant_pid"
-
-rc=0
-python3 - "$_DOT_TEST_TIMEOUT_PY" <<'PY' || rc=$?
-import importlib.util
-import signal
-import sys
-
-spec = importlib.util.spec_from_file_location("dot_timeout", sys.argv[1])
-module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(module)
-
-
-class PsResult:
-    stdout = "123\n124\n125\n"
-
-
-def run_ps(argv, **_kwargs):
-    assert argv == ["ps", "-A", "-o", "pid="]
-    return PsResult()
-
-
-module.subprocess.run = run_ps
-module.os.getsid = lambda pid: 123 if pid in (123, 124) else 125
-assert module.list_session_pids(123) == [123, 124]
-PY
-_assert_eq "startup timeout: session enumeration uses portable PID snapshots" "0" "$rc"
-
-rc=0
-python3 - "$_DOT_TEST_TIMEOUT_PY" <<'PY' || rc=$?
-import importlib.util
-import sys
-
-spec = importlib.util.spec_from_file_location("dot_timeout", sys.argv[1])
-module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(module)
-
-
-def run_ps(argv, **kwargs):
-    assert argv == ["ps", "-A", "-o", "pid="]
-    assert kwargs["timeout"] == 1
-    raise module.subprocess.TimeoutExpired(argv, kwargs["timeout"])
-
-
-module.subprocess.run = run_ps
-assert module.list_session_pids(123) is None
-PY
-_assert_eq "startup timeout: stalled session enumeration falls back safely" "0" "$rc"
-
-rc=0
-python3 - "$_DOT_TEST_TIMEOUT_PY" <<'PY' || rc=$?
-import importlib.util
-import signal
-import sys
-
-spec = importlib.util.spec_from_file_location("dot_timeout", sys.argv[1])
-module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(module)
-
-class Process:
-    pid = 123
-    waited = False
-
-    def poll(self):
-        return None
-
-    def wait(self):
-        self.waited = True
-
-
-process = Process()
-module.process = process
-module.time.sleep = lambda _: None
-module.list_session_pids = lambda _session_id: []
-signals = []
-
-
-def killpg(_pid, signum):
-    signals.append(signum)
-    if signum == signal.SIGKILL:
-        raise PermissionError
-
-
-module.os.killpg = killpg
-module.stop_process_group(signal.SIGTERM)
-assert process.waited
-assert signals == [signal.SIGTERM, signal.SIGKILL]
-PY
-_assert_eq "startup timeout: forced kill tolerates macOS permission race" "0" "$rc"
-
-timeout_cancel_descendant_pid="$timeout_fixture_dir/cancel-descendant.pid"
-timeout_wrapper_pid_file="$timeout_fixture_dir/wrapper.pid"
-DOT_TEST_TIMEOUT_WRAPPER_PID_FILE="$timeout_wrapper_pid_file" \
-  DOT_TEST_TIMEOUT_CHILD="$timeout_fixture_dir/child.py" \
-  DOT_TEST_TIMEOUT_DESCENDANT_PID="$timeout_cancel_descendant_pid" \
-  _with_timeout 30 "$timeout_fixture_dir/parent.sh" &
-timeout_call_pid=$!
-timeout_wait_started=$SECONDS
-while [[ ! -s "$timeout_wrapper_pid_file" || ! -s "$timeout_cancel_descendant_pid" ]]; do
-  if ((SECONDS - timeout_wait_started >= 5)); then
-    break
-  fi
-  sleep 0.05
-done
-if [[ -s "$timeout_wrapper_pid_file" && -s "$timeout_cancel_descendant_pid" ]]; then
-  timeout_wrapper_pid=$(cat "$timeout_wrapper_pid_file")
-  kill -TERM "$timeout_wrapper_pid"
-  rc=0
-  wait "$timeout_call_pid" || rc=$?
-  _assert_eq "startup timeout: cancellation preserves signal status" "143" "$rc"
-  cancel_descendant_pid=$(cat "$timeout_cancel_descendant_pid")
-  _assert_process_stopped "startup timeout: cancellation kills descendant process group" \
-    "$cancel_descendant_pid"
-else
-  _fail "startup timeout: cancellation fixture becomes ready"
-  kill -TERM "$timeout_call_pid" 2>/dev/null || true
-  wait "$timeout_call_pid" 2>/dev/null || true
-fi
-
-timeout_exec_error="$timeout_fixture_dir/exec-error.log"
-rc=0
-_with_timeout 1 "$timeout_fixture_dir/missing-command" \
-  2>"$timeout_exec_error" || rc=$?
-_assert_eq "startup timeout: missing command preserves shell status" "127" "$rc"
-_assert_not_contains "startup timeout: missing command has no traceback" \
-  "Traceback" "$(cat "$timeout_exec_error")"
-touch "$timeout_fixture_dir/non-executable"
-chmod 644 "$timeout_fixture_dir/non-executable"
-rc=0
-_with_timeout 1 "$timeout_fixture_dir/non-executable" \
-  2>"$timeout_exec_error" || rc=$?
-_assert_eq "startup timeout: non-executable command preserves shell status" "126" "$rc"
-_assert_not_contains "startup timeout: non-executable command has no traceback" \
-  "Traceback" "$(cat "$timeout_exec_error")"
-
 _assert_nvim_startup_budget "startup: .bashrc opens and exits within budget" "$HOME/.bashrc"
 
 # ---------------------------------------------------------------------------

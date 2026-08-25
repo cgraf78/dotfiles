@@ -43,7 +43,6 @@ program	.config/shell/interactive.d/60-prompt.bash
 program	.config/shell/interactive.d/70-integrations.bash
 program	.local/bin/clip
 program	.local/bin/dot
-program	.local/bin/dot-test
 program	.local/bin/git
 program	.local/bin/hm
 program	.local/bin/nvim
@@ -123,7 +122,6 @@ program	.local/lib/dotfiles/tests/core/cron.sh
 program	.local/lib/dotfiles/tests/core/doctor.sh
 program	.local/lib/dotfiles/tests/core/launchers.sh
 program	.local/lib/dotfiles/tests/core/merges.sh
-program	.local/lib/dotfiles/tests/core/runner.sh
 program	.local/lib/dotfiles/tests/core/static.sh
 program	.local/lib/dotfiles/tests/fixtures.sh
 program	.local/lib/dotfiles/tests/git-shell-workflows-test
@@ -136,7 +134,6 @@ program	.local/lib/dotfiles/tests/lua-test
 program	.local/lib/dotfiles/tests/mise-refresh-workflow-test
 program	.local/lib/dotfiles/tests/nvim-test
 program	.local/lib/dotfiles/tests/prompt-test
-program	.local/lib/dotfiles/tests/run
 program	.local/lib/dotfiles/tests/schema-associations-test
 program	.local/lib/dotfiles/tests/schema-refresh-workflow-test
 program	.local/lib/dotfiles/tests/shdeps-hooks-test

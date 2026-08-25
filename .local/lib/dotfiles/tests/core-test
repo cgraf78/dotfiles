@@ -5,7 +5,7 @@
 # client launchers, application hooks, doctor extensions, and static policy.
 #
 # Usage:
-#   dot-test core              run all core shards
+#   dot test core              run all core shards
 #   DOT_CORE_SHARD=all ./core-test
 #   DOT_CORE_SHARD=main ./core-test
 #   DOT_CORE_SHARD=merges ./core-test
@@ -43,6 +43,7 @@ _core_run_merges=false
 _core_run_launchers=false
 _core_run_cron_config=false
 _core_run_doctor=false
+_core_run_static=false
 case "$_core_shard" in
   all)
     _core_run_main=true
@@ -50,6 +51,7 @@ case "$_core_shard" in
     _core_run_launchers=true
     _core_run_cron_config=true
     _core_run_doctor=true
+    _core_run_static=true
     ;;
   main)
     _core_run_main=true
@@ -67,10 +69,7 @@ case "$_core_shard" in
     _core_run_doctor=true
     ;;
   static)
-    # runner.sh executes before static.sh, whose DOT_CORE_STATIC_ONLY path exits
-    # before fixture setup. Keeping this as a real empty shard therefore
-    # suppresses duplicate runner coverage after the static checks finish; the
-    # ordinary core-test suite remains the single owner in full dot-test runs.
+    _core_run_static=true
     ;;
   *)
     echo "unknown DOT_CORE_SHARD: $_core_shard" >&2
@@ -79,8 +78,6 @@ case "$_core_shard" in
 esac
 
 CORE_TEST_MODULE_DIR="$HOME/.local/lib/dotfiles/tests/core"
-# shellcheck source=core/runner.sh
-. "$CORE_TEST_MODULE_DIR/runner.sh"
 # shellcheck source=core/static.sh
 . "$CORE_TEST_MODULE_DIR/static.sh"
 # shellcheck source=core/merges.sh
@@ -134,11 +131,7 @@ CONF
   fi
 }
 
-if $_core_run_main; then
-  dot_core_test_runner
-fi
-
-if [[ "${DOT_CORE_SKIP_STATIC:-0}" != "1" ]]; then
+if $_core_run_static; then
   dot_core_test_static
 fi
 

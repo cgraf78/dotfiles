@@ -58,7 +58,7 @@ Report the contract after the scan:
 Run:
 
 ```bash
-.local/bin/dot-test core
+.local/bin/dot test core
 ```
 
 Expected: exit nonzero with
@@ -76,7 +76,7 @@ Add the input alongside the existing `setup` and `test-command` inputs in
     with:
       matrix-set: full
       setup: dotfiles
-      test-command: .local/bin/dot-test
+      test-command: .local/bin/dot test
 ```
 
 - [ ] **Step 4: Run focused verification**
@@ -84,7 +84,7 @@ Add the input alongside the existing `setup` and `test-command` inputs in
 Run:
 
 ```bash
-.local/bin/dot-test core
+.local/bin/dot test core
 actionlint .github/workflows/test.yml
 ```
 
@@ -98,7 +98,7 @@ Run:
 ```bash
 checkrun format
 checkrun lint
-.local/bin/dot-test
+.local/bin/dot test
 git diff --check
 ```
 
@@ -124,7 +124,7 @@ Testing
 
 - `checkrun format`
 - `checkrun lint`
-- `.local/bin/dot-test`
+- `.local/bin/dot test`
 - `actionlint .github/workflows/test.yml`
 ```
 

@@ -56,7 +56,7 @@ and the failure case contains `Done with errors in`.
 Run:
 
 ```bash
-DOT_TEST_NO_COLOR=1 .local/bin/dot-test core
+DOT_TEST_NO_COLOR=1 .local/bin/dot test core
 ```
 
 Expected: `_run_merges` still returns zero and `_ui_done 1` still prints the
@@ -107,7 +107,7 @@ Remove the fixture hook after the assertion.
 Run:
 
 ```bash
-DOT_TEST_NO_COLOR=1 .local/bin/dot-test core
+DOT_TEST_NO_COLOR=1 .local/bin/dot test core
 ```
 
 Expected: update completes but the captured status remains zero.
@@ -162,7 +162,7 @@ overlay discovery so a bootstrap failure remains fail-fast.
 Run:
 
 ```bash
-DOT_TEST_NO_COLOR=1 .local/bin/dot-test core
+DOT_TEST_NO_COLOR=1 .local/bin/dot test core
 git diff --check
 ```
 
@@ -194,7 +194,7 @@ Run:
 ```bash
 checkrun format
 checkrun lint
-DOT_TEST_NO_COLOR=1 .local/bin/dot-test
+DOT_TEST_NO_COLOR=1 .local/bin/dot test
 git diff --check
 ```
 

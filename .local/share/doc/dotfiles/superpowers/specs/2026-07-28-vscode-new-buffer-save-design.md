@@ -80,6 +80,6 @@ failed `:write` into an apparent successful save.
   The headless fixture cannot hold insert mode across an asynchronous UI
   callback, so the latter is verified by its saved result plus final mapping
   review.
-- Run the relevant Neovim test and the complete `./.local/bin/dot-test` suite.
+- Run the relevant Neovim test and the complete `./.local/bin/dot test` suite.
 - Perform fresh-eyes review of the diff and inspect the final mapping behavior
   before presenting the change as complete.

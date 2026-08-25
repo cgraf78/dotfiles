@@ -15,8 +15,7 @@ NVIM_TEST_BIN=$REPLY
 
 for _cmd in checkrun sley jq node git; do
   if ! command -v "$_cmd" >/dev/null 2>&1; then
-    echo "SKIP: workflow-consistency-test ($_cmd unavailable)"
-    exit 0
+    _test_skip_suite "workflow-consistency-test ($_cmd unavailable)"
   fi
 done
 

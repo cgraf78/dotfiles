@@ -323,9 +323,9 @@ Adapter tests must prove:
 
 The focused and final commands are:
 
-- `dot-test core-merges opencode-agentguard core-doctor`;
-- `dot-test core-static workflow-consistency`;
-- the full `dot-test` suite;
+- `dot test core-merges opencode-agentguard core-doctor`;
+- `dot test core-static workflow-consistency`;
+- the full `dot test` suite;
 - `checkrun format`;
 - `checkrun lint`;
 - `git diff --check`.

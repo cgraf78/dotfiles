@@ -34,7 +34,7 @@ selecting it makes all workflow triggers consistent.
 Add a static workflow-contract assertion to the existing core test suite so a
 future edit cannot silently fall back to the reusable workflow's `auto`
 selection. Validate the workflow with the repository's normal format, lint,
-and full `dot-test` commands.
+and full `dot test` commands.
 
 After the pull request emits and passes the three new platform checks, add
 their exact GitHub Actions contexts to `main` branch protection:

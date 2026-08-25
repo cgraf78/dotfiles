@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# core-static-test — static checks split from core-test for parallel dot-test runs.
+# core-static-test — static checks split from core-test for parallel `dot test` runs.
 
 DOT_CORE_STATIC_ONLY=1 DOT_CORE_SHARD=static \
   exec "$HOME/.local/lib/dotfiles/tests/core-test"
