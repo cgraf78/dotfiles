@@ -20,6 +20,8 @@ wezterm_select_pane_executable="${DOT_TEST_TERMNAV_ROOT:+$DOT_TEST_TERMNAV_ROOT/
 wezterm_select_pane_executable="${wezterm_select_pane_executable:-$tmux_tool_home/.local/bin/wezterm-select-pane}"
 termnav_tmux_context_executable="${DOT_TEST_TERMNAV_ROOT:+$DOT_TEST_TERMNAV_ROOT/bin/termnav-tmux-context}"
 termnav_tmux_context_executable="${termnav_tmux_context_executable:-$tmux_tool_home/.local/bin/termnav-tmux-context}"
+termnav_tmux_focus_executable="${DOT_TEST_TERMNAV_ROOT:+$DOT_TEST_TERMNAV_ROOT/bin/termnav-tmux-focus}"
+termnav_tmux_focus_executable="${termnav_tmux_focus_executable:-$tmux_tool_home/.local/bin/termnav-tmux-focus}"
 # shellcheck disable=SC2088 # tmux expands this literal path in its own shell.
 wezterm_switch_tab_path='~/.local/bin/wezterm-switch-tab'
 # shellcheck disable=SC2088 # tmux expands this literal path in its own shell.
@@ -86,6 +88,22 @@ if command -v tmux >/dev/null 2>&1; then
     "0" "$native_background_ssh_match"
   _assert_eq "tmux native detector matches mouse-aware nested clients" \
     "1" "$native_nested_mouse_match"
+
+  if focus_style_output=$(python3 \
+    "${BASH_SOURCE[0]%/*}/support/tmux-focus-style.py" \
+    --config "$tmux_config" 2>&1); then
+    focus_style_rc=0
+  else
+    focus_style_rc=$?
+  fi
+  printf '%s\n' "$focus_style_output"
+  _assert_exit "tmux focused leaf styles pass real multi-client PTY coverage" \
+    0 "$focus_style_rc"
+  _assert_contains "tmux focused leaf styles exercise independent clients" \
+    "test_styles_follow_each_client_and_child_claim" "$focus_style_output"
+  _assert_contains "tmux focus hooks keep exact client identity" \
+    "test_focus_hooks_are_client_scoped_and_ignore_control_mode" \
+    "$focus_style_output"
 else
   echo "  - skipping tmux syntax checks (tmux not installed)"
 fi
@@ -97,14 +115,14 @@ _assert_contains "tmux uses vi keys in copy mode" \
   "set -g mode-keys vi" "$tmux_content"
 _assert_contains "tmux keeps Escape responsive" \
   "set -s escape-time 10" "$tmux_content"
-_assert_contains "tmux brightens only inactive pane labels and exposes both targets" \
-  "set -g pane-border-format '#{?pane_active,,#[fg=#898989]} #I.#P (#{pane_id})  #{pane_current_command} '" \
+_assert_contains "tmux brightens only focused leaf pane labels and exposes both targets" \
+  "set -g pane-border-format '#{?#{E:@termnav_pane_is_focused_leaf},,#[fg=#898989]} #I.#P (#{pane_id})  #{pane_current_command} '" \
   "$tmux_content"
 _assert_contains "tmux inactive pane rules stay visually subordinate" \
   "setw -g pane-border-style 'fg=#333333'" \
   "$tmux_content"
-_assert_contains "tmux active pane labels retain the active style" \
-  "setw -g pane-active-border-style 'fg=cyan,bold'" \
+_assert_contains "tmux active pane labels use the focused leaf style" \
+  "setw -g pane-active-border-style '#{?#{E:@termnav_pane_is_focused_leaf},fg=cyan#,bold,fg=#333333}'" \
   "$tmux_content"
 _assert_contains "tmux advertises OSC-8 hyperlinks and extended keys" \
   "xterm-256color:extkeys:hyperlinks" "$tmux_content"
@@ -128,6 +146,17 @@ _assert_executable "tmux WezTerm pane selection helper is installed" \
   "$wezterm_select_pane_executable"
 _assert_executable "tmux client context publisher is installed" \
   "$termnav_tmux_context_executable"
+if [[ -n ${DOT_TEST_TERMNAV_ROOT:-} ]]; then
+  # Cross-repository development passes the candidate provider explicitly.
+  # Ordinary PR CI intentionally consumes the pinned Termnav release until
+  # the provider PR lands, so it validates the fail-open config and Shdeps
+  # ownership without pretending the not-yet-released command is installed.
+  _assert_executable "tmux nested focus publisher is installed" \
+    "$termnav_tmux_focus_executable"
+fi
+_assert_eq "tmux nested focus publisher is owned by Termnav" \
+  "github" \
+  "$(awk '$1 == "cgraf78/termnav" { print $2 }' <<<"$shdeps_content")"
 _assert_contains "tmux publishes ownership whenever a client attaches" \
   'set-hook -g client-attached[100]' "$tmux_content"
 _assert_contains "tmux client attach hook targets the triggering client" \
@@ -137,6 +166,26 @@ _assert_contains "tmux client attach hook excludes control-mode clients" \
   '#{==:#{client_control_mode},0}' "$tmux_content"
 _assert_not_contains "tmux client attach publication is not backgrounded" \
   'client-attached[100] '\''run-shell -b' "$tmux_content"
+_assert_contains "tmux starts a leaf-focus publisher for attached clients" \
+  'set-hook -g client-attached[110]' "$tmux_content"
+_assert_contains "tmux starts a leaf-focus publisher when clients regain focus" \
+  'set-hook -g client-focus-in[110]' "$tmux_content"
+_assert_contains "tmux stops a leaf-focus publisher immediately on focus loss" \
+  'set-hook -g client-focus-out[110]' "$tmux_content"
+_assert_contains "tmux stops a leaf-focus publisher when clients detach" \
+  'set-hook -g client-detached[110]' "$tmux_content"
+_assert_contains "tmux centralizes the focused leaf predicate" \
+  'set -g @termnav_pane_is_focused_leaf' "$tmux_content"
+_assert_contains "tmux leaf focus requires the exact client to be focused" \
+  '#{m:*focused*,#{client_flags}}' "$tmux_content"
+_assert_contains "tmux leaf focus excludes panes with a focused child" \
+  '#{==:#{@termnav_child_focus},}' "$tmux_content"
+_assert_contains "tmux active background uses the shared leaf predicate" \
+  'window-active-style '\''#{?#{E:@termnav_pane_is_focused_leaf}' "$tmux_content"
+_assert_contains "tmux active border uses the shared leaf predicate" \
+  'pane-active-border-style '\''#{?#{E:@termnav_pane_is_focused_leaf}' "$tmux_content"
+_assert_not_contains "tmux focus rendering never shells out" \
+  '#(' "$(printf '%s\n' "$tmux_content" | grep -E 'termnav_pane_is_focused_leaf|window-active-style|pane-active-border-style|pane-border-format')"
 _assert_contains "tmux Ctrl-c copies and exits copy mode" \
   "bind -T copy-mode-vi C-c send-keys -X copy-pipe-and-cancel" "$tmux_content"
 _assert_contains "tmux Ctrl-c records history without requiring a host clipboard" \
@@ -559,8 +608,8 @@ if command -v tmux >/dev/null 2>&1; then
   _assert_not_contains "tmux control client does not invoke the context publisher" \
     'command: run-shell "\~/.local/bin/termnav-tmux-context' \
     "$control_attach_messages"
-  _assert_eq "tmux runtime keeps inactive-label contrast conditional" \
-    '#{?pane_active,,#[fg=#898989]} #I.#P (#{pane_id})  #{pane_current_command} ' \
+  _assert_eq "tmux runtime keeps inactive-label contrast leaf-conditional" \
+    '#{?#{E:@termnav_pane_is_focused_leaf},,#[fg=#898989]} #I.#P (#{pane_id})  #{pane_current_command} ' \
     "$pane_border_format"
   _assert_eq "tmux runtime keeps inactive pane rules dim" \
     'fg=#333333' "$pane_border_style"
@@ -568,7 +617,7 @@ if command -v tmux >/dev/null 2>&1; then
     'fg=cyan' "$pane_active_border_style"
   _assert_contains "tmux runtime keeps the active pane label bold" \
     'bold' "$pane_active_border_style"
-  _assert_not_contains "tmux runtime omits the inactive override from the active label" \
+  _assert_contains "tmux runtime dims the active pane when no display client is focused" \
     '#[fg=#898989]' "$active_pane_border"
   _assert_contains "tmux runtime brightens the inactive pane label" \
     '#[fg=#898989]' "$inactive_pane_border"
