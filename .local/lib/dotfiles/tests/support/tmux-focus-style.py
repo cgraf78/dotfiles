@@ -7,6 +7,7 @@ import argparse
 import os
 import pathlib
 import pty
+import re
 import select
 import signal
 import subprocess
@@ -41,7 +42,7 @@ class Client:
             )
         self.tty = ""
         wait_until(self._find_tty, "tmux client attachment")
-        self.pump(0.25)
+        self.pump_until_quiet("initial tmux render")
 
     def _find_tty(self) -> bool:
         listing = self.test.tmux("list-clients", "-F", "#{client_pid} #{client_tty}", check=False)
@@ -53,24 +54,83 @@ class Client:
                 return True
         return False
 
-    def pump(self, duration: float) -> None:
+    def pump(self, duration: float) -> bytes:
+        """Drain terminal output while answering Termnav's context query."""
+        output = bytearray()
         deadline = time.monotonic() + duration
         while time.monotonic() < deadline:
             ready, _, _ = select.select([self.master], [], [], 0.02)
             if not ready:
                 continue
             payload = os.read(self.master, 65536)
+            output.extend(payload)
+            if b"\x1b[?996n" in payload:
+                os.write(self.master, b"\x1b[?997;1n")
+        return bytes(output)
+
+    def drain(self) -> None:
+        """Discard bytes already queued before requesting a new render."""
+        while select.select([self.master], [], [], 0)[0]:
+            payload = os.read(self.master, 65536)
             if b"\x1b[?996n" in payload:
                 os.write(self.master, b"\x1b[?997;1n")
 
+    def pump_until_quiet(self, description: str, timeout: float = 2.0) -> bytes:
+        """Collect one terminal update until its output has settled."""
+        output = bytearray()
+        deadline = time.monotonic() + timeout
+        quiet_deadline: float | None = None
+        while time.monotonic() < deadline:
+            ready, _, _ = select.select([self.master], [], [], 0.02)
+            if ready:
+                payload = os.read(self.master, 65536)
+                output.extend(payload)
+                quiet_deadline = time.monotonic() + 0.1
+                if b"\x1b[?996n" in payload:
+                    os.write(self.master, b"\x1b[?997;1n")
+                continue
+            if output and quiet_deadline is not None and time.monotonic() >= quiet_deadline:
+                return bytes(output)
+        raise AssertionError(f"timed out waiting for {description}: {bytes(output)!r}")
+
+    def redraw(self) -> bytes:
+        """Return a fresh full-screen render for this exact tmux client."""
+        self.drain()
+        self.test.tmux("refresh-client", "-t", self.tty)
+        return self.pump_until_quiet("full tmux redraw")
+
     def set_focus(self, focused: bool) -> None:
+        """Send a focus transition and wait for tmux to observe it.
+
+        tmux may legitimately emit no terminal bytes when the requested state
+        already matches the client flag.  Waiting for output first therefore
+        makes a correct no-op transition look like a timeout.  Poll the
+        authoritative flag while continuing to service terminal queries, then
+        require a short quiet period so asynchronous hook output is drained
+        before the caller performs its next assertion.
+        """
         os.write(self.master, b"\x1b[I" if focused else b"\x1b[O")
-        self.pump(0.08)
         expected = "focused" if focused else "unfocused"
-        wait_until(
-            lambda: self.test.client_is_focused(self.tty) is focused,
-            f"{expected} client flag",
-        )
+        deadline = time.monotonic() + 2.0
+        quiet_deadline: float | None = None
+        while time.monotonic() < deadline:
+            ready, _, _ = select.select([self.master], [], [], 0.02)
+            if ready:
+                payload = os.read(self.master, 65536)
+                quiet_deadline = time.monotonic() + 0.1
+                if b"\x1b[?996n" in payload:
+                    os.write(self.master, b"\x1b[?997;1n")
+
+            if self.test.client_is_focused(self.tty) is not focused:
+                quiet_deadline = None
+                continue
+
+            if quiet_deadline is None:
+                quiet_deadline = time.monotonic() + 0.1
+            elif time.monotonic() >= quiet_deadline:
+                return
+
+        raise AssertionError(f"timed out waiting for {expected} client flag")
 
     def close(self) -> None:
         try:
@@ -96,6 +156,7 @@ class LeafStyleTest(unittest.TestCase):
     """Check background, border, and label styles in each client context."""
 
     config: pathlib.Path
+    focus: pathlib.Path | None
 
     def setUp(self) -> None:
         # macOS limits Unix socket paths to roughly 104 bytes. `dot test`
@@ -174,9 +235,134 @@ class LeafStyleTest(unittest.TestCase):
         """Return the parsed global hook exactly as tmux will execute it."""
         return self.tmux("show-hooks", "-g", name).stdout.strip()
 
+    def claim_child(self) -> None:
+        """Apply the pane state that Termnav publishes for a focused child."""
+        if self.focus is not None:
+            subprocess.run(
+                [
+                    str(self.focus),
+                    "claim",
+                    "--parent-tmux",
+                    str(self.socket),
+                    "--parent-pane",
+                    self.active,
+                    "--token",
+                    "0123456789abcdef01234567",
+                    "--lease-ms",
+                    "30000",
+                ],
+                env=self.environment,
+                check=True,
+            )
+            return
+        inactive_style = self.tmux(
+            "show-options",
+            "-gqv",
+            "@termnav_inactive_style",
+        ).stdout.strip()
+        self.tmux(
+            "set-option",
+            "-p",
+            "-t",
+            self.active,
+            "window-active-style",
+            inactive_style,
+        )
+        self.tmux(
+            "set-option",
+            "-p",
+            "-t",
+            self.active,
+            "@termnav_child_focus",
+            "0123456789abcdef01234567:9999999999999999",
+        )
+
+    def release_child(self) -> None:
+        """Restore inherited pane styling after the simulated child releases."""
+        if self.focus is not None:
+            subprocess.run(
+                [
+                    str(self.focus),
+                    "release",
+                    "--parent-tmux",
+                    str(self.socket),
+                    "--parent-pane",
+                    self.active,
+                    "--token",
+                    "0123456789abcdef01234567",
+                ],
+                env=self.environment,
+                check=True,
+            )
+            return
+        self.tmux("set-option", "-pu", "-t", self.active, "window-active-style")
+        self.tmux("set-option", "-pu", "-t", self.active, "@termnav_child_focus")
+
+    def sync_client(self, client: Client) -> None:
+        """Reconcile client focus through Termnav or its documented contract."""
+        if self.focus is not None:
+            subprocess.run(
+                [
+                    str(self.focus),
+                    "sync",
+                    "--tmux-socket",
+                    str(self.socket),
+                    "--client-pid",
+                    str(client.pid),
+                    "--client-tty",
+                    client.tty,
+                ],
+                env=self.environment,
+                check=True,
+            )
+            return
+        if self.client_is_focused(client.tty):
+            self.tmux("set-option", "-pu", "-t", self.active, "window-active-style")
+            self.tmux("set-option", "-pu", "-t", self.active, "@termnav_client_unfocused")
+            return
+        inactive_style = self.tmux(
+            "show-options",
+            "-gqv",
+            "@termnav_inactive_style",
+        ).stdout.strip()
+        self.tmux(
+            "set-option",
+            "-p",
+            "-t",
+            self.active,
+            "window-active-style",
+            inactive_style,
+        )
+        self.tmux(
+            "set-option",
+            "-p",
+            "-t",
+            self.active,
+            "@termnav_client_unfocused",
+            "1",
+        )
+
+    def rendered_background(self, payload: bytes) -> tuple[int, int, int] | None:
+        """Read the last true-color background painted during a full redraw."""
+        pattern = re.compile(rb"\x1b\[48(?:(?:;2;(\d+);(\d+);(\d+))|(?::2::(\d+):(\d+):(\d+)))m")
+        matches = list(pattern.finditer(payload))
+        if not matches:
+            return None
+        groups = matches[-1].groups()
+        components = groups[:3] if groups[0] is not None else groups[3:]
+        red, green, blue = (int(component) for component in components)
+        return red, green, blue
+
     def test_focus_hooks_are_client_scoped_and_ignore_control_mode(self) -> None:
         start_hooks = self.hook("client-attached") + "\n" + self.hook("client-focus-in")
         stop_hooks = self.hook("client-focus-out") + "\n" + self.hook("client-detached")
+        sync_hooks = (
+            self.hook("after-select-pane")
+            + "\n"
+            + self.hook("after-select-window")
+            + "\n"
+            + self.hook("client-session-changed")
+        )
         for hooks in (start_hooks, stop_hooks):
             self.assertIn("#{==:#{client_control_mode},0}", hooks)
             self.assertIn("--tmux-socket #{q:socket_path}", hooks)
@@ -184,6 +370,8 @@ class LeafStyleTest(unittest.TestCase):
             self.assertIn("--client-tty #{q:client_tty}", hooks)
         self.assertIn("termnav-tmux-focus watch", start_hooks)
         self.assertIn("termnav-tmux-focus stop", stop_hooks)
+        self.assertIn("termnav-tmux-focus sync", sync_hooks)
+        self.assertIn("#{!=:#{@termnav_client_unfocused},}", sync_hooks)
 
     def test_styles_follow_each_client_and_child_claim(self) -> None:
         first = Client(self)
@@ -206,7 +394,7 @@ class LeafStyleTest(unittest.TestCase):
         )
 
         self.assertEqual(
-            "bg=#010d17",
+            "bg=#011627",
             self.expand(second.tty, self.active, "window-active-style"),
         )
         self.assertEqual(
@@ -218,14 +406,7 @@ class LeafStyleTest(unittest.TestCase):
             self.expand(second.tty, self.active, "pane-border-format"),
         )
 
-        self.tmux(
-            "set-option",
-            "-p",
-            "-t",
-            self.active,
-            "@termnav_child_focus",
-            "0123456789abcdef01234567:9999999999999999",
-        )
+        self.claim_child()
         self.assertEqual(
             "bg=#010d17",
             self.expand(first.tty, self.active, "window-active-style"),
@@ -239,7 +420,7 @@ class LeafStyleTest(unittest.TestCase):
             self.expand(first.tty, self.active, "pane-border-format"),
         )
 
-        self.tmux("set-option", "-pu", "-t", self.active, "@termnav_child_focus")
+        self.release_child()
         second.set_focus(True)
         self.assertEqual(
             "bg=#011627",
@@ -247,15 +428,67 @@ class LeafStyleTest(unittest.TestCase):
         )
         self.assertEqual(
             "bg=#010d17",
-            self.expand(second.tty, self.inactive, "window-active-style"),
+            self.expand(second.tty, self.inactive, "window-style"),
+        )
+
+    def test_terminal_render_paints_the_focused_leaf_night_owl_blue(self) -> None:
+        # Remove unrelated status-line and inactive-pane background sequences
+        # so the captured SGR color is the pane body tmux actually painted.
+        self.tmux("kill-pane", "-t", self.inactive)
+        self.tmux("set-option", "-g", "status", "off")
+        client = Client(self)
+        self.clients.append(client)
+        client.set_focus(True)
+
+        leaf_render = client.redraw()
+        self.assertEqual(
+            (1, 22, 39),
+            self.rendered_background(leaf_render),
+            repr(leaf_render),
+        )
+
+        client.set_focus(False)
+        self.sync_client(client)
+        blurred_render = client.pump_until_quiet("client-focus-out repaint")
+        self.assertEqual(
+            (1, 13, 23),
+            self.rendered_background(blurred_render),
+            repr(blurred_render),
+        )
+
+        client.set_focus(True)
+        self.sync_client(client)
+        refocused_render = client.pump_until_quiet("client-focus-in repaint")
+        self.assertEqual(
+            (1, 22, 39),
+            self.rendered_background(refocused_render),
+            repr(refocused_render),
+        )
+
+        self.claim_child()
+        container_render = client.pump_until_quiet("child-claim repaint")
+        self.assertEqual(
+            (1, 13, 23),
+            self.rendered_background(container_render),
+            repr(container_render),
+        )
+
+        self.release_child()
+        restored_render = client.pump_until_quiet("child-release repaint")
+        self.assertEqual(
+            (1, 22, 39),
+            self.rendered_background(restored_render),
+            repr(restored_render),
         )
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True, type=pathlib.Path)
+    parser.add_argument("--focus", type=pathlib.Path)
     arguments, unittest_arguments = parser.parse_known_args()
     LeafStyleTest.config = arguments.config
+    LeafStyleTest.focus = arguments.focus
     program = unittest.main(argv=[__file__, *unittest_arguments], verbosity=2, exit=False)
     return 0 if program.result.wasSuccessful() else 1
 
