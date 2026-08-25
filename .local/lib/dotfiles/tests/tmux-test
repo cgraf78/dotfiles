@@ -89,9 +89,13 @@ if command -v tmux >/dev/null 2>&1; then
   _assert_eq "tmux native detector matches mouse-aware nested clients" \
     "1" "$native_nested_mouse_match"
 
+  focus_style_args=(--config "$tmux_config")
+  if [[ -n ${DOT_TEST_TERMNAV_ROOT:-} ]]; then
+    focus_style_args+=(--focus "$termnav_tmux_focus_executable")
+  fi
   if focus_style_output=$(python3 \
     "${BASH_SOURCE[0]%/*}/support/tmux-focus-style.py" \
-    --config "$tmux_config" 2>&1); then
+    "${focus_style_args[@]}" 2>&1); then
     focus_style_rc=0
   else
     focus_style_rc=$?
@@ -103,6 +107,9 @@ if command -v tmux >/dev/null 2>&1; then
     "test_styles_follow_each_client_and_child_claim" "$focus_style_output"
   _assert_contains "tmux focus hooks keep exact client identity" \
     "test_focus_hooks_are_client_scoped_and_ignore_control_mode" \
+    "$focus_style_output"
+  _assert_contains "tmux paints the focused leaf with the exact Night Owl background" \
+    "test_terminal_render_paints_the_focused_leaf_night_owl_blue" \
     "$focus_style_output"
 else
   echo "  - skipping tmux syntax checks (tmux not installed)"
@@ -174,14 +181,20 @@ _assert_contains "tmux stops a leaf-focus publisher immediately on focus loss" \
   'set-hook -g client-focus-out[110]' "$tmux_content"
 _assert_contains "tmux stops a leaf-focus publisher when clients detach" \
   'set-hook -g client-detached[110]' "$tmux_content"
+_assert_contains "tmux repairs stale pane dimming after selection changes" \
+  'termnav-tmux-focus sync' "$tmux_content"
+_assert_contains "tmux ordinary selection avoids a focus helper process" \
+  '#{!=:#{@termnav_client_unfocused},}' "$tmux_content"
 _assert_contains "tmux centralizes the focused leaf predicate" \
   'set -g @termnav_pane_is_focused_leaf' "$tmux_content"
 _assert_contains "tmux leaf focus requires the exact client to be focused" \
   '#{m:*focused*,#{client_flags}}' "$tmux_content"
 _assert_contains "tmux leaf focus excludes panes with a focused child" \
   '#{==:#{@termnav_child_focus},}' "$tmux_content"
-_assert_contains "tmux active background uses the shared leaf predicate" \
-  'window-active-style '\''#{?#{E:@termnav_pane_is_focused_leaf}' "$tmux_content"
+_assert_contains "tmux publishes its inactive style for focus overrides" \
+  "set -g @termnav_inactive_style 'bg=#010d17'" "$tmux_content"
+_assert_contains "tmux active background keeps the exact Night Owl blue" \
+  "set -g window-active-style 'bg=#011627'" "$tmux_content"
 _assert_contains "tmux active border uses the shared leaf predicate" \
   'pane-active-border-style '\''#{?#{E:@termnav_pane_is_focused_leaf}' "$tmux_content"
 _assert_not_contains "tmux focus rendering never shells out" \
