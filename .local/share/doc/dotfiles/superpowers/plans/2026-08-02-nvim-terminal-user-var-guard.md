@@ -20,7 +20,7 @@
 
 **Files:**
 
-- Modify: `.config/shell/interactive.d/53-wezterm.sh`
+- Modify: `.config/shell/interactive.d/53-termnav.sh`
 - Modify: `.local/lib/dot/tests/wezterm-test`
 
 **Interfaces:**

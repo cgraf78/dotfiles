@@ -18,7 +18,7 @@ thin loaders. The ordered files in this directory hold the actual shell policy.
     ├── 50-aliases.sh
     ├── 51-aliases-{linux,macos,wsl}.sh
     ├── 52-cursor.sh
-    ├── 53-wezterm.sh
+    ├── 53-termnav.sh
     ├── 54-tool-init.sh
     ├── 55-ssh.sh
     ├── 56-dot.sh
@@ -44,12 +44,13 @@ thin loaders. The ordered files in this directory hold the actual shell policy.
 - `57-git-tools.sh` retains only local picker/editor policy, worktree
   placement, and prompt shorthand. The reusable Git and worktree workflows
   come from git-tools through both `70-integrations.*` loaders.
-- `53-wezterm.sh` is the small ordering exception: it loads Termnav's shell API
-  before interactive commands can use it. Termnav owns terminal classification
-  and pane metadata; `50-aliases.sh` retains only the local `eza`/`rg` choice
-  and maps the explicit `DOT_VSCODE_TERMINAL` consumer policy to Termnav's
-  generic `TERMNAV_FILE_LINKS_PLAIN` input. The loader also retires the old
-  dotfiles prompt callback when a long-lived shell is reloaded.
+- `53-termnav.sh` is the small ordering exception: it loads Termnav's shell API
+  before interactive commands can use it or launch descendants. Termnav owns
+  inherited SSH interposition, terminal classification, and pane metadata;
+  `50-aliases.sh` retains only the local `eza`/`rg` choice and maps the explicit
+  `DOT_VSCODE_TERMINAL` consumer policy to Termnav's generic
+  `TERMNAV_FILE_LINKS_PLAIN` input. The loader fails open so an unavailable
+  dependency cannot prevent a recovery shell; `dot doctor` owns diagnostics.
 - Generated tool initialization is cached below an absolute `XDG_CACHE_HOME`,
   falling back to `$HOME/.cache`; cache generation is skipped when neither
   root is available.

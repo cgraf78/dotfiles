@@ -271,6 +271,23 @@ _assert_contains "tmux defines private parent-pane key for up" \
   'set -s user-keys[6] "\033[777007u"' "$tmux_content"
 _assert_contains "tmux defines private parent-pane key for right" \
   'set -s user-keys[7] "\033[777008u"' "$tmux_content"
+_assert_contains "tmux defines relay commit key for nested tmux hops" \
+  'set -s user-keys[8] "\033[777009u"' "$tmux_content"
+# shellcheck disable=SC2016 # Match tmux's escaped literal dollar.
+_assert_contains "tmux defines DECRQM unsupported-state commit response" \
+  'set -s user-keys[9] "\033[?2004;0\$y"' "$tmux_content"
+# shellcheck disable=SC2016 # Match tmux's escaped literal dollar.
+_assert_contains "tmux defines DECRQM set-state commit response" \
+  'set -s user-keys[10] "\033[?2004;1\$y"' "$tmux_content"
+# shellcheck disable=SC2016 # Match tmux's escaped literal dollar.
+_assert_contains "tmux defines DECRQM reset-state commit response" \
+  'set -s user-keys[11] "\033[?2004;2\$y"' "$tmux_content"
+# shellcheck disable=SC2016 # Match tmux's escaped literal dollar.
+_assert_contains "tmux defines DECRQM permanently-set commit response" \
+  'set -s user-keys[12] "\033[?2004;3\$y"' "$tmux_content"
+# shellcheck disable=SC2016 # Match tmux's escaped literal dollar.
+_assert_contains "tmux defines DECRQM permanently-reset commit response" \
+  'set -s user-keys[13] "\033[?2004;4\$y"' "$tmux_content"
 _assert_contains "tmux detects when its client is another tmux" \
   "is_nested_tmux_client=" "$tmux_content"
 _assert_contains "tmux Ctrl-Tab checks session window count before switching" \
@@ -479,6 +496,12 @@ if command -v tmux >/dev/null 2>&1; then
   parent_pane_down_root_line=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root User5 ' || true)
   parent_pane_up_root_line=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root User6 ' || true)
   parent_pane_right_root_line=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root User7 ' || true)
+  relay_nested_commit_root_line=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root User8 ' || true)
+  relay_terminal_commit_0_root_line=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root User9 ' || true)
+  relay_terminal_commit_1_root_line=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root User10 ' || true)
+  relay_terminal_commit_2_root_line=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root User11 ' || true)
+  relay_terminal_commit_3_root_line=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root User12 ' || true)
+  relay_terminal_commit_4_root_line=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root User13 ' || true)
   parent_key_0=$(tmux -S "$socket" show-options -s -v user-keys[0])
   parent_key_1=$(tmux -S "$socket" show-options -s -v user-keys[1])
   parent_key_2=$(tmux -S "$socket" show-options -s -v user-keys[2])
@@ -487,6 +510,12 @@ if command -v tmux >/dev/null 2>&1; then
   parent_key_5=$(tmux -S "$socket" show-options -s -v user-keys[5])
   parent_key_6=$(tmux -S "$socket" show-options -s -v user-keys[6])
   parent_key_7=$(tmux -S "$socket" show-options -s -v user-keys[7])
+  relay_key_8=$(tmux -S "$socket" show-options -s -v 'user-keys[8]')
+  relay_key_9=$(tmux -S "$socket" show-options -s -v 'user-keys[9]')
+  relay_key_10=$(tmux -S "$socket" show-options -s -v 'user-keys[10]')
+  relay_key_11=$(tmux -S "$socket" show-options -s -v 'user-keys[11]')
+  relay_key_12=$(tmux -S "$socket" show-options -s -v 'user-keys[12]')
+  relay_key_13=$(tmux -S "$socket" show-options -s -v 'user-keys[13]')
   mode_keys=$(tmux -S "$socket" show-window-options -g -v mode-keys)
   pane_border_format=$(tmux -S "$socket" show-options -g -v pane-border-format)
   pane_border_style=$(tmux -S "$socket" show-window-options -g -v pane-border-style)
@@ -509,6 +538,12 @@ if command -v tmux >/dev/null 2>&1; then
   parent_key_5=${parent_key_5/#_/$'\033'}
   parent_key_6=${parent_key_6/#_/$'\033'}
   parent_key_7=${parent_key_7/#_/$'\033'}
+  relay_key_8=${relay_key_8/#_/$'\033'}
+  relay_key_9=${relay_key_9/#_/$'\033'}
+  relay_key_10=${relay_key_10/#_/$'\033'}
+  relay_key_11=${relay_key_11/#_/$'\033'}
+  relay_key_12=${relay_key_12/#_/$'\033'}
+  relay_key_13=${relay_key_13/#_/$'\033'}
 
   _assert_eq "tmux runtime mode-keys is vi" "vi" "$mode_keys"
   _assert_contains "tmux runtime installs its owned client-attached hook slot" \
@@ -553,6 +588,40 @@ if command -v tmux >/dev/null 2>&1; then
     $'\033[777007u' "$parent_key_6"
   _assert_eq "tmux runtime parent-pane right key sequence is configured" \
     $'\033[777008u' "$parent_key_7"
+  _assert_eq "tmux runtime nested relay commit key is configured" \
+    $'\033[777009u' "$relay_key_8"
+  _assert_eq "tmux runtime DECRQM state 0 response is configured" \
+    $'\033[?2004;0$y' "$relay_key_9"
+  _assert_eq "tmux runtime DECRQM state 1 response is configured" \
+    $'\033[?2004;1$y' "$relay_key_10"
+  _assert_eq "tmux runtime DECRQM state 2 response is configured" \
+    $'\033[?2004;2$y' "$relay_key_11"
+  _assert_eq "tmux runtime DECRQM state 3 response is configured" \
+    $'\033[?2004;3$y' "$relay_key_12"
+  _assert_eq "tmux runtime DECRQM state 4 response is configured" \
+    $'\033[?2004;4$y' "$relay_key_13"
+  _assert_contains "tmux runtime nested relay commit invokes the consumer" \
+    "termnav-relay commit" "$relay_nested_commit_root_line"
+  _assert_contains "tmux runtime DECRQM state 0 invokes the relay consumer" \
+    "termnav-relay commit" "$relay_terminal_commit_0_root_line"
+  _assert_contains "tmux runtime DECRQM state 0 preserves unmatched replies" \
+    "--passthrough-decrqm 0 --pane #{pane_id}" "$relay_terminal_commit_0_root_line"
+  _assert_contains "tmux runtime DECRQM state 1 invokes the relay consumer" \
+    "termnav-relay commit" "$relay_terminal_commit_1_root_line"
+  _assert_contains "tmux runtime DECRQM state 1 preserves unmatched replies" \
+    "--passthrough-decrqm 1 --pane #{pane_id}" "$relay_terminal_commit_1_root_line"
+  _assert_contains "tmux runtime DECRQM state 2 invokes the relay consumer" \
+    "termnav-relay commit" "$relay_terminal_commit_2_root_line"
+  _assert_contains "tmux runtime DECRQM state 2 preserves unmatched replies" \
+    "--passthrough-decrqm 2 --pane #{pane_id}" "$relay_terminal_commit_2_root_line"
+  _assert_contains "tmux runtime DECRQM state 3 invokes the relay consumer" \
+    "termnav-relay commit" "$relay_terminal_commit_3_root_line"
+  _assert_contains "tmux runtime DECRQM state 3 preserves unmatched replies" \
+    "--passthrough-decrqm 3 --pane #{pane_id}" "$relay_terminal_commit_3_root_line"
+  _assert_contains "tmux runtime DECRQM state 4 invokes the relay consumer" \
+    "termnav-relay commit" "$relay_terminal_commit_4_root_line"
+  _assert_contains "tmux runtime DECRQM state 4 preserves unmatched replies" \
+    "--passthrough-decrqm 4 --pane #{pane_id}" "$relay_terminal_commit_4_root_line"
   _assert_contains "tmux runtime parent-pane left selects locally" \
     "select-pane -L" "$parent_pane_left_root_line"
   _assert_contains "tmux runtime parent-pane down selects locally" \

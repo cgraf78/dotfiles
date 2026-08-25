@@ -18,8 +18,8 @@ public_rule_wrapper=$(cat "$public_link_rules")
 termnav_wrapper=$(cat "$termnav_module")
 alias_content=$(cat "$HOME/.config/shell/interactive.d/50-aliases.sh")
 ripgrep_content=$(cat "$HOME/.config/ripgrep/config")
-tmux_context_shell="$HOME/.config/shell/interactive.d/53-wezterm.sh"
-tmux_context_content=$(cat "$tmux_context_shell")
+termnav_shell="$HOME/.config/shell/interactive.d/53-termnav.sh"
+termnav_shell_content=$(cat "$termnav_shell")
 
 _wezterm_lua() {
   local code="$1" nvim_bin script
@@ -70,21 +70,26 @@ _wezterm_has_lua_runner() {
 echo "=== WezTerm shell integration ownership ==="
 
 _assert_contains "shell integration resolves Termnav through shdeps" \
-  "dot_shdeps_dep_source cgraf78/termnav share/termnav/shell.sh" "$tmux_context_content"
+  "dot_shdeps_dep_source cgraf78/termnav share/termnav/shell.sh" "$termnav_shell_content"
 _assert_not_contains "shell integration does not define a new tmux publisher" \
-  "_dot_wezterm_publish_tmux_context()" "$tmux_context_content"
+  "_dot_wezterm_publish_tmux_context()" "$termnav_shell_content"
 _assert_not_contains "shell integration does not publish raw tmux protocol state" \
-  "DOT_TMUX" "$tmux_context_content"
+  "DOT_TMUX" "$termnav_shell_content"
+_assert_not_contains "shell integration carries no obsolete WezTerm cleanup" \
+  "_dot_wezterm_retire_legacy_tmux_context" "$termnav_shell_content"
 
-tmux_context_home=$(_tmpdir)
-mkdir -p "$tmux_context_home/.local/lib/dotfiles"
-cat >"$tmux_context_home/.local/lib/dotfiles/shdeps-assets.sh" <<'EOF'
-dot_shdeps_dep_source() { return 0; }
+# Shell startup is a recovery boundary. A missing or temporarily unavailable
+# shdeps checkout must disable Termnav for that shell without preventing the
+# user from reaching a prompt where `dot update` or `dot doctor` can repair it.
+termnav_loader_home=$(_tmpdir)
+mkdir -p "$termnav_loader_home/.local/lib/dotfiles"
+cat >"$termnav_loader_home/.local/lib/dotfiles/shdeps-assets.sh" <<'EOF'
+dot_shdeps_dep_source() { return 1; }
 EOF
 
 for test_shell in bash zsh; do
   if [[ "$test_shell" == zsh ]] && ! command -v zsh >/dev/null 2>&1; then
-    echo "  - skipping legacy tmux-hook cleanup in zsh (zsh unavailable)"
+    echo "  - skipping Termnav fail-open startup in zsh (zsh unavailable)"
     continue
   fi
   if [[ "$test_shell" == bash ]]; then
@@ -92,27 +97,16 @@ for test_shell in bash zsh; do
   else
     shell_args=(-f)
   fi
-  legacy_cleanup=$(
-    # The single-quoted program is intentionally evaluated by the selected
-    # child shell, where TMUX_CONTEXT_SHELL and the seeded hooks exist.
-    # shellcheck disable=SC2016
-    HOME="$tmux_context_home" \
-      TMUX_CONTEXT_SHELL="$tmux_context_shell" \
-      "$test_shell" "${shell_args[@]}" -c '
-        keep_prompt_hook() { :; }
-        _dot_wezterm_publish_tmux_context() { :; }
-        precmd_functions=(keep_prompt_hook _dot_wezterm_publish_tmux_context)
-        source "$TMUX_CONTEXT_SHELL"
-        printf "hooks=%s\n" "${precmd_functions[*]}"
-        if typeset -f _dot_wezterm_publish_tmux_context >/dev/null 2>&1; then
-          printf "legacy-function=present\n"
-        else
-          printf "legacy-function=absent\n"
-        fi
-      '
+  # The selected child shell expands TERMNAV_SHELL after receiving its isolated
+  # HOME; expanding it in this Bash test runner would defeat the fixture.
+  # shellcheck disable=SC2016
+  loader_result=$(
+    HOME="$termnav_loader_home" TERMNAV_SHELL="$termnav_shell" \
+      "$test_shell" "${shell_args[@]}" -c \
+      'source "$TERMNAV_SHELL"; printf shell-ready'
   )
-  _assert_eq "$test_shell reload retires the dotfiles-owned tmux callback" \
-    "$(printf 'hooks=keep_prompt_hook\nlegacy-function=absent')" "$legacy_cleanup"
+  _assert_eq "$test_shell startup survives unavailable Termnav" \
+    shell-ready "$loader_result"
 done
 
 echo "=== WezTerm mouse and route integration ==="
