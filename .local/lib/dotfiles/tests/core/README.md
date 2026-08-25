@@ -12,7 +12,7 @@ files own topic-specific coverage.
   and `sley`.
 - `merges.sh` covers config merge hooks and generated output, including
   activation of Sley's provider-owned Sapling gate at its stable Shdeps path.
-- `runner.sh` covers the `dot-test` runner itself.
+- standalone Dot owns the `dot test` runner and its lifecycle coverage.
 - `static.sh` covers repository-wide client policy and portability checks.
 
 Standalone command, repository, lock, resource, and overlay behavior belongs

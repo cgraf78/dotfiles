@@ -1,38 +1,37 @@
 # Dot Test Suites
 
-`dot-test` discovers `*-test` scripts in this directory and runs them with a
-bounded parallel worker pool by default.
+The standalone Dot provider discovers `*-test` scripts in this directory and
+runs them through `dot test` with a bounded parallel worker pool by default.
 
 ## Usage
 
 ```text
-dot-test                  # all tests, parallel
-dot-test core bootstrap   # named subset
-dot-test agent-hook       # work-specific agent-hook shards
-dot-test -j 4             # run up to 4 suites concurrently
-dot-test -s               # sequential output
-dot-test -v               # verbose output in parallel mode
-dot-test -l               # list available tests
+dot test                  # all tests, parallel
+dot test core bootstrap   # named subset
+dot test client-paths     # exact and prefix-selected extension suites
+dot test -j 4             # run up to 4 suites concurrently
+dot test -s               # sequential output
+dot test -v               # verbose output in parallel mode
+dot test -l               # list available tests
 ```
 
-Parallel full runs preserve discovery order within scheduling groups, with
-unmarked `agent-hook-*` suites running after the broad baseline suites. A suite
-that has been measured on the full-run critical path may put this exact marker
-within its first 20 lines to enter the first worker wave:
+Parallel full runs preserve discovery order. A suite that has been measured on
+the full-run critical path may put this exact marker within its first 20 lines
+to enter the first worker wave:
 
 ```bash
-# dot-test-priority: early
+# dot-suite-priority: early
 ```
 
 Use the marker only when end-to-end measurements show a wall-clock benefit;
 it is not a general importance label and does not affect sequential or
 explicitly filtered runs.
 
-Run `dot-test` from the checkout under test and let the runner detect the source
+Run `dot test` from the checkout under test and let the runner detect the source
 tree. This works for both the live dotfiles home and linked git worktrees:
-`dot-test` exports `HOME`/`DOT_TEST_SOURCE_HOME` for the source checkout and
+`dot test` exports `HOME`/`DOT_TEST_SOURCE_HOME` for the source checkout and
 preserves the caller's home as `DOT_TEST_HOST_HOME` for host-installed tools.
-Individual suites should not require a special `HOME=... dot-test` invocation or
+Individual suites should not require a special `HOME=... dot test` invocation or
 invent their own source-home detection. If a suite intentionally launches
 host-installed tools, use the helpers in `helpers.sh`; when a path assertion
 cares about filesystem identity on macOS, canonicalize the assertion rather than
@@ -40,9 +39,9 @@ depending on a particular `/var` versus `/private/var` spelling.
 
 ## Suites
 
-- `core-test` owns the dotfiles test runner. Its focused shards retain
-  application merge-hook, cron, launcher, doctor-extension, and static-policy
-  coverage; generic engine behavior lives in the standalone dot repository.
+- `core-test` and its focused shards retain application merge-hook, cron,
+  launcher, doctor-extension, and static-policy coverage; generic runner
+  behavior lives in the standalone Dot repository.
 - `core-update-test` is the one retained end-to-end client integration: a real
   standalone update advances a local client origin and runs a dotfiles-owned
   merge hook.
@@ -63,9 +62,9 @@ depending on a particular `/var` versus `/private/var` spelling.
   the installed provider. `agent-rules-adapter-test` tests dependency and
   resolved-manifest dispatch. Generic parsing, rendering, publication,
   migration, and cleanup tests live in the `agent-rules-sync` repository.
-- `agent-hook-work-test` tests work-specific `agentguard` hook extensions.
-  Installed base hook smoke checks live in `dot doctor`, and detailed hook
-  behavior lives in the `agentguard` repo.
+- Overlay repositories may add private suites through the same trusted test
+  extension directory without exposing their subject matter in this public
+  inventory.
 - `shdeps-hooks-test` tests dotfiles-specific shdeps hooks.
 - `validate-commit-msg-test` tests dotfiles commit-message policy and its Sley
   Git-hook routing.
@@ -102,5 +101,5 @@ Installed-environment smoke checks belong in `dot doctor`. In particular,
 still point at the expected spun-out repos.
 
 CI runs all suites through the shared shell CI workflow configured in
-`.github/workflows/test.yml`. `dot-test` uses `gum` for styled output when
+`.github/workflows/test.yml`. `dot test` uses `gum` for styled output when
 available and falls back to plain text in CI or minimal environments.

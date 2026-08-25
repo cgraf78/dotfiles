@@ -29,7 +29,7 @@ The caller command will:
 
 No repository secrets will be forwarded into the Termux workflow.
 
-The complete `dot-test` suite remains on the eight host platforms. Its
+The complete `dot test` suite remains on the eight host platforms. Its
 fixtures intentionally model Linux/macOS filesystem layouts, interpreters,
 and host tools, so running it wholesale in an Android application sandbox
 would report fixture incompatibility rather than dotfiles runtime health.
@@ -44,7 +44,7 @@ placed under another job.
 Use a red/green test cycle by first adding the assertion against the unchanged
 workflow, confirming it fails, then adding the job and confirming it passes.
 Run `checkrun format`, `checkrun lint`, `actionlint`, and the complete
-`dot-test` suite before opening the pull request.
+`dot test` suite before opening the pull request.
 
 After GitHub emits the nested Android job's exact check context and the run is
 green, add that context to strict `main` branch protection. Re-read protection

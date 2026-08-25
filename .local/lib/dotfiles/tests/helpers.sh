@@ -23,7 +23,7 @@ export DOT_TEST=1
 # tests from writing __pycache__ beside source fixtures.
 export PYTHONDONTWRITEBYTECODE=1
 
-# `dot-test` sets DOT_TEST_STYLE=1 for child suites when styled output is
+# `dot test` sets DOT_TEST_STYLE=1 for child suites when styled output is
 # appropriate. Individual suites keep exporting NO_COLOR for deterministic tool
 # output, so this opt-in is separate from NO_COLOR and only affects our harness
 # status lines.
@@ -89,7 +89,7 @@ _test_realpath() {
 
 # Suites that start real editor/tool processes from a worktree HOME can reuse
 # the host's installed tool data while still reading config from the source
-# tree. Writable cache/state roots remain suite-local when dot-test supplies
+# tree. Writable cache/state roots remain suite-local when dot test supplies
 # them; this prevents editor smoke tests from modifying either checkout.
 _test_use_host_runtime_dirs() {
   local dependency_home="${DOT_TEST_HOST_HOME:-$HOME}"
@@ -104,7 +104,7 @@ _test_use_host_runtime_dirs() {
 
 # Suites that execute host-installed binaries from a worktree HOME sometimes
 # need the matching host shdeps tree too. Keep this opt-in instead of exporting
-# shdeps from dot-test globally: several low-level tests intentionally provide
+# shdeps from dot test globally: several low-level tests intentionally provide
 # fixture SHDEPS_DIR/SHDEPS_GIT_DEV_DIR values and must not be overridden.
 _test_use_host_shdeps() {
   local dependency_home="${DOT_TEST_HOST_HOME:-$HOME}"
@@ -171,6 +171,8 @@ _test_load_dot_merge_api() {
   . "$dot_root/lib/dot/merge-hooks.sh"
   # shellcheck source=/dev/null
   . "$dot_root/lib/dot/extension-trust.sh"
+  # shellcheck source=/dev/null
+  . "$dot_root/lib/dot/repos/overlays.sh"
   # shellcheck source=/dev/null
   . "$dot_root/lib/dot/hook-api.sh"
 }
@@ -278,7 +280,7 @@ _test_prepare_shdeps_snapshot() {
     done
   done
   if [[ -z "$source_dir" ]]; then
-    echo "dot-test: no shdeps implementation available for an isolated snapshot" >&2
+    echo "dot test: no shdeps implementation available for an isolated snapshot" >&2
     return 1
   fi
 
@@ -291,7 +293,7 @@ _test_prepare_shdeps_snapshot() {
     # A development checkout is authoritative. Never silently combine its
     # current shell API with an older installed binary or fallback release.
     head=$(git -C "$source_dir" rev-parse --short=8 HEAD 2>/dev/null) || {
-      echo "dot-test: could not resolve shdeps checkout HEAD: $source_dir" >&2
+      echo "dot test: could not resolve shdeps checkout HEAD: $source_dir" >&2
       return 1
     }
     for candidate in \
@@ -318,9 +320,9 @@ _test_prepare_shdeps_snapshot() {
   fi
   if [[ -z "$binary" ]]; then
     if [[ -n "$head" ]]; then
-      echo "dot-test: shdeps checkout has no binary for HEAD $head; run cargo build --release --locked in $source_dir" >&2
+      echo "dot test: shdeps checkout has no binary for HEAD $head; run cargo build --release --locked in $source_dir" >&2
     else
-      echo "dot-test: shdeps implementation has no runnable binary: $source_dir" >&2
+      echo "dot test: shdeps implementation has no runnable binary: $source_dir" >&2
     fi
     return 1
   fi
@@ -606,21 +608,25 @@ _mock_bin() {
 # Linux and macOS.
 # ---------------------------------------------------------------------------
 
-_DOT_TEST_TIMEOUT_PY=$(cd "${BASH_SOURCE[0]%/*}" && pwd)/timeout.py
+_DOT_TEST_TIMEOUT=${DOT_TEST_TIMEOUT:-}
+if [[ -z $_DOT_TEST_TIMEOUT ]]; then
+  _DOT_TEST_PROVIDER_ROOT=$(_test_dot_root 2>/dev/null || true)
+  _DOT_TEST_TIMEOUT=${_DOT_TEST_PROVIDER_ROOT:+$_DOT_TEST_PROVIDER_ROOT/lib/dot/public/test-timeout-v1}
+fi
 
-_with_python_timeout() {
+_with_provider_timeout() {
   local secs="$1"
   shift
-  python3 "$_DOT_TEST_TIMEOUT_PY" "$secs" "$@"
+  "$_DOT_TEST_TIMEOUT" "$secs" "$@"
 }
 
 _with_timeout() {
   local secs="$1"
   shift
-  if command -v python3 &>/dev/null; then
-    _with_python_timeout "$secs" "$@"
+  if [[ -x $_DOT_TEST_TIMEOUT ]]; then
+    _with_provider_timeout "$secs" "$@"
   else
-    echo "test timeout requires python3" >&2
+    echo "test timeout requires the standalone Dot timeout helper" >&2
     return 127
   fi
 }
@@ -642,14 +648,22 @@ _has_compatible_libc() {
 # prebuilt tools used by these fixtures. macOS remains in coverage.
 _require_compatible_libc() {
   if ! _has_compatible_libc; then
-    echo "SKIP: $1 (requires glibc-compatible Linux libc)"
-    exit 0
+    _test_skip_suite "$1 (requires glibc-compatible Linux libc)"
   fi
 }
 
 # ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
+
+_test_skip_suite() {
+  local reason=$1
+  echo "SKIP: $reason"
+  if [[ -n ${DOT_TEST_REPORTER:-} ]]; then
+    "$DOT_TEST_REPORTER" skip "$reason" || exit 1
+  fi
+  exit 0
+}
 
 _test_summary() {
   echo ""
@@ -667,6 +681,9 @@ _test_summary() {
     echo "================================"
     echo "Results: $PASS passed, $FAIL failed"
     echo "================================"
+  fi
+  if [[ -n ${DOT_TEST_REPORTER:-} ]]; then
+    "$DOT_TEST_REPORTER" complete "$PASS" "$FAIL" || exit 1
   fi
   [[ $FAIL -eq 0 ]] && exit 0 || exit 1
 }

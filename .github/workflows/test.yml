@@ -41,6 +41,10 @@ jobs:
       shellcheck-exclude-codes: SC1091
       shellcheck-inventory-path: .github/shellcheck-files.txt
       test-command: |-
+        # HOME is the checked-out client tree. Ignore runner-global XDG roots
+        # so Dot reads this checkout's config and discovers its test suites.
+        unset XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME XDG_RUNTIME_DIR
+
         # Pin retirement validation to the event's immutable predecessor.
         # Fetching a branch name here would race a newer main push and compare
         # this checkout with source it never contained.
@@ -54,7 +58,7 @@ jobs:
         else
           git fetch --no-tags --depth=1 origin "+$DOT_VSCODE_KEYBINDING_BASE_SHA:refs/remotes/origin/dot-keybinding-base"
         fi
-        DOT_CORE_SKIP_SHELLCHECK=1 .local/bin/dot-test
+        DOT_CORE_SKIP_SHELLCHECK=1 dot test
         lsp_mise_backends=(
           github:neocmakelsp/neocmakelsp
           github:kristoff-it/superhtml

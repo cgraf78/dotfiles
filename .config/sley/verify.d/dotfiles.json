@@ -13,13 +13,13 @@
           "paths": ["*"],
           "commands": [
             {
-              "cmd": "env -u GIT_DIR -u GIT_WORK_TREE -u SLEY_SKIP_UNTRACKED dot-test",
+              "cmd": "env -u GIT_DIR -u GIT_WORK_TREE -u SLEY_SKIP_UNTRACKED dot test",
               "kind": "test",
               "required": true,
               "tier": "fast",
               "cache": {
                 "enabled": true,
-                "salt": "dot-test-all-tracked-v1",
+                "salt": "dot-suite-all-tracked-v2",
                 "identity": {
                   "commands": ["git ls-files"]
                 }

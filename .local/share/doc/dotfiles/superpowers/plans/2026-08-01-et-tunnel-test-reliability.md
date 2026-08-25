@@ -6,7 +6,7 @@
 
 **Architecture:** Keep production tunnel behavior unchanged while making test dependencies explicit. Extend the portable timeout supervisor so every suite-owned process group is contained, then shard ET coverage only if the repaired benchmark still exceeds the target.
 
-**Tech Stack:** Bash, POSIX shell fixtures, Python 3 standard library, `dot-test`, GitHub Actions.
+**Tech Stack:** Bash, POSIX shell fixtures, Python 3 standard library, `dot test`, GitHub Actions.
 
 ## Global Constraints
 
@@ -14,7 +14,7 @@
 - Do not shorten runtime safety deadlines to make tests faster.
 - Keep relay fixture behavior in one authoritative helper.
 - Preserve timeout, cancellation, and child exit status codes.
-- `dot-test et-tunnel` must continue to run all ET tunnel coverage.
+- `dot test et-tunnel` must continue to run all ET tunnel coverage.
 - Complete ET coverage must finish within 45 seconds on NAS.
 
 ---
@@ -33,7 +33,7 @@
 
 - [ ] **Step 1: Verify the existing test fails for the intended reasons**
 
-Run `./.local/bin/dot-test -s et-tunnel` and confirm failures name missing
+Run `./.local/bin/dot test -s et-tunnel` and confirm failures name missing
 remote relay PID files and occupied custom-transport ports.
 
 - [ ] **Step 2: Add a `socat` fixture that exercises the real preference branch**
@@ -51,7 +51,7 @@ port-in-use tests unchanged.
 
 - [ ] **Step 4: Run the focused ET test**
 
-Run `./.local/bin/dot-test -s et-tunnel`. Expected: all assertions pass.
+Run `./.local/bin/dot test -s et-tunnel`. Expected: all assertions pass.
 
 - [ ] **Step 5: Commit**
 
@@ -74,7 +74,7 @@ Commit the host-independent fixture changes with their focused test evidence.
 
 Add a synthetic passing suite that starts `sleep 300` in the background,
 records its PID, prints a valid results summary, and exits zero. Run it through
-`dot-test`, then assert the recorded PID has stopped.
+`dot test`, then assert the recorded PID has stopped.
 
 - [ ] **Step 2: Run the runner shard and observe RED**
 
@@ -90,7 +90,7 @@ the leader status returned from the normal path.
 
 - [ ] **Step 4: Run the runner shard and timeout consumers**
 
-Run the focused core shard and `./.local/bin/dot-test nvim`. Expected: all
+Run the focused core shard and `./.local/bin/dot test nvim`. Expected: all
 runner and portable-timeout assertions pass.
 
 - [ ] **Step 5: Commit**
@@ -109,11 +109,11 @@ Commit the containment behavior and regression coverage.
 
 - Consumes: the repaired host-independent ET fixture from Task 1.
 
-- Produces: parallel auto-discovered shards selected together by `dot-test et-tunnel`.
+- Produces: parallel auto-discovered shards selected together by `dot test et-tunnel`.
 
 - [ ] **Step 1: Benchmark repaired aggregate coverage**
 
-Run `/usr/bin/env time -p ./.local/bin/dot-test et-tunnel` and record elapsed
+Run `/usr/bin/env time -p ./.local/bin/dot test et-tunnel` and record elapsed
 wall time. If it is at most 45 seconds, skip Steps 2-4.
 
 - [ ] **Step 2: Split independent behavior groups**
@@ -124,12 +124,12 @@ collision/validation behavior. Do not duplicate fixture policy.
 
 - [ ] **Step 3: Verify aggregate selection and behavior**
 
-Run `./.local/bin/dot-test -l`, then `./.local/bin/dot-test et-tunnel`.
+Run `./.local/bin/dot test -l`, then `./.local/bin/dot test et-tunnel`.
 Expected: every shard is selected and all assertions pass.
 
 - [ ] **Step 4: Re-benchmark**
 
-Run `/usr/bin/env time -p ./.local/bin/dot-test et-tunnel`. Expected: elapsed
+Run `/usr/bin/env time -p ./.local/bin/dot test et-tunnel`. Expected: elapsed
 wall time is at most 45 seconds on NAS.
 
 - [ ] **Step 5: Commit**
@@ -151,13 +151,13 @@ sharding was unnecessary because the target was already met.
 
 - [ ] **Step 1: Clean known leaked test processes**
 
-Resolve the exact two `socat` PIDs whose argv references deleted dot-test
+Resolve the exact two `socat` PIDs whose argv references deleted dot test
 temporary roots, terminate only those processes, and verify they stopped.
 
 - [ ] **Step 2: Run local verification**
 
 Run `checkrun format`, `checkrun lint`, `git diff --check`, focused ET and
-runner tests, and full `./.local/bin/dot-test`.
+runner tests, and full `./.local/bin/dot test`.
 
 - [ ] **Step 3: Perform fresh-eyes and code review**
 

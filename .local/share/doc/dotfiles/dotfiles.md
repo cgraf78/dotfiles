@@ -270,7 +270,7 @@ Check readiness before pushing:
 ```bash
 dot status
 sley ready
-dot-test
+dot test
 dot push
 ```
 
@@ -279,10 +279,10 @@ dot push
 Run all local tests with:
 
 ```bash
-dot-test
+dot test
 ```
 
-The dotfiles-owned runner lives under `~/.local/lib/dotfiles/tests/` and uses
-the standalone Dot test UI. See the
+The standalone Dot provider owns the runner; dotfiles supplies extension suites
+under `~/.local/lib/dotfiles/tests/`. See the
 [`tests` README](../../../../.local/lib/dotfiles/tests/README.md) for suite
 names, options, and CI coverage.

@@ -26,7 +26,7 @@ scanned as part of editor navigation.
 After changing these paths, run:
 
 ```sh
-dot-test nvim
-dot-test vscode-sley
-dot-test workflow-consistency
+dot test nvim
+dot test vscode-sley
+dot test workflow-consistency
 ```

@@ -274,7 +274,7 @@ TOOL_COMMANDS
     .local/lib/dotfiles/merge-hooks.d/git.sh \
     .local/lib/dotfiles/merge-hooks.d/lib/support.sh
   git -C "$merge_hook_inventory_home" \
-    -c user.name='Dot Test' -c user.email=dot-test.invalid \
+    -c user.name='Dot Fixture' -c user.email=dot.fixture.invalid \
     -c commit.gpgsign=false commit -qm fixture
   _assert_eq "merge hook gates: conventional checkout inventories only base hooks" \
     "git" "$(_dot_test_merge_hook_names "$merge_hook_inventory_home")"
@@ -1575,7 +1575,7 @@ aliases:
 YAML
     cat >"$gh_home/.config/gh/hosts.yml" <<'YAML'
 github.com:
-  user: dot-test
+  user: fixture-user
   oauth_token: seeded-token
 YAML
     cat >"$gh_home/.config/dot/merge-hooks.d/gh/config.d/10-config.yml" <<'YAML'
@@ -1633,9 +1633,9 @@ GH
     rm -f "$gh_home/.config/gh/github-pat" "$gh_home/.gh-calls.log"
     cat >"$gh_home/.config/gh/hosts.yml" <<'YAML'
 github.com:
-  user: dot-test
+  user: fixture-user
   users:
-    dot-test:
+    fixture-user:
       oauth_token: nested-token
 YAML
     _run_gh_merge_nested_hosts_for_test() {
@@ -1736,9 +1736,9 @@ YAML
 github.com:
   git_protocol: https
   users:
-    dot-test:
+    fixture-user:
       git_protocol: https
-  user: dot-test
+  user: fixture-user
 YAML
     _run_gh_merge_manual_retry_for_test() {
       unset -f merge 2>/dev/null
@@ -3234,7 +3234,7 @@ JSON
     git -C "$vscode_base_guard_repo" init -q
     git -C "$vscode_base_guard_repo" add .
     git -C "$vscode_base_guard_repo" \
-      -c user.name=dot-test -c user.email=dot-test.invalid \
+      -c user.name=dot-fixture -c user.email=dot.fixture.invalid \
       commit -q --no-verify -m base
     vscode_self_base_rc=0
     (

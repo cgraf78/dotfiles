@@ -42,7 +42,7 @@ installation would expand the requested scope.
 
 ## Selection Principles
 
-- Prefer repository-owned entry points such as `checkrun`, `dot-test`, build
+- Prefer repository-owned entry points such as `checkrun`, `dot test`, build
   scripts, or package-manager scripts over reconstructing their internals.
 - Prefer semantic tools when syntax or structure matters; do not force a text
   search or regular expression to model a programming-language grammar.

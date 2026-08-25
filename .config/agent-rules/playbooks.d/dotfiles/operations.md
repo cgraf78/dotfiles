@@ -35,4 +35,4 @@ its worktree. Active overlays are discovered from
 - After related provider and consumer changes have landed, run `dot update -f`
   so every overlay and generated target is rebuilt from the landed revisions.
 - Verify the generated target or installed link, not only the source file, and
-  finish with the full `dot-test` suite required by repository policy.
+  finish with the full `dot test` suite required by repository policy.

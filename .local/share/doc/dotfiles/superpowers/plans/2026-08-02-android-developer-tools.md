@@ -64,8 +64,8 @@ with `set -euo pipefail`, and require `termux-profiles: base,neovim`.
 Run:
 
 ```bash
-DOT_TEST_NO_COLOR=1 .local/bin/dot-test shdeps-hooks
-DOT_TEST_NO_COLOR=1 .local/bin/dot-test core
+DOT_TEST_NO_COLOR=1 .local/bin/dot test shdeps-hooks
+DOT_TEST_NO_COLOR=1 .local/bin/dot test core
 ```
 
 Expected: failures report the missing Android Watchexec route, missing Android
@@ -133,8 +133,8 @@ interactive update. Cover both output modes in the core tests.
 Run:
 
 ```bash
-DOT_TEST_NO_COLOR=1 .local/bin/dot-test shdeps-hooks
-DOT_TEST_NO_COLOR=1 .local/bin/dot-test core
+DOT_TEST_NO_COLOR=1 .local/bin/dot test shdeps-hooks
+DOT_TEST_NO_COLOR=1 .local/bin/dot test core
 bash -n .local/lib/dot/tests/android-ci-smoke
 git diff --check
 ```
@@ -161,7 +161,7 @@ Run:
 ```bash
 checkrun format
 checkrun lint
-DOT_TEST_NO_COLOR=1 .local/bin/dot-test
+DOT_TEST_NO_COLOR=1 .local/bin/dot test
 git diff --check
 ```
 

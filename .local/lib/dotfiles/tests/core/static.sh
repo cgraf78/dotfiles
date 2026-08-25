@@ -120,6 +120,8 @@ MOCK
   _ci_termux_update_line=0
   _ci_termux_smoke_line=0
   _ci_termux_uses_base_profile=0
+  _ci_test_xdg_line=
+  _ci_dot_test_line=
   _ci_push_branches_total=0
   _ci_main_branch_count=0
   _ci_schedule_total=0
@@ -364,7 +366,21 @@ MOCK
   _assert_contains "CI workflow: scopes the dynamic-source exclusion" \
     "shellcheck-exclude-codes: SC1091" "$_ci_workflow"
   _assert_contains "CI workflow: skips only redundant platform ShellCheck" \
-    "DOT_CORE_SKIP_SHELLCHECK=1 .local/bin/dot-test" "$_ci_workflow"
+    "DOT_CORE_SKIP_SHELLCHECK=1 dot test" "$_ci_workflow"
+  _ci_test_xdg_line=$(grep -nF \
+    "unset XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME XDG_RUNTIME_DIR" \
+    <<<"$_ci_workflow" | sed -n '1s/:.*//p')
+  _ci_dot_test_line=$(grep -nF \
+    "DOT_CORE_SKIP_SHELLCHECK=1 dot test" \
+    <<<"$_ci_workflow" | sed -n '1s/:.*//p')
+  # Hosted runners may export XDG roots outside the checked-out HOME. Dot must
+  # resolve this client's config before it can discover the client test suites.
+  if [[ -n "$_ci_test_xdg_line" && -n "$_ci_dot_test_line" &&
+    "$_ci_test_xdg_line" -lt "$_ci_dot_test_line" ]]; then
+    _pass "CI workflow: discovers checkout suites before running Dot tests"
+  else
+    _fail "CI workflow: discovers checkout suites before running Dot tests"
+  fi
   _assert_not_contains "CI workflow: leaves provider-owned OpenCode smoke upstream" \
     "OPENCODE_TEST_VERSION" "$_ci_workflow"
   _assert_not_contains "CI workflow: does not run the provider adapter suite" \

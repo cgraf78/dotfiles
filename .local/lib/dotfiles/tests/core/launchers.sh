@@ -602,7 +602,7 @@ EOF
   _hm_launcher_source=$(cat "$BIN_DIR/hm")
   _nvim_launcher_source=$(cat "$BIN_DIR/nvim")
   _git_launcher_source=$(cat "$BIN_DIR/git")
-  _assert_not_contains "launchers: production code is independent of dot-test" \
+  _assert_not_contains "launchers: production code is independent of dot test" \
     "DOT_TEST_" "$_hm_launcher_source$_nvim_launcher_source$_git_launcher_source"
   _assert_not_contains "hm launcher: has no core-path override" \
     "HIVE_MEMORY_CORE" "$_hm_launcher_source"
@@ -751,7 +751,7 @@ MOCK
 
   # Clear ambient runtime identity for every probe so the assertions describe
   # only the environment each case supplies, regardless of which agent runs
-  # dot-test. Later env operands intentionally override this baseline.
+  # dot test. Later env operands intentionally override this baseline.
   HM_LAUNCHER_SCRUB_ENV=(
     GEMINI_PROJECT_DIR=
     HM_AGENTGUARD_API="$HM_AGENTGUARD_API"

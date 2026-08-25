@@ -58,4 +58,4 @@ semantics.
 
 Generated runtime rule files and the manifest are outputs. Edit the sources in
 this directory, run `dot update`, and then run the focused agent-rule tests or
-`dot-test` rather than editing generated targets directly.
+`dot test` rather than editing generated targets directly.
