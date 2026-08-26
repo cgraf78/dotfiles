@@ -860,6 +860,11 @@ expected="$(printf '%s\nabc' "$NVIM_CTRL_S_UNNAMED_INSERT_FILE")"
 _assert_eq_realpath_lines "save: insert Ctrl-S prompts and saves an unnamed buffer" "$expected" "$result"
 
 result=$(_nvim_lua '
+  package.loaded["config.termnav"] = {
+    refresh_mappings = function()
+      print("termnav-refresh")
+    end,
+  }
   package.loaded["grug-far"] = {
     open = function(opts)
       local paths = opts.prefills and opts.prefills.paths or "nil"
@@ -874,11 +879,6 @@ result=$(_nvim_lua '
   dofile(vim.fn.expand("~/.config/nvim/lua/config/keymaps.lua"))
   vim.api.nvim_buf_set_name(0, "/tmp/vscode replace test/file with spaces.txt")
 
-  local ctrl_h = vim.fn.maparg("<C-h>", "n")
-  if not ctrl_h:find("TmuxNavigateLeft", 1, true) then
-    print("bad-ctrl-h:" .. ctrl_h)
-    return
-  end
   print("ctrl-shift-h:" .. (vim.fn.maparg("<C-S-h>", "n") == "" and "unmapped" or "mapped"))
 
   vim.fn.maparg("<leader>sr", "n", false, true).callback()
@@ -886,428 +886,8 @@ result=$(_nvim_lua '
   vim.fn.maparg("<leader>sr", "x", false, true).callback()
   vim.fn.maparg("<leader>sR", "x", false, true).callback()
 ')
-expected="$(printf 'ctrl-shift-h:unmapped\nopen:/tmp/vscode\\ replace\\ test/file\\ with\\ spaces.txt:true\nopen:nil:true\nvisual:/tmp/vscode\\ replace\\ test/file\\ with\\ spaces.txt:true\nvisual:nil:true')"
-_assert_eq "replace: keymaps keep Ctrl-H navigation and avoid OS-reserved Ctrl-Shift-H" "$expected" "$result"
-
-result=$(_nvim_lua '
-  package.loaded["config.wezterm-vars"] = {
-    set = function(name, value)
-      print("wezterm:" .. name .. ":" .. value)
-    end,
-  }
-  vim.env.TMUX = nil
-  vim.env.TMUX_PANE = nil
-  vim.api.nvim_create_user_command("BufferLineCycleNext", function()
-    print("buffer-next")
-  end, {})
-  vim.api.nvim_create_user_command("BufferLineCyclePrev", function()
-    print("buffer-previous")
-  end, {})
-  dofile(vim.fn.expand("~/.config/nvim/lua/config/keymaps.lua"))
-  vim.api.nvim_create_buf(true, false)
-  vim.fn.maparg("<C-Tab>", "n", false, true).callback()
-  vim.fn.maparg("<C-S-Tab>", "n", false, true).callback()
-')
-expected="$(printf 'buffer-next\nbuffer-previous')"
-_assert_eq "buffer cycling: Ctrl-Tab stays in nvim when nvim has multiple buffers" "$expected" "$result"
-
-result=$(_nvim_lua '
-  package.loaded["config.wezterm-vars"] = {
-    set = function(name, value)
-      print("wezterm:" .. name .. ":" .. value)
-    end,
-  }
-  vim.env.TMUX = nil
-  vim.env.TMUX_PANE = nil
-  vim.api.nvim_create_user_command("BufferLineMovePrev", function()
-    print("buffer-move-left")
-  end, {})
-  vim.api.nvim_create_user_command("BufferLineMoveNext", function()
-    print("buffer-move-right")
-  end, {})
-  dofile(vim.fn.expand("~/.config/nvim/lua/config/keymaps.lua"))
-  vim.api.nvim_create_buf(true, false)
-  vim.fn.maparg("<M-{>", "n", false, true).callback()
-  vim.fn.maparg("<M-}>", "n", false, true).callback()
-')
-expected="$(printf 'buffer-move-left\nbuffer-move-right')"
-_assert_eq "buffer moving: Alt-Shift-brackets reorder BufferLine when nvim has multiple buffers" "$expected" "$result"
-
-result=$(_nvim_lua '
-  package.loaded["config.wezterm-vars"] = {
-    set = function(name, value)
-      print(name .. ":" .. value:match("^[^:]+"))
-    end,
-  }
-  vim.env.TMUX = nil
-  vim.env.TMUX_PANE = nil
-  dofile(vim.fn.expand("~/.config/nvim/lua/config/keymaps.lua"))
-  for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
-    vim.bo[bufnr].buflisted = bufnr == vim.api.nvim_get_current_buf()
-  end
-  vim.fn.maparg("<C-Tab>", "n", false, true).callback()
-  vim.fn.maparg("<C-S-Tab>", "n", false, true).callback()
-')
-expected="$(printf 'DOT_SWITCH_TAB:next\nDOT_SWITCH_TAB:previous')"
-_assert_eq "buffer cycling: Ctrl-Tab bubbles to WezTerm when nvim has one buffer outside tmux" "$expected" "$result"
-
-tab_tmux_mock=$(_tmpdir)
-cat >"$tab_tmux_mock/tmux" <<'MOCK'
-#!/usr/bin/env bash
-printf '%s\n' "$*" >>"$TMUX_MOCK_LOG"
-if [[ "$1" == "display-message" ]]; then
-  printf '2\n'
-fi
-MOCK
-chmod +x "$tab_tmux_mock/tmux"
-
-result=$(TMUX="/tmp/tmux-test,1,0" TMUX_PANE="%1" TMUX_MOCK_LOG="$tab_tmux_mock/tmux.log" PATH="$tab_tmux_mock:$PATH" _nvim_lua '
-  package.loaded["config.wezterm-vars"] = {
-    set = function(name, value)
-      print("wezterm:" .. name .. ":" .. value)
-    end,
-  }
-  dofile(vim.fn.expand("~/.config/nvim/lua/config/keymaps.lua"))
-  for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
-    vim.bo[bufnr].buflisted = bufnr == vim.api.nvim_get_current_buf()
-  end
-  vim.fn.maparg("<C-Tab>", "n", false, true).callback()
-  vim.fn.maparg("<C-S-Tab>", "n", false, true).callback()
-  print(table.concat(vim.fn.readfile(vim.env.TMUX_MOCK_LOG), "|"))
-')
-_assert_eq "buffer cycling: Ctrl-Tab switches tmux when nvim has one buffer and tmux has windows" \
-  'display-message -p #{session_windows}|next-window|display-message -p #{session_windows}|previous-window' "$result"
-
-tab_tmux_one_window_mock=$(_tmpdir)
-cat >"$tab_tmux_one_window_mock/tmux" <<'MOCK'
-#!/usr/bin/env bash
-printf '%s\n' "$*" >>"$TMUX_MOCK_LOG"
-case "$1" in
-  display-message)
-    printf '1\n'
-    ;;
-  list-clients)
-    printf '100 wezterm\n'
-    ;;
-esac
-MOCK
-chmod +x "$tab_tmux_one_window_mock/tmux"
-
-result=$(TMUX="/tmp/tmux-test,1,0" TMUX_PANE="%1" TMUX_MOCK_LOG="$tab_tmux_one_window_mock/tmux.log" PATH="$tab_tmux_one_window_mock:$PATH" _nvim_lua '
-  package.loaded["config.wezterm-vars"] = {
-    set = function(name, value)
-      print(name .. ":" .. value:match("^[^:]+"))
-    end,
-  }
-  dofile(vim.fn.expand("~/.config/nvim/lua/config/keymaps.lua"))
-  for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
-    vim.bo[bufnr].buflisted = bufnr == vim.api.nvim_get_current_buf()
-  end
-  vim.fn.maparg("<C-Tab>", "n", false, true).callback()
-  vim.fn.maparg("<C-S-Tab>", "n", false, true).callback()
-  print("tmux:" .. table.concat(vim.fn.readfile(vim.env.TMUX_MOCK_LOG), "|"))
-')
-expected="$(printf 'DOT_SWITCH_TAB:next\nDOT_SWITCH_TAB:previous\ntmux:display-message -p #{session_windows}|list-clients -F #{client_activity} #{client_termtype}|display-message -p #{client_termname}|display-message -p #{session_windows}|list-clients -F #{client_activity} #{client_termtype}|display-message -p #{client_termname}')"
-_assert_eq "buffer cycling: Ctrl-Tab bubbles to WezTerm when nvim and tmux each have one tab/window" \
-  "$expected" "$result"
-
-tab_tmux_nested_one_window_mock=$(_tmpdir)
-cat >"$tab_tmux_nested_one_window_mock/tmux" <<'MOCK'
-#!/usr/bin/env bash
-printf '%s\n' "$*" >>"$TMUX_MOCK_LOG"
-if [[ "$1" == "display-message" && "$3" == "#{session_windows}" ]]; then
-  printf '1\n'
-elif [[ "$1" == "display-message" && "$3" == "#{client_termname}" ]]; then
-  printf 'tmux-256color\n'
-elif [[ "$1" == "list-clients" ]]; then
-  printf '100 wezterm\n'
-fi
-MOCK
-chmod +x "$tab_tmux_nested_one_window_mock/tmux"
-
-result=$(TMUX="/tmp/tmux-test,1,0" TMUX_PANE="%1" TMUX_MOCK_LOG="$tab_tmux_nested_one_window_mock/tmux.log" PATH="$tab_tmux_nested_one_window_mock:$PATH" _nvim_lua '
-  package.loaded["config.wezterm-vars"] = {
-    set = function(name, value)
-      print(name .. ":" .. value:match("^[^:]+"))
-    end,
-  }
-  dofile(vim.fn.expand("~/.config/nvim/lua/config/keymaps.lua"))
-  for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
-    vim.bo[bufnr].buflisted = bufnr == vim.api.nvim_get_current_buf()
-  end
-  vim.fn.maparg("<C-Tab>", "n", false, true).callback()
-  vim.fn.maparg("<C-S-Tab>", "n", false, true).callback()
-  print("tmux:" .. table.concat(vim.fn.readfile(vim.env.TMUX_MOCK_LOG), "|"))
-')
-expected="$(printf 'DOT_PARENT_SWITCH_TAB:next\nDOT_PARENT_SWITCH_TAB:previous\ntmux:display-message -p #{session_windows}|list-clients -F #{client_activity} #{client_termtype}|display-message -p #{client_termname}|display-message -p #{session_windows}|list-clients -F #{client_activity} #{client_termtype}|display-message -p #{client_termname}')"
-_assert_eq "buffer cycling: Ctrl-Tab bubbles to parent tmux when nvim and nested tmux each have one tab/window" \
-  "$expected" "$result"
-
-move_tmux_mock=$(_tmpdir)
-cat >"$move_tmux_mock/tmux" <<'MOCK'
-#!/usr/bin/env bash
-printf '%s\n' "$*" >>"$TMUX_MOCK_LOG"
-if [[ "$1" == "display-message" ]]; then
-  printf '2 3 1\n'
-fi
-MOCK
-chmod +x "$move_tmux_mock/tmux"
-
-result=$(TMUX="/tmp/tmux-test,1,0" TMUX_PANE="%1" TMUX_MOCK_LOG="$move_tmux_mock/tmux.log" PATH="$move_tmux_mock:$PATH" _nvim_lua '
-  package.loaded["config.wezterm-vars"] = {
-    set = function(name, value)
-      print("wezterm:" .. name .. ":" .. value)
-    end,
-  }
-  dofile(vim.fn.expand("~/.config/nvim/lua/config/keymaps.lua"))
-  for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
-    vim.bo[bufnr].buflisted = bufnr == vim.api.nvim_get_current_buf()
-  end
-  vim.fn.maparg("<M-{>", "n", false, true).callback()
-  vim.fn.maparg("<M-}>", "n", false, true).callback()
-  print(table.concat(vim.fn.readfile(vim.env.TMUX_MOCK_LOG), "|"))
-')
-_assert_eq "buffer moving: Alt-Shift-brackets move tmux window when nvim has one buffer and tmux can move" \
-  'display-message -p #{window_index} #{session_windows} #{base-index}|swap-window -d -t :-|display-message -p #{window_index} #{session_windows} #{base-index}|swap-window -d -t :+' "$result"
-
-move_tmux_one_window_mock=$(_tmpdir)
-cat >"$move_tmux_one_window_mock/tmux" <<'MOCK'
-#!/usr/bin/env bash
-printf '%s\n' "$*" >>"$TMUX_MOCK_LOG"
-case "$1" in
-  display-message)
-    printf '1 1 1\n'
-    ;;
-  list-clients)
-    printf '100 wezterm\n'
-    ;;
-esac
-MOCK
-chmod +x "$move_tmux_one_window_mock/tmux"
-
-result=$(TMUX="/tmp/tmux-test,1,0" TMUX_PANE="%1" TMUX_MOCK_LOG="$move_tmux_one_window_mock/tmux.log" PATH="$move_tmux_one_window_mock:$PATH" _nvim_lua '
-  package.loaded["config.wezterm-vars"] = {
-    set = function(name, value)
-      print(name .. ":" .. value:match("^[^:]+"))
-    end,
-  }
-  dofile(vim.fn.expand("~/.config/nvim/lua/config/keymaps.lua"))
-  for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
-    vim.bo[bufnr].buflisted = bufnr == vim.api.nvim_get_current_buf()
-  end
-  vim.fn.maparg("<M-{>", "n", false, true).callback()
-  vim.fn.maparg("<M-}>", "n", false, true).callback()
-  print("tmux:" .. table.concat(vim.fn.readfile(vim.env.TMUX_MOCK_LOG), "|"))
-')
-expected="$(printf 'DOT_MOVE_TAB:left\nDOT_MOVE_TAB:right\ntmux:display-message -p #{window_index} #{session_windows} #{base-index}|list-clients -F #{client_activity} #{client_termtype}|display-message -p #{client_termname}|display-message -p #{window_index} #{session_windows} #{base-index}|list-clients -F #{client_activity} #{client_termtype}|display-message -p #{client_termname}')"
-_assert_eq "buffer moving: Alt-Shift-brackets bubble to WezTerm when nvim and tmux each have one tab/window" \
-  "$expected" "$result"
-
-move_tmux_nested_one_window_mock=$(_tmpdir)
-cat >"$move_tmux_nested_one_window_mock/tmux" <<'MOCK'
-#!/usr/bin/env bash
-printf '%s\n' "$*" >>"$TMUX_MOCK_LOG"
-if [[ "$1" == "display-message" && "$3" == "#{window_index} #{session_windows} #{base-index}" ]]; then
-  printf '1 1 1\n'
-elif [[ "$1" == "display-message" && "$3" == "#{client_termname}" ]]; then
-  printf 'tmux-256color\n'
-elif [[ "$1" == "list-clients" ]]; then
-  printf '100 wezterm\n'
-fi
-MOCK
-chmod +x "$move_tmux_nested_one_window_mock/tmux"
-
-result=$(TMUX="/tmp/tmux-test,1,0" TMUX_PANE="%1" TMUX_MOCK_LOG="$move_tmux_nested_one_window_mock/tmux.log" PATH="$move_tmux_nested_one_window_mock:$PATH" _nvim_lua '
-  package.loaded["config.wezterm-vars"] = {
-    set = function(name, value)
-      print(name .. ":" .. value:match("^[^:]+"))
-    end,
-  }
-  dofile(vim.fn.expand("~/.config/nvim/lua/config/keymaps.lua"))
-  for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
-    vim.bo[bufnr].buflisted = bufnr == vim.api.nvim_get_current_buf()
-  end
-  vim.fn.maparg("<M-{>", "n", false, true).callback()
-  vim.fn.maparg("<M-}>", "n", false, true).callback()
-  print("tmux:" .. table.concat(vim.fn.readfile(vim.env.TMUX_MOCK_LOG), "|"))
-')
-expected="$(printf 'DOT_PARENT_MOVE_TAB:left\nDOT_PARENT_MOVE_TAB:right\ntmux:display-message -p #{window_index} #{session_windows} #{base-index}|list-clients -F #{client_activity} #{client_termtype}|display-message -p #{client_termname}|display-message -p #{window_index} #{session_windows} #{base-index}|list-clients -F #{client_activity} #{client_termtype}|display-message -p #{client_termname}')"
-_assert_eq "buffer moving: Alt-Shift-brackets bubble to parent tmux when nvim and nested tmux each have one tab/window" \
-  "$expected" "$result"
-
-vscode_switch_mock=$(_tmpdir)
-cat >"$vscode_switch_mock/tmux" <<'MOCK'
-#!/usr/bin/env bash
-printf '%s\n' "$*" >>"$TMUX_MOCK_LOG"
-case "$1" in
-  display-message)
-    printf '1\n'
-    ;;
-  list-clients)
-    printf '100 xterm.js(6.1.0-beta.285)\n'
-    ;;
-esac
-MOCK
-chmod +x "$vscode_switch_mock/tmux"
-cat >"$vscode_switch_mock/vscode-switch-tab" <<'MOCK'
-#!/usr/bin/env bash
-# Hold a deterministic exists-but-empty window so file existence alone cannot
-# masquerade as async command completion.
-: >>"$VSCODE_MOCK_LOG"
-sleep 0.1
-printf '%s\n' "$*" >>"$VSCODE_MOCK_LOG"
-MOCK
-chmod +x "$vscode_switch_mock/vscode-switch-tab"
-
-vscode_switch_log=$(_tmpdir)/vscode-switch.log
-result=$(TMUX="/tmp/tmux-test,1,0" TMUX_PANE="%1" \
-  TMUX_MOCK_LOG="$vscode_switch_mock/tmux.log" \
-  VSCODE_MOCK_LOG="$vscode_switch_log" \
-  PATH="$vscode_switch_mock:$PATH" _nvim_lua '
-  package.loaded["config.wezterm-vars"] = {
-    set = function(name, value)
-      print("wezterm:" .. name .. ":" .. value)
-    end,
-  }
-  dofile(vim.fn.expand("~/.config/nvim/lua/config/keymaps.lua"))
-  for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
-    vim.bo[bufnr].buflisted = bufnr == vim.api.nvim_get_current_buf()
-  end
-  vim.fn.maparg("<C-Tab>", "n", false, true).callback()
-  -- Poll well inside the mock 100 ms empty-file window.
-  local output_ready = vim.wait(2000, function()
-    -- The async shell opens the log before writing its argument.
-    return vim.fn.filereadable(vim.env.VSCODE_MOCK_LOG) == 1
-      and #vim.fn.readfile(vim.env.VSCODE_MOCK_LOG) > 0
-  end, 10)
-  if output_ready then
-    print("vscode:" .. table.concat(vim.fn.readfile(vim.env.VSCODE_MOCK_LOG), "|"))
-  else
-    print("vscode:TIMEOUT")
-  end
-')
-_assert_eq "buffer cycling: Ctrl-Tab bubbles to VS Code (not WezTerm) when the active client is VS Code" \
-  "vscode:next" "$result"
-
-# VS Code exposes no command to reorder terminal tabs, so moves must stop
-# dead when the active client is VS Code: no bridge call (canary script
-# below would log one) and no WezTerm user-var fallthrough (mocked set()
-# would print one). The fixed wait gives any stray async jobstart time to
-# land before asserting absence.
-vscode_move_mock=$(_tmpdir)
-cat >"$vscode_move_mock/tmux" <<'MOCK'
-#!/usr/bin/env bash
-printf '%s\n' "$*" >>"$TMUX_MOCK_LOG"
-case "$1" in
-  display-message)
-    printf '1 1 1\n'
-    ;;
-  list-clients)
-    printf '100 xterm.js(6.1.0-beta.285)\n'
-    ;;
-esac
-MOCK
-chmod +x "$vscode_move_mock/tmux"
-cat >"$vscode_move_mock/vscode-move-tab" <<'MOCK'
-#!/usr/bin/env bash
-printf '%s\n' "$*" >>"$VSCODE_MOCK_LOG"
-MOCK
-chmod +x "$vscode_move_mock/vscode-move-tab"
-
-vscode_move_log=$(_tmpdir)/vscode-move.log
-result=$(TMUX="/tmp/tmux-test,1,0" TMUX_PANE="%1" \
-  TMUX_MOCK_LOG="$vscode_move_mock/tmux.log" \
-  VSCODE_MOCK_LOG="$vscode_move_log" \
-  PATH="$vscode_move_mock:$PATH" _nvim_lua '
-  package.loaded["config.wezterm-vars"] = {
-    set = function(name, value)
-      print("wezterm:" .. name .. ":" .. value)
-    end,
-  }
-  dofile(vim.fn.expand("~/.config/nvim/lua/config/keymaps.lua"))
-  for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
-    vim.bo[bufnr].buflisted = bufnr == vim.api.nvim_get_current_buf()
-  end
-  vim.fn.maparg("<M-{>", "n", false, true).callback()
-  vim.wait(400)
-  print("vscode-called:" .. tostring(vim.fn.filereadable(vim.env.VSCODE_MOCK_LOG)))
-')
-_assert_eq "buffer moving: Alt-Shift-[ is a no-op (no bridge call, no WezTerm var) when the active client is VS Code" \
-  "vscode-called:0" "$result"
-
-vscode_multi_client_mock=$(_tmpdir)
-cat >"$vscode_multi_client_mock/tmux" <<'MOCK'
-#!/usr/bin/env bash
-printf '%s\n' "$*" >>"$TMUX_MOCK_LOG"
-case "$1" in
-  display-message)
-    printf '1\n'
-    ;;
-  list-clients)
-    # Two attached clients; the WezTerm one is MORE recently active, so it
-    # must win even though a VS Code client is also attached.
-    printf '50 xterm.js(6.1.0-beta.285)\n200 wezterm\n'
-    ;;
-esac
-MOCK
-chmod +x "$vscode_multi_client_mock/tmux"
-
-result=$(TMUX="/tmp/tmux-test,1,0" TMUX_PANE="%1" \
-  TMUX_MOCK_LOG="$vscode_multi_client_mock/tmux.log" \
-  PATH="$vscode_multi_client_mock:$PATH" _nvim_lua '
-  package.loaded["config.wezterm-vars"] = {
-    set = function(name, value)
-      print(name .. ":" .. value:match("^[^:]+"))
-    end,
-  }
-  dofile(vim.fn.expand("~/.config/nvim/lua/config/keymaps.lua"))
-  for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
-    vim.bo[bufnr].buflisted = bufnr == vim.api.nvim_get_current_buf()
-  end
-  vim.fn.maparg("<C-Tab>", "n", false, true).callback()
-')
-_assert_eq "buffer cycling: Ctrl-Tab picks the most-recently-active client when both VS Code and WezTerm are attached" \
-  "DOT_SWITCH_TAB:next" "$result"
-
-move_tmux_edge_mock=$(_tmpdir)
-cat >"$move_tmux_edge_mock/tmux" <<'MOCK'
-#!/usr/bin/env bash
-printf '%s\n' "$*" >>"$TMUX_MOCK_LOG"
-if [[ "$1" == "display-message" ]]; then
-  printf '%s\n' "${TMUX_TEST_WINDOW_POSITION:-1 3 1}"
-fi
-MOCK
-chmod +x "$move_tmux_edge_mock/tmux"
-
-left_edge_result=$(TMUX="/tmp/tmux-test,1,0" TMUX_PANE="%1" TMUX_TEST_WINDOW_POSITION="1 3 1" TMUX_MOCK_LOG="$move_tmux_edge_mock/left.log" PATH="$move_tmux_edge_mock:$PATH" _nvim_lua '
-  package.loaded["config.wezterm-vars"] = {
-    set = function(name, value)
-      print("wezterm:" .. name .. ":" .. value)
-    end,
-  }
-  dofile(vim.fn.expand("~/.config/nvim/lua/config/keymaps.lua"))
-  for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
-    vim.bo[bufnr].buflisted = bufnr == vim.api.nvim_get_current_buf()
-  end
-  vim.fn.maparg("<M-{>", "n", false, true).callback()
-  print(table.concat(vim.fn.readfile(vim.env.TMUX_MOCK_LOG), "|"))
-')
-right_edge_result=$(TMUX="/tmp/tmux-test,1,0" TMUX_PANE="%1" TMUX_TEST_WINDOW_POSITION="3 3 1" TMUX_MOCK_LOG="$move_tmux_edge_mock/right.log" PATH="$move_tmux_edge_mock:$PATH" _nvim_lua '
-  package.loaded["config.wezterm-vars"] = {
-    set = function(name, value)
-      print("wezterm:" .. name .. ":" .. value)
-    end,
-  }
-  dofile(vim.fn.expand("~/.config/nvim/lua/config/keymaps.lua"))
-  for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
-    vim.bo[bufnr].buflisted = bufnr == vim.api.nvim_get_current_buf()
-  end
-  vim.fn.maparg("<M-}>", "n", false, true).callback()
-  print(table.concat(vim.fn.readfile(vim.env.TMUX_MOCK_LOG), "|"))
-')
-expected="$(printf 'display-message -p #{window_index} #{session_windows} #{base-index}\ndisplay-message -p #{window_index} #{session_windows} #{base-index}')"
-_assert_eq "buffer moving: Alt-Shift-brackets stop at tmux edges instead of bubbling" \
-  "$expected" "$(printf '%s\n%s' "$left_edge_result" "$right_edge_result")"
+expected="$(printf 'termnav-refresh\nctrl-shift-h:unmapped\nopen:/tmp/vscode\\ replace\\ test/file\\ with\\ spaces.txt:true\nopen:nil:true\nvisual:/tmp/vscode\\ replace\\ test/file\\ with\\ spaces.txt:true\nvisual:nil:true')"
+_assert_eq "replace: keymaps delegate navigation and avoid OS-reserved Ctrl-Shift-H" "$expected" "$result"
 
 result=$(_nvim_lua '
   package.loaded["inc_rename"] = {
@@ -3443,15 +3023,29 @@ echo "=== termnav nvim wrappers ==="
 
 result=$(_nvim_lua '
   package.loaded["config.termnav"] = nil
-  local calls = {}
-  local marker = {}
+  local setup_calls = {}
+  local navigation_calls = {}
+  local navigation_context = {
+    setup = function()
+      print("navigation-setup")
+    end,
+  }
+  local marker = { navigation = navigation_context }
   package.loaded["config.dot-runtime"] = {
     load_dep = function(dependency, path)
       print(dependency)
       print(path)
+      if path:match("navigation.lua$") then
+        return {
+          new = function(options)
+            navigation_calls[#navigation_calls + 1] = options
+            return navigation_context
+          end,
+        }
+      end
       return {
         setup = function(options)
-          calls[#calls + 1] = options
+          setup_calls[#setup_calls + 1] = options
           return marker
         end,
       }
@@ -3460,31 +3054,33 @@ result=$(_nvim_lua '
   local termnav = require("config.termnav")
   local default_options = { publish_delay_ms = 17 }
   print(tostring(termnav.setup(default_options) == marker))
-  print(tostring(calls[1] == default_options))
-  print(calls[1].group_name)
-  print(calls[1].publish_delay_ms)
+  print(tostring(setup_calls[1] == default_options))
+  print(setup_calls[1].group_name)
+  print(setup_calls[1].publish_delay_ms)
+  print(tostring(setup_calls[1].navigation == navigation_context))
+  print(type(navigation_calls[1].application.tab_count))
+  print(type(navigation_calls[1].application.tab_select))
+  print(type(navigation_calls[1].application.tab_move))
   termnav.setup({ group_name = "caller_group" })
-  print(calls[2].group_name)
+  print(#setup_calls)
+  termnav.refresh_mappings()
 ')
-expected="$(printf '%s\n%s\ntrue\ntrue\n%s\n17\n%s' \
+expected="$(printf '%s\n%s\n%s\n%s\ntrue\ntrue\n%s\n17\ntrue\nfunction\nfunction\nfunction\n1\nnavigation-setup' \
   'cgraf78/termnav' \
   'lib/termnav/nvim/setup.lua' \
-  'dot_termnav' \
-  'caller_group')"
-_assert_eq "termnav wrapper: resolves provider and applies only local group policy" \
+  'cgraf78/termnav' \
+  'lib/termnav/nvim/navigation.lua' \
+  'dot_termnav')"
+_assert_eq "termnav wrapper: injects only BufferLine policy and reuses one context" \
   "$expected" "$result"
 
-result=$(_nvim_lua '
-  local opener = dofile(vim.fn.expand("~/.config/nvim/lua/config/nvim-tmux-open.lua"))
-  local vars = dofile(vim.fn.expand("~/.config/nvim/lua/config/wezterm-vars.lua"))
-  local termnav = require("config.termnav")
-  print(type(opener.open_now))
-  print(type(opener.setup))
-  print(type(opener.server))
-  print(type(vars.set))
-  print(type(termnav.setup))
-')
-expected="$(printf 'function\nfunction\nfunction\nfunction\nfunction')"
-_assert_eq "termnav nvim wrappers expose dependency module APIs" "$expected" "$result"
+test ! -e "$HOME/.config/nvim/lua/config/nvim-tmux-open.lua"
+opener_wrapper_rc=$?
+_assert_exit "termnav wrapper: retired nvim opener forwarding module is removed" \
+  0 "$opener_wrapper_rc"
+test ! -e "$HOME/.config/nvim/lua/config/wezterm-vars.lua"
+wezterm_vars_wrapper_rc=$?
+_assert_exit "termnav wrapper: retired WezTerm variable forwarding module is removed" \
+  0 "$wezterm_vars_wrapper_rc"
 
 _test_summary

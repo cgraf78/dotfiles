@@ -16,10 +16,4 @@ return {
       { "<leader>u", "<cmd>UndotreeToggle<cr>", desc = "Toggle undo tree" },
     },
   },
-
-  -- lazy = false so C-hjkl navigation works immediately (see keymaps.lua).
-  {
-    "christoomey/vim-tmux-navigator",
-    lazy = false,
-  },
 }

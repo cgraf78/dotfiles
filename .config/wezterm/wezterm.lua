@@ -231,20 +231,6 @@ local audible_bell = "SystemBeep"
 local termnav_ssh_control_hosts = os.getenv("TERMNAV_SSH_CONTROL_HOSTS")
   or read_trimmed_file(wezterm.config_dir .. "/termnav-ssh-control-hosts")
   or ""
-local parent_tab_switch_keys = {
-  next = "\x1b[777001u",
-  previous = "\x1b[777002u",
-}
-local parent_tab_move_keys = {
-  left = "\x1b[777003u",
-  right = "\x1b[777004u",
-}
-local parent_pane_select_keys = {
-  left = "\x1b[777005u",
-  down = "\x1b[777006u",
-  up = "\x1b[777007u",
-  right = "\x1b[777008u",
-}
 
 if is_macos then
   table.insert(font_names, "Menlo")
@@ -477,34 +463,12 @@ wezterm.on("user-var-changed", function(window, pane, name, value)
       local relative = direction == "previous" and -1 or 1
       window:perform_action(act.ActivateTabRelative(relative), pane)
     end
-  elseif name == "DOT_PARENT_SWITCH_TAB" and value ~= "" then
-    local direction = value:match("^([^:]+):") or value
-    local sequence = parent_tab_switch_keys[direction]
-    if sequence then
-      window:perform_action(act.SendString(sequence), pane)
-    end
   elseif name == "DOT_MOVE_TAB" and value ~= "" then
     local direction = value:match("^([^:]+):") or value
     if direction == "left" or direction == "right" then
       local relative = direction == "left" and -1 or 1
       window:perform_action(act.MoveTabRelative(relative), pane)
     end
-  elseif name == "DOT_PARENT_MOVE_TAB" and value ~= "" then
-    local direction = value:match("^([^:]+):") or value
-    local sequence = parent_tab_move_keys[direction]
-    if sequence then
-      window:perform_action(act.SendString(sequence), pane)
-    end
-  elseif name == "DOT_PARENT_SELECT_PANE" and value ~= "" then
-    local direction = value:match("^([^:]+):") or value
-    local sequence = parent_pane_select_keys[direction]
-    if sequence then
-      window:perform_action(act.SendString(sequence), pane)
-    end
-  elseif name == "DOT_RELAY_COMMIT" and value ~= "" then
-    -- Two-phase termnav relay: replay commit key to trigger the relayed
-    -- action in the outer host after the prepare phase completes.
-    window:perform_action(act.SendString("\x1b[777009u"), pane)
   end
 end)
 

@@ -28,6 +28,10 @@ drift.
 - `lua/plugins/*.lua` may declare plugin-local Lazy `keys = { ... }` entries.
   Avoid raw `vim.keymap.set` calls there; plugin specs should only bridge to a
   config keymap module when lifecycle ordering matters.
+- Ctrl-h/j/k/l, Ctrl-Tab, Ctrl-Shift-Tab, and Alt-Shift-bracket navigation is
+  provided by Termnav. Dotfiles supplies only Bufferline's count/select/move
+  callbacks; nesting, tmux clients, SSH relays, and terminal endpoints remain
+  dependency-owned.
 
 ## Shared Policy Surfaces
 

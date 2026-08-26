@@ -54,9 +54,8 @@ config edit.
    tmux command through an existing host-matched SSH pane.
 8. The local `nvim` launcher delegates its conservative pane-reuse decision to
    Termnav and retains only real-editor discovery. `nvim-tmux-open` then prefers
-   Neovim RPC sockets published by
-   `~/.config/nvim/lua/config/nvim-tmux-open.lua`; old tmux keystrokes are only
-   used for sessions without the RPC publisher.
+   Neovim RPC sockets published by Termnav's nvim integration; old tmux
+   keystrokes are only used for sessions without the RPC publisher.
 
 Ctrl-click never starts a new SSH authentication flow.
 
@@ -73,33 +72,22 @@ overlay, not in the base dotfiles repo.
 
 ## Tab Bubbling
 
-WezTerm owns `Ctrl-Tab` only when the active pane is not controlled by
-Neovim or tmux. A one-window tmux delegates to `termnav-switch-tab`,
-which walks locally reachable parent tmux sessions before asking the outer
-WezTerm client to activate a tab. For remote nested chains whose parent tmux
-socket is not locally reachable, `DOT_PARENT_SWITCH_TAB` still lets
-WezTerm bounce a private `User0`/`User1` key into that parent layer.
-
-Pane navigation uses the same remote loopback. At a nested tmux pane edge,
-`wezterm-select-pane` emits `DOT_PARENT_SELECT_PANE`; WezTerm translates its
-direction into private `User4`-`User7` input for the parent tmux. An available
-inner pane still wins, and the private parent binding is intentionally one-hop
-so an outer edge remains a harmless no-op.
+WezTerm owns `Ctrl-Tab` only when the active pane is not controlled by Neovim
+or tmux. A one-window tmux gives `termnav-navigate` the exact triggering client
+and source scope. The router walks local tmux ancestry before the SSH relay and
+finally emits the direct `DOT_SWITCH_TAB` request at the terminal boundary.
+Pane navigation uses the same traversal but stops at the outermost tmux edge;
+Termnav does not assume WezTerm panes share tmux's directional semantics.
 
 WezTerm also owns `Alt-Shift-[` and `Alt-Shift-]` tab moves only outside
 Neovim/tmux panes. In terminal-owned panes the key is forwarded inward as
 Meta-left-brace or Meta-right-brace so Neovim BufferLine or tmux windows can
-reorder themselves. A top-level tmux session with one window can bubble the
-move directly to WezTerm through `wezterm-move-tab`, which emits the
-`DOT_MOVE_TAB` user-var escape. A one-window tmux attached inside another tmux
-emits `DOT_PARENT_MOVE_TAB`; WezTerm translates that into a private tmux
-`User2`/`User3` key so the parent tmux layer can move its own windows.
-Multi-window tmux sessions stop at their own first and last windows to match
-WezTerm's edge behavior.
-
-The `DOT_PARENT_*` fallback is WezTerm-specific. VS Code switches use
-termnav's per-window socket adapter instead; VS Code still has no command for
-reordering terminal tabs, so tab-move bubbling remains WezTerm-only.
+reorder themselves. One-window tmux sessions route outward through
+`termnav-navigate`; at the terminal boundary it emits the direct
+`DOT_MOVE_TAB` user variable. Multi-window application and tmux scopes own
+their first/last no-op, preventing movement from leaking to an ancestor. VS
+Code still has no command for reordering terminal tabs, so it safely consumes
+that terminal-boundary action.
 
 ## Clipboard Ownership
 
