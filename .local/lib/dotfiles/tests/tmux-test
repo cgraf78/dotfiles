@@ -330,7 +330,7 @@ _assert_contains "tmux defines DECRQM permanently-set commit response" \
 _assert_contains "tmux defines DECRQM permanently-reset commit response" \
   'set -s user-keys[13] "\033[?2004;4\$y"' "$tmux_content"
 _assert_contains "tmux centralizes exact router origin metadata" \
-  'navigate_parent_args="--parent --client-pid #{client_pid} --client-tty #{q:client_tty} --client-created #{client_created} --client-termtype #{q:client_termtype} --source-socket #{q:socket_path} --source-pane #{pane_id} --source-session #{session_id}"' \
+  'navigate_parent_args="--parent --client-pid #{client_pid} --client-tty #{q:client_tty} --client-created #{client_created} --client-termtype #{q:client_termtype} --source-socket #{q:socket_path} --source-pane #{pane_id} --source-session #{q:session_id}"' \
   "$tmux_content"
 _assert_eq "tmux defines exact router origin metadata once" "1" \
   "$(grep -c '^navigate_parent_args=' <<<"$tmux_content")"
@@ -650,7 +650,7 @@ if command -v tmux >/dev/null 2>&1; then
     _assert_contains "tmux runtime router preserves source pane" \
       "--source-pane #{pane_id}" "$route_line"
     _assert_contains "tmux runtime router preserves source session" \
-      "--source-session #{session_id}" "$route_line"
+      "--source-session #{q:session_id}" "$route_line"
   done
   _assert_contains "tmux runtime Alt-Shift-[ swaps a local window without wrapping" \
     "swap-window -d -t :-" "$move_tab_left_root_line"
