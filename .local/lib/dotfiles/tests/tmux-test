@@ -28,6 +28,7 @@ ctrl_tab_config_line=$(printf '%s\n' "$tmux_content" | grep '^bind-key -n C-Tab 
 ctrl_shift_tab_config_line=$(printf '%s\n' "$tmux_content" | grep '^bind-key -n C-BTab ' || true)
 move_tab_left_config_line=$(printf '%s\n' "$tmux_content" | grep "^bind-key -n 'M-{' " || true)
 move_tab_right_config_line=$(printf '%s\n' "$tmux_content" | grep "^bind-key -n 'M-}' " || true)
+previous_pane_config_line=$(printf '%s\n' "$tmux_content" | grep -F "bind-key -n 'C-\\' " || true)
 vim_navigation_bindings=$(
   printf '%s\n' "$tmux_content" |
     grep -E "^bind-key -n 'C-[hjkl]' " || true
@@ -83,7 +84,11 @@ if command -v tmux >/dev/null 2>&1; then
     "1" "$native_nested_mouse_match"
 
   focus_style_args=(--config "$tmux_config")
-  if [[ -n ${DOT_TEST_TERMNAV_ROOT:-} ]]; then
+  if [[ -x "$termnav_tmux_focus_executable" ]]; then
+    # The live config starts this same helper asynchronously. Use it for
+    # deterministic reconciliation whenever it is installed; the fallback in
+    # the PTY harness remains available for minimal environments without the
+    # optional provider.
     focus_style_args+=(--focus "$termnav_tmux_focus_executable")
   fi
   if focus_style_output=$(python3 \
@@ -103,6 +108,12 @@ if command -v tmux >/dev/null 2>&1; then
     "$focus_style_output"
   _assert_contains "tmux paints the focused leaf with the exact Night Owl background" \
     "test_terminal_render_paints_the_focused_leaf_night_owl_blue" \
+    "$focus_style_output"
+  _assert_contains "tmux raw Ctrl-backslash selects the local previous pane" \
+    "test_ctrl_backslash_selects_the_local_previous_pane" \
+    "$focus_style_output"
+  _assert_contains "tmux raw Ctrl-backslash forwards through nested tmux" \
+    "test_ctrl_backslash_forwards_through_a_nested_tmux" \
     "$focus_style_output"
 else
   echo "  - skipping tmux syntax checks (tmux not installed)"
@@ -360,6 +371,12 @@ _assert_eq "tmux pane navigation keeps all four local selections native" "4" \
 # shellcheck disable=SC2016 # tmux expands this variable, not the test shell.
 _assert_eq "tmux pane navigation invokes the router only at four edges" "4" \
   "$(grep -c '\$select_parent_pane_' <<<"$vim_navigation_bindings")"
+_assert_contains "tmux previous-pane chord forwards into navigation-aware panes" \
+  "send-keys C-\\\\" "$previous_pane_config_line"
+_assert_contains "tmux previous-pane chord stays within the nearest tmux" \
+  "select-pane -l" "$previous_pane_config_line"
+_assert_not_contains "tmux previous-pane chord does not enter the boundary router" \
+  "$termnav_navigate_path" "$previous_pane_config_line"
 _assert_contains "tmux pane navigation requires inner mouse focus for transports" \
   "mouse == 1" "$pane_navigation_detector_line"
 _assert_contains "tmux pane navigation recognizes nested remote transports" \
@@ -446,6 +463,7 @@ if command -v tmux >/dev/null 2>&1; then
   pane_navigation_down_root_line=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root C-j ' || true)
   pane_navigation_up_root_line=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root C-k ' || true)
   pane_navigation_right_root_line=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root C-l ' || true)
+  previous_pane_root_line=$(printf '%s\n' "$root_keys" | grep -F 'bind-key -T root C-\\ ' || true)
   move_tab_left_root_line=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root "M-{"' || true)
   move_tab_right_root_line=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root "M-}"' || true)
   relay_nested_commit_root_line=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root User8 ' || true)
@@ -520,6 +538,16 @@ if command -v tmux >/dev/null 2>&1; then
     $'\033[?2004;3$y' "$relay_key_12"
   _assert_eq "tmux runtime DECRQM state 4 response is configured" \
     $'\033[?2004;4$y' "$relay_key_13"
+  for relay_line in \
+    "$relay_nested_commit_root_line" \
+    "$relay_terminal_commit_0_root_line" \
+    "$relay_terminal_commit_1_root_line" \
+    "$relay_terminal_commit_2_root_line" \
+    "$relay_terminal_commit_3_root_line" \
+    "$relay_terminal_commit_4_root_line"; do
+    _assert_contains "tmux runtime relay commit shell-quotes its socket path" \
+      "--tmux-socket #{q:socket_path}" "$relay_line"
+  done
   _assert_contains "tmux runtime nested relay commit invokes the consumer" \
     "termnav-relay commit" "$relay_nested_commit_root_line"
   _assert_contains "tmux runtime nested relay commit pins the client attachment" \
@@ -634,6 +662,12 @@ if command -v tmux >/dev/null 2>&1; then
     "$termnav_navigate_path pane-select up --parent" "$pane_navigation_up_root_line"
   _assert_contains "tmux runtime Ctrl-l invokes the unified router at its edge" \
     "$termnav_navigate_path pane-select right --parent" "$pane_navigation_right_root_line"
+  _assert_contains "tmux runtime Ctrl-backslash forwards into navigation-aware panes" \
+    "send-keys C-\\\\\\\\" "$previous_pane_root_line"
+  _assert_contains "tmux runtime Ctrl-backslash selects the local previous pane" \
+    "select-pane -l" "$previous_pane_root_line"
+  _assert_not_contains "tmux runtime Ctrl-backslash does not bubble" \
+    "$termnav_navigate_path" "$previous_pane_root_line"
   for route_line in \
     "$ctrl_tab_root_line" "$ctrl_shift_tab_root_line" \
     "$move_tab_left_root_line" "$move_tab_right_root_line" \

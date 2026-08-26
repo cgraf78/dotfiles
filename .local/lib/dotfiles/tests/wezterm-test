@@ -485,6 +485,10 @@ LUA
     print(tostring(has_callback(config_table.keys, 'Tab', 'CTRL|SHIFT')))
     print(tostring(has_callback(config_table.keys, '{', 'ALT|SHIFT')))
     print(tostring(has_callback(config_table.keys, '}', 'ALT|SHIFT')))
+    -- Ctrl-backslash already has the correct C0 encoding in WezTerm. Keeping
+    -- it unbound avoids a client-specific transport path for a local
+    -- tmux/Neovim operation.
+    print(tostring(find_binding(config_table.keys, string.char(92), 'CTRL') == nil))
 
     local copy_action = find_binding(config_table.keys, 'c', 'CTRL')
     local paste_action = find_binding(config_table.keys, 'v', 'CTRL')
@@ -526,7 +530,7 @@ LUA
   expected=$(
     printf '%s\n' \
       true true true true true true true false \
-      true true true true true true true true \
+      true true true true true true true true true \
       'SendKey:c:CTRL' \
       'CopyTo:Clipboard,ClearSelection' \
       'PasteFrom:Clipboard' \

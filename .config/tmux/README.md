@@ -56,6 +56,15 @@ other conforming terminals without a custom extension. Intermediate tmux
 layers forward the private `User8` commit key. There is no terminal-specific
 parent fallback: unresolved ancestry is consumed instead of guessed.
 
+Ctrl-backslash is the local previous-pane companion to directional navigation.
+It follows the same inward ownership test, so Neovim can choose its previous
+split and a focused nested tmux can choose its own previous pane. A bare pane is
+handled by the nearest tmux with `select-pane -l`. It deliberately does not use
+the boundary router: “previous” is history belonging to one tmux or editor
+scope, and choosing an ancestor's history would be ambiguous in nested or
+shared-client topologies. Neovim terminal mode keeps Ctrl-backslash available
+as the first half of its native Ctrl-backslash, Ctrl-N escape sequence.
+
 Ctrl-Tab bindings share pane-navigation's focus ownership. Forward the key into
 Neovim/fzf when those programs own the pane, and through interactive remote
 transports such as `ssh`, `mosh`, and ET only when propagated mouse reporting

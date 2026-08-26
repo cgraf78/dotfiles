@@ -78,6 +78,11 @@ and source scope. The router walks local tmux ancestry before the SSH relay and
 finally emits the direct `DOT_SWITCH_TAB` request at the terminal boundary.
 Pane navigation uses the same traversal but stops at the outermost tmux edge;
 Termnav does not assume WezTerm panes share tmux's directional semantics.
+Ctrl-backslash needs no WezTerm key assignment: WezTerm's normal terminal
+encoding sends the C0 file-separator byte (`0x1c`), and each tmux/Neovim layer
+either forwards it inward or consumes it as that scope's local previous-pane
+operation. Keeping it out of the boundary router avoids inventing a global
+history across unrelated nested scopes.
 
 WezTerm also owns `Alt-Shift-[` and `Alt-Shift-]` tab moves only outside
 Neovim/tmux panes. In terminal-owned panes the key is forwarded inward as
