@@ -449,7 +449,10 @@ class LeafStyleTest(unittest.TestCase):
 
         client.set_focus(False)
         self.sync_client(client)
-        blurred_render = client.pump_until_quiet("client-focus-out repaint")
+        # set_focus() drains the asynchronous hook repaint while waiting for
+        # the authoritative client flag to settle. Request a deterministic
+        # redraw here rather than depending on a second, optional repaint.
+        blurred_render = client.redraw()
         self.assertEqual(
             (1, 13, 23),
             self.rendered_background(blurred_render),
@@ -458,7 +461,7 @@ class LeafStyleTest(unittest.TestCase):
 
         client.set_focus(True)
         self.sync_client(client)
-        refocused_render = client.pump_until_quiet("client-focus-in repaint")
+        refocused_render = client.redraw()
         self.assertEqual(
             (1, 22, 39),
             self.rendered_background(refocused_render),
