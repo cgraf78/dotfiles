@@ -2057,7 +2057,8 @@ EOF
               [
                 {key: "ctrl+h", text: "\u0008"},
                 {key: "ctrl+k", text: "\u000b"},
-                {key: "ctrl+l", text: "\u000c"}
+                {key: "ctrl+l", text: "\u000c"},
+                {key: "ctrl+\\", text: "\u001c"}
               ][]
             ) as $wanted
           | select(
@@ -2083,7 +2084,7 @@ EOF
       _assert_eq "vscode $platform terminal: tmux pane navigation has no focus-only duplicates" \
         "0" \
         "$(jq '[.[] | select(
-          (.key == "ctrl+h" or .key == "ctrl+j" or .key == "ctrl+k" or .key == "ctrl+l")
+          (.key == "ctrl+h" or .key == "ctrl+j" or .key == "ctrl+k" or .key == "ctrl+l" or .key == "ctrl+\\")
           and .command == "workbench.action.terminal.sendSequence"
           and .when == "terminalFocus && termnav.nvimFocused"
         )] | length' "$keybindings_file")"
@@ -2131,6 +2132,12 @@ EOF
           "$(jq '[.[] | select(
             .key == "cmd+j"
             and ((.when // "") | contains("terminalFocus"))
+          )] | length' "$keybindings_file")"
+        _assert_eq "vscode macOS terminal: Ctrl-backslash needs no invented Cmd translation" \
+          "0" \
+          "$(jq '[.[] | select(
+            .key == "cmd+\\"
+            and .command == "workbench.action.terminal.sendSequence"
           )] | length' "$keybindings_file")"
         _assert_eq "vscode macOS terminal: Karabiner-translated Ctrl+/ is extension-independent" \
           "1" \
@@ -2227,7 +2234,6 @@ EOF
           . as $bindings
           | (
             [
-              {key: "ctrl+\\", text: "\u001c"},
               {key: "ctrl+.", text: "\u001b[46;5u"},
               {key: "ctrl+shift+e", text: "\u001b[101;6u"},
               {key: "ctrl+shift+f", text: "\u001b[102;6u"},

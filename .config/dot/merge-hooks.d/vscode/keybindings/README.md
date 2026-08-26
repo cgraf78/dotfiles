@@ -122,18 +122,22 @@ workbench behavior continues outside the terminal, while terminal-native
 controls continue reaching shell and tmux.
 
 The common terminal-native inventory is intentionally narrow: `Ctrl-B` for the
-tmux prefix, explicit `Ctrl-H/K/L` pane controls, native `Ctrl-J` passthrough,
-both `Ctrl-Tab` directions for layered tab navigation, and Ctrl+/ normalization
-to the conventional Ctrl-_ byte. Clipboard chords keep their explicit
+tmux prefix, explicit `Ctrl-H/K/L` directional pane controls, `Ctrl-\` for the
+local previous pane, native `Ctrl-J` passthrough, both `Ctrl-Tab` directions for
+layered tab navigation, and Ctrl+/ normalization to the conventional Ctrl-_
+byte. Clipboard chords keep their explicit
 client-side paste policy, while Shift+Enter and Alt+Shift+bracket already have
 their own terminal routes. Removing `workbench.action.togglePanel` from the
 terminal skip-shell set protects native Ctrl-J from VS Code's global panel
 shortcut without passing LF through `sendSequence`'s CR normalization. The
 explicit Ctrl-K route still protects against VS Code's chord prefix. Workbench
-shortcuts remain intact outside terminal focus, and terminal transport does not
-depend on the Neovim sensor. On macOS, VS Code's terminal handler continues to
-retain Meta-key workbench commands, so Cmd-J still toggles the panel while raw
-Ctrl-J reaches xterm.
+shortcuts remain intact outside terminal focus, including VS Code's native
+Ctrl-backslash split-editor action. Terminal transport does not depend on the
+Neovim sensor. On macOS, Karabiner leaves the punctuation chord as Ctrl-\ while
+its terminal exclusions leave WezTerm controls raw, so the common binding also
+covers VS Code on macOS without a second translated route. VS Code's terminal
+handler continues to retain Meta-key workbench commands, so Cmd-J still toggles
+the panel while raw Ctrl-J reaches xterm.
 Local tmux window cycling does not need the adapter. Bubbling past a one-window
 tmux session to another VS Code terminal tab still does: without that command
 bridge the outer request fails closed instead of rerouting the chord to editor

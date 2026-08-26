@@ -85,6 +85,17 @@
     "args": { "text": "\u000c" },
     "when": "terminalFocus"
   },
+  // Ctrl+backslash is tmux/Neovim's local previous-pane operation. VS Code's
+  // default split-editor shortcut would otherwise consume it before xterm.js.
+  // Scope the override to terminal focus so the editor keeps its native split
+  // command, and use the legacy C0 file-separator byte that WezTerm and tmux
+  // already recognize without a terminal-specific protocol.
+  {
+    "key": "ctrl+\\",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001c" },
+    "when": "terminalFocus"
+  },
   // Legacy terminal protocols encode Ctrl+/ as Ctrl-_ (US, 0x1f). Neovim
   // maps both spellings so this remains useful without the Termnav sensor and
   // keeps its conventional readline undo meaning in ordinary shells.
