@@ -33,8 +33,8 @@ transaction. No second dotfiles-owned bootstrap command is installed.
 Reusable tool commands such as `ettun`, `fwdports`, `sley`, `sysup`,
 `agent-hook-*`, `claude-session-name`, `autoformat`, `autolint`, `checkrun`,
 `git-absorb-and-rebase`, `tmux-continuum-default-server`,
-`tmux-continuum-save-gate`, `tmux-clip-paste`, `wezterm-switch-tab`, and
-`wezterm-move-tab` are installed by `shdeps` from their owning dependency
+`tmux-continuum-save-gate`, `tmux-clip-paste`, and `termnav-navigate` are
+installed by `shdeps` from their owning dependency
 repos. The WezTerm tab switch/move helpers are owned by `termnav`; the generic
 Continuum default-server coordinator, its save gate, and clip paste are owned
 by `tmux-tools`. The resilient ET tunnel command is owned by `ettun`; the

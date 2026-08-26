@@ -11,7 +11,8 @@ consume.
   stable public surface, then load it through `shdeps`.
 - Keep local glue here when it adapts dependency-owned APIs to this Neovim
   setup, such as `sley-nvim.lua`, `checkrun-nvim.lua`, and
-  `nvim-workspace.lua`.
+  `nvim-workspace.lua`. `termnav.lua` follows this pattern by supplying only
+  Bufferline callbacks to Termnav's navigation adapter.
 - Keep shared language capability policy in `language-policy.lua`; plugin
   specs should consume that policy instead of retyping filetype lists.
 - Keep LSP provider and fallback policy in `mason-policy.lua`; external

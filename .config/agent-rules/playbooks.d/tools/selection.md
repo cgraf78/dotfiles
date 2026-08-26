@@ -151,7 +151,7 @@ interfaces.
 - `ds`: project and tmux session workflow. Use its public interface rather than
   manipulating owned session state directly.
 - `termnav`: Shdeps-managed focus-aware terminal and nested-tmux integration;
-  public entry points include `termnav-switch-tab` and `nvim-tmux-open`.
+  public entry points include `termnav-navigate` and `nvim-tmux-open`.
 - `ettun` and `fwdports`: remote transport and forwarding workflows. Inspect
   their help and current state before changing connectivity.
 - `agentguard`: Shdeps-managed agent-hook safety and lifecycle integration;

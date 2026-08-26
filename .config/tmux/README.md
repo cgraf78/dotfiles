@@ -5,7 +5,9 @@ terminal navigation stack.
 
 ## Integration Points
 
-- Neovim pane navigation uses `vim-tmux-navigator`-style Ctrl-h/j/k/l bindings.
+- Neovim pane and tab navigation use Termnav's Lua adapter. Local Neovim
+  splits remain process-free, adjacent tmux panes use one guarded tmux command,
+  and session-relative or outer routing stays in the shared router.
 - Ctrl-click routing delegates to `tmux-follow-click` from the `termnav`
   dependency when the foreground pane is not already handling mouse events.
 - File opens route through `nvim-tmux-open`, also owned by `termnav`.
@@ -14,14 +16,12 @@ terminal navigation stack.
 - Automatic session persistence uses TPM, `tmux-resurrect`, and
   `tmux-continuum`, installed as shdeps-managed repository checkouts.
 - Ctrl-Tab window switching forwards into Neovim/fzf and nested terminal apps,
-  switches tmux windows when the current tmux layer owns the chord, and bubbles
-  one-window sessions upward through `termnav-switch-tab`. The helper
-  walks locally nested tmux parents, then targets the originating VS Code or
-  WezTerm client rather than relying on session-global host state.
+  switches tmux windows when the current tmux layer owns the chord, and sends
+  one-window boundaries through `termnav-navigate` with exact client identity.
 - Alt-Shift-[ and Alt-Shift-] mirror WezTerm tab reordering for tmux windows:
   the bindings forward into Neovim/fzf and nested terminal apps, swap tmux
-  windows only when the current window is not already at the edge, and bubble
-  one-window sessions upward through `wezterm-move-tab` from `termnav`.
+  windows only when the current window is not already at the edge, and route
+  one-window boundaries through the same Termnav entry point.
 - Copy-mode clipboard piping prefers the dotfiles `clip` command and falls
   back to platform clipboard tools.
 
@@ -53,9 +53,8 @@ the semantic request to the nearest parent tmux scope. The outer terminal
 supplies an ordered, read-only DECRQM response as the commit barrier;
 `User9`-`User13` cover every legal response state in WezTerm, xterm.js, and
 other conforming terminals without a custom extension. Intermediate tmux
-layers forward the private `User8` commit key. The older
-`wezterm-select-pane` path remains only as the explicit-decline fallback for
-connections opened before a relay was installed.
+layers forward the private `User8` commit key. There is no terminal-specific
+parent fallback: unresolved ancestry is consumed instead of guessed.
 
 Ctrl-Tab bindings share pane-navigation's focus ownership. Forward the key into
 Neovim/fzf when those programs own the pane, and through interactive remote
@@ -73,19 +72,20 @@ plain TUIs (Claude Code, codex, `htop -m`, ...) can enable mouse reporting for
 their own scrolling/clicking without wanting to own Ctrl-Tab, so the flag is
 only trusted when paired with the nested-wrapper check. Switch tmux windows
 when the current tmux layer owns the chord. A one-window session passes its
-triggering client's PID, TTY, and shell-quoted terminal type to
-`termnav-switch-tab`. That helper switches the first reachable parent tmux
-with multiple windows, or uses the outer client's per-window VS Code socket or
-WezTerm TTY. Only clients actively showing the parent pane are eligible; a
-unique focused client breaks an activity tie, and unresolved ties fail closed.
-The private `User0`/`User1` loopback remains for legacy remote nested tmux
-chains whose parent server is not locally reachable through a relay.
+triggering client's PID, TTY, terminal type, and source scope to
+`termnav-navigate`. The router switches the first reachable parent tmux with
+multiple windows, or uses the outer client's per-window VS Code socket or
+WezTerm TTY. Every selected client is revalidated before dispatch; unresolved
+ties and stale identities fail closed.
 
 Alt-Shift-bracket tab-move bindings follow the same ownership rule, except edge
 handling stops at the tmux layer when a multi-window tmux session is already at
-the first or last window. A one-window nested tmux bubbles the move to the
-parent tmux layer through private `User2`/`User3` keys; a one-window top-level
-tmux bubbles the move to WezTerm.
+the first or last window. A one-window tmux routes outward through the same
+arbitrary-depth Termnav traversal used by pane and tab selection.
+
+Boundary router commands run in tmux's foreground and the Neovim adapter keeps
+its own small FIFO. This preserves rapid key order without adding subprocesses
+to the native adjacent-pane or multi-window fast paths.
 
 ## Session Persistence
 

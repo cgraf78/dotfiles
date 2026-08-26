@@ -141,29 +141,14 @@ _assert_contains "wezterm listens for bubbled child tab-switch requests" \
   "DOT_SWITCH_TAB" "$content"
 _assert_contains "wezterm validates bubbled tab-switch directions" \
   'direction == "next" or direction == "previous"' "$content"
-_assert_contains "wezterm listens for child requests to bubble tab switches to parent tmux" \
-  "DOT_PARENT_SWITCH_TAB" "$content"
-_assert_contains "wezterm parent-bubble next uses private tmux key sequence" \
-  "[777001u" "$content"
-_assert_contains "wezterm parent-bubble previous uses private tmux key sequence" \
-  "[777002u" "$content"
 _assert_contains "wezterm listens for bubbled child tab-move requests" \
   "DOT_MOVE_TAB" "$content"
 _assert_contains "wezterm validates bubbled tab-move directions" \
   'direction == "left" or direction == "right"' "$content"
-_assert_contains "wezterm listens for child requests to bubble tab moves to parent tmux" \
-  "DOT_PARENT_MOVE_TAB" "$content"
-_assert_contains "wezterm parent-bubble move-left uses private tmux key sequence" \
-  "[777003u" "$content"
-_assert_contains "wezterm parent-bubble move-right uses private tmux key sequence" \
-  "[777004u" "$content"
-_assert_contains "wezterm listens for parent pane-selection requests" \
-  "DOT_PARENT_SELECT_PANE" "$content"
-_assert_contains "wezterm validates parent pane-selection directions" \
-  'parent_pane_select_keys[direction]' "$content"
-for key in 777005 777006 777007 777008; do
-  _assert_contains "wezterm parent-pane routing uses private key $key" \
-    "[$key" "$content"
+for retired in DOT_PARENT_SWITCH_TAB DOT_PARENT_MOVE_TAB DOT_PARENT_SELECT_PANE \
+  777001 777002 777003 777004 777005 777006 777007 777008; do
+  _assert_not_contains "wezterm removes retired parent-loopback path: $retired" \
+    "$retired" "$content"
 done
 _assert_contains "termnav wrapper resolver resolves termnav through shdeps" \
   'shdeps.dep_file("cgraf78/termnav"' "$termnav_wrapper"
