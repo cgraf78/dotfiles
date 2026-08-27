@@ -34,10 +34,11 @@ Shdeps test release through the pinned installer recorded in
 ownership checks; test fixtures therefore do not depend on a runner's
 pre-existing dotfiles setup.
 
-The D4 installed-profile gate runs real unfiltered `dot test --list`
-discovery in isolated base, editor, and dev homes. It does not execute the
-discovered overlay suites until D5 removes the remaining pre-cutover monolith
-payload and produces the final composed tree.
+The D5 installed-profile gate runs real unfiltered `dot test --list` discovery
+and then executes `dot test` in isolated base, editor, and dev homes. The
+update fixture also exercises a dev-to-editor-to-base downgrade, including a
+later retry of an initially unavailable optional overlay, managed-link cleanup,
+shadow restoration, and preservation of cached checkouts and package state.
 
 Individual suites may still be selected with `dot test <name>` during local
 development. Tests must use the fixture home supplied by the harness and must

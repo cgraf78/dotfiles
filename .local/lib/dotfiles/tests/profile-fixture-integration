@@ -226,7 +226,7 @@ _assert_eq 'profile fixtures isolate outer CI credentials' \
   'unset:unset:unset:unset:unset:unset' "$nested_ci_credentials"
 
 prepare_home() {
-  local profile=$1 home=$2 runtime_install selector init_status
+  local profile=$1 home=$2 runtime_install selector init_log init_status
   "$git_bin" clone --quiet "file://$base_origin" "$home" || return 1
 
   # The fixture deliberately disables dependency installation.  Tmux invokes
@@ -259,11 +259,13 @@ prepare_home() {
     '.local/share/shdeps/' '.local/bin/shdeps' \
     >>"$home/.git/info/exclude"
 
+  init_log=$fixture_root/init-$profile.log
   init_status=0
   run_in_home "$home" "$DOT_STACK_DOT_BIN" init --yes \
-    "file://$base_origin" >/dev/null 2>&1 || init_status=$?
+    "file://$base_origin" >"$init_log" 2>&1 || init_status=$?
   _assert_exit "$profile fixture records its ordinary checkout identity" \
     0 "$init_status"
+  [[ $init_status -eq 0 ]] || sed -n '1,160p' "$init_log" >&2
 }
 
 assert_profile_links() {
@@ -469,5 +471,124 @@ for profile in base editor dev; do
       ;;
   esac
 done
+
+if [[ $mode == update ]]; then
+  lifecycle_home=$fixture_root/home-lifecycle
+  lifecycle_selector=$lifecycle_home/.config/dot/profile-selectors.local.d/10-fixture.conf
+  lifecycle_work_origin=$fixture_root/missing-work.git
+  lifecycle_work_seed=$fixture_root/work-seed
+  lifecycle_package_marker=$fixture_root/native-packages/fixture-installed
+  git_shadow='base Git ignore configuration restored after dev downgrade'
+  nvim_shadow='base Nvim configuration restored after editor downgrade'
+
+  mkdir -p "$base_seed/.config/git" "$base_seed/.config/nvim"
+  printf '%s\n' "$git_shadow" >"$base_seed/.config/git/ignore"
+  printf '%s\n' "$nvim_shadow" >"$base_seed/.config/nvim/init.lua"
+  "$git_bin" -C "$base_seed" add .config/git/ignore .config/nvim/init.lua
+  "$git_bin" -C "$base_seed" -c user.name=fixture \
+    -c user.email=fixture@example.invalid -c core.hooksPath=/dev/null \
+    commit --quiet -m 'add lifecycle shadow fixtures'
+  "$git_bin" -C "$base_seed" push --quiet "$base_origin" HEAD:refs/heads/main
+
+  profile=dev
+  prepare_home "$profile" "$lifecycle_home" || {
+    _fail 'downgrade lifecycle fixture is prepared'
+    _test_summary
+  }
+  mkdir -p "${lifecycle_package_marker%/*}"
+  printf 'preserve\n' >"$lifecycle_package_marker"
+
+  lifecycle_status=0
+  run_in_home "$lifecycle_home" "$DOT_STACK_DOT_BIN" update \
+    >/dev/null 2>&1 || lifecycle_status=$?
+  _assert_exit 'downgrade lifecycle starts from dev' 0 "$lifecycle_status"
+  _assert_file_missing \
+    'dev retries unavailable optional work instead of creating partial state' \
+    "$lifecycle_home/.dotfiles-work"
+  if [[ -L $lifecycle_home/.config/git/ignore ]]; then
+    _pass 'dev shadows the base Git ignore configuration'
+  else
+    _fail 'dev shadows the base Git ignore configuration'
+  fi
+  if [[ -L $lifecycle_home/.config/nvim/init.lua ]]; then
+    _pass 'dev shadows the base Nvim configuration'
+  else
+    _fail 'dev shadows the base Nvim configuration'
+  fi
+
+  mkdir -p "$lifecycle_work_seed/home/.config"
+  printf 'public-safe optional retry fixture\n' \
+    >"$lifecycle_work_seed/home/.config/work-retry-marker"
+  "$git_bin" -C "$lifecycle_work_seed" init --quiet
+  "$git_bin" -C "$lifecycle_work_seed" add home/.config/work-retry-marker
+  "$git_bin" -C "$lifecycle_work_seed" -c user.name=fixture \
+    -c user.email=fixture@example.invalid -c core.hooksPath=/dev/null \
+    commit --quiet -m fixture
+  "$git_bin" init --quiet --bare "$lifecycle_work_origin"
+  "$git_bin" -C "$lifecycle_work_seed" push --quiet \
+    "$lifecycle_work_origin" HEAD:refs/heads/main
+  "$git_bin" --git-dir="$lifecycle_work_origin" symbolic-ref HEAD refs/heads/main
+
+  lifecycle_status=0
+  run_in_home "$lifecycle_home" "$DOT_STACK_DOT_BIN" update \
+    >/dev/null 2>&1 || lifecycle_status=$?
+  _assert_exit 'later dev update retries the optional work overlay' \
+    0 "$lifecycle_status"
+  if [[ -d $lifecycle_home/.dotfiles-work/.git ]]; then
+    _pass 'later optional work retry retains a cached checkout'
+  else
+    _fail 'later optional work retry retains a cached checkout'
+  fi
+  if [[ -L $lifecycle_home/.config/work-retry-marker ]]; then
+    _pass 'later optional work retry activates its managed link'
+  else
+    _fail 'later optional work retry activates its managed link'
+  fi
+
+  profile=editor
+  printf 'version=1\nuser=%s\nprofile=editor\n' "$(id -un)" \
+    >"$lifecycle_selector"
+  lifecycle_status=0
+  run_in_home "$lifecycle_home" "$DOT_STACK_DOT_BIN" update \
+    >/dev/null 2>&1 || lifecycle_status=$?
+  _assert_exit 'dev to editor downgrade converges' 0 "$lifecycle_status"
+  _assert_file_content \
+    'dev to editor restores the shadowed Git ignore configuration' \
+    "$git_shadow" "$lifecycle_home/.config/git/ignore"
+  if [[ -L $lifecycle_home/.config/nvim/init.lua ]]; then
+    _pass 'dev to editor keeps the selected Nvim link'
+  else
+    _fail 'dev to editor keeps the selected Nvim link'
+  fi
+  _assert_file_missing 'dev to editor removes the deselected work link' \
+    "$lifecycle_home/.config/work-retry-marker"
+  for cached in dev work; do
+    if [[ -d $lifecycle_home/.dotfiles-$cached/.git ]]; then
+      _pass "dev to editor preserves the cached $cached checkout"
+    else
+      _fail "dev to editor preserves the cached $cached checkout"
+    fi
+  done
+  _assert_file_content 'dev to editor preserves native package state' \
+    preserve "$lifecycle_package_marker"
+
+  profile=base
+  rm -f -- "$lifecycle_selector"
+  lifecycle_status=0
+  run_in_home "$lifecycle_home" "$DOT_STACK_DOT_BIN" update \
+    >/dev/null 2>&1 || lifecycle_status=$?
+  _assert_exit 'editor to base downgrade converges' 0 "$lifecycle_status"
+  _assert_file_content 'editor to base restores the shadowed Nvim configuration' \
+    "$nvim_shadow" "$lifecycle_home/.config/nvim/init.lua"
+  for cached in nvim dev work; do
+    if [[ -d $lifecycle_home/.dotfiles-$cached/.git ]]; then
+      _pass "editor to base preserves the cached $cached checkout"
+    else
+      _fail "editor to base preserves the cached $cached checkout"
+    fi
+  done
+  _assert_file_content 'editor to base preserves native package state' \
+    preserve "$lifecycle_package_marker"
+fi
 
 _test_summary
