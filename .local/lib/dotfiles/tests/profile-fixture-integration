@@ -261,7 +261,7 @@ nested_ci_credentials=$(GH_TOKEN=gh GITHUB_TOKEN=github \
   CODEX_GITHUB_PERSONAL_ACCESS_TOKEN=codex-github-pat \
   run_in_home "$fixture_root" bash -c \
   'printf "%s\n" "${GH_TOKEN-unset}:${GITHUB_TOKEN-unset}:${GH_ENTERPRISE_TOKEN-unset}:${GITHUB_ENTERPRISE_TOKEN-unset}:${GITHUB_PERSONAL_ACCESS_TOKEN-unset}:${CODEX_GITHUB_PERSONAL_ACCESS_TOKEN-unset}"')
-_assert_eq 'profile fixtures isolate outer CI credentials' \
+_assert_eq 'profile fixtures isolate outer GitHub credentials' \
   'unset:unset:unset:unset:unset:unset' "$nested_ci_credentials"
 
 install_dot_runtime() {
@@ -624,7 +624,7 @@ for profile in base editor dev; do
         editor) test_suite=nvim-static ;;
         dev) test_suite=dev-static ;;
       esac
-      run_in_home "$home" "$DOT_STACK_DOT_BIN" test "$test_suite" \
+      run_in_home "$home" "$DOT_STACK_DOT_BIN" test --verbose "$test_suite" \
         >"$test_log" 2>&1 || test_status=$?
       suite_log_summary=$(grep -E \
         'Running [0-9]+ test suites|── .* ──|Suites: [0-9]+ passed' \
