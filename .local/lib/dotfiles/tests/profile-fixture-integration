@@ -88,9 +88,12 @@ git_bin=$(type -P git)
 python_bin=$(type -P python3)
 agent_rules_sync=$(type -P agent-rules-sync 2>/dev/null || true)
 nvim_bin=$host_home/.local/share/neovim/neovim/bin/nvim
-fixture_path=${git_bin%/*}:${python_bin%/*}:/usr/bin:/bin
+fixture_bin=$(_tmpdir)
+ln -s "$git_bin" "$fixture_bin/git"
+ln -s "$python_bin" "$fixture_bin/python3"
+fixture_path=$fixture_bin:/usr/bin:/bin
 if [[ -n ${PREFIX:-} ]]; then
-  fixture_path=${git_bin%/*}:$PREFIX/bin:/usr/bin:/bin
+  fixture_path=$fixture_bin:$PREFIX/bin:/usr/bin:/bin
 fi
 _pass 'profile fixtures have an isolated system Git'
 
@@ -193,6 +196,8 @@ run_in_home() {
     DOT_PROFILE_FIXTURE_PROFILE="$profile" \
     NVIM_TEST_BIN="$nvim_bin" \
     NVIM_TEST_DATA_HOME="$host_home/.local/share" \
+    SHDEPS_INSTALL_DIR="$host_home/.local/share" \
+    SHDEPS_GIT_DEV_DIR="$host_home/git" \
     PATH="$home/.local/bin:$fixture_path" \
     "$@"
 }
