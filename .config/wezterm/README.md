@@ -73,9 +73,10 @@ overlay, not in the base dotfiles repo.
 ## Tab Bubbling
 
 WezTerm owns `Ctrl-Tab` only when the active pane is not controlled by Neovim
-or tmux. A one-window tmux gives `termnav-navigate` the exact triggering client
-and source scope. The router walks local tmux ancestry before the SSH relay and
-finally emits the direct `DOT_SWITCH_TAB` request at the terminal boundary.
+or tmux. A one-window tmux gives Termnav's warmed navigation dispatcher the
+exact triggering client and source scope. The router walks local tmux ancestry
+before the SSH relay and finally emits the direct `DOT_SWITCH_TAB` request at
+the terminal boundary.
 Pane navigation uses the same traversal but stops at the outermost tmux edge;
 Termnav does not assume WezTerm panes share tmux's directional semantics.
 Ctrl-backslash needs no WezTerm key assignment: WezTerm's normal terminal
@@ -88,7 +89,7 @@ WezTerm also owns `Alt-Shift-[` and `Alt-Shift-]` tab moves only outside
 Neovim/tmux panes. In terminal-owned panes the key is forwarded inward as
 Meta-left-brace or Meta-right-brace so Neovim BufferLine or tmux windows can
 reorder themselves. One-window tmux sessions route outward through
-`termnav-navigate`; at the terminal boundary it emits the direct
+the shared Termnav router; at the terminal boundary it emits the direct
 `DOT_MOVE_TAB` user variable. Multi-window application and tmux scopes own
 their first/last no-op, preventing movement from leaking to an ancestor. VS
 Code still has no command for reordering terminal tabs, so it safely consumes

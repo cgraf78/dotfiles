@@ -16,14 +16,14 @@ _assert_contains "tmux prefers zsh for newly restored panes" \
 # shellcheck disable=SC2088 # tmux expands this literal path in its own shell.
 tmux_follow_installed_path='~/.local/bin/tmux-follow-click'
 tmux_tool_home="${DOT_TEST_HOST_HOME:-$HOME}"
-termnav_navigate_executable="${DOT_TEST_TERMNAV_ROOT:+$DOT_TEST_TERMNAV_ROOT/bin/termnav-navigate}"
-termnav_navigate_executable="${termnav_navigate_executable:-$tmux_tool_home/.local/bin/termnav-navigate}"
+termnav_relay_executable="${DOT_TEST_TERMNAV_ROOT:+$DOT_TEST_TERMNAV_ROOT/bin/termnav-relay}"
+termnav_relay_executable="${termnav_relay_executable:-$tmux_tool_home/.local/bin/termnav-relay}"
 termnav_tmux_context_executable="${DOT_TEST_TERMNAV_ROOT:+$DOT_TEST_TERMNAV_ROOT/bin/termnav-tmux-context}"
 termnav_tmux_context_executable="${termnav_tmux_context_executable:-$tmux_tool_home/.local/bin/termnav-tmux-context}"
 termnav_tmux_focus_executable="${DOT_TEST_TERMNAV_ROOT:+$DOT_TEST_TERMNAV_ROOT/bin/termnav-tmux-focus}"
 termnav_tmux_focus_executable="${termnav_tmux_focus_executable:-$tmux_tool_home/.local/bin/termnav-tmux-focus}"
 # shellcheck disable=SC2088 # tmux expands this literal path in its own shell.
-termnav_navigate_path='~/.local/bin/termnav-navigate'
+termnav_hot_path='~/.local/bin/termnav-relay navigate'
 ctrl_tab_config_line=$(printf '%s\n' "$tmux_content" | grep '^bind-key -n C-Tab ' || true)
 ctrl_shift_tab_config_line=$(printf '%s\n' "$tmux_content" | grep '^bind-key -n C-BTab ' || true)
 move_tab_left_config_line=$(printf '%s\n' "$tmux_content" | grep "^bind-key -n 'M-{' " || true)
@@ -159,7 +159,7 @@ if [[ -n ${DOT_TEST_TERMNAV_ROOT:-} ]]; then
   _assert_executable "tmux nested focus publisher is installed" \
     "$termnav_tmux_focus_executable"
   _assert_executable "tmux unified navigation router is installed" \
-    "$termnav_navigate_executable"
+    "$termnav_relay_executable"
 fi
 _assert_eq "tmux nested focus publisher is owned by Termnav" \
   "github" \
@@ -350,10 +350,10 @@ for route in \
   'tab-move left' 'tab-move right' \
   'pane-select left' 'pane-select down' 'pane-select up' 'pane-select right'; do
   _assert_contains "tmux routes boundary action through Termnav: $route" \
-    "$termnav_navigate_path $route \$navigate_parent_args" "$tmux_content"
+    "$termnav_hot_path $route \$navigate_parent_args" "$tmux_content"
 done
 _assert_not_contains "tmux boundary routing does not launch unordered background jobs" \
-  "run-shell -b '$termnav_navigate_path" "$tmux_content"
+  "run-shell -b '$termnav_hot_path" "$tmux_content"
 _assert_contains "tmux Ctrl-Tab keeps multi-window selection native" \
   "#{>:#{session_windows},1}" "$ctrl_tab_config_line"
 _assert_contains "tmux Ctrl-Shift-Tab keeps multi-window selection native" \
@@ -376,7 +376,7 @@ _assert_contains "tmux previous-pane chord forwards into navigation-aware panes"
 _assert_contains "tmux previous-pane chord stays within the nearest tmux" \
   "select-pane -l" "$previous_pane_config_line"
 _assert_not_contains "tmux previous-pane chord does not enter the boundary router" \
-  "$termnav_navigate_path" "$previous_pane_config_line"
+  "$termnav_hot_path" "$previous_pane_config_line"
 _assert_contains "tmux pane navigation requires inner mouse focus for transports" \
   "mouse == 1" "$pane_navigation_detector_line"
 _assert_contains "tmux pane navigation recognizes nested remote transports" \
@@ -647,27 +647,27 @@ if command -v tmux >/dev/null 2>&1; then
   _assert_exit "tmux runtime forwards into a mouse-aware remote application" \
     0 "$focused_remote_tab_runtime_rc"
   _assert_contains "tmux runtime Ctrl-Tab invokes the unified router at its edge" \
-    "$termnav_navigate_path tab-select next --parent" "$ctrl_tab_root_line"
+    "$termnav_hot_path tab-select next --parent" "$ctrl_tab_root_line"
   _assert_contains "tmux runtime Ctrl-Shift-Tab invokes the unified router at its edge" \
-    "$termnav_navigate_path tab-select previous --parent" "$ctrl_shift_tab_root_line"
+    "$termnav_hot_path tab-select previous --parent" "$ctrl_shift_tab_root_line"
   _assert_contains "tmux runtime Alt-Shift-[ invokes the unified router at one window" \
-    "$termnav_navigate_path tab-move left --parent" "$move_tab_left_root_line"
+    "$termnav_hot_path tab-move left --parent" "$move_tab_left_root_line"
   _assert_contains "tmux runtime Alt-Shift-] invokes the unified router at one window" \
-    "$termnav_navigate_path tab-move right --parent" "$move_tab_right_root_line"
+    "$termnav_hot_path tab-move right --parent" "$move_tab_right_root_line"
   _assert_contains "tmux runtime Ctrl-h invokes the unified router at its edge" \
-    "$termnav_navigate_path pane-select left --parent" "$pane_navigation_root_line"
+    "$termnav_hot_path pane-select left --parent" "$pane_navigation_root_line"
   _assert_contains "tmux runtime Ctrl-j invokes the unified router at its edge" \
-    "$termnav_navigate_path pane-select down --parent" "$pane_navigation_down_root_line"
+    "$termnav_hot_path pane-select down --parent" "$pane_navigation_down_root_line"
   _assert_contains "tmux runtime Ctrl-k invokes the unified router at its edge" \
-    "$termnav_navigate_path pane-select up --parent" "$pane_navigation_up_root_line"
+    "$termnav_hot_path pane-select up --parent" "$pane_navigation_up_root_line"
   _assert_contains "tmux runtime Ctrl-l invokes the unified router at its edge" \
-    "$termnav_navigate_path pane-select right --parent" "$pane_navigation_right_root_line"
+    "$termnav_hot_path pane-select right --parent" "$pane_navigation_right_root_line"
   _assert_contains "tmux runtime Ctrl-backslash forwards into navigation-aware panes" \
     "send-keys C-\\\\\\\\" "$previous_pane_root_line"
   _assert_contains "tmux runtime Ctrl-backslash selects the local previous pane" \
     "select-pane -l" "$previous_pane_root_line"
   _assert_not_contains "tmux runtime Ctrl-backslash does not bubble" \
-    "$termnav_navigate_path" "$previous_pane_root_line"
+    "$termnav_hot_path" "$previous_pane_root_line"
   for route_line in \
     "$ctrl_tab_root_line" "$ctrl_shift_tab_root_line" \
     "$move_tab_left_root_line" "$move_tab_right_root_line" \
