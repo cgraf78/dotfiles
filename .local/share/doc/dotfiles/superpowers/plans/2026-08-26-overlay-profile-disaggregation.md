@@ -1298,6 +1298,10 @@ GitHub repository exists. For each repository:
    after creation and before accepting any external contribution or pushing
    anything beyond the reviewed bootstrap. No issue, PR, or contribution is
    accepted during that interval.
+   D3's maintenance workflows may declare a new repository-specific deploy-key
+   secret placeholder. Phase A creates or copies no credential: the workflows
+   must fail closed until a fresh key is provisioned as an explicit Phase B
+   pre-merge prerequisite.
    Use `test/lib/wait-github-state.sh` to poll the actual API predicates for
    initial license visibility and normalized settings equality. Use fresh API
    reads, a fixed deadline (for example 120 seconds), a modest poll interval,
@@ -1849,7 +1853,7 @@ extension points and assert:
 
 - Nvim starts headlessly;
 - editor UI/navigation plugin specs load;
-- no Mason, LSP, DAP, Copilot, language toolchain, formatter, or linter is
+- no Mason, LSP, DAP, language toolchain, formatter, or linter is
   declared or installed by the Nvim overlay;
 - the editor tmux fragment parses against the minimal inherited tmux interface
   fixture.
@@ -2010,11 +2014,13 @@ Contribute additive Lua specs/imports for:
 - LSP and Mason;
 - DAP;
 - formatting and linting;
-- Copilot;
 - language-specific integrations;
 - development-only repository integrations.
 
-Keep large generated development metadata out of the editor-only profile.
+Preserve only development-oriented Nvim behavior present at the frozen source
+commit. This disaggregation does not introduce a Copilot integration or any
+other new editor behavior. Keep large generated development metadata out of the
+editor-only profile.
 
 ### 8.7 Move development merge hooks, tests, doctor checks, and docs
 
@@ -2748,7 +2754,7 @@ Assert:
 
 - `base` has raw Git but no global Git config and no Nvim;
 - `editor` adds Nvim but not development Git configuration, Mason, LSP, DAP,
-  Copilot, or development toolchains;
+  or development toolchains;
 - `dev` includes the full editor and development configuration;
 - optional unavailable personal/work overlays do not fail convergence;
 - a `dev` machine without credentials for the selected optional work overlay
