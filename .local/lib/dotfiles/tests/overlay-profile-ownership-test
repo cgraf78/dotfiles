@@ -102,6 +102,7 @@ FAMILY_OWNERS = {
     "sley": "dotfiles-dev",
     "dev-toolchain": "dotfiles-dev",
     "nvim-dev": "dotfiles-dev",
+    "tmux-base": "dotfiles",
 }
 
 # Split component IDs are lineage identifiers for specific reviewed legacy
@@ -739,7 +740,8 @@ def validate_final(rows: list[dict[str, str]], baseline: list[dict[str, str]]) -
         ):
             raise Invalid(f"D4 rewrite lacks a D4 root output: {source_path}")
         if baseline_row["d5_action"] == "rewrite" and not any(
-            output["repository"] == "dotfiles" and output["available_by"] == "d5"
+            output["repository"] == "dotfiles"
+            and PHASES[output["available_by"]] <= PHASES["d5"]
             for output in outputs
         ):
             raise Invalid(f"D5 rewrite lacks a D5 root output: {source_path}")

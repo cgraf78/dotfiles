@@ -18,6 +18,7 @@ program	.config/shdeps/hooks.d/python-minimum.sh
 program	.config/shdeps/hooks.d/rcaloras/bash-preexec.sh
 program	.config/shdeps/hooks.d/rubocop.sh
 program	.config/shdeps/hooks.d/rust-toolchain.sh
+program	.config/shdeps/hooks.d/tmux.sh
 program	.config/shdeps/hooks.d/tmux-plugins/tmux-resurrect.sh
 program	.config/shdeps/hooks.d/wezterm.sh
 program	.config/shdeps/hooks.d/xclip.sh

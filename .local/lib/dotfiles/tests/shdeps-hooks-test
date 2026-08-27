@@ -2007,4 +2007,151 @@ else
   _fail "eza: stable-identity transition fixture is available"
 fi
 
+echo "=== tmux pinned base installer ==="
+
+_tmux_dep=$(
+  awk '$1 == "tmux" { print; exit }' "$REAL_HOME/.config/shdeps/10-deps.conf"
+)
+_assert_eq "tmux: base dependency uses its custom installer" \
+  "custom" "$(awk '{ print $2 }' <<<"$_tmux_dep")"
+_assert_eq "tmux: custom dependency owns the public command" \
+  "tmux" "$(awk '{ print $3 }' <<<"$_tmux_dep")"
+
+_tmux_hook=$REAL_HOME/.config/shdeps/hooks.d/tmux.sh
+_assert_file_exists "tmux: custom hook is tracked" "$_tmux_hook"
+if [[ -f $_tmux_hook ]]; then
+  # shellcheck source=/dev/null
+  . "$_tmux_hook"
+
+  _tmux_saved_uname=$(declare -f uname 2>/dev/null || true)
+  _tmux_test_platform=linux
+  _tmux_test_arch=x86_64
+  # shellcheck disable=SC2329 # Called by the hook under test.
+  shdeps_platform() { printf '%s\n' "$_tmux_test_platform"; }
+  # shellcheck disable=SC2329 # Called by the hook under test.
+  uname() { printf '%s\n' "$_tmux_test_arch"; }
+
+  _tmux_asset
+  _assert_eq "tmux: Linux x64 URL is pinned to 3.6b" \
+    "https://github.com/tmux/tmux-builds/releases/download/v3.6b/tmux-3.6b-linux-x86_64.tar.gz" \
+    "$REPLY_URL"
+  _assert_eq "tmux: Linux x64 checksum matches the frozen Mise lock" \
+    "002a6f4fd52212600fa0d72d865dcf328e5b8b6e83c179788144d8587b75677a" \
+    "$REPLY_SHA256"
+  _tmux_test_arch=arm64
+  _tmux_asset
+  _assert_eq "tmux: Linux arm64 checksum matches the frozen Mise lock" \
+    "fd4a2206c5e468dd2ee4e9a65f2d40e0762551965d7fdbe849c494ab14f513e9" \
+    "$REPLY_SHA256"
+  _tmux_test_platform=macos
+  _tmux_asset
+  _assert_eq "tmux: macOS arm64 checksum matches the frozen Mise lock" \
+    "88323402bd28d21103239caf009b130086ebf334807de485d4a1e1c7188ee810" \
+    "$REPLY_SHA256"
+  _tmux_test_arch=x86_64
+  _tmux_asset
+  _assert_eq "tmux: macOS x64 checksum matches the frozen Mise lock" \
+    "073f6e2c2baa7eb5d643563600ee6052ca8619f3ec5a0cfdf99c56397fb72c94" \
+    "$REPLY_SHA256"
+
+  _tmux_home=$(_tmpdir)
+  _tmux_install=$_tmux_home/share
+  _tmux_bin=$_tmux_home/bin
+  _tmux_archive_root=$(_tmpdir)
+  mkdir -p "$_tmux_archive_root/payload" "$_tmux_install" "$_tmux_bin"
+  printf '%s\n' '#!/usr/bin/env bash' 'printf "tmux 3.6b\n"' \
+    >"$_tmux_archive_root/payload/tmux"
+  chmod +x "$_tmux_archive_root/payload/tmux"
+  tar -czf "$_tmux_archive_root/tmux.tar.gz" -C "$_tmux_archive_root/payload" tmux
+  _tmux_fixture_sha=$(sha256sum "$_tmux_archive_root/tmux.tar.gz" | awk '{print $1}')
+  _tmux_downloads=$(_tmpdir)/downloads
+  : >"$_tmux_downloads"
+  # shellcheck disable=SC2329 # Called by the hook under test.
+  shdeps_install_dir() { printf '%s\n' "$_tmux_install"; }
+  # shellcheck disable=SC2329 # Called by the hook under test.
+  shdeps_bin_dir() { printf '%s\n' "$_tmux_bin"; }
+  # shellcheck disable=SC2329 # Called by the hook under test.
+  shdeps_curl() {
+    local output='' source=''
+    while (($# > 0)); do
+      case $1 in
+        -o)
+          output=$2
+          shift 2
+          ;;
+        fixture://*)
+          source=${1#fixture://}
+          shift
+          ;;
+        *) shift ;;
+      esac
+    done
+    printf '%s\n' "$source" >>"$_tmux_downloads"
+    cp "$_tmux_archive_root/tmux.tar.gz" "$output"
+  }
+  # shellcheck disable=SC2329 # Test fixture replaces only asset resolution.
+  _tmux_asset() {
+    REPLY_URL=fixture://tmux-3.6b
+    REPLY_SHA256=$_tmux_fixture_sha
+  }
+  # shellcheck disable=SC2329 # Test fixture captures warnings.
+  shdeps_warn() { :; }
+  # shellcheck disable=SC2329 # Linux fixture takes the archive path.
+  shdeps_platform() { printf '%s\n' linux; }
+
+  if install tmux; then
+    _pass "tmux: verified archive installs successfully"
+  else
+    _fail "tmux: verified archive installs successfully"
+  fi
+  _assert_file_exists "tmux: managed binary is installed" \
+    "$_tmux_install/tmux/tmux"
+  _assert_eq "tmux: public command links to the managed binary" \
+    "$_tmux_install/tmux/tmux" "$(readlink "$_tmux_bin/tmux")"
+  _assert_eq "tmux: installed binary reports the pinned version" \
+    "tmux 3.6b" "$("$_tmux_bin/tmux" -V)"
+
+  printf '%s\n' '#!/usr/bin/env bash' 'printf "user tmux\n"' \
+    >"$_tmux_bin/user-tmux"
+  chmod +x "$_tmux_bin/user-tmux"
+  rm -f "$_tmux_bin/tmux"
+  ln -s "$_tmux_bin/user-tmux" "$_tmux_bin/tmux"
+  install tmux
+  _assert_eq "tmux: install preserves a user-owned public command" \
+    "$_tmux_bin/user-tmux" "$(readlink "$_tmux_bin/tmux")"
+
+  printf '%s\n' 'previous managed payload' >"$_tmux_install/tmux/sentinel"
+  _tmux_asset() {
+    REPLY_URL=fixture://tmux-3.6b
+    REPLY_SHA256=0000000000000000000000000000000000000000000000000000000000000000
+  }
+  if install tmux >/dev/null 2>&1; then
+    _fail "tmux: checksum mismatch fails installation"
+  else
+    _pass "tmux: checksum mismatch fails installation"
+  fi
+  _assert_file_content "tmux: failed install preserves prior payload" \
+    "previous managed payload" "$_tmux_install/tmux/sentinel"
+  _assert_eq "tmux: failed install leaves no staging directories" \
+    "" "$(printf '%s\n' "$_tmux_install"/.tmux-stage.* | sed "/[*]/d")"
+
+  _tmux_test_platform=android
+  _tmux_package_calls=$(_tmpdir)/package-calls
+  : >"$_tmux_package_calls"
+  shdeps_platform() { printf '%s\n' android; }
+  # shellcheck disable=SC2329 # Called by the hook under test.
+  shdeps_pkg_install_for_mgr() { printf '%s\n' "$*" >>"$_tmux_package_calls"; }
+  install tmux
+  _assert_file_content "tmux: Android retains native package ownership" \
+    "android:tmux" "$_tmux_package_calls"
+
+  if [[ -n $_tmux_saved_uname ]]; then
+    eval "$_tmux_saved_uname"
+  else
+    unset -f uname
+  fi
+else
+  _fail "tmux: custom hook fixture is available"
+fi
+
 _test_summary

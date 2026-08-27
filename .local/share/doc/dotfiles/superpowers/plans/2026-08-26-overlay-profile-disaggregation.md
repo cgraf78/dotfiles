@@ -119,6 +119,10 @@ GitHub Actions, and the existing dotfiles shell test harness.
 - Added an existing-machine `runtime_ready` gate: the landed D1 provider must
   be installed and verified while the root remains pre-D4, independently of
   selector readiness, before D4 can reach that installation.
+- Kept tmux in `base` without retaining the development Mise toolset: a
+  base-owned custom Shdeps hook installs the reviewed tmux-builds 3.6b assets
+  using the exact URLs and checksums from the frozen Mise lock, while Android
+  retains its native package path.
 
 ## Fixed Decisions
 
@@ -1793,8 +1797,11 @@ Keep focused base Shdeps declaration files under:
 Include only shell, tmux, DS/Termnav, navigation/search, archive, update, and
 diagnostic dependencies needed by `base`, plus the `agent-rules-sync` provider
 required to aggregate/synchronize/apply base and overlay-contributed rule
-fragments. Keep a minimal mise configuration only if required to preserve the
-pinned tmux install contract.
+fragments. Install tmux 3.6b through a base-owned custom Shdeps hook using the
+exact platform URLs and checksums frozen in the source Mise lock. Preserve
+user-owned command paths, publish the managed payload atomically, and keep
+Android on its native package path. The remaining Mise configuration, lock,
+merge hook, and development tools move together to `dotfiles-dev`.
 
 ### 6.7 Keep base hooks, focused tests, doctor checks, and docs
 

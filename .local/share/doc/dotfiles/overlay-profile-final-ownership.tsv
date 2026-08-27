@@ -76,12 +76,13 @@ dotfiles	.config/ds/README.md	split-docs	docs	old:.config/ds/README.md	d4	owner=
 dotfiles	.config/htop/htoprc	config-htop-htoprc	config	old:.config/htop/htoprc	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
 dotfiles	.config/ripgrep/config	split-ripgrep	config	old:.config/ripgrep/config	d5	owner=dotfiles; source=locked-dotfiles; family=base
 dotfiles	.config/ripgrep/README.md	config-ripgrep-readme-md	docs	old:.config/ripgrep/README.md	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
-dotfiles	.config/shdeps/10-deps.conf	split-shdeps	dependency	old:.config/shdeps/10-deps.conf	d5	owner=dotfiles; source=locked-dotfiles; agent=base-rule-aggregation; family=base
+dotfiles	.config/shdeps/10-deps.conf	split-shdeps	dependency	old:.config/shdeps/10-deps.conf	d4	owner=dotfiles; source=locked-dotfiles; agent=base-rule-aggregation; family=base
 dotfiles	.config/shdeps/hooks.d/cgraf78/dot.sh	config-shdeps-hooks-d-cgraf78-dot-sh	dependency	old:.config/shdeps/hooks.d/cgraf78/dot.sh	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
 dotfiles	.config/shdeps/hooks.d/eza.sh	config-shdeps-hooks-d-eza-sh	dependency	old:.config/shdeps/hooks.d/eza.sh	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
 dotfiles	.config/shdeps/hooks.d/nerd-fonts.sh	config-shdeps-hooks-d-nerd-fonts-sh	dependency	old:.config/shdeps/hooks.d/nerd-fonts.sh	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
 dotfiles	.config/shdeps/hooks.d/rcaloras/bash-preexec.sh	config-shdeps-hooks-d-rcaloras-bash-preexec-sh	dependency	old:.config/shdeps/hooks.d/rcaloras/bash-preexec.sh	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
 dotfiles	.config/shdeps/hooks.d/README.md	split-shdeps	docs	old:.config/shdeps/hooks.d/README.md	d4	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/shdeps/hooks.d/tmux.sh	tmux-base	dependency	new	d4	owner=dotfiles; source=new; family=tmux-base
 dotfiles	.config/shdeps/hooks.d/tmux-plugins/tmux-resurrect.sh	tmux-base	dependency	old:.config/shdeps/hooks.d/tmux-plugins/tmux-resurrect.sh	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
 dotfiles	.config/shdeps/hooks.d/wezterm.sh	terminal-navigation	dependency	old:.config/shdeps/hooks.d/wezterm.sh	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
 dotfiles	.config/shdeps/hooks.d/xclip.sh	config-shdeps-hooks-d-xclip-sh	dependency	old:.config/shdeps/hooks.d/xclip.sh	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
