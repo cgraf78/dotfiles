@@ -18,6 +18,25 @@ candidate_sha=${DOTFILES_CANDIDATE_SHA:-}
   exit 1
 }
 
+restore_ci_git_config() {
+  local path=.config/git/config status expected actual
+
+  status=$(git -C "$root" status --porcelain -- "$path")
+  [[ -n $status ]] || return 0
+  [[ $status == " M $path" ]] || return 1
+
+  expected=$(git -C "$root" show "HEAD:$path") || return 1
+  expected+=$'\n[safe]\n\tdirectory = '"$root"
+  actual=$(<"$root/$path")
+  [[ $actual == "$expected" ]] || return 1
+
+  # The shared CI workflow writes this one global setting after redirecting
+  # HOME into the checkout. Restore the reviewed candidate copy before moving
+  # away from GitHub's synthesized merge ref.
+  git -C "$root" checkout-index --force -- "$path"
+}
+
+restore_ci_git_config || true
 dirty=$(git -C "$root" status --porcelain --untracked-files=all |
   sed '/^?? \.gitconfig$/d')
 if [[ -n $dirty ]]; then

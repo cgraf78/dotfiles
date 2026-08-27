@@ -640,10 +640,13 @@ git init --quiet --bare "$candidate_origin"
 git init --quiet "$candidate_seed"
 _git_set_test_identity git -C "$candidate_seed"
 mkdir -p "$candidate_seed/.local/lib/dotfiles/tests"
+mkdir -p "$candidate_seed/.config/git"
 cp "$source_home/.local/lib/dotfiles/tests/checkout-ci-candidate" \
   "$candidate_seed/.local/lib/dotfiles/tests/checkout-ci-candidate"
+printf '[core]\n\teditor = fixture\n' >"$candidate_seed/.config/git/config"
 printf 'base\n' >"$candidate_seed/state"
-git -C "$candidate_seed" add state .local/lib/dotfiles/tests/checkout-ci-candidate
+git -C "$candidate_seed" add state .config/git/config \
+  .local/lib/dotfiles/tests/checkout-ci-candidate
 git -C "$candidate_seed" -c core.hooksPath=/dev/null commit --quiet -m base
 base_sha=$(git -C "$candidate_seed" rev-parse HEAD)
 printf 'head\n' >"$candidate_seed/state"
@@ -656,6 +659,8 @@ git clone --quiet --branch feature "$candidate_origin" "$candidate_checkout"
 git -C "$candidate_checkout" checkout --quiet --detach "$base_sha"
 printf '[safe]\n\tdirectory = %s\n' "$candidate_checkout" \
   >"$candidate_checkout/.gitconfig"
+HOME=$candidate_checkout XDG_CONFIG_HOME=$candidate_checkout/.config \
+  git config --global --add safe.directory "$candidate_checkout"
 
 candidate_output=$(cd "$candidate_checkout" &&
   DOTFILES_CANDIDATE_SHA=$candidate_sha \
@@ -671,6 +676,11 @@ _assert_eq 'candidate checkout: source content comes from selected head' \
 _assert_file_exists \
   'candidate checkout preserves the workflow-owned global Git config' \
   "$candidate_checkout/.gitconfig"
+if git -C "$candidate_checkout" diff --quiet -- .config/git/config; then
+  _pass 'candidate checkout restores the workflow-modified tracked Git config'
+else
+  _fail 'candidate checkout restores the workflow-modified tracked Git config'
+fi
 
 printf 'unexpected\n' >"$candidate_checkout/untracked"
 dirty_output=$(cd "$candidate_checkout" &&
