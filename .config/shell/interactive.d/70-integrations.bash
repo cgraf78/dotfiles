@@ -47,12 +47,6 @@ if ! shopt -oq posix; then
   fi
 fi
 
-_tool_init sley _tool_shdeps_source_emit cgraf78/sley share/sley/shell.sh
-# The 57-git-tools adapter defines consumer hooks first; loading the provider
-# here keeps dependency resolution and caching out of the shell-neutral layer.
-_tool_init git-tools _tool_shdeps_source_emit \
-  cgraf78/git-tools share/git-tools/shell.sh
-
 # fzf --bash emits malformed `complete` commands on some Linux hosts; strip
 # the completion section, keeping only key bindings.
 # shellcheck disable=SC2329,SC2317  # called indirectly via _tool_init "$@"
@@ -76,5 +70,3 @@ if [[ -z "${__atuin_sourced:-}" ]]; then
   _tool_init atuin atuin init bash --disable-up-arrow
   __atuin_sourced=1
 fi
-
-_tool_init direnv direnv hook bash

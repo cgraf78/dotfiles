@@ -215,59 +215,14 @@ CRONTAB
 chmod +x "$client_crontab"
 export DOT_TEST_CRONTAB=$client_crontab
 
-client_gh=$(_tmpdir)/gh
-cat >"$client_gh" <<'GH'
-#!/usr/bin/env bash
-exit 1
-GH
-chmod +x "$client_gh"
-export DOT_TEST_GH=$client_gh
-
-# Exercise OpenCode on every host through Shdeps' public dep-file boundary.
-# Otherwise hosts without a system OpenCode binary silently skip this hook.
-opencode_worker_bin=$(_tmpdir)
-agentguard_asset=$(_tmpdir)/opaque-agentguard-opencode.js
-agentguard_path_record=$fixture_home/.config/shdeps/test-agentguard-asset-path
-mkdir -p "$fixture_home/.config/shdeps"
-cat >"$agentguard_asset" <<'AGENTGUARD'
-// agentguard-managed:opencode-plugin
-export default {};
-AGENTGUARD
-printf '%s\n' "$agentguard_asset" >"$agentguard_path_record"
-cat >"$opencode_worker_bin/opencode" <<'OPENCODE'
-#!/usr/bin/env bash
-exit 0
-OPENCODE
-cat >"$opencode_worker_bin/shdeps" <<'SHDEPS'
-#!/usr/bin/env bash
-set -u
-
-[[ $# -eq 3 ]] || exit 64
-[[ $1 == dep-file ]] || exit 64
-[[ $2 == cgraf78/agentguard ]] || exit 64
-[[ $3 == share/agentguard/integrations/opencode/agentguard.js ]] || exit 64
-[[ ${SHDEPS_CONF_DIR:-} == "$HOME/.config/shdeps" ]] || exit 64
-path_record=$SHDEPS_CONF_DIR/test-agentguard-asset-path
-[[ -f $path_record ]] || exit 1
-IFS= read -r asset <"$path_record" || exit 1
-[[ -f $asset ]] || exit 1
-printf '%s\n' "$asset"
-SHDEPS
-chmod +x "$opencode_worker_bin/opencode" "$opencode_worker_bin/shdeps"
-
 for hook in "$client_root/merge-hooks.d"/*.sh; do
-  worker_path=/usr/bin:/bin
-  [[ ${hook##*/} == opencode.sh ]] && worker_path=$opencode_worker_bin:/usr/bin:/bin
-  if CLIENT_WORKER_PATH=$worker_path _client_worker_run merge "$hook" none \
+  if CLIENT_WORKER_PATH=/usr/bin:/bin _client_worker_run merge "$hook" none \
     "${client_active_overlay_records[@]+"${client_active_overlay_records[@]}"}"; then
     _pass "client merge hook loads through standalone worker: ${hook##*/}"
   else
     _fail "client merge hook loads through standalone worker: ${hook##*/}"
   fi
 done
-_assert_file_content 'client OpenCode hook installs the resolved AgentGuard asset' \
-  $'// agentguard-managed:opencode-plugin\nexport default {};' \
-  "$fixture_home/.config/opencode/plugins/dotfiles-agentguard.js"
 
 windows_home=$fixture_home/windows-home
 wezterm_worker_bin=$(_tmpdir)

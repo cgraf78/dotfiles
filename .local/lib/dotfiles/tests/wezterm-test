@@ -873,21 +873,8 @@ _assert_not_contains "file-link aliases do not retain terminal marker policy" \
   "_dot_env_has_vscode_marker" "$alias_content"
 _assert_not_contains "file-link aliases do not inspect tmux clients" \
   "#{client_pid}" "$alias_content"
-_assert_contains "ripgrep emits semantic file hyperlinks" \
-  "--hyperlink-format=file://{host}{path}:{line}:{column}" "$ripgrep_content"
-_assert_contains "ripgrep uses its dotfiles-owned fixed-name adapter" \
-  "--hostname-bin=ripgrep-link-host" "$ripgrep_content"
-
-link_host_adapter="$HOME/.local/bin/ripgrep-link-host"
-_assert_file_exists "ripgrep host adapter is installed with dotfiles" \
-  "$link_host_adapter"
-if [[ -x "$link_host_adapter" ]]; then
-  _pass "ripgrep host adapter is executable"
-else
-  _fail "ripgrep host adapter is executable"
-fi
-_assert_contains "ripgrep host adapter delegates to Termnav's explicit command" \
-  "exec termnav link-host" "$(cat "$link_host_adapter")"
+_assert_not_contains "base ripgrep config does not require editor-owned link policy" \
+  "--hyperlink-format=" "$ripgrep_content"
 
 alias_probe_home=$(_tmpdir)
 alias_probe_bin="$alias_probe_home/bin"
@@ -911,10 +898,6 @@ printf ' %s' "$@"
 printf '\n'
 SH
 chmod +x "$alias_probe_bin/eza" "$alias_probe_bin/termnav" "$alias_probe_bin/rg"
-
-link_host_probe=$(PATH="$alias_probe_bin:/usr/bin:/bin" "$link_host_adapter")
-_assert_eq "ripgrep host adapter passes the exact Termnav subcommand" \
-  "termnav link-host" "$link_host_probe"
 
 _probe_command() {
   local mode="$1" command_name="$2"

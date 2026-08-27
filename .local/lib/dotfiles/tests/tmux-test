@@ -9,7 +9,8 @@ export NO_COLOR=1
 
 source_home=${DOT_TEST_SOURCE_HOME:-$HOME}
 tmux_config=$source_home/.config/tmux/tmux.conf
-tmux_content=$(<"$tmux_config")
+tmux_base=$source_home/.config/tmux/conf.d/10-base.conf
+tmux_content=$(<"$tmux_base")
 shdeps_content=$(<"$source_home/.config/shdeps/10-deps.conf")
 
 echo "=== base tmux policy ==="
@@ -19,8 +20,14 @@ _assert_contains "tmux: new panes prefer zsh when available" \
   'shell=$(command -v zsh' "$tmux_content"
 _assert_contains "tmux: terminal supports true color" \
   'terminal-overrides' "$tmux_content"
-_assert_contains "tmux: mouse support is enabled" \
+# shellcheck disable=SC2016 # Match the literal HOME reference in the loader.
+_assert_contains "tmux: loader reads ordered capability fragments" \
+  'source-file -q "$HOME/.config/tmux/conf.d/*.conf"' \
+  "$(<"$tmux_config")"
+_assert_not_contains "tmux: base fragment excludes editor mouse policy" \
   'set -g mouse on' "$tmux_content"
+_assert_not_contains "tmux: base fragment excludes Nvim commands" \
+  'nvim' "$tmux_content"
 _assert_contains "tmux: escape delay stays bounded" \
   'set -s escape-time 10' "$tmux_content"
 _assert_contains "tmux: history is retained generously" \
@@ -45,12 +52,14 @@ done
 if command -v tmux >/dev/null 2>&1; then
   socket_dir=$(_tmpdir)
   socket=$socket_dir/tmux.sock
-  if tmux -S "$socket" -f /dev/null new-session -d -s dot-tmux-syntax \
+  if HOME=$source_home tmux -S "$socket" -f /dev/null \
+    new-session -d -s dot-tmux-syntax \
     'sleep 60' >/dev/null 2>&1; then
-    output=$(tmux -S "$socket" source-file -n "$tmux_config" 2>&1)
+    output=$(HOME=$source_home tmux -S "$socket" source-file -n \
+      "$tmux_config" 2>&1)
     status=$?
     tmux -S "$socket" kill-server >/dev/null 2>&1 || true
-    _assert_exit "tmux: full staging configuration parses" 0 "$status"
+    _assert_exit "tmux: base fragment loader parses" 0 "$status"
     _assert_eq "tmux: syntax validation is quiet" '' "$output"
   else
     _fail "tmux: test server starts"

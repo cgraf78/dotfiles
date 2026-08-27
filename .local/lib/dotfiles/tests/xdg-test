@@ -79,15 +79,6 @@ marks_no_home=$(cd "$cwd_two" && env -u HOME XDG_DATA_HOME="$absolute_data" \
 _assert_eq "marks: absolute XDG works without HOME" \
   "$absolute_data/marks" "$marks_no_home"
 
-gh_stamp=$(
-  HOME=$fixture_home XDG_STATE_HOME=$work/state \
-    bash -c '. "$1"; . "$2"; _gh_token_seed_failure_stamp_path; printf "%s" "$REPLY"' \
-    _ "$source_home/.local/lib/dotfiles/tests/load-merge-api.sh" \
-    "$source_home/.local/lib/dotfiles/merge-hooks.d/gh.sh"
-)
-_assert_eq "GitHub token seed: failure stamp uses standalone XDG policy" \
-  "$work/state/dot/gh-token-seed-failed.stamp" "$gh_stamp"
-
 mkdir -p "$fixture_home/.local/share/clip"
 printf 'fallback entry' >"$fixture_home/.local/share/clip/fallback"
 clip_output=$(cd "$cwd_one" && HOME=$fixture_home XDG_DATA_HOME=relative/data \

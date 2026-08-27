@@ -1,9 +1,0 @@
-title = "dotfiles"
-
-[extend]
-useDefault = true
-
-[allowlist]
-description = "Known false positives in tracked generated-support files"
-paths = ['''^\.local/share/checkrun/schemas/rubocop\.schema\.json$''']
-regexes = ['''ruby19_no_mixed_keys''', '''ctrl\+shift\+down''', '''shift\+alt\+down''']
