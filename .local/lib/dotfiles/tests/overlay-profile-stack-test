@@ -654,6 +654,8 @@ git -C "$candidate_seed" remote add origin "$candidate_origin"
 git -C "$candidate_seed" push --quiet origin HEAD:refs/heads/feature
 git clone --quiet --branch feature "$candidate_origin" "$candidate_checkout"
 git -C "$candidate_checkout" checkout --quiet --detach "$base_sha"
+printf '[safe]\n\tdirectory = %s\n' "$candidate_checkout" \
+  >"$candidate_checkout/.gitconfig"
 
 candidate_output=$(cd "$candidate_checkout" &&
   DOTFILES_CANDIDATE_SHA=$candidate_sha \
@@ -666,6 +668,19 @@ _assert_contains 'candidate checkout: reports the exact selected head' \
   "head=$candidate_sha" "$candidate_output"
 _assert_eq 'candidate checkout: source content comes from selected head' \
   head "$(<"$candidate_checkout/state")"
+_assert_file_exists \
+  'candidate checkout preserves the workflow-owned global Git config' \
+  "$candidate_checkout/.gitconfig"
+
+printf 'unexpected\n' >"$candidate_checkout/untracked"
+dirty_output=$(cd "$candidate_checkout" &&
+  DOTFILES_CANDIDATE_SHA=$candidate_sha \
+    .local/lib/dotfiles/tests/checkout-ci-candidate 2>&1)
+dirty_rc=$?
+_assert_exit 'candidate checkout: rejects unexpected untracked files' 1 "$dirty_rc"
+_assert_contains 'candidate checkout: explains an unexpected dirty path' \
+  '?? untracked' "$dirty_output"
+rm "$candidate_checkout/untracked"
 
 invalid_output=$(cd "$candidate_checkout" &&
   DOTFILES_CANDIDATE_SHA=feature \

@@ -18,8 +18,11 @@ candidate_sha=${DOTFILES_CANDIDATE_SHA:-}
   exit 1
 }
 
-if [[ -n $(git -C "$root" status --porcelain) ]]; then
+dirty=$(git -C "$root" status --porcelain --untracked-files=all |
+  sed '/^?? \.gitconfig$/d')
+if [[ -n $dirty ]]; then
   printf 'checkout-ci-candidate: refusing to replace a dirty checkout\n' >&2
+  printf '%s\n' "$dirty" >&2
   exit 1
 fi
 
@@ -38,8 +41,11 @@ actual_sha=$(git -C "$root" rev-parse HEAD)
     "$candidate_sha" "$actual_sha" >&2
   exit 1
 }
-[[ -z $(git -C "$root" status --porcelain) ]] || {
+dirty=$(git -C "$root" status --porcelain --untracked-files=all |
+  sed '/^?? \.gitconfig$/d')
+[[ -z $dirty ]] || {
   printf 'checkout-ci-candidate: exact checkout is unexpectedly dirty\n' >&2
+  printf '%s\n' "$dirty" >&2
   exit 1
 }
 
