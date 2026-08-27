@@ -493,6 +493,7 @@ done
 
 if [[ $mode == footprint ]]; then
   d4_sha=$(lock_value dotfiles_d4_base 2>/dev/null || true)
+  baseline_total=
   baseline_home=$fixture_root/home-pre-cutover-monolith
   mkdir -p "$baseline_home"
   if [[ $d4_sha =~ ^[0-9a-f]{40}$ ]] &&
@@ -501,11 +502,18 @@ if [[ $mode == footprint ]]; then
     "$git_bin" --git-dir="$baseline_home/.dotfiles" config core.worktree "$baseline_home" &&
     "$git_bin" --git-dir="$baseline_home/.dotfiles" \
       --work-tree="$baseline_home" checkout --quiet --force "$d4_sha"; then
+    baseline_runtime=$baseline_home/.local/share/cgraf78/dot
+    mkdir -p "${baseline_runtime%/*}" "$baseline_home/.local/share/shdeps"
+    "$git_bin" clone --quiet --no-checkout "$DOT_STACK_DOT_ROOT" "$baseline_runtime"
+    "$git_bin" -C "$baseline_runtime" checkout --quiet --detach "$dot_sha"
+    cp -R "$shdeps_root"/. "$baseline_home/.local/share/shdeps/"
     baseline_output=$(
       "$source_home/.local/lib/dotfiles/tests/measure-profile-footprint" \
         --phase pre-cutover-monolith --profile dev "$baseline_home"
     )
     printf '%s\n' "$baseline_output"
+    baseline_total=$(printf '%s\n' "$baseline_output" |
+      awk -F '\t' '$1 == "public_total" { print $2 }')
     _pass 'footprint comparison uses the exact locked D4 baseline'
   else
     _fail 'footprint comparison uses the exact locked D4 baseline'
@@ -517,6 +525,12 @@ if [[ $mode == footprint ]]; then
     _pass 'clean base repository and control-plane payload stays within 500 MiB'
   else
     _fail 'clean base repository and control-plane payload stays within 500 MiB'
+  fi
+  if [[ $baseline_total =~ ^[0-9]+$ ]] &&
+    ((baseline_total >= base_footprint)); then
+    _pass 'D4 baseline includes the same installed control-plane substrate'
+  else
+    _fail 'D4 baseline includes the same installed control-plane substrate'
   fi
   editor_increment=$((editor_footprint - base_footprint))
   ((editor_increment < 0)) && editor_increment=0
