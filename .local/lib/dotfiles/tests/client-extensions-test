@@ -216,6 +216,10 @@ chmod +x "$client_crontab"
 export DOT_TEST_CRONTAB=$client_crontab
 
 for hook in "$client_root/merge-hooks.d"/*.sh; do
+  # Installed capability hooks run in their owning repository suites. Retain
+  # the synthetic overlay hook so public base CI still exercises Dot's
+  # overlay-owned worker authorization boundary.
+  [[ ! -L $hook || ${hook##*/} == test-overlay.sh ]] || continue
   if CLIENT_WORKER_PATH=/usr/bin:/bin _client_worker_run merge "$hook" none \
     "${client_active_overlay_records[@]+"${client_active_overlay_records[@]}"}"; then
     _pass "client merge hook loads through standalone worker: ${hook##*/}"
@@ -246,6 +250,7 @@ _assert_file_content 'client WSL worker copies WezTerm config through public pla
   'return {}' "$windows_home/.wezterm.lua"
 
 for extension in "$client_root/doctor.d"/[0-9]*.sh; do
+  [[ ! -L $extension ]] || continue
   if _client_worker_run doctor "$extension" none \
     "${client_active_overlay_records[@]+"${client_active_overlay_records[@]}"}"; then
     _pass "client doctor extension loads through standalone worker: ${extension##*/}"

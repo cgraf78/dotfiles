@@ -8,12 +8,23 @@ source_home=${DOT_TEST_SOURCE_HOME:-$HOME}
 # shellcheck source=helpers.sh
 . "$source_home/.local/lib/dotfiles/tests/helpers.sh"
 
-_assert_absent() {
-  local description=$1 path=$2
-  if [[ ! -e $path && ! -L $path ]]; then
+_base_tracked_paths() {
+  local path=$1
+  if [[ -e $source_home/.git || -L $source_home/.git ]]; then
+    git -C "$source_home" ls-files -- "$path" "$path/**"
+  else
+    git --git-dir="$source_home/.dotfiles" --work-tree="$source_home" \
+      ls-files -- "$path" "$path/**"
+  fi
+}
+
+_assert_base_unowned() {
+  local description=$1 path=$2 tracked
+  tracked=$(_base_tracked_paths "$path")
+  if [[ -z $tracked ]]; then
     _pass "$description"
   else
-    _fail "$description (unexpected path: $path)"
+    _fail "$description (unexpected base-owned path: $tracked)"
   fi
 }
 
@@ -46,7 +57,7 @@ for spec in \
   'development merge hook|.local/lib/dotfiles/merge-hooks.d/codex.sh'; do
   description=${spec%%|*}
   path=${spec#*|}
-  _assert_absent "base excludes $description" "$source_home/$path"
+  _assert_base_unowned "base excludes $description" "$path"
 done
 
 deps=$source_home/.config/shdeps/10-deps.conf
@@ -62,11 +73,11 @@ else
 fi
 
 for hook in \
-  "$source_home"/.config/shdeps/hooks.d/cargo.sh \
-  "$source_home"/.config/shdeps/hooks.d/neovim/neovim.sh \
-  "$source_home"/.local/lib/dotfiles/merge-hooks.d/mise.sh \
-  "$source_home"/.local/lib/dotfiles/merge-hooks.d/nvim.sh; do
-  _assert_absent 'base excludes a capability-owned hook' "$hook"
+  .config/shdeps/hooks.d/cargo.sh \
+  .config/shdeps/hooks.d/neovim/neovim.sh \
+  .local/lib/dotfiles/merge-hooks.d/mise.sh \
+  .local/lib/dotfiles/merge-hooks.d/nvim.sh; do
+  _assert_base_unowned 'base excludes a capability-owned hook' "$hook"
 done
 
 _test_summary

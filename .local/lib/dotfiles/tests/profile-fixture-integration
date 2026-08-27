@@ -3,6 +3,7 @@
 
 set -u
 
+host_home=${DOT_TEST_HOST_HOME:-$HOME}
 source_home=$(cd -P -- "${BASH_SOURCE[0]%/*}/../../../.." && pwd -P)
 
 # shellcheck source=helpers.sh
@@ -36,6 +37,8 @@ dev_sha=$(lock_value dotfiles_dev 2>/dev/null || true)
 cutover_sha=$(lock_value dotfiles_d4_base 2>/dev/null || true)
 cutover_phase=0
 [[ $cutover_sha =~ ^[0-9a-f]{40}$ ]] && cutover_phase=1
+shdeps_sha=$(lock_value test_shdeps 2>/dev/null || true)
+shdeps_release=$(lock_value test_shdeps_release 2>/dev/null || true)
 if [[ ${DOT_STACK_RUNTIME:-0} == 1 &&
   ${DOT_STACK_GROUP:-} == "$expected_group" &&
   ${DOT_STACK_DOT_SHA:-} == "$dot_sha" &&
@@ -56,12 +59,36 @@ for sha in "$nvim_sha" "$dev_sha"; do
 done
 _pass 'profile fixture lock contains full capability revisions'
 
+shdeps_root=${DOT_STACK_SHDEPS_ROOT:-}
+if [[ -z $shdeps_root ]]; then
+  for candidate in "$host_home/.local/share/shdeps" "$host_home/git/shdeps"; do
+    [[ -f $candidate/install.sh && -f $candidate/shdeps.sh &&
+      -x $candidate/shdeps ]] || continue
+    if [[ $("$candidate/shdeps" version 2>/dev/null || true) == *"${shdeps_sha:0:8}"* ]]; then
+      shdeps_root=$candidate
+      break
+    fi
+  done
+fi
+if [[ ! $shdeps_sha =~ ^[0-9a-f]{40}$ ||
+  ! $shdeps_release =~ ^[0-9]{8}-[0-9]{6}-[0-9a-f]{8}$ ||
+  -z $shdeps_root || ! -f $shdeps_root/install.sh ||
+  ! -f $shdeps_root/shdeps.sh || ! -x $shdeps_root/shdeps ||
+  $("$shdeps_root/shdeps" version 2>/dev/null || true) != *"${shdeps_sha:0:8}"* ]]; then
+  _fail 'profile fixtures have the exact locked Shdeps test release'
+  _test_summary
+fi
+_pass 'profile fixtures have the exact locked Shdeps test release'
+
 _test_prefer_system_git || {
   _fail 'profile fixtures have an isolated system Git'
   _test_summary
 }
 git_bin=$(type -P git)
-fixture_path=${git_bin%/*}:/usr/bin:/bin
+python_bin=$(type -P python3)
+agent_rules_sync=$(type -P agent-rules-sync 2>/dev/null || true)
+nvim_bin=$host_home/.local/share/neovim/neovim/bin/nvim
+fixture_path=${git_bin%/*}:${python_bin%/*}:/usr/bin:/bin
 if [[ -n ${PREFIX:-} ]]; then
   fixture_path=${git_bin%/*}:$PREFIX/bin:/usr/bin:/bin
 fi
@@ -111,6 +138,7 @@ printf '%s\n' \
   'extension_api=1' \
   'extensions_dir=$HOME/.local/lib/dotfiles' \
   'dependency_provider=none' \
+  'shdeps_update_policy=latest' \
   >"$base_seed/.config/dot/config"
 "$git_bin" -C "$base_seed" add .config/dot/config
 "$git_bin" -C "$base_seed" -c user.name=fixture \
@@ -157,7 +185,15 @@ run_in_home() {
     XDG_CACHE_HOME="$home/.cache" \
     GIT_CONFIG_GLOBAL="$git_config" \
     GIT_CONFIG_NOSYSTEM=1 \
-    PATH="$fixture_path:$home/.local/bin" \
+    DOT_TEST_SOURCE_HOME="$home" \
+    DOT_TEST_HOST_HOME="$host_home" \
+    DOT_TEST_AGENT_RULES_SYNC_PROVIDER="$agent_rules_sync" \
+    DOT_TEST_DEV_REPO_ROOT="$home/.dotfiles-dev" \
+    DOT_PROFILE_FIXTURE=1 \
+    DOT_PROFILE_FIXTURE_PROFILE="$profile" \
+    NVIM_TEST_BIN="$nvim_bin" \
+    NVIM_TEST_DATA_HOME="$host_home/.local/share" \
+    PATH="$home/.local/bin:$fixture_path" \
     "$@"
 }
 
@@ -205,11 +241,17 @@ prepare_home() {
   fi
 
   runtime_install=$home/.local/share/cgraf78/dot
-  mkdir -p "$home/.local/share/cgraf78" "$home/.local/lib"
+  mkdir -p "$home/.local/share/cgraf78" "$home/.local/lib" \
+    "$home/.local/bin"
   "$git_bin" clone --quiet --no-checkout "$DOT_STACK_DOT_ROOT" "$runtime_install"
   "$git_bin" -C "$runtime_install" checkout --quiet --detach "$dot_sha"
   ln -s ../share/cgraf78/dot/lib/dot/public "$home/.local/lib/dot"
-  printf '%s\n' '.local/lib/dot' '.local/share/cgraf78/' \
+  mkdir -p "$home/.local/share/shdeps"
+  cp -R "$shdeps_root"/. "$home/.local/share/shdeps/"
+  ln -s ../share/shdeps/shdeps "$home/.local/bin/shdeps"
+  ln -s ../share/shdeps/lua "$home/.local/lib/shdeps"
+  printf '%s\n' '.local/lib/dot' '.local/lib/shdeps' '.local/share/cgraf78/' \
+    '.local/share/shdeps/' '.local/bin/shdeps' \
     >>"$home/.git/info/exclude"
 
   init_status=0
