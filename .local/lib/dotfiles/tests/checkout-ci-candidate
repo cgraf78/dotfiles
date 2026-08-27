@@ -55,18 +55,18 @@ PY
     return 1
   }
 
-  if [[ $(git -C "$root" rev-parse --is-shallow-repository) == true ]]; then
-    git -C "$root" fetch --quiet --no-tags --unshallow origin \
+  if [[ $(root_git rev-parse --is-shallow-repository) == true ]]; then
+    root_git fetch --quiet --no-tags --unshallow origin \
       "$candidate_sha" "$base_sha" || return 1
   else
-    git -C "$root" fetch --quiet --no-tags origin "$base_sha" || return 1
+    root_git fetch --quiet --no-tags origin "$base_sha" || return 1
   fi
-  [[ $(git -C "$root" cat-file -t "$base_sha" 2>/dev/null) == commit ]] || {
+  [[ $(root_git cat-file -t "$base_sha" 2>/dev/null) == commit ]] || {
     printf 'checkout-ci-candidate: D5 base SHA is not a fetched commit\n' >&2
     return 1
   }
-  merge_base=$(git -C "$root" merge-base "$candidate_sha" "$base_sha" \
-    2>/dev/null) || merge_base=
+  merge_base=$(root_git merge-base "$candidate_sha" "$base_sha" 2>/dev/null) ||
+    merge_base=
   [[ $merge_base == "$base_sha" ]] || {
     printf 'checkout-ci-candidate: D5 head is not based on the locked D4 commit\n' >&2
     return 1
