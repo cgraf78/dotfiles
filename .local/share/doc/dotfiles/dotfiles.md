@@ -143,6 +143,27 @@ may contribute private selectors without exposing other unselected overlay
 configuration. Inspection commands stay offline. `fetch` and `push` operate
 only on selected repositories that already exist.
 
+### Footprint expectations
+
+| Profile | Planning footprint |
+| --- | --- |
+| `base` | about 0.6--0.8 GiB on the Linux GitHub/font-fallback path; about 0.2 GiB is repository/control-plane payload and about 463 MiB is the three installed Nerd Font families |
+| `editor` | about 0.8--1.0 GiB cumulative; the current active Nvim executable, config, state, cache, and plugin graph add about 186 MiB |
+| `dev` | about 2.5--4.5 GiB cumulative before project build outputs |
+
+The locked integration fixture measures checkout, configuration, and
+control-plane payloads for all three profiles and compares them with the D4
+monolith. The editor overlay CI separately measures the active Nvim graph.
+The dev range remains an installation estimate rather than a claimed clean
+measurement. Optional private overlays, host package-manager stores,
+language/package caches, and project build outputs are reported separately or
+excluded so machine history does not distort the profile comparison. The base
+fallback path is an explicit exception to the original 500 MiB target because
+the three retained base-owned font families alone use about 463 MiB; this
+cutover does not move or trim them. Native package-manager paths vary by
+platform and share system stores, so their exact incremental sizes are reported
+as platform context rather than attributed to the profile total.
+
 ## Tool Installation and Ownership
 
 `dot update` converges tools through several providers. Each command has one

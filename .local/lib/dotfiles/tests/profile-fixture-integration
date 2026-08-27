@@ -541,11 +541,11 @@ if [[ $mode == footprint ]]; then
   fi
   printf '%s\n' \
     'estimate_version=1' \
-    'profile=dev' \
     'scope=installed-cumulative' \
-    'minimum_bytes=2684354560' \
-    'maximum_bytes=4831838208' \
     'status=context-not-measured' \
+    'profile=base minimum_bytes=644245094 maximum_bytes=858993459 assumption=linux-github-font-fallback' \
+    'profile=editor minimum_bytes=858993459 maximum_bytes=1073741824 assumption=base-plus-observed-active-nvim-graph' \
+    'profile=dev minimum_bytes=2684354560 maximum_bytes=4831838208 assumption=declared-toolchain-range' \
     'excludes=optional-private-overlays,host-package-stores,language-package-caches,project-build-outputs'
   if [[ $dev_footprint =~ ^[0-9]+$ ]]; then
     _pass 'clean dev repository and control-plane payload is measured separately from its install estimate'
