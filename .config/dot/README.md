@@ -17,9 +17,14 @@ target-native config directories.
   last-known-good behavior and must not be reported as reaching the latest
   release. The standalone runtime parses this file before loading extensions or
   the dependency provider.
-- `overlays.d/` declares optional overlay repositories. Companion `.ssh`
-  snippets are consumed by the client-owned pre-sync hook before a private
-  overlay clone is attempted.
+- `profiles.d/` defines the additive `base`, `editor`, and `dev` profiles. A
+  profile contains overlay names only; the root repository is always active.
+- `profile-selectors.d/` contains reviewed non-sensitive selectors. Ignored
+  machine-local selectors live in `profile-selectors.local.d/`; private
+  selectors may be contributed by the optional personal overlay.
+- `overlays.d/` declares overlay repositories. A selected eligible descriptor's
+  same-stem `.ssh` companion is consumed by the client-owned pre-sync hook
+  before a private overlay clone is attempted.
 - `merge-hooks.d/` owns per-hook declarative config directories, merge source
   layers, and cron source files consumed by `dot update`.
 - `merge-hooks.d/agent-rules/targets.d/` selects the generated agent rule
@@ -54,6 +59,9 @@ mutual-exclusion, use the family `.replace` convention documented under
 - Keep Checkrun policy in `.config/checkrun`, even when schema associations
   match files that live in `merge-hooks.d`.
 - Keep overlay repository declarations in `overlays.d`.
+- Keep reusable profile membership in `profiles.d` and host/user choices in the
+  appropriate selector directory. Do not branch application configuration on
+  a profile name.
 
 This keeps `dot update` discoverable: dot-specific config is in `.config/dot`,
 agent prose is in `.config/agent-rules`, dotfiles-owned code is in

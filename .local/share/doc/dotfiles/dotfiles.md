@@ -6,8 +6,8 @@
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20WSL-lightgrey.svg)](#)
 
 Base dotfiles use `~/.dotfiles` as a separate Git directory with `$HOME` as the
-worktree, plus optional Git or filesystem overlays for environment-specific
-files.
+worktree, plus profile-selected Git or filesystem overlays for additional
+capabilities and environment-specific files.
 
 - Fresh `dot init` clients set `core.bare=false` and an explicit absolute
   `core.worktree=$HOME` in `~/.dotfiles`. Existing legacy bare clients remain
@@ -17,6 +17,10 @@ files.
   sources managed outside dot.
 - Overlay files live under each overlay's `home/` directory and are symlinked
   into `$HOME` by `dot update`.
+- `base` is the default profile. `editor` includes `base` plus the public Nvim
+  overlay; `dev` includes `editor` plus the public development overlay and the
+  optional private work overlay. The optional personal overlay is part of
+  `base`.
 - `~/.local/lib/dotfiles` is the dotfiles client's executable policy runtime.
   The standalone Dot checkout and its public API remain separate.
 
@@ -101,6 +105,33 @@ dot push
 Git overlay repos are regular checkouts and are managed with
 `git -C ~/.dotfiles-<name>`.
 
+## Profiles
+
+Profiles strictly aggregate overlays; application configuration never branches
+on a profile name. The root repository remains active for every profile:
+
+```text
+base   -> personal
+editor -> base + nvim
+dev    -> editor + dev + work
+```
+
+`personal` and `work` remain optional. Selecting one does not make missing
+credentials or an unavailable remote fatal. Public `nvim` and `dev` overlays
+are required when their profiles are selected.
+
+Choose a profile with a tracked, machine-local, or personal selector record.
+Selectors can match a user, a host, or both, so two users on one machine may
+choose different profiles. No match uses `base`; conflicting matching records
+fail before final overlay mutation. See
+[`profile-selectors.d/README.md`](../../../../.config/dot/profile-selectors.d/README.md)
+for the data format and safe local-file rules.
+
+`dot update` resolves profiles in two phases so an available personal overlay
+may contribute private selectors without exposing other unselected overlay
+configuration. Inspection commands stay offline. `fetch` and `push` operate
+only on selected repositories that already exist.
+
 ## Tool Installation and Ownership
 
 `dot update` converges tools through several providers. Each command has one
@@ -178,6 +209,7 @@ own it:
 | Agent rule merge inputs | [`.config/dot/merge-hooks.d/agent-rules/README.md`](../../../../.config/dot/merge-hooks.d/agent-rules/README.md) |
 | ds sessions | [`.config/ds/README.md`](../../../../.config/ds/README.md) |
 | Overlay repos | [`.config/dot/overlays.d/README.md`](../../../../.config/dot/overlays.d/README.md) |
+| Profile selectors | [`.config/dot/profile-selectors.d/README.md`](../../../../.config/dot/profile-selectors.d/README.md) |
 | Config merge hooks and cron | [`.config/dot/merge-hooks.d/README.md`](../../../../.config/dot/merge-hooks.d/README.md) |
 | Git config | [`.config/git/README.md`](../../../../.config/git/README.md) |
 | Git hooks | [`.local/lib/dotfiles/git-hooks/README.md`](../../../../.local/lib/dotfiles/git-hooks/README.md) |
