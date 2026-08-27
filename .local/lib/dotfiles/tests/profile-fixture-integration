@@ -90,6 +90,7 @@ python_bin=$(type -P python3)
 agent_rules_sync=$(type -P agent-rules-sync 2>/dev/null || true)
 nvim_bin=${DOT_STACK_NVIM_BIN:-$(type -P nvim 2>/dev/null || true)}
 nvim_data_home=${DOT_STACK_NVIM_DATA_HOME:-$host_home/.local/share}
+yq_bin=${DOT_STACK_YQ_BIN:-$(type -P yq 2>/dev/null || true)}
 if [[ $nvim_bin != /* || ! -x $nvim_bin || -d $nvim_bin ]]; then
   _fail 'profile fixtures have an explicit executable Neovim runtime'
   _test_summary
@@ -102,12 +103,18 @@ case $nvim_version in
     _test_summary
     ;;
 esac
+if [[ $yq_bin != /* || ! -x $yq_bin || -d $yq_bin ]]; then
+  _fail 'profile fixtures have an explicit executable yq runtime'
+  _test_summary
+fi
 mkdir -p "$nvim_data_home"
 _pass 'profile fixtures have an explicit executable Neovim runtime'
 _pass 'profile fixtures use Neovim 0.11.2 or newer'
+_pass 'profile fixtures have an explicit executable yq runtime'
 fixture_bin=$(_tmpdir)
 ln -s "$git_bin" "$fixture_bin/git"
 ln -s "$python_bin" "$fixture_bin/python3"
+ln -s "$yq_bin" "$fixture_bin/yq"
 fixture_path=$fixture_bin:/usr/bin:/bin
 if [[ -n ${PREFIX:-} ]]; then
   fixture_path=$fixture_bin:$PREFIX/bin:/usr/bin:/bin
@@ -532,6 +539,16 @@ for profile in base editor dev; do
       esac
       run_in_home "$home" "$DOT_STACK_DOT_BIN" test "$test_suite" \
         >"$test_log" 2>&1 || test_status=$?
+      suite_log_summary=$(grep -E \
+        'Running [0-9]+ test suites|── .* ──|Suites: [0-9]+ passed' \
+        "$test_log" || true)
+      if [[ -n $suite_log_summary ]]; then
+        _pass "$profile installed dot test log records suite execution"
+        printf 'installed-profile-suite-log\tprofile=%s\n%s\n' \
+          "$profile" "$suite_log_summary"
+      else
+        _fail "$profile installed dot test log records suite execution"
+      fi
       if grep -Ei 'SKIP:.*(nvim|neovim)|requires Neovim|nvim unavailable' \
         "$test_log" >/dev/null; then
         _fail "$profile installed dot test has no Neovim coverage skip"

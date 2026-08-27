@@ -108,10 +108,26 @@ jobs:
           curl --fail --location --retry 3 --retry-all-errors \
             --output "$archive" \
             https://github.com/neovim/neovim/releases/download/v0.12.2/nvim-linux-x86_64.tar.gz
+          printf '%s  %s\n' \
+            31cf85945cb600d96cdf69f88bc68bec814acbff50863c5546adef3a1bcef260 \
+            "$archive" | sha256sum --check --strict
           tar -xzf "$archive" --strip-components=1 -C "$install_root"
           printf '%s  %s\n' \
             fe333ad1dddfeb4b15169859287369207443477288737d4b94c07df7647ae21e \
             "$install_root/bin/nvim" | sha256sum --check --strict
+
+      - name: Install pinned yq integration runtime
+        shell: bash
+        run: |-
+          set -euo pipefail
+          yq_bin="$RUNNER_TEMP/yq-v4.53.6"
+          curl --fail --location --retry 3 --retry-all-errors \
+            --output "$yq_bin" \
+            https://github.com/mikefarah/yq/releases/download/v4.53.6/yq_linux_amd64
+          printf '%s  %s\n' \
+            c5f056448f973ae7d39b5401949648a78f2dc1947d6a8eb65be60d5c504b9385 \
+            "$yq_bin" | sha256sum --check --strict
+          chmod +x "$yq_bin"
 
       - name: Test unfiltered installed profiles
         shell: bash
@@ -120,6 +136,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           DOT_STACK_NVIM_BIN: ${{ runner.temp }}/neovim-0.12.2/bin/nvim
           DOT_STACK_NVIM_DATA_HOME: ${{ runner.temp }}/dot-profile-nvim-data
+          DOT_STACK_YQ_BIN: ${{ runner.temp }}/yq-v4.53.6
         run: |-
           set -euo pipefail
           export DOTFILES_CANDIDATE_SHA='${{ github.event.pull_request.head.sha || github.sha }}'
