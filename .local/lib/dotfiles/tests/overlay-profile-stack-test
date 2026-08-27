@@ -11,6 +11,7 @@ source_home=${DOT_TEST_SOURCE_HOME:-$HOME}
 stack_runtime=$source_home/.local/lib/dotfiles/tests/stack-dot-runtime
 production_lock=$source_home/.github/overlay-profile-stack.lock
 source_lock=$source_home/.local/share/doc/dotfiles/overlay-profile-source.lock
+workflow=$source_home/.github/workflows/test.yml
 
 _lock_value() {
   local key=$1 file=$2
@@ -18,6 +19,114 @@ _lock_value() {
     if (count == 1) print value; else exit 1
   }' "$file"
 }
+
+_require() {
+  local description=$1
+  shift
+  if "$@"; then
+    _pass "$description"
+  else
+    _fail "$description"
+  fi
+}
+
+_checkout_exact() {
+  local repository=$1 sha=$2 destination=$3
+  git clone --quiet --no-checkout "$repository" "$destination" || return 1
+  git -C "$destination" fetch --quiet --no-tags origin "$sha" || return 1
+  git -C "$destination" checkout --quiet --detach "$sha" || return 1
+  [[ $(git -C "$destination" rev-parse HEAD) == "$sha" ]]
+}
+
+_capability_source_commit() {
+  local checkout=$1
+  _lock_value commit "$checkout/.github/dotfiles-source.lock"
+}
+
+_capability_source_value() {
+  local checkout=$1 key=$2
+  _lock_value "$key" "$checkout/.github/dotfiles-source.lock"
+}
+
+_capability_suite_inventory() {
+  local checkout=$1 inventory path
+  inventory=$checkout/.github/dot-test-suites.txt
+  [[ -f $inventory && ! -L $inventory ]] || return 1
+  while IFS= read -r path || [[ -n $path ]]; do
+    [[ -n $path && $path == home/.local/lib/dotfiles/tests/*-test ]] || return 1
+    [[ -x $checkout/$path && ! -L $checkout/$path ]] || return 1
+    printf '%s\n' "${path##*/}"
+  done <"$inventory"
+}
+
+_root_suite_inventory() {
+  local inventory=$source_home/.github/dot-test-suites.txt path
+  [[ -f $inventory && ! -L $inventory ]] || return 1
+  while IFS= read -r path || [[ -n $path ]]; do
+    [[ -n $path && $path == .local/lib/dotfiles/tests/*-test ]] || return 1
+    [[ -x $source_home/$path && ! -L $source_home/$path ]] || return 1
+    printf '%s\n' "${path##*/}"
+  done <"$inventory"
+}
+
+_effective_dev_plugin_state() {
+  local editor_policy=$1 dev_policy=$2
+  lua - "$editor_policy" "$dev_policy" <<'LUA'
+local targets = {
+  ["neovim/nvim-lspconfig"] = true,
+  ["mason-org/mason.nvim"] = true,
+  ["mason-org/mason-lspconfig.nvim"] = true,
+  ["stevearc/conform.nvim"] = true,
+  ["mfussenegger/nvim-lint"] = true,
+  ["folke/lazydev.nvim"] = true,
+}
+local state = {}
+for _, file in ipairs(arg) do
+  local specs = assert(dofile(file))
+  for _, spec in ipairs(specs) do
+    local name = spec[1]
+    if targets[name] and spec.enabled ~= nil then
+      state[name] = spec.enabled
+    end
+  end
+end
+local names = {}
+for name in pairs(targets) do
+  table.insert(names, name)
+end
+table.sort(names)
+for _, name in ipairs(names) do
+  assert(state[name] ~= nil, "missing explicit state for " .. name)
+  print(name .. "=" .. tostring(state[name]))
+end
+LUA
+}
+
+_descriptor_name() {
+  local name=${1##*/}
+  name=${name%.conf}
+  name=${name%.local}
+  [[ $name =~ ^[0-9]+-(.+)$ ]] && name=${BASH_REMATCH[1]}
+  printf '%s\n' "$name"
+}
+
+_file_identity() {
+  if stat -f '%d:%i' "$1" >/dev/null 2>&1; then
+    stat -f '%d:%i' "$1"
+  else
+    stat -c '%d:%i' "$1"
+  fi
+}
+
+workflow_content=$(<"$workflow")
+_assert_contains 'top-level CI runs without dotfiles setup' \
+  'setup: none' "$workflow_content"
+_assert_contains 'top-level CI enters through the locked D1 wrapper' \
+  'stack-dot-runtime control-plane-run-ci' "$workflow_content"
+_assert_contains 'top-level CI runs the literal suite inventory' \
+  '.local/lib/dotfiles/tests/run-ci' "$workflow_content"
+_assert_not_contains 'top-level CI no longer uses moving dotfiles setup' \
+  'setup: dotfiles' "$workflow_content"
 
 if [[ ${1:-} != --runtime-only ]]; then
   if [[ ! -f $production_lock || -L $production_lock ]]; then
@@ -31,6 +140,16 @@ if [[ ${1:-} != --runtime-only ]]; then
     _assert_eq 'stack lock format version' 1 "$version"
     _assert_eq 'stack source matches immutable extraction source' \
       "$(<"$source_lock")" "$source_sha"
+    if [[ ${DOT_STACK_RUNTIME:-0} == 1 &&
+      ${DOT_STACK_DOT_SHA:-} == "$dot_sha" &&
+      ${DOT_STACK_DOT_ROOT:-} == /* &&
+      ${DOT_STACK_DOT_BIN:-} == "${DOT_STACK_DOT_ROOT:-}/bin/dot" &&
+      $(command -v dot 2>/dev/null) == "${DOT_STACK_DOT_BIN:-}" &&
+      $(git -C "${DOT_STACK_DOT_ROOT:-/nonexistent}" rev-parse HEAD 2>/dev/null) == "$dot_sha" ]]; then
+      _pass 'full stack integration runs through the exact locked D1 runtime'
+    else
+      _fail 'full stack integration runs through the exact locked D1 runtime'
+    fi
     for pair in dot:$dot_sha dotfiles_nvim:$nvim_sha dotfiles_dev:$dev_sha; do
       name=${pair%%:*}
       sha=${pair#*:}
@@ -40,6 +159,312 @@ if [[ ${1:-} != --runtime-only ]]; then
         _fail "stack lock pins full $name commit"
       fi
     done
+
+    expected_keys=$(printf '%s\n' \
+      version source_dotfiles dot dotfiles_nvim dotfiles_dev | sort)
+    actual_keys=$(awk -F= '
+      NF != 2 || !$1 || !$2 { exit 1 }
+      seen[$1]++ { exit 1 }
+      { print $1 }
+    ' "$production_lock" 2>/dev/null | sort)
+    _assert_eq 'D4 stack lock has the exact key set' "$expected_keys" "$actual_keys"
+
+    if [[ $dot_sha =~ ^[0-9a-f]{40}$ &&
+      $nvim_sha =~ ^[0-9a-f]{40}$ && $dev_sha =~ ^[0-9a-f]{40}$ ]]; then
+      printf 'stack-commits\tsource=%s\tdot=%s\tnvim=%s\tdev=%s\n' \
+        "$source_sha" "$dot_sha" "$nvim_sha" "$dev_sha"
+      stack_tmp=$(_tmpdir)
+      nvim_checkout=$stack_tmp/dotfiles-nvim
+      dev_checkout=$stack_tmp/dotfiles-dev
+      nvim_repository=${DOT_STACK_NVIM_REPOSITORY:-https://github.com/cgraf78/dotfiles-nvim.git}
+      dev_repository=${DOT_STACK_DEV_REPOSITORY:-https://github.com/cgraf78/dotfiles-dev.git}
+      if _checkout_exact "$nvim_repository" "$nvim_sha" "$nvim_checkout"; then
+        _pass 'checked out exact locked dotfiles-nvim commit'
+      else
+        _fail 'checked out exact locked dotfiles-nvim commit'
+      fi
+      if _checkout_exact "$dev_repository" "$dev_sha" "$dev_checkout"; then
+        _pass 'checked out exact locked dotfiles-dev commit'
+      else
+        _fail 'checked out exact locked dotfiles-dev commit'
+      fi
+
+      _assert_eq 'dotfiles-nvim pins the exact D1 runtime' "$dot_sha" \
+        "$(<"$nvim_checkout/.github/dot.lock")"
+      _assert_eq 'dotfiles-dev pins the exact D1 runtime' "$dot_sha" \
+        "$(<"$dev_checkout/.github/dot.lock")"
+      _assert_eq 'dotfiles-nvim extraction source matches stack source' \
+        "$source_sha" "$(_capability_source_commit "$nvim_checkout")"
+      _assert_eq 'dotfiles-dev extraction source matches stack source' \
+        "$source_sha" "$(_capability_source_commit "$dev_checkout")"
+      for checkout_name in nvim dev; do
+        if [[ $checkout_name == nvim ]]; then
+          capability_checkout=$nvim_checkout
+        else
+          capability_checkout=$dev_checkout
+        fi
+        _assert_eq "dotfiles-$checkout_name source record format" 1 \
+          "$(_capability_source_value "$capability_checkout" version)"
+        _assert_eq "dotfiles-$checkout_name source repository is public dotfiles" \
+          cgraf78/dotfiles \
+          "$(_capability_source_value "$capability_checkout" repository)"
+        _assert_eq "dotfiles-$checkout_name source license path is preserved" \
+          .github/LICENSE \
+          "$(_capability_source_value "$capability_checkout" license_path)"
+      done
+
+      root_suites=$(_root_suite_inventory 2>/dev/null || true)
+      nvim_suites=$(_capability_suite_inventory "$nvim_checkout" 2>/dev/null || true)
+      dev_suites=$(_capability_suite_inventory "$dev_checkout" 2>/dev/null || true)
+      if [[ -n $root_suites ]]; then
+        _pass 'top-level has a nonempty valid base/control suite inventory'
+      else
+        _fail 'top-level has a nonempty valid base/control suite inventory'
+      fi
+      if [[ -n $nvim_suites ]]; then
+        _pass 'dotfiles-nvim has a nonempty valid focused suite inventory'
+      else
+        _fail 'dotfiles-nvim has a nonempty valid focused suite inventory'
+      fi
+      if [[ -n $dev_suites ]]; then
+        _pass 'dotfiles-dev has a nonempty valid focused suite inventory'
+      else
+        _fail 'dotfiles-dev has a nonempty valid focused suite inventory'
+      fi
+      duplicate_suites=$(printf '%s\n%s\n%s\n' \
+        "$root_suites" "$nvim_suites" "$dev_suites" |
+        awk 'NF { count[$0]++ } END { for (name in count) if (count[name] > 1) print name }' |
+        sort)
+      _assert_eq 'top-level and public capability suite names are unique' \
+        '' "$duplicate_suites"
+
+      if "$source_home/.local/lib/dotfiles/tests/overlay-profile-ownership-test" \
+        --phase d4 --nvim-root "$nvim_checkout" --dev-root "$dev_checkout" \
+        >/dev/null; then
+        _pass 'coordinated repositories match the D4 ownership inventories'
+      else
+        _fail 'coordinated repositories match the D4 ownership inventories'
+      fi
+
+      nvim_descriptor=$source_home/.config/dot/overlays.d/20-nvim.conf
+      dev_descriptor=$source_home/.config/dot/overlays.d/30-dev.conf
+      descriptor_hash_before=$(git hash-object "$nvim_descriptor" "$dev_descriptor")
+      _assert_file_content_exact() {
+        local description=$1 expected=$2 path=$3 actual=''
+        [[ -f $path ]] && actual=$(<"$path")
+        _assert_eq "$description" "$expected" "$actual"
+      }
+      _assert_file_content_exact 'tracked nvim descriptor uses public main' \
+        'url=https://github.com/cgraf78/dotfiles-nvim.git' "$nvim_descriptor"
+      _assert_file_content_exact 'tracked dev descriptor uses public main' \
+        'url=https://github.com/cgraf78/dotfiles-dev.git' "$dev_descriptor"
+
+      candidate=$stack_tmp/candidate
+      mkdir "$candidate"
+      git -C "$source_home" archive HEAD -- . \
+        ':(exclude).config/dot/overlays.d/20-nvim.conf' \
+        ':(exclude).config/dot/overlays.d/30-dev.conf' |
+        tar -x -C "$candidate"
+      printf 'sync=none\npath=%s\n' "$nvim_checkout" \
+        >"$candidate/.config/dot/overlays.d/20-nvim.conf"
+      printf 'sync=none\npath=%s\n' "$dev_checkout" \
+        >"$candidate/.config/dot/overlays.d/30-dev.conf"
+
+      candidate_origin=$stack_tmp/candidate-origin.git
+      git init --quiet --bare "$candidate/.dotfiles"
+      git --git-dir="$candidate/.dotfiles" config core.bare false
+      git --git-dir="$candidate/.dotfiles" config core.worktree "$candidate"
+      _git_set_test_identity git --git-dir="$candidate/.dotfiles"
+      git --git-dir="$candidate/.dotfiles" --work-tree="$candidate" add -A
+      git --git-dir="$candidate/.dotfiles" --work-tree="$candidate" \
+        -c core.hooksPath=/dev/null commit --quiet -m candidate
+      git init --quiet --bare "$candidate_origin"
+      git --git-dir="$candidate/.dotfiles" remote add origin \
+        "file://$candidate_origin"
+      git --git-dir="$candidate/.dotfiles" push --quiet origin HEAD:refs/heads/main
+      git --git-dir="$candidate_origin" symbolic-ref HEAD refs/heads/main
+
+      descriptor_names=$(
+        for descriptor in "$candidate"/.config/dot/overlays.d/*.conf; do
+          _descriptor_name "$descriptor"
+        done
+      )
+      printf 'stack-descriptors\t%s\n' \
+        "$(printf '%s\n' "$descriptor_names" | paste -sd, -)"
+      _assert_eq 'ephemeral candidate has one canonical nvim descriptor' 1 \
+        "$(printf '%s\n' "$descriptor_names" | awk '$0 == "nvim" { count++ } END { print count + 0 }')"
+      _assert_eq 'ephemeral candidate has one canonical dev descriptor' 1 \
+        "$(printf '%s\n' "$descriptor_names" | awk '$0 == "dev" { count++ } END { print count + 0 }')"
+      if ! awk -F= '$1 == "url" || $1 == "optional" { bad=1 }
+        END { exit bad }' "$candidate/.config/dot/overlays.d/20-nvim.conf" \
+        "$candidate/.config/dot/overlays.d/30-dev.conf"; then
+        _fail 'ephemeral public descriptors cannot reach a remote'
+      else
+        _pass 'ephemeral public descriptors cannot reach a remote'
+      fi
+      _assert_not_contains 'ephemeral nvim descriptor excludes production URL' \
+        'github.com' "$(<"$candidate/.config/dot/overlays.d/20-nvim.conf")"
+      _assert_not_contains 'ephemeral dev descriptor excludes production URL' \
+        'github.com' "$(<"$candidate/.config/dot/overlays.d/30-dev.conf")"
+      for descriptor_name in 20-nvim.conf 30-dev.conf; do
+        production_descriptor=$source_home/.config/dot/overlays.d/$descriptor_name
+        fixture_descriptor=$candidate/.config/dot/overlays.d/$descriptor_name
+        if [[ ! -L $fixture_descriptor &&
+          $(_file_identity "$production_descriptor") != $(_file_identity "$fixture_descriptor") ]]; then
+          _pass "ephemeral $descriptor_name is not the tracked production inode"
+        else
+          _fail "ephemeral $descriptor_name is not the tracked production inode"
+        fi
+        if cmp -s "$production_descriptor" "$fixture_descriptor"; then
+          _fail "ephemeral $descriptor_name excludes production content"
+        else
+          _pass "ephemeral $descriptor_name excludes production content"
+        fi
+      done
+
+      collision=$(
+        {
+          git -C "$nvim_checkout" ls-files home | sed 's#^home/##'
+          git -C "$dev_checkout" ls-files home | sed 's#^home/##'
+        } | sort | uniq -d
+      )
+      _assert_eq 'public capability payloads have no installed-path collision' \
+        '' "$collision"
+
+      composition_bin=$stack_tmp/composition-bin
+      composition_selectors=$candidate/.config/dot/profile-selectors.local.d
+      mkdir -p "$composition_bin" "$composition_selectors"
+      chmod 0700 "$composition_selectors"
+      printf '%s\n' '#!/usr/bin/env bash' 'printf "%s\n" example-user' \
+        >"$composition_bin/id"
+      printf '%s\n' '#!/usr/bin/env bash' 'printf "%s\n" example-host' \
+        >"$composition_bin/hostname"
+      chmod +x "$composition_bin/id" "$composition_bin/hostname"
+      composition_state=$(
+        HOME=$candidate XDG_CONFIG_HOME=$candidate/.config \
+          PATH=$composition_bin:$PATH \
+          DOT_STACK_DOT_ROOT=${DOT_STACK_DOT_ROOT:-${DOT_TEST_DOT_ROOT:-}} \
+          bash <<'BASH'
+set -euo pipefail
+dot_root=$DOT_STACK_DOT_ROOT
+. "$dot_root/lib/dot/public/xdg.sh"
+. "$dot_root/lib/dot/log.sh"
+. "$dot_root/lib/dot/temp.sh"
+. "$dot_root/lib/dot/platform.sh"
+. "$dot_root/lib/dot/profiles.sh"
+. "$dot_root/lib/dot/overlays.sh"
+. "$dot_root/lib/dot/repos/config.sh"
+
+for profile in base editor dev; do
+  selector=$HOME/.config/dot/profile-selectors.local.d/10-profile.conf
+  if [[ $profile == base ]]; then
+    rm -f "$selector"
+  else
+    printf 'version=1\nuser=example-user\nprofile=%s\n' "$profile" >"$selector"
+    chmod 0600 "$selector"
+  fi
+  _dot_resolve_overlays inspect
+  printf '%s|%s|%s|%s\n' "$SELECTED_PROFILE" \
+    "${SELECTED_OVERLAY_NAMES[*]}" "${ELIGIBLE_OVERLAY_NAMES[*]}" \
+    "${ACTIVE_OVERLAY_NAMES[*]}"
+done
+
+git init --quiet "$HOME/.dotfiles-work"
+git -C "$HOME/.dotfiles-work" remote add origin \
+  github-dotfiles-work:cgraf78/dotfiles-work.git
+_dot_resolve_overlays inspect
+printf 'work-available|%s|%s\n' \
+  "${ELIGIBLE_OVERLAY_NAMES[*]}" "${ACTIVE_OVERLAY_NAMES[*]}"
+BASH
+      )
+      composition_rc=$?
+      _assert_exit 'exact D1 resolves the pinned public profile composition' \
+        0 "$composition_rc"
+      _assert_contains 'base composition keeps optional personal unavailable' \
+        'base|personal|personal|' "$composition_state"
+      _assert_contains 'editor composition activates only pinned nvim capability' \
+        'editor|personal nvim|nvim personal|nvim' "$composition_state"
+      _assert_contains 'dev keeps unavailable optional work eligible but inactive' \
+        'dev|personal nvim dev work|nvim dev personal work|nvim dev' \
+        "$composition_state"
+      _assert_contains 'dev activates work only after a validated checkout exists' \
+        'work-available|nvim dev personal work|nvim dev work' \
+        "$composition_state"
+
+      transport_bin=$stack_tmp/transport-bin
+      transport_log=$stack_tmp/transport.log
+      mkdir "$transport_bin"
+      : >"$transport_log"
+      real_git=$(type -P git)
+      cat >"$transport_bin/git" <<'GIT'
+#!/usr/bin/env bash
+set -euo pipefail
+for arg in "$@"; do
+  case $arg in
+    clone | fetch | pull | push)
+      printf '%s\n' "$*" >>"$DOT_STACK_TRANSPORT_LOG"
+      exit 97
+      ;;
+  esac
+done
+exec "$DOT_STACK_REAL_GIT" "$@"
+GIT
+      chmod +x "$transport_bin/git"
+      for inspect_command in status diff doctor 'test --list'; do
+        # shellcheck disable=SC2086 # Exercise the documented command words.
+        HOME=$candidate XDG_CONFIG_HOME=$candidate/.config \
+          XDG_STATE_HOME=$stack_tmp/inspect-state \
+          XDG_CACHE_HOME=$stack_tmp/inspect-cache \
+          XDG_DATA_HOME=$stack_tmp/inspect-data \
+          PATH=$transport_bin:${DOT_STACK_DOT_ROOT:-${DOT_TEST_DOT_ROOT:-}}/bin:/usr/bin:/bin \
+          DOT_STACK_REAL_GIT=$real_git DOT_STACK_TRANSPORT_LOG=$transport_log \
+          "${DOT_STACK_DOT_ROOT:-${DOT_TEST_DOT_ROOT:-}}/bin/dot" \
+          $inspect_command >/dev/null 2>&1 || true
+      done
+      _assert_eq 'stack inspect commands cannot contact overlay transports' \
+        '' "$(<"$transport_log")"
+
+      editor_policy=$nvim_checkout/home/.config/nvim/lua/plugins/editor.lua
+      dev_policy=$dev_checkout/home/.config/nvim/lua/plugins/zz-dev-extras.lua
+      if [[ -f $editor_policy && -f $dev_policy ]]; then
+        _pass 'pinned editor and late dev plugin policies are present'
+      else
+        _fail 'pinned editor and late dev plugin policies are present'
+      fi
+      if [[ ${editor_policy##*/} < ${dev_policy##*/} ]]; then
+        _pass 'dev plugin policy sorts after editor policy'
+      else
+        _fail 'dev plugin policy sorts after editor policy'
+      fi
+      editor_plugin_state=$(_effective_dev_plugin_state "$editor_policy" 2>/dev/null || true)
+      dev_plugin_state=$(_effective_dev_plugin_state \
+        "$editor_policy" "$dev_policy" 2>/dev/null || true)
+      expected_editor_plugin_state=$(printf '%s\n' \
+        'folke/lazydev.nvim=false' \
+        'mason-org/mason-lspconfig.nvim=false' \
+        'mason-org/mason.nvim=false' \
+        'mfussenegger/nvim-lint=false' \
+        'neovim/nvim-lspconfig=false' \
+        'stevearc/conform.nvim=false')
+      expected_dev_plugin_state=${expected_editor_plugin_state//false/true}
+      _assert_eq 'editor profile keeps development services disabled' \
+        "$expected_editor_plugin_state" "$editor_plugin_state"
+      _assert_eq 'dev profile late override re-enables development services' \
+        "$expected_dev_plugin_state" "$dev_plugin_state"
+
+      descriptor_hash_after=$(git hash-object "$nvim_descriptor" "$dev_descriptor")
+      _assert_eq 'immutable production descriptor hashes do not change' \
+        "$descriptor_hash_before" "$descriptor_hash_after"
+      if git -C "$source_home" diff --quiet -- \
+        .config/dot/overlays.d/20-nvim.conf \
+        .config/dot/overlays.d/30-dev.conf; then
+        _pass 'immutable production descriptors remain clean'
+      else
+        _fail 'immutable production descriptors remain clean'
+      fi
+      _assert_eq 'immutable D4 source checkout remains entirely clean' '' \
+        "$(git -C "$source_home" status --porcelain)"
+    fi
   fi
 fi
 
@@ -77,6 +502,7 @@ printf '%s\n' \
   'test "$DOT_STACK_GROUP" = runtime-probe' \
   'test "$(command -v dot)" = "$DOT_STACK_DOT_BIN"' \
   'test "$(git -C "$DOT_STACK_DOT_ROOT" rev-parse HEAD)" = "$DOT_STACK_DOT_SHA"' \
+  'test "$(git -C "$DOT_STACK_DOT_ROOT" remote get-url origin)" = "$DOT_STACK_DOT_ORIGIN"' \
   'test "$XDG_CONFIG_HOME" = "${DOT_STACK_DOT_ROOT%/dot}/xdg/config"' \
   >"$probe"
 chmod +x "$probe"
@@ -107,5 +533,70 @@ if DOT_STACK_LOCK_FILE=$runtime_lock DOT_STACK_DOT_REPOSITORY=$dot_source \
 else
   _pass 'runtime wrapper rejects a production lock override'
 fi
+
+echo ""
+echo "=== Exact CI candidate checkout ==="
+
+candidate_origin=$(_tmpdir)/origin.git
+candidate_seed=$(_tmpdir)/seed
+candidate_checkout=$(_tmpdir)/checkout
+git init --quiet --bare "$candidate_origin"
+git init --quiet "$candidate_seed"
+_git_set_test_identity git -C "$candidate_seed"
+mkdir -p "$candidate_seed/.local/lib/dotfiles/tests"
+cp "$source_home/.local/lib/dotfiles/tests/checkout-ci-candidate" \
+  "$candidate_seed/.local/lib/dotfiles/tests/checkout-ci-candidate"
+printf 'base\n' >"$candidate_seed/state"
+git -C "$candidate_seed" add state .local/lib/dotfiles/tests/checkout-ci-candidate
+git -C "$candidate_seed" -c core.hooksPath=/dev/null commit --quiet -m base
+base_sha=$(git -C "$candidate_seed" rev-parse HEAD)
+printf 'head\n' >"$candidate_seed/state"
+git -C "$candidate_seed" add state
+git -C "$candidate_seed" -c core.hooksPath=/dev/null commit --quiet -m head
+candidate_sha=$(git -C "$candidate_seed" rev-parse HEAD)
+git -C "$candidate_seed" remote add origin "$candidate_origin"
+git -C "$candidate_seed" push --quiet origin HEAD:refs/heads/feature
+git clone --quiet --branch feature "$candidate_origin" "$candidate_checkout"
+git -C "$candidate_checkout" checkout --quiet --detach "$base_sha"
+
+candidate_output=$(cd "$candidate_checkout" &&
+  DOTFILES_CANDIDATE_SHA=$candidate_sha \
+    .local/lib/dotfiles/tests/checkout-ci-candidate 2>&1)
+candidate_rc=$?
+_assert_exit 'candidate checkout: exact detached head succeeds' 0 "$candidate_rc"
+_assert_eq 'candidate checkout: HEAD equals requested event head' \
+  "$candidate_sha" "$(git -C "$candidate_checkout" rev-parse HEAD)"
+_assert_contains 'candidate checkout: reports the exact selected head' \
+  "head=$candidate_sha" "$candidate_output"
+_assert_eq 'candidate checkout: source content comes from selected head' \
+  head "$(<"$candidate_checkout/state")"
+
+invalid_output=$(cd "$candidate_checkout" &&
+  DOTFILES_CANDIDATE_SHA=feature \
+    .local/lib/dotfiles/tests/checkout-ci-candidate 2>&1)
+invalid_rc=$?
+_assert_exit 'candidate checkout: rejects a moving branch name' 1 "$invalid_rc"
+_assert_contains 'candidate checkout: explains invalid immutable revision' \
+  'invalid immutable candidate revision' "$invalid_output"
+
+run_ci=$source_home/.local/lib/dotfiles/tests/run-ci
+run_ci_output=$(GITHUB_ACTIONS=true \
+  DOTFILES_CANDIDATE_SHA=0000000000000000000000000000000000000000 \
+  "$run_ci" --validate-only 2>&1)
+run_ci_rc=$?
+_assert_exit 'run-ci: rejects a checkout that is not the event head' 1 "$run_ci_rc"
+_assert_contains 'run-ci: reports the mismatched event head' \
+  'checkout does not match the event candidate head' "$run_ci_output"
+
+run_ci_output=$(DOT_TEST=1 DOT_STACK_RUNTIME=1 \
+  DOT_STACK_LOCK_PATH=$runtime_lock DOT_STACK_DOT_SHA=$dot_sha \
+  DOT_STACK_DOT_ROOT=$dot_source DOT_STACK_DOT_BIN=$dot_source/bin/dot \
+  DOT_STACK_DOT_ORIGIN=unexpected-origin \
+  PATH=$dot_source/bin:/usr/bin:/bin \
+  "$run_ci" --validate-only 2>&1)
+run_ci_rc=$?
+_assert_exit 'run-ci: rejects a mismatched runtime origin marker' 1 "$run_ci_rc"
+_assert_contains 'run-ci: reports the mismatched D1 runtime' \
+  'locked D1 runtime assertion failed' "$run_ci_output"
 
 _test_summary

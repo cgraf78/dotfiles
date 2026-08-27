@@ -1,73 +1,14 @@
-# Shell Config
+# Base Shell Configuration
 
-`.bashrc`, `.zshrc`, `.zprofile`, and non-interactive shell entry points are
-thin loaders. The ordered files in this directory hold the actual shell policy.
+The top-level shell files are thin loaders. Ordered fragments under `env.d/`
+and `interactive.d/` contain the always-active shell policy, while selected
+overlays add later fragments for editor or development behavior.
 
-## Layout
+Base owns PATH construction, platform detection, aliases, prompt setup,
+terminal navigation, SSH helpers, Dot helpers, marks, and cached loading of
+base dependency APIs. Editor and development fragments use the `80-` range or
+later unless they intentionally need an earlier documented ordering point.
 
-```text
-.config/shell/
-├── env-noninteractive.sh
-├── env.d/                  # see env.d/README.md
-│   ├── 50-core.sh
-│   ├── 55-homebrew.sh
-│   ├── 60-tools.sh
-│   ├── 70-platform.sh
-│   └── 90-path.sh
-└── interactive.d/          # see interactive.d/README.md
-    ├── 50-aliases.sh
-    ├── 51-aliases-{linux,macos,wsl}.sh
-    ├── 52-cursor.sh
-    ├── 53-termnav.sh
-    ├── 54-tool-init.sh
-    ├── 55-ssh.sh
-    ├── 56-dot.sh
-    ├── 57-git-tools.sh
-    ├── 57-marks.sh
-    ├── 59-prompt.sh
-    ├── 60-prompt.bash
-    ├── 60-prompt.zsh
-    ├── 70-integrations.bash
-    ├── 70-integrations.zsh
-    └── 71-zsh-completion-cache.zsh
-```
-
-## Loading Policy
-
-- `env.d/` loads for interactive and non-interactive shells.
-- `interactive.d/` loads only for interactive shells.
-- `env-noninteractive.sh` is the shared non-interactive entry point used by
-  `BASH_ENV` and non-login, non-interactive zsh.
-- Sourceable shell APIs from dependency repos load from the relevant
-  `70-integrations.*` file through `54-tool-init.sh` helpers and shdeps;
-  `env.d/` stays limited to non-interactive-safe exports.
-- `57-git-tools.sh` retains only local picker/editor policy, worktree
-  placement, and prompt shorthand. The reusable Git and worktree workflows
-  come from git-tools through both `70-integrations.*` loaders.
-- `53-termnav.sh` is the small ordering exception: it loads Termnav's shell API
-  before interactive commands can use it or launch descendants. Termnav owns
-  inherited SSH interposition, terminal classification, and pane metadata;
-  `50-aliases.sh` retains only the local `eza`/`rg` choice and maps the explicit
-  `DOT_VSCODE_TERMINAL` consumer policy to Termnav's generic
-  `TERMNAV_FILE_LINKS_PLAIN` input. The loader fails open so an unavailable
-  dependency cannot prevent a recovery shell; `dot doctor` owns diagnostics.
-- Generated tool initialization is cached below an absolute `XDG_CACHE_HOME`,
-  falling back to `$HOME/.cache`; cache generation is skipped when neither
-  root is available.
-- `.sh` files are shell-neutral.
-- `.bash` files load only in Bash.
-- `.zsh` files load only in Zsh.
-- Numeric prefixes define order.
-
-Base files generally use prefixes in the `50-71` range. Overlay files should
-use `80-` or higher unless they must run before base setup.
-
-See [`env.d/README.md`](env.d/README.md) and
-[`interactive.d/README.md`](interactive.d/README.md) for the editing rules that
-are specific to those loader layers.
-
-## Local Files
-
-Prefer overlay files for repeatable machine classes. Use untracked local files
-only for one-off machine state, and keep them outside the numbered base policy
-unless they intentionally need to participate in the ordered loader.
+Files ending in `.sh` are shell-neutral, `.bash` files load only in Bash, and
+`.zsh` files load only in Zsh. Keep startup work cheap and use the shared
+tool-initialization cache for generated shell code.

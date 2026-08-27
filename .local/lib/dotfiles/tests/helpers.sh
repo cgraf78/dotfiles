@@ -200,7 +200,7 @@ _test_load_dot_doctor_api() {
   # shellcheck source=/dev/null
   . "$dot_root/lib/dot/doctor-api.sh"
   dot_doctor_source doctor.d/lib/compat.sh || return 1
-  for module in agent-hooks cron integrations nvim shell tools; do
+  for module in agent-rules cron integrations shell tools; do
     dot_doctor_source "doctor.d/lib/$module.sh" || return 1
   done
 }

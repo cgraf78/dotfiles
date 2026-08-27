@@ -91,6 +91,82 @@ _dot_profile_resolve "$source_home/.config/dot/profile-selectors.d" \
 _assert_eq 'real profile parser defaults this tree to base' base "$SELECTED_PROFILE"
 _assert_eq 'base expands to personal only' personal "${SELECTED_OVERLAY_NAMES[*]}"
 
+selector_root=$(_tmpdir)
+selector_local=$(_tmpdir)
+chmod 0700 "$selector_local"
+
+_resolve_fixture_profile() {
+  _dot_profiles_load "$profile_root" || return
+  _dot_profile_resolve "$selector_root" "$selector_local"
+}
+
+_clear_fixture_selectors() {
+  rm -f -- "$selector_root"/*.conf "$selector_local"/*.conf
+}
+
+_clear_fixture_selectors
+printf 'version=1\nuser=example-user\nprofile=editor\n' \
+  >"$selector_root/10-user.conf"
+_resolve_fixture_profile
+_assert_eq 'user-only selector activates editor' editor "$SELECTED_PROFILE"
+
+_clear_fixture_selectors
+printf 'version=1\nhost=EXAMPLE-HOST.\nprofile=dev\n' \
+  >"$selector_root/10-host.conf"
+_resolve_fixture_profile
+_assert_eq 'host-only selector normalizes case and trailing dot' \
+  dev "$SELECTED_PROFILE"
+
+_clear_fixture_selectors
+printf 'version=1\nuser=example-user\nhost=example-host\nprofile=dev\n' \
+  >"$selector_root/10-combined.conf"
+_resolve_fixture_profile
+_assert_eq 'combined selector requires and matches both fields' \
+  dev "$SELECTED_PROFILE"
+
+_clear_fixture_selectors
+printf 'version=1\nhost=example-host\nuser=another-user\nprofile=dev\n' \
+  >"$selector_root/10-other-user.conf"
+printf 'version=1\nuser=example-user\nprofile=editor\n' \
+  >"$selector_root/20-current-user.conf"
+_resolve_fixture_profile
+_assert_eq 'same host with a different user does not match' \
+  editor "$SELECTED_PROFILE"
+
+_clear_fixture_selectors
+printf 'version=1\nuser=example-user\nprofile=editor\n' \
+  >"$selector_root/10-root.conf"
+printf 'version=1\nhost=example-host\nprofile=editor\n' \
+  >"$selector_local/20-local.conf"
+chmod 0600 "$selector_local/20-local.conf"
+_resolve_fixture_profile
+_assert_eq 'agreeing selectors keep their shared profile' editor "$SELECTED_PROFILE"
+
+printf 'version=1\nhost=example-host\nprofile=dev\n' \
+  >"$selector_local/20-local.conf"
+chmod 0600 "$selector_local/20-local.conf"
+if _resolve_fixture_profile >/dev/null 2>&1; then
+  _fail 'conflicting selectors fail closed'
+else
+  _pass 'conflicting selectors fail closed'
+fi
+
+_clear_fixture_selectors
+printf 'version=1\nuser=another-user\nprofile=dev\n' \
+  >"$selector_root/10-no-match.conf"
+_resolve_fixture_profile
+_assert_eq 'no matching selector falls back to base' base "$SELECTED_PROFILE"
+_assert_eq 'unavailable personal with no matching fallback remains base' \
+  personal "${SELECTED_OVERLAY_NAMES[*]}"
+
+_clear_fixture_selectors
+printf 'version=1\nuser=example-user\nprofile=editor\n' \
+  >"$selector_local/10-local-fallback.conf"
+chmod 0600 "$selector_local/10-local-fallback.conf"
+_resolve_fixture_profile
+_assert_eq 'machine-local selector works without a personal checkout' \
+  editor "$SELECTED_PROFILE"
+
 printf '%s\n' \
   'version=1' \
   'user=example-user' \
@@ -195,5 +271,37 @@ if prepare >/dev/null 2>&1; then
 else
   _pass 'pre-sync rejects an invalid coordinator stage'
 fi
+
+transition_home=$(_tmpdir)
+mkdir -p "$transition_home/.config/dot/overlays.d" "$transition_home/.ssh"
+chmod 0700 "$transition_home" "$transition_home/.ssh"
+old_transition_descriptor=$transition_home/.config/dot/overlays.d/10-transition.conf
+old_transition_companion=$transition_home/.config/dot/overlays.d/10-transition.ssh
+new_transition_descriptor=$transition_home/.config/dot/overlays.d/90-transition.conf
+new_transition_companion=$transition_home/.config/dot/overlays.d/90-transition.ssh
+printf 'url=https://example.invalid/transition.git\noptional=true\n' \
+  >"$old_transition_descriptor"
+printf 'Host transition.example\n  HostName transition.example\n' \
+  >"$old_transition_companion"
+HOME=$transition_home
+# shellcheck disable=SC2034 # Consumed dynamically by the sourced pre-sync hook.
+OVERLAYS=("transition|$HOME/.dotfiles-transition|https://example.invalid/transition.git|$old_transition_descriptor|true|git")
+# shellcheck disable=SC2034 # Consumed dynamically by the sourced pre-sync hook.
+DOT_PRE_SYNC_STAGE=prepare
+prepare
+mv "$old_transition_descriptor" "$new_transition_descriptor"
+mv "$old_transition_companion" "$new_transition_companion"
+# shellcheck disable=SC2034 # Consumed dynamically by the sourced pre-sync hook.
+OVERLAYS=("transition|$HOME/.dotfiles-transition|https://example.invalid/transition.git|$new_transition_descriptor|true|git")
+# shellcheck disable=SC2034 # Consumed dynamically by the sourced pre-sync hook.
+DOT_PRE_SYNC_STAGE=reconcile
+prepare
+transition_config=$(<"$HOME/.ssh/config")
+_assert_eq 'same-stem prefix transition keeps one logical managed block' 1 \
+  "$(grep -c '^# dot-managed:overlay-ssh:transition begin$' <<<"$transition_config")"
+_assert_contains 'same-stem prefix transition follows the renamed companion' \
+  "# source: $new_transition_companion" "$transition_config"
+_assert_not_contains 'same-stem prefix transition retires the old source path' \
+  "# source: $old_transition_companion" "$transition_config"
 
 _test_summary

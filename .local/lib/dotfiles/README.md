@@ -1,22 +1,16 @@
-# Dotfiles Client Runtime
+# Base Dotfiles Runtime
 
-This tree contains executable policy owned by the dotfiles client. The
-standalone `dot` checkout supplies repository convergence, extension workers,
-and the public XDG/UI library; this directory supplies the application and
-machine policy those generic interfaces execute.
+This tree contains executable client policy that is active for every profile.
+The standalone Dot checkout supplies repository convergence, extension
+workers, and public APIs; this repository supplies the base hooks and policy
+those interfaces execute.
 
-## Layout
-
-- `pre-sync.d/` prepares client prerequisites before repository network or
-  checkout mutation. The SSH alias hook is intentionally client-owned.
-- `merge-hooks.d/` contains application merge hooks and their private support.
-- `doctor.d/` contains application and environment health checks.
-- `git-hooks/` and `sley-hooks/` contain commit-policy adapters invoked by Git
-  and Sley directly.
+- `pre-sync.d/` prepares selected-overlay transport before synchronization.
+- `merge-hooks.d/` contains base application merge hooks and support code.
+- `doctor.d/` contains base health checks.
+- `tests/` contains base, profile-control, ownership, and composition coverage.
 - `shell-loader.sh`, `launcher-real.sh`, `windows.sh`, and
-  `shdeps-assets.sh` are client helpers used outside the extension workers.
-- `tests/` owns the retained dotfiles consumer and integration suite.
+  `shdeps-assets.sh` are shared base helpers.
 
-Executable extensions use only the versioned public hook or doctor API. They
-may load client support with `dot_hook_source` or `dot_doctor_source`; they do
-not source private files from the standalone checkout.
+Editor and development runtime belongs to `dotfiles-nvim` and `dotfiles-dev`.
+Executable extensions use only Dot's public hook or doctor API.

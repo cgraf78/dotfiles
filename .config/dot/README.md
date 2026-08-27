@@ -56,8 +56,8 @@ mutual-exclusion, use the family `.replace` convention documented under
   `~/.local/lib/dotfiles/merge-hooks.d/*.sh`.
 - Keep optional merge source data under
   `merge-hooks.d/<script-name>/`, matching the hook implementation name.
-- Keep Checkrun policy in `.config/checkrun`, even when schema associations
-  match files that live in `merge-hooks.d`.
+- Keep Checkrun policy and schema associations in the development overlay,
+  even when they match files contributed to shared merge families.
 - Keep overlay repository declarations in `overlays.d`.
 - Keep reusable profile membership in `profiles.d` and host/user choices in the
   appropriate selector directory. Do not branch application configuration on
@@ -69,7 +69,6 @@ agent prose is in `.config/agent-rules`, dotfiles-owned code is in
 standalone engine itself remains checkout-relative and is not copied into this
 client tree.
 
-When adding or changing tracked JSON, JSONC, YAML, or TOML config in this
-tree, check whether `~/.config/checkrun/associations.json` needs a schema
-association. Use real upstream or dependency-owned schemas only; parser-only
-formats and files without proper schemas should stay unassociated.
+When adding or changing structured config, update the owning overlay's schema
+associations when appropriate. Use real upstream or dependency-owned schemas
+only; parser-only formats and files without proper schemas stay unassociated.

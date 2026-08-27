@@ -211,23 +211,16 @@ own it:
 | Overlay repos | [`.config/dot/overlays.d/README.md`](../../../../.config/dot/overlays.d/README.md) |
 | Profile selectors | [`.config/dot/profile-selectors.d/README.md`](../../../../.config/dot/profile-selectors.d/README.md) |
 | Config merge hooks and cron | [`.config/dot/merge-hooks.d/README.md`](../../../../.config/dot/merge-hooks.d/README.md) |
-| Git config | [`.config/git/README.md`](../../../../.config/git/README.md) |
-| Git hooks | [`.local/lib/dotfiles/git-hooks/README.md`](../../../../.local/lib/dotfiles/git-hooks/README.md) |
-| Hive Memory config | [`.config/hive-memory/README.md`](../../../../.config/hive-memory/README.md) |
 | Shell loading | [`.config/shell/README.md`](../../../../.config/shell/README.md) |
 | Dependency installs | [`.config/shdeps/README.md`](../../../../.config/shdeps/README.md) |
-| Pinned tool versions | [`.config/mise/README.md`](../../../../.config/mise/README.md) |
 | Ripgrep integration | [`.config/ripgrep/README.md`](../../../../.config/ripgrep/README.md) |
-| Lazygit integration | [`.config/lazygit/README.md`](../../../../.config/lazygit/README.md) |
-| Neovim config | [`.config/nvim/README.md`](../../../../.config/nvim/README.md) |
+| Nvim editor capability | [`dotfiles-nvim`](https://github.com/cgraf78/dotfiles-nvim) |
+| Development capability | [`dotfiles-dev`](https://github.com/cgraf78/dotfiles-dev) |
 | tmux config | [`.config/tmux/README.md`](../../../../.config/tmux/README.md) |
 | WezTerm integration | [`.config/wezterm/README.md`](../../../../.config/wezterm/README.md) |
-| Checkrun policy | [`.config/checkrun/README.md`](../../../../.config/checkrun/README.md) |
-| Sley verification policy | [`.config/sley/verify.d/README.md`](../../../../.config/sley/verify.d/README.md) |
 | Command entry points | [`.local/bin/README.md`](../../../../.local/bin/README.md) |
 | Client runtime layout | [`.local/lib/dotfiles/README.md`](../../../../.local/lib/dotfiles/README.md) |
 | Dotfiles documentation index | [`.local/share/doc/dotfiles/README.md`](README.md) |
-| Schema payloads | [`.local/share/checkrun/schemas/README.md`](../../../../.local/share/checkrun/schemas/README.md) |
 | Test runner and client suites | [`.local/lib/dotfiles/tests/README.md`](../../../../.local/lib/dotfiles/tests/README.md) |
 
 ## Operating Model

@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# Detach a disposable CI checkout to the exact event-selected candidate commit.
+
+set -euo pipefail
+
+root=$(cd -P -- "${BASH_SOURCE[0]%/*}/../../../.." && pwd -P)
+candidate_sha=${DOTFILES_CANDIDATE_SHA:-}
+
+[[ $candidate_sha =~ ^[0-9a-f]{40}$ ]] || {
+  printf 'checkout-ci-candidate: invalid immutable candidate revision: %s\n' \
+    "${candidate_sha:-<empty>}" >&2
+  exit 1
+}
+
+[[ -d $root/.git || -f $root/.git ]] || {
+  printf 'checkout-ci-candidate: repository metadata is unavailable: %s\n' \
+    "$root" >&2
+  exit 1
+}
+
+if [[ -n $(git -C "$root" status --porcelain) ]]; then
+  printf 'checkout-ci-candidate: refusing to replace a dirty checkout\n' >&2
+  exit 1
+fi
+
+origin=$(git -C "$root" remote get-url origin 2>/dev/null) || {
+  printf 'checkout-ci-candidate: origin remote is unavailable\n' >&2
+  exit 1
+}
+[[ -n $origin ]] || exit 1
+
+git -C "$root" fetch --quiet --no-tags --depth=1 origin "$candidate_sha"
+git -C "$root" checkout --quiet --detach "$candidate_sha"
+
+actual_sha=$(git -C "$root" rev-parse HEAD)
+[[ $actual_sha == "$candidate_sha" ]] || {
+  printf 'checkout-ci-candidate: expected %s, checked out %s\n' \
+    "$candidate_sha" "$actual_sha" >&2
+  exit 1
+}
+[[ -z $(git -C "$root" status --porcelain) ]] || {
+  printf 'checkout-ci-candidate: exact checkout is unexpectedly dirty\n' >&2
+  exit 1
+}
+
+printf 'candidate-checkout\torigin=%s\thead=%s\n' "$origin" "$actual_sha"

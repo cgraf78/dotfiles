@@ -171,6 +171,7 @@ dotfiles	.local/lib/dotfiles/tests/agent-rules-adapter-test	agent-rules	test	old
 dotfiles	.local/lib/dotfiles/tests/agent-rules-test	agent-rules	test	old:.local/lib/dotfiles/tests/agent-rules-test	bootstrap	owner=dotfiles; source=locked-dotfiles; agent=base-rule-aggregation; family=base
 dotfiles	.local/lib/dotfiles/tests/android-ci-smoke	split-tests	test	old:.local/lib/dotfiles/tests/android-ci-smoke	d4	owner=dotfiles; source=locked-dotfiles; family=base
 dotfiles	.local/lib/dotfiles/tests/base-profile-boundary-test	base-boundary	test	new	d5	owner=dotfiles; source=new; family=base
+dotfiles	.local/lib/dotfiles/tests/checkout-ci-candidate	repository-root-ci	ci	new	d4	owner=dotfiles; source=new; family=base
 dotfiles	.local/lib/dotfiles/tests/client-extensions-test	dot-control	test	old:.local/lib/dotfiles/tests/client-extensions-test	d4	owner=dotfiles; source=locked-dotfiles; family=base
 dotfiles	.local/lib/dotfiles/tests/client-paths-test	dot-control	test	old:.local/lib/dotfiles/tests/client-paths-test	d4	owner=dotfiles; source=locked-dotfiles; family=base
 dotfiles	.local/lib/dotfiles/tests/clip-test	local-lib-dotfiles-tests-clip-test	test	old:.local/lib/dotfiles/tests/clip-test	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
@@ -557,7 +558,7 @@ dotfiles-dev	docs/nvim/configuration.md	split-nvim	docs	old:.config/nvim/README.
 dotfiles-dev	docs/nvim/modules.md	split-nvim	docs	old:.config/nvim/lua/config/README.md	d3	owner=dotfiles-dev; source=locked-dotfiles; family=nvim-dev
 dotfiles-dev	docs/nvim/plugins.md	split-nvim	docs	old:.config/nvim/lua/plugins/README.md	d3	owner=dotfiles-dev; source=locked-dotfiles; family=nvim-dev
 dotfiles-dev	home/.config/nvim/lua/config/keymaps/workspace-dev.lua	split-nvim	config	old:.config/nvim/lua/config/keymaps/workspace.lua	d3	owner=dotfiles-dev; source=locked-dotfiles; family=nvim-dev
-dotfiles-dev	home/.config/nvim/lua/plugins/dev-extras.lua	split-nvim	config	old:.config/nvim/lazyvim.json	d3	owner=dotfiles-dev; source=locked-dotfiles; family=nvim-dev
+dotfiles-dev	home/.config/nvim/lua/plugins/zz-dev-extras.lua	split-nvim	config	old:.config/nvim/lazyvim.json	d3	owner=dotfiles-dev; source=locked-dotfiles; family=nvim-dev
 dotfiles-dev	home/.config/nvim/lua/plugins/workspace-dev.lua	split-nvim	config	old:.config/nvim/lua/plugins/workspace.lua	d3	owner=dotfiles-dev; source=locked-dotfiles; family=nvim-dev
 dotfiles-dev	home/.local/lib/dotfiles/tests/nvim-dev-test	split-nvim	test	old:.local/lib/dotfiles/tests/nvim-test	d3	owner=dotfiles-dev; source=locked-dotfiles; family=nvim-dev
 dotfiles-dev	home/.config/nvim/lua/config/keymaps/vscode.lua	vscode	config	old:.config/nvim/lua/config/keymaps/vscode.lua	d3	owner=dotfiles-dev; source=locked-dotfiles; family=vscode

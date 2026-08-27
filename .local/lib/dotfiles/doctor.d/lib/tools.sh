@@ -98,14 +98,8 @@ _dr_check_shdeps_shell_asset() {
 _dr_check_tools() {
   _dr_section "Tools"
 
-  # yq — required by autofmt/autolint
-  if command -v yq >/dev/null 2>&1; then
-    _dr_ok "yq" "$(yq --version 2>/dev/null | awk '{print $NF}' | head -1)"
-  else
-    _dr_fail "yq missing" "required by autoformat/autolint — install via 'dot update'"
-  fi
-
-  # git — obviously
+  # Git remains a base prerequisite because Dot uses it to synchronize the
+  # client and selected overlays even when no development profile is active.
   if command -v git >/dev/null 2>&1; then
     _dr_ok "git" "$(git --version 2>/dev/null | awk '{print $3}')"
   else
@@ -143,50 +137,15 @@ _dr_check_tools() {
     _dr_warn "shdeps config dir missing" "$(_dr_tilde "$shdeps_conf_dir")"
   fi
 
-  if _dr_python_has_schema_deps; then
-    _dr_ok "schema validation deps" "python jsonschema + PyYAML"
-  elif command -v uv >/dev/null 2>&1; then
-    _dr_ok "schema validation deps" "uv bootstrap available"
-  else
-    _dr_warn "schema validation deps unavailable" \
-      "install jsonschema/PyYAML or uv for schema-lint.py"
-  fi
-
-  # Core developer workflow front doors. These are live installation checks,
-  # not shdeps behavior tests: shdeps owns the generic bin-link mechanics, and
-  # doctor verifies the installed dotfiles environment still points at the
-  # intended dependency repos.
+  # These providers implement always-active shell, terminal, and rule policy.
+  # Editor and development providers contribute their own doctor extensions.
   if command -v shdeps >/dev/null 2>&1; then
-    _dr_check_shdeps_bin_group fail sley
-    _dr_check_shdeps_bin_group warn checkrun
+    _dr_check_shdeps_bin_group fail agent-rules-sync
     _dr_check_shdeps_bin_group warn termnav
-    _dr_check_shdeps_bin_group warn cmdblocks
-    _dr_check_shdeps_bin_group warn git-tools
     _dr_check_shdeps_bin_group warn tmux-tools
     _dr_check_shdeps_bin_group warn ds
-    _dr_check_shdeps_bin_group fail agentguard
-    local _shdeps_shell_dep
-    for _shdeps_shell_dep in sley checkrun termnav cmdblocks agentguard; do
-      _dr_check_shdeps_shell_asset "$_shdeps_shell_dep"
-    done
+    _dr_check_shdeps_shell_asset termnav
   else
     _dr_warn "dependency command links unchecked" "shdeps is not on PATH"
   fi
-
-  # direnv — if any tracked .envrc suggests it's expected
-  # shellcheck disable=SC2016  # intentional literal; we're searching for this string
-  if grep -q 'eval "\$(direnv hook' "$DOT_SHELL_INTERACTIVE_DIR/"*.bash "$DOT_SHELL_INTERACTIVE_DIR/"*.zsh 2>/dev/null; then
-    if command -v direnv >/dev/null 2>&1; then
-      _dr_ok "direnv" "$(direnv version 2>/dev/null)"
-    else
-      _dr_warn "direnv hook configured but binary missing" "run 'dot update' to install"
-    fi
-  fi
-}
-
-_dr_python_has_schema_deps() {
-  python3 - <<'PY' >/dev/null 2>&1
-import jsonschema
-import yaml
-PY
 }

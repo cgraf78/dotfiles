@@ -2,13 +2,9 @@ name: Tests
 
 on:
   push:
-    # main is the only maintained branch. Keep this trigger aligned with the
-    # protected default branch so retired aliases cannot hide CI drift.
     branches: [main]
   pull_request:
   schedule:
-    # Stagger sibling repositories so scheduled full matrices do not compete
-    # for the same runner capacity at the top of the hour.
     - cron: "17 9 * * *"
   workflow_dispatch:
 
@@ -19,74 +15,40 @@ jobs:
   shell:
     uses: cgraf78/actions/.github/workflows/shell-ci.yml@b97bd729afec784785bd01ebd43321225ef47bb7
     with:
-      # CI restores shdeps between runs. Refresh the resolver before it
-      # validates dependency releases and installed-tool smoke checks.
-      #
-      # Scope that refresh to the scheduled and manual runs. Forcing it bypasses
-      # the restored shdeps cache, so every platform re-resolved and re-fetched
-      # the full dependency set on every push and pull request - roughly 66
-      # reinstalls per job across the matrix, purely to re-derive what the cache
-      # already held. That is the traffic that keeps wedging a transfer and
-      # stalling a job for tens of minutes. Release-freshness coverage is not
-      # lost: the nightly schedule still forces the full resolve, and the
-      # cold-bootstrap job installs from scratch on the same trigger.
-      force-dotfiles-update: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
-      # Keep the tracked fleet policy at latest, but make ordinary push and
-      # pull-request jobs consume their restored provider deterministically.
-      # Scheduled and manual runs retain the full latest-release coverage.
-      dotfiles-shdeps-update-policy: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'latest' || 'pinned' }}
-      dotfiles-provider: true
+      # This repository owns only base and profile/control-plane tests. The
+      # public capability repositories run their own focused suites, so this
+      # job installs prerequisites without bootstrapping the monolithic client.
+      setup: none
+      profiles: base,jq,python,zsh,lua,tmux,openssh-netcat-lsof,procps,cron,fd,ripgrep,shellcheck
       matrix-set: full
-      setup: dotfiles
       shellcheck-exclude-codes: SC1091
       shellcheck-inventory-path: .github/shellcheck-files.txt
       test-command: |-
-        # HOME is the checked-out client tree. Ignore runner-global XDG roots
-        # so Dot reads this checkout's config and discovers its test suites.
-        unset XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME XDG_RUNTIME_DIR
-
-        # Pin retirement validation to the event's immutable predecessor.
-        # Fetching a branch name here would race a newer main push and compare
-        # this checkout with source it never contained.
-        export DOT_VSCODE_KEYBINDING_BASE_SHA="${{ github.event.pull_request.base.sha || github.event.before || github.sha }}"
-        if [[ "$DOT_VSCODE_KEYBINDING_BASE_SHA" == "0000000000000000000000000000000000000000" ]]; then
-          export DOT_VSCODE_KEYBINDING_BASE_SHA=""
-        fi
-        if [[ -z "$DOT_VSCODE_KEYBINDING_BASE_SHA" || "$DOT_VSCODE_KEYBINDING_BASE_SHA" == "$GITHUB_SHA" ]]; then
-          git fetch --no-tags --depth=2 origin "$GITHUB_SHA"
-          export DOT_VSCODE_KEYBINDING_BASE_SHA="$(git rev-parse "$GITHUB_SHA^")"
-        else
-          git fetch --no-tags --depth=1 origin "+$DOT_VSCODE_KEYBINDING_BASE_SHA:refs/remotes/origin/dot-keybinding-base"
-        fi
-        DOT_CORE_SKIP_SHELLCHECK=1 dot test
-        lsp_mise_backends=(
-          github:neocmakelsp/neocmakelsp
-          github:kristoff-it/superhtml
-        )
-        # The shared bootstrap skips the unsupported global mise toolset on
-        # Alpine, so install only these musl-capable backends there. Elsewhere,
-        # validate the complete lock after bootstrap and force one Ubuntu
-        # reinstall to exercise the locked glibc release assets too.
-        if [[ -f /etc/alpine-release ]]; then
-          mise install --locked "${lsp_mise_backends[@]}"
-        else
-          mise install --locked --dry-run
-          if [[ -r /etc/os-release ]] &&
-            grep -q '^ID=ubuntu$' /etc/os-release &&
-            ! grep -qi microsoft /proc/version; then
-            mise install --locked --force "${lsp_mise_backends[@]}"
-          fi
-        fi
-        command -v neocmakelsp >/dev/null
-        neocmakelsp --version >/dev/null
-        command -v superhtml >/dev/null
-        superhtml version >/dev/null
+        set -euo pipefail
+        export DOTFILES_CANDIDATE_SHA='${{ github.event.pull_request.head.sha || github.sha }}'
+        .local/lib/dotfiles/tests/checkout-ci-candidate
+        .local/lib/dotfiles/tests/stack-dot-runtime control-plane-run-ci -- \
+          .local/lib/dotfiles/tests/run-ci
+      # D4 still carries the pre-cutover monolithic runtime, but it must run
+      # through the exact D1 provider. The D5 cutover narrows this Android smoke
+      # to the final base-owned payload.
       termux-command: |-
         set -euo pipefail
-        export DOT_VERBOSE=1
-        HOME="$PWD" PATH="$PWD/.local/bin:$PATH" dot update
-        HOME="$PWD" PATH="$PWD/.local/bin:$PATH" bash .local/lib/dotfiles/tests/android-ci-smoke
-      termux-profiles: base,neovim
+        test "$(git rev-parse HEAD)" = '${{ github.event.pull_request.head.sha || github.sha }}'
+        .local/lib/dotfiles/tests/stack-dot-runtime control-plane-run-ci -- \
+          bash -c '
+            set -euo pipefail
+            unset XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME XDG_RUNTIME_DIR
+            export DOT_VERBOSE=1
+            HOME="$PWD" PATH="$DOT_STACK_DOT_ROOT/bin:$PWD/.local/bin:$PATH" dot update
+            HOME="$PWD" PATH="$DOT_STACK_DOT_ROOT/bin:$PWD/.local/bin:$PATH" \
+              bash .local/lib/dotfiles/tests/android-ci-smoke
+          '
+      termux-host-command: |-
+        set -euo pipefail
+        export DOTFILES_CANDIDATE_SHA='${{ github.event.pull_request.head.sha || github.sha }}'
+        .local/lib/dotfiles/tests/checkout-ci-candidate
+      termux-profiles: base,tmux,ripgrep
 
   actions-sync:
     name: cgraf78/actions sync
@@ -96,16 +58,14 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
-      # GitHub resolves literal `uses:` refs before a job can read repository
-      # files, so `.github/cgraf78-actions.lock` cannot be interpolated. This gate
-      # verifies every unavoidable cgraf78/actions literal still matches that
-      # single reviewed dependency decision.
+      # GitHub resolves literal `uses:` refs before repository files are read.
       - uses: cgraf78/actions/.github/actions/verify-consumer-sync@b97bd729afec784785bd01ebd43321225ef47bb7
 
   cold-bootstrap:
-    name: Cold Ubuntu bootstrap
+    name: Cold Ubuntu base bootstrap
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -113,108 +73,50 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
       - name: Install bootstrap prerequisites
         uses: cgraf78/actions/.github/actions/shell-ci-prereqs@b97bd729afec784785bd01ebd43321225ef47bb7
         with:
           matrix-name: Ubuntu
-          setup: dotfiles
+          profiles: base,jq,python,zsh,lua,tmux,openssh-netcat-lsof,procps,cron,fd,ripgrep
+          setup: none
 
-      - name: Create an exact origin and conventional user
-        shell: bash
-        run: |-
-          set -euo pipefail
-
-          staging=$(mktemp -d /tmp/dotfiles-cold-bootstrap.XXXXXXXX)
-          chmod 0755 "$staging"
-          origin="$staging/origin.git"
-          git init --bare "$origin"
-          git push "$origin" "$GITHUB_SHA:refs/heads/main"
-          git --git-dir="$origin" symbolic-ref HEAD refs/heads/main
-          echo "COLD_DOTFILES_ORIGIN=$origin" >>"$GITHUB_ENV"
-
-          sudo useradd --create-home --shell /bin/bash dotfiles-ci
-          echo 'dotfiles-ci ALL=(ALL) NOPASSWD:ALL' |
-          sudo tee /etc/sudoers.d/dotfiles-ci >/dev/null
-          sudo chmod 0440 /etc/sudoers.d/dotfiles-ci
-          sudo visudo -cf /etc/sudoers.d/dotfiles-ci
-          sudo chown -R dotfiles-ci:dotfiles-ci "$staging"
-
-      - name: Bootstrap, update, install, and diagnose
+      - name: Bootstrap and diagnose the default base profile
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           GITHUB_TOKEN: ${{ github.token }}
         run: |-
           set -euo pipefail
+          staging=$(mktemp -d /tmp/dotfiles-cold-bootstrap.XXXXXXXX)
+          origin=$staging/origin.git
+          fixture_home=$staging/home
+          git init --quiet --bare "$origin"
+          git push --quiet "$origin" "$GITHUB_SHA:refs/heads/main"
+          git --git-dir="$origin" symbolic-ref HEAD refs/heads/main
+          mkdir "$fixture_home"
 
-          sudo --preserve-env=CI,GH_TOKEN,GITHUB_TOKEN -H -u dotfiles-ci \
-            bash -s -- \
-            "$COLD_DOTFILES_ORIGIN" "$GITHUB_SHA" <<'BASH'
+          .local/lib/dotfiles/tests/stack-dot-runtime reproducible-cold-bootstrap -- \
+            bash -s -- "$origin" "$fixture_home" "$GITHUB_SHA" <<'BASH'
           set -euo pipefail
           origin=$1
-          expected=$2
-
-          test "$HOME" = /home/dotfiles-ci
-          # sudo -H sets HOME but keeps the runner cwd, which this user cannot traverse.
-          cd "$HOME"
+          fixture_home=$2
+          expected=$3
+          export HOME=$fixture_home
           unset XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME XDG_RUNTIME_DIR
           unset GIT_CONFIG_GLOBAL GIT_CONFIG_SYSTEM GIT_CONFIG_NOSYSTEM GIT_CONFIG_COUNT
-          unset MISE_DATA_DIR MISE_STATE_DIR MISE_CACHE_DIR MISE_CONFIG_DIR
-
-          retry() {
-            local attempt rc delay
-            for attempt in 1 2 3; do
-              if "$@"; then
-                return 0
-              else
-                rc=$?
-              fi
-              if [[ "$attempt" -eq 3 ]]; then
-                return "$rc"
-              fi
-              delay=$((attempt * 15))
-              echo "$* failed (attempt $attempt/3, exit $rc); retrying in ${delay}s..." >&2
-              sleep "$delay"
-            done
-          }
-
-          test ! -e "$HOME/.dotfiles"
-          test ! -e "$HOME/.local/share/shdeps"
-          test ! -e "$HOME/.cache/mise"
+          export PATH="$DOT_STACK_DOT_ROOT/bin:$HOME/.local/bin:$PATH"
+          export DOTFILES_BRANCH=main
           export GIT_TERMINAL_PROMPT=0
           export GIT_SSH_COMMAND='ssh -o BatchMode=yes -o ConnectTimeout=5'
-          export DOT_VERBOSE=1
 
-          # The public shortcut owns standalone Dot installation and `dot init`
-          # dispatch. Initialization is transactional and resumable, so retry
-          # the complete boundary for transient provider/network failures; a
-          # deterministic defect still fails after the bounded attempts.
-          export DOTFILES_REPOSITORY="file://$origin"
-          export DOTFILES_BRANCH=main
-          bootstrap_client() {
-            curl -fsSL https://cgraf78.github.io/d | bash
-          }
-          if ! retry bootstrap_client; then
-            "$HOME/.local/share/cgraf78/dot/bin/dot" init --status >&2 || true
-            exit 1
-          fi
-
-          export PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:$PATH"
-          test ! -e "$HOME/.git"
+          dot init "file://$origin"
+          test "$(git --git-dir="$HOME/.dotfiles" rev-parse HEAD)" = "$expected"
           test "$(git --git-dir="$HOME/.dotfiles" config --bool core.bare)" = false
           test "$(git --git-dir="$HOME/.dotfiles" config core.worktree)" = "$HOME"
-          test "$(git --git-dir="$HOME/.dotfiles" rev-parse HEAD)" = "$expected"
-
-          retry dot update
-          mise trust "$HOME/.config/mise/config.toml" >/dev/null || true
-          export MISE_GITHUB_TOKEN="$GITHUB_TOKEN"
-          retry mise install --locked
-          for tool in actionlint ruff shellcheck shfmt zizmor; do
-            command -v "$tool" >/dev/null
-          done
+          dot update
           dot doctor
-
           test "$(git --git-dir="$HOME/.dotfiles" rev-parse HEAD)" = "$expected"
           BASH

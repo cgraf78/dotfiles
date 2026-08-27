@@ -50,6 +50,7 @@ done <"$lock"
 }
 
 runtime_parent=$(mktemp -d "${TMPDIR:-/tmp}/dot-stack-runtime.XXXXXXXX")
+runtime_parent=$(cd -P -- "$runtime_parent" && pwd -P)
 case $runtime_parent in
   /tmp/dot-stack-runtime.* | "${TMPDIR:-/tmp}"/dot-stack-runtime.*) ;;
   *)
@@ -67,9 +68,15 @@ git -C "$runtime_repo" fetch --quiet --no-tags origin "$dot_sha"
 git -C "$runtime_repo" checkout --quiet --detach "$dot_sha"
 
 actual_sha=$(git -C "$runtime_repo" rev-parse HEAD)
+actual_origin=$(git -C "$runtime_repo" remote get-url origin)
 [[ $actual_sha == "$dot_sha" ]] || {
   printf 'stack-dot-runtime: expected %s, checked out %s\n' \
     "$dot_sha" "$actual_sha" >&2
+  exit 1
+}
+[[ $actual_origin == "$runtime_source" ]] || {
+  printf 'stack-dot-runtime: expected origin %s, got %s\n' \
+    "$runtime_source" "$actual_origin" >&2
   exit 1
 }
 runtime_bin=$runtime_repo/bin/dot
@@ -102,10 +109,12 @@ DOT_STACK_GROUP=$group
 DOT_STACK_DOT_SHA=$dot_sha
 DOT_STACK_DOT_ROOT=$runtime_repo
 DOT_STACK_DOT_BIN=$runtime_bin
+DOT_STACK_DOT_ORIGIN=$runtime_source
 DOT_STACK_LOCK_PATH=$lock
 export PATH XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME
 export XDG_RUNTIME_DIR DOT_STACK_RUNTIME DOT_STACK_GROUP DOT_STACK_DOT_SHA
-export DOT_STACK_DOT_ROOT DOT_STACK_DOT_BIN DOT_STACK_LOCK_PATH
+export DOT_STACK_DOT_ROOT DOT_STACK_DOT_BIN DOT_STACK_DOT_ORIGIN
+export DOT_STACK_LOCK_PATH
 
 printf 'stack-runtime\tgroup=%s\tdot=%s\thead=%s\n' \
   "$group" "$runtime_bin" "$actual_sha"
