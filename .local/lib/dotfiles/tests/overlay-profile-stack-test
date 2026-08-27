@@ -926,6 +926,12 @@ candidate_home_output=$(
         "$HOME/.local/bin/agent-rules-sync"
       test "$("$HOME/.local/share/shdeps/shdeps" version)" = \
         "shdeps 20260821-152006-bb438f27"
+      test "$SHDEPS_INSTALL_DIR" != "$HOME/.local/share"
+      test "$SHDEPS_BIN_DIR" != "$HOME/.local/bin"
+      case :$PATH: in
+        *:"$SHDEPS_BIN_DIR":*) ;;
+        *) exit 1 ;;
+      esac
       hook=$HOME/.local/lib/dotfiles/pre-sync.d/10-overlay-ssh.sh
       hook_mode=$(stat -c %a "$hook" 2>/dev/null || stat -f %Lp "$hook")
       (( (8#$hook_mode & 022) == 0 ))

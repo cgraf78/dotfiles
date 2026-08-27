@@ -344,8 +344,11 @@ installed_sha=$(ci_git --git-dir="$home/.dotfiles" rev-parse HEAD)
 }
 
 runtime=$staging/runtime
-mkdir -p "$runtime"
-chmod 0700 "$runtime"
+dependency_install=$staging/dependencies
+dependency_bin=$staging/dependency-bin
+dependency_dev=$staging/dependency-dev
+mkdir -p "$runtime" "$dependency_install" "$dependency_bin" "$dependency_dev"
+chmod 0700 "$runtime" "$dependency_install" "$dependency_bin" "$dependency_dev"
 prepare_dot_runtime
 prepare_agent_rules_sync
 prepare_shdeps
@@ -385,7 +388,10 @@ printf 'candidate-home\thome=%s\tsource=%s\thead=%s\n' \
     XDG_STATE_HOME="$home/.local/state" \
     XDG_CACHE_HOME="$home/.cache" \
     XDG_RUNTIME_DIR="$runtime" \
-    PATH="$home/.local/share/cgraf78/dot/bin:$home/.local/bin:$PATH" \
+    SHDEPS_INSTALL_DIR="$dependency_install" \
+    SHDEPS_BIN_DIR="$dependency_bin" \
+    SHDEPS_GIT_DEV_DIR="$dependency_dev" \
+    PATH="$home/.local/share/cgraf78/dot/bin:$home/.local/bin:$dependency_bin:$PATH" \
     DOTFILES_CANDIDATE_SHA="$candidate_sha" \
     DOTFILES_SOURCE_SHA="$source_sha" "$@"
 )
