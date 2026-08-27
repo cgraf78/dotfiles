@@ -3,6 +3,11 @@
 
 set -euo pipefail
 
+# Hosted runners may use a permissive umask. The installed candidate HOME is
+# later evaluated by Dot's trust boundary, so create every staged checkout and
+# extension path with private defaults independent of the caller environment.
+umask 077
+
 root=$(cd -P -- "${BASH_SOURCE[0]%/*}/../../../.." && pwd -P)
 candidate_sha=${DOTFILES_CANDIDATE_SHA:-}
 lock=${DOT_STACK_LOCK_PATH:-$root/.github/overlay-profile-stack.lock}

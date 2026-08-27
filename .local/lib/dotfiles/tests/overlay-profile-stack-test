@@ -758,15 +758,19 @@ candidate_checkout=$(_tmpdir)/checkout
 git init --quiet --bare "$candidate_origin"
 git init --quiet "$candidate_seed"
 _git_set_test_identity git -C "$candidate_seed"
-mkdir -p "$candidate_seed/.local/lib/dotfiles/tests"
+mkdir -p "$candidate_seed/.local/lib/dotfiles/tests" \
+  "$candidate_seed/.local/lib/dotfiles/pre-sync.d"
 mkdir -p "$candidate_seed/.config/git"
 cp "$source_home/.local/lib/dotfiles/tests/checkout-ci-candidate" \
   "$candidate_seed/.local/lib/dotfiles/tests/checkout-ci-candidate"
 cp "$source_home/.local/lib/dotfiles/tests/run-ci-candidate-home" \
   "$candidate_seed/.local/lib/dotfiles/tests/run-ci-candidate-home"
+cp "$source_home/.local/lib/dotfiles/pre-sync.d/10-overlay-ssh.sh" \
+  "$candidate_seed/.local/lib/dotfiles/pre-sync.d/10-overlay-ssh.sh"
 printf '[core]\n\teditor = fixture\n' >"$candidate_seed/.config/git/config"
 printf 'base\n' >"$candidate_seed/state"
 git -C "$candidate_seed" add state .config/git/config \
+  .local/lib/dotfiles/pre-sync.d/10-overlay-ssh.sh \
   .local/lib/dotfiles/tests/checkout-ci-candidate \
   .local/lib/dotfiles/tests/run-ci-candidate-home
 git -C "$candidate_seed" -c core.hooksPath=/dev/null commit --quiet -m base
@@ -876,7 +880,9 @@ printf '%s\n' '#!/usr/bin/env bash' \
   'printf "shdeps 20260821-152006-bb438f27\\n"' >"$fake_shdeps/shdeps"
 chmod +x "$fake_shdeps/install.sh" "$fake_shdeps/shdeps"
 # shellcheck disable=SC2016 # The child shell must expand its isolated HOME.
-candidate_home_output=$(cd "$candidate_checkout" &&
+candidate_home_output=$(
+  umask 0000
+  cd "$candidate_checkout" || exit
   GIT_DIR=$sentinel_repo/.git GIT_WORK_TREE=$sentinel_repo \
     GIT_COMMON_DIR=$sentinel_repo/.git \
     GIT_IMPLICIT_WORK_TREE=0 GIT_PREFIX=sentinel/ \
@@ -920,9 +926,13 @@ candidate_home_output=$(cd "$candidate_checkout" &&
         "$HOME/.local/bin/agent-rules-sync"
       test "$("$HOME/.local/share/shdeps/shdeps" version)" = \
         "shdeps 20260821-152006-bb438f27"
+      hook=$HOME/.local/lib/dotfiles/pre-sync.d/10-overlay-ssh.sh
+      hook_mode=$(stat -c %a "$hook" 2>/dev/null || stat -f %Lp "$hook")
+      (( (8#$hook_mode & 022) == 0 ))
       unset XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME XDG_RUNTIME_DIR
       init_status=$("$HOME/.local/share/cgraf78/dot/bin/dot" init --status)
       [[ $init_status == *"initialization: complete"* ]]
+      "$HOME/.local/share/cgraf78/dot/bin/dot" update >/dev/null
       for name in GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR \
         GIT_IMPLICIT_WORK_TREE GIT_PREFIX GIT_INDEX_FILE \
         GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES \
@@ -934,7 +944,8 @@ candidate_home_output=$(cd "$candidate_checkout" &&
       done
       test "$GIT_NO_REPLACE_OBJECTS" = 1
       printf "candidate-home-ok\\n"
-    ' 2>&1)
+    ' 2>&1
+)
 candidate_home_rc=$?
 _assert_exit 'candidate home: separate-Git execution succeeds' \
   0 "$candidate_home_rc"
