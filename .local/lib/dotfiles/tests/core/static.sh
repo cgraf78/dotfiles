@@ -36,7 +36,7 @@ dot_core_test_static() {
   workflow=$(<"$root/.github/workflows/test.yml")
   _assert_contains "CI workflow: uses the locked shared workflow" \
     "shell-ci.yml@$actions_sha" "$workflow"
-  _assert_contains "CI workflow: does not bootstrap the monolithic client" \
+  _assert_contains "CI workflow: does not bootstrap capability payloads" \
     "setup: none" "$workflow"
   _assert_not_contains "CI workflow: avoids moving Dot setup" \
     "setup: dotfiles" "$workflow"

@@ -17,7 +17,7 @@ jobs:
     with:
       # This repository owns only base and profile/control-plane tests. The
       # public capability repositories run their own focused suites, so this
-      # job installs prerequisites without bootstrapping the monolithic client.
+      # job installs only the prerequisites for the base/control-plane client.
       setup: none
       profiles: base,jq,python,zsh,lua,tmux,openssh-netcat-lsof,procps,cron,fd,ripgrep,hostname,shellcheck
       matrix-set: full
@@ -42,9 +42,8 @@ jobs:
                 .local/lib/dotfiles/tests/profile-fixture-integration "$mode"
           done
         fi
-      # D4 still carries the pre-cutover monolithic runtime, but it must run
-      # through the exact D1 provider. The D5 cutover narrows this Android smoke
-      # to the final base-owned payload.
+      # The final cutover keeps this Android smoke on the base-owned payload and
+      # runs it through the exact D1 provider.
       termux-command: |-
         set -euo pipefail
         export DOTFILES_CANDIDATE_SHA='${{ github.event.pull_request.head.sha || github.sha }}'
