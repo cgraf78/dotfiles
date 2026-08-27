@@ -80,6 +80,11 @@ CAPABILITY_METADATA = {
     "test/lib/wait-github-state.sh",
 }
 
+CAPABILITY_REPOSITORY_METADATA = {
+    "dotfiles-nvim": set(),
+    "dotfiles-dev": {".selene.toml", "vim.yml"},
+}
+
 ROOT_METADATA = {
     ".github/dot-test-suites.txt",
     ".github/overlay-profile-stack.lock",
@@ -621,6 +626,7 @@ def validate_final(rows: list[dict[str, str]], baseline: list[dict[str, str]]) -
         if repo != "dotfiles" and not (
             path.startswith(("home/", ".github/", "docs/", "test/"))
             or path in {".gitignore", "LICENSE", "README.md"}
+            or path in CAPABILITY_REPOSITORY_METADATA[repo]
         ):
             raise Invalid(
                 f"capability path outside home/test/docs metadata roots: {repo}:{path}"
@@ -665,6 +671,7 @@ def validate_final(rows: list[dict[str, str]], baseline: list[dict[str, str]]) -
             origin == "new"
             and path not in ROOT_METADATA
             and path not in CAPABILITY_METADATA
+            and path not in CAPABILITY_REPOSITORY_METADATA.get(repo, set())
             and not path.startswith((".config/", "home/", "test/", ".local/"))
         ):
             raise Invalid(f"unrecognized new metadata path: {repo}:{path}")
@@ -685,12 +692,13 @@ def validate_final(rows: list[dict[str, str]], baseline: list[dict[str, str]]) -
             agent_classes_by_component[row["component_id"]].add(agent_class)
 
     for repo in ("dotfiles-nvim", "dotfiles-dev"):
+        expected_metadata = CAPABILITY_METADATA | CAPABILITY_REPOSITORY_METADATA[repo]
         missing = sorted(
-            path for path in CAPABILITY_METADATA if (repo, path) not in keys
+            path for path in expected_metadata if (repo, path) not in keys
         )
         if missing:
             raise Invalid(f"missing {repo} metadata ownership rows: {missing}")
-        for path in CAPABILITY_METADATA - {
+        for path in expected_metadata - {
             "LICENSE",
             ".github/cgraf78-actions.lock",
             ".github/dependabot.yml",
