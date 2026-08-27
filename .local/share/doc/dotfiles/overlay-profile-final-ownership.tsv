@@ -234,6 +234,7 @@ dotfiles-dev	.github/cgraf78-actions.lock	repository-shared-bootstrap	repository
 dotfiles-dev	.github/dot-test-suites.txt	repository-dev	ci	new	bootstrap	owner=dotfiles-dev; source=new-public-bootstrap
 dotfiles-dev	.github/dot.lock	repository-dev	repository	new	bootstrap	owner=dotfiles-dev; source=new-public-bootstrap
 dotfiles-dev	.github/dotfiles-source.lock	repository-dev	repository	new	bootstrap	owner=dotfiles-dev; source=new-public-bootstrap
+dotfiles-dev	.github/provider-test.lock	repository-dev	ci	new	d3	owner=dotfiles-dev; source=new; family=dev
 dotfiles-dev	.github/repository-settings-endpoints.txt	repository-dev	repository	new	bootstrap	owner=dotfiles-dev; source=new-public-bootstrap
 dotfiles-dev	.github/shellcheck-files.txt	repository-shared-bootstrap	repository	old:.github/shellcheck-files.txt	bootstrap	owner=dotfiles-dev; source=locked-dotfiles
 dotfiles-dev	.github/workflows/test.yml	repository-shared-bootstrap	ci	old:.github/workflows/test.yml	bootstrap	owner=dotfiles-dev; source=locked-dotfiles

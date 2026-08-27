@@ -102,6 +102,30 @@ end
 LUA
 }
 
+_nvim_home_bash_glob() {
+  local module=$1
+  lua - "$module" <<'LUA'
+vim = {
+  env = { HOME = "/home/profile-test" },
+  fn = { fnamemodify = function(path, _) return path end },
+}
+local shell = assert(dofile(arg[1])).options().shell
+local parts = {}
+for _, path in ipairs(shell.home_files) do
+  table.insert(parts, path)
+end
+for _, directory in ipairs(shell.home_dirs) do
+  if directory.glob then
+    table.insert(parts, directory.glob)
+  end
+end
+for _, pattern in ipairs(shell.home_globs) do
+  table.insert(parts, pattern)
+end
+io.write("{" .. table.concat(parts, ",") .. "}\n")
+LUA
+}
+
 _descriptor_name() {
   local name=${1##*/}
   name=${name%.conf}
@@ -598,6 +622,19 @@ GIT
         "$expected_editor_plugin_state" "$editor_plugin_state"
       _assert_eq 'dev profile late override re-enables development services' \
         "$expected_dev_plugin_state" "$dev_plugin_state"
+
+      nvim_workspace=$nvim_checkout/home/.config/nvim/lua/config/nvim-workspace.lua
+      vscode_settings=$dev_checkout/home/.vscode/settings.json
+      if [[ -f $nvim_workspace && -f $vscode_settings ]]; then
+        _pass 'pinned editor and dev HOME shell policies are present'
+      else
+        _fail 'pinned editor and dev HOME shell policies are present'
+      fi
+      expected_home_bash_glob=$(_nvim_home_bash_glob "$nvim_workspace" 2>/dev/null || true)
+      actual_home_bash_glob=$(jq -r '."bashIde.globPattern" // empty' \
+        "$vscode_settings" 2>/dev/null || true)
+      _assert_eq 'pinned editor and dev HOME Bash globs stay aligned' \
+        "$expected_home_bash_glob" "$actual_home_bash_glob"
 
       descriptor_hash_after=$(git hash-object "$nvim_descriptor" "$dev_descriptor")
       _assert_eq 'immutable production descriptor hashes do not change' \

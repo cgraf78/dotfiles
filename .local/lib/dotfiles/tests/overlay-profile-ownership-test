@@ -82,7 +82,7 @@ CAPABILITY_METADATA = {
 
 CAPABILITY_REPOSITORY_METADATA = {
     "dotfiles-nvim": set(),
-    "dotfiles-dev": {".selene.toml", "vim.yml"},
+    "dotfiles-dev": {".github/provider-test.lock", ".selene.toml", "vim.yml"},
 }
 
 ROOT_METADATA = {

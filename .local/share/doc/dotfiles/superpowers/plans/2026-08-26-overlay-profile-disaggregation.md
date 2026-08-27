@@ -2605,7 +2605,7 @@ Run:
 .local/lib/dotfiles/tests/stack-dot-runtime profile-doctor -- dot doctor
 ```
 
-Separately run `profile-fixture-update` and the local/end-to-end-only
+Separately run `profile-fixture-update` and the bounded D5 Ubuntu CI plus local
 `installed-profile-dot-test` group through the same wrapper in isolated
 `base`, `editor`, and `dev` fixture homes to prove convergence and
 active-overlay aggregation. Assert that unfiltered
