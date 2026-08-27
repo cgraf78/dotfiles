@@ -245,7 +245,8 @@ if [[ ${1:-} != --runtime-only ]]; then
       _assert_eq 'top-level and public capability suite names are unique' \
         '' "$duplicate_suites"
 
-      if "$source_home/.local/lib/dotfiles/tests/overlay-profile-ownership-test" \
+      if env -u DOT_TEST_REPORTER -u DOT_TEST_RESULT_FILE \
+        "$source_home/.local/lib/dotfiles/tests/overlay-profile-ownership-test" \
         --phase d4 --nvim-root "$nvim_checkout" --dev-root "$dev_checkout" \
         >/dev/null; then
         _pass 'coordinated repositories match the D4 ownership inventories'
