@@ -142,6 +142,16 @@ chmod 0600 "$selector_local/20-local.conf"
 _resolve_fixture_profile
 _assert_eq 'agreeing selectors keep their shared profile' editor "$SELECTED_PROFILE"
 
+printf 'version=1\nuser=example-user\nhost=example-host\nprofile=dev\n' \
+  >"$selector_local/20-local.conf"
+chmod 0600 "$selector_local/20-local.conf"
+_resolve_fixture_profile
+_assert_eq 'specific selector overrides the user-wide default' \
+  dev "$SELECTED_PROFILE"
+
+_clear_fixture_selectors
+printf 'version=1\nuser=example-user\nprofile=editor\n' \
+  >"$selector_root/10-root.conf"
 printf 'version=1\nhost=example-host\nprofile=dev\n' \
   >"$selector_local/20-local.conf"
 chmod 0600 "$selector_local/20-local.conf"

@@ -272,11 +272,13 @@ profile=editor
 At least one of `user` or `host` is required. All supplied fields must match.
 User names match `id -un` exactly and case-sensitively. Host names compare the
 validated selector value with `hostname -s` after ASCII lowercase
-normalization and removal of a trailing dot. Multiple matching records are
-allowed only when they select the same profile; conflicting matching profiles
-are a hard configuration error before final overlay mutation. No match selects
-`base`. This supports different users selecting different profiles on the same
-host without environment overrides or management commands.
+normalization and removal of a trailing dot. Combined user-and-host selectors
+override matching user-only or host-only defaults. Multiple matching records at
+the winning specificity are allowed only when they select the same profile;
+conflicting profiles at that specificity are a hard configuration error before
+final overlay mutation. No match selects `base`. This supports different users
+selecting different profiles on the same host, plus user-wide defaults with
+per-host exceptions, without environment overrides or management commands.
 
 Target overlay descriptors:
 
@@ -476,8 +478,10 @@ Add fixtures to `tests/profiles-test` for:
 - profiles present and no matching selector: select `base`;
 - user-only, host-only, and combined user+host exact matches;
 - two users on one host selecting different profiles;
-- duplicate matching records that agree on one profile;
-- conflicting matching records as a hard error;
+- a combined user-and-host match overriding disagreeing user-only and host-only
+  defaults regardless of selector source or file order;
+- duplicate winning matches that agree on one profile;
+- conflicting matching records at the winning specificity as a hard error;
 - host lowercase/trailing-dot normalization and case-sensitive user matching;
 - unavailable personal selector source with local match and with no match;
 - explicit `base`, `editor`, and `dev` results;
@@ -748,8 +752,10 @@ phases:
 3. load selector records from root `.config/dot/profile-selectors.d/`, local
    `.config/dot/profile-selectors.local.d/`, and repository-only
    `dot/profile-selectors.d/` in successfully active phase-one overlays;
-4. resolve the matching profile; no match means `base`, agreeing matches are
-   deduplicated, and conflicting profiles fail before final overlay mutation;
+4. resolve the matching profile; no match means `base`, combined user-and-host
+   matches override broader single-field defaults, agreeing winning matches are
+   deduplicated, and conflicting profiles at the winning specificity fail
+   before final overlay mutation;
 5. flatten the final profile, fully validate its selected descriptors, derive
    final eligible records, run full-family pre-sync `reconcile`, and synchronize
    only its eligible additions, reusing an already active personal checkout

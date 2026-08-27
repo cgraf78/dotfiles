@@ -122,8 +122,9 @@ are required when their profiles are selected.
 
 Choose a profile with a tracked, machine-local, or personal selector record.
 Selectors can match a user, a host, or both, so two users on one machine may
-choose different profiles. No match uses `base`; conflicting matching records
-fail before final overlay mutation. See
+choose different profiles. A combined user-and-host match overrides broader
+user-only or host-only defaults; conflicting matches at the winning specificity
+fail before final overlay mutation. No match uses `base`. See
 [`profile-selectors.d/README.md`](../../../../.config/dot/profile-selectors.d/README.md)
 for the data format and safe local-file rules.
 

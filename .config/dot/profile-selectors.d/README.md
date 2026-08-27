@@ -21,10 +21,29 @@ profile=editor
 
 At least one of `user` or `host` is required, and all supplied fields must
 match. User matching is exact and case-sensitive. Host matching uses the short
-hostname, lowercases ASCII letters, and ignores one trailing dot. Multiple
-matching records may agree; conflicting profile choices fail before Dot
-changes the final overlay set. Different users on one host can therefore choose
-different profiles.
+hostname, lowercases ASCII letters, and ignores one trailing dot. A selector
+with both `user` and `host` overrides matching user-only or host-only defaults.
+Multiple matches at the winning specificity may agree; conflicting choices at
+that same specificity fail before Dot changes the final overlay set. Different
+users on one host can therefore choose different profiles, and a user-wide
+default can have per-host exceptions.
+
+For example, `root` may default to `editor` everywhere:
+
+```text
+version=1
+user=root
+profile=editor
+```
+
+while a more-specific record chooses `dev` on one host:
+
+```text
+version=1
+user=root
+host=example-host
+profile=dev
+```
 
 For example, two local files may select `dev` for one user and `editor` for a
 second user on the same host:
