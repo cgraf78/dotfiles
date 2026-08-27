@@ -1,0 +1,572 @@
+repository	destination_path	component_id	category	origin	available_by	ownership_note
+dotfiles	.bash_profile	shell-base	config	old:.bash_profile	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.bashrc	shell-base	config	old:.bashrc	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/agent-rules/playbooks.d/agent-rules/maintenance.md	agent-rules	config	old:.config/agent-rules/playbooks.d/agent-rules/maintenance.md	bootstrap	owner=dotfiles; source=locked-dotfiles; agent=base-rule; family=base
+dotfiles	.config/agent-rules/playbooks.d/dotfiles/operations.md	agent-rules	config	old:.config/agent-rules/playbooks.d/dotfiles/operations.md	bootstrap	owner=dotfiles; source=locked-dotfiles; agent=base-rule; family=base
+dotfiles	.config/agent-rules/playbooks.d/dotfiles/ownership-and-extraction.md	agent-rules	config	old:.config/agent-rules/playbooks.d/dotfiles/ownership-and-extraction.md	bootstrap	owner=dotfiles; source=locked-dotfiles; agent=base-rule; family=base
+dotfiles	.config/agent-rules/playbooks.d/dotfiles/schema-associations.md	agent-rules	config	old:.config/agent-rules/playbooks.d/dotfiles/schema-associations.md	bootstrap	owner=dotfiles; source=locked-dotfiles; agent=base-rule; family=base
+dotfiles	.config/agent-rules/playbooks.d/dotfiles/testing.md	agent-rules	config	old:.config/agent-rules/playbooks.d/dotfiles/testing.md	bootstrap	owner=dotfiles; source=locked-dotfiles; agent=base-rule; family=base
+dotfiles	.config/agent-rules/playbooks.d/engineering/background-process-lifecycle.md	agent-rules	config	old:.config/agent-rules/playbooks.d/engineering/background-process-lifecycle.md	bootstrap	owner=dotfiles; source=locked-dotfiles; agent=base-rule; family=base
+dotfiles	.config/agent-rules/playbooks.d/engineering/generated-artifacts.md	agent-rules	config	old:.config/agent-rules/playbooks.d/engineering/generated-artifacts.md	bootstrap	owner=dotfiles; source=locked-dotfiles; agent=base-rule; family=base
+dotfiles	.config/agent-rules/playbooks.d/engineering/investigation.md	agent-rules	config	old:.config/agent-rules/playbooks.d/engineering/investigation.md	bootstrap	owner=dotfiles; source=locked-dotfiles; agent=base-rule; family=base
+dotfiles	.config/agent-rules/playbooks.d/engineering/transactional-state.md	agent-rules	config	old:.config/agent-rules/playbooks.d/engineering/transactional-state.md	bootstrap	owner=dotfiles; source=locked-dotfiles; agent=base-rule; family=base
+dotfiles	.config/agent-rules/playbooks.d/git/conflict-resolution.md	agent-rules	config	old:.config/agent-rules/playbooks.d/git/conflict-resolution.md	bootstrap	owner=dotfiles; source=locked-dotfiles; agent=base-rule; family=base
+dotfiles	.config/agent-rules/playbooks.d/git/github-pr-lifecycle.md	agent-rules	config	old:.config/agent-rules/playbooks.d/git/github-pr-lifecycle.md	bootstrap	owner=dotfiles; source=locked-dotfiles; agent=base-rule; family=base
+dotfiles	.config/agent-rules/playbooks.d/git/releases.md	agent-rules	config	old:.config/agent-rules/playbooks.d/git/releases.md	bootstrap	owner=dotfiles; source=locked-dotfiles; agent=base-rule; family=base
+dotfiles	.config/agent-rules/playbooks.d/git/worktrees.md	agent-rules	config	old:.config/agent-rules/playbooks.d/git/worktrees.md	bootstrap	owner=dotfiles; source=locked-dotfiles; agent=base-rule; family=base
+dotfiles	.config/agent-rules/playbooks.d/languages/cpp.md	agent-rules	config	old:.config/agent-rules/playbooks.d/languages/cpp.md	bootstrap	owner=dotfiles; source=locked-dotfiles; agent=base-rule; family=base
+dotfiles	.config/agent-rules/playbooks.d/languages/lua.md	agent-rules	config	old:.config/agent-rules/playbooks.d/languages/lua.md	bootstrap	owner=dotfiles; source=locked-dotfiles; agent=base-rule; family=base
+dotfiles	.config/agent-rules/playbooks.d/languages/python.md	agent-rules	config	old:.config/agent-rules/playbooks.d/languages/python.md	bootstrap	owner=dotfiles; source=locked-dotfiles; agent=base-rule; family=base
+dotfiles	.config/agent-rules/playbooks.d/languages/rust.md	agent-rules	config	old:.config/agent-rules/playbooks.d/languages/rust.md	bootstrap	owner=dotfiles; source=locked-dotfiles; agent=base-rule; family=base
+dotfiles	.config/agent-rules/playbooks.d/languages/shell.md	agent-rules	config	old:.config/agent-rules/playbooks.d/languages/shell.md	bootstrap	owner=dotfiles; source=locked-dotfiles; agent=base-rule; family=base
+dotfiles	.config/agent-rules/playbooks.d/memory/hygiene.md	agent-rules	config	old:.config/agent-rules/playbooks.d/memory/hygiene.md	bootstrap	owner=dotfiles; source=locked-dotfiles; agent=base-rule; family=base
+dotfiles	.config/agent-rules/playbooks.d/performance/investigation.md	agent-rules	config	old:.config/agent-rules/playbooks.d/performance/investigation.md	bootstrap	owner=dotfiles; source=locked-dotfiles; agent=base-rule; family=base
+dotfiles	.config/agent-rules/playbooks.d/review/fresh-eyes.md	agent-rules	config	old:.config/agent-rules/playbooks.d/review/fresh-eyes.md	bootstrap	owner=dotfiles; source=locked-dotfiles; agent=base-rule; family=base
+dotfiles	.config/agent-rules/playbooks.d/security/authentication.md	agent-rules	config	old:.config/agent-rules/playbooks.d/security/authentication.md	bootstrap	owner=dotfiles; source=locked-dotfiles; agent=base-rule; family=base
+dotfiles	.config/agent-rules/playbooks.d/testing/state-isolation.md	agent-rules	config	old:.config/agent-rules/playbooks.d/testing/state-isolation.md	bootstrap	owner=dotfiles; source=locked-dotfiles; agent=base-rule; family=base
+dotfiles	.config/agent-rules/playbooks.d/tools/selection.md	agent-rules	config	old:.config/agent-rules/playbooks.d/tools/selection.md	bootstrap	owner=dotfiles; source=locked-dotfiles; agent=base-rule; family=base
+dotfiles	.config/agent-rules/README.md	agent-rules	docs	old:.config/agent-rules/README.md	bootstrap	owner=dotfiles; source=locked-dotfiles; agent=base-rule; family=base
+dotfiles	.config/agent-rules/rules.d/000-global-rules.md	agent-rules	config	old:.config/agent-rules/rules.d/000-global-rules.md	bootstrap	owner=dotfiles; source=locked-dotfiles; agent=base-rule; family=base
+dotfiles	.config/agent-rules/rules.d/010-durable-memory.md	agent-rules	config	old:.config/agent-rules/rules.d/010-durable-memory.md	bootstrap	owner=dotfiles; source=locked-dotfiles; agent=base-rule; family=base
+dotfiles	.config/agent-rules/rules.d/020-local-environment.md	agent-rules	config	old:.config/agent-rules/rules.d/020-local-environment.md	bootstrap	owner=dotfiles; source=locked-dotfiles; agent=base-rule; family=base
+dotfiles	.config/agent-rules/rules.d/030-dotfiles.md	agent-rules	config	old:.config/agent-rules/rules.d/030-dotfiles.md	bootstrap	owner=dotfiles; source=locked-dotfiles; agent=base-rule; family=base
+dotfiles	.config/agent-rules/rules.d/040-shell-and-commands.md	agent-rules	config	old:.config/agent-rules/rules.d/040-shell-and-commands.md	bootstrap	owner=dotfiles; source=locked-dotfiles; agent=base-rule; family=base
+dotfiles	.config/agent-rules/rules.d/045-safety.md	agent-rules	config	old:.config/agent-rules/rules.d/045-safety.md	bootstrap	owner=dotfiles; source=locked-dotfiles; agent=base-rule; family=base
+dotfiles	.config/agent-rules/rules.d/050-git-and-github.md	agent-rules	config	old:.config/agent-rules/rules.d/050-git-and-github.md	bootstrap	owner=dotfiles; source=locked-dotfiles; agent=base-rule; family=base
+dotfiles	.config/agent-rules/rules.d/060-design-principles.md	agent-rules	config	old:.config/agent-rules/rules.d/060-design-principles.md	bootstrap	owner=dotfiles; source=locked-dotfiles; agent=base-rule; family=base
+dotfiles	.config/agent-rules/rules.d/070-engineering-workflow.md	agent-rules	config	old:.config/agent-rules/rules.d/070-engineering-workflow.md	bootstrap	owner=dotfiles; source=locked-dotfiles; agent=base-rule; family=base
+dotfiles	.config/agent-rules/rules.d/080-testing.md	agent-rules	config	old:.config/agent-rules/rules.d/080-testing.md	bootstrap	owner=dotfiles; source=locked-dotfiles; agent=base-rule; family=base
+dotfiles	.config/agent-rules/rules.d/090-commit-style.md	agent-rules	config	old:.config/agent-rules/rules.d/090-commit-style.md	bootstrap	owner=dotfiles; source=locked-dotfiles; agent=base-rule; family=base
+dotfiles	.config/agent-rules/rules.d/100-code-style.md	agent-rules	config	old:.config/agent-rules/rules.d/100-code-style.md	bootstrap	owner=dotfiles; source=locked-dotfiles; agent=base-rule; family=base
+dotfiles	.config/agent-rules/rules.d/110-on-demand-playbooks.md	agent-rules	config	old:.config/agent-rules/rules.d/110-on-demand-playbooks.md	bootstrap	owner=dotfiles; source=locked-dotfiles; agent=base-rule; family=base
+dotfiles	.config/atuin/config.toml	config-atuin-config-toml	config	old:.config/atuin/config.toml	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/bottom/bottom.toml	config-bottom-bottom-toml	config	old:.config/bottom/bottom.toml	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/dot/config	dot-control	config	old:.config/dot/config	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/dot/merge-hooks.d/agent-rules/README.md	agent-rules	docs	old:.config/dot/merge-hooks.d/agent-rules/README.md	bootstrap	owner=dotfiles; source=locked-dotfiles; agent=base-rule-aggregation; family=base
+dotfiles	.config/dot/merge-hooks.d/agent-rules/targets.d/80-targets.replace/50-native.txt	agent-rules	config	old:.config/dot/merge-hooks.d/agent-rules/targets.d/80-targets.replace/50-native.txt	bootstrap	owner=dotfiles; source=locked-dotfiles; agent=base-rule-aggregation; family=base
+dotfiles	.config/dot/merge-hooks.d/cron/cron.d/10-update.cron	dot-control	config	old:.config/dot/merge-hooks.d/cron/cron.d/10-update.cron	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/dot/merge-hooks.d/cron/path.d/10-defaults.txt	dot-control	config	old:.config/dot/merge-hooks.d/cron/path.d/10-defaults.txt	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/dot/merge-hooks.d/cron/README.md	dot-control	docs	old:.config/dot/merge-hooks.d/cron/README.md	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/dot/merge-hooks.d/ignore/ignore.d/10-patterns.gitignore	dot-control	config	old:.config/dot/merge-hooks.d/ignore/ignore.d/10-patterns.gitignore	d4	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/dot/merge-hooks.d/ignore/README.md	dot-control	docs	old:.config/dot/merge-hooks.d/ignore/README.md	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/dot/merge-hooks.d/iterm2/defaults.d/10-preferences.tsv	dot-control	config	old:.config/dot/merge-hooks.d/iterm2/defaults.d/10-preferences.tsv	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/dot/merge-hooks.d/iterm2/profiles.d/10-dotfiles-dyn-profile.json	dot-control	config	old:.config/dot/merge-hooks.d/iterm2/profiles.d/10-dotfiles-dyn-profile.json	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/dot/merge-hooks.d/iterm2/README.md	dot-control	docs	old:.config/dot/merge-hooks.d/iterm2/README.md	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/dot/merge-hooks.d/karabiner/profiles.d/10-windows-dotfiles.json	dot-control	config	old:.config/dot/merge-hooks.d/karabiner/profiles.d/10-windows-dotfiles.json	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/dot/merge-hooks.d/karabiner/README.md	dot-control	docs	old:.config/dot/merge-hooks.d/karabiner/README.md	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/dot/merge-hooks.d/README.md	split-docs	docs	old:.config/dot/merge-hooks.d/README.md	d4	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/dot/merge-hooks.d/ssh/README.md	dot-control	docs	old:.config/dot/merge-hooks.d/ssh/README.md	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/dot/merge-hooks.d/sshd/README.md	dot-control	docs	old:.config/dot/merge-hooks.d/sshd/README.md	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/dot/merge-hooks.d/sshd/sshd_config.d/60-termnav-relay.conf	dot-control	config	old:.config/dot/merge-hooks.d/sshd/sshd_config.d/60-termnav-relay.conf	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/dot/merge-hooks.d/tmux/README.md	dot-control	docs	old:.config/dot/merge-hooks.d/tmux/README.md	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/dot/merge-hooks.d/wezterm/README.md	dot-control	docs	old:.config/dot/merge-hooks.d/wezterm/README.md	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/dot/overlays.d/.gitignore	dot-control	control	old:.config/dot/overlays.d/.gitignore	bootstrap	owner=dotfiles; source=locked-dotfiles
+dotfiles	.config/dot/overlays.d/20-nvim.conf	dot-control	control	new	d4	owner=dotfiles; source=new
+dotfiles	.config/dot/overlays.d/30-dev.conf	dot-control	control	new	d4	owner=dotfiles; source=new
+dotfiles	.config/dot/overlays.d/80-personal.conf	dot-control	control	old:.config/dot/overlays.d/05-personal.conf	d4	owner=dotfiles; source=locked-dotfiles
+dotfiles	.config/dot/overlays.d/90-work.conf	dot-control	control	old:.config/dot/overlays.d/10-work.conf	d4	owner=dotfiles; source=locked-dotfiles
+dotfiles	.config/dot/overlays.d/90-work.ssh	dot-control	control	old:.config/dot/overlays.d/10-work.ssh	d4	owner=dotfiles; source=locked-dotfiles
+dotfiles	.config/dot/overlays.d/README.md	dot-control	docs	old:.config/dot/overlays.d/README.md	d4	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/dot/profile-selectors.d/README.md	dot-control	docs	new	d4	owner=dotfiles; source=new; family=base
+dotfiles	.config/dot/profiles.d/base.conf	dot-control	control	new	d4	owner=dotfiles; source=new
+dotfiles	.config/dot/profiles.d/dev.conf	dot-control	control	new	d4	owner=dotfiles; source=new
+dotfiles	.config/dot/profiles.d/editor.conf	dot-control	control	new	d4	owner=dotfiles; source=new
+dotfiles	.config/dot/README.md	dot-control	docs	old:.config/dot/README.md	d4	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/ds/README.md	split-docs	docs	old:.config/ds/README.md	d4	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/htop/htoprc	config-htop-htoprc	config	old:.config/htop/htoprc	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/ripgrep/config	split-ripgrep	config	old:.config/ripgrep/config	d5	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/ripgrep/README.md	config-ripgrep-readme-md	docs	old:.config/ripgrep/README.md	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/shdeps/10-deps.conf	split-shdeps	dependency	old:.config/shdeps/10-deps.conf	d5	owner=dotfiles; source=locked-dotfiles; agent=base-rule-aggregation; family=base
+dotfiles	.config/shdeps/hooks.d/cgraf78/dot.sh	config-shdeps-hooks-d-cgraf78-dot-sh	dependency	old:.config/shdeps/hooks.d/cgraf78/dot.sh	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/shdeps/hooks.d/eza.sh	config-shdeps-hooks-d-eza-sh	dependency	old:.config/shdeps/hooks.d/eza.sh	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/shdeps/hooks.d/nerd-fonts.sh	config-shdeps-hooks-d-nerd-fonts-sh	dependency	old:.config/shdeps/hooks.d/nerd-fonts.sh	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/shdeps/hooks.d/rcaloras/bash-preexec.sh	config-shdeps-hooks-d-rcaloras-bash-preexec-sh	dependency	old:.config/shdeps/hooks.d/rcaloras/bash-preexec.sh	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/shdeps/hooks.d/README.md	split-shdeps	docs	old:.config/shdeps/hooks.d/README.md	d4	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/shdeps/hooks.d/tmux-plugins/tmux-resurrect.sh	tmux-base	dependency	old:.config/shdeps/hooks.d/tmux-plugins/tmux-resurrect.sh	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/shdeps/hooks.d/wezterm.sh	terminal-navigation	dependency	old:.config/shdeps/hooks.d/wezterm.sh	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/shdeps/hooks.d/xclip.sh	config-shdeps-hooks-d-xclip-sh	dependency	old:.config/shdeps/hooks.d/xclip.sh	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/shdeps/README.md	split-shdeps	docs	old:.config/shdeps/README.md	d4	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/shell/env-noninteractive.sh	shell-base	config	old:.config/shell/env-noninteractive.sh	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/shell/env.d/50-core.sh	split-shell-core-env	config	old:.config/shell/env.d/50-core.sh	d5	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/shell/env.d/55-homebrew.sh	shell-base	config	old:.config/shell/env.d/55-homebrew.sh	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/shell/env.d/60-tools.sh	split-shell	config	old:.config/shell/env.d/60-tools.sh	d5	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/shell/env.d/70-platform.sh	shell-base	config	old:.config/shell/env.d/70-platform.sh	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/shell/env.d/90-path.sh	shell-base	config	old:.config/shell/env.d/90-path.sh	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/shell/env.d/README.md	split-docs	docs	old:.config/shell/env.d/README.md	d4	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/shell/interactive.d/50-aliases.sh	split-shell	config	old:.config/shell/interactive.d/50-aliases.sh	d5	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/shell/interactive.d/51-aliases-linux.sh	shell-base	config	old:.config/shell/interactive.d/51-aliases-linux.sh	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/shell/interactive.d/51-aliases-macos.sh	shell-base	config	old:.config/shell/interactive.d/51-aliases-macos.sh	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/shell/interactive.d/51-aliases-wsl.sh	shell-base	config	old:.config/shell/interactive.d/51-aliases-wsl.sh	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/shell/interactive.d/52-cursor.sh	shell-base	config	old:.config/shell/interactive.d/52-cursor.sh	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/shell/interactive.d/53-termnav.sh	terminal-navigation	config	old:.config/shell/interactive.d/53-termnav.sh	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/shell/interactive.d/54-tool-init.sh	split-shell	config	old:.config/shell/interactive.d/54-tool-init.sh	d5	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/shell/interactive.d/55-ssh.sh	shell-base	config	old:.config/shell/interactive.d/55-ssh.sh	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/shell/interactive.d/56-dot.sh	shell-base	config	old:.config/shell/interactive.d/56-dot.sh	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/shell/interactive.d/57-marks.sh	shell-base	config	old:.config/shell/interactive.d/57-marks.sh	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/shell/interactive.d/59-prompt.sh	shell-base	config	old:.config/shell/interactive.d/59-prompt.sh	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/shell/interactive.d/60-prompt.bash	shell-base	config	old:.config/shell/interactive.d/60-prompt.bash	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/shell/interactive.d/60-prompt.zsh	shell-base	config	old:.config/shell/interactive.d/60-prompt.zsh	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/shell/interactive.d/70-integrations.bash	split-shell	config	old:.config/shell/interactive.d/70-integrations.bash	d5	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/shell/interactive.d/70-integrations.zsh	split-shell	config	old:.config/shell/interactive.d/70-integrations.zsh	d5	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/shell/interactive.d/71-zsh-completion-cache.zsh	shell-base	config	old:.config/shell/interactive.d/71-zsh-completion-cache.zsh	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/shell/interactive.d/README.md	split-docs	docs	old:.config/shell/interactive.d/README.md	d4	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/shell/README.md	split-docs	docs	old:.config/shell/README.md	d4	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/tmux/conf.d/10-base.conf	split-tmux	config	old:.config/tmux/tmux.conf	d5	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/tmux/README.md	tmux-base	docs	old:.config/tmux/README.md	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/tmux/tmux.conf	split-tmux	config	old:.config/tmux/tmux.conf	d5	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/wezterm/link-routes.lua	terminal-navigation	config	old:.config/wezterm/link-routes.lua	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/wezterm/public-link-rules.lua	terminal-navigation	config	old:.config/wezterm/public-link-rules.lua	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/wezterm/README.md	terminal-navigation	docs	old:.config/wezterm/README.md	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/wezterm/termnav-module.lua	terminal-navigation	config	old:.config/wezterm/termnav-module.lua	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/wezterm/wezterm.lua	terminal-navigation	config	old:.config/wezterm/wezterm.lua	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.github/cgraf78-actions.lock	repository-shared-bootstrap	repository	old:.github/cgraf78-actions.lock	bootstrap	owner=dotfiles; source=locked-dotfiles
+dotfiles	.github/dependabot.yml	repository-shared-bootstrap	ci	old:.github/dependabot.yml	bootstrap	owner=dotfiles; source=locked-dotfiles
+dotfiles	.github/dot-test-suites.txt	repository-root-ci	ci	new	d4	owner=dotfiles; source=new
+dotfiles	.github/LICENSE	repository-shared-bootstrap	repository	old:.github/LICENSE	bootstrap	owner=dotfiles; source=locked-dotfiles
+dotfiles	.github/overlay-profile-stack.lock	dot-control	control	new	d4	owner=dotfiles; source=new
+dotfiles	.github/README.md	repository-root	repository	old:.github/README.md	bootstrap	owner=dotfiles; source=locked-dotfiles
+dotfiles	.github/shellcheck-files.txt	repository-shared-bootstrap	repository	old:.github/shellcheck-files.txt	d4	owner=dotfiles; source=locked-dotfiles
+dotfiles	.github/workflows/retry-infrastructure.yml	repository-shared-bootstrap	ci	old:.github/workflows/retry-infrastructure.yml	bootstrap	owner=dotfiles; source=locked-dotfiles
+dotfiles	.github/workflows/test.yml	repository-shared-bootstrap	ci	old:.github/workflows/test.yml	d4	owner=dotfiles; source=locked-dotfiles
+dotfiles	.inputrc	shell-base	config	old:.inputrc	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/bin/clip	local-bin-clip	runtime	old:.local/bin/clip	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/bin/dot	local-bin-dot	runtime	old:.local/bin/dot	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/bin/git	git-bootstrap	runtime	old:.local/bin/git	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/bin/README.md	split-docs	docs	old:.local/bin/README.md	d4	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/bin/shell-time	shell-base	runtime	old:.local/bin/shell-time	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/agent-playbooks.sh	agent-rules	runtime	old:.local/lib/dotfiles/agent-playbooks.sh	bootstrap	owner=dotfiles; source=locked-dotfiles; agent=base-rule-aggregation; family=base
+dotfiles	.local/lib/dotfiles/doctor.d/10-shell.sh	shell-base	doctor	old:.local/lib/dotfiles/doctor.d/10-shell.sh	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/doctor.d/20-tools.sh	split-doctor	doctor	old:.local/lib/dotfiles/doctor.d/20-tools.sh	d4	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/doctor.d/30-shell-integrations.sh	split-doctor	doctor	old:.local/lib/dotfiles/doctor.d/30-shell-integrations.sh	d4	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/doctor.d/41-agent-rules.sh	agent-rules	doctor	old:.local/lib/dotfiles/doctor.d/41-agent-rules.sh	bootstrap	owner=dotfiles; source=locked-dotfiles; agent=base-rule-aggregation; family=base
+dotfiles	.local/lib/dotfiles/doctor.d/60-cron.sh	local-lib-dotfiles-doctor-d-60-cron-sh	doctor	old:.local/lib/dotfiles/doctor.d/60-cron.sh	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/doctor.d/lib/agent-rules.sh	agent-rules	doctor	old:.local/lib/dotfiles/doctor.d/lib/agent-rules.sh	bootstrap	owner=dotfiles; source=locked-dotfiles; agent=base-rule-aggregation; family=base
+dotfiles	.local/lib/dotfiles/doctor.d/lib/compat.sh	dot-extension-runtime	doctor	old:.local/lib/dotfiles/doctor.d/lib/compat.sh	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/doctor.d/lib/cron.sh	local-lib-dotfiles-doctor-d-lib-cron-sh	doctor	old:.local/lib/dotfiles/doctor.d/lib/cron.sh	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/doctor.d/lib/integrations.sh	split-doctor	doctor	old:.local/lib/dotfiles/doctor.d/lib/integrations.sh	d4	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/doctor.d/lib/shdeps-assets.sh	dot-extension-runtime	doctor	old:.local/lib/dotfiles/doctor.d/lib/shdeps-assets.sh	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/doctor.d/lib/shell.sh	shell-base	doctor	old:.local/lib/dotfiles/doctor.d/lib/shell.sh	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/doctor.d/lib/tools.sh	split-doctor	doctor	old:.local/lib/dotfiles/doctor.d/lib/tools.sh	d4	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/doctor.d/README.md	local-lib-dotfiles-doctor-d-readme-md	doctor	old:.local/lib/dotfiles/doctor.d/README.md	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/launcher-real.sh	local-lib-dotfiles-launcher-real-sh	runtime	old:.local/lib/dotfiles/launcher-real.sh	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/merge-hooks.d/agent-rules.sh	agent-rules	runtime	old:.local/lib/dotfiles/merge-hooks.d/agent-rules.sh	bootstrap	owner=dotfiles; source=locked-dotfiles; agent=base-rule-aggregation; family=base
+dotfiles	.local/lib/dotfiles/merge-hooks.d/cron.serial.sh	local-lib-dotfiles-merge-hooks-d-cron-serial-sh	runtime	old:.local/lib/dotfiles/merge-hooks.d/cron.serial.sh	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/merge-hooks.d/ignore.sh	local-lib-dotfiles-merge-hooks-d-ignore-sh	runtime	old:.local/lib/dotfiles/merge-hooks.d/ignore.sh	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/merge-hooks.d/iterm2.sh	local-lib-dotfiles-merge-hooks-d-iterm2-sh	runtime	old:.local/lib/dotfiles/merge-hooks.d/iterm2.sh	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/merge-hooks.d/karabiner.sh	local-lib-dotfiles-merge-hooks-d-karabiner-sh	runtime	old:.local/lib/dotfiles/merge-hooks.d/karabiner.sh	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/merge-hooks.d/lib/agent-playbooks.sh	agent-rules	runtime	old:.local/lib/dotfiles/merge-hooks.d/lib/agent-playbooks.sh	bootstrap	owner=dotfiles; source=locked-dotfiles; agent=base-rule-aggregation; family=base
+dotfiles	.local/lib/dotfiles/merge-hooks.d/lib/compat.sh	dot-extension-runtime	runtime	old:.local/lib/dotfiles/merge-hooks.d/lib/compat.sh	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/merge-hooks.d/lib/shdeps-assets.sh	dot-extension-runtime	runtime	old:.local/lib/dotfiles/merge-hooks.d/lib/shdeps-assets.sh	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/merge-hooks.d/lib/windows.sh	dot-extension-runtime	runtime	old:.local/lib/dotfiles/merge-hooks.d/lib/windows.sh	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/merge-hooks.d/README.md	local-lib-dotfiles-merge-hooks-d-readme-md	docs	old:.local/lib/dotfiles/merge-hooks.d/README.md	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/merge-hooks.d/ssh.sh	local-lib-dotfiles-merge-hooks-d-ssh-sh	runtime	old:.local/lib/dotfiles/merge-hooks.d/ssh.sh	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/merge-hooks.d/tmux.sh	tmux-base	runtime	old:.local/lib/dotfiles/merge-hooks.d/tmux.sh	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/merge-hooks.d/wezterm.sh	terminal-navigation	runtime	old:.local/lib/dotfiles/merge-hooks.d/wezterm.sh	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/pre-sync.d/10-overlay-ssh.sh	local-lib-dotfiles-pre-sync-d-10-overlay-ssh-sh	runtime	old:.local/lib/dotfiles/pre-sync.d/10-overlay-ssh.sh	d4	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/README.md	split-docs	docs	old:.local/lib/dotfiles/README.md	d4	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/shdeps-assets.sh	dot-extension-runtime	runtime	old:.local/lib/dotfiles/shdeps-assets.sh	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/shell-loader.sh	shell-base	runtime	old:.local/lib/dotfiles/shell-loader.sh	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/tests/agent-rules-adapter-test	agent-rules	test	old:.local/lib/dotfiles/tests/agent-rules-adapter-test	bootstrap	owner=dotfiles; source=locked-dotfiles; agent=base-rule-aggregation; family=base
+dotfiles	.local/lib/dotfiles/tests/agent-rules-test	agent-rules	test	old:.local/lib/dotfiles/tests/agent-rules-test	bootstrap	owner=dotfiles; source=locked-dotfiles; agent=base-rule-aggregation; family=base
+dotfiles	.local/lib/dotfiles/tests/android-ci-smoke	split-tests	test	old:.local/lib/dotfiles/tests/android-ci-smoke	d4	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/tests/base-profile-boundary-test	base-boundary	test	new	d5	owner=dotfiles; source=new; family=base
+dotfiles	.local/lib/dotfiles/tests/client-extensions-test	dot-control	test	old:.local/lib/dotfiles/tests/client-extensions-test	d4	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/tests/client-paths-test	dot-control	test	old:.local/lib/dotfiles/tests/client-paths-test	d4	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/tests/clip-test	local-lib-dotfiles-tests-clip-test	test	old:.local/lib/dotfiles/tests/clip-test	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/tests/core-cron-test	local-lib-dotfiles-tests-core-cron-test	test	old:.local/lib/dotfiles/tests/core-cron-test	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/tests/core-doctor-test	split-doctor	test	old:.local/lib/dotfiles/tests/core-doctor-test	d4	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/tests/core-launchers-test	split-tests	test	old:.local/lib/dotfiles/tests/core-launchers-test	d4	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/tests/core-merges-test	split-tests	test	old:.local/lib/dotfiles/tests/core-merges-test	d4	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/tests/core-static-test	split-tests	test	old:.local/lib/dotfiles/tests/core-static-test	d4	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/tests/core-test	local-lib-dotfiles-tests-core-test	test	old:.local/lib/dotfiles/tests/core-test	d4	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/tests/core-update-test	split-tests	test	old:.local/lib/dotfiles/tests/core-update-test	d4	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/tests/core/cron.sh	local-lib-dotfiles-tests-core-cron-sh	test	old:.local/lib/dotfiles/tests/core/cron.sh	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/tests/core/doctor.sh	split-tests	test	old:.local/lib/dotfiles/tests/core/doctor.sh	d4	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/tests/core/launchers.sh	split-tests	test	old:.local/lib/dotfiles/tests/core/launchers.sh	d4	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/tests/core/merges.sh	split-tests	test	old:.local/lib/dotfiles/tests/core/merges.sh	d4	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/tests/core/README.md	split-tests	test	old:.local/lib/dotfiles/tests/core/README.md	d4	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/tests/core/static.sh	split-tests	test	old:.local/lib/dotfiles/tests/core/static.sh	d4	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/tests/fixtures.sh	local-lib-dotfiles-tests-fixtures-sh	test	old:.local/lib/dotfiles/tests/fixtures.sh	d4	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/tests/fixtures/common-language-policy.json	local-lib-dotfiles-tests-fixtures-common-language-policy-json	test	old:.local/lib/dotfiles/tests/fixtures/common-language-policy.json	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/tests/footprint-test	profile-footprint	test	new	d4	owner=dotfiles; source=new; family=base
+dotfiles	.local/lib/dotfiles/tests/harness-isolation-test	local-lib-dotfiles-tests-harness-isolation-test	test	old:.local/lib/dotfiles/tests/harness-isolation-test	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/tests/helpers.sh	split-tests	test	old:.local/lib/dotfiles/tests/helpers.sh	d4	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/tests/load-merge-api.sh	split-tests	test	old:.local/lib/dotfiles/tests/load-merge-api.sh	d4	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/tests/measure-profile-footprint	profile-footprint	test	new	d4	owner=dotfiles; source=new; family=base
+dotfiles	.local/lib/dotfiles/tests/overlay-profile-ownership-test	dot-control	test	new	d4	owner=dotfiles; source=new; family=base
+dotfiles	.local/lib/dotfiles/tests/overlay-profile-rollout-test	dot-control	test	new	d4	owner=dotfiles; source=new; family=base
+dotfiles	.local/lib/dotfiles/tests/overlay-profile-stack-test	dot-control	test	new	d4	owner=dotfiles; source=new; family=base
+dotfiles	.local/lib/dotfiles/tests/prompt-test	local-lib-dotfiles-tests-prompt-test	test	old:.local/lib/dotfiles/tests/prompt-test	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/tests/README.md	split-tests	test	old:.local/lib/dotfiles/tests/README.md	d4	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/tests/run-ci	repository-root-ci	ci	new	d4	owner=dotfiles; source=new
+dotfiles	.local/lib/dotfiles/tests/shdeps-hooks-test	split-shdeps	test	old:.local/lib/dotfiles/tests/shdeps-hooks-test	d4	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/tests/stack-dot-runtime	dot-control	test	new	d4	owner=dotfiles; source=new; family=base
+dotfiles	.local/lib/dotfiles/tests/support/tmux-focus-style.py	tmux-base	test	old:.local/lib/dotfiles/tests/support/tmux-focus-style.py	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/tests/tmux-continuum-test	tmux-base	test	old:.local/lib/dotfiles/tests/tmux-continuum-test	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/tests/tmux-test	split-tmux	test	old:.local/lib/dotfiles/tests/tmux-test	d4	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/tests/tool-init-test	split-tests	test	old:.local/lib/dotfiles/tests/tool-init-test	d4	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/tests/wezterm-test	split-tests	test	old:.local/lib/dotfiles/tests/wezterm-test	d4	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/tests/xdg-test	local-lib-dotfiles-tests-xdg-test	test	old:.local/lib/dotfiles/tests/xdg-test	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/tests/zsh-completion-test	local-lib-dotfiles-tests-zsh-completion-test	test	old:.local/lib/dotfiles/tests/zsh-completion-test	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/windows.sh	local-lib-dotfiles-windows-sh	runtime	old:.local/lib/dotfiles/windows.sh	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/share/doc/dotfiles/dotfiles.md	local-share-doc-dotfiles-dotfiles-md	docs	old:.local/share/doc/dotfiles/dotfiles.md	d4	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/share/doc/dotfiles/overlay-profile-baseline-disposition.tsv	dot-control	control	new	d4	owner=dotfiles; source=new
+dotfiles	.local/share/doc/dotfiles/overlay-profile-final-ownership.tsv	dot-control	control	new	d4	owner=dotfiles; source=new
+dotfiles	.local/share/doc/dotfiles/overlay-profile-source.lock	dot-control	control	new	bootstrap	owner=dotfiles; source=new
+dotfiles	.local/share/doc/dotfiles/superpowers/plans/2026-08-26-overlay-profile-disaggregation.md	dot-control	docs	new	d4	owner=dotfiles; source=new; family=base
+dotfiles	.local/share/doc/dotfiles/README.md	local-share-doc-dotfiles-readme-md	docs	old:.local/share/doc/dotfiles/README.md	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/share/doc/dotfiles/superpowers/plans/2026-07-26-full-pr-platform-matrix.md	local-share-doc-dotfiles-superpowers-plans-2026-07-26-full-pr-platform-matrix-md	docs	old:.local/share/doc/dotfiles/superpowers/plans/2026-07-26-full-pr-platform-matrix.md	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/share/doc/dotfiles/superpowers/plans/2026-07-26-termux-ci.md	local-share-doc-dotfiles-superpowers-plans-2026-07-26-termux-ci-md	docs	old:.local/share/doc/dotfiles/superpowers/plans/2026-07-26-termux-ci.md	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/share/doc/dotfiles/superpowers/plans/2026-08-01-et-tunnel-test-reliability.md	local-share-doc-dotfiles-superpowers-plans-2026-08-01-et-tunnel-test-reliability-md	docs	old:.local/share/doc/dotfiles/superpowers/plans/2026-08-01-et-tunnel-test-reliability.md	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/share/doc/dotfiles/superpowers/plans/2026-08-02-dot-update-exit-status.md	local-share-doc-dotfiles-superpowers-plans-2026-08-02-dot-update-exit-status-md	docs	old:.local/share/doc/dotfiles/superpowers/plans/2026-08-02-dot-update-exit-status.md	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/share/doc/dotfiles/superpowers/specs/2026-07-26-full-pr-platform-matrix-design.md	local-share-doc-dotfiles-superpowers-specs-2026-07-26-full-pr-platform-matrix-design-md	docs	old:.local/share/doc/dotfiles/superpowers/specs/2026-07-26-full-pr-platform-matrix-design.md	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/share/doc/dotfiles/superpowers/specs/2026-07-26-termux-ci-design.md	local-share-doc-dotfiles-superpowers-specs-2026-07-26-termux-ci-design-md	docs	old:.local/share/doc/dotfiles/superpowers/specs/2026-07-26-termux-ci-design.md	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/share/doc/dotfiles/superpowers/specs/2026-08-01-et-tunnel-test-reliability-design.md	local-share-doc-dotfiles-superpowers-specs-2026-08-01-et-tunnel-test-reliability-design-md	docs	old:.local/share/doc/dotfiles/superpowers/specs/2026-08-01-et-tunnel-test-reliability-design.md	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/share/doc/dotfiles/superpowers/specs/2026-08-02-dot-update-exit-status-design.md	local-share-doc-dotfiles-superpowers-specs-2026-08-02-dot-update-exit-status-design-md	docs	old:.local/share/doc/dotfiles/superpowers/specs/2026-08-02-dot-update-exit-status-design.md	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.profile	shell-base	config	old:.profile	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.zprofile	shell-base	config	old:.zprofile	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.zshenv	shell-base	config	old:.zshenv	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.zshrc	shell-base	config	old:.zshrc	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles-dev	.github/cgraf78-actions.lock	repository-shared-bootstrap	repository	old:.github/cgraf78-actions.lock	bootstrap	owner=dotfiles-dev; source=locked-dotfiles
+dotfiles-dev	.github/dot-test-suites.txt	repository-dev	ci	new	bootstrap	owner=dotfiles-dev; source=new-public-bootstrap
+dotfiles-dev	.github/dot.lock	repository-dev	repository	new	bootstrap	owner=dotfiles-dev; source=new-public-bootstrap
+dotfiles-dev	.github/dotfiles-source.lock	repository-dev	repository	new	bootstrap	owner=dotfiles-dev; source=new-public-bootstrap
+dotfiles-dev	.github/repository-settings-endpoints.txt	repository-dev	repository	new	bootstrap	owner=dotfiles-dev; source=new-public-bootstrap
+dotfiles-dev	.github/shellcheck-files.txt	repository-shared-bootstrap	repository	old:.github/shellcheck-files.txt	bootstrap	owner=dotfiles-dev; source=locked-dotfiles
+dotfiles-dev	.github/workflows/test.yml	repository-shared-bootstrap	ci	old:.github/workflows/test.yml	bootstrap	owner=dotfiles-dev; source=locked-dotfiles
+dotfiles-dev	.gitignore	repository-dev	repository	new	bootstrap	owner=dotfiles-dev; source=new-public-bootstrap
+dotfiles-dev	home/.config/checkrun/associations.json	checkrun	config	old:.config/checkrun/associations.json	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.config/checkrun/biome.json	checkrun	config	old:.config/checkrun/biome.json	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.config/checkrun/checkmake.ini	checkrun	config	old:.config/checkrun/checkmake.ini	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.config/checkrun/clang-format	checkrun	config	old:.config/checkrun/clang-format	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.config/checkrun/cmake-format.py	checkrun	config	old:.config/checkrun/cmake-format.py	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.config/checkrun/format-ignore	checkrun	config	old:.config/checkrun/format-ignore	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.config/checkrun/golangci-lint.yml	checkrun	config	old:.config/checkrun/golangci-lint.yml	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.config/checkrun/hadolint.yaml	checkrun	config	old:.config/checkrun/hadolint.yaml	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.config/checkrun/ignore	checkrun	config	old:.config/checkrun/ignore	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.config/checkrun/php-cs-fixer.php	checkrun	config	old:.config/checkrun/php-cs-fixer.php	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.config/checkrun/README.md	checkrun	docs	old:.config/checkrun/README.md	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.config/checkrun/rubocop.yml	checkrun	config	old:.config/checkrun/rubocop.yml	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.config/checkrun/ruff.toml	checkrun	config	old:.config/checkrun/ruff.toml	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.config/checkrun/rumdl.toml	checkrun	config	old:.config/checkrun/rumdl.toml	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.config/checkrun/rustfmt.toml	checkrun	config	old:.config/checkrun/rustfmt.toml	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.config/checkrun/schema-ignore	checkrun	config	old:.config/checkrun/schema-ignore	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.config/checkrun/selene.toml	checkrun	config	old:.config/checkrun/selene.toml	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.config/checkrun/shellcheckrc	checkrun	config	old:.config/checkrun/shellcheckrc	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.config/checkrun/shfmt.toml	checkrun	config	old:.config/checkrun/shfmt.toml	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.config/checkrun/spell-ignore	checkrun	config	old:.config/checkrun/spell-ignore	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.config/checkrun/stylua.toml	checkrun	config	old:.config/checkrun/stylua.toml	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.config/checkrun/taplo.toml	checkrun	config	old:.config/checkrun/taplo.toml	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.config/checkrun/tool-ignore	checkrun	config	old:.config/checkrun/tool-ignore	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.config/checkrun/typos.toml	checkrun	config	old:.config/checkrun/typos.toml	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.config/checkrun/yamlfmt.yaml	checkrun	config	old:.config/checkrun/yamlfmt.yaml	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.config/direnv/envrc-example	dev-toolchain	config	old:.config/direnv/envrc-example	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev-toolchain
+dotfiles-dev	home/.config/dot/merge-hooks.d/claude/README.md	agent-tooling	docs	old:.config/dot/merge-hooks.d/claude/README.md	d3	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling; family=agent-tooling
+dotfiles-dev	home/.config/dot/merge-hooks.d/claude/settings.d/20-permissions.json	agent-tooling	config	old:.config/dot/merge-hooks.d/claude/settings.d/20-permissions.json	d3	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling; family=agent-tooling
+dotfiles-dev	home/.config/dot/merge-hooks.d/codex/config.d/10-settings.toml	agent-tooling	config	old:.config/dot/merge-hooks.d/codex/config.d/10-settings.toml	d3	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling; family=agent-tooling
+dotfiles-dev	home/.config/dot/merge-hooks.d/codex/profiles/deep.d/10-settings.toml	agent-tooling	config	old:.config/dot/merge-hooks.d/codex/profiles/deep.d/10-settings.toml	d3	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling; family=agent-tooling
+dotfiles-dev	home/.config/dot/merge-hooks.d/codex/profiles/fast.d/10-settings.toml	agent-tooling	config	old:.config/dot/merge-hooks.d/codex/profiles/fast.d/10-settings.toml	d3	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling; family=agent-tooling
+dotfiles-dev	home/.config/dot/merge-hooks.d/codex/profiles/README.md	agent-tooling	docs	old:.config/dot/merge-hooks.d/codex/profiles/README.md	d3	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling; family=agent-tooling
+dotfiles-dev	home/.config/dot/merge-hooks.d/codex/README.md	agent-tooling	docs	old:.config/dot/merge-hooks.d/codex/README.md	d3	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling; family=agent-tooling
+dotfiles-dev	home/.config/dot/merge-hooks.d/gemini/README.md	agent-tooling	docs	old:.config/dot/merge-hooks.d/gemini/README.md	d3	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling; family=agent-tooling
+dotfiles-dev	home/.config/dot/merge-hooks.d/gh/config.d/10-config.yml	git-workflow	config	old:.config/dot/merge-hooks.d/gh/config.d/10-config.yml	d3	owner=dotfiles-dev; source=locked-dotfiles; family=git-workflow
+dotfiles-dev	home/.config/dot/merge-hooks.d/gh/README.md	git-workflow	docs	old:.config/dot/merge-hooks.d/gh/README.md	d3	owner=dotfiles-dev; source=locked-dotfiles; family=git-workflow
+dotfiles-dev	home/.config/dot/merge-hooks.d/git/README.md	git-workflow	docs	old:.config/dot/merge-hooks.d/git/README.md	d3	owner=dotfiles-dev; source=locked-dotfiles; family=git-workflow
+dotfiles-dev	home/.config/dot/merge-hooks.d/gstack/README.md	agent-tooling	docs	old:.config/dot/merge-hooks.d/gstack/README.md	d3	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling; family=agent-tooling
+dotfiles-dev	home/.config/dot/merge-hooks.d/hive-memory/README.md	agent-tooling	docs	old:.config/dot/merge-hooks.d/hive-memory/README.md	d3	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling; family=agent-tooling
+dotfiles-dev	home/.config/dot/merge-hooks.d/mise/README.md	dev-toolchain	docs	old:.config/dot/merge-hooks.d/mise/README.md	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev-toolchain
+dotfiles-dev	home/.config/dot/merge-hooks.d/muse/README.md	agent-tooling	docs	old:.config/dot/merge-hooks.d/muse/README.md	d3	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling; family=agent-tooling
+dotfiles-dev	home/.config/dot/merge-hooks.d/muse/settings.d/20-permissions.json	agent-tooling	config	old:.config/dot/merge-hooks.d/muse/settings.d/20-permissions.json	d3	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling; family=agent-tooling
+dotfiles-dev	home/.config/dot/merge-hooks.d/opencode/README.md	agent-tooling	docs	old:.config/dot/merge-hooks.d/opencode/README.md	d3	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling; family=agent-tooling
+dotfiles-dev	home/.config/dot/merge-hooks.d/sapling/hgrc.d/10-sley.ini	sley	config	old:.config/dot/merge-hooks.d/sapling/hgrc.d/10-sley.ini	d3	owner=dotfiles-dev; source=locked-dotfiles; family=sley
+dotfiles-dev	home/.config/dot/merge-hooks.d/sapling/README.md	git-workflow	docs	old:.config/dot/merge-hooks.d/sapling/README.md	d3	owner=dotfiles-dev; source=locked-dotfiles; family=git-workflow
+dotfiles-dev	home/.config/dot/merge-hooks.d/vscode/extensions.d/50-managed-extensions.replace/50-default.toml	vscode	config	old:.config/dot/merge-hooks.d/vscode/extensions.d/50-managed-extensions.replace/50-default.toml	d3	owner=dotfiles-dev; source=locked-dotfiles; family=vscode
+dotfiles-dev	home/.config/dot/merge-hooks.d/vscode/keybindings/all.d/00-retirements.jsonc	vscode	config	old:.config/dot/merge-hooks.d/vscode/keybindings/all.d/00-retirements.jsonc	d3	owner=dotfiles-dev; source=locked-dotfiles; family=vscode
+dotfiles-dev	home/.config/dot/merge-hooks.d/vscode/keybindings/all.d/10-keybindings.jsonc	vscode	config	old:.config/dot/merge-hooks.d/vscode/keybindings/all.d/10-keybindings.jsonc	d3	owner=dotfiles-dev; source=locked-dotfiles; family=vscode
+dotfiles-dev	home/.config/dot/merge-hooks.d/vscode/keybindings/all.d/20-nvim-focus.jsonc	vscode	config	old:.config/dot/merge-hooks.d/vscode/keybindings/all.d/20-nvim-focus.jsonc	d3	owner=dotfiles-dev; source=locked-dotfiles; family=vscode
+dotfiles-dev	home/.config/dot/merge-hooks.d/vscode/keybindings/linux.d/10-keybindings.jsonc	vscode	config	old:.config/dot/merge-hooks.d/vscode/keybindings/linux.d/10-keybindings.jsonc	d3	owner=dotfiles-dev; source=locked-dotfiles; family=vscode
+dotfiles-dev	home/.config/dot/merge-hooks.d/vscode/keybindings/macos.d/10-keybindings.jsonc	vscode	config	old:.config/dot/merge-hooks.d/vscode/keybindings/macos.d/10-keybindings.jsonc	d3	owner=dotfiles-dev; source=locked-dotfiles; family=vscode
+dotfiles-dev	home/.config/dot/merge-hooks.d/vscode/keybindings/README.md	vscode	docs	old:.config/dot/merge-hooks.d/vscode/keybindings/README.md	d3	owner=dotfiles-dev; source=locked-dotfiles; family=vscode
+dotfiles-dev	home/.config/dot/merge-hooks.d/vscode/keybindings/windows.d/10-keybindings.jsonc	vscode	config	old:.config/dot/merge-hooks.d/vscode/keybindings/windows.d/10-keybindings.jsonc	d3	owner=dotfiles-dev; source=locked-dotfiles; family=vscode
+dotfiles-dev	home/.config/dot/merge-hooks.d/vscode/local-extensions.d/10-extensions.tsv	vscode	config	old:.config/dot/merge-hooks.d/vscode/local-extensions.d/10-extensions.tsv	d3	owner=dotfiles-dev; source=locked-dotfiles; family=vscode
+dotfiles-dev	home/.config/dot/merge-hooks.d/vscode/README.md	vscode	docs	old:.config/dot/merge-hooks.d/vscode/README.md	d3	owner=dotfiles-dev; source=locked-dotfiles; family=vscode
+dotfiles-dev	home/.config/dot/merge-hooks.d/vscode/settings.d/10-settings.json	vscode	config	old:.config/dot/merge-hooks.d/vscode/settings.d/10-settings.json	d3	owner=dotfiles-dev; source=locked-dotfiles; family=vscode
+dotfiles-dev	home/.config/dot/merge-hooks.d/vscode/variants.d/10-defaults.tsv	vscode	config	old:.config/dot/merge-hooks.d/vscode/variants.d/10-defaults.tsv	d3	owner=dotfiles-dev; source=locked-dotfiles; family=vscode
+dotfiles-dev	home/.config/git/attributes	git-workflow	config	old:.config/git/attributes	d3	owner=dotfiles-dev; source=locked-dotfiles; family=git-workflow
+dotfiles-dev	home/.config/git/config	git-workflow	config	old:.config/git/config	d3	owner=dotfiles-dev; source=locked-dotfiles; family=git-workflow
+dotfiles-dev	home/.config/git/gitmessage	git-workflow	config	old:.config/git/gitmessage	d3	owner=dotfiles-dev; source=locked-dotfiles; family=git-workflow
+dotfiles-dev	home/.config/git/ignore	git-workflow	config	old:.config/git/ignore	d3	owner=dotfiles-dev; source=locked-dotfiles; family=git-workflow
+dotfiles-dev	home/.config/git/README.md	git-workflow	docs	old:.config/git/README.md	d3	owner=dotfiles-dev; source=locked-dotfiles; family=git-workflow
+dotfiles-dev	home/.config/gstack-register/skills-exclude	agent-tooling	config	old:.config/gstack-register/skills-exclude	d3	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling; family=agent-tooling
+dotfiles-dev	home/.config/hive-memory/README.md	agent-tooling	docs	old:.config/hive-memory/README.md	d3	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling; family=agent-tooling
+dotfiles-dev	home/.config/lazygit/config.yml	git-workflow	config	old:.config/lazygit/config.yml	d3	owner=dotfiles-dev; source=locked-dotfiles; family=git-workflow
+dotfiles-dev	home/.config/lazygit/README.md	git-workflow	docs	old:.config/lazygit/README.md	d3	owner=dotfiles-dev; source=locked-dotfiles; family=git-workflow
+dotfiles-dev	home/.config/mise/config.toml	dev-toolchain	dependency	old:.config/mise/config.toml	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev-toolchain
+dotfiles-dev	home/.config/mise/mise.lock	dev-toolchain	dependency	old:.config/mise/mise.lock	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev-toolchain
+dotfiles-dev	home/.config/nvim/checkrun-editor-metadata.json	checkrun	config	old:.config/nvim/checkrun-editor-metadata.json	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.config/nvim/lua/config/checkrun-nvim.lua	checkrun	config	old:.config/nvim/lua/config/checkrun-nvim.lua	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.config/nvim/lua/config/language-policy.lua	nvim-dev	config	old:.config/nvim/lua/config/language-policy.lua	d3	owner=dotfiles-dev; source=locked-dotfiles; family=nvim-dev
+dotfiles-dev	home/.config/nvim/lua/config/mason-policy.lua	nvim-dev	config	old:.config/nvim/lua/config/mason-policy.lua	d3	owner=dotfiles-dev; source=locked-dotfiles; family=nvim-dev
+dotfiles-dev	home/.config/nvim/lua/config/schema-policy.lua	checkrun	config	old:.config/nvim/lua/config/schema-policy.lua	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.config/nvim/lua/config/sley-nvim.lua	sley	config	old:.config/nvim/lua/config/sley-nvim.lua	d3	owner=dotfiles-dev; source=locked-dotfiles; family=sley
+dotfiles-dev	home/.config/nvim/lua/plugins/coding.lua	nvim-dev	config	old:.config/nvim/lua/plugins/coding.lua	d3	owner=dotfiles-dev; source=locked-dotfiles; family=nvim-dev
+dotfiles-dev	home/.config/nvim/lua/plugins/formatting.lua	nvim-dev	config	old:.config/nvim/lua/plugins/formatting.lua	d3	owner=dotfiles-dev; source=locked-dotfiles; family=nvim-dev
+dotfiles-dev	home/.config/nvim/lua/plugins/git-dev.lua	split-nvim	config	old:.config/nvim/lua/plugins/git.lua	d3	owner=dotfiles-dev; source=locked-dotfiles; family=nvim-dev
+dotfiles-dev	home/.config/nvim/lua/plugins/linting.lua	nvim-dev	config	old:.config/nvim/lua/plugins/linting.lua	d3	owner=dotfiles-dev; source=locked-dotfiles; family=nvim-dev
+dotfiles-dev	home/.config/nvim/lua/plugins/sley.lua	sley	config	old:.config/nvim/lua/plugins/sley.lua	d3	owner=dotfiles-dev; source=locked-dotfiles; family=sley
+dotfiles-dev	home/.config/nvim/lua/plugins/zz-mason-policy.lua	nvim-dev	config	old:.config/nvim/lua/plugins/zz-mason-policy.lua	d3	owner=dotfiles-dev; source=locked-dotfiles; family=nvim-dev
+dotfiles-dev	home/.config/shdeps/00-toolchains.conf	dev-toolchain	dependency	old:.config/shdeps/00-toolchains.conf	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev-toolchain
+dotfiles-dev	home/.config/shdeps/30-dev.conf	split-shdeps	dependency	old:.config/shdeps/10-deps.conf	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev
+dotfiles-dev	home/.config/shdeps/hooks.d/cargo.sh	dev-toolchain	dependency	old:.config/shdeps/hooks.d/cargo.sh	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev-toolchain
+dotfiles-dev	home/.config/shdeps/hooks.d/clangd.sh	dev-toolchain	dependency	old:.config/shdeps/hooks.d/clangd.sh	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev-toolchain
+dotfiles-dev	home/.config/shdeps/hooks.d/cmake-language-server.sh	config-shdeps-hooks-d-cmake-language-server-sh	dependency	old:.config/shdeps/hooks.d/cmake-language-server.sh	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev
+dotfiles-dev	home/.config/shdeps/hooks.d/cmakelang.sh	config-shdeps-hooks-d-cmakelang-sh	dependency	old:.config/shdeps/hooks.d/cmakelang.sh	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev
+dotfiles-dev	home/.config/shdeps/hooks.d/editorconfig-checker.sh	config-shdeps-hooks-d-editorconfig-checker-sh	dependency	old:.config/shdeps/hooks.d/editorconfig-checker.sh	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev
+dotfiles-dev	home/.config/shdeps/hooks.d/garrytan/gstack.sh	agent-tooling	dependency	old:.config/shdeps/hooks.d/garrytan/gstack.sh	d3	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling; family=agent-tooling
+dotfiles-dev	home/.config/shdeps/hooks.d/google-java-format.sh	config-shdeps-hooks-d-google-java-format-sh	dependency	old:.config/shdeps/hooks.d/google-java-format.sh	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev
+dotfiles-dev	home/.config/shdeps/hooks.d/php-cs-fixer.sh	config-shdeps-hooks-d-php-cs-fixer-sh	dependency	old:.config/shdeps/hooks.d/php-cs-fixer.sh	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev
+dotfiles-dev	home/.config/shdeps/hooks.d/python-minimum.sh	dev-toolchain	dependency	old:.config/shdeps/hooks.d/python-minimum.sh	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev-toolchain
+dotfiles-dev	home/.config/shdeps/hooks.d/README-dev.md	split-shdeps	docs	old:.config/shdeps/hooks.d/README.md	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev
+dotfiles-dev	home/.config/shdeps/hooks.d/rubocop.sh	dev-toolchain	dependency	old:.config/shdeps/hooks.d/rubocop.sh	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev-toolchain
+dotfiles-dev	home/.config/shdeps/hooks.d/rust-toolchain.sh	dev-toolchain	dependency	old:.config/shdeps/hooks.d/rust-toolchain.sh	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev-toolchain
+dotfiles-dev	home/.config/shdeps/README-dev.md	split-shdeps	docs	old:.config/shdeps/README.md	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev
+dotfiles-dev	home/.config/shell/env.d/70-dev.sh	split-shell	config	old:.config/shell/env.d/60-tools.sh	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev
+dotfiles-dev	home/.config/shell/interactive.d/70-dev-aliases.sh	split-shell	config	old:.config/shell/interactive.d/50-aliases.sh	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev
+dotfiles-dev	home/.config/shell/interactive.d/70-dev-tool-init.sh	split-shell	config	old:.config/shell/interactive.d/54-tool-init.sh	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev
+dotfiles-dev	home/.config/shell/interactive.d/80-dev-integrations.bash	split-shell	config	old:.config/shell/interactive.d/70-integrations.bash	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev
+dotfiles-dev	home/.config/shell/interactive.d/80-dev-integrations.zsh	split-shell	config	old:.config/shell/interactive.d/70-integrations.zsh	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev
+dotfiles-dev	home/.config/sley/verify.d/dotfiles.json	sley	config	old:.config/sley/verify.d/dotfiles.json	d3	owner=dotfiles-dev; source=locked-dotfiles; family=sley
+dotfiles-dev	home/.config/sley/verify.d/README.md	sley	docs	old:.config/sley/verify.d/README.md	d3	owner=dotfiles-dev; source=locked-dotfiles; family=sley
+dotfiles-dev	home/.gitleaks.toml	git-workflow	config	old:.gitleaks.toml	d3	owner=dotfiles-dev; source=locked-dotfiles; family=git-workflow
+dotfiles-dev	home/.local/bin/hm	agent-tooling	runtime	old:.local/bin/hm	d3	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling; family=agent-tooling
+dotfiles-dev	home/.local/lib/dotfiles/doctor.d/20-dev-tools.sh	split-doctor	doctor	old:.local/lib/dotfiles/doctor.d/20-tools.sh	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev
+dotfiles-dev	home/.local/lib/dotfiles/doctor.d/30-dev-shell-integrations.sh	split-doctor	doctor	old:.local/lib/dotfiles/doctor.d/30-shell-integrations.sh	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev
+dotfiles-dev	home/.local/lib/dotfiles/doctor.d/31-git-hooks.sh	git-workflow	doctor	old:.local/lib/dotfiles/doctor.d/31-git-hooks.sh	d3	owner=dotfiles-dev; source=locked-dotfiles; family=git-workflow
+dotfiles-dev	home/.local/lib/dotfiles/doctor.d/40-agent-hooks.sh	agent-tooling	doctor	old:.local/lib/dotfiles/doctor.d/40-agent-hooks.sh	d3	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling; family=agent-tooling
+dotfiles-dev	home/.local/lib/dotfiles/doctor.d/50-hive-memory.sh	agent-tooling	doctor	old:.local/lib/dotfiles/doctor.d/50-hive-memory.sh	d3	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling; family=agent-tooling
+dotfiles-dev	home/.local/lib/dotfiles/doctor.d/75-nvim-dev.sh	split-nvim	doctor	old:.local/lib/dotfiles/doctor.d/70-nvim.sh	d3	owner=dotfiles-dev; source=locked-dotfiles; family=nvim-dev
+dotfiles-dev	home/.local/lib/dotfiles/doctor.d/lib/agent-hooks.sh	agent-tooling	doctor	old:.local/lib/dotfiles/doctor.d/lib/agent-hooks.sh	d3	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling; family=agent-tooling
+dotfiles-dev	home/.local/lib/dotfiles/doctor.d/lib/dev-integrations.sh	split-doctor	doctor	old:.local/lib/dotfiles/doctor.d/lib/integrations.sh	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev
+dotfiles-dev	home/.local/lib/dotfiles/doctor.d/lib/dev-tools.sh	split-doctor	doctor	old:.local/lib/dotfiles/doctor.d/lib/tools.sh	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev
+dotfiles-dev	home/.local/lib/dotfiles/doctor.d/lib/nvim-dev.sh	split-nvim	doctor	old:.local/lib/dotfiles/doctor.d/lib/nvim.sh	d3	owner=dotfiles-dev; source=locked-dotfiles; family=nvim-dev
+dotfiles-dev	home/.local/lib/dotfiles/git-hooks/commit-msg	git-workflow	runtime	old:.local/lib/dotfiles/git-hooks/commit-msg	d3	owner=dotfiles-dev; source=locked-dotfiles; family=git-workflow
+dotfiles-dev	home/.local/lib/dotfiles/git-hooks/pre-applypatch	git-workflow	runtime	old:.local/lib/dotfiles/git-hooks/pre-applypatch	d3	owner=dotfiles-dev; source=locked-dotfiles; family=git-workflow
+dotfiles-dev	home/.local/lib/dotfiles/git-hooks/pre-commit	git-workflow	runtime	old:.local/lib/dotfiles/git-hooks/pre-commit	d3	owner=dotfiles-dev; source=locked-dotfiles; family=git-workflow
+dotfiles-dev	home/.local/lib/dotfiles/git-hooks/pre-merge-commit	git-workflow	runtime	old:.local/lib/dotfiles/git-hooks/pre-merge-commit	d3	owner=dotfiles-dev; source=locked-dotfiles; family=git-workflow
+dotfiles-dev	home/.local/lib/dotfiles/git-hooks/prepare-commit-msg	git-workflow	runtime	old:.local/lib/dotfiles/git-hooks/prepare-commit-msg	d3	owner=dotfiles-dev; source=locked-dotfiles; family=git-workflow
+dotfiles-dev	home/.local/lib/dotfiles/git-hooks/README.md	git-workflow	docs	old:.local/lib/dotfiles/git-hooks/README.md	d3	owner=dotfiles-dev; source=locked-dotfiles; family=git-workflow
+dotfiles-dev	home/.local/lib/dotfiles/git-hooks/sley-commit-gate	sley	runtime	old:.local/lib/dotfiles/git-hooks/sley-commit-gate	d3	owner=dotfiles-dev; source=locked-dotfiles; family=sley
+dotfiles-dev	home/.local/lib/dotfiles/git-hooks/sley-provider-hook	sley	runtime	old:.local/lib/dotfiles/git-hooks/sley-provider-hook	d3	owner=dotfiles-dev; source=locked-dotfiles; family=sley
+dotfiles-dev	home/.local/lib/dotfiles/merge-hooks.d/claude.sh	agent-tooling	runtime	old:.local/lib/dotfiles/merge-hooks.d/claude.sh	d3	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling; family=agent-tooling
+dotfiles-dev	home/.local/lib/dotfiles/merge-hooks.d/codex.sh	agent-tooling	runtime	old:.local/lib/dotfiles/merge-hooks.d/codex.sh	d3	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling; family=agent-tooling
+dotfiles-dev	home/.local/lib/dotfiles/merge-hooks.d/gemini.sh	agent-tooling	runtime	old:.local/lib/dotfiles/merge-hooks.d/gemini.sh	d3	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling; family=agent-tooling
+dotfiles-dev	home/.local/lib/dotfiles/merge-hooks.d/gh.sh	local-lib-dotfiles-merge-hooks-d-gh-sh	runtime	old:.local/lib/dotfiles/merge-hooks.d/gh.sh	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev
+dotfiles-dev	home/.local/lib/dotfiles/merge-hooks.d/git.sh	git-workflow	runtime	old:.local/lib/dotfiles/merge-hooks.d/git.sh	d3	owner=dotfiles-dev; source=locked-dotfiles; family=git-workflow
+dotfiles-dev	home/.local/lib/dotfiles/merge-hooks.d/gstack.sh	agent-tooling	runtime	old:.local/lib/dotfiles/merge-hooks.d/gstack.sh	d3	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling; family=agent-tooling
+dotfiles-dev	home/.local/lib/dotfiles/merge-hooks.d/hive-memory.sh	agent-tooling	runtime	old:.local/lib/dotfiles/merge-hooks.d/hive-memory.sh	d3	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling; family=agent-tooling
+dotfiles-dev	home/.local/lib/dotfiles/merge-hooks.d/lib/codex/api.sh	agent-tooling	runtime	old:.local/lib/dotfiles/merge-hooks.d/lib/codex/api.sh	d3	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling; family=agent-tooling
+dotfiles-dev	home/.local/lib/dotfiles/merge-hooks.d/lib/codex/refresh-trust.py	agent-tooling	runtime	old:.local/lib/dotfiles/merge-hooks.d/lib/codex/refresh-trust.py	d3	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling; family=agent-tooling
+dotfiles-dev	home/.local/lib/dotfiles/merge-hooks.d/lib/codex/toml-render.py	agent-tooling	runtime	old:.local/lib/dotfiles/merge-hooks.d/lib/codex/toml-render.py	d3	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling; family=agent-tooling
+dotfiles-dev	home/.local/lib/dotfiles/merge-hooks.d/mise.sh	dev-toolchain	runtime	old:.local/lib/dotfiles/merge-hooks.d/mise.sh	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev-toolchain
+dotfiles-dev	home/.local/lib/dotfiles/merge-hooks.d/muse.sh	agent-tooling	runtime	old:.local/lib/dotfiles/merge-hooks.d/muse.sh	d3	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling; family=agent-tooling
+dotfiles-dev	home/.local/lib/dotfiles/merge-hooks.d/opencode.sh	agent-tooling	runtime	old:.local/lib/dotfiles/merge-hooks.d/opencode.sh	d3	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling; family=agent-tooling
+dotfiles-dev	home/.local/lib/dotfiles/merge-hooks.d/sapling.sh	local-lib-dotfiles-merge-hooks-d-sapling-sh	runtime	old:.local/lib/dotfiles/merge-hooks.d/sapling.sh	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev
+dotfiles-dev	home/.local/lib/dotfiles/merge-hooks.d/vscode.sh	vscode	runtime	old:.local/lib/dotfiles/merge-hooks.d/vscode.sh	d3	owner=dotfiles-dev; source=locked-dotfiles; family=vscode
+dotfiles-dev	home/.local/lib/dotfiles/sley-hooks/README.md	sley	docs	old:.local/lib/dotfiles/sley-hooks/README.md	d3	owner=dotfiles-dev; source=locked-dotfiles; family=sley
+dotfiles-dev	home/.local/lib/dotfiles/sley-hooks/validate-commit-msg	sley	runtime	old:.local/lib/dotfiles/sley-hooks/validate-commit-msg	d3	owner=dotfiles-dev; source=locked-dotfiles; family=sley
+dotfiles-dev	home/.local/lib/dotfiles/tests/agent-yolo-wrappers-test	agent-tooling	test	old:.local/lib/dotfiles/tests/agent-yolo-wrappers-test	d3	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling; family=agent-tooling
+dotfiles-dev	home/.local/lib/dotfiles/tests/dev-doctor-test	split-doctor	test	old:.local/lib/dotfiles/tests/core-doctor-test	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev
+dotfiles-dev	home/.local/lib/dotfiles/tests/dev-merges-test	split-tests	test	old:.local/lib/dotfiles/tests/core-merges-test	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev
+dotfiles-dev	home/.local/lib/dotfiles/tests/dev-static-test	split-tests	test	old:.local/lib/dotfiles/tests/core-static-test	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev
+dotfiles-dev	home/.local/lib/dotfiles/tests/dev-update-test	split-tests	test	old:.local/lib/dotfiles/tests/core-update-test	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev
+dotfiles-dev	home/.local/lib/dotfiles/tests/git-shell-workflows-test	git-workflow	test	old:.local/lib/dotfiles/tests/git-shell-workflows-test	d3	owner=dotfiles-dev; source=locked-dotfiles; family=git-workflow
+dotfiles-dev	home/.local/lib/dotfiles/tests/githook-test	git-workflow	test	old:.local/lib/dotfiles/tests/githook-test	d3	owner=dotfiles-dev; source=locked-dotfiles; family=git-workflow
+dotfiles-dev	home/.local/lib/dotfiles/tests/gstack-register-test	agent-tooling	test	old:.local/lib/dotfiles/tests/gstack-register-test	d3	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling; family=agent-tooling
+dotfiles-dev	home/.local/lib/dotfiles/tests/lua-dev-test	split-tests	test	old:.local/lib/dotfiles/tests/lua-test	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev
+dotfiles-dev	home/.local/lib/dotfiles/tests/mise-refresh-workflow-test	dev-toolchain	test	old:.local/lib/dotfiles/tests/mise-refresh-workflow-test	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev-toolchain
+dotfiles-dev	home/.local/lib/dotfiles/tests/dev/README.md	split-tests	test	old:.local/lib/dotfiles/tests/README.md	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev
+dotfiles-dev	home/.local/lib/dotfiles/tests/schema-associations-test	checkrun	test	old:.local/lib/dotfiles/tests/schema-associations-test	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.local/lib/dotfiles/tests/schema-refresh-workflow-test	checkrun	test	old:.local/lib/dotfiles/tests/schema-refresh-workflow-test	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.local/lib/dotfiles/tests/dev-shdeps-hooks-test	split-shdeps	test	old:.local/lib/dotfiles/tests/shdeps-hooks-test	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev
+dotfiles-dev	home/.local/lib/dotfiles/tests/dev-tool-init-test	split-tests	test	old:.local/lib/dotfiles/tests/tool-init-test	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev
+dotfiles-dev	home/.local/lib/dotfiles/tests/validate-commit-msg-test	sley	test	old:.local/lib/dotfiles/tests/validate-commit-msg-test	d3	owner=dotfiles-dev; source=locked-dotfiles; family=sley
+dotfiles-dev	home/.local/lib/dotfiles/tests/vscode-extensions-test	vscode	test	old:.local/lib/dotfiles/tests/vscode-extensions-test	d3	owner=dotfiles-dev; source=locked-dotfiles; family=vscode
+dotfiles-dev	home/.local/lib/dotfiles/tests/vscode-sley-test	vscode	test	old:.local/lib/dotfiles/tests/vscode-sley-test	d3	owner=dotfiles-dev; source=locked-dotfiles; family=vscode
+dotfiles-dev	home/.local/lib/dotfiles/tests/workflow-consistency-test	local-lib-dotfiles-tests-workflow-consistency-test	test	old:.local/lib/dotfiles/tests/workflow-consistency-test	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev
+dotfiles-dev	home/.local/share/checkrun/schemas/biome.schema.json	checkrun	config	old:.local/share/checkrun/schemas/biome.schema.json	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.local/share/checkrun/schemas/bottom.schema.json	checkrun	config	old:.local/share/checkrun/schemas/bottom.schema.json	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.local/share/checkrun/schemas/cargo-make.schema.json	checkrun	config	old:.local/share/checkrun/schemas/cargo-make.schema.json	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.local/share/checkrun/schemas/cargo.schema.json	checkrun	config	old:.local/share/checkrun/schemas/cargo.schema.json	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.local/share/checkrun/schemas/clang-format-21.schema.json	checkrun	config	old:.local/share/checkrun/schemas/clang-format-21.schema.json	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.local/share/checkrun/schemas/clang-tidy.schema.json	checkrun	config	old:.local/share/checkrun/schemas/clang-tidy.schema.json	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.local/share/checkrun/schemas/clangd.schema.json	checkrun	config	old:.local/share/checkrun/schemas/clangd.schema.json	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.local/share/checkrun/schemas/claude-code-marketplace.schema.json	checkrun	config	old:.local/share/checkrun/schemas/claude-code-marketplace.schema.json	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.local/share/checkrun/schemas/claude-code-plugin-manifest.schema.json	checkrun	config	old:.local/share/checkrun/schemas/claude-code-plugin-manifest.schema.json	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.local/share/checkrun/schemas/claude-code-settings.schema.json	checkrun	config	old:.local/share/checkrun/schemas/claude-code-settings.schema.json	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.local/share/checkrun/schemas/codex-config.schema.json	checkrun	config	old:.local/share/checkrun/schemas/codex-config.schema.json	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.local/share/checkrun/schemas/dependabot-v2.schema.json	checkrun	config	old:.local/share/checkrun/schemas/dependabot-v2.schema.json	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.local/share/checkrun/schemas/docker-compose.schema.json	checkrun	config	old:.local/share/checkrun/schemas/docker-compose.schema.json	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.local/share/checkrun/schemas/gemini-cli-settings.schema.json	checkrun	config	old:.local/share/checkrun/schemas/gemini-cli-settings.schema.json	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.local/share/checkrun/schemas/github-action.schema.json	checkrun	config	old:.local/share/checkrun/schemas/github-action.schema.json	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.local/share/checkrun/schemas/github-cli-config.schema.json	checkrun	config	old:.local/share/checkrun/schemas/github-cli-config.schema.json	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.local/share/checkrun/schemas/github-workflow.schema.json	checkrun	config	old:.local/share/checkrun/schemas/github-workflow.schema.json	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.local/share/checkrun/schemas/gitleaks.schema.json	checkrun	config	old:.local/share/checkrun/schemas/gitleaks.schema.json	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.local/share/checkrun/schemas/golangci-lint-v2.schema.json	checkrun	config	old:.local/share/checkrun/schemas/golangci-lint-v2.schema.json	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.local/share/checkrun/schemas/hadolint.schema.json	checkrun	config	old:.local/share/checkrun/schemas/hadolint.schema.json	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.local/share/checkrun/schemas/hatch.schema.json	checkrun	config	old:.local/share/checkrun/schemas/hatch.schema.json	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.local/share/checkrun/schemas/lazygit.schema.json	checkrun	config	old:.local/share/checkrun/schemas/lazygit.schema.json	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.local/share/checkrun/schemas/mise.schema.json	checkrun	config	old:.local/share/checkrun/schemas/mise.schema.json	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.local/share/checkrun/schemas/nextest-repo.schema.json	checkrun	config	old:.local/share/checkrun/schemas/nextest-repo.schema.json	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.local/share/checkrun/schemas/package.schema.json	checkrun	config	old:.local/share/checkrun/schemas/package.schema.json	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.local/share/checkrun/schemas/pre-commit-config.schema.json	checkrun	config	old:.local/share/checkrun/schemas/pre-commit-config.schema.json	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.local/share/checkrun/schemas/pyproject.schema.json	checkrun	config	old:.local/share/checkrun/schemas/pyproject.schema.json	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.local/share/checkrun/schemas/README.md	checkrun	docs	old:.local/share/checkrun/schemas/README.md	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.local/share/checkrun/schemas/renovate.schema.json	checkrun	config	old:.local/share/checkrun/schemas/renovate.schema.json	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.local/share/checkrun/schemas/rubocop.schema.json	checkrun	config	old:.local/share/checkrun/schemas/rubocop.schema.json	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.local/share/checkrun/schemas/ruff.schema.json	checkrun	config	old:.local/share/checkrun/schemas/ruff.schema.json	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.local/share/checkrun/schemas/rumdl.schema.json	checkrun	config	old:.local/share/checkrun/schemas/rumdl.schema.json	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.local/share/checkrun/schemas/rustfmt.schema.json	checkrun	config	old:.local/share/checkrun/schemas/rustfmt.schema.json	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.local/share/checkrun/schemas/stylua.schema.json	checkrun	config	old:.local/share/checkrun/schemas/stylua.schema.json	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.local/share/checkrun/schemas/taplo.schema.json	checkrun	config	old:.local/share/checkrun/schemas/taplo.schema.json	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.local/share/checkrun/schemas/tox.schema.json	checkrun	config	old:.local/share/checkrun/schemas/tox.schema.json	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.local/share/checkrun/schemas/typos.schema.json	checkrun	config	old:.local/share/checkrun/schemas/typos.schema.json	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.local/share/checkrun/schemas/uv.schema.json	checkrun	config	old:.local/share/checkrun/schemas/uv.schema.json	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles-dev	home/.local/share/checkrun/schemas/yamlfmt.schema.json	checkrun	config	old:.local/share/checkrun/schemas/yamlfmt.schema.json	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
+dotfiles	.local/share/doc/dotfiles/superpowers/plans/2026-07-06-vscode-tab-consistency.md	repository-history	docs	old:.local/share/doc/dotfiles/superpowers/plans/2026-07-06-vscode-tab-consistency.md	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/share/doc/dotfiles/superpowers/plans/2026-08-02-android-developer-tools.md	repository-history	docs	old:.local/share/doc/dotfiles/superpowers/plans/2026-08-02-android-developer-tools.md	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/share/doc/dotfiles/superpowers/plans/2026-08-03-opencode-agentguard-hooks.md	repository-history	docs	old:.local/share/doc/dotfiles/superpowers/plans/2026-08-03-opencode-agentguard-hooks.md	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/share/doc/dotfiles/superpowers/specs/2026-07-06-vscode-tab-consistency-design.md	repository-history	docs	old:.local/share/doc/dotfiles/superpowers/specs/2026-07-06-vscode-tab-consistency-design.md	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/share/doc/dotfiles/superpowers/specs/2026-07-28-vscode-new-buffer-save-design.md	repository-history	docs	old:.local/share/doc/dotfiles/superpowers/specs/2026-07-28-vscode-new-buffer-save-design.md	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/share/doc/dotfiles/superpowers/specs/2026-08-02-android-developer-tools-design.md	repository-history	docs	old:.local/share/doc/dotfiles/superpowers/specs/2026-08-02-android-developer-tools-design.md	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/share/doc/dotfiles/superpowers/specs/2026-08-03-opencode-agentguard-hooks-design.md	repository-history	docs	old:.local/share/doc/dotfiles/superpowers/specs/2026-08-03-opencode-agentguard-hooks-design.md	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles-dev	home/.vscode/README.md	vscode	docs	old:.vscode/README.md	d3	owner=dotfiles-dev; source=locked-dotfiles; family=vscode
+dotfiles-dev	home/.vscode/settings.json	vscode	config	old:.vscode/settings.json	d3	owner=dotfiles-dev; source=locked-dotfiles; family=vscode
+dotfiles-dev	LICENSE	repository-shared-bootstrap	repository	old:.github/LICENSE	bootstrap	owner=dotfiles-dev; source=locked-dotfiles
+dotfiles-dev	README.md	repository-dev	docs	new	bootstrap	owner=dotfiles-dev; source=new-public-bootstrap; family=dev
+dotfiles-dev	test/lib/capability-fixture.sh	repository-dev	test	new	bootstrap	owner=dotfiles-dev; source=new-public-bootstrap; family=dev
+dotfiles-dev	test/lib/wait-github-state.sh	repository-dev	test	new	bootstrap	owner=dotfiles-dev; source=new-public-bootstrap; family=dev
+dotfiles-dev	test/run	repository-dev	test	new	bootstrap	owner=dotfiles-dev; source=new-public-bootstrap; family=dev
+dotfiles-dev	test/workflow-test	repository-dev	test	new	bootstrap	owner=dotfiles-dev; source=new-public-bootstrap; family=dev
+dotfiles-nvim	.github/cgraf78-actions.lock	repository-shared-bootstrap	repository	old:.github/cgraf78-actions.lock	bootstrap	owner=dotfiles-nvim; source=locked-dotfiles
+dotfiles-nvim	.github/dot-test-suites.txt	repository-nvim	ci	new	bootstrap	owner=dotfiles-nvim; source=new-public-bootstrap
+dotfiles-nvim	.github/dot.lock	repository-nvim	repository	new	bootstrap	owner=dotfiles-nvim; source=new-public-bootstrap
+dotfiles-nvim	.github/dotfiles-source.lock	repository-nvim	repository	new	bootstrap	owner=dotfiles-nvim; source=new-public-bootstrap
+dotfiles-nvim	.github/repository-settings-endpoints.txt	repository-nvim	repository	new	bootstrap	owner=dotfiles-nvim; source=new-public-bootstrap
+dotfiles-nvim	.github/shellcheck-files.txt	repository-shared-bootstrap	repository	old:.github/shellcheck-files.txt	bootstrap	owner=dotfiles-nvim; source=locked-dotfiles
+dotfiles-nvim	.github/workflows/test.yml	repository-shared-bootstrap	ci	old:.github/workflows/test.yml	bootstrap	owner=dotfiles-nvim; source=locked-dotfiles
+dotfiles-nvim	.gitignore	repository-nvim	repository	new	bootstrap	owner=dotfiles-nvim; source=new-public-bootstrap
+dotfiles-nvim	home/.config/dot/merge-hooks.d/nvim/README.md	nvim-editor	docs	old:.config/dot/merge-hooks.d/nvim/README.md	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-nvim	home/.config/nvim/init.lua	nvim-editor	config	old:.config/nvim/init.lua	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-nvim	home/.config/nvim/lazyvim.json	split-nvim	config	old:.config/nvim/lazyvim.json	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-nvim	home/.config/nvim/lua/config/autocmds.lua	nvim-editor	config	old:.config/nvim/lua/config/autocmds.lua	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-nvim	home/.config/nvim/lua/config/command-palette.lua	nvim-editor	config	old:.config/nvim/lua/config/command-palette.lua	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-nvim	home/.config/nvim/lua/config/diagnostics.lua	nvim-editor	config	old:.config/nvim/lua/config/diagnostics.lua	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-nvim	home/.config/nvim/lua/config/dot-runtime.lua	nvim-editor	config	old:.config/nvim/lua/config/dot-runtime.lua	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-nvim	home/.config/nvim/lua/config/keymaps.lua	nvim-editor	config	old:.config/nvim/lua/config/keymaps.lua	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-nvim	home/.config/nvim/lua/config/keymaps/README.md	nvim-editor	docs	old:.config/nvim/lua/config/keymaps/README.md	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-nvim	home/.config/nvim/lua/config/keymaps/workspace.lua	split-nvim	config	old:.config/nvim/lua/config/keymaps/workspace.lua	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-nvim	home/.config/nvim/lua/config/lazy-update-lock.lua	nvim-editor	config	old:.config/nvim/lua/config/lazy-update-lock.lua	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-nvim	home/.config/nvim/lua/config/lazy.lua	nvim-editor	config	old:.config/nvim/lua/config/lazy.lua	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-nvim	home/.config/nvim/lua/config/nvim-workspace.lua	nvim-editor	config	old:.config/nvim/lua/config/nvim-workspace.lua	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-nvim	home/.config/nvim/lua/config/options.lua	nvim-editor	config	old:.config/nvim/lua/config/options.lua	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-nvim	home/.config/nvim/lua/config/README.md	split-nvim	docs	old:.config/nvim/lua/config/README.md	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-nvim	home/.config/nvim/lua/config/termnav.lua	nvim-editor	config	old:.config/nvim/lua/config/termnav.lua	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-nvim	home/.config/nvim/lua/config/window-focus.lua	nvim-editor	config	old:.config/nvim/lua/config/window-focus.lua	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-nvim	home/.config/nvim/lua/plugins/colorscheme.lua	nvim-editor	config	old:.config/nvim/lua/plugins/colorscheme.lua	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-nvim	home/.config/nvim/lua/plugins/editor.lua	nvim-editor	config	old:.config/nvim/lua/plugins/editor.lua	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-nvim	home/.config/nvim/lua/plugins/git.lua	split-nvim	config	old:.config/nvim/lua/plugins/git.lua	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-nvim	home/.config/nvim/lua/plugins/README.md	split-nvim	docs	old:.config/nvim/lua/plugins/README.md	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-nvim	home/.config/nvim/lua/plugins/ui.lua	nvim-editor	config	old:.config/nvim/lua/plugins/ui.lua	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-nvim	home/.config/nvim/lua/plugins/workspace.lua	split-nvim	config	old:.config/nvim/lua/plugins/workspace.lua	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-nvim	home/.config/nvim/README.md	split-nvim	docs	old:.config/nvim/README.md	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-nvim	home/.config/nvim/selene.toml	nvim-editor	config	old:.config/nvim/selene.toml	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-nvim	home/.config/nvim/vim.yml	nvim-editor	config	old:.config/nvim/vim.yml	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-nvim	home/.config/ripgrep/config.editor	split-ripgrep	config	old:.config/ripgrep/config	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-nvim	home/.config/shdeps/20-nvim.conf	split-shdeps	dependency	old:.config/shdeps/10-deps.conf	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-nvim	home/.config/shdeps/hooks.d/neovim/neovim.sh	nvim-editor	dependency	old:.config/shdeps/hooks.d/neovim/neovim.sh	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-nvim	home/.config/shdeps/hooks.d/README-nvim.md	split-shdeps	docs	old:.config/shdeps/hooks.d/README.md	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-nvim	home/.config/shdeps/README-nvim.md	split-shdeps	docs	old:.config/shdeps/README.md	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-nvim	home/.config/shell/env.d/60-editor.sh	split-shell	config	old:.config/shell/env.d/60-tools.sh	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-nvim	home/.config/shell/interactive.d/60-editor-aliases.sh	split-shell	config	old:.config/shell/interactive.d/50-aliases.sh	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-nvim	home/.config/tmux/conf.d/20-editor.conf	split-tmux	config	old:.config/tmux/tmux.conf	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-nvim	home/.local/bin/nvim	nvim-editor	runtime	old:.local/bin/nvim	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-nvim	home/.local/lib/dotfiles/doctor.d/70-nvim.sh	split-nvim	doctor	old:.local/lib/dotfiles/doctor.d/70-nvim.sh	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-nvim	home/.local/lib/dotfiles/doctor.d/lib/nvim.sh	split-nvim	doctor	old:.local/lib/dotfiles/doctor.d/lib/nvim.sh	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-nvim	home/.local/lib/dotfiles/merge-hooks.d/nvim.sh	nvim-editor	runtime	old:.local/lib/dotfiles/merge-hooks.d/nvim.sh	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-nvim	home/.local/lib/dotfiles/tests/fixtures/nvim-link-routes.tsv	nvim-editor	test	old:.local/lib/dotfiles/tests/fixtures/nvim-link-routes.tsv	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-nvim	home/.local/lib/dotfiles/tests/link-routing-test	split-tests	test	old:.local/lib/dotfiles/tests/wezterm-test	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-nvim	home/.local/lib/dotfiles/tests/lua-test	split-tests	test	old:.local/lib/dotfiles/tests/lua-test	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-nvim	home/.local/lib/dotfiles/tests/nvim-doctor-test	split-doctor	test	old:.local/lib/dotfiles/tests/core-doctor-test	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-nvim	home/.local/lib/dotfiles/tests/nvim-merges-test	split-tests	test	old:.local/lib/dotfiles/tests/core-merges-test	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-nvim	home/.local/lib/dotfiles/tests/nvim-static-test	split-tests	test	old:.local/lib/dotfiles/tests/core-static-test	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-nvim	home/.local/lib/dotfiles/tests/nvim-test	split-nvim	test	old:.local/lib/dotfiles/tests/nvim-test	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-nvim	home/.local/lib/dotfiles/tests/nvim-update-test	split-tests	test	old:.local/lib/dotfiles/tests/core-update-test	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-nvim	home/.local/lib/dotfiles/tests/nvim/README.md	split-tests	test	old:.local/lib/dotfiles/tests/README.md	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-nvim	home/.local/lib/dotfiles/tests/nvim-shdeps-hooks-test	split-shdeps	test	old:.local/lib/dotfiles/tests/shdeps-hooks-test	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-nvim	home/.local/lib/dotfiles/tests/tmux-editor-test	split-tmux	test	old:.local/lib/dotfiles/tests/tmux-test	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles	.local/share/doc/dotfiles/superpowers/plans/2026-08-02-nvim-terminal-user-var-guard.md	repository-history	docs	old:.local/share/doc/dotfiles/superpowers/plans/2026-08-02-nvim-terminal-user-var-guard.md	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/share/doc/dotfiles/superpowers/specs/2026-08-02-nvim-terminal-user-var-guard-design.md	repository-history	docs	old:.local/share/doc/dotfiles/superpowers/specs/2026-08-02-nvim-terminal-user-var-guard-design.md	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles-nvim	LICENSE	repository-shared-bootstrap	repository	old:.github/LICENSE	bootstrap	owner=dotfiles-nvim; source=locked-dotfiles
+dotfiles-nvim	README.md	repository-nvim	docs	new	bootstrap	owner=dotfiles-nvim; source=new-public-bootstrap; family=nvim-editor
+dotfiles-nvim	test/lib/capability-fixture.sh	repository-nvim	test	new	bootstrap	owner=dotfiles-nvim; source=new-public-bootstrap; family=nvim-editor
+dotfiles-nvim	test/lib/wait-github-state.sh	repository-nvim	test	new	bootstrap	owner=dotfiles-nvim; source=new-public-bootstrap; family=nvim-editor
+dotfiles-nvim	test/run	repository-nvim	test	new	bootstrap	owner=dotfiles-nvim; source=new-public-bootstrap; family=nvim-editor
+dotfiles-nvim	test/workflow-test	repository-nvim	test	new	bootstrap	owner=dotfiles-nvim; source=new-public-bootstrap; family=nvim-editor
+dotfiles-nvim	docs/merge-hooks.md	split-docs	docs	old:.config/dot/merge-hooks.d/README.md	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-dev	docs/merge-hooks.md	split-docs	docs	old:.config/dot/merge-hooks.d/README.md	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev
+dotfiles-nvim	docs/shell.md	split-docs	docs	old:.config/shell/README.md	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-dev	docs/shell.md	split-docs	docs	old:.config/shell/README.md	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev
+dotfiles-nvim	docs/shell-environment.md	split-docs	docs	old:.config/shell/env.d/README.md	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-dev	docs/shell-environment.md	split-docs	docs	old:.config/shell/env.d/README.md	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev
+dotfiles-nvim	docs/shell-interactive.md	split-docs	docs	old:.config/shell/interactive.d/README.md	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-dev	docs/shell-interactive.md	split-docs	docs	old:.config/shell/interactive.d/README.md	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev
+dotfiles-nvim	docs/commands.md	split-docs	docs	old:.local/bin/README.md	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-dev	docs/commands.md	split-docs	docs	old:.local/bin/README.md	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev
+dotfiles-nvim	docs/runtime.md	split-docs	docs	old:.local/lib/dotfiles/README.md	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-dev	docs/runtime.md	split-docs	docs	old:.local/lib/dotfiles/README.md	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev
+dotfiles-dev	docs/ds.md	split-docs	docs	old:.config/ds/README.md	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev
+dotfiles-nvim	home/.config/shell/env.d/80-editor-defaults.sh	split-shell-core-env	config	old:.config/shell/env.d/50-core.sh	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-dev	home/.config/shell/env.d/80-dev-environment.sh	split-shell-core-env	config	old:.config/shell/env.d/50-core.sh	d3	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling; family=dev
+dotfiles-dev	home/.config/ds/profile.conf	agent-tooling	config	old:.config/ds/profile.conf	d3	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling; family=agent-tooling
+dotfiles-nvim	.github/dependabot.yml	repository-shared-bootstrap	ci	old:.github/dependabot.yml	bootstrap	owner=dotfiles-nvim; source=locked-dotfiles
+dotfiles-dev	.github/dependabot.yml	repository-shared-bootstrap	ci	old:.github/dependabot.yml	bootstrap	owner=dotfiles-dev; source=locked-dotfiles
+dotfiles-nvim	.github/workflows/retry-infrastructure.yml	repository-shared-bootstrap	ci	old:.github/workflows/retry-infrastructure.yml	bootstrap	owner=dotfiles-nvim; source=locked-dotfiles
+dotfiles-dev	.github/workflows/retry-infrastructure.yml	repository-shared-bootstrap	ci	old:.github/workflows/retry-infrastructure.yml	bootstrap	owner=dotfiles-dev; source=locked-dotfiles
+dotfiles-nvim	test/lib/repository-settings.sh	repository-nvim	test	new	bootstrap	owner=dotfiles-nvim; source=new-public-bootstrap; family=nvim-editor
+dotfiles-dev	test/lib/repository-settings.sh	repository-dev	test	new	bootstrap	owner=dotfiles-dev; source=new-public-bootstrap; family=dev
+dotfiles-nvim	home/.local/lib/dotfiles/tests/android-editor-ci-smoke	split-tests	test	old:.local/lib/dotfiles/tests/android-ci-smoke	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-dev	home/.local/lib/dotfiles/tests/android-dev-ci-smoke	split-tests	test	old:.local/lib/dotfiles/tests/android-ci-smoke	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev
+dotfiles-nvim	home/.local/lib/dotfiles/tests/nvim-launchers-test	split-tests	test	old:.local/lib/dotfiles/tests/core-launchers-test	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-dev	home/.local/lib/dotfiles/tests/dev-launchers-test	split-tests	test	old:.local/lib/dotfiles/tests/core-launchers-test	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev
+dotfiles-nvim	home/.local/lib/dotfiles/tests/nvim/core-README.md	split-tests	test	old:.local/lib/dotfiles/tests/core/README.md	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-dev	home/.local/lib/dotfiles/tests/dev/core-README.md	split-tests	test	old:.local/lib/dotfiles/tests/core/README.md	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev
+dotfiles-nvim	home/.local/lib/dotfiles/tests/nvim/doctor.sh	split-tests	test	old:.local/lib/dotfiles/tests/core/doctor.sh	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-dev	home/.local/lib/dotfiles/tests/dev/doctor.sh	split-tests	test	old:.local/lib/dotfiles/tests/core/doctor.sh	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev
+dotfiles-nvim	home/.local/lib/dotfiles/tests/nvim/launchers.sh	split-tests	test	old:.local/lib/dotfiles/tests/core/launchers.sh	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-dev	home/.local/lib/dotfiles/tests/dev/launchers.sh	split-tests	test	old:.local/lib/dotfiles/tests/core/launchers.sh	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev
+dotfiles-nvim	home/.local/lib/dotfiles/tests/nvim/merges.sh	split-tests	test	old:.local/lib/dotfiles/tests/core/merges.sh	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-dev	home/.local/lib/dotfiles/tests/dev/merges.sh	split-tests	test	old:.local/lib/dotfiles/tests/core/merges.sh	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev
+dotfiles-nvim	home/.local/lib/dotfiles/tests/nvim/static.sh	split-tests	test	old:.local/lib/dotfiles/tests/core/static.sh	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-dev	home/.local/lib/dotfiles/tests/dev/static.sh	split-tests	test	old:.local/lib/dotfiles/tests/core/static.sh	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev
+dotfiles-nvim	home/.local/lib/dotfiles/tests/nvim/helpers.sh	split-tests	test	old:.local/lib/dotfiles/tests/helpers.sh	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-dev	home/.local/lib/dotfiles/tests/dev/helpers.sh	split-tests	test	old:.local/lib/dotfiles/tests/helpers.sh	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev
+dotfiles-nvim	home/.local/lib/dotfiles/tests/nvim/load-merge-api.sh	split-tests	test	old:.local/lib/dotfiles/tests/load-merge-api.sh	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-dev	home/.local/lib/dotfiles/tests/dev/load-merge-api.sh	split-tests	test	old:.local/lib/dotfiles/tests/load-merge-api.sh	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev
+dotfiles-dev	docs/nvim/configuration.md	split-nvim	docs	old:.config/nvim/README.md	d3	owner=dotfiles-dev; source=locked-dotfiles; family=nvim-dev
+dotfiles-dev	docs/nvim/modules.md	split-nvim	docs	old:.config/nvim/lua/config/README.md	d3	owner=dotfiles-dev; source=locked-dotfiles; family=nvim-dev
+dotfiles-dev	docs/nvim/plugins.md	split-nvim	docs	old:.config/nvim/lua/plugins/README.md	d3	owner=dotfiles-dev; source=locked-dotfiles; family=nvim-dev
+dotfiles-dev	home/.config/nvim/lua/config/keymaps/workspace-dev.lua	split-nvim	config	old:.config/nvim/lua/config/keymaps/workspace.lua	d3	owner=dotfiles-dev; source=locked-dotfiles; family=nvim-dev
+dotfiles-dev	home/.config/nvim/lua/plugins/dev-extras.lua	split-nvim	config	old:.config/nvim/lazyvim.json	d3	owner=dotfiles-dev; source=locked-dotfiles; family=nvim-dev
+dotfiles-dev	home/.config/nvim/lua/plugins/workspace-dev.lua	split-nvim	config	old:.config/nvim/lua/plugins/workspace.lua	d3	owner=dotfiles-dev; source=locked-dotfiles; family=nvim-dev
+dotfiles-dev	home/.local/lib/dotfiles/tests/nvim-dev-test	split-nvim	test	old:.local/lib/dotfiles/tests/nvim-test	d3	owner=dotfiles-dev; source=locked-dotfiles; family=nvim-dev
+dotfiles-dev	home/.config/nvim/lua/config/keymaps/vscode.lua	vscode	config	old:.config/nvim/lua/config/keymaps/vscode.lua	d3	owner=dotfiles-dev; source=locked-dotfiles; family=vscode
+dotfiles-dev	home/.config/nvim/lua/config/keymaps/vscode/find.lua	vscode	config	old:.config/nvim/lua/config/keymaps/vscode/find.lua	d3	owner=dotfiles-dev; source=locked-dotfiles; family=vscode
+dotfiles-dev	home/.config/nvim/lua/config/keymaps/vscode/lsp.lua	vscode	config	old:.config/nvim/lua/config/keymaps/vscode/lsp.lua	d3	owner=dotfiles-dev; source=locked-dotfiles; family=vscode
+dotfiles-dev	home/.config/nvim/lua/config/keymaps/vscode/paste.lua	vscode	config	old:.config/nvim/lua/config/keymaps/vscode/paste.lua	d3	owner=dotfiles-dev; source=locked-dotfiles; family=vscode
+dotfiles-dev	home/.config/nvim/lua/config/keymaps/vscode/README.md	vscode	docs	old:.config/nvim/lua/config/keymaps/vscode/README.md	d3	owner=dotfiles-dev; source=locked-dotfiles; family=vscode
+dotfiles-dev	home/.config/nvim/lua/config/keymaps/vscode/replace.lua	vscode	config	old:.config/nvim/lua/config/keymaps/vscode/replace.lua	d3	owner=dotfiles-dev; source=locked-dotfiles; family=vscode
+dotfiles-dev	home/.config/nvim/lua/config/keymaps/vscode/selection.lua	vscode	config	old:.config/nvim/lua/config/keymaps/vscode/selection.lua	d3	owner=dotfiles-dev; source=locked-dotfiles; family=vscode
+dotfiles-dev	home/.config/mise/README.md	dev-toolchain	docs	old:.config/mise/README.md	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev-toolchain
+dotfiles-dev	home/.config/shell/interactive.d/57-git-tools.sh	git-workflow	config	old:.config/shell/interactive.d/57-git-tools.sh	d3	owner=dotfiles-dev; source=locked-dotfiles; family=git-workflow
+dotfiles-dev	.github/workflows/refresh-checkrun-schemas.yml	checkrun	ci	old:.github/workflows/refresh-checkrun-schemas.yml	d3	owner=dotfiles-dev; source=locked-dotfiles
+dotfiles-dev	.github/workflows/update-mise-lock.yml	dev-toolchain	ci	old:.github/workflows/update-mise-lock.yml	d3	owner=dotfiles-dev; source=locked-dotfiles

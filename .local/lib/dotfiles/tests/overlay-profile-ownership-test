@@ -1,0 +1,987 @@
+#!/usr/bin/env python3
+"""Validate the locked dotfiles split inventories.
+
+The manifests are intentionally data, not extraction code.  This validator
+keeps their schema and ownership invariants executable while allowing the D4
+staging tree to retain capability payload until the final D5 cutover.
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import re
+import subprocess
+import sys
+from collections import defaultdict
+from collections.abc import Callable
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[4]
+DOC = ROOT / ".local/share/doc/dotfiles"
+SOURCE_LOCK = DOC / "overlay-profile-source.lock"
+BASELINE = DOC / "overlay-profile-baseline-disposition.tsv"
+FINAL = DOC / "overlay-profile-final-ownership.tsv"
+
+BASELINE_HEADER = (
+    "source_path",
+    "component_id",
+    "category",
+    "transform",
+    "d4_action",
+    "d5_action",
+    "ownership_note",
+)
+FINAL_HEADER = (
+    "repository",
+    "destination_path",
+    "component_id",
+    "category",
+    "origin",
+    "available_by",
+    "ownership_note",
+)
+
+REPOSITORIES = {"dotfiles", "dotfiles-nvim", "dotfiles-dev"}
+CATEGORIES = {
+    "control",
+    "config",
+    "dependency",
+    "runtime",
+    "test",
+    "doctor",
+    "docs",
+    "ci",
+    "repository",
+}
+TRANSFORMS = {"keep", "delete", "split"}
+ACTIONS = {"keep", "remove", "rewrite", "none"}
+PHASES = {"bootstrap": 0, "d2": 1, "d3": 1, "d4": 2, "d5": 3}
+FULL_SHA = re.compile(r"[0-9a-f]{40}")
+SAFE_ID = re.compile(r"[a-z0-9][a-z0-9-]*")
+
+CAPABILITY_METADATA = {
+    ".github/workflows/test.yml",
+    ".github/dot-test-suites.txt",
+    ".github/shellcheck-files.txt",
+    ".github/cgraf78-actions.lock",
+    ".github/dependabot.yml",
+    ".github/dot.lock",
+    ".github/dotfiles-source.lock",
+    ".github/repository-settings-endpoints.txt",
+    ".github/workflows/retry-infrastructure.yml",
+    ".gitignore",
+    "LICENSE",
+    "README.md",
+    "test/run",
+    "test/workflow-test",
+    "test/lib/capability-fixture.sh",
+    "test/lib/repository-settings.sh",
+    "test/lib/wait-github-state.sh",
+}
+
+ROOT_METADATA = {
+    ".github/dot-test-suites.txt",
+    ".github/overlay-profile-stack.lock",
+    ".local/lib/dotfiles/tests/overlay-profile-ownership-test",
+    ".local/share/doc/dotfiles/overlay-profile-baseline-disposition.tsv",
+    ".local/share/doc/dotfiles/overlay-profile-final-ownership.tsv",
+    ".local/share/doc/dotfiles/overlay-profile-source.lock",
+    ".local/share/doc/dotfiles/superpowers/plans/2026-08-26-overlay-profile-disaggregation.md",
+}
+
+FUNCTIONAL_CATEGORIES = {"config", "dependency", "runtime", "test", "doctor", "docs"}
+FAMILY_OWNERS = {
+    "base": "dotfiles",
+    "nvim-editor": "dotfiles-nvim",
+    "dev": "dotfiles-dev",
+    "agent-tooling": "dotfiles-dev",
+    "git-workflow": "dotfiles-dev",
+    "checkrun": "dotfiles-dev",
+    "vscode": "dotfiles-dev",
+    "sley": "dotfiles-dev",
+    "dev-toolchain": "dotfiles-dev",
+    "nvim-dev": "dotfiles-dev",
+}
+
+# Split component IDs are lineage identifiers for specific reviewed legacy
+# containers.  Keep this closed list: accepting every `split-*` spelling would
+# let a bad ownership assignment opt itself out of component cohesion.
+SPLIT_POLICIES = {
+    "repository-shared-bootstrap": {
+        "owners": {"dotfiles", "dotfiles-nvim", "dotfiles-dev"},
+        "prefixes": (".github/",),
+        "categories": {"repository", "ci"},
+    },
+    "split-docs": {
+        "owners": {"dotfiles", "dotfiles-nvim", "dotfiles-dev"},
+        "paths": {
+            ".config/dot/merge-hooks.d/README.md",
+            ".config/ds/README.md",
+            ".config/shell/README.md",
+            ".config/shell/env.d/README.md",
+            ".config/shell/interactive.d/README.md",
+            ".local/bin/README.md",
+            ".local/lib/dotfiles/README.md",
+        },
+        "categories": {"docs"},
+    },
+    "split-doctor": {
+        "owners": {"dotfiles", "dotfiles-nvim", "dotfiles-dev"},
+        "prefixes": (".local/lib/dotfiles/doctor.d/",),
+        "paths": {".local/lib/dotfiles/tests/core-doctor-test"},
+        "categories": {"doctor", "test"},
+    },
+    "split-nvim": {
+        "owners": {"dotfiles-nvim", "dotfiles-dev"},
+        "prefixes": (".config/nvim/",),
+        "paths": {
+            ".local/lib/dotfiles/doctor.d/70-nvim.sh",
+            ".local/lib/dotfiles/doctor.d/lib/nvim.sh",
+            ".local/lib/dotfiles/tests/nvim-test",
+        },
+        "categories": {"config", "docs", "test", "doctor"},
+    },
+    "split-ripgrep": {
+        "owners": {"dotfiles", "dotfiles-nvim"},
+        "paths": {".config/ripgrep/config"},
+        "categories": {"config"},
+    },
+    "split-shdeps": {
+        "owners": {"dotfiles", "dotfiles-nvim", "dotfiles-dev"},
+        "prefixes": (".config/shdeps/",),
+        "paths": {".local/lib/dotfiles/tests/shdeps-hooks-test"},
+        "categories": {"dependency", "docs", "test"},
+    },
+    "split-shell": {
+        "owners": {"dotfiles", "dotfiles-nvim", "dotfiles-dev"},
+        "prefixes": (".config/shell/",),
+        "categories": {"config"},
+    },
+    "split-shell-core-env": {
+        "owners": {"dotfiles", "dotfiles-nvim", "dotfiles-dev"},
+        "paths": {".config/shell/env.d/50-core.sh"},
+        "categories": {"config"},
+    },
+    "split-tests": {
+        "owners": {"dotfiles", "dotfiles-nvim", "dotfiles-dev"},
+        "prefixes": (".local/lib/dotfiles/tests/",),
+        "categories": {"test"},
+    },
+    "split-tmux": {
+        "owners": {"dotfiles", "dotfiles-nvim"},
+        "paths": {
+            ".config/tmux/tmux.conf",
+            ".local/lib/dotfiles/tests/tmux-test",
+        },
+        "categories": {"config", "test"},
+    },
+}
+
+REQUIRED_DESTINATIONS = {
+    ("dotfiles", ".config/shell/env.d/50-core.sh"): (
+        "old:.config/shell/env.d/50-core.sh",
+        "base",
+    ),
+    ("dotfiles-nvim", "home/.config/shell/env.d/80-editor-defaults.sh"): (
+        "old:.config/shell/env.d/50-core.sh",
+        "nvim-editor",
+    ),
+    ("dotfiles-dev", "home/.config/shell/env.d/80-dev-environment.sh"): (
+        "old:.config/shell/env.d/50-core.sh",
+        "dev",
+    ),
+    ("dotfiles-dev", "home/.config/ds/profile.conf"): (
+        "old:.config/ds/profile.conf",
+        "agent-tooling",
+    ),
+}
+
+REQUIRED_BASELINE = {
+    ".config/shell/env.d/50-core.sh": {
+        "component_id": "split-shell-core-env",
+        "transform": "split",
+        "d4_action": "keep",
+        "d5_action": "rewrite",
+        "owner": "mixed",
+    },
+    ".config/ds/profile.conf": {
+        "component_id": "agent-tooling",
+        "transform": "keep",
+        "d4_action": "keep",
+        "d5_action": "remove",
+        "owner": "dotfiles-dev",
+    },
+}
+for _stale_doc in SPLIT_POLICIES["split-docs"]["paths"]:
+    REQUIRED_BASELINE[_stale_doc] = {
+        "component_id": "split-docs",
+        "transform": "split",
+        "d4_action": "rewrite",
+        "d5_action": "keep",
+        "owner": "mixed",
+    }
+
+REQUIRED_SPLIT_SOURCE_OWNERS = {
+    ".config/shell/env.d/50-core.sh": {
+        "dotfiles",
+        "dotfiles-nvim",
+        "dotfiles-dev",
+    },
+    ".config/ds/README.md": {"dotfiles", "dotfiles-dev"},
+}
+for _stale_doc in SPLIT_POLICIES["split-docs"]["paths"] - {".config/ds/README.md"}:
+    REQUIRED_SPLIT_SOURCE_OWNERS[_stale_doc] = {
+        "dotfiles",
+        "dotfiles-nvim",
+        "dotfiles-dev",
+    }
+
+
+class Invalid(Exception):
+    """An ownership inventory invariant was violated."""
+
+
+def git(*args: str, cwd: Path = ROOT) -> str:
+    result = subprocess.run(
+        ["git", "-C", str(cwd), *args],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode:
+        raise Invalid(result.stderr.strip() or f"git {' '.join(args)} failed")
+    return result.stdout
+
+
+def load_tsv(path: Path, header: tuple[str, ...]) -> list[dict[str, str]]:
+    if not path.is_file():
+        raise Invalid(f"missing inventory: {path.relative_to(ROOT)}")
+    lines = path.read_text(encoding="utf-8").splitlines()
+    if not lines:
+        raise Invalid(f"empty inventory: {path.relative_to(ROOT)}")
+    actual_header = tuple(lines[0].split("\t"))
+    if actual_header != header:
+        raise Invalid(f"malformed header in {path.relative_to(ROOT)}")
+
+    rows: list[dict[str, str]] = []
+    for number, line in enumerate(lines[1:], 2):
+        fields = line.split("\t")
+        if len(fields) != len(header) or any(not field for field in fields):
+            raise Invalid(f"malformed row {path.relative_to(ROOT)}:{number}")
+        rows.append(dict(zip(header, fields, strict=True)))
+    return rows
+
+
+def note_value(note: str, key: str) -> str | None:
+    """Return one semicolon-delimited manifest annotation value."""
+
+    values: dict[str, str] = {}
+    for field in note.split(";"):
+        field = field.strip()
+        if "=" not in field:
+            continue
+        item_key, value = field.split("=", 1)
+        if item_key in values:
+            raise Invalid(f"duplicate ownership annotation: {item_key}")
+        values[item_key] = value
+    return values.get(key)
+
+
+def expected_agent_class(path: str) -> str | None:
+    """Classify tracked public agent surfaces without inspecting private overlays."""
+
+    normalized = path.removeprefix("home/")
+    if normalized.startswith(".config/agent-rules/"):
+        return "base-rule"
+    if "agent-rules" in normalized or normalized.endswith("agent-playbooks.sh"):
+        return "base-rule-aggregation"
+    dev_prefixes = (
+        ".config/dot/merge-hooks.d/claude/",
+        ".config/dot/merge-hooks.d/codex/",
+        ".config/dot/merge-hooks.d/gemini/",
+        ".config/dot/merge-hooks.d/gstack/",
+        ".config/dot/merge-hooks.d/hive-memory/",
+        ".config/dot/merge-hooks.d/muse/",
+        ".config/dot/merge-hooks.d/opencode/",
+        ".config/gstack-register/",
+        ".config/hive-memory/",
+        ".config/shdeps/hooks.d/garrytan/gstack.sh",
+        ".local/lib/dotfiles/merge-hooks.d/claude",
+        ".local/lib/dotfiles/merge-hooks.d/codex",
+        ".local/lib/dotfiles/merge-hooks.d/gemini",
+        ".local/lib/dotfiles/merge-hooks.d/gstack",
+        ".local/lib/dotfiles/merge-hooks.d/hive-memory",
+        ".local/lib/dotfiles/merge-hooks.d/lib/codex/",
+        ".local/lib/dotfiles/merge-hooks.d/muse",
+        ".local/lib/dotfiles/merge-hooks.d/opencode",
+    )
+    if (
+        normalized.startswith(dev_prefixes)
+        or any(
+            marker in normalized
+            for marker in (
+                "/agent-hooks",
+                "agent-yolo",
+                "gstack-register",
+                "hive-memory",
+            )
+        )
+        or normalized == ".local/bin/hm"
+    ):
+        return "dev-agent-tooling"
+    return None
+
+
+def expected_component(path: str, repository: str) -> str | None:
+    """Return the required semantic component for cohesive public families."""
+
+    normalized = path.removeprefix("home/")
+    agent_class = expected_agent_class(path)
+    if agent_class in {"base-rule", "base-rule-aggregation"}:
+        return "agent-rules"
+    if agent_class == "dev-agent-tooling" or normalized == ".config/ds/profile.conf":
+        return "agent-tooling"
+    if (
+        normalized.startswith((".config/checkrun/", ".local/share/checkrun/"))
+        or "/checkrun" in normalized
+        or normalized.endswith(
+            (
+                "schema-policy.lua",
+                "schema-associations-test",
+                "schema-refresh-workflow-test",
+            )
+        )
+    ):
+        return "checkrun"
+    if (
+        normalized.startswith((".config/git/", ".config/lazygit/"))
+        or (
+            normalized.startswith(".local/lib/dotfiles/git-hooks/")
+            and "/git-hooks/sley-" not in normalized
+        )
+        or normalized
+        in {
+            ".gitleaks.toml",
+            ".local/lib/dotfiles/doctor.d/31-git-hooks.sh",
+            ".local/lib/dotfiles/merge-hooks.d/git.sh",
+            ".local/lib/dotfiles/tests/git-shell-workflows-test",
+            ".local/lib/dotfiles/tests/githook-test",
+        }
+    ):
+        return "git-workflow"
+    if (
+        normalized.startswith(".vscode/")
+        or "/vscode/" in normalized
+        or "/vscode." in normalized
+        or normalized.endswith(
+            ("vscode.sh", "vscode-extensions-test", "vscode-sley-test")
+        )
+    ):
+        return "vscode"
+    if (
+        normalized.startswith((".config/sley/", ".local/lib/dotfiles/sley-hooks/"))
+        or "/sley" in normalized
+        or normalized.endswith("validate-commit-msg-test")
+    ):
+        return "sley"
+    if normalized.startswith(
+        (".config/mise/", ".config/direnv/")
+    ) or normalized.endswith(
+        ("mise.sh", "mise-refresh-workflow-test", "update-mise-lock.yml")
+    ):
+        return "dev-toolchain"
+    if normalized.startswith(".config/nvim/"):
+        return "nvim-dev" if repository == "dotfiles-dev" else "nvim-editor"
+    return None
+
+
+def split_path_allowed(component: str, source_path: str, category: str) -> bool:
+    policy = SPLIT_POLICIES[component]
+    if category not in policy["categories"]:
+        return False
+    return source_path in policy.get("paths", set()) or source_path.startswith(
+        policy.get("prefixes", ())
+    )
+
+
+def load_source_sha() -> str:
+    if not SOURCE_LOCK.is_file():
+        raise Invalid("missing source lock")
+    value = SOURCE_LOCK.read_text(encoding="utf-8")
+    if not value.endswith("\n") or value.count("\n") != 1:
+        raise Invalid("source lock must contain one newline-terminated SHA")
+    sha = value.rstrip("\n")
+    if not FULL_SHA.fullmatch(sha):
+        raise Invalid("source lock is not a full commit ID")
+    git("cat-file", "-e", f"{sha}^{{commit}}")
+    git("cat-file", "-e", f"{sha}:.github/LICENSE")
+    return sha
+
+
+def validate_capability_lock(repo_root: Path, source_sha: str) -> None:
+    path = repo_root / ".github/dotfiles-source.lock"
+    if not path.is_file():
+        raise Invalid(f"missing capability source lock: {path}")
+    values: dict[str, str] = {}
+    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if line.count("=") != 1:
+            raise Invalid(f"malformed capability source lock {path}:{number}")
+        key, value = line.split("=", 1)
+        if key in values or not key or not value:
+            raise Invalid(f"malformed capability source lock {path}:{number}")
+        values[key] = value
+    expected = {
+        "version": "1",
+        "repository": "cgraf78/dotfiles",
+        "commit": source_sha,
+        "license_path": ".github/LICENSE",
+    }
+    if values != expected:
+        raise Invalid(f"capability source lock disagrees with root lock: {path}")
+
+
+def validate_baseline(rows: list[dict[str, str]], source_sha: str) -> None:
+    by_path: dict[str, dict[str, str]] = {}
+    for row in rows:
+        path = row["source_path"]
+        if path in by_path:
+            raise Invalid(f"duplicate baseline path: {path}")
+        by_path[path] = row
+        if not SAFE_ID.fullmatch(row["component_id"]):
+            raise Invalid(f"invalid component ID for {path}: {row['component_id']}")
+        if row["category"] not in CATEGORIES:
+            raise Invalid(f"unknown baseline category for {path}: {row['category']}")
+        if row["transform"] not in TRANSFORMS:
+            raise Invalid(f"unknown transform for {path}: {row['transform']}")
+        if row["d4_action"] not in ACTIONS or row["d5_action"] not in ACTIONS:
+            raise Invalid(f"unknown action for {path}")
+        owner = note_value(row["ownership_note"], "owner")
+        if owner not in REPOSITORIES | {"mixed"}:
+            raise Invalid(f"unknown baseline owner for {path}: {owner}")
+        if row["transform"] == "split":
+            if row["component_id"] not in SPLIT_POLICIES:
+                raise Invalid(
+                    f"unapproved split component for {path}: {row['component_id']}"
+                )
+            if not split_path_allowed(row["component_id"], path, row["category"]):
+                raise Invalid(f"split component does not cover path/category: {path}")
+        elif row["component_id"] in SPLIT_POLICIES:
+            raise Invalid(f"split component used by non-split path: {path}")
+
+        actions = (row["transform"], row["d4_action"], row["d5_action"])
+        valid = (
+            actions == ("keep", "keep", "keep")
+            or actions == ("keep", "keep", "remove")
+            or actions == ("keep", "remove", "none")
+            or actions == ("keep", "rewrite", "keep")
+            or actions == ("delete", "keep", "remove")
+            or actions == ("delete", "remove", "none")
+            or (
+                row["transform"] == "split"
+                and row["d4_action"] in {"keep", "rewrite", "remove"}
+                and row["d5_action"] in {"keep", "rewrite", "remove", "none"}
+            )
+        )
+        if not valid:
+            raise Invalid(f"invalid transform/action combination for {path}: {actions}")
+
+        category = row["category"]
+        if (
+            owner not in {"dotfiles", "mixed"}
+            and category in {"test", "doctor", "docs", "ci"}
+            and (row["d4_action"] != "remove" or row["d5_action"] != "none")
+        ):
+            raise Invalid(f"capability {category} must leave root in D4: {path}")
+        if (
+            owner not in {"dotfiles", "mixed"}
+            and category in {"config", "dependency", "runtime"}
+            and row["d4_action"] == "remove"
+        ):
+            raise Invalid(f"capability {category} cannot leave root before D5: {path}")
+
+        expected_agent = expected_agent_class(path)
+        actual_agent = note_value(row["ownership_note"], "agent")
+        if actual_agent not in {
+            None,
+            "base-rule",
+            "base-rule-aggregation",
+            "dev-agent-tooling",
+        }:
+            raise Invalid(f"unknown agent classification for {path}: {actual_agent}")
+        if expected_agent and actual_agent != expected_agent:
+            raise Invalid(
+                f"agent classification mismatch for {path}: "
+                f"expected {expected_agent}, got {actual_agent}"
+            )
+
+    expected = set(git("ls-tree", "-r", "--name-only", source_sha).splitlines())
+    actual = set(by_path)
+    if actual != expected:
+        missing = sorted(expected - actual)
+        extra = sorted(actual - expected)
+        raise Invalid(
+            f"baseline path set differs from locked source; missing={missing} extra={extra}"
+        )
+    for path, required in REQUIRED_BASELINE.items():
+        row = by_path[path]
+        actual_values = {
+            key: note_value(row["ownership_note"], "owner")
+            if key == "owner"
+            else row[key]
+            for key in required
+        }
+        if actual_values != required:
+            raise Invalid(
+                f"required baseline ownership mismatch for {path}: "
+                f"expected {required}, got {actual_values}"
+            )
+
+
+def validate_agent_row(row: dict[str, str]) -> None:
+    path = row["destination_path"]
+    classification = note_value(row["ownership_note"], "agent")
+    if classification not in {
+        None,
+        "base-rule",
+        "base-rule-aggregation",
+        "dev-agent-tooling",
+    }:
+        raise Invalid(f"unknown agent classification for {path}: {classification}")
+    expected = expected_agent_class(path)
+    if expected and classification != expected:
+        raise Invalid(
+            f"agent classification mismatch for {row['repository']}:{path}: "
+            f"expected {expected}, got {classification}"
+        )
+    if classification is None:
+        return
+    if classification in {"base-rule", "base-rule-aggregation"}:
+        if row["repository"] != "dotfiles":
+            raise Invalid(f"base agent rule path assigned outside dotfiles: {path}")
+    elif row["repository"] != "dotfiles-dev":
+        raise Invalid(
+            f"development agent tooling assigned outside dotfiles-dev: {path}"
+        )
+
+
+def validate_final(rows: list[dict[str, str]], baseline: list[dict[str, str]]) -> None:
+    baseline_by_path = {row["source_path"]: row for row in baseline}
+    keys: set[tuple[str, str]] = set()
+    installed_owners: dict[str, str] = {}
+    rows_by_origin: dict[str, list[dict[str, str]]] = defaultdict(list)
+    owners_by_component: dict[str, set[str]] = defaultdict(set)
+    agent_classes_by_component: dict[str, set[str]] = defaultdict(set)
+
+    for row in rows:
+        repo = row["repository"]
+        path = row["destination_path"]
+        key = (repo, path)
+        if repo not in REPOSITORIES:
+            raise Invalid(f"unknown final repository: {repo}")
+        if key in keys:
+            raise Invalid(f"duplicate final destination: {repo}:{path}")
+        keys.add(key)
+        if row["category"] not in CATEGORIES:
+            raise Invalid(f"unknown final category for {repo}:{path}")
+        if not SAFE_ID.fullmatch(row["component_id"]):
+            raise Invalid(f"invalid final component ID for {repo}:{path}")
+        if row["available_by"] not in PHASES:
+            raise Invalid(f"unknown availability phase for {repo}:{path}")
+        origin = row["origin"]
+        annotated_owner = note_value(row["ownership_note"], "owner")
+        if annotated_owner != repo:
+            raise Invalid(
+                f"ownership note disagrees with repository for {repo}:{path}: "
+                f"{annotated_owner}"
+            )
+        if row["category"] in FUNCTIONAL_CATEGORIES:
+            family = note_value(row["ownership_note"], "family")
+            expected_owner = FAMILY_OWNERS.get(family or "")
+            if expected_owner is None:
+                raise Invalid(f"missing or unknown semantic family for {repo}:{path}")
+            if expected_owner != repo:
+                raise Invalid(
+                    f"semantic family owner mismatch for {repo}:{path}: {family}"
+                )
+        if origin != "new":
+            if not origin.startswith("old:") or origin[4:] not in baseline_by_path:
+                raise Invalid(f"unknown origin for {repo}:{path}: {origin}")
+            rows_by_origin[origin[4:]].append(row)
+            baseline_row = baseline_by_path[origin[4:]]
+            baseline_owner = note_value(baseline_row["ownership_note"], "owner")
+            if baseline_row["transform"] != "split":
+                if baseline_owner != repo:
+                    raise Invalid(f"non-split owner drift for {origin[4:]}")
+                if baseline_row["component_id"] != row["component_id"]:
+                    raise Invalid(f"non-split component drift for {origin[4:]}")
+                if baseline_row["category"] != row["category"]:
+                    raise Invalid(f"non-split category drift for {origin[4:]}")
+        if repo != "dotfiles" and not (
+            path.startswith(("home/", ".github/", "docs/", "test/"))
+            or path in {".gitignore", "LICENSE", "README.md"}
+        ):
+            raise Invalid(
+                f"capability path outside home/test/docs metadata roots: {repo}:{path}"
+            )
+        if repo == "dotfiles" and path.startswith("home/"):
+            raise Invalid(f"root path unexpectedly uses overlay home prefix: {path}")
+        installed_path = None
+        if repo == "dotfiles" and not (
+            path.startswith((".github/", "docs/", "test/"))
+            or path in {".gitignore", "LICENSE", "README.md"}
+        ):
+            installed_path = f"home/{path}"
+        elif path.startswith("home/"):
+            installed_path = path
+        if installed_path:
+            previous = installed_owners.get(installed_path)
+            if previous and previous != repo:
+                raise Invalid(
+                    f"installed path collision: {installed_path}: {previous}, {repo}"
+                )
+            installed_owners[installed_path] = repo
+        if repo == "dotfiles" and path.startswith(
+            (
+                ".config/checkrun/",
+                ".config/direnv/",
+                ".config/git/",
+                ".config/gstack-register/",
+                ".config/lazygit/",
+                ".config/nvim/",
+                ".config/sley/",
+                ".vscode/",
+            )
+        ):
+            raise Invalid(
+                f"capability implementation remains assigned to dotfiles: {path}"
+            )
+        if repo != "dotfiles" and path.startswith("home/.config/dot/profiles.d/"):
+            raise Invalid(
+                f"profile control plane assigned to capability overlay: {repo}:{path}"
+            )
+        if (
+            origin == "new"
+            and path not in ROOT_METADATA
+            and path not in CAPABILITY_METADATA
+            and not path.startswith((".config/", "home/", "test/", ".local/"))
+        ):
+            raise Invalid(f"unrecognized new metadata path: {repo}:{path}")
+
+        validate_agent_row(row)
+        semantic_component = expected_component(path, repo)
+        allowed_components = {semantic_component}
+        if semantic_component in {"nvim-editor", "nvim-dev"}:
+            allowed_components.add("split-nvim")
+        if semantic_component and row["component_id"] not in allowed_components:
+            raise Invalid(
+                f"semantic component mismatch for {repo}:{path}: "
+                f"expected {semantic_component}, got {row['component_id']}"
+            )
+        owners_by_component[row["component_id"]].add(repo)
+        agent_class = note_value(row["ownership_note"], "agent")
+        if agent_class:
+            agent_classes_by_component[row["component_id"]].add(agent_class)
+
+    for repo in ("dotfiles-nvim", "dotfiles-dev"):
+        missing = sorted(
+            path for path in CAPABILITY_METADATA if (repo, path) not in keys
+        )
+        if missing:
+            raise Invalid(f"missing {repo} metadata ownership rows: {missing}")
+        for path in CAPABILITY_METADATA - {
+            "LICENSE",
+            ".github/cgraf78-actions.lock",
+            ".github/dependabot.yml",
+            ".github/shellcheck-files.txt",
+            ".github/workflows/test.yml",
+            ".github/workflows/retry-infrastructure.yml",
+        }:
+            row = next(
+                item
+                for item in rows
+                if (item["repository"], item["destination_path"]) == (repo, path)
+            )
+            if row["origin"] != "new":
+                raise Invalid(
+                    f"new capability metadata lacks origin=new: {repo}:{path}"
+                )
+    missing_root = sorted(
+        path for path in ROOT_METADATA if ("dotfiles", path) not in keys
+    )
+    if missing_root:
+        raise Invalid(f"missing root metadata ownership rows: {missing_root}")
+
+    for source_path, baseline_row in baseline_by_path.items():
+        outputs = rows_by_origin.get(source_path, [])
+        if baseline_row["transform"] == "split":
+            if len(outputs) < 2:
+                raise Invalid(
+                    f"split baseline path lacks linked final outputs: {source_path}"
+                )
+            for output in outputs:
+                if output["component_id"] != baseline_row["component_id"]:
+                    raise Invalid(f"split component ID drift for {source_path}")
+        elif baseline_row["transform"] == "keep" and not outputs:
+            raise Invalid(f"kept baseline path lacks a final owner: {source_path}")
+        elif baseline_row["transform"] == "keep" and len(outputs) != 1:
+            raise Invalid(
+                f"non-split baseline path has multiple final owners: {source_path}"
+            )
+        elif baseline_row["transform"] == "delete" and outputs:
+            raise Invalid(
+                f"deleted baseline path still has final owners: {source_path}"
+            )
+        if baseline_row["d4_action"] == "rewrite" and not any(
+            output["repository"] == "dotfiles"
+            and PHASES[output["available_by"]] <= PHASES["d4"]
+            for output in outputs
+        ):
+            raise Invalid(f"D4 rewrite lacks a D4 root output: {source_path}")
+        if baseline_row["d5_action"] == "rewrite" and not any(
+            output["repository"] == "dotfiles" and output["available_by"] == "d5"
+            for output in outputs
+        ):
+            raise Invalid(f"D5 rewrite lacks a D5 root output: {source_path}")
+        expected_source_owners = REQUIRED_SPLIT_SOURCE_OWNERS.get(source_path)
+        if expected_source_owners is not None:
+            actual_source_owners = {output["repository"] for output in outputs}
+            if actual_source_owners != expected_source_owners:
+                raise Invalid(
+                    f"required split owners mismatch for {source_path}: "
+                    f"expected {sorted(expected_source_owners)}, "
+                    f"got {sorted(actual_source_owners)}"
+                )
+
+    for component, owners in owners_by_component.items():
+        if component in SPLIT_POLICIES:
+            expected_owners = SPLIT_POLICIES[component]["owners"]
+            if owners != expected_owners:
+                raise Invalid(
+                    f"split component owner set mismatch: {component}: "
+                    f"expected {sorted(expected_owners)}, got {sorted(owners)}"
+                )
+        elif len(owners) > 1:
+            raise Invalid(
+                f"component has multiple owners: {component}: {sorted(owners)}"
+            )
+    for component, classes in agent_classes_by_component.items():
+        if "dev-agent-tooling" in classes and len(classes) != 1:
+            raise Invalid(
+                f"agent component mixes base and dev classifications: {component}"
+            )
+
+    by_key = {(row["repository"], row["destination_path"]): row for row in rows}
+    for key, (origin, family) in REQUIRED_DESTINATIONS.items():
+        row = by_key.get(key)
+        if row is None:
+            raise Invalid(f"missing required semantic destination: {key[0]}:{key[1]}")
+        if (
+            row["origin"] != origin
+            or note_value(row["ownership_note"], "family") != family
+        ):
+            raise Invalid(f"incorrect semantic destination mapping: {key[0]}:{key[1]}")
+
+
+def tracked(root: Path) -> set[str]:
+    return set(git("ls-files", cwd=root).splitlines())
+
+
+def validate_phase(
+    phase: str,
+    baseline: list[dict[str, str]],
+    final: list[dict[str, str]],
+    repo_roots: dict[str, Path],
+) -> None:
+    if phase == "inventory":
+        return
+    for name, root in repo_roots.items():
+        if not root.is_dir():
+            raise Invalid(f"missing repository root for {name}: {root}")
+
+    if phase == "d5":
+        for repo, root in repo_roots.items():
+            expected = {
+                row["destination_path"] for row in final if row["repository"] == repo
+            }
+            actual = tracked(root)
+            if actual != expected:
+                raise Invalid(
+                    f"final tracked paths differ for {repo}; "
+                    f"missing={sorted(expected - actual)} extra={sorted(actual - expected)}"
+                )
+        return
+
+    expected_root = {
+        row["source_path"] for row in baseline if row["d4_action"] == "keep"
+    }
+    expected_root.update(
+        row["destination_path"]
+        for row in final
+        if row["repository"] == "dotfiles"
+        and PHASES[row["available_by"]] <= PHASES["d4"]
+    )
+    actual_root = tracked(repo_roots["dotfiles"])
+    if actual_root != expected_root:
+        raise Invalid(
+            "D4 root tracked paths differ from disposition; "
+            f"missing={sorted(expected_root - actual_root)} extra={sorted(actual_root - expected_root)}"
+        )
+    for repo in ("dotfiles-nvim", "dotfiles-dev"):
+        expected = {
+            row["destination_path"]
+            for row in final
+            if row["repository"] == repo and PHASES[row["available_by"]] <= PHASES["d4"]
+        }
+        actual = tracked(repo_roots[repo])
+        if actual != expected:
+            raise Invalid(
+                f"D4 tracked paths differ for {repo}; "
+                f"missing={sorted(expected - actual)} extra={sorted(actual - expected)}"
+            )
+
+
+def expect_invalid(label: str, operation: Callable[[], None]) -> None:
+    """Require one validator mutation probe to fail for the intended invariant."""
+
+    try:
+        operation()
+    except Invalid:
+        return
+    raise Invalid(f"negative validator probe unexpectedly passed: {label}")
+
+
+def run_negative_probes(
+    baseline: list[dict[str, str]], final: list[dict[str, str]], source_sha: str
+) -> None:
+    """Prove reviewed boundary errors cannot be hidden by manifest relabeling."""
+
+    def baseline_mutation(path: str, **changes: str) -> list[dict[str, str]]:
+        rows = [row.copy() for row in baseline]
+        row = next(item for item in rows if item["source_path"] == path)
+        row.update(changes)
+        return rows
+
+    expect_invalid(
+        "base environment cannot retain editor/dev policy",
+        lambda: validate_baseline(
+            baseline_mutation(
+                ".config/shell/env.d/50-core.sh",
+                component_id="shell-base",
+                transform="keep",
+                d5_action="keep",
+                ownership_note="owner=dotfiles; source=mutation",
+            ),
+            source_sha,
+        ),
+    )
+    expect_invalid(
+        "Claude ds profile cannot move back to base",
+        lambda: validate_baseline(
+            baseline_mutation(
+                ".config/ds/profile.conf",
+                component_id="config-ds-profile-conf",
+                d5_action="keep",
+                ownership_note="owner=dotfiles; source=mutation",
+            ),
+            source_sha,
+        ),
+    )
+    expect_invalid(
+        "stale root documentation must retain split ownership",
+        lambda: validate_baseline(
+            baseline_mutation(
+                ".local/bin/README.md",
+                component_id="local-bin-readme",
+                transform="keep",
+                d4_action="keep",
+                ownership_note="owner=dotfiles; source=mutation",
+            ),
+            source_sha,
+        ),
+    )
+
+    missing_dev_doc = [
+        row.copy()
+        for row in final
+        if not (
+            row["repository"] == "dotfiles-dev"
+            and row["origin"] == "old:.local/lib/dotfiles/README.md"
+        )
+    ]
+    expect_invalid(
+        "split runtime documentation requires its dev owner",
+        lambda: validate_final(missing_dev_doc, baseline),
+    )
+
+    changed_baseline = [row.copy() for row in baseline]
+    changed_final = [row.copy() for row in final]
+    source_path = ".config/checkrun/associations.json"
+    next(row for row in changed_baseline if row["source_path"] == source_path)[
+        "component_id"
+    ] = "arbitrary-component"
+    next(row for row in changed_final if row["origin"] == f"old:{source_path}")[
+        "component_id"
+    ] = "arbitrary-component"
+    expect_invalid(
+        "arbitrary component IDs cannot bypass semantic ownership",
+        lambda: validate_final(changed_final, changed_baseline),
+    )
+
+    for category in sorted(FUNCTIONAL_CATEGORIES):
+        changed = [row.copy() for row in final]
+        row = next(
+            item
+            for item in changed
+            if item["category"] == category and item["repository"] != "dotfiles"
+        )
+        family = note_value(row["ownership_note"], "family")
+        row["ownership_note"] = row["ownership_note"].replace(
+            f"family={family}", "family=base"
+        )
+        expect_invalid(
+            f"generic {category} ownership mismatch",
+            lambda rows=changed: validate_final(rows, baseline),
+        )
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--phase", choices=("inventory", "d4", "d5"), default="inventory"
+    )
+    parser.add_argument("--nvim-root", type=Path)
+    parser.add_argument("--dev-root", type=Path)
+    return parser.parse_args()
+
+
+def main() -> int:
+    args = parse_args()
+    try:
+        source_sha = load_source_sha()
+        baseline = load_tsv(BASELINE, BASELINE_HEADER)
+        final = load_tsv(FINAL, FINAL_HEADER)
+        validate_baseline(baseline, source_sha)
+        validate_final(final, baseline)
+        run_negative_probes(baseline, final, source_sha)
+
+        repo_roots = {
+            "dotfiles": ROOT,
+            "dotfiles-nvim": args.nvim_root
+            or Path(os.environ.get("DOTFILES_NVIM_ROOT", "")),
+            "dotfiles-dev": args.dev_root
+            or Path(os.environ.get("DOTFILES_DEV_ROOT", "")),
+        }
+        if args.phase != "inventory":
+            validate_capability_lock(repo_roots["dotfiles-nvim"], source_sha)
+            validate_capability_lock(repo_roots["dotfiles-dev"], source_sha)
+        validate_phase(args.phase, baseline, final, repo_roots)
+    except Invalid as error:
+        print(f"overlay-profile-ownership-test: FAIL: {error}", file=sys.stderr)
+        return 1
+    print(f"overlay-profile-ownership-test: PASS ({args.phase})")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
