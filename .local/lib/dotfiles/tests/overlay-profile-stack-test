@@ -140,11 +140,18 @@ if [[ ${1:-} != --runtime-only ]]; then
     _assert_eq 'stack lock format version' 1 "$version"
     _assert_eq 'stack source matches immutable extraction source' \
       "$(<"$source_lock")" "$source_sha"
+    runtime_binding_valid=0
+    if [[ ${DOT_TEST:-0} == 1 ]]; then
+      [[ ${DOT_TEST_DOT_ROOT:-} == "${DOT_STACK_DOT_ROOT:-}" ]] &&
+        runtime_binding_valid=1
+    elif [[ $(command -v dot 2>/dev/null) == "${DOT_STACK_DOT_BIN:-}" ]]; then
+      runtime_binding_valid=1
+    fi
     if [[ ${DOT_STACK_RUNTIME:-0} == 1 &&
       ${DOT_STACK_DOT_SHA:-} == "$dot_sha" &&
       ${DOT_STACK_DOT_ROOT:-} == /* &&
       ${DOT_STACK_DOT_BIN:-} == "${DOT_STACK_DOT_ROOT:-}/bin/dot" &&
-      $(command -v dot 2>/dev/null) == "${DOT_STACK_DOT_BIN:-}" &&
+      $runtime_binding_valid -eq 1 &&
       $(git -C "${DOT_STACK_DOT_ROOT:-/nonexistent}" rev-parse HEAD 2>/dev/null) == "$dot_sha" ]]; then
       _pass 'full stack integration runs through the exact locked D1 runtime'
     else

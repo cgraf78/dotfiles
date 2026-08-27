@@ -957,6 +957,15 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def report_result(passed: int, failed: int) -> None:
+    reporter = os.environ.get("DOT_TEST_REPORTER")
+    if reporter:
+        subprocess.run(
+            [reporter, "complete", str(passed), str(failed)],
+            check=True,
+        )
+
+
 def main() -> int:
     args = parse_args()
     try:
@@ -980,8 +989,10 @@ def main() -> int:
         validate_phase(args.phase, baseline, final, repo_roots)
     except Invalid as error:
         print(f"overlay-profile-ownership-test: FAIL: {error}", file=sys.stderr)
+        report_result(0, 1)
         return 1
     print(f"overlay-profile-ownership-test: PASS ({args.phase})")
+    report_result(1, 0)
     return 0
 
 
