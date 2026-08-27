@@ -57,6 +57,15 @@ dot_core_test_static() {
     "name: Installed profile composition" "$workflow"
   _assert_contains "CI workflow: executes unfiltered installed profile tests" \
     "stack-dot-runtime installed-profile-dot-test" "$workflow"
+  _assert_contains "CI workflow: pins the installed-profile Neovim release" \
+    "neovim/releases/download/v0.12.2/nvim-linux-x86_64.tar.gz" "$workflow"
+  _assert_contains "CI workflow: verifies the installed-profile Neovim binary" \
+    "fe333ad1dddfeb4b15169859287369207443477288737d4b94c07df7647ae21e" "$workflow"
+  _assert_contains "CI workflow: passes the audited Neovim runtime explicitly" \
+    "DOT_STACK_NVIM_BIN:" "$workflow"
+  _assert_contains "installed profile gate rejects Neovim suite skips" \
+    "installed dot test has no Neovim coverage skip" \
+    "$(<"$root/.local/lib/dotfiles/tests/profile-fixture-integration")"
   _assert_contains "CI workflow: retains full platform coverage" \
     "matrix-set: full" "$workflow"
   _assert_not_contains "CI workflow: forwards no repository secrets" \

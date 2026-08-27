@@ -98,11 +98,28 @@ jobs:
           profiles: base,jq,python,zsh,lua,neovim,tmux,openssh-netcat-lsof,procps,cron,fd,ripgrep,shellcheck
           setup: none
 
+      - name: Install pinned Neovim integration runtime
+        shell: bash
+        run: |-
+          set -euo pipefail
+          install_root="$RUNNER_TEMP/neovim-0.12.2"
+          archive="$RUNNER_TEMP/neovim-0.12.2.tar.gz"
+          mkdir -p "$install_root"
+          curl --fail --location --retry 3 --retry-all-errors \
+            --output "$archive" \
+            https://github.com/neovim/neovim/releases/download/v0.12.2/nvim-linux-x86_64.tar.gz
+          tar -xzf "$archive" --strip-components=1 -C "$install_root"
+          printf '%s  %s\n' \
+            fe333ad1dddfeb4b15169859287369207443477288737d4b94c07df7647ae21e \
+            "$install_root/bin/nvim" | sha256sum --check --strict
+
       - name: Test unfiltered installed profiles
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           GITHUB_TOKEN: ${{ github.token }}
+          DOT_STACK_NVIM_BIN: ${{ runner.temp }}/neovim-0.12.2/bin/nvim
+          DOT_STACK_NVIM_DATA_HOME: ${{ runner.temp }}/dot-profile-nvim-data
         run: |-
           set -euo pipefail
           export DOTFILES_CANDIDATE_SHA='${{ github.event.pull_request.head.sha || github.sha }}'

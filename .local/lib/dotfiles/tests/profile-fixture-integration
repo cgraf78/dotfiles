@@ -88,7 +88,23 @@ _test_prefer_system_git || {
 git_bin=$(type -P git)
 python_bin=$(type -P python3)
 agent_rules_sync=$(type -P agent-rules-sync 2>/dev/null || true)
-nvim_bin=$host_home/.local/share/neovim/neovim/bin/nvim
+nvim_bin=${DOT_STACK_NVIM_BIN:-$(type -P nvim 2>/dev/null || true)}
+nvim_data_home=${DOT_STACK_NVIM_DATA_HOME:-$host_home/.local/share}
+if [[ $nvim_bin != /* || ! -x $nvim_bin || -d $nvim_bin ]]; then
+  _fail 'profile fixtures have an explicit executable Neovim runtime'
+  _test_summary
+fi
+nvim_version=$($nvim_bin --version 2>/dev/null | sed -n '1s/^NVIM v//p')
+case $nvim_version in
+  0.11.[2-9]* | 0.1[2-9].* | [1-9].*) ;;
+  *)
+    _fail 'profile fixtures use Neovim 0.11.2 or newer'
+    _test_summary
+    ;;
+esac
+mkdir -p "$nvim_data_home"
+_pass 'profile fixtures have an explicit executable Neovim runtime'
+_pass 'profile fixtures use Neovim 0.11.2 or newer'
 fixture_bin=$(_tmpdir)
 ln -s "$git_bin" "$fixture_bin/git"
 ln -s "$python_bin" "$fixture_bin/python3"
@@ -193,7 +209,7 @@ run_in_home() {
     DOT_TEST_HOST_HOME="$host_home" \
     DOT_TEST_AGENT_RULES_SYNC_PROVIDER="$agent_rules_sync" \
     NVIM_TEST_BIN="$nvim_bin" \
-    NVIM_TEST_DATA_HOME="$host_home/.local/share" \
+    NVIM_TEST_DATA_HOME="$nvim_data_home" \
     SHDEPS_INSTALL_DIR="$host_home/.local/share" \
     SHDEPS_GIT_DEV_DIR="$host_home/git" \
     PATH="$home/.local/bin:$fixture_path" \
@@ -516,6 +532,13 @@ for profile in base editor dev; do
       esac
       run_in_home "$home" "$DOT_STACK_DOT_BIN" test "$test_suite" \
         >"$test_log" 2>&1 || test_status=$?
+      if grep -Ei 'SKIP:.*(nvim|neovim)|requires Neovim|nvim unavailable' \
+        "$test_log" >/dev/null; then
+        _fail "$profile installed dot test has no Neovim coverage skip"
+        sed -n '/SKIP:/p' "$test_log" >&2
+      else
+        _pass "$profile installed dot test has no Neovim coverage skip"
+      fi
       if [[ $test_status -ne 0 ]]; then
         sed 's/^/    /' "$test_log"
       fi
