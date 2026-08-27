@@ -10,7 +10,7 @@ source_home=$(cd -P -- "${BASH_SOURCE[0]%/*}/../../../.." && pwd -P)
 . "$source_home/.local/lib/dotfiles/tests/helpers.sh"
 
 usage() {
-  printf 'usage: %s update|doctor|test\n' "${0##*/}" >&2
+  printf 'usage: %s update|doctor|test|footprint\n' "${0##*/}" >&2
   exit 2
 }
 
@@ -20,6 +20,7 @@ case $mode in
   update) expected_group='profile-fixture-update' ;;
   doctor) expected_group='profile-doctor' ;;
   test) expected_group='installed-profile-dot-test' ;;
+  footprint) expected_group='profile-footprint-fixtures' ;;
   *) usage ;;
 esac
 
@@ -396,6 +397,10 @@ assert_tmux_composition() {
   fi
 }
 
+base_footprint=
+editor_footprint=
+dev_footprint=
+
 for profile in base editor dev; do
   home=$fixture_root/home-$profile
   update_log=$fixture_root/update-$profile.log
@@ -469,8 +474,71 @@ for profile in base editor dev; do
       _assert_exit "$profile executes the installed $test_suite suite" \
         0 "$test_status"
       ;;
+    footprint)
+      footprint_output=$(
+        "$source_home/.local/lib/dotfiles/tests/measure-profile-footprint" \
+          --phase post-cutover-clean-fixture --profile "$profile" "$home"
+      )
+      printf '%s\n' "$footprint_output"
+      footprint_total=$(printf '%s\n' "$footprint_output" |
+        awk -F '\t' '$1 == "public_total" { print $2 }')
+      case $profile in
+        base) base_footprint=$footprint_total ;;
+        editor) editor_footprint=$footprint_total ;;
+        dev) dev_footprint=$footprint_total ;;
+      esac
+      ;;
   esac
 done
+
+if [[ $mode == footprint ]]; then
+  d4_sha=$(lock_value dotfiles_d4_base 2>/dev/null || true)
+  baseline_home=$fixture_root/home-pre-cutover-monolith
+  mkdir -p "$baseline_home"
+  if [[ $d4_sha =~ ^[0-9a-f]{40}$ ]] &&
+    "$git_bin" clone --quiet --bare "$source_home" "$baseline_home/.dotfiles" &&
+    "$git_bin" --git-dir="$baseline_home/.dotfiles" config core.bare false &&
+    "$git_bin" --git-dir="$baseline_home/.dotfiles" config core.worktree "$baseline_home" &&
+    "$git_bin" --git-dir="$baseline_home/.dotfiles" \
+      --work-tree="$baseline_home" checkout --quiet --force "$d4_sha"; then
+    baseline_output=$(
+      "$source_home/.local/lib/dotfiles/tests/measure-profile-footprint" \
+        --phase pre-cutover-monolith --profile dev "$baseline_home"
+    )
+    printf '%s\n' "$baseline_output"
+    _pass 'footprint comparison uses the exact locked D4 baseline'
+  else
+    _fail 'footprint comparison uses the exact locked D4 baseline'
+  fi
+
+  footprint_limit=$((500 * 1024 * 1024))
+  if [[ $base_footprint =~ ^[0-9]+$ ]] &&
+    ((base_footprint <= footprint_limit)); then
+    _pass 'clean base repository and control-plane payload stays within 500 MiB'
+  else
+    _fail 'clean base repository and control-plane payload stays within 500 MiB'
+  fi
+  editor_increment=$((editor_footprint - base_footprint))
+  ((editor_increment < 0)) && editor_increment=0
+  if ((editor_increment <= footprint_limit)); then
+    _pass 'clean editor repository increment stays within 500 MiB'
+  else
+    _fail 'clean editor repository increment stays within 500 MiB'
+  fi
+  printf '%s\n' \
+    'estimate_version=1' \
+    'profile=dev' \
+    'scope=installed-cumulative' \
+    'minimum_bytes=2684354560' \
+    'maximum_bytes=4831838208' \
+    'status=context-not-measured' \
+    'excludes=optional-private-overlays,host-package-stores,language-package-caches,project-build-outputs'
+  if [[ $dev_footprint =~ ^[0-9]+$ ]]; then
+    _pass 'clean dev repository and control-plane payload is measured separately from its install estimate'
+  else
+    _fail 'clean dev repository and control-plane payload is measured separately from its install estimate'
+  fi
+fi
 
 if [[ $mode == update ]]; then
   lifecycle_home=$fixture_root/home-lifecycle

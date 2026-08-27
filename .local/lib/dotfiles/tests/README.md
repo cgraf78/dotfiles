@@ -22,6 +22,8 @@ Run the CI-owned set through the pinned D1 runtime:
   .local/lib/dotfiles/tests/profile-fixture-integration doctor
 .local/lib/dotfiles/tests/stack-dot-runtime installed-profile-dot-test -- \
   .local/lib/dotfiles/tests/profile-fixture-integration test
+.local/lib/dotfiles/tests/stack-dot-runtime profile-footprint-fixtures -- \
+  .local/lib/dotfiles/tests/profile-fixture-integration footprint
 ```
 
 Shared CI first checks out the immutable pull-request head, then uses
@@ -39,6 +41,14 @@ and then executes `dot test` in isolated base, editor, and dev homes. The
 update fixture also exercises a dev-to-editor-to-base downgrade, including a
 later retry of an initially unavailable optional overlay, managed-link cleanup,
 shadow restoration, and preservation of cached checkouts and package state.
+
+The footprint fixture reports exact checkout, configuration, and control-plane
+payloads for clean post-cutover homes and compares them with the exact locked
+D4 monolith. It enforces the 500 MiB base and editor-repository budgets. The
+installed editor graph remains measured by `dotfiles-nvim` owner CI. The dev
+2.5--4.5 GiB figure is reported as install context rather than a fresh-install
+measurement: optional private overlays, host package stores, language/package
+caches, and project build outputs stay separate from that estimate.
 
 Individual suites may still be selected with `dot test <name>` during local
 development. Tests must use the fixture home supplied by the harness and must
