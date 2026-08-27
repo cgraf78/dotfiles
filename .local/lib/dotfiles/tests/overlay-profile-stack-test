@@ -724,7 +724,7 @@ GIT
       else
         _fail 'immutable production descriptors remain clean'
       fi
-      _assert_eq 'immutable D4 source checkout remains entirely clean' '' \
+      _assert_eq 'immutable root source checkout remains entirely clean' '' \
         "$(git -C "$source_home" status --porcelain)"
     fi
   fi

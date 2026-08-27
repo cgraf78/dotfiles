@@ -242,6 +242,7 @@ dotfiles-dev	.github/shellcheck-files.txt	repository-shared-bootstrap	repository
 dotfiles-dev	.github/workflows/test.yml	repository-shared-bootstrap	ci	old:.github/workflows/test.yml	bootstrap	owner=dotfiles-dev; source=locked-dotfiles
 dotfiles-dev	.selene.toml	repository-dev	ci	new	d3	owner=dotfiles-dev; source=new; family=nvim-dev
 dotfiles-dev	.gitignore	repository-dev	repository	new	bootstrap	owner=dotfiles-dev; source=new-public-bootstrap
+dotfiles-dev	.selene.toml	repository-dev	ci	new	d3	owner=dotfiles-dev; source=new; family=nvim-dev
 dotfiles-dev	home/.config/checkrun/associations.json	checkrun	config	old:.config/checkrun/associations.json	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
 dotfiles-dev	home/.config/checkrun/biome.json	checkrun	config	old:.config/checkrun/biome.json	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
 dotfiles-dev	home/.config/checkrun/checkmake.ini	checkrun	config	old:.config/checkrun/checkmake.ini	d3	owner=dotfiles-dev; source=locked-dotfiles; family=checkrun
@@ -386,6 +387,7 @@ dotfiles-dev	home/.local/lib/dotfiles/tests/dev-doctor-test	split-doctor	test	ol
 dotfiles-dev	home/.local/lib/dotfiles/tests/dev-merges-test	split-tests	test	old:.local/lib/dotfiles/tests/core-merges-test	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev
 dotfiles-dev	home/.local/lib/dotfiles/tests/dev-static-test	split-tests	test	old:.local/lib/dotfiles/tests/core-static-test	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev
 dotfiles-dev	home/.local/lib/dotfiles/tests/dev-update-test	split-tests	test	old:.local/lib/dotfiles/tests/core-update-test	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev
+dotfiles-dev	home/.local/lib/dotfiles/tests/fixtures/common-language-policy.json	local-lib-dotfiles-tests-fixtures-common-language-policy-json	test	old:.local/lib/dotfiles/tests/fixtures/common-language-policy.json	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev
 dotfiles-dev	home/.local/lib/dotfiles/tests/git-shell-workflows-test	git-workflow	test	old:.local/lib/dotfiles/tests/git-shell-workflows-test	d3	owner=dotfiles-dev; source=locked-dotfiles; family=git-workflow
 dotfiles-dev	home/.local/lib/dotfiles/tests/githook-test	git-workflow	test	old:.local/lib/dotfiles/tests/githook-test	d3	owner=dotfiles-dev; source=locked-dotfiles; family=git-workflow
 dotfiles-dev	home/.local/lib/dotfiles/tests/gstack-register-test	agent-tooling	test	old:.local/lib/dotfiles/tests/gstack-register-test	d3	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling; family=agent-tooling
@@ -450,6 +452,7 @@ dotfiles-dev	home/.vscode/README.md	vscode	docs	old:.vscode/README.md	d3	owner=d
 dotfiles-dev	home/.vscode/settings.json	vscode	config	old:.vscode/settings.json	d3	owner=dotfiles-dev; source=locked-dotfiles; family=vscode
 dotfiles-dev	LICENSE	repository-shared-bootstrap	repository	old:.github/LICENSE	bootstrap	owner=dotfiles-dev; source=locked-dotfiles
 dotfiles-dev	README.md	repository-dev	docs	new	bootstrap	owner=dotfiles-dev; source=new-public-bootstrap; family=dev
+dotfiles-dev	vim.yml	repository-dev	ci	new	d3	owner=dotfiles-dev; source=new; family=nvim-dev
 dotfiles-dev	test/lib/capability-fixture.sh	repository-dev	test	new	bootstrap	owner=dotfiles-dev; source=new-public-bootstrap; family=dev
 dotfiles-dev	test/lib/wait-github-state.sh	repository-dev	test	new	bootstrap	owner=dotfiles-dev; source=new-public-bootstrap; family=dev
 dotfiles-dev	test/run	repository-dev	test	new	bootstrap	owner=dotfiles-dev; source=new-public-bootstrap; family=dev

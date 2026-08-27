@@ -80,6 +80,37 @@ jobs:
       # GitHub resolves literal `uses:` refs before repository files are read.
       - uses: cgraf78/actions/.github/actions/verify-consumer-sync@b97bd729afec784785bd01ebd43321225ef47bb7
 
+  installed-profiles:
+    name: Installed profile composition
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Install profile test prerequisites
+        uses: cgraf78/actions/.github/actions/shell-ci-prereqs@de3f6086e36a77eec8ee62f2c9871266e4b5c05c
+        with:
+          matrix-name: Ubuntu
+          profiles: base,jq,python,zsh,lua,neovim,tmux,openssh-netcat-lsof,procps,cron,fd,ripgrep,shellcheck
+          setup: none
+
+      - name: Test unfiltered installed profiles
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |-
+          set -euo pipefail
+          export DOTFILES_CANDIDATE_SHA='${{ github.event.pull_request.head.sha || github.sha }}'
+          .local/lib/dotfiles/tests/checkout-ci-candidate
+          .local/lib/dotfiles/tests/run-ci-candidate-home \
+            .local/lib/dotfiles/tests/stack-dot-runtime installed-profile-dot-test -- \
+              .local/lib/dotfiles/tests/profile-fixture-integration test
+
   cold-bootstrap:
     name: Cold Ubuntu default-profile bootstrap
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'

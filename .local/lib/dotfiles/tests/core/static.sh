@@ -53,6 +53,10 @@ dot_core_test_static() {
     "stack-dot-runtime control-plane-run-ci" "$workflow"
   _assert_contains "CI workflow: cold bootstrap uses the locked wrapper" \
     "stack-dot-runtime reproducible-cold-bootstrap" "$workflow"
+  _assert_contains "CI workflow: runs one Ubuntu installed-profile composition gate" \
+    "name: Installed profile composition" "$workflow"
+  _assert_contains "CI workflow: executes unfiltered installed profile tests" \
+    "stack-dot-runtime installed-profile-dot-test" "$workflow"
   _assert_contains "CI workflow: retains full platform coverage" \
     "matrix-set: full" "$workflow"
   _assert_not_contains "CI workflow: forwards no repository secrets" \

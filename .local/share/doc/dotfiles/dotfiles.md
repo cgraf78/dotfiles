@@ -147,7 +147,7 @@ only on selected repositories that already exist.
 
 | Profile | Planning footprint |
 | --- | --- |
-| `base` | about 0.6--0.8 GiB on the Linux GitHub/font-fallback path; about 0.2 GiB is repository/control-plane payload and about 463 MiB is the three installed Nerd Font families |
+| `base` | about 0.6--0.8 GiB on the Linux GitHub/font-fallback path; the canonical clean fixture measures about 6 MiB of repository/control-plane payload, while the three installed Nerd Font families account for about 463 MiB |
 | `editor` | about 0.8--1.0 GiB cumulative; the current active Nvim executable, config, state, cache, and plugin graph add about 186 MiB |
 | `dev` | about 2.5--4.5 GiB cumulative before project build outputs |
 

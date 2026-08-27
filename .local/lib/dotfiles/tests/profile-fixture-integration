@@ -192,9 +192,6 @@ run_in_home() {
     DOT_TEST_SOURCE_HOME="$home" \
     DOT_TEST_HOST_HOME="$host_home" \
     DOT_TEST_AGENT_RULES_SYNC_PROVIDER="$agent_rules_sync" \
-    DOT_TEST_DEV_REPO_ROOT="$home/.dotfiles-dev" \
-    DOT_PROFILE_FIXTURE=1 \
-    DOT_PROFILE_FIXTURE_PROFILE="$profile" \
     NVIM_TEST_BIN="$nvim_bin" \
     NVIM_TEST_DATA_HOME="$host_home/.local/share" \
     SHDEPS_INSTALL_DIR="$host_home/.local/share" \
@@ -226,8 +223,33 @@ nested_ci_credentials=$(GH_TOKEN=gh GITHUB_TOKEN=github \
 _assert_eq 'profile fixtures isolate outer CI credentials' \
   'unset:unset:unset:unset:unset:unset' "$nested_ci_credentials"
 
+install_dot_runtime() {
+  local home=$1 install=$1/.local/share/cgraf78/dot actual
+  mkdir -p "${install%/*}"
+  "$git_bin" -C "${install%/*}" init --quiet "${install##*/}" || return 1
+  "$git_bin" -C "$install" remote add origin "file://$DOT_STACK_DOT_ROOT" || return 1
+  "$git_bin" -C "$install" fetch --quiet --depth=1 origin "$dot_sha" || return 1
+  "$git_bin" -C "$install" checkout --quiet --detach FETCH_HEAD || return 1
+  actual=$("$git_bin" -C "$install" rev-parse HEAD) || return 1
+  [[ $actual == "$dot_sha" ]]
+}
+
+install_shdeps_runtime() {
+  local home=$1 install=$1/.local/share/shdeps file directory
+  mkdir -p "$install"
+  for file in install.sh shdeps.sh; do
+    cp -p "$shdeps_root/$file" "$install/$file" || return 1
+  done
+  cp -pL "$shdeps_root/shdeps" "$install/shdeps" || return 1
+  for directory in lua completions man; do
+    [[ -d $shdeps_root/$directory ]] || continue
+    cp -R "$shdeps_root/$directory" "$install/$directory" || return 1
+  done
+  [[ -x $install/shdeps && ! -L $install/shdeps ]]
+}
+
 prepare_home() {
-  local profile=$1 home=$2 runtime_install selector init_log init_status
+  local profile=$1 home=$2 selector init_log init_status
   "$git_bin" clone --quiet "file://$base_origin" "$home" || return 1
 
   # The fixture deliberately disables dependency installation.  Tmux invokes
@@ -246,14 +268,10 @@ prepare_home() {
     chmod 0600 "$selector"
   fi
 
-  runtime_install=$home/.local/share/cgraf78/dot
-  mkdir -p "$home/.local/share/cgraf78" "$home/.local/lib" \
-    "$home/.local/bin"
-  "$git_bin" clone --quiet --no-checkout "$DOT_STACK_DOT_ROOT" "$runtime_install"
-  "$git_bin" -C "$runtime_install" checkout --quiet --detach "$dot_sha"
+  mkdir -p "$home/.local/lib" "$home/.local/bin"
+  install_dot_runtime "$home" || return 1
   ln -s ../share/cgraf78/dot/lib/dot/public "$home/.local/lib/dot"
-  mkdir -p "$home/.local/share/shdeps"
-  cp -R "$shdeps_root"/. "$home/.local/share/shdeps/"
+  install_shdeps_runtime "$home" || return 1
   ln -s ../share/shdeps/shdeps "$home/.local/bin/shdeps"
   ln -s ../share/shdeps/lua "$home/.local/lib/shdeps"
   printf '%s\n' '.local/lib/dot' '.local/lib/shdeps' '.local/share/cgraf78/' \
@@ -397,6 +415,36 @@ assert_tmux_composition() {
   fi
 }
 
+assert_dev_nvim_composition() {
+  local home=$1 output status=0
+
+  output=$(run_in_home "$home" env \
+    XDG_DATA_HOME="$host_home/.local/share" \
+    "$nvim_bin" --headless -i NONE \
+    --cmd 'lua vim.g.disable_session_restore = true' \
+    --cmd 'lua vim.g.mason_disabled = true' \
+    -c 'lua
+      assert(vim.env.DOT_PROFILE_FIXTURE == nil)
+      assert(vim.env.DOT_TEST_DEV_REPO_ROOT == nil)
+      local plugins = require("lazy.core.config").plugins
+      for _, plugin in ipairs({
+        "nvim-lspconfig",
+        "conform.nvim",
+        "nvim-lint",
+        "lazydev.nvim",
+      }) do
+        assert(plugins[plugin] ~= nil, plugin .. " is absent from the composed graph")
+      end
+      assert(type(require("config.language-policy").critical_treesitter_parsers()) == "table")
+      assert(type(require("config.mason-policy").lsp_server_packages()) == "table")
+      print("composed-dev-nvim-ok")' \
+    -c 'qa!' 2>&1) || status=$?
+  _assert_exit 'dev installed full Nvim graph loads without fixture-only overrides' \
+    0 "$status"
+  _assert_contains 'dev installed full Nvim graph applies late dev overrides' \
+    'composed-dev-nvim-ok' "$output"
+}
+
 base_footprint=
 editor_footprint=
 dev_footprint=
@@ -473,8 +521,20 @@ for profile in base editor dev; do
       fi
       _assert_exit "$profile executes the installed $test_suite suite" \
         0 "$test_status"
+      if [[ $profile == dev ]]; then
+        assert_dev_nvim_composition "$home"
+      fi
       ;;
     footprint)
+      if [[ ! -e $home/.local/share/shdeps/target &&
+        ! -L $home/.local/share/shdeps/target ]]; then
+        _pass "$profile footprint excludes Shdeps build artifacts"
+      else
+        _fail "$profile footprint excludes Shdeps build artifacts"
+      fi
+      _assert_eq "$profile footprint uses a shallow exact Dot runtime" true \
+        "$("$git_bin" -C "$home/.local/share/cgraf78/dot" \
+          rev-parse --is-shallow-repository)"
       footprint_output=$(
         "$source_home/.local/lib/dotfiles/tests/measure-profile-footprint" \
           --phase post-cutover-clean-fixture --profile "$profile" "$home"
@@ -497,16 +557,17 @@ if [[ $mode == footprint ]]; then
   baseline_home=$fixture_root/home-pre-cutover-monolith
   mkdir -p "$baseline_home"
   if [[ $d4_sha =~ ^[0-9a-f]{40}$ ]] &&
-    "$git_bin" clone --quiet --bare "$source_home" "$baseline_home/.dotfiles" &&
+    "$git_bin" -C "$baseline_home" init --quiet --bare .dotfiles &&
+    "$git_bin" --git-dir="$baseline_home/.dotfiles" remote add origin \
+      "file://$source_home" &&
+    "$git_bin" --git-dir="$baseline_home/.dotfiles" fetch --quiet --depth=1 \
+      origin "$d4_sha" &&
     "$git_bin" --git-dir="$baseline_home/.dotfiles" config core.bare false &&
     "$git_bin" --git-dir="$baseline_home/.dotfiles" config core.worktree "$baseline_home" &&
     "$git_bin" --git-dir="$baseline_home/.dotfiles" \
-      --work-tree="$baseline_home" checkout --quiet --force "$d4_sha"; then
-    baseline_runtime=$baseline_home/.local/share/cgraf78/dot
-    mkdir -p "${baseline_runtime%/*}" "$baseline_home/.local/share/shdeps"
-    "$git_bin" clone --quiet --no-checkout "$DOT_STACK_DOT_ROOT" "$baseline_runtime"
-    "$git_bin" -C "$baseline_runtime" checkout --quiet --detach "$dot_sha"
-    cp -R "$shdeps_root"/. "$baseline_home/.local/share/shdeps/"
+      --work-tree="$baseline_home" checkout --quiet --force FETCH_HEAD &&
+    install_dot_runtime "$baseline_home" &&
+    install_shdeps_runtime "$baseline_home"; then
     baseline_output=$(
       "$source_home/.local/lib/dotfiles/tests/measure-profile-footprint" \
         --phase pre-cutover-monolith --profile dev "$baseline_home"
@@ -560,8 +621,20 @@ if [[ $mode == update ]]; then
   lifecycle_work_origin=$fixture_root/missing-work.git
   lifecycle_work_seed=$fixture_root/work-seed
   lifecycle_package_marker=$fixture_root/native-packages/fixture-installed
+  lifecycle_package_log=$fixture_root/native-package-manager.log
   git_shadow='base Git ignore configuration restored after dev downgrade'
   nvim_shadow='base Nvim configuration restored after editor downgrade'
+
+  for package_manager in apk apt apt-get brew dnf pacman pkg zypper; do
+    cat >"$fixture_bin/$package_manager" <<'EOF'
+#!/bin/sh
+printf '%s\n' "${0##*/} $*" >>"$DOT_PROFILE_PACKAGE_MANAGER_LOG"
+exit 97
+EOF
+    chmod +x "$fixture_bin/$package_manager"
+  done
+  DOT_PROFILE_PACKAGE_MANAGER_LOG=$lifecycle_package_log
+  export DOT_PROFILE_PACKAGE_MANAGER_LOG
 
   mkdir -p "$base_seed/.config/git" "$base_seed/.config/nvim"
   printf '%s\n' "$git_shadow" >"$base_seed/.config/git/ignore"
@@ -671,6 +744,10 @@ if [[ $mode == update ]]; then
   done
   _assert_file_content 'editor to base preserves native package state' \
     preserve "$lifecycle_package_marker"
+  _assert_file_missing \
+    'profile downgrade never invokes a native package manager' \
+    "$lifecycle_package_log"
+  unset DOT_PROFILE_PACKAGE_MANAGER_LOG
 fi
 
 _test_summary
