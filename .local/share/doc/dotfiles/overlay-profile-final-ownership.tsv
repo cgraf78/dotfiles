@@ -198,6 +198,7 @@ dotfiles	.local/lib/dotfiles/tests/measure-profile-footprint	profile-footprint	t
 dotfiles	.local/lib/dotfiles/tests/overlay-profile-ownership-test	dot-control	test	new	d4	owner=dotfiles; source=new; family=base
 dotfiles	.local/lib/dotfiles/tests/overlay-profile-rollout-test	dot-control	test	new	d4	owner=dotfiles; source=new; family=base
 dotfiles	.local/lib/dotfiles/tests/overlay-profile-stack-test	dot-control	test	new	d4	owner=dotfiles; source=new; family=base
+dotfiles	.local/lib/dotfiles/tests/profile-fixture-integration	dot-control	test	new	d4	owner=dotfiles; source=new; family=base
 dotfiles	.local/lib/dotfiles/tests/prompt-test	local-lib-dotfiles-tests-prompt-test	test	old:.local/lib/dotfiles/tests/prompt-test	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
 dotfiles	.local/lib/dotfiles/tests/README.md	split-tests	test	old:.local/lib/dotfiles/tests/README.md	d4	owner=dotfiles; source=locked-dotfiles; family=base
 dotfiles	.local/lib/dotfiles/tests/run-ci	repository-root-ci	ci	new	d4	owner=dotfiles; source=new

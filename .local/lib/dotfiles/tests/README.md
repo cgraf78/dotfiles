@@ -16,7 +16,18 @@ Run the CI-owned set through the pinned D1 runtime:
 ```text
 .local/lib/dotfiles/tests/stack-dot-runtime control-plane-run-ci -- \
   .local/lib/dotfiles/tests/run-ci
+.local/lib/dotfiles/tests/stack-dot-runtime profile-fixture-update -- \
+  .local/lib/dotfiles/tests/profile-fixture-integration update
+.local/lib/dotfiles/tests/stack-dot-runtime profile-doctor -- \
+  .local/lib/dotfiles/tests/profile-fixture-integration doctor
+.local/lib/dotfiles/tests/stack-dot-runtime installed-profile-dot-test -- \
+  .local/lib/dotfiles/tests/profile-fixture-integration test
 ```
+
+The D4 installed-profile gate runs real unfiltered `dot test --list`
+discovery in isolated base, editor, and dev homes. It does not execute the
+discovered overlay suites until D5 removes the remaining pre-cutover monolith
+payload and produces the final composed tree.
 
 Individual suites may still be selected with `dot test <name>` during local
 development. Tests must use the fixture home supplied by the harness and must

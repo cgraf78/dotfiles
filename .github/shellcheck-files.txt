@@ -127,6 +127,7 @@ program	.local/lib/dotfiles/tests/load-merge-api.sh
 program	.local/lib/dotfiles/tests/measure-profile-footprint
 program	.local/lib/dotfiles/tests/overlay-profile-stack-test
 program	.local/lib/dotfiles/tests/overlay-profile-rollout-test
+program	.local/lib/dotfiles/tests/profile-fixture-integration
 program	.local/lib/dotfiles/tests/prompt-test
 program	.local/lib/dotfiles/tests/run-ci
 program	.local/lib/dotfiles/tests/shdeps-hooks-test

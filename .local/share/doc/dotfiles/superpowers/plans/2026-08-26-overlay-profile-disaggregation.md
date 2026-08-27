@@ -2545,6 +2545,14 @@ bootstrap starts.
 job in top-level public CI; top-level CI continues to run only its declared
 source-owned suites and bounded composition smoke.
 
+During D4 staging, this gate runs real unfiltered `dot test --list` discovery
+in each installed profile but does not execute the discovered overlay suites.
+D4 intentionally retains the monolith payload scheduled for D5 removal, while
+each capability suite already enforces its standalone post-cutover boundary;
+executing those suites against the pre-cutover D4 tree would therefore test an
+invalid hybrid state. D5 runs the full unfiltered installed `dot test` after
+the remaining remove/rewrite actions establish the final composed tree.
+
 ### 10.7 Add repeatable footprint measurement and capture the baseline
 
 Create `measure-profile-footprint` to accept an isolated fixture HOME and emit
@@ -2579,9 +2587,11 @@ Separately run `profile-fixture-update` and the local/end-to-end-only
 `installed-profile-dot-test` group through the same wrapper in isolated
 `base`, `editor`, and `dev` fixture homes to prove convergence and
 active-overlay aggregation. Assert that unfiltered
-`dot test` on `base` discovers the always-active top-level base/control suites
-plus suites from available selected private overlays; editor/dev suite names
-appear only when their owners are active. Make the parallel
+`dot test --list` on `base` discovers the always-active top-level base/control
+suites plus suites from available selected private overlays; editor/dev suite
+names appear only when their owners are active. This D4 assertion is
+discovery-only for the staging reason in Task 10.6; full unfiltered installed
+suite execution is a D5 verification requirement. Make the parallel
 assertion for `dot doctor`: no Nvim/dev component check is discovered on
 `base`, while top-level profile/overlay lifecycle reporting remains available.
 Use the baseline inventory to assert that any remaining Nvim/dev

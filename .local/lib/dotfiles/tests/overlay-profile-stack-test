@@ -277,6 +277,12 @@ if [[ ${1:-} != --runtime-only ]]; then
         >"$candidate/.config/dot/overlays.d/20-nvim.conf"
       printf 'sync=none\npath=%s\n' "$dev_checkout" \
         >"$candidate/.config/dot/overlays.d/30-dev.conf"
+      cat >"$candidate/.local/lib/dotfiles/pre-sync.d/99-transport-spy.sh" <<'HOOK'
+prepare() { printf 'prepare\n' >>"$HOME/pre-sync-transport.log"; }
+reconcile() { printf 'reconcile\n' >>"$HOME/pre-sync-transport.log"; }
+HOOK
+      chmod 0644 \
+        "$candidate/.local/lib/dotfiles/pre-sync.d/99-transport-spy.sh"
 
       candidate_origin=$stack_tmp/candidate-origin.git
       git init --quiet --bare "$candidate/.dotfiles"
@@ -438,6 +444,81 @@ GIT
       done
       _assert_eq 'stack inspect commands cannot contact overlay transports' \
         '' "$(<"$transport_log")"
+
+      transport_home=$stack_tmp/transport-home
+      mkdir "$transport_home"
+      cp -a "$candidate/." "$transport_home/"
+      git --git-dir="$transport_home/.dotfiles" config core.worktree \
+        "$transport_home"
+      printf 'url=%s\n' "$nvim_checkout" \
+        >"$transport_home/.config/dot/overlays.d/20-nvim.conf"
+      printf 'url=%s\n' "$dev_checkout" \
+        >"$transport_home/.config/dot/overlays.d/30-dev.conf"
+      rm -rf "$transport_home/.dotfiles-nvim" \
+        "$transport_home/.dotfiles-dev" "$transport_home/.dotfiles-work"
+      git init --quiet "$transport_home/.dotfiles-nvim"
+      git -C "$transport_home/.dotfiles-nvim" remote add origin \
+        "$nvim_checkout"
+      git init --quiet "$transport_home/.dotfiles-dev"
+      git -C "$transport_home/.dotfiles-dev" remote add origin "$dev_checkout"
+      git init --quiet "$transport_home/.dotfiles-work"
+      git -C "$transport_home/.dotfiles-work" remote add origin \
+        github-dotfiles-work:cgraf78/dotfiles-work.git
+      transport_selectors=$transport_home/.config/dot/profile-selectors.local.d
+      rm -rf "$transport_selectors"
+      mkdir -p "$transport_selectors"
+      chmod 0700 "$transport_selectors"
+      printf 'version=1\nuser=%s\nprofile=editor\n' "$(id -un)" \
+        >"$transport_selectors/10-editor.conf"
+      chmod 0600 "$transport_selectors/10-editor.conf"
+
+      cat >"$transport_bin/git" <<'GIT'
+#!/usr/bin/env bash
+set -euo pipefail
+for arg in "$@"; do
+  case $arg in
+    fetch | push)
+      printf '%s\n' "$*" >>"$DOT_STACK_TRANSPORT_LOG"
+      exit 0
+      ;;
+    clone | pull)
+      printf 'forbidden:%s\n' "$*" >>"$DOT_STACK_TRANSPORT_LOG"
+      exit 97
+      ;;
+  esac
+done
+exec "$DOT_STACK_REAL_GIT" "$@"
+GIT
+      chmod +x "$transport_bin/git"
+      for transport_command in fetch push; do
+        : >"$transport_log"
+        rm -f "$transport_home/pre-sync-transport.log"
+        transport_status=0
+        HOME=$transport_home XDG_CONFIG_HOME=$transport_home/.config \
+          XDG_STATE_HOME=$stack_tmp/transport-state \
+          XDG_CACHE_HOME=$stack_tmp/transport-cache \
+          XDG_DATA_HOME=$stack_tmp/transport-data \
+          PATH=$transport_bin:${DOT_STACK_DOT_ROOT:-${DOT_TEST_DOT_ROOT:-}}/bin:/usr/bin:/bin \
+          DOT_STACK_REAL_GIT=$real_git \
+          DOT_STACK_TRANSPORT_LOG=$transport_log \
+          "${DOT_STACK_DOT_ROOT:-${DOT_TEST_DOT_ROOT:-}}/bin/dot" \
+          "$transport_command" >/dev/null 2>&1 || transport_status=$?
+        _assert_exit \
+          "$transport_command succeeds through the selected-repo transport spy" \
+          0 "$transport_status"
+        expected_transport=$(printf '%s\n%s\n' \
+          "--git-dir=$transport_home/.dotfiles --work-tree=$transport_home $transport_command" \
+          "-C $transport_home/.dotfiles-nvim $transport_command")
+        _assert_eq \
+          "$transport_command touches only base and selected existing nvim" \
+          "$expected_transport" "$(<"$transport_log")"
+        _assert_file_missing \
+          "$transport_command leaves selected optional personal absent" \
+          "$transport_home/.dotfiles-personal"
+        _assert_file_missing \
+          "$transport_command does not run pre-sync extensions" \
+          "$transport_home/pre-sync-transport.log"
+      done
 
       editor_policy=$nvim_checkout/home/.config/nvim/lua/plugins/editor.lua
       dev_policy=$dev_checkout/home/.config/nvim/lua/plugins/zz-dev-extras.lua
