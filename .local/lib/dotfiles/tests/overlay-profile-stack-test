@@ -70,8 +70,8 @@ _root_suite_inventory() {
 }
 
 _effective_dev_plugin_state() {
-  local editor_policy=$1 dev_policy=$2
-  lua - "$editor_policy" "$dev_policy" <<'LUA'
+  (($# > 0)) || return 2
+  lua - "$@" <<'LUA'
 local targets = {
   ["neovim/nvim-lspconfig"] = true,
   ["mason-org/mason.nvim"] = true,
@@ -349,6 +349,7 @@ set -euo pipefail
 dot_root=$DOT_STACK_DOT_ROOT
 . "$dot_root/lib/dot/public/xdg.sh"
 . "$dot_root/lib/dot/log.sh"
+. "$dot_root/lib/dot/resources.sh"
 . "$dot_root/lib/dot/temp.sh"
 . "$dot_root/lib/dot/platform.sh"
 . "$dot_root/lib/dot/profiles.sh"
@@ -395,7 +396,13 @@ BASH
       transport_log=$stack_tmp/transport.log
       mkdir "$transport_bin"
       : >"$transport_log"
-      real_git=$(type -P git)
+      if _test_prefer_system_git; then
+        real_git=$(type -P git)
+        _pass 'transport spy delegates to a system Git backend'
+      else
+        real_git=
+        _fail 'transport spy delegates to a system Git backend'
+      fi
       cat >"$transport_bin/git" <<'GIT'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -475,7 +482,7 @@ else
   _test_summary
 fi
 
-dot_source=${DOT_TEST_DOT_REPOSITORY:-${DOT_TEST_DOT_ROOT:-}}
+dot_source=${DOT_TEST_DOT_REPOSITORY:-${DOT_TEST_DOT_ROOT:-${DOT_STACK_DOT_ROOT:-}}}
 if [[ -z $dot_source || ! -d $dot_source ]]; then
   _fail 'local exact D1 source is supplied for stack wrapper tests'
   _test_summary
