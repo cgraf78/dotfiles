@@ -32,7 +32,7 @@ _iterm2_profiles() {
   while IFS= read -r src; do
     dst="$dst_dir/$(_iterm2_profile_output_name "$src")"
     # iTerm2 does not follow symlinks for dynamic profiles.
-    if ! cmp -s "$src" "$dst"; then
+    if ! dot_config_files_equal "$src" "$dst"; then
       cp "$src" "$dst"
     fi
   done < <(dot_hook_family_files_matching iterm2/profiles.d '*.json' '*.replace/*.json')

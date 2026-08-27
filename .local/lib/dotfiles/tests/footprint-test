@@ -57,6 +57,20 @@ _write_bytes "$fixture/.dotfiles-personal/object" 47
 _write_bytes "$fixture/.dotfiles-work/object" 53
 _write_bytes "$native/package" 59
 
+# BSD `wc -c` pads its numeric output. Exercise that shape on every platform so
+# the measurement parser cannot silently discard all directory entries.
+real_wc=$(type -P wc)
+wc_bin=$(_mock_bin)
+cat >"$wc_bin/wc" <<'SH'
+#!/usr/bin/env bash
+bytes=$("$DOT_TEST_REAL_WC" "$@") || exit
+printf '    %s\n' "$bytes"
+SH
+chmod +x "$wc_bin/wc"
+PATH="$wc_bin:$PATH"
+DOT_TEST_REAL_WC=$real_wc
+export PATH DOT_TEST_REAL_WC
+
 first=$(DOT_FOOTPRINT_NATIVE_ROOT=$native \
   "$measure" --phase pre-cutover-monolith --profile base "$fixture")
 second=$(DOT_FOOTPRINT_NATIVE_ROOT=$native \

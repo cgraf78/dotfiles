@@ -147,8 +147,28 @@ _assert_contains 'top-level CI runs without dotfiles setup' \
   'setup: none' "$workflow_content"
 _assert_contains 'top-level CI enters through the locked D1 wrapper' \
   'stack-dot-runtime control-plane-run-ci' "$workflow_content"
+# shellcheck disable=SC2016 # Assert the literal workflow command.
+_assert_contains 'Termux CI invokes the exact locked D1 binary' \
+  '"$DOT_STACK_DOT_BIN" update' "$workflow_content"
+# shellcheck disable=SC2016 # Assert the literal isolated client PATH.
+_assert_contains 'Termux CI uses installed client launchers, not source launchers' \
+  'PATH="$DOT_STACK_DOT_ROOT/bin:$HOME/.local/bin:$PATH"' \
+  "$workflow_content"
+# shellcheck disable=SC2016 # Reject source-checkout launchers in the client PATH.
+_assert_not_contains 'Termux CI excludes source launchers from the client PATH' \
+  'PATH="$DOT_STACK_DOT_ROOT/bin:$PWD/.local/bin:$PATH"' \
+  "$workflow_content"
 _assert_contains 'top-level CI runs the literal suite inventory' \
   '.local/lib/dotfiles/tests/run-ci' "$workflow_content"
+_assert_contains 'top-level CI installs hostname for profile selection' \
+  'profiles: base,jq,python,zsh,lua,tmux,openssh-netcat-lsof,procps,cron,fd,ripgrep,hostname,shellcheck' \
+  "$workflow_content"
+_assert_contains 'Termux CI installs hostname for profile selection' \
+  'termux-profiles: base,tmux,ripgrep,hostname' "$workflow_content"
+_assert_eq 'cold bootstrap installs hostname for profile selection' 1 \
+  "$(grep -Fxc \
+    '          profiles: base,jq,python,zsh,lua,tmux,openssh-netcat-lsof,procps,cron,fd,ripgrep,hostname' \
+    "$workflow")"
 _assert_not_contains 'top-level CI no longer uses moving dotfiles setup' \
   'setup: dotfiles' "$workflow_content"
 
@@ -404,7 +424,7 @@ HOOK
         else
           _fail "ephemeral $descriptor_name is not the tracked production inode"
         fi
-        if cmp -s "$production_descriptor" "$fixture_descriptor"; then
+        if _test_files_equal "$production_descriptor" "$fixture_descriptor"; then
           _fail "ephemeral $descriptor_name excludes production content"
         else
           _pass "ephemeral $descriptor_name excludes production content"
@@ -900,6 +920,9 @@ candidate_home_output=$(cd "$candidate_checkout" &&
         "$HOME/.local/bin/agent-rules-sync"
       test "$("$HOME/.local/share/shdeps/shdeps" version)" = \
         "shdeps 20260821-152006-bb438f27"
+      unset XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME XDG_RUNTIME_DIR
+      init_status=$("$HOME/.local/share/cgraf78/dot/bin/dot" init --status)
+      [[ $init_status == *"initialization: complete"* ]]
       for name in GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR \
         GIT_IMPLICIT_WORK_TREE GIT_PREFIX GIT_INDEX_FILE \
         GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES \

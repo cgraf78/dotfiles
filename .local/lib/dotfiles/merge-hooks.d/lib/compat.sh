@@ -31,6 +31,17 @@ _dot_tool_any_path() {
   return 1
 }
 
+# Compare configuration payloads without assuming the optional `cmp` or
+# `diff` packages exist. Git is already a bootstrap requirement for every
+# dotfiles profile, and `--no-filters` keeps the comparison byte-exact.
+dot_config_files_equal() {
+  local left_hash right_hash
+
+  left_hash=$(git hash-object --no-filters -- "$1" 2>/dev/null) || return 1
+  right_hash=$(git hash-object --no-filters -- "$2" 2>/dev/null) || return 1
+  [[ "$left_hash" == "$right_hash" ]]
+}
+
 _dot_account_home() {
   local account entry name _password _uid _gid _gecos home _shell
   local candidate id_command="" getent_command=""
@@ -250,7 +261,8 @@ _merge_hook_agentguard_json_layer() {
     rm -f "$temporary"
     return 1
   fi
-  if [[ ! -L $destination ]] && cmp -s "$temporary" "$destination" 2>/dev/null; then
+  if [[ ! -L $destination ]] &&
+    dot_config_files_equal "$temporary" "$destination"; then
     rm -f "$temporary"
     return 0
   fi

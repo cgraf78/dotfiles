@@ -127,6 +127,21 @@ BASH
   _assert_eq "account scope: command function cannot authorize a synthetic HOME" \
     "0" "$account_command_spoof_status"
 
+  compare_left=$(_tmpfile)
+  compare_same=$(_tmpfile)
+  compare_different=$(_tmpfile)
+  printf 'same\n' >"$compare_left"
+  printf 'same\n' >"$compare_same"
+  printf 'different\n' >"$compare_different"
+  compare_status=0
+  dot_config_files_equal "$compare_left" "$compare_same" || compare_status=$?
+  _assert_eq "config comparison: identical files match without diffutils" \
+    "0" "$compare_status"
+  compare_status=0
+  dot_config_files_equal "$compare_left" "$compare_different" || compare_status=$?
+  _assert_eq "config comparison: different files do not match" \
+    "1" "$compare_status"
+
   local tool_platform_impl tool_command_impl tool_path_impl
   tool_platform_impl=$(declare -f _dot_tool_platform)
   tool_command_impl=$(declare -f _dot_tool_command_present)
@@ -981,7 +996,18 @@ Host stale-managed
   HostName stale.example.com
 # dot-managed:ssh:ssh-config end
 EXISTING
-  _run_ssh_merge 2>/dev/null
+  ssh_real_cat=$(type -P cat)
+  ssh_cat_bin=$(_mock_bin)
+  cat >"$ssh_cat_bin/cat" <<'SH'
+#!/usr/bin/env bash
+if [[ ${1:-} == -s ]]; then
+  exit 64
+fi
+exec "$DOT_TEST_REAL_CAT" "$@"
+SH
+  chmod +x "$ssh_cat_bin/cat"
+  DOT_TEST_REAL_CAT=$ssh_real_cat PATH="$ssh_cat_bin:$PATH" \
+    _run_ssh_merge 2>/dev/null
   ssh_content=$(cat "$SSH_CONFIG")
   _assert_contains "ssh hook no source: preserves manual entries" "Host manual-only" "$ssh_content"
   _assert_not_contains "ssh hook no source: prunes stale managed entries" "stale-managed" "$ssh_content"
@@ -1007,7 +1033,7 @@ SSH
   # Idempotent — running again doesn't change output
   cp "$SSH_CONFIG" "$SSH_CONFIG.prev"
   _run_ssh_merge 2>/dev/null
-  if cmp -s "$SSH_CONFIG.prev" "$SSH_CONFIG"; then
+  if _test_files_equal "$SSH_CONFIG.prev" "$SSH_CONFIG"; then
     _pass "ssh hook: idempotent"
   else
     _fail "ssh hook: idempotent"

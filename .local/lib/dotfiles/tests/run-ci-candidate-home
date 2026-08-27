@@ -342,7 +342,6 @@ runtime=$staging/runtime
 mkdir -p "$runtime"
 chmod 0700 "$runtime"
 prepare_dot_runtime
-record_client_identity
 prepare_agent_rules_sync
 prepare_shdeps
 printf '%s\n' '.local/lib/dot' '.local/share/cgraf78/' \
@@ -361,6 +360,11 @@ source_head=$(ci_git -C "$source" rev-parse HEAD)
     "$candidate_sha" "$source_head" >&2
   exit 1
 }
+# Finalize the adopted-checkout identity only after every setup operation that
+# can touch Git metadata or the fixture HOME. This keeps the recorded
+# filesystem identity and permissions authoritative on Android as well as on
+# conventional filesystems.
+record_client_identity
 printf 'candidate-home\thome=%s\tsource=%s\thead=%s\n' \
   "$home" "$source" "$installed_sha"
 (

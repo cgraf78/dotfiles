@@ -76,6 +76,8 @@ fi
 # shellcheck source=/dev/null
 . "$dot_root/lib/dot/public/xdg.sh"
 # shellcheck source=/dev/null
+. "$dot_root/lib/dot/platform.sh"
+# shellcheck source=/dev/null
 . "$dot_root/lib/dot/profiles.sh"
 identity_bin=$(_tmpdir)
 local_selectors=$(_tmpdir)
@@ -293,6 +295,7 @@ printf 'url=https://example.invalid/transition.git\noptional=true\n' \
   >"$old_transition_descriptor"
 printf 'Host transition.example\n  HostName transition.example\n' \
   >"$old_transition_companion"
+old_transition_companion=$(_test_realpath "$old_transition_companion")
 HOME=$transition_home
 # shellcheck disable=SC2034 # Consumed dynamically by the sourced pre-sync hook.
 OVERLAYS=("transition|$HOME/.dotfiles-transition|https://example.invalid/transition.git|$old_transition_descriptor|true|git")
@@ -301,6 +304,7 @@ DOT_PRE_SYNC_STAGE=prepare
 prepare
 mv "$old_transition_descriptor" "$new_transition_descriptor"
 mv "$old_transition_companion" "$new_transition_companion"
+new_transition_companion=$(_test_realpath "$new_transition_companion")
 # shellcheck disable=SC2034 # Consumed dynamically by the sourced pre-sync hook.
 OVERLAYS=("transition|$HOME/.dotfiles-transition|https://example.invalid/transition.git|$new_transition_descriptor|true|git")
 # shellcheck disable=SC2034 # Consumed dynamically by the sourced pre-sync hook.

@@ -229,7 +229,8 @@ _dot_agent_rules_check_installed() {
 
   REPLY='source-selection-failed'
   _dot_agent_rules_build_manifest "$expected" || status=1
-  if [[ "$status" -eq 0 ]] && ! cmp -s "$expected" "$manifest"; then
+  if [[ "$status" -eq 0 ]] &&
+    ! dot_config_files_equal "$expected" "$manifest"; then
     REPLY='manifest-mismatch'
     status=1
   fi
@@ -298,7 +299,7 @@ _dot_agent_rules_check_installed() {
         status=1
         break
       }
-      cmp -s "$expected_normalized" "$actual_normalized" || {
+      dot_config_files_equal "$expected_normalized" "$actual_normalized" || {
         REPLY=$'target-mismatch\t'"$target"
         status=1
         break

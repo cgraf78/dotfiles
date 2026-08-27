@@ -23,11 +23,11 @@ _wezterm_copy() {
 
   if [[ -L "$dest" ]]; then
     rm -f "$dest"
-  elif [[ -e "$dest" ]] && ! diff -q "$src" "$dest" >/dev/null 2>&1; then
+  elif [[ -e "$dest" ]] && ! dot_config_files_equal "$src" "$dest"; then
     mv "$dest" "$dest.bak.$(date +%Y%m%d%H%M%S)"
   fi
 
-  if [[ ! -e "$dest" ]] || ! diff -q "$src" "$dest" >/dev/null 2>&1; then
+  if [[ ! -e "$dest" ]] || ! dot_config_files_equal "$src" "$dest"; then
     dot_sibling_tmp_for "$dest" || return 1
     tmp="$REPLY"
     cp "$src" "$tmp" || {

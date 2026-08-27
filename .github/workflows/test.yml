@@ -19,7 +19,7 @@ jobs:
       # public capability repositories run their own focused suites, so this
       # job installs prerequisites without bootstrapping the monolithic client.
       setup: none
-      profiles: base,jq,python,zsh,lua,tmux,openssh-netcat-lsof,procps,cron,fd,ripgrep,shellcheck
+      profiles: base,jq,python,zsh,lua,tmux,openssh-netcat-lsof,procps,cron,fd,ripgrep,hostname,shellcheck
       matrix-set: full
       shellcheck-exclude-codes: SC1091
       shellcheck-inventory-path: .github/shellcheck-files.txt
@@ -43,15 +43,16 @@ jobs:
               set -euo pipefail
               unset XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME XDG_RUNTIME_DIR
               export DOT_VERBOSE=1
-              PATH="$DOT_STACK_DOT_ROOT/bin:$PWD/.local/bin:$PATH" dot update
-              PATH="$DOT_STACK_DOT_ROOT/bin:$PWD/.local/bin:$PATH" \
+              PATH="$DOT_STACK_DOT_ROOT/bin:$HOME/.local/bin:$PATH" \
+                "$DOT_STACK_DOT_BIN" update
+              PATH="$DOT_STACK_DOT_ROOT/bin:$HOME/.local/bin:$PATH" \
                 bash .local/lib/dotfiles/tests/android-ci-smoke
             '
       termux-host-command: |-
         set -euo pipefail
         export DOTFILES_CANDIDATE_SHA='${{ github.event.pull_request.head.sha || github.sha }}'
         .local/lib/dotfiles/tests/checkout-ci-candidate
-      termux-profiles: base,tmux,ripgrep
+      termux-profiles: base,tmux,ripgrep,hostname
 
   actions-sync:
     name: cgraf78/actions sync
@@ -83,7 +84,7 @@ jobs:
         uses: cgraf78/actions/.github/actions/shell-ci-prereqs@b97bd729afec784785bd01ebd43321225ef47bb7
         with:
           matrix-name: Ubuntu
-          profiles: base,jq,python,zsh,lua,tmux,openssh-netcat-lsof,procps,cron,fd,ripgrep
+          profiles: base,jq,python,zsh,lua,tmux,openssh-netcat-lsof,procps,cron,fd,ripgrep,hostname
           setup: none
 
       - name: Bootstrap and diagnose the default base profile

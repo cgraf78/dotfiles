@@ -59,7 +59,10 @@ _bytes_for() {
         [[ $size =~ ^[0-9]+$ ]] || continue
         bytes=$((bytes + size))
       done < <(find "$path" -type f -exec sh -c \
-        'for file do wc -c <"$file"; done' sh {} +)
+        'for file do
+          LC_ALL=C wc -c <"$file" | tr -d "[:space:]"
+          printf "\n"
+        done' sh {} +)
     fi
   done
   printf '%s\n' "$bytes"

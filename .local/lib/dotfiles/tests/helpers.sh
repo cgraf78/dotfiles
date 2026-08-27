@@ -472,6 +472,14 @@ _assert_file_content() {
   fi
 }
 
+_test_files_equal() {
+  local left_hash right_hash
+
+  left_hash=$(git hash-object --no-filters -- "$1" 2>/dev/null) || return 1
+  right_hash=$(git hash-object --no-filters -- "$2" 2>/dev/null) || return 1
+  [[ "$left_hash" == "$right_hash" ]]
+}
+
 # ---------------------------------------------------------------------------
 # Temp directory management
 # ---------------------------------------------------------------------------
