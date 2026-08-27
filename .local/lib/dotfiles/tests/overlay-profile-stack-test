@@ -169,10 +169,9 @@ _assert_contains 'Termux CI uses installed client launchers, not source launcher
 _assert_not_contains 'Termux CI excludes source launchers from the client PATH' \
   'PATH="$DOT_STACK_DOT_ROOT/bin:$PWD/.local/bin:$PATH"' \
   "$workflow_content"
-# D4 still contains the pre-cutover monolithic dependency registry. The Termux
-# smoke owns control-plane and Android behavior; capability dependency suites
-# run in their owning repositories and the final base set is covered in D5.
-_assert_contains 'D4 Termux CI skips the transitional dependency provider' \
+# The Termux smoke owns final base control-plane and Android behavior. Focused
+# dependency behavior remains covered by the base and capability owner suites.
+_assert_contains 'Termux CI skips dependency installation outside smoke scope' \
   'DOT_INIT_SKIP_PROVIDER=1' "$workflow_content"
 _assert_contains 'top-level CI runs the literal suite inventory' \
   '.local/lib/dotfiles/tests/run-ci' "$workflow_content"
@@ -1018,6 +1017,7 @@ candidate_home_output=$(
         "shdeps 20260821-152006-bb438f27"
       test "$SHDEPS_INSTALL_DIR" != "$HOME/.local/share"
       test "$SHDEPS_BIN_DIR" != "$HOME/.local/bin"
+      test "$SHDEPS_GIT_DEV_DIR" != "$HOME/git"
       case :$PATH: in
         *:"$SHDEPS_BIN_DIR":*) ;;
         *) exit 1 ;;
