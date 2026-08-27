@@ -156,19 +156,12 @@ local termnav_routes = load_config_module("link-routes.lua").new(wezterm)
 
 -- Dotfiles owns key policy; termnav owns the pane metadata protocol that tells
 -- us whether the active pane is currently controlled by nvim.
-local function is_nvim(pane)
-  return termnav_routes.is_nvim(pane)
-end
-
-local function is_tmux(pane)
-  return termnav_routes.is_tmux(pane)
-end
-
 local function nvim_tmux_or_wezterm(nvim_key, nvim_mods, tmux_key, tmux_mods, wezterm_action)
   return wezterm.action_callback(function(window, pane)
-    if is_nvim(pane) then
+    local owner = termnav_routes.terminal_owner(pane)
+    if owner == "nvim" then
       window:perform_action(act.SendKey({ key = nvim_key, mods = nvim_mods }), pane)
-    elseif is_tmux(pane) then
+    elseif owner == "tmux" then
       window:perform_action(act.SendKey({ key = tmux_key, mods = tmux_mods }), pane)
     else
       window:perform_action(wezterm_action, pane)
@@ -178,7 +171,7 @@ end
 
 local function terminal_or_wezterm(terminal_action, wezterm_action)
   return wezterm.action_callback(function(window, pane)
-    if is_nvim(pane) or is_tmux(pane) then
+    if termnav_routes.terminal_owner(pane) ~= "terminal" then
       window:perform_action(terminal_action, pane)
     else
       window:perform_action(wezterm_action, pane)

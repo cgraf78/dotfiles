@@ -17,7 +17,8 @@ terminal navigation stack.
   `tmux-continuum`, installed as shdeps-managed repository checkouts.
 - Ctrl-Tab window switching forwards into Neovim/fzf and nested terminal apps,
   switches tmux windows when the current tmux layer owns the chord, and sends
-  one-window boundaries through `termnav-navigate` with exact client identity.
+  one-window boundaries through Termnav's warmed relay dispatcher with exact
+  client identity.
 - Alt-Shift-[ and Alt-Shift-] mirror WezTerm tab reordering for tmux windows:
   the bindings forward into Neovim/fzf and nested terminal apps, swap tmux
   windows only when the current window is not already at the edge, and route
@@ -82,19 +83,20 @@ their own scrolling/clicking without wanting to own Ctrl-Tab, so the flag is
 only trusted when paired with the nested-wrapper check. Switch tmux windows
 when the current tmux layer owns the chord. A one-window session passes its
 triggering client's PID, TTY, terminal type, and source scope to
-`termnav-navigate`. The router switches the first reachable parent tmux with
-multiple windows, or uses the outer client's per-window VS Code socket or
-WezTerm TTY. Every selected client is revalidated before dispatch; unresolved
-ties and stale identities fail closed.
+the warmed `termnav-relay navigate` router. It switches the first reachable
+parent tmux with multiple windows, or uses the outer client's per-window VS
+Code socket or WezTerm TTY. Every selected client is revalidated before
+dispatch; unresolved ties and stale identities fail closed.
 
 Alt-Shift-bracket tab-move bindings follow the same ownership rule, except edge
 handling stops at the tmux layer when a multi-window tmux session is already at
 the first or last window. A one-window tmux routes outward through the same
 arbitrary-depth Termnav traversal used by pane and tab selection.
 
-Boundary router commands run in tmux's foreground and the Neovim adapter keeps
-its own small FIFO. This preserves rapid key order without adding subprocesses
-to the native adjacent-pane or multi-window fast paths.
+Boundary router commands run in tmux's foreground through Termnav's warmed
+dispatcher, and the Neovim adapter keeps its ordered worker alive. This
+preserves rapid key order without adding subprocesses to the native
+adjacent-pane or multi-window fast paths.
 
 ## Session Persistence
 
