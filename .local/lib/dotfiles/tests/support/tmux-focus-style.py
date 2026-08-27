@@ -389,9 +389,9 @@ class LeafStyleTest(unittest.TestCase):
             self.assertIn("--tmux-socket #{q:socket_path}", hooks)
             self.assertIn("--client-pid #{client_pid}", hooks)
             self.assertIn("--client-tty #{q:client_tty}", hooks)
-        self.assertIn("termnav-tmux-focus watch", start_hooks)
-        self.assertIn("termnav-tmux-focus stop", stop_hooks)
-        self.assertIn("termnav-tmux-focus sync", sync_hooks)
+        self.assertIn("termnav tmux focus watch", start_hooks)
+        self.assertIn("termnav tmux focus stop", stop_hooks)
+        self.assertIn("termnav tmux focus sync", sync_hooks)
         self.assertIn("#{!=:#{@termnav_client_unfocused},}", sync_hooks)
 
     def test_styles_follow_each_client_and_child_claim(self) -> None:

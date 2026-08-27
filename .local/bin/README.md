@@ -22,6 +22,10 @@ public API. Files here should stay thin and command-shaped.
 - `nvim` reuses an existing Neovim pane in the current tmux window for simple
   interactive-shell file opens, otherwise launching the Shdeps-managed Neovim
   binary at its fixed private path.
+- `ripgrep-link-host` adapts ripgrep's zero-argument `--hostname-bin` interface
+  to the explicit `termnav link-host` command. It contains no routing
+  policy; its name describes the ripgrep interface it adapts rather than the
+  implementation Termnav uses to resolve the host.
 
 The tracked `dot` file is an exact copy of Dot's reviewed permanent launcher
 template. It binds the Shdeps-owned checkout to the installed public-library
@@ -33,7 +37,7 @@ transaction. No second dotfiles-owned bootstrap command is installed.
 Reusable tool commands such as `ettun`, `fwdports`, `sley`, `sysup`,
 `agent-hook-*`, `claude-session-name`, `autoformat`, `autolint`, `checkrun`,
 `git-absorb-and-rebase`, `tmux-continuum-default-server`,
-`tmux-continuum-save-gate`, `tmux-clip-paste`, and `termnav-navigate` are
+`tmux-continuum-save-gate`, `tmux-clip-paste`, and `termnav navigate` are
 installed by `shdeps` from their owning dependency
 repos. The WezTerm tab switch/move helpers are owned by `termnav`; the generic
 Continuum default-server coordinator, its save gate, and clip paste are owned

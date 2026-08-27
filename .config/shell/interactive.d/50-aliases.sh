@@ -59,12 +59,12 @@ if command -v eza >/dev/null 2>&1; then
   unalias ls ll la l lt llt 2>/dev/null || true
 fi
 
-if command -v eza >/dev/null 2>&1 && command -v eza-nvim-links >/dev/null 2>&1; then
+if command -v eza >/dev/null 2>&1 && command -v termnav >/dev/null 2>&1; then
   _dot_eza() {
     if _dot_file_links_need_plain_output; then
       eza "$@"
     else
-      eza-nvim-links "$@"
+      termnav eza "$@"
     fi
   }
 

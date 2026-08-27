@@ -8,16 +8,16 @@ terminal navigation stack.
 - Neovim pane and tab navigation use Termnav's Lua adapter. Local Neovim
   splits remain process-free, adjacent tmux panes use one guarded tmux command,
   and session-relative or outer routing stays in the shared router.
-- Ctrl-click routing delegates to `tmux-follow-click` from the `termnav`
+- Ctrl-click routing delegates to `termnav tmux follow-click` from the `termnav`
   dependency when the foreground pane is not already handling mouse events.
-- File opens route through `nvim-tmux-open`, also owned by `termnav`.
+- File opens route through `termnav nvim open`, also owned by `termnav`.
 - The default-server Continuum coordinator, its cheap save gate, and
   clipboard-history paste use `tmux-tools`.
 - Automatic session persistence uses TPM, `tmux-resurrect`, and
   `tmux-continuum`, installed as shdeps-managed repository checkouts.
 - Ctrl-Tab window switching forwards into Neovim/fzf and nested terminal apps,
   switches tmux windows when the current tmux layer owns the chord, and sends
-  one-window boundaries through Termnav's warmed relay dispatcher with exact
+  one-window boundaries through Termnav's native one-shot router with exact
   client identity.
 - Alt-Shift-[ and Alt-Shift-] mirror WezTerm tab reordering for tmux windows:
   the bindings forward into Neovim/fzf and nested terminal apps, swap tmux
@@ -49,7 +49,7 @@ terminal application from a plain remote shell. A plain SSH/mosh/ET shell keeps
 pane navigation at the outer tmux layer, where forwarding Ctrl-h would instead
 produce backspace. Foreground-process-group checks prevent stale background
 transports or nested clients from stealing the chord. When a remote nested
-tmux owns the chord but has no pane in that direction, `termnav-relay` sends
+tmux owns the chord but has no pane in that direction, `termnav relay` sends
 the semantic request to the nearest parent tmux scope. The outer terminal
 supplies an ordered, read-only DECRQM response as the commit barrier;
 `User9`-`User13` cover every legal response state in WezTerm, xterm.js, and
@@ -82,8 +82,8 @@ plain TUIs (Claude Code, codex, `htop -m`, ...) can enable mouse reporting for
 their own scrolling/clicking without wanting to own Ctrl-Tab, so the flag is
 only trusted when paired with the nested-wrapper check. Switch tmux windows
 when the current tmux layer owns the chord. A one-window session passes its
-triggering client's PID, TTY, terminal type, and source scope to
-the warmed `termnav-relay navigate` router. It switches the first reachable
+triggering client's PID, TTY, terminal type, and source scope to the one-shot
+`termnav navigate` router. It switches the first reachable
 parent tmux with multiple windows, or uses the outer client's per-window VS
 Code socket or WezTerm TTY. Every selected client is revalidated before
 dispatch; unresolved ties and stale identities fail closed.
@@ -93,10 +93,11 @@ handling stops at the tmux layer when a multi-window tmux session is already at
 the first or last window. A one-window tmux routes outward through the same
 arbitrary-depth Termnav traversal used by pane and tab selection.
 
-Boundary router commands run in tmux's foreground through Termnav's warmed
-dispatcher, and the Neovim adapter keeps its ordered worker alive. This
-preserves rapid key order without adding subprocesses to the native
-adjacent-pane or multi-window fast paths.
+Boundary router commands run in tmux's foreground through Termnav's native
+one-shot dispatcher. The Neovim adapter serializes those short jobs and passes
+a bounded continuation token between adjacent gestures, preserving rapid key
+order without a resident worker or subprocesses on the native adjacent-pane
+and multi-window fast paths.
 
 ## Session Persistence
 

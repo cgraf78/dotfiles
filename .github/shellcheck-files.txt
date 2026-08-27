@@ -46,6 +46,7 @@ program	.local/bin/dot
 program	.local/bin/git
 program	.local/bin/hm
 program	.local/bin/nvim
+program	.local/bin/ripgrep-link-host
 program	.local/bin/shell-time
 program	.local/lib/dotfiles/agent-playbooks.sh
 program	.local/lib/dotfiles/doctor.d/10-shell.sh
