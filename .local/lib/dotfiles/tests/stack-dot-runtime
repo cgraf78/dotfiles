@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+# Run one Phase A verification group through the exact locked standalone Dot.
+
+set -euo pipefail
+
+root=$(cd -P -- "${BASH_SOURCE[0]%/*}/../../../.." && pwd -P)
+lock=$root/.github/overlay-profile-stack.lock
+if [[ -n ${DOT_STACK_LOCK_FILE:-} ]]; then
+  [[ ${DOT_TEST:-0} == 1 ]] || {
+    printf 'stack-dot-runtime: lock override is test-only\n' >&2
+    exit 1
+  }
+  lock=$DOT_STACK_LOCK_FILE
+fi
+
+[[ $# -ge 3 && $2 == -- ]] || {
+  printf 'usage: %s GROUP -- COMMAND [ARG...]\n' "${0##*/}" >&2
+  exit 2
+}
+group=$1
+shift 2
+[[ $group =~ ^[a-z][a-z0-9-]*$ ]] || {
+  printf 'stack-dot-runtime: invalid group: %s\n' "$group" >&2
+  exit 2
+}
+
+[[ -f $lock && ! -L $lock ]] || {
+  printf 'stack-dot-runtime: missing lock: %s\n' "$lock" >&2
+  exit 1
+}
+dot_sha=
+seen_version=0
+seen_dot=0
+while IFS= read -r line || [[ -n $line ]]; do
+  case $line in
+    version=1)
+      ((seen_version == 0)) || exit 1
+      seen_version=1
+      ;;
+    dot=*)
+      ((seen_dot == 0)) || exit 1
+      dot_sha=${line#dot=}
+      seen_dot=1
+      ;;
+  esac
+done <"$lock"
+[[ $seen_version -eq 1 && $seen_dot -eq 1 && $dot_sha =~ ^[0-9a-f]{40}$ ]] || {
+  printf 'stack-dot-runtime: invalid locked Dot revision\n' >&2
+  exit 1
+}
+
+runtime_parent=$(mktemp -d "${TMPDIR:-/tmp}/dot-stack-runtime.XXXXXXXX")
+case $runtime_parent in
+  /tmp/dot-stack-runtime.* | "${TMPDIR:-/tmp}"/dot-stack-runtime.*) ;;
+  *)
+    printf 'stack-dot-runtime: unsafe runtime directory: %s\n' \
+      "$runtime_parent" >&2
+    exit 1
+    ;;
+esac
+trap 'rm -rf -- "$runtime_parent"' EXIT HUP INT TERM
+runtime_repo=$runtime_parent/dot
+runtime_source=${DOT_STACK_DOT_REPOSITORY:-https://github.com/cgraf78/dot.git}
+
+git clone --quiet --no-checkout "$runtime_source" "$runtime_repo"
+git -C "$runtime_repo" fetch --quiet --no-tags origin "$dot_sha"
+git -C "$runtime_repo" checkout --quiet --detach "$dot_sha"
+
+actual_sha=$(git -C "$runtime_repo" rev-parse HEAD)
+[[ $actual_sha == "$dot_sha" ]] || {
+  printf 'stack-dot-runtime: expected %s, checked out %s\n' \
+    "$dot_sha" "$actual_sha" >&2
+  exit 1
+}
+runtime_bin=$runtime_repo/bin/dot
+[[ -x $runtime_bin && ! -L $runtime_bin ]] || {
+  printf 'stack-dot-runtime: missing locked executable: %s\n' \
+    "$runtime_bin" >&2
+  exit 1
+}
+
+XDG_CONFIG_HOME=$runtime_parent/xdg/config
+XDG_DATA_HOME=$runtime_parent/xdg/data
+XDG_STATE_HOME=$runtime_parent/xdg/state
+XDG_CACHE_HOME=$runtime_parent/xdg/cache
+XDG_RUNTIME_DIR=$runtime_parent/xdg/runtime
+mkdir -p "$XDG_CONFIG_HOME" "$XDG_DATA_HOME" "$XDG_STATE_HOME" \
+  "$XDG_CACHE_HOME" "$XDG_RUNTIME_DIR"
+chmod 0700 "$runtime_parent/xdg" "$XDG_CONFIG_HOME" "$XDG_DATA_HOME" \
+  "$XDG_STATE_HOME" "$XDG_CACHE_HOME" "$XDG_RUNTIME_DIR"
+
+PATH=$runtime_repo/bin:${DOT_STACK_BASE_PATH:-$PATH}
+hash -r
+resolved_dot=$(command -v dot)
+[[ $resolved_dot == "$runtime_bin" ]] || {
+  printf 'stack-dot-runtime: resolved unexpected Dot: %s\n' "$resolved_dot" >&2
+  exit 1
+}
+
+DOT_STACK_RUNTIME=1
+DOT_STACK_GROUP=$group
+DOT_STACK_DOT_SHA=$dot_sha
+DOT_STACK_DOT_ROOT=$runtime_repo
+DOT_STACK_DOT_BIN=$runtime_bin
+DOT_STACK_LOCK_PATH=$lock
+export PATH XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME
+export XDG_RUNTIME_DIR DOT_STACK_RUNTIME DOT_STACK_GROUP DOT_STACK_DOT_SHA
+export DOT_STACK_DOT_ROOT DOT_STACK_DOT_BIN DOT_STACK_LOCK_PATH
+
+printf 'stack-runtime\tgroup=%s\tdot=%s\thead=%s\n' \
+  "$group" "$runtime_bin" "$actual_sha"
+exec "$@"

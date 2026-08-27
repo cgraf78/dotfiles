@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+# Validate the immutable coordinated stack and the locked D1 runtime wrapper.
+
+set -u
+
+source_home=${DOT_TEST_SOURCE_HOME:-$HOME}
+
+# shellcheck source=helpers.sh
+. "$source_home/.local/lib/dotfiles/tests/helpers.sh"
+
+stack_runtime=$source_home/.local/lib/dotfiles/tests/stack-dot-runtime
+production_lock=$source_home/.github/overlay-profile-stack.lock
+source_lock=$source_home/.local/share/doc/dotfiles/overlay-profile-source.lock
+
+_lock_value() {
+  local key=$1 file=$2
+  awk -F= -v key="$key" '$1 == key { count++; value=$2 } END {
+    if (count == 1) print value; else exit 1
+  }' "$file"
+}
+
+if [[ ${1:-} != --runtime-only ]]; then
+  if [[ ! -f $production_lock || -L $production_lock ]]; then
+    _fail 'coordinated stack lock is a regular file'
+  else
+    version=$(_lock_value version "$production_lock" 2>/dev/null || true)
+    source_sha=$(_lock_value source_dotfiles "$production_lock" 2>/dev/null || true)
+    dot_sha=$(_lock_value dot "$production_lock" 2>/dev/null || true)
+    nvim_sha=$(_lock_value dotfiles_nvim "$production_lock" 2>/dev/null || true)
+    dev_sha=$(_lock_value dotfiles_dev "$production_lock" 2>/dev/null || true)
+    _assert_eq 'stack lock format version' 1 "$version"
+    _assert_eq 'stack source matches immutable extraction source' \
+      "$(<"$source_lock")" "$source_sha"
+    for pair in dot:$dot_sha dotfiles_nvim:$nvim_sha dotfiles_dev:$dev_sha; do
+      name=${pair%%:*}
+      sha=${pair#*:}
+      if [[ $sha =~ ^[0-9a-f]{40}$ ]]; then
+        _pass "stack lock pins full $name commit"
+      else
+        _fail "stack lock pins full $name commit"
+      fi
+    done
+  fi
+fi
+
+if [[ -x $stack_runtime ]]; then
+  _pass 'locked runtime wrapper is executable'
+else
+  _fail 'locked runtime wrapper is executable'
+  _test_summary
+fi
+
+dot_source=${DOT_TEST_DOT_REPOSITORY:-${DOT_TEST_DOT_ROOT:-}}
+if [[ -z $dot_source || ! -d $dot_source ]]; then
+  _fail 'local exact D1 source is supplied for stack wrapper tests'
+  _test_summary
+fi
+dot_sha=$(git -C "$dot_source" rev-parse HEAD)
+runtime_lock=$(_tmpdir)/stack.lock
+printf '%s\n' \
+  'version=1' \
+  "source_dotfiles=$(<"$source_lock")" \
+  "dot=$dot_sha" \
+  "dotfiles_nvim=0000000000000000000000000000000000000000" \
+  "dotfiles_dev=0000000000000000000000000000000000000000" \
+  >"$runtime_lock"
+
+fake_bin=$(_tmpdir)
+printf '%s\n' '#!/usr/bin/env bash' 'exit 97' >"$fake_bin/dot"
+chmod +x "$fake_bin/dot"
+probe=$(_tmpdir)/probe.sh
+# shellcheck disable=SC2016 # The generated probe expands only under the wrapper.
+printf '%s\n' \
+  '#!/usr/bin/env bash' \
+  'set -eu' \
+  'test "$DOT_STACK_RUNTIME" = 1' \
+  'test "$DOT_STACK_GROUP" = runtime-probe' \
+  'test "$(command -v dot)" = "$DOT_STACK_DOT_BIN"' \
+  'test "$(git -C "$DOT_STACK_DOT_ROOT" rev-parse HEAD)" = "$DOT_STACK_DOT_SHA"' \
+  'test "$XDG_CONFIG_HOME" = "${DOT_STACK_DOT_ROOT%/dot}/xdg/config"' \
+  >"$probe"
+chmod +x "$probe"
+
+runtime_output=$(DOT_TEST=1 DOT_STACK_LOCK_FILE=$runtime_lock \
+  DOT_STACK_DOT_REPOSITORY=$dot_source \
+  DOT_STACK_BASE_PATH=$fake_bin:/usr/bin:/bin \
+  "$stack_runtime" runtime-probe -- "$probe" 2>&1)
+runtime_rc=$?
+_assert_eq 'runtime wrapper executes group successfully' 0 "$runtime_rc"
+_assert_contains 'runtime wrapper prints group and exact head' \
+  "group=runtime-probe" "$runtime_output"
+_assert_contains 'runtime wrapper prints locked D1 revision' \
+  "head=$dot_sha" "$runtime_output"
+
+bad_lock=$(_tmpdir)/bad.lock
+printf '%s\n' 'version=1' 'dot=pending' >"$bad_lock"
+if DOT_TEST=1 DOT_STACK_LOCK_FILE=$bad_lock DOT_STACK_DOT_REPOSITORY=$dot_source \
+  "$stack_runtime" must-not-run -- "$probe" >/dev/null 2>&1; then
+  _fail 'runtime wrapper rejects an invalid lock before group execution'
+else
+  _pass 'runtime wrapper rejects an invalid lock before group execution'
+fi
+
+if DOT_STACK_LOCK_FILE=$runtime_lock DOT_STACK_DOT_REPOSITORY=$dot_source \
+  "$stack_runtime" must-not-run -- "$probe" >/dev/null 2>&1; then
+  _fail 'runtime wrapper rejects a production lock override'
+else
+  _pass 'runtime wrapper rejects a production lock override'
+fi
+
+_test_summary
