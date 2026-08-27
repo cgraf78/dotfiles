@@ -2525,7 +2525,8 @@ Create the literal `.github/dot-test-suites.txt` inventory containing base-owned
 focused suites plus profile/control-plane, ownership, overlay-composition,
 migration, and bounded fixture integration suites. Add `run-ci` to validate the
 inventory and invoke `dot test` with exactly those suite names. Update
-`.github/workflows/test.yml` to call `run-ci`; do not invoke unfiltered
+`.github/workflows/test.yml` to call `run-ci`; outside the single bounded D5
+installed-profile integration job described below, do not invoke unfiltered
 `dot test` in top-level public CI after capability suites have moved.
 
 For D4/D5 Phase A PR jobs, call the reusable shared workflow with `setup: none`
@@ -2544,8 +2545,10 @@ extension remaining anywhere in the top-level tree, or a component suite/check
 whose final-inventory owner differs from its overlay. The composition job reads
 the D2-D3 suite inventories from the exact commits in
 `.github/overlay-profile-stack.lock` to validate ownership and uniqueness but does not
-execute the named suites. Capability repositories run their extracted suites in
-their own CI only. Public CI does not execute private-overlay test suites.
+execute the named suites. Capability repositories own the broad CI validation
+of their extracted suites; the single D5 Ubuntu integration job may rerun them
+only to prove installed profile composition. Public CI does not execute
+private-overlay test suites.
 
 The scheduled cold-bootstrap job may verify profile convergence, doctor
 lifecycle state, and bounded composition smoke assertions, but it must not run

@@ -346,7 +346,7 @@ source_path	component_id	category	transform	d4_action	d5_action	ownership_note
 .local/lib/dotfiles/tests/core/merges.sh	split-tests	test	split	rewrite	keep	owner=mixed; source=locked-dotfiles; split=reviewed-container
 .local/lib/dotfiles/tests/core/static.sh	split-tests	test	split	rewrite	keep	owner=mixed; source=locked-dotfiles; split=reviewed-container
 .local/lib/dotfiles/tests/fixtures.sh	local-lib-dotfiles-tests-fixtures-sh	test	keep	rewrite	keep	owner=dotfiles; source=locked-dotfiles
-.local/lib/dotfiles/tests/fixtures/common-language-policy.json	local-lib-dotfiles-tests-fixtures-common-language-policy-json	test	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.local/lib/dotfiles/tests/fixtures/common-language-policy.json	local-lib-dotfiles-tests-fixtures-common-language-policy-json	test	keep	remove	none	owner=dotfiles-dev; source=locked-dotfiles
 .local/lib/dotfiles/tests/fixtures/nvim-link-routes.tsv	nvim-editor	test	keep	remove	none	owner=dotfiles-nvim; source=locked-dotfiles
 .local/lib/dotfiles/tests/git-shell-workflows-test	git-workflow	test	keep	remove	none	owner=dotfiles-dev; source=locked-dotfiles
 .local/lib/dotfiles/tests/githook-test	git-workflow	test	keep	remove	none	owner=dotfiles-dev; source=locked-dotfiles
