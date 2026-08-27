@@ -1,0 +1,382 @@
+#!/usr/bin/env bash
+# Run a CI command from an exact candidate in Dot's normal separate-Git layout.
+
+set -euo pipefail
+
+root=$(cd -P -- "${BASH_SOURCE[0]%/*}/../../../.." && pwd -P)
+candidate_sha=${DOTFILES_CANDIDATE_SHA:-}
+lock=${DOT_STACK_LOCK_PATH:-$root/.github/overlay-profile-stack.lock}
+source_sha=
+
+clean_git_env=(
+  env
+  -u GIT_DIR
+  -u GIT_WORK_TREE
+  -u GIT_COMMON_DIR
+  -u GIT_IMPLICIT_WORK_TREE
+  -u GIT_PREFIX
+  -u GIT_INDEX_FILE
+  -u GIT_OBJECT_DIRECTORY
+  -u GIT_ALTERNATE_OBJECT_DIRECTORIES
+  -u GIT_SHALLOW_FILE
+  -u GIT_CONFIG
+  -u GIT_CONFIG_GLOBAL
+  -u GIT_CONFIG_SYSTEM
+  -u GIT_CONFIG_NOSYSTEM
+  -u GIT_CONFIG_COUNT
+  -u GIT_CONFIG_PARAMETERS
+  -u GIT_NAMESPACE
+  -u GIT_GRAFT_FILE
+  -u GIT_REPLACE_REF_BASE
+  -u GIT_NO_REPLACE_OBJECTS
+)
+
+ci_git() {
+  "${clean_git_env[@]}" GIT_CONFIG_GLOBAL=/dev/null \
+    GIT_CONFIG_NOSYSTEM=1 GIT_NO_REPLACE_OBJECTS=1 \
+    git --no-replace-objects "$@"
+}
+
+root_git() {
+  if [[ ${DOT_TEST_ROOT_FOREIGN:-0} == 1 ]]; then
+    [[ ${DOT_TEST:-0} == 1 ]] || return 1
+    GIT_TEST_ASSUME_DIFFERENT_OWNER=1 \
+      ci_git -c "safe.directory=$root" -C "$root" "$@"
+  else
+    ci_git -c "safe.directory=$root" -C "$root" "$@"
+  fi
+}
+
+[[ $# -gt 0 ]] || {
+  printf 'usage: %s COMMAND [ARG...]\n' "${0##*/}" >&2
+  exit 2
+}
+[[ $candidate_sha =~ ^[0-9a-f]{40}$ ]] || {
+  printf 'run-ci-candidate-home: invalid immutable candidate revision: %s\n' \
+    "${candidate_sha:-<empty>}" >&2
+  exit 1
+}
+[[ -d $root/.git && ! -L $root/.git ]] || {
+  printf 'run-ci-candidate-home: a disposable standalone checkout is required: %s\n' \
+    "$root" >&2
+  exit 1
+}
+git_top=$(root_git rev-parse --show-toplevel 2>/dev/null) || exit 1
+git_dir=$(root_git rev-parse --absolute-git-dir 2>/dev/null) || exit 1
+git_common_dir=$(root_git rev-parse --git-common-dir 2>/dev/null) || exit 1
+case $git_common_dir in
+  /*) ;;
+  *) git_common_dir=$root/$git_common_dir ;;
+esac
+git_common_dir=$(cd -P -- "$git_common_dir" && pwd -P) || exit 1
+[[ $git_top == "$root" && $git_dir == "$root/.git" &&
+  $git_common_dir == "$root/.git" ]] || {
+  printf 'run-ci-candidate-home: repository metadata is not standalone: %s\n' \
+    "$root" >&2
+  exit 1
+}
+actual_sha=$(root_git rev-parse HEAD 2>/dev/null) || exit 1
+# Git's ownership test knob also propagates into local transport subprocesses,
+# where it would falsely mark the newly created bare origin as foreign. One
+# root probe is sufficient to prove the scoped safe-directory path; every later
+# root operation goes through the same helper without the synthetic condition.
+[[ ${DOT_TEST_ROOT_FOREIGN:-0} != 1 ]] || DOT_TEST_ROOT_FOREIGN=0
+[[ $actual_sha == "$candidate_sha" ]] || {
+  printf 'run-ci-candidate-home: expected %s, found %s\n' \
+    "$candidate_sha" "$actual_sha" >&2
+  exit 1
+}
+
+temp_root=$(cd -P -- "${TMPDIR:-/tmp}" && pwd -P)
+staging=$(mktemp -d "$temp_root/dotfiles-ci-home.XXXXXXXX")
+staging=$(cd -P -- "$staging" && pwd -P)
+case $staging in
+  "$temp_root"/dotfiles-ci-home.*) ;;
+  *)
+    printf 'run-ci-candidate-home: unsafe staging directory: %s\n' \
+      "$staging" >&2
+    exit 1
+    ;;
+esac
+trap 'rm -rf -- "$staging"' EXIT HUP INT TERM
+
+lock_value() {
+  local key=$1
+  awk -F= -v key="$key" '$1 == key { count++; value=$2 } END {
+    if (count == 1) print value; else exit 1
+  }' "$lock"
+}
+
+prepare_dot_runtime() {
+  local install=$home/.local/share/cgraf78/dot actual sha source
+
+  sha=$(lock_value dot 2>/dev/null || true)
+  source=${DOT_STACK_DOT_REPOSITORY:-https://github.com/cgraf78/dot.git}
+  [[ $sha =~ ^[0-9a-f]{40}$ ]] || {
+    printf 'run-ci-candidate-home: invalid immutable Dot test binding\n' >&2
+    return 1
+  }
+  mkdir -p "$home/.local/share/cgraf78" "$home/.local/lib"
+  ci_git clone --quiet --no-checkout "$source" "$install"
+  ci_git -C "$install" fetch --quiet --no-tags origin "$sha"
+  ci_git -C "$install" checkout --quiet --detach "$sha"
+  actual=$(ci_git -C "$install" rev-parse HEAD)
+  [[ $actual == "$sha" && -f $install/lib/dot/public/xdg.sh ]] || {
+    printf 'run-ci-candidate-home: invalid installed Dot runtime: %s\n' \
+      "$actual" >&2
+    return 1
+  }
+  ln -s ../share/cgraf78/dot/lib/dot/public "$home/.local/lib/dot"
+}
+
+prepare_agent_rules_sync() {
+  local install=$home/.local/share/cgraf78/agent-rules-sync
+  local sha source actual
+
+  sha=$(lock_value test_agent_rules_sync 2>/dev/null || true)
+  source=${DOT_STACK_AGENT_RULES_SYNC_REPOSITORY:-https://github.com/cgraf78/agent-rules-sync.git}
+  [[ $sha =~ ^[0-9a-f]{40}$ ]] || {
+    printf 'run-ci-candidate-home: invalid agent-rules-sync test binding\n' >&2
+    return 1
+  }
+  ci_git clone --quiet --no-checkout "$source" "$install"
+  ci_git -C "$install" fetch --quiet --no-tags origin "$sha"
+  ci_git -C "$install" checkout --quiet --detach "$sha"
+  actual=$(ci_git -C "$install" rev-parse HEAD)
+  [[ $actual == "$sha" && -x $install/bin/agent-rules-sync ]] || {
+    printf 'run-ci-candidate-home: invalid agent-rules-sync checkout: %s\n' \
+      "$actual" >&2
+    return 1
+  }
+  mkdir -p "$home/.local/bin"
+  ln -s ../share/cgraf78/agent-rules-sync/bin/agent-rules-sync \
+    "$home/.local/bin/agent-rules-sync"
+}
+
+record_client_identity() {
+  local dot_bin=$home/.local/share/cgraf78/dot/bin/dot record identity
+  local git_identity git_dev git_ino output
+
+  # `dot init` also converges the complete dependency graph. CI needs only its
+  # identity contract here, so write the versioned adopted-checkout record and
+  # immediately make the pinned D1 runtime parse and validate it.
+  identity=file://$origin
+  git_identity=$(stat -c '%d:%i' "$home/.dotfiles" 2>/dev/null ||
+    stat -f '%d:%i' "$home/.dotfiles")
+  git_dev=${git_identity%%:*}
+  git_ino=${git_identity#*:}
+  record=$home/.local/state/dot/init/completed
+  mkdir -p "${record%/*}"
+  chmod 0700 "${record%/*}"
+  {
+    printf 'cgraf78 dot initialization transaction v1\n'
+    printf 'phase=complete\n'
+    printf 'origin=%s\n' "$identity"
+    printf 'identity=%s\n' "$identity"
+    printf 'branch=main\n'
+    printf 'commit=%s\n' "$candidate_sha"
+    printf 'git_dir=%s\n' "$home/.dotfiles"
+    printf 'worktree=%s\n' "$home"
+    printf 'backup=-\n'
+    printf 'dot=%s\n' "$dot_bin"
+    printf 'dot_revision=%s\n' "$(lock_value dot)"
+    printf 'nonce=adopted\n'
+    printf 'git_dev=%s\n' "$git_dev"
+    printf 'git_ino=%s\n' "$git_ino"
+  } >"$record"
+  chmod 0600 "$record"
+
+  output=$("${clean_git_env[@]}" GIT_NO_REPLACE_OBJECTS=1 \
+    HOME="$home" \
+    XDG_CONFIG_HOME="$home/.config" \
+    XDG_DATA_HOME="$home/.local/share" \
+    XDG_STATE_HOME="$home/.local/state" \
+    XDG_CACHE_HOME="$home/.cache" \
+    XDG_RUNTIME_DIR="$runtime" \
+    PATH="${dot_bin%/*}:$home/.local/bin:$PATH" \
+    "$dot_bin" init --status) || return 1
+  [[ $output == *'initialization: complete'* ]] || {
+    printf 'run-ci-candidate-home: invalid client identity record\n' >&2
+    return 1
+  }
+}
+
+prepare_shdeps() {
+  local install=$home/.local/share/shdeps installer=$staging/install-shdeps
+  local metadata=$staging/shdeps-release.json
+  local verify_repo=$staging/shdeps-verify
+  local sha release installer_sha short version platform asset
+  local override=${DOT_STACK_SHDEPS_ROOT:-}
+
+  [[ -f $lock && ! -L $lock ]] || {
+    printf 'run-ci-candidate-home: missing stack lock: %s\n' "$lock" >&2
+    return 1
+  }
+  sha=$(lock_value test_shdeps 2>/dev/null || true)
+  release=$(lock_value test_shdeps_release 2>/dev/null || true)
+  installer_sha=$(lock_value test_shdeps_installer 2>/dev/null || true)
+  [[ $sha =~ ^[0-9a-f]{40}$ &&
+    $installer_sha =~ ^[0-9a-f]{40}$ &&
+    $release =~ ^[0-9]{8}-[0-9]{6}-[0-9a-f]{8}$ ]] || {
+    printf 'run-ci-candidate-home: invalid immutable Shdeps test binding\n' >&2
+    return 1
+  }
+  short=${sha:0:8}
+  [[ $release == *-$short ]] || {
+    printf 'run-ci-candidate-home: Shdeps release does not match %s\n' \
+      "$sha" >&2
+    return 1
+  }
+
+  ci_git init --quiet "$verify_repo"
+  ci_git -C "$verify_repo" remote add origin \
+    "${DOT_STACK_SHDEPS_REPOSITORY:-https://github.com/cgraf78/shdeps.git}"
+  ci_git -C "$verify_repo" fetch --quiet --no-tags origin "$sha" \
+    "$installer_sha" || {
+    printf 'run-ci-candidate-home: Shdeps commits are not fetchable\n' >&2
+    return 1
+  }
+  ci_git -C "$verify_repo" cat-file -e "$sha^{commit}"
+  ci_git -C "$verify_repo" cat-file -e "$installer_sha^{commit}"
+  ci_git -C "$verify_repo" fetch --quiet origin \
+    "refs/tags/$release:refs/tags/$release" || {
+    printf 'run-ci-candidate-home: Shdeps release tag is not fetchable\n' >&2
+    return 1
+  }
+  [[ $(ci_git -C "$verify_repo" rev-parse "refs/tags/$release^{commit}") == "$sha" ]] || {
+    printf 'run-ci-candidate-home: Shdeps release tag does not match %s\n' \
+      "$sha" >&2
+    return 1
+  }
+
+  if [[ -n $override ]]; then
+    [[ ${DOT_TEST:-0} == 1 && $override == /* &&
+      -f $override/install.sh && -f $override/shdeps.sh &&
+      -x $override/shdeps ]] || {
+      printf 'run-ci-candidate-home: invalid test Shdeps root\n' >&2
+      return 1
+    }
+    mkdir -p "$install"
+    cp -R "$override"/. "$install"/
+  else
+    command -v curl >/dev/null || {
+      printf 'run-ci-candidate-home: curl is required for Shdeps setup\n' >&2
+      return 1
+    }
+    curl -fsSL \
+      "https://raw.githubusercontent.com/cgraf78/shdeps/$installer_sha/install.sh" \
+      -o "$installer"
+    {
+      printf '{\n  "tag_name": "%s",\n  "assets": [\n' "$release"
+      for platform in android-aarch64 android-x86_64 linux-aarch64-musl \
+        linux-x86_64-musl macos-aarch64 macos-x86_64; do
+        for asset in \
+          "shdeps-$release-$platform.tar.gz" \
+          "shdeps-$release-$platform.tar.gz.sha256"; do
+          printf '    {\n      "name": "%s",\n' "$asset"
+          printf '      "browser_download_url": "https://github.com/cgraf78/shdeps/releases/download/%s/%s"\n    },\n' \
+            "$release" "$asset"
+        done
+      done
+      printf '    {}\n  ]\n}\n'
+    } >"$metadata"
+    # This is a public immutable release. Do not forward workflow credentials
+    # into its download path; public browser URLs are both sufficient and less
+    # privileged than GitHub's authenticated asset API fallback.
+    env -u GH_TOKEN -u GITHUB_TOKEN HOME="$home" \
+      SHDEPS_DIR="$install" \
+      SHDEPS_BIN="$home/.local/bin/shdeps" \
+      SHDEPS_LUA_DIR="$home/.local/lib/shdeps" \
+      SHDEPS_GIT_DEV_DIR="$home/git" \
+      SHDEPS_RELEASE_API_URL="file://$metadata" \
+      bash "$installer"
+  fi
+
+  version=$("$install/shdeps" version 2>/dev/null || true)
+  [[ $version == *"$short"* ]] || {
+    printf 'run-ci-candidate-home: expected Shdeps %s, found %s\n' \
+      "$short" "${version:-<empty>}" >&2
+    return 1
+  }
+}
+
+origin=$staging/origin.git
+home=$staging/home
+source=$staging/source
+source_sha=$(lock_value source_dotfiles 2>/dev/null || true)
+[[ $source_sha =~ ^[0-9a-f]{40}$ ]] || {
+  printf 'run-ci-candidate-home: invalid immutable source revision\n' >&2
+  exit 1
+}
+source_repository=${DOT_STACK_SOURCE_REPOSITORY:-$(root_git remote get-url origin)}
+root_git fetch --quiet --no-tags --depth=1 \
+  "$source_repository" "$source_sha" || {
+  printf 'run-ci-candidate-home: source revision is not fetchable: %s\n' \
+    "$source_sha" >&2
+  exit 1
+}
+ci_git init --quiet --bare "$origin"
+# The exact-event checkout is intentionally depth-one in shared CI. Preserve
+# that shallow boundary when publishing the disposable local origin.
+ci_git --git-dir="$origin" config receive.shallowUpdate true
+root_git push --quiet "$origin" \
+  "$candidate_sha:refs/heads/main"
+root_git push --quiet "$origin" \
+  "$source_sha:refs/heads/source-snapshot"
+ci_git --git-dir="$origin" symbolic-ref HEAD refs/heads/main
+ci_git clone --quiet --separate-git-dir="$home/.dotfiles" \
+  "file://$origin" "$home"
+ci_git --git-dir="$home/.dotfiles" config core.bare false
+ci_git --git-dir="$home/.dotfiles" config core.worktree "$home"
+ci_git --git-dir="$home/.dotfiles" fetch --quiet --no-tags origin \
+  "$source_sha"
+
+installed_sha=$(ci_git --git-dir="$home/.dotfiles" rev-parse HEAD)
+[[ $installed_sha == "$candidate_sha" ]] || {
+  printf 'run-ci-candidate-home: expected installed %s, found %s\n' \
+    "$candidate_sha" "$installed_sha" >&2
+  exit 1
+}
+
+runtime=$staging/runtime
+mkdir -p "$runtime"
+chmod 0700 "$runtime"
+prepare_dot_runtime
+record_client_identity
+prepare_agent_rules_sync
+prepare_shdeps
+printf '%s\n' '.local/lib/dot' '.local/share/cgraf78/' \
+  '.local/share/shdeps/' '.local/bin/agent-rules-sync' \
+  '.local/bin/shdeps' '.local/lib/shdeps' \
+  >>"$home/.dotfiles/info/exclude"
+
+# Keep the client HOME ordinary while running tests from a separate, clean
+# source worktree. Tests may write cache/state below HOME without making the
+# immutable source checkout dirty.
+ci_git --git-dir="$home/.dotfiles" worktree add --quiet --detach \
+  "$source" "$candidate_sha"
+source_head=$(ci_git -C "$source" rev-parse HEAD)
+[[ $source_head == "$candidate_sha" ]] || {
+  printf 'run-ci-candidate-home: expected source %s, found %s\n' \
+    "$candidate_sha" "$source_head" >&2
+  exit 1
+}
+printf 'candidate-home\thome=%s\tsource=%s\thead=%s\n' \
+  "$home" "$source" "$installed_sha"
+(
+  cd "$source"
+  # The child is a production-equivalent test environment. Remove any caller
+  # redirects, but let its isolated HOME own writable global configuration;
+  # exporting /dev/null here lets root-run container tests replace that device
+  # through Git's lock-and-rename update path.
+  "${clean_git_env[@]}" GIT_NO_REPLACE_OBJECTS=1 \
+    HOME="$home" \
+    XDG_CONFIG_HOME="$home/.config" \
+    XDG_DATA_HOME="$home/.local/share" \
+    XDG_STATE_HOME="$home/.local/state" \
+    XDG_CACHE_HOME="$home/.cache" \
+    XDG_RUNTIME_DIR="$runtime" \
+    PATH="$home/.local/share/cgraf78/dot/bin:$home/.local/bin:$PATH" \
+    DOTFILES_CANDIDATE_SHA="$candidate_sha" \
+    DOTFILES_SOURCE_SHA="$source_sha" "$@"
+)

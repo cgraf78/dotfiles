@@ -124,5 +124,6 @@ _require_runtime || {
 }
 export DOT_TEST_DOT_ROOT=$DOT_STACK_DOT_ROOT
 export DOT_TEST_SOURCE_HOME=$root
+export DOT_TEST_TESTS_DIR=$root/.local/lib/dotfiles/tests
 cd "$root"
 exec "$DOT_STACK_DOT_BIN" test "${suites[@]}"

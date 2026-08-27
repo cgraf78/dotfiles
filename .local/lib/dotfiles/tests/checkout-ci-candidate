@@ -12,8 +12,41 @@ candidate_sha=${DOTFILES_CANDIDATE_SHA:-}
   exit 1
 }
 
-[[ -d $root/.git || -f $root/.git ]] || {
-  printf 'checkout-ci-candidate: repository metadata is unavailable: %s\n' \
+[[ -d $root/.git && ! -L $root/.git ]] || {
+  printf 'checkout-ci-candidate: a disposable standalone checkout is required: %s\n' \
+    "$root" >&2
+  exit 1
+}
+
+root_git() {
+  # Container jobs can present the checked-out files under a different uid
+  # from the shell that runs the test command. Trust only this script-derived
+  # candidate path instead of depending on mutable runner-global Git config.
+  # Clear every repository-selection and write-redirection variable so a
+  # caller cannot redirect fetch or checkout into shared repository metadata.
+  env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR \
+    -u GIT_IMPLICIT_WORK_TREE -u GIT_PREFIX \
+    -u GIT_INDEX_FILE -u GIT_OBJECT_DIRECTORY \
+    -u GIT_ALTERNATE_OBJECT_DIRECTORIES -u GIT_SHALLOW_FILE \
+    -u GIT_CONFIG -u GIT_CONFIG_GLOBAL -u GIT_CONFIG_SYSTEM \
+    -u GIT_CONFIG_COUNT -u GIT_CONFIG_PARAMETERS -u GIT_NAMESPACE \
+    -u GIT_GRAFT_FILE -u GIT_REPLACE_REF_BASE \
+    GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+    GIT_NO_REPLACE_OBJECTS=1 \
+    git --no-replace-objects -c "safe.directory=$root" -C "$root" "$@"
+}
+
+git_top=$(root_git rev-parse --show-toplevel 2>/dev/null) || exit 1
+git_dir=$(root_git rev-parse --absolute-git-dir 2>/dev/null) || exit 1
+git_common_dir=$(root_git rev-parse --git-common-dir 2>/dev/null) || exit 1
+case $git_common_dir in
+  /*) ;;
+  *) git_common_dir=$root/$git_common_dir ;;
+esac
+git_common_dir=$(cd -P -- "$git_common_dir" && pwd -P) || exit 1
+[[ $git_top == "$root" && $git_dir == "$root/.git" &&
+  $git_common_dir == "$root/.git" ]] || {
+  printf 'checkout-ci-candidate: repository metadata is not standalone: %s\n' \
     "$root" >&2
   exit 1
 }
@@ -21,11 +54,11 @@ candidate_sha=${DOTFILES_CANDIDATE_SHA:-}
 restore_ci_git_config() {
   local path=.config/git/config status expected actual
 
-  status=$(git -C "$root" status --porcelain -- "$path")
+  status=$(root_git status --porcelain -- "$path")
   [[ -n $status ]] || return 0
   [[ $status == " M $path" ]] || return 1
 
-  expected=$(git -C "$root" show "HEAD:$path") || return 1
+  expected=$(root_git show "HEAD:$path") || return 1
   expected+=$'\n[safe]\n\tdirectory = '"$root"
   actual=$(<"$root/$path")
   [[ $actual == "$expected" ]] || return 1
@@ -33,11 +66,11 @@ restore_ci_git_config() {
   # The shared CI workflow writes this one global setting after redirecting
   # HOME into the checkout. Restore the reviewed candidate copy before moving
   # away from GitHub's synthesized merge ref.
-  git -C "$root" checkout-index --force -- "$path"
+  root_git checkout-index --force -- "$path"
 }
 
 restore_ci_git_config || true
-dirty=$(git -C "$root" status --porcelain --untracked-files=all |
+dirty=$(root_git status --porcelain --untracked-files=all |
   sed '/^?? \.gitconfig$/d')
 if [[ -n $dirty ]]; then
   printf 'checkout-ci-candidate: refusing to replace a dirty checkout\n' >&2
@@ -45,22 +78,22 @@ if [[ -n $dirty ]]; then
   exit 1
 fi
 
-origin=$(git -C "$root" remote get-url origin 2>/dev/null) || {
+origin=$(root_git remote get-url origin 2>/dev/null) || {
   printf 'checkout-ci-candidate: origin remote is unavailable\n' >&2
   exit 1
 }
 [[ -n $origin ]] || exit 1
 
-git -C "$root" fetch --quiet --no-tags --depth=1 origin "$candidate_sha"
-git -C "$root" checkout --quiet --detach "$candidate_sha"
+root_git fetch --quiet --no-tags --depth=1 origin "$candidate_sha"
+root_git checkout --quiet --detach "$candidate_sha"
 
-actual_sha=$(git -C "$root" rev-parse HEAD)
+actual_sha=$(root_git rev-parse HEAD)
 [[ $actual_sha == "$candidate_sha" ]] || {
   printf 'checkout-ci-candidate: expected %s, checked out %s\n' \
     "$candidate_sha" "$actual_sha" >&2
   exit 1
 }
-dirty=$(git -C "$root" status --porcelain --untracked-files=all |
+dirty=$(root_git status --porcelain --untracked-files=all |
   sed '/^?? \.gitconfig$/d')
 [[ -z $dirty ]] || {
   printf 'checkout-ci-candidate: exact checkout is unexpectedly dirty\n' >&2

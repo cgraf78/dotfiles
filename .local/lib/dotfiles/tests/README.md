@@ -24,6 +24,16 @@ Run the CI-owned set through the pinned D1 runtime:
   .local/lib/dotfiles/tests/profile-fixture-integration test
 ```
 
+Shared CI first checks out the immutable pull-request head, then uses
+`run-ci-candidate-home` to clone that commit into Dot's normal separate-Git
+layout and create a separate clean source worktree before invoking these
+commands. The helper also installs the exact D1 runtime and the immutable
+Shdeps test release through the pinned installer recorded in
+`.github/overlay-profile-stack.lock`. It also installs the exact base-owned
+`agent-rules-sync` provider and retains the frozen source commit needed by
+ownership checks; test fixtures therefore do not depend on a runner's
+pre-existing dotfiles setup.
+
 The D4 installed-profile gate runs real unfiltered `dot test --list`
 discovery in isolated base, editor, and dev homes. It does not execute the
 discovered overlay suites until D5 removes the remaining pre-cutover monolith

@@ -49,10 +49,11 @@ done <"$lock"
   exit 1
 }
 
-runtime_parent=$(mktemp -d "${TMPDIR:-/tmp}/dot-stack-runtime.XXXXXXXX")
+temp_root=$(cd -P -- "${TMPDIR:-/tmp}" && pwd -P)
+runtime_parent=$(mktemp -d "$temp_root/dot-stack-runtime.XXXXXXXX")
 runtime_parent=$(cd -P -- "$runtime_parent" && pwd -P)
 case $runtime_parent in
-  /tmp/dot-stack-runtime.* | "${TMPDIR:-/tmp}"/dot-stack-runtime.*) ;;
+  "$temp_root"/dot-stack-runtime.*) ;;
   *)
     printf 'stack-dot-runtime: unsafe runtime directory: %s\n' \
       "$runtime_parent" >&2

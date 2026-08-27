@@ -27,23 +27,26 @@ jobs:
         set -euo pipefail
         export DOTFILES_CANDIDATE_SHA='${{ github.event.pull_request.head.sha || github.sha }}'
         .local/lib/dotfiles/tests/checkout-ci-candidate
-        .local/lib/dotfiles/tests/stack-dot-runtime control-plane-run-ci -- \
-          .local/lib/dotfiles/tests/run-ci
+        .local/lib/dotfiles/tests/run-ci-candidate-home \
+          .local/lib/dotfiles/tests/stack-dot-runtime control-plane-run-ci -- \
+            .local/lib/dotfiles/tests/run-ci
       # D4 still carries the pre-cutover monolithic runtime, but it must run
       # through the exact D1 provider. The D5 cutover narrows this Android smoke
       # to the final base-owned payload.
       termux-command: |-
         set -euo pipefail
-        test "$(git rev-parse HEAD)" = '${{ github.event.pull_request.head.sha || github.sha }}'
-        .local/lib/dotfiles/tests/stack-dot-runtime control-plane-run-ci -- \
-          bash -c '
-            set -euo pipefail
-            unset XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME XDG_RUNTIME_DIR
-            export DOT_VERBOSE=1
-            HOME="$PWD" PATH="$DOT_STACK_DOT_ROOT/bin:$PWD/.local/bin:$PATH" dot update
-            HOME="$PWD" PATH="$DOT_STACK_DOT_ROOT/bin:$PWD/.local/bin:$PATH" \
-              bash .local/lib/dotfiles/tests/android-ci-smoke
-          '
+        export DOTFILES_CANDIDATE_SHA='${{ github.event.pull_request.head.sha || github.sha }}'
+        test "$(git rev-parse HEAD)" = "$DOTFILES_CANDIDATE_SHA"
+        .local/lib/dotfiles/tests/run-ci-candidate-home \
+          .local/lib/dotfiles/tests/stack-dot-runtime control-plane-run-ci -- \
+            bash -c '
+              set -euo pipefail
+              unset XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME XDG_RUNTIME_DIR
+              export DOT_VERBOSE=1
+              PATH="$DOT_STACK_DOT_ROOT/bin:$PWD/.local/bin:$PATH" dot update
+              PATH="$DOT_STACK_DOT_ROOT/bin:$PWD/.local/bin:$PATH" \
+                bash .local/lib/dotfiles/tests/android-ci-smoke
+            '
       termux-host-command: |-
         set -euo pipefail
         export DOTFILES_CANDIDATE_SHA='${{ github.event.pull_request.head.sha || github.sha }}'

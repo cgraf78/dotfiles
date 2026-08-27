@@ -137,6 +137,10 @@ if [[ ${1:-} != --runtime-only ]]; then
     dot_sha=$(_lock_value dot "$production_lock" 2>/dev/null || true)
     nvim_sha=$(_lock_value dotfiles_nvim "$production_lock" 2>/dev/null || true)
     dev_sha=$(_lock_value dotfiles_dev "$production_lock" 2>/dev/null || true)
+    shdeps_sha=$(_lock_value test_shdeps "$production_lock" 2>/dev/null || true)
+    shdeps_release=$(_lock_value test_shdeps_release "$production_lock" 2>/dev/null || true)
+    shdeps_installer_sha=$(_lock_value test_shdeps_installer "$production_lock" 2>/dev/null || true)
+    agent_rules_sha=$(_lock_value test_agent_rules_sync "$production_lock" 2>/dev/null || true)
     _assert_eq 'stack lock format version' 1 "$version"
     _assert_eq 'stack source matches immutable extraction source' \
       "$(<"$source_lock")" "$source_sha"
@@ -157,7 +161,8 @@ if [[ ${1:-} != --runtime-only ]]; then
     else
       _fail 'full stack integration runs through the exact locked D1 runtime'
     fi
-    for pair in dot:$dot_sha dotfiles_nvim:$nvim_sha dotfiles_dev:$dev_sha; do
+    for pair in dot:$dot_sha dotfiles_nvim:$nvim_sha dotfiles_dev:$dev_sha \
+      test_shdeps:$shdeps_sha test_shdeps_installer:$shdeps_installer_sha; do
       name=${pair%%:*}
       sha=${pair#*:}
       if [[ $sha =~ ^[0-9a-f]{40}$ ]]; then
@@ -166,9 +171,20 @@ if [[ ${1:-} != --runtime-only ]]; then
         _fail "stack lock pins full $name commit"
       fi
     done
+    if [[ $agent_rules_sha =~ ^[0-9a-f]{40}$ ]]; then
+      _pass 'stack lock pins full agent-rules-sync test commit'
+    else
+      _fail 'stack lock pins full agent-rules-sync test commit'
+    fi
+    if [[ $shdeps_release =~ ^[0-9]{8}-[0-9]{6}-[0-9a-f]{8}$ ]]; then
+      _pass 'stack lock pins an immutable Shdeps test release'
+    else
+      _fail 'stack lock pins an immutable Shdeps test release'
+    fi
 
     expected_keys=$(printf '%s\n' \
-      version source_dotfiles dot dotfiles_nvim dotfiles_dev | sort)
+      version source_dotfiles dot dotfiles_nvim dotfiles_dev test_shdeps \
+      test_shdeps_release test_shdeps_installer test_agent_rules_sync | sort)
     actual_keys=$(awk -F= '
       NF != 2 || !$1 || !$2 { exit 1 }
       seen[$1]++ { exit 1 }
@@ -177,14 +193,21 @@ if [[ ${1:-} != --runtime-only ]]; then
     _assert_eq 'D4 stack lock has the exact key set' "$expected_keys" "$actual_keys"
 
     if [[ $dot_sha =~ ^[0-9a-f]{40}$ &&
-      $nvim_sha =~ ^[0-9a-f]{40}$ && $dev_sha =~ ^[0-9a-f]{40}$ ]]; then
-      printf 'stack-commits\tsource=%s\tdot=%s\tnvim=%s\tdev=%s\n' \
-        "$source_sha" "$dot_sha" "$nvim_sha" "$dev_sha"
+      $nvim_sha =~ ^[0-9a-f]{40}$ && $dev_sha =~ ^[0-9a-f]{40}$ &&
+      $shdeps_sha =~ ^[0-9a-f]{40}$ &&
+      $shdeps_installer_sha =~ ^[0-9a-f]{40}$ &&
+      $agent_rules_sha =~ ^[0-9a-f]{40}$ ]]; then
+      printf 'stack-commits\tsource=%s\tdot=%s\tnvim=%s\tdev=%s\tshdeps=%s\n' \
+        "$source_sha" "$dot_sha" "$nvim_sha" "$dev_sha" "$shdeps_sha"
       stack_tmp=$(_tmpdir)
       nvim_checkout=$stack_tmp/dotfiles-nvim
       dev_checkout=$stack_tmp/dotfiles-dev
+      shdeps_checkout=$stack_tmp/shdeps
+      agent_rules_checkout=$stack_tmp/agent-rules-sync
       nvim_repository=${DOT_STACK_NVIM_REPOSITORY:-https://github.com/cgraf78/dotfiles-nvim.git}
       dev_repository=${DOT_STACK_DEV_REPOSITORY:-https://github.com/cgraf78/dotfiles-dev.git}
+      shdeps_repository=${DOT_STACK_SHDEPS_REPOSITORY:-https://github.com/cgraf78/shdeps.git}
+      agent_rules_repository=${DOT_STACK_AGENT_RULES_SYNC_REPOSITORY:-https://github.com/cgraf78/agent-rules-sync.git}
       if _checkout_exact "$nvim_repository" "$nvim_sha" "$nvim_checkout"; then
         _pass 'checked out exact locked dotfiles-nvim commit'
       else
@@ -194,6 +217,34 @@ if [[ ${1:-} != --runtime-only ]]; then
         _pass 'checked out exact locked dotfiles-dev commit'
       else
         _fail 'checked out exact locked dotfiles-dev commit'
+      fi
+      if _checkout_exact "$shdeps_repository" "$shdeps_sha" \
+        "$shdeps_checkout"; then
+        _pass 'checked out exact locked Shdeps release commit'
+      else
+        _fail 'checked out exact locked Shdeps release commit'
+      fi
+      if _checkout_exact "$agent_rules_repository" "$agent_rules_sha" \
+        "$agent_rules_checkout"; then
+        _pass 'checked out exact locked agent-rules-sync test commit'
+      else
+        _fail 'checked out exact locked agent-rules-sync test commit'
+      fi
+      if git -C "$shdeps_checkout" fetch --quiet --no-tags origin \
+        "$shdeps_installer_sha" &&
+        git -C "$shdeps_checkout" cat-file -e \
+          "$shdeps_installer_sha^{commit}"; then
+        _pass 'fetched exact locked Shdeps installer commit'
+      else
+        _fail 'fetched exact locked Shdeps installer commit'
+      fi
+      if git -C "$shdeps_checkout" fetch --quiet origin \
+        "refs/tags/$shdeps_release:refs/tags/$shdeps_release" &&
+        [[ $(git -C "$shdeps_checkout" rev-parse \
+          "refs/tags/$shdeps_release^{commit}" 2>/dev/null) == "$shdeps_sha" ]]; then
+        _pass 'locked Shdeps release tag peels to its full commit'
+      else
+        _fail 'locked Shdeps release tag peels to its full commit'
       fi
 
       _assert_eq 'dotfiles-nvim pins the exact D1 runtime' "$dot_sha" \
@@ -576,6 +627,8 @@ if [[ -z $dot_source || ! -d $dot_source ]]; then
   _fail 'local exact D1 source is supplied for stack wrapper tests'
   _test_summary
 fi
+shdeps_source=${DOT_TEST_SHDEPS_REPOSITORY:-${DOT_STACK_SHDEPS_REPOSITORY:-https://github.com/cgraf78/shdeps.git}}
+agent_rules_source=${DOT_TEST_AGENT_RULES_SYNC_REPOSITORY:-${DOT_STACK_AGENT_RULES_SYNC_REPOSITORY:-https://github.com/cgraf78/agent-rules-sync.git}}
 dot_sha=$(git -C "$dot_source" rev-parse HEAD)
 runtime_lock=$(_tmpdir)/stack.lock
 printf '%s\n' \
@@ -584,6 +637,10 @@ printf '%s\n' \
   "dot=$dot_sha" \
   "dotfiles_nvim=0000000000000000000000000000000000000000" \
   "dotfiles_dev=0000000000000000000000000000000000000000" \
+  'test_shdeps=bb438f2741aa6b2f385a1538ff66e8e29739da8a' \
+  'test_shdeps_release=20260821-152006-bb438f27' \
+  'test_shdeps_installer=0b8c587ee75430724b1aacf97e0f008228f9c4a8' \
+  'test_agent_rules_sync=dd9346d2939945a77ab37588c66f81fcbc968c9f' \
   >"$runtime_lock"
 
 fake_bin=$(_tmpdir)
@@ -603,7 +660,12 @@ printf '%s\n' \
   >"$probe"
 chmod +x "$probe"
 
-runtime_output=$(DOT_TEST=1 DOT_STACK_LOCK_FILE=$runtime_lock \
+tmpdir_fixture=$(_tmpdir)
+mkdir -p "$tmpdir_fixture/physical"
+ln -s physical "$tmpdir_fixture/alias"
+
+runtime_output=$(TMPDIR=$tmpdir_fixture/alias \
+  DOT_TEST=1 DOT_STACK_LOCK_FILE=$runtime_lock \
   DOT_STACK_DOT_REPOSITORY=$dot_source \
   DOT_STACK_BASE_PATH=$fake_bin:/usr/bin:/bin \
   "$stack_runtime" runtime-probe -- "$probe" 2>&1)
@@ -643,16 +705,22 @@ mkdir -p "$candidate_seed/.local/lib/dotfiles/tests"
 mkdir -p "$candidate_seed/.config/git"
 cp "$source_home/.local/lib/dotfiles/tests/checkout-ci-candidate" \
   "$candidate_seed/.local/lib/dotfiles/tests/checkout-ci-candidate"
+cp "$source_home/.local/lib/dotfiles/tests/run-ci-candidate-home" \
+  "$candidate_seed/.local/lib/dotfiles/tests/run-ci-candidate-home"
 printf '[core]\n\teditor = fixture\n' >"$candidate_seed/.config/git/config"
 printf 'base\n' >"$candidate_seed/state"
 git -C "$candidate_seed" add state .config/git/config \
-  .local/lib/dotfiles/tests/checkout-ci-candidate
+  .local/lib/dotfiles/tests/checkout-ci-candidate \
+  .local/lib/dotfiles/tests/run-ci-candidate-home
 git -C "$candidate_seed" -c core.hooksPath=/dev/null commit --quiet -m base
 base_sha=$(git -C "$candidate_seed" rev-parse HEAD)
 printf 'head\n' >"$candidate_seed/state"
 git -C "$candidate_seed" add state
 git -C "$candidate_seed" -c core.hooksPath=/dev/null commit --quiet -m head
 candidate_sha=$(git -C "$candidate_seed" rev-parse HEAD)
+candidate_lock=$(_tmpdir)/candidate-stack.lock
+sed "s/^source_dotfiles=.*/source_dotfiles=$base_sha/" \
+  "$runtime_lock" >"$candidate_lock"
 git -C "$candidate_seed" remote add origin "$candidate_origin"
 git -C "$candidate_seed" push --quiet origin HEAD:refs/heads/feature
 git clone --quiet --branch feature "$candidate_origin" "$candidate_checkout"
@@ -662,8 +730,40 @@ printf '[safe]\n\tdirectory = %s\n' "$candidate_checkout" \
 HOME=$candidate_checkout XDG_CONFIG_HOME=$candidate_checkout/.config \
   git config --global --add safe.directory "$candidate_checkout"
 
+sentinel_repo=$(_tmpdir)/sentinel
+git init --quiet "$sentinel_repo"
+_git_set_test_identity git -C "$sentinel_repo"
+printf 'sentinel\n' >"$sentinel_repo/state"
+git -C "$sentinel_repo" add state
+git -C "$sentinel_repo" -c core.hooksPath=/dev/null \
+  commit --quiet -m sentinel
+sentinel_head=$(git -C "$sentinel_repo" rev-parse HEAD)
+sentinel_refs=$(git -C "$sentinel_repo" show-ref)
+sentinel_objects=$(git -C "$sentinel_repo" count-objects -v)
+sentinel_status=$(git -C "$sentinel_repo" status --porcelain)
+sentinel_index=$sentinel_repo/.git/index
+sentinel_index_state=$(cksum "$sentinel_index")
+sentinel_object_dir=$sentinel_repo/.git/objects
+sentinel_shallow=$sentinel_repo/.git/shallow
+
 candidate_output=$(cd "$candidate_checkout" &&
-  DOTFILES_CANDIDATE_SHA=$candidate_sha \
+  GIT_DIR=$sentinel_repo/.git GIT_WORK_TREE=$sentinel_repo \
+    GIT_COMMON_DIR=$sentinel_repo/.git \
+    GIT_IMPLICIT_WORK_TREE=0 GIT_PREFIX=sentinel/ \
+    GIT_INDEX_FILE=$sentinel_index \
+    GIT_OBJECT_DIRECTORY=$sentinel_object_dir \
+    GIT_ALTERNATE_OBJECT_DIRECTORIES=$sentinel_object_dir \
+    GIT_SHALLOW_FILE=$sentinel_shallow \
+    GIT_CONFIG=$sentinel_repo/.git/config \
+    GIT_CONFIG_GLOBAL=$sentinel_repo/.git/config \
+    GIT_CONFIG_SYSTEM=$sentinel_repo/.git/config \
+    GIT_CONFIG_NOSYSTEM=0 \
+    GIT_NAMESPACE=sentinel \
+    GIT_GRAFT_FILE=$sentinel_repo/.git/info/grafts \
+    GIT_REPLACE_REF_BASE=refs/sentinel/ GIT_NO_REPLACE_OBJECTS=0 \
+    GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.worktree \
+    GIT_CONFIG_VALUE_0=$sentinel_repo \
+    DOTFILES_CANDIDATE_SHA=$candidate_sha \
     .local/lib/dotfiles/tests/checkout-ci-candidate 2>&1)
 candidate_rc=$?
 _assert_exit 'candidate checkout: exact detached head succeeds' 0 "$candidate_rc"
@@ -673,6 +773,35 @@ _assert_contains 'candidate checkout: reports the exact selected head' \
   "head=$candidate_sha" "$candidate_output"
 _assert_eq 'candidate checkout: source content comes from selected head' \
   head "$(<"$candidate_checkout/state")"
+_assert_eq 'candidate checkout: ignores repository-selection environment' \
+  "$sentinel_head" "$(git -C "$sentinel_repo" rev-parse HEAD)"
+_assert_eq 'candidate checkout: leaves the sentinel repository clean' \
+  "$sentinel_status" \
+  "$(git -C "$sentinel_repo" status --porcelain)"
+_assert_eq 'candidate checkout: leaves sentinel refs unchanged' \
+  "$sentinel_refs" "$(git -C "$sentinel_repo" show-ref)"
+_assert_eq 'candidate checkout: leaves sentinel objects unchanged' \
+  "$sentinel_objects" "$(git -C "$sentinel_repo" count-objects -v)"
+_assert_file_missing 'candidate checkout: leaves sentinel shallow state absent' \
+  "$sentinel_shallow"
+
+linked_checkout=$(_tmpdir)/linked
+git -C "$candidate_checkout" worktree add --quiet --detach \
+  "$linked_checkout" "$candidate_sha"
+linked_output=$(cd "$linked_checkout" &&
+  DOTFILES_CANDIDATE_SHA=$candidate_sha \
+    .local/lib/dotfiles/tests/checkout-ci-candidate 2>&1)
+linked_rc=$?
+_assert_exit 'candidate checkout: rejects a linked worktree' 1 "$linked_rc"
+_assert_contains 'candidate checkout: protects shared repository metadata' \
+  'a disposable standalone checkout is required' "$linked_output"
+linked_home_output=$(cd "$linked_checkout" &&
+  DOTFILES_CANDIDATE_SHA=$candidate_sha \
+    .local/lib/dotfiles/tests/run-ci-candidate-home true 2>&1)
+linked_home_rc=$?
+_assert_exit 'candidate home: rejects a linked worktree' 1 "$linked_home_rc"
+_assert_contains 'candidate home: protects shared repository metadata' \
+  'a disposable standalone checkout is required' "$linked_home_output"
 _assert_file_exists \
   'candidate checkout preserves the workflow-owned global Git config' \
   "$candidate_checkout/.gitconfig"
@@ -681,6 +810,131 @@ if git -C "$candidate_checkout" diff --quiet -- .config/git/config; then
 else
   _fail 'candidate checkout restores the workflow-modified tracked Git config'
 fi
+
+fake_shdeps=$(_tmpdir)/shdeps
+mkdir -p "$fake_shdeps"
+printf '%s\n' '#!/usr/bin/env bash' 'exit 0' >"$fake_shdeps/install.sh"
+printf '%s\n' '# shdeps fixture' >"$fake_shdeps/shdeps.sh"
+printf '%s\n' '#!/usr/bin/env bash' \
+  'printf "shdeps 20260821-152006-bb438f27\\n"' >"$fake_shdeps/shdeps"
+chmod +x "$fake_shdeps/install.sh" "$fake_shdeps/shdeps"
+# shellcheck disable=SC2016 # The child shell must expand its isolated HOME.
+candidate_home_output=$(cd "$candidate_checkout" &&
+  GIT_DIR=$sentinel_repo/.git GIT_WORK_TREE=$sentinel_repo \
+    GIT_COMMON_DIR=$sentinel_repo/.git \
+    GIT_IMPLICIT_WORK_TREE=0 GIT_PREFIX=sentinel/ \
+    GIT_INDEX_FILE=$sentinel_index \
+    GIT_OBJECT_DIRECTORY=$sentinel_object_dir \
+    GIT_ALTERNATE_OBJECT_DIRECTORIES=$sentinel_object_dir \
+    GIT_SHALLOW_FILE=$sentinel_shallow \
+    GIT_CONFIG=$sentinel_repo/.git/config \
+    GIT_CONFIG_GLOBAL=$sentinel_repo/.git/config \
+    GIT_CONFIG_SYSTEM=$sentinel_repo/.git/config \
+    GIT_NAMESPACE=sentinel \
+    GIT_GRAFT_FILE=$sentinel_repo/.git/info/grafts \
+    GIT_REPLACE_REF_BASE=refs/sentinel/ GIT_NO_REPLACE_OBJECTS=0 \
+    GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.worktree \
+    GIT_CONFIG_VALUE_0=$sentinel_repo \
+    TMPDIR=$tmpdir_fixture/alias \
+    DOT_TEST=1 DOT_TEST_ROOT_FOREIGN=1 \
+    DOTFILES_CANDIDATE_SHA=$candidate_sha \
+    DOT_STACK_LOCK_PATH=$candidate_lock \
+    DOT_STACK_SOURCE_REPOSITORY=$candidate_origin \
+    DOT_STACK_DOT_REPOSITORY=$dot_source DOT_STACK_DOT_SHA=$dot_sha \
+    DOT_STACK_SHDEPS_REPOSITORY=$shdeps_source \
+    DOT_STACK_AGENT_RULES_SYNC_REPOSITORY=$agent_rules_source \
+    DOT_STACK_SHDEPS_ROOT=$fake_shdeps \
+    .local/lib/dotfiles/tests/run-ci-candidate-home bash -c '
+      set -euo pipefail
+      test "$PWD" != "$HOME"
+      test -d "$HOME/.dotfiles"
+      test "$(git --git-dir="$HOME/.dotfiles" rev-parse HEAD)" = \
+        "$DOTFILES_CANDIDATE_SHA"
+      test "$(git --git-dir="$HOME/.dotfiles" symbolic-ref --short HEAD)" = main
+      test "$(git --git-dir="$HOME/.dotfiles" config core.worktree)" = "$HOME"
+      git --git-dir="$HOME/.dotfiles" cat-file -e "$DOTFILES_SOURCE_SHA^{commit}"
+      test -f "$HOME/.local/state/dot/init/completed"
+      test "$(git rev-parse HEAD)" = "$DOTFILES_CANDIDATE_SHA"
+      test "$(git rev-parse --git-common-dir)" = "$HOME/.dotfiles"
+      test -f "$HOME/.local/lib/dot/xdg.sh"
+      test "$(git -C "$HOME/.local/share/cgraf78/dot" rev-parse HEAD)" = \
+        "$DOT_STACK_DOT_SHA"
+      test "$(command -v agent-rules-sync)" = \
+        "$HOME/.local/bin/agent-rules-sync"
+      test "$("$HOME/.local/share/shdeps/shdeps" version)" = \
+        "shdeps 20260821-152006-bb438f27"
+      for name in GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR \
+        GIT_IMPLICIT_WORK_TREE GIT_PREFIX GIT_INDEX_FILE \
+        GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES \
+        GIT_SHALLOW_FILE GIT_CONFIG GIT_CONFIG_GLOBAL GIT_CONFIG_SYSTEM \
+        GIT_CONFIG_NOSYSTEM GIT_CONFIG_COUNT GIT_CONFIG_PARAMETERS \
+        GIT_NAMESPACE GIT_GRAFT_FILE \
+        GIT_REPLACE_REF_BASE; do
+        test -z "${!name+x}"
+      done
+      test "$GIT_NO_REPLACE_OBJECTS" = 1
+      printf "candidate-home-ok\\n"
+    ' 2>&1)
+candidate_home_rc=$?
+_assert_exit 'candidate home: separate-Git execution succeeds' \
+  0 "$candidate_home_rc"
+_assert_contains 'candidate home: reports the exact installed head' \
+  "head=$candidate_sha" "$candidate_home_output"
+_assert_contains 'candidate home: command runs from a clean source worktree' \
+  'candidate-home-ok' "$candidate_home_output"
+_assert_eq 'candidate home: leaves sentinel HEAD unchanged' \
+  "$sentinel_head" "$(git -C "$sentinel_repo" rev-parse HEAD)"
+_assert_eq 'candidate home: leaves sentinel status unchanged' \
+  "$sentinel_status" "$(git -C "$sentinel_repo" status --porcelain)"
+_assert_eq 'candidate home: leaves sentinel refs unchanged' \
+  "$sentinel_refs" "$(git -C "$sentinel_repo" show-ref)"
+_assert_eq 'candidate home: leaves sentinel objects unchanged' \
+  "$sentinel_objects" "$(git -C "$sentinel_repo" count-objects -v)"
+_assert_eq 'candidate home: leaves sentinel index unchanged' \
+  "$sentinel_index_state" "$(cksum "$sentinel_index")"
+_assert_file_missing 'candidate home: leaves sentinel shallow state absent' \
+  "$sentinel_shallow"
+
+bad_tail_lock=$(_tmpdir)/bad-tail.lock
+sed 's/^test_shdeps=bb438f2741aa6b2f385a1538ff66e8e29739da8a$/test_shdeps=bb438f2741aa6b2f385a1538ff66e8e29739da80/' \
+  "$candidate_lock" >"$bad_tail_lock"
+bad_tail_output=$(cd "$candidate_checkout" &&
+  DOT_TEST=1 DOTFILES_CANDIDATE_SHA=$candidate_sha \
+    DOT_STACK_LOCK_PATH=$bad_tail_lock \
+    DOT_STACK_SOURCE_REPOSITORY=$candidate_origin \
+    DOT_STACK_DOT_REPOSITORY=$dot_source \
+    DOT_STACK_SHDEPS_REPOSITORY=$shdeps_source \
+    DOT_STACK_AGENT_RULES_SYNC_REPOSITORY=$agent_rules_source \
+    DOT_STACK_SHDEPS_ROOT=$fake_shdeps \
+    .local/lib/dotfiles/tests/run-ci-candidate-home true 2>&1)
+bad_tail_rc=$?
+_assert_exit 'candidate home: rejects a non-existent full Shdeps commit' \
+  1 "$bad_tail_rc"
+_assert_contains 'candidate home: reports an unfetchable Shdeps commit' \
+  'Shdeps commits are not fetchable' "$bad_tail_output"
+
+bad_tag_lock=$(_tmpdir)/bad-tag.lock
+bad_tag_repository=$(_tmpdir)/bad-shdeps.git
+git clone --quiet --mirror "$shdeps_source" "$bad_tag_repository"
+git --git-dir="$bad_tag_repository" tag -f \
+  20990101-000000-bb438f27 \
+  0b8c587ee75430724b1aacf97e0f008228f9c4a8 >/dev/null
+sed 's/^test_shdeps_release=.*/test_shdeps_release=20990101-000000-bb438f27/' \
+  "$candidate_lock" >"$bad_tag_lock"
+bad_tag_output=$(cd "$candidate_checkout" &&
+  DOT_TEST=1 DOTFILES_CANDIDATE_SHA=$candidate_sha \
+    DOT_STACK_LOCK_PATH=$bad_tag_lock \
+    DOT_STACK_SOURCE_REPOSITORY=$candidate_origin \
+    DOT_STACK_DOT_REPOSITORY=$dot_source \
+    DOT_STACK_SHDEPS_REPOSITORY=$bad_tag_repository \
+    DOT_STACK_AGENT_RULES_SYNC_REPOSITORY=$agent_rules_source \
+    DOT_STACK_SHDEPS_ROOT=$fake_shdeps \
+    .local/lib/dotfiles/tests/run-ci-candidate-home true 2>&1)
+bad_tag_rc=$?
+_assert_exit 'candidate home: rejects a mismatched Shdeps release tag' \
+  1 "$bad_tag_rc"
+_assert_contains 'candidate home: reports a mismatched Shdeps release tag' \
+  'Shdeps release tag does not match' "$bad_tag_output"
 
 printf 'unexpected\n' >"$candidate_checkout/untracked"
 dirty_output=$(cd "$candidate_checkout" &&

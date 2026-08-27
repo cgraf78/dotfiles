@@ -130,6 +130,7 @@ program	.local/lib/dotfiles/tests/overlay-profile-rollout-test
 program	.local/lib/dotfiles/tests/profile-fixture-integration
 program	.local/lib/dotfiles/tests/prompt-test
 program	.local/lib/dotfiles/tests/run-ci
+program	.local/lib/dotfiles/tests/run-ci-candidate-home
 program	.local/lib/dotfiles/tests/shdeps-hooks-test
 program	.local/lib/dotfiles/tests/stack-dot-runtime
 program	.local/lib/dotfiles/tests/tmux-continuum-test

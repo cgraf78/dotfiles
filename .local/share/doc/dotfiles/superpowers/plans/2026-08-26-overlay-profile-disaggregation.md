@@ -2396,7 +2396,11 @@ uniqueness, production-descriptor validation, and transport-spy assertions in
 one implementation.
 
 Store full immutable commit IDs for the frozen source-dotfiles revision and the
-reviewed D1, D2, and D3 PR heads in `.github/overlay-profile-stack.lock`. The
+reviewed D1, D2, and D3 PR heads in `.github/overlay-profile-stack.lock`. Also
+pin the released Shdeps commit/tag pair used only to provision an isolated
+control-plane test HOME, plus the immutable installer revision used to fetch
+that release and the exact base-owned `agent-rules-sync` provider revision.
+These are CI prerequisites, not profile capabilities. The
 ownership/integration test verifies each ID is a commit in the declared
 repository, that `source_dotfiles` equals `overlay-profile-source.lock` and the
 `commit=` value in both capability `.github/dotfiles-source.lock` files, and
@@ -2414,6 +2418,10 @@ source_dotfiles=<40-or-64-hex-commit>
 dot=<immutable-D1-head>
 dotfiles_nvim=<immutable-D2-head>
 dotfiles_dev=<immutable-D3-head>
+test_shdeps=<immutable-released-Shdeps-commit>
+test_shdeps_release=<matching-Shdeps-release-tag>
+test_shdeps_installer=<immutable-Shdeps-installer-commit>
+test_agent_rules_sync=<immutable-agent-rules-sync-commit>
 dotfiles_d4_base_ref=<published-D4-branch-name>
 dotfiles_d4_base=<immutable-D4-head-on-which-D5-was-created>
 ```
