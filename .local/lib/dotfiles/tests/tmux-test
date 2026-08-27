@@ -38,6 +38,10 @@ _assert_contains "tmux: continuum coordination uses the provider command" \
   'tmux-continuum-default-server' "$tmux_content"
 _assert_contains "tmux: terminal boundary routing uses Termnav" \
   'termnav navigate' "$tmux_content"
+_assert_not_contains "tmux: retired relay command stays absent" \
+  'termnav-relay' "$tmux_content"
+_assert_not_contains "tmux: retired navigation wrapper stays absent" \
+  'termnav-navigate' "$tmux_content"
 
 for dependency in tmux cgraf78/tmux-tools cgraf78/termnav \
   tmux-plugins/tmux-continuum tmux-plugins/tmux-resurrect tmux-plugins/tpm; do
