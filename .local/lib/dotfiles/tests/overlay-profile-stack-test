@@ -141,7 +141,7 @@ if [[ ${1:-} != --runtime-only ]]; then
     _assert_eq 'stack source matches immutable extraction source' \
       "$(<"$source_lock")" "$source_sha"
     runtime_binding_valid=0
-    if [[ ${DOT_TEST:-0} == 1 ]]; then
+    if [[ -n ${DOT_TEST_DOT_ROOT:-} ]]; then
       [[ ${DOT_TEST_DOT_ROOT:-} == "${DOT_STACK_DOT_ROOT:-}" ]] &&
         runtime_binding_valid=1
     elif [[ $(command -v dot 2>/dev/null) == "${DOT_STACK_DOT_BIN:-}" ]]; then
