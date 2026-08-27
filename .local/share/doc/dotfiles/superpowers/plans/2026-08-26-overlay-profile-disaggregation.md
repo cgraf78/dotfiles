@@ -2456,7 +2456,7 @@ control-plane-run-ci
 ownership-and-stack-integration
 profile-fixture-update
 profile-doctor
-installed-profile-dot-test (local/end-to-end only; not a top-level CI job)
+installed-profile-dot-test (D5 Ubuntu CI plus local/end-to-end)
 reproducible-cold-bootstrap
 profile-footprint-fixtures (when they invoke Dot)
 ```
@@ -2551,13 +2551,18 @@ The scheduled cold-bootstrap job may verify profile convergence, doctor
 lifecycle state, and bounded composition smoke assertions, but it must not run
 the overlay-owned behavioral suites again. Invoke `run-ci` or an explicit
 top-level composition subset there through
-`stack-dot-runtime reproducible-cold-bootstrap`; reserve unfiltered installed
-`dot test` for local/end-to-end rollout verification. The locally reproducible
+`stack-dot-runtime reproducible-cold-bootstrap`. The locally reproducible
 cold-bootstrap command uses the same exact D1 checkout and asserts it before
 bootstrap starts.
-`installed-profile-dot-test` is the name of that local/end-to-end gate, not a
-job in top-level public CI; top-level CI continues to run only its declared
-source-owned suites and bounded composition smoke.
+
+D5 also adds one Ubuntu-only production-equivalent integration job named
+`installed-profile-dot-test`. It creates isolated `base`, `editor`, and `dev`
+homes and runs real, unfiltered `dot test` in each. This is deliberately one
+platform integration gate rather than a second full OS matrix: the owning
+public repositories retain their broad platform matrices for component-specific
+behavior, while this job proves final profile composition without multiplying
+the complete three-profile suite across every runner OS. Add a targeted
+platform smoke later if evidence identifies an OS-specific composition gap.
 
 During D4 staging, this gate runs real unfiltered `dot test --list` discovery
 in each installed profile but does not execute the discovered overlay suites.
@@ -3103,6 +3108,9 @@ justifies dedicated profile commands.
   control-plane/profile and bounded composition suites, validates ownership
   inventories without invoking overlay-owned suites, and never compensates for
   private-overlay CI.
+- D5 top-level CI has one Ubuntu-only production-equivalent integration job
+  that runs real unfiltered `dot test` for isolated `base`, `editor`, and `dev`
+  homes; the complete three-profile gate is not duplicated across every OS.
 - Each new public repository carries `.github/cgraf78-actions.lock`, an adapted
   consumer-sync verification job, and tests proving every literal
   `cgraf78/actions` ref matches the lock; CI still uses `setup: none` and only
