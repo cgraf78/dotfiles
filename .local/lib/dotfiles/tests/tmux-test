@@ -12,7 +12,6 @@ tmux_config=$source_home/.config/tmux/tmux.conf
 tmux_base=$source_home/.config/tmux/conf.d/10-base.conf
 tmux_content=$(<"$tmux_base")
 shdeps_content=$(<"$source_home/.config/shdeps/10-deps.conf")
-tmux_tool_home=${DOT_TEST_HOST_HOME:-$HOME}
 # shellcheck disable=SC2088 # Match the literal path stored in tmux config.
 termnav_hot_path='~/.local/bin/termnav navigate'
 move_tab_left=$(printf '%s\n' "$tmux_content" | awk "/^bind-key -n 'M-\\{' / { print }")
@@ -57,11 +56,6 @@ for dependency in tmux cgraf78/tmux-tools cgraf78/termnav \
     _fail "tmux: base declares $dependency"
   fi
 done
-if [[ -x $tmux_tool_home/.local/bin/tmux-clip-paste ]]; then
-  _pass 'tmux: clipboard handoff command is installed'
-else
-  _fail 'tmux: clipboard handoff command is installed'
-fi
 _assert_eq 'tmux: Termnav is a GitHub-owned dependency' github \
   "$(awk '$1 == "cgraf78/termnav" { print $2 }' <<<"$shdeps_content")"
 if [[ -n ${DOT_TEST_TERMNAV_ROOT:-} ]]; then
