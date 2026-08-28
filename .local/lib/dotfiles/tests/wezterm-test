@@ -141,14 +141,10 @@ _assert_contains "wezterm hyperlink rules load overlay extensions" \
   "hyperlink-rules.d" "$content"
 _assert_contains "wezterm hyperlink rule extensions can append rules" \
   "apply_hyperlink_rule_extensions" "$content"
-_assert_contains "wezterm listens for bubbled child tab-switch requests" \
+_assert_not_contains "wezterm config carries no legacy tab-switch protocol" \
   "DOT_SWITCH_TAB" "$content"
-_assert_contains "wezterm validates bubbled tab-switch directions" \
-  'direction == "next" or direction == "previous"' "$content"
-_assert_contains "wezterm listens for bubbled child tab-move requests" \
+_assert_not_contains "wezterm config carries no legacy tab-move protocol" \
   "DOT_MOVE_TAB" "$content"
-_assert_contains "wezterm validates bubbled tab-move directions" \
-  'direction == "left" or direction == "right"' "$content"
 for retired in DOT_PARENT_SWITCH_TAB DOT_PARENT_MOVE_TAB DOT_PARENT_SELECT_PANE \
   777001 777002 777003 777004 777005 777006 777007 777008; do
   _assert_not_contains "wezterm removes retired parent-loopback path: $retired" \

@@ -445,27 +445,6 @@ wezterm.on("bell", function()
 end)
 
 -- =============================================================================
--- Terminal user-variable routing
--- =============================================================================
-wezterm.on("user-var-changed", function(window, pane, name, value)
-  if name == "term_open_url" and value ~= "" then
-    wezterm.open_with(value)
-  elseif name == "DOT_SWITCH_TAB" and value ~= "" then
-    local direction = value:match("^([^:]+):") or value
-    if direction == "next" or direction == "previous" then
-      local relative = direction == "previous" and -1 or 1
-      window:perform_action(act.ActivateTabRelative(relative), pane)
-    end
-  elseif name == "DOT_MOVE_TAB" and value ~= "" then
-    local direction = value:match("^([^:]+):") or value
-    if direction == "left" or direction == "right" then
-      local relative = direction == "left" and -1 or 1
-      window:perform_action(act.MoveTabRelative(relative), pane)
-    end
-  end
-end)
-
--- =============================================================================
 -- Config
 -- =============================================================================
 return {
