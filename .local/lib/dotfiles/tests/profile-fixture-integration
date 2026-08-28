@@ -349,13 +349,14 @@ prepare_home() {
   local profile=$1 home=$2 selector init_log init_status
   "$git_bin" clone --quiet "file://$base_origin" "$home" || return 1
 
-  # The fixture deliberately disables dependency installation.  Tmux invokes
-  # this base-owned provider while parsing its configuration, so supply the
-  # minimal command boundary without installing the full dependency graph.
+  # The fixture deliberately disables dependency installation. Supply the
+  # base-owned tmux command boundaries without installing their full provider
+  # repositories; the provider projects test their implementations separately.
   mkdir -p "$home/.local/bin"
-  printf '#!/bin/sh\nexit 0\n' \
-    >"$home/.local/bin/tmux-continuum-default-server"
-  chmod 0755 "$home/.local/bin/tmux-continuum-default-server"
+  for command_name in tmux-continuum-default-server tmux-clip-paste; do
+    printf '#!/bin/sh\nexit 0\n' >"$home/.local/bin/$command_name"
+    chmod 0755 "$home/.local/bin/$command_name"
+  done
 
   if [[ $profile != dev ]]; then
     mkdir -p "$home/.config/dot/profile-selectors.local.d"
