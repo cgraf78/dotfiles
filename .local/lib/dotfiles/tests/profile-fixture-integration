@@ -288,7 +288,8 @@ assert_tmux_composition() {
   keys=$(run_in_home "$home" tmux -L "$socket" list-keys -T root)
   run_in_home "$home" tmux -L "$socket" kill-server >/dev/null 2>&1 || true
   move=$(printf '%s\n' "$keys" | grep -F '"M-{"' || true)
-  left=$(printf '%s\n' "$keys" | grep -F ' C-h ' || true)
+  left=$(printf '%s\n' "$keys" |
+    awk '$1 == "bind-key" && $2 == "-T" && $3 == "root" && $4 == "C-h"')
   _assert_contains "$profile composed tmux retains base tab movement" \
     'termnav navigate tab-move left' "$move"
   if [[ $profile == base ]]; then
