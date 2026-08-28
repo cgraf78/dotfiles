@@ -314,12 +314,24 @@ source_sha=$(lock_value source_dotfiles 2>/dev/null || true)
   exit 1
 }
 source_repository=${DOT_STACK_SOURCE_REPOSITORY:-$(root_git remote get-url origin)}
-root_git fetch --quiet --no-tags --depth=1 \
-  "$source_repository" "$source_sha" || {
-  printf 'run-ci-candidate-home: source revision is not fetchable: %s\n' \
-    "$source_sha" >&2
-  exit 1
-}
+# D5's pull-request checkout has already been unshallowed to prove its locked
+# D4 ancestry. Do not turn that complete checkout shallow again merely to make
+# an older source snapshot available: the legacy cutover fixture needs to
+# publish the candidate, D4, and pre-profile commits into one local origin.
+# D4 can still begin at depth one, so fetch an absent snapshot shallowly only
+# while the caller's checkout is already shallow.
+if ! root_git cat-file -e "$source_sha^{commit}" 2>/dev/null; then
+  source_fetch_args=(--quiet --no-tags)
+  if [[ $(root_git rev-parse --is-shallow-repository) == true ]]; then
+    source_fetch_args+=(--depth=1)
+  fi
+  root_git fetch "${source_fetch_args[@]}" \
+    "$source_repository" "$source_sha" || {
+    printf 'run-ci-candidate-home: source revision is not fetchable: %s\n' \
+      "$source_sha" >&2
+    exit 1
+  }
+fi
 ci_git init --quiet --bare "$origin"
 # The exact-event checkout is intentionally depth-one in shared CI. Preserve
 # that shallow boundary when publishing the disposable local origin.

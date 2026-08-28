@@ -1051,6 +1051,8 @@ _assert_contains 'candidate home: reports the exact installed head' \
   "head=$candidate_sha" "$candidate_home_output"
 _assert_contains 'candidate home: command runs from a clean source worktree' \
   'candidate-home-ok' "$candidate_home_output"
+_assert_eq 'candidate home: preserves an already complete checkout history' \
+  false "$(git -C "$candidate_checkout" rev-parse --is-shallow-repository)"
 _assert_eq 'candidate home: leaves sentinel HEAD unchanged' \
   "$sentinel_head" "$(git -C "$sentinel_repo" rev-parse HEAD)"
 _assert_eq 'candidate home: leaves sentinel status unchanged' \
