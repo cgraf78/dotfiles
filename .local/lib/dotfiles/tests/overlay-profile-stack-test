@@ -472,12 +472,8 @@ dot_root=$DOT_STACK_DOT_ROOT
 
 for profile in base editor dev; do
   selector=$HOME/.config/dot/profile-selectors.local.d/10-profile.conf
-  if [[ $profile == base ]]; then
-    rm -f "$selector"
-  else
-    printf 'version=1\nuser=example-user\nprofile=%s\n' "$profile" >"$selector"
-    chmod 0600 "$selector"
-  fi
+  printf 'version=1\nuser=example-user\nprofile=%s\n' "$profile" >"$selector"
+  chmod 0600 "$selector"
   _dot_resolve_overlays inspect
   printf '%s|%s|%s|%s\n' "$SELECTED_PROFILE" \
     "${SELECTED_OVERLAY_NAMES[*]}" "${ELIGIBLE_OVERLAY_NAMES[*]}" \

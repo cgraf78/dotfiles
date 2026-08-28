@@ -2463,11 +2463,14 @@ dotfiles_d4_base_ref=<published-D4-branch-name>
 dotfiles_d4_base=<immutable-D4-head-on-which-D5-was-created>
 ```
 
-Omit both `dotfiles_d4_base_ref` and `dotfiles_d4_base` in D4 and require both
-in D5. Validate the ref as an exact branch name without a `refs/` prefix.
-Reject duplicate/unknown-for-this-phase keys, abbreviated object IDs in commit
-fields, or revisions that do not resolve to commits fetched from the declared
-repository.
+D5 additionally records
+`pre_profile_dot=<immutable-pre-profile-Dot-head-for-cutover-tests>` so the
+fleet-cutover fixture can reproduce the exact old-client boundary. Omit
+`pre_profile_dot`, `dotfiles_d4_base_ref`, and `dotfiles_d4_base` in D4; require
+all three in D5. Validate the D4 ref as an exact branch name without a `refs/`
+prefix. Reject duplicate/unknown-for-this-phase keys, abbreviated object IDs in
+commit fields, or revisions that do not resolve to commits fetched from the
+declared repository.
 
 Implement `.local/lib/dotfiles/tests/stack-dot-runtime` as the only Phase A
 D4/D5 entry point for any command that executes standalone Dot. It reads the
