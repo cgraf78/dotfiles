@@ -363,7 +363,7 @@ source_path	component_id	category	transform	d4_action	d5_action	ownership_note
 .local/lib/dotfiles/tests/schema-refresh-workflow-test	checkrun	test	rewrite	remove	none	owner=dotfiles-dev; source=locked-dotfiles
 .local/lib/dotfiles/tests/shdeps-hooks-test	split-shdeps	test	split	rewrite	keep	owner=mixed; source=locked-dotfiles; split=reviewed-container
 .local/lib/dotfiles/tests/support/tmux-focus-style.py	split-tmux	test	split	keep	keep	owner=mixed; source=locked-dotfiles; split=reviewed-pty-harness
-.local/lib/dotfiles/tests/tmux-continuum-test	tmux-base	test	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.local/lib/dotfiles/tests/tmux-continuum-test	tmux-base	test	rewrite	keep	rewrite	owner=dotfiles; source=locked-dotfiles; rewrite=tmux-fragment
 .local/lib/dotfiles/tests/tmux-test	split-tmux	test	split	rewrite	keep	owner=mixed; source=locked-dotfiles; split=reviewed-container
 .local/lib/dotfiles/tests/tool-init-test	split-tests	test	split	rewrite	keep	owner=mixed; source=locked-dotfiles; split=reviewed-container
 .local/lib/dotfiles/tests/validate-commit-msg-test	sley	test	rewrite	remove	none	owner=dotfiles-dev; source=locked-dotfiles
@@ -371,7 +371,7 @@ source_path	component_id	category	transform	d4_action	d5_action	ownership_note
 .local/lib/dotfiles/tests/vscode-sley-test	vscode	test	rewrite	remove	none	owner=dotfiles-dev; source=locked-dotfiles
 .local/lib/dotfiles/tests/wezterm-test	split-tests	test	split	rewrite	keep	owner=mixed; source=locked-dotfiles; split=reviewed-container
 .local/lib/dotfiles/tests/workflow-consistency-test	local-lib-dotfiles-tests-workflow-consistency-test	test	rewrite	remove	none	owner=dotfiles-dev; source=locked-dotfiles
-.local/lib/dotfiles/tests/xdg-test	local-lib-dotfiles-tests-xdg-test	test	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.local/lib/dotfiles/tests/xdg-test	local-lib-dotfiles-tests-xdg-test	test	rewrite	keep	rewrite	owner=dotfiles; source=locked-dotfiles; rewrite=base-boundary
 .local/lib/dotfiles/tests/zsh-completion-test	local-lib-dotfiles-tests-zsh-completion-test	test	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
 .local/lib/dotfiles/windows.sh	local-lib-dotfiles-windows-sh	runtime	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
 .local/share/checkrun/schemas/README.md	checkrun	docs	keep	remove	none	owner=dotfiles-dev; source=locked-dotfiles
