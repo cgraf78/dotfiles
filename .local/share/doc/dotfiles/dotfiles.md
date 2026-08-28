@@ -139,7 +139,10 @@ deselected overlays, restoring lower-layer files where applicable. Cached
 checkouts, installed packages, and unmanaged files are retained. This is an
 activation change, not automatic storage reclamation: the footprint estimates
 below describe fresh installations, not the disk use of a machine after it has
-previously used a larger profile.
+previously used a larger profile. After a downgrade, `shdeps prune --dry-run`
+previews removable Shdeps payloads and `shdeps prune` removes confirmed
+orphans. Native packages, Mise toolchains, Nvim data, marketplace extensions,
+and cached overlay checkouts require separate deliberate cleanup.
 
 `dot update` resolves profiles in two phases so an available personal overlay
 may contribute private selectors without exposing other unselected overlay
