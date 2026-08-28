@@ -183,7 +183,7 @@ source_path	component_id	category	transform	d4_action	d5_action	ownership_note
 .config/nvim/selene.toml	nvim-editor	config	keep	keep	remove	owner=dotfiles-nvim; source=locked-dotfiles
 .config/nvim/vim.yml	nvim-editor	config	keep	keep	remove	owner=dotfiles-nvim; source=locked-dotfiles
 .config/ripgrep/README.md	config-ripgrep-readme-md	docs	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
-.config/ripgrep/config	split-ripgrep	config	split	rewrite	rewrite	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.config/ripgrep/config	split-ripgrep	config	split	keep	rewrite	owner=mixed; source=locked-dotfiles; split=reviewed-container
 .config/shdeps/00-toolchains.conf	dev-toolchain	dependency	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
 .config/shdeps/10-deps.conf	split-shdeps	dependency	split	rewrite	rewrite	owner=mixed; source=locked-dotfiles; split=reviewed-container; agent=base-rule-aggregation
 .config/shdeps/README.md	split-shdeps	docs	split	rewrite	keep	owner=mixed; source=locked-dotfiles; split=reviewed-container
