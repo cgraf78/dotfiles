@@ -168,13 +168,13 @@ for directory in \
 done
 
 _assert_contains 'tmux: defines exact router origin metadata' \
-  'navigate_parent_args="--parent --client-pid #{client_pid} --client-tty #{q:client_tty} --client-created #{client_created} --client-termtype #{q:client_termtype} --source-socket #{q:socket_path} --source-pane #{pane_id} --source-session #{q:session_id}"' \
+  'navigate_origin_args="--client-pid #{client_pid} --client-tty #{q:client_tty} --client-created #{client_created} --client-termtype #{q:client_termtype} --source-socket #{q:socket_path} --source-pane #{pane_id} --source-session #{q:session_id}"' \
   "$tmux_content"
 _assert_eq 'tmux: defines router origin metadata once' 1 \
-  "$(awk '/^navigate_parent_args=/ { count++ } END { print count + 0 }' <<<"$tmux_content")"
+  "$(awk '/^navigate_origin_args=/ { count++ } END { print count + 0 }' <<<"$tmux_content")"
 for direction in left right; do
   _assert_contains "tmux: routes $direction tab movement through Termnav" \
-    "$termnav_hot_path tab-move $direction \$navigate_parent_args" \
+    "$termnav_hot_path tab-move $direction --parent \$navigate_origin_args" \
     "$tmux_content"
 done
 _assert_not_contains 'tmux: boundary routes stay foreground-ordered' \
