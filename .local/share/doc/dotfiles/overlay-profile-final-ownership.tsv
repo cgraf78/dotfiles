@@ -74,7 +74,7 @@ dotfiles	.config/dot/profiles.d/editor.conf	dot-control	control	new	d4	owner=dot
 dotfiles	.config/dot/README.md	dot-control	docs	old:.config/dot/README.md	d4	owner=dotfiles; source=locked-dotfiles; family=base
 dotfiles	.config/ds/README.md	split-docs	docs	old:.config/ds/README.md	d4	owner=dotfiles; source=locked-dotfiles; family=base
 dotfiles	.config/htop/htoprc	config-htop-htoprc	config	old:.config/htop/htoprc	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
-dotfiles	.config/ripgrep/config	split-ripgrep	config	old:.config/ripgrep/config	d5	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/ripgrep/config	split-ripgrep	config	old:.config/ripgrep/config	d4	owner=dotfiles; source=locked-dotfiles; family=base
 dotfiles	.config/ripgrep/README.md	config-ripgrep-readme-md	docs	old:.config/ripgrep/README.md	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
 dotfiles	.config/shdeps/10-deps.conf	split-shdeps	dependency	old:.config/shdeps/10-deps.conf	d4	owner=dotfiles; source=locked-dotfiles; agent=base-rule-aggregation; family=base
 dotfiles	.config/shdeps/hooks.d/cgraf78/dot.sh	config-shdeps-hooks-d-cgraf78-dot-sh	dependency	old:.config/shdeps/hooks.d/cgraf78/dot.sh	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
@@ -488,6 +488,7 @@ dotfiles-nvim	home/.config/nvim/README.md	split-nvim	docs	old:.config/nvim/READM
 dotfiles-nvim	home/.config/nvim/selene.toml	nvim-editor	config	old:.config/nvim/selene.toml	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
 dotfiles-nvim	home/.config/nvim/vim.yml	nvim-editor	config	old:.config/nvim/vim.yml	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
 dotfiles-nvim	home/.config/ripgrep/config.editor	split-ripgrep	config	old:.config/ripgrep/config	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
+dotfiles-nvim	home/.local/bin/ripgrep-link-host	nvim-editor	runtime	old:.local/bin/ripgrep-link-host	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
 dotfiles-nvim	home/.config/shdeps/20-nvim.conf	split-shdeps	dependency	old:.config/shdeps/10-deps.conf	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
 dotfiles-nvim	home/.config/shdeps/hooks.d/neovim/neovim.sh	nvim-editor	dependency	old:.config/shdeps/hooks.d/neovim/neovim.sh	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
 dotfiles-nvim	home/.config/shdeps/hooks.d/README-nvim.md	split-shdeps	docs	old:.config/shdeps/hooks.d/README.md	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor

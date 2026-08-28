@@ -17,10 +17,11 @@ capabilities and environment-specific files.
   sources managed outside dot.
 - Overlay files live under each overlay's `home/` directory and are symlinked
   into `$HOME` by `dot update`.
-- `base` is the default profile. `editor` includes `base` plus the public Nvim
+- `base` is the smallest profile. `editor` includes `base` plus the public Nvim
   overlay; `dev` includes `editor` plus the public development overlay and the
   optional private work overlay. The optional personal overlay is part of
-  `base`.
+  `base`. The initial compatibility rollout configures `dev` as the no-selector
+  default so existing machines retain their full environment.
 - `~/.local/lib/dotfiles` is the dotfiles client's executable policy runtime.
   The standalone Dot checkout and its public API remain separate.
 
@@ -124,9 +125,16 @@ Choose a profile with a tracked, machine-local, or personal selector record.
 Selectors can match a user, a host, or both, so two users on one machine may
 choose different profiles. A combined user-and-host match overrides broader
 user-only or host-only defaults; conflicting matches at the winning specificity
-fail before final overlay mutation. No match uses `base`. See
+fail before final overlay mutation. No match uses the root config's
+`default_profile`, initially `dev`; a later fleet migration can change it to
+`base` after explicit selectors are ready. See
 [`profile-selectors.d/README.md`](../../../../.config/dot/profile-selectors.d/README.md)
 for the data format and safe local-file rules.
+
+Profile changes are convergent in both directions. The next successful update
+adds newly selected overlay links and removes only exact managed links from
+deselected overlays, restoring lower-layer files where applicable. Cached
+checkouts, installed packages, and unmanaged files are retained.
 
 `dot update` resolves profiles in two phases so an available personal overlay
 may contribute private selectors without exposing other unselected overlay

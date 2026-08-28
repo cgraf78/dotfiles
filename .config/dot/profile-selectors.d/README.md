@@ -1,8 +1,11 @@
 # Profile Selectors
 
 Dotfiles profiles choose which overlay repositories are active. The tracked
-profiles are `base`, `editor`, and `dev`; without a matching selector, Dot uses
-`base`.
+profiles are `base`, `editor`, and `dev`. During the initial compatibility
+cutover, the root Dot config sets `default_profile=dev`, so a machine without a
+matching selector retains the full pre-refactor environment. A later rollout
+may change that configured fallback to `base` after explicit selectors are in
+place.
 
 Tracked, non-sensitive selectors may live in this directory. Machine-specific
 selectors belong in the ignored directory
@@ -72,7 +75,12 @@ Resolution is two-phase. Dot first attempts the optional overlays selected by
 and an available personal overlay. It next resolves the final profile and only
 then reads and synchronizes that profile's additional overlay descriptors. If
 personal is unavailable, a local or root match still applies; otherwise the
-result is `base`.
+configured `default_profile` applies.
+
+Changing the winning selector or `default_profile` takes effect on the next
+successful `dot update`. Newly selected overlays are activated. Exact managed
+links from deselected overlays are removed and lower-layer files are restored,
+while cached repositories, native packages, and unmanaged files are preserved.
 
 Before an existing installation can receive these tracked definitions, it must
 already be running the compatible standalone Dot profile runtime while its

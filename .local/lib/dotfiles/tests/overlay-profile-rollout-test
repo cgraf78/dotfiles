@@ -78,6 +78,8 @@ fi
 # shellcheck source=/dev/null
 . "$dot_root/lib/dot/platform.sh"
 # shellcheck source=/dev/null
+. "$dot_root/lib/dot/config.sh"
+# shellcheck source=/dev/null
 . "$dot_root/lib/dot/profiles.sh"
 identity_bin=$(_tmpdir)
 local_selectors=$(_tmpdir)
@@ -87,11 +89,13 @@ printf '%s\n' '#!/usr/bin/env bash' 'printf "%s\n" Example-Host.' >"$identity_bi
 chmod +x "$identity_bin/id" "$identity_bin/hostname"
 PATH=$identity_bin:$PATH
 
+dot_config_load "$source_home/.config/dot/config"
 _dot_profiles_load "$profile_root"
 _dot_profile_resolve "$source_home/.config/dot/profile-selectors.d" \
   "$local_selectors"
-_assert_eq 'real profile parser defaults this tree to base' base "$SELECTED_PROFILE"
-_assert_eq 'base expands to personal only' personal "${SELECTED_OVERLAY_NAMES[*]}"
+_assert_eq 'real profile parser uses the configured dev default' dev "$SELECTED_PROFILE"
+_assert_eq 'default dev preserves the full overlay set' \
+  'personal nvim dev work' "${SELECTED_OVERLAY_NAMES[*]}"
 
 selector_root=$(_tmpdir)
 selector_local=$(_tmpdir)
@@ -167,9 +171,10 @@ _clear_fixture_selectors
 printf 'version=1\nuser=another-user\nprofile=dev\n' \
   >"$selector_root/10-no-match.conf"
 _resolve_fixture_profile
-_assert_eq 'no matching selector falls back to base' base "$SELECTED_PROFILE"
-_assert_eq 'unavailable personal with no matching fallback remains base' \
-  personal "${SELECTED_OVERLAY_NAMES[*]}"
+_assert_eq 'no matching selector uses the configured dev default' \
+  dev "$SELECTED_PROFILE"
+_assert_eq 'unavailable personal does not reduce the configured dev membership' \
+  'personal nvim dev work' "${SELECTED_OVERLAY_NAMES[*]}"
 
 _clear_fixture_selectors
 printf 'version=1\nuser=example-user\nprofile=editor\n' \

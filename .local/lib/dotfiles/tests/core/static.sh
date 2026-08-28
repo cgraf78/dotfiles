@@ -20,6 +20,12 @@ dot_core_test_static() {
   _assert_eq "Dot config: follows the latest Shdeps release policy" latest \
     "$(awk -F= '$1 == "shdeps_update_policy" { print $2 }' \
       "$root/.config/dot/config")"
+  _assert_eq "Dot config: declares one profile default" 1 \
+    "$(awk -F= '$1 == "default_profile" { count++ } END { print count + 0 }' \
+      "$root/.config/dot/config")"
+  _assert_eq "Dot config: initial cutover preserves the full dev profile" dev \
+    "$(awk -F= '$1 == "default_profile" { print $2 }' \
+      "$root/.config/dot/config")"
 
   actions_sha=$(<"$root/.github/cgraf78-actions.lock")
   if [[ $actions_sha =~ ^[0-9a-f]{40}$ ]]; then

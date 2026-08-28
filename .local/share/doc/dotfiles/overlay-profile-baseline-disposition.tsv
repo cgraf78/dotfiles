@@ -68,7 +68,7 @@ source_path	component_id	category	transform	d4_action	d5_action	ownership_note
 .config/checkrun/yamlfmt.yaml	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
 .config/direnv/envrc-example	dev-toolchain	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
 .config/dot/README.md	dot-control	docs	keep	rewrite	keep	owner=dotfiles; source=locked-dotfiles
-.config/dot/config	dot-control	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.config/dot/config	dot-control	config	keep	rewrite	keep	owner=dotfiles; source=locked-dotfiles
 .config/dot/merge-hooks.d/README.md	split-docs	docs	split	rewrite	keep	owner=mixed; source=locked-dotfiles; split=reviewed-container
 .config/dot/merge-hooks.d/agent-rules/README.md	agent-rules	docs	keep	keep	keep	owner=dotfiles; source=locked-dotfiles; agent=base-rule-aggregation
 .config/dot/merge-hooks.d/agent-rules/targets.d/80-targets.replace/50-native.txt	agent-rules	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles; agent=base-rule-aggregation
@@ -183,7 +183,7 @@ source_path	component_id	category	transform	d4_action	d5_action	ownership_note
 .config/nvim/selene.toml	nvim-editor	config	keep	keep	remove	owner=dotfiles-nvim; source=locked-dotfiles
 .config/nvim/vim.yml	nvim-editor	config	keep	keep	remove	owner=dotfiles-nvim; source=locked-dotfiles
 .config/ripgrep/README.md	config-ripgrep-readme-md	docs	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
-.config/ripgrep/config	split-ripgrep	config	split	keep	rewrite	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.config/ripgrep/config	split-ripgrep	config	split	rewrite	rewrite	owner=mixed; source=locked-dotfiles; split=reviewed-container
 .config/shdeps/00-toolchains.conf	dev-toolchain	dependency	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
 .config/shdeps/10-deps.conf	split-shdeps	dependency	split	rewrite	rewrite	owner=mixed; source=locked-dotfiles; split=reviewed-container; agent=base-rule-aggregation
 .config/shdeps/README.md	split-shdeps	docs	split	rewrite	keep	owner=mixed; source=locked-dotfiles; split=reviewed-container
@@ -259,6 +259,7 @@ source_path	component_id	category	transform	d4_action	d5_action	ownership_note
 .local/bin/git	git-bootstrap	runtime	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
 .local/bin/hm	agent-tooling	runtime	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling
 .local/bin/nvim	nvim-editor	runtime	keep	keep	remove	owner=dotfiles-nvim; source=locked-dotfiles
+.local/bin/ripgrep-link-host	nvim-editor	runtime	keep	keep	remove	owner=dotfiles-nvim; source=locked-dotfiles
 .local/bin/shell-time	shell-base	runtime	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
 .local/lib/dotfiles/README.md	split-docs	docs	split	rewrite	keep	owner=mixed; source=locked-dotfiles; split=reviewed-container
 .local/lib/dotfiles/agent-playbooks.sh	agent-rules	runtime	keep	keep	keep	owner=dotfiles; source=locked-dotfiles; agent=base-rule-aggregation
