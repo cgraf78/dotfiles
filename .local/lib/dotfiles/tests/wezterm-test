@@ -112,7 +112,8 @@ done
 termnav_policy=$(
   HOME="$termnav_loader_home" XDG_STATE_HOME="$termnav_loader_home/state" \
     bash --noprofile --norc -c \
-    'source "$1"; printf "%s\n" "$TERMNAV_VSCODE_MCP_TOKEN_FILE"' \
+    'unset TERMNAV_VSCODE_MCP_TOKEN_FILE
+     source "$1"; printf "%s\n" "$TERMNAV_VSCODE_MCP_TOKEN_FILE"' \
     bash "$termnav_shell"
 )
 _assert_eq "shell exports the dotfiles-owned Termnav token location" \
@@ -122,7 +123,8 @@ _assert_eq "shell exports the dotfiles-owned Termnav token location" \
 relative_state_token=$(
   HOME="$termnav_loader_home" XDG_STATE_HOME=relative/state \
     bash --noprofile --norc -c \
-    'source "$1"; printf "%s\n" "$TERMNAV_VSCODE_MCP_TOKEN_FILE"' \
+    'unset TERMNAV_VSCODE_MCP_TOKEN_FILE
+     source "$1"; printf "%s\n" "$TERMNAV_VSCODE_MCP_TOKEN_FILE"' \
     bash "$termnav_shell"
 )
 _assert_eq "relative XDG state cannot redirect the Termnav token lookup" \
