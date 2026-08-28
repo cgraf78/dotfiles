@@ -493,6 +493,16 @@ LUA
       return nil
     end
 
+    local function visible_controls(value)
+      -- Raw ESC bytes can be interpreted by log collectors while reporting a
+      -- failed aggregate comparison. Render C0 controls deterministically so
+      -- the assertion is portable and its diagnostics identify the exact
+      -- sequence instead of changing terminal state.
+      return (value:gsub('[%z\1-\31\127]', function(character)
+        return string.format('\\\\x%02x', string.byte(character))
+      end))
+    end
+
     local config_table = dofile('$nvim_key_home/.wezterm.lua')
     print(tostring(has_passthrough(config_table.keys, '.', 'CTRL', '.', 'CTRL')))
     print(tostring(has_passthrough(config_table.keys, '/', 'CTRL', '/', 'CTRL')))
@@ -562,8 +572,8 @@ LUA
     performed = {}
     pane_move_left(window, { route = 'tmux' })
     pane_move_right(window, { route = 'nvim' })
-    print(performed[1].action .. ':' .. performed[1].value)
-    print(performed[2].action .. ':' .. performed[2].value)
+    print(performed[1].action .. ':' .. visible_controls(performed[1].value))
+    print(performed[2].action .. ':' .. visible_controls(performed[2].value))
 
     performed = {}
     pane_move_left(window, { route = 'terminal' })
@@ -581,8 +591,8 @@ LUA
       '2' \
       'ActivateTabRelative:1' \
       'ActivateTabRelative:-1' \
-      $'SendString:\033H' \
-      $'SendString:\033L' \
+      'SendString:\x1bH' \
+      'SendString:\x1bL' \
       'Nop'
   )
   _assert_eq "wezterm preserves terminal chords and owns client clipboard actions" \
