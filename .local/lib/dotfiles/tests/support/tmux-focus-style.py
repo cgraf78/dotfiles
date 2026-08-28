@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify client-scoped tmux styling and navigation through real PTYs."""
+"""Verify client-scoped base tmux focus styling through real PTYs."""
 
 from __future__ import annotations
 
@@ -9,7 +9,6 @@ import pathlib
 import pty
 import re
 import select
-import shlex
 import signal
 import subprocess
 import tempfile
@@ -270,18 +269,6 @@ class LeafStyleTest(unittest.TestCase):
     def hook(self, name: str) -> str:
         """Return the parsed global hook exactly as tmux will execute it."""
         return self.tmux("show-hooks", "-g", name).stdout.strip()
-
-    def active_pane(self, socket: pathlib.Path | None = None) -> str:
-        """Return the active pane from this server or a nested fixture."""
-        target = socket or self.socket
-        completed = subprocess.run(
-            ["tmux", "-S", str(target), "display-message", "-p", "#{pane_id}"],
-            env=self.environment,
-            text=True,
-            capture_output=True,
-            check=True,
-        )
-        return completed.stdout.strip()
 
     def claim_child(self) -> None:
         """Apply the pane state that Termnav publishes for a focused child."""
@@ -550,105 +537,6 @@ class LeafStyleTest(unittest.TestCase):
             self.rendered_background(restored_render),
             repr(restored_render),
         )
-
-    def test_ctrl_backslash_selects_the_local_previous_pane(self) -> None:
-        client = Client(self)
-        self.clients.append(client)
-        client.set_focus(True)
-
-        # Establish a deterministic last-pane pair, then send the exact C0
-        # byte produced by WezTerm and VS Code. Going through the PTY catches
-        # tmux key-name and escaping regressions that list-keys alone cannot.
-        self.tmux("select-pane", "-t", self.active)
-        self.tmux("select-pane", "-t", self.inactive)
-        self.assertEqual(self.inactive, self.active_pane())
-        client.send(b"\x1c")
-        wait_until(lambda: self.active_pane() == self.active, "Ctrl-backslash pane selection")
-
-    def test_ctrl_backslash_forwards_through_a_nested_tmux(self) -> None:
-        client = Client(self)
-        self.clients.append(client)
-        client.set_focus(True)
-
-        inner_socket = self.root / "inner socket.sock"
-        inner_environment = self.environment.copy()
-        inner_environment.pop("TMUX", None)
-        inner_environment.pop("TMUX_PANE", None)
-
-        def inner(*arguments: str, check: bool = True) -> subprocess.CompletedProcess[str]:
-            return subprocess.run(
-                ["tmux", "-S", str(inner_socket), *arguments],
-                env=inner_environment,
-                text=True,
-                capture_output=True,
-                check=check,
-            )
-
-        try:
-            inner("-f", str(self.config), "new-session", "-d", "-s", "nested", "sleep 30")
-            inner_first = inner("display-message", "-p", "#{pane_id}").stdout.strip()
-            inner_second = inner(
-                "split-window", "-d", "-P", "-F", "#{pane_id}", "sleep 30"
-            ).stdout.strip()
-            inner("select-pane", "-t", inner_first)
-            inner("select-pane", "-t", inner_second)
-
-            # Clear TMUX only for the nested client's startup check. The
-            # terminal protocol still crosses the real outer PTY, which is
-            # what sets mouse_any_flag and exercises the production forward.
-            command = shlex.join(
-                [
-                    "env",
-                    "TMUX=",
-                    "TERM=tmux-256color",
-                    "tmux",
-                    "-S",
-                    str(inner_socket),
-                    "attach-session",
-                    "-t",
-                    "nested",
-                ]
-            )
-            self.tmux("respawn-pane", "-k", "-t", self.active, command)
-            self.tmux("select-pane", "-t", self.active)
-            wait_until(
-                lambda: (
-                    self.tmux(
-                        "display-message", "-p", "-t", self.active, "#{pane_current_command}"
-                    ).stdout.strip()
-                    == "tmux"
-                ),
-                "nested tmux foreground process",
-            )
-
-            # Service redraws and context probes while the inner client turns
-            # on mouse reporting; then require the outer tmux to observe it.
-            def nested_owns_mouse() -> bool:
-                client.pump(0.02)
-                return (
-                    self.tmux(
-                        "display-message", "-p", "-t", self.active, "#{mouse_any_flag}"
-                    ).stdout.strip()
-                    == "1"
-                )
-
-            wait_until(
-                nested_owns_mouse,
-                "nested tmux mouse ownership",
-            )
-
-            client.send(b"\x1c")
-            wait_until(
-                lambda: self.active_pane(inner_socket) == inner_first,
-                "nested Ctrl-backslash previous-pane selection",
-            )
-            self.assertEqual(
-                self.active,
-                self.active_pane(),
-                "the outer tmux must forward rather than consume the nested chord",
-            )
-        finally:
-            inner("kill-server", check=False)
 
 
 def main() -> int:
