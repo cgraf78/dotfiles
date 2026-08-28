@@ -46,8 +46,11 @@ shadow restoration, and preservation of cached checkouts and package state.
 
 `legacy-profile-cutover` and the `pre_profile_dot`/D4 base lock fields are
 transition-only fleet safeguards. Retire them in a follow-up PR after every
-managed machine has successfully crossed the profile boundary; the ordinary
-profile selection and upgrade/downgrade suites remain permanent coverage.
+managed machine has successfully crossed the profile boundary. That cleanup
+deletes the fixture, its workflow invocation, the three historical lock
+fields, D4 pull-request-base validation, and their dedicated stack-test cases.
+The exact candidate checkout, isolated candidate HOME, profile selection, and
+ordinary upgrade/downgrade suites remain permanent coverage.
 The legacy cutover fixture starts from the exact pre-profile root and Dot
 revisions and proves direct, staged, and interrupted `dot update -f` handoffs
 to the final `dev` composition.
