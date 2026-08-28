@@ -136,7 +136,10 @@ for the data format and safe local-file rules.
 Profile changes are convergent in both directions. The next successful update
 adds newly selected overlay links and removes only exact managed links from
 deselected overlays, restoring lower-layer files where applicable. Cached
-checkouts, installed packages, and unmanaged files are retained.
+checkouts, installed packages, and unmanaged files are retained. This is an
+activation change, not automatic storage reclamation: the footprint estimates
+below describe fresh installations, not the disk use of a machine after it has
+previously used a larger profile.
 
 `dot update` resolves profiles in two phases so an available personal overlay
 may contribute private selectors without exposing other unselected overlay
