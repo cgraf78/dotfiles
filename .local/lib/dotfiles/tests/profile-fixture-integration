@@ -518,10 +518,11 @@ assert_tmux_composition() {
 
 assert_dev_nvim_composition() {
   local home=$1 output status=0
+  local timeout_bin=$DOT_STACK_DOT_ROOT/lib/dot/public/test-timeout-v1
 
   output=$(run_in_home "$home" env \
-    XDG_DATA_HOME="$host_home/.local/share" \
-    "$nvim_bin" --headless -i NONE \
+    XDG_DATA_HOME="$nvim_data_home" \
+    "$timeout_bin" 60 "$nvim_bin" --headless -i NONE \
     --cmd 'lua vim.g.disable_session_restore = true' \
     --cmd 'lua vim.g.mason_disabled = true' \
     -c 'lua
