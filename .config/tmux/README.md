@@ -57,6 +57,11 @@ other conforming terminals without a custom extension. Intermediate tmux
 layers forward the private `User8` commit key. There is no terminal-specific
 parent fallback: unresolved ancestry is consumed instead of guessed.
 
+Alt-Shift-H/J/K/L uses the same ownership detection to move the current
+Neovim split or tmux pane one directional step. Termnav owns the guarded tmux
+swap and may walk arbitrary same-host tmux ancestry, but it never relays pane
+movement across SSH or hands it to an outer terminal layout.
+
 Ctrl-backslash is the local previous-pane companion to directional navigation.
 It follows the same inward ownership test, so Neovim can choose its previous
 split and a focused nested tmux can choose its own previous pane. A bare pane is

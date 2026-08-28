@@ -81,6 +81,9 @@ request at the terminal boundary. `termnav_routes.setup()` owns the matching
 WezTerm event handler, keeping the protocol implementation out of dotfiles.
 Pane navigation uses the same traversal but stops at the outermost tmux edge;
 Termnav does not assume WezTerm panes share tmux's directional semantics.
+Alt-Shift-H/J/K/L moves the current Neovim split or tmux pane one directional
+step. Movement may climb same-host nested tmux scopes, but it deliberately
+stops before SSH and the outer terminal because layouts are host-local state.
 Ctrl-backslash needs no WezTerm key assignment: WezTerm's normal terminal
 encoding sends the C0 file-separator byte (`0x1c`), and each tmux/Neovim layer
 either forwards it inward or consumes it as that scope's local previous-pane

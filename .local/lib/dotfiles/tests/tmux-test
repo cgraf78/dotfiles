@@ -349,17 +349,21 @@ _assert_contains "tmux defines DECRQM permanently-set commit response" \
 _assert_contains "tmux defines DECRQM permanently-reset commit response" \
   'set -s user-keys[13] "\033[?2004;4\$y"' "$tmux_content"
 _assert_contains "tmux centralizes exact router origin metadata" \
-  'navigate_parent_args="--parent --client-pid #{client_pid} --client-tty #{q:client_tty} --client-created #{client_created} --client-termtype #{q:client_termtype} --source-socket #{q:socket_path} --source-pane #{pane_id} --source-session #{q:session_id}"' \
+  'navigate_origin_args="--client-pid #{client_pid} --client-tty #{q:client_tty} --client-created #{client_created} --client-termtype #{q:client_termtype} --source-socket #{q:socket_path} --source-pane #{pane_id} --source-session #{q:session_id}"' \
   "$tmux_content"
 _assert_eq "tmux defines exact router origin metadata once" "1" \
-  "$(grep -c '^navigate_parent_args=' <<<"$tmux_content")"
+  "$(grep -c '^navigate_origin_args=' <<<"$tmux_content")"
 for route in \
   'tab-select next' 'tab-select previous' \
   'tab-move left' 'tab-move right' \
-  'pane-move left' 'pane-move down' 'pane-move up' 'pane-move right' \
   'pane-select left' 'pane-select down' 'pane-select up' 'pane-select right'; do
   _assert_contains "tmux routes boundary action through Termnav: $route" \
-    "$termnav_hot_path $route \$navigate_parent_args" "$tmux_content"
+    "$termnav_hot_path $route --parent \$navigate_origin_args" "$tmux_content"
+done
+for route in \
+  'pane-move left' 'pane-move down' 'pane-move up' 'pane-move right'; do
+  _assert_contains "tmux routes host-local action through Termnav: $route" \
+    "$termnav_hot_path $route \$navigate_origin_args" "$tmux_content"
 done
 _assert_not_contains "tmux boundary routing does not launch unordered background jobs" \
   "run-shell -b '$termnav_hot_path" "$tmux_content"
