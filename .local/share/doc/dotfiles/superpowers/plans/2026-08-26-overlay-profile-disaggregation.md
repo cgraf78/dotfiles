@@ -304,7 +304,8 @@ normalization and removal of a trailing dot. Combined user-and-host selectors
 override matching user-only or host-only defaults. Multiple matching records at
 the winning specificity are allowed only when they select the same profile;
 conflicting profiles at that specificity are a hard configuration error before
-final overlay mutation. No match selects `base`. This supports different users
+final overlay mutation. No match selects the configured `default_profile`
+(`dev` during this compatibility-first rollout). This supports different users
 selecting different profiles on the same host, plus user-wide defaults with
 per-host exceptions, without environment overrides or management commands.
 
@@ -790,10 +791,11 @@ phases:
 3. load selector records from root `.config/dot/profile-selectors.d/`, local
    `.config/dot/profile-selectors.local.d/`, and repository-only
    `dot/profile-selectors.d/` in successfully active phase-one overlays;
-4. resolve the matching profile; no match means `base`, combined user-and-host
-   matches override broader single-field defaults, agreeing winning matches are
-   deduplicated, and conflicting profiles at the winning specificity fail
-   before final overlay mutation;
+4. resolve the matching profile; no match uses the configured
+   `default_profile`, combined user-and-host matches override broader
+   single-field defaults, agreeing winning matches are deduplicated, and
+   conflicting profiles at the winning specificity fail before final overlay
+   mutation;
 5. flatten the final profile, fully validate its selected descriptors, derive
    final eligible records, run full-family pre-sync `reconcile`, and synchronize
    only its eligible additions, reusing an already active personal checkout
