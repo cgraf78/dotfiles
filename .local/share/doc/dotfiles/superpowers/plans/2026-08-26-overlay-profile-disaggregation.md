@@ -2234,6 +2234,24 @@ revisions, selected profile, optional-overlay skips, command exit status, and
 follow-up ownership. Fresh machines use the published D1 bootstrap and receive
 the same root-global `dev` default during this compatibility rollout.
 
+### 9.5 Retire transition-only cutover scaffolding
+
+After D1-D5 are merged and every managed machine has successfully crossed the
+profile boundary, open a separate cleanup PR. Do not retain exact historical
+transition machinery as part of the steady-state profile architecture. The
+cleanup removes:
+
+- `pre_profile_dot`, `dotfiles_d4_base_ref`, and `dotfiles_d4_base` from the
+  coordinated stack lock and its validators;
+- the `legacy-profile-cutover` fixture and its CI invocation; and
+- D4-specific pull-request-base validation from `checkout-ci-candidate`.
+
+Retain the general candidate-HOME isolation, immutable capability pins,
+profile selection tests, and bidirectional profile-transition coverage. Keep
+source and ownership provenance only while it continues to provide useful
+extraction auditing; archive it with this plan when it no longer guards a
+live boundary. The cleanup must not alter profile resolution or activation.
+
 ---
 
 ## Task 10: Stage profiles in the top-level `dotfiles` repository
