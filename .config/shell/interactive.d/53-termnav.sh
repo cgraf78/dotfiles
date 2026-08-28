@@ -11,4 +11,17 @@
 # shellcheck source=../../../.local/lib/dotfiles/shdeps-assets.sh
 . "$HOME/.local/lib/dotfiles/shdeps-assets.sh"
 
+# Termnav owns the portable MCP interface; dotfiles owns the generated token's
+# location. Keep it below the same absolute XDG state root used by the merge
+# hook, and leave explicit caller overrides intact for diagnostics or alternate
+# installations.
+case "${XDG_STATE_HOME:-}" in
+  /*) _dot_termnav_state_home="$XDG_STATE_HOME" ;;
+  *) _dot_termnav_state_home="$HOME/.local/state" ;;
+esac
+if [[ -z "${TERMNAV_VSCODE_MCP_TOKEN_FILE:-}" ]]; then
+  export TERMNAV_VSCODE_MCP_TOKEN_FILE="$_dot_termnav_state_home/dot/vscode-mcp-auth-token"
+fi
+unset _dot_termnav_state_home
+
 dot_shdeps_dep_source cgraf78/termnav share/termnav/shell.sh 2>/dev/null || true
