@@ -146,6 +146,9 @@ jobs:
           .local/lib/dotfiles/tests/run-ci-candidate-home \
             .local/lib/dotfiles/tests/stack-dot-runtime installed-profile-dot-test -- \
               .local/lib/dotfiles/tests/profile-fixture-integration test
+          .local/lib/dotfiles/tests/run-ci-candidate-home \
+            .local/lib/dotfiles/tests/stack-dot-runtime profile-footprint-fixtures -- \
+              .local/lib/dotfiles/tests/profile-fixture-integration footprint
 
   cold-bootstrap:
     name: Cold Ubuntu default-profile bootstrap

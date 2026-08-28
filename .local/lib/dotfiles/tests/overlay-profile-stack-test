@@ -175,6 +175,8 @@ _assert_contains 'Termux CI skips dependency installation outside smoke scope' \
   'DOT_INIT_SKIP_PROVIDER=1' "$workflow_content"
 _assert_contains 'top-level CI runs the literal suite inventory' \
   '.local/lib/dotfiles/tests/run-ci' "$workflow_content"
+_assert_contains 'Ubuntu CI measures clean profile footprints' \
+  'stack-dot-runtime profile-footprint-fixtures' "$workflow_content"
 _assert_contains 'top-level CI installs hostname for profile selection' \
   'profiles: base,jq,python,zsh,lua,tmux,openssh-netcat-lsof,procps,cron,fd,ripgrep,hostname,shellcheck' \
   "$workflow_content"

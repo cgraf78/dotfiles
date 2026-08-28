@@ -8,8 +8,9 @@ This repository tests the always-active base substrate and the profile control
 plane: shell startup, Git bootstrap routing, tmux, terminal integration,
 agent-rule aggregation, profile selection, ownership, composition, migration,
 and footprint measurement. `dotfiles-nvim` and `dotfiles-dev` run their focused
-tests and doctor checks in their own CI; top-level CI validates their immutable
-inventories but does not execute them again.
+tests and doctor checks in their own CI. Outside the bounded Ubuntu installed-
+profile composition gate, top-level CI validates their immutable inventories
+without executing those focused suites again.
 
 Run the CI-owned set through the pinned D1 runtime:
 
