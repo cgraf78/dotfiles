@@ -109,6 +109,26 @@ for test_shell in bash zsh; do
     shell-ready "$loader_result"
 done
 
+termnav_policy=$(
+  HOME="$termnav_loader_home" XDG_STATE_HOME="$termnav_loader_home/state" \
+    bash --noprofile --norc -c \
+    'source "$1"; printf "%s\n" "$TERMNAV_VSCODE_MCP_TOKEN_FILE"' \
+    bash "$termnav_shell"
+)
+_assert_eq "shell exports the dotfiles-owned Termnav token location" \
+  "$termnav_loader_home/state/dot/vscode-mcp-auth-token" \
+  "$termnav_policy"
+
+relative_state_token=$(
+  HOME="$termnav_loader_home" XDG_STATE_HOME=relative/state \
+    bash --noprofile --norc -c \
+    'source "$1"; printf "%s\n" "$TERMNAV_VSCODE_MCP_TOKEN_FILE"' \
+    bash "$termnav_shell"
+)
+_assert_eq "relative XDG state cannot redirect the Termnav token lookup" \
+  "$termnav_loader_home/.local/state/dot/vscode-mcp-auth-token" \
+  "$relative_state_token"
+
 echo "=== WezTerm mouse and route integration ==="
 
 _assert_contains "ctrl-click opens links through open-uri on mouse up" \
@@ -123,6 +143,8 @@ _assert_contains "wezterm configures bell rendering through platform policy" \
   "audible_bell = audible_bell," "$content"
 _assert_contains "wezterm delegates open-uri routing to termnav wrapper" \
   'load_config_module("link-routes.lua")' "$content"
+_assert_not_contains "wezterm delegates Termnav user-var routing to its provider" \
+  'wezterm.on("user-var-changed"' "$content"
 _assert_contains "wezterm key callbacks classify pane ownership once" \
   "termnav_routes.terminal_owner" "$content"
 _assert_not_contains "wezterm key callbacks do not repeat nvim classification" \
@@ -139,14 +161,10 @@ _assert_contains "wezterm hyperlink rules load overlay extensions" \
   "hyperlink-rules.d" "$content"
 _assert_contains "wezterm hyperlink rule extensions can append rules" \
   "apply_hyperlink_rule_extensions" "$content"
-_assert_contains "wezterm listens for bubbled child tab-switch requests" \
+_assert_not_contains "wezterm config carries no legacy tab-switch protocol" \
   "DOT_SWITCH_TAB" "$content"
-_assert_contains "wezterm validates bubbled tab-switch directions" \
-  'direction == "next" or direction == "previous"' "$content"
-_assert_contains "wezterm listens for bubbled child tab-move requests" \
+_assert_not_contains "wezterm config carries no legacy tab-move protocol" \
   "DOT_MOVE_TAB" "$content"
-_assert_contains "wezterm validates bubbled tab-move directions" \
-  'direction == "left" or direction == "right"' "$content"
 for retired in DOT_PARENT_SWITCH_TAB DOT_PARENT_MOVE_TAB DOT_PARENT_SELECT_PANE \
   777001 777002 777003 777004 777005 777006 777007 777008; do
   _assert_not_contains "wezterm removes retired parent-loopback path: $retired" \
