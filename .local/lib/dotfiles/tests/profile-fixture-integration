@@ -876,21 +876,65 @@ EOF
   lifecycle_status=0
   run_in_home "$lifecycle_home" "$DOT_STACK_DOT_BIN" update \
     >/dev/null 2>&1 || lifecycle_status=$?
-  _assert_exit 'base to default dev upgrade converges' 0 "$lifecycle_status"
+  _assert_exit 'base to root-global dev upgrade converges' 0 "$lifecycle_status"
   if [[ -L $lifecycle_home/.config/git/config ]]; then
-    _pass 'base to default dev upgrade reactivates the dev Git configuration'
+    _pass 'base to root-global dev upgrade reactivates the dev Git configuration'
   else
-    _fail 'base to default dev upgrade reactivates the dev Git configuration'
+    _fail 'base to root-global dev upgrade reactivates the dev Git configuration'
   fi
   if [[ -L $lifecycle_home/.config/work-retry-marker ]]; then
-    _pass 'base to default dev upgrade reactivates the optional work link'
+    _pass 'base to root-global dev upgrade reactivates the optional work link'
   else
-    _fail 'base to default dev upgrade reactivates the optional work link'
+    _fail 'base to root-global dev upgrade reactivates the optional work link'
   fi
-  _assert_file_content 'base to default dev upgrade preserves native package state' \
+  _assert_file_content 'base to root-global dev upgrade preserves native package state' \
     preserve "$lifecycle_package_marker"
   _assert_file_missing \
     'profile upgrade never invokes a native package manager' \
+    "$lifecycle_package_log"
+
+  "$git_bin" -C "$base_seed" rm --quiet \
+    .config/dot/profile-selectors.d/00-default.conf
+  "$git_bin" -C "$base_seed" -c user.name=fixture \
+    -c user.email=fixture@example.invalid -c core.hooksPath=/dev/null \
+    commit --quiet -m 'use the built-in base fallback'
+  "$git_bin" -C "$base_seed" push --quiet "$base_origin" HEAD:refs/heads/main
+  lifecycle_status=0
+  run_in_home "$lifecycle_home" "$DOT_STACK_DOT_BIN" update \
+    >/dev/null 2>&1 || lifecycle_status=$?
+  _assert_exit 'removing the root-global selector downsizes to base' \
+    0 "$lifecycle_status"
+  _assert_file_content 'root-global removal restores base Git content' \
+    "$git_shadow" "$lifecycle_home/.config/git/ignore"
+  _assert_file_content 'root-global removal restores base Nvim content' \
+    "$nvim_shadow" "$lifecycle_home/.config/nvim/init.lua"
+  _assert_file_content 'root-global removal preserves native package state' \
+    preserve "$lifecycle_package_marker"
+
+  mkdir -p "$base_seed/.config/dot/profile-selectors.d"
+  printf 'version=1\nprofile=dev\n' \
+    >"$base_seed/.config/dot/profile-selectors.d/00-default.conf"
+  "$git_bin" -C "$base_seed" add \
+    .config/dot/profile-selectors.d/00-default.conf
+  "$git_bin" -C "$base_seed" -c user.name=fixture \
+    -c user.email=fixture@example.invalid -c core.hooksPath=/dev/null \
+    commit --quiet -m 'restore the root-global dev selector'
+  "$git_bin" -C "$base_seed" push --quiet "$base_origin" HEAD:refs/heads/main
+  lifecycle_status=0
+  run_in_home "$lifecycle_home" "$DOT_STACK_DOT_BIN" update \
+    >/dev/null 2>&1 || lifecycle_status=$?
+  _assert_exit 'restoring the root-global selector upgrades to dev' \
+    0 "$lifecycle_status"
+  if [[ -L $lifecycle_home/.config/git/config &&
+    -L $lifecycle_home/.config/nvim/init.lua ]]; then
+    _pass 'root-global restoration reactivates editor and dev owners'
+  else
+    _fail 'root-global restoration reactivates editor and dev owners'
+  fi
+  _assert_file_content 'root-global restoration preserves native package state' \
+    preserve "$lifecycle_package_marker"
+  _assert_file_missing \
+    'root-global transitions never invoke a native package manager' \
     "$lifecycle_package_log"
   unset DOT_PROFILE_PACKAGE_MANAGER_LOG
 fi

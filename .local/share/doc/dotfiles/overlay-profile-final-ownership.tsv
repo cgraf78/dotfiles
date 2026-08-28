@@ -194,6 +194,7 @@ dotfiles	.local/lib/dotfiles/tests/fixtures.sh	local-lib-dotfiles-tests-fixtures
 dotfiles	.local/lib/dotfiles/tests/footprint-test	profile-footprint	test	new	d4	owner=dotfiles; source=new; family=base
 dotfiles	.local/lib/dotfiles/tests/harness-isolation-test	local-lib-dotfiles-tests-harness-isolation-test	test	old:.local/lib/dotfiles/tests/harness-isolation-test	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
 dotfiles	.local/lib/dotfiles/tests/helpers.sh	split-tests	test	old:.local/lib/dotfiles/tests/helpers.sh	d4	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/tests/legacy-profile-cutover	dot-control	test	new	d5	owner=dotfiles; source=new; family=base
 dotfiles	.local/lib/dotfiles/tests/load-merge-api.sh	split-tests	test	old:.local/lib/dotfiles/tests/load-merge-api.sh	d4	owner=dotfiles; source=locked-dotfiles; family=base
 dotfiles	.local/lib/dotfiles/tests/measure-profile-footprint	profile-footprint	test	new	d4	owner=dotfiles; source=new; family=base
 dotfiles	.local/lib/dotfiles/tests/overlay-profile-ownership-test	dot-control	test	new	d4	owner=dotfiles; source=new; family=base

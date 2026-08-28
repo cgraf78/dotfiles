@@ -2453,6 +2453,7 @@ Use a deliberately small machine-readable format:
 version=1
 source_dotfiles=<40-or-64-hex-commit>
 dot=<immutable-D1-head>
+pre_profile_dot=<immutable-pre-profile-Dot-head-for-cutover-tests>
 dotfiles_nvim=<immutable-D2-head>
 dotfiles_dev=<immutable-D3-head>
 test_shdeps=<immutable-released-Shdeps-commit>

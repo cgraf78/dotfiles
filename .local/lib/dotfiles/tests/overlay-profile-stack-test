@@ -194,6 +194,7 @@ if [[ ${1:-} != --runtime-only ]]; then
     version=$(_lock_value version "$production_lock" 2>/dev/null || true)
     source_sha=$(_lock_value source_dotfiles "$production_lock" 2>/dev/null || true)
     dot_sha=$(_lock_value dot "$production_lock" 2>/dev/null || true)
+    pre_profile_dot_sha=$(_lock_value pre_profile_dot "$production_lock" 2>/dev/null || true)
     nvim_sha=$(_lock_value dotfiles_nvim "$production_lock" 2>/dev/null || true)
     dev_sha=$(_lock_value dotfiles_dev "$production_lock" 2>/dev/null || true)
     shdeps_sha=$(_lock_value test_shdeps "$production_lock" 2>/dev/null || true)
@@ -222,7 +223,8 @@ if [[ ${1:-} != --runtime-only ]]; then
     else
       _fail 'full stack integration runs through the exact locked D1 runtime'
     fi
-    for pair in dot:$dot_sha dotfiles_nvim:$nvim_sha dotfiles_dev:$dev_sha \
+    for pair in dot:$dot_sha pre_profile_dot:$pre_profile_dot_sha \
+      dotfiles_nvim:$nvim_sha dotfiles_dev:$dev_sha \
       test_shdeps:$shdeps_sha test_shdeps_installer:$shdeps_installer_sha; do
       name=${pair%%:*}
       sha=${pair#*:}
@@ -257,7 +259,7 @@ if [[ ${1:-} != --runtime-only ]]; then
       "$(git -C "$source_home" merge-base HEAD "$d4_base_sha" 2>/dev/null || true)"
 
     expected_keys=$(printf '%s\n' \
-      version source_dotfiles dot dotfiles_nvim dotfiles_dev test_shdeps \
+      version source_dotfiles dot pre_profile_dot dotfiles_nvim dotfiles_dev test_shdeps \
       test_shdeps_release test_shdeps_installer test_agent_rules_sync \
       dotfiles_d4_base_ref dotfiles_d4_base | sort)
     actual_keys=$(awk -F= '

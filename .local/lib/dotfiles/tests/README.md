@@ -18,6 +18,8 @@ Run the CI-owned set through the pinned D1 runtime:
   .local/lib/dotfiles/tests/run-ci
 .local/lib/dotfiles/tests/stack-dot-runtime profile-fixture-update -- \
   .local/lib/dotfiles/tests/profile-fixture-integration update
+.local/lib/dotfiles/tests/stack-dot-runtime legacy-profile-cutover -- \
+  .local/lib/dotfiles/tests/legacy-profile-cutover
 .local/lib/dotfiles/tests/stack-dot-runtime profile-doctor -- \
   .local/lib/dotfiles/tests/profile-fixture-integration doctor
 .local/lib/dotfiles/tests/stack-dot-runtime installed-profile-dot-test -- \
@@ -41,6 +43,9 @@ and then executes `dot test` in isolated base, editor, and dev homes. The
 update fixture also exercises a dev-to-editor-to-base downgrade, including a
 later retry of an initially unavailable optional overlay, managed-link cleanup,
 shadow restoration, and preservation of cached checkouts and package state.
+The legacy cutover fixture starts from the exact pre-profile root and Dot
+revisions and proves direct, staged, and interrupted `dot update -f` handoffs
+to the final `dev` composition.
 
 The footprint fixture reports exact checkout, configuration, and control-plane
 payloads for clean post-cutover homes and compares them with the exact locked
