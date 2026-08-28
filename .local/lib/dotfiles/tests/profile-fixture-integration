@@ -236,6 +236,7 @@ run_in_home() {
     NVIM_TEST_BIN="$nvim_bin" \
     NVIM_TEST_DATA_HOME="$nvim_data_home" \
     SHDEPS_INSTALL_DIR="$host_home/.local/share" \
+    SHDEPS_BIN_DIR="$home/.local/bin" \
     SHDEPS_GIT_DEV_DIR="${profile_git_dev_dir:-$host_home/git}" \
     PATH="$home/.local/bin:$fixture_path" \
     "$@"
