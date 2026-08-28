@@ -103,7 +103,7 @@ dev_suite_names=$("$git_bin" --git-dir="$dev_origin" show \
   main:.github/dot-test-suites.txt | sed -e 's#^.*/##' -e 's/-test$//')
 
 mkdir -p "$base_seed"
-"$git_bin" clone --quiet --no-checkout "$source_home" "$base_seed"
+"$git_bin" clone --quiet --no-local --no-checkout "$source_home" "$base_seed"
 "$git_bin" -C "$base_seed" checkout --quiet --detach HEAD
 # shellcheck disable=SC2016 # Preserve the supported literal config token.
 printf '%s\n' \
@@ -117,6 +117,13 @@ printf '%s\n' \
   -c user.email=fixture@example.invalid -c core.hooksPath=/dev/null \
   commit --quiet -m fixture
 "$git_bin" init --quiet --bare "$base_origin"
+# CI source checkouts may intentionally stop at an older repository boundary.
+# Preserve the history that ownership tests inspect without requiring parents
+# older than that advertised shallow boundary.
+"$git_bin" --git-dir="$base_origin" config receive.shallowUpdate true
+_assert_eq 'base fixture origin accepts shallow source history' true \
+  "$("$git_bin" --git-dir="$base_origin" config --bool --get \
+    receive.shallowUpdate)"
 "$git_bin" -C "$base_seed" push --quiet "$base_origin" HEAD:refs/heads/main
 "$git_bin" --git-dir="$base_origin" symbolic-ref HEAD refs/heads/main
 
@@ -137,6 +144,12 @@ run_in_home() {
   local home=$1
   shift
   env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR \
+    -u GITHUB_ACTIONS -u GITHUB_EVENT_NAME -u GITHUB_EVENT_PATH \
+    -u GITHUB_BASE_REF -u GITHUB_HEAD_REF -u GITHUB_SHA \
+    -u GH_TOKEN -u GITHUB_TOKEN -u GH_ENTERPRISE_TOKEN \
+    -u GITHUB_ENTERPRISE_TOKEN -u GITHUB_PERSONAL_ACCESS_TOKEN \
+    -u CODEX_GITHUB_PERSONAL_ACCESS_TOKEN \
+    -u DOTFILES_CANDIDATE_SHA \
     HOME="$home" \
     XDG_CONFIG_HOME="$home/.config" \
     XDG_DATA_HOME="$home/.local/share" \
@@ -147,6 +160,29 @@ run_in_home() {
     PATH="$fixture_path:$home/.local/bin" \
     "$@"
 }
+
+# The nested fixture is a normal client, not a GitHub Actions checkout. Keep
+# outer event identity and credentials from changing its repository behavior.
+# shellcheck disable=SC2016 # Inspect variables inside the isolated child.
+nested_ci_identity=$(GITHUB_ACTIONS=true GITHUB_EVENT_NAME=pull_request \
+  GITHUB_EVENT_PATH=/outer/event.json GITHUB_BASE_REF=outer-base \
+  GITHUB_HEAD_REF=outer-head GITHUB_SHA=0000000000000000000000000000000000000000 \
+  DOTFILES_CANDIDATE_SHA=1111111111111111111111111111111111111111 \
+  run_in_home "$fixture_root" bash -c \
+  'printf "%s\n" "${GITHUB_ACTIONS-unset}:${GITHUB_EVENT_NAME-unset}:${GITHUB_EVENT_PATH-unset}:${GITHUB_BASE_REF-unset}:${GITHUB_HEAD_REF-unset}:${GITHUB_SHA-unset}:${DOTFILES_CANDIDATE_SHA-unset}"')
+_assert_eq 'profile fixtures isolate outer CI event identity' \
+  'unset:unset:unset:unset:unset:unset:unset' "$nested_ci_identity"
+
+# shellcheck disable=SC2016 # Inspect variables inside the isolated child.
+nested_ci_credentials=$(GH_TOKEN=gh GITHUB_TOKEN=github \
+  GH_ENTERPRISE_TOKEN=gh-enterprise \
+  GITHUB_ENTERPRISE_TOKEN=github-enterprise \
+  GITHUB_PERSONAL_ACCESS_TOKEN=github-pat \
+  CODEX_GITHUB_PERSONAL_ACCESS_TOKEN=codex-github-pat \
+  run_in_home "$fixture_root" bash -c \
+  'printf "%s\n" "${GH_TOKEN-unset}:${GITHUB_TOKEN-unset}:${GH_ENTERPRISE_TOKEN-unset}:${GITHUB_ENTERPRISE_TOKEN-unset}:${GITHUB_PERSONAL_ACCESS_TOKEN-unset}:${CODEX_GITHUB_PERSONAL_ACCESS_TOKEN-unset}"')
+_assert_eq 'profile fixtures isolate outer CI credentials' \
+  'unset:unset:unset:unset:unset:unset' "$nested_ci_credentials"
 
 prepare_home() {
   local profile=$1 home=$2 runtime_install selector init_status
