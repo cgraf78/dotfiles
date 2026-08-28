@@ -1311,6 +1311,19 @@ JSON
     _assert_eq "karabiner: Windows Ctrl-arrow rules exempt VS Code apps" \
       "4" "$karabiner_ctrl_arrow_vscode_exemptions"
 
+    karabiner_pane_move_intercepts=$(
+      jq '[
+        .profiles[]
+        | select(.name == "Windows (Dotfiles)")
+        | .complex_modifications.rules[].manipulators[]
+        | select(.from.key_code == "h" or .from.key_code == "j" or .from.key_code == "k" or .from.key_code == "l")
+        | (.from.modifiers.mandatory // []) as $mods
+        | select(($mods | index("option")) != null and ($mods | index("shift")) != null)
+      ] | length' "$karabiner_src"
+    )
+    _assert_eq "karabiner: Alt-Shift-H/J/K/L pass through unchanged" \
+      "0" "$karabiner_pane_move_intercepts"
+
     karabiner_home_end_vscode_exemptions=$(
       jq -r '
         def vscode_bundle_ids:
@@ -2088,6 +2101,32 @@ EOF
           and .command == "workbench.action.terminal.sendSequence"
           and .when == "terminalFocus && termnav.nvimFocused"
         )] | length' "$keybindings_file")"
+      _assert_eq "vscode $platform terminal: pane movement has exact escape transports" \
+        '[]' \
+        "$(jq -c '[
+          . as $bindings
+          | (
+              [
+                {key: "alt+shift+h", text: "\u001bH"},
+                {key: "alt+shift+j", text: "\u001bJ"},
+                {key: "alt+shift+k", text: "\u001bK"},
+                {key: "alt+shift+l", text: "\u001bL"}
+              ][]
+            ) as $wanted
+          | select(
+              [
+                $bindings[]
+                | select(
+                    .key == $wanted.key
+                    and .command == "workbench.action.terminal.sendSequence"
+                    and .args.text == $wanted.text
+                    and .when == "terminalFocus"
+                  )
+              ]
+              | length != 1
+            )
+          | $wanted.key
+        ]' "$keybindings_file")"
       _assert_eq "vscode $platform terminal: Ctrl+/ transport is extension-independent" \
         '[]' \
         "$(jq -c '[

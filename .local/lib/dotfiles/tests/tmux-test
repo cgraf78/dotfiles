@@ -33,6 +33,10 @@ ctrl_shift_tab_config_line=$(printf '%s\n' "$tmux_content" | grep '^bind-key -n 
 move_tab_left_config_line=$(printf '%s\n' "$tmux_content" | grep "^bind-key -n 'M-{' " || true)
 move_tab_right_config_line=$(printf '%s\n' "$tmux_content" | grep "^bind-key -n 'M-}' " || true)
 previous_pane_config_line=$(printf '%s\n' "$tmux_content" | grep -F "bind-key -n 'C-\\' " || true)
+pane_move_bindings=$(
+  printf '%s\n' "$tmux_content" |
+    grep -E "^bind-key -n 'M-[HJKL]' " || true
+)
 vim_navigation_bindings=$(
   printf '%s\n' "$tmux_content" |
     grep -E "^bind-key -n 'C-[hjkl]' " || true
@@ -352,6 +356,7 @@ _assert_eq "tmux defines exact router origin metadata once" "1" \
 for route in \
   'tab-select next' 'tab-select previous' \
   'tab-move left' 'tab-move right' \
+  'pane-move left' 'pane-move down' 'pane-move up' 'pane-move right' \
   'pane-select left' 'pane-select down' 'pane-select up' 'pane-select right'; do
   _assert_contains "tmux routes boundary action through Termnav: $route" \
     "$termnav_hot_path $route \$navigate_parent_args" "$tmux_content"
@@ -370,6 +375,19 @@ _assert_contains "tmux Alt-Shift-[ keeps local movement native" \
   "swap-window -d -t :-" "$move_tab_left_config_line"
 _assert_contains "tmux Alt-Shift-] keeps local movement native" \
   "swap-window -d -t :+" "$move_tab_right_config_line"
+_assert_eq "tmux pane movement defines all four directional chords" "4" \
+  "$(printf '%s\n' "$pane_move_bindings" | grep -Ec "^bind-key -n 'M-[HJKL]' ")"
+# shellcheck disable=SC2016 # tmux expands these variable names, not this shell.
+_assert_eq "tmux pane movement uses one provider-owned action per chord" "4" \
+  "$(grep -c '\$move_pane_' <<<"$pane_move_bindings")"
+_assert_not_contains "tmux pane movement does not duplicate swap policy" \
+  "swap-pane" "$pane_move_bindings"
+_assert_not_contains "tmux pane movement starts from the current scope" \
+  "--parent" "$pane_move_bindings"
+for key in H J K L; do
+  _assert_contains "tmux pane movement forwards M-$key into an owning application" \
+    "send-keys Escape '$key'" "$pane_move_bindings"
+done
 _assert_eq "tmux pane navigation keeps all four local selections native" "4" \
   "$(grep -Ec "select-pane -[LDUR]" <<<"$vim_navigation_bindings")"
 # shellcheck disable=SC2016 # tmux expands this variable, not the test shell.
@@ -468,6 +486,10 @@ if command -v tmux >/dev/null 2>&1; then
   pane_navigation_up_root_line=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root C-k ' || true)
   pane_navigation_right_root_line=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root C-l ' || true)
   previous_pane_root_line=$(printf '%s\n' "$root_keys" | grep -F 'bind-key -T root C-\\ ' || true)
+  pane_move_left_root_line=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root M-H ' || true)
+  pane_move_down_root_line=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root M-J ' || true)
+  pane_move_up_root_line=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root M-K ' || true)
+  pane_move_right_root_line=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root M-L ' || true)
   move_tab_left_root_line=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root "M-{"' || true)
   move_tab_right_root_line=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root "M-}"' || true)
   relay_nested_commit_root_line=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root User8 ' || true)
@@ -666,6 +688,20 @@ if command -v tmux >/dev/null 2>&1; then
     "$termnav_hot_path pane-select up --parent" "$pane_navigation_up_root_line"
   _assert_contains "tmux runtime Ctrl-l invokes the unified router at its edge" \
     "$termnav_hot_path pane-select right --parent" "$pane_navigation_right_root_line"
+  _assert_contains "tmux runtime Alt-Shift-H invokes pane movement from this scope" \
+    "$termnav_hot_path pane-move left --client-pid" "$pane_move_left_root_line"
+  _assert_contains "tmux runtime Alt-Shift-J invokes pane movement from this scope" \
+    "$termnav_hot_path pane-move down --client-pid" "$pane_move_down_root_line"
+  _assert_contains "tmux runtime Alt-Shift-K invokes pane movement from this scope" \
+    "$termnav_hot_path pane-move up --client-pid" "$pane_move_up_root_line"
+  _assert_contains "tmux runtime Alt-Shift-L invokes pane movement from this scope" \
+    "$termnav_hot_path pane-move right --client-pid" "$pane_move_right_root_line"
+  for route_line in \
+    "$pane_move_left_root_line" "$pane_move_down_root_line" \
+    "$pane_move_up_root_line" "$pane_move_right_root_line"; do
+    _assert_not_contains "tmux runtime pane movement does not skip its current scope" \
+      "--parent" "$route_line"
+  done
   _assert_contains "tmux runtime Ctrl-backslash forwards into navigation-aware panes" \
     "send-keys C-\\\\\\\\" "$previous_pane_root_line"
   _assert_contains "tmux runtime Ctrl-backslash selects the local previous pane" \
@@ -676,7 +712,9 @@ if command -v tmux >/dev/null 2>&1; then
     "$ctrl_tab_root_line" "$ctrl_shift_tab_root_line" \
     "$move_tab_left_root_line" "$move_tab_right_root_line" \
     "$pane_navigation_root_line" "$pane_navigation_down_root_line" \
-    "$pane_navigation_up_root_line" "$pane_navigation_right_root_line"; do
+    "$pane_navigation_up_root_line" "$pane_navigation_right_root_line" \
+    "$pane_move_left_root_line" "$pane_move_down_root_line" \
+    "$pane_move_up_root_line" "$pane_move_right_root_line"; do
     _assert_contains "tmux runtime router preserves client PID" \
       "--client-pid #{client_pid}" "$route_line"
     _assert_contains "tmux runtime router preserves client tty" \
