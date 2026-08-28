@@ -67,6 +67,7 @@ dotfiles	.config/dot/overlays.d/80-personal.conf	dot-control	control	old:.config
 dotfiles	.config/dot/overlays.d/90-work.conf	dot-control	control	old:.config/dot/overlays.d/10-work.conf	d4	owner=dotfiles; source=locked-dotfiles
 dotfiles	.config/dot/overlays.d/90-work.ssh	dot-control	control	old:.config/dot/overlays.d/10-work.ssh	d4	owner=dotfiles; source=locked-dotfiles
 dotfiles	.config/dot/overlays.d/README.md	dot-control	docs	old:.config/dot/overlays.d/README.md	d4	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.config/dot/profile-selectors.d/00-default.conf	dot-control	control	new	d4	owner=dotfiles; source=new; family=base
 dotfiles	.config/dot/profile-selectors.d/README.md	dot-control	docs	new	d4	owner=dotfiles; source=new; family=base
 dotfiles	.config/dot/profiles.d/base.conf	dot-control	control	new	d4	owner=dotfiles; source=new
 dotfiles	.config/dot/profiles.d/dev.conf	dot-control	control	new	d4	owner=dotfiles; source=new

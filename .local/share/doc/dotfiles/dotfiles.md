@@ -126,8 +126,10 @@ Selectors can match a user, a host, or both, so two users on one machine may
 choose different profiles. A combined user-and-host match overrides broader
 user-only or host-only defaults; conflicting matches at the winning specificity
 fail before final overlay mutation. No match uses the root config's
-`default_profile`, initially `dev`; a later fleet migration can change it to
-`base` after explicit selectors are ready. See
+`default_profile`, which defaults to `base`. For compatibility with clients
+that predate profiles, the initial rollout instead tracks a root-global `dev`
+selector; a later fleet migration can remove it after explicit selectors are
+ready. See
 [`profile-selectors.d/README.md`](../../../../.config/dot/profile-selectors.d/README.md)
 for the data format and safe local-file rules.
 

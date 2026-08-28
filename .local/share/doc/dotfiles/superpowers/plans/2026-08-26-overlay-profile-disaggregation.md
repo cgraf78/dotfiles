@@ -118,19 +118,21 @@ GitHub Actions, and the existing dotfiles shell test harness.
 - Scoped capability SPDX checks to the owning repository and added bounded
   condition polling for initial GitHub license/settings visibility, with a
   coordinator check after both repositories exist.
-- Added an existing-machine `runtime_ready` gate: the landed D1 provider must
-  be installed and verified while the root remains pre-D4, independently of
-  selector readiness, before D4 can reach that installation.
+- Added exact cross-generation fixtures proving that a pre-profile Dot can pull
+  the new root, update and re-exec D1, and finish profile convergence through
+  one `dot update -f`, including interrupted-state retry.
 - Kept tmux in `base` without retaining the development Mise toolset: a
   base-owned custom Shdeps hook installs the reviewed tmux-builds 3.6b assets
   using the exact URLs and checksums from the frozen Mise lock, while Android
   retains its native package path.
-- Made the no-selector fallback a strict root configuration value. Standalone
-  Dot defaults that value to `base` when omitted, while this repository ships
-  `default_profile=dev` for the compatibility-first rollout.
-- Added stateful upgrade and downgrade coverage for configured-default and
-  selector changes, including exact managed-link cleanup, lower-layer restore,
-  cache retention, unmanaged-file preservation, and failure atomicity.
+- Kept standalone Dot's strict `default_profile` fallback, which defaults to
+  `base` when omitted. For the compatibility-first rollout, this repository
+  instead ships a root-global `dev` selector that old Dot clients ignore until
+  the provider updates and re-execs the profile-aware runtime.
+- Added stateful upgrade and downgrade coverage for root-global and
+  identity-specific selector changes, including exact managed-link cleanup,
+  lower-layer restore, cache retention, unmanaged-file preservation, and
+  failure atomicity.
 
 ## Fixed Decisions
 
@@ -138,15 +140,18 @@ GitHub Actions, and the existing dotfiles shell test harness.
 - Profiles are additive and may include other profiles.
 - Standalone Dot uses `default_profile` when no selector record matches and
   defaults that setting to `base` when omitted.
-- The initial top-level dotfiles cutover sets `default_profile=dev` so machines
-  with no selector preserve the pre-refactor full environment. Changing that
-  default to `base` and adding fleet-specific selectors is a separate later
+- The initial top-level dotfiles cutover tracks an identity-free root selector
+  for `dev` so machines with no more-specific selector preserve the
+  pre-refactor full environment. Removing that selector to expose the built-in
+  `base` fallback, and adding fleet-specific selectors, is a separate later
   rollout.
 - `editor` includes `base`; `dev` includes `editor`.
 - Profiles select overlays only. No consumer branches on the profile name.
 - Profile selection is persistent configuration, not an environment override.
-- Selector records may match user, host, or both; supplied fields all match,
-  conflicts fail, and no match uses the configured default profile.
+- Root selector records may also omit both identity fields to define a global
+  compatibility default. Machine-local and personal selectors may match user,
+  host, or both; supplied fields all match, conflicts fail, and no selector
+  match uses the configured default profile.
 - Public root selectors must contain no private inventory; real private
   host/user mappings belong in machine-local untracked config or the existing
   personal overlay.
@@ -175,10 +180,9 @@ GitHub Actions, and the existing dotfiles shell test harness.
   D1 commit in `.github/overlay-profile-stack.lock` from an isolated XDG root.
   Host-installed Dot, latest/release resolution, and incidental
   `setup: dotfiles` runtimes are forbidden.
-- Phase B may expose D4 to an existing installation only when its private
-  rollout row has both `runtime_ready` proof for the exact landed D1
-  commit/release and `selector_ready` proof, or an explicit deployment hold
-  prevents that installation from receiving D4.
+- The compatibility contract does not require a preparatory Dot-only rollout:
+  after D1-D5 land, existing installations converge through one
+  `dot update -f` from the pre-refactor state or its interrupted retry state.
 - The root `dotfiles` repository is always active and is not a selectable
   overlay. `base` selects only the optional personal overlay.
 - `dotfiles-personal` is selected by `base` and remains `optional=true`.
@@ -222,23 +226,26 @@ GitHub Actions, and the existing dotfiles shell test harness.
   and one explicitly authorized live canary on the current machine after all
   isolated verification and review completes. It does not merge or land any
   PR, publish a Dot release, or roll the profile system out to the broader
-  fleet. The canary must finish on the configured `dev` default and retain
+  fleet. The canary must finish on the root-global `dev` default and retain
   rollback evidence.
 
 ## Target Configuration
 
-The top-level client config carries the rollout fallback:
+The top-level root selector carries the rollout fallback without adding a key
+that a pre-profile client would reject after pulling the new root:
 
 ```text
-# .config/dot/config (relevant setting)
-default_profile=dev
+# .config/dot/profile-selectors.d/00-default.conf
+version=1
+profile=dev
 ```
 
 Standalone Dot treats `default_profile` as optional and uses `base` when the
-key is absent. The initial dotfiles rollout sets it to `dev` so existing
-machines retain the full pre-refactor environment without requiring selectors.
-A later, separate fleet migration may change this value to `base` after the
-desired explicit selector records are ready.
+key is absent. Only the tracked root selector source may omit both identity
+fields; machine-local and personal selectors remain identity-scoped. The
+initial dotfiles rollout uses that root-global selector so existing machines
+retain the full pre-refactor environment. A later, separate fleet migration
+may remove it after the desired explicit selector records are ready.
 
 Tracked profile definitions in the top-level `dotfiles` repository:
 
@@ -297,17 +304,19 @@ host=example-host       # optional
 profile=editor
 ```
 
-At least one of `user` or `host` is required. All supplied fields must match.
-User names match `id -un` exactly and case-sensitively. Host names compare the
-validated selector value with `hostname -s` after ASCII lowercase
-normalization and removal of a trailing dot. Combined user-and-host selectors
-override matching user-only or host-only defaults. Multiple matching records at
-the winning specificity are allowed only when they select the same profile;
-conflicting profiles at that specificity are a hard configuration error before
-final overlay mutation. No match selects the configured `default_profile`
-(`dev` during this compatibility-first rollout). This supports different users
-selecting different profiles on the same host, plus user-wide defaults with
-per-host exceptions, without environment overrides or management commands.
+At least one of `user` or `host` is required except for a root-global record.
+All supplied fields must match. User names match `id -un` exactly and
+case-sensitively. Host names compare the validated selector value with
+`hostname -s` after ASCII lowercase normalization and removal of a trailing
+dot. User-only or host-only selectors override the global record, and combined
+user-and-host selectors override matching single-field defaults. Multiple
+matching records at the winning specificity are allowed only when they select
+the same profile; conflicting profiles at that specificity are a hard
+configuration error before final overlay mutation. With no selector record,
+Dot uses its configured `default_profile` or the built-in `base` fallback. This
+supports different users selecting different profiles on the same host, plus
+user-wide defaults with per-host exceptions, without environment overrides or
+management commands.
 
 Target overlay descriptors:
 
@@ -509,6 +518,8 @@ Add fixtures to `tests/profiles-test` for:
   Dot clients;
 - profiles present and no matching selector: select configured
   `default_profile`, using `base` when the setting is absent;
+- a root-global selector with no identity fields, plus rejection of that form
+  from machine-local and personal selector sources;
 - user-only, host-only, and combined user+host exact matches;
 - two users on one host selecting different profiles;
 - a combined user-and-host match overriding disagreeing user-only and host-only
@@ -573,8 +584,10 @@ Requirements:
   overlay mutation;
 - accept comments and blank lines consistently with existing Dot config;
 - validate identifiers before using them as paths or array keys;
-- require at least one of `user` or `host`, require all supplied match fields,
-  and resolve identity only from `id -un` and `hostname -s`;
+- permit an identity-free selector only in the tracked root source; require at
+  least one of `user` or `host` in machine-local and personal sources, require
+  all supplied match fields, and resolve identity only from `id -un` and
+  `hostname -s`;
 - compare users exactly/case-sensitively; normalize selector and runtime host
   values to ASCII lowercase after removing a trailing dot;
 - accept repeated matching records only when they name the same profile and
@@ -791,11 +804,12 @@ phases:
 3. load selector records from root `.config/dot/profile-selectors.d/`, local
    `.config/dot/profile-selectors.local.d/`, and repository-only
    `dot/profile-selectors.d/` in successfully active phase-one overlays;
-4. resolve the matching profile; no match uses the configured
-   `default_profile`, combined user-and-host matches override broader
-   single-field defaults, agreeing winning matches are deduplicated, and
-   conflicting profiles at the winning specificity fail before final overlay
-   mutation;
+4. resolve the matching profile; a root-global record has the lowest selector
+   specificity, single-field records override it, combined user-and-host
+   matches override single-field defaults, agreeing winning matches are
+   deduplicated, and conflicting profiles at the winning specificity fail
+   before final overlay mutation. With no selector match, use the configured
+   `default_profile` or its built-in `base` fallback;
 5. flatten the final profile, fully validate its selected descriptors, derive
    final eligible records, run full-family pre-sync `reconcile`, and synchronize
    only its eligible additions, reusing an already active personal checkout
@@ -1148,7 +1162,7 @@ Document:
   root/local/phase-one-personal sources;
 - additive inclusion;
 - configurable no-selector behavior, including standalone Dot's omitted-key
-  `base` fallback and this repository's initial `default_profile=dev` rollout;
+  `base` fallback and this repository's initial root-global `dev` selector;
 - the client/root repository is always active and profiles select only
   additional overlays;
 - descriptor order versus profile membership;
@@ -2142,135 +2156,83 @@ is authorized to land against those repository URLs.
 
 ---
 
-## Task 9: Prepare a compatibility-first existing-machine rollout
+## Task 9: Prove the compatibility-first existing-machine cutover
 
-**Phase:** Phase B only; deferred until separate landing/rollout authorization
+**Phase:** Phase A fixtures plus Phase B fleet execution
 
-**Scope:** Existing installations only; complete before D4 is landed or deployed
+**Scope:** Existing installations beginning on the pre-refactor root and Dot
 
-**Depends on:** Landed/published D1 parser contract while D4 remains unmerged;
-Phase A uses only sanitized isolated fixtures and must not perform this task
+**Depends on:** Exact D1-D5 candidate commits for Phase A; landed commits for
+the actual fleet command
 
-### 9.1 Inventory existing installations privately
+### 9.1 Keep the production cutover backward-readable
 
-Create a private exhaustive rollout ledger covering every known existing
-installation without adding hostnames or inventory details to public
-repositories or this plan. Every row records at least:
+The top-level Dot config must remain valid for the exact pre-profile client.
+Carry the initial `dev` policy in the tracked root-global selector, which that
+client ignores, rather than in `default_profile`. The pre-sync hook must accept
+an unset stage from an old runtime and treat its already validated `OVERLAYS`
+records as one final reconciliation. Unknown nonempty stages still fail.
 
-```text
-desired_profile
-selection_ready + configured-default/selector evidence
-runtime_ready + landed D1 commit/release + resolved executable/checkout evidence
-verified pre-D4 root commit
-deployment_hold status/reason/owner when not ready
+Do not create the future base/editor fleet mapping in this change. Audit any
+pre-existing machine-local or personal selector privately and require it to be
+intentional, safely permissioned, and conflict-free.
+
+### 9.2 Test the exact one-command handoff
+
+Add a sanitized integration fixture that starts from the exact pre-refactor
+root and exact pre-profile Dot revision, exposes the final D5 root and exact D1,
+then invokes the installed launcher exactly as the fleet will:
+
+```bash
+dot update -f
 ```
 
-For the initial compatibility rollout, every installation without an existing
-explicit selector must resolve the root-configured `default_profile=dev`.
-Audit any pre-existing root, machine-local, or personal selector and require it
-to be intentional and conflict-free; do not create the future base/editor
-fleet mapping in this change. `selection_ready` is true only after proving the
-actual current selector state resolves the intended profile, including the
-normal no-selector `dev` result. `runtime_ready` remains independent and cannot
-be inferred from selection, installed tools, or release publication.
+The fixture must use real root Git synchronization, the provider's checkout
+replacement and re-exec boundary, and real profile/overlay convergence. A
+bounded test provider may isolate the Dot dependency update from unrelated
+tool installation, but it must preserve `-f`, record the old/new runtime
+revisions and argv, install the reviewed D1 checkout through its normal
+post-install contract, and let the re-executed D1 finish the same command.
 
-### 9.2 Verify selection state and install D1 while root remains pre-D4
+Assert that the one invocation:
 
-Do not create new fleet selectors during the compatibility rollout. Verify
-that the absence of a matching selector resolves `dev` from the tracked root
-configuration. If an existing selector already applies, audit it explicitly;
-machine-local files remain mode `0600` below a `0700` directory and private
-managed mappings remain in `dotfiles-personal`. Do not infer a selection from
-installed tools or overlay availability.
+- exits successfully and leaves the installed Dot checkout at exact D1;
+- leaves the root, Nvim, and dev repositories at their exact locked revisions;
+- preserves the original `update -f` argv and force semantics across re-exec;
+- resolves `dev` from the root-global selector with no identity selector;
+- gracefully skips unavailable optional personal and work overlays;
+- moves monolithic tracked paths to their owning overlays without loss;
+- preserves an unmanaged sentinel and produces the expected active manifest.
 
-While D4 is still unmerged and deployment controls guarantee that the machine's
-root checkout can reach only an approved pre-D4 commit, run the established
-standalone-provider update/re-exec path. It may be initiated by old Dot, but any
-base pull in this step must resolve to the recorded pre-D4 root revision. Do not
-make a D4 branch/ref available to the installation yet.
+If the landing sequence can expose D4 before D5, also exercise old root to D4
+and then D4 to D5 with the same command at each step. Independently exercise
+the supported direct old-root-to-D5 path so a machine that missed the staging
+window still converges.
 
-After provider replacement/re-exec, verify all of the following before setting
-`runtime_ready=true` in the private ledger:
+### 9.3 Prove interrupted-state retry
 
-- the installed standalone Dot checkout's full `HEAD` equals the exact landed
-  D1 commit associated with the published release;
-- the operator-visible `dot` executable resolves into that checkout and not an
-  older host/Shdeps path or wrapper target;
-- a fresh invocation/re-exec reports/uses the same checkout and can parse the
-  sanitized profile fixtures;
-- the root worktree is still at the recorded pre-D4 commit.
+Construct the dangerous persisted state explicitly: the root has already been
+pulled to D4 or D5, but the installed checkout is still old Dot and provider
+handoff/final overlay convergence did not complete. Invoke `dot update -f`
+again and require the same final assertions as the clean transition. This
+proves the new root config is backward-readable and the unset-stage pre-sync
+compatibility path can recover without manual repair.
 
-Record the commit, resolved executable, release identity, pre-D4 root commit,
-verification time, and evidence location privately. Phase A does none of this
-live-machine work.
-
-### 9.3 Prove the old-Dot-to-new-Dot transition
-
-In isolated fixtures representing existing installations, test the staged
-handoff rather than one old-Dot-to-D4 transaction:
-
-Use `.local/lib/dotfiles/tests/overlay-profile-rollout-test` for the sanitized
-state-machine fixture. Phase A may rehearse it with immutable PR commits only;
-Task 9 reruns it in Phase B with the exact landed D1 commit/release before any
-live ledger row is changed.
-
-1. start with old Dot and an approved pre-D4 root;
-2. run the provider update/re-exec path while every reachable base ref remains
-   pre-D4, then prove the executing checkout/executable is exact landed D1;
-3. only after `runtime_ready` evidence exists, make the D4 candidate available;
-4. invoke D1 to pull D4, resolve the configured default or an existing audited
-   selector, and converge the selected profile.
-
-Prove:
-
-- the no-selector configured `dev` default preserves the previously active
-  optional overlay and its managed links;
-- a private personal selector becomes visible after phase-one personal sync;
-- two different users on one host may resolve different profiles;
-- an unavailable personal overlay keeps its advisory skip and a matching local
-  selector still resolves;
-- unavailable personal plus no root/local match resolves configured `dev`;
-- conflicting local/personal matches fail before final overlay relinking;
-- an existing machine with no matching selector intentionally resolves `dev`.
-
-Also exercise both directions of a later policy change in isolated homes:
-change the configured default `dev -> base -> dev` with no selector, and change
-an explicit selector `dev -> base -> dev`. Each successful transition must
+Also exercise selector-driven `dev -> base -> dev` and removal/restoration of
+the root-global selector in isolated homes. Each successful transition must
 remove only exact managed links from deselected overlays, restore lower-layer
 files, activate newly selected overlays, preserve cached checkouts and native
 packages, and leave unmanaged files unchanged. Failed selector/profile/
 descriptor validation must preserve the previously installed generation.
 
-Add an interruption/retry fixture at the dangerous boundary: interrupt after
-the old runtime has pulled the base but before provider replacement. Because
-the deployment source is still pinned/pre-D4, the resulting root must contain
-no D4 profile/descriptors. A retry under old Dot may only finish installing and
-re-execing D1 against that pre-D4 root; after exact D1 verification, the harness
-may release D4 and D1 performs the pull/resolution. Also attempt to release D4
-while `runtime_ready=false` and require the deployment harness to fail closed
-before an old-Dot invocation can process D4. At no point may old Dot parse a D4
-descriptor.
+### 9.4 Execute the fleet cutover only after the fixture is green
 
-### 9.4 Gate D4 deployment
-
-Do not deploy D4 to any known existing installation until its ledger row is
-resolved. Every reachable installation must have `runtime_ready=true` for the
-exact landed D1 commit/release and `selection_ready=true`. During this rollout,
-the normal no-selector result is `dev`; any explicit selector must resolve
-unambiguously. A later change to `default_profile=base` requires its own
-complete selector/transition audit before rollout.
-
-For a temporarily unreachable installation, mark it explicitly
-`deferred-unreachable`, record the missing runtime/selector evidence and
-follow-up owner/action privately, and record the concrete hold mechanism,
-enforcement point, verification command, observed protected revision, and
-timestamp proving D4 cannot reach it. Landing/deploying D4 is allowed only when
-every known row either has both readiness proofs or an explicit tested
-deployment hold; never silently let automatic update reach an unverified
-machine. Gate failures name the exact missing field (`runtime_ready`,
-`selection_ready`, or verified hold evidence) for every unresolved row. Fresh
-machines use the published D1 bootstrap and receive the root-configured
-no-match `dev` default during this compatibility rollout.
+After D1-D5 land, the fleet cutover command is exactly `dot update -f`; it must
+not require a preparatory Dot-only rollout or a manually installed selector.
+Record rollout evidence privately, including starting and ending root/Dot
+revisions, selected profile, optional-overlay skips, command exit status, and
+follow-up ownership. Fresh machines use the published D1 bootstrap and receive
+the same root-global `dev` default during this compatibility rollout.
 
 ---
 
@@ -2330,18 +2292,18 @@ Assert `personal` and `work` remain optional, `nvim` and `dev` are required, the
 root repository is always active without an overlay descriptor, and the local
 selector directory is ignored by the base Git worktree.
 
-Test user-only, host-only, combined, same-host/different-user, host
-normalization, configured no-match/dev fallback, agreeing duplicates,
+Test root-global, user-only, host-only, combined, same-host/different-user, host
+normalization, configured no-match/base fallback, agreeing duplicates,
 conflicting profiles, unavailable personal with local fallback, and
-unavailable personal with the configured dev fallback. Use generic placeholder
-identities only. Assert `.config/dot/config` contains exactly one
-`default_profile=dev` setting.
+unavailable personal with the root-global dev fallback. Use generic placeholder
+identities only. Assert `.config/dot/config` contains no `default_profile` key
+and `00-default.conf` contains exactly `version=1` plus `profile=dev`.
 
-Add stateful fixtures that converge with no selector under the configured
-default, change `default_profile` from `dev` to `base` and back, and make the
-same `dev -> base -> dev` transition through explicit selector changes. Verify
-newly selected overlays activate, exact managed links from deselected overlays
-are removed, shadowed lower-layer files return, cached checkouts/native packages
+Add stateful fixtures that converge under the root-global selector, remove it
+to expose the built-in `base` fallback, restore it to `dev`, and make the same
+`dev -> base -> dev` transition through explicit selector changes. Verify newly
+selected overlays activate, exact managed links from deselected overlays are
+removed, shadowed lower-layer files return, cached checkouts/native packages
 remain, unmanaged files remain byte-identical, and a failed intermediate
 resolution preserves the prior installed generation.
 
@@ -2426,13 +2388,12 @@ Document machine-local creation of:
 
 Document root tracked selectors and repository-only personal selector fragments,
 including two-phase resolution, all-fields-match semantics, conflict failure,
-normalization, same-host/different-user behavior, and the configured no-match
-fallback. Document that the initial rollout uses `default_profile=dev` to
-preserve existing behavior and that a later switch to `base` requires verified
-selectors plus the stateful transition checks.
-Document the generic Phase B requirement that existing installations verify
-the landed D1 runtime on a pre-D4 root before D4 exposure; keep the actual
-runtime/selector readiness ledger private.
+normalization, same-host/different-user behavior, the root-global selector, and
+the configured no-match fallback. Document that the initial rollout uses the
+root-global `dev` record to preserve existing behavior and that later removing
+it to expose `base` requires verified selectors plus the stateful transition
+checks. Document and test the direct old-Dot-to-final-root `dot update -f`
+handoff and interrupted-state retry; keep actual fleet evidence private.
 Do not add environment overrides or profile-management commands.
 
 Add this exact tracked ignore pattern to
@@ -2937,8 +2898,8 @@ status, active manifest, generated files, and selector state as rollback
 evidence. Confirm there are no unrelated live changes before mutation.
 
 Deploy only the exact reviewed D1-D5 commits to this machine. Leave it without
-a matching selector so the tracked `default_profile=dev` policy is exercised,
-then run real `dot update`, `dot doctor`, and unfiltered `dot test`. Verify the
+an identity selector so the tracked root-global `dev` policy is exercised,
+then run real `dot update -f`, `dot doctor`, and unfiltered `dot test`. Verify the
 resolved profile and active overlay set, shell startup, tmux, Neovim, global Git
 configuration, development tooling, schema paths, generated files, optional
 overlay skips, and repository status. Compare the installed behavior and
@@ -2970,11 +2931,9 @@ Do not execute this section without separate authorization.
    repository Actions secret expected by the schema-refresh workflow, and run
    the workflow manually to verify that its no-change or pull-request path
    succeeds with the new repository identity.
-4. While D4 remains unmerged, complete Task 9's exhaustive private rollout
-   ledger: install/verify exact landed D1 on every reachable existing machine,
-   prepare/verify its selector result, and prove both `runtime_ready` and
-   `selector_ready`. Install a tested deployment hold for every unreachable or
-   otherwise incomplete row. Do not let D4 reach any unresolved row.
+4. Before fleet rollout, run Task 9's exact old-client `dot update -f` fixtures
+   against the landed D1-D5 commits, including direct, staged, and interrupted
+   retry paths. Keep any real fleet inventory and rollout evidence private.
 5. Land any required D6/D7, then refresh the D4 integration lock to the final
    D1-D3 commits and rerun the complete prospective-stack checks.
 6. Land D4 only after its rollout gate is satisfied. Retarget/rebase D5 from
@@ -3015,10 +2974,10 @@ base -> editor -> dev -> editor -> base
 At every transition verify overlay links, generated config, shell startup,
 doctor output, tests, and preservation of unmanaged files.
 
-Separately exercise the deployment-policy transition with no selector:
+Separately exercise the deployment-policy transition with no identity selector:
 
 ```text
-default_profile=dev -> default_profile=base -> default_profile=dev
+root-global dev -> no root-global selector (base) -> root-global dev
 ```
 
 This is the exact mechanism a later fleet downsizing will use. Verify the same
@@ -3027,8 +2986,8 @@ preservation, and failure atomicity as selector-driven transitions.
 
 ### 13.3 Test clean bootstrap
 
-Run a clean Linux bootstrap with no selector and prove it receives the
-configured `dev` profile during the compatibility rollout. Repeat with local
+Run a clean Linux bootstrap with no identity selector and prove it receives the
+root-global `dev` profile during the compatibility rollout. Repeat with local
 `base`, `editor`, and `dev` selectors present before convergence.
 Use the landed/published D1 release in this Phase B test and verify it maps to
 the recorded final D1 commit. Keep this distinct from the Phase A wrapper,
@@ -3058,8 +3017,9 @@ Review separately for:
 
 Update `.local/share/doc/dotfiles/dotfiles.md` with the final repository map,
 profile files, manual selection instructions, troubleshooting, and recovery.
-Document the existing-machine `runtime_ready` plus `selector_ready` gate and
-the rule that D1 must be verified while root remains pre-D4.
+Document the exact old-Dot `dot update -f` handoff, its interrupted-state retry,
+and how the root-global selector preserves `dev` during the compatibility
+window.
 Keep the documented interface configuration-only until repeated operator need
 justifies dedicated profile commands.
 
@@ -3121,18 +3081,18 @@ justifies dedicated profile commands.
 
 ## Phase B Completion Criteria
 
-- A clean install with no matching selector converges the root-configured
-  `default_profile`; this compatibility rollout sets it to `dev`, while
-  standalone Dot falls back to `base` when the key is omitted.
+- A clean install with no identity selector converges the root-global `dev`
+  selector during this compatibility rollout. Without that record, standalone
+  Dot uses configured `default_profile` or falls back to `base` when omitted.
 - The root `dotfiles` repository is always active and never appears as a
   selectable overlay; `base` selects only the optional personal overlay.
 - `editor` is exactly the always-active root plus `base` and the Nvim overlay.
 - `dev` is exactly `editor` plus the dev and optional work overlays.
 - Profiles aggregate profiles additively and cycles fail before mutation.
-- Selector records match exact normalized user/host identity, require every
-  supplied field, support distinct users on one host, reject conflicting
-  matching profiles, and fall back to the configured default when nothing
-  matches.
+- Root selectors may define one identity-free global choice. Other selector
+  records match exact normalized user/host identity, require every supplied
+  field, support distinct users on one host, reject conflicting matching
+  profiles, and fall back to the configured default when nothing matches.
 - Machine-local selectors are untracked config files; tracked private mappings
   may remain in `dotfiles-personal` outside `home/`.
 - Base may track profile definitions and root selectors, but every repository
@@ -3264,15 +3224,13 @@ justifies dedicated profile commands.
 - `dot update`, `dot doctor`, and `dot test` pass for all three clean profiles.
 - Downgrading profiles removes only managed links and does not destroy native
   packages, caches, checkouts, or unmanaged files.
-- Changing either an explicit selector or `default_profile` is supported in
-  both directions. Isolated `dev -> base -> dev` tests prove cleanup,
-  restoration, reactivation, and failure atomicity before a later fleet-wide
-  default change is attempted.
-- Every known existing installation is covered by a private rollout ledger
-  before D4. Each reachable row has both `runtime_ready` proof for the exact
-  landed D1 checkout/executable and `selector_ready` proof; temporarily
-  unreachable/incomplete rows are explicitly deferred and protected by tested
-  deployment holds. The staged pre-D4-runtime upgrade, interruption/retry, and
-  subsequent D1-to-D4 transition prove old Dot never processes D4 descriptors.
+- Changing an explicit selector, the root-global selector, or
+  `default_profile` is supported in both directions. Isolated
+  `dev -> base -> dev` tests prove cleanup, restoration, reactivation, and
+  failure atomicity before a later fleet-wide default change is attempted.
+- The exact pre-profile Dot and pre-refactor root converge to final D1-D5 with
+  one `dot update -f`, including provider re-exec, force/argv preservation,
+  optional-overlay skips, direct/staged root transitions, and retry after the
+  root has advanced while the old runtime remains installed.
 - Fresh Linux measurements meet the initial base/editor footprint targets or
   include an explicit reviewed explanation for any exception.

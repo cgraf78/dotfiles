@@ -2,5 +2,4 @@ version=1
 extension_api=1
 extensions_dir=$HOME/.local/lib/dotfiles
 dependency_provider=shdeps
-default_profile=dev
 shdeps_update_policy=latest

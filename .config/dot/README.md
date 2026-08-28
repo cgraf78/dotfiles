@@ -7,11 +7,12 @@ target-native config directories.
 
 ## Directories
 
-- `config` enables the dotfiles extension root and optional Shdeps provider and
-  sets the fleet's initial no-selector fallback to `default_profile=dev`. This
-  preserves the pre-refactor full environment during rollout; a later,
-  separately reviewed fleet change can switch the fallback to `base` after
-  explicit selectors are ready.
+- `config` enables the dotfiles extension root and optional Shdeps provider.
+  The tracked root-global selector in `profile-selectors.d/00-default.conf`
+  chooses `dev` during the compatibility rollout while remaining invisible to
+  pre-profile Dot clients. A later, separately reviewed fleet change can remove
+  that selector to use Dot's `base` fallback after explicit selectors are
+  ready.
   This development fleet sets `shdeps_update_policy=latest`, allowing a valid
   user-owned `~/git/shdeps` checkout for `cgraf78/shdeps` to follow its current
   revision even when it is newer than Dot's reviewed fallback lock. Without a
@@ -64,9 +65,9 @@ mutual-exclusion, use the family `.replace` convention documented under
   even when they match files contributed to shared merge families.
 - Keep overlay repository declarations in `overlays.d`.
 - Keep reusable profile membership in `profiles.d` and host/user choices in the
-  appropriate selector directory. `default_profile` is only the no-match
-  fallback; selectors override it. Do not branch application configuration on a
-  profile name.
+  appropriate selector directory. Only the tracked root source may define an
+  identity-free compatibility default. Do not branch application configuration
+  on a profile name.
 
 This keeps `dot update` discoverable: dot-specific config is in `.config/dot`,
 agent prose is in `.config/agent-rules`, dotfiles-owned code is in

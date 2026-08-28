@@ -4,14 +4,18 @@
 # syntax, identity-file policy, and managed markers remain in dotfiles.
 
 prepare() {
+  local stage=${DOT_PRE_SYNC_STAGE:-reconcile}
   local destination entry name path url descriptor optional sync extra
   local companion origin body target_host proxy_cmd block
   local -a blocks=()
 
-  case ${DOT_PRE_SYNC_STAGE:-} in
+  # A pre-profile Dot runtime supplies the same validated OVERLAYS records but
+  # no stage. Treat only that absent value as its historical one-pass
+  # reconciliation so the provider can update and re-exec the new runtime.
+  case $stage in
     prepare | reconcile) ;;
     *)
-      dot_hook_warn "invalid overlay SSH stage: ${DOT_PRE_SYNC_STAGE:-unset}"
+      dot_hook_warn "invalid overlay SSH stage: $stage"
       return 1
       ;;
   esac
@@ -56,7 +60,7 @@ prepare() {
   done
 
   [[ ${#blocks[@]} -gt 0 || -f $destination ]] || return 0
-  if [[ $DOT_PRE_SYNC_STAGE == prepare ]]; then
+  if [[ $stage == prepare ]]; then
     # Phase one does not yet know the final profile, so it may refresh only the
     # supplied blocks and must preserve other members of the managed family.
     dot_managed_block_merge "$destination" "${blocks[@]}"

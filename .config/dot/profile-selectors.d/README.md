@@ -2,10 +2,10 @@
 
 Dotfiles profiles choose which overlay repositories are active. The tracked
 profiles are `base`, `editor`, and `dev`. During the initial compatibility
-cutover, the root Dot config sets `default_profile=dev`, so a machine without a
-matching selector retains the full pre-refactor environment. A later rollout
-may change that configured fallback to `base` after explicit selectors are in
-place.
+cutover, `00-default.conf` is a tracked root-global selector for `dev`, so a
+machine without a more-specific selector retains the full pre-refactor
+environment. A later rollout may remove it and use Dot's built-in `base`
+fallback after explicit selectors are in place.
 
 Tracked, non-sensitive selectors may live in this directory. Machine-specific
 selectors belong in the ignored directory
@@ -22,14 +22,17 @@ host=example-host
 profile=editor
 ```
 
-At least one of `user` or `host` is required, and all supplied fields must
-match. User matching is exact and case-sensitive. Host matching uses the short
-hostname, lowercases ASCII letters, and ignores one trailing dot. A selector
-with both `user` and `host` overrides matching user-only or host-only defaults.
-Multiple matches at the winning specificity may agree; conflicting choices at
-that same specificity fail before Dot changes the final overlay set. Different
-users on one host can therefore choose different profiles, and a user-wide
-default can have per-host exceptions.
+Only a selector tracked in this root directory may omit both `user` and `host`;
+that form supplies a fleet-wide compatibility default. Machine-local and
+personal selectors require at least one identity field. All supplied fields
+must match. User matching is exact and case-sensitive. Host matching uses the
+short hostname, lowercases ASCII letters, and ignores one trailing dot. A
+user-only or host-only selector overrides the root-global choice, and a
+selector with both fields overrides either broader match. Multiple matches at
+the winning specificity may agree; conflicting choices at that same
+specificity fail before Dot changes the final overlay set. Different users on
+one host can therefore choose different profiles, and a user-wide default can
+have per-host exceptions.
 
 For example, `root` may default to `editor` everywhere:
 
@@ -75,17 +78,19 @@ Resolution is two-phase. Dot first attempts the optional overlays selected by
 and an available personal overlay. It next resolves the final profile and only
 then reads and synchronizes that profile's additional overlay descriptors. If
 personal is unavailable, a local or root match still applies; otherwise the
-configured `default_profile` applies.
+configured `default_profile` applies, or `base` when that key is omitted.
 
-Changing the winning selector or `default_profile` takes effect on the next
-successful `dot update`. Newly selected overlays are activated. Exact managed
-links from deselected overlays are removed and lower-layer files are restored,
-while cached repositories, native packages, and unmanaged files are preserved.
+Changing the winning selector, removing the root-global selector, or changing
+`default_profile` takes effect on the next successful `dot update`. Newly
+selected overlays are activated. Exact managed links from deselected overlays
+are removed and lower-layer files are restored, while cached repositories,
+native packages, and unmanaged files are preserved.
 
-Before an existing installation can receive these tracked definitions, it must
-already be running the compatible standalone Dot profile runtime while its
-base checkout is still on the pre-profile revision. Operational readiness
-records are private and are not tracked here.
+The compatibility selector and pre-sync hook are intentionally readable by an
+old installation without requiring the old client to understand profiles. The
+same `dot update -f` invocation can update and re-exec Dot, then converge the
+selected overlays. Operational readiness records are private and are not
+tracked here.
 
 There is intentionally no environment override or profile-management command.
 See the sanitized executable examples in standalone Dot's

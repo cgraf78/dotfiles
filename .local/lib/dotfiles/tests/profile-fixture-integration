@@ -111,7 +111,6 @@ printf '%s\n' \
   'extension_api=1' \
   'extensions_dir=$HOME/.local/lib/dotfiles' \
   'dependency_provider=none' \
-  'default_profile=dev' \
   >"$base_seed/.config/dot/config"
 "$git_bin" -C "$base_seed" add .config/dot/config
 "$git_bin" -C "$base_seed" -c user.name=fixture \
@@ -320,7 +319,7 @@ for profile in base editor dev; do
     continue
   }
   update_status=0
-  run_in_home "$home" "$DOT_STACK_DOT_BIN" update \
+  run_in_home "$home" "$DOT_STACK_DOT_BIN" update -f \
     >"$update_log" 2>&1 || update_status=$?
   update_output=$(<"$update_log")
   _assert_exit "$profile profile converges through real dot update" 0 "$update_status"
