@@ -123,6 +123,8 @@ _assert_contains "wezterm configures bell rendering through platform policy" \
   "audible_bell = audible_bell," "$content"
 _assert_contains "wezterm delegates open-uri routing to termnav wrapper" \
   'load_config_module("link-routes.lua")' "$content"
+_assert_not_contains "wezterm delegates Termnav user-var routing to its provider" \
+  'wezterm.on("user-var-changed"' "$content"
 _assert_contains "wezterm key callbacks classify pane ownership once" \
   "termnav_routes.terminal_owner" "$content"
 _assert_not_contains "wezterm key callbacks do not repeat nvim classification" \
