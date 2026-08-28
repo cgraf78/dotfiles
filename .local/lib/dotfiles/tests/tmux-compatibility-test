@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+# tmux-compatibility-test - verify the base/editor fragment boundary.
+
+set -o pipefail
+export NO_COLOR=1
+
+# shellcheck source=helpers.sh
+. "${BASH_SOURCE[0]%/*}/helpers.sh"
+
+tmux_config=$HOME/.config/tmux/tmux.conf
+editor_fragment=$HOME/.config/tmux/conf.d/20-editor.conf
+[[ -f $editor_fragment ]] ||
+  _test_skip_suite 'editor overlay is not active'
+command -v tmux >/dev/null 2>&1 ||
+  _test_skip_suite 'tmux is not installed'
+
+socket_dir=$(_tmpdir)
+socket=$socket_dir/tmux.sock
+if ! tmux -S "$socket" -f /dev/null new-session -d -s dot-tmux-compose \
+  'sleep 60' >/dev/null 2>&1; then
+  _fail 'tmux composed test server starts'
+  _test_summary
+fi
+
+source_output=$(tmux -S "$socket" source-file -n "$tmux_config" 2>&1)
+source_status=$?
+# Loading the real config may report an absent optional runtime helper in this
+# minimal fixture. The dry run owns syntax validation; effective values below
+# prove that both fragments were applied.
+tmux -S "$socket" source-file "$tmux_config" >/dev/null 2>&1 || true
+mode_keys=$(tmux -S "$socket" show-window-options -gv mode-keys 2>/dev/null)
+mouse=$(tmux -S "$socket" show-options -gv mouse 2>/dev/null)
+root_keys=$(tmux -S "$socket" list-keys -T root)
+tmux -S "$socket" kill-server >/dev/null 2>&1 || true
+
+_assert_exit 'tmux composed fragment loader parses' 0 "$source_status"
+_assert_eq 'tmux composed fragment loader is quiet' '' "$source_output"
+_assert_eq 'tmux composed config retains the base vi mode' vi "$mode_keys"
+_assert_eq 'tmux composed config activates editor mouse support' on "$mouse"
+
+move_left=$(printf '%s\n' "$root_keys" | awk '/bind-key -T root "M-\{" / { print }')
+move_right=$(printf '%s\n' "$root_keys" | awk '/bind-key -T root "M-\}" / { print }')
+relay_commit=$(printf '%s\n' "$root_keys" | awk '/bind-key -T root User8 / { print }')
+next_tab=$(printf '%s\n' "$root_keys" | awk '/bind-key -T root C-Tab / { print }')
+
+directions=(left right)
+bindings=("$move_left" "$move_right")
+for index in "${!directions[@]}"; do
+  direction=${directions[index]}
+  binding=${bindings[index]}
+  if [[ $direction == left ]]; then
+    bracket="send-keys Escape '{'"
+    swap='swap-window -d -t :-'
+  else
+    bracket="send-keys Escape '}'"
+    swap='swap-window -d -t :+'
+  fi
+  _assert_contains "tmux composed $direction tab move uses editor detection" \
+    'view|l?n?vim?x?|fzf' "$binding"
+  _assert_contains "tmux composed $direction tab move keeps raw forwarding" \
+    "$bracket" "$binding"
+  _assert_contains "tmux composed $direction tab move keeps Termnav routing" \
+    "termnav navigate tab-move $direction --parent" "$binding"
+  _assert_contains "tmux composed $direction tab move keeps native swapping" \
+    "$swap" "$binding"
+  for metadata in \
+    '--client-pid #{client_pid}' \
+    '--client-tty #{q:client_tty}' \
+    '--client-created #{client_created}' \
+    '--source-socket #{q:socket_path}' \
+    '--source-pane #{pane_id}' \
+    '--source-session #{q:session_id}'; do
+    _assert_contains \
+      "tmux composed $direction tab move keeps ${metadata%% *} metadata" \
+      "$metadata" "$binding"
+  done
+done
+
+_assert_contains 'tmux composed config retains a base-only relay binding' \
+  'termnav relay commit' "$relay_commit"
+_assert_contains 'tmux composed config activates an editor-only tab binding' \
+  'termnav navigate tab-select next' "$next_tab"
+
+_test_summary
