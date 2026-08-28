@@ -31,11 +31,10 @@ jobs:
           .local/lib/dotfiles/tests/stack-dot-runtime control-plane-run-ci -- \
             .local/lib/dotfiles/tests/run-ci
         if [[ ${RUNNER_OS:-} == Linux ]]; then
-          for mode in update doctor test; do
+          for mode in update doctor; do
             case "$mode" in
               update) group=profile-fixture-update ;;
               doctor) group=profile-doctor ;;
-              test) group=installed-profile-dot-test ;;
             esac
             .local/lib/dotfiles/tests/run-ci-candidate-home \
               .local/lib/dotfiles/tests/stack-dot-runtime "$group" -- \

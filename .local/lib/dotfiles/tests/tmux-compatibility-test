@@ -38,10 +38,14 @@ _assert_eq 'tmux composed fragment loader is quiet' '' "$source_output"
 _assert_eq 'tmux composed config retains the base vi mode' vi "$mode_keys"
 _assert_eq 'tmux composed config activates editor mouse support' on "$mouse"
 
-move_left=$(printf '%s\n' "$root_keys" | awk '/bind-key -T root "M-\{" / { print }')
-move_right=$(printf '%s\n' "$root_keys" | awk '/bind-key -T root "M-\}" / { print }')
-relay_commit=$(printf '%s\n' "$root_keys" | awk '/bind-key -T root User8 / { print }')
-next_tab=$(printf '%s\n' "$root_keys" | awk '/bind-key -T root C-Tab / { print }')
+move_left=$(printf '%s\n' "$root_keys" |
+  awk '$1 == "bind-key" && $2 == "-T" && $3 == "root" && $4 == "\"M-{\""')
+move_right=$(printf '%s\n' "$root_keys" |
+  awk '$1 == "bind-key" && $2 == "-T" && $3 == "root" && $4 == "\"M-}\""')
+relay_commit=$(printf '%s\n' "$root_keys" |
+  awk '$1 == "bind-key" && $2 == "-T" && $3 == "root" && $4 == "User8"')
+next_tab=$(printf '%s\n' "$root_keys" |
+  awk '$1 == "bind-key" && $2 == "-T" && $3 == "root" && $4 == "C-Tab"')
 
 directions=(left right)
 bindings=("$move_left" "$move_right")

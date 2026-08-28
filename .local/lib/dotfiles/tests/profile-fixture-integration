@@ -615,17 +615,9 @@ for profile in base editor dev; do
       assert_suite_discovery "$profile" "$list_output"
       test_log=$fixture_root/test-$profile.log
       test_status=0
-      # The aggregate stack suite already runs once from the pristine source
-      # checkout.  Here, execute one suite owned by each selected profile so
-      # installed discovery is covered without rerunning that aggregate suite
-      # three times from overlay-composed worktrees.
-      case $profile in
-        base) test_suite=overlay-profile-rollout ;;
-        editor) test_suite=nvim-static ;;
-        dev) test_suite=dev-static ;;
-      esac
-      run_in_home "$home" "$DOT_STACK_DOT_BIN" test --verbose "$test_suite" \
+      run_in_home "$home" "$DOT_STACK_DOT_BIN" test --verbose \
         >"$test_log" 2>&1 || test_status=$?
+      _assert_exit "$profile installed dot test completes" 0 "$test_status"
       suite_log_summary=$(grep -E \
         'Running [0-9]+ test suites|── .* ──|Suites: [0-9]+ passed' \
         "$test_log" || true)
@@ -646,8 +638,6 @@ for profile in base editor dev; do
       if [[ $test_status -ne 0 ]]; then
         sed 's/^/    /' "$test_log"
       fi
-      _assert_exit "$profile executes the installed $test_suite suite" \
-        0 "$test_status"
       if [[ $profile == dev ]]; then
         assert_dev_nvim_composition "$home"
       fi

@@ -277,7 +277,9 @@ if command -v tmux >/dev/null 2>&1; then
     _assert_contains 'tmux: runtime clipboard picker uses the handoff path' \
       'tmux-clip-paste --path' "$prefix_keys"
     for key in User8 User9 User10 User11 User12 User13; do
-      line=$(printf '%s\n' "$root_keys" | awk -v key="$key" '$0 ~ "bind-key -T root " key " " { print }')
+      line=$(printf '%s\n' "$root_keys" |
+        awk -v key="$key" \
+          '$1 == "bind-key" && $2 == "-T" && $3 == "root" && $4 == key')
       _assert_contains "tmux: runtime $key invokes Termnav relay" \
         'termnav relay commit' "$line"
       _assert_contains "tmux: runtime $key quotes the source socket" \
