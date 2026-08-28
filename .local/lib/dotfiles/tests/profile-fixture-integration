@@ -33,6 +33,9 @@ lock_value() {
 dot_sha=$(lock_value dot 2>/dev/null || true)
 nvim_sha=$(lock_value dotfiles_nvim 2>/dev/null || true)
 dev_sha=$(lock_value dotfiles_dev 2>/dev/null || true)
+cutover_sha=$(lock_value dotfiles_d4_base 2>/dev/null || true)
+cutover_phase=0
+[[ $cutover_sha =~ ^[0-9a-f]{40}$ ]] && cutover_phase=1
 if [[ ${DOT_STACK_RUNTIME:-0} == 1 &&
   ${DOT_STACK_GROUP:-} == "$expected_group" &&
   ${DOT_STACK_DOT_SHA:-} == "$dot_sha" &&
@@ -108,6 +111,7 @@ printf '%s\n' \
   'extension_api=1' \
   'extensions_dir=$HOME/.local/lib/dotfiles' \
   'dependency_provider=none' \
+  'default_profile=dev' \
   >"$base_seed/.config/dot/config"
 "$git_bin" -C "$base_seed" add .config/dot/config
 "$git_bin" -C "$base_seed" -c user.name=fixture \
@@ -149,7 +153,15 @@ prepare_home() {
   local profile=$1 home=$2 runtime_install selector init_status
   "$git_bin" clone --quiet "file://$base_origin" "$home" || return 1
 
-  if [[ $profile != base ]]; then
+  # The fixture deliberately disables dependency installation.  Tmux invokes
+  # this base-owned provider while parsing its configuration, so supply the
+  # minimal command boundary without installing the full dependency graph.
+  mkdir -p "$home/.local/bin"
+  printf '#!/bin/sh\nexit 0\n' \
+    >"$home/.local/bin/tmux-continuum-default-server"
+  chmod 0755 "$home/.local/bin/tmux-continuum-default-server"
+
+  if [[ $profile != dev ]]; then
     mkdir -p "$home/.config/dot/profile-selectors.local.d"
     chmod 0700 "$home/.config/dot/profile-selectors.local.d"
     selector=$home/.config/dot/profile-selectors.local.d/10-fixture.conf
@@ -257,6 +269,48 @@ assert_suite_discovery() {
   esac
 }
 
+assert_tmux_composition() {
+  local profile=$1 home=$2 socket keys move left output
+  command -v tmux >/dev/null 2>&1 || return 0
+  socket=dot-profile-$profile-$$
+  if ! output=$(run_in_home "$home" tmux -L "$socket" -f /dev/null \
+    new-session -d 'sleep 30' 2>&1); then
+    _fail "$profile composed tmux server starts: $output"
+    return
+  fi
+  if ! output=$(run_in_home "$home" tmux -L "$socket" source-file \
+    "$home/.config/tmux/tmux.conf" 2>&1); then
+    _fail "$profile composed tmux configuration parses"
+    printf '    %s\n' "$output"
+    run_in_home "$home" tmux -L "$socket" kill-server >/dev/null 2>&1 || true
+    return
+  fi
+  keys=$(run_in_home "$home" tmux -L "$socket" list-keys -T root)
+  run_in_home "$home" tmux -L "$socket" kill-server >/dev/null 2>&1 || true
+  move=$(printf '%s\n' "$keys" | grep -F '"M-{"' || true)
+  left=$(printf '%s\n' "$keys" | grep -F ' C-h ' || true)
+  _assert_contains "$profile composed tmux retains base tab movement" \
+    'termnav navigate tab-move left' "$move"
+  if [[ $profile == base ]]; then
+    if [[ $cutover_phase -eq 1 ]]; then
+      _assert_not_contains 'base composed tmux excludes editor detection' \
+        'fzf' "$move"
+      _assert_eq 'base composed tmux excludes editor pane navigation' '' "$left"
+    else
+      # D4 intentionally retains the monolithic tmux payload.  D5 introduces
+      # the physical split and enables the strict base/editor boundary below.
+      _assert_contains 'staging base retains legacy editor detection' \
+        'fzf' "$move"
+      _assert_contains 'staging base retains legacy pane navigation' \
+        'termnav navigate pane-select left' "$left"
+    fi
+  else
+    _assert_contains "$profile composed tmux adds editor detection" 'fzf' "$move"
+    _assert_contains "$profile composed tmux adds editor pane navigation" \
+      'termnav navigate pane-select left' "$left"
+  fi
+}
+
 for profile in base editor dev; do
   home=$fixture_root/home-$profile
   update_log=$fixture_root/update-$profile.log
@@ -271,6 +325,7 @@ for profile in base editor dev; do
   _assert_exit "$profile profile converges through real dot update" 0 "$update_status"
   _assert_contains "$profile update reports completion" 'Done in ' "$update_output"
   assert_profile_links "$profile" "$home"
+  assert_tmux_composition "$profile" "$home"
 
   case $mode in
     update) ;;
@@ -310,6 +365,24 @@ for profile in base editor dev; do
       list_output=$(<"$list_log")
       _assert_exit "$profile installed dot test discovery completes" 0 "$list_status"
       assert_suite_discovery "$profile" "$list_output"
+      test_log=$fixture_root/test-$profile.log
+      test_status=0
+      # The aggregate stack suite already runs once from the pristine source
+      # checkout.  Here, execute one suite owned by each selected profile so
+      # installed discovery is covered without rerunning that aggregate suite
+      # three times from overlay-composed worktrees.
+      case $profile in
+        base) test_suite=overlay-profile-rollout ;;
+        editor) test_suite=nvim-static ;;
+        dev) test_suite=dev-static ;;
+      esac
+      run_in_home "$home" "$DOT_STACK_DOT_BIN" test "$test_suite" \
+        >"$test_log" 2>&1 || test_status=$?
+      if [[ $test_status -ne 0 ]]; then
+        sed 's/^/    /' "$test_log"
+      fi
+      _assert_exit "$profile executes the installed $test_suite suite" \
+        0 "$test_status"
       ;;
   esac
 done

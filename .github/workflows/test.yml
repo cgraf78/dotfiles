@@ -30,6 +30,18 @@ jobs:
         .local/lib/dotfiles/tests/run-ci-candidate-home \
           .local/lib/dotfiles/tests/stack-dot-runtime control-plane-run-ci -- \
             .local/lib/dotfiles/tests/run-ci
+        if [[ ${RUNNER_OS:-} == Linux ]]; then
+          for mode in update doctor test; do
+            case "$mode" in
+              update) group=profile-fixture-update ;;
+              doctor) group=profile-doctor ;;
+              test) group=installed-profile-dot-test ;;
+            esac
+            .local/lib/dotfiles/tests/run-ci-candidate-home \
+              .local/lib/dotfiles/tests/stack-dot-runtime "$group" -- \
+                .local/lib/dotfiles/tests/profile-fixture-integration "$mode"
+          done
+        fi
       # D4 still carries the pre-cutover monolithic runtime, but it must run
       # through the exact D1 provider. The D5 cutover narrows this Android smoke
       # to the final base-owned payload.

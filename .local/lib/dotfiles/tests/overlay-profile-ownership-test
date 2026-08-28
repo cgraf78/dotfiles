@@ -54,7 +54,7 @@ CATEGORIES = {
     "ci",
     "repository",
 }
-TRANSFORMS = {"keep", "delete", "split"}
+TRANSFORMS = {"keep", "delete", "rewrite", "split"}
 ACTIONS = {"keep", "remove", "rewrite", "none"}
 PHASES = {"bootstrap": 0, "d2": 1, "d3": 1, "d4": 2, "d5": 3}
 FULL_SHA = re.compile(r"[0-9a-f]{40}")
@@ -82,7 +82,17 @@ CAPABILITY_METADATA = {
 
 CAPABILITY_REPOSITORY_METADATA = {
     "dotfiles-nvim": set(),
-    "dotfiles-dev": {".github/provider-test.lock", ".selene.toml", "vim.yml"},
+    "dotfiles-dev": {
+        ".github/provider-test.lock",
+        ".selene.toml",
+        "dot/profile-deactivate",
+        "vim.yml",
+    },
+}
+
+CAPABILITY_IDENTICAL_FILES = {
+    ".github/repository-settings-endpoints.txt",
+    "test/lib/repository-settings.sh",
 }
 
 ROOT_METADATA = {
@@ -153,6 +163,15 @@ SPLIT_POLICIES = {
         "paths": {".config/ripgrep/config"},
         "categories": {"config"},
     },
+    "split-mise-tmux": {
+        "owners": {"dotfiles", "dotfiles-dev"},
+        "paths": {
+            ".config/mise/config.toml",
+            ".config/mise/mise.lock",
+            ".local/lib/dotfiles/merge-hooks.d/mise.sh",
+        },
+        "categories": {"dependency", "runtime"},
+    },
     "split-shdeps": {
         "owners": {"dotfiles", "dotfiles-nvim", "dotfiles-dev"},
         "prefixes": (".config/shdeps/",),
@@ -178,6 +197,8 @@ SPLIT_POLICIES = {
         "owners": {"dotfiles", "dotfiles-nvim"},
         "paths": {
             ".config/tmux/tmux.conf",
+            ".local/lib/dotfiles/tests/support/tmux-focus-style.py",
+            ".local/lib/dotfiles/tests/tmux-compatibility-test",
             ".local/lib/dotfiles/tests/tmux-test",
         },
         "categories": {"config", "test"},
@@ -235,6 +256,24 @@ REQUIRED_SPLIT_SOURCE_OWNERS = {
         "dotfiles-dev",
     },
     ".config/ds/README.md": {"dotfiles", "dotfiles-dev"},
+    ".config/mise/config.toml": {"dotfiles", "dotfiles-dev"},
+    ".config/mise/mise.lock": {"dotfiles", "dotfiles-dev"},
+    ".config/nvim/lua/config/nvim-workspace.lua": {
+        "dotfiles-nvim",
+        "dotfiles-dev",
+    },
+    ".config/nvim/lua/plugins/workspace.lua": {
+        "dotfiles-nvim",
+        "dotfiles-dev",
+    },
+    ".local/lib/dotfiles/merge-hooks.d/mise.sh": {
+        "dotfiles",
+        "dotfiles-dev",
+    },
+    ".local/lib/dotfiles/tests/support/tmux-focus-style.py": {
+        "dotfiles",
+        "dotfiles-nvim",
+    },
 }
 for _stale_doc in SPLIT_POLICIES["split-docs"]["paths"] - {".config/ds/README.md"}:
     REQUIRED_SPLIT_SOURCE_OWNERS[_stale_doc] = {
@@ -260,6 +299,20 @@ def git(*args: str, cwd: Path = ROOT) -> str:
     return result.stdout
 
 
+def git_bytes(*args: str, cwd: Path = ROOT) -> bytes:
+    """Run Git without text decoding so content provenance is byte-exact."""
+
+    result = subprocess.run(
+        ["git", "-C", str(cwd), *args],
+        check=False,
+        capture_output=True,
+    )
+    if result.returncode:
+        error = result.stderr.decode(errors="replace").strip()
+        raise Invalid(error or f"git {' '.join(args)} failed")
+    return result.stdout
+
+
 def load_tsv(path: Path, header: tuple[str, ...]) -> list[dict[str, str]]:
     if not path.is_file():
         raise Invalid(f"missing inventory: {path.relative_to(ROOT)}")
@@ -275,7 +328,9 @@ def load_tsv(path: Path, header: tuple[str, ...]) -> list[dict[str, str]]:
         fields = line.split("\t")
         if len(fields) != len(header) or any(not field for field in fields):
             raise Invalid(f"malformed row {path.relative_to(ROOT)}:{number}")
-        rows.append(dict(zip(header, fields, strict=True)))
+        # Length is checked above; avoid zip(strict=True), which is unavailable
+        # on the oldest Python supported by the base profile.
+        rows.append(dict(zip(header, fields)))
     return rows
 
 
@@ -292,6 +347,29 @@ def note_value(note: str, key: str) -> str | None:
             raise Invalid(f"duplicate ownership annotation: {item_key}")
         values[item_key] = value
     return values.get(key)
+
+
+def row_origins(row: dict[str, str]) -> list[str]:
+    """Return every frozen-source path contributing to one final output."""
+
+    value = row["origin"]
+    if value == "new":
+        return []
+    origins: list[str] = []
+    for item in value.split(","):
+        if not item.startswith("old:") or not item[4:]:
+            raise Invalid(
+                f"invalid origin for {row['repository']}:{row['destination_path']}: "
+                f"{value}"
+            )
+        source_path = item[4:]
+        if source_path in origins:
+            raise Invalid(
+                f"duplicate origin for {row['repository']}:{row['destination_path']}: "
+                f"{source_path}"
+            )
+        origins.append(source_path)
+    return origins
 
 
 def expected_agent_class(path: str) -> str | None:
@@ -397,6 +475,8 @@ def expected_component(path: str, repository: str) -> str | None:
         ("mise.sh", "mise-refresh-workflow-test", "update-mise-lock.yml")
     ):
         return "dev-toolchain"
+    if normalized == ".config/shdeps/hooks.d/tmux.sh":
+        return "tmux-base"
     if normalized.startswith(".config/nvim/"):
         return "nvim-dev" if repository == "dotfiles-dev" else "nvim-editor"
     return None
@@ -483,6 +563,11 @@ def validate_baseline(rows: list[dict[str, str]], source_sha: str) -> None:
             or actions == ("keep", "rewrite", "keep")
             or actions == ("delete", "keep", "remove")
             or actions == ("delete", "remove", "none")
+            or (
+                row["transform"] == "rewrite"
+                and row["d4_action"] in {"keep", "rewrite", "remove"}
+                and row["d5_action"] in {"keep", "rewrite", "remove", "none"}
+            )
             or (
                 row["transform"] == "split"
                 and row["d4_action"] in {"keep", "rewrite", "remove"}
@@ -595,6 +680,7 @@ def validate_final(rows: list[dict[str, str]], baseline: list[dict[str, str]]) -
         if row["available_by"] not in PHASES:
             raise Invalid(f"unknown availability phase for {repo}:{path}")
         origin = row["origin"]
+        origins = row_origins(row)
         annotated_owner = note_value(row["ownership_note"], "owner")
         if annotated_owner != repo:
             raise Invalid(
@@ -610,19 +696,26 @@ def validate_final(rows: list[dict[str, str]], baseline: list[dict[str, str]]) -
                 raise Invalid(
                     f"semantic family owner mismatch for {repo}:{path}: {family}"
                 )
-        if origin != "new":
-            if not origin.startswith("old:") or origin[4:] not in baseline_by_path:
-                raise Invalid(f"unknown origin for {repo}:{path}: {origin}")
-            rows_by_origin[origin[4:]].append(row)
-            baseline_row = baseline_by_path[origin[4:]]
+        for source_path in origins:
+            if source_path not in baseline_by_path:
+                raise Invalid(f"unknown origin for {repo}:{path}: old:{source_path}")
+            rows_by_origin[source_path].append(row)
+            baseline_row = baseline_by_path[source_path]
             baseline_owner = note_value(baseline_row["ownership_note"], "owner")
             if baseline_row["transform"] != "split":
+                if len(origins) != 1:
+                    raise Invalid(
+                        f"non-split origin participates in a combined output: "
+                        f"{source_path}"
+                    )
                 if baseline_owner != repo:
-                    raise Invalid(f"non-split owner drift for {origin[4:]}")
+                    raise Invalid(f"non-split owner drift for {source_path}")
                 if baseline_row["component_id"] != row["component_id"]:
-                    raise Invalid(f"non-split component drift for {origin[4:]}")
+                    raise Invalid(f"non-split component drift for {source_path}")
                 if baseline_row["category"] != row["category"]:
-                    raise Invalid(f"non-split category drift for {origin[4:]}")
+                    raise Invalid(f"non-split category drift for {source_path}")
+            elif baseline_row["component_id"] != row["component_id"]:
+                raise Invalid(f"split component ID drift for {source_path}")
         if repo != "dotfiles" and not (
             path.startswith(("home/", ".github/", "docs/", "test/"))
             or path in {".gitignore", "LICENSE", "README.md"}
@@ -681,6 +774,8 @@ def validate_final(rows: list[dict[str, str]], baseline: list[dict[str, str]]) -
         allowed_components = {semantic_component}
         if semantic_component in {"nvim-editor", "nvim-dev"}:
             allowed_components.add("split-nvim")
+        if semantic_component in {"dev-toolchain", "tmux-base"}:
+            allowed_components.add("split-mise-tmux")
         if semantic_component and row["component_id"] not in allowed_components:
             raise Invalid(
                 f"semantic component mismatch for {repo}:{path}: "
@@ -731,9 +826,9 @@ def validate_final(rows: list[dict[str, str]], baseline: list[dict[str, str]]) -
             for output in outputs:
                 if output["component_id"] != baseline_row["component_id"]:
                     raise Invalid(f"split component ID drift for {source_path}")
-        elif baseline_row["transform"] == "keep" and not outputs:
-            raise Invalid(f"kept baseline path lacks a final owner: {source_path}")
-        elif baseline_row["transform"] == "keep" and len(outputs) != 1:
+        elif baseline_row["transform"] in {"keep", "rewrite"} and not outputs:
+            raise Invalid(f"retained baseline path lacks a final owner: {source_path}")
+        elif baseline_row["transform"] in {"keep", "rewrite"} and len(outputs) != 1:
             raise Invalid(
                 f"non-split baseline path has multiple final owners: {source_path}"
             )
@@ -797,6 +892,86 @@ def tracked(root: Path) -> set[str]:
     return set(git("ls-files", cwd=root).splitlines())
 
 
+def validate_content_provenance(
+    phase: str,
+    baseline: list[dict[str, str]],
+    final: list[dict[str, str]],
+    repo_roots: dict[str, Path],
+    source_sha: str,
+) -> None:
+    """Require unchanged payloads to remain byte-identical to the source lock."""
+
+    baseline_by_path = {row["source_path"]: row for row in baseline}
+    exact_sources: dict[str, bytes] = {}
+    source_modes: dict[str, str] = {}
+
+    def source_bytes(path: str) -> bytes:
+        if path not in exact_sources:
+            exact_sources[path] = git_bytes("show", f"{source_sha}:{path}")
+        return exact_sources[path]
+
+    def source_mode(path: str) -> str:
+        if path not in source_modes:
+            entry = git("ls-tree", source_sha, "--", path).strip()
+            if not entry:
+                raise Invalid(f"missing source tree entry: {path}")
+            source_modes[path] = entry.split(maxsplit=1)[0]
+        return source_modes[path]
+
+    def destination_mode(root: Path, path: str) -> str:
+        entry = git("ls-files", "-s", "--", path, cwd=root).strip()
+        if not entry:
+            raise Invalid(f"missing destination index entry: {root}:{path}")
+        return entry.split(maxsplit=1)[0]
+
+    def require_exact(root: Path, destination_path: str, source_path: str) -> None:
+        destination = root / destination_path
+        if not destination.is_file() or destination.is_symlink():
+            raise Invalid(f"missing exact payload: {root}:{destination_path}")
+        if destination.read_bytes() != source_bytes(source_path):
+            raise Invalid(
+                f"payload differs from locked source: "
+                f"{root.name}:{destination_path} <- {source_path}"
+            )
+        actual_mode = destination_mode(root, destination_path)
+        expected_mode = source_mode(source_path)
+        if actual_mode != expected_mode:
+            raise Invalid(
+                f"payload mode differs from locked source: "
+                f"{root.name}:{destination_path} expected {expected_mode}, "
+                f"got {actual_mode}"
+            )
+
+    root_action = "d4_action" if phase == "d4" else "d5_action"
+    for row in baseline:
+        source_path = row["source_path"]
+        if row["transform"] != "keep" or row[root_action] != "keep":
+            continue
+        if phase == "d5" and row["d4_action"] == "rewrite":
+            continue
+        require_exact(repo_roots["dotfiles"], source_path, source_path)
+
+    phase_number = PHASES[phase]
+    for row in final:
+        if PHASES[row["available_by"]] > phase_number:
+            continue
+        origins = row_origins(row)
+        if len(origins) != 1:
+            continue
+        source_path = origins[0]
+        baseline_row = baseline_by_path[source_path]
+        if baseline_row["transform"] != "keep":
+            continue
+        if row["repository"] == "dotfiles" and (
+            baseline_row["d4_action"] == "rewrite"
+            or (phase == "d5" and baseline_row["d5_action"] == "rewrite")
+        ):
+            continue
+        require_exact(
+            repo_roots[row["repository"]], row["destination_path"], source_path
+        )
+
+
 def validate_phase(
     phase: str,
     baseline: list[dict[str, str]],
@@ -808,6 +983,12 @@ def validate_phase(
     for name, root in repo_roots.items():
         if not root.is_dir():
             raise Invalid(f"missing repository root for {name}: {root}")
+
+    for path in CAPABILITY_IDENTICAL_FILES:
+        nvim_payload = (repo_roots["dotfiles-nvim"] / path).read_bytes()
+        dev_payload = (repo_roots["dotfiles-dev"] / path).read_bytes()
+        if nvim_payload != dev_payload:
+            raise Invalid(f"capability repository contract drift: {path}")
 
     if phase == "d5":
         for repo, root in repo_roots.items():
@@ -995,6 +1176,10 @@ def main() -> int:
             validate_capability_lock(repo_roots["dotfiles-nvim"], source_sha)
             validate_capability_lock(repo_roots["dotfiles-dev"], source_sha)
         validate_phase(args.phase, baseline, final, repo_roots)
+        if args.phase != "inventory":
+            validate_content_provenance(
+                args.phase, baseline, final, repo_roots, source_sha
+            )
     except Invalid as error:
         print(f"overlay-profile-ownership-test: FAIL: {error}", file=sys.stderr)
         report_result(0, 1)
