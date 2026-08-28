@@ -13,17 +13,21 @@ shdeps_content=$(cat "$HOME/.config/shdeps/10-deps.conf")
 # shellcheck disable=SC2016 # testing literal command substitution config.
 _assert_contains "tmux prefers zsh for newly restored panes" \
   'shell=$(command -v zsh' "$tmux_content"
-# shellcheck disable=SC2088 # tmux expands this literal path in its own shell.
-tmux_follow_installed_path='~/.local/bin/tmux-follow-click'
 tmux_tool_home="${DOT_TEST_HOST_HOME:-$HOME}"
-termnav_relay_executable="${DOT_TEST_TERMNAV_ROOT:+$DOT_TEST_TERMNAV_ROOT/bin/termnav-relay}"
-termnav_relay_executable="${termnav_relay_executable:-$tmux_tool_home/.local/bin/termnav-relay}"
-termnav_tmux_context_executable="${DOT_TEST_TERMNAV_ROOT:+$DOT_TEST_TERMNAV_ROOT/bin/termnav-tmux-context}"
-termnav_tmux_context_executable="${termnav_tmux_context_executable:-$tmux_tool_home/.local/bin/termnav-tmux-context}"
-termnav_tmux_focus_executable="${DOT_TEST_TERMNAV_ROOT:+$DOT_TEST_TERMNAV_ROOT/bin/termnav-tmux-focus}"
-termnav_tmux_focus_executable="${termnav_tmux_focus_executable:-$tmux_tool_home/.local/bin/termnav-tmux-focus}"
+termnav_executable="${DOT_TEST_TERMNAV_ROOT:+$DOT_TEST_TERMNAV_ROOT/target/release/termnav}"
+termnav_executable="${termnav_executable:-$tmux_tool_home/.local/bin/termnav}"
+termnav_tmux_focus_executable=
+if [[ -n ${DOT_TEST_TERMNAV_ROOT:-} ]]; then
+  termnav_adapter_dir=$(_tmpdir)
+  termnav_tmux_focus_executable=$termnav_adapter_dir/focus-adapter
+  printf '#!/usr/bin/env bash\nexec %q tmux focus "$@"\n' \
+    "$termnav_executable" >"$termnav_tmux_focus_executable"
+  chmod 0700 "$termnav_tmux_focus_executable"
+fi
 # shellcheck disable=SC2088 # tmux expands this literal path in its own shell.
-termnav_hot_path='~/.local/bin/termnav-relay navigate'
+tmux_follow_installed_path='~/.local/bin/termnav tmux follow-click'
+# shellcheck disable=SC2088 # tmux expands this literal path in its own shell.
+termnav_hot_path='~/.local/bin/termnav navigate'
 ctrl_tab_config_line=$(printf '%s\n' "$tmux_content" | grep '^bind-key -n C-Tab ' || true)
 ctrl_shift_tab_config_line=$(printf '%s\n' "$tmux_content" | grep '^bind-key -n C-BTab ' || true)
 move_tab_left_config_line=$(printf '%s\n' "$tmux_content" | grep "^bind-key -n 'M-{' " || true)
@@ -149,17 +153,17 @@ _assert_contains "tmux passes client tty for browser URLs" \
   "#{client_tty}" "$tmux_content"
 _assert_executable "tmux clip paste command is installed" \
   "$tmux_tool_home/.local/bin/tmux-clip-paste"
-_assert_executable "tmux client context publisher is installed" \
-  "$termnav_tmux_context_executable"
 if [[ -n ${DOT_TEST_TERMNAV_ROOT:-} ]]; then
   # Cross-repository development passes the candidate provider explicitly.
   # Ordinary PR CI intentionally consumes the pinned Termnav release until
   # the provider PR lands, so it validates the fail-open config and Shdeps
   # ownership without pretending the not-yet-released command is installed.
   _assert_executable "tmux nested focus publisher is installed" \
-    "$termnav_tmux_focus_executable"
+    "$termnav_executable"
+  _assert_executable "tmux client context publisher is installed" \
+    "$termnav_executable"
   _assert_executable "tmux unified navigation router is installed" \
-    "$termnav_relay_executable"
+    "$termnav_executable"
 fi
 _assert_eq "tmux nested focus publisher is owned by Termnav" \
   "github" \
@@ -167,7 +171,7 @@ _assert_eq "tmux nested focus publisher is owned by Termnav" \
 _assert_contains "tmux publishes ownership whenever a client attaches" \
   'set-hook -g client-attached[100]' "$tmux_content"
 _assert_contains "tmux client attach hook targets the triggering client" \
-  'termnav-tmux-context --tty #{q:client_tty} --client-termname #{q:client_termname}' \
+  'termnav tmux context --tty #{q:client_tty} --client-termname #{q:client_termname}' \
   "$tmux_content"
 _assert_contains "tmux client attach hook excludes control-mode clients" \
   '#{==:#{client_control_mode},0}' "$tmux_content"
@@ -182,7 +186,7 @@ _assert_contains "tmux stops a leaf-focus publisher immediately on focus loss" \
 _assert_contains "tmux stops a leaf-focus publisher when clients detach" \
   'set-hook -g client-detached[110]' "$tmux_content"
 _assert_contains "tmux repairs stale pane dimming after selection changes" \
-  'termnav-tmux-focus sync' "$tmux_content"
+  'termnav tmux focus sync' "$tmux_content"
 _assert_contains "tmux ordinary selection avoids a focus helper process" \
   '#{!=:#{@termnav_client_unfocused},}' "$tmux_content"
 _assert_contains "tmux centralizes the focused leaf predicate" \
@@ -505,13 +509,13 @@ if command -v tmux >/dev/null 2>&1; then
   _assert_contains "tmux runtime excludes clients without a terminal tty" \
     'if-shell -F "#{==:#{client_control_mode},0}"' "$client_attached_hook"
   _assert_contains "tmux runtime keeps client attachment publication synchronous" \
-    'run-shell "\~/.local/bin/termnav-tmux-context' "$client_attached_hook"
+    'run-shell "\~/.local/bin/termnav tmux context' "$client_attached_hook"
   _assert_exit "tmux control client attaches and detaches cleanly" \
     0 "$control_attach_rc"
   _assert_contains "tmux control client receives a clean protocol exit" \
     "%exit" "$control_attach_out"
   _assert_not_contains "tmux control client does not invoke the context publisher" \
-    'command: run-shell "\~/.local/bin/termnav-tmux-context' \
+    'command: run-shell "\~/.local/bin/termnav tmux context' \
     "$control_attach_messages"
   _assert_eq "tmux runtime keeps inactive-label contrast leaf-conditional" \
     '#{?#{E:@termnav_pane_is_focused_leaf},,#[fg=#898989]} #I.#P (#{pane_id})  #{pane_current_command} ' \
@@ -549,35 +553,35 @@ if command -v tmux >/dev/null 2>&1; then
       "--tmux-socket #{q:socket_path}" "$relay_line"
   done
   _assert_contains "tmux runtime nested relay commit invokes the consumer" \
-    "termnav-relay commit" "$relay_nested_commit_root_line"
+    "termnav relay commit" "$relay_nested_commit_root_line"
   _assert_contains "tmux runtime nested relay commit pins the client attachment" \
     "--client-created #{client_created}" "$relay_nested_commit_root_line"
   _assert_contains "tmux runtime DECRQM state 0 invokes the relay consumer" \
-    "termnav-relay commit" "$relay_terminal_commit_0_root_line"
+    "termnav relay commit" "$relay_terminal_commit_0_root_line"
   _assert_contains "tmux runtime DECRQM state 0 pins the client attachment" \
     "--client-created #{client_created}" "$relay_terminal_commit_0_root_line"
   _assert_contains "tmux runtime DECRQM state 0 preserves unmatched replies" \
     "--passthrough-decrqm 0 --pane #{pane_id}" "$relay_terminal_commit_0_root_line"
   _assert_contains "tmux runtime DECRQM state 1 invokes the relay consumer" \
-    "termnav-relay commit" "$relay_terminal_commit_1_root_line"
+    "termnav relay commit" "$relay_terminal_commit_1_root_line"
   _assert_contains "tmux runtime DECRQM state 1 pins the client attachment" \
     "--client-created #{client_created}" "$relay_terminal_commit_1_root_line"
   _assert_contains "tmux runtime DECRQM state 1 preserves unmatched replies" \
     "--passthrough-decrqm 1 --pane #{pane_id}" "$relay_terminal_commit_1_root_line"
   _assert_contains "tmux runtime DECRQM state 2 invokes the relay consumer" \
-    "termnav-relay commit" "$relay_terminal_commit_2_root_line"
+    "termnav relay commit" "$relay_terminal_commit_2_root_line"
   _assert_contains "tmux runtime DECRQM state 2 pins the client attachment" \
     "--client-created #{client_created}" "$relay_terminal_commit_2_root_line"
   _assert_contains "tmux runtime DECRQM state 2 preserves unmatched replies" \
     "--passthrough-decrqm 2 --pane #{pane_id}" "$relay_terminal_commit_2_root_line"
   _assert_contains "tmux runtime DECRQM state 3 invokes the relay consumer" \
-    "termnav-relay commit" "$relay_terminal_commit_3_root_line"
+    "termnav relay commit" "$relay_terminal_commit_3_root_line"
   _assert_contains "tmux runtime DECRQM state 3 pins the client attachment" \
     "--client-created #{client_created}" "$relay_terminal_commit_3_root_line"
   _assert_contains "tmux runtime DECRQM state 3 preserves unmatched replies" \
     "--passthrough-decrqm 3 --pane #{pane_id}" "$relay_terminal_commit_3_root_line"
   _assert_contains "tmux runtime DECRQM state 4 invokes the relay consumer" \
-    "termnav-relay commit" "$relay_terminal_commit_4_root_line"
+    "termnav relay commit" "$relay_terminal_commit_4_root_line"
   _assert_contains "tmux runtime DECRQM state 4 pins the client attachment" \
     "--client-created #{client_created}" "$relay_terminal_commit_4_root_line"
   _assert_contains "tmux runtime DECRQM state 4 preserves unmatched replies" \

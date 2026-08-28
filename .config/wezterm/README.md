@@ -32,28 +32,29 @@ config edit.
 
 1. Termnav classifies the active terminal or attached tmux client. The shell
    aliases choose plain `eza`/`rg` output when native linkification is required,
-   or `eza-nvim-links` and semantic `rg` links when a Termnav-capable router is
+   or `termnav eza` and semantic `rg` links when a Termnav-capable router is
    present. Local listings keep hostless `file://` OSC-8 targets; SSH sessions
    inside tmux rewrite those targets to `file://host/path`.
-2. `rg` uses `--hyperlink-format=file://{host}{path}:{line}:{column}` with
-   `nvim-link-host` so search results carry absolute local or remote targets.
+2. `rg` uses `--hyperlink-format=file://{host}{path}:{line}:{column}` with the
+   dotfiles-owned `ripgrep-link-host` adapter so search results carry absolute
+   local or remote targets while Termnav retains an explicit command grammar.
 3. tmux advertises `hyperlinks` in `terminal-features` so it re-emits OSC-8
    targets to WezTerm.
 4. Termnav's shell and nvim integrations publish pane-local cwd and tmux context
    through its private WezTerm user-var protocol, so fallback regex links and
    key routing resolve against the producing pane.
 5. WezTerm routes local `file://`, `nvim-open://`, and `lazygit-edit://` links
-   to `~/.local/bin/nvim-tmux-open` when it owns the mouse event.
+   to `~/.local/bin/termnav nvim open` when it owns the mouse event.
 6. In tmux/nvim mouse-reporting panes, WezTerm intentionally does not steal
    Ctrl-click. tmux forwards the raw event into nvim so LSP gets the click
-   coordinates, and routes terminal-pane hyperlinks through `tmux-follow-click`.
+   coordinates, and routes terminal-pane hyperlinks through `termnav tmux follow-click`.
 7. Remote `file://host/path` links call the same helper with the `link` mode
    and `remote` source label. It skips local Neovim sockets, tries an existing
    SSH ControlMaster connection for hosts listed in
    `TERMNAV_SSH_CONTROL_HOSTS`, and otherwise falls back to sending a remote
    tmux command through an existing host-matched SSH pane.
 8. The local `nvim` launcher delegates its conservative pane-reuse decision to
-   Termnav and retains only real-editor discovery. `nvim-tmux-open` then prefers
+   Termnav and retains only real-editor discovery. `termnav nvim open` then prefers
    Neovim RPC sockets published by Termnav's nvim integration; old tmux
    keystrokes are only used for sessions without the RPC publisher.
 
@@ -65,7 +66,7 @@ Environment overlays can add local token policy without shadowing the base
 WezTerm or tmux helpers:
 
 - WezTerm loads hyperlink rule modules from `~/.config/wezterm/hyperlink-rules.d/*.lua` after the base fallback rules.
-- `tmux-follow-click` loads token detectors from `${XDG_CONFIG_HOME:-~/.config}/termnav/tmux-follow/extensions.d/*.sh` before path fallback.
+- `termnav tmux follow-click` loads token detectors from `${XDG_CONFIG_HOME:-~/.config}/termnav/tmux-follow/extensions.d/*.sh` before path fallback.
 
 Keep rules that mention private services or workplace-specific URL shapes in an
 overlay, not in the base dotfiles repo.
@@ -73,7 +74,7 @@ overlay, not in the base dotfiles repo.
 ## Tab Bubbling
 
 WezTerm owns `Ctrl-Tab` only when the active pane is not controlled by Neovim
-or tmux. A one-window tmux gives Termnav's warmed navigation dispatcher the
+or tmux. A one-window tmux gives Termnav's native one-shot navigation router the
 exact triggering client and source scope. The router walks local tmux ancestry
 before the SSH relay and finally emits the direct `DOT_SWITCH_TAB` request at
 the terminal boundary.
@@ -112,13 +113,13 @@ non-WezTerm/non-VS Code local terminal remains supported through `clip paste`.
 ## Routing Contracts
 
 The same link shapes are recognized in three places: WezTerm's Lua
-`open-uri` handler, tmux's `tmux-follow-click` fallback, and the final
-`nvim-tmux-open` helper. Keep common examples in
+`open-uri` handler, tmux's `termnav tmux follow-click` fallback, and the final
+`termnav nvim open` helper. Keep common examples in
 `~/.local/lib/dotfiles/tests/fixtures/nvim-link-routes.tsv` so tests can prove those
 entry points continue to agree without forcing the Lua and shell implementations
 through an awkward shared parser.
 
-`nvim-tmux-open` has two public modes: `cli` for the local `nvim <file>`
+`termnav nvim open` has two public modes: `cli` for the local `nvim <file>`
 launcher path, and `link` for hyperlinks, tmux clicks, and WezTerm routes.
 The important `link` source labels are:
 

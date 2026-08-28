@@ -814,7 +814,7 @@ fi
 _assert_contains "eza aliases emit semantic file hyperlinks" \
   "--hyperlink" "$alias_content"
 _assert_contains "eza aliases route through the nvim-aware hyperlink wrapper" \
-  "eza-nvim-links" "$alias_content"
+  "termnav eza" "$alias_content"
 _assert_contains "file-link aliases delegate terminal classification to Termnav" \
   "termnav_file_links_need_plain_output" "$alias_content"
 _assert_contains "file-link aliases map dotfiles policy to Termnav's generic marker" \
@@ -825,6 +825,19 @@ _assert_not_contains "file-link aliases do not inspect tmux clients" \
   "#{client_pid}" "$alias_content"
 _assert_contains "ripgrep emits semantic file hyperlinks" \
   "--hyperlink-format=file://{host}{path}:{line}:{column}" "$ripgrep_content"
+_assert_contains "ripgrep uses its dotfiles-owned fixed-name adapter" \
+  "--hostname-bin=ripgrep-link-host" "$ripgrep_content"
+
+link_host_adapter="$HOME/.local/bin/ripgrep-link-host"
+_assert_file_exists "ripgrep host adapter is installed with dotfiles" \
+  "$link_host_adapter"
+if [[ -x "$link_host_adapter" ]]; then
+  _pass "ripgrep host adapter is executable"
+else
+  _fail "ripgrep host adapter is executable"
+fi
+_assert_contains "ripgrep host adapter delegates to Termnav's explicit command" \
+  "exec termnav link-host" "$(cat "$link_host_adapter")"
 
 alias_probe_home=$(_tmpdir)
 alias_probe_bin="$alias_probe_home/bin"
@@ -835,9 +848,9 @@ printf 'eza'
 printf ' %s' "$@"
 printf '\n'
 SH
-cat >"$alias_probe_bin/eza-nvim-links" <<'SH'
+cat >"$alias_probe_bin/termnav" <<'SH'
 #!/usr/bin/env bash
-printf 'eza-nvim-links'
+printf 'termnav'
 printf ' %s' "$@"
 printf '\n'
 SH
@@ -847,7 +860,11 @@ printf 'rg'
 printf ' %s' "$@"
 printf '\n'
 SH
-chmod +x "$alias_probe_bin/eza" "$alias_probe_bin/eza-nvim-links" "$alias_probe_bin/rg"
+chmod +x "$alias_probe_bin/eza" "$alias_probe_bin/termnav" "$alias_probe_bin/rg"
+
+link_host_probe=$(PATH="$alias_probe_bin:/usr/bin:/bin" "$link_host_adapter")
+_assert_eq "ripgrep host adapter passes the exact Termnav subcommand" \
+  "termnav link-host" "$link_host_probe"
 
 _probe_command() {
   local mode="$1" command_name="$2"
@@ -902,7 +919,7 @@ explicit_vscode_marker=$(
 )
 
 _assert_eq "eza functions use Termnav links for rich output" \
-  "eza-nvim-links --group-directories-first fixture" "$rich_ls_probe"
+  "termnav eza --group-directories-first fixture" "$rich_ls_probe"
 _assert_eq "eza functions use plain output when Termnav requests it" \
   "eza --group-directories-first fixture" "$plain_ls_probe"
 _assert_eq "eza functions fail safely to plain output without Termnav" \
@@ -912,7 +929,7 @@ _assert_eq "eza functions preserve the explicit dotfiles VS Code override" \
 _assert_eq "dotfiles exports its explicit VS Code policy through Termnav's marker" \
   "1" "$explicit_vscode_marker"
 _assert_eq "eza functions replace preexisting zsh aliases safely" \
-  "eza-nvim-links --group-directories-first fixture" "$prealiased_ls_probe"
+  "termnav eza --group-directories-first fixture" "$prealiased_ls_probe"
 _assert_eq "rg function replaces preexisting zsh aliases safely" \
   "rg fixture" "$prealiased_rg_probe"
 _assert_eq "rg function keeps semantic links for rich output" \
