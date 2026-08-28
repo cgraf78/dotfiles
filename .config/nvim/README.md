@@ -29,9 +29,10 @@ drift.
   Avoid raw `vim.keymap.set` calls there; plugin specs should only bridge to a
   config keymap module when lifecycle ordering matters.
 - Ctrl-h/j/k/l, local Ctrl-backslash previous-pane selection, Ctrl-Tab,
-  Ctrl-Shift-Tab, and Alt-Shift-bracket navigation are provided by Termnav.
-  Dotfiles supplies only Bufferline's count/select/move callbacks; nesting,
-  tmux clients, SSH relays, and terminal endpoints remain dependency-owned.
+  Ctrl-Shift-Tab, Alt-Shift-bracket tab movement, and Alt-Shift-H/J/K/L pane
+  movement are provided by Termnav. Dotfiles supplies only Bufferline's
+  count/select/move callbacks; nesting, tmux clients, SSH relays, and terminal
+  endpoints remain dependency-owned.
 
 ## Shared Policy Surfaces
 

@@ -348,6 +348,14 @@ append_all(keys, {
   ),
   bind("{", "ALT|SHIFT", terminal_or_wezterm(act.SendString("\x1b{"), act.MoveTabRelative(-1))),
   bind("}", "ALT|SHIFT", terminal_or_wezterm(act.SendString("\x1b}"), act.MoveTabRelative(1))),
+  -- Pane movement belongs only to nvim or tmux. Send one stable Meta-uppercase
+  -- encoding into those applications and consume it at a plain terminal so a
+  -- local layout gesture can never be mistaken for movement across SSH or a
+  -- WezTerm pane boundary.
+  bind("h", "ALT|SHIFT", terminal_or_wezterm(act.SendString("\x1bH"), act.Nop)),
+  bind("j", "ALT|SHIFT", terminal_or_wezterm(act.SendString("\x1bJ"), act.Nop)),
+  bind("k", "ALT|SHIFT", terminal_or_wezterm(act.SendString("\x1bK"), act.Nop)),
+  bind("l", "ALT|SHIFT", terminal_or_wezterm(act.SendString("\x1bL"), act.Nop)),
 })
 
 -- WezTerm-owned controls. Add bindings here only when WezTerm, not the active

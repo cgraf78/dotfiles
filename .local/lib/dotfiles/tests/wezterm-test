@@ -399,6 +399,7 @@ LUA
     local fake_action = {
       ClearSelection = { action = 'ClearSelection' },
       DisableDefaultAssignment = { action = 'DisableDefaultAssignment' },
+      Nop = { action = 'Nop' },
     }
     setmetatable(fake_action, {
       __index = function(_, name)
@@ -492,6 +493,16 @@ LUA
       return nil
     end
 
+    local function visible_controls(value)
+      -- Raw ESC bytes can be interpreted by log collectors while reporting a
+      -- failed aggregate comparison. Render C0 controls deterministically so
+      -- the assertion is portable and its diagnostics identify the exact
+      -- sequence instead of changing terminal state.
+      return (value:gsub('[%z\1-\31\127]', function(character)
+        return string.format('\\\\x%02x', string.byte(character))
+      end))
+    end
+
     local config_table = dofile('$nvim_key_home/.wezterm.lua')
     print(tostring(has_passthrough(config_table.keys, '.', 'CTRL', '.', 'CTRL')))
     print(tostring(has_passthrough(config_table.keys, '/', 'CTRL', '/', 'CTRL')))
@@ -509,6 +520,10 @@ LUA
     print(tostring(has_callback(config_table.keys, 'Tab', 'CTRL|SHIFT')))
     print(tostring(has_callback(config_table.keys, '{', 'ALT|SHIFT')))
     print(tostring(has_callback(config_table.keys, '}', 'ALT|SHIFT')))
+    print(tostring(has_callback(config_table.keys, 'h', 'ALT|SHIFT')))
+    print(tostring(has_callback(config_table.keys, 'j', 'ALT|SHIFT')))
+    print(tostring(has_callback(config_table.keys, 'k', 'ALT|SHIFT')))
+    print(tostring(has_callback(config_table.keys, 'l', 'ALT|SHIFT')))
     -- Ctrl-backslash already has the correct C0 encoding in WezTerm. Keeping
     -- it unbound avoids a client-specific transport path for a local
     -- tmux/Neovim operation.
@@ -551,11 +566,23 @@ LUA
     ctrl_shift_tab(window, { route = 'wezterm' })
     print(performed[1].action .. ':' .. performed[1].value)
     print(performed[2].action .. ':' .. performed[2].value)
+
+    local pane_move_left = find_binding(config_table.keys, 'h', 'ALT|SHIFT')
+    local pane_move_right = find_binding(config_table.keys, 'l', 'ALT|SHIFT')
+    performed = {}
+    pane_move_left(window, { route = 'tmux' })
+    pane_move_right(window, { route = 'nvim' })
+    print(performed[1].action .. ':' .. visible_controls(performed[1].value))
+    print(performed[2].action .. ':' .. visible_controls(performed[2].value))
+
+    performed = {}
+    pane_move_left(window, { route = 'terminal' })
+    print(performed[1].action)
   ")
   expected=$(
     printf '%s\n' \
       true true true true true true true false \
-      true true true true true true true true true \
+      true true true true true true true true true true true true true \
       'SendKey:c:CTRL' \
       'CopyTo:Clipboard,ClearSelection' \
       'PasteFrom:Clipboard' \
@@ -563,7 +590,10 @@ LUA
       'SendKey:Tab:CTRL|SHIFT' \
       '2' \
       'ActivateTabRelative:1' \
-      'ActivateTabRelative:-1'
+      'ActivateTabRelative:-1' \
+      'SendString:\x1bH' \
+      'SendString:\x1bL' \
+      'Nop'
   )
   _assert_eq "wezterm preserves terminal chords and owns client clipboard actions" \
     "$expected" "$nvim_key_result"
