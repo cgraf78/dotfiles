@@ -828,8 +828,11 @@ EOF
   fi
 
   profile=editor
+  mkdir -p "${lifecycle_selector%/*}"
+  chmod 0700 "${lifecycle_selector%/*}"
   printf 'version=1\nuser=%s\nprofile=editor\n' "$(id -un)" \
     >"$lifecycle_selector"
+  chmod 0600 "$lifecycle_selector"
   lifecycle_status=0
   run_in_home "$lifecycle_home" "$DOT_STACK_DOT_BIN" update \
     >/dev/null 2>&1 || lifecycle_status=$?
@@ -855,7 +858,9 @@ EOF
     preserve "$lifecycle_package_marker"
 
   profile=base
-  rm -f -- "$lifecycle_selector"
+  printf 'version=1\nuser=%s\nprofile=base\n' "$(id -un)" \
+    >"$lifecycle_selector"
+  chmod 0600 "$lifecycle_selector"
   lifecycle_status=0
   run_in_home "$lifecycle_home" "$DOT_STACK_DOT_BIN" update \
     >/dev/null 2>&1 || lifecycle_status=$?
@@ -873,6 +878,28 @@ EOF
     preserve "$lifecycle_package_marker"
   _assert_file_missing \
     'profile downgrade never invokes a native package manager' \
+    "$lifecycle_package_log"
+
+  profile=dev
+  rm -f -- "$lifecycle_selector"
+  lifecycle_status=0
+  run_in_home "$lifecycle_home" "$DOT_STACK_DOT_BIN" update \
+    >/dev/null 2>&1 || lifecycle_status=$?
+  _assert_exit 'base to default dev upgrade converges' 0 "$lifecycle_status"
+  if [[ -L $lifecycle_home/.config/git/config ]]; then
+    _pass 'base to default dev upgrade reactivates the dev Git configuration'
+  else
+    _fail 'base to default dev upgrade reactivates the dev Git configuration'
+  fi
+  if [[ -L $lifecycle_home/.config/work-retry-marker ]]; then
+    _pass 'base to default dev upgrade reactivates the optional work link'
+  else
+    _fail 'base to default dev upgrade reactivates the optional work link'
+  fi
+  _assert_file_content 'base to default dev upgrade preserves native package state' \
+    preserve "$lifecycle_package_marker"
+  _assert_file_missing \
+    'profile upgrade never invokes a native package manager' \
     "$lifecycle_package_log"
   unset DOT_PROFILE_PACKAGE_MANAGER_LOG
 fi
