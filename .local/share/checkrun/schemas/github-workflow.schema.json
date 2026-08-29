@@ -306,6 +306,12 @@
         },
         "statuses": {
           "$ref": "#/definitions/permissions-level"
+        },
+        "copilot-requests": {
+          "type": "string",
+          "enum": [
+            "write"
+          ]
         }
       }
     },
