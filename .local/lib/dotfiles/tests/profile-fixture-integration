@@ -92,21 +92,30 @@ agent_rules_sync=$(type -P agent-rules-sync 2>/dev/null || true)
 nvim_bin=${DOT_STACK_NVIM_BIN:-$(type -P nvim 2>/dev/null || true)}
 nvim_data_home=${DOT_STACK_NVIM_DATA_HOME:-$host_home/.local/share}
 yq_bin=${DOT_STACK_YQ_BIN:-$(type -P yq 2>/dev/null || true)}
-if [[ $nvim_bin != /* || ! -x $nvim_bin || -d $nvim_bin ]]; then
-  _fail 'profile fixtures have an explicit executable Neovim runtime'
-  _test_summary
-fi
-nvim_version=$($nvim_bin --version 2>/dev/null | sed -n '1s/^NVIM v//p')
-case $nvim_version in
-  0.11.[2-9]* | 0.1[2-9].* | [1-9].*) ;;
-  *)
-    _fail 'profile fixtures use Neovim 0.11.2 or newer'
-    _test_summary
-    ;;
+needs_capability_runtime=0
+case $mode in
+  test | footprint) needs_capability_runtime=1 ;;
 esac
-if [[ $yq_bin != /* || ! -x $yq_bin || -d $yq_bin ]]; then
-  _fail 'profile fixtures have an explicit executable yq runtime'
-  _test_summary
+# Update and doctor intentionally exercise a fresh client without installing
+# capability toolchains. The dedicated installed-profile job supplies these
+# pinned runtimes when it executes owner tests or measures their payload.
+if [[ $needs_capability_runtime -eq 1 ]]; then
+  if [[ $nvim_bin != /* || ! -x $nvim_bin || -d $nvim_bin ]]; then
+    _fail 'profile fixtures have an explicit executable Neovim runtime'
+    _test_summary
+  fi
+  nvim_version=$($nvim_bin --version 2>/dev/null | sed -n '1s/^NVIM v//p')
+  case $nvim_version in
+    0.11.[2-9]* | 0.1[2-9].* | [1-9].*) ;;
+    *)
+      _fail 'profile fixtures use Neovim 0.11.2 or newer'
+      _test_summary
+      ;;
+  esac
+  if [[ $yq_bin != /* || ! -x $yq_bin || -d $yq_bin ]]; then
+    _fail 'profile fixtures have an explicit executable yq runtime'
+    _test_summary
+  fi
 fi
 agent_rules_root=
 if [[ $agent_rules_sync == /* && -x $agent_rules_sync &&
@@ -123,16 +132,20 @@ if [[ -z $agent_rules_root || $agent_rules_actual != "$agent_rules_sha" ]]; then
   _fail 'profile fixtures have the exact agent-rules-sync test provider'
   _test_summary
 fi
-mkdir -p "$nvim_data_home"
-_pass 'profile fixtures have an explicit executable Neovim runtime'
-_pass 'profile fixtures use Neovim 0.11.2 or newer'
-_pass 'profile fixtures have an explicit executable yq runtime'
+if [[ $needs_capability_runtime -eq 1 ]]; then
+  mkdir -p "$nvim_data_home"
+  _pass 'profile fixtures have an explicit executable Neovim runtime'
+  _pass 'profile fixtures use Neovim 0.11.2 or newer'
+  _pass 'profile fixtures have an explicit executable yq runtime'
+fi
 _pass 'profile fixtures have the exact agent-rules-sync test provider'
 fixture_bin=$(_tmpdir)
 ln -s "$git_bin" "$fixture_bin/git"
 ln -s "$python_bin" "$fixture_bin/python3"
-ln -s "$nvim_bin" "$fixture_bin/nvim"
-ln -s "$yq_bin" "$fixture_bin/yq"
+if [[ $needs_capability_runtime -eq 1 ]]; then
+  ln -s "$nvim_bin" "$fixture_bin/nvim"
+  ln -s "$yq_bin" "$fixture_bin/yq"
+fi
 fixture_path=$fixture_bin:/usr/bin:/bin
 if [[ -n ${PREFIX:-} ]]; then
   fixture_path=$fixture_bin:$PREFIX/bin:/usr/bin:/bin
