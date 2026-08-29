@@ -830,17 +830,21 @@ cp "$source_home/.local/lib/dotfiles/tests/run-ci-candidate-home" \
 cp "$source_home/.local/lib/dotfiles/pre-sync.d/10-overlay-ssh.sh" \
   "$candidate_seed/.local/lib/dotfiles/pre-sync.d/10-overlay-ssh.sh"
 printf '[core]\n\teditor = fixture\n' >"$candidate_seed/.config/git/config"
-printf 'base\n' >"$candidate_seed/state"
+printf 'source\n' >"$candidate_seed/state"
 git -C "$candidate_seed" add state .config/git/config \
   .local/lib/dotfiles/pre-sync.d/10-overlay-ssh.sh \
   .local/lib/dotfiles/tests/checkout-ci-candidate \
   .local/lib/dotfiles/tests/run-ci-candidate-home
+git -C "$candidate_seed" -c core.hooksPath=/dev/null commit --quiet -m source
+candidate_source_sha=$(git -C "$candidate_seed" rev-parse HEAD)
+printf 'base\n' >"$candidate_seed/state"
+git -C "$candidate_seed" add state
 git -C "$candidate_seed" -c core.hooksPath=/dev/null commit --quiet -m base
 base_sha=$(git -C "$candidate_seed" rev-parse HEAD)
 printf 'head\n' >"$candidate_seed/state"
 printf '%s\n' \
   'version=1' \
-  "source_dotfiles=$(<"$source_lock")" \
+  "source_dotfiles=$candidate_source_sha" \
   "dot=$dot_sha" \
   "dotfiles_nvim=0000000000000000000000000000000000000000" \
   "dotfiles_dev=0000000000000000000000000000000000000000" \
@@ -856,7 +860,7 @@ git -C "$candidate_seed" -c core.hooksPath=/dev/null commit --quiet -m head
 candidate_sha=$(git -C "$candidate_seed" rev-parse HEAD)
 candidate_lock=$(_tmpdir)/candidate-stack.lock
 {
-  sed "s/^source_dotfiles=.*/source_dotfiles=$base_sha/" "$runtime_lock"
+  sed "s/^source_dotfiles=.*/source_dotfiles=$candidate_source_sha/" "$runtime_lock"
   printf '%s\n' \
     'dotfiles_d4_base_ref=feature/overlay-profiles-stage' \
     "dotfiles_d4_base=$base_sha"
@@ -1067,6 +1071,31 @@ _assert_eq 'candidate home: leaves sentinel index unchanged' \
   "$sentinel_index_state" "$(cksum "$sentinel_index")"
 _assert_file_missing 'candidate home: leaves sentinel shallow state absent' \
   "$sentinel_shallow"
+
+non_pr_checkout=$(_tmpdir)/non-pr-checkout
+git clone --quiet --depth=1 --branch feature/overlay-profiles-cutover \
+  "file://$candidate_origin" "$non_pr_checkout"
+if git -C "$non_pr_checkout" cat-file -e "$base_sha^{commit}" 2>/dev/null; then
+  _fail 'candidate home: non-PR fixture starts without D4 history'
+else
+  _pass 'candidate home: non-PR fixture starts without D4 history'
+fi
+# shellcheck disable=SC2016 # The child shell expands its positional input.
+non_pr_output=$(cd "$non_pr_checkout" &&
+  DOT_TEST=1 DOTFILES_CANDIDATE_SHA=$candidate_sha \
+    DOT_STACK_LOCK_PATH=$candidate_lock \
+    DOT_STACK_SOURCE_REPOSITORY=$candidate_origin \
+    DOT_STACK_DOT_REPOSITORY=$dot_source \
+    DOT_STACK_SHDEPS_REPOSITORY=$shdeps_source \
+    DOT_STACK_AGENT_RULES_SYNC_REPOSITORY=$agent_rules_source \
+    DOT_STACK_SHDEPS_ROOT=$fake_shdeps \
+    .local/lib/dotfiles/tests/run-ci-candidate-home \
+    bash -c 'git cat-file -e "$1^{commit}"' _ "$base_sha" 2>&1)
+non_pr_rc=$?
+_assert_exit 'candidate home: shallow non-PR checkout publishes locked D4' \
+  0 "$non_pr_rc"
+_assert_contains 'candidate home: shallow non-PR run reports its installed head' \
+  "head=$candidate_sha" "$non_pr_output"
 
 bad_tail_lock=$(_tmpdir)/bad-tail.lock
 sed 's/^test_shdeps=bb438f2741aa6b2f385a1538ff66e8e29739da8a$/test_shdeps=bb438f2741aa6b2f385a1538ff66e8e29739da80/' \
