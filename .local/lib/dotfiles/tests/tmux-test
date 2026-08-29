@@ -183,9 +183,48 @@ for retired in termnav-switch-tab wezterm-switch-tab wezterm-move-tab \
   _assert_not_contains "tmux: retired route stays absent: $retired" \
     "$retired" "$tmux_content"
 done
-for key in 8 9 10 11 12 13; do
-  _assert_contains "tmux: relay user key $key remains configured" \
-    "set -s user-keys[$key]" "$tmux_content"
+relay_values=(
+  $'\033[777009u'
+  $'\033[?2004;0$y'
+  $'\033[?2004;1$y'
+  $'\033[?2004;2$y'
+  $'\033[?2004;3$y'
+  $'\033[?2004;4$y'
+)
+# shellcheck disable=SC2016 # Preserve tmux's literal config escapes.
+relay_config_values=(
+  '\033[777009u'
+  '\033[?2004;0\$y'
+  '\033[?2004;1\$y'
+  '\033[?2004;2\$y'
+  '\033[?2004;3\$y'
+  '\033[?2004;4\$y'
+)
+# shellcheck disable=SC2016 # Preserve tmux's partially escaped display form.
+relay_escaped_esc_values=(
+  '\033[777009u'
+  '\033[?2004;0$y'
+  '\033[?2004;1$y'
+  '\033[?2004;2$y'
+  '\033[?2004;3$y'
+  '\033[?2004;4$y'
+)
+# shellcheck disable=SC2016 # Preserve the legacy literal display values.
+relay_legacy_values=(
+  '_[777009u'
+  '_[?2004;0$y'
+  '_[?2004;1$y'
+  '_[?2004;2$y'
+  '_[?2004;3$y'
+  '_[?2004;4$y'
+)
+for index in "${!relay_values[@]}"; do
+  key=$((index + 8))
+  expected="set -s user-keys[$key] \"${relay_config_values[index]}\""
+  actual=$(awk -v prefix="set -s user-keys[$key] " \
+    'index($0, prefix) == 1 { print }' "$tmux_base")
+  _assert_eq "tmux: relay user key $key has one exact source definition" \
+    "$expected" "$actual"
 done
 _assert_not_contains 'tmux: retired parent-loopback user keys stay absent' \
   'user-keys[0]' "$tmux_content"
@@ -279,18 +318,18 @@ if command -v tmux >/dev/null 2>&1; then
       _assert_contains "tmux: runtime $key quotes the source socket" \
         '--tmux-socket #{q:socket_path}' "$line"
     done
-    relay_values=(
-      $'\033[777009u'
-      $'\033[?2004;0$y'
-      $'\033[?2004;1$y'
-      $'\033[?2004;2$y'
-      $'\033[?2004;3$y'
-      $'\033[?2004;4$y'
-    )
     for index in "${!relay_values[@]}"; do
       key=$((index + 8))
       value=$(tmux -S "$socket" show-options -sv "user-keys[$key]")
-      value=${value/#_/$'\033'}
+      # tmux releases render server strings as raw bytes, config-escaped text,
+      # or a legacy underscore for ESC. Accept only the complete known form
+      # for this exact key; the source assertion above prevents an ambiguous
+      # legacy display from hiding a literal underscore in configuration.
+      case $value in
+        "${relay_values[index]}" | "${relay_config_values[index]}" | \
+          "${relay_escaped_esc_values[index]}" | \
+          "${relay_legacy_values[index]}") value=${relay_values[index]} ;;
+      esac
       _assert_eq "tmux: runtime user key $key keeps its exact sequence" \
         "${relay_values[index]}" "$value"
     done
