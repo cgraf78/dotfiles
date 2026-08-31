@@ -617,6 +617,9 @@ if [[ -f $_tmux_hook ]]; then
   _tmux_bin=$_tmux_home/bin
   _tmux_archive_root=$(_tmpdir)
   mkdir -p "$_tmux_archive_root/payload" "$_tmux_install" "$_tmux_bin"
+  mkdir -p "$_tmux_install/tmux/resurrect/example-host"
+  printf '%s\n' 'existing tmux runtime state' \
+    >"$_tmux_install/tmux/resurrect/example-host/sentinel"
   printf '%s\n' '#!/usr/bin/env bash' 'printf "tmux 3.6b\n"' \
     >"$_tmux_archive_root/payload/tmux"
   chmod +x "$_tmux_archive_root/payload/tmux"
@@ -663,11 +666,14 @@ if [[ -f $_tmux_hook ]]; then
     _fail "tmux: verified archive installs successfully"
   fi
   _assert_file_exists "tmux: managed binary is installed" \
-    "$_tmux_install/tmux/tmux"
+    "$_tmux_install/tmux/tmux-builds/tmux"
   _assert_eq "tmux: public command links to the managed binary" \
-    "$_tmux_install/tmux/tmux" "$(readlink "$_tmux_bin/tmux")"
+    "$_tmux_install/tmux/tmux-builds/tmux" "$(readlink "$_tmux_bin/tmux")"
   _assert_eq "tmux: installed binary reports the pinned version" \
     "tmux 3.6b" "$("$_tmux_bin/tmux" -V)"
+  _assert_file_content "tmux: install preserves existing runtime state" \
+    "existing tmux runtime state" \
+    "$_tmux_install/tmux/resurrect/example-host/sentinel"
 
   printf '%s\n' '#!/usr/bin/env bash' 'printf "user tmux\n"' \
     >"$_tmux_bin/user-tmux"
@@ -678,7 +684,8 @@ if [[ -f $_tmux_hook ]]; then
   _assert_eq "tmux: install preserves a user-owned public command" \
     "$_tmux_bin/user-tmux" "$(readlink "$_tmux_bin/tmux")"
 
-  printf '%s\n' 'previous managed payload' >"$_tmux_install/tmux/sentinel"
+  printf '%s\n' 'previous managed payload' \
+    >"$_tmux_install/tmux/tmux-builds/sentinel"
   _tmux_asset() {
     REPLY_URL=fixture://tmux-3.6b
     REPLY_SHA256=0000000000000000000000000000000000000000000000000000000000000000
@@ -689,7 +696,7 @@ if [[ -f $_tmux_hook ]]; then
     _pass "tmux: checksum mismatch fails installation"
   fi
   _assert_file_content "tmux: failed install preserves prior payload" \
-    "previous managed payload" "$_tmux_install/tmux/sentinel"
+    "previous managed payload" "$_tmux_install/tmux/tmux-builds/sentinel"
   _assert_eq "tmux: failed install leaves no staging directories" \
     "" "$(printf '%s\n' "$_tmux_install"/.tmux-stage.* | sed "/[*]/d")"
 
