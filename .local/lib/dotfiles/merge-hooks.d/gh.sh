@@ -27,8 +27,13 @@ _gh_config_sources() {
 _gh_merge_layer() {
   local yq_bin="$1" dst="$2" src="$3" merged
 
-  # Merge: source keys overwrite destination, local-only keys preserved
-  merged=$("$yq_bin" eval-all 'select(fileIndex == 0) * select(fileIndex == 1)' "$dst" "$src") || {
+  # Merge: source keys overwrite destination, local-only keys are preserved.
+  # Gh writes unset top-level options as blank YAML values, but reads a
+  # serialized `null` such as `http_unix_socket: null` as the literal string
+  # "null". Omit those empty defaults after yq materializes them.
+  merged=$("$yq_bin" eval-all \
+    '(select(fileIndex == 0) * select(fileIndex == 1)) | with_entries(select(.value != null))' \
+    "$dst" "$src") || {
     dot_hook_warn "    warning: GitHub CLI merge failed for $src — skipping"
     return 0
   }
