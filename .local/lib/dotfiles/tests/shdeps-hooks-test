@@ -660,6 +660,13 @@ if [[ -f $_tmux_hook ]]; then
   # shellcheck disable=SC2329 # Linux fixture takes the archive path.
   shdeps_platform() { printf '%s\n' linux; }
 
+  _tmux_mise_legacy=$_tmux_install/mise/installs/aqua-tmux-tmux-builds/3.6b/tmux
+  mkdir -p "${_tmux_mise_legacy%/*}"
+  printf '%s\n' '#!/usr/bin/env bash' 'printf "tmux 3.6b\n"' \
+    >"$_tmux_mise_legacy"
+  chmod +x "$_tmux_mise_legacy"
+  ln -s "$_tmux_mise_legacy" "$_tmux_bin/tmux"
+
   if install tmux; then
     _pass "tmux: verified archive installs successfully"
   else
@@ -669,11 +676,37 @@ if [[ -f $_tmux_hook ]]; then
     "$_tmux_install/tmux/tmux-builds/tmux"
   _assert_eq "tmux: public command links to the managed binary" \
     "$_tmux_install/tmux/tmux-builds/tmux" "$(readlink "$_tmux_bin/tmux")"
+  _assert_file_exists "tmux: migration preserves the prior Mise payload" \
+    "$_tmux_mise_legacy"
   _assert_eq "tmux: installed binary reports the pinned version" \
     "tmux 3.6b" "$("$_tmux_bin/tmux" -V)"
   _assert_file_content "tmux: install preserves existing runtime state" \
     "existing tmux runtime state" \
     "$_tmux_install/tmux/resurrect/example-host/sentinel"
+
+  uninstall tmux
+  mkdir -p "$_tmux_install/tmux"
+  printf '%s\n' '#!/usr/bin/env bash' 'printf "tmux 3.6b\n"' \
+    >"$_tmux_install/tmux/tmux"
+  chmod +x "$_tmux_install/tmux/tmux"
+  printf '%s\n' 'version=3.6b' >"$_tmux_install/tmux/.shdeps-tmux-build"
+  ln -s "$_tmux_install/tmux/tmux" "$_tmux_bin/tmux"
+  install tmux
+  _assert_eq "tmux: old hook link migrates to the nested managed binary" \
+    "$_tmux_install/tmux/tmux-builds/tmux" "$(readlink "$_tmux_bin/tmux")"
+  _assert_file_missing "tmux: migration removes the old hook binary" \
+    "$_tmux_install/tmux/tmux"
+  _assert_file_missing "tmux: migration removes the old hook marker" \
+    "$_tmux_install/tmux/.shdeps-tmux-build"
+
+  printf '%s\n' '#!/usr/bin/env bash' 'printf "tmux 3.5a\n"' \
+    >"$_tmux_install/tmux/tmux-builds/tmux"
+  chmod +x "$_tmux_install/tmux/tmux-builds/tmux"
+  printf '%s\n' 'version=3.5a' \
+    >"$_tmux_install/tmux/tmux-builds/.shdeps-tmux-build"
+  install tmux
+  _assert_eq "tmux: managed older version upgrades to the pinned version" \
+    "tmux 3.6b" "$("$_tmux_bin/tmux" -V)"
 
   printf '%s\n' '#!/usr/bin/env bash' 'printf "user tmux\n"' \
     >"$_tmux_bin/user-tmux"
@@ -700,9 +733,18 @@ if [[ -f $_tmux_hook ]]; then
   _assert_eq "tmux: failed install leaves no staging directories" \
     "" "$(printf '%s\n' "$_tmux_install/tmux"/.tmux-stage.* | sed "/[*]/d")"
 
+  printf '%s\n' '#!/usr/bin/env bash' 'printf "tmux 3.5a\n"' \
+    >"$_tmux_install/tmux/tmux-builds/tmux"
+  chmod +x "$_tmux_install/tmux/tmux-builds/tmux"
+  printf '%s\n' 'version=3.5a' \
+    >"$_tmux_install/tmux/tmux-builds/.shdeps-tmux-build"
   uninstall tmux
-  _assert_path_absent "tmux: uninstall removes only the managed payload" \
-    "$_tmux_install/tmux/tmux-builds"
+  if [[ ! -e $_tmux_install/tmux/tmux-builds &&
+    ! -L $_tmux_install/tmux/tmux-builds ]]; then
+    _pass "tmux: uninstall removes only the managed payload"
+  else
+    _fail "tmux: uninstall removes only the managed payload"
+  fi
   _assert_file_content "tmux: uninstall preserves existing runtime state" \
     "existing tmux runtime state" \
     "$_tmux_install/tmux/resurrect/example-host/sentinel"
