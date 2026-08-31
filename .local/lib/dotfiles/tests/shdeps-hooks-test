@@ -653,7 +653,7 @@ if [[ -f $_tmux_hook ]]; then
   # shellcheck disable=SC2329 # Test fixture replaces only asset resolution.
   _tmux_asset() {
     REPLY_URL=fixture://tmux-3.6b
-    REPLY_SHA256=$_tmux_fixture_sha
+    REPLY_SHA256=$_tmux_expected_sha
   }
   # shellcheck disable=SC2329 # Test fixture captures warnings.
   shdeps_warn() { :; }
@@ -666,6 +666,19 @@ if [[ -f $_tmux_hook ]]; then
     >"$_tmux_mise_legacy"
   chmod +x "$_tmux_mise_legacy"
   ln -s "$_tmux_mise_legacy" "$_tmux_bin/tmux"
+
+  _tmux_expected_sha=0000000000000000000000000000000000000000000000000000000000000000
+  if install tmux >/dev/null 2>&1; then
+    _fail "tmux: failed Mise migration remains visible"
+  else
+    _pass "tmux: failed Mise migration remains visible"
+  fi
+  _assert_eq "tmux: failed migration preserves the prior Mise command" \
+    "$_tmux_mise_legacy" "$(readlink "$_tmux_bin/tmux")"
+  _assert_file_content "tmux: failed migration preserves runtime state" \
+    "existing tmux runtime state" \
+    "$_tmux_install/tmux/resurrect/example-host/sentinel"
+  _tmux_expected_sha=$_tmux_fixture_sha
 
   if install tmux; then
     _pass "tmux: verified archive installs successfully"
@@ -685,6 +698,11 @@ if [[ -f $_tmux_hook ]]; then
     "$_tmux_install/tmux/resurrect/example-host/sentinel"
 
   uninstall tmux
+  if [[ ! -e $_tmux_bin/tmux && ! -L $_tmux_bin/tmux ]]; then
+    _pass "tmux: uninstall removes the managed public command"
+  else
+    _fail "tmux: uninstall removes the managed public command"
+  fi
   mkdir -p "$_tmux_install/tmux"
   printf '%s\n' '#!/usr/bin/env bash' 'printf "tmux 3.6b\n"' \
     >"$_tmux_install/tmux/tmux"
@@ -708,6 +726,29 @@ if [[ -f $_tmux_hook ]]; then
   _assert_eq "tmux: managed older version upgrades to the pinned version" \
     "tmux 3.6b" "$("$_tmux_bin/tmux" -V)"
 
+  printf '%s\n' '#!/usr/bin/env bash' 'printf "tmux 3.5a\n"' \
+    >"$_tmux_install/tmux/tmux-builds/tmux"
+  chmod +x "$_tmux_install/tmux/tmux-builds/tmux"
+  printf '%s\n' 'version=3.5a' \
+    >"$_tmux_install/tmux/tmux-builds/.shdeps-tmux-build"
+  uninstall tmux
+  if [[ ! -e $_tmux_install/tmux/tmux-builds &&
+    ! -L $_tmux_install/tmux/tmux-builds ]]; then
+    _pass "tmux: uninstall removes an older managed payload"
+  else
+    _fail "tmux: uninstall removes an older managed payload"
+  fi
+  if [[ ! -e $_tmux_bin/tmux && ! -L $_tmux_bin/tmux ]]; then
+    _pass "tmux: older-version uninstall removes the managed public command"
+  else
+    _fail "tmux: older-version uninstall removes the managed public command"
+  fi
+  _assert_file_content "tmux: older-version uninstall preserves runtime state" \
+    "existing tmux runtime state" \
+    "$_tmux_install/tmux/resurrect/example-host/sentinel"
+
+  install tmux
+
   printf '%s\n' '#!/usr/bin/env bash' 'printf "user tmux\n"' \
     >"$_tmux_bin/user-tmux"
   chmod +x "$_tmux_bin/user-tmux"
@@ -719,10 +760,7 @@ if [[ -f $_tmux_hook ]]; then
 
   printf '%s\n' 'previous managed payload' \
     >"$_tmux_install/tmux/tmux-builds/sentinel"
-  _tmux_asset() {
-    REPLY_URL=fixture://tmux-3.6b
-    REPLY_SHA256=0000000000000000000000000000000000000000000000000000000000000000
-  }
+  _tmux_expected_sha=0000000000000000000000000000000000000000000000000000000000000000
   if install tmux >/dev/null 2>&1; then
     _fail "tmux: checksum mismatch fails installation"
   else
@@ -733,11 +771,6 @@ if [[ -f $_tmux_hook ]]; then
   _assert_eq "tmux: failed install leaves no staging directories" \
     "" "$(printf '%s\n' "$_tmux_install/tmux"/.tmux-stage.* | sed "/[*]/d")"
 
-  printf '%s\n' '#!/usr/bin/env bash' 'printf "tmux 3.5a\n"' \
-    >"$_tmux_install/tmux/tmux-builds/tmux"
-  chmod +x "$_tmux_install/tmux/tmux-builds/tmux"
-  printf '%s\n' 'version=3.5a' \
-    >"$_tmux_install/tmux/tmux-builds/.shdeps-tmux-build"
   uninstall tmux
   if [[ ! -e $_tmux_install/tmux/tmux-builds &&
     ! -L $_tmux_install/tmux/tmux-builds ]]; then
