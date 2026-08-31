@@ -541,7 +541,8 @@ assert_dev_nvim_composition() {
     -c 'lua
       assert(vim.env.DOT_PROFILE_FIXTURE == nil)
       assert(vim.env.DOT_TEST_DEV_REPO_ROOT == nil)
-      local plugins = require("lazy.core.config").plugins
+      local config = require("lazy.core.config")
+      local plugins = config.plugins
       for _, plugin in ipairs({
         "nvim-lspconfig",
         "conform.nvim",
@@ -550,13 +551,20 @@ assert_dev_nvim_composition() {
       }) do
         assert(plugins[plugin] ~= nil, plugin .. " is absent from the composed graph")
       end
+      assert(plugins["mason.nvim"] == nil, "final Mason policy did not disable the active plugin")
+      assert(config.spec.disabled["mason.nvim"] ~= nil, "disabled Mason spec is absent")
+      local workspace = assert(plugins["nvim-workspace"], "nvim-workspace is absent")
+      local opts = require("lazy.core.plugin").values(workspace, "opts", false)
+      assert(type(opts.workspace.repo_root_detector) == "function", "dev workspace detector is absent")
+      assert(type(opts.lazygit.opts_for_path) == "function", "dev Lazygit policy is absent")
+      assert(opts.session ~= nil, "editor session policy is absent")
       assert(type(require("config.language-policy").critical_treesitter_parsers()) == "table")
       assert(type(require("config.mason-policy").lsp_server_packages()) == "table")
       print("composed-dev-nvim-ok")' \
     -c 'qa!' 2>&1) || status=$?
   _assert_exit 'dev installed full Nvim graph loads without fixture-only overrides' \
     0 "$status"
-  _assert_contains 'dev installed full Nvim graph applies late dev overrides' \
+  _assert_contains 'dev installed full Nvim graph preserves ordered capability policy' \
     'composed-dev-nvim-ok' "$output"
 }
 
