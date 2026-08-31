@@ -24,6 +24,15 @@ production_lock=$source_home/.github/overlay-profile-stack.lock
 source_lock=$source_home/.local/share/doc/dotfiles/overlay-profile-source.lock
 workflow=$source_home/.github/workflows/test.yml
 
+_source_git() {
+  if [[ -d $source_home/.dotfiles ]]; then
+    command git -C "$source_home" --git-dir="$source_home/.dotfiles" \
+      --work-tree="$source_home" "$@"
+  else
+    command git -C "$source_home" "$@"
+  fi
+}
+
 _lock_value() {
   local key=$1 file=$2
   awk -F= -v key="$key" '$1 == key { count++; value=$2 } END {
@@ -209,18 +218,30 @@ if [[ ${1:-} != --runtime-only ]]; then
     _assert_eq 'stack source matches immutable extraction source' \
       "$(<"$source_lock")" "$source_sha"
     runtime_binding_valid=0
+    runtime_root=${DOT_STACK_DOT_ROOT:-${DOT_TEST_DOT_ROOT:-}}
+    runtime_bin=${DOT_STACK_DOT_BIN:-}
+    if [[ -z $runtime_bin && -n ${DOT_TEST_DOT_ROOT:-} ]]; then
+      runtime_bin=$runtime_root/bin/dot
+    elif [[ -z $runtime_bin ]]; then
+      runtime_bin=$(command -v dot 2>/dev/null || true)
+    fi
+    runtime_sha=${DOT_STACK_DOT_SHA:-}
+    if [[ -z $runtime_sha && -n $runtime_root ]]; then
+      runtime_sha=$(git -C "$runtime_root" rev-parse HEAD 2>/dev/null || true)
+    fi
     if [[ -n ${DOT_TEST_DOT_ROOT:-} ]]; then
-      [[ ${DOT_TEST_DOT_ROOT:-} == "${DOT_STACK_DOT_ROOT:-}" ]] &&
+      [[ ${DOT_TEST_DOT_ROOT:-} == "$runtime_root" &&
+        $(_test_realpath "$runtime_bin") == $(_test_realpath "$runtime_root/bin/dot") ]] &&
         runtime_binding_valid=1
-    elif [[ $(command -v dot 2>/dev/null) == "${DOT_STACK_DOT_BIN:-}" ]]; then
+    elif [[ $(command -v dot 2>/dev/null) == "$runtime_bin" ]]; then
       runtime_binding_valid=1
     fi
-    if [[ ${DOT_STACK_RUNTIME:-0} == 1 &&
-      ${DOT_STACK_DOT_SHA:-} == "$dot_sha" &&
-      ${DOT_STACK_DOT_ROOT:-} == /* &&
-      ${DOT_STACK_DOT_BIN:-} == "${DOT_STACK_DOT_ROOT:-}/bin/dot" &&
+    if [[ (${DOT_STACK_RUNTIME:-0} == 1 || -n ${DOT_TEST_DOT_ROOT:-}) &&
+      $runtime_sha == "$dot_sha" &&
+      $runtime_root == /* &&
+      $(_test_realpath "$runtime_bin") == $(_test_realpath "$runtime_root/bin/dot") &&
       $runtime_binding_valid -eq 1 &&
-      $(git -C "${DOT_STACK_DOT_ROOT:-/nonexistent}" rev-parse HEAD 2>/dev/null) == "$dot_sha" ]]; then
+      $(git -C "${runtime_root:-/nonexistent}" rev-parse HEAD 2>/dev/null) == "$dot_sha" ]]; then
       _pass 'full stack integration runs through the exact locked D1 runtime'
     else
       _fail 'full stack integration runs through the exact locked D1 runtime'
@@ -258,7 +279,7 @@ if [[ ${1:-} != --runtime-only ]]; then
     fi
     _assert_eq 'D5 head descends from the locked D4 base commit' \
       "$d4_base_sha" \
-      "$(git -C "$source_home" merge-base HEAD "$d4_base_sha" 2>/dev/null || true)"
+      "$(_source_git merge-base HEAD "$d4_base_sha" 2>/dev/null || true)"
 
     expected_keys=$(printf '%s\n' \
       version source_dotfiles dot pre_profile_dot dotfiles_nvim dotfiles_dev test_shdeps \
@@ -399,7 +420,7 @@ if [[ ${1:-} != --runtime-only ]]; then
 
       candidate=$stack_tmp/candidate
       mkdir "$candidate"
-      git -C "$source_home" archive HEAD -- . \
+      _source_git archive HEAD -- . \
         ':(exclude).config/dot/overlays.d/20-nvim.conf' \
         ':(exclude).config/dot/overlays.d/30-dev.conf' |
         tar -x -C "$candidate"
@@ -720,7 +741,7 @@ GIT
       descriptor_hash_after=$(git hash-object "$nvim_descriptor" "$dev_descriptor")
       _assert_eq 'immutable production descriptor hashes do not change' \
         "$descriptor_hash_before" "$descriptor_hash_after"
-      if git -C "$source_home" diff --quiet -- \
+      if _source_git diff --quiet -- \
         .config/dot/overlays.d/20-nvim.conf \
         .config/dot/overlays.d/30-dev.conf; then
         _pass 'immutable production descriptors remain clean'
@@ -728,7 +749,7 @@ GIT
         _fail 'immutable production descriptors remain clean'
       fi
       _assert_eq 'immutable root source checkout remains entirely clean' '' \
-        "$(git -C "$source_home" status --porcelain)"
+        "$(_source_git status --porcelain)"
     fi
   fi
 fi

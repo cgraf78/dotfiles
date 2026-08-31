@@ -10,9 +10,18 @@ export NO_COLOR=1
 REAL_HOME=$HOME
 _test_prefer_system_git || exit 1
 
+_base_source_git() {
+  if [[ -d $REAL_HOME/.dotfiles ]]; then
+    command git -C "$REAL_HOME" --git-dir="$REAL_HOME/.dotfiles" \
+      --work-tree="$REAL_HOME" "$@"
+  else
+    command git -C "$REAL_HOME" "$@"
+  fi
+}
+
 echo "=== base Shdeps ownership ==="
 
-_base_hook_names=$(git -C "$REAL_HOME" ls-files '.config/shdeps/hooks.d/*.sh' \
+_base_hook_names=$(_base_source_git ls-files '.config/shdeps/hooks.d/*.sh' \
   '.config/shdeps/hooks.d/**/*.sh' |
   sed -e 's#^\.config/shdeps/hooks.d/##' -e 's#\.sh$##' |
   LC_ALL=C sort)
@@ -35,7 +44,7 @@ while IFS= read -r _hook_path; do
   else
     _fail "Shdeps: capability hook is absent after cutover: $_base_hook"
   fi
-done < <(git -C "$REAL_HOME" ls-files '.config/shdeps/hooks.d/*.sh' \
+done < <(_base_source_git ls-files '.config/shdeps/hooks.d/*.sh' \
   '.config/shdeps/hooks.d/**/*.sh')
 
 for _base_dependency in cgraf78/agent-rules-sync cgraf78/dot cgraf78/ds \
