@@ -698,7 +698,14 @@ if [[ -f $_tmux_hook ]]; then
   _assert_file_content "tmux: failed install preserves prior payload" \
     "previous managed payload" "$_tmux_install/tmux/tmux-builds/sentinel"
   _assert_eq "tmux: failed install leaves no staging directories" \
-    "" "$(printf '%s\n' "$_tmux_install"/.tmux-stage.* | sed "/[*]/d")"
+    "" "$(printf '%s\n' "$_tmux_install/tmux"/.tmux-stage.* | sed "/[*]/d")"
+
+  uninstall tmux
+  _assert_path_absent "tmux: uninstall removes only the managed payload" \
+    "$_tmux_install/tmux/tmux-builds"
+  _assert_file_content "tmux: uninstall preserves existing runtime state" \
+    "existing tmux runtime state" \
+    "$_tmux_install/tmux/resurrect/example-host/sentinel"
 
   _tmux_test_platform=android
   _tmux_package_calls=$(_tmpdir)/package-calls

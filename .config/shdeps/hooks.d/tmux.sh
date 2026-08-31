@@ -4,7 +4,9 @@
 _TMUX_VERSION=3.6b
 
 _tmux_root() {
-  printf '%s/tmux\n' "$(shdeps_install_dir)"
+  # ~/.local/share/tmux is application state (including tmux-resurrect data),
+  # so keep the managed executable in its own owned child directory.
+  printf '%s/tmux/tmux-builds\n' "$(shdeps_install_dir)"
 }
 
 _tmux_public() {
