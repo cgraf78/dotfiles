@@ -661,11 +661,14 @@ if [[ -f $_tmux_hook ]]; then
   shdeps_platform() { printf '%s\n' linux; }
 
   _tmux_mise_legacy=$_tmux_install/mise/installs/aqua-tmux-tmux-builds/3.6b/tmux
+  _tmux_mise_link=$_tmux_bin/.dot-mise/tmux
   mkdir -p "${_tmux_mise_legacy%/*}"
+  mkdir -p "${_tmux_mise_link%/*}"
   printf '%s\n' '#!/usr/bin/env bash' 'printf "tmux 3.6b\n"' \
     >"$_tmux_mise_legacy"
   chmod +x "$_tmux_mise_legacy"
-  ln -s "$_tmux_mise_legacy" "$_tmux_bin/tmux"
+  ln -s "$_tmux_mise_legacy" "$_tmux_mise_link"
+  ln -s "$_tmux_mise_link" "$_tmux_bin/tmux"
 
   _tmux_expected_sha=0000000000000000000000000000000000000000000000000000000000000000
   if install tmux >/dev/null 2>&1; then
@@ -674,7 +677,7 @@ if [[ -f $_tmux_hook ]]; then
     _pass "tmux: failed Mise migration remains visible"
   fi
   _assert_eq "tmux: failed migration preserves the prior Mise command" \
-    "$_tmux_mise_legacy" "$(readlink "$_tmux_bin/tmux")"
+    "$_tmux_mise_link" "$(readlink "$_tmux_bin/tmux")"
   _assert_file_content "tmux: failed migration preserves runtime state" \
     "existing tmux runtime state" \
     "$_tmux_install/tmux/resurrect/example-host/sentinel"
@@ -691,6 +694,11 @@ if [[ -f $_tmux_hook ]]; then
     "$_tmux_install/tmux/tmux-builds/tmux" "$(readlink "$_tmux_bin/tmux")"
   _assert_file_exists "tmux: migration preserves the prior Mise payload" \
     "$_tmux_mise_legacy"
+  if [[ ! -e $_tmux_mise_link && ! -L $_tmux_mise_link ]]; then
+    _pass "tmux: migration removes the retired Mise command link"
+  else
+    _fail "tmux: migration removes the retired Mise command link"
+  fi
   _assert_eq "tmux: installed binary reports the pinned version" \
     "tmux 3.6b" "$("$_tmux_bin/tmux" -V)"
   _assert_file_content "tmux: install preserves existing runtime state" \

@@ -9,6 +9,10 @@ _tmux_root() {
   printf '%s/tmux/tmux-builds\n' "$(shdeps_install_dir)"
 }
 
+_tmux_legacy_root() {
+  printf '%s/tmux\n' "$(shdeps_install_dir)"
+}
+
 _tmux_public() {
   printf '%s/tmux\n' "$(shdeps_bin_dir)"
 }
@@ -51,12 +55,39 @@ _tmux_sha256() {
   fi
 }
 
+_tmux_managed_root() {
+  local root=$1 marker version
+  marker=$root/.shdeps-tmux-build
+  [[ -d $root && ! -L $root && -f $marker && ! -L $marker ]] || return 1
+  version=$(<"$marker")
+  [[ $version =~ ^version=[A-Za-z0-9][A-Za-z0-9._+-]*$ ]]
+}
+
 _tmux_root_owned() {
+  local root
+  root=$(_tmux_root)
+  _tmux_managed_root "$root"
+}
+
+_tmux_root_current() {
   local root marker
   root=$(_tmux_root)
   marker=$root/.shdeps-tmux-build
-  [[ -d $root && ! -L $root && -f $marker && ! -L $marker ]] || return 1
-  [[ $(<"$marker") == "version=$_TMUX_VERSION" ]]
+  _tmux_root_owned || return 1
+  [[ $(<"$marker") == "version=$_TMUX_VERSION" ]] || return 1
+  [[ -x $root/tmux && ! -d $root/tmux ]] || return 1
+  "$root/tmux" -V 2>/dev/null | grep -Fx "tmux $_TMUX_VERSION" >/dev/null
+}
+
+_tmux_public_target() {
+  local public=$1 target
+  [[ -L $public ]] || return 1
+  target=$(readlink "$public") || return 1
+  case $target in
+    /*) ;;
+    *) target=${public%/*}/$target ;;
+  esac
+  REPLY=$target
 }
 
 _tmux_public_owned() {
@@ -64,17 +95,48 @@ _tmux_public_owned() {
   public=$(_tmux_public)
   root=$(_tmux_root)
   _tmux_root_owned || return 1
-  [[ -L $public ]] || return 1
-  target=$(readlink "$public") || return 1
-  case $target in
-    /*) ;;
-    *) target=${public%/*}/$target ;;
-  esac
+  _tmux_public_target "$public" || return 1
+  target=$REPLY
   [[ $target == "$root/tmux" ]]
 }
 
+_tmux_public_mise_owned() {
+  local public target mise_link
+  public=$(_tmux_public)
+  _tmux_public_target "$public" || return 1
+  target=$REPLY
+
+  # The retired Mise hook used this stable intermediate symlink so its target
+  # could move between versions without replacing the public command.
+  mise_link=${public%/*}/.dot-mise/tmux
+  [[ $target == "$mise_link" && -L $mise_link ]]
+}
+
+_tmux_public_legacy_owned() {
+  local public target legacy_root
+  _tmux_public_mise_owned && return 0
+  public=$(_tmux_public)
+  _tmux_public_target "$public" || return 1
+  target=$REPLY
+
+  legacy_root=$(_tmux_legacy_root)
+  if [[ $target == "$legacy_root/tmux" ]] &&
+    _tmux_managed_root "$legacy_root"; then
+    return 0
+  fi
+  return 1
+}
+
+_tmux_remove_legacy_root() {
+  local legacy_root
+  legacy_root=$(_tmux_legacy_root)
+  _tmux_managed_root "$legacy_root" || return 0
+  rm -f -- "$legacy_root/tmux" "$legacy_root/.shdeps-tmux-build" || return 1
+  rmdir "$legacy_root" 2>/dev/null || true
+}
+
 _tmux_publish() {
-  local root public bin_dir temporary target
+  local root public bin_dir temporary target retire_mise=0
   root=$(_tmux_root)
   public=$(_tmux_public)
   bin_dir=${public%/*}
@@ -82,7 +144,8 @@ _tmux_publish() {
   mkdir -p "$bin_dir" || return 1
 
   if [[ -e $public || -L $public ]]; then
-    if ! _tmux_public_owned; then
+    _tmux_public_mise_owned && retire_mise=1
+    if ! _tmux_public_owned && ! _tmux_public_legacy_owned; then
       if [[ -x $public && ! -d $public ]]; then
         shdeps_warn "  warning: preserving non-Shdeps tmux command: $public"
         return 0
@@ -102,6 +165,11 @@ _tmux_publish() {
     rm -f -- "$temporary"
     return 1
   fi
+  if [[ $retire_mise -eq 1 ]]; then
+    rm -f -- "$bin_dir/.dot-mise/tmux" ||
+      shdeps_warn '  warning: could not remove the retired Mise tmux link'
+    rmdir "$bin_dir/.dot-mise" 2>/dev/null || true
+  fi
 }
 
 exists() {
@@ -113,11 +181,11 @@ exists() {
   local root public
   root=$(_tmux_root)
   public=$(_tmux_public)
-  _tmux_root_owned && [[ -x $root/tmux && ! -d $root/tmux ]] || return 1
-  "$root/tmux" -V 2>/dev/null | grep -Fx "tmux $_TMUX_VERSION" >/dev/null || return 1
+  _tmux_root_current || return 1
   if _tmux_public_owned; then
     return 0
   fi
+  _tmux_public_legacy_owned && return 1
   [[ -x $public && ! -d $public ]]
 }
 
@@ -205,14 +273,23 @@ install() {
     rm -rf -- "$stage"
     return 1
   fi
+  local legacy_cleanup=0
+  _tmux_remove_legacy_root || legacy_cleanup=1
   [[ -z $backup ]] || rm -rf -- "$backup"
   rm -rf -- "$stage"
+  if [[ $legacy_cleanup -ne 0 ]]; then
+    shdeps_warn '  warning: could not remove the previous managed tmux payload'
+    return 1
+  fi
 }
 
 uninstall() {
   local public root
   public=$(_tmux_public)
   root=$(_tmux_root)
-  _tmux_public_owned && rm -f -- "$public"
+  if _tmux_public_owned || _tmux_public_legacy_owned; then
+    rm -f -- "$public"
+  fi
   _tmux_root_owned && rm -rf -- "$root"
+  _tmux_remove_legacy_root
 }
