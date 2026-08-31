@@ -161,7 +161,7 @@ source_path	component_id	category	transform	d4_action	d5_action	ownership_note
 .config/nvim/lua/config/keymaps/workspace.lua	split-nvim	config	split	keep	remove	owner=mixed; source=locked-dotfiles; split=reviewed-container
 .config/nvim/lua/config/language-policy.lua	nvim-dev	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
 .config/nvim/lua/config/lazy-update-lock.lua	nvim-editor	config	keep	keep	remove	owner=dotfiles-nvim; source=locked-dotfiles
-.config/nvim/lua/config/lazy.lua	nvim-editor	config	keep	keep	remove	owner=dotfiles-nvim; source=locked-dotfiles
+.config/nvim/lua/config/lazy.lua	nvim-editor	config	rewrite	keep	remove	owner=dotfiles-nvim; source=locked-dotfiles
 .config/nvim/lua/config/mason-policy.lua	nvim-dev	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
 .config/nvim/lua/config/nvim-workspace.lua	split-nvim	config	split	keep	remove	owner=mixed; source=locked-dotfiles; split=reviewed-container
 .config/nvim/lua/config/options.lua	nvim-editor	config	rewrite	keep	remove	owner=dotfiles-nvim; source=locked-dotfiles

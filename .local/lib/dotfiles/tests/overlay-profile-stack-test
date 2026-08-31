@@ -616,18 +616,48 @@ GIT
           "$transport_home/pre-sync-transport.log"
       done
 
+      lazy_policy=$nvim_checkout/home/.config/nvim/lua/config/lazy.lua
       editor_policy=$nvim_checkout/home/.config/nvim/lua/plugins/editor.lua
-      dev_policy=$dev_checkout/home/.config/nvim/lua/plugins/zz-dev-extras.lua
-      if [[ -f $editor_policy && -f $dev_policy ]]; then
-        _pass 'pinned editor and late dev plugin policies are present'
+      extras_bridge=$nvim_checkout/home/.config/nvim/lua/dotfiles/lazyvim_extras/init.lua
+      overrides_bridge=$nvim_checkout/home/.config/nvim/lua/dotfiles/plugin_overrides/init.lua
+      policy_bridge=$nvim_checkout/home/.config/nvim/lua/dotfiles/final_policy/init.lua
+      dev_extras=$dev_checkout/home/.config/nvim/lua/dotfiles/lazyvim_extras/dev.lua
+      dev_policy=$dev_checkout/home/.config/nvim/lua/dotfiles/plugin_overrides/dev-tools.lua
+      workspace_policy=$dev_checkout/home/.config/nvim/lua/dotfiles/plugin_overrides/workspace-dev.lua
+      mason_policy=$dev_checkout/home/.config/nvim/lua/dotfiles/final_policy/mason.lua
+      if [[ -f $lazy_policy && -f $editor_policy && -f $extras_bridge &&
+        -f $overrides_bridge && -f $policy_bridge && -f $dev_extras &&
+        -f $dev_policy && -f $workspace_policy && -f $mason_policy ]]; then
+        _pass 'pinned editor and ordered dev plugin policies are present'
       else
-        _fail 'pinned editor and late dev plugin policies are present'
+        _fail 'pinned editor and ordered dev plugin policies are present'
       fi
-      if [[ ${editor_policy##*/} < ${dev_policy##*/} ]]; then
-        _pass 'dev plugin policy sorts after editor policy'
+      if awk '
+        /import = "lazyvim.plugins"/ { core = NR }
+        /import = "dotfiles.lazyvim_extras"/ { extras = NR }
+        /import = "plugins"/ { plugins = NR }
+        /import = "dotfiles.plugin_overrides"/ { overrides = NR }
+        /import = "dotfiles.final_policy"/ { policy = NR }
+        END { exit !(core && extras && plugins && overrides && policy &&
+          core < extras && extras < plugins && plugins < overrides &&
+          overrides < policy) }
+      ' "$lazy_policy"; then
+        _pass 'editor imports capability policy in explicit semantic phases'
       else
-        _fail 'dev plugin policy sorts after editor policy'
+        _fail 'editor imports capability policy in explicit semantic phases'
       fi
+      if ! rg -q 'lazyvim\.plugins\.extras\.' \
+        "$dev_checkout/home/.config/nvim/lua/plugins"; then
+        _pass 'dev LazyVim extras cannot load from the late plugin phase'
+      else
+        _fail 'dev LazyVim extras cannot load from the late plugin phase'
+      fi
+      _assert_file_missing \
+        'dev workspace policy cannot depend on ordinary plugin filename order' \
+        "$dev_checkout/home/.config/nvim/lua/plugins/workspace-dev.lua"
+      _assert_file_missing \
+        'Mason policy cannot depend on capability override filename order' \
+        "$dev_checkout/home/.config/nvim/lua/dotfiles/plugin_overrides/mason-policy.lua"
       editor_plugin_state=$(_effective_dev_plugin_state "$editor_policy" 2>/dev/null || true)
       dev_plugin_state=$(_effective_dev_plugin_state \
         "$editor_policy" "$dev_policy" 2>/dev/null || true)
@@ -641,7 +671,7 @@ GIT
       expected_dev_plugin_state=${expected_editor_plugin_state//false/true}
       _assert_eq 'editor profile keeps development services disabled' \
         "$expected_editor_plugin_state" "$editor_plugin_state"
-      _assert_eq 'dev profile late override re-enables development services' \
+      _assert_eq 'dev profile post-plugin override re-enables development services' \
         "$expected_dev_plugin_state" "$dev_plugin_state"
 
       nvim_workspace=$nvim_checkout/home/.config/nvim/lua/config/nvim-workspace.lua
