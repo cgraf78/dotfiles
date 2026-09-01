@@ -152,6 +152,58 @@
     "args": { "text": "\u001b[112;6u" },
     "when": "terminalFocus && termnav.nvimFocused"
   },
+  // macOS turns Option-Shift-letter combinations into layout-dependent text
+  // before some VS Code clients can resolve the logical chord. Karabiner is
+  // the sole physical-remapping layer, so it converts the four directional
+  // gestures to the reserved F16-F19 transport range. VS Code then applies
+  // focus-aware policy without needing a second physical-key workaround.
+  {
+    "key": "f16",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001bH" },
+    "when": "terminalFocus"
+  },
+  {
+    "key": "f17",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001bJ" },
+    "when": "terminalFocus"
+  },
+  {
+    "key": "f18",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001bK" },
+    "when": "terminalFocus"
+  },
+  {
+    "key": "f19",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "\u001bL" },
+    "when": "terminalFocus"
+  },
+  // Pane movement keeps one spatial meaning across VS Code and its terminal.
+  // Reserve the same private transports for editor groups when an editor owns
+  // focus; quick inputs, dialogs, and sidebars intentionally receive nothing.
+  {
+    "key": "f16",
+    "command": "workbench.action.moveActiveEditorGroupLeft",
+    "when": "editorFocus && !terminalFocus"
+  },
+  {
+    "key": "f17",
+    "command": "workbench.action.moveActiveEditorGroupDown",
+    "when": "editorFocus && !terminalFocus"
+  },
+  {
+    "key": "f18",
+    "command": "workbench.action.moveActiveEditorGroupUp",
+    "when": "editorFocus && !terminalFocus"
+  },
+  {
+    "key": "f19",
+    "command": "workbench.action.moveActiveEditorGroupRight",
+    "when": "editorFocus && !terminalFocus"
+  },
   // Karabiner transports physical Ctrl+Shift+V as F20 so Neovim can
   // distinguish yank history from plain Ctrl+V without consuming VS Code's
   // native Shift+Cmd+V. Reconstruct paste outside focused Neovim.

@@ -37,7 +37,8 @@ Use this decision order:
 6. Add a platform entry only when the platform changes the physical chord or
    desired client behavior. In particular, `macos.d/10-keybindings.jsonc`
    translates Karabiner's output but mirrors the ownership decision from steps
-   3-5; it does not create a separate macOS focus policy.
+   3-5; it does not create a separate macOS focus policy. See the physical-key
+   ownership policy below before adding a macOS-only transport.
 7. Encode Ctrl letters and exact C0 controls as their byte. For a modified key
    with no exact C0 identity, use CSI-u: `ESC [ <ASCII> ; <modifier> u`. Ctrl is
    5 and Ctrl+Shift is 6. Legacy terminals encode physical Ctrl+/ as Ctrl-_
@@ -55,6 +56,36 @@ routes are the exception: they are emitted last so an overlapping local handler
 cannot consume those chords before the pty. They depend only on `terminalFocus`,
 not on the Termnav adapter; native VS Code editor switching remains in control
 outside the terminal.
+
+## macOS Physical-Key Ownership
+
+Karabiner is the single physical-remapping layer on macOS. VS Code keybindings
+may interpret the stable key that Karabiner produced according to application
+context, but they must not introduce a second scan-code or modifier-remapping
+scheme. This boundary keeps hardware and keyboard-layout normalization in one
+place while leaving `terminalFocus`, `editorFocus`, and Neovim ownership with
+the application that can actually observe them.
+
+Use a private function-key transport only when a physical chord cannot reach VS
+Code reliably across supported macOS layouts or clients. Scope the Karabiner
+rule to the complete, explicit VS Code bundle inventory; never include WezTerm
+or generic terminal applications merely for consistency. The matching macOS VS
+Code bindings must document every context that consumes the transport, while
+unlisted contexts deliberately receive no action. Tests must prove that the
+function keys have no other Karabiner producer or VS Code consumer.
+
+The reserved transport inventory is:
+
+- `F16` through `F19`: physical Alt-Shift-H/J/K/L, respectively. A focused
+  terminal receives `ESC H/J/K/L` for Termnav pane movement, while a focused
+  editor moves its active editor group in the same direction.
+- `F20`: physical Ctrl-Shift-V. Focused Neovim receives its distinct CSI-u
+  identity, while terminal and editor contexts preserve paste behavior.
+
+These are private integration keys rather than user-facing shortcuts. A
+physical extended-keyboard F16-F20 press is therefore intentionally equivalent
+to the corresponding synthesized transport while a supported VS Code client is
+frontmost.
 `all.d/00-retirements.jsonc` is append-only exact history. Its
 `dotfiles.retire` records are source-only and never reach VS Code. The hook
 matches those complete objects rather than guessing ownership from a key,
