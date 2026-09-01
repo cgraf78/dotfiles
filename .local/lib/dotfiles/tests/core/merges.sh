@@ -3930,6 +3930,46 @@ EOF
       "$vscode_expected_linux_variants" \
       "$vscode_default_linux_variants"
 
+    vscode_variants_macos_home=$(_tmpdir)
+    mkdir -p \
+      "$vscode_variants_macos_home/Applications/Visual Studio Code.app" \
+      "$vscode_variants_macos_home/Applications/Visual Studio Code - Insiders.app" \
+      "$vscode_variants_macos_home/Applications/VS Code @ FB.app" \
+      "$vscode_variants_macos_home/Applications/VS Code @ FB - Insiders.app" \
+      "$vscode_variants_macos_home/Applications/Cursor.app" \
+      "$vscode_variants_macos_home/Library/Application Support/Code/User" \
+      "$vscode_variants_macos_home/Library/Application Support/Code - Insiders/User" \
+      "$vscode_variants_macos_home/Library/Application Support/VS Code @ FB/User" \
+      "$vscode_variants_macos_home/Library/Application Support/VS Code @ FB - Insiders/User" \
+      "$vscode_variants_macos_home/Library/Application Support/Cursor/User" \
+      "$vscode_variants_macos_home/.config/dot/merge-hooks.d"
+    cp -R "$REAL_HOME/.config/dot/merge-hooks.d/vscode" \
+      "$vscode_variants_macos_home/.config/dot/merge-hooks.d/vscode"
+    # shellcheck disable=SC2016 # The inner shell expands fixture env variables.
+    vscode_default_macos_variants=$(env HOME="$vscode_variants_macos_home" \
+      REAL_HOME="$REAL_HOME" \
+      DOT_TEST_VSCODE_APPLICATIONS_DIR="$vscode_variants_macos_home/Applications" \
+      bash -c '
+      set -euo pipefail
+      . "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh"
+      dot_hook_platform_match() { return 1; }
+      uname() { printf "Darwin\n"; }
+      _warn() { :; }
+      # shellcheck source=/dev/null
+      . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/vscode.sh"
+      _vscode_variants | sort
+    ')
+    vscode_expected_macos_variants=$(printf '%s\n' \
+      "$vscode_variants_macos_home/.cursor/extensions	$vscode_variants_macos_home/Library/Application Support/Cursor/User" \
+      "$vscode_variants_macos_home/.vscode/extensions	$vscode_variants_macos_home/Library/Application Support/Code/User" \
+      "$vscode_variants_macos_home/.vscode-fb-insiders-mkt/extensions	$vscode_variants_macos_home/Library/Application Support/VS Code @ FB - Insiders/User" \
+      "$vscode_variants_macos_home/.vscode-fb-mkt/extensions	$vscode_variants_macos_home/Library/Application Support/VS Code @ FB/User" \
+      "$vscode_variants_macos_home/.vscode-insiders/extensions	$vscode_variants_macos_home/Library/Application Support/Code - Insiders/User" |
+      sort)
+    _assert_eq "vscode variants: default macOS variants include Code, FB Code, and Cursor" \
+      "$vscode_expected_macos_variants" \
+      "$vscode_default_macos_variants"
+
     partial_mv_bin=$(_tmpdir)/bin
     partial_commit_dir=$(_tmpdir)
     mkdir -p "$partial_mv_bin"
