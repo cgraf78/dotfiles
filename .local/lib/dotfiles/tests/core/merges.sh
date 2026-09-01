@@ -1311,18 +1311,66 @@ JSON
     _assert_eq "karabiner: Windows Ctrl-arrow rules exempt VS Code apps" \
       "4" "$karabiner_ctrl_arrow_vscode_exemptions"
 
-    karabiner_pane_move_intercepts=$(
+    karabiner_pane_move_transports=$(
+      jq -c '[
+        .profiles[]
+        | select(.name == "Windows (Dotfiles)")
+        | .complex_modifications.rules[]
+        | select(.description == "Alt-Shift-H/J/K/L [Only VS Code]")
+        | .manipulators[]
+        | {from: .from.key_code, to: .to[0].key_code}
+      ] | sort_by(.from)' "$karabiner_src"
+    )
+    _assert_eq "karabiner: Alt-Shift-H/J/K/L use the reserved VS Code transports" \
+      '[{"from":"h","to":"f16"},{"from":"j","to":"f17"},{"from":"k","to":"f18"},{"from":"l","to":"f19"}]' \
+      "$karabiner_pane_move_transports"
+
+    karabiner_pane_move_transport_errors=$(
+      jq -c '
+        def vscode_bundle_ids:
+          [
+            "^com\\.facebook\\.fbvscode$",
+            "^com\\.facebook\\.fbvscode-insiders$",
+            "^com\\.microsoft\\.VSCode$",
+            "^com\\.microsoft\\.VSCodeInsiders$",
+            "^com\\.todesktop\\.230313mzl4w4u92$",
+            "^com\\.vscodium$"
+          ];
+
+        [
+          .profiles[]
+          | select(.name == "Windows (Dotfiles)")
+          | .complex_modifications.rules[]
+          | select(.description == "Alt-Shift-H/J/K/L [Only VS Code]")
+          | .manipulators[]
+          | select(
+              .from.modifiers.mandatory != ["option", "shift"]
+              or (.from.modifiers.optional // []) != []
+              or (.to | length) != 1
+              or (.to[0] | has("modifiers"))
+              or (.conditions | length) != 1
+              or .conditions[0].type != "frontmost_application_if"
+              or (.conditions[0].bundle_identifiers | sort) != (vscode_bundle_ids | sort)
+            )
+          | .from.key_code
+        ] | sort
+      ' "$karabiner_src"
+    )
+    _assert_eq "karabiner: pane-move transports are exact and VS Code-only" \
+      '[]' "$karabiner_pane_move_transport_errors"
+
+    karabiner_pane_move_transport_collisions=$(
       jq '[
         .profiles[]
         | select(.name == "Windows (Dotfiles)")
-        | .complex_modifications.rules[].manipulators[]
-        | select(.from.key_code == "h" or .from.key_code == "j" or .from.key_code == "k" or .from.key_code == "l")
-        | (.from.modifiers.mandatory // []) as $mods
-        | select(($mods | index("option")) != null and ($mods | index("shift")) != null)
+        | .complex_modifications.rules[]
+        | select(.description != "Alt-Shift-H/J/K/L [Only VS Code]")
+        | .manipulators[].to[]?
+        | select(.key_code == "f16" or .key_code == "f17" or .key_code == "f18" or .key_code == "f19")
       ] | length' "$karabiner_src"
     )
-    _assert_eq "karabiner: Alt-Shift-H/J/K/L pass through unchanged" \
-      "0" "$karabiner_pane_move_intercepts"
+    _assert_eq "karabiner: F16-F19 are reserved for pane movement" \
+      "0" "$karabiner_pane_move_transport_collisions"
 
     karabiner_home_end_vscode_exemptions=$(
       jq -r '
@@ -2043,6 +2091,65 @@ EOF
         ' "$keybindings_file")"
     }
 
+    _assert_vscode_macos_pane_move_keybindings() {
+      local keybindings_file="$1"
+
+      _assert_eq "vscode mac terminal: Karabiner pane transports send exact escape sequences" \
+        '[]' \
+        "$(jq -c '[
+          . as $bindings
+          | (
+              [
+                {key: "f16", text: "\u001bH"},
+                {key: "f17", text: "\u001bJ"},
+                {key: "f18", text: "\u001bK"},
+                {key: "f19", text: "\u001bL"}
+              ][]
+            ) as $wanted
+          | select(
+              [
+                $bindings[]
+                | select(
+                    .key == $wanted.key
+                    and .command == "workbench.action.terminal.sendSequence"
+                    and .args.text == $wanted.text
+                    and .when == "terminalFocus"
+                  )
+              ]
+              | length != 1
+            )
+          | $wanted.key
+        ]' "$keybindings_file")"
+      _assert_eq "vscode mac editor: Karabiner pane transports move editor groups" \
+        '[]' \
+        "$(jq -c '[
+          . as $bindings
+          | (
+              [
+                {key: "f16", command: "workbench.action.moveActiveEditorGroupLeft"},
+                {key: "f17", command: "workbench.action.moveActiveEditorGroupDown"},
+                {key: "f18", command: "workbench.action.moveActiveEditorGroupUp"},
+                {key: "f19", command: "workbench.action.moveActiveEditorGroupRight"}
+              ][]
+            ) as $wanted
+          | select(
+              [
+                $bindings[]
+                | select(
+                    .key == $wanted.key
+                    and .command == $wanted.command
+                    and .when == "editorFocus && !terminalFocus"
+                  )
+              ]
+              | length != 1
+            )
+          | $wanted.key
+        ]' "$keybindings_file")"
+      _assert_eq "vscode mac: F16-F19 have only terminal and editor pane routes" \
+        "8" \
+        "$(jq '[.[] | select(.key == "f16" or .key == "f17" or .key == "f18" or .key == "f19")] | length' "$keybindings_file")"
+    }
+
     _assert_vscode_focus_fallback_keybindings() {
       local keybindings_file="$1"
       local platform="$2"
@@ -2127,6 +2234,13 @@ EOF
             )
           | $wanted.key
         ]' "$keybindings_file")"
+      if [[ $platform == "macOS" ]]; then
+        _assert_vscode_macos_pane_move_keybindings "$keybindings_file"
+      else
+        _assert_eq "vscode $platform: macOS pane transport keys stay absent" \
+          "0" \
+          "$(jq '[.[] | select(.key == "f16" or .key == "f17" or .key == "f18" or .key == "f19")] | length' "$keybindings_file")"
+      fi
       _assert_eq "vscode $platform terminal: Ctrl+/ transport is extension-independent" \
         '[]' \
         "$(jq -c '[
@@ -6267,7 +6381,7 @@ TOML
   codex_content=$(cat "$CODEX_CONFIG")
   _assert_contains "codex hook: emits hook array tables" "[[hooks.PreToolUse]]" "$codex_content"
 
-  if python3 - "$CODEX_CONFIG" <<'PY'; then
+  if python3 - "$CODEX_CONFIG" <<'PY'
 import hashlib
 import json
 import pathlib
@@ -6354,6 +6468,7 @@ assert state[post_edit_key]["trusted_hash"] == current_hash(
     data["hooks"]["PostToolUse"][0]["hooks"][0],
 )
 PY
+  then
     _pass "codex hook: merges common/work, preserves local state, and trusts managed hooks"
   else
     _fail "codex hook: merges common/work, preserves local state, and trusts managed hooks"
@@ -6398,7 +6513,7 @@ PY
   # Profile overlays: common + work fragments merge into the per-profile file,
   # later layers win, source layers override pre-existing local keys, and local
   # CLI-owned keys without a source counterpart survive.
-  if python3 - "$CODEX_DIR/layered.config.toml" <<'PY'; then
+  if python3 - "$CODEX_DIR/layered.config.toml" <<'PY'
 import sys
 import tomllib
 
@@ -6410,12 +6525,13 @@ assert data["approval_policy"] == "never", data            # source beats local 
 assert data["model"] == "local-allow", data                # local-only key preserved
 assert data["features"]["web_search_request"] is True, data  # nested profile tables survive
 PY
+  then
     _pass "codex hook: renders profile overlays, layering work over common and preserving local state"
   else
     _fail "codex hook: renders profile overlays, layering work over common and preserving local state"
   fi
 
-  if python3 - "$CODEX_DIR/experimental.config.toml" <<'PY'; then
+  if python3 - "$CODEX_DIR/experimental.config.toml" <<'PY'
 import sys
 import tomllib
 
@@ -6424,13 +6540,14 @@ with open(sys.argv[1], "rb") as f:
 assert data["model"] == "experimental-model", data
 assert data["model_reasoning_effort"] == "high", data
 PY
+  then
     _pass "codex hook: renders dynamically discovered profile families"
   else
     _fail "codex hook: renders dynamically discovered profile families"
   fi
 
   _run_codex_merge 2>/dev/null
-  if python3 - "$CODEX_CONFIG" <<'PY'; then
+  if python3 - "$CODEX_CONFIG" <<'PY'
 import sys
 import tomllib
 
@@ -6438,6 +6555,7 @@ with open(sys.argv[1], "rb") as f:
     data = tomllib.load(f)
 assert "profiles" not in data, "new Codex config should not keep legacy inline profiles"
 PY
+  then
     _pass "codex hook: keeps config.toml free of legacy inline profiles"
   else
     _fail "codex hook: keeps config.toml free of legacy inline profiles"
@@ -6469,7 +6587,7 @@ TOML
   PATH="$_codex_no_yq_bin:/usr/bin:/bin" _run_codex_merge 2>/dev/null
   PATH=$saved_path
   _run_codex_merge 2>/dev/null
-  if python3 - "$CODEX_CONFIG" <<'PY'; then
+  if python3 - "$CODEX_CONFIG" <<'PY'
 import sys
 import tomllib
 
@@ -6477,6 +6595,7 @@ with open(sys.argv[1], "rb") as f:
     data = tomllib.load(f)
 assert data["projects"]["/cache-source-change"]["trust_level"] == "trusted"
 PY
+  then
     _pass "codex hook: skipped merge does not cache stale config"
   else
     _fail "codex hook: skipped merge does not cache stale config"
