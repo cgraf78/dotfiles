@@ -218,6 +218,22 @@ TOOL_COMMANDS
       printf '%s' "$?"
     )"
 
+  _tool_presence_commands=code-fb
+  _tool_presence_paths=""
+  _assert_exit "tool presence: VS Code @ FB command enables VS Code" 0 \
+    "$(
+      _dot_tool_present vscode
+      printf '%s' "$?"
+    )"
+
+  _tool_presence_commands=""
+  _tool_presence_paths="/Applications/VS Code @ FB.app"
+  _assert_exit "tool presence: VS Code @ FB app enables VS Code" 0 \
+    "$(
+      _dot_tool_present vscode
+      printf '%s' "$?"
+    )"
+
   _tool_presence_platform=WSL
   _tool_presence_commands=wezterm.exe
   _tool_presence_paths=""
