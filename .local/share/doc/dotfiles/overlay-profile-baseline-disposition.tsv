@@ -93,7 +93,7 @@ source_path	component_id	category	transform	d4_action	d5_action	ownership_note
 .config/dot/merge-hooks.d/iterm2/README.md	dot-control	docs	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
 .config/dot/merge-hooks.d/iterm2/defaults.d/10-preferences.tsv	dot-control	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
 .config/dot/merge-hooks.d/iterm2/profiles.d/10-dotfiles-dyn-profile.json	dot-control	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
-.config/dot/merge-hooks.d/karabiner/README.md	dot-control	docs	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.config/dot/merge-hooks.d/karabiner/README.md	dot-control	docs	rewrite	keep	keep	owner=dotfiles; source=locked-dotfiles; rewrite=cross-repo-doc-link
 .config/dot/merge-hooks.d/karabiner/profiles.d/10-windows-dotfiles.json	dot-control	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
 .config/dot/merge-hooks.d/mise/README.md	dev-toolchain	docs	keep	remove	none	owner=dotfiles-dev; source=locked-dotfiles
 .config/dot/merge-hooks.d/muse/README.md	agent-tooling	docs	keep	remove	none	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling

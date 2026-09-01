@@ -62,6 +62,9 @@ dot_core_test_static() {
     "$root/.local/share/doc/dotfiles/dotfiles.md"
   _assert_file_exists "client docs: test guide is present" \
     "$root/.local/lib/dotfiles/tests/README.md"
+  _assert_contains "Karabiner docs: cross-layer policy points to its public owner" \
+    "https://github.com/cgraf78/dotfiles-dev/blob/main/home/.config/dot/merge-hooks.d/vscode/keybindings/README.md#macos-physical-key-ownership" \
+    "$(<"$root/.config/dot/merge-hooks.d/karabiner/README.md")"
 
   echo ""
   echo "=== Profile and ignore policy ==="
