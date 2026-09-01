@@ -171,7 +171,7 @@ _dot_tool_present() {
       ;;
     vscode)
       _dot_tool_any_command \
-        code code-insiders cursor codium codium-insiders \
+        code code-insiders code-fb code-fb-insiders cursor codium codium-insiders \
         code.exe code-insiders.exe cursor.exe codium.exe \
         codium-insiders.exe && return 0
       _dot_tool_any_path \
@@ -184,6 +184,10 @@ _dot_tool_present() {
         "$HOME/Applications/Visual Studio Code.app" \
         '/Applications/Visual Studio Code - Insiders.app' \
         "$HOME/Applications/Visual Studio Code - Insiders.app" \
+        '/Applications/VS Code @ FB.app' \
+        "$HOME/Applications/VS Code @ FB.app" \
+        '/Applications/VS Code @ FB - Insiders.app' \
+        "$HOME/Applications/VS Code @ FB - Insiders.app" \
         /Applications/Cursor.app "$HOME/Applications/Cursor.app" \
         /Applications/VSCodium.app "$HOME/Applications/VSCodium.app"
       ;;
