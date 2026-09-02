@@ -24,21 +24,12 @@ _client_path_contains 'WSL aliases load the dotfiles-owned Windows helper' \
   .config/shell/interactive.d/51-aliases-wsl.sh '.local/lib/dotfiles/windows.sh'
 _client_path_contains 'Termnav shell policy loads the dotfiles-owned Shdeps helper' \
   .config/shell/interactive.d/53-termnav.sh '.local/lib/dotfiles/shdeps-assets.sh'
-_client_path_contains 'tool initialization loads the dotfiles-owned Shdeps helper' \
-  .config/shell/interactive.d/54-tool-init.sh '.local/lib/dotfiles/shdeps-assets.sh'
 _client_path_contains 'marks consume the public standalone XDG library' \
   .config/shell/interactive.d/57-marks.sh '.local/lib/dot/xdg.sh'
 _client_path_contains 'clipboard consumes the public standalone XDG library' \
   .local/bin/clip '.local/lib/dot/xdg.sh'
 _client_path_contains 'Git launcher loads the dotfiles-owned launcher helper' \
   .local/bin/git '../lib/dotfiles/launcher-real.sh'
-_client_path_contains 'Hive Memory launcher loads the dotfiles-owned Shdeps helper' \
-  .local/bin/hm '../lib/dotfiles/shdeps-assets.sh'
-_client_path_contains 'Neovim launcher loads the dotfiles-owned Shdeps helper' \
-  .local/bin/nvim '../lib/dotfiles/shdeps-assets.sh'
-_client_path_contains 'Git hooksPath uses the dotfiles-owned hook tree' \
-  .config/git/config '.local/lib/dotfiles/git-hooks'
-
 if dot_root=$(_test_dot_root) &&
   [[ -f $source_home/.local/bin/dot &&
     ! -L $source_home/.local/bin/dot &&
@@ -61,10 +52,7 @@ selected_paths=(
   .config/shell/interactive.d/57-marks.sh
   .local/bin/clip
   .local/bin/git
-  .local/bin/hm
-  .local/bin/nvim
   .local/bin/dot
-  .config/git/config
 )
 old_references=$(
   grep -nE '\.local/lib/dot/core/(shell-loader|windows|shdeps-assets|launcher-real)\.sh|\.local/lib/dot/(git-hooks|sley-hooks)' \

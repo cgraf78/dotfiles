@@ -1,6 +1,0 @@
-# Files autolint's `typos` phase should skip while leaving schema/parser checks
-# and backend linters available when they are useful.
-
-# Pinned public schema payloads use upstream vocabulary and third-party setting
-# names that should not become personal dictionary policy.
-*/.local/share/checkrun/schemas/*.schema.json

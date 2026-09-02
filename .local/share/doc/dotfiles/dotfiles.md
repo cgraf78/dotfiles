@@ -136,12 +136,39 @@ for the data format and safe local-file rules.
 Profile changes are convergent in both directions. The next successful update
 adds newly selected overlay links and removes only exact managed links from
 deselected overlays, restoring lower-layer files where applicable. Cached
-checkouts, installed packages, and unmanaged files are retained.
+checkouts, installed packages, and unmanaged files are retained. This is an
+activation change, not automatic storage reclamation: the footprint estimates
+below describe fresh installations, not the disk use of a machine after it has
+previously used a larger profile. After a downgrade, `shdeps prune --dry-run`
+previews removable Shdeps payloads and `shdeps prune` removes confirmed
+orphans. Native packages, Mise toolchains, Nvim data, marketplace extensions,
+and cached overlay checkouts require separate deliberate cleanup.
 
 `dot update` resolves profiles in two phases so an available personal overlay
 may contribute private selectors without exposing other unselected overlay
 configuration. Inspection commands stay offline. `fetch` and `push` operate
 only on selected repositories that already exist.
+
+### Footprint expectations
+
+| Profile | Planning footprint |
+| --- | --- |
+| `base` | about 0.6--0.8 GiB on the Linux GitHub/font-fallback path; the canonical clean fixture measures about 6 MiB of repository/control-plane payload, while the three installed Nerd Font families account for about 463 MiB |
+| `editor` | about 0.8--1.0 GiB cumulative; the current active Nvim executable, config, state, cache, and plugin graph add about 186 MiB |
+| `dev` | about 2.5--4.5 GiB cumulative before project build outputs |
+
+The locked integration fixture measures checkout, configuration, and
+control-plane payloads for all three profiles and compares them with the D4
+monolith. The editor overlay CI separately measures the active Nvim graph.
+The dev range remains an installation estimate rather than a claimed clean
+measurement. Optional private overlays, host package-manager stores,
+language/package caches, and project build outputs are reported separately or
+excluded so machine history does not distort the profile comparison. The base
+fallback path is an explicit exception to the original 500 MiB target because
+the three retained base-owned font families alone use about 463 MiB; this
+cutover does not move or trim them. Native package-manager paths vary by
+platform and share system stores, so their exact incremental sizes are reported
+as platform context rather than attributed to the profile total.
 
 ## Tool Installation and Ownership
 

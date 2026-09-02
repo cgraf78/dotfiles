@@ -78,6 +78,7 @@ user_managed=$(_bytes_for \
   "$fixture_home/.local/share/cgraf78" \
   "$fixture_home/.local/share/shdeps")
 nvim=$(_bytes_for \
+  "$fixture_home/.local/share/neovim" \
   "$fixture_home/.local/share/nvim" \
   "$fixture_home/.local/state/nvim" \
   "$fixture_home/.cache/nvim")
@@ -106,14 +107,14 @@ fi
 
 public_total=$((\
   git_checkout_config + user_managed + nvim + mise + \
-  language_caches + native_packages))
+  native_packages))
 
 printf 'version=1\n'
 printf 'phase=%s\n' "$phase"
 printf 'profile=%s\n' "$profile"
 printf 'category\tbytes\tstatus\n'
 printf 'git_checkout_config\t%s\tmeasured\n' "$git_checkout_config"
-printf 'language_caches\t%s\tmeasured\n' "$language_caches"
+printf 'language_caches\t%s\tseparate\n' "$language_caches"
 printf 'mise\t%s\tmeasured\n' "$mise"
 printf 'native_packages\t%s\t%s\n' "$native_packages" "$native_status"
 printf 'nvim\t%s\tmeasured\n' "$nvim"

@@ -36,6 +36,11 @@ dot_fixture_copy_core() {
     "$TEST_HOME/.local/lib/dotfiles/"
   cp -R "$source_home/.local/lib/dotfiles/doctor.d" \
     "$TEST_HOME/.local/lib/dotfiles/"
+  # A composed installed HOME adds capability extensions as managed symlinks.
+  # Core fixtures exercise only the base-owned copies; capability owners run
+  # their linked suites independently in the same unfiltered invocation.
+  find "$TEST_HOME/.local/lib/dotfiles/merge-hooks.d" \
+    "$TEST_HOME/.local/lib/dotfiles/doctor.d" -type l -delete
   cat >"$TEST_HOME/.config/dot/config" <<'CONF'
 version=1
 extension_api=1

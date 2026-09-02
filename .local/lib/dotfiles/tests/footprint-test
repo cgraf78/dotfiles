@@ -23,6 +23,7 @@ mkdir -p \
   "$fixture/.local/bin" \
   "$fixture/.local/share/cgraf78/dot" \
   "$fixture/.local/share/shdeps" \
+  "$fixture/.local/share/neovim" \
   "$fixture/.local/share/nvim" \
   "$fixture/.local/state/nvim" \
   "$fixture/.cache/nvim" \
@@ -45,6 +46,7 @@ _write_bytes "$fixture/.config/app" 7
 _write_bytes "$fixture/.local/bin/tool" 11
 _write_bytes "$fixture/.local/share/cgraf78/dot/file" 13
 _write_bytes "$fixture/.local/share/shdeps/file" 17
+_write_bytes "$fixture/.local/share/neovim/file" 61
 _write_bytes "$fixture/.local/share/nvim/file" 19
 _write_bytes "$fixture/.local/state/nvim/file" 21
 _write_bytes "$fixture/.cache/nvim/file" 23
@@ -86,14 +88,15 @@ _assert_contains 'user-managed payload is counted' \
   $'user_managed\t41\tmeasured' "$first"
 _assert_contains 'native package payload is separately counted' \
   $'native_packages\t59\tmeasured' "$first"
-_assert_contains 'Nvim payload is counted' $'nvim\t63\tmeasured' "$first"
+_assert_contains 'Nvim executable and runtime payload are counted' \
+  $'nvim\t124\tmeasured' "$first"
 _assert_contains 'mise payload is counted' $'mise\t29\tmeasured' "$first"
 _assert_contains 'language caches are counted' \
-  $'language_caches\t152\tmeasured' "$first"
+  $'language_caches\t152\tseparate' "$first"
 _assert_contains 'private overlay payload is reported separately' \
   $'optional_private_overlays\t100\tseparate' "$first"
-_assert_contains 'public total excludes optional private overlays' \
-  $'public_total\t359\tderived' "$first"
+_assert_contains 'public total excludes private overlays and workload caches' \
+  $'public_total\t268\tderived' "$first"
 
 categories=$(printf '%s\n' "$first" |
   awk -F '\t' 'NF == 3 && $1 != "category" && $1 != "public_total" { print $1 }')

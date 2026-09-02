@@ -289,8 +289,7 @@ TOOL_COMMANDS
 
   tool_gated_hooks=$(
     printf '%s\n' \
-      agent-rules claude codex cron gemini gh git gstack hive-memory ignore \
-      iterm2 karabiner mise muse nvim opencode sapling ssh tmux vscode wezterm
+      agent-rules cron ignore iterm2 karabiner ssh tmux wezterm
   )
   merge_hook_inventory_home=$(_tmpdir)
   mkdir -p "$merge_hook_inventory_home/.local/lib/dotfiles/merge-hooks.d/lib"
@@ -435,30 +434,6 @@ YQ
   else
     _fail "AgentGuard resolver: shared dependency asset helper exists"
   fi
-
-  codex_api="$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/lib/codex/api.sh"
-  _assert_exit "Codex API boundary: clean shell rejects direct private loading" 1 \
-    "$(
-      # shellcheck disable=SC2016 # $1 expands inside the clean child shell.
-      env -i HOME="$TEST_HOME" PATH="/usr/bin:/bin" \
-        /bin/bash --noprofile --norc -c '
-          . "$1"
-        ' bash "$codex_api"
-      printf '%s' "$?"
-    )"
-  _assert_exit "Codex API boundary: public extension API supplies dependencies" 0 \
-    "$(
-      # shellcheck disable=SC2016 # $1 and $2 expand in the clean child shell.
-      env -i HOME="$TEST_HOME" PATH="/usr/bin:/bin" \
-        REAL_HOME="$REAL_HOME" DOT_TEST_SOURCE_HOME="$REAL_HOME" \
-        DOT_TEST_DOT_ROOT="$DOT_SOURCE_ROOT" \
-        /bin/bash --noprofile --norc -c '
-          . "$1"
-          . "$2"
-          declare -F dot_agentguard_integration_file >/dev/null
-        ' bash "$REAL_HOME/.local/lib/dotfiles/tests/load-merge-api.sh" "$codex_api"
-      printf '%s' "$?"
-    )"
 
   echo "=== tmux merge hook ==="
 
@@ -1200,28 +1175,11 @@ EOF
   rm -f "$IGNORE_FILE"
   rm -rf "$TEST_HOME/.config/dot/merge-hooks.d/ignore/ignore.d"
 
-  echo "=== D4 merge hook ownership boundary ==="
+  echo "=== D5 merge hook ownership boundary ==="
 
   expected_base_hooks=$(printf '%s\n' \
     agent-rules cron ignore iterm2 karabiner ssh tmux wezterm | LC_ALL=C sort)
   actual_hooks=$(_dot_test_merge_hook_names "$REAL_HOME")
-  missing_base_hooks=$(comm -23 <(printf '%s\n' "$expected_base_hooks") \
-    <(printf '%s\n' "$actual_hooks"))
-  _assert_eq "merge hooks: every base hook remains available during staging" \
-    "" "$missing_base_hooks"
-  temporary_hooks=$(comm -13 <(printf '%s\n' "$expected_base_hooks") \
-    <(printf '%s\n' "$actual_hooks"))
-  baseline=$REAL_HOME/.local/share/doc/dotfiles/overlay-profile-baseline-disposition.tsv
-  while IFS= read -r hook_name; do
-    [[ -n $hook_name ]] || continue
-    hook_path=.local/lib/dotfiles/merge-hooks.d/$hook_name.sh
-    if awk -F '\t' -v path="$hook_path" '
-      NR > 1 && $1 == path && $5 == "keep" && $6 == "remove" { found=1 }
-      END { exit found ? 0 : 1 }
-    ' "$baseline"; then
-      _pass "merge hooks staging: temporary capability hook is inventoried: $hook_name"
-    else
-      _fail "merge hooks staging: temporary capability hook is inventoried: $hook_name"
-    fi
-  done <<<"$temporary_hooks"
+  _assert_eq "merge hooks: only base hooks remain after cutover" \
+    "$expected_base_hooks" "$actual_hooks"
 }

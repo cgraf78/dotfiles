@@ -5,6 +5,73 @@ set -euo pipefail
 
 root=$(cd -P -- "${BASH_SOURCE[0]%/*}/../../../.." && pwd -P)
 candidate_sha=${DOTFILES_CANDIDATE_SHA:-}
+lock=$root/.github/overlay-profile-stack.lock
+
+stack_value() {
+  local key=$1
+  awk -F= -v key="$key" '$1 == key { count++; value=$2 } END {
+    if (count == 1) print value; else exit 1
+  }' "$lock"
+}
+
+verify_d5_pull_request_base() {
+  local base_ref base_sha event_ref event_sha merge_base
+
+  base_ref=$(stack_value dotfiles_d4_base_ref 2>/dev/null || true)
+  base_sha=$(stack_value dotfiles_d4_base 2>/dev/null || true)
+  if [[ -z $base_ref && -z $base_sha ]]; then
+    return 0
+  fi
+  [[ -n $base_ref && -n $base_sha && $base_sha =~ ^[0-9a-f]{40}$ ]] || {
+    printf 'checkout-ci-candidate: invalid D5 base lock\n' >&2
+    return 1
+  }
+  git check-ref-format --branch "$base_ref" >/dev/null 2>&1 || {
+    printf 'checkout-ci-candidate: invalid D5 base ref: %s\n' "$base_ref" >&2
+    return 1
+  }
+  [[ ${GITHUB_EVENT_NAME:-} == pull_request &&
+    -f ${GITHUB_EVENT_PATH:-} && ! -L ${GITHUB_EVENT_PATH:-} ]] || {
+    printf 'checkout-ci-candidate: D5 CI requires a pull-request event\n' >&2
+    return 1
+  }
+  IFS=$'\t' read -r event_ref event_sha < <(
+    python3 - "$GITHUB_EVENT_PATH" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as stream:
+    event = json.load(stream)
+base = event.get("pull_request", {}).get("base", {})
+print(f"{base.get('ref', '')}\t{base.get('sha', '')}")
+PY
+  )
+  [[ $event_ref == "$base_ref" ]] || {
+    printf 'checkout-ci-candidate: pull-request base ref does not match lock\n' >&2
+    return 1
+  }
+  [[ $event_sha == "$base_sha" ]] || {
+    printf 'checkout-ci-candidate: pull-request base SHA does not match lock\n' >&2
+    return 1
+  }
+
+  if [[ $(root_git rev-parse --is-shallow-repository) == true ]]; then
+    root_git fetch --quiet --no-tags --unshallow origin \
+      "$candidate_sha" "$base_sha" || return 1
+  else
+    root_git fetch --quiet --no-tags origin "$base_sha" || return 1
+  fi
+  [[ $(root_git cat-file -t "$base_sha" 2>/dev/null) == commit ]] || {
+    printf 'checkout-ci-candidate: D5 base SHA is not a fetched commit\n' >&2
+    return 1
+  }
+  merge_base=$(root_git merge-base "$candidate_sha" "$base_sha" 2>/dev/null) ||
+    merge_base=
+  [[ $merge_base == "$base_sha" ]] || {
+    printf 'checkout-ci-candidate: D5 head is not based on the locked D4 commit\n' >&2
+    return 1
+  }
+}
 
 [[ $candidate_sha =~ ^[0-9a-f]{40}$ ]] || {
   printf 'checkout-ci-candidate: invalid immutable candidate revision: %s\n' \
@@ -100,5 +167,10 @@ dirty=$(root_git status --porcelain --untracked-files=all |
   printf '%s\n' "$dirty" >&2
   exit 1
 }
+
+if [[ ${GITHUB_ACTIONS:-false} == true &&
+  ${GITHUB_EVENT_NAME:-} == pull_request ]]; then
+  verify_d5_pull_request_base || exit 1
+fi
 
 printf 'candidate-checkout\torigin=%s\thead=%s\n' "$origin" "$actual_sha"

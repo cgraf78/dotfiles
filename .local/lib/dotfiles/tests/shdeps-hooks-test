@@ -10,9 +10,18 @@ export NO_COLOR=1
 REAL_HOME=$HOME
 _test_prefer_system_git || exit 1
 
+_base_source_git() {
+  if [[ -d $REAL_HOME/.dotfiles ]]; then
+    command git -C "$REAL_HOME" --git-dir="$REAL_HOME/.dotfiles" \
+      --work-tree="$REAL_HOME" "$@"
+  else
+    command git -C "$REAL_HOME" "$@"
+  fi
+}
+
 echo "=== base Shdeps ownership ==="
 
-_base_hook_names=$(git -C "$REAL_HOME" ls-files '.config/shdeps/hooks.d/*.sh' \
+_base_hook_names=$(_base_source_git ls-files '.config/shdeps/hooks.d/*.sh' \
   '.config/shdeps/hooks.d/**/*.sh' |
   sed -e 's#^\.config/shdeps/hooks.d/##' -e 's#\.sh$##' |
   LC_ALL=C sort)
@@ -25,23 +34,17 @@ for _base_hook in cgraf78/dot eza nerd-fonts rcaloras/bash-preexec \
   fi
 done
 
-# D4 intentionally retains the old capability installers until D5 removes the
-# monolith. Every non-base hook must therefore be an explicitly inventoried
-# temporary path, never an accidental new top-level owner.
+# The cutover leaves only base-owned custom hooks in the aggregation repo.
 while IFS= read -r _hook_path; do
   _base_hook=${_hook_path#.config/shdeps/hooks.d/}
   _base_hook=${_base_hook%.sh}
-  grep -Fxq "$_base_hook" <<<"$(printf '%s\n' cgraf78/dot eza nerd-fonts \
-    rcaloras/bash-preexec tmux tmux-plugins/tmux-resurrect wezterm xclip)" && continue
-  if awk -F '\t' -v path="$_hook_path" \
-    'NR > 1 && $1 == path && $5 == "keep" && $6 == "remove" { found=1 }
-     END { exit found ? 0 : 1 }' \
-    "$REAL_HOME/.local/share/doc/dotfiles/overlay-profile-baseline-disposition.tsv"; then
-    _pass "Shdeps staging: temporary capability hook is inventoried: $_base_hook"
+  if grep -Fxq "$_base_hook" <<<"$(printf '%s\n' cgraf78/dot eza nerd-fonts \
+    rcaloras/bash-preexec tmux tmux-plugins/tmux-resurrect wezterm xclip)"; then
+    continue
   else
-    _fail "Shdeps staging: temporary capability hook is inventoried: $_base_hook"
+    _fail "Shdeps: capability hook is absent after cutover: $_base_hook"
   fi
-done < <(git -C "$REAL_HOME" ls-files '.config/shdeps/hooks.d/*.sh' \
+done < <(_base_source_git ls-files '.config/shdeps/hooks.d/*.sh' \
   '.config/shdeps/hooks.d/**/*.sh')
 
 for _base_dependency in cgraf78/agent-rules-sync cgraf78/dot cgraf78/ds \
@@ -60,9 +63,9 @@ for _capability_dependency in neovim/neovim cgraf78/agentguard \
   cgraf78/vscode-exts; do
   if awk -v dependency="$_capability_dependency" '$1 == dependency { found=1 }
     END { exit found ? 0 : 1 }' "$REAL_HOME/.config/shdeps/10-deps.conf"; then
-    _pass "Shdeps staging: retained capability declaration $_capability_dependency"
+    _fail "Shdeps: capability declaration is absent after cutover: $_capability_dependency"
   else
-    _fail "Shdeps staging: retained capability declaration $_capability_dependency"
+    _pass "Shdeps: capability declaration is absent after cutover: $_capability_dependency"
   fi
 done
 

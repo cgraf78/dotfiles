@@ -9,8 +9,13 @@ export NO_COLOR=1
 
 source_home=${DOT_TEST_SOURCE_HOME:-$HOME}
 tmux_config=$source_home/.config/tmux/tmux.conf
-tmux_content=$(<"$tmux_config")
+tmux_base=$source_home/.config/tmux/conf.d/10-base.conf
+tmux_content=$(<"$tmux_base")
 shdeps_content=$(<"$source_home/.config/shdeps/10-deps.conf")
+# shellcheck disable=SC2088 # Match the literal path stored in tmux config.
+termnav_hot_path='~/.local/bin/termnav navigate'
+move_tab_left=$(printf '%s\n' "$tmux_content" | awk "/^bind-key -n 'M-\\{' / { print }")
+move_tab_right=$(printf '%s\n' "$tmux_content" | awk "/^bind-key -n 'M-\\}' / { print }")
 
 echo "=== base tmux policy ==="
 
@@ -19,8 +24,14 @@ _assert_contains "tmux: new panes prefer zsh when available" \
   'shell=$(command -v zsh' "$tmux_content"
 _assert_contains "tmux: terminal supports true color" \
   'terminal-overrides' "$tmux_content"
-_assert_contains "tmux: mouse support is enabled" \
+# shellcheck disable=SC2016 # Match the literal HOME reference in the loader.
+_assert_contains "tmux: loader reads ordered capability fragments" \
+  'source-file -q "$HOME/.config/tmux/conf.d/*.conf"' \
+  "$(<"$tmux_config")"
+_assert_not_contains "tmux: base fragment excludes editor mouse policy" \
   'set -g mouse on' "$tmux_content"
+_assert_not_contains "tmux: base fragment excludes Nvim commands" \
+  'nvim' "$tmux_content"
 _assert_contains "tmux: escape delay stays bounded" \
   'set -s escape-time 10' "$tmux_content"
 _assert_contains "tmux: history is retained generously" \
@@ -31,6 +42,10 @@ _assert_contains "tmux: continuum coordination uses the provider command" \
   'tmux-continuum-default-server' "$tmux_content"
 _assert_contains "tmux: terminal boundary routing uses Termnav" \
   'termnav navigate' "$tmux_content"
+_assert_not_contains "tmux: retired relay command stays absent" \
+  'termnav-relay' "$tmux_content"
+_assert_not_contains "tmux: retired navigation wrapper stays absent" \
+  'termnav-navigate' "$tmux_content"
 
 for dependency in tmux cgraf78/tmux-tools cgraf78/termnav \
   tmux-plugins/tmux-continuum tmux-plugins/tmux-resurrect tmux-plugins/tpm; do
@@ -41,22 +56,330 @@ for dependency in tmux cgraf78/tmux-tools cgraf78/termnav \
     _fail "tmux: base declares $dependency"
   fi
 done
+_assert_eq 'tmux: Termnav is a GitHub-owned dependency' github \
+  "$(awk '$1 == "cgraf78/termnav" { print $2 }' <<<"$shdeps_content")"
+if [[ -n ${DOT_TEST_TERMNAV_ROOT:-} ]]; then
+  if [[ -x ${DOT_TEST_TERMNAV_ROOT}/target/release/termnav ]]; then
+    _pass 'tmux: candidate termnav is executable'
+  else
+    _fail 'tmux: candidate termnav is executable'
+  fi
+fi
+
+_assert_contains 'tmux: focused pane labels use the shared leaf predicate' \
+  '@termnav_pane_is_focused_leaf' "$tmux_content"
+for hook in client-attached client-focus-in client-focus-out client-detached; do
+  _assert_contains "tmux: declares the $hook focus hook" \
+    "set-hook -g ${hook}[110]" "$tmux_content"
+done
+_assert_contains 'tmux: attached clients publish terminal context' \
+  'termnav tmux context --tty #{q:client_tty}' "$tmux_content"
+_assert_contains 'tmux: control clients are excluded from context publication' \
+  '#{==:#{client_control_mode},0}' "$tmux_content"
+_assert_not_contains 'tmux: context publication remains ordered' \
+  "client-attached[100] 'run-shell -b" "$tmux_content"
+_assert_contains 'tmux: focus-in starts the focus watcher' \
+  'termnav tmux focus watch' "$tmux_content"
+_assert_contains 'tmux: focus-out stops the focus watcher' \
+  'termnav tmux focus stop' "$tmux_content"
+_assert_contains 'tmux: selection changes repair stale focus state' \
+  'termnav tmux focus sync' "$tmux_content"
+_assert_contains 'tmux: inactive panes keep the Night Owl background' \
+  "set -g @termnav_inactive_style 'bg=#010d17'" "$tmux_content"
+_assert_contains 'tmux: active panes keep the Night Owl background' \
+  "set -g window-active-style 'bg=#011627'" "$tmux_content"
+_assert_not_contains 'tmux: focus rendering does not spawn commands' \
+  '#(' "$(printf '%s\n' "$tmux_content" | awk '/termnav_pane_is_focused_leaf|window-active-style|pane-active-border-style|pane-border-format/')"
+
+for binding in \
+  'bind -T copy-mode-vi C-c send-keys -X copy-pipe-and-cancel' \
+  'bind -T copy-mode-vi Enter send-keys -X copy-pipe-and-cancel "clip capture"' \
+  "bind -T copy-mode-vi S-Left if -F '#{selection_active}'" \
+  "bind -T copy-mode-vi S-Right if -F '#{selection_active}'" \
+  "bind -T copy-mode-vi S-Up if -F '#{selection_active}'" \
+  "bind -T copy-mode-vi S-Down if -F '#{selection_active}'" \
+  "bind -T copy-mode-vi C-S-Left if -F '#{selection_active}'" \
+  "bind -T copy-mode-vi C-S-Right if -F '#{selection_active}'"; do
+  _assert_contains "tmux: preserves copy-mode binding $binding" \
+    "$binding" "$tmux_content"
+done
+_assert_contains 'tmux: modified copy selections establish an anchor' \
+  'send-keys -X begin-selection' "$tmux_content"
+_assert_contains 'tmux: publishes copy-mode selections through OSC 52' \
+  'set -g set-clipboard on' "$tmux_content"
+# shellcheck disable=SC2016 # Match the literal command substitution in config.
+_assert_contains 'tmux: clipboard picker uses the isolated handoff path' \
+  'clip pick > "$(tmux-clip-paste --path)"' "$tmux_content"
+_assert_contains 'tmux: clipboard picker pastes after the popup exits' \
+  'run-shell tmux-clip-paste' "$tmux_content"
+_assert_not_contains 'tmux: retired manual session exporter stays absent' \
+  'tmux-save-session' "$tmux_content"
+_assert_not_contains 'tmux: retired manual session restorer stays absent' \
+  'tmux-restore-session' "$tmux_content"
+_assert_contains 'tmux: reload removes the retired save key' 'unbind S' "$tmux_content"
+_assert_contains 'tmux: reload removes the retired restore key' 'unbind R' "$tmux_content"
+
+plugins=$(awk '/^[[:space:]]*set -g @plugin / { gsub(/'\''/, "", $4); print $4 }' \
+  "$tmux_base")
+_assert_eq 'tmux: persistence plugins retain dependency order' \
+  $'tmux-plugins/tpm\ntmux-plugins/tmux-resurrect\ntmux-plugins/tmux-continuum' \
+  "$plugins"
+native_restore_line=$(awk "/set -g @continuum-restore 'off'/ { print NR }" "$tmux_base")
+native_interval_line=$(awk "/set -g @continuum-save-interval '0'/ { print NR }" "$tmux_base")
+tpm_load_line=$(awk '/exec ~\/\.local\/share\/tmux-plugins\/tpm\/tpm/ { print NR }' "$tmux_base")
+default_owner_line=$(awk '/tmux-continuum-default-server/ { print NR }' "$tmux_base" | tail -n 1)
+if [[ $native_restore_line -lt $tpm_load_line &&
+  $native_interval_line -lt $tpm_load_line &&
+  $tpm_load_line -lt $default_owner_line ]]; then
+  _pass 'tmux: native persistence ownership is disabled before provider activation'
+else
+  _fail 'tmux: native persistence ownership is disabled before provider activation'
+fi
+for policy in \
+  "set -g @continuum-restore 'off'" \
+  "set -g @continuum-save-interval '0'" \
+  "set -g @tmux-tools-continuum-save-interval '5'" \
+  "set -g @tmux-tools-resurrect-auto-restore 'off'" \
+  "set -g @resurrect-dir '~/.local/share/tmux/resurrect/\$HOSTNAME'" \
+  "set -g @resurrect-hook-post-save-layout 'ds resurrect save'" \
+  "set -g @resurrect-hook-pre-restore-all 'ds resurrect begin'" \
+  "set -g @resurrect-hook-post-restore-all 'ds resurrect restore'"; do
+  _assert_contains "tmux: preserves persistence policy $policy" \
+    "$policy" "$tmux_content"
+done
+_assert_not_contains 'tmux: does not restart every foreground process' \
+  "set -g @resurrect-processes ':all:'" "$tmux_content"
+_assert_not_contains 'tmux: does not persist terminal scrollback by default' \
+  "set -g @resurrect-capture-pane-contents 'on'" "$tmux_content"
+resurrect_home=$(_tmpdir)
+HOME=$resurrect_home bash -c 'umask 000; . "$1"; post' _ \
+  "$source_home/.config/shdeps/hooks.d/tmux-plugins/tmux-resurrect.sh"
+for directory in \
+  "$resurrect_home/.local/share/tmux/resurrect" \
+  "$resurrect_home/.local/share/tmux/resurrect/$(hostname)"; do
+  mode=$(stat -c '%a' "$directory" 2>/dev/null || stat -f '%Lp' "$directory")
+  _assert_eq "tmux: protects resurrect directory $directory" 700 "$mode"
+done
+
+_assert_contains 'tmux: defines exact router origin metadata' \
+  'navigate_origin_args="--client-pid #{client_pid} --client-tty #{q:client_tty} --client-created #{client_created} --client-termtype #{q:client_termtype} --source-socket #{q:socket_path} --source-pane #{pane_id} --source-session #{q:session_id}"' \
+  "$tmux_content"
+_assert_eq 'tmux: defines router origin metadata once' 1 \
+  "$(awk '/^navigate_origin_args=/ { count++ } END { print count + 0 }' <<<"$tmux_content")"
+for direction in left right; do
+  _assert_contains "tmux: routes $direction tab movement through Termnav" \
+    "$termnav_hot_path tab-move $direction --parent \$navigate_origin_args" \
+    "$tmux_content"
+done
+_assert_not_contains 'tmux: boundary routes stay foreground-ordered' \
+  "run-shell -b '$termnav_hot_path" "$tmux_content"
+_assert_contains 'tmux: local left tab movement stays native' \
+  'swap-window -d -t :-' "$move_tab_left"
+_assert_contains 'tmux: local right tab movement stays native' \
+  'swap-window -d -t :+' "$move_tab_right"
+for retired in termnav-switch-tab wezterm-switch-tab wezterm-move-tab \
+  wezterm-select-pane DOT_PARENT_SWITCH_TAB DOT_PARENT_MOVE_TAB \
+  DOT_PARENT_SELECT_PANE; do
+  _assert_not_contains "tmux: retired route stays absent: $retired" \
+    "$retired" "$tmux_content"
+done
+relay_values=(
+  $'\033[777009u'
+  $'\033[?2004;0$y'
+  $'\033[?2004;1$y'
+  $'\033[?2004;2$y'
+  $'\033[?2004;3$y'
+  $'\033[?2004;4$y'
+)
+# shellcheck disable=SC2016 # Preserve tmux's literal config escapes.
+relay_config_values=(
+  '\033[777009u'
+  '\033[?2004;0\$y'
+  '\033[?2004;1\$y'
+  '\033[?2004;2\$y'
+  '\033[?2004;3\$y'
+  '\033[?2004;4\$y'
+)
+# shellcheck disable=SC2016 # Preserve tmux's partially escaped display form.
+relay_escaped_esc_values=(
+  '\033[777009u'
+  '\033[?2004;0$y'
+  '\033[?2004;1$y'
+  '\033[?2004;2$y'
+  '\033[?2004;3$y'
+  '\033[?2004;4$y'
+)
+# shellcheck disable=SC2016 # Preserve the legacy literal display values.
+relay_legacy_values=(
+  '_[777009u'
+  '_[?2004;0$y'
+  '_[?2004;1$y'
+  '_[?2004;2$y'
+  '_[?2004;3$y'
+  '_[?2004;4$y'
+)
+for index in "${!relay_values[@]}"; do
+  key=$((index + 8))
+  expected="set -s user-keys[$key] \"${relay_config_values[index]}\""
+  actual=$(awk -v prefix="set -s user-keys[$key] " \
+    'index($0, prefix) == 1 { print }' "$tmux_base")
+  _assert_eq "tmux: relay user key $key has one exact source definition" \
+    "$expected" "$actual"
+done
+_assert_not_contains 'tmux: retired parent-loopback user keys stay absent' \
+  'user-keys[0]' "$tmux_content"
+
+terminal_filter=$(
+  cat <<'AWK'
+$1 !~ /^[TXZ]/ && $(NF-1) == $NF && ($2 ~ /^(ssh|mosh|mosh-client|mosh-server|et)$/ || (mouse == 1 && $2 ~ /^(tmux|screen):?$/)) { found = 1 }
+END { exit !found }
+AWK
+)
+_assert_contains 'tmux: transport fallback retains terminal-process matching' \
+  'END { exit !found }' "$terminal_filter"
+printf 'S+ bash 39056 39056\nS+ tmux: client 39056 39056\n' |
+  awk -v mouse=1 "$terminal_filter"
+_assert_exit 'tmux: mouse-aware nested client is routed outward' 0 "$?"
+printf 'S+ bash 39056 39056\nS+ tmux: client 39056 39056\n' |
+  awk -v mouse=0 "$terminal_filter"
+_assert_exit 'tmux: non-mouse nested client stays local' 1 "$?"
+printf 'S+ bash 39056 39056\nS ssh 39100 39056\n' |
+  awk -v mouse=1 "$terminal_filter"
+_assert_exit 'tmux: background transport stays local' 1 "$?"
 
 if command -v tmux >/dev/null 2>&1; then
   socket_dir=$(_tmpdir)
   socket=$socket_dir/tmux.sock
-  if tmux -S "$socket" -f /dev/null new-session -d -s dot-tmux-syntax \
+  if HOME=$source_home tmux -S "$socket" -f /dev/null \
+    new-session -d -s dot-tmux-syntax \
     'sleep 60' >/dev/null 2>&1; then
-    output=$(tmux -S "$socket" source-file -n "$tmux_config" 2>&1)
+    active_pane=$(tmux -S "$socket" display-message -p '#{pane_id}')
+    inactive_pane=$(tmux -S "$socket" split-window -d -P -F '#{pane_id}' 'sleep 60')
+    tmux -S "$socket" select-pane -t "$active_pane"
+    output=$(HOME=$source_home tmux -S "$socket" source-file -n \
+      "$tmux_config" 2>&1)
     status=$?
-    tmux -S "$socket" kill-server >/dev/null 2>&1 || true
-    _assert_exit "tmux: full staging configuration parses" 0 "$status"
+    _assert_exit "tmux: base fragment loader parses" 0 "$status"
     _assert_eq "tmux: syntax validation is quiet" '' "$output"
+    HOME=$source_home tmux -S "$socket" bind-key -T prefix S run-shell tmux-save-session
+    HOME=$source_home tmux -S "$socket" bind-key -T prefix R run-shell tmux-restore-session
+    HOME=$source_home tmux -S "$socket" source-file "$tmux_config" >/dev/null 2>&1 || true
+    mode_keys=$(tmux -S "$socket" show-window-options -gv mode-keys)
+    control_output=$(printf 'detach-client\n' |
+      tmux -S "$socket" -C attach-session -t dot-tmux-syntax 2>&1)
+    control_status=$?
+    control_messages=$(tmux -S "$socket" show-messages)
+    root_keys=$(tmux -S "$socket" list-keys -T root)
+    prefix_keys=$(tmux -S "$socket" list-keys -T prefix)
+    copy_keys=$(tmux -S "$socket" list-keys -T copy-mode-vi)
+    client_hook=$(tmux -S "$socket" show-hooks -g client-attached)
+    pane_border_format=$(tmux -S "$socket" show-options -gv pane-border-format)
+    pane_border_style=$(tmux -S "$socket" show-window-options -gv pane-border-style)
+    pane_active_border_style=$(tmux -S "$socket" show-window-options -gv pane-active-border-style)
+    active_pane_border=$(tmux -S "$socket" display-message -p -t "$active_pane" "$pane_border_format")
+    inactive_pane_border=$(tmux -S "$socket" display-message -p -t "$inactive_pane" "$pane_border_format")
+    _assert_eq 'tmux: runtime mode keys remain vi' vi "$mode_keys"
+    _assert_contains 'tmux: runtime installs the client context hook' \
+      'client-attached[100]' "$client_hook"
+    _assert_contains 'tmux: runtime excludes control clients from context publication' \
+      '#{==:#{client_control_mode},0}' "$client_hook"
+    _assert_exit 'tmux: control client attaches and detaches cleanly' 0 "$control_status"
+    _assert_contains 'tmux: control client receives a clean protocol exit' \
+      '%exit' "$control_output"
+    _assert_not_contains 'tmux: control client does not publish terminal context' \
+      'command: run-shell "\~/.local/bin/termnav tmux context' "$control_messages"
+    _assert_eq 'tmux: runtime retains conditional pane labels' \
+      '#{?#{E:@termnav_pane_is_focused_leaf},,#[fg=#898989]} #I.#P (#{pane_id})  #{pane_current_command} ' \
+      "$pane_border_format"
+    _assert_eq 'tmux: runtime retains dim inactive borders' 'fg=#333333' \
+      "$pane_border_style"
+    _assert_contains 'tmux: runtime active border remains cyan' \
+      'fg=cyan' "$pane_active_border_style"
+    _assert_contains 'tmux: runtime active border remains bold' \
+      'bold' "$pane_active_border_style"
+    _assert_contains 'tmux: runtime unfocused labels remain dim' \
+      '#[fg=#898989]' "$active_pane_border"
+    _assert_contains 'tmux: runtime inactive labels remain dim' \
+      '#[fg=#898989]' "$inactive_pane_border"
+    _assert_contains 'tmux: runtime copy mode retains Ctrl-c' \
+      'copy-pipe-and-cancel' "$copy_keys"
+    _assert_not_contains 'tmux: runtime removes the stale manual save key' \
+      'bind-key -T prefix S ' "$prefix_keys"
+    _assert_not_contains 'tmux: runtime removes the stale manual restore key' \
+      'bind-key -T prefix R ' "$prefix_keys"
+    _assert_contains 'tmux: runtime clipboard picker uses the handoff path' \
+      'tmux-clip-paste --path' "$prefix_keys"
+    for key in User8 User9 User10 User11 User12 User13; do
+      line=$(printf '%s\n' "$root_keys" |
+        awk -v key="$key" \
+          '$1 == "bind-key" && $2 == "-T" && $3 == "root" && $4 == key')
+      _assert_contains "tmux: runtime $key invokes Termnav relay" \
+        'termnav relay commit' "$line"
+      _assert_contains "tmux: runtime $key quotes the source socket" \
+        '--tmux-socket #{q:socket_path}' "$line"
+    done
+    for index in "${!relay_values[@]}"; do
+      key=$((index + 8))
+      value=$(tmux -S "$socket" show-options -sv "user-keys[$key]")
+      # tmux releases render server strings as raw bytes, config-escaped text,
+      # or a legacy underscore for ESC. Accept only the complete known form
+      # for this exact key; the source assertion above prevents an ambiguous
+      # legacy display from hiding a literal underscore in configuration.
+      case $value in
+        "${relay_values[index]}" | "${relay_config_values[index]}" | \
+          "${relay_escaped_esc_values[index]}" | \
+          "${relay_legacy_values[index]}") value=${relay_values[index]} ;;
+      esac
+      _assert_eq "tmux: runtime user key $key keeps its exact sequence" \
+        "${relay_values[index]}" "$value"
+    done
+    for direction in left right; do
+      line=$(printf '%s\n' "$root_keys" |
+        awk -v key="M-${direction/left/\{}" 'BEGIN { if (key == "M-right") key="M-}" } index($0, "\"" key "\"") { print }')
+      _assert_contains "tmux: runtime $direction tab move uses Termnav at the edge" \
+        "termnav navigate tab-move $direction --parent" "$line"
+      _assert_contains "tmux: runtime $direction tab move preserves client identity" \
+        '--client-pid #{client_pid}' "$line"
+      for metadata in \
+        '--client-tty #{q:client_tty}' \
+        '--client-created #{client_created}' \
+        '--source-socket #{q:socket_path}' \
+        '--source-pane #{pane_id}' \
+        '--source-session #{q:session_id}'; do
+        _assert_contains "tmux: runtime $direction tab move keeps ${metadata%% *}" \
+          "$metadata" "$line"
+      done
+    done
+    for retired_key in User0 User1 User2 User3 User4 User5 User6 User7; do
+      _assert_not_contains "tmux: runtime removes retired key $retired_key" \
+        "bind-key -T root $retired_key " "$root_keys"
+    done
+    tmux -S "$socket" kill-server >/dev/null 2>&1 || true
   else
     _fail "tmux: test server starts"
   fi
 else
   _pass "tmux: binary unavailable, syntax smoke skipped"
+fi
+
+if command -v tmux >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
+  if pty_output=$(HOME=$source_home python3 \
+    "${BASH_SOURCE[0]%/*}/support/tmux-focus-style.py" \
+    --config "$tmux_config" 2>&1); then
+    pty_status=0
+  else
+    pty_status=$?
+  fi
+  printf '%s\n' "$pty_output"
+  _assert_exit "tmux: base PTY focus/style coverage passes" 0 "$pty_status"
+  for pty_case in \
+    test_focus_hooks_are_client_scoped_and_ignore_control_mode \
+    test_styles_follow_each_client_and_child_claim \
+    test_terminal_render_paints_the_focused_leaf_night_owl_blue; do
+    _assert_contains "tmux: PTY runs $pty_case" "$pty_case" "$pty_output"
+  done
+else
+  _pass "tmux: Python or tmux unavailable, PTY coverage skipped"
 fi
 
 _test_summary

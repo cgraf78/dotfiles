@@ -85,20 +85,6 @@ _tool_cache_mark_fresh() {
   __tool_cache_fresh_files+=("$cache")
 }
 
-_tool_shdeps_source_emit() {
-  local dep="$1"
-  local asset_path="$2"
-  local asset
-  local shdeps_assets="$HOME/.local/lib/dotfiles/shdeps-assets.sh"
-
-  [[ -r "$shdeps_assets" ]] || return 1
-  # shellcheck disable=SC1090  # stable dotfiles helper path under $HOME
-  . "$shdeps_assets"
-  asset=$(dot_shdeps_dep_file "$dep" "$asset_path" 2>/dev/null) || return 1
-  [[ -r "$asset" ]] || return 1
-  cat "$asset"
-}
-
 _tool_init() {
   local name="$1"
   shift

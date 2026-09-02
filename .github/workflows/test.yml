@@ -17,7 +17,7 @@ jobs:
     with:
       # This repository owns only base and profile/control-plane tests. The
       # public capability repositories run their own focused suites, so this
-      # job installs prerequisites without bootstrapping the monolithic client.
+      # job installs only the prerequisites for the base/control-plane client.
       setup: none
       profiles: base,jq,python,zsh,lua,tmux,openssh-netcat-lsof,procps,cron,fd,ripgrep,hostname,shellcheck
       matrix-set: full
@@ -31,20 +31,21 @@ jobs:
           .local/lib/dotfiles/tests/stack-dot-runtime control-plane-run-ci -- \
             .local/lib/dotfiles/tests/run-ci
         if [[ ${RUNNER_OS:-} == Linux ]]; then
-          for mode in update doctor test; do
+          for mode in update doctor; do
             case "$mode" in
               update) group=profile-fixture-update ;;
               doctor) group=profile-doctor ;;
-              test) group=installed-profile-dot-test ;;
             esac
             .local/lib/dotfiles/tests/run-ci-candidate-home \
               .local/lib/dotfiles/tests/stack-dot-runtime "$group" -- \
                 .local/lib/dotfiles/tests/profile-fixture-integration "$mode"
           done
+          .local/lib/dotfiles/tests/run-ci-candidate-home \
+            .local/lib/dotfiles/tests/stack-dot-runtime legacy-profile-cutover -- \
+              .local/lib/dotfiles/tests/legacy-profile-cutover
         fi
-      # D4 still carries the pre-cutover monolithic runtime, but it must run
-      # through the exact D1 provider. The D5 cutover narrows this Android smoke
-      # to the final base-owned payload.
+      # The final cutover keeps this Android smoke on the base-owned payload and
+      # runs it through the exact D1 provider.
       termux-command: |-
         set -euo pipefail
         export DOTFILES_CANDIDATE_SHA='${{ github.event.pull_request.head.sha || github.sha }}'
@@ -80,6 +81,74 @@ jobs:
 
       # GitHub resolves literal `uses:` refs before repository files are read.
       - uses: cgraf78/actions/.github/actions/verify-consumer-sync@b97bd729afec784785bd01ebd43321225ef47bb7
+
+  installed-profiles:
+    name: Installed profile composition
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Install profile test prerequisites
+        uses: cgraf78/actions/.github/actions/shell-ci-prereqs@b97bd729afec784785bd01ebd43321225ef47bb7
+        with:
+          matrix-name: Ubuntu
+          profiles: base,jq,python,zsh,lua,neovim,tmux,openssh-netcat-lsof,procps,cron,fd,ripgrep,shellcheck
+          setup: none
+
+      - name: Install pinned Neovim integration runtime
+        shell: bash
+        run: |-
+          set -euo pipefail
+          install_root="$RUNNER_TEMP/neovim-0.12.2"
+          archive="$RUNNER_TEMP/neovim-0.12.2.tar.gz"
+          mkdir -p "$install_root"
+          curl --fail --location --retry 3 --retry-all-errors \
+            --output "$archive" \
+            https://github.com/neovim/neovim/releases/download/v0.12.2/nvim-linux-x86_64.tar.gz
+          printf '%s  %s\n' \
+            31cf85945cb600d96cdf69f88bc68bec814acbff50863c5546adef3a1bcef260 \
+            "$archive" | sha256sum --check --strict
+          tar -xzf "$archive" --strip-components=1 -C "$install_root"
+          printf '%s  %s\n' \
+            fe333ad1dddfeb4b15169859287369207443477288737d4b94c07df7647ae21e \
+            "$install_root/bin/nvim" | sha256sum --check --strict
+
+      - name: Install pinned yq integration runtime
+        shell: bash
+        run: |-
+          set -euo pipefail
+          yq_bin="$RUNNER_TEMP/yq-v4.53.6"
+          curl --fail --location --retry 3 --retry-all-errors \
+            --output "$yq_bin" \
+            https://github.com/mikefarah/yq/releases/download/v4.53.6/yq_linux_amd64
+          printf '%s  %s\n' \
+            c5f056448f973ae7d39b5401949648a78f2dc1947d6a8eb65be60d5c504b9385 \
+            "$yq_bin" | sha256sum --check --strict
+          chmod +x "$yq_bin"
+
+      - name: Test unfiltered installed profiles
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+          DOT_STACK_NVIM_BIN: ${{ runner.temp }}/neovim-0.12.2/bin/nvim
+          DOT_STACK_NVIM_DATA_HOME: ${{ runner.temp }}/dot-profile-nvim-data
+          DOT_STACK_YQ_BIN: ${{ runner.temp }}/yq-v4.53.6
+        run: |-
+          set -euo pipefail
+          export DOTFILES_CANDIDATE_SHA='${{ github.event.pull_request.head.sha || github.sha }}'
+          .local/lib/dotfiles/tests/checkout-ci-candidate
+          .local/lib/dotfiles/tests/run-ci-candidate-home \
+            .local/lib/dotfiles/tests/stack-dot-runtime installed-profile-dot-test -- \
+              .local/lib/dotfiles/tests/profile-fixture-integration test
+          .local/lib/dotfiles/tests/run-ci-candidate-home \
+            .local/lib/dotfiles/tests/stack-dot-runtime profile-footprint-fixtures -- \
+              .local/lib/dotfiles/tests/profile-fixture-integration footprint
 
   cold-bootstrap:
     name: Cold Ubuntu default-profile bootstrap

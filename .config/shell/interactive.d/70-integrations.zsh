@@ -38,7 +38,7 @@ fi
 # Zsh completion: rebuild dump daily, use cache otherwise. Once compinit has
 # populated `_comps`, re-sourcing this file should not rescan completions; newly
 # installed completion files need a fresh shell or a manual compinit.
-if ((!${+_comps})); then
+if ((! ${+_comps})); then
   autoload -Uz compinit
   local _zcd=(~/.zcompdump(N.mh+24))
   if ((${#_zcd})); then
@@ -52,17 +52,10 @@ fi
 zstyle ':completion:*' menu select
 zstyle ':completion:*' matcher-list 'm:{a-z}={A-Z}'
 
-_tool_init sley _tool_shdeps_source_emit cgraf78/sley share/sley/shell.sh
-# The 57-git-tools adapter defines consumer hooks first; loading the provider
-# here keeps dependency resolution and caching out of the shell-neutral layer.
-_tool_init git-tools _tool_shdeps_source_emit \
-  cgraf78/git-tools share/git-tools/shell.sh
-
 _tool_init fzf fzf --zsh
 _tool_init ds ds init zsh
 _tool_init zoxide zoxide init zsh
 _tool_init atuin atuin init zsh --disable-up-arrow
-_tool_init direnv direnv hook zsh
 
 # ── Plugins (after tools — ordering within section matters) ───────────────
 # autosuggestions → fast-syntax-highlighting (wraps ZLE widgets) →

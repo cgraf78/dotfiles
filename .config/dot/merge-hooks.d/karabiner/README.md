@@ -10,3 +10,5 @@ The executable hook implementation lives at
 The cross-layer policy for macOS physical remapping, VS Code context routing,
 and the reserved F16-F20 transport range is documented in the
 [`dotfiles-dev` VS Code keybinding guide](https://github.com/cgraf78/dotfiles-dev/blob/main/home/.config/dot/merge-hooks.d/vscode/keybindings/README.md#macos-physical-key-ownership).
+The repository link remains usable when the development overlay is not selected
+on the local machine.

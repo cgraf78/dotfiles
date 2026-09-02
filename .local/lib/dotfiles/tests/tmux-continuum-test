@@ -12,7 +12,7 @@ set -euo pipefail
 # shellcheck source=helpers.sh
 . "${BASH_SOURCE[0]%/*}/helpers.sh"
 
-tmux_config="$HOME/.config/tmux/tmux.conf"
+tmux_config="$HOME/.config/tmux/conf.d/10-base.conf"
 shdeps_config="$HOME/.config/shdeps/10-deps.conf"
 shellcheck_inventory="$HOME/.github/shellcheck-files.txt"
 tmux_content=$(cat "$tmux_config")

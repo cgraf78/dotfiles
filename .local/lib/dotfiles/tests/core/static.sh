@@ -36,7 +36,7 @@ dot_core_test_static() {
   workflow=$(<"$root/.github/workflows/test.yml")
   _assert_contains "CI workflow: uses the locked shared workflow" \
     "shell-ci.yml@$actions_sha" "$workflow"
-  _assert_contains "CI workflow: does not bootstrap the monolithic client" \
+  _assert_contains "CI workflow: does not bootstrap capability payloads" \
     "setup: none" "$workflow"
   _assert_not_contains "CI workflow: avoids moving Dot setup" \
     "setup: dotfiles" "$workflow"
@@ -53,6 +53,42 @@ dot_core_test_static() {
     "stack-dot-runtime control-plane-run-ci" "$workflow"
   _assert_contains "CI workflow: cold bootstrap uses the locked wrapper" \
     "stack-dot-runtime reproducible-cold-bootstrap" "$workflow"
+  _assert_contains "CI workflow: runs one Ubuntu installed-profile composition gate" \
+    "name: Installed profile composition" "$workflow"
+  _assert_contains "CI workflow: executes unfiltered installed profile tests" \
+    "stack-dot-runtime installed-profile-dot-test" "$workflow"
+  _assert_contains "CI workflow: pins the installed-profile Neovim release" \
+    "neovim/releases/download/v0.12.2/nvim-linux-x86_64.tar.gz" "$workflow"
+  _assert_contains "CI workflow: verifies the installed-profile Neovim binary" \
+    "fe333ad1dddfeb4b15169859287369207443477288737d4b94c07df7647ae21e" "$workflow"
+  _assert_contains "CI workflow: verifies the installed-profile Neovim archive" \
+    "31cf85945cb600d96cdf69f88bc68bec814acbff50863c5546adef3a1bcef260" "$workflow"
+  # shellcheck disable=SC2016 # Match the literal workflow shell.
+  nvim_archive_verify_line=$(grep -nF '            "$archive" | sha256sum --check --strict' \
+    "$root/.github/workflows/test.yml" | head -1 | cut -d: -f1)
+  # shellcheck disable=SC2016 # Match the literal workflow shell.
+  nvim_extract_line=$(grep -nF '          tar -xzf "$archive"' \
+    "$root/.github/workflows/test.yml" | cut -d: -f1)
+  if [[ -n $nvim_archive_verify_line && -n $nvim_extract_line &&
+    $nvim_archive_verify_line -lt $nvim_extract_line ]]; then
+    _pass "CI workflow: verifies the Neovim archive before extraction"
+  else
+    _fail "CI workflow: verifies the Neovim archive before extraction"
+  fi
+  _assert_contains "CI workflow: passes the audited Neovim runtime explicitly" \
+    "DOT_STACK_NVIM_BIN:" "$workflow"
+  _assert_contains "CI workflow: pins the installed-profile yq release" \
+    "mikefarah/yq/releases/download/v4.53.6/yq_linux_amd64" "$workflow"
+  _assert_contains "CI workflow: verifies the installed-profile yq binary" \
+    "c5f056448f973ae7d39b5401949648a78f2dc1947d6a8eb65be60d5c504b9385" "$workflow"
+  _assert_contains "CI workflow: passes the audited yq runtime explicitly" \
+    "DOT_STACK_YQ_BIN:" "$workflow"
+  _assert_contains "installed profile gate rejects Neovim suite skips" \
+    "installed dot test has no Neovim coverage skip" \
+    "$(<"$root/.local/lib/dotfiles/tests/profile-fixture-integration")"
+  _assert_contains "installed profile gate publishes owner-suite execution logs" \
+    "installed-profile-suite-log" \
+    "$(<"$root/.local/lib/dotfiles/tests/profile-fixture-integration")"
   _assert_contains "CI workflow: retains full platform coverage" \
     "matrix-set: full" "$workflow"
   _assert_not_contains "CI workflow: forwards no repository secrets" \

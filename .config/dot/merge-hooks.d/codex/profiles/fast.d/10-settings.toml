@@ -1,5 +1,0 @@
-# `codex --profile fast` overlay: minimal reasoning/verbosity on the fast tier
-# for quick, cheap turns.
-model_reasoning_effort = "low"
-model_verbosity = "low"
-service_tier = "fast"

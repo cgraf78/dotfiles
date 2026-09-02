@@ -174,6 +174,15 @@ _assert_eq 'combined selector requires and matches both fields' \
   dev "$SELECTED_PROFILE"
 
 _clear_fixture_selectors
+printf 'version=1\nuser=example-user\nprofile=editor\n' \
+  >"$selector_root/10-user-default.conf"
+printf 'version=1\nuser=example-user\nhost=example-host\nprofile=dev\n' \
+  >"$selector_root/20-host-exception.conf"
+_resolve_fixture_profile
+_assert_eq 'combined selector overrides a matching user-wide default' \
+  dev "$SELECTED_PROFILE"
+
+_clear_fixture_selectors
 printf 'version=1\nhost=example-host\nuser=another-user\nprofile=dev\n' \
   >"$selector_root/10-other-user.conf"
 printf 'version=1\nuser=example-user\nprofile=editor\n' \

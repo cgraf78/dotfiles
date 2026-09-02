@@ -3,13 +3,14 @@
 
 set -u
 
+host_home=${DOT_TEST_HOST_HOME:-$HOME}
 source_home=$(cd -P -- "${BASH_SOURCE[0]%/*}/../../../.." && pwd -P)
 
 # shellcheck source=helpers.sh
 . "$source_home/.local/lib/dotfiles/tests/helpers.sh"
 
 usage() {
-  printf 'usage: %s update|doctor|test\n' "${0##*/}" >&2
+  printf 'usage: %s update|doctor|test|footprint\n' "${0##*/}" >&2
   exit 2
 }
 
@@ -19,6 +20,7 @@ case $mode in
   update) expected_group='profile-fixture-update' ;;
   doctor) expected_group='profile-doctor' ;;
   test) expected_group='installed-profile-dot-test' ;;
+  footprint) expected_group='profile-footprint-fixtures' ;;
   *) usage ;;
 esac
 
@@ -36,6 +38,9 @@ dev_sha=$(lock_value dotfiles_dev 2>/dev/null || true)
 cutover_sha=$(lock_value dotfiles_d4_base 2>/dev/null || true)
 cutover_phase=0
 [[ $cutover_sha =~ ^[0-9a-f]{40}$ ]] && cutover_phase=1
+shdeps_sha=$(lock_value test_shdeps 2>/dev/null || true)
+shdeps_release=$(lock_value test_shdeps_release 2>/dev/null || true)
+agent_rules_sha=$(lock_value test_agent_rules_sync 2>/dev/null || true)
 if [[ ${DOT_STACK_RUNTIME:-0} == 1 &&
   ${DOT_STACK_GROUP:-} == "$expected_group" &&
   ${DOT_STACK_DOT_SHA:-} == "$dot_sha" &&
@@ -48,7 +53,7 @@ else
   _test_summary
 fi
 
-for sha in "$nvim_sha" "$dev_sha"; do
+for sha in "$nvim_sha" "$dev_sha" "$agent_rules_sha"; do
   [[ $sha =~ ^[0-9a-f]{40}$ ]] || {
     _fail 'profile fixture lock contains full capability revisions'
     _test_summary
@@ -56,14 +61,94 @@ for sha in "$nvim_sha" "$dev_sha"; do
 done
 _pass 'profile fixture lock contains full capability revisions'
 
+shdeps_root=${DOT_STACK_SHDEPS_ROOT:-}
+if [[ -z $shdeps_root ]]; then
+  for candidate in "$host_home/.local/share/shdeps" "$host_home/git/shdeps"; do
+    [[ -f $candidate/install.sh && -f $candidate/shdeps.sh &&
+      -x $candidate/shdeps ]] || continue
+    if [[ $("$candidate/shdeps" version 2>/dev/null || true) == *"${shdeps_sha:0:8}"* ]]; then
+      shdeps_root=$candidate
+      break
+    fi
+  done
+fi
+if [[ ! $shdeps_sha =~ ^[0-9a-f]{40}$ ||
+  ! $shdeps_release =~ ^[0-9]{8}-[0-9]{6}-[0-9a-f]{8}$ ||
+  -z $shdeps_root || ! -f $shdeps_root/install.sh ||
+  ! -f $shdeps_root/shdeps.sh || ! -x $shdeps_root/shdeps ||
+  $("$shdeps_root/shdeps" version 2>/dev/null || true) != *"${shdeps_sha:0:8}"* ]]; then
+  _fail 'profile fixtures have the exact locked Shdeps test release'
+  _test_summary
+fi
+_pass 'profile fixtures have the exact locked Shdeps test release'
+
 _test_prefer_system_git || {
   _fail 'profile fixtures have an isolated system Git'
   _test_summary
 }
 git_bin=$(type -P git)
-fixture_path=${git_bin%/*}:/usr/bin:/bin
+python_bin=$(type -P python3)
+agent_rules_sync=$(type -P agent-rules-sync 2>/dev/null || true)
+nvim_bin=${DOT_STACK_NVIM_BIN:-$(type -P nvim 2>/dev/null || true)}
+nvim_data_home=${DOT_STACK_NVIM_DATA_HOME:-$host_home/.local/share}
+yq_bin=${DOT_STACK_YQ_BIN:-$(type -P yq 2>/dev/null || true)}
+needs_capability_runtime=0
+case $mode in
+  test | footprint) needs_capability_runtime=1 ;;
+esac
+# Update and doctor intentionally exercise a fresh client without installing
+# capability toolchains. The dedicated installed-profile job supplies these
+# pinned runtimes when it executes owner tests or measures their payload.
+if [[ $needs_capability_runtime -eq 1 ]]; then
+  if [[ $nvim_bin != /* || ! -x $nvim_bin || -d $nvim_bin ]]; then
+    _fail 'profile fixtures have an explicit executable Neovim runtime'
+    _test_summary
+  fi
+  nvim_version=$($nvim_bin --version 2>/dev/null | sed -n '1s/^NVIM v//p')
+  case $nvim_version in
+    0.11.[2-9]* | 0.1[2-9].* | [1-9].*) ;;
+    *)
+      _fail 'profile fixtures use Neovim 0.11.2 or newer'
+      _test_summary
+      ;;
+  esac
+  if [[ $yq_bin != /* || ! -x $yq_bin || -d $yq_bin ]]; then
+    _fail 'profile fixtures have an explicit executable yq runtime'
+    _test_summary
+  fi
+fi
+agent_rules_root=
+if [[ $agent_rules_sync == /* && -x $agent_rules_sync &&
+  ! -d $agent_rules_sync ]]; then
+  agent_rules_sync=$(_test_realpath "$agent_rules_sync")
+  agent_rules_root=$(cd -P -- "${agent_rules_sync%/*}/.." 2>/dev/null && pwd -P)
+fi
+agent_rules_actual=
+if [[ -n $agent_rules_root ]]; then
+  agent_rules_actual=$("$git_bin" -C "$agent_rules_root" rev-parse HEAD \
+    2>/dev/null || true)
+fi
+if [[ -z $agent_rules_root || $agent_rules_actual != "$agent_rules_sha" ]]; then
+  _fail 'profile fixtures have the exact agent-rules-sync test provider'
+  _test_summary
+fi
+if [[ $needs_capability_runtime -eq 1 ]]; then
+  mkdir -p "$nvim_data_home"
+  _pass 'profile fixtures have an explicit executable Neovim runtime'
+  _pass 'profile fixtures use Neovim 0.11.2 or newer'
+  _pass 'profile fixtures have an explicit executable yq runtime'
+fi
+_pass 'profile fixtures have the exact agent-rules-sync test provider'
+fixture_bin=$(_tmpdir)
+ln -s "$git_bin" "$fixture_bin/git"
+ln -s "$python_bin" "$fixture_bin/python3"
+if [[ $needs_capability_runtime -eq 1 ]]; then
+  ln -s "$nvim_bin" "$fixture_bin/nvim"
+  ln -s "$yq_bin" "$fixture_bin/yq"
+fi
+fixture_path=$fixture_bin:/usr/bin:/bin
 if [[ -n ${PREFIX:-} ]]; then
-  fixture_path=${git_bin%/*}:$PREFIX/bin:/usr/bin:/bin
+  fixture_path=$fixture_bin:$PREFIX/bin:/usr/bin:/bin
 fi
 _pass 'profile fixtures have an isolated system Git'
 
@@ -111,6 +196,7 @@ printf '%s\n' \
   'extension_api=1' \
   'extensions_dir=$HOME/.local/lib/dotfiles' \
   'dependency_provider=none' \
+  'shdeps_update_policy=latest' \
   >"$base_seed/.config/dot/config"
 "$git_bin" -C "$base_seed" add .config/dot/config
 "$git_bin" -C "$base_seed" -c user.name=fixture \
@@ -157,7 +243,15 @@ run_in_home() {
     XDG_CACHE_HOME="$home/.cache" \
     GIT_CONFIG_GLOBAL="$git_config" \
     GIT_CONFIG_NOSYSTEM=1 \
-    PATH="$fixture_path:$home/.local/bin" \
+    DOT_TEST_SOURCE_HOME="$home" \
+    DOT_TEST_HOST_HOME="$host_home" \
+    DOT_TEST_AGENT_RULES_SYNC_PROVIDER="$agent_rules_sync" \
+    NVIM_TEST_BIN="$nvim_bin" \
+    NVIM_TEST_DATA_HOME="$nvim_data_home" \
+    SHDEPS_INSTALL_DIR="$host_home/.local/share" \
+    SHDEPS_BIN_DIR="$home/.local/bin" \
+    SHDEPS_GIT_DEV_DIR="${profile_git_dev_dir:-$host_home/git}" \
+    PATH="$home/.local/bin:$fixture_path" \
     "$@"
 }
 
@@ -181,20 +275,102 @@ nested_ci_credentials=$(GH_TOKEN=gh GITHUB_TOKEN=github \
   CODEX_GITHUB_PERSONAL_ACCESS_TOKEN=codex-github-pat \
   run_in_home "$fixture_root" bash -c \
   'printf "%s\n" "${GH_TOKEN-unset}:${GITHUB_TOKEN-unset}:${GH_ENTERPRISE_TOKEN-unset}:${GITHUB_ENTERPRISE_TOKEN-unset}:${GITHUB_PERSONAL_ACCESS_TOKEN-unset}:${CODEX_GITHUB_PERSONAL_ACCESS_TOKEN-unset}"')
-_assert_eq 'profile fixtures isolate outer CI credentials' \
+_assert_eq 'profile fixtures isolate outer GitHub credentials' \
   'unset:unset:unset:unset:unset:unset' "$nested_ci_credentials"
 
+install_dot_runtime() {
+  local home=$1 install=$1/.local/share/cgraf78/dot actual
+  mkdir -p "${install%/*}"
+  "$git_bin" -C "${install%/*}" init --quiet "${install##*/}" || return 1
+  "$git_bin" -C "$install" remote add origin "file://$DOT_STACK_DOT_ROOT" || return 1
+  "$git_bin" -C "$install" fetch --quiet --depth=1 origin "$dot_sha" || return 1
+  "$git_bin" -C "$install" checkout --quiet --detach FETCH_HEAD || return 1
+  actual=$("$git_bin" -C "$install" rev-parse HEAD) || return 1
+  [[ $actual == "$dot_sha" ]]
+}
+
+install_shdeps_runtime() {
+  local home=$1 install=$1/.local/share/shdeps file directory
+  mkdir -p "$install"
+  for file in install.sh shdeps.sh; do
+    cp -p "$shdeps_root/$file" "$install/$file" || return 1
+  done
+  cp -pL "$shdeps_root/shdeps" "$install/shdeps" || return 1
+  for directory in lua completions man; do
+    [[ -d $shdeps_root/$directory ]] || continue
+    cp -R "$shdeps_root/$directory" "$install/$directory" || return 1
+  done
+  [[ -x $install/shdeps && ! -L $install/shdeps ]]
+}
+
+prepare_doctor_command_links() {
+  local home=$1 provider_root=$2
+  local dependency rows command_name link expected extra
+  local -a commands
+
+  for dependency in sley agentguard; do
+    case $dependency in
+      sley)
+        commands=(sley)
+        ;;
+      agentguard)
+        commands=(
+          agent-hook-notification agent-hook-post-bash agent-hook-post-edit
+          agent-hook-post-mcp agent-hook-pre-bash agent-hook-pre-edit
+          agent-hook-pre-mcp agent-hook-prompt-submit agent-hook-session-end
+          agent-hook-session-end-claude agent-hook-session-start
+          agent-hook-session-start-claude agent-hook-stop
+          agentguard-classify-command claude-session-name
+        )
+        ;;
+    esac
+    mkdir -p "$provider_root/$dependency/bin" || return 1
+    for command_name in "${commands[@]}"; do
+      printf '%s\n' '#!/usr/bin/env bash' 'exit 0' \
+        >"$provider_root/$dependency/bin/$command_name" || return 1
+      chmod +x "$provider_root/$dependency/bin/$command_name" || return 1
+    done
+    rows=$(HOME="$home" \
+      SHDEPS_CONF_DIR="$home/.config/shdeps" \
+      SHDEPS_INSTALL_DIR="$home/.local/share" \
+      SHDEPS_BIN_DIR="$home/.local/bin" \
+      SHDEPS_GIT_DEV_DIR="$provider_root" \
+      "$home/.local/bin/shdeps" dep-links "cgraf78/$dependency") || return 1
+    [[ -n $rows ]] || return 1
+    while IFS=$'\t' read -r command_name link expected extra ||
+      [[ -n $command_name$link$expected$extra ]]; do
+      [[ -n $command_name && -n $link && -n $expected && -z $extra ]] ||
+        return 1
+      [[ -x $expected && ! -d $expected ]] || return 1
+      mkdir -p "${link%/*}" || return 1
+      ln -s "$expected" "$link" || return 1
+    done <<<"$rows"
+  done
+
+  cat >"$provider_root/agentguard/bin/agent-hook-pre-bash" <<'EOF'
+#!/usr/bin/env bash
+payload=$(cat)
+if [[ $payload == *'"git status'* ]]; then
+  printf "use 'dot status' for the dotfiles checkout\n" >&2
+  exit 2
+fi
+exit 0
+EOF
+  chmod +x "$provider_root/agentguard/bin/agent-hook-pre-bash"
+}
+
 prepare_home() {
-  local profile=$1 home=$2 runtime_install selector init_status
+  local profile=$1 home=$2 selector init_log init_status
   "$git_bin" clone --quiet "file://$base_origin" "$home" || return 1
 
-  # The fixture deliberately disables dependency installation.  Tmux invokes
-  # this base-owned provider while parsing its configuration, so supply the
-  # minimal command boundary without installing the full dependency graph.
+  # The fixture deliberately disables dependency installation. Supply the
+  # base-owned tmux command boundaries without installing their full provider
+  # repositories; the provider projects test their implementations separately.
   mkdir -p "$home/.local/bin"
-  printf '#!/bin/sh\nexit 0\n' \
-    >"$home/.local/bin/tmux-continuum-default-server"
-  chmod 0755 "$home/.local/bin/tmux-continuum-default-server"
+  for command_name in tmux-continuum-default-server tmux-clip-paste; do
+    printf '#!/bin/sh\nexit 0\n' >"$home/.local/bin/$command_name"
+    chmod 0755 "$home/.local/bin/$command_name"
+  done
 
   if [[ $profile != dev ]]; then
     mkdir -p "$home/.config/dot/profile-selectors.local.d"
@@ -204,19 +380,25 @@ prepare_home() {
     chmod 0600 "$selector"
   fi
 
-  runtime_install=$home/.local/share/cgraf78/dot
-  mkdir -p "$home/.local/share/cgraf78" "$home/.local/lib"
-  "$git_bin" clone --quiet --no-checkout "$DOT_STACK_DOT_ROOT" "$runtime_install"
-  "$git_bin" -C "$runtime_install" checkout --quiet --detach "$dot_sha"
+  mkdir -p "$home/.local/lib" "$home/.local/bin"
+  install_dot_runtime "$home" || return 1
   ln -s ../share/cgraf78/dot/lib/dot/public "$home/.local/lib/dot"
-  printf '%s\n' '.local/lib/dot' '.local/share/cgraf78/' \
+  install_shdeps_runtime "$home" || return 1
+  ln -s ../share/shdeps/shdeps "$home/.local/bin/shdeps"
+  ln -s ../share/shdeps/lua "$home/.local/lib/shdeps"
+  ln -s "$agent_rules_sync" "$home/.local/bin/agent-rules-sync"
+  printf '%s\n' '.local/lib/dot' '.local/lib/shdeps' '.local/share/cgraf78/' \
+    '.local/share/shdeps/' '.local/bin/shdeps' \
+    '.local/bin/agent-rules-sync' \
     >>"$home/.git/info/exclude"
 
+  init_log=$fixture_root/init-$profile.log
   init_status=0
   run_in_home "$home" "$DOT_STACK_DOT_BIN" init --yes \
-    "file://$base_origin" >/dev/null 2>&1 || init_status=$?
+    "file://$base_origin" >"$init_log" 2>&1 || init_status=$?
   _assert_exit "$profile fixture records its ordinary checkout identity" \
     0 "$init_status"
+  [[ $init_status -eq 0 ]] || sed -n '1,160p' "$init_log" >&2
 }
 
 assert_profile_links() {
@@ -347,6 +529,49 @@ assert_tmux_composition() {
   fi
 }
 
+assert_dev_nvim_composition() {
+  local home=$1 output status=0
+  local timeout_bin=$DOT_STACK_DOT_ROOT/lib/dot/public/test-timeout-v1
+
+  output=$(run_in_home "$home" env \
+    XDG_DATA_HOME="$nvim_data_home" \
+    "$timeout_bin" 60 "$nvim_bin" --headless -i NONE \
+    --cmd 'lua vim.g.disable_session_restore = true' \
+    --cmd 'lua vim.g.mason_disabled = true' \
+    -c 'lua
+      assert(vim.env.DOT_PROFILE_FIXTURE == nil)
+      assert(vim.env.DOT_TEST_DEV_REPO_ROOT == nil)
+      local config = require("lazy.core.config")
+      local plugins = config.plugins
+      for _, plugin in ipairs({
+        "nvim-lspconfig",
+        "conform.nvim",
+        "nvim-lint",
+        "lazydev.nvim",
+      }) do
+        assert(plugins[plugin] ~= nil, plugin .. " is absent from the composed graph")
+      end
+      assert(plugins["mason.nvim"] == nil, "final Mason policy did not disable the active plugin")
+      assert(config.spec.disabled["mason.nvim"] ~= nil, "disabled Mason spec is absent")
+      local workspace = assert(plugins["nvim-workspace"], "nvim-workspace is absent")
+      local opts = require("lazy.core.plugin").values(workspace, "opts", false)
+      assert(type(opts.workspace.repo_root_detector) == "function", "dev workspace detector is absent")
+      assert(type(opts.lazygit.opts_for_path) == "function", "dev Lazygit policy is absent")
+      assert(opts.session ~= nil, "editor session policy is absent")
+      assert(type(require("config.language-policy").critical_treesitter_parsers()) == "table")
+      assert(type(require("config.mason-policy").lsp_server_packages()) == "table")
+      print("composed-dev-nvim-ok")' \
+    -c 'qa!' 2>&1) || status=$?
+  _assert_exit 'dev installed full Nvim graph loads without fixture-only overrides' \
+    0 "$status"
+  _assert_contains 'dev installed full Nvim graph preserves ordered capability policy' \
+    'composed-dev-nvim-ok' "$output"
+}
+
+base_footprint=
+editor_footprint=
+dev_footprint=
+
 for profile in base editor dev; do
   home=$fixture_root/home-$profile
   update_log=$fixture_root/update-$profile.log
@@ -366,12 +591,23 @@ for profile in base editor dev; do
   case $mode in
     update) ;;
     doctor)
+      profile_git_dev_dir=$host_home/git
+      if [[ $profile == dev ]]; then
+        profile_git_dev_dir=$fixture_root/doctor-providers-dev
+        prepare_doctor_command_links "$home" "$profile_git_dev_dir" || {
+          _fail "$profile doctor dependency fixture is prepared"
+          continue
+        }
+      fi
       doctor_log=$fixture_root/doctor-$profile.log
       doctor_status=0
       run_in_home "$home" "$DOT_STACK_DOT_BIN" doctor \
         >"$doctor_log" 2>&1 || doctor_status=$?
       doctor_output=$(<"$doctor_log")
       _assert_exit "$profile doctor completes" 0 "$doctor_status"
+      if [[ $doctor_status -ne 0 ]]; then
+        printf '%s\n' "$doctor_output" >&2
+      fi
       _assert_contains "$profile doctor reports profile lifecycle" \
         "selected profile ($profile" "$doctor_output"
       _assert_contains "$profile doctor reports overlay lifecycle" \
@@ -403,24 +639,327 @@ for profile in base editor dev; do
       assert_suite_discovery "$profile" "$list_output"
       test_log=$fixture_root/test-$profile.log
       test_status=0
-      # The aggregate stack suite already runs once from the pristine source
-      # checkout.  Here, execute one suite owned by each selected profile so
-      # installed discovery is covered without rerunning that aggregate suite
-      # three times from overlay-composed worktrees.
-      case $profile in
-        base) test_suite=overlay-profile-rollout ;;
-        editor) test_suite=nvim-static ;;
-        dev) test_suite=dev-static ;;
-      esac
-      run_in_home "$home" "$DOT_STACK_DOT_BIN" test "$test_suite" \
+      run_in_home "$home" "$DOT_STACK_DOT_BIN" test --verbose \
         >"$test_log" 2>&1 || test_status=$?
+      _assert_exit "$profile installed dot test completes" 0 "$test_status"
+      suite_log_summary=$(grep -E \
+        'Running [0-9]+ test suites|── .* ──|Suites: [0-9]+ passed' \
+        "$test_log" || true)
+      if [[ -n $suite_log_summary ]]; then
+        _pass "$profile installed dot test log records suite execution"
+        printf 'installed-profile-suite-log\tprofile=%s\n%s\n' \
+          "$profile" "$suite_log_summary"
+      else
+        _fail "$profile installed dot test log records suite execution"
+      fi
+      if grep -Ei 'SKIP:.*(nvim|neovim)|requires Neovim|nvim unavailable' \
+        "$test_log" >/dev/null; then
+        _fail "$profile installed dot test has no Neovim coverage skip"
+        sed -n '/SKIP:/p' "$test_log" >&2
+      else
+        _pass "$profile installed dot test has no Neovim coverage skip"
+      fi
       if [[ $test_status -ne 0 ]]; then
         sed 's/^/    /' "$test_log"
       fi
-      _assert_exit "$profile executes the installed $test_suite suite" \
-        0 "$test_status"
+      if [[ $profile == dev ]]; then
+        assert_dev_nvim_composition "$home"
+      fi
+      ;;
+    footprint)
+      if [[ ! -e $home/.local/share/shdeps/target &&
+        ! -L $home/.local/share/shdeps/target ]]; then
+        _pass "$profile footprint excludes Shdeps build artifacts"
+      else
+        _fail "$profile footprint excludes Shdeps build artifacts"
+      fi
+      _assert_eq "$profile footprint uses a shallow exact Dot runtime" true \
+        "$("$git_bin" -C "$home/.local/share/cgraf78/dot" \
+          rev-parse --is-shallow-repository)"
+      footprint_output=$(
+        "$source_home/.local/lib/dotfiles/tests/measure-profile-footprint" \
+          --phase post-cutover-clean-fixture --profile "$profile" "$home"
+      )
+      printf '%s\n' "$footprint_output"
+      footprint_total=$(printf '%s\n' "$footprint_output" |
+        awk -F '\t' '$1 == "public_total" { print $2 }')
+      case $profile in
+        base) base_footprint=$footprint_total ;;
+        editor) editor_footprint=$footprint_total ;;
+        dev) dev_footprint=$footprint_total ;;
+      esac
       ;;
   esac
 done
+
+if [[ $mode == footprint ]]; then
+  d4_sha=$(lock_value dotfiles_d4_base 2>/dev/null || true)
+  baseline_total=
+  baseline_home=$fixture_root/home-pre-cutover-monolith
+  mkdir -p "$baseline_home"
+  if [[ $d4_sha =~ ^[0-9a-f]{40}$ ]] &&
+    "$git_bin" -C "$baseline_home" init --quiet --bare .dotfiles &&
+    "$git_bin" --git-dir="$baseline_home/.dotfiles" remote add origin \
+      "file://$source_home" &&
+    "$git_bin" --git-dir="$baseline_home/.dotfiles" fetch --quiet --depth=1 \
+      origin "$d4_sha" &&
+    "$git_bin" --git-dir="$baseline_home/.dotfiles" config core.bare false &&
+    "$git_bin" --git-dir="$baseline_home/.dotfiles" config core.worktree "$baseline_home" &&
+    "$git_bin" --git-dir="$baseline_home/.dotfiles" \
+      --work-tree="$baseline_home" checkout --quiet --force FETCH_HEAD &&
+    install_dot_runtime "$baseline_home" &&
+    install_shdeps_runtime "$baseline_home"; then
+    baseline_output=$(
+      "$source_home/.local/lib/dotfiles/tests/measure-profile-footprint" \
+        --phase pre-cutover-monolith --profile dev "$baseline_home"
+    )
+    printf '%s\n' "$baseline_output"
+    baseline_total=$(printf '%s\n' "$baseline_output" |
+      awk -F '\t' '$1 == "public_total" { print $2 }')
+    _pass 'footprint comparison uses the exact locked D4 baseline'
+  else
+    _fail 'footprint comparison uses the exact locked D4 baseline'
+  fi
+
+  footprint_limit=$((500 * 1024 * 1024))
+  if [[ $base_footprint =~ ^[0-9]+$ ]] &&
+    ((base_footprint <= footprint_limit)); then
+    _pass 'clean base repository and control-plane payload stays within 500 MiB'
+  else
+    _fail 'clean base repository and control-plane payload stays within 500 MiB'
+  fi
+  if [[ $baseline_total =~ ^[0-9]+$ ]] &&
+    ((baseline_total >= base_footprint)); then
+    _pass 'D4 baseline includes the same installed control-plane substrate'
+  else
+    _fail 'D4 baseline includes the same installed control-plane substrate'
+  fi
+  editor_increment=$((editor_footprint - base_footprint))
+  ((editor_increment < 0)) && editor_increment=0
+  if ((editor_increment <= footprint_limit)); then
+    _pass 'clean editor repository increment stays within 500 MiB'
+  else
+    _fail 'clean editor repository increment stays within 500 MiB'
+  fi
+  printf '%s\n' \
+    'estimate_version=1' \
+    'scope=installed-cumulative' \
+    'status=context-not-measured' \
+    'profile=base minimum_bytes=644245094 maximum_bytes=858993459 assumption=linux-github-font-fallback' \
+    'profile=editor minimum_bytes=858993459 maximum_bytes=1073741824 assumption=base-plus-observed-active-nvim-graph' \
+    'profile=dev minimum_bytes=2684354560 maximum_bytes=4831838208 assumption=declared-toolchain-range' \
+    'excludes=optional-private-overlays,host-package-stores,language-package-caches,project-build-outputs'
+  if [[ $dev_footprint =~ ^[0-9]+$ ]]; then
+    _pass 'clean dev repository and control-plane payload is measured separately from its install estimate'
+  else
+    _fail 'clean dev repository and control-plane payload is measured separately from its install estimate'
+  fi
+fi
+
+if [[ $mode == update ]]; then
+  lifecycle_home=$fixture_root/home-lifecycle
+  lifecycle_selector=$lifecycle_home/.config/dot/profile-selectors.local.d/10-fixture.conf
+  lifecycle_work_origin=$fixture_root/missing-work.git
+  lifecycle_work_seed=$fixture_root/work-seed
+  lifecycle_package_marker=$fixture_root/native-packages/fixture-installed
+  lifecycle_package_log=$fixture_root/native-package-manager.log
+  git_shadow='base Git ignore configuration restored after dev downgrade'
+  nvim_shadow='base Nvim configuration restored after editor downgrade'
+
+  for package_manager in apk apt apt-get brew dnf pacman pkg zypper; do
+    cat >"$fixture_bin/$package_manager" <<'EOF'
+#!/bin/sh
+printf '%s\n' "${0##*/} $*" >>"$DOT_PROFILE_PACKAGE_MANAGER_LOG"
+exit 97
+EOF
+    chmod +x "$fixture_bin/$package_manager"
+  done
+  DOT_PROFILE_PACKAGE_MANAGER_LOG=$lifecycle_package_log
+  export DOT_PROFILE_PACKAGE_MANAGER_LOG
+
+  mkdir -p "$base_seed/.config/git" "$base_seed/.config/nvim"
+  printf '%s\n' "$git_shadow" >"$base_seed/.config/git/ignore"
+  printf '%s\n' "$nvim_shadow" >"$base_seed/.config/nvim/init.lua"
+  "$git_bin" -C "$base_seed" add .config/git/ignore .config/nvim/init.lua
+  "$git_bin" -C "$base_seed" -c user.name=fixture \
+    -c user.email=fixture@example.invalid -c core.hooksPath=/dev/null \
+    commit --quiet -m 'add lifecycle shadow fixtures'
+  "$git_bin" -C "$base_seed" push --quiet "$base_origin" HEAD:refs/heads/main
+
+  profile=dev
+  prepare_home "$profile" "$lifecycle_home" || {
+    _fail 'downgrade lifecycle fixture is prepared'
+    _test_summary
+  }
+  mkdir -p "${lifecycle_package_marker%/*}"
+  printf 'preserve\n' >"$lifecycle_package_marker"
+
+  lifecycle_status=0
+  run_in_home "$lifecycle_home" "$DOT_STACK_DOT_BIN" update \
+    >/dev/null 2>&1 || lifecycle_status=$?
+  _assert_exit 'downgrade lifecycle starts from dev' 0 "$lifecycle_status"
+  _assert_file_missing \
+    'dev retries unavailable optional work instead of creating partial state' \
+    "$lifecycle_home/.dotfiles-work"
+  if [[ -L $lifecycle_home/.config/git/ignore ]]; then
+    _pass 'dev shadows the base Git ignore configuration'
+  else
+    _fail 'dev shadows the base Git ignore configuration'
+  fi
+  if [[ -L $lifecycle_home/.config/nvim/init.lua ]]; then
+    _pass 'dev shadows the base Nvim configuration'
+  else
+    _fail 'dev shadows the base Nvim configuration'
+  fi
+
+  mkdir -p "$lifecycle_work_seed/home/.config"
+  printf 'public-safe optional retry fixture\n' \
+    >"$lifecycle_work_seed/home/.config/work-retry-marker"
+  "$git_bin" -C "$lifecycle_work_seed" init --quiet
+  "$git_bin" -C "$lifecycle_work_seed" add home/.config/work-retry-marker
+  "$git_bin" -C "$lifecycle_work_seed" -c user.name=fixture \
+    -c user.email=fixture@example.invalid -c core.hooksPath=/dev/null \
+    commit --quiet -m fixture
+  "$git_bin" init --quiet --bare "$lifecycle_work_origin"
+  "$git_bin" -C "$lifecycle_work_seed" push --quiet \
+    "$lifecycle_work_origin" HEAD:refs/heads/main
+  "$git_bin" --git-dir="$lifecycle_work_origin" symbolic-ref HEAD refs/heads/main
+
+  lifecycle_status=0
+  run_in_home "$lifecycle_home" "$DOT_STACK_DOT_BIN" update \
+    >/dev/null 2>&1 || lifecycle_status=$?
+  _assert_exit 'later dev update retries the optional work overlay' \
+    0 "$lifecycle_status"
+  if [[ -d $lifecycle_home/.dotfiles-work/.git ]]; then
+    _pass 'later optional work retry retains a cached checkout'
+  else
+    _fail 'later optional work retry retains a cached checkout'
+  fi
+  if [[ -L $lifecycle_home/.config/work-retry-marker ]]; then
+    _pass 'later optional work retry activates its managed link'
+  else
+    _fail 'later optional work retry activates its managed link'
+  fi
+
+  profile=editor
+  mkdir -p "${lifecycle_selector%/*}"
+  chmod 0700 "${lifecycle_selector%/*}"
+  printf 'version=1\nuser=%s\nprofile=editor\n' "$(id -un)" \
+    >"$lifecycle_selector"
+  chmod 0600 "$lifecycle_selector"
+  lifecycle_status=0
+  run_in_home "$lifecycle_home" "$DOT_STACK_DOT_BIN" update \
+    >/dev/null 2>&1 || lifecycle_status=$?
+  _assert_exit 'dev to editor downgrade converges' 0 "$lifecycle_status"
+  _assert_file_content \
+    'dev to editor restores the shadowed Git ignore configuration' \
+    "$git_shadow" "$lifecycle_home/.config/git/ignore"
+  if [[ -L $lifecycle_home/.config/nvim/init.lua ]]; then
+    _pass 'dev to editor keeps the selected Nvim link'
+  else
+    _fail 'dev to editor keeps the selected Nvim link'
+  fi
+  _assert_file_missing 'dev to editor removes the deselected work link' \
+    "$lifecycle_home/.config/work-retry-marker"
+  for cached in dev work; do
+    if [[ -d $lifecycle_home/.dotfiles-$cached/.git ]]; then
+      _pass "dev to editor preserves the cached $cached checkout"
+    else
+      _fail "dev to editor preserves the cached $cached checkout"
+    fi
+  done
+  _assert_file_content 'dev to editor preserves native package state' \
+    preserve "$lifecycle_package_marker"
+
+  profile=base
+  printf 'version=1\nuser=%s\nprofile=base\n' "$(id -un)" \
+    >"$lifecycle_selector"
+  chmod 0600 "$lifecycle_selector"
+  lifecycle_status=0
+  run_in_home "$lifecycle_home" "$DOT_STACK_DOT_BIN" update \
+    >/dev/null 2>&1 || lifecycle_status=$?
+  _assert_exit 'editor to base downgrade converges' 0 "$lifecycle_status"
+  _assert_file_content 'editor to base restores the shadowed Nvim configuration' \
+    "$nvim_shadow" "$lifecycle_home/.config/nvim/init.lua"
+  for cached in nvim dev work; do
+    if [[ -d $lifecycle_home/.dotfiles-$cached/.git ]]; then
+      _pass "editor to base preserves the cached $cached checkout"
+    else
+      _fail "editor to base preserves the cached $cached checkout"
+    fi
+  done
+  _assert_file_content 'editor to base preserves native package state' \
+    preserve "$lifecycle_package_marker"
+  _assert_file_missing \
+    'profile downgrade never invokes a native package manager' \
+    "$lifecycle_package_log"
+
+  profile=dev
+  rm -f -- "$lifecycle_selector"
+  lifecycle_status=0
+  run_in_home "$lifecycle_home" "$DOT_STACK_DOT_BIN" update \
+    >/dev/null 2>&1 || lifecycle_status=$?
+  _assert_exit 'base to root-global dev upgrade converges' 0 "$lifecycle_status"
+  if [[ -L $lifecycle_home/.config/git/config ]]; then
+    _pass 'base to root-global dev upgrade reactivates the dev Git configuration'
+  else
+    _fail 'base to root-global dev upgrade reactivates the dev Git configuration'
+  fi
+  if [[ -L $lifecycle_home/.config/work-retry-marker ]]; then
+    _pass 'base to root-global dev upgrade reactivates the optional work link'
+  else
+    _fail 'base to root-global dev upgrade reactivates the optional work link'
+  fi
+  _assert_file_content 'base to root-global dev upgrade preserves native package state' \
+    preserve "$lifecycle_package_marker"
+  _assert_file_missing \
+    'profile upgrade never invokes a native package manager' \
+    "$lifecycle_package_log"
+
+  "$git_bin" -C "$base_seed" rm --quiet \
+    .config/dot/profile-selectors.d/00-default.conf
+  "$git_bin" -C "$base_seed" -c user.name=fixture \
+    -c user.email=fixture@example.invalid -c core.hooksPath=/dev/null \
+    commit --quiet -m 'use the built-in base fallback'
+  "$git_bin" -C "$base_seed" push --quiet "$base_origin" HEAD:refs/heads/main
+  lifecycle_status=0
+  run_in_home "$lifecycle_home" "$DOT_STACK_DOT_BIN" update \
+    >/dev/null 2>&1 || lifecycle_status=$?
+  _assert_exit 'removing the root-global selector downsizes to base' \
+    0 "$lifecycle_status"
+  _assert_file_content 'root-global removal restores base Git content' \
+    "$git_shadow" "$lifecycle_home/.config/git/ignore"
+  _assert_file_content 'root-global removal restores base Nvim content' \
+    "$nvim_shadow" "$lifecycle_home/.config/nvim/init.lua"
+  _assert_file_content 'root-global removal preserves native package state' \
+    preserve "$lifecycle_package_marker"
+
+  mkdir -p "$base_seed/.config/dot/profile-selectors.d"
+  printf 'version=1\nprofile=dev\n' \
+    >"$base_seed/.config/dot/profile-selectors.d/00-default.conf"
+  "$git_bin" -C "$base_seed" add \
+    .config/dot/profile-selectors.d/00-default.conf
+  "$git_bin" -C "$base_seed" -c user.name=fixture \
+    -c user.email=fixture@example.invalid -c core.hooksPath=/dev/null \
+    commit --quiet -m 'restore the root-global dev selector'
+  "$git_bin" -C "$base_seed" push --quiet "$base_origin" HEAD:refs/heads/main
+  lifecycle_status=0
+  run_in_home "$lifecycle_home" "$DOT_STACK_DOT_BIN" update \
+    >/dev/null 2>&1 || lifecycle_status=$?
+  _assert_exit 'restoring the root-global selector upgrades to dev' \
+    0 "$lifecycle_status"
+  if [[ -L $lifecycle_home/.config/git/config &&
+    -L $lifecycle_home/.config/nvim/init.lua ]]; then
+    _pass 'root-global restoration reactivates editor and dev owners'
+  else
+    _fail 'root-global restoration reactivates editor and dev owners'
+  fi
+  _assert_file_content 'root-global restoration preserves native package state' \
+    preserve "$lifecycle_package_marker"
+  _assert_file_missing \
+    'root-global transitions never invoke a native package manager' \
+    "$lifecycle_package_log"
+  unset DOT_PROFILE_PACKAGE_MANAGER_LOG
+fi
 
 _test_summary

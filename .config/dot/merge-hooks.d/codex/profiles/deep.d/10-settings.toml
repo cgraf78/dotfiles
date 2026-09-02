@@ -1,5 +1,0 @@
-# `codex --profile deep` overlay: high reasoning with live web search for
-# thorough investigation.
-model_reasoning_effort = "high"
-model_verbosity = "medium"
-web_search = "live"

@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# Verify the final top-level tree is a development-tool-free base profile.
+
+set -u
+
+source_home=${DOT_TEST_SOURCE_HOME:-$HOME}
+
+# shellcheck source=helpers.sh
+. "$source_home/.local/lib/dotfiles/tests/helpers.sh"
+
+_base_tracked_paths() {
+  local path=$1
+  if [[ -e $source_home/.git || -L $source_home/.git ]]; then
+    git -C "$source_home" ls-files -- "$path" "$path/**"
+  else
+    git --git-dir="$source_home/.dotfiles" --work-tree="$source_home" \
+      ls-files -- "$path" "$path/**"
+  fi
+}
+
+_assert_base_unowned() {
+  local description=$1 path=$2 tracked
+  tracked=$(_base_tracked_paths "$path")
+  if [[ -z $tracked ]]; then
+    _pass "$description"
+  else
+    _fail "$description (unexpected base-owned path: $tracked)"
+  fi
+}
+
+_test_prefer_system_git || {
+  _fail 'base boundary has an isolated system Git'
+  _test_summary
+}
+system_git=$(type -P git)
+controlled_bin=$(_tmpdir)
+ln -s "$system_git" "$controlled_bin/git"
+if PATH=$controlled_bin command -v git >/dev/null 2>&1; then
+  _pass 'base retains raw Git for bootstrap and overlay transport'
+else
+  _fail 'base retains raw Git for bootstrap and overlay transport'
+fi
+if PATH=$controlled_bin command -v nvim >/dev/null 2>&1; then
+  _fail 'base controlled PATH excludes Nvim'
+else
+  _pass 'base controlled PATH excludes Nvim'
+fi
+
+for spec in \
+  'global Git configuration|.config/git/config' \
+  'Nvim configuration|.config/nvim' \
+  'Nvim launcher|.local/bin/nvim' \
+  'development Mise configuration|.config/mise' \
+  'development Git hooks|.local/lib/dotfiles/git-hooks' \
+  'development agent profile|.config/ds/profile.conf' \
+  'development agent launcher|.local/bin/hm' \
+  'development merge hook|.local/lib/dotfiles/merge-hooks.d/codex.sh'; do
+  description=${spec%%|*}
+  path=${spec#*|}
+  _assert_base_unowned "base excludes $description" "$path"
+done
+
+deps=$source_home/.config/shdeps/10-deps.conf
+_assert_contains 'base dependencies retain agent-rules-sync' \
+  'cgraf78/agent-rules-sync' "$(<"$deps")"
+_assert_contains 'base dependencies retain tmux' \
+  $'tmux\t' "$(tr -s '[:space:]' '\t' <"$deps")"
+if grep -Eq '(^|/)(neovim|mise|git-tools|checkrun|agentguard)([[:space:]]|$)' \
+  "$deps"; then
+  _fail 'base dependencies exclude editor and development tooling'
+else
+  _pass 'base dependencies exclude editor and development tooling'
+fi
+
+for hook in \
+  .config/shdeps/hooks.d/cargo.sh \
+  .config/shdeps/hooks.d/neovim/neovim.sh \
+  .local/lib/dotfiles/merge-hooks.d/mise.sh \
+  .local/lib/dotfiles/merge-hooks.d/nvim.sh; do
+  _assert_base_unowned 'base excludes a capability-owned hook' "$hook"
+done
+
+_test_summary

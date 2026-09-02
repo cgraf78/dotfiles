@@ -1,7 +1,0 @@
-# Global hadolint fallback. Applied via `-c` when no per-repo
-# `.hadolint.yaml` is found in the file's parent chain.
-#
-# Add ignored rules here to suppress noisy warnings globally. See
-# https://github.com/hadolint/hadolint#rules for the full rule list.
-
-{}

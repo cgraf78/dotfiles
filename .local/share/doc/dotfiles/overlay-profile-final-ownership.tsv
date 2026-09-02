@@ -194,6 +194,7 @@ dotfiles	.local/lib/dotfiles/tests/fixtures.sh	local-lib-dotfiles-tests-fixtures
 dotfiles	.local/lib/dotfiles/tests/footprint-test	profile-footprint	test	new	d4	owner=dotfiles; source=new; family=base
 dotfiles	.local/lib/dotfiles/tests/harness-isolation-test	local-lib-dotfiles-tests-harness-isolation-test	test	old:.local/lib/dotfiles/tests/harness-isolation-test	bootstrap	owner=dotfiles; source=locked-dotfiles; family=base
 dotfiles	.local/lib/dotfiles/tests/helpers.sh	split-tests	test	old:.local/lib/dotfiles/tests/helpers.sh	d4	owner=dotfiles; source=locked-dotfiles; family=base
+dotfiles	.local/lib/dotfiles/tests/legacy-profile-cutover	dot-control	test	new	d5	owner=dotfiles; source=new; family=base
 dotfiles	.local/lib/dotfiles/tests/load-merge-api.sh	split-tests	test	old:.local/lib/dotfiles/tests/load-merge-api.sh	d4	owner=dotfiles; source=locked-dotfiles; family=base
 dotfiles	.local/lib/dotfiles/tests/measure-profile-footprint	profile-footprint	test	new	d4	owner=dotfiles; source=new; family=base
 dotfiles	.local/lib/dotfiles/tests/overlay-profile-ownership-test	dot-control	test	new	d4	owner=dotfiles; source=new; family=base
@@ -386,6 +387,7 @@ dotfiles-dev	home/.local/lib/dotfiles/tests/dev-doctor-test	split-doctor	test	ol
 dotfiles-dev	home/.local/lib/dotfiles/tests/dev-merges-test	split-tests	test	old:.local/lib/dotfiles/tests/core-merges-test	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev
 dotfiles-dev	home/.local/lib/dotfiles/tests/dev-static-test	split-tests	test	old:.local/lib/dotfiles/tests/core-static-test	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev
 dotfiles-dev	home/.local/lib/dotfiles/tests/dev-update-test	split-tests	test	old:.local/lib/dotfiles/tests/core-update-test	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev
+dotfiles-dev	home/.local/lib/dotfiles/tests/fixtures/common-language-policy.json	local-lib-dotfiles-tests-fixtures-common-language-policy-json	test	old:.local/lib/dotfiles/tests/fixtures/common-language-policy.json	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev
 dotfiles-dev	home/.local/lib/dotfiles/tests/git-shell-workflows-test	git-workflow	test	old:.local/lib/dotfiles/tests/git-shell-workflows-test	d3	owner=dotfiles-dev; source=locked-dotfiles; family=git-workflow
 dotfiles-dev	home/.local/lib/dotfiles/tests/githook-test	git-workflow	test	old:.local/lib/dotfiles/tests/githook-test	d3	owner=dotfiles-dev; source=locked-dotfiles; family=git-workflow
 dotfiles-dev	home/.local/lib/dotfiles/tests/gstack-register-test	agent-tooling	test	old:.local/lib/dotfiles/tests/gstack-register-test	d3	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling; family=agent-tooling
@@ -450,11 +452,11 @@ dotfiles-dev	home/.vscode/README.md	vscode	docs	old:.vscode/README.md	d3	owner=d
 dotfiles-dev	home/.vscode/settings.json	vscode	config	old:.vscode/settings.json	d3	owner=dotfiles-dev; source=locked-dotfiles; family=vscode
 dotfiles-dev	LICENSE	repository-shared-bootstrap	repository	old:.github/LICENSE	bootstrap	owner=dotfiles-dev; source=locked-dotfiles
 dotfiles-dev	README.md	repository-dev	docs	new	bootstrap	owner=dotfiles-dev; source=new-public-bootstrap; family=dev
+dotfiles-dev	vim.yml	repository-dev	ci	new	d3	owner=dotfiles-dev; source=new; family=nvim-dev
 dotfiles-dev	test/lib/capability-fixture.sh	repository-dev	test	new	bootstrap	owner=dotfiles-dev; source=new-public-bootstrap; family=dev
 dotfiles-dev	test/lib/wait-github-state.sh	repository-dev	test	new	bootstrap	owner=dotfiles-dev; source=new-public-bootstrap; family=dev
 dotfiles-dev	test/run	repository-dev	test	new	bootstrap	owner=dotfiles-dev; source=new-public-bootstrap; family=dev
 dotfiles-dev	test/workflow-test	repository-dev	test	new	bootstrap	owner=dotfiles-dev; source=new-public-bootstrap; family=dev
-dotfiles-dev	vim.yml	repository-dev	ci	new	d3	owner=dotfiles-dev; source=new; family=nvim-dev
 dotfiles-nvim	.github/cgraf78-actions.lock	repository-shared-bootstrap	repository	old:.github/cgraf78-actions.lock	bootstrap	owner=dotfiles-nvim; source=locked-dotfiles
 dotfiles-nvim	.github/dot-test-suites.txt	repository-nvim	ci	new	bootstrap	owner=dotfiles-nvim; source=new-public-bootstrap
 dotfiles-nvim	.github/dot.lock	repository-nvim	repository	new	bootstrap	owner=dotfiles-nvim; source=new-public-bootstrap
@@ -565,7 +567,6 @@ dotfiles-nvim	home/.local/lib/dotfiles/tests/nvim/helpers.sh	split-tests	test	ol
 dotfiles-dev	home/.local/lib/dotfiles/tests/dev/helpers.sh	split-tests	test	old:.local/lib/dotfiles/tests/helpers.sh	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev
 dotfiles-nvim	home/.local/lib/dotfiles/tests/nvim/load-merge-api.sh	split-tests	test	old:.local/lib/dotfiles/tests/load-merge-api.sh	d2	owner=dotfiles-nvim; source=locked-dotfiles; family=nvim-editor
 dotfiles-dev	home/.local/lib/dotfiles/tests/dev/load-merge-api.sh	split-tests	test	old:.local/lib/dotfiles/tests/load-merge-api.sh	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev
-dotfiles-dev	home/.local/lib/dotfiles/tests/fixtures/common-language-policy.json	local-lib-dotfiles-tests-fixtures-common-language-policy-json	test	old:.local/lib/dotfiles/tests/fixtures/common-language-policy.json	d3	owner=dotfiles-dev; source=locked-dotfiles; family=dev
 dotfiles-dev	docs/nvim/configuration.md	split-nvim	docs	old:.config/nvim/README.md	d3	owner=dotfiles-dev; source=locked-dotfiles; family=nvim-dev
 dotfiles-dev	docs/nvim/modules.md	split-nvim	docs	old:.config/nvim/lua/config/README.md	d3	owner=dotfiles-dev; source=locked-dotfiles; family=nvim-dev
 dotfiles-dev	docs/nvim/plugins.md	split-nvim	docs	old:.config/nvim/lua/plugins/README.md	d3	owner=dotfiles-dev; source=locked-dotfiles; family=nvim-dev

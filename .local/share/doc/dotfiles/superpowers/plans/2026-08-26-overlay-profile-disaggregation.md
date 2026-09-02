@@ -2234,6 +2234,39 @@ revisions, selected profile, optional-overlay skips, command exit status, and
 follow-up ownership. Fresh machines use the published D1 bootstrap and receive
 the same root-global `dev` default during this compatibility rollout.
 
+### 9.5 Retire transition-only cutover scaffolding
+
+After D1-D5 are merged and every managed machine has successfully crossed the
+profile boundary, open a separate cleanup PR. Do not retain exact historical
+transition machinery as part of the steady-state profile architecture. The
+cleanup removes this exact transition-only inventory:
+
+- `.github/overlay-profile-stack.lock`: delete `pre_profile_dot`,
+  `dotfiles_d4_base_ref`, and `dotfiles_d4_base`;
+- `.local/lib/dotfiles/tests/legacy-profile-cutover`: delete the complete
+  pre-profile -> D4 -> D5, direct pre-profile -> D5, and interrupted handoff
+  fixture;
+- `.github/workflows/test.yml`: delete the `legacy-profile-cutover` command;
+- `.local/lib/dotfiles/tests/checkout-ci-candidate`: delete
+  `verify_d5_pull_request_base` and its D4 branch/SHA event validation while
+  retaining exact immutable candidate checkout and isolation checks;
+- `.local/lib/dotfiles/tests/overlay-profile-stack-test`: delete assertions
+  and negative fixtures that exist only for the three retired lock fields and
+  D5's stacked-PR base relationship; and
+- `.local/lib/dotfiles/tests/README.md`: delete the legacy-cutover invocation
+  and transition-only note after the code is gone.
+
+Retain the general candidate-HOME isolation, immutable capability pins,
+profile selection tests, and bidirectional profile-transition coverage. Keep
+source and ownership provenance only while it continues to provide useful
+extraction auditing; archive it with this plan when it no longer guards a
+live boundary. The cleanup must not alter profile resolution or activation.
+
+Do not remove the profile definitions, user/host selector precedence,
+root-global compatibility selector, optional-overlay skip behavior, overlay
+deactivation receipts, or ordinary `dev -> editor -> base -> dev` transition
+tests. Those are steady-state behavior, not cutover scaffolding.
+
 ---
 
 ## Task 10: Stage profiles in the top-level `dotfiles` repository
@@ -2453,6 +2486,7 @@ Use a deliberately small machine-readable format:
 version=1
 source_dotfiles=<40-or-64-hex-commit>
 dot=<immutable-D1-head>
+pre_profile_dot=<immutable-pre-profile-Dot-head-for-cutover-tests>
 dotfiles_nvim=<immutable-D2-head>
 dotfiles_dev=<immutable-D3-head>
 test_shdeps=<immutable-released-Shdeps-commit>

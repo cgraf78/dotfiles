@@ -1,5 +1,6 @@
 .local/lib/dotfiles/tests/agent-rules-adapter-test
 .local/lib/dotfiles/tests/agent-rules-test
+.local/lib/dotfiles/tests/base-profile-boundary-test
 .local/lib/dotfiles/tests/client-extensions-test
 .local/lib/dotfiles/tests/client-paths-test
 .local/lib/dotfiles/tests/clip-test
@@ -18,6 +19,7 @@
 .local/lib/dotfiles/tests/prompt-test
 .local/lib/dotfiles/tests/shdeps-hooks-test
 .local/lib/dotfiles/tests/tmux-continuum-test
+.local/lib/dotfiles/tests/tmux-compatibility-test
 .local/lib/dotfiles/tests/tmux-test
 .local/lib/dotfiles/tests/tool-init-test
 .local/lib/dotfiles/tests/wezterm-test

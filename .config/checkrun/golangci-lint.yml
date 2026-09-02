@@ -1,6 +1,0 @@
-# Global golangci-lint fallback. Applied via `--config` when no per-repo
-# `.golangci.yml` (or .yaml/.toml/.json variant) is found in the file's
-# parent chain.
-version: "2"
-linters:
-  default: standard
