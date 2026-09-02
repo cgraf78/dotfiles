@@ -270,6 +270,34 @@ class LeafStyleTest(unittest.TestCase):
         """Return the parsed global hook exactly as tmux will execute it."""
         return self.tmux("show-hooks", "-g", name).stdout.strip()
 
+    def supports_hook(self, name: str) -> bool:
+        """Probe hook support without treating a missing production hook as old tmux."""
+        probe = f"{name}[999999]"
+        self.tmux(
+            "set-hook",
+            "-g",
+            probe,
+            "display-message -p dot-test-probe",
+            check=False,
+        )
+        result = self.tmux("show-hooks", "-g", name, check=False)
+        self.tmux("set-hook", "-gu", probe, check=False)
+        return result.returncode == 0 and probe in result.stdout
+
+    def supports_client_format_context(self, tty: str) -> bool:
+        """Return whether display-message can evaluate for a specific client."""
+        return (
+            self.tmux(
+                "display-message",
+                "-c",
+                tty,
+                "-p",
+                "#{client_tty}",
+                check=False,
+            ).returncode
+            == 0
+        )
+
     def claim_child(self) -> None:
         """Apply the pane state that Termnav publishes for a focused child."""
         if self.focus is not None:
@@ -389,6 +417,8 @@ class LeafStyleTest(unittest.TestCase):
         return red, green, blue
 
     def test_focus_hooks_are_client_scoped_and_ignore_control_mode(self) -> None:
+        if not self.supports_hook("client-focus-in"):
+            self.skipTest("tmux does not expose client focus hooks")
         start_hooks = self.hook("client-attached") + "\n" + self.hook("client-focus-in")
         stop_hooks = self.hook("client-focus-out") + "\n" + self.hook("client-detached")
         sync_hooks = (
@@ -410,8 +440,11 @@ class LeafStyleTest(unittest.TestCase):
 
     def test_styles_follow_each_client_and_child_claim(self) -> None:
         first = Client(self)
+        self.clients.append(first)
+        if not self.supports_client_format_context(first.tty):
+            self.skipTest("tmux does not support client-targeted format expansion")
         second = Client(self)
-        self.clients.extend((first, second))
+        self.clients.append(second)
         first.set_focus(True)
         second.set_focus(False)
 
