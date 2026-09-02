@@ -16,6 +16,23 @@ dot_core_test_cron() {
   }
 
   dot_fixture_mock_crontab
+  # Every assertion must use the explicit test double. Minimal RPM-family
+  # images install a real crontab, and accidentally consulting PATH would test
+  # the container account instead of the isolated fixture.
+  cron_path_bin=$(_mock_bin)
+  cron_path_log=$(_tmpfile)
+  cat >"$cron_path_bin/crontab" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$DOT_TEST_CRONTAB_PATH_LOG"
+exit 99
+SH
+  chmod +x "$cron_path_bin/crontab"
+  PATH="$cron_path_bin:$PATH"
+  DOT_TEST_CRONTAB_PATH_LOG=$cron_path_log
+  export PATH DOT_TEST_CRONTAB_PATH_LOG
+  crontab() {
+    "$DOT_TEST_CRONTAB" "$@"
+  }
   mkdir -p \
     "$TEST_HOME/.config/dot/merge-hooks.d/cron/cron.d" \
     "$TEST_HOME/.config/dot/merge-hooks.d/cron/path.d" \
@@ -532,6 +549,9 @@ EOF
   result=$(crontab -l 2>/dev/null)
   _assert_not_contains "filter user mixed: current user excluded first" "mixed-skip-this-user" "$result"
   _assert_contains "filter user mixed: current user included" "mixed-keep-this-user" "$result"
+
+  _assert_eq "cron test: PATH crontab is never invoked" \
+    "" "$(<"$cron_path_log")"
 
   echo "=== Agent integration ownership contract ==="
 

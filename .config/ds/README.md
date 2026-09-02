@@ -1,19 +1,13 @@
-# ds Config
+# DS Base Configuration
 
-This directory contains local configuration for `ds` tmux development sessions.
-The `ds` tool itself is installed through shdeps; these files are dotfiles-owned
-inputs that shape how sessions connect, share terminals, and select profiles.
+This directory contains the small, always-active `ds` policy used for terminal
+sessions and remote connection helpers. The `ds` binary is installed through
+Shdeps.
 
-## Files
+Base owns common connection defaults and reusable session plumbing. Named
+development-session profiles belong to `dotfiles-dev`; personal or site-local
+values belong to their existing private overlay or an untracked local file.
 
-- `connect*.conf` files define connection behavior for remote sessions.
-- `share-upterm.conf` defines defaults for shared upterm sessions when an
-  overlay or local machine config provides it.
-- `profile-*.sh` files are shell snippets for named session profiles.
-- `profile*.conf` files define single-command profiles as data.
-- `upterm_authorized_keys` and `upterm_known_hosts` hold upterm SSH trust data
-  when an overlay or local machine config provides them.
-
-Keep profile snippets small and profile-specific. Shared shell behavior belongs
-under `~/.config/shell`; reusable command behavior belongs in its owning
-dependency repo, with dotfiles-specific glue kept thin.
+Keep fragments small and declarative. Shared shell behavior belongs under
+`~/.config/shell`, while reusable command behavior belongs in the `ds`
+repository.

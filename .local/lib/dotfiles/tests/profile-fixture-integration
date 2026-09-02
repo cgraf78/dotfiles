@@ -1,0 +1,426 @@
+#!/usr/bin/env bash
+# Exercise real profile updates, doctor discovery, and installed test discovery.
+
+set -u
+
+source_home=$(cd -P -- "${BASH_SOURCE[0]%/*}/../../../.." && pwd -P)
+
+# shellcheck source=helpers.sh
+. "$source_home/.local/lib/dotfiles/tests/helpers.sh"
+
+usage() {
+  printf 'usage: %s update|doctor|test\n' "${0##*/}" >&2
+  exit 2
+}
+
+mode=${1:-}
+[[ $# -eq 1 ]] || usage
+case $mode in
+  update) expected_group='profile-fixture-update' ;;
+  doctor) expected_group='profile-doctor' ;;
+  test) expected_group='installed-profile-dot-test' ;;
+  *) usage ;;
+esac
+
+lock=$source_home/.github/overlay-profile-stack.lock
+lock_value() {
+  local key=$1
+  awk -F= -v key="$key" '$1 == key { count++; value=$2 } END {
+    if (count == 1) print value; else exit 1
+  }' "$lock"
+}
+
+dot_sha=$(lock_value dot 2>/dev/null || true)
+nvim_sha=$(lock_value dotfiles_nvim 2>/dev/null || true)
+dev_sha=$(lock_value dotfiles_dev 2>/dev/null || true)
+cutover_sha=$(lock_value dotfiles_d4_base 2>/dev/null || true)
+cutover_phase=0
+[[ $cutover_sha =~ ^[0-9a-f]{40}$ ]] && cutover_phase=1
+if [[ ${DOT_STACK_RUNTIME:-0} == 1 &&
+  ${DOT_STACK_GROUP:-} == "$expected_group" &&
+  ${DOT_STACK_DOT_SHA:-} == "$dot_sha" &&
+  ${DOT_STACK_DOT_ROOT:-} == /* &&
+  ${DOT_STACK_DOT_BIN:-} == "${DOT_STACK_DOT_ROOT:-}/bin/dot" &&
+  $(git -C "${DOT_STACK_DOT_ROOT:-/nonexistent}" rev-parse HEAD 2>/dev/null) == "$dot_sha" ]]; then
+  _pass "$expected_group uses the exact locked D1 runtime"
+else
+  _fail "$expected_group uses the exact locked D1 runtime"
+  _test_summary
+fi
+
+for sha in "$nvim_sha" "$dev_sha"; do
+  [[ $sha =~ ^[0-9a-f]{40}$ ]] || {
+    _fail 'profile fixture lock contains full capability revisions'
+    _test_summary
+  }
+done
+_pass 'profile fixture lock contains full capability revisions'
+
+_test_prefer_system_git || {
+  _fail 'profile fixtures have an isolated system Git'
+  _test_summary
+}
+git_bin=$(type -P git)
+fixture_path=${git_bin%/*}:/usr/bin:/bin
+if [[ -n ${PREFIX:-} ]]; then
+  fixture_path=${git_bin%/*}:$PREFIX/bin:/usr/bin:/bin
+fi
+_pass 'profile fixtures have an isolated system Git'
+
+fixture_root=$(_tmpdir)
+nvim_origin=$fixture_root/dotfiles-nvim.git
+dev_origin=$fixture_root/dotfiles-dev.git
+base_seed=$fixture_root/base-seed
+base_origin=$fixture_root/dotfiles.git
+git_config=$fixture_root/gitconfig
+nvim_source=${DOT_STACK_NVIM_REPOSITORY:-https://github.com/cgraf78/dotfiles-nvim.git}
+dev_source=${DOT_STACK_DEV_REPOSITORY:-https://github.com/cgraf78/dotfiles-dev.git}
+
+make_capability_origin() {
+  local source=$1 sha=$2 destination=$3 name=$4 checkout
+  checkout=$fixture_root/source-$name
+  "$git_bin" clone --quiet --no-checkout "$source" "$checkout" || return 1
+  "$git_bin" -C "$checkout" fetch --quiet --no-tags origin "$sha" || return 1
+  "$git_bin" init --quiet --bare "$destination" || return 1
+  "$git_bin" -C "$checkout" push --quiet "$destination" \
+    "$sha:refs/heads/main" || return 1
+  "$git_bin" --git-dir="$destination" symbolic-ref HEAD refs/heads/main || return 1
+  _assert_eq "$name origin contains the exact locked revision" "$sha" \
+    "$("$git_bin" --git-dir="$destination" rev-parse refs/heads/main)"
+}
+
+make_capability_origin "$nvim_source" "$nvim_sha" "$nvim_origin" nvim || {
+  _fail 'created exact local nvim origin'
+  _test_summary
+}
+make_capability_origin "$dev_source" "$dev_sha" "$dev_origin" dev || {
+  _fail 'created exact local dev origin'
+  _test_summary
+}
+nvim_suite_names=$("$git_bin" --git-dir="$nvim_origin" show \
+  main:.github/dot-test-suites.txt | sed -e 's#^.*/##' -e 's/-test$//')
+dev_suite_names=$("$git_bin" --git-dir="$dev_origin" show \
+  main:.github/dot-test-suites.txt | sed -e 's#^.*/##' -e 's/-test$//')
+
+mkdir -p "$base_seed"
+"$git_bin" clone --quiet --no-local --no-checkout "$source_home" "$base_seed"
+"$git_bin" -C "$base_seed" checkout --quiet --detach HEAD
+# shellcheck disable=SC2016 # Preserve the supported literal config token.
+printf '%s\n' \
+  'version=1' \
+  'extension_api=1' \
+  'extensions_dir=$HOME/.local/lib/dotfiles' \
+  'dependency_provider=none' \
+  >"$base_seed/.config/dot/config"
+"$git_bin" -C "$base_seed" add .config/dot/config
+"$git_bin" -C "$base_seed" -c user.name=fixture \
+  -c user.email=fixture@example.invalid -c core.hooksPath=/dev/null \
+  commit --quiet -m fixture
+"$git_bin" init --quiet --bare "$base_origin"
+# CI source checkouts may intentionally stop at an older repository boundary.
+# Preserve the history that ownership tests inspect without requiring parents
+# older than that advertised shallow boundary.
+"$git_bin" --git-dir="$base_origin" config receive.shallowUpdate true
+_assert_eq 'base fixture origin accepts shallow source history' true \
+  "$("$git_bin" --git-dir="$base_origin" config --bool --get \
+    receive.shallowUpdate)"
+"$git_bin" -C "$base_seed" push --quiet "$base_origin" HEAD:refs/heads/main
+"$git_bin" --git-dir="$base_origin" symbolic-ref HEAD refs/heads/main
+
+"$git_bin" config --file "$git_config" \
+  "url.file://$nvim_origin.insteadOf" \
+  https://github.com/cgraf78/dotfiles-nvim.git
+"$git_bin" config --file "$git_config" \
+  "url.file://$dev_origin.insteadOf" \
+  https://github.com/cgraf78/dotfiles-dev.git
+"$git_bin" config --file "$git_config" \
+  "url.file://$fixture_root/missing-personal.git.insteadOf" \
+  git@github.com:cgraf78/dotfiles-personal.git
+"$git_bin" config --file "$git_config" \
+  "url.file://$fixture_root/missing-work.git.insteadOf" \
+  github-dotfiles-work:cgraf78/dotfiles-work.git
+
+run_in_home() {
+  local home=$1
+  shift
+  env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR \
+    -u GITHUB_ACTIONS -u GITHUB_EVENT_NAME -u GITHUB_EVENT_PATH \
+    -u GITHUB_BASE_REF -u GITHUB_HEAD_REF -u GITHUB_SHA \
+    -u GH_TOKEN -u GITHUB_TOKEN -u GH_ENTERPRISE_TOKEN \
+    -u GITHUB_ENTERPRISE_TOKEN -u GITHUB_PERSONAL_ACCESS_TOKEN \
+    -u CODEX_GITHUB_PERSONAL_ACCESS_TOKEN \
+    -u DOTFILES_CANDIDATE_SHA \
+    HOME="$home" \
+    XDG_CONFIG_HOME="$home/.config" \
+    XDG_DATA_HOME="$home/.local/share" \
+    XDG_STATE_HOME="$home/.local/state" \
+    XDG_CACHE_HOME="$home/.cache" \
+    GIT_CONFIG_GLOBAL="$git_config" \
+    GIT_CONFIG_NOSYSTEM=1 \
+    PATH="$fixture_path:$home/.local/bin" \
+    "$@"
+}
+
+# The nested fixture is a normal client, not a GitHub Actions checkout. Keep
+# outer event identity and credentials from changing its repository behavior.
+# shellcheck disable=SC2016 # Inspect variables inside the isolated child.
+nested_ci_identity=$(GITHUB_ACTIONS=true GITHUB_EVENT_NAME=pull_request \
+  GITHUB_EVENT_PATH=/outer/event.json GITHUB_BASE_REF=outer-base \
+  GITHUB_HEAD_REF=outer-head GITHUB_SHA=0000000000000000000000000000000000000000 \
+  DOTFILES_CANDIDATE_SHA=1111111111111111111111111111111111111111 \
+  run_in_home "$fixture_root" bash -c \
+  'printf "%s\n" "${GITHUB_ACTIONS-unset}:${GITHUB_EVENT_NAME-unset}:${GITHUB_EVENT_PATH-unset}:${GITHUB_BASE_REF-unset}:${GITHUB_HEAD_REF-unset}:${GITHUB_SHA-unset}:${DOTFILES_CANDIDATE_SHA-unset}"')
+_assert_eq 'profile fixtures isolate outer CI event identity' \
+  'unset:unset:unset:unset:unset:unset:unset' "$nested_ci_identity"
+
+# shellcheck disable=SC2016 # Inspect variables inside the isolated child.
+nested_ci_credentials=$(GH_TOKEN=gh GITHUB_TOKEN=github \
+  GH_ENTERPRISE_TOKEN=gh-enterprise \
+  GITHUB_ENTERPRISE_TOKEN=github-enterprise \
+  GITHUB_PERSONAL_ACCESS_TOKEN=github-pat \
+  CODEX_GITHUB_PERSONAL_ACCESS_TOKEN=codex-github-pat \
+  run_in_home "$fixture_root" bash -c \
+  'printf "%s\n" "${GH_TOKEN-unset}:${GITHUB_TOKEN-unset}:${GH_ENTERPRISE_TOKEN-unset}:${GITHUB_ENTERPRISE_TOKEN-unset}:${GITHUB_PERSONAL_ACCESS_TOKEN-unset}:${CODEX_GITHUB_PERSONAL_ACCESS_TOKEN-unset}"')
+_assert_eq 'profile fixtures isolate outer CI credentials' \
+  'unset:unset:unset:unset:unset:unset' "$nested_ci_credentials"
+
+prepare_home() {
+  local profile=$1 home=$2 runtime_install selector init_status
+  "$git_bin" clone --quiet "file://$base_origin" "$home" || return 1
+
+  # The fixture deliberately disables dependency installation.  Tmux invokes
+  # this base-owned provider while parsing its configuration, so supply the
+  # minimal command boundary without installing the full dependency graph.
+  mkdir -p "$home/.local/bin"
+  printf '#!/bin/sh\nexit 0\n' \
+    >"$home/.local/bin/tmux-continuum-default-server"
+  chmod 0755 "$home/.local/bin/tmux-continuum-default-server"
+
+  if [[ $profile != dev ]]; then
+    mkdir -p "$home/.config/dot/profile-selectors.local.d"
+    chmod 0700 "$home/.config/dot/profile-selectors.local.d"
+    selector=$home/.config/dot/profile-selectors.local.d/10-fixture.conf
+    printf 'version=1\nuser=%s\nprofile=%s\n' "$(id -un)" "$profile" >"$selector"
+    chmod 0600 "$selector"
+  fi
+
+  runtime_install=$home/.local/share/cgraf78/dot
+  mkdir -p "$home/.local/share/cgraf78" "$home/.local/lib"
+  "$git_bin" clone --quiet --no-checkout "$DOT_STACK_DOT_ROOT" "$runtime_install"
+  "$git_bin" -C "$runtime_install" checkout --quiet --detach "$dot_sha"
+  ln -s ../share/cgraf78/dot/lib/dot/public "$home/.local/lib/dot"
+  printf '%s\n' '.local/lib/dot' '.local/share/cgraf78/' \
+    >>"$home/.git/info/exclude"
+
+  init_status=0
+  run_in_home "$home" "$DOT_STACK_DOT_BIN" init --yes \
+    "file://$base_origin" >/dev/null 2>&1 || init_status=$?
+  _assert_exit "$profile fixture records its ordinary checkout identity" \
+    0 "$init_status"
+}
+
+assert_profile_links() {
+  local profile=$1 home=$2
+  case $profile in
+    base)
+      _assert_file_missing \
+        'base update does not clone the editor overlay' \
+        "$home/.dotfiles-nvim"
+      _assert_file_missing \
+        'base update does not clone the development overlay' \
+        "$home/.dotfiles-dev"
+      ;;
+    editor)
+      _assert_eq 'editor update pins the nvim checkout' "$nvim_sha" \
+        "$("$git_bin" -C "$home/.dotfiles-nvim" rev-parse HEAD)"
+      _assert_file_missing \
+        'editor update does not clone the development overlay' \
+        "$home/.dotfiles-dev"
+      if [[ -L $home/.local/lib/dotfiles/tests/nvim-test ]]; then
+        _pass 'editor update links the nvim-owned suite'
+      else
+        _fail 'editor update links the nvim-owned suite'
+      fi
+      ;;
+    dev)
+      _assert_eq 'dev update pins the nvim checkout' "$nvim_sha" \
+        "$("$git_bin" -C "$home/.dotfiles-nvim" rev-parse HEAD)"
+      _assert_eq 'dev update pins the development checkout' "$dev_sha" \
+        "$("$git_bin" -C "$home/.dotfiles-dev" rev-parse HEAD)"
+      if [[ -L $home/.local/lib/dotfiles/tests/nvim-test ]]; then
+        _pass 'dev update links the nvim-owned suite'
+      else
+        _fail 'dev update links the nvim-owned suite'
+      fi
+      if [[ -L $home/.local/lib/dotfiles/tests/dev-doctor-test ]]; then
+        _pass 'dev update links the development-owned suite'
+      else
+        _fail 'dev update links the development-owned suite'
+      fi
+      ;;
+  esac
+  _assert_file_missing \
+    "$profile update tolerates an unavailable optional personal overlay" \
+    "$home/.dotfiles-personal"
+  _assert_file_missing \
+    "$profile update tolerates an unavailable optional work overlay" \
+    "$home/.dotfiles-work"
+}
+
+assert_suite_discovery() {
+  local profile=$1 output=$2 expected actual
+  _assert_contains "$profile discovers the top-level control suite" \
+    'overlay-profile-rollout' "$output"
+  expected=$(
+    printf 'dot\n'
+    sed -e 's#^.*/##' -e 's/-test$//' \
+      "$source_home/.github/dot-test-suites.txt"
+    case $profile in
+      editor)
+        printf '%s\n' "$nvim_suite_names"
+        ;;
+      dev)
+        printf '%s\n%s\n' "$nvim_suite_names" "$dev_suite_names"
+        ;;
+    esac
+  )
+  expected=$(printf '%s\n' "$expected" | LC_ALL=C sort)
+  actual=$(printf '%s\n' "$output" | LC_ALL=C sort)
+  _assert_eq "$profile discovers exactly its active owners' suites" \
+    "$expected" "$actual"
+  case $profile in
+    base)
+      _assert_not_contains 'base excludes nvim-owned suites' 'nvim-doctor' "$output"
+      _assert_not_contains 'base excludes dev-owned suites' 'dev-doctor' "$output"
+      ;;
+    editor)
+      _assert_contains 'editor discovers nvim-owned suites' 'nvim-doctor' "$output"
+      _assert_not_contains 'editor excludes dev-owned suites' 'dev-doctor' "$output"
+      ;;
+    dev)
+      _assert_contains 'dev discovers nvim-owned suites' 'nvim-doctor' "$output"
+      _assert_contains 'dev discovers development-owned suites' 'dev-doctor' "$output"
+      ;;
+  esac
+}
+
+assert_tmux_composition() {
+  local profile=$1 home=$2 socket keys move left output
+  command -v tmux >/dev/null 2>&1 || return 0
+  socket=dot-profile-$profile-$$
+  if ! output=$(run_in_home "$home" tmux -L "$socket" -f /dev/null \
+    new-session -d 'sleep 30' 2>&1); then
+    _fail "$profile composed tmux server starts: $output"
+    return
+  fi
+  if ! output=$(run_in_home "$home" tmux -L "$socket" source-file \
+    "$home/.config/tmux/tmux.conf" 2>&1); then
+    _fail "$profile composed tmux configuration parses"
+    printf '    %s\n' "$output"
+    run_in_home "$home" tmux -L "$socket" kill-server >/dev/null 2>&1 || true
+    return
+  fi
+  keys=$(run_in_home "$home" tmux -L "$socket" list-keys -T root)
+  run_in_home "$home" tmux -L "$socket" kill-server >/dev/null 2>&1 || true
+  move=$(printf '%s\n' "$keys" | grep -F '"M-{"' || true)
+  left=$(printf '%s\n' "$keys" |
+    awk '$1 == "bind-key" && $2 == "-T" && $3 == "root" && $4 == "C-h"')
+  _assert_contains "$profile composed tmux retains base tab movement" \
+    'termnav navigate tab-move left' "$move"
+  if [[ $profile == base ]]; then
+    if [[ $cutover_phase -eq 1 ]]; then
+      _assert_not_contains 'base composed tmux excludes editor detection' \
+        'fzf' "$move"
+      _assert_eq 'base composed tmux excludes editor pane navigation' '' "$left"
+    else
+      # D4 intentionally retains the monolithic tmux payload.  D5 introduces
+      # the physical split and enables the strict base/editor boundary below.
+      _assert_contains 'staging base retains legacy editor detection' \
+        'fzf' "$move"
+      _assert_contains 'staging base retains legacy pane navigation' \
+        'termnav navigate pane-select left' "$left"
+    fi
+  else
+    _assert_contains "$profile composed tmux adds editor detection" 'fzf' "$move"
+    _assert_contains "$profile composed tmux adds editor pane navigation" \
+      'termnav navigate pane-select left' "$left"
+  fi
+}
+
+for profile in base editor dev; do
+  home=$fixture_root/home-$profile
+  update_log=$fixture_root/update-$profile.log
+  prepare_home "$profile" "$home" || {
+    _fail "$profile fixture is prepared"
+    continue
+  }
+  update_status=0
+  run_in_home "$home" "$DOT_STACK_DOT_BIN" update -f \
+    >"$update_log" 2>&1 || update_status=$?
+  update_output=$(<"$update_log")
+  _assert_exit "$profile profile converges through real dot update" 0 "$update_status"
+  _assert_contains "$profile update reports completion" 'Done in ' "$update_output"
+  assert_profile_links "$profile" "$home"
+  assert_tmux_composition "$profile" "$home"
+
+  case $mode in
+    update) ;;
+    doctor)
+      doctor_log=$fixture_root/doctor-$profile.log
+      doctor_status=0
+      run_in_home "$home" "$DOT_STACK_DOT_BIN" doctor \
+        >"$doctor_log" 2>&1 || doctor_status=$?
+      doctor_output=$(<"$doctor_log")
+      _assert_exit "$profile doctor completes" 0 "$doctor_status"
+      _assert_contains "$profile doctor reports profile lifecycle" \
+        "selected profile ($profile" "$doctor_output"
+      _assert_contains "$profile doctor reports overlay lifecycle" \
+        'Overlays (4 configured)' "$doctor_output"
+      if [[ $profile == base ]]; then
+        _assert_not_contains 'base doctor excludes Nvim component checks' \
+          $'\nNeovim\n' "$doctor_output"
+        _assert_not_contains 'base doctor excludes development component checks' \
+          $'\nDevelopment tools\n' "$doctor_output"
+      elif [[ $profile == editor ]]; then
+        _assert_contains 'editor doctor includes Nvim component checks' \
+          $'\nNeovim\n' "$doctor_output"
+        _assert_not_contains 'editor doctor excludes development component checks' \
+          $'\nDevelopment tools\n' "$doctor_output"
+      else
+        _assert_contains 'dev doctor includes Nvim component checks' \
+          $'\nNeovim\n' "$doctor_output"
+        _assert_contains 'dev doctor includes development component checks' \
+          $'\nDevelopment tools\n' "$doctor_output"
+      fi
+      ;;
+    test)
+      list_log=$fixture_root/test-list-$profile.log
+      list_status=0
+      run_in_home "$home" "$DOT_STACK_DOT_BIN" test --list \
+        >"$list_log" 2>&1 || list_status=$?
+      list_output=$(<"$list_log")
+      _assert_exit "$profile installed dot test discovery completes" 0 "$list_status"
+      assert_suite_discovery "$profile" "$list_output"
+      test_log=$fixture_root/test-$profile.log
+      test_status=0
+      # The aggregate stack suite already runs once from the pristine source
+      # checkout.  Here, execute one suite owned by each selected profile so
+      # installed discovery is covered without rerunning that aggregate suite
+      # three times from overlay-composed worktrees.
+      case $profile in
+        base) test_suite=overlay-profile-rollout ;;
+        editor) test_suite=nvim-static ;;
+        dev) test_suite=dev-static ;;
+      esac
+      run_in_home "$home" "$DOT_STACK_DOT_BIN" test "$test_suite" \
+        >"$test_log" 2>&1 || test_status=$?
+      if [[ $test_status -ne 0 ]]; then
+        sed 's/^/    /' "$test_log"
+      fi
+      _assert_exit "$profile executes the installed $test_suite suite" \
+        0 "$test_status"
+      ;;
+  esac
+done
+
+_test_summary

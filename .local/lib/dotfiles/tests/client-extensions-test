@@ -333,7 +333,7 @@ ssh_config=$(<"$fixture_home/.ssh/config")
 _assert_contains 'client pre-sync SSH policy preserves hand-managed config' \
   'Host hand-managed' "$ssh_config"
 _assert_contains 'client pre-sync SSH policy publishes managed alias' \
-  '# dot-managed:overlay-ssh:10-private' "$ssh_config"
+  '# dot-managed:overlay-ssh:private' "$ssh_config"
 _assert_contains 'client pre-sync SSH policy preserves inherited proxy command' \
   'ProxyCommand ssh proxy.example -W %h:%p' "$ssh_config"
 

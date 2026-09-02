@@ -1,12 +1,13 @@
 # Dot Overlays
 
-Overlays extend the base dotfiles with work, machine-specific, or
-project-specific files. Each overlay is declared by a config file in this
-directory.
+Overlays extend the always-active base dotfiles with optional capability,
+private, machine-specific, or project-specific files. Each overlay is declared
+by a config file in this directory. When `profiles.d/` exists, Dot reads only
+descriptors selected by the resolved profile.
 
 ## Adding An Overlay
 
-1. Create a conf file such as `10-work.conf`.
+1. Create a conf file such as `20-editor.conf`.
 2. Track it in the base repo with `git add` from `$HOME`.
 3. Run `dot update`.
 
@@ -55,9 +56,10 @@ everywhere.
 The filename determines both the overlay name and the link order:
 
 ```text
-05-personal.conf -> personal -> ~/.dotfiles-personal
-10-work.conf     -> work     -> ~/.dotfiles-work
-20-nas.conf      -> nas      -> ~/.dotfiles-nas
+20-nvim.conf     -> nvim     -> ~/.dotfiles-nvim
+30-dev.conf      -> dev      -> ~/.dotfiles-dev
+80-personal.conf -> personal -> ~/.dotfiles-personal
+90-work.conf     -> work     -> ~/.dotfiles-work
 ```
 
 Numeric prefixes sort alphabetically. When multiple overlays provide the same
@@ -187,13 +189,14 @@ url=github-dotfiles-work:user/dotfiles-work.git
 optional=true
 ```
 
-The dotfiles-owned `pre-sync.d/10-overlay-ssh.sh` extension merges these
-snippets into `~/.ssh/config` before repository synchronization. Standalone
-`dot` provides only the generic pre-sync lifecycle and never interprets SSH
-syntax. Machines without the key skip the optional overlay until the key is
-installed. For a required deploy-key overlay, a missing key is an error. For a
-new machine that should use a required deploy-key overlay, copy the private key
-before bootstrapping or add it later and rerun `dot update`.
+The dotfiles-owned `pre-sync.d/10-overlay-ssh.sh` extension merges only
+companions for selected, eligible descriptors into `~/.ssh/config` before
+repository synchronization. The companion must have the descriptor's exact
+stem, including its numeric prefix. The phase-one prepare pass preserves
+unmentioned managed aliases; the final reconcile pass removes aliases that are
+not in the validated final eligible set. Standalone `dot` provides this selected
+record set and lifecycle stage but never interprets SSH syntax. Machines
+without the key skip an optional overlay until the key is installed.
 
 ## Removal
 

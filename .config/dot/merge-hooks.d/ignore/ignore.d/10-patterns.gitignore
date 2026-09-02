@@ -44,6 +44,7 @@ __pycache__/
 .ssh/
 .config/gh/
 .config/rclone/
+/.config/dot/profile-selectors.local.d/
 
 # XDG data and state. The `.local/share/*` rule hides high-noise XDG runtime
 # data from `rg "$HOME"`, but the dotfiles ship reviewed schema payloads and

@@ -1,0 +1,440 @@
+source_path	component_id	category	transform	d4_action	d5_action	ownership_note
+.bash_profile	shell-base	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.bashrc	shell-base	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.config/agent-rules/README.md	agent-rules	docs	keep	keep	keep	owner=dotfiles; source=locked-dotfiles; agent=base-rule
+.config/agent-rules/playbooks.d/agent-rules/maintenance.md	agent-rules	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles; agent=base-rule
+.config/agent-rules/playbooks.d/dotfiles/operations.md	agent-rules	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles; agent=base-rule
+.config/agent-rules/playbooks.d/dotfiles/ownership-and-extraction.md	agent-rules	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles; agent=base-rule
+.config/agent-rules/playbooks.d/dotfiles/schema-associations.md	agent-rules	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles; agent=base-rule
+.config/agent-rules/playbooks.d/dotfiles/testing.md	agent-rules	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles; agent=base-rule
+.config/agent-rules/playbooks.d/engineering/background-process-lifecycle.md	agent-rules	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles; agent=base-rule
+.config/agent-rules/playbooks.d/engineering/generated-artifacts.md	agent-rules	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles; agent=base-rule
+.config/agent-rules/playbooks.d/engineering/investigation.md	agent-rules	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles; agent=base-rule
+.config/agent-rules/playbooks.d/engineering/transactional-state.md	agent-rules	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles; agent=base-rule
+.config/agent-rules/playbooks.d/git/conflict-resolution.md	agent-rules	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles; agent=base-rule
+.config/agent-rules/playbooks.d/git/github-pr-lifecycle.md	agent-rules	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles; agent=base-rule
+.config/agent-rules/playbooks.d/git/releases.md	agent-rules	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles; agent=base-rule
+.config/agent-rules/playbooks.d/git/worktrees.md	agent-rules	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles; agent=base-rule
+.config/agent-rules/playbooks.d/languages/cpp.md	agent-rules	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles; agent=base-rule
+.config/agent-rules/playbooks.d/languages/lua.md	agent-rules	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles; agent=base-rule
+.config/agent-rules/playbooks.d/languages/python.md	agent-rules	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles; agent=base-rule
+.config/agent-rules/playbooks.d/languages/rust.md	agent-rules	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles; agent=base-rule
+.config/agent-rules/playbooks.d/languages/shell.md	agent-rules	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles; agent=base-rule
+.config/agent-rules/playbooks.d/memory/hygiene.md	agent-rules	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles; agent=base-rule
+.config/agent-rules/playbooks.d/performance/investigation.md	agent-rules	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles; agent=base-rule
+.config/agent-rules/playbooks.d/review/fresh-eyes.md	agent-rules	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles; agent=base-rule
+.config/agent-rules/playbooks.d/security/authentication.md	agent-rules	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles; agent=base-rule
+.config/agent-rules/playbooks.d/testing/state-isolation.md	agent-rules	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles; agent=base-rule
+.config/agent-rules/playbooks.d/tools/selection.md	agent-rules	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles; agent=base-rule
+.config/agent-rules/rules.d/000-global-rules.md	agent-rules	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles; agent=base-rule
+.config/agent-rules/rules.d/010-durable-memory.md	agent-rules	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles; agent=base-rule
+.config/agent-rules/rules.d/020-local-environment.md	agent-rules	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles; agent=base-rule
+.config/agent-rules/rules.d/030-dotfiles.md	agent-rules	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles; agent=base-rule
+.config/agent-rules/rules.d/040-shell-and-commands.md	agent-rules	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles; agent=base-rule
+.config/agent-rules/rules.d/045-safety.md	agent-rules	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles; agent=base-rule
+.config/agent-rules/rules.d/050-git-and-github.md	agent-rules	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles; agent=base-rule
+.config/agent-rules/rules.d/060-design-principles.md	agent-rules	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles; agent=base-rule
+.config/agent-rules/rules.d/070-engineering-workflow.md	agent-rules	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles; agent=base-rule
+.config/agent-rules/rules.d/080-testing.md	agent-rules	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles; agent=base-rule
+.config/agent-rules/rules.d/090-commit-style.md	agent-rules	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles; agent=base-rule
+.config/agent-rules/rules.d/100-code-style.md	agent-rules	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles; agent=base-rule
+.config/agent-rules/rules.d/110-on-demand-playbooks.md	agent-rules	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles; agent=base-rule
+.config/atuin/config.toml	config-atuin-config-toml	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.config/bottom/bottom.toml	config-bottom-bottom-toml	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.config/checkrun/README.md	checkrun	docs	keep	remove	none	owner=dotfiles-dev; source=locked-dotfiles
+.config/checkrun/associations.json	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/checkrun/biome.json	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/checkrun/checkmake.ini	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/checkrun/clang-format	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/checkrun/cmake-format.py	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/checkrun/format-ignore	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/checkrun/golangci-lint.yml	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/checkrun/hadolint.yaml	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/checkrun/ignore	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/checkrun/php-cs-fixer.php	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/checkrun/rubocop.yml	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/checkrun/ruff.toml	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/checkrun/rumdl.toml	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/checkrun/rustfmt.toml	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/checkrun/schema-ignore	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/checkrun/selene.toml	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/checkrun/shellcheckrc	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/checkrun/shfmt.toml	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/checkrun/spell-ignore	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/checkrun/stylua.toml	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/checkrun/taplo.toml	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/checkrun/tool-ignore	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/checkrun/typos.toml	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/checkrun/yamlfmt.yaml	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/direnv/envrc-example	dev-toolchain	config	rewrite	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/dot/README.md	dot-control	docs	keep	rewrite	keep	owner=dotfiles; source=locked-dotfiles
+.config/dot/config	dot-control	config	keep	rewrite	keep	owner=dotfiles; source=locked-dotfiles
+.config/dot/merge-hooks.d/README.md	split-docs	docs	split	rewrite	keep	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.config/dot/merge-hooks.d/agent-rules/README.md	agent-rules	docs	keep	keep	keep	owner=dotfiles; source=locked-dotfiles; agent=base-rule-aggregation
+.config/dot/merge-hooks.d/agent-rules/targets.d/80-targets.replace/50-native.txt	agent-rules	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles; agent=base-rule-aggregation
+.config/dot/merge-hooks.d/claude/README.md	agent-tooling	docs	keep	remove	none	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling
+.config/dot/merge-hooks.d/claude/settings.d/20-permissions.json	agent-tooling	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling
+.config/dot/merge-hooks.d/codex/README.md	agent-tooling	docs	keep	remove	none	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling
+.config/dot/merge-hooks.d/codex/config.d/10-settings.toml	agent-tooling	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling
+.config/dot/merge-hooks.d/codex/profiles/README.md	agent-tooling	docs	keep	remove	none	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling
+.config/dot/merge-hooks.d/codex/profiles/deep.d/10-settings.toml	agent-tooling	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling
+.config/dot/merge-hooks.d/codex/profiles/fast.d/10-settings.toml	agent-tooling	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling
+.config/dot/merge-hooks.d/cron/README.md	dot-control	docs	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.config/dot/merge-hooks.d/cron/cron.d/10-update.cron	dot-control	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.config/dot/merge-hooks.d/cron/path.d/10-defaults.txt	dot-control	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.config/dot/merge-hooks.d/gemini/README.md	agent-tooling	docs	keep	remove	none	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling
+.config/dot/merge-hooks.d/gh/README.md	git-workflow	docs	keep	remove	none	owner=dotfiles-dev; source=locked-dotfiles
+.config/dot/merge-hooks.d/gh/config.d/10-config.yml	git-workflow	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/dot/merge-hooks.d/git/README.md	git-workflow	docs	keep	remove	none	owner=dotfiles-dev; source=locked-dotfiles
+.config/dot/merge-hooks.d/gstack/README.md	agent-tooling	docs	keep	remove	none	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling
+.config/dot/merge-hooks.d/hive-memory/README.md	agent-tooling	docs	keep	remove	none	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling
+.config/dot/merge-hooks.d/ignore/README.md	dot-control	docs	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.config/dot/merge-hooks.d/ignore/ignore.d/10-patterns.gitignore	dot-control	config	keep	rewrite	keep	owner=dotfiles; source=locked-dotfiles
+.config/dot/merge-hooks.d/iterm2/README.md	dot-control	docs	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.config/dot/merge-hooks.d/iterm2/defaults.d/10-preferences.tsv	dot-control	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.config/dot/merge-hooks.d/iterm2/profiles.d/10-dotfiles-dyn-profile.json	dot-control	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.config/dot/merge-hooks.d/karabiner/README.md	dot-control	docs	rewrite	keep	keep	owner=dotfiles; source=locked-dotfiles; rewrite=cross-repo-doc-link
+.config/dot/merge-hooks.d/karabiner/profiles.d/10-windows-dotfiles.json	dot-control	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.config/dot/merge-hooks.d/mise/README.md	dev-toolchain	docs	keep	remove	none	owner=dotfiles-dev; source=locked-dotfiles
+.config/dot/merge-hooks.d/muse/README.md	agent-tooling	docs	keep	remove	none	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling
+.config/dot/merge-hooks.d/muse/settings.d/20-permissions.json	agent-tooling	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling
+.config/dot/merge-hooks.d/nvim/README.md	nvim-editor	docs	keep	remove	none	owner=dotfiles-nvim; source=locked-dotfiles
+.config/dot/merge-hooks.d/opencode/README.md	agent-tooling	docs	keep	remove	none	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling
+.config/dot/merge-hooks.d/sapling/README.md	git-workflow	docs	keep	remove	none	owner=dotfiles-dev; source=locked-dotfiles
+.config/dot/merge-hooks.d/sapling/hgrc.d/10-sley.ini	sley	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/dot/merge-hooks.d/ssh/README.md	dot-control	docs	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.config/dot/merge-hooks.d/sshd/README.md	dot-control	docs	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.config/dot/merge-hooks.d/sshd/sshd_config.d/60-termnav-relay.conf	dot-control	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.config/dot/merge-hooks.d/tmux/README.md	dot-control	docs	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.config/dot/merge-hooks.d/vscode/README.md	vscode	docs	keep	remove	none	owner=dotfiles-dev; source=locked-dotfiles
+.config/dot/merge-hooks.d/vscode/extensions.d/50-managed-extensions.replace/50-default.toml	vscode	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/dot/merge-hooks.d/vscode/keybindings/README.md	vscode	docs	keep	remove	none	owner=dotfiles-dev; source=locked-dotfiles
+.config/dot/merge-hooks.d/vscode/keybindings/all.d/00-retirements.jsonc	vscode	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/dot/merge-hooks.d/vscode/keybindings/all.d/10-keybindings.jsonc	vscode	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/dot/merge-hooks.d/vscode/keybindings/all.d/20-nvim-focus.jsonc	vscode	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/dot/merge-hooks.d/vscode/keybindings/linux.d/10-keybindings.jsonc	vscode	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/dot/merge-hooks.d/vscode/keybindings/macos.d/10-keybindings.jsonc	vscode	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/dot/merge-hooks.d/vscode/keybindings/windows.d/10-keybindings.jsonc	vscode	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/dot/merge-hooks.d/vscode/local-extensions.d/10-extensions.tsv	vscode	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/dot/merge-hooks.d/vscode/settings.d/10-settings.json	vscode	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/dot/merge-hooks.d/vscode/variants.d/10-defaults.tsv	vscode	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/dot/merge-hooks.d/wezterm/README.md	dot-control	docs	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.config/dot/overlays.d/.gitignore	dot-control	control	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.config/dot/overlays.d/05-personal.conf	dot-control	control	keep	rewrite	keep	owner=dotfiles; source=locked-dotfiles
+.config/dot/overlays.d/10-work.conf	dot-control	control	keep	rewrite	keep	owner=dotfiles; source=locked-dotfiles
+.config/dot/overlays.d/10-work.ssh	dot-control	control	keep	rewrite	keep	owner=dotfiles; source=locked-dotfiles
+.config/dot/overlays.d/README.md	dot-control	docs	keep	rewrite	keep	owner=dotfiles; source=locked-dotfiles
+.config/ds/README.md	split-docs	docs	split	rewrite	keep	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.config/ds/profile.conf	agent-tooling	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling
+.config/git/README.md	git-workflow	docs	rewrite	remove	none	owner=dotfiles-dev; source=locked-dotfiles
+.config/git/attributes	git-workflow	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/git/config	git-workflow	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/git/gitmessage	git-workflow	config	rewrite	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/git/ignore	git-workflow	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/gstack-register/skills-exclude	agent-tooling	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling
+.config/hive-memory/README.md	agent-tooling	docs	keep	remove	none	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling
+.config/htop/htoprc	config-htop-htoprc	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.config/lazygit/README.md	git-workflow	docs	keep	remove	none	owner=dotfiles-dev; source=locked-dotfiles
+.config/lazygit/config.yml	git-workflow	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/mise/README.md	dev-toolchain	docs	keep	remove	none	owner=dotfiles-dev; source=locked-dotfiles
+.config/mise/config.toml	split-mise-tmux	dependency	split	keep	remove	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.config/mise/mise.lock	split-mise-tmux	dependency	split	keep	remove	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.config/nvim/README.md	split-nvim	docs	split	remove	none	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.config/nvim/checkrun-editor-metadata.json	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/nvim/init.lua	nvim-editor	config	keep	keep	remove	owner=dotfiles-nvim; source=locked-dotfiles
+.config/nvim/lazyvim.json	split-nvim	config	split	keep	remove	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.config/nvim/lua/config/README.md	split-nvim	docs	split	remove	none	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.config/nvim/lua/config/autocmds.lua	nvim-editor	config	keep	keep	remove	owner=dotfiles-nvim; source=locked-dotfiles
+.config/nvim/lua/config/checkrun-nvim.lua	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/nvim/lua/config/command-palette.lua	nvim-editor	config	keep	keep	remove	owner=dotfiles-nvim; source=locked-dotfiles
+.config/nvim/lua/config/diagnostics.lua	nvim-editor	config	keep	keep	remove	owner=dotfiles-nvim; source=locked-dotfiles
+.config/nvim/lua/config/dot-runtime.lua	nvim-editor	config	keep	keep	remove	owner=dotfiles-nvim; source=locked-dotfiles
+.config/nvim/lua/config/keymaps.lua	nvim-editor	config	rewrite	keep	remove	owner=dotfiles-nvim; source=locked-dotfiles
+.config/nvim/lua/config/keymaps/README.md	nvim-editor	docs	keep	remove	none	owner=dotfiles-nvim; source=locked-dotfiles
+.config/nvim/lua/config/keymaps/vscode.lua	vscode	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/nvim/lua/config/keymaps/vscode/README.md	vscode	docs	keep	remove	none	owner=dotfiles-dev; source=locked-dotfiles
+.config/nvim/lua/config/keymaps/vscode/find.lua	vscode	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/nvim/lua/config/keymaps/vscode/lsp.lua	vscode	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/nvim/lua/config/keymaps/vscode/paste.lua	vscode	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/nvim/lua/config/keymaps/vscode/replace.lua	vscode	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/nvim/lua/config/keymaps/vscode/selection.lua	vscode	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/nvim/lua/config/keymaps/workspace.lua	split-nvim	config	split	keep	remove	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.config/nvim/lua/config/language-policy.lua	nvim-dev	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/nvim/lua/config/lazy-update-lock.lua	nvim-editor	config	keep	keep	remove	owner=dotfiles-nvim; source=locked-dotfiles
+.config/nvim/lua/config/lazy.lua	nvim-editor	config	rewrite	keep	remove	owner=dotfiles-nvim; source=locked-dotfiles
+.config/nvim/lua/config/mason-policy.lua	nvim-dev	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/nvim/lua/config/nvim-workspace.lua	split-nvim	config	split	keep	remove	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.config/nvim/lua/config/options.lua	nvim-editor	config	rewrite	keep	remove	owner=dotfiles-nvim; source=locked-dotfiles
+.config/nvim/lua/config/schema-policy.lua	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/nvim/lua/config/sley-nvim.lua	sley	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/nvim/lua/config/termnav.lua	nvim-editor	config	keep	keep	remove	owner=dotfiles-nvim; source=locked-dotfiles
+.config/nvim/lua/config/window-focus.lua	nvim-editor	config	keep	keep	remove	owner=dotfiles-nvim; source=locked-dotfiles
+.config/nvim/lua/plugins/README.md	split-nvim	docs	split	remove	none	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.config/nvim/lua/plugins/coding.lua	nvim-dev	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/nvim/lua/plugins/colorscheme.lua	nvim-editor	config	keep	keep	remove	owner=dotfiles-nvim; source=locked-dotfiles
+.config/nvim/lua/plugins/editor.lua	nvim-editor	config	rewrite	keep	remove	owner=dotfiles-nvim; source=locked-dotfiles
+.config/nvim/lua/plugins/formatting.lua	nvim-dev	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/nvim/lua/plugins/git.lua	split-nvim	config	split	keep	remove	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.config/nvim/lua/plugins/linting.lua	nvim-dev	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/nvim/lua/plugins/sley.lua	sley	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/nvim/lua/plugins/ui.lua	nvim-editor	config	keep	keep	remove	owner=dotfiles-nvim; source=locked-dotfiles
+.config/nvim/lua/plugins/workspace.lua	split-nvim	config	split	keep	remove	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.config/nvim/lua/plugins/zz-mason-policy.lua	nvim-dev	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/nvim/selene.toml	nvim-editor	config	keep	keep	remove	owner=dotfiles-nvim; source=locked-dotfiles
+.config/nvim/vim.yml	nvim-editor	config	keep	keep	remove	owner=dotfiles-nvim; source=locked-dotfiles
+.config/ripgrep/README.md	config-ripgrep-readme-md	docs	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.config/ripgrep/config	split-ripgrep	config	split	keep	rewrite	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.config/shdeps/00-toolchains.conf	dev-toolchain	dependency	rewrite	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/shdeps/10-deps.conf	split-shdeps	dependency	split	rewrite	rewrite	owner=mixed; source=locked-dotfiles; split=reviewed-container; agent=base-rule-aggregation
+.config/shdeps/README.md	split-shdeps	docs	split	rewrite	keep	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.config/shdeps/hooks.d/README.md	split-shdeps	docs	split	rewrite	keep	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.config/shdeps/hooks.d/cargo.sh	dev-toolchain	dependency	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/shdeps/hooks.d/cgraf78/dot.sh	config-shdeps-hooks-d-cgraf78-dot-sh	dependency	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.config/shdeps/hooks.d/clangd.sh	dev-toolchain	dependency	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/shdeps/hooks.d/cmake-language-server.sh	config-shdeps-hooks-d-cmake-language-server-sh	dependency	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/shdeps/hooks.d/cmakelang.sh	config-shdeps-hooks-d-cmakelang-sh	dependency	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/shdeps/hooks.d/editorconfig-checker.sh	config-shdeps-hooks-d-editorconfig-checker-sh	dependency	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/shdeps/hooks.d/eza.sh	config-shdeps-hooks-d-eza-sh	dependency	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.config/shdeps/hooks.d/garrytan/gstack.sh	agent-tooling	dependency	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling
+.config/shdeps/hooks.d/google-java-format.sh	config-shdeps-hooks-d-google-java-format-sh	dependency	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/shdeps/hooks.d/neovim/neovim.sh	nvim-editor	dependency	keep	keep	remove	owner=dotfiles-nvim; source=locked-dotfiles
+.config/shdeps/hooks.d/nerd-fonts.sh	config-shdeps-hooks-d-nerd-fonts-sh	dependency	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.config/shdeps/hooks.d/php-cs-fixer.sh	config-shdeps-hooks-d-php-cs-fixer-sh	dependency	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/shdeps/hooks.d/python-minimum.sh	dev-toolchain	dependency	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/shdeps/hooks.d/rcaloras/bash-preexec.sh	config-shdeps-hooks-d-rcaloras-bash-preexec-sh	dependency	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.config/shdeps/hooks.d/rubocop.sh	dev-toolchain	dependency	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/shdeps/hooks.d/rust-toolchain.sh	dev-toolchain	dependency	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/shdeps/hooks.d/tmux-plugins/tmux-resurrect.sh	tmux-base	dependency	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.config/shdeps/hooks.d/wezterm.sh	terminal-navigation	dependency	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.config/shdeps/hooks.d/xclip.sh	config-shdeps-hooks-d-xclip-sh	dependency	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.config/shell/README.md	split-docs	docs	split	rewrite	keep	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.config/shell/env-noninteractive.sh	shell-base	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.config/shell/env.d/50-core.sh	split-shell-core-env	config	split	keep	rewrite	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.config/shell/env.d/55-homebrew.sh	shell-base	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.config/shell/env.d/60-tools.sh	split-shell	config	split	keep	rewrite	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.config/shell/env.d/70-platform.sh	shell-base	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.config/shell/env.d/90-path.sh	shell-base	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.config/shell/env.d/README.md	split-docs	docs	split	rewrite	keep	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.config/shell/interactive.d/50-aliases.sh	split-shell	config	split	keep	rewrite	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.config/shell/interactive.d/51-aliases-linux.sh	shell-base	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.config/shell/interactive.d/51-aliases-macos.sh	shell-base	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.config/shell/interactive.d/51-aliases-wsl.sh	shell-base	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.config/shell/interactive.d/52-cursor.sh	shell-base	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.config/shell/interactive.d/53-termnav.sh	terminal-navigation	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.config/shell/interactive.d/54-tool-init.sh	split-shell	config	split	keep	rewrite	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.config/shell/interactive.d/55-ssh.sh	shell-base	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.config/shell/interactive.d/56-dot.sh	shell-base	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.config/shell/interactive.d/57-git-tools.sh	git-workflow	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/shell/interactive.d/57-marks.sh	shell-base	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.config/shell/interactive.d/59-prompt.sh	shell-base	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.config/shell/interactive.d/60-prompt.bash	shell-base	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.config/shell/interactive.d/60-prompt.zsh	shell-base	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.config/shell/interactive.d/70-integrations.bash	split-shell	config	split	keep	rewrite	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.config/shell/interactive.d/70-integrations.zsh	split-shell	config	split	keep	rewrite	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.config/shell/interactive.d/71-zsh-completion-cache.zsh	shell-base	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.config/shell/interactive.d/README.md	split-docs	docs	split	rewrite	keep	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.config/sley/verify.d/README.md	sley	docs	keep	remove	none	owner=dotfiles-dev; source=locked-dotfiles
+.config/sley/verify.d/dotfiles.json	sley	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.config/tmux/README.md	tmux-base	docs	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.config/tmux/tmux.conf	split-tmux	config	split	keep	rewrite	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.config/wezterm/README.md	terminal-navigation	docs	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.config/wezterm/link-routes.lua	terminal-navigation	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.config/wezterm/public-link-rules.lua	terminal-navigation	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.config/wezterm/termnav-module.lua	terminal-navigation	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.config/wezterm/wezterm.lua	terminal-navigation	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.github/LICENSE	repository-shared-bootstrap	repository	split	keep	keep	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.github/README.md	repository-root	repository	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.github/cgraf78-actions.lock	repository-shared-bootstrap	repository	split	keep	keep	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.github/dependabot.yml	repository-shared-bootstrap	ci	split	keep	keep	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.github/shellcheck-files.txt	repository-shared-bootstrap	repository	split	rewrite	keep	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.github/workflows/refresh-checkrun-schemas.yml	checkrun	ci	rewrite	remove	none	owner=dotfiles-dev; source=locked-dotfiles
+.github/workflows/retry-infrastructure.yml	repository-shared-bootstrap	ci	split	keep	keep	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.github/workflows/test.yml	repository-shared-bootstrap	ci	split	rewrite	keep	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.github/workflows/update-mise-lock.yml	dev-toolchain	ci	rewrite	remove	none	owner=dotfiles-dev; source=locked-dotfiles
+.gitleaks.toml	git-workflow	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.inputrc	shell-base	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.local/bin/README.md	split-docs	docs	split	rewrite	keep	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.local/bin/clip	local-bin-clip	runtime	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.local/bin/dot	local-bin-dot	runtime	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.local/bin/git	git-bootstrap	runtime	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.local/bin/hm	agent-tooling	runtime	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling
+.local/bin/nvim	nvim-editor	runtime	keep	keep	remove	owner=dotfiles-nvim; source=locked-dotfiles
+.local/bin/ripgrep-link-host	nvim-editor	runtime	keep	keep	remove	owner=dotfiles-nvim; source=locked-dotfiles
+.local/bin/shell-time	shell-base	runtime	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.local/lib/dotfiles/README.md	split-docs	docs	split	rewrite	keep	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.local/lib/dotfiles/agent-playbooks.sh	agent-rules	runtime	keep	keep	keep	owner=dotfiles; source=locked-dotfiles; agent=base-rule-aggregation
+.local/lib/dotfiles/doctor.d/10-shell.sh	shell-base	doctor	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.local/lib/dotfiles/doctor.d/20-tools.sh	split-doctor	doctor	split	rewrite	keep	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.local/lib/dotfiles/doctor.d/30-shell-integrations.sh	split-doctor	doctor	split	rewrite	keep	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.local/lib/dotfiles/doctor.d/31-git-hooks.sh	git-workflow	doctor	rewrite	remove	none	owner=dotfiles-dev; source=locked-dotfiles
+.local/lib/dotfiles/doctor.d/40-agent-hooks.sh	agent-tooling	doctor	keep	remove	none	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling
+.local/lib/dotfiles/doctor.d/41-agent-rules.sh	agent-rules	doctor	keep	keep	keep	owner=dotfiles; source=locked-dotfiles; agent=base-rule-aggregation
+.local/lib/dotfiles/doctor.d/50-hive-memory.sh	agent-tooling	doctor	rewrite	remove	none	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling
+.local/lib/dotfiles/doctor.d/60-cron.sh	local-lib-dotfiles-doctor-d-60-cron-sh	doctor	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.local/lib/dotfiles/doctor.d/70-nvim.sh	split-nvim	doctor	split	remove	none	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.local/lib/dotfiles/doctor.d/README.md	local-lib-dotfiles-doctor-d-readme-md	doctor	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.local/lib/dotfiles/doctor.d/lib/agent-hooks.sh	agent-tooling	doctor	keep	remove	none	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling
+.local/lib/dotfiles/doctor.d/lib/agent-rules.sh	agent-rules	doctor	keep	keep	keep	owner=dotfiles; source=locked-dotfiles; agent=base-rule-aggregation
+.local/lib/dotfiles/doctor.d/lib/compat.sh	dot-extension-runtime	doctor	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.local/lib/dotfiles/doctor.d/lib/cron.sh	local-lib-dotfiles-doctor-d-lib-cron-sh	doctor	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.local/lib/dotfiles/doctor.d/lib/integrations.sh	split-doctor	doctor	split	rewrite	keep	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.local/lib/dotfiles/doctor.d/lib/nvim.sh	split-nvim	doctor	split	remove	none	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.local/lib/dotfiles/doctor.d/lib/shdeps-assets.sh	dot-extension-runtime	doctor	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.local/lib/dotfiles/doctor.d/lib/shell.sh	shell-base	doctor	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.local/lib/dotfiles/doctor.d/lib/tools.sh	split-doctor	doctor	split	rewrite	keep	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.local/lib/dotfiles/git-hooks/README.md	git-workflow	docs	keep	remove	none	owner=dotfiles-dev; source=locked-dotfiles
+.local/lib/dotfiles/git-hooks/commit-msg	git-workflow	runtime	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.local/lib/dotfiles/git-hooks/pre-applypatch	git-workflow	runtime	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.local/lib/dotfiles/git-hooks/pre-commit	git-workflow	runtime	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.local/lib/dotfiles/git-hooks/pre-merge-commit	git-workflow	runtime	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.local/lib/dotfiles/git-hooks/prepare-commit-msg	git-workflow	runtime	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.local/lib/dotfiles/git-hooks/sley-commit-gate	sley	runtime	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.local/lib/dotfiles/git-hooks/sley-provider-hook	sley	runtime	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.local/lib/dotfiles/launcher-real.sh	local-lib-dotfiles-launcher-real-sh	runtime	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.local/lib/dotfiles/merge-hooks.d/README.md	local-lib-dotfiles-merge-hooks-d-readme-md	docs	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.local/lib/dotfiles/merge-hooks.d/agent-rules.sh	agent-rules	runtime	keep	rewrite	keep	owner=dotfiles; source=locked-dotfiles; agent=base-rule-aggregation
+.local/lib/dotfiles/merge-hooks.d/claude.sh	agent-tooling	runtime	rewrite	keep	remove	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling; rewrite=profile-state
+.local/lib/dotfiles/merge-hooks.d/codex.sh	agent-tooling	runtime	rewrite	keep	remove	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling; rewrite=profile-state
+.local/lib/dotfiles/merge-hooks.d/cron.serial.sh	local-lib-dotfiles-merge-hooks-d-cron-serial-sh	runtime	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.local/lib/dotfiles/merge-hooks.d/gemini.sh	agent-tooling	runtime	rewrite	keep	remove	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling; rewrite=profile-state
+.local/lib/dotfiles/merge-hooks.d/gh.sh	local-lib-dotfiles-merge-hooks-d-gh-sh	runtime	rewrite	keep	remove	owner=dotfiles-dev; source=locked-dotfiles; rewrite=profile-state
+.local/lib/dotfiles/merge-hooks.d/git.sh	git-workflow	runtime	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.local/lib/dotfiles/merge-hooks.d/gstack.sh	agent-tooling	runtime	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling
+.local/lib/dotfiles/merge-hooks.d/hive-memory.sh	agent-tooling	runtime	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling
+.local/lib/dotfiles/merge-hooks.d/ignore.sh	local-lib-dotfiles-merge-hooks-d-ignore-sh	runtime	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.local/lib/dotfiles/merge-hooks.d/iterm2.sh	local-lib-dotfiles-merge-hooks-d-iterm2-sh	runtime	keep	rewrite	keep	owner=dotfiles; source=locked-dotfiles
+.local/lib/dotfiles/merge-hooks.d/karabiner.sh	local-lib-dotfiles-merge-hooks-d-karabiner-sh	runtime	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.local/lib/dotfiles/merge-hooks.d/lib/agent-playbooks.sh	agent-rules	runtime	keep	keep	keep	owner=dotfiles; source=locked-dotfiles; agent=base-rule-aggregation
+.local/lib/dotfiles/merge-hooks.d/lib/codex/api.sh	agent-tooling	runtime	rewrite	keep	remove	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling; rewrite=profile-state
+.local/lib/dotfiles/merge-hooks.d/lib/codex/refresh-trust.py	agent-tooling	runtime	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling
+.local/lib/dotfiles/merge-hooks.d/lib/codex/toml-render.py	agent-tooling	runtime	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling
+.local/lib/dotfiles/merge-hooks.d/lib/compat.sh	dot-extension-runtime	runtime	keep	rewrite	keep	owner=dotfiles; source=locked-dotfiles
+.local/lib/dotfiles/merge-hooks.d/lib/shdeps-assets.sh	dot-extension-runtime	runtime	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.local/lib/dotfiles/merge-hooks.d/lib/windows.sh	dot-extension-runtime	runtime	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.local/lib/dotfiles/merge-hooks.d/mise.sh	split-mise-tmux	runtime	split	keep	remove	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.local/lib/dotfiles/merge-hooks.d/muse.sh	agent-tooling	runtime	rewrite	keep	remove	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling; rewrite=profile-state
+.local/lib/dotfiles/merge-hooks.d/nvim.sh	nvim-editor	runtime	keep	keep	remove	owner=dotfiles-nvim; source=locked-dotfiles
+.local/lib/dotfiles/merge-hooks.d/opencode.sh	agent-tooling	runtime	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling
+.local/lib/dotfiles/merge-hooks.d/sapling.sh	local-lib-dotfiles-merge-hooks-d-sapling-sh	runtime	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.local/lib/dotfiles/merge-hooks.d/ssh.sh	local-lib-dotfiles-merge-hooks-d-ssh-sh	runtime	keep	rewrite	keep	owner=dotfiles; source=locked-dotfiles
+.local/lib/dotfiles/merge-hooks.d/tmux.sh	tmux-base	runtime	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.local/lib/dotfiles/merge-hooks.d/vscode.sh	vscode	runtime	rewrite	keep	remove	owner=dotfiles-dev; source=locked-dotfiles; rewrite=profile-state
+.local/lib/dotfiles/merge-hooks.d/wezterm.sh	terminal-navigation	runtime	keep	rewrite	keep	owner=dotfiles; source=locked-dotfiles
+.local/lib/dotfiles/pre-sync.d/10-overlay-ssh.sh	local-lib-dotfiles-pre-sync-d-10-overlay-ssh-sh	runtime	keep	rewrite	keep	owner=dotfiles; source=locked-dotfiles
+.local/lib/dotfiles/shdeps-assets.sh	dot-extension-runtime	runtime	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.local/lib/dotfiles/shell-loader.sh	shell-base	runtime	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.local/lib/dotfiles/sley-hooks/README.md	sley	docs	keep	remove	none	owner=dotfiles-dev; source=locked-dotfiles
+.local/lib/dotfiles/sley-hooks/validate-commit-msg	sley	runtime	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.local/lib/dotfiles/tests/README.md	split-tests	test	split	rewrite	keep	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.local/lib/dotfiles/tests/agent-rules-adapter-test	agent-rules	test	keep	keep	keep	owner=dotfiles; source=locked-dotfiles; agent=base-rule-aggregation
+.local/lib/dotfiles/tests/agent-rules-test	agent-rules	test	keep	keep	keep	owner=dotfiles; source=locked-dotfiles; agent=base-rule-aggregation
+.local/lib/dotfiles/tests/agent-yolo-wrappers-test	agent-tooling	test	rewrite	remove	none	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling
+.local/lib/dotfiles/tests/android-ci-smoke	split-tests	test	split	rewrite	keep	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.local/lib/dotfiles/tests/client-extensions-test	dot-control	test	keep	rewrite	keep	owner=dotfiles; source=locked-dotfiles
+.local/lib/dotfiles/tests/client-paths-test	dot-control	test	keep	rewrite	keep	owner=dotfiles; source=locked-dotfiles
+.local/lib/dotfiles/tests/clip-test	local-lib-dotfiles-tests-clip-test	test	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.local/lib/dotfiles/tests/core-cron-test	local-lib-dotfiles-tests-core-cron-test	test	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.local/lib/dotfiles/tests/core-doctor-test	split-doctor	test	split	rewrite	keep	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.local/lib/dotfiles/tests/core-launchers-test	split-tests	test	split	rewrite	keep	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.local/lib/dotfiles/tests/core-merges-test	split-tests	test	split	rewrite	keep	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.local/lib/dotfiles/tests/core-static-test	split-tests	test	split	rewrite	keep	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.local/lib/dotfiles/tests/core-test	local-lib-dotfiles-tests-core-test	test	keep	rewrite	keep	owner=dotfiles; source=locked-dotfiles
+.local/lib/dotfiles/tests/core-update-test	split-tests	test	split	rewrite	keep	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.local/lib/dotfiles/tests/core/README.md	split-tests	test	split	rewrite	keep	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.local/lib/dotfiles/tests/core/cron.sh	local-lib-dotfiles-tests-core-cron-sh	test	keep	rewrite	keep	owner=dotfiles; source=locked-dotfiles
+.local/lib/dotfiles/tests/core/doctor.sh	split-tests	test	split	rewrite	keep	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.local/lib/dotfiles/tests/core/launchers.sh	split-tests	test	split	rewrite	keep	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.local/lib/dotfiles/tests/core/merges.sh	split-tests	test	split	rewrite	keep	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.local/lib/dotfiles/tests/core/static.sh	split-tests	test	split	rewrite	keep	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.local/lib/dotfiles/tests/fixtures.sh	local-lib-dotfiles-tests-fixtures-sh	test	keep	rewrite	keep	owner=dotfiles; source=locked-dotfiles
+.local/lib/dotfiles/tests/fixtures/common-language-policy.json	local-lib-dotfiles-tests-fixtures-common-language-policy-json	test	keep	remove	none	owner=dotfiles-dev; source=locked-dotfiles
+.local/lib/dotfiles/tests/fixtures/nvim-link-routes.tsv	nvim-editor	test	keep	remove	none	owner=dotfiles-nvim; source=locked-dotfiles
+.local/lib/dotfiles/tests/git-shell-workflows-test	git-workflow	test	rewrite	remove	none	owner=dotfiles-dev; source=locked-dotfiles
+.local/lib/dotfiles/tests/githook-test	git-workflow	test	rewrite	remove	none	owner=dotfiles-dev; source=locked-dotfiles
+.local/lib/dotfiles/tests/gstack-register-test	agent-tooling	test	rewrite	remove	none	owner=dotfiles-dev; source=locked-dotfiles; agent=dev-agent-tooling
+.local/lib/dotfiles/tests/harness-isolation-test	local-lib-dotfiles-tests-harness-isolation-test	test	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.local/lib/dotfiles/tests/helpers.sh	split-tests	test	split	rewrite	keep	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.local/lib/dotfiles/tests/load-merge-api.sh	split-tests	test	split	rewrite	keep	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.local/lib/dotfiles/tests/lua-test	split-tests	test	split	remove	none	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.local/lib/dotfiles/tests/mise-refresh-workflow-test	dev-toolchain	test	rewrite	remove	none	owner=dotfiles-dev; source=locked-dotfiles
+.local/lib/dotfiles/tests/nvim-test	split-nvim	test	split	remove	none	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.local/lib/dotfiles/tests/prompt-test	local-lib-dotfiles-tests-prompt-test	test	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.local/lib/dotfiles/tests/schema-associations-test	checkrun	test	rewrite	remove	none	owner=dotfiles-dev; source=locked-dotfiles
+.local/lib/dotfiles/tests/schema-refresh-workflow-test	checkrun	test	rewrite	remove	none	owner=dotfiles-dev; source=locked-dotfiles
+.local/lib/dotfiles/tests/shdeps-hooks-test	split-shdeps	test	split	rewrite	keep	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.local/lib/dotfiles/tests/support/tmux-focus-style.py	split-tmux	test	split	keep	keep	owner=mixed; source=locked-dotfiles; split=reviewed-pty-harness
+.local/lib/dotfiles/tests/tmux-continuum-test	tmux-base	test	rewrite	keep	rewrite	owner=dotfiles; source=locked-dotfiles; rewrite=tmux-fragment
+.local/lib/dotfiles/tests/tmux-test	split-tmux	test	split	rewrite	keep	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.local/lib/dotfiles/tests/tool-init-test	split-tests	test	split	rewrite	keep	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.local/lib/dotfiles/tests/validate-commit-msg-test	sley	test	rewrite	remove	none	owner=dotfiles-dev; source=locked-dotfiles
+.local/lib/dotfiles/tests/vscode-extensions-test	vscode	test	rewrite	remove	none	owner=dotfiles-dev; source=locked-dotfiles
+.local/lib/dotfiles/tests/vscode-sley-test	vscode	test	rewrite	remove	none	owner=dotfiles-dev; source=locked-dotfiles
+.local/lib/dotfiles/tests/wezterm-test	split-tests	test	split	rewrite	keep	owner=mixed; source=locked-dotfiles; split=reviewed-container
+.local/lib/dotfiles/tests/workflow-consistency-test	local-lib-dotfiles-tests-workflow-consistency-test	test	rewrite	remove	none	owner=dotfiles-dev; source=locked-dotfiles
+.local/lib/dotfiles/tests/xdg-test	local-lib-dotfiles-tests-xdg-test	test	rewrite	keep	rewrite	owner=dotfiles; source=locked-dotfiles; rewrite=base-boundary
+.local/lib/dotfiles/tests/zsh-completion-test	local-lib-dotfiles-tests-zsh-completion-test	test	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.local/lib/dotfiles/windows.sh	local-lib-dotfiles-windows-sh	runtime	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.local/share/checkrun/schemas/README.md	checkrun	docs	keep	remove	none	owner=dotfiles-dev; source=locked-dotfiles
+.local/share/checkrun/schemas/biome.schema.json	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.local/share/checkrun/schemas/bottom.schema.json	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.local/share/checkrun/schemas/cargo-make.schema.json	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.local/share/checkrun/schemas/cargo.schema.json	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.local/share/checkrun/schemas/clang-format-21.schema.json	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.local/share/checkrun/schemas/clang-tidy.schema.json	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.local/share/checkrun/schemas/clangd.schema.json	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.local/share/checkrun/schemas/claude-code-marketplace.schema.json	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.local/share/checkrun/schemas/claude-code-plugin-manifest.schema.json	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.local/share/checkrun/schemas/claude-code-settings.schema.json	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.local/share/checkrun/schemas/codex-config.schema.json	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.local/share/checkrun/schemas/dependabot-v2.schema.json	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.local/share/checkrun/schemas/docker-compose.schema.json	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.local/share/checkrun/schemas/gemini-cli-settings.schema.json	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.local/share/checkrun/schemas/github-action.schema.json	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.local/share/checkrun/schemas/github-cli-config.schema.json	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.local/share/checkrun/schemas/github-workflow.schema.json	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.local/share/checkrun/schemas/gitleaks.schema.json	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.local/share/checkrun/schemas/golangci-lint-v2.schema.json	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.local/share/checkrun/schemas/hadolint.schema.json	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.local/share/checkrun/schemas/hatch.schema.json	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.local/share/checkrun/schemas/lazygit.schema.json	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.local/share/checkrun/schemas/mise.schema.json	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.local/share/checkrun/schemas/nextest-repo.schema.json	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.local/share/checkrun/schemas/package.schema.json	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.local/share/checkrun/schemas/pre-commit-config.schema.json	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.local/share/checkrun/schemas/pyproject.schema.json	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.local/share/checkrun/schemas/renovate.schema.json	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.local/share/checkrun/schemas/rubocop.schema.json	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.local/share/checkrun/schemas/ruff.schema.json	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.local/share/checkrun/schemas/rumdl.schema.json	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.local/share/checkrun/schemas/rustfmt.schema.json	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.local/share/checkrun/schemas/stylua.schema.json	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.local/share/checkrun/schemas/taplo.schema.json	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.local/share/checkrun/schemas/tox.schema.json	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.local/share/checkrun/schemas/typos.schema.json	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.local/share/checkrun/schemas/uv.schema.json	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.local/share/checkrun/schemas/yamlfmt.schema.json	checkrun	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.local/share/doc/dotfiles/README.md	local-share-doc-dotfiles-readme-md	docs	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.local/share/doc/dotfiles/dotfiles.md	local-share-doc-dotfiles-dotfiles-md	docs	keep	rewrite	keep	owner=dotfiles; source=locked-dotfiles
+.local/share/doc/dotfiles/superpowers/plans/2026-07-06-vscode-tab-consistency.md	repository-history	docs	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.local/share/doc/dotfiles/superpowers/plans/2026-07-26-full-pr-platform-matrix.md	local-share-doc-dotfiles-superpowers-plans-2026-07-26-full-pr-platform-matrix-md	docs	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.local/share/doc/dotfiles/superpowers/plans/2026-07-26-termux-ci.md	local-share-doc-dotfiles-superpowers-plans-2026-07-26-termux-ci-md	docs	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.local/share/doc/dotfiles/superpowers/plans/2026-08-01-et-tunnel-test-reliability.md	local-share-doc-dotfiles-superpowers-plans-2026-08-01-et-tunnel-test-reliability-md	docs	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.local/share/doc/dotfiles/superpowers/plans/2026-08-02-android-developer-tools.md	repository-history	docs	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.local/share/doc/dotfiles/superpowers/plans/2026-08-02-dot-update-exit-status.md	local-share-doc-dotfiles-superpowers-plans-2026-08-02-dot-update-exit-status-md	docs	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.local/share/doc/dotfiles/superpowers/plans/2026-08-02-nvim-terminal-user-var-guard.md	repository-history	docs	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.local/share/doc/dotfiles/superpowers/plans/2026-08-03-opencode-agentguard-hooks.md	repository-history	docs	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.local/share/doc/dotfiles/superpowers/specs/2026-07-06-vscode-tab-consistency-design.md	repository-history	docs	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.local/share/doc/dotfiles/superpowers/specs/2026-07-26-full-pr-platform-matrix-design.md	local-share-doc-dotfiles-superpowers-specs-2026-07-26-full-pr-platform-matrix-design-md	docs	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.local/share/doc/dotfiles/superpowers/specs/2026-07-26-termux-ci-design.md	local-share-doc-dotfiles-superpowers-specs-2026-07-26-termux-ci-design-md	docs	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.local/share/doc/dotfiles/superpowers/specs/2026-07-28-vscode-new-buffer-save-design.md	repository-history	docs	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.local/share/doc/dotfiles/superpowers/specs/2026-08-01-et-tunnel-test-reliability-design.md	local-share-doc-dotfiles-superpowers-specs-2026-08-01-et-tunnel-test-reliability-design-md	docs	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.local/share/doc/dotfiles/superpowers/specs/2026-08-02-android-developer-tools-design.md	repository-history	docs	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.local/share/doc/dotfiles/superpowers/specs/2026-08-02-dot-update-exit-status-design.md	local-share-doc-dotfiles-superpowers-specs-2026-08-02-dot-update-exit-status-design-md	docs	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.local/share/doc/dotfiles/superpowers/specs/2026-08-02-nvim-terminal-user-var-guard-design.md	repository-history	docs	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.local/share/doc/dotfiles/superpowers/specs/2026-08-03-opencode-agentguard-hooks-design.md	repository-history	docs	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.profile	shell-base	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.vscode/README.md	vscode	docs	keep	remove	none	owner=dotfiles-dev; source=locked-dotfiles
+.vscode/settings.json	vscode	config	keep	keep	remove	owner=dotfiles-dev; source=locked-dotfiles
+.zprofile	shell-base	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.zshenv	shell-base	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles
+.zshrc	shell-base	config	keep	keep	keep	owner=dotfiles; source=locked-dotfiles

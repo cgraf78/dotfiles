@@ -1,0 +1,123 @@
+#!/usr/bin/env bash
+# Measure profile-related payload below an isolated fixture HOME.
+
+set -euo pipefail
+
+usage() {
+  printf 'usage: %s --phase PHASE --profile PROFILE FIXTURE_HOME\n' \
+    "${0##*/}" >&2
+  exit 2
+}
+
+phase=
+profile=
+while (($# > 0)); do
+  case $1 in
+    --phase)
+      (($# >= 2)) || usage
+      phase=$2
+      shift 2
+      ;;
+    --profile)
+      (($# >= 2)) || usage
+      profile=$2
+      shift 2
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -*) usage ;;
+    *) break ;;
+  esac
+done
+[[ $# -eq 1 && -n $phase && -n $profile ]] || usage
+[[ $phase =~ ^[a-z][a-z0-9-]*$ ]] || usage
+case $profile in base | editor | dev) ;; *) usage ;; esac
+
+fixture_home=$1
+[[ -d $fixture_home && ! -L $fixture_home ]] || {
+  printf 'measure-profile-footprint: unsafe fixture home: %s\n' \
+    "$fixture_home" >&2
+  exit 1
+}
+fixture_home=$(cd -P -- "$fixture_home" && pwd -P)
+[[ $fixture_home != / ]] || {
+  printf 'measure-profile-footprint: refusing filesystem root\n' >&2
+  exit 1
+}
+
+_bytes_for() {
+  local path bytes=0 size
+  for path in "$@"; do
+    [[ -e $path || -L $path ]] || continue
+    if [[ -f $path && ! -L $path ]]; then
+      size=$(LC_ALL=C wc -c <"$path")
+      bytes=$((bytes + size))
+    elif [[ -d $path && ! -L $path ]]; then
+      while IFS= read -r size; do
+        [[ $size =~ ^[0-9]+$ ]] || continue
+        bytes=$((bytes + size))
+      done < <(find "$path" -type f -exec sh -c \
+        'for file do
+          LC_ALL=C wc -c <"$file" | tr -d "[:space:]"
+          printf "\n"
+        done' sh {} +)
+    fi
+  done
+  printf '%s\n' "$bytes"
+}
+
+git_checkout_config=$(_bytes_for \
+  "$fixture_home/.dotfiles" \
+  "$fixture_home/.dotfiles-nvim" \
+  "$fixture_home/.dotfiles-dev" \
+  "$fixture_home/.config")
+user_managed=$(_bytes_for \
+  "$fixture_home/.local/bin" \
+  "$fixture_home/.local/share/cgraf78" \
+  "$fixture_home/.local/share/shdeps")
+nvim=$(_bytes_for \
+  "$fixture_home/.local/share/nvim" \
+  "$fixture_home/.local/state/nvim" \
+  "$fixture_home/.cache/nvim")
+mise=$(_bytes_for "$fixture_home/.local/share/mise")
+language_caches=$(_bytes_for \
+  "$fixture_home/.cargo" \
+  "$fixture_home/.rustup" \
+  "$fixture_home/go/pkg" \
+  "$fixture_home/.npm" \
+  "$fixture_home/.cache/uv")
+optional_private_overlays=$(_bytes_for \
+  "$fixture_home/.dotfiles-personal" \
+  "$fixture_home/.dotfiles-work")
+
+native_packages=0
+native_status=unmeasured
+if [[ -n ${DOT_FOOTPRINT_NATIVE_ROOT:-} ]]; then
+  [[ -d $DOT_FOOTPRINT_NATIVE_ROOT && ! -L $DOT_FOOTPRINT_NATIVE_ROOT ]] || {
+    printf 'measure-profile-footprint: unsafe native package root: %s\n' \
+      "$DOT_FOOTPRINT_NATIVE_ROOT" >&2
+    exit 1
+  }
+  native_packages=$(_bytes_for "$DOT_FOOTPRINT_NATIVE_ROOT")
+  native_status=measured
+fi
+
+public_total=$((\
+  git_checkout_config + user_managed + nvim + mise + \
+  language_caches + native_packages))
+
+printf 'version=1\n'
+printf 'phase=%s\n' "$phase"
+printf 'profile=%s\n' "$profile"
+printf 'category\tbytes\tstatus\n'
+printf 'git_checkout_config\t%s\tmeasured\n' "$git_checkout_config"
+printf 'language_caches\t%s\tmeasured\n' "$language_caches"
+printf 'mise\t%s\tmeasured\n' "$mise"
+printf 'native_packages\t%s\t%s\n' "$native_packages" "$native_status"
+printf 'nvim\t%s\tmeasured\n' "$nvim"
+printf 'optional_private_overlays\t%s\tseparate\n' \
+  "$optional_private_overlays"
+printf 'user_managed\t%s\tmeasured\n' "$user_managed"
+printf 'public_total\t%s\tderived\n' "$public_total"

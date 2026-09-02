@@ -6,8 +6,8 @@
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20WSL-lightgrey.svg)](#)
 
 Base dotfiles use `~/.dotfiles` as a separate Git directory with `$HOME` as the
-worktree, plus optional Git or filesystem overlays for environment-specific
-files.
+worktree, plus profile-selected Git or filesystem overlays for additional
+capabilities and environment-specific files.
 
 - Fresh `dot init` clients set `core.bare=false` and an explicit absolute
   `core.worktree=$HOME` in `~/.dotfiles`. Existing legacy bare clients remain
@@ -17,6 +17,11 @@ files.
   sources managed outside dot.
 - Overlay files live under each overlay's `home/` directory and are symlinked
   into `$HOME` by `dot update`.
+- `base` is the smallest profile. `editor` includes `base` plus the public Nvim
+  overlay; `dev` includes `editor` plus the public development overlay and the
+  optional private work overlay. The optional personal overlay is part of
+  `base`. The initial compatibility rollout configures `dev` as the no-selector
+  default so existing machines retain their full environment.
 - `~/.local/lib/dotfiles` is the dotfiles client's executable policy runtime.
   The standalone Dot checkout and its public API remain separate.
 
@@ -101,6 +106,43 @@ dot push
 Git overlay repos are regular checkouts and are managed with
 `git -C ~/.dotfiles-<name>`.
 
+## Profiles
+
+Profiles strictly aggregate overlays; application configuration never branches
+on a profile name. The root repository remains active for every profile:
+
+```text
+base   -> personal
+editor -> base + nvim
+dev    -> editor + dev + work
+```
+
+`personal` and `work` remain optional. Selecting one does not make missing
+credentials or an unavailable remote fatal. Public `nvim` and `dev` overlays
+are required when their profiles are selected.
+
+Choose a profile with a tracked, machine-local, or personal selector record.
+Selectors can match a user, a host, or both, so two users on one machine may
+choose different profiles. A combined user-and-host match overrides broader
+user-only or host-only defaults; conflicting matches at the winning specificity
+fail before final overlay mutation. No match uses the root config's
+`default_profile`, which defaults to `base`. For compatibility with clients
+that predate profiles, the initial rollout instead tracks a root-global `dev`
+selector; a later fleet migration can remove it after explicit selectors are
+ready. See
+[`profile-selectors.d/README.md`](../../../../.config/dot/profile-selectors.d/README.md)
+for the data format and safe local-file rules.
+
+Profile changes are convergent in both directions. The next successful update
+adds newly selected overlay links and removes only exact managed links from
+deselected overlays, restoring lower-layer files where applicable. Cached
+checkouts, installed packages, and unmanaged files are retained.
+
+`dot update` resolves profiles in two phases so an available personal overlay
+may contribute private selectors without exposing other unselected overlay
+configuration. Inspection commands stay offline. `fetch` and `push` operate
+only on selected repositories that already exist.
+
 ## Tool Installation and Ownership
 
 `dot update` converges tools through several providers. Each command has one
@@ -178,24 +220,18 @@ own it:
 | Agent rule merge inputs | [`.config/dot/merge-hooks.d/agent-rules/README.md`](../../../../.config/dot/merge-hooks.d/agent-rules/README.md) |
 | ds sessions | [`.config/ds/README.md`](../../../../.config/ds/README.md) |
 | Overlay repos | [`.config/dot/overlays.d/README.md`](../../../../.config/dot/overlays.d/README.md) |
+| Profile selectors | [`.config/dot/profile-selectors.d/README.md`](../../../../.config/dot/profile-selectors.d/README.md) |
 | Config merge hooks and cron | [`.config/dot/merge-hooks.d/README.md`](../../../../.config/dot/merge-hooks.d/README.md) |
-| Git config | [`.config/git/README.md`](../../../../.config/git/README.md) |
-| Git hooks | [`.local/lib/dotfiles/git-hooks/README.md`](../../../../.local/lib/dotfiles/git-hooks/README.md) |
-| Hive Memory config | [`.config/hive-memory/README.md`](../../../../.config/hive-memory/README.md) |
 | Shell loading | [`.config/shell/README.md`](../../../../.config/shell/README.md) |
 | Dependency installs | [`.config/shdeps/README.md`](../../../../.config/shdeps/README.md) |
-| Pinned tool versions | [`.config/mise/README.md`](../../../../.config/mise/README.md) |
 | Ripgrep integration | [`.config/ripgrep/README.md`](../../../../.config/ripgrep/README.md) |
-| Lazygit integration | [`.config/lazygit/README.md`](../../../../.config/lazygit/README.md) |
-| Neovim config | [`.config/nvim/README.md`](../../../../.config/nvim/README.md) |
+| Nvim editor capability | [`dotfiles-nvim`](https://github.com/cgraf78/dotfiles-nvim) |
+| Development capability | [`dotfiles-dev`](https://github.com/cgraf78/dotfiles-dev) |
 | tmux config | [`.config/tmux/README.md`](../../../../.config/tmux/README.md) |
 | WezTerm integration | [`.config/wezterm/README.md`](../../../../.config/wezterm/README.md) |
-| Checkrun policy | [`.config/checkrun/README.md`](../../../../.config/checkrun/README.md) |
-| Sley verification policy | [`.config/sley/verify.d/README.md`](../../../../.config/sley/verify.d/README.md) |
 | Command entry points | [`.local/bin/README.md`](../../../../.local/bin/README.md) |
 | Client runtime layout | [`.local/lib/dotfiles/README.md`](../../../../.local/lib/dotfiles/README.md) |
 | Dotfiles documentation index | [`.local/share/doc/dotfiles/README.md`](README.md) |
-| Schema payloads | [`.local/share/checkrun/schemas/README.md`](../../../../.local/share/checkrun/schemas/README.md) |
 | Test runner and client suites | [`.local/lib/dotfiles/tests/README.md`](../../../../.local/lib/dotfiles/tests/README.md) |
 
 ## Operating Model

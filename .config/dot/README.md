@@ -8,6 +8,11 @@ target-native config directories.
 ## Directories
 
 - `config` enables the dotfiles extension root and optional Shdeps provider.
+  The tracked root-global selector in `profile-selectors.d/00-default.conf`
+  chooses `dev` during the compatibility rollout while remaining invisible to
+  pre-profile Dot clients. A later, separately reviewed fleet change can remove
+  that selector to use Dot's `base` fallback after explicit selectors are
+  ready.
   This development fleet sets `shdeps_update_policy=latest`, allowing a valid
   user-owned `~/git/shdeps` checkout for `cgraf78/shdeps` to follow its current
   revision even when it is newer than Dot's reviewed fallback lock. Without a
@@ -17,9 +22,14 @@ target-native config directories.
   last-known-good behavior and must not be reported as reaching the latest
   release. The standalone runtime parses this file before loading extensions or
   the dependency provider.
-- `overlays.d/` declares optional overlay repositories. Companion `.ssh`
-  snippets are consumed by the client-owned pre-sync hook before a private
-  overlay clone is attempted.
+- `profiles.d/` defines the additive `base`, `editor`, and `dev` profiles. A
+  profile contains overlay names only; the root repository is always active.
+- `profile-selectors.d/` contains reviewed non-sensitive selectors. Ignored
+  machine-local selectors live in `profile-selectors.local.d/`; private
+  selectors may be contributed by the optional personal overlay.
+- `overlays.d/` declares overlay repositories. A selected eligible descriptor's
+  same-stem `.ssh` companion is consumed by the client-owned pre-sync hook
+  before a private overlay clone is attempted.
 - `merge-hooks.d/` owns per-hook declarative config directories, merge source
   layers, and cron source files consumed by `dot update`.
 - `merge-hooks.d/agent-rules/targets.d/` selects the generated agent rule
@@ -51,9 +61,13 @@ mutual-exclusion, use the family `.replace` convention documented under
   `~/.local/lib/dotfiles/merge-hooks.d/*.sh`.
 - Keep optional merge source data under
   `merge-hooks.d/<script-name>/`, matching the hook implementation name.
-- Keep Checkrun policy in `.config/checkrun`, even when schema associations
-  match files that live in `merge-hooks.d`.
+- Keep Checkrun policy and schema associations in the development overlay,
+  even when they match files contributed to shared merge families.
 - Keep overlay repository declarations in `overlays.d`.
+- Keep reusable profile membership in `profiles.d` and host/user choices in the
+  appropriate selector directory. Only the tracked root source may define an
+  identity-free compatibility default. Do not branch application configuration
+  on a profile name.
 
 This keeps `dot update` discoverable: dot-specific config is in `.config/dot`,
 agent prose is in `.config/agent-rules`, dotfiles-owned code is in
@@ -61,7 +75,6 @@ agent prose is in `.config/agent-rules`, dotfiles-owned code is in
 standalone engine itself remains checkout-relative and is not copied into this
 client tree.
 
-When adding or changing tracked JSON, JSONC, YAML, or TOML config in this
-tree, check whether `~/.config/checkrun/associations.json` needs a schema
-association. Use real upstream or dependency-owned schemas only; parser-only
-formats and files without proper schemas should stay unassociated.
+When adding or changing structured config, update the owning overlay's schema
+associations when appropriate. Use real upstream or dependency-owned schemas
+only; parser-only formats and files without proper schemas stay unassociated.

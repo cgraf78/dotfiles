@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+# Verify deterministic, category-complete profile footprint measurements.
+
+set -u
+
+source_home=${DOT_TEST_SOURCE_HOME:-$HOME}
+
+# shellcheck source=helpers.sh
+. "$source_home/.local/lib/dotfiles/tests/helpers.sh"
+
+measure=$source_home/.local/lib/dotfiles/tests/measure-profile-footprint
+if [[ ! -x $measure ]]; then
+  _fail 'profile footprint measurement tool is executable'
+  _test_summary
+fi
+
+fixture=$(_tmpdir)
+native=$(_tmpdir)
+mkdir -p \
+  "$fixture/.dotfiles" \
+  "$fixture/.dotfiles-nvim" \
+  "$fixture/.config" \
+  "$fixture/.local/bin" \
+  "$fixture/.local/share/cgraf78/dot" \
+  "$fixture/.local/share/shdeps" \
+  "$fixture/.local/share/nvim" \
+  "$fixture/.local/state/nvim" \
+  "$fixture/.cache/nvim" \
+  "$fixture/.local/share/mise" \
+  "$fixture/.cargo" \
+  "$fixture/.npm" \
+  "$fixture/go/pkg" \
+  "$fixture/.cache/uv" \
+  "$fixture/.dotfiles-personal" \
+  "$fixture/.dotfiles-work"
+
+_write_bytes() {
+  local path=$1 count=$2
+  head -c "$count" /dev/zero >"$path"
+}
+
+_write_bytes "$fixture/.dotfiles/object" 3
+_write_bytes "$fixture/.dotfiles-nvim/object" 5
+_write_bytes "$fixture/.config/app" 7
+_write_bytes "$fixture/.local/bin/tool" 11
+_write_bytes "$fixture/.local/share/cgraf78/dot/file" 13
+_write_bytes "$fixture/.local/share/shdeps/file" 17
+_write_bytes "$fixture/.local/share/nvim/file" 19
+_write_bytes "$fixture/.local/state/nvim/file" 21
+_write_bytes "$fixture/.cache/nvim/file" 23
+_write_bytes "$fixture/.local/share/mise/file" 29
+_write_bytes "$fixture/.cargo/file" 31
+_write_bytes "$fixture/.npm/file" 37
+_write_bytes "$fixture/go/pkg/file" 41
+_write_bytes "$fixture/.cache/uv/file" 43
+_write_bytes "$fixture/.dotfiles-personal/object" 47
+_write_bytes "$fixture/.dotfiles-work/object" 53
+_write_bytes "$native/package" 59
+
+# BSD `wc -c` pads its numeric output. Exercise that shape on every platform so
+# the measurement parser cannot silently discard all directory entries.
+real_wc=$(type -P wc)
+wc_bin=$(_mock_bin)
+cat >"$wc_bin/wc" <<'SH'
+#!/usr/bin/env bash
+bytes=$("$DOT_TEST_REAL_WC" "$@") || exit
+printf '    %s\n' "$bytes"
+SH
+chmod +x "$wc_bin/wc"
+PATH="$wc_bin:$PATH"
+DOT_TEST_REAL_WC=$real_wc
+export PATH DOT_TEST_REAL_WC
+
+first=$(DOT_FOOTPRINT_NATIVE_ROOT=$native \
+  "$measure" --phase pre-cutover-monolith --profile base "$fixture")
+second=$(DOT_FOOTPRINT_NATIVE_ROOT=$native \
+  "$measure" --phase pre-cutover-monolith --profile base "$fixture")
+_assert_eq 'unchanged fixture measurement is deterministic' "$first" "$second"
+
+_assert_contains 'measurement records format version' 'version=1' "$first"
+_assert_contains 'measurement records phase' 'phase=pre-cutover-monolith' "$first"
+_assert_contains 'measurement records profile' 'profile=base' "$first"
+_assert_contains 'Git checkout and config payload is counted' \
+  $'git_checkout_config\t15\tmeasured' "$first"
+_assert_contains 'user-managed payload is counted' \
+  $'user_managed\t41\tmeasured' "$first"
+_assert_contains 'native package payload is separately counted' \
+  $'native_packages\t59\tmeasured' "$first"
+_assert_contains 'Nvim payload is counted' $'nvim\t63\tmeasured' "$first"
+_assert_contains 'mise payload is counted' $'mise\t29\tmeasured' "$first"
+_assert_contains 'language caches are counted' \
+  $'language_caches\t152\tmeasured' "$first"
+_assert_contains 'private overlay payload is reported separately' \
+  $'optional_private_overlays\t100\tseparate' "$first"
+_assert_contains 'public total excludes optional private overlays' \
+  $'public_total\t359\tderived' "$first"
+
+categories=$(printf '%s\n' "$first" |
+  awk -F '\t' 'NF == 3 && $1 != "category" && $1 != "public_total" { print $1 }')
+_assert_eq 'measurement categories are sorted' \
+  $'git_checkout_config\nlanguage_caches\nmise\nnative_packages\nnvim\noptional_private_overlays\nuser_managed' \
+  "$categories"
+
+unmeasured=$("$measure" --phase pre-cutover-monolith --profile editor "$fixture")
+_assert_contains 'unavailable native package payload is explicit' \
+  $'native_packages\t0\tunmeasured' "$unmeasured"
+
+_test_summary

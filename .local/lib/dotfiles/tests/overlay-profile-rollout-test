@@ -1,0 +1,386 @@
+#!/usr/bin/env bash
+# Verify the top-level profile contract and staged overlay transport policy.
+
+set -u
+
+source_home=${DOT_TEST_SOURCE_HOME:-$HOME}
+host_home=${DOT_TEST_HOST_HOME:-$HOME}
+
+# shellcheck source=helpers.sh
+. "$source_home/.local/lib/dotfiles/tests/helpers.sh"
+
+_assert_file() {
+  local description=$1 path=$2
+  if [[ -f $path && ! -L $path ]]; then
+    _pass "$description"
+  else
+    _fail "$description (missing regular file: $path)"
+  fi
+}
+
+_assert_file_content_exact() {
+  local description=$1 expected=$2 path=$3 actual=''
+  [[ -f $path ]] && actual=$(<"$path")
+  _assert_eq "$description" "$expected" "$actual"
+}
+
+profile_root=$source_home/.config/dot/profiles.d
+overlay_root=$source_home/.config/dot/overlays.d
+stack_test=$source_home/.local/lib/dotfiles/tests/overlay-profile-stack-test
+
+transport_bin=$(_tmpdir)
+transport_log=$transport_bin/git.log
+# shellcheck disable=SC2016 # The generated transport expands its own log path.
+printf '%s\n' \
+  '#!/usr/bin/env bash' \
+  'printf "git-called\\n" >>"$DOT_TEST_TRANSPORT_LOG"' \
+  'exit 97' >"$transport_bin/git"
+chmod 0755 "$transport_bin/git"
+: >"$transport_log"
+
+local_stack_status=0
+local_stack_output=$(
+  env -u DOT_STACK_RUNTIME -u DOT_STACK_GROUP -u DOT_STACK_DOT_SHA \
+    -u DOT_STACK_DOT_ROOT -u DOT_STACK_DOT_BIN -u DOT_STACK_DOT_ORIGIN \
+    -u DOT_STACK_LOCK_PATH -u DOT_TEST_REPORTER \
+    GITHUB_ACTIONS=false DOT_TEST_TRANSPORT_LOG="$transport_log" \
+    PATH="$transport_bin:$PATH" "$stack_test" 2>&1
+) || local_stack_status=$?
+_assert_exit 'installed stack test skips without the locked runtime' \
+  0 "$local_stack_status"
+_assert_contains 'installed stack test explains the CI-only boundary' \
+  'SKIP: coordinated profile-stack integration requires its locked CI runtime' \
+  "$local_stack_output"
+_assert_file_content_exact 'installed stack test performs no Git transport' \
+  '' "$transport_log"
+
+ci_stack_status=0
+ci_stack_output=$(
+  env -u DOT_STACK_RUNTIME -u DOT_STACK_GROUP -u DOT_STACK_DOT_SHA \
+    -u DOT_STACK_DOT_ROOT -u DOT_STACK_DOT_BIN -u DOT_STACK_DOT_ORIGIN \
+    -u DOT_STACK_LOCK_PATH -u DOT_TEST_REPORTER \
+    GITHUB_ACTIONS=true DOT_TEST_TRANSPORT_LOG="$transport_log" \
+    PATH="$transport_bin:$PATH" "$stack_test" 2>&1
+) || ci_stack_status=$?
+_assert_exit 'CI stack test fails closed without the locked runtime' \
+  1 "$ci_stack_status"
+_assert_contains 'CI stack test explains the missing runtime' \
+  'overlay-profile-stack-test: locked CI runtime is required' \
+  "$ci_stack_output"
+_assert_file_content_exact 'failed CI stack test performs no Git transport' \
+  '' "$transport_log"
+
+_assert_file_content_exact 'base profile selects optional personal' \
+  $'version=1\noverlays=personal' "$profile_root/base.conf"
+_assert_file_content_exact 'editor profile includes base and selects nvim' \
+  $'version=1\nprofiles=base\noverlays=nvim' "$profile_root/editor.conf"
+_assert_file_content_exact 'dev profile includes editor and selects dev plus work' \
+  $'version=1\nprofiles=editor\noverlays=dev,work' "$profile_root/dev.conf"
+
+_assert_file_content_exact 'public nvim descriptor is required' \
+  'url=https://github.com/cgraf78/dotfiles-nvim.git' "$overlay_root/20-nvim.conf"
+_assert_file_content_exact 'public dev descriptor is required' \
+  'url=https://github.com/cgraf78/dotfiles-dev.git' "$overlay_root/30-dev.conf"
+_assert_file_content_exact 'personal descriptor remains optional' \
+  $'url=git@github.com:cgraf78/dotfiles-personal.git\noptional=true' \
+  "$overlay_root/80-personal.conf"
+_assert_file_content_exact 'work descriptor remains optional' \
+  $'url=github-dotfiles-work:cgraf78/dotfiles-work.git\noptional=true' \
+  "$overlay_root/90-work.conf"
+_assert_file 'renamed work descriptor keeps same-stem SSH companion' \
+  "$overlay_root/90-work.ssh"
+
+for retired in 05-personal.conf 10-work.conf 10-work.ssh; do
+  if [[ ! -e $overlay_root/$retired && ! -L $overlay_root/$retired ]]; then
+    _pass "old overlay path is retired: $retired"
+  else
+    _fail "old overlay path is retired: $retired"
+  fi
+done
+
+ignore_file=$source_home/.config/dot/merge-hooks.d/ignore/ignore.d/10-patterns.gitignore
+if [[ -f $ignore_file ]] &&
+  awk '$0 == "/.config/dot/profile-selectors.local.d/" { count++ } END { exit count == 1 ? 0 : 1 }' \
+    "$ignore_file"; then
+  _pass 'machine-local selector directory has one exact ignore rule'
+else
+  _fail 'machine-local selector directory has one exact ignore rule'
+fi
+
+dot_root=${DOT_TEST_DOT_ROOT:-$host_home/git/dot}
+if [[ ! -r $dot_root/lib/dot/hook-api.sh ]]; then
+  _fail "standalone Dot runtime is available: $dot_root"
+  _test_summary
+fi
+
+# Exercise these repository-owned definitions through the real D1 parser. The
+# provider suite owns parser edge cases; this integration assertion owns the
+# exact profile graph shipped by this repository.
+# shellcheck source=/dev/null
+. "$dot_root/lib/dot/public/xdg.sh"
+# shellcheck source=/dev/null
+. "$dot_root/lib/dot/platform.sh"
+# shellcheck source=/dev/null
+. "$dot_root/lib/dot/config.sh"
+# shellcheck source=/dev/null
+. "$dot_root/lib/dot/profiles.sh"
+identity_bin=$(_tmpdir)
+local_selectors=$(_tmpdir)
+chmod 0700 "$local_selectors"
+printf '%s\n' '#!/usr/bin/env bash' 'printf "%s\n" example-user' >"$identity_bin/id"
+printf '%s\n' '#!/usr/bin/env bash' 'printf "%s\n" Example-Host.' >"$identity_bin/hostname"
+chmod +x "$identity_bin/id" "$identity_bin/hostname"
+PATH=$identity_bin:$PATH
+
+dot_config_load "$source_home/.config/dot/config"
+_dot_profiles_load "$profile_root"
+_dot_profile_resolve "$source_home/.config/dot/profile-selectors.d" \
+  "$local_selectors"
+_assert_eq 'real profile parser uses the root-global dev selector' dev "$SELECTED_PROFILE"
+_assert_eq 'root-global dev preserves the full overlay set' \
+  'personal nvim dev work' "${SELECTED_OVERLAY_NAMES[*]}"
+
+selector_root=$(_tmpdir)
+selector_local=$(_tmpdir)
+chmod 0700 "$selector_local"
+
+_resolve_fixture_profile() {
+  _dot_profiles_load "$profile_root" || return
+  _dot_profile_resolve "$selector_root" "$selector_local"
+}
+
+_clear_fixture_selectors() {
+  rm -f -- "$selector_root"/*.conf "$selector_local"/*.conf
+}
+
+_clear_fixture_selectors
+printf 'version=1\nuser=example-user\nprofile=editor\n' \
+  >"$selector_root/10-user.conf"
+_resolve_fixture_profile
+_assert_eq 'user-only selector activates editor' editor "$SELECTED_PROFILE"
+
+_clear_fixture_selectors
+printf 'version=1\nhost=EXAMPLE-HOST.\nprofile=dev\n' \
+  >"$selector_root/10-host.conf"
+_resolve_fixture_profile
+_assert_eq 'host-only selector normalizes case and trailing dot' \
+  dev "$SELECTED_PROFILE"
+
+_clear_fixture_selectors
+printf 'version=1\nuser=example-user\nhost=example-host\nprofile=dev\n' \
+  >"$selector_root/10-combined.conf"
+_resolve_fixture_profile
+_assert_eq 'combined selector requires and matches both fields' \
+  dev "$SELECTED_PROFILE"
+
+_clear_fixture_selectors
+printf 'version=1\nhost=example-host\nuser=another-user\nprofile=dev\n' \
+  >"$selector_root/10-other-user.conf"
+printf 'version=1\nuser=example-user\nprofile=editor\n' \
+  >"$selector_root/20-current-user.conf"
+_resolve_fixture_profile
+_assert_eq 'same host with a different user does not match' \
+  editor "$SELECTED_PROFILE"
+
+_clear_fixture_selectors
+printf 'version=1\nuser=example-user\nprofile=editor\n' \
+  >"$selector_root/10-root.conf"
+printf 'version=1\nhost=example-host\nprofile=editor\n' \
+  >"$selector_local/20-local.conf"
+chmod 0600 "$selector_local/20-local.conf"
+_resolve_fixture_profile
+_assert_eq 'agreeing selectors keep their shared profile' editor "$SELECTED_PROFILE"
+
+printf 'version=1\nuser=example-user\nhost=example-host\nprofile=dev\n' \
+  >"$selector_local/20-local.conf"
+chmod 0600 "$selector_local/20-local.conf"
+_resolve_fixture_profile
+_assert_eq 'specific selector overrides the user-wide default' \
+  dev "$SELECTED_PROFILE"
+
+_clear_fixture_selectors
+printf 'version=1\nuser=example-user\nprofile=editor\n' \
+  >"$selector_root/10-root.conf"
+printf 'version=1\nhost=example-host\nprofile=dev\n' \
+  >"$selector_local/20-local.conf"
+chmod 0600 "$selector_local/20-local.conf"
+if _resolve_fixture_profile >/dev/null 2>&1; then
+  _fail 'conflicting selectors fail closed'
+else
+  _pass 'conflicting selectors fail closed'
+fi
+
+_clear_fixture_selectors
+cp "$source_home/.config/dot/profile-selectors.d/00-default.conf" \
+  "$selector_root/00-default.conf"
+printf 'version=1\nuser=another-user\nprofile=dev\n' \
+  >"$selector_root/10-no-match.conf"
+_resolve_fixture_profile
+_assert_eq 'no matching identity selector uses the global dev default' \
+  dev "$SELECTED_PROFILE"
+_assert_eq 'unavailable personal does not reduce the global dev membership' \
+  'personal nvim dev work' "${SELECTED_OVERLAY_NAMES[*]}"
+
+_clear_fixture_selectors
+printf 'version=1\nuser=example-user\nprofile=editor\n' \
+  >"$selector_local/10-local-fallback.conf"
+chmod 0600 "$selector_local/10-local-fallback.conf"
+_resolve_fixture_profile
+_assert_eq 'machine-local selector works without a personal checkout' \
+  editor "$SELECTED_PROFILE"
+
+printf '%s\n' \
+  'version=1' \
+  'user=example-user' \
+  'host=example-host' \
+  'profile=dev' >"$local_selectors/10-dev.conf"
+chmod 0600 "$local_selectors/10-dev.conf"
+_dot_profiles_load "$profile_root"
+_dot_profile_resolve "$source_home/.config/dot/profile-selectors.d" \
+  "$local_selectors"
+_assert_eq 'combined user/host selector activates dev' dev "$SELECTED_PROFILE"
+_assert_eq 'dev preserves additive profile order' \
+  'base editor dev' "${INCLUDED_PROFILES[*]}"
+_assert_eq 'dev expands to the exact overlay set' \
+  'personal nvim dev work' "${SELECTED_OVERLAY_NAMES[*]}"
+
+for topology in legacy-bare explicit-worktree; do
+  git_fixture=$(_tmpdir)
+  fixture_worktree=$git_fixture/home
+  fixture_git_dir=$git_fixture/repository.git
+  mkdir -p "$fixture_worktree"
+  git init --quiet --bare "$fixture_git_dir"
+  if [[ $topology == explicit-worktree ]]; then
+    git --git-dir="$fixture_git_dir" config core.bare false
+    git --git-dir="$fixture_git_dir" config core.worktree "$fixture_worktree"
+  fi
+  if git --git-dir="$fixture_git_dir" --work-tree="$fixture_worktree" \
+    -c core.excludesFile="$ignore_file" check-ignore --no-index -q \
+    .config/dot/profile-selectors.local.d/90-local.conf; then
+    _pass "machine-local selector is ignored in $topology topology"
+  else
+    _fail "machine-local selector is ignored in $topology topology"
+  fi
+done
+
+fixture_home=$(_tmpdir)
+mkdir -p "$fixture_home/.config/dot/overlays.d" "$fixture_home/.ssh"
+chmod 0700 "$fixture_home" "$fixture_home/.ssh"
+cp "$source_home/.local/lib/dotfiles/pre-sync.d/10-overlay-ssh.sh" \
+  "$fixture_home/10-overlay-ssh.sh"
+
+selected_descriptor=$fixture_home/.config/dot/overlays.d/80-personal.conf
+selected_companion=$fixture_home/.config/dot/overlays.d/80-personal.ssh
+unselected_descriptor=$fixture_home/.config/dot/overlays.d/90-private.conf
+unselected_companion=$fixture_home/.config/dot/overlays.d/90-private.ssh
+printf 'url=https://example.invalid/personal.git\noptional=true\n' >"$selected_descriptor"
+printf 'Host selected.example\n  HostName selected.example\n' >"$selected_companion"
+printf 'url=https://example.invalid/private.git\noptional=true\n' >"$unselected_descriptor"
+printf 'Host unselected.example\n  HostName unselected.example\n' >"$unselected_companion"
+
+HOME=$fixture_home
+DOT_SOURCE_ROOT=$dot_root
+DOT_EXTENSIONS_DIR=$source_home/.local/lib/dotfiles
+DOT_EXTENSION_API=1
+export HOME DOT_SOURCE_ROOT DOT_EXTENSIONS_DIR DOT_EXTENSION_API
+unset XDG_CONFIG_HOME XDG_STATE_HOME XDG_CACHE_HOME XDG_DATA_HOME XDG_RUNTIME_DIR
+
+# shellcheck source=/dev/null
+. "$dot_root/lib/dot/public/xdg.sh"
+# shellcheck source=/dev/null
+. "$dot_root/lib/dot/log.sh"
+# shellcheck source=/dev/null
+. "$dot_root/lib/dot/temp.sh"
+# shellcheck source=/dev/null
+. "$dot_root/lib/dot/merge-block.sh"
+# shellcheck source=/dev/null
+. "$dot_root/lib/dot/hook-api.sh"
+# shellcheck source=/dev/null
+. "$fixture_home/10-overlay-ssh.sh"
+
+old_block=$(dot_managed_block_build \
+  '# dot-managed:overlay-ssh:90-private' "$unselected_companion" \
+  $'Host stale.example\n  HostName stale.example')
+dot_managed_block_merge_family "$HOME/.ssh/config" \
+  '# dot-managed:overlay-ssh:' "$old_block"
+
+# shellcheck disable=SC2034 # Consumed dynamically by the sourced pre-sync hook.
+OVERLAYS=("personal|$HOME/.dotfiles-personal|https://example.invalid/personal.git|$selected_descriptor|true|git")
+# shellcheck disable=SC2034 # Consumed dynamically by the sourced pre-sync hook.
+DOT_PRE_SYNC_STAGE=prepare
+prepare
+ssh_config=$(<"$HOME/.ssh/config")
+_assert_contains 'prepare adds selected eligible companion' \
+  '# dot-managed:overlay-ssh:personal begin' "$ssh_config"
+_assert_contains 'prepare preserves unmentioned managed family member' \
+  '# dot-managed:overlay-ssh:90-private begin' "$ssh_config"
+_assert_not_contains 'prepare never reads unselected companion content' \
+  'Host unselected.example' "$ssh_config"
+
+# shellcheck disable=SC2034 # Consumed dynamically by the sourced pre-sync hook.
+DOT_PRE_SYNC_STAGE=reconcile
+prepare
+ssh_config=$(<"$HOME/.ssh/config")
+_assert_contains 'reconcile retains selected eligible companion' \
+  '# dot-managed:overlay-ssh:personal begin' "$ssh_config"
+_assert_not_contains 'reconcile prunes deselected managed family member' \
+  '# dot-managed:overlay-ssh:90-private begin' "$ssh_config"
+
+# A pre-profile runtime calls the newly pulled hook without a stage but does
+# supply its validated, eligible OVERLAYS set. Treat that one compatibility
+# invocation as final reconciliation long enough to update and re-exec.
+unset DOT_PRE_SYNC_STAGE
+OVERLAYS=(
+  "personal|$HOME/.dotfiles-personal|https://example.invalid/personal.git|$selected_descriptor|true|git"
+  "private|$HOME/.dotfiles-private|https://example.invalid/private.git|$unselected_descriptor|true|git"
+)
+prepare
+ssh_config=$(<"$HOME/.ssh/config")
+_assert_contains 'legacy pre-sync keeps the selected companion' \
+  '# dot-managed:overlay-ssh:personal begin' "$ssh_config"
+_assert_contains 'legacy pre-sync uses every validated overlay record' \
+  '# dot-managed:overlay-ssh:private begin' "$ssh_config"
+
+# shellcheck disable=SC2034 # Consumed dynamically by the sourced pre-sync hook.
+DOT_PRE_SYNC_STAGE=invalid
+if prepare >/dev/null 2>&1; then
+  _fail 'pre-sync rejects an invalid coordinator stage'
+else
+  _pass 'pre-sync rejects an invalid coordinator stage'
+fi
+
+transition_home=$(_tmpdir)
+mkdir -p "$transition_home/.config/dot/overlays.d" "$transition_home/.ssh"
+chmod 0700 "$transition_home" "$transition_home/.ssh"
+old_transition_descriptor=$transition_home/.config/dot/overlays.d/10-transition.conf
+old_transition_companion=$transition_home/.config/dot/overlays.d/10-transition.ssh
+new_transition_descriptor=$transition_home/.config/dot/overlays.d/90-transition.conf
+new_transition_companion=$transition_home/.config/dot/overlays.d/90-transition.ssh
+printf 'url=https://example.invalid/transition.git\noptional=true\n' \
+  >"$old_transition_descriptor"
+printf 'Host transition.example\n  HostName transition.example\n' \
+  >"$old_transition_companion"
+old_transition_companion=$(_test_realpath "$old_transition_companion")
+HOME=$transition_home
+# shellcheck disable=SC2034 # Consumed dynamically by the sourced pre-sync hook.
+OVERLAYS=("transition|$HOME/.dotfiles-transition|https://example.invalid/transition.git|$old_transition_descriptor|true|git")
+# shellcheck disable=SC2034 # Consumed dynamically by the sourced pre-sync hook.
+DOT_PRE_SYNC_STAGE=prepare
+prepare
+mv "$old_transition_descriptor" "$new_transition_descriptor"
+mv "$old_transition_companion" "$new_transition_companion"
+new_transition_companion=$(_test_realpath "$new_transition_companion")
+# shellcheck disable=SC2034 # Consumed dynamically by the sourced pre-sync hook.
+OVERLAYS=("transition|$HOME/.dotfiles-transition|https://example.invalid/transition.git|$new_transition_descriptor|true|git")
+# shellcheck disable=SC2034 # Consumed dynamically by the sourced pre-sync hook.
+DOT_PRE_SYNC_STAGE=reconcile
+prepare
+transition_config=$(<"$HOME/.ssh/config")
+_assert_eq 'same-stem prefix transition keeps one logical managed block' 1 \
+  "$(grep -c '^# dot-managed:overlay-ssh:transition begin$' <<<"$transition_config")"
+_assert_contains 'same-stem prefix transition follows the renamed companion' \
+  "# source: $new_transition_companion" "$transition_config"
+_assert_not_contains 'same-stem prefix transition retires the old source path' \
+  "# source: $old_transition_companion" "$transition_config"
+
+_test_summary

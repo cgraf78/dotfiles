@@ -1,0 +1,1096 @@
+#!/usr/bin/env bash
+# Validate the immutable coordinated stack and the locked D1 runtime wrapper.
+
+set -u
+
+source_home=${DOT_TEST_SOURCE_HOME:-$HOME}
+
+# shellcheck source=helpers.sh
+. "$source_home/.local/lib/dotfiles/tests/helpers.sh"
+
+# This suite clones and validates the coordinated pre-merge stack and must use
+# its locked Dot runtime. Normal installed `dot test` runs should remain local
+# and leave this CI-only integration gate to `.local/lib/dotfiles/tests/run-ci`.
+if [[ ${DOT_STACK_RUNTIME:-0} != 1 ]]; then
+  if [[ ${GITHUB_ACTIONS:-false} == true ]]; then
+    printf 'overlay-profile-stack-test: locked CI runtime is required\n' >&2
+    exit 1
+  fi
+  _test_skip_suite 'coordinated profile-stack integration requires its locked CI runtime'
+fi
+
+stack_runtime=$source_home/.local/lib/dotfiles/tests/stack-dot-runtime
+production_lock=$source_home/.github/overlay-profile-stack.lock
+source_lock=$source_home/.local/share/doc/dotfiles/overlay-profile-source.lock
+workflow=$source_home/.github/workflows/test.yml
+
+_lock_value() {
+  local key=$1 file=$2
+  awk -F= -v key="$key" '$1 == key { count++; value=$2 } END {
+    if (count == 1) print value; else exit 1
+  }' "$file"
+}
+
+_require() {
+  local description=$1
+  shift
+  if "$@"; then
+    _pass "$description"
+  else
+    _fail "$description"
+  fi
+}
+
+_checkout_exact() {
+  local repository=$1 sha=$2 destination=$3
+  git clone --quiet --no-checkout "$repository" "$destination" || return 1
+  git -C "$destination" fetch --quiet --no-tags origin "$sha" || return 1
+  git -C "$destination" checkout --quiet --detach "$sha" || return 1
+  [[ $(git -C "$destination" rev-parse HEAD) == "$sha" ]]
+}
+
+_capability_source_commit() {
+  local checkout=$1
+  _lock_value commit "$checkout/.github/dotfiles-source.lock"
+}
+
+_capability_source_value() {
+  local checkout=$1 key=$2
+  _lock_value "$key" "$checkout/.github/dotfiles-source.lock"
+}
+
+_capability_suite_inventory() {
+  local checkout=$1 inventory path
+  inventory=$checkout/.github/dot-test-suites.txt
+  [[ -f $inventory && ! -L $inventory ]] || return 1
+  while IFS= read -r path || [[ -n $path ]]; do
+    [[ -n $path && $path == home/.local/lib/dotfiles/tests/*-test ]] || return 1
+    [[ -x $checkout/$path && ! -L $checkout/$path ]] || return 1
+    printf '%s\n' "${path##*/}"
+  done <"$inventory"
+}
+
+_root_suite_inventory() {
+  local inventory=$source_home/.github/dot-test-suites.txt path
+  [[ -f $inventory && ! -L $inventory ]] || return 1
+  while IFS= read -r path || [[ -n $path ]]; do
+    [[ -n $path && $path == .local/lib/dotfiles/tests/*-test ]] || return 1
+    [[ -x $source_home/$path && ! -L $source_home/$path ]] || return 1
+    printf '%s\n' "${path##*/}"
+  done <"$inventory"
+}
+
+_effective_dev_plugin_state() {
+  (($# > 0)) || return 2
+  lua - "$@" <<'LUA'
+local targets = {
+  ["neovim/nvim-lspconfig"] = true,
+  ["mason-org/mason.nvim"] = true,
+  ["mason-org/mason-lspconfig.nvim"] = true,
+  ["stevearc/conform.nvim"] = true,
+  ["mfussenegger/nvim-lint"] = true,
+  ["folke/lazydev.nvim"] = true,
+}
+local state = {}
+for _, file in ipairs(arg) do
+  local specs = assert(dofile(file))
+  for _, spec in ipairs(specs) do
+    local name = spec[1]
+    if targets[name] and spec.enabled ~= nil then
+      state[name] = spec.enabled
+    end
+  end
+end
+local names = {}
+for name in pairs(targets) do
+  table.insert(names, name)
+end
+table.sort(names)
+for _, name in ipairs(names) do
+  assert(state[name] ~= nil, "missing explicit state for " .. name)
+  print(name .. "=" .. tostring(state[name]))
+end
+LUA
+}
+
+_nvim_home_bash_glob() {
+  local module=$1
+  lua - "$module" <<'LUA'
+vim = {
+  env = { HOME = "/home/profile-test" },
+  fn = { fnamemodify = function(path, _) return path end },
+}
+local shell = assert(dofile(arg[1])).options().shell
+local parts = {}
+for _, path in ipairs(shell.home_files) do
+  table.insert(parts, path)
+end
+for _, directory in ipairs(shell.home_dirs) do
+  if directory.glob then
+    table.insert(parts, directory.glob)
+  end
+end
+for _, pattern in ipairs(shell.home_globs) do
+  table.insert(parts, pattern)
+end
+io.write("{" .. table.concat(parts, ",") .. "}\n")
+LUA
+}
+
+_descriptor_name() {
+  local name=${1##*/}
+  name=${name%.conf}
+  name=${name%.local}
+  [[ $name =~ ^[0-9]+-(.+)$ ]] && name=${BASH_REMATCH[1]}
+  printf '%s\n' "$name"
+}
+
+_file_identity() {
+  if stat -f '%d:%i' "$1" >/dev/null 2>&1; then
+    stat -f '%d:%i' "$1"
+  else
+    stat -c '%d:%i' "$1"
+  fi
+}
+
+workflow_content=$(<"$workflow")
+_assert_contains 'top-level CI runs without dotfiles setup' \
+  'setup: none' "$workflow_content"
+_assert_contains 'top-level CI enters through the locked D1 wrapper' \
+  'stack-dot-runtime control-plane-run-ci' "$workflow_content"
+# shellcheck disable=SC2016 # Assert the literal workflow command.
+_assert_contains 'Termux CI invokes the exact locked D1 binary' \
+  '"$DOT_STACK_DOT_BIN" update' "$workflow_content"
+# shellcheck disable=SC2016 # Assert the literal isolated client PATH.
+_assert_contains 'Termux CI uses installed client launchers, not source launchers' \
+  'PATH="$DOT_STACK_DOT_ROOT/bin:$HOME/.local/bin:$PATH"' \
+  "$workflow_content"
+# shellcheck disable=SC2016 # Reject source-checkout launchers in the client PATH.
+_assert_not_contains 'Termux CI excludes source launchers from the client PATH' \
+  'PATH="$DOT_STACK_DOT_ROOT/bin:$PWD/.local/bin:$PATH"' \
+  "$workflow_content"
+# D4 still contains the pre-cutover monolithic dependency registry. The Termux
+# smoke owns control-plane and Android behavior; capability dependency suites
+# run in their owning repositories and the final base set is covered in D5.
+_assert_contains 'D4 Termux CI skips the transitional dependency provider' \
+  'DOT_INIT_SKIP_PROVIDER=1' "$workflow_content"
+_assert_contains 'top-level CI runs the literal suite inventory' \
+  '.local/lib/dotfiles/tests/run-ci' "$workflow_content"
+_assert_contains 'top-level CI installs hostname for profile selection' \
+  'profiles: base,jq,python,zsh,lua,tmux,openssh-netcat-lsof,procps,cron,fd,ripgrep,hostname,shellcheck' \
+  "$workflow_content"
+_assert_contains 'Termux CI installs hostname for profile selection' \
+  'termux-profiles: base,tmux,ripgrep,hostname' "$workflow_content"
+_assert_eq 'cold bootstrap installs hostname for profile selection' 1 \
+  "$(grep -Fxc \
+    '          profiles: base,jq,python,zsh,lua,tmux,openssh-netcat-lsof,procps,cron,fd,ripgrep,hostname' \
+    "$workflow")"
+_assert_not_contains 'top-level CI no longer uses moving dotfiles setup' \
+  'setup: dotfiles' "$workflow_content"
+
+if [[ ${1:-} != --runtime-only ]]; then
+  if [[ ! -f $production_lock || -L $production_lock ]]; then
+    _fail 'coordinated stack lock is a regular file'
+  else
+    version=$(_lock_value version "$production_lock" 2>/dev/null || true)
+    source_sha=$(_lock_value source_dotfiles "$production_lock" 2>/dev/null || true)
+    dot_sha=$(_lock_value dot "$production_lock" 2>/dev/null || true)
+    nvim_sha=$(_lock_value dotfiles_nvim "$production_lock" 2>/dev/null || true)
+    dev_sha=$(_lock_value dotfiles_dev "$production_lock" 2>/dev/null || true)
+    shdeps_sha=$(_lock_value test_shdeps "$production_lock" 2>/dev/null || true)
+    shdeps_release=$(_lock_value test_shdeps_release "$production_lock" 2>/dev/null || true)
+    shdeps_installer_sha=$(_lock_value test_shdeps_installer "$production_lock" 2>/dev/null || true)
+    agent_rules_sha=$(_lock_value test_agent_rules_sync "$production_lock" 2>/dev/null || true)
+    _assert_eq 'stack lock format version' 1 "$version"
+    _assert_eq 'stack source matches immutable extraction source' \
+      "$(<"$source_lock")" "$source_sha"
+    runtime_binding_valid=0
+    if [[ -n ${DOT_TEST_DOT_ROOT:-} ]]; then
+      [[ ${DOT_TEST_DOT_ROOT:-} == "${DOT_STACK_DOT_ROOT:-}" ]] &&
+        runtime_binding_valid=1
+    elif [[ $(command -v dot 2>/dev/null) == "${DOT_STACK_DOT_BIN:-}" ]]; then
+      runtime_binding_valid=1
+    fi
+    if [[ ${DOT_STACK_RUNTIME:-0} == 1 &&
+      ${DOT_STACK_DOT_SHA:-} == "$dot_sha" &&
+      ${DOT_STACK_DOT_ROOT:-} == /* &&
+      ${DOT_STACK_DOT_BIN:-} == "${DOT_STACK_DOT_ROOT:-}/bin/dot" &&
+      $runtime_binding_valid -eq 1 &&
+      $(git -C "${DOT_STACK_DOT_ROOT:-/nonexistent}" rev-parse HEAD 2>/dev/null) == "$dot_sha" ]]; then
+      _pass 'full stack integration runs through the exact locked D1 runtime'
+    else
+      _fail 'full stack integration runs through the exact locked D1 runtime'
+    fi
+    for pair in dot:$dot_sha dotfiles_nvim:$nvim_sha dotfiles_dev:$dev_sha \
+      test_shdeps:$shdeps_sha test_shdeps_installer:$shdeps_installer_sha; do
+      name=${pair%%:*}
+      sha=${pair#*:}
+      if [[ $sha =~ ^[0-9a-f]{40}$ ]]; then
+        _pass "stack lock pins full $name commit"
+      else
+        _fail "stack lock pins full $name commit"
+      fi
+    done
+    if [[ $agent_rules_sha =~ ^[0-9a-f]{40}$ ]]; then
+      _pass 'stack lock pins full agent-rules-sync test commit'
+    else
+      _fail 'stack lock pins full agent-rules-sync test commit'
+    fi
+    if [[ $shdeps_release =~ ^[0-9]{8}-[0-9]{6}-[0-9a-f]{8}$ ]]; then
+      _pass 'stack lock pins an immutable Shdeps test release'
+    else
+      _fail 'stack lock pins an immutable Shdeps test release'
+    fi
+
+    expected_keys=$(printf '%s\n' \
+      version source_dotfiles dot dotfiles_nvim dotfiles_dev test_shdeps \
+      test_shdeps_release test_shdeps_installer test_agent_rules_sync | sort)
+    actual_keys=$(awk -F= '
+      NF != 2 || !$1 || !$2 { exit 1 }
+      seen[$1]++ { exit 1 }
+      { print $1 }
+    ' "$production_lock" 2>/dev/null | sort)
+    _assert_eq 'D4 stack lock has the exact key set' "$expected_keys" "$actual_keys"
+
+    if [[ $dot_sha =~ ^[0-9a-f]{40}$ &&
+      $nvim_sha =~ ^[0-9a-f]{40}$ && $dev_sha =~ ^[0-9a-f]{40}$ &&
+      $shdeps_sha =~ ^[0-9a-f]{40}$ &&
+      $shdeps_installer_sha =~ ^[0-9a-f]{40}$ &&
+      $agent_rules_sha =~ ^[0-9a-f]{40}$ ]]; then
+      printf 'stack-commits\tsource=%s\tdot=%s\tnvim=%s\tdev=%s\tshdeps=%s\n' \
+        "$source_sha" "$dot_sha" "$nvim_sha" "$dev_sha" "$shdeps_sha"
+      stack_tmp=$(_tmpdir)
+      nvim_checkout=$stack_tmp/dotfiles-nvim
+      dev_checkout=$stack_tmp/dotfiles-dev
+      shdeps_checkout=$stack_tmp/shdeps
+      agent_rules_checkout=$stack_tmp/agent-rules-sync
+      nvim_repository=${DOT_STACK_NVIM_REPOSITORY:-https://github.com/cgraf78/dotfiles-nvim.git}
+      dev_repository=${DOT_STACK_DEV_REPOSITORY:-https://github.com/cgraf78/dotfiles-dev.git}
+      shdeps_repository=${DOT_STACK_SHDEPS_REPOSITORY:-https://github.com/cgraf78/shdeps.git}
+      agent_rules_repository=${DOT_STACK_AGENT_RULES_SYNC_REPOSITORY:-https://github.com/cgraf78/agent-rules-sync.git}
+      if _checkout_exact "$nvim_repository" "$nvim_sha" "$nvim_checkout"; then
+        _pass 'checked out exact locked dotfiles-nvim commit'
+      else
+        _fail 'checked out exact locked dotfiles-nvim commit'
+      fi
+      if _checkout_exact "$dev_repository" "$dev_sha" "$dev_checkout"; then
+        _pass 'checked out exact locked dotfiles-dev commit'
+      else
+        _fail 'checked out exact locked dotfiles-dev commit'
+      fi
+      if _checkout_exact "$shdeps_repository" "$shdeps_sha" \
+        "$shdeps_checkout"; then
+        _pass 'checked out exact locked Shdeps release commit'
+      else
+        _fail 'checked out exact locked Shdeps release commit'
+      fi
+      if _checkout_exact "$agent_rules_repository" "$agent_rules_sha" \
+        "$agent_rules_checkout"; then
+        _pass 'checked out exact locked agent-rules-sync test commit'
+      else
+        _fail 'checked out exact locked agent-rules-sync test commit'
+      fi
+      if git -C "$shdeps_checkout" fetch --quiet --no-tags origin \
+        "$shdeps_installer_sha" &&
+        git -C "$shdeps_checkout" cat-file -e \
+          "$shdeps_installer_sha^{commit}"; then
+        _pass 'fetched exact locked Shdeps installer commit'
+      else
+        _fail 'fetched exact locked Shdeps installer commit'
+      fi
+      if git -C "$shdeps_checkout" fetch --quiet origin \
+        "refs/tags/$shdeps_release:refs/tags/$shdeps_release" &&
+        [[ $(git -C "$shdeps_checkout" rev-parse \
+          "refs/tags/$shdeps_release^{commit}" 2>/dev/null) == "$shdeps_sha" ]]; then
+        _pass 'locked Shdeps release tag peels to its full commit'
+      else
+        _fail 'locked Shdeps release tag peels to its full commit'
+      fi
+
+      _assert_eq 'dotfiles-nvim pins the exact D1 runtime' "$dot_sha" \
+        "$(<"$nvim_checkout/.github/dot.lock")"
+      _assert_eq 'dotfiles-dev pins the exact D1 runtime' "$dot_sha" \
+        "$(<"$dev_checkout/.github/dot.lock")"
+      _assert_eq 'dotfiles-nvim extraction source matches stack source' \
+        "$source_sha" "$(_capability_source_commit "$nvim_checkout")"
+      _assert_eq 'dotfiles-dev extraction source matches stack source' \
+        "$source_sha" "$(_capability_source_commit "$dev_checkout")"
+      for checkout_name in nvim dev; do
+        if [[ $checkout_name == nvim ]]; then
+          capability_checkout=$nvim_checkout
+        else
+          capability_checkout=$dev_checkout
+        fi
+        _assert_eq "dotfiles-$checkout_name source record format" 1 \
+          "$(_capability_source_value "$capability_checkout" version)"
+        _assert_eq "dotfiles-$checkout_name source repository is public dotfiles" \
+          cgraf78/dotfiles \
+          "$(_capability_source_value "$capability_checkout" repository)"
+        _assert_eq "dotfiles-$checkout_name source license path is preserved" \
+          .github/LICENSE \
+          "$(_capability_source_value "$capability_checkout" license_path)"
+      done
+
+      root_suites=$(_root_suite_inventory 2>/dev/null || true)
+      nvim_suites=$(_capability_suite_inventory "$nvim_checkout" 2>/dev/null || true)
+      dev_suites=$(_capability_suite_inventory "$dev_checkout" 2>/dev/null || true)
+      if [[ -n $root_suites ]]; then
+        _pass 'top-level has a nonempty valid base/control suite inventory'
+      else
+        _fail 'top-level has a nonempty valid base/control suite inventory'
+      fi
+      if [[ -n $nvim_suites ]]; then
+        _pass 'dotfiles-nvim has a nonempty valid focused suite inventory'
+      else
+        _fail 'dotfiles-nvim has a nonempty valid focused suite inventory'
+      fi
+      if [[ -n $dev_suites ]]; then
+        _pass 'dotfiles-dev has a nonempty valid focused suite inventory'
+      else
+        _fail 'dotfiles-dev has a nonempty valid focused suite inventory'
+      fi
+      duplicate_suites=$(printf '%s\n%s\n%s\n' \
+        "$root_suites" "$nvim_suites" "$dev_suites" |
+        awk 'NF { count[$0]++ } END { for (name in count) if (count[name] > 1) print name }' |
+        sort)
+      _assert_eq 'top-level and public capability suite names are unique' \
+        '' "$duplicate_suites"
+
+      if env -u DOT_TEST_REPORTER -u DOT_TEST_RESULT_FILE \
+        "$source_home/.local/lib/dotfiles/tests/overlay-profile-ownership-test" \
+        --phase d4 --nvim-root "$nvim_checkout" --dev-root "$dev_checkout" \
+        >/dev/null; then
+        _pass 'coordinated repositories match the D4 ownership inventories'
+      else
+        _fail 'coordinated repositories match the D4 ownership inventories'
+      fi
+
+      nvim_descriptor=$source_home/.config/dot/overlays.d/20-nvim.conf
+      dev_descriptor=$source_home/.config/dot/overlays.d/30-dev.conf
+      descriptor_hash_before=$(git hash-object "$nvim_descriptor" "$dev_descriptor")
+      _assert_file_content_exact() {
+        local description=$1 expected=$2 path=$3 actual=''
+        [[ -f $path ]] && actual=$(<"$path")
+        _assert_eq "$description" "$expected" "$actual"
+      }
+      _assert_file_content_exact 'tracked nvim descriptor uses public main' \
+        'url=https://github.com/cgraf78/dotfiles-nvim.git' "$nvim_descriptor"
+      _assert_file_content_exact 'tracked dev descriptor uses public main' \
+        'url=https://github.com/cgraf78/dotfiles-dev.git' "$dev_descriptor"
+
+      candidate=$stack_tmp/candidate
+      mkdir "$candidate"
+      git -C "$source_home" archive HEAD -- . \
+        ':(exclude).config/dot/overlays.d/20-nvim.conf' \
+        ':(exclude).config/dot/overlays.d/30-dev.conf' |
+        tar -x -C "$candidate"
+      printf 'sync=none\npath=%s\n' "$nvim_checkout" \
+        >"$candidate/.config/dot/overlays.d/20-nvim.conf"
+      printf 'sync=none\npath=%s\n' "$dev_checkout" \
+        >"$candidate/.config/dot/overlays.d/30-dev.conf"
+      cat >"$candidate/.local/lib/dotfiles/pre-sync.d/99-transport-spy.sh" <<'HOOK'
+prepare() { printf 'prepare\n' >>"$HOME/pre-sync-transport.log"; }
+reconcile() { printf 'reconcile\n' >>"$HOME/pre-sync-transport.log"; }
+HOOK
+      chmod 0644 \
+        "$candidate/.local/lib/dotfiles/pre-sync.d/99-transport-spy.sh"
+
+      candidate_origin=$stack_tmp/candidate-origin.git
+      git init --quiet --bare "$candidate/.dotfiles"
+      git --git-dir="$candidate/.dotfiles" config core.bare false
+      git --git-dir="$candidate/.dotfiles" config core.worktree "$candidate"
+      _git_set_test_identity git --git-dir="$candidate/.dotfiles"
+      git --git-dir="$candidate/.dotfiles" --work-tree="$candidate" add -A
+      git --git-dir="$candidate/.dotfiles" --work-tree="$candidate" \
+        -c core.hooksPath=/dev/null commit --quiet -m candidate
+      git init --quiet --bare "$candidate_origin"
+      git --git-dir="$candidate/.dotfiles" remote add origin \
+        "file://$candidate_origin"
+      git --git-dir="$candidate/.dotfiles" push --quiet origin HEAD:refs/heads/main
+      git --git-dir="$candidate_origin" symbolic-ref HEAD refs/heads/main
+
+      descriptor_names=$(
+        for descriptor in "$candidate"/.config/dot/overlays.d/*.conf; do
+          _descriptor_name "$descriptor"
+        done
+      )
+      printf 'stack-descriptors\t%s\n' \
+        "$(printf '%s\n' "$descriptor_names" | paste -sd, -)"
+      _assert_eq 'ephemeral candidate has one canonical nvim descriptor' 1 \
+        "$(printf '%s\n' "$descriptor_names" | awk '$0 == "nvim" { count++ } END { print count + 0 }')"
+      _assert_eq 'ephemeral candidate has one canonical dev descriptor' 1 \
+        "$(printf '%s\n' "$descriptor_names" | awk '$0 == "dev" { count++ } END { print count + 0 }')"
+      if ! awk -F= '$1 == "url" || $1 == "optional" { bad=1 }
+        END { exit bad }' "$candidate/.config/dot/overlays.d/20-nvim.conf" \
+        "$candidate/.config/dot/overlays.d/30-dev.conf"; then
+        _fail 'ephemeral public descriptors cannot reach a remote'
+      else
+        _pass 'ephemeral public descriptors cannot reach a remote'
+      fi
+      _assert_not_contains 'ephemeral nvim descriptor excludes production URL' \
+        'github.com' "$(<"$candidate/.config/dot/overlays.d/20-nvim.conf")"
+      _assert_not_contains 'ephemeral dev descriptor excludes production URL' \
+        'github.com' "$(<"$candidate/.config/dot/overlays.d/30-dev.conf")"
+      for descriptor_name in 20-nvim.conf 30-dev.conf; do
+        production_descriptor=$source_home/.config/dot/overlays.d/$descriptor_name
+        fixture_descriptor=$candidate/.config/dot/overlays.d/$descriptor_name
+        if [[ ! -L $fixture_descriptor &&
+          $(_file_identity "$production_descriptor") != $(_file_identity "$fixture_descriptor") ]]; then
+          _pass "ephemeral $descriptor_name is not the tracked production inode"
+        else
+          _fail "ephemeral $descriptor_name is not the tracked production inode"
+        fi
+        if _test_files_equal "$production_descriptor" "$fixture_descriptor"; then
+          _fail "ephemeral $descriptor_name excludes production content"
+        else
+          _pass "ephemeral $descriptor_name excludes production content"
+        fi
+      done
+
+      collision=$(
+        {
+          git -C "$nvim_checkout" ls-files home | sed 's#^home/##'
+          git -C "$dev_checkout" ls-files home | sed 's#^home/##'
+        } | sort | uniq -d
+      )
+      _assert_eq 'public capability payloads have no installed-path collision' \
+        '' "$collision"
+
+      composition_bin=$stack_tmp/composition-bin
+      composition_selectors=$candidate/.config/dot/profile-selectors.local.d
+      mkdir -p "$composition_bin" "$composition_selectors"
+      chmod 0700 "$composition_selectors"
+      printf '%s\n' '#!/usr/bin/env bash' 'printf "%s\n" example-user' \
+        >"$composition_bin/id"
+      printf '%s\n' '#!/usr/bin/env bash' 'printf "%s\n" example-host' \
+        >"$composition_bin/hostname"
+      chmod +x "$composition_bin/id" "$composition_bin/hostname"
+      composition_state=$(
+        HOME=$candidate XDG_CONFIG_HOME=$candidate/.config \
+          PATH=$composition_bin:$PATH \
+          DOT_STACK_DOT_ROOT=${DOT_STACK_DOT_ROOT:-${DOT_TEST_DOT_ROOT:-}} \
+          bash <<'BASH'
+set -euo pipefail
+dot_root=$DOT_STACK_DOT_ROOT
+. "$dot_root/lib/dot/public/xdg.sh"
+. "$dot_root/lib/dot/log.sh"
+. "$dot_root/lib/dot/resources.sh"
+. "$dot_root/lib/dot/temp.sh"
+. "$dot_root/lib/dot/platform.sh"
+. "$dot_root/lib/dot/profiles.sh"
+. "$dot_root/lib/dot/overlays.sh"
+. "$dot_root/lib/dot/repos/config.sh"
+
+for profile in base editor dev; do
+  selector=$HOME/.config/dot/profile-selectors.local.d/10-profile.conf
+  printf 'version=1\nuser=example-user\nprofile=%s\n' "$profile" >"$selector"
+  chmod 0600 "$selector"
+  _dot_resolve_overlays inspect
+  printf '%s|%s|%s|%s\n' "$SELECTED_PROFILE" \
+    "${SELECTED_OVERLAY_NAMES[*]}" "${ELIGIBLE_OVERLAY_NAMES[*]}" \
+    "${ACTIVE_OVERLAY_NAMES[*]}"
+done
+
+git init --quiet "$HOME/.dotfiles-work"
+git -C "$HOME/.dotfiles-work" remote add origin \
+  github-dotfiles-work:cgraf78/dotfiles-work.git
+_dot_resolve_overlays inspect
+printf 'work-available|%s|%s\n' \
+  "${ELIGIBLE_OVERLAY_NAMES[*]}" "${ACTIVE_OVERLAY_NAMES[*]}"
+BASH
+      )
+      composition_rc=$?
+      _assert_exit 'exact D1 resolves the pinned public profile composition' \
+        0 "$composition_rc"
+      _assert_contains 'base composition keeps optional personal unavailable' \
+        'base|personal|personal|' "$composition_state"
+      _assert_contains 'editor composition activates only pinned nvim capability' \
+        'editor|personal nvim|nvim personal|nvim' "$composition_state"
+      _assert_contains 'dev keeps unavailable optional work eligible but inactive' \
+        'dev|personal nvim dev work|nvim dev personal work|nvim dev' \
+        "$composition_state"
+      _assert_contains 'dev activates work only after a validated checkout exists' \
+        'work-available|nvim dev personal work|nvim dev work' \
+        "$composition_state"
+
+      transport_bin=$stack_tmp/transport-bin
+      transport_log=$stack_tmp/transport.log
+      mkdir "$transport_bin"
+      : >"$transport_log"
+      if _test_prefer_system_git; then
+        real_git=$(type -P git)
+        _pass 'transport spy delegates to a system Git backend'
+      else
+        real_git=
+        _fail 'transport spy delegates to a system Git backend'
+      fi
+      cat >"$transport_bin/git" <<'GIT'
+#!/usr/bin/env bash
+set -euo pipefail
+for arg in "$@"; do
+  case $arg in
+    clone | fetch | pull | push)
+      printf '%s\n' "$*" >>"$DOT_STACK_TRANSPORT_LOG"
+      exit 97
+      ;;
+  esac
+done
+exec "$DOT_STACK_REAL_GIT" "$@"
+GIT
+      chmod +x "$transport_bin/git"
+      for inspect_command in status diff doctor 'test --list'; do
+        # shellcheck disable=SC2086 # Exercise the documented command words.
+        HOME=$candidate XDG_CONFIG_HOME=$candidate/.config \
+          XDG_STATE_HOME=$stack_tmp/inspect-state \
+          XDG_CACHE_HOME=$stack_tmp/inspect-cache \
+          XDG_DATA_HOME=$stack_tmp/inspect-data \
+          PATH=$transport_bin:${DOT_STACK_DOT_ROOT:-${DOT_TEST_DOT_ROOT:-}}/bin:/usr/bin:/bin \
+          DOT_STACK_REAL_GIT=$real_git DOT_STACK_TRANSPORT_LOG=$transport_log \
+          "${DOT_STACK_DOT_ROOT:-${DOT_TEST_DOT_ROOT:-}}/bin/dot" \
+          $inspect_command >/dev/null 2>&1 || true
+      done
+      _assert_eq 'stack inspect commands cannot contact overlay transports' \
+        '' "$(<"$transport_log")"
+
+      transport_home=$stack_tmp/transport-home
+      mkdir "$transport_home"
+      cp -a "$candidate/." "$transport_home/"
+      git --git-dir="$transport_home/.dotfiles" config core.worktree \
+        "$transport_home"
+      printf 'url=%s\n' "$nvim_checkout" \
+        >"$transport_home/.config/dot/overlays.d/20-nvim.conf"
+      printf 'url=%s\n' "$dev_checkout" \
+        >"$transport_home/.config/dot/overlays.d/30-dev.conf"
+      rm -rf "$transport_home/.dotfiles-nvim" \
+        "$transport_home/.dotfiles-dev" "$transport_home/.dotfiles-work"
+      git init --quiet "$transport_home/.dotfiles-nvim"
+      git -C "$transport_home/.dotfiles-nvim" remote add origin \
+        "$nvim_checkout"
+      git init --quiet "$transport_home/.dotfiles-dev"
+      git -C "$transport_home/.dotfiles-dev" remote add origin "$dev_checkout"
+      git init --quiet "$transport_home/.dotfiles-work"
+      git -C "$transport_home/.dotfiles-work" remote add origin \
+        github-dotfiles-work:cgraf78/dotfiles-work.git
+      transport_selectors=$transport_home/.config/dot/profile-selectors.local.d
+      rm -rf "$transport_selectors"
+      mkdir -p "$transport_selectors"
+      chmod 0700 "$transport_selectors"
+      printf 'version=1\nuser=%s\nprofile=editor\n' "$(id -un)" \
+        >"$transport_selectors/10-editor.conf"
+      chmod 0600 "$transport_selectors/10-editor.conf"
+
+      cat >"$transport_bin/git" <<'GIT'
+#!/usr/bin/env bash
+set -euo pipefail
+for arg in "$@"; do
+  case $arg in
+    fetch | push)
+      printf '%s\n' "$*" >>"$DOT_STACK_TRANSPORT_LOG"
+      exit 0
+      ;;
+    clone | pull)
+      printf 'forbidden:%s\n' "$*" >>"$DOT_STACK_TRANSPORT_LOG"
+      exit 97
+      ;;
+  esac
+done
+exec "$DOT_STACK_REAL_GIT" "$@"
+GIT
+      chmod +x "$transport_bin/git"
+      for transport_command in fetch push; do
+        : >"$transport_log"
+        rm -f "$transport_home/pre-sync-transport.log"
+        transport_status=0
+        HOME=$transport_home XDG_CONFIG_HOME=$transport_home/.config \
+          XDG_STATE_HOME=$stack_tmp/transport-state \
+          XDG_CACHE_HOME=$stack_tmp/transport-cache \
+          XDG_DATA_HOME=$stack_tmp/transport-data \
+          PATH=$transport_bin:${DOT_STACK_DOT_ROOT:-${DOT_TEST_DOT_ROOT:-}}/bin:/usr/bin:/bin \
+          DOT_STACK_REAL_GIT=$real_git \
+          DOT_STACK_TRANSPORT_LOG=$transport_log \
+          "${DOT_STACK_DOT_ROOT:-${DOT_TEST_DOT_ROOT:-}}/bin/dot" \
+          "$transport_command" >/dev/null 2>&1 || transport_status=$?
+        _assert_exit \
+          "$transport_command succeeds through the selected-repo transport spy" \
+          0 "$transport_status"
+        expected_transport=$(printf '%s\n%s\n' \
+          "--git-dir=$transport_home/.dotfiles --work-tree=$transport_home $transport_command" \
+          "-C $transport_home/.dotfiles-nvim $transport_command")
+        _assert_eq \
+          "$transport_command touches only base and selected existing nvim" \
+          "$expected_transport" "$(<"$transport_log")"
+        _assert_file_missing \
+          "$transport_command leaves selected optional personal absent" \
+          "$transport_home/.dotfiles-personal"
+        _assert_file_missing \
+          "$transport_command does not run pre-sync extensions" \
+          "$transport_home/pre-sync-transport.log"
+      done
+
+      lazy_policy=$nvim_checkout/home/.config/nvim/lua/config/lazy.lua
+      editor_policy=$nvim_checkout/home/.config/nvim/lua/plugins/editor.lua
+      extras_bridge=$nvim_checkout/home/.config/nvim/lua/dotfiles/lazyvim_extras/init.lua
+      overrides_bridge=$nvim_checkout/home/.config/nvim/lua/dotfiles/plugin_overrides/init.lua
+      policy_bridge=$nvim_checkout/home/.config/nvim/lua/dotfiles/final_policy/init.lua
+      dev_extras=$dev_checkout/home/.config/nvim/lua/dotfiles/lazyvim_extras/dev.lua
+      dev_policy=$dev_checkout/home/.config/nvim/lua/dotfiles/plugin_overrides/dev-tools.lua
+      workspace_policy=$dev_checkout/home/.config/nvim/lua/dotfiles/plugin_overrides/workspace-dev.lua
+      mason_policy=$dev_checkout/home/.config/nvim/lua/dotfiles/final_policy/mason.lua
+      if [[ -f $lazy_policy && -f $editor_policy && -f $extras_bridge &&
+        -f $overrides_bridge && -f $policy_bridge && -f $dev_extras &&
+        -f $dev_policy && -f $workspace_policy && -f $mason_policy ]]; then
+        _pass 'pinned editor and ordered dev plugin policies are present'
+      else
+        _fail 'pinned editor and ordered dev plugin policies are present'
+      fi
+      if awk '
+        /import = "lazyvim.plugins"/ { core = NR }
+        /import = "dotfiles.lazyvim_extras"/ { extras = NR }
+        /import = "plugins"/ { plugins = NR }
+        /import = "dotfiles.plugin_overrides"/ { overrides = NR }
+        /import = "dotfiles.final_policy"/ { policy = NR }
+        END { exit !(core && extras && plugins && overrides && policy &&
+          core < extras && extras < plugins && plugins < overrides &&
+          overrides < policy) }
+      ' "$lazy_policy"; then
+        _pass 'editor imports capability policy in explicit semantic phases'
+      else
+        _fail 'editor imports capability policy in explicit semantic phases'
+      fi
+      if ! rg -q 'lazyvim\.plugins\.extras\.' \
+        "$dev_checkout/home/.config/nvim/lua/plugins"; then
+        _pass 'dev LazyVim extras cannot load from the late plugin phase'
+      else
+        _fail 'dev LazyVim extras cannot load from the late plugin phase'
+      fi
+      _assert_file_missing \
+        'dev workspace policy cannot depend on ordinary plugin filename order' \
+        "$dev_checkout/home/.config/nvim/lua/plugins/workspace-dev.lua"
+      _assert_file_missing \
+        'Mason policy cannot depend on capability override filename order' \
+        "$dev_checkout/home/.config/nvim/lua/dotfiles/plugin_overrides/mason-policy.lua"
+      editor_plugin_state=$(_effective_dev_plugin_state "$editor_policy" 2>/dev/null || true)
+      dev_plugin_state=$(_effective_dev_plugin_state \
+        "$editor_policy" "$dev_policy" 2>/dev/null || true)
+      expected_editor_plugin_state=$(printf '%s\n' \
+        'folke/lazydev.nvim=false' \
+        'mason-org/mason-lspconfig.nvim=false' \
+        'mason-org/mason.nvim=false' \
+        'mfussenegger/nvim-lint=false' \
+        'neovim/nvim-lspconfig=false' \
+        'stevearc/conform.nvim=false')
+      expected_dev_plugin_state=${expected_editor_plugin_state//false/true}
+      _assert_eq 'editor profile keeps development services disabled' \
+        "$expected_editor_plugin_state" "$editor_plugin_state"
+      _assert_eq 'dev profile post-plugin override re-enables development services' \
+        "$expected_dev_plugin_state" "$dev_plugin_state"
+
+      nvim_workspace=$nvim_checkout/home/.config/nvim/lua/config/nvim-workspace.lua
+      vscode_settings=$dev_checkout/home/.vscode/settings.json
+      if [[ -f $nvim_workspace && -f $vscode_settings ]]; then
+        _pass 'pinned editor and dev HOME shell policies are present'
+      else
+        _fail 'pinned editor and dev HOME shell policies are present'
+      fi
+      expected_home_bash_glob=$(_nvim_home_bash_glob "$nvim_workspace" 2>/dev/null || true)
+      actual_home_bash_glob=$(jq -r '."bashIde.globPattern" // empty' \
+        "$vscode_settings" 2>/dev/null || true)
+      _assert_eq 'pinned editor and dev HOME Bash globs stay aligned' \
+        "$expected_home_bash_glob" "$actual_home_bash_glob"
+
+      descriptor_hash_after=$(git hash-object "$nvim_descriptor" "$dev_descriptor")
+      _assert_eq 'immutable production descriptor hashes do not change' \
+        "$descriptor_hash_before" "$descriptor_hash_after"
+      if git -C "$source_home" diff --quiet -- \
+        .config/dot/overlays.d/20-nvim.conf \
+        .config/dot/overlays.d/30-dev.conf; then
+        _pass 'immutable production descriptors remain clean'
+      else
+        _fail 'immutable production descriptors remain clean'
+      fi
+      _assert_eq 'immutable D4 source checkout remains entirely clean' '' \
+        "$(git -C "$source_home" status --porcelain)"
+    fi
+  fi
+fi
+
+if [[ -x $stack_runtime ]]; then
+  _pass 'locked runtime wrapper is executable'
+else
+  _fail 'locked runtime wrapper is executable'
+  _test_summary
+fi
+
+dot_source=${DOT_TEST_DOT_REPOSITORY:-${DOT_TEST_DOT_ROOT:-${DOT_STACK_DOT_ROOT:-}}}
+if [[ -z $dot_source || ! -d $dot_source ]]; then
+  _fail 'local exact D1 source is supplied for stack wrapper tests'
+  _test_summary
+fi
+shdeps_source=${DOT_TEST_SHDEPS_REPOSITORY:-${DOT_STACK_SHDEPS_REPOSITORY:-https://github.com/cgraf78/shdeps.git}}
+agent_rules_source=${DOT_TEST_AGENT_RULES_SYNC_REPOSITORY:-${DOT_STACK_AGENT_RULES_SYNC_REPOSITORY:-https://github.com/cgraf78/agent-rules-sync.git}}
+dot_sha=$(git -C "$dot_source" rev-parse HEAD)
+runtime_lock=$(_tmpdir)/stack.lock
+printf '%s\n' \
+  'version=1' \
+  "source_dotfiles=$(<"$source_lock")" \
+  "dot=$dot_sha" \
+  "dotfiles_nvim=0000000000000000000000000000000000000000" \
+  "dotfiles_dev=0000000000000000000000000000000000000000" \
+  'test_shdeps=bb438f2741aa6b2f385a1538ff66e8e29739da8a' \
+  'test_shdeps_release=20260821-152006-bb438f27' \
+  'test_shdeps_installer=0b8c587ee75430724b1aacf97e0f008228f9c4a8' \
+  'test_agent_rules_sync=dd9346d2939945a77ab37588c66f81fcbc968c9f' \
+  >"$runtime_lock"
+
+fake_bin=$(_tmpdir)
+printf '%s\n' '#!/usr/bin/env bash' 'exit 97' >"$fake_bin/dot"
+chmod +x "$fake_bin/dot"
+probe=$(_tmpdir)/probe.sh
+# shellcheck disable=SC2016 # The generated probe expands only under the wrapper.
+printf '%s\n' \
+  '#!/usr/bin/env bash' \
+  'set -eu' \
+  'test "$DOT_STACK_RUNTIME" = 1' \
+  'test "$DOT_STACK_GROUP" = runtime-probe' \
+  'test "$(command -v dot)" = "$DOT_STACK_DOT_BIN"' \
+  'test "$(git -C "$DOT_STACK_DOT_ROOT" rev-parse HEAD)" = "$DOT_STACK_DOT_SHA"' \
+  'test "$(git -C "$DOT_STACK_DOT_ROOT" remote get-url origin)" = "$DOT_STACK_DOT_ORIGIN"' \
+  'test "$XDG_CONFIG_HOME" = "${DOT_STACK_DOT_ROOT%/dot}/xdg/config"' \
+  >"$probe"
+chmod +x "$probe"
+
+tmpdir_fixture=$(_tmpdir)
+mkdir -p "$tmpdir_fixture/physical"
+ln -s physical "$tmpdir_fixture/alias"
+
+runtime_output=$(TMPDIR=$tmpdir_fixture/alias \
+  DOT_TEST=1 DOT_STACK_LOCK_FILE=$runtime_lock \
+  DOT_STACK_DOT_REPOSITORY=$dot_source \
+  DOT_STACK_BASE_PATH=$fake_bin:/usr/bin:/bin \
+  "$stack_runtime" runtime-probe -- "$probe" 2>&1)
+runtime_rc=$?
+_assert_eq 'runtime wrapper executes group successfully' 0 "$runtime_rc"
+_assert_contains 'runtime wrapper prints group and exact head' \
+  "group=runtime-probe" "$runtime_output"
+_assert_contains 'runtime wrapper prints locked D1 revision' \
+  "head=$dot_sha" "$runtime_output"
+
+bad_lock=$(_tmpdir)/bad.lock
+printf '%s\n' 'version=1' 'dot=pending' >"$bad_lock"
+if DOT_TEST=1 DOT_STACK_LOCK_FILE=$bad_lock DOT_STACK_DOT_REPOSITORY=$dot_source \
+  "$stack_runtime" must-not-run -- "$probe" >/dev/null 2>&1; then
+  _fail 'runtime wrapper rejects an invalid lock before group execution'
+else
+  _pass 'runtime wrapper rejects an invalid lock before group execution'
+fi
+
+if DOT_STACK_LOCK_FILE=$runtime_lock DOT_STACK_DOT_REPOSITORY=$dot_source \
+  "$stack_runtime" must-not-run -- "$probe" >/dev/null 2>&1; then
+  _fail 'runtime wrapper rejects a production lock override'
+else
+  _pass 'runtime wrapper rejects a production lock override'
+fi
+
+echo ""
+echo "=== Exact CI candidate checkout ==="
+
+candidate_origin=$(_tmpdir)/origin.git
+candidate_seed=$(_tmpdir)/seed
+candidate_checkout=$(_tmpdir)/checkout
+git init --quiet --bare "$candidate_origin"
+git init --quiet "$candidate_seed"
+_git_set_test_identity git -C "$candidate_seed"
+mkdir -p "$candidate_seed/.local/lib/dotfiles/tests" \
+  "$candidate_seed/.local/lib/dotfiles/pre-sync.d"
+mkdir -p "$candidate_seed/.config/git"
+cp "$source_home/.local/lib/dotfiles/tests/checkout-ci-candidate" \
+  "$candidate_seed/.local/lib/dotfiles/tests/checkout-ci-candidate"
+cp "$source_home/.local/lib/dotfiles/tests/run-ci-candidate-home" \
+  "$candidate_seed/.local/lib/dotfiles/tests/run-ci-candidate-home"
+cp "$source_home/.local/lib/dotfiles/pre-sync.d/10-overlay-ssh.sh" \
+  "$candidate_seed/.local/lib/dotfiles/pre-sync.d/10-overlay-ssh.sh"
+printf '[core]\n\teditor = fixture\n' >"$candidate_seed/.config/git/config"
+printf 'base\n' >"$candidate_seed/state"
+git -C "$candidate_seed" add state .config/git/config \
+  .local/lib/dotfiles/pre-sync.d/10-overlay-ssh.sh \
+  .local/lib/dotfiles/tests/checkout-ci-candidate \
+  .local/lib/dotfiles/tests/run-ci-candidate-home
+git -C "$candidate_seed" -c core.hooksPath=/dev/null commit --quiet -m base
+base_sha=$(git -C "$candidate_seed" rev-parse HEAD)
+printf 'head\n' >"$candidate_seed/state"
+git -C "$candidate_seed" add state
+git -C "$candidate_seed" -c core.hooksPath=/dev/null commit --quiet -m head
+candidate_sha=$(git -C "$candidate_seed" rev-parse HEAD)
+candidate_lock=$(_tmpdir)/candidate-stack.lock
+sed "s/^source_dotfiles=.*/source_dotfiles=$base_sha/" \
+  "$runtime_lock" >"$candidate_lock"
+git -C "$candidate_seed" remote add origin "$candidate_origin"
+git -C "$candidate_seed" push --quiet origin HEAD:refs/heads/feature
+git clone --quiet --branch feature "$candidate_origin" "$candidate_checkout"
+git -C "$candidate_checkout" checkout --quiet --detach "$base_sha"
+printf '[safe]\n\tdirectory = %s\n' "$candidate_checkout" \
+  >"$candidate_checkout/.gitconfig"
+HOME=$candidate_checkout XDG_CONFIG_HOME=$candidate_checkout/.config \
+  git config --global --add safe.directory "$candidate_checkout"
+
+sentinel_repo=$(_tmpdir)/sentinel
+git init --quiet "$sentinel_repo"
+_git_set_test_identity git -C "$sentinel_repo"
+printf 'sentinel\n' >"$sentinel_repo/state"
+git -C "$sentinel_repo" add state
+git -C "$sentinel_repo" -c core.hooksPath=/dev/null \
+  commit --quiet -m sentinel
+sentinel_head=$(git -C "$sentinel_repo" rev-parse HEAD)
+sentinel_refs=$(git -C "$sentinel_repo" show-ref)
+sentinel_objects=$(git -C "$sentinel_repo" count-objects -v)
+sentinel_status=$(git -C "$sentinel_repo" status --porcelain)
+sentinel_index=$sentinel_repo/.git/index
+sentinel_index_state=$(cksum "$sentinel_index")
+sentinel_object_dir=$sentinel_repo/.git/objects
+sentinel_shallow=$sentinel_repo/.git/shallow
+
+candidate_output=$(cd "$candidate_checkout" &&
+  GIT_DIR=$sentinel_repo/.git GIT_WORK_TREE=$sentinel_repo \
+    GIT_COMMON_DIR=$sentinel_repo/.git \
+    GIT_IMPLICIT_WORK_TREE=0 GIT_PREFIX=sentinel/ \
+    GIT_INDEX_FILE=$sentinel_index \
+    GIT_OBJECT_DIRECTORY=$sentinel_object_dir \
+    GIT_ALTERNATE_OBJECT_DIRECTORIES=$sentinel_object_dir \
+    GIT_SHALLOW_FILE=$sentinel_shallow \
+    GIT_CONFIG=$sentinel_repo/.git/config \
+    GIT_CONFIG_GLOBAL=$sentinel_repo/.git/config \
+    GIT_CONFIG_SYSTEM=$sentinel_repo/.git/config \
+    GIT_CONFIG_NOSYSTEM=0 \
+    GIT_NAMESPACE=sentinel \
+    GIT_GRAFT_FILE=$sentinel_repo/.git/info/grafts \
+    GIT_REPLACE_REF_BASE=refs/sentinel/ GIT_NO_REPLACE_OBJECTS=0 \
+    GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.worktree \
+    GIT_CONFIG_VALUE_0=$sentinel_repo \
+    DOTFILES_CANDIDATE_SHA=$candidate_sha \
+    .local/lib/dotfiles/tests/checkout-ci-candidate 2>&1)
+candidate_rc=$?
+_assert_exit 'candidate checkout: exact detached head succeeds' 0 "$candidate_rc"
+_assert_eq 'candidate checkout: HEAD equals requested event head' \
+  "$candidate_sha" "$(git -C "$candidate_checkout" rev-parse HEAD)"
+_assert_contains 'candidate checkout: reports the exact selected head' \
+  "head=$candidate_sha" "$candidate_output"
+_assert_eq 'candidate checkout: source content comes from selected head' \
+  head "$(<"$candidate_checkout/state")"
+_assert_eq 'candidate checkout: ignores repository-selection environment' \
+  "$sentinel_head" "$(git -C "$sentinel_repo" rev-parse HEAD)"
+_assert_eq 'candidate checkout: leaves the sentinel repository clean' \
+  "$sentinel_status" \
+  "$(git -C "$sentinel_repo" status --porcelain)"
+_assert_eq 'candidate checkout: leaves sentinel refs unchanged' \
+  "$sentinel_refs" "$(git -C "$sentinel_repo" show-ref)"
+_assert_eq 'candidate checkout: leaves sentinel objects unchanged' \
+  "$sentinel_objects" "$(git -C "$sentinel_repo" count-objects -v)"
+_assert_file_missing 'candidate checkout: leaves sentinel shallow state absent' \
+  "$sentinel_shallow"
+
+linked_checkout=$(_tmpdir)/linked
+git -C "$candidate_checkout" worktree add --quiet --detach \
+  "$linked_checkout" "$candidate_sha"
+linked_output=$(cd "$linked_checkout" &&
+  DOTFILES_CANDIDATE_SHA=$candidate_sha \
+    .local/lib/dotfiles/tests/checkout-ci-candidate 2>&1)
+linked_rc=$?
+_assert_exit 'candidate checkout: rejects a linked worktree' 1 "$linked_rc"
+_assert_contains 'candidate checkout: protects shared repository metadata' \
+  'a disposable standalone checkout is required' "$linked_output"
+linked_home_output=$(cd "$linked_checkout" &&
+  DOTFILES_CANDIDATE_SHA=$candidate_sha \
+    .local/lib/dotfiles/tests/run-ci-candidate-home true 2>&1)
+linked_home_rc=$?
+_assert_exit 'candidate home: rejects a linked worktree' 1 "$linked_home_rc"
+_assert_contains 'candidate home: protects shared repository metadata' \
+  'a disposable standalone checkout is required' "$linked_home_output"
+_assert_file_exists \
+  'candidate checkout preserves the workflow-owned global Git config' \
+  "$candidate_checkout/.gitconfig"
+if git -C "$candidate_checkout" diff --quiet -- .config/git/config; then
+  _pass 'candidate checkout restores the workflow-modified tracked Git config'
+else
+  _fail 'candidate checkout restores the workflow-modified tracked Git config'
+fi
+
+fake_shdeps=$(_tmpdir)/shdeps
+mkdir -p "$fake_shdeps"
+printf '%s\n' '#!/usr/bin/env bash' 'exit 0' >"$fake_shdeps/install.sh"
+printf '%s\n' '# shdeps fixture' >"$fake_shdeps/shdeps.sh"
+printf '%s\n' '#!/usr/bin/env bash' \
+  'printf "shdeps 20260821-152006-bb438f27\\n"' >"$fake_shdeps/shdeps"
+chmod +x "$fake_shdeps/install.sh" "$fake_shdeps/shdeps"
+# shellcheck disable=SC2016 # The child shell must expand its isolated HOME.
+candidate_home_output=$(
+  umask 0000
+  cd "$candidate_checkout" || exit
+  GIT_DIR=$sentinel_repo/.git GIT_WORK_TREE=$sentinel_repo \
+    GIT_COMMON_DIR=$sentinel_repo/.git \
+    GIT_IMPLICIT_WORK_TREE=0 GIT_PREFIX=sentinel/ \
+    GIT_INDEX_FILE=$sentinel_index \
+    GIT_OBJECT_DIRECTORY=$sentinel_object_dir \
+    GIT_ALTERNATE_OBJECT_DIRECTORIES=$sentinel_object_dir \
+    GIT_SHALLOW_FILE=$sentinel_shallow \
+    GIT_CONFIG=$sentinel_repo/.git/config \
+    GIT_CONFIG_GLOBAL=$sentinel_repo/.git/config \
+    GIT_CONFIG_SYSTEM=$sentinel_repo/.git/config \
+    GIT_NAMESPACE=sentinel \
+    GIT_GRAFT_FILE=$sentinel_repo/.git/info/grafts \
+    GIT_REPLACE_REF_BASE=refs/sentinel/ GIT_NO_REPLACE_OBJECTS=0 \
+    GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.worktree \
+    GIT_CONFIG_VALUE_0=$sentinel_repo \
+    TMPDIR=$tmpdir_fixture/alias \
+    DOT_TEST=1 DOT_TEST_ROOT_FOREIGN=1 \
+    DOTFILES_CANDIDATE_SHA=$candidate_sha \
+    DOT_STACK_LOCK_PATH=$candidate_lock \
+    DOT_STACK_SOURCE_REPOSITORY=$candidate_origin \
+    DOT_STACK_DOT_REPOSITORY=$dot_source DOT_STACK_DOT_SHA=$dot_sha \
+    DOT_STACK_SHDEPS_REPOSITORY=$shdeps_source \
+    DOT_STACK_AGENT_RULES_SYNC_REPOSITORY=$agent_rules_source \
+    DOT_STACK_SHDEPS_ROOT=$fake_shdeps \
+    .local/lib/dotfiles/tests/run-ci-candidate-home bash -c '
+      set -euo pipefail
+      test "$PWD" != "$HOME"
+      test -d "$HOME/.dotfiles"
+      test "$(git --git-dir="$HOME/.dotfiles" rev-parse HEAD)" = \
+        "$DOTFILES_CANDIDATE_SHA"
+      test "$(git --git-dir="$HOME/.dotfiles" symbolic-ref --short HEAD)" = main
+      test "$(git --git-dir="$HOME/.dotfiles" config core.worktree)" = "$HOME"
+      git --git-dir="$HOME/.dotfiles" cat-file -e "$DOTFILES_SOURCE_SHA^{commit}"
+      test -f "$HOME/.local/state/dot/init/completed"
+      test "$(git rev-parse HEAD)" = "$DOTFILES_CANDIDATE_SHA"
+      test "$(git rev-parse --git-common-dir)" = "$HOME/.dotfiles"
+      test -f "$HOME/.local/lib/dot/xdg.sh"
+      test "$(git -C "$HOME/.local/share/cgraf78/dot" rev-parse HEAD)" = \
+        "$DOT_STACK_DOT_SHA"
+      test "$(command -v agent-rules-sync)" = \
+        "$HOME/.local/bin/agent-rules-sync"
+      test "$("$HOME/.local/share/shdeps/shdeps" version)" = \
+        "shdeps 20260821-152006-bb438f27"
+      test "$SHDEPS_INSTALL_DIR" != "$HOME/.local/share"
+      test "$SHDEPS_BIN_DIR" != "$HOME/.local/bin"
+      case :$PATH: in
+        *:"$SHDEPS_BIN_DIR":*) ;;
+        *) exit 1 ;;
+      esac
+      hook=$HOME/.local/lib/dotfiles/pre-sync.d/10-overlay-ssh.sh
+      hook_mode=$(stat -c %a "$hook" 2>/dev/null || stat -f %Lp "$hook")
+      (( (8#$hook_mode & 022) == 0 ))
+      unset XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME XDG_RUNTIME_DIR
+      init_status=$("$HOME/.local/share/cgraf78/dot/bin/dot" init --status)
+      [[ $init_status == *"initialization: complete"* ]]
+      "$HOME/.local/share/cgraf78/dot/bin/dot" update >/dev/null
+      for name in GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR \
+        GIT_IMPLICIT_WORK_TREE GIT_PREFIX GIT_INDEX_FILE \
+        GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES \
+        GIT_SHALLOW_FILE GIT_CONFIG GIT_CONFIG_GLOBAL GIT_CONFIG_SYSTEM \
+        GIT_CONFIG_NOSYSTEM GIT_CONFIG_COUNT GIT_CONFIG_PARAMETERS \
+        GIT_NAMESPACE GIT_GRAFT_FILE \
+        GIT_REPLACE_REF_BASE; do
+        test -z "${!name+x}"
+      done
+      test "$GIT_NO_REPLACE_OBJECTS" = 1
+      printf "candidate-home-ok\\n"
+    ' 2>&1
+)
+candidate_home_rc=$?
+_assert_exit 'candidate home: separate-Git execution succeeds' \
+  0 "$candidate_home_rc"
+_assert_contains 'candidate home: reports the exact installed head' \
+  "head=$candidate_sha" "$candidate_home_output"
+_assert_contains 'candidate home: command runs from a clean source worktree' \
+  'candidate-home-ok' "$candidate_home_output"
+_assert_eq 'candidate home: leaves sentinel HEAD unchanged' \
+  "$sentinel_head" "$(git -C "$sentinel_repo" rev-parse HEAD)"
+_assert_eq 'candidate home: leaves sentinel status unchanged' \
+  "$sentinel_status" "$(git -C "$sentinel_repo" status --porcelain)"
+_assert_eq 'candidate home: leaves sentinel refs unchanged' \
+  "$sentinel_refs" "$(git -C "$sentinel_repo" show-ref)"
+_assert_eq 'candidate home: leaves sentinel objects unchanged' \
+  "$sentinel_objects" "$(git -C "$sentinel_repo" count-objects -v)"
+_assert_eq 'candidate home: leaves sentinel index unchanged' \
+  "$sentinel_index_state" "$(cksum "$sentinel_index")"
+_assert_file_missing 'candidate home: leaves sentinel shallow state absent' \
+  "$sentinel_shallow"
+
+bad_tail_lock=$(_tmpdir)/bad-tail.lock
+sed 's/^test_shdeps=bb438f2741aa6b2f385a1538ff66e8e29739da8a$/test_shdeps=bb438f2741aa6b2f385a1538ff66e8e29739da80/' \
+  "$candidate_lock" >"$bad_tail_lock"
+bad_tail_output=$(cd "$candidate_checkout" &&
+  DOT_TEST=1 DOTFILES_CANDIDATE_SHA=$candidate_sha \
+    DOT_STACK_LOCK_PATH=$bad_tail_lock \
+    DOT_STACK_SOURCE_REPOSITORY=$candidate_origin \
+    DOT_STACK_DOT_REPOSITORY=$dot_source \
+    DOT_STACK_SHDEPS_REPOSITORY=$shdeps_source \
+    DOT_STACK_AGENT_RULES_SYNC_REPOSITORY=$agent_rules_source \
+    DOT_STACK_SHDEPS_ROOT=$fake_shdeps \
+    .local/lib/dotfiles/tests/run-ci-candidate-home true 2>&1)
+bad_tail_rc=$?
+_assert_exit 'candidate home: rejects a non-existent full Shdeps commit' \
+  1 "$bad_tail_rc"
+_assert_contains 'candidate home: reports an unfetchable Shdeps commit' \
+  'Shdeps commits are not fetchable' "$bad_tail_output"
+
+bad_tag_lock=$(_tmpdir)/bad-tag.lock
+bad_tag_repository=$(_tmpdir)/bad-shdeps.git
+git clone --quiet --mirror "$shdeps_source" "$bad_tag_repository"
+git --git-dir="$bad_tag_repository" tag -f \
+  20990101-000000-bb438f27 \
+  0b8c587ee75430724b1aacf97e0f008228f9c4a8 >/dev/null
+sed 's/^test_shdeps_release=.*/test_shdeps_release=20990101-000000-bb438f27/' \
+  "$candidate_lock" >"$bad_tag_lock"
+bad_tag_output=$(cd "$candidate_checkout" &&
+  DOT_TEST=1 DOTFILES_CANDIDATE_SHA=$candidate_sha \
+    DOT_STACK_LOCK_PATH=$bad_tag_lock \
+    DOT_STACK_SOURCE_REPOSITORY=$candidate_origin \
+    DOT_STACK_DOT_REPOSITORY=$dot_source \
+    DOT_STACK_SHDEPS_REPOSITORY=$bad_tag_repository \
+    DOT_STACK_AGENT_RULES_SYNC_REPOSITORY=$agent_rules_source \
+    DOT_STACK_SHDEPS_ROOT=$fake_shdeps \
+    .local/lib/dotfiles/tests/run-ci-candidate-home true 2>&1)
+bad_tag_rc=$?
+_assert_exit 'candidate home: rejects a mismatched Shdeps release tag' \
+  1 "$bad_tag_rc"
+_assert_contains 'candidate home: reports a mismatched Shdeps release tag' \
+  'Shdeps release tag does not match' "$bad_tag_output"
+
+printf 'unexpected\n' >"$candidate_checkout/untracked"
+dirty_output=$(cd "$candidate_checkout" &&
+  DOTFILES_CANDIDATE_SHA=$candidate_sha \
+    .local/lib/dotfiles/tests/checkout-ci-candidate 2>&1)
+dirty_rc=$?
+_assert_exit 'candidate checkout: rejects unexpected untracked files' 1 "$dirty_rc"
+_assert_contains 'candidate checkout: explains an unexpected dirty path' \
+  '?? untracked' "$dirty_output"
+rm "$candidate_checkout/untracked"
+
+invalid_output=$(cd "$candidate_checkout" &&
+  DOTFILES_CANDIDATE_SHA=feature \
+    .local/lib/dotfiles/tests/checkout-ci-candidate 2>&1)
+invalid_rc=$?
+_assert_exit 'candidate checkout: rejects a moving branch name' 1 "$invalid_rc"
+_assert_contains 'candidate checkout: explains invalid immutable revision' \
+  'invalid immutable candidate revision' "$invalid_output"
+
+run_ci=$source_home/.local/lib/dotfiles/tests/run-ci
+run_ci_output=$(GITHUB_ACTIONS=true \
+  DOTFILES_CANDIDATE_SHA=0000000000000000000000000000000000000000 \
+  "$run_ci" --validate-only 2>&1)
+run_ci_rc=$?
+_assert_exit 'run-ci: rejects a checkout that is not the event head' 1 "$run_ci_rc"
+_assert_contains 'run-ci: reports the mismatched event head' \
+  'checkout does not match the event candidate head' "$run_ci_output"
+
+run_ci_output=$(DOT_TEST=1 DOT_STACK_RUNTIME=1 \
+  DOT_STACK_LOCK_PATH=$runtime_lock DOT_STACK_DOT_SHA=$dot_sha \
+  DOT_STACK_DOT_ROOT=$dot_source DOT_STACK_DOT_BIN=$dot_source/bin/dot \
+  DOT_STACK_DOT_ORIGIN=unexpected-origin \
+  PATH=$dot_source/bin:/usr/bin:/bin \
+  "$run_ci" --validate-only 2>&1)
+run_ci_rc=$?
+_assert_exit 'run-ci: rejects a mismatched runtime origin marker' 1 "$run_ci_rc"
+_assert_contains 'run-ci: reports the mismatched D1 runtime' \
+  'locked D1 runtime assertion failed' "$run_ci_output"
+
+_test_summary

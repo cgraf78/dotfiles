@@ -52,7 +52,10 @@ _ssh_prune_managed_family() {
   local current rest
   current=$(cat "$dst")
   rest="$(dot_managed_block_strip_family "# dot-managed:ssh:" "$current")"
-  rest="$(printf '%s\n' "$rest" | cat -s)"
+  rest="$(printf '%s\n' "$rest" | awk '
+    length($0) { print; blank = 0; next }
+    !blank { print; blank = 1 }
+  ')"
   rest="${rest#"${rest%%[![:space:]]*}"}"
   rest="${rest%"${rest##*[![:space:]]}"}"
 

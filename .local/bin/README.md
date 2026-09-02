@@ -1,56 +1,17 @@
-# Local Commands
+# Base Local Commands
 
-This README covers dotfiles-owned command entry points tracked in this repo.
-At runtime, `~/.local/bin` also contains shdeps-managed links and other local
-installs that are not tracked by dotfiles.
+This directory contains thin, always-active command entry points. Reusable
+implementation belongs in its owning repository or under
+`~/.local/lib/dotfiles`.
 
-Shared client implementation should live under `~/.local/lib/dotfiles` or
-another owning component; `~/.local/lib/dot` is reserved for the standalone
-public API. Files here should stay thin and command-shaped.
+- `dot` enters the standalone locked Dot runtime.
+- `git` routes paths in the home-backed client repository to its Git directory
+  and passes ordinary repositories to system Git. Git is present in `base` for
+  repository synchronization; global Git workflow configuration belongs to the
+  `dev` profile.
+- `clip` provides the base clipboard-history front door.
+- `shell-time` profiles Bash or Zsh startup.
 
-## Dotfiles Commands
-
-- `dot` is the stable client-owned cron and interactive front door for the
-  standalone Dot runtime.
-- `dot test` runs the dotfiles test suite.
-- `git` routes normal repositories to real Git and `$HOME` dotfiles paths to
-  the base client Git directory.
-- `hm` delegates to the standalone Hive Memory binary and maps AgentGuard's
-  reusable agent/session identity into Hive Memory's environment contract. A
-  completed `dot update` provides both dependencies; missing assets are treated
-  as an installation error instead of activating compatibility behavior.
-- `nvim` reuses an existing Neovim pane in the current tmux window for simple
-  interactive-shell file opens, otherwise launching the Shdeps-managed Neovim
-  binary at its fixed private path.
-- `ripgrep-link-host` adapts ripgrep's zero-argument `--hostname-bin` interface
-  to the explicit `termnav link-host` command. It contains no routing
-  policy; its name describes the ripgrep interface it adapts rather than the
-  implementation Termnav uses to resolve the host.
-
-The tracked `dot` file is an exact copy of Dot's reviewed permanent launcher
-template. It binds the Shdeps-owned checkout to the installed public-library
-link, then enters that checkout's runtime; implementation remains in Dot.
-The public `cgraf78.github.io/d` shortcut delegates installation to standalone
-Dot and selects this client repository; `dot init` owns the initialization
-transaction. No second dotfiles-owned bootstrap command is installed.
-
-Reusable tool commands such as `ettun`, `fwdports`, `sley`, `sysup`,
-`agent-hook-*`, `claude-session-name`, `autoformat`, `autolint`, `checkrun`,
-`git-absorb-and-rebase`, `tmux-continuum-default-server`,
-`tmux-continuum-save-gate`, `tmux-clip-paste`, and `termnav navigate` are
-installed by `shdeps` from their owning dependency
-repos. The WezTerm tab switch/move helpers are owned by `termnav`; the generic
-Continuum default-server coordinator, its save gate, and clip paste are owned
-by `tmux-tools`. The resilient ET tunnel command is owned by `ettun`; the
-generic forwarding controller is owned by `fwdports`; the unified system
-updater is owned by `sysup`. Only the `sysup` front door is public; its Arch
-and Debian family backends are provider-internal details. Dotfiles only
-declares those dependencies and activates them as policy needs.
-
-## Terminal Helpers
-
-- `clip` manages clipboard history and provides the picker used by tmux.
-- `shell-time` profiles shell startup cost for zsh or bash.
-
-When adding a new script, keep reusable logic out of `.local/bin` once it has a
-second consumer.
+Editor launchers and development commands are contributed by their owning
+overlays or Shdeps repositories. Runtime-installed Shdeps links may also appear
+in `~/.local/bin`, but they are not tracked here.
