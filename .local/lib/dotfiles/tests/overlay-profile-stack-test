@@ -8,6 +8,13 @@ source_home=${DOT_TEST_SOURCE_HOME:-$HOME}
 # shellcheck source=helpers.sh
 . "$source_home/.local/lib/dotfiles/tests/helpers.sh"
 
+# This suite clones and validates the coordinated pre-merge stack and must use
+# its locked Dot runtime. Normal installed `dot test` runs should remain local
+# and leave this CI-only integration gate to `.local/lib/dotfiles/tests/run-ci`.
+if [[ ${DOT_STACK_RUNTIME:-0} != 1 ]]; then
+  _test_skip_suite 'coordinated profile-stack integration requires its locked CI runtime'
+fi
+
 stack_runtime=$source_home/.local/lib/dotfiles/tests/stack-dot-runtime
 production_lock=$source_home/.github/overlay-profile-stack.lock
 source_lock=$source_home/.local/share/doc/dotfiles/overlay-profile-source.lock
