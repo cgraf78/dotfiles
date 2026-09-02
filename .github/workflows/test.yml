@@ -82,7 +82,7 @@ jobs:
       - uses: cgraf78/actions/.github/actions/verify-consumer-sync@b97bd729afec784785bd01ebd43321225ef47bb7
 
   cold-bootstrap:
-    name: Cold Ubuntu base bootstrap
+    name: Cold Ubuntu default-profile bootstrap
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -100,7 +100,7 @@ jobs:
           profiles: base,jq,python,zsh,lua,tmux,openssh-netcat-lsof,procps,cron,fd,ripgrep,hostname
           setup: none
 
-      - name: Bootstrap and diagnose the default base profile
+      - name: Bootstrap and diagnose the configured default profile
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
