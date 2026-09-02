@@ -26,6 +26,49 @@ _assert_file_content_exact() {
 
 profile_root=$source_home/.config/dot/profiles.d
 overlay_root=$source_home/.config/dot/overlays.d
+stack_test=$source_home/.local/lib/dotfiles/tests/overlay-profile-stack-test
+
+transport_bin=$(_tmpdir)
+transport_log=$transport_bin/git.log
+# shellcheck disable=SC2016 # The generated transport expands its own log path.
+printf '%s\n' \
+  '#!/usr/bin/env bash' \
+  'printf "git-called\\n" >>"$DOT_TEST_TRANSPORT_LOG"' \
+  'exit 97' >"$transport_bin/git"
+chmod 0755 "$transport_bin/git"
+: >"$transport_log"
+
+local_stack_status=0
+local_stack_output=$(
+  env -u DOT_STACK_RUNTIME -u DOT_STACK_GROUP -u DOT_STACK_DOT_SHA \
+    -u DOT_STACK_DOT_ROOT -u DOT_STACK_DOT_BIN -u DOT_STACK_DOT_ORIGIN \
+    -u DOT_STACK_LOCK_PATH -u DOT_TEST_REPORTER \
+    GITHUB_ACTIONS=false DOT_TEST_TRANSPORT_LOG="$transport_log" \
+    PATH="$transport_bin:$PATH" "$stack_test" 2>&1
+) || local_stack_status=$?
+_assert_exit 'installed stack test skips without the locked runtime' \
+  0 "$local_stack_status"
+_assert_contains 'installed stack test explains the CI-only boundary' \
+  'SKIP: coordinated profile-stack integration requires its locked CI runtime' \
+  "$local_stack_output"
+_assert_file_content_exact 'installed stack test performs no Git transport' \
+  '' "$transport_log"
+
+ci_stack_status=0
+ci_stack_output=$(
+  env -u DOT_STACK_RUNTIME -u DOT_STACK_GROUP -u DOT_STACK_DOT_SHA \
+    -u DOT_STACK_DOT_ROOT -u DOT_STACK_DOT_BIN -u DOT_STACK_DOT_ORIGIN \
+    -u DOT_STACK_LOCK_PATH -u DOT_TEST_REPORTER \
+    GITHUB_ACTIONS=true DOT_TEST_TRANSPORT_LOG="$transport_log" \
+    PATH="$transport_bin:$PATH" "$stack_test" 2>&1
+) || ci_stack_status=$?
+_assert_exit 'CI stack test fails closed without the locked runtime' \
+  1 "$ci_stack_status"
+_assert_contains 'CI stack test explains the missing runtime' \
+  'overlay-profile-stack-test: locked CI runtime is required' \
+  "$ci_stack_output"
+_assert_file_content_exact 'failed CI stack test performs no Git transport' \
+  '' "$transport_log"
 
 _assert_file_content_exact 'base profile selects optional personal' \
   $'version=1\noverlays=personal' "$profile_root/base.conf"

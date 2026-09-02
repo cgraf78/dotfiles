@@ -12,6 +12,10 @@ source_home=${DOT_TEST_SOURCE_HOME:-$HOME}
 # its locked Dot runtime. Normal installed `dot test` runs should remain local
 # and leave this CI-only integration gate to `.local/lib/dotfiles/tests/run-ci`.
 if [[ ${DOT_STACK_RUNTIME:-0} != 1 ]]; then
+  if [[ ${GITHUB_ACTIONS:-false} == true ]]; then
+    printf 'overlay-profile-stack-test: locked CI runtime is required\n' >&2
+    exit 1
+  fi
   _test_skip_suite 'coordinated profile-stack integration requires its locked CI runtime'
 fi
 
