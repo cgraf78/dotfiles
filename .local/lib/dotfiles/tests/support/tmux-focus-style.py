@@ -100,6 +100,33 @@ class Client:
         self.test.tmux("refresh-client", "-t", self.tty)
         return self.pump_until_quiet("full tmux redraw")
 
+    def redraw_until_background(
+        self,
+        expected: tuple[int, int, int],
+        description: str,
+        timeout: float = 2.0,
+    ) -> bytes:
+        """Request full redraws until the pane body reaches the expected color.
+
+        tmux can acknowledge the option update before its client renderer has
+        consumed the new pane style. A single explicit refresh may therefore
+        still paint the previous style on a busy host. Poll the terminal's
+        observable output with a bounded deadline instead of guessing how long
+        that handoff needs.
+        """
+        deadline = time.monotonic() + timeout
+        last_render = b""
+        last_background = None
+        while time.monotonic() < deadline:
+            last_render = self.redraw()
+            last_background = self.test.rendered_background(last_render)
+            if last_background == expected:
+                return last_render
+        raise AssertionError(
+            f"timed out waiting for {description}: "
+            f"expected {expected}, got {last_background}; {last_render!r}"
+        )
+
     def send(self, payload: bytes) -> None:
         """Write raw terminal input without asking tmux to synthesize a key."""
         os.write(self.master, payload)
@@ -465,7 +492,10 @@ class LeafStyleTest(unittest.TestCase):
         # the client flag transition and the publisher's pane update.
         self.sync_client(client)
 
-        leaf_render = client.redraw()
+        leaf_render = client.redraw_until_background(
+            (1, 22, 39),
+            "focused leaf background",
+        )
         self.assertEqual(
             (1, 22, 39),
             self.rendered_background(leaf_render),
@@ -477,7 +507,10 @@ class LeafStyleTest(unittest.TestCase):
         # set_focus() drains the asynchronous hook repaint while waiting for
         # the authoritative client flag to settle. Request a deterministic
         # redraw here rather than depending on a second, optional repaint.
-        blurred_render = client.redraw()
+        blurred_render = client.redraw_until_background(
+            (1, 13, 23),
+            "unfocused leaf background",
+        )
         self.assertEqual(
             (1, 13, 23),
             self.rendered_background(blurred_render),
@@ -486,7 +519,10 @@ class LeafStyleTest(unittest.TestCase):
 
         client.set_focus(True)
         self.sync_client(client)
-        refocused_render = client.redraw()
+        refocused_render = client.redraw_until_background(
+            (1, 22, 39),
+            "refocused leaf background",
+        )
         self.assertEqual(
             (1, 22, 39),
             self.rendered_background(refocused_render),
@@ -494,7 +530,10 @@ class LeafStyleTest(unittest.TestCase):
         )
 
         self.claim_child()
-        container_render = client.pump_until_quiet("child-claim repaint")
+        container_render = client.redraw_until_background(
+            (1, 13, 23),
+            "focused child container background",
+        )
         self.assertEqual(
             (1, 13, 23),
             self.rendered_background(container_render),
@@ -502,7 +541,10 @@ class LeafStyleTest(unittest.TestCase):
         )
 
         self.release_child()
-        restored_render = client.pump_until_quiet("child-release repaint")
+        restored_render = client.redraw_until_background(
+            (1, 22, 39),
+            "released child background",
+        )
         self.assertEqual(
             (1, 22, 39),
             self.rendered_background(restored_render),
