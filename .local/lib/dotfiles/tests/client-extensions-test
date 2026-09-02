@@ -33,6 +33,7 @@ dot_root=$(_client_dot_root) || {
 fixture_home=$(_tmpdir)
 mkdir -p "$fixture_home/.config/dot/overlays.d" "$fixture_home/.ssh"
 chmod 0700 "$fixture_home" "$fixture_home/.ssh"
+client_active_overlay_records=()
 
 # Mirror only the executable client surface into the fixture HOME. A composed
 # checkout can contain overlay-owned symlinks here; validating those links from
@@ -45,7 +46,7 @@ _client_extension_fixture() {
   local conf name url source_overlay fixture_overlay extension_dir
   local link source_link source_resolved fixture_resolved target rel authority
   local authority_name authority_source authority_fixture source_overlay_home
-  local fixture_overlay_home owner manifest
+  local fixture_overlay_home owner manifest fixture_conf optional
   local -a authorities=()
 
   mkdir -p "$fixture_home/.local/lib/dotfiles" "$fixture_home/.config/git"
@@ -73,6 +74,12 @@ _client_extension_fixture() {
       "$source_overlay" "$fixture_overlay" || return 1
     git -C "$fixture_overlay" remote set-url origin "$url" || return 1
     authorities+=("$name|$source_overlay|$fixture_overlay")
+    fixture_conf=$fixture_home/.config/dot/overlays.d/${conf##*/}
+    optional=$(sed -n 's/^optional=//p' "$fixture_conf")
+    [[ -n $optional ]] || optional=false
+    client_active_overlay_records+=(
+      "$name|$fixture_overlay|$url|$fixture_conf|$optional|git"
+    )
   done
 
   manifest=$fixture_home/.local/state/dot/overlay-links
@@ -105,6 +112,32 @@ _client_extension_fixture() {
     rel=${link#"$fixture_home"/}
     printf '%s\t%s\t%s\n' "$rel" "$owner" "$target" >>"$manifest" || return 1
   done < <(find "$fixture_home/.local/lib/dotfiles" -type l -print0)
+
+  # Always exercise an overlay-owned extension, including in public CI where
+  # optional private overlays are intentionally unavailable. This prevents a
+  # base-only checkout from hiding a missing active-overlay worker context.
+  name=test-overlay
+  url=https://example.invalid/cgraf78/dotfiles-test-overlay.git
+  fixture_overlay=$fixture_home/.dotfiles-$name
+  fixture_conf=$fixture_home/.config/dot/overlays.d/99-$name.conf
+  extension_dir=$fixture_overlay/home/.local/lib/dotfiles/merge-hooks.d
+  mkdir -p "$extension_dir" || return 1
+  cat >"$extension_dir/test-overlay.sh" <<'HOOK'
+merge() {
+  :
+}
+HOOK
+  git -c init.defaultBranch=main init --quiet "$fixture_overlay" || return 1
+  git -C "$fixture_overlay" remote add origin "$url" || return 1
+  printf 'url=%s\n' "$url" >"$fixture_conf" || return 1
+  link=$fixture_home/.local/lib/dotfiles/merge-hooks.d/test-overlay.sh
+  target=../../../../.dotfiles-$name/home/.local/lib/dotfiles/merge-hooks.d/test-overlay.sh
+  ln -s "$target" "$link" || return 1
+  rel=${link#"$fixture_home"/}
+  printf '%s\t%s\t%s\n' "$rel" "$name" "$target" >>"$manifest" || return 1
+  client_active_overlay_records+=(
+    "$name|$fixture_overlay|$url|$fixture_conf|false|git"
+  )
 }
 
 if ! _client_extension_fixture; then
@@ -225,7 +258,8 @@ chmod +x "$opencode_worker_bin/opencode" "$opencode_worker_bin/shdeps"
 for hook in "$client_root/merge-hooks.d"/*.sh; do
   worker_path=/usr/bin:/bin
   [[ ${hook##*/} == opencode.sh ]] && worker_path=$opencode_worker_bin:/usr/bin:/bin
-  if CLIENT_WORKER_PATH=$worker_path _client_worker_run merge "$hook" none; then
+  if CLIENT_WORKER_PATH=$worker_path _client_worker_run merge "$hook" none \
+    "${client_active_overlay_records[@]+"${client_active_overlay_records[@]}"}"; then
     _pass "client merge hook loads through standalone worker: ${hook##*/}"
   else
     _fail "client merge hook loads through standalone worker: ${hook##*/}"
@@ -247,7 +281,8 @@ printf 'return {}\n' >"$fixture_home/.config/wezterm/wezterm.lua"
 if CLIENT_WORKER_PATH="$wezterm_worker_bin:/usr/bin:/bin" \
   WSL_DISTRO_NAME=Ubuntu DOT_TEST_WINDOWS_HOME=$windows_home \
   DOT_TEST_WSL_PAIRED_ACCOUNT=1 DOT_QUIET=1 \
-  _client_worker_run merge "$client_root/merge-hooks.d/wezterm.sh" none; then
+  _client_worker_run merge "$client_root/merge-hooks.d/wezterm.sh" none \
+  "${client_active_overlay_records[@]+"${client_active_overlay_records[@]}"}"; then
   _pass 'client WSL worker runs WezTerm hook through public platform API'
 else
   _fail 'client WSL worker runs WezTerm hook through public platform API'
@@ -256,7 +291,8 @@ _assert_file_content 'client WSL worker copies WezTerm config through public pla
   'return {}' "$windows_home/.wezterm.lua"
 
 for extension in "$client_root/doctor.d"/[0-9]*.sh; do
-  if _client_worker_run doctor "$extension" none; then
+  if _client_worker_run doctor "$extension" none \
+    "${client_active_overlay_records[@]+"${client_active_overlay_records[@]}"}"; then
     _pass "client doctor extension loads through standalone worker: ${extension##*/}"
   else
     _fail "client doctor extension loads through standalone worker: ${extension##*/}"
