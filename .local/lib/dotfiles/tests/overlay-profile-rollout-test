@@ -27,6 +27,9 @@ _assert_file_content_exact() {
 profile_root=$source_home/.config/dot/profiles.d
 overlay_root=$source_home/.config/dot/overlays.d
 stack_test=$source_home/.local/lib/dotfiles/tests/overlay-profile-stack-test
+stack_lock=$source_home/.github/overlay-profile-stack.lock
+
+_assert_file_missing 'retired coordinated stack lock stays absent' "$stack_lock"
 
 transport_bin=$(_tmpdir)
 transport_log=$transport_bin/git.log
@@ -42,14 +45,14 @@ local_stack_status=0
 local_stack_output=$(
   env -u DOT_STACK_RUNTIME -u DOT_STACK_GROUP -u DOT_STACK_DOT_SHA \
     -u DOT_STACK_DOT_ROOT -u DOT_STACK_DOT_BIN -u DOT_STACK_DOT_ORIGIN \
-    -u DOT_STACK_LOCK_PATH -u DOT_TEST_REPORTER \
+    -u DOT_TEST_REPORTER \
     GITHUB_ACTIONS=false DOT_TEST_TRANSPORT_LOG="$transport_log" \
     PATH="$transport_bin:$PATH" "$stack_test" 2>&1
 ) || local_stack_status=$?
-_assert_exit 'installed stack test skips without the locked runtime' \
+_assert_exit 'installed stack test skips without the resolved runtime' \
   0 "$local_stack_status"
 _assert_contains 'installed stack test explains the CI-only boundary' \
-  'SKIP: coordinated profile-stack integration requires its locked CI runtime' \
+  'SKIP: profile-stack integration requires its resolved CI runtime' \
   "$local_stack_output"
 _assert_file_content_exact 'installed stack test performs no Git transport' \
   '' "$transport_log"
@@ -58,14 +61,14 @@ ci_stack_status=0
 ci_stack_output=$(
   env -u DOT_STACK_RUNTIME -u DOT_STACK_GROUP -u DOT_STACK_DOT_SHA \
     -u DOT_STACK_DOT_ROOT -u DOT_STACK_DOT_BIN -u DOT_STACK_DOT_ORIGIN \
-    -u DOT_STACK_LOCK_PATH -u DOT_TEST_REPORTER \
+    -u DOT_TEST_REPORTER \
     GITHUB_ACTIONS=true DOT_TEST_TRANSPORT_LOG="$transport_log" \
     PATH="$transport_bin:$PATH" "$stack_test" 2>&1
 ) || ci_stack_status=$?
-_assert_exit 'CI stack test fails closed without the locked runtime' \
+_assert_exit 'CI stack test fails closed without the resolved runtime' \
   1 "$ci_stack_status"
 _assert_contains 'CI stack test explains the missing runtime' \
-  'overlay-profile-stack-test: locked CI runtime is required' \
+  'overlay-profile-stack-test: resolved CI runtime is required' \
   "$ci_stack_output"
 _assert_file_content_exact 'failed CI stack test performs no Git transport' \
   '' "$transport_log"
@@ -113,7 +116,7 @@ if [[ ! -r $dot_root/lib/dot/hook-api.sh ]]; then
   _test_summary
 fi
 
-# Exercise these repository-owned definitions through the locked Dot parser. The
+# Exercise these repository-owned definitions through the resolved Dot parser. The
 # provider suite owns parser edge cases; this integration assertion owns the
 # exact profile graph shipped by this repository.
 # shellcheck source=/dev/null

@@ -24,60 +24,39 @@ case $mode in
   *) usage ;;
 esac
 
-lock=$source_home/.github/overlay-profile-stack.lock
-lock_value() {
-  local key=$1
-  awk -F= -v key="$key" '$1 == key { count++; value=$2 } END {
-    if (count == 1) print value; else exit 1
-  }' "$lock"
-}
-
-dot_sha=$(lock_value dot 2>/dev/null || true)
-nvim_sha=$(lock_value dotfiles_nvim 2>/dev/null || true)
-dev_sha=$(lock_value dotfiles_dev 2>/dev/null || true)
-shdeps_sha=$(lock_value test_shdeps 2>/dev/null || true)
-shdeps_release=$(lock_value test_shdeps_release 2>/dev/null || true)
-agent_rules_sha=$(lock_value test_agent_rules_sync 2>/dev/null || true)
+dot_sha=${DOT_STACK_DOT_SHA:-}
+agent_rules_sha=${DOT_STACK_AGENT_RULES_SYNC_SHA:-}
 if [[ ${DOT_STACK_RUNTIME:-0} == 1 &&
   ${DOT_STACK_GROUP:-} == "$expected_group" &&
-  ${DOT_STACK_DOT_SHA:-} == "$dot_sha" &&
+  $dot_sha =~ ^[0-9a-f]{40}$ &&
   ${DOT_STACK_DOT_ROOT:-} == /* &&
   ${DOT_STACK_DOT_BIN:-} == "${DOT_STACK_DOT_ROOT:-}/bin/dot" &&
   $(git -C "${DOT_STACK_DOT_ROOT:-/nonexistent}" rev-parse HEAD 2>/dev/null) == "$dot_sha" ]]; then
-  _pass "$expected_group uses the exact locked Dot runtime"
+  _pass "$expected_group uses one exact resolved Dot runtime"
 else
-  _fail "$expected_group uses the exact locked Dot runtime"
+  _fail "$expected_group uses one exact resolved Dot runtime"
   _test_summary
 fi
-
-for sha in "$nvim_sha" "$dev_sha" "$agent_rules_sha"; do
-  [[ $sha =~ ^[0-9a-f]{40}$ ]] || {
-    _fail 'profile fixture lock contains full capability revisions'
-    _test_summary
-  }
-done
-_pass 'profile fixture lock contains full capability revisions'
 
 shdeps_root=${DOT_STACK_SHDEPS_ROOT:-}
 if [[ -z $shdeps_root ]]; then
   for candidate in "$host_home/.local/share/shdeps" "$host_home/git/shdeps"; do
     [[ -f $candidate/install.sh && -f $candidate/shdeps.sh &&
       -x $candidate/shdeps ]] || continue
-    if [[ $("$candidate/shdeps" version 2>/dev/null || true) == *"${shdeps_sha:0:8}"* ]]; then
+    if [[ $("$candidate/shdeps" version 2>/dev/null || true) == "${DOT_STACK_SHDEPS_VERSION:-}" ]]; then
       shdeps_root=$candidate
       break
     fi
   done
 fi
-if [[ ! $shdeps_sha =~ ^[0-9a-f]{40}$ ||
-  ! $shdeps_release =~ ^[0-9]{8}-[0-9]{6}-[0-9a-f]{8}$ ||
+if [[ ! ${DOT_STACK_SHDEPS_VERSION:-} =~ ^shdeps[[:space:]][0-9]{8}-[0-9]{6}-[0-9a-f]{8}$ ||
   -z $shdeps_root || ! -f $shdeps_root/install.sh ||
   ! -f $shdeps_root/shdeps.sh || ! -x $shdeps_root/shdeps ||
-  $("$shdeps_root/shdeps" version 2>/dev/null || true) != *"${shdeps_sha:0:8}"* ]]; then
-  _fail 'profile fixtures have the exact locked Shdeps test release'
+  $("$shdeps_root/shdeps" version 2>/dev/null || true) != "${DOT_STACK_SHDEPS_VERSION:-}" ]]; then
+  _fail 'profile fixtures reuse one resolved Shdeps release'
   _test_summary
 fi
-_pass 'profile fixtures have the exact locked Shdeps test release'
+_pass 'profile fixtures reuse one resolved Shdeps release'
 
 _test_prefer_system_git || {
   _fail 'profile fixtures have an isolated system Git'
@@ -95,7 +74,7 @@ case $mode in
 esac
 # Update and doctor intentionally exercise a fresh client without installing
 # capability toolchains. The dedicated installed-profile job supplies these
-# pinned runtimes when it executes owner tests or measures their payload.
+# explicit runtimes when it executes owner tests or measures their payload.
 if [[ $needs_capability_runtime -eq 1 ]]; then
   if [[ $nvim_bin != /* || ! -x $nvim_bin || -d $nvim_bin ]]; then
     _fail 'profile fixtures have an explicit executable Neovim runtime'
@@ -125,8 +104,9 @@ if [[ -n $agent_rules_root ]]; then
   agent_rules_actual=$("$git_bin" -C "$agent_rules_root" rev-parse HEAD \
     2>/dev/null || true)
 fi
-if [[ -z $agent_rules_root || $agent_rules_actual != "$agent_rules_sha" ]]; then
-  _fail 'profile fixtures have the exact agent-rules-sync test provider'
+if [[ ! $agent_rules_sha =~ ^[0-9a-f]{40}$ ||
+  -z $agent_rules_root || $agent_rules_actual != "$agent_rules_sha" ]]; then
+  _fail 'profile fixtures reuse one resolved agent-rules-sync provider'
   _test_summary
 fi
 if [[ $needs_capability_runtime -eq 1 ]]; then
@@ -135,7 +115,7 @@ if [[ $needs_capability_runtime -eq 1 ]]; then
   _pass 'profile fixtures use Neovim 0.11.2 or newer'
   _pass 'profile fixtures have an explicit executable yq runtime'
 fi
-_pass 'profile fixtures have the exact agent-rules-sync test provider'
+_pass 'profile fixtures reuse one resolved agent-rules-sync provider'
 fixture_bin=$(_tmpdir)
 ln -s "$git_bin" "$fixture_bin/git"
 ln -s "$python_bin" "$fixture_bin/python3"
@@ -159,26 +139,38 @@ nvim_source=${DOT_STACK_NVIM_REPOSITORY:-https://github.com/cgraf78/dotfiles-nvi
 dev_source=${DOT_STACK_DEV_REPOSITORY:-https://github.com/cgraf78/dotfiles-dev.git}
 
 make_capability_origin() {
-  local source=$1 sha=$2 destination=$3 name=$4 checkout
+  local source=$1 revision=$2 destination=$3 name=$4 checkout sha
+  [[ $revision =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ &&
+    $revision != *..* ]] || return 1
   checkout=$fixture_root/source-$name
-  "$git_bin" clone --quiet --no-checkout "$source" "$checkout" || return 1
-  "$git_bin" -C "$checkout" fetch --quiet --no-tags origin "$sha" || return 1
+  "$git_bin" init --quiet "$checkout" || return 1
+  "$git_bin" -C "$checkout" remote add origin "$source" || return 1
+  "$git_bin" -C "$checkout" fetch --quiet --depth=1 --no-tags \
+    origin "$revision" || return 1
+  sha=$("$git_bin" -C "$checkout" rev-parse FETCH_HEAD) || return 1
   "$git_bin" init --quiet --bare "$destination" || return 1
+  "$git_bin" --git-dir="$destination" config receive.shallowUpdate true ||
+    return 1
   "$git_bin" -C "$checkout" push --quiet "$destination" \
     "$sha:refs/heads/main" || return 1
   "$git_bin" --git-dir="$destination" symbolic-ref HEAD refs/heads/main || return 1
-  _assert_eq "$name origin contains the exact locked revision" "$sha" \
+  _assert_eq "$name origin contains one resolved revision" "$sha" \
     "$("$git_bin" --git-dir="$destination" rev-parse refs/heads/main)"
+  REPLY=$sha
 }
 
-make_capability_origin "$nvim_source" "$nvim_sha" "$nvim_origin" nvim || {
-  _fail 'created exact local nvim origin'
+make_capability_origin "$nvim_source" "${DOT_STACK_NVIM_REVISION:-main}" \
+  "$nvim_origin" nvim || {
+  _fail 'created resolved local nvim origin'
   _test_summary
 }
-make_capability_origin "$dev_source" "$dev_sha" "$dev_origin" dev || {
-  _fail 'created exact local dev origin'
+nvim_sha=$REPLY
+make_capability_origin "$dev_source" "${DOT_STACK_DEV_REVISION:-main}" \
+  "$dev_origin" dev || {
+  _fail 'created resolved local dev origin'
   _test_summary
 }
+dev_sha=$REPLY
 nvim_suite_names=$("$git_bin" --git-dir="$nvim_origin" show \
   main:.github/dot-test-suites.txt | sed -e 's#^.*/##' -e 's/-test$//')
 dev_suite_names=$("$git_bin" --git-dir="$dev_origin" show \
@@ -409,7 +401,7 @@ assert_profile_links() {
         "$home/.dotfiles-dev"
       ;;
     editor)
-      _assert_eq 'editor update pins the nvim checkout' "$nvim_sha" \
+      _assert_eq 'editor update uses the resolved nvim checkout' "$nvim_sha" \
         "$("$git_bin" -C "$home/.dotfiles-nvim" rev-parse HEAD)"
       _assert_file_missing \
         'editor update does not clone the development overlay' \
@@ -421,9 +413,9 @@ assert_profile_links() {
       fi
       ;;
     dev)
-      _assert_eq 'dev update pins the nvim checkout' "$nvim_sha" \
+      _assert_eq 'dev update uses the resolved nvim checkout' "$nvim_sha" \
         "$("$git_bin" -C "$home/.dotfiles-nvim" rev-parse HEAD)"
-      _assert_eq 'dev update pins the development checkout' "$dev_sha" \
+      _assert_eq 'dev update uses the resolved development checkout' "$dev_sha" \
         "$("$git_bin" -C "$home/.dotfiles-dev" rev-parse HEAD)"
       if [[ -L $home/.local/lib/dotfiles/tests/nvim-test ]]; then
         _pass 'dev update links the nvim-owned suite'

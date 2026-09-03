@@ -1,17 +1,7 @@
 #!/usr/bin/env bash
-# Run one Phase A verification group through the exact locked standalone Dot.
+# Run one CI verification group through one resolved standalone Dot snapshot.
 
 set -euo pipefail
-
-root=$(cd -P -- "${BASH_SOURCE[0]%/*}/../../../.." && pwd -P)
-lock=$root/.github/overlay-profile-stack.lock
-if [[ -n ${DOT_STACK_LOCK_FILE:-} ]]; then
-  [[ ${DOT_TEST:-0} == 1 ]] || {
-    printf 'stack-dot-runtime: lock override is test-only\n' >&2
-    exit 1
-  }
-  lock=$DOT_STACK_LOCK_FILE
-fi
 
 [[ $# -ge 3 && $2 == -- ]] || {
   printf 'usage: %s GROUP -- COMMAND [ARG...]\n' "${0##*/}" >&2
@@ -24,30 +14,13 @@ shift 2
   exit 2
 }
 
-[[ -f $lock && ! -L $lock ]] || {
-  printf 'stack-dot-runtime: missing lock: %s\n' "$lock" >&2
+dot_revision=${DOT_STACK_DOT_REVISION:-main}
+if [[ ! $dot_revision =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ||
+  $dot_revision == *..* ]]; then
+  printf 'stack-dot-runtime: invalid Dot revision: %s\n' \
+    "${dot_revision:-<empty>}" >&2
   exit 1
-}
-dot_sha=
-seen_version=0
-seen_dot=0
-while IFS= read -r line || [[ -n $line ]]; do
-  case $line in
-    version=1)
-      ((seen_version == 0)) || exit 1
-      seen_version=1
-      ;;
-    dot=*)
-      ((seen_dot == 0)) || exit 1
-      dot_sha=${line#dot=}
-      seen_dot=1
-      ;;
-  esac
-done <"$lock"
-[[ $seen_version -eq 1 && $seen_dot -eq 1 && $dot_sha =~ ^[0-9a-f]{40}$ ]] || {
-  printf 'stack-dot-runtime: invalid locked Dot revision\n' >&2
-  exit 1
-}
+fi
 
 temp_root=$(cd -P -- "${TMPDIR:-/tmp}" && pwd -P)
 runtime_parent=$(mktemp -d "$temp_root/dot-stack-runtime.XXXXXXXX")
@@ -61,15 +34,61 @@ case $runtime_parent in
     ;;
 esac
 trap 'rm -rf -- "$runtime_parent"' EXIT HUP INT TERM
+
+git_home=$runtime_parent/home
+XDG_CONFIG_HOME=$runtime_parent/xdg/config
+XDG_DATA_HOME=$runtime_parent/xdg/data
+XDG_STATE_HOME=$runtime_parent/xdg/state
+XDG_CACHE_HOME=$runtime_parent/xdg/cache
+XDG_RUNTIME_DIR=$runtime_parent/xdg/runtime
+mkdir -p "$git_home" "$XDG_CONFIG_HOME" "$XDG_DATA_HOME" "$XDG_STATE_HOME" \
+  "$XDG_CACHE_HOME" "$XDG_RUNTIME_DIR"
+chmod 0700 "$git_home" "$runtime_parent/xdg" "$XDG_CONFIG_HOME" \
+  "$XDG_DATA_HOME" "$XDG_STATE_HOME" "$XDG_CACHE_HOME" "$XDG_RUNTIME_DIR"
+
+clean_git_env=(
+  env
+  -u GIT_DIR
+  -u GIT_WORK_TREE
+  -u GIT_COMMON_DIR
+  -u GIT_IMPLICIT_WORK_TREE
+  -u GIT_PREFIX
+  -u GIT_INDEX_FILE
+  -u GIT_OBJECT_DIRECTORY
+  -u GIT_ALTERNATE_OBJECT_DIRECTORIES
+  -u GIT_SHALLOW_FILE
+  -u GIT_CONFIG
+  -u GIT_CONFIG_GLOBAL
+  -u GIT_CONFIG_SYSTEM
+  -u GIT_CONFIG_NOSYSTEM
+  -u GIT_CONFIG_COUNT
+  -u GIT_CONFIG_PARAMETERS
+  -u GIT_NAMESPACE
+  -u GIT_GRAFT_FILE
+  -u GIT_REPLACE_REF_BASE
+  -u GIT_NO_REPLACE_OBJECTS
+  HOME="$git_home"
+  XDG_CONFIG_HOME="$XDG_CONFIG_HOME"
+  GIT_CONFIG_GLOBAL=/dev/null
+  GIT_CONFIG_NOSYSTEM=1
+  GIT_NO_REPLACE_OBJECTS=1
+)
+
+ci_git() {
+  "${clean_git_env[@]}" git --no-replace-objects "$@"
+}
+
 runtime_repo=$runtime_parent/dot
 runtime_source=${DOT_STACK_DOT_REPOSITORY:-https://github.com/cgraf78/dot.git}
 
-git clone --quiet --no-checkout "$runtime_source" "$runtime_repo"
-git -C "$runtime_repo" fetch --quiet --no-tags origin "$dot_sha"
-git -C "$runtime_repo" checkout --quiet --detach "$dot_sha"
+ci_git init --quiet "$runtime_repo"
+ci_git -C "$runtime_repo" remote add origin "$runtime_source"
+ci_git -C "$runtime_repo" fetch --quiet --depth=1 --no-tags origin "$dot_revision"
+dot_sha=$(ci_git -C "$runtime_repo" rev-parse FETCH_HEAD)
+ci_git -C "$runtime_repo" checkout --quiet --detach "$dot_sha"
 
-actual_sha=$(git -C "$runtime_repo" rev-parse HEAD)
-actual_origin=$(git -C "$runtime_repo" remote get-url origin)
+actual_sha=$(ci_git -C "$runtime_repo" rev-parse HEAD)
+actual_origin=$(ci_git -C "$runtime_repo" remote get-url origin)
 [[ $actual_sha == "$dot_sha" ]] || {
   printf 'stack-dot-runtime: expected %s, checked out %s\n' \
     "$dot_sha" "$actual_sha" >&2
@@ -82,20 +101,10 @@ actual_origin=$(git -C "$runtime_repo" remote get-url origin)
 }
 runtime_bin=$runtime_repo/bin/dot
 [[ -x $runtime_bin && ! -L $runtime_bin ]] || {
-  printf 'stack-dot-runtime: missing locked executable: %s\n' \
+  printf 'stack-dot-runtime: missing resolved executable: %s\n' \
     "$runtime_bin" >&2
   exit 1
 }
-
-XDG_CONFIG_HOME=$runtime_parent/xdg/config
-XDG_DATA_HOME=$runtime_parent/xdg/data
-XDG_STATE_HOME=$runtime_parent/xdg/state
-XDG_CACHE_HOME=$runtime_parent/xdg/cache
-XDG_RUNTIME_DIR=$runtime_parent/xdg/runtime
-mkdir -p "$XDG_CONFIG_HOME" "$XDG_DATA_HOME" "$XDG_STATE_HOME" \
-  "$XDG_CACHE_HOME" "$XDG_RUNTIME_DIR"
-chmod 0700 "$runtime_parent/xdg" "$XDG_CONFIG_HOME" "$XDG_DATA_HOME" \
-  "$XDG_STATE_HOME" "$XDG_CACHE_HOME" "$XDG_RUNTIME_DIR"
 
 PATH=$runtime_repo/bin:${DOT_STACK_BASE_PATH:-$PATH}
 hash -r
@@ -111,12 +120,17 @@ DOT_STACK_DOT_SHA=$dot_sha
 DOT_STACK_DOT_ROOT=$runtime_repo
 DOT_STACK_DOT_BIN=$runtime_bin
 DOT_STACK_DOT_ORIGIN=$runtime_source
-DOT_STACK_LOCK_PATH=$lock
+unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_IMPLICIT_WORK_TREE GIT_PREFIX
+unset GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES
+unset GIT_SHALLOW_FILE GIT_CONFIG GIT_CONFIG_GLOBAL GIT_CONFIG_SYSTEM
+unset GIT_CONFIG_NOSYSTEM GIT_CONFIG_COUNT
+unset GIT_CONFIG_PARAMETERS GIT_NAMESPACE GIT_GRAFT_FILE
+unset GIT_REPLACE_REF_BASE GIT_NO_REPLACE_OBJECTS
+
 export PATH XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME
 export XDG_RUNTIME_DIR DOT_STACK_RUNTIME DOT_STACK_GROUP DOT_STACK_DOT_SHA
 export DOT_STACK_DOT_ROOT DOT_STACK_DOT_BIN DOT_STACK_DOT_ORIGIN
-export DOT_STACK_LOCK_PATH
 
-printf 'stack-runtime\tgroup=%s\tdot=%s\thead=%s\n' \
-  "$group" "$runtime_bin" "$actual_sha"
+printf 'stack-runtime\tgroup=%s\tdot=%s\tref=%s\thead=%s\n' \
+  "$group" "$runtime_bin" "$dot_revision" "$actual_sha"
 exec "$@"

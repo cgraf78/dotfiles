@@ -5,21 +5,6 @@ set -euo pipefail
 
 root=$(cd -P -- "${BASH_SOURCE[0]%/*}/../../../.." && pwd -P)
 inventory=$root/.github/dot-test-suites.txt
-lock=$root/.github/overlay-profile-stack.lock
-if [[ -n ${DOT_STACK_LOCK_PATH:-} ]]; then
-  if [[ ${DOT_TEST:-0} != 1 && $DOT_STACK_LOCK_PATH != "$lock" ]]; then
-    printf 'run-ci: production lock path cannot be overridden\n' >&2
-    exit 1
-  fi
-  lock=$DOT_STACK_LOCK_PATH
-fi
-
-_stack_value() {
-  local key=$1
-  awk -F= -v key="$key" '$1 == key { count++; value=$2 } END {
-    if (count == 1) print value; else exit 1
-  }' "$lock"
-}
 
 _require_runtime() {
   local expected resolved actual origin
@@ -27,9 +12,8 @@ _require_runtime() {
     printf 'run-ci: must run through stack-dot-runtime\n' >&2
     return 1
   }
-  expected=$(_stack_value dot) || return 1
+  expected=${DOT_STACK_DOT_SHA:-}
   [[ $expected =~ ^[0-9a-f]{40}$ &&
-    ${DOT_STACK_DOT_SHA:-} == "$expected" &&
     ${DOT_STACK_DOT_ROOT:-} == /* &&
     ${DOT_STACK_DOT_BIN:-} == "$DOT_STACK_DOT_ROOT/bin/dot" ]] || return 1
   actual=$(git -C "$DOT_STACK_DOT_ROOT" rev-parse HEAD 2>/dev/null) || return 1
@@ -54,7 +38,7 @@ _require_candidate || {
 }
 
 _require_runtime || {
-  printf 'run-ci: locked Dot runtime assertion failed\n' >&2
+  printf 'run-ci: resolved Dot runtime assertion failed\n' >&2
   exit 1
 }
 
@@ -119,7 +103,7 @@ _require_candidate || {
   exit 1
 }
 _require_runtime || {
-  printf 'run-ci: locked Dot runtime changed before test execution\n' >&2
+  printf 'run-ci: resolved Dot runtime changed before test execution\n' >&2
   exit 1
 }
 export DOT_TEST_DOT_ROOT=$DOT_STACK_DOT_ROOT

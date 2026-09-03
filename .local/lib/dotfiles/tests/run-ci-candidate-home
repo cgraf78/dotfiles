@@ -10,7 +10,6 @@ umask 077
 
 root=$(cd -P -- "${BASH_SOURCE[0]%/*}/../../../.." && pwd -P)
 candidate_sha=${DOTFILES_CANDIDATE_SHA:-}
-lock=${DOT_STACK_LOCK_PATH:-$root/.github/overlay-profile-stack.lock}
 
 clean_git_env=(
   env
@@ -104,17 +103,10 @@ case $staging in
 esac
 trap 'rm -rf -- "$staging"' EXIT HUP INT TERM
 
-lock_value() {
-  local key=$1
-  awk -F= -v key="$key" '$1 == key { count++; value=$2 } END {
-    if (count == 1) print value; else exit 1
-  }' "$lock"
-}
-
 prepare_dot_runtime() {
   local install=$home/.local/share/cgraf78/dot actual sha source
 
-  sha=$(lock_value dot 2>/dev/null || true)
+  sha=${DOT_STACK_DOT_SHA:-}
   source=${DOT_STACK_DOT_REPOSITORY:-https://github.com/cgraf78/dot.git}
   [[ $sha =~ ^[0-9a-f]{40}$ ]] || {
     printf 'run-ci-candidate-home: invalid immutable Dot test binding\n' >&2
@@ -131,27 +123,35 @@ prepare_dot_runtime() {
     return 1
   }
   ln -s ../share/cgraf78/dot/lib/dot/public "$home/.local/lib/dot"
+  DOT_STACK_DOT_ROOT=$install
+  DOT_STACK_DOT_BIN=$install/bin/dot
+  DOT_STACK_DOT_ORIGIN=$source
+  export DOT_STACK_DOT_ROOT DOT_STACK_DOT_BIN DOT_STACK_DOT_ORIGIN
 }
 
 prepare_agent_rules_sync() {
   local install=$home/.local/share/cgraf78/agent-rules-sync
-  local sha source actual
+  local revision source actual
 
-  sha=$(lock_value test_agent_rules_sync 2>/dev/null || true)
+  revision=${DOT_STACK_AGENT_RULES_SYNC_REVISION:-main}
   source=${DOT_STACK_AGENT_RULES_SYNC_REPOSITORY:-https://github.com/cgraf78/agent-rules-sync.git}
-  [[ $sha =~ ^[0-9a-f]{40}$ ]] || {
-    printf 'run-ci-candidate-home: invalid agent-rules-sync test binding\n' >&2
+  [[ $revision =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ &&
+    $revision != *..* ]] || {
+    printf 'run-ci-candidate-home: invalid agent-rules-sync revision\n' >&2
     return 1
   }
-  ci_git clone --quiet --no-checkout "$source" "$install"
-  ci_git -C "$install" fetch --quiet --no-tags origin "$sha"
-  ci_git -C "$install" checkout --quiet --detach "$sha"
+  ci_git init --quiet "$install"
+  ci_git -C "$install" remote add origin "$source"
+  ci_git -C "$install" fetch --quiet --depth=1 --no-tags origin "$revision"
+  ci_git -C "$install" checkout --quiet --detach FETCH_HEAD
   actual=$(ci_git -C "$install" rev-parse HEAD)
-  [[ $actual == "$sha" && -x $install/bin/agent-rules-sync ]] || {
+  [[ $actual =~ ^[0-9a-f]{40}$ && -x $install/bin/agent-rules-sync ]] || {
     printf 'run-ci-candidate-home: invalid agent-rules-sync checkout: %s\n' \
       "$actual" >&2
     return 1
   }
+  DOT_STACK_AGENT_RULES_SYNC_SHA=$actual
+  export DOT_STACK_AGENT_RULES_SYNC_SHA
   mkdir -p "$home/.local/bin"
   ln -s ../share/cgraf78/agent-rules-sync/bin/agent-rules-sync \
     "$home/.local/bin/agent-rules-sync"
@@ -163,7 +163,7 @@ record_client_identity() {
 
   # `dot init` also converges the complete dependency graph. CI needs only its
   # identity contract here, so write the versioned adopted-checkout record and
-  # immediately make the pinned Dot runtime parse and validate it.
+  # immediately make the resolved Dot runtime parse and validate it.
   identity=file://$origin
   git_identity=$(stat -c '%d:%i' "$home/.dotfiles" 2>/dev/null ||
     stat -f '%d:%i' "$home/.dotfiles")
@@ -183,7 +183,7 @@ record_client_identity() {
     printf 'worktree=%s\n' "$home"
     printf 'backup=-\n'
     printf 'dot=%s\n' "$dot_bin"
-    printf 'dot_revision=%s\n' "$(lock_value dot)"
+    printf 'dot_revision=%s\n' "$DOT_STACK_DOT_SHA"
     printf 'nonce=adopted\n'
     printf 'git_dev=%s\n' "$git_dev"
     printf 'git_ino=%s\n' "$git_ino"
@@ -207,49 +207,22 @@ record_client_identity() {
 
 prepare_shdeps() {
   local install=$home/.local/share/shdeps installer=$staging/install-shdeps
-  local metadata=$staging/shdeps-release.json
-  local verify_repo=$staging/shdeps-verify
-  local sha release installer_sha short version platform asset
+  local lock=$home/.local/share/cgraf78/dot/support/shdeps.lock
+  local revision expected_digest actual_digest version
   local override=${DOT_STACK_SHDEPS_ROOT:-}
 
   [[ -f $lock && ! -L $lock ]] || {
-    printf 'run-ci-candidate-home: missing stack lock: %s\n' "$lock" >&2
+    printf 'run-ci-candidate-home: missing Dot Shdeps trust anchor: %s\n' \
+      "$lock" >&2
     return 1
   }
-  sha=$(lock_value test_shdeps 2>/dev/null || true)
-  release=$(lock_value test_shdeps_release 2>/dev/null || true)
-  installer_sha=$(lock_value test_shdeps_installer 2>/dev/null || true)
-  [[ $sha =~ ^[0-9a-f]{40}$ &&
-    $installer_sha =~ ^[0-9a-f]{40}$ &&
-    $release =~ ^[0-9]{8}-[0-9]{6}-[0-9a-f]{8}$ ]] || {
-    printf 'run-ci-candidate-home: invalid immutable Shdeps test binding\n' >&2
-    return 1
-  }
-  short=${sha:0:8}
-  [[ $release == *-$short ]] || {
-    printf 'run-ci-candidate-home: Shdeps release does not match %s\n' \
-      "$sha" >&2
-    return 1
-  }
-
-  ci_git init --quiet "$verify_repo"
-  ci_git -C "$verify_repo" remote add origin \
-    "${DOT_STACK_SHDEPS_REPOSITORY:-https://github.com/cgraf78/shdeps.git}"
-  ci_git -C "$verify_repo" fetch --quiet --no-tags origin "$sha" \
-    "$installer_sha" || {
-    printf 'run-ci-candidate-home: Shdeps commits are not fetchable\n' >&2
-    return 1
-  }
-  ci_git -C "$verify_repo" cat-file -e "$sha^{commit}"
-  ci_git -C "$verify_repo" cat-file -e "$installer_sha^{commit}"
-  ci_git -C "$verify_repo" fetch --quiet origin \
-    "refs/tags/$release:refs/tags/$release" || {
-    printf 'run-ci-candidate-home: Shdeps release tag is not fetchable\n' >&2
-    return 1
-  }
-  [[ $(ci_git -C "$verify_repo" rev-parse "refs/tags/$release^{commit}") == "$sha" ]] || {
-    printf 'run-ci-candidate-home: Shdeps release tag does not match %s\n' \
-      "$sha" >&2
+  revision=$(awk -F= '$1 == "revision" { count++; value=$2 }
+    END { if (count == 1) print value; else exit 1 }' "$lock") || revision=
+  expected_digest=$(awk -F= '$1 == "install_sha256" { count++; value=$2 }
+    END { if (count == 1) print value; else exit 1 }' "$lock") || expected_digest=
+  [[ $revision =~ ^[0-9a-f]{40}$ &&
+    $expected_digest =~ ^[0-9a-f]{64}$ ]] || {
+    printf 'run-ci-candidate-home: invalid Dot Shdeps trust anchor\n' >&2
     return 1
   }
 
@@ -267,41 +240,43 @@ prepare_shdeps() {
       printf 'run-ci-candidate-home: curl is required for Shdeps setup\n' >&2
       return 1
     }
-    curl -fsSL \
-      "https://raw.githubusercontent.com/cgraf78/shdeps/$installer_sha/install.sh" \
+    curl --fail --silent --show-error --location \
+      --connect-timeout 10 --max-time 30 \
+      --retry 2 --retry-delay 2 --retry-max-time 65 --retry-all-errors \
+      --speed-limit 1024 --speed-time 15 \
+      "https://raw.githubusercontent.com/cgraf78/shdeps/$revision/install.sh" \
       -o "$installer"
-    {
-      printf '{\n  "tag_name": "%s",\n  "assets": [\n' "$release"
-      for platform in android-aarch64 android-x86_64 linux-aarch64-musl \
-        linux-x86_64-musl macos-aarch64 macos-x86_64; do
-        for asset in \
-          "shdeps-$release-$platform.tar.gz" \
-          "shdeps-$release-$platform.tar.gz.sha256"; do
-          printf '    {\n      "name": "%s",\n' "$asset"
-          printf '      "browser_download_url": "https://github.com/cgraf78/shdeps/releases/download/%s/%s"\n    },\n' \
-            "$release" "$asset"
-        done
-      done
-      printf '    {}\n  ]\n}\n'
-    } >"$metadata"
-    # This is a public immutable release. Do not forward workflow credentials
-    # into its download path; public browser URLs are both sufficient and less
-    # privileged than GitHub's authenticated asset API fallback.
+    if command -v sha256sum >/dev/null 2>&1; then
+      actual_digest=$(sha256sum "$installer" | awk '{print $1}')
+    elif command -v shasum >/dev/null 2>&1; then
+      actual_digest=$(shasum -a 256 "$installer" | awk '{print $1}')
+    else
+      printf 'run-ci-candidate-home: sha256sum or shasum is required\n' >&2
+      return 1
+    fi
+    [[ $actual_digest == "$expected_digest" ]] || {
+      printf 'run-ci-candidate-home: Dot Shdeps installer digest mismatch\n' >&2
+      return 1
+    }
+    # The installer is pinned by Dot's trust anchor, while this client opts into
+    # Shdeps' latest-release policy. Do not forward workflow credentials into
+    # the public release download path.
     env -u GH_TOKEN -u GITHUB_TOKEN HOME="$home" \
       SHDEPS_DIR="$install" \
       SHDEPS_BIN="$home/.local/bin/shdeps" \
       SHDEPS_LUA_DIR="$home/.local/lib/shdeps" \
       SHDEPS_GIT_DEV_DIR="$home/git" \
-      SHDEPS_RELEASE_API_URL="file://$metadata" \
       bash "$installer"
   fi
 
   version=$("$install/shdeps" version 2>/dev/null || true)
-  [[ $version == *"$short"* ]] || {
-    printf 'run-ci-candidate-home: expected Shdeps %s, found %s\n' \
-      "$short" "${version:-<empty>}" >&2
+  [[ $version =~ ^shdeps[[:space:]][0-9]{8}-[0-9]{6}-[0-9a-f]{8}$ ]] || {
+    printf 'run-ci-candidate-home: invalid Shdeps version: %s\n' \
+      "${version:-<empty>}" >&2
     return 1
   }
+  DOT_STACK_SHDEPS_VERSION=$version
+  export DOT_STACK_SHDEPS_VERSION
 }
 
 origin=$staging/origin.git
