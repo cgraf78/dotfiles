@@ -40,12 +40,9 @@ jobs:
               .local/lib/dotfiles/tests/stack-dot-runtime "$group" -- \
                 .local/lib/dotfiles/tests/profile-fixture-integration "$mode"
           done
-          .local/lib/dotfiles/tests/run-ci-candidate-home \
-            .local/lib/dotfiles/tests/stack-dot-runtime legacy-profile-cutover -- \
-              .local/lib/dotfiles/tests/legacy-profile-cutover
         fi
-      # The final cutover keeps this Android smoke on the base-owned payload and
-      # runs it through the exact D1 provider.
+      # Keep this Android smoke on the base-owned payload and run it through
+      # the exact locked Dot provider.
       termux-command: |-
         set -euo pipefail
         export DOTFILES_CANDIDATE_SHA='${{ github.event.pull_request.head.sha || github.sha }}'

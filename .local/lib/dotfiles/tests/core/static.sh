@@ -20,7 +20,7 @@ dot_core_test_static() {
   _assert_eq "Dot config: follows the latest Shdeps release policy" latest \
     "$(awk -F= '$1 == "shdeps_update_policy" { print $2 }' \
       "$root/.config/dot/config")"
-  _assert_eq "Dot config: remains readable by pre-profile clients" 0 \
+  _assert_eq "Dot config: keeps the built-in base fallback implicit" 0 \
     "$(awk -F= '$1 == "default_profile" { count++ } END { print count + 0 }' \
       "$root/.config/dot/config")"
   _assert_eq "profile selectors: root-global default preserves dev" \

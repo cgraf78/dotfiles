@@ -87,7 +87,6 @@ program	.local/lib/dotfiles/tests/footprint-test
 program	.local/lib/dotfiles/tests/harness-isolation-test
 program	.local/lib/dotfiles/tests/helpers.sh
 program	.local/lib/dotfiles/tests/load-merge-api.sh
-program	.local/lib/dotfiles/tests/legacy-profile-cutover
 program	.local/lib/dotfiles/tests/measure-profile-footprint
 program	.local/lib/dotfiles/tests/overlay-profile-stack-test
 program	.local/lib/dotfiles/tests/overlay-profile-rollout-test

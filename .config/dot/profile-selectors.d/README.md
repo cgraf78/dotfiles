@@ -1,11 +1,11 @@
 # Profile Selectors
 
 Dotfiles profiles choose which overlay repositories are active. The tracked
-profiles are `base`, `editor`, and `dev`. During the initial compatibility
-cutover, `00-default.conf` is a tracked root-global selector for `dev`, so a
-machine without a more-specific selector retains the full pre-refactor
-environment. A later rollout may remove it and use Dot's built-in `base`
-fallback after explicit selectors are in place.
+profiles are `base`, `editor`, and `dev`. `00-default.conf` is a tracked
+root-global selector for `dev`, so a machine without a more-specific selector
+receives the full development environment. A later policy change may replace
+it with an `editor` default while machine-local or personal selectors keep
+specific accounts on `dev`.
 
 Tracked, non-sensitive selectors may live in this directory. Machine-specific
 selectors belong in the ignored directory
@@ -23,7 +23,7 @@ profile=editor
 ```
 
 Only a selector tracked in this root directory may omit both `user` and `host`;
-that form supplies a fleet-wide compatibility default. Machine-local and
+that form supplies a fleet-wide default. Machine-local and
 personal selectors require at least one identity field. All supplied fields
 must match. User matching is exact and case-sensitive. Host matching uses the
 short hostname, lowercases ASCII letters, and ignores one trailing dot. A
@@ -85,12 +85,6 @@ Changing the winning selector, removing the root-global selector, or changing
 selected overlays are activated. Exact managed links from deselected overlays
 are removed and lower-layer files are restored, while cached repositories,
 native packages, and unmanaged files are preserved.
-
-The compatibility selector and pre-sync hook are intentionally readable by an
-old installation without requiring the old client to understand profiles. The
-same `dot update -f` invocation can update and re-exec Dot, then converge the
-selected overlays. Operational readiness records are private and are not
-tracked here.
 
 There is intentionally no environment override or profile-management command.
 See the sanitized executable examples in standalone Dot's

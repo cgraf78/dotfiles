@@ -1175,11 +1175,11 @@ EOF
   rm -f "$IGNORE_FILE"
   rm -rf "$TEST_HOME/.config/dot/merge-hooks.d/ignore/ignore.d"
 
-  echo "=== D5 merge hook ownership boundary ==="
+  echo "=== base merge hook ownership boundary ==="
 
   expected_base_hooks=$(printf '%s\n' \
     agent-rules cron ignore iterm2 karabiner ssh tmux wezterm | LC_ALL=C sort)
   actual_hooks=$(_dot_test_merge_hook_names "$REAL_HOME")
-  _assert_eq "merge hooks: only base hooks remain after cutover" \
+  _assert_eq "merge hooks: only base-owned hooks are present" \
     "$expected_base_hooks" "$actual_hooks"
 }

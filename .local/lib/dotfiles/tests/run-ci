@@ -54,7 +54,7 @@ _require_candidate || {
 }
 
 _require_runtime || {
-  printf 'run-ci: locked D1 runtime assertion failed\n' >&2
+  printf 'run-ci: locked Dot runtime assertion failed\n' >&2
   exit 1
 }
 
@@ -113,13 +113,13 @@ fi
 [[ $# -eq 0 ]] || exit 2
 
 # Reassert immediately before executing the selected suite set. The direct
-# path and PATH resolution must still identify the same immutable D1 checkout.
+# path and PATH resolution must still identify the same immutable Dot checkout.
 _require_candidate || {
   printf 'run-ci: candidate checkout changed before test execution\n' >&2
   exit 1
 }
 _require_runtime || {
-  printf 'run-ci: locked D1 runtime changed before test execution\n' >&2
+  printf 'run-ci: locked Dot runtime changed before test execution\n' >&2
   exit 1
 }
 export DOT_TEST_DOT_ROOT=$DOT_STACK_DOT_ROOT

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Validate the immutable coordinated stack and the locked D1 runtime wrapper.
+# Validate the immutable coordinated stack and locked Dot runtime wrapper.
 
 set -u
 
@@ -165,10 +165,10 @@ _file_identity() {
 workflow_content=$(<"$workflow")
 _assert_contains 'top-level CI runs without dotfiles setup' \
   'setup: none' "$workflow_content"
-_assert_contains 'top-level CI enters through the locked D1 wrapper' \
+_assert_contains 'top-level CI enters through the locked Dot wrapper' \
   'stack-dot-runtime control-plane-run-ci' "$workflow_content"
 # shellcheck disable=SC2016 # Assert the literal workflow command.
-_assert_contains 'Termux CI invokes the exact locked D1 binary' \
+_assert_contains 'Termux CI invokes the exact locked Dot binary' \
   '"$DOT_STACK_DOT_BIN" update' "$workflow_content"
 # shellcheck disable=SC2016 # Assert the literal isolated client PATH.
 _assert_contains 'Termux CI uses installed client launchers, not source launchers' \
@@ -205,15 +205,12 @@ if [[ ${1:-} != --runtime-only ]]; then
     version=$(_lock_value version "$production_lock" 2>/dev/null || true)
     source_sha=$(_lock_value source_dotfiles "$production_lock" 2>/dev/null || true)
     dot_sha=$(_lock_value dot "$production_lock" 2>/dev/null || true)
-    pre_profile_dot_sha=$(_lock_value pre_profile_dot "$production_lock" 2>/dev/null || true)
     nvim_sha=$(_lock_value dotfiles_nvim "$production_lock" 2>/dev/null || true)
     dev_sha=$(_lock_value dotfiles_dev "$production_lock" 2>/dev/null || true)
     shdeps_sha=$(_lock_value test_shdeps "$production_lock" 2>/dev/null || true)
     shdeps_release=$(_lock_value test_shdeps_release "$production_lock" 2>/dev/null || true)
     shdeps_installer_sha=$(_lock_value test_shdeps_installer "$production_lock" 2>/dev/null || true)
     agent_rules_sha=$(_lock_value test_agent_rules_sync "$production_lock" 2>/dev/null || true)
-    d4_base_ref=$(_lock_value dotfiles_d4_base_ref "$production_lock" 2>/dev/null || true)
-    d4_base_sha=$(_lock_value dotfiles_d4_base "$production_lock" 2>/dev/null || true)
     _assert_eq 'stack lock format version' 1 "$version"
     _assert_eq 'stack source matches immutable extraction source' \
       "$(<"$source_lock")" "$source_sha"
@@ -242,12 +239,11 @@ if [[ ${1:-} != --runtime-only ]]; then
       $(_test_realpath "$runtime_bin") == $(_test_realpath "$runtime_root/bin/dot") &&
       $runtime_binding_valid -eq 1 &&
       $(git -C "${runtime_root:-/nonexistent}" rev-parse HEAD 2>/dev/null) == "$dot_sha" ]]; then
-      _pass 'full stack integration runs through the exact locked D1 runtime'
+      _pass 'full stack integration runs through the exact locked Dot runtime'
     else
-      _fail 'full stack integration runs through the exact locked D1 runtime'
+      _fail 'full stack integration runs through the exact locked Dot runtime'
     fi
-    for pair in dot:$dot_sha pre_profile_dot:$pre_profile_dot_sha \
-      dotfiles_nvim:$nvim_sha dotfiles_dev:$dev_sha \
+    for pair in dot:$dot_sha dotfiles_nvim:$nvim_sha dotfiles_dev:$dev_sha \
       test_shdeps:$shdeps_sha test_shdeps_installer:$shdeps_installer_sha; do
       name=${pair%%:*}
       sha=${pair#*:}
@@ -267,41 +263,15 @@ if [[ ${1:-} != --runtime-only ]]; then
     else
       _fail 'stack lock pins an immutable Shdeps test release'
     fi
-    if git check-ref-format --branch "$d4_base_ref" >/dev/null 2>&1; then
-      _pass 'D5 stack lock pins a valid D4 base branch'
-    else
-      _fail 'D5 stack lock pins a valid D4 base branch'
-    fi
-    if [[ $d4_base_sha =~ ^[0-9a-f]{40}$ ]]; then
-      _pass 'D5 stack lock pins the full D4 base commit'
-    else
-      _fail 'D5 stack lock pins the full D4 base commit'
-    fi
-    d4_snapshot_ref=$(
-      _source_git rev-parse --verify \
-        refs/dotfiles-test/d4-snapshot 2>/dev/null || true
-    )
-    if [[ -n $d4_snapshot_ref ]]; then
-      _assert_eq 'locked D4 snapshot remains reachable in the test checkout' \
-        "$d4_base_sha" "$d4_snapshot_ref"
-    elif [[ $(_source_git rev-parse --is-shallow-repository) != true ]]; then
-      _assert_eq 'D5 head descends from the locked D4 base commit' \
-        "$d4_base_sha" \
-        "$(_source_git merge-base HEAD "$d4_base_sha" 2>/dev/null || true)"
-    else
-      _fail 'locked D4 snapshot remains reachable in the test checkout'
-    fi
-
     expected_keys=$(printf '%s\n' \
-      version source_dotfiles dot pre_profile_dot dotfiles_nvim dotfiles_dev test_shdeps \
-      test_shdeps_release test_shdeps_installer test_agent_rules_sync \
-      dotfiles_d4_base_ref dotfiles_d4_base | sort)
+      version source_dotfiles dot dotfiles_nvim dotfiles_dev test_shdeps \
+      test_shdeps_release test_shdeps_installer test_agent_rules_sync | sort)
     actual_keys=$(awk -F= '
       NF != 2 || !$1 || !$2 { exit 1 }
       seen[$1]++ { exit 1 }
       { print $1 }
     ' "$production_lock" 2>/dev/null | sort)
-    _assert_eq 'D5 stack lock has the exact key set' "$expected_keys" "$actual_keys"
+    _assert_eq 'stack lock has the exact key set' "$expected_keys" "$actual_keys"
 
     if [[ $dot_sha =~ ^[0-9a-f]{40}$ &&
       $nvim_sha =~ ^[0-9a-f]{40}$ && $dev_sha =~ ^[0-9a-f]{40}$ &&
@@ -358,9 +328,9 @@ if [[ ${1:-} != --runtime-only ]]; then
         _fail 'locked Shdeps release tag peels to its full commit'
       fi
 
-      _assert_eq 'dotfiles-nvim pins the exact D1 runtime' "$dot_sha" \
+      _assert_eq 'dotfiles-nvim pins the exact Dot runtime' "$dot_sha" \
         "$(<"$nvim_checkout/.github/dot.lock")"
-      _assert_eq 'dotfiles-dev pins the exact D1 runtime' "$dot_sha" \
+      _assert_eq 'dotfiles-dev pins the exact Dot runtime' "$dot_sha" \
         "$(<"$dev_checkout/.github/dot.lock")"
       _assert_eq 'dotfiles-nvim extraction source matches stack source' \
         "$source_sha" "$(_capability_source_commit "$nvim_checkout")"
@@ -411,9 +381,9 @@ if [[ ${1:-} != --runtime-only ]]; then
         "$source_home/.local/lib/dotfiles/tests/overlay-profile-ownership-test" \
         --phase d5 --nvim-root "$nvim_checkout" --dev-root "$dev_checkout" \
         >/dev/null; then
-        _pass 'coordinated repositories match the D5 ownership inventories'
+        _pass 'coordinated repositories match the final ownership inventories'
       else
-        _fail 'coordinated repositories match the D5 ownership inventories'
+        _fail 'coordinated repositories match the final ownership inventories'
       fi
 
       nvim_descriptor=$source_home/.config/dot/overlays.d/20-nvim.conf
@@ -551,7 +521,7 @@ printf 'work-available|%s|%s\n' \
 BASH
       )
       composition_rc=$?
-      _assert_exit 'exact D1 resolves the pinned public profile composition' \
+      _assert_exit 'exact Dot resolves the pinned public profile composition' \
         0 "$composition_rc"
       _assert_contains 'base composition keeps optional personal unavailable' \
         'base|personal|personal|' "$composition_state"
@@ -774,7 +744,7 @@ fi
 
 dot_source=${DOT_TEST_DOT_REPOSITORY:-${DOT_TEST_DOT_ROOT:-${DOT_STACK_DOT_ROOT:-}}}
 if [[ -z $dot_source || ! -d $dot_source ]]; then
-  _fail 'local exact D1 source is supplied for stack wrapper tests'
+  _fail 'local exact Dot source is supplied for stack wrapper tests'
   _test_summary
 fi
 shdeps_source=${DOT_TEST_SHDEPS_REPOSITORY:-${DOT_STACK_SHDEPS_REPOSITORY:-https://github.com/cgraf78/shdeps.git}}
@@ -823,7 +793,7 @@ runtime_rc=$?
 _assert_eq 'runtime wrapper executes group successfully' 0 "$runtime_rc"
 _assert_contains 'runtime wrapper prints group and exact head' \
   "group=runtime-probe" "$runtime_output"
-_assert_contains 'runtime wrapper prints locked D1 revision' \
+_assert_contains 'runtime wrapper prints locked Dot revision' \
   "head=$dot_sha" "$runtime_output"
 
 bad_lock=$(_tmpdir)/bad.lock
@@ -869,14 +839,10 @@ git -C "$candidate_seed" add state .config/git/config \
   .local/lib/dotfiles/tests/run-ci-candidate-home
 git -C "$candidate_seed" -c core.hooksPath=/dev/null commit --quiet -m source
 candidate_source_sha=$(git -C "$candidate_seed" rev-parse HEAD)
-printf 'base\n' >"$candidate_seed/state"
+printf 'start\n' >"$candidate_seed/state"
 git -C "$candidate_seed" add state
-git -C "$candidate_seed" -c core.hooksPath=/dev/null commit --quiet -m base
-base_sha=$(git -C "$candidate_seed" rev-parse HEAD)
-printf 'post-base\n' >"$candidate_seed/state"
-git -C "$candidate_seed" add state
-git -C "$candidate_seed" -c core.hooksPath=/dev/null commit --quiet -m post-base
-pr_base_sha=$(git -C "$candidate_seed" rev-parse HEAD)
+git -C "$candidate_seed" -c core.hooksPath=/dev/null commit --quiet -m start
+candidate_start_sha=$(git -C "$candidate_seed" rev-parse HEAD)
 printf 'head\n' >"$candidate_seed/state"
 printf '%s\n' \
   'version=1' \
@@ -888,38 +854,23 @@ printf '%s\n' \
   'test_shdeps_release=20260821-152006-bb438f27' \
   'test_shdeps_installer=0b8c587ee75430724b1aacf97e0f008228f9c4a8' \
   'test_agent_rules_sync=dd9346d2939945a77ab37588c66f81fcbc968c9f' \
-  'dotfiles_d4_base_ref=feature/overlay-profiles-stage' \
-  "dotfiles_d4_base=$base_sha" \
   >"$candidate_seed/.github/overlay-profile-stack.lock"
 git -C "$candidate_seed" add state .github/overlay-profile-stack.lock
 git -C "$candidate_seed" -c core.hooksPath=/dev/null commit --quiet -m head
 candidate_sha=$(git -C "$candidate_seed" rev-parse HEAD)
 candidate_lock=$(_tmpdir)/candidate-stack.lock
-{
-  sed "s/^source_dotfiles=.*/source_dotfiles=$candidate_source_sha/" "$runtime_lock"
-  printf '%s\n' \
-    'dotfiles_d4_base_ref=feature/overlay-profiles-stage' \
-    "dotfiles_d4_base=$base_sha"
-} >"$candidate_lock"
-candidate_tree=$(git -C "$candidate_seed" rev-parse 'HEAD^{tree}')
-unrelated_sha=$(printf 'unrelated\n' |
-  git -C "$candidate_seed" commit-tree "$candidate_tree")
+sed "s/^source_dotfiles=.*/source_dotfiles=$candidate_source_sha/" \
+  "$runtime_lock" >"$candidate_lock"
 git -C "$candidate_seed" remote add origin "$candidate_origin"
 git -C "$candidate_seed" push --quiet origin \
-  "$pr_base_sha:refs/heads/feature/overlay-profiles-stage" \
-  HEAD:refs/heads/feature/overlay-profiles-cutover \
-  "$unrelated_sha:refs/heads/unrelated-cutover"
-git clone --quiet --branch feature/overlay-profiles-cutover \
+  HEAD:refs/heads/profile-candidate
+git clone --quiet --branch profile-candidate \
   "$candidate_origin" "$candidate_checkout"
-git -C "$candidate_checkout" checkout --quiet --detach "$base_sha"
+git -C "$candidate_checkout" checkout --quiet --detach "$candidate_start_sha"
 printf '[safe]\n\tdirectory = %s\n' "$candidate_checkout" \
   >"$candidate_checkout/.gitconfig"
 HOME=$candidate_checkout XDG_CONFIG_HOME=$candidate_checkout/.config \
   git config --global --add safe.directory "$candidate_checkout"
-event_file=$(_tmpdir)/event.json
-printf '{"pull_request":{"base":{"ref":"%s","sha":"%s"}}}\n' \
-  feature/overlay-profiles-stage "$pr_base_sha" >"$event_file"
-
 sentinel_repo=$(_tmpdir)/sentinel
 git init --quiet "$sentinel_repo"
 _git_set_test_identity git -C "$sentinel_repo"
@@ -937,9 +888,7 @@ sentinel_object_dir=$sentinel_repo/.git/objects
 sentinel_shallow=$sentinel_repo/.git/shallow
 
 candidate_output=$(cd "$candidate_checkout" &&
-  GITHUB_ACTIONS=true GITHUB_EVENT_NAME=pull_request \
-    GITHUB_EVENT_PATH=$event_file \
-    GIT_DIR=$sentinel_repo/.git GIT_WORK_TREE=$sentinel_repo \
+  GIT_DIR=$sentinel_repo/.git GIT_WORK_TREE=$sentinel_repo \
     GIT_COMMON_DIR=$sentinel_repo/.git \
     GIT_IMPLICIT_WORK_TREE=0 GIT_PREFIX=sentinel/ \
     GIT_INDEX_FILE=$sentinel_index \
@@ -959,14 +908,12 @@ candidate_output=$(cd "$candidate_checkout" &&
     .local/lib/dotfiles/tests/checkout-ci-candidate 2>&1)
 candidate_rc=$?
 _assert_exit 'candidate checkout: exact detached head succeeds' 0 "$candidate_rc"
-_assert_eq 'candidate checkout: HEAD equals requested event head' \
+_assert_eq 'candidate checkout: HEAD equals requested candidate' \
   "$candidate_sha" "$(git -C "$candidate_checkout" rev-parse HEAD)"
 _assert_contains 'candidate checkout: reports the exact selected head' \
   "head=$candidate_sha" "$candidate_output"
 _assert_eq 'candidate checkout: source content comes from selected head' \
   head "$(<"$candidate_checkout/state")"
-_assert_eq 'candidate checkout: merge base is the locked D4 commit' \
-  "$base_sha" "$(git -C "$candidate_checkout" merge-base HEAD "$base_sha")"
 _assert_eq 'candidate checkout: ignores repository-selection environment' \
   "$sentinel_head" "$(git -C "$sentinel_repo" rev-parse HEAD)"
 _assert_eq 'candidate checkout: leaves the sentinel repository clean' \
@@ -1051,8 +998,6 @@ candidate_home_output=$(
       git --git-dir="$HOME/.dotfiles" cat-file -e "$DOTFILES_SOURCE_SHA^{commit}"
       test "$(git --git-dir="$HOME/.dotfiles" rev-parse \
         refs/dotfiles-test/source-snapshot)" = "$DOTFILES_SOURCE_SHA"
-      test "$(git --git-dir="$HOME/.dotfiles" rev-parse \
-        refs/dotfiles-test/d4-snapshot)" = "$1"
       test -f "$HOME/.local/state/dot/init/completed"
       test "$(git rev-parse HEAD)" = "$DOTFILES_CANDIDATE_SHA"
       test "$(git rev-parse --git-common-dir)" = "$HOME/.dotfiles"
@@ -1078,11 +1023,8 @@ candidate_home_output=$(
       [[ $init_status == *"initialization: complete"* ]]
       "$HOME/.local/share/cgraf78/dot/bin/dot" update >/dev/null
       git --git-dir="$HOME/.dotfiles" cat-file -e "$DOTFILES_SOURCE_SHA^{commit}"
-      git --git-dir="$HOME/.dotfiles" cat-file -e "$1^{commit}"
       test "$(git --git-dir="$HOME/.dotfiles" rev-parse \
         refs/dotfiles-test/source-snapshot)" = "$DOTFILES_SOURCE_SHA"
-      test "$(git --git-dir="$HOME/.dotfiles" rev-parse \
-        refs/dotfiles-test/d4-snapshot)" = "$1"
       for name in GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR \
         GIT_IMPLICIT_WORK_TREE GIT_PREFIX GIT_INDEX_FILE \
         GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES \
@@ -1094,7 +1036,7 @@ candidate_home_output=$(
       done
       test "$GIT_NO_REPLACE_OBJECTS" = 1
       printf "candidate-home-ok\\n"
-    ' _ "$base_sha" 2>&1
+    ' 2>&1
 )
 candidate_home_rc=$?
 _assert_exit 'candidate home: separate-Git execution succeeds' \
@@ -1118,16 +1060,17 @@ _assert_eq 'candidate home: leaves sentinel index unchanged' \
 _assert_file_missing 'candidate home: leaves sentinel shallow state absent' \
   "$sentinel_shallow"
 
-non_pr_checkout=$(_tmpdir)/non-pr-checkout
-git clone --quiet --depth=1 --branch feature/overlay-profiles-cutover \
-  "file://$candidate_origin" "$non_pr_checkout"
-if git -C "$non_pr_checkout" cat-file -e "$base_sha^{commit}" 2>/dev/null; then
-  _fail 'candidate home: non-PR fixture starts without D4 history'
+shallow_checkout=$(_tmpdir)/shallow-checkout
+git clone --quiet --depth=1 --branch profile-candidate \
+  "file://$candidate_origin" "$shallow_checkout"
+if git -C "$shallow_checkout" cat-file -e \
+  "$candidate_source_sha^{commit}" 2>/dev/null; then
+  _fail 'candidate home: shallow fixture starts without source history'
 else
-  _pass 'candidate home: non-PR fixture starts without D4 history'
+  _pass 'candidate home: shallow fixture starts without source history'
 fi
-# shellcheck disable=SC2016 # The child shell expands its positional input.
-non_pr_output=$(cd "$non_pr_checkout" &&
+# shellcheck disable=SC2016 # The child shell expands its isolated environment.
+shallow_output=$(cd "$shallow_checkout" &&
   DOT_TEST=1 DOTFILES_CANDIDATE_SHA=$candidate_sha \
     DOT_STACK_LOCK_PATH=$candidate_lock \
     DOT_STACK_SOURCE_REPOSITORY=$candidate_origin \
@@ -1136,12 +1079,17 @@ non_pr_output=$(cd "$non_pr_checkout" &&
     DOT_STACK_AGENT_RULES_SYNC_REPOSITORY=$agent_rules_source \
     DOT_STACK_SHDEPS_ROOT=$fake_shdeps \
     .local/lib/dotfiles/tests/run-ci-candidate-home \
-    bash -c 'git cat-file -e "$1^{commit}"' _ "$base_sha" 2>&1)
-non_pr_rc=$?
-_assert_exit 'candidate home: shallow non-PR checkout publishes locked D4' \
-  0 "$non_pr_rc"
-_assert_contains 'candidate home: shallow non-PR run reports its installed head' \
-  "head=$candidate_sha" "$non_pr_output"
+    bash -c '
+      set -euo pipefail
+      git cat-file -e "$DOTFILES_SOURCE_SHA^{commit}"
+      test "$(git rev-parse refs/dotfiles-test/source-snapshot)" = \
+        "$DOTFILES_SOURCE_SHA"
+    ' 2>&1)
+shallow_rc=$?
+_assert_exit 'candidate home: shallow checkout publishes extraction source' \
+  0 "$shallow_rc"
+_assert_contains 'candidate home: shallow run reports its installed head' \
+  "head=$candidate_sha" "$shallow_output"
 
 bad_tail_lock=$(_tmpdir)/bad-tail.lock
 sed 's/^test_shdeps=bb438f2741aa6b2f385a1538ff66e8e29739da8a$/test_shdeps=bb438f2741aa6b2f385a1538ff66e8e29739da80/' \
@@ -1202,54 +1150,6 @@ _assert_exit 'candidate checkout: rejects a moving branch name' 1 "$invalid_rc"
 _assert_contains 'candidate checkout: explains invalid immutable revision' \
   'invalid immutable candidate revision' "$invalid_output"
 
-printf '{"pull_request":{"base":{"ref":"%s","sha":"%s"}}}\n' \
-  main "$pr_base_sha" >"$event_file"
-base_ref_output=$(cd "$candidate_checkout" &&
-  GITHUB_ACTIONS=true GITHUB_EVENT_NAME=pull_request \
-    GITHUB_EVENT_PATH=$event_file DOTFILES_CANDIDATE_SHA=$candidate_sha \
-    .local/lib/dotfiles/tests/checkout-ci-candidate 2>&1)
-base_ref_rc=$?
-_assert_exit 'candidate checkout: rejects the wrong PR base branch' \
-  1 "$base_ref_rc"
-_assert_contains 'candidate checkout: explains the PR base branch mismatch' \
-  'pull-request base ref does not match lock' "$base_ref_output"
-
-printf '{"pull_request":{"base":{"ref":"%s","sha":"%s"}}}\n' \
-  feature/overlay-profiles-stage \
-  "$unrelated_sha" >"$event_file"
-base_sha_output=$(cd "$candidate_checkout" &&
-  GITHUB_ACTIONS=true GITHUB_EVENT_NAME=pull_request \
-    GITHUB_EVENT_PATH=$event_file DOTFILES_CANDIDATE_SHA=$candidate_sha \
-    .local/lib/dotfiles/tests/checkout-ci-candidate 2>&1)
-base_sha_rc=$?
-_assert_exit 'candidate checkout: rejects the wrong PR base SHA' \
-  1 "$base_sha_rc"
-_assert_contains 'candidate checkout: explains the PR base SHA mismatch' \
-  'pull-request base is outside the locked D4 history' "$base_sha_output"
-
-printf '{"pull_request":{"base":{"ref":"%s","sha":"%s"}}}\n' \
-  feature/overlay-profiles-stage "$base_sha" >"$event_file"
-merge_base_output=$(cd "$candidate_checkout" &&
-  GITHUB_ACTIONS=true GITHUB_EVENT_NAME=pull_request \
-    GITHUB_EVENT_PATH=$event_file DOTFILES_CANDIDATE_SHA=$unrelated_sha \
-    .local/lib/dotfiles/tests/checkout-ci-candidate 2>&1)
-merge_base_rc=$?
-_assert_exit 'candidate checkout: rejects a head outside the locked D4 history' \
-  1 "$merge_base_rc"
-_assert_contains 'candidate checkout: explains the merge-base mismatch' \
-  'D5 head is not based on the locked D4 commit' "$merge_base_output"
-
-missing_event_output=$(cd "$candidate_checkout" &&
-  GITHUB_ACTIONS=true GITHUB_EVENT_NAME=pull_request \
-    GITHUB_EVENT_PATH=$candidate_checkout/missing-event.json \
-    DOTFILES_CANDIDATE_SHA=$candidate_sha \
-    .local/lib/dotfiles/tests/checkout-ci-candidate 2>&1)
-missing_event_rc=$?
-_assert_exit 'candidate checkout: rejects a D5 PR without an event payload' \
-  1 "$missing_event_rc"
-_assert_contains 'candidate checkout: explains the missing PR event' \
-  'D5 CI requires a pull-request event' "$missing_event_output"
-
 run_ci=$source_home/.local/lib/dotfiles/tests/run-ci
 run_ci_output=$(GITHUB_ACTIONS=true \
   DOTFILES_CANDIDATE_SHA=0000000000000000000000000000000000000000 \
@@ -1267,7 +1167,7 @@ run_ci_output=$(DOT_TEST=1 DOT_STACK_RUNTIME=1 \
   "$run_ci" --validate-only 2>&1)
 run_ci_rc=$?
 _assert_exit 'run-ci: rejects a mismatched runtime origin marker' 1 "$run_ci_rc"
-_assert_contains 'run-ci: reports the mismatched D1 runtime' \
-  'locked D1 runtime assertion failed' "$run_ci_output"
+_assert_contains 'run-ci: reports the mismatched Dot runtime' \
+  'locked Dot runtime assertion failed' "$run_ci_output"
 
 _test_summary

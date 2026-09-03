@@ -113,7 +113,7 @@ if [[ ! -r $dot_root/lib/dot/hook-api.sh ]]; then
   _test_summary
 fi
 
-# Exercise these repository-owned definitions through the real D1 parser. The
+# Exercise these repository-owned definitions through the locked Dot parser. The
 # provider suite owns parser edge cases; this integration assertion owns the
 # exact profile graph shipped by this repository.
 # shellcheck source=/dev/null
