@@ -335,20 +335,19 @@ _assert_contains 'reconcile retains selected eligible companion' \
 _assert_not_contains 'reconcile prunes deselected managed family member' \
   '# dot-managed:overlay-ssh:90-private begin' "$ssh_config"
 
-# A pre-profile runtime calls the newly pulled hook without a stage but does
-# supply its validated, eligible OVERLAYS set. Treat that one compatibility
-# invocation as final reconciliation long enough to update and re-exec.
+# Current Dot always supplies an explicit prepare or reconcile stage. Reject
+# incomplete coordinator state instead of silently choosing destructive final
+# reconciliation semantics.
 unset DOT_PRE_SYNC_STAGE
 OVERLAYS=(
   "personal|$HOME/.dotfiles-personal|https://example.invalid/personal.git|$selected_descriptor|true|git"
   "private|$HOME/.dotfiles-private|https://example.invalid/private.git|$unselected_descriptor|true|git"
 )
-prepare
-ssh_config=$(<"$HOME/.ssh/config")
-_assert_contains 'legacy pre-sync keeps the selected companion' \
-  '# dot-managed:overlay-ssh:personal begin' "$ssh_config"
-_assert_contains 'legacy pre-sync uses every validated overlay record' \
-  '# dot-managed:overlay-ssh:private begin' "$ssh_config"
+if prepare >/dev/null 2>&1; then
+  _fail 'pre-sync requires an explicit coordinator stage'
+else
+  _pass 'pre-sync requires an explicit coordinator stage'
+fi
 
 # shellcheck disable=SC2034 # Consumed dynamically by the sourced pre-sync hook.
 DOT_PRE_SYNC_STAGE=invalid
