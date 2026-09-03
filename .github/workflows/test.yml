@@ -195,11 +195,20 @@ jobs:
           export GIT_TERMINAL_PROMPT=0
           export GIT_SSH_COMMAND='ssh -o BatchMode=yes -o ConnectTimeout=5'
 
+          # The normal installer publishes this API before `dot init`. Expose
+          # the locked copy through the launcher's isolated test-host path so
+          # Shdeps can replace the fixture's real client topology normally.
+          launcher_home=${fixture_home%/*}/launcher-home
+          mkdir -p "$launcher_home/.local/lib"
+          ln -s "$DOT_STACK_DOT_ROOT/lib/dot/public" "$launcher_home/.local/lib/dot"
+          export DOT_TEST_HOST_HOME=$launcher_home
+
           dot init "file://$origin"
           test "$(git --git-dir="$HOME/.dotfiles" rev-parse HEAD)" = "$expected"
           test "$(git --git-dir="$HOME/.dotfiles" config --bool core.bare)" = false
           test "$(git --git-dir="$HOME/.dotfiles" config core.worktree)" = "$HOME"
           dot update
+          unset DOT_TEST_HOST_HOME
           dot doctor
           test "$(git --git-dir="$HOME/.dotfiles" rev-parse HEAD)" = "$expected"
           BASH
