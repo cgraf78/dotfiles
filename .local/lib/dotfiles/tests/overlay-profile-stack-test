@@ -7,6 +7,8 @@ source_home=${DOT_TEST_SOURCE_HOME:-$HOME}
 
 # shellcheck source=helpers.sh
 . "$source_home/.local/lib/dotfiles/tests/helpers.sh"
+# shellcheck source=profile-ownership-policy.sh
+. "$source_home/.local/lib/dotfiles/tests/profile-ownership-policy.sh"
 
 # This suite clones and validates the coordinated pre-merge stack and must use
 # its locked Dot runtime. Normal installed `dot test` runs should remain local
@@ -23,6 +25,7 @@ stack_runtime=$source_home/.local/lib/dotfiles/tests/stack-dot-runtime
 production_lock=$source_home/.github/overlay-profile-stack.lock
 source_lock=$source_home/.local/share/doc/dotfiles/overlay-profile-source.lock
 workflow=$source_home/.github/workflows/test.yml
+ownership_policy=$source_home/.local/lib/dotfiles/tests/profile-ownership-policy.tsv
 
 _source_git() {
   if [[ -d $source_home/.dotfiles ]]; then
@@ -160,6 +163,42 @@ _file_identity() {
   else
     stat -c '%d:%i' "$1"
   fi
+}
+
+_profile_tracked_paths() {
+  local owner=$1 checkout=$2
+  shift 2
+  if [[ $owner == base ]]; then
+    _source_git ls-files -- "$@"
+  else
+    git -C "$checkout" ls-files -- "$@"
+  fi
+}
+
+_profile_policy_violations() {
+  local owner=$1 checkout=$2 prefix=$3 pathspec
+  local pathspecs=()
+  while IFS= read -r pathspec; do
+    pathspecs[${#pathspecs[@]}]=$pathspec
+  done < <(dot_profile_ownership_forbidden \
+    "$ownership_policy" "$owner" "$prefix")
+  _profile_tracked_paths "$owner" "$checkout" "${pathspecs[@]}"
+}
+
+_profile_policy_missing() {
+  local owner=$1 checkout=$2 prefix=$3 family pattern path tracked found
+  tracked=$(_profile_tracked_paths "$owner" "$checkout")
+  while IFS=$'\t' read -r family pattern; do
+    found=0
+    while IFS= read -r path; do
+      # shellcheck disable=SC2053 # Policy rows are intentional Git-style globs.
+      if [[ $path == $pattern ]]; then
+        found=1
+        break
+      fi
+    done <<<"$tracked"
+    ((found == 1)) || printf '%s\t%s\t%s\n' "$owner" "$family" "$pattern"
+  done < <(dot_profile_ownership_owned "$ownership_policy" "$owner" "$prefix")
 }
 
 workflow_content=$(<"$workflow")
@@ -377,6 +416,30 @@ if [[ ${1:-} != --runtime-only ]]; then
       _assert_eq 'top-level and public capability suite names are unique' \
         '' "$duplicate_suites"
 
+      if dot_profile_ownership_policy_validate "$ownership_policy"; then
+        _pass 'steady-state profile ownership policy is valid'
+      else
+        _fail 'steady-state profile ownership policy is valid'
+      fi
+      base_forbidden_paths=$(_profile_policy_violations base "$source_home" '')
+      nvim_forbidden_paths=$(_profile_policy_violations \
+        editor "$nvim_checkout" home/)
+      dev_forbidden_paths=$(_profile_policy_violations \
+        dev "$dev_checkout" home/)
+      _assert_eq 'base excludes editor-, dev-, and local-owned policy paths' \
+        '' "$base_forbidden_paths"
+      _assert_eq 'editor excludes base-, dev-, and local-owned policy paths' \
+        '' "$nvim_forbidden_paths"
+      _assert_eq 'dev excludes base-, editor-, and local-owned policy paths' \
+        '' "$dev_forbidden_paths"
+      missing_owned_paths=$(
+        _profile_policy_missing base "$source_home" ''
+        _profile_policy_missing editor "$nvim_checkout" home/
+        _profile_policy_missing dev "$dev_checkout" home/
+      )
+      _assert_eq 'ownership policy identifies current owner content' \
+        '' "$missing_owned_paths"
+
       if env -u DOT_TEST_REPORTER -u DOT_TEST_RESULT_FILE \
         "$source_home/.local/lib/dotfiles/tests/overlay-profile-ownership-test" \
         --phase d5 --nvim-root "$nvim_checkout" --dev-root "$dev_checkout" \
@@ -470,12 +533,20 @@ HOOK
 
       collision=$(
         {
+          _source_git ls-files
           git -C "$nvim_checkout" ls-files home | sed 's#^home/##'
           git -C "$dev_checkout" ls-files home | sed 's#^home/##'
         } | sort | uniq -d
       )
-      _assert_eq 'public capability payloads have no installed-path collision' \
+      _assert_eq 'public repositories have no installed-path collision' \
         '' "$collision"
+
+      ownership_transfer_test=${DOT_STACK_DOT_ROOT:-${DOT_TEST_DOT_ROOT:-}}/tests/ownership-transfer-test
+      if [[ -x $ownership_transfer_test ]]; then
+        _pass 'Dot keeps executable ownership-transfer coverage'
+      else
+        _fail 'Dot keeps executable ownership-transfer coverage'
+      fi
 
       composition_bin=$stack_tmp/composition-bin
       composition_selectors=$candidate/.config/dot/profile-selectors.local.d

@@ -7,14 +7,28 @@ source_home=${DOT_TEST_SOURCE_HOME:-$HOME}
 
 # shellcheck source=helpers.sh
 . "$source_home/.local/lib/dotfiles/tests/helpers.sh"
+# shellcheck source=profile-ownership-policy.sh
+. "$source_home/.local/lib/dotfiles/tests/profile-ownership-policy.sh"
+
+ownership_policy=$source_home/.local/lib/dotfiles/tests/profile-ownership-policy.tsv
+
+_assert_policy_invalid() {
+  local description=$1 content=$2 fixture
+  fixture=$(_tmpfile)
+  printf '%s' "$content" >"$fixture"
+  if dot_profile_ownership_policy_validate "$fixture" >/dev/null 2>&1; then
+    _fail "$description"
+  else
+    _pass "$description"
+  fi
+}
 
 _base_tracked_paths() {
-  local path=$1
   if [[ -e $source_home/.git || -L $source_home/.git ]]; then
-    git -C "$source_home" ls-files -- "$path" "$path/**"
+    git -C "$source_home" ls-files -- "$@"
   else
     git --git-dir="$source_home/.dotfiles" --work-tree="$source_home" \
-      ls-files -- "$path" "$path/**"
+      ls-files -- "$@"
   fi
 }
 
@@ -46,19 +60,32 @@ else
   _pass 'base controlled PATH excludes Nvim'
 fi
 
-for spec in \
-  'global Git configuration|.config/git/config' \
-  'Nvim configuration|.config/nvim' \
-  'Nvim launcher|.local/bin/nvim' \
-  'development Mise configuration|.config/mise' \
-  'development Git hooks|.local/lib/dotfiles/git-hooks' \
-  'development agent profile|.config/ds/profile.conf' \
-  'development agent launcher|.local/bin/hm' \
-  'development merge hook|.local/lib/dotfiles/merge-hooks.d/codex.sh'; do
-  description=${spec%%|*}
-  path=${spec#*|}
-  _assert_base_unowned "base excludes $description" "$path"
-done
+if dot_profile_ownership_policy_validate "$ownership_policy"; then
+  _pass 'profile ownership policy is valid'
+else
+  _fail 'profile ownership policy is valid'
+fi
+
+_assert_policy_invalid 'ownership policy rejects a malformed header' \
+  $'owner\tfamily\tpathspec\nbase\tprofile-control\t.config/dot/config\n'
+_assert_policy_invalid 'ownership policy rejects an unknown owner' \
+  $'owners\tfamily\tpathspec\nunknown\tprofile-control\t.config/dot/config\n'
+_assert_policy_invalid 'ownership policy rejects an invalid family' \
+  $'owners\tfamily\tpathspec\nbase\tProfile Control\t.config/dot/config\n'
+_assert_policy_invalid 'ownership policy rejects an unsafe pathspec' \
+  $'owners\tfamily\tpathspec\nbase\tprofile-control\t../config\n'
+_assert_policy_invalid 'ownership policy rejects a duplicate pathspec' \
+  $'owners\tfamily\tpathspec\nbase\tone\t.config/dot/config\nbase\tone\t.config/dot/config\n'
+_assert_policy_invalid 'ownership policy keeps each family with one owner set' \
+  $'owners\tfamily\tpathspec\neditor\tnvim\t.config/nvim/init.lua\ndev\tnvim\t.config/nvim/dev.lua\n'
+
+forbidden_pathspecs=()
+while IFS= read -r pathspec; do
+  forbidden_pathspecs[${#forbidden_pathspecs[@]}]=$pathspec
+done < <(dot_profile_ownership_forbidden "$ownership_policy" base)
+base_ownership_violations=$(_base_tracked_paths "${forbidden_pathspecs[@]}")
+_assert_eq 'base excludes editor-, dev-, and local-owned namespaces' \
+  '' "$base_ownership_violations"
 
 deps=$source_home/.config/shdeps/10-deps.conf
 _assert_contains 'base dependencies retain agent-rules-sync' \
