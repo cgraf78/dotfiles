@@ -15,7 +15,7 @@ stack_value() {
 }
 
 verify_d5_pull_request_base() {
-  local base_ref base_sha event_ref event_sha merge_base
+  local base_ref base_sha event_ref event_sha commit merge_base
 
   base_ref=$(stack_value dotfiles_d4_base_ref 2>/dev/null || true)
   base_sha=$(stack_value dotfiles_d4_base 2>/dev/null || true)
@@ -50,19 +50,29 @@ PY
     printf 'checkout-ci-candidate: pull-request base ref does not match lock\n' >&2
     return 1
   }
-  [[ $event_sha == "$base_sha" ]] || {
-    printf 'checkout-ci-candidate: pull-request base SHA does not match lock\n' >&2
+  [[ $event_sha =~ ^[0-9a-f]{40}$ ]] || {
+    printf 'checkout-ci-candidate: invalid pull-request base SHA\n' >&2
     return 1
   }
 
   if [[ $(root_git rev-parse --is-shallow-repository) == true ]]; then
     root_git fetch --quiet --no-tags --unshallow origin \
-      "$candidate_sha" "$base_sha" || return 1
+      "$candidate_sha" "$event_sha" "$base_sha" || return 1
   else
-    root_git fetch --quiet --no-tags origin "$base_sha" || return 1
+    root_git fetch --quiet --no-tags origin "$event_sha" "$base_sha" || return 1
   fi
-  [[ $(root_git cat-file -t "$base_sha" 2>/dev/null) == commit ]] || {
-    printf 'checkout-ci-candidate: D5 base SHA is not a fetched commit\n' >&2
+  for commit in "$event_sha" "$base_sha"; do
+    [[ $(root_git cat-file -t "$commit" 2>/dev/null) == commit ]] || {
+      printf 'checkout-ci-candidate: required base SHA is not a fetched commit\n' >&2
+      return 1
+    }
+  done
+  # The D5 lock records the migration floor, not the forever-current main
+  # commit. Later pull requests may target descendants after D5 is merged.
+  merge_base=$(root_git merge-base "$event_sha" "$base_sha" 2>/dev/null) ||
+    merge_base=
+  [[ $merge_base == "$base_sha" ]] || {
+    printf 'checkout-ci-candidate: pull-request base is outside the locked D4 history\n' >&2
     return 1
   }
   merge_base=$(root_git merge-base "$candidate_sha" "$base_sha" 2>/dev/null) ||

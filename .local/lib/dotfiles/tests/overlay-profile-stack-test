@@ -277,9 +277,20 @@ if [[ ${1:-} != --runtime-only ]]; then
     else
       _fail 'D5 stack lock pins the full D4 base commit'
     fi
-    _assert_eq 'D5 head descends from the locked D4 base commit' \
-      "$d4_base_sha" \
-      "$(_source_git merge-base HEAD "$d4_base_sha" 2>/dev/null || true)"
+    d4_snapshot_ref=$(
+      _source_git rev-parse --verify \
+        refs/dotfiles-test/d4-snapshot 2>/dev/null || true
+    )
+    if [[ -n $d4_snapshot_ref ]]; then
+      _assert_eq 'locked D4 snapshot remains reachable in the test checkout' \
+        "$d4_base_sha" "$d4_snapshot_ref"
+    elif [[ $(_source_git rev-parse --is-shallow-repository) != true ]]; then
+      _assert_eq 'D5 head descends from the locked D4 base commit' \
+        "$d4_base_sha" \
+        "$(_source_git merge-base HEAD "$d4_base_sha" 2>/dev/null || true)"
+    else
+      _fail 'locked D4 snapshot remains reachable in the test checkout'
+    fi
 
     expected_keys=$(printf '%s\n' \
       version source_dotfiles dot pre_profile_dot dotfiles_nvim dotfiles_dev test_shdeps \
@@ -862,6 +873,10 @@ printf 'base\n' >"$candidate_seed/state"
 git -C "$candidate_seed" add state
 git -C "$candidate_seed" -c core.hooksPath=/dev/null commit --quiet -m base
 base_sha=$(git -C "$candidate_seed" rev-parse HEAD)
+printf 'post-base\n' >"$candidate_seed/state"
+git -C "$candidate_seed" add state
+git -C "$candidate_seed" -c core.hooksPath=/dev/null commit --quiet -m post-base
+pr_base_sha=$(git -C "$candidate_seed" rev-parse HEAD)
 printf 'head\n' >"$candidate_seed/state"
 printf '%s\n' \
   'version=1' \
@@ -891,7 +906,7 @@ unrelated_sha=$(printf 'unrelated\n' |
   git -C "$candidate_seed" commit-tree "$candidate_tree")
 git -C "$candidate_seed" remote add origin "$candidate_origin"
 git -C "$candidate_seed" push --quiet origin \
-  "$base_sha:refs/heads/feature/overlay-profiles-stage" \
+  "$pr_base_sha:refs/heads/feature/overlay-profiles-stage" \
   HEAD:refs/heads/feature/overlay-profiles-cutover \
   "$unrelated_sha:refs/heads/unrelated-cutover"
 git clone --quiet --branch feature/overlay-profiles-cutover \
@@ -903,7 +918,7 @@ HOME=$candidate_checkout XDG_CONFIG_HOME=$candidate_checkout/.config \
   git config --global --add safe.directory "$candidate_checkout"
 event_file=$(_tmpdir)/event.json
 printf '{"pull_request":{"base":{"ref":"%s","sha":"%s"}}}\n' \
-  feature/overlay-profiles-stage "$base_sha" >"$event_file"
+  feature/overlay-profiles-stage "$pr_base_sha" >"$event_file"
 
 sentinel_repo=$(_tmpdir)/sentinel
 git init --quiet "$sentinel_repo"
@@ -1034,6 +1049,10 @@ candidate_home_output=$(
       test "$(git --git-dir="$HOME/.dotfiles" symbolic-ref --short HEAD)" = main
       test "$(git --git-dir="$HOME/.dotfiles" config core.worktree)" = "$HOME"
       git --git-dir="$HOME/.dotfiles" cat-file -e "$DOTFILES_SOURCE_SHA^{commit}"
+      test "$(git --git-dir="$HOME/.dotfiles" rev-parse \
+        refs/dotfiles-test/source-snapshot)" = "$DOTFILES_SOURCE_SHA"
+      test "$(git --git-dir="$HOME/.dotfiles" rev-parse \
+        refs/dotfiles-test/d4-snapshot)" = "$1"
       test -f "$HOME/.local/state/dot/init/completed"
       test "$(git rev-parse HEAD)" = "$DOTFILES_CANDIDATE_SHA"
       test "$(git rev-parse --git-common-dir)" = "$HOME/.dotfiles"
@@ -1058,6 +1077,12 @@ candidate_home_output=$(
       init_status=$("$HOME/.local/share/cgraf78/dot/bin/dot" init --status)
       [[ $init_status == *"initialization: complete"* ]]
       "$HOME/.local/share/cgraf78/dot/bin/dot" update >/dev/null
+      git --git-dir="$HOME/.dotfiles" cat-file -e "$DOTFILES_SOURCE_SHA^{commit}"
+      git --git-dir="$HOME/.dotfiles" cat-file -e "$1^{commit}"
+      test "$(git --git-dir="$HOME/.dotfiles" rev-parse \
+        refs/dotfiles-test/source-snapshot)" = "$DOTFILES_SOURCE_SHA"
+      test "$(git --git-dir="$HOME/.dotfiles" rev-parse \
+        refs/dotfiles-test/d4-snapshot)" = "$1"
       for name in GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR \
         GIT_IMPLICIT_WORK_TREE GIT_PREFIX GIT_INDEX_FILE \
         GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES \
@@ -1069,7 +1094,7 @@ candidate_home_output=$(
       done
       test "$GIT_NO_REPLACE_OBJECTS" = 1
       printf "candidate-home-ok\\n"
-    ' 2>&1
+    ' _ "$base_sha" 2>&1
 )
 candidate_home_rc=$?
 _assert_exit 'candidate home: separate-Git execution succeeds' \
@@ -1178,7 +1203,7 @@ _assert_contains 'candidate checkout: explains invalid immutable revision' \
   'invalid immutable candidate revision' "$invalid_output"
 
 printf '{"pull_request":{"base":{"ref":"%s","sha":"%s"}}}\n' \
-  main "$base_sha" >"$event_file"
+  main "$pr_base_sha" >"$event_file"
 base_ref_output=$(cd "$candidate_checkout" &&
   GITHUB_ACTIONS=true GITHUB_EVENT_NAME=pull_request \
     GITHUB_EVENT_PATH=$event_file DOTFILES_CANDIDATE_SHA=$candidate_sha \
@@ -1191,7 +1216,7 @@ _assert_contains 'candidate checkout: explains the PR base branch mismatch' \
 
 printf '{"pull_request":{"base":{"ref":"%s","sha":"%s"}}}\n' \
   feature/overlay-profiles-stage \
-  0000000000000000000000000000000000000000 >"$event_file"
+  "$unrelated_sha" >"$event_file"
 base_sha_output=$(cd "$candidate_checkout" &&
   GITHUB_ACTIONS=true GITHUB_EVENT_NAME=pull_request \
     GITHUB_EVENT_PATH=$event_file DOTFILES_CANDIDATE_SHA=$candidate_sha \
@@ -1200,7 +1225,7 @@ base_sha_rc=$?
 _assert_exit 'candidate checkout: rejects the wrong PR base SHA' \
   1 "$base_sha_rc"
 _assert_contains 'candidate checkout: explains the PR base SHA mismatch' \
-  'pull-request base SHA does not match lock' "$base_sha_output"
+  'pull-request base is outside the locked D4 history' "$base_sha_output"
 
 printf '{"pull_request":{"base":{"ref":"%s","sha":"%s"}}}\n' \
   feature/overlay-profiles-stage "$base_sha" >"$event_file"
