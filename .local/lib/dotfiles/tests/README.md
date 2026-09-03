@@ -12,6 +12,12 @@ tests and doctor checks in their own CI. Outside the bounded Ubuntu installed-
 profile composition gate, top-level CI validates their immutable inventories
 without executing those focused suites again.
 
+Exclusive base, editor, dev, and machine-local namespaces are defined once in
+`profile-ownership-policy.tsv`. The base boundary suite and coordinated stack
+suite both consume that policy, so a capability move cannot leave independent
+allowlists to drift. Executable suite ownership remains defined by each
+repository's `.github/dot-test-suites.txt` inventory.
+
 Run the CI-owned set through the pinned Dot runtime:
 
 ```text
@@ -33,9 +39,8 @@ layout and create a separate clean source worktree before invoking these
 commands. The helper also installs the exact Dot runtime and the immutable
 Shdeps test release through the pinned installer recorded in
 `.github/overlay-profile-stack.lock`. It also installs the exact base-owned
-`agent-rules-sync` provider and retains the frozen source commit needed by
-ownership checks; test fixtures therefore do not depend on a runner's
-pre-existing dotfiles setup.
+`agent-rules-sync` provider; test fixtures therefore do not depend on a
+runner's pre-existing dotfiles setup.
 
 The installed-profile gate runs real unfiltered `dot test --list` discovery
 and then executes `dot test` in isolated base, editor, and dev homes. The

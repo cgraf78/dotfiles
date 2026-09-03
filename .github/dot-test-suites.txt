@@ -13,7 +13,6 @@
 .local/lib/dotfiles/tests/core-update-test
 .local/lib/dotfiles/tests/footprint-test
 .local/lib/dotfiles/tests/harness-isolation-test
-.local/lib/dotfiles/tests/overlay-profile-ownership-test
 .local/lib/dotfiles/tests/overlay-profile-rollout-test
 .local/lib/dotfiles/tests/overlay-profile-stack-test
 .local/lib/dotfiles/tests/prompt-test
