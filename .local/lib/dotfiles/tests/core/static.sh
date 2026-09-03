@@ -53,6 +53,13 @@ dot_core_test_static() {
     "stack-dot-runtime control-plane-run-ci" "$workflow"
   _assert_contains "CI workflow: cold bootstrap uses the locked wrapper" \
     "stack-dot-runtime reproducible-cold-bootstrap" "$workflow"
+  # shellcheck disable=SC2016 # Match literal variables in the workflow shell.
+  _assert_contains "CI workflow: cold bootstrap isolates the locked Dot public API" \
+    'export DOT_TEST_HOST_HOME=$launcher_home' \
+    "$workflow"
+  _assert_contains "CI workflow: cold bootstrap restores installed API validation" \
+    'unset DOT_TEST_HOST_HOME' \
+    "$workflow"
   _assert_contains "CI workflow: runs one Ubuntu installed-profile composition gate" \
     "name: Installed profile composition" "$workflow"
   _assert_contains "CI workflow: executes unfiltered installed profile tests" \
