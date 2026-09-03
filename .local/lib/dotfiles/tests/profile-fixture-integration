@@ -33,6 +33,7 @@ lock_value() {
 }
 
 dot_sha=$(lock_value dot 2>/dev/null || true)
+source_snapshot_sha=$(lock_value source_dotfiles 2>/dev/null || true)
 nvim_sha=$(lock_value dotfiles_nvim 2>/dev/null || true)
 dev_sha=$(lock_value dotfiles_dev 2>/dev/null || true)
 cutover_sha=$(lock_value dotfiles_d4_base 2>/dev/null || true)
@@ -53,6 +54,11 @@ else
   _test_summary
 fi
 
+[[ $source_snapshot_sha =~ ^[0-9a-f]{40}$ ]] || {
+  _fail 'profile fixture lock contains a full source revision'
+  _test_summary
+}
+_pass 'profile fixture lock contains a full source revision'
 for sha in "$nvim_sha" "$dev_sha" "$agent_rules_sha"; do
   [[ $sha =~ ^[0-9a-f]{40}$ ]] || {
     _fail 'profile fixture lock contains full capability revisions'
@@ -211,6 +217,12 @@ _assert_eq 'base fixture origin accepts shallow source history' true \
   "$("$git_bin" --git-dir="$base_origin" config --bool --get \
     receive.shallowUpdate)"
 "$git_bin" -C "$base_seed" push --quiet "$base_origin" HEAD:refs/heads/main
+"$git_bin" -C "$source_home" push --quiet "$base_origin" \
+  "$source_snapshot_sha:refs/dotfiles-test/source-snapshot"
+if [[ $cutover_phase -eq 1 ]]; then
+  "$git_bin" -C "$source_home" push --quiet "$base_origin" \
+    "$cutover_sha:refs/dotfiles-test/d4-snapshot"
+fi
 "$git_bin" --git-dir="$base_origin" symbolic-ref HEAD refs/heads/main
 
 "$git_bin" config --file "$git_config" \
@@ -362,6 +374,14 @@ EOF
 prepare_home() {
   local profile=$1 home=$2 selector init_log init_status
   "$git_bin" clone --quiet "file://$base_origin" "$home" || return 1
+  "$git_bin" -C "$home" fetch --quiet --no-tags --update-shallow origin \
+    refs/dotfiles-test/source-snapshot:refs/dotfiles-test/source-snapshot ||
+    return 1
+  if [[ $cutover_phase -eq 1 ]]; then
+    "$git_bin" -C "$home" fetch --quiet --no-tags --update-shallow origin \
+      refs/dotfiles-test/d4-snapshot:refs/dotfiles-test/d4-snapshot ||
+      return 1
+  fi
 
   # The fixture deliberately disables dependency installation. Supply the
   # base-owned tmux command boundaries without installing their full provider

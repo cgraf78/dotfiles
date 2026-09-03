@@ -355,11 +355,13 @@ ci_git clone --quiet --separate-git-dir="$home/.dotfiles" \
   "file://$origin" "$home"
 ci_git --git-dir="$home/.dotfiles" config core.bare false
 ci_git --git-dir="$home/.dotfiles" config core.worktree "$home"
-snapshot_fetches=("$source_sha")
+# Keep historical fixture commits reachable after `dot update` rewrites
+# FETCH_HEAD while the installed-profile suites are still using them.
+snapshot_fetches=("$source_sha:refs/dotfiles-test/source-snapshot")
 if [[ -n $d4_sha ]]; then
-  snapshot_fetches+=("$d4_sha")
+  snapshot_fetches+=("$d4_sha:refs/dotfiles-test/d4-snapshot")
 fi
-ci_git --git-dir="$home/.dotfiles" fetch --quiet --no-tags origin \
+ci_git --git-dir="$home/.dotfiles" fetch --quiet --no-tags --update-shallow origin \
   "${snapshot_fetches[@]}"
 
 installed_sha=$(ci_git --git-dir="$home/.dotfiles" rev-parse HEAD)
