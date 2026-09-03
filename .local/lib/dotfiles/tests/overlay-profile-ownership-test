@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Validate the locked dotfiles split inventories.
 
-The manifests are intentionally data, not extraction code.  This validator
-keeps their schema and ownership invariants executable while allowing the D4
-staging tree to retain capability payload until the final D5 cutover.
+The manifests are intentionally historical audit data, not extraction code.
+This validator keeps their schema and final ownership invariants executable;
+D4 and D5 refer only to the recorded extraction phases.
 """
 
 from __future__ import annotations

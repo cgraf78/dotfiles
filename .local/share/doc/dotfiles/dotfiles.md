@@ -20,8 +20,8 @@ capabilities and environment-specific files.
 - `base` is the smallest profile. `editor` includes `base` plus the public Nvim
   overlay; `dev` includes `editor` plus the public development overlay and the
   optional private work overlay. The optional personal overlay is part of
-  `base`. The initial compatibility rollout configures `dev` as the no-selector
-  default so existing machines retain their full environment.
+  `base`. This repository's root-global selector makes `dev` the default when
+  no more-specific selector matches.
 - `~/.local/lib/dotfiles` is the dotfiles client's executable policy runtime.
   The standalone Dot checkout and its public API remain separate.
 
@@ -126,10 +126,10 @@ Selectors can match a user, a host, or both, so two users on one machine may
 choose different profiles. A combined user-and-host match overrides broader
 user-only or host-only defaults; conflicting matches at the winning specificity
 fail before final overlay mutation. No match uses the root config's
-`default_profile`, which defaults to `base`. For compatibility with clients
-that predate profiles, the initial rollout instead tracks a root-global `dev`
-selector; a later fleet migration can remove it after explicit selectors are
-ready. See
+`default_profile`, which defaults to `base`. This repository currently tracks
+a root-global `dev` selector. A later policy change may replace it with an
+`editor` selector while machine-local or personal records keep selected
+accounts on `dev`. See
 [`profile-selectors.d/README.md`](../../../../.config/dot/profile-selectors.d/README.md)
 for the data format and safe local-file rules.
 
@@ -158,15 +158,15 @@ only on selected repositories that already exist.
 | `dev` | about 2.5--4.5 GiB cumulative before project build outputs |
 
 The locked integration fixture measures checkout, configuration, and
-control-plane payloads for all three profiles and compares them with the D4
-monolith. The editor overlay CI separately measures the active Nvim graph.
+control-plane payloads for all three profiles. The editor overlay CI
+separately measures the active Nvim graph.
 The dev range remains an installation estimate rather than a claimed clean
 measurement. Optional private overlays, host package-manager stores,
 language/package caches, and project build outputs are reported separately or
 excluded so machine history does not distort the profile comparison. The base
 fallback path is an explicit exception to the original 500 MiB target because
-the three retained base-owned font families alone use about 463 MiB; this
-cutover does not move or trim them. Native package-manager paths vary by
+the three retained base-owned font families alone use about 463 MiB. Native
+package-manager paths vary by
 platform and share system stores, so their exact incremental sizes are reported
 as platform context rather than attributed to the profile total.
 

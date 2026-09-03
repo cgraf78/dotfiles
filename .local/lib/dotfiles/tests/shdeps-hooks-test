@@ -34,7 +34,7 @@ for _base_hook in cgraf78/dot eza nerd-fonts rcaloras/bash-preexec \
   fi
 done
 
-# The cutover leaves only base-owned custom hooks in the aggregation repo.
+# The aggregation repository owns only base custom hooks.
 while IFS= read -r _hook_path; do
   _base_hook=${_hook_path#.config/shdeps/hooks.d/}
   _base_hook=${_base_hook%.sh}
@@ -42,7 +42,7 @@ while IFS= read -r _hook_path; do
     rcaloras/bash-preexec tmux tmux-plugins/tmux-resurrect wezterm xclip)"; then
     continue
   else
-    _fail "Shdeps: capability hook is absent after cutover: $_base_hook"
+    _fail "Shdeps: capability hook is absent from base: $_base_hook"
   fi
 done < <(_base_source_git ls-files '.config/shdeps/hooks.d/*.sh' \
   '.config/shdeps/hooks.d/**/*.sh')
@@ -63,9 +63,9 @@ for _capability_dependency in neovim/neovim cgraf78/agentguard \
   cgraf78/vscode-exts; do
   if awk -v dependency="$_capability_dependency" '$1 == dependency { found=1 }
     END { exit found ? 0 : 1 }' "$REAL_HOME/.config/shdeps/10-deps.conf"; then
-    _fail "Shdeps: capability declaration is absent after cutover: $_capability_dependency"
+    _fail "Shdeps: capability declaration is absent from base: $_capability_dependency"
   else
-    _pass "Shdeps: capability declaration is absent after cutover: $_capability_dependency"
+    _pass "Shdeps: capability declaration is absent from base: $_capability_dependency"
   fi
 done
 

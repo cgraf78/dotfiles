@@ -74,13 +74,13 @@ DOT_TEST_REAL_WC=$real_wc
 export PATH DOT_TEST_REAL_WC
 
 first=$(DOT_FOOTPRINT_NATIVE_ROOT=$native \
-  "$measure" --phase pre-cutover-monolith --profile base "$fixture")
+  "$measure" --phase fixture --profile base "$fixture")
 second=$(DOT_FOOTPRINT_NATIVE_ROOT=$native \
-  "$measure" --phase pre-cutover-monolith --profile base "$fixture")
+  "$measure" --phase fixture --profile base "$fixture")
 _assert_eq 'unchanged fixture measurement is deterministic' "$first" "$second"
 
 _assert_contains 'measurement records format version' 'version=1' "$first"
-_assert_contains 'measurement records phase' 'phase=pre-cutover-monolith' "$first"
+_assert_contains 'measurement records phase' 'phase=fixture' "$first"
 _assert_contains 'measurement records profile' 'profile=base' "$first"
 _assert_contains 'Git checkout and config payload is counted' \
   $'git_checkout_config\t15\tmeasured' "$first"
@@ -104,7 +104,7 @@ _assert_eq 'measurement categories are sorted' \
   $'git_checkout_config\nlanguage_caches\nmise\nnative_packages\nnvim\noptional_private_overlays\nuser_managed' \
   "$categories"
 
-unmeasured=$("$measure" --phase pre-cutover-monolith --profile editor "$fixture")
+unmeasured=$("$measure" --phase fixture --profile editor "$fixture")
 _assert_contains 'unavailable native package payload is explicit' \
   $'native_packages\t0\tunmeasured' "$unmeasured"
 

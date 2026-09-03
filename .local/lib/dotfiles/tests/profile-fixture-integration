@@ -36,9 +36,6 @@ dot_sha=$(lock_value dot 2>/dev/null || true)
 source_snapshot_sha=$(lock_value source_dotfiles 2>/dev/null || true)
 nvim_sha=$(lock_value dotfiles_nvim 2>/dev/null || true)
 dev_sha=$(lock_value dotfiles_dev 2>/dev/null || true)
-cutover_sha=$(lock_value dotfiles_d4_base 2>/dev/null || true)
-cutover_phase=0
-[[ $cutover_sha =~ ^[0-9a-f]{40}$ ]] && cutover_phase=1
 shdeps_sha=$(lock_value test_shdeps 2>/dev/null || true)
 shdeps_release=$(lock_value test_shdeps_release 2>/dev/null || true)
 agent_rules_sha=$(lock_value test_agent_rules_sync 2>/dev/null || true)
@@ -48,9 +45,9 @@ if [[ ${DOT_STACK_RUNTIME:-0} == 1 &&
   ${DOT_STACK_DOT_ROOT:-} == /* &&
   ${DOT_STACK_DOT_BIN:-} == "${DOT_STACK_DOT_ROOT:-}/bin/dot" &&
   $(git -C "${DOT_STACK_DOT_ROOT:-/nonexistent}" rev-parse HEAD 2>/dev/null) == "$dot_sha" ]]; then
-  _pass "$expected_group uses the exact locked D1 runtime"
+  _pass "$expected_group uses the exact locked Dot runtime"
 else
-  _fail "$expected_group uses the exact locked D1 runtime"
+  _fail "$expected_group uses the exact locked Dot runtime"
   _test_summary
 fi
 
@@ -219,10 +216,6 @@ _assert_eq 'base fixture origin accepts shallow source history' true \
 "$git_bin" -C "$base_seed" push --quiet "$base_origin" HEAD:refs/heads/main
 "$git_bin" -C "$source_home" push --quiet "$base_origin" \
   "$source_snapshot_sha:refs/dotfiles-test/source-snapshot"
-if [[ $cutover_phase -eq 1 ]]; then
-  "$git_bin" -C "$source_home" push --quiet "$base_origin" \
-    "$cutover_sha:refs/dotfiles-test/d4-snapshot"
-fi
 "$git_bin" --git-dir="$base_origin" symbolic-ref HEAD refs/heads/main
 
 "$git_bin" config --file "$git_config" \
@@ -377,11 +370,6 @@ prepare_home() {
   "$git_bin" -C "$home" fetch --quiet --no-tags --update-shallow origin \
     refs/dotfiles-test/source-snapshot:refs/dotfiles-test/source-snapshot ||
     return 1
-  if [[ $cutover_phase -eq 1 ]]; then
-    "$git_bin" -C "$home" fetch --quiet --no-tags --update-shallow origin \
-      refs/dotfiles-test/d4-snapshot:refs/dotfiles-test/d4-snapshot ||
-      return 1
-  fi
 
   # The fixture deliberately disables dependency installation. Supply the
   # base-owned tmux command boundaries without installing their full provider
@@ -530,18 +518,9 @@ assert_tmux_composition() {
   _assert_contains "$profile composed tmux retains base tab movement" \
     'termnav navigate tab-move left' "$move"
   if [[ $profile == base ]]; then
-    if [[ $cutover_phase -eq 1 ]]; then
-      _assert_not_contains 'base composed tmux excludes editor detection' \
-        'fzf' "$move"
-      _assert_eq 'base composed tmux excludes editor pane navigation' '' "$left"
-    else
-      # D4 intentionally retains the monolithic tmux payload.  D5 introduces
-      # the physical split and enables the strict base/editor boundary below.
-      _assert_contains 'staging base retains legacy editor detection' \
-        'fzf' "$move"
-      _assert_contains 'staging base retains legacy pane navigation' \
-        'termnav navigate pane-select left' "$left"
-    fi
+    _assert_not_contains 'base composed tmux excludes editor detection' \
+      'fzf' "$move"
+    _assert_eq 'base composed tmux excludes editor pane navigation' '' "$left"
   else
     _assert_contains "$profile composed tmux adds editor detection" 'fzf' "$move"
     _assert_contains "$profile composed tmux adds editor pane navigation" \
@@ -698,7 +677,7 @@ for profile in base editor dev; do
           rev-parse --is-shallow-repository)"
       footprint_output=$(
         "$source_home/.local/lib/dotfiles/tests/measure-profile-footprint" \
-          --phase post-cutover-clean-fixture --profile "$profile" "$home"
+          --phase clean-profile-fixture --profile "$profile" "$home"
       )
       printf '%s\n' "$footprint_output"
       footprint_total=$(printf '%s\n' "$footprint_output" |
@@ -713,46 +692,12 @@ for profile in base editor dev; do
 done
 
 if [[ $mode == footprint ]]; then
-  d4_sha=$(lock_value dotfiles_d4_base 2>/dev/null || true)
-  baseline_total=
-  baseline_home=$fixture_root/home-pre-cutover-monolith
-  mkdir -p "$baseline_home"
-  if [[ $d4_sha =~ ^[0-9a-f]{40}$ ]] &&
-    "$git_bin" -C "$baseline_home" init --quiet --bare .dotfiles &&
-    "$git_bin" --git-dir="$baseline_home/.dotfiles" remote add origin \
-      "file://$source_home" &&
-    "$git_bin" --git-dir="$baseline_home/.dotfiles" fetch --quiet --depth=1 \
-      origin "$d4_sha" &&
-    "$git_bin" --git-dir="$baseline_home/.dotfiles" config core.bare false &&
-    "$git_bin" --git-dir="$baseline_home/.dotfiles" config core.worktree "$baseline_home" &&
-    "$git_bin" --git-dir="$baseline_home/.dotfiles" \
-      --work-tree="$baseline_home" checkout --quiet --force FETCH_HEAD &&
-    install_dot_runtime "$baseline_home" &&
-    install_shdeps_runtime "$baseline_home"; then
-    baseline_output=$(
-      "$source_home/.local/lib/dotfiles/tests/measure-profile-footprint" \
-        --phase pre-cutover-monolith --profile dev "$baseline_home"
-    )
-    printf '%s\n' "$baseline_output"
-    baseline_total=$(printf '%s\n' "$baseline_output" |
-      awk -F '\t' '$1 == "public_total" { print $2 }')
-    _pass 'footprint comparison uses the exact locked D4 baseline'
-  else
-    _fail 'footprint comparison uses the exact locked D4 baseline'
-  fi
-
   footprint_limit=$((500 * 1024 * 1024))
   if [[ $base_footprint =~ ^[0-9]+$ ]] &&
     ((base_footprint <= footprint_limit)); then
     _pass 'clean base repository and control-plane payload stays within 500 MiB'
   else
     _fail 'clean base repository and control-plane payload stays within 500 MiB'
-  fi
-  if [[ $baseline_total =~ ^[0-9]+$ ]] &&
-    ((baseline_total >= base_footprint)); then
-    _pass 'D4 baseline includes the same installed control-plane substrate'
-  else
-    _fail 'D4 baseline includes the same installed control-plane substrate'
   fi
   editor_increment=$((editor_footprint - base_footprint))
   ((editor_increment < 0)) && editor_increment=0
