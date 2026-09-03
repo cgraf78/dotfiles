@@ -18,29 +18,36 @@ suite both consume that policy, so a capability move cannot leave independent
 allowlists to drift. Executable suite ownership remains defined by each
 repository's `.github/dot-test-suites.txt` inventory.
 
-Run the CI-owned set through the pinned Dot runtime:
+Run the CI-owned set through one Dot snapshot resolved from current `main`:
 
 ```text
 .local/lib/dotfiles/tests/stack-dot-runtime control-plane-run-ci -- \
-  .local/lib/dotfiles/tests/run-ci
+  .local/lib/dotfiles/tests/run-ci-candidate-home \
+    .local/lib/dotfiles/tests/run-ci
 .local/lib/dotfiles/tests/stack-dot-runtime profile-fixture-update -- \
-  .local/lib/dotfiles/tests/profile-fixture-integration update
+  .local/lib/dotfiles/tests/run-ci-candidate-home \
+    .local/lib/dotfiles/tests/profile-fixture-integration update
 .local/lib/dotfiles/tests/stack-dot-runtime profile-doctor -- \
-  .local/lib/dotfiles/tests/profile-fixture-integration doctor
+  .local/lib/dotfiles/tests/run-ci-candidate-home \
+    .local/lib/dotfiles/tests/profile-fixture-integration doctor
 .local/lib/dotfiles/tests/stack-dot-runtime installed-profile-dot-test -- \
-  .local/lib/dotfiles/tests/profile-fixture-integration test
+  .local/lib/dotfiles/tests/run-ci-candidate-home \
+    .local/lib/dotfiles/tests/profile-fixture-integration test
 .local/lib/dotfiles/tests/stack-dot-runtime profile-footprint-fixtures -- \
-  .local/lib/dotfiles/tests/profile-fixture-integration footprint
+  .local/lib/dotfiles/tests/run-ci-candidate-home \
+    .local/lib/dotfiles/tests/profile-fixture-integration footprint
 ```
 
 Shared CI first checks out the immutable pull-request head, then uses
 `run-ci-candidate-home` to clone that commit into Dot's normal separate-Git
 layout and create a separate clean source worktree before invoking these
-commands. The helper also installs the exact Dot runtime and the immutable
-Shdeps test release through the pinned installer recorded in
-`.github/overlay-profile-stack.lock`. It also installs the exact base-owned
-`agent-rules-sync` provider; test fixtures therefore do not depend on a
-runner's pre-existing dotfiles setup.
+commands. At the start of each invocation, `stack-dot-runtime` resolves Dot's
+current `main` to one commit and every nested command reuses that exact
+snapshot. The helper installs Shdeps through that Dot snapshot's trusted
+bootstrap record and resolves the current base-owned `agent-rules-sync`
+provider. Test fixtures therefore exercise the same current repository set as
+`dot update` without depending on a runner's pre-existing dotfiles setup or
+maintainer-updated cross-repository SHA files.
 
 The installed-profile gate runs real unfiltered `dot test --list` discovery
 and then executes `dot test` in isolated base, editor, and dev homes. The

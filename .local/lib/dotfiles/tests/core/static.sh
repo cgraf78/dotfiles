@@ -49,12 +49,12 @@ dot_core_test_static() {
     '.local/lib/dotfiles/tests/checkout-ci-candidate' "$workflow"
   _assert_contains "CI workflow: prepares the exact Termux candidate head" \
     'termux-host-command:' "$workflow"
-  _assert_contains "CI workflow: every Dot invocation enters the locked wrapper" \
+  _assert_contains "CI workflow: every Dot invocation enters the resolved wrapper" \
     "stack-dot-runtime control-plane-run-ci" "$workflow"
-  _assert_contains "CI workflow: cold bootstrap uses the locked wrapper" \
+  _assert_contains "CI workflow: cold bootstrap uses the resolved wrapper" \
     "stack-dot-runtime reproducible-cold-bootstrap" "$workflow"
   # shellcheck disable=SC2016 # Match literal variables in the workflow shell.
-  _assert_contains "CI workflow: cold bootstrap isolates the locked Dot public API" \
+  _assert_contains "CI workflow: cold bootstrap isolates the resolved Dot public API" \
     'export DOT_TEST_HOST_HOME=$launcher_home' \
     "$workflow"
   _assert_contains "CI workflow: cold bootstrap restores installed API validation" \

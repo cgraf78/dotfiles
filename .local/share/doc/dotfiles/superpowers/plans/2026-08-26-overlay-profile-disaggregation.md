@@ -1,12 +1,14 @@
 # Dotfiles Overlay Profiles and Capability Split Implementation Plan
 
 **Status (2026-09-03):** Complete. The extraction snapshots, frozen ownership
-inventories, and source-provenance locks described below were temporary rollout
-controls and were retired after the fleet cutover. Current boundaries are
-enforced by the semantic profile ownership policy, per-repository suite
-inventories, the coordinated stack lock, and ownership-transfer tests. The
-remaining text records the original implementation plan, not current operating
-procedure.
+inventories, source-provenance locks, coordinated stack lock, and capability
+provider locks described below were temporary rollout controls and were retired
+after the fleet cutover. Current boundaries are enforced by the semantic
+profile ownership policy, per-repository suite inventories, current-`main`
+composition/compatibility tests, and ownership-transfer tests. Each CI wrapper
+invocation resolves moving repository refs once and uses the resulting commits
+for the rest of that invocation. The remaining text records the original
+implementation plan, not current operating procedure.
 
 **Goal:** Introduce progressively larger `base`, `editor`, and `dev` profiles
 without changing existing-machine behavior during the initial cutover. The

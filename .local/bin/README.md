@@ -4,7 +4,7 @@ This directory contains thin, always-active command entry points. Reusable
 implementation belongs in its owning repository or under
 `~/.local/lib/dotfiles`.
 
-- `dot` enters the standalone locked Dot runtime.
+- `dot` enters the standalone Dot runtime selected by the client.
 - `git` routes paths in the home-backed client repository to its Git directory
   and passes ordinary repositories to system Git. Git is present in `base` for
   repository synchronization; global Git workflow configuration belongs to the

@@ -27,8 +27,8 @@ jobs:
         set -euo pipefail
         export DOTFILES_CANDIDATE_SHA='${{ github.event.pull_request.head.sha || github.sha }}'
         .local/lib/dotfiles/tests/checkout-ci-candidate
-        .local/lib/dotfiles/tests/run-ci-candidate-home \
-          .local/lib/dotfiles/tests/stack-dot-runtime control-plane-run-ci -- \
+        .local/lib/dotfiles/tests/stack-dot-runtime control-plane-run-ci -- \
+          .local/lib/dotfiles/tests/run-ci-candidate-home \
             .local/lib/dotfiles/tests/run-ci
         if [[ ${RUNNER_OS:-} == Linux ]]; then
           for mode in update doctor; do
@@ -36,19 +36,19 @@ jobs:
               update) group=profile-fixture-update ;;
               doctor) group=profile-doctor ;;
             esac
-            .local/lib/dotfiles/tests/run-ci-candidate-home \
-              .local/lib/dotfiles/tests/stack-dot-runtime "$group" -- \
+            .local/lib/dotfiles/tests/stack-dot-runtime "$group" -- \
+              .local/lib/dotfiles/tests/run-ci-candidate-home \
                 .local/lib/dotfiles/tests/profile-fixture-integration "$mode"
           done
         fi
       # Keep this Android smoke on the base-owned payload and run it through
-      # the exact locked Dot provider.
+      # one exact Dot snapshot resolved at job start.
       termux-command: |-
         set -euo pipefail
         export DOTFILES_CANDIDATE_SHA='${{ github.event.pull_request.head.sha || github.sha }}'
         test "$(git rev-parse HEAD)" = "$DOTFILES_CANDIDATE_SHA"
-        .local/lib/dotfiles/tests/run-ci-candidate-home \
-          .local/lib/dotfiles/tests/stack-dot-runtime control-plane-run-ci -- \
+        .local/lib/dotfiles/tests/stack-dot-runtime control-plane-run-ci -- \
+          .local/lib/dotfiles/tests/run-ci-candidate-home \
             bash -c '
               set -euo pipefail
               unset XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME XDG_RUNTIME_DIR
@@ -140,11 +140,11 @@ jobs:
           set -euo pipefail
           export DOTFILES_CANDIDATE_SHA='${{ github.event.pull_request.head.sha || github.sha }}'
           .local/lib/dotfiles/tests/checkout-ci-candidate
-          .local/lib/dotfiles/tests/run-ci-candidate-home \
-            .local/lib/dotfiles/tests/stack-dot-runtime installed-profile-dot-test -- \
+          .local/lib/dotfiles/tests/stack-dot-runtime installed-profile-dot-test -- \
+            .local/lib/dotfiles/tests/run-ci-candidate-home \
               .local/lib/dotfiles/tests/profile-fixture-integration test
-          .local/lib/dotfiles/tests/run-ci-candidate-home \
-            .local/lib/dotfiles/tests/stack-dot-runtime profile-footprint-fixtures -- \
+          .local/lib/dotfiles/tests/stack-dot-runtime profile-footprint-fixtures -- \
+            .local/lib/dotfiles/tests/run-ci-candidate-home \
               .local/lib/dotfiles/tests/profile-fixture-integration footprint
 
   cold-bootstrap:
@@ -196,7 +196,7 @@ jobs:
           export GIT_SSH_COMMAND='ssh -o BatchMode=yes -o ConnectTimeout=5'
 
           # The normal installer publishes this API before `dot init`. Expose
-          # the locked copy through the launcher's isolated test-host path so
+          # the resolved copy through the launcher's isolated test-host path so
           # Shdeps can replace the fixture's real client topology normally.
           launcher_home=${fixture_home%/*}/launcher-home
           mkdir -p "$launcher_home/.local/lib"
