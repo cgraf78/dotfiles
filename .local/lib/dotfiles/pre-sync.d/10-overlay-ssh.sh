@@ -4,14 +4,11 @@
 # syntax, identity-file policy, and managed markers remain in dotfiles.
 
 prepare() {
-  local stage=${DOT_PRE_SYNC_STAGE:-reconcile}
+  local stage=${DOT_PRE_SYNC_STAGE-}
   local destination entry name path url descriptor optional sync extra
   local companion origin body target_host proxy_cmd block
   local -a blocks=()
 
-  # A pre-profile Dot runtime supplies the same validated OVERLAYS records but
-  # no stage. Treat only that absent value as its historical one-pass
-  # reconciliation so the provider can update and re-exec the new runtime.
   case $stage in
     prepare | reconcile) ;;
     *)

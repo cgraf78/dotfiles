@@ -157,15 +157,8 @@ unset XDG_CONFIG_HOME XDG_STATE_HOME XDG_CACHE_HOME XDG_DATA_HOME XDG_RUNTIME_DI
 
 # shellcheck source=/dev/null
 . "$dot_root/lib/dot/public/xdg.sh"
-# The standalone worker gained a required one-use overlay context after this
-# pre-profile client was published. Keep this compatibility test runnable with
-# both sides of that independently deployable boundary.
-client_worker_context=0
-if [[ -r $dot_root/lib/dot/overlay-context.sh ]]; then
-  # shellcheck source=/dev/null
-  . "$dot_root/lib/dot/overlay-context.sh"
-  client_worker_context=1
-fi
+# shellcheck source=/dev/null
+. "$dot_root/lib/dot/overlay-context.sh"
 # shellcheck source=/dev/null
 . "$dot_root/lib/dot/extension-worker-launch.sh"
 
@@ -180,19 +173,14 @@ _client_worker_run() {
   result=$temporary/result
   : >"$result"
   chmod 0600 "$result"
-  if [[ $client_worker_context -eq 1 ]]; then
-    [[ $mode != pre-sync ]] || set_kind=eligible
-    _dot_overlay_context_create "$temporary" "$mode" "$set_kind" "$stage" \
-      "${records[@]+"${records[@]}"}" || return 1
-    context=$REPLY_PATH
-    token=$REPLY_TOKEN
-    output=$(PATH=${CLIENT_WORKER_PATH:-/usr/bin:/bin} _dot_extension_worker_run \
-      "$mode" "$script" "$temporary" "$result" "$context" "$token" \
-      2>&1) || rc=$?
-  else
-    output=$(PATH=${CLIENT_WORKER_PATH:-/usr/bin:/bin} _dot_extension_worker_run \
-      "$mode" "$script" "$temporary" "$result" 2>&1) || rc=$?
-  fi
+  [[ $mode != pre-sync ]] || set_kind=eligible
+  _dot_overlay_context_create "$temporary" "$mode" "$set_kind" "$stage" \
+    "${records[@]+"${records[@]}"}" || return 1
+  context=$REPLY_PATH
+  token=$REPLY_TOKEN
+  output=$(PATH=${CLIENT_WORKER_PATH:-/usr/bin:/bin} _dot_extension_worker_run \
+    "$mode" "$script" "$temporary" "$result" "$context" "$token" \
+    2>&1) || rc=$?
   if [[ -n $output ]]; then
     printf '%s\n' "$output" >&2
     return 1
