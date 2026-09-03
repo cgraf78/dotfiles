@@ -23,7 +23,6 @@ fi
 
 stack_runtime=$source_home/.local/lib/dotfiles/tests/stack-dot-runtime
 production_lock=$source_home/.github/overlay-profile-stack.lock
-source_lock=$source_home/.local/share/doc/dotfiles/overlay-profile-source.lock
 workflow=$source_home/.github/workflows/test.yml
 ownership_policy=$source_home/.local/lib/dotfiles/tests/profile-ownership-policy.tsv
 
@@ -59,16 +58,6 @@ _checkout_exact() {
   git -C "$destination" fetch --quiet --no-tags origin "$sha" || return 1
   git -C "$destination" checkout --quiet --detach "$sha" || return 1
   [[ $(git -C "$destination" rev-parse HEAD) == "$sha" ]]
-}
-
-_capability_source_commit() {
-  local checkout=$1
-  _lock_value commit "$checkout/.github/dotfiles-source.lock"
-}
-
-_capability_source_value() {
-  local checkout=$1 key=$2
-  _lock_value "$key" "$checkout/.github/dotfiles-source.lock"
 }
 
 _capability_suite_inventory() {
@@ -242,7 +231,6 @@ if [[ ${1:-} != --runtime-only ]]; then
     _fail 'coordinated stack lock is a regular file'
   else
     version=$(_lock_value version "$production_lock" 2>/dev/null || true)
-    source_sha=$(_lock_value source_dotfiles "$production_lock" 2>/dev/null || true)
     dot_sha=$(_lock_value dot "$production_lock" 2>/dev/null || true)
     nvim_sha=$(_lock_value dotfiles_nvim "$production_lock" 2>/dev/null || true)
     dev_sha=$(_lock_value dotfiles_dev "$production_lock" 2>/dev/null || true)
@@ -251,8 +239,6 @@ if [[ ${1:-} != --runtime-only ]]; then
     shdeps_installer_sha=$(_lock_value test_shdeps_installer "$production_lock" 2>/dev/null || true)
     agent_rules_sha=$(_lock_value test_agent_rules_sync "$production_lock" 2>/dev/null || true)
     _assert_eq 'stack lock format version' 1 "$version"
-    _assert_eq 'stack source matches immutable extraction source' \
-      "$(<"$source_lock")" "$source_sha"
     runtime_binding_valid=0
     runtime_root=${DOT_STACK_DOT_ROOT:-${DOT_TEST_DOT_ROOT:-}}
     runtime_bin=${DOT_STACK_DOT_BIN:-}
@@ -303,7 +289,7 @@ if [[ ${1:-} != --runtime-only ]]; then
       _fail 'stack lock pins an immutable Shdeps test release'
     fi
     expected_keys=$(printf '%s\n' \
-      version source_dotfiles dot dotfiles_nvim dotfiles_dev test_shdeps \
+      version dot dotfiles_nvim dotfiles_dev test_shdeps \
       test_shdeps_release test_shdeps_installer test_agent_rules_sync | sort)
     actual_keys=$(awk -F= '
       NF != 2 || !$1 || !$2 { exit 1 }
@@ -317,8 +303,8 @@ if [[ ${1:-} != --runtime-only ]]; then
       $shdeps_sha =~ ^[0-9a-f]{40}$ &&
       $shdeps_installer_sha =~ ^[0-9a-f]{40}$ &&
       $agent_rules_sha =~ ^[0-9a-f]{40}$ ]]; then
-      printf 'stack-commits\tsource=%s\tdot=%s\tnvim=%s\tdev=%s\tshdeps=%s\n' \
-        "$source_sha" "$dot_sha" "$nvim_sha" "$dev_sha" "$shdeps_sha"
+      printf 'stack-commits\tdot=%s\tnvim=%s\tdev=%s\tshdeps=%s\n' \
+        "$dot_sha" "$nvim_sha" "$dev_sha" "$shdeps_sha"
       stack_tmp=$(_tmpdir)
       nvim_checkout=$stack_tmp/dotfiles-nvim
       dev_checkout=$stack_tmp/dotfiles-dev
@@ -371,26 +357,6 @@ if [[ ${1:-} != --runtime-only ]]; then
         "$(<"$nvim_checkout/.github/dot.lock")"
       _assert_eq 'dotfiles-dev pins the exact Dot runtime' "$dot_sha" \
         "$(<"$dev_checkout/.github/dot.lock")"
-      _assert_eq 'dotfiles-nvim extraction source matches stack source' \
-        "$source_sha" "$(_capability_source_commit "$nvim_checkout")"
-      _assert_eq 'dotfiles-dev extraction source matches stack source' \
-        "$source_sha" "$(_capability_source_commit "$dev_checkout")"
-      for checkout_name in nvim dev; do
-        if [[ $checkout_name == nvim ]]; then
-          capability_checkout=$nvim_checkout
-        else
-          capability_checkout=$dev_checkout
-        fi
-        _assert_eq "dotfiles-$checkout_name source record format" 1 \
-          "$(_capability_source_value "$capability_checkout" version)"
-        _assert_eq "dotfiles-$checkout_name source repository is public dotfiles" \
-          cgraf78/dotfiles \
-          "$(_capability_source_value "$capability_checkout" repository)"
-        _assert_eq "dotfiles-$checkout_name source license path is preserved" \
-          .github/LICENSE \
-          "$(_capability_source_value "$capability_checkout" license_path)"
-      done
-
       root_suites=$(_root_suite_inventory 2>/dev/null || true)
       nvim_suites=$(_capability_suite_inventory "$nvim_checkout" 2>/dev/null || true)
       dev_suites=$(_capability_suite_inventory "$dev_checkout" 2>/dev/null || true)
@@ -439,15 +405,6 @@ if [[ ${1:-} != --runtime-only ]]; then
       )
       _assert_eq 'ownership policy identifies current owner content' \
         '' "$missing_owned_paths"
-
-      if env -u DOT_TEST_REPORTER -u DOT_TEST_RESULT_FILE \
-        "$source_home/.local/lib/dotfiles/tests/overlay-profile-ownership-test" \
-        --phase d5 --nvim-root "$nvim_checkout" --dev-root "$dev_checkout" \
-        >/dev/null; then
-        _pass 'coordinated repositories match the final ownership inventories'
-      else
-        _fail 'coordinated repositories match the final ownership inventories'
-      fi
 
       nvim_descriptor=$source_home/.config/dot/overlays.d/20-nvim.conf
       dev_descriptor=$source_home/.config/dot/overlays.d/30-dev.conf
@@ -824,7 +781,6 @@ dot_sha=$(git -C "$dot_source" rev-parse HEAD)
 runtime_lock=$(_tmpdir)/stack.lock
 printf '%s\n' \
   'version=1' \
-  "source_dotfiles=$(<"$source_lock")" \
   "dot=$dot_sha" \
   "dotfiles_nvim=0000000000000000000000000000000000000000" \
   "dotfiles_dev=0000000000000000000000000000000000000000" \
@@ -909,7 +865,6 @@ git -C "$candidate_seed" add state .config/git/config \
   .local/lib/dotfiles/tests/checkout-ci-candidate \
   .local/lib/dotfiles/tests/run-ci-candidate-home
 git -C "$candidate_seed" -c core.hooksPath=/dev/null commit --quiet -m source
-candidate_source_sha=$(git -C "$candidate_seed" rev-parse HEAD)
 printf 'start\n' >"$candidate_seed/state"
 git -C "$candidate_seed" add state
 git -C "$candidate_seed" -c core.hooksPath=/dev/null commit --quiet -m start
@@ -917,7 +872,6 @@ candidate_start_sha=$(git -C "$candidate_seed" rev-parse HEAD)
 printf 'head\n' >"$candidate_seed/state"
 printf '%s\n' \
   'version=1' \
-  "source_dotfiles=$candidate_source_sha" \
   "dot=$dot_sha" \
   "dotfiles_nvim=0000000000000000000000000000000000000000" \
   "dotfiles_dev=0000000000000000000000000000000000000000" \
@@ -930,8 +884,7 @@ git -C "$candidate_seed" add state .github/overlay-profile-stack.lock
 git -C "$candidate_seed" -c core.hooksPath=/dev/null commit --quiet -m head
 candidate_sha=$(git -C "$candidate_seed" rev-parse HEAD)
 candidate_lock=$(_tmpdir)/candidate-stack.lock
-sed "s/^source_dotfiles=.*/source_dotfiles=$candidate_source_sha/" \
-  "$runtime_lock" >"$candidate_lock"
+cp "$runtime_lock" "$candidate_lock"
 git -C "$candidate_seed" remote add origin "$candidate_origin"
 git -C "$candidate_seed" push --quiet origin \
   HEAD:refs/heads/profile-candidate
@@ -1053,7 +1006,6 @@ candidate_home_output=$(
     DOT_TEST=1 DOT_TEST_ROOT_FOREIGN=1 \
     DOTFILES_CANDIDATE_SHA=$candidate_sha \
     DOT_STACK_LOCK_PATH=$candidate_lock \
-    DOT_STACK_SOURCE_REPOSITORY=$candidate_origin \
     DOT_STACK_DOT_REPOSITORY=$dot_source DOT_STACK_DOT_SHA=$dot_sha \
     DOT_STACK_SHDEPS_REPOSITORY=$shdeps_source \
     DOT_STACK_AGENT_RULES_SYNC_REPOSITORY=$agent_rules_source \
@@ -1066,9 +1018,6 @@ candidate_home_output=$(
         "$DOTFILES_CANDIDATE_SHA"
       test "$(git --git-dir="$HOME/.dotfiles" symbolic-ref --short HEAD)" = main
       test "$(git --git-dir="$HOME/.dotfiles" config core.worktree)" = "$HOME"
-      git --git-dir="$HOME/.dotfiles" cat-file -e "$DOTFILES_SOURCE_SHA^{commit}"
-      test "$(git --git-dir="$HOME/.dotfiles" rev-parse \
-        refs/dotfiles-test/source-snapshot)" = "$DOTFILES_SOURCE_SHA"
       test -f "$HOME/.local/state/dot/init/completed"
       test "$(git rev-parse HEAD)" = "$DOTFILES_CANDIDATE_SHA"
       test "$(git rev-parse --git-common-dir)" = "$HOME/.dotfiles"
@@ -1093,9 +1042,6 @@ candidate_home_output=$(
       init_status=$("$HOME/.local/share/cgraf78/dot/bin/dot" init --status)
       [[ $init_status == *"initialization: complete"* ]]
       "$HOME/.local/share/cgraf78/dot/bin/dot" update >/dev/null
-      git --git-dir="$HOME/.dotfiles" cat-file -e "$DOTFILES_SOURCE_SHA^{commit}"
-      test "$(git --git-dir="$HOME/.dotfiles" rev-parse \
-        refs/dotfiles-test/source-snapshot)" = "$DOTFILES_SOURCE_SHA"
       for name in GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR \
         GIT_IMPLICIT_WORK_TREE GIT_PREFIX GIT_INDEX_FILE \
         GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES \
@@ -1134,17 +1080,10 @@ _assert_file_missing 'candidate home: leaves sentinel shallow state absent' \
 shallow_checkout=$(_tmpdir)/shallow-checkout
 git clone --quiet --depth=1 --branch profile-candidate \
   "file://$candidate_origin" "$shallow_checkout"
-if git -C "$shallow_checkout" cat-file -e \
-  "$candidate_source_sha^{commit}" 2>/dev/null; then
-  _fail 'candidate home: shallow fixture starts without source history'
-else
-  _pass 'candidate home: shallow fixture starts without source history'
-fi
 # shellcheck disable=SC2016 # The child shell expands its isolated environment.
 shallow_output=$(cd "$shallow_checkout" &&
   DOT_TEST=1 DOTFILES_CANDIDATE_SHA=$candidate_sha \
     DOT_STACK_LOCK_PATH=$candidate_lock \
-    DOT_STACK_SOURCE_REPOSITORY=$candidate_origin \
     DOT_STACK_DOT_REPOSITORY=$dot_source \
     DOT_STACK_SHDEPS_REPOSITORY=$shdeps_source \
     DOT_STACK_AGENT_RULES_SYNC_REPOSITORY=$agent_rules_source \
@@ -1152,12 +1091,10 @@ shallow_output=$(cd "$shallow_checkout" &&
     .local/lib/dotfiles/tests/run-ci-candidate-home \
     bash -c '
       set -euo pipefail
-      git cat-file -e "$DOTFILES_SOURCE_SHA^{commit}"
-      test "$(git rev-parse refs/dotfiles-test/source-snapshot)" = \
-        "$DOTFILES_SOURCE_SHA"
+      test "$(git rev-parse HEAD)" = "$DOTFILES_CANDIDATE_SHA"
     ' 2>&1)
 shallow_rc=$?
-_assert_exit 'candidate home: shallow checkout publishes extraction source' \
+_assert_exit 'candidate home: shallow checkout needs no parent history' \
   0 "$shallow_rc"
 _assert_contains 'candidate home: shallow run reports its installed head' \
   "head=$candidate_sha" "$shallow_output"
@@ -1168,7 +1105,6 @@ sed 's/^test_shdeps=bb438f2741aa6b2f385a1538ff66e8e29739da8a$/test_shdeps=bb438f
 bad_tail_output=$(cd "$candidate_checkout" &&
   DOT_TEST=1 DOTFILES_CANDIDATE_SHA=$candidate_sha \
     DOT_STACK_LOCK_PATH=$bad_tail_lock \
-    DOT_STACK_SOURCE_REPOSITORY=$candidate_origin \
     DOT_STACK_DOT_REPOSITORY=$dot_source \
     DOT_STACK_SHDEPS_REPOSITORY=$shdeps_source \
     DOT_STACK_AGENT_RULES_SYNC_REPOSITORY=$agent_rules_source \
@@ -1191,7 +1127,6 @@ sed 's/^test_shdeps_release=.*/test_shdeps_release=20990101-000000-bb438f27/' \
 bad_tag_output=$(cd "$candidate_checkout" &&
   DOT_TEST=1 DOTFILES_CANDIDATE_SHA=$candidate_sha \
     DOT_STACK_LOCK_PATH=$bad_tag_lock \
-    DOT_STACK_SOURCE_REPOSITORY=$candidate_origin \
     DOT_STACK_DOT_REPOSITORY=$dot_source \
     DOT_STACK_SHDEPS_REPOSITORY=$bad_tag_repository \
     DOT_STACK_AGENT_RULES_SYNC_REPOSITORY=$agent_rules_source \

@@ -11,7 +11,6 @@ umask 077
 root=$(cd -P -- "${BASH_SOURCE[0]%/*}/../../../.." && pwd -P)
 candidate_sha=${DOTFILES_CANDIDATE_SHA:-}
 lock=${DOT_STACK_LOCK_PATH:-$root/.github/overlay-profile-stack.lock}
-source_sha=
 
 clean_git_env=(
   env
@@ -308,45 +307,17 @@ prepare_shdeps() {
 origin=$staging/origin.git
 home=$staging/home
 source=$staging/source
-source_sha=$(lock_value source_dotfiles 2>/dev/null || true)
-[[ $source_sha =~ ^[0-9a-f]{40}$ ]] || {
-  printf 'run-ci-candidate-home: invalid immutable source revision\n' >&2
-  exit 1
-}
-source_repository=${DOT_STACK_SOURCE_REPOSITORY:-$(root_git remote get-url origin)}
-# Push and scheduled events may start from a depth-one candidate. Publish the
-# immutable extraction source explicitly so ownership checks never depend on
-# ambient checkout depth.
-if ! root_git cat-file -e "$source_sha^{commit}" 2>/dev/null; then
-  source_fetch_args=(--quiet --no-tags)
-  if [[ $(root_git rev-parse --is-shallow-repository) == true ]]; then
-    source_fetch_args+=(--depth=1)
-  fi
-  root_git fetch "${source_fetch_args[@]}" \
-    "$source_repository" "$source_sha" || {
-    printf 'run-ci-candidate-home: root snapshot is not fetchable: %s\n' \
-      "$source_sha" >&2
-    exit 1
-  }
-fi
 ci_git init --quiet --bare "$origin"
 # The exact-event checkout is intentionally depth-one in shared CI. Preserve
 # that shallow boundary when publishing the disposable local origin.
 ci_git --git-dir="$origin" config receive.shallowUpdate true
 root_git push --quiet "$origin" \
   "$candidate_sha:refs/heads/main"
-root_git push --quiet "$origin" \
-  "$source_sha:refs/heads/source-snapshot"
 ci_git --git-dir="$origin" symbolic-ref HEAD refs/heads/main
 ci_git clone --quiet --separate-git-dir="$home/.dotfiles" \
   "file://$origin" "$home"
 ci_git --git-dir="$home/.dotfiles" config core.bare false
 ci_git --git-dir="$home/.dotfiles" config core.worktree "$home"
-# Keep the extraction source reachable after `dot update` rewrites FETCH_HEAD
-# while ownership checks are still using it.
-ci_git --git-dir="$home/.dotfiles" fetch --quiet --no-tags --update-shallow origin \
-  "$source_sha:refs/dotfiles-test/source-snapshot"
-
 installed_sha=$(ci_git --git-dir="$home/.dotfiles" rev-parse HEAD)
 [[ $installed_sha == "$candidate_sha" ]] || {
   printf 'run-ci-candidate-home: expected installed %s, found %s\n' \
@@ -404,5 +375,5 @@ printf 'candidate-home\thome=%s\tsource=%s\thead=%s\n' \
     SHDEPS_GIT_DEV_DIR="$dependency_dev" \
     PATH="$home/.local/share/cgraf78/dot/bin:$home/.local/bin:$dependency_bin:$PATH" \
     DOTFILES_CANDIDATE_SHA="$candidate_sha" \
-    DOTFILES_SOURCE_SHA="$source_sha" "$@"
+    "$@"
 )

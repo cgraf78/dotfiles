@@ -33,7 +33,6 @@ lock_value() {
 }
 
 dot_sha=$(lock_value dot 2>/dev/null || true)
-source_snapshot_sha=$(lock_value source_dotfiles 2>/dev/null || true)
 nvim_sha=$(lock_value dotfiles_nvim 2>/dev/null || true)
 dev_sha=$(lock_value dotfiles_dev 2>/dev/null || true)
 shdeps_sha=$(lock_value test_shdeps 2>/dev/null || true)
@@ -51,11 +50,6 @@ else
   _test_summary
 fi
 
-[[ $source_snapshot_sha =~ ^[0-9a-f]{40}$ ]] || {
-  _fail 'profile fixture lock contains a full source revision'
-  _test_summary
-}
-_pass 'profile fixture lock contains a full source revision'
 for sha in "$nvim_sha" "$dev_sha" "$agent_rules_sha"; do
   [[ $sha =~ ^[0-9a-f]{40}$ ]] || {
     _fail 'profile fixture lock contains full capability revisions'
@@ -206,16 +200,13 @@ printf '%s\n' \
   -c user.email=fixture@example.invalid -c core.hooksPath=/dev/null \
   commit --quiet -m fixture
 "$git_bin" init --quiet --bare "$base_origin"
-# CI source checkouts may intentionally stop at an older repository boundary.
-# Preserve the history that ownership tests inspect without requiring parents
-# older than that advertised shallow boundary.
+# CI source checkouts may intentionally be shallow, so allow the disposable
+# origin to accept a shallow candidate history.
 "$git_bin" --git-dir="$base_origin" config receive.shallowUpdate true
-_assert_eq 'base fixture origin accepts shallow source history' true \
+_assert_eq 'base fixture origin accepts shallow candidate history' true \
   "$("$git_bin" --git-dir="$base_origin" config --bool --get \
     receive.shallowUpdate)"
 "$git_bin" -C "$base_seed" push --quiet "$base_origin" HEAD:refs/heads/main
-"$git_bin" -C "$source_home" push --quiet "$base_origin" \
-  "$source_snapshot_sha:refs/dotfiles-test/source-snapshot"
 "$git_bin" --git-dir="$base_origin" symbolic-ref HEAD refs/heads/main
 
 "$git_bin" config --file "$git_config" \
@@ -367,9 +358,6 @@ EOF
 prepare_home() {
   local profile=$1 home=$2 selector init_log init_status
   "$git_bin" clone --quiet "file://$base_origin" "$home" || return 1
-  "$git_bin" -C "$home" fetch --quiet --no-tags --update-shallow origin \
-    refs/dotfiles-test/source-snapshot:refs/dotfiles-test/source-snapshot ||
-    return 1
 
   # The fixture deliberately disables dependency installation. Supply the
   # base-owned tmux command boundaries without installing their full provider
