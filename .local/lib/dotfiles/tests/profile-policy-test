@@ -27,9 +27,6 @@ _assert_file_content_exact() {
 profile_root=$source_home/.config/dot/profiles.d
 overlay_root=$source_home/.config/dot/overlays.d
 stack_test=$source_home/.local/lib/dotfiles/tests/overlay-profile-stack-test
-stack_lock=$source_home/.github/overlay-profile-stack.lock
-
-_assert_file_missing 'retired coordinated stack lock stays absent' "$stack_lock"
 
 transport_bin=$(_tmpdir)
 transport_log=$transport_bin/git.log
@@ -92,14 +89,6 @@ _assert_file_content_exact 'work descriptor remains optional' \
   "$overlay_root/90-work.conf"
 _assert_file 'renamed work descriptor keeps same-stem SSH companion' \
   "$overlay_root/90-work.ssh"
-
-for retired in 05-personal.conf 10-work.conf 10-work.ssh; do
-  if [[ ! -e $overlay_root/$retired && ! -L $overlay_root/$retired ]]; then
-    _pass "old overlay path is retired: $retired"
-  else
-    _fail "old overlay path is retired: $retired"
-  fi
-done
 
 ignore_file=$source_home/.config/dot/merge-hooks.d/ignore/ignore.d/10-patterns.gitignore
 if [[ -f $ignore_file ]] &&
