@@ -84,6 +84,11 @@ _assert_contains "agent rules: scope avoids generated target edits" \
 # and operators alongside the Claude, Codex, and Gemini targets.
 _assert_contains "agent rules: native profile includes OpenCode" \
   '$HOME/.config/opencode/AGENTS.md' "$(cat "$NATIVE_TARGETS")"
+# Muse reads its config-home AGENTS.md as user-global rules; a native target
+# keeps the shared rules available without relying on another agent's
+# directory, alongside the Claude, Codex, Gemini, and OpenCode targets.
+_assert_contains "agent rules: native profile includes Muse" \
+  '$HOME/.config/muse/AGENTS.md' "$(cat "$NATIVE_TARGETS")"
 _assert_contains "agent rules: memory policy uses Hive Memory" \
   "Hive Memory is available through the \`hm\` command" "$MEMORY_RULES_TEXT"
 _assert_contains "agent rules: memory policy requires project-aware writes" \
