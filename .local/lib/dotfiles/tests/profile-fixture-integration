@@ -440,7 +440,7 @@ assert_profile_links() {
 assert_suite_discovery() {
   local profile=$1 output=$2 expected actual
   _assert_contains "$profile discovers the top-level control suite" \
-    'overlay-profile-rollout' "$output"
+    'profile-policy' "$output"
   expected=$(
     printf 'dot\n'
     sed -e 's#^.*/##' -e 's/-test$//' \

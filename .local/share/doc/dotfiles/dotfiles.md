@@ -157,7 +157,7 @@ only on selected repositories that already exist.
 | `editor` | about 0.8--1.0 GiB cumulative; the current active Nvim executable, config, state, cache, and plugin graph add about 186 MiB |
 | `dev` | about 2.5--4.5 GiB cumulative before project build outputs |
 
-The locked integration fixture measures checkout, configuration, and
+The resolved integration fixture measures checkout, configuration, and
 control-plane payloads for all three profiles. The editor overlay CI
 separately measures the active Nvim graph.
 The dev range remains an installation estimate rather than a claimed clean
