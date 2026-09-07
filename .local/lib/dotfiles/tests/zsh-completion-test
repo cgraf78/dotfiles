@@ -310,17 +310,24 @@ missing_grok_path=$(
 _assert_not_contains "grok PATH: missing vendor bin is omitted" \
   ".grok/bin" "$missing_grok_path"
 
+grok_compinit_dir="$TEST_TMPDIR/grok-compinit"
+mkdir -p "$grok_compinit_dir"
+cat >"$grok_compinit_dir/compinit" <<'EOF'
+print -r -- "compinit-fpath=$fpath"
+typeset -gA _comps
+EOF
+
 # shellcheck disable=SC2016 # inner zsh intentionally expands test variables.
 grok_fpath=$(
   zsh -fc '
-    HOME="$1"
+    fpath=("$1" $fpath)
+    HOME="$2"
     _UNAME=Linux
     _tool_init() { :; }
-    source "$2/.config/shell/interactive.d/70-integrations.zsh"
-    print -r -- "fpath=$fpath"
-  ' _ "$grok_home" "$source_home"
+    source "$3/.config/shell/interactive.d/70-integrations.zsh"
+  ' _ "$grok_compinit_dir" "$grok_home" "$source_home"
 )
-_assert_contains "zsh grok completions: present dir is on fpath before compinit" \
+_assert_contains "zsh grok completions: present dir is on fpath when compinit runs" \
   "$grok_home/.grok/completions/zsh" "$grok_fpath"
 
 # shellcheck disable=SC2016 # inner zsh intentionally expands test variables.
@@ -342,7 +349,6 @@ grok_bash=$(
   _UNAME=Linux
   # shellcheck disable=SC2329,SC2317  # sourced 70-integrations.bash calls this
   _tool_init() { :; }
-  set -o posix
   # shellcheck disable=SC1091 # source tree fragment, not the fixture home
   . "$source_home/.config/shell/interactive.d/70-integrations.bash"
   printf 'loaded=%s\n' "${GROK_BASH_LOADED:-0}"
@@ -357,13 +363,26 @@ missing_grok_bash=$(
   GROK_BASH_LOADED=0
   # shellcheck disable=SC2329,SC2317  # sourced 70-integrations.bash calls this
   _tool_init() { :; }
-  set -o posix
   # shellcheck disable=SC1091 # source tree fragment, not the fixture home
   . "$source_home/.config/shell/interactive.d/70-integrations.bash"
   printf 'loaded=%s\n' "${GROK_BASH_LOADED:-0}"
 )
 _assert_contains "bash grok completions: missing script is skipped" \
   "loaded=0" "$missing_grok_bash"
+
+posix_grok_bash=$(
+  HOME="$grok_home"
+  _UNAME=Linux
+  GROK_BASH_LOADED=0
+  # shellcheck disable=SC2329,SC2317  # sourced 70-integrations.bash calls this
+  _tool_init() { :; }
+  set -o posix
+  # shellcheck disable=SC1091 # source tree fragment, not the fixture home
+  . "$source_home/.config/shell/interactive.d/70-integrations.bash"
+  printf 'loaded=%s\n' "${GROK_BASH_LOADED:-0}"
+)
+_assert_contains "bash grok completions: posix shells skip programmable completion" \
+  "loaded=0" "$posix_grok_bash"
 
 _assert_not_contains "tracked zshrc has no grok installer block" \
   "grok installer" "$(<"$source_home/.zshrc")"
