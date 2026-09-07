@@ -276,4 +276,150 @@ result=$(
 _assert_contains "zsh prompt: async cancel keeps stderr visible" \
   "stderr-visible" "$result"
 
+echo "=== optional grok integration ==="
+
+source_home=$HOME
+grok_home="$TEST_TMPDIR/grok-home"
+mkdir -p "$grok_home/.grok/bin" "$grok_home/.grok/completions/zsh" \
+  "$grok_home/.grok/completions/bash" "$grok_home/.local/bin"
+printf 'GROK_BASH_LOADED=1\n' >"$grok_home/.grok/completions/bash/grok.bash"
+
+grok_path=$(
+  HOME="$grok_home"
+  PATH="/usr/bin:/bin"
+  # shellcheck disable=SC1091 # source tree fragment, not the fixture home
+  . "$source_home/.config/shell/env.d/90-path.sh"
+  printf '%s\n' "$PATH"
+)
+_assert_eq "grok PATH: ~/.local/bin stays first" \
+  "$grok_home/.local/bin" "${grok_path%%:*}"
+_assert_contains "grok PATH: vendor bin is present when the directory exists" \
+  "$grok_home/.grok/bin" "$grok_path"
+
+missing_grok_home="$TEST_TMPDIR/no-grok-home"
+mkdir -p "$missing_grok_home/.local/bin"
+missing_grok_path=$(
+  HOME="$missing_grok_home"
+  PATH="/usr/bin:/bin"
+  # shellcheck disable=SC1091 # source tree fragment, not the fixture home
+  . "$source_home/.config/shell/env.d/90-path.sh"
+  printf '%s\n' "$PATH"
+)
+_assert_not_contains "grok PATH: missing vendor bin is omitted" \
+  ".grok/bin" "$missing_grok_path"
+
+# shellcheck disable=SC2016 # inner zsh intentionally expands test variables.
+grok_fpath=$(
+  zsh -fc '
+    HOME="$1"
+    _UNAME=Linux
+    _tool_init() { :; }
+    source "$2/.config/shell/interactive.d/70-integrations.zsh"
+    print -r -- "fpath=$fpath"
+  ' _ "$grok_home" "$source_home"
+)
+_assert_contains "zsh grok completions: present dir is on fpath before compinit" \
+  "$grok_home/.grok/completions/zsh" "$grok_fpath"
+
+# shellcheck disable=SC2016 # inner zsh intentionally expands test variables.
+missing_grok_fpath=$(
+  zsh -fc '
+    HOME="$1"
+    _UNAME=Linux
+    _tool_init() { :; }
+    source "$2/.config/shell/interactive.d/70-integrations.zsh"
+    print -r -- "fpath=$fpath"
+  ' _ "$missing_grok_home" "$source_home"
+)
+_assert_not_contains "zsh grok completions: missing dir is omitted from fpath" \
+  ".grok/completions/zsh" "$missing_grok_fpath"
+
+grok_bash=$(
+  HOME="$grok_home"
+  _UNAME=Linux
+  # shellcheck disable=SC2329,SC2317  # sourced 70-integrations.bash calls this
+  _tool_init() { :; }
+  set -o posix
+  # shellcheck disable=SC1091 # source tree fragment, not the fixture home
+  . "$source_home/.config/shell/interactive.d/70-integrations.bash"
+  printf 'loaded=%s\n' "${GROK_BASH_LOADED:-0}"
+)
+_assert_contains "bash grok completions: present script is sourced" \
+  "loaded=1" "$grok_bash"
+
+missing_grok_bash=$(
+  HOME="$missing_grok_home"
+  _UNAME=Linux
+  GROK_BASH_LOADED=0
+  # shellcheck disable=SC2329,SC2317  # sourced 70-integrations.bash calls this
+  _tool_init() { :; }
+  set -o posix
+  # shellcheck disable=SC1091 # source tree fragment, not the fixture home
+  . "$source_home/.config/shell/interactive.d/70-integrations.bash"
+  printf 'loaded=%s\n' "${GROK_BASH_LOADED:-0}"
+)
+_assert_contains "bash grok completions: missing script is skipped" \
+  "loaded=0" "$missing_grok_bash"
+
+_assert_not_contains "tracked zshrc has no grok installer block" \
+  "grok installer" "$(<"$source_home/.zshrc")"
+_assert_not_contains "tracked bashrc has no grok installer block" \
+  "grok installer" "$(<"$source_home/.bashrc")"
+
+# shellcheck disable=SC1091 # source tree helper, not the fixture home
+. "$source_home/.local/lib/dotfiles/shell-grok-rc.sh"
+
+rc_home="$TEST_TMPDIR/rc-home"
+mkdir -p "$rc_home"
+cp "$source_home/.zshrc" "$rc_home/.zshrc.orig"
+{
+  cat "$source_home/.zshrc"
+  cat <<'EOF'
+
+# >>> grok installer >>>
+export PATH="$HOME/.grok/bin:$PATH"
+fpath=(~/.grok/completions/zsh $fpath)
+autoload -Uz compinit && compinit -C
+# <<< grok installer <<<
+EOF
+} >"$rc_home/.zshrc"
+printf '' >"$rc_home/.bashrc"
+HOME="$rc_home" dot_grok_strip_installer_rc
+_assert_eq "grok installer strip: restores thin zshrc" \
+  "$(<"$rc_home/.zshrc.orig")" "$(<"$rc_home/.zshrc")"
+_assert_not_contains "grok installer strip: removes marked block" \
+  "grok installer" "$(<"$rc_home/.zshrc")"
+
+clean_rc_home="$TEST_TMPDIR/clean-rc-home"
+mkdir -p "$clean_rc_home"
+cp "$source_home/.zshrc" "$clean_rc_home/.zshrc"
+HOME="$clean_rc_home" dot_grok_strip_installer_rc
+_assert_eq "grok installer strip: no-op without a block" \
+  "$(<"$source_home/.zshrc")" "$(<"$clean_rc_home/.zshrc")"
+
+wrapper_home="$TEST_TMPDIR/wrapper-home"
+wrapper_bin="$TEST_TMPDIR/wrapper-bin"
+mkdir -p "$wrapper_home/.local/lib/dotfiles" "$wrapper_bin"
+cp "$source_home/.zshrc" "$wrapper_home/.zshrc"
+cp "$source_home/.local/lib/dotfiles/shell-grok-rc.sh" \
+  "$wrapper_home/.local/lib/dotfiles/shell-grok-rc.sh"
+printf '' >"$wrapper_home/.bashrc"
+cat >"$wrapper_bin/grok" <<'EOF'
+#!/usr/bin/env bash
+if [[ "$1" == "update" ]]; then
+  printf '\n# >>> grok installer >>>\nexport PATH="$HOME/.grok/bin:$PATH"\n# <<< grok installer <<<\n' >>"$HOME/.zshrc"
+fi
+EOF
+chmod +x "$wrapper_bin/grok"
+wrapper_out=$(
+  HOME="$wrapper_home"
+  PATH="$wrapper_bin:/usr/bin:/bin"
+  # shellcheck disable=SC1091 # source tree fragment, not the fixture home
+  . "$source_home/.config/shell/interactive.d/72-grok.sh"
+  grok update
+  printf 'has-block=%s\n' "$(grep -c 'grok installer' "$HOME/.zshrc" || true)"
+)
+_assert_contains "grok update wrapper: strips installer block after update" \
+  "has-block=0" "$wrapper_out"
+
 _test_summary

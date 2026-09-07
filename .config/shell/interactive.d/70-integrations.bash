@@ -47,6 +47,12 @@ if ! shopt -oq posix; then
   fi
 fi
 
+# Grok ships completions outside the shdeps-linked user dir. Source them
+# when present so bash matches zsh without editing ~/.bashrc.
+# shellcheck disable=SC1091  # optional local tool completion script
+[[ -r "$HOME/.grok/completions/bash/grok.bash" ]] &&
+  . "$HOME/.grok/completions/bash/grok.bash"
+
 # fzf --bash emits malformed `complete` commands on some Linux hosts; strip
 # the completion section, keeping only key bindings.
 # shellcheck disable=SC2329,SC2317  # called indirectly via _tool_init "$@"

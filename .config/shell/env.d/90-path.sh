@@ -29,6 +29,9 @@ _path_prepend "$HOME/.local/bin"
 _path_prepend "$HOME/bin"
 _path_prepend "$HOME/.local/share/mise/shims"
 _path_prepend "$HOME/.bun/bin"
+# Optional vendor bin. Missing dirs are skipped; ~/.local/bin stays first so
+# an installer symlink there continues to win over this directory.
+_path_prepend "$HOME/.grok/bin"
 _path_prepend /opt/homebrew/bin
 _path_prepend /opt/homebrew/sbin
 _path_prepend /usr/local/bin

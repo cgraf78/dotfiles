@@ -29,6 +29,7 @@ program	.config/shell/interactive.d/57-marks.sh
 program	.config/shell/interactive.d/59-prompt.sh
 program	.config/shell/interactive.d/60-prompt.bash
 program	.config/shell/interactive.d/70-integrations.bash
+program	.config/shell/interactive.d/72-grok.sh
 program	.local/bin/clip
 program	.local/bin/dot
 program	.local/bin/git
@@ -61,6 +62,7 @@ program	.local/lib/dotfiles/merge-hooks.d/tmux.sh
 program	.local/lib/dotfiles/merge-hooks.d/wezterm.sh
 program	.local/lib/dotfiles/pre-sync.d/10-overlay-ssh.sh
 program	.local/lib/dotfiles/shdeps-assets.sh
+program	.local/lib/dotfiles/shell-grok-rc.sh
 program	.local/lib/dotfiles/shell-loader.sh
 program	.local/lib/dotfiles/tests/agent-rules-adapter-test
 program	.local/lib/dotfiles/tests/agent-rules-test

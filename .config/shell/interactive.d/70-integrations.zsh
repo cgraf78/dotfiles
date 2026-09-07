@@ -34,6 +34,10 @@ fi
   fpath=("$HOME/.local/share/zsh-users/zsh-completions/src" $fpath)
 [[ -d "$HOME/.local/share/zsh/site-functions" ]] &&
   fpath=("$HOME/.local/share/zsh/site-functions" $fpath)
+# Grok's installer wants this in ~/.zshrc; this fragment owns fpath so the
+# guarded compinit below remains the only one.
+[[ -d "$HOME/.grok/completions/zsh" ]] &&
+  fpath=("$HOME/.grok/completions/zsh" $fpath)
 
 # Zsh completion: rebuild dump daily, use cache otherwise. Once compinit has
 # populated `_comps`, re-sourcing this file should not rescan completions; newly
