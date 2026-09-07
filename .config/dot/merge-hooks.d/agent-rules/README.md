@@ -19,9 +19,12 @@ playbooks into a versioned TSV manifest, writes it privately and atomically to
 The manifest contains paths and routes rather than copying rule or playbook
 prose. It is generated machine state, not a user-maintained config file.
 
-Agent-specific merge hooks such as `claude`, `codex`, `gemini`, `muse`, and
-`opencode` remain separate. They own settings, permissions, profiles, and
-AgentGuard integration; this provider only publishes shared rule documents.
+Agent-specific merge hooks such as `claude`, `codex`, `gemini`, `muse`,
+`opencode`, and `grok` remain separate. They own settings, permissions,
+profiles, and AgentGuard integration; this provider only publishes shared
+rule documents, including Grok's native home rules file at
+`$HOME/.grok/rules/agent-rules.md`. The Grok AgentGuard merge hook lives in
+the public dev overlay, not this rules publisher.
 
 ## Content Inputs
 
