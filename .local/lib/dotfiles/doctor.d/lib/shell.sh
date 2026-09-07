@@ -77,6 +77,33 @@ _dr_check_shell() {
     fi
   done
 
+  # Strip a vendor installer block; PATH and completions belong in fragments.
+  local grok_rc_lib="$HOME/.local/lib/dotfiles/shell-grok-rc.sh"
+  local grok_rc_dirty=0 rc
+  for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
+    [[ -f "$rc" ]] || continue
+    grep -q 'grok installer' "$rc" 2>/dev/null && grok_rc_dirty=1
+  done
+  if ((grok_rc_dirty)); then
+    if [[ -r $grok_rc_lib ]]; then
+      # shellcheck disable=SC1090  # stable helper path under $HOME
+      . "$grok_rc_lib"
+      if dot_grok_strip_installer_rc; then
+        grok_rc_dirty=0
+        for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
+          [[ -f "$rc" ]] || continue
+          grep -q 'grok installer' "$rc" 2>/dev/null && grok_rc_dirty=1
+        done
+      fi
+    fi
+    if ((grok_rc_dirty)); then
+      _dr_fail "Grok installer block still in ~/.bashrc or ~/.zshrc" \
+        "PATH and completions belong in ~/.config/shell/"
+    else
+      _dr_ok "Grok installer block removed from thin loaders"
+    fi
+  fi
+
   # ~/.local/bin on PATH (all dot scripts live there)
   case ":$PATH:" in
     *:"$HOME/.local/bin":*) _dr_ok "~/.local/bin on PATH" ;;
