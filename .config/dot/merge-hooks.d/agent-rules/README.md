@@ -21,7 +21,8 @@ prose. It is generated machine state, not a user-maintained config file.
 
 Agent-specific merge hooks such as `claude`, `codex`, `gemini`, `muse`, and
 `opencode` remain separate. They own settings, permissions, profiles, and
-AgentGuard integration; this provider only publishes shared rule documents.
+AgentGuard integration; this provider only publishes shared rule documents,
+including Grok's native home rules file at `$HOME/.grok/rules/agent-rules.md`.
 
 ## Content Inputs
 

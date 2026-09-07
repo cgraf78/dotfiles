@@ -89,6 +89,11 @@ _assert_contains "agent rules: native profile includes OpenCode" \
 # directory, alongside the Claude, Codex, Gemini, and OpenCode targets.
 _assert_contains "agent rules: native profile includes Muse" \
   '$HOME/.config/muse/AGENTS.md' "$(cat "$NATIVE_TARGETS")"
+# Grok always scans $GROK_HOME/rules/ (default ~/.grok/rules/) for *.md; it
+# does not load ~/.grok/AGENTS.md as a home-level rules file. A native
+# target publishes the shared rules into that directory.
+_assert_contains "agent rules: native profile includes Grok" \
+  '$HOME/.grok/rules/agent-rules.md' "$(cat "$NATIVE_TARGETS")"
 _assert_contains "agent rules: memory policy uses Hive Memory" \
   "Hive Memory is available through the \`hm\` command" "$MEMORY_RULES_TEXT"
 _assert_contains "agent rules: memory policy requires project-aware writes" \

@@ -3,3 +3,4 @@ $HOME/.codex/AGENTS.md
 $HOME/.config/opencode/AGENTS.md
 $HOME/.gemini/GEMINI.md
 $HOME/.config/muse/AGENTS.md
+$HOME/.grok/rules/agent-rules.md
