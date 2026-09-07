@@ -370,6 +370,7 @@ missing_grok_bash=$(
 _assert_contains "bash grok completions: missing script is skipped" \
   "loaded=0" "$missing_grok_bash"
 
+# shellcheck disable=SC2030,SC2031  # fixture HOME stays inside this subshell
 posix_grok_bash=$(
   HOME="$grok_home"
   _UNAME=Linux
@@ -450,6 +451,7 @@ wrapper_out=$(
   PATH="$wrapper_bin:/usr/bin:/bin"
   # shellcheck disable=SC1091 # source tree fragment, not the fixture home
   . "$source_home/.config/shell/interactive.d/72-grok.sh"
+  # shellcheck disable=SC2119  # no-arg launch is the case under test
   grok
   grok_block=$(grep -c 'grok installer' "$HOME/.zshrc" || true)
   printf '\n# >>> grok installer >>>\n# <<< grok installer <<<\n' >>"$HOME/.zshrc"
