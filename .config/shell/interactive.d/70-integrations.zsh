@@ -34,8 +34,7 @@ fi
   fpath=("$HOME/.local/share/zsh-users/zsh-completions/src" $fpath)
 [[ -d "$HOME/.local/share/zsh/site-functions" ]] &&
   fpath=("$HOME/.local/share/zsh/site-functions" $fpath)
-# Grok's installer wants this in ~/.zshrc; this fragment owns fpath so the
-# guarded compinit below remains the only one.
+# Must be on fpath before the guarded compinit below.
 [[ -d "$HOME/.grok/completions/zsh" ]] &&
   fpath=("$HOME/.grok/completions/zsh" $fpath)
 

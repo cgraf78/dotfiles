@@ -1,7 +1,6 @@
 # shellcheck shell=bash
-# Wrap grok so vendor update/doctor paths cannot leave their installer
-# block in the tracked thin loaders. Completions and PATH are already
-# owned by 90-path.sh and 70-integrations.*.
+# Strip a vendor installer block after grok/agent return. Auto-update and
+# `agent` share the same binary, so argv sniffing is the wrong trigger.
 
 _grok_rc_lib="$HOME/.local/lib/dotfiles/shell-grok-rc.sh"
 # Keep a recovery shell if the helper is absent; grok still runs from PATH.
@@ -13,17 +12,14 @@ fi
 . "$_grok_rc_lib"
 unset _grok_rc_lib
 
-grok() {
-  command grok "$@"
+_grok_run() {
+  local cmd=$1
+  shift
+  command "$cmd" "$@"
   local st=$?
-  local arg
-  for arg in "$@"; do
-    case "$arg" in
-      update | doctor)
-        dot_grok_strip_installer_rc
-        break
-        ;;
-    esac
-  done
+  dot_grok_strip_installer_rc
   return "$st"
 }
+
+grok() { _grok_run grok "$@"; }
+agent() { _grok_run agent "$@"; }

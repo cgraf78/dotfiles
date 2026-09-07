@@ -77,8 +77,7 @@ _dr_check_shell() {
     fi
   done
 
-  # Grok's curl installer and some doctor fixes append a marked block to
-  # the thin loaders. Strip it; PATH and completions belong in fragments.
+  # Strip a vendor installer block; PATH and completions belong in fragments.
   local grok_rc_lib="$HOME/.local/lib/dotfiles/shell-grok-rc.sh"
   local grok_rc_dirty=0 rc
   for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
