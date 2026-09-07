@@ -94,6 +94,8 @@ _assert_contains "agent rules: native profile includes Muse" \
 # target publishes the shared rules into that directory.
 _assert_contains "agent rules: native profile includes Grok" \
   '$HOME/.grok/rules/agent-rules.md' "$(cat "$NATIVE_TARGETS")"
+_assert_not_contains "agent rules: native profile omits unused Grok AGENTS.md" \
+  '$HOME/.grok/AGENTS.md' "$(cat "$NATIVE_TARGETS")"
 _assert_contains "agent rules: memory policy uses Hive Memory" \
   "Hive Memory is available through the \`hm\` command" "$MEMORY_RULES_TEXT"
 _assert_contains "agent rules: memory policy requires project-aware writes" \
