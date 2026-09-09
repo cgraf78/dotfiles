@@ -7,6 +7,12 @@
   libraries. Preserve zsh, POSIX, and shared-shell runtime contracts; do not add
   Bash-only features such as `${BASH_SOURCE[0]}` or arrays unless the file is
   already Bash-only.
+- In shell code that may execute under Zsh, do not use `path` as an ordinary
+  pathname variable. Zsh reserves it as the array tied to `PATH`, so `local` or
+  `typeset path` changes executable lookup. Use a specific name such as
+  `skill_path` or `target_path`. When fixing or guarding this bug class, add a
+  Zsh regression that invokes an external command while the variable is in
+  scope.
 - Establish the minimum supported shell and operating systems before using
   convenience features. If Bash 3.2 is supported, avoid `mapfile`, associative
   arrays, and newer builtins, and verify with the actual minimum shell.
