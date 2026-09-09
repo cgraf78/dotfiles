@@ -4,6 +4,7 @@
 .local/lib/dotfiles/tests/client-extensions-test
 .local/lib/dotfiles/tests/client-paths-test
 .local/lib/dotfiles/tests/clip-test
+.local/lib/dotfiles/tests/codex-trust-test
 .local/lib/dotfiles/tests/core-cron-test
 .local/lib/dotfiles/tests/core-doctor-test
 .local/lib/dotfiles/tests/core-launchers-test
