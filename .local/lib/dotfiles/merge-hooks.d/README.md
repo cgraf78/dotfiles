@@ -6,9 +6,13 @@ the configured extension root. Declarative inputs remain under
 code live here.
 
 Each readable top-level `*.sh` file defines `merge()` with no arguments. The
-filename supplies the public identity. `cron.serial.sh` is the one serial
-barrier because it read-modify-writes the singleton user crontab; `.serial` is
-stripped from its identity and sort key.
+filename supplies the public identity. A `*.serial.sh` file is a serial
+barrier: `.serial` is stripped from its identity and sort key, and the runner
+schedules it alone between parallel batches. `cron.serial.sh` is serial
+because it read-modify-writes the singleton user crontab;
+`codex-trust.serial.sh` is serial because it prunes the same
+`~/.codex/config.toml` the `codex` hook merges, and must run after that merge
+instead of racing it.
 
 Hooks run in fresh Bash workers with private temporary storage. They use the
 documented hook API and load client support through `dot_hook_source`. A hook

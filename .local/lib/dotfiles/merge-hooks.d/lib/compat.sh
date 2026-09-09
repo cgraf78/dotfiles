@@ -152,6 +152,7 @@ _dot_tool_present() {
     agent-rules) _dot_tool_any_command agent-rules-sync ;;
     claude) _dot_tool_any_command claude ;;
     codex) _dot_tool_any_command codex ;;
+    codex-trust) _dot_tool_any_command codex ;;
     cron) _dot_tool_any_command crontab ;;
     gemini) _dot_tool_any_command gemini ;;
     gh) _dot_tool_any_command gh ;;

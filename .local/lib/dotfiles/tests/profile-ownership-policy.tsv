@@ -7,6 +7,8 @@ base	agent-rules	.local/lib/dotfiles/merge-hooks.d/agent-rules.sh
 base	agent-rules	.local/lib/dotfiles/merge-hooks.d/lib/agent-playbooks.sh
 base	cron	.config/dot/merge-hooks.d/cron/**
 base	cron	.local/lib/dotfiles/merge-hooks.d/cron.serial.sh
+base	codex-trust	.local/lib/dotfiles/merge-hooks.d/codex-trust.serial.sh
+base	codex-trust	.local/lib/dotfiles/merge-hooks.d/lib/codex-trust/**
 base	ignore	.config/dot/merge-hooks.d/ignore/**
 base	ignore	.local/lib/dotfiles/merge-hooks.d/ignore.sh
 base	profile-control	.config/dot/config

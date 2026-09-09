@@ -181,6 +181,7 @@ BASH
 agent-rules:agent-rules-sync
 claude:claude
 codex:codex
+codex-trust:codex
 cron:crontab
 gemini:gemini
 gh:gh
@@ -290,7 +291,7 @@ TOOL_COMMANDS
 
   tool_gated_hooks=$(
     printf '%s\n' \
-      agent-rules cron ignore iterm2 karabiner ssh tmux wezterm
+      agent-rules codex-trust cron ignore iterm2 karabiner ssh tmux wezterm
   )
   merge_hook_inventory_home=$(_tmpdir)
   mkdir -p "$merge_hook_inventory_home/.local/lib/dotfiles/merge-hooks.d/lib"
@@ -348,7 +349,11 @@ TOOL_COMMANDS
 
   while IFS= read -r hook_name; do
     hook_file=$hook_name
-    [[ $hook_file == cron ]] && hook_file=cron.serial
+    # Serial barriers keep their identity but live in a `.serial.sh` file so
+    # the runner schedules them alone between parallel batches.
+    if [[ $hook_file == cron || $hook_file == codex-trust ]]; then
+      hook_file=$hook_file.serial
+    fi
     hook_path="$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/$hook_file.sh"
     first_merge_statement=$(
       awk '
@@ -1179,7 +1184,7 @@ EOF
   echo "=== base merge hook ownership boundary ==="
 
   expected_base_hooks=$(printf '%s\n' \
-    agent-rules cron ignore iterm2 karabiner ssh tmux wezterm | LC_ALL=C sort)
+    agent-rules codex-trust cron ignore iterm2 karabiner ssh tmux wezterm | LC_ALL=C sort)
   actual_hooks=$(_dot_test_merge_hook_names "$REAL_HOME")
   _assert_eq "merge hooks: only base-owned hooks are present" \
     "$expected_base_hooks" "$actual_hooks"

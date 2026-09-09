@@ -1,0 +1,319 @@
+#!/usr/bin/env bash
+# codex-trust-test - Codex project-trust prune hook coverage.
+
+set -o pipefail
+export NO_COLOR=1
+
+# shellcheck source=helpers.sh
+. "${BASH_SOURCE[0]%/*}/helpers.sh"
+
+source_home=${DOT_TEST_SOURCE_HOME:-$HOME}
+helper=$source_home/.local/lib/dotfiles/merge-hooks.d/lib/codex-trust/prune-projects.py
+hook=$source_home/.local/lib/dotfiles/merge-hooks.d/codex-trust.serial.sh
+
+command -v python3 >/dev/null 2>&1 ||
+  _test_skip_suite 'codex trust prune requires python3'
+[[ -f $helper && -f $hook ]] || {
+  _fail 'codex trust prune helper and hook are present'
+  _test_summary
+}
+
+echo "=== Codex trust prune helper ==="
+
+work=$(_tmpdir)
+fix_home=$work/home
+mkdir -p "$fix_home/.codex" "$fix_home/existing"
+stale_tmp=/tmp/codex-trust-stale-$$
+rm -rf "$stale_tmp"
+# An existing directory under the literal /tmp: ephemeral by construction, so
+# still pruned. Pinned to /tmp instead of $work because $TMPDIR is outside
+# /tmp on macOS, which would flip this fixture from pruned to kept.
+existing_tmp=/tmp/codex-trust-existing-$$
+rm -rf "$existing_tmp"
+mkdir -p "$existing_tmp"
+CLEANUP_DIRS+=("$existing_tmp")
+config=$fix_home/.codex/config.toml
+chmod 700 "$fix_home/.codex"
+
+# shellcheck disable=SC2086 # Fixture paths expand into the TOML document.
+cat >"$config" <<EOF
+model = "fixture-model"
+
+[features]
+memories = true
+
+[projects."/tmp"]
+trust_level = "trusted"
+
+[projects."$stale_tmp"]
+trust_level = "trusted"
+
+[projects."$existing_tmp"]
+trust_level = "trusted"
+
+[projects."/home/codextrust-other"]
+trust_level = "trusted"
+
+[projects."/Users/codextrust-other"]
+trust_level = "trusted"
+
+[projects."/data/users/codextrust-other"]
+trust_level = "trusted"
+
+[projects."/usr/definitely-not-here-codextrust"]
+trust_level = "trusted"
+
+[projects."/home"]
+trust_level = "trusted"
+
+[projects."$fix_home"]
+trust_level = "trusted"
+
+[projects."$fix_home/deleted-checkout"]
+trust_level = "trusted"
+
+[projects."$fix_home/existing"]
+trust_level = "trusted"
+
+[projects."/Users/fixtureuser"]
+trust_level = "trusted"
+
+[projects."/data/users/fixtureuser/proj"]
+trust_level = "trusted"
+
+[projects."/home/fixtureuser"]
+trust_level = "trusted"
+
+[projects."/usr/bin"]
+trust_level = "trusted"
+
+[projects."/tmp/codex-distrust-$$"]
+trust_level = "untrusted"
+
+[projects."relative/path"]
+trust_level = "trusted"
+
+[projects]
+stray = "scalar"
+
+[[hooks.Stop]]
+
+[[hooks.Stop.hooks]]
+command = "fixture-command"
+type = "command"
+EOF
+chmod 600 "$config"
+
+prune_out=$(_tmpfile)
+prune_status=0
+HOME=$fix_home USER=fixtureuser python3 "$helper" "$config" >"$prune_out" ||
+  prune_status=$?
+_assert_exit 'helper: fixture config prunes successfully' 0 "$prune_status"
+
+kept=$(python3 -c \
+  'import sys, tomllib; print("\n".join(sorted(tomllib.load(open(sys.argv[1], "rb")).get("projects", {}))))' \
+  "$config")
+expected_kept=$(printf '%s\n' \
+  "$fix_home" \
+  "$fix_home/deleted-checkout" \
+  "$fix_home/existing" \
+  '/Users/fixtureuser' \
+  '/data/users/fixtureuser/proj' \
+  '/home/fixtureuser' \
+  '/tmp/codex-distrust-'$$ \
+  '/usr/bin' \
+  'relative/path' \
+  'stray' | LC_ALL=C sort)
+_assert_eq 'helper: keeps exactly the legitimate entries' \
+  "$expected_kept" "$kept"
+
+expected_pruned=$(printf '%s\n' \
+  "$stale_tmp" \
+  "$existing_tmp" \
+  '/data/users/codextrust-other' \
+  '/home' \
+  '/home/codextrust-other' \
+  '/Users/codextrust-other' \
+  '/tmp' \
+  '/usr/definitely-not-here-codextrust' | LC_ALL=C sort)
+_assert_eq 'helper: reports exactly the pruned entries' \
+  "$expected_pruned" "$(LC_ALL=C sort <"$prune_out")"
+
+preserved=$(python3 -c \
+  'import sys, tomllib
+config = tomllib.load(open(sys.argv[1], "rb"))
+print(config.get("model"))
+print(config["features"]["memories"])
+print(config["hooks"]["Stop"][0]["hooks"][0]["command"])' "$config")
+_assert_eq 'helper: preserves non-projects config' \
+  "$(printf 'fixture-model\nTrue\nfixture-command')" "$preserved"
+
+mode=$(python3 -c \
+  'import os, sys; print(oct(os.stat(sys.argv[1]).st_mode & 0o777))' "$config")
+_assert_eq 'helper: preserves config permission bits' '0o600' "$mode"
+
+checksum_before=$(cksum <"$config")
+second_out=$(_tmpfile)
+second_status=0
+HOME=$fix_home USER=fixtureuser python3 "$helper" "$config" >"$second_out" ||
+  second_status=$?
+_assert_exit 'helper: second run succeeds' 0 "$second_status"
+_assert_eq 'helper: second run reports nothing' '' "$(<"$second_out")"
+_assert_eq 'helper: second run leaves bytes untouched' \
+  "$checksum_before" "$(cksum <"$config")"
+
+corrupt=$fix_home/.codex/corrupt.toml
+printf 'not [valid toml\n' >"$corrupt"
+corrupt_before=$(cksum <"$corrupt")
+corrupt_status=0
+HOME=$fix_home USER=fixtureuser python3 "$helper" "$corrupt" \
+  >/dev/null 2>&1 || corrupt_status=$?
+_assert_exit 'helper: corrupt TOML fails' 1 "$corrupt_status"
+_assert_eq 'helper: corrupt TOML leaves bytes untouched' \
+  "$corrupt_before" "$(cksum <"$corrupt")"
+
+unrenderable=$fix_home/.codex/unrenderable.toml
+printf '[projects."%s/keep"]\ntrust_level = "trusted"\nweird = 1979-05-27T07:32:00Z\n\n[projects."/tmp/codex-trust-unrenderable"]\ntrust_level = "trusted"\n' \
+  "$fix_home" >"$unrenderable"
+unrenderable_before=$(cksum <"$unrenderable")
+unrenderable_status=0
+HOME=$fix_home USER=fixtureuser python3 "$helper" "$unrenderable" \
+  >/dev/null 2>&1 || unrenderable_status=$?
+_assert_exit 'helper: unrenderable value fails' 1 "$unrenderable_status"
+_assert_eq 'helper: unrenderable value leaves bytes untouched' \
+  "$unrenderable_before" "$(cksum <"$unrenderable")"
+
+plain=$fix_home/.codex/plain.toml
+printf 'model = "plain"\n' >"$plain"
+plain_before=$(cksum <"$plain")
+plain_out=$(_tmpfile)
+plain_status=0
+HOME=$fix_home USER=fixtureuser python3 "$helper" "$plain" >"$plain_out" ||
+  plain_status=$?
+_assert_exit 'helper: config without projects succeeds' 0 "$plain_status"
+_assert_eq 'helper: config without projects reports nothing' '' "$(<"$plain_out")"
+_assert_eq 'helper: config without projects leaves bytes untouched' \
+  "$plain_before" "$(cksum <"$plain")"
+
+echo "=== Codex trust prune predicate ==="
+
+predicate_out=$(
+  python3 - "$helper" <<'PY'
+import importlib.util
+import sys
+
+spec = importlib.util.spec_from_file_location("prune_projects", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+
+home = "/home/fixtureuser"
+user = "fixtureuser"
+tmp_dirs = {"/tmp", "/private/tmp"}
+results = []
+
+# CWD-dependent existence checks are pinned so each boundary is deterministic.
+real_exists = module.os.path.exists
+
+
+def check(name, path, exists, expected):
+    module.os.path.exists = lambda candidate: exists if candidate == module.normalize(path) else real_exists(candidate)
+    try:
+        actual = module.should_prune(module.normalize(path), home, user, tmp_dirs)
+    finally:
+        module.os.path.exists = real_exists
+    results.append(f"{name}={actual}")
+
+
+check("tmp-exact", "/tmp", True, True)
+check("tmp-trailing-slash", "/tmp/", True, True)
+check("tmp-child", "/tmp/scratch", False, True)
+check("tmp-sibling-prefix", "/tmpsafe", True, False)
+check("tmp-macos-spelling", "/private/tmp/scratch", False, True)
+check("home-exact-missing", home, False, False)
+check("home-child-missing", f"{home}/deleted", False, False)
+check("same-user-users", "/Users/fixtureuser", False, False)
+check("same-user-users-child", "/Users/fixtureuser/proj", False, False)
+check("same-user-data", "/data/users/fixtureuser/proj", False, False)
+check("other-user-existing", "/home/otheruser", True, True)
+check("other-user-child-existing", "/Users/otheruser/stuff", True, True)
+check("other-user-data", "/data/users/otheruser", False, True)
+check("overbroad-home", "/home", True, True)
+check("overbroad-users", "/Users", False, True)
+check("generic-existing", "/usr/bin", True, False)
+check("generic-missing", "/usr/definitely-not-here-codextrust", False, True)
+
+# Without an account name, existing foreign-home spellings are kept.
+module.os.path.exists = lambda candidate: True
+try:
+    unknown = module.should_prune("/home/otheruser", home, "", tmp_dirs)
+finally:
+    module.os.path.exists = real_exists
+results.append(f"unknown-user-keeps={unknown is False}")
+
+print("\n".join(f"{line}" for line in results))
+PY
+)
+predicate_status=$?
+_assert_exit 'predicate: boundary script runs' 0 "$predicate_status"
+_assert_eq 'predicate: every boundary matches' \
+  "$(printf '%s\n' \
+    'tmp-exact=True' \
+    'tmp-trailing-slash=True' \
+    'tmp-child=True' \
+    'tmp-sibling-prefix=False' \
+    'tmp-macos-spelling=True' \
+    'home-exact-missing=False' \
+    'home-child-missing=False' \
+    'same-user-users=False' \
+    'same-user-users-child=False' \
+    'same-user-data=False' \
+    'other-user-existing=True' \
+    'other-user-child-existing=True' \
+    'other-user-data=True' \
+    'overbroad-home=True' \
+    'overbroad-users=True' \
+    'generic-existing=False' \
+    'generic-missing=True' \
+    'unknown-user-keeps=True')" "$predicate_out"
+
+echo "=== Codex trust merge hook ==="
+
+merge_home=$work/merge-home
+mkdir -p "$merge_home/.codex"
+merge_config=$merge_home/.codex/config.toml
+merge_stale=/tmp/codex-trust-merge-$$
+rm -rf "$merge_stale"
+printf '[projects."%s"]\ntrust_level = "trusted"\n\n[projects."%s/keep"]\ntrust_level = "trusted"\n' \
+  "$merge_stale" "$merge_home" >"$merge_config"
+
+# shellcheck disable=SC2016 # The fixture shell expands its own hook API.
+merge_out=$(HOME="$merge_home" USER=fixtureuser bash -c '
+dot_hook_source() { return 0; }
+dot_hook_warn() { printf "%s\n" "$*"; }
+dot_hook_log() { printf "%s\n" "$*"; }
+_dot_tool_present() { return 0; }
+. "$1"
+merge' _ "$hook")
+merge_status=$?
+_assert_exit 'hook: merge prunes the fixture config' 0 "$merge_status"
+_assert_contains 'hook: merge logs the pruned path' \
+  "pruned $merge_stale" "$merge_out"
+merge_kept=$(python3 -c \
+  'import sys, tomllib; print("\n".join(sorted(tomllib.load(open(sys.argv[1], "rb")).get("projects", {}))))' \
+  "$merge_config")
+_assert_eq 'hook: merge keeps the home entry' "$merge_home/keep" "$merge_kept"
+
+empty_home=$work/empty-home
+mkdir -p "$empty_home"
+# shellcheck disable=SC2016 # The fixture shell expands its own hook API.
+empty_out=$(HOME="$empty_home" USER=fixtureuser bash -c '
+dot_hook_source() { return 0; }
+dot_hook_warn() { printf "%s\n" "$*"; }
+dot_hook_log() { printf "%s\n" "$*"; }
+_dot_tool_present() { return 0; }
+. "$1"
+merge' _ "$hook")
+_assert_exit 'hook: merge without config succeeds' 0 "$?"
+_assert_eq 'hook: merge without config is silent' '' "$empty_out"
+
+_test_summary
