@@ -26,6 +26,20 @@ _ssh_config_sources() {
     '*.ssh-config' '*.replace/*.ssh-config')
 }
 
+# Validate rendered ssh_config output with the platform ssh before installing
+# it. ssh -G parses the file and prints the effective configuration for a
+# dummy host without opening a connection; it exits nonzero when the file
+# holds an invalid directive or value. Evaluation matches a real connection
+# attempt, so Match exec predicates in the rendered file run here.
+_ssh_validate_config() {
+  local file="$1" errors
+  if ! errors=$(ssh -G dummy -F "$file" 2>&1 >/dev/null); then
+    dot_hook_warn "    warning: SSH config validation failed — not installing"
+    [[ -n "$errors" ]] && dot_hook_warn "$errors"
+    return 1
+  fi
+}
+
 _ssh_write_if_changed() {
   local dst="$1" text="$2"
   local tmp
@@ -100,5 +114,35 @@ merge() {
   done
   [[ ${#blocks[@]} -gt 0 ]] || return 0
 
-  dot_managed_block_merge_family "$dst" "# dot-managed:ssh:" "${blocks[@]}"
+  # Render into a staging file beside the destination so the merged output is
+  # validated before it can replace a working config. A validation failure
+  # keeps the existing file untouched and fails the hook.
+  local staging
+  dot_sibling_tmp_for "$dst" || return 1
+  staging="$REPLY"
+  if [[ -f "$dst" ]]; then
+    cat "$dst" >"$staging" || {
+      dot_hook_warn "    warning: SSH merge failed: cannot stage $dst"
+      rm -f "$staging"
+      return 1
+    }
+  fi
+  if ! dot_managed_block_merge_family "$staging" "# dot-managed:ssh:" "${blocks[@]}"; then
+    dot_hook_warn "    warning: SSH merge failed — keeping existing config"
+    rm -f "$staging"
+    return 1
+  fi
+  if ! _ssh_validate_config "$staging"; then
+    rm -f "$staging"
+    return 1
+  fi
+  if [[ -f "$dst" ]] && dot_config_files_equal "$staging" "$dst"; then
+    rm -f "$staging"
+    return 0
+  fi
+  if ! dot_commit_tmp "$staging" "$dst"; then
+    dot_hook_warn "    warning: SSH merge failed: cannot install $dst"
+    rm -f "$staging"
+    return 1
+  fi
 }
