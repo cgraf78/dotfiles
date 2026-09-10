@@ -101,6 +101,46 @@ _dr_worktree_candidates() {
   return 0
 }
 
+# Print the local base ref (short remote form, e.g. origin/main) for a
+# checkout, without touching the network, or fail. Mirrors the gc's
+# origin-first resolution: the origin HEAD symref, then the sole
+# remote's HEAD when there is exactly one remote, then conventional
+# origin names. With several remotes a fork's HEAD must never win by
+# enumeration order. Every candidate must resolve to a commit; stale
+# symrefs fall through instead of failing closed wrong. Keep in sync
+# with _worktree_gc_local_base_ref.
+_dr_worktree_base_ref() {
+  local dir=$1 ref head_info default_ref candidate
+  local -a remotes=()
+  ref=$(git -C "$dir" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null) || ref=
+  if [[ $ref == */* ]] &&
+    git -C "$dir" rev-parse --verify -q "$ref^{commit}" >/dev/null 2>&1; then
+    printf '%s\n' "$ref"
+    return 0
+  fi
+  mapfile -t remotes < <(git -C "$dir" remote 2>/dev/null)
+  if ((${#remotes[@]} == 1)); then
+    head_info=$(git -C "$dir" for-each-ref --format='%(symref)' 'refs/remotes/*/HEAD' 2>/dev/null) || head_info=
+    default_ref=${head_info%%$'\n'*}
+    case $default_ref in
+      refs/remotes/*)
+        default_ref=${default_ref#refs/remotes/}
+        if git -C "$dir" rev-parse --verify -q "$default_ref^{commit}" >/dev/null 2>&1; then
+          printf '%s\n' "$default_ref"
+          return 0
+        fi
+        ;;
+    esac
+  fi
+  for candidate in main master trunk; do
+    if git -C "$dir" rev-parse --verify -q "origin/$candidate^{commit}" >/dev/null 2>&1; then
+      printf 'origin/%s\n' "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
 # Print why an old checkout counts as stale (its branch is merged into the
 # upstream default or its upstream is gone), or nothing. The caller gates on
 # age with a single find pass so young checkouts cost no git spawns here.
@@ -109,7 +149,7 @@ _dr_worktree_candidates() {
 _dr_worktree_stale_reason() {
   local dir=$1
   local branch upstream_info upstream_short upstream_track
-  local head_info default_ref
+  local default_ref
 
   command -v git >/dev/null 2>&1 || return 0
   [[ -e $dir/.git ]] || return 0
@@ -125,12 +165,7 @@ _dr_worktree_stale_reason() {
     return 0
   fi
 
-  head_info=$(git -C "$dir" for-each-ref --format='%(symref)' 'refs/remotes/*/HEAD' 2>/dev/null) || return 0
-  default_ref=${head_info%%$'\n'*}
-  case $default_ref in
-    refs/remotes/*) default_ref=${default_ref#refs/remotes/} ;;
-    *) return 0 ;;
-  esac
+  default_ref=$(_dr_worktree_base_ref "$dir") || return 0
   if git -C "$dir" merge-base --is-ancestor HEAD "$default_ref" 2>/dev/null; then
     printf 'merged into %s\n' "$default_ref"
   fi
@@ -194,10 +229,11 @@ _dr_check_worktrees() {
   fi
 
   # One find pass gates staleness probing to old checkouts; young ones cost
-  # nothing beyond this.
+  # nothing beyond this. Partial results survive: discarding them when one
+  # path vanishes mid-pass would silently mute every stale warning.
   local -a old_dirs=()
   local old_list
-  old_list=$(find "${dirs[@]}" -maxdepth 0 -mtime +"$_DR_WORKTREE_STALE_DAYS" 2>/dev/null) || old_list=
+  old_list=$(find "${dirs[@]}" -maxdepth 0 -mtime +"$_DR_WORKTREE_STALE_DAYS" 2>/dev/null) || true
   while IFS= read -r dir || [[ -n $dir ]]; do
     [[ -n $dir ]] || continue
     old_dirs+=("$dir")
