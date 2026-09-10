@@ -832,8 +832,11 @@ EOF
       . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/karabiner.sh"
       merge
     }
-    HOME="$karabiner_home" PATH="$karabiner_bin:$PATH" _run_karabiner_merge_for_test
+    karabiner_ok_status=0
+    HOME="$karabiner_home" PATH="$karabiner_bin:$PATH" _run_karabiner_merge_for_test || karabiner_ok_status=$?
     unset -f _run_karabiner_merge_for_test merge 2>/dev/null
+    _assert_exit "karabiner merge: successful merge reports success" \
+      0 "$karabiner_ok_status"
     karabiner_output=$(jq -c . "$karabiner_home/.config/karabiner/karabiner.json")
     _assert_contains "karabiner merge: local-only profile preserved" \
       '{"name":"Local Only"}' "$karabiner_output"
@@ -845,6 +848,67 @@ EOF
       '{"name":"Source Only"}' "$karabiner_output"
   else
     echo "  SKIP: Karabiner merge hook assertions (jq unavailable)"
+  fi
+
+  echo ""
+  echo "=== Karabiner merge hook failure paths ==="
+
+  if command -v jq >/dev/null 2>&1; then
+    _run_karabiner_fail_merge_for_test() {
+      unset -f merge 2>/dev/null
+      # shellcheck source=/dev/null
+      . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/karabiner.sh"
+      merge
+    }
+    karabiner_fail_home=$(_tmpdir)
+    karabiner_fail_bin=$(_tmpdir)
+    mkdir -p \
+      "$karabiner_fail_home/.config/dot/merge-hooks.d/karabiner/profiles.d" \
+      "$karabiner_fail_home/.config/karabiner" \
+      "$karabiner_fail_home/Applications/Karabiner-Elements.app" \
+      "$karabiner_fail_bin"
+    cat >"$karabiner_fail_bin/uname" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' Darwin
+EOF
+    chmod +x "$karabiner_fail_bin/uname"
+
+    # Build failure: an invalid source profile cannot be combined, so the
+    # existing config must stay untouched and the hook must fail.
+    printf '%s\n' '{ invalid json' \
+      >"$karabiner_fail_home/.config/dot/merge-hooks.d/karabiner/profiles.d/10-broken.json"
+    printf '%s\n' '{"profiles": [{"name": "Local Only"}]}' \
+      >"$karabiner_fail_home/.config/karabiner/karabiner.json"
+    karabiner_fail_status=0
+    karabiner_fail_output=$(HOME="$karabiner_fail_home" PATH="$karabiner_fail_bin:$PATH" \
+      _run_karabiner_fail_merge_for_test 2>&1) || karabiner_fail_status=$?
+    _assert_exit "karabiner merge: source build failure fails the hook" \
+      1 "$karabiner_fail_status"
+    _assert_contains "karabiner merge: source build failure is reported" \
+      "Karabiner source merge failed" "$karabiner_fail_output"
+    _assert_file_content "karabiner merge: source build failure keeps existing config" \
+      '{"profiles": [{"name": "Local Only"}]}' \
+      "$karabiner_fail_home/.config/karabiner/karabiner.json"
+
+    # Merge failure: valid sources cannot merge into a corrupt local config,
+    # so the corrupt file must stay untouched and the hook must fail.
+    printf '%s\n' '{"profiles": [{"name": "Source Only"}]}' \
+      >"$karabiner_fail_home/.config/dot/merge-hooks.d/karabiner/profiles.d/10-broken.json"
+    printf '%s\n' '{ corrupt local config' \
+      >"$karabiner_fail_home/.config/karabiner/karabiner.json"
+    karabiner_fail_status=0
+    karabiner_fail_output=$(HOME="$karabiner_fail_home" PATH="$karabiner_fail_bin:$PATH" \
+      _run_karabiner_fail_merge_for_test 2>&1) || karabiner_fail_status=$?
+    _assert_exit "karabiner merge: local merge failure fails the hook" \
+      1 "$karabiner_fail_status"
+    _assert_contains "karabiner merge: local merge failure is reported" \
+      "Karabiner merge failed" "$karabiner_fail_output"
+    _assert_file_content "karabiner merge: local merge failure keeps existing config" \
+      '{ corrupt local config' \
+      "$karabiner_fail_home/.config/karabiner/karabiner.json"
+    unset -f _run_karabiner_fail_merge_for_test merge 2>/dev/null
+  else
+    echo "  SKIP: Karabiner merge hook failure paths (jq unavailable)"
   fi
 
   echo ""
@@ -915,12 +979,15 @@ EOF
     "account home" "$iterm2_non_account_output"
 
   : >"$iterm2_defaults_log"
+  iterm2_ok_status=0
   HOME="$iterm2_home" \
     PATH="$iterm2_bin:$PATH" \
     DOT_TEST_DEFAULTS="$iterm2_bin/defaults" \
     DOT_TEST_DEFAULTS_LOG="$iterm2_defaults_log" \
-    _run_iterm2_merge_for_test
+    _run_iterm2_merge_for_test || iterm2_ok_status=$?
   unset -f _run_iterm2_merge_for_test merge 2>/dev/null
+  _assert_exit "iterm2 merge: successful merge reports success" \
+    0 "$iterm2_ok_status"
   _assert_file_content "iterm2: dynamic profile copied" \
     '{"Name": "Dotfiles"}' \
     "$iterm2_home/Library/Application Support/iTerm2/DynamicProfiles/dotfiles-dyn-profile.json"
@@ -937,6 +1004,93 @@ EOF
   _assert_contains "iterm2 defaults: pointer actions policy applied" \
     $'write\tcom.googlecode.iterm2\tPointerActions\t{' \
     "$iterm2_defaults_output"
+
+  echo ""
+  echo "=== iTerm2 profiles failure path ==="
+
+  # Declared profiles that cannot install must fail the hook, while the
+  # defaults step still runs so preferences are not skipped.
+  iterm2_fail_home=$(_tmpdir)
+  iterm2_fail_bin=$(_tmpdir)
+  iterm2_fail_log="$iterm2_fail_home/defaults.log"
+  mkdir -p \
+    "$iterm2_fail_home/.config/dot/merge-hooks.d/iterm2/defaults.d" \
+    "$iterm2_fail_home/.config/dot/merge-hooks.d/iterm2/profiles.d" \
+    "$iterm2_fail_home/Applications/iTerm.app" \
+    "$iterm2_fail_bin"
+  printf '%s\n' '{"Name": "Dotfiles"}' \
+    >"$iterm2_fail_home/.config/dot/merge-hooks.d/iterm2/profiles.d/10-dotfiles-dyn-profile.json"
+  printf '%s\t%s\t%s\t%s\n' 'com.googlecode.iterm2' 'ApplePressAndHoldEnabled' 'bool' 'false' \
+    >"$iterm2_fail_home/.config/dot/merge-hooks.d/iterm2/defaults.d/10-preferences.tsv"
+  cat >"$iterm2_fail_bin/uname" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' Darwin
+EOF
+  cat >"$iterm2_fail_bin/defaults" <<'EOF'
+#!/usr/bin/env bash
+{
+  first=true
+  for arg in "$@"; do
+    if $first; then
+      first=false
+    else
+      printf '\t'
+    fi
+    printf '%s' "$arg"
+  done
+  printf '\n'
+} >>"$DOT_TEST_DEFAULTS_LOG"
+EOF
+  chmod +x "$iterm2_fail_bin/uname" "$iterm2_fail_bin/defaults"
+  _run_iterm2_fail_merge_for_test() {
+    unset -f merge 2>/dev/null
+    # shellcheck source=/dev/null
+    . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/iterm2.sh"
+    merge
+  }
+  : >"$iterm2_fail_log"
+  iterm2_fail_status=0
+  iterm2_fail_output=$(HOME="$iterm2_fail_home" \
+    PATH="$iterm2_fail_bin:$PATH" \
+    DOT_TEST_DEFAULTS="$iterm2_fail_bin/defaults" \
+    DOT_TEST_DEFAULTS_LOG="$iterm2_fail_log" \
+    _run_iterm2_fail_merge_for_test 2>&1) || iterm2_fail_status=$?
+  unset -f _run_iterm2_fail_merge_for_test merge 2>/dev/null
+  _assert_exit "iterm2 profiles: uninstallable profiles fail the hook" \
+    1 "$iterm2_fail_status"
+  _assert_contains "iterm2 profiles: failure is reported" \
+    "iTerm2 dynamic profiles failed" "$iterm2_fail_output"
+  _assert_contains "iterm2 profiles: defaults still apply after profiles failure" \
+    $'write\tcom.googlecode.iterm2\tApplePressAndHoldEnabled\t-bool\tfalse' \
+    "$(cat "$iterm2_fail_log")"
+
+  echo ""
+  echo "=== iTerm2 defaults-only path ==="
+
+  # With no profiles declared, a missing DynamicProfiles directory is not a
+  # failure: there is nothing to install, and defaults still apply.
+  rm -f "$iterm2_fail_home/.config/dot/merge-hooks.d/iterm2/profiles.d/10-dotfiles-dyn-profile.json"
+  _run_iterm2_fail_merge_for_test() {
+    unset -f merge 2>/dev/null
+    # shellcheck source=/dev/null
+    . "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/iterm2.sh"
+    merge
+  }
+  : >"$iterm2_fail_log"
+  iterm2_fail_status=0
+  iterm2_fail_output=$(HOME="$iterm2_fail_home" \
+    PATH="$iterm2_fail_bin:$PATH" \
+    DOT_TEST_DEFAULTS="$iterm2_fail_bin/defaults" \
+    DOT_TEST_DEFAULTS_LOG="$iterm2_fail_log" \
+    _run_iterm2_fail_merge_for_test 2>&1) || iterm2_fail_status=$?
+  unset -f _run_iterm2_fail_merge_for_test merge 2>/dev/null
+  _assert_exit "iterm2 profiles: no declared profiles succeeds without destination dir" \
+    0 "$iterm2_fail_status"
+  _assert_not_contains "iterm2 profiles: no declared profiles reports no failure" \
+    "dynamic profiles failed" "$iterm2_fail_output"
+  _assert_contains "iterm2 profiles: defaults still apply without declared profiles" \
+    $'write\tcom.googlecode.iterm2\tApplePressAndHoldEnabled\t-bool\tfalse' \
+    "$(cat "$iterm2_fail_log")"
 
   echo ""
   echo "=== SSH config merge hook ==="
@@ -1142,6 +1296,135 @@ EXISTING
   fi
 
   # Clean up
+  rm -rf "$SSH_DIR"
+  rm -rf "$TEST_HOME/.config/dot/merge-hooks.d/ssh/config.d"
+
+  echo ""
+  echo "=== SSH config validation ==="
+
+  SSH_DIR="$TEST_HOME/.ssh"
+  SSH_CONFIG="$SSH_DIR/config"
+  rm -rf "$SSH_DIR"
+  mkdir -p "$TEST_HOME/.config/dot/merge-hooks.d/ssh/config.d"
+
+  if command -v ssh >/dev/null 2>&1; then
+    # Invalid rendered output is rejected: the existing config stays
+    # untouched and the hook fails.
+    cat >"$TEST_HOME/.config/dot/merge-hooks.d/ssh/config.d/10-primary.ssh-config" <<'SSH'
+Host badhost
+  HostName bad.example.com
+  BadDirective yes
+SSH
+    mkdir -p "$SSH_DIR"
+    cat >"$SSH_CONFIG" <<'EXISTING'
+Host manual-only
+  HostName manual.example.com
+EXISTING
+    ssh_before=$(cat "$SSH_CONFIG")
+    ssh_valid_status=0
+    ssh_valid_output=$(_run_ssh_merge 2>&1) || ssh_valid_status=$?
+    _assert_exit "ssh hook: invalid output fails the hook" \
+      1 "$ssh_valid_status"
+    _assert_contains "ssh hook: validation failure is reported" \
+      "validation failed" "$ssh_valid_output"
+    _assert_file_content "ssh hook: invalid output keeps existing config" \
+      "$ssh_before" "$SSH_CONFIG"
+
+    # Valid rendered output installs normally and reports success.
+    cat >"$TEST_HOME/.config/dot/merge-hooks.d/ssh/config.d/10-primary.ssh-config" <<'SSH'
+Host goodhost
+  HostName good.example.com
+  User gooduser
+SSH
+    rm -f "$SSH_CONFIG"
+    ssh_valid_status=0
+    _run_ssh_merge 2>/dev/null || ssh_valid_status=$?
+    _assert_exit "ssh hook: valid output reports success" \
+      0 "$ssh_valid_status"
+    ssh_content=$(cat "$SSH_CONFIG")
+    _assert_contains "ssh hook: valid output installs managed host" \
+      "Host goodhost" "$ssh_content"
+  else
+    echo "  SKIP: SSH config validation against platform ssh (ssh unavailable)"
+  fi
+
+  # The hook honors the ssh exit code: a failing ssh rejects the output and
+  # keeps the existing config, whatever the fragment contains.
+  ssh_mock_bin=$(_mock_bin)
+  cat >"$ssh_mock_bin/ssh" <<'SH'
+#!/usr/bin/env bash
+exit 1
+SH
+  chmod +x "$ssh_mock_bin/ssh"
+  cat >"$TEST_HOME/.config/dot/merge-hooks.d/ssh/config.d/10-primary.ssh-config" <<'SSH'
+Host mockhost
+  HostName mock.example.com
+SSH
+  mkdir -p "$SSH_DIR"
+  cat >"$SSH_CONFIG" <<'EXISTING'
+Host manual-only
+  HostName manual.example.com
+EXISTING
+  ssh_before=$(cat "$SSH_CONFIG")
+  ssh_valid_status=0
+  ssh_valid_output=$(PATH="$ssh_mock_bin:$PATH" _run_ssh_merge 2>&1) || ssh_valid_status=$?
+  _assert_exit "ssh hook: ssh rejection fails the hook" \
+    1 "$ssh_valid_status"
+  _assert_contains "ssh hook: ssh rejection is reported" \
+    "validation failed" "$ssh_valid_output"
+  _assert_file_content "ssh hook: ssh rejection keeps existing config" \
+    "$ssh_before" "$SSH_CONFIG"
+
+  # The hook honors the ssh exit code: an accepting ssh installs the output.
+  cat >"$ssh_mock_bin/ssh" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+  chmod +x "$ssh_mock_bin/ssh"
+  rm -f "$SSH_CONFIG"
+  ssh_valid_status=0
+  PATH="$ssh_mock_bin:$PATH" _run_ssh_merge 2>/dev/null || ssh_valid_status=$?
+  _assert_exit "ssh hook: ssh acceptance reports success" \
+    0 "$ssh_valid_status"
+  ssh_content=$(cat "$SSH_CONFIG")
+  _assert_contains "ssh hook: ssh acceptance installs managed host" \
+    "Host mockhost" "$ssh_content"
+
+  # Install failure keeps the existing destination untouched, reports the
+  # failure, and leaves no staging file behind. A symlinked destination
+  # deterministically rejects the atomic install.
+  cat >"$TEST_HOME/.config/dot/merge-hooks.d/ssh/config.d/10-primary.ssh-config" <<'SSH'
+Host mockhost
+  HostName mock.example.com
+SSH
+  mkdir -p "$SSH_DIR"
+  cat >"$SSH_DIR/config.target" <<'EXISTING'
+Host manual-only
+  HostName manual.example.com
+EXISTING
+  ln -sf "$SSH_DIR/config.target" "$SSH_CONFIG"
+  ssh_before=$(cat "$SSH_DIR/config.target")
+  ssh_valid_status=0
+  ssh_valid_output=$(PATH="$ssh_mock_bin:$PATH" _run_ssh_merge 2>&1) || ssh_valid_status=$?
+  _assert_exit "ssh hook: install failure fails the hook" \
+    1 "$ssh_valid_status"
+  _assert_contains "ssh hook: install failure is reported" \
+    "cannot install" "$ssh_valid_output"
+  _assert_file_content "ssh hook: install failure keeps existing config" \
+    "$ssh_before" "$SSH_DIR/config.target"
+  if [[ -L "$SSH_CONFIG" ]]; then
+    _pass "ssh hook: install failure preserves destination symlink"
+  else
+    _fail "ssh hook: install failure preserves destination symlink"
+  fi
+  ssh_staging_left=0
+  for ssh_leftover in "$SSH_DIR"/config.tmp.*; do
+    [[ -e "$ssh_leftover" ]] || continue
+    ssh_staging_left=1
+  done
+  _assert_eq "ssh hook: install failure leaves no staging file" \
+    "0" "$ssh_staging_left"
+
   rm -rf "$SSH_DIR"
   rm -rf "$TEST_HOME/.config/dot/merge-hooks.d/ssh/config.d"
 

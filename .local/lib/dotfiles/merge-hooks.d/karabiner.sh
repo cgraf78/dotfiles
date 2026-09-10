@@ -27,7 +27,7 @@ _karabiner_build_source() {
 
   if ! jq -s --indent 4 '{profiles: ([.[].profiles[]?])}' \
     "${_karabiner_sources[@]}" >"$tmp"; then
-    dot_hook_warn "    warning: Karabiner source merge failed — skipping"
+    dot_hook_warn "    warning: Karabiner source merge failed"
     rm -f "$tmp"
     return 1
   fi
@@ -56,20 +56,20 @@ merge() {
   # No existing file — just copy
   if [[ ! -f "$dst" ]]; then
     if ((${#_karabiner_sources[@]} == 1)); then
-      cp "${_karabiner_sources[0]}" "$dst"
+      cp "${_karabiner_sources[0]}" "$dst" || return 1
       return 0
     fi
-    _karabiner_build_source "$dst" || return 0
+    _karabiner_build_source "$dst" || return 1
     dot_commit_tmp "$REPLY" "$dst"
-    return 0
+    return
   fi
 
-  _karabiner_build_source "$dst" || return 0
+  _karabiner_build_source "$dst" || return 1
   src="$REPLY"
 
   # Merge: for each local profile, replace with dotfiles version if name matches.
   # Append any dotfiles profiles not already present locally.
-  dot_sibling_tmp_for "$dst" || return 0
+  dot_sibling_tmp_for "$dst" || return 1
   tmp="$REPLY"
   if ! jq -n --indent 4 --slurpfile s "$src" --slurpfile d "$dst" '
     ($s[0].profiles | map({(.name): .}) | add) as $src_map |
@@ -82,9 +82,9 @@ merge() {
         select(.name as $n | [$d[0].profiles[].name] | index($n) | not)]
     )
   ' >"$tmp"; then
-    dot_hook_warn "    warning: Karabiner merge failed — skipping"
+    dot_hook_warn "    warning: Karabiner merge failed"
     rm -f "$src" "$tmp"
-    return 0
+    return 1
   fi
   rm -f "$src"
   dot_commit_tmp "$tmp" "$dst"
