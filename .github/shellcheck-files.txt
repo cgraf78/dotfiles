@@ -32,6 +32,7 @@ program	.config/shell/interactive.d/70-integrations.bash
 program	.config/shell/interactive.d/72-grok.sh
 program	.local/bin/clip
 program	.local/bin/dot
+program	.local/bin/dot-worktree-gc
 program	.local/bin/git
 program	.local/bin/shell-time
 program	.local/lib/dotfiles/agent-playbooks.sh
@@ -50,6 +51,7 @@ program	.local/lib/dotfiles/doctor.d/lib/shell.sh
 program	.local/lib/dotfiles/doctor.d/lib/tools.sh
 program	.local/lib/dotfiles/doctor.d/lib/worktrees.sh
 program	.local/lib/dotfiles/launcher-real.sh
+program	.local/lib/dotfiles/worktree-gc.sh
 program	.local/lib/dotfiles/merge-hooks.d/agent-rules.sh
 program	.local/lib/dotfiles/merge-hooks.d/codex-trust.serial.sh
 program	.local/lib/dotfiles/merge-hooks.d/cron.serial.sh
@@ -108,6 +110,7 @@ program	.local/lib/dotfiles/tests/tmux-compatibility-test
 program	.local/lib/dotfiles/tests/tmux-test
 program	.local/lib/dotfiles/tests/tool-init-test
 program	.local/lib/dotfiles/tests/wezterm-test
+program	.local/lib/dotfiles/tests/worktree-gc-test
 program	.local/lib/dotfiles/tests/worktree-hygiene-test
 program	.local/lib/dotfiles/tests/xdg-test
 program	.local/lib/dotfiles/tests/zsh-completion-test

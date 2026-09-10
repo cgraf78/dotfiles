@@ -52,10 +52,15 @@ _dr_worktree_physical() {
 #      kept anywhere, including repo-local and shared roots),
 #   2. children of the shared worktree roots (every repo, plus orphaned
 #      checkouts git no longer tracks),
-#   3. repo-local .worktrees children under the default clone root.
+#   3. repo-local .worktrees children under every clone root: ~/git plus
+#      the ~/.dotfiles-* overlay clones, which are repos like any other,
+#   4. children of any extra roots passed as arguments.
 # Callers dedupe and exclude the live checkout. Never fails.
+# Extra roots arrive from out-of-file callers (dot-worktree-gc); the
+# in-file doctor call intentionally passes none.
+# shellcheck disable=SC2120
 _dr_worktree_candidates() {
-  local home=${HOME:-} root dir child line path
+  local home=${HOME:-} root dir child line path extra
 
   [[ -n $home && -d $home ]] || return 0
 
@@ -78,15 +83,21 @@ _dr_worktree_candidates() {
     done
   done
 
-  if [[ -d $home/git ]]; then
-    for dir in "$home"/git/*/.worktrees/; do
-      [[ -d $dir ]] || continue
-      for child in "$dir"*/; do
-        [[ -d $child ]] || continue
-        _dr_worktree_physical "${child%/}"
-      done
+  for dir in "$home"/git/*/.worktrees/ "$home"/.dotfiles-*/.worktrees/; do
+    [[ -d $dir ]] || continue
+    for child in "$dir"*/; do
+      [[ -d $child ]] || continue
+      _dr_worktree_physical "${child%/}"
     done
-  fi
+  done
+
+  for extra in "$@"; do
+    [[ -d $extra ]] || continue
+    for child in "$extra"/*/; do
+      [[ -d $child ]] || continue
+      _dr_worktree_physical "${child%/}"
+    done
+  done
   return 0
 }
 
@@ -140,6 +151,7 @@ _dr_check_worktrees() {
     dotfiles_phys=$(cd -- "$DOTFILES" 2>/dev/null && pwd -P 2>/dev/null) || dotfiles_phys=
   fi
 
+  # shellcheck disable=SC2119 # the doctor call intentionally passes no extra roots
   while IFS= read -r dir || [[ -n $dir ]]; do
     if [[ -z $dir || ! -d $dir ]]; then
       continue
