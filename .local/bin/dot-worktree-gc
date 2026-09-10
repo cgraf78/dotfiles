@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# dot-worktree-gc — remove old worktrees whose branches are proven merged.
+#
+# Thin entry point: reusable implementation lives beside it under
+# .local/lib/dotfiles/worktree-gc.sh so the future `dot worktree gc`
+# native command can wrap or absorb it. See that file for the stdout
+# contract, exit codes, and safety rules.
+
+set -u
+
+_src=${BASH_SOURCE[0]}
+_depth=0
+while [[ -L $_src ]]; do
+  _depth=$((_depth + 1))
+  if ((_depth > 32)); then
+    printf 'dot-worktree-gc: symlink loop resolving entry point\n' >&2
+    exit 1
+  fi
+  _link=$(readlink "$_src")
+  case $_link in
+    /*) _src=$_link ;;
+    *) _src=${_src%/*}/$_link ;;
+  esac
+done
+_libdir=$(cd -- "${_src%/*}/../lib/dotfiles" && pwd -P) || {
+  printf 'dot-worktree-gc: cannot locate implementation library\n' >&2
+  exit 1
+}
+
+# shellcheck source=../lib/dotfiles/worktree-gc.sh
+. "$_libdir/worktree-gc.sh" || {
+  printf 'dot-worktree-gc: cannot load implementation library\n' >&2
+  exit 1
+}
+
+worktree_gc_main "$@"

@@ -241,4 +241,21 @@ _assert_contains "base: shared-root worktree counts once (dedupe)" \
 _assert_contains "base: fresh linked worktrees are not stale" \
   $'ok\tno stale worktrees' "$result"
 
+echo ""
+echo "=== Overlay clone worktrees ==="
+
+overlay_home=$(_tmpdir)
+mkdir -p "$overlay_home/.dotfiles-dev/.worktrees/wt1"
+# Old and non-git: counted for disk, silent for staleness.
+_make_old "$overlay_home/.dotfiles-dev/.worktrees/wt1"
+
+result=$(HOME="$overlay_home" DOTFILES="$overlay_home/.dotfiles" \
+  _doctor_records _dr_check_worktrees)
+status=$?
+_assert_exit "overlay: enumeration exits 0" 0 "$status"
+_assert_contains "overlay: repo-local worktree counts" \
+  "across 1 worktrees" "$result"
+_assert_contains "overlay: non-git checkout stays silent" \
+  $'ok\tno stale worktrees' "$result"
+
 _test_summary

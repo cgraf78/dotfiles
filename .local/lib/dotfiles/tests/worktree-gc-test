@@ -1,0 +1,857 @@
+#!/usr/bin/env bash
+# worktree-gc-test — dot-worktree-gc multi-repo cleanup coverage.
+#
+# Exercises the entry point end to end against fixture HOME trees: linked
+# worktrees in every scanned root plus a linked base-repository worktree
+# outside the roots. A stub git-tools predicate proves the content-merge
+# wiring without depending on the real git-tools checkout.
+
+set -o pipefail
+export NO_COLOR=1
+
+# shellcheck source=helpers.sh
+. "${BASH_SOURCE[0]%/*}/helpers.sh"
+_test_prefer_system_git || exit 1
+
+ROOT=$(cd -P -- "${BASH_SOURCE[0]%/*}/../../../.." && pwd -P)
+GC=$ROOT/.local/bin/dot-worktree-gc
+
+# Fixture git operations must never execute ambient developer hooks:
+# installed profiles point core.hooksPath at sley, whose gate fails
+# fixture commits in sandboxes. An empty hooks dir disables hooks for
+# every git call below, fixtures and tool alike; the tool performs no
+# hook-triggering operations so its behavior is unchanged.
+_GC_EMPTY_HOOKS_DIR=$(_tmpdir)/empty-hooks
+mkdir -p "$_GC_EMPTY_HOOKS_DIR"
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0=core.hooksPath
+export GIT_CONFIG_VALUE_0=$_GC_EMPTY_HOOKS_DIR
+
+# Seed a bare origin with a main branch carrying one commit.
+_gc_seed_origin() {
+  local origin=$1 seed
+  seed=$(_tmpdir)
+  git init --bare "$origin" >/dev/null 2>&1
+  git --git-dir="$origin" symbolic-ref HEAD refs/heads/main >/dev/null 2>&1
+  git init "$seed" >/dev/null 2>&1
+  _git_set_test_identity git -C "$seed"
+  printf '%s\n' 'seed' >"$seed/file.txt"
+  git -C "$seed" add file.txt >/dev/null 2>&1
+  git -C "$seed" commit -m seed >/dev/null 2>&1
+  git -C "$seed" branch -M main >/dev/null 2>&1
+  git -C "$seed" push "$origin" main:main >/dev/null 2>&1
+}
+
+_gc_commit_file() {
+  local dir=$1 name=$2
+  printf '%s\n' "$name" >"$dir/$name"
+  git -C "$dir" add "$name" >/dev/null 2>&1
+  git -C "$dir" commit -m "$name" >/dev/null 2>&1
+}
+
+_gc_make_old() { touch -t 202001010000 "$1"; }
+_gc_make_age_days() {
+  python3 -c 'import os,sys,time; t=int(time.time())-int(sys.argv[2])*86400; os.utime(sys.argv[1],(t,t))' "$1" "$2"
+}
+
+# Fixture HOME with physical (symlink-resolved) spelling: the tool
+# reports physical paths, and TMPDIR is a symlink on some platforms
+# (macOS /var -> /private/var), so expected paths must resolve too.
+_gc_tmpdir() {
+  local dir
+  dir=$(_tmpdir) || return 1
+  (cd -- "$dir" && pwd -P)
+}
+_gc_make_fresh() { touch "$1"; }
+
+# Clone an origin as a repo main checkout and pin its remote HEAD so
+# default-branch detection never depends on clone transport behavior.
+_gc_clone_main() {
+  local origin=$1 dest=$2
+  git clone "$origin" "$dest" >/dev/null 2>&1
+  _git_set_test_identity git -C "$dest"
+  git -C "$dest" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main >/dev/null 2>&1
+}
+
+# Merge a worktree branch into the main checkout's default and publish it.
+_gc_merge_branch() {
+  local main=$1 branch=$2
+  git -C "$main" fetch origin >/dev/null 2>&1
+  git -C "$main" merge --no-ff "origin/$branch" -m "merge $branch" >/dev/null 2>&1
+  git -C "$main" push origin main >/dev/null 2>&1
+}
+
+# Build the standard matrix: two repos (alpha, beta) under $home/git with
+# linked worktrees covering every gc verdict. Prints nothing; callers know
+# the layout.
+_gc_build_matrix() {
+  local home=$1 origin=$2
+  local main wt
+
+  _gc_clone_main "$origin" "$home/git/alpha"
+  main=$home/git/alpha
+
+  # Old, merged into the upstream default: removed.
+  git -C "$main" worktree add "$home/.worktrees/old-merged" -b feat-a >/dev/null 2>&1
+  wt=$home/.worktrees/old-merged
+  _git_set_test_identity git -C "$wt"
+  _gc_commit_file "$wt" feat-a.txt
+  git -C "$wt" push -u origin feat-a >/dev/null 2>&1
+  _gc_merge_branch "$main" feat-a
+  git -C "$wt" fetch --prune origin >/dev/null 2>&1
+  _gc_make_old "$wt"
+
+  # Old, unmerged, upstream alive: skipped.
+  git -C "$main" worktree add "$home/.worktrees/old-unmerged" -b wip-a >/dev/null 2>&1
+  wt=$home/.worktrees/old-unmerged
+  _git_set_test_identity git -C "$wt"
+  _gc_commit_file "$wt" wip-a.txt
+  git -C "$wt" push -u origin wip-a >/dev/null 2>&1
+  _gc_make_old "$wt"
+
+  # Young, merged: kept.
+  git -C "$main" worktree add "$home/.worktrees/young-merged" -b feat-b >/dev/null 2>&1
+  wt=$home/.worktrees/young-merged
+  _git_set_test_identity git -C "$wt"
+  _gc_commit_file "$wt" feat-b.txt
+  git -C "$wt" push -u origin feat-b >/dev/null 2>&1
+  _gc_merge_branch "$main" feat-b
+  git -C "$wt" fetch --prune origin >/dev/null 2>&1
+  _gc_make_fresh "$wt"
+
+  # Old, merged, but dirty: skipped.
+  git -C "$main" worktree add "$home/.worktrees/old-dirty" -b feat-c >/dev/null 2>&1
+  wt=$home/.worktrees/old-dirty
+  _git_set_test_identity git -C "$wt"
+  _gc_commit_file "$wt" feat-c.txt
+  git -C "$wt" push -u origin feat-c >/dev/null 2>&1
+  _gc_merge_branch "$main" feat-c
+  git -C "$wt" fetch --prune origin >/dev/null 2>&1
+  printf '%s\n' 'local edit' >>"$wt/feat-c.txt"
+  _gc_make_old "$wt"
+
+  # Old, detached at a merged commit: removed.
+  git -C "$main" worktree add --detach "$home/.worktrees/old-detached-merged" main >/dev/null 2>&1
+  _gc_make_old "$home/.worktrees/old-detached-merged"
+
+  # Old, detached at an unmerged commit: skipped.
+  git -C "$main" worktree add --detach "$home/.worktrees/old-detached-unmerged" wip-a >/dev/null 2>&1
+  _gc_make_old "$home/.worktrees/old-detached-unmerged"
+
+  # Old, merged, but locked: skipped.
+  git -C "$main" worktree add "$home/git/worktrees/old-locked" -b feat-d >/dev/null 2>&1
+  wt=$home/git/worktrees/old-locked
+  _git_set_test_identity git -C "$wt"
+  _gc_commit_file "$wt" feat-d.txt
+  git -C "$wt" push -u origin feat-d >/dev/null 2>&1
+  _gc_merge_branch "$main" feat-d
+  git -C "$wt" fetch --prune origin >/dev/null 2>&1
+  git -C "$main" worktree lock "$wt" >/dev/null 2>&1
+  _gc_make_old "$wt"
+
+  # Old plain clone: its own main checkout, never removable: skipped.
+  _gc_clone_main "$origin" "$home/.worktrees/plain-clone"
+  _gc_make_old "$home/.worktrees/plain-clone"
+
+  # Old directory without git metadata: skipped.
+  mkdir -p "$home/.worktrees/no-git"
+  _gc_make_old "$home/.worktrees/no-git"
+
+  # Old, .git pointer whose repo was deleted: skipped.
+  mkdir -p "$home/.worktrees/broken-pointer"
+  printf 'gitdir: %s\n' "$home/git/deleted-repo/.git" >"$home/.worktrees/broken-pointer/.git"
+  _gc_make_old "$home/.worktrees/broken-pointer"
+
+  # Old, git metadata usable but checkout unregistered: skipped.
+  mkdir -p "$home/.worktrees/fake-orphan"
+  printf 'gitdir: %s\n' "$main/.git" >"$home/.worktrees/fake-orphan/.git"
+  _gc_make_old "$home/.worktrees/fake-orphan"
+
+  # Old linked worktree in a repo without remotes: nothing to prove: skipped.
+  git init "$home/git/local-only" >/dev/null 2>&1
+  _git_set_test_identity git -C "$home/git/local-only"
+  _gc_commit_file "$home/git/local-only" local.txt
+  git -C "$home/git/local-only" branch -M main >/dev/null 2>&1
+  git -C "$home/git/local-only" worktree add "$home/.worktrees/local-wt" -b feat-local >/dev/null 2>&1
+  _git_set_test_identity git -C "$home/.worktrees/local-wt"
+  _gc_commit_file "$home/.worktrees/local-wt" feat-local.txt
+  _gc_make_old "$home/.worktrees/local-wt"
+
+  # Second repo proving the multi-repo sweep.
+  _gc_clone_main "$origin" "$home/git/beta"
+  git -C "$home/git/beta" worktree add "$home/git/beta/.worktrees/old-merged-beta" -b feat-beta >/dev/null 2>&1
+  wt=$home/git/beta/.worktrees/old-merged-beta
+  _git_set_test_identity git -C "$wt"
+  _gc_commit_file "$wt" feat-beta.txt
+  git -C "$wt" push -u origin feat-beta >/dev/null 2>&1
+  _gc_merge_branch "$home/git/beta" feat-beta
+  git -C "$wt" fetch --prune origin >/dev/null 2>&1
+  _gc_make_old "$wt"
+}
+
+echo "=== Usage errors ==="
+
+usage_home=$(_gc_tmpdir)
+result=$(HOME="$usage_home" DOTFILES="$usage_home/.dotfiles" "$GC" --older-than bogus 2>&1)
+status=$?
+_assert_exit "usage: invalid age exits 1" 1 "$status"
+_assert_contains "usage: invalid age prints usage" "usage:" "$result"
+
+result=$(HOME="$usage_home" DOTFILES="$usage_home/.dotfiles" "$GC" --bogus-flag 2>&1)
+status=$?
+_assert_exit "usage: unknown flag exits 1" 1 "$status"
+
+result=$(HOME="$usage_home" DOTFILES="$usage_home/.dotfiles" "$GC" --dry-run --apply 2>&1)
+status=$?
+_assert_exit "usage: both modes exits 1" 1 "$status"
+
+result=$(HOME="$usage_home" DOTFILES="$usage_home/.dotfiles" "$GC" extra-positional 2>&1)
+status=$?
+_assert_exit "usage: positional argument exits 1" 1 "$status"
+
+result=$(env -u HOME DOTFILES="$usage_home/.dotfiles" "$GC" 2>&1)
+status=$?
+_assert_exit "usage: unset HOME exits 1" 1 "$status"
+
+echo ""
+echo "=== Dry run is the default and changes nothing ==="
+
+dry_home=$(_gc_tmpdir)
+dry_origin_root=$(_tmpdir)
+dry_origin=$dry_origin_root/origin.git
+_gc_seed_origin "$dry_origin"
+_gc_build_matrix "$dry_home" "$dry_origin"
+
+result=$(HOME="$dry_home" DOTFILES="$dry_home/.dotfiles" "$GC" 2>"$dry_home/stderr.txt")
+status=$?
+_assert_exit "dry-run: exits 0" 0 "$status"
+stderr=$(cat "$dry_home/stderr.txt")
+_assert_contains "dry-run: stdout carries no apply records" "would-remove" "$result"
+_assert_not_contains "dry-run: no removal records" $'removed\t' "$result"
+merged_wt=$dry_home/.worktrees/old-merged
+_assert_contains "dry-run: old merged worktree would be removed" \
+  "$(printf 'would-remove\t%s\tmerged into origin/main' "$merged_wt")" "$result"
+beta_wt=$dry_home/git/beta/.worktrees/old-merged-beta
+_assert_contains "dry-run: second repo is swept" \
+  "$(printf 'would-remove\t%s\tmerged into origin/main' "$beta_wt")" "$result"
+_assert_contains "dry-run: merged branch would be deleted" \
+  "$(printf 'would-remove-branch\tfeat-a\t%s' "$dry_home/git/alpha/.git")" "$result"
+detached_wt=$dry_home/.worktrees/old-detached-merged
+_assert_contains "dry-run: detached merged worktree would be removed" \
+  "$(printf 'would-remove\t%s\tmerged into origin/main' "$detached_wt")" "$result"
+branch_records=$(grep -c '^would-remove-branch' <<<"$result")
+_assert_eq "dry-run: branch records cover feat-a and feat-beta only" 2 "$branch_records"
+_assert_contains "dry-run: young merged worktree is kept" \
+  "$(printf 'kept\t%s\tyounger than 14 days' "$dry_home/.worktrees/young-merged")" "$result"
+_assert_contains "dry-run: old unmerged worktree is skipped" \
+  "$(printf 'skipped\t%s\tunmerged branch wip-a' "$dry_home/.worktrees/old-unmerged")" "$result"
+_assert_contains "dry-run: dirty worktree is skipped" \
+  "$(printf 'skipped\t%s\tdirty (uncommitted/untracked changes)' "$dry_home/.worktrees/old-dirty")" "$result"
+_assert_contains "dry-run: detached unmerged worktree is skipped" \
+  "$(printf 'skipped\t%s\tdetached HEAD, unmerged' "$dry_home/.worktrees/old-detached-unmerged")" "$result"
+_assert_contains "dry-run: locked worktree is skipped" \
+  "$(printf 'skipped\t%s\tlocked' "$dry_home/git/worktrees/old-locked")" "$result"
+_assert_contains "dry-run: main checkout is skipped" \
+  "$(printf 'skipped\t%s\tmain checkout' "$dry_home/.worktrees/plain-clone")" "$result"
+_assert_contains "dry-run: non-git directory is skipped" \
+  "$(printf 'skipped\t%s\tno .git' "$dry_home/.worktrees/no-git")" "$result"
+_assert_contains "dry-run: broken pointer is skipped" \
+  "$(printf 'skipped\t%s\tbroken git pointer' "$dry_home/.worktrees/broken-pointer")" "$result"
+_assert_contains "dry-run: unregistered checkout is skipped" \
+  "$(printf 'skipped\t%s\torphan (not in any worktree list)' "$dry_home/.worktrees/fake-orphan")" "$result"
+_assert_contains "dry-run: remote-less repo is skipped" \
+  "$(printf 'skipped\t%s\tno remote base branch' "$dry_home/.worktrees/local-wt")" "$result"
+_assert_not_contains "dry-run: HOME itself is never a candidate" \
+  "$(printf '\t%s\t' "$dry_home")" "$result"
+_assert_contains "dry-run: missing git-tools lib degrades loudly" \
+  "degraded" "$stderr"
+_assert_contains "dry-run: tally reports exact counts" \
+  "done: 3 removed, 2 branches deleted, 0 branches kept, 1 kept, 9 skipped, 0 failed (dry run)" "$stderr"
+_assert_file_exists "dry-run: merged checkout survives" "$merged_wt/file.txt"
+_assert_file_exists "dry-run: detached merged checkout survives" "$detached_wt/file.txt"
+git -C "$dry_home/git/alpha" rev-parse --verify -q refs/heads/feat-a >/dev/null 2>&1
+_assert_exit "dry-run: merged branch survives" 0 "$?"
+
+echo ""
+echo "=== Apply removes exactly the eligible set ==="
+
+apply_home=$(_gc_tmpdir)
+apply_origin_root=$(_tmpdir)
+apply_origin=$apply_origin_root/origin.git
+_gc_seed_origin "$apply_origin"
+_gc_build_matrix "$apply_home" "$apply_origin"
+
+result=$(HOME="$apply_home" DOTFILES="$apply_home/.dotfiles" "$GC" --apply 2>"$apply_home/stderr.txt")
+status=$?
+_assert_exit "apply: exits 0" 0 "$status"
+_assert_not_contains "apply: no dry-run records" "would-remove" "$result"
+merged_wt=$apply_home/.worktrees/old-merged
+_assert_contains "apply: old merged worktree is removed" \
+  "$(printf 'removed\t%s\tmerged into origin/main' "$merged_wt")" "$result"
+_assert_contains "apply: merged branch is deleted" \
+  "$(printf 'removed-branch\tfeat-a\t%s' "$apply_home/git/alpha/.git")" "$result"
+beta_wt=$apply_home/git/beta/.worktrees/old-merged-beta
+_assert_contains "apply: second repo worktree is removed" \
+  "$(printf 'removed\t%s\tmerged into origin/main' "$beta_wt")" "$result"
+detached_wt=$apply_home/.worktrees/old-detached-merged
+_assert_contains "apply: detached merged worktree is removed" \
+  "$(printf 'removed\t%s\tmerged into origin/main' "$detached_wt")" "$result"
+_assert_contains "apply: unmerged worktree is still skipped" \
+  "$(printf 'skipped\t%s\tunmerged branch wip-a' "$apply_home/.worktrees/old-unmerged")" "$result"
+_assert_contains "apply: dirty worktree is still skipped" \
+  "$(printf 'skipped\t%s\tdirty (uncommitted/untracked changes)' "$apply_home/.worktrees/old-dirty")" "$result"
+_assert_contains "apply: young merged worktree is still kept" \
+  "$(printf 'kept\t%s\tyounger than 14 days' "$apply_home/.worktrees/young-merged")" "$result"
+_assert_file_missing "apply: merged checkout is gone" "$merged_wt"
+_assert_file_missing "apply: detached merged checkout is gone" "$detached_wt"
+_assert_file_missing "apply: beta checkout is gone" "$beta_wt"
+git -C "$apply_home/git/alpha" rev-parse --verify -q refs/heads/feat-a >/dev/null 2>&1
+_assert_exit "apply: merged branch is gone" 1 "$?"
+_assert_file_exists "apply: unmerged checkout survives" "$apply_home/.worktrees/old-unmerged/file.txt"
+_assert_file_exists "apply: dirty checkout survives" "$apply_home/.worktrees/old-dirty/file.txt"
+_assert_file_exists "apply: locked checkout survives" "$apply_home/git/worktrees/old-locked/file.txt"
+_assert_file_exists "apply: broken pointer survives" "$apply_home/.worktrees/broken-pointer/.git"
+_assert_file_exists "apply: orphan pointer survives" "$apply_home/.worktrees/fake-orphan/.git"
+_assert_file_exists "apply: remote-less checkout survives" "$apply_home/.worktrees/local-wt/feat-local.txt"
+git -C "$apply_home/git/alpha" rev-parse --verify -q refs/heads/wip-a >/dev/null 2>&1
+_assert_exit "apply: unmerged branch survives" 0 "$?"
+
+echo ""
+echo "=== Content-merge wiring through the git-tools predicate ==="
+
+stub_home=$(_gc_tmpdir)
+stub_origin_root=$(_tmpdir)
+stub_origin=$stub_origin_root/origin.git
+_gc_seed_origin "$stub_origin"
+_gc_clone_main "$stub_origin" "$stub_home/git/alpha"
+main=$stub_home/git/alpha
+# Squash-style: never an ancestor of main, proven only by content.
+git -C "$main" worktree add "$stub_home/.worktrees/old-squashed" -b sq-a >/dev/null 2>&1
+wt=$stub_home/.worktrees/old-squashed
+_git_set_test_identity git -C "$wt"
+_gc_commit_file "$wt" sq-a.txt
+git -C "$wt" push -u origin sq-a >/dev/null 2>&1
+_gc_make_old "$wt"
+sq_oid=$(git -C "$wt" rev-parse HEAD)
+# Control branch: unmerged by every proof.
+git -C "$main" worktree add "$stub_home/.worktrees/old-control" -b sq-b >/dev/null 2>&1
+wt2=$stub_home/.worktrees/old-control
+_git_set_test_identity git -C "$wt2"
+_gc_commit_file "$wt2" sq-b.txt
+git -C "$wt2" push -u origin sq-b >/dev/null 2>&1
+_gc_make_old "$wt2"
+mkdir -p "$stub_home/.local/share/cgraf78/git-tools/lib"
+cat >"$stub_home/.local/share/cgraf78/git-tools/lib/git-tools-base.sh" <<'STUB'
+# Fixture stub: only the marked OID counts as content-merged.
+_gt_branch_content_merged_oids() {
+  [[ -n "${1:-}" && -n "${STUB_CONTENT_MERGED_OID:-}" && "$1" == "$STUB_CONTENT_MERGED_OID" ]]
+}
+STUB
+
+result=$(HOME="$stub_home" DOTFILES="$stub_home/.dotfiles" \
+  STUB_CONTENT_MERGED_OID="$sq_oid" "$GC" 2>"$stub_home/stderr.txt")
+status=$?
+_assert_exit "content: exits 0" 0 "$status"
+_assert_contains "content: stub-proven branch would be removed" \
+  "$(printf 'would-remove\t%s\tcontent-merged into origin/main' "$stub_home/.worktrees/old-squashed")" "$result"
+_assert_contains "content: control branch is skipped" \
+  "$(printf 'skipped\t%s\tunmerged branch sq-b' "$wt2")" "$result"
+_assert_not_contains "content: no degraded notice with a working predicate" \
+  "degraded" "$(cat "$stub_home/stderr.txt")"
+
+# A lib that fails to define the predicate degrades instead of crashing.
+printf '%s\n' '# empty stub: no predicate defined' \
+  >"$stub_home/.local/share/cgraf78/git-tools/lib/git-tools-base.sh"
+result=$(HOME="$stub_home" DOTFILES="$stub_home/.dotfiles" \
+  STUB_CONTENT_MERGED_OID="$sq_oid" "$GC" 2>"$stub_home/stderr2.txt")
+_assert_contains "content: missing predicate skips the squashed branch" \
+  "$(printf 'skipped\t%s\tunmerged branch sq-a' "$stub_home/.worktrees/old-squashed")" "$result"
+_assert_contains "content: missing predicate degrades loudly" \
+  "degraded" "$(cat "$stub_home/stderr2.txt")"
+
+echo ""
+echo "=== Unreachable origin falls back to local refs ==="
+
+dead_home=$(_gc_tmpdir)
+dead_origin_root=$(_tmpdir)
+dead_origin=$dead_origin_root/origin.git
+_gc_seed_origin "$dead_origin"
+_gc_clone_main "$dead_origin" "$dead_home/git/alpha"
+main=$dead_home/git/alpha
+git -C "$main" worktree add "$dead_home/.worktrees/old-merged" -b feat-a >/dev/null 2>&1
+wt=$dead_home/.worktrees/old-merged
+_git_set_test_identity git -C "$wt"
+_gc_commit_file "$wt" feat-a.txt
+git -C "$wt" push -u origin feat-a >/dev/null 2>&1
+_gc_merge_branch "$main" feat-a
+git -C "$wt" fetch --prune origin >/dev/null 2>&1
+_gc_make_old "$wt"
+git -C "$main" remote set-url origin "$dead_home/does-not-exist.git" >/dev/null 2>&1
+git -C "$wt" remote set-url origin "$dead_home/does-not-exist.git" >/dev/null 2>&1
+
+result=$(HOME="$dead_home" DOTFILES="$dead_home/.dotfiles" "$GC" 2>"$dead_home/stderr.txt")
+status=$?
+_assert_exit "dead-origin: exits 0" 0 "$status"
+_assert_contains "dead-origin: local refs still prove the merge" \
+  "$(printf 'would-remove\t%s\tmerged into origin/main' "$wt")" "$result"
+_assert_contains "dead-origin: unfetched branch is kept" \
+  $'would-skip-branch\tfeat-a\tbase not fetched' "$result"
+_assert_contains "dead-origin: fetch failure is reported" \
+  "cannot fetch" "$(cat "$dead_home/stderr.txt")"
+result=$(HOME="$dead_home" DOTFILES="$dead_home/.dotfiles" "$GC" --apply 2>/dev/null)
+_assert_contains "dead-origin: apply removes the checkout" \
+  "$(printf 'removed\t%s\tmerged into origin/main' "$wt")" "$result"
+_assert_contains "dead-origin: apply keeps the branch" \
+  $'skipped-branch\tfeat-a\tbase not fetched' "$result"
+_assert_file_missing "dead-origin: checkout is gone" "$wt"
+git -C "$main" rev-parse --verify -q refs/heads/feat-a >/dev/null 2>&1
+_assert_exit "dead-origin: branch survives" 0 "$?"
+
+echo ""
+echo "=== --no-fetch skips the network without a warning ==="
+
+nf_home=$(_gc_tmpdir)
+nf_origin_root=$(_tmpdir)
+nf_origin=$nf_origin_root/origin.git
+_gc_seed_origin "$nf_origin"
+_gc_clone_main "$nf_origin" "$nf_home/git/alpha"
+main=$nf_home/git/alpha
+git -C "$main" worktree add "$nf_home/.worktrees/old-merged" -b feat-a >/dev/null 2>&1
+wt=$nf_home/.worktrees/old-merged
+_git_set_test_identity git -C "$wt"
+_gc_commit_file "$wt" feat-a.txt
+git -C "$wt" push -u origin feat-a >/dev/null 2>&1
+_gc_merge_branch "$main" feat-a
+git -C "$wt" fetch --prune origin >/dev/null 2>&1
+_gc_make_old "$wt"
+_gc_make_age_days "$wt" 200
+git -C "$main" remote set-url origin "$nf_home/does-not-exist.git" >/dev/null 2>&1
+git -C "$wt" remote set-url origin "$nf_home/does-not-exist.git" >/dev/null 2>&1
+
+result=$(HOME="$nf_home" DOTFILES="$nf_home/.dotfiles" "$GC" --no-fetch 2>"$nf_home/stderr-nf.txt")
+status=$?
+_assert_exit "no-fetch: exits 0" 0 "$status"
+_assert_contains "no-fetch: local refs still prove the merge" \
+  "$(printf 'would-remove\t%s\tmerged into origin/main' "$wt")" "$result"
+_assert_contains "no-fetch: unfetched branch is kept" \
+  $'would-skip-branch\tfeat-a\tbase not fetched' "$result"
+_assert_not_contains "no-fetch: no fetch failure is reported" \
+  "cannot fetch" "$(cat "$nf_home/stderr-nf.txt")"
+
+echo ""
+echo "=== Valid --older-than gates the sweep ==="
+
+result=$(HOME="$nf_home" DOTFILES="$nf_home/.dotfiles" "$GC" --older-than 365d --no-fetch 2>/dev/null)
+status=$?
+_assert_exit "older-than: exits 0" 0 "$status"
+_assert_contains "older-than: old checkout is kept under a large bound" \
+  "$(printf 'kept\t%s\tyounger than 365 days' "$wt")" "$result"
+
+echo ""
+echo "=== Removal failure reports and exits 2 ==="
+
+fail_home=$(_gc_tmpdir)
+fail_origin_root=$(_tmpdir)
+fail_origin=$fail_origin_root/origin.git
+_gc_seed_origin "$fail_origin"
+_gc_clone_main "$fail_origin" "$fail_home/git/alpha"
+main=$fail_home/git/alpha
+git -C "$main" worktree add "$fail_home/.worktrees/old-merged" -b feat-a >/dev/null 2>&1
+wt=$fail_home/.worktrees/old-merged
+_git_set_test_identity git -C "$wt"
+_gc_commit_file "$wt" feat-a.txt
+git -C "$wt" push -u origin feat-a >/dev/null 2>&1
+_gc_merge_branch "$main" feat-a
+git -C "$wt" fetch --prune origin >/dev/null 2>&1
+_gc_make_old "$wt"
+# Read-only parent denies the directory unlink. Root bypasses permission
+# bits, so this end-to-end path runs only for non-root users; the
+# immutable-flag section below covers privileged runners.
+if ((${EUID:-$(id -u)} == 0)); then
+  echo "SKIP: failure: unwritable-parent end-to-end needs a non-root user"
+else
+  chmod a-w "$fail_home/.worktrees"
+fi
+
+if ((${EUID:-$(id -u)} != 0)); then
+  result=$(HOME="$fail_home" DOTFILES="$fail_home/.dotfiles" "$GC" --apply 2>"$fail_home/stderr.txt")
+  status=$?
+  _assert_exit "failure: exits 2" 2 "$status"
+  _assert_contains "failure: failed checkout is reported" \
+    "$(printf 'failed\t%s\tparent directory not writable' "$wt")" "$result"
+  _assert_not_contains "failure: no branch record without removal" \
+    "removed-branch" "$result"
+  _assert_file_exists "failure: checkout survives" "$wt/file.txt"
+  git -C "$main" rev-parse --verify -q refs/heads/feat-a >/dev/null 2>&1
+  _assert_exit "failure: branch survives" 0 "$?"
+  chmod u+w "$fail_home/.worktrees"
+fi
+
+echo ""
+echo "=== Immutable parent fails removal for any user ==="
+
+# The immutable flag denies entry removal even to root, so this is the
+# end-to-end failure path for privileged runners. The probe skips the
+# section on filesystems without immutable support.
+_immutable_usable() {
+  local probe
+  probe=$(_tmpdir)/probe || return 1
+  mkdir -p "$probe/child" || return 1
+  command -v chattr >/dev/null 2>&1 || return 1
+  chattr +i "$probe/child" >/dev/null 2>&1 || return 1
+  if touch "$probe/child/f" >/dev/null 2>&1; then
+    chattr -i "$probe/child" >/dev/null 2>&1
+    return 1
+  fi
+  chattr -i "$probe/child" >/dev/null 2>&1 || return 1
+  return 0
+}
+
+if _immutable_usable; then
+  imm_home=$(_gc_tmpdir)
+  imm_origin_root=$(_tmpdir)
+  imm_origin=$imm_origin_root/origin.git
+  _gc_seed_origin "$imm_origin"
+  _gc_clone_main "$imm_origin" "$imm_home/git/alpha"
+  main=$imm_home/git/alpha
+  git -C "$main" worktree add "$imm_home/.worktrees/old-merged" -b feat-a >/dev/null 2>&1
+  wt=$imm_home/.worktrees/old-merged
+  _git_set_test_identity git -C "$wt"
+  _gc_commit_file "$wt" feat-a.txt
+  git -C "$wt" push -u origin feat-a >/dev/null 2>&1
+  _gc_merge_branch "$main" feat-a
+  git -C "$wt" fetch --prune origin >/dev/null 2>&1
+  _gc_make_old "$wt"
+  chattr +i "$imm_home/.worktrees" >/dev/null 2>&1
+
+  result=$(HOME="$imm_home" DOTFILES="$imm_home/.dotfiles" "$GC" --apply 2>/dev/null)
+  status=$?
+  chattr -i "$imm_home/.worktrees" >/dev/null 2>&1
+  _assert_exit "immutable: exits 2" 2 "$status"
+  _assert_contains "immutable: failed checkout is reported" \
+    "$(printf 'failed\t%s' "$wt")" "$result"
+  _assert_not_contains "immutable: no branch record without removal" \
+    "removed-branch" "$result"
+  git -C "$main" rev-parse --verify -q refs/heads/feat-a >/dev/null 2>&1
+  _assert_exit "immutable: branch survives" 0 "$?"
+else
+  echo "SKIP: immutable: filesystem lacks immutable-flag support"
+fi
+
+echo ""
+echo "=== Branch deletion rechecks the proven OID ==="
+
+# shellcheck source=../worktree-gc.sh
+. "$ROOT/.local/lib/dotfiles/worktree-gc.sh"
+oid_home=$(_gc_tmpdir)
+oid_origin_root=$(_tmpdir)
+oid_origin=$oid_origin_root/origin.git
+_gc_seed_origin "$oid_origin"
+_gc_clone_main "$oid_origin" "$oid_home/git/alpha"
+main=$oid_home/git/alpha
+git -C "$main" checkout -b feat-x >/dev/null 2>&1
+_gc_commit_file "$main" feat-x.txt
+git -C "$main" checkout main >/dev/null 2>&1
+proven=$(git -C "$main" rev-parse refs/heads/feat-x)
+common=$(git -C "$main" rev-parse --absolute-git-dir)
+
+worktree_gc_delete_branch "$common" feat-x deadbeefdeadbeefdeadbeefdeadbeefdeadbeef
+_assert_exit "recheck: stale OID refuses" 1 "$?"
+git -C "$main" rev-parse --verify -q refs/heads/feat-x >/dev/null 2>&1
+_assert_exit "recheck: refused branch survives" 0 "$?"
+worktree_gc_delete_branch "$common" feat-x "$proven"
+_assert_exit "recheck: proven OID deletes" 0 "$?"
+git -C "$main" rev-parse --verify -q refs/heads/feat-x >/dev/null 2>&1
+_assert_exit "recheck: deleted branch is gone" 1 "$?"
+worktree_gc_delete_branch "$common" no-such-branch "$proven"
+_assert_exit "recheck: missing branch fails" 1 "$?"
+git -C "$main" checkout -b feat-linked >/dev/null 2>&1
+_gc_commit_file "$main" feat-linked.txt
+git -C "$main" checkout main >/dev/null 2>&1
+linked_oid=$(git -C "$main" rev-parse refs/heads/feat-linked)
+git -C "$main" worktree add "$oid_home/linked-wt" feat-linked >/dev/null 2>&1
+worktree_gc_delete_branch "$common" feat-linked "$linked_oid"
+_assert_exit "recheck: checked-out branch refuses" 1 "$?"
+git -C "$main" rev-parse --verify -q refs/heads/feat-linked >/dev/null 2>&1
+_assert_exit "recheck: refused linked branch survives" 0 "$?"
+git -C "$main" worktree remove "$oid_home/linked-wt" >/dev/null 2>&1
+worktree_gc_delete_branch "$common" feat-linked "$linked_oid"
+_assert_exit "recheck: unlinked branch deletes" 0 "$?"
+
+echo ""
+echo "=== Stale proof OID fails the branch, not the checkout ==="
+
+git -C "$main" checkout -b feat-stale >/dev/null 2>&1
+_gc_commit_file "$main" feat-stale.txt
+git -C "$main" checkout main >/dev/null 2>&1
+stale_oid=$(git -C "$main" rev-parse refs/heads/feat-stale)
+git -C "$main" worktree add "$oid_home/stale-wt" feat-stale >/dev/null 2>&1
+_git_set_test_identity git -C "$oid_home/stale-wt"
+# Advance the branch after the proof OID was captured.
+_gc_commit_file "$oid_home/stale-wt" late.txt
+_WORKTREE_GC_APPLY=1
+_WORKTREE_GC_N_FAILED=0
+_worktree_gc_remove "$oid_home/stale-wt" "$oid_home/stale-wt" "$common" feat-stale "merged into origin/main" "$stale_oid" delete \
+  >"$oid_home/remove-out.txt" 2>"$oid_home/remove-err.txt"
+_WORKTREE_GC_APPLY=0
+result=$(cat "$oid_home/remove-out.txt")
+_assert_contains "stale-proof: checkout is removed" \
+  "$(printf 'removed\t%s\tmerged into origin/main' "$oid_home/stale-wt")" "$result"
+_assert_contains "stale-proof: branch failure is recorded" \
+  "$(printf 'failed-branch\tfeat-stale\tbranch changed since proof')" "$result"
+_assert_contains "stale-proof: orphaned branch is actionable" \
+  "left without a checkout" "$(cat "$oid_home/remove-err.txt")"
+_assert_eq "stale-proof: failure counter increments" 1 "$_WORKTREE_GC_N_FAILED"
+_assert_file_missing "stale-proof: checkout is gone" "$oid_home/stale-wt"
+git -C "$main" rev-parse --verify -q refs/heads/feat-stale >/dev/null 2>&1
+_assert_exit "stale-proof: moved branch survives" 0 "$?"
+
+echo ""
+echo "=== Base repository worktree outside the scanned roots ==="
+
+base_home=$(_gc_tmpdir)
+base_origin_root=$(_tmpdir)
+base_origin=$base_origin_root/origin.git
+_gc_seed_origin "$base_origin"
+git init --bare "$base_home/.dotfiles" >/dev/null 2>&1
+git --git-dir="$base_home/.dotfiles" config core.bare false
+git --git-dir="$base_home/.dotfiles" config core.worktree "$base_home"
+base_git=(git --git-dir="$base_home/.dotfiles" --work-tree="$base_home")
+_git_set_test_identity "${base_git[@]}"
+"${base_git[@]}" remote add origin "$base_origin" >/dev/null 2>&1
+"${base_git[@]}" fetch origin >/dev/null 2>&1
+"${base_git[@]}" checkout -b main origin/main >/dev/null 2>&1
+printf '%s\n' 'base' >"$base_home/.seed"
+"${base_git[@]}" add .seed >/dev/null 2>&1
+"${base_git[@]}" commit -m seed >/dev/null 2>&1
+"${base_git[@]}" push -u origin main >/dev/null 2>&1
+"${base_git[@]}" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main >/dev/null 2>&1
+"${base_git[@]}" worktree add "$base_home/elsewhere/old-gone" -b temp-x >/dev/null 2>&1
+wt=$base_home/elsewhere/old-gone
+_git_set_test_identity git -C "$wt"
+_gc_commit_file "$wt" temp-x.txt
+git -C "$wt" push -u origin temp-x >/dev/null 2>&1
+git -C "$wt" push origin --delete temp-x >/dev/null 2>&1
+git -C "$wt" fetch --prune origin >/dev/null 2>&1
+_gc_make_old "$wt"
+# Gone AND merged: both the checkout and the branch go.
+"${base_git[@]}" worktree add "$base_home/elsewhere/old-gone-merged" -b temp-y >/dev/null 2>&1
+wtm=$base_home/elsewhere/old-gone-merged
+_git_set_test_identity git -C "$wtm"
+_gc_commit_file "$wtm" temp-y.txt
+git -C "$wtm" push -u origin temp-y >/dev/null 2>&1
+"${base_git[@]}" fetch origin >/dev/null 2>&1
+"${base_git[@]}" merge --no-ff origin/temp-y -m merge >/dev/null 2>&1
+"${base_git[@]}" push origin main >/dev/null 2>&1
+git -C "$wtm" push origin --delete temp-y >/dev/null 2>&1
+git -C "$wtm" fetch --prune origin >/dev/null 2>&1
+_gc_make_old "$wtm"
+
+result=$(HOME="$base_home" DOTFILES="$base_home/.dotfiles" "$GC" 2>/dev/null)
+status=$?
+_assert_exit "base: exits 0" 0 "$status"
+_assert_contains "base: outside-roots worktree is enumerated" \
+  "$(printf 'would-remove\t%s\tupstream origin/temp-x is gone' "$wt")" "$result"
+_assert_contains "base: unproven gone branch is kept" \
+  $'would-skip-branch\ttemp-x\tmerge unproven' "$result"
+_assert_contains "base: merged gone branch would be deleted" \
+  "$(printf 'would-remove-branch\ttemp-y\t%s' "$base_home/.dotfiles")" "$result"
+
+result=$(HOME="$base_home" DOTFILES="$base_home/.dotfiles" "$GC" --apply 2>/dev/null)
+_assert_contains "base: apply removes the linked worktree" \
+  "$(printf 'removed\t%s\tupstream origin/temp-x is gone' "$wt")" "$result"
+_assert_contains "base: apply keeps the unproven branch" \
+  $'skipped-branch\ttemp-x\tmerge unproven' "$result"
+_assert_contains "base: apply deletes the merged gone branch" \
+  "$(printf 'removed-branch\ttemp-y\t%s' "$base_home/.dotfiles")" "$result"
+_assert_file_missing "base: checkout is gone" "$wt"
+"${base_git[@]}" rev-parse --verify -q refs/heads/temp-x >/dev/null 2>&1
+_assert_exit "base: unproven branch survives" 0 "$?"
+"${base_git[@]}" rev-parse --verify -q refs/heads/temp-y >/dev/null 2>&1
+_assert_exit "base: merged branch is gone" 1 "$?"
+
+echo ""
+echo "=== Overlay clones are scanned like any other clone ==="
+
+ov_home=$(_gc_tmpdir)
+ov_origin_root=$(_tmpdir)
+ov_origin=$ov_origin_root/origin.git
+_gc_seed_origin "$ov_origin"
+_gc_clone_main "$ov_origin" "$ov_home/.dotfiles-dev"
+main=$ov_home/.dotfiles-dev
+git -C "$main" worktree add "$ov_home/.dotfiles-dev/.worktrees/old-merged-ov" -b feat-ov >/dev/null 2>&1
+wt=$ov_home/.dotfiles-dev/.worktrees/old-merged-ov
+_git_set_test_identity git -C "$wt"
+_gc_commit_file "$wt" feat-ov.txt
+git -C "$wt" push -u origin feat-ov >/dev/null 2>&1
+_gc_merge_branch "$main" feat-ov
+git -C "$wt" fetch --prune origin >/dev/null 2>&1
+_gc_make_old "$wt"
+
+result=$(HOME="$ov_home" DOTFILES="$ov_home/.dotfiles" "$GC" 2>/dev/null)
+status=$?
+_assert_exit "overlay: exits 0" 0 "$status"
+_assert_contains "overlay: repo-local worktree is enumerated" \
+  "$(printf 'would-remove\t%s\tmerged into origin/main' "$wt")" "$result"
+_assert_contains "overlay: branch record names the overlay git dir" \
+  "$(printf 'would-remove-branch\tfeat-ov\t%s' "$ov_home/.dotfiles-dev/.git")" "$result"
+_assert_not_contains "overlay: overlay main checkout is never a candidate" \
+  "$(printf '\t%s\t' "$ov_home/.dotfiles-dev")" "$result"
+
+echo ""
+echo "=== Extra roots extend enumeration ==="
+
+rt_home=$(_gc_tmpdir)
+rt_origin_root=$(_tmpdir)
+rt_origin=$rt_origin_root/origin.git
+_gc_seed_origin "$rt_origin"
+_gc_clone_main "$rt_origin" "$rt_home/git/alpha"
+main=$rt_home/git/alpha
+git -C "$main" worktree add "$rt_home/custom-wt/old-merged" -b feat-rt >/dev/null 2>&1
+wt=$rt_home/custom-wt/old-merged
+_git_set_test_identity git -C "$wt"
+_gc_commit_file "$wt" feat-rt.txt
+git -C "$wt" push -u origin feat-rt >/dev/null 2>&1
+_gc_merge_branch "$main" feat-rt
+git -C "$wt" fetch --prune origin >/dev/null 2>&1
+_gc_make_old "$wt"
+
+result=$(HOME="$rt_home" DOTFILES="$rt_home/.dotfiles" "$GC" 2>/dev/null)
+_assert_not_contains "roots: custom root is invisible by default" "$wt" "$result"
+result=$(HOME="$rt_home" DOTFILES="$rt_home/.dotfiles" "$GC" --root "$rt_home/custom-wt" 2>/dev/null)
+status=$?
+_assert_exit "roots: exits 0" 0 "$status"
+_assert_contains "roots: custom root worktree is enumerated" \
+  "$(printf 'would-remove\t%s\tmerged into origin/main' "$wt")" "$result"
+result=$(HOME="$rt_home" DOTFILES="$rt_home/.dotfiles" "$GC" --root "$rt_home/does-not-exist" 2>"$rt_home/stderr.txt")
+_assert_exit "roots: missing root does not fail the sweep" 0 "$?"
+_assert_contains "roots: missing root warns" "no such root" "$(cat "$rt_home/stderr.txt")"
+
+echo ""
+echo "=== Linked checkout on the base branch keeps its branch ==="
+
+bb_home=$(_gc_tmpdir)
+bb_origin_root=$(_tmpdir)
+bb_origin=$bb_origin_root/origin.git
+_gc_seed_origin "$bb_origin"
+_gc_clone_main "$bb_origin" "$bb_home/git/alpha"
+main=$bb_home/git/alpha
+git -C "$main" checkout --detach HEAD >/dev/null 2>&1
+git -C "$main" worktree add "$bb_home/.worktrees/old-on-main" main >/dev/null 2>&1
+wt=$bb_home/.worktrees/old-on-main
+git -C "$wt" fetch --prune origin >/dev/null 2>&1
+_gc_make_old "$wt"
+
+result=$(HOME="$bb_home" DOTFILES="$bb_home/.dotfiles" "$GC" 2>/dev/null)
+_assert_contains "base-branch: checkout would be removed" \
+  "$(printf 'would-remove\t%s\tmerged into origin/main' "$wt")" "$result"
+_assert_contains "base-branch: base branch would be kept" \
+  $'would-skip-branch\tmain\tbase branch' "$result"
+result=$(HOME="$bb_home" DOTFILES="$bb_home/.dotfiles" "$GC" --apply 2>/dev/null)
+_assert_contains "base-branch: apply removes the checkout" \
+  "$(printf 'removed\t%s\tmerged into origin/main' "$wt")" "$result"
+_assert_contains "base-branch: apply keeps the base branch" \
+  $'skipped-branch\tmain\tbase branch' "$result"
+_assert_file_missing "base-branch: checkout is gone" "$wt"
+git -C "$main" rev-parse --verify -q refs/heads/main >/dev/null 2>&1
+_assert_exit "base-branch: main survives" 0 "$?"
+
+echo ""
+echo "=== Non-origin remotes resolve a base without ambiguity ==="
+
+ro_home=$(_gc_tmpdir)
+ro_origin_root=$(_tmpdir)
+ro_origin=$ro_origin_root/origin.git
+_gc_seed_origin "$ro_origin"
+git clone -o upstream "$ro_origin" "$ro_home/git/alpha" >/dev/null 2>&1
+main=$ro_home/git/alpha
+_git_set_test_identity git -C "$main"
+git -C "$main" symbolic-ref refs/remotes/upstream/HEAD refs/remotes/upstream/main >/dev/null 2>&1
+git -C "$main" worktree add "$ro_home/.worktrees/old-merged" -b feat-a >/dev/null 2>&1
+wt=$ro_home/.worktrees/old-merged
+_git_set_test_identity git -C "$wt"
+_gc_commit_file "$wt" feat-a.txt
+git -C "$wt" push -u upstream feat-a >/dev/null 2>&1
+git -C "$main" fetch upstream >/dev/null 2>&1
+git -C "$main" merge --no-ff upstream/feat-a -m merge >/dev/null 2>&1
+git -C "$main" push upstream main >/dev/null 2>&1
+git -C "$wt" fetch --prune upstream >/dev/null 2>&1
+_gc_make_old "$wt"
+
+result=$(HOME="$ro_home" DOTFILES="$ro_home/.dotfiles" "$GC" 2>/dev/null)
+status=$?
+_assert_exit "remotes: single non-origin remote exits 0" 0 "$status"
+_assert_contains "remotes: lone remote HEAD proves the merge" \
+  "$(printf 'would-remove\t%s\tmerged into upstream/main' "$wt")" "$result"
+
+# A second remote must not hijack the base: origin wins by name even
+# when its HEAD symref is missing.
+git -C "$main" remote rename upstream origin >/dev/null 2>&1
+fork_root=$(_tmpdir)
+fork_origin=$fork_root/fork.git
+_gc_seed_origin "$fork_origin"
+git -C "$main" remote add fork "$fork_origin" >/dev/null 2>&1
+git -C "$main" fetch fork >/dev/null 2>&1
+git -C "$main" symbolic-ref refs/remotes/fork/HEAD refs/remotes/fork/main >/dev/null 2>&1
+git -C "$main" symbolic-ref -d refs/remotes/origin/HEAD >/dev/null 2>&1
+
+result=$(HOME="$ro_home" DOTFILES="$ro_home/.dotfiles" "$GC" 2>/dev/null)
+_assert_contains "remotes: fork HEAD never becomes the base" \
+  "$(printf 'would-remove\t%s\tmerged into origin/main' "$wt")" "$result"
+_assert_not_contains "remotes: fork reason never prints" "fork/main" "$result"
+
+echo ""
+echo "=== Dirty submodule blocks removal ==="
+
+sub_home=$(_gc_tmpdir)
+sub_origin_root=$(_tmpdir)
+sub_origin=$sub_origin_root/origin.git
+_gc_seed_origin "$sub_origin"
+_gc_clone_main "$sub_origin" "$sub_home/git/alpha"
+main=$sub_home/git/alpha
+git -C "$main" -c protocol.file.allow=always submodule add "$sub_origin" vendor >/dev/null 2>&1
+git -C "$main" commit -m vendor >/dev/null 2>&1
+git -C "$main" push origin main >/dev/null 2>&1
+git -C "$main" worktree add "$sub_home/.worktrees/old-sub" -b feat-sub >/dev/null 2>&1
+wt=$sub_home/.worktrees/old-sub
+_git_set_test_identity git -C "$wt"
+git -C "$wt" -c protocol.file.allow=always submodule update --init >/dev/null 2>&1
+_gc_commit_file "$wt" feat-sub.txt
+git -C "$wt" push -u origin feat-sub >/dev/null 2>&1
+_gc_merge_branch "$main" feat-sub
+git -C "$wt" fetch --prune origin >/dev/null 2>&1
+printf '%s\n' 'submodule edit' >>"$wt/vendor/file.txt"
+_gc_make_old "$wt"
+
+result=$(HOME="$sub_home" DOTFILES="$sub_home/.dotfiles" "$GC" 2>/dev/null)
+_assert_contains "submodule: dirty submodule is skipped" \
+  "$(printf 'skipped\t%s\tdirty (uncommitted/untracked changes)' "$wt")" "$result"
+_assert_file_exists "submodule: checkout survives" "$wt/file.txt"
+
+echo ""
+echo "=== Option surface ==="
+
+opt_home=$(_gc_tmpdir)
+result=$(HOME="$opt_home" DOTFILES="$opt_home/.dotfiles" "$GC" --help 2>&1)
+_assert_exit "options: --help exits 0" 0 "$?"
+_assert_contains "options: --help prints usage" "usage:" "$result"
+result=$(HOME="$opt_home" DOTFILES="$opt_home/.dotfiles" "$GC" --older-than 2>&1)
+_assert_exit "options: missing age value exits 1" 1 "$?"
+result=$(HOME="$opt_home" DOTFILES="$opt_home/.dotfiles" "$GC" --root 2>&1)
+_assert_exit "options: missing root value exits 1" 1 "$?"
+result=$(HOME="$opt_home" DOTFILES="$opt_home/.dotfiles" "$GC" --older-than 0d 2>&1)
+_assert_exit "options: zero age exits 1" 1 "$?"
+result=$(HOME="$opt_home" DOTFILES="$opt_home/.dotfiles" "$GC" --older-than -3 2>&1)
+_assert_exit "options: negative age exits 1" 1 "$?"
+result=$(HOME=/nonexistent-gc-home DOTFILES="$opt_home/.dotfiles" "$GC" 2>&1)
+_assert_exit "options: missing HOME directory exits 1" 1 "$?"
+result=$(HOME="$opt_home" DOTFILES="$opt_home/.dotfiles" env -u BASH_ENV PATH=/nonexistent-gc-bin "$BASH" "$GC" 2>&1)
+_assert_exit "options: missing git exits 1" 1 "$?"
+result=$(HOME="$nf_home" DOTFILES="$nf_home/.dotfiles" "$GC" --dry-run --older-than=14d --no-fetch 2>/dev/null)
+_assert_contains "options: equals form and explicit dry run work" \
+  "$(printf 'would-remove\t%s\tmerged into origin/main' "$nf_home/.worktrees/old-merged")" "$result"
+result=$(HOME="$rt_home" DOTFILES="$rt_home/.dotfiles" "$GC" --root="$rt_home/custom-wt" --root "$rt_home/custom-wt" 2>/dev/null)
+dup_records=$(grep -c '^would-remove	' <<<"$result")
+_assert_eq "options: repeated roots dedupe" 1 "$dup_records"
+
+_test_summary
