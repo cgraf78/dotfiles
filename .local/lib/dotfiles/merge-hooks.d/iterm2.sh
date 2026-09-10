@@ -22,20 +22,31 @@ _iterm2_profile_output_name() {
   fi
 }
 
-# Return success when dynamic profiles were copied or already installed.
+# Copy dynamic profiles, installing every fragment before reporting. A single
+# failed copy must fail the step even when a later copy succeeds. With no
+# fragments declared there is nothing to install, so a missing destination
+# directory is success rather than failure.
 _iterm2_profiles() {
   local src dst_dir dst
   dst_dir="$HOME/Library/Application Support/iTerm2/DynamicProfiles"
 
+  local -a fragments=()
+  while IFS= read -r src; do
+    fragments+=("$src")
+  done < <(dot_hook_family_files_matching iterm2/profiles.d '*.json' '*.replace/*.json')
+  ((${#fragments[@]} > 0)) || return 0
+
   [[ -d "$dst_dir" ]] || return 1
 
-  while IFS= read -r src; do
+  local status=0
+  for src in "${fragments[@]}"; do
     dst="$dst_dir/$(_iterm2_profile_output_name "$src")"
     # iTerm2 does not follow symlinks for dynamic profiles.
     if ! dot_config_files_equal "$src" "$dst"; then
-      cp "$src" "$dst"
+      cp "$src" "$dst" || status=1
     fi
-  done < <(dot_hook_family_files_matching iterm2/profiles.d '*.json' '*.replace/*.json')
+  done
+  return "$status"
 }
 
 _iterm2_has_profiles() {
@@ -106,6 +117,16 @@ merge() {
   _iterm2_has_profiles || _iterm2_has_defaults || return 0
 
   dot_hook_log "  iTerm2"
-  _iterm2_profiles || true
-  _iterm2_defaults
+
+  # Both steps always run: preferences must still apply when a profile copy
+  # fails. Either failure fails the hook so `dot update` reports it instead
+  # of silently leaving the declared profiles uninstalled.
+  local profiles_status=0 defaults_status=0
+  _iterm2_profiles || profiles_status=$?
+  _iterm2_defaults || defaults_status=$?
+  if ((profiles_status != 0)); then
+    dot_hook_warn "    warning: iTerm2 dynamic profiles failed"
+    return 1
+  fi
+  return "$defaults_status"
 }
