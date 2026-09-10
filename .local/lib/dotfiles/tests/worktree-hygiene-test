@@ -215,6 +215,142 @@ _assert_not_contains "stale: repo without remotes stays silent" \
   "old-no-remote" "$result"
 
 echo ""
+echo "=== Multi-remote default branch ==="
+
+multi_home=$(_tmpdir)
+multi_origin_root=$(_tmpdir)
+multi_origin=$multi_origin_root/origin.git
+_seed_origin "$multi_origin"
+
+# A second remote whose HEAD sorts before origin's must never win: the
+# checkout is merged into origin/main and must say so.
+_clone_worktree "$multi_origin" "$multi_home/.worktrees/old-multiremote"
+wt=$multi_home/.worktrees/old-multiremote
+git -C "$wt" checkout -b feature-mr >/dev/null 2>&1
+_commit_file "$wt" feature-mr.txt
+git -C "$wt" push -u origin feature-mr >/dev/null 2>&1
+git -C "$wt" checkout main >/dev/null 2>&1
+git -C "$wt" merge --no-ff feature-mr -m merge >/dev/null 2>&1
+git -C "$wt" push origin main >/dev/null 2>&1
+git -C "$wt" checkout feature-mr >/dev/null 2>&1
+git -C "$wt" remote add fork "$multi_origin" >/dev/null 2>&1
+git -C "$wt" fetch fork >/dev/null 2>&1
+git -C "$wt" symbolic-ref refs/remotes/fork/HEAD refs/remotes/fork/main >/dev/null 2>&1
+_make_old "$wt"
+
+# A lone non-origin remote still resolves through its HEAD.
+git clone -o upstream "$multi_origin" "$multi_home/.worktrees/old-upstream-only" >/dev/null 2>&1
+wt=$multi_home/.worktrees/old-upstream-only
+_git_set_test_identity git -C "$wt"
+git -C "$wt" symbolic-ref refs/remotes/upstream/HEAD refs/remotes/upstream/main >/dev/null 2>&1
+git -C "$wt" checkout -b feature-up >/dev/null 2>&1
+_commit_file "$wt" feature-up.txt
+git -C "$wt" push -u upstream feature-up >/dev/null 2>&1
+git -C "$wt" checkout main >/dev/null 2>&1
+git -C "$wt" merge --no-ff feature-up -m merge >/dev/null 2>&1
+git -C "$wt" push upstream main >/dev/null 2>&1
+git -C "$wt" checkout feature-up >/dev/null 2>&1
+git -C "$wt" fetch --prune upstream >/dev/null 2>&1
+_make_old "$wt"
+
+# With origin's HEAD symref missing, conventional origin names win over
+# any fork HEAD.
+_clone_worktree "$multi_origin" "$multi_home/.worktrees/old-no-head-symref"
+wt=$multi_home/.worktrees/old-no-head-symref
+git -C "$wt" checkout -b feature-nh >/dev/null 2>&1
+_commit_file "$wt" feature-nh.txt
+git -C "$wt" push -u origin feature-nh >/dev/null 2>&1
+git -C "$wt" checkout main >/dev/null 2>&1
+git -C "$wt" merge --no-ff feature-nh -m merge >/dev/null 2>&1
+git -C "$wt" push origin main >/dev/null 2>&1
+git -C "$wt" checkout feature-nh >/dev/null 2>&1
+git -C "$wt" remote add fork "$multi_origin" >/dev/null 2>&1
+git -C "$wt" fetch fork >/dev/null 2>&1
+git -C "$wt" symbolic-ref refs/remotes/fork/HEAD refs/remotes/fork/main >/dev/null 2>&1
+git -C "$wt" symbolic-ref -d refs/remotes/origin/HEAD >/dev/null 2>&1
+_make_old "$wt"
+
+# Fixture-validity lock: fork/HEAD must sort before origin/HEAD, or the
+# fork assertions below would pass on unfixed code (false negative).
+first_head=$(git -C "$multi_home/.worktrees/old-multiremote" for-each-ref --format='%(refname)' 'refs/remotes/*/HEAD' | head -1)
+_assert_eq "multiremote: fixture fork HEAD sorts first" "refs/remotes/fork/HEAD" "$first_head"
+
+result=$(HOME="$multi_home" DOTFILES="$multi_home/.dotfiles" \
+  _doctor_records _dr_check_worktrees)
+status=$?
+_assert_exit "multiremote: detection exits 0 (warn-only)" 0 "$status"
+_assert_contains "multiremote: all three checkouts warn" \
+  $'warn\t3 stale worktrees' "$result"
+_assert_contains "multiremote: fork HEAD never becomes the base" \
+  "merged into origin/main" "$result"
+_assert_not_contains "multiremote: fork reason never prints" "fork/" "$result"
+_assert_contains "multiremote: lone non-origin remote resolves" \
+  "merged into upstream/main" "$result"
+_assert_contains "multiremote: multiremote checkout is listed" \
+  "old-multiremote" "$result"
+_assert_contains "multiremote: upstream-only checkout is listed" \
+  "old-upstream-only" "$result"
+_assert_contains "multiremote: missing origin HEAD falls back to origin" \
+  "old-no-head-symref" "$result"
+
+echo ""
+echo "=== Vanished checkout keeps partial age results ==="
+
+dvanish_home=$(_tmpdir)
+dvanish_origin_root=$(_tmpdir)
+dvanish_origin=$dvanish_origin_root/origin.git
+_seed_origin "$dvanish_origin"
+
+# Old, merged into the upstream default: warns.
+_clone_worktree "$dvanish_origin" "$dvanish_home/.worktrees/old-merged"
+wt=$dvanish_home/.worktrees/old-merged
+git -C "$wt" checkout -b feature-dv >/dev/null 2>&1
+_commit_file "$wt" feature-dv.txt
+git -C "$wt" push -u origin feature-dv >/dev/null 2>&1
+git -C "$wt" checkout main >/dev/null 2>&1
+git -C "$wt" merge --no-ff feature-dv -m merge >/dev/null 2>&1
+git -C "$wt" push origin main >/dev/null 2>&1
+git -C "$wt" checkout feature-dv >/dev/null 2>&1
+git -C "$wt" fetch --prune origin >/dev/null 2>&1
+_make_old "$wt"
+
+# Old, merged, deleted mid-sweep by the find wrapper below.
+_clone_worktree "$dvanish_origin" "$dvanish_home/.worktrees/old-victim"
+victim=$dvanish_home/.worktrees/old-victim
+git -C "$victim" checkout -b feature-dvv >/dev/null 2>&1
+_commit_file "$victim" feature-dvv.txt
+git -C "$victim" push -u origin feature-dvv >/dev/null 2>&1
+git -C "$victim" checkout main >/dev/null 2>&1
+git -C "$victim" merge --no-ff feature-dvv -m merge >/dev/null 2>&1
+git -C "$victim" push origin main >/dev/null 2>&1
+git -C "$victim" checkout feature-dvv >/dev/null 2>&1
+git -C "$victim" fetch --prune origin >/dev/null 2>&1
+_make_old "$victim"
+# A find wrapper that deletes one candidate mid-sweep, deterministically
+# reproducing the enumeration-to-find race; the surviving matches must
+# still warn instead of collapsing to no-stale-warnings.
+dvanish_bin=$(_tmpdir)/dvanish-bin
+mkdir -p "$dvanish_bin"
+real_find=$(command -v find)
+cat >"$dvanish_bin/find" <<STUB
+#!/usr/bin/env bash
+rm -rf "\$GC_FIND_VICTIM"
+exec "$real_find" "\$@"
+STUB
+chmod +x "$dvanish_bin/find"
+
+result=$(GC_FIND_VICTIM="$victim" PATH="$dvanish_bin:$PATH" \
+  HOME="$dvanish_home" DOTFILES="$dvanish_home/.dotfiles" \
+  _doctor_records _dr_check_worktrees)
+status=$?
+_assert_exit "dvanish: detection exits 0 (warn-only)" 0 "$status"
+_assert_contains "dvanish: surviving checkout still warns" \
+  $'warn\t1 stale worktree' "$result"
+_assert_contains "dvanish: surviving checkout is listed" "old-merged" "$result"
+_assert_not_contains "dvanish: vanished checkout stays silent" \
+  "old-victim" "$result"
+
+echo ""
 echo "=== Base repository worktrees ==="
 
 base_home=$(_tmpdir)

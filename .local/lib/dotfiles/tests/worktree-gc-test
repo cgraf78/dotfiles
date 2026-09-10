@@ -408,6 +408,92 @@ git -C "$main" rev-parse --verify -q refs/heads/feat-a >/dev/null 2>&1
 _assert_exit "dead-origin: branch survives" 0 "$?"
 
 echo ""
+echo "=== Dead origin fetches once per repo ==="
+
+fetch_home=$(_gc_tmpdir)
+fetch_origin_root=$(_tmpdir)
+fetch_origin=$fetch_origin_root/origin.git
+_gc_seed_origin "$fetch_origin"
+_gc_clone_main "$fetch_origin" "$fetch_home/git/alpha"
+main=$fetch_home/git/alpha
+git -C "$main" worktree add "$fetch_home/.worktrees/old-merged-a" -b feat-fa >/dev/null 2>&1
+wt=$fetch_home/.worktrees/old-merged-a
+_git_set_test_identity git -C "$wt"
+_gc_commit_file "$wt" feat-fa.txt
+git -C "$wt" push -u origin feat-fa >/dev/null 2>&1
+_gc_merge_branch "$main" feat-fa
+git -C "$wt" fetch --prune origin >/dev/null 2>&1
+_gc_make_old "$wt"
+git -C "$main" worktree add "$fetch_home/.worktrees/old-merged-b" -b feat-fb >/dev/null 2>&1
+wt2=$fetch_home/.worktrees/old-merged-b
+_git_set_test_identity git -C "$wt2"
+_gc_commit_file "$wt2" feat-fb.txt
+git -C "$wt2" push -u origin feat-fb >/dev/null 2>&1
+_gc_merge_branch "$main" feat-fb
+git -C "$wt2" fetch --prune origin >/dev/null 2>&1
+_gc_make_old "$wt2"
+git -C "$main" remote set-url origin "$fetch_home/does-not-exist.git" >/dev/null 2>&1
+git -C "$wt" remote set-url origin "$fetch_home/does-not-exist.git" >/dev/null 2>&1
+git -C "$wt2" remote set-url origin "$fetch_home/does-not-exist.git" >/dev/null 2>&1
+
+result=$(HOME="$fetch_home" DOTFILES="$fetch_home/.dotfiles" "$GC" 2>"$fetch_home/stderr.txt")
+status=$?
+_assert_exit "fetch-once: exits 0" 0 "$status"
+notices=$(grep -c 'cannot fetch' "$fetch_home/stderr.txt")
+_assert_eq "fetch-once: one notice per dead origin, not per worktree" 1 "$notices"
+_assert_contains "fetch-once: first worktree still proves against local refs" \
+  "$(printf 'would-remove\t%s\tmerged into origin/main' "$wt")" "$result"
+_assert_contains "fetch-once: second worktree still proves against local refs" \
+  "$(printf 'would-remove\t%s\tmerged into origin/main' "$wt2")" "$result"
+
+echo ""
+echo "=== Vanished checkout keeps partial age results ==="
+
+vanish_home=$(_gc_tmpdir)
+vanish_origin_root=$(_tmpdir)
+vanish_origin=$vanish_origin_root/origin.git
+_gc_seed_origin "$vanish_origin"
+_gc_clone_main "$vanish_origin" "$vanish_home/git/alpha"
+main=$vanish_home/git/alpha
+git -C "$main" worktree add "$vanish_home/.worktrees/old-merged" -b feat-va >/dev/null 2>&1
+wt=$vanish_home/.worktrees/old-merged
+_git_set_test_identity git -C "$wt"
+_gc_commit_file "$wt" feat-va.txt
+git -C "$wt" push -u origin feat-va >/dev/null 2>&1
+_gc_merge_branch "$main" feat-va
+git -C "$wt" fetch --prune origin >/dev/null 2>&1
+_gc_make_old "$wt"
+git -C "$main" worktree add "$vanish_home/.worktrees/old-victim" -b feat-vb >/dev/null 2>&1
+victim=$vanish_home/.worktrees/old-victim
+_git_set_test_identity git -C "$victim"
+_gc_commit_file "$victim" feat-vb.txt
+git -C "$victim" push -u origin feat-vb >/dev/null 2>&1
+_gc_merge_branch "$main" feat-vb
+git -C "$victim" fetch --prune origin >/dev/null 2>&1
+_gc_make_old "$victim"
+# A find wrapper that deletes one candidate mid-sweep, deterministically
+# reproducing the enumeration-to-find race; the surviving matches must
+# still gate on age instead of collapsing to keep-everything.
+vanish_bin=$(_tmpdir)/vanish-bin
+mkdir -p "$vanish_bin"
+real_find=$(command -v find)
+cat >"$vanish_bin/find" <<STUB
+#!/usr/bin/env bash
+rm -rf "\$GC_FIND_VICTIM"
+exec "$real_find" "\$@"
+STUB
+chmod +x "$vanish_bin/find"
+
+result=$(GC_FIND_VICTIM="$victim" PATH="$vanish_bin:$PATH" \
+  HOME="$vanish_home" DOTFILES="$vanish_home/.dotfiles" "$GC" 2>/dev/null)
+status=$?
+_assert_exit "vanish: exits 0" 0 "$status"
+_assert_contains "vanish: surviving checkout still gates on its age" \
+  "$(printf 'would-remove\t%s\tmerged into origin/main' "$wt")" "$result"
+_assert_contains "vanish: vanished checkout degrades to kept" \
+  "$(printf 'kept\t%s\tyounger than 14 days' "$victim")" "$result"
+
+echo ""
 echo "=== --no-fetch skips the network without a warning ==="
 
 nf_home=$(_gc_tmpdir)

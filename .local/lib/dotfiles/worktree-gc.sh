@@ -262,7 +262,9 @@ _worktree_gc_fetch_base() {
 # Fetch-then-resolve split: `_worktree_gc_fetch_base` mutates the
 # fetch caches and must run in the main shell, while
 # `_worktree_gc_local_base_ref` is pure and safe to capture. Calling
-# the fetch through $() would silently discard the cache writes.
+# the fetch through $() would silently discard the cache writes. The
+# hoist lives in `_worktree_gc_process`, ahead of the `$()` capture;
+# the inner call inside prove stays as a no-op for direct callers.
 
 # A branch name counts as a base branch when it matches the resolved
 # base's short name or the conventional set. Base branches are never
@@ -491,6 +493,12 @@ _worktree_gc_process() {
     _worktree_gc_record skipped "$dir" "broken git pointer"
     return 0
   fi
+  # Fetch in the main shell: proof runs under $() below, so fetch-cache
+  # writes made inside it would die with the subshell. Hoisting keeps
+  # the at-most-once-per-sweep fetch (one fetch per repo, one notice
+  # per dead origin); the inner call inside prove then inherits the
+  # populated caches and is a no-op.
+  _worktree_gc_fetch_base "$dir" "$common"
   verdict=$(_worktree_gc_prove "$dir" "$common" "$branch")
   case $verdict in
     eligible$'\t'*)
@@ -652,7 +660,10 @@ worktree_gc_main() {
   fi
   old_list=
   if ((${#cands[@]} > 0)); then
-    old_list=$(find "${cands[@]}" -maxdepth 0 -mtime +"$age" 2>/dev/null) || old_list=
+    # Keep partial results: find still prints the surviving matches when
+    # one path vanishes mid-pass, and discarding them would silently treat
+    # every old checkout as young (keep-everything) for this run.
+    old_list=$(find "${cands[@]}" -maxdepth 0 -mtime +"$age" 2>/dev/null) || true
     for dir in "${cands[@]}"; do
       old=0
       case $'\n'"$old_list"$'\n' in
