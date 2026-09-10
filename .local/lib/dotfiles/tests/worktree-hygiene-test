@@ -1,0 +1,244 @@
+#!/usr/bin/env bash
+# worktree-hygiene-test — doctor worktree disk/staleness coverage.
+
+set -o pipefail
+export NO_COLOR=1
+
+# shellcheck source=helpers.sh
+. "${BASH_SOURCE[0]%/*}/helpers.sh"
+# shellcheck source=fixtures.sh
+. "${BASH_SOURCE[0]%/*}/fixtures.sh"
+_test_prefer_system_git || exit 1
+
+# Resolve the standalone engine before the fixture HOME replaces the lookup.
+# (dot_fixture_copy_core reads DOT_TEST_SOURCE_HOME itself.)
+DOT_TEST_DOT_ROOT=$(_test_dot_root) || {
+  echo 'worktree hygiene tests require the standalone Dot checkout' >&2
+  exit 1
+}
+export DOT_TEST_DOT_ROOT
+
+dot_fixture_home
+dot_fixture_copy_core
+_test_load_dot_doctor_api "$TEST_HOME" || {
+  echo 'worktree hygiene tests require the doctor extension API' >&2
+  exit 1
+}
+dot_doctor_source doctor.d/lib/worktrees.sh || {
+  echo 'worktree hygiene tests require doctor.d/lib/worktrees.sh' >&2
+  exit 1
+}
+
+_doctor_records() {
+  local status=0
+  : >"$DOT_DOCTOR_RESULT_FILE"
+  "$@" || status=$?
+  cat "$DOT_DOCTOR_RESULT_FILE"
+  return "$status"
+}
+
+# Seed a bare origin with a main branch carrying one commit.
+_seed_origin() {
+  local origin=$1 seed
+  seed=$(_tmpdir)
+  git init --bare "$origin" >/dev/null 2>&1
+  git --git-dir="$origin" symbolic-ref HEAD refs/heads/main >/dev/null 2>&1
+  git init "$seed" >/dev/null 2>&1
+  _git_set_test_identity git -C "$seed"
+  printf '%s\n' 'seed' >"$seed/file.txt"
+  git -C "$seed" add file.txt >/dev/null 2>&1
+  git -C "$seed" commit -m seed >/dev/null 2>&1
+  git -C "$seed" branch -M main >/dev/null 2>&1
+  git -C "$seed" push "$origin" main:main >/dev/null 2>&1
+}
+
+# Clone an origin into a worktree slot and pin its remote HEAD explicitly so
+# default-branch detection never depends on clone transport behavior.
+_clone_worktree() {
+  local origin=$1 dest=$2
+  git clone "$origin" "$dest" >/dev/null 2>&1
+  _git_set_test_identity git -C "$dest"
+  git -C "$dest" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main >/dev/null 2>&1
+}
+
+_commit_file() {
+  local dir=$1 name=$2
+  printf '%s\n' "$name" >"$dir/$name"
+  git -C "$dir" add "$name" >/dev/null 2>&1
+  git -C "$dir" commit -m "$name" >/dev/null 2>&1
+}
+
+_make_old() { touch -t 202001010000 "$1"; }
+_make_fresh() { touch "$1"; }
+
+echo "=== Worktree disk threshold ==="
+
+disk_home=$(_tmpdir)
+mkdir -p "$disk_home/.worktrees/big" "$disk_home/git/worktrees/small"
+head -c 102400 /dev/zero >"$disk_home/.worktrees/big/blob.bin"
+head -c 1024 /dev/zero >"$disk_home/git/worktrees/small/blob.bin"
+# Old and non-git: counted for disk, silent for staleness.
+_make_old "$disk_home/git/worktrees/small"
+
+result=$(HOME="$disk_home" DOTFILES="$disk_home/.dotfiles" \
+  DOT_WORKTREE_WARN_BYTES=2048 \
+  _doctor_records _dr_check_worktrees)
+status=$?
+_assert_exit "disk: over-threshold check exits 0 (warn-only)" 0 "$status"
+_assert_contains "disk: section renders" $'section\tWorktrees' "$result"
+_assert_contains "disk: over-threshold warns" $'warn\tworktree disk' "$result"
+_assert_contains "disk: over-threshold counts both shared roots" \
+  "across 2 worktrees" "$result"
+_assert_contains "disk: over-threshold names the knob" \
+  "DOT_WORKTREE_WARN_BYTES" "$result"
+
+result=$(HOME="$disk_home" DOTFILES="$disk_home/.dotfiles" \
+  _doctor_records _dr_check_worktrees)
+_assert_contains "disk: under-threshold is ok" $'ok\tworktree disk' "$result"
+_assert_contains "disk: non-git dirs are safe for staleness" \
+  $'ok\tno stale worktrees' "$result"
+
+result=$(HOME="$disk_home" DOTFILES="$disk_home/.dotfiles" \
+  DOT_WORKTREE_WARN_BYTES=bogus \
+  _doctor_records _dr_check_worktrees)
+_assert_contains "disk: invalid override falls back to the default" \
+  $'ok\tworktree disk' "$result"
+
+echo ""
+echo "=== Missing worktree roots ==="
+
+empty_home=$(_tmpdir)
+result=$(HOME="$empty_home" DOTFILES="$empty_home/.dotfiles" \
+  _doctor_records _dr_check_worktrees)
+status=$?
+_assert_exit "missing: absent roots exit 0" 0 "$status"
+_assert_contains "missing: absent roots report ok" \
+  $'ok\tno worktrees found' "$result"
+
+echo ""
+echo "=== Stale worktree detection ==="
+
+stale_home=$(_tmpdir)
+origin_root=$(_tmpdir)
+stale_origin=$origin_root/origin.git
+_seed_origin "$stale_origin"
+
+# Old, merged into the upstream default: warns.
+_clone_worktree "$stale_origin" "$stale_home/.worktrees/old-merged"
+wt=$stale_home/.worktrees/old-merged
+git -C "$wt" checkout -b feature >/dev/null 2>&1
+_commit_file "$wt" feature.txt
+git -C "$wt" push -u origin feature >/dev/null 2>&1
+git -C "$wt" checkout main >/dev/null 2>&1
+git -C "$wt" merge --no-ff feature -m merge >/dev/null 2>&1
+git -C "$wt" push origin main >/dev/null 2>&1
+git -C "$wt" checkout feature >/dev/null 2>&1
+git -C "$wt" fetch --prune origin >/dev/null 2>&1
+_make_old "$wt"
+
+# Old, unmerged, upstream alive: silent.
+_clone_worktree "$stale_origin" "$stale_home/.worktrees/old-unmerged"
+wt=$stale_home/.worktrees/old-unmerged
+git -C "$wt" checkout -b wip >/dev/null 2>&1
+_commit_file "$wt" wip.txt
+git -C "$wt" push -u origin wip >/dev/null 2>&1
+_make_old "$wt"
+
+# Young, merged into the upstream default: silent.
+_clone_worktree "$stale_origin" "$stale_home/.worktrees/young-merged"
+wt=$stale_home/.worktrees/young-merged
+git -C "$wt" checkout -b feature-young >/dev/null 2>&1
+_commit_file "$wt" feature-young.txt
+git -C "$wt" push -u origin feature-young >/dev/null 2>&1
+git -C "$wt" checkout main >/dev/null 2>&1
+git -C "$wt" merge --no-ff feature-young -m merge >/dev/null 2>&1
+git -C "$wt" push origin main >/dev/null 2>&1
+git -C "$wt" checkout feature-young >/dev/null 2>&1
+git -C "$wt" fetch --prune origin >/dev/null 2>&1
+_make_fresh "$wt"
+
+# Old, upstream branch deleted and pruned: warns.
+_clone_worktree "$stale_origin" "$stale_home/.worktrees/old-gone"
+wt=$stale_home/.worktrees/old-gone
+git -C "$wt" checkout -b temp >/dev/null 2>&1
+_commit_file "$wt" temp.txt
+git -C "$wt" push -u origin temp >/dev/null 2>&1
+git -C "$wt" checkout main >/dev/null 2>&1
+git -C "$wt" push origin --delete temp >/dev/null 2>&1
+git -C "$wt" fetch --prune origin >/dev/null 2>&1
+git -C "$wt" checkout temp >/dev/null 2>&1
+_make_old "$wt"
+
+# Old, detached HEAD: safe and silent.
+_clone_worktree "$stale_origin" "$stale_home/.worktrees/old-detached"
+wt=$stale_home/.worktrees/old-detached
+git -C "$wt" checkout "$(git -C "$wt" rev-parse HEAD)" >/dev/null 2>&1
+_make_old "$wt"
+
+# Old, no remotes at all: safe and silent.
+mkdir -p "$stale_home/git/worktrees/old-no-remote"
+wt=$stale_home/git/worktrees/old-no-remote
+git init "$wt" >/dev/null 2>&1
+_git_set_test_identity git -C "$wt"
+_commit_file "$wt" local.txt
+git -C "$wt" branch -M main >/dev/null 2>&1
+_make_old "$wt"
+
+# Old checkout sitting on the synced default branch in a repo-local root:
+# fully merged, so warns.
+mkdir -p "$stale_home/git/old-main-repo/.worktrees"
+_clone_worktree "$stale_origin" "$stale_home/git/old-main-repo/.worktrees/old-main"
+_make_old "$stale_home/git/old-main-repo/.worktrees/old-main"
+
+result=$(HOME="$stale_home" DOTFILES="$stale_home/.dotfiles" \
+  _doctor_records _dr_check_worktrees)
+status=$?
+_assert_exit "stale: detection exits 0 (warn-only)" 0 "$status"
+_assert_contains "stale: enumeration covers every root" \
+  "across 7 worktrees" "$result"
+_assert_contains "stale: old merged and gone worktrees warn" \
+  $'warn\t3 stale worktrees' "$result"
+_assert_contains "stale: merged reason names the default" \
+  "merged into origin/main" "$result"
+_assert_contains "stale: merged worktree is listed" "old-merged" "$result"
+_assert_contains "stale: gone worktree is listed" "old-gone" "$result"
+_assert_contains "stale: gone reason names the upstream" \
+  "upstream origin/temp is gone" "$result"
+_assert_contains "stale: synced default checkout warns" "old-main" "$result"
+_assert_not_contains "stale: old unmerged worktree stays silent" \
+  "old-unmerged" "$result"
+_assert_not_contains "stale: young merged worktree stays silent" \
+  "young-merged" "$result"
+_assert_not_contains "stale: detached HEAD stays silent" \
+  "old-detached" "$result"
+_assert_not_contains "stale: repo without remotes stays silent" \
+  "old-no-remote" "$result"
+
+echo ""
+echo "=== Base repository worktrees ==="
+
+base_home=$(_tmpdir)
+git init --bare "$base_home/.dotfiles" >/dev/null 2>&1
+git --git-dir="$base_home/.dotfiles" config core.bare false
+git --git-dir="$base_home/.dotfiles" config core.worktree "$base_home"
+base_git=(git --git-dir="$base_home/.dotfiles" --work-tree="$base_home")
+_git_set_test_identity "${base_git[@]}"
+printf '%s\n' 'base' >"$base_home/.seed"
+"${base_git[@]}" add .seed >/dev/null 2>&1
+"${base_git[@]}" commit -m seed >/dev/null 2>&1
+"${base_git[@]}" branch -M main >/dev/null 2>&1
+# One linked worktree inside the shared root (exercises dedupe) and one
+# outside every scanned root (exercises base worktree discovery).
+"${base_git[@]}" worktree add "$base_home/.worktrees/base-wt" -b base-wt >/dev/null 2>&1
+"${base_git[@]}" worktree add "$base_home/elsewhere/base-wt2" -b base-wt2 >/dev/null 2>&1
+
+result=$(HOME="$base_home" DOTFILES="$base_home/.dotfiles" \
+  _doctor_records _dr_check_worktrees)
+status=$?
+_assert_exit "base: linked worktrees exit 0" 0 "$status"
+_assert_contains "base: shared-root worktree counts once (dedupe)" \
+  "across 2 worktrees" "$result"
+_assert_contains "base: fresh linked worktrees are not stale" \
+  $'ok\tno stale worktrees' "$result"
+
+_test_summary

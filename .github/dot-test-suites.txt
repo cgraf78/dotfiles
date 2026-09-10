@@ -23,5 +23,6 @@
 .local/lib/dotfiles/tests/tmux-test
 .local/lib/dotfiles/tests/tool-init-test
 .local/lib/dotfiles/tests/wezterm-test
+.local/lib/dotfiles/tests/worktree-hygiene-test
 .local/lib/dotfiles/tests/xdg-test
 .local/lib/dotfiles/tests/zsh-completion-test

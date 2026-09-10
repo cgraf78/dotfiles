@@ -242,7 +242,7 @@ SH
   _assert_contains "doctor integration: renders client repository health" \
     "Client repository" "$result"
   for expected in "Shell environment" "Tools" "Shell integrations" \
-    "Agent rules" "Cron"; do
+    "Agent rules" "Cron" "Worktrees"; do
     _assert_contains "doctor integration: renders base section $expected" \
       "$expected" "$result"
   done
