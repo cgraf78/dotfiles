@@ -16,6 +16,17 @@ _test_prefer_system_git || exit 1
 ROOT=$(cd -P -- "${BASH_SOURCE[0]%/*}/../../../.." && pwd -P)
 GC=$ROOT/.local/bin/dot-worktree-gc
 
+# Fixture git operations must never execute ambient developer hooks:
+# installed profiles point core.hooksPath at sley, whose gate fails
+# fixture commits in sandboxes. An empty hooks dir disables hooks for
+# every git call below, fixtures and tool alike; the tool performs no
+# hook-triggering operations so its behavior is unchanged.
+_GC_EMPTY_HOOKS_DIR=$(_tmpdir)/empty-hooks
+mkdir -p "$_GC_EMPTY_HOOKS_DIR"
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0=core.hooksPath
+export GIT_CONFIG_VALUE_0=$_GC_EMPTY_HOOKS_DIR
+
 # Seed a bare origin with a main branch carrying one commit.
 _gc_seed_origin() {
   local origin=$1 seed
@@ -41,6 +52,15 @@ _gc_commit_file() {
 _gc_make_old() { touch -t 202001010000 "$1"; }
 _gc_make_age_days() {
   python3 -c 'import os,sys,time; t=int(time.time())-int(sys.argv[2])*86400; os.utime(sys.argv[1],(t,t))' "$1" "$2"
+}
+
+# Fixture HOME with physical (symlink-resolved) spelling: the tool
+# reports physical paths, and TMPDIR is a symlink on some platforms
+# (macOS /var -> /private/var), so expected paths must resolve too.
+_gc_tmpdir() {
+  local dir
+  dir=$(_tmpdir) || return 1
+  (cd -- "$dir" && pwd -P)
 }
 _gc_make_fresh() { touch "$1"; }
 
@@ -171,7 +191,7 @@ _gc_build_matrix() {
 
 echo "=== Usage errors ==="
 
-usage_home=$(_tmpdir)
+usage_home=$(_gc_tmpdir)
 result=$(HOME="$usage_home" DOTFILES="$usage_home/.dotfiles" "$GC" --older-than bogus 2>&1)
 status=$?
 _assert_exit "usage: invalid age exits 1" 1 "$status"
@@ -196,7 +216,7 @@ _assert_exit "usage: unset HOME exits 1" 1 "$status"
 echo ""
 echo "=== Dry run is the default and changes nothing ==="
 
-dry_home=$(_tmpdir)
+dry_home=$(_gc_tmpdir)
 dry_origin_root=$(_tmpdir)
 dry_origin=$dry_origin_root/origin.git
 _gc_seed_origin "$dry_origin"
@@ -255,7 +275,7 @@ _assert_exit "dry-run: merged branch survives" 0 "$?"
 echo ""
 echo "=== Apply removes exactly the eligible set ==="
 
-apply_home=$(_tmpdir)
+apply_home=$(_gc_tmpdir)
 apply_origin_root=$(_tmpdir)
 apply_origin=$apply_origin_root/origin.git
 _gc_seed_origin "$apply_origin"
@@ -299,7 +319,7 @@ _assert_exit "apply: unmerged branch survives" 0 "$?"
 echo ""
 echo "=== Content-merge wiring through the git-tools predicate ==="
 
-stub_home=$(_tmpdir)
+stub_home=$(_gc_tmpdir)
 stub_origin_root=$(_tmpdir)
 stub_origin=$stub_origin_root/origin.git
 _gc_seed_origin "$stub_origin"
@@ -352,7 +372,7 @@ _assert_contains "content: missing predicate degrades loudly" \
 echo ""
 echo "=== Unreachable origin falls back to local refs ==="
 
-dead_home=$(_tmpdir)
+dead_home=$(_gc_tmpdir)
 dead_origin_root=$(_tmpdir)
 dead_origin=$dead_origin_root/origin.git
 _gc_seed_origin "$dead_origin"
@@ -390,7 +410,7 @@ _assert_exit "dead-origin: branch survives" 0 "$?"
 echo ""
 echo "=== --no-fetch skips the network without a warning ==="
 
-nf_home=$(_tmpdir)
+nf_home=$(_gc_tmpdir)
 nf_origin_root=$(_tmpdir)
 nf_origin=$nf_origin_root/origin.git
 _gc_seed_origin "$nf_origin"
@@ -430,7 +450,7 @@ _assert_contains "older-than: old checkout is kept under a large bound" \
 echo ""
 echo "=== Removal failure reports and exits 2 ==="
 
-fail_home=$(_tmpdir)
+fail_home=$(_gc_tmpdir)
 fail_origin_root=$(_tmpdir)
 fail_origin=$fail_origin_root/origin.git
 _gc_seed_origin "$fail_origin"
@@ -444,27 +464,86 @@ git -C "$wt" push -u origin feat-a >/dev/null 2>&1
 _gc_merge_branch "$main" feat-a
 git -C "$wt" fetch --prune origin >/dev/null 2>&1
 _gc_make_old "$wt"
-# Read-only parent denies the directory unlink; runs as a non-root user.
-chmod a-w "$fail_home/.worktrees"
+# Read-only parent denies the directory unlink. Root bypasses permission
+# bits, so this end-to-end path runs only for non-root users; the
+# immutable-flag section below covers privileged runners.
+if ((${EUID:-$(id -u)} == 0)); then
+  echo "SKIP: failure: unwritable-parent end-to-end needs a non-root user"
+else
+  chmod a-w "$fail_home/.worktrees"
+fi
 
-result=$(HOME="$fail_home" DOTFILES="$fail_home/.dotfiles" "$GC" --apply 2>"$fail_home/stderr.txt")
-status=$?
-_assert_exit "failure: exits 2" 2 "$status"
-_assert_contains "failure: failed checkout is reported" \
-  "$(printf 'failed\t%s\tparent directory not writable' "$wt")" "$result"
-_assert_not_contains "failure: no branch record without removal" \
-  "removed-branch" "$result"
-_assert_file_exists "failure: checkout survives" "$wt/file.txt"
-git -C "$main" rev-parse --verify -q refs/heads/feat-a >/dev/null 2>&1
-_assert_exit "failure: branch survives" 0 "$?"
-chmod u+w "$fail_home/.worktrees"
+if ((${EUID:-$(id -u)} != 0)); then
+  result=$(HOME="$fail_home" DOTFILES="$fail_home/.dotfiles" "$GC" --apply 2>"$fail_home/stderr.txt")
+  status=$?
+  _assert_exit "failure: exits 2" 2 "$status"
+  _assert_contains "failure: failed checkout is reported" \
+    "$(printf 'failed\t%s\tparent directory not writable' "$wt")" "$result"
+  _assert_not_contains "failure: no branch record without removal" \
+    "removed-branch" "$result"
+  _assert_file_exists "failure: checkout survives" "$wt/file.txt"
+  git -C "$main" rev-parse --verify -q refs/heads/feat-a >/dev/null 2>&1
+  _assert_exit "failure: branch survives" 0 "$?"
+  chmod u+w "$fail_home/.worktrees"
+fi
+
+echo ""
+echo "=== Immutable parent fails removal for any user ==="
+
+# The immutable flag denies entry removal even to root, so this is the
+# end-to-end failure path for privileged runners. The probe skips the
+# section on filesystems without immutable support.
+_immutable_usable() {
+  local probe
+  probe=$(_tmpdir)/probe || return 1
+  mkdir -p "$probe/child" || return 1
+  command -v chattr >/dev/null 2>&1 || return 1
+  chattr +i "$probe/child" >/dev/null 2>&1 || return 1
+  if touch "$probe/child/f" >/dev/null 2>&1; then
+    chattr -i "$probe/child" >/dev/null 2>&1
+    return 1
+  fi
+  chattr -i "$probe/child" >/dev/null 2>&1 || return 1
+  return 0
+}
+
+if _immutable_usable; then
+  imm_home=$(_gc_tmpdir)
+  imm_origin_root=$(_tmpdir)
+  imm_origin=$imm_origin_root/origin.git
+  _gc_seed_origin "$imm_origin"
+  _gc_clone_main "$imm_origin" "$imm_home/git/alpha"
+  main=$imm_home/git/alpha
+  git -C "$main" worktree add "$imm_home/.worktrees/old-merged" -b feat-a >/dev/null 2>&1
+  wt=$imm_home/.worktrees/old-merged
+  _git_set_test_identity git -C "$wt"
+  _gc_commit_file "$wt" feat-a.txt
+  git -C "$wt" push -u origin feat-a >/dev/null 2>&1
+  _gc_merge_branch "$main" feat-a
+  git -C "$wt" fetch --prune origin >/dev/null 2>&1
+  _gc_make_old "$wt"
+  chattr +i "$imm_home/.worktrees" >/dev/null 2>&1
+
+  result=$(HOME="$imm_home" DOTFILES="$imm_home/.dotfiles" "$GC" --apply 2>/dev/null)
+  status=$?
+  chattr -i "$imm_home/.worktrees" >/dev/null 2>&1
+  _assert_exit "immutable: exits 2" 2 "$status"
+  _assert_contains "immutable: failed checkout is reported" \
+    "$(printf 'failed\t%s' "$wt")" "$result"
+  _assert_not_contains "immutable: no branch record without removal" \
+    "removed-branch" "$result"
+  git -C "$main" rev-parse --verify -q refs/heads/feat-a >/dev/null 2>&1
+  _assert_exit "immutable: branch survives" 0 "$?"
+else
+  echo "SKIP: immutable: filesystem lacks immutable-flag support"
+fi
 
 echo ""
 echo "=== Branch deletion rechecks the proven OID ==="
 
 # shellcheck source=../worktree-gc.sh
 . "$ROOT/.local/lib/dotfiles/worktree-gc.sh"
-oid_home=$(_tmpdir)
+oid_home=$(_gc_tmpdir)
 oid_origin_root=$(_tmpdir)
 oid_origin=$oid_origin_root/origin.git
 _gc_seed_origin "$oid_origin"
@@ -530,7 +609,7 @@ _assert_exit "stale-proof: moved branch survives" 0 "$?"
 echo ""
 echo "=== Base repository worktree outside the scanned roots ==="
 
-base_home=$(_tmpdir)
+base_home=$(_gc_tmpdir)
 base_origin_root=$(_tmpdir)
 base_origin=$base_origin_root/origin.git
 _gc_seed_origin "$base_origin"
@@ -594,7 +673,7 @@ _assert_exit "base: merged branch is gone" 1 "$?"
 echo ""
 echo "=== Overlay clones are scanned like any other clone ==="
 
-ov_home=$(_tmpdir)
+ov_home=$(_gc_tmpdir)
 ov_origin_root=$(_tmpdir)
 ov_origin=$ov_origin_root/origin.git
 _gc_seed_origin "$ov_origin"
@@ -622,7 +701,7 @@ _assert_not_contains "overlay: overlay main checkout is never a candidate" \
 echo ""
 echo "=== Extra roots extend enumeration ==="
 
-rt_home=$(_tmpdir)
+rt_home=$(_gc_tmpdir)
 rt_origin_root=$(_tmpdir)
 rt_origin=$rt_origin_root/origin.git
 _gc_seed_origin "$rt_origin"
@@ -651,7 +730,7 @@ _assert_contains "roots: missing root warns" "no such root" "$(cat "$rt_home/std
 echo ""
 echo "=== Linked checkout on the base branch keeps its branch ==="
 
-bb_home=$(_tmpdir)
+bb_home=$(_gc_tmpdir)
 bb_origin_root=$(_tmpdir)
 bb_origin=$bb_origin_root/origin.git
 _gc_seed_origin "$bb_origin"
@@ -680,7 +759,7 @@ _assert_exit "base-branch: main survives" 0 "$?"
 echo ""
 echo "=== Non-origin remotes resolve a base without ambiguity ==="
 
-ro_home=$(_tmpdir)
+ro_home=$(_gc_tmpdir)
 ro_origin_root=$(_tmpdir)
 ro_origin=$ro_origin_root/origin.git
 _gc_seed_origin "$ro_origin"
@@ -724,7 +803,7 @@ _assert_not_contains "remotes: fork reason never prints" "fork/main" "$result"
 echo ""
 echo "=== Dirty submodule blocks removal ==="
 
-sub_home=$(_tmpdir)
+sub_home=$(_gc_tmpdir)
 sub_origin_root=$(_tmpdir)
 sub_origin=$sub_origin_root/origin.git
 _gc_seed_origin "$sub_origin"
@@ -752,7 +831,7 @@ _assert_file_exists "submodule: checkout survives" "$wt/file.txt"
 echo ""
 echo "=== Option surface ==="
 
-opt_home=$(_tmpdir)
+opt_home=$(_gc_tmpdir)
 result=$(HOME="$opt_home" DOTFILES="$opt_home/.dotfiles" "$GC" --help 2>&1)
 _assert_exit "options: --help exits 0" 0 "$?"
 _assert_contains "options: --help prints usage" "usage:" "$result"
