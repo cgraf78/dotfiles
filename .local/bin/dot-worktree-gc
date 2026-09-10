@@ -9,7 +9,13 @@
 set -u
 
 _src=${BASH_SOURCE[0]}
+_depth=0
 while [[ -L $_src ]]; do
+  _depth=$((_depth + 1))
+  if ((_depth > 32)); then
+    printf 'dot-worktree-gc: symlink loop resolving entry point\n' >&2
+    exit 1
+  fi
   _link=$(readlink "$_src")
   case $_link in
     /*) _src=$_link ;;
