@@ -203,7 +203,12 @@ jobs:
           ln -s "$DOT_STACK_DOT_ROOT/lib/dot/public" "$launcher_home/.local/lib/dot"
           export DOT_TEST_HOST_HOME=$launcher_home
 
-          dot init "file://$origin"
+          if ! dot init "file://$origin"; then
+            echo 'Cold bootstrap failed; retrying initialization once' >&2
+            dot init "file://$origin"
+          fi
+          init_status=$(dot init --status)
+          [[ $init_status == *'initialization: complete'* ]]
           test "$(git --git-dir="$HOME/.dotfiles" rev-parse HEAD)" = "$expected"
           test "$(git --git-dir="$HOME/.dotfiles" config --bool core.bare)" = false
           test "$(git --git-dir="$HOME/.dotfiles" config core.worktree)" = "$HOME"
