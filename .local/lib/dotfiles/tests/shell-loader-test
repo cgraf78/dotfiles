@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+# shell-loader-test — `_shell_source_dir` loader behavior.
+
+# shellcheck disable=SC1091 # dotfiles test helper lives under the source home.
+. "${BASH_SOURCE[0]%/*}/helpers.sh"
+
+REAL_HOME="${DOT_TEST_SOURCE_HOME:-$HOME}"
+LOADER="$REAL_HOME/.local/lib/dotfiles/shell-loader.sh"
+TEST_TMPDIR=$(_tmpdir)
+
+make_fixture() {
+  local dir=$1
+  mkdir -p "$dir"
+  cat >"$dir/05-first.sh" <<'EOF'
+printf 'first\n' >>"$DOT_LOADER_TEST_LOG"
+EOF
+  # A top-level `for f` like master.zshrc's completion walk: without the
+  # save/restore around each source this rebinds the loader's loop variable
+  # through dynamic scoping.
+  cat >"$dir/10-clobber.sh" <<'EOF'
+for f in a smcc; do :; done
+sorted=CLOBBERED
+printf 'second\n' >>"$DOT_LOADER_TEST_LOG"
+EOF
+  cat >"$dir/15-third.sh" <<'EOF'
+printf 'third\n' >>"$DOT_LOADER_TEST_LOG"
+EOF
+  cat >"$dir/20-only.zsh" <<'EOF'
+printf 'zsh-only\n' >>"$DOT_LOADER_TEST_LOG"
+EOF
+  cat >"$dir/21-only.bash" <<'EOF'
+printf 'bash-only\n' >>"$DOT_LOADER_TEST_LOG"
+EOF
+}
+
+echo ""
+echo "=== shell-loader: clobber-resistant timing labels (bash) ==="
+
+FIX_BASH=$TEST_TMPDIR/fix-bash
+make_fixture "$FIX_BASH"
+LOG_BASH=$TEST_TMPDIR/order-bash.log
+: >"$LOG_BASH"
+timing_bash=$(
+  DOT_LOADER_TEST_LOG="$LOG_BASH" SHELL_LOADER_TIMING=1 \
+    bash -c ". '$LOADER'; _shell_source_dir '$FIX_BASH' bash" 2>&1
+)
+_assert_eq "loader timing: every selected file sourced in order" \
+  $'first\nsecond\nthird\nbash-only' "$(cat "$LOG_BASH")"
+labels_bash=$(printf '%s\n' "$timing_bash" | awk -F'\t' '$1=="SHELL_TIMING" {print $3}')
+_assert_eq "loader timing: labels are the sourced paths" \
+  "$FIX_BASH/05-first.sh
+$FIX_BASH/10-clobber.sh
+$FIX_BASH/15-third.sh
+$FIX_BASH/21-only.bash" "$labels_bash"
+_assert_not_contains "loader timing: clobbered loop var never leaks into labels" \
+  "smcc" "$timing_bash"
+_assert_not_contains "loader timing: clobbered sorted never leaks into labels" \
+  "CLOBBERED" "$timing_bash"
+
+echo ""
+echo "=== shell-loader: plain path sources all in order (bash) ==="
+
+LOG_PLAIN=$TEST_TMPDIR/order-plain.log
+: >"$LOG_PLAIN"
+plain_out=$(
+  DOT_LOADER_TEST_LOG="$LOG_PLAIN" \
+    bash -c ". '$LOADER'; _shell_source_dir '$FIX_BASH' bash" 2>&1
+)
+_assert_eq "loader plain: every selected file sourced in order" \
+  $'first\nsecond\nthird\nbash-only' "$(cat "$LOG_PLAIN")"
+_assert_not_contains "loader plain: no timing output without the flag" \
+  "SHELL_TIMING" "$plain_out"
+
+if command -v zsh >/dev/null 2>&1; then
+  echo ""
+  echo "=== shell-loader: clobber-resistant timing labels (zsh) ==="
+
+  FIX_ZSH=$TEST_TMPDIR/fix-zsh
+  make_fixture "$FIX_ZSH"
+  LOG_ZSH=$TEST_TMPDIR/order-zsh.log
+  : >"$LOG_ZSH"
+  timing_zsh=$(
+    DOT_LOADER_TEST_LOG="$LOG_ZSH" SHELL_LOADER_TIMING=1 \
+      zsh -f -c ". '$LOADER'; _shell_source_dir '$FIX_ZSH' zsh" 2>&1
+  )
+  _assert_eq "loader timing (zsh): every selected file sourced in order" \
+    $'first\nsecond\nthird\nzsh-only' "$(cat "$LOG_ZSH")"
+  labels_zsh=$(printf '%s\n' "$timing_zsh" | awk -F'\t' '$1=="SHELL_TIMING" {print $3}')
+  _assert_eq "loader timing (zsh): labels are the sourced paths" \
+    "$FIX_ZSH/05-first.sh
+$FIX_ZSH/10-clobber.sh
+$FIX_ZSH/15-third.sh
+$FIX_ZSH/20-only.zsh" "$labels_zsh"
+  _assert_not_contains "loader timing (zsh): clobbered loop var never leaks" \
+    "smcc" "$timing_zsh"
+
+  echo ""
+  echo "=== shell-loader: plain path sources all in order (zsh) ==="
+
+  LOG_PLAIN_ZSH=$TEST_TMPDIR/order-plain-zsh.log
+  : >"$LOG_PLAIN_ZSH"
+  plain_zsh_out=$(
+    DOT_LOADER_TEST_LOG="$LOG_PLAIN_ZSH" \
+      zsh -f -c ". '$LOADER'; _shell_source_dir '$FIX_ZSH' zsh" 2>&1
+  )
+  _assert_eq "loader plain (zsh): every selected file sourced in order" \
+    $'first\nsecond\nthird\nzsh-only' "$(cat "$LOG_PLAIN_ZSH")"
+  _assert_not_contains "loader plain (zsh): no timing output without the flag" \
+    "SHELL_TIMING" "$plain_zsh_out"
+fi
+
+_test_summary

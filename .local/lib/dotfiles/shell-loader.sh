@@ -17,7 +17,7 @@ _shell_load_env() {
 }
 
 _shell_source_dir() {
-  local dir="$1" shell_ext="${2:-}" f sorted
+  local dir="$1" shell_ext="${2:-}" f sorted _src_f _src_sorted
   local -a files=()
 
   # zsh: enable nullglob for the globbing step, then restore afterward.
@@ -49,6 +49,10 @@ _shell_source_dir() {
   while IFS= read -r f; do files+=("$f"); done <<<"$sorted"
 
   # shellcheck disable=SC1090  # discovered dynamically from env.d/interactive.d
+  # Sourced files share this function's dynamic scope: a top-level `for f`
+  # in a sourced file (master.zshrc walks its completion list that way)
+  # rebinds the loop variable. Pin the values still needed after each
+  # source so timing labels and iteration stay correct.
   if [ -n "${SHELL_LOADER_TIMING:-}" ]; then
     # Instrumented path for `shell-time`. Uses EPOCHREALTIME (bash 5+,
     # zsh with zsh/datetime) for fork-free microsecond timing. Emits one
@@ -57,7 +61,11 @@ _shell_source_dir() {
     local _t0 _t1 _s0 _s1 _u0 _u1 _du _ms _fr
     for f in "${files[@]}"; do
       _t0="${EPOCHREALTIME:-0.000000}"
+      _src_f=$f
+      _src_sorted=$sorted
       . "$f"
+      f=$_src_f
+      sorted=$_src_sorted
       _t1="${EPOCHREALTIME:-0.000000}"
       _s0=${_t0%.*}
       _u0=${_t0#*.}
@@ -73,6 +81,12 @@ _shell_source_dir() {
       printf 'SHELL_TIMING\t%d.%03d\t%s\n' "$_ms" "$_fr" "$f" >&2
     done
   else
-    for f in "${files[@]}"; do . "$f"; done
+    for f in "${files[@]}"; do
+      _src_f=$f
+      _src_sorted=$sorted
+      . "$f"
+      f=$_src_f
+      sorted=$_src_sorted
+    done
   fi
 }

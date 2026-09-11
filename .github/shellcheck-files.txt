@@ -104,6 +104,7 @@ program	.local/lib/dotfiles/tests/run-ci
 program	.local/lib/dotfiles/tests/run-ci-candidate-home
 program	.local/lib/dotfiles/tests/shdeps-assets-test
 program	.local/lib/dotfiles/tests/shdeps-hooks-test
+program	.local/lib/dotfiles/tests/shell-loader-test
 program	.local/lib/dotfiles/tests/stack-dot-runtime
 program	.local/lib/dotfiles/tests/tmux-continuum-test
 program	.local/lib/dotfiles/tests/tmux-compatibility-test

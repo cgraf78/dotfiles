@@ -7,17 +7,42 @@
 # ~60ms later (imperceptible).
 # ---------------------------------------------------------------------------
 
+# $sysparams[pid] lets the worker subshell report its own pid; zsh keeps
+# process substitutions out of $! and the job table, so there is no
+# parent-side handle to kill on cancel.
+zmodload zsh/system 2>/dev/null
+
 __git_prompt_result=""
 __git_prompt_fd=""
 __git_prompt_pwd=""
+__git_prompt_token=""
+__git_prompt_pidfile="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/dot-git-prompt-async.$$.pid"
 
-# Cancel any pending async git prompt computation.
+# Cancel any pending async git prompt computation, killing the orphaned
+# worker subshell. The worker self-reports pid:token to a $$-scoped pidfile;
+# the token must match the current cycle or the entry is stale (a recycled
+# pid from a dead shell) and is never killed. Every failure here degrades to
+# the old close-the-fd behavior: the orphan exits after its current git call.
 __git_prompt_async_cancel() {
   if [[ -n "$__git_prompt_fd" ]]; then
     zle -F "$__git_prompt_fd" 2>/dev/null
-    { exec {__git_prompt_fd}<&- } 2>/dev/null
+    { exec {__git_prompt_fd}<&-; } 2>/dev/null
     __git_prompt_fd=""
   fi
+  if [[ -n "$__git_prompt_token" && -r "$__git_prompt_pidfile" ]]; then
+    local _reported="" _tok=""
+    IFS=: read -r _reported _tok <"$__git_prompt_pidfile" 2>/dev/null
+    if [[ "$_tok" == "$__git_prompt_token" ]]; then
+      # Never kill 0/empty/non-numeric: `kill 0` signals the whole process
+      # group.
+      case "$_reported" in
+        '' | *[!0-9]* | 0*) ;;
+        *) kill "$_reported" 2>/dev/null ;;
+      esac
+    fi
+    rm -f "$__git_prompt_pidfile" 2>/dev/null
+  fi
+  __git_prompt_token=""
 }
 
 # Start async git prompt computation.  Called from precmd.
@@ -27,7 +52,12 @@ __git_prompt_async_start() {
     __git_prompt_result=""
     __git_prompt_pwd="$PWD"
   fi
-  exec {__git_prompt_fd}< <(__git_prompt)
+  __git_prompt_token=$RANDOM
+  local _tok=$__git_prompt_token _pf=$__git_prompt_pidfile
+  exec {__git_prompt_fd}< <(
+    print -r -- "$sysparams[pid]:$_tok" >"$_pf" 2>/dev/null
+    __git_prompt
+  )
   zle -F "$__git_prompt_fd" __git_prompt_async_callback
 }
 
@@ -38,16 +68,26 @@ __git_prompt_async_callback() {
   IFS= read -r -d '' -u "$fd" __git_prompt_result 2>/dev/null
   exec {fd}<&-
   __git_prompt_fd=""
+  # The worker exited; its pidfile entry is stale. Drop the token so a later
+  # cancel cannot match it against a recycled pid.
+  __git_prompt_token=""
+  rm -f "$__git_prompt_pidfile" 2>/dev/null
   zle && zle reset-prompt
+}
+
+# Backstop: normal cycles unlink the pidfile in cancel/callback, but a shell
+# that exits mid-flight would otherwise litter one tiny file per session.
+__git_prompt_pidfile_cleanup() {
+  rm -f "$__git_prompt_pidfile" 2>/dev/null
 }
 
 # Command timing via zsh preexec/precmd hooks.
 __cmd_time=""
-__prompt_preexec() { __cmd_start=$EPOCHSECONDS }
+__prompt_preexec() { __cmd_start=$EPOCHSECONDS; }
 __prompt_precmd() {
-  local elapsed=$(( EPOCHSECONDS - ${__cmd_start:-$EPOCHSECONDS} ))
+  local elapsed=$((EPOCHSECONDS - ${__cmd_start:-$EPOCHSECONDS}))
   __cmd_start=$EPOCHSECONDS
-  if (( elapsed >= 2 )); then
+  if ((elapsed >= 2)); then
     # Pre-color with dim + \001/\002 wrappers so ZLE counts correctly.
     __cmd_time=$'\001\033[2m\002 '"${elapsed}s"$'\001\033[0m\002'
   else
@@ -58,6 +98,7 @@ autoload -Uz add-zsh-hook
 add-zsh-hook preexec __prompt_preexec
 add-zsh-hook precmd __prompt_precmd
 add-zsh-hook precmd __git_prompt_async_start
+add-zsh-hook zshexit __git_prompt_pidfile_cleanup
 
 # Set PROMPT with exit status, user@host:path, git info, timing, and a second line.
 # Line 1: dim user@host, bold-cyan path, colored git info, dim timing.
@@ -75,9 +116,9 @@ set_prompt() {
   PROMPT="%(?.%b%f.%B%F{red}[%?]%f%b )${dim}%n@${host}${nodim}:%B%F{cyan}%~%f%b"'${__git_prompt_result}${__cmd_time}'$'\n''%(?.%B%F{green}.%B%F{red})%#%f%b '
   # Set terminal title for xterm/rxvt
   case "$TERM" in
-  xterm* | rxvt*)
-    PROMPT=$'%{\e]0;%n@'"${host}"$': %~\a%}'"$PROMPT"
-    ;;
+    xterm* | rxvt*)
+      PROMPT=$'%{\e]0;%n@'"${host}"$': %~\a%}'"$PROMPT"
+      ;;
   esac
 }
 
@@ -88,7 +129,7 @@ set_hostname_alias() {
   HOSTNAME_ALIAS="$1"
   set_prompt "$1"
   if [ -n "$TMUX" ]; then
-    tmux set -g @hostname_alias "$1" 2>/dev/null &!
+    tmux set -g @hostname_alias "$1" 2>/dev/null &|
   fi
   return 0
 }
