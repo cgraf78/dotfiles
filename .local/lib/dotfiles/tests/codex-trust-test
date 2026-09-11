@@ -730,6 +730,7 @@ echo "=== Codex trust fingerprint scan ==="
 # fingerprint (rc 0), anything else fails closed into a prune (rc 1).
 # Sourced in-process with stubbed hook APIs; the scan is pure.
 dot_hook_source() { return 0; }
+# shellcheck source=../merge-hooks.d/codex-trust.serial.sh
 . "$hook"
 _fingerprint_rc() {
   local content=$1 file rc
