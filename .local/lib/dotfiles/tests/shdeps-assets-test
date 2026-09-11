@@ -237,6 +237,8 @@ _assert_eq "dep cache: miss publishes one cache file" \
 
 assets_fresh_cache
 dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
+dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
+_assert_eq "dep cache: conf edit hits before change" "1" "$(assets_invocations)"
 _assets_future_touch "$ASSETS_CACHE_HOME/.config/shdeps/10-deps.conf"
 assets_after_edit=$(dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh)
 _assert_eq "dep cache: conf edit re-resolves" "$ASSETS_ASSET" "$assets_after_edit"
@@ -244,6 +246,8 @@ _assert_eq "dep cache: conf edit invalidates" "2" "$(assets_invocations)"
 
 assets_fresh_cache
 dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
+dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
+_assert_eq "dep cache: conf addition hits before change" "1" "$(assets_invocations)"
 printf 'extra/dep  pkg\n' >"$ASSETS_CACHE_HOME/.config/shdeps/20-extra.conf"
 _assets_future_touch "$ASSETS_CACHE_HOME/.config/shdeps/20-extra.conf"
 dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
@@ -252,6 +256,8 @@ rm -f "$ASSETS_CACHE_HOME/.config/shdeps/20-extra.conf"
 
 assets_fresh_cache
 dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
+dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
+_assert_eq "dep cache: binary upgrade hits before change" "1" "$(assets_invocations)"
 _assets_future_touch "$ASSETS_SHDEPS_BIN/shdeps"
 dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
 _assert_eq "dep cache: binary upgrade invalidates" "2" "$(assets_invocations)"
@@ -277,6 +283,8 @@ SHDEPS_GIT_DEV_DIR="$ASSETS_DEV_DIR"
 export SHDEPS_GIT_DEV_DIR
 assets_fresh_cache
 dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
+dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
+_assert_eq "dep cache: dev appearance hits before change" "1" "$(assets_invocations)"
 mkdir -p "$ASSETS_DEV_DIR/termnav"
 _assets_future_touch "$ASSETS_DEV_DIR/termnav"
 dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
@@ -290,6 +298,8 @@ SHDEPS_INSTALL_DIR="$ASSETS_INSTALL_DIR"
 export SHDEPS_INSTALL_DIR
 assets_fresh_cache
 dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
+dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
+_assert_eq "dep cache: nested install hits before change" "1" "$(assets_invocations)"
 mkdir -p "$ASSETS_INSTALL_DIR/cgraf78/termnav"
 _assets_future_touch "$ASSETS_INSTALL_DIR/cgraf78/termnav"
 dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
@@ -303,6 +313,8 @@ SHDEPS_INSTALL_DIR="$ASSETS_DEEP_DIR"
 export SHDEPS_INSTALL_DIR
 assets_fresh_cache
 dot_shdeps_dep_file a/b/leaf share/x.sh >/dev/null
+dot_shdeps_dep_file a/b/leaf share/x.sh >/dev/null
+_assert_eq "dep cache: deep install hits before change" "1" "$(assets_invocations)"
 _assets_future_touch "$ASSETS_DEEP_DIR/a/b"
 dot_shdeps_dep_file a/b/leaf share/x.sh >/dev/null
 _assert_eq "dep cache: deep install change invalidates" \
@@ -324,6 +336,8 @@ assets_fresh_cache
 PATH="$ASSETS_SHDEPS_BIN:$ASSETS_SHDEPS_BIN_B:/usr/bin:/bin"
 export PATH
 dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
+dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
+_assert_eq "dep cache: reorder hits before change" "1" "$(assets_invocations)"
 PATH="$ASSETS_SHDEPS_BIN_B:$ASSETS_SHDEPS_BIN:/usr/bin:/bin"
 export PATH
 assets_reorder_second=$(dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh)
@@ -333,6 +347,85 @@ _assert_eq "dep cache: PATH reorder invalidates" "2" "$(assets_invocations)"
 PATH="$ASSETS_SHDEPS_BIN:/usr/bin:/bin"
 export PATH
 
+# Same-shell PATH change to a disjoint entry: unlike the reorder above, the
+# new PATH shares no shdeps entry with the old one, proving the changed
+# PATH is re-probed rather than the old binary being reused.
+assets_fresh_cache
+PATH="$ASSETS_SHDEPS_BIN:/usr/bin:/bin"
+export PATH
+dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
+dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
+_assert_eq "dep cache: PATH change hits before change" "1" "$(assets_invocations)"
+PATH="$ASSETS_SHDEPS_BIN_B:/usr/bin:/bin"
+export PATH
+assets_path_change=$(dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh)
+_assert_eq "dep cache: PATH change serves the new binary" \
+  "$ASSETS_ASSET_B" "$assets_path_change"
+_assert_eq "dep cache: PATH change invalidates" "2" "$(assets_invocations)"
+PATH="$ASSETS_SHDEPS_BIN:/usr/bin:/bin"
+export PATH
+
+# Read-only cache dir: the write fallback must fail open — the request
+# still succeeds with the freshly resolved asset instead of erroring.
+# Seeded, then invalidated via a conf edit so the probe takes the write
+# path (a plain re-read would hit without writing anything).
+assets_fresh_cache
+dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
+_assets_future_touch "$ASSETS_CACHE_HOME/.config/shdeps/10-deps.conf"
+chmod 555 "$XDG_CACHE_HOME/shdeps/dep-files"
+assets_ro_out=$(dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh)
+assets_ro_rc=$?
+_assert_eq "dep cache: read-only cache still succeeds" "0" "$assets_ro_rc"
+_assert_eq "dep cache: read-only cache serves the asset" \
+  "$ASSETS_ASSET" "$assets_ro_out"
+# Same fallback through each vendored copy. Asserts stay in the parent
+# shell: `_fail` counts in a global the subshell could not propagate.
+for assets_copy in doctor.d/lib merge-hooks.d/lib; do
+  assets_copy_probe=$(
+    # shellcheck disable=SC1090 # vendored copy under test, chosen above.
+    . "$REAL_HOME/.local/lib/dotfiles/$assets_copy/shdeps-assets.sh"
+    assets_copy_out=$(dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh)
+    printf '%s\n%s\n' "$?" "$assets_copy_out"
+  )
+  assets_copy_rc=$(printf '%s\n' "$assets_copy_probe" | sed -n '1p')
+  assets_copy_out=$(printf '%s\n' "$assets_copy_probe" | sed -n '2p')
+  _assert_eq "dep cache: read-only cache still succeeds ($assets_copy)" \
+    "0" "$assets_copy_rc"
+  _assert_eq "dep cache: read-only cache serves the asset ($assets_copy)" \
+    "$ASSETS_ASSET" "$assets_copy_out"
+done
+chmod 755 "$XDG_CACHE_HOME/shdeps/dep-files"
+
+# HOSTNAME parametrizes the cache key (proxy for `hostname` auto-detect):
+# each distinct host misses once, then hits under that same host.
+assets_fresh_cache
+dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
+dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
+_assert_eq "dep cache: HOSTNAME hits before change" "1" "$(assets_invocations)"
+HOSTNAME="cache-test-host-a" dot_shdeps_dep_file \
+  cgraf78/termnav share/termnav/shell.sh >/dev/null
+_assert_eq "dep cache: HOSTNAME change invalidates" "2" "$(assets_invocations)"
+HOSTNAME="cache-test-host-a" dot_shdeps_dep_file \
+  cgraf78/termnav share/termnav/shell.sh >/dev/null
+_assert_eq "dep cache: HOSTNAME hits under the same host" "2" "$(assets_invocations)"
+HOSTNAME="cache-test-host-b" dot_shdeps_dep_file \
+  cgraf78/termnav share/termnav/shell.sh >/dev/null
+_assert_eq "dep cache: second HOSTNAME invalidates again" "3" "$(assets_invocations)"
+
+# The doctor and merge-hooks vendored copies must stay byte-identical to
+# the adapter: behavior fixes and cache-key changes apply to all three.
+# `git hash-object` keeps the comparison byte-exact without assuming the
+# optional `cmp`/`diff` packages exist (same idiom as `dot_config_files_equal`).
+assets_adapter_hash=$(git hash-object --no-filters -- \
+  "$REAL_HOME/.local/lib/dotfiles/shdeps-assets.sh")
+_assert_eq "dep cache: doctor copy matches the adapter" "$assets_adapter_hash" \
+  "$(git hash-object --no-filters -- \
+    "$REAL_HOME/.local/lib/dotfiles/doctor.d/lib/shdeps-assets.sh")"
+_assert_eq "dep cache: merge-hooks copy matches the adapter" \
+  "$assets_adapter_hash" \
+  "$(git hash-object --no-filters -- \
+    "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/lib/shdeps-assets.sh")"
+
 assets_fresh_cache
 dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
 dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh extra >/dev/null
@@ -341,6 +434,8 @@ _assert_eq "dep cache: arg count separates entries" "2" "$(assets_invocations)"
 
 assets_fresh_cache
 dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
+dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
+_assert_eq "dep cache: filter identity hits before change" "1" "$(assets_invocations)"
 SHDEPS_TEST_PLATFORM="other-os" dot_shdeps_dep_file \
   cgraf78/termnav share/termnav/shell.sh >/dev/null
 _assert_eq "dep cache: filter identity change invalidates" \
@@ -352,6 +447,8 @@ ASSETS_ASSET="$ASSETS_CACHE_ASSET2"
 export ASSETS_ASSET
 assets_fresh_cache
 dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
+dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
+_assert_eq "dep cache: removed asset hits before change" "1" "$(assets_invocations)"
 rm -f "$ASSETS_CACHE_ASSET2"
 assets_after_rm=$(dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh)
 _assert_eq "dep cache: removed asset re-resolves" \

@@ -113,6 +113,11 @@ _dot_shdeps_dep_roots() {
 # Validate a cache entry against the live resolution inputs. Sets REPLY to
 # the cached asset on a hit; returns 1 on any mismatch, staleness, or
 # unreadable input so the caller re-resolves.
+# Known limitation: `mgr:`-filtered deps resolve the package manager from
+# PATH, whose identity is unkeyed — if two managers ever disagreed on one
+# spec, a PATH reorder could serve the other manager's answer. Current
+# specs agree under any detected manager, so no live divergence; consider
+# fingerprinting detected-manager identity if that changes.
 _dot_shdeps_dep_cache_read() {
   local cache="$1" name="$2" rel="$3" conf_dir="$4" bin="$5"
   local cached_name="" cached_rel="" cached_asset=""
