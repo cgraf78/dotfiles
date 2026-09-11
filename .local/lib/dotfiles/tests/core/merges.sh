@@ -155,29 +155,35 @@ BASH
     "1" "$compare_status"
 
   # Fast path: with cmp on PATH the comparison answers without spawning
-  # git at all. The shim records any fallback invocation.
-  compare_git_log=$(_tmpfile)
-  compare_shim_bin=$(_tmpdir)
-  cat >"$compare_shim_bin/git" <<SH
+  # git at all. The shim records any fallback invocation. Minimal images
+  # (Arch, CentOS Stream) ship no diffutils; there the git-fallback test
+  # below covers the cmp-less behavior instead.
+  if command -v cmp >/dev/null 2>&1; then
+    compare_git_log=$(_tmpfile)
+    compare_shim_bin=$(_tmpdir)
+    cat >"$compare_shim_bin/git" <<SH
 #!/usr/bin/env bash
 printf 'git-spawned\n' >>"$compare_git_log"
 exit 1
 SH
-  chmod +x "$compare_shim_bin/git"
-  compare_saved_path=$PATH
-  PATH="$compare_shim_bin:$PATH"
-  dot_config_files_equal "$compare_left" "$compare_same"
-  compare_fast_same=$?
-  dot_config_files_equal "$compare_left" "$compare_different"
-  compare_fast_different=$?
-  dot_config_files_equal "$compare_left" "$compare_left.missing"
-  compare_fast_missing=$?
-  PATH=$compare_saved_path
-  _assert_eq "config comparison: cmp path keeps verdicts" \
-    "same=0 different=1 missing=1" \
-    "same=$compare_fast_same different=$compare_fast_different missing=$compare_fast_missing"
-  _assert_eq "config comparison: cmp path never spawns git" \
-    "" "$(cat "$compare_git_log")"
+    chmod +x "$compare_shim_bin/git"
+    compare_saved_path=$PATH
+    PATH="$compare_shim_bin:$PATH"
+    dot_config_files_equal "$compare_left" "$compare_same"
+    compare_fast_same=$?
+    dot_config_files_equal "$compare_left" "$compare_different"
+    compare_fast_different=$?
+    dot_config_files_equal "$compare_left" "$compare_left.missing"
+    compare_fast_missing=$?
+    PATH=$compare_saved_path
+    _assert_eq "config comparison: cmp path keeps verdicts" \
+      "same=0 different=1 missing=1" \
+      "same=$compare_fast_same different=$compare_fast_different missing=$compare_fast_missing"
+    _assert_eq "config comparison: cmp path never spawns git" \
+      "" "$(cat "$compare_git_log")"
+  else
+    echo "  - skipping cmp fast-path checks (cmp unavailable)"
+  fi
 
   # Fallback path: without cmp the git comparison keeps identical verdicts.
   compare_nocmp_bin=$(_tmpdir)
