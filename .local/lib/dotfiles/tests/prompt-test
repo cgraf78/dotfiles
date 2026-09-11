@@ -29,6 +29,7 @@ case " $* " in
     ;;
   *" --no-optional-locks status --porcelain=v2 --branch "*)
     [[ "${MOCK_STATUS_FAIL:-0}" != 1 ]] || exit 1
+    [[ "${MOCK_EMPTY_STATUS:-0}" != 1 ]] || exit 0
     printf '%s\n' \
       "# branch.head ${MOCK_BRANCH:-main}" \
       '# branch.ab +1 -2' \
@@ -47,6 +48,10 @@ chmod +x "$MOCK_BIN/git"
 export HOME="$MOCK_HOME"
 export GIT_LOG REAL_GIT
 PATH="$MOCK_BIN:$PATH"
+# Isolate launcher-bypass assertions from the host's system git. Sections
+# covering the system fast path override this with fixture candidates.
+DOT_GIT_PROMPT_SYSTEM_GITS=""
+export DOT_GIT_PROMPT_SYSTEM_GITS
 
 (
   cd "$HOME" || exit 1
@@ -412,5 +417,612 @@ _assert_file_content "non-repository prompt: renders nothing" \
   "" "$TEST_TMPDIR/prompt-nonrepo.out"
 _assert_eq "non-repository prompt: stops after failed status" \
   "1" "$(wc -l <"$GIT_LOG" | tr -d ' ')"
+
+echo ""
+echo "=== prompt: stale resolver cache refresh ==="
+
+# A cache whose PATH snapshot no longer matches is discarded, but instead of
+# routing every prompt through the PATH launcher until something republishes,
+# the resolver re-resolves past the launcher in-process and refreshes the
+# cache for fresh shells.
+STALE_CACHE="$RESOLVED_HOME/.cache/dot/git-real"
+STALE_COMMAND_LOG="$TEST_TMPDIR/stale-command.log"
+printf '%s\n%s\n' "$RESOLVED_REAL_BIN/git" "STALE-PATH-NO-LONGER-CURRENT" >"$STALE_CACHE"
+: >"$RESOLVED_WRAPPER_LOG"
+: >"$RESOLVED_REAL_LOG"
+stale_prompt=$(
+  HOME="$RESOLVED_HOME" \
+    BASH_ENV='' \
+    REAL_HOME="$REAL_HOME" \
+    RESOLVED_REAL_BIN="$RESOLVED_REAL_BIN" \
+    RESOLVED_WRAPPER_LOG="$RESOLVED_WRAPPER_LOG" \
+    RESOLVED_REAL_LOG="$RESOLVED_REAL_LOG" \
+    STALE_COMMAND_LOG="$STALE_COMMAND_LOG" \
+    XDG_CACHE_HOME="$RESOLVED_HOME/.cache" \
+    PATH="$RESOLVED_PATH" \
+    bash --noprofile --norc -c '
+      cd "$HOME" || exit 1
+      # shellcheck disable=SC1091
+      . "$REAL_HOME/.config/shell/interactive.d/59-prompt.sh"
+      printf "%s\n" "${_DOT_GIT_PROMPT_BIN:-unset}" >"$STALE_COMMAND_LOG"
+      __git_prompt
+    '
+)
+_assert_contains "stale cache prompt: still renders repository state" \
+  "main" "$stale_prompt"
+_assert_file_content "stale cache prompt: re-resolves past the launcher" \
+  "$RESOLVED_REAL_BIN/git" "$STALE_COMMAND_LOG"
+_assert_file_content "stale cache prompt: bypasses the PATH launcher" \
+  "" "$RESOLVED_WRAPPER_LOG"
+_assert_file_content "stale cache prompt: refreshes the cache for fresh shells" \
+  "$(printf '%s\n%s' "$RESOLVED_REAL_BIN/git" "$RESOLVED_PATH")" "$STALE_CACHE"
+
+echo ""
+echo "=== prompt: launcher-published cache ==="
+
+# The launcher publishes its own validated cache beside the legacy prompt
+# path. The resolver consults it when the legacy entry is missing or stale.
+LAUNCHER_CACHE="$RESOLVED_HOME/.cache/dotfiles/git-real"
+mkdir -p "${LAUNCHER_CACHE%/*}"
+printf '%s\n%s\n' "$RESOLVED_REAL_BIN/git" "STALE-PATH-NO-LONGER-CURRENT" >"$STALE_CACHE"
+printf '%s\n%s\n' "$RESOLVED_REAL_BIN/git" "$RESOLVED_PATH" >"$LAUNCHER_CACHE"
+: >"$RESOLVED_WRAPPER_LOG"
+: >"$RESOLVED_REAL_LOG"
+launcher_cache_prompt=$(
+  HOME="$RESOLVED_HOME" \
+    BASH_ENV='' \
+    REAL_HOME="$REAL_HOME" \
+    RESOLVED_REAL_BIN="$RESOLVED_REAL_BIN" \
+    RESOLVED_WRAPPER_LOG="$RESOLVED_WRAPPER_LOG" \
+    RESOLVED_REAL_LOG="$RESOLVED_REAL_LOG" \
+    STALE_COMMAND_LOG="$STALE_COMMAND_LOG" \
+    XDG_CACHE_HOME="$RESOLVED_HOME/.cache" \
+    PATH="$RESOLVED_PATH" \
+    bash --noprofile --norc -c '
+      cd "$HOME" || exit 1
+      # shellcheck disable=SC1091
+      . "$REAL_HOME/.config/shell/interactive.d/59-prompt.sh"
+      printf "%s\n" "${_DOT_GIT_PROMPT_BIN:-unset}" >"$STALE_COMMAND_LOG"
+      __git_prompt
+    '
+)
+_assert_contains "launcher cache prompt: still renders repository state" \
+  "main" "$launcher_cache_prompt"
+_assert_file_content "launcher cache prompt: accepts the launcher cache path" \
+  "$RESOLVED_REAL_BIN/git" "$STALE_COMMAND_LOG"
+_assert_file_content "launcher cache prompt: bypasses the PATH launcher" \
+  "" "$RESOLVED_WRAPPER_LOG"
+rm -f "$LAUNCHER_CACHE"
+
+echo ""
+echo "=== prompt: resolver skips launcher copies ==="
+
+# A second launcher copy elsewhere on PATH (shared-HOME root/sudo shells)
+# must not satisfy the past-launcher scan: it carries the launcher marker.
+COPY_HOME="$TEST_TMPDIR/copy-home"
+COPY_REAL_BIN="$TEST_TMPDIR/copy-real-bin"
+COPY_OTHER_BIN="$TEST_TMPDIR/copy-other-bin"
+COPY_WRAPPER_LOG="$TEST_TMPDIR/copy-wrapper.log"
+COPY_OTHER_LOG="$TEST_TMPDIR/copy-other.log"
+COPY_REAL_LOG="$TEST_TMPDIR/copy-real.log"
+COPY_COMMAND_LOG="$TEST_TMPDIR/copy-command.log"
+mkdir -p "$COPY_HOME/.dotfiles" "$COPY_HOME/.local/bin" \
+  "$COPY_HOME/.cache" "$COPY_REAL_BIN" "$COPY_OTHER_BIN"
+: >"$COPY_WRAPPER_LOG"
+: >"$COPY_OTHER_LOG"
+: >"$COPY_REAL_LOG"
+cat >"$COPY_HOME/.local/bin/git" <<'EOF'
+#!/usr/bin/env bash
+# Dotfiles-aware launcher for Git.
+printf 'wrapper:%s\n' "$*" >>"$COPY_WRAPPER_LOG"
+exec "$COPY_REAL_BIN/git" "$@"
+EOF
+cat >"$COPY_OTHER_BIN/git" <<'EOF'
+#!/usr/bin/env bash
+# Dotfiles-aware launcher for Git.
+printf 'other:%s\n' "$*" >>"$COPY_OTHER_LOG"
+exec "$COPY_REAL_BIN/git" "$@"
+EOF
+cat >"$COPY_REAL_BIN/git" <<'EOF'
+#!/usr/bin/env bash
+printf 'real:%s\n' "$*" >>"$COPY_REAL_LOG"
+case " $* " in
+  *" --no-optional-locks status --porcelain=v2 --branch "*)
+    printf '%s\n' '# branch.head main' '# branch.ab +0 -0'
+    ;;
+  *) exit 1 ;;
+esac
+EOF
+chmod +x "$COPY_HOME/.local/bin/git" "$COPY_OTHER_BIN/git" "$COPY_REAL_BIN/git"
+COPY_PATH="$COPY_HOME/.local/bin:$COPY_OTHER_BIN:$COPY_REAL_BIN:/usr/bin:/bin"
+copy_prompt=$(
+  HOME="$COPY_HOME" \
+    BASH_ENV='' \
+    REAL_HOME="$REAL_HOME" \
+    COPY_WRAPPER_LOG="$COPY_WRAPPER_LOG" \
+    COPY_OTHER_LOG="$COPY_OTHER_LOG" \
+    COPY_REAL_BIN="$COPY_REAL_BIN" \
+    COPY_REAL_LOG="$COPY_REAL_LOG" \
+    COPY_COMMAND_LOG="$COPY_COMMAND_LOG" \
+    XDG_CACHE_HOME="$COPY_HOME/.cache" \
+    PATH="$COPY_PATH" \
+    bash --noprofile --norc -c '
+      cd "$HOME" || exit 1
+      # shellcheck disable=SC1091
+      . "$REAL_HOME/.config/shell/interactive.d/59-prompt.sh"
+      printf "%s\n" "${_DOT_GIT_PROMPT_BIN:-unset}" >"$COPY_COMMAND_LOG"
+      __git_prompt
+    '
+)
+_assert_contains "launcher copies prompt: renders repository state" \
+  "main" "$copy_prompt"
+_assert_file_content "launcher copies prompt: resolves past every copy" \
+  "$COPY_REAL_BIN/git" "$COPY_COMMAND_LOG"
+_assert_file_content "launcher copies prompt: bypasses the PATH launcher" \
+  "" "$COPY_WRAPPER_LOG"
+_assert_file_content "launcher copies prompt: bypasses the marker copy" \
+  "" "$COPY_OTHER_LOG"
+
+echo ""
+echo "=== prompt: resolver without real git ==="
+
+# When no git past the launcher exists, the resolver keeps the `git`
+# fallback so prompts behave exactly as before (launcher error or backend).
+LONELY_HOME="$TEST_TMPDIR/lonely-home"
+LONELY_EMPTY_BIN="$TEST_TMPDIR/lonely-empty-bin"
+LONELY_COMMAND_LOG="$TEST_TMPDIR/lonely-command.log"
+mkdir -p "$LONELY_HOME/.dotfiles" "$LONELY_HOME/.local/bin" \
+  "$LONELY_HOME/.cache" "$LONELY_EMPTY_BIN"
+cat >"$LONELY_HOME/.local/bin/git" <<'EOF'
+#!/bin/bash
+# Dotfiles-aware launcher for Git.
+# Absolute interpreter: this fixture runs with a PATH that holds no git past
+# the launcher, so `env` lookup would fail.
+printf '%s\n' '# branch.head main' '# branch.ab +0 -0'
+EOF
+chmod +x "$LONELY_HOME/.local/bin/git"
+lonely_prompt=$(
+  HOME="$LONELY_HOME" \
+    BASH_ENV='' \
+    REAL_HOME="$REAL_HOME" \
+    LONELY_COMMAND_LOG="$LONELY_COMMAND_LOG" \
+    LONELY_PATH="$LONELY_HOME/.local/bin:$LONELY_EMPTY_BIN" \
+    XDG_CACHE_HOME="$LONELY_HOME/.cache" \
+    bash --noprofile --norc -c '
+      # Restrict PATH inside: a PATH= prefix would also hide `bash`
+      # itself from the outer lookup.
+      PATH="$LONELY_PATH"
+      cd "$HOME" || exit 1
+      # shellcheck disable=SC1091
+      . "$REAL_HOME/.config/shell/interactive.d/59-prompt.sh"
+      printf "%s\n" "${_DOT_GIT_PROMPT_BIN:-unset}" >"$LONELY_COMMAND_LOG"
+      __git_prompt
+    '
+)
+_assert_contains "lonely launcher prompt: still renders repository state" \
+  "main" "$lonely_prompt"
+_assert_file_content "lonely launcher prompt: keeps the git fallback" \
+  "git" "$LONELY_COMMAND_LOG"
+
+echo ""
+echo "=== prompt: empty status output fail-fast ==="
+
+# A status call that succeeds with no branch header proves there is no
+# repository to describe: the prompt gives up without paying for the
+# rev-parse discovery fallback.
+: >"$GIT_LOG"
+EMPTY_STATUS_ROOT="$TEST_TMPDIR/outside-home-empty"
+mkdir -p "$EMPTY_STATUS_ROOT"
+export MOCK_EMPTY_STATUS=1
+(
+  cd "$EMPTY_STATUS_ROOT" || exit 1
+  # shellcheck disable=SC1091 # source the installed prompt helper from real HOME.
+  . "$REAL_HOME/.config/shell/interactive.d/59-prompt.sh"
+  __git_prompt
+) >"$TEST_TMPDIR/prompt-empty-status.out"
+unset MOCK_EMPTY_STATUS
+
+_assert_file_content "empty status prompt: renders nothing" \
+  "" "$TEST_TMPDIR/prompt-empty-status.out"
+_assert_eq "empty status prompt: stops after the empty status" \
+  "1" "$(wc -l <"$GIT_LOG" | tr -d ' ')"
+
+echo ""
+echo "=== prompt: discovery fallback with branch headers ==="
+
+# A symlinked logical path defeats gitdir inference, so the rev-parse
+# fallback must still run when the status output carries branch headers.
+# The fail-fast above must never skip discovery that real output needs.
+SYMLINK_TARGET="$TEST_TMPDIR/symlink-target"
+SYMLINK_LINK="$TEST_TMPDIR/symlink-link"
+mkdir -p "$SYMLINK_TARGET"
+ln -sfn "$SYMLINK_TARGET" "$SYMLINK_LINK"
+: >"$GIT_LOG"
+(
+  cd "$SYMLINK_LINK" || exit 1
+  # shellcheck disable=SC1091 # source the installed prompt helper from real HOME.
+  . "$REAL_HOME/.config/shell/interactive.d/59-prompt.sh"
+  __git_prompt
+) >"$TEST_TMPDIR/prompt-symlink.out"
+_assert_contains "symlink prompt: renders repository state" \
+  "main" "$(cat "$TEST_TMPDIR/prompt-symlink.out")"
+_assert_eq "symlink prompt: still runs discovery for real output" \
+  "2" "$(wc -l <"$GIT_LOG" | tr -d ' ')"
+
+echo ""
+echo "=== prompt: cross-binary output equivalence ==="
+
+# Guards the read-only fast-path premise: distinct real git binaries render
+# byte-identical prompt output for the same repository state. This holds
+# before and after the system-git preference; it must never change.
+EQUIV_REPO="$TEST_TMPDIR/equiv-repo"
+EQUIV_HOME="$TEST_TMPDIR/equiv-home"
+rm -rf "$EQUIV_REPO"
+mkdir -p "$EQUIV_REPO" "$EQUIV_HOME/.cache"
+"$REAL_GIT" -C "$EQUIV_REPO" init -q
+"$REAL_GIT" -C "$EQUIV_REPO" symbolic-ref HEAD refs/heads/equiv-branch
+_git_set_test_identity "$REAL_GIT" -C "$EQUIV_REPO"
+printf 'tracked\n' >"$EQUIV_REPO/tracked.txt"
+"$REAL_GIT" -C "$EQUIV_REPO" add tracked.txt
+"$REAL_GIT" -C "$EQUIV_REPO" -c core.hooksPath=/dev/null commit -qm fixture
+printf 'dirty\n' >"$EQUIV_REPO/tracked.txt"
+printf 'untracked\n' >"$EQUIV_REPO/untracked.txt"
+EQUIV_GIT_A="$REAL_GIT"
+EQUIV_GIT_B=""
+while IFS= read -r equiv_candidate; do
+  [[ -x "$equiv_candidate" && ! -d "$equiv_candidate" ]] || continue
+  [[ "$equiv_candidate" == "$TEST_TMPDIR"* ]] && continue
+  [[ "$equiv_candidate" -ef "$EQUIV_GIT_A" ]] && continue
+  if [[ "$(sed -n '2p' "$equiv_candidate" 2>/dev/null)" == "# Dotfiles-aware launcher for Git." ]]; then
+    continue
+  fi
+  EQUIV_GIT_B="$equiv_candidate"
+  break
+done < <(type -P -a git 2>/dev/null)
+if [[ -z "$EQUIV_GIT_B" ]]; then
+  _pass "cross-binary prompt: only one real git backend available (skipped)"
+else
+  equiv_prompt_a=$(
+    HOME="$EQUIV_HOME" XDG_CACHE_HOME="$EQUIV_HOME/.cache" \
+      PATH="${EQUIV_GIT_A%/*}:/usr/bin:/bin" \
+      bash --noprofile --norc -c '
+        cd "$1" || exit 1
+        # shellcheck disable=SC1091
+        . "$2/.config/shell/interactive.d/59-prompt.sh"
+        __git_prompt
+      ' _ "$EQUIV_REPO" "$REAL_HOME"
+  )
+  equiv_prompt_b=$(
+    HOME="$EQUIV_HOME" XDG_CACHE_HOME="$EQUIV_HOME/.cache" \
+      PATH="${EQUIV_GIT_B%/*}:/usr/bin:/bin" \
+      bash --noprofile --norc -c '
+        cd "$1" || exit 1
+        # shellcheck disable=SC1091
+        . "$2/.config/shell/interactive.d/59-prompt.sh"
+        __git_prompt
+      ' _ "$EQUIV_REPO" "$REAL_HOME"
+  )
+  _assert_contains "cross-binary prompt: renders branch state" \
+    "equiv-branch" "$equiv_prompt_a"
+  _assert_eq "cross-binary prompt: binaries render identical output" \
+    "$equiv_prompt_a" "$equiv_prompt_b"
+fi
+
+echo ""
+echo "=== prompt: system fast path ==="
+
+SYS_HOME="$TEST_TMPDIR/sys-home"
+SYS_REAL_BIN="$TEST_TMPDIR/sys-real-bin"
+SYS_SYS_BIN="$TEST_TMPDIR/sys-sys-bin"
+SYS_WRAPPER_LOG="$TEST_TMPDIR/sys-wrapper.log"
+SYS_REAL_LOG="$TEST_TMPDIR/sys-real.log"
+SYS_SYS_LOG="$TEST_TMPDIR/sys-sys.log"
+SYS_COMMAND_LOG="$TEST_TMPDIR/sys-command.log"
+mkdir -p "$SYS_HOME/.dotfiles" "$SYS_HOME/.local/bin" "$SYS_HOME/.cache" \
+  "$SYS_REAL_BIN" "$SYS_SYS_BIN"
+: >"$SYS_WRAPPER_LOG"
+: >"$SYS_REAL_LOG"
+: >"$SYS_SYS_LOG"
+cat >"$SYS_HOME/.local/bin/git" <<'EOF'
+#!/usr/bin/env bash
+# Dotfiles-aware launcher for Git.
+printf 'wrapper:%s\n' "$*" >>"$SYS_WRAPPER_LOG"
+exec "$SYS_REAL_BIN/git" "$@"
+EOF
+cat >"$SYS_REAL_BIN/git" <<'EOF'
+#!/usr/bin/env bash
+printf 'real:%s\n' "$*" >>"$SYS_REAL_LOG"
+case " $* " in
+  *" --no-optional-locks status --porcelain=v2 --branch "*)
+    printf '%s\n' '# branch.head main' '# branch.ab +0 -0'
+    ;;
+  *) exit 1 ;;
+esac
+EOF
+cat >"$SYS_SYS_BIN/git" <<'EOF'
+#!/usr/bin/env bash
+printf 'system:%s\n' "$*" >>"$SYS_SYS_LOG"
+if [[ "${SYS_SYS_FAIL:-0}" == 1 ]]; then
+  exit 1
+fi
+case " $* " in
+  *" --no-optional-locks status --porcelain=v2 --branch "*)
+    printf '%s\n' '# branch.head main' '# branch.ab +0 -0'
+    ;;
+  *) exit 1 ;;
+esac
+EOF
+chmod +x "$SYS_HOME/.local/bin/git" "$SYS_REAL_BIN/git" "$SYS_SYS_BIN/git"
+SYS_PATH="$SYS_HOME/.local/bin:$SYS_REAL_BIN:$SYS_SYS_BIN:/usr/bin:/bin"
+
+sys_run_prompt() {
+  HOME="$SYS_HOME" \
+    BASH_ENV='' \
+    REAL_HOME="$REAL_HOME" \
+    SYS_CWD="${SYS_CWD:-$SYS_HOME}" \
+    SYS_WRAPPER_LOG="$SYS_WRAPPER_LOG" \
+    SYS_REAL_BIN="$SYS_REAL_BIN" \
+    SYS_REAL_LOG="$SYS_REAL_LOG" \
+    SYS_SYS_LOG="$SYS_SYS_LOG" \
+    SYS_SYS_FAIL="${SYS_SYS_FAIL:-0}" \
+    SYS_COMMAND_LOG="$SYS_COMMAND_LOG" \
+    DOT_GIT_PROMPT_SYSTEM_GITS="$SYS_CANDIDATES" \
+    HOMEBREW_PREFIX="${SYS_HOMEBREW:-}" \
+    XDG_CACHE_HOME="$SYS_HOME/.cache" \
+    PATH="$SYS_PATH" \
+    bash --noprofile --norc -c '
+      cd "${SYS_CWD:-$HOME}" || exit 1
+      # shellcheck disable=SC1091
+      . "$REAL_HOME/.config/shell/interactive.d/59-prompt.sh"
+      {
+        printf "%s\n" "${_DOT_GIT_PROMPT_BIN:-unset}"
+        printf "%s\n" "${_DOT_GIT_PROMPT_REAL_BIN:-unset}"
+      } >"$SYS_COMMAND_LOG"
+      __git_prompt
+    '
+}
+
+SYS_CANDIDATES="$SYS_SYS_BIN/git"
+SYS_CWD="$SYS_HOME"
+sys_prompt=$(sys_run_prompt)
+_assert_contains "system prompt: renders repository state" "main" "$sys_prompt"
+_assert_eq "system prompt: prefers the system binary" \
+  "$SYS_SYS_BIN/git" "$(sed -n '1p' "$SYS_COMMAND_LOG")"
+_assert_eq "system prompt: still resolves the real binary" \
+  "$SYS_REAL_BIN/git" "$(sed -n '2p' "$SYS_COMMAND_LOG")"
+_assert_contains "system prompt: routes status through the system binary" \
+  "system:" "$(cat "$SYS_SYS_LOG")"
+_assert_file_content "system prompt: bypasses the PATH launcher" \
+  "" "$SYS_WRAPPER_LOG"
+_assert_file_content "system prompt: real binary takes no calls" \
+  "" "$SYS_REAL_LOG"
+
+SYS_CANDIDATES="/nonexistent/git"
+: >"$SYS_WRAPPER_LOG"
+: >"$SYS_REAL_LOG"
+: >"$SYS_SYS_LOG"
+sys_fallback_prompt=$(sys_run_prompt)
+_assert_contains "system fallback prompt: renders repository state" \
+  "main" "$sys_fallback_prompt"
+_assert_eq "system fallback prompt: falls back to the real binary" \
+  "$SYS_REAL_BIN/git" "$(sed -n '1p' "$SYS_COMMAND_LOG")"
+_assert_file_content "system fallback prompt: bypasses the PATH launcher" \
+  "" "$SYS_WRAPPER_LOG"
+
+SYS_CANDIDATES="$SYS_SYS_BIN/git"
+SYS_SYS_FAIL=1
+: >"$SYS_WRAPPER_LOG"
+: >"$SYS_REAL_LOG"
+: >"$SYS_SYS_LOG"
+sys_retry_prompt=$(sys_run_prompt)
+unset SYS_SYS_FAIL
+_assert_contains "system retry prompt: renders repository state" \
+  "main" "$sys_retry_prompt"
+_assert_eq "system retry prompt: tries the system binary first" \
+  "1" "$(grep -c '^system:' "$SYS_SYS_LOG" | tr -d ' ')"
+_assert_eq "system retry prompt: retries once with the real binary" \
+  "1" "$(grep -c '^real:' "$SYS_REAL_LOG" | tr -d ' ')"
+_assert_file_content "system retry prompt: bypasses the PATH launcher" \
+  "" "$SYS_WRAPPER_LOG"
+
+SYS_NONREPO="$TEST_TMPDIR/sys-nonrepo"
+mkdir -p "$SYS_NONREPO"
+SYS_CANDIDATES="$SYS_SYS_BIN/git"
+SYS_SYS_FAIL=1
+SYS_CWD="$SYS_NONREPO"
+: >"$SYS_WRAPPER_LOG"
+: >"$SYS_REAL_LOG"
+: >"$SYS_SYS_LOG"
+sys_nonrepo_prompt=$(sys_run_prompt)
+unset SYS_SYS_FAIL
+unset SYS_CWD
+_assert_eq "system nonrepo prompt: renders nothing" "" "$sys_nonrepo_prompt"
+_assert_eq "system nonrepo prompt: fails fast on the system binary" \
+  "1" "$(grep -c '^system:' "$SYS_SYS_LOG" | tr -d ' ')"
+_assert_file_content "system nonrepo prompt: never retries outside repos" \
+  "" "$SYS_REAL_LOG"
+
+# Same-shell PATH change: the memoized git selection snapshots PATH, so a
+# mid-shell PATH mutation must re-resolve instead of reusing the stale
+# binary. Both renders happen in one shell (every other test respawns).
+SYS_REAL2_BIN="$TEST_TMPDIR/sys-real2-bin"
+SYS_REAL2_LOG="$TEST_TMPDIR/sys-real2.log"
+mkdir -p "$SYS_REAL2_BIN"
+: >"$SYS_REAL2_LOG"
+cat >"$SYS_REAL2_BIN/git" <<'EOF'
+#!/usr/bin/env bash
+printf 'real2:%s\n' "$*" >>"$SYS_REAL2_LOG"
+case " $* " in
+  *" --no-optional-locks status --porcelain=v2 --branch "*)
+    printf '%s\n' '# branch.head main' '# branch.ab +0 -0'
+    ;;
+  *) exit 1 ;;
+esac
+EOF
+chmod +x "$SYS_REAL2_BIN/git"
+SYS_CANDIDATES="$SYS_SYS_BIN/git"
+: >"$SYS_WRAPPER_LOG"
+: >"$SYS_REAL_LOG"
+: >"$SYS_SYS_LOG"
+sys_pathchange_out=$(
+  HOME="$SYS_HOME" \
+    BASH_ENV='' \
+    REAL_HOME="$REAL_HOME" \
+    SYS_CWD="$SYS_HOME" \
+    SYS_WRAPPER_LOG="$SYS_WRAPPER_LOG" \
+    SYS_REAL_BIN="$SYS_REAL_BIN" \
+    SYS_REAL_LOG="$SYS_REAL_LOG" \
+    SYS_REAL2_BIN="$SYS_REAL2_BIN" \
+    SYS_REAL2_LOG="$SYS_REAL2_LOG" \
+    SYS_SYS_LOG="$SYS_SYS_LOG" \
+    SYS_SYS_FAIL=0 \
+    DOT_GIT_PROMPT_SYSTEM_GITS="$SYS_CANDIDATES" \
+    XDG_CACHE_HOME="$SYS_HOME/.cache" \
+    PATH="$SYS_PATH" \
+    bash --noprofile --norc -c '
+      cd "${SYS_CWD:-$HOME}" || exit 1
+      # shellcheck disable=SC1091
+      . "$REAL_HOME/.config/shell/interactive.d/59-prompt.sh"
+      __git_prompt
+      printf "\n@@@1-REAL:%s\n@@@1-SNAPSHOT:%s\n" \
+        "${_DOT_GIT_PROMPT_REAL_BIN:-unset}" \
+        "${_DOT_GIT_PROMPT_PATH_SNAPSHOT:-unset}"
+      PATH="$SYS_REAL2_BIN:$PATH"
+      export PATH
+      __git_prompt
+      printf "\n@@@2-REAL:%s\n@@@2-SNAPSHOT:%s\n" \
+        "${_DOT_GIT_PROMPT_REAL_BIN:-unset}" \
+        "${_DOT_GIT_PROMPT_PATH_SNAPSHOT:-unset}"
+    '
+)
+# Markers carry PATH text, so strip them before matching render output.
+sys_pathchange_render=$(printf '%s\n' "$sys_pathchange_out" | grep -v '^@@@')
+_assert_contains "system pathchange prompt: renders show state" \
+  "main" "$sys_pathchange_render"
+_assert_eq "system pathchange prompt: first render resolves past the launcher" \
+  "$SYS_REAL_BIN/git" \
+  "$(printf '%s\n' "$sys_pathchange_out" | sed -n 's/^@@@1-REAL://p')"
+_assert_eq "system pathchange prompt: PATH change re-resolves the binary" \
+  "$SYS_REAL2_BIN/git" \
+  "$(printf '%s\n' "$sys_pathchange_out" | sed -n 's/^@@@2-REAL://p')"
+_assert_eq "system pathchange prompt: snapshot tracks the new PATH" \
+  "$SYS_REAL2_BIN:$SYS_PATH" \
+  "$(printf '%s\n' "$sys_pathchange_out" | sed -n 's/^@@@2-SNAPSHOT://p')"
+
+# Read-only cache dir: prompt cache write-back is best-effort, so a render
+# with no writable cache still succeeds (caches cleared first so the
+# render takes the write path instead of re-reading a warm entry).
+rm -rf "$SYS_HOME/.cache/dot" "$SYS_HOME/.cache/dotfiles"
+chmod 555 "$SYS_HOME/.cache"
+SYS_CANDIDATES="$SYS_SYS_BIN/git"
+: >"$SYS_WRAPPER_LOG"
+: >"$SYS_REAL_LOG"
+: >"$SYS_SYS_LOG"
+sys_ro_prompt=$(sys_run_prompt)
+sys_ro_rc=$?
+chmod 755 "$SYS_HOME/.cache"
+_assert_eq "system readonly prompt: render succeeds" "0" "$sys_ro_rc"
+_assert_contains "system readonly prompt: renders repository state" \
+  "main" "$sys_ro_prompt"
+_assert_eq "system readonly prompt: still selects the system binary" \
+  "$SYS_SYS_BIN/git" "$(sed -n '1p' "$SYS_COMMAND_LOG")"
+
+# zsh retry branch: the system fast path fails once, so `_dot_git_prompt_try`
+# re-dispatches to the real binary — exercising its array reassignment
+# under zsh rather than only under bash.
+SYS_CANDIDATES="$SYS_SYS_BIN/git"
+: >"$SYS_WRAPPER_LOG"
+: >"$SYS_REAL_LOG"
+: >"$SYS_SYS_LOG"
+sys_zsh_retry_prompt=$(
+  HOME="$SYS_HOME" \
+    REAL_HOME="$REAL_HOME" \
+    SYS_CWD="$SYS_HOME" \
+    SYS_WRAPPER_LOG="$SYS_WRAPPER_LOG" \
+    SYS_REAL_BIN="$SYS_REAL_BIN" \
+    SYS_REAL_LOG="$SYS_REAL_LOG" \
+    SYS_SYS_LOG="$SYS_SYS_LOG" \
+    SYS_SYS_FAIL=1 \
+    SYS_COMMAND_LOG="$SYS_COMMAND_LOG" \
+    DOT_GIT_PROMPT_SYSTEM_GITS="$SYS_CANDIDATES" \
+    HOMEBREW_PREFIX="${SYS_HOMEBREW:-}" \
+    XDG_CACHE_HOME="$SYS_HOME/.cache" \
+    PATH="$SYS_PATH" \
+    zsh -f -c '
+      cd "${SYS_CWD:-$HOME}" || exit 1
+      # shellcheck disable=SC1091
+      . "$REAL_HOME/.config/shell/interactive.d/59-prompt.sh"
+      __git_prompt
+    '
+)
+_assert_contains "system zsh retry prompt: renders repository state" \
+  "main" "$sys_zsh_retry_prompt"
+_assert_eq "system zsh retry prompt: tries the system binary first" \
+  "1" "$(grep -c '^system:' "$SYS_SYS_LOG" | tr -d ' ')"
+_assert_eq "system zsh retry prompt: retries once with the real binary" \
+  "1" "$(grep -c '^real:' "$SYS_REAL_LOG" | tr -d ' ')"
+
+SYS_BREW="$TEST_TMPDIR/sysbrew"
+SYS_BREW_BIN="$SYS_BREW/bin"
+mkdir -p "$SYS_BREW_BIN"
+cat >"$SYS_BREW_BIN/git" <<'EOF'
+#!/usr/bin/env bash
+printf 'real:%s\n' "$*" >>"$SYS_REAL_LOG"
+case " $* " in
+  *" --no-optional-locks status --porcelain=v2 --branch "*)
+    printf '%s\n' '# branch.head main' '# branch.ab +0 -0'
+    ;;
+  *) exit 1 ;;
+esac
+EOF
+chmod +x "$SYS_BREW_BIN/git"
+SYS_BREW_HOME="$TEST_TMPDIR/sys-brew-home"
+mkdir -p "$SYS_BREW_HOME/.dotfiles" "$SYS_BREW_HOME/.cache"
+SYS_BREW_PATH="$SYS_BREW_BIN:$SYS_SYS_BIN:/usr/bin:/bin"
+SYS_HOMEBREW="$SYS_BREW"
+sys_brew_prompt=$(
+  HOME="$SYS_BREW_HOME" \
+    BASH_ENV='' \
+    REAL_HOME="$REAL_HOME" \
+    SYS_REAL_LOG="$SYS_REAL_LOG" \
+    SYS_SYS_LOG="$SYS_SYS_LOG" \
+    SYS_COMMAND_LOG="$SYS_COMMAND_LOG" \
+    DOT_GIT_PROMPT_SYSTEM_GITS="$SYS_SYS_BIN/git" \
+    HOMEBREW_PREFIX="$SYS_HOMEBREW" \
+    XDG_CACHE_HOME="$SYS_BREW_HOME/.cache" \
+    PATH="$SYS_BREW_PATH" \
+    bash --noprofile --norc -c '
+      cd "$HOME" || exit 1
+      # shellcheck disable=SC1091
+      . "$REAL_HOME/.config/shell/interactive.d/59-prompt.sh"
+      printf "%s\n" "${_DOT_GIT_PROMPT_BIN:-unset}" >"$SYS_COMMAND_LOG"
+      __git_prompt
+    '
+)
+unset SYS_HOMEBREW
+_assert_contains "homebrew prompt: renders repository state" \
+  "main" "$sys_brew_prompt"
+_assert_file_content "homebrew prompt: keeps the newer toolchain" \
+  "$SYS_BREW_BIN/git" "$SYS_COMMAND_LOG"
+
+SYS_LAUNCHER_COPY="$TEST_TMPDIR/sys-launcher-copy"
+mkdir -p "$SYS_LAUNCHER_COPY"
+cat >"$SYS_LAUNCHER_COPY/git" <<'EOF'
+#!/usr/bin/env bash
+# Dotfiles-aware launcher for Git.
+exit 1
+EOF
+chmod +x "$SYS_LAUNCHER_COPY/git"
+SYS_CANDIDATES="$SYS_LAUNCHER_COPY/git $SYS_SYS_BIN/git"
+SYS_CWD="$SYS_HOME"
+: >"$SYS_WRAPPER_LOG"
+: >"$SYS_REAL_LOG"
+: >"$SYS_SYS_LOG"
+sys_marker_prompt=$(sys_run_prompt)
+unset SYS_CWD
+_assert_contains "system marker prompt: renders repository state" \
+  "main" "$sys_marker_prompt"
+_assert_eq "system marker prompt: skips launcher-copy candidates" \
+  "$SYS_SYS_BIN/git" "$(sed -n '1p' "$SYS_COMMAND_LOG")"
 
 _test_summary
