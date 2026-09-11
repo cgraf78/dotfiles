@@ -17,6 +17,7 @@
 .local/lib/dotfiles/tests/overlay-profile-stack-test
 .local/lib/dotfiles/tests/profile-policy-test
 .local/lib/dotfiles/tests/prompt-test
+.local/lib/dotfiles/tests/shdeps-assets-test
 .local/lib/dotfiles/tests/shdeps-hooks-test
 .local/lib/dotfiles/tests/tmux-continuum-test
 .local/lib/dotfiles/tests/tmux-compatibility-test

@@ -1,0 +1,348 @@
+#!/usr/bin/env bash
+# shdeps-assets-test — `shdeps dep-file` adapter behavior and cache.
+
+# shellcheck disable=SC1091 # dotfiles test helper lives beside this suite.
+. "${BASH_SOURCE[0]%/*}/helpers.sh"
+
+REAL_HOME="${DOT_TEST_SOURCE_HOME:-$HOME}"
+TEST_TMPDIR=$(_tmpdir)
+
+# shellcheck disable=SC1091 # source the adapter under test from real HOME.
+. "$REAL_HOME/.local/lib/dotfiles/shdeps-assets.sh"
+
+echo ""
+echo "=== shdeps-assets: PATH resolution passthrough ==="
+
+ASSETS_SHDEPS_BIN=$(_mock_bin)
+ASSETS_SHDEPS_LOG="$TEST_TMPDIR/shdeps.log"
+ASSETS_ASSET="$TEST_TMPDIR/termnav-shell.sh"
+: >"$ASSETS_SHDEPS_LOG"
+printf '# fixture asset\n' >"$ASSETS_ASSET"
+cat >"$ASSETS_SHDEPS_BIN/shdeps" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$ASSETS_SHDEPS_LOG"
+printf 'conf:%s\n' "${SHDEPS_CONF_DIR:-unset}" >>"$ASSETS_SHDEPS_LOG"
+if [[ "${ASSETS_SHDEPS_FAIL:-0}" != 0 ]]; then
+  echo "fixture shdeps failure" >&2
+  exit "$ASSETS_SHDEPS_FAIL"
+fi
+if [[ "${ASSETS_SHDEPS_EMPTY:-0}" == 1 ]]; then
+  exit 0
+fi
+printf '%s\n' "$ASSETS_ASSET"
+EOF
+chmod +x "$ASSETS_SHDEPS_BIN/shdeps"
+export ASSETS_SHDEPS_LOG ASSETS_ASSET
+ASSETS_SAVED_HOME="$HOME"
+ASSETS_SAVED_PATH="$PATH"
+HOME="$TEST_TMPDIR/mock-home"
+mkdir -p "$HOME"
+PATH="$ASSETS_SHDEPS_BIN:/usr/bin:/bin"
+export HOME PATH
+
+assets_out=$(dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh)
+assets_rc=$?
+_assert_exit "dep-file: resolves through PATH shdeps" 0 "$assets_rc"
+_assert_eq "dep-file: prints the resolved asset" "$ASSETS_ASSET" "$assets_out"
+_assert_contains "dep-file: forwards name and relative path" \
+  "dep-file cgraf78/termnav share/termnav/shell.sh" "$(cat "$ASSETS_SHDEPS_LOG")"
+_assert_contains "dep-file: pins the home conf dir" \
+  "conf:$HOME/.config/shdeps" "$(cat "$ASSETS_SHDEPS_LOG")"
+
+echo ""
+echo "=== shdeps-assets: resolver fallback chain ==="
+
+PATH="/usr/bin:/bin"
+export PATH
+assets_fallback_out=$(dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh)
+assets_fallback_rc=$?
+_assert_exit "dep-file: fails without any shdeps" 127 "$assets_fallback_rc"
+_assert_eq "dep-file: prints nothing without any shdeps" "" "$assets_fallback_out"
+
+SHDEPS_BIN="$ASSETS_SHDEPS_BIN/shdeps"
+export SHDEPS_BIN
+assets_env_out=$(dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh)
+_assert_eq "dep-file: honors explicit SHDEPS_BIN" "$ASSETS_ASSET" "$assets_env_out"
+unset SHDEPS_BIN
+
+SHDEPS_BIN_DIR="$ASSETS_SHDEPS_BIN"
+export SHDEPS_BIN_DIR
+assets_dir_out=$(dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh)
+_assert_eq "dep-file: honors SHDEPS_BIN_DIR" "$ASSETS_ASSET" "$assets_dir_out"
+unset SHDEPS_BIN_DIR
+
+mkdir -p "$HOME/.local/bin"
+cp "$ASSETS_SHDEPS_BIN/shdeps" "$HOME/.local/bin/shdeps"
+assets_home_out=$(dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh)
+_assert_eq "dep-file: falls back to the home install" "$ASSETS_ASSET" "$assets_home_out"
+rm -f "$HOME/.local/bin/shdeps"
+
+echo ""
+echo "=== shdeps-assets: failure passthrough ==="
+
+PATH="$ASSETS_SHDEPS_BIN:/usr/bin:/bin"
+export PATH
+ASSETS_SHDEPS_FAIL=3
+export ASSETS_SHDEPS_FAIL
+assets_fail_err="$TEST_TMPDIR/fail.err"
+assets_fail_out=$(dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh \
+  2>"$assets_fail_err")
+assets_fail_rc=$?
+unset ASSETS_SHDEPS_FAIL
+_assert_exit "dep-file: preserves the resolver exit code" 3 "$assets_fail_rc"
+_assert_eq "dep-file: prints nothing on resolver failure" "" "$assets_fail_out"
+_assert_contains "dep-file: preserves resolver diagnostics" \
+  "fixture shdeps failure" "$(cat "$assets_fail_err")"
+
+echo ""
+echo "=== shdeps-assets: dep-source behavior ==="
+
+ASSETS_SOURCE_MARKER="$TEST_TMPDIR/sourced.marker"
+printf 'printf "sourced\\n" >"%s"\n' "$ASSETS_SOURCE_MARKER" >"$ASSETS_ASSET"
+: >"$ASSETS_SHDEPS_LOG"
+dot_shdeps_dep_source cgraf78/termnav share/termnav/shell.sh
+_assert_exit "dep-source: succeeds for a resolved asset" 0 "$?"
+_assert_file_content "dep-source: sources the resolved asset" \
+  "sourced" "$ASSETS_SOURCE_MARKER"
+_assert_eq "dep-source: resolves exactly once" \
+  "2" "$(wc -l <"$ASSETS_SHDEPS_LOG" | tr -d ' ')"
+
+ASSETS_SHDEPS_EMPTY=1
+export ASSETS_SHDEPS_EMPTY
+rm -f "$ASSETS_SOURCE_MARKER"
+assets_empty_rc=0
+dot_shdeps_dep_source cgraf78/termnav share/termnav/shell.sh || assets_empty_rc=$?
+unset ASSETS_SHDEPS_EMPTY
+_assert_exit "dep-source: rejects empty resolution" 1 "$assets_empty_rc"
+_assert_file_missing "dep-source: sources nothing on empty resolution" \
+  "$ASSETS_SOURCE_MARKER"
+
+ASSETS_SHDEPS_FAIL=3
+export ASSETS_SHDEPS_FAIL
+assets_source_fail_rc=0
+dot_shdeps_dep_source cgraf78/termnav share/termnav/shell.sh \
+  >/dev/null 2>&1 || assets_source_fail_rc=$?
+unset ASSETS_SHDEPS_FAIL
+_assert_exit "dep-source: propagates resolver failure" 3 "$assets_source_fail_rc"
+
+echo ""
+echo "=== shdeps-assets: agentguard adapter ==="
+
+: >"$ASSETS_SHDEPS_LOG"
+assets_agentguard_out=$(
+  dot_agentguard_integration_file opencode plugin.js
+)
+_assert_eq "agentguard file: prints the resolved asset" \
+  "$ASSETS_ASSET" "$assets_agentguard_out"
+_assert_contains "agentguard file: maps agent and asset to dep coordinates" \
+  "dep-file cgraf78/agentguard share/agentguard/integrations/opencode/plugin.js" \
+  "$(cat "$ASSETS_SHDEPS_LOG")"
+_assert_eq "agentguard marker: prints the cross-repository identity" \
+  "// agentguard-managed:opencode-plugin" "$(dot_agentguard_opencode_marker)"
+
+echo ""
+echo "=== shdeps-assets: resolution cache ==="
+
+ASSETS_CACHE_HOME="$TEST_TMPDIR/cache-home"
+ASSETS_SAVED_XDG_CACHE_HOME="${XDG_CACHE_HOME:-}"
+mkdir -p "$ASSETS_CACHE_HOME/.config/shdeps"
+printf 'cgraf78/termnav  github:repo\n' \
+  >"$ASSETS_CACHE_HOME/.config/shdeps/10-deps.conf"
+HOME="$ASSETS_CACHE_HOME"
+export HOME
+PATH="$ASSETS_SHDEPS_BIN:/usr/bin:/bin"
+export PATH
+
+assets_fresh_cache() {
+  XDG_CACHE_HOME=$(_tmpdir)
+  export XDG_CACHE_HOME
+  : >"$ASSETS_SHDEPS_LOG"
+}
+
+assets_invocations() {
+  grep -c '^dep-file ' "$ASSETS_SHDEPS_LOG" | tr -d ' '
+}
+
+assets_fresh_cache
+assets_first=$(dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh)
+assets_second=$(dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh)
+_assert_eq "dep cache: hit serves the same asset" "$assets_first" "$assets_second"
+_assert_eq "dep cache: hit runs no subprocess" "1" "$(assets_invocations)"
+_assert_eq "dep cache: miss publishes one cache file" \
+  "1" "$(find "$XDG_CACHE_HOME/shdeps/dep-files" -type f | wc -l | tr -d ' ')"
+
+assets_fresh_cache
+dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
+touch "$ASSETS_CACHE_HOME/.config/shdeps/10-deps.conf"
+assets_after_edit=$(dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh)
+_assert_eq "dep cache: conf edit re-resolves" "$ASSETS_ASSET" "$assets_after_edit"
+_assert_eq "dep cache: conf edit invalidates" "2" "$(assets_invocations)"
+
+assets_fresh_cache
+dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
+printf 'extra/dep  pkg\n' >"$ASSETS_CACHE_HOME/.config/shdeps/20-extra.conf"
+dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
+_assert_eq "dep cache: conf addition invalidates" "2" "$(assets_invocations)"
+rm -f "$ASSETS_CACHE_HOME/.config/shdeps/20-extra.conf"
+
+assets_fresh_cache
+dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
+touch "$ASSETS_SHDEPS_BIN/shdeps"
+dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
+_assert_eq "dep cache: binary upgrade invalidates" "2" "$(assets_invocations)"
+
+ASSETS_STATE_DIR="$TEST_TMPDIR/shdeps-state"
+mkdir -p "$ASSETS_STATE_DIR"
+printf 'manifest\n' >"$ASSETS_STATE_DIR/manifest"
+SHDEPS_STATE_DIR="$ASSETS_STATE_DIR"
+export SHDEPS_STATE_DIR
+assets_fresh_cache
+dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
+dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
+_assert_eq "dep cache: manifest ledger hits when unchanged" \
+  "1" "$(assets_invocations)"
+touch "$ASSETS_STATE_DIR/manifest"
+dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
+_assert_eq "dep cache: manifest update invalidates" "2" "$(assets_invocations)"
+unset SHDEPS_STATE_DIR
+
+ASSETS_DEV_DIR="$TEST_TMPDIR/shdeps-git-dev"
+mkdir -p "$ASSETS_DEV_DIR"
+SHDEPS_GIT_DEV_DIR="$ASSETS_DEV_DIR"
+export SHDEPS_GIT_DEV_DIR
+assets_fresh_cache
+dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
+mkdir -p "$ASSETS_DEV_DIR/termnav"
+dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
+_assert_eq "dep cache: dev checkout appearance invalidates" \
+  "2" "$(assets_invocations)"
+unset SHDEPS_GIT_DEV_DIR
+
+ASSETS_INSTALL_DIR="$TEST_TMPDIR/shdeps-install"
+mkdir -p "$ASSETS_INSTALL_DIR/cgraf78"
+SHDEPS_INSTALL_DIR="$ASSETS_INSTALL_DIR"
+export SHDEPS_INSTALL_DIR
+assets_fresh_cache
+dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
+mkdir -p "$ASSETS_INSTALL_DIR/cgraf78/termnav"
+dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
+_assert_eq "dep cache: nested install change invalidates" \
+  "2" "$(assets_invocations)"
+unset SHDEPS_INSTALL_DIR
+
+assets_fresh_cache
+dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
+SHDEPS_TEST_PLATFORM="other-os" dot_shdeps_dep_file \
+  cgraf78/termnav share/termnav/shell.sh >/dev/null
+_assert_eq "dep cache: filter identity change invalidates" \
+  "2" "$(assets_invocations)"
+
+ASSETS_CACHE_ASSET2="$TEST_TMPDIR/asset2.sh"
+printf '# fixture asset 2\n' >"$ASSETS_CACHE_ASSET2"
+ASSETS_ASSET="$ASSETS_CACHE_ASSET2"
+export ASSETS_ASSET
+assets_fresh_cache
+dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
+rm -f "$ASSETS_CACHE_ASSET2"
+assets_after_rm=$(dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh)
+_assert_eq "dep cache: removed asset re-resolves" \
+  "$ASSETS_CACHE_ASSET2" "$assets_after_rm"
+_assert_eq "dep cache: removed asset invalidates" "2" "$(assets_invocations)"
+ASSETS_ASSET="$TEST_TMPDIR/termnav-shell.sh"
+export ASSETS_ASSET
+
+assets_fresh_cache
+dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
+dot_shdeps_dep_file cgraf78/termnav share/termnav/other.sh >/dev/null
+assets_revisit=$(dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh)
+_assert_eq "dep cache: coordinates resolve independently" \
+  "$ASSETS_ASSET" "$assets_revisit"
+_assert_eq "dep cache: each coordinate resolves once" "2" "$(assets_invocations)"
+
+assets_fresh_cache
+assets_tversal=$(dot_shdeps_dep_file cgraf78/termnav '../../evil file/x')
+_assert_eq "dep cache: traversal coordinates still resolve" \
+  "$ASSETS_ASSET" "$assets_tversal"
+_assert_contains "dep cache: resolver sees raw coordinates" \
+  "dep-file cgraf78/termnav ../../evil file/x" "$(cat "$ASSETS_SHDEPS_LOG")"
+_assert_eq "dep cache: traversal coordinates stay in the cache dir" \
+  "1" "$(find "$XDG_CACHE_HOME/shdeps/dep-files" -type f | wc -l | tr -d ' ')"
+dot_shdeps_dep_file cgraf78/termnav '../../evil file/x' >/dev/null
+_assert_eq "dep cache: sanitized key serves hits" "1" "$(assets_invocations)"
+
+assets_fresh_cache
+dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
+for assets_cache_file in "$XDG_CACHE_HOME"/shdeps/dep-files/*; do
+  printf 'garbage\nshort\n' >"$assets_cache_file"
+done
+assets_after_corrupt=$(dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh)
+_assert_eq "dep cache: corrupt entry re-resolves" \
+  "$ASSETS_ASSET" "$assets_after_corrupt"
+_assert_eq "dep cache: corrupt entry invalidates" "2" "$(assets_invocations)"
+
+assets_fresh_cache
+ASSETS_SHDEPS_FAIL=3
+export ASSETS_SHDEPS_FAIL
+dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh \
+  >/dev/null 2>&1 || true
+unset ASSETS_SHDEPS_FAIL
+if [[ -d "$XDG_CACHE_HOME/shdeps/dep-files" ]]; then
+  _assert_eq "dep cache: failure publishes nothing" \
+    "0" "$(find "$XDG_CACHE_HOME/shdeps/dep-files" -type f | wc -l | tr -d ' ')"
+else
+  _pass "dep cache: failure publishes nothing"
+fi
+dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
+dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
+_assert_eq "dep cache: success after failure caches" "2" "$(assets_invocations)"
+
+assets_fresh_cache
+ASSETS_SHDEPS_EMPTY=1
+export ASSETS_SHDEPS_EMPTY
+assets_empty_out=$(dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh)
+unset ASSETS_SHDEPS_EMPTY
+_assert_eq "dep cache: empty resolution prints nothing" "" "$assets_empty_out"
+if [[ -d "$XDG_CACHE_HOME/shdeps/dep-files" ]]; then
+  _assert_eq "dep cache: empty resolution publishes nothing" \
+    "0" "$(find "$XDG_CACHE_HOME/shdeps/dep-files" -type f | wc -l | tr -d ' ')"
+else
+  _pass "dep cache: empty resolution publishes nothing"
+fi
+
+ASSETS_NOCONF_HOME="$TEST_TMPDIR/noconf-home"
+mkdir -p "$ASSETS_NOCONF_HOME"
+HOME="$ASSETS_NOCONF_HOME"
+export HOME
+assets_fresh_cache
+dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
+dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
+_assert_eq "dep cache: missing conf tree never hits" "2" "$(assets_invocations)"
+HOME="$ASSETS_CACHE_HOME"
+export HOME
+
+assets_fresh_cache
+dot_shdeps_dep_source cgraf78/termnav share/termnav/shell.sh
+dot_shdeps_dep_source cgraf78/termnav share/termnav/shell.sh
+_assert_eq "dep cache: sourced assets resolve once" "1" "$(assets_invocations)"
+
+if command -v zsh >/dev/null 2>&1; then
+  assets_fresh_cache
+  HOME="$ASSETS_CACHE_HOME" XDG_CACHE_HOME="$XDG_CACHE_HOME" \
+    ASSETS_SHDEPS_LOG="$ASSETS_SHDEPS_LOG" ASSETS_ASSET="$ASSETS_ASSET" \
+    PATH="$ASSETS_SHDEPS_BIN:/usr/bin:/bin" REAL_HOME="$REAL_HOME" \
+    zsh -f -c '
+      # shellcheck disable=SC1091
+      . "$REAL_HOME/.local/lib/dotfiles/shdeps-assets.sh"
+      dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
+      dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
+    '
+  _assert_eq "dep cache: zsh hits without subprocess" "1" "$(assets_invocations)"
+fi
+
+HOME="$ASSETS_SAVED_HOME"
+PATH="$ASSETS_SAVED_PATH"
+export HOME PATH
+XDG_CACHE_HOME="$ASSETS_SAVED_XDG_CACHE_HOME"
+export XDG_CACHE_HOME
+
+_test_summary

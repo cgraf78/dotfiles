@@ -5,19 +5,41 @@
 # contract, including local dev-clone precedence, install roots, and dependency
 # filters. These helpers only make the `shdeps dep-*` API convenient from
 # shell startup files, hooks, and small launchers that need to source a file.
+#
+# Hot-path helpers return values via REPLY instead of stdout so callers avoid
+# command-substitution forks; only `dot_shdeps_dep_file` itself prints.
 
 # Directory holding shdeps configuration (dependency lists and install hooks).
 _dot_shdeps_conf_dir() {
-  printf '%s\n' "$HOME/.config/shdeps"
+  REPLY="$HOME/.config/shdeps"
 }
 
-dot_shdeps_dep_file() {
-  local conf_dir
-  conf_dir="$(_dot_shdeps_conf_dir)"
+# Cache directory for `dep-file` resolutions. One small file per dependency
+# asset, validated against every resolution input (conf tree, install ledger,
+# binary, roots, filter identity) with fork-free file tests, the same
+# refresh-on-change contract as `_tool_init`.
+_dot_shdeps_dep_cache_dir() {
+  case "${XDG_CACHE_HOME:-}" in
+    /*) REPLY="$XDG_CACHE_HOME/shdeps/dep-files" ;;
+    *)
+      if [ -n "${HOME:-}" ]; then
+        REPLY="$HOME/.cache/shdeps/dep-files"
+      else
+        REPLY=""
+        return 1
+      fi
+      ;;
+  esac
+}
 
+# Resolve the shdeps CLI without running it. Sets REPLY to the invocation to
+# use: the token `PATH` when the PATH lookup wins (executed via
+# `command shdeps` so shell-function shadowing behaves exactly as before),
+# otherwise an absolute binary path. Returns 127 when no shdeps is available.
+_dot_shdeps_bin() {
   if command -v shdeps >/dev/null 2>&1; then
-    SHDEPS_CONF_DIR="$conf_dir" command shdeps dep-file "$@"
-    return
+    REPLY=PATH
+    return 0
   fi
 
   # Fallback for minimal hook environments that have not loaded PATH yet. Treat
@@ -26,21 +48,205 @@ dot_shdeps_dep_file() {
   # CLI still lives at the normal dotfiles install path.
   local shdeps_bin="${SHDEPS_BIN:-}"
   if [ -n "$shdeps_bin" ] && [ -x "$shdeps_bin" ]; then
-    SHDEPS_CONF_DIR="$conf_dir" "$shdeps_bin" dep-file "$@"
-    return
+    REPLY="$shdeps_bin"
+    return 0
   fi
 
   if [ -n "${SHDEPS_BIN_DIR:-}" ] && [ -x "$SHDEPS_BIN_DIR/shdeps" ]; then
-    SHDEPS_CONF_DIR="$conf_dir" "$SHDEPS_BIN_DIR/shdeps" dep-file "$@"
-    return
+    REPLY="$SHDEPS_BIN_DIR/shdeps"
+    return 0
   fi
 
   if [ -x "$HOME/.local/bin/shdeps" ]; then
-    SHDEPS_CONF_DIR="$conf_dir" "$HOME/.local/bin/shdeps" dep-file "$@"
-    return
+    REPLY="$HOME/.local/bin/shdeps"
+    return 0
   fi
 
   return 127
+}
+
+# First PATH hit for the shdeps binary, for cache fingerprinting only.
+# Execution keeps using `command shdeps`; this only tracks which external
+# binary a PATH resolution would reach so reorders and upgrades invalidate.
+_dot_shdeps_path_scan() {
+  # Manual PATH split: unquoted expansion does not word-split under zsh, and
+  # zsh-only split flags would break bash parsing, so strip segments lexically.
+  local dir rest
+  rest="${PATH:-/usr/local/bin:/usr/bin:/bin}:"
+  while [ -n "$rest" ]; do
+    dir="${rest%%:*}"
+    rest="${rest#*:}"
+    [ -n "$dir" ] || dir="."
+    if [ -x "$dir/shdeps" ] && [ ! -d "$dir/shdeps" ]; then
+      REPLY="$dir/shdeps"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Rewrite dep coordinates to a safe cache filename. Any two coordinates that
+# sanitize identically share a file but never a hit: the stored coordinates
+# are compared on read, so collisions only cost a re-resolution.
+_dot_shdeps_cache_key() {
+  local text="${1:-}@${2:-}"
+  REPLY="${text//[^A-Za-z0-9_.@-]/_}"
+}
+
+# Resolution roots shdeps derives from the environment (state ledger,
+# development checkouts, installs). Sets REPLY_state/REPLY_dev/REPLY_install
+# without forking so the cache hot path stays in-process.
+_dot_shdeps_dep_roots() {
+  if [ -n "${SHDEPS_STATE_DIR:-}" ]; then
+    REPLY_state="$SHDEPS_STATE_DIR"
+  elif [ -n "${XDG_STATE_HOME:-}" ]; then
+    REPLY_state="$XDG_STATE_HOME/shdeps"
+  else
+    REPLY_state="${HOME:-}/.local/state/shdeps"
+  fi
+  REPLY_dev="${SHDEPS_GIT_DEV_DIR:-${HOME:-}/git}"
+  REPLY_install="${SHDEPS_INSTALL_DIR:-${HOME:-}/.local/share}"
+}
+
+# Validate a cache entry against the live resolution inputs. Sets REPLY to
+# the cached asset on a hit; returns 1 on any mismatch, staleness, or
+# unreadable input so the caller re-resolves.
+_dot_shdeps_dep_cache_read() {
+  local cache="$1" name="$2" rel="$3" conf_dir="$4" bin="$5"
+  local cached_name="" cached_rel="" cached_asset=""
+  local fp_conf="" fp_bin="" fp_state="" fp_dev="" fp_install=""
+  local fp_testplat="" fp_testhost="" fp_host="" fp_ostype="" fp_home=""
+  local path_scan="" conf_file conf_fresh=0 first=""
+  [ -r "$cache" ] || return 1
+  {
+    IFS= read -r cached_name || return 1
+    IFS= read -r cached_rel || return 1
+    IFS= read -r cached_asset || return 1
+    IFS= read -r fp_conf || return 1
+    IFS= read -r fp_bin || return 1
+    IFS= read -r fp_state || return 1
+    IFS= read -r fp_dev || return 1
+    IFS= read -r fp_install || return 1
+    IFS= read -r fp_testplat || return 1
+    IFS= read -r fp_testhost || return 1
+    IFS= read -r fp_host || return 1
+    IFS= read -r fp_ostype || return 1
+    IFS= read -r fp_home || return 1
+  } <"$cache"
+  [ "$cached_name" = "$name" ] || return 1
+  [ "$cached_rel" = "$rel" ] || return 1
+  [ -n "$cached_asset" ] || return 1
+  _dot_shdeps_dep_roots
+  [ "$fp_conf" = "$conf_dir" ] || return 1
+  [ "$fp_bin" = "$bin" ] || return 1
+  [ "$fp_state" = "$REPLY_state" ] || return 1
+  [ "$fp_dev" = "$REPLY_dev" ] || return 1
+  [ "$fp_install" = "$REPLY_install" ] || return 1
+  [ "$fp_testplat" = "${SHDEPS_TEST_PLATFORM:-}" ] || return 1
+  [ "$fp_testhost" = "${SHDEPS_TEST_HOST:-}" ] || return 1
+  [ "$fp_host" = "${HOSTNAME:-}" ] || return 1
+  [ "$fp_ostype" = "${OSTYPE:-}" ] || return 1
+  [ "$fp_home" = "${HOME:-}" ] || return 1
+
+  # A missing conf tree cannot validate anything; re-resolve instead of
+  # trusting a cache whose inputs are unreadable.
+  [ -d "$conf_dir" ] || return 1
+  # Any input newer than the cache invalidates it. The conf glob covers file
+  # edits; the directory tests cover entries appearing or disappearing (new
+  # conf files, dev checkouts, installs, manifest ledger updates).
+  local _ng_prev=0
+  if [ -n "${ZSH_VERSION:-}" ]; then
+    [[ -o nullglob ]] && _ng_prev=1
+    setopt nullglob
+  fi
+  for conf_file in "$conf_dir"/*.conf; do
+    if [ "$conf_file" -nt "$cache" ]; then
+      conf_fresh=1
+      break
+    fi
+  done
+  if [ -n "${ZSH_VERSION:-}" ] && [ "$_ng_prev" -eq 0 ]; then
+    unsetopt nullglob
+  fi
+  [ "$conf_fresh" -eq 0 ] || return 1
+  [ ! "$conf_dir" -nt "$cache" ] || return 1
+
+  if [ "$bin" = PATH ]; then
+    _dot_shdeps_path_scan || return 1
+    path_scan="$REPLY"
+    [ ! "$path_scan" -nt "$cache" ] || return 1
+  else
+    [ -x "$bin" ] || return 1
+    [ ! "$bin" -nt "$cache" ] || return 1
+  fi
+
+  [ ! "$REPLY_state" -nt "$cache" ] || return 1
+  [ ! "$REPLY_state/manifest" -nt "$cache" ] || return 1
+  [ ! "$REPLY_dev" -nt "$cache" ] || return 1
+  [ ! "$REPLY_install" -nt "$cache" ] || return 1
+  first="${name%%/*}"
+  if [ "$first" != "$name" ] && [ -e "$REPLY_install/$first" ]; then
+    [ ! "$REPLY_install/$first" -nt "$cache" ] || return 1
+  fi
+
+  [ -f "$cached_asset" ] && [ -r "$cached_asset" ] || return 1
+  REPLY="$cached_asset"
+}
+
+_dot_shdeps_dep_cache_write() {
+  local cache="$1" name="$2" rel="$3" asset="$4" conf_dir="$5" bin="$6"
+  local dir tmp
+  [ -n "$asset" ] || return 0
+  dir="${cache%/*}"
+  mkdir -p -- "$dir" 2>/dev/null || return 0
+  tmp=$(mktemp "${cache}.XXXXXX" 2>/dev/null) || return 0
+  _dot_shdeps_dep_roots
+  {
+    printf '%s\n' "$name" "$rel" "$asset"
+    printf '%s\n' "$conf_dir" "$bin" "$REPLY_state" "$REPLY_dev" \
+      "$REPLY_install" "${SHDEPS_TEST_PLATFORM:-}" "${SHDEPS_TEST_HOST:-}" \
+      "${HOSTNAME:-}" "${OSTYPE:-}" "${HOME:-}"
+  } >"$tmp" 2>/dev/null || {
+    rm -f -- "$tmp"
+    return 0
+  }
+  mv -f -- "$tmp" "$cache" 2>/dev/null || rm -f -- "$tmp"
+}
+
+dot_shdeps_dep_file() {
+  local conf_dir bin cache_dir cache key out rc=0
+  _dot_shdeps_conf_dir
+  conf_dir="$REPLY"
+  _dot_shdeps_bin || return 127
+  bin="$REPLY"
+
+  if _dot_shdeps_dep_cache_dir; then
+    cache_dir="$REPLY"
+    _dot_shdeps_cache_key "${1:-}" "${2:-}"
+    key="$REPLY"
+    cache="$cache_dir/$key"
+    if _dot_shdeps_dep_cache_read \
+      "$cache" "${1:-}" "${2:-}" "$conf_dir" "$bin"; then
+      printf '%s\n' "$REPLY"
+      return 0
+    fi
+  else
+    cache=""
+  fi
+
+  if [ "$bin" = PATH ]; then
+    out=$(SHDEPS_CONF_DIR="$conf_dir" command shdeps dep-file "$@") || rc=$?
+  else
+    out=$(SHDEPS_CONF_DIR="$conf_dir" "$bin" dep-file "$@") || rc=$?
+  fi
+  [ -n "$out" ] && printf '%s\n' "$out"
+  [ "$rc" -eq 0 ] || return "$rc"
+  [ -n "$out" ] || return 0
+  if [ -n "$cache" ]; then
+    _dot_shdeps_dep_cache_write "$cache" "${1:-}" "${2:-}" "$out" \
+      "$conf_dir" "$bin"
+  fi
+  return 0
 }
 
 dot_shdeps_dep_source() {

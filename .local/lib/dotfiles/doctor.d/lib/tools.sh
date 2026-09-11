@@ -14,8 +14,10 @@ _dr_shdeps_link_issue() {
 _dr_check_shdeps_bin_group() {
   local level="$1" dependency="$2"
 
-  local rows
-  if ! rows=$(SHDEPS_CONF_DIR="$(_dot_shdeps_conf_dir)" \
+  local rows shdeps_conf_dir
+  _dot_shdeps_conf_dir
+  shdeps_conf_dir="$REPLY"
+  if ! rows=$(SHDEPS_CONF_DIR="$shdeps_conf_dir" \
     command shdeps dep-links "cgraf78/$dependency" 2>/dev/null); then
     _dr_shdeps_link_issue "$level" "$dependency bin links unchecked" \
       "shdeps cannot resolve command links for cgraf78/$dependency"
@@ -80,9 +82,11 @@ _dr_check_shdeps_bin_group() {
 _dr_check_shdeps_shell_asset() {
   local dependency="$1"
   local asset="share/$dependency/shell.sh"
-  local path
+  local path shdeps_conf_dir
+  _dot_shdeps_conf_dir
+  shdeps_conf_dir="$REPLY"
 
-  if ! path=$(SHDEPS_CONF_DIR="$(_dot_shdeps_conf_dir)" \
+  if ! path=$(SHDEPS_CONF_DIR="$shdeps_conf_dir" \
     command shdeps dep-file "cgraf78/$dependency" "$asset" 2>/dev/null); then
     _dr_warn "$dependency shell asset unresolved" \
       "expected shdeps asset cgraf78/$dependency:$asset"
@@ -124,7 +128,8 @@ _dr_check_tools() {
 
   # shdeps config
   local shdeps_conf_dir
-  shdeps_conf_dir="$(_dot_shdeps_conf_dir)"
+  _dot_shdeps_conf_dir
+  shdeps_conf_dir="$REPLY"
   if [[ -d "$shdeps_conf_dir" ]]; then
     local conf_count
     conf_count=$(find "$shdeps_conf_dir" -maxdepth 1 -name '*.conf' -type f 2>/dev/null | wc -l | tr -d ' ')
