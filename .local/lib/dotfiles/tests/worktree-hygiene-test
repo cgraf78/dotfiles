@@ -467,6 +467,56 @@ _assert_eq "cache: corrupt cache recomputes the same total" "$cache_run1" "$cach
 cache_du_calls=$(grep -c . "$cache_du_log")
 _assert_eq "cache: du runs on miss, touch, and corruption only" 3 "$cache_du_calls"
 
+# The six-hour max age bounds root-set staleness: an ancient stamp
+# recomputes even when the key matches. And a failing stat degrades to
+# the keyed lookup instead of failing the check.
+cache_du_before_age=$(grep -c . "$cache_du_log")
+HOME=$cache_home
+DOTFILES=$cache_home/.dotfiles
+XDG_CACHE_HOME=$cache_home/cache
+PATH=$cache_shim_bin:$cache_saved_path
+export HOME DOTFILES XDG_CACHE_HOME PATH
+touch -t 202001010000 "$cache_home/cache/dot/doctor-worktrees-du.tsv"
+_run_cached_check "$cache_home/run5.txt"
+cache_du_after_age=$(grep -c . "$cache_du_log")
+cache_statfail_bin=$(_tmpdir)
+cache_real_stat=$(command -v stat)
+cat >"$cache_statfail_bin/stat" <<SH
+#!/usr/bin/env bash
+# Fail only the cache-file mtime lookup; key-line stats still succeed so
+# this isolates the max-age fallback (unknown age serves the keyed total).
+case "\$*" in
+  *doctor-worktrees-du.tsv*) exit 1 ;;
+esac
+exec "$cache_real_stat" "\$@"
+SH
+chmod +x "$cache_statfail_bin/stat"
+PATH=$cache_statfail_bin:$cache_shim_bin:$cache_saved_path
+export PATH
+_run_cached_check "$cache_home/run6.txt"
+cache_du_after_statfail=$(grep -c . "$cache_du_log")
+HOME=$cache_saved_home
+PATH=$cache_saved_path
+if ((cache_dotfiles_unset == 1)); then
+  unset DOTFILES
+else
+  DOTFILES=$cache_saved_dotfiles
+fi
+if ((cache_xdg_unset == 1)); then
+  unset XDG_CACHE_HOME
+else
+  XDG_CACHE_HOME=$cache_saved_xdg
+fi
+export HOME DOTFILES PATH XDG_CACHE_HOME
+_assert_eq "cache: ancient stamp recomputes the same total" "$cache_run1" \
+  "$(cat "$cache_home/run5.txt")"
+_assert_eq "cache: ancient stamp costs one du pass" \
+  $((cache_du_before_age + 1)) "$cache_du_after_age"
+_assert_eq "cache: failing stat serves the same total" "$cache_run1" \
+  "$(cat "$cache_home/run6.txt")"
+_assert_eq "cache: failing stat costs no du pass" \
+  "$cache_du_after_age" "$cache_du_after_statfail"
+
 echo ""
 echo "=== Stale base-ref sharing ==="
 

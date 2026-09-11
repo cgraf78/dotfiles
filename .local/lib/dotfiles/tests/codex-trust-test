@@ -365,6 +365,10 @@ dot_hook_log() { printf "%s\n" "$*"; }
 _dot_tool_present() { return 0; }
 . "$1"
 merge' _ "$hook" >"$skip_home/out1.txt" 2>&1
+# Backdate explicitly (portable `-t`, not clock progression) so the
+# converged skip is deterministic even on 1s-mtime filesystems. The
+# fingerprint is content-based, so the backdate cannot fake a match.
+touch -t 202001010000 "$skip_home/.codex/config.toml"
 # shellcheck disable=SC2016 # The fixture shell expands its own hook API.
 bash -c '
 dot_hook_source() { return 0; }
@@ -581,5 +585,189 @@ bail_kept=$(python3 -c \
   "$bail_home/.codex/config.toml")
 _assert_eq 'hook: escaped entry survives both runs' "$bail_home/ke\\pt" \
   "$bail_kept"
+
+echo "=== Codex trust corrupt stamp ==="
+
+# A corrupt stamp fails closed into a prune and then heals: the rerun
+# rewrites a valid stamp, so the next run skips again. Mirrors the tmux
+# corrupt-stamp coverage.
+corrupt_saved_home=$HOME
+corrupt_saved_path=$PATH
+if [[ -z ${USER+x} ]]; then
+  corrupt_user_unset=1
+else
+  corrupt_user_unset=0
+  corrupt_saved_user=$USER
+fi
+if [[ -z ${XDG_CACHE_HOME+x} ]]; then
+  corrupt_xdg_unset=1
+else
+  corrupt_xdg_unset=0
+  corrupt_saved_xdg=$XDG_CACHE_HOME
+fi
+HOME=$skip_home
+USER=fixtureuser
+PATH=$skip_bin:$PATH
+XDG_CACHE_HOME=$skip_cache
+export HOME USER PATH XDG_CACHE_HOME
+: >"$skip_py_log"
+printf '%s\n' 'garbage-not-a-stamp' \
+  >"$skip_cache/dot/merge-codex-trust.stamp"
+# shellcheck disable=SC2016 # The fixture shell expands its own hook API.
+bash -c '
+dot_hook_source() { return 0; }
+dot_hook_warn() { printf "%s\n" "$*"; }
+dot_hook_log() { printf "%s\n" "$*"; }
+_dot_tool_present() { return 0; }
+. "$1"
+merge' _ "$hook" >"$skip_home/out4.txt" 2>&1
+corrupt_py_after_rerun=$(grep -c . "$skip_py_log")
+touch -t 202001010000 "$skip_home/.codex/config.toml"
+# shellcheck disable=SC2016 # The fixture shell expands its own hook API.
+bash -c '
+dot_hook_source() { return 0; }
+dot_hook_warn() { printf "%s\n" "$*"; }
+dot_hook_log() { printf "%s\n" "$*"; }
+_dot_tool_present() { return 0; }
+. "$1"
+merge' _ "$hook" >"$skip_home/out5.txt" 2>&1
+corrupt_py_after_heal=$(grep -c . "$skip_py_log")
+HOME=$corrupt_saved_home
+PATH=$corrupt_saved_path
+if ((corrupt_user_unset == 1)); then
+  unset USER
+else
+  USER=$corrupt_saved_user
+fi
+if ((corrupt_xdg_unset == 1)); then
+  unset XDG_CACHE_HOME
+else
+  XDG_CACHE_HOME=$corrupt_saved_xdg
+fi
+export HOME USER PATH XDG_CACHE_HOME
+_assert_eq 'hook: corrupt stamp stays silent' '' \
+  "$(cat "$skip_home/out4.txt")"
+_assert_eq 'hook: corrupt stamp reruns the prune' 1 \
+  "$corrupt_py_after_rerun"
+_assert_eq 'hook: healed stamp skips again' 1 \
+  "$corrupt_py_after_heal"
+
+echo "=== Codex trust missing cksum ==="
+
+# Without cksum the fingerprint fails closed: the prune still runs and
+# succeeds, but no stamp is written. The restricted PATH hides cksum
+# while keeping every other command the hook needs.
+nock_home=$work/nock-home
+nock_cache=$work/nock-cache
+nock_stale=/tmp/codex-trust-nock-$$
+rm -rf "$nock_stale"
+mkdir -p "$nock_home/.codex" "$nock_cache" "$nock_home/keep"
+printf '[projects."%s"]\ntrust_level = "trusted"\n\n[projects."%s/keep"]\ntrust_level = "trusted"\n' \
+  "$nock_stale" "$nock_home" >"$nock_home/.codex/config.toml"
+nock_bin=$work/nock-bin
+mkdir -p "$nock_bin"
+for nock_tool in bash cat dirname mkdir mktemp mv rm; do
+  ln -s "$(command -v "$nock_tool")" "$nock_bin/$nock_tool"
+done
+command -v cksum >/dev/null 2>&1 ||
+  _test_skip_suite 'codex missing-cksum fixture requires cksum to hide'
+nock_saved_home=$HOME
+nock_saved_path=$PATH
+if [[ -z ${USER+x} ]]; then
+  nock_user_unset=1
+else
+  nock_user_unset=0
+  nock_saved_user=$USER
+fi
+if [[ -z ${XDG_CACHE_HOME+x} ]]; then
+  nock_xdg_unset=1
+else
+  nock_xdg_unset=0
+  nock_saved_xdg=$XDG_CACHE_HOME
+fi
+HOME=$nock_home
+USER=fixtureuser
+PATH=$skip_bin:$nock_bin
+XDG_CACHE_HOME=$nock_cache
+export HOME USER PATH XDG_CACHE_HOME
+: >"$skip_py_log"
+# shellcheck disable=SC2016 # The fixture shell expands its own hook API.
+bash -c '
+dot_hook_source() { return 0; }
+dot_hook_warn() { printf "%s\n" "$*"; }
+dot_hook_log() { printf "%s\n" "$*"; }
+_dot_tool_present() { return 0; }
+. "$1"
+merge' _ "$hook" >"$nock_home/out.txt" 2>&1
+nock_status=$?
+HOME=$nock_saved_home
+PATH=$nock_saved_path
+if ((nock_user_unset == 1)); then
+  unset USER
+else
+  USER=$nock_saved_user
+fi
+if ((nock_xdg_unset == 1)); then
+  unset XDG_CACHE_HOME
+else
+  XDG_CACHE_HOME=$nock_saved_xdg
+fi
+export HOME USER PATH XDG_CACHE_HOME
+nock_py_runs=$(grep -c . "$skip_py_log")
+_assert_exit 'hook: missing cksum still succeeds' 0 "$nock_status"
+_assert_eq 'hook: missing cksum runs the prune' 1 "$nock_py_runs"
+_assert_contains 'hook: missing cksum prunes the stale entry' \
+  "pruned $nock_stale" "$(cat "$nock_home/out.txt")"
+if [[ -e $nock_cache/dot/merge-codex-trust.stamp ]]; then
+  _fail 'hook: missing cksum writes no stamp'
+else
+  _pass 'hook: missing cksum writes no stamp'
+fi
+
+echo "=== Codex trust fingerprint scan ==="
+
+# Table-driven pins for the conservative header scan: provable headers
+# fingerprint (rc 0), anything else fails closed into a prune (rc 1).
+# Sourced in-process with stubbed hook APIs; the scan is pure.
+dot_hook_source() { return 0; }
+. "$hook"
+_fingerprint_rc() {
+  local content=$1 file rc
+  file=$(mktemp)
+  printf '%b' "$content" >"$file"
+  _codex_trust_fingerprint "$file" >/dev/null 2>&1
+  rc=$?
+  rm -f "$file"
+  printf '%s' "$rc"
+}
+_fingerprint_case() {
+  local name=$1 content=$2 expect=$3 got
+  got=$(_fingerprint_rc "$content")
+  _assert_eq "scan: $name" "$expect" "$got"
+}
+_fingerprint_case 'quoted header fingerprints' \
+  '[projects."/a"]\ntrust_level = "trusted"\n' 0
+_fingerprint_case 'single-quoted path fingerprints' \
+  "[projects.'/a']\ntrust_level = \"trusted\"\n" 0
+_fingerprint_case 'trailing slash normalizes' \
+  '[projects."/a/"]\ntrust_level = "trusted"\n' 0
+_fingerprint_case 'bare table with blanks only fingerprints' \
+  '[projects]\n\n[projects."/a"]\ntrust_level = "trusted"\n' 0
+_fingerprint_case 'array table bails' \
+  '[[projects."/a"]]\ntrust_level = "trusted"\n' 1
+_fingerprint_case 'comment mentioning projects bails' \
+  '[projects."/a"]\n# projects note\ntrust_level = "trusted"\n' 1
+_fingerprint_case 'bare dotted entry bails' \
+  '[projects]\n"/a".trust_level = "trusted"\n' 1
+_fingerprint_case 'bare table with content bails' \
+  '[projects]\nfoo = 1\n' 1
+_fingerprint_case 'trailing comment on header bails' \
+  '[projects."/a"] # comment\ntrust_level = "trusted"\n' 1
+_fingerprint_case 'indented header bails' \
+  '  [projects."/a"]\ntrust_level = "trusted"\n' 1
+_fingerprint_case 'CRLF endings bail' \
+  '[projects."/a"]\r\ntrust_level = "trusted"\r\n' 1
+_fingerprint_case 'unquoted path bails' \
+  '[projects./a]\ntrust_level = "trusted"\n' 1
 
 _test_summary

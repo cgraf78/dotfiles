@@ -610,6 +610,11 @@ TMUX
   : >"$tmux_skip_log"
   _run_tmux_merge_for_test >"$tmux_skip_home/out1.txt" 2>&1
   cp "$tmux_skip_log" "$tmux_skip_home/log1.txt"
+  # Backdate explicitly (portable `-t`, not clock progression) so the
+  # converged skip is deterministic even on 1s-mtime filesystems. The
+  # fingerprint is content-based, so the backdate cannot fake a match.
+  touch -t 202001010000 "$tmux_skip_conf" \
+    "$tmux_skip_home/.config/tmux/conf.d/10-base.conf"
   tmux_skip_status=$?
   : >"$tmux_skip_log"
   _run_tmux_merge_for_test >"$tmux_skip_home/out2.txt" 2>&1
@@ -633,6 +638,24 @@ TMUX
   : >"$tmux_skip_log"
   _run_tmux_merge_for_test >"$tmux_skip_home/out6.txt" 2>&1
   cp "$tmux_skip_log" "$tmux_skip_home/log6.txt"
+  # Without cksum the fingerprint fails closed: the reload still runs
+  # and succeeds, but no stamp is written. The restricted PATH hides
+  # cksum while keeping the double plus every command the hook needs.
+  tmux_nock_bin="$tmux_skip_home/nock-bin"
+  mkdir -p "$tmux_nock_bin"
+  # `stat` stays: the hook-source trust chain stats extension files, so
+  # hiding it would break sourcing instead of the fingerprint.
+  for tmux_tool in bash cat dirname mkdir mktemp mv rm stat; do
+    ln -s "$(command -v "$tmux_tool")" "$tmux_nock_bin/$tmux_tool"
+  done
+  tmux_stamp_before=$(cat "$tmux_skip_cache/dot/merge-tmux.stamp")
+  tmux_full_path=$PATH
+  PATH="$tmux_skip_bin:$tmux_nock_bin"
+  : >"$tmux_skip_log"
+  _run_tmux_merge_for_test >"$tmux_skip_home/out7.txt" 2>&1
+  tmux_nock_status=$?
+  PATH=$tmux_full_path
+  cp "$tmux_skip_log" "$tmux_skip_home/log7.txt"
   HOME=$tmux_saved_home
   PATH=$tmux_saved_path
   unset DOT_TEST_TMUX DOT_TEST_TMUX_LOG DOT_TEST_TMUX_SERVER
@@ -660,6 +683,12 @@ TMUX
     "$tmux_skip_expected" "$(cat "$tmux_skip_home/log5.txt")"
   _assert_eq "tmux merge: corrupt stamp reloads again" \
     "$tmux_skip_expected" "$(cat "$tmux_skip_home/log6.txt")"
+  _assert_exit "tmux merge: missing cksum still succeeds" 0 \
+    "$tmux_nock_status"
+  _assert_eq "tmux merge: missing cksum reloads again" \
+    "$tmux_skip_expected" "$(cat "$tmux_skip_home/log7.txt")"
+  _assert_eq "tmux merge: missing cksum writes no stamp" \
+    "$tmux_stamp_before" "$(cat "$tmux_skip_cache/dot/merge-tmux.stamp")"
   unset -f _run_tmux_merge_for_test merge 2>/dev/null
 
   echo "=== Karabiner source config ==="
