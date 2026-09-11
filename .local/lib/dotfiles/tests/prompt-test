@@ -605,11 +605,11 @@ _assert_file_content "lonely launcher prompt: keeps the git fallback" \
   "git" "$LONELY_COMMAND_LOG"
 
 echo ""
-echo "=== prompt: empty status output characterization ==="
+echo "=== prompt: empty status output fail-fast ==="
 
-# Characterization of the current contract: a status call that succeeds with
-# no branch header still pays for the rev-parse discovery fallback before the
-# prompt gives up. The rev-parse skip removes that second call.
+# A status call that succeeds with no branch header proves there is no
+# repository to describe: the prompt gives up without paying for the
+# rev-parse discovery fallback.
 : >"$GIT_LOG"
 EMPTY_STATUS_ROOT="$TEST_TMPDIR/outside-home-empty"
 mkdir -p "$EMPTY_STATUS_ROOT"
@@ -624,7 +624,29 @@ unset MOCK_EMPTY_STATUS
 
 _assert_file_content "empty status prompt: renders nothing" \
   "" "$TEST_TMPDIR/prompt-empty-status.out"
-_assert_eq "empty status prompt: pays for discovery before giving up" \
+_assert_eq "empty status prompt: stops after the empty status" \
+  "1" "$(wc -l <"$GIT_LOG" | tr -d ' ')"
+
+echo ""
+echo "=== prompt: discovery fallback with branch headers ==="
+
+# A symlinked logical path defeats gitdir inference, so the rev-parse
+# fallback must still run when the status output carries branch headers.
+# The fail-fast above must never skip discovery that real output needs.
+SYMLINK_TARGET="$TEST_TMPDIR/symlink-target"
+SYMLINK_LINK="$TEST_TMPDIR/symlink-link"
+mkdir -p "$SYMLINK_TARGET"
+ln -sfn "$SYMLINK_TARGET" "$SYMLINK_LINK"
+: >"$GIT_LOG"
+(
+  cd "$SYMLINK_LINK" || exit 1
+  # shellcheck disable=SC1091 # source the installed prompt helper from real HOME.
+  . "$REAL_HOME/.config/shell/interactive.d/59-prompt.sh"
+  __git_prompt
+) >"$TEST_TMPDIR/prompt-symlink.out"
+_assert_contains "symlink prompt: renders repository state" \
+  "main" "$(cat "$TEST_TMPDIR/prompt-symlink.out")"
+_assert_eq "symlink prompt: still runs discovery for real output" \
   "2" "$(wc -l <"$GIT_LOG" | tr -d ' ')"
 
 echo ""

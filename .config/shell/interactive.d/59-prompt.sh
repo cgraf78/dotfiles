@@ -293,6 +293,13 @@ __git_prompt() {
   local repo_signals=0
   [[ -n "$gitdir" ]] && repo_signals=1
   git_status="$(_dot_git_prompt_try "$repo_signals" "${g[@]}" --no-optional-locks status --porcelain=v2 --branch)" || return
+  # Fail fast when discovery already failed: without a gitdir and without a
+  # branch header in the status output there is no repository to describe,
+  # so skip the rev-parse fallback. The branch parser below would find
+  # nothing and return the same empty prompt after paying for the fork.
+  if [[ -z "$gitdir" && "$git_status" != *"# branch.head "* ]]; then
+    return
+  fi
   if [[ -z "$gitdir" ]]; then
     gitdir="$("${g[@]}" rev-parse --git-dir 2>/dev/null)"
     [[ -n "$gitdir" ]] || return
