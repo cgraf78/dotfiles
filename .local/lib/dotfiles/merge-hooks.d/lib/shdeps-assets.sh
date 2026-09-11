@@ -87,9 +87,11 @@ _dot_shdeps_path_scan() {
 
 # Rewrite dep coordinates to a safe cache filename. Any two coordinates that
 # sanitize identically share a file but never a hit: the stored coordinates
-# are compared on read, so collisions only cost a re-resolution.
+# are compared on read, so collisions only cost a re-resolution. The
+# argument count joins the key so a future shdeps that interprets extra
+# CLI args (ignored today) cannot collide with a two-arg resolution.
 _dot_shdeps_cache_key() {
-  local text="${1:-}@${2:-}"
+  local text="${1:-}@${2:-}@${3:-0}"
   REPLY="${text//[^A-Za-z0-9_.@-]/_}"
 }
 
@@ -116,7 +118,8 @@ _dot_shdeps_dep_cache_read() {
   local cached_name="" cached_rel="" cached_asset=""
   local fp_conf="" fp_bin="" fp_state="" fp_dev="" fp_install=""
   local fp_testplat="" fp_testhost="" fp_host="" fp_ostype="" fp_home=""
-  local path_scan="" conf_file conf_fresh=0 first=""
+  local fp_scan=""
+  local path_scan="" conf_file conf_fresh=0 parent=""
   [ -r "$cache" ] || return 1
   {
     IFS= read -r cached_name || return 1
@@ -132,6 +135,7 @@ _dot_shdeps_dep_cache_read() {
     IFS= read -r fp_host || return 1
     IFS= read -r fp_ostype || return 1
     IFS= read -r fp_home || return 1
+    IFS= read -r fp_scan || return 1
   } <"$cache"
   [ "$cached_name" = "$name" ] || return 1
   [ "$cached_rel" = "$rel" ] || return 1
@@ -174,6 +178,9 @@ _dot_shdeps_dep_cache_read() {
   if [ "$bin" = PATH ]; then
     _dot_shdeps_path_scan || return 1
     path_scan="$REPLY"
+    # Identity first, then mtime: a PATH reorder serves a different binary
+    # whose answer must not reuse this entry even when nothing is newer.
+    [ "$fp_scan" = "$path_scan" ] || return 1
     [ ! "$path_scan" -nt "$cache" ] || return 1
   else
     [ -x "$bin" ] || return 1
@@ -184,10 +191,15 @@ _dot_shdeps_dep_cache_read() {
   [ ! "$REPLY_state/manifest" -nt "$cache" ] || return 1
   [ ! "$REPLY_dev" -nt "$cache" ] || return 1
   [ ! "$REPLY_install" -nt "$cache" ] || return 1
-  first="${name%%/*}"
-  if [ "$first" != "$name" ] && [ -e "$REPLY_install/$first" ]; then
-    [ ! "$REPLY_install/$first" -nt "$cache" ] || return 1
-  fi
+  # Walk every install parent so leaf add/remove under deep dep paths
+  # (install/a/b/...) invalidates; a first-component-only check misses it.
+  parent="$name"
+  while [ "$parent" != "${parent%/*}" ]; do
+    parent="${parent%/*}"
+    if [ -e "$REPLY_install/$parent" ]; then
+      [ ! "$REPLY_install/$parent" -nt "$cache" ] || return 1
+    fi
+  done
 
   [ -f "$cached_asset" ] && [ -r "$cached_asset" ] || return 1
   REPLY="$cached_asset"
@@ -195,17 +207,24 @@ _dot_shdeps_dep_cache_read() {
 
 _dot_shdeps_dep_cache_write() {
   local cache="$1" name="$2" rel="$3" asset="$4" conf_dir="$5" bin="$6"
-  local dir tmp
+  local dir tmp scan=""
   [ -n "$asset" ] || return 0
   dir="${cache%/*}"
   mkdir -p -- "$dir" 2>/dev/null || return 0
   tmp=$(mktemp "${cache}.XXXXXX" 2>/dev/null) || return 0
   _dot_shdeps_dep_roots
+  # Record which binary a PATH resolution reaches so a reorder across two
+  # shdeps binaries invalidates on read. Empty for absolute binaries (the
+  # stored path itself is the identity) and function-shadowed shdeps (whose
+  # scan fails on read too, forcing a re-resolution as before).
+  if [ "$bin" = PATH ]; then
+    _dot_shdeps_path_scan && scan="$REPLY" || scan=""
+  fi
   {
     printf '%s\n' "$name" "$rel" "$asset"
     printf '%s\n' "$conf_dir" "$bin" "$REPLY_state" "$REPLY_dev" \
       "$REPLY_install" "${SHDEPS_TEST_PLATFORM:-}" "${SHDEPS_TEST_HOST:-}" \
-      "${HOSTNAME:-}" "${OSTYPE:-}" "${HOME:-}"
+      "${HOSTNAME:-}" "${OSTYPE:-}" "${HOME:-}" "$scan"
   } >"$tmp" 2>/dev/null || {
     rm -f -- "$tmp"
     return 0
@@ -222,7 +241,7 @@ dot_shdeps_dep_file() {
 
   if _dot_shdeps_dep_cache_dir; then
     cache_dir="$REPLY"
-    _dot_shdeps_cache_key "${1:-}" "${2:-}"
+    _dot_shdeps_cache_key "${1:-}" "${2:-}" "$#"
     key="$REPLY"
     cache="$cache_dir/$key"
     if _dot_shdeps_dep_cache_read \

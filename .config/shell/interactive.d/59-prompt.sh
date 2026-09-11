@@ -81,6 +81,8 @@ _dot_git_prompt_cache_dir() {
 # porcelain and rev-parse output is identical. Set
 # DOT_GIT_PROMPT_SYSTEM_GITS to a space-separated candidate list to
 # override, or to empty to disable. Sets REPLY on success.
+# Accepted: resolved binaries bypass git shell functions on every path
+# (the hit path already did); no such function exists here.
 _dot_git_prompt_select_system() {
   local candidates="${DOT_GIT_PROMPT_SYSTEM_GITS-/usr/bin/git /bin/git}"
   local real_bin="$1" launcher="$HOME/.local/bin/git"

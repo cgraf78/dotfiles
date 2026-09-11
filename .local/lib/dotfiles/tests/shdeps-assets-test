@@ -230,6 +230,48 @@ _assert_eq "dep cache: nested install change invalidates" \
   "2" "$(assets_invocations)"
 unset SHDEPS_INSTALL_DIR
 
+ASSETS_DEEP_DIR="$TEST_TMPDIR/shdeps-install-deep"
+mkdir -p "$ASSETS_DEEP_DIR/a/b"
+SHDEPS_INSTALL_DIR="$ASSETS_DEEP_DIR"
+export SHDEPS_INSTALL_DIR
+assets_fresh_cache
+dot_shdeps_dep_file a/b/leaf share/x.sh >/dev/null
+touch "$ASSETS_DEEP_DIR/a/b"
+dot_shdeps_dep_file a/b/leaf share/x.sh >/dev/null
+_assert_eq "dep cache: deep install change invalidates" \
+  "2" "$(assets_invocations)"
+unset SHDEPS_INSTALL_DIR
+
+ASSETS_SHDEPS_BIN_B=$(_mock_bin)
+ASSETS_ASSET_B="$TEST_TMPDIR/other-shell.sh"
+printf '# other fixture asset\n' >"$ASSETS_ASSET_B"
+cat >"$ASSETS_SHDEPS_BIN_B/shdeps" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$ASSETS_SHDEPS_LOG"
+printf 'conf:%s\n' "${SHDEPS_CONF_DIR:-unset}" >>"$ASSETS_SHDEPS_LOG"
+printf '%s\n' "$ASSETS_ASSET_B"
+EOF
+chmod +x "$ASSETS_SHDEPS_BIN_B/shdeps"
+export ASSETS_ASSET_B
+assets_fresh_cache
+PATH="$ASSETS_SHDEPS_BIN:$ASSETS_SHDEPS_BIN_B:/usr/bin:/bin"
+export PATH
+dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
+PATH="$ASSETS_SHDEPS_BIN_B:$ASSETS_SHDEPS_BIN:/usr/bin:/bin"
+export PATH
+assets_reorder_second=$(dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh)
+_assert_eq "dep cache: PATH reorder serves the new binary" \
+  "$ASSETS_ASSET_B" "$assets_reorder_second"
+_assert_eq "dep cache: PATH reorder invalidates" "2" "$(assets_invocations)"
+PATH="$ASSETS_SHDEPS_BIN:/usr/bin:/bin"
+export PATH
+
+assets_fresh_cache
+dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
+dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh extra >/dev/null
+dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh extra >/dev/null
+_assert_eq "dep cache: arg count separates entries" "2" "$(assets_invocations)"
+
 assets_fresh_cache
 dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
 SHDEPS_TEST_PLATFORM="other-os" dot_shdeps_dep_file \
