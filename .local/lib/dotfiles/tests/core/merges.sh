@@ -571,6 +571,95 @@ TMUX
     DOT_TEST_TMUX_SERVER="$tmux_server" _run_tmux_merge_for_test
   _assert_eq "tmux merge: skips reload when no server is running" \
     "has-session" "$(cat "$tmux_log")"
+
+  # Converged runs skip the reload: the stamp records the config plus
+  # every conf.d include, and any change (content, mtime, include set,
+  # corrupt stamp) reloads again.
+  tmux_skip_home="$TEST_HOME/tmux-skip-home"
+  tmux_skip_bin="$tmux_skip_home/bin"
+  tmux_skip_log="$tmux_skip_home/tmux.log"
+  tmux_skip_server="$tmux_skip_home/server-running"
+  tmux_skip_cache="$tmux_skip_home/cache"
+  mkdir -p "$tmux_skip_home/.config/tmux/conf.d" "$tmux_skip_bin" \
+    "$tmux_skip_cache"
+  printf '%s\n' 'set -g status on' \
+    >"$tmux_skip_home/.config/tmux/tmux.conf"
+  printf '%s\n' 'set -g mouse on' \
+    >"$tmux_skip_home/.config/tmux/conf.d/10-base.conf"
+  cp "$tmux_bin/tmux" "$tmux_skip_bin/tmux"
+  : >"$tmux_skip_server"
+  tmux_skip_conf="$tmux_skip_home/.config/tmux/tmux.conf"
+  tmux_skip_expected=$(printf 'has-session\nsource-file %s' \
+    "$tmux_skip_conf")
+  tmux_saved_home=$HOME
+  tmux_saved_path=$PATH
+  if [[ -z ${XDG_CACHE_HOME+x} ]]; then
+    tmux_xdg_unset=1
+  else
+    tmux_xdg_unset=0
+    tmux_saved_xdg=$XDG_CACHE_HOME
+  fi
+  HOME=$tmux_skip_home
+  PATH=$tmux_skip_bin:$PATH
+  DOT_TEST_TMUX=$tmux_skip_bin/tmux
+  DOT_TEST_TMUX_LOG=$tmux_skip_log
+  DOT_TEST_TMUX_SERVER=$tmux_skip_server
+  XDG_CACHE_HOME=$tmux_skip_cache
+  export HOME PATH DOT_TEST_TMUX DOT_TEST_TMUX_LOG DOT_TEST_TMUX_SERVER
+  export XDG_CACHE_HOME
+  : >"$tmux_skip_log"
+  _run_tmux_merge_for_test >"$tmux_skip_home/out1.txt" 2>&1
+  cp "$tmux_skip_log" "$tmux_skip_home/log1.txt"
+  tmux_skip_status=$?
+  : >"$tmux_skip_log"
+  _run_tmux_merge_for_test >"$tmux_skip_home/out2.txt" 2>&1
+  cp "$tmux_skip_log" "$tmux_skip_home/log2.txt"
+  touch "$tmux_skip_conf"
+  : >"$tmux_skip_log"
+  _run_tmux_merge_for_test >"$tmux_skip_home/out3.txt" 2>&1
+  cp "$tmux_skip_log" "$tmux_skip_home/log3.txt"
+  printf '%s\n' 'set -g history-limit 5000' \
+    >"$tmux_skip_home/.config/tmux/conf.d/20-extra.conf"
+  : >"$tmux_skip_log"
+  _run_tmux_merge_for_test >"$tmux_skip_home/out4.txt" 2>&1
+  cp "$tmux_skip_log" "$tmux_skip_home/log4.txt"
+  printf '%s\n' 'set -g mouse off' \
+    >"$tmux_skip_home/.config/tmux/conf.d/10-base.conf"
+  : >"$tmux_skip_log"
+  _run_tmux_merge_for_test >"$tmux_skip_home/out5.txt" 2>&1
+  cp "$tmux_skip_log" "$tmux_skip_home/log5.txt"
+  printf '%s\n' 'garbage-not-a-stamp' \
+    >"$tmux_skip_cache/dot/merge-tmux.stamp"
+  : >"$tmux_skip_log"
+  _run_tmux_merge_for_test >"$tmux_skip_home/out6.txt" 2>&1
+  cp "$tmux_skip_log" "$tmux_skip_home/log6.txt"
+  HOME=$tmux_saved_home
+  PATH=$tmux_saved_path
+  unset DOT_TEST_TMUX DOT_TEST_TMUX_LOG DOT_TEST_TMUX_SERVER
+  if ((tmux_xdg_unset == 1)); then
+    unset XDG_CACHE_HOME
+  else
+    XDG_CACHE_HOME=$tmux_saved_xdg
+  fi
+  export HOME PATH XDG_CACHE_HOME
+  _assert_exit "tmux merge: first converged run exits 0" 0 \
+    "$tmux_skip_status"
+  _assert_eq "tmux merge: first run reloads and stamps" \
+    "$tmux_skip_expected" "$(cat "$tmux_skip_home/log1.txt")"
+  _assert_contains "tmux merge: reload logs the hook line" \
+    "tmux" "$(cat "$tmux_skip_home/out1.txt")"
+  _assert_eq "tmux merge: converged run skips the reload" \
+    "has-session" "$(cat "$tmux_skip_home/log2.txt")"
+  _assert_eq "tmux merge: skipped run stays silent" \
+    "" "$(cat "$tmux_skip_home/out2.txt")"
+  _assert_eq "tmux merge: touched config reloads again" \
+    "$tmux_skip_expected" "$(cat "$tmux_skip_home/log3.txt")"
+  _assert_eq "tmux merge: new include reloads again" \
+    "$tmux_skip_expected" "$(cat "$tmux_skip_home/log4.txt")"
+  _assert_eq "tmux merge: changed include reloads again" \
+    "$tmux_skip_expected" "$(cat "$tmux_skip_home/log5.txt")"
+  _assert_eq "tmux merge: corrupt stamp reloads again" \
+    "$tmux_skip_expected" "$(cat "$tmux_skip_home/log6.txt")"
   unset -f _run_tmux_merge_for_test merge 2>/dev/null
 
   echo "=== Karabiner source config ==="

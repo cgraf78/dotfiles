@@ -316,4 +316,270 @@ merge' _ "$hook")
 _assert_exit 'hook: merge without config succeeds' 0 "$?"
 _assert_eq 'hook: merge without config is silent' '' "$empty_out"
 
+echo "=== Codex trust converged skip ==="
+
+# A converged config skips Python entirely; a config touch, a
+# filesystem-only change, or an unscannable header re-runs the prune.
+# The python3 shim delegates to the real interpreter while counting.
+skip_home=$work/skip-home
+skip_bin=$work/skip-bin
+skip_cache=$work/skip-cache
+skip_py_log=$work/skip-py.log
+mkdir -p "$skip_home/.codex" "$skip_home/keep" "$skip_bin" "$skip_cache"
+skip_real_python=$(command -v python3)
+cat >"$skip_bin/python3" <<SH
+#!/usr/bin/env bash
+printf 'py-called\n' >>"$skip_py_log"
+exec "$skip_real_python" "\$@"
+SH
+chmod +x "$skip_bin/python3"
+skip_stale=/tmp/codex-trust-skip-$$
+rm -rf "$skip_stale"
+printf '[projects."%s"]\ntrust_level = "trusted"\n\n[projects."%s/keep"]\ntrust_level = "trusted"\n' \
+  "$skip_stale" "$skip_home" >"$skip_home/.codex/config.toml"
+skip_saved_home=$HOME
+skip_saved_path=$PATH
+if [[ -z ${USER+x} ]]; then
+  skip_user_unset=1
+else
+  skip_user_unset=0
+  skip_saved_user=$USER
+fi
+if [[ -z ${XDG_CACHE_HOME+x} ]]; then
+  skip_xdg_unset=1
+else
+  skip_xdg_unset=0
+  skip_saved_xdg=$XDG_CACHE_HOME
+fi
+HOME=$skip_home
+USER=fixtureuser
+PATH=$skip_bin:$PATH
+XDG_CACHE_HOME=$skip_cache
+export HOME USER PATH XDG_CACHE_HOME
+: >"$skip_py_log"
+# shellcheck disable=SC2016 # The fixture shell expands its own hook API.
+bash -c '
+dot_hook_source() { return 0; }
+dot_hook_warn() { printf "%s\n" "$*"; }
+dot_hook_log() { printf "%s\n" "$*"; }
+_dot_tool_present() { return 0; }
+. "$1"
+merge' _ "$hook" >"$skip_home/out1.txt" 2>&1
+# shellcheck disable=SC2016 # The fixture shell expands its own hook API.
+bash -c '
+dot_hook_source() { return 0; }
+dot_hook_warn() { printf "%s\n" "$*"; }
+dot_hook_log() { printf "%s\n" "$*"; }
+_dot_tool_present() { return 0; }
+. "$1"
+merge' _ "$hook" >"$skip_home/out2.txt" 2>&1
+touch "$skip_home/.codex/config.toml"
+# shellcheck disable=SC2016 # The fixture shell expands its own hook API.
+bash -c '
+dot_hook_source() { return 0; }
+dot_hook_warn() { printf "%s\n" "$*"; }
+dot_hook_log() { printf "%s\n" "$*"; }
+_dot_tool_present() { return 0; }
+. "$1"
+merge' _ "$hook" >"$skip_home/out3.txt" 2>&1
+HOME=$skip_saved_home
+PATH=$skip_saved_path
+if ((skip_user_unset == 1)); then
+  unset USER
+else
+  USER=$skip_saved_user
+fi
+if ((skip_xdg_unset == 1)); then
+  unset XDG_CACHE_HOME
+else
+  XDG_CACHE_HOME=$skip_saved_xdg
+fi
+export HOME USER PATH XDG_CACHE_HOME
+skip_out1=$(cat "$skip_home/out1.txt")
+skip_out2=$(cat "$skip_home/out2.txt")
+skip_out3=$(cat "$skip_home/out3.txt")
+_assert_contains 'hook: converged run prunes first' \
+  "pruned $skip_stale" "$skip_out1"
+_assert_eq 'hook: converged rerun stays silent' '' "$skip_out2"
+_assert_eq 'hook: touched config reruns silently' '' "$skip_out3"
+_assert_eq 'hook: python runs on prune and touch only' 2 \
+  "$(grep -c . "$skip_py_log")"
+skip_kept=$(python3 -c \
+  'import sys, tomllib; print("\n".join(sorted(tomllib.load(open(sys.argv[1], "rb")).get("projects", {}))))' \
+  "$skip_home/.codex/config.toml")
+_assert_eq 'hook: converged runs keep the home entry' "$skip_home/keep" \
+  "$skip_kept"
+
+echo "=== Codex trust filesystem-only change ==="
+
+# Deleting a referenced directory re-runs the prune even though the
+# config bytes are untouched: the existence bits are in the stamp.
+fs_home=$work/fs-home
+mkdir -p "$fs_home/.codex"
+fs_victim=/var/tmp/codex-trust-victim-$$
+if mkdir -p "$fs_victim" 2>/dev/null && [[ -d $fs_victim ]]; then
+  CLEANUP_DIRS+=("$fs_victim")
+  printf '[projects."%s"]\ntrust_level = "trusted"\n' \
+    "$fs_victim" >"$fs_home/.codex/config.toml"
+  fs_saved_home=$HOME
+  fs_saved_path=$PATH
+  if [[ -z ${USER+x} ]]; then
+    fs_user_unset=1
+  else
+    fs_user_unset=0
+    fs_saved_user=$USER
+  fi
+  if [[ -z ${XDG_CACHE_HOME+x} ]]; then
+    fs_xdg_unset=1
+  else
+    fs_xdg_unset=0
+    fs_saved_xdg=$XDG_CACHE_HOME
+  fi
+  HOME=$fs_home
+  USER=fixtureuser
+  PATH=$skip_bin:$PATH
+  XDG_CACHE_HOME=$work/fs-cache
+  export HOME USER PATH XDG_CACHE_HOME
+  : >"$skip_py_log"
+  # shellcheck disable=SC2016 # The fixture shell expands its own hook API.
+  bash -c '
+dot_hook_source() { return 0; }
+dot_hook_warn() { printf "%s\n" "$*"; }
+dot_hook_log() { printf "%s\n" "$*"; }
+_dot_tool_present() { return 0; }
+. "$1"
+merge' _ "$hook" >"$fs_home/out1.txt" 2>&1
+  # shellcheck disable=SC2016 # The fixture shell expands its own hook API.
+  bash -c '
+dot_hook_source() { return 0; }
+dot_hook_warn() { printf "%s\n" "$*"; }
+dot_hook_log() { printf "%s\n" "$*"; }
+_dot_tool_present() { return 0; }
+. "$1"
+merge' _ "$hook" >"$fs_home/out2.txt" 2>&1
+  fs_py_after_skip=$(grep -c . "$skip_py_log")
+  rm -rf "$fs_victim"
+  # shellcheck disable=SC2016 # The fixture shell expands its own hook API.
+  bash -c '
+dot_hook_source() { return 0; }
+dot_hook_warn() { printf "%s\n" "$*"; }
+dot_hook_log() { printf "%s\n" "$*"; }
+_dot_tool_present() { return 0; }
+. "$1"
+merge' _ "$hook" >"$fs_home/out3.txt" 2>&1
+  HOME=$fs_saved_home
+  PATH=$fs_saved_path
+  if ((fs_user_unset == 1)); then
+    unset USER
+  else
+    USER=$fs_saved_user
+  fi
+  if ((fs_xdg_unset == 1)); then
+    unset XDG_CACHE_HOME
+  else
+    XDG_CACHE_HOME=$fs_saved_xdg
+  fi
+  export HOME USER PATH XDG_CACHE_HOME
+  _assert_eq 'hook: existing victim is kept silently' '' \
+    "$(cat "$fs_home/out1.txt")"
+  _assert_eq 'hook: converged victim run skips python' 1 "$fs_py_after_skip"
+  _assert_contains 'hook: deleted victim is pruned' \
+    "pruned $fs_victim" "$(cat "$fs_home/out3.txt")"
+  _assert_eq 'hook: deletion reruns the prune' 2 \
+    "$(grep -c . "$skip_py_log")"
+else
+  echo "  - skipping filesystem-only change (no writable /var/tmp)"
+fi
+
+echo "=== Codex trust unscannable headers ==="
+
+# Headers the conservative scan cannot prove (escapes, dotted keys)
+# fail closed into a prune on every run: same merged output, no skip.
+bail_home=$work/bail-home
+mkdir -p "$bail_home/.codex"
+printf '[projects."%s"]\ntrust_level = "trusted"\n' \
+  "$bail_home/ke\\\\pt" >"$bail_home/.codex/config.toml"
+dotted_home=$work/dotted-home
+mkdir -p "$dotted_home/.codex"
+printf '[projects]\n"%s".trust_level = "trusted"\n' \
+  "$dotted_home/keep" >"$dotted_home/.codex/config.toml"
+bail_saved_home=$HOME
+bail_saved_path=$PATH
+if [[ -z ${USER+x} ]]; then
+  bail_user_unset=1
+else
+  bail_user_unset=0
+  bail_saved_user=$USER
+fi
+if [[ -z ${XDG_CACHE_HOME+x} ]]; then
+  bail_xdg_unset=1
+else
+  bail_xdg_unset=0
+  bail_saved_xdg=$XDG_CACHE_HOME
+fi
+HOME=$bail_home
+USER=fixtureuser
+PATH=$skip_bin:$PATH
+XDG_CACHE_HOME=$work/bail-cache
+export HOME USER PATH XDG_CACHE_HOME
+: >"$skip_py_log"
+# shellcheck disable=SC2016 # The fixture shell expands its own hook API.
+bash -c '
+dot_hook_source() { return 0; }
+dot_hook_warn() { printf "%s\n" "$*"; }
+dot_hook_log() { printf "%s\n" "$*"; }
+_dot_tool_present() { return 0; }
+. "$1"
+merge' _ "$hook" >"$bail_home/out1.txt" 2>&1
+# shellcheck disable=SC2016 # The fixture shell expands its own hook API.
+bash -c '
+dot_hook_source() { return 0; }
+dot_hook_warn() { printf "%s\n" "$*"; }
+dot_hook_log() { printf "%s\n" "$*"; }
+_dot_tool_present() { return 0; }
+. "$1"
+merge' _ "$hook" >"$bail_home/out2.txt" 2>&1
+HOME=$dotted_home
+export HOME
+# shellcheck disable=SC2016 # The fixture shell expands its own hook API.
+bash -c '
+dot_hook_source() { return 0; }
+dot_hook_warn() { printf "%s\n" "$*"; }
+dot_hook_log() { printf "%s\n" "$*"; }
+_dot_tool_present() { return 0; }
+. "$1"
+merge' _ "$hook" >"$dotted_home/out1.txt" 2>&1
+# shellcheck disable=SC2016 # The fixture shell expands its own hook API.
+bash -c '
+dot_hook_source() { return 0; }
+dot_hook_warn() { printf "%s\n" "$*"; }
+dot_hook_log() { printf "%s\n" "$*"; }
+_dot_tool_present() { return 0; }
+. "$1"
+merge' _ "$hook" >"$dotted_home/out2.txt" 2>&1
+HOME=$bail_saved_home
+PATH=$bail_saved_path
+if ((bail_user_unset == 1)); then
+  unset USER
+else
+  USER=$bail_saved_user
+fi
+if ((bail_xdg_unset == 1)); then
+  unset XDG_CACHE_HOME
+else
+  XDG_CACHE_HOME=$bail_saved_xdg
+fi
+export HOME USER PATH XDG_CACHE_HOME
+_assert_eq 'hook: escaped path is kept silently' '' \
+  "$(cat "$bail_home/out1.txt")"
+_assert_eq 'hook: dotted entry is kept silently' '' \
+  "$(cat "$dotted_home/out1.txt")"
+_assert_eq 'hook: unscannable headers never skip' 4 \
+  "$(grep -c . "$skip_py_log")"
+bail_kept=$(python3 -c \
+  'import sys, tomllib; print("\n".join(sorted(tomllib.load(open(sys.argv[1], "rb")).get("projects", {}))))' \
+  "$bail_home/.codex/config.toml")
+_assert_eq 'hook: escaped entry survives both runs' "$bail_home/ke\\pt" \
+  "$bail_kept"
+
 _test_summary
