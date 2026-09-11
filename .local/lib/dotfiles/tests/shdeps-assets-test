@@ -52,6 +52,21 @@ _assert_contains "dep-file: pins the home conf dir" \
 echo ""
 echo "=== shdeps-assets: resolver fallback chain ==="
 
+# The installed-profile harness exports SHDEPS_BIN/SHDEPS_BIN_DIR globally;
+# scrub them so the no-shdeps probe below sees a bare resolver chain.
+if [[ -z ${SHDEPS_BIN+x} ]]; then
+  assets_bin_unset=1
+else
+  assets_bin_unset=0
+  assets_saved_bin=$SHDEPS_BIN
+fi
+if [[ -z ${SHDEPS_BIN_DIR+x} ]]; then
+  assets_bindir_unset=1
+else
+  assets_bindir_unset=0
+  assets_saved_bindir=$SHDEPS_BIN_DIR
+fi
+unset SHDEPS_BIN SHDEPS_BIN_DIR
 PATH="/usr/bin:/bin"
 export PATH
 assets_fallback_out=$(dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh)
@@ -76,6 +91,18 @@ cp "$ASSETS_SHDEPS_BIN/shdeps" "$HOME/.local/bin/shdeps"
 assets_home_out=$(dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh)
 _assert_eq "dep-file: falls back to the home install" "$ASSETS_ASSET" "$assets_home_out"
 rm -f "$HOME/.local/bin/shdeps"
+if ((assets_bin_unset == 1)); then
+  unset SHDEPS_BIN
+else
+  SHDEPS_BIN=$assets_saved_bin
+  export SHDEPS_BIN
+fi
+if ((assets_bindir_unset == 1)); then
+  unset SHDEPS_BIN_DIR
+else
+  SHDEPS_BIN_DIR=$assets_saved_bindir
+  export SHDEPS_BIN_DIR
+fi
 
 echo ""
 echo "=== shdeps-assets: failure passthrough ==="
