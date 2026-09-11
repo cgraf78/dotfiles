@@ -223,6 +223,11 @@ _worktree_gc_index_wt_list() {
 # Ensure one repo's worktree list is cached and print it via REPLY, or
 # fail. A failed fetch is never cached, so the next checkout retries
 # exactly as an uncached sweep would. Must run in the main shell.
+# The cached list is blind to concurrent admin mutation within a sweep
+# (a lock added after caching reads as unlocked; an externally removed
+# checkout reads as registered). Worst case is a verdict-label delta,
+# never destruction: `git worktree remove` refuses locked checkouts,
+# and branch deletion never follows a failed removal.
 _worktree_gc_ensure_repo() {
   local common=$1 i wt_list
   REPLY=

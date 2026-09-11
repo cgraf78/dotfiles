@@ -32,21 +32,24 @@ _codex_trust_stamp_file() {
   printf '%s\n' "$base/dot/merge-codex-trust.stamp"
 }
 
-# Print the prune fingerprint (config path, config checksum, one
-# existence line per project header), or fail. Mirrors the helper's
-# lexical normalization (trailing slashes stripped, root kept) and its
-# existence test (`-e` follows symlinks like `os.path.exists`). Exists
+# Print the prune fingerprint (config path, config checksum, helper
+# checksum, one existence line per project header), or fail. Mirrors the
+# helper's lexical normalization (trailing slashes stripped, root kept) and
+# its existence test (`-e` follows symlinks like `os.path.exists`). Exists
 # bits make filesystem-only changes (a deleted checkout) re-run the
-# prune even when the config bytes are untouched. Any header the scan
+# prune even when the config bytes are untouched; the helper checksum
+# re-runs it when prune rules change. Any header the scan
 # cannot prove -- escapes, literal-quote content, bare keys, dotted
 # keys, array tables, or any other `projects` mention -- fails closed
 # into a prune.
 _codex_trust_fingerprint() {
-  local dst=$1 sum fp line inner path bare=0
+  local dst=$1 sum fp line inner path bare=0 helper helper_sum
   local sq="'" dq='"'
   command -v cksum >/dev/null 2>&1 || return 1
   sum=$(cksum <"$dst" 2>/dev/null) || return 1
-  fp="path=$dst"$'\n'"$sum"
+  helper="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -P)/lib/codex-trust/prune-projects.py" || return 1
+  helper_sum=$(cksum <"$helper" 2>/dev/null) || return 1
+  fp="path=$dst"$'\n'"$sum"$'\n'"helper=$helper_sum"
   while IFS= read -r line || [[ -n $line ]]; do
     case $line in
       '[projects]')
@@ -122,7 +125,7 @@ merge() {
   stamp=$(_codex_trust_stamp_file)
   if [[ -f $stamp && -r $stamp && $dst -ot $stamp ]] &&
     fp=$(_codex_trust_fingerprint "$dst") 2>/dev/null &&
-    stored=$(<"$stamp") 2>/dev/null &&
+    stored=$(cat -- "$stamp" 2>/dev/null) &&
     [[ $fp == "$stored" ]]; then
     return 0
   fi
@@ -132,6 +135,13 @@ merge() {
     return 1
   }
   fresh=$(_codex_trust_fingerprint "$dst") 2>/dev/null || fresh=
+  # No stability comparison between fp and fresh here: a real prune
+  # legitimately changes the bytes, so requiring fp == fresh would skip
+  # the stamp after every real prune (one redundant re-prune per config
+  # change). The residual risk — a concurrent external edit landing
+  # between the helper's read and this fingerprint — self-heals on the
+  # next config change and is narrower than the mtime gate already in
+  # place, so the post-bytes stamp stands as designed.
   if [[ -n $fresh ]] && mkdir -p "${stamp%/*}" 2>/dev/null &&
     tmp=$(mktemp "${stamp}.tmp.XXXXXX" 2>/dev/null) &&
     printf '%s\n' "$fresh" >"$tmp" 2>/dev/null &&

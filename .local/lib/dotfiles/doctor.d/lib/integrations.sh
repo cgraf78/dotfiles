@@ -8,6 +8,11 @@
 # asset loads -- no other interactive file sets or clears the marker --
 # so the narrow probe reports identical verdicts. The temp cache, the
 # zsh presence gate, and every message stay exactly as before.
+# Known exotic-setup edge: the old probe inherited env.d-built PATH
+# (~/bin, mise shims, homebrew...); the narrow probe sees ambient PATH
+# plus the adapter fallbacks, so a shdeps reachable only via an
+# env-added dir would flip ok to warn. Standard installs resolve via
+# the ~/.local/bin fallback.
 
 _dr_check_shell_integrations() {
   _dr_section "Shell integrations"

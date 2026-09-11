@@ -192,7 +192,17 @@ _dr_worktree_base_ref() {
 _dr_worktree_base_ref_ensure() {
   local dir=$1 key=$1 i ref
   REPLY=
-  key=$(_dr_worktree_repo_key "$dir") || key=$dir
+  # On key failure bypass the cache entirely (resolve uncached below):
+  # falling back to `key=$dir` would share a namespace with real keys,
+  # where a checkout path could theoretically equal another checkout's
+  # physical gitdir and cross-share a base ref.
+  if ! key=$(_dr_worktree_repo_key "$dir"); then
+    if ref=$(_dr_worktree_base_ref "$dir"); then
+      REPLY=$ref
+      return 0
+    fi
+    return 1
+  fi
   for ((i = 0; i < ${#_DR_WORKTREE_BASE_KEYS[@]}; i++)); do
     [[ ${_DR_WORKTREE_BASE_KEYS[$i]} == "$key" ]] || continue
     ref=${_DR_WORKTREE_BASE_REFS[$i]}
@@ -294,17 +304,28 @@ _dr_worktree_du_total() {
 # the root set itself, so checkout add/remove and top-level entry
 # changes recompute; nested-only growth reuses the last total until the
 # next root change. That staleness is the documented cost of skipping
-# the du pass: this check is warn-only and the total is advisory.
+# the du pass: this check is warn-only and the total is advisory. A
+# six-hour max age bounds the staleness so a never-touched root set
+# cannot report a stale total indefinitely.
 # Never fails: every cache problem falls back to a fresh du pass, and
 # a failed store is silently skipped for the next run to retry.
 _dr_worktree_cached_du_total() {
-  local key cache stored_total stored_key fresh tmp
+  local key cache stored_total stored_key fresh tmp now mtime
   if ! key=$(_dr_worktree_key_lines "$@"); then
     _dr_worktree_du_total "$@"
     return 0
   fi
   cache=$(_dr_worktree_du_cache_file)
-  if stored_total=$(head -n 1 "$cache" 2>/dev/null) &&
+  now=$(date +%s 2>/dev/null) || now=
+  if [[ -n $now ]]; then
+    mtime=$(stat -c %Y "$cache" 2>/dev/null) ||
+      mtime=$(stat -f %m "$cache" 2>/dev/null) || mtime=
+  else
+    mtime=
+  fi
+  if [[ -n $mtime ]] && ((now - mtime > 21600)); then
+    : # stale stamp: fall through to a fresh du pass below
+  elif stored_total=$(head -n 1 "$cache" 2>/dev/null) &&
     [[ -n $stored_total && $stored_total != *[!0-9]* ]] &&
     stored_key=$(tail -n +2 "$cache" 2>/dev/null) &&
     [[ $stored_key == "$key" ]]; then

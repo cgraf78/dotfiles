@@ -68,7 +68,7 @@ merge() {
   fp=$(_tmux_hook_fingerprint "$config" "$conf_dir") 2>/dev/null || fp=
   if [[ -f $stamp && -r $stamp && -n $fp ]] &&
     _tmux_hook_inputs_older "$stamp" "$config" "$conf_dir" &&
-    stored=$(<"$stamp") 2>/dev/null &&
+    stored=$(cat -- "$stamp" 2>/dev/null) &&
     [[ $fp == "$stored" ]]; then
     return 0
   fi
