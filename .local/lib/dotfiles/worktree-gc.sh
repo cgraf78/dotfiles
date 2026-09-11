@@ -71,6 +71,20 @@ _WORKTREE_GC_HAVE_PRED=0
 _WORKTREE_GC_FETCHED=$'\n'
 _WORKTREE_GC_FRESH=$'\n'
 _WORKTREE_GC_TOUCHED=$'\n'
+# Per-repo caches, keyed by common git dir. A sweep fans out to dozens of
+# checkouts per repo, so one `worktree list` fetch, one phys→registered
+# index, and one base-ref resolution serve the whole repo instead of
+# paying per checkout. Parallel indexed arrays (no associative arrays)
+# keep the file on its existing shell requirements. Populated in the
+# main shell only; subshell captures must treat them as read-only.
+_WORKTREE_GC_LIST_COMMONS=()
+_WORKTREE_GC_LIST_TEXTS=()
+_WORKTREE_GC_LIST_MAINS=()
+_WORKTREE_GC_MAP_COMMON=()
+_WORKTREE_GC_MAP_PHYS=()
+_WORKTREE_GC_MAP_REG=()
+_WORKTREE_GC_BASE_COMMONS=()
+_WORKTREE_GC_BASE_REFS=()
 _WORKTREE_GC_N_REMOVED=0
 _WORKTREE_GC_N_BRANCHES=0
 _WORKTREE_GC_N_BRANCHES_KEPT=0
@@ -174,23 +188,115 @@ _worktree_gc_git_dir() {
   esac
 }
 
-# Print the registered spelling of a candidate worktree path by
-# comparing physical paths, or fail when it is not registered. Never
-# trust that the enumerated spelling matches the admin copy.
-_worktree_gc_registered() {
-  local wt_list=$1 dir=$2 line path phys
+# Index one repo's porcelain worktree list into the per-repo caches:
+# the raw list text (for the locked-entry scan), the main checkout's
+# physical path (for the main-checkout gate), and one phys→registered
+# record per resolvable entry. Resolving each entry once here replaces
+# the per-checkout linear scan that forked a subshell per list entry.
+# Must run in the main shell; callers under $() would discard the index.
+_worktree_gc_index_wt_list() {
+  local common=$1 wt_list=$2 line path phys main_path='' main_phys=''
+  local first=1
   while IFS= read -r line || [[ -n $line ]]; do
     case $line in
       'worktree '*) path=${line#worktree } ;;
       *) continue ;;
     esac
+    if ((first == 1)); then
+      first=0
+      main_path=$path
+    fi
     phys=$(_dr_worktree_physical "$path") || continue
     [[ -n $phys ]] || continue
-    if [[ $phys == "$dir" ]]; then
-      printf '%s\n' "$path"
+    _WORKTREE_GC_MAP_COMMON+=("$common")
+    _WORKTREE_GC_MAP_PHYS+=("$phys")
+    _WORKTREE_GC_MAP_REG+=("$path")
+  done <<<"$wt_list"
+  if [[ -n $main_path ]]; then
+    main_phys=$(_dr_worktree_physical "$main_path") || main_phys=
+  fi
+  _WORKTREE_GC_LIST_COMMONS+=("$common")
+  _WORKTREE_GC_LIST_TEXTS+=("$wt_list")
+  _WORKTREE_GC_LIST_MAINS+=("$main_phys")
+}
+
+# Ensure one repo's worktree list is cached and print it via REPLY, or
+# fail. A failed fetch is never cached, so the next checkout retries
+# exactly as an uncached sweep would. Must run in the main shell.
+# The cached list is blind to concurrent admin mutation within a sweep
+# (a lock added after caching reads as unlocked; an externally removed
+# checkout reads as registered). Worst case is a verdict-label delta,
+# never destruction: `git worktree remove` refuses locked checkouts,
+# and branch deletion never follows a failed removal.
+_worktree_gc_ensure_repo() {
+  local common=$1 i wt_list
+  REPLY=
+  for ((i = 0; i < ${#_WORKTREE_GC_LIST_COMMONS[@]}; i++)); do
+    if [[ ${_WORKTREE_GC_LIST_COMMONS[$i]} == "$common" ]]; then
+      REPLY=${_WORKTREE_GC_LIST_TEXTS[$i]}
       return 0
     fi
-  done <<<"$wt_list"
+  done
+  wt_list=$(git --git-dir="$common" worktree list --porcelain 2>/dev/null) || return 1
+  _worktree_gc_index_wt_list "$common" "$wt_list"
+  REPLY=$wt_list
+  return 0
+}
+
+# Drop one repo's cached list, index, and main path after a removal
+# attempt so the next checkout in that repo proves against a fresh list,
+# exactly as an uncached sweep would. The base ref survives: worktree
+# removal touches no refs. Must run in the main shell.
+_worktree_gc_drop_repo_cache() {
+  local common=$1 i
+  local -a keep_commons=() keep_texts=() keep_mains=()
+  local -a keep_map_common=() keep_map_phys=() keep_map_reg=()
+  for ((i = 0; i < ${#_WORKTREE_GC_LIST_COMMONS[@]}; i++)); do
+    [[ ${_WORKTREE_GC_LIST_COMMONS[$i]} == "$common" ]] && continue
+    keep_commons+=("${_WORKTREE_GC_LIST_COMMONS[$i]}")
+    keep_texts+=("${_WORKTREE_GC_LIST_TEXTS[$i]}")
+    keep_mains+=("${_WORKTREE_GC_LIST_MAINS[$i]}")
+  done
+  for ((i = 0; i < ${#_WORKTREE_GC_MAP_COMMON[@]}; i++)); do
+    [[ ${_WORKTREE_GC_MAP_COMMON[$i]} == "$common" ]] && continue
+    keep_map_common+=("${_WORKTREE_GC_MAP_COMMON[$i]}")
+    keep_map_phys+=("${_WORKTREE_GC_MAP_PHYS[$i]}")
+    keep_map_reg+=("${_WORKTREE_GC_MAP_REG[$i]}")
+  done
+  _WORKTREE_GC_LIST_COMMONS=("${keep_commons[@]+"${keep_commons[@]}"}")
+  _WORKTREE_GC_LIST_TEXTS=("${keep_texts[@]+"${keep_texts[@]}"}")
+  _WORKTREE_GC_LIST_MAINS=("${keep_mains[@]+"${keep_mains[@]}"}")
+  _WORKTREE_GC_MAP_COMMON=("${keep_map_common[@]+"${keep_map_common[@]}"}")
+  _WORKTREE_GC_MAP_PHYS=("${keep_map_phys[@]+"${keep_map_phys[@]}"}")
+  _WORKTREE_GC_MAP_REG=("${keep_map_reg[@]+"${keep_map_reg[@]}"}")
+}
+
+# Print the registered spelling of a candidate worktree path from the
+# repo index, or fail when it is not registered. Pure list read, safe
+# under $(). Never trust that the enumerated spelling matches the admin
+# copy: lookup compares physical paths, first list entry wins.
+_worktree_gc_cached_registered() {
+  local common=$1 dir=$2 j
+  for ((j = 0; j < ${#_WORKTREE_GC_MAP_COMMON[@]}; j++)); do
+    [[ ${_WORKTREE_GC_MAP_COMMON[$j]} == "$common" ]] || continue
+    if [[ ${_WORKTREE_GC_MAP_PHYS[$j]} == "$dir" ]]; then
+      printf '%s\n' "${_WORKTREE_GC_MAP_REG[$j]}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Print a repo's cached main-checkout physical path (possibly empty).
+# Pure cache read, safe under $().
+_worktree_gc_cached_main() {
+  local common=$1 i
+  for ((i = 0; i < ${#_WORKTREE_GC_LIST_COMMONS[@]}; i++)); do
+    if [[ ${_WORKTREE_GC_LIST_COMMONS[$i]} == "$common" ]]; then
+      printf '%s\n' "${_WORKTREE_GC_LIST_MAINS[$i]}"
+      return 0
+    fi
+  done
   return 1
 }
 
@@ -233,6 +339,35 @@ _worktree_gc_local_base_ref() {
   return 1
 }
 
+# Print the cached local base ref for one repo, resolving once per sweep.
+# Remote-tracking refs are repo-level state shared by every checkout, so
+# one resolution serves them all; a fetch moves ref targets but never
+# renames the base, and the per-checkout OID read stays fresh. Failures
+# cache too: with no fetch scheduled for the repo, nothing later in the
+# run can grow a base ref. Populates only in the main shell; proof runs
+# under $() and relies on the hoist in `_worktree_gc_process`.
+_worktree_gc_base_ref_cached() {
+  local dir=$1 common=$2 i ref
+  for ((i = 0; i < ${#_WORKTREE_GC_BASE_COMMONS[@]}; i++)); do
+    [[ ${_WORKTREE_GC_BASE_COMMONS[$i]} == "$common" ]] || continue
+    ref=${_WORKTREE_GC_BASE_REFS[$i]}
+    if [[ -n $ref ]]; then
+      printf '%s\n' "$ref"
+      return 0
+    fi
+    return 1
+  done
+  if ref=$(_worktree_gc_local_base_ref "$dir"); then
+    _WORKTREE_GC_BASE_COMMONS+=("$common")
+    _WORKTREE_GC_BASE_REFS+=("$ref")
+    printf '%s\n' "$ref"
+    return 0
+  fi
+  _WORKTREE_GC_BASE_COMMONS+=("$common")
+  _WORKTREE_GC_BASE_REFS+=("")
+  return 1
+}
+
 # Fetch the base branch for one repo, at most once per sweep. Never
 # fails the sweep: a fetch failure degrades to local refs with a
 # notice. Proving against stale refs only withholds proof (fewer
@@ -245,7 +380,7 @@ _worktree_gc_fetch_base() {
     *$'\n'"$common"$'\n'*) return 0 ;;
   esac
   _WORKTREE_GC_FETCHED+="$common"$'\n'
-  ref=$(_worktree_gc_local_base_ref "$dir") || return 0
+  ref=$(_worktree_gc_base_ref_cached "$dir" "$common") || return 0
   remote=${ref%%/*}
   branch=${ref#*/}
   [[ -n $remote && -n $branch && $branch != "$ref" ]] || return 0
@@ -259,12 +394,13 @@ _worktree_gc_fetch_base() {
   return 0
 }
 
-# Fetch-then-resolve split: `_worktree_gc_fetch_base` mutates the
-# fetch caches and must run in the main shell, while
-# `_worktree_gc_local_base_ref` is pure and safe to capture. Calling
-# the fetch through $() would silently discard the cache writes. The
-# hoist lives in `_worktree_gc_process`, ahead of the `$()` capture;
-# the inner call inside prove stays as a no-op for direct callers.
+# Fetch-then-resolve split: `_worktree_gc_fetch_base` and
+# `_worktree_gc_base_ref_cached` mutate the fetch and base caches and
+# must run in the main shell, while `_worktree_gc_local_base_ref` is
+# pure and safe to capture. Calling the mutators through $() would
+# silently discard the cache writes. The hoist lives in
+# `_worktree_gc_process`, ahead of the `$()` capture; the inner calls
+# inside prove stay as no-ops for direct callers.
 
 # A branch name counts as a base branch when it matches the resolved
 # base's short name or the conventional set. Base branches are never
@@ -312,7 +448,7 @@ _worktree_gc_prove() {
     fi
   fi
   _worktree_gc_fetch_base "$dir" "$common"
-  if base_ref=$(_worktree_gc_local_base_ref "$dir") &&
+  if base_ref=$(_worktree_gc_base_ref_cached "$dir" "$common") &&
     base_oid=$(git -C "$dir" rev-parse --verify -q "$base_ref^{commit}" 2>/dev/null); then
     if git -C "$dir" merge-base --is-ancestor "$target" "$base_oid" 2>/dev/null; then
       ancestor=1
@@ -394,7 +530,7 @@ worktree_gc_delete_branch() {
 # operator can finish it by hand.
 _worktree_gc_remove() {
   local dir=$1 registered=$2 common=$3 branch=$4 reason=$5 proof_oid=$6 action=$7
-  local err keep_reason
+  local err keep_reason remove_status
   if ((_WORKTREE_GC_APPLY == 0)); then
     _worktree_gc_record would-remove "$dir" "$reason"
     case $action in
@@ -411,7 +547,12 @@ _worktree_gc_remove() {
     _worktree_gc_record failed "$dir" "parent directory not writable"
     return 0
   fi
-  if err=$(git --git-dir="$common" worktree remove "$registered" 2>&1); then
+  err=$(git --git-dir="$common" worktree remove "$registered" 2>&1)
+  remove_status=$?
+  # The repo's list changed shape (or may have, on failure), so later
+  # checkouts refetch instead of proving against the stale index.
+  _worktree_gc_drop_repo_cache "$common"
+  if ((remove_status == 0)); then
     _worktree_gc_record removed "$dir" "$reason"
     case $'\n'"$_WORKTREE_GC_TOUCHED"$'\n' in
       *$'\n'"$common"$'\n'*) ;;
@@ -443,7 +584,7 @@ _worktree_gc_remove() {
 # locked, clean) plus a merge proof before removal.
 _worktree_gc_process() {
   local dir=$1 old=$2
-  local common wt_list registered main_line main_path main_phys git_dir branch
+  local common wt_list registered main_phys git_dir branch
   local status_out verdict rest reason proof_oid action
   if ((old == 0)); then
     _worktree_gc_record kept "$dir" "younger than $_WORKTREE_GC_AGE days"
@@ -457,14 +598,16 @@ _worktree_gc_process() {
     _worktree_gc_record skipped "$dir" "broken git pointer"
     return 0
   fi
-  if ! wt_list=$(git --git-dir="$common" worktree list --porcelain 2>/dev/null) ||
-    ! registered=$(_worktree_gc_registered "$wt_list" "$dir"); then
+  if ! _worktree_gc_ensure_repo "$common"; then
     _worktree_gc_record skipped "$dir" "orphan (not in any worktree list)"
     return 0
   fi
-  main_line=$(grep -m1 '^worktree ' <<<"$wt_list") || main_line=
-  main_path=${main_line#worktree }
-  main_phys=$(_dr_worktree_physical "$main_path") || main_phys=
+  wt_list=$REPLY
+  if ! registered=$(_worktree_gc_cached_registered "$common" "$dir"); then
+    _worktree_gc_record skipped "$dir" "orphan (not in any worktree list)"
+    return 0
+  fi
+  main_phys=$(_worktree_gc_cached_main "$common") || main_phys=
   if [[ -n $main_phys && $main_phys == "$dir" ]]; then
     _worktree_gc_record skipped "$dir" "main checkout"
     return 0
@@ -493,12 +636,14 @@ _worktree_gc_process() {
     _worktree_gc_record skipped "$dir" "broken git pointer"
     return 0
   fi
-  # Fetch in the main shell: proof runs under $() below, so fetch-cache
-  # writes made inside it would die with the subshell. Hoisting keeps
-  # the at-most-once-per-sweep fetch (one fetch per repo, one notice
-  # per dead origin); the inner call inside prove then inherits the
-  # populated caches and is a no-op.
+  # Fetch and base-ref resolution run in the main shell: proof runs
+  # under $() below, so cache writes made inside it would die with the
+  # subshell. Hoisting keeps the at-most-once-per-sweep fetch (one fetch
+  # per repo, one notice per dead origin) and the once-per-repo base
+  # resolution (which --no-fetch would otherwise skip past); the inner
+  # calls inside prove then inherit the populated caches and are no-ops.
   _worktree_gc_fetch_base "$dir" "$common"
+  _worktree_gc_base_ref_cached "$dir" "$common" >/dev/null 2>&1 || true
   verdict=$(_worktree_gc_prove "$dir" "$common" "$branch")
   case $verdict in
     eligible$'\t'*)
@@ -645,6 +790,14 @@ worktree_gc_main() {
   _WORKTREE_GC_FETCHED=$'\n'
   _WORKTREE_GC_FRESH=$'\n'
   _WORKTREE_GC_TOUCHED=$'\n'
+  _WORKTREE_GC_LIST_COMMONS=()
+  _WORKTREE_GC_LIST_TEXTS=()
+  _WORKTREE_GC_LIST_MAINS=()
+  _WORKTREE_GC_MAP_COMMON=()
+  _WORKTREE_GC_MAP_PHYS=()
+  _WORKTREE_GC_MAP_REG=()
+  _WORKTREE_GC_BASE_COMMONS=()
+  _WORKTREE_GC_BASE_REFS=()
   _WORKTREE_GC_N_REMOVED=0
   _WORKTREE_GC_N_BRANCHES=0
   _WORKTREE_GC_N_BRANCHES_KEPT=0

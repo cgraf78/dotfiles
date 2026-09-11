@@ -940,4 +940,76 @@ result=$(HOME="$rt_home" DOTFILES="$rt_home/.dotfiles" "$GC" --root="$rt_home/cu
 dup_records=$(grep -c '^would-remove	' <<<"$result")
 _assert_eq "options: repeated roots dedupe" 1 "$dup_records"
 
+echo ""
+echo "=== Per-repo batching ==="
+
+# One repo with four old detached checkouts: the sweep must fetch the
+# worktree list and resolve the base ref once for the whole repo, not
+# once per checkout. The git shim delegates to the real git while
+# logging every invocation, so the counts below are structural, not
+# timing: an unbatched sweep issues four of each.
+batch_home=$(_gc_tmpdir)
+batch_origin_root=$(_tmpdir)
+batch_origin=$batch_origin_root/origin.git
+_gc_seed_origin "$batch_origin"
+_gc_clone_main "$batch_origin" "$batch_home/git/alpha"
+batch_main=$batch_home/git/alpha
+for batch_i in 1 2 3 4; do
+  git -C "$batch_main" worktree add --detach "$batch_home/.worktrees/batch-old-$batch_i" main >/dev/null 2>&1
+  _gc_make_old "$batch_home/.worktrees/batch-old-$batch_i"
+done
+batch_real_git=$(command -v git)
+batch_git_log=$(_tmpfile)
+batch_shim_bin=$(_tmpdir)
+cat >"$batch_shim_bin/git" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >>"$batch_git_log"
+exec "$batch_real_git" "\$@"
+SH
+chmod +x "$batch_shim_bin/git"
+batch_saved_home=$HOME
+batch_saved_path=$PATH
+if [[ -z ${DOTFILES+x} ]]; then
+  batch_dotfiles_unset=1
+else
+  batch_dotfiles_unset=0
+  batch_saved_dotfiles=$DOTFILES
+fi
+HOME=$batch_home
+DOTFILES=$batch_home/.dotfiles
+PATH=$batch_shim_bin:$PATH
+export HOME DOTFILES PATH
+"$GC" --no-fetch >"$batch_home/stdout.txt" 2>"$batch_home/stderr.txt"
+batch_status=$?
+HOME=$batch_saved_home
+PATH=$batch_saved_path
+if ((batch_dotfiles_unset == 1)); then
+  unset DOTFILES
+else
+  DOTFILES=$batch_saved_dotfiles
+fi
+export HOME DOTFILES PATH
+batch_result=$(cat "$batch_home/stdout.txt")
+_assert_exit "batching: sweep exits 0" 0 "$batch_status"
+batch_removed=$(grep -c '^would-remove	' <<<"$batch_result")
+_assert_eq "batching: four old detached checkouts are removable" 4 "$batch_removed"
+batch_lists=$(grep -c 'worktree list --porcelain' "$batch_git_log")
+if ((batch_lists <= 2)); then
+  _pass "batching: one worktree list serves the repo ($batch_lists)"
+else
+  _fail "batching: one worktree list serves the repo (got $batch_lists)"
+fi
+batch_symrefs=$(grep -c 'symbolic-ref' "$batch_git_log")
+if ((batch_symrefs <= 2)); then
+  _pass "batching: one base resolution serves the repo ($batch_symrefs)"
+else
+  _fail "batching: one base resolution serves the repo (got $batch_symrefs)"
+fi
+batch_total=$(grep -c . "$batch_git_log")
+if ((batch_total <= 35)); then
+  _pass "batching: git spawns stay batched ($batch_total)"
+else
+  _fail "batching: git spawns stay batched (got $batch_total)"
+fi
+
 _test_summary

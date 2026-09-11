@@ -8,6 +8,12 @@ dot_core_test_doctor() {
   local doctor_termux_account_status doctor_termux_account_home
   local doctor_account_spoof_home doctor_account_spoof_bin
   local doctor_account_hash_spoof_status doctor_account_command_spoof_status
+  local integ_home integ_bin integ_nz_bin integ_bare integ_poison
+  local integ_poison_result integ_saved_home integ_saved_path
+  local integ_shdeps_bin_unset integ_saved_shdeps_bin
+  local integ_shdeps_dir_unset integ_saved_shdeps_dir
+  local integ_healthy integ_missing integ_broken integ_noresolve integ_nozsh
+  local integ_bare_result integ_healthy_status integ_bare_status
 
   echo ""
   echo "=== Base doctor extensions ==="
@@ -262,6 +268,168 @@ SH
     "$DOT_SOURCE_ROOT/bin/dot" doctor 2>&1 || true)
   _assert_contains "doctor integration: flags a missing bash startup file" \
     ".bashrc missing" "$result"
+
+  echo ""
+  echo "=== Shell integrations ==="
+
+  # Fixture HOME with the real loader chain (shell-loader, shdeps
+  # assets adapter, 53-termnav) resolving through a stub shdeps to a
+  # fixture termnav asset. Both the full-boot probe and the direct
+  # asset probe answer from this same fixture.
+  integ_home=$(_tmpdir)
+  integ_bin=$(_tmpdir)
+  mkdir -p "$integ_home/.local/lib/dotfiles" \
+    "$integ_home/.config/shell/interactive.d" \
+    "$integ_home/.config/shdeps" "$integ_home/share"
+  cp "$REAL_HOME/.local/lib/dotfiles/shell-loader.sh" \
+    "$integ_home/.local/lib/dotfiles/shell-loader.sh"
+  cp "$REAL_HOME/.local/lib/dotfiles/shdeps-assets.sh" \
+    "$integ_home/.local/lib/dotfiles/shdeps-assets.sh"
+  cp "$REAL_HOME/.config/shell/interactive.d/53-termnav.sh" \
+    "$integ_home/.config/shell/interactive.d/53-termnav.sh"
+  printf '%s\n' 'TERMNAV_SHELL_LOADED=1' \
+    >"$integ_home/share/termnav-asset.sh"
+  cat >"$integ_bin/shdeps" <<SH
+#!/usr/bin/env bash
+if [[ "\${1:-}" == dep-file && "\${2:-}" == cgraf78/termnav && "\${3:-}" == share/termnav/shell.sh ]]; then
+  printf '%s\n' "$integ_home/share/termnav-asset.sh"
+  exit 0
+fi
+exit 1
+SH
+  chmod +x "$integ_bin/shdeps"
+  # Pin shdeps resolution to the stub: ambient SHDEPS_BIN hints must not
+  # leak a host shdeps into the fixture probes.
+  if [[ -z ${SHDEPS_BIN+x} ]]; then
+    integ_shdeps_bin_unset=1
+  else
+    integ_shdeps_bin_unset=0
+    integ_saved_shdeps_bin=$SHDEPS_BIN
+  fi
+  if [[ -z ${SHDEPS_BIN_DIR+x} ]]; then
+    integ_shdeps_dir_unset=1
+  else
+    integ_shdeps_dir_unset=0
+    integ_saved_shdeps_dir=$SHDEPS_BIN_DIR
+  fi
+  unset SHDEPS_BIN SHDEPS_BIN_DIR
+  integ_saved_home=$HOME
+  integ_saved_path=$PATH
+  HOME=$integ_home
+  PATH=$integ_bin:$PATH
+  export HOME PATH
+  _doctor_records _dr_check_shell_integrations \
+    >"$integ_home/healthy.txt" 2>/dev/null
+  integ_healthy_status=$?
+  mv "$integ_home/share/termnav-asset.sh" "$integ_home/share/termnav-asset.sh.off"
+  _doctor_records _dr_check_shell_integrations \
+    >"$integ_home/missing.txt" 2>/dev/null
+  printf '%s\n' ':' >"$integ_home/share/termnav-asset.sh"
+  _doctor_records _dr_check_shell_integrations \
+    >"$integ_home/broken.txt" 2>/dev/null
+  rm "$integ_home/share/termnav-asset.sh"
+  mv "$integ_home/share/termnav-asset.sh.off" "$integ_home/share/termnav-asset.sh"
+  HOME=$integ_saved_home
+  PATH=$integ_saved_path
+  export HOME PATH
+  integ_healthy=$(cat "$integ_home/healthy.txt")
+  integ_missing=$(cat "$integ_home/missing.txt")
+  integ_broken=$(cat "$integ_home/broken.txt")
+  _assert_exit "integrations: healthy check exits 0" 0 \
+    "$integ_healthy_status"
+  _assert_contains "integrations: healthy bash reports ok" \
+    $'ok\ttermnav bash integration' "$integ_healthy"
+  _assert_contains "integrations: missing asset warns for bash" \
+    $'warn\ttermnav bash integration unavailable' "$integ_missing"
+  _assert_contains "integrations: markerless asset warns for bash" \
+    $'warn\ttermnav bash integration unavailable' "$integ_broken"
+  if command -v zsh >/dev/null 2>&1; then
+    _assert_contains "integrations: healthy zsh reports ok" \
+      $'ok\ttermnav zsh integration' "$integ_healthy"
+    _assert_contains "integrations: missing asset warns for zsh" \
+      $'warn\ttermnav zsh integration unavailable' "$integ_missing"
+  else
+    _assert_contains "integrations: missing zsh skips the zsh check" \
+      $'skip\ttermnav zsh integration' "$integ_healthy"
+  fi
+
+  # A zsh-free PATH pins the skip verdict deterministically even on
+  # hosts with zsh installed; bash must still answer from the asset.
+  # Dropping the stub shdeps from that PATH pins the unresolvable
+  # verdict without any host shdeps leaking in.
+  integ_nz_bin=$(_tmpdir)
+  ln -s "$(command -v bash)" "$integ_nz_bin/bash"
+  ln -s "$(command -v cat)" "$integ_nz_bin/cat"
+  ln -s "$(command -v mktemp)" "$integ_nz_bin/mktemp"
+  ln -s "$(command -v rm)" "$integ_nz_bin/rm"
+  ln -s "$(command -v sort)" "$integ_nz_bin/sort"
+  integ_saved_home=$HOME
+  integ_saved_path=$PATH
+  HOME=$integ_home
+  PATH=$integ_bin:$integ_nz_bin
+  export HOME PATH
+  _doctor_records _dr_check_shell_integrations \
+    >"$integ_home/nozsh.txt" 2>/dev/null
+  PATH=$integ_nz_bin
+  export PATH
+  _doctor_records _dr_check_shell_integrations \
+    >"$integ_home/noresolve.txt" 2>/dev/null
+  HOME=$integ_saved_home
+  PATH=$integ_saved_path
+  export HOME PATH
+  integ_nozsh=$(cat "$integ_home/nozsh.txt")
+  integ_noresolve=$(cat "$integ_home/noresolve.txt")
+  _assert_contains "integrations: zsh-free PATH reports bash ok" \
+    $'ok\ttermnav bash integration' "$integ_nozsh"
+  _assert_contains "integrations: zsh-free PATH skips zsh" \
+    $'skip\ttermnav zsh integration' "$integ_nozsh"
+  _assert_contains "integrations: unresolvable asset warns for bash" \
+    $'warn\ttermnav bash integration unavailable' "$integ_noresolve"
+
+  # The narrow probe never sources interactive startup: a poison file
+  # that would abort a full boot must not change the verdict.
+  integ_poison=$(_tmpdir)
+  cp -r "$integ_home/." "$integ_poison/"
+  printf '%s\n' 'exit 1' \
+    >"$integ_poison/.config/shell/interactive.d/99-poison.sh"
+  HOME=$integ_poison
+  PATH=$integ_bin:$PATH
+  export HOME PATH
+  _doctor_records _dr_check_shell_integrations \
+    >"$integ_poison/run.txt" 2>/dev/null
+  HOME=$integ_saved_home
+  PATH=$integ_saved_path
+  export HOME PATH
+  integ_poison_result=$(cat "$integ_poison/run.txt")
+  _assert_contains "integrations: probe ignores interactive startup" \
+    $'ok\ttermnav bash integration' "$integ_poison_result"
+
+  # A bare HOME (no loader chain at all) warns instead of failing.
+  integ_bare=$(_tmpdir)
+  integ_saved_home=$HOME
+  HOME=$integ_bare
+  export HOME
+  _doctor_records _dr_check_shell_integrations \
+    >"$integ_bare/run.txt" 2>/dev/null
+  integ_bare_status=$?
+  HOME=$integ_saved_home
+  export HOME
+  integ_bare_result=$(cat "$integ_bare/run.txt")
+  if ((integ_shdeps_bin_unset == 1)); then
+    unset SHDEPS_BIN
+  else
+    SHDEPS_BIN=$integ_saved_shdeps_bin
+    export SHDEPS_BIN
+  fi
+  if ((integ_shdeps_dir_unset == 1)); then
+    unset SHDEPS_BIN_DIR
+  else
+    SHDEPS_BIN_DIR=$integ_saved_shdeps_dir
+    export SHDEPS_BIN_DIR
+  fi
+  _assert_exit "integrations: bare HOME exits 0" 0 "$integ_bare_status"
+  _assert_contains "integrations: bare HOME warns for bash" \
+    $'warn\ttermnav bash integration unavailable' "$integ_bare_result"
 
   unset -f _doctor_records
 }
