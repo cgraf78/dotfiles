@@ -31,11 +31,23 @@ _dot_tool_any_path() {
   return 1
 }
 
-# Compare configuration payloads without assuming the optional `cmp` or
-# `diff` packages exist. Git is already a bootstrap requirement for every
-# dotfiles profile, and `--no-filters` keeps the comparison byte-exact.
+# Compare configuration payloads byte-exact. `cmp` answers in under a
+# millisecond; the git hash-object fallback keeps minimal systems without
+# cmp or diffutils on the exact same verdicts. Exit status is normalized
+# to 0 (equal) or 1 (different or unreadable) on both paths so callers
+# never observe cmp's distinct trouble code. Leading-dash spellings take
+# a `./` prefix instead of `--` because BSD cmp predates end-of-options.
 dot_config_files_equal() {
-  local left_hash right_hash
+  local left=$1 right=$2 status left_hash right_hash
+
+  if command -v cmp >/dev/null 2>&1; then
+    case $left in -*) left=./$left ;; esac
+    case $right in -*) right=./$right ;; esac
+    cmp -s "$left" "$right" 2>/dev/null
+    status=$?
+    ((status == 0)) && return 0
+    return 1
+  fi
 
   left_hash=$(git hash-object --no-filters -- "$1" 2>/dev/null) || return 1
   right_hash=$(git hash-object --no-filters -- "$2" 2>/dev/null) || return 1

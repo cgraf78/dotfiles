@@ -141,6 +141,74 @@ BASH
   dot_config_files_equal "$compare_left" "$compare_different" || compare_status=$?
   _assert_eq "config comparison: different files do not match" \
     "1" "$compare_status"
+  compare_status=0
+  dot_config_files_equal "$compare_left" "$compare_left.missing" || compare_status=$?
+  _assert_eq "config comparison: missing right file does not match" \
+    "1" "$compare_status"
+  compare_status=0
+  dot_config_files_equal "$compare_left.missing" "$compare_left" || compare_status=$?
+  _assert_eq "config comparison: missing left file does not match" \
+    "1" "$compare_status"
+  compare_status=0
+  dot_config_files_equal "$compare_left.missing" "$compare_different.missing" || compare_status=$?
+  _assert_eq "config comparison: missing files do not match" \
+    "1" "$compare_status"
+
+  # Fast path: with cmp on PATH the comparison answers without spawning
+  # git at all. The shim records any fallback invocation.
+  compare_git_log=$(_tmpfile)
+  compare_shim_bin=$(_tmpdir)
+  cat >"$compare_shim_bin/git" <<SH
+#!/usr/bin/env bash
+printf 'git-spawned\n' >>"$compare_git_log"
+exit 1
+SH
+  chmod +x "$compare_shim_bin/git"
+  compare_saved_path=$PATH
+  PATH="$compare_shim_bin:$PATH"
+  dot_config_files_equal "$compare_left" "$compare_same"
+  compare_fast_same=$?
+  dot_config_files_equal "$compare_left" "$compare_different"
+  compare_fast_different=$?
+  dot_config_files_equal "$compare_left" "$compare_left.missing"
+  compare_fast_missing=$?
+  PATH=$compare_saved_path
+  _assert_eq "config comparison: cmp path keeps verdicts" \
+    "same=0 different=1 missing=1" \
+    "same=$compare_fast_same different=$compare_fast_different missing=$compare_fast_missing"
+  _assert_eq "config comparison: cmp path never spawns git" \
+    "" "$(cat "$compare_git_log")"
+
+  # Fallback path: without cmp the git comparison keeps identical verdicts.
+  compare_nocmp_bin=$(_tmpdir)
+  ln -s "$(command -v git)" "$compare_nocmp_bin/git"
+  compare_saved_path=$PATH
+  PATH="$compare_nocmp_bin"
+  dot_config_files_equal "$compare_left" "$compare_same"
+  compare_fallback_same=$?
+  dot_config_files_equal "$compare_left" "$compare_different"
+  compare_fallback_different=$?
+  dot_config_files_equal "$compare_left" "$compare_left.missing"
+  compare_fallback_missing=$?
+  PATH=$compare_saved_path
+  _assert_eq "config comparison: git fallback keeps verdicts" \
+    "same=0 different=1 missing=1" \
+    "same=$compare_fallback_same different=$compare_fallback_different missing=$compare_fallback_missing"
+
+  # Leading-dash spellings compare by content on both paths.
+  compare_dash_dir=$(_tmpdir)
+  printf 'dash\n' >"$compare_dash_dir/-same-a"
+  printf 'dash\n' >"$compare_dash_dir/-same-b"
+  printf 'other\n' >"$compare_dash_dir/-other"
+  compare_dash_verdicts=$(
+    cd "$compare_dash_dir" || exit 3
+    dot_config_files_equal "-same-a" "-same-b"
+    printf 'same=%s\n' "$?"
+    dot_config_files_equal "-same-a" "-other"
+    printf 'different=%s\n' "$?"
+  )
+  _assert_eq "config comparison: leading-dash names compare by content" \
+    "$(printf 'same=0\ndifferent=1')" "$compare_dash_verdicts"
 
   local tool_platform_impl tool_command_impl tool_path_impl
   tool_platform_impl=$(declare -f _dot_tool_platform)
