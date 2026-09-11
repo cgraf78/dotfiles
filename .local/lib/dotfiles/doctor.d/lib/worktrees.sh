@@ -14,6 +14,14 @@ _DR_WORKTREE_WARN_BYTES_DEFAULT=10737418240
 _DR_WORKTREE_STALE_DAYS=14
 _DR_WORKTREE_STALE_LIST_LIMIT=5
 
+# Per-run base-ref cache, keyed by repo identity (see
+# _dr_worktree_repo_key). Checkouts of one repo share a single base
+# resolution instead of each paying up to five git probes. Reset on
+# every _dr_check_worktrees call; parallel indexed arrays keep the file
+# on its existing shell requirements.
+_DR_WORKTREE_BASE_KEYS=()
+_DR_WORKTREE_BASE_REFS=()
+
 # Resolve the disk threshold in bytes. Invalid overrides fall back to the
 # default so a typo can neither silence the check nor warn unconditionally.
 _dr_worktree_warn_bytes() {
@@ -101,6 +109,39 @@ _dr_worktree_candidates() {
   return 0
 }
 
+# Print the repo-identity key for a checkout, or fail. Same-repo
+# checkouts must share one key while different repos must never
+# collide, so the key derives from git storage identity without
+# spawning git: the physical `.git` directory, or for linked
+# checkouts the physical common dir above the `worktrees` admin area.
+# Anything ambiguous (missing or unreadable pointer, relative gitdir
+# that no longer resolves, non-worktree gitfile layouts outside the
+# admin area) fails and the caller falls back to the checkout path
+# itself, which shares with nothing and behaves exactly uncached.
+_dr_worktree_repo_key() {
+  local dir=$1 gitpath=$1/.git first target phys parent
+  if [[ -d $gitpath ]]; then
+    (cd -- "$gitpath" 2>/dev/null && pwd -P 2>/dev/null) || return 1
+    return 0
+  fi
+  [[ -f $gitpath ]] || return 1
+  IFS= read -r first <"$gitpath" 2>/dev/null || return 1
+  case $first in
+    'gitdir: '?*) target=${first#gitdir: } ;;
+    *) return 1 ;;
+  esac
+  [[ -n $target ]] || return 1
+  case $target in
+    /*) phys=$(cd -- "$target" 2>/dev/null && pwd -P 2>/dev/null) || return 1 ;;
+    *) phys=$(cd -- "$dir/$target" 2>/dev/null && pwd -P 2>/dev/null) || return 1 ;;
+  esac
+  parent=${phys%/*}
+  case $parent in
+    */worktrees) printf '%s\n' "${parent%/*}" ;;
+    *) printf '%s\n' "$phys" ;;
+  esac
+}
+
 # Print the local base ref (short remote form, e.g. origin/main) for a
 # checkout, without touching the network, or fail. Mirrors the gc's
 # origin-first resolution: the origin HEAD symref, then the sole
@@ -141,16 +182,50 @@ _dr_worktree_base_ref() {
   return 1
 }
 
-# Print why an old checkout counts as stale (its branch is merged into the
-# upstream default or its upstream is gone), or nothing. The caller gates on
-# age with a single find pass so young checkouts cost no git spawns here.
-# Non-git checkouts, detached HEAD, repos without remotes, and missing tools
-# all report nothing. Never fails; never touches the network.
+# Resolve the local base ref for a checkout once per repo per run and
+# report it via REPLY, or fail. The repo key needs no git spawn, so
+# unshared checkouts pay two cheap subshells at most while shared ones
+# skip up to five git probes each. Failures cache too: the doctor never
+# fetches, so nothing later in the run can grow a base ref. Must run in
+# the main shell; callers under $() would discard the cache writes.
+# Keep in sync with _worktree_gc_base_ref_cached.
+_dr_worktree_base_ref_ensure() {
+  local dir=$1 key=$1 i ref
+  REPLY=
+  key=$(_dr_worktree_repo_key "$dir") || key=$dir
+  for ((i = 0; i < ${#_DR_WORKTREE_BASE_KEYS[@]}; i++)); do
+    [[ ${_DR_WORKTREE_BASE_KEYS[$i]} == "$key" ]] || continue
+    ref=${_DR_WORKTREE_BASE_REFS[$i]}
+    if [[ -n $ref ]]; then
+      REPLY=$ref
+      return 0
+    fi
+    return 1
+  done
+  if ref=$(_dr_worktree_base_ref "$dir"); then
+    _DR_WORKTREE_BASE_KEYS+=("$key")
+    _DR_WORKTREE_BASE_REFS+=("$ref")
+    REPLY=$ref
+    return 0
+  fi
+  _DR_WORKTREE_BASE_KEYS+=("$key")
+  _DR_WORKTREE_BASE_REFS+=("")
+  return 1
+}
+
+# Report why an old checkout counts as stale (its branch is merged into
+# the upstream default or its upstream is gone) via REPLY, or "". The
+# caller gates on age with a single find pass so young checkouts cost
+# no git spawns here. Non-git checkouts, detached HEAD, repos without
+# remotes, and missing tools all report "". Never fails; never touches
+# the network. Must run in the main shell so the per-repo base cache
+# survives across checkouts.
 _dr_worktree_stale_reason() {
   local dir=$1
   local branch upstream_info upstream_short upstream_track
   local default_ref
 
+  REPLY=
   command -v git >/dev/null 2>&1 || return 0
   [[ -e $dir/.git ]] || return 0
 
@@ -161,19 +236,98 @@ _dr_worktree_stale_reason() {
   upstream_info=$(git -C "$dir" for-each-ref --format='%(upstream:short)%09%(upstream:track)' "refs/heads/$branch" 2>/dev/null) || return 0
   IFS=$'\t' read -r upstream_short upstream_track <<<"$upstream_info"
   if [[ $upstream_track == "[gone]" ]]; then
-    printf 'upstream %s is gone\n' "${upstream_short:-$branch}"
+    REPLY="upstream ${upstream_short:-$branch} is gone"
     return 0
   fi
 
-  default_ref=$(_dr_worktree_base_ref "$dir") || return 0
+  _dr_worktree_base_ref_ensure "$dir" || return 0
+  default_ref=$REPLY
+  REPLY=
   if git -C "$dir" merge-base --is-ancestor HEAD "$default_ref" 2>/dev/null; then
-    printf 'merged into %s\n' "$default_ref"
+    REPLY="merged into $default_ref"
   fi
   return 0
 }
 
+# Print the du-total cache path: a recomputable performance record,
+# so it lives under the cache base with the usual XDG fallback. A
+# relative XDG_CACHE_HOME is ignored, like the termnav state precedent.
+_dr_worktree_du_cache_file() {
+  local base=${XDG_CACHE_HOME:-}
+  case $base in
+    /*) ;;
+    *) base=$HOME/.cache ;;
+  esac
+  printf '%s\n' "$base/dot/doctor-worktrees-du.tsv"
+}
+
+# Print one `mtime path` line per checkout root, or fail. A single
+# batched stat covers every root; GNU and BSD spellings are tried in
+# turn so Linux, macOS, and BSD userlands all work. Any failure (a root
+# vanishing mid-run, an unknown stat) fails the key and the caller
+# recomputes, exactly as an uncached run would. Newline-containing
+# paths fail for the same reason: line framing cannot hold them.
+_dr_worktree_key_lines() {
+  local dir out
+  for dir in "$@"; do
+    case $dir in *$'\n'*) return 1 ;; esac
+  done
+  out=$(stat -c '%Y %n' "$@" 2>/dev/null) ||
+    out=$(stat -f '%m %N' "$@" 2>/dev/null) || return 1
+  [[ -n $out ]] || return 1
+  printf '%s\n' "$out"
+}
+
+# Print the summed `du -sk` total in KiB for the given roots. The
+# single du pass from the original check, unchanged.
+_dr_worktree_du_total() {
+  local du_out=0
+  du_out=$(du -sk -- "$@" 2>/dev/null | awk '{sum += $1} END {print sum + 0}') || du_out=0
+  case $du_out in
+    "" | *[!0-9]*) printf '0\n' ;;
+    *) printf '%s\n' "$du_out" ;;
+  esac
+}
+
+# Print the du total in KiB for the checkout roots, recomputing only
+# when a checkout root changed. The cache key is each root's mtime plus
+# the root set itself, so checkout add/remove and top-level entry
+# changes recompute; nested-only growth reuses the last total until the
+# next root change. That staleness is the documented cost of skipping
+# the du pass: this check is warn-only and the total is advisory.
+# Never fails: every cache problem falls back to a fresh du pass, and
+# a failed store is silently skipped for the next run to retry.
+_dr_worktree_cached_du_total() {
+  local key cache stored_total stored_key fresh tmp
+  if ! key=$(_dr_worktree_key_lines "$@"); then
+    _dr_worktree_du_total "$@"
+    return 0
+  fi
+  cache=$(_dr_worktree_du_cache_file)
+  if stored_total=$(head -n 1 "$cache" 2>/dev/null) &&
+    [[ -n $stored_total && $stored_total != *[!0-9]* ]] &&
+    stored_key=$(tail -n +2 "$cache" 2>/dev/null) &&
+    [[ $stored_key == "$key" ]]; then
+    printf '%s\n' "$stored_total"
+    return 0
+  fi
+  fresh=$(_dr_worktree_du_total "$@")
+  mkdir -p "${cache%/*}" 2>/dev/null || true
+  if tmp=$(mktemp "${cache}.tmp.XXXXXX" 2>/dev/null) &&
+    printf '%s\n%s\n' "$fresh" "$key" >"$tmp" 2>/dev/null &&
+    mv -f "$tmp" "$cache" 2>/dev/null; then
+    :
+  else
+    rm -f "$tmp" 2>/dev/null || true
+  fi
+  printf '%s\n' "$fresh"
+}
+
 _dr_check_worktrees() {
   _dr_section "Worktrees"
+
+  _DR_WORKTREE_BASE_KEYS=()
+  _DR_WORKTREE_BASE_REFS=()
 
   local home=${HOME:-}
   local home_phys dotfiles_phys dir
@@ -206,14 +360,13 @@ _dr_check_worktrees() {
     return 0
   fi
 
-  # One du pass over the top-level checkouts; no deep traversal beyond what
-  # du -s already summarizes.
-  local total_kib=0 du_out
+  # One du pass over the top-level checkouts, cached by root mtimes;
+  # no deep traversal beyond what du -s already summarizes.
+  local total_kib=0
   if command -v du >/dev/null 2>&1; then
-    du_out=$(du -sk -- "${dirs[@]}" 2>/dev/null | awk '{sum += $1} END {print sum + 0}') || du_out=0
-    case $du_out in
+    total_kib=$(_dr_worktree_cached_du_total "${dirs[@]}")
+    case $total_kib in
       "" | *[!0-9]*) total_kib=0 ;;
-      *) total_kib=$du_out ;;
     esac
   fi
   local total_bytes=$((total_kib * 1024))
@@ -241,7 +394,8 @@ _dr_check_worktrees() {
 
   local stale_count=0 reason sample detail
   for dir in ${old_dirs[@]+"${old_dirs[@]}"}; do
-    reason=$(_dr_worktree_stale_reason "$dir") || reason=
+    _dr_worktree_stale_reason "$dir" || true
+    reason=$REPLY
     if [[ -z $reason ]]; then
       continue
     fi
