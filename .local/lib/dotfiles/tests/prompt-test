@@ -842,6 +842,126 @@ _assert_eq "system nonrepo prompt: fails fast on the system binary" \
 _assert_file_content "system nonrepo prompt: never retries outside repos" \
   "" "$SYS_REAL_LOG"
 
+# Same-shell PATH change: the memoized git selection snapshots PATH, so a
+# mid-shell PATH mutation must re-resolve instead of reusing the stale
+# binary. Both renders happen in one shell (every other test respawns).
+SYS_REAL2_BIN="$TEST_TMPDIR/sys-real2-bin"
+SYS_REAL2_LOG="$TEST_TMPDIR/sys-real2.log"
+mkdir -p "$SYS_REAL2_BIN"
+: >"$SYS_REAL2_LOG"
+cat >"$SYS_REAL2_BIN/git" <<'EOF'
+#!/usr/bin/env bash
+printf 'real2:%s\n' "$*" >>"$SYS_REAL2_LOG"
+case " $* " in
+  *" --no-optional-locks status --porcelain=v2 --branch "*)
+    printf '%s\n' '# branch.head main' '# branch.ab +0 -0'
+    ;;
+  *) exit 1 ;;
+esac
+EOF
+chmod +x "$SYS_REAL2_BIN/git"
+SYS_CANDIDATES="$SYS_SYS_BIN/git"
+: >"$SYS_WRAPPER_LOG"
+: >"$SYS_REAL_LOG"
+: >"$SYS_SYS_LOG"
+sys_pathchange_out=$(
+  HOME="$SYS_HOME" \
+    BASH_ENV='' \
+    REAL_HOME="$REAL_HOME" \
+    SYS_CWD="$SYS_HOME" \
+    SYS_WRAPPER_LOG="$SYS_WRAPPER_LOG" \
+    SYS_REAL_BIN="$SYS_REAL_BIN" \
+    SYS_REAL_LOG="$SYS_REAL_LOG" \
+    SYS_REAL2_BIN="$SYS_REAL2_BIN" \
+    SYS_REAL2_LOG="$SYS_REAL2_LOG" \
+    SYS_SYS_LOG="$SYS_SYS_LOG" \
+    SYS_SYS_FAIL=0 \
+    DOT_GIT_PROMPT_SYSTEM_GITS="$SYS_CANDIDATES" \
+    XDG_CACHE_HOME="$SYS_HOME/.cache" \
+    PATH="$SYS_PATH" \
+    bash --noprofile --norc -c '
+      cd "${SYS_CWD:-$HOME}" || exit 1
+      # shellcheck disable=SC1091
+      . "$REAL_HOME/.config/shell/interactive.d/59-prompt.sh"
+      __git_prompt
+      printf "\n@@@1-REAL:%s\n@@@1-SNAPSHOT:%s\n" \
+        "${_DOT_GIT_PROMPT_REAL_BIN:-unset}" \
+        "${_DOT_GIT_PROMPT_PATH_SNAPSHOT:-unset}"
+      PATH="$SYS_REAL2_BIN:$PATH"
+      export PATH
+      __git_prompt
+      printf "\n@@@2-REAL:%s\n@@@2-SNAPSHOT:%s\n" \
+        "${_DOT_GIT_PROMPT_REAL_BIN:-unset}" \
+        "${_DOT_GIT_PROMPT_PATH_SNAPSHOT:-unset}"
+    '
+)
+# Markers carry PATH text, so strip them before matching render output.
+sys_pathchange_render=$(printf '%s\n' "$sys_pathchange_out" | grep -v '^@@@')
+_assert_contains "system pathchange prompt: renders show state" \
+  "main" "$sys_pathchange_render"
+_assert_eq "system pathchange prompt: first render resolves past the launcher" \
+  "$SYS_REAL_BIN/git" \
+  "$(printf '%s\n' "$sys_pathchange_out" | sed -n 's/^@@@1-REAL://p')"
+_assert_eq "system pathchange prompt: PATH change re-resolves the binary" \
+  "$SYS_REAL2_BIN/git" \
+  "$(printf '%s\n' "$sys_pathchange_out" | sed -n 's/^@@@2-REAL://p')"
+_assert_eq "system pathchange prompt: snapshot tracks the new PATH" \
+  "$SYS_REAL2_BIN:$SYS_PATH" \
+  "$(printf '%s\n' "$sys_pathchange_out" | sed -n 's/^@@@2-SNAPSHOT://p')"
+
+# Read-only cache dir: prompt cache write-back is best-effort, so a render
+# with no writable cache still succeeds (caches cleared first so the
+# render takes the write path instead of re-reading a warm entry).
+rm -rf "$SYS_HOME/.cache/dot" "$SYS_HOME/.cache/dotfiles"
+chmod 555 "$SYS_HOME/.cache"
+SYS_CANDIDATES="$SYS_SYS_BIN/git"
+: >"$SYS_WRAPPER_LOG"
+: >"$SYS_REAL_LOG"
+: >"$SYS_SYS_LOG"
+sys_ro_prompt=$(sys_run_prompt)
+sys_ro_rc=$?
+chmod 755 "$SYS_HOME/.cache"
+_assert_eq "system readonly prompt: render succeeds" "0" "$sys_ro_rc"
+_assert_contains "system readonly prompt: renders repository state" \
+  "main" "$sys_ro_prompt"
+_assert_eq "system readonly prompt: still selects the system binary" \
+  "$SYS_SYS_BIN/git" "$(sed -n '1p' "$SYS_COMMAND_LOG")"
+
+# zsh retry branch: the system fast path fails once, so `_dot_git_prompt_try`
+# re-dispatches to the real binary — exercising its array reassignment
+# under zsh rather than only under bash.
+SYS_CANDIDATES="$SYS_SYS_BIN/git"
+: >"$SYS_WRAPPER_LOG"
+: >"$SYS_REAL_LOG"
+: >"$SYS_SYS_LOG"
+sys_zsh_retry_prompt=$(
+  HOME="$SYS_HOME" \
+    REAL_HOME="$REAL_HOME" \
+    SYS_CWD="$SYS_HOME" \
+    SYS_WRAPPER_LOG="$SYS_WRAPPER_LOG" \
+    SYS_REAL_BIN="$SYS_REAL_BIN" \
+    SYS_REAL_LOG="$SYS_REAL_LOG" \
+    SYS_SYS_LOG="$SYS_SYS_LOG" \
+    SYS_SYS_FAIL=1 \
+    SYS_COMMAND_LOG="$SYS_COMMAND_LOG" \
+    DOT_GIT_PROMPT_SYSTEM_GITS="$SYS_CANDIDATES" \
+    HOMEBREW_PREFIX="${SYS_HOMEBREW:-}" \
+    XDG_CACHE_HOME="$SYS_HOME/.cache" \
+    PATH="$SYS_PATH" \
+    zsh -f -c '
+      cd "${SYS_CWD:-$HOME}" || exit 1
+      # shellcheck disable=SC1091
+      . "$REAL_HOME/.config/shell/interactive.d/59-prompt.sh"
+      __git_prompt
+    '
+)
+_assert_contains "system zsh retry prompt: renders repository state" \
+  "main" "$sys_zsh_retry_prompt"
+_assert_eq "system zsh retry prompt: tries the system binary first" \
+  "1" "$(grep -c '^system:' "$SYS_SYS_LOG" | tr -d ' ')"
+_assert_eq "system zsh retry prompt: retries once with the real binary" \
+  "1" "$(grep -c '^real:' "$SYS_REAL_LOG" | tr -d ' ')"
+
 SYS_BREW="$TEST_TMPDIR/sysbrew"
 SYS_BREW_BIN="$SYS_BREW/bin"
 mkdir -p "$SYS_BREW_BIN"

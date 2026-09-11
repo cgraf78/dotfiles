@@ -123,15 +123,16 @@ _dot_git_prompt_select_system() {
 # at the cost of one extra fork on that rare path; ordinary failures outside
 # repositories never retry.
 _dot_git_prompt_try() {
-  local retry="$1"
-  local -a real_cmd=()
+  local retry="$1" real_bin
   shift
   if [[ "$retry" == 1 && "$1" == "$_DOT_GIT_PROMPT_BIN" &&
     "$_DOT_GIT_PROMPT_BIN" != "$_DOT_GIT_PROMPT_REAL_BIN" ]]; then
+    # Re-dispatch via shift instead of `cmd[0]=...`: zsh arrays are
+    # 1-based, so index-zero assignment fails there. Identical argv.
     "$@" 2>/dev/null || {
-      real_cmd=("$@")
-      real_cmd[0]="$_DOT_GIT_PROMPT_REAL_BIN"
-      "${real_cmd[@]}" 2>/dev/null
+      real_bin="$_DOT_GIT_PROMPT_REAL_BIN"
+      shift
+      "$real_bin" "$@" 2>/dev/null
     }
   else
     "$@" 2>/dev/null
@@ -338,7 +339,7 @@ __git_prompt() {
   done <<<"$git_status"
   [[ -z "$branch" ]] && return
   # Detached HEAD: porcelain v2 reports "(detached)", show short sha instead.
-  [[ "$branch" == "(detached)" ]] && branch="$("${g[@]}" rev-parse --short HEAD 2>/dev/null)"
+  [[ "$branch" == "(detached)" ]] && branch="$(_dot_git_prompt_try 1 "${g[@]}" rev-parse --short HEAD)"
   # Deduplicate dirty markers (multiple changed files may append duplicates).
   local d=""
   [[ "$dirty" == *"+"* ]] && d+="+"
@@ -353,7 +354,7 @@ __git_prompt() {
   if [[ -f "$gitdir/MERGE_HEAD" || -d "$gitdir/rebase-merge" ||
     -d "$gitdir/rebase-apply" || -f "$gitdir/CHERRY_PICK_HEAD" ||
     -f "$gitdir/REVERT_HEAD" ]]; then
-    authoritative_gitdir="$("${g[@]}" rev-parse --git-dir 2>/dev/null)" ||
+    authoritative_gitdir="$(_dot_git_prompt_try 1 "${g[@]}" rev-parse --git-dir)" ||
       authoritative_gitdir=""
     if [[ -n "$authoritative_gitdir" ]]; then
       [[ "$authoritative_gitdir" == /* ]] ||
