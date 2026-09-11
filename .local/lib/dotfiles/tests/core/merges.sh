@@ -141,6 +141,80 @@ BASH
   dot_config_files_equal "$compare_left" "$compare_different" || compare_status=$?
   _assert_eq "config comparison: different files do not match" \
     "1" "$compare_status"
+  compare_status=0
+  dot_config_files_equal "$compare_left" "$compare_left.missing" || compare_status=$?
+  _assert_eq "config comparison: missing right file does not match" \
+    "1" "$compare_status"
+  compare_status=0
+  dot_config_files_equal "$compare_left.missing" "$compare_left" || compare_status=$?
+  _assert_eq "config comparison: missing left file does not match" \
+    "1" "$compare_status"
+  compare_status=0
+  dot_config_files_equal "$compare_left.missing" "$compare_different.missing" || compare_status=$?
+  _assert_eq "config comparison: missing files do not match" \
+    "1" "$compare_status"
+
+  # Fast path: with cmp on PATH the comparison answers without spawning
+  # git at all. The shim records any fallback invocation. Minimal images
+  # (Arch, CentOS Stream) ship no diffutils; there the git-fallback test
+  # below covers the cmp-less behavior instead.
+  if command -v cmp >/dev/null 2>&1; then
+    compare_git_log=$(_tmpfile)
+    compare_shim_bin=$(_tmpdir)
+    cat >"$compare_shim_bin/git" <<SH
+#!/usr/bin/env bash
+printf 'git-spawned\n' >>"$compare_git_log"
+exit 1
+SH
+    chmod +x "$compare_shim_bin/git"
+    compare_saved_path=$PATH
+    PATH="$compare_shim_bin:$PATH"
+    dot_config_files_equal "$compare_left" "$compare_same"
+    compare_fast_same=$?
+    dot_config_files_equal "$compare_left" "$compare_different"
+    compare_fast_different=$?
+    dot_config_files_equal "$compare_left" "$compare_left.missing"
+    compare_fast_missing=$?
+    PATH=$compare_saved_path
+    _assert_eq "config comparison: cmp path keeps verdicts" \
+      "same=0 different=1 missing=1" \
+      "same=$compare_fast_same different=$compare_fast_different missing=$compare_fast_missing"
+    _assert_eq "config comparison: cmp path never spawns git" \
+      "" "$(cat "$compare_git_log")"
+  else
+    echo "  - skipping cmp fast-path checks (cmp unavailable)"
+  fi
+
+  # Fallback path: without cmp the git comparison keeps identical verdicts.
+  compare_nocmp_bin=$(_tmpdir)
+  ln -s "$(command -v git)" "$compare_nocmp_bin/git"
+  compare_saved_path=$PATH
+  PATH="$compare_nocmp_bin"
+  dot_config_files_equal "$compare_left" "$compare_same"
+  compare_fallback_same=$?
+  dot_config_files_equal "$compare_left" "$compare_different"
+  compare_fallback_different=$?
+  dot_config_files_equal "$compare_left" "$compare_left.missing"
+  compare_fallback_missing=$?
+  PATH=$compare_saved_path
+  _assert_eq "config comparison: git fallback keeps verdicts" \
+    "same=0 different=1 missing=1" \
+    "same=$compare_fallback_same different=$compare_fallback_different missing=$compare_fallback_missing"
+
+  # Leading-dash spellings compare by content on both paths.
+  compare_dash_dir=$(_tmpdir)
+  printf 'dash\n' >"$compare_dash_dir/-same-a"
+  printf 'dash\n' >"$compare_dash_dir/-same-b"
+  printf 'other\n' >"$compare_dash_dir/-other"
+  compare_dash_verdicts=$(
+    cd "$compare_dash_dir" || exit 3
+    dot_config_files_equal "-same-a" "-same-b"
+    printf 'same=%s\n' "$?"
+    dot_config_files_equal "-same-a" "-other"
+    printf 'different=%s\n' "$?"
+  )
+  _assert_eq "config comparison: leading-dash names compare by content" \
+    "$(printf 'same=0\ndifferent=1')" "$compare_dash_verdicts"
 
   local tool_platform_impl tool_command_impl tool_path_impl
   tool_platform_impl=$(declare -f _dot_tool_platform)
@@ -503,6 +577,124 @@ TMUX
     DOT_TEST_TMUX_SERVER="$tmux_server" _run_tmux_merge_for_test
   _assert_eq "tmux merge: skips reload when no server is running" \
     "has-session" "$(cat "$tmux_log")"
+
+  # Converged runs skip the reload: the stamp records the config plus
+  # every conf.d include, and any change (content, mtime, include set,
+  # corrupt stamp) reloads again.
+  tmux_skip_home="$TEST_HOME/tmux-skip-home"
+  tmux_skip_bin="$tmux_skip_home/bin"
+  tmux_skip_log="$tmux_skip_home/tmux.log"
+  tmux_skip_server="$tmux_skip_home/server-running"
+  tmux_skip_cache="$tmux_skip_home/cache"
+  mkdir -p "$tmux_skip_home/.config/tmux/conf.d" "$tmux_skip_bin" \
+    "$tmux_skip_cache"
+  printf '%s\n' 'set -g status on' \
+    >"$tmux_skip_home/.config/tmux/tmux.conf"
+  printf '%s\n' 'set -g mouse on' \
+    >"$tmux_skip_home/.config/tmux/conf.d/10-base.conf"
+  cp "$tmux_bin/tmux" "$tmux_skip_bin/tmux"
+  : >"$tmux_skip_server"
+  tmux_skip_conf="$tmux_skip_home/.config/tmux/tmux.conf"
+  tmux_skip_expected=$(printf 'has-session\nsource-file %s' \
+    "$tmux_skip_conf")
+  tmux_saved_home=$HOME
+  tmux_saved_path=$PATH
+  if [[ -z ${XDG_CACHE_HOME+x} ]]; then
+    tmux_xdg_unset=1
+  else
+    tmux_xdg_unset=0
+    tmux_saved_xdg=$XDG_CACHE_HOME
+  fi
+  HOME=$tmux_skip_home
+  PATH=$tmux_skip_bin:$PATH
+  DOT_TEST_TMUX=$tmux_skip_bin/tmux
+  DOT_TEST_TMUX_LOG=$tmux_skip_log
+  DOT_TEST_TMUX_SERVER=$tmux_skip_server
+  XDG_CACHE_HOME=$tmux_skip_cache
+  export HOME PATH DOT_TEST_TMUX DOT_TEST_TMUX_LOG DOT_TEST_TMUX_SERVER
+  export XDG_CACHE_HOME
+  : >"$tmux_skip_log"
+  _run_tmux_merge_for_test >"$tmux_skip_home/out1.txt" 2>&1
+  cp "$tmux_skip_log" "$tmux_skip_home/log1.txt"
+  # Backdate explicitly (portable `-t`, not clock progression) so the
+  # converged skip is deterministic even on 1s-mtime filesystems. The
+  # fingerprint is content-based, so the backdate cannot fake a match.
+  touch -t 202001010000 "$tmux_skip_conf" \
+    "$tmux_skip_home/.config/tmux/conf.d/10-base.conf"
+  tmux_skip_status=$?
+  : >"$tmux_skip_log"
+  _run_tmux_merge_for_test >"$tmux_skip_home/out2.txt" 2>&1
+  cp "$tmux_skip_log" "$tmux_skip_home/log2.txt"
+  touch "$tmux_skip_conf"
+  : >"$tmux_skip_log"
+  _run_tmux_merge_for_test >"$tmux_skip_home/out3.txt" 2>&1
+  cp "$tmux_skip_log" "$tmux_skip_home/log3.txt"
+  printf '%s\n' 'set -g history-limit 5000' \
+    >"$tmux_skip_home/.config/tmux/conf.d/20-extra.conf"
+  : >"$tmux_skip_log"
+  _run_tmux_merge_for_test >"$tmux_skip_home/out4.txt" 2>&1
+  cp "$tmux_skip_log" "$tmux_skip_home/log4.txt"
+  printf '%s\n' 'set -g mouse off' \
+    >"$tmux_skip_home/.config/tmux/conf.d/10-base.conf"
+  : >"$tmux_skip_log"
+  _run_tmux_merge_for_test >"$tmux_skip_home/out5.txt" 2>&1
+  cp "$tmux_skip_log" "$tmux_skip_home/log5.txt"
+  printf '%s\n' 'garbage-not-a-stamp' \
+    >"$tmux_skip_cache/dot/merge-tmux.stamp"
+  : >"$tmux_skip_log"
+  _run_tmux_merge_for_test >"$tmux_skip_home/out6.txt" 2>&1
+  cp "$tmux_skip_log" "$tmux_skip_home/log6.txt"
+  # Without cksum the fingerprint fails closed: the reload still runs
+  # and succeeds, but no stamp is written. The restricted PATH hides
+  # cksum while keeping the double plus every command the hook needs.
+  tmux_nock_bin="$tmux_skip_home/nock-bin"
+  mkdir -p "$tmux_nock_bin"
+  # `stat` stays: the hook-source trust chain stats extension files, so
+  # hiding it would break sourcing instead of the fingerprint.
+  for tmux_tool in bash cat dirname mkdir mktemp mv rm stat; do
+    ln -s "$(command -v "$tmux_tool")" "$tmux_nock_bin/$tmux_tool"
+  done
+  tmux_stamp_before=$(cat "$tmux_skip_cache/dot/merge-tmux.stamp")
+  tmux_full_path=$PATH
+  PATH="$tmux_skip_bin:$tmux_nock_bin"
+  : >"$tmux_skip_log"
+  _run_tmux_merge_for_test >"$tmux_skip_home/out7.txt" 2>&1
+  tmux_nock_status=$?
+  PATH=$tmux_full_path
+  cp "$tmux_skip_log" "$tmux_skip_home/log7.txt"
+  HOME=$tmux_saved_home
+  PATH=$tmux_saved_path
+  unset DOT_TEST_TMUX DOT_TEST_TMUX_LOG DOT_TEST_TMUX_SERVER
+  if ((tmux_xdg_unset == 1)); then
+    unset XDG_CACHE_HOME
+  else
+    XDG_CACHE_HOME=$tmux_saved_xdg
+  fi
+  export HOME PATH XDG_CACHE_HOME
+  _assert_exit "tmux merge: first converged run exits 0" 0 \
+    "$tmux_skip_status"
+  _assert_eq "tmux merge: first run reloads and stamps" \
+    "$tmux_skip_expected" "$(cat "$tmux_skip_home/log1.txt")"
+  _assert_contains "tmux merge: reload logs the hook line" \
+    "tmux" "$(cat "$tmux_skip_home/out1.txt")"
+  _assert_eq "tmux merge: converged run skips the reload" \
+    "has-session" "$(cat "$tmux_skip_home/log2.txt")"
+  _assert_eq "tmux merge: skipped run stays silent" \
+    "" "$(cat "$tmux_skip_home/out2.txt")"
+  _assert_eq "tmux merge: touched config reloads again" \
+    "$tmux_skip_expected" "$(cat "$tmux_skip_home/log3.txt")"
+  _assert_eq "tmux merge: new include reloads again" \
+    "$tmux_skip_expected" "$(cat "$tmux_skip_home/log4.txt")"
+  _assert_eq "tmux merge: changed include reloads again" \
+    "$tmux_skip_expected" "$(cat "$tmux_skip_home/log5.txt")"
+  _assert_eq "tmux merge: corrupt stamp reloads again" \
+    "$tmux_skip_expected" "$(cat "$tmux_skip_home/log6.txt")"
+  _assert_exit "tmux merge: missing cksum still succeeds" 0 \
+    "$tmux_nock_status"
+  _assert_eq "tmux merge: missing cksum reloads again" \
+    "$tmux_skip_expected" "$(cat "$tmux_skip_home/log7.txt")"
+  _assert_eq "tmux merge: missing cksum writes no stamp" \
+    "$tmux_stamp_before" "$(cat "$tmux_skip_cache/dot/merge-tmux.stamp")"
   unset -f _run_tmux_merge_for_test merge 2>/dev/null
 
   echo "=== Karabiner source config ==="

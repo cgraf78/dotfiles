@@ -394,4 +394,231 @@ _assert_contains "overlay: repo-local worktree counts" \
 _assert_contains "overlay: non-git checkout stays silent" \
   $'ok\tno stale worktrees' "$result"
 
+echo ""
+echo "=== Disk total cache ==="
+
+# The du total recomputes only when a checkout root changes: a second
+# run over an untouched tree must skip du entirely and report
+# byte-identical records, while a root mtime change recomputes. The du
+# shim delegates to the real du while counting invocations.
+cache_home=$(_tmpdir)
+mkdir -p "$cache_home/.worktrees/cached-big"
+head -c 102400 /dev/zero >"$cache_home/.worktrees/cached-big/blob.bin"
+_make_old "$cache_home/.worktrees/cached-big"
+cache_real_du=$(command -v du)
+cache_du_log=$(_tmpfile)
+cache_shim_bin=$(_tmpdir)
+cat >"$cache_shim_bin/du" <<SH
+#!/usr/bin/env bash
+printf 'du-called\n' >>"$cache_du_log"
+exec "$cache_real_du" "\$@"
+SH
+chmod +x "$cache_shim_bin/du"
+cache_saved_home=$HOME
+cache_saved_path=$PATH
+if [[ -z ${DOTFILES+x} ]]; then
+  cache_dotfiles_unset=1
+else
+  cache_dotfiles_unset=0
+  cache_saved_dotfiles=$DOTFILES
+fi
+if [[ -z ${XDG_CACHE_HOME+x} ]]; then
+  cache_xdg_unset=1
+else
+  cache_xdg_unset=0
+  cache_saved_xdg=$XDG_CACHE_HOME
+fi
+_run_cached_check() {
+  HOME=$cache_home
+  DOTFILES=$cache_home/.dotfiles
+  XDG_CACHE_HOME=$cache_home/cache
+  PATH=$cache_shim_bin:$PATH
+  export HOME DOTFILES XDG_CACHE_HOME PATH
+  _doctor_records _dr_check_worktrees >"$1" 2>/dev/null
+}
+_run_cached_check "$cache_home/run1.txt"
+cache_status=$?
+_run_cached_check "$cache_home/run2.txt"
+touch "$cache_home/.worktrees/cached-big"
+_run_cached_check "$cache_home/run3.txt"
+printf 'garbage-not-a-total\n' >"$cache_home/cache/dot/doctor-worktrees-du.tsv"
+_run_cached_check "$cache_home/run4.txt"
+HOME=$cache_saved_home
+PATH=$cache_saved_path
+if ((cache_dotfiles_unset == 1)); then
+  unset DOTFILES
+else
+  DOTFILES=$cache_saved_dotfiles
+fi
+if ((cache_xdg_unset == 1)); then
+  unset XDG_CACHE_HOME
+else
+  XDG_CACHE_HOME=$cache_saved_xdg
+fi
+export HOME DOTFILES PATH XDG_CACHE_HOME
+cache_run1=$(cat "$cache_home/run1.txt")
+cache_run2=$(cat "$cache_home/run2.txt")
+cache_run3=$(cat "$cache_home/run3.txt")
+cache_run4=$(cat "$cache_home/run4.txt")
+_assert_exit "cache: first run exits 0" 0 "$cache_status"
+_assert_eq "cache: warm run reports identical records" "$cache_run1" "$cache_run2"
+_assert_eq "cache: root touch recomputes the same total" "$cache_run1" "$cache_run3"
+_assert_eq "cache: corrupt cache recomputes the same total" "$cache_run1" "$cache_run4"
+cache_du_calls=$(grep -c . "$cache_du_log")
+_assert_eq "cache: du runs on miss, touch, and corruption only" 3 "$cache_du_calls"
+
+# The six-hour max age bounds root-set staleness: an ancient stamp
+# recomputes even when the key matches. And a failing stat degrades to
+# the keyed lookup instead of failing the check.
+cache_du_before_age=$(grep -c . "$cache_du_log")
+HOME=$cache_home
+DOTFILES=$cache_home/.dotfiles
+XDG_CACHE_HOME=$cache_home/cache
+PATH=$cache_shim_bin:$cache_saved_path
+export HOME DOTFILES XDG_CACHE_HOME PATH
+touch -t 202001010000 "$cache_home/cache/dot/doctor-worktrees-du.tsv"
+_run_cached_check "$cache_home/run5.txt"
+cache_du_after_age=$(grep -c . "$cache_du_log")
+cache_statfail_bin=$(_tmpdir)
+cache_real_stat=$(command -v stat)
+cat >"$cache_statfail_bin/stat" <<SH
+#!/usr/bin/env bash
+# Fail only the cache-file mtime lookup; key-line stats still succeed so
+# this isolates the max-age fallback (unknown age serves the keyed total).
+case "\$*" in
+  *doctor-worktrees-du.tsv*) exit 1 ;;
+esac
+exec "$cache_real_stat" "\$@"
+SH
+chmod +x "$cache_statfail_bin/stat"
+PATH=$cache_statfail_bin:$cache_shim_bin:$cache_saved_path
+export PATH
+_run_cached_check "$cache_home/run6.txt"
+cache_du_after_statfail=$(grep -c . "$cache_du_log")
+HOME=$cache_saved_home
+PATH=$cache_saved_path
+if ((cache_dotfiles_unset == 1)); then
+  unset DOTFILES
+else
+  DOTFILES=$cache_saved_dotfiles
+fi
+if ((cache_xdg_unset == 1)); then
+  unset XDG_CACHE_HOME
+else
+  XDG_CACHE_HOME=$cache_saved_xdg
+fi
+export HOME DOTFILES PATH XDG_CACHE_HOME
+_assert_eq "cache: ancient stamp recomputes the same total" "$cache_run1" \
+  "$(cat "$cache_home/run5.txt")"
+_assert_eq "cache: ancient stamp costs one du pass" \
+  $((cache_du_before_age + 1)) "$cache_du_after_age"
+_assert_eq "cache: failing stat serves the same total" "$cache_run1" \
+  "$(cat "$cache_home/run6.txt")"
+_assert_eq "cache: failing stat costs no du pass" \
+  "$cache_du_after_age" "$cache_du_after_statfail"
+
+echo ""
+echo "=== Stale base-ref sharing ==="
+
+# Four old same-repo checkouts on merged branches: the base ref must
+# resolve once for the whole repo. Counts are structural: an unshared
+# check issues four origin-HEAD probes.
+share_home=$(_tmpdir)
+share_origin_root=$(_tmpdir)
+share_origin=$share_origin_root/origin.git
+_seed_origin "$share_origin"
+git clone "$share_origin" "$share_home/git/alpha" >/dev/null 2>&1
+share_main=$share_home/git/alpha
+_git_set_test_identity git -C "$share_main"
+git -C "$share_main" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main >/dev/null 2>&1
+for share_i in 1 2 3 4; do
+  git -C "$share_main" worktree add "$share_home/.worktrees/share-old-$share_i" -b "share-feat-$share_i" >/dev/null 2>&1
+  share_wt=$share_home/.worktrees/share-old-$share_i
+  _git_set_test_identity git -C "$share_wt"
+  _commit_file "$share_wt" "share-feat-$share_i.txt"
+  git -C "$share_wt" push -u origin "share-feat-$share_i" >/dev/null 2>&1
+  git -C "$share_main" fetch origin >/dev/null 2>&1
+  git -C "$share_main" merge --no-ff "origin/share-feat-$share_i" -m merge >/dev/null 2>&1
+  git -C "$share_main" push origin main >/dev/null 2>&1
+  git -C "$share_wt" fetch --prune origin >/dev/null 2>&1
+  _make_old "$share_wt"
+done
+share_real_git=$(command -v git)
+share_git_log=$(_tmpfile)
+share_shim_bin=$(_tmpdir)
+cat >"$share_shim_bin/git" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >>"$share_git_log"
+exec "$share_real_git" "\$@"
+SH
+chmod +x "$share_shim_bin/git"
+share_saved_home=$HOME
+share_saved_path=$PATH
+if [[ -z ${DOTFILES+x} ]]; then
+  share_dotfiles_unset=1
+else
+  share_dotfiles_unset=0
+  share_saved_dotfiles=$DOTFILES
+fi
+HOME=$share_home
+DOTFILES=$share_home/.dotfiles
+PATH=$share_shim_bin:$PATH
+export HOME DOTFILES PATH
+_doctor_records _dr_check_worktrees >"$share_home/run.txt" 2>/dev/null
+share_status=$?
+HOME=$share_saved_home
+PATH=$share_saved_path
+if ((share_dotfiles_unset == 1)); then
+  unset DOTFILES
+else
+  DOTFILES=$share_saved_dotfiles
+fi
+export HOME DOTFILES PATH
+share_result=$(cat "$share_home/run.txt")
+_assert_exit "sharing: detection exits 0" 0 "$share_status"
+_assert_contains "sharing: all four same-repo checkouts warn" \
+  $'warn\t4 stale worktrees' "$share_result"
+share_symrefs=$(grep -c 'symbolic-ref' "$share_git_log")
+if ((share_symrefs <= 2)); then
+  _pass "sharing: one base resolution serves the repo ($share_symrefs)"
+else
+  _fail "sharing: one base resolution serves the repo (got $share_symrefs)"
+fi
+
+echo ""
+echo "=== Repo identity keys ==="
+
+key_home=$(_tmpdir)
+key_origin_root=$(_tmpdir)
+key_origin=$key_origin_root/origin.git
+_seed_origin "$key_origin"
+git clone "$key_origin" "$key_home/main" >/dev/null 2>&1
+git -C "$key_home/main" worktree add "$key_home/linked-a" -b linked-a >/dev/null 2>&1
+git -C "$key_home/main" worktree add "$key_home/linked-b" -b linked-b >/dev/null 2>&1
+git clone "$key_origin" "$key_home/other" >/dev/null 2>&1
+mkdir -p "$key_home/plain"
+printf 'not-a-gitdir-pointer\n' >"$key_home/plain/.git"
+key_main=$(_dr_worktree_repo_key "$key_home/main")
+key_a=$(_dr_worktree_repo_key "$key_home/linked-a")
+key_b=$(_dr_worktree_repo_key "$key_home/linked-b")
+key_other=$(_dr_worktree_repo_key "$key_home/other")
+_assert_eq "repo key: main and linked checkouts share one key" "$key_main" "$key_a"
+_assert_eq "repo key: linked siblings share one key" "$key_a" "$key_b"
+if [[ -n $key_main && -n $key_other ]]; then
+  _pass "repo key: keys resolve to real paths"
+else
+  _fail "repo key: keys resolve to real paths"
+fi
+if [[ $key_other != "$key_main" ]]; then
+  _pass "repo key: separate clones get distinct keys"
+else
+  _fail "repo key: separate clones get distinct keys"
+fi
+key_plain_status=0
+_dr_worktree_repo_key "$key_home/plain" >/dev/null 2>&1 || key_plain_status=$?
+_assert_exit "repo key: garbage gitfile fails closed" 1 "$key_plain_status"
+key_missing_status=0
+_dr_worktree_repo_key "$key_home/no-such-dir" >/dev/null 2>&1 || key_missing_status=$?
+_assert_exit "repo key: missing dir fails closed" 1 "$key_missing_status"
+
 _test_summary
