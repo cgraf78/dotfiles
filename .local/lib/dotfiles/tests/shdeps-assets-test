@@ -184,10 +184,47 @@ assets_fresh_cache() {
   XDG_CACHE_HOME=$(_tmpdir)
   export XDG_CACHE_HOME
   : >"$ASSETS_SHDEPS_LOG"
+  _assets_settle_inputs
 }
 
 assets_invocations() {
   grep -c '^dep-file ' "$ASSETS_SHDEPS_LOG" | tr -d ' '
+}
+
+# Invalidation triggers must be strictly newer than the cache entry, not
+# merely "touched after it": same-tick filesystems and backward clock
+# steps turn clock-progression assumptions into flakes (observed on
+# Alpine CI). A fixed far-future timestamp is deterministic everywhere;
+# POSIX `touch -t` works on GNU, BSD, and busybox.
+_assets_future_touch() {
+  touch -t 203801010000 "$1"
+}
+
+# Backdate every shared mtime input so cache hits never depend on tick
+# order (or on far-future triggers left behind by earlier tests). Runs
+# inside every fresh cache; unknown-yet fixtures are skipped.
+_assets_settle_inputs() {
+  local f candidate
+  for candidate in \
+    "${ASSETS_CACHE_HOME:-}/.config/shdeps" \
+    "${ASSETS_SHDEPS_BIN:-}/shdeps" \
+    "${ASSETS_STATE_DIR:-}" \
+    "${ASSETS_STATE_DIR:-}/manifest" \
+    "${ASSETS_DEV_DIR:-}" \
+    "${ASSETS_DEV_DIR:-}/termnav" \
+    "${ASSETS_INSTALL_DIR:-}" \
+    "${ASSETS_INSTALL_DIR:-}/cgraf78" \
+    "${ASSETS_INSTALL_DIR:-}/cgraf78/termnav" \
+    "${ASSETS_DEEP_DIR:-}" \
+    "${ASSETS_DEEP_DIR:-}/a" \
+    "${ASSETS_DEEP_DIR:-}/a/b"; do
+    [ -n "$candidate" ] && [ -e "$candidate" ] &&
+      touch -t 202001010000 "$candidate" 2>/dev/null
+  done
+  for f in "${ASSETS_CACHE_HOME:-}/.config/shdeps"/*.conf; do
+    [ -e "$f" ] || continue
+    touch -t 202001010000 "$f" 2>/dev/null
+  done
 }
 
 assets_fresh_cache
@@ -200,7 +237,7 @@ _assert_eq "dep cache: miss publishes one cache file" \
 
 assets_fresh_cache
 dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
-touch "$ASSETS_CACHE_HOME/.config/shdeps/10-deps.conf"
+_assets_future_touch "$ASSETS_CACHE_HOME/.config/shdeps/10-deps.conf"
 assets_after_edit=$(dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh)
 _assert_eq "dep cache: conf edit re-resolves" "$ASSETS_ASSET" "$assets_after_edit"
 _assert_eq "dep cache: conf edit invalidates" "2" "$(assets_invocations)"
@@ -208,13 +245,14 @@ _assert_eq "dep cache: conf edit invalidates" "2" "$(assets_invocations)"
 assets_fresh_cache
 dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
 printf 'extra/dep  pkg\n' >"$ASSETS_CACHE_HOME/.config/shdeps/20-extra.conf"
+_assets_future_touch "$ASSETS_CACHE_HOME/.config/shdeps/20-extra.conf"
 dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
 _assert_eq "dep cache: conf addition invalidates" "2" "$(assets_invocations)"
 rm -f "$ASSETS_CACHE_HOME/.config/shdeps/20-extra.conf"
 
 assets_fresh_cache
 dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
-touch "$ASSETS_SHDEPS_BIN/shdeps"
+_assets_future_touch "$ASSETS_SHDEPS_BIN/shdeps"
 dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
 _assert_eq "dep cache: binary upgrade invalidates" "2" "$(assets_invocations)"
 
@@ -228,7 +266,7 @@ dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
 dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
 _assert_eq "dep cache: manifest ledger hits when unchanged" \
   "1" "$(assets_invocations)"
-touch "$ASSETS_STATE_DIR/manifest"
+_assets_future_touch "$ASSETS_STATE_DIR/manifest"
 dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
 _assert_eq "dep cache: manifest update invalidates" "2" "$(assets_invocations)"
 unset SHDEPS_STATE_DIR
@@ -240,6 +278,7 @@ export SHDEPS_GIT_DEV_DIR
 assets_fresh_cache
 dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
 mkdir -p "$ASSETS_DEV_DIR/termnav"
+_assets_future_touch "$ASSETS_DEV_DIR/termnav"
 dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
 _assert_eq "dep cache: dev checkout appearance invalidates" \
   "2" "$(assets_invocations)"
@@ -252,6 +291,7 @@ export SHDEPS_INSTALL_DIR
 assets_fresh_cache
 dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
 mkdir -p "$ASSETS_INSTALL_DIR/cgraf78/termnav"
+_assets_future_touch "$ASSETS_INSTALL_DIR/cgraf78/termnav"
 dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
 _assert_eq "dep cache: nested install change invalidates" \
   "2" "$(assets_invocations)"
@@ -263,7 +303,7 @@ SHDEPS_INSTALL_DIR="$ASSETS_DEEP_DIR"
 export SHDEPS_INSTALL_DIR
 assets_fresh_cache
 dot_shdeps_dep_file a/b/leaf share/x.sh >/dev/null
-touch "$ASSETS_DEEP_DIR/a/b"
+_assets_future_touch "$ASSETS_DEEP_DIR/a/b"
 dot_shdeps_dep_file a/b/leaf share/x.sh >/dev/null
 _assert_eq "dep cache: deep install change invalidates" \
   "2" "$(assets_invocations)"
