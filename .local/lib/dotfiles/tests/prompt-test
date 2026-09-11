@@ -1025,4 +1025,151 @@ _assert_contains "system marker prompt: renders repository state" \
 _assert_eq "system marker prompt: skips launcher-copy candidates" \
   "$SYS_SYS_BIN/git" "$(sed -n '1p' "$SYS_COMMAND_LOG")"
 
+if command -v zsh >/dev/null 2>&1; then
+  echo ""
+  echo "=== prompt: zsh async worker lifecycle ==="
+
+  ASYNC60="$REAL_HOME/.config/shell/interactive.d/60-prompt.zsh"
+  ASYNC_ENV=(env -u XDG_RUNTIME_DIR TMPDIR="$TEST_TMPDIR")
+
+  async_defs=$(zsh -f -c '. "$1"; (( $+functions[__git_prompt_async_start] )) && print DEFS-OK' \
+    _ "$ASYNC60" 2>/dev/null)
+  _assert_eq "async: sources cleanly with worker functions defined" \
+    "DEFS-OK" "$async_defs"
+
+  # Rapid redraws must kill the previous worker instead of orphaning it: the
+  # stub sleeps 10s, the cancel must fell it long before (6s deadline).
+  ASYNC_PROBE="$TEST_TMPDIR/async-probe.pid"
+  rm -f "$ASYNC_PROBE"
+  # shellcheck disable=SC2016 # $-expansions belong to the zsh -c body.
+  async_kill_out=$("${ASYNC_ENV[@]}" zsh -f -c '
+    zmodload zsh/datetime 2>/dev/null
+    PROBE=$1; ASYNC60=$2
+    zle() { return 0; }
+    __git_prompt() { print $sysparams[pid] >$PROBE; sleep 10; print " (x)"; }
+    . "$ASYNC60" >/dev/null 2>&1
+    __git_prompt_async_start
+    integer n=0
+    while [[ ! -s $PROBE && n -lt 250 ]]; do sleep 0.02; ((n++)); done
+    [[ -s $PROBE ]] || { print "WORKER=missing"; exit 0; }
+    _old=$(<$PROBE)
+    : >$PROBE
+    _t0=$EPOCHREALTIME
+    __git_prompt_async_start
+    n=0
+    while kill -0 $_old 2>/dev/null && ((n < 300)); do sleep 0.02; ((n++)); done
+    _t1=$EPOCHREALTIME
+    kill -0 $_old 2>/dev/null && print "OLD=alive" || print "OLD=dead"
+    if [[ -n $_t0 && -n $_t1 ]] && (( (_t1 - _t0) * 1000 < 8000 )); then
+      print "PROMPT-KILL=yes"
+    else
+      print "PROMPT-KILL=no"
+    fi
+    _new=$(<$PROBE)
+    __git_prompt_async_cancel
+    [[ -n ${_new:-} ]] && kill -9 $_new 2>/dev/null
+    kill -9 $_old 2>/dev/null
+  ' _ "$ASYNC_PROBE" "$ASYNC60" 2>/dev/null)
+  _assert_contains "async: previous worker is dead after redraw" \
+    "OLD=dead" "$async_kill_out"
+  _assert_contains "async: worker felled promptly, not after its full sleep" \
+    "PROMPT-KILL=yes" "$async_kill_out"
+
+  # A pidfile entry whose token does not match the current cycle is stale (a
+  # recycled pid from a dead shell) and must never be killed; the cancel
+  # still consumes the entry.
+  # shellcheck disable=SC2016 # $-expansions belong to the zsh -c body.
+  async_stale_out=$("${ASYNC_ENV[@]}" zsh -f -c '
+    ASYNC60=$1
+    zle() { return 0; }
+    . "$ASYNC60" >/dev/null 2>&1
+    sleep 30 & _sentinel=$!
+    print "$_sentinel:WRONGTOKEN" >$__git_prompt_pidfile
+    __git_prompt_token=CURRENTTOKEN
+    __git_prompt_async_cancel
+    kill -0 $_sentinel 2>/dev/null && print "SENTINEL=alive" || print "SENTINEL=dead"
+    [[ -e $__git_prompt_pidfile ]] && print "PIDFILE=exists" || print "PIDFILE=gone"
+    [[ -n $__git_prompt_token ]] && print "TOKEN=set" || print "TOKEN=cleared"
+    kill $_sentinel 2>/dev/null; wait $_sentinel 2>/dev/null
+  ' _ "$ASYNC60" 2>/dev/null)
+  _assert_contains "async: stale token never kills" \
+    "SENTINEL=alive" "$async_stale_out"
+  _assert_contains "async: stale entry is consumed" \
+    "PIDFILE=gone" "$async_stale_out"
+  _assert_contains "async: stale cancel clears the token" \
+    "TOKEN=cleared" "$async_stale_out"
+
+  # 0, empty, and non-numeric pid reports must never reach kill (`kill 0`
+  # signals the whole process group, which the sentinel shares).
+  # shellcheck disable=SC2016 # $-expansions belong to the zsh -c body.
+  async_guard_out=$("${ASYNC_ENV[@]}" zsh -f -c '
+    ASYNC60=$1
+    zle() { return 0; }
+    . "$ASYNC60" >/dev/null 2>&1
+    sleep 30 & _sentinel=$!
+    for _bad in 0 abc "" 99999999999; do
+      print "$_bad:TOK" >$__git_prompt_pidfile
+      __git_prompt_token=TOK
+      __git_prompt_async_cancel
+    done
+    kill -0 $_sentinel 2>/dev/null && print "SENTINEL=alive" || print "SENTINEL=dead"
+    kill $_sentinel 2>/dev/null; wait $_sentinel 2>/dev/null
+  ' _ "$ASYNC60" 2>/dev/null)
+  _assert_eq "async: unparsable pid reports never kill" \
+    "SENTINEL=alive" "$async_guard_out"
+
+  # The pid-report line must not leak into the prompt bytes, and the callback
+  # still clears worker state.
+  ASYNC_BYTES=' (feat+x ~2 %)'
+  # shellcheck disable=SC2016 # $-expansions belong to the zsh -c body.
+  async_bytes_out=$("${ASYNC_ENV[@]}" zsh -f -c '
+    ASYNC60=$1; BYTES=$2
+    zle() { return 0; }
+    __git_prompt() { print -rn -- "$BYTES"; }
+    . "$ASYNC60" >/dev/null 2>&1
+    __git_prompt_async_start
+    integer n=0
+    while [[ ! -s $__git_prompt_pidfile && n -lt 250 ]]; do sleep 0.02; ((n++)); done
+    [[ -s $__git_prompt_pidfile ]] && print "REPORTED=yes" || print "REPORTED=no"
+    # Like the callback, ignore the read status: NUL-delimited reads of
+    # NUL-less output always "fail" after populating the variable; -t only
+    # bounds a stalled worker.
+    IFS= read -r -t 10 -d "" -u "$__git_prompt_fd" _got 2>/dev/null
+    print "GOT=[$_got]"
+    __git_prompt_async_callback "$__git_prompt_fd"
+    [[ -n $__git_prompt_token ]] && print "TOKEN=set" || print "TOKEN=cleared"
+    [[ -e $__git_prompt_pidfile ]] && print "PIDFILE=exists" || print "PIDFILE=gone"
+  ' _ "$ASYNC60" "$ASYNC_BYTES" 2>/dev/null)
+  _assert_contains "async: worker reports its pid" \
+    "REPORTED=yes" "$async_bytes_out"
+  _assert_contains "async: result bytes pass through unmodified" \
+    "GOT=[$ASYNC_BYTES]" "$async_bytes_out"
+  _assert_contains "async: callback clears the token" \
+    "TOKEN=cleared" "$async_bytes_out"
+  _assert_contains "async: callback unlinks the pidfile" \
+    "PIDFILE=gone" "$async_bytes_out"
+
+  # A shell that exits mid-flight must not litter its pidfile.
+  # shellcheck disable=SC2016 # $-expansions belong to the zsh -c body.
+  async_exit_out=$("${ASYNC_ENV[@]}" zsh -f -c '
+    ASYNC60=$1
+    zle() { return 0; }
+    __git_prompt() { sleep 3; }
+    . "$ASYNC60" >/dev/null 2>&1
+    __git_prompt_async_start
+    integer n=0
+    while [[ ! -s $__git_prompt_pidfile && n -lt 250 ]]; do sleep 0.02; ((n++)); done
+    [[ -s $__git_prompt_pidfile ]] && print "WRITTEN=yes" || print "WRITTEN=no"
+    print "PF=$__git_prompt_pidfile"
+  ' _ "$ASYNC60" 2>/dev/null)
+  async_exit_pf=$(printf '%s\n' "$async_exit_out" | sed -n 's/^PF=//p')
+  _assert_contains "async: exit path had a pidfile to clean" \
+    "WRITTEN=yes" "$async_exit_out"
+  if [[ -n $async_exit_pf && -e $async_exit_pf ]]; then
+    _fail "async: zshexit removes a mid-flight pidfile"
+  else
+    _pass "async: zshexit removes a mid-flight pidfile"
+  fi
+fi
+
 _test_summary
