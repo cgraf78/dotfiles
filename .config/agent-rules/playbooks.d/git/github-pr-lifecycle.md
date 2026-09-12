@@ -22,9 +22,7 @@ explicit and verifiable.
 
 ## Commit and push safely
 
-- Follow the repository's commit and pull-request template. Write the pull
-  request description so it can serve as the squash-merge commit body, leading
-  with what changed and why.
+- Follow the repository's commit and pull-request template.
 - Perform privacy, secret, and repository-boundary reviews silently. Mention
   them in the pull-request description only when a result or constraint is
   material to reviewers.
@@ -44,6 +42,27 @@ explicit and verifiable.
   upstream configuration for feature-branch publication.
 - After pushing, verify that the destination branch resolves to the intended
   commit and that the pull request head matches it.
+
+## Format the pull request
+
+- Write the description so it can serve as the squash-merge commit body.
+- Use `## Summary` and `## Testing` unless the repository template specifies a
+  different structure.
+- Begin `## Summary` with a short paragraph explaining what changed and why.
+  Follow it with compact bullets for behavior, scope, and material constraints
+  when those details help reviewers scan the change.
+- Under `## Testing`, list the exact commands or checks and their relevant
+  outcomes. Distinguish passing checks from skips, unavailable checks, and a
+  pull request with no GitHub check contexts.
+- Add `## Review` only when fresh-eyes or specialist review occurred. Name the
+  review axes and material findings addressed instead of offering generic
+  praise.
+- Leave a blank line after each heading and between sections, and separate
+  paragraphs and lists with a blank line. Avoid compressed Markdown that makes
+  sections run together.
+- Add sections such as rollout, risks, dependencies, or breaking changes only
+  when they are material. Omit empty boilerplate and keep secrets or
+  inappropriate private detail out of public repositories.
 
 ## Land and clean up
 
