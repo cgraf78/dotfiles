@@ -280,6 +280,12 @@ if [[ -f "$GITHUB_PLAYBOOK" ]]; then
   _assert_contains "agent rules: GitHub lifecycle keeps internal audits private" \
     "Perform privacy, secret, and repository-boundary reviews silently" \
     "$GITHUB_PLAYBOOK_TEXT"
+  _assert_contains "agent rules: pull request bodies use reviewable sections" \
+    'Use `## Summary` and `## Testing`' "$GITHUB_PLAYBOOK_TEXT"
+  _assert_contains "agent rules: pull request headings retain readable spacing" \
+    "blank line after each heading and between sections" "$GITHUB_PLAYBOOK_TEXT"
+  _assert_contains "agent rules: review sections reflect actual review" \
+    'Add `## Review` only when' "$GITHUB_PLAYBOOK_TEXT"
   _assert_contains "agent rules: published rebases require lease-protected pushes" \
     "--force-with-lease" "$GITHUB_PLAYBOOK_TEXT"
   _assert_contains "agent rules: published rebases preserve the expected remote head" \
