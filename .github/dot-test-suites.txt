@@ -13,6 +13,7 @@
 .local/lib/dotfiles/tests/core-test
 .local/lib/dotfiles/tests/core-update-test
 .local/lib/dotfiles/tests/door-guard-test
+.local/lib/dotfiles/tests/dot-runtime-resolve-test
 .local/lib/dotfiles/tests/footprint-test
 .local/lib/dotfiles/tests/harness-isolation-test
 .local/lib/dotfiles/tests/overlay-profile-stack-test

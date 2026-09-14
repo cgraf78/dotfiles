@@ -20,7 +20,11 @@ dot_core_test_doctor() {
 
   # The standalone suite owns core runtime/repository/overlay health. This
   # retained suite loads only the public extension API and client policy.
-  _dot_doctor_load
+  # The versioned runtime keeps no engine health modules, and nothing below
+  # calls them, so skip the legacy loader when it is absent.
+  if declare -F _dot_doctor_load >/dev/null 2>&1; then
+    _dot_doctor_load
+  fi
   _test_load_dot_doctor_api "$TEST_HOME"
   _doctor_records() {
     local status=0
@@ -242,7 +246,7 @@ SH
   result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$TEST_HOME/.local/bin:$PATH" \
     DOT_TEST_CRONTAB="$doctor_bin/crontab" \
     DOT_TEST_CRONTAB_LOG="$doctor_crontab_log" \
-    "$DOT_SOURCE_ROOT/bin/dot" doctor 2>&1 || true)
+    "$(_test_dot_bin "$DOT_SOURCE_ROOT")" doctor 2>&1 || true)
   _assert_contains "doctor integration: renders the standalone title" \
     "dot doctor" "$result"
   _assert_contains "doctor integration: renders client repository health" \
@@ -265,7 +269,7 @@ SH
   result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$TEST_HOME/.local/bin:$PATH" \
     DOT_TEST_CRONTAB="$doctor_bin/crontab" \
     DOT_TEST_CRONTAB_LOG="$doctor_crontab_log" \
-    "$DOT_SOURCE_ROOT/bin/dot" doctor 2>&1 || true)
+    "$(_test_dot_bin "$DOT_SOURCE_ROOT")" doctor 2>&1 || true)
   _assert_contains "doctor integration: flags a missing bash startup file" \
     ".bashrc missing" "$result"
 

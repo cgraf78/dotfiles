@@ -12,6 +12,10 @@ dot_root=$(_test_dot_root) || {
   echo 'standalone dot checkout is unavailable' >&2
   exit 1
 }
+dot_bin=$(_test_dot_bin "$dot_root") || {
+  echo 'standalone dot binary is unavailable' >&2
+  exit 1
+}
 fixture=$(_tmpdir)
 fixture=$(cd "$fixture" && pwd -P)
 home=$fixture/home
@@ -71,7 +75,7 @@ git -C "$seed" push origin main >/dev/null
 update_status=0
 HOME="$home" XDG_CONFIG_HOME='' XDG_DATA_HOME='' XDG_STATE_HOME='' \
   XDG_CACHE_HOME='' XDG_RUNTIME_DIR='' PATH="$home/.local/bin:$PATH" \
-  "$dot_root/bin/dot" update >"$fixture/update.out" 2>"$fixture/update.err" ||
+  "$dot_bin" update >"$fixture/update.out" 2>"$fixture/update.err" ||
   update_status=$?
 _assert_eq 'standalone update integration exits successfully' 0 "$update_status"
 _assert_file_content 'standalone update integration advances client content' \
@@ -91,7 +95,7 @@ _assert_eq 'standalone update integration records upstream revision' \
 second_status=0
 HOME="$home" XDG_CONFIG_HOME='' XDG_DATA_HOME='' XDG_STATE_HOME='' \
   XDG_CACHE_HOME='' XDG_RUNTIME_DIR='' PATH="$home/.local/bin:$PATH" \
-  "$dot_root/bin/dot" update >/dev/null 2>"$fixture/second.err" || second_status=$?
+  "$dot_bin" update >/dev/null 2>"$fixture/second.err" || second_status=$?
 _assert_eq 'standalone update integration is idempotent' 0 "$second_status"
 
 _test_summary

@@ -137,11 +137,64 @@ _test_dot_root() {
     "${DOT_TEST_DOT_ROOT:-}" \
     "$host_home/git/dot" \
     "$host_home/.local/share/cgraf78/dot"; do
-    [[ -n $candidate && -r $candidate/lib/dot/extension-worker.sh ]] || continue
-    (cd -P -- "$candidate" && pwd -P)
-    return
+    [[ -n $candidate ]] || continue
+    # Legacy checkouts gate on the private worker; Rust-port checkouts and
+    # release roots gate on the versioned public runtime (both ship it).
+    # Releases additionally satisfy the native-binary-plus-xdg shape.
+    if [[ -r $candidate/lib/dot/extension-worker.sh ||
+      -r $candidate/lib/dot/public/hook-runtime-v1/hook-api.sh ||
+      (-x $candidate/dot && ! -L $candidate/dot &&
+      -r $candidate/lib/dot/public/xdg.sh) ]]; then
+      (cd -P -- "$candidate" && pwd -P)
+      return
+    fi
   done
   return 1
+}
+
+# Print the hook-runtime library directory for a resolved Dot root: the
+# versioned public runtime when present, else the legacy private tree. The
+# versioned files carry the same function names as their legacy originals.
+_test_dot_lib_dir() {
+  local dot_root=${1:-}
+  [[ -n $dot_root ]] || return 1
+  if [[ -r $dot_root/lib/dot/public/hook-runtime-v1/hook-api.sh ]]; then
+    printf '%s\n' "$dot_root/lib/dot/public/hook-runtime-v1"
+  else
+    printf '%s\n' "$dot_root/lib/dot"
+  fi
+}
+
+# Print the Dot binary for a resolved root: checkouts keep bin/dot (the
+# Rust-port checkout adapter lives there too); releases carry dot at top.
+_test_dot_bin() {
+  local dot_root=${1:-} bin
+  [[ -n $dot_root ]] || return 1
+  for bin in "$dot_root/bin/dot" "$dot_root/dot"; do
+    if [[ -x $bin && ! -L $bin && ! -d $bin ]]; then
+      printf '%s\n' "$bin"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Source the public XDG API plus the merge-extension API files from either
+# layout. This is the single sourcing list shared by the in-process merge
+# loader and the core fixture initializer below.
+_test_dot_source_merge_api() {
+  local dot_root=${1:-} lib_dir file
+  [[ -n $dot_root && -r $dot_root/lib/dot/public/xdg.sh ]] || return 1
+  lib_dir=$(_test_dot_lib_dir "$dot_root") || return 1
+  # shellcheck source=/dev/null
+  . "$dot_root/lib/dot/public/xdg.sh" || return 1
+  # shellcheck disable=SC1090 # Members of the resolved runtime directory.
+  for file in log.sh temp.sh merge-block.sh families.sh merge-hooks.sh \
+    extension-trust.sh repos/overlays.sh hook-api.sh; do
+    [[ -r $lib_dir/$file ]] || return 1
+    # shellcheck source=/dev/null
+    . "$lib_dir/$file" || return 1
+  done
 }
 
 # Load the public merge-extension API for tests that exercise client policy
@@ -157,24 +210,7 @@ _test_load_dot_merge_api() {
   DOT_EXTENSION_API=1
   export DOT_SOURCE_ROOT DOT_EXTENSIONS_DIR DOT_EXTENSION_API
 
-  # shellcheck source=/dev/null
-  . "$dot_root/lib/dot/public/xdg.sh"
-  # shellcheck source=/dev/null
-  . "$dot_root/lib/dot/log.sh"
-  # shellcheck source=/dev/null
-  . "$dot_root/lib/dot/temp.sh"
-  # shellcheck source=/dev/null
-  . "$dot_root/lib/dot/merge-block.sh"
-  # shellcheck source=/dev/null
-  . "$dot_root/lib/dot/families.sh"
-  # shellcheck source=/dev/null
-  . "$dot_root/lib/dot/merge-hooks.sh"
-  # shellcheck source=/dev/null
-  . "$dot_root/lib/dot/extension-trust.sh"
-  # shellcheck source=/dev/null
-  . "$dot_root/lib/dot/repos/overlays.sh"
-  # shellcheck source=/dev/null
-  . "$dot_root/lib/dot/hook-api.sh"
+  _test_dot_source_merge_api "$dot_root"
 }
 
 # Load the standalone doctor extension API plus the dotfiles-owned application
@@ -183,6 +219,7 @@ _test_load_dot_merge_api() {
 # importing private coordinator state.
 _test_load_dot_doctor_api() {
   local extension_home=${1:-${DOT_TEST_SOURCE_HOME:-$HOME}} dot_root module
+  local lib_dir
 
   dot_root=$(_test_dot_root) || return 1
   DOT_SOURCE_ROOT=$dot_root
@@ -193,12 +230,15 @@ _test_load_dot_doctor_api() {
   export DOT_DOCTOR_RESULT_FILE
   : >"$DOT_DOCTOR_RESULT_FILE"
 
+  lib_dir=$(_test_dot_lib_dir "$dot_root") || return 1
   # shellcheck source=/dev/null
-  . "$dot_root/lib/dot/public/xdg.sh"
-  # shellcheck source=/dev/null
-  . "$dot_root/lib/dot/extension-trust.sh"
-  # shellcheck source=/dev/null
-  . "$dot_root/lib/dot/doctor-api.sh"
+  . "$dot_root/lib/dot/public/xdg.sh" || return 1
+  # shellcheck disable=SC1090 # Members of the resolved runtime directory.
+  for module in extension-trust.sh doctor-api.sh; do
+    [[ -r $lib_dir/$module ]] || return 1
+    # shellcheck source=/dev/null
+    . "$lib_dir/$module" || return 1
+  done
   dot_doctor_source doctor.d/lib/compat.sh || return 1
   for module in agent-rules cron integrations shell tools; do
     dot_doctor_source "doctor.d/lib/$module.sh" || return 1

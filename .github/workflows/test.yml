@@ -53,10 +53,11 @@ jobs:
               set -euo pipefail
               unset XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME XDG_RUNTIME_DIR
               export DOT_VERBOSE=1
+              dot_bin_dir=${DOT_STACK_DOT_BIN%/*}
               DOT_INIT_SKIP_PROVIDER=1 \
-                PATH="$DOT_STACK_DOT_ROOT/bin:$HOME/.local/bin:$PATH" \
+                PATH="$dot_bin_dir:$HOME/.local/bin:$PATH" \
                 "$DOT_STACK_DOT_BIN" update
-              PATH="$DOT_STACK_DOT_ROOT/bin:$HOME/.local/bin:$PATH" \
+              PATH="$dot_bin_dir:$HOME/.local/bin:$PATH" \
                 bash .local/lib/dotfiles/tests/android-ci-smoke
             '
       termux-host-command: |-
@@ -190,7 +191,7 @@ jobs:
           export HOME=$fixture_home
           unset XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME XDG_RUNTIME_DIR
           unset GIT_CONFIG_GLOBAL GIT_CONFIG_SYSTEM GIT_CONFIG_NOSYSTEM GIT_CONFIG_COUNT
-          export PATH="$DOT_STACK_DOT_ROOT/bin:$HOME/.local/bin:$PATH"
+          export PATH="${DOT_STACK_DOT_BIN%/*}:$HOME/.local/bin:$PATH"
           export DOTFILES_BRANCH=main
           export GIT_TERMINAL_PROMPT=0
           export GIT_SSH_COMMAND='ssh -o BatchMode=yes -o ConnectTimeout=5'

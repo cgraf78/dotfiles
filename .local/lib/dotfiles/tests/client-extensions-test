@@ -17,9 +17,12 @@ _client_dot_root() {
     "${DOT_TEST_DOT_ROOT:-}" \
     "$host_home/git/dot" \
     "$host_home/.local/share/cgraf78/dot"; do
-    [[ -n $candidate && -r $candidate/lib/dot/extension-worker.sh ]] || continue
-    (cd -P -- "$candidate" && pwd -P)
-    return
+    [[ -n $candidate ]] || continue
+    if [[ -r $candidate/lib/dot/extension-worker.sh ||
+      -r $candidate/lib/dot/public/hook-runtime-v1/hook-api.sh ]]; then
+      (cd -P -- "$candidate" && pwd -P)
+      return
+    fi
   done
 
   printf 'client extensions: standalone dot checkout not found\n' >&2
@@ -157,10 +160,16 @@ unset XDG_CONFIG_HOME XDG_STATE_HOME XDG_CACHE_HOME XDG_DATA_HOME XDG_RUNTIME_DI
 
 # shellcheck source=/dev/null
 . "$dot_root/lib/dot/public/xdg.sh"
-# shellcheck source=/dev/null
-. "$dot_root/lib/dot/overlay-context.sh"
-# shellcheck source=/dev/null
-. "$dot_root/lib/dot/extension-worker-launch.sh"
+client_worker_v1=$dot_root/lib/dot/public/hook-runtime-v1/worker.sh
+# Gate on readability and always invoke through bash: the worker needs no
+# executable bit when driven directly, whatever the install umask did.
+if [[ ! -f $client_worker_v1 || ! -r $client_worker_v1 ]]; then
+  client_worker_v1=
+  # shellcheck source=/dev/null
+  . "$dot_root/lib/dot/overlay-context.sh"
+  # shellcheck source=/dev/null
+  . "$dot_root/lib/dot/extension-worker-launch.sh"
+fi
 
 _client_worker_run() {
   local mode=$1 script=$2 stage=${3:-none}
@@ -174,12 +183,45 @@ _client_worker_run() {
   : >"$result"
   chmod 0600 "$result"
   [[ $mode != pre-sync ]] || set_kind=eligible
+  if [[ -n $client_worker_v1 ]]; then
+    _client_worker_run_v1 "$mode" "$script" "$stage" "$temporary" \
+      "$result" "$set_kind" "${records[@]+"${records[@]}"}"
+    return
+  fi
   _dot_overlay_context_create "$temporary" "$mode" "$set_kind" "$stage" \
     "${records[@]+"${records[@]}"}" || return 1
   context=$REPLY_PATH
   token=$REPLY_TOKEN
   output=$(PATH=${CLIENT_WORKER_PATH:-/usr/bin:/bin} _dot_extension_worker_run \
     "$mode" "$script" "$temporary" "$result" "$context" "$token" \
+    2>&1) || rc=$?
+  if [[ -n $output ]]; then
+    printf '%s\n' "$output" >&2
+    return 1
+  fi
+  return "$rc"
+}
+
+# Drive the versioned worker boundary directly. The worker's context file is
+# plain NUL-separated fields (stage, set kind, retiring identity, record
+# count, then the overlay records), so the test builds exactly what the
+# native engine would hand over and asserts the same silent-success contract.
+_client_worker_run_v1() {
+  local mode=$1 script=$2 stage=$3 temporary=$4 result=$5 set_kind=$6
+  shift 6
+  local context=$temporary/context output rc=0
+  local -a records=("$@")
+
+  {
+    printf '%s\0' "$stage" "$set_kind" "" ""
+    printf '%s\0' "${#records[@]}"
+    if ((${#records[@]} > 0)); then
+      printf '%s\0' "${records[@]}"
+    fi
+  } >"$context" || return 1
+  chmod 0600 "$context" || return 1
+  output=$(PATH=${CLIENT_WORKER_PATH:-/usr/bin:/bin} \
+    bash "$client_worker_v1" "$mode" "$script" "$result" "$context" \
     2>&1) || rc=$?
   if [[ -n $output ]]; then
     printf '%s\n' "$output" >&2

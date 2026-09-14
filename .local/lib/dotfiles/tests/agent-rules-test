@@ -21,10 +21,14 @@ _test_load_dot_merge_api || {
 }
 # The client playbook helper shares the standalone overlay manifest grammar.
 # Load only that read-only protocol for its trust fixtures.
+dot_lib_dir=$(_test_dot_lib_dir "$dot_root") || {
+  _fail 'agent rules: standalone runtime library is available'
+  _test_summary
+}
 # shellcheck source=/dev/null
-. "$dot_root/lib/dot/repos/config.sh"
+. "$dot_lib_dir/repos/config.sh"
 # shellcheck source=/dev/null
-. "$dot_root/lib/dot/repos/overlays.sh"
+. "$dot_lib_dir/repos/overlays.sh"
 
 PLAYBOOK_LIB="$source_home/.local/lib/dotfiles/merge-hooks.d/lib/agent-playbooks.sh"
 RULE_HOOK="$source_home/.local/lib/dotfiles/merge-hooks.d/agent-rules.sh"

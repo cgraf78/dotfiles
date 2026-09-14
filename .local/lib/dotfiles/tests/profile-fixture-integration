@@ -8,6 +8,8 @@ source_home=$(cd -P -- "${BASH_SOURCE[0]%/*}/../../../.." && pwd -P)
 
 # shellcheck source=helpers.sh
 . "$source_home/.local/lib/dotfiles/tests/helpers.sh"
+# shellcheck source=dot-runtime-resolve.sh
+. "$source_home/.local/lib/dotfiles/tests/dot-runtime-resolve.sh"
 
 usage() {
   printf 'usage: %s update|doctor|test|footprint\n' "${0##*/}" >&2
@@ -26,12 +28,26 @@ esac
 
 dot_sha=${DOT_STACK_DOT_SHA:-}
 agent_rules_sha=${DOT_STACK_AGENT_RULES_SYNC_SHA:-}
+dot_runtime_ok=0
 if [[ ${DOT_STACK_RUNTIME:-0} == 1 &&
   ${DOT_STACK_GROUP:-} == "$expected_group" &&
   $dot_sha =~ ^[0-9a-f]{40}$ &&
-  ${DOT_STACK_DOT_ROOT:-} == /* &&
-  ${DOT_STACK_DOT_BIN:-} == "${DOT_STACK_DOT_ROOT:-}/bin/dot" &&
-  $(git -C "${DOT_STACK_DOT_ROOT:-/nonexistent}" rev-parse HEAD 2>/dev/null) == "$dot_sha" ]]; then
+  ${DOT_STACK_DOT_ROOT:-} == /* ]]; then
+  if _dot_runtime_is_release_root "$DOT_STACK_DOT_ROOT"; then
+    # Releases carry no Git history; the binary's short revision plus the
+    # resolved SHA is the identity instead of rev-parse HEAD.
+    dot_short=$(_dot_release_version_short12 \
+      "${DOT_STACK_DOT_BIN:-/nonexistent}" 2>/dev/null || true)
+    if [[ ${DOT_STACK_DOT_BIN:-} == "$DOT_STACK_DOT_ROOT/dot" &&
+      -n $dot_short && $dot_sha == "$dot_short"* ]]; then
+      dot_runtime_ok=1
+    fi
+  elif [[ ${DOT_STACK_DOT_BIN:-} == "$DOT_STACK_DOT_ROOT/bin/dot" &&
+    $(git -C "$DOT_STACK_DOT_ROOT" rev-parse HEAD 2>/dev/null) == "$dot_sha" ]]; then
+    dot_runtime_ok=1
+  fi
+fi
+if [[ $dot_runtime_ok -eq 1 ]]; then
   _pass "$expected_group uses one exact resolved Dot runtime"
 else
   _fail "$expected_group uses one exact resolved Dot runtime"
@@ -269,6 +285,12 @@ _assert_eq 'profile fixtures isolate outer GitHub credentials' \
 install_dot_runtime() {
   local home=$1 install=$1/.local/share/cgraf78/dot actual
   mkdir -p "${install%/*}"
+  if _dot_runtime_is_release_root "$DOT_STACK_DOT_ROOT"; then
+    _dot_runtime_install_copy "$DOT_STACK_DOT_ROOT" "$install" || return 1
+    actual=$(_dot_release_version_short12 "$install/dot") || return 1
+    [[ $dot_sha == "$actual"* ]]
+    return
+  fi
   "$git_bin" -C "${install%/*}" init --quiet "${install##*/}" || return 1
   "$git_bin" -C "$install" remote add origin "file://$DOT_STACK_DOT_ROOT" || return 1
   "$git_bin" -C "$install" fetch --quiet --depth=1 origin "$dot_sha" || return 1
@@ -652,9 +674,22 @@ for profile in base editor dev; do
       else
         _fail "$profile footprint excludes Shdeps build artifacts"
       fi
-      _assert_eq "$profile footprint uses a shallow exact Dot runtime" true \
-        "$("$git_bin" -C "$home/.local/share/cgraf78/dot" \
-          rev-parse --is-shallow-repository)"
+      if _dot_runtime_is_release_root "$home/.local/share/cgraf78/dot"; then
+        fixture_short=$(_dot_release_version_short12 \
+          "$home/.local/share/cgraf78/dot/dot" 2>/dev/null || true)
+        if [[ -n $fixture_short && $dot_sha == "$fixture_short"* ]]; then
+          _pass "$profile footprint uses an exact release Dot runtime"
+        else
+          _fail "$profile footprint uses an exact release Dot runtime"
+        fi
+        _assert_file_missing \
+          "$profile footprint release runtime carries no Git history" \
+          "$home/.local/share/cgraf78/dot/.git"
+      else
+        _assert_eq "$profile footprint uses a shallow exact Dot runtime" true \
+          "$("$git_bin" -C "$home/.local/share/cgraf78/dot" \
+            rev-parse --is-shallow-repository)"
+      fi
       footprint_output=$(
         "$source_home/.local/lib/dotfiles/tests/measure-profile-footprint" \
           --phase clean-profile-fixture --profile "$profile" "$home"

@@ -1,0 +1,598 @@
+#!/usr/bin/env bash
+# dot-runtime-resolve-test - offline unit coverage for the release resolver.
+#
+# Every assertion here runs without network: platform mapping, tag grammar,
+# version-line parsing, and a file:// fixture tree standing in for the
+# release host. The single live redirect probe (`/releases/latest` ->
+# effective URL) cannot run offline and was verified against real GitHub
+# instead; see the owning commit message.
+
+set -u
+
+source_home=${DOT_TEST_SOURCE_HOME:-$HOME}
+# shellcheck source=helpers.sh
+. "$source_home/.local/lib/dotfiles/tests/helpers.sh"
+# shellcheck source=dot-runtime-resolve.sh
+. "$source_home/.local/lib/dotfiles/tests/dot-runtime-resolve.sh"
+
+command -v git >/dev/null 2>&1 || {
+  echo 'dot-runtime-resolve-test requires git' >&2
+  exit 1
+}
+command -v curl >/dev/null 2>&1 || {
+  echo 'dot-runtime-resolve-test requires curl' >&2
+  exit 1
+}
+
+# Isolate the tag fixtures from caller Git identity, signing, and hooks.
+_mock_home
+
+echo ""
+echo "=== Release platform mapping ==="
+
+_assert_eq 'linux x86_64 maps to musl asset' 'linux-x86_64-musl' \
+  "$(_dot_runtime_release_platform Linux x86_64 GNU/Linux)"
+_assert_eq 'linux aarch64 maps to musl asset' 'linux-aarch64-musl' \
+  "$(_dot_runtime_release_platform Linux aarch64 GNU/Linux)"
+_assert_eq 'linux arm64 aliases to aarch64 asset' 'linux-aarch64-musl' \
+  "$(_dot_runtime_release_platform Linux arm64 GNU/Linux)"
+_assert_eq 'macOS x86_64 maps' 'macos-x86_64' \
+  "$(_dot_runtime_release_platform Darwin x86_64 Darwin)"
+_assert_eq 'macOS arm64 maps' 'macos-aarch64' \
+  "$(_dot_runtime_release_platform Darwin arm64 Darwin)"
+_assert_eq 'macOS aarch64 maps' 'macos-aarch64' \
+  "$(_dot_runtime_release_platform Darwin aarch64 Darwin)"
+_assert_eq 'Android x86_64 emulator maps' 'android-x86_64' \
+  "$(_dot_runtime_release_platform Linux x86_64 Android)"
+_assert_eq 'Android aarch64 maps' 'android-aarch64' \
+  "$(_dot_runtime_release_platform Linux aarch64 Android)"
+_assert_eq 'Termux PREFIX implies Android without uname' 'android-x86_64' \
+  "$(PREFIX=/data/data/com.termux/files/usr \
+    _dot_runtime_release_platform Linux x86_64 GNU/Linux)"
+if _dot_runtime_release_platform Linux x86_64 GNU/Linux >/dev/null; then
+  _pass 'live platform resolves to a supported label'
+else
+  _fail 'live platform resolves to a supported label'
+fi
+if _dot_runtime_release_platform Plan9 x86_64 foo >/dev/null 2>&1; then
+  _fail 'unknown kernel fails closed'
+else
+  _pass 'unknown kernel fails closed'
+fi
+if _dot_runtime_release_platform Linux riscv64 GNU/Linux >/dev/null 2>&1; then
+  _fail 'unknown architecture fails closed'
+else
+  _pass 'unknown architecture fails closed'
+fi
+if _dot_runtime_release_platform Linux riscv64 Android >/dev/null 2>&1; then
+  _fail 'unknown Android architecture fails closed'
+else
+  _pass 'unknown Android architecture fails closed'
+fi
+
+echo ""
+echo "=== Release tag grammar ==="
+
+good_tag=20260914-103531-41e0dcd5
+if _dot_release_tag_valid "$good_tag"; then
+  _pass 'timestamp-hash tag is valid'
+else
+  _fail 'timestamp-hash tag is valid'
+fi
+for bad_tag in '' 'releases' 'v1.2.3' '20260914-103531-41E0DCD5' \
+  '20260914-10353-41e0dcd5' '2026091-103531-41e0dcd5' \
+  '20260914-103531-41e0dc' '20260914-103531-41e0dcd55' \
+  '../20260914-103531-41e0dcd5' '20260914-103531-41e0dcd5 '; do
+  if _dot_release_tag_valid "$bad_tag"; then
+    _fail "invalid tag is rejected: ${bad_tag:-<empty>}"
+  else
+    _pass "invalid tag is rejected: ${bad_tag:-<empty>}"
+  fi
+done
+_assert_eq 'effective URL yields its tag' "$good_tag" \
+  "$(_dot_release_tag_from_effective_url \
+    "https://github.com/cgraf78/dot/releases/tag/$good_tag")"
+if _dot_release_tag_from_effective_url \
+  'https://github.com/cgraf78/dot/releases' >/dev/null 2>&1; then
+  _fail 'empty release list fails closed'
+else
+  _pass 'empty release list fails closed'
+fi
+if _dot_release_tag_from_effective_url \
+  'https://github.com/cgraf78/dot/releases/tag/v9' >/dev/null 2>&1; then
+  _fail 'unexpected redirect target fails closed'
+else
+  _pass 'unexpected redirect target fails closed'
+fi
+
+echo ""
+echo "=== Tag to commit binding ==="
+
+tag_repo=$(_tmpdir)/tag-origin
+git init --quiet -b main "$tag_repo"
+_git_set_test_identity git -C "$tag_repo"
+printf 'fixture\n' >"$tag_repo/file.txt"
+git -C "$tag_repo" add file.txt
+git -C "$tag_repo" -c core.hooksPath=/dev/null commit --quiet -m fixture
+tag_sha=$(git -C "$tag_repo" rev-parse HEAD)
+tag_short=${tag_sha:0:8}
+light_tag=20260101-000000-$tag_short
+git -C "$tag_repo" tag "$light_tag"
+annotated_tag=20260102-000000-$tag_short
+git -C "$tag_repo" tag -a -m fixture "$annotated_tag"
+git -C "$tag_repo" tag 20260103-000000-deadbeef
+_assert_eq 'lightweight tag resolves to its commit' "$tag_sha" \
+  "$(_dot_release_commit_for_tag "file://$tag_repo" "$light_tag")"
+_assert_eq 'annotated tag resolves to the peeled commit' "$tag_sha" \
+  "$(_dot_release_commit_for_tag "file://$tag_repo" "$annotated_tag")"
+if _dot_release_commit_for_tag "file://$tag_repo" \
+  20260103-000000-deadbeef >/dev/null 2>&1; then
+  _fail 'tag with a foreign suffix fails closed'
+else
+  _pass 'tag with a foreign suffix fails closed'
+fi
+if _dot_release_commit_for_tag "file://$tag_repo" \
+  20260104-000000-00000000 >/dev/null 2>&1; then
+  _fail 'missing tag fails closed'
+else
+  _pass 'missing tag fails closed'
+fi
+if _dot_release_commit_for_tag "file:///nonexistent-fixture.git" \
+  "$light_tag" >/dev/null 2>&1; then
+  _fail 'unreachable repository fails closed'
+else
+  _pass 'unreachable repository fails closed'
+fi
+
+echo ""
+echo "=== Release download and verify ==="
+
+# The fixture short revision must be the SHA prefix the resolver binds.
+fixture_sha=abcdef0123456789abcdef0123456789abcdef01
+fixture_tag=20260105-112233-abcdef01
+fixture_platform=testos-testarch
+release_tree=$(_tmpdir)/release-host
+release_payload=$(_tmpdir)/release-payload
+mkdir -p "$release_payload/lib/dot/public"
+printf '# fixture xdg\n' >"$release_payload/lib/dot/public/xdg.sh"
+cat >"$release_payload/dot" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' 'dot commit abcdef012345 (config 1; extensions 1; library 1)'
+EOF
+chmod +x "$release_payload/dot"
+cat >"$release_payload/.dot-install.json" <<'EOF'
+{
+  "schema": 1,
+  "method": "release",
+  "artifact_platform": "testos-testarch",
+  "version": "20260105-112233-abcdef01",
+  "tag": "20260105-112233-abcdef01",
+  "commit": "abcdef0123456789abcdef0123456789abcdef01",
+  "repo": "cgraf78/dot"
+}
+EOF
+fixture_asset=dot-$fixture_tag-$fixture_platform.tar.gz
+mkdir -p "$release_tree/releases/download/$fixture_tag"
+tar -czf "$release_tree/releases/download/$fixture_tag/$fixture_asset" \
+  -C "$release_payload" .
+if command -v sha256sum >/dev/null 2>&1; then
+  (cd "$release_tree/releases/download/$fixture_tag" &&
+    sha256sum "$fixture_asset" >"$fixture_asset.sha256")
+else
+  (cd "$release_tree/releases/download/$fixture_tag" &&
+    shasum -a 256 "$fixture_asset" >"$fixture_asset.sha256")
+fi
+
+fetch_dest=$(_tmpdir)/fetched
+mkdir -p "$fetch_dest"
+if _dot_release_fetch "file://$release_tree" dot \
+  "$fixture_tag" "$fixture_platform" "$fetch_dest"; then
+  _pass 'fixture release downloads and extracts'
+else
+  _fail 'fixture release downloads and extracts'
+fi
+_assert_eq 'fetched binary reports the fixture revision' 'abcdef012345' \
+  "$(_dot_release_version_short12 "$fetch_dest/dot")"
+if _dot_runtime_is_release_root "$fetch_dest"; then
+  _pass 'fetched tree detects as a release root'
+else
+  _fail 'fetched tree detects as a release root'
+fi
+if _dot_release_verify_root "$fetch_dest" "$fixture_tag" "$fixture_platform" "$fixture_sha"; then
+  _pass 'fetched tree verifies against its tag and commit'
+else
+  _fail 'fetched tree verifies against its tag and commit'
+fi
+if _dot_release_verify_root "$fetch_dest" \
+  20260105-112233-00000000 "$fixture_platform" "$fixture_sha" >/dev/null 2>&1; then
+  _fail 'foreign tag fails verification'
+else
+  _pass 'foreign tag fails verification'
+fi
+if _dot_release_verify_root "$fetch_dest" "$fixture_tag" "$fixture_platform" \
+  0000000000000000000000000000000000000000 >/dev/null 2>&1; then
+  _fail 'foreign commit fails verification'
+else
+  _pass 'foreign commit fails verification'
+fi
+
+tamper_dest=$(_tmpdir)/tampered
+mkdir -p "$tamper_dest"
+cp -R "$fetch_dest/." "$tamper_dest"/
+printf '%s\n' 'dot commit 000000000000 (config 1; extensions 1; library 1)' \
+  >"$tamper_dest/version-override"
+cat >"$tamper_dest/dot" <<'EOF'
+#!/usr/bin/env bash
+cat "${0%/*}/version-override"
+EOF
+chmod +x "$tamper_dest/dot"
+if _dot_release_verify_root "$tamper_dest" \
+  "$fixture_tag" "$fixture_platform" "$fixture_sha" >/dev/null 2>&1; then
+  _fail 'rebuilt binary fails verification'
+else
+  _pass 'rebuilt binary fails verification'
+fi
+meta_dest=$(_tmpdir)/meta-tampered
+mkdir -p "$meta_dest"
+cp -R "$fetch_dest/." "$meta_dest"/
+printf '%s\n' '{"commit": "0000000000000000000000000000000000000000"}' \
+  >"$meta_dest/.dot-install.json"
+if _dot_release_verify_root "$meta_dest" \
+  "$fixture_tag" "$fixture_platform" "$fixture_sha" >/dev/null 2>&1; then
+  _fail 'disagreeing install metadata fails verification'
+else
+  _pass 'disagreeing install metadata fails verification'
+fi
+if _dot_release_verify_root "$fetch_dest" \
+  "$fixture_tag" nope-nope "$fixture_sha" >/dev/null 2>&1; then
+  _fail 'foreign platform fails verification'
+else
+  _pass 'foreign platform fails verification'
+fi
+
+corrupt_tree=$(_tmpdir)/corrupt-host
+mkdir -p "$corrupt_tree/releases/download/$fixture_tag"
+cp "$release_tree/releases/download/$fixture_tag/$fixture_asset" \
+  "$corrupt_tree/releases/download/$fixture_tag/$fixture_asset"
+cp "$release_tree/releases/download/$fixture_tag/$fixture_asset.sha256" \
+  "$corrupt_tree/releases/download/$fixture_tag/$fixture_asset.sha256"
+printf 'corrupt' \
+  >>"$corrupt_tree/releases/download/$fixture_tag/$fixture_asset"
+corrupt_dest=$(_tmpdir)/corrupt
+mkdir -p "$corrupt_dest"
+if _dot_release_fetch "file://$corrupt_tree" dot \
+  "$fixture_tag" "$fixture_platform" "$corrupt_dest" >/dev/null 2>&1; then
+  _fail 'checksum mismatch fails the fetch'
+else
+  _pass 'checksum mismatch fails the fetch'
+fi
+nonempty_dest=$(_tmpdir)/nonempty
+mkdir -p "$nonempty_dest"
+printf 'sentinel\n' >"$nonempty_dest/sentinel"
+if _dot_release_fetch "file://$release_tree" dot \
+  "$fixture_tag" "$fixture_platform" "$nonempty_dest" >/dev/null 2>&1; then
+  _fail 'nonempty destination fails the fetch'
+else
+  _pass 'nonempty destination fails the fetch'
+fi
+missing_dest=$(_tmpdir)/missing-platform
+mkdir -p "$missing_dest"
+if _dot_release_fetch "file://$release_tree" dot \
+  "$fixture_tag" nope-nope "$missing_dest" >/dev/null 2>&1; then
+  _fail 'missing asset fails the fetch'
+else
+  _pass 'missing asset fails the fetch'
+fi
+
+reserved_tree=$(_tmpdir)/reserved-host
+reserved_payload=$(_tmpdir)/reserved-payload
+mkdir -p "$reserved_payload" "$reserved_tree/releases/download/$fixture_tag"
+printf '#!/usr/bin/env bash\necho reserved\n' >"$reserved_payload/dot"
+chmod +x "$reserved_payload/dot"
+printf 'v1 archive\n' >"$reserved_payload/.shdeps-release-layout"
+tar -czf "$reserved_tree/releases/download/$fixture_tag/$fixture_asset" \
+  -C "$reserved_payload" .
+if command -v sha256sum >/dev/null 2>&1; then
+  (cd "$reserved_tree/releases/download/$fixture_tag" &&
+    sha256sum "$fixture_asset" >"$fixture_asset.sha256")
+else
+  (cd "$reserved_tree/releases/download/$fixture_tag" &&
+    shasum -a 256 "$fixture_asset" >"$fixture_asset.sha256")
+fi
+reserved_dest=$(_tmpdir)/reserved
+mkdir -p "$reserved_dest"
+if _dot_release_fetch "file://$reserved_tree" dot \
+  "$fixture_tag" "$fixture_platform" "$reserved_dest" >/dev/null 2>&1; then
+  _fail 'archive shipping the reserved marker fails the fetch'
+else
+  _pass 'archive shipping the reserved marker fails the fetch'
+fi
+
+echo ""
+echo "=== Version line parsing ==="
+
+version_bin=$(_tmpdir)/version-dot
+cat >"$version_bin" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' 'dot commit 41e0dcd55ae0 (config 1; extensions 1; library 1)'
+EOF
+chmod +x "$version_bin"
+_assert_eq 'version line yields short12' '41e0dcd55ae0' \
+  "$(_dot_release_version_short12 "$version_bin")"
+unknown_bin=$(_tmpdir)/unknown-dot
+cat >"$unknown_bin" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' 'dot commit unknown (config 1; extensions 1; library 1)'
+EOF
+chmod +x "$unknown_bin"
+if _dot_release_version_short12 "$unknown_bin" >/dev/null 2>&1; then
+  _fail 'unknown revision fails closed'
+else
+  _pass 'unknown revision fails closed'
+fi
+garbage_bin=$(_tmpdir)/garbage-dot
+cat >"$garbage_bin" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' 'not a version line'
+EOF
+chmod +x "$garbage_bin"
+if _dot_release_version_short12 "$garbage_bin" >/dev/null 2>&1; then
+  _fail 'garbage version fails closed'
+else
+  _pass 'garbage version fails closed'
+fi
+if _dot_release_version_short12 "$(_tmpdir)/absent-dot" >/dev/null 2>&1; then
+  _fail 'absent binary fails closed'
+else
+  _pass 'absent binary fails closed'
+fi
+
+echo ""
+echo "=== Release root detection and install ==="
+
+if _dot_runtime_is_release_root "$fetch_dest"; then
+  _pass 'complete fixture tree is a release root'
+else
+  _fail 'complete fixture tree is a release root'
+fi
+no_bin=$(_tmpdir)/no-bin
+mkdir -p "$no_bin"
+cp -R "$fetch_dest/." "$no_bin"/
+rm "$no_bin/dot"
+if _dot_runtime_is_release_root "$no_bin"; then
+  _fail 'tree without a binary is not a release root'
+else
+  _pass 'tree without a binary is not a release root'
+fi
+with_git=$(_tmpdir)/with-git
+mkdir -p "$with_git"
+cp -R "$fetch_dest/." "$with_git"/
+mkdir "$with_git/.git"
+if _dot_runtime_is_release_root "$with_git"; then
+  _fail 'tree with Git metadata is not a release root'
+else
+  _pass 'tree with Git metadata is not a release root'
+fi
+linked_bin=$(_tmpdir)/linked-bin
+mkdir -p "$linked_bin"
+cp -R "$fetch_dest/." "$linked_bin"/
+rm "$linked_bin/dot"
+ln -s /bin/true "$linked_bin/dot"
+if _dot_runtime_is_release_root "$linked_bin"; then
+  _fail 'symlinked binary is not a release root'
+else
+  _pass 'symlinked binary is not a release root'
+fi
+
+install_dest=$(_tmpdir)/installed
+mkdir -p "$install_dest"
+if (umask 077 && _dot_runtime_install_copy "$fetch_dest" "$install_dest"); then
+  _pass 'release install copies under a restrictive umask'
+else
+  _fail 'release install copies under a restrictive umask'
+fi
+if [[ -x $install_dest/dot && ! -L $install_dest/dot ]]; then
+  _pass 'installed binary stays a regular executable'
+else
+  _fail 'installed binary stays a regular executable'
+fi
+install_mode=$(stat -c '%a' "$install_dest/dot" 2>/dev/null ||
+  stat -f '%Lp' "$install_dest/dot" 2>/dev/null)
+_assert_eq 'installed binary keeps the packaged mode' '755' "$install_mode"
+_assert_file_exists 'installed tree keeps the public API' \
+  "$install_dest/lib/dot/public/xdg.sh"
+_assert_file_content 'installed tree writes the shdeps layout marker' \
+  'v1 archive' "$install_dest/.shdeps-release-layout"
+if _dot_runtime_install_copy "$fetch_dest" "$install_dest" >/dev/null 2>&1; then
+  _fail 'install into a nonempty directory fails closed'
+else
+  _pass 'install into a nonempty directory fails closed'
+fi
+if _dot_runtime_install_copy "$no_bin" "$(_tmpdir)/bogus" >/dev/null 2>&1; then
+  _fail 'install from a non-release tree fails closed'
+else
+  _pass 'install from a non-release tree fails closed'
+fi
+
+echo ""
+echo "=== Harness release-mode validation ==="
+
+stack_runtime=$source_home/.local/lib/dotfiles/tests/stack-dot-runtime
+candidate_home=$source_home/.local/lib/dotfiles/tests/run-ci-candidate-home
+
+rc=0
+output=
+output=$(DOT_STACK_DOT_RELEASE_TAG=not-a-tag \
+  "$stack_runtime" release-validation -- true 2>&1) || rc=$?
+_assert_exit 'stack runtime rejects a malformed tag' 1 "$rc"
+_assert_contains 'stack runtime names the bad tag' \
+  'invalid Dot release tag' "$output"
+
+rc=0
+output=
+output=$(DOT_STACK_DOT_RELEASE_TAG=20260106-121212-abcdef01 \
+  DOT_STACK_DOT_RELEASE_REPO='bad..repo' \
+  "$stack_runtime" release-validation -- true 2>&1) || rc=$?
+_assert_exit 'stack runtime rejects a malformed repo' 1 "$rc"
+_assert_contains 'stack runtime names the bad repo' \
+  'invalid Dot release repository' "$output"
+
+echo ""
+echo "=== Offline end-to-end release resolution ==="
+
+# One fixture commit anchors every binding: the tag suffix, the metadata
+# commit, and the stub's short12 all derive from it, so the full stack path
+# resolves without network access through the file:// seams.
+e2e_git=$(_tmpdir)/e2e-origin
+git init --quiet -b main "$e2e_git"
+_git_set_test_identity git -C "$e2e_git"
+printf 'fixture\n' >"$e2e_git/file.txt"
+git -C "$e2e_git" add file.txt
+git -C "$e2e_git" -c core.hooksPath=/dev/null commit --quiet -m fixture
+e2e_sha=$(git -C "$e2e_git" rev-parse HEAD)
+e2e_tag="20260106-121212-${e2e_sha:0:8}"
+e2e_short12=${e2e_sha:0:12}
+git -C "$e2e_git" tag "$e2e_tag"
+e2e_base=$(_tmpdir)/e2e-host
+e2e_tree=$e2e_base/cgraf78/dot/releases/download/$e2e_tag
+mkdir -p "$e2e_tree"
+for e2e_label in linux-x86_64-musl linux-aarch64-musl android-aarch64 \
+  android-x86_64 macos-x86_64 macos-aarch64; do
+  e2e_stage=$(_tmpdir)/e2e-stage
+  mkdir -p "$e2e_stage/lib/dot/public"
+  cat >"$e2e_stage/dot" <<EOF
+#!/usr/bin/env bash
+if [[ \${1:-} == version ]]; then
+  printf 'dot commit %s (config 1; extensions 1; library 1)\n' "$e2e_short12"
+elif [[ " \$* " == *' --status '* ]]; then
+  printf 'initialization: complete\n'
+else
+  printf 'fixture-dot-%s\n' "$e2e_label"
+fi
+EOF
+  chmod +x "$e2e_stage/dot"
+  printf '# fixture xdg\n' >"$e2e_stage/lib/dot/public/xdg.sh"
+  cat >"$e2e_stage/.dot-install.json" <<EOF
+{
+  "schema": 1,
+  "method": "release",
+  "artifact_platform": "$e2e_label",
+  "version": "$e2e_tag",
+  "tag": "$e2e_tag",
+  "commit": "$e2e_sha",
+  "repo": "cgraf78/dot"
+}
+EOF
+  e2e_asset=dot-$e2e_tag-$e2e_label.tar.gz
+  tar -czf "$e2e_tree/$e2e_asset" -C "$e2e_stage" .
+  if command -v sha256sum >/dev/null 2>&1; then
+    (cd "$e2e_tree" && sha256sum "$e2e_asset" >"$e2e_asset.sha256")
+  else
+    (cd "$e2e_tree" && shasum -a 256 "$e2e_asset" >"$e2e_asset.sha256")
+  fi
+done
+
+rc=0
+e2e_output=
+# shellcheck disable=SC2016 # The child shell expands these at exec time.
+e2e_output=$(
+  DOT_STACK_DOT_RELEASE_TAG="$e2e_tag" \
+    DOT_STACK_DOT_RELEASE_REPO=cgraf78/dot \
+    DOT_STACK_DOT_REPOSITORY="file://$e2e_git" \
+    DOT_RELEASE_DOWNLOAD_BASE="file://$e2e_base" \
+    "$stack_runtime" release-e2e -- \
+    bash -c 'printf "sha=%s\nbin=%s\n" "$DOT_STACK_DOT_SHA" "$("$DOT_STACK_DOT_BIN" version)"' \
+    2>&1
+) || rc=$?
+_assert_exit 'stack runtime resolves the fixture release' 0 "$rc"
+_assert_contains 'stack runtime reports the bound commit' \
+  "sha=$e2e_sha" "$e2e_output"
+_assert_contains 'stack runtime installs a runnable binary' \
+  "bin=dot commit $e2e_short12" "$e2e_output"
+_assert_contains 'stack runtime announces the release tag' \
+  "tag=$e2e_tag" "$e2e_output"
+
+rc=0
+e2e_output=
+e2e_output=$(DOT_STACK_DOT_RELEASE_TAG="$e2e_tag" \
+  DOT_STACK_DOT_RELEASE_REPO=cgraf78/dot \
+  DOT_STACK_DOT_REPOSITORY="file://$e2e_git" \
+  DOT_STACK_DOT_SHA=0000000000000000000000000000000000000000 \
+  DOT_RELEASE_DOWNLOAD_BASE="file://$e2e_base" \
+  "$stack_runtime" release-e2e -- true 2>&1) || rc=$?
+_assert_exit 'stack runtime rejects a mismatched claimed binding' 1 "$rc"
+
+if [[ -d $source_home/.git && ! -L $source_home/.git ]]; then
+  candidate_sha=$(git -C "$source_home" rev-parse HEAD)
+  # Direct invocation with a tag but no release root fails before any
+  # dependency setup, so this stays offline without further fixtures.
+  rc=0
+  output=
+  output=$(DOTFILES_CANDIDATE_SHA="$candidate_sha" \
+    DOT_STACK_DOT_RELEASE_TAG="$e2e_tag" \
+    DOT_STACK_DOT_SHA="$e2e_sha" \
+    "$candidate_home" true 2>&1) || rc=$?
+  _assert_exit 'candidate home refuses a tag without a release root' 1 "$rc"
+  _assert_contains 'candidate home names the missing release root' \
+    'requires a release root' "$output"
+
+  # The nested leg installs through the stack-resolved root. Fixture
+  # agent-rules-sync and shdeps roots behind the harness's own test seams
+  # keep the whole candidate-home build offline.
+  e2e_ars=$(_tmpdir)/ars
+  mkdir -p "$e2e_ars/bin"
+  printf '#!/usr/bin/env bash\necho fixture-ars\n' \
+    >"$e2e_ars/bin/agent-rules-sync"
+  chmod +x "$e2e_ars/bin/agent-rules-sync"
+  git init --quiet -b main "$e2e_ars"
+  _git_set_test_identity git -C "$e2e_ars"
+  git -C "$e2e_ars" add bin/agent-rules-sync
+  git -C "$e2e_ars" -c core.hooksPath=/dev/null commit --quiet -m fixture
+  e2e_shdeps=$(_tmpdir)/shdeps-root
+  mkdir -p "$e2e_shdeps"
+  printf '# fixture install\n' >"$e2e_shdeps/install.sh"
+  printf '# fixture lib\n' >"$e2e_shdeps/shdeps.sh"
+  printf '#!/usr/bin/env bash\necho shdeps 20250101-010101-00000000\n' \
+    >"$e2e_shdeps/shdeps"
+  chmod +x "$e2e_shdeps/shdeps"
+  # The lock the release build was anchored on, served through the raw
+  # fixture override so the anchor restore stays offline.
+  e2e_raw=$(_tmpdir)/e2e-raw
+  mkdir -p "$e2e_raw/cgraf78/dot/$e2e_sha/support"
+  printf 'revision=0000000000000000000000000000000000000000\ninstall_sha256=0000000000000000000000000000000000000000000000000000000000000000\n' \
+    >"$e2e_raw/cgraf78/dot/$e2e_sha/support/shdeps.lock"
+  rc=0
+  e2e_output=
+  # shellcheck disable=SC2016 # The child shell expands these at exec time.
+  e2e_output=$(
+    DOT_STACK_DOT_RELEASE_TAG="$e2e_tag" \
+      DOT_STACK_DOT_RELEASE_REPO=cgraf78/dot \
+      DOT_STACK_DOT_REPOSITORY="file://$e2e_git" \
+      DOT_STACK_AGENT_RULES_SYNC_REPOSITORY="file://$e2e_ars" \
+      DOT_STACK_SHDEPS_ROOT="$e2e_shdeps" \
+      DOT_RELEASE_DOWNLOAD_BASE="file://$e2e_base" \
+      DOT_RELEASE_RAW_BASE="file://$e2e_raw" \
+      DOTFILES_CANDIDATE_SHA="$candidate_sha" \
+      "$stack_runtime" release-nested -- \
+      "$candidate_home" \
+      bash -c 'printf "door=%s\nlib=%s\nversion=%s\nmarker=%s\n" \
+      "$("$HOME/.local/bin/dot")" \
+      "$(cat "$HOME/.local/lib/dot/xdg.sh")" \
+      "$("$HOME/.local/bin/dot" version)" \
+      "$(cat "$HOME/.local/share/cgraf78/dot/.shdeps-release-layout")"' \
+      2>&1
+  ) || rc=$?
+  _assert_exit 'nested candidate home installs the fixture release' 0 "$rc"
+  _assert_contains 'nested home serves the release binary' \
+    'door=fixture-dot-' "$e2e_output"
+  _assert_contains 'nested home links the public library' \
+    'lib=# fixture xdg' "$e2e_output"
+  _assert_contains 'nested home reports the build commit' \
+    "version=dot commit $e2e_short12" "$e2e_output"
+  _assert_contains 'nested home writes the layout marker' \
+    'marker=v1 archive' "$e2e_output"
+else
+  echo '(standalone-checkout e2e cases skipped: source home is a worktree)'
+fi
+
+_test_summary
