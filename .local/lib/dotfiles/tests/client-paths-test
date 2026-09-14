@@ -30,78 +30,17 @@ _client_path_contains 'clipboard consumes the public standalone XDG library' \
   .local/bin/clip '.local/lib/dot/xdg.sh'
 _client_path_contains 'Git launcher loads the dotfiles-owned launcher helper' \
   .local/bin/git '../lib/dotfiles/launcher-real.sh'
-_dot_front_door_template() {
-  cat <<'DOT_FRONT_DOOR_TEMPLATE'
-#!/usr/bin/env bash
-# Legacy client-owned front door. New installs publish the native binary
-# directly; existing client repositories may keep this exact file while init
-# transitions them to the standalone release layout.
 
-set -euo pipefail
-CDPATH=
-
-dot_client_unavailable() {
-  printf '%s\n' \
-    'dot: standalone runtime is unavailable' \
-    'reinstall it with:' \
-    '  curl -fsSL https://raw.githubusercontent.com/cgraf78/dot/main/install.sh | bash' \
-    >&2
-  exit 1
-}
-
-checkout=${CGRAF78_CHECKOUT_INSTALL_DIR:-}
-if [[ -z $checkout ]]; then
-  install_home=${XDG_DATA_HOME:-$HOME/.local/share}
-  while [[ $install_home != / && $install_home == */ ]]; do
-    install_home=${install_home%/}
-  done
-  case $install_home in
-    /) checkout=/cgraf78/dot ;;
-    /*) checkout=$install_home/cgraf78/dot ;;
-    *) dot_client_unavailable ;;
-  esac
-fi
-
-case $checkout in
-  '' | / | */ | *//* | */./* | */. | */../* | */.. | *$'\n'* | *$'\r'*)
-    dot_client_unavailable
-    ;;
-  /*) ;;
-  *) dot_client_unavailable ;;
-esac
-case ${HOME:-} in
-  '' | / | */ | *//* | */./* | */. | */../* | */.. | *$'\n'* | *$'\r'*)
-    dot_client_unavailable
-    ;;
-  /*) ;;
-  *) dot_client_unavailable ;;
-esac
-
-runtime=$checkout/dot
-public=$checkout/lib/dot/public
-
-[[ -f $runtime && ! -L $runtime && -x $runtime ]] || dot_client_unavailable
-[[ -d $public && ! -L $public ]] || dot_client_unavailable
-
-exec "$runtime" "$@"
-DOT_FRONT_DOOR_TEMPLATE
-}
-# Materialize the template: `cmp`/`diff` (diffutils) are absent from the
-# minimal CI containers, while `git` is already required by this suite.
-# The temp copy must be executable too, because `git diff --no-index`
-# compares file modes and would flag 100644-vs-100755 as a difference.
-front_door_tmp=$(mktemp -d)
-trap 'rm -rf "$front_door_tmp"' EXIT
-if [[ -f $source_home/.local/bin/dot &&
-  ! -L $source_home/.local/bin/dot &&
-  -x $source_home/.local/bin/dot ]] &&
-  _dot_front_door_template >"$front_door_tmp/expected-dot" &&
-  chmod +x "$front_door_tmp/expected-dot" &&
-  git --no-pager diff --no-index --quiet --no-ext-diff --no-textconv -- \
-    "$front_door_tmp/expected-dot" "$source_home/.local/bin/dot"; then
-  _pass 'dot front door matches the reviewed permanent launcher template'
+# The base no longer owns the dot entry point: the provider-published
+# command (release install) is the only `dot`. Keeping this path untracked
+# is load-bearing — a repo-owned door must byte-match the running dot's
+# canonical launcher or every base pull fails closed, which no single
+# content can satisfy across the cutover. Assert absence so the file can
+# never be reintroduced silently.
+if [[ -e $source_home/.local/bin/dot || -L $source_home/.local/bin/dot ]]; then
+  _fail 'dotfiles base owns no .local/bin/dot entry point'
 else
-  _fail 'dot front door matches the reviewed permanent launcher template'
+  _pass 'dotfiles base owns no .local/bin/dot entry point'
 fi
 
 selected_paths=(
@@ -115,7 +54,6 @@ selected_paths=(
   .config/shell/interactive.d/57-marks.sh
   .local/bin/clip
   .local/bin/git
-  .local/bin/dot
 )
 old_references=$(
   grep -nE '\.local/lib/dot/core/(shell-loader|windows|shdeps-assets|launcher-real)\.sh|\.local/lib/dot/(git-hooks|sley-hooks)' \
