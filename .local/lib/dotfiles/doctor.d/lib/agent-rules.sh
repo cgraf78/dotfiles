@@ -1,6 +1,18 @@
 # shellcheck shell=bash
 # dot doctor: Installed agent-rule policy checks.
 
+_dr_agent_rules_hook_lib() {
+  # Prefer the versioned public hook runtime (release installs carry only
+  # it); fall back to the legacy private layout (pre-cutover checkouts) so
+  # the check works on both sides of the transition. Both define the same
+  # hook API; the worker executes unchanged hooks against either.
+  if [[ -r $DOT_SOURCE_ROOT/lib/dot/public/hook-runtime-v1/hook-api.sh ]]; then
+    REPLY=$DOT_SOURCE_ROOT/lib/dot/public/hook-runtime-v1
+  else
+    REPLY=$DOT_SOURCE_ROOT/lib/dot
+  fi
+}
+
 _dr_agent_rules_installed_status() {
   local hook=${DOT_AGENT_RULES_HOOK:-$DOT_EXTENSIONS_DIR/merge-hooks.d/agent-rules.sh}
 
@@ -8,22 +20,24 @@ _dr_agent_rules_installed_status() {
   (
     # Reuse the merge hook's source-selection and provider boundary so doctor
     # cannot silently drift into a second policy renderer.
+    _dr_agent_rules_hook_lib
+    local hook_lib=$REPLY
     # shellcheck source=/dev/null
     . "$DOT_SOURCE_ROOT/lib/dot/public/xdg.sh" || exit 1
     # shellcheck source=/dev/null
-    . "$DOT_SOURCE_ROOT/lib/dot/log.sh" || exit 1
+    . "$hook_lib/log.sh" || exit 1
     # shellcheck source=/dev/null
-    . "$DOT_SOURCE_ROOT/lib/dot/temp.sh" || exit 1
+    . "$hook_lib/temp.sh" || exit 1
     # shellcheck source=/dev/null
-    . "$DOT_SOURCE_ROOT/lib/dot/merge-block.sh" || exit 1
+    . "$hook_lib/merge-block.sh" || exit 1
     # shellcheck source=/dev/null
-    . "$DOT_SOURCE_ROOT/lib/dot/families.sh" || exit 1
+    . "$hook_lib/families.sh" || exit 1
     # shellcheck source=/dev/null
-    . "$DOT_SOURCE_ROOT/lib/dot/merge-hooks.sh" || exit 1
+    . "$hook_lib/merge-hooks.sh" || exit 1
     # shellcheck source=/dev/null
-    . "$DOT_SOURCE_ROOT/lib/dot/extension-trust.sh" || exit 1
+    . "$hook_lib/extension-trust.sh" || exit 1
     # shellcheck source=/dev/null
-    . "$DOT_SOURCE_ROOT/lib/dot/hook-api.sh" || exit 1
+    . "$hook_lib/hook-api.sh" || exit 1
     # shellcheck source=/dev/null
     . "$hook" || exit 1
     _dot_agent_rules_check_installed
