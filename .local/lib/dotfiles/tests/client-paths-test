@@ -91,10 +91,19 @@ public_link=$HOME/.local/lib/dot
 exec "$runtime" "$@"
 DOT_FRONT_DOOR_TEMPLATE
 }
+# Materialize the template: `cmp`/`diff` (diffutils) are absent from the
+# minimal CI containers, while `git` is already required by this suite.
+# The temp copy must be executable too, because `git diff --no-index`
+# compares file modes and would flag 100644-vs-100755 as a difference.
+front_door_tmp=$(mktemp -d)
+trap 'rm -rf "$front_door_tmp"' EXIT
 if [[ -f $source_home/.local/bin/dot &&
   ! -L $source_home/.local/bin/dot &&
   -x $source_home/.local/bin/dot ]] &&
-  cmp -s <(_dot_front_door_template) "$source_home/.local/bin/dot"; then
+  _dot_front_door_template >"$front_door_tmp/expected-dot" &&
+  chmod +x "$front_door_tmp/expected-dot" &&
+  git --no-pager diff --no-index --quiet --no-ext-diff --no-textconv -- \
+    "$front_door_tmp/expected-dot" "$source_home/.local/bin/dot"; then
   _pass 'dot front door matches the reviewed permanent launcher template'
 else
   _fail 'dot front door matches the reviewed permanent launcher template'
