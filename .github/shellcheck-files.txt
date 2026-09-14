@@ -91,6 +91,7 @@ program	.local/lib/dotfiles/tests/core/launchers.sh
 program	.local/lib/dotfiles/tests/core/merges.sh
 program	.local/lib/dotfiles/tests/core/static.sh
 program	.local/lib/dotfiles/tests/door-guard-test
+program	.local/lib/dotfiles/tests/dot-release-live-test
 program	.local/lib/dotfiles/tests/dot-runtime-resolve-test
 program	.local/lib/dotfiles/tests/dot-runtime-resolve.sh
 program	.local/lib/dotfiles/tests/fixtures.sh

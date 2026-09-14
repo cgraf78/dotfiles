@@ -1,0 +1,160 @@
+#!/usr/bin/env bash
+# dot-release-live-test - prove the pinned release end to end, live.
+#
+# The offline resolver suite pins selection logic with fixtures; this suite
+# proves the real published release: every platform pair exists, this leg's
+# archive resolves through the harness, the installed binary binds to the
+# tag, and an independent shdeps install byte-matches the harness install.
+# The tag is pinned in this file (immutable binding); bump it with a
+# reviewed PR when the fleet moves to a newer Dot release.
+
+set -u
+
+source_home=${DOT_TEST_SOURCE_HOME:-$HOME}
+# shellcheck source=helpers.sh
+. "$source_home/.local/lib/dotfiles/tests/helpers.sh"
+# shellcheck source=dot-runtime-resolve.sh
+. "$source_home/.local/lib/dotfiles/tests/dot-runtime-resolve.sh"
+
+tests_dir=$source_home/.local/lib/dotfiles/tests
+stack_runtime=$tests_dir/stack-dot-runtime
+candidate_home=$tests_dir/run-ci-candidate-home
+
+LIVE_TAG=20260914-213225-a3fd5ca3
+LIVE_REPO=cgraf78/dot
+LIVE_BASE=https://github.com
+LIVE_LABELS="linux-x86_64-musl linux-aarch64-musl android-aarch64 android-x86_64 macos-x86_64 macos-aarch64"
+
+if ! command -v curl >/dev/null 2>&1; then
+  echo "dot-release-live-test requires curl" >&2
+  exit 1
+fi
+
+echo ""
+echo "=== Published pair existence ==="
+
+for label in $LIVE_LABELS; do
+  asset=dot-$LIVE_TAG-$label.tar.gz
+  rc=0
+  curl --fail --silent --head --location \
+    --connect-timeout 10 --max-time 60 \
+    "$LIVE_BASE/$LIVE_REPO/releases/download/$LIVE_TAG/$asset" \
+    >/dev/null 2>&1 || rc=$?
+  _assert_exit "asset exists: $label" 0 "$rc"
+  rc=0
+  curl --fail --silent --head --location \
+    --connect-timeout 10 --max-time 60 \
+    "$LIVE_BASE/$LIVE_REPO/releases/download/$LIVE_TAG/$asset.sha256" \
+    >/dev/null 2>&1 || rc=$?
+  _assert_exit "sidecar exists: $label" 0 "$rc"
+done
+
+echo ""
+echo "=== Live harness resolution ==="
+
+rc=0
+live_output=
+# shellcheck disable=SC2016 # The child shell expands these at exec time.
+live_output=$(DOT_STACK_DOT_RELEASE_TAG="$LIVE_TAG" \
+  DOT_STACK_DOT_RELEASE_REPO="$LIVE_REPO" \
+  DOT_STACK_DOT_SHA='' \
+  "$stack_runtime" release-live -- \
+  bash -c 'printf "sha=%s\nbin=%s\n" "$DOT_STACK_DOT_SHA" "$("$DOT_STACK_DOT_BIN" version")"' \
+  2>&1) || rc=$?
+_assert_exit 'stack runtime resolves the live release' 0 "$rc"
+live_sha=$(printf '%s\n' "$live_output" | sed -n 's/^sha=//p' | head -n 1)
+live_version=$(printf '%s\n' "$live_output" | sed -n 's/^bin=//p' | head -n 1)
+if [[ $live_sha =~ ^[0-9a-f]{40}$ ]]; then
+  _pass 'stack runtime reports a full commit'
+else
+  _fail "stack runtime reports a full commit (got '${live_sha:-<empty>}')"
+fi
+live_suffix=${LIVE_TAG##*-}
+if [[ $live_version == "dot commit $live_suffix"* ]]; then
+  _pass 'live binary binds to the tag suffix'
+else
+  _fail "live binary binds to the tag suffix (got '${live_version:-<empty>}')"
+fi
+if [[ $live_version =~ ^dot\ commit\ ([0-9a-f]{12})\  ]] &&
+  [[ $live_sha == "${BASH_REMATCH[1]}"* ]]; then
+  _pass 'live binary binds to the resolved commit'
+else
+  _fail 'live binary binds to the resolved commit'
+fi
+
+if [[ -d $source_home/.git && ! -L $source_home/.git ]]; then
+  candidate_sha=$(git -C "$source_home" rev-parse HEAD)
+  echo ""
+  echo "=== Live candidate home ==="
+  live_home=$(_tmpdir)/live-home-probe
+  rc=0
+  live_output=
+  # shellcheck disable=SC2016 # The child shell expands these at exec time.
+  live_output=$(DOT_STACK_DOT_RELEASE_TAG="$LIVE_TAG" \
+    DOT_STACK_DOT_RELEASE_REPO="$LIVE_REPO" \
+    DOT_STACK_DOT_SHA='' \
+    DOTFILES_CANDIDATE_SHA="$candidate_sha" \
+    LIVE_PROBE_HOME="$live_home" \
+    "$stack_runtime" release-live-home -- \
+    "$candidate_home" \
+    bash -c 'printf "door=%s\nversion=%s\nmarker=%s\nlib=%s\nshdeps=%s\n" \
+      "$(readlink "$HOME/.local/bin/dot")" \
+      "$("$HOME/.local/bin/dot" version)" \
+      "$(cat "$HOME/.local/share/cgraf78/dot/.shdeps-release-layout")" \
+      "$(cat "$HOME/.local/lib/dot/xdg.sh" 2>/dev/null || echo MISSING)" \
+      "$(command -v shdeps)"; printf "%s" "$HOME" >"$LIVE_PROBE_HOME"' \
+    2>&1) || rc=$?
+  _assert_exit 'candidate home installs the live release' 0 "$rc"
+  _assert_contains 'candidate home links the public command' \
+    '/.local/share/cgraf78/dot/dot' "$live_output"
+  _assert_contains 'candidate home reports the tag build' \
+    "dot commit $live_suffix" "$live_output"
+  _assert_contains 'candidate home writes the layout marker' \
+    'marker=v1 archive' "$live_output"
+  _assert_contains 'candidate home links the public library' \
+    'lib=#' "$live_output"
+
+  echo ""
+  echo "=== Independent shdeps cross-check ==="
+  if [[ -f $live_home ]]; then
+    probe_home=$(cat "$live_home")
+    shdeps_bin=$probe_home/.local/bin/shdeps
+    if [[ -x $shdeps_bin ]]; then
+      cross_home=$(_tmpdir)/cross-home
+      mkdir -p "$cross_home/.config/shdeps" "$cross_home/.local/bin" \
+        "$cross_home/.local/share"
+      printf '%s github:release dot\n' "$LIVE_REPO" \
+        >"$cross_home/.config/shdeps/10-deps.conf"
+      rc=0
+      cross_output=
+      cross_output=$(env -i HOME="$cross_home" PATH=/usr/bin:/bin \
+        SHDEPS_INSTALL_DIR="$cross_home/.local/share" \
+        SHDEPS_BIN_DIR="$cross_home/.local/bin" \
+        SHDEPS_CONFIG_HOME="$cross_home/.config/shdeps" \
+        "$shdeps_bin" update 2>&1) || rc=$?
+      if [[ $rc -eq 0 ]]; then
+        _pass 'independent shdeps installs the release'
+      else
+        _fail "independent shdeps installs the release (got '$(printf '%s' "$cross_output" | tail -c 300)')"
+      fi
+      if [[ -x $cross_home/.local/bin/dot ]]; then
+        if cmp -s "$probe_home/.local/bin/dot" \
+          "$cross_home/.local/bin/dot"; then
+          _pass 'harness install byte-matches the shdeps install'
+        else
+          _fail 'harness install byte-matches the shdeps install'
+        fi
+      else
+        _fail 'independent shdeps publishes the public command'
+      fi
+    else
+      _fail 'candidate home provides a shdeps binary for cross-check'
+    fi
+  else
+    _fail 'candidate home probe captured its home directory'
+  fi
+else
+  echo '(live candidate-home legs skipped: source home is a worktree)'
+fi
+
+_test_summary
