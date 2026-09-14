@@ -813,6 +813,8 @@ cp "$source_home/.local/lib/dotfiles/tests/checkout-ci-candidate" \
   "$candidate_seed/.local/lib/dotfiles/tests/checkout-ci-candidate"
 cp "$source_home/.local/lib/dotfiles/tests/run-ci-candidate-home" \
   "$candidate_seed/.local/lib/dotfiles/tests/run-ci-candidate-home"
+cp "$source_home/.local/lib/dotfiles/tests/dot-runtime-resolve.sh" \
+  "$candidate_seed/.local/lib/dotfiles/tests/dot-runtime-resolve.sh"
 cp "$source_home/.local/lib/dotfiles/pre-sync.d/10-overlay-ssh.sh" \
   "$candidate_seed/.local/lib/dotfiles/pre-sync.d/10-overlay-ssh.sh"
 printf '[core]\n\teditor = fixture\n' >"$candidate_seed/.config/git/config"
@@ -820,7 +822,8 @@ printf 'source\n' >"$candidate_seed/state"
 git -C "$candidate_seed" add state .config/git/config \
   .local/lib/dotfiles/pre-sync.d/10-overlay-ssh.sh \
   .local/lib/dotfiles/tests/checkout-ci-candidate \
-  .local/lib/dotfiles/tests/run-ci-candidate-home
+  .local/lib/dotfiles/tests/run-ci-candidate-home \
+  .local/lib/dotfiles/tests/dot-runtime-resolve.sh
 git -C "$candidate_seed" -c core.hooksPath=/dev/null commit --quiet -m source
 printf 'start\n' >"$candidate_seed/state"
 git -C "$candidate_seed" add state

@@ -495,10 +495,13 @@ done
 rc=0
 e2e_output=
 # shellcheck disable=SC2016 # The child shell expands these at exec time.
+# Clear the outer stack binding: this suite runs nested under a git-mode
+# stack whose SHA would otherwise fail the fixture tag's claimed check.
 e2e_output=$(
   DOT_STACK_DOT_RELEASE_TAG="$e2e_tag" \
     DOT_STACK_DOT_RELEASE_REPO=cgraf78/dot \
     DOT_STACK_DOT_REPOSITORY="file://$e2e_git" \
+    DOT_STACK_DOT_SHA='' \
     DOT_RELEASE_DOWNLOAD_BASE="file://$e2e_base" \
     "$stack_runtime" release-e2e -- \
     bash -c 'printf "sha=%s\nbin=%s\n" "$DOT_STACK_DOT_SHA" "$("$DOT_STACK_DOT_BIN" version)"' \
@@ -568,6 +571,7 @@ if [[ -d $source_home/.git && ! -L $source_home/.git ]]; then
     DOT_STACK_DOT_RELEASE_TAG="$e2e_tag" \
       DOT_STACK_DOT_RELEASE_REPO=cgraf78/dot \
       DOT_STACK_DOT_REPOSITORY="file://$e2e_git" \
+      DOT_STACK_DOT_SHA='' \
       DOT_STACK_AGENT_RULES_SYNC_REPOSITORY="file://$e2e_ars" \
       DOT_STACK_SHDEPS_ROOT="$e2e_shdeps" \
       DOT_RELEASE_DOWNLOAD_BASE="file://$e2e_base" \
