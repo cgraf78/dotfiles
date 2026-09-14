@@ -1,0 +1,177 @@
+#!/usr/bin/env bash
+# door-guard-test - pre-update safety net for the dot entry point.
+
+set -u
+
+source_home=${DOT_TEST_SOURCE_HOME:-$HOME}
+# shellcheck source=helpers.sh
+. "$source_home/.local/lib/dotfiles/tests/helpers.sh"
+
+guard=$source_home/.local/lib/dotfiles/door-guard.sh
+
+if ! command -v git >/dev/null 2>&1; then
+  echo "door-guard-test requires git" >&2
+  exit 1
+fi
+
+test_root=$(_tmpdir)
+stub_bin=$(_tmpdir)
+
+# Stub shdeps records invocations and exits with the configured code, so the
+# guard's fallback is observable without touching real provider state.
+cat >"$stub_bin/shdeps" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "shdeps $*" >>"$DOOR_GUARD_TEST_CALL_LOG"
+exit "${DOOR_GUARD_TEST_SHDEPS_RC:-0}"
+EOF
+chmod +x "$stub_bin/shdeps"
+
+# Build a fixture HOME whose bare dotfiles repo either owns the door at HEAD
+# (pre-cutover world) or does not (post-cutover world).
+make_home() {
+  local home=$1 with_door=$2 work
+  mkdir -p "$home"
+  work=$(_tmpdir)/work
+  mkdir -p "$work"
+  if [[ $with_door == yes ]]; then
+    mkdir -p "$work/.local/bin"
+    printf '#!/usr/bin/env bash\nexec true\n' >"$work/.local/bin/dot"
+    chmod +x "$work/.local/bin/dot"
+  else
+    mkdir -p "$work/.local/bin"
+    printf '#!/usr/bin/env bash\nexec true\n' >"$work/.local/bin/other"
+    chmod +x "$work/.local/bin/other"
+  fi
+  (
+    cd "$work" &&
+      GIT_CONFIG_NOSYSTEM=1 HOME="$home" git init -q -b main . &&
+      GIT_CONFIG_NOSYSTEM=1 HOME="$home" git add -A &&
+      GIT_CONFIG_NOSYSTEM=1 HOME="$home" \
+        git -c user.email=test@example.invalid -c user.name=test \
+        commit -qm fixture
+  ) || return 1
+  GIT_CONFIG_NOSYSTEM=1 HOME="$home" \
+    git clone -q --bare "$work" "$home/.dotfiles" || return 1
+}
+
+call_log=$(_tmpdir)/calls
+
+echo ""
+echo "=== Runnable door needs nothing ==="
+
+home_ok=$test_root/ok
+make_home "$home_ok" yes
+mkdir -p "$home_ok/.local/bin"
+printf '#!/usr/bin/env bash\nexit 0\n' >"$home_ok/.local/bin/dot"
+chmod +x "$home_ok/.local/bin/dot"
+: >"$call_log"
+rc=0
+HOME="$home_ok" PATH="$stub_bin:$PATH" DOOR_GUARD_TEST_CALL_LOG="$call_log" \
+  DOOR_GUARD_TEST_SHDEPS_RC=0 XDG_STATE_HOME="$home_ok/.local/state" \
+  "$guard" >/dev/null 2>&1 || rc=$?
+_assert_exit "runnable door: guard exits 0" 0 "$rc"
+_assert_eq "runnable door: shdeps is not invoked" "" "$(<"$call_log")"
+_assert_file_missing "runnable door: no forensic log is written" \
+  "$home_ok/.local/state/dot/door-guard.log"
+
+echo ""
+echo "=== Pre-cutover world leaves a missing door alone ==="
+
+home_pre=$test_root/pre
+make_home "$home_pre" yes
+: >"$call_log"
+rc=0
+HOME="$home_pre" PATH="$stub_bin:$PATH" DOOR_GUARD_TEST_CALL_LOG="$call_log" \
+  DOOR_GUARD_TEST_SHDEPS_RC=0 XDG_STATE_HOME="$home_pre/.local/state" \
+  "$guard" >/dev/null 2>&1 || rc=$?
+_assert_exit "pre-cutover missing door: guard exits 0" 0 "$rc"
+_assert_eq "pre-cutover missing door: shdeps is not invoked" "" "$(<"$call_log")"
+
+echo ""
+echo "=== Post-cutover missing door retries the provider install ==="
+
+home_post=$test_root/post
+make_home "$home_post" no
+: >"$call_log"
+rc=0
+HOME="$home_post" PATH="$stub_bin:$PATH" DOOR_GUARD_TEST_CALL_LOG="$call_log" \
+  DOOR_GUARD_TEST_SHDEPS_RC=0 XDG_STATE_HOME="$home_post/.local/state" \
+  "$guard" >/dev/null 2>&1 || rc=$?
+_assert_exit "post-cutover missing door: guard exits 0" 0 "$rc"
+_assert_eq "post-cutover missing door: shdeps update runs once" \
+  "shdeps update" "$(<"$call_log")"
+_assert_contains "post-cutover missing door: forensic log records rc=0" \
+  "shdeps update rc=0" "$(<"$home_post/.local/state/dot/door-guard.log")"
+
+echo ""
+echo "=== Guard never blocks, even when the retry fails ==="
+
+home_fail=$test_root/fail
+make_home "$home_fail" no
+: >"$call_log"
+rc=0
+HOME="$home_fail" PATH="$stub_bin:$PATH" DOOR_GUARD_TEST_CALL_LOG="$call_log" \
+  DOOR_GUARD_TEST_SHDEPS_RC=1 XDG_STATE_HOME="$home_fail/.local/state" \
+  "$guard" >/dev/null 2>&1 || rc=$?
+_assert_exit "failed retry: guard still exits 0" 0 "$rc"
+_assert_eq "failed retry: shdeps update still ran once" \
+  "shdeps update" "$(<"$call_log")"
+_assert_contains "failed retry: forensic log records rc=1" \
+  "shdeps update rc=1" "$(<"$home_fail/.local/state/dot/door-guard.log")"
+
+echo ""
+echo "=== Dangling and unrunnable doors count as missing ==="
+
+home_dangle=$test_root/dangle
+make_home "$home_dangle" no
+mkdir -p "$home_dangle/.local/bin"
+ln -s "$home_dangle/.local/share/cgraf78/dot/dot" "$home_dangle/.local/bin/dot"
+: >"$call_log"
+rc=0
+HOME="$home_dangle" PATH="$stub_bin:$PATH" DOOR_GUARD_TEST_CALL_LOG="$call_log" \
+  DOOR_GUARD_TEST_SHDEPS_RC=0 XDG_STATE_HOME="$home_dangle/.local/state" \
+  "$guard" >/dev/null 2>&1 || rc=$?
+_assert_exit "dangling door link: guard exits 0" 0 "$rc"
+_assert_eq "dangling door link: shdeps update runs once" \
+  "shdeps update" "$(<"$call_log")"
+
+home_noexec=$test_root/noexec
+make_home "$home_noexec" no
+mkdir -p "$home_noexec/.local/bin"
+printf 'not executable\n' >"$home_noexec/.local/bin/dot"
+chmod 644 "$home_noexec/.local/bin/dot"
+: >"$call_log"
+rc=0
+HOME="$home_noexec" PATH="$stub_bin:$PATH" DOOR_GUARD_TEST_CALL_LOG="$call_log" \
+  DOOR_GUARD_TEST_SHDEPS_RC=0 XDG_STATE_HOME="$home_noexec/.local/state" \
+  "$guard" >/dev/null 2>&1 || rc=$?
+_assert_exit "non-executable door: guard exits 0" 0 "$rc"
+_assert_eq "non-executable door: shdeps update runs once" \
+  "shdeps update" "$(<"$call_log")"
+
+echo ""
+echo "=== Unknowable world stays untouched ==="
+
+home_norepo=$test_root/norepo
+mkdir -p "$home_norepo"
+: >"$call_log"
+rc=0
+HOME="$home_norepo" PATH="$stub_bin:$PATH" DOOR_GUARD_TEST_CALL_LOG="$call_log" \
+  DOOR_GUARD_TEST_SHDEPS_RC=0 XDG_STATE_HOME="$home_norepo/.local/state" \
+  "$guard" >/dev/null 2>&1 || rc=$?
+_assert_exit "missing repo: guard exits 0" 0 "$rc"
+_assert_eq "missing repo: shdeps is not invoked" "" "$(<"$call_log")"
+
+home_noshdeps=$test_root/noshdeps
+make_home "$home_noshdeps" no
+bare_bin=$(_tmpdir)
+for tool in bash git date mkdir; do
+  ln -s "$(command -v "$tool")" "$bare_bin/$tool"
+done
+rc=0
+HOME="$home_noshdeps" PATH="$bare_bin" \
+  XDG_STATE_HOME="$home_noshdeps/.local/state" \
+  "$guard" >/dev/null 2>&1 || rc=$?
+_assert_exit "missing shdeps binary: guard exits 0" 0 "$rc"
+
+_test_summary
