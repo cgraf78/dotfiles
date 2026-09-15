@@ -118,7 +118,9 @@ if [[ -d $source_home/.git && ! -L $source_home/.git ]]; then
   echo "=== Independent shdeps cross-check ==="
   if [[ -f $live_home ]]; then
     probe_home=$(cat "$live_home")
-    shdeps_bin=$probe_home/.local/bin/shdeps
+    # The install-root binary exists on both setup paths; the public bin
+    # link is absent when the harness consumed a test Shdeps root.
+    shdeps_bin=$probe_home/.local/share/shdeps/shdeps
     if [[ -x $shdeps_bin ]]; then
       cross_home=$(_tmpdir)/cross-home
       mkdir -p "$cross_home/.config/shdeps" "$cross_home/.local/bin" \
