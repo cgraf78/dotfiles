@@ -129,12 +129,17 @@ if [[ -d $source_home/.git && ! -L $source_home/.git ]]; then
           printf "cross-install=no\ncross-log=%s\n" \
             "$(printf "%s" "$cross_log" | tail -c 300)"
         fi
-        if [[ -x $cross_home/.local/bin/dot ]] &&
-          cmp -s "$LIVE_PROBE_DIR/harness-dot" \
-            "$cross_home/.local/bin/dot"; then
-          printf "cross-match=yes\n"
+        # The independent install floats on latest while the harness pins
+        # the candidate tag, so byte identity is not expected while two
+        # releases coexist. Coherence (a working release-layout install)
+        # is the stable property across cutover.
+        if [[ -x $cross_home/.local/bin/dot ]]; then
+          printf "cross-version=%s\n" \
+            "$("$cross_home/.local/bin/dot" version)"
+          printf "cross-marker=%s\n" \
+            "$(cat "$cross_home/.local/share/cgraf78/dot/.shdeps-release-layout" 2>/dev/null || echo MISSING)"
         else
-          printf "cross-match=no\n"
+          printf "cross-version=MISSING\ncross-marker=MISSING\n"
         fi
       else
         printf "cross-shdeps=no\n"
@@ -156,8 +161,10 @@ if [[ -d $source_home/.git && ! -L $source_home/.git ]]; then
     'cross-shdeps=yes' "$live_output"
   _assert_contains 'independent shdeps installs the release' \
     'cross-install=yes' "$live_output"
-  _assert_contains 'harness install byte-matches the shdeps install' \
-    'cross-match=yes' "$live_output"
+  _assert_contains 'independent shdeps install reports a release build' \
+    'cross-version=dot commit ' "$live_output"
+  _assert_contains 'independent shdeps install writes the layout marker' \
+    'cross-marker=v1 archive' "$live_output"
 else
   echo '(live candidate-home legs skipped: source home is a worktree)'
 fi
