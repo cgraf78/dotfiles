@@ -121,6 +121,9 @@ if [[ -d $source_home/.git && ! -L $source_home/.git ]]; then
     # The install-root binary exists on both setup paths; the public bin
     # link is absent when the harness consumed a test Shdeps root.
     shdeps_bin=$probe_home/.local/share/shdeps/shdeps
+    if [[ ! -x $shdeps_bin && -x $probe_home/.local/bin/shdeps ]]; then
+      shdeps_bin=$probe_home/.local/bin/shdeps
+    fi
     if [[ -x $shdeps_bin ]]; then
       cross_home=$(_tmpdir)/cross-home
       mkdir -p "$cross_home/.config/shdeps" "$cross_home/.local/bin" \
@@ -150,7 +153,9 @@ if [[ -d $source_home/.git && ! -L $source_home/.git ]]; then
         _fail 'independent shdeps publishes the public command'
       fi
     else
-      _fail 'candidate home provides a shdeps binary for cross-check'
+      bin_list=$(find "$probe_home/.local/bin" -maxdepth 1 -mindepth 1 -printf '%f,' 2>/dev/null || echo MISSING)
+      share_list=$(find "$probe_home/.local/share/shdeps" -maxdepth 1 -mindepth 1 -printf '%f,' 2>/dev/null || echo MISSING)
+      _fail "candidate home provides a shdeps binary for cross-check (home=$probe_home bin=$bin_list share=$share_list)"
     fi
   else
     _fail 'candidate home probe captured its home directory'
