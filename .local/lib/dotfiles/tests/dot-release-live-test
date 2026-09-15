@@ -119,7 +119,7 @@ if [[ -d $source_home/.git && ! -L $source_home/.git ]]; then
           "$cross_home/.local/share"
         printf "%s github:release dot\n" "$LIVE_PROBE_REPO" \
           >"$cross_home/.config/shdeps/10-deps.conf"
-        if cross_log=$(env -i HOME="$cross_home" PATH=/usr/bin:/bin \
+        if cross_log=$(env -u GH_TOKEN -u GITHUB_TOKEN HOME="$cross_home" \
           SHDEPS_INSTALL_DIR="$cross_home/.local/share" \
           SHDEPS_BIN_DIR="$cross_home/.local/bin" \
           SHDEPS_CONFIG_HOME="$cross_home/.config/shdeps" \
