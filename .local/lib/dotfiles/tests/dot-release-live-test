@@ -1,0 +1,180 @@
+#!/usr/bin/env bash
+# dot-release-live-test - prove the pinned release end to end, live.
+#
+# The offline resolver suite pins selection logic with fixtures; this suite
+# proves the real published release: every platform pair exists, this leg's
+# archive resolves through the harness, the installed binary binds to the
+# tag, and an independent shdeps install of the release is coherent.
+# The tag is pinned in this file (immutable binding); bump it with a
+# reviewed PR when the fleet moves to a newer Dot release.
+
+set -u
+
+source_home=${DOT_TEST_SOURCE_HOME:-$HOME}
+# shellcheck source=helpers.sh
+. "$source_home/.local/lib/dotfiles/tests/helpers.sh"
+# shellcheck source=dot-runtime-resolve.sh
+. "$source_home/.local/lib/dotfiles/tests/dot-runtime-resolve.sh"
+
+tests_dir=$source_home/.local/lib/dotfiles/tests
+stack_runtime=$tests_dir/stack-dot-runtime
+candidate_home=$tests_dir/run-ci-candidate-home
+
+LIVE_TAG=20260915-001540-781c915c
+LIVE_REPO=cgraf78/dot
+LIVE_BASE=https://github.com
+LIVE_LABELS="linux-x86_64-musl linux-aarch64-musl android-aarch64 android-x86_64 macos-x86_64 macos-aarch64"
+
+if ! command -v curl >/dev/null 2>&1; then
+  echo "dot-release-live-test requires curl" >&2
+  exit 1
+fi
+
+echo ""
+echo "=== Published pair existence ==="
+
+for label in $LIVE_LABELS; do
+  asset=dot-$LIVE_TAG-$label.tar.gz
+  rc=0
+  curl --fail --silent --head --location \
+    --connect-timeout 10 --max-time 60 \
+    "$LIVE_BASE/$LIVE_REPO/releases/download/$LIVE_TAG/$asset" \
+    >/dev/null 2>&1 || rc=$?
+  _assert_exit "asset exists: $label" 0 "$rc"
+  rc=0
+  curl --fail --silent --head --location \
+    --connect-timeout 10 --max-time 60 \
+    "$LIVE_BASE/$LIVE_REPO/releases/download/$LIVE_TAG/$asset.sha256" \
+    >/dev/null 2>&1 || rc=$?
+  _assert_exit "sidecar exists: $label" 0 "$rc"
+done
+
+echo ""
+echo "=== Live harness resolution ==="
+
+rc=0
+live_output=
+# shellcheck disable=SC2016 # The child shell expands these at exec time.
+live_output=$(DOT_STACK_DOT_RELEASE_TAG="$LIVE_TAG" \
+  DOT_STACK_DOT_RELEASE_REPO="$LIVE_REPO" \
+  DOT_STACK_DOT_SHA='' \
+  "$stack_runtime" release-live -- \
+  bash -c 'printf "sha=%s\nbin=%s\n" "$DOT_STACK_DOT_SHA" "$("$DOT_STACK_DOT_BIN" version)"' \
+  2>&1) || rc=$?
+_assert_exit 'stack runtime resolves the live release' 0 "$rc"
+live_sha=$(printf '%s\n' "$live_output" | sed -n 's/^sha=//p' | head -n 1)
+live_version=$(printf '%s\n' "$live_output" | sed -n 's/^bin=//p' | head -n 1)
+if [[ $live_sha =~ ^[0-9a-f]{40}$ ]]; then
+  _pass 'stack runtime reports a full commit'
+else
+  _fail "stack runtime reports a full commit (got '${live_sha:-<empty>}')"
+fi
+live_suffix=${LIVE_TAG##*-}
+if [[ $live_version == "dot commit $live_suffix"* ]]; then
+  _pass 'live binary binds to the tag suffix'
+else
+  _fail "live binary binds to the tag suffix (got '${live_version:-<empty>}')"
+fi
+if [[ $live_version =~ ^dot\ commit\ ([0-9a-f]{12})\  ]] &&
+  [[ $live_sha == "${BASH_REMATCH[1]}"* ]]; then
+  _pass 'live binary binds to the resolved commit'
+else
+  _fail 'live binary binds to the resolved commit'
+fi
+
+if [[ -d $source_home/.git && ! -L $source_home/.git ]]; then
+  candidate_sha=$(git -C "$source_home" rev-parse HEAD)
+  echo ""
+  echo "=== Live candidate home ==="
+  # The fixture home is trap-removed when candidate-home exits, so every
+  # observation (including the independent cross-check install) happens
+  # inside the child; only printed lines leave the fixture.
+  probe_dir=$(_tmpdir)/live-probe
+  mkdir -p "$probe_dir"
+  rc=0
+  live_output=
+  # shellcheck disable=SC2016 # The child shell expands these at exec time.
+  live_output=$(DOT_STACK_DOT_RELEASE_TAG="$LIVE_TAG" \
+    DOT_STACK_DOT_RELEASE_REPO="$LIVE_REPO" \
+    DOT_STACK_DOT_SHA='' \
+    DOTFILES_CANDIDATE_SHA="$candidate_sha" \
+    LIVE_PROBE_DIR="$probe_dir" \
+    LIVE_PROBE_REPO="$LIVE_REPO" \
+    "$stack_runtime" release-live-home -- \
+    "$candidate_home" \
+    bash -c '
+      printf "door=%s\nversion=%s\nmarker=%s\nlib=%s\n" \
+        "$(readlink "$HOME/.local/bin/dot")" \
+        "$("$HOME/.local/bin/dot" version)" \
+        "$(cat "$HOME/.local/share/cgraf78/dot/.shdeps-release-layout")" \
+        "$(cat "$HOME/.local/lib/dot/xdg.sh" 2>/dev/null || echo MISSING)"
+      cp "$HOME/.local/bin/dot" "$LIVE_PROBE_DIR/harness-dot" &&
+        printf "harness-kept=yes\n" || printf "harness-kept=no\n"
+      cross_shdeps=$HOME/.local/share/shdeps/shdeps
+      [[ -x $cross_shdeps ]] || cross_shdeps=$HOME/.local/bin/shdeps
+      if [[ -x $cross_shdeps ]]; then
+        printf "cross-shdeps=yes\n"
+        cross_home=$LIVE_PROBE_DIR/cross-home
+        mkdir -p "$cross_home/.config/shdeps" "$cross_home/.local/bin" \
+          "$cross_home/.local/share"
+        printf "%s github:release dot\n" "$LIVE_PROBE_REPO" \
+          >"$cross_home/.config/shdeps/10-deps.conf"
+        # Isolate every root the resolver reads: the config knob is
+        # SHDEPS_CONF_DIR (SHDEPS_CONFIG_HOME is ignored) and XDG_* / HOME
+        # otherwise leak the fixture or caller environment into the
+        # independent install.
+        if cross_log=$(env -u GH_TOKEN -u GITHUB_TOKEN HOME="$cross_home" \
+          XDG_CONFIG_HOME="$cross_home/.config" \
+          XDG_DATA_HOME="$cross_home/.local/share" \
+          XDG_STATE_HOME="$cross_home/.local/state" \
+          XDG_CACHE_HOME="$cross_home/.cache" \
+          SHDEPS_CONF_DIR="$cross_home/.config/shdeps" \
+          SHDEPS_INSTALL_DIR="$cross_home/.local/share" \
+          SHDEPS_BIN_DIR="$cross_home/.local/bin" \
+          "$cross_shdeps" update 2>&1); then
+          printf "cross-install=yes\n"
+        else
+          printf "cross-install=no\ncross-log=%s\n" \
+            "$(printf "%s" "$cross_log" | tail -c 300)"
+        fi
+        # The independent install floats on latest while the harness pins
+        # the candidate tag, so byte identity is not expected while two
+        # releases coexist. Coherence (a working release-layout install)
+        # is the stable property across cutover.
+        if [[ -x $cross_home/.local/bin/dot ]]; then
+          printf "cross-version=%s\n" \
+            "$("$cross_home/.local/bin/dot" version)"
+          printf "cross-marker=%s\n" \
+            "$(cat "$cross_home/.local/share/cgraf78/dot/.shdeps-release-layout" 2>/dev/null || echo MISSING)"
+        else
+          printf "cross-version=MISSING\ncross-marker=MISSING\n"
+        fi
+      else
+        printf "cross-shdeps=no\n"
+      fi' \
+    2>&1) || rc=$?
+  _assert_exit 'candidate home installs the live release' 0 "$rc"
+  _assert_contains 'candidate home links the public command' \
+    '/.local/share/cgraf78/dot/dot' "$live_output"
+  _assert_contains 'candidate home reports the tag build' \
+    "dot commit $live_suffix" "$live_output"
+  _assert_contains 'candidate home writes the layout marker' \
+    'marker=v1 archive' "$live_output"
+  _assert_contains 'candidate home links the public library' \
+    'lib=#' "$live_output"
+
+  echo ""
+  echo "=== Independent shdeps cross-check ==="
+  _assert_contains 'candidate home provides a shdeps binary for cross-check' \
+    'cross-shdeps=yes' "$live_output"
+  _assert_contains 'independent shdeps installs the release' \
+    'cross-install=yes' "$live_output"
+  _assert_contains 'independent shdeps install reports a release build' \
+    'cross-version=dot commit ' "$live_output"
+  _assert_contains 'independent shdeps install writes the layout marker' \
+    'cross-marker=v1 archive' "$live_output"
+else
+  echo '(live candidate-home legs skipped: source home is a worktree)'
+fi
+
+_test_summary

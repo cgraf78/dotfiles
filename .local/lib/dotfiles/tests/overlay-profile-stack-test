@@ -9,6 +9,8 @@ source_home=${DOT_TEST_SOURCE_HOME:-$HOME}
 . "$source_home/.local/lib/dotfiles/tests/helpers.sh"
 # shellcheck source=profile-ownership-policy.sh
 . "$source_home/.local/lib/dotfiles/tests/profile-ownership-policy.sh"
+# shellcheck source=dot-runtime-resolve.sh
+. "$source_home/.local/lib/dotfiles/tests/dot-runtime-resolve.sh"
 
 # This suite clones and validates current public capability repositories and
 # must use its resolved Dot runtime. Normal installed `dot test` runs stay local
@@ -197,12 +199,20 @@ _assert_contains 'top-level CI enters through the resolved Dot wrapper' \
 _assert_contains 'Termux CI invokes the exact resolved Dot binary' \
   '"$DOT_STACK_DOT_BIN" update' "$workflow_content"
 # shellcheck disable=SC2016 # Assert the literal isolated client PATH.
+_assert_contains 'Termux CI derives the client PATH from the resolved binary' \
+  'dot_bin_dir=${DOT_STACK_DOT_BIN%/*}' \
+  "$workflow_content"
+# shellcheck disable=SC2016 # Assert the literal isolated client PATH.
 _assert_contains 'Termux CI uses installed client launchers, not source launchers' \
-  'PATH="$DOT_STACK_DOT_ROOT/bin:$HOME/.local/bin:$PATH"' \
+  'PATH="$dot_bin_dir:$HOME/.local/bin:$PATH"' \
   "$workflow_content"
 # shellcheck disable=SC2016 # Reject source-checkout launchers in the client PATH.
 _assert_not_contains 'Termux CI excludes source launchers from the client PATH' \
-  'PATH="$DOT_STACK_DOT_ROOT/bin:$PWD/.local/bin:$PATH"' \
+  'PATH="$dot_bin_dir:$PWD/.local/bin:$PATH"' \
+  "$workflow_content"
+# shellcheck disable=SC2016 # Release roots have no bin/ directory.
+_assert_not_contains 'Termux CI avoids the checkout-only bin layout' \
+  'PATH="$DOT_STACK_DOT_ROOT/bin:' \
   "$workflow_content"
 # The Termux smoke owns final base control-plane and Android behavior. Focused
 # dependency behavior remains covered by the base and capability owner suites.
@@ -228,9 +238,18 @@ runtime_binding_valid=0
 runtime_root=${DOT_STACK_DOT_ROOT:-${DOT_TEST_DOT_ROOT:-}}
 runtime_bin=${DOT_STACK_DOT_BIN:-}
 if [[ -z $runtime_bin && -n ${DOT_TEST_DOT_ROOT:-} ]]; then
-  runtime_bin=$runtime_root/bin/dot
+  if [[ -x $runtime_root/bin/dot && ! -L $runtime_root/bin/dot ]]; then
+    runtime_bin=$runtime_root/bin/dot
+  else
+    runtime_bin=$runtime_root/dot
+  fi
 elif [[ -z $runtime_bin ]]; then
   runtime_bin=$(command -v dot 2>/dev/null || true)
+fi
+if _dot_runtime_is_release_root "${runtime_root:-/nonexistent}"; then
+  runtime_expected_bin=$runtime_root/dot
+else
+  runtime_expected_bin=$runtime_root/bin/dot
 fi
 runtime_sha=${DOT_STACK_DOT_SHA:-}
 if [[ -z $runtime_sha && -n $runtime_root ]]; then
@@ -238,17 +257,25 @@ if [[ -z $runtime_sha && -n $runtime_root ]]; then
 fi
 if [[ -n ${DOT_TEST_DOT_ROOT:-} ]]; then
   [[ ${DOT_TEST_DOT_ROOT:-} == "$runtime_root" &&
-    $(_test_realpath "$runtime_bin") == $(_test_realpath "$runtime_root/bin/dot") ]] &&
+    $(_test_realpath "$runtime_bin") == $(_test_realpath "$runtime_expected_bin") ]] &&
     runtime_binding_valid=1
 elif [[ $(command -v dot 2>/dev/null) == "$runtime_bin" ]]; then
   runtime_binding_valid=1
 fi
+runtime_identity_ok=0
+if _dot_runtime_is_release_root "${runtime_root:-/nonexistent}"; then
+  runtime_short=$(_dot_release_version_short12 "$runtime_bin" 2>/dev/null || true)
+  [[ -n $runtime_short && $runtime_sha == "$runtime_short"* ]] &&
+    runtime_identity_ok=1
+elif [[ $(git -C "${runtime_root:-/nonexistent}" rev-parse HEAD 2>/dev/null) == "$runtime_sha" ]]; then
+  runtime_identity_ok=1
+fi
 if [[ (${DOT_STACK_RUNTIME:-0} == 1 || -n ${DOT_TEST_DOT_ROOT:-}) &&
   $runtime_sha =~ ^[0-9a-f]{40}$ &&
   $runtime_root == /* &&
-  $(_test_realpath "$runtime_bin") == $(_test_realpath "$runtime_root/bin/dot") &&
+  $(_test_realpath "$runtime_bin") == $(_test_realpath "$runtime_expected_bin") &&
   $runtime_binding_valid -eq 1 &&
-  $(git -C "${runtime_root:-/nonexistent}" rev-parse HEAD 2>/dev/null) == "$runtime_sha" ]]; then
+  $runtime_identity_ok -eq 1 ]]; then
   _pass 'full stack integration reuses one resolved Dot runtime'
 else
   _fail 'full stack integration reuses one resolved Dot runtime'
@@ -728,9 +755,14 @@ mkdir -p "$tmpdir_fixture/physical"
 mkdir -p "$tmpdir_fixture/child-home"
 ln -s physical "$tmpdir_fixture/alias"
 
-runtime_output=$(env -u DOT_STACK_DOT_REVISION \
+# The release path needs the network, so the offline probes below pin an
+# explicit git revision instead; the release suite covers the tag trigger.
+_assert_contains 'runtime wrapper defaults to the main checkout' \
+  'DOT_STACK_DOT_REVISION:-main' "$(<"$stack_runtime")"
+runtime_output=$(env \
   HOME="$tmpdir_fixture/child-home" \
   TMPDIR="$tmpdir_fixture/alias" \
+  DOT_STACK_DOT_REVISION=main \
   DOT_STACK_DOT_REPOSITORY="$runtime_origin" \
   DOT_STACK_BASE_PATH="$fake_bin:/usr/bin:/bin" \
   "$stack_runtime" runtime-probe -- "$probe" 2>&1)
@@ -738,7 +770,7 @@ runtime_rc=$?
 _assert_eq 'runtime wrapper executes group successfully' 0 "$runtime_rc"
 _assert_contains 'runtime wrapper prints group and exact head' \
   "group=runtime-probe" "$runtime_output"
-_assert_contains 'runtime wrapper defaults to the current main branch' \
+_assert_contains 'runtime wrapper honors an explicit git revision' \
   $'ref=main\t' "$runtime_output"
 _assert_contains 'runtime wrapper prints resolved Dot revision' \
   "head=$dot_sha" "$runtime_output"
@@ -748,6 +780,7 @@ poisoned_runtime_output=$(GIT_CONFIG_COUNT=1 \
   GIT_CONFIG_VALUE_0="$runtime_origin" \
   HOME="$tmpdir_fixture/child-home" \
   TMPDIR="$tmpdir_fixture/alias" \
+  DOT_STACK_DOT_REVISION=main \
   DOT_STACK_DOT_REPOSITORY="$runtime_origin" \
   DOT_STACK_BASE_PATH="$fake_bin:/usr/bin:/bin" \
   "$stack_runtime" runtime-probe -- "$probe" 2>&1)
@@ -780,6 +813,8 @@ cp "$source_home/.local/lib/dotfiles/tests/checkout-ci-candidate" \
   "$candidate_seed/.local/lib/dotfiles/tests/checkout-ci-candidate"
 cp "$source_home/.local/lib/dotfiles/tests/run-ci-candidate-home" \
   "$candidate_seed/.local/lib/dotfiles/tests/run-ci-candidate-home"
+cp "$source_home/.local/lib/dotfiles/tests/dot-runtime-resolve.sh" \
+  "$candidate_seed/.local/lib/dotfiles/tests/dot-runtime-resolve.sh"
 cp "$source_home/.local/lib/dotfiles/pre-sync.d/10-overlay-ssh.sh" \
   "$candidate_seed/.local/lib/dotfiles/pre-sync.d/10-overlay-ssh.sh"
 printf '[core]\n\teditor = fixture\n' >"$candidate_seed/.config/git/config"
@@ -787,7 +822,8 @@ printf 'source\n' >"$candidate_seed/state"
 git -C "$candidate_seed" add state .config/git/config \
   .local/lib/dotfiles/pre-sync.d/10-overlay-ssh.sh \
   .local/lib/dotfiles/tests/checkout-ci-candidate \
-  .local/lib/dotfiles/tests/run-ci-candidate-home
+  .local/lib/dotfiles/tests/run-ci-candidate-home \
+  .local/lib/dotfiles/tests/dot-runtime-resolve.sh
 git -C "$candidate_seed" -c core.hooksPath=/dev/null commit --quiet -m source
 printf 'start\n' >"$candidate_seed/state"
 git -C "$candidate_seed" add state
@@ -987,6 +1023,78 @@ _assert_eq 'candidate home: leaves sentinel index unchanged' \
   "$sentinel_index_state" "$(cksum "$sentinel_index")"
 _assert_file_missing 'candidate home: leaves sentinel shallow state absent' \
   "$sentinel_shallow"
+
+# A release-layout Dot root installs by copy (no Git): the repository URL is
+# deliberately bogus here, so any git-clone fallback fails instead of
+# silently succeeding. The fake binary emulates only the identity surface
+# run-ci-candidate-home exercises (version, init --status, update).
+release_source=$(_tmpdir)/release-dot
+release_sha=abcdef0123456789abcdef0123456789abcdef01
+release_origin=https://example.invalid/dot-release-fixture.tar.gz
+mkdir -p "$release_source/lib/dot/public" "$release_source/support"
+cp "$dot_source/lib/dot/public/xdg.sh" \
+  "$release_source/lib/dot/public/xdg.sh"
+printf '%s\n' \
+  'revision=3fcc34fb172118d6870454ebfe9cb2715882d6ca' \
+  'install_sha256=3abde956b00f6dcfef5803b79d4a05273c9ba86c9aba9cdfc387fab7b17bd1c7' \
+  'abi=1' >"$release_source/support/shdeps.lock"
+cat >"$release_source/dot" <<'EOF'
+#!/usr/bin/env bash
+case "${1:-}" in
+  version)
+    printf '%s\n' 'dot commit abcdef012345 (config 1; extensions 1; library 1)'
+    ;;
+  init)
+    [[ "${2:-}" == --status ]] || exit 2
+    printf '%s\n' 'initialization: complete'
+    ;;
+  update) exit 0 ;;
+  *) exit 64 ;;
+esac
+EOF
+chmod +x "$release_source/dot"
+# shellcheck disable=SC2016 # The child shell expands its isolated environment.
+release_home_output=$(
+  cd "$candidate_checkout" || exit
+  TMPDIR=$tmpdir_fixture/alias \
+    DOT_TEST=1 \
+    DOTFILES_CANDIDATE_SHA=$candidate_sha \
+    DOT_STACK_DOT_REPOSITORY=file:///nonexistent-dot-fixture.git \
+    DOT_STACK_DOT_SHA=$release_sha \
+    DOT_STACK_DOT_ROOT=$release_source \
+    DOT_STACK_DOT_ORIGIN=$release_origin \
+    DOT_STACK_AGENT_RULES_SYNC_REPOSITORY=$agent_rules_source \
+    DOT_STACK_SHDEPS_ROOT=$fake_shdeps \
+    .local/lib/dotfiles/tests/run-ci-candidate-home bash -c '
+      set -euo pipefail
+      test "$PWD" != "$HOME"
+      test -d "$HOME/.dotfiles"
+      test "$(git --git-dir="$HOME/.dotfiles" rev-parse HEAD)" = \
+        "$DOTFILES_CANDIDATE_SHA"
+      test -f "$HOME/.local/state/dot/init/completed"
+      test -f "$HOME/.local/lib/dot/xdg.sh"
+      test "$DOT_STACK_DOT_BIN" = "$HOME/.local/share/cgraf78/dot/dot"
+      test ! -e "$HOME/.local/share/cgraf78/dot/.git"
+      test "$DOT_STACK_DOT_ORIGIN" = \
+        "https://example.invalid/dot-release-fixture.tar.gz"
+      test "$("$DOT_STACK_DOT_BIN" version)" = \
+        "dot commit abcdef012345 (config 1; extensions 1; library 1)"
+      test "$("$HOME/.local/share/shdeps/shdeps" version)" = \
+        "$DOT_STACK_SHDEPS_VERSION"
+      unset XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME XDG_RUNTIME_DIR
+      init_status=$("$DOT_STACK_DOT_BIN" init --status)
+      [[ $init_status == *"initialization: complete"* ]]
+      "$DOT_STACK_DOT_BIN" update >/dev/null
+      printf "candidate-home-ok\\n"
+    ' 2>&1
+)
+release_home_rc=$?
+_assert_exit 'candidate home: release install succeeds without Git' \
+  0 "$release_home_rc"
+_assert_contains 'candidate home: release run reports its installed head' \
+  "head=$candidate_sha" "$release_home_output"
+_assert_contains 'candidate home: release command runs from a clean source worktree' \
+  'candidate-home-ok' "$release_home_output"
 
 shallow_checkout=$(_tmpdir)/shallow-checkout
 git clone --quiet --depth=1 --branch profile-candidate \

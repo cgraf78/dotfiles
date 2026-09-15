@@ -21,6 +21,28 @@ if [[ ! $dot_revision =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ||
     "${dot_revision:-<empty>}" >&2
   exit 1
 fi
+# A pinned release tag selects the release path; empty keeps the historical
+# git-fetch default. `latest` is an explicit-only opt-in that resolves the
+# newest published release; it is never the default because CI bindings must
+# be immutable and reproducible.
+release_tag_request=${DOT_STACK_DOT_RELEASE_TAG:-}
+release_repo=${DOT_STACK_DOT_RELEASE_REPO:-cgraf78/dot}
+if [[ -n $release_tag_request ]]; then
+  case $release_repo in
+    *[!A-Za-z0-9._/-]* | */*/* | /* | */ | *..*)
+      printf 'stack-dot-runtime: invalid Dot release repository: %s\n' \
+        "$release_repo" >&2
+      exit 1
+      ;;
+  esac
+  [[ $release_repo == */* ]] || {
+    printf 'stack-dot-runtime: invalid Dot release repository: %s\n' \
+      "$release_repo" >&2
+    exit 1
+  }
+fi
+# shellcheck source=dot-runtime-resolve.sh
+. "${BASH_SOURCE[0]%/*}/dot-runtime-resolve.sh"
 
 temp_root=$(cd -P -- "${TMPDIR:-/tmp}" && pwd -P)
 runtime_parent=$(mktemp -d "$temp_root/dot-stack-runtime.XXXXXXXX")
@@ -80,33 +102,73 @@ ci_git() {
 
 runtime_repo=$runtime_parent/dot
 runtime_source=${DOT_STACK_DOT_REPOSITORY:-https://github.com/cgraf78/dot.git}
+release_tag=
+release_base=${DOT_RELEASE_DOWNLOAD_BASE:-https://github.com}
 
-ci_git init --quiet "$runtime_repo"
-ci_git -C "$runtime_repo" remote add origin "$runtime_source"
-ci_git -C "$runtime_repo" fetch --quiet --depth=1 --no-tags origin "$dot_revision"
-dot_sha=$(ci_git -C "$runtime_repo" rev-parse FETCH_HEAD)
-ci_git -C "$runtime_repo" checkout --quiet --detach "$dot_sha"
+# A requested tag consumes that published release; empty keeps the historical
+# git-fetch path byte-for-byte (including file:// overrides). The tag binds
+# to its commit through the same repository the git path would fetch, so a
+# claimed SHA that disagrees with the tag fails closed instead of floating.
+if [[ -n $release_tag_request ]]; then
+  if [[ $release_tag_request == latest ]]; then
+    release_tag=$(_dot_release_latest_tag "$release_repo") || exit 1
+  elif _dot_release_tag_valid "$release_tag_request"; then
+    release_tag=$release_tag_request
+  else
+    printf 'stack-dot-runtime: invalid Dot release tag: %s\n' \
+      "$release_tag_request" >&2
+    exit 1
+  fi
+  release_platform=$(_dot_runtime_release_platform) || exit 1
+  dot_sha=$(_dot_release_commit_for_tag \
+    "$runtime_source" "$release_tag") || exit 1
+  if [[ -n ${DOT_STACK_DOT_SHA:-} && ${DOT_STACK_DOT_SHA:-} != "$dot_sha" ]]; then
+    printf 'stack-dot-runtime: claimed Dot binding does not match tag %s\n' \
+      "$release_tag" >&2
+    exit 1
+  fi
+  mkdir -p "$runtime_repo"
+  _dot_release_fetch "$release_base/$release_repo" dot \
+    "$release_tag" "$release_platform" "$runtime_repo" || exit 1
+  _dot_release_verify_root "$runtime_repo" "$release_tag" \
+    "$release_platform" "$dot_sha" || exit 1
+  runtime_source="$release_base/$release_repo/releases/download/$release_tag/dot-$release_tag-$release_platform.tar.gz"
+  actual_sha=$dot_sha
+  actual_origin=$runtime_source
+else
+  ci_git init --quiet "$runtime_repo"
+  ci_git -C "$runtime_repo" remote add origin "$runtime_source"
+  ci_git -C "$runtime_repo" fetch --quiet --depth=1 --no-tags origin "$dot_revision"
+  dot_sha=$(ci_git -C "$runtime_repo" rev-parse FETCH_HEAD)
+  ci_git -C "$runtime_repo" checkout --quiet --detach "$dot_sha"
 
-actual_sha=$(ci_git -C "$runtime_repo" rev-parse HEAD)
-actual_origin=$(ci_git -C "$runtime_repo" remote get-url origin)
-[[ $actual_sha == "$dot_sha" ]] || {
-  printf 'stack-dot-runtime: expected %s, checked out %s\n' \
-    "$dot_sha" "$actual_sha" >&2
-  exit 1
-}
-[[ $actual_origin == "$runtime_source" ]] || {
-  printf 'stack-dot-runtime: expected origin %s, got %s\n' \
-    "$runtime_source" "$actual_origin" >&2
-  exit 1
-}
-runtime_bin=$runtime_repo/bin/dot
+  actual_sha=$(ci_git -C "$runtime_repo" rev-parse HEAD)
+  actual_origin=$(ci_git -C "$runtime_repo" remote get-url origin)
+  [[ $actual_sha == "$dot_sha" ]] || {
+    printf 'stack-dot-runtime: expected %s, checked out %s\n' \
+      "$dot_sha" "$actual_sha" >&2
+    exit 1
+  }
+  [[ $actual_origin == "$runtime_source" ]] || {
+    printf 'stack-dot-runtime: expected origin %s, got %s\n' \
+      "$runtime_source" "$actual_origin" >&2
+    exit 1
+  }
+fi
+if _dot_runtime_is_release_root "$runtime_repo"; then
+  runtime_bin=$runtime_repo/dot
+else
+  runtime_bin=$runtime_repo/bin/dot
+fi
 [[ -x $runtime_bin && ! -L $runtime_bin ]] || {
   printf 'stack-dot-runtime: missing resolved executable: %s\n' \
     "$runtime_bin" >&2
   exit 1
 }
 
-PATH=$runtime_repo/bin:${DOT_STACK_BASE_PATH:-$PATH}
+# Release roots carry the binary at the top level; checkouts keep bin/dot.
+# Either way PATH leads with the resolved binary's own directory.
+PATH=${runtime_bin%/*}:${DOT_STACK_BASE_PATH:-$PATH}
 hash -r
 resolved_dot=$(command -v dot)
 [[ $resolved_dot == "$runtime_bin" ]] || {
@@ -120,6 +182,7 @@ DOT_STACK_DOT_SHA=$dot_sha
 DOT_STACK_DOT_ROOT=$runtime_repo
 DOT_STACK_DOT_BIN=$runtime_bin
 DOT_STACK_DOT_ORIGIN=$runtime_source
+DOT_STACK_DOT_RELEASE_TAG=$release_tag
 unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_IMPLICIT_WORK_TREE GIT_PREFIX
 unset GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES
 unset GIT_SHALLOW_FILE GIT_CONFIG GIT_CONFIG_GLOBAL GIT_CONFIG_SYSTEM
@@ -130,7 +193,13 @@ unset GIT_REPLACE_REF_BASE GIT_NO_REPLACE_OBJECTS
 export PATH XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME
 export XDG_RUNTIME_DIR DOT_STACK_RUNTIME DOT_STACK_GROUP DOT_STACK_DOT_SHA
 export DOT_STACK_DOT_ROOT DOT_STACK_DOT_BIN DOT_STACK_DOT_ORIGIN
+export DOT_STACK_DOT_RELEASE_TAG
 
-printf 'stack-runtime\tgroup=%s\tdot=%s\tref=%s\thead=%s\n' \
-  "$group" "$runtime_bin" "$dot_revision" "$actual_sha"
+if [[ -n $release_tag ]]; then
+  printf 'stack-runtime\tgroup=%s\tdot=%s\tref=%s\thead=%s\ttag=%s\n' \
+    "$group" "$runtime_bin" "$dot_revision" "$actual_sha" "$release_tag"
+else
+  printf 'stack-runtime\tgroup=%s\tdot=%s\tref=%s\thead=%s\n' \
+    "$group" "$runtime_bin" "$dot_revision" "$actual_sha"
+fi
 exec "$@"

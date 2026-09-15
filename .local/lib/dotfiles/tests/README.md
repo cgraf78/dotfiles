@@ -18,7 +18,12 @@ suite both consume that policy, so a capability move cannot leave independent
 allowlists to drift. Executable suite ownership remains defined by each
 repository's `.github/dot-test-suites.txt` inventory.
 
-Run the CI-owned set through one Dot snapshot resolved from current `main`:
+Run the CI-owned set through one Dot snapshot resolved from the `main`
+checkout (`DOT_STACK_DOT_REVISION`, default `main`). A pinned
+`DOT_STACK_DOT_RELEASE_TAG` instead resolves that published release through
+the same verification the fleet's provider path applies; `latest` is an
+explicit-only opt-in and never the default, so every binding stays immutable
+and reproducible:
 
 ```text
 .local/lib/dotfiles/tests/stack-dot-runtime control-plane-run-ci -- \
@@ -41,9 +46,9 @@ Run the CI-owned set through one Dot snapshot resolved from current `main`:
 Shared CI first checks out the immutable pull-request head, then uses
 `run-ci-candidate-home` to clone that commit into Dot's normal separate-Git
 layout and create a separate clean source worktree before invoking these
-commands. At the start of each invocation, `stack-dot-runtime` resolves Dot's
-current `main` to one commit and every nested command reuses that exact
-snapshot. The helper installs Shdeps through that Dot snapshot's trusted
+commands. At the start of each invocation, `stack-dot-runtime` resolves Dot
+to one commit and every nested command reuses that exact snapshot. The
+helper installs Shdeps through that Dot snapshot's trusted
 bootstrap record and resolves the current base-owned `agent-rules-sync`
 provider. Test fixtures therefore exercise the same current repository set as
 `dot update` without depending on a runner's pre-existing dotfiles setup or

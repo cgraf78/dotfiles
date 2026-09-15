@@ -6,6 +6,9 @@ set -euo pipefail
 root=$(cd -P -- "${BASH_SOURCE[0]%/*}/../../../.." && pwd -P)
 inventory=$root/.github/dot-test-suites.txt
 
+# shellcheck source=dot-runtime-resolve.sh
+. "$root/.local/lib/dotfiles/tests/dot-runtime-resolve.sh"
+
 _require_runtime() {
   local expected resolved actual origin
   [[ ${DOT_STACK_RUNTIME:-0} == 1 ]] || {
@@ -13,15 +16,26 @@ _require_runtime() {
     return 1
   }
   expected=${DOT_STACK_DOT_SHA:-}
-  [[ $expected =~ ^[0-9a-f]{40}$ &&
-    ${DOT_STACK_DOT_ROOT:-} == /* &&
-    ${DOT_STACK_DOT_BIN:-} == "$DOT_STACK_DOT_ROOT/bin/dot" ]] || return 1
-  actual=$(git -C "$DOT_STACK_DOT_ROOT" rev-parse HEAD 2>/dev/null) || return 1
-  origin=$(git -C "$DOT_STACK_DOT_ROOT" remote get-url origin 2>/dev/null) || return 1
+  [[ $expected =~ ^[0-9a-f]{40}$ && ${DOT_STACK_DOT_ROOT:-} == /* ]] ||
+    return 1
   resolved=$(command -v dot 2>/dev/null) || return 1
-  [[ $actual == "$expected" && $resolved == "$DOT_STACK_DOT_BIN" &&
-    $origin == "${DOT_STACK_DOT_ORIGIN:-}" &&
-    -x $DOT_STACK_DOT_BIN && ! -L $DOT_STACK_DOT_BIN ]]
+  [[ $resolved == "${DOT_STACK_DOT_BIN:-}" &&
+    -x $DOT_STACK_DOT_BIN && ! -L $DOT_STACK_DOT_BIN ]] || return 1
+  if _dot_runtime_is_release_root "$DOT_STACK_DOT_ROOT"; then
+    # Releases have no Git remote to compare; the binary's own short revision
+    # binds it to the resolved commit instead.
+    [[ $DOT_STACK_DOT_BIN == "$DOT_STACK_DOT_ROOT/dot" ]] || return 1
+    actual=$(_dot_release_version_short12 "$DOT_STACK_DOT_BIN" 2>/dev/null) ||
+      return 1
+    [[ $expected == "$actual"* ]]
+  else
+    [[ $DOT_STACK_DOT_BIN == "$DOT_STACK_DOT_ROOT/bin/dot" ]] || return 1
+    actual=$(git -C "$DOT_STACK_DOT_ROOT" rev-parse HEAD 2>/dev/null) ||
+      return 1
+    origin=$(git -C "$DOT_STACK_DOT_ROOT" remote get-url origin 2>/dev/null) ||
+      return 1
+    [[ $actual == "$expected" && $origin == "${DOT_STACK_DOT_ORIGIN:-}" ]]
+  fi
 }
 
 _require_candidate() {

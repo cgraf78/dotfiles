@@ -94,10 +94,16 @@ dot_fixture_source_core_init() {
   DOT_DEPENDENCY_PROVIDER=none
   export DOT_SOURCE_ROOT DOT_CONFIG_VERSION DOT_EXTENSION_API
   export DOT_EXTENSIONS_DIR DOT_DEPENDENCY_PROVIDER
-  # shellcheck source=/dev/null
-  . "$dot_root/lib/dot/public/xdg.sh"
-  # shellcheck source=/dev/null
-  . "$dot_root/lib/dot/runtime.sh"
+  if [[ -r $dot_root/lib/dot/public/hook-runtime-v1/hook-api.sh ]]; then
+    # The versioned runtime keeps only the hook API core tests probe; the
+    # deleted private engine loader (runtime.sh) has no equivalent there.
+    _test_dot_source_merge_api "$dot_root" || return 1
+  else
+    # shellcheck source=/dev/null
+    . "$dot_root/lib/dot/public/xdg.sh"
+    # shellcheck source=/dev/null
+    . "$dot_root/lib/dot/runtime.sh"
+  fi
   # Retained client-policy suites probe logical application presence and
   # provider adapters directly; production hooks load this compatibility layer
   # through the public hook API in their isolated workers.

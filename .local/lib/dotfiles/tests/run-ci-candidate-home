@@ -11,6 +11,9 @@ umask 077
 root=$(cd -P -- "${BASH_SOURCE[0]%/*}/../../../.." && pwd -P)
 candidate_sha=${DOTFILES_CANDIDATE_SHA:-}
 
+# shellcheck source=dot-runtime-resolve.sh
+. "$root/.local/lib/dotfiles/tests/dot-runtime-resolve.sh"
+
 clean_git_env=(
   env
   -u GIT_DIR
@@ -104,7 +107,7 @@ esac
 trap 'rm -rf -- "$staging"' EXIT HUP INT TERM
 
 prepare_dot_runtime() {
-  local install=$home/.local/share/cgraf78/dot actual sha source
+  local install=$home/.local/share/cgraf78/dot actual sha source meta_version
 
   sha=${DOT_STACK_DOT_SHA:-}
   source=${DOT_STACK_DOT_REPOSITORY:-https://github.com/cgraf78/dot.git}
@@ -113,20 +116,64 @@ prepare_dot_runtime() {
     return 1
   }
   mkdir -p "$home/.local/share/cgraf78" "$home/.local/lib"
-  ci_git clone --quiet --no-checkout "$source" "$install"
-  ci_git -C "$install" fetch --quiet --no-tags origin "$sha"
-  ci_git -C "$install" checkout --quiet --detach "$sha"
-  actual=$(ci_git -C "$install" rev-parse HEAD)
-  [[ $actual == "$sha" && -f $install/lib/dot/public/xdg.sh ]] || {
-    printf 'run-ci-candidate-home: invalid installed Dot runtime: %s\n' \
-      "$actual" >&2
+  if _dot_runtime_is_release_root "${DOT_STACK_DOT_ROOT:-}"; then
+    # The stack already verified this release; copy it (no Git) and keep its
+    # immutable SHA and artifact origin, rebinding only root and binary.
+    _dot_runtime_install_copy "$DOT_STACK_DOT_ROOT" "$install" || return 1
+    actual=$(_dot_release_version_short12 "$install/dot") || return 1
+    [[ $sha == "$actual"* ]] || {
+      printf 'run-ci-candidate-home: installed release does not match %s\n' \
+        "$sha" >&2
+      return 1
+    }
+    # The stack exports the resolved tag; the installed metadata must name
+    # exactly that tag so a swapped root cannot ride a valid SHA.
+    if [[ -n ${DOT_STACK_DOT_RELEASE_TAG:-} ]]; then
+      meta_version=$(grep -o '"version"[[:space:]]*:[[:space:]]*"[^"]*"' \
+        "$install/.dot-install.json" 2>/dev/null | head -n 1 |
+        sed 's/^[^"]*"[^"]*"[^"]*"//; s/"$//')
+      [[ $meta_version == "$DOT_STACK_DOT_RELEASE_TAG" ]] || {
+        printf 'run-ci-candidate-home: installed release names %s, expected %s\n' \
+          "${meta_version:-<absent>}" "$DOT_STACK_DOT_RELEASE_TAG" >&2
+        return 1
+      }
+    fi
+    # The release fixture simulates the post-cutover fleet: the public
+    # command links the installed binary (shdeps publishes the same link
+    # once the tracked door no longer exists).
+    mkdir -p "$home/.local/bin" || return 1
+    ln -sfn -- "$install/dot" "$home/.local/bin/dot" || return 1
+    DOT_STACK_DOT_ROOT=$install
+    DOT_STACK_DOT_BIN=$install/dot
+    export DOT_STACK_DOT_ROOT DOT_STACK_DOT_BIN
+  else
+    # A requested tag without a release root means direct invocation outside
+    # the stack; refuse instead of silently running the git path.
+    if [[ -n ${DOT_STACK_DOT_RELEASE_TAG:-} ]]; then
+      printf 'run-ci-candidate-home: release tag %s requires a release root from stack-dot-runtime\n' \
+        "$DOT_STACK_DOT_RELEASE_TAG" >&2
+      return 1
+    fi
+    ci_git clone --quiet --no-checkout "$source" "$install"
+    ci_git -C "$install" fetch --quiet --no-tags origin "$sha"
+    ci_git -C "$install" checkout --quiet --detach "$sha"
+    actual=$(ci_git -C "$install" rev-parse HEAD)
+    [[ $actual == "$sha" && -f $install/lib/dot/public/xdg.sh ]] || {
+      printf 'run-ci-candidate-home: invalid installed Dot runtime: %s\n' \
+        "$actual" >&2
+      return 1
+    }
+    DOT_STACK_DOT_ROOT=$install
+    DOT_STACK_DOT_BIN=$install/bin/dot
+    DOT_STACK_DOT_ORIGIN=$source
+    export DOT_STACK_DOT_ROOT DOT_STACK_DOT_BIN DOT_STACK_DOT_ORIGIN
+  fi
+  # Release archives ship the public API payload; checkouts carry it in-tree.
+  [[ -r $install/lib/dot/public/xdg.sh ]] || {
+    printf 'run-ci-candidate-home: installed Dot runtime lacks public xdg.sh\n' >&2
     return 1
   }
   ln -s ../share/cgraf78/dot/lib/dot/public "$home/.local/lib/dot"
-  DOT_STACK_DOT_ROOT=$install
-  DOT_STACK_DOT_BIN=$install/bin/dot
-  DOT_STACK_DOT_ORIGIN=$source
-  export DOT_STACK_DOT_ROOT DOT_STACK_DOT_BIN DOT_STACK_DOT_ORIGIN
 }
 
 prepare_agent_rules_sync() {
@@ -158,8 +205,17 @@ prepare_agent_rules_sync() {
 }
 
 record_client_identity() {
-  local dot_bin=$home/.local/share/cgraf78/dot/bin/dot record identity
+  local dot_bin=${DOT_STACK_DOT_BIN:-} record identity
   local git_identity git_dev git_ino output
+
+  # The installed binary moved: checkouts keep bin/dot, releases carry dot
+  # at the top level. Either way the resolved binary owns this record.
+  [[ $dot_bin == "$home/.local/share/cgraf78/dot/"?* &&
+    -x $dot_bin && ! -L $dot_bin ]] || {
+    printf 'run-ci-candidate-home: invalid installed Dot binary: %s\n' \
+      "${dot_bin:-<empty>}" >&2
+    return 1
+  }
 
   # `dot init` also converges the complete dependency graph. CI needs only its
   # identity contract here, so write the versioned adopted-checkout record and
@@ -208,9 +264,36 @@ record_client_identity() {
 prepare_shdeps() {
   local install=$home/.local/share/shdeps installer=$staging/install-shdeps
   local lock=$home/.local/share/cgraf78/dot/support/shdeps.lock
+  local dot_install=$home/.local/share/cgraf78/dot
   local revision expected_digest actual_digest version
   local override=${DOT_STACK_SHDEPS_ROOT:-}
+  local lock_base lock_repo
 
+  # Release archives omit the private support tree. Restore the exact trust
+  # anchor the release was built from: the lock at the immutable resolved
+  # commit. raw.githubusercontent.com is the same uncounted, tokenless host
+  # the installer download below already uses, and installing the lock lets
+  # the native binary read its own anchor from its source root.
+  # DOT_RELEASE_RAW_BASE honors the same file:// fixture override as the
+  # archive download base so unit tests restore the anchor offline.
+  if [[ ! -f $lock || -L $lock ]] &&
+    _dot_runtime_is_release_root "$dot_install"; then
+    command -v curl >/dev/null || {
+      printf 'run-ci-candidate-home: curl is required for Shdeps setup\n' >&2
+      return 1
+    }
+    lock_base=${DOT_RELEASE_RAW_BASE:-https://raw.githubusercontent.com}
+    lock_repo=${DOT_STACK_DOT_RELEASE_REPO:-cgraf78/dot}
+    mkdir -p "${lock%/*}"
+    curl --fail --silent --show-error --location \
+      --connect-timeout 10 --max-time 30 \
+      --retry 2 --retry-delay 2 --retry-max-time 65 --retry-all-errors \
+      "$lock_base/$lock_repo/$DOT_STACK_DOT_SHA/support/shdeps.lock" \
+      -o "$lock" || {
+      printf 'run-ci-candidate-home: could not fetch Dot Shdeps trust anchor\n' >&2
+      return 1
+    }
+  fi
   [[ -f $lock && ! -L $lock ]] || {
     printf 'run-ci-candidate-home: missing Dot Shdeps trust anchor: %s\n' \
       "$lock" >&2
@@ -348,7 +431,7 @@ printf 'candidate-home\thome=%s\tsource=%s\thead=%s\n' \
     SHDEPS_INSTALL_DIR="$dependency_install" \
     SHDEPS_BIN_DIR="$dependency_bin" \
     SHDEPS_GIT_DEV_DIR="$dependency_dev" \
-    PATH="$home/.local/share/cgraf78/dot/bin:$home/.local/bin:$dependency_bin:$PATH" \
+    PATH="${DOT_STACK_DOT_BIN%/*}:$home/.local/bin:$dependency_bin:$PATH" \
     DOTFILES_CANDIDATE_SHA="$candidate_sha" \
     "$@"
 )
