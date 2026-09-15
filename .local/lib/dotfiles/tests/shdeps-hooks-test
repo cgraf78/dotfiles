@@ -812,4 +812,129 @@ else
   _fail "tmux: custom hook fixture is available"
 fi
 
+echo "=== dot hook arms ==="
+
+_dot_hook="$REAL_HOME/.config/shdeps/hooks.d/cgraf78/dot.sh"
+# shellcheck source=/dev/null
+. "$_dot_hook"
+
+_dot_hook_fixture() {
+  local home=$1
+  mkdir -p "$home/.local/share" "$home/.local/bin" "$home/.local/lib"
+}
+
+# Unknown dependency names skip without touching anything.
+_dot_home_skip=$(_tmpdir)/home
+_dot_hook_fixture "$_dot_home_skip"
+_dot_rc=0
+HOME="$_dot_home_skip" SHDEPS_INSTALL_DIR="$_dot_home_skip/.local/share" \
+  post "other/name" >/dev/null 2>&1 || _dot_rc=$?
+_assert_exit "dot hook: unknown name skips" 2 "$_dot_rc"
+
+# Neither layout present fails closed.
+_dot_home_unknown=$(_tmpdir)/home
+_dot_hook_fixture "$_dot_home_unknown"
+_dot_rc=0
+HOME="$_dot_home_unknown" SHDEPS_INSTALL_DIR="$_dot_home_unknown/.local/share" \
+  post "cgraf78/dot" >/dev/null 2>&1 || _dot_rc=$?
+_assert_exit "dot hook: unknown layout fails closed" 1 "$_dot_rc"
+
+# Release roots converge the public library link.
+_dot_home_release=$(_tmpdir)/home
+_dot_hook_fixture "$_dot_home_release"
+mkdir -p "$_dot_home_release/.local/share/cgraf78/dot/lib/dot/public"
+printf '#!/usr/bin/env bash\nexit 0\n' \
+  >"$_dot_home_release/.local/share/cgraf78/dot/dot"
+chmod +x "$_dot_home_release/.local/share/cgraf78/dot/dot"
+_dot_rc=0
+HOME="$_dot_home_release" SHDEPS_INSTALL_DIR="$_dot_home_release/.local/share" \
+  post "cgraf78/dot" >/dev/null 2>&1 || _dot_rc=$?
+_assert_exit "dot hook: release root converges the library link" 0 "$_dot_rc"
+if [[ -L $_dot_home_release/.local/lib/dot &&
+  $_dot_home_release/.local/lib/dot -ef $_dot_home_release/.local/share/cgraf78/dot/lib/dot/public ]]; then
+  _pass "dot hook: release root links the library at the public path"
+else
+  _fail "dot hook: release root links the library at the public path"
+fi
+
+# A correct link is a no-op.
+_dot_rc=0
+HOME="$_dot_home_release" SHDEPS_INSTALL_DIR="$_dot_home_release/.local/share" \
+  post "cgraf78/dot" >/dev/null 2>&1 || _dot_rc=$?
+_assert_exit "dot hook: valid library link is a no-op" 0 "$_dot_rc"
+
+# A stale link is relinked.
+_dot_home_relink=$(_tmpdir)/home
+_dot_hook_fixture "$_dot_home_relink"
+mkdir -p "$_dot_home_relink/.local/share/cgraf78/dot/lib/dot/public" \
+  "$_dot_home_relink/elsewhere"
+ln -s "$_dot_home_relink/elsewhere" "$_dot_home_relink/.local/lib/dot"
+_dot_rc=0
+HOME="$_dot_home_relink" SHDEPS_INSTALL_DIR="$_dot_home_relink/.local/share" \
+  post "cgraf78/dot" >/dev/null 2>&1 || _dot_rc=$?
+_assert_exit "dot hook: stale library link is relinked" 0 "$_dot_rc"
+if [[ $_dot_home_relink/.local/lib/dot -ef $_dot_home_relink/.local/share/cgraf78/dot/lib/dot/public ]]; then
+  _pass "dot hook: relinked library points at the release payload"
+else
+  _fail "dot hook: relinked library points at the release payload"
+fi
+
+# A real directory at the public path is refused, never replaced.
+_dot_home_realdir=$(_tmpdir)/home
+_dot_hook_fixture "$_dot_home_realdir"
+mkdir -p "$_dot_home_realdir/.local/share/cgraf78/dot/lib/dot/public"
+rm -rf "$_dot_home_realdir/.local/lib/dot"
+mkdir -p "$_dot_home_realdir/.local/lib/dot"
+_dot_rc=0
+HOME="$_dot_home_realdir" SHDEPS_INSTALL_DIR="$_dot_home_realdir/.local/share" \
+  post "cgraf78/dot" >/dev/null 2>&1 || _dot_rc=$?
+_assert_exit "dot hook: real directory at the public path is refused" 1 "$_dot_rc"
+if [[ -d $_dot_home_realdir/.local/lib/dot &&
+  ! -L $_dot_home_realdir/.local/lib/dot ]]; then
+  _pass "dot hook: refused directory is left intact"
+else
+  _fail "dot hook: refused directory is left intact"
+fi
+
+# Checkout roots delegate to the reviewed installer with HOME-local paths.
+_dot_home_checkout=$(_tmpdir)/home
+_dot_hook_fixture "$_dot_home_checkout"
+mkdir -p "$_dot_home_checkout/.local/share/cgraf78/dot/support"
+cat >"$_dot_home_checkout/.local/share/cgraf78/dot/support/install-checkout.sh" <<'EOF'
+#!/usr/bin/env bash
+printf 'PREFIX=%s\nBIN_DIR=%s\nDOT_PUBLIC_LIB=%s\n' \
+  "$PREFIX" "$BIN_DIR" "$DOT_PUBLIC_LIB" >"$DOT_HOOK_TEST_INSTALL_LOG"
+exit "${DOT_HOOK_TEST_INSTALL_RC:-0}"
+EOF
+chmod +x "$_dot_home_checkout/.local/share/cgraf78/dot/support/install-checkout.sh"
+_dot_install_log=$(_tmpdir)/install.log
+_dot_rc=0
+HOME="$_dot_home_checkout" SHDEPS_INSTALL_DIR="$_dot_home_checkout/.local/share" \
+  DOT_HOOK_TEST_INSTALL_LOG="$_dot_install_log" DOT_HOOK_TEST_INSTALL_RC=0 \
+  post "cgraf78/dot" >/dev/null 2>&1 || _dot_rc=$?
+_assert_exit "dot hook: checkout installer success propagates" 0 "$_dot_rc"
+_assert_file_content "dot hook: installer binds HOME-local surfaces" \
+  "PREFIX=$_dot_home_checkout/.local
+BIN_DIR=$_dot_home_checkout/.local/bin
+DOT_PUBLIC_LIB=$_dot_home_checkout/.local/lib/dot" "$_dot_install_log"
+_dot_rc=0
+HOME="$_dot_home_checkout" SHDEPS_INSTALL_DIR="$_dot_home_checkout/.local/share" \
+  DOT_HOOK_TEST_INSTALL_LOG="$_dot_install_log" DOT_HOOK_TEST_INSTALL_RC=1 \
+  post "cgraf78/dot" >/dev/null 2>&1 || _dot_rc=$?
+_assert_exit "dot hook: checkout installer failure propagates" 1 "$_dot_rc"
+
+# A symlinked installer does not count as a checkout root.
+_dot_home_linkinst=$(_tmpdir)/home
+_dot_hook_fixture "$_dot_home_linkinst"
+mkdir -p "$_dot_home_linkinst/.local/share/cgraf78/dot/support"
+ln -s "$_dot_home_checkout/.local/share/cgraf78/dot/support/install-checkout.sh" \
+  "$_dot_home_linkinst/.local/share/cgraf78/dot/support/install-checkout.sh"
+_dot_rc=0
+HOME="$_dot_home_linkinst" SHDEPS_INSTALL_DIR="$_dot_home_linkinst/.local/share" \
+  post "cgraf78/dot" >/dev/null 2>&1 || _dot_rc=$?
+_assert_exit "dot hook: symlinked installer falls through to release refusal" \
+  1 "$_dot_rc"
+
+unset -f post
+
 _test_summary
