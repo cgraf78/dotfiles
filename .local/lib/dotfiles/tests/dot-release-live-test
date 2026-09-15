@@ -86,7 +86,11 @@ if [[ -d $source_home/.git && ! -L $source_home/.git ]]; then
   candidate_sha=$(git -C "$source_home" rev-parse HEAD)
   echo ""
   echo "=== Live candidate home ==="
-  live_home=$(_tmpdir)/live-home-probe
+  # The fixture home is trap-removed when candidate-home exits, so every
+  # observation (including the independent cross-check install) happens
+  # inside the child; only printed lines leave the fixture.
+  probe_dir=$(_tmpdir)/live-probe
+  mkdir -p "$probe_dir"
   rc=0
   live_output=
   # shellcheck disable=SC2016 # The child shell expands these at exec time.
@@ -94,15 +98,47 @@ if [[ -d $source_home/.git && ! -L $source_home/.git ]]; then
     DOT_STACK_DOT_RELEASE_REPO="$LIVE_REPO" \
     DOT_STACK_DOT_SHA='' \
     DOTFILES_CANDIDATE_SHA="$candidate_sha" \
-    LIVE_PROBE_HOME="$live_home" \
+    LIVE_PROBE_DIR="$probe_dir" \
+    LIVE_PROBE_REPO="$LIVE_REPO" \
     "$stack_runtime" release-live-home -- \
     "$candidate_home" \
-    bash -c 'printf "door=%s\nversion=%s\nmarker=%s\nlib=%s\nshdeps=%s\n" \
-      "$(readlink "$HOME/.local/bin/dot")" \
-      "$("$HOME/.local/bin/dot" version)" \
-      "$(cat "$HOME/.local/share/cgraf78/dot/.shdeps-release-layout")" \
-      "$(cat "$HOME/.local/lib/dot/xdg.sh" 2>/dev/null || echo MISSING)" \
-      "$(command -v shdeps)"; printf "%s" "$HOME" >"$LIVE_PROBE_HOME"' \
+    bash -c '
+      printf "door=%s\nversion=%s\nmarker=%s\nlib=%s\n" \
+        "$(readlink "$HOME/.local/bin/dot")" \
+        "$("$HOME/.local/bin/dot" version)" \
+        "$(cat "$HOME/.local/share/cgraf78/dot/.shdeps-release-layout")" \
+        "$(cat "$HOME/.local/lib/dot/xdg.sh" 2>/dev/null || echo MISSING)"
+      cp "$HOME/.local/bin/dot" "$LIVE_PROBE_DIR/harness-dot" &&
+        printf "harness-kept=yes\n" || printf "harness-kept=no\n"
+      cross_shdeps=$HOME/.local/share/shdeps/shdeps
+      [[ -x $cross_shdeps ]] || cross_shdeps=$HOME/.local/bin/shdeps
+      if [[ -x $cross_shdeps ]]; then
+        printf "cross-shdeps=yes\n"
+        cross_home=$LIVE_PROBE_DIR/cross-home
+        mkdir -p "$cross_home/.config/shdeps" "$cross_home/.local/bin" \
+          "$cross_home/.local/share"
+        printf "%s github:release dot\n" "$LIVE_PROBE_REPO" \
+          >"$cross_home/.config/shdeps/10-deps.conf"
+        if cross_log=$(env -i HOME="$cross_home" PATH=/usr/bin:/bin \
+          SHDEPS_INSTALL_DIR="$cross_home/.local/share" \
+          SHDEPS_BIN_DIR="$cross_home/.local/bin" \
+          SHDEPS_CONFIG_HOME="$cross_home/.config/shdeps" \
+          "$cross_shdeps" update 2>&1); then
+          printf "cross-install=yes\n"
+        else
+          printf "cross-install=no\ncross-log=%s\n" \
+            "$(printf "%s" "$cross_log" | tail -c 300)"
+        fi
+        if [[ -x $cross_home/.local/bin/dot ]] &&
+          cmp -s "$LIVE_PROBE_DIR/harness-dot" \
+            "$cross_home/.local/bin/dot"; then
+          printf "cross-match=yes\n"
+        else
+          printf "cross-match=no\n"
+        fi
+      else
+        printf "cross-shdeps=no\n"
+      fi' \
     2>&1) || rc=$?
   _assert_exit 'candidate home installs the live release' 0 "$rc"
   _assert_contains 'candidate home links the public command' \
@@ -116,50 +152,12 @@ if [[ -d $source_home/.git && ! -L $source_home/.git ]]; then
 
   echo ""
   echo "=== Independent shdeps cross-check ==="
-  if [[ -f $live_home ]]; then
-    probe_home=$(cat "$live_home")
-    # The install-root binary exists on both setup paths; the public bin
-    # link is absent when the harness consumed a test Shdeps root.
-    shdeps_bin=$probe_home/.local/share/shdeps/shdeps
-    if [[ ! -x $shdeps_bin && -x $probe_home/.local/bin/shdeps ]]; then
-      shdeps_bin=$probe_home/.local/bin/shdeps
-    fi
-    if [[ -x $shdeps_bin ]]; then
-      cross_home=$(_tmpdir)/cross-home
-      mkdir -p "$cross_home/.config/shdeps" "$cross_home/.local/bin" \
-        "$cross_home/.local/share"
-      printf '%s github:release dot\n' "$LIVE_REPO" \
-        >"$cross_home/.config/shdeps/10-deps.conf"
-      rc=0
-      cross_output=
-      cross_output=$(env -i HOME="$cross_home" PATH=/usr/bin:/bin \
-        SHDEPS_INSTALL_DIR="$cross_home/.local/share" \
-        SHDEPS_BIN_DIR="$cross_home/.local/bin" \
-        SHDEPS_CONFIG_HOME="$cross_home/.config/shdeps" \
-        "$shdeps_bin" update 2>&1) || rc=$?
-      if [[ $rc -eq 0 ]]; then
-        _pass 'independent shdeps installs the release'
-      else
-        _fail "independent shdeps installs the release (got '$(printf '%s' "$cross_output" | tail -c 300)')"
-      fi
-      if [[ -x $cross_home/.local/bin/dot ]]; then
-        if cmp -s "$probe_home/.local/bin/dot" \
-          "$cross_home/.local/bin/dot"; then
-          _pass 'harness install byte-matches the shdeps install'
-        else
-          _fail 'harness install byte-matches the shdeps install'
-        fi
-      else
-        _fail 'independent shdeps publishes the public command'
-      fi
-    else
-      bin_list=$(find "$probe_home/.local/bin" -maxdepth 1 -mindepth 1 -printf '%f,' 2>/dev/null || echo MISSING)
-      share_list=$(find "$probe_home/.local/share/shdeps" -maxdepth 1 -mindepth 1 -printf '%f,' 2>/dev/null || echo MISSING)
-      _fail "candidate home provides a shdeps binary for cross-check (home=$probe_home bin=$bin_list share=$share_list)"
-    fi
-  else
-    _fail 'candidate home probe captured its home directory'
-  fi
+  _assert_contains 'candidate home provides a shdeps binary for cross-check' \
+    'cross-shdeps=yes' "$live_output"
+  _assert_contains 'independent shdeps installs the release' \
+    'cross-install=yes' "$live_output"
+  _assert_contains 'harness install byte-matches the shdeps install' \
+    'cross-match=yes' "$live_output"
 else
   echo '(live candidate-home legs skipped: source home is a worktree)'
 fi
