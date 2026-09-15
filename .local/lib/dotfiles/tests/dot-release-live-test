@@ -4,7 +4,7 @@
 # The offline resolver suite pins selection logic with fixtures; this suite
 # proves the real published release: every platform pair exists, this leg's
 # archive resolves through the harness, the installed binary binds to the
-# tag, and an independent shdeps install byte-matches the harness install.
+# tag, and an independent shdeps install of the release is coherent.
 # The tag is pinned in this file (immutable binding); bump it with a
 # reviewed PR when the fleet moves to a newer Dot release.
 
@@ -119,10 +119,18 @@ if [[ -d $source_home/.git && ! -L $source_home/.git ]]; then
           "$cross_home/.local/share"
         printf "%s github:release dot\n" "$LIVE_PROBE_REPO" \
           >"$cross_home/.config/shdeps/10-deps.conf"
+        # Isolate every root the resolver reads: the config knob is
+        # SHDEPS_CONF_DIR (SHDEPS_CONFIG_HOME is ignored) and XDG_* / HOME
+        # otherwise leak the fixture or caller environment into the
+        # independent install.
         if cross_log=$(env -u GH_TOKEN -u GITHUB_TOKEN HOME="$cross_home" \
+          XDG_CONFIG_HOME="$cross_home/.config" \
+          XDG_DATA_HOME="$cross_home/.local/share" \
+          XDG_STATE_HOME="$cross_home/.local/state" \
+          XDG_CACHE_HOME="$cross_home/.cache" \
+          SHDEPS_CONF_DIR="$cross_home/.config/shdeps" \
           SHDEPS_INSTALL_DIR="$cross_home/.local/share" \
           SHDEPS_BIN_DIR="$cross_home/.local/bin" \
-          SHDEPS_CONFIG_HOME="$cross_home/.config/shdeps" \
           "$cross_shdeps" update 2>&1); then
           printf "cross-install=yes\n"
         else
