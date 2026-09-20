@@ -357,3 +357,18 @@ _dot_runtime_install_copy() {
     return 1
   }
 }
+
+# Print the caller token value an isolated cross-check install may use for
+# $1 (GH_TOKEN or GITHUB_TOKEN). The caller forwards its own token only by
+# opting in with SHDEPS_ALLOW_GH_AUTH_TOKEN=1: shared CI egress would
+# otherwise exhaust the unauthenticated api.github.com quota and the
+# install degrades to cached data. Without the opt-in print nothing, so a
+# blanked assignment keeps the install proving it needs no credentials.
+_dot_cross_check_token() {
+  local name=${1:-}
+  [[ "${SHDEPS_ALLOW_GH_AUTH_TOKEN:-}" == "1" ]] || return 0
+  case $name in
+    GH_TOKEN) printf '%s' "${GH_TOKEN:-}" ;;
+    GITHUB_TOKEN) printf '%s' "${GITHUB_TOKEN:-}" ;;
+  esac
+}

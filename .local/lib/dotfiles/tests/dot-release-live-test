@@ -91,6 +91,11 @@ if [[ -d $source_home/.git && ! -L $source_home/.git ]]; then
   # inside the child; only printed lines leave the fixture.
   probe_dir=$(_tmpdir)/live-probe
   mkdir -p "$probe_dir"
+  # Forward caller GitHub tokens to the isolated cross-check only when the
+  # caller opts in; otherwise the blanked values keep the install proving
+  # it needs no credentials.
+  cross_gh_token=$(_dot_cross_check_token GH_TOKEN)
+  cross_github_token=$(_dot_cross_check_token GITHUB_TOKEN)
   rc=0
   live_output=
   # shellcheck disable=SC2016 # The child shell expands these at exec time.
@@ -100,6 +105,8 @@ if [[ -d $source_home/.git && ! -L $source_home/.git ]]; then
     DOTFILES_CANDIDATE_SHA="$candidate_sha" \
     LIVE_PROBE_DIR="$probe_dir" \
     LIVE_PROBE_REPO="$LIVE_REPO" \
+    LIVE_CROSS_GH_TOKEN="$cross_gh_token" \
+    LIVE_CROSS_GITHUB_TOKEN="$cross_github_token" \
     "$stack_runtime" release-live-home -- \
     "$candidate_home" \
     bash -c '
@@ -122,8 +129,11 @@ if [[ -d $source_home/.git && ! -L $source_home/.git ]]; then
         # Isolate every root the resolver reads: the config knob is
         # SHDEPS_CONF_DIR (SHDEPS_CONFIG_HOME is ignored) and XDG_* / HOME
         # otherwise leak the fixture or caller environment into the
-        # independent install.
-        if cross_log=$(env -u GH_TOKEN -u GITHUB_TOKEN HOME="$cross_home" \
+        # independent install. Caller GitHub tokens arrive blanked unless
+        # the outer run opted in with SHDEPS_ALLOW_GH_AUTH_TOKEN=1
+        # (shared CI egress would otherwise exhaust the unauthenticated
+        # API quota).
+        if cross_log=$(GH_TOKEN="$LIVE_CROSS_GH_TOKEN" GITHUB_TOKEN="$LIVE_CROSS_GITHUB_TOKEN" HOME="$cross_home" \
           XDG_CONFIG_HOME="$cross_home/.config" \
           XDG_DATA_HOME="$cross_home/.local/share" \
           XDG_STATE_HOME="$cross_home/.local/state" \

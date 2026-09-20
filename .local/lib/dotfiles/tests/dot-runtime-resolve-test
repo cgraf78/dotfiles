@@ -599,4 +599,18 @@ else
   echo '(standalone-checkout e2e cases skipped: source home is a worktree)'
 fi
 
+echo ""
+echo "=== Cross-check install token forwarding ==="
+
+_assert_eq 'opted-in cross-check forwards GH_TOKEN' 'caller-token' \
+  "$(SHDEPS_ALLOW_GH_AUTH_TOKEN=1 GH_TOKEN=caller-token _dot_cross_check_token GH_TOKEN)"
+_assert_eq 'opted-in cross-check forwards GITHUB_TOKEN' 'caller-github-token' \
+  "$(SHDEPS_ALLOW_GH_AUTH_TOKEN=1 GITHUB_TOKEN=caller-github-token _dot_cross_check_token GITHUB_TOKEN)"
+_assert_eq 'default cross-check blanks GH_TOKEN' '' \
+  "$(SHDEPS_ALLOW_GH_AUTH_TOKEN='' GH_TOKEN=caller-token _dot_cross_check_token GH_TOKEN)"
+_assert_eq 'default cross-check blanks GITHUB_TOKEN' '' \
+  "$(SHDEPS_ALLOW_GH_AUTH_TOKEN='' GITHUB_TOKEN=caller-github-token _dot_cross_check_token GITHUB_TOKEN)"
+_assert_eq 'explicit opt-out keeps GH_TOKEN blanked' '' \
+  "$(SHDEPS_ALLOW_GH_AUTH_TOKEN=0 GH_TOKEN=caller-token _dot_cross_check_token GH_TOKEN)"
+
 _test_summary
