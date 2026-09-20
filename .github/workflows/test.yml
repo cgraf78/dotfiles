@@ -134,6 +134,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GITHUB_TOKEN: ${{ github.token }}
+          # Let the isolated cross-check install authenticate: shared
+          # runner egress would otherwise exhaust the unauthenticated
+          # api.github.com quota and degrade resolution to cached data.
+          SHDEPS_ALLOW_GH_AUTH_TOKEN: 1
           DOT_STACK_NVIM_BIN: ${{ runner.temp }}/neovim-0.12.2/bin/nvim
           DOT_STACK_NVIM_DATA_HOME: ${{ runner.temp }}/dot-profile-nvim-data
           DOT_STACK_YQ_BIN: ${{ runner.temp }}/yq-v4.53.6
