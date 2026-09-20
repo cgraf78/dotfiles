@@ -31,7 +31,6 @@ program	.config/shell/interactive.d/60-prompt.bash
 program	.config/shell/interactive.d/70-integrations.bash
 program	.config/shell/interactive.d/72-grok.sh
 program	.local/bin/clip
-program	.local/bin/dot
 program	.local/bin/dot-worktree-gc
 program	.local/bin/git
 program	.local/bin/shell-time
