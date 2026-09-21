@@ -16,9 +16,11 @@ command -v tmux >/dev/null 2>&1 ||
 
 socket_dir=$(_tmpdir)
 socket=$socket_dir/tmux.sock
-if ! tmux -S "$socket" -f /dev/null new-session -d -s dot-tmux-compose \
-  'sleep 60' >/dev/null 2>&1; then
-  _fail 'tmux composed test server starts'
+server_output=$(tmux -S "$socket" -f /dev/null new-session -d -s dot-tmux-compose \
+  'sleep 60' 2>&1)
+server_status=$?
+if [[ $server_status -ne 0 ]]; then
+  _fail "tmux composed test server starts (socket=$socket output=$server_output)"
   _test_summary
 fi
 

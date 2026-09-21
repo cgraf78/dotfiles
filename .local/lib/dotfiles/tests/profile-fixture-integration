@@ -233,14 +233,21 @@ _assert_eq 'base fixture origin accepts shallow candidate history' true \
 run_in_home() {
   local home=$1
   shift
+  # Caller tokens stay scrubbed so fixtures prove they need no credentials,
+  # unless the outer run opted into forwarding them: the isolated release
+  # cross-check authenticates only then, and shared CI egress exhausts the
+  # anonymous API quota otherwise.
+  local -a token_scrub=(-u GH_TOKEN -u GITHUB_TOKEN)
+  [[ ${SHDEPS_ALLOW_GH_AUTH_TOKEN:-} == 1 ]] && token_scrub=()
   env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR \
     -u GITHUB_ACTIONS -u GITHUB_EVENT_NAME -u GITHUB_EVENT_PATH \
     -u GITHUB_BASE_REF -u GITHUB_HEAD_REF -u GITHUB_SHA \
-    -u GH_TOKEN -u GITHUB_TOKEN -u GH_ENTERPRISE_TOKEN \
+    -u GH_ENTERPRISE_TOKEN \
     -u GITHUB_ENTERPRISE_TOKEN -u GITHUB_PERSONAL_ACCESS_TOKEN \
     -u CODEX_GITHUB_PERSONAL_ACCESS_TOKEN \
     -u DOTFILES_CANDIDATE_SHA \
     -u DOT_STACK_DOT_RELEASE_TAG -u DOT_STACK_DOT_RELEASE_REPO \
+    ${token_scrub[@]+"${token_scrub[@]}"} \
     HOME="$home" \
     XDG_CONFIG_HOME="$home/.config" \
     XDG_DATA_HOME="$home/.local/share" \
