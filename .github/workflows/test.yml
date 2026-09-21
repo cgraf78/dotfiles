@@ -188,6 +188,10 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: |-
           set -euo pipefail
+          # Same pinned control-plane release as test-command: the cold
+          # image carries no Rust toolchain, so a source checkout can
+          # never run here.
+          export DOT_STACK_DOT_RELEASE_TAG='20260921-084026-ca764f4f'
           staging=$(mktemp -d /tmp/dotfiles-cold-bootstrap.XXXXXXXX)
           origin=$staging/origin.git
           fixture_home=$staging/home
