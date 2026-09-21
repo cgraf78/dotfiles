@@ -26,6 +26,11 @@ jobs:
       test-command: |-
         set -euo pipefail
         export DOTFILES_CANDIDATE_SHA='${{ github.event.pull_request.head.sha || github.sha }}'
+        # Post-cutover the engine ships only as a native binary and the matrix
+        # images carry no Rust toolchain: resolve the control-plane runtime
+        # from this pinned release instead of a source checkout. Move the pin
+        # by reviewed PR when the fleet adopts a newer release.
+        export DOT_STACK_DOT_RELEASE_TAG='20260921-084026-ca764f4f'
         .local/lib/dotfiles/tests/checkout-ci-candidate
         .local/lib/dotfiles/tests/stack-dot-runtime control-plane-run-ci -- \
           .local/lib/dotfiles/tests/run-ci-candidate-home \
@@ -46,6 +51,8 @@ jobs:
       termux-command: |-
         set -euo pipefail
         export DOTFILES_CANDIDATE_SHA='${{ github.event.pull_request.head.sha || github.sha }}'
+        # Same pinned control-plane release as test-command (see above).
+        export DOT_STACK_DOT_RELEASE_TAG='20260921-084026-ca764f4f'
         test "$(git rev-parse HEAD)" = "$DOTFILES_CANDIDATE_SHA"
         .local/lib/dotfiles/tests/stack-dot-runtime control-plane-run-ci -- \
           .local/lib/dotfiles/tests/run-ci-candidate-home \
@@ -141,6 +148,9 @@ jobs:
           DOT_STACK_NVIM_BIN: ${{ runner.temp }}/neovim-0.12.2/bin/nvim
           DOT_STACK_NVIM_DATA_HOME: ${{ runner.temp }}/dot-profile-nvim-data
           DOT_STACK_YQ_BIN: ${{ runner.temp }}/yq-v4.53.6
+          # Same pinned control-plane release as test-command: the matrix
+          # images carry no Rust toolchain for a source checkout.
+          DOT_STACK_DOT_RELEASE_TAG: 20260921-084026-ca764f4f
         run: |-
           set -euo pipefail
           export DOTFILES_CANDIDATE_SHA='${{ github.event.pull_request.head.sha || github.sha }}'

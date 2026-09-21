@@ -14,11 +14,13 @@ editor_fragment=$HOME/.config/tmux/conf.d/20-editor.conf
 command -v tmux >/dev/null 2>&1 ||
   _test_skip_suite 'tmux is not installed'
 
-socket_dir=$(_tmpdir)
-socket=$socket_dir/tmux.sock
-if ! tmux -S "$socket" -f /dev/null new-session -d -s dot-tmux-compose \
-  'sleep 60' >/dev/null 2>&1; then
-  _fail 'tmux composed test server starts'
+socket=$(_tmux_socket) || exit 1
+CLEANUP_DIRS+=("${socket%/*}")
+server_output=$(tmux -S "$socket" -f /dev/null new-session -d -s dot-tmux-compose \
+  'sleep 60' 2>&1)
+server_status=$?
+if [[ $server_status -ne 0 ]]; then
+  _fail "tmux composed test server starts (socket=$socket output=$server_output)"
   _test_summary
 fi
 

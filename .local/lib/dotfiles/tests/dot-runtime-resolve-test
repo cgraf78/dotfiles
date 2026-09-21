@@ -529,11 +529,14 @@ if [[ -d $source_home/.git && ! -L $source_home/.git ]]; then
   candidate_sha=$(git -C "$source_home" rev-parse HEAD)
   # Direct invocation with a tag but no release root fails before any
   # dependency setup, so this stays offline without further fixtures.
+  # Clear the ambient stack root: under a release runtime it names a
+  # release, which would take the install path instead of this refusal.
   rc=0
   output=
   output=$(DOTFILES_CANDIDATE_SHA="$candidate_sha" \
     DOT_STACK_DOT_RELEASE_TAG="$e2e_tag" \
     DOT_STACK_DOT_SHA="$e2e_sha" \
+    DOT_STACK_DOT_ROOT='' \
     "$candidate_home" true 2>&1) || rc=$?
   _assert_exit 'candidate home refuses a tag without a release root' 1 "$rc"
   _assert_contains 'candidate home names the missing release root' \

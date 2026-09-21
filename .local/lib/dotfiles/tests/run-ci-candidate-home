@@ -129,9 +129,11 @@ prepare_dot_runtime() {
     # The stack exports the resolved tag; the installed metadata must name
     # exactly that tag so a swapped root cannot ride a valid SHA.
     if [[ -n ${DOT_STACK_DOT_RELEASE_TAG:-} ]]; then
+      # A missing manifest or version line must fall through to the
+      # comparison below (which reports it) instead of tripping `set -e`.
       meta_version=$(grep -o '"version"[[:space:]]*:[[:space:]]*"[^"]*"' \
         "$install/.dot-install.json" 2>/dev/null | head -n 1 |
-        sed 's/^[^"]*"[^"]*"[^"]*"//; s/"$//')
+        sed 's/^[^"]*"[^"]*"[^"]*"//; s/"$//' || true)
       [[ $meta_version == "$DOT_STACK_DOT_RELEASE_TAG" ]] || {
         printf 'run-ci-candidate-home: installed release names %s, expected %s\n' \
           "${meta_version:-<absent>}" "$DOT_STACK_DOT_RELEASE_TAG" >&2
