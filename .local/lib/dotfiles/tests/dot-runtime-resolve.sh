@@ -243,11 +243,13 @@ _dot_release_fetch() {
   rm -rf -- "$scratch"
 }
 
-# Print the 12-hex short revision from `$1 version`, e.g.
-# `dot commit 41e0dcd55ae0 (config 1; extensions 1; library 1)`.
-# `unknown` builds fail closed: an unidentified binary cannot bind to a tag.
-_dot_release_version_short12() {
-  local bin=${1:-} output line
+# Print the release version tag from `$1 version`, e.g.
+# `dot 20260914-103531-41e0dcd5 (config 1; extensions 1; library 1)`.
+# The binary reports the same public version string release tags, archive
+# names, and installer metadata use (dot #190). `unknown` and garbage lines
+# fail closed: an unidentified binary cannot bind to a tag.
+_dot_release_version_tag() {
+  local bin=${1:-} output line version
   [[ -x $bin && ! -L $bin && ! -d $bin ]] || {
     printf 'dot-runtime-resolve: not an executable binary: %s\n' \
       "${bin:-<empty>}" >&2
@@ -258,22 +260,28 @@ _dot_release_version_short12() {
     return 1
   }
   line=${output%%$'\n'*}
-  [[ $line =~ ^dot\ commit\ ([0-9a-f]{12})\ \( ]] || {
+  [[ $line =~ ^dot\ ([0-9]{8}-[0-9]{6}-[0-9a-f]{8})\ \( ]] || {
     printf 'dot-runtime-resolve: unexpected version line: %s\n' \
       "${line:-<empty>}" >&2
     return 1
   }
-  printf '%s\n' "${BASH_REMATCH[1]}"
+  version=${BASH_REMATCH[1]}
+  _dot_release_tag_valid "$version" || {
+    printf 'dot-runtime-resolve: unexpected version line: %s\n' \
+      "${line:-<empty>}" >&2
+    return 1
+  }
+  printf '%s\n' "$version"
 }
 
 # Verify release root $1 was built from tag $2 for platform $3 at commit
-# $4: native binary present, its short12 bound to both the tag suffix and
-# the commit prefix, and the packaged install metadata agreeing when
-# present. The platform binding catches a mislabeled archive before any
-# consumer tries to execute a foreign binary.
+# $4: native binary present, its version tag equal to the requested tag with
+# its suffix bound to the commit prefix, and the packaged install metadata
+# agreeing when present. The platform binding catches a mislabeled archive
+# before any consumer tries to execute a foreign binary.
 _dot_release_verify_root() {
   local root=${1:-} tag=${2:-} platform=${3:-} sha=${4:-}
-  local short meta meta_sha meta_platform meta_version
+  local version meta meta_sha meta_platform meta_version
   _dot_runtime_is_release_root "$root" || {
     printf 'dot-runtime-resolve: not a release root: %s\n' \
       "${root:-<empty>}" >&2
@@ -289,10 +297,10 @@ _dot_release_verify_root() {
       "${sha:-<empty>}" >&2
     return 1
   }
-  short=$(_dot_release_version_short12 "$root/dot") || return 1
-  [[ $short == "${tag##*-}"* && $sha == "$short"* ]] || {
+  version=$(_dot_release_version_tag "$root/dot") || return 1
+  [[ $version == "$tag" && $sha == "${version##*-}"* ]] || {
     printf 'dot-runtime-resolve: binary %s does not match tag %s\n' \
-      "$short" "$tag" >&2
+      "$version" "$tag" >&2
     return 1
   }
   # The packager records the built commit, tag, and platform in

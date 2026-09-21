@@ -120,12 +120,18 @@ prepare_dot_runtime() {
     # The stack already verified this release; copy it (no Git) and keep its
     # immutable SHA and artifact origin, rebinding only root and binary.
     _dot_runtime_install_copy "$DOT_STACK_DOT_ROOT" "$install" || return 1
-    actual=$(_dot_release_version_short12 "$install/dot") || return 1
-    [[ $sha == "$actual"* ]] || {
+    actual=$(_dot_release_version_tag "$install/dot") || return 1
+    [[ $sha == "${actual##*-}"* ]] || {
       printf 'run-ci-candidate-home: installed release does not match %s\n' \
         "$sha" >&2
       return 1
     }
+    if [[ -n ${DOT_STACK_DOT_RELEASE_TAG:-} &&
+      $actual != "$DOT_STACK_DOT_RELEASE_TAG" ]]; then
+      printf 'run-ci-candidate-home: installed binary reports %s, expected %s\n' \
+        "$actual" "$DOT_STACK_DOT_RELEASE_TAG" >&2
+      return 1
+    fi
     # The stack exports the resolved tag; the installed metadata must name
     # exactly that tag so a swapped root cannot ride a valid SHA.
     if [[ -n ${DOT_STACK_DOT_RELEASE_TAG:-} ]]; then

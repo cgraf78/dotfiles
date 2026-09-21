@@ -264,8 +264,10 @@ elif [[ $(command -v dot 2>/dev/null) == "$runtime_bin" ]]; then
 fi
 runtime_identity_ok=0
 if _dot_runtime_is_release_root "${runtime_root:-/nonexistent}"; then
-  runtime_short=$(_dot_release_version_short12 "$runtime_bin" 2>/dev/null || true)
-  [[ -n $runtime_short && $runtime_sha == "$runtime_short"* ]] &&
+  runtime_version=$(_dot_release_version_tag "$runtime_bin" 2>/dev/null || true)
+  [[ -n $runtime_version && $runtime_sha == "${runtime_version##*-}"* &&
+    (-z ${DOT_STACK_DOT_RELEASE_TAG:-} ||
+    $runtime_version == "$DOT_STACK_DOT_RELEASE_TAG") ]] &&
     runtime_identity_ok=1
 elif [[ $(git -C "${runtime_root:-/nonexistent}" rev-parse HEAD 2>/dev/null) == "$runtime_sha" ]]; then
   runtime_identity_ok=1
@@ -1040,8 +1042,11 @@ candidate_home_output=$(
       test -f "$HOME/.local/lib/dot/xdg.sh"
       test "$DOT_STACK_DOT_BIN" = "$HOME/.local/share/cgraf78/dot/dot"
       test ! -e "$HOME/.local/share/cgraf78/dot/.git"
+      # Shape-plus-suffix by intent: a git-checkout build computes its
+      # VERSION timestamp locally, so the tag grammar and the SHA-bound
+      # suffix are the strongest stable assertions here.
       case "$("$DOT_STACK_DOT_BIN" version)" in
-        "dot commit ${DOT_STACK_DOT_SHA:0:12}"*) ;;
+        "dot "[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]"-"[0-9][0-9][0-9][0-9][0-9][0-9]"-"${DOT_STACK_DOT_SHA:0:8}" "*) ;;
         *) exit 1 ;;
       esac
       test "$(command -v agent-rules-sync)" = \
@@ -1117,7 +1122,7 @@ cat >"$release_source/dot" <<'EOF'
 #!/usr/bin/env bash
 case "${1:-}" in
   version)
-    printf '%s\n' 'dot commit abcdef012345 (config 1; extensions 1; library 1)'
+    printf '%s\n' 'dot 20260105-112233-abcdef01 (config 1; extensions 1; library 1)'
     ;;
   init)
     [[ "${2:-}" == --status ]] || exit 2
@@ -1155,7 +1160,7 @@ release_home_output=$(
       test "$DOT_STACK_DOT_ORIGIN" = \
         "https://example.invalid/dot-release-fixture.tar.gz"
       test "$("$DOT_STACK_DOT_BIN" version)" = \
-        "dot commit abcdef012345 (config 1; extensions 1; library 1)"
+        "dot 20260105-112233-abcdef01 (config 1; extensions 1; library 1)"
       test "$("$HOME/.local/share/shdeps/shdeps" version)" = \
         "$DOT_STACK_SHDEPS_VERSION"
       unset XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME XDG_RUNTIME_DIR
