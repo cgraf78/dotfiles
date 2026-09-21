@@ -287,8 +287,15 @@ nested_ci_credentials=$(GH_TOKEN=gh GITHUB_TOKEN=github \
   CODEX_GITHUB_PERSONAL_ACCESS_TOKEN=codex-github-pat \
   run_in_home "$fixture_root" bash -c \
   'printf "%s\n" "${GH_TOKEN-unset}:${GITHUB_TOKEN-unset}:${GH_ENTERPRISE_TOKEN-unset}:${GITHUB_ENTERPRISE_TOKEN-unset}:${GITHUB_PERSONAL_ACCESS_TOKEN-unset}:${CODEX_GITHUB_PERSONAL_ACCESS_TOKEN-unset}"')
-_assert_eq 'profile fixtures isolate outer GitHub credentials' \
-  'unset:unset:unset:unset:unset:unset' "$nested_ci_credentials"
+# The token carve-out forwards exactly the two caller tokens when the outer
+# run opts in; every other credential stays scrubbed in both modes.
+if [[ ${SHDEPS_ALLOW_GH_AUTH_TOKEN:-} == 1 ]]; then
+  _assert_eq 'profile fixtures forward only the opted-in caller tokens' \
+    'gh:github:unset:unset:unset:unset' "$nested_ci_credentials"
+else
+  _assert_eq 'profile fixtures isolate outer GitHub credentials' \
+    'unset:unset:unset:unset:unset:unset' "$nested_ci_credentials"
+fi
 
 install_dot_runtime() {
   local home=$1 install=$1/.local/share/cgraf78/dot actual
