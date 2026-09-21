@@ -33,17 +33,23 @@ fi
 echo ""
 echo "=== Published pair existence ==="
 
+# Release-edge answers are occasionally transient (5xx, 429, or a fresh
+# asset still propagating, all surfacing as curl exit 22 under --fail), so
+# the existence probes retry with the same curl flags as the resolver
+# downloads; a genuinely missing asset still fails after the retries.
 for label in $LIVE_LABELS; do
   asset=dot-$LIVE_TAG-$label.tar.gz
   rc=0
   curl --fail --silent --head --location \
     --connect-timeout 10 --max-time 60 \
+    --retry 2 --retry-delay 2 --retry-max-time 65 --retry-all-errors \
     "$LIVE_BASE/$LIVE_REPO/releases/download/$LIVE_TAG/$asset" \
     >/dev/null 2>&1 || rc=$?
   _assert_exit "asset exists: $label" 0 "$rc"
   rc=0
   curl --fail --silent --head --location \
     --connect-timeout 10 --max-time 60 \
+    --retry 2 --retry-delay 2 --retry-max-time 65 --retry-all-errors \
     "$LIVE_BASE/$LIVE_REPO/releases/download/$LIVE_TAG/$asset.sha256" \
     >/dev/null 2>&1 || rc=$?
   _assert_exit "sidecar exists: $label" 0 "$rc"
