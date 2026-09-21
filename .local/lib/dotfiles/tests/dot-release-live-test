@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
-# dot-release-live-test - prove the pinned release end to end, live.
+# dot-release-live-test - prove the latest release end to end, live.
 #
 # The offline resolver suite pins selection logic with fixtures; this suite
 # proves the real published release: every platform pair exists, this leg's
 # archive resolves through the harness, the installed binary binds to the
 # tag, and an independent shdeps install of the release is coherent.
-# The tag is pinned in this file (immutable binding); bump it with a
-# reviewed PR when the fleet moves to a newer Dot release.
+# The tag floats to the newest published release (resolved once per suite
+# run), so the suite always validates what the fleet installs. Resolution
+# is independent of the harness runtime by design: suites never inherit
+# the leg tag (see run-ci), so a release cut mid-run may skew this suite
+# newer. Every assertion binds to the resolved tag, so the proof stays
+# valid either way.
 
 set -u
 
@@ -20,15 +24,16 @@ tests_dir=$source_home/.local/lib/dotfiles/tests
 stack_runtime=$tests_dir/stack-dot-runtime
 candidate_home=$tests_dir/run-ci-candidate-home
 
-LIVE_TAG=20260921-084026-ca764f4f
-LIVE_REPO=cgraf78/dot
-LIVE_BASE=https://github.com
-LIVE_LABELS="linux-x86_64-musl linux-aarch64-musl android-aarch64 android-x86_64 macos-x86_64 macos-aarch64"
-
 if ! command -v curl >/dev/null 2>&1; then
   echo "dot-release-live-test requires curl" >&2
   exit 1
 fi
+
+LIVE_REPO=cgraf78/dot
+LIVE_BASE=https://github.com
+LIVE_TAG="$(_dot_release_latest_tag "$LIVE_REPO")" || exit 1
+echo "live-dot-tag=$LIVE_TAG"
+LIVE_LABELS="linux-x86_64-musl linux-aarch64-musl android-aarch64 android-x86_64 macos-x86_64 macos-aarch64"
 
 echo ""
 echo "=== Published pair existence ==="
@@ -153,10 +158,10 @@ if [[ -d $source_home/.git && ! -L $source_home/.git ]]; then
           printf "cross-install=no\ncross-log=%s\n" \
             "$(printf "%s" "$cross_log" | tail -c 300)"
         fi
-        # The independent install floats on latest while the harness pins
-        # the candidate tag, so byte identity is not expected while two
-        # releases coexist. Coherence (a working release-layout install)
-        # is the stable property across cutover.
+        # The independent install resolves latest on its own clock while the
+        # harness tests the tag frozen at suite start, so byte identity is
+        # not expected while two releases coexist. Coherence (a working
+        # release-layout install) is the stable property across cutover.
         if [[ -x $cross_home/.local/bin/dot ]]; then
           printf "cross-version=%s\n" \
             "$("$cross_home/.local/bin/dot" version)"

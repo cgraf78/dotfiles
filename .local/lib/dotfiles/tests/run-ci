@@ -123,9 +123,9 @@ _require_runtime || {
 export DOT_TEST_DOT_ROOT=$DOT_STACK_DOT_ROOT
 export DOT_TEST_SOURCE_HOME=$root
 export DOT_TEST_TESTS_DIR=$root/.local/lib/dotfiles/tests
-# The control-plane pin selected this runtime; suites resolve their own
-# (offline probes pin fixture revisions, the live suite pins its fleet
-# tag). Do not leak the ambient pin into stubbed-origin probes.
+# The control-plane tag selected this runtime; suites resolve their own
+# (offline probes pin fixture revisions, the live suite floats its fleet
+# tag). Do not leak the ambient tag into stubbed-origin probes.
 unset DOT_STACK_DOT_RELEASE_TAG DOT_STACK_DOT_RELEASE_REPO
 cd "$root"
 exec "$DOT_STACK_DOT_BIN" test "${suites[@]}"

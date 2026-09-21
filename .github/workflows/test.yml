@@ -26,12 +26,20 @@ jobs:
       test-command: |-
         set -euo pipefail
         export DOTFILES_CANDIDATE_SHA='${{ github.event.pull_request.head.sha || github.sha }}'
+        .local/lib/dotfiles/tests/checkout-ci-candidate
         # Post-cutover the engine ships only as a native binary and the matrix
         # images carry no Rust toolchain: resolve the control-plane runtime
-        # from this pinned release instead of a source checkout. Move the pin
-        # by reviewed PR when the fleet adopts a newer release.
-        export DOT_STACK_DOT_RELEASE_TAG='20260921-084026-ca764f4f'
-        .local/lib/dotfiles/tests/checkout-ci-candidate
+        # from the latest published release instead of a source checkout.
+        # Resolve once here, after the candidate checkout, so every
+        # stack-dot-runtime group in this leg tests the same frozen tag.
+        # (The live suite resolves its own tag by design; see
+        # dot-release-live-test.) The fleet consumes latest through shdeps,
+        # so CI validates what the fleet installs with no manual pin to bump.
+        . .local/lib/dotfiles/tests/dot-runtime-resolve.sh
+        # Declare and export separately: `export VAR=$(...)` would mask a
+        # resolution failure and silently fall back to the git path below.
+        dot_release_tag="$(_dot_release_latest_tag cgraf78/dot)"
+        export DOT_STACK_DOT_RELEASE_TAG=$dot_release_tag
         .local/lib/dotfiles/tests/stack-dot-runtime control-plane-run-ci -- \
           .local/lib/dotfiles/tests/run-ci-candidate-home \
             .local/lib/dotfiles/tests/run-ci
@@ -47,12 +55,14 @@ jobs:
           done
         fi
       # Keep this Android smoke on the base-owned payload and run it through
-      # one exact Dot snapshot resolved at job start.
+      # one exact Dot snapshot, resolved once for this job.
       termux-command: |-
         set -euo pipefail
         export DOTFILES_CANDIDATE_SHA='${{ github.event.pull_request.head.sha || github.sha }}'
-        # Same pinned control-plane release as test-command (see above).
-        export DOT_STACK_DOT_RELEASE_TAG='20260921-084026-ca764f4f'
+        # Same floating control-plane release as test-command (see above).
+        # This job makes one runtime resolution, so `latest` is already
+        # frozen for this job. (Each matrix job resolves independently.)
+        export DOT_STACK_DOT_RELEASE_TAG='latest'
         test "$(git rev-parse HEAD)" = "$DOTFILES_CANDIDATE_SHA"
         .local/lib/dotfiles/tests/stack-dot-runtime control-plane-run-ci -- \
           .local/lib/dotfiles/tests/run-ci-candidate-home \
@@ -148,13 +158,17 @@ jobs:
           DOT_STACK_NVIM_BIN: ${{ runner.temp }}/neovim-0.12.2/bin/nvim
           DOT_STACK_NVIM_DATA_HOME: ${{ runner.temp }}/dot-profile-nvim-data
           DOT_STACK_YQ_BIN: ${{ runner.temp }}/yq-v4.53.6
-          # Same pinned control-plane release as test-command: the matrix
-          # images carry no Rust toolchain for a source checkout.
-          DOT_STACK_DOT_RELEASE_TAG: 20260921-084026-ca764f4f
         run: |-
           set -euo pipefail
           export DOTFILES_CANDIDATE_SHA='${{ github.event.pull_request.head.sha || github.sha }}'
           .local/lib/dotfiles/tests/checkout-ci-candidate
+          # Same floating release as test-command (see above): resolve once
+          # here so both invocations below share the frozen tag.
+          . .local/lib/dotfiles/tests/dot-runtime-resolve.sh
+          # Declare and export separately (see test-command): `export
+          # VAR=$(...)` would mask a resolution failure.
+          dot_release_tag="$(_dot_release_latest_tag cgraf78/dot)"
+          export DOT_STACK_DOT_RELEASE_TAG=$dot_release_tag
           .local/lib/dotfiles/tests/stack-dot-runtime installed-profile-dot-test -- \
             .local/lib/dotfiles/tests/run-ci-candidate-home \
               .local/lib/dotfiles/tests/profile-fixture-integration test
@@ -188,10 +202,12 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: |-
           set -euo pipefail
-          # Same pinned control-plane release as test-command: the cold
+          # Same floating control-plane release as test-command: the cold
           # image carries no Rust toolchain, so a source checkout can
-          # never run here.
-          export DOT_STACK_DOT_RELEASE_TAG='20260921-084026-ca764f4f'
+          # never run here. This job makes one runtime resolution, so
+          # `latest` is already frozen for this job. (Each matrix job
+          # resolves independently.)
+          export DOT_STACK_DOT_RELEASE_TAG='latest'
           staging=$(mktemp -d /tmp/dotfiles-cold-bootstrap.XXXXXXXX)
           origin=$staging/origin.git
           fixture_home=$staging/home
