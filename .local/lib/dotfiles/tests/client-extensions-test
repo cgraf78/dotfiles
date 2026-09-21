@@ -161,14 +161,22 @@ unset XDG_CONFIG_HOME XDG_STATE_HOME XDG_CACHE_HOME XDG_DATA_HOME XDG_RUNTIME_DI
 # shellcheck source=/dev/null
 . "$dot_root/lib/dot/public/xdg.sh"
 client_worker_v1=$dot_root/lib/dot/public/hook-runtime-v1/worker.sh
-# Gate on readability and always invoke through bash: the worker needs no
-# executable bit when driven directly, whatever the install umask did.
+# Gate on readability and always invoke through the suite's own Bash: the
+# worker needs no executable bit when driven directly, whatever the install
+# umask did. Production spawns the worker with its resolved Bash 4+
+# interpreter while hooks keep a versioned Bash 4+ API, so resolving the
+# worker through the constrained child PATH would test a configuration the
+# engine refuses (notably macOS /bin/bash 3.2). The PATH override below
+# stays scoped to hook children.
 if [[ ! -f $client_worker_v1 || ! -r $client_worker_v1 ]]; then
   client_worker_v1=
   # shellcheck source=/dev/null
   . "$dot_root/lib/dot/overlay-context.sh"
   # shellcheck source=/dev/null
   . "$dot_root/lib/dot/extension-worker-launch.sh"
+fi
+if [[ -n $client_worker_v1 && ${BASH_VERSINFO[0]} -lt 4 ]]; then
+  _test_skip_suite "standalone worker hooks need Bash 4+ (suite runs under $BASH)"
 fi
 
 _client_worker_run() {
@@ -221,7 +229,7 @@ _client_worker_run_v1() {
   } >"$context" || return 1
   chmod 0600 "$context" || return 1
   output=$(PATH=${CLIENT_WORKER_PATH:-/usr/bin:/bin} \
-    bash "$client_worker_v1" "$mode" "$script" "$result" "$context" \
+    "$BASH" "$client_worker_v1" "$mode" "$script" "$result" "$context" \
     2>&1) || rc=$?
   if [[ -n $output ]]; then
     printf '%s\n' "$output" >&2
