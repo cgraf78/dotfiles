@@ -14,8 +14,8 @@ editor_fragment=$HOME/.config/tmux/conf.d/20-editor.conf
 command -v tmux >/dev/null 2>&1 ||
   _test_skip_suite 'tmux is not installed'
 
-socket_dir=$(_tmpdir)
-socket=$socket_dir/tmux.sock
+socket=$(_tmux_socket)
+CLEANUP_DIRS+=("${socket%/*}")
 server_output=$(tmux -S "$socket" -f /dev/null new-session -d -s dot-tmux-compose \
   'sleep 60' 2>&1)
 server_status=$?

@@ -248,8 +248,8 @@ printf 'S+ bash 39056 39056\nS ssh 39100 39056\n' |
 _assert_exit 'tmux: background transport stays local' 1 "$?"
 
 if command -v tmux >/dev/null 2>&1; then
-  socket_dir=$(_tmpdir)
-  socket=$socket_dir/tmux.sock
+  socket=$(_tmux_socket)
+  CLEANUP_DIRS+=("${socket%/*}")
   if HOME=$source_home tmux -S "$socket" -f /dev/null \
     new-session -d -s dot-tmux-syntax \
     'sleep 60' >/dev/null 2>&1; then

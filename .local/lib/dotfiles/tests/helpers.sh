@@ -560,6 +560,29 @@ _tmpfile() {
   echo "$f"
 }
 
+# Print a tmux socket path short enough for the ~107-byte Unix socket
+# limit. Suite roots nest deep under run-scoped directories, so sockets
+# live one level below TMPDIR instead. Callers run this in a command
+# substitution, so registration cannot happen here: the caller must add
+# "${socket%/*}" to CLEANUP_DIRS for EXIT-trap removal.
+_tmux_socket() {
+  local d socket
+  d=$(mktemp -d "${TMPDIR:-/tmp}/dts.XXXXXX") || {
+    echo "failed to create tmux socket directory" >&2
+    exit 1
+  }
+  if [[ -z "$d" || ! -d "$d" ]]; then
+    echo "mktemp returned invalid tmux socket directory: $d" >&2
+    exit 1
+  fi
+  socket=$d/tmux.sock
+  if ((${#socket} > 100)); then
+    echo "tmux socket path too long (${#socket} bytes): $socket" >&2
+    exit 1
+  fi
+  echo "$socket"
+}
+
 _cleanup_dir() {
   local d="$1" retries=2
 
