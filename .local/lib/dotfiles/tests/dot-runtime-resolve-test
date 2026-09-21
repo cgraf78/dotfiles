@@ -147,7 +147,8 @@ fi
 echo ""
 echo "=== Release download and verify ==="
 
-# The fixture short revision must be the SHA prefix the resolver binds.
+# The fixture version tag must equal the tag the resolver binds, with its
+# suffix matching the SHA prefix.
 fixture_sha=abcdef0123456789abcdef0123456789abcdef01
 fixture_tag=20260105-112233-abcdef01
 fixture_platform=testos-testarch
@@ -157,7 +158,7 @@ mkdir -p "$release_payload/lib/dot/public"
 printf '# fixture xdg\n' >"$release_payload/lib/dot/public/xdg.sh"
 cat >"$release_payload/dot" <<'EOF'
 #!/usr/bin/env bash
-printf '%s\n' 'dot commit abcdef012345 (config 1; extensions 1; library 1)'
+printf '%s\n' 'dot 20260105-112233-abcdef01 (config 1; extensions 1; library 1)'
 EOF
 chmod +x "$release_payload/dot"
 cat >"$release_payload/.dot-install.json" <<'EOF'
@@ -191,8 +192,8 @@ if _dot_release_fetch "file://$release_tree" dot \
 else
   _fail 'fixture release downloads and extracts'
 fi
-_assert_eq 'fetched binary reports the fixture revision' 'abcdef012345' \
-  "$(_dot_release_version_short12 "$fetch_dest/dot")"
+_assert_eq 'fetched binary reports the fixture tag' "$fixture_tag" \
+  "$(_dot_release_version_tag "$fetch_dest/dot")"
 if _dot_runtime_is_release_root "$fetch_dest"; then
   _pass 'fetched tree detects as a release root'
 else
@@ -219,7 +220,7 @@ fi
 tamper_dest=$(_tmpdir)/tampered
 mkdir -p "$tamper_dest"
 cp -R "$fetch_dest/." "$tamper_dest"/
-printf '%s\n' 'dot commit 000000000000 (config 1; extensions 1; library 1)' \
+printf '%s\n' 'dot 20260105-112233-00000000 (config 1; extensions 1; library 1)' \
   >"$tamper_dest/version-override"
 cat >"$tamper_dest/dot" <<'EOF'
 #!/usr/bin/env bash
@@ -314,21 +315,32 @@ echo "=== Version line parsing ==="
 version_bin=$(_tmpdir)/version-dot
 cat >"$version_bin" <<'EOF'
 #!/usr/bin/env bash
-printf '%s\n' 'dot commit 41e0dcd55ae0 (config 1; extensions 1; library 1)'
+printf '%s\n' 'dot 20260914-103531-41e0dcd5 (config 1; extensions 1; library 1)'
 EOF
 chmod +x "$version_bin"
-_assert_eq 'version line yields short12' '41e0dcd55ae0' \
-  "$(_dot_release_version_short12 "$version_bin")"
+_assert_eq 'version line yields its tag' '20260914-103531-41e0dcd5' \
+  "$(_dot_release_version_tag "$version_bin")"
 unknown_bin=$(_tmpdir)/unknown-dot
 cat >"$unknown_bin" <<'EOF'
 #!/usr/bin/env bash
-printf '%s\n' 'dot commit unknown (config 1; extensions 1; library 1)'
+printf '%s\n' 'dot unknown (config 1; extensions 1; library 1)'
 EOF
 chmod +x "$unknown_bin"
-if _dot_release_version_short12 "$unknown_bin" >/dev/null 2>&1; then
+if _dot_release_version_tag "$unknown_bin" >/dev/null 2>&1; then
   _fail 'unknown revision fails closed'
 else
   _pass 'unknown revision fails closed'
+fi
+legacy_bin=$(_tmpdir)/legacy-dot
+cat >"$legacy_bin" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' 'dot commit 41e0dcd55ae0 (config 1; extensions 1; library 1)'
+EOF
+chmod +x "$legacy_bin"
+if _dot_release_version_tag "$legacy_bin" >/dev/null 2>&1; then
+  _fail 'legacy commit line fails closed'
+else
+  _pass 'legacy commit line fails closed'
 fi
 garbage_bin=$(_tmpdir)/garbage-dot
 cat >"$garbage_bin" <<'EOF'
@@ -336,12 +348,12 @@ cat >"$garbage_bin" <<'EOF'
 printf '%s\n' 'not a version line'
 EOF
 chmod +x "$garbage_bin"
-if _dot_release_version_short12 "$garbage_bin" >/dev/null 2>&1; then
+if _dot_release_version_tag "$garbage_bin" >/dev/null 2>&1; then
   _fail 'garbage version fails closed'
 else
   _pass 'garbage version fails closed'
 fi
-if _dot_release_version_short12 "$(_tmpdir)/absent-dot" >/dev/null 2>&1; then
+if _dot_release_version_tag "$(_tmpdir)/absent-dot" >/dev/null 2>&1; then
   _fail 'absent binary fails closed'
 else
   _pass 'absent binary fails closed'
@@ -441,8 +453,8 @@ echo ""
 echo "=== Offline end-to-end release resolution ==="
 
 # One fixture commit anchors every binding: the tag suffix, the metadata
-# commit, and the stub's short12 all derive from it, so the full stack path
-# resolves without network access through the file:// seams.
+# commit, and the stub's version tag all derive from it, so the full stack
+# path resolves without network access through the file:// seams.
 e2e_git=$(_tmpdir)/e2e-origin
 git init --quiet -b main "$e2e_git"
 _git_set_test_identity git -C "$e2e_git"
@@ -451,7 +463,6 @@ git -C "$e2e_git" add file.txt
 git -C "$e2e_git" -c core.hooksPath=/dev/null commit --quiet -m fixture
 e2e_sha=$(git -C "$e2e_git" rev-parse HEAD)
 e2e_tag="20260106-121212-${e2e_sha:0:8}"
-e2e_short12=${e2e_sha:0:12}
 git -C "$e2e_git" tag "$e2e_tag"
 e2e_base=$(_tmpdir)/e2e-host
 e2e_tree=$e2e_base/cgraf78/dot/releases/download/$e2e_tag
@@ -463,7 +474,7 @@ for e2e_label in linux-x86_64-musl linux-aarch64-musl android-aarch64 \
   cat >"$e2e_stage/dot" <<EOF
 #!/usr/bin/env bash
 if [[ \${1:-} == version ]]; then
-  printf 'dot commit %s (config 1; extensions 1; library 1)\n' "$e2e_short12"
+  printf 'dot %s (config 1; extensions 1; library 1)\n' "$e2e_tag"
 elif [[ " \$* " == *' --status '* ]]; then
   printf 'initialization: complete\n'
 else
@@ -511,7 +522,7 @@ _assert_exit 'stack runtime resolves the fixture release' 0 "$rc"
 _assert_contains 'stack runtime reports the bound commit' \
   "sha=$e2e_sha" "$e2e_output"
 _assert_contains 'stack runtime installs a runnable binary' \
-  "bin=dot commit $e2e_short12" "$e2e_output"
+  "bin=dot $e2e_tag" "$e2e_output"
 _assert_contains 'stack runtime announces the release tag' \
   "tag=$e2e_tag" "$e2e_output"
 
@@ -594,8 +605,8 @@ if [[ -d $source_home/.git && ! -L $source_home/.git ]]; then
     'door=fixture-dot-' "$e2e_output"
   _assert_contains 'nested home links the public library' \
     'lib=# fixture xdg' "$e2e_output"
-  _assert_contains 'nested home reports the build commit' \
-    "version=dot commit $e2e_short12" "$e2e_output"
+  _assert_contains 'nested home reports the build tag' \
+    "version=dot $e2e_tag" "$e2e_output"
   _assert_contains 'nested home writes the layout marker' \
     'marker=v1 archive' "$e2e_output"
 else

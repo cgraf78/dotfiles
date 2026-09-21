@@ -34,12 +34,14 @@ if [[ ${DOT_STACK_RUNTIME:-0} == 1 &&
   $dot_sha =~ ^[0-9a-f]{40}$ &&
   ${DOT_STACK_DOT_ROOT:-} == /* ]]; then
   if _dot_runtime_is_release_root "$DOT_STACK_DOT_ROOT"; then
-    # Releases carry no Git history; the binary's short revision plus the
+    # Releases carry no Git history; the binary's version tag plus the
     # resolved SHA is the identity instead of rev-parse HEAD.
-    dot_short=$(_dot_release_version_short12 \
+    dot_version=$(_dot_release_version_tag \
       "${DOT_STACK_DOT_BIN:-/nonexistent}" 2>/dev/null || true)
     if [[ ${DOT_STACK_DOT_BIN:-} == "$DOT_STACK_DOT_ROOT/dot" &&
-      -n $dot_short && $dot_sha == "$dot_short"* ]]; then
+      -n $dot_version && $dot_sha == "${dot_version##*-}"* &&
+      (-z ${DOT_STACK_DOT_RELEASE_TAG:-} ||
+      $dot_version == "$DOT_STACK_DOT_RELEASE_TAG") ]]; then
       dot_runtime_ok=1
     fi
   elif [[ ${DOT_STACK_DOT_BIN:-} == "$DOT_STACK_DOT_ROOT/bin/dot" &&
@@ -302,8 +304,10 @@ install_dot_runtime() {
   mkdir -p "${install%/*}"
   if _dot_runtime_is_release_root "$DOT_STACK_DOT_ROOT"; then
     _dot_runtime_install_copy "$DOT_STACK_DOT_ROOT" "$install" || return 1
-    actual=$(_dot_release_version_short12 "$install/dot") || return 1
-    [[ $dot_sha == "$actual"* ]]
+    actual=$(_dot_release_version_tag "$install/dot") || return 1
+    [[ $dot_sha == "${actual##*-}"* ]] || return 1
+    [[ -z ${DOT_STACK_DOT_RELEASE_TAG:-} ||
+      $actual == "$DOT_STACK_DOT_RELEASE_TAG" ]]
     return
   fi
   "$git_bin" -C "${install%/*}" init --quiet "${install##*/}" || return 1
@@ -690,9 +694,11 @@ for profile in base editor dev; do
         _fail "$profile footprint excludes Shdeps build artifacts"
       fi
       if _dot_runtime_is_release_root "$home/.local/share/cgraf78/dot"; then
-        fixture_short=$(_dot_release_version_short12 \
+        fixture_version=$(_dot_release_version_tag \
           "$home/.local/share/cgraf78/dot/dot" 2>/dev/null || true)
-        if [[ -n $fixture_short && $dot_sha == "$fixture_short"* ]]; then
+        if [[ -n $fixture_version && $dot_sha == "${fixture_version##*-}"* &&
+          (-z ${DOT_STACK_DOT_RELEASE_TAG:-} ||
+          $fixture_version == "$DOT_STACK_DOT_RELEASE_TAG") ]]; then
           _pass "$profile footprint uses an exact release Dot runtime"
         else
           _fail "$profile footprint uses an exact release Dot runtime"

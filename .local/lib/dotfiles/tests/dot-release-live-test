@@ -81,13 +81,13 @@ else
   _fail "stack runtime reports a full commit (got '${live_sha:-<empty>}')"
 fi
 live_suffix=${LIVE_TAG##*-}
-if [[ $live_version == "dot commit $live_suffix"* ]]; then
-  _pass 'live binary binds to the tag suffix'
+if [[ $live_version == "dot $LIVE_TAG "* ]]; then
+  _pass 'live binary binds to the tag'
 else
-  _fail "live binary binds to the tag suffix (got '${live_version:-<empty>}')"
+  _fail "live binary binds to the tag (got '${live_version:-<empty>}')"
 fi
-if [[ $live_version =~ ^dot\ commit\ ([0-9a-f]{12})\  ]] &&
-  [[ $live_sha == "${BASH_REMATCH[1]}"* ]]; then
+if [[ $live_version =~ ^dot\ ([0-9]{8}-[0-9]{6}-[0-9a-f]{8})\  ]] &&
+  [[ ${BASH_REMATCH[1]} == "$LIVE_TAG" && $live_sha == "$live_suffix"* ]]; then
   _pass 'live binary binds to the resolved commit'
 else
   _fail 'live binary binds to the resolved commit'
@@ -178,7 +178,7 @@ if [[ -d $source_home/.git && ! -L $source_home/.git ]]; then
   _assert_contains 'candidate home links the public command' \
     '/.local/share/cgraf78/dot/dot' "$live_output"
   _assert_contains 'candidate home reports the tag build' \
-    "dot commit $live_suffix" "$live_output"
+    "dot $LIVE_TAG (" "$live_output"
   _assert_contains 'candidate home writes the layout marker' \
     'marker=v1 archive' "$live_output"
   _assert_contains 'candidate home links the public library' \
@@ -190,8 +190,11 @@ if [[ -d $source_home/.git && ! -L $source_home/.git ]]; then
     'cross-shdeps=yes' "$live_output"
   _assert_contains 'independent shdeps installs the release' \
     'cross-install=yes' "$live_output"
-  _assert_contains 'independent shdeps install reports a release build' \
-    'cross-version=dot commit ' "$live_output"
+  if [[ $live_output =~ cross-version=dot\ ([0-9]{8}-[0-9]{6}-[0-9a-f]{8}) ]]; then
+    _pass 'independent shdeps install reports a release build'
+  else
+    _fail 'independent shdeps install reports a release build'
+  fi
   _assert_contains 'independent shdeps install writes the layout marker' \
     'cross-marker=v1 archive' "$live_output"
 else
