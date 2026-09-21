@@ -20,7 +20,7 @@ tests_dir=$source_home/.local/lib/dotfiles/tests
 stack_runtime=$tests_dir/stack-dot-runtime
 candidate_home=$tests_dir/run-ci-candidate-home
 
-LIVE_TAG=20260921-012545-1fbca5f8
+LIVE_TAG=20260921-084026-ca764f4f
 LIVE_REPO=cgraf78/dot
 LIVE_BASE=https://github.com
 LIVE_LABELS="linux-x86_64-musl linux-aarch64-musl android-aarch64 android-x86_64 macos-x86_64 macos-aarch64"
