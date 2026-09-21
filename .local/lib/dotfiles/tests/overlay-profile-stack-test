@@ -500,13 +500,15 @@ _compose_profile() {
   # Doctor exits nonzero in a fixture HOME (no client repository, no
   # provider); composition is read from its report, never its status. Keep
   # only the Profiles/Overlays sections, strip the status glyphs, and tag
-  # each line with its scenario so every needle binds to one run.
+  # each line with its scenario so every needle binds to one run. The strip
+  # matches the glyph as a non-blank run rather than naming multibyte
+  # characters, which byte-oriented locales would never match.
   output=$(HOME=$candidate XDG_CONFIG_HOME=$candidate/.config \
     PATH=$composition_bin:$PATH \
     "$runtime_bin" doctor 2>&1 || true)
   output=$(printf '%s\n' "$output" |
     sed -n '/^Profiles$/,/^Extensions$/p' |
-    sed 's/^  [✓·✗] //' | sed "s/^/$tag|/")
+    sed 's/^  [^ ][^ ]* //' | sed "s/^/$tag|/")
   composition_state+=$output$'\n'
 }
 _compose_profile base base
@@ -814,6 +816,8 @@ ln -s physical "$tmpdir_fixture/alias"
 
 # The release path needs the network, so the offline probes below pin an
 # explicit git revision instead; the release suite covers the tag trigger.
+# Each probe also clears the ambient release pin, which would otherwise
+# override its explicit revision on lanes that export one.
 _assert_contains 'runtime wrapper defaults to the main checkout' \
   'DOT_STACK_DOT_REVISION:-main' "$(<"$stack_runtime")"
 runtime_output=$(env \
@@ -821,6 +825,8 @@ runtime_output=$(env \
   TMPDIR="$tmpdir_fixture/alias" \
   DOT_STACK_DOT_REVISION=main \
   DOT_STACK_DOT_REPOSITORY="$runtime_origin" \
+  DOT_STACK_DOT_RELEASE_TAG='' \
+  DOT_STACK_DOT_RELEASE_REPO='' \
   DOT_STACK_BASE_PATH="$fake_bin:/usr/bin:/bin" \
   "$stack_runtime" runtime-probe -- "$probe" 2>&1)
 runtime_rc=$?
@@ -839,6 +845,8 @@ poisoned_runtime_output=$(GIT_CONFIG_COUNT=1 \
   TMPDIR="$tmpdir_fixture/alias" \
   DOT_STACK_DOT_REVISION=main \
   DOT_STACK_DOT_REPOSITORY="$runtime_origin" \
+  DOT_STACK_DOT_RELEASE_TAG='' \
+  DOT_STACK_DOT_RELEASE_REPO='' \
   DOT_STACK_BASE_PATH="$fake_bin:/usr/bin:/bin" \
   "$stack_runtime" runtime-probe -- "$probe" 2>&1)
 poisoned_runtime_rc=$?
@@ -848,6 +856,7 @@ _assert_contains 'isolated runtime still resolves the requested Dot origin' \
   "head=$dot_sha" "$poisoned_runtime_output"
 
 if DOT_STACK_DOT_REVISION=bad..revision DOT_STACK_DOT_REPOSITORY=$runtime_origin \
+  DOT_STACK_DOT_RELEASE_TAG='' DOT_STACK_DOT_RELEASE_REPO='' \
   "$stack_runtime" must-not-run -- "$probe" >/dev/null 2>&1; then
   _fail 'runtime wrapper rejects an invalid revision before group execution'
 else
@@ -1091,7 +1100,9 @@ _assert_file_missing 'candidate home: leaves sentinel shallow state absent' \
 # A release-layout Dot root installs by copy (no Git): the repository URL is
 # deliberately bogus here, so any git-clone fallback fails instead of
 # silently succeeding. The fake binary emulates only the identity surface
-# run-ci-candidate-home exercises (version, init --status, update).
+# run-ci-candidate-home exercises (version, init --status, update). The
+# fixture carries no install manifest, so the ambient release pin is
+# cleared; the manifest-gap regression below covers a tag without one.
 release_source=$(_tmpdir)/release-dot
 release_sha=abcdef0123456789abcdef0123456789abcdef01
 release_origin=https://example.invalid/dot-release-fixture.tar.gz
@@ -1127,6 +1138,8 @@ release_home_output=$(
     DOT_STACK_DOT_SHA=$release_sha \
     DOT_STACK_DOT_ROOT=$release_source \
     DOT_STACK_DOT_ORIGIN=$release_origin \
+    DOT_STACK_DOT_RELEASE_TAG='' \
+    DOT_STACK_DOT_RELEASE_REPO='' \
     DOT_STACK_AGENT_RULES_SYNC_REPOSITORY=$agent_rules_source \
     DOT_STACK_SHDEPS_ROOT=$fake_shdeps \
     .local/lib/dotfiles/tests/run-ci-candidate-home bash -c '
