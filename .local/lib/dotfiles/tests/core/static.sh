@@ -40,8 +40,30 @@ dot_core_test_static() {
     "setup: none" "$workflow"
   _assert_not_contains "CI workflow: avoids moving Dot setup" \
     "setup: dotfiles" "$workflow"
-  _assert_contains "CI workflow: pins the Dot release for the control plane" \
-    "DOT_STACK_DOT_RELEASE_TAG" "$workflow"
+  # shellcheck disable=SC2016 # Match the literal resolver call shape.
+  _assert_contains "CI workflow: resolves the latest Dot release per job" \
+    'dot_release_tag="$(_dot_release_latest_tag' "$workflow"
+  # shellcheck disable=SC2016 # Match the literal export shape.
+  _assert_contains "CI workflow: exports the frozen Dot release tag" \
+    'export DOT_STACK_DOT_RELEASE_TAG=$dot_release_tag' "$workflow"
+  _assert_contains "CI workflow: sources the Dot release resolver" \
+    '. .local/lib/dotfiles/tests/dot-runtime-resolve.sh' "$workflow"
+  latest_fn=$(sed -n '/^_dot_release_latest_tag/,/^}/p' \
+    "$root/.local/lib/dotfiles/tests/dot-runtime-resolve.sh")
+  _assert_contains "Dot resolver: retries the latest-release lookup" \
+    "--retry-all-errors" "$latest_fn"
+  _assert_contains "CI workflow: floats single-shot Dot runtimes to latest" \
+    "DOT_STACK_DOT_RELEASE_TAG='latest'" "$workflow"
+  if grep -Eq "DOT_STACK_DOT_RELEASE_TAG[[:space:]]*[:=][[:space:]]*['\"]?[0-9]{8}-[0-9]{6}-[0-9a-f]{8}" \
+    "$root/.github/workflows/test.yml"; then
+    _fail "CI workflow: pins a concrete Dot release instead of floating to latest"
+  else
+    _pass "CI workflow: floats the Dot release instead of pinning a tag"
+  fi
+  live_test=$(<"$root/.local/lib/dotfiles/tests/dot-release-live-test")
+  # shellcheck disable=SC2016 # Match the literal resolver call shape.
+  _assert_contains "Live release suite: resolves the latest Dot tag per run" \
+    'LIVE_TAG="$(_dot_release_latest_tag' "$live_test"
   _assert_contains "CI workflow: runs only the literal top-level inventory" \
     ".local/lib/dotfiles/tests/run-ci" "$workflow"
   # shellcheck disable=SC2016 # Match the literal GitHub Actions expression.

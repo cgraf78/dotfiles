@@ -19,11 +19,13 @@ allowlists to drift. Executable suite ownership remains defined by each
 repository's `.github/dot-test-suites.txt` inventory.
 
 Run the CI-owned set through one Dot snapshot resolved from the `main`
-checkout (`DOT_STACK_DOT_REVISION`, default `main`). A pinned
+checkout (`DOT_STACK_DOT_REVISION`, default `main`). A
 `DOT_STACK_DOT_RELEASE_TAG` instead resolves that published release through
-the same verification the fleet's provider path applies; `latest` is an
-explicit-only opt-in and never the default, so every binding stays immutable
-and reproducible:
+the same verification the fleet's provider path applies. CI floats this to
+the newest published release (resolved once per job, so every group in the
+leg shares the frozen tag; the live suite resolves its own tag by design),
+matching what the fleet installs through shdeps; `latest` stays available
+as an explicit value wherever a single-shot resolution is acceptable:
 
 ```text
 .local/lib/dotfiles/tests/stack-dot-runtime control-plane-run-ci -- \
@@ -42,6 +44,12 @@ and reproducible:
   .local/lib/dotfiles/tests/run-ci-candidate-home \
     .local/lib/dotfiles/tests/profile-fixture-integration footprint
 ```
+
+Emergency rollback: if a broken Dot release reds CI, temporarily set an
+explicit tag instead of resolving latest (`DOT_STACK_DOT_RELEASE_TAG` and
+`DOT_TEST_DOT_RELEASE_TAG` both accept one; the live suite takes a
+literal `LIVE_TAG`) and relax the no-pin assertions in
+`core/static.sh` / `test/workflow-test` until latest is healthy again.
 
 Shared CI first checks out the immutable pull-request head, then uses
 `run-ci-candidate-home` to clone that commit into Dot's normal separate-Git

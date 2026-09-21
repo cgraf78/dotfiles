@@ -109,6 +109,7 @@ _dot_release_latest_tag() {
       ;;
   esac
   effective=$(curl -fsSIL -o /dev/null -w '%{url_effective}' \
+    --retry 2 --retry-delay 2 --retry-max-time 65 --retry-all-errors \
     "https://github.com/$repo/releases/latest") || rc=$?
   [[ $rc -eq 0 ]] || {
     printf 'dot-runtime-resolve: could not resolve latest release for %s (curl exit %s)\n' \

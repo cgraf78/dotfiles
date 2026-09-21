@@ -21,10 +21,9 @@ if [[ ! $dot_revision =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ||
     "${dot_revision:-<empty>}" >&2
   exit 1
 fi
-# A pinned release tag selects the release path; empty keeps the historical
-# git-fetch default. `latest` is an explicit-only opt-in that resolves the
-# newest published release; it is never the default because CI bindings must
-# be immutable and reproducible.
+# A release tag selects the release path; empty keeps the historical
+# git-fetch default. `latest` resolves the newest published release; CI
+# floats on it, frozen once per job.
 release_tag_request=${DOT_STACK_DOT_RELEASE_TAG:-}
 release_repo=${DOT_STACK_DOT_RELEASE_REPO:-cgraf78/dot}
 if [[ -n $release_tag_request ]]; then
