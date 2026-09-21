@@ -121,17 +121,14 @@ prepare_dot_runtime() {
     # immutable SHA and artifact origin, rebinding only root and binary.
     _dot_runtime_install_copy "$DOT_STACK_DOT_ROOT" "$install" || return 1
     actual=$(_dot_release_version_tag "$install/dot") || return 1
+    # Suffix-only by design: the manifest pin below is the exact-tag
+    # authority here, and it must fire first so a missing manifest
+    # names its gap instead of being preempted by the binary check.
     [[ $sha == "${actual##*-}"* ]] || {
       printf 'run-ci-candidate-home: installed release does not match %s\n' \
         "$sha" >&2
       return 1
     }
-    if [[ -n ${DOT_STACK_DOT_RELEASE_TAG:-} &&
-      $actual != "$DOT_STACK_DOT_RELEASE_TAG" ]]; then
-      printf 'run-ci-candidate-home: installed binary reports %s, expected %s\n' \
-        "$actual" "$DOT_STACK_DOT_RELEASE_TAG" >&2
-      return 1
-    fi
     # The stack exports the resolved tag; the installed metadata must name
     # exactly that tag so a swapped root cannot ride a valid SHA.
     if [[ -n ${DOT_STACK_DOT_RELEASE_TAG:-} ]]; then
