@@ -35,9 +35,10 @@ _client_path_contains 'Git launcher loads the dotfiles-owned launcher helper' \
 # command (release install) is the only `dot`. Keeping this path untracked
 # is load-bearing — a repo-owned door must byte-match the running dot's
 # canonical launcher or every base pull fails closed, which no single
-# content can satisfy across the cutover. Assert absence so the file can
-# never be reintroduced silently.
-if [[ -e $source_home/.local/bin/dot || -L $source_home/.local/bin/dot ]]; then
+# content can satisfy across the cutover. Assert the base never tracks it
+# so the file can never be reintroduced silently; presence on disk alone
+# is the sanctioned provider install on live machines.
+if git -C "$source_home" ls-files --error-unmatch .local/bin/dot >/dev/null 2>&1; then
   _fail 'dotfiles base owns no .local/bin/dot entry point'
 else
   _pass 'dotfiles base owns no .local/bin/dot entry point'
