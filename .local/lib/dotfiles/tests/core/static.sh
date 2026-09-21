@@ -40,6 +40,8 @@ dot_core_test_static() {
     "setup: none" "$workflow"
   _assert_not_contains "CI workflow: avoids moving Dot setup" \
     "setup: dotfiles" "$workflow"
+  _assert_contains "CI workflow: pins the Dot release for the control plane" \
+    "DOT_STACK_DOT_RELEASE_TAG" "$workflow"
   _assert_contains "CI workflow: runs only the literal top-level inventory" \
     ".local/lib/dotfiles/tests/run-ci" "$workflow"
   # shellcheck disable=SC2016 # Match the literal GitHub Actions expression.
