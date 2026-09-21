@@ -48,6 +48,10 @@ dot_core_test_static() {
     'export DOT_STACK_DOT_RELEASE_TAG=$dot_release_tag' "$workflow"
   _assert_contains "CI workflow: sources the Dot release resolver" \
     '. .local/lib/dotfiles/tests/dot-runtime-resolve.sh' "$workflow"
+  latest_fn=$(sed -n '/^_dot_release_latest_tag/,/^}/p' \
+    "$root/.local/lib/dotfiles/tests/dot-runtime-resolve.sh")
+  _assert_contains "Dot resolver: retries the latest-release lookup" \
+    "--retry-all-errors" "$latest_fn"
   _assert_contains "CI workflow: floats single-shot Dot runtimes to latest" \
     "DOT_STACK_DOT_RELEASE_TAG='latest'" "$workflow"
   if grep -Eq "DOT_STACK_DOT_RELEASE_TAG[[:space:]]*[:=][[:space:]]*['\"]?[0-9]{8}-[0-9]{6}-[0-9a-f]{8}" \
