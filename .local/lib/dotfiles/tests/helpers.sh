@@ -561,13 +561,16 @@ _tmpfile() {
 }
 
 # Print a tmux socket path short enough for the ~107-byte Unix socket
-# limit. Suite roots nest deep under run-scoped directories, so sockets
-# live one level below TMPDIR instead. Callers run this in a command
-# substitution, so registration cannot happen here: the caller must add
-# "${socket%/*}" to CLEANUP_DIRS for EXIT-trap removal.
+# limit. The runner overrides TMPDIR with a deep per-suite root, so sockets
+# live one level below the pre-override DOT_TEST_SYSTEM_TMPDIR instead.
+# Callers run this in a command substitution, so registration cannot happen
+# here: the caller must add "${socket%/*}" to CLEANUP_DIRS for EXIT-trap
+# removal, and must abort on failure (a subshell exit cannot stop the
+# caller, so an unchecked call would cascade with an empty socket).
 _tmux_socket() {
+  local base=${DOT_TEST_SYSTEM_TMPDIR:-${TMPDIR:-/tmp}}
   local d socket
-  d=$(mktemp -d "${TMPDIR:-/tmp}/dts.XXXXXX") || {
+  d=$(mktemp -d "$base/dts.XXXXXX") || {
     echo "failed to create tmux socket directory" >&2
     exit 1
   }
