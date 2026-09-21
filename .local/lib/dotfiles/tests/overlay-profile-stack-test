@@ -447,7 +447,23 @@ collision=$(
 _assert_eq 'public repositories have no installed-path collision' \
   '' "$collision"
 
-ownership_transfer_test=${DOT_STACK_DOT_ROOT:-${DOT_TEST_DOT_ROOT:-}}/tests/ownership-transfer-test
+# The wrapper probes and coverage checks below need the exact Dot source, but
+# a release runtime carries no checkout — and resolving `HEAD` from the
+# runtime directory instead would silently return whatever repository happens
+# to contain it. Fetch the pinned commit into a scratch source once; the same
+# tree feeds the wrapper fixture, the coverage check, and the candidate home.
+dot_origin=${DOT_STACK_DOT_REPOSITORY:-https://github.com/${DOT_STACK_DOT_RELEASE_REPO:-cgraf78/dot}.git}
+dot_checkout=$stack_tmp/dot-source
+if _checkout_revision "$dot_origin" "$runtime_sha" "$dot_checkout"; then
+  dot_source=$dot_checkout
+  dot_sha=$REPLY
+  _pass 'resolved exact Dot source for stack wrapper tests'
+else
+  _fail 'resolved exact Dot source for stack wrapper tests'
+  _test_summary
+fi
+
+ownership_transfer_test=$dot_source/tests/ownership-transfer-test
 if [[ -x $ownership_transfer_test ]]; then
   _pass 'Dot keeps executable ownership-transfer coverage'
 else
@@ -458,58 +474,100 @@ composition_bin=$stack_tmp/composition-bin
 composition_selectors=$candidate/.config/dot/profile-selectors.local.d
 mkdir -p "$composition_bin" "$composition_selectors"
 chmod 0700 "$composition_selectors"
-printf '%s\n' '#!/usr/bin/env bash' 'printf "%s\n" example-user' \
-  >"$composition_bin/id"
-printf '%s\n' '#!/usr/bin/env bash' 'printf "%s\n" example-host' \
+# Composition now resolves inside the engine, so each profile scenario runs
+# `doctor` in the candidate HOME and reads its report. The engine takes the
+# login name from `id -un` but parses `id -u` as the numeric euid; a flat
+# fake claims uid 0 and fails startup, so answer each spelling separately
+# and delegate the rest to the ambient binary.
+composition_real_id=$(command -v id || true)
+# shellcheck disable=SC2016 # The generated fake expands only under the engine.
+{
+  printf '%s\n' '#!/usr/bin/env bash' 'case "${1:-}" in' \
+    '  -un) printf "%s\\n" example-user ;;' \
+    '  -u) printf "%s\\n" "$EUID" ;;'
+  printf '  *) exec "%s" "$@" ;;\n' "$composition_real_id"
+  printf '%s\n' 'esac'
+} >"$composition_bin/id"
+printf '%s\n' '#!/usr/bin/env bash' 'printf "%s\\n" example-host' \
   >"$composition_bin/hostname"
 chmod +x "$composition_bin/id" "$composition_bin/hostname"
-composition_state=$(
-  HOME=$candidate XDG_CONFIG_HOME=$candidate/.config \
+composition_state=
+_compose_profile() {
+  local tag=$1 profile=$2 output
+  printf 'version=1\nuser=example-user\nprofile=%s\n' "$profile" \
+    >"$composition_selectors/10-profile.conf"
+  chmod 0600 "$composition_selectors/10-profile.conf"
+  # Doctor exits nonzero in a fixture HOME (no client repository, no
+  # provider); composition is read from its report, never its status. Keep
+  # only the Profiles/Overlays sections, strip the status glyphs, and tag
+  # each line with its scenario so every needle binds to one run.
+  output=$(HOME=$candidate XDG_CONFIG_HOME=$candidate/.config \
     PATH=$composition_bin:$PATH \
-    DOT_STACK_DOT_ROOT=${DOT_STACK_DOT_ROOT:-${DOT_TEST_DOT_ROOT:-}} \
-    bash <<'BASH'
-set -euo pipefail
-dot_root=$DOT_STACK_DOT_ROOT
-. "$dot_root/lib/dot/public/xdg.sh"
-. "$dot_root/lib/dot/log.sh"
-. "$dot_root/lib/dot/resources.sh"
-. "$dot_root/lib/dot/temp.sh"
-. "$dot_root/lib/dot/platform.sh"
-. "$dot_root/lib/dot/profiles.sh"
-. "$dot_root/lib/dot/overlays.sh"
-. "$dot_root/lib/dot/repos/config.sh"
-
-for profile in base editor dev; do
-  selector=$HOME/.config/dot/profile-selectors.local.d/10-profile.conf
-  printf 'version=1\nuser=example-user\nprofile=%s\n' "$profile" >"$selector"
-  chmod 0600 "$selector"
-  _dot_resolve_overlays inspect
-  printf '%s|%s|%s|%s\n' "$SELECTED_PROFILE" \
-    "${SELECTED_OVERLAY_NAMES[*]}" "${ELIGIBLE_OVERLAY_NAMES[*]}" \
-    "${ACTIVE_OVERLAY_NAMES[*]}"
-done
-
-git init --quiet "$HOME/.dotfiles-work"
-git -C "$HOME/.dotfiles-work" remote add origin \
+    "$runtime_bin" doctor 2>&1 || true)
+  output=$(printf '%s\n' "$output" |
+    sed -n '/^Profiles$/,/^Extensions$/p' |
+    sed 's/^  [✓·✗] //' | sed "s/^/$tag|/")
+  composition_state+=$output$'\n'
+}
+_compose_profile base base
+_compose_profile editor editor
+_compose_profile dev dev
+git init --quiet "$candidate/.dotfiles-work"
+git -C "$candidate/.dotfiles-work" remote add origin \
   github-dotfiles-work:cgraf78/dotfiles-work.git
-_dot_resolve_overlays inspect
-printf 'work-available|%s|%s\n' \
-  "${ELIGIBLE_OVERLAY_NAMES[*]}" "${ACTIVE_OVERLAY_NAMES[*]}"
-BASH
-)
-composition_rc=$?
-_assert_exit 'resolved Dot resolves the current public profile composition' \
-  0 "$composition_rc"
+_compose_profile work-available dev
+# Every scenario must report the fixture identity: a silent engine failure
+# (or a broken identity fake) shows up here instead of passing quietly.
+_assert_eq 'resolved Dot resolves the current public profile composition' 4 \
+  "$(printf '%s' "$composition_state" |
+    grep -c 'profile identity (example-user@example-host)')"
+_assert_contains 'base composition selects the base profile' \
+  'base|selected profile (base (agreed-match))' "$composition_state"
+_assert_contains 'base composition includes only the base profile' \
+  'base|included profiles (base)' "$composition_state"
+_assert_contains 'base composition leaves nvim unselected' \
+  'base|nvim: not selected' "$composition_state"
+_assert_contains 'base composition leaves dev unselected' \
+  'base|dev: not selected' "$composition_state"
 _assert_contains 'base composition keeps optional personal unavailable' \
-  'base|personal|personal|' "$composition_state"
-_assert_contains 'editor composition activates only resolved nvim capability' \
-  'editor|personal nvim|nvim personal|nvim' "$composition_state"
+  'base|personal: selected optional but unavailable' "$composition_state"
+_assert_contains 'base composition leaves work unselected' \
+  'base|work: not selected' "$composition_state"
+_assert_contains 'editor composition selects the editor profile' \
+  'editor|selected profile (editor (agreed-match))' "$composition_state"
+_assert_contains 'editor composition includes base and editor' \
+  'editor|included profiles (base editor)' "$composition_state"
+_assert_contains 'editor composition activates the resolved nvim capability' \
+  'editor|nvim: local source available' "$composition_state"
+_assert_contains 'editor composition leaves dev unselected' \
+  'editor|dev: not selected' "$composition_state"
+_assert_contains 'editor composition keeps optional personal unavailable' \
+  'editor|personal: selected optional but unavailable' "$composition_state"
+_assert_contains 'editor composition leaves work unselected' \
+  'editor|work: not selected' "$composition_state"
+_assert_contains 'dev composition selects the dev profile' \
+  'dev|selected profile (dev (agreed-match))' "$composition_state"
+_assert_contains 'dev composition includes base, editor, and dev' \
+  'dev|included profiles (base editor dev)' "$composition_state"
+_assert_contains 'dev composition activates the resolved nvim capability' \
+  'dev|nvim: local source available' "$composition_state"
+_assert_contains 'dev composition activates the resolved dev capability' \
+  'dev|dev: local source available' "$composition_state"
+_assert_contains 'dev composition keeps optional personal unavailable' \
+  'dev|personal: selected optional but unavailable' "$composition_state"
 _assert_contains 'dev keeps unavailable optional work eligible but inactive' \
-  'dev|personal nvim dev work|nvim dev personal work|nvim dev' \
+  'dev|work: selected optional but unavailable' "$composition_state"
+_assert_contains 'work scenario keeps nvim activated' \
+  'work-available|nvim: local source available' "$composition_state"
+_assert_contains 'work scenario keeps dev activated' \
+  'work-available|dev: local source available' "$composition_state"
+_assert_contains 'work scenario keeps optional personal unavailable' \
+  'work-available|personal: selected optional but unavailable' \
   "$composition_state"
-_assert_contains 'dev activates work only after a validated checkout exists' \
-  'work-available|nvim dev personal work|nvim dev work' \
-  "$composition_state"
+_assert_contains 'work activates only after a validated checkout exists' \
+  'work-available|work: cloned' "$composition_state"
+_assert_contains 'work checkout matches its descriptor' \
+  'work-available|work: remote.origin.url matches conf' "$composition_state"
 
 transport_bin=$stack_tmp/transport-bin
 transport_log=$stack_tmp/transport.log
@@ -542,9 +600,9 @@ for inspect_command in status diff doctor 'test --list'; do
     XDG_STATE_HOME=$stack_tmp/inspect-state \
     XDG_CACHE_HOME=$stack_tmp/inspect-cache \
     XDG_DATA_HOME=$stack_tmp/inspect-data \
-    PATH=$transport_bin:${DOT_STACK_DOT_ROOT:-${DOT_TEST_DOT_ROOT:-}}/bin:/usr/bin:/bin \
+    PATH=$transport_bin:${runtime_bin%/*}:/usr/bin:/bin \
     DOT_STACK_REAL_GIT=$real_git DOT_STACK_TRANSPORT_LOG=$transport_log \
-    "${DOT_STACK_DOT_ROOT:-${DOT_TEST_DOT_ROOT:-}}/bin/dot" \
+    "$runtime_bin" \
     $inspect_command >/dev/null 2>&1 || true
 done
 _assert_eq 'stack inspect commands cannot contact overlay transports' \
@@ -599,14 +657,16 @@ for transport_command in fetch push; do
   : >"$transport_log"
   rm -f "$transport_home/pre-sync-transport.log"
   transport_status=0
+  # Drive the resolved engine binary: release roots carry `dot` at the
+  # top level while checkouts keep the `bin/dot` adapter.
   HOME=$transport_home XDG_CONFIG_HOME=$transport_home/.config \
     XDG_STATE_HOME=$stack_tmp/transport-state \
     XDG_CACHE_HOME=$stack_tmp/transport-cache \
     XDG_DATA_HOME=$stack_tmp/transport-data \
-    PATH=$transport_bin:${DOT_STACK_DOT_ROOT:-${DOT_TEST_DOT_ROOT:-}}/bin:/usr/bin:/bin \
+    PATH=$transport_bin:${runtime_bin%/*}:/usr/bin:/bin \
     DOT_STACK_REAL_GIT=$real_git \
     DOT_STACK_TRANSPORT_LOG=$transport_log \
-    "${DOT_STACK_DOT_ROOT:-${DOT_TEST_DOT_ROOT:-}}/bin/dot" \
+    "$runtime_bin" \
     "$transport_command" >/dev/null 2>&1 || transport_status=$?
   _assert_exit \
     "$transport_command succeeds through the selected-repo transport spy" \
@@ -715,15 +775,12 @@ else
   _test_summary
 fi
 
-dot_source=${DOT_TEST_DOT_REPOSITORY:-${DOT_TEST_DOT_ROOT:-${DOT_STACK_DOT_ROOT:-}}}
-if [[ -z $dot_source || ! -d $dot_source ]]; then
-  _fail 'local exact Dot source is supplied for stack wrapper tests'
-  _test_summary
-fi
 agent_rules_source=${DOT_TEST_AGENT_RULES_SYNC_REPOSITORY:-${DOT_STACK_AGENT_RULES_SYNC_REPOSITORY:-https://github.com/cgraf78/agent-rules-sync.git}}
-dot_sha=$(git -C "$dot_source" rev-parse HEAD)
 runtime_origin=$(_tmpdir)/dot.git
 git init --quiet --bare "$runtime_origin"
+# The scratch source is a depth-1 checkout, so its head is a shallow
+# boundary the fixture must explicitly accept.
+git --git-dir="$runtime_origin" config receive.shallowUpdate true
 git -C "$dot_source" push --quiet "$runtime_origin" \
   "$dot_sha:refs/heads/main"
 git --git-dir="$runtime_origin" symbolic-ref HEAD refs/heads/main
@@ -932,6 +989,9 @@ printf '%s\n' '#!/usr/bin/env bash' \
   'printf "shdeps 20260821-152006-bb438f27\\n"' >"$fake_shdeps/shdeps"
 chmod +x "$fake_shdeps/install.sh" "$fake_shdeps/shdeps"
 # shellcheck disable=SC2016 # The child shell must expand its isolated HOME.
+# The candidate home installs through the resolved stack runtime (a release
+# copy); the scratch source only names the git origin a checkout runtime
+# would clone. Poisoned ambient Git state must not leak into either path.
 candidate_home_output=$(
   umask 0000
   cd "$candidate_checkout" || exit
@@ -954,7 +1014,7 @@ candidate_home_output=$(
     DOT_TEST=1 DOT_TEST_ROOT_FOREIGN=1 \
     DOTFILES_CANDIDATE_SHA=$candidate_sha \
     DOT_STACK_DOT_REPOSITORY=$dot_source DOT_STACK_DOT_SHA=$dot_sha \
-    DOT_STACK_DOT_ROOT=$dot_source \
+    DOT_STACK_DOT_ROOT=$runtime_root \
     DOT_STACK_AGENT_RULES_SYNC_REPOSITORY=$agent_rules_source \
     DOT_STACK_SHDEPS_ROOT=$fake_shdeps \
     .local/lib/dotfiles/tests/run-ci-candidate-home bash -c '
@@ -969,8 +1029,12 @@ candidate_home_output=$(
       test "$(git rev-parse HEAD)" = "$DOTFILES_CANDIDATE_SHA"
       test "$(git rev-parse --git-common-dir)" = "$HOME/.dotfiles"
       test -f "$HOME/.local/lib/dot/xdg.sh"
-      test "$(git -C "$HOME/.local/share/cgraf78/dot" rev-parse HEAD)" = \
-        "$DOT_STACK_DOT_SHA"
+      test "$DOT_STACK_DOT_BIN" = "$HOME/.local/share/cgraf78/dot/dot"
+      test ! -e "$HOME/.local/share/cgraf78/dot/.git"
+      case "$("$DOT_STACK_DOT_BIN" version)" in
+        "dot commit ${DOT_STACK_DOT_SHA:0:12}"*) ;;
+        *) exit 1 ;;
+      esac
       test "$(command -v agent-rules-sync)" = \
         "$HOME/.local/bin/agent-rules-sync"
       test "$("$HOME/.local/share/shdeps/shdeps" version)" = \
@@ -986,9 +1050,9 @@ candidate_home_output=$(
       hook_mode=$(stat -c %a "$hook" 2>/dev/null || stat -f %Lp "$hook")
       (( (8#$hook_mode & 022) == 0 ))
       unset XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME XDG_RUNTIME_DIR
-      init_status=$("$HOME/.local/share/cgraf78/dot/bin/dot" init --status)
+      init_status=$("$DOT_STACK_DOT_BIN" init --status)
       [[ $init_status == *"initialization: complete"* ]]
-      "$HOME/.local/share/cgraf78/dot/bin/dot" update >/dev/null
+      "$DOT_STACK_DOT_BIN" update >/dev/null
       for name in GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR \
         GIT_IMPLICIT_WORK_TREE GIT_PREFIX GIT_INDEX_FILE \
         GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES \
@@ -1096,6 +1160,27 @@ _assert_contains 'candidate home: release run reports its installed head' \
 _assert_contains 'candidate home: release command runs from a clean source worktree' \
   'candidate-home-ok' "$release_home_output"
 
+# A release tag against a manifest without a version must report the gap
+# instead of dying silently: the extraction pipeline exits nonzero with no
+# match, which would trip `set -e` before the comparison below it.
+release_meta_output=$(cd "$candidate_checkout" &&
+  TMPDIR=$tmpdir_fixture/alias \
+    DOT_TEST=1 \
+    DOTFILES_CANDIDATE_SHA=$candidate_sha \
+    DOT_STACK_DOT_REPOSITORY=file:///nonexistent-dot-fixture.git \
+    DOT_STACK_DOT_SHA=$release_sha \
+    DOT_STACK_DOT_ROOT=$release_source \
+    DOT_STACK_DOT_ORIGIN=$release_origin \
+    DOT_STACK_DOT_RELEASE_TAG=20250101-000000-abcdef012345 \
+    DOT_STACK_AGENT_RULES_SYNC_REPOSITORY=$agent_rules_source \
+    DOT_STACK_SHDEPS_ROOT=$fake_shdeps \
+    .local/lib/dotfiles/tests/run-ci-candidate-home true 2>&1)
+release_meta_rc=$?
+_assert_exit 'candidate home: tag without a manifest version fails cleanly' \
+  1 "$release_meta_rc"
+_assert_contains 'candidate home: tag without a manifest version names the gap' \
+  'names <absent>, expected 20250101-000000-abcdef012345' "$release_meta_output"
+
 shallow_checkout=$(_tmpdir)/shallow-checkout
 git clone --quiet --depth=1 --branch profile-candidate \
   "file://$candidate_origin" "$shallow_checkout"
@@ -1103,7 +1188,7 @@ git clone --quiet --depth=1 --branch profile-candidate \
 shallow_output=$(cd "$shallow_checkout" &&
   DOT_TEST=1 DOTFILES_CANDIDATE_SHA=$candidate_sha \
     DOT_STACK_DOT_REPOSITORY=$dot_source DOT_STACK_DOT_SHA=$dot_sha \
-    DOT_STACK_DOT_ROOT=$dot_source \
+    DOT_STACK_DOT_ROOT=$runtime_root \
     DOT_STACK_AGENT_RULES_SYNC_REPOSITORY=$agent_rules_source \
     DOT_STACK_SHDEPS_ROOT=$fake_shdeps \
     .local/lib/dotfiles/tests/run-ci-candidate-home \

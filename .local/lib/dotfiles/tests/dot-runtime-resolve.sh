@@ -300,22 +300,24 @@ _dot_release_verify_root() {
   # the authority.
   meta=$root/.dot-install.json
   if [[ -f $meta && ! -L $meta ]]; then
+    # A missing key must fall through to the comparisons below (which report
+    # it) instead of tripping the caller's `set -e`.
     meta_sha=$(grep -o '"commit"[[:space:]]*:[[:space:]]*"[0-9a-f]*"' \
-      "$meta" | head -n 1 | grep -o '[0-9a-f]*"$' | tr -d '"')
+      "$meta" | head -n 1 | grep -o '[0-9a-f]*"$' | tr -d '"' || true)
     [[ $meta_sha == "$sha" ]] || {
       printf 'dot-runtime-resolve: install metadata disagrees with %s\n' \
         "$sha" >&2
       return 1
     }
     meta_version=$(grep -o '"version"[[:space:]]*:[[:space:]]*"[^"]*"' \
-      "$meta" | head -n 1 | sed 's/^[^"]*"[^"]*"[^"]*"//; s/"$//')
+      "$meta" | head -n 1 | sed 's/^[^"]*"[^"]*"[^"]*"//; s/"$//' || true)
     [[ $meta_version == "$tag" ]] || {
       printf 'dot-runtime-resolve: install metadata version %s disagrees with %s\n' \
         "${meta_version:-<empty>}" "$tag" >&2
       return 1
     }
     meta_platform=$(grep -o '"artifact_platform"[[:space:]]*:[[:space:]]*"[^"]*"' \
-      "$meta" | head -n 1 | sed 's/^[^"]*"[^"]*"[^"]*"//; s/"$//')
+      "$meta" | head -n 1 | sed 's/^[^"]*"[^"]*"[^"]*"//; s/"$//' || true)
     [[ $meta_platform == "$platform" ]] || {
       printf 'dot-runtime-resolve: install metadata platform %s disagrees with %s\n' \
         "${meta_platform:-<empty>}" "$platform" >&2
