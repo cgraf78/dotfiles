@@ -21,10 +21,18 @@ ripgrep_content=$(cat "$HOME/.config/ripgrep/config")
 termnav_shell="$HOME/.config/shell/interactive.d/53-termnav.sh"
 termnav_shell_content=$(cat "$termnav_shell")
 
+_wezterm_lua_supports_hex_escapes() {
+  # The WezTerm config uses `\x` hex escapes (Lua 5.2+ syntax, matching the
+  # LuaJIT WezTerm embeds). A host lua predating 5.2 silently parses those as
+  # literal text, so refuse it here and fall through to the Neovim runner.
+  command -v lua >/dev/null 2>&1 || return 1
+  _with_timeout 10s lua -e 'if #"\x1b" ~= 1 then os.exit(1) end' >/dev/null 2>&1
+}
+
 _wezterm_lua() {
   local code="$1" nvim_bin script
 
-  if command -v lua >/dev/null 2>&1; then
+  if _wezterm_lua_supports_hex_escapes; then
     lua -e "$code"
     return
   fi
@@ -63,7 +71,7 @@ _wezterm_working_nvim() {
 }
 
 _wezterm_has_lua_runner() {
-  command -v lua >/dev/null 2>&1 && return 0
+  _wezterm_lua_supports_hex_escapes && return 0
   _wezterm_working_nvim >/dev/null
 }
 
@@ -184,6 +192,11 @@ public_copy_home=$(_tmpdir)
 nvim_key_home=$(_tmpdir)
 
 if _wezterm_has_lua_runner; then
+  # Pin the runner requirement: the config under test uses `\x` escapes, so a
+  # Lua predating 5.2 would silently load different key values.
+  _assert_eq "lua runner parses hex escapes" \
+    "1" "$(_wezterm_lua 'print(#"\x1b")')"
+
   bell_home=$(_tmpdir)
   cp "$config" "$bell_home/wezterm.lua"
   cp "$link_routes" "$bell_home/link-routes.lua"
