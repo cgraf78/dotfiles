@@ -15,8 +15,9 @@ lexical file, and that winner is sorted back into the family by relative path.
 Numeric prefixes belong inside a family, not on the top-level hook name.
 
 The standalone Dot runtime discovers executable hooks in lexical order and
-runs independent hooks in isolated workers. `cron.serial.sh` is deliberately
-serialized because it replaces the user crontab as one unit. Failed hooks do
+runs independent hooks in isolated workers. `cron.sh` replaces the user
+crontab as one unit, but no other hook touches it, so it runs in the parallel
+batch. Failed hooks do
 not suppress later hooks, but they make the aggregate update fail.
 
 Keep reusable mechanics in Dot's public hook API and target-specific policy in

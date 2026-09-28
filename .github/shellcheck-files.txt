@@ -53,7 +53,7 @@ program	.local/lib/dotfiles/door-guard.sh
 program	.local/lib/dotfiles/launcher-real.sh
 program	.local/lib/dotfiles/merge-hooks.d/agent-rules.sh
 program	.local/lib/dotfiles/merge-hooks.d/codex-trust.serial.sh
-program	.local/lib/dotfiles/merge-hooks.d/cron.serial.sh
+program	.local/lib/dotfiles/merge-hooks.d/cron.sh
 program	.local/lib/dotfiles/merge-hooks.d/ignore.sh
 program	.local/lib/dotfiles/merge-hooks.d/iterm2.sh
 program	.local/lib/dotfiles/merge-hooks.d/karabiner.sh

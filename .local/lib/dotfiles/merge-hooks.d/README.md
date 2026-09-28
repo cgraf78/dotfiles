@@ -8,11 +8,12 @@ code live here.
 Each readable top-level `*.sh` file defines `merge()` with no arguments. The
 filename supplies the public identity. A `*.serial.sh` file is a serial
 barrier: `.serial` is stripped from its identity and sort key, and the runner
-schedules it alone between parallel batches. `cron.serial.sh` is serial
-because it read-modify-writes the singleton user crontab;
-`codex-trust.serial.sh` is serial because it prunes the same
-`~/.codex/config.toml` the `codex` hook merges, and must run after that merge
-instead of racing it.
+schedules it alone between parallel batches, so every barrier lengthens the
+Configs stage. Reserve it for hooks that share mutable state with another hook:
+`codex-trust.serial.sh` prunes the same `~/.codex/config.toml` the `codex` hook
+merges, and must run after that merge instead of racing it. `cron.sh` stays
+parallel because it is the only hook that reads or writes the user crontab, and
+the top-level update lock already excludes concurrent `dot update` runs.
 
 Hooks run in fresh Bash workers with private temporary storage. They use the
 documented hook API and load client support through `dot_hook_source`. A hook

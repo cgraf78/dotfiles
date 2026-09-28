@@ -425,7 +425,7 @@ TOOL_COMMANDS
     hook_file=$hook_name
     # Serial barriers keep their identity but live in a `.serial.sh` file so
     # the runner schedules them alone between parallel batches.
-    if [[ $hook_file == cron || $hook_file == codex-trust ]]; then
+    if [[ $hook_file == codex-trust ]]; then
       hook_file=$hook_file.serial
     fi
     hook_path="$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/$hook_file.sh"
