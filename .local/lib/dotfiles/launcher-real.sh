@@ -21,22 +21,6 @@ _dot_launcher_physical_dir() {
   cd -- "$1" 2>/dev/null && pwd -P
 }
 
-_dot_launcher_file_id() {
-  local path="$1" dir base
-  case "$path" in
-    */*)
-      dir="${path%/*}"
-      base="${path##*/}"
-      ;;
-    *)
-      dir="."
-      base="$path"
-      ;;
-  esac
-  dir=$(_dot_launcher_physical_dir "$dir") || return 1
-  printf '%s/%s\n' "$dir" "$base"
-}
-
 _dot_launcher_same_file() {
   local left="$1" right="$2"
   [ -e "$left" ] && [ -e "$right" ] && [ "$left" -ef "$right" ]
@@ -72,10 +56,15 @@ _dot_launcher_cache_path() {
   dot_xdg_path cache "dotfiles/${name}-real"
 }
 
+# Report the cached real binary via REPLY when the cache was written under the
+# current PATH and still names a valid candidate, or fail. Runs in the caller's
+# shell: a command substitution here would cost a fork on every launch.
 _dot_launcher_cache_read() {
   local name="$1" self="$2" marker="$3" cache path cached_path
+  REPLY=
   _dot_launcher_cache_path "$name" || return 1
   cache="$REPLY"
+  REPLY=
   [ -r "$cache" ] || return 1
 
   {
@@ -85,15 +74,24 @@ _dot_launcher_cache_read() {
 
   [ "$cached_path" = "${PATH:-}" ] || return 1
   _dot_launcher_candidate_ok "$path" "$self" "$marker" || return 1
-  printf '%s\n' "$path"
+  REPLY="$path"
 }
 
+# Publish a resolution for later launches and for the prompt, which accepts
+# the same file. Rewrite only when the resolved binary changes: sessions whose
+# PATH strings differ but resolve the same binary would otherwise replace the
+# file on every call, each rewrite costing mkdir/mktemp/mv spawns, while a
+# PATH mismatch only costs the reader a fork-free re-resolution.
 _dot_launcher_cache_write() {
-  local name="$1" path="$2" cache dir tmp
+  local name="$1" path="$2" cache dir tmp cached=""
   _dot_launcher_cache_path "$name" || return 0
   cache="$REPLY"
+  if [ -r "$cache" ]; then
+    IFS= read -r cached <"$cache" || :
+    [ "$cached" = "$path" ] && return 0
+  fi
   dir="${cache%/*}"
-  mkdir -p -- "$dir" 2>/dev/null || return 0
+  [ -d "$dir" ] || mkdir -p -- "$dir" 2>/dev/null || return 0
   tmp=$(mktemp "${cache}.XXXXXX" 2>/dev/null) || return 0
   {
     printf '%s\n' "$path"
@@ -105,32 +103,53 @@ _dot_launcher_cache_write() {
   mv -f -- "$tmp" "$cache" 2>/dev/null || rm -f -- "$tmp"
 }
 
+# Resolve the real binary behind a launcher and report it via REPLY, or fail.
+# Resolution runs in the caller's shell without command substitutions, since
+# every launched command pays for this lookup. The PATH walk stops at the
+# first valid candidate instead of listing every match: entries after it, such
+# as WSL's Windows mounts, can be slow to stat and cannot change the answer.
 _dot_launcher_find_real() {
   local name="$1" self="$2" marker="$3"
   shift 3
-  local path fallback
+  local search dir path fallback
 
-  if path=$(_dot_launcher_cache_read "$name" "$self" "$marker"); then
-    printf '%s\n' "$path"
+  if _dot_launcher_cache_read "$name" "$self" "$marker"; then
     return 0
   fi
 
   # The public launcher intentionally shadows the real command on PATH. Resolve
   # by identity and marker, not by name alone, so delegated invocations cannot
-  # recurse back into any dotfiles launcher copy.
-  while IFS= read -r path; do
-    _dot_launcher_candidate_ok "$path" "$self" "$marker" || continue
-    _dot_launcher_cache_write "$name" "$path"
-    printf '%s\n' "$path"
-    return 0
-  done < <(PATH="${PATH:-/usr/local/bin:/usr/bin:/bin}" type -P -a "$name" 2>/dev/null)
+  # recurse back into any dotfiles launcher copy. An empty PATH entry names the
+  # current directory, as in command lookup.
+  search="${PATH:-/usr/local/bin:/usr/bin:/bin}"
+  while :; do
+    dir="${search%%:*}"
+    # Command lookup expands a leading `~` in a PATH entry; keep that so a
+    # literal "~/bin" entry resolves as it always has.
+    case "$dir" in
+      "") dir=. ;;
+      \~) [ -z "${HOME:-}" ] || dir="$HOME" ;;
+      \~/*) [ -z "${HOME:-}" ] || dir="$HOME/${dir#\~/}" ;;
+    esac
+    path="$dir/$name"
+    if _dot_launcher_candidate_ok "$path" "$self" "$marker"; then
+      _dot_launcher_cache_write "$name" "$path"
+      REPLY="$path"
+      return 0
+    fi
+    case "$search" in
+      *:*) search="${search#*:}" ;;
+      *) break ;;
+    esac
+  done
 
   for fallback in "$@"; do
     _dot_launcher_candidate_ok "$fallback" "$self" "$marker" || continue
     _dot_launcher_cache_write "$name" "$fallback"
-    printf '%s\n' "$fallback"
+    REPLY="$fallback"
     return 0
   done
 
+  REPLY=
   return 1
 }

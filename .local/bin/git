@@ -16,11 +16,12 @@ _dot_git_die() {
   exit 2
 }
 
+# Resolve real Git via REPLY. Candidates are compared to this file with -ef,
+# which matches any spelling of the same file, so the launcher's own path needs
+# no physical resolution (and no subshell) first.
 _dot_git_real_git() {
-  local self marker
-  self=$(_dot_launcher_file_id "${BASH_SOURCE[0]}") || self="${BASH_SOURCE[0]}"
-  marker="# Dotfiles-aware launcher for Git."
-  _dot_launcher_find_real git "$self" "$marker" \
+  local marker="# Dotfiles-aware launcher for Git."
+  _dot_launcher_find_real git "${BASH_SOURCE[0]}" "$marker" \
     /opt/homebrew/bin/git /usr/local/bin/git /usr/bin/git /bin/git
 }
 
@@ -173,8 +174,9 @@ _dot_git_nested_cache_path() {
   dot_xdg_path cache "dotfiles/git-nested-worktree-roots"
 }
 
-_dot_git_real=$(_dot_git_real_git) ||
+_dot_git_real_git ||
   _dot_git_die "could not find real git outside ~/.local/bin"
+_dot_git_real=$REPLY
 
 _dot_git_nested_cache_limit=64
 
