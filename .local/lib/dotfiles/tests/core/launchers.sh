@@ -582,6 +582,75 @@ EOF
   _assert_not_contains "git launcher: has no source-only test mode" \
     "DOT_GIT_LAUNCHER_SOURCED" "$_git_launcher_source"
 
+  echo ""
+  echo "=== git launcher real-git resolution ==="
+
+  # Resolution skips this launcher (even through a symlink) and any other
+  # launcher copy, publishes the result, and republishes only when the
+  # resolved binary changes: PATH strings that differ but resolve the same
+  # Git must not rewrite the shared cache on every call.
+  _git_res_root=$(_tmpdir)
+  _git_res_cache=$_git_res_root/cache
+  _git_res_file=$_git_res_cache/dotfiles/git-real
+  mkdir -p "$_git_res_root/a" "$_git_res_root/b" "$_git_res_root/copy" \
+    "$_git_res_root/link" "$_git_res_root/cwd"
+  for _git_res_label in a b cwd; do
+    printf '%s\n' '#!/usr/bin/env bash' "printf 'real-$_git_res_label\\n'" \
+      >"$_git_res_root/$_git_res_label/git"
+    chmod +x "$_git_res_root/$_git_res_label/git"
+  done
+  printf '%s\n' '#!/bin/sh' '# Dotfiles-aware launcher for Git.' 'exit 99' \
+    >"$_git_res_root/copy/git"
+  chmod +x "$_git_res_root/copy/git"
+  ln -s "$BIN_DIR/git" "$_git_res_root/link/git"
+  _git_res_run() {
+    (cd "$TEST_HOME" && XDG_CACHE_HOME="$_git_res_cache" PATH="$1" \
+      "$BIN_DIR/git" --version 2>&1)
+  }
+
+  _git_res_path1="$BIN_DIR:$_git_res_root/link:$_git_res_root/copy:$_git_res_root/a:$_git_res_root/b:/usr/bin:/bin"
+  _assert_eq "git launcher resolution: skips launcher symlinks and copies" \
+    "real-a" "$(_git_res_run "$_git_res_path1")"
+  _assert_file_content "git launcher resolution: publishes the resolved Git" \
+    "$(printf '%s\n%s' "$_git_res_root/a/git" "$_git_res_path1")" "$_git_res_file"
+
+  _git_res_path2="$BIN_DIR:$_git_res_root/a:/usr/bin:/bin"
+  _assert_eq "git launcher resolution: another PATH resolves the same Git" \
+    "real-a" "$(_git_res_run "$_git_res_path2")"
+  _assert_file_content "git launcher resolution: same Git leaves the cache alone" \
+    "$(printf '%s\n%s' "$_git_res_root/a/git" "$_git_res_path1")" "$_git_res_file"
+
+  _git_res_path3="$BIN_DIR:$_git_res_root/b:$_git_res_root/a:/usr/bin:/bin"
+  _assert_eq "git launcher resolution: follows a PATH that changes the Git" \
+    "real-b" "$(_git_res_run "$_git_res_path3")"
+  _assert_file_content "git launcher resolution: republishes a changed Git" \
+    "$(printf '%s\n%s' "$_git_res_root/b/git" "$_git_res_path3")" "$_git_res_file"
+
+  printf '%s\n%s\n' "$_git_res_root/copy/git" "$_git_res_path3" >"$_git_res_file"
+  _assert_eq "git launcher resolution: rejects a cached launcher copy" \
+    "real-b" "$(_git_res_run "$_git_res_path3")"
+  _assert_file_content "git launcher resolution: replaces a rejected cache entry" \
+    "$(printf '%s\n%s' "$_git_res_root/b/git" "$_git_res_path3")" "$_git_res_file"
+
+  # An empty PATH entry names the current directory, as in command lookup.
+  _git_res_cwd_result=$(cd "$_git_res_root/cwd" &&
+    XDG_CACHE_HOME="$_git_res_root/cwd-cache" PATH="$BIN_DIR::/usr/bin:/bin" \
+      "$BIN_DIR/git" --version 2>&1)
+  _assert_eq "git launcher resolution: empty PATH entry is the current directory" \
+    "real-cwd" "$_git_res_cwd_result"
+
+  # A literal leading `~` in a PATH entry expands like command lookup does.
+  mkdir -p "$_git_res_root/home/bin"
+  cp "$_git_res_root/b/git" "$_git_res_root/home/bin/git"
+  # shellcheck disable=SC2147 # The literal tilde is the PATH entry under test.
+  _git_res_tilde_result=$(cd "$TEST_HOME" && HOME="$_git_res_root/home" \
+    XDG_CACHE_HOME="$_git_res_root/tilde-cache" \
+    PATH="$BIN_DIR:~/bin:$_git_res_root/a:/usr/bin:/bin" \
+    DOT_TEST_HOST_HOME="${DOT_TEST_HOST_HOME:-}" "$BIN_DIR/git" --version 2>&1)
+  _assert_eq "git launcher resolution: a literal ~ PATH entry expands" \
+    "real-b" "$_git_res_tilde_result"
+
+  echo ""
   echo "=== git launcher argument routing ==="
 
   # Exercise parsing through the public command. `clone` must bypass the bare
