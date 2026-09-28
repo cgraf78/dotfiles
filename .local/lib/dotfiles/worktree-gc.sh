@@ -195,23 +195,17 @@ _worktree_gc_git_dir() {
 # the per-checkout linear scan that forked a subshell per list entry.
 # Must run in the main shell; callers under $() would discard the index.
 _worktree_gc_index_wt_list() {
-  local common=$1 wt_list=$2 line path phys main_path='' main_phys=''
-  local first=1
-  while IFS= read -r line || [[ -n $line ]]; do
-    case $line in
-      'worktree '*) path=${line#worktree } ;;
-      *) continue ;;
-    esac
-    if ((first == 1)); then
-      first=0
-      main_path=$path
-    fi
+  local common=$1 wt_list=$2 i path phys main_path='' main_phys=''
+  _dr_worktree_porcelain_records "$wt_list"
+  for ((i = 0; i < ${#_DR_WORKTREE_REC_PATHS[@]}; i++)); do
+    path=${_DR_WORKTREE_REC_PATHS[$i]}
+    ((i == 0)) && main_path=$path
     phys=$(_dr_worktree_physical "$path") || continue
     [[ -n $phys ]] || continue
     _WORKTREE_GC_MAP_COMMON+=("$common")
     _WORKTREE_GC_MAP_PHYS+=("$phys")
     _WORKTREE_GC_MAP_REG+=("$path")
-  done <<<"$wt_list"
+  done
   if [[ -n $main_path ]]; then
     main_phys=$(_dr_worktree_physical "$main_path") || main_phys=
   fi

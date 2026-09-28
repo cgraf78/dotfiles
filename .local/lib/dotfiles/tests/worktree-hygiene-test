@@ -586,6 +586,227 @@ else
 fi
 
 echo ""
+echo "=== Stale facts batched per repo ==="
+
+# Several old checkouts of one repo: the stale facts must come from one
+# worktree listing for the whole repo instead of per-checkout branch probes,
+# with reasons identical to the per-checkout probe for every shape (main
+# checkout, merged, gone, gone-and-merged, unmerged, detached, prefix-named
+# branches, a checkout moved without repair, and an orphaned admin dir).
+batch_home=$(_tmpdir)
+batch_origin_root=$(_tmpdir)
+batch_origin=$batch_origin_root/origin.git
+_seed_origin "$batch_origin"
+mkdir -p "$batch_home/.worktrees"
+git clone "$batch_origin" "$batch_home/.worktrees/mb-main" >/dev/null 2>&1
+batch_main=$batch_home/.worktrees/mb-main
+_git_set_test_identity git -C "$batch_main"
+git -C "$batch_main" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main >/dev/null 2>&1
+_batch_worktree() {
+  git -C "$batch_main" worktree add "$batch_home/.worktrees/$1" -b "$1" >/dev/null 2>&1
+  _git_set_test_identity git -C "$batch_home/.worktrees/$1"
+  _commit_file "$batch_home/.worktrees/$1" "$1.txt"
+  git -C "$batch_home/.worktrees/$1" push -u origin "$1" >/dev/null 2>&1
+}
+_batch_merge() {
+  git -C "$batch_main" fetch origin >/dev/null 2>&1
+  git -C "$batch_main" merge --no-ff "origin/$1" -m "merge $1" >/dev/null 2>&1
+  git -C "$batch_main" push origin main >/dev/null 2>&1
+}
+_batch_worktree mb-merged
+_batch_merge mb-merged
+_batch_worktree mb-gone
+git -C "$batch_main" push origin --delete mb-gone >/dev/null 2>&1
+_batch_worktree mb-gone-merged
+_batch_merge mb-gone-merged
+git -C "$batch_main" push origin --delete mb-gone-merged >/dev/null 2>&1
+_batch_worktree mb-x
+_batch_merge mb-x
+_batch_worktree mb-x-y
+_batch_worktree mb-unmerged
+_batch_worktree mb-detached
+git -C "$batch_home/.worktrees/mb-detached" checkout --detach >/dev/null 2>&1
+_batch_worktree mb-moved
+_batch_merge mb-moved
+_batch_worktree mb-orphan
+git -C "$batch_main" fetch --prune origin >/dev/null 2>&1
+# Moved without `git worktree repair`: the checkout still works but the
+# listing names its old path, so it must fall back to the per-checkout probe.
+mv "$batch_home/.worktrees/mb-moved" "$batch_home/.worktrees/mb-moved-away"
+rm -rf "$batch_main/.git/worktrees/mb-orphan"
+batch_names="mb-main mb-merged mb-gone mb-gone-merged mb-x mb-x-y mb-unmerged mb-detached mb-moved-away mb-orphan"
+for batch_name in $batch_names; do
+  _make_old "$batch_home/.worktrees/$batch_name"
+done
+batch_real_git=$(command -v git)
+batch_git_log=$(_tmpfile)
+batch_shim_bin=$(_tmpdir)
+cat >"$batch_shim_bin/git" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >>"$batch_git_log"
+exec "$batch_real_git" "\$@"
+SH
+chmod +x "$batch_shim_bin/git"
+batch_saved_home=$HOME
+batch_saved_path=$PATH
+if [[ -z ${DOTFILES+x} ]]; then
+  batch_dotfiles_unset=1
+else
+  batch_dotfiles_unset=0
+  batch_saved_dotfiles=$DOTFILES
+fi
+HOME=$batch_home
+DOTFILES=$batch_home/.dotfiles
+PATH=$batch_shim_bin:$PATH
+export HOME DOTFILES PATH
+# List every stale sample so each shape's reason is visible in the report.
+batch_saved_limit=$_DR_WORKTREE_STALE_LIST_LIMIT
+_DR_WORKTREE_STALE_LIST_LIMIT=20
+_doctor_records _dr_check_worktrees >"$batch_home/run.txt" 2>/dev/null
+batch_status=$?
+_DR_WORKTREE_STALE_LIST_LIMIT=$batch_saved_limit
+batch_listings=$(grep -c 'worktree list' "$batch_git_log")
+batch_branch_probes=$(grep -c 'branch --show-current' "$batch_git_log")
+# Cross-check every shape against the per-checkout probe it replaces.
+batch_mismatch=
+_DR_WORKTREE_BASE_KEYS=()
+_DR_WORKTREE_BASE_REFS=()
+_DR_WORKTREE_FACT_KEYS=()
+_DR_WORKTREE_FACT_ROWS=()
+for batch_name in $batch_names; do
+  batch_dir=$(cd "$batch_home/.worktrees/$batch_name" && pwd -P)
+  _dr_worktree_stale_reason "$batch_dir"
+  batch_expected=$REPLY
+  _dr_worktree_stale_reason_batched "$batch_dir"
+  [[ $REPLY == "$batch_expected" ]] ||
+    batch_mismatch+="$batch_name: '$REPLY' != '$batch_expected'; "
+done
+HOME=$batch_saved_home
+PATH=$batch_saved_path
+if ((batch_dotfiles_unset == 1)); then
+  unset DOTFILES
+else
+  DOTFILES=$batch_saved_dotfiles
+fi
+export HOME DOTFILES PATH
+batch_result=$(cat "$batch_home/run.txt")
+_assert_exit "batched: detection exits 0" 0 "$batch_status"
+_assert_contains "batched: merged, gone, and synced checkouts warn" \
+  $'warn\t6 stale worktrees' "$batch_result"
+_assert_contains "batched: merged reason names the default" \
+  "mb-merged (merged into origin/main)" "$batch_result"
+_assert_contains "batched: gone reason names the upstream" \
+  "mb-gone (upstream origin/mb-gone is gone)" "$batch_result"
+_assert_contains "batched: a gone upstream wins over merged" \
+  "mb-gone-merged (upstream origin/mb-gone-merged is gone)" "$batch_result"
+_assert_contains "batched: the main checkout reads its own row" \
+  "mb-main (merged into origin/main)" "$batch_result"
+_assert_contains "batched: a prefix-named merged branch warns" \
+  "mb-x (merged into origin/main)" "$batch_result"
+_assert_not_contains "batched: its unmerged longer sibling stays silent" \
+  "mb-x-y" "$batch_result"
+_assert_contains "batched: an unlisted moved checkout falls back" \
+  "mb-moved-away (merged into origin/main)" "$batch_result"
+_assert_not_contains "batched: unmerged checkout stays silent" \
+  "mb-unmerged" "$batch_result"
+_assert_not_contains "batched: detached checkout stays silent" \
+  "mb-detached" "$batch_result"
+_assert_not_contains "batched: orphaned checkout stays silent" \
+  "mb-orphan" "$batch_result"
+_assert_eq "batched: one worktree listing serves the repo" "1" "$batch_listings"
+# Only the orphan (no repo key) and the moved checkout (no listed row) fall
+# back to a per-checkout branch probe.
+_assert_eq "batched: listed checkouts need no branch probe" "2" \
+  "$batch_branch_probes"
+_assert_eq "batched: reasons match the per-checkout probe" "" "$batch_mismatch"
+
+# A failing `--merged` query must fall back to the per-checkout probe rather
+# than read as "not merged".
+batch_fail_bin=$(_tmpdir)
+cat >"$batch_fail_bin/git" <<SH
+#!/usr/bin/env bash
+case " \$* " in *" --merged="*) exit 1 ;; esac
+exec "$batch_real_git" "\$@"
+SH
+chmod +x "$batch_fail_bin/git"
+HOME=$batch_home
+DOTFILES=$batch_home/.dotfiles
+PATH=$batch_fail_bin:$batch_saved_path
+export HOME DOTFILES PATH
+_DR_WORKTREE_STALE_LIST_LIMIT=20
+_doctor_records _dr_check_worktrees >"$batch_home/run-fail.txt" 2>/dev/null
+_DR_WORKTREE_STALE_LIST_LIMIT=$batch_saved_limit
+HOME=$batch_saved_home
+PATH=$batch_saved_path
+if ((batch_dotfiles_unset == 1)); then
+  unset DOTFILES
+else
+  DOTFILES=$batch_saved_dotfiles
+fi
+export HOME DOTFILES PATH
+_assert_contains "batched: a failed merged query falls back" \
+  "mb-merged (merged into origin/main)" "$(cat "$batch_home/run-fail.txt")"
+
+echo ""
+echo "=== Stale probe scope ==="
+
+# Queries cover only the old checkouts being probed: a never-pulled main clone
+# and young worktrees add no history walks, and with only detached and gone
+# old checkouts no base ref is resolved at all.
+scope_home=$(_tmpdir)
+scope_origin_root=$(_tmpdir)
+scope_origin=$scope_origin_root/origin.git
+_seed_origin "$scope_origin"
+git clone "$scope_origin" "$scope_home/git/scope" >/dev/null 2>&1
+scope_main=$scope_home/git/scope
+_git_set_test_identity git -C "$scope_main"
+git -C "$scope_main" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main >/dev/null 2>&1
+for scope_name in sc-gone sc-detached sc-young; do
+  git -C "$scope_main" worktree add "$scope_home/.worktrees/$scope_name" -b "$scope_name" >/dev/null 2>&1
+  _git_set_test_identity git -C "$scope_home/.worktrees/$scope_name"
+  _commit_file "$scope_home/.worktrees/$scope_name" "$scope_name.txt"
+  git -C "$scope_home/.worktrees/$scope_name" push -u origin "$scope_name" >/dev/null 2>&1
+done
+git -C "$scope_main" push origin --delete sc-gone >/dev/null 2>&1
+git -C "$scope_main" fetch --prune origin >/dev/null 2>&1
+git -C "$scope_home/.worktrees/sc-detached" checkout --detach >/dev/null 2>&1
+_make_old "$scope_home/.worktrees/sc-gone"
+_make_old "$scope_home/.worktrees/sc-detached"
+_make_fresh "$scope_home/.worktrees/sc-young"
+scope_git_log=$(_tmpfile)
+scope_shim_bin=$(_tmpdir)
+cat >"$scope_shim_bin/git" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >>"$scope_git_log"
+exec "$batch_real_git" "\$@"
+SH
+chmod +x "$scope_shim_bin/git"
+HOME=$scope_home
+DOTFILES=$scope_home/.dotfiles
+PATH=$scope_shim_bin:$batch_saved_path
+export HOME DOTFILES PATH
+_doctor_records _dr_check_worktrees >"$scope_home/run.txt" 2>/dev/null
+HOME=$batch_saved_home
+PATH=$batch_saved_path
+if ((batch_dotfiles_unset == 1)); then
+  unset DOTFILES
+else
+  DOTFILES=$batch_saved_dotfiles
+fi
+export HOME DOTFILES PATH
+scope_tracking=$(grep 'upstream:track' "$scope_git_log")
+_assert_contains "scope: the gone checkout warns" \
+  "sc-gone (upstream origin/sc-gone is gone)" "$(cat "$scope_home/run.txt")"
+_assert_contains "scope: tracking covers the old branch" \
+  "refs/heads/sc-gone" "$scope_tracking"
+_assert_not_contains "scope: tracking skips the main clone's branch" \
+  "refs/heads/main" "$scope_tracking"
+_assert_not_contains "scope: tracking skips young checkouts" \
+  "refs/heads/sc-young" "$scope_tracking"
+_assert_eq "scope: no base ref resolves without a mergeable branch" "0" \
+  "$(grep -c 'symbolic-ref' "$scope_git_log")"
+
+echo ""
 echo "=== Repo identity keys ==="
 
 key_home=$(_tmpdir)

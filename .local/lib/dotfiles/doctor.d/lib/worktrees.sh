@@ -259,6 +259,162 @@ _dr_worktree_stale_reason() {
   return 0
 }
 
+# Parse `git worktree list --porcelain` text into parallel arrays holding each
+# record's registered path and checked-out branch ref ("" when detached or
+# bare), in listing order, so the main checkout comes first. The doctor stale
+# probe and the gc indexer share this one reading of the porcelain grammar.
+# Fills globals instead of printing so callers avoid a subshell per repo.
+_dr_worktree_porcelain_records() {
+  local line path='' ref='' have=0
+  _DR_WORKTREE_REC_PATHS=()
+  _DR_WORKTREE_REC_REFS=()
+  while IFS= read -r line || [[ -n $line ]]; do
+    case $line in
+      'worktree '*)
+        if ((have == 1)); then
+          _DR_WORKTREE_REC_PATHS+=("$path")
+          _DR_WORKTREE_REC_REFS+=("$ref")
+        fi
+        path=${line#worktree }
+        ref=
+        have=1
+        ;;
+      'branch '*) ref=${line#branch } ;;
+    esac
+  done <<<"$1"
+  if ((have == 1)); then
+    _DR_WORKTREE_REC_PATHS+=("$path")
+    _DR_WORKTREE_REC_REFS+=("$ref")
+  fi
+}
+
+# Build "physical-path<TAB>reason" rows, via REPLY, for every checkout git
+# lists for the repo owning $1, or fail so each checkout falls back to the
+# per-checkout probe. A handful of spawns cover the whole repo where the
+# per-checkout probe costs three per checkout; on hosts whose git sits behind
+# wrappers each spawn is tens of ms. Rows cover only checkouts in
+# _DR_WORKTREE_PROBE_SET (the old checkouts being probed; unset means all),
+# and both ref queries name only their branches: %(upstream:track) walks
+# history per ref, so a never-pulled main clone or every local branch would
+# cost far more than batching saves. Git forbids `foo` beside `foo/bar`, so a
+# pattern cannot pull in another branch. Reasons and
+# precedence match _dr_worktree_stale_reason: a gone upstream wins, then a tip
+# reachable from the base ref (`merge-base --is-ancestor HEAD` for an attached
+# HEAD); detached checkouts report "". The base ref resolves only when some
+# branch could still be merged. Must run in the main shell (base-ref cache).
+_dr_worktree_repo_stale_rows() {
+  local dir=$1 listing tracking='' merged='' base='' rows='' need_base=0
+  local i path ref phys reason entry name short track
+  local -a refs=() probe_paths=() probe_refs=()
+  REPLY=
+  listing=$(git -C "$dir" worktree list --porcelain 2>/dev/null) || return 1
+  _dr_worktree_porcelain_records "$listing"
+  for ((i = 0; i < ${#_DR_WORKTREE_REC_PATHS[@]}; i++)); do
+    path=${_DR_WORKTREE_REC_PATHS[$i]}
+    # Candidates are physical, so a registered path already in the set skips
+    # the resolving subshell; anything else resolves before the membership test.
+    if [[ -n ${_DR_WORKTREE_PROBE_SET+x} &&
+      $_DR_WORKTREE_PROBE_SET == *$'\n'"$path"$'\n'* ]]; then
+      phys=$path
+    else
+      phys=$(_dr_worktree_physical "$path")
+      [[ -n $phys ]] || continue
+      [[ -z ${_DR_WORKTREE_PROBE_SET+x} ||
+        $_DR_WORKTREE_PROBE_SET == *$'\n'"$phys"$'\n'* ]] || continue
+    fi
+    ref=${_DR_WORKTREE_REC_REFS[$i]}
+    probe_paths+=("$phys")
+    probe_refs+=("$ref")
+    [[ -n $ref ]] && refs+=("$ref")
+  done
+  if ((${#refs[@]} > 0)); then
+    tracking=$(git -C "$dir" for-each-ref \
+      --format='%(refname)%09%(upstream:short)%09%(upstream:track)' \
+      "${refs[@]}" 2>/dev/null) || return 1
+    while IFS=$'\t' read -r name short track; do
+      [[ -n $name && $track != "[gone]" ]] && need_base=1
+    done <<<"$tracking"
+    if ((need_base == 1)) && _dr_worktree_base_ref_ensure "$dir"; then
+      base=$REPLY
+      merged=$(git -C "$dir" for-each-ref --merged="$base" \
+        --format='%(refname)' "${refs[@]}" 2>/dev/null) || return 1
+    fi
+  fi
+  for ((i = 0; i < ${#probe_paths[@]}; i++)); do
+    phys=${probe_paths[$i]}
+    ref=${probe_refs[$i]}
+    reason=
+    if [[ -n $ref ]]; then
+      while IFS=$'\t' read -r name short track; do
+        [[ $name == "$ref" ]] || continue
+        if [[ $track == "[gone]" ]]; then
+          reason="upstream ${short:-${ref#refs/heads/}} is gone"
+        fi
+        break
+      done <<<"$tracking"
+      if [[ -z $reason && -n $base ]]; then
+        while IFS= read -r entry; do
+          if [[ $entry == "$ref" ]]; then
+            reason="merged into $base"
+            break
+          fi
+        done <<<"$merged"
+      fi
+    fi
+    rows+="$phys"$'\t'"$reason"$'\n'
+  done
+  REPLY=$rows
+}
+
+# Per-repo stale rows, parallel to their repo keys; a failed listing caches
+# as the single row "-" so the repo is not re-listed for every checkout.
+_DR_WORKTREE_FACT_KEYS=()
+_DR_WORKTREE_FACT_ROWS=()
+
+# Report a checkout's stale reason via REPLY like _dr_worktree_stale_reason,
+# answering from the per-repo rows when git lists the checkout. Checkouts it
+# cannot place (no repo key, orphaned admin dirs, paths the porcelain lines
+# cannot frame) fall back to the per-checkout probe. Never fails; must run in
+# the main shell so the per-repo rows survive across checkouts.
+_dr_worktree_stale_reason_batched() {
+  local dir=$1 key i rows='' found=0 row
+  REPLY=
+  if ! command -v git >/dev/null 2>&1 || ! key=$(_dr_worktree_repo_key "$dir"); then
+    _dr_worktree_stale_reason "$dir"
+    return 0
+  fi
+  for ((i = 0; i < ${#_DR_WORKTREE_FACT_KEYS[@]}; i++)); do
+    if [[ ${_DR_WORKTREE_FACT_KEYS[$i]} == "$key" ]]; then
+      rows=${_DR_WORKTREE_FACT_ROWS[$i]}
+      found=1
+      break
+    fi
+  done
+  if ((found == 0)); then
+    if _dr_worktree_repo_stale_rows "$dir"; then
+      rows=$REPLY
+    else
+      rows=-
+    fi
+    _DR_WORKTREE_FACT_KEYS+=("$key")
+    _DR_WORKTREE_FACT_ROWS+=("$rows")
+  fi
+  # Match the whole path: a prefix match would let an unlisted checkout take
+  # a TAB-extended sibling's row. Reasons never contain a TAB (ref names
+  # cannot), so the path is everything before the last one.
+  if [[ $rows != - ]]; then
+    while IFS= read -r row; do
+      [[ -n $row ]] || continue
+      if [[ ${row%$'\t'*} == "$dir" ]]; then
+        REPLY=${row##*$'\t'}
+        return 0
+      fi
+    done <<<"$rows"
+  fi
+  _dr_worktree_stale_reason "$dir"
+  return 0
+}
+
 # Print the du-total cache path: a recomputable performance record,
 # so it lives under the cache base with the usual XDG fallback. A
 # relative XDG_CACHE_HOME is ignored, like the termnav state precedent.
@@ -349,6 +505,8 @@ _dr_check_worktrees() {
 
   _DR_WORKTREE_BASE_KEYS=()
   _DR_WORKTREE_BASE_REFS=()
+  _DR_WORKTREE_FACT_KEYS=()
+  _DR_WORKTREE_FACT_ROWS=()
 
   local home=${HOME:-}
   local home_phys dotfiles_phys dir
@@ -414,8 +572,12 @@ _dr_check_worktrees() {
   done <<<"$old_list"
 
   local stale_count=0 reason sample detail
+  _DR_WORKTREE_PROBE_SET=$'\n'
   for dir in ${old_dirs[@]+"${old_dirs[@]}"}; do
-    _dr_worktree_stale_reason "$dir" || true
+    _DR_WORKTREE_PROBE_SET+="$dir"$'\n'
+  done
+  for dir in ${old_dirs[@]+"${old_dirs[@]}"}; do
+    _dr_worktree_stale_reason_batched "$dir" || true
     reason=$REPLY
     if [[ -z $reason ]]; then
       continue
@@ -425,6 +587,7 @@ _dr_check_worktrees() {
       stale_samples+=("$(_dr_tilde "$dir") ($reason)")
     fi
   done
+  unset _DR_WORKTREE_PROBE_SET
 
   if ((stale_count == 0)); then
     _dr_ok "no stale worktrees"
