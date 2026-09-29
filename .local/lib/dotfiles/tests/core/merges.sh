@@ -1,8 +1,9 @@
 # shellcheck shell=bash
 # merges.sh - merge hook coverage.
 
-_dot_test_merge_hook_names() {
-  local source_home="$1" tracked_hooks tracked_path hook_name
+# Print the basenames of the base repository's tracked top-level hooks.
+_dot_test_merge_hook_files() {
+  local source_home="$1" tracked_hooks tracked_path
   local -a git_args=()
 
   if [[ -e "$source_home/.git" || -L "$source_home/.git" ]]; then
@@ -26,7 +27,16 @@ _dot_test_merge_hook_names() {
     ':(glob).local/lib/dotfiles/merge-hooks.d/*.sh') || return 1
   while IFS= read -r tracked_path; do
     [[ -n "$tracked_path" ]] || continue
-    hook_name="${tracked_path##*/}"
+    printf '%s\n' "${tracked_path##*/}"
+  done <<<"$tracked_hooks" | LC_ALL=C sort
+}
+
+# Print the identities of the base repository's tracked top-level hooks.
+_dot_test_merge_hook_names() {
+  local tracked_hooks hook_name
+  tracked_hooks=$(_dot_test_merge_hook_files "$1") || return 1
+  while IFS= read -r hook_name; do
+    [[ -n "$hook_name" ]] || continue
     hook_name="${hook_name%.sh}"
     hook_name="${hook_name%.serial}"
     printf '%s\n' "$hook_name"
@@ -255,7 +265,7 @@ SH
 agent-rules:agent-rules-sync
 claude:claude
 codex:codex
-codex-trust:codex
+zz-codex-trust:codex
 cron:crontab
 gemini:gemini
 gh:gh
@@ -366,7 +376,7 @@ TOOL_COMMANDS
 
   tool_gated_hooks=$(
     printf '%s\n' \
-      agent-rules codex-trust cron ignore iterm2 karabiner ssh tmux wezterm
+      agent-rules cron ignore iterm2 karabiner ssh tmux wezterm zz-codex-trust
   )
   # Root-gated hooks change system state, so the privilege check must precede
   # even the tool probe; ordinary user updates never touch them.
@@ -429,8 +439,8 @@ TOOL_COMMANDS
   while IFS= read -r hook_name; do
     hook_file=$hook_name
     # Serial barriers keep their identity but live in a `.serial.sh` file so
-    # the runner schedules them alone between parallel batches.
-    if [[ $hook_file == codex-trust ]]; then
+    # the runner schedules them alone after the parallel batch.
+    if [[ $hook_file == zz-codex-trust ]]; then
       hook_file=$hook_file.serial
     fi
     hook_path="$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/$hook_file.sh"
@@ -2042,8 +2052,38 @@ EOF
   echo "=== base merge hook ownership boundary ==="
 
   expected_base_hooks=$(printf '%s\n' \
-    agent-rules codex-trust cron ignore iterm2 karabiner ssh sshd tmux wezterm | LC_ALL=C sort)
+    agent-rules cron ignore iterm2 karabiner ssh sshd tmux wezterm zz-codex-trust | LC_ALL=C sort)
   actual_hooks=$(_dot_test_merge_hook_names "$REAL_HOME")
   _assert_eq "merge hooks: only base-owned hooks are present" \
     "$expected_base_hooks" "$actual_hooks"
+
+  echo "=== base serial barriers trail the Configs stage ==="
+
+  # The runner flushes the pending parallel batch at every serial barrier, so
+  # a barrier sorted among ordinary hooks splits them into sequential batches.
+  # Keep each base barrier after every ordinary base hook so those hooks run
+  # as one batch before it. Order by the runner's LC_ALL=C sort key: the
+  # basename without `.sh`, then without `.serial`.
+  base_hook_order=$(
+    while IFS= read -r base_hook_file; do
+      [[ -n $base_hook_file ]] || continue
+      base_hook_key=${base_hook_file%.sh}
+      printf '%s\t%s\n' "${base_hook_key%.serial}" "$base_hook_file"
+    done <<<"$(_dot_test_merge_hook_files "$REAL_HOME")" | LC_ALL=C sort
+  )
+  serial_barriers=0
+  seen_serial=0
+  serial_order_ok=1
+  while IFS=$'\t' read -r _ base_hook_file; do
+    if [[ $base_hook_file == *.serial.sh ]]; then
+      serial_barriers=$((serial_barriers + 1))
+      seen_serial=1
+    elif ((seen_serial)); then
+      serial_order_ok=0
+    fi
+  done <<<"$base_hook_order"
+  _assert_eq "merge hooks: serial barriers sort after every ordinary base hook" \
+    "1" "$serial_order_ok"
+  _assert_eq "merge hooks: the Codex trust barrier is present" \
+    "1" "$serial_barriers"
 }

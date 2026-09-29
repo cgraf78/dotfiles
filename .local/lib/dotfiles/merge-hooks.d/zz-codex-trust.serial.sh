@@ -10,10 +10,13 @@ dot_hook_source merge-hooks.d/lib/compat.sh || return
 # trust; $HOME, the current user's home directories on every platform layout,
 # and explicit non-trusted stanzas are always preserved.
 #
-# This is a serial barrier on purpose: the dev-owned `codex` hook sorts
-# immediately before this identity and rewrites the same file, so this prune
-# must run after that merge completes instead of racing it in a parallel
-# batch. See merge-hooks.d/README.md.
+# This is a serial barrier on purpose: the dev-owned `codex` hook rewrites the
+# same file, so this prune must run after that merge completes instead of
+# racing it in a parallel batch. The runner flushes the pending parallel batch
+# at every barrier, so the `zz-` identity sorts this one after every base hook
+# and the usual overlay hooks: they run as one batch and the prune follows once
+# they finish. An overlay hook that sorts even later simply runs in a short
+# batch after it; no other hook touches this file. See merge-hooks.d/README.md.
 #
 # The ~80ms Python prune is skipped when the prune verdict cannot have
 # changed: the stamp records the config path, its checksum, and every
@@ -103,7 +106,7 @@ _codex_trust_fingerprint() {
 }
 
 merge() {
-  _dot_tool_present codex-trust || return 0
+  _dot_tool_present zz-codex-trust || return 0
   local dst="$HOME/.codex/config.toml"
   [[ -s "$dst" ]] || return 0
 

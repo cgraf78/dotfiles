@@ -9,7 +9,7 @@ export NO_COLOR=1
 
 source_home=${DOT_TEST_SOURCE_HOME:-$HOME}
 helper=$source_home/.local/lib/dotfiles/merge-hooks.d/lib/codex-trust/prune-projects.py
-hook=$source_home/.local/lib/dotfiles/merge-hooks.d/codex-trust.serial.sh
+hook=$source_home/.local/lib/dotfiles/merge-hooks.d/zz-codex-trust.serial.sh
 
 command -v python3 >/dev/null 2>&1 ||
   _test_skip_suite 'codex trust prune requires python3'
@@ -730,7 +730,7 @@ echo "=== Codex trust fingerprint scan ==="
 # fingerprint (rc 0), anything else fails closed into a prune (rc 1).
 # Sourced in-process with stubbed hook APIs; the scan is pure.
 dot_hook_source() { return 0; }
-# shellcheck source=../merge-hooks.d/codex-trust.serial.sh
+# shellcheck source=../merge-hooks.d/zz-codex-trust.serial.sh
 . "$hook"
 _fingerprint_rc() {
   local content=$1 file rc
