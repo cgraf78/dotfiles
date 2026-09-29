@@ -1,6 +1,8 @@
 # Base Core Test Modules
 
-The focused wrappers beside this directory select modules from `core-test`:
+The focused `core-*-test` wrappers beside this directory select modules from
+`core-test`; `core-update-test` is the exception, a standalone end-to-end
+update integration that does not use these modules:
 
 - `cron.sh` covers base cron aggregation and filters;
 - `doctor.sh` covers base doctor helpers and section discovery;

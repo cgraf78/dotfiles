@@ -5,8 +5,10 @@
 # client launchers, application hooks, doctor extensions, and static policy.
 #
 # Usage:
-#   dot test core              run all core shards
-#   DOT_CORE_SHARD=all ./core-test
+#   dot test core              runs core-test (main shard) plus every
+#                              core-*-test suite (all shards and core-update)
+#   ./core-test                defaults to DOT_CORE_SHARD=main
+#   DOT_CORE_SHARD=all ./core-test   run every shard in one process
 #   DOT_CORE_SHARD=main ./core-test
 #   DOT_CORE_SHARD=merges ./core-test
 #   DOT_CORE_SHARD=launchers ./core-test

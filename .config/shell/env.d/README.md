@@ -6,5 +6,6 @@ platform detection. Prompts, completions, aliases, and keybindings belong in
 `../interactive.d/`.
 
 `50-core.sh` owns values needed by downstream fragments, including Shdeps and
-non-interactive shell bootstrapping. Selected overlays may contribute later
-fragments for editor defaults or development environments.
+non-interactive shell bootstrapping. Selected overlays may contribute fragments
+before, between, or after the base fragments, choosing prefixes relative to the
+base layers they depend on.

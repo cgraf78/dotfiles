@@ -11,6 +11,13 @@ those interfaces execute.
 - `tests/` contains base, profile-control, ownership, and composition coverage.
 - `shell-loader.sh`, `launcher-real.sh`, `windows.sh`, and
   `shdeps-assets.sh` are shared base helpers.
+- `agent-playbooks.sh` discovers the trusted agent playbooks selected by
+  dotfiles policy.
+- `door-guard.sh` reinstalls a missing or unrunnable `dot` entry point before
+  update.
+- `shell-grok-rc.sh` strips the Grok installer block from the thin shell
+  loaders.
+- `worktree-gc.sh` implements the `dot-worktree-gc` command.
 
 Editor and development runtime belongs to `dotfiles-nvim` and `dotfiles-dev`.
 Executable extensions use only Dot's public hook or doctor API.

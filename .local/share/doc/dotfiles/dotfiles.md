@@ -354,10 +354,12 @@ Check readiness before pushing:
 
 ```bash
 dot status
-sley ready
 dot test
 dot push
 ```
+
+On machines where the `dotfiles-dev` overlay is active (it declares `sley`),
+also run `sley ready` before pushing.
 
 ## Testing
 
@@ -368,6 +370,9 @@ dot test
 ```
 
 The standalone Dot provider owns the runner; dotfiles supplies extension suites
-under `~/.local/lib/dotfiles/tests/`. See the
-[`tests` README](../../../../.local/lib/dotfiles/tests/README.md) for suite
-names, options, and CI coverage.
+under `~/.local/lib/dotfiles/tests/`. Run `dot test --list` for the suite
+names available on this machine and `dot test --help` for runner options.
+[`.github/dot-test-suites.txt`](../../../../.github/dot-test-suites.txt) is the
+literal CI inventory of base suites, and the
+[`tests` README](../../../../.local/lib/dotfiles/tests/README.md) covers CI
+coverage and the composition gates.
