@@ -63,15 +63,22 @@ convergence, and extension execution. It backs up conflicting files under
 ## Recovery
 
 When the base client Git directory can be discarded, recovery stays a clean
-reinitialization rather than a compatibility migration:
+reinitialization rather than a compatibility migration. Dot itself lives
+outside `~/.dotfiles`, so reinitialize with the installed `dot`:
 
 ```bash
 rm -rf ~/.dotfiles
-curl -fsSL cgraf78.github.io/d | bash
+dot init --yes git@github.com:cgraf78/dotfiles.git
 ```
 
 Dot recreates the canonical separate Git directory and preserves conflicting
 worktree files through its normal initialization backup.
+
+Do not rerun the `curl … | bash` shortcut on a host that already has Dot. The
+shortcut always runs Dot's installer first, and this repository manages Dot as a
+Shdeps `github:release` dependency; the installer refuses that Shdeps-managed
+`~/.local/share/cgraf78/dot` directory before initialization starts. Use the
+shortcut only on a host without Dot.
 
 ## Usage
 
@@ -135,14 +142,27 @@ for the data format and safe local-file rules.
 
 Profile changes are convergent in both directions. The next successful update
 adds newly selected overlay links and removes only exact managed links from
-deselected overlays, restoring lower-layer files where applicable. Cached
-checkouts, installed packages, and unmanaged files are retained. This is an
-activation change, not automatic storage reclamation: the footprint estimates
-below describe fresh installations, not the disk use of a machine after it has
-previously used a larger profile. After a downgrade, `shdeps prune --dry-run`
-previews removable Shdeps payloads and `shdeps prune` removes confirmed
-orphans. Native packages, Mise toolchains, Nvim data, marketplace extensions,
-and cached overlay checkouts require separate deliberate cleanup.
+deselected overlays, restoring lower-layer files where applicable. The update
+itself retains cached checkouts, installed packages, and unmanaged files. This
+is an activation change, not storage reclamation: the footprint estimates below
+describe fresh installations, not the disk use of a machine after it has
+previously used a larger profile.
+
+Shdeps payloads are reclaimed automatically instead: the auto-update cron runs
+`shdeps prune -y` whenever `dot update --cron` exits zero, including runs that
+skip for a dirty worktree or lock contention. Within one cron interval, every
+dependency no longer declared for the host loses its Shdeps-managed state:
+prune runs the orphan's `uninstall` hook (which may delete files that hook
+owns, such as installed fonts), then removes release payloads, managed checkout
+links, command and extras links, stamps, and manifest records. User-owned
+development clones such as `~/git/<repo>` stay in place, and native packages
+are never uninstalled. Because `-y` also bypasses prune's guard against
+removing every tracked dependency at once, a run that sees an empty or
+unmatched Shdeps config would prune them all.
+
+Run `shdeps prune --dry-run` to preview that removal, or `shdeps prune` to
+reclaim immediately. Native packages, Mise toolchains, Nvim data, marketplace
+extensions, and cached overlay checkouts require separate deliberate cleanup.
 
 `dot update` resolves profiles in two phases so an available personal overlay
 may contribute private selectors without exposing other unselected overlay
@@ -302,8 +322,10 @@ Advisory dependency warnings, optional overlay skips, cron's dirty-worktree
 skip, cron lock contention, and best-effort worktree normalization retain a
 zero exit status.
 
-When a pull updates tracked client policy, the standalone runtime re-execs the
-update so the remainder of the command uses the new policy.
+After every successful base pull, the standalone runtime reloads the client
+configuration in-process before profile resolution, so the remainder of the
+command uses any policy the pull changed. A reload failure restores the previous
+link generation and fails the update.
 
 Base files use `[ -f ]` guards and ordered config directories so overlays can
 contribute extra files without patching base files. Every machine is a peer:
