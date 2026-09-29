@@ -7,7 +7,7 @@ descriptors selected by the resolved profile.
 
 ## Adding An Overlay
 
-1. Create a conf file such as `20-editor.conf`.
+1. Create a conf file such as `50-myoverlay.conf`, choosing an unused prefix.
 2. Track it in the base repo with `git add` from `$HOME`.
 3. Run `dot update`.
 
@@ -44,7 +44,9 @@ hosts=workbox1
   used when available but skipped when the current machine cannot clone or pull
   them. Leave it unset for required overlays; missing keys or clone failures are
   reported as update failures.
-- `platforms` is optional. Values are `linux`, `macos`, and `wsl`.
+- `platforms` is optional. Values are `linux`, `macos`, `wsl`, and
+  `android`. WSL reports only `wsl`, so `linux` does not match it; Termux
+  matches both `linux` and `android`.
 - `hosts` is optional and matches `hostname -s`, case-insensitively.
 
 Prefix a platform or host with `!` to exclude it. When both `platforms` and

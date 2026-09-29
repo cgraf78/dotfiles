@@ -45,8 +45,10 @@ Dot config families use numeric prefixes when order matters:
 
 - lower numbers run earlier
 - higher numbers run later and can refine or override earlier policy
-- overlay-provided files should generally use `80-` or higher inside shared
-  ordered families so they run after base layers
+- overlay-provided files pick a prefix relative to the base layers they must
+  follow or precede; private overlays usually use `80-` or higher, while
+  editor, development, and bootstrap layers may interleave with or precede
+  base at a deliberate ordering point
 
 Use descriptive names for what a layer does. Avoid requiring consumers to know
 special words like `common` or `base`; when a config collection needs

@@ -1,30 +1,43 @@
 # tmux Config
 
-`tmux.conf` owns terminal multiplexing policy and the tmux side of the
-terminal navigation stack.
+`tmux.conf` is a thin loader that sources `conf.d/*.conf` in lexical order.
+The base `conf.d/10-base.conf` owns terminal multiplexing policy: sessions,
+status, clipboard, persistence, and the transport-aware tmux side of the
+terminal navigation stack. The `dotfiles-nvim` overlay adds
+`conf.d/20-editor.conf`, which owns editor-aware pane, tab, and link routing.
 
 ## Integration Points
 
-- Neovim pane and tab navigation use Termnav's Lua adapter. Local Neovim
-  splits remain process-free, adjacent tmux panes use one guarded tmux command,
-  and session-relative or outer routing stays in the shared router.
-- Ctrl-click routing delegates to `termnav tmux follow-click` from the `termnav`
-  dependency when the foreground pane is not already handling mouse events.
-- File opens route through `termnav nvim open`, also owned by `termnav`.
 - The default-server Continuum coordinator, its cheap save gate, and
   clipboard-history paste use `tmux-tools`.
 - Automatic session persistence uses TPM, `tmux-resurrect`, and
   `tmux-continuum`, installed as shdeps-managed repository checkouts.
-- Ctrl-Tab window switching forwards into Neovim/fzf and nested terminal apps,
-  switches tmux windows when the current tmux layer owns the chord, and sends
-  one-window boundaries through Termnav's native one-shot router with exact
-  client identity.
 - Alt-Shift-[ and Alt-Shift-] mirror WezTerm tab reordering for tmux windows:
-  the bindings forward into Neovim/fzf and nested terminal apps, swap tmux
-  windows only when the current window is not already at the edge, and route
-  one-window boundaries through the same Termnav entry point.
+  the bindings forward into nested terminal apps, swap tmux windows only when
+  the current window is not already at the edge, and route one-window
+  boundaries through Termnav's native one-shot router. The editor overlay
+  rebinds them so Neovim/fzf panes also receive the chord.
 - Copy-mode clipboard piping prefers the dotfiles `clip` command and falls
   back to platform clipboard tools.
+
+The editor overlay's `20-editor.conf` adds:
+
+- `set -g mouse on`. Base alone leaves tmux mouse mode off, so its copy-mode
+  mouse bindings only take effect when the editor overlay is active.
+- Neovim pane and tab navigation through Termnav's Lua adapter. Local Neovim
+  splits remain process-free, adjacent tmux panes use one guarded tmux command,
+  and session-relative or outer routing stays in the shared router.
+- Ctrl-click routing, which delegates to `termnav tmux follow-click` from the
+  `termnav` dependency when the foreground pane is not already handling mouse
+  events.
+- File opens through `termnav nvim open` (`prefix e`), also owned by
+  `termnav`.
+- Ctrl-Tab window switching, which forwards into Neovim/fzf and nested
+  terminal apps, switches tmux windows when the current tmux layer owns the
+  chord, and sends one-window boundaries through Termnav's native one-shot
+  router with exact client identity.
+- Ctrl-Shift-V forwarding as a private escape sequence for Neovim's yank
+  history.
 
 Keep generic tmux helper commands in their owning dependency repos. This
 directory should wire those commands into the user's tmux experience, not own
@@ -37,9 +50,14 @@ passthrough, and hyperlink support. Those settings are part of the contract
 between WezTerm, tmux, Neovim, and remote shells. Be careful changing them:
 some require a fresh tmux server, not just `tmux source-file`.
 
-Mouse bindings should preserve nested behavior. When `#{mouse_any_flag}` is
-set, tmux forwards the event inward with `send-keys -M`; only bare terminal
-panes should be handled by the outer tmux layer.
+Mouse bindings, which are active only with the editor overlay's mouse mode,
+should preserve nested behavior. When `#{mouse_any_flag}` is set, tmux forwards
+the event inward with `send-keys -M`; only bare terminal panes should be
+handled by the outer tmux layer.
+
+The Ctrl-h/j/k/l, Alt-Shift-H/J/K/L, Ctrl-backslash, and Ctrl-Tab bindings
+described below live in the editor overlay's `20-editor.conf`; base owns the
+ancestor relay keys (`User8`-`User13`) they depend on.
 
 Ctrl-h/j/k/l bindings should follow focused pane ownership across nested tmux
 layers. Editors and fzf receive the chord directly. Interactive transports and
@@ -129,9 +147,10 @@ keeps at least five snapshots and otherwise removes files older than 30 days.
 Snapshots use a private host-specific directory so machines sharing a home
 directory do not overwrite one another's state.
 
-Keep the TPM block at the end of `tmux.conf` and keep continuum last in the
-plugin list. Continuum injects autosave through `status-right`, so a later
-plugin or status assignment would silently disable periodic saves. The older
+Keep the TPM block at the end of `conf.d/10-base.conf` and keep continuum
+last in the plugin list. Continuum injects autosave through `status-right`, so
+a later plugin or status assignment, including one in a later overlay
+fragment, would silently disable periodic saves. The older
 manual save/restore commands and their prefix+S/prefix+R bindings were retired:
 this configuration uses tmux-resurrect as the single persistence mechanism.
 

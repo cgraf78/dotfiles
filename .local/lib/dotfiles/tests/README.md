@@ -48,8 +48,9 @@ as an explicit value wherever a single-shot resolution is acceptable:
 Emergency rollback: if a broken Dot release reds CI, temporarily set an
 explicit tag instead of resolving latest (`DOT_STACK_DOT_RELEASE_TAG` and
 `DOT_TEST_DOT_RELEASE_TAG` both accept one; the live suite takes a
-literal `LIVE_TAG`) and relax the no-pin assertions in
-`core/static.sh` / `test/workflow-test` until latest is healthy again.
+literal `LIVE_TAG`) and relax the no-pin assertions in `core/static.sh` and,
+in the `dotfiles-nvim` and `dotfiles-dev` overlays, `test/workflow-test`
+until latest is healthy again.
 
 Shared CI first checks out the immutable pull-request head, then uses
 `run-ci-candidate-home` to clone that commit into Dot's normal separate-Git
