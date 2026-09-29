@@ -62,6 +62,7 @@ program	.local/lib/dotfiles/merge-hooks.d/lib/compat.sh
 program	.local/lib/dotfiles/merge-hooks.d/lib/shdeps-assets.sh
 program	.local/lib/dotfiles/merge-hooks.d/lib/windows.sh
 program	.local/lib/dotfiles/merge-hooks.d/ssh.sh
+program	.local/lib/dotfiles/merge-hooks.d/sshd.sh
 program	.local/lib/dotfiles/merge-hooks.d/tmux.sh
 program	.local/lib/dotfiles/merge-hooks.d/wezterm.sh
 program	.local/lib/dotfiles/pre-sync.d/10-overlay-ssh.sh

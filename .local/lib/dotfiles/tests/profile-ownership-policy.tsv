@@ -18,8 +18,8 @@ base	profile-control	.config/dot/profile-selectors.d/**
 base	profile-control	.local/lib/dotfiles/pre-sync.d/**
 base	profile-docs	.local/share/doc/dotfiles/**
 base	ssh	.config/dot/merge-hooks.d/ssh/**
-base	ssh	.config/dot/merge-hooks.d/sshd/**
 base	ssh	.local/lib/dotfiles/merge-hooks.d/ssh.sh
+base	ssh	.local/lib/dotfiles/merge-hooks.d/sshd.sh
 base	shell-tools	.config/ds/README.md
 base	shell-tools	.config/ripgrep/README.md
 base	shell-tools	.config/ripgrep/config
