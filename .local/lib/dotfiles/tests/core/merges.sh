@@ -270,6 +270,7 @@ nvim:nvim
 opencode:opencode
 sapling:sl
 ssh:ssh
+sshd:sshd
 tmux:tmux
 TOOL_COMMANDS
 
@@ -367,6 +368,9 @@ TOOL_COMMANDS
     printf '%s\n' \
       agent-rules codex-trust cron ignore iterm2 karabiner ssh tmux wezterm
   )
+  # Root-gated hooks change system state, so the privilege check must precede
+  # even the tool probe; ordinary user updates never touch them.
+  root_gated_hooks=sshd
   merge_hook_inventory_home=$(_tmpdir)
   mkdir -p "$merge_hook_inventory_home/.local/lib/dotfiles/merge-hooks.d/lib"
   printf '# tracked base hook\n' \
@@ -419,7 +423,8 @@ TOOL_COMMANDS
 
   classified_hooks=$(_dot_test_merge_hook_names "$REAL_HOME")
   _assert_eq "merge hook gates: every base hook is classified" \
-    "$(printf '%s\n' "$tool_gated_hooks" | LC_ALL=C sort)" "$classified_hooks"
+    "$(printf '%s\n%s\n' "$tool_gated_hooks" "$root_gated_hooks" | LC_ALL=C sort)" \
+    "$classified_hooks"
 
   while IFS= read -r hook_name; do
     hook_file=$hook_name
@@ -459,6 +464,47 @@ TOOL_COMMANDS
       0 "$absent_hook_status"
     _assert_eq "$hook_name merge: absent tool is silent" "" "$absent_hook_output"
   done <<<"$tool_gated_hooks"
+
+  while IFS= read -r hook_name; do
+    hook_path="$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/$hook_name.sh"
+    first_merge_statement=$(
+      awk '
+        /^merge\(\)[[:space:]]*\{/ { in_merge = 1; next }
+        in_merge && /^[[:space:]]*$/ { next }
+        in_merge && /^[[:space:]]*#/ { next }
+        in_merge {
+          sub(/^[[:space:]]+/, "")
+          print
+          exit
+        }
+      ' "$hook_path"
+    )
+    # shellcheck disable=SC2016 # Compare the literal source guard.
+    _assert_eq "$hook_name merge: privilege guard is the first operation" \
+      '[[ "$(_sshd_effective_uid)" == 0 ]] || return 0' \
+      "$first_merge_statement"
+
+    nonroot_hook_output=$(
+      (
+        unset -f merge 2>/dev/null
+        # shellcheck source=/dev/null
+        . "$hook_path"
+        # shellcheck disable=SC2329 # Invoked indirectly by merge.
+        _sshd_effective_uid() { printf '%s\n' 1000; }
+        # shellcheck disable=SC2329 # Must prove the root guard skips this.
+        _dot_tool_present() {
+          printf 'unexpected tool probe\n' >&2
+          return 0
+        }
+        merge
+      ) 2>&1
+    )
+    nonroot_hook_status=$?
+    _assert_exit "$hook_name merge: non-root run is a successful no-op" \
+      0 "$nonroot_hook_status"
+    _assert_eq "$hook_name merge: non-root run is silent" \
+      "" "$nonroot_hook_output"
+  done <<<"$root_gated_hooks"
 
   echo "=== Merge hook support helpers ==="
 
@@ -1285,6 +1331,343 @@ EOF
     "$(cat "$iterm2_fail_log")"
 
   echo ""
+  echo "=== SSH server config merge hook ==="
+
+  _SSHD_HOOK="$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/sshd.sh"
+  SSHD_TEST_ROOT="$TEST_HOME/sshd-root"
+  # Stands in for Termnav's shdeps-resolved share/termnav/sshd_config.
+  SSHD_SOURCE="$TEST_HOME/termnav-share/sshd_config"
+  SSHD_DEST="$SSHD_TEST_ROOT/sshd_config.d/60-termnav-relay.conf"
+  SSHD_PENDING="$SSHD_TEST_ROOT/.60-termnav-relay.reload-pending"
+  SSHD_LOG="$TEST_HOME/sshd-merge.log"
+  sshd_tool_present_impl=$(declare -f _dot_tool_present)
+
+  _run_sshd_merge() {
+    unset -f merge _sshd_effective_uid _sshd_config_root _sshd_ready \
+      _sshd_set_owner _sshd_fragment_source 2>/dev/null
+    # shellcheck source=/dev/null
+    . "$_SSHD_HOOK"
+    # Stubs must follow the source line: the hook re-sources compat.sh, which
+    # would otherwise restore the real tool probe.
+    # shellcheck disable=SC2329 # Invoked indirectly by merge.
+    _dot_tool_present() { return "${SSHD_TOOL_STATUS:-0}"; }
+    # shellcheck disable=SC2329 # Invoked indirectly by merge.
+    _sshd_effective_uid() { printf '%s\n' 0; }
+    # shellcheck disable=SC2329 # Invoked indirectly by merge.
+    _sshd_config_root() { printf '%s\n' "$SSHD_TEST_ROOT"; }
+    # shellcheck disable=SC2329 # Invoked indirectly by merge.
+    _sshd_ready() {
+      printf 'ready:%s\n' "$1" >>"$SSHD_LOG"
+      return "${SSHD_READY_STATUS:-0}"
+    }
+    # shellcheck disable=SC2329 # Invoked indirectly by merge.
+    _sshd_set_owner() { printf 'owner:%s\n' "$1" >>"$SSHD_LOG"; }
+    # shellcheck disable=SC2329 # Invoked indirectly by merge.
+    _sshd_fragment_source() {
+      [[ "${SSHD_TERMNAV_STATUS:-0}" == 0 ]] || return 1
+      printf '%s\n' "$SSHD_SOURCE"
+    }
+    merge
+  }
+
+  # Service-manager stubs are active for every case, so a guard that failed to
+  # stop the hook would show up in the log instead of reaching the host's sshd.
+  # shellcheck disable=SC2329 # Invoked indirectly by the hook under test.
+  sshd() {
+    printf 'validate:%s\n' "$*" >>"$SSHD_LOG"
+    [[ "$1" == -T ]] &&
+      printf '%s TERMNAV_PARENT_RELAY\n' "${SSHD_EFFECTIVE_KEY:-acceptenv}"
+    return "${SSHD_VALIDATE_STATUS:-0}"
+  }
+  # shellcheck disable=SC2329 # Invoked indirectly by the hook under test.
+  systemctl() {
+    printf 'systemctl:%s\n' "$*" >>"$SSHD_LOG"
+    case "$1:${3:-$2}" in
+      is-active:sshd.service) return "${SSHD_SERVICE_STATUS:-0}" ;;
+      is-active:ssh.service) return "${SSH_SERVICE_STATUS:-1}" ;;
+      reload:*) return "${SSHD_RELOAD_STATUS:-0}" ;;
+    esac
+    return 1
+  }
+  # shellcheck disable=SC2329 # Invoked indirectly by the hook under test.
+  service() {
+    printf 'service:%s\n' "$*" >>"$SSHD_LOG"
+    case "$1:$2" in
+      sshd:status) return "${SSHD_SYSV_STATUS:-1}" ;;
+      ssh:status) return "${SSH_SYSV_STATUS:-1}" ;;
+      *:reload) return "${SSHD_RELOAD_STATUS:-0}" ;;
+    esac
+    return 1
+  }
+  # shellcheck disable=SC2329 # Invoked indirectly by the hook under test.
+  launchctl() {
+    printf 'launchctl:%s\n' "$*" >>"$SSHD_LOG"
+    case "$1:$2" in
+      print:system/com.openssh.sshd) return "${SSHD_LAUNCHD_STATUS:-1}" ;;
+      kickstart:-k) return "${SSHD_RELOAD_STATUS:-0}" ;;
+    esac
+    return 1
+  }
+  export SSHD_VALIDATE_STATUS=0 SSHD_SERVICE_STATUS=0 SSH_SERVICE_STATUS=1
+  export SSHD_SYSV_STATUS=1 SSH_SYSV_STATUS=1 SSHD_LAUNCHD_STATUS=1
+  export SSHD_RELOAD_STATUS=0 SSHD_LOG
+
+  # Guard cases below run against an otherwise installable host, so each
+  # asserts that the hook stopped before touching sshd, not merely that the
+  # destination happens to be missing.
+  rm -rf "$SSHD_TEST_ROOT" "${SSHD_SOURCE%/*}"
+  mkdir -p "${SSHD_SOURCE%/*}" "$SSHD_TEST_ROOT/sshd_config.d"
+  printf 'AcceptEnv TERMNAV_PARENT_RELAY\n' >"$SSHD_SOURCE"
+  printf 'Port 22\n' >"$SSHD_TEST_ROOT/sshd_config"
+
+  sshd_adapter_request=$(
+    unset -f merge 2>/dev/null
+    # shellcheck source=/dev/null
+    . "$_SSHD_HOOK"
+    # shellcheck disable=SC2329 # Invoked by the adapter under test.
+    dot_shdeps_dep_file() { printf '%s\n' "$*"; }
+    _sshd_fragment_source
+  )
+  _assert_eq "sshd hook: resolves the fragment Termnav ships" \
+    "cgraf78/termnav share/termnav/sshd_config" "$sshd_adapter_request"
+
+  _sshd_guard_case() {
+    local name="$1" output status=0
+    : >"$SSHD_LOG"
+    output=$(_run_sshd_merge 2>&1) || status=$?
+    _assert_exit "sshd hook: $name is a successful no-op" 0 "$status"
+    _assert_eq "sshd hook: $name is silent" "" "$output"
+    _assert_eq "sshd hook: $name never runs sshd or installs" \
+      "" "$(awk '!/^ready:/' "$SSHD_LOG")"
+    _assert_file_missing "sshd hook: $name creates no fragment" "$SSHD_DEST"
+  }
+
+  export SSHD_TOOL_STATUS=1
+  _sshd_guard_case "absent sshd"
+  _assert_eq "sshd hook: absent sshd skips the readiness probe" \
+    "" "$(cat "$SSHD_LOG")"
+  export SSHD_TOOL_STATUS=0
+
+  export SSHD_TERMNAV_STATUS=1
+  _sshd_guard_case "unresolved Termnav"
+  export SSHD_TERMNAV_STATUS=0
+
+  rm -rf "$SSHD_TEST_ROOT/sshd_config.d"
+  _sshd_guard_case "missing include directory"
+  mkdir -p "$SSHD_TEST_ROOT/sshd_config.d"
+
+  export SSHD_READY_STATUS=1
+  _sshd_guard_case "unready server"
+  export SSHD_READY_STATUS=0
+
+  export SSHD_EFFECTIVE_KEY=AcceptEnv
+  : >"$SSHD_LOG"
+  _run_sshd_merge >/dev/null 2>&1
+  _assert_file_exists \
+    "sshd hook: accepts title-case OpenSSH effective keys" "$SSHD_DEST"
+  _assert_eq "sshd hook: installs Termnav's exact fragment" \
+    "$(cat "$SSHD_SOURCE")" "$(cat "$SSHD_DEST")"
+  sshd_mode=$(stat -c '%a' "$SSHD_DEST" 2>/dev/null ||
+    stat -f '%Lp' "$SSHD_DEST")
+  _assert_eq "sshd hook: installs system config mode" "644" "$sshd_mode"
+  sshd_log=$(cat "$SSHD_LOG")
+  _assert_contains "sshd hook: validates full server config" \
+    "validate:-t -f $SSHD_TEST_ROOT/sshd_config" "$sshd_log"
+  _assert_contains "sshd hook: checks effective AcceptEnv policy" \
+    "validate:-T -f $SSHD_TEST_ROOT/sshd_config" "$sshd_log"
+  _assert_contains "sshd hook: sets root ownership through adapter" \
+    "owner:" "$sshd_log"
+  _assert_contains "sshd hook: reloads active sshd service" \
+    "systemctl:reload sshd.service" "$sshd_log"
+
+  export SSHD_EFFECTIVE_KEY=acceptenv
+  : >"$SSHD_LOG"
+  sshd_unchanged_output=$(_run_sshd_merge 2>&1)
+  _assert_eq "sshd hook: present fragment performs no validation or reload" \
+    "" "$(awk '!/^ready:/' "$SSHD_LOG")"
+  _assert_eq "sshd hook: present fragment is silent" "" "$sshd_unchanged_output"
+
+  # A Termnav release that edits its fragment must reach hosts that already
+  # carry an older copy, including the pre-extraction dotfiles copy.
+  printf 'AcceptEnv TERMNAV_PARENT_RELAY\n# update\n' >"$SSHD_SOURCE"
+  export SSHD_SERVICE_STATUS=1 SSH_SERVICE_STATUS=0
+  : >"$SSHD_LOG"
+  _run_sshd_merge >/dev/null 2>&1
+  _assert_contains "sshd hook: updates changed fragment" \
+    "# update" "$(cat "$SSHD_DEST")"
+  _assert_contains "sshd hook: reloads Debian ssh service fallback" \
+    "systemctl:reload ssh.service" "$(cat "$SSHD_LOG")"
+
+  printf 'AcceptEnv TERMNAV_PARENT_RELAY\n# sysv\n' >"$SSHD_SOURCE"
+  export SSHD_SERVICE_STATUS=1 SSH_SERVICE_STATUS=1 SSHD_SYSV_STATUS=0
+  : >"$SSHD_LOG"
+  _run_sshd_merge >/dev/null 2>&1
+  _assert_contains "sshd hook: reloads active SysV sshd service" \
+    "service:sshd reload" "$(cat "$SSHD_LOG")"
+
+  printf 'AcceptEnv TERMNAV_PARENT_RELAY\n# launchd\n' >"$SSHD_SOURCE"
+  export SSHD_SYSV_STATUS=1 SSHD_LAUNCHD_STATUS=0
+  : >"$SSHD_LOG"
+  _run_sshd_merge >/dev/null 2>&1
+  _assert_contains "sshd hook: reloads active macOS launchd service" \
+    "launchctl:kickstart -k system/com.openssh.sshd" "$(cat "$SSHD_LOG")"
+  # macOS Includes sshd_config.d/* with no suffix, so any staging, backup, or
+  # marker file left there would be parsed as live policy.
+  _assert_eq "sshd hook: include directory holds only the fragment" \
+    "60-termnav-relay.conf" "$(ls -A "$SSHD_TEST_ROOT/sshd_config.d")"
+  _assert_file_missing "sshd hook: successful activation clears pending marker" \
+    "$SSHD_PENDING"
+
+  printf 'AcceptEnv TERMNAV_PARENT_RELAY\n# stopped\n' >"$SSHD_SOURCE"
+  export SSHD_LAUNCHD_STATUS=1
+  : >"$SSHD_LOG"
+  sshd_stopped_status=0
+  _run_sshd_merge >/dev/null 2>&1 || sshd_stopped_status=$?
+  _assert_exit "sshd hook: stopped server is a successful install" \
+    0 "$sshd_stopped_status"
+  _assert_contains "sshd hook: stopped server still gets the fragment" \
+    "# stopped" "$(cat "$SSHD_DEST")"
+  _assert_file_missing "sshd hook: stopped server leaves nothing pending" \
+    "$SSHD_PENDING"
+
+  printf 'AcceptEnv TERMNAV_PARENT_RELAY\nPermitRootLogin yes\n' >"$SSHD_SOURCE"
+  : >"$SSHD_LOG"
+  sshd_foreign_status=0
+  sshd_foreign_output=$(_run_sshd_merge 2>&1) || sshd_foreign_status=$?
+  _assert_exit "sshd hook: foreign directive is refused" 1 "$sshd_foreign_status"
+  _assert_contains "sshd hook: foreign directive refusal is reported" \
+    "refusing unexpected directives" "$sshd_foreign_output"
+  _assert_contains "sshd hook: foreign directive never reaches sshd_config.d" \
+    "# stopped" "$(cat "$SSHD_DEST")"
+  _assert_eq "sshd hook: foreign directive is refused before sshd runs" \
+    "" "$(awk '!/^ready:/' "$SSHD_LOG")"
+
+  printf '# comment only\n' >"$SSHD_SOURCE"
+  sshd_empty_status=0
+  _run_sshd_merge >/dev/null 2>&1 || sshd_empty_status=$?
+  _assert_exit "sshd hook: fragment without the directive is refused" \
+    1 "$sshd_empty_status"
+
+  printf 'AcceptEnv TERMNAV_PARENT_RELAY LANG\n' >"$SSHD_SOURCE"
+  sshd_foreign_var_status=0
+  _run_sshd_merge >/dev/null 2>&1 || sshd_foreign_var_status=$?
+  _assert_exit "sshd hook: non-Termnav variable is refused" \
+    1 "$sshd_foreign_var_status"
+
+  # Termnav may grow its own namespace without a lockstep dotfiles change.
+  printf 'AcceptEnv TERMNAV_PARENT_RELAY TERMNAV_FUTURE\n' >"$SSHD_SOURCE"
+  sshd_namespace_status=0
+  _run_sshd_merge >/dev/null 2>&1 || sshd_namespace_status=$?
+  _assert_exit "sshd hook: additional Termnav variables are accepted" \
+    0 "$sshd_namespace_status"
+  _assert_contains "sshd hook: additional Termnav variables are installed" \
+    "TERMNAV_FUTURE" "$(cat "$SSHD_DEST")"
+
+  # A run killed after the fragment changed but before activation finished
+  # leaves matching bytes plus the marker; the next run must revalidate and
+  # reload rather than trust the unchanged content.
+  printf 'AcceptEnv TERMNAV_PARENT_RELAY\n# stopped\n' >"$SSHD_SOURCE"
+  cp "$SSHD_SOURCE" "$SSHD_DEST"
+  : >"$SSHD_PENDING"
+  export SSHD_SERVICE_STATUS=0
+  : >"$SSHD_LOG"
+  _run_sshd_merge >/dev/null 2>&1
+  sshd_log=$(cat "$SSHD_LOG")
+  _assert_not_contains "sshd hook: interrupted activation reuses the live fragment" \
+    "owner:" "$sshd_log"
+  _assert_contains "sshd hook: interrupted activation is revalidated" \
+    "validate:-T -f $SSHD_TEST_ROOT/sshd_config" "$sshd_log"
+  _assert_contains "sshd hook: interrupted activation is reloaded" \
+    "systemctl:reload sshd.service" "$sshd_log"
+  _assert_file_missing "sshd hook: recovered activation clears pending marker" \
+    "$SSHD_PENDING"
+
+  : >"$SSHD_PENDING"
+  export SSHD_VALIDATE_STATUS=1
+  : >"$SSHD_LOG"
+  sshd_interrupted_status=0
+  _run_sshd_merge >/dev/null 2>&1 || sshd_interrupted_status=$?
+  _assert_exit "sshd hook: invalid interrupted activation propagates" \
+    1 "$sshd_interrupted_status"
+  _assert_not_contains "sshd hook: invalid interrupted activation does not reload" \
+    "systemctl:reload" "$(cat "$SSHD_LOG")"
+  rm -f "$SSHD_PENDING"
+
+  printf 'known-good\n' >"$SSHD_DEST"
+  printf 'AcceptEnv TERMNAV_PARENT_RELAY\n# rejected\n' >"$SSHD_SOURCE"
+  export SSHD_VALIDATE_STATUS=1 SSHD_SERVICE_STATUS=0 SSH_SERVICE_STATUS=1
+  export SSHD_LAUNCHD_STATUS=1
+  : >"$SSHD_LOG"
+  sshd_validation_status=0
+  sshd_validation_output=$(_run_sshd_merge 2>&1) || sshd_validation_status=$?
+  _assert_exit "sshd hook: validation failure propagates" 1 "$sshd_validation_status"
+  _assert_contains "sshd hook: validation failure names the rejected fragment" \
+    "$SSHD_DEST" "$sshd_validation_output"
+  _assert_eq "sshd hook: validation failure restores previous fragment" \
+    "known-good" "$(cat "$SSHD_DEST")"
+  _assert_not_contains "sshd hook: validation failure does not reload" \
+    "systemctl:reload" "$(cat "$SSHD_LOG")"
+  _assert_file_missing "sshd hook: validation failure leaves nothing pending" \
+    "$SSHD_PENDING"
+  _assert_eq "sshd hook: validation failure leaves no staging files" \
+    "60-termnav-relay.conf" "$(ls -A "$SSHD_TEST_ROOT/sshd_config.d")"
+
+  # Syntax passes but the effective config lacks the variable, as when the
+  # main config never Includes sshd_config.d.
+  printf 'AcceptEnv TERMNAV_PARENT_RELAY\n' >"$SSHD_SOURCE"
+  export SSHD_VALIDATE_STATUS=0 SSHD_EFFECTIVE_KEY=setenv
+  : >"$SSHD_LOG"
+  sshd_unloaded_status=0
+  _run_sshd_merge >/dev/null 2>&1 || sshd_unloaded_status=$?
+  _assert_exit "sshd hook: unloaded fragment propagates" 1 "$sshd_unloaded_status"
+  _assert_eq "sshd hook: unloaded fragment restores previous fragment" \
+    "known-good" "$(cat "$SSHD_DEST")"
+  export SSHD_EFFECTIVE_KEY=acceptenv SSHD_VALIDATE_STATUS=1
+
+  rm -f "$SSHD_DEST"
+  : >"$SSHD_LOG"
+  sshd_validation_status=0
+  _run_sshd_merge >/dev/null 2>&1 || sshd_validation_status=$?
+  _assert_exit "sshd hook: invalid first install propagates" 1 "$sshd_validation_status"
+  _assert_file_missing "sshd hook: invalid first install is removed" "$SSHD_DEST"
+
+  export SSHD_VALIDATE_STATUS=0 SSHD_RELOAD_STATUS=1
+  : >"$SSHD_LOG"
+  sshd_reload_status=0
+  _run_sshd_merge >/dev/null 2>&1 || sshd_reload_status=$?
+  _assert_exit "sshd hook: reload failure propagates" 1 "$sshd_reload_status"
+  _assert_file_exists "sshd hook: validated fragment remains after reload failure" "$SSHD_DEST"
+  _assert_file_exists "sshd hook: reload failure records pending activation" \
+    "$SSHD_PENDING"
+
+  export SSHD_RELOAD_STATUS=0
+  : >"$SSHD_LOG"
+  _run_sshd_merge >/dev/null 2>&1
+  _assert_contains "sshd hook: unchanged pending config retries reload" \
+    "systemctl:reload sshd.service" "$(cat "$SSHD_LOG")"
+  _assert_file_missing "sshd hook: successful retry clears pending activation" \
+    "$SSHD_PENDING"
+
+  rm -f "$SSHD_DEST"
+  ln -s "$TEST_HOME/sshd-symlink-target" "$SSHD_DEST"
+  : >"$SSHD_LOG"
+  sshd_symlink_status=0
+  _run_sshd_merge >/dev/null 2>&1 || sshd_symlink_status=$?
+  _assert_exit "sshd hook: symlink destination is rejected" 1 "$sshd_symlink_status"
+  _assert_file_missing "sshd hook: symlink target is never created" \
+    "$TEST_HOME/sshd-symlink-target"
+
+  eval "$sshd_tool_present_impl"
+  unset SSHD_READY_STATUS SSHD_VALIDATE_STATUS SSHD_SERVICE_STATUS SSH_SERVICE_STATUS
+  unset SSHD_SYSV_STATUS SSH_SYSV_STATUS SSHD_LAUNCHD_STATUS SSHD_TERMNAV_STATUS
+  unset SSHD_TOOL_STATUS
+  unset SSHD_RELOAD_STATUS SSHD_EFFECTIVE_KEY SSHD_LOG
+  unset -f sshd systemctl service launchctl _run_sshd_merge _sshd_effective_uid \
+    _sshd_config_root _sshd_ready _sshd_set_owner _sshd_fragment_source \
+    _sshd_validate _sshd_reload _sshd_install _sshd_fragment_allowed \
+    _sshd_mark_pending _sshd_guard_case merge
+
+  echo ""
   echo "=== SSH config merge hook ==="
 
   SSH_DIR="$TEST_HOME/.ssh"
@@ -1659,7 +2042,7 @@ EOF
   echo "=== base merge hook ownership boundary ==="
 
   expected_base_hooks=$(printf '%s\n' \
-    agent-rules codex-trust cron ignore iterm2 karabiner ssh tmux wezterm | LC_ALL=C sort)
+    agent-rules codex-trust cron ignore iterm2 karabiner ssh sshd tmux wezterm | LC_ALL=C sort)
   actual_hooks=$(_dot_test_merge_hook_names "$REAL_HOME")
   _assert_eq "merge hooks: only base-owned hooks are present" \
     "$expected_base_hooks" "$actual_hooks"
