@@ -223,4 +223,200 @@ if command -v zsh >/dev/null 2>&1; then
     "none" "$exported"
 fi
 
+# Environment ownership. Interactive and login loads are authoritative (new
+# tmux panes inherit tmux's stale global environment and must refresh it);
+# non-interactive loads run in every nested `bash -c`, script, and hook and must
+# keep values the caller passed down (`EDITOR=vim git commit`), filling only
+# missing ones. Shell-local state still loads in every shell. The fixture uses
+# the real base env.d so converted fragments are covered, plus probes for the
+# helper contract.
+OWN_HOME=$TEST_TMPDIR/own-home
+OWN_ENV_D=$OWN_HOME/.config/shell/env.d
+mkdir -p "$OWN_ENV_D" "$OWN_HOME/.config/shell/interactive.d" \
+  "$OWN_HOME/.local/lib/dotfiles" "$OWN_HOME/.local/bin"
+cp "$REAL_HOME/.config/shell/env-noninteractive.sh" "$OWN_HOME/.config/shell/"
+cp "$LOADER" "$OWN_HOME/.local/lib/dotfiles/shell-loader.sh"
+cp "$REAL_HOME/.zshenv" "$REAL_HOME/.zshrc" "$REAL_HOME/.zprofile" \
+  "$REAL_HOME/.bashrc" "$REAL_HOME/.bash_profile" "$OWN_HOME/"
+cp "$REAL_HOME/.config/shell/env.d/"*.sh "$OWN_ENV_D/"
+cat >"$OWN_ENV_D/15-probe-local.sh" <<'EOF'
+_dot_env_probe_fn() { :; }
+EOF
+cat >"$OWN_ENV_D/20-probe-local.bash" <<'EOF'
+shopt -s extglob
+DOT_ENV_PROBE_FLAVOR=bash
+EOF
+cat >"$OWN_ENV_D/20-probe-local.zsh" <<'EOF'
+setopt extendedglob
+DOT_ENV_PROBE_FLAVOR=zsh
+EOF
+# An earlier fragment's value must not look inherited to a later fragment
+# that owns the same name (base's RIPGREP_CONFIG_PATH, then the editor
+# overlay's).
+cat >"$OWN_ENV_D/81-probe-default.sh" <<'EOF'
+_shell_env_set DOT_ENV_PROBE_ORDER low
+EOF
+cat >"$OWN_ENV_D/82-probe-set.sh" <<'EOF'
+_shell_env_set DOT_ENV_PROBE_ORDER high
+EOF
+# A fragment that unsets an inherited value (a dead SSH_AUTH_SOCK) makes it
+# missing again, so the helper fills it.
+cat >"$OWN_ENV_D/83-probe-repair.sh" <<'EOF'
+[ "${DOT_ENV_PROBE_SOCK:-}" = dead ] && unset DOT_ENV_PROBE_SOCK
+_shell_env_set DOT_ENV_PROBE_SOCK live
+EOF
+# PATH edits by earlier fragments (tool bootstraps prepend, system rc appends).
+cat >"$OWN_ENV_D/85-probe-path.sh" <<'EOF'
+[ -n "${DOT_ENV_PROBE_PREPEND:-}" ] && PATH="$DOT_ENV_PROBE_PREPEND:$PATH"
+[ -n "${DOT_ENV_PROBE_APPEND:-}" ] && PATH="$PATH:$DOT_ENV_PROBE_APPEND"
+true
+EOF
+# Fake executables: one in a dotfiles-managed PATH dir, one in a caller venv.
+OWN_VENV=$TEST_TMPDIR/venv/bin
+mkdir -p "$OWN_VENV"
+printf '#!/bin/sh\n' >"$OWN_HOME/.local/bin/dot-env-probe-python"
+printf '#!/bin/sh\n' >"$OWN_VENV/dot-env-probe-python"
+chmod +x "$OWN_HOME/.local/bin/dot-env-probe-python" \
+  "$OWN_VENV/dot-env-probe-python"
+OWN_RG=$OWN_HOME/.config/ripgrep/config
+OWN_HOST_BINS=/usr/local/bin:/opt/homebrew/bin:/opt/homebrew/sbin
+
+# Like env_run, rooted at the ownership fixture. Interactive shells get a
+# /dev/null stdin as well, so job-control warnings go to stderr only.
+own_run() {
+  env -i HOME="$OWN_HOME" ZDOTDIR="$OWN_HOME" PATH="$PATH" \
+    BASH_ENV="$OWN_HOME/.config/shell/env-noninteractive.sh" "$@" \
+    </dev/null 2>/dev/null
+}
+
+# Print each PATH entry that appears more than once.
+path_dupes() {
+  printf '%s\n' "$1" | tr ':' '\n' | sort | uniq -d | paste -sd' ' -
+}
+
+# shellcheck disable=SC2016 # every probe below expands in the child shell.
+PROBE_RG='printf "%s|%s" "$RIPGREP_CONFIG_PATH" "${FZF_DEFAULT_OPTS-unset}"'
+# shellcheck disable=SC2016
+PROBE_LOCAL='type _dot_env_probe_fn >/dev/null 2>&1 && printf "fn:%s" "$DOT_ENV_PROBE_FLAVOR"'
+# shellcheck disable=SC2016
+PROBE_PY='command -v dot-env-probe-python; printf "%s\n" "$PATH"'
+
+# Probe command strings expand in the child shells, not here.
+# shellcheck disable=SC2016
+for own_sh in bash zsh; do
+  command -v "$own_sh" >/dev/null 2>&1 || continue
+
+  echo ""
+  echo "=== env ownership: non-interactive keeps caller values ($own_sh) ==="
+
+  _assert_eq "env ownership ($own_sh): missing values are filled" \
+    "$OWN_RG|--bind=ctrl-n:down,ctrl-p:up,ctrl-d:half-page-down,ctrl-u:half-page-up,alt-j:down,alt-k:up" \
+    "$(own_run "$own_sh" -c "$PROBE_RG")"
+  _assert_eq "env ownership ($own_sh): inherited values are kept" \
+    "/caller/rg|--caller" \
+    "$(own_run RIPGREP_CONFIG_PATH=/caller/rg FZF_DEFAULT_OPTS=--caller \
+      "$own_sh" -c "$PROBE_RG")"
+  _assert_eq "env ownership ($own_sh): inherited empty value is kept" \
+    "$OWN_RG|" \
+    "$(own_run FZF_DEFAULT_OPTS= "$own_sh" -c "$PROBE_RG")"
+  _assert_eq "env ownership ($own_sh): nested child keeps a caller override" \
+    "/caller/rg" \
+    "$(own_run "$own_sh" -c \
+      'RIPGREP_CONFIG_PATH=/caller/rg bash -c "printf %s \"\$RIPGREP_CONFIG_PATH\""')"
+  _assert_eq "env ownership ($own_sh): interactive parent, nested override kept" \
+    "/caller/rg" \
+    "$(own_run "$own_sh" -i -c \
+      'RIPGREP_CONFIG_PATH=/caller/rg bash -c "printf %s \"\$RIPGREP_CONFIG_PATH\""')"
+  _assert_eq "env ownership ($own_sh): later fragment replaces an earlier one" \
+    "high" "$(own_run "$own_sh" -c 'printf %s "$DOT_ENV_PROBE_ORDER"')"
+  _assert_eq "env ownership ($own_sh): inherited value beats every fragment" \
+    "caller" \
+    "$(own_run DOT_ENV_PROBE_ORDER=caller "$own_sh" -c 'printf %s "$DOT_ENV_PROBE_ORDER"')"
+  _assert_eq "env ownership ($own_sh): value unset by a fragment is refilled" \
+    "live" "$(own_run DOT_ENV_PROBE_SOCK=dead "$own_sh" -c 'printf %s "$DOT_ENV_PROBE_SOCK"')"
+  _assert_eq "env ownership ($own_sh): live inherited value is kept" \
+    "other" "$(own_run DOT_ENV_PROBE_SOCK=other "$own_sh" -c 'printf %s "$DOT_ENV_PROBE_SOCK"')"
+  _assert_eq "env ownership ($own_sh): no loader state leaks into the shell" \
+    "unset|unset|unset|none" \
+    "$(own_run "$own_sh" -c 'printf "%s|%s|%s|" "${_SHELL_ENV_MODE-unset}" \
+      "${_SHELL_ENV_OWNED-unset}" "${_SHELL_ENV_INHERITED_PATH-unset}"
+      env | grep "^_SHELL_ENV" || printf none')"
+
+  echo ""
+  echo "=== env ownership: interactive and login loads refresh ($own_sh) ==="
+
+  _assert_eq "env ownership ($own_sh): interactive shell refreshes a stale value" \
+    "$OWN_RG" \
+    "$(own_run RIPGREP_CONFIG_PATH=/stale "$own_sh" -i -c 'printf %s "$RIPGREP_CONFIG_PATH"')"
+  _assert_eq "env ownership ($own_sh): inherited mode variable cannot force fill" \
+    "$OWN_RG" \
+    "$(own_run _SHELL_ENV_MODE=fill "_SHELL_ENV_OWNED= " \
+      RIPGREP_CONFIG_PATH=/stale "$own_sh" -i -c 'printf %s "$RIPGREP_CONFIG_PATH"')"
+  _assert_eq "env ownership ($own_sh): login shell refreshes a stale value" \
+    "$OWN_RG" \
+    "$(own_run RIPGREP_CONFIG_PATH=/stale "$own_sh" -l -c 'printf %s "$RIPGREP_CONFIG_PATH"')"
+
+  echo ""
+  echo "=== env ownership: shell-local state in nested children ($own_sh) ==="
+
+  _assert_eq "env ownership ($own_sh): nested bash child gets functions and bash branch" \
+    "fn:bash" \
+    "$(own_run "$own_sh" -c "RIPGREP_CONFIG_PATH=/caller bash -c '$PROBE_LOCAL'")"
+  _assert_eq "env ownership ($own_sh): nested zsh child gets functions and zsh branch" \
+    "fn:zsh" \
+    "$(own_run "$own_sh" -c "RIPGREP_CONFIG_PATH=/caller zsh -c '$PROBE_LOCAL'")"
+  _assert_eq "env ownership ($own_sh): leaked legacy guard is harmless" \
+    "fn:$own_sh|/caller" \
+    "$(own_run _SHELL_ENV_NONINTERACTIVE_LOADED_SHELLS=bash,zsh \
+      RIPGREP_CONFIG_PATH=/caller "$own_sh" -c \
+      "$PROBE_LOCAL; printf '|%s' \"\$RIPGREP_CONFIG_PATH\"")"
+
+  echo ""
+  echo "=== env ownership: PATH order ($own_sh) ==="
+
+  py_out=$(own_run "$own_sh" -c \
+    "PATH=\"$OWN_VENV:\$PATH\" bash -c '$PROBE_PY'")
+  _assert_eq "env ownership ($own_sh): caller venv still resolves first" \
+    "$OWN_VENV/dot-env-probe-python" "$(printf '%s\n' "$py_out" | sed -n 1p)"
+  _assert_eq "env ownership ($own_sh): nested PATH has no duplicates" \
+    "" "$(path_dupes "$(printf '%s\n' "$py_out" | sed -n 2p)")"
+  py_out=$(own_run "$own_sh" -c \
+    "PATH=\"$OWN_VENV:\$PATH\" zsh -c '$PROBE_PY'")
+  _assert_eq "env ownership ($own_sh): caller venv resolves first in zsh child" \
+    "$OWN_VENV/dot-env-probe-python" "$(printf '%s\n' "$py_out" | sed -n 1p)"
+  _assert_eq "env ownership ($own_sh): zsh child PATH has no duplicates" \
+    "" "$(path_dupes "$(printf '%s\n' "$py_out" | sed -n 2p)")"
+  # Host-managed dirs (/usr/local/bin everywhere, /opt/homebrew on macOS)
+  # are listed explicitly so only the fixture's ~/.local/bin is missing.
+  _assert_eq "env ownership ($own_sh): caller order kept, missing managed dir before system dirs" \
+    "$OWN_HOME/.local/bin:/usr/bin:$OWN_HOST_BINS:/bin:$OWN_VENV" \
+    "$(own_run PATH="/usr/bin:$OWN_HOST_BINS:/bin:$OWN_VENV:/usr/bin" \
+      "$own_sh" -c 'printf %s "$PATH"')"
+  # A caller that replaces PATH (a Makefile `export PATH := ...`) rather than
+  # extending it must still resolve its own entries first.
+  py_out=$(own_run PATH="$OWN_VENV:/usr/bin:$OWN_HOST_BINS:/bin" "$own_sh" -c "$PROBE_PY")
+  _assert_eq "env ownership ($own_sh): replaced PATH keeps the caller venv first" \
+    "$OWN_VENV/dot-env-probe-python" "$(printf '%s\n' "$py_out" | sed -n 1p)"
+  _assert_eq "env ownership ($own_sh): missing managed dir lands before system dirs" \
+    "$OWN_VENV:$OWN_HOME/.local/bin:/usr/bin:$OWN_HOST_BINS:/bin" \
+    "$(printf '%s\n' "$py_out" | sed -n 2p)"
+  _assert_eq "env ownership ($own_sh): caller-demoted managed dir stays put" \
+    "$OWN_VENV:/usr/bin:$OWN_HOST_BINS:/bin:$OWN_HOME/.local/bin" \
+    "$(own_run PATH="$OWN_VENV:/usr/bin:$OWN_HOST_BINS:/bin:$OWN_HOME/.local/bin" \
+      "$own_sh" -c 'printf %s "$PATH"')"
+  _assert_eq "env ownership ($own_sh): fragment-appended entries follow, deduplicated" \
+    "$OWN_VENV:/usr/bin:$OWN_HOST_BINS:/bin:$OWN_HOME/.local/bin:/probe/app" \
+    "$(own_run PATH="$OWN_VENV:/usr/bin:$OWN_HOST_BINS:/bin:$OWN_HOME/.local/bin" \
+      DOT_ENV_PROBE_APPEND=/usr/bin:/probe/app "$own_sh" -c 'printf %s "$PATH"')"
+  _assert_eq "env ownership ($own_sh): fragment-prepended entries cannot jump the caller" \
+    "$OWN_VENV:/usr/bin:$OWN_HOST_BINS:/bin:$OWN_HOME/.local/bin:/probe/pre:/probe/app" \
+    "$(own_run PATH="$OWN_VENV:/usr/bin:$OWN_HOST_BINS:/bin:$OWN_HOME/.local/bin" \
+      DOT_ENV_PROBE_PREPEND=/probe/pre:/usr/bin DOT_ENV_PROBE_APPEND=/probe/app \
+      "$own_sh" -c 'printf %s "$PATH"')"
+  own_path=$(own_run PATH="$OWN_VENV:/usr/bin:$OWN_HOST_BINS:/bin:$OWN_HOME/.local/bin" \
+    "$own_sh" -i -c 'printf %s "$PATH"')
+  _assert_eq "env ownership ($own_sh): interactive shell restores managed priority" \
+    "$OWN_HOME/.local/bin" "${own_path%%:*}"
+done
+
 _test_summary
