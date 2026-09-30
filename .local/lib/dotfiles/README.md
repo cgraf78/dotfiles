@@ -13,8 +13,6 @@ those interfaces execute.
   `shdeps-assets.sh` are shared base helpers.
 - `agent-playbooks.sh` discovers the trusted agent playbooks selected by
   dotfiles policy.
-- `door-guard.sh` reinstalls a missing or unrunnable `dot` entry point before
-  update.
 - `shell-grok-rc.sh` strips the Grok installer block from the thin shell
   loaders.
 - `worktree-gc.sh` implements the `dot-worktree-gc` command.
