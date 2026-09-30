@@ -42,6 +42,8 @@ _dr_check_shell() {
   # shellcheck disable=SC2016 # The selected child Bash expands its own HOME/BASH_ENV.
   if ! managed_bash_env=$(BASH_ENV='' "$BASH" --noprofile --norc -c '
     [[ -f $HOME/.bashrc ]] || exit 1
+    # The empty startup override must not suppress fill-only env.d defaults.
+    unset BASH_ENV
     . "$HOME/.bashrc"
     printf "%s\n" "${BASH_ENV:-}"
   ' 2>/dev/null); then
