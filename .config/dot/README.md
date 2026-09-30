@@ -18,8 +18,12 @@ target-native config directories.
   while the managed release path checks for and installs the newest available
   release on every update. Network or metadata failures retain Shdeps' existing
   last-known-good behavior and must not be reported as reaching the latest
-  release. The standalone runtime parses this file before loading extensions or
-  the dependency provider.
+  release. The standalone runtime parses this file before loading extensions
+  or the dependency provider. Keep settings a released Dot may not know out of
+  this file: Dot rejects unknown keys, and the file reaches every host before
+  that host's Dot is upgraded. Orphan pruning is therefore enabled by
+  `DOT_SHDEPS_PRUNE=cron` on the cron entry in
+  `merge-hooks.d/cron/cron.d/10-update.cron`, not here.
 - `profiles.d/` defines the additive `base`, `editor`, and `dev` profiles. A
   profile contains overlay names only; the root repository is always active.
 - `profile-selectors.d/` contains reviewed non-sensitive selectors. Ignored

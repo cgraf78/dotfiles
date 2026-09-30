@@ -5,6 +5,20 @@ dot_core_test_cron() {
   echo ""
   echo "=== Cron file install ==="
 
+  # Dot prunes orphaned Shdeps dependencies inside the cron update itself
+  # (`DOT_SHDEPS_PRUNE=cron`), so the tracked entry must not chain its own
+  # prune: `&&` would skip prune after any failing dependency, and `;` would
+  # prune during a busy or partial update. The environment variable (not a
+  # config key) keeps hosts on an older dot converging.
+  _update_cron_line=$(grep -v '^#' "$REAL_HOME/.config/dot/merge-hooks.d/cron/cron.d/10-update.cron")
+  # shellcheck disable=SC2016 # Match the literal crontab text.
+  _assert_eq "update cron: dot owns the prune" \
+    '*/30 * * * * $HOME/.local/lib/dotfiles/door-guard.sh > /dev/null 2>&1; DOT_SHDEPS_PRUNE=cron dot update --cron' \
+    "$_update_cron_line"
+  _assert_eq "update cron: prune policy stays out of the shared dot config" 0 \
+    "$(awk -F= '$1 == "shdeps_prune" { count++ } END { print count + 0 }' \
+      "$REAL_HOME/.config/dot/config")"
+
   # Source the cron merge hook so we can call merge() directly.
   _CRON_HOOK="$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/cron.sh"
 

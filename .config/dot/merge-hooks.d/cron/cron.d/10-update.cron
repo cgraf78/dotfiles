@@ -1,2 +1,7 @@
 # vim: set ft=crontab:
-*/30 * * * * $HOME/.local/lib/dotfiles/door-guard.sh > /dev/null 2>&1; dot update --cron && shdeps prune -y > /dev/null
+# The cron update below prunes orphaned Shdeps dependencies itself
+# (DOT_SHDEPS_PRUNE=cron), under dot's update lock and only after repository
+# sync and overlay links succeeded, so a failing dependency or post hook no
+# longer stops orphan cleanup. The variable, not a config key, keeps this safe
+# for hosts still running an older dot: they ignore it and skip pruning.
+*/30 * * * * $HOME/.local/lib/dotfiles/door-guard.sh > /dev/null 2>&1; DOT_SHDEPS_PRUNE=cron dot update --cron
