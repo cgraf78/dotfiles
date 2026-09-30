@@ -16,10 +16,11 @@ printf 'first\n' >>"$DOT_LOADER_TEST_LOG"
 EOF
   # A top-level `for f` like master.zshrc's completion walk: without the
   # save/restore around each source this rebinds the loader's loop variable
-  # through dynamic scoping.
+  # through dynamic scoping. Reassigning the loader's file list must not
+  # change which files load either.
   cat >"$dir/10-clobber.sh" <<'EOF'
 for f in a smcc; do :; done
-sorted=CLOBBERED
+files=(CLOBBERED)
 printf 'second\n' >>"$DOT_LOADER_TEST_LOG"
 EOF
   cat >"$dir/15-third.sh" <<'EOF'
@@ -56,7 +57,7 @@ $FIX_BASH/15-third.sh
 $FIX_BASH/21-only.bash" "$labels_bash"
 _assert_not_contains "loader timing: clobbered loop var never leaks into labels" \
   "smcc" "$timing_bash"
-_assert_not_contains "loader timing: clobbered sorted never leaks into labels" \
+_assert_not_contains "loader timing: clobbered file list never leaks into labels" \
   "CLOBBERED" "$timing_bash"
 
 echo ""
@@ -110,6 +111,83 @@ $FIX_ZSH/20-only.zsh" "$labels_zsh"
   _assert_not_contains "loader plain (zsh): no timing output without the flag" \
     "SHELL_TIMING" "$plain_zsh_out"
 fi
+
+# The loader sorts without external tools, so a script that runs a shell with
+# a PATH lacking coreutils still loads env.d, and the order is byte order
+# whatever the caller's locale or glob-sort settings. en_US collation, where
+# available, would put 30-ab.sh before 30-a-c.sh and 40-alpha.sh before
+# 40-Zed.sh; zsh's numericglobsort and a reversed bash 5.3 GLOBSORT would move
+# 9-late.sh.
+FIX_SORT=$TEST_TMPDIR/fix-sort
+mkdir -p "$FIX_SORT/35-dir.sh"
+for sort_name in 40-alpha.sh 40-Zed.sh 30-ab.sh 31-mid.bash 31-mid.zsh 9-late.sh; do
+  # shellcheck disable=SC2016 # the fragment expands its own log path.
+  printf 'printf "%%s\\n" %s >>"$DOT_LOADER_TEST_LOG"\n' "$sort_name" \
+    >"$FIX_SORT/$sort_name"
+done
+# Fragments run in the caller's locale, not the collation pinned for the glob.
+cat >"$FIX_SORT/30-a-c.sh" <<'EOF'
+printf '30-a-c.sh %s\n' "${LC_ALL-unset}" >>"$DOT_LOADER_TEST_LOG"
+EOF
+printf 'not a fragment\n' >"$FIX_SORT/README.md"
+SORT_LOCALE=C.UTF-8
+if locale -a 2>/dev/null | grep -qiE '^en_US\.utf-?8$'; then
+  SORT_LOCALE=en_US.UTF-8
+fi
+SORT_BASH=$(command -v bash)
+
+# sort_run SHELL [NAME=VALUE...]
+# Load FIX_SORT in a clean environment whose PATH has no tools, with the
+# shell's glob-sort preference set to reorder names. Then print that
+# preference, LC_ALL as the shell sees it, and LC_ALL as an exec'd child
+# inherits it, so each must come back as the caller left it.
+sort_run() {
+  local sort_shell=$1 sort_flags=() sort_pre sort_post
+  shift
+  # shellcheck disable=SC2016 # the child shell expands GLOBSORT.
+  if [ "${sort_shell##*/}" = zsh ]; then
+    sort_flags=(-f)
+    sort_pre='setopt numericglobsort'
+    sort_post='[[ -o numericglobsort ]] && printf "numeric|"'
+  else
+    sort_pre='GLOBSORT=-name'
+    sort_post='printf "%s|" "$GLOBSORT"'
+  fi
+  # shellcheck disable=SC2016 # the child shell expands its own arguments.
+  env -i HOME="$TEST_TMPDIR" PATH=/nonexistent-loader-bin "$@" \
+    "$sort_shell" ${sort_flags[@]+"${sort_flags[@]}"} -c '
+      eval "$5"
+      . "$1"
+      _shell_source_dir "$2" "$3"
+      eval "$6"
+      printf "%s|" "${LC_ALL-unset}"
+      "$4" -c '\''printf "%s" "${LC_ALL-unset}"'\''
+    ' "$sort_shell" "$LOADER" "$FIX_SORT" "${sort_shell##*/}" "$SORT_BASH" \
+    "$sort_pre" "$sort_post" 2>&1
+}
+
+for sort_sh in bash zsh; do
+  sort_shell=$(command -v "$sort_sh") || continue
+  echo ""
+  echo "=== shell-loader: sorts in byte order without external tools ($sort_sh) ==="
+
+  sort_pref=-name
+  [ "$sort_sh" = zsh ] && sort_pref=numeric
+  SORT_LOG=$TEST_TMPDIR/order-sort-$sort_sh.log
+  : >"$SORT_LOG"
+  sort_out=$(sort_run "$sort_shell" LC_ALL="$SORT_LOCALE" DOT_LOADER_TEST_LOG="$SORT_LOG")
+  _assert_eq "loader sort ($sort_sh): byte order interleaves shell files, skips others" \
+    "30-a-c.sh $SORT_LOCALE
+30-ab.sh
+31-mid.$sort_sh
+40-Zed.sh
+40-alpha.sh
+9-late.sh" "$(cat "$SORT_LOG")"
+  _assert_eq "loader sort ($sort_sh): no errors, caller settings restored" \
+    "$sort_pref|$SORT_LOCALE|$SORT_LOCALE" "$sort_out"
+  _assert_eq "loader sort ($sort_sh): an unset caller locale stays unset" \
+    "$sort_pref|unset|unset" "$(sort_run "$sort_shell" DOT_LOADER_TEST_LOG=/dev/null)"
+done
 
 # Non-interactive entry point (BASH_ENV / ~/.zshenv). Each new shell process
 # must load env.d itself: shopt settings, functions, arrays, and shell-specific

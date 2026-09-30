@@ -1,6 +1,6 @@
 # shellcheck shell=bash
 # Shared loader body for ~/.bashrc and ~/.zshrc.
-# Sources all files in a directory, sorted by filename. Shell-specific files
+# Sources all files in a directory in byte order of name. Shell-specific files
 # (*.bash, *.zsh) are mixed into the sort with common files (*.sh), so numeric
 # prefixes control load order across both types. Call with the shell name to
 # include its files:
@@ -110,42 +110,73 @@ _shell_env_set() {
 }
 
 _shell_source_dir() {
-  local dir="$1" shell_ext="${2:-}" f sorted _src_f _src_sorted
-  local -a files=()
+  local dir="$1" shell_ext="${2:-}" f _src_f
+  local _src_lc_set=${LC_ALL+x} _src_lc_prev=${LC_ALL-}
+  local _src_gs_set=${GLOBSORT+x} _src_gs_prev=${GLOBSORT-}
+  local -a _src_entries=() files=()
 
-  # zsh: enable nullglob for the globbing step, then restore afterward.
-  # MUST NOT use `setopt localoptions nullglob` — that scopes ALL option
-  # changes made during this function's execution (including by nested
-  # functions like set_prompt() enabling PROMPT_SUBST while being sourced)
-  # and reverts them on return. Manual save/restore keeps the scope tight.
-  local _ng_prev=0
+  # A missing directory loads nothing. Checking first also keeps bash's
+  # failglob from aborting the glob below with LC_ALL still pinned.
+  [ -d "$dir" ] || return 0
+
+  # zsh: enable nullglob and disable numericglobsort for the globbing step,
+  # then restore afterward. MUST NOT use `setopt localoptions nullglob` —
+  # that scopes ALL option changes made during this function's execution
+  # (including by nested functions like set_prompt() enabling PROMPT_SUBST
+  # while being sourced) and reverts them on return. Manual save/restore
+  # keeps the scope tight.
+  local _ng_prev=0 _ngs_prev=0
   if [ -n "${ZSH_VERSION:-}" ]; then
     [[ -o nullglob ]] && _ng_prev=1
+    [[ -o numericglobsort ]] && _ngs_prev=1
     setopt nullglob
+    unsetopt numericglobsort
   fi
 
-  for f in "$dir"/*.sh; do [ -f "$f" ] && files+=("$f"); done
-  if [ -n "$shell_ext" ]; then
-    for f in "$dir"/*."$shell_ext"; do [ -f "$f" ] && files+=("$f"); done
+  # Sort without forking: one glob over the whole directory comes back
+  # sorted by both shells, so common and shell-specific files interleave by
+  # name without an external `sort`. That keeps a caller's PATH out of it
+  # (a script that runs `bash` with a PATH lacking coreutils still loads
+  # env.d) and saves the pipeline's two forks in every shell. Globs collate
+  # by locale, so pin byte order for the expansion alone: fragments must see
+  # the caller's locale, and it must not differ by host (en_US puts
+  # 30-ab.sh before 30-a-c.sh and 40-alpha.sh before 40-Zed.sh). An empty
+  # GLOBSORT (bash 5.3+; inert elsewhere) and zsh's numericglobsort reset
+  # likewise keep a user's glob-sort preference out of load order.
+  # Restoring an unusable inherited locale makes bash warn, which the
+  # redirect keeps quiet since the shell already runs without it.
+  LC_ALL=C
+  [ -n "$_src_gs_set" ] && GLOBSORT=
+  _src_entries=("$dir"/*)
+  [ -n "$_src_gs_set" ] && GLOBSORT=$_src_gs_prev
+  if [ -n "$_src_lc_set" ]; then
+    { LC_ALL=$_src_lc_prev; } 2>/dev/null
+  else
+    { unset LC_ALL; } 2>/dev/null
   fi
 
-  if [ -n "${ZSH_VERSION:-}" ] && [ "$_ng_prev" -eq 0 ]; then
-    unsetopt nullglob
+  if [ -n "${ZSH_VERSION:-}" ]; then
+    [ "$_ng_prev" -eq 0 ] && unsetopt nullglob
+    [ "$_ngs_prev" -eq 1 ] && setopt numericglobsort
   fi
+
+  # Without zsh's nullglob, an empty bash glob stays the literal pattern,
+  # which the suffix or -f test drops. An empty shell_ext selects *.sh only.
+  for f in ${_src_entries[@]+"${_src_entries[@]}"}; do
+    case $f in
+      *.sh | *."${shell_ext:-sh}") [ -f "$f" ] && files+=("$f") ;;
+    esac
+  done
 
   [ "${#files[@]}" -gt 0 ] || return 0
-
-  # Sort portably: external `sort` + `while read`. Equivalent to zsh's
-  # ${(@f)$(...)} and bash's `read -r -d '' -a`, identical in both shells.
-  sorted=$(printf '%s\n' "${files[@]}" | LC_ALL=C sort)
-  files=()
-  while IFS= read -r f; do files+=("$f"); done <<<"$sorted"
 
   # shellcheck disable=SC1090  # discovered dynamically from env.d/interactive.d
   # Sourced files share this function's dynamic scope: a top-level `for f`
   # in a sourced file (master.zshrc walks its completion list that way)
   # rebinds the loop variable. Pin the values still needed after each
-  # source so timing labels and iteration stay correct.
+  # source so timing labels and iteration stay correct. The loop list is
+  # expanded once up front, so a fragment that reuses `files` cannot
+  # change which files load.
   if [ -n "${SHELL_LOADER_TIMING:-}" ]; then
     # Instrumented path for `shell-time`. Uses EPOCHREALTIME (bash 5+,
     # zsh with zsh/datetime) for fork-free microsecond timing. Emits one
@@ -155,10 +186,8 @@ _shell_source_dir() {
     for f in "${files[@]}"; do
       _t0="${EPOCHREALTIME:-0.000000}"
       _src_f=$f
-      _src_sorted=$sorted
       . "$f"
       f=$_src_f
-      sorted=$_src_sorted
       _t1="${EPOCHREALTIME:-0.000000}"
       _s0=${_t0%.*}
       _u0=${_t0#*.}
@@ -176,10 +205,8 @@ _shell_source_dir() {
   else
     for f in "${files[@]}"; do
       _src_f=$f
-      _src_sorted=$sorted
       . "$f"
       f=$_src_f
-      sorted=$_src_sorted
     done
   fi
 }
