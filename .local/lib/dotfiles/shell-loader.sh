@@ -44,8 +44,23 @@ _shell_load_env() {
     _SHELL_ENV_OWNED=" "
     _SHELL_ENV_INHERITED_PATH=${PATH-}
   fi
+  # env.d sources system rc code written without `set -u` in mind (the work
+  # bootstrap's /etc/profile.d fragments). Since nested shells load env.d
+  # again, a `bash -u` or `bash -euo pipefail script` child would print
+  # "unbound variable" and abort the rest of that fragment. Suspend nounset
+  # for the load and restore the caller's setting for its own command. The
+  # flag's name must not collide with anything a sourced fragment assigns.
+  local _shell_env_nounset=0
+  case $- in *u*)
+    _shell_env_nounset=1
+    set +u
+    ;;
+  esac
   _shell_source_dir "$HOME/.config/shell/env.d" "$shell_ext"
   unset _SHELL_ENV_MODE _SHELL_ENV_OWNED _SHELL_ENV_INHERITED_PATH
+  if [ "$_shell_env_nounset" = 1 ]; then
+    set -u
+  fi
 }
 
 # _shell_env_inherited NAME

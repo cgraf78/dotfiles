@@ -21,6 +21,12 @@ _shell_ext=bash
 # keeps inherited values and supplies only missing ones. See
 # _shell_load_env in shell-loader.sh.
 
-# shellcheck disable=SC1091  # stable path under $HOME, deployed by dotfiles
-. "$HOME/.local/lib/dotfiles/shell-loader.sh"
-_shell_load_env "$_shell_ext" fill
+# BASH_ENV is an absolute path, so a child that swaps HOME for one without
+# dotfiles (test fixtures, tools running as another home) still sources this
+# file. Such a home has no env.d to load: skip quietly instead of printing
+# "No such file or directory" for the loader.
+if [ -r "$HOME/.local/lib/dotfiles/shell-loader.sh" ]; then
+  # shellcheck disable=SC1091  # stable path under $HOME, deployed by dotfiles
+  . "$HOME/.local/lib/dotfiles/shell-loader.sh"
+  _shell_load_env "$_shell_ext" fill
+fi
