@@ -85,6 +85,12 @@ my-overlay-repo/
 
 Files outside `home/` stay inside the overlay repo.
 
+Overlay `.config/shell/env.d/` fragments load in every shell, including
+fill-only non-interactive ones that must keep caller values. Export overlay
+defaults with `_shell_env_set NAME VALUE` rather than `export`, with the
+plain-export fallback for older base checkouts; see
+[Environment Ownership](../../shell/README.md#environment-ownership).
+
 Create a new overlay repo with any repo name; the local clone destination is
 derived from the conf filename.
 

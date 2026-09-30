@@ -14,8 +14,9 @@
 # authoritative: a new tmux pane inherits the tmux server's global environment,
 # which goes stale, so those shells must re-apply every dotfiles value.
 #
-# Non-interactive loads (env-noninteractive.sh via BASH_ENV and ~/.zshenv) run
-# in every nested `bash -c`, script, and git hook. Their inherited environment
+# Non-interactive loads (env-noninteractive.sh via BASH_ENV and ~/.zshenv, and
+# ~/.bashrc when bash reads it for a socket-stdin or sshd `bash -c`) run in
+# every nested `bash -c`, script, and git hook. Their inherited environment
 # is the caller's choice (`EDITOR=vim git commit`, `TZ=UTC ./script`), so they
 # only fill values the caller did not pass down. Shell-local state (functions,
 # shopt/setopt, arrays, fpath, system rc bootstraps) is never inherited and

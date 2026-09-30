@@ -284,6 +284,7 @@ chmod +x "$OWN_HOME/.local/bin/dot-env-probe-python" \
   "$OWN_VENV/dot-env-probe-python"
 OWN_RG=$OWN_HOME/.config/ripgrep/config
 OWN_HOST_BINS=/usr/local/bin:/opt/homebrew/bin:/opt/homebrew/sbin
+OWN_BREW_BINS=/opt/homebrew/bin:/opt/homebrew/sbin
 
 # Like env_run, rooted at the ownership fixture. Interactive shells get a
 # /dev/null stdin as well, so job-control warnings go to stderr only.
@@ -421,6 +422,173 @@ for own_sh in bash zsh; do
     "$own_sh" -i -c 'printf %s "$PATH"')
   _assert_eq "env ownership ($own_sh): interactive shell restores managed priority" \
     "$OWN_HOME/.local/bin" "${own_path%%:*}"
+
+  echo ""
+  echo "=== env ownership: PATH anchors on host package dirs ($own_sh) ==="
+
+  # Minimal PATHs that list /usr/local/bin (itself managed) ahead of the
+  # system dirs: sudo's secure_path, systemd's user manager, sshd's default.
+  # Missing managed dirs must land ahead of /usr/local/bin too, or a system
+  # git there shadows the ~/.local/bin launcher. The Homebrew dirs trail each
+  # input so a macOS host counts them as present, like the earlier cases.
+  for own_min in \
+    /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+    /usr/local/bin:/usr/bin \
+    /usr/local/bin:/usr/bin:/usr/local/sbin:/usr/sbin; do
+    _assert_eq "env ownership ($own_sh): managed dir precedes host dirs in $own_min" \
+      "$OWN_HOME/.local/bin:$own_min:$OWN_BREW_BINS" \
+      "$(own_run PATH="$own_min:$OWN_BREW_BINS" "$own_sh" -c 'printf %s "$PATH"')"
+  done
+  _assert_eq "env ownership ($own_sh): caller venv stays ahead of host-anchored managed dirs" \
+    "$OWN_VENV:$OWN_HOME/.local/bin:/usr/local/bin:/usr/bin:$OWN_BREW_BINS" \
+    "$(own_run PATH="$OWN_VENV:/usr/local/bin:/usr/bin:$OWN_BREW_BINS" \
+      "$own_sh" -c 'printf %s "$PATH"')"
+  # shellcheck disable=SC2088 # a literal `~` entry, as a caller might pass.
+  _assert_eq "env ownership ($own_sh): fill-only load drops . and empty entries only" \
+    "$OWN_VENV:bin:~/tilde:$OWN_HOME/.local/bin:/usr/local/bin:/usr/bin:$OWN_BREW_BINS" \
+    "$(own_run PATH=".:$OWN_VENV::bin:~/tilde:./:/usr/local/bin:/usr/bin:$OWN_BREW_BINS:" \
+      "$own_sh" -c 'printf %s "$PATH"')"
+  own_path=$(own_run PATH="/usr/bin:." "$own_sh" -i -c 'printf %s "$PATH"')
+  _assert_contains "env ownership ($own_sh): interactive shell keeps its . entry" \
+    ":/usr/bin:.:" ":$own_path:"
+  # Homebrew hosts: a missing /usr/local/bin (managed after Homebrew) must
+  # not jump an inherited /opt/homebrew/bin.
+  if [ -d /opt/homebrew/bin ] && [ -d /opt/homebrew/sbin ] && [ -d /usr/local/bin ]; then
+    _assert_eq "env ownership ($own_sh): missing managed dir keeps managed rank" \
+      "$OWN_HOME/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin" \
+      "$(own_run PATH="/opt/homebrew/bin:/opt/homebrew/sbin:/usr/bin" \
+        "$own_sh" -c 'printf %s "$PATH"')"
+  fi
+
+  echo ""
+  echo "=== env ownership: nested shells keep caller shdeps and BASH_ENV ($own_sh) ==="
+
+  # A test that points shdeps at a fixture config must keep it in every
+  # nested script instead of silently running the live hooks.
+  _assert_eq "env ownership ($own_sh): caller SHDEPS_CONF_DIR survives nested bash" \
+    "/caller/shdeps" \
+    "$(own_run SHDEPS_CONF_DIR=/caller/shdeps "$own_sh" -c \
+      'bash -c "printf %s \"\$SHDEPS_CONF_DIR\""')"
+  _assert_eq "env ownership ($own_sh): caller SHDEPS_CONF_DIR survives nested zsh" \
+    "/caller/shdeps" \
+    "$(own_run SHDEPS_CONF_DIR=/caller/shdeps "$own_sh" -c \
+      'zsh -c "printf %s \"\$SHDEPS_CONF_DIR\""')"
+  _assert_eq "env ownership ($own_sh): missing SHDEPS_CONF_DIR is filled" \
+    "$OWN_HOME/.config/shdeps" \
+    "$(own_run "$own_sh" -c 'printf %s "$SHDEPS_CONF_DIR"')"
 done
+
+# A caller's own BASH_ENV bootstrap (a tool's bash setup) reaches bash
+# grandchildren of zsh; bash itself runs it instead of env.d.
+OWN_CALLER_BASH_ENV=$TEST_TMPDIR/caller-bash-env.sh
+printf '%s\n' 'DOT_ENV_PROBE_CALLER_BASH_ENV=ran' >"$OWN_CALLER_BASH_ENV"
+if command -v zsh >/dev/null 2>&1; then
+  # shellcheck disable=SC2016 # expands in the child shells.
+  _assert_eq "env ownership (zsh): caller BASH_ENV survives to a bash grandchild" \
+    "$OWN_CALLER_BASH_ENV|ran" \
+    "$(own_run BASH_ENV="$OWN_CALLER_BASH_ENV" zsh -c \
+      'bash -c "printf %s \"\$BASH_ENV|\$DOT_ENV_PROBE_CALLER_BASH_ENV\""')"
+fi
+
+# Bash's rshd heuristic: a `bash -c` whose stdin is a socket (agent tool
+# shells, some job runners), or that sshd started with SSH_CLIENT set on
+# SSH_SOURCE_BASHRC builds, reads ~/.bashrc instead of BASH_ENV when SHLVL
+# is below 2. That load is non-interactive and non-login, so it must be
+# fill-only like BASH_ENV; interactive and login shells stay authoritative.
+# The env has no BASH_ENV, as under sshd, so env.d loads only via ~/.bashrc.
+sshd_run() {
+  env -i HOME="$OWN_HOME" ZDOTDIR="$OWN_HOME" "$@" 2>/dev/null
+}
+# Run a command with a connected Unix socket as stdin.
+socket_stdin() {
+  python3 -c 'import os, socket, sys
+a, b = socket.socketpair()
+os.dup2(a.fileno(), 0)
+os.execvp(sys.argv[1], sys.argv[1:])' "$@"
+}
+# shellcheck disable=SC2016 # expands in the child shell.
+PROBE_RSHD='printf "%s|%s" "$RIPGREP_CONFIG_PATH" "${SHDEPS_CONF_DIR-unset}"'
+
+echo ""
+echo "=== env ownership: bash reading ~/.bashrc for rshd/sshd commands ==="
+
+# shellcheck disable=SC2016 # probes expand in the child shells.
+if command -v python3 >/dev/null 2>&1; then
+  _assert_eq "env ownership (bash): socket-stdin bash -c keeps caller values" \
+    "/caller/rg|$OWN_HOME/.config/shdeps" \
+    "$(socket_stdin env -i HOME="$OWN_HOME" PATH=/usr/bin:/bin \
+      RIPGREP_CONFIG_PATH=/caller/rg bash -c "$PROBE_RSHD" 2>/dev/null)"
+  _assert_eq "env ownership (bash): socket-stdin bash -c keeps a caller venv first" \
+    "$OWN_VENV:$OWN_HOME/.local/bin:/usr/local/bin:/usr/bin:$OWN_BREW_BINS" \
+    "$(socket_stdin env -i HOME="$OWN_HOME" \
+      PATH="$OWN_VENV:/usr/local/bin:/usr/bin:$OWN_BREW_BINS" \
+      bash -c 'printf %s "$PATH"' 2>/dev/null)"
+  _assert_eq "env ownership (bash): socket-stdin login shell stays authoritative" \
+    "$OWN_RG" \
+    "$(socket_stdin env -i HOME="$OWN_HOME" PATH=/usr/bin:/bin \
+      RIPGREP_CONFIG_PATH=/stale bash -l -c 'printf %s "$RIPGREP_CONFIG_PATH"' 2>/dev/null)"
+else
+  echo "  SKIP: socket-stdin cases need python3"
+fi
+
+# Only SSH_SOURCE_BASHRC builds (Fedora/RHEL, Debian) read ~/.bashrc for a
+# bare SSH_CLIENT; elsewhere nothing loads and the filled value stays unset.
+rshd_out=$(sshd_run PATH=/usr/bin:/bin SSH_CLIENT='192.0.2.1 22 22' \
+  RIPGREP_CONFIG_PATH=/caller/rg bash -c "$PROBE_RSHD" </dev/null)
+# shellcheck disable=SC2016 # probes expand in the child shells.
+if [ "$rshd_out" = "/caller/rg|unset" ]; then
+  echo "  SKIP: this bash does not read ~/.bashrc for SSH_CLIENT commands"
+else
+  _assert_eq "env ownership (bash): sshd bash -c keeps caller values" \
+    "/caller/rg|$OWN_HOME/.config/shdeps" "$rshd_out"
+  _assert_eq "env ownership (bash): sshd login shell stays authoritative" \
+    "$OWN_RG" \
+    "$(sshd_run PATH=/usr/bin:/bin SSH_CLIENT='192.0.2.1 22 22' \
+      RIPGREP_CONFIG_PATH=/stale bash -l -c 'printf %s "$RIPGREP_CONFIG_PATH"' </dev/null)"
+fi
+
+echo ""
+echo "=== env ownership: env.d writers use _shell_env_set ==="
+
+# Ownership tracking needs every env.d writer of a managed name to use
+# _shell_env_set: a plain export from an earlier fragment looks inherited to
+# later ones, and a plain export always overwrites a caller's value. The
+# checker allows the `${NAME:-default}` form (yields in every mode) and names
+# whose merge logic lives in the fragment itself (PATH, MANPATH). Overlay
+# fragments are symlinks in an installed home and are checked by their own
+# suites with the same checker.
+ENV_D_CHECK="${BASH_SOURCE[0]%/*}/support/env-d-plain-exports.awk"
+env_d_plain_exports() {
+  awk -v allow="PATH MANPATH" -f "$ENV_D_CHECK" "$@"
+}
+env_d_base_files=()
+for env_d_f in "$REAL_HOME"/.config/shell/env.d/*.sh \
+  "$REAL_HOME"/.config/shell/env.d/*.bash "$REAL_HOME"/.config/shell/env.d/*.zsh; do
+  [ -f "$env_d_f" ] && [ ! -L "$env_d_f" ] && env_d_base_files+=("$env_d_f")
+done
+_assert_eq "env.d: base fragments export managed names only via _shell_env_set" \
+  "" "$(env_d_plain_exports "${env_d_base_files[@]}")"
+env_d_bad=$TEST_TMPDIR/env-d-bad.sh
+# One case per line; the expected list below names the lines to flag.
+cat >"$env_d_bad" <<'EOF'
+export LANG="${LANG:-C}"
+export FOO="${FOO:-x}" BAR=1
+export SHDEPS_CONF_DIR="$HOME/.config/shdeps"
+: && export BASH_ENV=x
+export OTHER="${FOO:-x}"
+# export COMMENTED=1
+export PATH
+X=1; export X
+typeset -gx E=1
+declare -x P=1
+export "V=1"
+export PAGER_OK="${PAGER_OK:-sh -c 'col -bx | bat'}" MANPATH="$HOME/man"
+export -n GONE
+_shell_env_set RG x # export in comment
+if true; then export IN_IF=1; fi
+EOF
+_assert_eq "env.d: plain-export check flags every direct export" \
+  "2 3 4 5 8 9 10 11 15" \
+  "$(env_d_plain_exports "$env_d_bad" | cut -d: -f2 | paste -sd' ' -)"
 
 _test_summary

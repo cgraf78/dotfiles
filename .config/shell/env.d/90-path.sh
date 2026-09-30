@@ -6,13 +6,21 @@
 # append everything else. Fill-only (non-interactive) shells keep the PATH they
 # inherited in the caller's order, so `PATH=/venv/bin:$PATH bash -c ...` and
 # git's exec-path prefix still win. Managed directories the caller lacks go
-# just before the first inherited system directory, so they still beat system
-# tools under a minimal PATH (launchd, `env -i`) without shadowing a caller's
-# own entries; entries env.d fragments added during this load are appended.
+# just before the first inherited system or host package directory
+# (/usr/local, Homebrew), so they still beat system tools under a minimal PATH
+# (launchd, `env -i`, sudo's secure_path, systemd, sshd) without shadowing a
+# caller's own entries; entries env.d fragments added during this load are
+# appended. Empty entries mean the current directory and are always dropped;
+# fill-only shells drop the `.` spelling too, since with the caller's order
+# kept a leading `.` would outrank every managed directory. Other relative
+# entries (a Makefile's `node_modules/.bin`) stay where the caller put them.
 
 _path_add() {
   local dir="$1"
   [ -n "$dir" ] || return 0
+  case "$dir" in
+    . | ./) [ -z "$_path_keep" ] || return 0 ;;
+  esac
 
   case ":$_path_new:" in
     *":$dir:"*) return 0 ;;
@@ -49,6 +57,7 @@ _path_prepend() {
   local dir="$1"
   [ -d "$dir" ] || return 0
   if [ -n "$_path_keep" ]; then
+    _path_managed="$_path_managed$dir:"
     # Fill-only: a managed dir the caller already has stays where they put
     # it; a missing one waits for _path_add_kept to place it.
     case "$_path_keep" in
@@ -61,23 +70,49 @@ _path_prepend() {
 }
 
 # Fill-only: add an inherited entry, placing the missing managed dirs right
-# before the first system directory.
+# before the first system or host package directory. /usr/local/bin and the
+# Homebrew dirs are managed themselves, so at one of those only the missing
+# dirs that outrank it go in (a missing /usr/local/bin must not jump an
+# inherited /opt/homebrew/bin); the rest wait for a later anchor.
 # shellcheck disable=SC2329 # invoked indirectly through _path_add_list
 _path_add_kept() {
   if [ -n "$_path_missing" ]; then
     case "$1" in
-      /usr/bin | /bin | /usr/sbin | /sbin | "$_path_system_prefix")
-        _path_add_list _path_add "$_path_missing"
-        _path_missing=""
+      /usr/bin | /bin | /usr/sbin | /sbin | "$_path_system_prefix" | \
+        /usr/local/bin | /usr/local/sbin | /opt/homebrew/bin | /opt/homebrew/sbin)
+        case "$_path_managed" in
+          *":$1:"*)
+            _path_before="${_path_managed%%":$1:"*}:"
+            _path_later=""
+            _path_add_list _path_add_ranked "$_path_missing"
+            _path_missing="$_path_later"
+            ;;
+          *)
+            _path_add_list _path_add "$_path_missing"
+            _path_missing=""
+            ;;
+        esac
         ;;
     esac
   fi
   _path_add "$1"
 }
 
+# shellcheck disable=SC2329 # invoked indirectly through _path_add_list
+_path_add_ranked() {
+  case "$_path_before" in
+    *":$1:"*) _path_add "$1" ;;
+    *) _path_later="${_path_later:+$_path_later:}$1" ;;
+  esac
+}
+
 _path_new=""
 _path_keep=""
 _path_missing=""
+# Existing managed dirs in priority order, colon-delimited on both ends.
+_path_managed=":"
+_path_before=""
+_path_later=""
 # Termux has no /usr/bin; its system binaries live under $PREFIX/bin.
 _path_system_prefix=/usr/bin
 if [ -n "${TERMUX_VERSION:-}" ] && [ -n "${PREFIX:-}" ]; then
@@ -110,5 +145,6 @@ _path_add_list _path_add "${PATH:-}"
 PATH="$_path_new"
 export PATH
 
-unset _path_new _path_keep _path_missing _path_system_prefix
-unset -f _path_add _path_add_list _path_add_kept _path_prepend
+unset _path_new _path_keep _path_missing _path_managed _path_before \
+  _path_later _path_system_prefix
+unset -f _path_add _path_add_list _path_add_kept _path_add_ranked _path_prepend

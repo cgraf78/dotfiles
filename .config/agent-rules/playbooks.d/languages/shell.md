@@ -39,6 +39,10 @@
 - Keep public functions thin when shell is used as an adapter over reusable
   helpers. Shared policy should live in the narrowest sourceable library rather
   than being copied across hooks, CLIs, and tests.
+- In dotfiles `env.d` fragments (base or overlay), export dotfiles-owned
+  values with `_shell_env_set NAME VALUE`, not `export NAME=value`, so
+  non-interactive shells keep caller values; follow "Environment Ownership" in
+  `~/.config/shell/README.md`, including the overlay fallback.
 - Comments should explain shell-specific constraints: sourced-library behavior,
   hook latency, platform quirks, temp-file/durability choices, and why a failure
   is advisory or fatal.
