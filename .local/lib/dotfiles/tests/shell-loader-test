@@ -109,4 +109,118 @@ $FIX_ZSH/20-only.zsh" "$labels_zsh"
     "SHELL_TIMING" "$plain_zsh_out"
 fi
 
+# Non-interactive entry point (BASH_ENV / ~/.zshenv). Each new shell process
+# must load env.d itself: shopt settings, functions, arrays, and shell-specific
+# branches are not inherited through the environment. A load guard that
+# leaks through the environment (for example via tmux's global environment)
+# would silently skip env.d in every later `bash -c` / `zsh -c`.
+ENV_HOME=$TEST_TMPDIR/env-home
+mkdir -p "$ENV_HOME/.config/shell/env.d" "$ENV_HOME/.local/lib/dotfiles"
+cp "$REAL_HOME/.config/shell/env-noninteractive.sh" "$ENV_HOME/.config/shell/"
+cp "$LOADER" "$ENV_HOME/.local/lib/dotfiles/shell-loader.sh"
+cp "$REAL_HOME/.zshenv" "$ENV_HOME/.zshenv"
+cp "$REAL_HOME/.bashrc" "$ENV_HOME/.bashrc"
+mkdir -p "$ENV_HOME/.config/shell/interactive.d"
+cat >"$ENV_HOME/.config/shell/env.d/10-probe.sh" <<'EOF'
+printf 'common %s\n' "$$" >>"$DOT_ENV_TEST_LOG"
+EOF
+cat >"$ENV_HOME/.config/shell/env.d/20-probe.bash" <<'EOF'
+printf 'bash\n' >>"$DOT_ENV_TEST_LOG"
+EOF
+cat >"$ENV_HOME/.config/shell/env.d/20-probe.zsh" <<'EOF'
+printf 'zsh\n' >>"$DOT_ENV_TEST_LOG"
+EOF
+ENV_BASH_ENV=$ENV_HOME/.config/shell/env-noninteractive.sh
+
+# Run a command with a scrubbed environment rooted at the fixture home so the
+# caller's live BASH_ENV, ZDOTDIR, and guards cannot leak in. Extra NAME=value
+# pairs before the command simulate inherited environment state. stdin is
+# /dev/null because bash treats a socket stdin with SHLVL<2 as an sshd launch
+# and reads ~/.bashrc instead of BASH_ENV; agent and CI runners may hand the
+# suite a socket.
+env_run() {
+  env -i HOME="$ENV_HOME" ZDOTDIR="$ENV_HOME" PATH="$PATH" \
+    BASH_ENV="$ENV_BASH_ENV" DOT_ENV_TEST_LOG="$ENV_LOG" "$@" </dev/null
+}
+
+echo ""
+echo "=== env-noninteractive: inherited guard does not skip env.d (bash) ==="
+
+ENV_LOG=$TEST_TMPDIR/env-inherited-bash.log
+: >"$ENV_LOG"
+env_run _SHELL_ENV_NONINTERACTIVE_LOADED_SHELLS=bash,zsh bash -c ':'
+_assert_eq "env-noninteractive (bash): inherited guard still loads env.d" \
+  "common bash" "$(awk '{print $1}' "$ENV_LOG" | paste -sd' ' -)"
+
+echo ""
+echo "=== env-noninteractive: nested bash child loads env.d itself ==="
+
+ENV_LOG=$TEST_TMPDIR/env-nested-bash.log
+: >"$ENV_LOG"
+env_run bash -c 'bash -c :'
+_assert_eq "env-noninteractive (bash): parent and child each load env.d" \
+  "2" "$(grep -c '^common ' "$ENV_LOG")"
+
+echo ""
+echo "=== env-noninteractive: same process loads env.d once (bash) ==="
+
+ENV_LOG=$TEST_TMPDIR/env-resource-bash.log
+: >"$ENV_LOG"
+# shellcheck disable=SC2016 # the child shell expands its own BASH_ENV.
+env_run bash -c '. "$BASH_ENV"; . "$BASH_ENV"'
+_assert_eq "env-noninteractive (bash): re-sourcing in one process is a no-op" \
+  "common bash" "$(awk '{print $1}' "$ENV_LOG" | paste -sd' ' -)"
+
+ENV_LOG=$TEST_TMPDIR/env-bashrc-bash.log
+: >"$ENV_LOG"
+# shellcheck disable=SC2016 # the child shell expands its own HOME.
+env_run bash -c '. "$HOME/.bashrc"'
+_assert_eq "env-noninteractive (bash): BASH_ENV plus ~/.bashrc loads env.d once" \
+  "common bash" "$(awk '{print $1}' "$ENV_LOG" | paste -sd' ' -)"
+
+echo ""
+echo "=== env-noninteractive: legacy guard is not re-exported ==="
+
+ENV_LOG=$TEST_TMPDIR/env-export-bash.log
+: >"$ENV_LOG"
+exported=$(env_run _SHELL_ENV_NONINTERACTIVE_LOADED_SHELLS=bash bash -c \
+  'env | grep "^_SHELL_ENV_NONINTERACTIVE" || printf "none\n"')
+_assert_eq "env-noninteractive (bash): no load guard exported to children" \
+  "none" "$exported"
+
+if command -v zsh >/dev/null 2>&1; then
+  echo ""
+  echo "=== env-noninteractive: inherited guard does not skip env.d (zsh) ==="
+
+  ENV_LOG=$TEST_TMPDIR/env-inherited-zsh.log
+  : >"$ENV_LOG"
+  env_run _SHELL_ENV_NONINTERACTIVE_LOADED_SHELLS=bash,zsh zsh -c ':'
+  _assert_eq "env-noninteractive (zsh): inherited guard still loads env.d" \
+    "common zsh" "$(awk '{print $1}' "$ENV_LOG" | paste -sd' ' -)"
+
+  echo ""
+  echo "=== env-noninteractive: nested zsh child loads env.d itself ==="
+
+  ENV_LOG=$TEST_TMPDIR/env-nested-zsh.log
+  : >"$ENV_LOG"
+  env_run zsh -c 'zsh -c :'
+  _assert_eq "env-noninteractive (zsh): parent and child each load env.d" \
+    "2" "$(grep -c '^common ' "$ENV_LOG")"
+
+  echo ""
+  echo "=== env-noninteractive: same process loads env.d once (zsh) ==="
+
+  ENV_LOG=$TEST_TMPDIR/env-resource-zsh.log
+  : >"$ENV_LOG"
+  # shellcheck disable=SC2016 # the child shell expands its own HOME.
+  env_run zsh -c '. "$HOME/.config/shell/env-noninteractive.sh"'
+  _assert_eq "env-noninteractive (zsh): re-sourcing in one process is a no-op" \
+    "common zsh" "$(awk '{print $1}' "$ENV_LOG" | paste -sd' ' -)"
+
+  exported=$(env_run _SHELL_ENV_NONINTERACTIVE_LOADED_SHELLS=zsh zsh -c \
+    'env | grep "^_SHELL_ENV_NONINTERACTIVE" || printf "none\n"')
+  _assert_eq "env-noninteractive (zsh): no load guard exported to children" \
+    "none" "$exported"
+fi
+
 _test_summary

@@ -10,8 +10,9 @@ export FZF_DEFAULT_OPTS='--bind=ctrl-n:down,ctrl-p:up,ctrl-d:half-page-down,ctrl
 export SHDEPS_CONF_DIR="$HOME/.config/shdeps"
 
 # Man pages from shdeps-managed tools. Guard against duplicate segments: unlike
-# 90-path.sh's PATH, MANPATH is prepended here with no dedup, so nested shells of
-# differing flavors (which re-source this file) would otherwise accumulate copies.
+# PATH, MANPATH gets no final de-duplication pass like 90-path.sh, and every
+# new shell process re-sources env.d, so nested shells would otherwise
+# accumulate copies.
 case ":${MANPATH:-}:" in
   *":$HOME/.local/share/man:"*) ;;
   *) export MANPATH="$HOME/.local/share/man:${MANPATH:-}" ;;

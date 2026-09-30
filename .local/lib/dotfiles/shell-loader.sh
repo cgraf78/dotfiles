@@ -13,6 +13,10 @@ _shell_load_env() {
   _pid="${BASHPID:-$$}"
   [ "${_SHELL_ENV_LOADED_PID:-}" = "$_pid" ] && return 0
   _SHELL_ENV_LOADED_PID="$_pid"
+  # Scrub the retired exported guard from env-noninteractive.sh. Long-lived
+  # tmux servers keep it in their global environment; unsetting it here stops
+  # new shells from re-exporting a stale value to their children.
+  unset _SHELL_ENV_NONINTERACTIVE_LOADED_SHELLS
   _shell_source_dir "$HOME/.config/shell/env.d" "$shell_ext"
 }
 

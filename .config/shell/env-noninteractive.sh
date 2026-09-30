@@ -6,17 +6,15 @@
 _shell_ext=bash
 [ -n "${ZSH_VERSION:-}" ] && _shell_ext=zsh
 
-# Guard by shell flavor. Same-shell nested subprocesses should not keep
-# prepending PATH, but a zsh-driven bash subprocess still needs bash-specific
-# env.d branches and system rc hooks.
-case ",${_SHELL_ENV_NONINTERACTIVE_LOADED_SHELLS:-}," in
-  *,"$_shell_ext",*) return 0 ;;
-esac
-if [ -n "${_SHELL_ENV_NONINTERACTIVE_LOADED_SHELLS:-}" ]; then
-  export _SHELL_ENV_NONINTERACTIVE_LOADED_SHELLS="${_SHELL_ENV_NONINTERACTIVE_LOADED_SHELLS},$_shell_ext"
-else
-  export _SHELL_ENV_NONINTERACTIVE_LOADED_SHELLS="$_shell_ext"
-fi
+# No guard here beyond _shell_load_env's own. That guard is keyed on the
+# current shell PID, so it only suppresses re-sourcing inside one process
+# (BASH_ENV plus an explicit `. ~/.bashrc`, repeated sourcing); a forked child
+# never matches it. Every new bash/zsh process must load env.d itself: shopt
+# state, functions, arrays, bash-/zsh-specific branches, and overlay system-rc
+# bootstraps do not travel through the environment. A previous exported
+# per-flavor guard leaked into tmux's global environment and made every later
+# `bash -c`/`zsh -c` skip env.d entirely. Repeated loads stay safe because
+# 90-path.sh rebuilds PATH de-duplicated.
 
 # shellcheck disable=SC1091  # stable path under $HOME, deployed by dotfiles
 . "$HOME/.local/lib/dotfiles/shell-loader.sh"
