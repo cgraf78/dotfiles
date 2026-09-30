@@ -8,12 +8,90 @@
 #   _shell_source_dir dir bash    — *.bash and *.sh, sorted together
 #   _shell_source_dir dir zsh     — *.zsh and *.sh, sorted together
 
+# Environment ownership for env.d fragments.
+#
+# Interactive and login loads (~/.bashrc, ~/.zshrc, ~/.zprofile) are
+# authoritative: a new tmux pane inherits the tmux server's global environment,
+# which goes stale, so those shells must re-apply every dotfiles value.
+#
+# Non-interactive loads (env-noninteractive.sh via BASH_ENV and ~/.zshenv, and
+# ~/.bashrc when bash reads it for a socket-stdin or sshd `bash -c`) run in
+# every nested `bash -c`, script, and git hook. Their inherited environment
+# is the caller's choice (`EDITOR=vim git commit`, `TZ=UTC ./script`), so they
+# only fill values the caller did not pass down. Shell-local state (functions,
+# shopt/setopt, arrays, fpath, system rc bootstraps) is never inherited and
+# still loads in every shell; only exported values are subject to this rule.
+#
+# Loader state is shell-local, never exported, and cleared after the load, so
+# it cannot leak into children the way the retired exported load guard did:
+#   _SHELL_ENV_MODE             "fill" only while a fill-only load runs
+#   _SHELL_ENV_OWNED            names _shell_env_set exported during this load
+#   _SHELL_ENV_INHERITED_PATH   PATH as inherited, for 90-path.sh
 _shell_load_env() {
-  local shell_ext="${1:-}" _pid
+  local shell_ext="${1:-}" _env_mode="${2:-authoritative}" _pid
   _pid="${BASHPID:-$$}"
   [ "${_SHELL_ENV_LOADED_PID:-}" = "$_pid" ] && return 0
   _SHELL_ENV_LOADED_PID="$_pid"
+  # Scrub the retired exported guard from env-noninteractive.sh. Long-lived
+  # tmux servers keep it in their global environment; unsetting it here stops
+  # new shells from re-exporting a stale value to their children.
+  unset _SHELL_ENV_NONINTERACTIVE_LOADED_SHELLS
+  # Unset before assigning so an inherited (exported) copy can neither force
+  # a mode nor survive as an exported variable.
+  unset _SHELL_ENV_MODE _SHELL_ENV_OWNED _SHELL_ENV_INHERITED_PATH
+  if [ "$_env_mode" = fill ]; then
+    _SHELL_ENV_MODE=fill
+    _SHELL_ENV_OWNED=" "
+    _SHELL_ENV_INHERITED_PATH=${PATH-}
+  fi
   _shell_source_dir "$HOME/.config/shell/env.d" "$shell_ext"
+  unset _SHELL_ENV_MODE _SHELL_ENV_OWNED _SHELL_ENV_INHERITED_PATH
+}
+
+# _shell_env_inherited NAME
+# Succeed only during a fill-only load when NAME is set and no earlier
+# _shell_env_set call in this load exported it, i.e. the caller passed it
+# down. A later fragment may therefore replace an earlier fragment's value
+# (base's RIPGREP_CONFIG_PATH, then the editor overlay's), and a fragment that
+# unsets NAME (a dead agent socket) makes it missing again. An inherited empty
+# value counts as present: `VAR= cmd` is a deliberate caller choice.
+#
+# Ownership is tracked instead of snapshotting the inherited environment: the
+# bash snapshot needs a `compgen -e` fork plus a slow glob over a multi-KB
+# name list per lookup (~6 ms per bash shell here). The cost of tracking is one
+# rule: every env.d writer of a name managed here must use _shell_env_set; a
+# plain export from an earlier fragment looks inherited to later fragments.
+_shell_env_inherited() {
+  [ "${_SHELL_ENV_MODE:-}" = fill ] || return 1
+  case "$_SHELL_ENV_OWNED" in *" $1 "*) return 1 ;; esac
+  case "$1" in '' | [0-9]* | *[!A-Za-z0-9_]*) return 1 ;; esac
+  eval "[ -n \"\${$1+x}\" ]"
+}
+
+# _shell_env_set NAME VALUE
+# Export a dotfiles-owned value: always in authoritative loads, and in
+# fill-only loads only when the caller did not pass NAME down. Use it for
+# every env.d export of a dotfiles default. Keep `${NAME:-default}` for values
+# that should yield to an existing value in every mode, and use plain `export`
+# with a comment for a value that must win even over a caller (none today).
+# Overlays guard calls with a plain-export fallback so they keep working on a
+# base checkout that predates this helper.
+#
+# The fill-only check is inlined rather than calling _shell_env_inherited:
+# env.d makes dozens of these calls in every non-interactive shell, and the
+# extra function call doubles their cost in bash.
+_shell_env_set() {
+  if [ "${_SHELL_ENV_MODE:-}" = fill ]; then
+    case "$_SHELL_ENV_OWNED" in
+      *" $1 "*) ;;
+      *)
+        case "$1" in '' | [0-9]* | *[!A-Za-z0-9_]*) return 1 ;; esac
+        eval "[ -z \"\${$1+x}\" ]" || return 0
+        _SHELL_ENV_OWNED="$_SHELL_ENV_OWNED$1 "
+        ;;
+    esac
+  fi
+  export "$1=$2"
 }
 
 _shell_source_dir() {
