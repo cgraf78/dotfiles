@@ -228,8 +228,11 @@ fi
 # non-interactive loads run in every nested `bash -c`, script, and hook and must
 # keep values the caller passed down (`EDITOR=vim git commit`), filling only
 # missing ones. Shell-local state still loads in every shell. The fixture uses
-# the real base env.d so converted fragments are covered, plus probes for the
-# helper contract.
+# the base fragments whose conversions these cases cover (50-core.sh for the
+# exports, 90-path.sh for PATH) plus probes for the helper contract. It copies
+# them by name instead of globbing the source env.d: an installed home also
+# holds overlay fragments (the editor overlay's RIPGREP_CONFIG_PATH), which
+# would make the results depend on which overlays and versions are installed.
 OWN_HOME=$TEST_TMPDIR/own-home
 OWN_ENV_D=$OWN_HOME/.config/shell/env.d
 mkdir -p "$OWN_ENV_D" "$OWN_HOME/.config/shell/interactive.d" \
@@ -238,7 +241,8 @@ cp "$REAL_HOME/.config/shell/env-noninteractive.sh" "$OWN_HOME/.config/shell/"
 cp "$LOADER" "$OWN_HOME/.local/lib/dotfiles/shell-loader.sh"
 cp "$REAL_HOME/.zshenv" "$REAL_HOME/.zshrc" "$REAL_HOME/.zprofile" \
   "$REAL_HOME/.bashrc" "$REAL_HOME/.bash_profile" "$OWN_HOME/"
-cp "$REAL_HOME/.config/shell/env.d/"*.sh "$OWN_ENV_D/"
+cp "$REAL_HOME/.config/shell/env.d/50-core.sh" \
+  "$REAL_HOME/.config/shell/env.d/90-path.sh" "$OWN_ENV_D/"
 cat >"$OWN_ENV_D/15-probe-local.sh" <<'EOF'
 _dot_env_probe_fn() { :; }
 EOF
