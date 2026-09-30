@@ -227,17 +227,14 @@ SH
   mkdir -p "$TEST_HOME/.config/shell/env.d" \
     "$TEST_HOME/.config/shell/interactive.d" \
     "$TEST_HOME/.config/shdeps"
-  # shellcheck disable=SC2016 # Fixture startup files retain literal HOME.
-  printf '%s\n' \
-    '. "$HOME/.local/lib/dotfiles/shell-loader.sh"' \
-    '_shell_load_env bash' >"$TEST_HOME/.bashrc"
+  # Use the managed startup files: a synthetic authoritative loader would
+  # mask an empty BASH_ENV override preserved by non-interactive fill mode.
+  cp "$REAL_HOME/.bashrc" "$TEST_HOME/.bashrc"
+  cp "$REAL_HOME/.config/shell/env.d/50-core.sh" \
+    "$TEST_HOME/.config/shell/env.d/50-core.sh"
   # shellcheck disable=SC2016 # Fixture startup files retain literal HOME.
   printf '%s\n' '. "$HOME/.local/lib/dotfiles/shell-loader.sh"' \
     >"$TEST_HOME/.zshrc"
-  # shellcheck disable=SC2016 # Fixture startup files retain literal HOME.
-  printf '%s\n' \
-    'export BASH_ENV="$HOME/.config/shell/env-noninteractive.sh"' \
-    >"$TEST_HOME/.config/shell/env.d/50-core.sh"
   printf '%s\n' '# managed noninteractive shell fixture' \
     >"$TEST_HOME/.config/shell/env-noninteractive.sh"
   printf '%s\n' 'fixture/tool github:repo tool' \
@@ -264,6 +261,22 @@ SH
     "BASH_ENV (~/.config/shell/env-noninteractive.sh)" "$result"
   _assert_contains "doctor integration: renders an aggregate summary" \
     "passed" "$result"
+
+  rm -f "$TEST_HOME/.config/shell/env-noninteractive.sh"
+  result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$TEST_HOME/.local/bin:$PATH" \
+    DOT_TEST_CRONTAB="$doctor_bin/crontab" \
+    DOT_TEST_CRONTAB_LOG="$doctor_crontab_log" \
+    "$(_test_dot_bin "$DOT_SOURCE_ROOT")" doctor 2>&1 || true)
+  _assert_contains "doctor integration: flags a missing BASH_ENV target" \
+    "BASH_ENV set but target missing" "$result"
+
+  rm -f "$TEST_HOME/.config/shell/env.d/50-core.sh"
+  result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$TEST_HOME/.local/bin:$PATH" \
+    DOT_TEST_CRONTAB="$doctor_bin/crontab" \
+    DOT_TEST_CRONTAB_LOG="$doctor_crontab_log" \
+    "$(_test_dot_bin "$DOT_SOURCE_ROOT")" doctor 2>&1 || true)
+  _assert_contains "doctor integration: warns when startup leaves BASH_ENV unset" \
+    "BASH_ENV unset" "$result"
 
   rm -f "$TEST_HOME/.bashrc"
   result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$TEST_HOME/.local/bin:$PATH" \
