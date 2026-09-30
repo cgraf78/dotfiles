@@ -62,6 +62,13 @@ convergence, and extension execution. It backs up conflicting files under
 
 ## Recovery
 
+Scheduled updates call `dot` directly. Shdeps stages release archives before
+replacing a working install and rolls back recoverable activation failures.
+If the command is independently removed, run `shdeps update` manually to repair
+the dependency. A hard interruption during the directory switch can require
+restoring the retained Shdeps archive backup first; automatic cron retries do
+not resolve that ambiguous install state.
+
 When the base client Git directory can be discarded, recovery stays a clean
 reinitialization rather than a compatibility migration. Dot itself lives
 outside `~/.dotfiles`, so reinitialize with the installed `dot`:

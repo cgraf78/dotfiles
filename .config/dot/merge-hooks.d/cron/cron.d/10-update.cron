@@ -4,4 +4,4 @@
 # sync and overlay links succeeded, so a failing dependency or post hook no
 # longer stops orphan cleanup. The variable, not a config key, keeps this safe
 # for hosts still running an older dot: they ignore it and skip pruning.
-*/30 * * * * $HOME/.local/lib/dotfiles/door-guard.sh > /dev/null 2>&1; DOT_SHDEPS_PRUNE=cron dot update --cron
+*/30 * * * * DOT_SHDEPS_PRUNE=cron dot update --cron

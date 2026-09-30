@@ -13,7 +13,7 @@ dot_core_test_cron() {
   _update_cron_line=$(grep -v '^#' "$REAL_HOME/.config/dot/merge-hooks.d/cron/cron.d/10-update.cron")
   # shellcheck disable=SC2016 # Match the literal crontab text.
   _assert_eq "update cron: dot owns the prune" \
-    '*/30 * * * * $HOME/.local/lib/dotfiles/door-guard.sh > /dev/null 2>&1; DOT_SHDEPS_PRUNE=cron dot update --cron' \
+    '*/30 * * * * DOT_SHDEPS_PRUNE=cron dot update --cron' \
     "$_update_cron_line"
   _assert_eq "update cron: prune policy stays out of the shared dot config" 0 \
     "$(awk -F= '$1 == "shdeps_prune" { count++ } END { print count + 0 }' \
