@@ -40,6 +40,27 @@ if [[ "${DOT_TEST:-0}" = 1 ]]; then
   fi
 fi
 
+echo "=== Startup-file isolation ==="
+
+# A live shell exports BASH_ENV so nested bash shells load env.d. The helpers
+# drop it and ENV, so fixture bash children never load the live environment,
+# while a test can still hand a startup file to the child under test.
+startup_probe=$(_tmpfile)
+printf 'printf "probe|"\n' >"$startup_probe"
+# shellcheck disable=SC2016 # the child shell expands its own arguments.
+startup_result=$(
+  bash -c '
+    export BASH_ENV="$2" ENV="$2"
+    . "$1"
+    printf "%s|%s|" "${BASH_ENV-unset}" "${ENV-unset}"
+    bash -c "printf \"child|\""
+    BASH_ENV="$2" bash -c "printf explicit"
+  ' _ "$SOURCE_HOME/.local/lib/dotfiles/tests/helpers.sh" "$startup_probe" 2>&1
+)
+_assert_eq "startup files: helpers scrub inherited BASH_ENV and ENV, keep explicit ones" \
+  "unset|unset|child|probe|explicit" "$startup_result"
+
+echo ""
 echo "=== Host tool data isolation ==="
 
 host_runtime_home=$(_tmpdir)
