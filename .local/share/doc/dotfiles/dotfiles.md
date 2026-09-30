@@ -149,16 +149,26 @@ describe fresh installations, not the disk use of a machine after it has
 previously used a larger profile.
 
 Shdeps payloads are reclaimed automatically instead: the auto-update cron runs
-`shdeps prune -y` whenever `dot update --cron` exits zero, including runs that
-skip for a dirty worktree or lock contention. Within one cron interval, every
-dependency no longer declared for the host loses its Shdeps-managed state:
-prune runs the orphan's `uninstall` hook (which may delete files that hook
-owns, such as installed fonts), then removes release payloads, managed checkout
-links, command and extras links, stamps, and manifest records. User-owned
-development clones such as `~/git/<repo>` stay in place, and native packages
-are never uninstalled. Because `-y` also bypasses prune's guard against
-removing every tracked dependency at once, a run that sees an empty or
-unmatched Shdeps config would prune them all.
+`DOT_SHDEPS_PRUNE=cron dot update --cron`, so Dot runs `shdeps prune -y` itself
+as the `Prune` stage right after `Tools`. Dot prunes while holding its update
+lock, and only after repository sync and overlay linking succeeded, so a frozen
+or partially synchronized generation is never pruned; a dependency or post hook
+that keeps failing no longer stops orphan cleanup. A cron run skipped for a
+dirty worktree or lock contention does not prune, so a host left with unresolved
+local edits needs a manual `shdeps prune`, and manual `dot update` runs never
+prune. The policy is an environment variable rather than a `.config/dot/config`
+key because older Dot releases reject unknown config keys; a host still running
+one ignores the variable and skips pruning until its `Tools` stage installs a
+Dot release that supports it (the new release takes effect on the following
+run). Within one cron interval of a converged update, every dependency no longer
+declared for the host loses its Shdeps-managed state: prune runs the orphan's
+`uninstall` hook (which may delete files that hook owns, such as installed
+fonts), then removes release payloads, managed checkout links, command and
+extras links, stamps, and manifest records. User-owned development clones such
+as `~/git/<repo>` stay in place, and native packages are never uninstalled.
+Because `-y` also bypasses prune's guard against removing every tracked
+dependency at once, a run that sees an empty or unmatched Shdeps config would
+prune them all.
 
 Run `shdeps prune --dry-run` to preview that removal, or `shdeps prune` to
 reclaim immediately. Native packages, Mise toolchains, Nvim data, marketplace
