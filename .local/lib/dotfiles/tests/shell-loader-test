@@ -40,9 +40,11 @@ FIX_BASH=$TEST_TMPDIR/fix-bash
 make_fixture "$FIX_BASH"
 LOG_BASH=$TEST_TMPDIR/order-bash.log
 : >"$LOG_BASH"
+# env -u BASH_ENV: a live BASH_ENV would load the real env.d in this child
+# (with timing on) and add its files to the labels under test.
 timing_bash=$(
   DOT_LOADER_TEST_LOG="$LOG_BASH" SHELL_LOADER_TIMING=1 \
-    bash -c ". '$LOADER'; _shell_source_dir '$FIX_BASH' bash" 2>&1
+    env -u BASH_ENV bash -c ". '$LOADER'; _shell_source_dir '$FIX_BASH' bash" 2>&1
 )
 _assert_eq "loader timing: every selected file sourced in order" \
   $'first\nsecond\nthird\nbash-only' "$(cat "$LOG_BASH")"
@@ -64,7 +66,7 @@ LOG_PLAIN=$TEST_TMPDIR/order-plain.log
 : >"$LOG_PLAIN"
 plain_out=$(
   DOT_LOADER_TEST_LOG="$LOG_PLAIN" \
-    bash -c ". '$LOADER'; _shell_source_dir '$FIX_BASH' bash" 2>&1
+    env -u BASH_ENV bash -c ". '$LOADER'; _shell_source_dir '$FIX_BASH' bash" 2>&1
 )
 _assert_eq "loader plain: every selected file sourced in order" \
   $'first\nsecond\nthird\nbash-only' "$(cat "$LOG_PLAIN")"
@@ -562,6 +564,54 @@ else
     "$(sshd_run PATH=/usr/bin:/bin SSH_CLIENT='192.0.2.1 22 22' \
       RIPGREP_CONFIG_PATH=/stale "$BASH_BIN" -l -c 'printf %s "$RIPGREP_CONFIG_PATH"' </dev/null)"
 fi
+
+echo ""
+echo "=== env-noninteractive: caller nounset does not abort env.d ==="
+
+# Fragments source system rc code written without `set -u` in mind (the work
+# bootstrap's /etc/profile.d fragments). A `bash -u` / `zsh -u` child must not
+# print "unbound variable", must still load later fragments, and must get its
+# own nounset back for its command.
+NOUNSET_HOME=$TEST_TMPDIR/nounset-home
+cp -R "$ENV_HOME" "$NOUNSET_HOME"
+cat >"$NOUNSET_HOME/.config/shell/env.d/15-unset-ref.sh" <<'EOF'
+[ -n "$DOT_TEST_NEVER_SET" ] || :
+printf 'after-unset\n' >>"$DOT_ENV_TEST_LOG"
+EOF
+nounset_run() {
+  env -i HOME="$NOUNSET_HOME" ZDOTDIR="$NOUNSET_HOME" PATH="$PATH" \
+    BASH_ENV="$NOUNSET_HOME/.config/shell/env-noninteractive.sh" \
+    DOT_ENV_TEST_LOG="$ENV_LOG" "$@" </dev/null 2>&1
+}
+# shellcheck disable=SC2016 # the child shell expands its own $-.
+NOUNSET_PROBE='case $- in *u*) printf on ;; *) printf off ;; esac'
+
+ENV_LOG=$TEST_TMPDIR/env-nounset-bash.log
+: >"$ENV_LOG"
+_assert_eq "env-noninteractive (bash -u): no unbound noise, nounset restored" \
+  "on" "$(nounset_run bash -u -c "$NOUNSET_PROBE")"
+_assert_eq "env-noninteractive (bash -u): later fragments still load" \
+  "common after-unset bash" "$(awk '{print $1}' "$ENV_LOG" | paste -sd' ' -)"
+
+if command -v zsh >/dev/null 2>&1; then
+  ENV_LOG=$TEST_TMPDIR/env-nounset-zsh.log
+  : >"$ENV_LOG"
+  _assert_eq "env-noninteractive (zsh -u): no unbound noise, nounset restored" \
+    "on" "$(nounset_run zsh -u -c "$NOUNSET_PROBE")"
+  _assert_eq "env-noninteractive (zsh -u): later fragments still load" \
+    "common after-unset zsh" "$(awk '{print $1}' "$ENV_LOG" | paste -sd' ' -)"
+fi
+
+echo ""
+echo "=== env-noninteractive: foreign HOME skips env.d quietly ==="
+
+# BASH_ENV is absolute, so a child that swaps HOME (test fixtures) still
+# sources env-noninteractive.sh; a home without dotfiles has nothing to load.
+BARE_HOME=$TEST_TMPDIR/bare-home
+mkdir -p "$BARE_HOME"
+_assert_eq "env-noninteractive (bash): home without dotfiles loads nothing, silently" \
+  "ran" "$(env -i HOME="$BARE_HOME" PATH="$PATH" BASH_ENV="$ENV_BASH_ENV" \
+    bash -c 'printf ran' </dev/null 2>&1)"
 
 echo ""
 echo "=== env ownership: env.d writers use _shell_env_set ==="

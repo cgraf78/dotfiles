@@ -34,6 +34,12 @@ zsh as the login shell, `ssh host cmd` reads only `~/.zshenv`. Shell-local
 state such as functions, `shopt`/`setopt`, and system rc bootstraps loads in
 every shell regardless of mode.
 
+Because nested shells load `env.d/` too, the loader suspends `set -u` while
+it runs and restores the caller's setting afterwards: a `bash -u` or
+`bash -euo pipefail` script would otherwise print "unbound variable" from
+system rc code a fragment sources. A child that inherits `BASH_ENV` but runs
+with a `HOME` lacking dotfiles (test fixtures) skips `env.d/` silently.
+
 Commands that tmux launches itself (`tmux new-window cmd`, `split-window cmd`,
 `display-popup cmd`, `run-shell`, hooks) run under a non-interactive shell, so
 they keep tmux's global environment as it was when the server started or last
