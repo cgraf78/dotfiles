@@ -51,6 +51,33 @@ _dot_launcher_candidate_ok() {
   return 0
 }
 
+# Launches one process chain may make before a launcher refuses to hand off.
+# Identity and marker checks cannot recognize a wrapper that is not a launcher
+# copy yet calls the launcher back (a test stub that captured `command -v git`,
+# say), so the two would exec each other forever. The bound counts depth, not
+# total launches, so a wrapper that calls back k times per level still costs
+# on the order of k^max launches; keep it small. Real nesting (hooks, aliases
+# and editors run under the real binary) rarely re-enters the launcher at all,
+# because the real binary puts its own exec path first on PATH for its
+# children.
+_dot_launcher_max_hops=8
+
+# Count this launch against the chain's hop budget, exporting the new count so
+# a candidate that re-enters the launcher inherits it, or fail once the budget
+# is spent. Runs in the caller's shell: builtins only, no forks.
+_dot_launcher_count_hop() {
+  local var="_DOT_LAUNCHER_HOPS_$1" hops
+  hops="${!var:-0}"
+  # Anything but a short decimal count restarts the budget; the chain itself
+  # always writes small numbers, so this cannot extend a real loop.
+  case "$hops" in
+    "" | *[!0-9]* | ?????*) hops=0 ;;
+  esac
+  hops=$((10#$hops + 1))
+  export "$var=$hops"
+  [ "$hops" -le "$_dot_launcher_max_hops" ]
+}
+
 _dot_launcher_cache_path() {
   local name="$1"
   dot_xdg_path cache "dotfiles/${name}-real"

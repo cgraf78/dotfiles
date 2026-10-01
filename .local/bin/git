@@ -44,7 +44,11 @@ _dot_git_resolve_dir() {
 
 _dot_git_git_worktree_root() {
   local dir="$1" root
-  root=$(cd -- "$dir" 2>/dev/null && "$_dot_git_real" rev-parse --show-toplevel 2>/dev/null) ||
+  # DOT_GIT_REAL keeps a resolved wrapper that re-enters this launcher from
+  # probing again: every launch would otherwise hand off twice (probe, then
+  # exec), branching the re-entry chain instead of walking it once.
+  root=$(cd -- "$dir" 2>/dev/null &&
+    DOT_GIT_REAL=1 "$_dot_git_real" rev-parse --show-toplevel 2>/dev/null) ||
     return 1
   [ -n "$root" ] || return 1
   root=$(_dot_launcher_physical_dir "$root") || return 1
@@ -177,6 +181,16 @@ _dot_git_nested_cache_path() {
 _dot_git_real_git ||
   _dot_git_die "could not find real git outside ~/.local/bin"
 _dot_git_real=$REPLY
+
+# Count before any hand-off to real Git, including the DOT_GIT_REAL fast path:
+# a resolved "real" Git that calls this launcher back would otherwise loop.
+# The guard covers an update that has replaced this file but not yet the
+# helper, which would otherwise fail every call until the helper lands.
+if declare -F _dot_launcher_count_hop >/dev/null; then
+  # shellcheck disable=SC2154 # _dot_launcher_max_hops comes from the helper.
+  _dot_launcher_count_hop git ||
+    _dot_git_die "gave up after $_dot_launcher_max_hops nested launches through $_dot_git_real; it looks like a wrapper that calls this launcher back instead of running real git (point it at a real git binary)"
+fi
 
 _dot_git_nested_cache_limit=64
 
