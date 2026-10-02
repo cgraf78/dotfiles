@@ -115,13 +115,16 @@ _dr_worktree_physical() {
 
 # Print the common Git directory of every clone root whose worktree admin
 # area the scan reads: the base client's separate Git directory, every
-# ~/git/* clone, and the ~/.dotfiles-* overlay clones. Never fails.
+# ~/git/* clone, and the ~/.dotfiles-* overlay clones. With `base`, only the
+# base client's, which is the registered scope dot-worktree-gc sweeps.
+# Never fails.
 _dr_worktree_clone_commons() {
   local home=${HOME:-} common
 
   if [[ -n ${DOTFILES:-} && -d ${DOTFILES:-} ]]; then
     printf '%s\n' "$DOTFILES"
   fi
+  [[ ${1:-} != base ]] || return 0
   for common in "$home"/git/*/.git "$home"/.dotfiles-*/.git; do
     [[ -d $common ]] && printf '%s\n' "$common"
   done
@@ -139,7 +142,8 @@ _dr_worktree_clone_commons() {
 #                                "repo<TAB>id" for locked entries whose
 #                                checkout is gone; prune never removes either
 # Paths stay raw so dot-worktree-gc, which shares the enumeration but not the
-# doctor display helpers, can call this too.
+# doctor display helpers, can call this too. Pass `base` to read only the
+# base client's admin area (see _dr_worktree_clone_commons).
 # This finds checkouts a repository registered anywhere (for example a
 # shared ~/worktrees root no fixed folder scan covers) and the admin entries
 # a fixed folder scan cannot see at all. Relative pointers
@@ -178,20 +182,24 @@ _dr_worktree_admin_scan() {
         _DR_WORKTREE_ADMIN_PRUNABLE+=("$repo"$'\t'"$id")
       fi
     done
-  done < <(_dr_worktree_clone_commons)
+  done < <(_dr_worktree_clone_commons "${1:-}")
   return 0
 }
 
-# Print one candidate worktree checkout per line. Sources, in order:
-#   1. linked checkouts registered by any clone root (authoritative; catches
-#      worktrees kept anywhere, including repo-local and shared roots),
+# Print one swept worktree checkout per line: the set dot-worktree-gc may
+# remove from. Sources, in order:
+#   1. linked checkouts registered by the base client repository, wherever
+#      they live,
 #   2. children of the shared worktree roots (every repo, plus orphaned
 #      checkouts git no longer tracks),
 #   3. repo-local .worktrees children under every clone root: ~/git plus
 #      the ~/.dotfiles-* overlay clones, which are repos like any other,
-#   4. children of any extra roots passed as arguments.
-# Callers dedupe and exclude the live checkout. Never fails.
-# Extra roots arrive from out-of-file callers (dot-worktree-gc); the
+#   4. children of any extra roots passed as arguments (--root).
+# Checkouts other clones registered elsewhere (tool workspaces, agent
+# worktrees inside a repository, anything under /tmp) are deliberately not
+# swept: the doctor reports them through _dr_worktree_registered, and their
+# owner removes them. Callers dedupe and exclude the live checkout. Never
+# fails. Extra roots arrive from out-of-file callers (dot-worktree-gc); the
 # in-file doctor call intentionally passes none.
 # shellcheck disable=SC2120
 _dr_worktree_candidates() {
@@ -199,7 +207,7 @@ _dr_worktree_candidates() {
 
   [[ -n $home && -d $home ]] || return 0
 
-  _dr_worktree_admin_scan
+  _dr_worktree_admin_scan base
   for dir in ${_DR_WORKTREE_ADMIN_LIVE[@]+"${_DR_WORKTREE_ADMIN_LIVE[@]}"}; do
     [[ -d $dir ]] || continue
     _dr_worktree_physical "$dir"
@@ -229,6 +237,31 @@ _dr_worktree_candidates() {
     done
   done
   return 0
+}
+
+# Print every live checkout any clone root registered, physical, one per
+# line: the doctor's report scope, wider than the swept one. Never fails.
+_dr_worktree_registered() {
+  local dir
+  _dr_worktree_admin_scan
+  for dir in ${_DR_WORKTREE_ADMIN_LIVE[@]+"${_DR_WORKTREE_ADMIN_LIVE[@]}"}; do
+    [[ -d $dir ]] || continue
+    _dr_worktree_physical "$dir"
+  done
+  return 0
+}
+
+# Print "S<TAB>path" for every swept candidate and "R<TAB>path" for every
+# registered checkout, for the doctor to read in one pass. Never fails.
+_dr_worktree_tagged_candidates() {
+  local dir
+  # shellcheck disable=SC2119 # the doctor passes no extra roots
+  while IFS= read -r dir; do
+    printf 'S\t%s\n' "$dir"
+  done < <(_dr_worktree_candidates)
+  while IFS= read -r dir; do
+    printf 'R\t%s\n' "$dir"
+  done < <(_dr_worktree_registered)
 }
 
 # Print the repo-identity key for a checkout, or fail. Same-repo
@@ -938,6 +971,11 @@ _dr_worktree_is_locked() {
 
 # Report a checkout's uncommitted state via REPLY: the number of changed
 # or untracked entries ("0" when clean), or "?" when Git cannot inspect it.
+# Untracked files are listed explicitly: a repository (the base client,
+# for one) may set status.showUntrackedFiles=no, which every worktree
+# inherits and which would hide new files from the porcelain output.
+# `normal` lists an untracked directory as one entry, which is all a
+# clean-or-dirty verdict needs.
 # The same `status --porcelain` view dot-worktree-gc uses to refuse a dirty
 # checkout, so doctor never suggests a sweep the gc will decline.
 # --no-optional-locks keeps the probe from refreshing the index, which
@@ -947,7 +985,7 @@ _dr_worktree_dirty_count() {
   local out count=0 line
   REPLY='?'
   out=$(_dr_git --no-optional-locks -c core.fsmonitor=false \
-    -C "$1" status --porcelain 2>/dev/null) || return 0
+    -C "$1" status --porcelain --untracked-files=normal 2>/dev/null) || return 0
   while IFS= read -r line; do
     [[ -n $line ]] && count=$((count + 1))
   done <<<"$out"
@@ -1058,19 +1096,19 @@ _dr_check_worktrees() {
     dotfiles_phys=$(cd -- "$DOTFILES" 2>/dev/null && pwd -P 2>/dev/null) || dotfiles_phys=
   fi
 
-  # shellcheck disable=SC2119 # the doctor call intentionally passes no extra roots
-  while IFS= read -r dir || [[ -n $dir ]]; do
-    if [[ -z $dir || ! -d $dir ]]; then
-      continue
-    fi
-    if [[ $dir == "$home_phys" ]]; then
-      continue
-    fi
-    if [[ -n $dotfiles_phys && $dir == "$dotfiles_phys" ]]; then
-      continue
-    fi
-    dirs+=("$dir")
-  done < <(_dr_worktree_candidates | LC_ALL=C sort -u)
+  # Swept candidates plus every checkout a clone registered; only the swept
+  # ones are dot-worktree-gc's to remove, which the stale hint reflects.
+  local tag
+  local -A seen=() swept=()
+  while IFS=$'\t' read -r tag dir; do
+    [[ -n $dir && -d $dir && $dir != "$home_phys" ]] || continue
+    [[ -z $dotfiles_phys || $dir != "$dotfiles_phys" ]] || continue
+    seen["$dir"]=1
+    [[ $tag != S ]] || swept["$dir"]=1
+  done < <(_dr_worktree_tagged_candidates)
+  if ((${#seen[@]} > 0)); then
+    mapfile -t dirs < <(printf '%s\n' "${!seen[@]}" | LC_ALL=C sort)
+  fi
   # The enumeration above ran in a subshell; rescan the admin areas here
   # (file reads only) so the prunable and locked lists reach the report.
   _dr_worktree_admin_scan
@@ -1128,7 +1166,7 @@ _dr_check_worktrees() {
   # young ones cost nothing beyond the single find pass.
   _dr_worktree_old_checkouts "$_DR_WORKTREE_STALE_DAYS" "${dirs[@]}"
 
-  local stale_count=0 dirty_count=0 clone_count=0 reason changed i hint
+  local stale_count=0 dirty_count=0 manual_count=0 reason changed i hint
   local -a stale_samples=() dirty_samples=() hit_dirs=() hit_reasons=()
   _DR_WORKTREE_PROBE_SET=$'\n'
   for dir in ${_DR_WORKTREE_OLD[@]+"${_DR_WORKTREE_OLD[@]}"}; do
@@ -1157,11 +1195,16 @@ _dr_check_worktrees() {
     changed=${_DR_WORKTREE_PAR_OUT[$i]}
     if [[ $changed == 0 ]]; then
       stale_count=$((stale_count + 1))
-      # dot-worktree-gc removes only linked worktrees; a standalone clone
-      # parked in a worktree root is a main checkout it always keeps.
+      # dot-worktree-gc removes only linked worktrees in its swept roots: a
+      # standalone clone parked in a worktree root is a main checkout it
+      # always keeps, and a worktree another clone registered elsewhere
+      # belongs to whatever tool made it.
       if ! _dr_worktree_is_linked "$dir"; then
-        clone_count=$((clone_count + 1))
+        manual_count=$((manual_count + 1))
         reason+=", standalone clone"
+      elif [[ -z ${swept["$dir"]+x} ]]; then
+        manual_count=$((manual_count + 1))
+        reason+=", outside the swept roots"
       fi
       if ((${#stale_samples[@]} < _DR_WORKTREE_STALE_LIST_LIMIT)); then
         stale_samples+=("$(_dr_worktree_display "$dir") ($reason)")
@@ -1182,12 +1225,12 @@ _dr_check_worktrees() {
   if ((stale_count == 0)); then
     _dr_ok "no stale worktrees"
   else
-    if ((clone_count == 0)); then
+    if ((manual_count == 0)); then
       hint="review with 'dot-worktree-gc' (dry run by default)"
-    elif ((clone_count == stale_count)); then
-      hint="dot-worktree-gc never removes standalone clones: delete them by hand once reviewed"
+    elif ((manual_count == stale_count)); then
+      hint="dot-worktree-gc does not remove these: delete them by hand once reviewed"
     else
-      hint="review linked worktrees with 'dot-worktree-gc' (dry run by default); delete standalone clones by hand"
+      hint="review the rest with 'dot-worktree-gc' (dry run by default); delete the clone and outside-root ones by hand"
     fi
     _dr_worktree_join_samples "$stale_count" "${stale_samples[@]}"
     if ((stale_count == 1)); then

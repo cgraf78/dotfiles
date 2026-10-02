@@ -662,6 +662,31 @@ _mock_home() {
   touch "$GIT_CONFIG_GLOBAL"
 }
 
+# Make every git call in the suite hermetic: no system config, a private
+# global config, and an environment config list replacing any inherited
+# GIT_CONFIG_COUNT entries (which outrank both files). Signing stays off,
+# so a developer's commit.gpgSign cannot fail fixture commits. Extra
+# KEY VALUE pairs join the environment list.
+_test_hermetic_git() {
+  local i=0 key
+  for key in $(compgen -e); do
+    case $key in
+      GIT_CONFIG_KEY_* | GIT_CONFIG_VALUE_*) unset "$key" ;;
+    esac
+  done
+  export GIT_CONFIG_NOSYSTEM=1
+  GIT_CONFIG_GLOBAL=$(_tmpdir)/gitconfig
+  export GIT_CONFIG_GLOBAL
+  : >"$GIT_CONFIG_GLOBAL"
+  set -- commit.gpgSign false tag.gpgSign false "$@"
+  while (($# >= 2)); do
+    export "GIT_CONFIG_KEY_$i=$1" "GIT_CONFIG_VALUE_$i=$2"
+    i=$((i + 1))
+    shift 2
+  done
+  export GIT_CONFIG_COUNT=$i
+}
+
 # Canonical git identity for test repos. Tests never assert on these values;
 # they exist only so commits in fixtures have a valid author.
 DOT_TEST_GIT_EMAIL="test@test.com"

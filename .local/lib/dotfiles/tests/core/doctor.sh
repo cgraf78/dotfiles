@@ -258,6 +258,13 @@ SH
     "run 'dot update' to strip it" "$result"
   _assert_eq "doctor shell: the tracked loader is left untouched" \
     "$(cat "$doctor_grok_home/zshrc.before")" "$(cat "$doctor_grok_home/.zshrc")"
+  printf '%s\n' '# thin loader' '# >>> grok installer >>>' 'export KEEP_ME=1' \
+    >"$doctor_grok_home/.zshrc"
+  result=$(HOME="$doctor_grok_home" _doctor_records _dr_check_shell)
+  _assert_contains "doctor shell: an unterminated block asks for a manual edit" \
+    $'warn\tunterminated Grok installer block in ~/.zshrc' "$result"
+  _assert_contains "doctor shell: an unterminated block is not sent to dot update" \
+    "edit the file by hand" "$result"
   printf '%s\n' '# thin loader' >"$doctor_grok_home/.zshrc"
   result=$(HOME="$doctor_grok_home" _doctor_records _dr_check_shell)
   _assert_not_contains "doctor shell: clean loaders report no Grok row" \

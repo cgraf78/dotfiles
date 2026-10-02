@@ -81,14 +81,16 @@ _dr_check_shell() {
 
   # Report a vendor installer block in the thin loaders. Doctor is
   # diagnostics-only: the grok-rc merge hook strips it during `dot update`.
-  local rc grok_rc='' grok_linked=''
+  local rc grok_rc='' grok_linked='' grok_open=''
   if dot_doctor_source shell-grok-rc.sh; then
     while IFS= read -r rc; do
       dot_grok_rc_has_block "$rc" || continue
-      # The hook never replaces a symlinked loader, so `dot update` would
-      # not clear it.
+      # The hook never replaces a symlinked loader, and refuses a block with
+      # no end marker, so `dot update` would clear neither.
       if [[ -L $rc ]]; then
         grok_linked+=${grok_linked:+, }$(_dr_tilde "$rc")
+      elif ! dot_grok_rc_filter "$rc" >/dev/null 2>&1; then
+        grok_open+=${grok_open:+, }$(_dr_tilde "$rc")
       else
         grok_rc+=${grok_rc:+, }$(_dr_tilde "$rc")
       fi
@@ -100,6 +102,10 @@ _dr_check_shell() {
     if [[ -n $grok_linked ]]; then
       _dr_warn "Grok installer block in $grok_linked" \
         "the loader is a symlink, which dot update leaves alone; remove the block by hand"
+    fi
+    if [[ -n $grok_open ]]; then
+      _dr_warn "unterminated Grok installer block in $grok_open" \
+        "the block has no end marker, so dot update leaves it alone; edit the file by hand"
     fi
   else
     _dr_skip "Grok installer block unchecked" "shell-grok-rc.sh unavailable"

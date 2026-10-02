@@ -23,9 +23,7 @@ GC=$ROOT/.local/bin/dot-worktree-gc
 # hook-triggering operations so its behavior is unchanged.
 _GC_EMPTY_HOOKS_DIR=$(_tmpdir)/empty-hooks
 mkdir -p "$_GC_EMPTY_HOOKS_DIR"
-export GIT_CONFIG_COUNT=1
-export GIT_CONFIG_KEY_0=core.hooksPath
-export GIT_CONFIG_VALUE_0=$_GC_EMPTY_HOOKS_DIR
+_test_hermetic_git core.hooksPath "$_GC_EMPTY_HOOKS_DIR"
 
 # Seed a bare origin with a main branch carrying one commit.
 _gc_seed_origin() {
@@ -841,25 +839,82 @@ result=$(HOME="$rt_home" DOTFILES="$rt_home/.dotfiles" "$GC" --root "$rt_home/do
 _assert_exit "roots: missing root does not fail the sweep" 0 "$?"
 _assert_contains "roots: missing root warns" "no such root" "$(cat "$rt_home/stderr.txt")"
 
-# A checkout registered by a clone under ~/git is enumerated from the clone's
-# worktree admin area, wherever the checkout lives, with no --root.
+# Checkouts other clones registered outside the swept roots belong to the
+# tools that made them: a tool workspace, an agent worktree inside the
+# repository, and one outside HOME. Old and merged, they still stay out of
+# the sweep, dry run and --apply alike, unless named with --root.
 reg_home=$(_gc_tmpdir)
+reg_outside=$(_gc_tmpdir)
 reg_origin_root=$(_tmpdir)
 reg_origin=$reg_origin_root/origin.git
 _gc_seed_origin "$reg_origin"
 _gc_clone_main "$reg_origin" "$reg_home/git/alpha"
 main=$reg_home/git/alpha
-git -C "$main" worktree add "$reg_home/shared-wt/old-merged" -b feat-reg >/dev/null 2>&1
-wt=$reg_home/shared-wt/old-merged
-_git_set_test_identity git -C "$wt"
-_gc_commit_file "$wt" feat-reg.txt
-git -C "$wt" push -u origin feat-reg >/dev/null 2>&1
-_gc_merge_branch "$main" feat-reg
-git -C "$wt" fetch --prune origin >/dev/null 2>&1
-_gc_make_old "$wt"
+reg_wts=("$reg_home/.tool-workspaces/repos/workspace" "$main/.claude/worktrees/agent-1"
+  "$reg_outside/scratch")
+reg_i=0
+for wt in "${reg_wts[@]}"; do
+  reg_i=$((reg_i + 1))
+  git -C "$main" worktree add "$wt" -b "feat-reg-$reg_i" >/dev/null 2>&1
+  _git_set_test_identity git -C "$wt"
+  _gc_commit_file "$wt" "feat-reg-$reg_i.txt"
+  git -C "$wt" push -u origin "feat-reg-$reg_i" >/dev/null 2>&1
+  _gc_merge_branch "$main" "feat-reg-$reg_i"
+  git -C "$wt" fetch --prune origin >/dev/null 2>&1
+  _gc_make_old "$wt"
+done
 result=$(HOME="$reg_home" DOTFILES="$reg_home/.dotfiles" "$GC" 2>/dev/null)
-_assert_contains "roots: a clone's registered worktree is enumerated by default" \
-  "$(printf 'would-remove\t%s\tmerged into origin/main' "$wt")" "$result"
+apply_result=$(HOME="$reg_home" DOTFILES="$reg_home/.dotfiles" "$GC" --apply 2>/dev/null)
+for ((reg_i = 0; reg_i < ${#reg_wts[@]}; reg_i++)); do
+  wt=${reg_wts[$reg_i]}
+  _assert_not_contains "roots: an unswept registered worktree is not a dry-run candidate (${wt##*/})" \
+    "$wt" "$result"
+  _assert_not_contains "roots: an unswept registered worktree is not an apply candidate (${wt##*/})" \
+    "$wt" "$apply_result"
+  _assert_file_exists "roots: an unswept registered worktree survives --apply (${wt##*/})" \
+    "$wt/feat-reg-$((reg_i + 1)).txt"
+done
+result=$(HOME="$reg_home" DOTFILES="$reg_home/.dotfiles" "$GC" --root "$reg_outside" 2>/dev/null)
+_assert_contains "roots: --root opts an outside worktree in" \
+  "$(printf 'would-remove\t%s\tmerged into origin/main' "$reg_outside/scratch")" "$result"
+
+# --root takes the root's children only; a checkout two levels down stays
+# out of the sweep.
+deep_root=$(_gc_tmpdir)
+mkdir -p "$deep_root/group"
+git -C "$main" worktree add "$deep_root/group/deep" -b feat-deep >/dev/null 2>&1
+_git_set_test_identity git -C "$deep_root/group/deep"
+_gc_commit_file "$deep_root/group/deep" feat-deep.txt
+git -C "$deep_root/group/deep" push -u origin feat-deep >/dev/null 2>&1
+_gc_merge_branch "$main" feat-deep
+git -C "$deep_root/group/deep" fetch --prune origin >/dev/null 2>&1
+_gc_make_old "$deep_root/group/deep"
+result=$(HOME="$reg_home" DOTFILES="$reg_home/.dotfiles" "$GC" --root "$deep_root" 2>/dev/null)
+_assert_not_contains "roots: --root leaves a checkout two levels deep alone" \
+  "$deep_root/group/deep" "$result"
+
+# A repository that hides untracked files from status (the base client sets
+# status.showUntrackedFiles=no, and its worktrees inherit it): an old merged
+# worktree whose only change is a new file is dirty, and --apply keeps it.
+hide_home=$(_gc_tmpdir)
+hide_origin_root=$(_tmpdir)
+_gc_seed_origin "$hide_origin_root/origin.git"
+_gc_clone_main "$hide_origin_root/origin.git" "$hide_home/git/alpha"
+git -C "$hide_home/git/alpha" config status.showUntrackedFiles no
+git -C "$hide_home/git/alpha" worktree add "$hide_home/.worktrees/old-untracked" \
+  -b feat-hide >/dev/null 2>&1
+wt=$hide_home/.worktrees/old-untracked
+_git_set_test_identity git -C "$wt"
+_gc_commit_file "$wt" feat-hide.txt
+git -C "$wt" push -u origin feat-hide >/dev/null 2>&1
+_gc_merge_branch "$hide_home/git/alpha" feat-hide
+git -C "$wt" fetch --prune origin >/dev/null 2>&1
+printf '%s\n' 'precious' >"$wt/new-notes.txt"
+_gc_make_old "$wt"
+result=$(HOME="$hide_home" DOTFILES="$hide_home/.dotfiles" "$GC" --apply 2>/dev/null)
+_assert_contains "dirty: an untracked-only change is dirty despite showUntrackedFiles=no" \
+  "$(printf 'skipped\t%s\tdirty' "$wt")" "$result"
+_assert_file_exists "dirty: the untracked file survives --apply" "$wt/new-notes.txt"
 
 echo ""
 echo "=== Recent Git activity keeps an old checkout ==="

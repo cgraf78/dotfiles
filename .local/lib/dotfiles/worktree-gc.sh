@@ -625,8 +625,11 @@ _worktree_gc_process() {
   # Read-only status: an index refresh would count as fresh activity and make
   # a dry run reset the age of every checkout it inspects; fsmonitor would
   # start a watcher in each.
+  # Untracked files are asked for explicitly: a repository that sets
+  # status.showUntrackedFiles=no (the base client does, and its worktrees
+  # inherit it) would otherwise hide new files, and removal would lose them.
   if ! status_out=$(git --no-optional-locks -c core.fsmonitor=false \
-    -C "$dir" status --porcelain 2>/dev/null); then
+    -C "$dir" status --porcelain --untracked-files=normal 2>/dev/null); then
     _worktree_gc_record skipped "$dir" "broken git pointer"
     return 0
   fi

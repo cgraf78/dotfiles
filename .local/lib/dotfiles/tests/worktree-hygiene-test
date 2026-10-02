@@ -29,6 +29,12 @@ dot_doctor_source doctor.d/lib/worktrees.sh || {
   exit 1
 }
 
+# Fixture repositories must not depend on the developer's Git config (commit
+# signing, hooks) or on inherited GIT_CONFIG_COUNT entries.
+_hygiene_hooks_dir=$(_tmpdir)/empty-hooks
+mkdir -p "$_hygiene_hooks_dir"
+_test_hermetic_git core.hooksPath "$_hygiene_hooks_dir"
+
 _doctor_records() {
   local status=0
   : >"$DOT_DOCTOR_RESULT_FILE"
@@ -895,7 +901,7 @@ _assert_not_contains "activity: a fresh index keeps a checkout active" \
 _assert_contains "activity: a standalone clone is labelled" \
   "act-idle (merged into origin/main, standalone clone)" "$result"
 _assert_contains "activity: mixed rows send worktrees to the gc and clones by hand" \
-  "review linked worktrees with 'dot-worktree-gc' (dry run by default); delete standalone clones by hand" \
+  "review the rest with 'dot-worktree-gc' (dry run by default); delete the clone and outside-root ones by hand" \
   "$result"
 
 echo ""
@@ -910,7 +916,12 @@ printf '%s\n' 'local edit' >>"$dirty_home/.worktrees/dirty-modified/file.txt"
 _clone_worktree "$dirty_origin" "$dirty_home/.worktrees/dirty-untracked"
 printf '%s\n' 'scratch' >"$dirty_home/.worktrees/dirty-untracked/notes.txt"
 _clone_worktree "$dirty_origin" "$dirty_home/.worktrees/clean-merged"
-for dirty_name in dirty-modified dirty-untracked clean-merged; do
+# The base client sets status.showUntrackedFiles=no; a new file must still
+# count.
+_clone_worktree "$dirty_origin" "$dirty_home/.worktrees/dirty-hidden"
+git -C "$dirty_home/.worktrees/dirty-hidden" config status.showUntrackedFiles no
+printf '%s\n' 'scratch' >"$dirty_home/.worktrees/dirty-hidden/notes.txt"
+for dirty_name in dirty-modified dirty-untracked dirty-hidden clean-merged; do
   _make_old "$dirty_home/.worktrees/$dirty_name"
 done
 dirty_index=$dirty_home/.worktrees/dirty-modified/.git/index
@@ -919,7 +930,9 @@ result=$(HOME="$dirty_home" DOTFILES="$dirty_home/.dotfiles" \
 _assert_contains "dirty: only the clean checkout is stale" \
   $'warn\t1 stale worktree' "$result"
 _assert_contains "dirty: dirty checkouts get their own row" \
-  $'warn\t2 inactive worktrees have uncommitted changes' "$result"
+  $'warn\t3 inactive worktrees have uncommitted changes' "$result"
+_assert_contains "dirty: untracked files count despite showUntrackedFiles=no" \
+  "dirty-hidden (1 uncommitted; merged into origin/main)" "$result"
 _assert_contains "dirty: modified files are counted" \
   "dirty-modified (1 uncommitted; merged into origin/main)" "$result"
 _assert_contains "dirty: untracked files are counted" \
@@ -929,7 +942,7 @@ _assert_not_contains "dirty: a dirty checkout is never called stale" \
 _assert_contains "dirty: the row says the gc skips it" \
   "dot-worktree-gc skips dirty checkouts" "$result"
 _assert_contains "dirty: clone-only stale rows say clones go by hand" \
-  "dot-worktree-gc never removes standalone clones" "$result"
+  "dot-worktree-gc does not remove these: delete them by hand" "$result"
 # _make_old dated the index 2020; a refreshing status would have moved it.
 _assert_eq "dirty: the probe leaves the index untouched" \
   "$dirty_index" "$(find "$dirty_index" -mtime +1000 2>/dev/null)"
@@ -1005,8 +1018,12 @@ _assert_contains "registered: the unlocked linked worktree is stale" \
   $'warn\t1 stale worktree' "$result"
 _assert_not_contains "registered: a locked checkout is never listed as stale" \
   "locked-live (merged" "$result"
-_assert_contains "registered: linked-only stale rows point at the gc" \
-  "review with 'dot-worktree-gc' (dry run by default)" "$result"
+# The gc sweeps only its own roots; a worktree another clone registered
+# elsewhere is reported but left for its owner.
+_assert_contains "registered: an unswept worktree is labelled" \
+  "live (merged into origin/main, outside the swept roots)" "$result"
+_assert_contains "registered: unswept stale rows say delete by hand" \
+  "dot-worktree-gc does not remove these: delete them by hand" "$result"
 
 # A locked checkout whose repository lives outside every clone root is
 # still recognised as locked through its own pointer.

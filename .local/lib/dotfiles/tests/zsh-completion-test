@@ -439,8 +439,11 @@ mkdir -p "$mode_rc_home"
 printf '%s\n' '# thin' '' '# >>> grok installer >>>' '# <<< grok installer <<<' \
   >"$mode_rc_home/.zshrc"
 chmod 644 "$mode_rc_home/.zshrc"
-printf '%s\n' '# thin' '# >>> grok installer >>>' 'export KEEP_ME=1' \
-  >"$mode_rc_home/.bashrc.target"
+# A terminated block, so only the symlink guard stands between the strip
+# and the target.
+printf '%s\n' '# thin' 'export KEEP_ME=1' '' '# >>> grok installer >>>' \
+  '# <<< grok installer <<<' >"$mode_rc_home/.bashrc.target"
+cp "$mode_rc_home/.bashrc.target" "$mode_rc_home/bashrc.before"
 ln -s "$mode_rc_home/.bashrc.target" "$mode_rc_home/.bashrc"
 HOME="$mode_rc_home" dot_grok_strip_installer_rc
 _assert_eq "grok installer strip: keeps the loader's mode" "644" \
@@ -451,10 +454,11 @@ if [[ -L $mode_rc_home/.bashrc ]]; then
 else
   _fail "grok installer strip: a symlinked loader stays a symlink"
 fi
-_assert_contains "grok installer strip: a symlinked loader's target is untouched" \
-  "KEEP_ME" "$(<"$mode_rc_home/.bashrc.target")"
+_assert_eq "grok installer strip: a symlinked loader's target is untouched" \
+  "$(<"$mode_rc_home/bashrc.before")" "$(<"$mode_rc_home/.bashrc.target")"
 rm -f "$mode_rc_home/.bashrc"
-cp "$mode_rc_home/.bashrc.target" "$mode_rc_home/.bashrc"
+printf '%s\n' '# thin' '# >>> grok installer >>>' 'export KEEP_ME=1' \
+  >"$mode_rc_home/.bashrc"
 unterminated_status=0
 HOME="$mode_rc_home" dot_grok_strip_installer_rc || unterminated_status=$?
 _assert_exit "grok installer strip: an unterminated block fails" 1 "$unterminated_status"
