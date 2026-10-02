@@ -1,83 +1,236 @@
 # shellcheck shell=bash
-# dot doctor: Shell checks.
-#
 # shellcheck disable=SC2088  # tilde strings here are display text.
+# dot doctor: shell startup behaviour.
+#
+# Instead of checking that startup files exist and mention the loader (core
+# already reports tracked-file drift), start each shell flavor tools and
+# terminals use and check that the shared loader actually ran:
+#
+#   bash login   ~/.bash_profile -> ~/.bashrc, as `bash -lc` reads them
+#   bash -c      non-interactive bash through the BASH_ENV that ~/.bashrc
+#                exports (env-noninteractive.sh, fill-only)
+#   zsh -c       non-login, non-interactive zsh: ~/.zshenv (fill-only)
+#   zsh login    ~/.zshenv (skipped for logins) and ~/.zprofile, as
+#                `zsh -lc` reads them
+#
+# The login flavors are real login shells that source the user's login
+# files in their real order but skip the host's system profile
+# (/etc/profile, /etc/zprofile; zsh still reads /etc/zshenv, as every zsh
+# does). Those are
+# not dotfiles, and running them made the doctor write login history,
+# start agents the worker supervisor then reports as leftovers, and pay
+# hundreds of milliseconds per probe on some hosts.
+#
+# Each probe prints one line: the loader's shell-local marker
+# (_SHELL_ENV_LOADED_PID, set to the loading shell's own PID and never
+# exported, so an inherited value cannot fake it), its own PID, whether
+# ~/.local/bin is on PATH, and bash's major version. Any other output fails
+# the probe: startup text on stdout corrupts scp, rsync, and command
+# substitution, and on stderr it corrupts every tool's output. The probes
+# run in parallel with stdin closed, each under a deadline, and each costs
+# one shell startup.
+
+# Seconds each probe may take before it is reported as timed out.
+_DR_SHELL_DEADLINE=10
+
+# Probe body run by every flavor. Literal on purpose: each child expands its
+# own variables. zsh has no BASH_VERSINFO, so its bash field stays empty.
+# shellcheck disable=SC2016
+_DR_SHELL_PROBE='case ":$PATH:" in *":$HOME/.local/bin:"*) _dr_lb=1 ;; *) _dr_lb=0 ;; esac; printf "dot-doctor-probe marker=%s pid=%s local_bin=%s bash=%s\n" "${_SHELL_ENV_LOADED_PID:-}" "$$" "$_dr_lb" "${BASH_VERSINFO[0]:-}"'
+
+# Login-file sequences, in the order the shells read them for a login,
+# non-interactive invocation (bash stops at the first readable file).
+# shellcheck disable=SC2016
+_DR_SHELL_BASH_LOGIN='for _dr_f in .bash_profile .bash_login .profile; do if [ -r "$HOME/$_dr_f" ]; then . "$HOME/$_dr_f"; break; fi; done'
+# shellcheck disable=SC2016
+_DR_SHELL_ZSH_LOGIN='for _dr_f in .zshenv .zprofile .zlogin; do [[ -r ${ZDOTDIR:-$HOME}/$_dr_f ]] && source "${ZDOTDIR:-$HOME}/$_dr_f"; done'
+
+# Start one probe flavor by absolute shell path under the probe PATH (see
+# _dr_check_shell), each bounded by _DR_SHELL_DEADLINE seconds.
+_dr_shell_probe_exec() {
+  local flavor=$1 bash_env
+  case $flavor in
+    bash-login)
+      # --login sets `login_shell` (so ~/.bashrc takes its authoritative
+      # path), while --noprofile keeps bash from reading any profile itself.
+      _dr_run_bounded "$_DR_SHELL_DEADLINE" "$_DR_SHELL_BASH" --login --noprofile --norc \
+        -c "$_DR_SHELL_BASH_LOGIN; $_DR_SHELL_PROBE"
+      ;;
+    bash-env)
+      # The doctor worker strips BASH_ENV, so ask ~/.bashrc which file it
+      # publishes, then start the real non-interactive child with only that
+      # added. The asking shell is bare and reads nothing but ~/.bashrc; an
+      # empty inherited BASH_ENV would otherwise survive the fill-only load.
+      local query=0
+      # shellcheck disable=SC2016 # The child expands its own variables.
+      bash_env=$(BASH_ENV='' _dr_run_bounded "$_DR_SHELL_DEADLINE" \
+        "$_DR_SHELL_BASH" --noprofile --norc -c '
+          unset BASH_ENV
+          . "$HOME/.bashrc" >/dev/null 2>&1
+          printf "%s" "${BASH_ENV:-}"
+        ' 2>/dev/null) || query=$?
+      # A query that timed out, or whose deadline could not be set up
+      # (125), says nothing about BASH_ENV.
+      if [[ $query == 124 || $query == 125 || $query == 137 ]]; then
+        return "$query"
+      fi
+      [[ -n $bash_env ]] || return 3
+      BASH_ENV=$bash_env _dr_run_bounded "$_DR_SHELL_DEADLINE" \
+        "$_DR_SHELL_BASH" -c "$_DR_SHELL_PROBE"
+      ;;
+    zsh-env)
+      _dr_run_bounded "$_DR_SHELL_DEADLINE" "$_DR_SHELL_ZSH" -c "$_DR_SHELL_PROBE"
+      ;;
+    zsh-login)
+      # -f skips the startup files zsh would read itself, apart from
+      # /etc/zshenv; -o login makes the user's files see a login shell, as
+      # `zsh -lc` would.
+      _dr_run_bounded "$_DR_SHELL_DEADLINE" "$_DR_SHELL_ZSH" -f -o login \
+        -c "$_DR_SHELL_ZSH_LOGIN; $_DR_SHELL_PROBE"
+      ;;
+  esac
+}
+
+# Run one probe flavor; stdout, stderr, and the exit status land in
+# $2.out, $2.err, and $2.status. Runs as a background job of the worker, so
+# a failing probe must not trip errexit before its status is recorded.
+_dr_shell_probe_run() {
+  local rc=0
+  PATH=$_DR_SHELL_PATH _dr_shell_probe_exec "$1" </dev/null >"$2.out" 2>"$2.err" ||
+    rc=$?
+  printf '%s\n' "$rc" >"$2.status"
+}
+
+# Report the first non-blank line of $1 via REPLY as one line of display
+# text: the record format forbids tabs and line breaks in a detail, and
+# terminal escapes do not belong in it.
+_dr_shell_first_line() {
+  local line
+  REPLY=
+  while IFS= read -r line; do
+    [[ -n ${line//[[:space:]]/} ]] || continue
+    REPLY=${line//[$'\t\r']/ }
+    # Drop terminal escape sequences, then any stray escape characters.
+    while [[ $REPLY =~ $'\e'\[[0-9\;?]*[A-Za-z] ]]; do
+      REPLY=${REPLY/"${BASH_REMATCH[0]}"/}
+    done
+    REPLY=${REPLY//$'\e'/}
+    REPLY=${REPLY:0:160}
+    return 0
+  done <<<"$1"
+}
+
+# Render one probe's verdict.
+_dr_shell_probe_report() {
+  local flavor=$1 base=$2 label repro status out err line noise=''
+  local marker='' pid='' local_bin='' bash_major=''
+  case $flavor in
+    bash-login) label='bash login' repro="bash -lc :" ;;
+    bash-env) label='bash -c (BASH_ENV)' repro="BASH_ENV=<value ~/.bashrc exports> bash -c :" ;;
+    zsh-env) label='zsh -c' repro="zsh -c :" ;;
+    zsh-login) label='zsh login' repro="zsh -lc :" ;;
+  esac
+  status=1 out='' err=''
+  IFS= read -r status 2>/dev/null <"$base.status" || status=1
+  IFS= read -r -d '' out 2>/dev/null <"$base.out" || true
+  IFS= read -r -d '' err 2>/dev/null <"$base.err" || true
+
+  if [[ $flavor == bash-env && $status == 3 ]]; then
+    _dr_warn "$label startup not configured" \
+      "~/.bashrc does not export BASH_ENV, so non-interactive bash skips env.d; run 'dot update'"
+    return 0
+  fi
+  if [[ $status == 124 || $status == 137 ]]; then
+    _dr_fail "$label startup timed out" \
+      "a startup file waits on something; run '$repro' to see where"
+    return 0
+  fi
+  if [[ -n ${err//[[:space:]]/} ]]; then
+    _dr_shell_first_line "$err"
+    _dr_fail "$label startup prints to stderr" \
+      "$REPLY; non-interactive output must stay clean (try '$repro')"
+    return 0
+  fi
+  while IFS= read -r line; do
+    if [[ $line =~ ^dot-doctor-probe\ marker=([0-9]*)\ pid=([0-9]+)\ local_bin=([01])\ bash=([0-9]*)$ ]]; then
+      marker=${BASH_REMATCH[1]}
+      pid=${BASH_REMATCH[2]}
+      local_bin=${BASH_REMATCH[3]}
+      bash_major=${BASH_REMATCH[4]}
+    elif [[ -n ${line//[[:space:]]/} && -z $noise ]]; then
+      noise=$line
+    fi
+  done <<<"$out"
+  if [[ -n $noise ]]; then
+    _dr_shell_first_line "$noise"
+    _dr_fail "$label startup prints to stdout" \
+      "$REPLY; non-interactive output must stay clean (try '$repro')"
+  elif [[ $status != 0 || -z $pid ]]; then
+    _dr_fail "$label startup failed" "exit $status; run '$repro' to see why"
+  elif [[ $marker != "$pid" ]]; then
+    _dr_fail "$label does not load the shell environment" \
+      "the shared loader did not run; check the startup files with 'dot status'"
+  elif [[ $local_bin != 1 ]]; then
+    _dr_fail "$label leaves ~/.local/bin off PATH" \
+      "dot and its helper commands live there; check ~/.config/shell/env.d"
+  else
+    _dr_ok "$label loads the shell environment"
+  fi
+  # Scripts run `#!/usr/bin/env bash` with the first bash on PATH, which
+  # core's runtime row does not cover (it picks the first Bash 4+). The
+  # login probe always runs that same binary.
+  if [[ $flavor == bash-login && -n $bash_major ]] && ((bash_major < 4)); then
+    _dr_warn "first bash on PATH is version $bash_major" \
+      "scripts using '/usr/bin/env bash' need Bash 4+; install a newer bash ahead of it on PATH"
+  fi
+}
 
 _dr_check_shell() {
   _dr_section "Shell environment"
 
-  # bash 4+ (required by dot/shdeps — macOS system bash is 3.2)
-  local bash_ver
-  if ! bash_ver=$(BASH_ENV='' bash -c 'printf "%s.%s\n" "${BASH_VERSINFO[0]}" "${BASH_VERSINFO[1]}"' 2>/dev/null); then
-    bash_ver=""
+  local tmp flavor entry rest
+  local -a flavors=()
+  _DR_SHELL_BASH=$(type -P bash 2>/dev/null) || _DR_SHELL_BASH=
+  _DR_SHELL_ZSH=$(type -P zsh 2>/dev/null) || _DR_SHELL_ZSH=
+  if [[ -n $_DR_SHELL_BASH ]]; then
+    flavors+=(bash-login bash-env)
   fi
-  if [[ -z "$bash_ver" ]]; then
-    _dr_fail "bash not found on PATH"
-  elif [[ "${bash_ver%%.*}" -lt 4 ]]; then
-    _dr_fail "bash version too old" "found $bash_ver, need >= 4 (brew install bash)"
-  else
-    _dr_ok "bash version" "$bash_ver"
+  if [[ -n $_DR_SHELL_ZSH ]]; then
+    flavors+=(zsh-env zsh-login)
   fi
-
-  # zsh present (user's primary shell)
-  if command -v zsh >/dev/null 2>&1; then
-    local zsh_ver
-    zsh_ver=$(zsh --version 2>/dev/null | awk '{print $2; exit}')
-    _dr_ok "zsh present" "${zsh_ver:-?}"
-  else
-    _dr_warn "zsh not on PATH" "fine if you only use bash"
-  fi
-
-  # EDITOR set
-  if [[ -n "${EDITOR:-}" ]]; then
-    _dr_ok "EDITOR set" "$EDITOR"
-  else
-    _dr_warn "EDITOR not set" "tools that spawn an editor may fall back to vi"
-  fi
-
-  # The standalone doctor worker deliberately strips BASH_ENV before loading
-  # client code. Probe the managed bash startup path instead of inspecting the
-  # worker's sanitized control environment.
-  local managed_bash_env
-  # shellcheck disable=SC2016 # The selected child Bash expands its own HOME/BASH_ENV.
-  if ! managed_bash_env=$(BASH_ENV='' "$BASH" --noprofile --norc -c '
-    [[ -f $HOME/.bashrc ]] || exit 1
-    # The empty startup override must not suppress fill-only env.d defaults.
-    unset BASH_ENV
-    . "$HOME/.bashrc"
-    printf "%s\n" "${BASH_ENV:-}"
-  ' 2>/dev/null); then
-    managed_bash_env=""
-  fi
-  if [[ -n $managed_bash_env ]]; then
-    if [[ -f $managed_bash_env ]]; then
-      _dr_ok "BASH_ENV" "$(_dr_tilde "$managed_bash_env")"
-    else
-      _dr_fail "BASH_ENV set but target missing" "$managed_bash_env"
-    fi
-  else
-    _dr_warn "BASH_ENV unset" "non-interactive bash subshells won't inherit env.d"
-  fi
-
-  # Shared shell loader
-  local loader="$HOME/.local/lib/dotfiles/shell-loader.sh"
-  if [[ -f "$loader" ]]; then
-    _dr_ok "shell-loader.sh present"
-  else
-    _dr_fail "shell-loader.sh missing" "$loader"
-  fi
-
-  # rc files exist and reference the shared loader
-  for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
-    if [[ ! -f "$rc" ]]; then
-      _dr_fail "$(basename "$rc") missing at \$HOME"
-    elif grep -q "shell-loader.sh" "$rc" 2>/dev/null; then
-      _dr_ok "$(basename "$rc") sources shared loader"
-    else
-      _dr_warn "$(basename "$rc") does not reference shell-loader.sh" \
-        "may be a stale copy from before the loader extraction"
-    fi
+  # Resolve the deadline runner now: the probe PATH below may no longer
+  # contain timeout(1).
+  _dr_timeout_resolve
+  # Probe PATH: the inherited one minus ~/.local/bin, so "startup puts
+  # ~/.local/bin on PATH" is something the probes prove rather than inherit
+  # from the shell that ran `dot doctor`. Everything else stays, so startup
+  # code finds its usual tools on every platform.
+  _DR_SHELL_PATH=
+  rest=${PATH:-}:
+  while [[ -n $rest ]]; do
+    entry=${rest%%:*}
+    rest=${rest#*:}
+    [[ -n $entry && $entry != "$HOME/.local/bin" && $entry != "$HOME/.local/bin/" ]] || continue
+    _DR_SHELL_PATH+=${_DR_SHELL_PATH:+:}$entry
   done
+
+  if ((${#flavors[@]} == 0)); then
+    _dr_fail "bash not found on PATH" "dot and its scripts need Bash 4+ on PATH"
+  elif tmp=$(mktemp -d "${TMPDIR:-/tmp}/dot-doctor-shell.XXXXXX" 2>/dev/null); then
+    for flavor in "${flavors[@]}"; do
+      _dr_shell_probe_run "$flavor" "$tmp/$flavor" &
+    done
+    wait
+    for flavor in "${flavors[@]}"; do
+      _dr_shell_probe_report "$flavor" "$tmp/$flavor"
+    done
+    rm -rf "$tmp"
+  else
+    _dr_warn "shell startup unchecked" "could not create a temporary directory"
+  fi
+  if [[ -z $_DR_SHELL_ZSH ]]; then
+    _dr_skip "zsh startup" "zsh not installed"
+  fi
 
   # Report a vendor installer block in the thin loaders. Doctor is
   # diagnostics-only: the grok-rc merge hook strips it during `dot update`.
@@ -110,20 +263,4 @@ _dr_check_shell() {
   else
     _dr_skip "Grok installer block unchecked" "shell-grok-rc.sh unavailable"
   fi
-
-  # ~/.local/bin on PATH (all dot scripts live there)
-  case ":$PATH:" in
-    *:"$HOME/.local/bin":*) _dr_ok "~/.local/bin on PATH" ;;
-    *) _dr_fail "~/.local/bin not on PATH" "dot, autoformat, autolint, agent hooks all live here" ;;
-  esac
-
-  # Shell config directories
-  for dir in "$DOT_SHELL_ENV_DIR" "$DOT_SHELL_INTERACTIVE_DIR"; do
-    local label="${dir#"$HOME"/.config/shell/}"
-    if [[ -d "$dir" ]]; then
-      _dr_ok "$label/ exists"
-    else
-      _dr_fail "$label/ missing" "shell config won't load — run dot update --force"
-    fi
-  done
 }
