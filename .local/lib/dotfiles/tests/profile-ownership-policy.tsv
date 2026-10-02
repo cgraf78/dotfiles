@@ -90,8 +90,8 @@ dev	dev-toolchain	.config/shdeps/hooks.d/rust-toolchain.sh
 dev	dev-toolchain	.config/shell/env.d/*dev*
 dev	dev-toolchain	.config/shell/interactive.d/*dev*
 dev	dev-toolchain	.config/shell/interactive.d/57-git-tools.sh
-dev	dev-toolchain	.local/lib/dotfiles/doctor.d/20-dev-tools.sh
-dev	dev-toolchain	.local/lib/dotfiles/doctor.d/30-dev-shell-integrations.sh
+dev	dev-toolchain	.local/lib/dotfiles/doctor.d/[0-9]*-dev-tools.sh
+dev	dev-toolchain	.local/lib/dotfiles/doctor.d/[0-9]*-dev-shell-integrations.sh
 dev	dev-toolchain	.local/lib/dotfiles/doctor.d/lib/dev-integrations.sh
 dev	dev-toolchain	.local/lib/dotfiles/doctor.d/lib/dev-tools.sh
 dev	dev-toolchain	.local/lib/dotfiles/merge-hooks.d/mise.sh
@@ -101,7 +101,7 @@ dev	git	.config/dot/merge-hooks.d/sapling/**
 dev	git	.config/git/**
 dev	git	.config/lazygit/**
 dev	git	.gitleaks.toml
-dev	git	.local/lib/dotfiles/doctor.d/31-git-hooks.sh
+dev	git	.local/lib/dotfiles/doctor.d/[0-9]*-git-hooks.sh
 dev	git	.local/lib/dotfiles/git-hooks/**
 dev	git	.local/lib/dotfiles/merge-hooks.d/gh.sh
 dev	git	.local/lib/dotfiles/merge-hooks.d/git.sh

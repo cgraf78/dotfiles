@@ -1,114 +1,77 @@
 # shellcheck shell=bash
 # dot doctor: Tools checks.
+#
+# Core reports the Git and Bash runtimes and the dependency provider itself;
+# this section covers what base adds on top: the shdeps configuration and
+# the health of everything shdeps installed.
 
-_dr_shdeps_link_issue() {
-  local level="$1" label="$2" detail="${3:-}"
+dot_doctor_source doctor.d/lib/shdeps-links.sh || return
 
-  if [[ "$level" == "fail" ]]; then
-    _dr_fail "$label" "$detail"
+# Render `shdeps health` as one row: ok when healthy, otherwise the worst
+# severity it reported with the first few problems and the command that
+# lists them all. Only the severity column drives the verdict; the other
+# columns are display text, and unknown kinds render like any other.
+_dr_check_shdeps_health() {
+  local severity package kind path detail sample level=warn count=0
+  local -a samples=()
+
+  case $_DR_SHDEPS_HEALTH_STATUS in
+    0)
+      _dr_ok "shdeps health" "installed dependencies, links, and state are consistent"
+      return 0
+      ;;
+    error-124 | error-137)
+      _dr_fail "shdeps health timed out" "run 'shdeps health' to see where it stalls"
+      return 0
+      ;;
+    error-*)
+      _dr_fail "shdeps health failed (exit ${_DR_SHDEPS_HEALTH_STATUS#error-})" \
+        "run 'shdeps health' to see the error"
+      return 0
+      ;;
+  esac
+
+  while IFS=$'\t' read -r severity package kind path detail; do
+    [[ -n $severity ]] || continue
+    count=$((count + 1))
+    if [[ $severity == fail ]]; then
+      level=fail
+    fi
+    if ((${#samples[@]} < 3)); then
+      sample="${package:--}: $kind"
+      [[ -z $path || $path == - ]] || sample+=" $(_dr_tilde "$path")"
+      _dr_one_line "$sample"
+      samples+=("$REPLY")
+    fi
+  done <<<"$_DR_SHDEPS_HEALTH_OUTPUT"
+  # An incomplete report fails even when every row it managed to print was
+  # a warning: the unread state may hide anything.
+  if [[ $_DR_SHDEPS_HEALTH_STATUS == 3 ]]; then
+    level=fail
+  fi
+
+  if ((count == 0)); then
+    _dr_fail "shdeps health report incomplete" "run 'shdeps health' to see what it could not read"
+    return 0
+  fi
+  sample=
+  for detail in "${samples[@]}"; do
+    sample+=${sample:+; }$detail
+  done
+  if ((count > ${#samples[@]})); then
+    sample+="; and $((count - ${#samples[@]})) more"
+  fi
+  if [[ $level == fail ]]; then
+    _dr_fail "shdeps health: $count problem(s)" \
+      "$sample; run 'shdeps health' for details and fixes"
   else
-    _dr_warn "$label" "$detail"
+    _dr_warn "shdeps health: $count problem(s)" \
+      "$sample; run 'shdeps health' for details, then 'dot update'"
   fi
 }
 
-_dr_check_shdeps_bin_group() {
-  local level="$1" dependency="$2"
-
-  local rows shdeps_conf_dir
-  _dot_shdeps_conf_dir
-  shdeps_conf_dir="$REPLY"
-  if ! rows=$(SHDEPS_CONF_DIR="$shdeps_conf_dir" \
-    command shdeps dep-links "cgraf78/$dependency" 2>/dev/null); then
-    _dr_shdeps_link_issue "$level" "$dependency bin links unchecked" \
-      "shdeps cannot resolve command links for cgraf78/$dependency"
-    return 0
-  fi
-
-  if [[ -z "$rows" ]]; then
-    _dr_shdeps_link_issue "$level" "$dependency bin links missing" \
-      "shdeps reported no public command links for cgraf78/$dependency"
-    return 0
-  fi
-
-  local cmd link expected extra actual
-  local issue_count=0 command_count=0
-
-  # shdeps owns the vocabulary of commands and expected targets. Dot doctor
-  # only verifies that the live public command path still matches that contract.
-  while IFS=$'\t' read -r cmd link expected extra || [[ -n "$cmd$link$expected$extra" ]]; do
-    if [[ -z "$cmd" || -z "$link" || -z "$expected" || -n "$extra" ]]; then
-      ((issue_count++)) || true
-      _dr_shdeps_link_issue "$level" "$dependency bin links malformed" \
-        "unexpected shdeps dep-links row for cgraf78/$dependency"
-      continue
-    fi
-
-    ((command_count++)) || true
-
-    if [[ ! -e "$link" && ! -L "$link" ]]; then
-      ((issue_count++)) || true
-      _dr_shdeps_link_issue "$level" "$cmd not linked" \
-        "expected $(_dr_tilde "$link") -> $(_dr_tilde "$expected")"
-      continue
-    fi
-
-    if [[ "$link" != "$expected" ]]; then
-      if [[ ! -L "$link" ]]; then
-        ((issue_count++)) || true
-        _dr_shdeps_link_issue "$level" "$cmd not linked" \
-          "expected $(_dr_tilde "$link") -> $(_dr_tilde "$expected")"
-        continue
-      fi
-
-      if ! _dr_symlink_points_to "$link" "$expected"; then
-        ((issue_count++)) || true
-        actual=$(_dr_symlink_target_path "$link" 2>/dev/null || echo "?")
-        _dr_shdeps_link_issue "$level" "$cmd link target drift" \
-          "got $(_dr_tilde "$actual"), expected $(_dr_tilde "$expected")"
-        continue
-      fi
-    fi
-
-    if [[ ! -x "$link" ]]; then
-      ((issue_count++)) || true
-      _dr_shdeps_link_issue "$level" "$cmd not executable" "$(_dr_tilde "$link")"
-    fi
-  done <<<"$rows"
-
-  if [[ "$issue_count" -eq 0 ]]; then
-    _dr_ok "$dependency bin links" "$command_count command(s)"
-  fi
-}
-_dr_check_shdeps_shell_asset() {
-  local dependency="$1"
-  local asset="share/$dependency/shell.sh"
-  local path shdeps_conf_dir
-  _dot_shdeps_conf_dir
-  shdeps_conf_dir="$REPLY"
-
-  if ! path=$(SHDEPS_CONF_DIR="$shdeps_conf_dir" \
-    command shdeps dep-file "cgraf78/$dependency" "$asset" 2>/dev/null); then
-    _dr_warn "$dependency shell asset unresolved" \
-      "expected shdeps asset cgraf78/$dependency:$asset"
-    return 0
-  fi
-
-  if [[ -r "$path" ]]; then
-    _dr_ok "$dependency shell asset" "$(_dr_tilde "$path")"
-  else
-    _dr_warn "$dependency shell asset unreadable" "$(_dr_tilde "$path")"
-  fi
-}
 _dr_check_tools() {
   _dr_section "Tools"
-
-  # Git remains a base prerequisite because Dot uses it to synchronize the
-  # client and selected overlays even when no development profile is active.
-  if command -v git >/dev/null 2>&1; then
-    _dr_ok "git" "$(git --version 2>/dev/null | awk '{print $3}')"
-  else
-    _dr_fail "git missing"
-  fi
 
   # curl — used by shdeps bootstrap and github:release installs
   if command -v curl >/dev/null 2>&1; then
@@ -117,40 +80,41 @@ _dr_check_tools() {
     _dr_warn "curl missing" "needed to bootstrap shdeps and install github:release deps"
   fi
 
-  # shdeps — dependency system used by dot update
-  if command -v shdeps >/dev/null 2>&1; then
-    _dr_ok "shdeps" "$(shdeps version 2>/dev/null | awk '{print $2; exit}' || echo '?')"
-  elif [[ -f "$HOME/.local/share/shdeps/shdeps.sh" ]]; then
-    _dr_ok "shdeps" "library installed"
-  else
-    _dr_warn "shdeps not installed" "run 'dot update' to bootstrap"
-  fi
-
   # shdeps config
   local shdeps_conf_dir
   _dot_shdeps_conf_dir
   shdeps_conf_dir="$REPLY"
   if [[ -d "$shdeps_conf_dir" ]]; then
-    local conf_count
-    conf_count=$(find "$shdeps_conf_dir" -maxdepth 1 -name '*.conf' -type f 2>/dev/null | wc -l | tr -d ' ')
+    # Count through a glob: managed .conf files are usually overlay
+    # symlinks, which `find -type f` silently skipped. `-f` follows links
+    # and rejects dangling ones, matching what shdeps can actually read.
+    local conf_count=0 conf
+    for conf in "$shdeps_conf_dir"/*.conf; do
+      [[ -f $conf ]] && conf_count=$((conf_count + 1))
+    done
     if [[ "$conf_count" -gt 0 ]]; then
       _dr_ok "shdeps config" "$conf_count .conf file(s)"
     else
-      _dr_warn "shdeps config dir exists but no .conf files" "$(_dr_tilde "$shdeps_conf_dir")"
+      _dr_warn "shdeps config dir exists but no .conf files" \
+        "$(_dr_tilde "$shdeps_conf_dir"); restore the tracked .conf files, then run 'dot update'"
     fi
   else
-    _dr_warn "shdeps config dir missing" "$(_dr_tilde "$shdeps_conf_dir")"
+    _dr_warn "shdeps config dir missing" \
+      "$(_dr_tilde "$shdeps_conf_dir"); restore it from the base checkout, then run 'dot update'"
   fi
 
-  # These providers implement always-active shell, terminal, and rule policy.
-  # Editor and development providers contribute their own doctor extensions.
-  if command -v shdeps >/dev/null 2>&1; then
+  if ! command -v shdeps >/dev/null 2>&1; then
+    _dr_warn "dependency command links unchecked" "shdeps is not on PATH; run 'dot update'"
+  elif _dr_shdeps_health_probe; then
+    # One stat-only pass covers every installed package's command links
+    # plus deferred, recovery, and install-root state.
+    _dr_check_shdeps_health
+  else
+    # An older shdeps without `health`: check the always-active providers
+    # (shell, terminal, and rule policy) one group at a time, as before.
     _dr_check_shdeps_bin_group fail agent-rules-sync
     _dr_check_shdeps_bin_group warn termnav
     _dr_check_shdeps_bin_group warn tmux-tools
     _dr_check_shdeps_bin_group warn ds
-    _dr_check_shdeps_shell_asset termnav
-  else
-    _dr_warn "dependency command links unchecked" "shdeps is not on PATH"
   fi
 }

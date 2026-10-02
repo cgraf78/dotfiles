@@ -26,7 +26,7 @@ _dr_check_shell_integrations() {
 
     cache=$(mktemp -d 2>/dev/null || mktemp -d -t dot-doctor-shell) || {
       _dr_warn "termnav $shell_name integration unchecked" \
-        "could not create temp cache"
+        "could not create a temporary cache directory"
       continue
     }
 
@@ -48,7 +48,7 @@ _dr_check_shell_integrations() {
       _dr_ok "termnav $shell_name integration"
     else
       _dr_warn "termnav $shell_name integration unavailable" \
-        "interactive $shell_name did not load termnav shell integration"
+        "sourcing the termnav shell asset in $shell_name did not load it; run 'dot update'"
     fi
     rm -rf "$cache"
   done

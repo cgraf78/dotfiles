@@ -13,8 +13,9 @@ those interfaces execute.
   `shdeps-assets.sh` are shared base helpers.
 - `agent-playbooks.sh` discovers the trusted agent playbooks selected by
   dotfiles policy.
-- `shell-grok-rc.sh` strips the Grok installer block from the thin shell
-  loaders.
+- `shell-grok-rc.sh` detects and strips the Grok installer block in the thin
+  shell loaders; the interactive wrapper and the `grok-rc` merge hook strip,
+  `dot doctor` only reports.
 - `worktree-gc.sh` implements the `dot-worktree-gc` command.
 
 Editor and development runtime belongs to `dotfiles-nvim` and `dotfiles-dev`.

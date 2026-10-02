@@ -9,10 +9,163 @@ _dr_ok() { dot_doctor_ok "$@"; }
 _dr_warn() { dot_doctor_warn "$@"; }
 _dr_fail() { dot_doctor_fail "$@"; }
 _dr_skip() { dot_doctor_skip "$@"; }
-_dr_tilde() { dot_doctor_display_path "$@"; }
+# Display a path for a record: HOME abbreviated, and any TAB or line break
+# (legal in file names, illegal in a record, where it would abort the
+# worker) turned into a space.
+_dr_tilde() {
+  local out
+  out=$(dot_doctor_display_path "$@") || return
+  printf '%s\n' "${out//[$'\t\r\n']/ }"
+}
+
+# Report $1 as one line of record text via REPLY.
+_dr_one_line() {
+  REPLY=${1//[$'\t\r\n']/ }
+}
+
+# Informational rows use the coordinator's `info` kind when its doctor API
+# provides one, and render as a passing check on older coordinators, so the
+# same extension runs against either.
+_dr_info() {
+  if declare -F dot_doctor_info >/dev/null 2>&1; then
+    dot_doctor_info "$@"
+  else
+    dot_doctor_ok "$@"
+  fi
+}
 
 _merge_hook_family() {
   printf '%s/%s\n' "$HOME/.config/dot/merge-hooks.d" "$1"
+}
+
+# Resolve the deadline runner once per worker into _DR_TIMEOUT_BIN:
+# timeout(1), else gtimeout from GNU coreutils, else empty for the builtin
+# watchdog. Resolve before narrowing PATH.
+#
+# Only a coreutils timeout (GNU or uutils) is used: callers rely on its 124
+# status to tell a deadline from a failure. BusyBox's (Alpine) execs the
+# command in its own place and kills it, so a deadline surfaces as a plain
+# SIGTERM death (143) plus the shell's "Terminated" notice on stderr; the
+# builtin watchdog reports that case correctly instead.
+_dr_timeout_resolve() {
+  local bin version
+  if [[ -z ${_DR_TIMEOUT_BIN+x} ]]; then
+    _DR_TIMEOUT_BIN=
+    for bin in timeout gtimeout; do
+      bin=$(type -P "$bin" 2>/dev/null) || continue
+      version=$("$bin" --version 2>/dev/null </dev/null) || continue
+      [[ $version == *coreutils* ]] || continue
+      _DR_TIMEOUT_BIN=$bin
+      break
+    done
+  fi
+}
+
+# Run an external command with a deadline of $1 seconds and return its
+# status, or 124 when the deadline passed. Uses timeout(1) or gtimeout where
+# installed; otherwise a builtin watchdog, so a host without either (stock
+# macOS) is still bounded. The command's stdin, stdout, and stderr are the
+# caller's. The watchdog takes whole or decimal seconds (0 disables the
+# deadline, as for timeout(1)) and returns 125 without running the command
+# when the deadline is malformed or its private directory and FIFO cannot
+# be created.
+#
+# The watchdog runs the command as its own process group and signals the
+# whole group (TERM at the deadline, then KILL two seconds later), as
+# timeout(1) does: a grandchild left behind would keep a `$(...)` capture
+# open past the deadline. Once the command itself has exited, by itself or
+# by the deadline, its group is KILLed too, so a background child or a
+# grandchild that ignores TERM can neither hold the capture nor outlive the
+# call. A TERM, HUP, or INT that stops the caller KILLs the group as well.
+#
+# Nothing else may outlive the call either. On macOS, Dot's supervisor has
+# no stable handle on a process outside the leader's process group, so when
+# a doctor worker or test suite exits while such a process still lives, it
+# refuses the teardown and fails the run. The watchdog therefore stays in
+# the caller's group and runs builtins only: it waits with `read -t` on a
+# private FIFO rather than an external sleep, which would be orphaned when
+# the watchdog is stopped. Everything runs in a subshell, so job control,
+# traps, and errexit changes stay inside.
+_dr_run_bounded() {
+  local secs=$1
+  shift
+  _dr_timeout_resolve
+  if [[ -n $_DR_TIMEOUT_BIN ]]; then
+    "$_DR_TIMEOUT_BIN" -k 2 "$secs" "$@"
+    return
+  fi
+  # read -t would reject anything else at once, which the watchdog cannot
+  # tell from a broken clock.
+  [[ $secs =~ ^[0-9]+([.][0-9]+)?$ ]] || return 125
+  (
+    set +e
+    pid='' wd='' clock=''
+    # A private, unpredictable directory for the deadline marker and the
+    # watchdog's clock: a FIFO nothing ever writes, so a read on it returns
+    # only when its timeout passes. Opening it read-write never blocks and
+    # never sees EOF. The clock takes a free descriptor, so none the caller
+    # passes on (Dot hands its lease to children by number) is lost.
+    marks=$(mktemp -d "${TMPDIR:-/tmp}/dot-doctor-deadline.XXXXXX" 2>/dev/null) || exit 125
+    if ! mkfifo "$marks/clock" 2>/dev/null || ! exec {clock}<>"$marks/clock"; then
+      rm -rf "$marks"
+      exit 125
+    fi
+    # The watchdog dies with the caller's group, and the command's group
+    # never sees a signal sent there, so stop it here rather than leave it
+    # running without a deadline. Signals ignored on entry (INT and QUIT in
+    # a background job) cannot be trapped and need nothing.
+    trap 'kill -KILL -- "-$pid" "$wd" 2>/dev/null; rm -rf "$marks"; exit 129' HUP
+    trap 'kill -KILL -- "-$pid" "$wd" 2>/dev/null; rm -rf "$marks"; exit 130' INT
+    trap 'kill -KILL -- "-$pid" "$wd" 2>/dev/null; rm -rf "$marks"; exit 143' TERM
+    set -m
+    "$@" {clock}>&- &
+    pid=$!
+    set +m
+    # Started without job control, so it shares the caller's group. read
+    # reports a passed timeout as a status above 128; anything else means
+    # the clock broke, and the watchdog stands down rather than fire early.
+    (
+      read -r -t "$secs" -u "$clock"
+      (($? > 128)) || exit 0
+      : >"$marks/fired"
+      kill -TERM -- "-$pid"
+      read -r -t 2 -u "$clock"
+      (($? > 128)) || exit 0
+      kill -KILL -- "-$pid"
+    ) </dev/null >/dev/null 2>&1 &
+    wd=$!
+    exec {clock}>&-
+    wait "$pid"
+    rc=$?
+    # The command has exited and been reaped. Anything left in its group
+    # keeps the group ID reserved, so this KILL reaches only those
+    # leftovers; with none left there is no group to find (the same instant
+    # of PID reuse the deadline's TERM has always had to accept).
+    kill -KILL -- "-$pid" 2>/dev/null
+    kill -KILL "$wd" 2>/dev/null
+    wait "$wd" 2>/dev/null
+    [[ ! -e $marks/fired ]] || rc=124
+    rm -rf "$marks"
+    exit "$rc"
+  )
+}
+
+# Load Dot's public hook runtime into the current shell, so a doctor check
+# can source a merge hook and ask it what it would render instead of keeping
+# a second renderer that could drift. Call it inside a subshell: the runtime
+# defines many functions and globals. The worker exposes the engine root as
+# DOT_SOURCE_ROOT; doctor API v1 does not document that, so a missing or
+# different layout fails here and the caller reports the check as skipped.
+_dr_hook_runtime_source() {
+  local lib=${DOT_SOURCE_ROOT:-}/lib/dot/public/hook-runtime-v1 module
+
+  [[ -n ${DOT_SOURCE_ROOT:-} && -r $lib/hook-api.sh ]] || return 1
+  # shellcheck source=/dev/null
+  . "$DOT_SOURCE_ROOT/lib/dot/public/xdg.sh" || return 1
+  for module in log temp merge-block families merge-hooks extension-trust hook-api; do
+    # shellcheck source=/dev/null
+    . "$lib/$module.sh" || return 1
+  done
 }
 
 _dr_account_home() {

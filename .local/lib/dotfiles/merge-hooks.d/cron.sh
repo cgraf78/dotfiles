@@ -182,13 +182,44 @@ _cron_source_files() {
   return 0
 }
 
+# Marker of the managed crontab block; `dot doctor` compares against it.
+_CRON_MARKER="# dot-managed-cron"
+
+# Render the managed crontab block this host should carry from the sources
+# in $_cron_sources, via REPLY ("" when no entry applies here). The merge
+# installs exactly this text and `dot doctor` compares the live crontab with
+# it, so the two can never disagree about what "current" means.
+_cron_render_block() {
+  local source sources="" cron_path body
+
+  _cron_parsed=""
+  for source in "${_cron_sources[@]}"; do
+    _cron_parse_file "$source"
+  done
+  # Clear REPLY only now: the host filter helpers the parse calls use it as
+  # scratch space.
+  REPLY=
+  [[ -n "$_cron_parsed" ]] || return 0
+
+  cron_path=$(_cron_path)
+  # List source files that contributed entries.
+  for source in "${_cron_sources[@]}"; do
+    sources="${sources:+$sources, }$source"
+  done
+  body="$_cron_parsed"
+  if [[ -n "$cron_path" ]]; then
+    body="PATH=$cron_path"$'\n\n'"$body"
+  fi
+  REPLY=$(dot_managed_block_build "$_CRON_MARKER" "$sources" "$body")
+}
+
 merge() {
   _dot_tool_present cron || return 0
   local cron_command
   _dot_account_scoped_command \
     "cron merge" crontab "${DOT_TEST_CRONTAB:-}" || return 0
   cron_command="$REPLY"
-  local cron_marker="# dot-managed-cron"
+  local cron_marker=$_CRON_MARKER
 
   local -a _cron_sources
   _cron_source_files
@@ -196,17 +227,15 @@ merge() {
 
   dot_hook_log "  cron"
 
-  _cron_parsed=""
-  local source
-  for source in "${_cron_sources[@]}"; do
-    _cron_parse_file "$source"
-  done
+  local managed_block
+  _cron_render_block
+  managed_block=$REPLY
 
   local current
   current=$("$cron_command" -l 2>/dev/null || true)
 
   # No active entries — strip any existing managed block and return.
-  if [[ -z "$_cron_parsed" ]]; then
+  if [[ -z "$managed_block" ]]; then
     if [[ "$current" == *"$cron_marker begin"* ]]; then
       local stripped
       stripped="$(dot_managed_block_strip "$cron_marker" "$current")"
@@ -218,20 +247,6 @@ merge() {
     fi
     return 0
   fi
-
-  local cron_path
-  cron_path=$(_cron_path)
-  # List source files that contributed entries.
-  local sources=""
-  for source in "${_cron_sources[@]}"; do
-    sources="${sources:+$sources, }$source"
-  done
-  local body="$_cron_parsed"
-  if [[ -n "$cron_path" ]]; then
-    body="PATH=$cron_path"$'\n\n'"$body"
-  fi
-  local managed_block
-  managed_block="$(dot_managed_block_build "$cron_marker" "$sources" "$body")"
 
   # Already installed with same content — nothing to do.
   if [[ "$current" == *"$managed_block"* ]]; then
