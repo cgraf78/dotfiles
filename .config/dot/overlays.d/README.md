@@ -49,6 +49,11 @@ hosts=workbox1
   matches both `linux` and `android`.
 - `hosts` is optional and matches `hostname -s`, case-insensitively.
 
+Use only the keys listed here until every host runs a Dot release that knows a
+new one. Releases before cgraf78/dot#237 fail `dot update` on an unknown key;
+later releases skip the overlay instead of activating it (lifecycle state
+`selected-unsupported`).
+
 Prefix a platform or host with `!` to exclude it. When both `platforms` and
 `hosts` are present, both must match. A conf with no filters applies
 everywhere.
