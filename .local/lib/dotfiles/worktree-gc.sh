@@ -50,9 +50,12 @@
 # Known limitations (documented, not fixed):
 # - ignored files (.env, local databases) are invisible to the clean
 #   gate and to git's own removal check; back them up first
-# - age uses find -mtime on the checkout top directory: `-mtime +N`
-#   matches N+1 days and older, and committing inside does not refresh
-#   the top directory's mtime (both err toward keeping)
+# - age is the newest of the checkout top directory and its Git HEAD,
+#   index, and reftable (the doctor's activity signals, shared through
+#   _dr_worktree_old_checkouts): `-mtime +N` matches N+1 days and older,
+#   editing files without staging, committing, or checking out does not
+#   count as activity, and any tool whose `git status` refreshes the index
+#   makes a checkout look active again (both err toward keeping)
 
 _WORKTREE_GC_AGE_DAYS_DEFAULT=14
 _WORKTREE_GC_REMOTE=origin
@@ -96,10 +99,11 @@ _worktree_gc_err() { printf 'dot-worktree-gc: %s\n' "$*" >&2; }
 
 _worktree_gc_usage() {
   cat >&2 <<'USAGE'
-usage: dot-worktree-gc [--older-than Nd] [--dry-run|--apply] [--no-fetch]
+usage: dot-worktree-gc [--older-than N[d]] [--dry-run|--apply] [--no-fetch]
                        [--root DIR]...
-  Remove worktrees older than Nd days (default 14d) whose branches are
-  proven merged, across every repo that owns a discovered checkout.
+  Remove worktrees with no Git activity for over N days (default 14)
+  whose branches are proven merged, across every repo that owns a
+  discovered checkout.
   Dry run is the default; --apply performs removals. --root adds a
   worktree root to the sweep and may repeat. --no-fetch proves against
   local refs without touching the network.
@@ -107,7 +111,7 @@ usage: dot-worktree-gc [--older-than Nd] [--dry-run|--apply] [--no-fetch]
 USAGE
 }
 
-# Print the day count for an age argument (N or Nd), or fail.
+# Print the day count for an age argument (N, or N with a d suffix), or fail.
 _worktree_gc_parse_age() {
   local raw=${1:-} num
   case $raw in
@@ -618,7 +622,11 @@ _worktree_gc_process() {
     _worktree_gc_record skipped "$dir" "locked"
     return 0
   fi
-  if ! status_out=$(git -C "$dir" status --porcelain 2>/dev/null); then
+  # Read-only status: an index refresh would count as fresh activity and make
+  # a dry run reset the age of every checkout it inspects; fsmonitor would
+  # start a watcher in each.
+  if ! status_out=$(git --no-optional-locks -c core.fsmonitor=false \
+    -C "$dir" status --porcelain 2>/dev/null); then
     _worktree_gc_record skipped "$dir" "broken git pointer"
     return 0
   fi
@@ -807,10 +815,11 @@ worktree_gc_main() {
   fi
   old_list=
   if ((${#cands[@]} > 0)); then
-    # Keep partial results: find still prints the surviving matches when
-    # one path vanishes mid-pass, and discarding them would silently treat
-    # every old checkout as young (keep-everything) for this run.
-    old_list=$(find "${cands[@]}" -maxdepth 0 -mtime +"$age" 2>/dev/null) || true
+    # Age by the same Git activity signals the doctor reports, so the gc
+    # never removes a checkout the doctor considers active. A path that
+    # vanishes mid-pass reads young (kept) instead of failing the sweep.
+    _dr_worktree_old_checkouts "$age" "${cands[@]}"
+    old_list=$(printf '%s\n' ${_DR_WORKTREE_OLD[@]+"${_DR_WORKTREE_OLD[@]}"})
     for dir in "${cands[@]}"; do
       old=0
       case $'\n'"$old_list"$'\n' in

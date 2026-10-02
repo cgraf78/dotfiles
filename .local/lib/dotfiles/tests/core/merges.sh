@@ -376,7 +376,7 @@ TOOL_COMMANDS
 
   tool_gated_hooks=$(
     printf '%s\n' \
-      agent-rules cron ignore iterm2 karabiner ssh tmux wezterm zz-codex-trust
+      agent-rules cron grok-rc ignore iterm2 karabiner ssh tmux wezterm zz-codex-trust
   )
   # Root-gated hooks change system state, so the privilege check must precede
   # even the tool probe; ordinary user updates never touch them.
@@ -2049,10 +2049,142 @@ EOF
   rm -f "$IGNORE_FILE"
   rm -rf "$TEST_HOME/.config/dot/merge-hooks.d/ignore/ignore.d"
 
+  echo "=== Grok installer block merge hook ==="
+
+  _GROK_RC_HOOK="$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/grok-rc.sh"
+  _run_grok_rc_merge() {
+    unset -f merge 2>/dev/null
+    # shellcheck source=/dev/null
+    . "$_GROK_RC_HOOK"
+    merge
+  }
+  grok_rc_backup=$(_tmpdir)
+  for grok_rc_name in .zshrc .bashrc; do
+    if [[ -e $TEST_HOME/$grok_rc_name || -L $TEST_HOME/$grok_rc_name ]]; then
+      mv "$TEST_HOME/$grok_rc_name" "$grok_rc_backup/$grok_rc_name"
+    fi
+  done
+  printf '%s\n' '# thin zsh loader' >"$TEST_HOME/.zshrc.thin"
+  printf '%s\n' '# thin bash loader' >"$TEST_HOME/.bashrc.thin"
+  # shellcheck disable=SC2016 # The vendor block keeps a literal HOME.
+  {
+    cat "$TEST_HOME/.zshrc.thin"
+    printf '%s\n' '' '# >>> grok installer >>>' \
+      'export PATH="$HOME/.grok/bin:$PATH"' '# <<< grok installer <<<'
+  } >"$TEST_HOME/.zshrc"
+  # shellcheck disable=SC2016 # The vendor block keeps a literal HOME.
+  {
+    cat "$TEST_HOME/.bashrc.thin"
+    printf '%s\n' '' '# >>> grok installer >>>' \
+      'export PATH="$HOME/.grok/bin:$PATH"' '# <<< grok installer <<<'
+  } >"$TEST_HOME/.bashrc"
+  chmod 644 "$TEST_HOME/.zshrc" "$TEST_HOME/.bashrc"
+  grok_rc_status=0
+  _run_grok_rc_merge >/dev/null 2>&1 || grok_rc_status=$?
+  _assert_exit "grok-rc hook: strip succeeds" 0 "$grok_rc_status"
+  _assert_eq "grok-rc hook: restores the thin zshrc" \
+    "$(cat "$TEST_HOME/.zshrc.thin")" "$(cat "$TEST_HOME/.zshrc")"
+  _assert_eq "grok-rc hook: restores the thin bashrc" \
+    "$(cat "$TEST_HOME/.bashrc.thin")" "$(cat "$TEST_HOME/.bashrc")"
+  _assert_eq "grok-rc hook: keeps the loader's permissions" \
+    "644" "$(stat -c '%a' "$TEST_HOME/.zshrc" 2>/dev/null || stat -f '%Lp' "$TEST_HOME/.zshrc")"
+
+  grok_rc_inode=$(ls -i "$TEST_HOME/.zshrc")
+  grok_rc_status=0
+  _run_grok_rc_merge >/dev/null 2>&1 || grok_rc_status=$?
+  _assert_exit "grok-rc hook: clean loaders succeed" 0 "$grok_rc_status"
+  _assert_eq "grok-rc hook: clean loaders are not rewritten" \
+    "$grok_rc_inode" "$(ls -i "$TEST_HOME/.zshrc")"
+
+  # A loader that changes between read and publish (an edit landing just
+  # before the conditional publish) is left for the next update instead of
+  # being overwritten, without failing the update.
+  printf '%s\n' '' '# >>> grok installer >>>' '# <<< grok installer <<<' \
+    >>"$TEST_HOME/.zshrc"
+  grok_rc_status=0
+  grok_rc_err=$(
+    # shellcheck disable=SC2329 # Replaces the API helper for this run only.
+    dot_commit_tmp_if_generation() {
+      printf '%s\n' '# concurrent edit' >>"$TEST_HOME/.zshrc"
+      return 1
+    }
+    _run_grok_rc_merge 2>&1 >/dev/null
+  ) || grok_rc_status=$?
+  _assert_exit "grok-rc hook: a lost race does not fail the update" 0 "$grok_rc_status"
+  _assert_contains "grok-rc hook: a lost race warns" "retrying next update" "$grok_rc_err"
+  _assert_contains "grok-rc hook: a lost race keeps the concurrent edit" \
+    "# concurrent edit" "$(cat "$TEST_HOME/.zshrc")"
+  _assert_contains "grok-rc hook: a lost race leaves the block for next time" \
+    "# >>> grok installer >>>" "$(cat "$TEST_HOME/.zshrc")"
+  _assert_eq "grok-rc hook: a lost race leaves no temporary behind" "" \
+    "$(find "$TEST_HOME" -maxdepth 1 -name '.zshrc.tmp.*')"
+
+  # A publish that fails on an unchanged loader is a real failure.
+  cp "$TEST_HOME/.zshrc" "$TEST_HOME/.zshrc.raced"
+  grok_rc_status=0
+  grok_rc_err=$(
+    # shellcheck disable=SC2329 # Replaces the API helper for this run only.
+    dot_commit_tmp_if_generation() { return 1; }
+    _run_grok_rc_merge 2>&1 >/dev/null
+  ) || grok_rc_status=$?
+  _assert_exit "grok-rc hook: a failed publish fails the hook" 1 "$grok_rc_status"
+  _assert_contains "grok-rc hook: a failed publish warns" "could not rewrite" "$grok_rc_err"
+  _assert_eq "grok-rc hook: a failed publish leaves the loader alone" \
+    "$(cat "$TEST_HOME/.zshrc.raced")" "$(cat "$TEST_HOME/.zshrc")"
+  _assert_eq "grok-rc hook: a failed publish leaves no temporary behind" "" \
+    "$(find "$TEST_HOME" -maxdepth 1 -name '.zshrc.tmp.*')"
+
+  # An unterminated block would swallow everything after its start marker:
+  # the hook refuses and leaves the loader for a human.
+  printf '%s\n' '# thin bash loader' '# >>> grok installer >>>' 'export KEEP_ME=1' \
+    >"$TEST_HOME/.bashrc"
+  cp "$TEST_HOME/.bashrc" "$TEST_HOME/.bashrc.unterminated"
+  # Park the zshrc from the cases above so only the bashrc is in play.
+  mv "$TEST_HOME/.zshrc" "$TEST_HOME/.zshrc.parked"
+  grok_rc_status=0
+  grok_rc_err=$(_run_grok_rc_merge 2>&1 >/dev/null) || grok_rc_status=$?
+  mv "$TEST_HOME/.zshrc.parked" "$TEST_HOME/.zshrc"
+  _assert_exit "grok-rc hook: an unterminated block fails the hook" 1 "$grok_rc_status"
+  _assert_contains "grok-rc hook: an unterminated block warns" "unterminated" "$grok_rc_err"
+  _assert_eq "grok-rc hook: an unterminated block keeps the user's lines" \
+    "$(cat "$TEST_HOME/.bashrc.unterminated")" "$(cat "$TEST_HOME/.bashrc")"
+  cp "$TEST_HOME/.bashrc.thin" "$TEST_HOME/.bashrc"
+
+  # Prose that merely mentions the installer is not a block.
+  printf '%s\n' '# thin bash loader' '# the grok installer once lived here' \
+    >"$TEST_HOME/.bashrc"
+  grok_rc_inode=$(ls -i "$TEST_HOME/.bashrc")
+  _run_grok_rc_merge >/dev/null 2>&1 || true
+  _assert_eq "grok-rc hook: a marker-free mention is not rewritten" \
+    "$grok_rc_inode" "$(ls -i "$TEST_HOME/.bashrc")"
+
+  # Someone else's symlinked layout is never replaced with a regular file.
+  printf '%s\n' '# linked loader' '' '# >>> grok installer >>>' \
+    '# <<< grok installer <<<' >"$TEST_HOME/.zshrc"
+  cp "$TEST_HOME/.zshrc" "$TEST_HOME/.zshrc.raced"
+  mv "$TEST_HOME/.zshrc" "$TEST_HOME/.zshrc.target"
+  ln -s "$TEST_HOME/.zshrc.target" "$TEST_HOME/.zshrc"
+  _run_grok_rc_merge >/dev/null 2>&1 || true
+  if [[ -L $TEST_HOME/.zshrc ]]; then
+    _pass "grok-rc hook: a symlinked loader stays a symlink"
+  else
+    _fail "grok-rc hook: a symlinked loader stays a symlink"
+  fi
+  _assert_eq "grok-rc hook: a symlinked loader's target is untouched" \
+    "$(cat "$TEST_HOME/.zshrc.raced")" "$(cat "$TEST_HOME/.zshrc.target")"
+
+  rm -f "$TEST_HOME/.zshrc" "$TEST_HOME/.bashrc" "$TEST_HOME"/.zshrc.* "$TEST_HOME"/.bashrc.*
+  for grok_rc_name in .zshrc .bashrc; do
+    if [[ -e $grok_rc_backup/$grok_rc_name || -L $grok_rc_backup/$grok_rc_name ]]; then
+      mv "$grok_rc_backup/$grok_rc_name" "$TEST_HOME/$grok_rc_name"
+    fi
+  done
+  unset -f merge _run_grok_rc_merge 2>/dev/null
+
   echo "=== base merge hook ownership boundary ==="
 
   expected_base_hooks=$(printf '%s\n' \
-    agent-rules cron ignore iterm2 karabiner ssh sshd tmux wezterm zz-codex-trust | LC_ALL=C sort)
+    agent-rules cron grok-rc ignore iterm2 karabiner ssh sshd tmux wezterm zz-codex-trust | LC_ALL=C sort)
   actual_hooks=$(_dot_test_merge_hook_names "$REAL_HOME")
   _assert_eq "merge hooks: only base-owned hooks are present" \
     "$expected_base_hooks" "$actual_hooks"
