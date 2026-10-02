@@ -18,6 +18,7 @@ dot_core_test_doctor() {
   local doctor_startup doctor_mc_home doctor_shell_status doctor_shell_err
   local doctor_nozsh_bin doctor_tool doctor_tool_path doctor_cron_status
   local doctor_oldbash_bin doctor_mode doctor_started doctor_status doctor_i
+  local doctor_timeout_bin
 
   echo ""
   echo "=== Base doctor extensions ==="
@@ -480,6 +481,26 @@ SH
     "$(
       # shellcheck disable=SC2009 # pgrep -x matches names, not full args.
       ps -A -o args= 2>/dev/null | grep -x 'sleep 13' || true
+    )"
+  # Only a coreutils timeout(1) is trusted for its 124 status; BusyBox's
+  # reports a deadline as a SIGTERM death, so the watchdog runs instead.
+  doctor_timeout_bin=$(_tmpdir)
+  printf '%s\n' '#!/bin/sh' 'echo "BusyBox v1.37.0 multi-call binary."; exit 1' \
+    >"$doctor_timeout_bin/timeout"
+  chmod +x "$doctor_timeout_bin/timeout"
+  _assert_eq "deadline: a BusyBox timeout falls back to the watchdog" "" \
+    "$(
+      unset _DR_TIMEOUT_BIN
+      PATH="$doctor_timeout_bin:$PATH" _dr_timeout_resolve
+      printf '%s' "$_DR_TIMEOUT_BIN"
+    )"
+  printf '%s\n' '#!/bin/sh' 'echo "timeout (GNU coreutils) 9.5"' \
+    >"$doctor_timeout_bin/timeout"
+  _assert_eq "deadline: a coreutils timeout is used" "$doctor_timeout_bin/timeout" \
+    "$(
+      unset _DR_TIMEOUT_BIN
+      PATH="$doctor_timeout_bin:$PATH" _dr_timeout_resolve
+      printf '%s' "$_DR_TIMEOUT_BIN"
     )"
   result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$PATH" DOCTOR_HEALTH_MODE=ok \
     _DR_TIMEOUT_BIN='' _doctor_records _dr_check_tools)

@@ -26,8 +26,8 @@ uses: `_dr_section`, `_dr_ok`, `_dr_warn`, `_dr_fail`, `_dr_skip`, `_dr_info`,
 the shdeps asset adapter it loads. `_dr_info` uses the doctor API's `info`
 kind when the running Dot provides one and renders as an ok row otherwise.
 `_dr_run_bounded SECONDS COMMAND...` runs an external command under a
-deadline (timeout(1) or gtimeout where installed, a builtin watchdog
-otherwise) and returns 124 when it passes; checks that start user programs
+deadline (a coreutils timeout(1) or gtimeout where installed, a builtin
+watchdog otherwise, including for BusyBox) and returns 124 when it passes; checks that start user programs
 use it so one hang cannot hold the whole run.
 `_dr_hook_runtime_source` loads Dot's public hook runtime so a check can ask
 a merge hook what it would render; it depends on the worker's

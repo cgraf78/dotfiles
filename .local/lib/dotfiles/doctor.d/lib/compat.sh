@@ -41,10 +41,23 @@ _merge_hook_family() {
 # Resolve the deadline runner once per worker into _DR_TIMEOUT_BIN:
 # timeout(1), else gtimeout from GNU coreutils, else empty for the builtin
 # watchdog. Resolve before narrowing PATH.
+#
+# Only a coreutils timeout (GNU or uutils) is used: callers rely on its 124
+# status to tell a deadline from a failure. BusyBox's (Alpine) execs the
+# command in its own place and kills it, so a deadline surfaces as a plain
+# SIGTERM death (143) plus the shell's "Terminated" notice on stderr; the
+# builtin watchdog reports that case correctly instead.
 _dr_timeout_resolve() {
+  local bin version
   if [[ -z ${_DR_TIMEOUT_BIN+x} ]]; then
-    _DR_TIMEOUT_BIN=$(type -P timeout 2>/dev/null) ||
-      _DR_TIMEOUT_BIN=$(type -P gtimeout 2>/dev/null) || _DR_TIMEOUT_BIN=
+    _DR_TIMEOUT_BIN=
+    for bin in timeout gtimeout; do
+      bin=$(type -P "$bin" 2>/dev/null) || continue
+      version=$("$bin" --version 2>/dev/null </dev/null) || continue
+      [[ $version == *coreutils* ]] || continue
+      _DR_TIMEOUT_BIN=$bin
+      break
+    done
   fi
 }
 
