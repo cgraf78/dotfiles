@@ -38,6 +38,67 @@ _merge_hook_family() {
   printf '%s/%s\n' "$HOME/.config/dot/merge-hooks.d" "$1"
 }
 
+# Resolve the deadline runner once per worker into _DR_TIMEOUT_BIN:
+# timeout(1), else gtimeout from GNU coreutils, else empty for the builtin
+# watchdog. Resolve before narrowing PATH.
+_dr_timeout_resolve() {
+  if [[ -z ${_DR_TIMEOUT_BIN+x} ]]; then
+    _DR_TIMEOUT_BIN=$(type -P timeout 2>/dev/null) ||
+      _DR_TIMEOUT_BIN=$(type -P gtimeout 2>/dev/null) || _DR_TIMEOUT_BIN=
+  fi
+}
+
+# Run an external command with a deadline of $1 seconds and return its
+# status, or 124 when the deadline passed. Uses timeout(1) or gtimeout where
+# installed; otherwise a builtin watchdog, so a host without either (stock
+# macOS) is still bounded. The command's stdin, stdout, and stderr are the
+# caller's.
+#
+# The watchdog runs the command as its own process group and signals the
+# whole group (TERM, then KILL two seconds later), as timeout(1) does: a
+# grandchild left behind would keep a `$(...)` capture open past the
+# deadline. The watchdog is its own process group too, so stopping it stops
+# its sleep with it and the worker supervisor sees no leftovers. Everything
+# runs in a subshell, so job control and errexit changes stay inside.
+_dr_run_bounded() {
+  local secs=$1
+  shift
+  _dr_timeout_resolve
+  if [[ -n $_DR_TIMEOUT_BIN ]]; then
+    "$_DR_TIMEOUT_BIN" -k 2 "$secs" "$@"
+    return
+  fi
+  (
+    set +e
+    # A private, unpredictable directory for the deadline marker; without
+    # one, a signal death stands in for it.
+    marks=$(mktemp -d "${TMPDIR:-/tmp}/dot-doctor-deadline.XXXXXX" 2>/dev/null) || marks=
+    set -m
+    "$@" &
+    pid=$!
+    (
+      sleep "$secs"
+      [[ -z $marks ]] || : >"$marks/fired"
+      kill -TERM -- "-$pid"
+      sleep 2
+      kill -KILL -- "-$pid"
+    ) </dev/null >/dev/null 2>&1 &
+    wd=$!
+    set +m
+    wait "$pid"
+    rc=$?
+    kill -KILL -- "-$wd" 2>/dev/null
+    wait "$wd" 2>/dev/null
+    if [[ -n $marks ]]; then
+      [[ ! -e $marks/fired ]] || rc=124
+      rm -rf "$marks"
+    elif ((rc == 143 || rc == 137)); then
+      rc=124
+    fi
+    exit "$rc"
+  )
+}
+
 # Load Dot's public hook runtime into the current shell, so a doctor check
 # can source a merge hook and ask it what it would render instead of keeping
 # a second renderer that could drift. Call it inside a subshell: the runtime

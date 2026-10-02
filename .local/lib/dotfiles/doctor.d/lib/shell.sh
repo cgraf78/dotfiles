@@ -27,8 +27,11 @@
 # ~/.local/bin is on PATH, and bash's major version. Any other output fails
 # the probe: startup text on stdout corrupts scp, rsync, and command
 # substitution, and on stderr it corrupts every tool's output. The probes
-# run in parallel with stdin closed, under a deadline where a timeout
-# command exists, and each costs one shell startup.
+# run in parallel with stdin closed, each under a deadline, and each costs
+# one shell startup.
+
+# Seconds each probe may take before it is reported as timed out.
+_DR_SHELL_DEADLINE=10
 
 # Probe body run by every flavor. Literal on purpose: each child expands its
 # own variables. zsh has no BASH_VERSINFO, so its bash field stays empty.
@@ -43,14 +46,14 @@ _DR_SHELL_BASH_LOGIN='for _dr_f in .bash_profile .bash_login .profile; do if [ -
 _DR_SHELL_ZSH_LOGIN='for _dr_f in .zshenv .zprofile .zlogin; do [[ -r ${ZDOTDIR:-$HOME}/$_dr_f ]] && source "${ZDOTDIR:-$HOME}/$_dr_f"; done'
 
 # Start one probe flavor by absolute shell path under the probe PATH (see
-# _dr_check_shell), bounded by _DR_SHELL_RUN when a timeout command exists.
+# _dr_check_shell), each bounded by _DR_SHELL_DEADLINE seconds.
 _dr_shell_probe_exec() {
   local flavor=$1 bash_env
   case $flavor in
     bash-login)
       # --login sets `login_shell` (so ~/.bashrc takes its authoritative
       # path), while --noprofile keeps bash from reading any profile itself.
-      ${_DR_SHELL_RUN[@]+"${_DR_SHELL_RUN[@]}"} "$_DR_SHELL_BASH" --login --noprofile --norc \
+      _dr_run_bounded "$_DR_SHELL_DEADLINE" "$_DR_SHELL_BASH" --login --noprofile --norc \
         -c "$_DR_SHELL_BASH_LOGIN; $_DR_SHELL_PROBE"
       ;;
     bash-env)
@@ -60,7 +63,7 @@ _dr_shell_probe_exec() {
       # empty inherited BASH_ENV would otherwise survive the fill-only load.
       local query=0
       # shellcheck disable=SC2016 # The child expands its own variables.
-      bash_env=$(BASH_ENV='' ${_DR_SHELL_RUN[@]+"${_DR_SHELL_RUN[@]}"} \
+      bash_env=$(BASH_ENV='' _dr_run_bounded "$_DR_SHELL_DEADLINE" \
         "$_DR_SHELL_BASH" --noprofile --norc -c '
           unset BASH_ENV
           . "$HOME/.bashrc" >/dev/null 2>&1
@@ -71,17 +74,17 @@ _dr_shell_probe_exec() {
         return "$query"
       fi
       [[ -n $bash_env ]] || return 3
-      BASH_ENV=$bash_env ${_DR_SHELL_RUN[@]+"${_DR_SHELL_RUN[@]}"} \
+      BASH_ENV=$bash_env _dr_run_bounded "$_DR_SHELL_DEADLINE" \
         "$_DR_SHELL_BASH" -c "$_DR_SHELL_PROBE"
       ;;
     zsh-env)
-      ${_DR_SHELL_RUN[@]+"${_DR_SHELL_RUN[@]}"} "$_DR_SHELL_ZSH" -c "$_DR_SHELL_PROBE"
+      _dr_run_bounded "$_DR_SHELL_DEADLINE" "$_DR_SHELL_ZSH" -c "$_DR_SHELL_PROBE"
       ;;
     zsh-login)
       # -f skips the startup files zsh would read itself, apart from
       # /etc/zshenv; -o login makes the user's files see a login shell, as
       # `zsh -lc` would.
-      ${_DR_SHELL_RUN[@]+"${_DR_SHELL_RUN[@]}"} "$_DR_SHELL_ZSH" -f -o login \
+      _dr_run_bounded "$_DR_SHELL_DEADLINE" "$_DR_SHELL_ZSH" -f -o login \
         -c "$_DR_SHELL_ZSH_LOGIN; $_DR_SHELL_PROBE"
       ;;
   esac
@@ -194,11 +197,9 @@ _dr_check_shell() {
   if [[ -n $_DR_SHELL_ZSH ]]; then
     flavors+=(zsh-env zsh-login)
   fi
-  # Absolute path: the probe PATH below may no longer contain it.
-  _DR_SHELL_RUN=()
-  if entry=$(type -P timeout 2>/dev/null) || entry=$(type -P gtimeout 2>/dev/null); then
-    _DR_SHELL_RUN=("$entry" -k 2 10)
-  fi
+  # Resolve the deadline runner now: the probe PATH below may no longer
+  # contain timeout(1).
+  _dr_timeout_resolve
   # Probe PATH: the inherited one minus ~/.local/bin, so "startup puts
   # ~/.local/bin on PATH" is something the probes prove rather than inherit
   # from the shell that ran `dot doctor`. Everything else stays, so startup

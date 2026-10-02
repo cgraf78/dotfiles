@@ -17,7 +17,7 @@ dot_core_test_doctor() {
   local doctor_conf_home doctor_grok_home doctor_cron_file doctor_health_log
   local doctor_startup doctor_mc_home doctor_shell_status doctor_shell_err
   local doctor_nozsh_bin doctor_tool doctor_tool_path doctor_cron_status
-  local doctor_timeout_bin doctor_oldbash_bin
+  local doctor_oldbash_bin doctor_mode doctor_started doctor_status doctor_i
 
   echo ""
   echo "=== Base doctor extensions ==="
@@ -348,7 +348,10 @@ case ${1:-} in
         exit 3
         ;;
       crash) exit 139 ;;
-      hang) exit 124 ;;
+      # Really hang, as one process, so a deadline that fails to fire shows.
+      hang) exec sleep 47 ;;
+      gone) exit 127 ;;
+      incomplete-empty) exit 3 ;;
       *)
         # Older shdeps: `health` is an unknown command.
         printf '%s\n' "error: unknown command 'health'" >&2
@@ -427,10 +430,76 @@ SH
     _doctor_records _dr_check_tools)
   _assert_contains "doctor health: an unexpected status is an error" \
     $'fail\tshdeps health failed (exit 139)' "$result"
-  result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$PATH" DOCTOR_HEALTH_MODE=hang \
+  # The health call is bounded, with timeout(1) and, where none is
+  # installed, with the builtin watchdog; neither leaves the stub behind.
+  for doctor_mode in timeout watchdog; do
+    doctor_started=$SECONDS
+    if [[ $doctor_mode == timeout ]]; then
+      result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$PATH" DOCTOR_HEALTH_MODE=hang \
+        _DR_SHDEPS_HEALTH_DEADLINE=1 _doctor_records _dr_check_tools)
+    else
+      result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$PATH" DOCTOR_HEALTH_MODE=hang \
+        _DR_SHDEPS_HEALTH_DEADLINE=1 _DR_TIMEOUT_BIN='' _doctor_records _dr_check_tools)
+    fi
+    _assert_contains "doctor health: a hung command times out ($doctor_mode)" \
+      $'fail\tshdeps health timed out' "$result"
+    if ((SECONDS - doctor_started < 10)); then
+      _pass "doctor health: the deadline returns promptly ($doctor_mode)"
+    else
+      _fail "doctor health: the deadline returns promptly ($doctor_mode, $((SECONDS - doctor_started))s)"
+    fi
+    _assert_eq "doctor health: the hung command does not outlive it ($doctor_mode)" "" \
+      "$(
+        # shellcheck disable=SC2009 # pgrep -x matches names, not full args.
+        ps -A -o args= 2>/dev/null | grep -x 'sleep 47' || true
+      )"
+  done
+  # The builtin watchdog itself: it passes output and status through, a
+  # grandchild cannot hold a capture past the deadline, and quick commands
+  # leave none of its sleeps behind.
+  doctor_started=$SECONDS
+  doctor_status=0
+  result=$(_DR_TIMEOUT_BIN='' _dr_run_bounded 1 bash -c 'sleep 7; echo late') ||
+    doctor_status=$?
+  _assert_exit "deadline: a grandchild is stopped with its parent" 124 "$doctor_status"
+  _assert_eq "deadline: the stopped grandchild printed nothing" "" "$result"
+  if ((SECONDS - doctor_started < 5)); then
+    _pass "deadline: a grandchild cannot hold the capture open"
+  else
+    _fail "deadline: a grandchild cannot hold the capture open ($((SECONDS - doctor_started))s)"
+  fi
+  doctor_status=0
+  result=$(_DR_TIMEOUT_BIN='' _dr_run_bounded 5 bash -c 'echo fine; exit 3') ||
+    doctor_status=$?
+  _assert_exit "deadline: the command's status passes through" 3 "$doctor_status"
+  _assert_eq "deadline: the command's output passes through" "fine" "$result"
+  for ((doctor_i = 0; doctor_i < 20; doctor_i++)); do
+    _DR_TIMEOUT_BIN='' _dr_run_bounded 13 true || true
+  done
+  _assert_eq "deadline: quick commands leave no watchdog sleep behind" "" \
+    "$(
+      # shellcheck disable=SC2009 # pgrep -x matches names, not full args.
+      ps -A -o args= 2>/dev/null | grep -x 'sleep 13' || true
+    )"
+  result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$PATH" DOCTOR_HEALTH_MODE=ok \
+    _DR_TIMEOUT_BIN='' _doctor_records _dr_check_tools)
+  _assert_contains "doctor health: a healthy report passes through the watchdog" \
+    $'ok\tshdeps health' "$result"
+  result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$PATH" DOCTOR_HEALTH_MODE=gone \
+    _DR_TIMEOUT_BIN='' _doctor_records _dr_check_tools)
+  _assert_contains "doctor health: exit 127 is unsupported through the watchdog" \
+    "agent-rules-sync bin links unchecked" "$result"
+
+  result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$PATH" DOCTOR_HEALTH_MODE=gone \
     _doctor_records _dr_check_tools)
-  _assert_contains "doctor health: a timeout has its own row" \
-    $'fail\tshdeps health timed out' "$result"
+  _assert_contains "doctor health: exit 127 counts as unsupported" \
+    "agent-rules-sync bin links unchecked" "$result"
+  _assert_not_contains "doctor health: exit 127 gives no health row" \
+    "shdeps health" "$result"
+  result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$PATH" DOCTOR_HEALTH_MODE=incomplete-empty \
+    _doctor_records _dr_check_tools)
+  _assert_contains "doctor health: exit 3 without rows fails" \
+    $'fail\tshdeps health report incomplete' "$result"
   _assert_not_contains "doctor tools: core's runtime rows are not duplicated" \
     $'ok\tgit\t' "$result"
 
@@ -682,14 +751,27 @@ SH
     $'startup prints to stderr\ttab here' "$result"
   rm -f "$TEST_HOME/.config/shell/env.d/95-mode.sh"
 
-  # A startup file that hangs is reported, not waited on forever.
-  doctor_timeout_bin=$(_tmpdir)
-  printf '%s\n' '#!/usr/bin/env bash' 'exit 124' >"$doctor_timeout_bin/timeout"
-  chmod +x "$doctor_timeout_bin/timeout"
-  result=$(HOME="$TEST_HOME" PATH="$doctor_timeout_bin:$doctor_bin:$TEST_HOME/.local/bin:$PATH" \
-    _doctor_records _dr_check_shell)
-  _assert_contains "doctor shell: a probe past its deadline times out" \
-    $'fail\tbash login startup timed out' "$result"
+  # A startup file that hangs is reported, not waited on forever, with
+  # timeout(1) and with the builtin watchdog alike.
+  printf '%s\n' 'while :; do :; done' >"$TEST_HOME/.config/shell/env.d/95-hang.sh"
+  for doctor_mode in timeout watchdog; do
+    doctor_started=$SECONDS
+    if [[ $doctor_mode == timeout ]]; then
+      result=$(_DR_SHELL_DEADLINE=1 _doctor_shell)
+    else
+      result=$(_DR_SHELL_DEADLINE=1 _DR_TIMEOUT_BIN='' _doctor_shell)
+    fi
+    _assert_contains "doctor shell: a hung login probe times out ($doctor_mode)" \
+      $'fail\tbash login startup timed out' "$result"
+    _assert_contains "doctor shell: a hung BASH_ENV probe times out ($doctor_mode)" \
+      $'fail\tbash -c (BASH_ENV) startup timed out' "$result"
+    if ((SECONDS - doctor_started < 10)); then
+      _pass "doctor shell: hung probes return promptly ($doctor_mode)"
+    else
+      _fail "doctor shell: hung probes return promptly ($doctor_mode, $((SECONDS - doctor_started))s)"
+    fi
+  done
+  rm -f "$TEST_HOME/.config/shell/env.d/95-hang.sh"
 
   # The first bash on PATH is what `/usr/bin/env bash` scripts get.
   doctor_oldbash_bin=$(_tmpdir)

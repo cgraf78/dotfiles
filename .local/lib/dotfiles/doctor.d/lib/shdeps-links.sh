@@ -32,9 +32,11 @@ dot_doctor_source doctor.d/lib/compat.sh || return
 # Each extension runs in its own worker, so every worker pays one stat-only
 # shdeps process at most. Succeeds when the installed shdeps has the
 # command, so the per-group checks below can stand down.
+# Seconds `shdeps health` may take before it is reported as timed out.
+_DR_SHDEPS_HEALTH_DEADLINE=15
+
 _dr_shdeps_health_probe() {
   local conf_dir output shdeps_bin status=0
-  local -a run=()
 
   if [[ -z ${_DR_SHDEPS_HEALTH_STATUS:-} ]]; then
     _DR_SHDEPS_HEALTH_STATUS=unsupported
@@ -45,15 +47,10 @@ _dr_shdeps_health_probe() {
       _dot_shdeps_conf_dir
       conf_dir=$REPLY
       # The command is stat-only, but a hung filesystem must not hold the
-      # whole doctor run; bound it where a timeout command exists.
-      if command -v timeout >/dev/null 2>&1; then
-        run=(timeout -k 2 15)
-      elif command -v gtimeout >/dev/null 2>&1; then
-        run=(gtimeout -k 2 15)
-      fi
-      run+=("$shdeps_bin" health)
-      output=$(SHDEPS_CONF_DIR="$conf_dir" "${run[@]}" </dev/null 2>/dev/null) ||
-        status=$?
+      # whole doctor run.
+      output=$(SHDEPS_CONF_DIR="$conf_dir" \
+        _dr_run_bounded "$_DR_SHDEPS_HEALTH_DEADLINE" "$shdeps_bin" health \
+        </dev/null 2>/dev/null) || status=$?
       case $status in
         2 | 127) ;;
         1)
