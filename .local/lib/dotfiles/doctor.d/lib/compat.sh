@@ -9,7 +9,19 @@ _dr_ok() { dot_doctor_ok "$@"; }
 _dr_warn() { dot_doctor_warn "$@"; }
 _dr_fail() { dot_doctor_fail "$@"; }
 _dr_skip() { dot_doctor_skip "$@"; }
-_dr_tilde() { dot_doctor_display_path "$@"; }
+# Display a path for a record: HOME abbreviated, and any TAB or line break
+# (legal in file names, illegal in a record, where it would abort the
+# worker) turned into a space.
+_dr_tilde() {
+  local out
+  out=$(dot_doctor_display_path "$@") || return
+  printf '%s\n' "${out//[$'\t\r\n']/ }"
+}
+
+# Report $1 as one line of record text via REPLY.
+_dr_one_line() {
+  REPLY=${1//[$'\t\r\n']/ }
+}
 
 # Informational rows use the coordinator's `info` kind when its doctor API
 # provides one, and render as a passing check on older coordinators, so the
@@ -24,6 +36,24 @@ _dr_info() {
 
 _merge_hook_family() {
   printf '%s/%s\n' "$HOME/.config/dot/merge-hooks.d" "$1"
+}
+
+# Load Dot's public hook runtime into the current shell, so a doctor check
+# can source a merge hook and ask it what it would render instead of keeping
+# a second renderer that could drift. Call it inside a subshell: the runtime
+# defines many functions and globals. The worker exposes the engine root as
+# DOT_SOURCE_ROOT; doctor API v1 does not document that, so a missing or
+# different layout fails here and the caller reports the check as skipped.
+_dr_hook_runtime_source() {
+  local lib=${DOT_SOURCE_ROOT:-}/lib/dot/public/hook-runtime-v1 module
+
+  [[ -n ${DOT_SOURCE_ROOT:-} && -r $lib/hook-api.sh ]] || return 1
+  # shellcheck source=/dev/null
+  . "$DOT_SOURCE_ROOT/lib/dot/public/xdg.sh" || return 1
+  for module in log temp merge-block families merge-hooks extension-trust hook-api; do
+    # shellcheck source=/dev/null
+    . "$lib/$module.sh" || return 1
+  done
 }
 
 _dr_account_home() {

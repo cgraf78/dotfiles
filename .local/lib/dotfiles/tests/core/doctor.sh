@@ -14,7 +14,10 @@ dot_core_test_doctor() {
   local integ_shdeps_dir_unset integ_saved_shdeps_dir
   local integ_healthy integ_missing integ_broken integ_noresolve integ_nozsh
   local integ_bare_result integ_healthy_status integ_bare_status
-  local doctor_conf_home doctor_grok_home
+  local doctor_conf_home doctor_grok_home doctor_cron_file doctor_health_log
+  local doctor_startup doctor_mc_home doctor_shell_status doctor_shell_err
+  local doctor_nozsh_bin doctor_tool doctor_tool_path doctor_cron_status
+  local doctor_timeout_bin doctor_oldbash_bin
 
   echo ""
   echo "=== Base doctor extensions ==="
@@ -163,7 +166,12 @@ SH
     "account home" "$result"
 
   doctor_no_crontab_bin=$(_tmpdir)
-  ln -s "$(command -v cat)" "$doctor_no_crontab_bin/cat"
+  # Everything the cron renderer needs, but no crontab.
+  for doctor_tool in cat id uname hostname realpath dirname basename mktemp rm \
+    mv mkdir chmod sort tr sed awk date stat; do
+    doctor_tool_path=$(type -P "$doctor_tool" 2>/dev/null) || continue
+    ln -s "$doctor_tool_path" "$doctor_no_crontab_bin/$doctor_tool"
+  done
   result=$(
     # shellcheck disable=SC2329 # Invoked indirectly by the Cron doctor check.
     _dr_account_home() {
@@ -172,8 +180,8 @@ SH
     DOT_TEST=0 HOME="$TEST_HOME" PATH="$doctor_no_crontab_bin" \
       _doctor_records _dr_check_cron
   )
-  _assert_contains "doctor cron: missing production crontab is reported" \
-    "crontab not found" "$result"
+  _assert_contains "doctor cron: missing crontab warns when entries apply" \
+    $'warn\tcrontab not found' "$result"
 
   : >"$doctor_crontab_log"
   result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$PATH" \
@@ -182,8 +190,128 @@ SH
     _doctor_records _dr_check_cron)
   _assert_eq "doctor cron: explicit test double is invoked" \
     "-l" "$(cat "$doctor_crontab_log")"
-  _assert_contains "doctor cron: explicit test state is diagnosed" \
+  _assert_contains "doctor cron: an uninstalled tracked entry is missing" \
+    $'warn\tmanaged cron block missing' "$result"
+  _assert_contains "doctor cron: the missing row points at the update log" \
+    "update.log" "$result"
+
+  # Install the managed block with the real cron merge hook, then compare:
+  # the doctor renders through that same hook, so a fresh install is current
+  # and any tracked edit since is stale.
+  doctor_cron_file=$(_tmpfile)
+  cat >"$doctor_bin/crontab-file" <<'SH'
+#!/usr/bin/env bash
+case ${1:-} in
+  -l) cat "$DOT_TEST_CRONTAB_FILE" ;;
+  -) cat >"$DOT_TEST_CRONTAB_FILE" ;;
+  -r) : >"$DOT_TEST_CRONTAB_FILE" ;;
+  *) exit 64 ;;
+esac
+SH
+  chmod +x "$doctor_bin/crontab-file"
+  : >"$doctor_cron_file"
+  _doctor_cron_install() {
+    _dr_hook_runtime_source || return 1
+    dot_hook_source merge-hooks.d/cron.sh || return 1
+    merge >/dev/null 2>&1
+  }
+  (
+    HOME=$TEST_HOME PATH="$doctor_bin:$PATH" \
+      DOT_TEST_CRONTAB="$doctor_bin/crontab-file" \
+      DOT_TEST_CRONTAB_FILE="$doctor_cron_file" _doctor_cron_install
+  ) || _fail "doctor cron: fixture install through the merge hook"
+  _assert_contains "doctor cron: fixture install wrote the managed block" \
+    "# dot-managed-cron begin" "$(cat "$doctor_cron_file")"
+  result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$PATH" \
+    DOT_TEST_CRONTAB="$doctor_bin/crontab-file" \
+    DOT_TEST_CRONTAB_FILE="$doctor_cron_file" \
+    _doctor_records _dr_check_cron)
+  _assert_contains "doctor cron: a fresh install is current" \
+    $'ok\tmanaged cron block is current' "$result"
+  printf '%s\n' '0 4 * * * echo nightly' \
+    >"$TEST_HOME/.config/dot/merge-hooks.d/cron/cron.d/20-nightly.cron"
+  result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$PATH" \
+    DOT_TEST_CRONTAB="$doctor_bin/crontab-file" \
+    DOT_TEST_CRONTAB_FILE="$doctor_cron_file" \
+    _doctor_records _dr_check_cron)
+  _assert_contains "doctor cron: a tracked edit makes the block stale" \
+    $'warn\tmanaged cron block is stale' "$result"
+  rm -f "$TEST_HOME/.config/dot/merge-hooks.d/cron/cron.d/20-nightly.cron"
+
+  # A crontab-wide SHELL runs every job; a missing program fails them all.
+  printf '%s\n' "SHELL=$doctor_bin/crontab-file" >>"$doctor_cron_file"
+  printf '%s\n' "SHELL=$TEST_HOME/missing-cron-shell" >>"$doctor_cron_file"
+  result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$PATH" \
+    DOT_TEST_CRONTAB="$doctor_bin/crontab-file" \
+    DOT_TEST_CRONTAB_FILE="$doctor_cron_file" \
+    _doctor_records _dr_check_cron)
+  _assert_contains "doctor cron: an executable SHELL passes" \
+    $'ok\tcron SHELL is executable' "$result"
+  _assert_contains "doctor cron: a missing SHELL fails" \
+    $'fail\tcron SHELL is not executable: ~/missing-cron-shell' "$result"
+  _assert_not_contains "doctor cron: core's update-outcome row is not duplicated" \
     "auto-update cron entry present" "$result"
+  result=$(
+    _doctor_records _dr_cron_check_shell "SHELL='$doctor_bin/crontab-file'"$'\n'"SHELL=bash"
+  )
+  _assert_contains "doctor cron: a quoted SHELL is unquoted like cron does" \
+    $'ok\tcron SHELL is executable' "$result"
+  _assert_contains "doctor cron: a relative SHELL fails" \
+    $'fail\tcron SHELL is not an absolute path: bash' "$result"
+
+  # A host filter that excludes every entry: the hook removes the block,
+  # and the doctor agrees there is nothing to install.
+  printf '%s\n' '# filter: hosts=no-such-host' '*/30 * * * * dot update --cron --force' \
+    >"$TEST_HOME/.config/dot/merge-hooks.d/cron/cron.d/10-update.cron"
+  result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$PATH" \
+    DOT_TEST_CRONTAB="$doctor_bin/crontab-file" \
+    DOT_TEST_CRONTAB_FILE="$doctor_cron_file" \
+    _doctor_records _dr_check_cron)
+  _assert_contains "doctor cron: a block no entry applies to is stale" \
+    $'warn\tmanaged cron block is stale\tno tracked entry applies' "$result"
+  (
+    HOME=$TEST_HOME PATH="$doctor_bin:$PATH" \
+      DOT_TEST_CRONTAB="$doctor_bin/crontab-file" \
+      DOT_TEST_CRONTAB_FILE="$doctor_cron_file" _doctor_cron_install
+  ) || _fail "doctor cron: fixture strip through the merge hook"
+  _assert_not_contains "doctor cron: the hook strips a block no entry applies to" \
+    "dot-managed-cron begin" "$(cat "$doctor_cron_file")"
+  _assert_not_contains "doctor cron: the strip leaves no stray REPLY text" \
+    "no-such-host" "$(cat "$doctor_cron_file")"
+  result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$PATH" \
+    DOT_TEST_CRONTAB="$doctor_bin/crontab-file" \
+    DOT_TEST_CRONTAB_FILE="$doctor_cron_file" \
+    _doctor_records _dr_check_cron)
+  _assert_contains "doctor cron: nothing to install is ok" \
+    $'ok\tno tracked cron entries apply to this host' "$result"
+  printf '%s\n' '*/30 * * * * dot update --cron --force' \
+    >"$TEST_HOME/.config/dot/merge-hooks.d/cron/cron.d/10-update.cron"
+
+  # With no tracked source at all the hook leaves an old block alone, so
+  # the doctor must not promise that `dot update` removes it.
+  (
+    HOME=$TEST_HOME PATH="$doctor_bin:$PATH" \
+      DOT_TEST_CRONTAB="$doctor_bin/crontab-file" \
+      DOT_TEST_CRONTAB_FILE="$doctor_cron_file" _doctor_cron_install
+  ) || _fail "doctor cron: fixture reinstall through the merge hook"
+  mv "$TEST_HOME/.config/dot/merge-hooks.d/cron/cron.d/10-update.cron" \
+    "$TEST_HOME/10-update.cron.off"
+  result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$PATH" \
+    DOT_TEST_CRONTAB="$doctor_bin/crontab-file" \
+    DOT_TEST_CRONTAB_FILE="$doctor_cron_file" \
+    _doctor_records _dr_check_cron)
+  _assert_contains "doctor cron: a sourceless stale block names the manual fix" \
+    "dot update keeps the old block; remove it with 'crontab -e'" "$result"
+  mv "$TEST_HOME/10-update.cron.off" \
+    "$TEST_HOME/.config/dot/merge-hooks.d/cron/cron.d/10-update.cron"
+  unset -f _doctor_cron_install
+
+  doctor_cron_status=0
+  result=$(_doctor_records _dr_cron_check_shell $'SHELL=/no\tsuch-shell') ||
+    doctor_cron_status=$?
+  _assert_exit "doctor cron: a TAB in SHELL cannot abort the check" 0 "$doctor_cron_status"
+  _assert_contains "doctor cron: a TAB in SHELL is displayed as a space" \
+    $'fail\tcron SHELL is not executable: /no such-shell' "$result"
 
   cat >"$doctor_bin/shdeps" <<'SH'
 #!/usr/bin/env bash
@@ -199,7 +327,36 @@ case ${1:-} in
       *) exit 1 ;;
     esac
     ;;
-  *) exit 1 ;;
+  health)
+    printf '%s\n' "${SHDEPS_CONF_DIR:-unset}" >>"${DOCTOR_HEALTH_LOG:-/dev/null}"
+    case ${DOCTOR_HEALTH_MODE:-} in
+      ok) exit 0 ;;
+      warn)
+        printf 'warn\tjdx/mise\tdangling-link\t%s\tremove it or run shdeps update\n' \
+          "$HOME/.local/share/man/man1/mise.1"
+        printf 'warn\t-\tdeferred-post\t-\trun shdeps update interactively\n'
+        exit 1
+        ;;
+      fail)
+        printf 'warn\tjdx/mise\tdangling-link\t-\tremove it\n'
+        printf 'fail\tcgraf78/ds\tnot-executable\t%s\tchmod +x it\n' "$HOME/.local/bin/ds"
+        exit 1
+        ;;
+      empty1) exit 1 ;;
+      incomplete)
+        printf 'fail\t-\tunreadable-state\t-\tcheck permissions\n'
+        exit 3
+        ;;
+      crash) exit 139 ;;
+      hang) exit 124 ;;
+      *)
+        # Older shdeps: `health` is an unknown command.
+        printf '%s\n' "error: unknown command 'health'" >&2
+        exit 2
+        ;;
+    esac
+    ;;
+  *) exit 2 ;;
 esac
 SH
   chmod +x "$doctor_bin/shdeps"
@@ -222,6 +379,140 @@ SH
     "directdep bin links" "$result"
   _assert_not_contains "doctor tools: direct targets are not forced to symlinks" \
     "direct-tool not linked" "$result"
+
+  # shdeps health: one row for every installed package when the command
+  # exists, the per-group link rows only on an older shdeps without it.
+  unset _DR_SHDEPS_HEALTH_STATUS _DR_SHDEPS_HEALTH_OUTPUT
+  doctor_health_log=$(_tmpfile)
+  result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$PATH" _doctor_records _dr_check_tools)
+  _assert_contains "doctor health: an older shdeps falls back to group rows" \
+    "agent-rules-sync bin links unchecked" "$result"
+  _assert_not_contains "doctor health: an older shdeps gets no health row" \
+    "shdeps health" "$result"
+  result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$PATH" DOCTOR_HEALTH_MODE=ok \
+    DOCTOR_HEALTH_LOG="$doctor_health_log" _doctor_records _dr_check_tools)
+  _assert_contains "doctor health: a healthy report is one ok row" \
+    $'ok\tshdeps health' "$result"
+  _assert_not_contains "doctor health: per-tool link rows are gone" \
+    "bin links" "$result"
+  _assert_eq "doctor health: the dotfiles config dir is passed explicitly" \
+    "$TEST_HOME/.config/shdeps" "$(cat "$doctor_health_log")"
+  result=$(DOCTOR_DIRECT_TOOL="$doctor_direct_tool" PATH="$doctor_bin:$PATH" \
+    DOCTOR_HEALTH_MODE=ok _doctor_records _dr_check_shdeps_bin_group warn directdep)
+  _assert_eq "doctor health: the shared group check stands down" "" "$result"
+  result=$(DOCTOR_DIRECT_TOOL="$doctor_direct_tool" PATH="$doctor_bin:$PATH" \
+    DOCTOR_HEALTH_MODE=crash _doctor_records _dr_check_shdeps_bin_group warn directdep)
+  _assert_eq "doctor health: a failing health command still covers groups" "" "$result"
+  result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$PATH" DOCTOR_HEALTH_MODE=warn \
+    _doctor_records _dr_check_tools)
+  _assert_contains "doctor health: warn rows give one warning" \
+    $'warn\tshdeps health: 2 problem(s)' "$result"
+  _assert_contains "doctor health: problems are sampled with display paths" \
+    "jdx/mise: dangling-link ~/.local/share/man/man1/mise.1" "$result"
+  _assert_contains "doctor health: packageless rows render" \
+    "-: deferred-post" "$result"
+  result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$PATH" DOCTOR_HEALTH_MODE=fail \
+    _doctor_records _dr_check_tools)
+  _assert_contains "doctor health: any fail row fails the report" \
+    $'fail\tshdeps health: 2 problem(s)' "$result"
+  result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$PATH" DOCTOR_HEALTH_MODE=empty1 \
+    _doctor_records _dr_check_tools)
+  _assert_contains "doctor health: problems without rows are an error" \
+    $'fail\tshdeps health failed (exit 1)' "$result"
+  result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$PATH" DOCTOR_HEALTH_MODE=incomplete \
+    _doctor_records _dr_check_tools)
+  _assert_contains "doctor health: an incomplete report fails" \
+    $'fail\tshdeps health: 1 problem(s)' "$result"
+  result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$PATH" DOCTOR_HEALTH_MODE=crash \
+    _doctor_records _dr_check_tools)
+  _assert_contains "doctor health: an unexpected status is an error" \
+    $'fail\tshdeps health failed (exit 139)' "$result"
+  result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$PATH" DOCTOR_HEALTH_MODE=hang \
+    _doctor_records _dr_check_tools)
+  _assert_contains "doctor health: a timeout has its own row" \
+    $'fail\tshdeps health timed out' "$result"
+  _assert_not_contains "doctor tools: core's runtime rows are not duplicated" \
+    $'ok\tgit\t' "$result"
+
+  # Managed configuration: JSON fragments parse, pre-sync extensions load,
+  # and interrupted atomic writes left nothing behind.
+  dot_doctor_source doctor.d/lib/managed-config.sh ||
+    _fail "doctor managed config: module loads"
+  doctor_mc_home=$(_tmpdir)
+  mkdir -p "$doctor_mc_home/.config/dot/merge-hooks.d/app/settings.d" \
+    "$doctor_mc_home/.config/muse" "$doctor_mc_home/ext/pre-sync.d"
+  printf '%s\n' '{"a": 1}' \
+    >"$doctor_mc_home/.config/dot/merge-hooks.d/app/settings.d/10-good.json"
+  printf '%s\n' '// comments are fine in JSONC' '{"a": 1}' \
+    >"$doctor_mc_home/.config/dot/merge-hooks.d/app/settings.d/20-keys.jsonc"
+  result=$(HOME="$doctor_mc_home" _doctor_records _dr_check_json_fragments)
+  _assert_contains "doctor managed config: valid fragments pass" \
+    $'ok\tmerge-hook JSON fragments parse\t1 file(s)' "$result"
+  printf '%s\n' '{"a": 1,}' \
+    >"$doctor_mc_home/.config/dot/merge-hooks.d/app/settings.d/30-bad.json"
+  result=$(HOME="$doctor_mc_home" _doctor_records _dr_check_json_fragments)
+  _assert_contains "doctor managed config: a broken fragment warns" \
+    $'warn\t1 merge-hook JSON fragment(s) do not parse' "$result"
+  # shellcheck disable=SC2088 # Rows carry tilde display paths.
+  _assert_contains "doctor managed config: the broken fragment is named" \
+    "~/.config/dot/merge-hooks.d/app/settings.d/30-bad.json" "$result"
+  # The vscode hook strips comments from its .json fragments itself.
+  mkdir -p "$doctor_mc_home/.config/dot/merge-hooks.d/vscode/settings.d"
+  printf '%s\n' '// editor settings' '{"a": 1}' \
+    >"$doctor_mc_home/.config/dot/merge-hooks.d/vscode/settings.d/10-settings.json"
+  result=$(HOME="$doctor_mc_home" _doctor_records _dr_check_json_fragments)
+  _assert_not_contains "doctor managed config: vscode fragments may carry comments" \
+    "vscode" "$result"
+  # A truncated file followed by its missing half must not pass as a pair.
+  rm -f "$doctor_mc_home/.config/dot/merge-hooks.d/app/settings.d/30-bad.json"
+  printf '%s' '{"a":' >"$doctor_mc_home/.config/dot/merge-hooks.d/app/settings.d/40-head.json"
+  printf '%s\n' '1}' >"$doctor_mc_home/.config/dot/merge-hooks.d/app/settings.d/41-tail.json"
+  result=$(HOME="$doctor_mc_home" _doctor_records _dr_check_json_fragments)
+  _assert_contains "doctor managed config: each fragment parses on its own" \
+    $'warn\t2 merge-hook JSON fragment(s) do not parse' "$result"
+
+  printf '%s\n' 'prepare() {' '  :' '}' >"$doctor_mc_home/ext/pre-sync.d/10-good.sh"
+  result=$(DOT_EXTENSIONS_DIR="$doctor_mc_home/ext" \
+    _doctor_records _dr_check_pre_sync_extensions)
+  _assert_contains "doctor managed config: loadable pre-sync extensions pass" \
+    $'ok\tpre-sync extensions load\t1 extension(s)' "$result"
+  printf '%s\n' 'function prepare {' '  :' '}' >"$doctor_mc_home/ext/pre-sync.d/15-keyword.sh"
+  result=$(DOT_EXTENSIONS_DIR="$doctor_mc_home/ext" \
+    _doctor_records _dr_check_pre_sync_extensions)
+  _assert_contains "doctor managed config: a keyword-style prepare counts" \
+    $'ok\tpre-sync extensions load\t2 extension(s)' "$result"
+  printf '%s\n' 'prepare() {' '  if' '}' >"$doctor_mc_home/ext/pre-sync.d/20-broken.sh"
+  printf '%s\n' 'setup() { :; }' >"$doctor_mc_home/ext/pre-sync.d/30-entryless.sh"
+  result=$(DOT_EXTENSIONS_DIR="$doctor_mc_home/ext" \
+    _doctor_records _dr_check_pre_sync_extensions)
+  _assert_contains "doctor managed config: broken pre-sync extensions fail" \
+    $'fail\tpre-sync extensions are broken: 20-broken.sh (syntax error); 30-entryless.sh (no prepare function)' \
+    "$result"
+
+  printf '{}\n' >"$doctor_mc_home/.config/muse/settings.json.tmp.Ab12Cd"
+  printf '{}\n' >"$doctor_mc_home/.config/muse/settings.json.tmp.Fresh1"
+  touch -t 202001010000 "$doctor_mc_home/.config/muse/settings.json.tmp.Ab12Cd"
+  result=$(HOME="$doctor_mc_home" _doctor_records _dr_check_config_temporaries)
+  _assert_contains "doctor managed config: an old temporary warns" \
+    $'warn\t1 leftover config temporary file(s)\t~/.config/muse/settings.json.tmp.Ab12Cd' \
+    "$result"
+  _assert_not_contains "doctor managed config: an in-flight temporary is ignored" \
+    "Fresh1" "$result"
+  printf '{}\n' >"$doctor_mc_home/.claude.json.tmp.Zz99Yy"
+  touch -t 202001010000 "$doctor_mc_home/.claude.json.tmp.Zz99Yy"
+  result=$(HOME="$doctor_mc_home" _doctor_records _dr_check_config_temporaries)
+  _assert_contains "doctor managed config: a home-level agent config temporary warns" \
+    ".claude.json.tmp.Zz99Yy" "$result"
+
+  # Agent rules: a Dot without the public hook runtime cannot answer, which
+  # is a skip, not a policy failure.
+  printf '%s\n' '#!/usr/bin/env bash' 'exit 0' >"$doctor_bin/agent-rules-sync"
+  chmod +x "$doctor_bin/agent-rules-sync"
+  result=$(DOT_TEST_AGENT_RULES_CHECK=1 DOT_SOURCE_ROOT="$doctor_mc_home/no-dot" \
+    PATH="$doctor_bin:$PATH" _doctor_records _dr_check_agent_rules)
+  _assert_contains "doctor agent rules: a missing hook runtime is a skip" \
+    $'skip\tgenerated policy check skipped' "$result"
+  rm -f "$doctor_bin/agent-rules-sync"
 
   # Managed .conf files are usually overlay symlinks; every readable one
   # counts, a dangling one does not.
@@ -275,16 +566,13 @@ SH
   mkdir -p "$TEST_HOME/.config/shell/env.d" \
     "$TEST_HOME/.config/shell/interactive.d" \
     "$TEST_HOME/.config/shdeps"
-  # Use the managed startup files: a synthetic authoritative loader would
-  # mask an empty BASH_ENV override preserved by non-interactive fill mode.
-  cp "$REAL_HOME/.bashrc" "$TEST_HOME/.bashrc"
-  cp "$REAL_HOME/.config/shell/env.d/50-core.sh" \
-    "$TEST_HOME/.config/shell/env.d/50-core.sh"
-  # shellcheck disable=SC2016 # Fixture startup files retain literal HOME.
-  printf '%s\n' '. "$HOME/.local/lib/dotfiles/shell-loader.sh"' \
-    >"$TEST_HOME/.zshrc"
-  printf '%s\n' '# managed noninteractive shell fixture' \
-    >"$TEST_HOME/.config/shell/env-noninteractive.sh"
+  # Use the managed startup files: the probes start real shells, and a
+  # synthetic loader would hide what each startup path actually does.
+  for doctor_startup in .bashrc .bash_profile .zshrc .zshenv .zprofile \
+    .config/shell/env-noninteractive.sh .config/shell/env.d/50-core.sh \
+    .config/shell/env.d/90-path.sh; do
+    cp "$REAL_HOME/$doctor_startup" "$TEST_HOME/$doctor_startup"
+  done
   printf '%s\n' 'fixture/tool github:repo tool' \
     >"$TEST_HOME/.config/shdeps/deps.conf"
 
@@ -297,7 +585,7 @@ SH
   _assert_contains "doctor integration: renders client repository health" \
     "Client repository" "$result"
   for expected in "Shell environment" "Tools" "Shell integrations" \
-    "Agent rules" "Cron" "Worktrees"; do
+    "Agent rules" "Managed configuration" "Cron" "Worktrees"; do
     _assert_contains "doctor integration: renders base section $expected" \
       "$expected" "$result"
   done
@@ -305,34 +593,138 @@ SH
     _assert_not_contains "doctor integration: omits capability section $absent" \
       "$absent" "$result"
   done
-  _assert_contains "doctor integration: validates managed BASH_ENV" \
-    "BASH_ENV (~/.config/shell/env-noninteractive.sh)" "$result"
+  _assert_contains "doctor integration: login bash loads the environment" \
+    "bash login loads the shell environment" "$result"
+  _assert_contains "doctor integration: BASH_ENV bash loads the environment" \
+    "bash -c (BASH_ENV) loads the shell environment" "$result"
   _assert_contains "doctor integration: renders an aggregate summary" \
     "passed" "$result"
 
+  # A developer's ZDOTDIR would point zsh at the real startup files.
+  unset ZDOTDIR
+  _doctor_shell() {
+    HOME="$TEST_HOME" PATH="$doctor_bin:$TEST_HOME/.local/bin:$PATH" \
+      _doctor_records _dr_check_shell
+  }
+  doctor_shell_status=0
+  doctor_shell_err=$({ _doctor_shell >/dev/null; } 2>&1) || doctor_shell_status=$?
+  _assert_exit "doctor shell: the check returns success" 0 "$doctor_shell_status"
+  _assert_eq "doctor shell: the check prints nothing out of band" "" "$doctor_shell_err"
+  if command -v zsh >/dev/null 2>&1; then
+    result=$(_doctor_shell)
+    _assert_contains "doctor shell: non-login zsh loads the environment" \
+      $'ok\tzsh -c loads the shell environment' "$result"
+    _assert_contains "doctor shell: login zsh loads the environment" \
+      $'ok\tzsh login loads the shell environment' "$result"
+  fi
+
+  # Startup output on stderr corrupts every tool that runs a shell.
+  printf '%s\n' 'printf "noisy fragment\n" >&2' \
+    >"$TEST_HOME/.config/shell/env.d/95-noise.sh"
+  result=$(_doctor_shell)
+  _assert_contains "doctor shell: stderr from startup fails login bash" \
+    $'fail\tbash login startup prints to stderr\tnoisy fragment' "$result"
+  _assert_contains "doctor shell: stderr from startup fails BASH_ENV bash" \
+    $'fail\tbash -c (BASH_ENV) startup prints to stderr' "$result"
+  if command -v zsh >/dev/null 2>&1; then
+    _assert_contains "doctor shell: stderr from startup fails zsh" \
+      $'fail\tzsh -c startup prints to stderr' "$result"
+  fi
+  doctor_shell_status=0
+  doctor_shell_err=$({ _doctor_shell >/dev/null; } 2>&1) || doctor_shell_status=$?
+  _assert_exit "doctor shell: failing probes still return success" 0 "$doctor_shell_status"
+  _assert_eq "doctor shell: failing probes print nothing out of band" "" "$doctor_shell_err"
+  # Startup text on stdout corrupts scp, rsync, and command substitution.
+  printf '%s\n' 'printf "welcome banner\n"' \
+    >"$TEST_HOME/.config/shell/env.d/95-noise.sh"
+  result=$(_doctor_shell)
+  _assert_contains "doctor shell: stdout from startup fails" \
+    $'fail\tbash -c (BASH_ENV) startup prints to stdout\twelcome banner' "$result"
+  rm -f "$TEST_HOME/.config/shell/env.d/95-noise.sh"
+
+  # The probes run without the caller's ~/.local/bin, so startup must add it.
+  mv "$TEST_HOME/.config/shell/env.d/90-path.sh" "$TEST_HOME/90-path.sh.off"
+  result=$(_doctor_shell)
+  _assert_contains "doctor shell: startup that never adds ~/.local/bin fails" \
+    $'fail\tbash login leaves ~/.local/bin off PATH' "$result"
+  mv "$TEST_HOME/90-path.sh.off" "$TEST_HOME/.config/shell/env.d/90-path.sh"
+
+  # Without zsh on PATH the zsh flavors are skipped, not failed.
+  doctor_nozsh_bin=$(_tmpdir)
+  for doctor_tool in bash cat mktemp rm timeout dirname; do
+    doctor_tool_path=$(type -P "$doctor_tool" 2>/dev/null) || continue
+    ln -s "$doctor_tool_path" "$doctor_nozsh_bin/$doctor_tool"
+  done
+  result=$(HOME="$TEST_HOME" PATH="$doctor_nozsh_bin" _doctor_records _dr_check_shell)
+  _assert_contains "doctor shell: a missing zsh is skipped" \
+    $'skip\tzsh startup\tzsh not installed' "$result"
+
+  # Login flavors must take the authoritative path, the -c flavors the
+  # fill-only one, exactly as the real shells do.
+  # shellcheck disable=SC2016 # The fragment expands its own variables.
+  printf '%s\n' '[ "${_SHELL_ENV_MODE:-}" = fill ] || printf "authoritative load\n" >&2' \
+    >"$TEST_HOME/.config/shell/env.d/95-mode.sh"
+  result=$(_doctor_shell)
+  _assert_contains "doctor shell: the bash login probe is authoritative" \
+    $'fail\tbash login startup prints to stderr\tauthoritative load' "$result"
+  _assert_contains "doctor shell: the BASH_ENV probe is fill-only" \
+    $'ok\tbash -c (BASH_ENV) loads the shell environment' "$result"
+  if command -v zsh >/dev/null 2>&1; then
+    _assert_contains "doctor shell: the zsh login probe is authoritative" \
+      $'fail\tzsh login startup prints to stderr\tauthoritative load' "$result"
+    _assert_contains "doctor shell: the zsh -c probe is fill-only" \
+      $'ok\tzsh -c loads the shell environment' "$result"
+  fi
+  # Stderr text is one record line: TABs become spaces.
+  printf '%s\n' 'printf "tab\there\n" >&2' >"$TEST_HOME/.config/shell/env.d/95-mode.sh"
+  result=$(_doctor_shell)
+  _assert_contains "doctor shell: a TAB in startup stderr is displayed as a space" \
+    $'startup prints to stderr\ttab here' "$result"
+  rm -f "$TEST_HOME/.config/shell/env.d/95-mode.sh"
+
+  # A startup file that hangs is reported, not waited on forever.
+  doctor_timeout_bin=$(_tmpdir)
+  printf '%s\n' '#!/usr/bin/env bash' 'exit 124' >"$doctor_timeout_bin/timeout"
+  chmod +x "$doctor_timeout_bin/timeout"
+  result=$(HOME="$TEST_HOME" PATH="$doctor_timeout_bin:$doctor_bin:$TEST_HOME/.local/bin:$PATH" \
+    _doctor_records _dr_check_shell)
+  _assert_contains "doctor shell: a probe past its deadline times out" \
+    $'fail\tbash login startup timed out' "$result"
+
+  # The first bash on PATH is what `/usr/bin/env bash` scripts get.
+  doctor_oldbash_bin=$(_tmpdir)
+  printf '%s\n' '#!/bin/sh' \
+    'printf "dot-doctor-probe marker=%s pid=%s local_bin=1 bash=3\n" "$$" "$$"' \
+    >"$doctor_oldbash_bin/bash"
+  chmod +x "$doctor_oldbash_bin/bash"
+  result=$(HOME="$TEST_HOME" PATH="$doctor_oldbash_bin:$doctor_bin:$TEST_HOME/.local/bin:$PATH" \
+    _doctor_records _dr_check_shell)
+  _assert_contains "doctor shell: a first bash older than 4 warns" \
+    $'warn\tfirst bash on PATH is version 3' "$result"
+
   rm -f "$TEST_HOME/.config/shell/env-noninteractive.sh"
-  result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$TEST_HOME/.local/bin:$PATH" \
-    DOT_TEST_CRONTAB="$doctor_bin/crontab" \
-    DOT_TEST_CRONTAB_LOG="$doctor_crontab_log" \
-    "$(_test_dot_bin "$DOT_SOURCE_ROOT")" doctor 2>&1 || true)
-  _assert_contains "doctor integration: flags a missing BASH_ENV target" \
-    "BASH_ENV set but target missing" "$result"
+  result=$(_doctor_shell)
+  _assert_contains "doctor shell: a missing BASH_ENV target fails" \
+    $'fail\tbash -c (BASH_ENV) does not load the shell environment' "$result"
+  if command -v zsh >/dev/null 2>&1; then
+    _assert_contains "doctor shell: non-login zsh without its loader fails" \
+      $'fail\tzsh -c does not load the shell environment' "$result"
+  fi
+  cp "$REAL_HOME/.config/shell/env-noninteractive.sh" \
+    "$TEST_HOME/.config/shell/env-noninteractive.sh"
 
   rm -f "$TEST_HOME/.config/shell/env.d/50-core.sh"
-  result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$TEST_HOME/.local/bin:$PATH" \
-    DOT_TEST_CRONTAB="$doctor_bin/crontab" \
-    DOT_TEST_CRONTAB_LOG="$doctor_crontab_log" \
-    "$(_test_dot_bin "$DOT_SOURCE_ROOT")" doctor 2>&1 || true)
-  _assert_contains "doctor integration: warns when startup leaves BASH_ENV unset" \
-    "BASH_ENV unset" "$result"
+  result=$(_doctor_shell)
+  _assert_contains "doctor shell: startup that never exports BASH_ENV warns" \
+    $'warn\tbash -c (BASH_ENV) startup not configured' "$result"
 
   rm -f "$TEST_HOME/.bashrc"
-  result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$TEST_HOME/.local/bin:$PATH" \
-    DOT_TEST_CRONTAB="$doctor_bin/crontab" \
-    DOT_TEST_CRONTAB_LOG="$doctor_crontab_log" \
-    "$(_test_dot_bin "$DOT_SOURCE_ROOT")" doctor 2>&1 || true)
-  _assert_contains "doctor integration: flags a missing bash startup file" \
-    ".bashrc missing" "$result"
+  result=$(_doctor_shell)
+  _assert_contains "doctor shell: login bash without ~/.bashrc fails" \
+    $'fail\tbash login does not load the shell environment' "$result"
+  _assert_not_contains "doctor shell: presence rows are gone" \
+    "sources shared loader" "$result"
+  unset -f _doctor_shell
 
   echo ""
   echo "=== Shell integrations ==="

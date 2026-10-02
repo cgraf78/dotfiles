@@ -1,43 +1,15 @@
 # shellcheck shell=bash
 # dot doctor: Installed agent-rule policy checks.
 
-_dr_agent_rules_hook_lib() {
-  # Prefer the versioned public hook runtime (release installs carry only
-  # it); fall back to the legacy private layout (pre-cutover checkouts) so
-  # the check works on both sides of the transition. Both define the same
-  # hook API; the worker executes unchanged hooks against either.
-  if [[ -r $DOT_SOURCE_ROOT/lib/dot/public/hook-runtime-v1/hook-api.sh ]]; then
-    REPLY=$DOT_SOURCE_ROOT/lib/dot/public/hook-runtime-v1
-  else
-    REPLY=$DOT_SOURCE_ROOT/lib/dot
-  fi
-}
-
 _dr_agent_rules_installed_status() {
   local hook=${DOT_AGENT_RULES_HOOK:-$DOT_EXTENSIONS_DIR/merge-hooks.d/agent-rules.sh}
 
   [[ -r "$hook" ]] || return 1
   (
     # Reuse the merge hook's source-selection and provider boundary so doctor
-    # cannot silently drift into a second policy renderer.
-    _dr_agent_rules_hook_lib
-    local hook_lib=$REPLY
-    # shellcheck source=/dev/null
-    . "$DOT_SOURCE_ROOT/lib/dot/public/xdg.sh" || exit 1
-    # shellcheck source=/dev/null
-    . "$hook_lib/log.sh" || exit 1
-    # shellcheck source=/dev/null
-    . "$hook_lib/temp.sh" || exit 1
-    # shellcheck source=/dev/null
-    . "$hook_lib/merge-block.sh" || exit 1
-    # shellcheck source=/dev/null
-    . "$hook_lib/families.sh" || exit 1
-    # shellcheck source=/dev/null
-    . "$hook_lib/merge-hooks.sh" || exit 1
-    # shellcheck source=/dev/null
-    . "$hook_lib/extension-trust.sh" || exit 1
-    # shellcheck source=/dev/null
-    . "$hook_lib/hook-api.sh" || exit 1
+    # cannot silently drift into a second policy renderer. A Dot without the
+    # public hook runtime cannot answer at all; say so with its own status.
+    _dr_hook_runtime_source || exit 3
     # shellcheck source=/dev/null
     . "$hook" || exit 1
     _dot_agent_rules_check_installed
@@ -81,6 +53,9 @@ _dr_check_agent_rules_installed() {
     IFS=$'\t' read -r reason detail <<<"$result"
     if [[ "$status" -eq 0 ]]; then
       _dr_ok "generated policy is current"
+    elif [[ "$status" -eq 3 && -z "$reason" ]]; then
+      _dr_skip "generated policy check skipped" \
+        "this dot has no public hook runtime; run 'dot update' to upgrade it"
     else
       case "$reason" in
         manifest-missing)
@@ -100,17 +75,25 @@ _dr_check_agent_rules_installed() {
           _dr_fail "generated policy target was modified: $detail" "run 'dot update -f'"
           ;;
         source-selection-failed)
-          _dr_fail "agent rule source selection failed" "inspect rule and overlay trust inputs"
+          _dr_fail "agent rule source selection failed" \
+            "check ~/.config/dot/merge-hooks.d/agent-rules and the overlay trust inputs, then run 'dot update -f'"
           ;;
         render-failed | render-manifest-failed | render-block-invalid | render-normalization-failed)
-          _dr_fail "agent rule validation render failed" "run agent-rules-sync diagnostics"
+          _dr_fail "agent rule validation render failed" \
+            "run 'dot update -f' to see the agent-rules-sync error"
           ;;
         target-block-invalid)
           _dr_fail "generated policy target has a malformed managed block: $detail" \
             "run 'dot update -f'"
           ;;
+        '')
+          # Nothing came back: the hook runtime or the hook did not load.
+          _dr_fail "agent rule validation could not run" \
+            "the agent-rules merge hook did not load; run 'dot update -f' and retry"
+          ;;
         *)
-          _dr_fail "agent rule validation failed: $reason" "inspect dot doctor output"
+          _dr_fail "agent rule validation failed: $reason" \
+            "run 'dot update -f' to regenerate, and report the reason if it persists"
           ;;
       esac
     fi
