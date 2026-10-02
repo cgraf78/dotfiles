@@ -20,8 +20,13 @@ target-native config directories.
   last-known-good behavior and must not be reported as reaching the latest
   release. The standalone runtime parses this file before loading extensions
   or the dependency provider. Keep settings a released Dot may not know out of
-  this file: Dot rejects unknown keys, and the file reaches every host before
-  that host's Dot is upgraded. Orphan pruning is therefore enabled by
+  this file until every host runs a Dot that knows them: Dot releases before
+  cgraf78/dot#233 reject unknown keys and exit 2 from every command, including
+  the update that would replace them, and the file reaches every host before
+  that host's Dot is upgraded. Later releases warn and ignore an unknown key
+  instead; see
+  [Unknown keys and version skew](https://github.com/cgraf78/dot/blob/main/docs/configuration.md#unknown-keys-and-version-skew).
+  Orphan pruning is therefore enabled by
   `DOT_SHDEPS_PRUNE=cron` on the cron entry in
   `merge-hooks.d/cron/cron.d/10-update.cron`, not here.
 - `profiles.d/` defines the additive `base`, `editor`, and `dev` profiles. A
