@@ -651,6 +651,152 @@ EOF
     "real-b" "$_git_res_tilde_result"
 
   echo ""
+  echo "=== git launcher re-entry bound ==="
+
+  # A Git wrapper that is not a launcher copy, such as a test fault-injection
+  # stub that captured `command -v git` (this launcher) as its "real" Git, is
+  # a valid resolution candidate. When it delegates back to the launcher, the
+  # two would exec each other forever. Every case runs under a timeout so a
+  # regression fails instead of hanging the suite.
+  _git_loop_timeout=""
+  if command -v timeout >/dev/null 2>&1; then
+    _git_loop_timeout=$(command -v timeout)
+  elif command -v gtimeout >/dev/null 2>&1; then
+    _git_loop_timeout=$(command -v gtimeout)
+  fi
+  _git_loop_root=$(_tmpdir)
+  mkdir -p "$_git_loop_root/stub" "$_git_loop_root/twice" "$_git_loop_root/real" \
+    "$_git_loop_root/redispatch" "$TEST_HOME/git-loop-plain"
+  cat >"$_git_loop_root/stub/git" <<'EOF'
+#!/usr/bin/env bash
+printf 'stub\n' >>"$GIT_LOOP_LOG"
+exec "$GIT_LOOP_DELEGATE" "$@"
+EOF
+  # Calls back twice per level, so a depth bound alone costs 2^max launches.
+  cat >"$_git_loop_root/twice/git" <<'EOF'
+#!/usr/bin/env bash
+printf 'stub\n' >>"$GIT_LOOP_LOG"
+"$GIT_LOOP_DELEGATE" rev-parse --git-dir >/dev/null 2>&1
+exec "$GIT_LOOP_DELEGATE" "$@"
+EOF
+  # A legitimate wrapper: drop its own directory from PATH and re-dispatch,
+  # re-entering the launcher exactly once before real Git runs.
+  cat >"$_git_loop_root/redispatch/git" <<'EOF'
+#!/usr/bin/env bash
+PATH=":$PATH:"
+PATH=${PATH//:${0%/*}:/:}
+PATH=${PATH#:}
+PATH=${PATH%:}
+exec git "$@"
+EOF
+  cat >"$_git_loop_root/real/git" <<'EOF'
+#!/usr/bin/env bash
+printf 'real-git:%s:%s\n' "${_DOT_LAUNCHER_HOPS_git:-unset}" "$*"
+EOF
+  chmod +x "$_git_loop_root"/{stub,twice,redispatch,real}/git
+  # Usage: _git_loop_run LABEL CWD PATH [ENV=VALUE...]; runs
+  # `git ${_git_loop_args[@]}` under a ${_git_loop_limit:-10s} timeout and sets
+  # _git_loop_rc, _git_loop_out and _git_loop_hops (stub invocations). Context
+  # inherited from a hook or `rebase -x` that runs the suite would change the
+  # route or the count, so the run starts without it.
+  _git_loop_args=(check-ref-format --branch main)
+  _git_loop_run() {
+    local label="$1" cwd="$2" path="$3"
+    shift 3
+    : >"$_git_loop_root/$label.log"
+    _git_loop_out=$(
+      cd "$cwd" &&
+        env -u _DOT_LAUNCHER_HOPS_git -u GIT_DIR -u GIT_WORK_TREE -u DOT_GIT_REAL \
+          XDG_CACHE_HOME="$_git_loop_root/$label-cache" PATH="$path" \
+          GIT_LOOP_LOG="$_git_loop_root/$label.log" \
+          GIT_LOOP_DELEGATE="$BIN_DIR/git" "$@" \
+          "$_git_loop_timeout" "${_git_loop_limit:-10s}" "$BIN_DIR/git" \
+          "${_git_loop_args[@]}" 2>&1
+    )
+    _git_loop_rc=$?
+    _git_loop_hops=$(wc -l <"$_git_loop_root/$label.log" | tr -d ' ')
+  }
+  # Usage: _git_loop_assert_bounded LABEL WRAPPER MAX_HOPS
+  _git_loop_assert_bounded() {
+    _assert_eq "git launcher re-entry ($1): fails instead of looping" \
+      "2" "$_git_loop_rc"
+    _assert_contains "git launcher re-entry ($1): names the wrapper" \
+      "$_git_loop_root/$2/git" "$_git_loop_out"
+    _assert_eq "git launcher re-entry ($1): bounds wrapper hops" "true" \
+      "$([[ "$_git_loop_hops" -ge 1 && "$_git_loop_hops" -le "$3" ]] && echo true || echo false)"
+  }
+  # Each case is LABEL|CWD|PATH-ORDER|DOT_GIT_REAL. DOT_GIT_REAL=1 makes the
+  # loop a tight exec chain in one process. Without it, a HOME descendant also
+  # runs the nested-worktree probe through the wrapper, handing off twice per
+  # launch.
+  for _git_loop_case in \
+    "wrapper-first-real|$TEST_HOME/git-loop-plain|wrapper|1" \
+    "launcher-first-real|$TEST_HOME/git-loop-plain|launcher|1" \
+    "outside-home|$_git_loop_root|launcher|0" \
+    "home-root|$TEST_HOME|wrapper|0" \
+    "nested-probe|$TEST_HOME/git-loop-plain|launcher|0"; do
+    IFS='|' read -r _git_loop_label _git_loop_cwd _git_loop_order _git_loop_real \
+      <<<"$_git_loop_case"
+    if [[ -z "$_git_loop_timeout" ]]; then
+      _pass "git launcher re-entry ($_git_loop_label): timeout unavailable, skipped"
+      continue
+    fi
+    if [[ "$_git_loop_order" == wrapper ]]; then
+      _git_loop_path="$_git_loop_root/stub:$BIN_DIR:/usr/bin:/bin"
+    else
+      _git_loop_path="$BIN_DIR:$_git_loop_root/stub:/usr/bin:/bin"
+    fi
+    _git_loop_run "$_git_loop_label" "$_git_loop_cwd" "$_git_loop_path" \
+      DOT_GIT_REAL="$_git_loop_real"
+    _git_loop_assert_bounded "$_git_loop_label" stub 64
+  done
+
+  if [[ -n "$_git_loop_timeout" ]]; then
+    # A HOME without a dotfiles repo (a scratch HOME, a fresh host) execs the
+    # wrapper without GIT_DIR, so every re-entry probes again. Unless the
+    # probe's own re-entry skips probing, the launches branch exponentially.
+    mkdir -p "$_git_loop_root/bare-home/plain"
+    _git_loop_run bare-home "$_git_loop_root/bare-home/plain" \
+      "$BIN_DIR:$_git_loop_root/stub:/usr/bin:/bin" \
+      HOME="$_git_loop_root/bare-home" DOT_TEST_HOST_HOME="${DOT_TEST_HOST_HOME:-}"
+    _git_loop_assert_bounded "bare HOME probe" stub 64
+
+    # The bound is on depth, so a wrapper calling back twice per level costs
+    # about 2^max launches; the budget must stay small enough to finish.
+    _git_loop_limit=60s
+    _git_loop_run twice "$_git_loop_root" \
+      "$BIN_DIR:$_git_loop_root/twice:/usr/bin:/bin" DOT_GIT_REAL=1
+    _git_loop_limit=
+    _git_loop_assert_bounded "two callbacks per level" twice 1024
+
+    # A wrapper that re-enters once on its way to real Git must keep working,
+    # including through the nested-worktree probe: a nested repo under HOME
+    # must not fall back to the dotfiles repo.
+    _git_loop_repo="$TEST_HOME/git/loop-redispatch"
+    mkdir -p "$_git_loop_repo/sub"
+    env -u GIT_DIR -u GIT_WORK_TREE git -C "$_git_loop_repo" init -q
+    _git_loop_args=(rev-parse --show-toplevel)
+    _git_loop_run redispatch "$_git_loop_repo/sub" \
+      "$BIN_DIR:$_git_loop_root/redispatch:/usr/bin:/bin"
+    _git_loop_args=(check-ref-format --branch main)
+    _assert_eq "git launcher re-entry: a re-dispatching wrapper keeps nested repos" \
+      "$(cd "$_git_loop_repo" && pwd -P)" "$_git_loop_out"
+
+    # Hooks and other Git children that run the launcher again inherit the
+    # count, so ordinary nesting and garbage values must still reach real Git.
+    _git_loop_real_path="$BIN_DIR:$_git_loop_root/real:/usr/bin:/bin"
+    _git_loop_run fresh "$_git_loop_root" "$_git_loop_real_path"
+    _assert_eq "git launcher re-entry: real Git sees the first hop" \
+      "real-git:1:check-ref-format --branch main" "$_git_loop_out"
+    _git_loop_run nested "$_git_loop_root" "$_git_loop_real_path" _DOT_LAUNCHER_HOPS_git=4
+    _assert_eq "git launcher re-entry: nested launches still reach real Git" \
+      "real-git:5:check-ref-format --branch main" "$_git_loop_out"
+    _git_loop_run garbage "$_git_loop_root" "$_git_loop_real_path" _DOT_LAUNCHER_HOPS_git=x9
+    _assert_eq "git launcher re-entry: an invalid count restarts the budget" \
+      "real-git:1:check-ref-format --branch main" "$_git_loop_out"
+  fi
+
+  echo ""
   echo "=== git launcher argument routing ==="
 
   # Exercise parsing through the public command. `clone` must bypass the bare
