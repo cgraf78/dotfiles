@@ -1125,6 +1125,45 @@ _assert_contains "parallel: the serial run still finds the batch shapes" \
   "mb-gone (upstream origin/mb-gone is gone)" "$par_serial"
 
 echo ""
+echo "=== Symlinked HOME ==="
+
+# HOME reached through a symlink (macOS keeps HOME and TMPDIR under
+# /var -> /private/var): Git records physical paths in its gitdir files,
+# and every row must still shorten them to ~ and count each checkout once.
+sym_real=$(_tmpdir)
+sym_home=$(_tmpdir)/home-link
+ln -s "$sym_real" "$sym_home"
+sym_real=$(cd "$sym_real" && pwd -P)
+sym_origin_root=$(_tmpdir)
+_seed_origin "$sym_origin_root/origin.git"
+git clone "$sym_origin_root/origin.git" "$sym_home/git/alpha" >/dev/null 2>&1
+sym_main=$sym_home/git/alpha
+git -C "$sym_main" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main >/dev/null 2>&1
+git -C "$sym_main" worktree add "$sym_home/shared/locked-live" -b sym-locked >/dev/null 2>&1
+git -C "$sym_main" worktree lock "$sym_home/shared/locked-live" >/dev/null 2>&1
+git -C "$sym_main" worktree add --detach "$sym_home/.worktrees/sym-stale" origin/main >/dev/null 2>&1
+git -C "$sym_home/.worktrees/sym-stale" checkout -b sym-stale >/dev/null 2>&1
+git -C "$sym_home/.worktrees/sym-stale" branch --set-upstream-to=origin/main >/dev/null 2>&1
+_make_old "$sym_home/.worktrees/sym-stale"
+git -C "$sym_main" worktree add "$sym_home/shared/gone" -b sym-gone >/dev/null 2>&1
+rm -rf "$sym_home/shared/gone"
+result=$(HOME="$sym_home" DOTFILES="$sym_home/.dotfiles" \
+  _doctor_records _dr_check_worktrees)
+_assert_contains "symlinked home: each checkout counts once" \
+  "across 2 worktrees" "$result"
+# shellcheck disable=SC2088 # Rows carry tilde display paths.
+_assert_contains "symlinked home: a locked checkout displays under ~" \
+  "~/shared/locked-live" "$result"
+# shellcheck disable=SC2088 # Rows carry tilde display paths.
+_assert_contains "symlinked home: a stale checkout displays under ~" \
+  "~/.worktrees/sym-stale (merged into origin/main)" "$result"
+# shellcheck disable=SC2088 # Rows carry tilde display paths.
+_assert_contains "symlinked home: a prunable entry displays under ~" \
+  "~/git/alpha: gone" "$result"
+_assert_not_contains "symlinked home: no physical home path leaks into a row" \
+  "$sym_real" "$result"
+
+echo ""
 echo "=== Repo identity keys ==="
 
 key_home=$(_tmpdir)

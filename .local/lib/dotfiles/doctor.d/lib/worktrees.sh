@@ -954,6 +954,27 @@ _dr_worktree_dirty_count() {
   REPLY=$count
 }
 
+# Physical spelling of HOME for the current check; set by
+# _dr_check_worktrees.
+_DR_WORKTREE_HOME_PHYS=
+
+# Display a path for a record. Checkout paths here are physical (the
+# enumeration resolves them, and Git records them that way in its gitdir
+# files), while HOME may be spelled through a symlink: macOS keeps it and
+# TMPDIR under /var -> /private/var. Shortening only against the logical
+# HOME would print a physical home path in full, so map the physical HOME
+# prefix back to HOME first.
+_dr_worktree_display() {
+  local path=$1 phys=${_DR_WORKTREE_HOME_PHYS:-}
+  if [[ -n $phys && $phys != "$HOME" ]]; then
+    case $path in
+      "$phys") path=$HOME ;;
+      "$phys"/*) path=$HOME/${path#"$phys"/} ;;
+    esac
+  fi
+  _dr_tilde "$path"
+}
+
 # Join "a; b; c" from up to _DR_WORKTREE_STALE_LIST_LIMIT samples plus an
 # "and N more" tail for TOTAL entries, via REPLY.
 _dr_worktree_join_samples() {
@@ -980,7 +1001,7 @@ _dr_worktree_report_admin() {
     ((${#samples[@]} < _DR_WORKTREE_STALE_LIST_LIMIT)) || break
     repo=${entry%%$'\t'*}
     id=${entry#*$'\t'}
-    samples+=("$(_dr_tilde "$repo"): $id")
+    samples+=("$(_dr_worktree_display "$repo"): $id")
   done
   if ((${#_DR_WORKTREE_ADMIN_PRUNABLE[@]} > 0)); then
     _dr_worktree_join_samples "${#_DR_WORKTREE_ADMIN_PRUNABLE[@]}" "${samples[@]}"
@@ -998,11 +1019,11 @@ _dr_worktree_report_admin() {
     repo=${entry%%$'\t'*}
     id=${entry#*$'\t'}
     if [[ -n $id ]]; then
-      samples+=("$(_dr_tilde "$repo"): $id (checkout missing)")
+      samples+=("$(_dr_worktree_display "$repo"): $id (checkout missing)")
     else
       # Relative pointers arrive spelled through the admin entry.
       label=$(_dr_worktree_physical "$repo")
-      samples+=("$(_dr_tilde "${label:-$repo}")")
+      samples+=("$(_dr_worktree_display "${label:-$repo}")")
     fi
   done
   if ((${#_DR_WORKTREE_ADMIN_LOCKED[@]} > 0)); then
@@ -1031,6 +1052,7 @@ _dr_check_worktrees() {
   local -a dirs=()
 
   home_phys=$(cd -- "$home" 2>/dev/null && pwd -P 2>/dev/null) || home_phys=$home
+  _DR_WORKTREE_HOME_PHYS=$home_phys
   dotfiles_phys=
   if [[ -n ${DOTFILES:-} && -d ${DOTFILES:-} ]]; then
     dotfiles_phys=$(cd -- "$DOTFILES" 2>/dev/null && pwd -P 2>/dev/null) || dotfiles_phys=
@@ -1142,7 +1164,7 @@ _dr_check_worktrees() {
         reason+=", standalone clone"
       fi
       if ((${#stale_samples[@]} < _DR_WORKTREE_STALE_LIST_LIMIT)); then
-        stale_samples+=("$(_dr_tilde "$dir") ($reason)")
+        stale_samples+=("$(_dr_worktree_display "$dir") ($reason)")
       fi
     else
       dirty_count=$((dirty_count + 1))
@@ -1152,7 +1174,7 @@ _dr_check_worktrees() {
         changed="$changed uncommitted"
       fi
       if ((${#dirty_samples[@]} < _DR_WORKTREE_STALE_LIST_LIMIT)); then
-        dirty_samples+=("$(_dr_tilde "$dir") ($changed; $reason)")
+        dirty_samples+=("$(_dr_worktree_display "$dir") ($changed; $reason)")
       fi
     fi
   done

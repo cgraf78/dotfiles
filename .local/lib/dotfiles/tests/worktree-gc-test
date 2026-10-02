@@ -886,6 +886,33 @@ _assert_contains "activity: a fresh HEAD keeps the checkout" \
   "$(printf 'kept\t%s\tyounger than 14 days' "$wt")" "$result"
 
 echo ""
+echo "=== Symlinked HOME ==="
+
+# Through a symlinked HOME the sweep still excludes the live checkout,
+# finds each registered checkout exactly once, and reports physical paths.
+sym_parent=$(_gc_tmpdir)
+mkdir -p "$sym_parent/real"
+ln -s "$sym_parent/real" "$sym_parent/link"
+sym_home=$sym_parent/link
+sym_origin_root=$(_tmpdir)
+_gc_seed_origin "$sym_origin_root/origin.git"
+_gc_clone_main "$sym_origin_root/origin.git" "$sym_home/git/alpha"
+git -C "$sym_home/git/alpha" worktree add "$sym_home/.worktrees/old-merged" -b feat-sym >/dev/null 2>&1
+wt=$sym_home/.worktrees/old-merged
+_git_set_test_identity git -C "$wt"
+_gc_commit_file "$wt" feat-sym.txt
+git -C "$wt" push -u origin feat-sym >/dev/null 2>&1
+_gc_merge_branch "$sym_home/git/alpha" feat-sym
+git -C "$wt" fetch --prune origin >/dev/null 2>&1
+_gc_make_old "$wt"
+result=$(HOME="$sym_home" DOTFILES="$sym_home/.dotfiles" "$GC" 2>/dev/null)
+_assert_contains "symlinked home: the checkout is swept by its physical path" \
+  "$(printf 'would-remove\t%s\tmerged into origin/main' "$sym_parent/real/.worktrees/old-merged")" \
+  "$result"
+_assert_eq "symlinked home: the checkout is listed once" "1" \
+  "$(grep -c 'old-merged' <<<"$result")"
+
+echo ""
 echo "=== Linked checkout on the base branch keeps its branch ==="
 
 bb_home=$(_gc_tmpdir)
