@@ -65,14 +65,27 @@ _dr_timeout_resolve() {
 # status, or 124 when the deadline passed. Uses timeout(1) or gtimeout where
 # installed; otherwise a builtin watchdog, so a host without either (stock
 # macOS) is still bounded. The command's stdin, stdout, and stderr are the
-# caller's.
+# caller's. The watchdog takes whole or decimal seconds (0 disables the
+# deadline, as for timeout(1)) and returns 125 without running the command
+# when the deadline is malformed or its private directory and FIFO cannot
+# be created.
 #
 # The watchdog runs the command as its own process group and signals the
-# whole group (TERM, then KILL two seconds later), as timeout(1) does: a
-# grandchild left behind would keep a `$(...)` capture open past the
-# deadline. The watchdog is its own process group too, so stopping it stops
-# its sleep with it and the worker supervisor sees no leftovers. Everything
-# runs in a subshell, so job control and errexit changes stay inside.
+# whole group (TERM at the deadline, then KILL two seconds later), as
+# timeout(1) does: a grandchild left behind would keep a `$(...)` capture
+# open past the deadline. Once the command itself has exited, by itself or
+# by the deadline, its group is KILLed too, so a background child or a
+# grandchild that ignores TERM can neither hold the capture nor outlive the
+# call. A TERM, HUP, or INT that stops the caller KILLs the group as well.
+#
+# Nothing else may outlive the call either. On macOS, Dot's supervisor has
+# no stable handle on a process outside the leader's process group, so when
+# a doctor worker or test suite exits while such a process still lives, it
+# refuses the teardown and fails the run. The watchdog therefore stays in
+# the caller's group and runs builtins only: it waits with `read -t` on a
+# private FIFO rather than an external sleep, which would be orphaned when
+# the watchdog is stopped. Everything runs in a subshell, so job control,
+# traps, and errexit changes stay inside.
 _dr_run_bounded() {
   local secs=$1
   shift
@@ -81,33 +94,58 @@ _dr_run_bounded() {
     "$_DR_TIMEOUT_BIN" -k 2 "$secs" "$@"
     return
   fi
+  # read -t would reject anything else at once, which the watchdog cannot
+  # tell from a broken clock.
+  [[ $secs =~ ^[0-9]+([.][0-9]+)?$ ]] || return 125
   (
     set +e
-    # A private, unpredictable directory for the deadline marker; without
-    # one, a signal death stands in for it.
-    marks=$(mktemp -d "${TMPDIR:-/tmp}/dot-doctor-deadline.XXXXXX" 2>/dev/null) || marks=
+    pid='' wd='' clock=''
+    # A private, unpredictable directory for the deadline marker and the
+    # watchdog's clock: a FIFO nothing ever writes, so a read on it returns
+    # only when its timeout passes. Opening it read-write never blocks and
+    # never sees EOF. The clock takes a free descriptor, so none the caller
+    # passes on (Dot hands its lease to children by number) is lost.
+    marks=$(mktemp -d "${TMPDIR:-/tmp}/dot-doctor-deadline.XXXXXX" 2>/dev/null) || exit 125
+    if ! mkfifo "$marks/clock" 2>/dev/null || ! exec {clock}<>"$marks/clock"; then
+      rm -rf "$marks"
+      exit 125
+    fi
+    # The watchdog dies with the caller's group, and the command's group
+    # never sees a signal sent there, so stop it here rather than leave it
+    # running without a deadline. Signals ignored on entry (INT and QUIT in
+    # a background job) cannot be trapped and need nothing.
+    trap 'kill -KILL -- "-$pid" "$wd" 2>/dev/null; rm -rf "$marks"; exit 129' HUP
+    trap 'kill -KILL -- "-$pid" "$wd" 2>/dev/null; rm -rf "$marks"; exit 130' INT
+    trap 'kill -KILL -- "-$pid" "$wd" 2>/dev/null; rm -rf "$marks"; exit 143' TERM
     set -m
-    "$@" &
+    "$@" {clock}>&- &
     pid=$!
+    set +m
+    # Started without job control, so it shares the caller's group. read
+    # reports a passed timeout as a status above 128; anything else means
+    # the clock broke, and the watchdog stands down rather than fire early.
     (
-      sleep "$secs"
-      [[ -z $marks ]] || : >"$marks/fired"
+      read -r -t "$secs" -u "$clock"
+      (($? > 128)) || exit 0
+      : >"$marks/fired"
       kill -TERM -- "-$pid"
-      sleep 2
+      read -r -t 2 -u "$clock"
+      (($? > 128)) || exit 0
       kill -KILL -- "-$pid"
     ) </dev/null >/dev/null 2>&1 &
     wd=$!
-    set +m
+    exec {clock}>&-
     wait "$pid"
     rc=$?
-    kill -KILL -- "-$wd" 2>/dev/null
+    # The command has exited and been reaped. Anything left in its group
+    # keeps the group ID reserved, so this KILL reaches only those
+    # leftovers; with none left there is no group to find (the same instant
+    # of PID reuse the deadline's TERM has always had to accept).
+    kill -KILL -- "-$pid" 2>/dev/null
+    kill -KILL "$wd" 2>/dev/null
     wait "$wd" 2>/dev/null
-    if [[ -n $marks ]]; then
-      [[ ! -e $marks/fired ]] || rc=124
-      rm -rf "$marks"
-    elif ((rc == 143 || rc == 137)); then
-      rc=124
-    fi
+    [[ ! -e $marks/fired ]] || rc=124
+    rm -rf "$marks"
     exit "$rc"
   )
 }

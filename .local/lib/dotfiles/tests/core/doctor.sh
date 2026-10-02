@@ -18,7 +18,8 @@ dot_core_test_doctor() {
   local doctor_startup doctor_mc_home doctor_shell_status doctor_shell_err
   local doctor_nozsh_bin doctor_tool doctor_tool_path doctor_cron_status
   local doctor_oldbash_bin doctor_mode doctor_started doctor_status doctor_i
-  local doctor_timeout_bin
+  local doctor_timeout_bin doctor_strays doctor_stray_pid doctor_deadline
+  local doctor_held doctor_free doctor_try doctor_expect doctor_tmp
 
   echo ""
   echo "=== Base doctor extensions ==="
@@ -31,6 +32,39 @@ dot_core_test_doctor() {
     _dot_doctor_load
   fi
   _test_load_dot_doctor_api "$TEST_HOME"
+  # Print the live processes in this shell's process group that are neither
+  # this shell nor its descendants, one PID per line, sorted: what a helper
+  # leaves behind once its parent is gone. Orphans are re-parented away
+  # from $$, so the parent walk tells them from work still in progress.
+  _doctor_group_strays() {
+    local group
+    group=$(ps -o pgid= -p "$$" 2>/dev/null) || return 0
+    ps -A -o pid=,ppid=,pgid=,stat= 2>/dev/null |
+      awk -v self="$$" -v group="${group//[[:space:]]/}" '
+        { parent[$1] = $2; pgid[$1] = $3; state[$1] = $4 }
+        END {
+          for (pid in pgid) {
+            if (pgid[pid] != group || state[pid] ~ /^Z/ || pid == self) continue
+            mine = 0
+            for (up = parent[pid]; up in parent && up > 1; up = parent[up]) {
+              if (up == self) { mine = 1; break }
+            }
+            if (!mine) print pid
+          }
+        }' | sort
+  }
+  # Succeed once PID is gone or a zombie, polling for up to two seconds: a
+  # SIGKILLed process dies asynchronously, and an orphan's zombie waits for
+  # whichever ancestor adopted it.
+  _doctor_wait_gone() {
+    local state tries
+    for ((tries = 0; tries < 40; tries++)); do
+      state=$(ps -o stat= -p "$1" 2>/dev/null) || return 0
+      [[ -n ${state//[[:space:]]/} && $state != *Z* ]] || return 0
+      sleep 0.05
+    done
+    return 1
+  }
   _doctor_records() {
     local status=0
     : >"$DOT_DOCTOR_RESULT_FILE"
@@ -474,14 +508,138 @@ SH
     doctor_status=$?
   _assert_exit "deadline: the command's status passes through" 3 "$doctor_status"
   _assert_eq "deadline: the command's output passes through" "fine" "$result"
-  for ((doctor_i = 0; doctor_i < 20; doctor_i++)); do
-    _DR_TIMEOUT_BIN='' _dr_run_bounded 13 true || true
+  # Nothing the watchdog starts outlives the call, on either path: Dot's
+  # supervisor refuses to tear down a suite or doctor worker on macOS
+  # while a live member sits outside the leader's process group. The
+  # stray scan covers the watchdog, which runs in the caller's group; the
+  # command's own group is covered by the straggler cases below. The
+  # commands run long enough for the watchdog to be waiting on its clock,
+  # and each run must also remove its private directory.
+  if [[ $(ps -o pgid= -p "$$" 2>/dev/null) =~ ^[[:space:]]*[0-9]+[[:space:]]*$ ]]; then
+    _pass "deadline: ps reports process groups for the leftover checks"
+  else
+    _fail "deadline: ps reports process groups for the leftover checks"
+  fi
+  doctor_strays=$(_doctor_group_strays)
+  doctor_tmp=$(_tmpdir)
+  for ((doctor_i = 0; doctor_i < 5; doctor_i++)); do
+    TMPDIR=$doctor_tmp _DR_TIMEOUT_BIN='' _dr_run_bounded 13 sleep 0.2 || true
   done
-  _assert_eq "deadline: quick commands leave no watchdog sleep behind" "" \
-    "$(
-      # shellcheck disable=SC2009 # pgrep -x matches names, not full args.
-      ps -A -o args= 2>/dev/null | grep -x 'sleep 13' || true
-    )"
+  TMPDIR=$doctor_tmp _DR_TIMEOUT_BIN='' _dr_run_bounded 1 sleep 9 || true
+  for ((doctor_try = 0; doctor_try < 40; doctor_try++)); do
+    [[ -n $(comm -13 <(printf '%s\n' "$doctor_strays") <(_doctor_group_strays)) ]] || break
+    sleep 0.05
+  done
+  _assert_eq "deadline: no watchdog process outlives the call" "" \
+    "$(comm -13 <(printf '%s\n' "$doctor_strays") <(_doctor_group_strays))"
+  _assert_eq "deadline: the private directory is removed" "" "$(ls -A "$doctor_tmp")"
+  # Stragglers in the command's group, from a command that exits on its
+  # own and from one the deadline stops with TERM while its child ignores
+  # TERM. Each is stopped with the command: one that keeps the capture's
+  # pipe cannot hold the capture open, and one that let go of it does not
+  # outlive the call. The command prints the straggler's PID.
+  for doctor_mode in quick term-proof; do
+    if [[ $doctor_mode == quick ]]; then
+      doctor_deadline=9 doctor_expect=0
+      # shellcheck disable=SC2016 # The child expands its own variables.
+      doctor_held='sleep 29 & echo "$!"'
+      # shellcheck disable=SC2016
+      doctor_free='sleep 29 </dev/null >/dev/null 2>&1 & echo "$!"'
+    else
+      doctor_deadline=1 doctor_expect=124
+      # shellcheck disable=SC2016
+      doctor_held='(trap "" TERM; exec sleep 29) & echo "$!"; exec sleep 29'
+      # shellcheck disable=SC2016
+      doctor_free='(trap "" TERM; exec sleep 29) </dev/null >/dev/null 2>&1 & echo "$!"; exec sleep 29'
+    fi
+    doctor_started=$SECONDS
+    doctor_status=0
+    result=$(_DR_TIMEOUT_BIN='' _dr_run_bounded "$doctor_deadline" bash -c "$doctor_held") ||
+      doctor_status=$?
+    _assert_exit "deadline: the status survives a straggler ($doctor_mode)" \
+      "$doctor_expect" "$doctor_status"
+    if ((SECONDS - doctor_started < 5)); then
+      _pass "deadline: a straggler cannot hold the capture open ($doctor_mode)"
+    else
+      _fail "deadline: a straggler cannot hold the capture open ($doctor_mode, $((SECONDS - doctor_started))s)"
+    fi
+    doctor_stray_pid=$(_DR_TIMEOUT_BIN='' _dr_run_bounded "$doctor_deadline" bash -c "$doctor_free")
+    if [[ $doctor_stray_pid =~ ^[0-9]+$ ]] && _doctor_wait_gone "$doctor_stray_pid"; then
+      _pass "deadline: a straggler does not outlive the call ($doctor_mode)"
+    else
+      _fail "deadline: a straggler does not outlive the call ($doctor_mode, pid ${doctor_stray_pid:-none})"
+      [[ ! $doctor_stray_pid =~ ^[0-9]+$ ]] || kill -KILL "$doctor_stray_pid" 2>/dev/null
+    fi
+  done
+  # A TERM to the caller's process group stops the watchdog with it; the
+  # command, in a group of its own, must not be left running without a
+  # deadline. The call runs as its own job so the signal stays off this
+  # shell's group; the command writes its PID before it hangs.
+  doctor_tmp=$(_tmpdir)
+  doctor_stray_pid=$(
+    set -m
+    # shellcheck disable=SC2016 # The child expands its own variables.
+    TMPDIR=$doctor_tmp _DR_TIMEOUT_BIN='' _dr_run_bounded 29 \
+      bash -c 'echo "$$" >"$1"; exec sleep 29' doctor-hang "$doctor_tmp/pid" \
+      </dev/null >/dev/null 2>&1 &
+    doctor_try=$!
+    set +m
+    for ((doctor_i = 0; doctor_i < 100; doctor_i++)); do
+      [[ ! -s $doctor_tmp/pid ]] || break
+      sleep 0.05
+    done
+    kill -TERM -- "-$doctor_try" 2>/dev/null
+    wait "$doctor_try" 2>/dev/null
+    cat "$doctor_tmp/pid" 2>/dev/null
+  )
+  if [[ $doctor_stray_pid =~ ^[0-9]+$ ]] && _doctor_wait_gone "$doctor_stray_pid"; then
+    _pass "deadline: a signal to the caller stops the command"
+  else
+    _fail "deadline: a signal to the caller stops the command (pid ${doctor_stray_pid:-none})"
+    [[ ! $doctor_stray_pid =~ ^[0-9]+$ ]] || kill -KILL "$doctor_stray_pid" 2>/dev/null
+  fi
+  rm -f "$doctor_tmp/pid"
+  _assert_eq "deadline: a signal to the caller removes the private directory" "" \
+    "$(ls -A "$doctor_tmp")"
+  # Descriptors the caller passes on reach the command (Dot hands its
+  # session lease to children by number); the watchdog's clock does not.
+  doctor_tmp=$(_tmpdir)
+  (
+    exec 3>"$doctor_tmp/fd3"
+    _DR_TIMEOUT_BIN='' _dr_run_bounded 5 bash -c 'echo passed >&3' 2>/dev/null
+  )
+  _assert_eq "deadline: the caller's descriptor 3 reaches the command" "passed" \
+    "$(cat "$doctor_tmp/fd3" 2>/dev/null)"
+  # A deadline the watchdog cannot honor fails before the command runs:
+  # a malformed duration, no private directory, or no FIFO.
+  doctor_tmp=$(_tmpdir)
+  printf '%s\n' '#!/bin/sh' 'exit 1' >"$doctor_tmp/mkfifo"
+  chmod +x "$doctor_tmp/mkfifo"
+  for doctor_mode in duration directory fifo; do
+    doctor_status=0
+    case $doctor_mode in
+      duration)
+        _DR_TIMEOUT_BIN='' _dr_run_bounded 5s touch "$doctor_tmp/ran" || doctor_status=$?
+        ;;
+      directory)
+        TMPDIR=$doctor_tmp/missing _DR_TIMEOUT_BIN='' \
+          _dr_run_bounded 5 touch "$doctor_tmp/ran" || doctor_status=$?
+        ;;
+      fifo)
+        PATH="$doctor_tmp:$PATH" TMPDIR=$doctor_tmp _DR_TIMEOUT_BIN='' \
+          _dr_run_bounded 5 touch "$doctor_tmp/ran" || doctor_status=$?
+        ;;
+    esac
+    _assert_exit "deadline: an unusable $doctor_mode returns 125" 125 "$doctor_status"
+    if [[ -e $doctor_tmp/ran ]]; then
+      _fail "deadline: an unusable $doctor_mode does not run the command"
+      rm -f "$doctor_tmp/ran"
+    else
+      _pass "deadline: an unusable $doctor_mode does not run the command"
+    fi
+  done
+  _assert_eq "deadline: a failed FIFO leaves no private directory" "mkfifo" \
+    "$(ls -A "$doctor_tmp")"
   # Only a coreutils timeout(1) is trusted for its 124 status; BusyBox's
   # reports a deadline as a SIGTERM death, so the watchdog runs instead.
   doctor_timeout_bin=$(_tmpdir)
@@ -741,7 +899,7 @@ SH
 
   # Without zsh on PATH the zsh flavors are skipped, not failed.
   doctor_nozsh_bin=$(_tmpdir)
-  for doctor_tool in bash cat mktemp rm timeout dirname; do
+  for doctor_tool in bash cat mktemp mkfifo rm timeout dirname; do
     doctor_tool_path=$(type -P "$doctor_tool" 2>/dev/null) || continue
     ln -s "$doctor_tool_path" "$doctor_nozsh_bin/$doctor_tool"
   done
@@ -793,6 +951,18 @@ SH
     fi
   done
   rm -f "$TEST_HOME/.config/shell/env.d/95-hang.sh"
+
+  # A probe whose deadline cannot be set up says nothing about the
+  # startup files: the BASH_ENV query must not read as unconfigured.
+  doctor_tmp=$(_tmpdir)
+  printf '%s\n' '#!/bin/sh' 'exit 1' >"$doctor_tmp/mkfifo"
+  chmod +x "$doctor_tmp/mkfifo"
+  result=$(HOME="$TEST_HOME" PATH="$doctor_tmp:$doctor_bin:$TEST_HOME/.local/bin:$PATH" \
+    _DR_TIMEOUT_BIN='' _doctor_records _dr_check_shell)
+  _assert_contains "doctor shell: an unusable deadline fails the BASH_ENV probe" \
+    $'fail\tbash -c (BASH_ENV) startup failed' "$result"
+  _assert_not_contains "doctor shell: an unusable deadline is not unconfigured BASH_ENV" \
+    "startup not configured" "$result"
 
   # The first bash on PATH is what `/usr/bin/env bash` scripts get.
   doctor_oldbash_bin=$(_tmpdir)

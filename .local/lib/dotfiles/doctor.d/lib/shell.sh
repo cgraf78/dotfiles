@@ -69,8 +69,9 @@ _dr_shell_probe_exec() {
           . "$HOME/.bashrc" >/dev/null 2>&1
           printf "%s" "${BASH_ENV:-}"
         ' 2>/dev/null) || query=$?
-      # A query that timed out says nothing about BASH_ENV.
-      if [[ $query == 124 || $query == 137 ]]; then
+      # A query that timed out, or whose deadline could not be set up
+      # (125), says nothing about BASH_ENV.
+      if [[ $query == 124 || $query == 125 || $query == 137 ]]; then
         return "$query"
       fi
       [[ -n $bash_env ]] || return 3
