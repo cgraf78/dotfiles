@@ -57,6 +57,9 @@ _client_extension_fixture() {
     cp -R "$source_client/$extension_dir" \
       "$fixture_home/.local/lib/dotfiles/" || return 1
   done
+  # Shared base helpers that extensions load from the extension root.
+  cp "$source_client/shell-grok-rc.sh" \
+    "$fixture_home/.local/lib/dotfiles/" || return 1
 
   for conf in "$source_home"/.config/dot/overlays.d/*.conf; do
     [[ -f $conf ]] || continue

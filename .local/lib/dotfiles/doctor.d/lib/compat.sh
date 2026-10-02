@@ -11,6 +11,17 @@ _dr_fail() { dot_doctor_fail "$@"; }
 _dr_skip() { dot_doctor_skip "$@"; }
 _dr_tilde() { dot_doctor_display_path "$@"; }
 
+# Informational rows use the coordinator's `info` kind when its doctor API
+# provides one, and render as a passing check on older coordinators, so the
+# same extension runs against either.
+_dr_info() {
+  if declare -F dot_doctor_info >/dev/null 2>&1; then
+    dot_doctor_info "$@"
+  else
+    dot_doctor_ok "$@"
+  fi
+}
+
 _merge_hook_family() {
   printf '%s/%s\n' "$HOME/.config/dot/merge-hooks.d" "$1"
 }

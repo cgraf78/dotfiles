@@ -14,6 +14,7 @@ dot_core_test_doctor() {
   local integ_shdeps_dir_unset integ_saved_shdeps_dir
   local integ_healthy integ_missing integ_broken integ_noresolve integ_nozsh
   local integ_bare_result integ_healthy_status integ_bare_status
+  local doctor_conf_home doctor_grok_home
 
   echo ""
   echo "=== Base doctor extensions ==="
@@ -221,6 +222,53 @@ SH
     "directdep bin links" "$result"
   _assert_not_contains "doctor tools: direct targets are not forced to symlinks" \
     "direct-tool not linked" "$result"
+
+  # Managed .conf files are usually overlay symlinks; every readable one
+  # counts, a dangling one does not.
+  doctor_conf_home=$(_tmpdir)
+  mkdir -p "$doctor_conf_home/.config/shdeps" "$doctor_conf_home/overlay"
+  printf '%s\n' 'fixture/a github:repo a' >"$doctor_conf_home/.config/shdeps/10-deps.conf"
+  printf '%s\n' 'fixture/b github:repo b' >"$doctor_conf_home/overlay/20-overlay.conf"
+  ln -s "$doctor_conf_home/overlay/20-overlay.conf" \
+    "$doctor_conf_home/.config/shdeps/20-overlay.conf"
+  ln -s "$doctor_conf_home/overlay/missing.conf" \
+    "$doctor_conf_home/.config/shdeps/30-dangling.conf"
+  result=$(HOME="$doctor_conf_home" PATH="$doctor_bin:$PATH" \
+    _doctor_records _dr_check_tools)
+  _assert_contains "doctor tools: symlinked shdeps configs are counted" \
+    $'ok\tshdeps config\t2 .conf file(s)' "$result"
+
+  # Doctor reports a vendor installer block but never rewrites the
+  # tracked loaders; the grok-rc merge hook owns the strip.
+  doctor_grok_home=$(_tmpdir)
+  # The installed helper sits where the old in-doctor strip looked for it.
+  mkdir -p "$doctor_grok_home/.local/lib/dotfiles"
+  cp "$REAL_HOME/.local/lib/dotfiles/shell-grok-rc.sh" \
+    "$doctor_grok_home/.local/lib/dotfiles/shell-grok-rc.sh"
+  # shellcheck disable=SC2016 # The vendor block keeps a literal HOME.
+  printf '%s\n' '# thin loader' '' '# >>> grok installer >>>' \
+    'export PATH="$HOME/.grok/bin:$PATH"' '# <<< grok installer <<<' \
+    >"$doctor_grok_home/.zshrc"
+  printf '%s\n' '# thin loader' >"$doctor_grok_home/.bashrc"
+  cp "$doctor_grok_home/.zshrc" "$doctor_grok_home/zshrc.before"
+  result=$(HOME="$doctor_grok_home" _doctor_records _dr_check_shell)
+  _assert_contains "doctor shell: a Grok installer block warns" \
+    $'warn\tGrok installer block in ~/.zshrc' "$result"
+  _assert_contains "doctor shell: the warning names the repair" \
+    "run 'dot update' to strip it" "$result"
+  _assert_eq "doctor shell: the tracked loader is left untouched" \
+    "$(cat "$doctor_grok_home/zshrc.before")" "$(cat "$doctor_grok_home/.zshrc")"
+  printf '%s\n' '# thin loader' '# >>> grok installer >>>' 'export KEEP_ME=1' \
+    >"$doctor_grok_home/.zshrc"
+  result=$(HOME="$doctor_grok_home" _doctor_records _dr_check_shell)
+  _assert_contains "doctor shell: an unterminated block asks for a manual edit" \
+    $'warn\tunterminated Grok installer block in ~/.zshrc' "$result"
+  _assert_contains "doctor shell: an unterminated block is not sent to dot update" \
+    "edit the file by hand" "$result"
+  printf '%s\n' '# thin loader' >"$doctor_grok_home/.zshrc"
+  result=$(HOME="$doctor_grok_home" _doctor_records _dr_check_shell)
+  _assert_not_contains "doctor shell: clean loaders report no Grok row" \
+    "Grok" "$result"
 
   cp "$REAL_HOME/.local/lib/dotfiles/shell-loader.sh" \
     "$TEST_HOME/.local/lib/dotfiles/shell-loader.sh"

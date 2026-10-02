@@ -131,8 +131,13 @@ _dr_check_tools() {
   _dot_shdeps_conf_dir
   shdeps_conf_dir="$REPLY"
   if [[ -d "$shdeps_conf_dir" ]]; then
-    local conf_count
-    conf_count=$(find "$shdeps_conf_dir" -maxdepth 1 -name '*.conf' -type f 2>/dev/null | wc -l | tr -d ' ')
+    # Count through a glob: managed .conf files are usually overlay
+    # symlinks, which `find -type f` silently skipped. `-f` follows links
+    # and rejects dangling ones, matching what shdeps can actually read.
+    local conf_count=0 conf
+    for conf in "$shdeps_conf_dir"/*.conf; do
+      [[ -f $conf ]] && conf_count=$((conf_count + 1))
+    done
     if [[ "$conf_count" -gt 0 ]]; then
       _dr_ok "shdeps config" "$conf_count .conf file(s)"
     else

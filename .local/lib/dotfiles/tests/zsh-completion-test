@@ -432,6 +432,66 @@ HOME="$clean_rc_home" dot_grok_strip_installer_rc
 _assert_eq "grok installer strip: no-op without a block" \
   "$(<"$source_home/.zshrc")" "$(<"$clean_rc_home/.zshrc")"
 
+# The interactive strip keeps the loader's mode, leaves a symlinked loader
+# alone, refuses an unterminated block, and behaves the same under zsh.
+mode_rc_home="$TEST_TMPDIR/mode-rc-home"
+mkdir -p "$mode_rc_home"
+printf '%s\n' '# thin' '' '# >>> grok installer >>>' '# <<< grok installer <<<' \
+  >"$mode_rc_home/.zshrc"
+chmod 644 "$mode_rc_home/.zshrc"
+# A terminated block, so only the symlink guard stands between the strip
+# and the target.
+printf '%s\n' '# thin' 'export KEEP_ME=1' '' '# >>> grok installer >>>' \
+  '# <<< grok installer <<<' >"$mode_rc_home/.bashrc.target"
+cp "$mode_rc_home/.bashrc.target" "$mode_rc_home/bashrc.before"
+ln -s "$mode_rc_home/.bashrc.target" "$mode_rc_home/.bashrc"
+HOME="$mode_rc_home" dot_grok_strip_installer_rc
+_assert_eq "grok installer strip: keeps the loader's mode" "644" \
+  "$(stat -c '%a' "$mode_rc_home/.zshrc" 2>/dev/null || stat -f '%Lp' "$mode_rc_home/.zshrc")"
+_assert_eq "grok installer strip: strips in place" "# thin" "$(<"$mode_rc_home/.zshrc")"
+if [[ -L $mode_rc_home/.bashrc ]]; then
+  _pass "grok installer strip: a symlinked loader stays a symlink"
+else
+  _fail "grok installer strip: a symlinked loader stays a symlink"
+fi
+_assert_eq "grok installer strip: a symlinked loader's target is untouched" \
+  "$(<"$mode_rc_home/bashrc.before")" "$(<"$mode_rc_home/.bashrc.target")"
+rm -f "$mode_rc_home/.bashrc"
+printf '%s\n' '# thin' '# >>> grok installer >>>' 'export KEEP_ME=1' \
+  >"$mode_rc_home/.bashrc"
+unterminated_status=0
+HOME="$mode_rc_home" dot_grok_strip_installer_rc || unterminated_status=$?
+_assert_exit "grok installer strip: an unterminated block fails" 1 "$unterminated_status"
+_assert_contains "grok installer strip: an unterminated block keeps the user's lines" \
+  "KEEP_ME" "$(<"$mode_rc_home/.bashrc")"
+# One loader that cannot be stripped does not keep the other dirty.
+both_rc_home="$TEST_TMPDIR/both-rc-home"
+mkdir -p "$both_rc_home"
+printf '%s\n' '# thin' '# >>> grok installer >>>' 'export KEEP_ME=1' \
+  >"$both_rc_home/.zshrc"
+printf '%s\n' '# thin' '' '# >>> grok installer >>>' '# <<< grok installer <<<' \
+  >"$both_rc_home/.bashrc"
+both_status=0
+HOME="$both_rc_home" dot_grok_strip_installer_rc || both_status=$?
+_assert_exit "grok installer strip: a bad loader still reports failure" 1 "$both_status"
+_assert_eq "grok installer strip: a bad zshrc does not block the bashrc" "# thin" \
+  "$(<"$both_rc_home/.bashrc")"
+
+if command -v zsh >/dev/null 2>&1; then
+  zsh_rc_home="$TEST_TMPDIR/zsh-rc-home"
+  mkdir -p "$zsh_rc_home"
+  printf '%s\n' '# thin' '' '# >>> grok installer >>>' '# <<< grok installer <<<' \
+    >"$zsh_rc_home/.zshrc"
+  printf '%s\n' '# thin' '# >>> grok installer >>>' 'export KEEP_ME=1' \
+    >"$zsh_rc_home/.bashrc"
+  zsh_strip_status=0
+  HOME="$zsh_rc_home" zsh -f -c '. "$1"; dot_grok_strip_installer_rc' _ \
+    "$source_home/.local/lib/dotfiles/shell-grok-rc.sh" || zsh_strip_status=$?
+  _assert_exit "grok installer strip: zsh reports the unterminated block" 1 "$zsh_strip_status"
+  _assert_eq "grok installer strip: zsh strips the closed block" "# thin" \
+    "$(<"$zsh_rc_home/.zshrc")"
+fi
+
 wrapper_home="$TEST_TMPDIR/wrapper-home"
 wrapper_bin="$TEST_TMPDIR/wrapper-bin"
 mkdir -p "$wrapper_home/.local/lib/dotfiles" "$wrapper_bin"

@@ -171,6 +171,9 @@ _dot_tool_present() {
     git) _dot_tool_any_command git ;;
     grafhome-ca) _dot_tool_any_command grafhome-ca ;;
     grok) _dot_tool_any_command grok ;;
+    # The hook repairs the thin loaders, not Grok: a vendor block can outlive
+    # both the command and ~/.grok, and must still be stripped.
+    grok-rc) _dot_tool_any_path "$HOME/.zshrc" "$HOME/.bashrc" ;;
     gstack) _dot_tool_any_command gstack-register ;;
     hive-memory) _dot_tool_any_command hm ;;
     ignore) _dot_tool_any_command rg fd fdfind ;;

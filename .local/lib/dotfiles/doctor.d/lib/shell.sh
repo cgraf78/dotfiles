@@ -79,31 +79,36 @@ _dr_check_shell() {
     fi
   done
 
-  # Strip a vendor installer block; PATH and completions belong in fragments.
-  local grok_rc_lib="$HOME/.local/lib/dotfiles/shell-grok-rc.sh"
-  local grok_rc_dirty=0 rc
-  for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
-    [[ -f "$rc" ]] || continue
-    grep -q 'grok installer' "$rc" 2>/dev/null && grok_rc_dirty=1
-  done
-  if ((grok_rc_dirty)); then
-    if [[ -r $grok_rc_lib ]]; then
-      # shellcheck disable=SC1090  # stable helper path under $HOME
-      . "$grok_rc_lib"
-      if dot_grok_strip_installer_rc; then
-        grok_rc_dirty=0
-        for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
-          [[ -f "$rc" ]] || continue
-          grep -q 'grok installer' "$rc" 2>/dev/null && grok_rc_dirty=1
-        done
+  # Report a vendor installer block in the thin loaders. Doctor is
+  # diagnostics-only: the grok-rc merge hook strips it during `dot update`.
+  local rc grok_rc='' grok_linked='' grok_open=''
+  if dot_doctor_source shell-grok-rc.sh; then
+    while IFS= read -r rc; do
+      dot_grok_rc_has_block "$rc" || continue
+      # The hook never replaces a symlinked loader, and refuses a block with
+      # no end marker, so `dot update` would clear neither.
+      if [[ -L $rc ]]; then
+        grok_linked+=${grok_linked:+, }$(_dr_tilde "$rc")
+      elif ! dot_grok_rc_filter "$rc" >/dev/null 2>&1; then
+        grok_open+=${grok_open:+, }$(_dr_tilde "$rc")
+      else
+        grok_rc+=${grok_rc:+, }$(_dr_tilde "$rc")
       fi
+    done < <(dot_grok_rc_files)
+    if [[ -n $grok_rc ]]; then
+      _dr_warn "Grok installer block in $grok_rc" \
+        "cron updates skip while a tracked loader is dirty; run 'dot update' to strip it"
     fi
-    if ((grok_rc_dirty)); then
-      _dr_fail "Grok installer block still in ~/.bashrc or ~/.zshrc" \
-        "PATH and completions belong in ~/.config/shell/"
-    else
-      _dr_ok "Grok installer block removed from thin loaders"
+    if [[ -n $grok_linked ]]; then
+      _dr_warn "Grok installer block in $grok_linked" \
+        "the loader is a symlink, which dot update leaves alone; remove the block by hand"
     fi
+    if [[ -n $grok_open ]]; then
+      _dr_warn "unterminated Grok installer block in $grok_open" \
+        "the block has no end marker, so dot update leaves it alone; edit the file by hand"
+    fi
+  else
+    _dr_skip "Grok installer block unchecked" "shell-grok-rc.sh unavailable"
   fi
 
   # ~/.local/bin on PATH (all dot scripts live there)
