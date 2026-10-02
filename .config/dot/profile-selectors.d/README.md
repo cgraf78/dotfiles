@@ -34,6 +34,11 @@ specificity fail before Dot changes the final overlay set. Different users on
 one host can therefore choose different profiles, and a user-wide default can
 have per-host exceptions.
 
+Use only `version`, `user`, `host`, and `profile`. A selector holding a key the
+running Dot does not know never matches, and when it could have chosen this
+host's profile the host falls back to `base`; releases before cgraf78/dot#237
+fail `dot update` on it instead.
+
 For example, `root` may default to `editor` everywhere:
 
 ```text

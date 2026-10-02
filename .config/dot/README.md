@@ -37,6 +37,15 @@ target-native config directories.
 - `overlays.d/` declares overlay repositories. A selected eligible descriptor's
   same-stem `.ssh` companion is consumed by the client-owned pre-sync hook
   before a private overlay clone is attempted.
+- `profiles.d/`, `profile-selectors.d/` (and personal selectors), and
+  `overlays.d/` share the version-skew trap described for `config`: Dot
+  releases before cgraf78/dot#237 reject a key they do not know there and fail
+  `dot update` after the pull, before it can upgrade Dot. Later releases ignore
+  such a key in a profile, never match a selector that holds one (falling back
+  to `base` when it could have chosen this host's profile), and skip an overlay
+  whose descriptor holds one. Add a key to these files only after every host
+  runs a Dot that knows it; see
+  [Unknown keys in profile and overlay files](https://github.com/cgraf78/dot/blob/main/docs/configuration.md#unknown-keys-in-profile-and-overlay-files).
 - `merge-hooks.d/` owns per-hook declarative config directories, merge source
   layers, and cron source files consumed by `dot update`.
 - `merge-hooks.d/agent-rules/targets.d/` selects the generated agent rule
