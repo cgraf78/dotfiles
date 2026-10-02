@@ -545,7 +545,11 @@ _worktree_gc_remove() {
     _worktree_gc_record failed "$dir" "parent directory not writable"
     return 0
   fi
-  err=$(git --git-dir="$common" worktree remove "$registered" 2>&1)
+  # Git's own clean check runs status with the repository's config; make it
+  # see untracked files too, so a file created after the dirty gate still
+  # stops the removal.
+  err=$(git -c status.showUntrackedFiles=normal --git-dir="$common" \
+    worktree remove "$registered" 2>&1)
   remove_status=$?
   # The repo's list changed shape (or may have, on failure), so later
   # checkouts refetch instead of proving against the stale index.

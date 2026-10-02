@@ -664,7 +664,8 @@ _mock_home() {
 
 # Make every git call in the suite hermetic: no system config, a private
 # global config, and an environment config list replacing any inherited
-# GIT_CONFIG_COUNT entries (which outrank both files). Signing stays off,
+# GIT_CONFIG_COUNT entries or `git -c` parameters (which outrank both
+# files). Signing stays off,
 # so a developer's commit.gpgSign cannot fail fixture commits. Extra
 # KEY VALUE pairs join the environment list.
 _test_hermetic_git() {
@@ -674,6 +675,8 @@ _test_hermetic_git() {
       GIT_CONFIG_KEY_* | GIT_CONFIG_VALUE_*) unset "$key" ;;
     esac
   done
+  # `git -c` settings inherited from a parent git process.
+  unset GIT_CONFIG_PARAMETERS
   export GIT_CONFIG_NOSYSTEM=1
   GIT_CONFIG_GLOBAL=$(_tmpdir)/gitconfig
   export GIT_CONFIG_GLOBAL

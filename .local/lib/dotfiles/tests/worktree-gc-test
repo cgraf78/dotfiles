@@ -916,6 +916,33 @@ _assert_contains "dirty: an untracked-only change is dirty despite showUntracked
   "$(printf 'skipped\t%s\tdirty' "$wt")" "$result"
 _assert_file_exists "dirty: the untracked file survives --apply" "$wt/new-notes.txt"
 
+# A file that appears after the dirty gate, just before the removal, must
+# still stop it: Git's own clean check has to see untracked files too.
+git -C "$hide_home/git/alpha" worktree add "$hide_home/.worktrees/old-late" \
+  -b feat-late >/dev/null 2>&1
+wt=$hide_home/.worktrees/old-late
+_git_set_test_identity git -C "$wt"
+_gc_commit_file "$wt" feat-late.txt
+git -C "$wt" push -u origin feat-late >/dev/null 2>&1
+_gc_merge_branch "$hide_home/git/alpha" feat-late
+git -C "$wt" fetch --prune origin >/dev/null 2>&1
+_gc_make_old "$wt"
+late_bin=$(_tmpdir)
+late_real_git=$(type -P git)
+cat >"$late_bin/git" <<SH
+#!/usr/bin/env bash
+case " \$* " in
+  *" worktree remove "*) printf '%s\n' late >"$wt/late-notes.txt" ;;
+esac
+exec "$late_real_git" "\$@"
+SH
+chmod +x "$late_bin/git"
+result=$(HOME="$hide_home" DOTFILES="$hide_home/.dotfiles" PATH="$late_bin:$PATH" \
+  "$GC" --apply 2>/dev/null)
+_assert_not_contains "dirty: a file created after the gate stops the removal" \
+  "$(printf 'removed\t%s' "$wt")" "$result"
+_assert_file_exists "dirty: the late untracked file survives --apply" "$wt/late-notes.txt"
+
 echo ""
 echo "=== Recent Git activity keeps an old checkout ==="
 
