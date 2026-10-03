@@ -7,8 +7,9 @@ every executable suite owned by the top-level repository.
 Suites that only make sense with the resolved CI runtime live in `ci-only/`.
 Dot discovers only top-level `*-test` files, so local `dot test` runs never
 list them. The inventory still names them, and CI selects them explicitly:
-`run-ci` runs a second `dot test` invocation scoped to `ci-only/`, and the
-installed-profile gate does the same in each profile home. Run one locally
+`run-ci` runs a second `dot test` invocation scoped to `ci-only/` on every
+shell platform. The installed-profile gate only checks that its homes do not
+discover them. Run one locally
 with `DOT_TEST_TESTS_DIR=~/.local/lib/dotfiles/tests/ci-only dot test`; it
 skips without the resolved runtime.
 
