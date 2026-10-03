@@ -5,6 +5,11 @@ set -euo pipefail
 
 root=$(cd -P -- "${BASH_SOURCE[0]%/*}/../../../.." && pwd -P)
 inventory=$root/.github/dot-test-suites.txt
+tests_rel=.local/lib/dotfiles/tests
+# Suites that need this resolved CI runtime live one level down. Dot discovers
+# only top-level `*-test` files, so ordinary `dot test` never lists them; this
+# script selects them explicitly with a second, directory-scoped invocation.
+ci_only_rel=$tests_rel/ci-only
 
 # shellcheck source=dot-runtime-resolve.sh
 . "$root/.local/lib/dotfiles/tests/dot-runtime-resolve.sh"
@@ -64,10 +69,13 @@ _require_runtime || {
 }
 
 declare -A seen=()
-declare -a paths=() suites=()
+declare -a paths=() suites=() ci_only_suites=()
 while IFS= read -r path || [[ -n $path ]]; do
-  [[ $path == .local/lib/dotfiles/tests/*-test &&
-    $path != *'..'* && $path != *' '* ]] || {
+  # A row names either a top-level suite or a CI-only suite; anything deeper
+  # would be neither discovered locally nor selected here.
+  suite=${path##*/}
+  [[ ($path == "$tests_rel/$suite" || $path == "$ci_only_rel/$suite") &&
+    $suite == ?*-test && $path != *'..'* && $path != *' '* ]] || {
     printf 'run-ci: invalid suite inventory row: %s\n' "$path" >&2
     exit 1
   }
@@ -81,8 +89,11 @@ while IFS= read -r path || [[ -n $path ]]; do
     exit 1
   }
   paths+=("$path")
-  suite=${path##*/}
-  suites+=("${suite%-test}")
+  if [[ $path == "$ci_only_rel/"* ]]; then
+    ci_only_suites+=("${suite%-test}")
+  else
+    suites+=("${suite%-test}")
+  fi
 done <"$inventory"
 ((${#paths[@]} > 0)) || {
   printf 'run-ci: suite inventory is empty\n' >&2
@@ -91,43 +102,72 @@ done <"$inventory"
 
 declare -a discovered=()
 shopt -s nullglob
-for suite_path in "$root"/.local/lib/dotfiles/tests/*-test; do
+for suite_path in "$root/$tests_rel"/*-test "$root/$ci_only_rel"/*-test; do
   [[ -f $suite_path && -x $suite_path && ! -L $suite_path ]] || continue
   discovered+=("${suite_path#"$root"/}")
 done
 shopt -u nullglob
 
-expected=$(printf '%s\n' "${paths[@]}" | sort)
-actual=$(printf '%s\n' "${discovered[@]+"${discovered[@]}"}" | sort)
+expected=$(printf '%s\n' "${paths[@]}" | LC_ALL=C sort)
+actual=$(printf '%s\n' "${discovered[@]+"${discovered[@]}"}" | LC_ALL=C sort)
 [[ $actual == "$expected" ]] || {
   printf 'run-ci: executable suite inventory differs\n' >&2
-  diff -u <(printf '%s\n' "$expected") <(printf '%s\n' "$actual") >&2 || true
+  # comm (coreutils), not diff: minimal CI images (Fedora, Arch, CentOS)
+  # ship without diffutils. "-" is inventoried but missing, "+" unlisted.
+  LC_ALL=C comm -23 <(printf '%s\n' "$expected") <(printf '%s\n' "$actual") |
+    sed 's/^/-/' >&2
+  LC_ALL=C comm -13 <(printf '%s\n' "$expected") <(printf '%s\n' "$actual") |
+    sed 's/^/+/' >&2
   exit 1
 }
 
 if [[ ${1:-} == --validate-only ]]; then
   [[ $# -eq 1 ]] || exit 2
-  printf 'run-ci: inventory valid (%s suites)\n' "${#suites[@]}"
+  printf 'run-ci: inventory valid (%s suites, %s CI-only)\n' \
+    "${#paths[@]}" "${#ci_only_suites[@]}"
   exit 0
 fi
 [[ $# -eq 0 ]] || exit 2
 
-# Reassert immediately before executing the selected suite set. The direct
-# path and PATH resolution must still identify the same immutable Dot checkout.
-_require_candidate || {
-  printf 'run-ci: candidate checkout changed before test execution\n' >&2
-  exit 1
-}
-_require_runtime || {
-  printf 'run-ci: resolved Dot runtime changed before test execution\n' >&2
-  exit 1
-}
 export DOT_TEST_DOT_ROOT=$DOT_STACK_DOT_ROOT
 export DOT_TEST_SOURCE_HOME=$root
-export DOT_TEST_TESTS_DIR=$root/.local/lib/dotfiles/tests
-# The control-plane tag selected this runtime; suites resolve their own
-# (offline probes pin fixture revisions, the live suite floats its fleet
-# tag). Do not leak the ambient tag into stubbed-origin probes.
-unset DOT_STACK_DOT_RELEASE_TAG DOT_STACK_DOT_RELEASE_REPO
 cd "$root"
-exec "$DOT_STACK_DOT_BIN" test "${suites[@]}"
+
+# Run one suite set from one discovery directory.
+_run_set() {
+  local directory=$1
+  shift
+  # Reassert immediately before executing each selected suite set. The direct
+  # path and PATH resolution must still identify the same immutable Dot
+  # checkout.
+  _require_candidate || {
+    printf 'run-ci: candidate checkout changed before test execution\n' >&2
+    exit 1
+  }
+  _require_runtime || {
+    printf 'run-ci: resolved Dot runtime changed before test execution\n' >&2
+    exit 1
+  }
+  (
+    # The control-plane tag selected this runtime; suites resolve their own
+    # (offline probes pin fixture revisions, the live suite floats its fleet
+    # tag). Do not leak the ambient tag into stubbed-origin probes. Scope the
+    # unset to the child so the next reassertion still checks the tag.
+    unset DOT_STACK_DOT_RELEASE_TAG DOT_STACK_DOT_RELEASE_REPO
+    export DOT_TEST_TESTS_DIR=$root/$directory
+    exec "$DOT_STACK_DOT_BIN" test "$@"
+  )
+}
+
+# Run both sets even when the first fails so one CI log reports every failing
+# suite, then exit with the first failing status.
+status=0
+if ((${#suites[@]} > 0)); then
+  _run_set "$tests_rel" "${suites[@]}" || status=$?
+fi
+if ((${#ci_only_suites[@]} > 0)); then
+  rc=0
+  _run_set "$ci_only_rel" "${ci_only_suites[@]}" || rc=$?
+  ((status != 0)) || status=$rc
+fi
+exit "$status"

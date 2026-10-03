@@ -193,6 +193,9 @@ nvim_suite_names=$("$git_bin" --git-dir="$nvim_origin" show \
   main:.github/dot-test-suites.txt | sed -e 's#^.*/##' -e 's/-test$//')
 dev_suite_names=$("$git_bin" --git-dir="$dev_origin" show \
   main:.github/dot-test-suites.txt | sed -e 's#^.*/##' -e 's/-test$//')
+ci_only_suite_names=$(sed -n \
+  's#^\.local/lib/dotfiles/tests/ci-only/\([^/]*\)-test$#\1#p' \
+  "$source_home/.github/dot-test-suites.txt" | LC_ALL=C sort)
 
 mkdir -p "$base_seed"
 "$git_bin" clone --quiet --no-local --no-checkout "$source_home" "$base_seed"
@@ -479,12 +482,14 @@ assert_profile_links() {
 }
 
 assert_suite_discovery() {
-  local profile=$1 output=$2 expected actual
+  local profile=$1 output=$2 expected actual ci_only_suite
   _assert_contains "$profile discovers the top-level control suite" \
     'profile-policy' "$output"
   expected=$(
     printf 'dot\n'
-    sed -e 's#^.*/##' -e 's/-test$//' \
+    # Only top-level rows are discoverable. `ci-only/` rows run once per
+    # shell platform through `run-ci`; the installed homes do not repeat them.
+    sed -n 's#^\.local/lib/dotfiles/tests/\([^/]*\)-test$#\1#p' \
       "$source_home/.github/dot-test-suites.txt"
     case $profile in
       editor)
@@ -499,6 +504,11 @@ assert_suite_discovery() {
   actual=$(printf '%s\n' "$output" | LC_ALL=C sort)
   _assert_eq "$profile discovers exactly its active owners' suites" \
     "$expected" "$actual"
+  while IFS= read -r ci_only_suite; do
+    [[ -n $ci_only_suite ]] || continue
+    _assert_not_contains "$profile discovery excludes CI-only $ci_only_suite" \
+      "$ci_only_suite" "$output"
+  done <<<"$ci_only_suite_names"
   case $profile in
     base)
       _assert_not_contains 'base excludes nvim-owned suites' 'nvim-doctor' "$output"
