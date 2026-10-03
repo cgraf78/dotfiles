@@ -808,7 +808,7 @@ if [[ -f $_tmux_hook ]]; then
   _tmux_package_calls=$(_tmpdir)/package-calls
   : >"$_tmux_package_calls"
   # shellcheck disable=SC2329 # Simulate only the external package operation.
-  shdeps_pkg_install_for_mgr() { printf '%s\n' "$*" >>"$_tmux_package_calls"; }
+  shdeps_pkg_install() { printf '%s\n' "$*" >>"$_tmux_package_calls"; }
   rm -f "$_tmux_bin/tmux"
   ln -s "$_tmux_install/tmux/tmux-builds/tmux" "$_tmux_bin/tmux"
   if exists tmux; then
@@ -818,7 +818,7 @@ if [[ -f $_tmux_hook ]]; then
   fi
   install tmux
   _assert_file_content "tmux: Linux Android runtime installs native package" \
-    "android:tmux" "$_tmux_package_calls"
+    "tmux" "$_tmux_package_calls"
   if [[ ! -L $_tmux_bin/tmux ]]; then
     _pass "tmux: Android retires the archive link"
   else
@@ -840,7 +840,7 @@ if [[ -f $_tmux_hook ]]; then
 
   ln -sf "$_tmux_install/tmux/tmux-builds/tmux" "$_tmux_bin/tmux"
   # shellcheck disable=SC2329 # Called indirectly by the hook under test.
-  shdeps_pkg_install_for_mgr() { return 1; }
+  shdeps_pkg_install() { return 1; }
   if install tmux; then
     _fail "tmux: Android package failure fails installation"
   else
@@ -850,7 +850,7 @@ if [[ -f $_tmux_hook ]]; then
     "$_tmux_install/tmux/tmux-builds/tmux" "$(readlink "$_tmux_bin/tmux")"
 
   # shellcheck disable=SC2329 # Called indirectly by the hook under test.
-  shdeps_pkg_install_for_mgr() { return 0; }
+  shdeps_pkg_install() { return 0; }
   printf '%s\n' '#!/usr/bin/env bash' 'exit 1' >"$PREFIX/bin/tmux"
   if install tmux; then
     _fail "tmux: Android rejects a native binary that cannot run"
@@ -873,6 +873,64 @@ if [[ -f $_tmux_hook ]]; then
   fi
 else
   _fail "tmux: custom hook fixture is available"
+fi
+
+echo "=== tmux Android package bridge ==="
+
+# Exercise the real helper and hook subprocess. Only apt's external operations
+# are faked: an Android filter identity must not be used as an installer name.
+if [[ -n ${SHDEPS_RUST_CLI:-} && -f $_tmux_hook ]]; then
+  _tmux_bridge_home=$(_tmpdir)
+  _tmux_bridge_tools=$(_mock_bin)
+  _tmux_bridge_prefix=$_tmux_bridge_home/termux
+  mkdir -p "$_tmux_bridge_home/conf/hooks.d" "$_tmux_bridge_home/bin" \
+    "$_tmux_bridge_prefix/bin"
+  printf '%s\n' 'tmux custom tmux' >"$_tmux_bridge_home/conf/deps.conf"
+  ln -s "$_tmux_hook" "$_tmux_bridge_home/conf/hooks.d/tmux.sh"
+  ln -s "$_tmux_bridge_home/share/tmux/tmux-builds/tmux" "$_tmux_bridge_home/bin/tmux"
+  for _tmux_bridge_tool in bash chmod hostname readlink rm uname; do
+    ln -s "$(command -v "$_tmux_bridge_tool")" "$_tmux_bridge_tools/$_tmux_bridge_tool"
+  done
+  ln -s "$SHDEPS_RUST_CLI" "$_tmux_bridge_tools/shdeps"
+  cat >"$_tmux_bridge_tools/apt-get" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$HOME/package-calls"
+if [[ $1 == install ]]; then
+  printf '%s\n' '#!/usr/bin/env bash' 'printf "tmux 3.6b\n"' >"$PREFIX/bin/tmux"
+  chmod +x "$PREFIX/bin/tmux"
+fi
+EOF
+  cat >"$_tmux_bridge_tools/apt-cache" <<'EOF'
+#!/usr/bin/env bash
+printf 'Package: tmux\n'
+EOF
+  chmod +x "$_tmux_bridge_tools/apt-get" "$_tmux_bridge_tools/apt-cache"
+  : >"$_tmux_bridge_home/package-calls"
+  _tmux_bridge_update() {
+    env -i HOME="$_tmux_bridge_home" PATH="$_tmux_bridge_tools" \
+      PREFIX="$_tmux_bridge_prefix" TERMUX_VERSION=fixture \
+      SHDEPS_PKG_MGR=apt SHDEPS_CONF_DIR="$_tmux_bridge_home/conf" \
+      SHDEPS_STATE_DIR="$_tmux_bridge_home/state" \
+      SHDEPS_INSTALL_DIR="$_tmux_bridge_home/share" \
+      SHDEPS_BIN_DIR="$_tmux_bridge_home/bin" \
+      SHDEPS_GIT_DEV_DIR="$_tmux_bridge_home/git" \
+      "$SHDEPS_RUST_CLI" -q update
+  }
+  _tmux_bridge_output=$(_tmux_bridge_update 2>&1)
+  _assert_exit "tmux: actual Android package bridge succeeds" 0 "$?"
+  _assert_file_content "tmux: Android uses apt without sudo" \
+    $'update -qq\ninstall -y tmux' "$_tmux_bridge_home/package-calls"
+  if [[ ! -L $_tmux_bridge_home/bin/tmux ]]; then
+    _pass "tmux: bridge recovery removes the dangling archive link"
+  else
+    _fail "tmux: bridge recovery removes the dangling archive link"
+  fi
+  _tmux_bridge_output=$(_tmux_bridge_update 2>&1)
+  _assert_exit "tmux: actual Android bridge remains current" 0 "$?"
+  _assert_file_content "tmux: subsequent update does not reinstall native package" \
+    $'update -qq\ninstall -y tmux' "$_tmux_bridge_home/package-calls"
+else
+  _fail "tmux: isolated Shdeps package bridge is available"
 fi
 
 echo "=== dot hook arms ==="
