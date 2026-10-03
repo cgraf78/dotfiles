@@ -646,17 +646,17 @@ for profile in base editor dev; do
         _assert_not_contains 'base doctor excludes Nvim component checks' \
           $'\nNeovim\n' "$doctor_output"
         _assert_not_contains 'base doctor excludes development component checks' \
-          $'\nDevelopment tools\n' "$doctor_output"
+          $'\nDevelopment shell integrations\n' "$doctor_output"
       elif [[ $profile == editor ]]; then
         _assert_contains 'editor doctor includes Nvim component checks' \
           $'\nNeovim\n' "$doctor_output"
         _assert_not_contains 'editor doctor excludes development component checks' \
-          $'\nDevelopment tools\n' "$doctor_output"
+          $'\nDevelopment shell integrations\n' "$doctor_output"
       else
         _assert_contains 'dev doctor includes Nvim component checks' \
           $'\nNeovim\n' "$doctor_output"
         _assert_contains 'dev doctor includes development component checks' \
-          $'\nDevelopment tools\n' "$doctor_output"
+          $'\nDevelopment shell integrations\n' "$doctor_output"
       fi
       ;;
     test)
