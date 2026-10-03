@@ -108,11 +108,16 @@ for suite_path in "$root/$tests_rel"/*-test "$root/$ci_only_rel"/*-test; do
 done
 shopt -u nullglob
 
-expected=$(printf '%s\n' "${paths[@]}" | sort)
-actual=$(printf '%s\n' "${discovered[@]+"${discovered[@]}"}" | sort)
+expected=$(printf '%s\n' "${paths[@]}" | LC_ALL=C sort)
+actual=$(printf '%s\n' "${discovered[@]+"${discovered[@]}"}" | LC_ALL=C sort)
 [[ $actual == "$expected" ]] || {
   printf 'run-ci: executable suite inventory differs\n' >&2
-  diff -u <(printf '%s\n' "$expected") <(printf '%s\n' "$actual") >&2 || true
+  # comm (coreutils), not diff: minimal CI images (Fedora, Arch, CentOS)
+  # ship without diffutils. "-" is inventoried but missing, "+" unlisted.
+  LC_ALL=C comm -23 <(printf '%s\n' "$expected") <(printf '%s\n' "$actual") |
+    sed 's/^/-/' >&2
+  LC_ALL=C comm -13 <(printf '%s\n' "$expected") <(printf '%s\n' "$actual") |
+    sed 's/^/+/' >&2
   exit 1
 }
 
