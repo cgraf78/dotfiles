@@ -215,7 +215,8 @@ version() {
 
 install() {
   if shdeps_platform_match android; then
-    shdeps_pkg_install_for_mgr android:tmux || return 1
+    # Android is a filter identity; Termux uses the apt installer.
+    shdeps_pkg_install tmux || return 1
     _tmux_android_version >/dev/null || return 1
     if _tmux_android_shadow; then
       rm -f -- "$(_tmux_public)" || return 1

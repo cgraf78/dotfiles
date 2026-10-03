@@ -21,8 +21,6 @@ awk '$1 == "fd" && $2 == "pkg" && $0 ~ /android:fd/ { found = 1 }
      END { exit !found }' "$deps" || fail 'fd lacks its Android package mapping'
 awk '$1 == "tmux" && $2 == "custom" { found = 1 }
      END { exit !found }' "$deps" || fail 'tmux lacks its base custom declaration'
-grep -Fq 'shdeps_pkg_install_for_mgr android:tmux' "$tmux_hook" ||
-  fail 'tmux hook does not retain native Android package ownership'
 
 for command_name in git tmux rg; do
   command -v "$command_name" >/dev/null ||
@@ -30,5 +28,29 @@ for command_name in git tmux rg; do
 done
 tmux -V >/dev/null 2>&1 || fail 'Termux tmux binary does not run'
 rg --version >/dev/null 2>&1 || fail 'Termux ripgrep binary does not run'
+
+# Run the real hook and package bridge with isolated Shdeps state. The CI
+# profile already installs native tmux, so plain command checks alone never
+# exercised recovery or the hook's package-install helper.
+shdeps_bin=$(command -v shdeps) || fail 'Shdeps is unavailable'
+fixture=$(mktemp -d)
+trap 'rm -rf -- "$fixture"' EXIT
+mkdir -p "$fixture/conf/hooks.d" "$fixture/bin"
+printf '%s\n' 'tmux custom tmux' >"$fixture/conf/deps.conf"
+ln -s "$tmux_hook" "$fixture/conf/hooks.d/tmux.sh"
+ln -s "$fixture/share/tmux/tmux-builds/tmux" "$fixture/bin/tmux"
+update_tmux() {
+  HOME="$fixture" \
+    XDG_CONFIG_HOME="$fixture/.config" XDG_DATA_HOME="$fixture/.local/share" \
+    XDG_STATE_HOME="$fixture/.local/state" XDG_CACHE_HOME="$fixture/.cache" \
+    SHDEPS_LIB='' SHDEPS_CONF_DIR="$fixture/conf" \
+    SHDEPS_STATE_DIR="$fixture/state" SHDEPS_INSTALL_DIR="$fixture/share" \
+    SHDEPS_BIN_DIR="$fixture/bin" SHDEPS_GIT_DEV_DIR="$fixture/git" \
+    "$shdeps_bin" -q update
+}
+update_tmux || fail 'tmux native-package recovery failed'
+[[ ! -L $fixture/bin/tmux ]] || fail 'tmux archive link still shadows native tmux'
+"$PREFIX/bin/tmux" -V >/dev/null || fail 'native tmux does not run after recovery'
+update_tmux || fail 'tmux subsequent update failed'
 
 printf 'Android Termux base policy smoke passed\n'
