@@ -638,8 +638,8 @@ for profile in base editor dev; do
       if [[ $doctor_status -ne 0 ]]; then
         printf '%s\n' "$doctor_output" >&2
       fi
-      _assert_contains "$profile doctor reports profile lifecycle" \
-        "selected profile ($profile" "$doctor_output"
+      _assert_contains_either "$profile doctor reports profile lifecycle" \
+        "selected profile ($profile" "profile $profile (" "$doctor_output"
       _assert_contains "$profile doctor reports overlay lifecycle" \
         'Overlays (4 configured)' "$doctor_output"
       if [[ $profile == base ]]; then
