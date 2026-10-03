@@ -4,6 +4,14 @@ The standalone Dot provider discovers executable `*-test` scripts from this
 directory. The literal CI inventory in `.github/dot-test-suites.txt` lists
 every executable suite owned by the top-level repository.
 
+Suites that only make sense with the resolved CI runtime live in `ci-only/`.
+Dot discovers only top-level `*-test` files, so local `dot test` runs never
+list them. The inventory still names them, and CI selects them explicitly:
+`run-ci` runs a second `dot test` invocation scoped to `ci-only/`, and the
+installed-profile gate does the same in each profile home. Run one locally
+with `DOT_TEST_TESTS_DIR=~/.local/lib/dotfiles/tests/ci-only dot test`; it
+skips without the resolved runtime.
+
 This repository tests the always-active base substrate and the profile control
 plane: shell startup, Git bootstrap routing, tmux, terminal integration,
 agent-rule aggregation, profile selection, ownership, composition, migration,

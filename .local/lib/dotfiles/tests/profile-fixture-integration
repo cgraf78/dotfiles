@@ -193,6 +193,9 @@ nvim_suite_names=$("$git_bin" --git-dir="$nvim_origin" show \
   main:.github/dot-test-suites.txt | sed -e 's#^.*/##' -e 's/-test$//')
 dev_suite_names=$("$git_bin" --git-dir="$dev_origin" show \
   main:.github/dot-test-suites.txt | sed -e 's#^.*/##' -e 's/-test$//')
+ci_only_suite_names=$(sed -n \
+  's#^\.local/lib/dotfiles/tests/ci-only/\([^/]*\)-test$#\1#p' \
+  "$source_home/.github/dot-test-suites.txt" | LC_ALL=C sort)
 
 mkdir -p "$base_seed"
 "$git_bin" clone --quiet --no-local --no-checkout "$source_home" "$base_seed"
@@ -479,12 +482,14 @@ assert_profile_links() {
 }
 
 assert_suite_discovery() {
-  local profile=$1 output=$2 expected actual
+  local profile=$1 output=$2 expected actual ci_only_suite
   _assert_contains "$profile discovers the top-level control suite" \
     'profile-policy' "$output"
   expected=$(
     printf 'dot\n'
-    sed -e 's#^.*/##' -e 's/-test$//' \
+    # Only top-level rows are discoverable; `ci-only/` rows are selected
+    # explicitly by assert_ci_only_suites.
+    sed -n 's#^\.local/lib/dotfiles/tests/\([^/]*\)-test$#\1#p' \
       "$source_home/.github/dot-test-suites.txt"
     case $profile in
       editor)
@@ -499,6 +504,11 @@ assert_suite_discovery() {
   actual=$(printf '%s\n' "$output" | LC_ALL=C sort)
   _assert_eq "$profile discovers exactly its active owners' suites" \
     "$expected" "$actual"
+  while IFS= read -r ci_only_suite; do
+    [[ -n $ci_only_suite ]] || continue
+    _assert_not_contains "$profile discovery excludes CI-only $ci_only_suite" \
+      "$ci_only_suite" "$output"
+  done <<<"$ci_only_suite_names"
   case $profile in
     base)
       _assert_not_contains 'base excludes nvim-owned suites' 'nvim-doctor' "$output"
@@ -513,6 +523,45 @@ assert_suite_discovery() {
       _assert_contains 'dev discovers development-owned suites' 'dev-doctor' "$output"
       ;;
   esac
+}
+
+# CI-only suites sit outside Dot's top-level discovery, so the unfiltered run
+# cannot reach them. Select their directory explicitly so every installed
+# profile still executes them through this group's resolved runtime.
+assert_ci_only_suites() {
+  local profile=$1 home=$2 directory list_log list_output list_status=0
+  local test_log test_status=0 actual summary
+  # Without inventoried CI-only suites there is no directory to select.
+  [[ -n $ci_only_suite_names ]] || return 0
+  directory=$home/.local/lib/dotfiles/tests/ci-only
+  list_log=$fixture_root/test-ci-only-list-$profile.log
+  run_in_home "$home" env DOT_TEST_TESTS_DIR="$directory" \
+    "$DOT_STACK_DOT_BIN" test --list >"$list_log" 2>&1 || list_status=$?
+  list_output=$(<"$list_log")
+  _assert_exit "$profile CI-only suite discovery completes" 0 "$list_status"
+  actual=$(printf '%s\n' "$list_output" | LC_ALL=C sort)
+  _assert_eq "$profile discovers exactly the inventoried CI-only suites" \
+    "$ci_only_suite_names" "$actual"
+  test_log=$fixture_root/test-ci-only-$profile.log
+  run_in_home "$home" env DOT_TEST_TESTS_DIR="$directory" \
+    "$DOT_STACK_DOT_BIN" test --verbose >"$test_log" 2>&1 || test_status=$?
+  _assert_exit "$profile installed CI-only dot test completes" 0 "$test_status"
+  # This group always carries the resolved runtime, so a skip here would mean
+  # the CI-only gate stopped running rather than passed.
+  if grep -E '(^|[[:space:]])SKIP: |Suites: .*skipped' "$test_log" >/dev/null; then
+    _fail "$profile installed CI-only dot test has no skips"
+    grep -E 'SKIP: |skipped' "$test_log" >&2
+  else
+    _pass "$profile installed CI-only dot test has no skips"
+  fi
+  summary=$(grep -E \
+    'Running [0-9]+ test suites|── .* ──|Suites: [0-9]+ passed' \
+    "$test_log" || true)
+  printf 'installed-profile-ci-only-suite-log\tprofile=%s\n%s\n' \
+    "$profile" "$summary"
+  if [[ $test_status -ne 0 ]]; then
+    sed 's/^/    /' "$test_log"
+  fi
 }
 
 assert_tmux_composition() {
@@ -685,6 +734,7 @@ for profile in base editor dev; do
       if [[ $profile == dev ]]; then
         assert_dev_nvim_composition "$home"
       fi
+      assert_ci_only_suites "$profile" "$home"
       ;;
     footprint)
       if [[ ! -e $home/.local/share/shdeps/target &&
