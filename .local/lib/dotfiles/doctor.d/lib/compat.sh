@@ -159,7 +159,9 @@ _dr_run_bounded() {
     trap 'kill -KILL -- "-$pid" "$wd" 2>/dev/null; rm -rf "$marks"; exit 130' INT
     trap 'kill -KILL -- "-$pid" "$wd" 2>/dev/null; rm -rf "$marks"; exit 143' TERM
     set -m
-    "$@" {clock}>&- &
+    # An async command's stdin is /dev/null unless redirected explicitly, even
+    # under job control; keep the caller's, as documented above.
+    "$@" {clock}>&- <&0 &
     pid=$!
     set +m
     # Started without job control, so it shares the caller's group. read

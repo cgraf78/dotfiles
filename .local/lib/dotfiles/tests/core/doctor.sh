@@ -616,6 +616,8 @@ SH
     doctor_status=$?
   _assert_exit "deadline: the command's status passes through" 3 "$doctor_status"
   _assert_eq "deadline: the command's output passes through" "fine" "$result"
+  result=$(printf 'from stdin' | _DR_TIMEOUT_BIN='' _dr_run_bounded 5 cat)
+  _assert_eq "deadline: the caller's stdin reaches the command" "from stdin" "$result"
   # Nothing the watchdog starts outlives the call, on either path: Dot's
   # supervisor refuses to tear down a suite or doctor worker on macOS
   # while a live member sits outside the leader's process group. The
