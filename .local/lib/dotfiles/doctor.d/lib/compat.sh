@@ -34,6 +34,47 @@ _dr_info() {
   fi
 }
 
+# Items an older Dot folds into a list row's detail before "and N more".
+_DR_LIST_SAMPLE=3
+
+# File one verdict row whose evidence is a list: LEVEL (ok, warn, fail,
+# skip, or info), MESSAGE, a next step HINT (empty for none), then one ITEM
+# per entry. A Dot whose doctor API has dot_doctor_item and dot_doctor_hint
+# renders the items as an indented list, folding the tail itself, and the
+# hint as a next-step line. On an older one, the first _DR_LIST_SAMPLE
+# items, "and N more", and the hint are joined into the row's detail. Each
+# item and the hint become one line of record text.
+_dr_list_row() {
+  local level=$1 message=$2 hint=${3-} item detail='' shown=0
+  case $level in
+    ok | warn | fail | skip | info) ;;
+    *) return 2 ;;
+  esac
+  shift 3 || return 2
+  if declare -F dot_doctor_item >/dev/null 2>&1 &&
+    declare -F dot_doctor_hint >/dev/null 2>&1; then
+    "_dr_$level" "$message" || return
+    for item; do
+      _dr_one_line "$item"
+      dot_doctor_item "$REPLY" || return
+    done
+    [[ -z $hint ]] || {
+      _dr_one_line "$hint"
+      dot_doctor_hint "$REPLY"
+    }
+    return
+  fi
+  for item; do
+    ((shown < _DR_LIST_SAMPLE)) || break
+    detail+=${detail:+; }$item
+    shown=$((shown + 1))
+  done
+  (($# <= shown)) || detail+="; and $(($# - shown)) more"
+  [[ -z $hint ]] || detail+=${detail:+; }$hint
+  _dr_one_line "$detail"
+  "_dr_$level" "$message" "$REPLY"
+}
+
 _merge_hook_family() {
   printf '%s/%s\n' "$HOME/.config/dot/merge-hooks.d" "$1"
 }
