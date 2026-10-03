@@ -587,8 +587,11 @@ if [[ -f $_tmux_hook ]]; then
   _tmux_saved_uname=$(declare -f uname 2>/dev/null || true)
   _tmux_test_platform=linux
   _tmux_test_arch=x86_64
+  _tmux_test_android=0
   # shellcheck disable=SC2329 # Called by the hook under test.
   shdeps_platform() { printf '%s\n' "$_tmux_test_platform"; }
+  # shellcheck disable=SC2329 # Called by the hook under test.
+  shdeps_platform_match() { [[ $1 == android && $_tmux_test_android == 1 ]]; }
   # shellcheck disable=SC2329 # Called by the hook under test.
   uname() { printf '%s\n' "$_tmux_test_arch"; }
 
@@ -793,15 +796,75 @@ if [[ -f $_tmux_hook ]]; then
     "existing tmux runtime state" \
     "$_tmux_install/tmux/resurrect/example-host/sentinel"
 
-  _tmux_test_platform=android
+  # Termux reports Linux plus a separate Android identity, never platform=android.
+  _tmux_saved_prefix=${PREFIX-}
+  _tmux_prefix_set=${PREFIX+x}
+  _tmux_test_android=1
+  PREFIX=$_tmux_home/termux
+  export PREFIX
+  mkdir -p "$PREFIX/bin"
+  printf '%s\n' '#!/usr/bin/env bash' 'printf "tmux 3.5a\n"' >"$PREFIX/bin/tmux"
+  chmod +x "$PREFIX/bin/tmux"
   _tmux_package_calls=$(_tmpdir)/package-calls
   : >"$_tmux_package_calls"
-  shdeps_platform() { printf '%s\n' android; }
-  # shellcheck disable=SC2329 # Called by the hook under test.
+  # shellcheck disable=SC2329 # Simulate only the external package operation.
   shdeps_pkg_install_for_mgr() { printf '%s\n' "$*" >>"$_tmux_package_calls"; }
+  rm -f "$_tmux_bin/tmux"
+  ln -s "$_tmux_install/tmux/tmux-builds/tmux" "$_tmux_bin/tmux"
+  if exists tmux; then
+    _fail "tmux: Android schedules recovery of a dangling archive link"
+  else
+    _pass "tmux: Android schedules recovery of a dangling archive link"
+  fi
   install tmux
-  _assert_file_content "tmux: Android retains native package ownership" \
+  _assert_file_content "tmux: Linux Android runtime installs native package" \
     "android:tmux" "$_tmux_package_calls"
+  if [[ ! -L $_tmux_bin/tmux ]]; then
+    _pass "tmux: Android retires the archive link"
+  else
+    _fail "tmux: Android retires the archive link"
+  fi
+  _assert_eq "tmux: Android version bypasses PATH shadowing" "tmux 3.5a" "$(version tmux)"
+  if exists tmux; then
+    _pass "tmux: Android native install is current on the next update"
+  else
+    _fail "tmux: Android native install is current on the next update"
+  fi
+  _assert_file_content "tmux: Android recovery preserves resurrect data" \
+    "existing tmux runtime state" "$_tmux_install/tmux/resurrect/example-host/sentinel"
+
+  ln -sf "$_tmux_bin/user-tmux" "$_tmux_bin/tmux"
+  install tmux
+  _assert_eq "tmux: Android preserves a user-owned command" \
+    "$_tmux_bin/user-tmux" "$(readlink "$_tmux_bin/tmux")"
+
+  ln -sf "$_tmux_install/tmux/tmux-builds/tmux" "$_tmux_bin/tmux"
+  # shellcheck disable=SC2329 # Called indirectly by the hook under test.
+  shdeps_pkg_install_for_mgr() { return 1; }
+  if install tmux; then
+    _fail "tmux: Android package failure fails installation"
+  else
+    _pass "tmux: Android package failure fails installation"
+  fi
+  _assert_eq "tmux: Android package failure preserves the prior link" \
+    "$_tmux_install/tmux/tmux-builds/tmux" "$(readlink "$_tmux_bin/tmux")"
+
+  # shellcheck disable=SC2329 # Called indirectly by the hook under test.
+  shdeps_pkg_install_for_mgr() { return 0; }
+  printf '%s\n' '#!/usr/bin/env bash' 'exit 1' >"$PREFIX/bin/tmux"
+  if install tmux; then
+    _fail "tmux: Android rejects a native binary that cannot run"
+  else
+    _pass "tmux: Android rejects a native binary that cannot run"
+  fi
+  _assert_eq "tmux: Android verification failure preserves the prior link" \
+    "$_tmux_install/tmux/tmux-builds/tmux" "$(readlink "$_tmux_bin/tmux")"
+  _tmux_test_android=0
+  if [[ $_tmux_prefix_set == x ]]; then
+    PREFIX=$_tmux_saved_prefix
+  else
+    unset PREFIX
+  fi
 
   if [[ -n $_tmux_saved_uname ]]; then
     eval "$_tmux_saved_uname"

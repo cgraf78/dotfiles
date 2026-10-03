@@ -172,9 +172,25 @@ _tmux_publish() {
   fi
 }
 
+_tmux_android_shadow() {
+  local public
+  public=$(_tmux_public)
+  _tmux_public_target "$public" || return 1
+  # A deleted payload leaves a dangling link; its exact installer-owned target
+  # still identifies the shadow without requiring the missing ownership marker.
+  [[ $REPLY == "$(_tmux_root)/tmux" ]] || _tmux_public_legacy_owned
+}
+
+_tmux_android_version() {
+  # PATH may still select the incompatible Linux archive during recovery.
+  [[ -n ${PREFIX:-} ]] || return 1
+  "$PREFIX/bin/tmux" -V 2>/dev/null
+}
+
 exists() {
-  if [[ $(shdeps_platform) == android ]]; then
-    command -v tmux >/dev/null 2>&1 && tmux -V >/dev/null 2>&1
+  if shdeps_platform_match android; then
+    _tmux_android_shadow && return 1
+    _tmux_android_version >/dev/null
     return
   fi
 
@@ -190,17 +206,21 @@ exists() {
 }
 
 version() {
-  if [[ $(shdeps_platform) == android ]]; then
-    tmux -V 2>/dev/null
+  if shdeps_platform_match android; then
+    _tmux_android_version
     return
   fi
   "$(_tmux_root)/tmux" -V 2>/dev/null
 }
 
 install() {
-  if [[ $(shdeps_platform) == android ]]; then
-    shdeps_pkg_install_for_mgr android:tmux
-    return
+  if shdeps_platform_match android; then
+    shdeps_pkg_install_for_mgr android:tmux || return 1
+    _tmux_android_version >/dev/null || return 1
+    if _tmux_android_shadow; then
+      rm -f -- "$(_tmux_public)" || return 1
+    fi
+    return 0
   fi
 
   local root install_base stage archive candidate backup='' checksum
