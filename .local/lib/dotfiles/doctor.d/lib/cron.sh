@@ -57,6 +57,96 @@ _dr_cron_check_shell() {
   done <<<"$1"
 }
 
+# PATH cron gives a job when the crontab sets none (cronie, Vixie, and
+# macOS cron agree).
+_DR_CRON_DEFAULT_PATH=/usr/bin:/bin
+
+# Report via REPLY the program a crontab job line runs, or fail when there
+# is nothing to judge without running a shell: the line is not a job, or
+# its command starts with something the shell expands, a builtin, or a
+# keyword. Leading NAME=value assignments are skipped; a HOME-relative or
+# relative program is made absolute, as cron starts jobs in HOME.
+_dr_cron_job_program() {
+  local -a words=()
+  read -r -a words <<<"$1"
+  ((${#words[@]} > 0)) || return 1
+  case ${words[0]} in
+    '#'*) return 1 ;;
+    @*) words=("${words[@]:1}") ;;
+    *) words=("${words[@]:5}") ;;
+  esac
+  while ((${#words[@]} > 0)) && [[ ${words[0]} =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; do
+    words=("${words[@]:1}")
+  done
+  ((${#words[@]} > 0)) || return 1
+  REPLY=${words[0]}
+  # shellcheck disable=SC2088 # A literal tilde prefix, expanded here.
+  [[ $REPLY != '~/'* ]] || REPLY=$HOME/${REPLY#'~/'}
+  case $REPLY in
+    *[\$\`\"\'\\\(\)\{\}\;\&\|\<\>\*\?\[\]%~=]*) return 1 ;;
+  esac
+  case $(type -t -- "$REPLY" 2>/dev/null || true) in
+    builtin | keyword) return 1 ;;
+  esac
+  [[ $REPLY == /* || $REPLY != */* ]] || REPLY=$HOME/$REPLY
+}
+
+# Check that every job in the managed block of crontab $1 (marker $2) names
+# a program cron can start: a path must be an executable file, and a bare
+# name must resolve on the PATH cron gives the job, which is the last PATH=
+# line above it (cron applies environment lines in order) or cron's
+# default. Stat only. A custom SHELL= that extends PATH itself is not
+# modeled, which is why a miss warns rather than fails.
+_dr_cron_check_commands() {
+  local crontab=$1 marker=$2 line cron_path=$_DR_CRON_DEFAULT_PATH
+  local in_block=0 program dir found
+  local -a dirs=() missing=()
+
+  while IFS= read -r line; do
+    if [[ $line == "$marker begin" ]]; then
+      in_block=1
+      continue
+    elif [[ $line == "$marker end" ]]; then
+      in_block=0
+      continue
+    fi
+    if [[ $line =~ ^[[:space:]]*PATH[[:space:]]*=[[:space:]]*(.*[^[:space:]])?[[:space:]]*$ ]]; then
+      cron_path=${BASH_REMATCH[1]}
+      case $cron_path in
+        \"*\" | \'*\') cron_path=${cron_path:1:${#cron_path}-2} ;;
+      esac
+      continue
+    fi
+    ((in_block == 1)) || continue
+    # Other environment lines name no program.
+    [[ ! $line =~ ^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*[[:space:]]*= ]] || continue
+    _dr_cron_job_program "$line" || continue
+    program=$REPLY
+    if [[ $program == */* ]]; then
+      [[ -f $program && -x $program ]] ||
+        missing+=("$(_dr_tilde "$program") is not an executable file")
+      continue
+    fi
+    found=0
+    # The extra colon keeps a trailing empty entry (the job's directory,
+    # HOME), which read would otherwise drop.
+    IFS=: read -r -a dirs <<<"$cron_path:"
+    for dir in "${dirs[@]}"; do
+      [[ $dir == /* ]] || dir=$HOME/$dir
+      if [[ -f $dir/$program && -x $dir/$program ]]; then
+        found=1
+        break
+      fi
+    done
+    ((found == 1)) || missing+=("$program is not on the job's PATH")
+  done <<<"$crontab"
+
+  ((${#missing[@]} > 0)) || return 0
+  _dr_list_row warn "${#missing[@]} managed cron job(s) cannot start" \
+    "install the program or fix its entry under $(_dr_tilde "$(_merge_hook_family cron/cron.d)"), then run 'dot update'" \
+    "${missing[@]}"
+}
+
 _dr_check_cron() {
   _dr_section "Cron"
 
@@ -115,4 +205,7 @@ _dr_check_cron() {
   fi
 
   _dr_cron_check_shell "$crontab_out"
+  # Judge what cron runs now, the installed block, rather than what the
+  # next update would install; a stale block already has its own row.
+  [[ -z $marker ]] || _dr_cron_check_commands "$crontab_out" "$marker"
 }

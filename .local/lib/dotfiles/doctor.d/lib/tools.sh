@@ -2,18 +2,33 @@
 # dot doctor: Tools checks.
 #
 # Core reports the Git and Bash runtimes and the dependency provider itself;
-# this section covers what base adds on top: the shdeps configuration and
-# the health of everything shdeps installed.
+# this section covers what base adds on top: the health of everything shdeps
+# installed. The shdeps configuration is tracked files, whose drift core's
+# repository rows already report.
 
 dot_doctor_source doctor.d/lib/shdeps-links.sh || return
 
+# Render one `shdeps health` row as a list item: package and kind, the path
+# when there is one, then shdeps' own detail, which names the cause and the
+# fix. `-` marks an absent column.
+_dr_shdeps_health_item() {
+  local package=$1 kind=$2 path=$3 detail=$4 item=''
+  [[ -z $package || $package == - ]] || item="$package: "
+  item+=$kind
+  [[ -z $path || $path == - ]] || item+=" $(_dr_tilde "$path")"
+  [[ -z $detail || $detail == - ]] || item+=" — $detail"
+  REPLY=$item
+}
+
 # Render `shdeps health` as one row: ok when healthy, otherwise the worst
-# severity it reported with the first few problems and the command that
-# lists them all. Only the severity column drives the verdict; the other
-# columns are display text, and unknown kinds render like any other.
+# severity it reported, with every problem listed fail rows first, so a
+# failure is never folded behind warnings. Only the severity column drives
+# the verdict: `fail` fails the row, and any other value, including one a
+# newer shdeps adds, counts as a warning. The other columns are display
+# text, so an unknown kind renders like any other.
 _dr_check_shdeps_health() {
-  local severity package kind path detail sample level=warn count=0
-  local -a samples=()
+  local severity package kind path detail level=warn message hint
+  local -a failing=() others=()
 
   case $_DR_SHDEPS_HEALTH_STATUS in
     0)
@@ -33,88 +48,47 @@ _dr_check_shdeps_health() {
 
   while IFS=$'\t' read -r severity package kind path detail; do
     [[ -n $severity ]] || continue
-    count=$((count + 1))
+    _dr_shdeps_health_item "$package" "$kind" "$path" "$detail"
     if [[ $severity == fail ]]; then
-      level=fail
-    fi
-    if ((${#samples[@]} < 3)); then
-      sample="${package:--}: $kind"
-      [[ -z $path || $path == - ]] || sample+=" $(_dr_tilde "$path")"
-      _dr_one_line "$sample"
-      samples+=("$REPLY")
+      failing+=("$REPLY")
+    else
+      others+=("$REPLY")
     fi
   done <<<"$_DR_SHDEPS_HEALTH_OUTPUT"
+
+  if ((${#failing[@]} + ${#others[@]} == 0)); then
+    _dr_fail "shdeps health report incomplete" "run 'shdeps health' to see what it could not read"
+    return 0
+  fi
+  message="shdeps health: $((${#failing[@]} + ${#others[@]})) problem(s)"
+  hint="follow the fix on each line; 'shdeps health' lists them all"
+  if ((${#failing[@]} > 0)); then
+    level=fail
+    ((${#others[@]} == 0)) || message+=", ${#failing[@]} failing"
+  fi
   # An incomplete report fails even when every row it managed to print was
   # a warning: the unread state may hide anything.
   if [[ $_DR_SHDEPS_HEALTH_STATUS == 3 ]]; then
     level=fail
+    hint="some shdeps state could not be read, so more may be wrong; $hint"
   fi
-
-  if ((count == 0)); then
-    _dr_fail "shdeps health report incomplete" "run 'shdeps health' to see what it could not read"
-    return 0
-  fi
-  sample=
-  for detail in "${samples[@]}"; do
-    sample+=${sample:+; }$detail
-  done
-  if ((count > ${#samples[@]})); then
-    sample+="; and $((count - ${#samples[@]})) more"
-  fi
-  if [[ $level == fail ]]; then
-    _dr_fail "shdeps health: $count problem(s)" \
-      "$sample; run 'shdeps health' for details and fixes"
-  else
-    _dr_warn "shdeps health: $count problem(s)" \
-      "$sample; run 'shdeps health' for details, then 'dot update'"
-  fi
+  _dr_list_row "$level" "$message" "$hint" \
+    ${failing[@]+"${failing[@]}"} ${others[@]+"${others[@]}"}
 }
 
 _dr_check_tools() {
   _dr_section "Tools"
 
-  # curl — used by shdeps bootstrap and github:release installs
-  if command -v curl >/dev/null 2>&1; then
-    _dr_ok "curl" "$(curl --version 2>/dev/null | awk 'NR==1 {print $2; exit}')"
-  else
-    _dr_warn "curl missing" "needed to bootstrap shdeps and install github:release deps"
-  fi
-
-  # shdeps config
-  local shdeps_conf_dir
-  _dot_shdeps_conf_dir
-  shdeps_conf_dir="$REPLY"
-  if [[ -d "$shdeps_conf_dir" ]]; then
-    # Count through a glob: managed .conf files are usually overlay
-    # symlinks, which `find -type f` silently skipped. `-f` follows links
-    # and rejects dangling ones, matching what shdeps can actually read.
-    local conf_count=0 conf
-    for conf in "$shdeps_conf_dir"/*.conf; do
-      [[ -f $conf ]] && conf_count=$((conf_count + 1))
-    done
-    if [[ "$conf_count" -gt 0 ]]; then
-      _dr_ok "shdeps config" "$conf_count .conf file(s)"
-    else
-      _dr_warn "shdeps config dir exists but no .conf files" \
-        "$(_dr_tilde "$shdeps_conf_dir"); restore the tracked .conf files, then run 'dot update'"
-    fi
-  else
-    _dr_warn "shdeps config dir missing" \
-      "$(_dr_tilde "$shdeps_conf_dir"); restore it from the base checkout, then run 'dot update'"
-  fi
-
-  if ! command -v shdeps >/dev/null 2>&1; then
-    _dr_warn "dependency command links unchecked" "shdeps is not on PATH; run 'dot update'"
-  elif _dr_shdeps_health_probe; then
+  if _dr_shdeps_health_probe; then
     # One stat-only pass covers every installed package's command links
-    # plus deferred, recovery, and install-root state.
+    # plus deferred, recovery, transition, and install-root state.
     _dr_check_shdeps_health
+  elif ! command -v shdeps >/dev/null 2>&1; then
+    _dr_warn "shdeps health unchecked" "shdeps is not on PATH; run 'dot update'"
   else
-    # An older shdeps without `health`: check the always-active providers
-    # (shell, terminal, and rule policy) one group at a time, as before.
-    _dr_check_shdeps_bin_group fail agent-rules-sync
-    _dr_check_shdeps_bin_group warn termnav
-    _dr_check_shdeps_bin_group warn tmux-tools
-    _dr_check_shdeps_bin_group warn ds
+    # Every supported shdeps has `health`; one that rejects or cannot run
+    # it is out of date or broken, and `dot update` replaces it.
+    _dr_warn "shdeps health unchecked" \
+      "the installed shdeps cannot run 'shdeps health'; run 'dot update' to upgrade it"
   fi
 }

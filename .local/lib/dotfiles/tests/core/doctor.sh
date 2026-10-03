@@ -20,6 +20,7 @@ dot_core_test_doctor() {
   local doctor_oldbash_bin doctor_mode doctor_started doctor_status doctor_i
   local doctor_timeout_bin doctor_strays doctor_stray_pid doctor_deadline
   local doctor_held doctor_free doctor_try doctor_expect doctor_tmp
+  local doctor_yq_log doctor_frag doctor_mc_state
 
   echo ""
   echo "=== Base doctor extensions ==="
@@ -32,6 +33,9 @@ dot_core_test_doctor() {
     _dot_doctor_load
   fi
   _test_load_dot_doctor_api "$TEST_HOME"
+  # The list helpers are newer than some Dot releases this suite runs
+  # against: default to the older API, and opt in per case with stubs.
+  unset -f dot_doctor_item dot_doctor_hint
   # Print the live processes in this shell's process group that are neither
   # this shell nor its descendants, one PID per line, sorted: what a helper
   # leaves behind once its parent is gone. Orphans are re-parented away
@@ -294,6 +298,51 @@ SH
   _assert_contains "doctor cron: a relative SHELL fails" \
     $'fail\tcron SHELL is not an absolute path: bash' "$result"
 
+  # Managed jobs must name a program cron can start, judged by stat on the
+  # PATH cron gives each job: the last PATH= line above it, or cron's
+  # default /usr/bin:/bin.
+  mkdir -p "$TEST_HOME/cron-bin"
+  printf '%s\n' '#!/bin/sh' >"$TEST_HOME/cron-bin/cron-tool"
+  chmod +x "$TEST_HOME/cron-bin/cron-tool"
+  printf '%s\n' '#!/bin/sh' >"$TEST_HOME/cron-bin/not-exec"
+  # shellcheck disable=SC2016 # Job lines carry literal shell syntax.
+  result=$(HOME="$TEST_HOME" _doctor_records _dr_cron_check_commands "$(printf '%s\n' \
+    '* * * * * outside-block-tool' \
+    '# dot-managed-cron begin' \
+    '# DO NOT EDIT' \
+    "PATH=$TEST_HOME/cron-bin" \
+    '' \
+    'SHELL=/bin/sh' \
+    '*/30 * * * * cron-tool --flag' \
+    '@reboot DOT_X=1 OTHER=2 cron-tool' \
+    "0 4 * * * $TEST_HOME/cron-bin/cron-tool >>log 2>&1" \
+    '0 4 * * * cron-bin/cron-tool' \
+    '0 4 * * * ~/cron-bin/cron-tool' \
+    '0 4 * * * cd /tmp && anything' \
+    '0 4 * * * "$HOME/quoted" arg' \
+    '0 4 * * * $(which thing)' \
+    '0 4 * * * missing-tool --now' \
+    "0 5 * * * $TEST_HOME/cron-bin/not-exec" \
+    '# dot-managed-cron end' \
+    '* * * * * also-outside')" '# dot-managed-cron')
+  # shellcheck disable=SC2088 # Rows carry tilde display paths.
+  _assert_eq "doctor cron: jobs that cannot start are listed" \
+    $'warn\t2 managed cron job(s) cannot start\tmissing-tool is not on the job\'s PATH; ~/cron-bin/not-exec is not an executable file; install the program or fix its entry under ~/.config/dot/merge-hooks.d/cron/cron.d, then run \'dot update\'' \
+    "$result"
+  result=$(HOME="$TEST_HOME" _doctor_records _dr_cron_check_commands "$(printf '%s\n' \
+    '# dot-managed-cron begin' '0 4 * * * sh -c true' '0 4 * * * cron-tool' \
+    '# dot-managed-cron end')" '# dot-managed-cron')
+  _assert_contains "doctor cron: without PATH= cron's default PATH applies" \
+    $'warn\t1 managed cron job(s) cannot start\tcron-tool is not on the job\'s PATH' "$result"
+  result=$(HOME="$TEST_HOME" _doctor_records _dr_cron_check_commands "$(printf '%s\n' \
+    "PATH=\"$TEST_HOME/cron-bin\"" '# dot-managed-cron begin' '0 4 * * * cron-tool' \
+    '# dot-managed-cron end')" '# dot-managed-cron')
+  _assert_eq "doctor cron: a quoted PATH above the block applies to it" "" "$result"
+  result=$(HOME="$TEST_HOME/cron-bin" _doctor_records _dr_cron_check_commands "$(printf '%s\n' \
+    '# dot-managed-cron begin' "PATH=$TEST_HOME/no-such-dir:" '0 4 * * * cron-tool' \
+    '# dot-managed-cron end')" '# dot-managed-cron')
+  _assert_eq "doctor cron: a trailing empty PATH entry searches HOME" "" "$result"
+
   # A host filter that excludes every entry: the hook removes the block,
   # and the doctor agrees there is nothing to install.
   printf '%s\n' '# filter: hosts=no-such-host' '*/30 * * * * dot update --cron --force' \
@@ -377,6 +426,22 @@ case ${1:-} in
         printf 'fail\tcgraf78/ds\tnot-executable\t%s\tchmod +x it\n' "$HOME/.local/bin/ds"
         exit 1
         ;;
+      # Warnings first, as shdeps sorts by package, then a failure that a
+      # sample of the first rows would hide.
+      failfirst)
+        printf 'warn\taaa/one\tdangling-link\t-\tremove it\n'
+        printf 'warn\taaa/two\tdangling-link\t-\tremove it\n'
+        printf 'warn\taaa/three\tdangling-link\t-\tremove it\n'
+        printf 'warn\taaa/four\tdangling-link\t-\tremove it\n'
+        printf 'fail\tzzz/last\tblocked-transition\t%s\tmove the record aside, then run dot update\n' \
+          "$HOME/.local/state/shdeps/zzz.transition"
+        exit 1
+        ;;
+      # A severity and kind this doctor has never heard of.
+      future)
+        printf 'notice\tnew/pkg\tfuture-kind\t-\tsomething new; do this\n'
+        exit 1
+        ;;
       empty1) exit 1 ;;
       incomplete)
         printf 'fail\t-\tunreadable-state\t-\tcheck permissions\n'
@@ -423,10 +488,14 @@ SH
   unset _DR_SHDEPS_HEALTH_STATUS _DR_SHDEPS_HEALTH_OUTPUT
   doctor_health_log=$(_tmpfile)
   result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$PATH" _doctor_records _dr_check_tools)
-  _assert_contains "doctor health: an older shdeps falls back to group rows" \
-    "agent-rules-sync bin links unchecked" "$result"
-  _assert_not_contains "doctor health: an older shdeps gets no health row" \
-    "shdeps health" "$result"
+  _assert_contains "doctor health: an older shdeps is a warning with the fix" \
+    $'warn\tshdeps health unchecked\tthe installed shdeps cannot run \'shdeps health\'; run \'dot update\' to upgrade it' \
+    "$result"
+  _assert_not_contains "doctor health: an older shdeps gets no per-group rows" \
+    "bin links" "$result"
+  result=$(HOME="$TEST_HOME" PATH="$doctor_no_crontab_bin" _doctor_records _dr_check_tools)
+  _assert_contains "doctor health: no shdeps on PATH is a warning with the fix" \
+    $'warn\tshdeps health unchecked\tshdeps is not on PATH; run \'dot update\'' "$result"
   result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$PATH" DOCTOR_HEALTH_MODE=ok \
     DOCTOR_HEALTH_LOG="$doctor_health_log" _doctor_records _dr_check_tools)
   _assert_contains "doctor health: a healthy report is one ok row" \
@@ -445,10 +514,47 @@ SH
     _doctor_records _dr_check_tools)
   _assert_contains "doctor health: warn rows give one warning" \
     $'warn\tshdeps health: 2 problem(s)' "$result"
-  _assert_contains "doctor health: problems are sampled with display paths" \
-    "jdx/mise: dangling-link ~/.local/share/man/man1/mise.1" "$result"
-  _assert_contains "doctor health: packageless rows render" \
-    "-: deferred-post" "$result"
+  _assert_contains "doctor health: problems carry display paths and shdeps' fix" \
+    "jdx/mise: dangling-link ~/.local/share/man/man1/mise.1 — remove it or run shdeps update" \
+    "$result"
+  _assert_contains "doctor health: packageless rows render without a placeholder" \
+    "; deferred-post — run shdeps update interactively" "$result"
+  _assert_contains "doctor health: the row ends with the next step" \
+    "follow the fix on each line; 'shdeps health' lists them all" "$result"
+  # A failure sorted after four warnings is listed first, not folded into
+  # "and N more" on a Dot without list items.
+  result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$PATH" DOCTOR_HEALTH_MODE=failfirst \
+    _doctor_records _dr_check_tools)
+  _assert_contains "doctor health: a failure among warnings fails the row" \
+    $'fail\tshdeps health: 5 problem(s), 1 failing\tzzz/last: blocked-transition ~/.local/state/shdeps/zzz.transition — move the record aside, then run dot update; aaa/one' \
+    "$result"
+  _assert_contains "doctor health: the rest fold behind the sample" \
+    "; and 2 more; follow the fix" "$result"
+  # With the list helpers, every problem is an item, failures first, and
+  # the next step is a hint.
+  result=$(
+    # shellcheck disable=SC2329 # Probed by the check under test.
+    dot_doctor_item() { _dot_doctor_record item "$1"; }
+    # shellcheck disable=SC2329
+    dot_doctor_hint() { _dot_doctor_record hint "$1"; }
+    HOME="$TEST_HOME" PATH="$doctor_bin:$PATH" DOCTOR_HEALTH_MODE=failfirst \
+      _doctor_records _dr_check_tools
+  )
+  _assert_eq "doctor health: list helpers get one item per problem, failures first" \
+    "$(printf '%s\n' $'section\tTools\t' \
+      $'fail\tshdeps health: 5 problem(s), 1 failing\t' \
+      $'item\tzzz/last: blocked-transition ~/.local/state/shdeps/zzz.transition — move the record aside, then run dot update\t' \
+      $'item\taaa/one: dangling-link — remove it\t' \
+      $'item\taaa/two: dangling-link — remove it\t' \
+      $'item\taaa/three: dangling-link — remove it\t' \
+      $'item\taaa/four: dangling-link — remove it\t' \
+      $'hint\tfollow the fix on each line; \'shdeps health\' lists them all\t')" \
+    "$result"
+  result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$PATH" DOCTOR_HEALTH_MODE=future \
+    _doctor_records _dr_check_tools)
+  _assert_contains "doctor health: an unknown severity and kind render as a warning" \
+    $'warn\tshdeps health: 1 problem(s)\tnew/pkg: future-kind — something new; do this' \
+    "$result"
   result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$PATH" DOCTOR_HEALTH_MODE=fail \
     _doctor_records _dr_check_tools)
   _assert_contains "doctor health: any fail row fails the report" \
@@ -461,6 +567,8 @@ SH
     _doctor_records _dr_check_tools)
   _assert_contains "doctor health: an incomplete report fails" \
     $'fail\tshdeps health: 1 problem(s)' "$result"
+  _assert_contains "doctor health: an incomplete report says more may be wrong" \
+    "some shdeps state could not be read" "$result"
   result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$PATH" DOCTOR_HEALTH_MODE=crash \
     _doctor_records _dr_check_tools)
   _assert_contains "doctor health: an unexpected status is an error" \
@@ -508,6 +616,8 @@ SH
     doctor_status=$?
   _assert_exit "deadline: the command's status passes through" 3 "$doctor_status"
   _assert_eq "deadline: the command's output passes through" "fine" "$result"
+  result=$(printf 'from stdin' | _DR_TIMEOUT_BIN='' _dr_run_bounded 5 cat)
+  _assert_eq "deadline: the caller's stdin reaches the command" "from stdin" "$result"
   # Nothing the watchdog starts outlives the call, on either path: Dot's
   # supervisor refuses to tear down a suite or doctor worker on macOS
   # while a live member sits outside the leader's process group. The
@@ -667,14 +777,14 @@ SH
   result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$PATH" DOCTOR_HEALTH_MODE=gone \
     _DR_TIMEOUT_BIN='' _doctor_records _dr_check_tools)
   _assert_contains "doctor health: exit 127 is unsupported through the watchdog" \
-    "agent-rules-sync bin links unchecked" "$result"
+    $'warn\tshdeps health unchecked' "$result"
 
   result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$PATH" DOCTOR_HEALTH_MODE=gone \
     _doctor_records _dr_check_tools)
   _assert_contains "doctor health: exit 127 counts as unsupported" \
-    "agent-rules-sync bin links unchecked" "$result"
-  _assert_not_contains "doctor health: exit 127 gives no health row" \
-    "shdeps health" "$result"
+    $'warn\tshdeps health unchecked' "$result"
+  _assert_not_contains "doctor health: exit 127 gives no per-group rows" \
+    "bin links" "$result"
   result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$PATH" DOCTOR_HEALTH_MODE=incomplete-empty \
     _doctor_records _dr_check_tools)
   _assert_contains "doctor health: exit 3 without rows fails" \
@@ -682,42 +792,115 @@ SH
   _assert_not_contains "doctor tools: core's runtime rows are not duplicated" \
     $'ok\tgit\t' "$result"
 
-  # Managed configuration: JSON fragments parse, pre-sync extensions load,
-  # and interrupted atomic writes left nothing behind.
+  # Managed configuration: fragments parse, pre-sync extensions load, and
+  # interrupted atomic writes left nothing behind.
   dot_doctor_source doctor.d/lib/managed-config.sh ||
     _fail "doctor managed config: module loads"
   doctor_mc_home=$(_tmpdir)
-  mkdir -p "$doctor_mc_home/.config/dot/merge-hooks.d/app/settings.d" \
-    "$doctor_mc_home/.config/muse" "$doctor_mc_home/ext/pre-sync.d"
-  printf '%s\n' '{"a": 1}' \
-    >"$doctor_mc_home/.config/dot/merge-hooks.d/app/settings.d/10-good.json"
+  doctor_frag=$doctor_mc_home/.config/dot/merge-hooks.d
+  mkdir -p "$doctor_frag/app/settings.d" "$doctor_frag/app/config.d" \
+    "$doctor_frag/vscode/extensions.d" "$doctor_mc_home/.config/muse" \
+    "$doctor_mc_home/ext/pre-sync.d" "$doctor_mc_home/bin"
+  # A stand-in for mikefarah yq: a file holding BROKEN does not parse, and
+  # every call is logged, so the cases below see which files it was given.
+  doctor_yq_log=$doctor_mc_home/yq.log
+  cat >"$doctor_mc_home/bin/yq" <<'SH'
+#!/usr/bin/env bash
+if [[ ${1:-} == --version ]]; then
+  echo 'yq (https://github.com/mikefarah/yq/) version v4.99.0'
+  exit 0
+fi
+printf '%s\n' "$*" >>"$DOCTOR_YQ_LOG"
+status=0
+for file; do
+  [[ -f $file ]] || continue
+  if grep -q BROKEN "$file"; then
+    echo "Error: bad file '$file'" >&2
+    status=1
+  fi
+done
+exit "$status"
+SH
+  chmod +x "$doctor_mc_home/bin/yq"
+  printf '%s\n' '{"a": 1}' >"$doctor_frag/app/settings.d/10-good.json"
   printf '%s\n' '// comments are fine in JSONC' '{"a": 1}' \
-    >"$doctor_mc_home/.config/dot/merge-hooks.d/app/settings.d/20-keys.jsonc"
-  result=$(HOME="$doctor_mc_home" _doctor_records _dr_check_json_fragments)
+    >"$doctor_frag/app/settings.d/20-keys.jsonc"
+  result=$(HOME="$doctor_mc_home" _doctor_records _dr_check_fragments)
   _assert_contains "doctor managed config: valid fragments pass" \
-    $'ok\tmerge-hook JSON fragments parse\t1 file(s)' "$result"
-  printf '%s\n' '{"a": 1,}' \
-    >"$doctor_mc_home/.config/dot/merge-hooks.d/app/settings.d/30-bad.json"
-  result=$(HOME="$doctor_mc_home" _doctor_records _dr_check_json_fragments)
+    $'ok\tmerge-hook fragments parse\t1 JSON file(s)' "$result"
+  printf '%s\n' '{"a": 1,}' >"$doctor_frag/app/settings.d/30-bad.json"
+  result=$(HOME="$doctor_mc_home" _doctor_records _dr_check_fragments)
   _assert_contains "doctor managed config: a broken fragment warns" \
-    $'warn\t1 merge-hook JSON fragment(s) do not parse' "$result"
+    $'warn\t1 merge-hook fragment(s) do not parse' "$result"
   # shellcheck disable=SC2088 # Rows carry tilde display paths.
   _assert_contains "doctor managed config: the broken fragment is named" \
     "~/.config/dot/merge-hooks.d/app/settings.d/30-bad.json" "$result"
   # The vscode hook strips comments from its .json fragments itself.
-  mkdir -p "$doctor_mc_home/.config/dot/merge-hooks.d/vscode/settings.d"
+  mkdir -p "$doctor_frag/vscode/settings.d"
   printf '%s\n' '// editor settings' '{"a": 1}' \
-    >"$doctor_mc_home/.config/dot/merge-hooks.d/vscode/settings.d/10-settings.json"
-  result=$(HOME="$doctor_mc_home" _doctor_records _dr_check_json_fragments)
+    >"$doctor_frag/vscode/settings.d/10-settings.json"
+  result=$(HOME="$doctor_mc_home" _doctor_records _dr_check_fragments)
   _assert_not_contains "doctor managed config: vscode fragments may carry comments" \
     "vscode" "$result"
   # A truncated file followed by its missing half must not pass as a pair.
-  rm -f "$doctor_mc_home/.config/dot/merge-hooks.d/app/settings.d/30-bad.json"
-  printf '%s' '{"a":' >"$doctor_mc_home/.config/dot/merge-hooks.d/app/settings.d/40-head.json"
-  printf '%s\n' '1}' >"$doctor_mc_home/.config/dot/merge-hooks.d/app/settings.d/41-tail.json"
-  result=$(HOME="$doctor_mc_home" _doctor_records _dr_check_json_fragments)
+  rm -f "$doctor_frag/app/settings.d/30-bad.json"
+  printf '%s' '{"a":' >"$doctor_frag/app/settings.d/40-head.json"
+  printf '%s\n' '1}' >"$doctor_frag/app/settings.d/41-tail.json"
+  result=$(HOME="$doctor_mc_home" _doctor_records _dr_check_fragments)
   _assert_contains "doctor managed config: each fragment parses on its own" \
-    $'warn\t2 merge-hook JSON fragment(s) do not parse' "$result"
+    $'warn\t2 merge-hook fragment(s) do not parse' "$result"
+  rm -f "$doctor_frag/app/settings.d/40-head.json" "$doctor_frag/app/settings.d/41-tail.json"
+
+  # TOML and YAML fragments go through mikefarah yq, as their hooks do:
+  # one call per format while they parse, the vscode family's TOML
+  # included, and a second pass only to name every broken file.
+  printf '%s\n' 'a = 1' >"$doctor_frag/app/config.d/10-settings.toml"
+  printf '%s\n' 'b = 2' >"$doctor_frag/vscode/extensions.d/50-default.toml"
+  printf '%s\n' 'c: 3' >"$doctor_frag/app/config.d/10-config.yml"
+  : >"$doctor_yq_log"
+  result=$(HOME="$doctor_mc_home" PATH="$doctor_mc_home/bin:$PATH" \
+    DOCTOR_YQ_LOG="$doctor_yq_log" _doctor_records _dr_check_fragments)
+  _assert_contains "doctor managed config: TOML and YAML fragments are counted" \
+    $'ok\tmerge-hook fragments parse\t1 JSON, 2 TOML, 1 YAML file(s)' "$result"
+  _assert_eq "doctor managed config: one yq call per format while they parse" \
+    "2" "$(wc -l <"$doctor_yq_log" | tr -d '[:space:]')"
+  _assert_contains "doctor managed config: the TOML call reads every TOML fragment" \
+    "eval-all -p toml -o json select(false) " "$(grep -e "10-settings.toml" "$doctor_yq_log" | grep -e "50-default.toml")"
+  _assert_contains "doctor managed config: the YAML call reads the YAML fragment" \
+    "eval-all -p yaml -o json select(false) $doctor_frag/app/config.d/10-config.yml" \
+    "$(cat "$doctor_yq_log")"
+  printf '%s\n' 'BROKEN [' >"$doctor_frag/app/config.d/20-broken.toml"
+  printf '%s\n' 'BROKEN: [' >"$doctor_frag/app/config.d/20-broken.yaml"
+  result=$(HOME="$doctor_mc_home" PATH="$doctor_mc_home/bin:$PATH" \
+    DOCTOR_YQ_LOG="$doctor_yq_log" _doctor_records _dr_check_fragments)
+  # shellcheck disable=SC2088 # Rows carry tilde display paths.
+  _assert_contains "doctor managed config: broken TOML and YAML fragments warn" \
+    $'warn\t2 merge-hook fragment(s) do not parse\t~/.config/dot/merge-hooks.d/app/config.d/20-broken.toml; ~/.config/dot/merge-hooks.d/app/config.d/20-broken.yaml; dot update skips them' \
+    "$result"
+  # Without mikefarah yq (another yq answers --version differently), TOML
+  # and YAML are reported unchecked while JSON is still checked.
+  printf '%s\n' '#!/usr/bin/env bash' 'echo "yq 3.4.3"' >"$doctor_mc_home/bin/yq"
+  result=$(HOME="$doctor_mc_home" PATH="$doctor_mc_home/bin:$PATH" \
+    _doctor_records _dr_check_fragments)
+  _assert_contains "doctor managed config: no mikefarah yq leaves TOML and YAML unchecked" \
+    $'skip\tmerge-hook TOML and YAML fragments unchecked\tmikefarah yq not installed' "$result"
+  rm -f "$doctor_frag/app/config.d/20-broken.toml" "$doctor_frag/app/config.d/20-broken.yaml"
+  # The real parser, where the host has one: a truncated TOML file fails
+  # even when a valid one follows it in the same call.
+  if doctor_tmp=$(type -P yq 2>/dev/null) &&
+    [[ $("$doctor_tmp" --version 2>/dev/null) == *mikefarah* ]]; then
+    doctor_tmp=${doctor_tmp%/*}
+    printf '%s\n' '[table' >"$doctor_frag/app/config.d/05-truncated.toml"
+    result=$(HOME="$doctor_mc_home" PATH="$doctor_tmp:$PATH" \
+      _doctor_records _dr_check_fragments)
+    _assert_contains "doctor managed config: real yq rejects a truncated TOML fragment" \
+      "05-truncated.toml" "$result"
+    _assert_not_contains "doctor managed config: real yq accepts the valid ones" \
+      "10-settings.toml" "$result"
+    rm -f "$doctor_frag/app/config.d/05-truncated.toml"
+  else
+    echo "  - skipping real yq fragment check (mikefarah yq not installed)"
+  fi
 
   printf '%s\n' 'prepare() {' '  :' '}' >"$doctor_mc_home/ext/pre-sync.d/10-good.sh"
   result=$(DOT_EXTENSIONS_DIR="$doctor_mc_home/ext" \
@@ -737,20 +920,94 @@ SH
     $'fail\tpre-sync extensions are broken: 20-broken.sh (syntax error); 30-entryless.sh (no prepare function)' \
     "$result"
 
-  printf '{}\n' >"$doctor_mc_home/.config/muse/settings.json.tmp.Ab12Cd"
-  printf '{}\n' >"$doctor_mc_home/.config/muse/settings.json.tmp.Fresh1"
-  touch -t 202001010000 "$doctor_mc_home/.config/muse/settings.json.tmp.Ab12Cd"
-  result=$(HOME="$doctor_mc_home" _doctor_records _dr_check_config_temporaries)
-  _assert_contains "doctor managed config: an old temporary warns" \
-    $'warn\t1 leftover config temporary file(s)\t~/.config/muse/settings.json.tmp.Ab12Cd' \
-    "$result"
+  # Leftover temporaries: base checks the destinations of its own merge
+  # hooks, by every name the writers use, past the in-flight window.
+  mkdir -p "$doctor_mc_home/.ssh" "$doctor_mc_home/.codex" "$doctor_mc_home/.claude" \
+    "$doctor_mc_home/.llms/rules" "$doctor_mc_home/.toolcache.tmp"
+  printf 'Host *\n' >"$doctor_mc_home/.ssh/config.tmp.Ab12Cd"
+  printf 'Host *\n' >"$doctor_mc_home/.ssh/config.tmp.Fresh1"
+  # Claude Code's own `.tmp.<pid>.<hex>` beside ~/.claude.json, a 7-digit
+  # PID suffix, a plain `.tmp`, a hidden HOME file, and a realize scratch.
+  printf '{}\n' >"$doctor_mc_home/.claude.json.tmp.4164451.7a8298303801"
+  printf 'x\n' >"$doctor_mc_home/.codex/config.toml.tmp.4194301"
+  printf 'x\n' >"$doctor_mc_home/.codex/hooks.json.tmp"
+  printf 'x\n' >"$doctor_mc_home/.ignore.tmp.Qq11Ww"
+  printf 'x\n' >"$doctor_mc_home/.codex/.dm.realize.Ee22Rr"
+  # Not leftovers: a directory, a symlink, and other folders' files.
+  ln -s "$doctor_mc_home/.ssh/config.tmp.Ab12Cd" "$doctor_mc_home/.ssh/link.tmp.Zz00Zz"
+  printf '{}\n' >"$doctor_mc_home/.config/muse/settings.json.tmp.Mu5e00"
+  printf '{}\n' >"$doctor_mc_home/.claude/settings.json.tmp.Cl4ude"
+  # A visible file directly in HOME is the user's own, whatever its name.
+  printf 'x\n' >"$doctor_mc_home/notes.tmp"
+  for doctor_tmp in .ssh/config.tmp.Ab12Cd .claude.json.tmp.4164451.7a8298303801 \
+    .codex/config.toml.tmp.4194301 .codex/hooks.json.tmp .ignore.tmp.Qq11Ww \
+    .codex/.dm.realize.Ee22Rr .config/muse/settings.json.tmp.Mu5e00 \
+    .claude/settings.json.tmp.Cl4ude notes.tmp; do
+    touch -t 202001010000 "$doctor_mc_home/$doctor_tmp"
+  done
+  result=$(HOME="$doctor_mc_home" XDG_STATE_HOME='' \
+    _doctor_records _dr_check_base_config_temporaries)
+  _assert_contains "doctor managed config: old temporaries warn" \
+    $'warn\t6 leftover config temporary file(s)' "$result"
+  for doctor_tmp in .ssh/config.tmp.Ab12Cd .claude.json.tmp.4164451.7a8298303801 \
+    .codex/config.toml.tmp.4194301 .codex/hooks.json.tmp .ignore.tmp.Qq11Ww \
+    .codex/.dm.realize.Ee22Rr; do
+    # shellcheck disable=SC2088 # Rows carry tilde display paths.
+    _assert_contains "doctor managed config: a leftover is listed ($doctor_tmp)" \
+      "~/$doctor_tmp" "$(
+        # shellcheck disable=SC2329 # Probed by the check under test.
+        dot_doctor_item() { _dot_doctor_record item "$1"; }
+        # shellcheck disable=SC2329
+        dot_doctor_hint() { _dot_doctor_record hint "$1"; }
+        HOME="$doctor_mc_home" XDG_STATE_HOME='' \
+          _doctor_records _dr_check_base_config_temporaries
+      )"
+  done
   _assert_not_contains "doctor managed config: an in-flight temporary is ignored" \
     "Fresh1" "$result"
-  printf '{}\n' >"$doctor_mc_home/.claude.json.tmp.Zz99Yy"
-  touch -t 202001010000 "$doctor_mc_home/.claude.json.tmp.Zz99Yy"
-  result=$(HOME="$doctor_mc_home" _doctor_records _dr_check_config_temporaries)
-  _assert_contains "doctor managed config: a home-level agent config temporary warns" \
-    ".claude.json.tmp.Zz99Yy" "$result"
+  _assert_not_contains "doctor managed config: a symlink is not a leftover" \
+    "Zz00Zz" "$result"
+  _assert_not_contains "doctor managed config: a directory is not a leftover" \
+    ".toolcache.tmp" "$result"
+  _assert_not_contains "doctor managed config: agent folders are the dev overlay's" \
+    "Mu5e00" "$result"
+  _assert_not_contains "doctor managed config: a visible file in HOME is not a leftover" \
+    "notes.tmp" "$result"
+  result=$(
+    # shellcheck disable=SC2329 # Probed by the check under test.
+    dot_doctor_item() { _dot_doctor_record item "$1"; }
+    # shellcheck disable=SC2329
+    dot_doctor_hint() { _dot_doctor_record hint "$1"; }
+    HOME="$doctor_mc_home" XDG_STATE_HOME='' \
+      _doctor_records _dr_check_base_config_temporaries
+  )
+  _assert_contains "doctor managed config: the list helpers get a next step" \
+    $'hint\tan interrupted write left them: delete them once no \'dot update\', or the program that owns the file, is running' \
+    "$result"
+  # An agent-rules target recorded in the update's manifest is a base
+  # destination too.
+  doctor_mc_state=$doctor_mc_home/state
+  mkdir -p "$doctor_mc_state/dot"
+  printf 'rule\t%s\ntarget-file\t%s\n' "$doctor_mc_home/rules/001-a.md" \
+    "$doctor_mc_home/.llms/rules/AGENTS.md" >"$doctor_mc_state/dot/agent-rules-sync-manifest-v1.tsv"
+  printf 'x\n' >"$doctor_mc_home/.llms/rules/AGENTS.md.tmp.Ab12Cd34"
+  touch -t 202001010000 "$doctor_mc_home/.llms/rules/AGENTS.md.tmp.Ab12Cd34"
+  result=$(HOME="$doctor_mc_home" XDG_STATE_HOME="$doctor_mc_state" \
+    _doctor_records _dr_check_base_config_temporaries)
+  _assert_contains "doctor managed config: agent-rules targets are checked" \
+    $'warn\t7 leftover config temporary file(s)' "$result"
+  # Overlay contract: an overlay passes its own folders, relative to HOME or
+  # absolute; folders base checks, and repeats, are dropped.
+  result=$(HOME="$doctor_mc_home" XDG_STATE_HOME="$doctor_mc_state" \
+    _doctor_records _dr_check_config_temporaries .claude "$doctor_mc_home/.claude/" \
+    .config/muse .codex "$doctor_mc_home/.ssh" .llms/rules no-such-dir)
+  _assert_contains "doctor managed config: an overlay's folders are checked" \
+    $'warn\t2 leftover config temporary file(s)\t~/.claude/settings.json.tmp.Cl4ude; ~/.config/muse/settings.json.tmp.Mu5e00; an interrupted write' \
+    "$result"
+  result=$(HOME="$doctor_mc_home" XDG_STATE_HOME="$doctor_mc_state" \
+    _doctor_records _dr_check_config_temporaries .codex .ssh)
+  _assert_eq "doctor managed config: base folders passed by an overlay are not repeated" \
+    "" "$result"
 
   # Agent rules: a Dot without the public hook runtime cannot answer, which
   # is a skip, not a policy failure.
@@ -762,20 +1019,15 @@ SH
     $'skip\tgenerated policy check skipped' "$result"
   rm -f "$doctor_bin/agent-rules-sync"
 
-  # Managed .conf files are usually overlay symlinks; every readable one
-  # counts, a dangling one does not.
+  # The shdeps configuration and curl are tracked files and a host tool:
+  # core's repository rows cover the first, and Tools reports neither.
   doctor_conf_home=$(_tmpdir)
-  mkdir -p "$doctor_conf_home/.config/shdeps" "$doctor_conf_home/overlay"
-  printf '%s\n' 'fixture/a github:repo a' >"$doctor_conf_home/.config/shdeps/10-deps.conf"
-  printf '%s\n' 'fixture/b github:repo b' >"$doctor_conf_home/overlay/20-overlay.conf"
-  ln -s "$doctor_conf_home/overlay/20-overlay.conf" \
-    "$doctor_conf_home/.config/shdeps/20-overlay.conf"
-  ln -s "$doctor_conf_home/overlay/missing.conf" \
-    "$doctor_conf_home/.config/shdeps/30-dangling.conf"
-  result=$(HOME="$doctor_conf_home" PATH="$doctor_bin:$PATH" \
+  result=$(HOME="$doctor_conf_home" PATH="$doctor_bin:$PATH" DOCTOR_HEALTH_MODE=ok \
     _doctor_records _dr_check_tools)
-  _assert_contains "doctor tools: symlinked shdeps configs are counted" \
-    $'ok\tshdeps config\t2 .conf file(s)' "$result"
+  _assert_eq "doctor tools: one row, for shdeps health, without a config dir" \
+    "$(printf '%s\n' $'section\tTools\t' \
+      $'ok\tshdeps health\tinstalled dependencies, links, and state are consistent')" \
+    "$result"
 
   # Doctor reports a vendor installer block but never rewrites the
   # tracked loaders; the grok-rc merge hook owns the strip.
@@ -1083,6 +1335,44 @@ SH
       $'skip\ttermnav zsh integration' "$integ_healthy"
   fi
 
+  # An asset that hangs is cut off at the deadline, with timeout(1) and
+  # with the builtin watchdog, and nothing it started outlives the check.
+  cp "$integ_home/share/termnav-asset.sh" "$integ_home/share/termnav-asset.sh.ok"
+  # A sleep length unique to this run, so the leftover check below cannot
+  # match another suite's process.
+  printf '%s\n' "sleep 31.$$" >"$integ_home/share/termnav-asset.sh"
+  integ_saved_home=$HOME
+  integ_saved_path=$PATH
+  HOME=$integ_home
+  PATH=$integ_bin:$PATH
+  export HOME PATH
+  for doctor_mode in timeout watchdog; do
+    doctor_started=$SECONDS
+    if [[ $doctor_mode == timeout ]]; then
+      _DR_TERMNAV_DEADLINE=1 _doctor_records _dr_check_shell_integrations \
+        >"$integ_home/hang.txt" 2>/dev/null
+    else
+      _DR_TERMNAV_DEADLINE=1 _DR_TIMEOUT_BIN='' _doctor_records _dr_check_shell_integrations \
+        >"$integ_home/hang.txt" 2>/dev/null
+    fi
+    _assert_contains "integrations: a hanging asset times out ($doctor_mode)" \
+      $'warn\ttermnav bash integration timed out' "$(cat "$integ_home/hang.txt")"
+    if ((SECONDS - doctor_started < 8)); then
+      _pass "integrations: the deadline returns promptly ($doctor_mode)"
+    else
+      _fail "integrations: the deadline returns promptly ($doctor_mode, $((SECONDS - doctor_started))s)"
+    fi
+  done
+  HOME=$integ_saved_home
+  PATH=$integ_saved_path
+  export HOME PATH
+  _assert_eq "integrations: the hung asset does not outlive the check" "" \
+    "$(
+      # shellcheck disable=SC2009 # pgrep -x matches names, not full args.
+      ps -A -o args= 2>/dev/null | grep -x "sleep 31.$$" || true
+    )"
+  mv "$integ_home/share/termnav-asset.sh.ok" "$integ_home/share/termnav-asset.sh"
+
   # A zsh-free PATH pins the skip verdict deterministically even on
   # hosts with zsh installed; bash must still answer from the asset.
   # Dropping the stub shdeps from that PATH pins the unresolvable
@@ -1091,6 +1381,8 @@ SH
   ln -s "$(command -v bash)" "$integ_nz_bin/bash"
   ln -s "$(command -v cat)" "$integ_nz_bin/cat"
   ln -s "$(command -v mktemp)" "$integ_nz_bin/mktemp"
+  # The builtin watchdog bounds the probes where timeout(1) is not on PATH.
+  ln -s "$(command -v mkfifo)" "$integ_nz_bin/mkfifo"
   ln -s "$(command -v rm)" "$integ_nz_bin/rm"
   ln -s "$(command -v sort)" "$integ_nz_bin/sort"
   integ_saved_home=$HOME
