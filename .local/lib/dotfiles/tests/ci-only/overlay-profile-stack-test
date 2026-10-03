@@ -524,13 +524,17 @@ git -C "$candidate/.dotfiles-work" remote add origin \
 _compose_profile work-available dev
 # Every scenario must report the fixture identity: a silent engine failure
 # (or a broken identity fake) shows up here instead of passing quietly.
+# Newer dots fold the profile facts into one `profile NAME (STATE;
+# includes ...; for USER@HOST)` row; older ones spell each on its own row.
 _assert_eq 'resolved Dot resolves the current public profile composition' 4 \
   "$(printf '%s' "$composition_state" |
-    grep -c 'profile identity (example-user@example-host)')"
-_assert_contains 'base composition selects the base profile' \
-  'base|selected profile (base (agreed-match))' "$composition_state"
-_assert_contains 'base composition includes only the base profile' \
-  'base|included profiles (base)' "$composition_state"
+    grep -cE 'profile identity \(example-user@example-host\)|; for example-user@example-host\)')"
+_assert_contains_either 'base composition selects the base profile' \
+  'base|selected profile (base (agreed-match))' 'base|profile base (agreed-match;' \
+  "$composition_state"
+_assert_contains_either 'base composition includes only the base profile' \
+  'base|included profiles (base)' 'base|profile base (agreed-match; includes base;' \
+  "$composition_state"
 _assert_contains 'base composition leaves nvim unselected' \
   'base|nvim: not selected' "$composition_state"
 _assert_contains 'base composition leaves dev unselected' \
@@ -539,10 +543,12 @@ _assert_contains 'base composition keeps optional personal unavailable' \
   'base|personal: selected optional but unavailable' "$composition_state"
 _assert_contains 'base composition leaves work unselected' \
   'base|work: not selected' "$composition_state"
-_assert_contains 'editor composition selects the editor profile' \
-  'editor|selected profile (editor (agreed-match))' "$composition_state"
-_assert_contains 'editor composition includes base and editor' \
-  'editor|included profiles (base editor)' "$composition_state"
+_assert_contains_either 'editor composition selects the editor profile' \
+  'editor|selected profile (editor (agreed-match))' \
+  'editor|profile editor (agreed-match;' "$composition_state"
+_assert_contains_either 'editor composition includes base and editor' \
+  'editor|included profiles (base editor)' \
+  'editor|profile editor (agreed-match; includes base editor;' "$composition_state"
 _assert_contains 'editor composition activates the resolved nvim capability' \
   'editor|nvim: local source available' "$composition_state"
 _assert_contains 'editor composition leaves dev unselected' \
@@ -551,10 +557,12 @@ _assert_contains 'editor composition keeps optional personal unavailable' \
   'editor|personal: selected optional but unavailable' "$composition_state"
 _assert_contains 'editor composition leaves work unselected' \
   'editor|work: not selected' "$composition_state"
-_assert_contains 'dev composition selects the dev profile' \
-  'dev|selected profile (dev (agreed-match))' "$composition_state"
-_assert_contains 'dev composition includes base, editor, and dev' \
-  'dev|included profiles (base editor dev)' "$composition_state"
+_assert_contains_either 'dev composition selects the dev profile' \
+  'dev|selected profile (dev (agreed-match))' 'dev|profile dev (agreed-match;' \
+  "$composition_state"
+_assert_contains_either 'dev composition includes base, editor, and dev' \
+  'dev|included profiles (base editor dev)' \
+  'dev|profile dev (agreed-match; includes base editor dev;' "$composition_state"
 _assert_contains 'dev composition activates the resolved nvim capability' \
   'dev|nvim: local source available' "$composition_state"
 _assert_contains 'dev composition activates the resolved dev capability' \
