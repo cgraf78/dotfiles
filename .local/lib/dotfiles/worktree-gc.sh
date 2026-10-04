@@ -32,7 +32,9 @@
 # Safety rules (all enforced, none optional):
 # - never `rm -rf` and never `git worktree remove --force`
 # - never touch the live $HOME checkout, any main checkout, a locked
-#   worktree, a dirty worktree, or a checkout git cannot inspect
+#   worktree, a dirty worktree, a checkout git cannot inspect, one that
+#   holds another checkout (even in an ignored folder), or one that is a
+#   process's working directory
 # - checkout removal and branch deletion use split gates. Removing a
 #   checkout is recoverable (commits and the branch ref survive), so a
 #   gone own-name upstream, an ancestry proof, or a content proof each
@@ -74,7 +76,6 @@ _WORKTREE_GC_NO_FETCH=0
 _WORKTREE_GC_HAVE_PRED=0
 _WORKTREE_GC_FETCHED=$'\n'
 _WORKTREE_GC_FRESH=$'\n'
-_WORKTREE_GC_TOUCHED=$'\n'
 # Per-repo caches, keyed by common git dir. A sweep fans out to dozens of
 # checkouts per repo, so one `worktree list` fetch and one phys→registered
 # index serve the whole repo instead of paying per checkout (the base ref
@@ -87,6 +88,11 @@ _WORKTREE_GC_LIST_MAINS=()
 _WORKTREE_GC_MAP_COMMON=()
 _WORKTREE_GC_MAP_PHYS=()
 _WORKTREE_GC_MAP_REG=()
+# Physical live registered checkouts and process working directories, loaded
+# once per sweep for the nested-checkout and in-use gates.
+_WORKTREE_GC_LIVE=()
+_WORKTREE_GC_CWDS=()
+_WORKTREE_GC_CWDS_LOADED=0
 _WORKTREE_GC_N_REMOVED=0
 _WORKTREE_GC_N_BRANCHES=0
 _WORKTREE_GC_N_BRANCHES_KEPT=0
@@ -106,8 +112,10 @@ usage: dot-worktree-gc [--older-than N[d]] [--dry-run|--apply] [--no-fetch]
   ~/worktrees and ~/git/.worktrees (one grouping folder deep), the
   .worktrees of every ~/git/* and ~/.dotfiles-* clone, and checkouts the
   base dotfiles repo registered anywhere.
-  Dry run is the default; --apply performs removals. --root adds a
-  worktree root (its children only) to the sweep and may repeat.
+  Dry run is the default; --apply performs removals, and ignored files
+  (caches, build output, .env) in a removed checkout go with it.
+  --root adds a worktree root (its children only) to the sweep and may
+  repeat.
   --no-fetch proves against local refs without touching the network.
   Records print on stdout; diagnostics and the tally go to stderr.
 USAGE
@@ -514,10 +522,6 @@ _worktree_gc_remove() {
   _worktree_gc_drop_repo_cache "$common"
   if ((remove_status == 0)); then
     _worktree_gc_record removed "$dir" "$reason"
-    case $'\n'"$_WORKTREE_GC_TOUCHED"$'\n' in
-      *$'\n'"$common"$'\n'*) ;;
-      *) _WORKTREE_GC_TOUCHED+="$common"$'\n' ;;
-    esac
     case $action in
       delete)
         if worktree_gc_delete_branch "$common" "$branch" "$proof_oid" 2>/dev/null; then
@@ -537,6 +541,96 @@ _worktree_gc_remove() {
     [[ -n $err ]] || err="git worktree remove failed"
     _worktree_gc_record failed "$dir" "$err"
   fi
+}
+
+# Succeed when `status --porcelain --ignored` output shows uncommitted or
+# untracked changes; ignored (`!!`) lines alone are clean.
+_worktree_gc_dirty() {
+  local line
+  while IFS= read -r line; do
+    [[ -n $line && $line != '!! '* ]] && return 0
+  done <<<"$1"
+  return 1
+}
+
+# Succeed, naming the nested checkout via REPLY (relative to DIR), when DIR
+# holds another checkout: removing DIR would delete it, `.git` and all, with
+# any work in it, because a nested checkout in an ignored folder (a global
+# ignore of `.worktrees/`, say) is invisible to the dirty gate and to Git's
+# own clean check. Two sources, neither spawning a process: every live
+# checkout a clone root or an indexed repository registered (any depth), and
+# a `.git` at or up to two levels below each ignored directory the status
+# already listed (unregistered clones included).
+_worktree_gc_nested() {
+  local dir=$1 status_out=$2 path line entry
+  REPLY=
+  for path in ${_WORKTREE_GC_LIVE[@]+"${_WORKTREE_GC_LIVE[@]}"} \
+    ${_WORKTREE_GC_MAP_PHYS[@]+"${_WORKTREE_GC_MAP_PHYS[@]}"}; do
+    if [[ $path == "$dir"/* ]]; then
+      REPLY=${path#"$dir"/}
+      return 0
+    fi
+  done
+  while IFS= read -r line; do
+    [[ $line == '!! '*/ ]] || continue
+    entry=${line#'!! '}
+    entry=${entry%/}
+    # Porcelain quotes unusual names; those are not walked (rare, and a
+    # quoted name never matches a real path here).
+    [[ $entry != \"* ]] || continue
+    for path in "$dir/$entry/.git" "$dir/$entry"/*/.git "$dir/$entry"/*/*/.git; do
+      if [[ -e $path ]]; then
+        path=${path%/.git}
+        REPLY=${path#"$dir"/}
+        return 0
+      fi
+    done
+  done <<<"$status_out"
+  return 1
+}
+
+# Succeed when some process's working directory is DIR or inside it: an idle
+# shell or agent session parked in a checkout is still using it. Reads the
+# working directories once per sweep, on first use (_worktree_gc_load_cwds),
+# so only a sweep with a removable checkout pays; where they cannot be read
+# the check is skipped. Must run in the main shell.
+_worktree_gc_in_use() {
+  local dir=$1 cwd
+  ((_WORKTREE_GC_CWDS_LOADED == 1)) || _worktree_gc_load_cwds
+  for cwd in ${_WORKTREE_GC_CWDS[@]+"${_WORKTREE_GC_CWDS[@]}"}; do
+    [[ $cwd == "$dir" || $cwd == "$dir"/* ]] && return 0
+  done
+  return 1
+}
+
+# Fill _WORKTREE_GC_CWDS with every readable process working directory, from
+# /proc in one find pass (GNU find's %l prints a link target with no
+# per-process spawn). Other users' processes are unreadable and skipped;
+# without /proc (macOS, BSD) or a find that knows -printf, the list stays
+# empty and the in-use check never fires. Must run in the main shell.
+_worktree_gc_load_cwds() {
+  local -a links=()
+  _WORKTREE_GC_CWDS=()
+  _WORKTREE_GC_CWDS_LOADED=1
+  [[ -d /proc/self ]] || return 0
+  links=(/proc/[0-9]*/cwd)
+  [[ -e ${links[0]} || -L ${links[0]} ]] || return 0
+  mapfile -t _WORKTREE_GC_CWDS < <(find "${links[@]}" -maxdepth 0 -printf '%l\n' 2>/dev/null)
+  return 0
+}
+
+# Fill _WORKTREE_GC_LIVE with the physical path of every live checkout a
+# clone root registered (the doctor's admin scan: file reads only), for the
+# nested-checkout gate. Must run in the main shell.
+_worktree_gc_load_live() {
+  local path phys
+  _WORKTREE_GC_LIVE=()
+  _dr_worktree_admin_scan
+  for path in ${_DR_WORKTREE_ADMIN_LIVE[@]+"${_DR_WORKTREE_ADMIN_LIVE[@]}"}; do
+    phys=$(_dr_worktree_physical "$path")
+    [[ -n $phys ]] && _WORKTREE_GC_LIVE+=("$phys")
+  done
+  return 0
 }
 
 # Run the gate sequence for one candidate: young checkouts are kept and
@@ -590,13 +684,24 @@ _worktree_gc_process() {
   # Untracked files are asked for explicitly: a repository that sets
   # status.showUntrackedFiles=no (the base client does, and its worktrees
   # inherit it) would otherwise hide new files, and removal would lose them.
+  # Ignored entries are listed too (`!!`, an ignored directory as one
+  # line): they are not dirt, but one may hide a nested checkout, which
+  # neither this gate nor Git's own clean check would otherwise see.
   if ! status_out=$(git --no-optional-locks -c core.fsmonitor=false \
-    -C "$dir" status --porcelain --untracked-files=normal 2>/dev/null); then
+    -C "$dir" status --porcelain --untracked-files=normal --ignored 2>/dev/null); then
     _worktree_gc_record skipped "$dir" "broken git pointer"
     return 0
   fi
-  if [[ -n $status_out ]]; then
+  if _worktree_gc_dirty "$status_out"; then
     _worktree_gc_record skipped "$dir" "dirty (uncommitted/untracked changes)"
+    return 0
+  fi
+  if _worktree_gc_nested "$dir" "$status_out"; then
+    _worktree_gc_record skipped "$dir" "contains another checkout ($REPLY)"
+    return 0
+  fi
+  if _worktree_gc_in_use "$dir"; then
+    _worktree_gc_record skipped "$dir" "in use (a process's working directory)"
     return 0
   fi
   if ! branch=$(git -C "$dir" branch --show-current 2>/dev/null); then
@@ -651,15 +756,6 @@ _worktree_gc_load_predicate() {
     _worktree_gc_err "degraded proof: $gt_lib not found; content-merge detection disabled"
   fi
   return 0
-}
-
-# Prune worktree admin entries for every repo that lost a checkout.
-_worktree_gc_prune_touched() {
-  local common
-  while IFS= read -r common || [[ -n $common ]]; do
-    [[ -n $common ]] || continue
-    git --git-dir="$common" worktree prune 2>/dev/null || true
-  done <<<"$_WORKTREE_GC_TOUCHED"
 }
 
 _worktree_gc_tally() {
@@ -756,7 +852,6 @@ worktree_gc_main() {
   _WORKTREE_GC_AGE=$age
   _WORKTREE_GC_FETCHED=$'\n'
   _WORKTREE_GC_FRESH=$'\n'
-  _WORKTREE_GC_TOUCHED=$'\n'
   _WORKTREE_GC_LIST_COMMONS=()
   _WORKTREE_GC_LIST_TEXTS=()
   _WORKTREE_GC_LIST_MAINS=()
@@ -772,6 +867,9 @@ worktree_gc_main() {
   _WORKTREE_GC_N_SKIPPED=0
   _WORKTREE_GC_N_FAILED=0
   _worktree_gc_load_predicate
+  _worktree_gc_load_live
+  _WORKTREE_GC_CWDS=()
+  _WORKTREE_GC_CWDS_LOADED=0
 
   if ((${#extra_roots[@]} > 0)); then
     mapfile -t cands < <(_worktree_gc_candidates "${extra_roots[@]}")
@@ -794,9 +892,10 @@ worktree_gc_main() {
     done
   fi
 
-  if ((_WORKTREE_GC_APPLY == 1)); then
-    _worktree_gc_prune_touched
-  fi
+  # No `git worktree prune` afterwards: `worktree remove` already deletes the
+  # removed checkout's admin entry, and a repo-wide prune would also drop the
+  # entry of any checkout that was moved without repair, orphaning it. The
+  # doctor reports truly prunable entries with the prune command.
   _worktree_gc_tally
   if ((_WORKTREE_GC_N_FAILED > 0)); then
     return 2

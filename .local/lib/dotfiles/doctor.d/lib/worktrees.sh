@@ -1120,19 +1120,25 @@ _dr_worktree_old_checkouts() {
 # A pointer that cannot be read or parsed is not called an orphan: nothing
 # names what is missing.
 _dr_worktree_orphan() {
-  local dir=$1 first='' target
+  _dr_worktree_pointer "$1" || return 1
+  [[ ! -e $REPLY ]] || return 1
+}
+
+# Report the target of a checkout's `.git` pointer file via REPLY (a
+# relative target joined to the checkout), or fail when `.git` is not a
+# readable `gitdir:` pointer. File read only.
+_dr_worktree_pointer() {
+  local dir=$1 first=''
   REPLY=
   [[ -f $dir/.git ]] || return 1
   { IFS= read -r first || [[ -n $first ]]; } 2>/dev/null <"$dir/.git" || return 1
   # Git strips a trailing CR (a pointer written on Windows); so must this.
   first=${first%$'\r'}
   case $first in
-    'gitdir: '/*) target=${first#gitdir: } ;;
-    'gitdir: '?*) target=$dir/${first#gitdir: } ;;
+    'gitdir: '/*) REPLY=${first#gitdir: } ;;
+    'gitdir: '?*) REPLY=$dir/${first#gitdir: } ;;
     *) return 1 ;;
   esac
-  [[ ! -e $target ]] || return 1
-  REPLY=$target
 }
 
 # Describe an orphan's missing pointer target for display, via REPLY: the
@@ -1238,24 +1244,64 @@ _dr_worktree_join_samples() {
 # entries (warn, with the prune command) and locked entries (reported for
 # visibility; a lock is deliberate, but a forgotten one hides a checkout
 # from prune and from dot-worktree-gc forever).
+#
+# An entry whose checkout was moved (a candidate's `.git` still points at
+# it) is not prunable: pruning would orphan a live checkout. Those get their
+# own row with the repair command; the candidates (the checkouts the check
+# found, passed as arguments) are read only when some entry looks prunable.
 _dr_worktree_report_admin() {
-  local entry repo id label
-  local -a samples=()
+  local entry repo id label common admin dir moved_to i
+  local -a samples=() prunable=() moved=() pointers=() pointer_dirs=()
 
+  if ((${#_DR_WORKTREE_ADMIN_PRUNABLE[@]} > 0)); then
+    for dir in "$@"; do
+      _dr_worktree_pointer "$dir" || continue
+      pointers+=("$REPLY")
+      pointer_dirs+=("$dir")
+    done
+  fi
   for entry in ${_DR_WORKTREE_ADMIN_PRUNABLE[@]+"${_DR_WORKTREE_ADMIN_PRUNABLE[@]}"}; do
+    repo=${entry%%$'\t'*}
+    id=${entry#*$'\t'}
+    common=$repo
+    [[ -d $repo/.git ]] && common=$repo/.git
+    admin=$common/worktrees/$id
+    moved_to=
+    for ((i = 0; i < ${#pointers[@]}; i++)); do
+      if [[ -d $admin && ${pointers[$i]} -ef $admin ]]; then
+        moved_to=${pointer_dirs[$i]}
+        break
+      fi
+    done
+    if [[ -n $moved_to ]]; then
+      moved+=("$(_dr_worktree_display "$moved_to") (entry $id of $(_dr_worktree_display "$repo"))")
+    else
+      prunable+=("$entry")
+    fi
+  done
+  for entry in ${prunable[@]+"${prunable[@]}"}; do
     ((${#samples[@]} < _DR_WORKTREE_STALE_LIST_LIMIT)) || break
     repo=${entry%%$'\t'*}
     id=${entry#*$'\t'}
     samples+=("$(_dr_worktree_display "$repo"): $id")
   done
-  if ((${#_DR_WORKTREE_ADMIN_PRUNABLE[@]} > 0)); then
-    _dr_worktree_join_samples "${#_DR_WORKTREE_ADMIN_PRUNABLE[@]}" "${samples[@]}"
-    if ((${#_DR_WORKTREE_ADMIN_PRUNABLE[@]} == 1)); then
+  if ((${#prunable[@]} > 0)); then
+    _dr_worktree_join_samples "${#prunable[@]}" "${samples[@]}"
+    if ((${#prunable[@]} == 1)); then
       label="1 prunable worktree entry"
     else
-      label="${#_DR_WORKTREE_ADMIN_PRUNABLE[@]} prunable worktree entries"
+      label="${#prunable[@]} prunable worktree entries"
     fi
     _dr_warn "$label" "$REPLY; their checkouts are gone: run 'git -C <repo> worktree prune'"
+  fi
+  if ((${#moved[@]} > 0)); then
+    _dr_worktree_join_samples "${#moved[@]}" "${moved[@]:0:_DR_WORKTREE_STALE_LIST_LIMIT}"
+    if ((${#moved[@]} == 1)); then
+      label="1 moved worktree is not repaired"
+    else
+      label="${#moved[@]} moved worktrees are not repaired"
+    fi
+    _dr_warn "$label" "$REPLY; run 'git -C <path> worktree repair' there (pruning would orphan them)"
   fi
 
   samples=()
@@ -1487,11 +1533,15 @@ _dr_check_worktrees() {
       # always keeps, and a worktree another clone registered elsewhere
       # belongs to whatever tool made it. Those are the only ones the row
       # names, since the gc's dry run lists everything else.
+      # A checkout holding another one is kept too: removing it would
+      # delete the nested checkout with it.
       entry=
       if ! _dr_worktree_is_linked "$dir"; then
         entry=", standalone clone"
       elif [[ -z ${swept["$dir"]+x} ]]; then
         entry=", outside the swept roots"
+      elif [[ $all == *$'\n'"$dir"/* ]]; then
+        entry=", contains another checkout"
       fi
       manual=$entry
       _DR_WORKTREE_STALE_ENTRIES+=("$dir"$'\t'"$reason$manual")
@@ -1523,7 +1573,7 @@ _dr_check_worktrees() {
     ((merged_count == 0)) || hint="$merged_count merged"
     ((gone_count == 0)) || hint+="${hint:+, }$gone_count with upstream gone"
     if ((manual_count < stale_count)); then
-      hint+="; run 'dot-worktree-gc' to list (dry run; it can also prove squash merges), then 'dot-worktree-gc --apply' to remove"
+      hint+="; run 'dot-worktree-gc' to list (dry run; it can also prove squash merges), then 'dot-worktree-gc --apply' to remove (ignored files such as caches and build output go too)"
     fi
     if ((manual_count > 0)); then
       _dr_worktree_join_samples "$manual_count" "${manual_samples[@]}"
@@ -1564,6 +1614,6 @@ _dr_check_worktrees() {
     _dr_warn "$label" "$REPLY; run 'git -C <path> status' to see why"
   fi
   _dr_worktree_report_orphans ${orphans[@]+"${orphans[@]}"}
-  _dr_worktree_report_admin
+  _dr_worktree_report_admin ${live[@]+"${live[@]}"}
   return 0
 }

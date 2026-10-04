@@ -911,7 +911,7 @@ _assert_not_contains "activity: a fresh index keeps a checkout active" \
 _assert_contains "activity: a standalone clone is labelled" \
   "act-idle (merged into origin/main, standalone clone)" "$result"
 _assert_contains "activity: mixed rows send worktrees to the gc and clones by hand" \
-  "then 'dot-worktree-gc --apply' to remove; delete 1 by hand once reviewed, dot-worktree-gc keeps it: ~/.worktrees/act-idle" \
+  "then 'dot-worktree-gc --apply' to remove (ignored files such as caches and build output go too); delete 1 by hand once reviewed, dot-worktree-gc keeps it: ~/.worktrees/act-idle" \
   "$result"
 
 echo ""
@@ -1265,7 +1265,7 @@ _assert_not_contains "groups: nothing is outside the swept roots" \
   "outside the swept roots" "$result"
 grp_row=$(grep $'^warn\t3 stale worktrees' <<<"$result")
 _assert_contains "groups: the stale row counts by reason" \
-  $'\t3 merged; run \'dot-worktree-gc\' to list (dry run; it can also prove squash merges), then \'dot-worktree-gc --apply\' to remove' \
+  $'\t3 merged; run \'dot-worktree-gc\' to list (dry run; it can also prove squash merges), then \'dot-worktree-gc --apply\' to remove (ignored files such as caches and build output go too)' \
   "$grp_row"
 _assert_not_contains "groups: the stale row lists no gc-removable path" "g-" "$grp_row"
 
@@ -1506,6 +1506,46 @@ result=$(HOME="$tag_home" DOTFILES="$tag_home/.dotfiles" \
   _doctor_records _dr_check_worktrees)
 _assert_contains "edge: a tag at origin/main still bases on origin/main" \
   "tagged (merged into origin/main, standalone clone)" "$result"
+
+echo ""
+echo "=== Nested and moved checkouts ==="
+
+# A stale checkout holding another checkout (here in a folder Git ignores)
+# is not the gc's to remove: removing it would delete the nested one.
+nest_home2=$(_tmpdir)
+nest_origin2=$(_tmpdir)
+_seed_origin "$nest_origin2/origin.git"
+_clone_worktree "$nest_origin2/origin.git" "$nest_home2/git/alpha"
+mkdir -p "$nest_home2/worktrees/grp2"
+git -C "$nest_home2/git/alpha" worktree add "$nest_home2/worktrees/grp2/f" --detach main >/dev/null 2>&1
+git -C "$nest_home2/git/alpha" worktree add "$nest_home2/worktrees/grp2/f/.worktrees/inner" -b inner >/dev/null 2>&1
+printf '%s\n' '.worktrees/' >>"$nest_home2/git/alpha/.git/info/exclude"
+git -C "$nest_home2/worktrees/grp2/f" checkout -q -b f-merged >/dev/null 2>&1
+_make_old "$nest_home2/worktrees/grp2/f"
+result=$(HOME="$nest_home2" DOTFILES="$nest_home2/.dotfiles" \
+  _doctor_records _dr_check_worktrees)
+_assert_contains "nested: a checkout holding another is kept" \
+  $'stale-entry\t~/worktrees/grp2/f (merged into origin/main, contains another checkout)' "$result"
+_assert_not_contains "nested: the row does not send it to the gc" "'dot-worktree-gc --apply'" "$result"
+
+# A prunable-looking entry whose checkout was only moved is a repair, not a
+# prune: pruning would orphan the moved checkout.
+mv_home=$(_tmpdir)
+mv_origin=$(_tmpdir)
+_seed_origin "$mv_origin/origin.git"
+git clone "$mv_origin/origin.git" "$mv_home/git/alpha" >/dev/null 2>&1
+mkdir -p "$mv_home/.worktrees"
+git -C "$mv_home/git/alpha" worktree add "$mv_home/.worktrees/before" -b mv1 >/dev/null 2>&1
+git -C "$mv_home/git/alpha" worktree add "$mv_home/.worktrees/deleted" -b mv2 >/dev/null 2>&1
+mv "$mv_home/.worktrees/before" "$mv_home/.worktrees/after"
+rm -rf "$mv_home/.worktrees/deleted"
+result=$(HOME="$mv_home" DOTFILES="$mv_home/.dotfiles" \
+  _doctor_records _dr_check_worktrees)
+_assert_contains "moved: a deleted checkout's entry is still prunable" \
+  $'warn\t1 prunable worktree entry\t~/git/alpha: deleted;' "$result"
+_assert_contains "moved: a moved checkout gets the repair row" \
+  $'warn\t1 moved worktree is not repaired\t~/.worktrees/after (entry before of ~/git/alpha);' "$result"
+_assert_contains "moved: the repair row warns off pruning" "pruning would orphan them" "$result"
 
 echo ""
 echo "=== Symlinked HOME ==="

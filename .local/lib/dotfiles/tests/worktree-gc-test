@@ -1226,6 +1226,67 @@ _assert_contains "groups: a gone local upstream is no proof" \
 _assert_file_exists "groups: the local-upstream checkout survives apply" \
   "$grp_home/git/worktrees/batch/g-local/local-only.txt"
 
+# A nested checkout in a folder Git ignores (a global ignore of
+# `.worktrees/`) is invisible to the dirty gate and to Git's own clean
+# check: removing its old, clean, merged parent would delete it, uncommitted
+# work and all. The parent is kept, whether the nested checkout is a
+# registered worktree or an unregistered clone.
+_grp_merged_worktree "$grp_home/worktrees/grp2/f" feat-g-parent
+git -C "$main" worktree add "$grp_home/worktrees/grp2/f/.worktrees/inner" -b g-inner >/dev/null 2>&1
+printf '%s\n' 'inner edit' >>"$grp_home/worktrees/grp2/f/.worktrees/inner/file.txt"
+printf '%s\n' 'new' >"$grp_home/worktrees/grp2/f/.worktrees/inner/untracked.txt"
+_grp_merged_worktree "$grp_home/worktrees/grp2/g" feat-g-parent2
+git clone "$grp_origin" "$grp_home/worktrees/grp2/g/.worktrees/grp/clone" >/dev/null 2>&1
+printf '%s\n' 'clone work' >"$grp_home/worktrees/grp2/g/.worktrees/grp/clone/work.txt"
+printf '%s\n' '.worktrees/' >>"$main/.git/info/exclude"
+_gc_make_old "$grp_home/worktrees/grp2/f"
+_gc_make_old "$grp_home/worktrees/grp2/g"
+result=$(HOME="$grp_home" DOTFILES="$grp_home/.dotfiles" "$GC" --apply 2>/dev/null)
+_assert_contains "nested: a registered nested worktree keeps its parent" \
+  "$(printf 'skipped\t%s\tcontains another checkout (.worktrees/inner)' "$grp_home/worktrees/grp2/f")" "$result"
+_assert_contains "nested: an ignored nested clone keeps its parent" \
+  "$(printf 'skipped\t%s\tcontains another checkout (.worktrees/grp/clone)' "$grp_home/worktrees/grp2/g")" "$result"
+_assert_file_exists "nested: the nested worktree's untracked work survives" \
+  "$grp_home/worktrees/grp2/f/.worktrees/inner/untracked.txt"
+_assert_file_exists "nested: the nested clone's work survives" \
+  "$grp_home/worktrees/grp2/g/.worktrees/grp/clone/work.txt"
+
+# A checkout that is some process's working directory is in use: an idle
+# shell parked there keeps it. (Linux /proc only; skipped elsewhere.)
+if [[ -d /proc/self ]]; then
+  _grp_merged_worktree "$grp_home/worktrees/g-busy" feat-g-busy
+  _gc_make_old "$grp_home/worktrees/g-busy"
+  (cd "$grp_home/worktrees/g-busy" && exec sleep 60) &
+  busy_pid=$!
+  busy_deadline=$((SECONDS + 10))
+  until [[ /proc/$busy_pid/cwd -ef $grp_home/worktrees/g-busy ]] || ((SECONDS > busy_deadline)); do
+    sleep 0.1
+  done
+  result=$(HOME="$grp_home" DOTFILES="$grp_home/.dotfiles" "$GC" --apply 2>/dev/null)
+  kill "$busy_pid" 2>/dev/null
+  wait "$busy_pid" 2>/dev/null
+  _assert_contains "in use: a process's working directory is kept" \
+    "$(printf 'skipped\t%s\tin use (a process\x27s working directory)' "$grp_home/worktrees/g-busy")" "$result"
+  _assert_file_exists "in use: the busy checkout survives apply" "$grp_home/worktrees/g-busy/.git"
+  result=$(HOME="$grp_home" DOTFILES="$grp_home/.dotfiles" "$GC" --apply 2>/dev/null)
+  _assert_contains "in use: once idle it is removable again" \
+    "$(printf 'removed\t%s\tmerged into origin/main' "$grp_home/worktrees/g-busy")" "$result"
+else
+  echo "  - skipping in-use case (no /proc)"
+fi
+
+# Removal no longer prunes the repository afterwards: a checkout moved
+# without repair keeps its admin entry and stays usable.
+_grp_merged_worktree "$grp_home/worktrees/g-moving" feat-g-moving
+mv "$grp_home/worktrees/g-moving" "$grp_home/elsewhere/g-moved"
+_grp_merged_worktree "$grp_home/worktrees/g-gone-now" feat-g-gone-now
+_gc_make_old "$grp_home/worktrees/g-gone-now"
+result=$(HOME="$grp_home" DOTFILES="$grp_home/.dotfiles" "$GC" --apply 2>/dev/null)
+_assert_contains "prune: the old checkout is removed" \
+  "$(printf 'removed\t%s\t' "$grp_home/worktrees/g-gone-now")" "$result"
+git -C "$grp_home/elsewhere/g-moved" status --porcelain >/dev/null 2>&1
+_assert_exit "prune: a moved checkout is not orphaned by the sweep" 0 "$?"
+
 # Without DOTFILES in the environment (an interactive shell), the gc still
 # reads the base client's registered checkouts from the client default, as
 # the doctor, which always sets it, does.
