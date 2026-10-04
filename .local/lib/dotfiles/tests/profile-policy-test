@@ -26,7 +26,9 @@ _assert_file_content_exact() {
 
 profile_root=$source_home/.config/dot/profiles.d
 overlay_root=$source_home/.config/dot/overlays.d
-stack_test=$source_home/.local/lib/dotfiles/tests/overlay-profile-stack-test
+tests_root=$source_home/.local/lib/dotfiles/tests
+stack_row=.local/lib/dotfiles/tests/ci-only/overlay-profile-stack-test
+stack_test=$source_home/$stack_row
 
 transport_bin=$(_tmpdir)
 transport_log=$transport_bin/git.log
@@ -46,12 +48,12 @@ local_stack_output=$(
     GITHUB_ACTIONS=false DOT_TEST_TRANSPORT_LOG="$transport_log" \
     PATH="$transport_bin:$PATH" "$stack_test" 2>&1
 ) || local_stack_status=$?
-_assert_exit 'installed stack test skips without the resolved runtime' \
+_assert_exit 'direct local stack test skips without the resolved runtime' \
   0 "$local_stack_status"
-_assert_contains 'installed stack test explains the CI-only boundary' \
+_assert_contains 'direct local stack test explains the CI-only boundary' \
   'SKIP: profile-stack integration requires its resolved CI runtime' \
   "$local_stack_output"
-_assert_file_content_exact 'installed stack test performs no Git transport' \
+_assert_file_content_exact 'direct local stack test performs no Git transport' \
   '' "$transport_log"
 
 ci_stack_status=0
@@ -69,6 +71,140 @@ _assert_contains 'CI stack test explains the missing runtime' \
   "$ci_stack_output"
 _assert_file_content_exact 'failed CI stack test performs no Git transport' \
   '' "$transport_log"
+
+# The stack suite is CI-only: it lives below Dot's top-level `*-test`
+# discovery so local `dot test` never lists it, while the literal inventory
+# keeps `run-ci` selecting it. Guard both halves so a move cannot silently
+# drop it from CI or bring it back into local runs.
+if [[ -f $stack_test && -x $stack_test && ! -L $stack_test ]]; then
+  _pass 'stack suite is an executable CI-only suite'
+else
+  _fail 'stack suite is an executable CI-only suite'
+fi
+_assert_file_missing 'stack suite stays outside local top-level discovery' \
+  "$tests_root/overlay-profile-stack-test"
+_assert_eq 'CI inventory lists the CI-only stack suite exactly once' 1 \
+  "$(grep -Fxc "$stack_row" "$source_home/.github/dot-test-suites.txt")"
+
+# Exercise `run-ci` set selection hermetically: a copied runner over a
+# synthetic suite tree, driven by a fake release-shaped Dot that records each
+# invocation instead of running suites.
+_check_run_ci_sets() {
+  local runner_root runner_tests runner_inventory fake_dot runner_log
+  local runner_status runner_output
+  runner_root=$(_tmpdir)
+  # run-ci resolves its root physically; match that spelling so the fake Dot can
+  # strip it even when TMPDIR crosses a symlink (macOS /var -> /private/var).
+  runner_root=$(cd -P -- "$runner_root" && pwd -P)
+  runner_tests=$runner_root/.local/lib/dotfiles/tests
+  mkdir -p "$runner_root/.github" "$runner_tests/ci-only"
+  cp "$tests_root/run-ci" "$tests_root/dot-runtime-resolve.sh" "$runner_tests/"
+  printf '#!/bin/sh\nexit 0\n' >"$runner_tests/alpha-test"
+  printf '#!/bin/sh\nexit 0\n' >"$runner_tests/ci-only/beta-test"
+  chmod 0755 "$runner_tests/alpha-test" "$runner_tests/ci-only/beta-test"
+  runner_inventory=$runner_root/.github/dot-test-suites.txt
+  printf '%s\n' .local/lib/dotfiles/tests/alpha-test \
+    .local/lib/dotfiles/tests/ci-only/beta-test >"$runner_inventory"
+
+  fake_dot=$(_tmpdir)
+  mkdir -p "$fake_dot/lib/dot/public"
+  : >"$fake_dot/lib/dot/public/xdg.sh"
+  runner_log=$fake_dot/invocations.log
+  # shellcheck disable=SC2016 # The fake Dot expands its own variables.
+  printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    'if [[ $1 == version ]]; then' \
+    '  printf "dot 20260101-000000-0123abcd (fake)\n"' \
+    '  exit 0' \
+    'fi' \
+    'set_dir=${DOT_TEST_TESTS_DIR#"$RUNNER_ROOT"/.local/lib/dotfiles/}' \
+    'tag=${DOT_STACK_DOT_RELEASE_TAG-unset}' \
+    'printf "%s|%s|%s\n" "$set_dir" "$*" "$tag" >>"$RUNNER_LOG"' \
+    '[[ " ${RUNNER_FAIL_SETS:-} " != *" $set_dir "* ]] || {' \
+    '  [[ $set_dir == tests ]] && exit 3' \
+    '  exit 4' \
+    '}' >"$fake_dot/dot"
+  chmod 0755 "$fake_dot/dot"
+
+  _run_ci_fixture() {
+    : >"$runner_log"
+    env -u DOT_STACK_GROUP -u DOT_STACK_DOT_ORIGIN \
+      -u DOT_STACK_DOT_RELEASE_REPO \
+      -u DOT_TEST_TESTS_DIR -u DOTFILES_CANDIDATE_SHA \
+      GITHUB_ACTIONS=false RUNNER_ROOT="$runner_root" RUNNER_LOG="$runner_log" \
+      DOT_STACK_RUNTIME=1 \
+      DOT_STACK_DOT_SHA=0123abcd00000000000000000000000000000000 \
+      DOT_STACK_DOT_ROOT="$fake_dot" DOT_STACK_DOT_BIN="$fake_dot/dot" \
+      DOT_STACK_DOT_RELEASE_TAG=20260101-000000-0123abcd \
+      PATH="$fake_dot:$PATH" "$@" "$runner_tests/run-ci" 2>&1
+  }
+
+  runner_status=0
+  runner_output=$(_run_ci_fixture) || runner_status=$?
+  _assert_exit 'run-ci runs the top-level and CI-only sets' 0 "$runner_status"
+  _assert_eq 'run-ci selects each set from its own discovery directory' \
+    $'tests|test alpha|unset\ntests/ci-only|test beta|unset' \
+    "$(<"$runner_log")"
+
+  # The fake exits 3 for a failing top-level set, 4 for a failing CI-only set.
+  runner_status=0
+  runner_output=$(_run_ci_fixture env RUNNER_FAIL_SETS=tests/ci-only) ||
+    runner_status=$?
+  _assert_exit 'run-ci fails when the CI-only set fails' 4 "$runner_status"
+
+  runner_status=0
+  runner_output=$(_run_ci_fixture env RUNNER_FAIL_SETS=tests) ||
+    runner_status=$?
+  _assert_exit 'run-ci fails when the top-level set fails' 3 "$runner_status"
+  _assert_eq 'run-ci still runs the CI-only set after a top-level failure' 2 \
+    "$(awk 'END { print NR }' "$runner_log")"
+
+  runner_status=0
+  runner_output=$(_run_ci_fixture env RUNNER_FAIL_SETS='tests tests/ci-only') ||
+    runner_status=$?
+  _assert_exit 'run-ci reports the first failing set status' 3 "$runner_status"
+
+  runner_status=0
+  runner_output=$(_run_ci_fixture env -u DOT_STACK_RUNTIME) || runner_status=$?
+  _assert_exit 'run-ci fails closed without the resolved runtime' 1 \
+    "$runner_status"
+  _assert_contains 'run-ci explains the missing resolved runtime' \
+    'must run through stack-dot-runtime' "$runner_output"
+  _assert_file_content_exact 'run-ci without the runtime runs no suites' \
+    '' "$runner_log"
+
+  printf '#!/bin/sh\nexit 0\n' >"$runner_tests/ci-only/gamma-test"
+  chmod 0755 "$runner_tests/ci-only/gamma-test"
+  runner_status=0
+  runner_output=$(_run_ci_fixture) || runner_status=$?
+  _assert_exit 'run-ci rejects an unlisted CI-only suite' 1 "$runner_status"
+  _assert_contains 'run-ci reports the unlisted CI-only suite' \
+    '+.local/lib/dotfiles/tests/ci-only/gamma-test' "$runner_output"
+  rm "$runner_tests/ci-only/gamma-test"
+
+  mkdir -p "$runner_tests/nested"
+  printf '#!/bin/sh\nexit 0\n' >"$runner_tests/nested/delta-test"
+  chmod 0755 "$runner_tests/nested/delta-test"
+  printf '%s\n' .local/lib/dotfiles/tests/nested/delta-test \
+    >>"$runner_inventory"
+  runner_status=0
+  runner_output=$(_run_ci_fixture) || runner_status=$?
+  _assert_exit 'run-ci rejects suites outside the two selected directories' 1 \
+    "$runner_status"
+  _assert_contains 'run-ci reports the unselectable inventory row' \
+    'invalid suite inventory row: .local/lib/dotfiles/tests/nested/delta-test' \
+    "$runner_output"
+  _assert_file_content_exact 'run-ci with an invalid inventory runs no suites' \
+    '' "$runner_log"
+}
+
+# run-ci itself needs Bash 4+ (associative arrays), which every CI leg that
+# runs it provides. Hosts whose `bash` is older cannot run run-ci at all.
+if bash -c '((BASH_VERSINFO[0] >= 4))' 2>/dev/null; then
+  _check_run_ci_sets
+else
+  echo "NOTE: run-ci set checks need Bash 4+; skipped for $(command -v bash)"
+fi
 
 _assert_file_content_exact 'base profile selects optional personal' \
   $'version=1\noverlays=personal' "$profile_root/base.conf"

@@ -156,7 +156,7 @@ describe fresh installations, not the disk use of a machine after it has
 previously used a larger profile.
 
 Shdeps payloads are reclaimed automatically instead: the auto-update cron runs
-`DOT_SHDEPS_PRUNE=cron dot update --cron`, so Dot runs `shdeps prune -y` itself
+`dot update --cron`, which prunes by default, so Dot runs `shdeps prune -y` itself
 as the `Prune` stage right after `Tools`. Dot prunes while holding its update
 lock, and only after repository sync and overlay linking succeeded, so a frozen
 or partially synchronized generation is never pruned; a dependency or post hook
