@@ -203,8 +203,9 @@ _gc_build_matrix() {
   _gc_clone_main "$origin" "$home/.worktrees/plain-clone"
   _gc_make_old "$home/.worktrees/plain-clone"
 
-  # Old directory without git metadata: skipped.
+  # Nonempty old directory without Git metadata: preserve its unknown files.
   mkdir -p "$home/.worktrees/no-git"
+  printf '%s\n' 'unknown work' >"$home/.worktrees/no-git/.note"
   _gc_make_old "$home/.worktrees/no-git"
 
   # Old, .git pointer whose repo was deleted: skipped.
@@ -1666,5 +1667,122 @@ _assert_file_missing "pin: superseded checkout gone" "$pin_wt/.git"
 git -C "$pr_main" rev-parse --verify -q refs/heads/repin >/dev/null 2>&1
 _assert_exit "pin: original dependency snapshot branch survives" 0 "$?"
 unset PR_TIP PR_MERGE PR_REAL_GIT PR_PIN PR_CURRENT
+
+echo ""
+echo "=== Empty unregistered directories are eligible for rmdir only ==="
+
+empty_home=$(_gc_tmpdir)
+empty_origin=$(_tmpdir)/origin.git
+_gc_seed_origin "$empty_origin"
+_gc_clone_main "$empty_origin" "$empty_home/git/alpha"
+empty_main=$empty_home/git/alpha
+empty_extra=$empty_home/extra-root
+mkdir -p "$empty_home/.worktrees/old-empty" "$empty_home/.worktrees/young-empty" \
+  "$empty_home/.worktrees/hidden-file" "$empty_home/.worktrees/visible-file" \
+  "$empty_home/git/alpha/.worktrees/old-ci" "$empty_extra/old-test" "$empty_home/outside"
+printf '%s\n' 'keep hidden data' >"$empty_home/.worktrees/hidden-file/.data"
+printf '%s\n' 'keep data' >"$empty_home/.worktrees/visible-file/data"
+ln -s "$empty_home/outside" "$empty_home/.worktrees/alias"
+for empty_dir in "$empty_home/.worktrees/old-empty" "$empty_home/.worktrees/hidden-file" \
+  "$empty_home/.worktrees/visible-file" "$empty_home/git/alpha/.worktrees/old-ci" \
+  "$empty_extra/old-test" "$empty_home/outside"; do
+  _gc_make_old "$empty_dir"
+done
+# A registration can survive the checkout's .git file; do not turn that
+# recoverable Git problem into an automatic directory deletion.
+empty_registered=$empty_home/.worktrees/registered
+git -C "$empty_main" worktree add "$empty_registered" -b registered >/dev/null 2>&1
+rm "$empty_registered/.git" "$empty_registered/file.txt"
+_gc_make_old "$empty_registered"
+result=$(HOME="$empty_home" DOTFILES="$empty_home/.dotfiles" "$GC" --no-fetch --root "$empty_extra" 2>/dev/null)
+_assert_contains "empty: old shared directory is eligible" \
+  "$(printf 'would-remove\t%s\tempty directory, no known registration' "$empty_home/.worktrees/old-empty")" "$result"
+_assert_contains "empty: repo-local directory is eligible" \
+  "$(printf 'would-remove\t%s\tempty directory, no known registration' "$empty_home/git/alpha/.worktrees/old-ci")" "$result"
+_assert_contains "empty: explicit-root directory is eligible" \
+  "$(printf 'would-remove\t%s\tempty directory, no known registration' "$empty_extra/old-test")" "$result"
+_assert_contains "empty: young directory is kept" \
+  "$(printf 'kept\t%s\tyounger than' "$empty_home/.worktrees/young-empty")" "$result"
+_assert_contains "empty: hidden data prevents eligibility" \
+  "$(printf 'skipped\t%s\tno .git' "$empty_home/.worktrees/hidden-file")" "$result"
+_assert_contains "empty: visible data prevents eligibility" \
+  "$(printf 'skipped\t%s\tno .git' "$empty_home/.worktrees/visible-file")" "$result"
+_assert_contains "empty: registered checkout is kept" \
+  "$(printf 'skipped\t%s\tregistered worktree, missing .git' "$empty_registered")" "$result"
+_assert_not_contains "empty: symlink target is never eligible" \
+  "$(printf 'would-remove\t%s\t' "$empty_home/outside")" "$result"
+if [[ -d "$empty_home/.worktrees/old-empty" ]]; then status=0; else status=1; fi
+_assert_exit "empty: dry run preserves the directory" 0 "$status"
+result=$(HOME="$empty_home" DOTFILES="$empty_home/.dotfiles" "$GC" --no-fetch --apply --root "$empty_extra" 2>/dev/null)
+if [[ -e "$empty_home/.worktrees/old-empty" || -L "$empty_home/.worktrees/old-empty" ]]; then status=0; else status=1; fi
+_assert_exit "empty: old shared directory removed" 1 "$status"
+if [[ -e "$empty_home/git/alpha/.worktrees/old-ci" || -L "$empty_home/git/alpha/.worktrees/old-ci" ]]; then status=0; else status=1; fi
+_assert_exit "empty: repo-local directory removed" 1 "$status"
+if [[ -e "$empty_extra/old-test" || -L "$empty_extra/old-test" ]]; then status=0; else status=1; fi
+_assert_exit "empty: explicit-root directory removed" 1 "$status"
+_assert_file_exists "empty: hidden data preserved" "$empty_home/.worktrees/hidden-file/.data"
+_assert_file_exists "empty: visible data preserved" "$empty_home/.worktrees/visible-file/data"
+if [[ -d "$empty_home/.worktrees/young-empty" ]]; then status=0; else status=1; fi
+_assert_exit "empty: young directory preserved" 0 "$status"
+if [[ -d "$empty_registered" ]]; then status=0; else status=1; fi
+_assert_exit "empty: registered directory preserved" 0 "$status"
+if [[ -d "$empty_home/outside" ]]; then status=0; else status=1; fi
+_assert_exit "empty: symlink target preserved" 0 "$status"
+
+# A file arriving after the empty check must survive the atomic rmdir gate.
+race_bin=$(_tmpdir)
+race_dir=$empty_home/.worktrees/race
+mkdir -p "$race_dir"
+_gc_make_old "$race_dir"
+cat >"$race_bin/rmdir" <<'STUB'
+#!/usr/bin/env bash
+dir=${@: -1}
+printf '%s\n' 'new work' >"$dir/arrived.txt"
+exec "$EMPTY_REAL_RMDIR" "$@"
+STUB
+chmod +x "$race_bin/rmdir"
+export EMPTY_REAL_RMDIR
+EMPTY_REAL_RMDIR=$(command -v rmdir)
+result=$(HOME="$empty_home" DOTFILES="$empty_home/.dotfiles" PATH="$race_bin:$PATH" "$GC" --no-fetch --apply 2>/dev/null)
+_assert_file_exists "empty: concurrent file survives attempted removal" "$race_dir/arrived.txt"
+
+_assert_contains "empty: concurrent contents are reported as a skip" \
+  "$(printf 'skipped\t%s\tdirectory changed during cleanup' "$race_dir")" "$result"
+
+empty_busy=$empty_home/.worktrees/busy
+mkdir -p "$empty_busy"
+_gc_make_old "$empty_busy"
+if [[ -d /proc ]]; then
+  result=$(
+    cd -- "$empty_busy" || exit 1
+    if ! _gc_cwd_visible "$BASHPID" "$empty_busy"; then
+      printf '%s\n' 'EMPTY_CWD_UNAVAILABLE'
+      exit 0
+    fi
+    HOME="$empty_home" DOTFILES="$empty_home/.dotfiles" "$GC" --no-fetch --apply 2>/dev/null
+  )
+  if [[ $result == EMPTY_CWD_UNAVAILABLE ]]; then
+    echo '  - skipping empty in-use case: /proc cwd unavailable'
+  else
+    _assert_contains "empty: current working directory blocks removal" \
+      "$(printf 'skipped\t%s\tin use' "$empty_busy")" "$result"
+    if [[ -d $empty_busy ]]; then status=0; else status=1; fi
+    _assert_exit "empty: in-use directory remains" 0 "$status"
+  fi
+else
+  echo '  - skipping empty in-use case: no /proc on this platform'
+fi
+
+# A plain rmdir failure must be visible in the sweep status, not a success.
+empty_failure=$empty_home/.worktrees/failure
+mkdir -p "$empty_failure"
+_gc_make_old "$empty_failure"
+printf '#!/usr/bin/env bash\nexit 1\n' >"$race_bin/rmdir"
+result=$(HOME="$empty_home" DOTFILES="$empty_home/.dotfiles" PATH="$race_bin:$PATH" "$GC" --no-fetch --apply 2>/dev/null)
+status=$?
+_assert_exit "empty: removal failure exits 2" 2 "$status"
+if [[ -d $empty_failure ]]; then status=0; else status=1; fi
+_assert_exit "empty: failed removal preserves directory" 0 "$status"
+unset EMPTY_REAL_RMDIR
 
 _test_summary

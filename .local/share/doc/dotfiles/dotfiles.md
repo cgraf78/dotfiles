@@ -279,8 +279,16 @@ worktree roots. Add `--apply` to remove eligible checkouts. Age uses the newest
 checkout-directory, Git HEAD, index, and reftable activity signal; the current
 `find -mtime +N` threshold requires N+1 full days. Age alone never permits
 removal: dirty, locked, in-use, main, nested, and uninspectable checkouts stay.
-Directories without `.git` and broken worktree pointers require separate
-inspection and are not deleted by this command.
+Old empty directories discovered directly under those roots are also eligible
+for removal with `rmdir`. Hidden files count as contents, and a file appearing
+after inspection makes `rmdir` refuse deletion. Young, in-use, or known registered
+directories stay; symlinked candidates do not authorize empty-target removal.
+Registration checks cover the base Git directory and discovered clones under
+`~/git` and `~/.dotfiles-*`. Once `.git` is missing, an empty directory cannot
+identify an owner outside that inventory. The record therefore says
+`no known registration`; `rmdir` never deletes the owner's refs or commits.
+Nonempty directories without `.git` and broken worktree pointers require
+separate inspection and are not deleted by this command.
 
 Checkout removal and branch deletion use separate proof requirements:
 
