@@ -31,6 +31,8 @@
 #
 # Safety rules (all enforced, none optional):
 # - never `rm -rf` and never `git worktree remove --force`
+# - old, empty directories with no known registration, directly under roots
+#   can also be removed, using rmdir only; symlink targets and in-use dirs stay
 # - never touch the live $HOME checkout, any main checkout, a locked
 #   worktree, a dirty worktree, a checkout git cannot inspect, one that
 #   holds another checkout (even in an ignored folder), or one that is a
@@ -39,8 +41,11 @@
 #   checkout is recoverable (commits and the branch ref survive), so a
 #   gone own-name upstream, an ancestry proof, or a content proof each
 #   suffice. A gone upstream naming another branch proves nothing.
+#   GitHub merged-PR membership and superseded Actions dependency ancestry
+#   also suffice for checkout removal, always retaining the original branch.
+#   Closed unmerged PR checkouts require explicit --include-closed opt-in.
 #   Deleting the branch is destructive, so it additionally requires a
-#   merge proof (ancestry or content, never gone-alone), a base ref
+#   merge proof (ancestry, content, or historical tree, never gone-alone), a base ref
 #   freshly fetched this run, a non-base branch name, no concurrent
 #   checkout, and a ref that still holds the proven OID.
 # - a fetch failure degrades checkout proof to local refs with a
@@ -69,10 +74,18 @@ if [[ -z ${_DR_WORKTREE_WARN_BYTES_DEFAULT:-} ]]; then
   . "$_WORKTREE_GC_DIR/doctor.d/lib/worktrees.sh" || return 1
 fi
 
+# Optional network proofs stay separate from local Git proof. Missing clients or
+# failed API requests withhold eligibility; they never weaken the clean gates.
+# shellcheck source=worktree-gc-github.sh
+. "$_WORKTREE_GC_DIR/worktree-gc-github.sh" || return 1
+# shellcheck source=worktree-gc-actions.sh
+. "$_WORKTREE_GC_DIR/worktree-gc-actions.sh" || return 1
+
 # --- shared sweep state (initialized by worktree_gc_main) ---
 _WORKTREE_GC_AGE=$_WORKTREE_GC_AGE_DAYS_DEFAULT
 _WORKTREE_GC_APPLY=0
 _WORKTREE_GC_NO_FETCH=0
+_WORKTREE_GC_INCLUDE_CLOSED=0
 _WORKTREE_GC_HAVE_PRED=0
 _WORKTREE_GC_FETCHED=$'\n'
 _WORKTREE_GC_FRESH=$'\n'
@@ -91,6 +104,10 @@ _WORKTREE_GC_MAP_REG=()
 # Physical live registered checkouts and process working directories, loaded
 # once per sweep for the nested-checkout and in-use gates.
 _WORKTREE_GC_LIVE=()
+# Empty leftovers need direct-root provenance and protection for registrations
+# whose checkout-side .git file disappeared. Neither is a merge proof.
+_WORKTREE_GC_DIRECT=()
+_WORKTREE_GC_REGISTERED=()
 _WORKTREE_GC_CWDS=()
 _WORKTREE_GC_CWDS_LOADED=0
 _WORKTREE_GC_CWDS_WARNED=0
@@ -105,19 +122,25 @@ _worktree_gc_err() { printf 'dot-worktree-gc: %s\n' "$*" >&2; }
 
 _worktree_gc_usage() {
   cat >&2 <<'USAGE'
-usage: dot-worktree-gc [--older-than N[d]] [--dry-run|--apply] [--no-fetch]
+usage: dot-worktree-gc [--older-than N[d]] [--dry-run|--apply] [--no-fetch] [--include-closed]
                        [--root DIR]...
   Remove worktrees with no Git activity for over N days (default 14)
-  whose branches are proven merged, across every repo that owns a
+  with landed or superseded work, across every repo that owns a
   discovered checkout. Swept by default: ~/.worktrees, ~/git/worktrees,
   ~/worktrees and ~/git/.worktrees (one grouping folder deep), the
   .worktrees of every ~/git/* and ~/.dotfiles-* clone, and checkouts the
   base dotfiles repo registered anywhere.
+  Old empty directories with no known registration are also eligible;
+  they are removed with rmdir only. Nonempty directories without .git stay.
   Dry run is the default; --apply performs removals, and ignored files
   (caches, build output, .env) in a removed checkout go with it.
   --root adds a worktree root (its children only) to the sweep and may
   repeat.
   --no-fetch proves against local refs without touching the network.
+  Optional gh and jq add merged-PR and superseded Actions-pin detection.
+  These proofs remove only the checkout and retain its branch and commits.
+  --include-closed also removes checkouts belonging to closed unmerged PRs,
+  retaining their branches. Open PRs block network-based removal proofs.
   Records print on stdout; diagnostics and the tally go to stderr.
 USAGE
 }
@@ -368,6 +391,20 @@ _worktree_gc_is_base_branch() {
   [[ -n $base_ref && $branch == "${base_ref#*/}" ]]
 }
 
+# Prove that the complete branch snapshot appeared on the base's first-parent
+# history. Stacked squashes can land the same tree through several transitions,
+# so neither ancestry nor one aggregate patch identifies them. Read all rows
+# before matching: a failed log must never leave a partial proof behind.
+_worktree_gc_tree_landed() {
+  local dir=$1 target=$2 base=$3 tree rows oid candidate
+  tree=$(git -C "$dir" rev-parse --verify "$target^{tree}" 2>/dev/null) || return 1
+  rows=$(git -C "$dir" log --first-parent --format='%H %T' "$base" 2>/dev/null) || return 1
+  while IFS=' ' read -r oid candidate; do
+    [[ -n $oid && $candidate == "$tree" ]] && return 0
+  done <<<"$rows"
+  return 1
+}
+
 # Prove whether an old checkout is safe to remove. Prints one tab-led
 # verdict line and always returns 0 so callers parse output, not status:
 #   eligible\t<reason>\t<branch-oid-or-empty>\t<branch-action>
@@ -384,7 +421,8 @@ _worktree_gc_prove() {
   local dir=$1 common=$2 branch=$3
   local head_oid proof_oid target upstream_info upstream_short upstream_track
   local remote_name remote_ref
-  local base_ref base_oid gone=0 ancestor=0 content=0 fresh=0
+  local base_ref base_oid gone=0 ancestor=0 content=0 tree=0 fresh=0
+  local lineage='' lineage_kind='' lineage_number='' superseded=0
   head_oid=$(git -C "$dir" rev-parse HEAD 2>/dev/null) || {
     printf 'skip\tbroken git pointer\n'
     return 0
@@ -420,6 +458,18 @@ _worktree_gc_prove() {
     elif ((_WORKTREE_GC_HAVE_PRED == 1)) &&
       (cd -- "$dir" 2>/dev/null && _gt_branch_content_merged_oids "$target" "$base_oid" >/dev/null); then
       content=1
+    elif _worktree_gc_tree_landed "$dir" "$target" "$base_oid"; then
+      tree=1
+    elif [[ -n $branch ]]; then
+      lineage=$(_worktree_gc_github "$dir" "$target" "$base_oid" "$base_ref") || lineage=
+      IFS=$'\t' read -r lineage_kind lineage_number <<<"$lineage"
+      # A dependency downgrade may be an active PR even when a newer provider
+      # is already on main. Require a complete PR observation before deciding
+      # that an unpublished pure repin is obsolete; API failure is no proof.
+      if [[ $lineage_kind == none ]] &&
+        _worktree_gc_actions_superseded "$dir" "$target" "$base_oid"; then
+        superseded=1
+      fi
     fi
   else
     base_ref=
@@ -429,20 +479,36 @@ _worktree_gc_prove() {
   esac
 
   local reason=
-  if ((gone == 1)); then
+  if [[ $lineage_kind == open ]]; then
+    printf 'skip\topen PR #%s\n' "$lineage_number"
+    return 0
+  elif ((gone == 1)); then
     reason="upstream $upstream_short is gone"
   elif ((ancestor == 1)); then
     reason="merged into $base_ref"
   elif ((content == 1)); then
     reason="content-merged into $base_ref"
+  elif ((tree == 1)); then
+    reason="tree landed in $base_ref"
+  elif ((superseded == 1)); then
+    reason="Actions pin superseded in $base_ref"
+  elif [[ $lineage_kind == merged ]]; then
+    reason="merged PR #$lineage_number (earlier checkout snapshot)"
+  elif [[ $lineage_kind == closed ]]; then
+    if ((_WORKTREE_GC_INCLUDE_CLOSED == 1)); then
+      reason="closed unmerged PR #$lineage_number (branch retained)"
+    else
+      printf 'skip\tclosed unmerged PR #%s (use --include-closed to remove checkout and keep branch)\n' "$lineage_number"
+      return 0
+    fi
   elif [[ -z $base_ref ]]; then
     printf 'skip\tno remote base branch\n'
     return 0
   elif [[ -n $branch ]]; then
-    printf 'skip\tunmerged branch %s\n' "$branch"
+    printf 'skip\tmerge unproven for branch %s\n' "$branch"
     return 0
   else
-    printf 'skip\tdetached HEAD, unmerged\n'
+    printf 'skip\tdetached HEAD, merge unproven\n'
     return 0
   fi
 
@@ -450,12 +516,18 @@ _worktree_gc_prove() {
   if [[ -n $branch ]]; then
     if _worktree_gc_is_base_branch "$branch" "$base_ref"; then
       action='keep:base branch'
-    elif ((ancestor == 1 || content == 1)); then
+    elif ((ancestor == 1 || content == 1 || tree == 1)); then
       if ((fresh == 1)); then
         action=delete
       else
         action='keep:base not fetched'
       fi
+    elif ((superseded == 1)); then
+      action='keep:dependency update superseded'
+    elif [[ $lineage_kind == merged ]]; then
+      action='keep:earlier PR snapshot'
+    elif [[ $lineage_kind == closed ]]; then
+      action='keep:closed without merge'
     else
       action='keep:merge unproven'
     fi
@@ -688,7 +760,12 @@ _worktree_gc_load_cwds() {
 _worktree_gc_load_live() {
   local path phys
   _WORKTREE_GC_LIVE=()
+  _WORKTREE_GC_REGISTERED=()
   _dr_worktree_admin_scan
+  for path in ${_DR_WORKTREE_ADMIN_PATHS[@]+"${_DR_WORKTREE_ADMIN_PATHS[@]}"}; do
+    phys=$(_dr_worktree_physical "$path") || continue
+    [[ -z $phys ]] || _WORKTREE_GC_REGISTERED+=("$phys")
+  done
   for path in ${_DR_WORKTREE_ADMIN_LIVE[@]+"${_DR_WORKTREE_ADMIN_LIVE[@]}"}; do
     phys=$(_dr_worktree_physical "$path")
     [[ -n $phys ]] && _WORKTREE_GC_LIVE+=("$phys")
@@ -696,9 +773,71 @@ _worktree_gc_load_live() {
   return 0
 }
 
+# Test emptiness including dotfiles without leaking glob options to callers.
+# Unreadable directories cannot establish absence of valuable contents.
+_worktree_gc_empty() (
+  local dir=$1
+  [[ -d $dir && ! -L $dir && -r $dir && -x $dir ]] || return 1
+  shopt -s nullglob dotglob
+  local -a entries=("$dir"/*)
+  ((${#entries[@]} == 0))
+)
+
+_worktree_gc_registered() {
+  local dir=$1 registered
+  for registered in ${_WORKTREE_GC_REGISTERED[@]+"${_WORKTREE_GC_REGISTERED[@]}"}; do
+    [[ $registered != "$dir" ]] || return 0
+  done
+  return 1
+}
+
+# Retire an old empty container, not a Git checkout. rmdir is the final atomic
+# guard: a file appearing after inspection makes it refuse removal. Never use
+# recursive deletion, and never follow a candidate alias to an unrelated dir.
+_worktree_gc_remove_empty() {
+  local dir=$1 direct found=0 err
+  if ! _worktree_gc_empty "$dir"; then
+    _worktree_gc_record skipped "$dir" "no .git"
+    return 0
+  fi
+  for direct in ${_WORKTREE_GC_DIRECT[@]+"${_WORKTREE_GC_DIRECT[@]}"}; do
+    [[ $direct != "$dir" ]] || found=1
+  done
+  if ((found == 0)); then
+    _worktree_gc_record skipped "$dir" "empty directory reached through symlink"
+    return 0
+  fi
+  # Refresh the discovered repositories' registrations before preview or apply;
+  # a missing .git file does not imply that a known owner forgot this checkout.
+  # Unknown owners cannot be recovered from an empty directory alone, so the
+  # record reports absence of known registration, never a global Git proof.
+  _worktree_gc_load_live
+  if _worktree_gc_registered "$dir"; then
+    _worktree_gc_record skipped "$dir" "registered worktree, missing .git"
+    return 0
+  fi
+  # Even an empty directory may be an idle shell's working directory.
+  _worktree_gc_load_cwds
+  if _worktree_gc_in_use "$dir"; then
+    _worktree_gc_record skipped "$dir" "in use (a process's working directory)"
+    return 0
+  fi
+  if ((_WORKTREE_GC_APPLY == 0)); then
+    _worktree_gc_record would-remove "$dir" "empty directory, no known registration"
+  elif err=$(rmdir -- "$dir" 2>&1); then
+    _worktree_gc_record removed "$dir" "empty directory, no known registration"
+  elif ! _worktree_gc_empty "$dir"; then
+    _worktree_gc_record skipped "$dir" "directory changed during cleanup"
+  else
+    err=${err%%$'\n'*}
+    _worktree_gc_record failed "$dir" "${err:-rmdir failed}"
+  fi
+  return 0
+}
+
 # Run the gate sequence for one candidate: young checkouts are kept and
 # old ones need every gate (inspectable, registered, not main, not
-# locked, clean) plus a merge proof before removal.
+# locked, clean) plus a checkout-retirement proof before removal.
 _worktree_gc_process() {
   local dir=$1 old=$2
   local common wt_list registered main_phys git_dir branch
@@ -708,7 +847,7 @@ _worktree_gc_process() {
     return 0
   fi
   if [[ ! -e $dir/.git ]]; then
-    _worktree_gc_record skipped "$dir" "no .git"
+    _worktree_gc_remove_empty "$dir"
     return 0
   fi
   if ! common=$(_worktree_gc_common_dir "$dir"); then
@@ -833,6 +972,7 @@ _worktree_gc_tally() {
 worktree_gc_main() {
   _WORKTREE_GC_APPLY=0
   _WORKTREE_GC_NO_FETCH=0
+  _WORKTREE_GC_INCLUDE_CLOSED=0
   local age=$_WORKTREE_GC_AGE_DAYS_DEFAULT
   local saw_dry=0 saw_apply=0
   local -a extra_roots=()
@@ -865,6 +1005,7 @@ worktree_gc_main() {
       --dry-run) saw_dry=1 ;;
       --apply) saw_apply=1 ;;
       --no-fetch) _WORKTREE_GC_NO_FETCH=1 ;;
+      --include-closed) _WORKTREE_GC_INCLUDE_CLOSED=1 ;;
       --root)
         (($# >= 2)) || {
           _worktree_gc_usage
@@ -934,10 +1075,14 @@ worktree_gc_main() {
   _WORKTREE_GC_CWDS_LOADED=0
   _WORKTREE_GC_CWDS_WARNED=0
 
+  # Reuse the shared discovery scope with symlinked children suppressed;
+  # physical-path discovery alone loses the provenance needed by rmdir.
   if ((${#extra_roots[@]} > 0)); then
     mapfile -t cands < <(_worktree_gc_candidates "${extra_roots[@]}")
+    mapfile -t _WORKTREE_GC_DIRECT < <(_DR_WORKTREE_SKIP_SYMLINK_CANDIDATES=1 _worktree_gc_candidates "${extra_roots[@]}")
   else
     mapfile -t cands < <(_worktree_gc_candidates)
+    mapfile -t _WORKTREE_GC_DIRECT < <(_DR_WORKTREE_SKIP_SYMLINK_CANDIDATES=1 _worktree_gc_candidates)
   fi
   old_list=
   if ((${#cands[@]} > 0)); then

@@ -889,7 +889,6 @@ git init --quiet "$candidate_seed"
 _git_set_test_identity git -C "$candidate_seed"
 mkdir -p "$candidate_seed/.local/lib/dotfiles/tests" \
   "$candidate_seed/.local/lib/dotfiles/pre-sync.d"
-mkdir -p "$candidate_seed/.config/git"
 cp "$source_home/.local/lib/dotfiles/tests/checkout-ci-candidate" \
   "$candidate_seed/.local/lib/dotfiles/tests/checkout-ci-candidate"
 cp "$source_home/.local/lib/dotfiles/tests/run-ci-candidate-home" \
@@ -898,9 +897,12 @@ cp "$source_home/.local/lib/dotfiles/tests/dot-runtime-resolve.sh" \
   "$candidate_seed/.local/lib/dotfiles/tests/dot-runtime-resolve.sh"
 cp "$source_home/.local/lib/dotfiles/pre-sync.d/10-overlay-ssh.sh" \
   "$candidate_seed/.local/lib/dotfiles/pre-sync.d/10-overlay-ssh.sh"
-printf '[core]\n\teditor = fixture\n' >"$candidate_seed/.config/git/config"
+# Like the base tree, track XDG payloads but no .config/git: CI must not
+# probe Git config paths the candidate does not carry.
+mkdir -p "$candidate_seed/.config/dot"
+printf 'fixture\n' >"$candidate_seed/.config/dot/fixture"
 printf 'source\n' >"$candidate_seed/state"
-git -C "$candidate_seed" add state .config/git/config \
+git -C "$candidate_seed" add state .config/dot/fixture \
   .local/lib/dotfiles/pre-sync.d/10-overlay-ssh.sh \
   .local/lib/dotfiles/tests/checkout-ci-candidate \
   .local/lib/dotfiles/tests/run-ci-candidate-home \
@@ -965,6 +967,11 @@ _assert_eq 'candidate checkout: HEAD equals requested candidate' \
   "$candidate_sha" "$(git -C "$candidate_checkout" rev-parse HEAD)"
 _assert_contains 'candidate checkout: reports the exact selected head' \
   "head=$candidate_sha" "$candidate_output"
+# The report line is the whole output, so every CI job log stays free of
+# stray stderr such as Git warnings about paths the candidate lacks.
+_assert_eq 'candidate checkout: prints only the candidate report' \
+  "$(printf 'candidate-checkout\torigin=%s\thead=%s' \
+    "$candidate_origin" "$candidate_sha")" "$candidate_output"
 _assert_eq 'candidate checkout: source content comes from selected head' \
   head "$(<"$candidate_checkout/state")"
 _assert_eq 'candidate checkout: ignores repository-selection environment' \
@@ -999,11 +1006,6 @@ _assert_contains 'candidate home: protects shared repository metadata' \
 _assert_file_exists \
   'candidate checkout preserves the workflow-owned global Git config' \
   "$candidate_checkout/.gitconfig"
-if git -C "$candidate_checkout" diff --quiet -- .config/git/config; then
-  _pass 'candidate checkout restores the workflow-modified tracked Git config'
-else
-  _fail 'candidate checkout restores the workflow-modified tracked Git config'
-fi
 
 fake_shdeps=$(_tmpdir)/shdeps
 mkdir -p "$fake_shdeps"
