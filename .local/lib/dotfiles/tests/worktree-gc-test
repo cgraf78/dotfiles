@@ -87,6 +87,33 @@ _gc_tmpdir() {
 }
 _gc_make_fresh() { touch "$1"; }
 
+# Succeed when this platform resolves PID's /proc working directory to DIR
+# the way the gc does (`cd -P` plus `pwd -P`). Polls up to 10s for the
+# process to get there. In-use cases skip with a reason when it never does.
+_gc_cwd_visible() {
+  local pid=$1 dir=$2 deadline=$((SECONDS + 10)) want got
+  want=$(cd -P -- "$dir" && pwd -P) || return 1
+  while ((SECONDS <= deadline)); do
+    got=$(cd -P -- "/proc/$pid/cwd" 2>/dev/null && pwd -P 2>/dev/null) || got=
+    [[ $got == "$want" ]] && return 0
+    sleep 0.1
+  done
+  return 1
+}
+
+# A find that rejects -printf, as BusyBox's does: the in-use check must not
+# depend on GNU find.
+_GC_BUSYBOX_FIND_BIN=$(_tmpdir)/busybox-find
+mkdir -p "$_GC_BUSYBOX_FIND_BIN"
+cat >"$_GC_BUSYBOX_FIND_BIN/find" <<STUB
+#!/usr/bin/env bash
+for arg in "\$@"; do
+  [[ \$arg != -printf ]] || { echo "find: unrecognized: -printf" >&2; exit 1; }
+done
+exec "$(command -v find)" "\$@"
+STUB
+chmod +x "$_GC_BUSYBOX_FIND_BIN/find"
+
 # Clone an origin as a repo main checkout and pin its remote HEAD so
 # default-branch detection never depends on clone transport behavior.
 _gc_clone_main() {
@@ -693,29 +720,44 @@ echo "=== Removal re-reads working directories ==="
 # The sweep's working-directory snapshot can be minutes old by the time a
 # checkout is removed: a session that moved in after it was read must still
 # keep its checkout. The snapshot here is stale (loaded, empty).
-if [[ -d /proc/self ]]; then
-  git -C "$main" worktree add "$oid_home/late-busy" -b feat-late-busy >/dev/null 2>&1
-  (cd "$oid_home/late-busy" && exec sleep 60) &
-  late_pid=$!
-  late_deadline=$((SECONDS + 10))
-  until [[ /proc/$late_pid/cwd -ef $oid_home/late-busy ]] || ((SECONDS > late_deadline)); do
-    sleep 0.1
-  done
+git -C "$main" worktree add "$oid_home/late-busy" -b feat-late-busy >/dev/null 2>&1
+(cd "$oid_home/late-busy" && exec sleep 60) &
+late_pid=$!
+if [[ ! -d /proc/self ]]; then
+  echo "  - skipping late-busy case: no /proc on this platform"
+elif ! _gc_cwd_visible "$late_pid" "$oid_home/late-busy"; then
+  echo "  - skipping late-busy case: /proc/<pid>/cwd does not resolve here"
+else
   _WORKTREE_GC_CWDS=()
   _WORKTREE_GC_CWDS_LOADED=1
   _WORKTREE_GC_APPLY=1
   late_result=$(_worktree_gc_remove "$oid_home/late-busy" "$oid_home/late-busy" "$common" \
     feat-late-busy "merged into origin/main" "" none)
   _WORKTREE_GC_APPLY=0
-  kill "$late_pid" 2>/dev/null
-  wait "$late_pid" 2>/dev/null
   _assert_contains "late busy: a session that moved in mid-sweep keeps the checkout" \
     "$(printf 'skipped\t%s\tin use' "$oid_home/late-busy")" "$late_result"
   _assert_file_exists "late busy: the checkout survives" "$oid_home/late-busy/.git"
-  git -C "$main" worktree remove "$oid_home/late-busy" >/dev/null 2>&1
-else
-  echo "  - skipping late-busy case (no /proc)"
 fi
+kill "$late_pid" 2>/dev/null
+wait "$late_pid" 2>/dev/null
+git -C "$main" worktree remove "$oid_home/late-busy" >/dev/null 2>&1
+
+# Where /proc exists but no working directory resolves (not even the sweep's
+# own), the scan is broken, not idle: it says so once instead of reading as
+# "nothing in use". Without /proc it stays silent (macOS, BSD).
+fake_proc=$(_tmpdir)/proc
+mkdir -p "$fake_proc/1"
+ln -s /nonexistent-cwd "$fake_proc/1/cwd"
+saved_proc=$_WORKTREE_GC_PROC
+_WORKTREE_GC_PROC=$fake_proc
+_WORKTREE_GC_CWDS_WARNED=0
+proc_err=$(_worktree_gc_load_cwds 2>&1)
+_assert_contains "proc self-check: an empty scan is reported" "in-use check is off" "$proc_err"
+_WORKTREE_GC_PROC=$fake_proc/absent
+_WORKTREE_GC_CWDS_WARNED=0
+proc_err=$(_worktree_gc_load_cwds 2>&1)
+_assert_eq "proc self-check: no /proc stays silent" "" "$proc_err"
+_WORKTREE_GC_PROC=$saved_proc
 
 echo ""
 echo "=== Stale proof OID fails the branch, not the checkout ==="
@@ -1320,27 +1362,31 @@ _assert_contains "nested: ignored files alone do not block removal" \
 
 # A checkout that is some process's working directory is in use: an idle
 # shell parked there keeps it. (Linux /proc only; skipped elsewhere.)
-if [[ -d /proc/self ]]; then
-  _grp_merged_worktree "$grp_home/worktrees/g-busy" feat-g-busy
-  _gc_make_old "$grp_home/worktrees/g-busy"
-  (cd "$grp_home/worktrees/g-busy" && exec sleep 60) &
-  busy_pid=$!
-  busy_deadline=$((SECONDS + 10))
-  until [[ /proc/$busy_pid/cwd -ef $grp_home/worktrees/g-busy ]] || ((SECONDS > busy_deadline)); do
-    sleep 0.1
-  done
-  result=$(HOME="$grp_home" DOTFILES="$grp_home/.dotfiles" "$GC" --apply 2>/dev/null)
+# The sweep runs with a BusyBox-like find on PATH (no -printf).
+_grp_merged_worktree "$grp_home/worktrees/g-busy" feat-g-busy
+_gc_make_old "$grp_home/worktrees/g-busy"
+(cd "$grp_home/worktrees/g-busy" && exec sleep 60) &
+busy_pid=$!
+if [[ ! -d /proc/self ]]; then
+  echo "  - skipping in-use case: no /proc on this platform"
+elif ! _gc_cwd_visible "$busy_pid" "$grp_home/worktrees/g-busy"; then
+  echo "  - skipping in-use case: /proc/<pid>/cwd does not resolve here"
+else
+  result=$(HOME="$grp_home" DOTFILES="$grp_home/.dotfiles" PATH="$_GC_BUSYBOX_FIND_BIN:$PATH" \
+    "$GC" --apply 2>"$grp_home/busy-stderr.txt")
   kill "$busy_pid" 2>/dev/null
   wait "$busy_pid" 2>/dev/null
   _assert_contains "in use: a process's working directory is kept" \
     "$(printf 'skipped\t%s\tin use (a process\x27s working directory)' "$grp_home/worktrees/g-busy")" "$result"
   _assert_file_exists "in use: the busy checkout survives apply" "$grp_home/worktrees/g-busy/.git"
+  _assert_not_contains "in use: the working-directory scan works" \
+    "in-use check is off" "$(cat "$grp_home/busy-stderr.txt")"
   result=$(HOME="$grp_home" DOTFILES="$grp_home/.dotfiles" "$GC" --apply 2>/dev/null)
   _assert_contains "in use: once idle it is removable again" \
     "$(printf 'removed\t%s\tmerged into origin/main' "$grp_home/worktrees/g-busy")" "$result"
-else
-  echo "  - skipping in-use case (no /proc)"
 fi
+kill "$busy_pid" 2>/dev/null
+wait "$busy_pid" 2>/dev/null
 
 # Removal no longer prunes the repository afterwards: a checkout moved
 # without repair keeps its admin entry and stays usable.

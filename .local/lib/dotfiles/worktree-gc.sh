@@ -93,6 +93,7 @@ _WORKTREE_GC_MAP_REG=()
 _WORKTREE_GC_LIVE=()
 _WORKTREE_GC_CWDS=()
 _WORKTREE_GC_CWDS_LOADED=0
+_WORKTREE_GC_CWDS_WARNED=0
 _WORKTREE_GC_N_REMOVED=0
 _WORKTREE_GC_N_BRANCHES=0
 _WORKTREE_GC_N_BRANCHES_KEPT=0
@@ -651,19 +652,33 @@ _worktree_gc_in_use() {
   return 1
 }
 
-# Fill _WORKTREE_GC_CWDS with every readable process working directory, from
-# /proc in one find pass (GNU find's %l prints a link target with no
-# per-process spawn). Other users' processes are unreadable and skipped;
-# without /proc (macOS, BSD) or a find that knows -printf, the list stays
-# empty and the in-use check never fires. Must run in the main shell.
+# Fill _WORKTREE_GC_CWDS with every readable process working directory
+# under _WORKTREE_GC_PROC (/proc). One subshell resolves every `<pid>/cwd`
+# link with builtins only: `cd -P` follows the kernel's link and `pwd -P`
+# reads the result back, so there is no process per pid and no GNU-only tool
+# (BusyBox find has no -printf, which silently emptied an earlier version
+# on Alpine). Other users' processes are unreadable and skipped. Without
+# /proc (macOS, BSD) the list stays empty and the check is off by design.
+# Where /proc exists but resolves nothing at all, not even this sweep's own
+# process, the scan is broken rather than idle: say so once on stderr
+# instead of reporting nothing in use. Must run in the main shell.
+_WORKTREE_GC_PROC=/proc
 _worktree_gc_load_cwds() {
-  local -a links=()
+  local proc=$_WORKTREE_GC_PROC
   _WORKTREE_GC_CWDS=()
   _WORKTREE_GC_CWDS_LOADED=1
-  [[ -d /proc/self ]] || return 0
-  links=(/proc/[0-9]*/cwd)
-  [[ -e ${links[0]} || -L ${links[0]} ]] || return 0
-  mapfile -t _WORKTREE_GC_CWDS < <(find "${links[@]}" -maxdepth 0 -printf '%l\n' 2>/dev/null)
+  [[ -d $proc ]] || return 0
+  # A process in another mount namespace lets `cd` in but not `pwd -P`
+  # back out; it prints nothing and is skipped, like an unreadable one.
+  mapfile -t _WORKTREE_GC_CWDS < <(
+    for link in "$proc"/[0-9]*/cwd; do
+      cd -P -- "$link" && pwd -P
+    done 2>/dev/null
+  )
+  if ((${#_WORKTREE_GC_CWDS[@]} == 0 && _WORKTREE_GC_CWDS_WARNED == 0)); then
+    _WORKTREE_GC_CWDS_WARNED=1
+    _worktree_gc_err "cannot read process working directories under $proc; the in-use check is off for this sweep"
+  fi
   return 0
 }
 
@@ -917,6 +932,7 @@ worktree_gc_main() {
   _worktree_gc_load_live
   _WORKTREE_GC_CWDS=()
   _WORKTREE_GC_CWDS_LOADED=0
+  _WORKTREE_GC_CWDS_WARNED=0
 
   if ((${#extra_roots[@]} > 0)); then
     mapfile -t cands < <(_worktree_gc_candidates "${extra_roots[@]}")
