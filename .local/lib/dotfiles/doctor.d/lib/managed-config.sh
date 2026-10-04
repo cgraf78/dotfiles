@@ -133,7 +133,7 @@ _dr_check_pre_sync_extensions() {
     done
     _dr_hint_row fail "pre-sync extensions are broken: $list" \
       "dot update aborts repository sync until they are fixed" \
-      "check each with 'bash -n <file>' and make sure it defines prepare()"
+      "they are in $(_dr_tilde "$dir"): check each with 'bash -n <file>' and make sure it defines prepare()"
   fi
 }
 

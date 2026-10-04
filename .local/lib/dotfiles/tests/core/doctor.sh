@@ -941,6 +941,8 @@ SH
   _assert_contains "doctor managed config: broken pre-sync extensions fail" \
     $'fail\tpre-sync extensions are broken: 20-broken.sh (syntax error); 30-entryless.sh (no prepare function)' \
     "$result"
+  _assert_contains "doctor managed config: the pre-sync hint says where the files are" \
+    "they are in $doctor_mc_home/ext/pre-sync.d: check each with 'bash -n <file>'" "$result"
 
   # Leftover temporaries: base checks the destinations of its own merge
   # hooks, by every name the writers use, past the in-flight window.

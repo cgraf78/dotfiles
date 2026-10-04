@@ -89,7 +89,7 @@ _dr_check_agent_rules_installed() {
         '')
           # Nothing came back: the hook runtime or the hook did not load.
           _dr_hint_row fail "agent rule validation could not run" \
-            "the agent-rules merge hook did not load" "run 'dot update -f' and retry"
+            "the agent-rules merge hook did not load" "run 'dot update -f', then rerun 'dot doctor'"
           ;;
         *)
           _dr_hint_row fail "agent rule validation failed: $reason" "" \
