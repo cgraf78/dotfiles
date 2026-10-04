@@ -1115,7 +1115,7 @@ _assert_contains "dirty: the row says the gc skips it" \
 _assert_contains "dirty: clone-only stale rows say clones go by hand" \
   $'warn\t1 stale worktree (older than 14 days): 1 merged\t' "$result"
 _assert_contains "dirty: clone-only stale rows name no gc command" \
-  "(merged into origin/main, standalone clone, delete by hand); delete them by hand once reviewed: dot-worktree-gc keeps them" "$result"
+  "(merged into origin/main, standalone clone, delete by hand); delete it by hand once reviewed: dot-worktree-gc keeps it" "$result"
 _assert_not_contains "dirty: clone-only stale rows never point at the gc" \
   "'dot-worktree-gc --apply'" "$result"
 # _make_old dated the index 2020; a refreshing status would have moved it.
@@ -1209,7 +1209,7 @@ _assert_not_contains "registered: a locked checkout is never listed as stale" \
 _assert_contains "registered: an unswept worktree is labelled" \
   "live (merged into origin/main, outside the swept roots)" "$result"
 _assert_contains "registered: unswept stale rows say delete by hand" \
-  "delete them by hand once reviewed: dot-worktree-gc keeps them" "$result"
+  "delete it by hand once reviewed: dot-worktree-gc keeps it" "$result"
 
 # A locked checkout whose repository lives outside every clone root is
 # still recognised as locked through its own pointer.
@@ -1834,6 +1834,31 @@ result=$(HOME="$mv_home" DOTFILES="$mv_home/.dotfiles" \
   _doctor_records _dr_check_worktrees)
 _assert_not_contains "moved: repair then prune leaves no orphan" "orphaned" "$result"
 _assert_not_contains "moved: repair then prune leaves nothing to prune" "prunable" "$result"
+# Two moved checkouts in the repository to prune: one repair command names
+# both, and following the hint in order orphans neither.
+mv3_home=$(_tmpdir)
+git clone "$mv_origin/origin.git" "$mv3_home/git/gamma" >/dev/null 2>&1
+mkdir -p "$mv3_home/.worktrees"
+for mv3_name in a b gone; do
+  git -C "$mv3_home/git/gamma" worktree add "$mv3_home/.worktrees/$mv3_name" -b "mv3-$mv3_name" >/dev/null 2>&1
+done
+mv "$mv3_home/.worktrees/a" "$mv3_home/.worktrees/a-moved"
+mv "$mv3_home/.worktrees/b" "$mv3_home/.worktrees/b-moved"
+rm -rf "$mv3_home/.worktrees/gone"
+result=$(HOME="$mv3_home" DOTFILES="$mv3_home/.dotfiles" \
+  _doctor_records _dr_check_worktrees)
+_assert_contains "moved: two moved checkouts are repaired together before the prune" \
+  "pruning now would orphan the moved worktrees below: first run 'git -C ~/git/gamma worktree repair ~/.worktrees/a-moved ~/.worktrees/b-moved', then 'git -C ~/git/gamma worktree prune'" \
+  "$result"
+git -C "$mv3_home/git/gamma" worktree repair "$mv3_home/.worktrees/a-moved" "$mv3_home/.worktrees/b-moved" >/dev/null 2>&1
+git -C "$mv3_home/git/gamma" worktree prune >/dev/null 2>&1
+result=$(HOME="$mv3_home" DOTFILES="$mv3_home/.dotfiles" \
+  _doctor_records _dr_check_worktrees)
+_assert_not_contains "moved: following the hint for two moved checkouts orphans neither" \
+  "orphaned" "$result"
+_assert_not_contains "moved: following the hint for two moved checkouts leaves nothing to prune" \
+  "prunable" "$result"
+
 # With only deleted checkouts, the prune command names the repository.
 mv2_home=$(_tmpdir)
 git clone "$mv_origin/origin.git" "$mv2_home/git/beta" >/dev/null 2>&1

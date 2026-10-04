@@ -1292,7 +1292,9 @@ _dr_worktree_report_admin() {
       _dr_worktree_label "$moved_to"
       moved+=("$REPLY (entry $id of $label)")
       moved_dirs+=("$REPLY")
-      moved_by_repo["$label"]=$REPLY
+      # Every moved checkout of the repository, one per line: a prune there
+      # would orphan each of them.
+      moved_by_repo["$label"]+=${moved_by_repo["$label"]:+$'\n'}$REPLY
     else
       prunable+=("$entry")
     fi
@@ -1317,10 +1319,11 @@ _dr_worktree_report_admin() {
     if ((${#prune_repos[@]} == 1)); then
       repo=${!prune_repos[*]}
       _dr_worktree_cmd_path "$repo" '<repo>'
-      if [[ -n ${moved_by_repo["$repo"]+x} ]]; then
+      if [[ $REPLY != '<repo>' && -n ${moved_by_repo["$repo"]+x} ]]; then
+        _dr_worktree_repair_first "$REPLY" "${moved_by_repo["$repo"]}"
         hint=$REPLY
-        _dr_worktree_cmd_path "${moved_by_repo["$repo"]}" '<path>'
-        hint="their checkouts are gone, but pruning now would orphan the moved worktree below: first run 'git -C $REPLY worktree repair', then 'git -C $hint worktree prune'"
+      elif [[ -n ${moved_by_repo["$repo"]+x} ]]; then
+        hint="their checkouts are gone, but pruning now would orphan the moved worktrees below: repair those first, then prune"
       else
         hint="their checkouts are gone: run 'git -C $REPLY worktree prune'"
       fi
@@ -1589,6 +1592,29 @@ _dr_worktree_label_largest() {
   ((${#_DR_WORKTREE_TOP[@]} == 0)) || _DR_WORKTREE_TOP[0]="largest: ${_DR_WORKTREE_TOP[0]}"
 }
 
+# Report via REPLY the prune hint for REPO (a command-safe display path)
+# when it also has moved, unrepaired checkouts (MOVED: display paths, one
+# per line). Pruning first would orphan them, so the repair comes first:
+# for one, from inside the checkout; for several, one command from the
+# repository naming each new path (Git repairs them all). A path that
+# cannot go into a command leaves only the instruction to repair them.
+_dr_worktree_repair_first() {
+  local repo=$1 listed=$2 path paths='' count=0 safe=1
+  while IFS= read -r path; do
+    count=$((count + 1))
+    _dr_worktree_cmd_path "$path" ''
+    [[ -n $REPLY ]] || safe=0
+    paths+=" $REPLY"
+  done <<<"$listed"
+  if ((safe == 0)); then
+    REPLY="their checkouts are gone, but pruning now would orphan the moved worktrees below: repair those first, then run 'git -C $repo worktree prune'"
+  elif ((count == 1)); then
+    REPLY="their checkouts are gone, but pruning now would orphan the moved worktree below: first run 'git -C${paths} worktree repair', then 'git -C $repo worktree prune'"
+  else
+    REPLY="their checkouts are gone, but pruning now would orphan the moved worktrees below: first run 'git -C $repo worktree repair${paths}', then 'git -C $repo worktree prune'"
+  fi
+}
+
 # Report LABEL via REPLY when it can go into a printed command as is (no
 # blank, quote, or other shell metacharacter; a leading `~/` expands), else
 # PLACEHOLDER, so a hint never prints a command that does not run.
@@ -1835,7 +1861,9 @@ _dr_check_worktrees() {
     ((gone_count == 0)) || hint+="${hint:+, }$gone_count with upstream gone"
     label+=": $hint"
     hint=
-    if ((manual_count == stale_count)); then
+    if ((manual_count == 1 && stale_count == 1)); then
+      hint="delete it by hand once reviewed: dot-worktree-gc keeps it"
+    elif ((manual_count == stale_count)); then
       hint="delete them by hand once reviewed: dot-worktree-gc keeps them"
     else
       hint="run 'dot-worktree-gc' (dry run; proves squash merges too), then 'dot-worktree-gc --apply' (ignored files go too)"
