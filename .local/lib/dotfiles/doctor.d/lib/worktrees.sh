@@ -196,7 +196,9 @@ _dr_worktree_clone_commons() {
 }
 
 # Read every clone root's `worktrees/<id>/gitdir` pointers directly, without
-# a Git process, and sort the entries into three global arrays:
+# a Git process, and sort the entries into global arrays:
+#   _DR_WORKTREE_ADMIN_PATHS     all pointed-to checkout paths, including those
+#                                whose .git files are missing
 #   _DR_WORKTREE_ADMIN_LIVE      registered checkouts that still exist, as
 #                                written (callers resolve physical paths)
 #   _DR_WORKTREE_ADMIN_PRUNABLE  "repo<TAB>id" for entries `git worktree
@@ -215,6 +217,7 @@ _dr_worktree_clone_commons() {
 # the main shell. Never fails.
 _dr_worktree_admin_scan() {
   local common admin id target repo
+  _DR_WORKTREE_ADMIN_PATHS=()
   _DR_WORKTREE_ADMIN_LIVE=()
   _DR_WORKTREE_ADMIN_PRUNABLE=()
   _DR_WORKTREE_ADMIN_LOCKED=()
@@ -233,6 +236,7 @@ _dr_worktree_admin_scan() {
         '' | /*) ;;
         *) target=$admin/$target ;;
       esac
+      [[ -z $target ]] || _DR_WORKTREE_ADMIN_PATHS+=("${target%/.git}")
       if [[ -n $target && -e $target ]]; then
         # The pointer names the checkout's `.git` file; like Git, strip only
         # that suffix.
@@ -263,6 +267,8 @@ _DR_WORKTREE_SHARED_ROOTS=(.worktrees git/worktrees worktrees git/.worktrees)
 # The root resolves once; a child that is not a symlink is its physical
 # parent plus its name, so only symlinked children pay a resolving subshell
 # (a fork each, and enumeration covers well over a hundred paths).
+# _DR_WORKTREE_SKIP_SYMLINK_CANDIDATES suppresses symlinked children for callers
+# that need direct-directory provenance; the normal doctor view follows them.
 # Never fails.
 _dr_worktree_root_children() {
   local root=$1 mode=${2:-} root_phys child phys nested
@@ -273,6 +279,7 @@ _dr_worktree_root_children() {
     child=${child%/}
     [[ -d $child ]] || continue
     if [[ -L $child ]]; then
+      [[ ${_DR_WORKTREE_SKIP_SYMLINK_CANDIDATES:-0} != 1 ]] || continue
       phys=$(_dr_worktree_physical "$child")
       [[ -n $phys ]] || continue
     else
@@ -284,6 +291,7 @@ _dr_worktree_root_children() {
       nested=${nested%/}
       [[ -e $nested/.git ]] || continue
       if [[ -L $nested ]]; then
+        [[ ${_DR_WORKTREE_SKIP_SYMLINK_CANDIDATES:-0} != 1 ]] || continue
         _dr_worktree_physical "$nested"
       else
         printf '%s\n' "$phys/${nested##*/}"

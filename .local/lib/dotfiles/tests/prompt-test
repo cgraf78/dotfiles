@@ -673,9 +673,15 @@ while IFS= read -r equiv_candidate; do
   [[ -x "$equiv_candidate" && ! -d "$equiv_candidate" ]] || continue
   [[ "$equiv_candidate" == "$TEST_TMPDIR"* ]] && continue
   [[ "$equiv_candidate" -ef "$EQUIV_GIT_A" ]] && continue
-  if [[ "$(sed -n '2p' "$equiv_candidate" 2>/dev/null)" == "# Dotfiles-aware launcher for Git." ]]; then
-    continue
-  fi
+  # Read the marker line the way dot doctor's _dr_worktree_git_usable does,
+  # not through a command substitution: a real git binary's bytes include
+  # NULs, which bash reports as a warning when they reach $(...). Bounded
+  # reads keep a binary's arbitrarily long first "line" cheap.
+  equiv_marker=
+  {
+    IFS= read -r -n 256 equiv_marker && IFS= read -r -n 256 equiv_marker
+  } 2>/dev/null <"$equiv_candidate" || equiv_marker=
+  [[ "$equiv_marker" == "# Dotfiles-aware launcher for Git." ]] && continue
   EQUIV_GIT_B="$equiv_candidate"
   break
 done < <(type -P -a git 2>/dev/null)

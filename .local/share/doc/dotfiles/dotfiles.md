@@ -272,6 +272,52 @@ when a repository needs its own runtime or tool version. Provider migrations
 are complete only after the previous installation and any obsolete tracked
 state have a safe retirement path.
 
+## Worktree cleanup
+
+`dot-worktree-gc --older-than 1d` previews old worktrees across the managed
+worktree roots. Add `--apply` to remove eligible checkouts. Age uses the newest
+checkout-directory, Git HEAD, index, and reftable activity signal; the current
+`find -mtime +N` threshold requires N+1 full days. Age alone never permits
+removal: dirty, locked, in-use, main, nested, and uninspectable checkouts stay.
+Old empty directories discovered directly under those roots are also eligible
+for removal with `rmdir`. Hidden files count as contents, and a file appearing
+after inspection makes `rmdir` refuse deletion. Young, in-use, or known registered
+directories stay; symlinked candidates do not authorize empty-target removal.
+Registration checks cover the base Git directory and discovered clones under
+`~/git` and `~/.dotfiles-*`. Once `.git` is missing, an empty directory cannot
+identify an owner outside that inventory. The record therefore says
+`no known registration`; `rmdir` never deletes the owner's refs or commits.
+Nonempty directories without `.git` and broken worktree pointers require
+separate inspection and are not deleted by this command.
+
+Checkout removal and branch deletion use separate proof requirements:
+
+- Git ancestry, exact content-merge evidence, or an identical complete tree
+  anywhere on the base's first-parent history can prove landing. The historical
+  tree check recognizes stacks landed through several squash merges. Branch
+  deletion additionally requires a freshly fetched base and the unchanged
+  proven branch OID.
+- With optional `gh` and `jq`, an exact local commit's membership in a merged
+  GitHub PR can retire a stale checkout even when the final PR head evolved.
+  Its reported merge must be an ancestor of the pinned base. The original
+  branch and commits remain available.
+- An unpublished repin containing only the authoritative
+  `.github/cgraf78-actions.lock` update and synchronized Actions `uses:`
+  replacements can be retired when the base's provider revision includes the
+  requested revision. Provider ancestry comes from GitHub's compare API;
+  unrelated branch edits are not eligible. This also retains the branch.
+
+An open PR blocks the network-based proofs. GitHub errors, missing clients,
+and incomplete evidence withhold those proofs; `--no-fetch` disables both Git
+fetches and API requests while retaining local proof paths. A skipped
+`merge unproven` record does not establish that a PR is unmerged.
+
+Closed-but-unmerged PR checkouts stay by default. To explicitly retire them
+while preserving their branches and commits, first preview
+`dot-worktree-gc --older-than 1d --include-closed`, then add `--apply` after
+reviewing the output. The same clean and in-use gates still apply. Ignored
+files inside any removed checkout are removed along with it.
+
 ## Dependency Docs
 
 This file is the high-level map. Detailed behavior lives beside the files that
