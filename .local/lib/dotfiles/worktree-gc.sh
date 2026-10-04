@@ -925,6 +925,13 @@ _worktree_gc_process() {
   local dir=$1 old=$2
   local common wt_list registered main_phys git_dir branch
   local verdict rest reason proof_oid action
+  # List young broken pointers as orphans, as the doctor's row promises,
+  # without permitting age to authorize cleanup. Old orphan candidates proceed
+  # to the separate exact-snapshot recovery gate below.
+  if ((old == 0)) && _dr_worktree_orphan "$dir"; then
+    _worktree_gc_record skipped "$dir" "broken git pointer"
+    return 0
+  fi
   if ((old == 0)); then
     _worktree_gc_record kept "$dir" "younger than $_WORKTREE_GC_AGE days"
     return 0

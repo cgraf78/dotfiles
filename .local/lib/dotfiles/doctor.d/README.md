@@ -40,6 +40,15 @@ line under the row and a non-empty `HINT` is a next-step line; on an older
 Dot the first three items, `and N more`, and the hint are joined into the
 row's detail. It is newer than `lib/compat.sh` itself, so an overlay probes
 it with `declare -F _dr_list_row` before calling it.
+`_dr_hint_row LEVEL MESSAGE DETAIL HINT` files one row whose evidence is
+`DETAIL` (may be empty) and whose next step is `HINT`: a separate next-step
+line on a Dot whose doctor API has `dot_doctor_hint`, otherwise appended to
+the detail after `; `. Every warn and fail row carries a next step, through
+it or through `_dr_list_row`'s `HINT`.
+It is newer than `_dr_list_row`, so an overlay probes it with
+`declare -F _dr_hint_row` and falls back to the same rule itself.
+`_DR_TMPDIR_HINT` is the shared next step for a probe that could not create
+its temporary directory.
 `_dr_hook_runtime_source` loads Dot's public hook runtime so a check can ask
 a merge hook what it would render; it depends on the worker's
 `DOT_SOURCE_ROOT`, and callers report a skip when it fails.

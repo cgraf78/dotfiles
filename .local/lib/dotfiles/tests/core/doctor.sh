@@ -437,6 +437,12 @@ case ${1:-} in
           "$HOME/.local/state/shdeps/zzz.transition"
         exit 1
         ;;
+      # An older shdeps repeated a blocked record's path in the detail.
+      duppath)
+        printf 'fail\tzzz/last\tblocked-transition\t%s\tremove the stale transition record at %s and retry\n' \
+          "$HOME/.local/state/shdeps/zzz.json" "$HOME/.local/state/shdeps/zzz.json"
+        exit 1
+        ;;
       # A severity and kind this doctor has never heard of.
       future)
         printf 'notice\tnew/pkg\tfuture-kind\t-\tsomething new; do this\n'
@@ -549,6 +555,22 @@ SH
       $'item\taaa/three: dangling-link — remove it\t' \
       $'item\taaa/four: dangling-link — remove it\t' \
       $'hint\tfollow the fix on each line; \'shdeps health\' lists them all\t')" \
+    "$result"
+  # The path column stays when the detail only names a longer path that
+  # starts or ends with it.
+  REPLY=
+  _dr_shdeps_health_item pkg kind /a/b 'see /a/b.old and /x/a/b; then retry'
+  _assert_eq "doctor health: a longer path in the detail keeps the column" \
+    'pkg: kind /a/b — see /a/b.old and /x/a/b; then retry' "$REPLY"
+  _dr_shdeps_health_item pkg kind /a/b 'remove the record at /a/b.'
+  _assert_eq "doctor health: a path ending a sentence is the same path" \
+    'pkg: kind — remove the record at /a/b.' "$REPLY"
+  # Version skew: an older shdeps names the record in the detail too, so
+  # the item leaves its path column out rather than print the path twice.
+  result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$PATH" DOCTOR_HEALTH_MODE=duppath \
+    _doctor_records _dr_check_tools)
+  _assert_contains "doctor health: a path the detail repeats is printed once" \
+    $'fail\tshdeps health: 1 problem(s)\tzzz/last: blocked-transition — remove the stale transition record at '"$TEST_HOME"$'/.local/state/shdeps/zzz.json and retry; ' \
     "$result"
   result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$PATH" DOCTOR_HEALTH_MODE=future \
     _doctor_records _dr_check_tools)
@@ -919,6 +941,8 @@ SH
   _assert_contains "doctor managed config: broken pre-sync extensions fail" \
     $'fail\tpre-sync extensions are broken: 20-broken.sh (syntax error); 30-entryless.sh (no prepare function)' \
     "$result"
+  _assert_contains "doctor managed config: the pre-sync hint says where the files are" \
+    "they are in $doctor_mc_home/ext/pre-sync.d: check each with 'bash -n <file>'" "$result"
 
   # Leftover temporaries: base checks the destinations of its own merge
   # hooks, by every name the writers use, past the in-flight window.
@@ -982,7 +1006,7 @@ SH
       _doctor_records _dr_check_base_config_temporaries
   )
   _assert_contains "doctor managed config: the list helpers get a next step" \
-    $'hint\tan interrupted write left them: delete them once no \'dot update\', or the program that owns the file, is running' \
+    $'hint\tan interrupted write left them; delete them when neither \'dot update\' nor the program that owns the file is running' \
     "$result"
   # An agent-rules target recorded in the update's manifest is a base
   # destination too.
@@ -1452,6 +1476,49 @@ SH
   _assert_exit "integrations: bare HOME exits 0" 0 "$integ_bare_status"
   _assert_contains "integrations: bare HOME warns for bash" \
     $'warn\ttermnav bash integration unavailable' "$integ_bare_result"
+  _assert_contains "integrations: the bare HOME warning carries its next step" \
+    $'warn\ttermnav bash integration unavailable\tsourcing the termnav shell asset in bash did not load it; run \'dot update\'' \
+    "$integ_bare_result"
+
+  # _dr_hint_row: the next step is a hint line on a Dot that has
+  # dot_doctor_hint, and joins the detail after "; " on one that does not.
+  result=$(_doctor_records _dr_hint_row warn "row" "the cause" "do this")
+  _assert_eq "doctor hint row: an older Dot gets the step in the detail" \
+    $'warn\trow\tthe cause; do this' "$result"
+  result=$(_doctor_records _dr_hint_row fail "row" "" "do this")
+  _assert_eq "doctor hint row: a step alone is the detail on an older Dot" \
+    $'fail\trow\tdo this' "$result"
+  # An info row reads as ok on a Dot without the info kind.
+  result=$(_doctor_records _dr_hint_row info "row" "the cause" "")
+  _assert_eq "doctor hint row: no step leaves the detail alone" \
+    $'ok\trow\tthe cause' "${result/#info/ok}"
+  result=$(
+    # shellcheck disable=SC2329 # Probed by the helper under test.
+    dot_doctor_hint() { _dot_doctor_record hint "$1"; }
+    _doctor_records _dr_hint_row warn "row" $'the\tcause' $'do\nthis'
+  )
+  _assert_eq "doctor hint row: a newer Dot gets a separate one-line hint" \
+    "$(printf '%s\n' $'warn\trow\tthe cause' $'hint\tdo this\t')" "$result"
+  result=$(
+    # shellcheck disable=SC2329 # Probed by the helper under test.
+    dot_doctor_hint() { _dot_doctor_record hint "$1"; }
+    _doctor_records _dr_hint_row warn "row" "the cause" ""
+  )
+  _assert_eq "doctor hint row: an empty step files no hint" \
+    $'warn\trow\tthe cause' "$result"
+  doctor_status=0
+  _dr_hint_row bogus "row" "" "" 2>/dev/null || doctor_status=$?
+  _assert_eq "doctor hint row: an unknown level is refused" 2 "$doctor_status"
+  doctor_status=0
+  _dr_hint_row warn "row" "detail" 2>/dev/null || doctor_status=$?
+  _assert_eq "doctor hint row: a missing hint argument is refused" 2 "$doctor_status"
+
+  # A probe that cannot create its temporary directory says what to check.
+  result=$(TMPDIR=/nonexistent/doctor-tmp HOME="$TEST_HOME" \
+    _doctor_records _dr_check_shell_integrations 2>/dev/null)
+  _assert_contains "doctor temp: a missing TMPDIR names itself as the next step" \
+    "could not create a temporary directory; check that the temporary directory (TMPDIR, else /tmp) exists, is writable, and has free space, then rerun 'dot doctor'" \
+    "$result"
 
   unset -f _doctor_records
 }

@@ -59,40 +59,40 @@ _dr_check_agent_rules_installed() {
     else
       case "$reason" in
         manifest-missing)
-          _dr_fail "generated policy manifest is missing" "run 'dot update -f'"
+          _dr_hint_row fail "generated policy manifest is missing" "" "run 'dot update -f'"
           ;;
         manifest-mismatch)
-          _dr_fail "generated policy manifest is stale" "run 'dot update -f'"
+          _dr_hint_row fail "generated policy manifest is stale" "" "run 'dot update -f'"
           ;;
         manifest-mode | target-mode)
-          _dr_fail "generated policy permissions are unsafe${detail:+: $detail}" \
+          _dr_hint_row fail "generated policy permissions are unsafe${detail:+: $detail}" "" \
             "run 'dot update -f'"
           ;;
         target-missing)
-          _dr_fail "generated policy target is missing: $detail" "run 'dot update -f'"
+          _dr_hint_row fail "generated policy target is missing: $detail" "" "run 'dot update -f'"
           ;;
         target-mismatch)
-          _dr_fail "generated policy target was modified: $detail" "run 'dot update -f'"
+          _dr_hint_row fail "generated policy target was modified: $detail" "" "run 'dot update -f'"
           ;;
         source-selection-failed)
-          _dr_fail "agent rule source selection failed" \
+          _dr_hint_row fail "agent rule source selection failed" "" \
             "check ~/.config/dot/merge-hooks.d/agent-rules and the overlay trust inputs, then run 'dot update -f'"
           ;;
         render-failed | render-manifest-failed | render-block-invalid | render-normalization-failed)
-          _dr_fail "agent rule validation render failed" \
+          _dr_hint_row fail "agent rule validation render failed" "" \
             "run 'dot update -f' to see the agent-rules-sync error"
           ;;
         target-block-invalid)
-          _dr_fail "generated policy target has a malformed managed block: $detail" \
+          _dr_hint_row fail "generated policy target has a malformed managed block: $detail" "" \
             "run 'dot update -f'"
           ;;
         '')
           # Nothing came back: the hook runtime or the hook did not load.
-          _dr_fail "agent rule validation could not run" \
-            "the agent-rules merge hook did not load; run 'dot update -f' and retry"
+          _dr_hint_row fail "agent rule validation could not run" \
+            "the agent-rules merge hook did not load" "run 'dot update -f', then rerun 'dot doctor'"
           ;;
         *)
-          _dr_fail "agent rule validation failed: $reason" \
+          _dr_hint_row fail "agent rule validation failed: $reason" "" \
             "run 'dot update -f' to regenerate, and report the reason if it persists"
           ;;
       esac

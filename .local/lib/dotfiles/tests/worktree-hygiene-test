@@ -31,6 +31,46 @@ dot_doctor_source doctor.d/lib/worktrees.sh || {
   echo 'worktree hygiene tests require doctor.d/lib/worktrees.sh' >&2
   exit 1
 }
+# The list helpers are newer than some Dot releases this suite runs
+# against: default to the older API, where each row's items and next step
+# join its detail, and opt in per case with stubs (_with_list_api).
+unset -f dot_doctor_item dot_doctor_hint
+
+# Run a command with the list helpers stubbed in, as a Dot that has them
+# records items and hints.
+_with_list_api() {
+  (
+    # shellcheck disable=SC2329 # Probed by the checks under test.
+    dot_doctor_item() { _dot_doctor_record item "$1"; }
+    # shellcheck disable=SC2329
+    dot_doctor_hint() { _dot_doctor_record hint "$1"; }
+    "$@"
+  )
+}
+
+# The disk row reads free space with df; the host's own disk must not
+# decide a case. This df reports every argument on one filesystem of
+# HYGIENE_DF_SIZE KiB with HYGIENE_DF_AVAIL KiB free (default: plenty), or
+# prints HYGIENE_DF_RAW verbatim (a captured df output, header included).
+_hygiene_df_bin=$(_tmpdir)/df-bin
+mkdir -p "$_hygiene_df_bin"
+cat >"$_hygiene_df_bin/df" <<'SH'
+#!/usr/bin/env bash
+if [[ -n ${HYGIENE_DF_RAW:-} ]]; then
+  printf '%s\n' "$HYGIENE_DF_RAW"
+  exit 0
+fi
+size=${HYGIENE_DF_SIZE:-1073741824}
+avail=${HYGIENE_DF_AVAIL:-1000000000}
+printf 'Filesystem 1024-blocks Used Available Capacity Mounted on\n'
+for arg; do
+  case $arg in -*) continue ;; esac
+  printf '/dev/test %s %s %s 50%% /test mount\n' "$size" $((size - avail)) "$avail"
+done
+SH
+chmod +x "$_hygiene_df_bin/df"
+PATH=$_hygiene_df_bin:$PATH
+export PATH
 
 # Fixture repositories must not depend on the developer's Git config (commit
 # signing, hooks) or on inherited GIT_CONFIG_COUNT entries.
@@ -48,7 +88,8 @@ _doctor_records() {
   "$@" || status=$?
   cat "$DOT_DOCTOR_RESULT_FILE"
   for entry in ${_DR_WORKTREE_STALE_ENTRIES[@]+"${_DR_WORKTREE_STALE_ENTRIES[@]}"}; do
-    printf 'stale-entry\t%s (%s)\n' "$(_dr_worktree_display "${entry%%$'\t'*}")" "${entry#*$'\t'}"
+    _dr_worktree_label "${entry%%$'\t'*}"
+    printf 'stale-entry\t%s (%s)\n' "$REPLY" "${entry#*$'\t'}"
   done
   return "$status"
 }
@@ -103,6 +144,14 @@ _make_old() {
 }
 _make_fresh() { touch "$1"; }
 
+# Write BYTES of incompressible data to FILE. Cases that compare sizes
+# must not use zeros: a compressing or deduplicating filesystem (as on
+# some CI hosts) stores them in a block or two, so du reports neither the
+# written size nor a stable order between files.
+_disk_blob() {
+  head -c "$1" /dev/urandom >"$2"
+}
+
 echo "=== Worktree disk threshold ==="
 
 disk_home=$(_tmpdir)
@@ -118,11 +167,123 @@ result=$(HOME="$disk_home" DOTFILES="$disk_home/.dotfiles" \
 status=$?
 _assert_exit "disk: over-threshold check exits 0 (warn-only)" 0 "$status"
 _assert_contains "disk: section renders" $'section\tWorktrees' "$result"
-_assert_contains "disk: over-threshold warns" $'warn\tworktree disk' "$result"
+# Above the limit, active trees and room to spare are information only.
+_assert_contains "disk: over-threshold active trees are info" $'info\tworktree disk' "$result"
+_assert_not_contains "disk: over-threshold active trees do not warn" \
+  $'warn\tworktree disk' "$result"
 _assert_contains "disk: over-threshold counts both shared roots" \
   "across 2 worktrees" "$result"
 _assert_contains "disk: over-threshold names the knob" \
   "DOT_WORKTREE_WARN_BYTES" "$result"
+_assert_contains "disk: the info row says why it is not a warning" \
+  "but stale and orphaned trees measured on their own hold under half of it and 953.7G is free on /test mount" "$result"
+_assert_contains "disk: the info row labels its largest trees" \
+  $'\tlargest: ~/.worktrees/big ' "$result"
+# On a Dot with list items, the largest trees are items and the reason is a
+# separate line, not one long detail.
+result=$(HOME="$disk_home" DOTFILES="$disk_home/.dotfiles" DOT_WORKTREE_WARN_BYTES=2048 \
+  _with_list_api _doctor_records _dr_check_worktrees)
+_assert_contains "disk: the info row lists its largest trees as items" \
+  $'\nitem\tlargest: ~/.worktrees/big ' "$result"
+_assert_contains "disk: the info row gives its reason on its own line" \
+  $'\nhint\tabove the 2K limit (DOT_WORKTREE_WARN_BYTES), but ' "$result"
+
+# Low space: under 5% of used plus available and under 20 GiB free.
+result=$(HOME="$disk_home" DOTFILES="$disk_home/.dotfiles" \
+  DOT_WORKTREE_WARN_BYTES=2048 HYGIENE_DF_SIZE=1073741824 HYGIENE_DF_AVAIL=10485760 \
+  _doctor_records _dr_check_worktrees)
+_assert_contains "disk: low space warns" \
+  $' across 2 worktrees; only 10.0G free on /test mount\t' "$result"
+# Raising the limit would silence a real low-space warning, so it is not
+# offered then.
+_assert_contains "disk: low space says to free space" \
+  "free space on /test mount: remove finished worktrees ('dot-worktree-gc' lists stale ones) or other large files there" \
+  "$result"
+_assert_not_contains "disk: low space does not offer raising the limit" \
+  "raise the" "$result"
+result=$(HOME="$disk_home" DOTFILES="$disk_home/.dotfiles" \
+  DOT_WORKTREE_WARN_BYTES=2048 HYGIENE_DF_SIZE=1073741824 HYGIENE_DF_AVAIL=52428800 \
+  _doctor_records _dr_check_worktrees)
+_assert_contains "disk: tens of GiB free is not low, whatever the percentage" \
+  $'info\tworktree disk' "$result"
+result=$(HOME="$disk_home" DOTFILES="$disk_home/.dotfiles" \
+  DOT_WORKTREE_WARN_BYTES=2048 HYGIENE_DF_SIZE=20971520 HYGIENE_DF_AVAIL=4194304 \
+  _doctor_records _dr_check_worktrees)
+_assert_contains "disk: a small disk with a fifth free is not low" \
+  $'info\tworktree disk' "$result"
+# A real `df -Pk` shape from a large ext4 disk at 96% use: f_blocks counts
+# the root-reserved blocks, so available is 4.5% of the size but 4.8% of
+# used plus available, and 52 GiB is not low either way.
+result=$(HOME="$disk_home" DOTFILES="$disk_home/.dotfiles" DOT_WORKTREE_WARN_BYTES=2048 \
+  HYGIENE_DF_RAW=$'Filesystem     1024-blocks       Used Available Capacity Mounted on\n/dev/vda4       1203111804 1088593744  54518060      96% /' \
+  _doctor_records _dr_check_worktrees)
+_assert_contains "disk: a real df line parses, and 52 GiB free is not low" \
+  "52.0G is free on /" "$result"
+result=$(HOME="$disk_home" DOTFILES="$disk_home/.dotfiles" DOT_WORKTREE_WARN_BYTES=2048 \
+  HYGIENE_DF_RAW=$'Filesystem     1024-blocks       Used Available Capacity Mounted on\n/dev/vda4       1203111804 1136000000  10000000      100% /' \
+  _doctor_records _dr_check_worktrees)
+_assert_contains "disk: a real df line under both thresholds is low" \
+  "; only 9.5G free on /"$'\t' "$result"
+# The host's own df (no shim) parses on every CI platform: GNU, BusyBox,
+# BSD/macOS, and Termux all print the POSIX `-Pk` shape. Only the shape is
+# asserted; the host's free space decides nothing here.
+hygiene_real_path=${PATH//"$_hygiene_df_bin:"/}
+if PATH=$hygiene_real_path _dr_worktree_free_space "$disk_home"; then
+  if [[ ${_DR_WORKTREE_FS[0]} =~ ^[0-9]+$'\t'[0-9]+$'\t'/ ]]; then
+    _pass "disk: the host df parses into available, used, and a mount"
+  else
+    _fail "disk: the host df parses into available, used, and a mount (got '${_DR_WORKTREE_FS[0]}')"
+  fi
+else
+  _fail "disk: the host df parses into available, used, and a mount (df gave nothing usable)"
+fi
+# Every filesystem holding a root is judged, not only the emptiest one: a
+# small volume with room to spare must not hide a large one that is full.
+result=$(HOME="$disk_home" DOTFILES="$disk_home/.dotfiles" DOT_WORKTREE_WARN_BYTES=2048 \
+  HYGIENE_DF_RAW=$'Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/small 20971520 10485760 8388608 56% /small\n/dev/big 1203111804 1180000000 12000000 99% /big\n/dev/big 1203111804 1180000000 12000000 99% /big' \
+  _doctor_records _dr_check_worktrees)
+_assert_contains "disk: a full filesystem warns even when another has less free" \
+  "; only 11.4G free on /big"$'\t' "$result"
+# df that cannot answer leaves free space unknown: info, without a free part.
+disk_nodf=$(_tmpdir)
+printf '#!/bin/sh\nexit 1\n' >"$disk_nodf/df"
+chmod +x "$disk_nodf/df"
+result=$(HOME="$disk_home" DOTFILES="$disk_home/.dotfiles" \
+  DOT_WORKTREE_WARN_BYTES=2048 PATH="$disk_nodf:$PATH" \
+  _doctor_records _dr_check_worktrees)
+_assert_contains "disk: unknown free space is info" $'info\tworktree disk' "$result"
+_assert_not_contains "disk: unknown free space names no mount" " free on " "$result"
+# A stale root holding an active checkout is not reclaimable as a whole:
+# removing it would delete the active one too.
+nest_disk_saved=("${_DR_WORKTREE_DU_SIZES[@]}")
+: >"$DOT_DOCTOR_RESULT_FILE"
+_DR_WORKTREE_DU_SIZES=($'900\t/r/stale' $'100\t/r/solo')
+_DR_WORKTREE_DISK_ROOTS=(/r/stale /r/solo)
+_DR_WORKTREE_DISK_CHECKOUTS=(/r/stale /r/stale/.worktrees/active /r/solo)
+_DR_WORKTREE_DISK_CULPRITS=(/r/stale)
+HOME=/nonexistent DOT_WORKTREE_WARN_BYTES=2048 _dr_worktree_report_disk 3 1000
+_assert_contains "disk: a stale root holding an active checkout is no culprit" \
+  $'info\tworktree disk 1000K across 3 worktrees' "$(cat "$DOT_DOCTOR_RESULT_FILE")"
+: >"$DOT_DOCTOR_RESULT_FILE"
+_DR_WORKTREE_DISK_CHECKOUTS=(/r/stale /r/solo)
+HOME=/nonexistent DOT_WORKTREE_WARN_BYTES=2048 _dr_worktree_report_disk 2 1000
+_assert_contains "disk: a stale root with nothing active inside is a culprit" \
+  $'warn\tworktree disk 1000K across 2 worktrees, 900K of it stale or orphaned' \
+  "$(cat "$DOT_DOCTOR_RESULT_FILE")"
+_DR_WORKTREE_DU_SIZES=(${nest_disk_saved[@]+"${nest_disk_saved[@]}"})
+
+# A full disk whose reserved blocks are in use reports a negative Available.
+result=$(HOME="$disk_home" DOTFILES="$disk_home/.dotfiles" \
+  DOT_WORKTREE_WARN_BYTES=2048 HYGIENE_DF_AVAIL=-100 \
+  _doctor_records _dr_check_worktrees)
+_assert_contains "disk: a negative Available is a full disk" \
+  "; only 0B free on /test mount"$'\t' "$result"
+# A filesystem reporting no size at all says nothing about space.
+result=$(HOME="$disk_home" DOTFILES="$disk_home/.dotfiles" \
+  DOT_WORKTREE_WARN_BYTES=2048 HYGIENE_DF_SIZE=0 HYGIENE_DF_AVAIL=0 \
+  _doctor_records _dr_check_worktrees)
+_assert_contains "disk: a zero-size filesystem is not low on space" \
+  $'info\tworktree disk' "$result"
 
 result=$(HOME="$disk_home" DOTFILES="$disk_home/.dotfiles" \
   _doctor_records _dr_check_worktrees)
@@ -724,12 +885,8 @@ HOME=$batch_home
 DOTFILES=$batch_home/.dotfiles
 PATH=$batch_shim_bin:$PATH
 export HOME DOTFILES PATH
-# List every stale sample so each shape's reason is visible in the report.
-batch_saved_limit=$_DR_WORKTREE_STALE_LIST_LIMIT
-_DR_WORKTREE_STALE_LIST_LIMIT=20
 _doctor_records _dr_check_worktrees >"$batch_home/run.txt" 2>/dev/null
 batch_status=$?
-_DR_WORKTREE_STALE_LIST_LIMIT=$batch_saved_limit
 batch_listings=$(grep -c 'worktree list' "$batch_git_log")
 batch_branch_probes=$(grep -c 'branch --show-current' "$batch_git_log")
 # Cross-check every shape against the per-checkout probe it replaces.
@@ -801,9 +958,7 @@ HOME=$batch_home
 DOTFILES=$batch_home/.dotfiles
 PATH=$batch_fail_bin:$batch_saved_path
 export HOME DOTFILES PATH
-_DR_WORKTREE_STALE_LIST_LIMIT=20
 _doctor_records _dr_check_worktrees >"$batch_home/run-fail.txt" 2>/dev/null
-_DR_WORKTREE_STALE_LIST_LIMIT=$batch_saved_limit
 HOME=$batch_saved_home
 PATH=$batch_saved_path
 if ((batch_dotfiles_unset == 1)); then
@@ -914,7 +1069,10 @@ _assert_not_contains "activity: a fresh index keeps a checkout active" \
 _assert_contains "activity: a standalone clone is labelled" \
   "act-idle (merged into origin/main, standalone clone)" "$result"
 _assert_contains "activity: mixed rows send worktrees to the gc and clones by hand" \
-  "then 'dot-worktree-gc --apply' to remove (ignored files such as caches and build output go too); delete 1 by hand once reviewed, dot-worktree-gc keeps it: ~/.worktrees/act-idle" \
+  "run 'dot-worktree-gc' (dry run; proves squash merges too), then 'dot-worktree-gc --apply' (ignored files go too); delete those marked 'delete by hand' yourself" \
+  "$result"
+_assert_contains "activity: the clone is listed first, marked for removal by hand" \
+  $'warn\t2 stale worktrees (older than 14 days): 2 merged\t~/.worktrees/act-idle (merged into origin/main, standalone clone, delete by hand); ~/.worktrees/act-linked (merged into origin/main); run ' \
   "$result"
 
 echo ""
@@ -945,22 +1103,35 @@ _assert_contains "dirty: only the clean checkout is stale" \
 _assert_contains "dirty: dirty checkouts get their own row" \
   $'warn\t3 inactive worktrees have uncommitted changes' "$result"
 _assert_contains "dirty: untracked files count despite showUntrackedFiles=no" \
-  "dirty-hidden (1 uncommitted; merged into origin/main)" "$result"
+  "dirty-hidden (1 uncommitted, merged into origin/main)" "$result"
 _assert_contains "dirty: modified files are counted" \
-  "dirty-modified (1 uncommitted; merged into origin/main)" "$result"
+  "dirty-modified (1 uncommitted, merged into origin/main)" "$result"
 _assert_contains "dirty: untracked files are counted" \
-  "dirty-untracked (1 uncommitted; merged into origin/main)" "$result"
+  "dirty-untracked (1 uncommitted, merged into origin/main)" "$result"
 _assert_not_contains "dirty: a dirty checkout is never called stale" \
   "dirty-modified (merged" "$result"
 _assert_contains "dirty: the row says the gc skips it" \
   "dot-worktree-gc skips dirty checkouts" "$result"
 _assert_contains "dirty: clone-only stale rows say clones go by hand" \
-  "1 merged; delete by hand once reviewed, dot-worktree-gc keeps it: " "$result"
+  $'warn\t1 stale worktree (older than 14 days): 1 merged\t' "$result"
+_assert_contains "dirty: clone-only stale rows name no gc command" \
+  "(merged into origin/main, standalone clone, delete by hand); delete it by hand once reviewed: dot-worktree-gc keeps it" "$result"
 _assert_not_contains "dirty: clone-only stale rows never point at the gc" \
   "'dot-worktree-gc --apply'" "$result"
 # _make_old dated the index 2020; a refreshing status would have moved it.
 _assert_eq "dirty: the probe leaves the index untouched" \
   "$dirty_index" "$(find "$dirty_index" -mtime +1000 2>/dev/null)"
+# A large dirty checkout holds uncommitted work: it never counts toward the
+# disk row's stale share, so the row stays information, not a call to
+# remove it.
+_disk_blob 409600 "$dirty_home/.worktrees/dirty-untracked/big.bin"
+_make_old "$dirty_home/.worktrees/dirty-untracked"
+result=$(HOME="$dirty_home" DOTFILES="$dirty_home/.dotfiles" DOT_WORKTREE_WARN_BYTES=2048 \
+  _doctor_records _dr_check_worktrees)
+_assert_contains "dirty: a dominant dirty tree leaves the disk row info" \
+  $'info\tworktree disk' "$result"
+_assert_not_contains "dirty: a dirty tree is never called stale on the disk row" \
+  "of it stale or orphaned" "$result"
 
 echo ""
 echo "=== Registered worktrees anywhere ==="
@@ -1038,7 +1209,7 @@ _assert_not_contains "registered: a locked checkout is never listed as stale" \
 _assert_contains "registered: an unswept worktree is labelled" \
   "live (merged into origin/main, outside the swept roots)" "$result"
 _assert_contains "registered: unswept stale rows say delete by hand" \
-  "delete by hand once reviewed, dot-worktree-gc keeps it: " "$result"
+  "delete it by hand once reviewed: dot-worktree-gc keeps it" "$result"
 
 # A locked checkout whose repository lives outside every clone root is
 # still recognised as locked through its own pointer.
@@ -1139,8 +1310,6 @@ _assert_eq "launcher: the launcher is never invoked" "" "$(cat "$launch_log")"
 echo ""
 echo "=== Parallel probes match serial probes ==="
 
-par_saved_limit=$_DR_WORKTREE_STALE_LIST_LIMIT
-_DR_WORKTREE_STALE_LIST_LIMIT=20
 par_default=$(HOME="$batch_home" DOTFILES="$batch_home/.dotfiles" \
   _doctor_records _dr_check_worktrees)
 par_serial=$(HOME="$batch_home" DOTFILES="$batch_home/.dotfiles" \
@@ -1149,7 +1318,6 @@ par_dirty_serial=$(HOME="$dirty_home" DOTFILES="$dirty_home/.dotfiles" \
   DOT_DOCTOR_JOBS=1 _doctor_records _dr_check_worktrees)
 par_dirty_default=$(HOME="$dirty_home" DOTFILES="$dirty_home/.dotfiles" \
   _doctor_records _dr_check_worktrees)
-_DR_WORKTREE_STALE_LIST_LIMIT=$par_saved_limit
 _assert_eq "parallel: stale records match a serial run" "$par_serial" "$par_default"
 _assert_eq "parallel: dirty records match a serial run" \
   "$par_dirty_serial" "$par_dirty_default"
@@ -1211,6 +1379,63 @@ _assert_contains "orphans: an orphan is never stale" $'ok\tno stale worktrees' "
 _assert_not_contains "orphans: an orphan is never uninspectable" \
   "cannot inspect" "$result"
 _assert_not_contains "orphans: no Git probe runs in an orphan" "orph-" "$(cat "$orph_log")"
+_assert_contains "orphans: the row says how to list every orphan" \
+  "list every one with: dot-worktree-gc --no-fetch" "$result"
+# With list items, each orphan is an item (Dot folds a long list itself)
+# and the commands are a next-step line.
+result=$(HOME="$orph_home" DOTFILES="$orph_home/.dotfiles" \
+  _with_list_api _doctor_records _dr_check_worktrees)
+_assert_contains "orphans: list items name every orphan and its cause" \
+  "$(printf '%s\n' $'warn\t3 orphaned worktrees (their Git metadata is gone)\t' \
+    $'item\t~/.worktrees/orph-top (~/git/doomed is gone)\t' \
+    $'item\t~/git/worktrees/batch/orph-nested (~/git/doomed is gone)\t' \
+    $'item\t~/worktrees/orph-pruned (admin entry gone from ~/git/kept)\t' \
+    $'hint\tlist every one with: dot-worktree-gc --no-fetch; if the repository moved, run \'git -C <repo> worktree repair <path>\', otherwise review the dry run and apply proven cleanup with --apply, or copy out any work before manual removal\t')" \
+  "$result"
+
+# Many orphans: an older Dot shows three, says how many more there are, and
+# the hint says where to see them all. Orphans holding most of the bytes
+# make the disk row a warning that names them.
+many_home=$(_tmpdir)
+mkdir -p "$many_home/.worktrees/active"
+_disk_blob 1024 "$many_home/.worktrees/active/blob.bin"
+for many_i in 1 2 3 4 5; do
+  mkdir -p "$many_home/.worktrees/lost-$many_i"
+  printf 'gitdir: %s\n' "$many_home/git/gone/.git/worktrees/lost-$many_i" \
+    >"$many_home/.worktrees/lost-$many_i/.git"
+  _disk_blob $((many_i * 40960)) "$many_home/.worktrees/lost-$many_i/blob.bin"
+done
+result=$(HOME="$many_home" DOTFILES="$many_home/.dotfiles" DOT_WORKTREE_WARN_BYTES=2048 \
+  _doctor_records _dr_check_worktrees)
+_assert_contains "orphans: an older Dot folds the tail and says where the rest are" \
+  $'warn\t5 orphaned worktrees (their Git metadata is gone)\t~/.worktrees/lost-1 (~/git/gone is gone); ~/.worktrees/lost-2 (~/git/gone is gone); ~/.worktrees/lost-3 (~/git/gone is gone); and 2 more; list every one with: dot-worktree-gc --no-fetch' \
+  "$result"
+_assert_contains "disk: orphans holding most bytes make the size a warning" \
+  $'warn\tworktree disk ' "$result"
+_assert_contains "disk: the warning says how much is stale or orphaned" \
+  $' of it stale or orphaned\t' "$result"
+_assert_contains "disk: the warning names the largest orphans first" \
+  $'\tlargest: ~/.worktrees/lost-5 ' "$result"
+_assert_not_contains "disk: an active tree is not named as a culprit" \
+  $'worktrees/active ' "$(grep $'^warn\tworktree disk' <<<"$result")"
+_assert_contains "disk: the warning points at the stale and orphan rows" \
+  "remove those trees as the stale and orphan rows below say, or raise the 2K limit (DOT_WORKTREE_WARN_BYTES)" \
+  "$result"
+# An orphan a moved repository still lists, outside the swept roots, is
+# marked: dot-worktree-gc never visits it.
+unswept_home=$(_tmpdir)
+git init -q "$unswept_home/git/renamed" >/dev/null 2>&1
+mkdir -p "$unswept_home/git/renamed/.git/worktrees/wt" "$unswept_home/elsewhere/wt"
+printf '%s\n' "$unswept_home/elsewhere/wt/.git" >"$unswept_home/git/renamed/.git/worktrees/wt/gitdir"
+printf 'gitdir: %s\n' "$unswept_home/git/old-name/.git/worktrees/wt" >"$unswept_home/elsewhere/wt/.git"
+result=$(HOME="$unswept_home" DOTFILES="$unswept_home/.dotfiles" \
+  _doctor_records _dr_check_worktrees)
+# shellcheck disable=SC2088 # Rows carry tilde display paths.
+_assert_contains "orphans: one outside the swept roots is marked" \
+  "~/elsewhere/wt (~/git/old-name is gone, outside the swept roots)" "$result"
+_assert_contains "orphans: the hint excludes the marked ones from the gc's list" \
+  "list all but those marked 'outside the swept roots' with: dot-worktree-gc --no-fetch" \
+  "$result"
 # The row's own repair hint brings the moved repository's checkouts back
 # (repair from the moved repository reconnects every checkout it lists); the
 # pruned entry has nothing left to repair.
@@ -1229,7 +1454,7 @@ echo "=== Shared roots and grouping folders ==="
 # ~/git/worktrees, and a folder there without a `.git` groups checkouts one
 # level down. The owning clone lives outside every clone root, so only the
 # roots reach these checkouts; they are the gc's to sweep, so the stale row
-# names counts and the gc, not paths.
+# counts them by reason and points at the gc.
 grp_home=$(_tmpdir)
 grp_origin_root=$(_tmpdir)
 _seed_origin "$grp_origin_root/origin.git"
@@ -1268,9 +1493,36 @@ _assert_not_contains "groups: nothing is outside the swept roots" \
   "outside the swept roots" "$result"
 grp_row=$(grep $'^warn\t3 stale worktrees' <<<"$result")
 _assert_contains "groups: the stale row counts by reason" \
-  $'\t3 merged; run \'dot-worktree-gc\' to list (dry run; it can also prove squash merges), then \'dot-worktree-gc --apply\' to remove (ignored files such as caches and build output go too)' \
+  $'warn\t3 stale worktrees (older than 14 days): 3 merged\t' "$grp_row"
+_assert_contains "groups: the stale row ends with the gc commands" \
+  "; run 'dot-worktree-gc' (dry run; proves squash merges too), then 'dot-worktree-gc --apply' (ignored files go too)" \
   "$grp_row"
-_assert_not_contains "groups: the stale row lists no gc-removable path" "g-" "$grp_row"
+# Every stale checkout is an item; a Dot with list items folds the tail
+# itself, and the hint is a separate next-step line.
+result=$(HOME="$grp_home" DOTFILES="$grp_home/.dotfiles" \
+  _with_list_api _doctor_records _dr_check_worktrees)
+_assert_contains "groups: list items name every stale checkout" \
+  "$(printf '%s\n' $'warn\t3 stale worktrees (older than 14 days): 3 merged\t' \
+    $'item\t~/git/.worktrees/g-hidden (merged into origin/main)\t' \
+    $'item\t~/git/worktrees/batch/g-nested (merged into origin/main)\t' \
+    $'item\t~/worktrees/g-top (merged into origin/main)\t' \
+    $'hint\trun \'dot-worktree-gc\' (dry run; proves squash merges too), then \'dot-worktree-gc --apply\' (ignored files go too)\t')" \
+  "$result"
+
+# A grouping folder whose every checkout is stale counts whole toward the
+# disk row's stale share, loose bytes included.
+_disk_blob 409600 "$grp_home/git/worktrees/batch/notes/big.bin"
+result=$(HOME="$grp_home" DOTFILES="$grp_home/.dotfiles" DOT_WORKTREE_WARN_BYTES=2048 \
+  _with_list_api _doctor_records _dr_check_worktrees)
+_assert_contains "groups: a stale grouping folder makes the disk row warn" \
+  " of it stale or orphaned"$'\t' "$result"
+# The largest culprit is the first item; sizes themselves depend on the
+# filesystem and du, so only the order is asserted.
+# shellcheck disable=SC2088 # Rows carry tilde display paths.
+_assert_eq "groups: the grouping folder is the largest culprit" \
+  "largest: ~/git/worktrees/batch" \
+  "$(awk -F '\t' '$1 == "warn" { inrow = ($2 ~ /^worktree disk /); next }
+    inrow && $1 == "item" { sub(/ [^ ]*$/, "", $2); print $2; exit }' <<<"$result")"
 
 echo ""
 echo "=== Disk row names the largest roots ==="
@@ -1280,20 +1532,28 @@ mkdir -p "$top_home/.worktrees"
 for top_name in big-c big-a big-d big-b; do
   mkdir -p "$top_home/.worktrees/$top_name"
 done
-head -c 409600 /dev/zero >"$top_home/.worktrees/big-a/blob.bin"
-head -c 307200 /dev/zero >"$top_home/.worktrees/big-b/blob.bin"
-head -c 204800 /dev/zero >"$top_home/.worktrees/big-c/blob.bin"
-head -c 102400 /dev/zero >"$top_home/.worktrees/big-d/blob.bin"
+_disk_blob 409600 "$top_home/.worktrees/big-a/blob.bin"
+_disk_blob 307200 "$top_home/.worktrees/big-b/blob.bin"
+_disk_blob 204800 "$top_home/.worktrees/big-c/blob.bin"
+_disk_blob 102400 "$top_home/.worktrees/big-d/blob.bin"
 result=$(HOME="$top_home" DOTFILES="$top_home/.dotfiles" \
   DOT_WORKTREE_WARN_BYTES=2048 _doctor_records _dr_check_worktrees)
-top_row=$(grep $'^warn\tworktree disk' <<<"$result")
+top_row=$(grep $'^info\tworktree disk' <<<"$result")
 top_order=no
-[[ $top_row == *"largest: ~/.worktrees/big-a "*", ~/.worktrees/big-b "*", ~/.worktrees/big-c "* ]] &&
+[[ $top_row == *$'\t'"largest: ~/.worktrees/big-a "*"; ~/.worktrees/big-b "*"; ~/.worktrees/big-c "* ]] &&
   top_order=yes
 _assert_eq "disk top: the three largest roots, largest first" yes "$top_order"
 _assert_not_contains "disk top: only three roots are named" "big-d" "$top_row"
-_assert_contains "disk top: the row points at the gc" "dot-worktree-gc" "$top_row"
 _assert_contains "disk top: the knob is still named" "DOT_WORKTREE_WARN_BYTES" "$top_row"
+result=$(HOME="$top_home" DOTFILES="$top_home/.dotfiles" HYGIENE_DF_AVAIL=1024 \
+  DOT_WORKTREE_WARN_BYTES=2048 _with_list_api _doctor_records _dr_check_worktrees)
+top_row=$(grep -A4 $'^warn\tworktree disk' <<<"$result")
+_assert_eq "disk top: a warning lists the largest roots as items" \
+  "big-a big-b big-c" \
+  "$(awk -F '\t' '$1 == "item" { sub(/^largest: /, "", $2); sub(/^~\/.worktrees\//, "", $2); sub(/ .*/, "", $2); printf "%s%s", sep, $2; sep = " " }' <<<"$top_row")"
+_assert_contains "disk top: the warning points at the gc" "dot-worktree-gc" "$top_row"
+_assert_not_contains "disk top: a low-space warning does not offer raising the limit" \
+  "DOT_WORKTREE_WARN_BYTES" "$top_row"
 result=$(HOME="$top_home" DOTFILES="$top_home/.dotfiles" \
   _doctor_records _dr_check_worktrees)
 _assert_not_contains "disk top: an ok row names no roots" "largest" "$result"
@@ -1313,8 +1573,18 @@ result=$(HOME="$opq_home" DOTFILES="$opq_home/.dotfiles" \
   _doctor_records _dr_check_worktrees)
 _assert_contains "opaque: the checkout warns" \
   $'warn\t1 inactive worktree Git cannot inspect\t~/.worktrees/opaque; ' "$result"
-_assert_contains "opaque: the row says how to see why" "git -C <path> status" "$result"
+_assert_contains "opaque: the row says how to see why" \
+  "run 'git -C ~/.worktrees/opaque status' to see why" "$result"
 _assert_not_contains "opaque: it is not an orphan" "orphaned" "$result"
+# A path a shell would split is never pasted into a command.
+opq2_home=$(_tmpdir)
+mkdir -p "$opq2_home/.worktrees/opaque two"
+printf 'gitdir: %s\n' "$opq_target" >"$opq2_home/.worktrees/opaque two/.git"
+_make_old "$opq2_home/.worktrees/opaque two"
+result=$(HOME="$opq2_home" DOTFILES="$opq2_home/.dotfiles" \
+  _doctor_records _dr_check_worktrees)
+_assert_contains "opaque: a path with a blank gets a placeholder in the command" \
+  "run 'git -C <path> status' to see why" "$result"
 
 echo ""
 echo "=== DOT_DOCTOR_GIT ==="
@@ -1548,7 +1818,57 @@ _assert_contains "moved: a deleted checkout's entry is still prunable" \
   $'warn\t1 prunable worktree entry\t~/git/alpha: deleted;' "$result"
 _assert_contains "moved: a moved checkout gets the repair row" \
   $'warn\t1 moved worktree is not repaired\t~/.worktrees/after (entry before of ~/git/alpha);' "$result"
-_assert_contains "moved: the repair row warns off pruning" "pruning would orphan them" "$result"
+_assert_contains "moved: the repair row names the command for its checkout" \
+  "run 'git -C ~/.worktrees/after worktree repair' (pruning would orphan it)" "$result"
+# A prune in that repository would also drop the moved checkout's entry and
+# orphan it, so the repair comes first and no bare prune is offered.
+_assert_contains "moved: the prune hint repairs the moved checkout first" \
+  "their checkouts are gone, but pruning now would orphan the moved worktree below: first run 'git -C ~/.worktrees/after worktree repair', then 'git -C ~/git/alpha worktree prune'" \
+  "$result"
+_assert_not_contains "moved: no bare prune is offered" \
+  "their checkouts are gone: run 'git -C ~/git/alpha worktree prune'" "$result"
+# Following the hint in order keeps the moved checkout.
+git -C "$mv_home/.worktrees/after" worktree repair >/dev/null 2>&1
+git -C "$mv_home/git/alpha" worktree prune >/dev/null 2>&1
+result=$(HOME="$mv_home" DOTFILES="$mv_home/.dotfiles" \
+  _doctor_records _dr_check_worktrees)
+_assert_not_contains "moved: repair then prune leaves no orphan" "orphaned" "$result"
+_assert_not_contains "moved: repair then prune leaves nothing to prune" "prunable" "$result"
+# Two moved checkouts in the repository to prune: one repair command names
+# both, and following the hint in order orphans neither.
+mv3_home=$(_tmpdir)
+git clone "$mv_origin/origin.git" "$mv3_home/git/gamma" >/dev/null 2>&1
+mkdir -p "$mv3_home/.worktrees"
+for mv3_name in a b gone; do
+  git -C "$mv3_home/git/gamma" worktree add "$mv3_home/.worktrees/$mv3_name" -b "mv3-$mv3_name" >/dev/null 2>&1
+done
+mv "$mv3_home/.worktrees/a" "$mv3_home/.worktrees/a-moved"
+mv "$mv3_home/.worktrees/b" "$mv3_home/.worktrees/b-moved"
+rm -rf "$mv3_home/.worktrees/gone"
+result=$(HOME="$mv3_home" DOTFILES="$mv3_home/.dotfiles" \
+  _doctor_records _dr_check_worktrees)
+_assert_contains "moved: two moved checkouts are repaired together before the prune" \
+  "pruning now would orphan the moved worktrees below: first run 'git -C ~/git/gamma worktree repair ~/.worktrees/a-moved ~/.worktrees/b-moved', then 'git -C ~/git/gamma worktree prune'" \
+  "$result"
+git -C "$mv3_home/git/gamma" worktree repair "$mv3_home/.worktrees/a-moved" "$mv3_home/.worktrees/b-moved" >/dev/null 2>&1
+git -C "$mv3_home/git/gamma" worktree prune >/dev/null 2>&1
+result=$(HOME="$mv3_home" DOTFILES="$mv3_home/.dotfiles" \
+  _doctor_records _dr_check_worktrees)
+_assert_not_contains "moved: following the hint for two moved checkouts orphans neither" \
+  "orphaned" "$result"
+_assert_not_contains "moved: following the hint for two moved checkouts leaves nothing to prune" \
+  "prunable" "$result"
+
+# With only deleted checkouts, the prune command names the repository.
+mv2_home=$(_tmpdir)
+git clone "$mv_origin/origin.git" "$mv2_home/git/beta" >/dev/null 2>&1
+mkdir -p "$mv2_home/.worktrees"
+git -C "$mv2_home/git/beta" worktree add "$mv2_home/.worktrees/gone" -b mv3 >/dev/null 2>&1
+rm -rf "$mv2_home/.worktrees/gone"
+result=$(HOME="$mv2_home" DOTFILES="$mv2_home/.dotfiles" \
+  _doctor_records _dr_check_worktrees)
+_assert_contains "moved: the prune hint names the one repository" \
+  "their checkouts are gone: run 'git -C ~/git/beta worktree prune'" "$result"
 
 echo ""
 echo "=== Symlinked HOME ==="

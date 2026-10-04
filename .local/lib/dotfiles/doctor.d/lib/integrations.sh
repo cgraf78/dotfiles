@@ -52,19 +52,21 @@ _dr_termnav_report() {
   IFS= read -r -d '' output 2>/dev/null <"$base/out" || true
   case $status in
     124 | 137)
-      _dr_warn "termnav $shell_name integration timed out" \
-        "sourcing the termnav shell asset in $shell_name took over ${_DR_TERMNAV_DEADLINE}s, so interactive $shell_name startup stalls too; run 'dot update' to reinstall it"
+      _dr_hint_row warn "termnav $shell_name integration timed out" \
+        "sourcing the termnav shell asset in $shell_name took over ${_DR_TERMNAV_DEADLINE}s, so interactive $shell_name startup stalls too" \
+        "run 'dot update' to reinstall it"
       ;;
     125)
-      _dr_warn "termnav $shell_name integration unchecked" \
-        "could not set up the probe's deadline"
+      # The builtin watchdog could not create its private FIFO.
+      _dr_hint_row warn "termnav $shell_name integration unchecked" \
+        "could not set up the probe's deadline" "$_DR_TMPDIR_HINT"
       ;;
     *)
       if [[ $output == *"termnav=1"* ]]; then
         _dr_ok "termnav $shell_name integration"
       else
-        _dr_warn "termnav $shell_name integration unavailable" \
-          "sourcing the termnav shell asset in $shell_name did not load it; run 'dot update'"
+        _dr_hint_row warn "termnav $shell_name integration unavailable" \
+          "sourcing the termnav shell asset in $shell_name did not load it" "run 'dot update'"
       fi
       ;;
   esac
@@ -80,8 +82,8 @@ _dr_check_shell_integrations() {
   _dr_timeout_resolve
   if ! tmp=$(mktemp -d "${TMPDIR:-/tmp}/dot-doctor-termnav.XXXXXX" 2>/dev/null); then
     for shell_name in "${shells[@]}"; do
-      _dr_warn "termnav $shell_name integration unchecked" \
-        "could not create a temporary directory"
+      _dr_hint_row warn "termnav $shell_name integration unchecked" \
+        "could not create a temporary directory" "$_DR_TMPDIR_HINT"
     done
   else
     for shell_name in "${shells[@]}"; do
@@ -97,8 +99,8 @@ _dr_check_shell_integrations() {
     done
     for i in "${!shells[@]}"; do
       if [[ -z ${bases[i]} ]]; then
-        _dr_warn "termnav ${shells[i]} integration unchecked" \
-          "could not create a temporary directory"
+        _dr_hint_row warn "termnav ${shells[i]} integration unchecked" \
+          "could not create a temporary directory" "$_DR_TMPDIR_HINT"
         continue
       fi
       wait "${pids[i]}" || true

@@ -10,12 +10,20 @@ dot_doctor_source doctor.d/lib/shdeps-links.sh || return
 
 # Render one `shdeps health` row as a list item: package and kind, the path
 # when there is one, then shdeps' own detail, which names the cause and the
-# fix. `-` marks an absent column.
+# fix. `-` marks an absent column. A detail that already names the path
+# (an older shdeps repeated a transition record's path there) leaves the
+# path column out, so the item never prints it twice.
 _dr_shdeps_health_item() {
-  local package=$1 kind=$2 path=$3 detail=$4 item=''
+  local package=$1 kind=$2 path=$3 detail=$4 item='' padded
   [[ -z $package || $package == - ]] || item="$package: "
   item+=$kind
-  [[ -z $path || $path == - ]] || item+=" $(_dr_tilde "$path")"
+  # The path counts as named only as a whole word: bounded by the start or
+  # end, a blank, `;`, `,`, a parenthesis, or a sentence's final `.`, so a
+  # different path that merely starts or ends with it keeps the column.
+  padded=" ${detail//[;,()]/ } "
+  padded=${padded//. / }
+  [[ -z $path || $path == - || $padded == *" $path "* ]] ||
+    item+=" $(_dr_tilde "$path")"
   [[ -z $detail || $detail == - ]] || item+=" — $detail"
   REPLY=$item
 }
@@ -36,11 +44,11 @@ _dr_check_shdeps_health() {
       return 0
       ;;
     error-124 | error-137)
-      _dr_fail "shdeps health timed out" "run 'shdeps health' to see where it stalls"
+      _dr_hint_row fail "shdeps health timed out" "" "run 'shdeps health' to see where it stalls"
       return 0
       ;;
     error-*)
-      _dr_fail "shdeps health failed (exit ${_DR_SHDEPS_HEALTH_STATUS#error-})" \
+      _dr_hint_row fail "shdeps health failed (exit ${_DR_SHDEPS_HEALTH_STATUS#error-})" "" \
         "run 'shdeps health' to see the error"
       return 0
       ;;
@@ -57,7 +65,8 @@ _dr_check_shdeps_health() {
   done <<<"$_DR_SHDEPS_HEALTH_OUTPUT"
 
   if ((${#failing[@]} + ${#others[@]} == 0)); then
-    _dr_fail "shdeps health report incomplete" "run 'shdeps health' to see what it could not read"
+    _dr_hint_row fail "shdeps health report incomplete" "" \
+      "run 'shdeps health' to see what it could not read"
     return 0
   fi
   message="shdeps health: $((${#failing[@]} + ${#others[@]})) problem(s)"
@@ -84,11 +93,11 @@ _dr_check_tools() {
     # plus deferred, recovery, transition, and install-root state.
     _dr_check_shdeps_health
   elif ! command -v shdeps >/dev/null 2>&1; then
-    _dr_warn "shdeps health unchecked" "shdeps is not on PATH; run 'dot update'"
+    _dr_hint_row warn "shdeps health unchecked" "shdeps is not on PATH" "run 'dot update'"
   else
     # Every supported shdeps has `health`; one that rejects or cannot run
     # it is out of date or broken, and `dot update` replaces it.
-    _dr_warn "shdeps health unchecked" \
-      "the installed shdeps cannot run 'shdeps health'; run 'dot update' to upgrade it"
+    _dr_hint_row warn "shdeps health unchecked" \
+      "the installed shdeps cannot run 'shdeps health'" "run 'dot update' to upgrade it"
   fi
 }

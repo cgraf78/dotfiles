@@ -16,21 +16,31 @@
 #
 # The disk threshold defaults to 10 GiB and is overridable with
 # DOT_WORKTREE_WARN_BYTES (plain integer bytes; anything else falls back to
-# the default). Dot config keys are engine-owned, so a DOT_* environment knob
-# follows the codebase's existing pattern for client behavior switches.
+# the default). Within it the disk row passes; above it the row is
+# information, and warns only when stale and orphaned trees hold at least
+# half the bytes or a filesystem holding them has under 5% and under
+# 20 GiB free, the cases where the row names something to do. Dot config keys are
+# engine-owned, so a DOT_* environment knob follows the codebase's existing
+# pattern for client behavior switches.
 # DOT_DOCTOR_GIT names the Git binary the probes use (an absolute path or a
 # command name), for hosts whose PATH Git is a slow wrapper; an unusable
 # value falls back to the PATH search below.
 
 _DR_WORKTREE_WARN_BYTES_DEFAULT=10737418240
 _DR_WORKTREE_STALE_DAYS=14
-_DR_WORKTREE_STALE_LIST_LIMIT=5
-_DR_WORKTREE_MANUAL_LIST_LIMIT=3
-_DR_WORKTREE_ORPHAN_LIST_LIMIT=3
+# The disk row warns above the limit only when stale and orphaned trees
+# hold at least this share of the bytes, or when a filesystem holding a
+# worktree root is low on space: under LOW_FREE_PERCENT of its usable space
+# (used plus available, as df's capacity column counts it) and under
+# LOW_FREE_BYTES as well, so a large disk with tens of GiB left is not
+# called low (see _dr_worktree_report_disk).
+_DR_WORKTREE_DOMINANT_PERCENT=50
+_DR_WORKTREE_LOW_FREE_PERCENT=5
+_DR_WORKTREE_LOW_FREE_BYTES=21474836480
 
 # Every clean stale checkout of the last _dr_check_worktrees run, as
-# "physical-path<TAB>reason". The row itself shows counts only; this keeps
-# the full list for callers that want each path.
+# "physical-path<TAB>reason", for callers that want each path and reason
+# without parsing the row's display items.
 _DR_WORKTREE_STALE_ENTRIES=()
 
 # Git binary for every probe in this file; empty means plain `git` from PATH
@@ -1158,10 +1168,11 @@ _dr_worktree_orphan_cause() {
     common=${target%/worktrees/*}
   fi
   repo=${common%/.git}
+  _dr_worktree_label "$repo"
   if [[ $common != "$target" && -d $common ]]; then
-    REPLY="admin entry gone from $(_dr_worktree_display "$repo")"
+    REPLY="admin entry gone from $REPLY"
   else
-    REPLY="$(_dr_worktree_display "$repo") is gone"
+    REPLY+=" is gone"
   fi
 }
 
@@ -1217,13 +1228,16 @@ _dr_worktree_dirty_count() {
 # _dr_check_worktrees.
 _DR_WORKTREE_HOME_PHYS=
 
-# Display a path for a record. Checkout paths here are physical (the
-# enumeration resolves them, and Git records them that way in its gitdir
-# files), while HOME may be spelled through a symlink: macOS keeps it and
-# TMPDIR under /var -> /private/var. Shortening only against the logical
+# Report a path for a record via REPLY. Checkout paths here are physical
+# (the enumeration resolves them, and Git records them that way in its
+# gitdir files), while HOME may be spelled through a symlink: macOS keeps it
+# and TMPDIR under /var -> /private/var. Shortening only against the logical
 # HOME would print a physical home path in full, so map the physical HOME
-# prefix back to HOME first.
-_dr_worktree_display() {
+# prefix back to HOME first. HOME then abbreviates to `~` as
+# dot_doctor_display_path does, and a TAB or line break becomes a space, as
+# _dr_tilde does, but without a subshell: the rows list every checkout
+# they name, and a fork per item adds up across a hundred worktrees.
+_dr_worktree_label() {
   local path=$1 phys=${_DR_WORKTREE_HOME_PHYS:-}
   if [[ -n $phys && $phys != "$HOME" ]]; then
     case $path in
@@ -1231,21 +1245,19 @@ _dr_worktree_display() {
       "$phys"/*) path=$HOME/${path#"$phys"/} ;;
     esac
   fi
-  _dr_tilde "$path"
-}
-
-# Join "a; b; c" from up to _DR_WORKTREE_STALE_LIST_LIMIT samples plus an
-# "and N more" tail for TOTAL entries, via REPLY.
-_dr_worktree_join_samples() {
-  local total=$1 sample
-  shift
-  REPLY=
-  for sample in "$@"; do
-    REPLY+=${REPLY:+; }$sample
-  done
-  if ((total > $#)); then
-    REPLY+="; and $((total - $#)) more"
+  # shellcheck disable=SC2088 # Tilde is display text, not expansion.
+  if [[ $HOME == / ]]; then
+    case $path in
+      /) path='~' ;;
+      /*) path="~/${path#/}" ;;
+    esac
+  elif [[ -n $HOME ]]; then
+    case $path in
+      "$HOME") path='~' ;;
+      "$HOME"/*) path="~/${path#"$HOME"/}" ;;
+    esac
   fi
+  REPLY=${path//[$'\t\r\n']/ }
 }
 
 # Report registered admin entries that need an owner decision: prunable
@@ -1258,8 +1270,9 @@ _dr_worktree_join_samples() {
 # own row with the repair command; the candidates (the checkouts the check
 # found, passed as arguments) are read only when some entry looks prunable.
 _dr_worktree_report_admin() {
-  local entry repo id label common admin dir moved_to i
-  local -a samples=() prunable=() moved=() pointers=() pointer_dirs=()
+  local entry repo id label common admin dir moved_to i hint
+  local -a items=() prunable=() moved=() moved_dirs=() pointers=() pointer_dirs=()
+  local -A prune_repos=() moved_by_repo=()
 
   if ((${#_DR_WORKTREE_ADMIN_PRUNABLE[@]} > 0)); then
     for dir in "$@"; do
@@ -1282,70 +1295,113 @@ _dr_worktree_report_admin() {
       fi
     done
     if [[ -n $moved_to ]]; then
-      moved+=("$(_dr_worktree_display "$moved_to") (entry $id of $(_dr_worktree_display "$repo"))")
+      _dr_worktree_label "$repo"
+      label=$REPLY
+      _dr_worktree_label "$moved_to"
+      moved+=("$REPLY (entry $id of $label)")
+      moved_dirs+=("$REPLY")
+      # Every moved checkout of the repository, one per line: a prune there
+      # would orphan each of them.
+      moved_by_repo["$label"]+=${moved_by_repo["$label"]:+$'\n'}$REPLY
     else
       prunable+=("$entry")
     fi
   done
   for entry in ${prunable[@]+"${prunable[@]}"}; do
-    ((${#samples[@]} < _DR_WORKTREE_STALE_LIST_LIMIT)) || break
     repo=${entry%%$'\t'*}
     id=${entry#*$'\t'}
-    samples+=("$(_dr_worktree_display "$repo"): $id")
+    _dr_worktree_label "$repo"
+    items+=("$REPLY: $id")
+    prune_repos["$REPLY"]=1
   done
   if ((${#prunable[@]} > 0)); then
-    _dr_worktree_join_samples "${#prunable[@]}" "${samples[@]}"
     if ((${#prunable[@]} == 1)); then
       label="1 prunable worktree entry"
     else
       label="${#prunable[@]} prunable worktree entries"
     fi
-    _dr_warn "$label" "$REPLY; their checkouts are gone: run 'git -C <repo> worktree prune'"
+    # Name the repository when there is only one, so the command runs as
+    # printed. A prune there would also drop the admin entry of a moved,
+    # unrepaired checkout in that repository and orphan it, so then the
+    # repair comes first and no prune is offered on its own.
+    if ((${#prune_repos[@]} == 1)); then
+      repo=${!prune_repos[*]}
+      _dr_worktree_cmd_path "$repo" '<repo>'
+      if [[ $REPLY != '<repo>' && -n ${moved_by_repo["$repo"]+x} ]]; then
+        _dr_worktree_repair_first "$REPLY" "${moved_by_repo["$repo"]}"
+        hint=$REPLY
+      elif [[ -n ${moved_by_repo["$repo"]+x} ]]; then
+        hint="their checkouts are gone, but pruning now would orphan the moved worktrees below: repair those first, then prune"
+      else
+        hint="their checkouts are gone: run 'git -C $REPLY worktree prune'"
+      fi
+    elif ((${#moved[@]} > 0)); then
+      hint="their checkouts are gone, but pruning now would orphan the moved worktrees below: repair those first, then run 'git -C <repo> worktree prune' for each repository"
+    else
+      hint="their checkouts are gone: run 'git -C <repo> worktree prune' for each repository"
+    fi
+    _dr_list_row warn "$label" "$hint" "${items[@]}"
   fi
   if ((${#moved[@]} > 0)); then
-    _dr_worktree_join_samples "${#moved[@]}" "${moved[@]:0:_DR_WORKTREE_STALE_LIST_LIMIT}"
     if ((${#moved[@]} == 1)); then
       label="1 moved worktree is not repaired"
+      _dr_worktree_cmd_path "${moved_dirs[0]}" '<path>'
+      hint="run 'git -C $REPLY worktree repair' (pruning would orphan it)"
     else
       label="${#moved[@]} moved worktrees are not repaired"
+      hint="run 'git -C <path> worktree repair' in each (pruning would orphan them)"
     fi
-    _dr_warn "$label" "$REPLY; run 'git -C <path> worktree repair' there (pruning would orphan them)"
+    _dr_list_row warn "$label" "$hint" "${moved[@]}"
   fi
 
-  samples=()
+  items=()
   for entry in ${_DR_WORKTREE_ADMIN_LOCKED[@]+"${_DR_WORKTREE_ADMIN_LOCKED[@]}"}; do
-    ((${#samples[@]} < _DR_WORKTREE_STALE_LIST_LIMIT)) || break
     repo=${entry%%$'\t'*}
     id=${entry#*$'\t'}
     if [[ -n $id ]]; then
-      samples+=("$(_dr_worktree_display "$repo"): $id (checkout missing)")
+      _dr_worktree_label "$repo"
+      items+=("$REPLY: $id (checkout missing)")
     else
-      # Relative pointers arrive spelled through the admin entry.
-      label=$(_dr_worktree_physical "$repo")
-      samples+=("$(_dr_worktree_display "${label:-$repo}")")
+      # Relative pointers arrive spelled through the admin entry; only those
+      # need resolving (a subshell each).
+      label=$repo
+      case $repo in
+        */../* | */./*) label=$(_dr_worktree_physical "$repo") ;;
+      esac
+      _dr_worktree_label "${label:-$repo}"
+      items+=("$REPLY")
     fi
   done
-  if ((${#_DR_WORKTREE_ADMIN_LOCKED[@]} > 0)); then
-    _dr_worktree_join_samples "${#_DR_WORKTREE_ADMIN_LOCKED[@]}" "${samples[@]}"
-    if ((${#_DR_WORKTREE_ADMIN_LOCKED[@]} == 1)); then
+  if ((${#items[@]} > 0)); then
+    if ((${#items[@]} == 1)); then
       label="1 locked worktree"
     else
-      label="${#_DR_WORKTREE_ADMIN_LOCKED[@]} locked worktrees"
+      label="${#items[@]} locked worktrees"
     fi
-    _dr_info "$label" "$REPLY; prune and dot-worktree-gc skip them until 'git worktree unlock'"
+    _dr_list_row info "$label" \
+      "prune and dot-worktree-gc skip them until 'git worktree unlock'" "${items[@]}"
   fi
   return 0
 }
 
-# Report the largest du roots, up to three, via REPLY as "path size, ...",
-# from the sizes the disk pass already measured. One pass in Bash, no sort.
+# Fill _DR_WORKTREE_TOP with the largest measured du roots, up to three, as
+# "path size" display items, largest first, from the sizes the disk pass
+# already measured. With arguments, only those roots are ranked. One pass in
+# Bash, no sort.
+_DR_WORKTREE_TOP=()
 _dr_worktree_top_roots() {
-  local entry kib i j
+  local entry kib path i j
   local -a top_kib=() top_path=()
-  REPLY=
+  local -A only=()
+  for path; do
+    only["$path"]=1
+  done
+  _DR_WORKTREE_TOP=()
   for entry in ${_DR_WORKTREE_DU_SIZES[@]+"${_DR_WORKTREE_DU_SIZES[@]}"}; do
     kib=${entry%%$'\t'*}
+    path=${entry#*$'\t'}
     [[ $kib =~ ^[1-9][0-9]*$ ]] || continue
+    (($# == 0)) || [[ -n ${only["$path"]+x} ]] || continue
     # Insert in descending order, keeping three.
     for ((i = 0; i < ${#top_kib[@]}; i++)); do
       ((kib > top_kib[i])) && break
@@ -1356,36 +1412,272 @@ _dr_worktree_top_roots() {
       top_path[j]=${top_path[j - 1]}
     done
     top_kib[i]=$kib
-    top_path[i]=${entry#*$'\t'}
+    top_path[i]=$path
     if ((${#top_kib[@]} > 3)); then
       unset 'top_kib[3]' 'top_path[3]'
     fi
   done
   for ((i = 0; i < ${#top_kib[@]}; i++)); do
-    REPLY+="${REPLY:+, }$(_dr_worktree_display "${top_path[$i]}") $(_dr_worktree_human_bytes $((top_kib[i] * 1024)))"
+    _dr_worktree_label "${top_path[$i]}"
+    _DR_WORKTREE_TOP+=("$REPLY $(_dr_worktree_human_bytes $((top_kib[i] * 1024)))")
   done
 }
 
+# Fill _DR_WORKTREE_FS with one "AVAILABLE-KiB<TAB>USED-KiB<TAB>mount point"
+# entry per filesystem holding any of the given roots, or fail when df
+# cannot tell. One bounded `df -Pk` covers every root: POSIX output keeps
+# each filesystem on one line, so the fields split on blanks (the mount
+# point, last, may itself contain blanks). A device name with blanks breaks
+# that split, and that line is skipped as unknown.
+_DR_WORKTREE_FS=()
+_dr_worktree_free_space() {
+  local out size used avail cap mount
+  local -A seen=()
+  _DR_WORKTREE_FS=()
+  if declare -F _dr_run_bounded >/dev/null 2>&1; then
+    out=$(_dr_run_bounded 5 df -Pk -- "$@" 2>/dev/null </dev/null) || [[ -n ${out:-} ]] || return 1
+  else
+    out=$(df -Pk -- "$@" 2>/dev/null </dev/null) || [[ -n ${out:-} ]] || return 1
+  fi
+  # The header line fails the numeric checks.
+  # A full filesystem whose reserved blocks are in use reports a negative
+  # Available (GNU and BSD alike): that is no space at all. A zero size
+  # (some FUSE mounts) says nothing about space and is skipped.
+  while read -r _ size used avail cap mount; do
+    [[ $size =~ ^[0-9]+$ && $used =~ ^[0-9]+$ && $avail =~ ^-?[0-9]+$ &&
+      $cap == *% && -n $mount ]] || continue
+    ((size > 0)) || continue
+    ((avail >= 0)) || avail=0
+    [[ -z ${seen["$mount"]+x} ]] || continue
+    seen["$mount"]=1
+    _DR_WORKTREE_FS+=("$avail"$'\t'"$used"$'\t'"$mount")
+  done <<<"$out"
+  ((${#_DR_WORKTREE_FS[@]} > 0))
+}
+
+# Succeed when a filesystem with AVAILABLE and USED KiB is low on space:
+# under _DR_WORKTREE_LOW_FREE_PERCENT of used plus available (root-reserved
+# blocks are neither, as in df's capacity column) and under
+# _DR_WORKTREE_LOW_FREE_BYTES.
+_dr_worktree_fs_low() {
+  local avail=$1 used=$2
+  ((avail * 1024 < _DR_WORKTREE_LOW_FREE_BYTES)) &&
+    ((avail * 100 < (used + avail) * _DR_WORKTREE_LOW_FREE_PERCENT))
+}
+
+# The disk row's inputs beyond COUNT and TOTAL, set by _dr_check_worktrees:
+# the du roots, every checkout counted, and the clean stale or orphaned
+# checkouts (dirty ones hold uncommitted work, so they are never culprits).
+_DR_WORKTREE_DISK_ROOTS=()
+_DR_WORKTREE_DISK_CHECKOUTS=()
+_DR_WORKTREE_DISK_CULPRITS=()
+
+# File the disk row for COUNT worktrees totalling TOTAL KiB. Within the size
+# limit the row passes. Above it, the size alone is information: a busy
+# development host keeps several large active trees (build output runs to
+# gigabytes each), and a permanent warning about them would train the reader
+# to skip the section's real warnings. It warns only when the clean stale
+# and orphaned trees make up at least _DR_WORKTREE_DOMINANT_PERCENT of the
+# bytes, so removing them is the fix, or when the emptiest filesystem holding
+# a root is low on space (see _DR_WORKTREE_LOW_FREE_*). Sizes are per du
+# root: a culprit root, or a grouping folder (a root with no `.git`), counts
+# whole when every checkout under it is a culprit too; a culprit nested in
+# an active checkout has no size of its own and counts as active. Without
+# per-root sizes (the uncached du fallback) the share cannot be judged and
+# the row says nothing about it. The df probe runs only above the limit.
+_dr_worktree_report_disk() {
+  local count=$1 total_kib=$2 entry kib path threshold total_human limit_human
+  local reclaim_kib=0 free='' avail_kib mount='' hint root dir
+  local dominant=0 low=0 any all
+  local -a culprit_roots=()
+  local -A culprits=() culprit_root=()
+
+  threshold=$(_dr_worktree_warn_bytes)
+  total_human=$(_dr_worktree_human_bytes $((total_kib * 1024)))
+  local label="worktree disk $total_human across $count worktrees"
+  if ((total_kib * 1024 <= 10#$threshold)); then
+    _dr_ok "$label"
+    return 0
+  fi
+  limit_human=$(_dr_worktree_human_bytes "$threshold")
+
+  for path in ${_DR_WORKTREE_DISK_CULPRITS[@]+"${_DR_WORKTREE_DISK_CULPRITS[@]}"}; do
+    culprits["$path"]=1
+  done
+  for root in ${_DR_WORKTREE_DISK_ROOTS[@]+"${_DR_WORKTREE_DISK_ROOTS[@]}"}; do
+    # A root counts whole only when nothing under it is active: a stale
+    # root holding an active checkout, or a grouping folder (no `.git`)
+    # holding one, is not reclaimable by removing it.
+    any=0 all=1
+    if [[ -n ${culprits["$root"]+x} ]]; then
+      any=1
+    elif [[ -e $root/.git ]]; then
+      continue
+    fi
+    for dir in ${_DR_WORKTREE_DISK_CHECKOUTS[@]+"${_DR_WORKTREE_DISK_CHECKOUTS[@]}"}; do
+      [[ $dir == "$root"/* ]] || continue
+      any=1
+      if [[ -z ${culprits["$dir"]+x} ]]; then
+        all=0
+        break
+      fi
+    done
+    ((any == 0 || all == 0)) || culprit_root["$root"]=1
+  done
+  for entry in ${_DR_WORKTREE_DU_SIZES[@]+"${_DR_WORKTREE_DU_SIZES[@]}"}; do
+    kib=${entry%%$'\t'*}
+    path=${entry#*$'\t'}
+    [[ $kib =~ ^[0-9]+$ && -n ${culprit_root["$path"]+x} ]] || continue
+    reclaim_kib=$((reclaim_kib + kib))
+    culprit_roots+=("$path")
+  done
+  if ((reclaim_kib > 0 && reclaim_kib * 100 >= total_kib * _DR_WORKTREE_DOMINANT_PERCENT)); then
+    dominant=1
+  fi
+  # Every filesystem holding a root is judged; the row names the emptiest
+  # low one, or the emptiest one when none is low.
+  local best_avail=-1 low_avail=-1 used
+  if ((${#_DR_WORKTREE_DISK_ROOTS[@]} > 0)) &&
+    _dr_worktree_free_space "${_DR_WORKTREE_DISK_ROOTS[@]}"; then
+    for entry in "${_DR_WORKTREE_FS[@]}"; do
+      avail_kib=${entry%%$'\t'*}
+      used=${entry#*$'\t'}
+      path=${used#*$'\t'}
+      used=${used%%$'\t'*}
+      if _dr_worktree_fs_low "$avail_kib" "$used"; then
+        if ((low_avail < 0 || avail_kib < low_avail)); then
+          low_avail=$avail_kib
+          low=1
+          _dr_worktree_label "$path"
+          free="$(_dr_worktree_human_bytes $((avail_kib * 1024))) free on $REPLY"
+          mount=$REPLY
+        fi
+      elif ((low == 0 && (best_avail < 0 || avail_kib < best_avail))); then
+        best_avail=$avail_kib
+        _dr_worktree_label "$path"
+        free="$(_dr_worktree_human_bytes $((avail_kib * 1024))) is free on $REPLY"
+        mount=$REPLY
+      fi
+    done
+  fi
+
+  if ((dominant == 0 && low == 0)); then
+    _dr_worktree_top_roots
+    hint="above the $limit_human limit (DOT_WORKTREE_WARN_BYTES), but"
+    if ((${#_DR_WORKTREE_DU_SIZES[@]} > 0)); then
+      hint+=" stale and orphaned trees measured on their own hold under half of it"
+      [[ -z $free ]] || hint+=" and"
+    fi
+    [[ -z $free ]] || hint+=" $free"
+    [[ $hint != *', but' ]] || hint=${hint%, but}
+    _dr_worktree_label_largest
+    _dr_list_row info "$label" "$hint" ${_DR_WORKTREE_TOP[@]+"${_DR_WORKTREE_TOP[@]}"}
+    return 0
+  fi
+  if ((dominant == 1)); then
+    label+=", $(_dr_worktree_human_bytes $((reclaim_kib * 1024))) of it stale or orphaned"
+    _dr_worktree_top_roots "${culprit_roots[@]}"
+    hint="remove those trees as the stale and orphan rows below say"
+  else
+    _dr_worktree_top_roots
+    hint="remove finished worktrees ('dot-worktree-gc' lists stale ones) or other large files there"
+  fi
+  # Raising the limit would silence a real low-space warning, so it is
+  # offered only when space is fine.
+  if ((low == 1)); then
+    label+="; only $free"
+    hint="free space on $mount: $hint"
+  else
+    hint+=", or raise the $limit_human limit (DOT_WORKTREE_WARN_BYTES)"
+  fi
+  _dr_worktree_label_largest
+  _dr_list_row warn "$label" "$hint" ${_DR_WORKTREE_TOP[@]+"${_DR_WORKTREE_TOP[@]}"}
+}
+
+# Mark the first _DR_WORKTREE_TOP item "largest: ", so the list says what
+# it is both as items and when an older Dot joins it into one detail.
+_dr_worktree_label_largest() {
+  ((${#_DR_WORKTREE_TOP[@]} == 0)) || _DR_WORKTREE_TOP[0]="largest: ${_DR_WORKTREE_TOP[0]}"
+}
+
+# Report via REPLY the prune hint for REPO (a command-safe display path)
+# when it also has moved, unrepaired checkouts (MOVED: display paths, one
+# per line). Pruning first would orphan them, so the repair comes first:
+# for one, from inside the checkout; for several, one command from the
+# repository naming each new path (Git repairs them all). A path that
+# cannot go into a command leaves only the instruction to repair them.
+_dr_worktree_repair_first() {
+  local repo=$1 listed=$2 path paths='' count=0 safe=1
+  while IFS= read -r path; do
+    count=$((count + 1))
+    _dr_worktree_cmd_path "$path" ''
+    [[ -n $REPLY ]] || safe=0
+    paths+=" $REPLY"
+  done <<<"$listed"
+  if ((safe == 0)); then
+    REPLY="their checkouts are gone, but pruning now would orphan the moved worktrees below: repair those first, then run 'git -C $repo worktree prune'"
+  elif ((count == 1)); then
+    REPLY="their checkouts are gone, but pruning now would orphan the moved worktree below: first run 'git -C${paths} worktree repair', then 'git -C $repo worktree prune'"
+  else
+    REPLY="their checkouts are gone, but pruning now would orphan the moved worktrees below: first run 'git -C $repo worktree repair${paths}', then 'git -C $repo worktree prune'"
+  fi
+}
+
+# Report LABEL via REPLY when it can go into a printed command as is (no
+# blank, quote, or other shell metacharacter; a leading `~/` expands), else
+# PLACEHOLDER, so a hint never prints a command that does not run.
+_dr_worktree_cmd_path() {
+  if [[ $1 =~ ^[A-Za-z0-9_./~+@%:,=-]+$ ]]; then
+    REPLY=$1
+  else
+    REPLY=$2
+  fi
+}
+
+# Orphans _dr_check_worktrees found outside dot-worktree-gc's swept roots
+# (a moved repository still lists them), which the gc never visits.
+_DR_WORKTREE_ORPHANS_UNSWEPT=()
+
 # Report orphaned checkouts (see _dr_worktree_orphan): their files are still
 # on disk, but Git cannot reach them, so uncommitted work there is invisible
-# to every other check and to dot-worktree-gc, which skips them.
+# to every other check. Every orphan is an item; Dot folds a long list to
+# its first few, so the hint gives a command that lists them: the
+# dot-worktree-gc dry run (without fetching) reports each one in its swept
+# roots with either a preserved-pointer reason or a merged snapshot proof.
+# The others are marked, so the hint's
+# promise holds for every unmarked item.
 _dr_worktree_report_orphans() {
-  local dir label
-  local -a samples=()
+  local dir label cause
+  local -a items=()
+  local -A unswept=()
   (($# > 0)) || return 0
-  for dir in "$@"; do
-    ((${#samples[@]} < _DR_WORKTREE_ORPHAN_LIST_LIMIT)) || break
-    _dr_worktree_orphan "$dir" || continue
-    _dr_worktree_orphan_cause "$REPLY"
-    samples+=("$(_dr_worktree_display "$dir") ($REPLY)")
+  for dir in ${_DR_WORKTREE_ORPHANS_UNSWEPT[@]+"${_DR_WORKTREE_ORPHANS_UNSWEPT[@]}"}; do
+    unswept["$dir"]=1
   done
-  _dr_worktree_join_samples "$#" ${samples[@]+"${samples[@]}"}
+  for dir in "$@"; do
+    _dr_worktree_label "$dir"
+    label=$REPLY
+    cause=
+    if _dr_worktree_orphan "$dir"; then
+      _dr_worktree_orphan_cause "$REPLY"
+      cause=$REPLY
+    fi
+    [[ -z ${unswept["$dir"]+x} ]] || cause+="${cause:+, }outside the swept roots"
+    items+=("$label${cause:+ ($cause)}")
+  done
   if (($# == 1)); then
     label="1 orphaned worktree (its Git metadata is gone)"
   else
     label="$# orphaned worktrees (their Git metadata is gone)"
   fi
-  _dr_warn "$label" "$REPLY; if the repository moved, run 'git -C <repo> worktree repair <path>'; otherwise copy out any work and delete the folder"
+  if ((${#unswept[@]} == 0)); then
+    cause="list every one with: dot-worktree-gc --no-fetch"
+  else
+    cause="list all but those marked 'outside the swept roots' with: dot-worktree-gc --no-fetch"
+  fi
+  _dr_list_row warn "$label" \
+    "$cause; if the repository moved, run 'git -C <repo> worktree repair <path>', otherwise review the dry run and apply proven cleanup with --apply, or copy out any work before manual removal" \
+    "${items[@]}"
 }
 
 _dr_check_worktrees() {
@@ -1478,19 +1770,6 @@ _dr_check_worktrees() {
       "" | *[!0-9]*) total_kib=0 ;;
     esac
   fi
-  local total_bytes=$((total_kib * 1024))
-  local threshold total_human threshold_human largest
-  threshold=$(_dr_worktree_warn_bytes)
-  total_human=$(_dr_worktree_human_bytes "$total_bytes")
-  if [[ $total_bytes -gt $((10#$threshold)) ]]; then
-    threshold_human=$(_dr_worktree_human_bytes "$threshold")
-    _dr_worktree_top_roots
-    largest=${REPLY:+largest: $REPLY; }
-    _dr_warn "worktree disk $total_human across $count worktrees" \
-      "${largest}remove finished ones ('dot-worktree-gc' lists stale ones) or raise the $threshold_human limit (DOT_WORKTREE_WARN_BYTES)"
-  else
-    _dr_ok "worktree disk $total_human across $count worktrees"
-  fi
 
   # Only checkouts with no recent Git activity reach the staleness probe;
   # young ones cost nothing beyond the single find pass.
@@ -1498,8 +1777,8 @@ _dr_check_worktrees() {
 
   local stale_count=0 dirty_count=0 manual_count=0 reason changed i hint
   local merged_count=0 gone_count=0 entry manual label
-  local -a dirty_samples=() hit_dirs=() hit_reasons=()
-  local -a manual_samples=() opaque=() opaque_samples=()
+  local -a dirty_items=() hit_dirs=() hit_reasons=()
+  local -a manual_items=() auto_items=() opaque=() opaque_items=() stale_dirs=()
   _DR_WORKTREE_PROBE_SET=$'\n'
   for dir in ${_DR_WORKTREE_OLD[@]+"${_DR_WORKTREE_OLD[@]}"}; do
     _DR_WORKTREE_PROBE_SET+="$dir"$'\n'
@@ -1513,9 +1792,8 @@ _dr_check_worktrees() {
     reason=$REPLY
     if [[ $reason == '?' ]]; then
       opaque+=("$dir")
-      if ((${#opaque_samples[@]} < _DR_WORKTREE_STALE_LIST_LIMIT)); then
-        opaque_samples+=("$(_dr_worktree_display "$dir")")
-      fi
+      _dr_worktree_label "$dir"
+      opaque_items+=("$REPLY")
     elif [[ -n $reason ]]; then
       hit_dirs+=("$dir")
       hit_reasons+=("$reason")
@@ -1530,6 +1808,8 @@ _dr_check_worktrees() {
     dir=${hit_dirs[$i]}
     reason=${hit_reasons[$i]}
     changed=${_DR_WORKTREE_PAR_OUT[$i]}
+    _dr_worktree_label "$dir"
+    label=$REPLY
     if [[ $changed == 0 ]]; then
       stale_count=$((stale_count + 1))
       case $reason in
@@ -1539,8 +1819,8 @@ _dr_check_worktrees() {
       # dot-worktree-gc removes only linked worktrees in its swept roots: a
       # standalone clone parked in a worktree root is a main checkout it
       # always keeps, and a worktree another clone registered elsewhere
-      # belongs to whatever tool made it. Those are the only ones the row
-      # names, since the gc's dry run lists everything else.
+      # belongs to whatever tool made it. Those are marked for removal by
+      # hand and listed first, since the gc's dry run never offers them.
       # A checkout holding another one is kept too: removing it would
       # delete the nested checkout with it.
       entry=
@@ -1552,12 +1832,13 @@ _dr_check_worktrees() {
         entry=", contains another checkout"
       fi
       manual=$entry
+      stale_dirs+=("$dir")
       _DR_WORKTREE_STALE_ENTRIES+=("$dir"$'\t'"$reason$manual")
       if [[ -n $manual ]]; then
         manual_count=$((manual_count + 1))
-        if ((${#manual_samples[@]} < _DR_WORKTREE_MANUAL_LIST_LIMIT)); then
-          manual_samples+=("$(_dr_worktree_display "$dir") ($reason$manual)")
-        fi
+        manual_items+=("$label ($reason$manual, delete by hand)")
+      else
+        auto_items+=("$label ($reason)")
       fi
     else
       dirty_count=$((dirty_count + 1))
@@ -1566,61 +1847,65 @@ _dr_check_worktrees() {
       else
         changed="$changed uncommitted"
       fi
-      if ((${#dirty_samples[@]} < _DR_WORKTREE_STALE_LIST_LIMIT)); then
-        dirty_samples+=("$(_dr_worktree_display "$dir") ($changed; $reason)")
-      fi
+      # No "; " inside an item: an older Dot joins items with it.
+      dirty_items+=("$label ($changed, $reason)")
     fi
   done
+
+  # The disk row comes first but needs the stale and orphan lists to
+  # judge its severity.
+  _DR_WORKTREE_DISK_ROOTS=(${du_roots[@]+"${du_roots[@]}"})
+  _DR_WORKTREE_DISK_CHECKOUTS=("${dirs[@]}")
+  _DR_WORKTREE_DISK_CULPRITS=(${stale_dirs[@]+"${stale_dirs[@]}"} ${orphans[@]+"${orphans[@]}"})
+  _dr_worktree_report_disk "$count" "$total_kib"
 
   if ((stale_count == 0)); then
     _dr_ok "no stale worktrees"
   else
-    # Counts by reason, not paths: every path the gc can remove is in its
-    # dry run, and a list here grew past a thousand characters.
+    label="$stale_count stale worktree"
+    ((stale_count == 1)) || label+="s"
+    label+=" (older than $_DR_WORKTREE_STALE_DAYS days)"
     hint=
     ((merged_count == 0)) || hint="$merged_count merged"
     ((gone_count == 0)) || hint+="${hint:+, }$gone_count with upstream gone"
-    if ((manual_count < stale_count)); then
-      hint+="; run 'dot-worktree-gc' to list (dry run; it can also prove squash merges), then 'dot-worktree-gc --apply' to remove (ignored files such as caches and build output go too)"
-    fi
-    if ((manual_count > 0)); then
-      _dr_worktree_join_samples "$manual_count" "${manual_samples[@]}"
-      if ((manual_count == stale_count)); then
-        hint+="; delete by hand once reviewed, dot-worktree-gc keeps"
-      else
-        hint+="; delete $manual_count by hand once reviewed, dot-worktree-gc keeps"
-      fi
-      if ((manual_count == 1)); then
-        hint+=" it: $REPLY"
-      else
-        hint+=" them: $REPLY"
-      fi
-    fi
-    if ((stale_count == 1)); then
-      _dr_warn "1 stale worktree (older than $_DR_WORKTREE_STALE_DAYS days)" "$hint"
+    label+=": $hint"
+    hint=
+    if ((manual_count == 1 && stale_count == 1)); then
+      hint="delete it by hand once reviewed: dot-worktree-gc keeps it"
+    elif ((manual_count == stale_count)); then
+      hint="delete them by hand once reviewed: dot-worktree-gc keeps them"
     else
-      _dr_warn "$stale_count stale worktrees (older than $_DR_WORKTREE_STALE_DAYS days)" "$hint"
+      hint="run 'dot-worktree-gc' (dry run; proves squash merges too), then 'dot-worktree-gc --apply' (ignored files go too)"
+      ((manual_count == 0)) ||
+        hint+="; delete those marked 'delete by hand' yourself"
     fi
+    _dr_list_row warn "$label" "$hint" \
+      ${manual_items[@]+"${manual_items[@]}"} ${auto_items[@]+"${auto_items[@]}"}
   fi
   if ((dirty_count > 0)); then
-    _dr_worktree_join_samples "$dirty_count" "${dirty_samples[@]}"
     if ((dirty_count == 1)); then
-      _dr_warn "1 inactive worktree has uncommitted changes" \
-        "$REPLY; commit or discard them first: dot-worktree-gc skips dirty checkouts"
+      label="1 inactive worktree has uncommitted changes"
     else
-      _dr_warn "$dirty_count inactive worktrees have uncommitted changes" \
-        "$REPLY; commit or discard them first: dot-worktree-gc skips dirty checkouts"
+      label="$dirty_count inactive worktrees have uncommitted changes"
     fi
+    _dr_list_row warn "$label" \
+      "commit or discard them first: dot-worktree-gc skips dirty checkouts" "${dirty_items[@]}"
   fi
   if ((${#opaque[@]} > 0)); then
-    _dr_worktree_join_samples "${#opaque[@]}" "${opaque_samples[@]}"
     if ((${#opaque[@]} == 1)); then
       label="1 inactive worktree Git cannot inspect"
+      _dr_worktree_cmd_path "${opaque_items[0]}" '<path>'
+      hint="run 'git -C $REPLY status' to see why"
     else
       label="${#opaque[@]} inactive worktrees Git cannot inspect"
+      hint="run 'git -C <path> status' in each to see why"
     fi
-    _dr_warn "$label" "$REPLY; run 'git -C <path> status' to see why"
+    _dr_list_row warn "$label" "$hint" "${opaque_items[@]}"
   fi
+  _DR_WORKTREE_ORPHANS_UNSWEPT=()
+  for dir in ${orphans[@]+"${orphans[@]}"}; do
+    [[ -n ${swept["$dir"]+x} ]] || _DR_WORKTREE_ORPHANS_UNSWEPT+=("$dir")
+  done
   _dr_worktree_report_orphans ${orphans[@]+"${orphans[@]}"}
   _dr_worktree_report_admin ${live[@]+"${live[@]}"}
   return 0
