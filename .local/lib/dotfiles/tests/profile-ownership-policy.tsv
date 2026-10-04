@@ -58,6 +58,8 @@ dev	agent-tooling	.config/hive-memory/**
 dev	agent-tooling	.local/bin/hm
 dev	agent-tooling	.local/lib/dotfiles/doctor.d/40-agent-hooks.sh
 dev	agent-tooling	.local/lib/dotfiles/doctor.d/lib/agent-hooks.sh
+dev	agent-tooling	.local/lib/dotfiles/doctor.d/lib/dev-common.sh
+dev	agent-tooling	.local/lib/dotfiles/doctor.d/lib/hive-memory.sh
 dev	agent-tooling	.local/lib/dotfiles/merge-hooks.d/claude.sh
 dev	agent-tooling	.local/lib/dotfiles/merge-hooks.d/codex.sh
 dev	agent-tooling	.local/lib/dotfiles/merge-hooks.d/gemini.sh
