@@ -198,7 +198,13 @@ ci_only_suite_names=$(sed -n \
   "$source_home/.github/dot-test-suites.txt" | LC_ALL=C sort)
 
 mkdir -p "$base_seed"
-"$git_bin" clone --quiet --no-local --no-checkout "$source_home" "$base_seed"
+# The CI source is a detached worktree, so clone has to guess which remote
+# branch HEAD matches. Older Git (Debian's 2.47) consults init.defaultBranch
+# for that guess and prints the default-branch advice even under --quiet.
+# Naming main keeps the CI log clean without changing the outcome: the seed
+# is detached at HEAD right below, so the guessed branch name never matters.
+"$git_bin" -c init.defaultBranch=main clone --quiet --no-local --no-checkout \
+  "$source_home" "$base_seed"
 "$git_bin" -C "$base_seed" checkout --quiet --detach HEAD
 # shellcheck disable=SC2016 # Preserve the supported literal config token.
 printf '%s\n' \
