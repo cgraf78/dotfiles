@@ -262,10 +262,13 @@ cp -r "$source_home/.config/dot/config" \
 doctor_output=$(env -u XDG_CONFIG_HOME -u XDG_STATE_HOME -u XDG_CACHE_HOME \
   -u XDG_DATA_HOME -u XDG_RUNTIME_DIR HOME="$profile_fixture" \
   "$dot_bin" doctor 2>&1) || true
-_assert_contains 'engine selects dev from the root-global default selector' \
-  'selected profile (dev' "$doctor_output"
-_assert_contains 'engine includes the additive dev profile order' \
-  'included profiles (base editor dev)' "$doctor_output"
+# Newer dots fold the profile facts into one `profile NAME (STATE;
+# includes ...; for USER@HOST)` row.
+_assert_contains_either 'engine selects dev from the root-global default selector' \
+  'selected profile (dev' 'profile dev (' "$doctor_output"
+_assert_contains_either 'engine includes the additive dev profile order' \
+  'included profiles (base editor dev)' 'includes base editor dev;' \
+  "$doctor_output"
 _assert_contains 'engine configures the full dev overlay set' \
   'Overlays (4 configured)' "$doctor_output"
 for profile_overlay in personal nvim dev work; do

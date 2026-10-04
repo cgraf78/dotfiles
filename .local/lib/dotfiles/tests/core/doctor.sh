@@ -1089,7 +1089,7 @@ SH
     _assert_contains "doctor integration: renders base section $expected" \
       "$expected" "$result"
   done
-  for absent in "Git hooks" "Agent hooks" "Hive Memory" "Neovim"; do
+  for absent in "Git hooks" "Agent hooks" "Agent tooling" "Hive Memory" "Neovim"; do
     _assert_not_contains "doctor integration: omits capability section $absent" \
       "$absent" "$result"
   done
