@@ -139,6 +139,14 @@ _make_old() {
 }
 _make_fresh() { touch "$1"; }
 
+# Write BYTES of incompressible data to FILE. Cases that compare sizes
+# must not use zeros: a compressing or deduplicating filesystem (as on
+# some CI hosts) stores them in a block or two, so du reports neither the
+# written size nor a stable order between files.
+_disk_blob() {
+  head -c "$1" /dev/urandom >"$2"
+}
+
 echo "=== Worktree disk threshold ==="
 
 disk_home=$(_tmpdir)
@@ -1064,7 +1072,7 @@ _assert_eq "dirty: the probe leaves the index untouched" \
 # A large dirty checkout holds uncommitted work: it never counts toward the
 # disk row's stale share, so the row stays information, not a call to
 # remove it.
-head -c 409600 /dev/zero >"$dirty_home/.worktrees/dirty-untracked/big.bin"
+_disk_blob 409600 "$dirty_home/.worktrees/dirty-untracked/big.bin"
 _make_old "$dirty_home/.worktrees/dirty-untracked"
 result=$(HOME="$dirty_home" DOTFILES="$dirty_home/.dotfiles" DOT_WORKTREE_WARN_BYTES=2048 \
   _doctor_records _dr_check_worktrees)
@@ -1338,12 +1346,12 @@ _assert_contains "orphans: list items name every orphan and its cause" \
 # make the disk row a warning that names them.
 many_home=$(_tmpdir)
 mkdir -p "$many_home/.worktrees/active"
-head -c 1024 /dev/zero >"$many_home/.worktrees/active/blob.bin"
+_disk_blob 1024 "$many_home/.worktrees/active/blob.bin"
 for many_i in 1 2 3 4 5; do
   mkdir -p "$many_home/.worktrees/lost-$many_i"
   printf 'gitdir: %s\n' "$many_home/git/gone/.git/worktrees/lost-$many_i" \
     >"$many_home/.worktrees/lost-$many_i/.git"
-  head -c $((many_i * 40960)) /dev/zero >"$many_home/.worktrees/lost-$many_i/blob.bin"
+  _disk_blob $((many_i * 40960)) "$many_home/.worktrees/lost-$many_i/blob.bin"
 done
 result=$(HOME="$many_home" DOTFILES="$many_home/.dotfiles" DOT_WORKTREE_WARN_BYTES=2048 \
   _doctor_records _dr_check_worktrees)
@@ -1451,13 +1459,18 @@ _assert_contains "groups: list items name every stale checkout" \
 
 # A grouping folder whose every checkout is stale counts whole toward the
 # disk row's stale share, loose bytes included.
-head -c 409600 /dev/zero >"$grp_home/git/worktrees/batch/notes/big.bin"
+_disk_blob 409600 "$grp_home/git/worktrees/batch/notes/big.bin"
 result=$(HOME="$grp_home" DOTFILES="$grp_home/.dotfiles" DOT_WORKTREE_WARN_BYTES=2048 \
   _with_list_api _doctor_records _dr_check_worktrees)
 _assert_contains "groups: a stale grouping folder makes the disk row warn" \
   " of it stale or orphaned"$'\t' "$result"
-_assert_contains "groups: the grouping folder is the largest culprit" \
-  $'item\t~/git/worktrees/batch 4' "$result"
+# The largest culprit is the first item; sizes themselves depend on the
+# filesystem and du, so only the order is asserted.
+# shellcheck disable=SC2088 # Rows carry tilde display paths.
+_assert_eq "groups: the grouping folder is the largest culprit" \
+  "~/git/worktrees/batch" \
+  "$(awk -F '\t' '$1 == "warn" { inrow = ($2 ~ /^worktree disk /); next }
+    inrow && $1 == "item" { sub(/ [^ ]*$/, "", $2); print $2; exit }' <<<"$result")"
 
 echo ""
 echo "=== Disk row names the largest roots ==="
@@ -1467,10 +1480,10 @@ mkdir -p "$top_home/.worktrees"
 for top_name in big-c big-a big-d big-b; do
   mkdir -p "$top_home/.worktrees/$top_name"
 done
-head -c 409600 /dev/zero >"$top_home/.worktrees/big-a/blob.bin"
-head -c 307200 /dev/zero >"$top_home/.worktrees/big-b/blob.bin"
-head -c 204800 /dev/zero >"$top_home/.worktrees/big-c/blob.bin"
-head -c 102400 /dev/zero >"$top_home/.worktrees/big-d/blob.bin"
+_disk_blob 409600 "$top_home/.worktrees/big-a/blob.bin"
+_disk_blob 307200 "$top_home/.worktrees/big-b/blob.bin"
+_disk_blob 204800 "$top_home/.worktrees/big-c/blob.bin"
+_disk_blob 102400 "$top_home/.worktrees/big-d/blob.bin"
 result=$(HOME="$top_home" DOTFILES="$top_home/.dotfiles" \
   DOT_WORKTREE_WARN_BYTES=2048 _doctor_records _dr_check_worktrees)
 top_row=$(grep $'^info\tworktree disk' <<<"$result")
