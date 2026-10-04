@@ -1785,4 +1785,40 @@ if [[ -d $empty_failure ]]; then status=0; else status=1; fi
 _assert_exit "empty: failed removal preserves directory" 0 "$status"
 unset EMPTY_REAL_RMDIR
 
+# Lost administrative metadata is eligible only for a full merged snapshot.
+# This stronger fallback requires readable Linux process information.
+if [[ -d /proc/self/cwd ]] && command -v python3 >/dev/null 2>&1; then
+  orphan_home=$(_gc_tmpdir)
+  mkdir -p "$orphan_home/git" "$orphan_home/.worktrees"
+  _gc_seed_origin "$orphan_home/origin.git"
+  git clone "$orphan_home/origin.git" "$orphan_home/git/owner" >/dev/null 2>&1
+  orphan=$orphan_home/.worktrees/landed-orphan
+  git -C "$orphan_home/git/owner" worktree add -b landed-orphan "$orphan" main >/dev/null 2>&1
+  orphan_admin=$(git -C "$orphan" rev-parse --git-dir)
+  rm -r -- "$orphan_admin"
+  _gc_make_old "$orphan"
+  result=$(HOME="$orphan_home" DOTFILES="$orphan_home/.dotfiles" "$GC" --no-fetch 2>/dev/null)
+  _assert_contains "orphan: exact merged snapshot previewed" \
+    "$(printf 'would-remove\t%s\torphaned checkout matches merged commit' "$orphan")" "$result"
+  _assert_file_exists "orphan: preview preserves checkout" "$orphan/file.txt"
+  printf 'private data\n' >"$orphan/.private"
+  _gc_make_old "$orphan"
+  result=$(HOME="$orphan_home" DOTFILES="$orphan_home/.dotfiles" "$GC" --no-fetch --apply 2>/dev/null)
+  _assert_contains "orphan: hidden extra file blocks cleanup" \
+    "$(printf 'skipped\t%s\torphaned checkout differs from merged history' "$orphan")" "$result"
+  _assert_file_exists "orphan: hidden data survives" "$orphan/.private"
+  rm -- "$orphan/.private"
+  _gc_make_old "$orphan"
+  result=$(HOME="$orphan_home" DOTFILES="$orphan_home/.dotfiles" "$GC" --no-fetch --apply 2>/dev/null)
+  _assert_contains "orphan: exact merged snapshot removed" \
+    "$(printf 'removed\t%s\torphaned checkout matches merged commit' "$orphan")" "$result"
+  if [[ -e $orphan ]]; then orphan_status=1; else orphan_status=0; fi
+  _assert_exit "orphan: checkout removed" 0 "$orphan_status"
+  git -C "$orphan_home/git/owner" show-ref --verify --quiet refs/heads/landed-orphan
+  orphan_status=$?
+  _assert_exit "orphan: original branch retained" 0 "$orphan_status"
+else
+  echo '  - skipping orphan retirement case: python3 or readable /proc unavailable'
+fi
+
 _test_summary
