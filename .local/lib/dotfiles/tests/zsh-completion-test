@@ -477,6 +477,26 @@ _assert_exit "grok installer strip: a bad loader still reports failure" 1 "$both
 _assert_eq "grok installer strip: a bad zshrc does not block the bashrc" "# thin" \
   "$(<"$both_rc_home/.bashrc")"
 
+# Minimal images (Fedora, Arch, CentOS Stream containers) ship without
+# diffutils, so the strip may rely only on the tools a bare base system has.
+# The PATH below links exactly those tools and deliberately omits cmp/diff.
+minimal_rc_home="$TEST_TMPDIR/minimal-rc-home"
+minimal_rc_bin="$TEST_TMPDIR/minimal-rc-bin"
+mkdir -p "$minimal_rc_home" "$minimal_rc_bin"
+for minimal_tool in awk grep mktemp stat chmod mv rm; do
+  ln -s "$(command -v "$minimal_tool")" "$minimal_rc_bin/$minimal_tool"
+done
+printf '%s\n' '# thin' '' '# >>> grok installer >>>' '# <<< grok installer <<<' \
+  >"$minimal_rc_home/.zshrc"
+minimal_status=0
+minimal_err=$(
+  HOME="$minimal_rc_home" PATH="$minimal_rc_bin" dot_grok_strip_installer_rc 2>&1 >/dev/null
+) || minimal_status=$?
+_assert_exit "grok installer strip: works without diffutils" 0 "$minimal_status"
+_assert_eq "grok installer strip: prints nothing without diffutils" "" "$minimal_err"
+_assert_eq "grok installer strip: strips without diffutils" "# thin" \
+  "$(<"$minimal_rc_home/.zshrc")"
+
 if command -v zsh >/dev/null 2>&1; then
   zsh_rc_home="$TEST_TMPDIR/zsh-rc-home"
   mkdir -p "$zsh_rc_home"
