@@ -100,7 +100,7 @@ _dr_check_fragments() {
     items+=("$(_dr_tilde "$file")")
   done
   _dr_list_row warn "${#bad[@]} merge-hook fragment(s) do not parse" \
-    "dot update skips them, or the whole config they feed, until fixed (check one with 'jq empty <file>' or 'yq <file>')" \
+    "dot update skips them, or the whole config they feed, until fixed: check each with 'jq empty <file>' or 'yq <file>'" \
     "${items[@]}"
 }
 
@@ -131,8 +131,9 @@ _dr_check_pre_sync_extensions() {
     for name in "${broken[@]}"; do
       list+=${list:+; }$name
     done
-    _dr_fail "pre-sync extensions are broken: $list" \
-      "dot update aborts repository sync until they are fixed (try 'bash -n <file>')"
+    _dr_hint_row fail "pre-sync extensions are broken: $list" \
+      "dot update aborts repository sync until they are fixed" \
+      "they are in $(_dr_tilde "$dir"): check each with 'bash -n <file>' and make sure it defines prepare()"
   fi
 }
 

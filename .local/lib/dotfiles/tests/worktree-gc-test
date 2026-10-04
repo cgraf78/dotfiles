@@ -1233,6 +1233,11 @@ _gc_commit_file "$grp_home/git/worktrees/batch/g-unpushed" unpushed.txt
 mkdir -p "$grp_home/git/worktrees/batch/g-orphan"
 printf 'gitdir: %s\n' "$grp_home/git/gone-repo/.git/worktrees/g-orphan" \
   >"$grp_home/git/worktrees/batch/g-orphan/.git"
+# A young orphan: the doctor's orphan row says the dry run lists every
+# orphan, so its age must not hide it behind "younger than".
+mkdir -p "$grp_home/worktrees/g-young-orphan"
+printf 'gitdir: %s\n' "$grp_home/git/gone-repo/.git/worktrees/g-young-orphan" \
+  >"$grp_home/worktrees/g-young-orphan/.git"
 for wt in worktrees/g-top git/.worktrees/g-hidden git/worktrees/batch/g-nested \
   git/worktrees/batch/g-dirty git/worktrees/batch/deeper/g-deep \
   git/worktrees/batch/g-unpushed git/worktrees/batch/g-orphan; do
@@ -1251,6 +1256,8 @@ _assert_contains "groups: an unpushed grouped checkout is skipped" \
   "$(printf 'skipped\t%s\tmerge unproven for branch feat-g-unpushed' "$grp_home/git/worktrees/batch/g-unpushed")" "$result"
 _assert_contains "groups: an orphaned grouped checkout is skipped" \
   "$(printf 'skipped\t%s\tbroken git pointer' "$grp_home/git/worktrees/batch/g-orphan")" "$result"
+_assert_contains "groups: a young orphan is listed as an orphan too" \
+  "$(printf 'skipped\t%s\tbroken git pointer' "$grp_home/worktrees/g-young-orphan")" "$result"
 _assert_not_contains "groups: descent stops one level down" "g-deep" "$result"
 
 result=$(HOME="$grp_home" DOTFILES="$grp_home/.dotfiles" "$GC" --apply 2>/dev/null)

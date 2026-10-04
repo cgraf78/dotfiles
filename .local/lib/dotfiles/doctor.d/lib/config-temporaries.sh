@@ -96,7 +96,7 @@ _dr_config_temporaries_report() {
     items+=("$(_dr_tilde "$file")")
   done
   _dr_list_row warn "${#stale[@]} leftover config temporary file(s)" \
-    "an interrupted write left them: delete them once no 'dot update', or the program that owns the file, is running" \
+    "an interrupted write left them; delete them when neither 'dot update' nor the program that owns the file is running" \
     "${items[@]}"
 }
 

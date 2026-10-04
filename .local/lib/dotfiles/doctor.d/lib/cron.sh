@@ -46,13 +46,13 @@ _dr_cron_check_shell() {
     # Display text must stay on one record line.
     value=${value//[$'\t\r']/ }
     if [[ $value != /* ]]; then
-      _dr_fail "cron SHELL is not an absolute path: $value" \
-        "cron needs an absolute program path; fix the SHELL= line, then run 'dot update'"
+      _dr_hint_row fail "cron SHELL is not an absolute path: $value" \
+        "cron needs an absolute program path" "fix the SHELL= line, then run 'dot update'"
     elif [[ -x $value && ! -d $value ]]; then
       _dr_ok "cron SHELL is executable" "$(_dr_tilde "$value")"
     else
-      _dr_fail "cron SHELL is not executable: $(_dr_tilde "$value")" \
-        "every cron job using it fails; restore the program or run 'dot update'"
+      _dr_hint_row fail "cron SHELL is not executable: $(_dr_tilde "$value")" \
+        "every cron job using it fails" "restore the program or run 'dot update'"
     fi
   done <<<"$1"
 }
@@ -169,8 +169,8 @@ _dr_check_cron() {
   # that apply here would never run; say so instead of skipping.
   if [[ "${DOT_TEST:-0}" != 1 ]] && ! command -v crontab >/dev/null 2>&1; then
     if [[ -n $expected || -z $marker ]]; then
-      _dr_warn "crontab not found" \
-        "tracked cron entries cannot be installed; install cron, then run 'dot update'"
+      _dr_hint_row warn "crontab not found" \
+        "tracked cron entries cannot be installed" "install cron, then run 'dot update'"
     else
       _dr_skip "crontab not found" "no tracked cron entry applies to this host"
     fi
@@ -188,20 +188,20 @@ _dr_check_cron() {
       _dr_ok "no tracked cron entries apply to this host"
     elif [[ $mode == none ]]; then
       # With no tracked source at all the hook leaves the crontab alone.
-      _dr_warn "managed cron block is stale" \
-        "no tracked cron source remains, and dot update keeps the old block; remove it with 'crontab -e'"
+      _dr_hint_row warn "managed cron block is stale" \
+        "no tracked cron source remains, and dot update keeps the old block" "remove it with 'crontab -e'"
     else
-      _dr_warn "managed cron block is stale" \
-        "no tracked entry applies to this host any more; run 'dot update' to remove it"
+      _dr_hint_row warn "managed cron block is stale" \
+        "no tracked entry applies to this host any more" "run 'dot update' to remove it"
     fi
   elif [[ $crontab_out == *"$expected"* ]]; then
     _dr_ok "managed cron block is current"
   elif [[ $crontab_out == *"$marker begin"* ]]; then
-    _dr_warn "managed cron block is stale" \
-      "it differs from the tracked entries; run 'dot update', and check $(_dr_tilde "$log") if cron updates keep failing"
+    _dr_hint_row warn "managed cron block is stale" "it differs from the tracked entries" \
+      "run 'dot update', and check $(_dr_tilde "$log") if cron updates keep failing"
   else
-    _dr_warn "managed cron block missing" \
-      "tracked entries are not installed; run 'dot update', and check $(_dr_tilde "$log") if cron updates keep failing"
+    _dr_hint_row warn "managed cron block missing" "tracked entries are not installed" \
+      "run 'dot update', and check $(_dr_tilde "$log") if cron updates keep failing"
   fi
 
   _dr_cron_check_shell "$crontab_out"

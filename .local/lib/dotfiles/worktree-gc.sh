@@ -842,6 +842,14 @@ _worktree_gc_process() {
   local dir=$1 old=$2
   local common wt_list registered main_phys git_dir branch
   local verdict rest reason proof_oid action
+  # An orphan (its `.git` names a repository or admin entry that is gone)
+  # is never removable, whatever its age. Naming it before the age gate
+  # lets the dry run list every one, as the doctor's orphan row promises;
+  # the check reads the pointer only, so young checkouts cost no Git call.
+  if _dr_worktree_orphan "$dir"; then
+    _worktree_gc_record skipped "$dir" "broken git pointer"
+    return 0
+  fi
   if ((old == 0)); then
     _worktree_gc_record kept "$dir" "younger than $_WORKTREE_GC_AGE days"
     return 0
