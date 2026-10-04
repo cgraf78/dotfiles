@@ -136,19 +136,19 @@ _dr_shell_probe_report() {
   IFS= read -r -d '' err 2>/dev/null <"$base.err" || true
 
   if [[ $flavor == bash-env && $status == 3 ]]; then
-    _dr_warn "$label startup not configured" \
-      "~/.bashrc does not export BASH_ENV, so non-interactive bash skips env.d; run 'dot update'"
+    _dr_hint_row warn "$label startup not configured" \
+      "~/.bashrc does not export BASH_ENV, so non-interactive bash skips env.d" "run 'dot update'"
     return 0
   fi
   if [[ $status == 124 || $status == 137 ]]; then
-    _dr_fail "$label startup timed out" \
-      "a startup file waits on something; run '$repro' to see where"
+    _dr_hint_row fail "$label startup timed out" \
+      "a startup file waits on something" "run '$repro' to see where"
     return 0
   fi
   if [[ -n ${err//[[:space:]]/} ]]; then
     _dr_shell_first_line "$err"
-    _dr_fail "$label startup prints to stderr" \
-      "$REPLY; non-interactive output must stay clean (try '$repro')"
+    _dr_hint_row fail "$label startup prints to stderr" "$REPLY" \
+      "non-interactive output must stay clean: run '$repro' to find the source"
     return 0
   fi
   while IFS= read -r line; do
@@ -163,16 +163,16 @@ _dr_shell_probe_report() {
   done <<<"$out"
   if [[ -n $noise ]]; then
     _dr_shell_first_line "$noise"
-    _dr_fail "$label startup prints to stdout" \
-      "$REPLY; non-interactive output must stay clean (try '$repro')"
+    _dr_hint_row fail "$label startup prints to stdout" "$REPLY" \
+      "non-interactive output must stay clean: run '$repro' to find the source"
   elif [[ $status != 0 || -z $pid ]]; then
-    _dr_fail "$label startup failed" "exit $status; run '$repro' to see why"
+    _dr_hint_row fail "$label startup failed" "exit $status" "run '$repro' to see why"
   elif [[ $marker != "$pid" ]]; then
-    _dr_fail "$label does not load the shell environment" \
-      "the shared loader did not run; check the startup files with 'dot status'"
+    _dr_hint_row fail "$label does not load the shell environment" \
+      "the shared loader did not run" "check the startup files with 'dot status'"
   elif [[ $local_bin != 1 ]]; then
-    _dr_fail "$label leaves ~/.local/bin off PATH" \
-      "dot and its helper commands live there; check ~/.config/shell/env.d"
+    _dr_hint_row fail "$label leaves ~/.local/bin off PATH" \
+      "dot and its helper commands live there" "check ~/.config/shell/env.d"
   else
     _dr_ok "$label loads the shell environment"
   fi
@@ -180,8 +180,8 @@ _dr_shell_probe_report() {
   # core's runtime row does not cover (it picks the first Bash 4+). The
   # login probe always runs that same binary.
   if [[ $flavor == bash-login && -n $bash_major ]] && ((bash_major < 4)); then
-    _dr_warn "first bash on PATH is version $bash_major" \
-      "scripts using '/usr/bin/env bash' need Bash 4+; install a newer bash ahead of it on PATH"
+    _dr_hint_row warn "first bash on PATH is version $bash_major" \
+      "scripts using '/usr/bin/env bash' need Bash 4+" "install a newer bash ahead of it on PATH"
   fi
 }
 
@@ -215,7 +215,8 @@ _dr_check_shell() {
   done
 
   if ((${#flavors[@]} == 0)); then
-    _dr_fail "bash not found on PATH" "dot and its scripts need Bash 4+ on PATH"
+    _dr_hint_row fail "bash not found on PATH" "dot and its scripts need Bash 4+" \
+      "install Bash 4 or newer and put it on PATH"
   elif tmp=$(mktemp -d "${TMPDIR:-/tmp}/dot-doctor-shell.XXXXXX" 2>/dev/null); then
     for flavor in "${flavors[@]}"; do
       _dr_shell_probe_run "$flavor" "$tmp/$flavor" &
@@ -226,7 +227,8 @@ _dr_check_shell() {
     done
     rm -rf "$tmp"
   else
-    _dr_warn "shell startup unchecked" "could not create a temporary directory"
+    _dr_hint_row warn "shell startup unchecked" "could not create a temporary directory" \
+      "$_DR_TMPDIR_HINT"
   fi
   if [[ -z $_DR_SHELL_ZSH ]]; then
     _dr_skip "zsh startup" "zsh not installed"
@@ -249,16 +251,16 @@ _dr_check_shell() {
       fi
     done < <(dot_grok_rc_files)
     if [[ -n $grok_rc ]]; then
-      _dr_warn "Grok installer block in $grok_rc" \
-        "cron updates skip while a tracked loader is dirty; run 'dot update' to strip it"
+      _dr_hint_row warn "Grok installer block in $grok_rc" \
+        "cron updates skip while a tracked loader is dirty" "run 'dot update' to strip it"
     fi
     if [[ -n $grok_linked ]]; then
-      _dr_warn "Grok installer block in $grok_linked" \
-        "the loader is a symlink, which dot update leaves alone; remove the block by hand"
+      _dr_hint_row warn "Grok installer block in $grok_linked" \
+        "the loader is a symlink, which dot update leaves alone" "remove the block by hand"
     fi
     if [[ -n $grok_open ]]; then
-      _dr_warn "unterminated Grok installer block in $grok_open" \
-        "the block has no end marker, so dot update leaves it alone; edit the file by hand"
+      _dr_hint_row warn "unterminated Grok installer block in $grok_open" \
+        "the block has no end marker, so dot update leaves it alone" "edit the file by hand"
     fi
   else
     _dr_skip "Grok installer block unchecked" "shell-grok-rc.sh unavailable"

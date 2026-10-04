@@ -75,6 +75,34 @@ _dr_list_row() {
   "_dr_$level" "$message" "$REPLY"
 }
 
+# File one verdict row with a next step: LEVEL (ok, warn, fail, skip, or
+# info), MESSAGE, DETAIL (the evidence; may be empty), and HINT (what to
+# do; may be empty). A Dot whose doctor API has dot_doctor_hint renders
+# the hint as its own next-step line; on an older one it is appended to
+# the detail after "; ", which is how every row carried its step before.
+# Detail and hint each become one line of record text.
+_dr_hint_row() {
+  local level=$1 message=$2 detail=${3-} hint=${4-}
+  case $level in
+    ok | warn | fail | skip | info) ;;
+    *) return 2 ;;
+  esac
+  (($# == 4)) || return 2
+  _dr_one_line "$hint"
+  hint=$REPLY
+  if [[ -n $hint ]] && declare -F dot_doctor_hint >/dev/null 2>&1; then
+    _dr_one_line "$detail"
+    "_dr_$level" "$message" "$REPLY" || return
+    dot_doctor_hint "$hint"
+    return
+  fi
+  _dr_one_line "$detail${detail:+${hint:+; }}$hint"
+  "_dr_$level" "$message" "$REPLY"
+}
+
+# Next step for a probe that could not create its temporary directory.
+_DR_TMPDIR_HINT="check that the temporary directory (TMPDIR, else /tmp) exists, is writable, and has free space, then rerun 'dot doctor'"
+
 _merge_hook_family() {
   printf '%s/%s\n' "$HOME/.config/dot/merge-hooks.d" "$1"
 }

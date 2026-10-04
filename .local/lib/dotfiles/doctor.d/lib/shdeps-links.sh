@@ -70,14 +70,13 @@ _dr_shdeps_health_probe() {
   [[ $_DR_SHDEPS_HEALTH_STATUS != unsupported ]]
 }
 
+# File one link problem at LEVEL (fail, else warn) with DETAIL and the next
+# step HINT (default: run 'dot update', which relinks).
 _dr_shdeps_link_issue() {
-  local level="$1" label="$2" detail="${3:-}"
+  local level="$1" label="$2" detail="${3:-}" hint="${4:-run 'dot update'}"
 
-  if [[ "$level" == "fail" ]]; then
-    _dr_fail "$label" "$detail"
-  else
-    _dr_warn "$label" "$detail"
-  fi
+  [[ "$level" == "fail" ]] || level=warn
+  _dr_hint_row "$level" "$label" "$detail" "$hint"
 }
 
 _dr_check_shdeps_bin_group() {
@@ -93,13 +92,13 @@ _dr_check_shdeps_bin_group() {
   if ! rows=$(SHDEPS_CONF_DIR="$shdeps_conf_dir" \
     command shdeps dep-links "cgraf78/$dependency" 2>/dev/null); then
     _dr_shdeps_link_issue "$level" "$dependency bin links unchecked" \
-      "shdeps cannot resolve command links for cgraf78/$dependency; run 'dot update'"
+      "shdeps cannot resolve command links for cgraf78/$dependency"
     return 0
   fi
 
   if [[ -z "$rows" ]]; then
     _dr_shdeps_link_issue "$level" "$dependency bin links missing" \
-      "shdeps reported no public command links for cgraf78/$dependency; run 'dot update'"
+      "shdeps reported no public command links for cgraf78/$dependency"
     return 0
   fi
 
@@ -112,7 +111,8 @@ _dr_check_shdeps_bin_group() {
     if [[ -z "$cmd" || -z "$link" || -z "$expected" || -n "$extra" ]]; then
       ((issue_count++)) || true
       _dr_shdeps_link_issue "$level" "$dependency bin links malformed" \
-        "unexpected shdeps dep-links row for cgraf78/$dependency"
+        "unexpected shdeps dep-links row for cgraf78/$dependency" \
+        "run 'dot update' to upgrade shdeps"
       continue
     fi
 
@@ -121,7 +121,7 @@ _dr_check_shdeps_bin_group() {
     if [[ ! -e "$link" && ! -L "$link" ]]; then
       ((issue_count++)) || true
       _dr_shdeps_link_issue "$level" "$cmd not linked" \
-        "expected $(_dr_tilde "$link") -> $(_dr_tilde "$expected"); run 'dot update'"
+        "expected $(_dr_tilde "$link") -> $(_dr_tilde "$expected")"
       continue
     fi
 
@@ -129,7 +129,7 @@ _dr_check_shdeps_bin_group() {
       if [[ ! -L "$link" ]]; then
         ((issue_count++)) || true
         _dr_shdeps_link_issue "$level" "$cmd not linked" \
-          "expected $(_dr_tilde "$link") -> $(_dr_tilde "$expected"); run 'dot update'"
+          "expected $(_dr_tilde "$link") -> $(_dr_tilde "$expected")"
         continue
       fi
 
@@ -137,7 +137,7 @@ _dr_check_shdeps_bin_group() {
         ((issue_count++)) || true
         actual=$(_dr_symlink_target_path "$link" 2>/dev/null || echo "?")
         _dr_shdeps_link_issue "$level" "$cmd link target drift" \
-          "got $(_dr_tilde "$actual"), expected $(_dr_tilde "$expected"); run 'dot update'"
+          "got $(_dr_tilde "$actual"), expected $(_dr_tilde "$expected")"
         continue
       fi
     fi
