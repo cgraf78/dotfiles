@@ -48,10 +48,13 @@ editor	nvim	.local/lib/dotfiles/merge-hooks.d/nvim.sh
 dev	agent-tooling	.config/dot/merge-hooks.d/claude/**
 dev	agent-tooling	.config/dot/merge-hooks.d/codex/**
 dev	agent-tooling	.config/dot/merge-hooks.d/gemini/**
+dev	agent-tooling	.config/dot/merge-hooks.d/grok-config/**
+dev	agent-tooling	.config/dot/merge-hooks.d/grok/**
 dev	agent-tooling	.config/dot/merge-hooks.d/gstack/**
 dev	agent-tooling	.config/dot/merge-hooks.d/hive-memory/**
 dev	agent-tooling	.config/dot/merge-hooks.d/muse/**
 dev	agent-tooling	.config/dot/merge-hooks.d/opencode/**
+dev	agent-tooling	.config/dot/merge-hooks.d/superpowers/**
 dev	agent-tooling	.config/ds/profile.conf
 dev	agent-tooling	.config/gstack-register/**
 dev	agent-tooling	.config/hive-memory/**
@@ -63,11 +66,15 @@ dev	agent-tooling	.local/lib/dotfiles/doctor.d/lib/hive-memory.sh
 dev	agent-tooling	.local/lib/dotfiles/merge-hooks.d/claude.sh
 dev	agent-tooling	.local/lib/dotfiles/merge-hooks.d/codex.sh
 dev	agent-tooling	.local/lib/dotfiles/merge-hooks.d/gemini.sh
+dev	agent-tooling	.local/lib/dotfiles/merge-hooks.d/grok-config.sh
+dev	agent-tooling	.local/lib/dotfiles/merge-hooks.d/grok.sh
 dev	agent-tooling	.local/lib/dotfiles/merge-hooks.d/gstack.sh
 dev	agent-tooling	.local/lib/dotfiles/merge-hooks.d/hive-memory.sh
 dev	agent-tooling	.local/lib/dotfiles/merge-hooks.d/lib/codex/**
+dev	agent-tooling	.local/lib/dotfiles/merge-hooks.d/lib/superpowers-muse-sync
 dev	agent-tooling	.local/lib/dotfiles/merge-hooks.d/muse.sh
 dev	agent-tooling	.local/lib/dotfiles/merge-hooks.d/opencode.sh
+dev	agent-tooling	.local/lib/dotfiles/merge-hooks.d/superpowers.sh
 dev	checkrun	.config/checkrun/**
 dev	checkrun	.local/share/checkrun/**
 dev	dev-toolchain	.config/dot/merge-hooks.d/mise/**
@@ -84,6 +91,7 @@ dev	dev-toolchain	.config/shdeps/hooks.d/cmakelang.sh
 dev	dev-toolchain	.config/shdeps/hooks.d/editorconfig-checker.sh
 dev	dev-toolchain	.config/shdeps/hooks.d/garrytan/**
 dev	dev-toolchain	.config/shdeps/hooks.d/google-java-format.sh
+dev	dev-toolchain	.config/shdeps/hooks.d/obra/**
 dev	dev-toolchain	.config/shdeps/hooks.d/php-cs-fixer.sh
 dev	dev-toolchain	.config/shdeps/hooks.d/python-minimum.sh
 dev	dev-toolchain	.config/shdeps/hooks.d/rubocop.sh
