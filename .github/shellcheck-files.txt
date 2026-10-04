@@ -127,3 +127,7 @@ program	.local/lib/dotfiles/windows.sh
 program	.local/lib/dotfiles/worktree-gc.sh
 program	.profile
 program	.zprofile
+program	.local/lib/dotfiles/tests/worktree-gc-actions-test
+program	.local/lib/dotfiles/tests/worktree-gc-github-test
+program	.local/lib/dotfiles/worktree-gc-actions.sh
+program	.local/lib/dotfiles/worktree-gc-github.sh

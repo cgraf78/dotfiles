@@ -50,25 +50,10 @@ git_common_dir=$(cd -P -- "$git_common_dir" && pwd -P) || exit 1
   exit 1
 }
 
-restore_ci_git_config() {
-  local path=.config/git/config status expected actual
-
-  status=$(root_git status --porcelain -- "$path")
-  [[ -n $status ]] || return 0
-  [[ $status == " M $path" ]] || return 1
-
-  expected=$(root_git show "HEAD:$path") || return 1
-  expected+=$'\n[safe]\n\tdirectory = '"$root"
-  actual=$(<"$root/$path")
-  [[ $actual == "$expected" ]] || return 1
-
-  # The shared CI workflow writes this one global setting after redirecting
-  # HOME into the checkout. Restore the reviewed candidate copy before moving
-  # away from GitHub's synthesized merge ref.
-  root_git checkout-index --force -- "$path"
-}
-
-restore_ci_git_config || true
+# The shared CI workflow trusts the workspace with `git config --global`
+# after redirecting HOME into this checkout. The base tree tracks no XDG Git
+# config, so that write lands in an untracked ~/.gitconfig, the one path a
+# clean candidate checkout may carry.
 dirty=$(root_git status --porcelain --untracked-files=all |
   sed '/^?? \.gitconfig$/d')
 if [[ -n $dirty ]]; then
