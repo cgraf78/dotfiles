@@ -1,6 +1,7 @@
 .local/lib/dotfiles/tests/agent-rules-adapter-test
 .local/lib/dotfiles/tests/agent-rules-test
 .local/lib/dotfiles/tests/base-profile-boundary-test
+.local/lib/dotfiles/tests/ci-only/overlay-profile-stack-test
 .local/lib/dotfiles/tests/client-extensions-test
 .local/lib/dotfiles/tests/client-paths-test
 .local/lib/dotfiles/tests/clip-test
@@ -16,7 +17,6 @@
 .local/lib/dotfiles/tests/dot-runtime-resolve-test
 .local/lib/dotfiles/tests/footprint-test
 .local/lib/dotfiles/tests/harness-isolation-test
-.local/lib/dotfiles/tests/overlay-profile-stack-test
 .local/lib/dotfiles/tests/profile-policy-test
 .local/lib/dotfiles/tests/prompt-test
 .local/lib/dotfiles/tests/shdeps-assets-test

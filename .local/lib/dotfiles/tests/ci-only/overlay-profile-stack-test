@@ -5,16 +5,18 @@ set -u
 
 source_home=${DOT_TEST_SOURCE_HOME:-$HOME}
 
-# shellcheck source=helpers.sh
+# shellcheck source=../helpers.sh
 . "$source_home/.local/lib/dotfiles/tests/helpers.sh"
-# shellcheck source=profile-ownership-policy.sh
+# shellcheck source=../profile-ownership-policy.sh
 . "$source_home/.local/lib/dotfiles/tests/profile-ownership-policy.sh"
-# shellcheck source=dot-runtime-resolve.sh
+# shellcheck source=../dot-runtime-resolve.sh
 . "$source_home/.local/lib/dotfiles/tests/dot-runtime-resolve.sh"
 
 # This suite clones and validates current public capability repositories and
-# must use its resolved Dot runtime. Normal installed `dot test` runs stay local
-# and leave this CI-only integration gate to `.local/lib/dotfiles/tests/run-ci`.
+# must use its resolved Dot runtime. It lives under `ci-only/`, outside Dot's
+# top-level `*-test` discovery, so ordinary `dot test` runs never list it; CI
+# selects it explicitly through `run-ci` and `profile-fixture-integration`.
+# The gate below still covers direct invocation: skip locally, fail in CI.
 if [[ ${DOT_STACK_RUNTIME:-0} != 1 ]]; then
   if [[ ${GITHUB_ACTIONS:-false} == true ]]; then
     printf 'overlay-profile-stack-test: resolved CI runtime is required\n' >&2

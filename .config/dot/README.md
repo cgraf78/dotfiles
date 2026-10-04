@@ -26,9 +26,9 @@ target-native config directories.
   that host's Dot is upgraded. Later releases warn and ignore an unknown key
   instead; see
   [Unknown keys and version skew](https://github.com/cgraf78/dot/blob/main/docs/configuration.md#unknown-keys-and-version-skew).
-  Orphan pruning is therefore enabled by
-  `DOT_SHDEPS_PRUNE=cron` on the cron entry in
-  `merge-hooks.d/cron/cron.d/10-update.cron`, not here.
+  Orphan pruning is therefore not configured here: `dot update --cron` prunes
+  by default (the cron entry is `merge-hooks.d/cron/cron.d/10-update.cron`),
+  and `DOT_SHDEPS_PRUNE=never` on that entry opts a host out.
 - `profiles.d/` defines the additive `base`, `editor`, and `dev` profiles. A
   profile contains overlay names only; the root repository is always active.
 - `profile-selectors.d/` contains reviewed non-sensitive selectors. Ignored
