@@ -84,6 +84,48 @@ dot_core_test_static() {
   _assert_contains "CI workflow: cold bootstrap restores installed API validation" \
     'unset DOT_TEST_HOST_HOME' \
     "$workflow"
+  # shellcheck disable=SC2016 # Match literal variables in the workflow shell.
+  _assert_contains "CI workflow: cold bootstrap drops the stacked Dot before doctor" \
+    'PATH=${PATH#"${DOT_STACK_DOT_BIN%/*}:"}' \
+    "$workflow"
+  # shellcheck disable=SC2016 # Match literal variables in the workflow shell.
+  _assert_contains "CI workflow: cold bootstrap diagnoses through the managed Dot" \
+    '"$public_dot" -ef "$HOME/.local/share/cgraf78/dot/dot"' \
+    "$workflow"
+  # Order is checked inside the cold-bootstrap job only, so a matching line
+  # in another job can neither satisfy nor mask it. Each step must appear in
+  # this order: update, drop the stacked Dot, prove the managed public
+  # command, then diagnose.
+  cold_job=$(awk '
+    /^  cold-bootstrap:$/ { inside = 1; print; next }
+    inside && /^  [A-Za-z0-9_-]+:$/ { exit }
+    inside { print }
+  ' "$root/.github/workflows/test.yml")
+  # shellcheck disable=SC2016 # Match the literal workflow shell.
+  cold_order=(
+    '          dot update'
+    '          unset DOT_TEST_HOST_HOME'
+    '          PATH=${PATH#"${DOT_STACK_DOT_BIN%/*}:"}'
+    '          public_dot=$(command -v dot)'
+    '          test "$public_dot" = "$HOME/.local/bin/dot"'
+    '          test "$public_dot" -ef "$HOME/.local/share/cgraf78/dot/dot"'
+    '          dot doctor'
+  )
+  cold_previous=0
+  cold_ordered=1
+  for cold_step in "${cold_order[@]}"; do
+    cold_line=$(grep -nxF -- "$cold_step" <<<"$cold_job" | head -1 | cut -d: -f1)
+    if [[ -z $cold_line || $cold_line -le $cold_previous ]]; then
+      cold_ordered=0
+      break
+    fi
+    cold_previous=$cold_line
+  done
+  if [[ $cold_ordered == 1 ]]; then
+    _pass "CI workflow: cold bootstrap switches Dot only after update"
+  else
+    _fail "CI workflow: cold bootstrap switches Dot only after update"
+  fi
   _assert_contains "CI workflow: runs one Ubuntu installed-profile composition gate" \
     "name: Installed profile composition" "$workflow"
   _assert_contains "CI workflow: executes unfiltered installed profile tests" \
