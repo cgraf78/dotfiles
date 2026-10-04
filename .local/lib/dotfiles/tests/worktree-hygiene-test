@@ -3,6 +3,9 @@
 
 set -o pipefail
 export NO_COLOR=1
+# A host may name the probe Git (an overlay sets DOT_DOCTOR_GIT); the suite
+# must exercise the PATH resolution and its shims unless a case sets it.
+unset DOT_DOCTOR_GIT
 
 # shellcheck source=helpers.sh
 . "${BASH_SOURCE[0]%/*}/helpers.sh"
@@ -35,11 +38,18 @@ _hygiene_hooks_dir=$(_tmpdir)/empty-hooks
 mkdir -p "$_hygiene_hooks_dir"
 _test_hermetic_git core.hooksPath "$_hygiene_hooks_dir"
 
+# Print the records a check filed, then one "stale-entry" line per clean
+# stale checkout: the stale row shows counts only, so per-path reasons are
+# asserted through the check's full list.
 _doctor_records() {
-  local status=0
+  local status=0 entry
   : >"$DOT_DOCTOR_RESULT_FILE"
+  _DR_WORKTREE_STALE_ENTRIES=()
   "$@" || status=$?
   cat "$DOT_DOCTOR_RESULT_FILE"
+  for entry in ${_DR_WORKTREE_STALE_ENTRIES[@]+"${_DR_WORKTREE_STALE_ENTRIES[@]}"}; do
+    printf 'stale-entry\t%s (%s)\n' "$(_dr_worktree_display "${entry%%$'\t'*}")" "${entry#*$'\t'}"
+  done
   return "$status"
 }
 
@@ -766,12 +776,15 @@ _assert_not_contains "batched: unmerged checkout stays silent" \
   "mb-unmerged" "$batch_result"
 _assert_not_contains "batched: detached checkout stays silent" \
   "mb-detached" "$batch_result"
-_assert_not_contains "batched: orphaned checkout stays silent" \
-  "mb-orphan" "$batch_result"
+_assert_not_contains "batched: an orphaned checkout is never called stale" \
+  $'stale-entry\t~/.worktrees/mb-orphan' "$batch_result"
+# shellcheck disable=SC2088 # Rows carry tilde display paths.
+_assert_contains "batched: an orphaned checkout gets the orphan row" \
+  "~/.worktrees/mb-orphan (admin entry gone from ~/.worktrees/mb-main)" "$batch_result"
 _assert_eq "batched: admin files replace the worktree listing" "0" "$batch_listings"
-# Only the orphan (no repo key) and the moved checkout (no listed row) fall
-# back to a per-checkout branch probe.
-_assert_eq "batched: listed checkouts need no branch probe" "2" \
+# Only the moved checkout (no listed row) falls back to a per-checkout
+# branch probe; the orphan is known from its pointer and never probed.
+_assert_eq "batched: listed checkouts need no branch probe" "1" \
   "$batch_branch_probes"
 _assert_eq "batched: reasons match the per-checkout probe" "" "$batch_mismatch"
 
@@ -901,7 +914,7 @@ _assert_not_contains "activity: a fresh index keeps a checkout active" \
 _assert_contains "activity: a standalone clone is labelled" \
   "act-idle (merged into origin/main, standalone clone)" "$result"
 _assert_contains "activity: mixed rows send worktrees to the gc and clones by hand" \
-  "review the rest with 'dot-worktree-gc' (dry run by default); delete the clone and outside-root ones by hand" \
+  "then 'dot-worktree-gc --apply' to remove (ignored files such as caches and build output go too); delete 1 by hand once reviewed, dot-worktree-gc keeps it: ~/.worktrees/act-idle" \
   "$result"
 
 echo ""
@@ -942,7 +955,9 @@ _assert_not_contains "dirty: a dirty checkout is never called stale" \
 _assert_contains "dirty: the row says the gc skips it" \
   "dot-worktree-gc skips dirty checkouts" "$result"
 _assert_contains "dirty: clone-only stale rows say clones go by hand" \
-  "dot-worktree-gc does not remove these: delete them by hand" "$result"
+  "1 merged; delete by hand once reviewed, dot-worktree-gc keeps it: " "$result"
+_assert_not_contains "dirty: clone-only stale rows never point at the gc" \
+  "'dot-worktree-gc --apply'" "$result"
 # _make_old dated the index 2020; a refreshing status would have moved it.
 _assert_eq "dirty: the probe leaves the index untouched" \
   "$dirty_index" "$(find "$dirty_index" -mtime +1000 2>/dev/null)"
@@ -1023,7 +1038,7 @@ _assert_not_contains "registered: a locked checkout is never listed as stale" \
 _assert_contains "registered: an unswept worktree is labelled" \
   "live (merged into origin/main, outside the swept roots)" "$result"
 _assert_contains "registered: unswept stale rows say delete by hand" \
-  "dot-worktree-gc does not remove these: delete them by hand" "$result"
+  "delete by hand once reviewed, dot-worktree-gc keeps it: " "$result"
 
 # A locked checkout whose repository lives outside every clone root is
 # still recognised as locked through its own pointer.
@@ -1140,6 +1155,400 @@ _assert_eq "parallel: dirty records match a serial run" \
   "$par_dirty_serial" "$par_dirty_default"
 _assert_contains "parallel: the serial run still finds the batch shapes" \
   "mb-gone (upstream origin/mb-gone is gone)" "$par_serial"
+
+echo ""
+echo "=== Orphaned worktrees ==="
+
+# A checkout whose repository was deleted or moved, or whose admin entry was
+# pruned, is an orphan: its `.git` pointer names nothing. Doctor reports it
+# from the pointer alone (no Git probe), including inside a grouping folder,
+# never calls it stale, and does not count the grouping folder.
+orph_home=$(_tmpdir)
+orph_origin_root=$(_tmpdir)
+_seed_origin "$orph_origin_root/origin.git"
+mkdir -p "$orph_home/git/worktrees/batch" "$orph_home/worktrees"
+git clone "$orph_origin_root/origin.git" "$orph_home/git/doomed" >/dev/null 2>&1
+git -C "$orph_home/git/doomed" worktree add "$orph_home/.worktrees/orph-top" -b o1 >/dev/null 2>&1
+git -C "$orph_home/git/doomed" worktree add "$orph_home/git/worktrees/batch/orph-nested" -b o2 >/dev/null 2>&1
+git clone "$orph_origin_root/origin.git" "$orph_home/git/kept" >/dev/null 2>&1
+git -C "$orph_home/git/kept" worktree add "$orph_home/worktrees/orph-pruned" -b o3 >/dev/null 2>&1
+rm -rf "$orph_home/git/kept/.git/worktrees/orph-pruned"
+# The repository moves out of HOME (a rename the doctor cannot follow).
+orph_moved=$(_tmpdir)/doomed
+mv "$orph_home/git/doomed" "$orph_moved"
+for orph_dir in .worktrees/orph-top git/worktrees/batch/orph-nested worktrees/orph-pruned; do
+  _make_old "$orph_home/$orph_dir"
+done
+orph_real_git=$(command -v git)
+orph_log=$(_tmpfile)
+orph_bin=$(_tmpdir)
+cat >"$orph_bin/git" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >>"$orph_log"
+exec "$orph_real_git" "\$@"
+SH
+chmod +x "$orph_bin/git"
+result=$(HOME="$orph_home" DOTFILES="$orph_home/.dotfiles" PATH="$orph_bin:$PATH" \
+  _doctor_records _dr_check_worktrees)
+status=$?
+_assert_exit "orphans: check exits 0 (warn-only)" 0 "$status"
+_assert_contains "orphans: every orphan warns" \
+  $'warn\t3 orphaned worktrees (their Git metadata is gone)' "$result"
+# shellcheck disable=SC2088 # Rows carry tilde display paths.
+_assert_contains "orphans: a deleted repository is named" \
+  "~/.worktrees/orph-top (~/git/doomed is gone)" "$result"
+# shellcheck disable=SC2088 # Rows carry tilde display paths.
+_assert_contains "orphans: an orphan in a grouping folder is found" \
+  "~/git/worktrees/batch/orph-nested (~/git/doomed is gone)" "$result"
+# shellcheck disable=SC2088 # Rows carry tilde display paths.
+_assert_contains "orphans: a pruned admin entry is named" \
+  "~/worktrees/orph-pruned (admin entry gone from ~/git/kept)" "$result"
+_assert_contains "orphans: the row names the repair command" \
+  "git -C <repo> worktree repair <path>" "$result"
+_assert_contains "orphans: the grouping folder is not a worktree" \
+  "across 3 worktrees" "$result"
+_assert_contains "orphans: an orphan is never stale" $'ok\tno stale worktrees' "$result"
+_assert_not_contains "orphans: an orphan is never uninspectable" \
+  "cannot inspect" "$result"
+_assert_not_contains "orphans: no Git probe runs in an orphan" "orph-" "$(cat "$orph_log")"
+# The row's own repair hint brings the moved repository's checkouts back
+# (repair from the moved repository reconnects every checkout it lists); the
+# pruned entry has nothing left to repair.
+git -C "$orph_moved" worktree repair "$orph_home/.worktrees/orph-top" >/dev/null 2>&1
+result=$(HOME="$orph_home" DOTFILES="$orph_home/.dotfiles" \
+  _doctor_records _dr_check_worktrees)
+_assert_contains "orphans: repaired checkouts leave the row" \
+  $'warn\t1 orphaned worktree (its Git metadata is gone)\t~/worktrees/orph-pruned' "$result"
+_assert_not_contains "orphans: a repaired checkout is no orphan" \
+  "orph-top (" "$result"
+
+echo ""
+echo "=== Shared roots and grouping folders ==="
+
+# ~/worktrees and ~/git/.worktrees are shared roots like ~/.worktrees and
+# ~/git/worktrees, and a folder there without a `.git` groups checkouts one
+# level down. The owning clone lives outside every clone root, so only the
+# roots reach these checkouts; they are the gc's to sweep, so the stale row
+# names counts and the gc, not paths.
+grp_home=$(_tmpdir)
+grp_origin_root=$(_tmpdir)
+_seed_origin "$grp_origin_root/origin.git"
+grp_main=$(_tmpdir)/alpha
+_clone_worktree "$grp_origin_root/origin.git" "$grp_main"
+mkdir -p "$grp_home/worktrees" "$grp_home/git/.worktrees" \
+  "$grp_home/git/worktrees/batch/notes" "$grp_home/git/worktrees/batch/deeper"
+_grp_worktree() {
+  git -C "$grp_main" worktree add "$grp_home/$1" -b "$2" >/dev/null 2>&1
+  _git_set_test_identity git -C "$grp_home/$1"
+  _commit_file "$grp_home/$1" "$2.txt"
+  git -C "$grp_home/$1" push -u origin "$2" >/dev/null 2>&1
+  git -C "$grp_main" fetch origin >/dev/null 2>&1
+  git -C "$grp_main" merge --no-ff "origin/$2" -m "merge $2" >/dev/null 2>&1
+  git -C "$grp_main" push origin main >/dev/null 2>&1
+  _make_old "$grp_home/$1"
+}
+_grp_worktree worktrees/g-top g-top
+_grp_worktree git/.worktrees/g-hidden g-hidden
+_grp_worktree git/worktrees/batch/g-nested g-nested
+_grp_worktree git/worktrees/batch/deeper/g-deep g-deep
+result=$(HOME="$grp_home" DOTFILES="$grp_home/.dotfiles" \
+  _doctor_records _dr_check_worktrees)
+_assert_contains "groups: grouped checkouts count, the group and loose folders do not" \
+  "across 3 worktrees" "$result"
+_assert_contains "groups: the new roots and the group are stale" \
+  $'warn\t3 stale worktrees' "$result"
+_assert_contains "groups: ~/worktrees is a shared root" \
+  $'stale-entry\t~/worktrees/g-top (merged into origin/main)' "$result"
+_assert_contains "groups: ~/git/.worktrees is a shared root" \
+  $'stale-entry\t~/git/.worktrees/g-hidden (merged into origin/main)' "$result"
+_assert_contains "groups: a grouped checkout is swept" \
+  $'stale-entry\t~/git/worktrees/batch/g-nested (merged into origin/main)' "$result"
+_assert_not_contains "groups: descent stops one level down" "g-deep" "$result"
+_assert_not_contains "groups: nothing is outside the swept roots" \
+  "outside the swept roots" "$result"
+grp_row=$(grep $'^warn\t3 stale worktrees' <<<"$result")
+_assert_contains "groups: the stale row counts by reason" \
+  $'\t3 merged; run \'dot-worktree-gc\' to list (dry run; it can also prove squash merges), then \'dot-worktree-gc --apply\' to remove (ignored files such as caches and build output go too)' \
+  "$grp_row"
+_assert_not_contains "groups: the stale row lists no gc-removable path" "g-" "$grp_row"
+
+echo ""
+echo "=== Disk row names the largest roots ==="
+
+top_home=$(_tmpdir)
+mkdir -p "$top_home/.worktrees"
+for top_name in big-c big-a big-d big-b; do
+  mkdir -p "$top_home/.worktrees/$top_name"
+done
+head -c 409600 /dev/zero >"$top_home/.worktrees/big-a/blob.bin"
+head -c 307200 /dev/zero >"$top_home/.worktrees/big-b/blob.bin"
+head -c 204800 /dev/zero >"$top_home/.worktrees/big-c/blob.bin"
+head -c 102400 /dev/zero >"$top_home/.worktrees/big-d/blob.bin"
+result=$(HOME="$top_home" DOTFILES="$top_home/.dotfiles" \
+  DOT_WORKTREE_WARN_BYTES=2048 _doctor_records _dr_check_worktrees)
+top_row=$(grep $'^warn\tworktree disk' <<<"$result")
+top_order=no
+[[ $top_row == *"largest: ~/.worktrees/big-a "*", ~/.worktrees/big-b "*", ~/.worktrees/big-c "* ]] &&
+  top_order=yes
+_assert_eq "disk top: the three largest roots, largest first" yes "$top_order"
+_assert_not_contains "disk top: only three roots are named" "big-d" "$top_row"
+_assert_contains "disk top: the row points at the gc" "dot-worktree-gc" "$top_row"
+_assert_contains "disk top: the knob is still named" "DOT_WORKTREE_WARN_BYTES" "$top_row"
+result=$(HOME="$top_home" DOTFILES="$top_home/.dotfiles" \
+  _doctor_records _dr_check_worktrees)
+_assert_not_contains "disk top: an ok row names no roots" "largest" "$result"
+
+echo ""
+echo "=== Checkouts Git cannot inspect ==="
+
+# A pointer to a directory that is not a Git directory is no orphan (the
+# target exists), but every Git probe in it fails: report it, never call it
+# clean or silent.
+opq_home=$(_tmpdir)
+opq_target=$(_tmpdir)
+mkdir -p "$opq_home/.worktrees/opaque"
+printf 'gitdir: %s\n' "$opq_target" >"$opq_home/.worktrees/opaque/.git"
+_make_old "$opq_home/.worktrees/opaque"
+result=$(HOME="$opq_home" DOTFILES="$opq_home/.dotfiles" \
+  _doctor_records _dr_check_worktrees)
+_assert_contains "opaque: the checkout warns" \
+  $'warn\t1 inactive worktree Git cannot inspect\t~/.worktrees/opaque; ' "$result"
+_assert_contains "opaque: the row says how to see why" "git -C <path> status" "$result"
+_assert_not_contains "opaque: it is not an orphan" "orphaned" "$result"
+
+echo ""
+echo "=== DOT_DOCTOR_GIT ==="
+
+# A host can name the Git binary for every probe: a wrapper first on PATH
+# then never runs. An unusable value (missing, a directory, the dotfiles
+# launcher) falls back to the PATH search, and the check still reports.
+dg_real_git=$(command -v git)
+dg_bin=$(_tmpdir)
+dg_log=$(_tmpfile)
+cat >"$dg_bin/git-plain" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >>"$dg_log"
+exec "$dg_real_git" "\$@"
+SH
+chmod +x "$dg_bin/git-plain"
+dg_wrap_bin=$(_tmpdir)
+dg_wrap_log=$(_tmpfile)
+cat >"$dg_wrap_bin/git" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >>"$dg_wrap_log"
+exec "$dg_real_git" "\$@"
+SH
+chmod +x "$dg_wrap_bin/git"
+result=$(HOME="$act_home" DOTFILES="$act_home/.dotfiles" PATH="$dg_wrap_bin:$PATH" \
+  DOT_DOCTOR_GIT="$dg_bin/git-plain" _doctor_records _dr_check_worktrees)
+_assert_contains "doctor git: an absolute path still finds the stale checkout" \
+  "act-idle (merged into origin/main" "$result"
+_assert_contains "doctor git: the named binary runs the probes" "for-each-ref" "$(cat "$dg_log")"
+_assert_eq "doctor git: the PATH wrapper never runs" "" "$(cat "$dg_wrap_log")"
+: >"$dg_log"
+result=$(HOME="$act_home" DOTFILES="$act_home/.dotfiles" PATH="$dg_wrap_bin:$dg_bin:$PATH" \
+  DOT_DOCTOR_GIT=git-plain _doctor_records _dr_check_worktrees)
+_assert_contains "doctor git: a command name resolves through PATH" "for-each-ref" "$(cat "$dg_log")"
+_assert_eq "doctor git: a command name skips the wrapper too" "" "$(cat "$dg_wrap_log")"
+for dg_value in "$dg_bin/no-such-git" "$dg_bin" "$launch_bin/git" no-such-git-command; do
+  : >"$dg_wrap_log"
+  result=$(HOME="$act_home" DOTFILES="$act_home/.dotfiles" PATH="$dg_wrap_bin:$PATH" \
+    DOT_DOCTOR_GIT="$dg_value" _doctor_records _dr_check_worktrees)
+  _assert_contains "doctor git: an unusable value falls back (${dg_value##*/})" \
+    "act-idle (merged into origin/main" "$result"
+  _assert_contains "doctor git: the fallback is the PATH Git (${dg_value##*/})" \
+    "for-each-ref" "$(cat "$dg_wrap_log")"
+done
+_assert_eq "doctor git: the launcher is never run" "" "$(cat "$launch_log")"
+
+echo ""
+echo "=== Base ref without origin/HEAD ==="
+
+# A clone without the origin/HEAD symref resolves its base from the tracking
+# query's conventional origin branch: no extra base-ref chain spawns.
+nohead_home=$(_tmpdir)
+nohead_origin_root=$(_tmpdir)
+_seed_origin "$nohead_origin_root/origin.git"
+mkdir -p "$nohead_home/.worktrees"
+git clone "$nohead_origin_root/origin.git" "$nohead_home/.worktrees/nohead" >/dev/null 2>&1
+git -C "$nohead_home/.worktrees/nohead" remote set-head origin --delete >/dev/null 2>&1
+_make_old "$nohead_home/.worktrees/nohead"
+nohead_log=$(_tmpfile)
+nohead_bin=$(_tmpdir)
+cat >"$nohead_bin/git" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >>"$nohead_log"
+exec "$dg_real_git" "\$@"
+SH
+chmod +x "$nohead_bin/git"
+result=$(HOME="$nohead_home" DOTFILES="$nohead_home/.dotfiles" PATH="$nohead_bin:$PATH" \
+  _doctor_records _dr_check_worktrees)
+_assert_contains "nohead: the synced clone is merged into origin/main" \
+  "nohead (merged into origin/main, standalone clone)" "$result"
+_assert_not_contains "nohead: no base-ref chain runs" "symbolic-ref" "$(cat "$nohead_log")"
+_assert_not_contains "nohead: no remote listing runs" " remote" "$(cat "$nohead_log")"
+
+echo ""
+echo "=== Review edge cases ==="
+
+# A gone upstream counts only when it is the branch's own name: a branch
+# tracking another branch (the base it was cut from) may hold commits no
+# remote ever saw, so it is never called stale on that alone.
+foreign_home=$(_tmpdir)
+foreign_origin_root=$(_tmpdir)
+_seed_origin "$foreign_origin_root/origin.git"
+mkdir -p "$foreign_home/.worktrees"
+_clone_worktree "$foreign_origin_root/origin.git" "$foreign_home/.worktrees/foreign"
+wt=$foreign_home/.worktrees/foreign
+git -C "$wt" push origin main:base-slice >/dev/null 2>&1
+git -C "$wt" fetch origin >/dev/null 2>&1
+git -C "$wt" checkout -b local-work --track origin/base-slice >/dev/null 2>&1
+_commit_file "$wt" never-pushed.txt
+git -C "$wt" push origin --delete base-slice >/dev/null 2>&1
+git -C "$wt" fetch --prune origin >/dev/null 2>&1
+_make_old "$wt"
+result=$(HOME="$foreign_home" DOTFILES="$foreign_home/.dotfiles" \
+  _doctor_records _dr_check_worktrees)
+_assert_contains "edge: a gone foreign upstream is not stale" $'ok\tno stale worktrees' "$result"
+_DR_WORKTREE_BASE_KEYS=()
+_DR_WORKTREE_BASE_REFS=()
+_dr_worktree_stale_reason "$(cd "$wt" && pwd -P)"
+_assert_eq "edge: the per-checkout probe agrees" "" "$REPLY"
+
+# The same gone foreign upstream on a branch that did land still reads as
+# merged: the batched probe must resolve a base for it.
+_clone_worktree "$foreign_origin_root/origin.git" "$foreign_home/.worktrees/foreign-landed"
+wt=$foreign_home/.worktrees/foreign-landed
+git -C "$wt" push origin main:base-slice-2 >/dev/null 2>&1
+git -C "$wt" fetch origin >/dev/null 2>&1
+git -C "$wt" checkout -b landed --track origin/base-slice-2 >/dev/null 2>&1
+_commit_file "$wt" landed.txt
+git -C "$wt" push origin landed:main >/dev/null 2>&1
+git -C "$wt" push origin --delete base-slice-2 >/dev/null 2>&1
+git -C "$wt" fetch --prune origin >/dev/null 2>&1
+_make_old "$wt"
+
+# Neither a local upstream nor a remote whose name holds a slash is the
+# branch's own name, however the short names line up.
+_clone_worktree "$foreign_origin_root/origin.git" "$foreign_home/.worktrees/local-up"
+wt=$foreign_home/.worktrees/local-up
+git -C "$wt" checkout -b stack/feat >/dev/null 2>&1
+git -C "$wt" checkout -b feat --track stack/feat >/dev/null 2>&1
+_commit_file "$wt" local-only.txt
+git -C "$wt" branch -D stack/feat >/dev/null 2>&1
+_make_old "$wt"
+_clone_worktree "$foreign_origin_root/origin.git" "$foreign_home/.worktrees/slash-remote"
+wt=$foreign_home/.worktrees/slash-remote
+git -C "$wt" remote add fork/a "$foreign_origin_root/origin.git" >/dev/null 2>&1
+git -C "$wt" push fork/a main:x >/dev/null 2>&1
+git -C "$wt" fetch fork/a >/dev/null 2>&1
+git -C "$wt" checkout -b a/x --track fork/a/x >/dev/null 2>&1
+_commit_file "$wt" fork-only.txt
+git -C "$wt" push fork/a --delete x >/dev/null 2>&1
+git -C "$wt" fetch --prune fork/a >/dev/null 2>&1
+_make_old "$wt"
+result=$(HOME="$foreign_home" DOTFILES="$foreign_home/.dotfiles" \
+  _doctor_records _dr_check_worktrees)
+_assert_contains "edge: a landed branch with a gone foreign upstream is merged" \
+  "foreign-landed (merged into origin/main, standalone clone)" "$result"
+_assert_contains "edge: only the landed branch is stale" $'warn\t1 stale worktree' "$result"
+_assert_not_contains "edge: a gone local upstream is not stale" "local-up (" "$result"
+_assert_not_contains "edge: a slash-named remote is not the branch's own" \
+  "slash-remote (" "$result"
+for wt in local-up slash-remote; do
+  _DR_WORKTREE_BASE_KEYS=()
+  _DR_WORKTREE_BASE_REFS=()
+  _dr_worktree_stale_reason "$(cd "$foreign_home/.worktrees/$wt" && pwd -P)"
+  _assert_eq "edge: the per-checkout probe agrees ($wt)" "" "$REPLY"
+done
+
+# Leading zeros in the disk knob are decimal, never octal: 02048 is 2K, not
+# octal 1064, and 09000 is 9K, not an arithmetic error.
+result=$(HOME="$disk_home" DOTFILES="$disk_home/.dotfiles" \
+  DOT_WORKTREE_WARN_BYTES=02048 _doctor_records _dr_check_worktrees 2>&1)
+_assert_contains "edge: a 0-led knob displays as decimal" "the 2K limit" "$result"
+result=$(HOME="$disk_home" DOTFILES="$disk_home/.dotfiles" \
+  DOT_WORKTREE_WARN_BYTES=09000 _doctor_records _dr_check_worktrees 2>&1)
+_assert_not_contains "edge: a 0-led knob raises no arithmetic error" "value too great" "$result"
+_assert_contains "edge: a 0-led non-octal knob still applies" "the 9K limit" "$result"
+_assert_eq "edge: a 0-led knob reads as decimal" "900000000" \
+  "$(DOT_WORKTREE_WARN_BYTES=0900000000 _dr_worktree_warn_bytes)"
+
+# A CRLF pointer to a live Git directory is no orphan (Git strips the CR),
+# and a deleted separate Git directory names its repository, not an admin
+# entry of whatever folder holds it.
+crlf_home=$(_tmpdir)
+crlf_origin_root=$(_tmpdir)
+_seed_origin "$crlf_origin_root/origin.git"
+mkdir -p "$crlf_home/.worktrees/crlf" "$crlf_home/.worktrees/sep"
+git clone --bare "$crlf_origin_root/origin.git" "$crlf_home/store.git" >/dev/null 2>&1
+printf 'gitdir: %s\r\n' "$crlf_home/store.git" >"$crlf_home/.worktrees/crlf/.git"
+printf 'gitdir: %s\n' "$crlf_home/worktrees/old/.git" >"$crlf_home/.worktrees/sep/.git"
+result=$(HOME="$crlf_home" DOTFILES="$crlf_home/.dotfiles" \
+  _doctor_records _dr_check_worktrees)
+_assert_contains "edge: only the deleted pointer target is an orphan" \
+  $'warn\t1 orphaned worktree' "$result"
+# shellcheck disable=SC2088 # Rows carry tilde display paths.
+_assert_contains "edge: a separate Git directory names its repository" \
+  "~/.worktrees/sep (~/worktrees/old is gone)" "$result"
+
+# An annotated tag at a conventional origin branch peels to a commit, as the
+# chain's `^{commit}` does, so the batched probe takes the same base.
+tag_home=$(_tmpdir)
+tag_origin_root=$(_tmpdir)
+_seed_origin "$tag_origin_root/origin.git"
+mkdir -p "$tag_home/.worktrees"
+git clone "$tag_origin_root/origin.git" "$tag_home/.worktrees/tagged" >/dev/null 2>&1
+wt=$tag_home/.worktrees/tagged
+_git_set_test_identity git -C "$wt"
+git -C "$wt" remote set-head origin --delete >/dev/null 2>&1
+git -C "$wt" tag -a -m peel peel-me origin/main >/dev/null 2>&1
+git -C "$wt" update-ref refs/remotes/origin/main "$(git -C "$wt" rev-parse peel-me)" >/dev/null 2>&1
+_make_old "$wt"
+result=$(HOME="$tag_home" DOTFILES="$tag_home/.dotfiles" \
+  _doctor_records _dr_check_worktrees)
+_assert_contains "edge: a tag at origin/main still bases on origin/main" \
+  "tagged (merged into origin/main, standalone clone)" "$result"
+
+echo ""
+echo "=== Nested and moved checkouts ==="
+
+# A stale checkout holding another checkout (here in a folder Git ignores)
+# is not the gc's to remove: removing it would delete the nested one.
+nest_home2=$(_tmpdir)
+nest_origin2=$(_tmpdir)
+_seed_origin "$nest_origin2/origin.git"
+_clone_worktree "$nest_origin2/origin.git" "$nest_home2/git/alpha"
+mkdir -p "$nest_home2/worktrees/grp2"
+git -C "$nest_home2/git/alpha" worktree add "$nest_home2/worktrees/grp2/f" --detach main >/dev/null 2>&1
+git -C "$nest_home2/git/alpha" worktree add "$nest_home2/worktrees/grp2/f/.worktrees/inner" -b inner >/dev/null 2>&1
+printf '%s\n' '.worktrees/' >>"$nest_home2/git/alpha/.git/info/exclude"
+git -C "$nest_home2/worktrees/grp2/f" checkout -q -b f-merged >/dev/null 2>&1
+_make_old "$nest_home2/worktrees/grp2/f"
+result=$(HOME="$nest_home2" DOTFILES="$nest_home2/.dotfiles" \
+  _doctor_records _dr_check_worktrees)
+_assert_contains "nested: a checkout holding another is kept" \
+  $'stale-entry\t~/worktrees/grp2/f (merged into origin/main, contains another checkout)' "$result"
+_assert_not_contains "nested: the row does not send it to the gc" "'dot-worktree-gc --apply'" "$result"
+
+# A prunable-looking entry whose checkout was only moved is a repair, not a
+# prune: pruning would orphan the moved checkout.
+mv_home=$(_tmpdir)
+mv_origin=$(_tmpdir)
+_seed_origin "$mv_origin/origin.git"
+git clone "$mv_origin/origin.git" "$mv_home/git/alpha" >/dev/null 2>&1
+mkdir -p "$mv_home/.worktrees"
+git -C "$mv_home/git/alpha" worktree add "$mv_home/.worktrees/before" -b mv1 >/dev/null 2>&1
+git -C "$mv_home/git/alpha" worktree add "$mv_home/.worktrees/deleted" -b mv2 >/dev/null 2>&1
+mv "$mv_home/.worktrees/before" "$mv_home/.worktrees/after"
+rm -rf "$mv_home/.worktrees/deleted"
+result=$(HOME="$mv_home" DOTFILES="$mv_home/.dotfiles" \
+  _doctor_records _dr_check_worktrees)
+_assert_contains "moved: a deleted checkout's entry is still prunable" \
+  $'warn\t1 prunable worktree entry\t~/git/alpha: deleted;' "$result"
+_assert_contains "moved: a moved checkout gets the repair row" \
+  $'warn\t1 moved worktree is not repaired\t~/.worktrees/after (entry before of ~/git/alpha);' "$result"
+_assert_contains "moved: the repair row warns off pruning" "pruning would orphan them" "$result"
 
 echo ""
 echo "=== Symlinked HOME ==="
