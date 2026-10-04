@@ -40,8 +40,8 @@ echo "=== Published pair existence ==="
 
 # Release-edge answers are occasionally transient (5xx, 429, or a fresh
 # asset still propagating, all surfacing as curl exit 22 under --fail), so
-# the existence probes retry with the same curl flags as the resolver
-# downloads; a genuinely missing asset still fails after the retries.
+# the existence probes retry, a little longer than the resolver's downloads
+# do; a genuinely missing asset still fails after the retries.
 #
 # The probe is a one-byte ranged GET, not HEAD: CI saw the release CDN
 # answer HEAD for a published sidecar with 404 through every retry while
