@@ -31,6 +31,8 @@
 #
 # Safety rules (all enforced, none optional):
 # - never `rm -rf` and never `git worktree remove --force`
+# - old, empty directories with no known registration, directly under roots
+#   can also be removed, using rmdir only; symlink targets and in-use dirs stay
 # - never touch the live $HOME checkout, any main checkout, a locked
 #   worktree, a dirty worktree, a checkout git cannot inspect, one that
 #   holds another checkout (even in an ignored folder), or one that is a
@@ -102,6 +104,10 @@ _WORKTREE_GC_MAP_REG=()
 # Physical live registered checkouts and process working directories, loaded
 # once per sweep for the nested-checkout and in-use gates.
 _WORKTREE_GC_LIVE=()
+# Empty leftovers need direct-root provenance and protection for registrations
+# whose checkout-side .git file disappeared. Neither is a merge proof.
+_WORKTREE_GC_DIRECT=()
+_WORKTREE_GC_REGISTERED=()
 _WORKTREE_GC_CWDS=()
 _WORKTREE_GC_CWDS_LOADED=0
 _WORKTREE_GC_CWDS_WARNED=0
@@ -124,6 +130,8 @@ usage: dot-worktree-gc [--older-than N[d]] [--dry-run|--apply] [--no-fetch] [--i
   ~/worktrees and ~/git/.worktrees (one grouping folder deep), the
   .worktrees of every ~/git/* and ~/.dotfiles-* clone, and checkouts the
   base dotfiles repo registered anywhere.
+  Old empty directories with no known registration are also eligible;
+  they are removed with rmdir only. Nonempty directories without .git stay.
   Dry run is the default; --apply performs removals, and ignored files
   (caches, build output, .env) in a removed checkout go with it.
   --root adds a worktree root (its children only) to the sweep and may
@@ -752,11 +760,78 @@ _worktree_gc_load_cwds() {
 _worktree_gc_load_live() {
   local path phys
   _WORKTREE_GC_LIVE=()
+  _WORKTREE_GC_REGISTERED=()
   _dr_worktree_admin_scan
+  for path in ${_DR_WORKTREE_ADMIN_PATHS[@]+"${_DR_WORKTREE_ADMIN_PATHS[@]}"}; do
+    phys=$(_dr_worktree_physical "$path") || continue
+    [[ -z $phys ]] || _WORKTREE_GC_REGISTERED+=("$phys")
+  done
   for path in ${_DR_WORKTREE_ADMIN_LIVE[@]+"${_DR_WORKTREE_ADMIN_LIVE[@]}"}; do
     phys=$(_dr_worktree_physical "$path")
     [[ -n $phys ]] && _WORKTREE_GC_LIVE+=("$phys")
   done
+  return 0
+}
+
+# Test emptiness including dotfiles without leaking glob options to callers.
+# Unreadable directories cannot establish absence of valuable contents.
+_worktree_gc_empty() (
+  local dir=$1
+  [[ -d $dir && ! -L $dir && -r $dir && -x $dir ]] || return 1
+  shopt -s nullglob dotglob
+  local -a entries=("$dir"/*)
+  ((${#entries[@]} == 0))
+)
+
+_worktree_gc_registered() {
+  local dir=$1 registered
+  for registered in ${_WORKTREE_GC_REGISTERED[@]+"${_WORKTREE_GC_REGISTERED[@]}"}; do
+    [[ $registered != "$dir" ]] || return 0
+  done
+  return 1
+}
+
+# Retire an old empty container, not a Git checkout. rmdir is the final atomic
+# guard: a file appearing after inspection makes it refuse removal. Never use
+# recursive deletion, and never follow a candidate alias to an unrelated dir.
+_worktree_gc_remove_empty() {
+  local dir=$1 direct found=0 err
+  if ! _worktree_gc_empty "$dir"; then
+    _worktree_gc_record skipped "$dir" "no .git"
+    return 0
+  fi
+  for direct in ${_WORKTREE_GC_DIRECT[@]+"${_WORKTREE_GC_DIRECT[@]}"}; do
+    [[ $direct != "$dir" ]] || found=1
+  done
+  if ((found == 0)); then
+    _worktree_gc_record skipped "$dir" "empty directory reached through symlink"
+    return 0
+  fi
+  # Refresh the discovered repositories' registrations before preview or apply;
+  # a missing .git file does not imply that a known owner forgot this checkout.
+  # Unknown owners cannot be recovered from an empty directory alone, so the
+  # record reports absence of known registration, never a global Git proof.
+  _worktree_gc_load_live
+  if _worktree_gc_registered "$dir"; then
+    _worktree_gc_record skipped "$dir" "registered worktree, missing .git"
+    return 0
+  fi
+  # Even an empty directory may be an idle shell's working directory.
+  _worktree_gc_load_cwds
+  if _worktree_gc_in_use "$dir"; then
+    _worktree_gc_record skipped "$dir" "in use (a process's working directory)"
+    return 0
+  fi
+  if ((_WORKTREE_GC_APPLY == 0)); then
+    _worktree_gc_record would-remove "$dir" "empty directory, no known registration"
+  elif err=$(rmdir -- "$dir" 2>&1); then
+    _worktree_gc_record removed "$dir" "empty directory, no known registration"
+  elif ! _worktree_gc_empty "$dir"; then
+    _worktree_gc_record skipped "$dir" "directory changed during cleanup"
+  else
+    err=${err%%$'\n'*}
+    _worktree_gc_record failed "$dir" "${err:-rmdir failed}"
+  fi
   return 0
 }
 
@@ -772,7 +847,7 @@ _worktree_gc_process() {
     return 0
   fi
   if [[ ! -e $dir/.git ]]; then
-    _worktree_gc_record skipped "$dir" "no .git"
+    _worktree_gc_remove_empty "$dir"
     return 0
   fi
   if ! common=$(_worktree_gc_common_dir "$dir"); then
@@ -1000,10 +1075,14 @@ worktree_gc_main() {
   _WORKTREE_GC_CWDS_LOADED=0
   _WORKTREE_GC_CWDS_WARNED=0
 
+  # Reuse the shared discovery scope with symlinked children suppressed;
+  # physical-path discovery alone loses the provenance needed by rmdir.
   if ((${#extra_roots[@]} > 0)); then
     mapfile -t cands < <(_worktree_gc_candidates "${extra_roots[@]}")
+    mapfile -t _WORKTREE_GC_DIRECT < <(_DR_WORKTREE_SKIP_SYMLINK_CANDIDATES=1 _worktree_gc_candidates "${extra_roots[@]}")
   else
     mapfile -t cands < <(_worktree_gc_candidates)
+    mapfile -t _WORKTREE_GC_DIRECT < <(_DR_WORKTREE_SKIP_SYMLINK_CANDIDATES=1 _worktree_gc_candidates)
   fi
   old_list=
   if ((${#cands[@]} > 0)); then
