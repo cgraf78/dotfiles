@@ -44,6 +44,7 @@ program	.local/lib/dotfiles/doctor.d/60-cron.sh
 program	.local/lib/dotfiles/doctor.d/65-worktrees.sh
 program	.local/lib/dotfiles/doctor.d/lib/agent-rules.sh
 program	.local/lib/dotfiles/doctor.d/lib/compat.sh
+program	.local/lib/dotfiles/doctor.d/lib/config-temporaries.sh
 program	.local/lib/dotfiles/doctor.d/lib/cron.sh
 program	.local/lib/dotfiles/doctor.d/lib/integrations.sh
 program	.local/lib/dotfiles/doctor.d/lib/managed-config.sh
