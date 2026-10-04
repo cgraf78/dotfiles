@@ -59,6 +59,18 @@ merge() {
   local conf_dir="$HOME/.config/tmux/conf.d" stamp fp fresh stored tmp
 
   [[ -r "$config" ]] || return 0
+  # Ask for a server before applying the account guard, so the guard warns
+  # only when it actually withholds a reload. A disposable HOME (CI fixtures,
+  # `HOME=... dot update`) usually has no server, and then there is nothing
+  # to protect. `has-session` is a client query: it never starts a server,
+  # reads no config, and creates nothing beyond tmux's own per-uid socket
+  # directory, which it picks from $TMUX/TMUX_TMPDIR and the uid rather than
+  # HOME. Test mode skips this probe because it must
+  # never reach a real server; the guard below supplies its test double.
+  if [[ "${DOT_TEST:-0}" != "1" ]] &&
+    ! command tmux has-session >/dev/null 2>&1; then
+    return 0
+  fi
   _dot_account_scoped_command \
     "tmux merge" tmux "${DOT_TEST_TMUX:-}" || return 0
   tmux_command="$REPLY"
