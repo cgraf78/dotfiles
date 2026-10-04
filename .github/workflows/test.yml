@@ -204,9 +204,10 @@ jobs:
           set -euo pipefail
           # Same floating control-plane release as test-command: the cold
           # image carries no Rust toolchain, so a source checkout can
-          # never run here. This job makes one runtime resolution, so
-          # `latest` is already frozen for this job. (Each matrix job
-          # resolves independently.)
+          # never run here. The stacked runtime resolves `latest` once, so
+          # init and update share one frozen release. (Each matrix job
+          # resolves independently.) Shdeps separately resolves `latest`
+          # for the client's own Dot, which runs the final doctor below.
           export DOT_STACK_DOT_RELEASE_TAG='latest'
           staging=$(mktemp -d /tmp/dotfiles-cold-bootstrap.XXXXXXXX)
           origin=$staging/origin.git
@@ -249,6 +250,21 @@ jobs:
           test "$(git --git-dir="$HOME/.dotfiles" config core.worktree)" = "$HOME"
           dot update
           unset DOT_TEST_HOST_HOME
+          # Diagnose through the Dot this bootstrap installed: the command a
+          # freshly bootstrapped user runs next. The stacked runtime drove
+          # init and update above, but it lives outside Dot's managed and
+          # development locations, which doctor rightly reports as a
+          # warning about the fixture rather than the client. Shdeps
+          # resolved `latest` on its own during init/update, so this Dot is
+          # usually the stacked release but can be newer if one was
+          # published mid-job, exactly as for a real user.
+          PATH=${PATH#"${DOT_STACK_DOT_BIN%/*}:"}
+          hash -r
+          public_dot=$(command -v dot)
+          test "$public_dot" = "$HOME/.local/bin/dot"
+          test "$public_dot" -ef "$HOME/.local/share/cgraf78/dot/dot"
+          printf 'doctor-runtime\tdot=%s\tversion=%s\n' \
+            "$public_dot" "$(dot --version)"
           dot doctor
           test "$(git --git-dir="$HOME/.dotfiles" rev-parse HEAD)" = "$expected"
           BASH
