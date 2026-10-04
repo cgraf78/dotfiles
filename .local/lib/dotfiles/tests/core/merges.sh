@@ -612,10 +612,24 @@ TMUX
   tmux_non_account_output=$(DOT_TEST=0 HOME="$tmux_home" \
     PATH="$tmux_bin:$PATH" DOT_TEST_TMUX_LOG="$tmux_log" \
     DOT_TEST_TMUX_SERVER="$tmux_server" _run_tmux_merge_for_test 2>&1)
+  # The read-only probe is the only contact: no reload from a foreign HOME.
   _assert_eq "tmux merge: non-account HOME leaves the user server untouched" \
-    "" "$(cat "$tmux_log")"
+    "has-session" "$(cat "$tmux_log")"
   _assert_contains "tmux merge: non-account HOME is reported" \
     "account home" "$tmux_non_account_output"
+
+  # A disposable HOME with no running server has nothing to reload, so the
+  # account guard has nothing to protect and must not warn.
+  rm -f "$tmux_server"
+  : >"$tmux_log"
+  tmux_no_server_output=$(DOT_TEST=0 HOME="$tmux_home" \
+    PATH="$tmux_bin:$PATH" DOT_TEST_TMUX_LOG="$tmux_log" \
+    DOT_TEST_TMUX_SERVER="$tmux_server" _run_tmux_merge_for_test 2>&1)
+  _assert_eq "tmux merge: non-account HOME without a server stays quiet" \
+    "" "$tmux_no_server_output"
+  _assert_eq "tmux merge: non-account HOME without a server only probes" \
+    "has-session" "$(cat "$tmux_log")"
+  : >"$tmux_server"
 
   : >"$tmux_log"
   HOME="$tmux_home" PATH="$tmux_bin:$PATH" DOT_TEST_TMUX="$tmux_bin/tmux" \
