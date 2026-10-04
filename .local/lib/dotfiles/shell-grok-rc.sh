@@ -79,9 +79,10 @@ dot_grok_strip_installer_rc() {
         failed=1
         continue
       fi
-      if cmp -s "$f" "$tmp"; then
-        rm -f "$tmp"
-      elif ! mv -f "$tmp" "$f"; then
+      # No unchanged-content shortcut: dot_grok_rc_has_block guarantees a
+      # start-marker line the filter always drops, so the copy always
+      # differs. Comparing would also need cmp, which minimal images lack.
+      if ! mv -f "$tmp" "$f"; then
         rm -f "$tmp"
         failed=1
       fi
