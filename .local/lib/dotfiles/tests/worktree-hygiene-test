@@ -3,6 +3,9 @@
 
 set -o pipefail
 export NO_COLOR=1
+# A host may name the probe Git (an overlay sets DOT_DOCTOR_GIT); the suite
+# must exercise the PATH resolution and its shims unless a case sets it.
+unset DOT_DOCTOR_GIT
 
 # shellcheck source=helpers.sh
 . "${BASH_SOURCE[0]%/*}/helpers.sh"
