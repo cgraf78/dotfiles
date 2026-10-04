@@ -1,0 +1,137 @@
+#!/usr/bin/env bash
+# Prove pin supersession against real Git histories without contacting GitHub.
+set -o pipefail
+# shellcheck source=helpers.sh
+. "${BASH_SOURCE[0]%/*}/helpers.sh"
+_test_prefer_system_git || exit 1
+_test_hermetic_git core.hooksPath "$(_tmpdir)"
+LIB=${BASH_SOURCE[0]%/*}/../worktree-gc-actions.sh
+if [[ -f $LIB ]]; then
+  # shellcheck source=../worktree-gc-actions.sh
+  . "$LIB"
+else
+  _worktree_gc_actions_superseded() { return 1; }
+fi
+old=1111111111111111111111111111111111111111
+pin=2222222222222222222222222222222222222222
+current=3333333333333333333333333333333333333333
+fixture=$(_tmpdir)
+git init -q "$fixture"
+_git_set_test_identity git -C "$fixture"
+mkdir -p "$fixture/.github/workflows"
+printf '%s\n' "$old" >"$fixture/.github/cgraf78-actions.lock"
+printf 'jobs:\n  ci:\n    uses: cgraf78/actions/.github/workflows/shell-ci.yml@%s\n' "$old" >"$fixture/.github/workflows/ci.yml"
+git -C "$fixture" add .
+git -C "$fixture" commit -qm seed
+seed=$(git -C "$fixture" rev-parse HEAD)
+sed "s/$old/$pin/g" "$fixture/.github/workflows/ci.yml" >"$fixture/next"
+mv "$fixture/next" "$fixture/.github/workflows/ci.yml"
+printf '%s\n' "$pin" >"$fixture/.github/cgraf78-actions.lock"
+git -C "$fixture" commit -qam target
+target=$(git -C "$fixture" rev-parse HEAD)
+git -C "$fixture" checkout -q --detach "$seed"
+sed "s/$old/$current/g" "$fixture/.github/workflows/ci.yml" >"$fixture/next"
+mv "$fixture/next" "$fixture/.github/workflows/ci.yml"
+printf '%s\n' "$current" >"$fixture/.github/cgraf78-actions.lock"
+git -C "$fixture" commit -qam current
+base=$(git -C "$fixture" rev-parse HEAD)
+gh() {
+  [[ $1 == api && $2 == --hostname && $3 == github.com && $4 == "repos/cgraf78/actions/compare/$pin...$current" ]] || return 1
+  [[ ${response:-ahead} != failure ]] || return 1
+  printf '{"status":"%s","base_commit":{"sha":"%s"},"merge_base_commit":{"sha":"%s"}}\n' "${response:-ahead}" "$pin" "${proof_ancestor:-$pin}"
+  [[ ${multiple_documents:-0} != 1 ]] || printf '{"status":"ahead","base_commit":{"sha":"%s"},"merge_base_commit":{"sha":"%s"}}\n' "$pin" "$pin"
+  return 0
+}
+_worktree_gc_actions_superseded "$fixture" "$target" "$base"
+result=$?
+_assert_exit 'descendant provider repin is superseded' 0 "$result"
+response=behind
+_worktree_gc_actions_superseded "$fixture" "$target" "$base"
+result=$?
+_assert_exit 'non-descendant provider is retained' 1 "$result"
+response=failure
+_worktree_gc_actions_superseded "$fixture" "$target" "$base"
+result=$?
+_assert_exit 'API failure is retained' 1 "$result"
+response=ahead proof_ancestor=$old
+_worktree_gc_actions_superseded "$fixture" "$target" "$base"
+result=$?
+_assert_exit 'wrong merge base is retained' 1 "$result"
+proof_ancestor=$pin
+multiple_documents=1
+_worktree_gc_actions_superseded "$fixture" "$target" "$base"
+result=$?
+_assert_exit 'multiple JSON response documents are retained' 1 "$result"
+multiple_documents=0
+_WORKTREE_GC_NO_FETCH=1
+_worktree_gc_actions_superseded "$fixture" "$target" "$base"
+result=$?
+_assert_exit 'offline mode does not prove supersession' 1 "$result"
+unset _WORKTREE_GC_NO_FETCH
+printf '# independent edit\n' >>"$fixture/.github/workflows/ci.yml"
+git -C "$fixture" commit -qam independent
+edited=$(git -C "$fixture" rev-parse HEAD)
+_worktree_gc_actions_superseded "$fixture" "$edited" "$target"
+result=$?
+_assert_exit 'independent workflow edits are retained' 1 "$result"
+_worktree_gc_actions_superseded "$fixture" "$target" "$edited"
+result=$?
+_assert_exit 'later main workflow changes preserve obsolete pin intent' 0 "$result"
+git -C "$fixture" checkout -q --detach "$target"
+chmod +x "$fixture/.github/workflows/ci.yml"
+git -C "$fixture" add .github/workflows/ci.yml
+git -C "$fixture" commit -qm executable
+mode=$(git -C "$fixture" rev-parse HEAD)
+_worktree_gc_actions_superseded "$fixture" "$mode" "$base"
+result=$?
+_assert_exit 'workflow mode changes are retained' 1 "$result"
+git -C "$fixture" checkout -q --detach "$target"
+printf 'unrelated\n' >"$fixture/unique.txt"
+git -C "$fixture" add unique.txt
+git -C "$fixture" commit -qm unrelated
+extra=$(git -C "$fixture" rev-parse HEAD)
+_worktree_gc_actions_superseded "$fixture" "$extra" "$base"
+result=$?
+_assert_exit 'extra changed files are retained' 1 "$result"
+git -C "$fixture" checkout -q --detach "$target"
+printf 'invalid\n' >"$fixture/.github/cgraf78-actions.lock"
+git -C "$fixture" commit -qam invalid
+invalid=$(git -C "$fixture" rev-parse HEAD)
+_worktree_gc_actions_superseded "$fixture" "$invalid" "$base"
+result=$?
+_assert_exit 'invalid lock hashes are retained' 1 "$result"
+git -C "$fixture" rm -q .github/cgraf78-actions.lock
+git -C "$fixture" commit -qm missing
+missing=$(git -C "$fixture" rev-parse HEAD)
+_worktree_gc_actions_superseded "$fixture" "$missing" "$base"
+result=$?
+_assert_exit 'missing lock is retained' 1 "$result"
+_worktree_gc_actions_superseded "$fixture" "$seed" "$base"
+result=$?
+_assert_exit 'unchanged lock does not qualify' 1 "$result"
+git -C "$fixture" checkout -q --detach "$seed"
+printf 'run: echo %s\n' "$old" >>"$fixture/.github/workflows/ci.yml"
+git -C "$fixture" commit -qam coincidental
+coincidental=$(git -C "$fixture" rev-parse HEAD)
+sed "s/$old/$pin/g" "$fixture/.github/workflows/ci.yml" >"$fixture/next"
+mv "$fixture/next" "$fixture/.github/workflows/ci.yml"
+printf '%s\n' "$pin" >"$fixture/.github/cgraf78-actions.lock"
+git -C "$fixture" commit -qam arbitrary
+arbitrary=$(git -C "$fixture" rev-parse HEAD)
+git -C "$fixture" checkout -q --detach "$coincidental"
+sed "s/$old/$current/g" "$fixture/.github/workflows/ci.yml" >"$fixture/next"
+mv "$fixture/next" "$fixture/.github/workflows/ci.yml"
+printf '%s\n' "$current" >"$fixture/.github/cgraf78-actions.lock"
+git -C "$fixture" commit -qam arbitrary-base
+arbitrary_base=$(git -C "$fixture" rev-parse HEAD)
+_worktree_gc_actions_superseded "$fixture" "$arbitrary" "$arbitrary_base"
+result=$?
+_assert_exit 'coincidental hashes outside provider uses are retained' 1 "$result"
+git -C "$fixture" checkout -q --detach "$target"
+printf '\0' >>"$fixture/.github/workflows/ci.yml"
+git -C "$fixture" commit -qam binary
+binary=$(git -C "$fixture" rev-parse HEAD)
+_worktree_gc_actions_superseded "$fixture" "$binary" "$base"
+result=$?
+_assert_exit 'binary workflow edits are retained' 1 "$result"
+_test_summary

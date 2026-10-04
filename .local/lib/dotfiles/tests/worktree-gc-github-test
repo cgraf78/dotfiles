@@ -1,0 +1,150 @@
+#!/usr/bin/env bash
+# GitHub lineage is an advisory checkout proof, never a branch deletion proof.
+set -o pipefail
+# shellcheck source=helpers.sh
+. "${BASH_SOURCE[0]%/*}/helpers.sh"
+_test_prefer_system_git || exit 1
+fixture=$(_tmpdir)
+_test_hermetic_git core.hooksPath "$fixture/hooks"
+mkdir -p "$fixture/hooks" "$fixture/repo"
+git init -q "$fixture/repo" || exit 1
+_git_set_test_identity git -C "$fixture/repo"
+git -C "$fixture/repo" commit -q --allow-empty -m seed || exit 1
+target=$(git -C "$fixture/repo" rev-parse HEAD)
+git -C "$fixture/repo" commit -q --allow-empty -m merged || exit 1
+base=$(git -C "$fixture/repo" rev-parse HEAD)
+git -C "$fixture/repo" remote add origin https://github.com/owner/repo.git
+lib=${BASH_SOURCE[0]%/*}/../worktree-gc-github.sh
+if [[ ! -f $lib ]]; then
+  _fail 'GitHub proof library exists'
+  _test_summary
+fi
+# shellcheck source=../worktree-gc-github.sh
+. "$lib"
+_WORKTREE_GC_NO_FETCH=0
+gh() {
+  printf '%s\n' "$*" >>"$fixture/calls"
+  case "$*" in
+    *'/commits/'*'/pulls'*)
+      printf '%s\n' "$pulls"
+      return "${pull_error:-0}"
+      ;;
+    *'/pulls/'*'/commits'*)
+      printf '%s\n' "$mock_members"
+      return "${member_error:-0}"
+      ;;
+    *'repos/owner/repo/pulls -f'*)
+      printf '%s\n' "$mock_named"
+      return "${named_error:-0}"
+      ;;
+    *) return 1 ;;
+  esac
+}
+record() {
+  pulls=$(jq -cn --arg target "$target" --arg merge "$base" \
+    '[[{number:7,state:"closed",merged_at:"2026-01-01",merge_commit_sha:$merge,
+      base:{ref:"main",repo:{full_name:"owner/repo"}}}]]')
+  mock_members=$(jq -cn --arg target "$target" '[[{sha:$target}]]')
+  mock_named='[[]]'
+  pull_error=0 member_error=0 named_error=0
+}
+proof() { _worktree_gc_github "$fixture/repo" "$target" "$base" origin/main; }
+record
+_assert_eq 'merged PR with exact member and locally landed merge' $'merged\t7' "$(proof)"
+pulls=$(jq '.[0] += [.[0][0] | .number=8 | .state="open" | .merged_at=null]' <<<"$pulls")
+_assert_eq 'live open PR overrides merged checkout proof' $'open\t8' "$(proof)"
+record
+_assert_eq 'invalid intermediate SHA length supplies no proof' '' \
+  "$(_worktree_gc_github "$fixture/repo" "${target}a" "$base" origin/main)"
+pulls=$(jq '.[0][0].base.repo.full_name="other/repo"' <<<"$pulls")
+_assert_eq 'wrong repository cannot prove lineage' $'none\t-' "$(proof)"
+record
+pulls=$(jq '.[0][0].base.ref="develop"' <<<"$pulls")
+_assert_eq 'wrong base cannot prove lineage' $'none\t-' "$(proof)"
+record
+pulls=$(jq '.[0][0].merge_commit_sha="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"' <<<"$pulls")
+_assert_eq 'unknown merge cannot prove lineage' $'none\t-' "$(proof)"
+record
+pulls=$(jq --arg oid "$base" '.[0][0].merge_commit_sha=$oid' <<<"$pulls")
+_assert_eq 'merge beyond pinned base cannot prove lineage' $'none\t-' \
+  "$(_worktree_gc_github "$fixture/repo" "$target" "$target" origin/main)"
+record
+mock_members='[[]]'
+_assert_eq 'association without exact commit membership is insufficient' $'none\t-' "$(proof)"
+record
+_assert_eq 'later local commit is not covered by PR' $'none\t-' \
+  "$(_worktree_gc_github "$fixture/repo" "$base" "$base" origin/main)"
+record
+pulls=$(jq '.[0][0].state="open" | .[0][0].merged_at=null' <<<"$pulls")
+_assert_eq 'open PR supplies explicit live-work record' $'open\t7' "$(proof)"
+record
+pulls=$(jq '.[0][0].merged_at=null | .[0][0].merge_commit_sha=null' <<<"$pulls")
+_assert_eq 'closed unmerged exact member has separate record' $'closed\t7' "$(proof)"
+pulls=$(jq '.[0] += [.[0][0] | .number=8 | .state="open"]' <<<"$pulls")
+_assert_eq 'live open PR overrides abandoned proof' $'open\t8' "$(proof)"
+record
+pulls='[[]]'
+_assert_eq 'complete empty association supplies explicit none' $'none\t-' "$(proof)"
+record
+named_error=1
+_assert_eq 'named branch API failure supplies no observation' '' "$(proof)"
+record
+pulls='[{"status":"422"}]'
+pull_error=1
+_assert_eq 'unpublished commit permits complete named observation' $'none\t-' "$(proof)"
+record
+mock_named=$(jq --arg branch "$(git -C "$fixture/repo" branch --show-current)" \
+  '.[0][0].merged_at=null | .[0][0].merge_commit_sha=null |
+   .[0][0].head={ref:$branch,repo:{full_name:"owner/repo"}}' <<<"$pulls")
+pulls='[[]]'
+_assert_eq 'named closed PR found when association omits it' $'closed\t7' "$(proof)"
+mock_named=$(jq '.[0][0].state="open"' <<<"$mock_named")
+pulls='[{"status":"422"}]'
+pull_error=1
+_assert_eq 'named open PR protects unpublished later local commit' $'open\t7' \
+  "$(_worktree_gc_github "$fixture/repo" "$base" "$base" origin/main)"
+record
+mock_named='[[{"head":{}}]]'
+_assert_eq 'malformed named head supplies no observation' '' "$(proof)"
+record
+pull_error=1
+_assert_eq 'partial API result on error supplies no proof' '' "$(proof)"
+record
+member_error=1
+_assert_eq 'membership API error supplies no proof' '' "$(proof)"
+record
+pulls='{malformed'
+_assert_eq 'malformed JSON supplies no proof' '' "$(proof)"
+record
+mock_members='{}'
+_assert_eq 'malformed membership structure supplies no proof' '' "$(proof)"
+record
+pulls=$(jq '.[0][0].number="7"' <<<"$pulls")
+_assert_eq 'malformed candidate structure supplies no proof' '' "$(proof)"
+record
+pulls=$(jq '[[.[0][0]], []]' <<<"$pulls")
+mock_members=$(jq '[[], .[0]]' <<<"$mock_members")
+_assert_eq 'all slurped PR and commit pages contribute evidence' $'merged\t7' "$(proof)"
+record
+pulls="$pulls $pulls"
+_assert_eq 'multiple top-level JSON responses supply no proof' '' "$(proof)"
+record
+: >"$fixture/calls"
+_WORKTREE_GC_NO_FETCH=1
+proof >/dev/null
+_assert_eq 'no-fetch makes no GitHub call' '' "$(cat "$fixture/calls")"
+_WORKTREE_GC_NO_FETCH=0
+for url in https://github.com.evil/owner/repo.git ssh://git@github.com.evil/owner/repo.git git@github.com.evil:owner/repo.git; do
+  git -C "$fixture/repo" remote set-url origin "$url"
+  _assert_eq "reject spoofed host $url" '' "$(proof)"
+done
+for url in https://github.com/owner/repo.git ssh://git@github.com/owner/repo.git git@github.com:owner/repo.git; do
+  git -C "$fixture/repo" remote set-url origin "$url"
+  _assert_eq "accept anchored GitHub URL $url" $'merged\t7' "$(proof)"
+done
+git -C "$fixture/repo" remote add upstream https://github.com/owner/repo.git
+git -C "$fixture/repo" remote set-url origin https://example.com/owner/repo.git
+_assert_eq 'resolve repository from selected base remote' $'merged\t7' \
+  "$(_worktree_gc_github "$fixture/repo" "$target" "$base" refs/remotes/upstream/main)"
+_assert_eq 'non-GitHub selected base cannot use another remote' '' "$(proof)"
+_test_summary
