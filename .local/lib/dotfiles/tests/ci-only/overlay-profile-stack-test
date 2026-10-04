@@ -526,9 +526,12 @@ _compose_profile work-available dev
 # (or a broken identity fake) shows up here instead of passing quietly.
 # Newer dots fold the profile facts into one `profile NAME (STATE;
 # includes ...; for USER@HOST)` row; older ones spell each on its own row.
+# Match the fixture user only: newer dots read the host from the kernel
+# (gethostname), so the `hostname` fake above only reaches older releases,
+# and the selector keys on the user alone.
 _assert_eq 'resolved Dot resolves the current public profile composition' 4 \
   "$(printf '%s' "$composition_state" |
-    grep -cE 'profile identity \(example-user@example-host\)|; for example-user@example-host\)')"
+    grep -cE 'profile identity \(example-user@[^)]+\)|; for example-user@[^)]+\)')"
 _assert_contains_either 'base composition selects the base profile' \
   'base|selected profile (base (agreed-match))' 'base|profile base (agreed-match;' \
   "$composition_state"
