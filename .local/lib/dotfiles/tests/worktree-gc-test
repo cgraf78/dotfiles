@@ -688,6 +688,36 @@ worktree_gc_delete_branch "$common" feat-linked "$linked_oid"
 _assert_exit "recheck: unlinked branch deletes" 0 "$?"
 
 echo ""
+echo "=== Removal re-reads working directories ==="
+
+# The sweep's working-directory snapshot can be minutes old by the time a
+# checkout is removed: a session that moved in after it was read must still
+# keep its checkout. The snapshot here is stale (loaded, empty).
+if [[ -d /proc/self ]]; then
+  git -C "$main" worktree add "$oid_home/late-busy" -b feat-late-busy >/dev/null 2>&1
+  (cd "$oid_home/late-busy" && exec sleep 60) &
+  late_pid=$!
+  late_deadline=$((SECONDS + 10))
+  until [[ /proc/$late_pid/cwd -ef $oid_home/late-busy ]] || ((SECONDS > late_deadline)); do
+    sleep 0.1
+  done
+  _WORKTREE_GC_CWDS=()
+  _WORKTREE_GC_CWDS_LOADED=1
+  _WORKTREE_GC_APPLY=1
+  late_result=$(_worktree_gc_remove "$oid_home/late-busy" "$oid_home/late-busy" "$common" \
+    feat-late-busy "merged into origin/main" "" none)
+  _WORKTREE_GC_APPLY=0
+  kill "$late_pid" 2>/dev/null
+  wait "$late_pid" 2>/dev/null
+  _assert_contains "late busy: a session that moved in mid-sweep keeps the checkout" \
+    "$(printf 'skipped\t%s\tin use' "$oid_home/late-busy")" "$late_result"
+  _assert_file_exists "late busy: the checkout survives" "$oid_home/late-busy/.git"
+  git -C "$main" worktree remove "$oid_home/late-busy" >/dev/null 2>&1
+else
+  echo "  - skipping late-busy case (no /proc)"
+fi
+
+echo ""
 echo "=== Stale proof OID fails the branch, not the checkout ==="
 
 git -C "$main" checkout -b feat-stale >/dev/null 2>&1
@@ -1250,6 +1280,43 @@ _assert_file_exists "nested: the nested worktree's untracked work survives" \
   "$grp_home/worktrees/grp2/f/.worktrees/inner/untracked.txt"
 _assert_file_exists "nested: the nested clone's work survives" \
   "$grp_home/worktrees/grp2/g/.worktrees/grp/clone/work.txt"
+
+# Deeper and odder shapes under an ignored folder: a clone three levels
+# down, a bare repository (no `.git` inside it), and a clone in an ignored
+# folder whose name line porcelain would quote (a space).
+_grp_merged_worktree "$grp_home/worktrees/grp2/deep" feat-g-deepnest
+git clone "$grp_origin" "$grp_home/worktrees/grp2/deep/.worktrees/a/b/clone" >/dev/null 2>&1
+printf '%s\n' 'deep work' >"$grp_home/worktrees/grp2/deep/.worktrees/a/b/clone/work.txt"
+_grp_merged_worktree "$grp_home/worktrees/grp2/bare" feat-g-bare
+git clone --bare "$grp_origin" "$grp_home/worktrees/grp2/bare/.worktrees/store.git" >/dev/null 2>&1
+_grp_merged_worktree "$grp_home/worktrees/grp2/spaced" feat-g-spaced
+git clone "$grp_origin" "$grp_home/worktrees/grp2/spaced/sp ace/clone" >/dev/null 2>&1
+printf '%s\n' 'spaced work' >"$grp_home/worktrees/grp2/spaced/sp ace/clone/work.txt"
+printf '%s\n' 'sp ace/' >>"$main/.git/info/exclude"
+for wt in deep bare spaced; do
+  _gc_make_old "$grp_home/worktrees/grp2/$wt"
+done
+result=$(HOME="$grp_home" DOTFILES="$grp_home/.dotfiles" "$GC" --apply 2>/dev/null)
+_assert_contains "nested: a clone three levels down keeps its parent" \
+  "$(printf 'skipped\t%s\tcontains another checkout (.worktrees/a/b/clone)' "$grp_home/worktrees/grp2/deep")" "$result"
+_assert_contains "nested: a nested bare repository keeps its parent" \
+  "$(printf 'skipped\t%s\tcontains another checkout (.worktrees/store.git)' "$grp_home/worktrees/grp2/bare")" "$result"
+_assert_contains "nested: a clone under a quoted ignored name keeps its parent" \
+  "$(printf 'skipped\t%s\tcontains another checkout (sp ace/clone)' "$grp_home/worktrees/grp2/spaced")" "$result"
+_assert_file_exists "nested: the deep clone's work survives" \
+  "$grp_home/worktrees/grp2/deep/.worktrees/a/b/clone/work.txt"
+_assert_file_exists "nested: the bare repository survives" \
+  "$grp_home/worktrees/grp2/bare/.worktrees/store.git/HEAD"
+_assert_file_exists "nested: the quoted-name clone's work survives" \
+  "$grp_home/worktrees/grp2/spaced/sp ace/clone/work.txt"
+# Ignored caches alone are no nested repository: the parent still goes.
+_grp_merged_worktree "$grp_home/worktrees/grp2/cachey" feat-g-cachey
+mkdir -p "$grp_home/worktrees/grp2/cachey/.worktrees/cache/x/y"
+printf '%s\n' 'HEAD-like' >"$grp_home/worktrees/grp2/cachey/.worktrees/cache/x/y/HEAD"
+_gc_make_old "$grp_home/worktrees/grp2/cachey"
+result=$(HOME="$grp_home" DOTFILES="$grp_home/.dotfiles" "$GC" --apply 2>/dev/null)
+_assert_contains "nested: ignored files alone do not block removal" \
+  "$(printf 'removed\t%s\tmerged into origin/main' "$grp_home/worktrees/grp2/cachey")" "$result"
 
 # A checkout that is some process's working directory is in use: an idle
 # shell parked there keeps it. (Linux /proc only; skipped elsewhere.)

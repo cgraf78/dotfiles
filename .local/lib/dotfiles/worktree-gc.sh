@@ -511,6 +511,14 @@ _worktree_gc_remove() {
     _worktree_gc_record failed "$dir" "parent directory not writable"
     return 0
   fi
+  # The sweep's working-directory snapshot may be minutes old (fetches,
+  # earlier removals); re-read it right before deleting, so a session that
+  # moved in mid-sweep keeps its checkout.
+  _worktree_gc_load_cwds
+  if _worktree_gc_in_use "$dir"; then
+    _worktree_gc_record skipped "$dir" "in use (a process's working directory)"
+    return 0
+  fi
   # Git's own clean check runs status with the repository's config; make it
   # see untracked files too, so a file created after the dirty gate still
   # stops the removal.
@@ -543,26 +551,58 @@ _worktree_gc_remove() {
   fi
 }
 
-# Succeed when `status --porcelain --ignored` output shows uncommitted or
-# untracked changes; ignored (`!!`) lines alone are clean.
+# Run DIR's read-only `status --porcelain -z --ignored` into
+# _WORKTREE_GC_STATUS, one record per element, and return Git's status.
+# NUL framing keeps every name literal (line porcelain quotes unusual ones,
+# a space included), and Bash cannot hold NUL in a string, so records are
+# read one by one from a process substitution whose last record carries
+# Git's exit code. Must run in the main shell.
+_WORKTREE_GC_STATUS=()
+_worktree_gc_status() {
+  local dir=$1 rec rc
+  local -a recs=()
+  _WORKTREE_GC_STATUS=()
+  while IFS= read -r -d '' rec; do
+    recs+=("$rec")
+  done < <(
+    git --no-optional-locks -c core.fsmonitor=false -C "$dir" \
+      status --porcelain -z --untracked-files=normal --ignored 2>/dev/null
+    printf 'rc=%d\0' "$?"
+  )
+  ((${#recs[@]} > 0)) || return 1
+  rc=${recs[${#recs[@]} - 1]#rc=}
+  unset 'recs[${#recs[@]}-1]'
+  _WORKTREE_GC_STATUS=(${recs[@]+"${recs[@]}"})
+  [[ $rc == 0 ]]
+}
+
+# Succeed when the status records show uncommitted or untracked changes;
+# ignored (`!! `) records alone are clean. A rename's extra source-path
+# record only follows a change record, which already counts.
 _worktree_gc_dirty() {
-  local line
-  while IFS= read -r line; do
-    [[ -n $line && $line != '!! '* ]] && return 0
-  done <<<"$1"
+  local rec
+  for rec in ${_WORKTREE_GC_STATUS[@]+"${_WORKTREE_GC_STATUS[@]}"}; do
+    [[ -n $rec && $rec != '!! '* ]] && return 0
+  done
   return 1
 }
 
+# Deepest level below an ignored directory the nested-repository walk reads.
+_WORKTREE_GC_NEST_DEPTH=6
+
 # Succeed, naming the nested checkout via REPLY (relative to DIR), when DIR
-# holds another checkout: removing DIR would delete it, `.git` and all, with
-# any work in it, because a nested checkout in an ignored folder (a global
-# ignore of `.worktrees/`, say) is invisible to the dirty gate and to Git's
-# own clean check. Two sources, neither spawning a process: every live
-# checkout a clone root or an indexed repository registered (any depth), and
-# a `.git` at or up to two levels below each ignored directory the status
-# already listed (unregistered clones included).
+# holds another checkout or repository: removing DIR would delete it, its
+# Git data and any work in it, because one nested in an ignored folder (a
+# global ignore of `.worktrees/`, say) is invisible to the dirty gate and to
+# Git's own clean check. Two sources: every live checkout a clone root or an
+# indexed repository registered (any depth, no process), and one bounded
+# find per ignored directory in the status records (only when there are
+# some) for a `.git` (a clone, or a worktree of any repository) or a bare
+# repository (`HEAD` beside `objects/` and `refs/`), down to
+# _WORKTREE_GC_NEST_DEPTH levels and never inside a `.git`. Symlinks are not
+# followed: removal unlinks them without touching their targets.
 _worktree_gc_nested() {
-  local dir=$1 status_out=$2 path line entry
+  local dir=$1 path rec entry hit
   REPLY=
   for path in ${_WORKTREE_GC_LIVE[@]+"${_WORKTREE_GC_LIVE[@]}"} \
     ${_WORKTREE_GC_MAP_PHYS[@]+"${_WORKTREE_GC_MAP_PHYS[@]}"}; do
@@ -571,21 +611,29 @@ _worktree_gc_nested() {
       return 0
     fi
   done
-  while IFS= read -r line; do
-    [[ $line == '!! '*/ ]] || continue
-    entry=${line#'!! '}
-    entry=${entry%/}
-    # Porcelain quotes unusual names; those are not walked (rare, and a
-    # quoted name never matches a real path here).
-    [[ $entry != \"* ]] || continue
-    for path in "$dir/$entry/.git" "$dir/$entry"/*/.git "$dir/$entry"/*/*/.git; do
-      if [[ -e $path ]]; then
-        path=${path%/.git}
-        REPLY=${path#"$dir"/}
-        return 0
-      fi
-    done
-  done <<<"$status_out"
+  for rec in ${_WORKTREE_GC_STATUS[@]+"${_WORKTREE_GC_STATUS[@]}"}; do
+    [[ $rec == '!! '*/ ]] || continue
+    entry=${rec#'!! '}
+    entry=$dir/${entry%/}
+    [[ -d $entry && ! -L $entry ]] || continue
+    hit=
+    while IFS= read -r -d '' path; do
+      case ${path##*/} in
+        .git) hit=${path%/.git} ;;
+        HEAD)
+          path=${path%/HEAD}
+          [[ -d $path/objects && -d $path/refs ]] && hit=$path
+          ;;
+      esac
+      [[ -n $hit ]] && break
+    done < <(find "$entry" -maxdepth "$_WORKTREE_GC_NEST_DEPTH" \
+      \( -name .git -prune -print0 \) -o \( -name HEAD -type f -print0 \) 2>/dev/null)
+    if [[ -n $hit ]]; then
+      REPLY=${hit#"$dir"/}
+      [[ $hit != "$dir" ]] || REPLY=.
+      return 0
+    fi
+  done
   return 1
 }
 
@@ -639,7 +687,7 @@ _worktree_gc_load_live() {
 _worktree_gc_process() {
   local dir=$1 old=$2
   local common wt_list registered main_phys git_dir branch
-  local status_out verdict rest reason proof_oid action
+  local verdict rest reason proof_oid action
   if ((old == 0)); then
     _worktree_gc_record kept "$dir" "younger than $_WORKTREE_GC_AGE days"
     return 0
@@ -685,18 +733,17 @@ _worktree_gc_process() {
   # status.showUntrackedFiles=no (the base client does, and its worktrees
   # inherit it) would otherwise hide new files, and removal would lose them.
   # Ignored entries are listed too (`!!`, an ignored directory as one
-  # line): they are not dirt, but one may hide a nested checkout, which
+  # record): they are not dirt, but one may hide a nested checkout, which
   # neither this gate nor Git's own clean check would otherwise see.
-  if ! status_out=$(git --no-optional-locks -c core.fsmonitor=false \
-    -C "$dir" status --porcelain --untracked-files=normal --ignored 2>/dev/null); then
+  if ! _worktree_gc_status "$dir"; then
     _worktree_gc_record skipped "$dir" "broken git pointer"
     return 0
   fi
-  if _worktree_gc_dirty "$status_out"; then
+  if _worktree_gc_dirty; then
     _worktree_gc_record skipped "$dir" "dirty (uncommitted/untracked changes)"
     return 0
   fi
-  if _worktree_gc_nested "$dir" "$status_out"; then
+  if _worktree_gc_nested "$dir"; then
     _worktree_gc_record skipped "$dir" "contains another checkout ($REPLY)"
     return 0
   fi
