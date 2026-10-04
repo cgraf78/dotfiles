@@ -1,0 +1,163 @@
+#!/usr/bin/env bash
+# Exact orphan snapshot and mutation-preservation regression coverage.
+set -o pipefail
+# shellcheck source=helpers.sh
+. "${BASH_SOURCE[0]%/*}/helpers.sh"
+_test_prefer_system_git || exit 1
+_test_hermetic_git core.hooksPath /dev/null
+if ! command -v python3 >/dev/null 2>&1; then
+  _test_skip_suite 'python3 unavailable; orphan cleanup fails closed'
+fi
+python3 - "${BASH_SOURCE[0]%/*}/../worktree-gc-orphans.py" <<'PY'
+import importlib.util
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import unittest
+from unittest.mock import patch
+
+sys.dont_write_bytecode = True
+spec = importlib.util.spec_from_file_location("orphans", sys.argv.pop())
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+
+class Orphans(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name).resolve()
+        self.repo = self.root / "repo"
+        self.checkout = self.root / "checkout"
+        self.run_git("init", str(self.repo))
+        self.run_git("-C", str(self.repo), "config", "user.name", "Test")
+        self.run_git("-C", str(self.repo), "config", "user.email", "test@example.invalid")
+        (self.repo / "nested").mkdir()
+        (self.repo / "nested" / "a").write_bytes(b"landed\x00bytes")
+        (self.repo / "exec").write_text("#!/bin/sh\n")
+        (self.repo / "exec").chmod(0o755)
+        (self.repo / "link").symlink_to("nested/a")
+        self.run_git("-C", str(self.repo), "add", ".")
+        self.run_git("-C", str(self.repo), "commit", "-m", "seed")
+        self.oid = self.run_git("-C", str(self.repo), "rev-parse", "HEAD").decode().strip()
+        self.run_git("-C", str(self.repo), "worktree", "add", "--detach", str(self.checkout))
+        self.common = str(self.repo / ".git")
+        admin = Path((self.checkout / ".git").read_text().strip()[8:])
+        for item in admin.iterdir():
+            if item.is_file():
+                item.unlink()
+            elif item.is_dir():
+                import shutil
+                shutil.rmtree(item)
+        admin.rmdir()
+        self.pointer = (self.checkout / ".git").read_bytes()
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def run_git(self, *args):
+        return subprocess.check_output(["git", *args], stderr=subprocess.DEVNULL)
+
+    def proof(self):
+        return m.prove(str(self.checkout), self.common, self.oid)
+
+    def test_exact_historical_tree(self):
+        (self.repo / "later").write_text("later")
+        self.run_git("-C", str(self.repo), "add", ".")
+        self.run_git("-C", str(self.repo), "commit", "-m", "later")
+        self.assertEqual(self.proof()[0], self.oid)
+
+    def test_hidden_extra(self):
+        (self.checkout / ".hidden").write_text("valuable")
+        with self.assertRaises(m.Unsafe): self.proof()
+
+    def test_empty_extra_directory(self):
+        (self.checkout / "empty").mkdir()
+        self.assertEqual(self.proof()[0], self.oid)
+
+    def test_changed_mode(self):
+        (self.checkout / "exec").chmod(0o644)
+        with self.assertRaises(m.Unsafe): self.proof()
+
+    def test_changed_link(self):
+        (self.checkout / "link").unlink()
+        (self.checkout / "link").symlink_to("outside")
+        with self.assertRaises(m.Unsafe): self.proof()
+
+    def test_changed_bytes(self):
+        (self.checkout / "nested" / "a").write_bytes(b"new work")
+        with self.assertRaises(m.Unsafe): self.proof()
+
+    def test_hardlink(self):
+        os.link(self.checkout / "exec", self.root / "external")
+        with self.assertRaises(m.Unsafe): self.proof()
+
+    def test_special_entry(self):
+        os.mkfifo(self.checkout / "pipe")
+        with self.assertRaises(m.Unsafe): self.proof()
+
+    def test_removal_keeps_refs(self):
+        before = self.run_git("-C", str(self.repo), "show-ref")
+        with patch.object(m, "idle"):
+            self.assertEqual(m.retire(str(self.checkout), self.common, self.oid, self.pointer), self.oid)
+        self.assertFalse(self.checkout.exists())
+        self.assertEqual(before, self.run_git("-C", str(self.repo), "show-ref"))
+        self.assertEqual(list(self.root.glob(".dot-worktree-gc-quarantine-*")), [])
+
+    def test_arrival_after_rename_preserved(self):
+        rename = os.rename
+        def arrive(source, destination):
+            rename(source, destination)
+            (Path(destination) / "arrived").write_text("valuable")
+        with patch.object(m, "idle"), patch.object(m.os, "rename", side_effect=arrive):
+            with self.assertRaises(m.RetirementFailed):
+                m.retire(str(self.checkout), self.common, self.oid, self.pointer)
+        saved = list(self.root.glob(".dot-worktree-gc-quarantine-*/checkout/arrived"))
+        self.assertEqual(len(saved), 1)
+        self.assertEqual(saved[0].read_text(), "valuable")
+
+    def test_relative_pointer_retirement(self):
+        pointer_path = self.checkout / ".git"
+        target = pointer_path.read_text().strip()[8:]
+        pointer_path.write_text("gitdir: " + os.path.relpath(target, self.checkout) + "\n")
+        pointer = pointer_path.read_bytes()
+        with patch.object(m, "idle"):
+            self.assertEqual(m.retire(str(self.checkout), self.common, self.oid, pointer), self.oid)
+
+    def test_nested_git_rejected_even_when_tracked(self):
+        (self.checkout / "nested" / ".git").write_text("gitdir: missing\n")
+        with self.assertRaises(m.Unsafe): self.proof()
+
+    def test_nested_bare_repository_rejected(self):
+        bare = self.checkout / "bare"
+        bare.mkdir()
+        (bare / "HEAD").write_text("ref: refs/heads/main\n")
+        (bare / "refs").mkdir()
+        (bare / "objects").mkdir()
+        with self.assertRaises(m.Unsafe): self.proof()
+
+    def test_arrival_during_unlink_preserved(self):
+        unlink = os.unlink
+        arrived = False
+        def arrive(name, *args, **kwargs):
+            nonlocal arrived
+            unlink(name, *args, **kwargs)
+            if not arrived:
+                arrived = True
+                quarantine = next(self.root.glob(".dot-worktree-gc-quarantine-*/checkout"))
+                (quarantine / "arrived").write_text("valuable")
+        with patch.object(m, "idle"), patch.object(m.os, "unlink", side_effect=arrive):
+            with self.assertRaises(m.RetirementFailed):
+                m.retire(str(self.checkout), self.common, self.oid, self.pointer)
+        saved = list(self.root.glob(".dot-worktree-gc-quarantine-*/checkout/arrived"))
+        self.assertEqual(saved[0].read_text(), "valuable")
+
+    def test_inventory_unavailable(self):
+        with patch.object(m.os.path, "isdir", return_value=False):
+            with self.assertRaises(m.Unsafe): m.idle(str(self.checkout))
+
+unittest.main()
+PY
+status=$?
+_assert_exit 'orphan proof and guarded retirement regressions' 0 "$status"
+_test_summary

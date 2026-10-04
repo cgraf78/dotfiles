@@ -31,6 +31,8 @@
 #
 # Safety rules (all enforced, none optional):
 # - never `rm -rf` and never `git worktree remove --force`
+# - metadata-orphaned checkouts require an exact merged-history snapshot;
+#   removal uses a private quarantine and checked unlink/rmdir, never refs
 # - old, empty directories with no known registration, directly under roots
 #   can also be removed, using rmdir only; symlink targets and in-use dirs stay
 # - never touch the live $HOME checkout, any main checkout, a locked
@@ -132,6 +134,9 @@ usage: dot-worktree-gc [--older-than N[d]] [--dry-run|--apply] [--no-fetch] [--i
   base dotfiles repo registered anywhere.
   Old empty directories with no known registration are also eligible;
   they are removed with rmdir only. Nonempty directories without .git stay.
+  Broken linked-worktree pointers can retire only exact merged snapshots;
+  optional Python 3.9+ and readable /proc process information are required.
+  Any extra files prevent this orphan cleanup; empty scaffolding uses rmdir.
   Dry run is the default; --apply performs removals, and ignored files
   (caches, build output, .env) in a removed checkout go with it.
   --root adds a worktree root (its children only) to the sweep and may
@@ -200,6 +205,11 @@ _worktree_gc_candidates() {
       if [[ -n $dotfiles_phys && $dir == "$dotfiles_phys" ]]; then
         continue
       fi
+      # Failed orphan cleanups retain files in private quarantine containers.
+      # Never rediscover their contents, even through an explicit --root.
+      case /$dir/ in
+        */.dot-worktree-gc-quarantine-*/*) continue ;;
+      esac
       printf '%s\n' "$dir"
     done
 }
@@ -835,6 +845,79 @@ _worktree_gc_remove_empty() {
   return 0
 }
 
+# Recover only a missing linked-worktree registration, never an arbitrary bad
+# repository. The helper proves the complete disk snapshot without an index and
+# leaves Git objects, refs, and administrative state untouched.
+_worktree_gc_remove_orphan() {
+  local dir=$1 direct found=0 common base_ref base_oid oid err status nested
+  local helper=$_WORKTREE_GC_DIR/worktree-gc-orphans.py
+  for direct in ${_WORKTREE_GC_DIRECT[@]+"${_WORKTREE_GC_DIRECT[@]}"}; do
+    [[ $direct != "$dir" ]] || found=1
+  done
+  if ((found == 0)) || ! command -v python3 >/dev/null 2>&1 || [[ ! -f $helper ]]; then
+    _worktree_gc_record skipped "$dir" "broken git pointer"
+    return 0
+  fi
+  common=$(python3 "$helper" owner "$dir" 2>/dev/null) || {
+    _worktree_gc_record skipped "$dir" "broken git pointer"
+    return 0
+  }
+  _worktree_gc_load_live
+  for nested in ${_WORKTREE_GC_LIVE[@]+"${_WORKTREE_GC_LIVE[@]}"} \
+    ${_WORKTREE_GC_REGISTERED[@]+"${_WORKTREE_GC_REGISTERED[@]}"}; do
+    if [[ $nested == "$dir"/* ]]; then
+      _worktree_gc_record skipped "$dir" "contains another checkout (${nested#"$dir"/})"
+      return 0
+    fi
+  done
+  if _worktree_gc_registered "$dir"; then
+    _worktree_gc_record skipped "$dir" "registered worktree with broken git pointer"
+    return 0
+  fi
+  _worktree_gc_load_cwds
+  if _worktree_gc_in_use "$dir"; then
+    _worktree_gc_record skipped "$dir" "in use (a process's working directory)"
+    return 0
+  fi
+  _worktree_gc_fetch_base "$common" "$common"
+  if ! _dr_worktree_base_ref_ensure "$common"; then
+    _worktree_gc_record skipped "$dir" "orphaned checkout has no base ref"
+    return 0
+  fi
+  base_ref=$REPLY
+  base_oid=$(git --git-dir="$common" rev-parse --verify "$base_ref^{commit}" 2>/dev/null) || {
+    _worktree_gc_record skipped "$dir" "orphaned checkout has no base commit"
+    return 0
+  }
+  err=$(mktemp) || {
+    _worktree_gc_record failed "$dir" "cannot prepare orphan inspection"
+    return 0
+  }
+  if ((_WORKTREE_GC_APPLY == 0)); then
+    oid=$(python3 "$helper" prove "$dir" "$base_oid" 2>"$err")
+    status=$?
+  else
+    oid=$(python3 "$helper" remove "$dir" "$base_oid" 2>"$err")
+    status=$?
+  fi
+  if ((status == 0)); then
+    if ((_WORKTREE_GC_APPLY == 0)); then
+      _worktree_gc_record would-remove "$dir" "orphaned checkout matches merged commit $oid"
+    else
+      _worktree_gc_record removed "$dir" "orphaned checkout matches merged commit $oid"
+    fi
+  else
+    IFS= read -r oid <"$err" || true
+    if ((status == 2)); then
+      _worktree_gc_record failed "$dir" "${oid:-orphan cleanup failed}"
+    else
+      _worktree_gc_record skipped "$dir" "${oid:-broken git pointer}"
+    fi
+  fi
+  rm -f -- "$err"
+  return 0
+}
+
 # Run the gate sequence for one candidate: young checkouts are kept and
 # old ones need every gate (inspectable, registered, not main, not
 # locked, clean) plus a checkout-retirement proof before removal.
@@ -842,11 +925,10 @@ _worktree_gc_process() {
   local dir=$1 old=$2
   local common wt_list registered main_phys git_dir branch
   local verdict rest reason proof_oid action
-  # An orphan (its `.git` names a repository or admin entry that is gone)
-  # is never removable, whatever its age. Naming it before the age gate
-  # lets the dry run list every one, as the doctor's orphan row promises;
-  # the check reads the pointer only, so young checkouts cost no Git call.
-  if _dr_worktree_orphan "$dir"; then
+  # List young broken pointers as orphans, as the doctor's row promises,
+  # without permitting age to authorize cleanup. Old orphan candidates proceed
+  # to the separate exact-snapshot recovery gate below.
+  if ((old == 0)) && _dr_worktree_orphan "$dir"; then
     _worktree_gc_record skipped "$dir" "broken git pointer"
     return 0
   fi
@@ -859,7 +941,7 @@ _worktree_gc_process() {
     return 0
   fi
   if ! common=$(_worktree_gc_common_dir "$dir"); then
-    _worktree_gc_record skipped "$dir" "broken git pointer"
+    _worktree_gc_remove_orphan "$dir"
     return 0
   fi
   if ! _worktree_gc_ensure_repo "$common"; then

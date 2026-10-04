@@ -1380,7 +1380,7 @@ _assert_not_contains "orphans: an orphan is never uninspectable" \
   "cannot inspect" "$result"
 _assert_not_contains "orphans: no Git probe runs in an orphan" "orph-" "$(cat "$orph_log")"
 _assert_contains "orphans: the row says how to list every orphan" \
-  "list every one with: dot-worktree-gc --no-fetch | grep 'broken git pointer'" "$result"
+  "list every one with: dot-worktree-gc --no-fetch" "$result"
 # With list items, each orphan is an item (Dot folds a long list itself)
 # and the commands are a next-step line.
 result=$(HOME="$orph_home" DOTFILES="$orph_home/.dotfiles" \
@@ -1390,7 +1390,7 @@ _assert_contains "orphans: list items name every orphan and its cause" \
     $'item\t~/.worktrees/orph-top (~/git/doomed is gone)\t' \
     $'item\t~/git/worktrees/batch/orph-nested (~/git/doomed is gone)\t' \
     $'item\t~/worktrees/orph-pruned (admin entry gone from ~/git/kept)\t' \
-    $'hint\tlist every one with: dot-worktree-gc --no-fetch | grep \'broken git pointer\'; if the repository moved, run \'git -C <repo> worktree repair <path>\', otherwise copy out any work and delete the folder\t')" \
+    $'hint\tlist every one with: dot-worktree-gc --no-fetch; if the repository moved, run \'git -C <repo> worktree repair <path>\', otherwise review the dry run and apply proven cleanup with --apply, or copy out any work before manual removal\t')" \
   "$result"
 
 # Many orphans: an older Dot shows three, says how many more there are, and
@@ -1434,7 +1434,7 @@ result=$(HOME="$unswept_home" DOTFILES="$unswept_home/.dotfiles" \
 _assert_contains "orphans: one outside the swept roots is marked" \
   "~/elsewhere/wt (~/git/old-name is gone, outside the swept roots)" "$result"
 _assert_contains "orphans: the hint excludes the marked ones from the gc's list" \
-  "list all but those marked 'outside the swept roots' with: dot-worktree-gc --no-fetch | grep 'broken git pointer'" \
+  "list all but those marked 'outside the swept roots' with: dot-worktree-gc --no-fetch" \
   "$result"
 # The row's own repair hint brings the moved repository's checkouts back
 # (repair from the moved repository reconnects every checkout it lists); the

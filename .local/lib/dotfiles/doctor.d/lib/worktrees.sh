@@ -1643,7 +1643,8 @@ _DR_WORKTREE_ORPHANS_UNSWEPT=()
 # to every other check. Every orphan is an item; Dot folds a long list to
 # its first few, so the hint gives a command that lists them: the
 # dot-worktree-gc dry run (without fetching) reports each one in its swept
-# roots as a "broken git pointer". The others are marked, so the hint's
+# roots with either a preserved-pointer reason or a merged snapshot proof.
+# The others are marked, so the hint's
 # promise holds for every unmarked item.
 _dr_worktree_report_orphans() {
   local dir label cause
@@ -1670,12 +1671,12 @@ _dr_worktree_report_orphans() {
     label="$# orphaned worktrees (their Git metadata is gone)"
   fi
   if ((${#unswept[@]} == 0)); then
-    cause="list every one with: dot-worktree-gc --no-fetch | grep 'broken git pointer'"
+    cause="list every one with: dot-worktree-gc --no-fetch"
   else
-    cause="list all but those marked 'outside the swept roots' with: dot-worktree-gc --no-fetch | grep 'broken git pointer'"
+    cause="list all but those marked 'outside the swept roots' with: dot-worktree-gc --no-fetch"
   fi
   _dr_list_row warn "$label" \
-    "$cause; if the repository moved, run 'git -C <repo> worktree repair <path>', otherwise copy out any work and delete the folder" \
+    "$cause; if the repository moved, run 'git -C <repo> worktree repair <path>', otherwise review the dry run and apply proven cleanup with --apply, or copy out any work before manual removal" \
     "${items[@]}"
 }
 

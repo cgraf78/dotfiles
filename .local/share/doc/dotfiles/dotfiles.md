@@ -287,8 +287,25 @@ Registration checks cover the base Git directory and discovered clones under
 `~/git` and `~/.dotfiles-*`. Once `.git` is missing, an empty directory cannot
 identify an owner outside that inventory. The record therefore says
 `no known registration`; `rmdir` never deletes the owner's refs or commits.
-Nonempty directories without `.git` and broken worktree pointers require
-separate inspection and are not deleted by this command.
+
+A broken linked-worktree pointer is eligible only when its owning repository
+still exists, its registration is gone, and every checkout file
+exactly matches a snapshot in the base branch's first-parent history. Extra
+files (including ignored or hidden files), changed executable permissions, symlink targets,
+and hard-linked files prevent removal. Empty directory scaffolding is allowed
+and removed only with `rmdir`, which refuses any arriving contents. This path
+requires optional Python 3.9 or newer and readable Linux `/proc` process information;
+otherwise the checkout stays. Branches, commits, and Git metadata remain intact.
+
+Applied orphan cleanup moves the verified directory into a private sibling
+quarantine, checks it again, and removes individually verified entries with
+`unlink` and `rmdir`. A change or removal failure stops cleanup and reports the
+quarantine path; inspect that path before recovering any remaining files.
+Quarantines are excluded from subsequent sweeps. This is not a filesystem
+transaction: a process holding an already-open file can still write between the
+last check and removal, so stop writers before cleaning an orphan checkout.
+Nonempty directories without `.git` and pointers that cannot establish this
+proof still require separate inspection.
 
 Checkout removal and branch deletion use separate proof requirements:
 
@@ -316,7 +333,8 @@ Closed-but-unmerged PR checkouts stay by default. To explicitly retire them
 while preserving their branches and commits, first preview
 `dot-worktree-gc --older-than 1d --include-closed`, then add `--apply` after
 reviewing the output. The same clean and in-use gates still apply. Ignored
-files inside any removed checkout are removed along with it.
+files inside a removed registered checkout are removed along with it; orphan
+cleanup rejects every extra file.
 
 ## Dependency Docs
 

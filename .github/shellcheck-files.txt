@@ -131,3 +131,4 @@ program	.local/lib/dotfiles/tests/worktree-gc-actions-test
 program	.local/lib/dotfiles/tests/worktree-gc-github-test
 program	.local/lib/dotfiles/worktree-gc-actions.sh
 program	.local/lib/dotfiles/worktree-gc-github.sh
+program	.local/lib/dotfiles/tests/worktree-gc-orphans-test
