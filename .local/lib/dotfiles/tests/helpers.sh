@@ -425,6 +425,18 @@ _assert_contains() {
   fi
 }
 
+# Passes when ACTUAL holds either spelling of one fact. Dot and the dotfiles
+# float to their latest releases independently, so a test that reads dot's
+# report text must stay green on the dot before and after a rewording.
+_assert_contains_either() {
+  local desc="$1" older="$2" newer="$3" actual="$4"
+  if [[ "$actual" == *"$newer"* ]]; then
+    _pass "$desc"
+  else
+    _assert_contains "$desc" "$older" "$actual"
+  fi
+}
+
 _assert_not_contains() {
   local desc="$1" unexpected="$2" actual="$3"
   if [[ "$actual" != *"$unexpected"* ]]; then
