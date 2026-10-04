@@ -55,7 +55,14 @@ git -C "$seed" push -u origin main >/dev/null
 
 # Name the branch up front: an unnamed init prints Git's default-branch advice
 # into the CI log on every Linux platform, even though HEAD is pointed at main below.
-client_init_err=$(git init --bare --initial-branch=main "$home/.dotfiles" 2>&1 >/dev/null)
+client_init_status=0
+client_init_err=$(git init --bare --initial-branch=main "$home/.dotfiles" 2>&1 >/dev/null) ||
+  client_init_status=$?
+if ((client_init_status != 0)); then
+  # Capturing stderr for the hint check must not swallow a real failure.
+  printf 'git init failed (%s): %s\n' "$client_init_status" "$client_init_err" >&2
+  exit 1
+fi
 _assert_not_contains 'standalone update integration client init is silent' \
   'hint:' "$client_init_err"
 git --git-dir="$home/.dotfiles" config core.bare false
