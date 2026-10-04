@@ -53,7 +53,11 @@ git -C "$seed" commit -m initial >/dev/null
 git -C "$seed" remote add origin "$origin"
 git -C "$seed" push -u origin main >/dev/null
 
-git init --bare "$home/.dotfiles" >/dev/null
+# Name the branch up front: an unnamed init prints Git's default-branch advice
+# into the CI log on every Linux platform, even though HEAD is pointed at main below.
+client_init_err=$(git init --bare --initial-branch=main "$home/.dotfiles" 2>&1 >/dev/null)
+_assert_not_contains 'standalone update integration client init is silent' \
+  'hint:' "$client_init_err"
 git --git-dir="$home/.dotfiles" config core.bare false
 git --git-dir="$home/.dotfiles" config core.worktree "$home"
 git --git-dir="$home/.dotfiles" config core.fsmonitor false
