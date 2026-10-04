@@ -1,57 +1,107 @@
 # shellcheck shell=bash
 # dot doctor: inputs and leftovers of managed configuration.
 #
-# Merge hooks layer JSON fragments into application configs and skip a layer
-# that does not parse with only a warning in the update log, so a broken
-# fragment silently stops applying. Pre-sync extensions run before every
-# repository sync, and one that cannot load aborts the sync. Atomic config
-# writes leave a `<file>.tmp.XXXXXX` sibling behind when an update is
-# interrupted. Each check is a handful of processes over small, fixed trees.
+# Merge hooks layer JSON, TOML, and YAML fragments into application configs
+# and skip a layer that does not parse with only a warning in the update
+# log, so a broken fragment silently stops applying. Pre-sync extensions run
+# before every repository sync, and one that cannot load aborts the sync.
+# Atomic config writes leave a sibling temporary behind when an update is
+# interrupted (doctor.d/lib/config-temporaries.sh). Each check is a handful
+# of processes over small, fixed trees.
 
-# Agent config locations whose files merge hooks rewrite through sibling
-# temporaries: directories, plus `~/.claude.json` beside them in HOME.
-_DR_MANAGED_AGENT_DIRS=(.claude .codex .config/muse .gemini .grok .config/opencode)
-_DR_MANAGED_AGENT_FILES=(.claude.json)
+dot_doctor_source doctor.d/lib/config-temporaries.sh || return
 
-# Leftover temporaries younger than this many minutes may belong to an
-# update that is still running.
-_DR_MANAGED_TMP_MINUTES=10
+# Report via REPLY a mikefarah yq, the parser the TOML and YAML merge hooks
+# use (from PATH, or shdeps' bin directory), or fail. Another program named
+# yq (the Python wrapper) reads different flags and would flag every file.
+# This mirrors the hooks' `_merge_hook_mikefarah_yq`, which lives behind the
+# hook runtime in merge-hooks.d/lib/compat.sh and cannot be loaded here.
+_dr_mikefarah_yq() {
+  local candidate version
+  for candidate in "$(command -v yq 2>/dev/null)" "$HOME/.local/bin/yq"; do
+    [[ -n $candidate && -x $candidate && ! -d $candidate ]] || continue
+    version=$("$candidate" --version 2>/dev/null </dev/null) || continue
+    [[ $version == *mikefarah* ]] || continue
+    REPLY=$candidate
+    return 0
+  done
+  return 1
+}
 
-# Validate every JSON fragment the merge hooks read, one jq call per file:
-# jq reads several files as one stream, so a combined call can join a
-# truncated file with the next one and pass. JSONC fragments (comments
-# allowed) are not JSON and are skipped, and so is the vscode family, whose
-# hook strips comments from its `.json` fragments before merging.
-_dr_check_json_fragments() {
-  local root=$HOME/.config/dot/merge-hooks.d file sample=''
-  local -a files=() bad=()
+# Append to the caller's `bad` array every file of FORMAT (toml or yaml)
+# that yq cannot parse. One yq call reads them all, each as its own
+# document stream, and fails on the first bad one; only then does a second
+# pass name every bad file, one call each.
+_dr_yq_unparsable() {
+  local yq=$1 format=$2 file
+  shift 2
+  "$yq" eval-all -p "$format" -o json 'select(false)' "$@" \
+    </dev/null >/dev/null 2>&1 && return 0
+  for file; do
+    "$yq" eval -p "$format" -o json 'select(false)' "$file" \
+      </dev/null >/dev/null 2>&1 || bad+=("$file")
+  done
+}
+
+# Validate every fragment the merge hooks read, in the parser its hooks
+# use. JSON goes through one jq call per file: jq reads several files as one
+# stream, so a combined call can join a truncated file with the next one and
+# pass. TOML and YAML go through mikefarah yq. JSONC fragments (comments
+# allowed) are skipped, and so are the vscode family's `.json` fragments,
+# which its hook strips of comments before merging.
+_dr_check_fragments() {
+  local root=$HOME/.config/dot/merge-hooks.d file yq='' summary=''
+  local -a json=() toml=() yaml=() bad=() items=()
 
   [[ -d $root ]] || return 0
-  if ! command -v jq >/dev/null 2>&1; then
-    _dr_skip "merge-hook JSON fragments unchecked" "jq not installed"
-    return 0
-  fi
   # -L follows the overlay symlinks that carry most fragments.
   while IFS= read -r -d '' file; do
-    files+=("$file")
-  done < <(find -L "$root" -path "$root/vscode" -prune -o -type f -name '*.json' -print0 2>/dev/null)
-  ((${#files[@]} > 0)) || return 0
+    case $file in
+      "$root"/vscode/*.json) ;;
+      *.json) json+=("$file") ;;
+      *.toml) toml+=("$file") ;;
+      *.yml | *.yaml) yaml+=("$file") ;;
+    esac
+  done < <(find -L "$root" -type f \( -name '*.json' -o -name '*.toml' \
+    -o -name '*.yml' -o -name '*.yaml' \) -print0 2>/dev/null)
 
-  for file in "${files[@]}"; do
-    jq empty "$file" >/dev/null 2>&1 || bad+=("$file")
-  done
+  if ((${#json[@]} > 0)); then
+    if command -v jq >/dev/null 2>&1; then
+      for file in "${json[@]}"; do
+        jq empty "$file" >/dev/null 2>&1 || bad+=("$file")
+      done
+      summary+="${#json[@]} JSON"
+    else
+      _dr_skip "merge-hook JSON fragments unchecked" "jq not installed"
+    fi
+  fi
+  if ((${#toml[@]} + ${#yaml[@]} > 0)); then
+    if _dr_mikefarah_yq; then
+      yq=$REPLY
+      if ((${#toml[@]} > 0)); then
+        _dr_yq_unparsable "$yq" toml "${toml[@]}"
+        summary+="${summary:+, }${#toml[@]} TOML"
+      fi
+      if ((${#yaml[@]} > 0)); then
+        _dr_yq_unparsable "$yq" yaml "${yaml[@]}"
+        summary+="${summary:+, }${#yaml[@]} YAML"
+      fi
+    else
+      _dr_skip "merge-hook TOML and YAML fragments unchecked" "mikefarah yq not installed"
+    fi
+  fi
+  [[ -n $summary ]] || return 0
+
   if ((${#bad[@]} == 0)); then
-    _dr_ok "merge-hook JSON fragments parse" "${#files[@]} file(s)"
+    _dr_ok "merge-hook fragments parse" "$summary file(s)"
     return 0
   fi
-  for file in "${bad[@]:0:3}"; do
-    sample+=${sample:+; }$(_dr_tilde "$file")
+  for file in "${bad[@]}"; do
+    items+=("$(_dr_tilde "$file")")
   done
-  if ((${#bad[@]} > 3)); then
-    sample+="; and $((${#bad[@]} - 3)) more"
-  fi
-  _dr_warn "${#bad[@]} merge-hook JSON fragment(s) do not parse" \
-    "$sample; those layers are skipped until fixed (try 'jq empty <file>')"
+  _dr_list_row warn "${#bad[@]} merge-hook fragment(s) do not parse" \
+    "dot update skips them, or the whole config they feed, until fixed (check one with 'jq empty <file>' or 'yq <file>')" \
+    "${items[@]}"
 }
 
 # Every pre-sync extension must parse and define prepare(): Dot loads them
@@ -86,41 +136,9 @@ _dr_check_pre_sync_extensions() {
   fi
 }
 
-# Report temporaries an interrupted atomic write left next to managed agent
-# configs. Only files past the in-flight window count, and nothing is
-# deleted: whether a leftover still matters is the owner's call.
-_dr_check_config_temporaries() {
-  local dir file sample=''
-  local -a candidates=() stale=()
-
-  for dir in "${_DR_MANAGED_AGENT_DIRS[@]}"; do
-    for file in "$HOME/$dir"/*.tmp.??????; do
-      [[ -f $file && ! -L $file ]] && candidates+=("$file")
-    done
-  done
-  for dir in "${_DR_MANAGED_AGENT_FILES[@]}"; do
-    for file in "$HOME/$dir".tmp.??????; do
-      [[ -f $file && ! -L $file ]] && candidates+=("$file")
-    done
-  done
-  ((${#candidates[@]} > 0)) || return 0
-  while IFS= read -r file; do
-    [[ -n $file ]] && stale+=("$file")
-  done < <(find "${candidates[@]}" -maxdepth 0 -mmin +"$_DR_MANAGED_TMP_MINUTES" 2>/dev/null)
-  ((${#stale[@]} > 0)) || return 0
-  for file in "${stale[@]:0:3}"; do
-    sample+=${sample:+; }$(_dr_tilde "$file")
-  done
-  if ((${#stale[@]} > 3)); then
-    sample+="; and $((${#stale[@]} - 3)) more"
-  fi
-  _dr_warn "${#stale[@]} leftover config temporary file(s)" \
-    "$sample; left by an interrupted update: delete them once no 'dot update' is running"
-}
-
 _dr_check_managed_config() {
   _dr_section "Managed configuration"
-  _dr_check_json_fragments
+  _dr_check_fragments
   _dr_check_pre_sync_extensions
-  _dr_check_config_temporaries
+  _dr_check_base_config_temporaries
 }
