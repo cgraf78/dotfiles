@@ -43,21 +43,62 @@ _dr_yq_unparsable() {
   done
 }
 
+# Append to the caller's `bad` array every TOML file that Python's tomllib
+# rejects, or fail when python3 is missing or predates tomllib (3.11; older
+# macOS ships 3.9) so the caller can fall back to yq. One python3 reads
+# them all and prints the index of each bad one, which survives any byte a
+# file name can hold, then a closing line: a python3 that exits 0 without
+# running the script (a shim or wrapper) prints none and also falls back,
+# rather than passing every file unchecked. -I -S keeps the user's PYTHON*
+# environment and site packages out: tomllib is in the standard library.
+_dr_tomllib_unparsable() {
+  local out index closed=0
+  local -a files=("$@") found=()
+  out=$(python3 -I -S -c '
+import sys
+try:
+    import tomllib
+except ImportError:
+    sys.exit(2)
+for index, name in enumerate(sys.argv[1:]):
+    try:
+        with open(name, "rb") as handle:
+            tomllib.load(handle)
+    except Exception:
+        print(index)
+print("done")
+' "$@" </dev/null 2>/dev/null) || return 1
+  while IFS= read -r index; do
+    case $index in
+      done) closed=1 ;;
+      *[!0-9]* | '') return 1 ;;
+      *) found+=("${files[index]}") ;;
+    esac
+  done <<<"$out"
+  ((closed == 1)) || return 1
+  bad+=(${found[@]+"${found[@]}"})
+}
+
 # Validate every fragment the merge hooks read, in the parser its hooks
 # use. JSON goes through one jq call per file: jq reads several files as one
 # stream, so a combined call can join a truncated file with the next one and
-# pass. TOML and YAML go through mikefarah yq. JSONC fragments (comments
-# allowed) are skipped, and so are the vscode family's `.json` fragments,
-# which its hook strips of comments before merging.
+# pass. TOML and YAML go through mikefarah yq, except the vscode family's
+# extensions.d TOML (direct and .replace/ files): those are extension
+# manifests the vscode-exts provider reads with Python's tomllib, which
+# rejects duplicate keys and redefined tables that yq accepts, so tomllib
+# judges them where python3 has it. JSONC fragments
+# (comments allowed) are skipped, and so are the vscode family's `.json`
+# fragments, which its hook strips of comments before merging.
 _dr_check_fragments() {
-  local root=$HOME/.config/dot/merge-hooks.d file yq='' summary=''
-  local -a json=() toml=() yaml=() bad=() items=()
+  local root=$HOME/.config/dot/merge-hooks.d file yq='' summary='' toml_checked=0
+  local -a json=() toml=() vscode_toml=() yaml=() bad=() items=()
 
   [[ -d $root ]] || return 0
   # -L follows the overlay symlinks that carry most fragments.
   while IFS= read -r -d '' file; do
     case $file in
       "$root"/vscode/*.json) ;;
+      "$root"/vscode/extensions.d/*.toml) vscode_toml+=("$file") ;;
       *.json) json+=("$file") ;;
       *.toml) toml+=("$file") ;;
       *.yml | *.yaml) yaml+=("$file") ;;
@@ -75,20 +116,34 @@ _dr_check_fragments() {
       _dr_skip "merge-hook JSON fragments unchecked" "jq not installed"
     fi
   fi
+  # Without tomllib the provider cannot run either, but yq still names a
+  # truncated manifest, so the manifests join the yq call.
+  if ((${#vscode_toml[@]} > 0)); then
+    if _dr_tomllib_unparsable "${vscode_toml[@]}"; then
+      toml_checked=${#vscode_toml[@]}
+    else
+      toml+=("${vscode_toml[@]}")
+    fi
+  fi
   if ((${#toml[@]} + ${#yaml[@]} > 0)); then
     if _dr_mikefarah_yq; then
       yq=$REPLY
       if ((${#toml[@]} > 0)); then
         _dr_yq_unparsable "$yq" toml "${toml[@]}"
-        summary+="${summary:+, }${#toml[@]} TOML"
+        toml_checked=$((toml_checked + ${#toml[@]}))
       fi
-      if ((${#yaml[@]} > 0)); then
-        _dr_yq_unparsable "$yq" yaml "${yaml[@]}"
-        summary+="${summary:+, }${#yaml[@]} YAML"
-      fi
+    elif ((${#toml[@]} == 0)); then
+      _dr_skip "merge-hook YAML fragments unchecked" "mikefarah yq not installed"
+    elif ((${#yaml[@]} == 0)); then
+      _dr_skip "merge-hook TOML fragments unchecked" "mikefarah yq not installed"
     else
       _dr_skip "merge-hook TOML and YAML fragments unchecked" "mikefarah yq not installed"
     fi
+  fi
+  ((toml_checked > 0)) && summary+="${summary:+, }$toml_checked TOML"
+  if [[ -n $yq ]] && ((${#yaml[@]} > 0)); then
+    _dr_yq_unparsable "$yq" yaml "${yaml[@]}"
+    summary+="${summary:+, }${#yaml[@]} YAML"
   fi
   [[ -n $summary ]] || return 0
 
@@ -100,7 +155,7 @@ _dr_check_fragments() {
     items+=("$(_dr_tilde "$file")")
   done
   _dr_list_row warn "${#bad[@]} merge-hook fragment(s) do not parse" \
-    "dot update skips them, or the whole config they feed, until fixed: check each with 'jq empty <file>' or 'yq <file>'" \
+    "dot update skips them, or the whole config they feed, until fixed: check each with 'jq empty <file>' or 'yq <file>', and vscode extension manifests with 'python3 -c \"import sys, tomllib; tomllib.load(sys.stdin.buffer)\" < <file>'" \
     "${items[@]}"
 }
 

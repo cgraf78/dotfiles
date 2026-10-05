@@ -863,7 +863,7 @@ SH
     >"$doctor_frag/vscode/settings.d/10-settings.json"
   result=$(HOME="$doctor_mc_home" _doctor_records _dr_check_fragments)
   _assert_not_contains "doctor managed config: vscode fragments may carry comments" \
-    "vscode" "$result"
+    "vscode/settings.d" "$result"
   # A truncated file followed by its missing half must not pass as a pair.
   rm -f "$doctor_frag/app/settings.d/30-bad.json"
   printf '%s' '{"a":' >"$doctor_frag/app/settings.d/40-head.json"
@@ -874,19 +874,25 @@ SH
   rm -f "$doctor_frag/app/settings.d/40-head.json" "$doctor_frag/app/settings.d/41-tail.json"
 
   # TOML and YAML fragments go through mikefarah yq, as their hooks do:
-  # one call per format while they parse, the vscode family's TOML
-  # included, and a second pass only to name every broken file.
+  # one call per format while they parse, and a second pass only to name
+  # every broken file. The vscode family's TOML joins the yq call only
+  # when python3 has no tomllib: this stand-in python3 is one that lacks
+  # it (exit 2, as the probe exits on ImportError).
+  mkdir -p "$doctor_mc_home/no-tomllib"
+  printf '%s\n' '#!/usr/bin/env bash' 'exit 2' >"$doctor_mc_home/no-tomllib/python3"
+  chmod +x "$doctor_mc_home/no-tomllib/python3"
   printf '%s\n' 'a = 1' >"$doctor_frag/app/config.d/10-settings.toml"
   printf '%s\n' 'b = 2' >"$doctor_frag/vscode/extensions.d/50-default.toml"
   printf '%s\n' 'c: 3' >"$doctor_frag/app/config.d/10-config.yml"
   : >"$doctor_yq_log"
-  result=$(HOME="$doctor_mc_home" PATH="$doctor_mc_home/bin:$PATH" \
+  result=$(HOME="$doctor_mc_home" \
+    PATH="$doctor_mc_home/no-tomllib:$doctor_mc_home/bin:$PATH" \
     DOCTOR_YQ_LOG="$doctor_yq_log" _doctor_records _dr_check_fragments)
   _assert_contains "doctor managed config: TOML and YAML fragments are counted" \
     $'ok\tmerge-hook fragments parse\t1 JSON, 2 TOML, 1 YAML file(s)' "$result"
   _assert_eq "doctor managed config: one yq call per format while they parse" \
     "2" "$(wc -l <"$doctor_yq_log" | tr -d '[:space:]')"
-  _assert_contains "doctor managed config: the TOML call reads every TOML fragment" \
+  _assert_contains "doctor managed config: without tomllib, the TOML call reads every TOML fragment" \
     "eval-all -p toml -o json select(false) " "$(grep -e "10-settings.toml" "$doctor_yq_log" | grep -e "50-default.toml")"
   _assert_contains "doctor managed config: the YAML call reads the YAML fragment" \
     "eval-all -p yaml -o json select(false) $doctor_frag/app/config.d/10-config.yml" \
@@ -901,12 +907,34 @@ SH
     "$result"
   # Without mikefarah yq (another yq answers --version differently), TOML
   # and YAML are reported unchecked while JSON is still checked.
-  printf '%s\n' '#!/usr/bin/env bash' 'echo "yq 3.4.3"' >"$doctor_mc_home/bin/yq"
-  result=$(HOME="$doctor_mc_home" PATH="$doctor_mc_home/bin:$PATH" \
+  mkdir -p "$doctor_mc_home/other-yq"
+  printf '%s\n' '#!/usr/bin/env bash' 'echo "yq 3.4.3"' >"$doctor_mc_home/other-yq/yq"
+  chmod +x "$doctor_mc_home/other-yq/yq"
+  result=$(HOME="$doctor_mc_home" \
+    PATH="$doctor_mc_home/no-tomllib:$doctor_mc_home/other-yq:$PATH" \
     _doctor_records _dr_check_fragments)
   _assert_contains "doctor managed config: no mikefarah yq leaves TOML and YAML unchecked" \
     $'skip\tmerge-hook TOML and YAML fragments unchecked\tmikefarah yq not installed' "$result"
   rm -f "$doctor_frag/app/config.d/20-broken.toml" "$doctor_frag/app/config.d/20-broken.yaml"
+  # Unless python3 proves it ran the probe (exit 0 and its closing line),
+  # the vscode manifests fall back to yq, which names a broken one: a
+  # python3 that lacks tomllib (exit 2), fails some other way (exit 3), or
+  # exits 0 without running the script must not pass them unchecked.
+  printf '%s\n' 'BROKEN [' >"$doctor_frag/vscode/extensions.d/70-broken.toml"
+  for doctor_mode in 0 2 3; do
+    mkdir -p "$doctor_mc_home/python-exit-$doctor_mode"
+    printf '%s\n' '#!/usr/bin/env bash' "exit $doctor_mode" \
+      >"$doctor_mc_home/python-exit-$doctor_mode/python3"
+    chmod +x "$doctor_mc_home/python-exit-$doctor_mode/python3"
+    result=$(HOME="$doctor_mc_home" \
+      PATH="$doctor_mc_home/python-exit-$doctor_mode:$doctor_mc_home/bin:$PATH" \
+      DOCTOR_YQ_LOG="$doctor_yq_log" _doctor_records _dr_check_fragments)
+    # shellcheck disable=SC2088 # Rows carry tilde display paths.
+    _assert_contains "doctor managed config: python3 exit $doctor_mode falls back to yq for vscode manifests" \
+      $'warn\t1 merge-hook fragment(s) do not parse\t~/.config/dot/merge-hooks.d/vscode/extensions.d/70-broken.toml;' \
+      "$result"
+  done
+  rm -f "$doctor_frag/vscode/extensions.d/70-broken.toml"
   # The real parser, where the host has one: a truncated TOML file fails
   # even when a valid one follows it in the same call.
   if doctor_tmp=$(type -P yq 2>/dev/null) &&
@@ -922,6 +950,66 @@ SH
     rm -f "$doctor_frag/app/config.d/05-truncated.toml"
   else
     echo "  - skipping real yq fragment check (mikefarah yq not installed)"
+  fi
+
+  # The vscode family's TOML fragments are extension manifests that the
+  # vscode-exts provider reads with Python's tomllib, so they are judged by
+  # tomllib where python3 has it: a duplicate key, which yq accepts but
+  # makes the provider reject the manifest, is named. Other TOML stays
+  # with yq, the parser its hooks use, so the same mistake there is not.
+  if python3 -c 'import tomllib' >/dev/null 2>&1; then
+    printf '%s\n' '[bundle.common]' 'extensions = ["a"]' 'extensions = ["b"]' \
+      >"$doctor_frag/vscode/extensions.d/60-duplicate.toml"
+    printf '%s\n' 'a = 1' 'a = 2' >"$doctor_frag/app/config.d/30-duplicate.toml"
+    : >"$doctor_yq_log"
+    result=$(HOME="$doctor_mc_home" PATH="$doctor_mc_home/bin:$PATH" \
+      DOCTOR_YQ_LOG="$doctor_yq_log" _doctor_records _dr_check_fragments)
+    # shellcheck disable=SC2088 # Rows carry tilde display paths.
+    _assert_contains "doctor managed config: tomllib names a duplicate key in a vscode manifest" \
+      $'warn\t1 merge-hook fragment(s) do not parse\t~/.config/dot/merge-hooks.d/vscode/extensions.d/60-duplicate.toml;' \
+      "$result"
+    _assert_contains "doctor managed config: the hint gives a tomllib command" \
+      'python3 -c "import sys, tomllib; tomllib.load(sys.stdin.buffer)" < <file>' "$result"
+    _assert_not_contains "doctor managed config: other TOML is still judged by yq" \
+      "30-duplicate.toml" "$result"
+    _assert_not_contains "doctor managed config: vscode manifests are not given to yq" \
+      "vscode" "$(cat "$doctor_yq_log")"
+    rm -f "$doctor_frag/vscode/extensions.d/60-duplicate.toml" \
+      "$doctor_frag/app/config.d/30-duplicate.toml"
+    # Without mikefarah yq the manifests are still checked and counted.
+    result=$(HOME="$doctor_mc_home" PATH="$doctor_mc_home/other-yq:$PATH" \
+      _doctor_records _dr_check_fragments)
+    _assert_contains "doctor managed config: tomllib checks vscode manifests without yq" \
+      $'ok\tmerge-hook fragments parse\t1 JSON, 1 TOML file(s)' "$result"
+    _assert_contains "doctor managed config: other TOML and YAML stay unchecked without yq" \
+      $'skip\tmerge-hook TOML and YAML fragments unchecked\tmikefarah yq not installed' "$result"
+    # The skip row names only what went unchecked.
+    mv "$doctor_frag/app/config.d/10-settings.toml" "$doctor_mc_home/10-settings.toml"
+    result=$(HOME="$doctor_mc_home" PATH="$doctor_mc_home/other-yq:$PATH" \
+      _doctor_records _dr_check_fragments)
+    _assert_contains "doctor managed config: the skip row omits TOML that tomllib checked" \
+      $'skip\tmerge-hook YAML fragments unchecked\tmikefarah yq not installed' "$result"
+    mv "$doctor_frag/app/config.d/10-config.yml" "$doctor_mc_home/10-config.yml"
+    result=$(HOME="$doctor_mc_home" PATH="$doctor_mc_home/other-yq:$PATH" \
+      _doctor_records _dr_check_fragments)
+    _assert_not_contains "doctor managed config: no skip row when tomllib checked everything" \
+      $'skip\t' "$result"
+    mv "$doctor_mc_home/10-settings.toml" "$doctor_frag/app/config.d/10-settings.toml"
+    mv "$doctor_mc_home/10-config.yml" "$doctor_frag/app/config.d/10-config.yml"
+    # Only what vscode-exts reads goes to tomllib: TOML elsewhere in the
+    # vscode family stays with yq.
+    mkdir -p "$doctor_frag/vscode/other.d"
+    printf '%s\n' 'a = 1' >"$doctor_frag/vscode/other.d/10-other.toml"
+    : >"$doctor_yq_log"
+    result=$(HOME="$doctor_mc_home" PATH="$doctor_mc_home/bin:$PATH" \
+      DOCTOR_YQ_LOG="$doctor_yq_log" _doctor_records _dr_check_fragments)
+    _assert_contains "doctor managed config: vscode TOML outside extensions.d goes to yq" \
+      "vscode/other.d/10-other.toml" "$(cat "$doctor_yq_log")"
+    _assert_not_contains "doctor managed config: extension manifests still skip yq" \
+      "vscode/extensions.d" "$(cat "$doctor_yq_log")"
+    rm -rf "$doctor_frag/vscode/other.d"
+  else
+    echo "  - skipping tomllib fragment check (python3 has no tomllib)"
   fi
 
   printf '%s\n' 'prepare() {' '  :' '}' >"$doctor_mc_home/ext/pre-sync.d/10-good.sh"
