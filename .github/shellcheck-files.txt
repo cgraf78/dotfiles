@@ -34,7 +34,6 @@ program	.local/bin/clip
 program	.local/bin/dot-worktree-gc
 program	.local/bin/git
 program	.local/bin/shell-time
-program	.local/lib/dotfiles/agent-playbooks.sh
 program	.local/lib/dotfiles/doctor.d/10-shell.sh
 program	.local/lib/dotfiles/doctor.d/20-tools.sh
 program	.local/lib/dotfiles/doctor.d/30-shell-integrations.sh
@@ -103,7 +102,6 @@ program	.local/lib/dotfiles/tests/fixtures.sh
 program	.local/lib/dotfiles/tests/footprint-test
 program	.local/lib/dotfiles/tests/harness-isolation-test
 program	.local/lib/dotfiles/tests/helpers.sh
-program	.local/lib/dotfiles/tests/load-merge-api.sh
 program	.local/lib/dotfiles/tests/measure-profile-footprint
 program	.local/lib/dotfiles/tests/profile-policy-test
 program	.local/lib/dotfiles/tests/profile-ownership-policy.sh

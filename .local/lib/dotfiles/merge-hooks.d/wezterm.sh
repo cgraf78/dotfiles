@@ -5,17 +5,6 @@ dot_hook_source merge-hooks.d/lib/compat.sh || return
 # Copy WezTerm config into the Windows home when running under WSL.
 # Keeps ~/.config/wezterm/wezterm.lua in dotfiles as the source of truth.
 
-if ! declare -F dot_sibling_tmp_for >/dev/null 2>&1; then
-  _dot_wezterm_hook_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)" || return
-  # shellcheck source=../temp.sh disable=SC1091
-  . "$_dot_wezterm_hook_dir/../temp.sh"
-fi
-if ! declare -F dot_wsl_windows_home >/dev/null 2>&1; then
-  _dot_wezterm_hook_dir="${_dot_wezterm_hook_dir:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)}" || return
-  # shellcheck source=../windows.sh disable=SC1091
-  . "$_dot_wezterm_hook_dir/../windows.sh"
-fi
-
 _wezterm_copy() {
   local src="$1" dest="$2" tmp
 
@@ -88,17 +77,6 @@ _wezterm_sync_lua_dir() {
   fi
 }
 
-_wezterm_load_shdeps_assets() {
-  declare -F dot_shdeps_dep_file >/dev/null 2>&1 && return 0
-
-  local hook_dir
-  hook_dir="${BASH_SOURCE[0]%/*}"
-  [[ -r "$hook_dir/../shdeps-assets.sh" ]] || return 1
-  # shellcheck source=../shdeps-assets.sh disable=SC1091
-  . "$hook_dir/../shdeps-assets.sh"
-  declare -F dot_shdeps_dep_file >/dev/null 2>&1
-}
-
 _wezterm_copy_shdeps_asset() {
   local relative_path="$1" dest="$2"
   local src
@@ -144,15 +122,13 @@ merge() {
     "$config_dir/hyperlink-rules.d" \
     "$winhome/hyperlink-rules.d"
 
-  if _wezterm_load_shdeps_assets; then
-    # Windows WezTerm runs outside the WSL shell environment. Copy the
-    # shdeps-resolved reusable modules beside their wrappers so the copied
-    # config remains self-contained on the Windows side.
-    _wezterm_copy_shdeps_asset \
-      lib/termnav/wezterm/link-routes.lua \
-      "$winhome/termnav-link-routes.lua"
-    _wezterm_copy_shdeps_asset \
-      lib/termnav/wezterm/public-link-rules.lua \
-      "$winhome/termnav-public-link-rules.lua"
-  fi
+  # Windows WezTerm runs outside the WSL shell environment. Copy the
+  # shdeps-resolved reusable modules beside their wrappers so the copied
+  # config remains self-contained on the Windows side.
+  _wezterm_copy_shdeps_asset \
+    lib/termnav/wezterm/link-routes.lua \
+    "$winhome/termnav-link-routes.lua"
+  _wezterm_copy_shdeps_asset \
+    lib/termnav/wezterm/public-link-rules.lua \
+    "$winhome/termnav-public-link-rules.lua"
 }

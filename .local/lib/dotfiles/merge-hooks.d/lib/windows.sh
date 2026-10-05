@@ -10,12 +10,6 @@
 _dot_windows_cmd_exe() {
   local candidate converted
 
-  if [ -n "${DOT_TEST_WINDOWS_CMD_EXE:-}" ]; then
-    [ -x "$DOT_TEST_WINDOWS_CMD_EXE" ] || return 1
-    REPLY="$DOT_TEST_WINDOWS_CMD_EXE"
-    return 0
-  fi
-
   if command -v wslpath >/dev/null 2>&1; then
     converted="$(wslpath 'C:\Windows\System32\cmd.exe' 2>/dev/null)" || converted=""
     if [ -n "$converted" ] && [ -x "$converted" ]; then

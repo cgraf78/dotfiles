@@ -313,8 +313,7 @@ printf 'Host unselected.example\n  HostName unselected.example\n' >"$unselected_
 HOME=$fixture_home
 DOT_SOURCE_ROOT=$dot_root
 DOT_EXTENSIONS_DIR=$source_home/.local/lib/dotfiles
-DOT_EXTENSION_API=1
-export HOME DOT_SOURCE_ROOT DOT_EXTENSIONS_DIR DOT_EXTENSION_API
+export HOME DOT_SOURCE_ROOT DOT_EXTENSIONS_DIR
 unset XDG_CONFIG_HOME XDG_STATE_HOME XDG_CACHE_HOME XDG_DATA_HOME XDG_RUNTIME_DIR
 
 # shellcheck source=/dev/null

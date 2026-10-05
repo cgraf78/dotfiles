@@ -11,8 +11,6 @@ those interfaces execute.
 - `tests/` contains base, profile-control, ownership, and composition coverage.
 - `shell-loader.sh`, `launcher-real.sh`, `windows.sh`, and
   `shdeps-assets.sh` are shared base helpers.
-- `agent-playbooks.sh` discovers the trusted agent playbooks selected by
-  dotfiles policy.
 - `shell-grok-rc.sh` detects and strips the Grok installer block in the thin
   shell loaders; the interactive wrapper and the `grok-rc` merge hook strip,
   `dot doctor` only reports.

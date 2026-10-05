@@ -148,11 +148,9 @@ _test_dot_root() {
     "$host_home/git/dot" \
     "$host_home/.local/share/cgraf78/dot"; do
     [[ -n $candidate ]] || continue
-    # Legacy checkouts gate on the private worker; Rust-port checkouts and
-    # release roots gate on the versioned public runtime (both ship it).
-    # Releases additionally satisfy the native-binary-plus-xdg shape.
-    if [[ -r $candidate/lib/dot/extension-worker.sh ||
-      -r $candidate/lib/dot/public/hook-runtime-v1/hook-api.sh ||
+    # Checkouts and release roots gate on the versioned public runtime (both
+    # ship it). Releases additionally satisfy the native-binary-plus-xdg shape.
+    if [[ -r $candidate/lib/dot/public/hook-runtime-v1/hook-api.sh ||
       (-x $candidate/dot && ! -L $candidate/dot &&
       -r $candidate/lib/dot/public/xdg.sh) ]]; then
       (cd -P -- "$candidate" && pwd -P)
@@ -162,17 +160,12 @@ _test_dot_root() {
   return 1
 }
 
-# Print the hook-runtime library directory for a resolved Dot root: the
-# versioned public runtime when present, else the legacy private tree. The
-# versioned files carry the same function names as their legacy originals.
+# Print the versioned public hook-runtime library directory for a resolved
+# Dot root.
 _test_dot_lib_dir() {
   local dot_root=${1:-}
   [[ -n $dot_root ]] || return 1
-  if [[ -r $dot_root/lib/dot/public/hook-runtime-v1/hook-api.sh ]]; then
-    printf '%s\n' "$dot_root/lib/dot/public/hook-runtime-v1"
-  else
-    printf '%s\n' "$dot_root/lib/dot"
-  fi
+  printf '%s\n' "$dot_root/lib/dot/public/hook-runtime-v1"
 }
 
 # Print the Dot binary for a resolved root: checkouts keep bin/dot (the
@@ -189,8 +182,8 @@ _test_dot_bin() {
   return 1
 }
 
-# Source the public XDG API plus the merge-extension API files from either
-# layout. This is the single sourcing list shared by the in-process merge
+# Source the public XDG API plus the merge-extension API files. This is the
+# single sourcing list shared by the in-process merge
 # loader and the core fixture initializer below.
 _test_dot_source_merge_api() {
   local dot_root=${1:-} lib_dir file
@@ -217,8 +210,7 @@ _test_load_dot_merge_api() {
   dot_root=$(_test_dot_root) || return 1
   DOT_SOURCE_ROOT=$dot_root
   DOT_EXTENSIONS_DIR=$source_home/.local/lib/dotfiles
-  DOT_EXTENSION_API=1
-  export DOT_SOURCE_ROOT DOT_EXTENSIONS_DIR DOT_EXTENSION_API
+  export DOT_SOURCE_ROOT DOT_EXTENSIONS_DIR
 
   _test_dot_source_merge_api "$dot_root"
 }
@@ -234,9 +226,8 @@ _test_load_dot_doctor_api() {
   dot_root=$(_test_dot_root) || return 1
   DOT_SOURCE_ROOT=$dot_root
   DOT_EXTENSIONS_DIR=$extension_home/.local/lib/dotfiles
-  DOT_EXTENSION_API=1
   DOT_DOCTOR_RESULT_FILE=${DOT_DOCTOR_RESULT_FILE:-$extension_home/.doctor-results.tsv}
-  export DOT_SOURCE_ROOT DOT_EXTENSIONS_DIR DOT_EXTENSION_API
+  export DOT_SOURCE_ROOT DOT_EXTENSIONS_DIR
   export DOT_DOCTOR_RESULT_FILE
   : >"$DOT_DOCTOR_RESULT_FILE"
 
@@ -253,19 +244,6 @@ _test_load_dot_doctor_api() {
   for module in agent-rules cron integrations shell tools; do
     dot_doctor_source "doctor.d/lib/$module.sh" || return 1
   done
-}
-
-# Editor-policy suites should exercise the managed Neovim payload directly;
-# core-launchers-test owns the public wrapper. Resolve the host payload when a
-# worktree HOME is active so this accommodation stays in test code.
-_test_managed_nvim_bin() {
-  local dependency_home="${DOT_TEST_HOST_HOME:-$HOME}"
-
-  REPLY="$dependency_home/.local/share/neovim/neovim/bin/nvim"
-  if [[ ! -x "$REPLY" || -d "$REPLY" ]]; then
-    printf 'test harness: managed Neovim not found at %s\n' "$REPLY" >&2
-    return 1
-  fi
 }
 
 # Suites that exercise higher-level editor or dependency policy should not
@@ -395,27 +373,6 @@ _test_prepare_shdeps_snapshot() {
   export DOT_TEST_SHDEPS_SNAPSHOT SHDEPS_LIB SHDEPS_RUST_CLI
 }
 
-_test_realpath_lines() {
-  local line
-  while IFS= read -r line || [[ -n "$line" ]]; do
-    if [[ -e "$line" || -L "$line" ]]; then
-      _test_realpath "$line"
-    else
-      printf '%s\n' "$line"
-    fi
-  done
-}
-
-# Use this only when path spelling is not part of the behavior under test. Tests
-# that intentionally distinguish visible HOME aliases from canonical paths should
-# keep using _assert_eq with explicit _test_realpath calls at the relevant lines.
-_assert_eq_realpath_lines() {
-  local desc="$1" expected="$2" actual="$3"
-  _assert_eq "$desc" \
-    "$(_test_realpath_lines <<<"$expected")" \
-    "$(_test_realpath_lines <<<"$actual")"
-}
-
 _assert_contains() {
   local desc="$1" expected="$2" actual="$3"
   if [[ "$actual" == *"$expected"* ]]; then
@@ -443,52 +400,6 @@ _assert_not_contains() {
     _pass "$desc"
   else
     _fail "$desc (should not contain '$unexpected')"
-  fi
-}
-
-_assert_colon_list_values_aligned() {
-  local desc="$1" content="$2" marker="$3"
-  local in_list=0 expected_col="" row_count=0
-  local line label after_colon spaces col
-
-  while IFS= read -r line || [[ -n "$line" ]]; do
-    if [[ "$line" == "$marker" ]]; then
-      in_list=1
-      continue
-    fi
-
-    [[ "$in_list" -eq 1 ]] || continue
-    [[ -n "$line" ]] || break
-
-    if [[ "$line" != "  "*:* ]]; then
-      _fail "$desc (unexpected list row '$line')"
-      return
-    fi
-
-    label=${line%%:*}
-    after_colon=${line#*:}
-    spaces=${after_colon%%[! ]*}
-
-    if [[ -z "$spaces" || "$spaces" == "$after_colon" ]]; then
-      _fail "$desc (missing list spacing after '$label:')"
-      return
-    fi
-
-    col=$((${#label} + 1 + ${#spaces}))
-    if [[ -z "$expected_col" ]]; then
-      expected_col=$col
-    elif [[ "$col" -ne "$expected_col" ]]; then
-      _fail "$desc (list starts at column $col, expected $expected_col: '$line')"
-      return
-    fi
-
-    row_count=$((row_count + 1))
-  done <<<"$content"
-
-  if [[ "$row_count" -eq 0 ]]; then
-    _fail "$desc (no rows found after '$marker')"
-  else
-    _pass "$desc"
   fi
 }
 
@@ -752,27 +663,6 @@ _with_timeout() {
   else
     echo "test timeout requires the standalone Dot timeout helper" >&2
     return 127
-  fi
-}
-
-# ---------------------------------------------------------------------------
-# Platform checks
-# ---------------------------------------------------------------------------
-
-# Check if prebuilt tool binaries will work on this platform. macOS
-# ships native binaries; the concern is musl-based Linux (Alpine)
-# where glibc-linked binaries fail.
-_has_compatible_libc() {
-  [[ "$(uname -s)" != "Linux" ]] && return 0
-  # Do not use `grep -q` here: with pipefail enabled, grep can exit early
-  # after a match and make verbose `ldd` implementations fail with SIGPIPE.
-  ldd --version 2>&1 | grep -iE 'glibc|gnu libc' >/dev/null 2>&1
-}
-# Skip the entire test suite only on Linux libc variants that cannot run the
-# prebuilt tools used by these fixtures. macOS remains in coverage.
-_require_compatible_libc() {
-  if ! _has_compatible_libc; then
-    _test_skip_suite "$1 (requires glibc-compatible Linux libc)"
   fi
 }
 

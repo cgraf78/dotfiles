@@ -1,18 +1,5 @@
 # shellcheck shell=bash
-# dot doctor: shared shdeps-backed command-link checks.
-#
-# Overlay-facing contract (stable; see doctor.d/README.md):
-#
-#   dot_doctor_source doctor.d/lib/shdeps-links.sh || return
-#   _dr_check_shdeps_bin_group <fail|warn> <dependency>
-#
-# Checks the public command links shdeps reports for cgraf78/<dependency>
-# (`shdeps dep-links`). When the installed shdeps provides `shdeps health`,
-# the base Tools section already reports every installed package's links
-# from that one stat-only pass, so this call is a silent no-op: overlays keep
-# calling it with their dependency list and never duplicate a row or need to
-# know which mode is active. With an older shdeps it performs the per-group
-# check: one ok row per group, or a row per problem at the given severity.
+# dot doctor: shared `shdeps health` probe for the base Tools section.
 #
 # Loads doctor.d/lib/compat.sh itself, so callers need nothing else.
 
@@ -31,7 +18,7 @@ dot_doctor_source doctor.d/lib/compat.sh || return
 # Rows are TAB-separated: severity (fail|warn), package, kind, path, detail.
 # Each extension runs in its own worker, so every worker pays one stat-only
 # shdeps process at most. Succeeds when the installed shdeps has the
-# command, so the per-group checks below can stand down.
+# command.
 # Seconds `shdeps health` may take before it is reported as timed out.
 _DR_SHDEPS_HEALTH_DEADLINE=15
 
@@ -68,87 +55,4 @@ _dr_shdeps_health_probe() {
     fi
   fi
   [[ $_DR_SHDEPS_HEALTH_STATUS != unsupported ]]
-}
-
-# File one link problem at LEVEL (fail, else warn) with DETAIL and the next
-# step HINT (default: run 'dot update', which relinks).
-_dr_shdeps_link_issue() {
-  local level="$1" label="$2" detail="${3:-}" hint="${4:-run 'dot update'}"
-
-  [[ "$level" == "fail" ]] || level=warn
-  _dr_hint_row "$level" "$label" "$detail" "$hint"
-}
-
-_dr_check_shdeps_bin_group() {
-  local level="$1" dependency="$2"
-
-  # shdeps health covers this group (and every other package) in the base
-  # Tools row; reporting it again here would only duplicate rows.
-  _dr_shdeps_health_probe && return 0
-
-  local rows shdeps_conf_dir
-  _dot_shdeps_conf_dir
-  shdeps_conf_dir="$REPLY"
-  if ! rows=$(SHDEPS_CONF_DIR="$shdeps_conf_dir" \
-    command shdeps dep-links "cgraf78/$dependency" 2>/dev/null); then
-    _dr_shdeps_link_issue "$level" "$dependency bin links unchecked" \
-      "shdeps cannot resolve command links for cgraf78/$dependency"
-    return 0
-  fi
-
-  if [[ -z "$rows" ]]; then
-    _dr_shdeps_link_issue "$level" "$dependency bin links missing" \
-      "shdeps reported no public command links for cgraf78/$dependency"
-    return 0
-  fi
-
-  local cmd link expected extra actual
-  local issue_count=0 command_count=0
-
-  # shdeps owns the vocabulary of commands and expected targets. Dot doctor
-  # only verifies that the live public command path still matches that contract.
-  while IFS=$'\t' read -r cmd link expected extra || [[ -n "$cmd$link$expected$extra" ]]; do
-    if [[ -z "$cmd" || -z "$link" || -z "$expected" || -n "$extra" ]]; then
-      ((issue_count++)) || true
-      _dr_shdeps_link_issue "$level" "$dependency bin links malformed" \
-        "unexpected shdeps dep-links row for cgraf78/$dependency" \
-        "run 'dot update' to upgrade shdeps"
-      continue
-    fi
-
-    ((command_count++)) || true
-
-    if [[ ! -e "$link" && ! -L "$link" ]]; then
-      ((issue_count++)) || true
-      _dr_shdeps_link_issue "$level" "$cmd not linked" \
-        "expected $(_dr_tilde "$link") -> $(_dr_tilde "$expected")"
-      continue
-    fi
-
-    if [[ "$link" != "$expected" ]]; then
-      if [[ ! -L "$link" ]]; then
-        ((issue_count++)) || true
-        _dr_shdeps_link_issue "$level" "$cmd not linked" \
-          "expected $(_dr_tilde "$link") -> $(_dr_tilde "$expected")"
-        continue
-      fi
-
-      if ! _dr_symlink_points_to "$link" "$expected"; then
-        ((issue_count++)) || true
-        actual=$(_dr_symlink_target_path "$link" 2>/dev/null || echo "?")
-        _dr_shdeps_link_issue "$level" "$cmd link target drift" \
-          "got $(_dr_tilde "$actual"), expected $(_dr_tilde "$expected")"
-        continue
-      fi
-    fi
-
-    if [[ ! -x "$link" ]]; then
-      ((issue_count++)) || true
-      _dr_shdeps_link_issue "$level" "$cmd not executable" "$(_dr_tilde "$link")"
-    fi
-  done <<<"$rows"
-
-  if [[ "$issue_count" -eq 0 ]]; then
-    _dr_ok "$dependency bin links" "$command_count command(s)"
-  fi
 }

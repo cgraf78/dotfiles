@@ -68,7 +68,6 @@
 #   makes a checkout look active again (both err toward keeping)
 
 _WORKTREE_GC_AGE_DAYS_DEFAULT=14
-_WORKTREE_GC_REMOTE=origin
 
 _WORKTREE_GC_DIR=${BASH_SOURCE[0]%/*}
 if [[ -z ${_DR_WORKTREE_WARN_BYTES_DEFAULT:-} ]]; then
