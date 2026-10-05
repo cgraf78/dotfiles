@@ -555,7 +555,6 @@ EOF
     PATH="$discovery_git_bin:$PATH"
     HOME="$DISCOVERY_FIXTURE"
     DOT_OVERLAY_MANIFEST="$DISCOVERY_FIXTURE/.local/state/dot/overlay-links"
-    DOT_OVERLAY_LEGACY_MANIFEST="$DISCOVERY_FIXTURE/.local/state/dot/legacy-overlay-links"
     OVERLAYS=("local|$DISCOVERY_LOCAL_SOURCE|||||none")
     _dot_playbook_files
   )
@@ -563,7 +562,6 @@ EOF
     cd "$DISCOVERY_FIXTURE/.config" || exit
     HOME="$DISCOVERY_FIXTURE"
     DOT_OVERLAY_MANIFEST="$DISCOVERY_FIXTURE/.local/state/dot/overlay-links"
-    DOT_OVERLAY_LEGACY_MANIFEST="$DISCOVERY_FIXTURE/.local/state/dot/legacy-overlay-links"
     OVERLAYS=("local|$DISCOVERY_LOCAL_SOURCE|||||none")
     _dot_playbook_files
   )
@@ -603,7 +601,6 @@ EOF
     PATH="$discovery_git_bin:$PATH"
     HOME="$DISCOVERY_FIXTURE"
     DOT_OVERLAY_MANIFEST="$DISCOVERY_FIXTURE/.local/state/dot/overlay-links"
-    DOT_OVERLAY_LEGACY_MANIFEST="$DISCOVERY_FIXTURE/.local/state/dot/legacy-overlay-links"
     OVERLAYS=("local|$DISCOVERY_LOCAL_SOURCE|||||none")
     _dot_playbook_files
   )
@@ -630,8 +627,6 @@ EOF
     # shellcheck disable=SC2034  # read dynamically by _dot_playbook_files.
     DOT_OVERLAY_MANIFEST="$DISCOVERY_FIXTURE/.local/state/dot/overlay-links"
     # shellcheck disable=SC2034  # read dynamically by _dot_playbook_files.
-    DOT_OVERLAY_LEGACY_MANIFEST="$DISCOVERY_FIXTURE/.local/state/dot/legacy-overlay-links"
-    # shellcheck disable=SC2034  # read dynamically by _dot_playbook_files.
     OVERLAYS=()
     _dot_playbook_files
   )
@@ -642,7 +637,6 @@ EOF
     "$DISCOVERY_FIXTURE/.dotfiles-private/home/$discovery_rel.missing"
   if HOME="$DISCOVERY_FIXTURE" \
     DOT_OVERLAY_MANIFEST="$DISCOVERY_FIXTURE/.local/state/dot/overlay-links" \
-    DOT_OVERLAY_LEGACY_MANIFEST="$DISCOVERY_FIXTURE/.local/state/dot/legacy-overlay-links" \
     _dot_playbook_files >/dev/null 2>&1; then
     _fail "agent rules: discovery fails on a missing tracked overlay source"
   else
@@ -665,7 +659,6 @@ EOF
     >>"$DISCOVERY_FIXTURE/.local/state/dot/overlay-links"
   if HOME="$DISCOVERY_FIXTURE" \
     DOT_OVERLAY_MANIFEST="$DISCOVERY_FIXTURE/.local/state/dot/overlay-links" \
-    DOT_OVERLAY_LEGACY_MANIFEST="$DISCOVERY_FIXTURE/.local/state/dot/legacy-overlay-links" \
     _dot_playbook_files >/dev/null 2>&1; then
     _fail "agent rules: discovery fails on an invalid overlay repository"
   else

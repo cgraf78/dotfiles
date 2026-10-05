@@ -2,7 +2,7 @@
 # doctor.sh - always-active dotfiles doctor extension coverage.
 
 dot_core_test_doctor() {
-  local result expected doctor_bin doctor_crontab_log doctor_direct_tool
+  local result expected doctor_bin doctor_crontab_log
   local doctor_no_crontab_bin doctor_account_home_status doctor_account_scope_home
   local doctor_account_scope_status doctor_account_scope_command
   local doctor_termux_account_status doctor_termux_account_home
@@ -534,16 +534,6 @@ SH
 #!/usr/bin/env bash
 case ${1:-} in
   version) printf '%s\n' 'shdeps 0.0-test' ;;
-  dep-links)
-    case ${2:-} in
-      cgraf78/emptydep) exit 0 ;;
-      cgraf78/malformeddep) printf '%s\t%s\n' bad-row missing-target ;;
-      cgraf78/directdep)
-        printf '%s\t%s\t%s\n' direct-tool "$DOCTOR_DIRECT_TOOL" "$DOCTOR_DIRECT_TOOL"
-        ;;
-      *) exit 1 ;;
-    esac
-    ;;
   health)
     printf '%s\n' "${SHDEPS_CONF_DIR:-unset}" >>"${DOCTOR_HEALTH_LOG:-/dev/null}"
     case ${DOCTOR_HEALTH_MODE:-} in
@@ -602,36 +592,15 @@ case ${1:-} in
 esac
 SH
   chmod +x "$doctor_bin/shdeps"
-  doctor_direct_tool="$TEST_HOME/.local/bin/direct-tool"
-  mkdir -p "$TEST_HOME/.local/bin"
-  printf '%s\n' '#!/usr/bin/env bash' 'exit 0' >"$doctor_direct_tool"
-  chmod +x "$doctor_direct_tool"
-
-  result=$(PATH="$doctor_bin:$PATH" \
-    _doctor_records _dr_check_shdeps_bin_group warn emptydep)
-  _assert_contains "doctor tools: empty dependency links are reported" \
-    "emptydep bin links missing" "$result"
-  result=$(PATH="$doctor_bin:$PATH" \
-    _doctor_records _dr_check_shdeps_bin_group warn malformeddep)
-  _assert_contains "doctor tools: malformed dependency links are reported" \
-    "malformeddep bin links malformed" "$result"
-  result=$(DOCTOR_DIRECT_TOOL="$doctor_direct_tool" PATH="$doctor_bin:$PATH" \
-    _doctor_records _dr_check_shdeps_bin_group warn directdep)
-  _assert_contains "doctor tools: direct executable targets are accepted" \
-    "directdep bin links" "$result"
-  _assert_not_contains "doctor tools: direct targets are not forced to symlinks" \
-    "direct-tool not linked" "$result"
 
   # shdeps health: one row for every installed package when the command
-  # exists, the per-group link rows only on an older shdeps without it.
+  # exists.
   unset _DR_SHDEPS_HEALTH_STATUS _DR_SHDEPS_HEALTH_OUTPUT
   doctor_health_log=$(_tmpfile)
   result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$PATH" _doctor_records _dr_check_tools)
   _assert_contains "doctor health: an older shdeps is a warning with the fix" \
     $'warn\tshdeps health unchecked\tthe installed shdeps cannot run \'shdeps health\'; run \'dot update\' to upgrade it' \
     "$result"
-  _assert_not_contains "doctor health: an older shdeps gets no per-group rows" \
-    "bin links" "$result"
   result=$(HOME="$TEST_HOME" PATH="$doctor_no_crontab_bin" _doctor_records _dr_check_tools)
   _assert_contains "doctor health: no shdeps on PATH is a warning with the fix" \
     $'warn\tshdeps health unchecked\tshdeps is not on PATH; run \'dot update\'' "$result"
@@ -639,16 +608,8 @@ SH
     DOCTOR_HEALTH_LOG="$doctor_health_log" _doctor_records _dr_check_tools)
   _assert_contains "doctor health: a healthy report is one ok row" \
     $'ok\tshdeps health' "$result"
-  _assert_not_contains "doctor health: per-tool link rows are gone" \
-    "bin links" "$result"
   _assert_eq "doctor health: the dotfiles config dir is passed explicitly" \
     "$TEST_HOME/.config/shdeps" "$(cat "$doctor_health_log")"
-  result=$(DOCTOR_DIRECT_TOOL="$doctor_direct_tool" PATH="$doctor_bin:$PATH" \
-    DOCTOR_HEALTH_MODE=ok _doctor_records _dr_check_shdeps_bin_group warn directdep)
-  _assert_eq "doctor health: the shared group check stands down" "" "$result"
-  result=$(DOCTOR_DIRECT_TOOL="$doctor_direct_tool" PATH="$doctor_bin:$PATH" \
-    DOCTOR_HEALTH_MODE=crash _doctor_records _dr_check_shdeps_bin_group warn directdep)
-  _assert_eq "doctor health: a failing health command still covers groups" "" "$result"
   result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$PATH" DOCTOR_HEALTH_MODE=warn \
     _doctor_records _dr_check_tools)
   _assert_contains "doctor health: warn rows give one warning" \
@@ -938,8 +899,6 @@ SH
     _doctor_records _dr_check_tools)
   _assert_contains "doctor health: exit 127 counts as unsupported" \
     $'warn\tshdeps health unchecked' "$result"
-  _assert_not_contains "doctor health: exit 127 gives no per-group rows" \
-    "bin links" "$result"
   result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$PATH" DOCTOR_HEALTH_MODE=incomplete-empty \
     _doctor_records _dr_check_tools)
   _assert_contains "doctor health: exit 3 without rows fails" \
@@ -1308,9 +1267,10 @@ SH
 
   cp "$REAL_HOME/.local/lib/dotfiles/shell-loader.sh" \
     "$TEST_HOME/.local/lib/dotfiles/shell-loader.sh"
+  # env.d puts ~/.local/bin on PATH only when it exists.
   mkdir -p "$TEST_HOME/.config/shell/env.d" \
     "$TEST_HOME/.config/shell/interactive.d" \
-    "$TEST_HOME/.config/shdeps"
+    "$TEST_HOME/.config/shdeps" "$TEST_HOME/.local/bin"
   # Use the managed startup files: the probes start real shells, and a
   # synthetic loader would hide what each startup path actually does.
   for doctor_startup in .bashrc .bash_profile .zshrc .zshenv .zprofile \

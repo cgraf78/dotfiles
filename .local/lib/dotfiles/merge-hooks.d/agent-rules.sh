@@ -9,27 +9,6 @@ dot_hook_source merge-hooks.d/lib/compat.sh || return
 # migration, and cleanup behavior. Keeping this hook at that boundary prevents
 # the reusable repository from learning anything about dot overlay internals.
 
-if ! declare -F dot_hook_family_files_matching >/dev/null 2>&1; then
-  _dot_agent_rules_hook_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)" || return
-  # shellcheck source=../merge-hooks.sh disable=SC1091
-  . "$_dot_agent_rules_hook_dir/../merge-hooks.sh"
-fi
-if ! declare -F dot_xdg_path >/dev/null 2>&1; then
-  _dot_agent_rules_hook_dir="${_dot_agent_rules_hook_dir:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)}" || return
-  # shellcheck source=../xdg.sh disable=SC1091
-  . "$_dot_agent_rules_hook_dir/../xdg.sh"
-fi
-if ! declare -F dot_sibling_tmp_for >/dev/null 2>&1; then
-  _dot_agent_rules_hook_dir="${_dot_agent_rules_hook_dir:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)}" || return
-  # shellcheck source=../temp.sh disable=SC1091
-  . "$_dot_agent_rules_hook_dir/../temp.sh"
-fi
-if ! declare -F _dot_playbook_files >/dev/null 2>&1; then
-  _dot_agent_rules_hook_dir="${_dot_agent_rules_hook_dir:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)}" || return
-  # shellcheck source=../agent-playbooks.sh disable=SC1091
-  . "$_dot_agent_rules_hook_dir/../agent-playbooks.sh"
-fi
-
 # The manifest is generated state rather than user configuration: its records
 # contain resolved overlay paths which can differ across machines and runs.
 _dot_agent_rules_manifest_path() {

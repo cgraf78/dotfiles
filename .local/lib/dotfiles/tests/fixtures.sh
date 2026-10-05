@@ -80,129 +80,19 @@ dot_fixture_seed_base_file() {
   $GIT commit -m "initial" >/dev/null 2>&1
 }
 
-dot_fixture_seed_bootstrap_files() {
-  printf '%s\n' "initial" >"$TEST_HOME/.testrc"
-  mkdir -p "$TEST_HOME/.config/dot"
-  printf '%s\n' "# placeholder" >"$TEST_HOME/.config/dot/placeholder"
-  $GIT add .testrc .config/dot/placeholder
-  $GIT commit -m "initial" >/dev/null 2>&1
-}
-
 dot_fixture_source_core_init() {
   local dot_root
 
   dot_root=$(_test_dot_root) || return 1
   DOT_SOURCE_ROOT=$dot_root
-  DOT_CONFIG_VERSION=1
-  DOT_EXTENSION_API=1
   DOT_EXTENSIONS_DIR=$TEST_HOME/.local/lib/dotfiles
   DOT_DEPENDENCY_PROVIDER=none
-  export DOT_SOURCE_ROOT DOT_CONFIG_VERSION DOT_EXTENSION_API
-  export DOT_EXTENSIONS_DIR DOT_DEPENDENCY_PROVIDER
-  if [[ -r $dot_root/lib/dot/public/hook-runtime-v1/hook-api.sh ]]; then
-    # The versioned runtime keeps only the hook API core tests probe; the
-    # deleted private engine loader (runtime.sh) has no equivalent there.
-    _test_dot_source_merge_api "$dot_root" || return 1
-  else
-    # shellcheck source=/dev/null
-    . "$dot_root/lib/dot/public/xdg.sh"
-    # shellcheck source=/dev/null
-    . "$dot_root/lib/dot/runtime.sh"
-  fi
+  export DOT_SOURCE_ROOT DOT_EXTENSIONS_DIR DOT_DEPENDENCY_PROVIDER
+  _test_dot_source_merge_api "$dot_root" || return 1
   # Retained client-policy suites probe logical application presence and
   # provider adapters directly; production hooks load this compatibility layer
   # through the public hook API in their isolated workers.
   dot_hook_source merge-hooks.d/lib/compat.sh
-}
-
-dot_fixture_seed_repo() {
-  local bare="$1" staging="$2"
-
-  git init --bare "$bare" >/dev/null 2>&1
-  git clone "$bare" "$staging/.git-tmp" >/dev/null 2>&1
-  mv "$staging/.git-tmp/.git" "$staging/.git"
-  rm -rf "$staging/.git-tmp"
-  _git_set_test_identity git -C "$staging"
-  git -C "$staging" add -A >/dev/null 2>&1
-  git -C "$staging" commit -m "seed" >/dev/null 2>&1
-  git -C "$staging" push >/dev/null 2>&1
-}
-
-dot_fixture_file_origin() {
-  local out_var="$1" path="$2" content="$3" staging origin parent
-
-  staging=$(_tmpdir)
-  parent=$(dirname "$path")
-  if [[ "$parent" != "." ]]; then
-    mkdir -p "$staging/$parent"
-  fi
-  printf '%s\n' "$content" >"$staging/$path"
-
-  origin=$(_tmpdir)
-  dot_fixture_seed_repo "$origin" "$staging"
-  printf -v "$out_var" '%s' "$origin"
-}
-
-dot_fixture_clone_repo() {
-  local origin="$1" destination="$2"
-
-  git clone "$origin" "$destination" >/dev/null 2>&1
-  _git_set_test_identity git -C "$destination"
-}
-
-dot_fixture_shdeps_tool_origin() {
-  local out_var="$1" staging origin
-
-  staging=$(_tmpdir)
-  mkdir -p "$staging/bin"
-  cat >"$staging/bin/test-tool" <<'TOOL'
-#!/bin/bash
-echo "test-tool"
-TOOL
-  chmod +x "$staging/bin/test-tool"
-
-  origin=$(_tmpdir)
-  dot_fixture_seed_repo "$origin" "$staging"
-  printf -v "$out_var" '%s' "$origin"
-}
-
-dot_fixture_shdeps_hook_pack_origin() {
-  local out_var="$1" staging origin
-
-  staging=$(_tmpdir)
-  mkdir -p "$staging/review"
-  printf '%s\n' "# hook pack" >"$staging/review/README.md"
-
-  origin=$(_tmpdir)
-  dot_fixture_seed_repo "$origin" "$staging"
-  printf -v "$out_var" '%s' "$origin"
-}
-
-dot_fixture_shdeps_overlay_tool_origin() {
-  local out_var="$1" staging origin
-
-  staging=$(_tmpdir)
-  mkdir -p "$staging/bin"
-  cat >"$staging/bin/overlay-tool" <<'TOOL'
-#!/bin/bash
-echo "overlay-tool"
-TOOL
-  chmod +x "$staging/bin/overlay-tool"
-
-  origin=$(_tmpdir)
-  dot_fixture_seed_repo "$origin" "$staging"
-  printf -v "$out_var" '%s' "$origin"
-}
-
-dot_fixture_remote_from_base() {
-  local out_var="$1" remote
-
-  remote=$(_tmpdir)
-  git clone --bare "$DOTFILES" "$remote" >/dev/null 2>&1
-  $GIT remote add origin "$remote" 2>/dev/null || $GIT remote set-url origin "$remote"
-  $GIT fetch origin >/dev/null 2>&1
-  $GIT branch --set-upstream-to="origin/$DEFAULT_BRANCH" "$DEFAULT_BRANCH" >/dev/null 2>&1 || true
-  printf -v "$out_var" '%s' "$remote"
 }
 
 dot_fixture_mock_crontab() {

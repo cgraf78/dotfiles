@@ -951,7 +951,7 @@ _dr_worktree_du_total() {
   esac
 }
 
-# Print the du total in KiB for the checkout roots, re-measuring only the
+# Measure the du total in KiB for the checkout roots, re-measuring only the
 # roots that changed. The cache keeps one `KiB<TAB>mtime<TAB>path` entry per
 # root under a header holding the time of the last full pass; a root whose
 # path and mtime match its entry reuses the stored size, and every other
@@ -966,16 +966,11 @@ _dr_worktree_du_total() {
 # twice; the total stays advisory.
 # Never fails: every cache problem falls back to a fresh full pass, and a
 # failed store is silently skipped for the next run to retry.
-_dr_worktree_cached_du_total() {
-  _dr_worktree_du_measure "$@"
-  printf '%s\n' "$REPLY"
-}
-
-# Measure like _dr_worktree_cached_du_total, reporting the total KiB via
-# REPLY and each measured root as "KiB<TAB>path" in _DR_WORKTREE_DU_SIZES,
-# so the disk row can name the largest roots at no extra cost. The sizes
-# stay empty when the cache key cannot be built (the uncached fallback
-# reads only a total). Must run in the main shell to keep the sizes.
+# Reports the total KiB via REPLY and each measured root as "KiB<TAB>path"
+# in _DR_WORKTREE_DU_SIZES, so the disk row can name the largest roots at no
+# extra cost. The sizes stay empty when the cache key cannot be built (the
+# uncached fallback reads only a total). Must run in the main shell to keep
+# the sizes.
 _DR_WORKTREE_DU_SIZES=()
 _dr_worktree_du_measure() {
   local key cache now header stamp='' line kib mtime path out total=0

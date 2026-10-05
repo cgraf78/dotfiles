@@ -1017,45 +1017,6 @@ else
   _fail "dot hook: refused directory is left intact"
 fi
 
-# Checkout roots delegate to the reviewed installer with HOME-local paths.
-_dot_home_checkout=$(_tmpdir)/home
-_dot_hook_fixture "$_dot_home_checkout"
-mkdir -p "$_dot_home_checkout/.local/share/cgraf78/dot/support"
-cat >"$_dot_home_checkout/.local/share/cgraf78/dot/support/install-checkout.sh" <<'EOF'
-#!/usr/bin/env bash
-printf 'PREFIX=%s\nBIN_DIR=%s\nDOT_PUBLIC_LIB=%s\n' \
-  "$PREFIX" "$BIN_DIR" "$DOT_PUBLIC_LIB" >"$DOT_HOOK_TEST_INSTALL_LOG"
-exit "${DOT_HOOK_TEST_INSTALL_RC:-0}"
-EOF
-chmod +x "$_dot_home_checkout/.local/share/cgraf78/dot/support/install-checkout.sh"
-_dot_install_log=$(_tmpdir)/install.log
-_dot_rc=0
-HOME="$_dot_home_checkout" SHDEPS_INSTALL_DIR="$_dot_home_checkout/.local/share" \
-  DOT_HOOK_TEST_INSTALL_LOG="$_dot_install_log" DOT_HOOK_TEST_INSTALL_RC=0 \
-  post "cgraf78/dot" >/dev/null 2>&1 || _dot_rc=$?
-_assert_exit "dot hook: checkout installer success propagates" 0 "$_dot_rc"
-_assert_file_content "dot hook: installer binds HOME-local surfaces" \
-  "PREFIX=$_dot_home_checkout/.local
-BIN_DIR=$_dot_home_checkout/.local/bin
-DOT_PUBLIC_LIB=$_dot_home_checkout/.local/lib/dot" "$_dot_install_log"
-_dot_rc=0
-HOME="$_dot_home_checkout" SHDEPS_INSTALL_DIR="$_dot_home_checkout/.local/share" \
-  DOT_HOOK_TEST_INSTALL_LOG="$_dot_install_log" DOT_HOOK_TEST_INSTALL_RC=1 \
-  post "cgraf78/dot" >/dev/null 2>&1 || _dot_rc=$?
-_assert_exit "dot hook: checkout installer failure propagates" 1 "$_dot_rc"
-
-# A symlinked installer does not count as a checkout root.
-_dot_home_linkinst=$(_tmpdir)/home
-_dot_hook_fixture "$_dot_home_linkinst"
-mkdir -p "$_dot_home_linkinst/.local/share/cgraf78/dot/support"
-ln -s "$_dot_home_checkout/.local/share/cgraf78/dot/support/install-checkout.sh" \
-  "$_dot_home_linkinst/.local/share/cgraf78/dot/support/install-checkout.sh"
-_dot_rc=0
-HOME="$_dot_home_linkinst" SHDEPS_INSTALL_DIR="$_dot_home_linkinst/.local/share" \
-  post "cgraf78/dot" >/dev/null 2>&1 || _dot_rc=$?
-_assert_exit "dot hook: symlinked installer falls through to release refusal" \
-  1 "$_dot_rc"
-
 unset -f post
 
 _test_summary

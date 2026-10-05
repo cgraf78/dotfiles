@@ -122,7 +122,6 @@ _run_merge() {
     unset XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME
     export HOME PATH
     export DOT_OVERLAY_MANIFEST="$fixture_home/.local/state/dot/overlay-links"
-    export DOT_OVERLAY_LEGACY_MANIFEST="$fixture_home/.local/state/dot/legacy-overlay-links"
     export DOT_TEST_AGENT_RULES_SYNC_LOG="$call_log"
     export DOT_TEST_AGENT_RULES_SYNC_MANIFEST_COPY="$manifest_copy"
     # The sourced hook calls these merge-runner callbacks dynamically.
@@ -144,7 +143,6 @@ _run_installed_check() {
     unset XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME
     export HOME PATH
     export DOT_OVERLAY_MANIFEST="$fixture_home/.local/state/dot/overlay-links"
-    export DOT_OVERLAY_LEGACY_MANIFEST="$fixture_home/.local/state/dot/legacy-overlay-links"
     export DOT_TEST_AGENT_RULES_SYNC_LOG="$call_log"
     export DOT_TEST_AGENT_RULES_SYNC_MANIFEST_COPY="$manifest_copy"
     _log() { :; }

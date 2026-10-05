@@ -18,8 +18,7 @@ _client_dot_root() {
     "$host_home/git/dot" \
     "$host_home/.local/share/cgraf78/dot"; do
     [[ -n $candidate ]] || continue
-    if [[ -r $candidate/lib/dot/extension-worker.sh ||
-      -r $candidate/lib/dot/public/hook-runtime-v1/hook-api.sh ]]; then
+    if [[ -r $candidate/lib/dot/public/hook-runtime-v1/hook-api.sh ]]; then
       (cd -P -- "$candidate" && pwd -P)
       return
     fi
@@ -154,7 +153,6 @@ client_root=$fixture_home/.local/lib/dotfiles
 
 export DOT_SOURCE_ROOT=$dot_root
 export DOT_EXTENSIONS_DIR=$client_root
-export DOT_EXTENSION_API=1
 export DOT_QUIET=1
 export HOME=$fixture_home
 # The fixture owns its HOME-derived client config. Hosted runners may export
@@ -172,20 +170,17 @@ client_worker_v1=$dot_root/lib/dot/public/hook-runtime-v1/worker.sh
 # engine refuses (notably macOS /bin/bash 3.2). The PATH override below
 # stays scoped to hook children.
 if [[ ! -f $client_worker_v1 || ! -r $client_worker_v1 ]]; then
-  client_worker_v1=
-  # shellcheck source=/dev/null
-  . "$dot_root/lib/dot/overlay-context.sh"
-  # shellcheck source=/dev/null
-  . "$dot_root/lib/dot/extension-worker-launch.sh"
+  _fail 'client extensions: standalone hook worker is readable'
+  _test_summary
 fi
-if [[ -n $client_worker_v1 && ${BASH_VERSINFO[0]} -lt 4 ]]; then
+if ((BASH_VERSINFO[0] < 4)); then
   _test_skip_suite "standalone worker hooks need Bash 4+ (suite runs under $BASH)"
 fi
 
 _client_worker_run() {
   local mode=$1 script=$2 stage=${3:-none}
   shift 3
-  local temporary result output context token set_kind=active rc=0
+  local temporary result set_kind=active
   local -a records=("$@")
 
   temporary=$(_tmpdir)
@@ -194,23 +189,8 @@ _client_worker_run() {
   : >"$result"
   chmod 0600 "$result"
   [[ $mode != pre-sync ]] || set_kind=eligible
-  if [[ -n $client_worker_v1 ]]; then
-    _client_worker_run_v1 "$mode" "$script" "$stage" "$temporary" \
-      "$result" "$set_kind" "${records[@]+"${records[@]}"}"
-    return
-  fi
-  _dot_overlay_context_create "$temporary" "$mode" "$set_kind" "$stage" \
-    "${records[@]+"${records[@]}"}" || return 1
-  context=$REPLY_PATH
-  token=$REPLY_TOKEN
-  output=$(PATH=${CLIENT_WORKER_PATH:-/usr/bin:/bin} _dot_extension_worker_run \
-    "$mode" "$script" "$temporary" "$result" "$context" "$token" \
-    2>&1) || rc=$?
-  if [[ -n $output ]]; then
-    printf '%s\n' "$output" >&2
-    return 1
-  fi
-  return "$rc"
+  _client_worker_run_v1 "$mode" "$script" "$stage" "$temporary" \
+    "$result" "$set_kind" "${records[@]+"${records[@]}"}"
 }
 
 # Drive the versioned worker boundary directly. The worker's context file is
