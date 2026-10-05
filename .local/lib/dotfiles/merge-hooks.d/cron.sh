@@ -1,5 +1,6 @@
 # shellcheck shell=bash
 dot_hook_source merge-hooks.d/lib/compat.sh || return
+dot_hook_source merge-hooks.d/lib/cron-list.sh || return
 
 # shellcheck shell=bash
 # Install cron entries from tracked source layers and cron.local into the user
@@ -231,8 +232,20 @@ merge() {
   _cron_render_block
   managed_block=$REPLY
 
-  local current
-  current=$("$cron_command" -l 2>/dev/null || true)
+  # Everything below rewrites the whole crontab from this listing, so a
+  # listing that failed must not pass for an empty crontab: the user's own
+  # entries would be replaced by the managed block alone. Only a listing
+  # that worked, or crontab's "no crontab yet", is safe to build on.
+  local current listed=0
+  _cron_list "$cron_command" || listed=$?
+  current=$REPLY
+  if ((listed == 2)); then
+    # With nothing to install the hook would only strip an old block, which
+    # it cannot see now; leave the crontab as it is, as before.
+    [[ -n "$managed_block" ]] || return 0
+    dot_hook_warn "  warning: crontab -l failed ($_CRON_LIST_ERR); crontab left unchanged"
+    return 1
+  fi
 
   # No active entries — strip any existing managed block and return.
   if [[ -z "$managed_block" ]]; then

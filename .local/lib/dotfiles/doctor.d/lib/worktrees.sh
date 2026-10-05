@@ -1270,7 +1270,7 @@ _dr_worktree_label() {
 # own row with the repair command; the candidates (the checkouts the check
 # found, passed as arguments) are read only when some entry looks prunable.
 _dr_worktree_report_admin() {
-  local entry repo id label common admin dir moved_to i hint
+  local entry repo id label common admin dir moved_to i hint why
   local -a items=() prunable=() moved=() moved_dirs=() pointers=() pointer_dirs=()
   local -A prune_repos=() moved_by_repo=()
 
@@ -1375,12 +1375,13 @@ _dr_worktree_report_admin() {
   if ((${#items[@]} > 0)); then
     if ((${#items[@]} == 1)); then
       label="1 locked worktree"
+      why="prune and dot-worktree-gc skip it until 'git worktree unlock'"
     else
       label="${#items[@]} locked worktrees"
+      why="prune and dot-worktree-gc skip them until 'git worktree unlock'"
     fi
     # Information, not a step: a lock is usually deliberate.
-    _dr_row info "$label" \
-      "prune and dot-worktree-gc skip them until 'git worktree unlock'" 0 "${items[@]}"
+    _dr_row info "$label" "$why" 0 "${items[@]}"
   fi
   return 0
 }
@@ -1495,7 +1496,8 @@ _dr_worktree_report_disk() {
 
   threshold=$(_dr_worktree_warn_bytes)
   total_human=$(_dr_worktree_human_bytes $((total_kib * 1024)))
-  local label="worktree disk $total_human across $count worktrees"
+  local label="worktree disk $total_human across $count worktree"
+  ((count == 1)) || label+="s"
   if ((total_kib * 1024 <= 10#$threshold)); then
     _dr_ok "$label"
     return 0
@@ -1567,7 +1569,7 @@ _dr_worktree_report_disk() {
   if ((dominant == 0 && low == 0)); then
     _dr_worktree_top_roots
     # The detail renders inside the row's parentheses: keep it short.
-    reason="above the $limit_human limit (DOT_WORKTREE_WARN_BYTES), but"
+    reason="above the $limit_human DOT_WORKTREE_WARN_BYTES limit, but"
     if ((${#_DR_WORKTREE_DU_SIZES[@]} > 0)); then
       reason+=" stale and orphaned trees hold under half of it"
       [[ -z $free ]] || reason+=" and"
@@ -1592,7 +1594,7 @@ _dr_worktree_report_disk() {
     label+="; only $free"
     hint="free space on $mount: $hint"
   else
-    hint+=", or raise the $limit_human limit (DOT_WORKTREE_WARN_BYTES)"
+    hint+=", or raise the $limit_human DOT_WORKTREE_WARN_BYTES limit"
   fi
   _dr_worktree_label_largest
   _dr_list_row warn "$label" "$hint" ${_DR_WORKTREE_TOP[@]+"${_DR_WORKTREE_TOP[@]}"}

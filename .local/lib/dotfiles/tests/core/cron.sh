@@ -564,6 +564,103 @@ EOF
   _assert_not_contains "filter user mixed: current user excluded first" "mixed-skip-this-user" "$result"
   _assert_contains "filter user mixed: current user included" "mixed-keep-this-user" "$result"
 
+  # The hook rewrites the whole crontab from its listing, so a listing
+  # that failed must never pass for an empty crontab: that would replace
+  # the user's own entries with the managed block alone.
+  cron_flaky_bin=$(_mock_bin)
+  cron_flaky_log=$(_tmpfile)
+  cat >"$cron_flaky_bin/crontab" <<'SH'
+#!/usr/bin/env bash
+case ${1:-} in
+  -l)
+    printf '%s\n' "crontab: error reading the crontab: Input/output error" >&2
+    exit 1
+    ;;
+  *) printf '%s\n' "$*" >>"$CRON_FLAKY_LOG" ;;
+esac
+SH
+  cat >"$cron_flaky_bin/crontab-none" <<'SH'
+#!/usr/bin/env bash
+case ${1:-} in
+  -l)
+    printf '%s\n' "no crontab for tester" >&2
+    exit 1
+    ;;
+  -) cat >>"$CRON_FLAKY_LOG" ;;
+  *) printf '%s\n' "$*" >>"$CRON_FLAKY_LOG" ;;
+esac
+SH
+  chmod +x "$cron_flaky_bin/crontab" "$cron_flaky_bin/crontab-none"
+  cat >"$TEST_HOME/.config/dot/merge-hooks.d/cron/cron.d/10-base.cron" <<'EOF'
+*/30 * * * * $HOME/.local/bin/dot update --cron
+EOF
+  : >"$cron_flaky_log"
+  cron_flaky_output=$(
+    DOT_TEST_CRONTAB=$cron_flaky_bin/crontab CRON_FLAKY_LOG=$cron_flaky_log
+    export DOT_TEST_CRONTAB CRON_FLAKY_LOG
+    _run_cron_merge 2>&1
+  )
+  cron_flaky_rc=$?
+  _assert_exit "failed listing: the merge reports failure" 1 "$cron_flaky_rc"
+  _assert_eq "failed listing: the crontab is never written or removed" \
+    "" "$(<"$cron_flaky_log")"
+  _assert_contains "failed listing: the warning names crontab's message" \
+    "crontab -l failed (crontab: error reading the crontab: Input/output error); crontab left unchanged" \
+    "$cron_flaky_output"
+  # A refusal goes the same way, naming crontab's reason.
+  cat >"$cron_flaky_bin/crontab-refused" <<'SH'
+#!/usr/bin/env bash
+case ${1:-} in
+  -l)
+    printf '%s\n' 'You (tester) are not allowed to use this program (crontab)' >&2
+    exit 1
+    ;;
+  *) printf '%s\n' "$*" >>"$CRON_FLAKY_LOG" ;;
+esac
+SH
+  chmod +x "$cron_flaky_bin/crontab-refused"
+  : >"$cron_flaky_log"
+  cron_flaky_output=$(
+    DOT_TEST_CRONTAB=$cron_flaky_bin/crontab-refused CRON_FLAKY_LOG=$cron_flaky_log
+    export DOT_TEST_CRONTAB CRON_FLAKY_LOG
+    _run_cron_merge 2>&1
+  )
+  cron_flaky_rc=$?
+  _assert_exit "refused listing: the merge reports failure" 1 "$cron_flaky_rc"
+  _assert_eq "refused listing: no install is attempted" "" "$(<"$cron_flaky_log")"
+  _assert_contains "refused listing: the warning names crontab's reason" \
+    "crontab -l failed (You (tester) are not allowed to use this program (crontab))" \
+    "$cron_flaky_output"
+  # With nothing to install there is nothing to do, as before.
+  cat >"$TEST_HOME/.config/dot/merge-hooks.d/cron/cron.d/10-base.cron" <<EOF
+# filter: hosts=nonexistent-host-xyz
+0 3 * * * true
+EOF
+  : >"$cron_flaky_log"
+  cron_flaky_output=$(
+    DOT_TEST_CRONTAB=$cron_flaky_bin/crontab CRON_FLAKY_LOG=$cron_flaky_log
+    export DOT_TEST_CRONTAB CRON_FLAKY_LOG
+    _run_cron_merge 2>&1
+  )
+  cron_flaky_rc=$?
+  _assert_exit "failed listing, nothing to install: the merge succeeds" 0 "$cron_flaky_rc"
+  _assert_eq "failed listing, nothing to install: the crontab is untouched" \
+    "" "$(<"$cron_flaky_log")"
+  # "No crontab yet" is an empty crontab: the block is installed.
+  cat >"$TEST_HOME/.config/dot/merge-hooks.d/cron/cron.d/10-base.cron" <<'EOF'
+*/30 * * * * $HOME/.local/bin/dot update --cron
+EOF
+  : >"$cron_flaky_log"
+  cron_flaky_output=$(
+    DOT_TEST_CRONTAB=$cron_flaky_bin/crontab-none CRON_FLAKY_LOG=$cron_flaky_log
+    export DOT_TEST_CRONTAB CRON_FLAKY_LOG
+    _run_cron_merge 2>&1
+  )
+  cron_flaky_rc=$?
+  _assert_exit "no crontab yet: the merge succeeds" 0 "$cron_flaky_rc"
+  _assert_contains "no crontab yet: the managed block is installed" \
+    "# dot-managed-cron begin" "$(<"$cron_flaky_log")"
+
   _assert_eq "cron test: PATH crontab is never invoked" \
     "" "$(<"$cron_path_log")"
 }

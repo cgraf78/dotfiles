@@ -178,7 +178,7 @@ _assert_contains "disk: over-threshold names the knob" \
 _assert_contains "disk: the info row says why it is not a warning" \
   "but stale and orphaned trees hold under half of it and 953.7G is free on /test mount" "$result"
 _assert_contains "disk: the info row gives its reason before its largest trees" \
-  $' across 2 worktrees\tabove the 2K limit (DOT_WORKTREE_WARN_BYTES), but ' "$result"
+  $' across 2 worktrees\tabove the 2K DOT_WORKTREE_WARN_BYTES limit, but ' "$result"
 _assert_contains "disk: the info row labels its largest trees" \
   $' is free on /test mount; largest: ~/.worktrees/big ' "$result"
 # On a Dot with list items, the largest trees are items and the reason is
@@ -188,7 +188,7 @@ result=$(HOME="$disk_home" DOTFILES="$disk_home/.dotfiles" DOT_WORKTREE_WARN_BYT
 _assert_contains "disk: the info row lists its largest trees as items" \
   $'\nitem\tlargest: ~/.worktrees/big ' "$result"
 _assert_contains "disk: the info row gives its reason as its detail" \
-  $' across 2 worktrees\tabove the 2K limit (DOT_WORKTREE_WARN_BYTES), but stale and orphaned trees hold under half of it and 953.7G is free on /test mount\n' \
+  $' across 2 worktrees\tabove the 2K DOT_WORKTREE_WARN_BYTES limit, but stale and orphaned trees hold under half of it and 953.7G is free on /test mount\n' \
   "$result"
 _assert_not_contains "disk: the info row files no next step" $'\nhint\t' "$result"
 
@@ -586,8 +586,8 @@ result=$(HOME="$overlay_home" DOTFILES="$overlay_home/.dotfiles" \
   _doctor_records _dr_check_worktrees)
 status=$?
 _assert_exit "overlay: enumeration exits 0" 0 "$status"
-_assert_contains "overlay: repo-local worktree counts" \
-  "across 1 worktrees" "$result"
+_assert_contains "overlay: repo-local worktree counts, in the singular" \
+  $' across 1 worktree\t' "$result"
 _assert_contains "overlay: non-git checkout stays silent" \
   $'ok\tno stale worktrees' "$result"
 
@@ -1247,6 +1247,20 @@ result=$(HOME="$lockout_home" DOTFILES="$lockout_home/.dotfiles" \
   _doctor_records _dr_check_worktrees)
 _assert_contains "registered: a far repository's locked checkout is not stale" \
   $'ok\tno stale worktrees' "$result"
+# One locked checkout reads in the singular.
+lockone_home=$(_tmpdir)
+lockone_origin_root=$(_tmpdir)
+_seed_origin "$lockone_origin_root/origin.git"
+_clone_worktree "$lockone_origin_root/origin.git" "$lockone_home/git/repo"
+git -C "$lockone_home/git/repo" worktree add --detach \
+  "$lockone_home/.worktrees/locked-one" origin/main >/dev/null 2>&1
+git -C "$lockone_home/git/repo" worktree lock "$lockone_home/.worktrees/locked-one" \
+  >/dev/null 2>&1
+result=$(HOME="$lockone_home" DOTFILES="$lockone_home/.dotfiles" \
+  _doctor_records _dr_check_worktrees)
+_assert_contains "registered: one locked checkout is described in the singular" \
+  $'info\t1 locked worktree\tprune and dot-worktree-gc skip it until \'git worktree unlock\'' \
+  "$result"
 
 # A reftable repository keeps HEAD as a placeholder; its table directory is
 # the activity signal.
@@ -1283,7 +1297,7 @@ head -c 102400 /dev/zero >"$nest_home/git/worktrees/group/three/blob.bin"
 result=$(HOME="$nest_home" DOTFILES="$nest_home/.dotfiles" \
   DOT_WORKTREE_WARN_BYTES=150000 _doctor_records _dr_check_worktrees)
 _assert_contains "nested: a grouping folder is not counted as a worktree" \
-  "across 1 worktrees" "$result"
+  $' across 1 worktree\t' "$result"
 _assert_contains "nested: nested bytes are measured once" \
   $'ok\tworktree disk' "$result"
 
@@ -1434,7 +1448,7 @@ _assert_contains "disk: the warning names the largest orphans first" \
 _assert_not_contains "disk: an active tree is not named as a culprit" \
   $'worktrees/active ' "$(grep $'^warn\tworktree disk' <<<"$result")"
 _assert_contains "disk: the warning points at the stale and orphan rows" \
-  "remove those trees as the stale and orphan rows below say, or raise the 2K limit (DOT_WORKTREE_WARN_BYTES)" \
+  "remove those trees as the stale and orphan rows below say, or raise the 2K DOT_WORKTREE_WARN_BYTES limit" \
   "$result"
 # An orphan a moved repository still lists, outside the swept roots, is
 # marked: dot-worktree-gc never visits it.
@@ -1751,11 +1765,13 @@ done
 # octal 1064, and 09000 is 9K, not an arithmetic error.
 result=$(HOME="$disk_home" DOTFILES="$disk_home/.dotfiles" \
   DOT_WORKTREE_WARN_BYTES=02048 _doctor_records _dr_check_worktrees 2>&1)
-_assert_contains "edge: a 0-led knob displays as decimal" "the 2K limit" "$result"
+_assert_contains "edge: a 0-led knob displays as decimal" \
+  "the 2K DOT_WORKTREE_WARN_BYTES limit" "$result"
 result=$(HOME="$disk_home" DOTFILES="$disk_home/.dotfiles" \
   DOT_WORKTREE_WARN_BYTES=09000 _doctor_records _dr_check_worktrees 2>&1)
 _assert_not_contains "edge: a 0-led knob raises no arithmetic error" "value too great" "$result"
-_assert_contains "edge: a 0-led non-octal knob still applies" "the 9K limit" "$result"
+_assert_contains "edge: a 0-led non-octal knob still applies" \
+  "the 9K DOT_WORKTREE_WARN_BYTES limit" "$result"
 _assert_eq "edge: a 0-led knob reads as decimal" "900000000" \
   "$(DOT_WORKTREE_WARN_BYTES=0900000000 _dr_worktree_warn_bytes)"
 

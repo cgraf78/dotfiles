@@ -269,7 +269,7 @@ SH
   _assert_eq "doctor cron: a refused crontab runs once" \
     "-l" "$(cat "$doctor_crontab_log")"
   _assert_contains "doctor cron: a refused crontab names crontab's own reason" \
-    $'warn\tcrontab is not usable by this account\tYou (tester) are not allowed to use this program (crontab); ask an administrator to let this account use crontab (cron.allow, cron.deny, PAM, or crontab\'s setuid or setgid bit), then run \'dot update\' to install the tracked entries' \
+    $'warn\tcrontab is not usable by this account\tYou (tester) are not allowed to use this program (crontab); ask an administrator to allow crontab for this account (cron.allow or cron.deny, PAM, its setuid/setgid bit), then run \'dot update\'' \
     "$result"
   _assert_not_contains "doctor cron: a refused crontab is not a missing block" \
     "managed cron block missing" "$result"
@@ -283,7 +283,7 @@ SH
   )
   _assert_contains "doctor cron: a newer Dot gets the refusal's step on its own line" \
     "$(printf '%s\n' $'warn\tcrontab is not usable by this account\tYou (tester) are not allowed to use this program (crontab)' \
-      $'hint\task an administrator to let this account use crontab (cron.allow, cron.deny, PAM, or crontab\'s setuid or setgid bit), then run \'dot update\' to install the tracked entries\t')" \
+      $'hint\task an administrator to allow crontab for this account (cron.allow or cron.deny, PAM, its setuid/setgid bit), then run \'dot update\'\t')" \
     "$result"
   # Doctor workers may run under errexit; the failing listing must not end
   # the check before it files its row.
@@ -369,11 +369,11 @@ printf '%s\n' 'crontab: a warning on stderr' >&2
 printf '%s\n\n\n' 'SHELL=/bin/sh' '0 4 * * * true'
 SH
   chmod +x "$doctor_bin/crontab-noisy"
-  # shellcheck disable=SC2031 # _dr_cron_list sets REPLY in this shell.
+  # shellcheck disable=SC2031 # _cron_list sets REPLY in this shell.
   _doctor_cron_list() {
     local status=0
-    DOT_TEST_CRONTAB_LOG=$doctor_crontab_log _dr_cron_list "$1" || status=$?
-    printf '%s|%s|%s' "$status" "$REPLY" "$_DR_CRON_LIST_ERR"
+    DOT_TEST_CRONTAB_LOG=$doctor_crontab_log _cron_list "$1" || status=$?
+    printf '%s|%s|%s' "$status" "$REPLY" "$_CRON_LIST_ERR"
   }
   _assert_eq "doctor cron: stderr stays out of a listing, trailing newlines go" \
     $'0|SHELL=/bin/sh\n\n\n0 4 * * * true|crontab: a warning on stderr' \
