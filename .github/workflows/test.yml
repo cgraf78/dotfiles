@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   shell:
-    uses: cgraf78/actions/.github/workflows/shell-ci.yml@dea363fed9e62883887a39790006a111a458af31
+    uses: cgraf78/actions/.github/workflows/shell-ci.yml@e3a25ae946aea8fd57da3bf2ffbf9f94ea84b8d9
     with:
       # This repository owns only base and profile/control-plane tests. The
       # public capability repositories run their own focused suites, so this
@@ -100,7 +100,7 @@ jobs:
           persist-credentials: false
 
       # GitHub resolves literal `uses:` refs before repository files are read.
-      - uses: cgraf78/actions/.github/actions/verify-consumer-sync@dea363fed9e62883887a39790006a111a458af31
+      - uses: cgraf78/actions/.github/actions/verify-consumer-sync@e3a25ae946aea8fd57da3bf2ffbf9f94ea84b8d9
 
   installed-profiles:
     name: Installed profile composition
@@ -119,7 +119,7 @@ jobs:
           persist-credentials: false
 
       - name: Install profile test prerequisites
-        uses: cgraf78/actions/.github/actions/shell-ci-prereqs@dea363fed9e62883887a39790006a111a458af31
+        uses: cgraf78/actions/.github/actions/shell-ci-prereqs@e3a25ae946aea8fd57da3bf2ffbf9f94ea84b8d9
         with:
           matrix-name: Ubuntu
           profiles: base,jq,python,zsh,lua,neovim,tmux,openssh-netcat-lsof,procps,cron,fd,ripgrep,shellcheck
@@ -204,7 +204,7 @@ jobs:
           persist-credentials: false
 
       - name: Install bootstrap prerequisites
-        uses: cgraf78/actions/.github/actions/shell-ci-prereqs@dea363fed9e62883887a39790006a111a458af31
+        uses: cgraf78/actions/.github/actions/shell-ci-prereqs@e3a25ae946aea8fd57da3bf2ffbf9f94ea84b8d9
         with:
           matrix-name: Ubuntu
           profiles: base,jq,python,zsh,lua,tmux,openssh-netcat-lsof,procps,cron,fd,ripgrep,hostname
