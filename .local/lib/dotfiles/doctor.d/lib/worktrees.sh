@@ -1270,7 +1270,7 @@ _dr_worktree_label() {
 # own row with the repair command; the candidates (the checkouts the check
 # found, passed as arguments) are read only when some entry looks prunable.
 _dr_worktree_report_admin() {
-  local entry repo id label common admin dir moved_to i hint
+  local entry repo id label common admin dir moved_to i hint why
   local -a items=() prunable=() moved=() moved_dirs=() pointers=() pointer_dirs=()
   local -A prune_repos=() moved_by_repo=()
 
@@ -1375,11 +1375,13 @@ _dr_worktree_report_admin() {
   if ((${#items[@]} > 0)); then
     if ((${#items[@]} == 1)); then
       label="1 locked worktree"
+      why="prune and dot-worktree-gc skip it until 'git worktree unlock'"
     else
       label="${#items[@]} locked worktrees"
+      why="prune and dot-worktree-gc skip them until 'git worktree unlock'"
     fi
-    _dr_list_row info "$label" \
-      "prune and dot-worktree-gc skip them until 'git worktree unlock'" "${items[@]}"
+    # Information, not a step: a lock is usually deliberate.
+    _dr_row info "$label" "$why" 0 "${items[@]}"
   fi
   return 0
 }
@@ -1487,14 +1489,15 @@ _DR_WORKTREE_DISK_CULPRITS=()
 # the row says nothing about it. The df probe runs only above the limit.
 _dr_worktree_report_disk() {
   local count=$1 total_kib=$2 entry kib path threshold total_human limit_human
-  local reclaim_kib=0 free='' avail_kib mount='' hint root dir
+  local reclaim_kib=0 free='' avail_kib mount='' hint reason root dir
   local dominant=0 low=0 any all
   local -a culprit_roots=()
   local -A culprits=() culprit_root=()
 
   threshold=$(_dr_worktree_warn_bytes)
   total_human=$(_dr_worktree_human_bytes $((total_kib * 1024)))
-  local label="worktree disk $total_human across $count worktrees"
+  local label="worktree disk $total_human across $count worktree"
+  ((count == 1)) || label+="s"
   if ((total_kib * 1024 <= 10#$threshold)); then
     _dr_ok "$label"
     return 0
@@ -1561,17 +1564,20 @@ _dr_worktree_report_disk() {
     done
   fi
 
+  # Nothing needs doing here, so the reason is the row's detail, not a
+  # next step: a next-step line always names something to do.
   if ((dominant == 0 && low == 0)); then
     _dr_worktree_top_roots
-    hint="above the $limit_human limit (DOT_WORKTREE_WARN_BYTES), but"
+    # The detail renders inside the row's parentheses: keep it short.
+    reason="above the $limit_human DOT_WORKTREE_WARN_BYTES limit, but"
     if ((${#_DR_WORKTREE_DU_SIZES[@]} > 0)); then
-      hint+=" stale and orphaned trees measured on their own hold under half of it"
-      [[ -z $free ]] || hint+=" and"
+      reason+=" stale and orphaned trees hold under half of it"
+      [[ -z $free ]] || reason+=" and"
     fi
-    [[ -z $free ]] || hint+=" $free"
-    [[ $hint != *', but' ]] || hint=${hint%, but}
+    [[ -z $free ]] || reason+=" $free"
+    [[ $reason != *', but' ]] || reason=${reason%, but}
     _dr_worktree_label_largest
-    _dr_list_row info "$label" "$hint" ${_DR_WORKTREE_TOP[@]+"${_DR_WORKTREE_TOP[@]}"}
+    _dr_row info "$label" "$reason" 0 ${_DR_WORKTREE_TOP[@]+"${_DR_WORKTREE_TOP[@]}"}
     return 0
   fi
   if ((dominant == 1)); then
@@ -1588,7 +1594,7 @@ _dr_worktree_report_disk() {
     label+="; only $free"
     hint="free space on $mount: $hint"
   else
-    hint+=", or raise the $limit_human limit (DOT_WORKTREE_WARN_BYTES)"
+    hint+=", or raise the $limit_human DOT_WORKTREE_WARN_BYTES limit"
   fi
   _dr_worktree_label_largest
   _dr_list_row warn "$label" "$hint" ${_DR_WORKTREE_TOP[@]+"${_DR_WORKTREE_TOP[@]}"}
@@ -1670,13 +1676,15 @@ _dr_worktree_report_orphans() {
   else
     label="$# orphaned worktrees (their Git metadata is gone)"
   fi
+  # Two steps, each on its own line on a newer Dot, so the listing command
+  # ends its line and copies cleanly.
   if ((${#unswept[@]} == 0)); then
     cause="list every one with: dot-worktree-gc --no-fetch"
   else
     cause="list all but those marked 'outside the swept roots' with: dot-worktree-gc --no-fetch"
   fi
-  _dr_list_row warn "$label" \
-    "$cause; if the repository moved, run 'git -C <repo> worktree repair <path>', otherwise review the dry run and apply proven cleanup with --apply, or copy out any work before manual removal" \
+  _dr_row warn "$label" '' 2 "$cause" \
+    "if the repository moved, run 'git -C <repo> worktree repair <path>', otherwise review the dry run and apply proven cleanup with --apply, or copy out any work before manual removal" \
     "${items[@]}"
 }
 

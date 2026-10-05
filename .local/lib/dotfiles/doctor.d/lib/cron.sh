@@ -7,6 +7,10 @@
 # a crontab-wide SHELL= must name an executable, because cron runs every job
 # through it.
 
+# The merge hook lists the crontab through the same helper, so the two
+# agree on what "no crontab yet" means.
+dot_doctor_source merge-hooks.d/lib/cron-list.sh || return
+
 # Print what the cron merge hook would do for this host: its block marker
 # on the first line, then `none` when there is no tracked source at all (the
 # hook then leaves the crontab alone) or `block`, followed by the managed
@@ -155,7 +159,7 @@ _dr_check_cron() {
     return 0
   fi
 
-  local crontab_out crontab_command expected='' marker='' mode='' log
+  local crontab_out crontab_command expected='' marker='' mode='' log listed=0
   log=${XDG_STATE_HOME:-$HOME/.local/state}/dot/update.log
   if expected=$(_dr_cron_expected_block); then
     marker=${expected%%$'\n'*}
@@ -179,7 +183,8 @@ _dr_check_cron() {
   _dr_account_scoped_command \
     "Cron" crontab "${DOT_TEST_CRONTAB:-}" || return 0
   crontab_command="$REPLY"
-  crontab_out=$("$crontab_command" -l 2>/dev/null || echo "")
+  _cron_list "$crontab_command" || listed=$?
+  crontab_out=$REPLY
 
   if [[ -z $marker || -z $mode ]]; then
     _dr_skip "managed cron block unchecked" "the cron merge hook could not load"
@@ -194,6 +199,11 @@ _dr_check_cron() {
       _dr_hint_row warn "managed cron block is stale" \
         "no tracked entry applies to this host any more" "run 'dot update' to remove it"
     fi
+  elif ((listed == 2)); then
+    # dot update cannot install the block either, so "run 'dot update'"
+    # would send the reader round in circles; crontab's message says why.
+    _dr_hint_row warn "crontab is not usable by this account" "$_CRON_LIST_ERR" \
+      "ask an administrator to allow crontab for this account (cron.allow or cron.deny, PAM, its setuid/setgid bit), then run 'dot update'"
   elif [[ $crontab_out == *"$expected"* ]]; then
     _dr_ok "managed cron block is current"
   elif [[ $crontab_out == *"$marker begin"* ]]; then

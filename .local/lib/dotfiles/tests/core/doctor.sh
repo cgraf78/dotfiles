@@ -214,6 +214,7 @@ SH
   result=$(
     # shellcheck disable=SC2329 # Invoked indirectly by the Cron doctor check.
     _dr_account_home() {
+      # shellcheck disable=SC2030 # A stub for this subshell only.
       REPLY=$HOME
     }
     DOT_TEST=0 HOME="$TEST_HOME" PATH="$doctor_no_crontab_bin" \
@@ -233,6 +234,99 @@ SH
     $'warn\tmanaged cron block missing' "$result"
   _assert_contains "doctor cron: the missing row points at the update log" \
     "update.log" "$result"
+
+  # crontab exits 1 both when the account has no crontab yet and when it
+  # may not use crontab at all; only the second must not say "run 'dot
+  # update'", which would fail the same way.
+  cat >"$doctor_bin/crontab-refused" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$DOT_TEST_CRONTAB_LOG"
+printf '%s\n' 'You (tester) are not allowed to use this program (crontab)' \
+  'See crontab(1) for more information' >&2
+exit 1
+SH
+  cat >"$doctor_bin/crontab-none" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' 'no crontab for tester' >&2
+exit 1
+SH
+  cat >"$doctor_bin/crontab-busybox-none" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "crontab: can't open 'tester': No such file or directory" >&2
+exit 1
+SH
+  cat >"$doctor_bin/crontab-silent-fail" <<'SH'
+#!/usr/bin/env bash
+exit 3
+SH
+  chmod +x "$doctor_bin"/crontab-refused "$doctor_bin"/crontab-none \
+    "$doctor_bin"/crontab-busybox-none "$doctor_bin"/crontab-silent-fail
+  : >"$doctor_crontab_log"
+  result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$PATH" \
+    DOT_TEST_CRONTAB="$doctor_bin/crontab-refused" \
+    DOT_TEST_CRONTAB_LOG="$doctor_crontab_log" \
+    _doctor_records _dr_check_cron)
+  _assert_eq "doctor cron: a refused crontab runs once" \
+    "-l" "$(cat "$doctor_crontab_log")"
+  _assert_contains "doctor cron: a refused crontab names crontab's own reason" \
+    $'warn\tcrontab is not usable by this account\tYou (tester) are not allowed to use this program (crontab); ask an administrator to allow crontab for this account (cron.allow or cron.deny, PAM, its setuid/setgid bit), then run \'dot update\'' \
+    "$result"
+  _assert_not_contains "doctor cron: a refused crontab is not a missing block" \
+    "managed cron block missing" "$result"
+  result=$(
+    # shellcheck disable=SC2329 # Probed by the check under test.
+    dot_doctor_hint() { _dot_doctor_record hint "$1"; }
+    HOME="$TEST_HOME" PATH="$doctor_bin:$PATH" \
+      DOT_TEST_CRONTAB="$doctor_bin/crontab-refused" \
+      DOT_TEST_CRONTAB_LOG="$doctor_crontab_log" \
+      _doctor_records _dr_check_cron
+  )
+  _assert_contains "doctor cron: a newer Dot gets the refusal's step on its own line" \
+    "$(printf '%s\n' $'warn\tcrontab is not usable by this account\tYou (tester) are not allowed to use this program (crontab)' \
+      $'hint\task an administrator to allow crontab for this account (cron.allow or cron.deny, PAM, its setuid/setgid bit), then run \'dot update\'\t')" \
+    "$result"
+  # Doctor workers may run under errexit; the failing listing must not end
+  # the check before it files its row.
+  # (_doctor_records would call it under ||, where errexit is off.)
+  result=$(
+    set -e
+    : >"$DOT_DOCTOR_RESULT_FILE"
+    HOME="$TEST_HOME" PATH="$doctor_bin:$PATH" \
+      DOT_TEST_CRONTAB="$doctor_bin/crontab-refused" \
+      DOT_TEST_CRONTAB_LOG="$doctor_crontab_log" \
+      _dr_check_cron
+    cat "$DOT_DOCTOR_RESULT_FILE"
+  )
+  _assert_contains "doctor cron: a refused crontab is reported under errexit" \
+    $'warn\tcrontab is not usable by this account' "$result"
+  result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$PATH" \
+    DOT_TEST_CRONTAB="$doctor_bin/crontab-silent-fail" \
+    _doctor_records _dr_check_cron)
+  _assert_contains "doctor cron: a silent crontab failure names its status" \
+    $'warn\tcrontab is not usable by this account\tcrontab -l exited 3; ' "$result"
+  result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$PATH" \
+    DOT_TEST_CRONTAB="$doctor_bin/crontab-none" \
+    _doctor_records _dr_check_cron)
+  _assert_contains "doctor cron: no crontab yet is a missing block" \
+    $'warn\tmanaged cron block missing' "$result"
+  _assert_not_contains "doctor cron: no crontab yet is not a refusal" \
+    "not usable" "$result"
+  result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$PATH" \
+    DOT_TEST_CRONTAB="$doctor_bin/crontab-busybox-none" \
+    _doctor_records _dr_check_cron)
+  _assert_contains "doctor cron: BusyBox's no crontab yet is a missing block" \
+    $'warn\tmanaged cron block missing' "$result"
+  # A refusal matters only when there is something to install.
+  doctor_tmp=$TEST_HOME/.config/dot/merge-hooks.d/cron/cron.d/10-update.cron
+  printf '%s\n' '# filter: hosts=doctor-no-such-host' \
+    '*/30 * * * * dot update --cron --force' >"$doctor_tmp"
+  result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$PATH" \
+    DOT_TEST_CRONTAB="$doctor_bin/crontab-refused" \
+    DOT_TEST_CRONTAB_LOG="$doctor_crontab_log" \
+    _doctor_records _dr_check_cron)
+  _assert_contains "doctor cron: a refusal with nothing to install stays quiet" \
+    $'ok\tno tracked cron entries apply to this host' "$result"
+  printf '%s\n' '*/30 * * * * dot update --cron --force' >"$doctor_tmp"
 
   # Install the managed block with the real cron merge hook, then compare:
   # the doctor renders through that same hook, so a fresh install is current
@@ -267,6 +361,45 @@ SH
     _doctor_records _dr_check_cron)
   _assert_contains "doctor cron: a fresh install is current" \
     $'ok\tmanaged cron block is current' "$result"
+  # The listing keeps crontab's stdout and stderr apart from one run. Each
+  # case prints the status, then what was listed (REPLY) or the message.
+  cat >"$doctor_bin/crontab-noisy" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' 'crontab: a warning on stderr' >&2
+printf '%s\n\n\n' 'SHELL=/bin/sh' '0 4 * * * true'
+SH
+  chmod +x "$doctor_bin/crontab-noisy"
+  # shellcheck disable=SC2031 # _cron_list sets REPLY in this shell.
+  _doctor_cron_list() {
+    local status=0
+    DOT_TEST_CRONTAB_LOG=$doctor_crontab_log _cron_list "$1" || status=$?
+    printf '%s|%s|%s' "$status" "$REPLY" "$_CRON_LIST_ERR"
+  }
+  _assert_eq "doctor cron: stderr stays out of a listing, trailing newlines go" \
+    $'0|SHELL=/bin/sh\n\n\n0 4 * * * true|crontab: a warning on stderr' \
+    "$(_doctor_cron_list "$doctor_bin/crontab-noisy")"
+  _assert_eq "doctor cron: no crontab yet lists nothing, as status 1" \
+    "1||no crontab for tester" "$(_doctor_cron_list "$doctor_bin/crontab-none")"
+  _assert_eq "doctor cron: a refusal is status 2 with its message's first line" \
+    "2||You (tester) are not allowed to use this program (crontab)" \
+    "$(_doctor_cron_list "$doctor_bin/crontab-refused")"
+  # A crontab that cannot run says "No such file or directory" too, but
+  # not with status 1; dot update could not install the block either.
+  printf '#!%s\n' "$TEST_HOME/no-such-interpreter" >"$doctor_bin/crontab-bad-interpreter"
+  chmod +x "$doctor_bin/crontab-bad-interpreter"
+  _assert_eq "doctor cron: a crontab that cannot run is unusable" \
+    "2" "$(_doctor_cron_list "$doctor_bin/crontab-bad-interpreter" | cut -d'|' -f1)"
+  # A failed listing is not judged, even when crontab printed something.
+  cat >"$doctor_bin/crontab-partial" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' '# dot-managed-cron begin'
+printf '\n%s\n' 'crontab: read error' >&2
+exit 4
+SH
+  chmod +x "$doctor_bin/crontab-partial"
+  _assert_eq "doctor cron: a failed listing is empty and names its first message line" \
+    "2||crontab: read error" "$(_doctor_cron_list "$doctor_bin/crontab-partial")"
+  unset -f _doctor_cron_list
   printf '%s\n' '0 4 * * * echo nightly' \
     >"$TEST_HOME/.config/dot/merge-hooks.d/cron/cron.d/20-nightly.cron"
   result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$PATH" \
@@ -1600,6 +1733,60 @@ SH
   doctor_status=0
   _dr_hint_row warn "row" "detail" 2>/dev/null || doctor_status=$?
   _assert_eq "doctor hint row: a missing hint argument is refused" 2 "$doctor_status"
+
+  # _dr_row: detail, steps, and items in one row. An older Dot joins them
+  # in that order (detail, sampled items, steps); a newer one keeps the
+  # detail on the row and gives each item and step its own line.
+  result=$(_doctor_records _dr_row info "row" "why" 0 a b c d e)
+  _assert_eq "doctor row: an older Dot joins the detail before the sampled items" \
+    $'info\trow\twhy; a; b; c; and 2 more' "$result"
+  result=$(_doctor_records _dr_row warn "row" "" 2 "step one" "step two" a)
+  _assert_eq "doctor row: an older Dot joins every step after the items" \
+    $'warn\trow\ta; step one; step two' "$result"
+  result=$(
+    # shellcheck disable=SC2329 # Probed by the helper under test.
+    dot_doctor_item() { _dot_doctor_record item "$1"; }
+    # shellcheck disable=SC2329
+    dot_doctor_hint() { _dot_doctor_record hint "$1"; }
+    _doctor_records _dr_row info "row" $'the\twhy' 0 a b
+  )
+  _assert_eq "doctor row: a newer Dot keeps the detail on the row and files no step" \
+    "$(printf '%s\n' $'info\trow\tthe why' $'item\ta\t' $'item\tb\t')" "$result"
+  result=$(
+    # shellcheck disable=SC2329 # Probed by the helper under test.
+    dot_doctor_item() { _dot_doctor_record item "$1"; }
+    # shellcheck disable=SC2329
+    dot_doctor_hint() { _dot_doctor_record hint "$1"; }
+    _doctor_records _dr_row warn "row" "" 3 "step one" "" $'step\ntwo' a
+  )
+  _assert_eq "doctor row: a newer Dot gives each non-empty step its own line" \
+    "$(printf '%s\n' $'warn\trow\t' $'item\ta\t' $'hint\tstep one\t' $'hint\tstep two\t')" \
+    "$result"
+  doctor_status=0
+  _dr_row warn "row" "" 2 "only one step" 2>/dev/null || doctor_status=$?
+  _assert_eq "doctor row: fewer steps than counted are refused" 2 "$doctor_status"
+  doctor_status=0
+  _dr_row warn "row" "" x 2>/dev/null || doctor_status=$?
+  _assert_eq "doctor row: a non-numeric step count is refused" 2 "$doctor_status"
+  doctor_status=0
+  _dr_row bogus "row" "" 0 2>/dev/null || doctor_status=$?
+  _assert_eq "doctor row: an unknown level is refused" 2 "$doctor_status"
+  # _dr_list_row is _dr_row without a detail and with one step.
+  result=$(_doctor_records _dr_list_row warn "row" "do this" a b c d)
+  _assert_eq "doctor list row: an older Dot folds the tail before the step" \
+    $'warn\trow\ta; b; c; and 1 more; do this' "$result"
+  result=$(
+    # shellcheck disable=SC2329 # Probed by the helper under test.
+    dot_doctor_item() { _dot_doctor_record item "$1"; }
+    # shellcheck disable=SC2329
+    dot_doctor_hint() { _dot_doctor_record hint "$1"; }
+    _doctor_records _dr_list_row warn "row" "" a
+  )
+  _assert_eq "doctor list row: an empty step files no hint" \
+    "$(printf '%s\n' $'warn\trow\t' $'item\ta\t')" "$result"
+  doctor_status=0
+  _dr_list_row warn "row" 2>/dev/null || doctor_status=$?
+  _assert_eq "doctor list row: a missing hint argument is refused" 2 "$doctor_status"
 
   # A probe that cannot create its temporary directory says what to check.
   result=$(TMPDIR=/nonexistent/doctor-tmp HOME="$TEST_HOME" \

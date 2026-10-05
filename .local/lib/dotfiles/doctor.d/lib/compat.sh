@@ -37,42 +37,63 @@ _dr_info() {
 # Items an older Dot folds into a list row's detail before "and N more".
 _DR_LIST_SAMPLE=3
 
-# File one verdict row whose evidence is a list: LEVEL (ok, warn, fail,
-# skip, or info), MESSAGE, a next step HINT (empty for none), then one ITEM
-# per entry. A Dot whose doctor API has dot_doctor_item and dot_doctor_hint
-# renders the items as an indented list, folding the tail itself, and the
-# hint as a next-step line. On an older one, the first _DR_LIST_SAMPLE
-# items, "and N more", and the hint are joined into the row's detail. Each
-# item and the hint become one line of record text.
-_dr_list_row() {
-  local level=$1 message=$2 hint=${3-} item detail='' shown=0
+# File one verdict row with every part it may carry: LEVEL (ok, warn, fail,
+# skip, or info), MESSAGE, DETAIL (the row's own evidence; may be empty), a
+# count N, then N next steps (empty ones are dropped), then one ITEM per
+# entry. _dr_list_row and _dr_hint_row cover the usual shapes; this one is
+# for a row whose explanation is not a step (detail beside a list) or that
+# has more than one step, each of which should stand on its own line. A Dot
+# whose doctor API has dot_doctor_item and dot_doctor_hint renders the
+# detail on the row, the items as an indented list (folding the tail
+# itself), and each step as its own next-step line. On an older one, the
+# detail, the first _DR_LIST_SAMPLE items, "and N more", and the steps are
+# joined with "; " into the row's detail. Each part becomes one line of
+# record text.
+_dr_row() {
+  local level=$1 message=$2 detail=${3-} count=${4-} item joined
+  local -a steps=()
   case $level in
     ok | warn | fail | skip | info) ;;
     *) return 2 ;;
   esac
-  shift 3 || return 2
+  [[ $count =~ ^(0|[1-9][0-9]*)$ ]] && (($# >= 4 + count)) || return 2
+  shift 4
+  for item in "${@:1:count}"; do
+    [[ -z $item ]] || steps+=("$item")
+  done
+  shift "$count"
   if declare -F dot_doctor_item >/dev/null 2>&1 &&
     declare -F dot_doctor_hint >/dev/null 2>&1; then
-    "_dr_$level" "$message" || return
+    _dr_one_line "$detail"
+    "_dr_$level" "$message" "$REPLY" || return
     for item; do
       _dr_one_line "$item"
       dot_doctor_item "$REPLY" || return
     done
-    [[ -z $hint ]] || {
-      _dr_one_line "$hint"
-      dot_doctor_hint "$REPLY"
-    }
-    return
+    for item in ${steps[@]+"${steps[@]}"}; do
+      _dr_one_line "$item"
+      dot_doctor_hint "$REPLY" || return
+    done
+    return 0
   fi
-  for item; do
-    ((shown < _DR_LIST_SAMPLE)) || break
-    detail+=${detail:+; }$item
-    shown=$((shown + 1))
+  joined=$detail
+  for item in "${@:1:_DR_LIST_SAMPLE}"; do
+    joined+=${joined:+; }$item
   done
-  (($# <= shown)) || detail+="; and $(($# - shown)) more"
-  [[ -z $hint ]] || detail+=${detail:+; }$hint
-  _dr_one_line "$detail"
+  (($# <= _DR_LIST_SAMPLE)) || joined+="; and $(($# - _DR_LIST_SAMPLE)) more"
+  for item in ${steps[@]+"${steps[@]}"}; do
+    joined+=${joined:+; }$item
+  done
+  _dr_one_line "$joined"
   "_dr_$level" "$message" "$REPLY"
+}
+
+# File one verdict row whose evidence is a list: LEVEL (ok, warn, fail,
+# skip, or info), MESSAGE, a next step HINT (empty for none), then one ITEM
+# per entry, rendered as _dr_row renders a row without detail.
+_dr_list_row() {
+  (($# >= 3)) || return 2
+  _dr_row "$1" "$2" '' 1 "$3" "${@:4}"
 }
 
 # File one verdict row with a next step: LEVEL (ok, warn, fail, skip, or
