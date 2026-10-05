@@ -147,6 +147,64 @@ _dr_cron_check_commands() {
     "${missing[@]}"
 }
 
+# List the user crontab with CMD (crontab or its test double), running it
+# once and keeping its streams apart without a temporary file: its output
+# goes to REPLY (trailing newlines dropped, as $(...) drops them; empty
+# unless it succeeded) and the first non-blank line of its error message
+# to _DR_CRON_LIST_ERR. Returns 0 when it listed, 1 when the account simply
+# has no crontab yet, and 2 when crontab cannot be used here (cron.allow or
+# cron.deny, PAM, a crontab binary that lost its setuid or setgid bit, or
+# one that cannot run at all).
+# crontab exits 1 both for no crontab and for a refusal, so only its message
+# tells them apart: Vixie, cronie, and the BSD and macOS crontabs say "no
+# crontab for USER"; BusyBox reports the missing spool file as "No such
+# file or directory". LC_ALL=C keeps those messages untranslated. Any other
+# failure, or another exit status (126 and 127 when it cannot run), is
+# unusable, which errs towards showing crontab's own message.
+_DR_CRON_LIST_ERR=
+_dr_cron_list() {
+  local sep=$'\x1f''dot-doctor-crontab'$'\x1f' captured err status line
+  # crontab's stdout goes straight to the outer capture (fd 3), its stderr
+  # to the inner one; the status and message follow the separator.
+  captured=$(
+    {
+      if err=$(LC_ALL=C "$1" -l 2>&1 >&3 3>&-); then
+        status=0
+      else
+        status=$?
+      fi
+    } 3>&1
+    printf '%s%s\n%s' "$sep" "$status" "$err"
+  )
+  REPLY=${captured%"$sep"*}
+  captured=${captured##*"$sep"}
+  status=${captured%%$'\n'*}
+  # $(...) dropped the newline after the status when there is no message.
+  err=
+  [[ $captured != *$'\n'* ]] || err=${captured#*$'\n'}
+  _DR_CRON_LIST_ERR=
+  while IFS= read -r line; do
+    [[ -z ${line//[[:space:]]/} ]] || {
+      _DR_CRON_LIST_ERR=${line//[[:cntrl:]]/ }
+      break
+    }
+  done <<<"$err"
+  if [[ $status == 0 ]]; then
+    while [[ $REPLY == *$'\n' ]]; do
+      REPLY=${REPLY%$'\n'}
+    done
+    return 0
+  fi
+  REPLY=
+  [[ -n $_DR_CRON_LIST_ERR ]] || _DR_CRON_LIST_ERR="crontab -l exited $status"
+  if [[ $status == 1 ]]; then
+    case $err in
+      *[Nn]'o crontab for'* | *'No such file or directory'*) return 1 ;;
+    esac
+  fi
+  return 2
+}
+
 _dr_check_cron() {
   _dr_section "Cron"
 
@@ -155,7 +213,7 @@ _dr_check_cron() {
     return 0
   fi
 
-  local crontab_out crontab_command expected='' marker='' mode='' log
+  local crontab_out crontab_command expected='' marker='' mode='' log listed=0
   log=${XDG_STATE_HOME:-$HOME/.local/state}/dot/update.log
   if expected=$(_dr_cron_expected_block); then
     marker=${expected%%$'\n'*}
@@ -179,7 +237,8 @@ _dr_check_cron() {
   _dr_account_scoped_command \
     "Cron" crontab "${DOT_TEST_CRONTAB:-}" || return 0
   crontab_command="$REPLY"
-  crontab_out=$("$crontab_command" -l 2>/dev/null || echo "")
+  _dr_cron_list "$crontab_command" || listed=$?
+  crontab_out=$REPLY
 
   if [[ -z $marker || -z $mode ]]; then
     _dr_skip "managed cron block unchecked" "the cron merge hook could not load"
@@ -194,6 +253,11 @@ _dr_check_cron() {
       _dr_hint_row warn "managed cron block is stale" \
         "no tracked entry applies to this host any more" "run 'dot update' to remove it"
     fi
+  elif ((listed == 2)); then
+    # dot update cannot install the block either, so "run 'dot update'"
+    # would send the reader round in circles; crontab's message says why.
+    _dr_hint_row warn "crontab is not usable by this account" "$_DR_CRON_LIST_ERR" \
+      "ask an administrator to let this account use crontab (cron.allow, cron.deny, PAM, or crontab's setuid or setgid bit), then run 'dot update' to install the tracked entries"
   elif [[ $crontab_out == *"$expected"* ]]; then
     _dr_ok "managed cron block is current"
   elif [[ $crontab_out == *"$marker begin"* ]]; then

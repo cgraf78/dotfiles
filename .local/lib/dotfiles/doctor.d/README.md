@@ -47,6 +47,15 @@ the detail after `; `. Every warn and fail row carries a next step, through
 it or through `_dr_list_row`'s `HINT`.
 It is newer than `_dr_list_row`, so an overlay probes it with
 `declare -F _dr_hint_row` and falls back to the same rule itself.
+`_dr_row LEVEL MESSAGE DETAIL N [STEP...] [ITEM...]` files one row with all
+its parts: `DETAIL`, then `N` next steps, then the items. A newer Dot keeps
+the detail on the row and renders each item and each non-empty step on its
+own line; an older one joins the detail, the sampled items, and the steps
+into the row's detail after `; `. Use it for a row whose explanation is not
+a step (so it gets no next-step line, which always names something to do)
+or for one with more than one step. `_dr_list_row` is `_dr_row` with no
+detail and one step. It is newer than `_dr_hint_row`, so an overlay probes
+it with `declare -F _dr_row`.
 `_DR_TMPDIR_HINT` is the shared next step for a probe that could not create
 its temporary directory.
 `_dr_hook_runtime_source` loads Dot's public hook runtime so a check can ask

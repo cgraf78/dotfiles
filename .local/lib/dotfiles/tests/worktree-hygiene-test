@@ -176,17 +176,21 @@ _assert_contains "disk: over-threshold counts both shared roots" \
 _assert_contains "disk: over-threshold names the knob" \
   "DOT_WORKTREE_WARN_BYTES" "$result"
 _assert_contains "disk: the info row says why it is not a warning" \
-  "but stale and orphaned trees measured on their own hold under half of it and 953.7G is free on /test mount" "$result"
+  "but stale and orphaned trees hold under half of it and 953.7G is free on /test mount" "$result"
+_assert_contains "disk: the info row gives its reason before its largest trees" \
+  $' across 2 worktrees\tabove the 2K limit (DOT_WORKTREE_WARN_BYTES), but ' "$result"
 _assert_contains "disk: the info row labels its largest trees" \
-  $'\tlargest: ~/.worktrees/big ' "$result"
-# On a Dot with list items, the largest trees are items and the reason is a
-# separate line, not one long detail.
+  $' is free on /test mount; largest: ~/.worktrees/big ' "$result"
+# On a Dot with list items, the largest trees are items and the reason is
+# the row's detail: nothing needs doing, so it is no next-step line.
 result=$(HOME="$disk_home" DOTFILES="$disk_home/.dotfiles" DOT_WORKTREE_WARN_BYTES=2048 \
   _with_list_api _doctor_records _dr_check_worktrees)
 _assert_contains "disk: the info row lists its largest trees as items" \
   $'\nitem\tlargest: ~/.worktrees/big ' "$result"
-_assert_contains "disk: the info row gives its reason on its own line" \
-  $'\nhint\tabove the 2K limit (DOT_WORKTREE_WARN_BYTES), but ' "$result"
+_assert_contains "disk: the info row gives its reason as its detail" \
+  $' across 2 worktrees\tabove the 2K limit (DOT_WORKTREE_WARN_BYTES), but stale and orphaned trees hold under half of it and 953.7G is free on /test mount\n' \
+  "$result"
+_assert_not_contains "disk: the info row files no next step" $'\nhint\t' "$result"
 
 # Low space: under 5% of used plus available and under 20 GiB free.
 result=$(HOME="$disk_home" DOTFILES="$disk_home/.dotfiles" \
@@ -1185,6 +1189,15 @@ _assert_contains "registered: a locked live checkout is listed" \
 # shellcheck disable=SC2088 # Rows carry tilde display paths.
 _assert_contains "registered: a locked entry is never prunable" \
   "~/git/alpha: locked-gone (checkout missing)" "$result"
+# Locks are usually deliberate: what they mean is the row's detail, not a
+# next step.
+result=$(HOME="$reg_home" DOTFILES="$reg_home/.dotfiles" \
+  PATH="$reg_shim_bin:$PATH" _with_list_api _doctor_records _dr_check_worktrees)
+_assert_contains "registered: the locked row explains itself in its detail" \
+  $'info\t2 locked worktrees\tprune and dot-worktree-gc skip them until \'git worktree unlock\'\n' \
+  "$result"
+_assert_not_contains "registered: the locked row files no next step" \
+  $'\nhint\tprune and dot-worktree-gc skip them' "$result"
 _assert_not_contains "registered: the admin scan spawns no worktree listing" \
   "worktree list" "$(cat "$reg_git_log")"
 # Out-of-band output is a doctor protocol error: unreadable admin files
@@ -1382,7 +1395,8 @@ _assert_not_contains "orphans: no Git probe runs in an orphan" "orph-" "$(cat "$
 _assert_contains "orphans: the row says how to list every orphan" \
   "list every one with: dot-worktree-gc --no-fetch" "$result"
 # With list items, each orphan is an item (Dot folds a long list itself)
-# and the commands are a next-step line.
+# and each step is its own next-step line, so the listing command ends its
+# line and copies cleanly.
 result=$(HOME="$orph_home" DOTFILES="$orph_home/.dotfiles" \
   _with_list_api _doctor_records _dr_check_worktrees)
 _assert_contains "orphans: list items name every orphan and its cause" \
@@ -1390,7 +1404,8 @@ _assert_contains "orphans: list items name every orphan and its cause" \
     $'item\t~/.worktrees/orph-top (~/git/doomed is gone)\t' \
     $'item\t~/git/worktrees/batch/orph-nested (~/git/doomed is gone)\t' \
     $'item\t~/worktrees/orph-pruned (admin entry gone from ~/git/kept)\t' \
-    $'hint\tlist every one with: dot-worktree-gc --no-fetch; if the repository moved, run \'git -C <repo> worktree repair <path>\', otherwise review the dry run and apply proven cleanup with --apply, or copy out any work before manual removal\t')" \
+    $'hint\tlist every one with: dot-worktree-gc --no-fetch\t' \
+    $'hint\tif the repository moved, run \'git -C <repo> worktree repair <path>\', otherwise review the dry run and apply proven cleanup with --apply, or copy out any work before manual removal\t')" \
   "$result"
 
 # Many orphans: an older Dot shows three, says how many more there are, and
@@ -1540,7 +1555,7 @@ result=$(HOME="$top_home" DOTFILES="$top_home/.dotfiles" \
   DOT_WORKTREE_WARN_BYTES=2048 _doctor_records _dr_check_worktrees)
 top_row=$(grep $'^info\tworktree disk' <<<"$result")
 top_order=no
-[[ $top_row == *$'\t'"largest: ~/.worktrees/big-a "*"; ~/.worktrees/big-b "*"; ~/.worktrees/big-c "* ]] &&
+[[ $top_row == *"; largest: ~/.worktrees/big-a "*"; ~/.worktrees/big-b "*"; ~/.worktrees/big-c "* ]] &&
   top_order=yes
 _assert_eq "disk top: the three largest roots, largest first" yes "$top_order"
 _assert_not_contains "disk top: only three roots are named" "big-d" "$top_row"
