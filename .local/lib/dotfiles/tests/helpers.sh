@@ -219,9 +219,18 @@ _test_load_dot_merge_api() {
 # checks for focused in-process tests. Production still runs each extension in
 # a fresh worker; these tests exercise the client policy helpers without
 # importing private coordinator state.
+#
+# Args: $1 = extension home (required). There is deliberately no HOME
+# fallback: the default result file lives under this root and the loader
+# truncates it, so an implicit live or source HOME would be written to.
 _test_load_dot_doctor_api() {
-  local extension_home=${1:-${DOT_TEST_SOURCE_HOME:-$HOME}} dot_root module
+  local extension_home=${1:-} dot_root module
   local lib_dir
+
+  if [[ -z $extension_home ]]; then
+    echo "test harness: _test_load_dot_doctor_api requires an extension home" >&2
+    return 2
+  fi
 
   dot_root=$(_test_dot_root) || return 1
   DOT_SOURCE_ROOT=$dot_root
@@ -519,6 +528,29 @@ _tmux_socket() {
   echo "$socket"
 }
 
+# Set TMUX_FIXTURE_ENV to an `env -i` prefix for a private tmux server that
+# loads the real tmux config from CONFIG_HOME without the caller's live state.
+# The server, its panes, and every run-shell or hook child inherit the
+# environment the server starts with. Under the caller's HOME and SHELL,
+# panes would source the live shell startup files, and config-time plugin
+# managers, restore scripts, and `~/.local/bin` helpers would run against
+# live state. The fixture HOME exposes only the tmux config, read-only.
+_tmux_fixture_env() {
+  local config_home=${1:?config home required} fixture passthrough
+
+  fixture=$(_tmpdir)
+  mkdir -p "$fixture/.config" || return 1
+  ln -s "$config_home/.config/tmux" "$fixture/.config/tmux" || return 1
+  TMUX_FIXTURE_ENV=(env -i HOME="$fixture" PATH="$PATH" SHELL=/bin/sh
+    TERM="${TERM:-xterm-256color}" TMPDIR="${TMPDIR:-/tmp}")
+  # tmux needs a UTF-8 locale, and Termux supplies its root through PREFIX.
+  for passthrough in LANG LC_ALL LC_CTYPE PREFIX; do
+    [[ -n ${!passthrough:-} ]] &&
+      TMUX_FIXTURE_ENV+=("$passthrough=${!passthrough}")
+  done
+  return 0
+}
+
 _cleanup_dir() {
   local d="$1" retries=2
 
@@ -576,7 +608,22 @@ _mock_home() {
   unset MISE_DATA_DIR MISE_STATE_DIR MISE_CACHE_DIR
   unset SHDEPS_CONF_DIR SHDEPS_HOOKS_DIR SHDEPS_STATE_DIR
   unset SHDEPS_INSTALL_DIR SHDEPS_BIN_DIR SHDEPS_GIT_DEV_DIR
-  unset SHDEPS_DIR SHDEPS_BIN SHDEPS_LUA_DIR
+  unset SHDEPS_DIR SHDEPS_BIN SHDEPS_LIB SHDEPS_LUA_DIR
+  # The same goes for tool-specific overrides a live login exports: each
+  # outranks the HOME default, so without this a fixture would still read or
+  # write the caller's Hive Memory config, AgentGuard and Sley protected-repo
+  # policy, agent session stores, gh credentials, shell history, search or
+  # startup config, and (through TMUX) the caller's live tmux server.
+  local name
+  for name in $(compgen -e); do
+    case $name in
+      AGENTGUARD_*) unset "$name" ;;
+    esac
+  done
+  unset HIVE_MEMORY_CONFIG SLEY_BARE_REPO_GIT_DIR SLEY_BARE_REPO_WORK_TREE
+  unset CODEX_HOME CLAUDE_CONFIG_DIR CLAUDE_CODE_CURRENT_TRANSCRIPT_PATH
+  unset GH_CONFIG_DIR RIPGREP_CONFIG_PATH LG_CONFIG_FILE ZDOTDIR HISTFILE
+  unset TMUX TMUX_PANE
   # Isolate tests from real user and system Git config (e.g. core.fsmonitor or
   # commit signing can spawn external processes). Use an empty writable global
   # file so fixture `git config --global` calls still succeed.

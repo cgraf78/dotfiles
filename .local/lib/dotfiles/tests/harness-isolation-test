@@ -323,6 +323,22 @@ export SHDEPS_BIN_DIR=/outside/shdeps-bin
 export SHDEPS_GIT_DEV_DIR=/outside/shdeps-git
 export SHDEPS_DIR=/outside/shdeps
 export SHDEPS_BIN=/outside/bin/shdeps
+export SHDEPS_LIB=/outside/shdeps/shdeps.sh
+export AGENTGUARD_PROTECTED_BARE_GIT_DIR=/outside/.dotfiles
+export AGENTGUARD_EDIT_CHURN_WARN=1
+export HIVE_MEMORY_CONFIG=/outside/hive-memory/config.toml
+export SLEY_BARE_REPO_GIT_DIR=/outside/.dotfiles
+export SLEY_BARE_REPO_WORK_TREE=/outside
+export CODEX_HOME=/outside/.codex
+export CLAUDE_CONFIG_DIR=/outside/.claude
+export CLAUDE_CODE_CURRENT_TRANSCRIPT_PATH=/outside/.claude/transcript.jsonl
+export GH_CONFIG_DIR=/outside/gh
+export RIPGREP_CONFIG_PATH=/outside/ripgrep
+export LG_CONFIG_FILE=/outside/lazygit.yml
+export ZDOTDIR=/outside/zsh
+export HISTFILE=/outside/.zsh_history
+export TMUX=/outside/tmux-socket,1,0
+export TMUX_PANE=%1
 
 _mock_home
 
@@ -341,6 +357,42 @@ _assert_eq "mock HOME: clears external shdeps binaries" "" "${SHDEPS_BIN_DIR:-}"
 _assert_eq "mock HOME: clears external shdeps source discovery" "" "${SHDEPS_GIT_DEV_DIR:-}"
 _assert_eq "mock HOME: clears external shdeps implementation" "" "${SHDEPS_DIR:-}"
 _assert_eq "mock HOME: clears external shdeps command" "" "${SHDEPS_BIN:-}"
+_assert_eq "mock HOME: clears external shdeps library" "" "${SHDEPS_LIB:-}"
+_assert_eq "mock HOME: clears AgentGuard protected-repo policy" "" \
+  "${AGENTGUARD_PROTECTED_BARE_GIT_DIR:-}"
+_assert_eq "mock HOME: clears AgentGuard tuning" "" "${AGENTGUARD_EDIT_CHURN_WARN:-}"
+_assert_eq "mock HOME: clears external Hive Memory config" "" "${HIVE_MEMORY_CONFIG:-}"
+_assert_eq "mock HOME: clears Sley protected-repo Git dir" "" "${SLEY_BARE_REPO_GIT_DIR:-}"
+_assert_eq "mock HOME: clears Sley protected-repo work tree" "" "${SLEY_BARE_REPO_WORK_TREE:-}"
+_assert_eq "mock HOME: clears external Codex home" "" "${CODEX_HOME:-}"
+_assert_eq "mock HOME: clears external Claude config" "" "${CLAUDE_CONFIG_DIR:-}"
+_assert_eq "mock HOME: clears live Claude transcript" "" \
+  "${CLAUDE_CODE_CURRENT_TRANSCRIPT_PATH:-}"
+_assert_eq "mock HOME: clears external gh config" "" "${GH_CONFIG_DIR:-}"
+_assert_eq "mock HOME: clears external ripgrep config" "" "${RIPGREP_CONFIG_PATH:-}"
+_assert_eq "mock HOME: clears external lazygit config" "" "${LG_CONFIG_FILE:-}"
+_assert_eq "mock HOME: clears external zsh startup dir" "" "${ZDOTDIR:-}"
+_assert_eq "mock HOME: clears external shell history" "" "${HISTFILE:-}"
+_assert_eq "mock HOME: detaches from the caller's tmux server" "" "${TMUX:-}"
+_assert_eq "mock HOME: drops the caller's tmux pane" "" "${TMUX_PANE:-}"
+
+echo "=== Doctor API loader ==="
+
+# The loader truncates a result file under the extension home, so it must never
+# fall back to HOME. A run that wrongly proceeded would create the file here.
+doctor_api_rc=0
+doctor_api_err=$(
+  unset DOT_DOCTOR_RESULT_FILE
+  # Point the old source-home fallback here so a regression would write
+  # where the assertion below looks.
+  export DOT_TEST_SOURCE_HOME=$HOME
+  _test_load_dot_doctor_api 2>&1
+) || doctor_api_rc=$?
+_assert_exit "doctor API loader: requires an extension home" 2 "$doctor_api_rc"
+_assert_contains "doctor API loader: names the missing argument" \
+  "requires an extension home" "$doctor_api_err"
+_assert_file_missing "doctor API loader: writes no result file under HOME" \
+  "$HOME/.doctor-results.tsv"
 
 for source_residue in "${SOURCE_ABSENT_RESIDUE[@]}"; do
   _assert_file_missing "harness runtime: leaves no $source_residue in source HOME" \

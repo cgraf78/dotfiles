@@ -16,7 +16,11 @@ command -v tmux >/dev/null 2>&1 ||
 
 socket=$(_tmux_socket) || exit 1
 CLEANUP_DIRS+=("${socket%/*}")
-server_output=$(tmux -S "$socket" -f /dev/null new-session -d -s dot-tmux-compose \
+_tmux_fixture_env "$HOME" || exit 1
+tmux_cmd() {
+  "${TMUX_FIXTURE_ENV[@]}" tmux -S "$socket" "$@"
+}
+server_output=$(tmux_cmd -f /dev/null new-session -d -s dot-tmux-compose \
   'sleep 60' 2>&1)
 server_status=$?
 if [[ $server_status -ne 0 ]]; then
@@ -24,16 +28,16 @@ if [[ $server_status -ne 0 ]]; then
   _test_summary
 fi
 
-source_output=$(tmux -S "$socket" source-file -n "$tmux_config" 2>&1)
+source_output=$(tmux_cmd source-file -n "$tmux_config" 2>&1)
 source_status=$?
 # Loading the real config may report an absent optional runtime helper in this
 # minimal fixture. The dry run owns syntax validation; effective values below
 # prove that both fragments were applied.
-tmux -S "$socket" source-file "$tmux_config" >/dev/null 2>&1 || true
-mode_keys=$(tmux -S "$socket" show-window-options -gv mode-keys 2>/dev/null)
-mouse=$(tmux -S "$socket" show-options -gv mouse 2>/dev/null)
-root_keys=$(tmux -S "$socket" list-keys -T root)
-tmux -S "$socket" kill-server >/dev/null 2>&1 || true
+tmux_cmd source-file "$tmux_config" >/dev/null 2>&1 || true
+mode_keys=$(tmux_cmd show-window-options -gv mode-keys 2>/dev/null)
+mouse=$(tmux_cmd show-options -gv mouse 2>/dev/null)
+root_keys=$(tmux_cmd list-keys -T root)
+tmux_cmd kill-server >/dev/null 2>&1 || true
 
 _assert_exit 'tmux composed fragment loader parses' 0 "$source_status"
 _assert_eq 'tmux composed fragment loader is quiet' '' "$source_output"
