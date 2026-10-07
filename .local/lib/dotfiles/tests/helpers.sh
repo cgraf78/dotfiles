@@ -528,6 +528,29 @@ _tmux_socket() {
   echo "$socket"
 }
 
+# Set TMUX_FIXTURE_ENV to an `env -i` prefix for a private tmux server that
+# loads the real tmux config from CONFIG_HOME without the caller's live state.
+# The server, its panes, and every run-shell or hook child inherit the
+# environment the server starts with. Under the caller's HOME and SHELL,
+# panes would source the live shell startup files, and config-time plugin
+# managers, restore scripts, and `~/.local/bin` helpers would run against
+# live state. The fixture HOME exposes only the tmux config, read-only.
+_tmux_fixture_env() {
+  local config_home=${1:?config home required} fixture passthrough
+
+  fixture=$(_tmpdir)
+  mkdir -p "$fixture/.config" || return 1
+  ln -s "$config_home/.config/tmux" "$fixture/.config/tmux" || return 1
+  TMUX_FIXTURE_ENV=(env -i HOME="$fixture" PATH="$PATH" SHELL=/bin/sh
+    TERM="${TERM:-xterm-256color}" TMPDIR="${TMPDIR:-/tmp}")
+  # tmux needs a UTF-8 locale, and Termux supplies its root through PREFIX.
+  for passthrough in LANG LC_ALL LC_CTYPE PREFIX; do
+    [[ -n ${!passthrough:-} ]] &&
+      TMUX_FIXTURE_ENV+=("$passthrough=${!passthrough}")
+  done
+  return 0
+}
+
 _cleanup_dir() {
   local d="$1" retries=2
 

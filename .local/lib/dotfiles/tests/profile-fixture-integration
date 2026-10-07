@@ -84,7 +84,9 @@ git_bin=$(type -P git)
 python_bin=$(type -P python3)
 agent_rules_sync=$(type -P agent-rules-sync 2>/dev/null || true)
 nvim_bin=${DOT_STACK_NVIM_BIN:-$(type -P nvim 2>/dev/null || true)}
-nvim_data_home=${DOT_STACK_NVIM_DATA_HOME:-$host_home/.local/share}
+# A cold Lazy install writes plugins into this root, so manual runs without
+# an explicit cache get a scratch one instead of the caller's live data.
+nvim_data_home=${DOT_STACK_NVIM_DATA_HOME:-$(_tmpdir)}
 yq_bin=${DOT_STACK_YQ_BIN:-$(type -P yq 2>/dev/null || true)}
 needs_capability_runtime=0
 case $mode in
