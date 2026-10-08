@@ -48,7 +48,6 @@ GENERATED_ARTIFACTS_PLAYBOOK="$PLAYBOOK_FAMILY/engineering/generated-artifacts.m
 AUTHENTICATION_PLAYBOOK="$PLAYBOOK_FAMILY/security/authentication.md"
 RELEASE_PLAYBOOK="$PLAYBOOK_FAMILY/git/releases.md"
 STATE_ISOLATION_PLAYBOOK="$PLAYBOOK_FAMILY/testing/state-isolation.md"
-MEMORY_HYGIENE_PLAYBOOK="$PLAYBOOK_FAMILY/memory/hygiene.md"
 AGENT_RULES_MAINTENANCE_PLAYBOOK="$PLAYBOOK_FAMILY/agent-rules/maintenance.md"
 SHELL_PLAYBOOK="$PLAYBOOK_FAMILY/languages/shell.md"
 CPP_PLAYBOOK="$PLAYBOOK_FAMILY/languages/cpp.md"
@@ -65,10 +64,9 @@ if [[ -f "$RULE_HOOK" ]]; then
 else
   _fail "agent rules: merge hook exists"
 fi
-echo "=== global memory rules ==="
+echo "=== global rules ==="
 
 SCOPE_RULES_TEXT=$(cat "$RULE_FAMILY/000-global-rules.md")
-MEMORY_RULES_TEXT=$(cat "$RULE_FAMILY/010-durable-memory.md")
 DOTFILES_RULES_TEXT=$(cat "$RULE_FAMILY/030-dotfiles.md")
 COMMAND_RULES_TEXT=$(cat "$RULE_FAMILY/040-shell-and-commands.md")
 GIT_RULES_TEXT=$(cat "$RULE_FAMILY/050-git-and-github.md")
@@ -100,16 +98,6 @@ _assert_contains "agent rules: native profile includes Grok" \
   '$HOME/.grok/rules/agent-rules.md' "$(cat "$NATIVE_TARGETS")"
 _assert_not_contains "agent rules: native profile omits unused Grok AGENTS.md" \
   '$HOME/.grok/AGENTS.md' "$(cat "$NATIVE_TARGETS")"
-_assert_contains "agent rules: memory policy uses Hive Memory" \
-  "Hive Memory is available through the \`hm\` command" "$MEMORY_RULES_TEXT"
-_assert_contains "agent rules: memory policy requires project-aware writes" \
-  "pass \`--project <file-or-repo-path>\`" "$MEMORY_RULES_TEXT"
-_assert_contains "agent rules: memory policy handles pending reminders" \
-  "If a prompt or hook reminder says memory is pending" "$MEMORY_RULES_TEXT"
-_assert_contains "agent rules: memory policy forbids secrets" \
-  "Do not store secrets or sensitive credentials" "$MEMORY_RULES_TEXT"
-_assert_contains "agent rules: memory maintenance remains routed from core" \
-  '~/.config/agent-rules/playbooks.d/memory/hygiene.md' "$MEMORY_RULES_TEXT"
 _assert_contains "agent rules: dotfiles operations remain routed from core" \
   '~/.config/agent-rules/playbooks.d/dotfiles/operations.md' "$DOTFILES_RULES_TEXT"
 _assert_contains "agent rules: verification preserves required command status" \
@@ -213,21 +201,6 @@ if [[ -f "$TRANSACTIONAL_STATE_PLAYBOOK" ]]; then
     "Preserve the previous" "$TRANSACTIONAL_STATE_TEXT"
   _assert_contains "agent rules: transactional state avoids false durability claims" \
     "Do not claim crash durability" "$TRANSACTIONAL_STATE_TEXT"
-fi
-
-_assert_file_exists "agent rules: memory hygiene playbook exists" \
-  "$MEMORY_HYGIENE_PLAYBOOK"
-if [[ -f "$MEMORY_HYGIENE_PLAYBOOK" ]]; then
-  MEMORY_HYGIENE_TEXT=$(cat "$MEMORY_HYGIENE_PLAYBOOK")
-  _assert_contains "agent rules: memory hygiene playbook has a routed trigger" \
-    "agent-rule-trigger: Writing, correcting, superseding, reconciling, retagging, scoping, troubleshooting, or auditing durable memory and its retrieval health" \
-    "$MEMORY_HYGIENE_TEXT"
-  _assert_contains "agent rules: memory corrections supersede stale facts" \
-    'hm remember --supersedes <id>' "$MEMORY_HYGIENE_TEXT"
-  _assert_contains "agent rules: memory metadata uses supported commands" \
-    "hand-edit stored records because" "$MEMORY_HYGIENE_TEXT"
-  _assert_contains "agent rules: memory health separates retrieval dimensions" \
-    "Separate store reachability" "$MEMORY_HYGIENE_TEXT"
 fi
 
 _assert_file_exists "agent rules: maintenance playbook exists" \
@@ -371,8 +344,6 @@ _assert_contains "agent rules: background process playbook is discovered" \
   "$BACKGROUND_PROCESS_PLAYBOOK" "$playbook_listing"
 _assert_contains "agent rules: transactional state playbook is discovered" \
   "$TRANSACTIONAL_STATE_PLAYBOOK" "$playbook_listing"
-_assert_contains "agent rules: memory hygiene playbook is discovered" \
-  "$MEMORY_HYGIENE_PLAYBOOK" "$playbook_listing"
 _assert_contains "agent rules: maintenance playbook is discovered" \
   "$AGENT_RULES_MAINTENANCE_PLAYBOOK" "$playbook_listing"
 _assert_contains "agent rules: investigation playbook is discovered" \
@@ -452,6 +423,32 @@ for playbook_file in "${playbook_files[@]}"; do
   playbook_rel=${playbook_file#"$PLAYBOOK_FAMILY/"}
   _assert_contains "agent rules: provider routes $playbook_rel" \
     "\`$playbook_rel\`" "$rendered_rules"
+done
+
+# Tools a capability overlay installs bring their own rules (the dev
+# overlay ships the Hive Memory, gstack, and Checkrun guidance), so hosts
+# without that overlay never load instructions for commands they lack. Judge
+# base's own sources only: an installed home also selects overlay links,
+# including dev's fragments for exactly these tools.
+base_rule_text=''
+for rule_file in "${rule_files[@]}"; do
+  [[ -L $rule_file ]] || base_rule_text+=$(<"$rule_file")$'\n'
+done
+for overlay_tool in '`hm`' 'garrytan/gstack'; do
+  _assert_not_contains "agent rules: base rules leave $overlay_tool to its overlay" \
+    "$overlay_tool" "$base_rule_text"
+done
+base_playbook_routes=''
+while IFS= read -r playbook_file; do
+  [[ -n $playbook_file ]] || continue
+  base_playbook_routes+=${playbook_file#"$PLAYBOOK_FAMILY/"}$'\n'
+done < <(_dot_playbook_base_files)
+for retired_route in memory/hygiene.md dotfiles/schema-associations.md; do
+  if grep -Fxq -- "$retired_route" <<<"$base_playbook_routes"; then
+    _fail "agent rules: base leaves $retired_route to its overlay"
+  else
+    _pass "agent rules: base leaves $retired_route to its overlay"
+  fi
 done
 
 core_bytes=$(printf '%s\n' "$rendered_rules" | wc -c)
