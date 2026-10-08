@@ -14,7 +14,7 @@ dot_hook_source merge-hooks.d/lib/compat.sh || return
 # `sshd_config.d` directory. A main config that never Includes that directory
 # fails validation loudly rather than being guessed at.
 #
-# No serial barrier, although grafhome-ca-host-policy also changes and reloads
+# No serial barrier, although an overlay hook may also change and reload
 # root's sshd config: this hook only renames an always-valid AcceptEnv fragment
 # into place, so it can never fail the other hook's validation. The reverse
 # overlap (validating while the other hook is mid-write) needs a fragment

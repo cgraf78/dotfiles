@@ -20,9 +20,15 @@ the top-level update lock already excludes concurrent `dot update` runs.
 
 Hooks run in fresh Bash workers with private temporary storage. They use the
 documented hook API and load client support through `dot_hook_source`. A hook
-should return quietly when its application or configuration is absent. Any
-nonzero hook status is recorded as a configuration failure, later hooks still
-run, and the aggregate `dot update` status is exactly 1.
+should return quietly when its application or configuration is absent. Base
+hooks gate on `_dot_tool_present <identity>` from `lib/compat.sh`, which maps
+only base identities. An overlay hook probes its own application instead,
+either with the public `dot_tool_present` (one literal command or path) or
+with the client probe helpers `lib/compat.sh` keeps for overlays:
+`_dot_tool_any_command`, `_dot_tool_any_path`, and `_dot_tool_platform`. That
+way base never lists an overlay's tools. Any nonzero hook status is recorded
+as a configuration failure, later hooks still run, and the aggregate
+`dot update` status is exactly 1.
 
 The paired config tree contains user-editable source fragments. Do not move
 executable helpers back under `.config/dot`: configuration is organized by the

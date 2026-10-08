@@ -155,32 +155,21 @@ _dot_tool_platform() {
   esac
 }
 
-# Logical application presence is client policy. The public API deliberately
-# exposes only literal command/path probes, so platform aliases stay here.
+# Logical application presence for base hooks. The public API deliberately
+# exposes only literal command/path probes, so base's platform aliases stay
+# here. Only base hook names belong in this table: overlay hooks probe their
+# own tools with the literal helpers above (or the public `dot_tool_present`),
+# so the base layer never has to know which applications an overlay manages.
 _dot_tool_present() {
   local tool=$1 platform
 
   case $tool in
     agent-rules) _dot_tool_any_command agent-rules-sync ;;
-    claude) _dot_tool_any_command claude ;;
-    codex) _dot_tool_any_command codex ;;
     cron) _dot_tool_any_command crontab ;;
-    gemini) _dot_tool_any_command gemini ;;
-    gh) _dot_tool_any_command gh ;;
-    git) _dot_tool_any_command git ;;
-    grafhome-ca) _dot_tool_any_command grafhome-ca ;;
-    grok) _dot_tool_any_command grok ;;
     # The hook repairs the thin loaders, not Grok: a vendor block can outlive
     # both the command and ~/.grok, and must still be stripped.
     grok-rc) _dot_tool_any_path "$HOME/.zshrc" "$HOME/.bashrc" ;;
-    gstack) _dot_tool_any_command gstack-register ;;
-    hive-memory) _dot_tool_any_command hm ;;
     ignore) _dot_tool_any_command rg fd fdfind ;;
-    mise) _dot_tool_any_command mise ;;
-    muse) _dot_tool_any_command muse ;;
-    nvim) _dot_tool_any_command nvim ;;
-    opencode) _dot_tool_any_command opencode ;;
-    sapling) _dot_tool_any_command sl ;;
     ssh) _dot_tool_any_command ssh ;;
     sshd) _dot_tool_any_command sshd ;;
     tmux) _dot_tool_any_command tmux ;;
@@ -196,28 +185,6 @@ _dot_tool_present() {
         /Applications/Karabiner-Elements.app \
         "$HOME/Applications/Karabiner-Elements.app" \
         '/Library/Application Support/org.pqrs/Karabiner-Elements/bin/karabiner_cli'
-      ;;
-    vscode)
-      _dot_tool_any_command \
-        code code-insiders code-fb code-fb-insiders cursor codium codium-insiders \
-        code.exe code-insiders.exe cursor.exe codium.exe \
-        codium-insiders.exe && return 0
-      _dot_tool_any_path \
-        "$HOME/.vscode-server" "$HOME/.vscode-server-insiders" \
-        "$HOME/.vscode-remote" "$HOME/.cursor-server" && return 0
-      platform=$(_dot_tool_platform)
-      [[ $platform == Darwin ]] || return 1
-      _dot_tool_any_path \
-        '/Applications/Visual Studio Code.app' \
-        "$HOME/Applications/Visual Studio Code.app" \
-        '/Applications/Visual Studio Code - Insiders.app' \
-        "$HOME/Applications/Visual Studio Code - Insiders.app" \
-        '/Applications/VS Code @ FB.app' \
-        "$HOME/Applications/VS Code @ FB.app" \
-        '/Applications/VS Code @ FB - Insiders.app' \
-        "$HOME/Applications/VS Code @ FB - Insiders.app" \
-        /Applications/Cursor.app "$HOME/Applications/Cursor.app" \
-        /Applications/VSCodium.app "$HOME/Applications/VSCodium.app"
       ;;
     wezterm)
       _dot_tool_any_command wezterm wezterm.exe && return 0

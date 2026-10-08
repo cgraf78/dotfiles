@@ -263,21 +263,7 @@ SH
       )"
   done <<'TOOL_COMMANDS'
 agent-rules:agent-rules-sync
-claude:claude
-codex:codex
 cron:crontab
-gemini:gemini
-gh:gh
-git:git
-grafhome-ca:grafhome-ca
-grok:grok
-gstack:gstack-register
-hive-memory:hm
-mise:mise
-muse:muse
-nvim:nvim
-opencode:opencode
-sapling:sl
 ssh:ssh
 sshd:sshd
 tmux:tmux
@@ -312,29 +298,6 @@ TOOL_COMMANDS
       printf '%s' "$?"
     )"
 
-  _tool_presence_paths="/Applications/Visual Studio Code - Insiders.app"
-  _assert_exit "tool presence: any macOS editor variant enables VS Code" 0 \
-    "$(
-      _dot_tool_present vscode
-      printf '%s' "$?"
-    )"
-
-  _tool_presence_commands=code-fb
-  _tool_presence_paths=""
-  _assert_exit "tool presence: VS Code @ FB command enables VS Code" 0 \
-    "$(
-      _dot_tool_present vscode
-      printf '%s' "$?"
-    )"
-
-  _tool_presence_commands=""
-  _tool_presence_paths="/Applications/VS Code @ FB.app"
-  _assert_exit "tool presence: VS Code @ FB app enables VS Code" 0 \
-    "$(
-      _dot_tool_present vscode
-      printf '%s' "$?"
-    )"
-
   _tool_presence_platform=WSL
   _tool_presence_commands=wezterm.exe
   _tool_presence_paths=""
@@ -344,19 +307,12 @@ TOOL_COMMANDS
       printf '%s' "$?"
     )"
 
-  _tool_presence_commands=codium-insiders.exe
-  _assert_exit "tool presence: WSL accepts VSCodium Insiders executable" 0 \
-    "$(
-      _dot_tool_present vscode
-      printf '%s' "$?"
-    )"
-
   _tool_presence_platform=Linux
   _tool_presence_commands=""
-  _tool_presence_paths="$HOME/.cursor-server"
-  _assert_exit "tool presence: remote editor server enables VS Code merge" 0 \
+  _tool_presence_paths="$HOME/.zshrc"
+  _assert_exit "tool presence: grok-rc follows the loaders, not Grok" 0 \
     "$(
-      _dot_tool_present vscode
+      _dot_tool_present grok-rc
       printf '%s' "$?"
     )"
 
@@ -434,6 +390,17 @@ TOOL_COMMANDS
   _assert_eq "merge hook gates: every base hook is classified" \
     "$(printf '%s\n%s\n' "$tool_gated_hooks" "$root_gated_hooks" | LC_ALL=C sort)" \
     "$classified_hooks"
+  # Overlay hooks probe their own tools, so the presence table names exactly
+  # the base hooks: an overlay identity added back here would make the public
+  # base layer track that overlay's applications again. `declare -f` prints
+  # each case label on its own line; any label but the `*` default is taken
+  # verbatim, so an alternation or quoted label cannot slip past the match.
+  tool_table_names=$(
+    declare -f _dot_tool_present |
+      sed -n 's/^[[:space:]]*\([^[:space:]*][^[:space:]]*\))$/\1/p' | LC_ALL=C sort
+  )
+  _assert_eq "merge hook gates: the presence table names only base hooks" \
+    "$classified_hooks" "$tool_table_names"
 
   while IFS= read -r hook_name; do
     hook_path="$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/$hook_name.sh"
