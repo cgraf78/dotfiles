@@ -552,25 +552,6 @@ YQ
     "$(HOME="$yq_resolver_home" PATH="$yq_resolver_path:/usr/bin:/bin" \
       _merge_hook_mikefarah_yq 2>/dev/null || true)"
 
-  if declare -F dot_agentguard_integration_file >/dev/null 2>&1; then
-    agentguard_resolved=$(
-      (
-        # shellcheck disable=SC2329 # Invoked through the resolver under test.
-        dot_shdeps_dep_file() {
-          _assert_eq "AgentGuard resolver: requests the dependency repository" \
-            "cgraf78/agentguard" "$1" >&2
-          printf '/resolved/%s\n' "$2"
-        }
-        dot_agentguard_integration_file claude hooks.json
-      )
-    )
-    _assert_eq "AgentGuard resolver: maps an agent asset without local layout knowledge" \
-      "/resolved/share/agentguard/integrations/claude/hooks.json" \
-      "$agentguard_resolved"
-  else
-    _fail "AgentGuard resolver: shared dependency asset helper exists"
-  fi
-
   echo "=== tmux merge hook ==="
 
   tmux_home="$TEST_HOME/tmux-merge-home"

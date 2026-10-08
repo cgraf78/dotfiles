@@ -81,6 +81,7 @@ dev	agent-tooling	.local/lib/dotfiles/merge-hooks.d/grok-config.sh
 dev	agent-tooling	.local/lib/dotfiles/merge-hooks.d/grok.sh
 dev	agent-tooling	.local/lib/dotfiles/merge-hooks.d/gstack.sh
 dev	agent-tooling	.local/lib/dotfiles/merge-hooks.d/hive-memory.sh
+dev	agent-tooling	.local/lib/dotfiles/merge-hooks.d/lib/agentguard.sh
 dev	agent-tooling	.local/lib/dotfiles/merge-hooks.d/lib/codex/**
 dev	agent-tooling	.local/lib/dotfiles/merge-hooks.d/lib/superpowers-muse-sync
 dev	agent-tooling	.local/lib/dotfiles/merge-hooks.d/muse.sh

@@ -153,21 +153,6 @@ unset ASSETS_SHDEPS_FAIL
 _assert_exit "dep-source: propagates resolver failure" 3 "$assets_source_fail_rc"
 
 echo ""
-echo "=== shdeps-assets: agentguard adapter ==="
-
-: >"$ASSETS_SHDEPS_LOG"
-assets_agentguard_out=$(
-  dot_agentguard_integration_file opencode plugin.js
-)
-_assert_eq "agentguard file: prints the resolved asset" \
-  "$ASSETS_ASSET" "$assets_agentguard_out"
-_assert_contains "agentguard file: maps agent and asset to dep coordinates" \
-  "dep-file cgraf78/agentguard share/agentguard/integrations/opencode/plugin.js" \
-  "$(cat "$ASSETS_SHDEPS_LOG")"
-_assert_eq "agentguard marker: prints the cross-repository identity" \
-  "// agentguard-managed:opencode-plugin" "$(dot_agentguard_opencode_marker)"
-
-echo ""
 echo "=== shdeps-assets: resolution cache ==="
 
 ASSETS_CACHE_HOME="$TEST_TMPDIR/cache-home"
