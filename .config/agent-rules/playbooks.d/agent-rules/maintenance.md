@@ -12,8 +12,10 @@ than editing generated outputs.
 - Resolve the canonical source before editing. Generated runtime targets,
   manifest outputs, and overlay links are consumers, not edit locations.
 - Put broadly reusable and publicly safe guidance in the base dotfiles
-  repository. Put private non-work context in the personal overlay and
-  employer-specific context in the work overlay.
+  repository. Put guidance for a tool that only a capability overlay (such as
+  dev) installs in that overlay, so hosts without the tool never load it. Put
+  private non-work context in the personal overlay and employer-specific
+  context in the work overlay.
 - Search existing rule IDs, triggers, and prose before adding a new rule.
   Extend the existing owner when the subject already has one.
 
@@ -22,6 +24,11 @@ than editing generated outputs.
 - Keep only concise requirements that affect nearly every task in `rules.d/`.
   Put procedures, command recipes, platform details, and domain-specific
   failure handling in a playbook.
+- Keep a safety requirement always loaded when missing it before an action
+  could cause data loss, credential exposure, or an unintended remote change.
+- The worktree and fresh-eyes anchors are deliberately repeated in the core
+  rules because agents missed their broad playbook triggers in trials; do not
+  deduplicate them into playbooks alone.
 - Give each playbook one precise action-oriented trigger and a globally unique
   stable rule ID. Avoid broad triggers that load unrelated guidance.
 - When adding always-loaded prose, review the aggregate context cost and look
