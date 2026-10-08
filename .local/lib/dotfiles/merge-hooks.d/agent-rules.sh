@@ -161,27 +161,16 @@ _dot_agent_rules_write_manifest() {
   REPLY="$manifest"
 }
 
-_dot_agent_rules_extract_block() {
-  local source="$1" destination="$2"
-
-  awk '
-    $0 == "# agent-rules-sync:aggregate begin" {
-      if (found || in_block) bad = 1
-      found = 1
-      in_block = 1
-    }
-    in_block { print }
-    $0 == "# agent-rules-sync:aggregate end" {
-      if (!in_block) bad = 1
-      in_block = 0
-    }
-    END { if (bad || !found || in_block) exit 1 }
-  ' "$source" >"$destination"
-}
-
+# Report whether the installed manifest and targets match current policy for
+# dot doctor. Dotfiles owns only the manifest: rebuilding it catches source,
+# overlay, and target-profile changes since the last update. Whether each
+# target is current is the provider's `check` contract, so this adapter never
+# learns its ownership markers, header lines, or target mode.
+#
+# REPLY is a reason key, optionally followed by TAB and a detail. A provider
+# target state arrives as `target-<state>` so doctor can name the file.
 _dot_agent_rules_check_installed() {
-  local provider manifest work expected render_manifest rendered target mode
-  local expected_normalized actual_normalized status=0
+  local provider manifest mode work status state target line=''
 
   REPLY='provider-missing'
   provider=$(command -v agent-rules-sync) || return 1
@@ -190,6 +179,8 @@ _dot_agent_rules_check_installed() {
   manifest="$REPLY"
   REPLY='manifest-missing'
   [[ -f "$manifest" ]] || return 1
+  # The manifest names private source paths and is written 0600 by
+  # _dot_agent_rules_write_manifest above; this checks dotfiles' own policy.
   mode=$(stat -c '%a' "$manifest" 2>/dev/null || stat -f '%Lp' "$manifest" 2>/dev/null) || {
     REPLY='manifest-mode-unreadable'
     return 1
@@ -200,95 +191,51 @@ _dot_agent_rules_check_installed() {
   fi
   REPLY='temporary-workspace-failed'
   work=$(mktemp -d 2>/dev/null || mktemp -d -t dot-agent-rules-check) || return 1
-  expected="$work/expected.tsv"
-  render_manifest="$work/render.tsv"
-  rendered="$work/AGENTS.md"
-  expected_normalized="$work/expected.normalized"
-  actual_normalized="$work/actual.normalized"
 
-  REPLY='source-selection-failed'
-  _dot_agent_rules_build_manifest "$expected" || status=1
-  if [[ "$status" -eq 0 ]] &&
-    ! dot_config_files_equal "$expected" "$manifest"; then
+  if ! _dot_agent_rules_build_manifest "$work/expected.tsv"; then
+    REPLY='source-selection-failed'
+  elif ! dot_config_files_equal "$work/expected.tsv" "$manifest"; then
     REPLY='manifest-mismatch'
-    status=1
-  fi
-  if [[ "$status" -eq 0 ]]; then
-    awk -F '\t' -v target="$rendered" \
-      '$1 == "target-file" { next } { print } END { print "target-file\t" target }' \
-      "$expected" >"$render_manifest" || {
-      REPLY='render-manifest-failed'
-      status=1
-    }
-  fi
-  # The provider's normal sync also maintains durable inventory and prunes
-  # stale targets. Fully isolate its HOME and XDG roots so this render probe
-  # cannot observe or mutate the installed provider state.
-  if [[ "$status" -eq 0 ]] && ! (
-    HOME="$work/home"
-    XDG_CONFIG_HOME="$work/config"
-    XDG_DATA_HOME="$work/data"
-    XDG_STATE_HOME="$work/state"
-    XDG_CACHE_HOME="$work/cache"
-    export HOME XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME
-    "$provider" --manifest "$render_manifest" >/dev/null 2>&1
-  ); then
-    REPLY='render-failed'
-    status=1
-  fi
-  if [[ "$status" -eq 0 ]]; then
-    _dot_agent_rules_extract_block "$rendered" "$expected_normalized.block" || {
-      REPLY='render-block-invalid'
-      status=1
-    }
-  fi
-  if [[ "$status" -eq 0 ]]; then
-    awk '!normalized && /^# manifest: / { normalized = 1; next } { print }' \
-      "$expected_normalized.block" >"$expected_normalized" || {
-      REPLY='render-normalization-failed'
-      status=1
-    }
-  fi
-  if [[ "$status" -eq 0 ]]; then
-    while IFS=$'\t' read -r record target _rest; do
-      [[ "$record" == target-file ]] || continue
-      [[ -f "$target" ]] || {
-        REPLY=$'target-missing\t'"$target"
-        status=1
-        break
-      }
-      mode=$(stat -c '%a' "$target" 2>/dev/null || stat -f '%Lp' "$target" 2>/dev/null) || {
-        REPLY=$'target-mode-unreadable\t'"$target"
-        status=1
-        break
-      }
-      if [[ "$mode" != 600 ]]; then
-        REPLY=$'target-mode\t'"$target"
-        status=1
-        break
-      fi
-      _dot_agent_rules_extract_block "$target" "$actual_normalized.block" || {
-        REPLY=$'target-block-invalid\t'"$target"
-        status=1
-        break
-      }
-      awk '!normalized && /^# manifest: / { normalized = 1; next } { print }' \
-        "$actual_normalized.block" >"$actual_normalized" || {
-        REPLY=$'target-normalization-failed\t'"$target"
-        status=1
-        break
-      }
-      dot_config_files_equal "$expected_normalized" "$actual_normalized" || {
-        REPLY=$'target-mismatch\t'"$target"
-        status=1
-        break
-      }
-    done <"$expected"
+  else
+    "$provider" check --manifest "$manifest" >"$work/check.out" 2>"$work/check.err"
+    status=$?
+    case "$status" in
+      0) REPLY='current' ;;
+      2)
+        # Our invocation is fixed and valid, so a usage status means a
+        # provider release from before `check`, which rejects the unknown
+        # command without touching anything. Hosts float to the latest
+        # provider, so this is a rollout window, not a policy failure.
+        # Bash also exits 2 on a syntax error, so confirm the launcher
+        # itself still works before calling it merely old.
+        if "$provider" --help >/dev/null 2>&1; then
+          REPLY='provider-check-unsupported'
+        else
+          REPLY='check-failed'
+        fi
+        ;;
+      3)
+        # Any state other than `current` is drift, including states a newer
+        # provider adds later; report the first so doctor can name a file.
+        REPLY='check-failed'
+        while IFS=$'\t' read -r state target || [[ -n "$state" ]]; do
+          [[ -n "$state" && "$state" != current ]] || continue
+          REPLY="target-$state"$'\t'"$target"
+          break
+        done <"$work/check.out"
+        ;;
+      *)
+        # Carry the provider's own first error line so doctor can show why
+        # validation failed without rerunning anything.
+        REPLY='check-failed'
+        IFS= read -r line <"$work/check.err" || :
+        [[ -z "$line" ]] || REPLY+=$'\t'"$line"
+        ;;
+    esac
   fi
 
   rm -rf "$work"
-  [[ "$status" -eq 0 ]] && REPLY='current'
-  return "$status"
+  [[ "$REPLY" == current ]]
 }
 
 merge() {

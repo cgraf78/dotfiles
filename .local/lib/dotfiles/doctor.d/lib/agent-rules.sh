@@ -58,6 +58,12 @@ _dr_check_agent_rules_installed() {
         "this dot has no public hook runtime; run 'dot update' to upgrade it"
     else
       case "$reason" in
+        provider-check-unsupported)
+          # A provider from before `check` cannot answer; that is a rollout
+          # gap the next update closes, not evidence of drift.
+          _dr_hint_row skip "generated policy check skipped: agent-rules-sync has no 'check' command" "" \
+            "run 'dot update -f' to upgrade agent-rules-sync, then rerun 'dot doctor'"
+          ;;
         manifest-missing)
           _dr_hint_row fail "generated policy manifest is missing" "" "run 'dot update -f'"
           ;;
@@ -71,20 +77,33 @@ _dr_check_agent_rules_installed() {
         target-missing)
           _dr_hint_row fail "generated policy target is missing: $detail" "" "run 'dot update -f'"
           ;;
-        target-mismatch)
+        target-stale)
           _dr_hint_row fail "generated policy target was modified: $detail" "" "run 'dot update -f'"
+          ;;
+        target-unmanaged)
+          _dr_hint_row fail "generated policy target has no managed block: $detail" "" "run 'dot update -f'"
+          ;;
+        target-malformed)
+          _dr_hint_row fail "generated policy target has a malformed managed block: $detail" "" \
+            "fix or remove the unbalanced agent-rules-sync markers, then run 'dot update -f'"
+          ;;
+        target-not-file)
+          _dr_hint_row fail "generated policy target is not a regular file: $detail" "" \
+            "move it aside, then run 'dot update -f'"
+          ;;
+        target-*)
+          # A newer provider may report states this check predates; any
+          # non-current state is still drift that a sync repairs.
+          _dr_hint_row fail "generated policy target is not current (${reason#target-}): $detail" "" \
+            "run 'dot update -f'"
           ;;
         source-selection-failed)
           _dr_hint_row fail "agent rule source selection failed" "" \
             "check ~/.config/dot/merge-hooks.d/agent-rules and the overlay trust inputs, then run 'dot update -f'"
           ;;
-        render-failed | render-manifest-failed | render-block-invalid | render-normalization-failed)
-          _dr_hint_row fail "agent rule validation render failed" "" \
+        check-failed)
+          _dr_hint_row fail "agent rule validation failed" "$detail" \
             "run 'dot update -f' to see the agent-rules-sync error"
-          ;;
-        target-block-invalid)
-          _dr_hint_row fail "generated policy target has a malformed managed block: $detail" "" \
-            "run 'dot update -f'"
           ;;
         '')
           # Nothing came back: the hook runtime or the hook did not load.
