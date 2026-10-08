@@ -10,8 +10,9 @@ implementation belongs in its owning repository or under
   `dev` profile.
 - `clip` provides the base clipboard-history front door.
 - `shell-time` profiles Bash or Zsh startup.
-- `dot-worktree-gc` removes old worktrees whose branches are proven merged;
-  its implementation lives in `~/.local/lib/dotfiles/worktree-gc.sh`.
+- `dot-worktree-gc` deletes proven-merged branches and removes old worktrees
+  across every managed clone, driving `git cleanup-repo` from git-tools; its
+  implementation lives in `~/.local/lib/dotfiles/worktree-gc.sh`.
 
 The `dot` command itself is not tracked here: Shdeps installs the standalone
 Dot release and links its entry point into `~/.local/bin`.

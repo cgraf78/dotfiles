@@ -274,19 +274,49 @@ state have a safe retirement path.
 
 ## Worktree cleanup
 
-`dot-worktree-gc --older-than 1d` previews old worktrees across the managed
-worktree roots. Add `--apply` to remove eligible checkouts. Age uses the newest
-checkout-directory, Git HEAD, index, and reftable activity signal; the current
-`find -mtime +N` threshold requires N+1 full days. Age alone never permits
-removal: dirty, locked, in-use, main, nested, and uninspectable checkouts stay.
-Old empty directories discovered directly under those roots are also eligible
-for removal with `rmdir`. Hidden files count as contents, and a file appearing
-after inspection makes `rmdir` refuse deletion. Young, in-use, or known registered
-directories stay; symlinked candidates do not authorize empty-target removal.
-Registration checks cover the base Git directory and discovered clones under
-`~/git` and `~/.dotfiles-*`. Once `.git` is missing, an empty directory cannot
-identify an owner outside that inventory. The record therefore says
-`no known registration`; `rmdir` never deletes the owner's refs or commits.
+`dot-worktree-gc --older-than 1d` previews cleanup across every managed clone
+(`~/.dotfiles`, `~/git/*`, `~/.dotfiles-*`, and the owner of any discovered
+checkout). Add `--apply` to act. It deletes local branches proven merged and
+removes worktrees whose Git activity is older than the limit (default 14
+days). Age uses the newest checkout-directory, Git HEAD, index, and reftable
+activity signal; the current `find -mtime +N` threshold requires N+1 full
+days, and a tool that refreshes a checkout's index makes it look active again.
+
+Every per-repository decision comes from `git cleanup-repo` in git-tools,
+run with `--no-update-base --porcelain`, so the sweep never moves a local base
+and shares one set of merge proofs and removal gates with every other git-tools
+command. A branch goes when Git ancestry, exact content-merge evidence, a
+branch tree that landed on the base after its branch point, or (with `gh` and
+`jq`) a merged pull request containing its tip proves it; a branch proven only
+by ancestry must also be at least a day old by its reflog, and an open pull
+request keeps a branch that no local proof covers. An old checkout goes with its proven branch, or alone,
+keeping the branch, when its detached HEAD is proven merged, its own-name
+upstream is gone, an unpublished `.github/cgraf78-actions.lock` repin was
+superseded on the base, or, with `--include-closed`, only a closed unmerged
+pull request contains it. Main, current, locked, dirty, mid-operation,
+mid-checkout, and in-use checkouts stay, and so does one holding untracked or
+ignored content other than cache-tagged (`CACHEDIR.TAG`) directories or a
+repository's configured `cleanupRepo.worktreePrunePath` entries, which are
+pruned first. A kept branch is listed only when its checkout was retired
+without it; other kept branches are counted in the tally. Any proven-merged
+local branch other than the base goes, including a stale local `master` in a
+repository whose base is `main`; its commits remain reachable from the base.
+`--no-fetch` proves against local refs and skips pull request evidence; an
+unreachable remote falls back to local refs on its own, and then no checkout
+is retired on the superseded-Actions-pin evidence, since no open pull request
+can be ruled out. A `merge unproven` record does not establish that a pull
+request is unmerged. A missing or older git-tools skips repository cleanup
+with a notice; `dot update` installs the current release.
+
+Old empty directories discovered directly under the worktree roots are also
+eligible for removal with `rmdir`. Hidden files count as contents, and a file
+appearing after inspection makes `rmdir` refuse deletion. Young, in-use, or
+known registered directories stay; symlinked candidates do not authorize
+empty-target removal. Registration checks cover the base Git directory and
+discovered clones under `~/git` and `~/.dotfiles-*`. Once `.git` is missing,
+an empty directory cannot identify an owner outside that inventory. The
+record therefore says `no known registration`; `rmdir` never deletes the
+owner's refs or commits.
 
 A broken linked-worktree pointer is eligible only when its owning repository
 still exists, its registration is gone, and every checkout file
@@ -306,35 +336,6 @@ transaction: a process holding an already-open file can still write between the
 last check and removal, so stop writers before cleaning an orphan checkout.
 Nonempty directories without `.git` and pointers that cannot establish this
 proof still require separate inspection.
-
-Checkout removal and branch deletion use separate proof requirements:
-
-- Git ancestry, exact content-merge evidence, or an identical complete tree
-  anywhere on the base's first-parent history can prove landing. The historical
-  tree check recognizes stacks landed through several squash merges. Branch
-  deletion additionally requires a freshly fetched base and the unchanged
-  proven branch OID.
-- With optional `gh` and `jq`, an exact local commit's membership in a merged
-  GitHub PR can retire a stale checkout even when the final PR head evolved.
-  Its reported merge must be an ancestor of the pinned base. The original
-  branch and commits remain available.
-- An unpublished repin containing only the authoritative
-  `.github/cgraf78-actions.lock` update and synchronized Actions `uses:`
-  replacements can be retired when the base's provider revision includes the
-  requested revision. Provider ancestry comes from GitHub's compare API;
-  unrelated branch edits are not eligible. This also retains the branch.
-
-An open PR blocks the network-based proofs. GitHub errors, missing clients,
-and incomplete evidence withhold those proofs; `--no-fetch` disables both Git
-fetches and API requests while retaining local proof paths. A skipped
-`merge unproven` record does not establish that a PR is unmerged.
-
-Closed-but-unmerged PR checkouts stay by default. To explicitly retire them
-while preserving their branches and commits, first preview
-`dot-worktree-gc --older-than 1d --include-closed`, then add `--apply` after
-reviewing the output. The same clean and in-use gates still apply. Ignored
-files inside a removed registered checkout are removed along with it; orphan
-cleanup rejects every extra file.
 
 ## Dependency Docs
 
