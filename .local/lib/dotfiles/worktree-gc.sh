@@ -316,6 +316,19 @@ _worktree_gc_cached_main() {
   return 1
 }
 
+# Run a command that may reach a remote without ever asking for credentials:
+# the sweep is unattended, so a remote that wants them (a deleted or private
+# HTTPS repository answers 401) must fail and read as unreachable, never stop
+# the sweep at a prompt. Git consults GIT_ASKPASS, core.askPass, and
+# SSH_ASKPASS before GIT_TERMINAL_PROMPT, so an editor terminal's askpass
+# helper (VS Code sets GIT_ASKPASS) would still raise a dialog; an empty
+# GIT_ASKPASS skips all three. Configured credential helpers still answer.
+# SSH passphrase and host-key prompts read /dev/tty directly and are left to
+# the user's SSH setup.
+_worktree_gc_batch() {
+  GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=never GIT_ASKPASS='' "$@" </dev/null
+}
+
 # Fetch the base branch for one repo, at most once per sweep. Never
 # fails the sweep: a fetch failure degrades to local refs with a
 # notice. Proving against stale refs only withholds proof (fewer
@@ -333,7 +346,8 @@ _worktree_gc_fetch_base() {
   remote=${ref%%/*}
   branch=${ref#*/}
   [[ -n $remote && -n $branch && $branch != "$ref" ]] || return 0
-  if err=$(git --git-dir="$common" fetch --quiet --no-tags "$remote" "$branch" 2>&1); then
+  if err=$(_worktree_gc_batch git --git-dir="$common" fetch --quiet --no-tags \
+    "$remote" "$branch" 2>&1); then
     _WORKTREE_GC_FRESH+="$common"$'\n'
     return 0
   fi
@@ -623,13 +637,19 @@ _worktree_gc_unescape() {
 }
 
 # Run git-tools cleanup for one repository with the given arguments, filling
-# _WORKTREE_GC_OUT with its records and _WORKTREE_GC_ERRLINE with its first
-# diagnostic. The base client's work tree is HOME through core.worktree, so it
-# runs from HOME with GIT_DIR naming its Git directory; any other repository
-# runs from its main checkout. Returns the provider's status, or 125 when the
-# repository has no checkout to run from.
+# _WORKTREE_GC_OUT with its records and _WORKTREE_GC_ERRLINE with its last
+# diagnostic, which is the fatal one on failure (earlier lines are notes,
+# such as a followed default branch). The base client's work tree is HOME,
+# so it runs from HOME with GIT_DIR and GIT_WORK_TREE naming both, as the
+# `git` launcher does: a fresh client records HOME in core.worktree, but a
+# legacy bare client (core.bare=true) only gets a work tree from the
+# environment, and Git alone would call it bare. Any other repository runs
+# from its main checkout. Credential prompts are off (_worktree_gc_batch), so
+# a remote that wants credentials reads as unreachable and falls back to
+# local refs. Returns the provider's status, or 125 when the repository has
+# no checkout to run from.
 _worktree_gc_run_cleanup() {
-  local common=$1 base main err status=0
+  local common=$1 base main err line status=0
   shift
   _WORKTREE_GC_OUT=
   _WORKTREE_GC_ERRLINE=
@@ -638,7 +658,8 @@ _worktree_gc_run_cleanup() {
   base=$REPLY
   if [[ -n $base && -d $base && $common -ef $base ]]; then
     _WORKTREE_GC_OUT=$(cd -- "$HOME" &&
-      GIT_DIR=$common "$_WORKTREE_GC_CLEANUP" "$@" 2>"$err") || status=$?
+      GIT_DIR=$common GIT_WORK_TREE=$HOME \
+        _worktree_gc_batch "$_WORKTREE_GC_CLEANUP" "$@" 2>"$err") || status=$?
   else
     main=$(_worktree_gc_cached_main "$common") || main=
     if [[ -z $main || ! -e $main/.git ]]; then
@@ -646,9 +667,11 @@ _worktree_gc_run_cleanup() {
       return 125
     fi
     _WORKTREE_GC_OUT=$(cd -- "$main" &&
-      "$_WORKTREE_GC_CLEANUP" "$@" 2>"$err") || status=$?
+      _worktree_gc_batch "$_WORKTREE_GC_CLEANUP" "$@" 2>"$err") || status=$?
   fi
-  IFS= read -r _WORKTREE_GC_ERRLINE <"$err" || true
+  while IFS= read -r line || [[ -n $line ]]; do
+    [[ -z $line ]] || _WORKTREE_GC_ERRLINE=$line
+  done <"$err"
   rm -f -- "$err"
   return "$status"
 }
@@ -750,10 +773,23 @@ _worktree_gc_map_record() {
   return 0
 }
 
+# Print REMOTE's HEAD symref as a short <remote>/<branch> name, or nothing.
+# The base client's HOME has no .git of its own, so it names its Git
+# directory, as base resolution does.
+_worktree_gc_head_symref() {
+  local repo_dir=$1 common=$2 remote=$3
+  if [[ $repo_dir == "$HOME" ]]; then
+    git --git-dir="$common" symbolic-ref -q --short "refs/remotes/$remote/HEAD" 2>/dev/null
+  else
+    git -C "$repo_dir" symbolic-ref -q --short "refs/remotes/$remote/HEAD" 2>/dev/null
+  fi
+  return 0
+}
+
 # Sweep one repository: delete its proven-merged branches and decide every
 # selected old checkout it owns, in one git-tools run.
 _worktree_gc_sweep_repo() {
-  local common=$1 repo_dir base_ref remote branch i dir reg tip base_oid status
+  local common=$1 repo_dir base_ref remote i dir reg tip base_oid status
   local event subject code detail rec
   local -a args=(--no-update-base --porcelain --min-age 1) selections=() offline=()
 
@@ -780,9 +816,18 @@ _worktree_gc_sweep_repo() {
     _worktree_gc_skip_selected "$common" "no remote base branch"
     return 0
   fi
+  # A base read from <remote>/HEAD can be stale: Git records it at clone time,
+  # so an upstream that renamed master to main still looks like master here.
+  # Leave that base to git-tools, which reads the same symref (so the base is
+  # unchanged offline or with an older git-tools) and, on a fetching run,
+  # follows the remote's own default when the named branch is gone. A base
+  # from any other source (no symref, or one whose target was pruned) is
+  # passed explicitly, so both tools keep proving against the same branch.
   remote=${base_ref%%/*}
-  branch=${base_ref#*/}
-  args+=(--remote "$remote" --base "$branch")
+  args+=(--remote "$remote")
+  if [[ $(_worktree_gc_head_symref "$repo_dir" "$common" "$remote") != "$base_ref" ]]; then
+    args+=(--base "${base_ref#*/}")
+  fi
   ((_WORKTREE_GC_APPLY == 1)) || args+=(--dry-run)
   ((_WORKTREE_GC_INCLUDE_CLOSED == 0)) || args+=(--include-closed)
   for ((i = 0; i < ${#_WORKTREE_GC_SEL_REG[@]}; i++)); do

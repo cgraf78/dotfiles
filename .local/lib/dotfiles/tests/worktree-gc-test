@@ -249,7 +249,11 @@ if [[ " $* " == *" --help "* ]]; then
   exit 0
 fi
 {
-  printf 'call\tcwd=%s\tgit_dir=%s\n' "$PWD" "${GIT_DIR:-}"
+  stdin=tty
+  [[ -t 0 ]] || stdin=none
+  printf 'call\tcwd=%s\tgit_dir=%s\twork_tree=%s\tprompt=%s\tgcm=%s\taskpass=%s\tstdin=%s\n' \
+    "$PWD" "${GIT_DIR:-}" "${GIT_WORK_TREE:-}" "${GIT_TERMINAL_PROMPT:-}" \
+    "${GCM_INTERACTIVE:-}" "${GIT_ASKPASS-unset}" "$stdin"
   printf 'arg\t%s\n' "$@"
 } >>"${STUB_LOG:-/dev/null}"
 if [[ -n ${STUB_FAIL_FETCH:-} && " $* " != *" --no-fetch "* ]]; then
@@ -257,6 +261,7 @@ if [[ -n ${STUB_FAIL_FETCH:-} && " $* " != *" --no-fetch "* ]]; then
   exit 3
 fi
 if [[ -n ${STUB_FAIL:-} ]]; then
+  echo "git cleanup-repo: a note before the failure" >&2
   echo "git cleanup-repo: boom" >&2
   exit 2
 fi
@@ -389,8 +394,10 @@ git -C "$arg_home/git/alpha" worktree add "$arg_home/.worktrees/young-a" -b feat
 _gc_make_fresh "$arg_home/.worktrees/young-a"
 arg_log=$(_tmpdir)/stub.log
 
+# An editor terminal's askpass helper (VS Code sets GIT_ASKPASS) would raise
+# a credential dialog even with terminal prompts off.
 HOME="$arg_home" DOTFILES="$arg_home/.dotfiles" GIT_TOOLS_ROOT="$STUB_ROOT" \
-  STUB_LOG="$arg_log" "$GC" >/dev/null 2>&1
+  GIT_ASKPASS=/bin/false STUB_LOG="$arg_log" "$GC" >/dev/null 2>&1
 _assert_exit "args: dry run exits 0" 0 "$?"
 arg_calls=$(cat "$arg_log")
 for arg_repo in git/alpha git/quiet .dotfiles-dev; do
@@ -402,8 +409,20 @@ for arg_flag in --no-update-base --porcelain --dry-run; do
 done
 _assert_contains "args: branches proven only by ancestry wait a day" \
   "$(printf 'arg\t--min-age\narg\t1')" "$arg_calls"
-_assert_contains "args: the resolved remote base is passed explicitly" \
-  "$(printf 'arg\t--remote\narg\torigin\narg\t--base\narg\tmain')" "$arg_calls"
+_assert_contains "args: the resolved remote is passed explicitly" \
+  "$(printf 'arg\t--remote\narg\torigin')" "$arg_calls"
+# git-tools resolves the base branch: only it can follow a remote whose
+# default branch moved after the local <remote>/HEAD was recorded.
+_assert_not_contains "args: the base branch is left to git-tools" \
+  "$(printf 'arg\t--base')" "$arg_calls"
+_assert_contains "args: credential prompts are disabled" \
+  "$(printf '\tprompt=0\tgcm=never\taskpass=\t')" "$arg_calls"
+_assert_not_contains "args: an inherited askpass helper is cleared" \
+  "askpass=/bin/false" "$arg_calls"
+_assert_not_contains "args: credential prompts are disabled for every repository" \
+  "$(printf '\tprompt=\t')" "$arg_calls"
+_assert_not_contains "args: the provider never reads the terminal" \
+  "$(printf '\tstdin=tty')" "$arg_calls"
 _assert_contains "args: an old checkout is selected" \
   "$(printf 'arg\t--worktree\narg\t%s' "$arg_home/.worktrees/old-a")" "$arg_calls"
 _assert_not_contains "args: a young checkout is never selected" "young-a" "$arg_calls"
@@ -411,6 +430,29 @@ _assert_not_contains "args: the dry run does not fetch-disable by default" \
   "$(printf 'arg\t--no-fetch')" "$arg_calls"
 _assert_eq "args: each repository is cleaned in exactly one call" \
   "$(grep -c $'^call\t' <<<"$arg_calls")" "$(grep $'^call\t' <<<"$arg_calls" | sort -u | wc -l | tr -d ' ')"
+
+# Only a base read from <remote>/HEAD is left to git-tools. Without that
+# symref, or when it names a pruned branch, gc's own base is passed so both
+# tools prove against the same branch, offline too.
+git -C "$arg_home/git/quiet" symbolic-ref --delete refs/remotes/origin/HEAD
+git -C "$arg_home/.dotfiles-dev" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/pruned
+: >"$arg_log"
+HOME="$arg_home" DOTFILES="$arg_home/.dotfiles" GIT_TOOLS_ROOT="$STUB_ROOT" \
+  STUB_LOG="$arg_log" "$GC" --no-fetch >/dev/null 2>&1
+arg_calls=$(cat "$arg_log")
+# The arguments of the call made from one repository's directory.
+_gc_call_args() {
+  awk -v want="cwd=$1" -F '\t' \
+    '$1 == "call" { on = ($2 == want); next } on' <<<"$2"
+}
+for arg_repo in git/quiet .dotfiles-dev; do
+  _assert_contains "args: a base not read from origin/HEAD is passed explicitly (${arg_repo})" \
+    "$(printf 'arg\t--base\narg\tmain')" "$(_gc_call_args "$arg_home/$arg_repo" "$arg_calls")"
+done
+_assert_not_contains "args: a base read from origin/HEAD is still left to git-tools" \
+  "$(printf 'arg\t--base')" "$(_gc_call_args "$arg_home/git/alpha" "$arg_calls")"
+git -C "$arg_home/git/quiet" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
+git -C "$arg_home/.dotfiles-dev" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
 
 : >"$arg_log"
 HOME="$arg_home" DOTFILES="$arg_home/.dotfiles" GIT_TOOLS_ROOT="$STUB_ROOT" \
@@ -435,8 +477,68 @@ _git_set_test_identity "${arg_base_git[@]}"
 : >"$arg_log"
 HOME="$arg_home" DOTFILES="$arg_home/.dotfiles" GIT_TOOLS_ROOT="$STUB_ROOT" \
   STUB_LOG="$arg_log" "$GC" >/dev/null 2>&1
-_assert_contains "args: the base client is cleaned from HOME with GIT_DIR" \
-  "$(printf 'call\tcwd=%s\tgit_dir=%s' "$arg_home" "$arg_home/.dotfiles")" "$(cat "$arg_log")"
+_assert_contains "args: the base client is cleaned from HOME with GIT_DIR and GIT_WORK_TREE" \
+  "$(printf 'call\tcwd=%s\tgit_dir=%s\twork_tree=%s\t' "$arg_home" "$arg_home/.dotfiles" "$arg_home")" \
+  "$(cat "$arg_log")"
+
+# A legacy bare client (core.bare=true, no core.worktree) has a work tree
+# only through the environment, so it gets the same GIT_WORK_TREE.
+git --git-dir="$arg_home/.dotfiles" config --unset core.worktree
+git --git-dir="$arg_home/.dotfiles" config core.bare true
+: >"$arg_log"
+HOME="$arg_home" DOTFILES="$arg_home/.dotfiles" GIT_TOOLS_ROOT="$STUB_ROOT" \
+  STUB_LOG="$arg_log" "$GC" >/dev/null 2>&1
+_assert_contains "args: a legacy bare base client is cleaned with GIT_WORK_TREE" \
+  "$(printf 'call\tcwd=%s\tgit_dir=%s\twork_tree=%s\t' "$arg_home" "$arg_home/.dotfiles" "$arg_home")" \
+  "$(cat "$arg_log")"
+_assert_not_contains "args: the base client's origin/HEAD base is left to git-tools" \
+  "$(printf 'arg\t--base')" "$(_gc_call_args "$arg_home" "$(cat "$arg_log")")"
+
+# Every remote-reaching command (the provider and gc's own orphan base fetch)
+# goes through one batch helper that can never ask for credentials.
+batch_probe=$(_tmpdir)/probe
+cat >"$batch_probe" <<'PROBE'
+#!/usr/bin/env bash
+stdin=tty
+[[ -t 0 ]] || stdin=none
+read -r line || line=eof
+printf 'prompt=%s gcm=%s askpass=%s stdin=%s read=%s\n' "${GIT_TERMINAL_PROMPT-unset}" \
+  "${GCM_INTERACTIVE-unset}" "${GIT_ASKPASS-unset}" "$stdin" "$line"
+PROBE
+chmod +x "$batch_probe"
+result=$(
+  # shellcheck source=../worktree-gc.sh
+  . "$ROOT/.local/lib/dotfiles/worktree-gc.sh" &&
+    GIT_ASKPASS=/bin/false GIT_TERMINAL_PROMPT=1 _worktree_gc_batch "$batch_probe" <<<"typed"
+)
+_assert_eq "batch: a remote command never prompts or reads input" \
+  "prompt=0 gcm=never askpass= stdin=none read=eof" "$result"
+
+# gc's own base fetch for orphan proofs goes through the same helper.
+fetch_bin=$(_tmpdir)/fetch-bin
+fetch_log=$(_tmpdir)/fetch.log
+mkdir -p "$fetch_bin"
+cat >"$fetch_bin/git" <<'STUB'
+#!/usr/bin/env bash
+stdin=tty
+[[ -t 0 ]] || stdin=none
+printf 'prompt=%s gcm=%s askpass=%s stdin=%s args=%s\n' "${GIT_TERMINAL_PROMPT-unset}" \
+  "${GCM_INTERACTIVE-unset}" "${GIT_ASKPASS-unset}" "$stdin" "$*" >>"$FETCH_LOG"
+STUB
+chmod +x "$fetch_bin/git"
+(
+  # shellcheck source=../worktree-gc.sh
+  . "$ROOT/.local/lib/dotfiles/worktree-gc.sh" || exit 1
+  # shellcheck disable=SC2329 # called by _worktree_gc_fetch_base
+  _dr_worktree_base_ref_ensure() { REPLY=origin/main; }
+  _WORKTREE_GC_NO_FETCH=0
+  _WORKTREE_GC_FETCHED=$'\n'
+  GIT_ASKPASS=/bin/false GIT_TERMINAL_PROMPT=1 PATH="$fetch_bin:$PATH" FETCH_LOG="$fetch_log" \
+    _worktree_gc_fetch_base /nonexistent/checkout /nonexistent/repo.git
+)
+_assert_contains "batch: gc's own base fetch never prompts or reads input" \
+  "prompt=0 gcm=never askpass= stdin=none args=--git-dir=/nonexistent/repo.git fetch" \
+  "$(cat "$fetch_log" 2>/dev/null)"
 
 echo ""
 echo "=== Records map to the sweep contract ==="
@@ -542,6 +644,8 @@ _assert_eq "failure: only an unreachable remote is retried" 1 \
   "$(grep -c $'^call\t' "$fail_log")"
 _assert_contains "failure: the repository failure is recorded" \
   "$(printf 'failed\t%s\tgit cleanup-repo failed: git cleanup-repo: boom' "$fail_home/git/alpha/.git")" "$result"
+_assert_not_contains "fail: an earlier note is not taken for the failure reason" \
+  "a note before the failure" "$result"
 _assert_contains "failure: its selected checkout is still reported" \
   "$(printf 'skipped\t%s\tno cleanup decision' "$fail_home/.worktrees/old-f")" "$result"
 
@@ -727,6 +831,38 @@ else
   _assert_exit "e2e: the unmerged branch survives" 0 "$?"
   _assert_file_exists "e2e: the dirty checkout survives" "$e2e_home/.worktrees/old-dirty/feat-c.txt"
   _assert_file_exists "e2e: the locked checkout survives" "$e2e_home/git/worktrees/old-locked/feat-d.txt"
+
+  # A legacy bare base client (core.bare=true, HOME as its work tree only
+  # through the environment) is swept like a fresh one, not refused as bare.
+  lb_home=$(_gc_tmpdir)
+  lb_origin=$(_tmpdir)/origin.git
+  _gc_seed_origin "$lb_origin"
+  git clone --quiet --bare "$lb_origin" "$lb_home/.dotfiles" >/dev/null 2>&1
+  lb_git=(git --git-dir="$lb_home/.dotfiles" --work-tree="$lb_home")
+  _git_set_test_identity "${lb_git[@]}"
+  "${lb_git[@]}" config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
+  "${lb_git[@]}" fetch --quiet origin
+  "${lb_git[@]}" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
+  "${lb_git[@]}" reset --quiet --hard main
+  export GIT_COMMITTER_DATE="@$(($(date +%s) - 3 * 86400)) +0000"
+  "${lb_git[@]}" worktree add --quiet "$lb_home/.worktrees/old-lb" -b lb-merged >/dev/null 2>&1
+  "${lb_git[@]}" branch lb-no-checkout main
+  unset GIT_COMMITTER_DATE
+  _gc_make_old "$lb_home/.worktrees/old-lb"
+  _assert_eq "e2e: the legacy fixture is bare" "true" \
+    "$(git --git-dir="$lb_home/.dotfiles" config --get core.bare)"
+
+  result=$(HOME="$lb_home" DOTFILES="$lb_home/.dotfiles" GIT_TOOLS_ROOT="$gc_real_root" \
+    "$GC" --apply 2>"$lb_home/stderr.txt")
+  _assert_exit "e2e: a legacy bare client sweep exits 0" 0 "$?"
+  _assert_not_contains "e2e: a legacy bare client is not refused as bare" \
+    "bare repositories are not supported" "$result$(cat "$lb_home/stderr.txt")"
+  _assert_contains "e2e: a legacy bare client's merged checkout is removed" \
+    "$(printf 'removed\t%s\t' "$lb_home/.worktrees/old-lb")" "$result"
+  _assert_file_missing "e2e: the legacy bare client's checkout is gone" "$lb_home/.worktrees/old-lb/.git"
+  git --git-dir="$lb_home/.dotfiles" rev-parse --verify -q refs/heads/lb-no-checkout >/dev/null 2>&1
+  _assert_exit "e2e: a legacy bare client's merged branch is deleted" 1 "$?"
+  _assert_file_exists "e2e: the legacy bare client's HOME files survive" "$lb_home/file.txt"
 fi
 echo ""
 echo "=== Empty unregistered directories are eligible for rmdir only ==="

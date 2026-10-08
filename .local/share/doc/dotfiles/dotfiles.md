@@ -90,7 +90,7 @@ shortcut only on a host without Dot.
 ## Usage
 
 ```bash
-dot update                  # sync repos, apply overlays, merge configs, update deps
+dot update                  # sync repos/overlays, merge configs, update deps
 dot update -v               # verbose update
 dot update --force          # bypass TTL caches and force reinstalls
 dot update --cron           # quiet update, skipped when any repo is dirty
@@ -104,8 +104,8 @@ dot cron                    # show installed cron entries
 dot doctor                  # run installation health checks
 ```
 
-`init`, `update`, `pull`, `cron`, and `doctor` work before the client repo exists.
-`fetch`, `push`, `status`, and `diff` require it.
+`init`, `update`, `pull`, `cron`, and `doctor` work before the client repo
+exists. `fetch`, `push`, `status`, and `diff` require it.
 
 Use plain `git` for raw Git operations on the base repo. The tracked
 `~/.local/bin/git` launcher routes `$HOME` and non-repo descendants to the base
@@ -156,26 +156,26 @@ describe fresh installations, not the disk use of a machine after it has
 previously used a larger profile.
 
 Shdeps payloads are reclaimed automatically instead: the auto-update cron runs
-`dot update --cron`, which prunes by default, so Dot runs `shdeps prune -y` itself
-as the `Prune` stage right after `Tools`. Dot prunes while holding its update
-lock, and only after repository sync and overlay linking succeeded, so a frozen
-or partially synchronized generation is never pruned; a dependency or post hook
-that keeps failing no longer stops orphan cleanup. A cron run skipped for a
-dirty worktree or lock contention does not prune, so a host left with unresolved
-local edits needs a manual `shdeps prune`, and manual `dot update` runs never
-prune. The policy is an environment variable rather than a `.config/dot/config`
-key because older Dot releases reject unknown config keys; a host still running
-one ignores the variable and skips pruning until its `Tools` stage installs a
-Dot release that supports it (the new release takes effect on the following
-run). Within one cron interval of a converged update, every dependency no longer
-declared for the host loses its Shdeps-managed state: prune runs the orphan's
-`uninstall` hook (which may delete files that hook owns, such as installed
-fonts), then removes release payloads, managed checkout links, command and
-extras links, stamps, and manifest records. User-owned development clones such
-as `~/git/<repo>` stay in place, and native packages are never uninstalled.
-Because `-y` also bypasses prune's guard against removing every tracked
-dependency at once, a run that sees an empty or unmatched Shdeps config would
-prune them all.
+`dot update --cron`, which prunes by default, so Dot runs `shdeps prune -y`
+itself as the `Prune` stage right after `Tools`. Dot prunes while holding its
+update lock, and only after repository sync and overlay linking succeeded, so a
+frozen or partially synchronized generation is never pruned; a dependency or
+post hook that keeps failing no longer stops orphan cleanup. A cron run skipped
+for a dirty worktree or lock contention does not prune, so a host left with
+unresolved local edits needs a manual `shdeps prune`, and manual `dot update`
+runs never prune. The policy is an environment variable rather than a
+`.config/dot/config` key because older Dot releases reject unknown config keys;
+a host still running one ignores the variable and skips pruning until its
+`Tools` stage installs a Dot release that supports it (the new release takes
+effect on the following run). Within one cron interval of a converged update,
+every dependency no longer declared for the host loses its Shdeps-managed
+state: prune runs the orphan's `uninstall` hook (which may delete files that
+hook owns, such as installed fonts), then removes release payloads, managed
+checkout links, command and extras links, stamps, and manifest records.
+User-owned development clones such as `~/git/<repo>` stay in place, and native
+packages are never uninstalled. Because `-y` also bypasses prune's guard
+against removing every tracked dependency at once, a run that sees an empty or
+unmatched Shdeps config would prune them all.
 
 Run `shdeps prune --dry-run` to preview that removal, or `shdeps prune` to
 reclaim immediately. Native packages, Mise toolchains, Nvim data, marketplace
@@ -282,31 +282,42 @@ days). Age uses the newest checkout-directory, Git HEAD, index, and reftable
 activity signal; the current `find -mtime +N` threshold requires N+1 full
 days, and a tool that refreshes a checkout's index makes it look active again.
 
-Every per-repository decision comes from `git cleanup-repo` in git-tools,
-run with `--no-update-base --porcelain`, so the sweep never moves a local base
-and shares one set of merge proofs and removal gates with every other git-tools
+Every per-repository decision comes from `git cleanup-repo` in git-tools, run
+with `--no-update-base --porcelain`, so the sweep never moves a local base and
+shares one set of merge proofs and removal gates with every other git-tools
 command. A branch goes when Git ancestry, exact content-merge evidence, a
 branch tree that landed on the base after its branch point, or (with `gh` and
 `jq`) a merged pull request containing its tip proves it; a branch proven only
 by ancestry must also be at least a day old by its reflog, and an open pull
-request keeps a branch that no local proof covers. An old checkout goes with its proven branch, or alone,
-keeping the branch, when its detached HEAD is proven merged, its own-name
-upstream is gone, an unpublished `.github/cgraf78-actions.lock` repin was
-superseded on the base, or, with `--include-closed`, only a closed unmerged
-pull request contains it. Main, current, locked, dirty, mid-operation,
-mid-checkout, and in-use checkouts stay, and so does one holding untracked or
-ignored content other than cache-tagged (`CACHEDIR.TAG`) directories or a
-repository's configured `cleanupRepo.worktreePrunePath` entries, which are
-pruned first. A kept branch is listed only when its checkout was retired
-without it; other kept branches are counted in the tally. Any proven-merged
-local branch other than the base goes, including a stale local `master` in a
-repository whose base is `main`; its commits remain reachable from the base.
+request keeps a branch that no local proof covers. An old checkout goes with
+its proven branch, or alone, keeping the branch, when its detached HEAD is
+proven merged, its own-name upstream is gone, an unpublished
+`.github/cgraf78-actions.lock` repin was superseded on the base, or, with
+`--include-closed`, only a closed unmerged pull request contains it. Main,
+current, locked, dirty, mid-operation, mid-checkout, and in-use checkouts stay,
+and so does one holding untracked or ignored content other than cache-tagged
+(`CACHEDIR.TAG`) directories or a repository's configured
+`cleanupRepo.worktreePrunePath` entries, which are pruned first. A kept branch
+is listed only when its checkout was retired without it; other kept branches
+are counted in the tally. Any proven-merged local branch other than the base
+goes, including a stale local `master` in a repository whose base is `main`;
+its commits remain reachable from the base. The exception is a clone whose
+`origin/HEAD` still names a branch the upstream renamed: git-tools keeps that
+old default like the base until
+`git fetch origin && git remote set-head origin --auto` refreshes it.
 `--no-fetch` proves against local refs and skips pull request evidence; an
-unreachable remote falls back to local refs on its own, and then no checkout
-is retired on the superseded-Actions-pin evidence, since no open pull request
-can be ruled out. A `merge unproven` record does not establish that a pull
-request is unmerged. A missing or older git-tools skips repository cleanup
-with a notice; `dot update` installs the current release.
+unreachable remote falls back to local refs on its own, and then no checkout is
+retired on the superseded-Actions-pin evidence, since no open pull request can
+be ruled out. The sweep never asks for HTTPS credentials, even through an
+editor's askpass helper: a remote that wants them (a deleted or private
+repository) counts as unreachable, while configured credential helpers still
+answer; SSH passphrase and host-key prompts are left to your SSH setup. A base
+read from a clone's `origin/HEAD` is left to git-tools, which on a fetching run
+follows the remote's own default branch when the upstream renamed it. The base
+client, fresh or legacy bare, is swept with `$HOME` as its work tree. A
+`merge unproven` record does not establish that a pull request is unmerged. A
+missing or older git-tools skips repository cleanup with a notice; `dot update`
+installs the current release.
 
 Old empty directories discovered directly under the worktree roots are also
 eligible for removal with `rmdir`. Hidden files count as contents, and a file
@@ -319,13 +330,14 @@ record therefore says `no known registration`; `rmdir` never deletes the
 owner's refs or commits.
 
 A broken linked-worktree pointer is eligible only when its owning repository
-still exists, its registration is gone, and every checkout file
-exactly matches a snapshot in the base branch's first-parent history. Extra
-files (including ignored or hidden files), changed executable permissions, symlink targets,
-and hard-linked files prevent removal. Empty directory scaffolding is allowed
-and removed only with `rmdir`, which refuses any arriving contents. This path
-requires optional Python 3.9 or newer and readable Linux `/proc` process information;
-otherwise the checkout stays. Branches, commits, and Git metadata remain intact.
+still exists, its registration is gone, and every checkout file exactly matches
+a snapshot in the base branch's first-parent history. Extra files (including
+ignored or hidden files), changed executable permissions, symlink targets, and
+hard-linked files prevent removal. Empty directory scaffolding is allowed and
+removed only with `rmdir`, which refuses any arriving contents. This path
+requires optional Python 3.9 or newer and readable Linux `/proc` process
+information; otherwise the checkout stays. Branches, commits, and Git metadata
+remain intact.
 
 Applied orphan cleanup moves the verified directory into a private sibling
 quarantine, checks it again, and removes individually verified entries with
