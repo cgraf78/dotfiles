@@ -28,7 +28,6 @@
 .local/lib/dotfiles/tests/tool-init-test
 .local/lib/dotfiles/tests/wezterm-test
 .local/lib/dotfiles/tests/worktree-gc-actions-test
-.local/lib/dotfiles/tests/worktree-gc-github-test
 .local/lib/dotfiles/tests/worktree-gc-orphans-test
 .local/lib/dotfiles/tests/worktree-gc-test
 .local/lib/dotfiles/tests/worktree-hygiene-test

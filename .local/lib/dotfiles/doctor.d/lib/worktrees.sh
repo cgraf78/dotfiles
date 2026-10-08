@@ -1878,7 +1878,7 @@ _dr_check_worktrees() {
     elif ((manual_count == stale_count)); then
       hint="delete them by hand once reviewed: dot-worktree-gc keeps them"
     else
-      hint="run 'dot-worktree-gc' (dry run; proves squash merges too), then 'dot-worktree-gc --apply' (ignored files go too)"
+      hint="run 'dot-worktree-gc' (dry run; also lists merged branches across clones), then 'dot-worktree-gc --apply' (deletes those branches too; untracked or ignored content keeps a checkout)"
       ((manual_count == 0)) ||
         hint+="; delete those marked 'delete by hand' yourself"
     fi

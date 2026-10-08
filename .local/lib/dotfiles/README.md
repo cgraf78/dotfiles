@@ -14,7 +14,9 @@ those interfaces execute.
 - `shell-grok-rc.sh` detects and strips the Grok installer block in the thin
   shell loaders; the interactive wrapper and the `grok-rc` merge hook strip,
   `dot doctor` only reports.
-- `worktree-gc.sh` implements the `dot-worktree-gc` command.
+- `worktree-gc.sh` implements the `dot-worktree-gc` command: discovery, the
+  age policy, and empty or orphaned directories, with every per-repository
+  branch and checkout decision delegated to `git cleanup-repo` (git-tools).
 
 Editor and development runtime belongs to `dotfiles-nvim` and `dotfiles-dev`.
 Executable extensions use only Dot's public hook or doctor API.

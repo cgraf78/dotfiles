@@ -1073,7 +1073,7 @@ _assert_not_contains "activity: a fresh index keeps a checkout active" \
 _assert_contains "activity: a standalone clone is labelled" \
   "act-idle (merged into origin/main, standalone clone)" "$result"
 _assert_contains "activity: mixed rows send worktrees to the gc and clones by hand" \
-  "run 'dot-worktree-gc' (dry run; proves squash merges too), then 'dot-worktree-gc --apply' (ignored files go too); delete those marked 'delete by hand' yourself" \
+  "run 'dot-worktree-gc' (dry run; also lists merged branches across clones), then 'dot-worktree-gc --apply' (deletes those branches too; untracked or ignored content keeps a checkout); delete those marked 'delete by hand' yourself" \
   "$result"
 _assert_contains "activity: the clone is listed first, marked for removal by hand" \
   $'warn\t2 stale worktrees (older than 14 days): 2 merged\t~/.worktrees/act-idle (merged into origin/main, standalone clone, delete by hand); ~/.worktrees/act-linked (merged into origin/main); run ' \
@@ -1524,7 +1524,7 @@ grp_row=$(grep $'^warn\t3 stale worktrees' <<<"$result")
 _assert_contains "groups: the stale row counts by reason" \
   $'warn\t3 stale worktrees (older than 14 days): 3 merged\t' "$grp_row"
 _assert_contains "groups: the stale row ends with the gc commands" \
-  "; run 'dot-worktree-gc' (dry run; proves squash merges too), then 'dot-worktree-gc --apply' (ignored files go too)" \
+  "; run 'dot-worktree-gc' (dry run; also lists merged branches across clones), then 'dot-worktree-gc --apply' (deletes those branches too; untracked or ignored content keeps a checkout)" \
   "$grp_row"
 # Every stale checkout is an item; a Dot with list items folds the tail
 # itself, and the hint is a separate next-step line.
@@ -1535,7 +1535,7 @@ _assert_contains "groups: list items name every stale checkout" \
     $'item\t~/git/.worktrees/g-hidden (merged into origin/main)\t' \
     $'item\t~/git/worktrees/batch/g-nested (merged into origin/main)\t' \
     $'item\t~/worktrees/g-top (merged into origin/main)\t' \
-    $'hint\trun \'dot-worktree-gc\' (dry run; proves squash merges too), then \'dot-worktree-gc --apply\' (ignored files go too)\t')" \
+    $'hint\trun \'dot-worktree-gc\' (dry run; also lists merged branches across clones), then \'dot-worktree-gc --apply\' (deletes those branches too; untracked or ignored content keeps a checkout)\t')" \
   "$result"
 
 # A grouping folder whose every checkout is stale counts whole toward the
