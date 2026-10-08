@@ -37,8 +37,8 @@ dot_fixture_copy_core() {
   cp -R "$source_home/.local/lib/dotfiles/doctor.d" \
     "$TEST_HOME/.local/lib/dotfiles/"
   # Shared base helpers that extensions load from the extension root too:
-  # the Grok loader helper serves the interactive wrapper, the grok-rc merge
-  # hook, and the doctor shell check.
+  # the Grok loader helper serves the grok-rc merge hook, the doctor shell
+  # check, and the dev overlay's grok/agent wrappers.
   cp "$source_home/.local/lib/dotfiles/shell-grok-rc.sh" \
     "$TEST_HOME/.local/lib/dotfiles/"
   # A composed installed HOME adds capability extensions as managed symlinks.

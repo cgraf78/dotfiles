@@ -12,8 +12,8 @@ those interfaces execute.
 - `shell-loader.sh`, `launcher-real.sh`, `windows.sh`, and
   `shdeps-assets.sh` are shared base helpers.
 - `shell-grok-rc.sh` detects and strips the Grok installer block in the thin
-  shell loaders; the interactive wrapper and the `grok-rc` merge hook strip,
-  `dot doctor` only reports.
+  shell loaders; the `grok-rc` merge hook and the dev overlay's grok/agent
+  wrappers strip, `dot doctor` only reports.
 - `worktree-gc.sh` implements the `dot-worktree-gc` command: discovery, the
   age policy, and empty or orphaned directories, with every per-repository
   branch and checkout decision delegated to `git cleanup-repo` (git-tools).

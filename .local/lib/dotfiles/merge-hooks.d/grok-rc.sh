@@ -3,12 +3,16 @@ dot_hook_source merge-hooks.d/lib/compat.sh || return
 dot_hook_source shell-grok-rc.sh || return
 
 # Strip the Grok vendor installer block from the tracked thin loaders during
-# `dot update`. The interactive grok/agent wrapper strips after each launch,
-# but a vendor auto-update outside an interactive shell can re-add the block;
+# `dot update`. Base owns these loaders, so base repairs them on every
+# profile: a dirty loader stalls cron on any host. Base also keeps what the
+# block provided (the ~/.grok/bin PATH entry in 90-path.sh and the
+# completions in 70-integrations.*), so stripping never takes Grok away. The
+# dev overlay's grok/agent wrappers additionally strip after each launch.
+# A vendor auto-update outside an interactive shell can re-add the block;
 # this hook converges those hosts without `dot doctor` rewriting files. The
 # block makes the tracked loader dirty, and cron updates skip a dirty client
 # before any hook runs, so the repair comes from an interactive `dot update`
-# (or the next grok launch); `dot doctor` says so.
+# (or the next wrapped grok launch); `dot doctor` says so.
 #
 # Each loader is rewritten only while it still matches the generation read
 # here, so an edit landing between read and publish (the installer appending
