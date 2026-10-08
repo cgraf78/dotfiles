@@ -69,9 +69,15 @@ explicit and verifiable.
 - Monitor required checks and review feedback. Enable auto-merge only when it
   is part of the repository's established policy and the requested work includes
   landing.
-- After merge, update local `main` from `origin/main`, verify the resulting
-  status, and release the completed worktree through the environment's managed
-  worktree workflow.
+- After merge, remove the completed worktree together with its merged local
+  branch. `git pr-land` does both when run from the main checkout. From the
+  pull request's own worktree, or when the PR merged any other way, run
+  `git cleanup-repo --no-update-base --worktree <completed-worktree> --min-age 1`
+  from the main checkout instead. It also deletes the repository's other
+  proven-merged branches that have no checkout, and keeps a branch landed by
+  a merge commit or fast-forward until it is a day old. Never run an unscoped
+  `--remove-worktrees`: it would also remove other clean worktrees, including
+  ones concurrent agents just created.
 - Do not treat a successful local push, stale pull-request page, or queued CI as
   proof that the requested remote state has been reached; query the authoritative
   remote state before reporting completion.
@@ -81,6 +87,7 @@ explicit and verifiable.
 - If a landing command fails, query pull-request state before retrying. The
   remote merge may have completed before local synchronization or cleanup
   failed.
-- After a squash merge, `git branch -d` may reject the local branch because its
-  original commit is not an ancestor. Verify the pull request is merged and the
-  branch tree matches current `origin/main` before any forced local deletion.
+- Delete merged local branches with `git cleanup-repo`, which proves squash,
+  rebase, and stacked landings exactly. Do not force-delete with
+  `git branch -D` on the strength of a tree comparison or a merged pull request
+  page.
