@@ -43,6 +43,8 @@ base	tmux	.config/dot/merge-hooks.d/tmux/**
 base	tmux	.local/lib/dotfiles/merge-hooks.d/tmux.sh
 editor	nvim	.config/dot/merge-hooks.d/nvim/**
 editor	nvim	.config/nvim/init.lua
+editor	nvim	.config/nvim/lua/config/keymaps/vscode.lua
+editor	nvim	.config/nvim/lua/config/keymaps/vscode/**
 editor,dev	nvim-shared	.config/nvim/**
 editor	nvim	.config/ripgrep/config.editor
 editor	nvim	.config/shdeps/*nvim*
