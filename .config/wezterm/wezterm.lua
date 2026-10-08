@@ -213,6 +213,7 @@ local tab_font_size
 local line_height
 local default_prog
 local window_decorations = "TITLE|RESIZE"
+local hide_tab_bar_if_only_one_tab = true
 local macos_window_background_blur = 0
 local front_end
 local webgpu_power_preference
@@ -233,6 +234,14 @@ if is_macos then
 
   -- Use the system login shell (set via chsh).
   default_prog = nil
+
+  -- macOS 26+ renders the native title bar as translucent Liquid Glass, which
+  -- is unreadable over this dark theme (disabling the blur doesn't help).
+  -- Draw our own opaque title bar instead: traffic lights live in the fancy
+  -- tab bar, colored by window_frame. The tab bar must always show, otherwise
+  -- the buttons overlap terminal content and there's no drag region.
+  window_decorations = "INTEGRATED_BUTTONS|RESIZE"
+  hide_tab_bar_if_only_one_tab = false
 
   macos_window_background_blur = 18
 
@@ -490,7 +499,7 @@ return {
   freetype_load_target = freetype_load_target,
   freetype_render_target = freetype_render_target,
   enable_scroll_bar = false,
-  hide_tab_bar_if_only_one_tab = true,
+  hide_tab_bar_if_only_one_tab = hide_tab_bar_if_only_one_tab,
   initial_cols = 140,
   initial_rows = 36,
   use_fancy_tab_bar = true,
