@@ -1,4 +1,12 @@
 owners	family	pathspec
+# Exclusive namespaces for the base repository, the public editor (nvim) and
+# dev overlays, and machine-local files that no repository tracks. The gate
+# checks only the three public checkouts: each must track no path owned by
+# another owner, and every owned row must match a tracked path. Private
+# overlays (work, personal) are not checked and may contribute fragments
+# inside any family, such as extra merge-hook layers. Shared namespaces such
+# as .local/share/doc/dotfiles/ list only base's own files, so overlays may
+# add sibling documents there.
 base	agent-rules	.config/agent-rules/**
 base	agent-rules	.config/dot/merge-hooks.d/agent-rules/**
 base	agent-rules	.local/lib/dotfiles/doctor.d/41-agent-rules.sh
@@ -16,7 +24,9 @@ base	profile-control	.config/dot/overlays.d/**
 base	profile-control	.config/dot/profiles.d/**
 base	profile-control	.config/dot/profile-selectors.d/**
 base	profile-control	.local/lib/dotfiles/pre-sync.d/**
-base	profile-docs	.local/share/doc/dotfiles/**
+base	profile-docs	.local/share/doc/dotfiles/README.md
+base	profile-docs	.local/share/doc/dotfiles/dotfiles.md
+base	profile-docs	.local/share/doc/dotfiles/superpowers/**
 base	ssh	.config/dot/merge-hooks.d/ssh/**
 base	ssh	.local/lib/dotfiles/merge-hooks.d/ssh.sh
 base	ssh	.local/lib/dotfiles/merge-hooks.d/sshd.sh
@@ -58,6 +68,7 @@ dev	agent-tooling	.config/dot/merge-hooks.d/superpowers/**
 dev	agent-tooling	.config/ds/profile.conf
 dev	agent-tooling	.config/gstack-register/**
 dev	agent-tooling	.config/hive-memory/**
+dev	agent-tooling	.grok/skills/**
 dev	agent-tooling	.local/bin/hm
 dev	agent-tooling	.local/lib/dotfiles/doctor.d/40-agent-hooks.sh
 dev	agent-tooling	.local/lib/dotfiles/doctor.d/lib/agent-hooks.sh
@@ -108,6 +119,7 @@ dev	git	.config/dot/merge-hooks.d/sapling/**
 dev	git	.config/git/**
 dev	git	.config/lazygit/**
 dev	git	.gitleaks.toml
+dev	git	.local/bin/gh-ci-status
 dev	git	.local/lib/dotfiles/doctor.d/[0-9]*-git-hooks.sh
 dev	git	.local/lib/dotfiles/git-hooks/**
 dev	git	.local/lib/dotfiles/merge-hooks.d/gh.sh
