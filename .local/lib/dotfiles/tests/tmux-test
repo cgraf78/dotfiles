@@ -40,6 +40,8 @@ _assert_contains "tmux: clipboard popup uses the provider command" \
   'tmux-clip-paste' "$tmux_content"
 _assert_contains "tmux: continuum coordination uses the provider command" \
   'tmux-continuum-default-server' "$tmux_content"
+_assert_contains "tmux: last-output copy uses the provider command" \
+  'tmux-copy-last-output' "$tmux_content"
 _assert_contains "tmux: terminal boundary routing uses Termnav" \
   'termnav navigate' "$tmux_content"
 _assert_not_contains "tmux: retired relay command stays absent" \
@@ -47,7 +49,10 @@ _assert_not_contains "tmux: retired relay command stays absent" \
 _assert_not_contains "tmux: retired navigation wrapper stays absent" \
   'termnav-navigate' "$tmux_content"
 
-for dependency in tmux cgraf78/tmux-tools cgraf78/termnav \
+# Every provider command the base fragment binds must come from a base
+# dependency: editor and dev hosts layer more deps on top, but a base-only host
+# has nothing else to satisfy these keys.
+for dependency in tmux cgraf78/cmdblocks cgraf78/tmux-tools cgraf78/termnav \
   tmux-plugins/tmux-continuum tmux-plugins/tmux-resurrect tmux-plugins/tpm; do
   if awk -v dependency="$dependency" '$1 == dependency { found=1 }
     END { exit found ? 0 : 1 }' <<<"$shdeps_content"; then
