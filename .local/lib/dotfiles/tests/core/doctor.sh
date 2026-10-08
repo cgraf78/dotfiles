@@ -1119,7 +1119,10 @@ SH
     "they are in $doctor_mc_home/ext/pre-sync.d: check each with 'bash -n <file>'" "$result"
 
   # Leftover temporaries: base checks the destinations of its own merge
-  # hooks, by every name the writers use, past the in-flight window.
+  # hooks, by every name the writers use, past the in-flight window. The
+  # `.codex` fixtures stand in for an overlay folder: base skips them, and the
+  # overlay-contract case below checks their PID-suffixed, plain `.tmp`, and
+  # `.realize.` names.
   mkdir -p "$doctor_mc_home/.ssh" "$doctor_mc_home/.codex" "$doctor_mc_home/.claude" \
     "$doctor_mc_home/.llms/rules" "$doctor_mc_home/.toolcache.tmp"
   printf 'Host *\n' >"$doctor_mc_home/.ssh/config.tmp.Ab12Cd"
@@ -1146,10 +1149,9 @@ SH
   result=$(HOME="$doctor_mc_home" XDG_STATE_HOME='' \
     _doctor_records _dr_check_base_config_temporaries)
   _assert_contains "doctor managed config: old temporaries warn" \
-    $'warn\t6 leftover config temporary file(s)' "$result"
+    $'warn\t3 leftover config temporary file(s)' "$result"
   for doctor_tmp in .ssh/config.tmp.Ab12Cd .claude.json.tmp.4164451.7a8298303801 \
-    .codex/config.toml.tmp.4194301 .codex/hooks.json.tmp .ignore.tmp.Qq11Ww \
-    .codex/.dm.realize.Ee22Rr; do
+    .ignore.tmp.Qq11Ww; do
     # shellcheck disable=SC2088 # Rows carry tilde display paths.
     _assert_contains "doctor managed config: a leftover is listed ($doctor_tmp)" \
       "~/$doctor_tmp" "$(
@@ -1169,6 +1171,8 @@ SH
     ".toolcache.tmp" "$result"
   _assert_not_contains "doctor managed config: agent folders are the dev overlay's" \
     "Mu5e00" "$result"
+  _assert_not_contains "doctor managed config: the Codex folder is the dev overlay's" \
+    ".codex/" "$result"
   _assert_not_contains "doctor managed config: a visible file in HOME is not a leftover" \
     "notes.tmp" "$result"
   result=$(
@@ -1193,17 +1197,33 @@ SH
   result=$(HOME="$doctor_mc_home" XDG_STATE_HOME="$doctor_mc_state" \
     _doctor_records _dr_check_base_config_temporaries)
   _assert_contains "doctor managed config: agent-rules targets are checked" \
-    $'warn\t7 leftover config temporary file(s)' "$result"
+    $'warn\t4 leftover config temporary file(s)' "$result"
   # Overlay contract: an overlay passes its own folders, relative to HOME or
   # absolute; folders base checks, and repeats, are dropped.
   result=$(HOME="$doctor_mc_home" XDG_STATE_HOME="$doctor_mc_state" \
     _doctor_records _dr_check_config_temporaries .claude "$doctor_mc_home/.claude/" \
-    .config/muse .codex "$doctor_mc_home/.ssh" .llms/rules no-such-dir)
+    .config/muse "$doctor_mc_home/.ssh" .llms/rules no-such-dir)
   _assert_contains "doctor managed config: an overlay's folders are checked" \
     $'warn\t2 leftover config temporary file(s)\t~/.claude/settings.json.tmp.Cl4ude; ~/.config/muse/settings.json.tmp.Mu5e00; an interrupted write' \
     "$result"
+  result=$(
+    # shellcheck disable=SC2329 # Probed by the check under test.
+    dot_doctor_item() { _dot_doctor_record item "$1"; }
+    # shellcheck disable=SC2329
+    dot_doctor_hint() { _dot_doctor_record hint "$1"; }
+    HOME="$doctor_mc_home" XDG_STATE_HOME="$doctor_mc_state" \
+      _doctor_records _dr_check_config_temporaries .codex
+  )
+  _assert_contains "doctor managed config: an overlay folder counts every writer name" \
+    $'warn\t3 leftover config temporary file(s)' "$result"
+  for doctor_tmp in .codex/config.toml.tmp.4194301 .codex/hooks.json.tmp \
+    .codex/.dm.realize.Ee22Rr; do
+    # shellcheck disable=SC2088 # Rows carry tilde display paths.
+    _assert_contains "doctor managed config: an overlay leftover is listed ($doctor_tmp)" \
+      "~/$doctor_tmp" "$result"
+  done
   result=$(HOME="$doctor_mc_home" XDG_STATE_HOME="$doctor_mc_state" \
-    _doctor_records _dr_check_config_temporaries .codex .ssh)
+    _doctor_records _dr_check_config_temporaries .ssh "$doctor_mc_home/.ssh/" .llms/rules)
   _assert_eq "doctor managed config: base folders passed by an overlay are not repeated" \
     "" "$result"
 

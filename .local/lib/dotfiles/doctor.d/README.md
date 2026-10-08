@@ -79,11 +79,11 @@ fi
   one warning in the caller's current section listing every such file, or
   nothing when there is none. Nothing is deleted.
 - Base checks the destinations of its own merge hooks in Managed
-  configuration: `$HOME`, `~/.ssh`, `/etc/ssh`, `~/.config/karabiner`,
-  `~/.codex`, and the folder of every agent-rules target in the last
-  update's manifest. Those, and repeats, are dropped from an overlay's list, so an
-  overlay passes every folder its hooks write without knowing base's list,
-  and a folder two layers write is reported once.
+  configuration: `$HOME`, `~/.ssh`, `/etc/ssh`, `~/.config/karabiner`, and
+  the folder of every agent-rules target in the last update's manifest.
+  Those, and repeats, are dropped from an overlay's list, so an overlay
+  passes every folder its hooks write without knowing base's list, and a
+  folder two layers write is reported once.
 - An overlay registers its folders by calling the function from its own
   `doctor()`; there is no registry file. Against an older base without the
   module, `dot_doctor_source` fails and the `if` above skips the check.
