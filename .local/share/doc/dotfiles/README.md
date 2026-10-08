@@ -6,9 +6,6 @@ optional overlays publish distinct files into this shared namespace.
 
 - [`dotfiles.md`](dotfiles.md) is the main operating guide for initialization,
   updating, overlays, recovery, and common workflows.
-- `superpowers/` contains retained implementation plans and design records that
-  are useful as dotfiles context but are not installed into a native app config
-  directory. Keeping them here avoids a second top-level documentation tree.
 - Optional overlays may add sibling documents or their own subtrees. The base
   client intentionally leaves those names unowned so composed installations do
   not collide.

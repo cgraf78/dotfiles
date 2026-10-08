@@ -36,7 +36,6 @@ base	profile-control	.config/dot/profile-selectors.d/**
 base	profile-control	.local/lib/dotfiles/pre-sync.d/**
 base	profile-docs	.local/share/doc/dotfiles/README.md
 base	profile-docs	.local/share/doc/dotfiles/dotfiles.md
-base	profile-docs	.local/share/doc/dotfiles/superpowers/**
 base	ssh	.config/dot/merge-hooks.d/ssh/**
 base	ssh	.local/lib/dotfiles/merge-hooks.d/ssh.sh
 base	ssh	.local/lib/dotfiles/merge-hooks.d/sshd.sh
