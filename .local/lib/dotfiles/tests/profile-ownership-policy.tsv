@@ -6,8 +6,20 @@ owners	family	pathspec
 # overlays (work, personal) are not checked and may contribute fragments
 # inside any family, such as extra merge-hook layers. Shared namespaces such
 # as .local/share/doc/dotfiles/ list only base's own files, so overlays may
-# add sibling documents there.
-base	agent-rules	.config/agent-rules/**
+# add sibling documents there. Agent rules work the same way: base owns its
+# playbook topics, and overlays add rules.d/ fragments and playbook topics
+# for the tools they own.
+base	agent-rules	.config/agent-rules/README.md
+base	agent-rules	.config/agent-rules/playbooks.d/agent-rules/**
+base	agent-rules	.config/agent-rules/playbooks.d/dotfiles/**
+base	agent-rules	.config/agent-rules/playbooks.d/engineering/**
+base	agent-rules	.config/agent-rules/playbooks.d/git/**
+base	agent-rules	.config/agent-rules/playbooks.d/languages/**
+base	agent-rules	.config/agent-rules/playbooks.d/performance/**
+base	agent-rules	.config/agent-rules/playbooks.d/review/**
+base	agent-rules	.config/agent-rules/playbooks.d/security/**
+base	agent-rules	.config/agent-rules/playbooks.d/testing/**
+base	agent-rules	.config/agent-rules/playbooks.d/tools/**
 base	agent-rules	.config/dot/merge-hooks.d/agent-rules/**
 base	agent-rules	.local/lib/dotfiles/doctor.d/41-agent-rules.sh
 base	agent-rules	.local/lib/dotfiles/doctor.d/lib/agent-rules.sh
@@ -24,7 +36,6 @@ base	profile-control	.config/dot/profile-selectors.d/**
 base	profile-control	.local/lib/dotfiles/pre-sync.d/**
 base	profile-docs	.local/share/doc/dotfiles/README.md
 base	profile-docs	.local/share/doc/dotfiles/dotfiles.md
-base	profile-docs	.local/share/doc/dotfiles/superpowers/**
 base	ssh	.config/dot/merge-hooks.d/ssh/**
 base	ssh	.local/lib/dotfiles/merge-hooks.d/ssh.sh
 base	ssh	.local/lib/dotfiles/merge-hooks.d/sshd.sh
