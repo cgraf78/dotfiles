@@ -299,8 +299,9 @@ STUB
 # Print a real git-tools root that supports porcelain cleanup, or fail.
 _gc_real_git_tools() {
   local host_home=${DOT_TEST_HOST_HOME:-$HOME} candidate
-  # The installed release, not a development checkout on whatever branch it
-  # happens to have, unless DOT_TEST_GIT_TOOLS_ROOT names one deliberately.
+  # The install root rather than asking shdeps, so a fresh development clone
+  # is not picked up before `dot update` links it; DOT_TEST_GIT_TOOLS_ROOT
+  # names a checkout deliberately.
   for candidate in "${DOT_TEST_GIT_TOOLS_ROOT:-}" \
     "$host_home/.local/share/cgraf78/git-tools"; do
     [[ -n $candidate && -x $candidate/bin/git-cleanup-repo ]] || continue
@@ -379,6 +380,90 @@ _assert_contains "provider: a git-tools without porcelain cleanup is announced" 
   "predates porcelain cleanup" "$(cat "$prov_home/stderr.txt")"
 _assert_contains "provider: an older git-tools is never driven" \
   "$(printf 'skipped\t%s\tgit-tools cleanup unavailable' "$prov_home/.worktrees/old-merged")" "$result"
+
+echo ""
+echo "=== Without GIT_TOOLS_ROOT, shdeps names the git-tools root ==="
+
+# shdeps owns where git-tools lives: a development clone under ~/git wins
+# over the install root, and a profile without git-tools gets no answer. The
+# sweep must drive whatever shdeps names and never fall back to a guessed
+# install path, so every case plants a decoy there that fails if run.
+res_home=$(_gc_tmpdir)
+res_origin_root=$(_tmpdir)
+_gc_seed_origin "$res_origin_root/origin.git"
+_gc_clone_main "$res_origin_root/origin.git" "$res_home/git/alpha"
+_gc_merged_worktree "$res_home/git/alpha" "$res_home/.worktrees/old-merged" feat-r
+mkdir -p "$res_home/git/git-tools" "$res_home/.local/share/cgraf78/git-tools/bin"
+cp -R "$STUB_ROOT/bin" "$res_home/git/git-tools/bin"
+res_decoy_log=$(_tmpdir)/decoy.log
+cat >"$res_home/.local/share/cgraf78/git-tools/bin/git-cleanup-repo" <<DECOY
+#!/usr/bin/env bash
+printf 'decoy\n' >>"$res_decoy_log"
+exit 2
+DECOY
+chmod +x "$res_home/.local/share/cgraf78/git-tools/bin/git-cleanup-repo"
+
+# Run the sweep with only this fixture's shdeps state visible. The harness
+# may export host SHDEPS_* roots, and the resolution cache must stay inside
+# the fixture HOME.
+_gc_run_resolved() {
+  env -u GIT_TOOLS_ROOT -u SHDEPS_BIN -u SHDEPS_BIN_DIR -u SHDEPS_CONF_DIR \
+    -u SHDEPS_GIT_DEV_DIR -u SHDEPS_INSTALL_DIR -u SHDEPS_STATE_DIR \
+    -u SHDEPS_TEST_PLATFORM -u SHDEPS_TEST_HOST -u XDG_STATE_HOME \
+    HOME="$res_home" DOTFILES="$res_home/.dotfiles" \
+    XDG_CACHE_HOME="$res_home/.cache" "$@"
+}
+
+# A shdeps stand-in that answers with RES_SHDEPS_ANSWER (nothing when empty,
+# failing as shdeps does for an undeclared dependency).
+res_shdeps_bin=$(_mock_bin)
+cat >"$res_shdeps_bin/shdeps" <<'MOCK'
+#!/usr/bin/env bash
+[[ $1 == dep-file && $2 == cgraf78/git-tools && $3 == bin/git-cleanup-repo ]] || exit 1
+[[ -n ${RES_SHDEPS_ANSWER:-} ]] || exit 1
+printf '%s\n' "$RES_SHDEPS_ANSWER"
+MOCK
+chmod +x "$res_shdeps_bin/shdeps"
+
+res_log=$(_tmpdir)/stub.log
+_gc_run_resolved PATH="$res_shdeps_bin:$PATH" STUB_LOG="$res_log" \
+  RES_SHDEPS_ANSWER="$res_home/git/git-tools/bin/git-cleanup-repo" \
+  "$GC" >/dev/null 2>"$res_home/stderr.txt"
+_assert_exit "resolve: a shdeps-named git-tools sweep exits 0" 0 "$?"
+_assert_contains "resolve: the git-tools shdeps names is driven" \
+  "$(printf 'call\tcwd=%s\t' "$res_home/git/alpha")" "$(cat "$res_log" 2>/dev/null)"
+_assert_file_missing "resolve: the install path is not guessed" "$res_decoy_log"
+
+# A fresh cache: the answer above must not be served from the shdeps cache.
+result=$(_gc_run_resolved PATH="$res_shdeps_bin:$PATH" RES_SHDEPS_ANSWER= \
+  XDG_CACHE_HOME="$(_tmpdir)" \
+  "$GC" --apply 2>"$res_home/stderr.txt")
+_assert_exit "resolve: git-tools unknown to shdeps still exits 0" 0 "$?"
+_assert_contains "resolve: git-tools unknown to shdeps is announced" \
+  "git-tools not found" "$(cat "$res_home/stderr.txt")"
+_assert_contains "resolve: an old checkout waits when shdeps has no git-tools" \
+  "$(printf 'skipped\t%s\tgit-tools cleanup unavailable' "$res_home/.worktrees/old-merged")" "$result"
+_assert_file_missing "resolve: an unresolved git-tools is not guessed" "$res_decoy_log"
+
+# The real resolver: with git-tools declared, a development clone under
+# ~/git takes precedence over the install root.
+res_real_shdeps=$(command -v shdeps 2>/dev/null) ||
+  res_real_shdeps=${DOT_TEST_HOST_HOME:-$HOME}/.local/bin/shdeps
+if [[ ! -x $res_real_shdeps ]]; then
+  echo '  - skipping real shdeps resolution: no shdeps on this host'
+else
+  mkdir -p "$res_home/.config/shdeps"
+  printf 'cgraf78/git-tools github git-absorb-and-rebase\n' \
+    >"$res_home/.config/shdeps/30-dev.conf"
+  : >"$res_log"
+  _gc_run_resolved SHDEPS_BIN="$res_real_shdeps" STUB_LOG="$res_log" \
+    XDG_CACHE_HOME="$(_tmpdir)" \
+    "$GC" >/dev/null 2>"$res_home/stderr.txt"
+  _assert_exit "resolve: a real shdeps sweep exits 0" 0 "$?"
+  _assert_contains "resolve: real shdeps prefers the ~/git clone" \
+    "$(printf 'call\tcwd=%s\t' "$res_home/git/alpha")" "$(cat "$res_log")"
+  _assert_file_missing "resolve: real shdeps skips the install root" "$res_decoy_log"
+fi
 
 echo ""
 echo "=== Every managed clone is swept with the right arguments ==="

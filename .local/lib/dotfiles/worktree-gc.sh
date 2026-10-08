@@ -14,8 +14,8 @@
 # `git cleanup-repo` from git-tools, driven through its porcelain records
 # with --no-update-base, so the sweep never moves a local base and shares
 # one set of merge proofs and removal gates with every other git-tools
-# command. The git-tools root resolves from GIT_TOOLS_ROOT, defaulting to
-# its Shdeps install path.
+# command. The git-tools root comes from GIT_TOOLS_ROOT when set, otherwise
+# from shdeps, which owns where the dependency lives.
 #
 # Stdout contract (tab-separated, one record per line, stable):
 #   would-remove\t<path>\t<reason>        dry run (the default)
@@ -72,6 +72,9 @@ if [[ -z ${_DR_WORKTREE_WARN_BYTES_DEFAULT:-} ]]; then
   # shellcheck source=doctor.d/lib/worktrees.sh
   . "$_WORKTREE_GC_DIR/doctor.d/lib/worktrees.sh" || return 1
 fi
+
+# shellcheck source=shdeps-assets.sh
+. "$_WORKTREE_GC_DIR/shdeps-assets.sh" || return 1
 
 # The superseded Actions-pin proof is specific to cgraf78/actions consumers,
 # so it stays here and reaches git-tools as an explicit retirement request.
@@ -561,13 +564,28 @@ _worktree_gc_remove_orphan() {
   return 0
 }
 
-# Locate the git-tools cleanup provider. Anything missing or too old leaves
-# _WORKTREE_GC_CLEANUP empty with one notice; the sweep still handles empty
-# and orphaned directories, which need no repository decision.
+# Locate the git-tools cleanup provider. GIT_TOOLS_ROOT names a root
+# explicitly (tests and provider development). Otherwise ask shdeps, which
+# owns the dependency's location: for repository installs a development clone
+# under ~/git wins over the install root, and a host whose profile does not
+# declare git-tools gets no answer even if an old install lingers. Anything
+# missing or too old leaves _WORKTREE_GC_CLEANUP empty with one notice; the
+# sweep still handles empty and orphaned directories, which need no
+# repository decision.
 _worktree_gc_load_provider() {
-  local root=${GIT_TOOLS_ROOT:-$HOME/.local/share/cgraf78/git-tools} bin
-  bin=$root/bin/git-cleanup-repo
+  local root bin
   _WORKTREE_GC_CLEANUP=
+  if [[ -n ${GIT_TOOLS_ROOT:-} ]]; then
+    root=$GIT_TOOLS_ROOT
+    bin=$root/bin/git-cleanup-repo
+  else
+    bin=$(dot_shdeps_dep_file cgraf78/git-tools bin/git-cleanup-repo 2>/dev/null) || bin=
+    if [[ -z $bin ]]; then
+      _worktree_gc_err "git-tools not found: shdeps did not resolve cgraf78/git-tools; branch and checkout cleanup skipped"
+      return 0
+    fi
+    root=${bin%/bin/git-cleanup-repo}
+  fi
   if [[ ! -x $bin ]]; then
     _worktree_gc_err "git-tools not found at $root; branch and checkout cleanup skipped"
     return 0
