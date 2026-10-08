@@ -1,12 +1,13 @@
 # shellcheck shell=bash
 # Remove the Grok vendor installer block from tracked thin loaders.
 # install.sh appends a marked PATH/fpath/compinit block to ~/.zshrc or
-# ~/.bashrc. Those files stay loaders; PATH and completions live under
-# ~/.config/shell/. Strip after a grok/agent launch (72-grok.sh) and during
-# `dot update` (the grok-rc merge hook) rather than while the loader is still
-# being sourced, so an in-flight source does not rewrite the file it is
-# reading. `dot doctor` only reports the block through the predicate below:
-# diagnostics must never rewrite tracked files.
+# ~/.bashrc. Those base-owned files stay loaders; Grok's PATH entry and
+# completions live under ~/.config/shell/ instead. Strip during
+# `dot update` (the grok-rc merge hook) and after a grok/agent launch (the
+# dev overlay's wrappers call dot_grok_strip_installer_rc) rather than while
+# the loader is still being sourced, so an in-flight source does not rewrite
+# the file it is reading. `dot doctor` only reports the block through the
+# predicate below: diagnostics must never rewrite tracked files.
 #
 # Sourced by interactive bash and zsh, so this stays POSIX-shaped.
 
@@ -23,12 +24,14 @@ dot_grok_rc_has_block() {
 
 # Print FILE without the marked vendor block or the blank lines that
 # introduced it. Other blank lines between content survive; trailing blank
-# lines at end of file and stray end markers are dropped. Fails when a block
-# never closes: everything after an unmatched start marker would otherwise
-# vanish, including the user's own lines.
+# lines at end of file and stray end markers are dropped. Blank lines inside
+# the block go with it: buffering them would print them before the next
+# content line when the block sits mid-file. Fails when a block never closes:
+# everything after an unmatched start marker would otherwise vanish,
+# including the user's own lines.
 dot_grok_rc_filter() {
   awk '
-    /^$/ {
+    /^$/ && !skip {
       pending = pending $0 "\n"
       next
     }
@@ -55,7 +58,8 @@ dot_grok_rc_mode() {
   command stat -c '%a' "$1" 2>/dev/null || command stat -f '%Lp' "$1" 2>/dev/null
 }
 
-# Strip the block in place after an interactive grok/agent launch. The
+# Strip the block in place after an interactive grok/agent launch (the dev
+# overlay's wrappers call this). The
 # temporary is a sibling carrying the loader's mode, so the rename is atomic
 # and keeps permissions; a symlinked loader belongs to someone else's layout
 # and is left alone. One loader that cannot be stripped does not stop the

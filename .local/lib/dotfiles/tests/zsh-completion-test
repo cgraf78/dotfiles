@@ -385,6 +385,9 @@ posix_grok_bash=$(
 _assert_contains "bash grok completions: posix shells skip programmable completion" \
   "loaded=0" "$posix_grok_bash"
 
+# The grok/agent wrappers that also strip after each launch belong to the
+# dev overlay and are tested there.
+
 _assert_not_contains "tracked zshrc has no grok installer block" \
   "grok installer" "$(<"$source_home/.zshrc")"
 _assert_not_contains "tracked bashrc has no grok installer block" \
@@ -392,6 +395,22 @@ _assert_not_contains "tracked bashrc has no grok installer block" \
 
 # shellcheck disable=SC1091 # source tree helper, not the fixture home
 . "$source_home/.local/lib/dotfiles/shell-grok-rc.sh"
+
+# A block in the middle of a loader takes its own blank lines with it: only
+# the blank line that introduced it and the user's lines around it decide
+# what survives.
+mid_rc_home="$TEST_TMPDIR/mid-rc-home"
+mkdir -p "$mid_rc_home"
+printf '%s\n' '# thin' '' '# >>> grok installer >>>' 'export A=1' '' 'export B=2' \
+  '# <<< grok installer <<<' '' '# user line' >"$mid_rc_home/.zshrc"
+_assert_eq "grok installer filter: blank lines inside a mid-file block go with it" \
+  "$(printf '%s\n' '# thin' '' '# user line')" \
+  "$(dot_grok_rc_filter "$mid_rc_home/.zshrc")"
+printf '%s\n' '# thin' '' '# <<< grok installer <<<' '# user line' \
+  >"$mid_rc_home/.bashrc"
+_assert_eq "grok installer filter: a stray end marker keeps the blank before it" \
+  "$(printf '%s\n' '# thin' '' '# user line')" \
+  "$(dot_grok_rc_filter "$mid_rc_home/.bashrc")"
 
 rc_home="$TEST_TMPDIR/rc-home"
 mkdir -p "$rc_home"
@@ -511,37 +530,5 @@ if command -v zsh >/dev/null 2>&1; then
   _assert_eq "grok installer strip: zsh strips the closed block" "# thin" \
     "$(<"$zsh_rc_home/.zshrc")"
 fi
-
-wrapper_home="$TEST_TMPDIR/wrapper-home"
-wrapper_bin="$TEST_TMPDIR/wrapper-bin"
-mkdir -p "$wrapper_home/.local/lib/dotfiles" "$wrapper_bin"
-cp "$source_home/.zshrc" "$wrapper_home/.zshrc"
-cp "$source_home/.local/lib/dotfiles/shell-grok-rc.sh" \
-  "$wrapper_home/.local/lib/dotfiles/shell-grok-rc.sh"
-printf '' >"$wrapper_home/.bashrc"
-cat >"$wrapper_bin/grok" <<'EOF'
-#!/usr/bin/env bash
-printf '\n# >>> grok installer >>>\nexport PATH="$HOME/.grok/bin:$PATH"\n# <<< grok installer <<<\n' >>"$HOME/.zshrc"
-EOF
-chmod +x "$wrapper_bin/grok"
-cp "$wrapper_bin/grok" "$wrapper_bin/agent"
-# shellcheck disable=SC2030,SC2031  # fixture HOME/PATH stay inside this subshell
-wrapper_out=$(
-  HOME="$wrapper_home"
-  PATH="$wrapper_bin:/usr/bin:/bin"
-  # shellcheck disable=SC1091 # source tree fragment, not the fixture home
-  . "$source_home/.config/shell/interactive.d/72-grok.sh"
-  # shellcheck disable=SC2119  # no-arg launch is the case under test
-  grok
-  grok_block=$(grep -c 'grok installer' "$HOME/.zshrc" || true)
-  printf '\n# >>> grok installer >>>\n# <<< grok installer <<<\n' >>"$HOME/.zshrc"
-  agent update
-  agent_block=$(grep -c 'grok installer' "$HOME/.zshrc" || true)
-  printf 'grok-block=%s agent-block=%s\n' "$grok_block" "$agent_block"
-)
-_assert_contains "grok wrapper: strips installer block after a normal launch" \
-  "grok-block=0" "$wrapper_out"
-_assert_contains "agent wrapper: strips installer block after agent update" \
-  "agent-block=0" "$wrapper_out"
 
 _test_summary

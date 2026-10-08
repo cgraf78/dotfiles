@@ -25,11 +25,10 @@ _DR_CONFIG_TMP_MINUTES=10
 
 # Report via _DR_CONFIG_TMP_DIRS the directories base's own merge hooks
 # write config files into through sibling temporaries: HOME (`.ignore`, the
-# shell loaders the grok-rc hook edits), ssh and sshd, Karabiner, Codex
-# trust pruning, and every agent-rules target the last update recorded in
-# its manifest. Stamps in the cache are left out: a leftover there holds
-# nothing worth a warning. A directory that does not exist costs one failed
-# test.
+# shell loaders the grok-rc hook edits), ssh and sshd, Karabiner, and every
+# agent-rules target the last update recorded in its manifest. Stamps in the
+# cache are left out: a leftover there holds nothing worth a warning. A
+# directory that does not exist costs one failed test.
 _dr_config_temporaries_base_dirs() {
   local state=${XDG_STATE_HOME:-} kind target
   [[ $state == /* ]] || state=$HOME/.local/state
@@ -38,7 +37,6 @@ _dr_config_temporaries_base_dirs() {
     "$HOME/.ssh"
     /etc/ssh
     "$HOME/.config/karabiner"
-    "$HOME/.codex"
   )
   # The agent-rules hook records each policy target it renders; the
   # renderer writes through `<target>.tmp.XXXXXXXX` beside it.

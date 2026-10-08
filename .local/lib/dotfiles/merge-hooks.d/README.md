@@ -12,9 +12,9 @@ schedules it alone between parallel batches, so every barrier lengthens the
 Configs stage. Reserve it for hooks that share mutable state with another hook,
 and name it to sort after the ordinary hooks: the runner flushes the pending
 parallel batch at each barrier, so a barrier sorted among other hooks splits
-them into sequential batches. `zz-codex-trust.serial.sh` prunes the same
-`~/.codex/config.toml` the `codex` hook merges, and must run after that merge
-instead of racing it. `cron.sh` stays
+them into sequential batches. The dev overlay's `zz-codex-trust-prune`
+barrier, for example, prunes the same `~/.codex/config.toml` its `codex` hook
+merges, and must run after that merge instead of racing it. `cron.sh` stays
 parallel because it is the only hook that reads or writes the user crontab, and
 the top-level update lock already excludes concurrent `dot update` runs.
 

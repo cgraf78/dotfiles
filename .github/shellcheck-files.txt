@@ -29,7 +29,6 @@ program	.config/shell/interactive.d/57-marks.sh
 program	.config/shell/interactive.d/59-prompt.sh
 program	.config/shell/interactive.d/60-prompt.bash
 program	.config/shell/interactive.d/70-integrations.bash
-program	.config/shell/interactive.d/72-grok.sh
 program	.local/bin/clip
 program	.local/bin/dot-worktree-gc
 program	.local/bin/git
@@ -68,7 +67,6 @@ program	.local/lib/dotfiles/merge-hooks.d/ssh.sh
 program	.local/lib/dotfiles/merge-hooks.d/sshd.sh
 program	.local/lib/dotfiles/merge-hooks.d/tmux.sh
 program	.local/lib/dotfiles/merge-hooks.d/wezterm.sh
-program	.local/lib/dotfiles/merge-hooks.d/zz-codex-trust.serial.sh
 program	.local/lib/dotfiles/pre-sync.d/10-overlay-ssh.sh
 program	.local/lib/dotfiles/shdeps-assets.sh
 program	.local/lib/dotfiles/shell-grok-rc.sh
@@ -82,7 +80,6 @@ program	.local/lib/dotfiles/tests/ci-only/overlay-profile-stack-test
 program	.local/lib/dotfiles/tests/client-extensions-test
 program	.local/lib/dotfiles/tests/client-paths-test
 program	.local/lib/dotfiles/tests/clip-test
-program	.local/lib/dotfiles/tests/codex-trust-test
 program	.local/lib/dotfiles/tests/core-cron-test
 program	.local/lib/dotfiles/tests/core-doctor-test
 program	.local/lib/dotfiles/tests/core-launchers-test
