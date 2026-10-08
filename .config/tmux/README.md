@@ -10,6 +10,8 @@ terminal navigation stack. The `dotfiles-nvim` overlay adds
 
 - The default-server Continuum coordinator, its cheap save gate, and
   clipboard-history paste use `tmux-tools`.
+- `prefix o` and `prefix O` copy the last one or N command output blocks
+  through `cmdblocks`' `tmux-copy-last-output`.
 - Automatic session persistence uses TPM, `tmux-resurrect`, and
   `tmux-continuum`, installed as shdeps-managed repository checkouts.
 - Alt-Shift-[ and Alt-Shift-] mirror WezTerm tab reordering for tmux windows:

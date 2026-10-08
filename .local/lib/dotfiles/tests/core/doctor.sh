@@ -168,12 +168,6 @@ BASH
     "0" "$doctor_account_command_spoof_status"
 
   doctor_bin=$(_tmpdir)
-  mkdir -p "$doctor_bin" "$TEST_HOME/.config/opencode/plugins"
-  cat >"$doctor_bin/opencode" <<'SH'
-#!/usr/bin/env bash
-exit 0
-SH
-  chmod +x "$doctor_bin/opencode"
 
   mkdir -p "$TEST_HOME/.config/dot/merge-hooks.d/cron/cron.d"
   printf '%s\n' '*/30 * * * * dot update --cron --force' \

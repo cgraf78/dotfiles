@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Shared parser for the steady-state public profile ownership policy.
+#
+# After the fixed header, lines starting with `#` are policy notes, not rows.
 
 dot_profile_ownership_policy_validate() {
   local policy=$1
@@ -11,6 +13,7 @@ dot_profile_ownership_policy_validate() {
       }
       next
     }
+    /^#/ { next }
     NF != 3 {
       print "invalid profile ownership policy row " NR > "/dev/stderr"
       bad = 1
@@ -37,8 +40,9 @@ dot_profile_ownership_policy_validate() {
       bad = 1
     }
     { family_owners[$2] = $1 }
+    { rows++ }
     END {
-      if (NR < 2) {
+      if (rows < 1) {
         print "empty profile ownership policy" > "/dev/stderr"
         bad = 1
       }
@@ -50,7 +54,7 @@ dot_profile_ownership_policy_validate() {
 dot_profile_ownership_forbidden() {
   local policy=$1 owner=$2 prefix=${3:-}
   awk -F '\t' -v owner="$owner" -v prefix="$prefix" '
-    NR > 1 && index("," $1 ",", "," owner ",") == 0 {
+    NR > 1 && !/^#/ && index("," $1 ",", "," owner ",") == 0 {
       print prefix $3
     }
   ' "$policy"
@@ -59,7 +63,7 @@ dot_profile_ownership_forbidden() {
 dot_profile_ownership_owned() {
   local policy=$1 owner=$2 prefix=${3:-}
   awk -F '\t' -v owner="$owner" -v prefix="$prefix" '
-    NR > 1 && index("," $1 ",", "," owner ",") != 0 {
+    NR > 1 && !/^#/ && index("," $1 ",", "," owner ",") != 0 {
       print $2 "\t" prefix $3
     }
   ' "$policy"

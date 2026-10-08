@@ -78,6 +78,21 @@ _assert_policy_invalid 'ownership policy rejects a duplicate pathspec' \
   $'owners\tfamily\tpathspec\nbase\tone\t.config/dot/config\nbase\tone\t.config/dot/config\n'
 _assert_policy_invalid 'ownership policy keeps each family with one owner set' \
   $'owners\tfamily\tpathspec\neditor\tnvim\t.config/nvim/init.lua\ndev\tnvim\t.config/nvim/dev.lua\n'
+_assert_policy_invalid 'ownership policy rejects a policy with only notes' \
+  $'owners\tfamily\tpathspec\n# note only\n'
+
+noted_policy=$(_tmpfile)
+printf '%s' $'owners\tfamily\tpathspec\n# a note, not a row\nbase\tone\t.config/dot/config\n' \
+  >"$noted_policy"
+if dot_profile_ownership_policy_validate "$noted_policy"; then
+  _pass 'ownership policy accepts note lines after the header'
+else
+  _fail 'ownership policy accepts note lines after the header'
+fi
+_assert_eq 'ownership policy notes are never forbidden pathspecs' \
+  '.config/dot/config' "$(dot_profile_ownership_forbidden "$noted_policy" dev)"
+_assert_eq 'ownership policy notes are never owned pathspecs' \
+  $'one\t.config/dot/config' "$(dot_profile_ownership_owned "$noted_policy" base)"
 
 forbidden_pathspecs=()
 while IFS= read -r pathspec; do
