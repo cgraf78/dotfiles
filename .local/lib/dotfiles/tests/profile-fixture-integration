@@ -26,6 +26,32 @@ case $mode in
   *) usage ;;
 esac
 
+# Overlay CI only needs the profile that installs its overlay beside the other
+# one, so test mode accepts a subset through DOT_STACK_PROFILES (empty means
+# all). Update and footprint modes chain or compare every profile, so a subset
+# there would silently drop coverage; reject it instead.
+profiles=(base editor dev)
+if [[ -n ${DOT_STACK_PROFILES:-} ]]; then
+  [[ $mode == test ]] || {
+    printf 'DOT_STACK_PROFILES only applies to test mode, not %s\n' "$mode" >&2
+    exit 2
+  }
+  read -ra profiles <<<"$DOT_STACK_PROFILES"
+  ((${#profiles[@]} > 0)) || {
+    printf 'DOT_STACK_PROFILES selects no profile\n' >&2
+    exit 2
+  }
+  for profile in "${profiles[@]}"; do
+    case $profile in
+      base | editor | dev) ;;
+      *)
+        printf 'DOT_STACK_PROFILES names an unknown profile: %s\n' "$profile" >&2
+        exit 2
+        ;;
+    esac
+  done
+fi
+
 dot_sha=${DOT_STACK_DOT_SHA:-}
 agent_rules_sha=${DOT_STACK_AGENT_RULES_SYNC_SHA:-}
 dot_runtime_ok=0
@@ -610,7 +636,7 @@ base_footprint=
 editor_footprint=
 dev_footprint=
 
-for profile in base editor dev; do
+for profile in "${profiles[@]}"; do
   home=$fixture_root/home-$profile
   update_log=$fixture_root/update-$profile.log
   prepare_home "$profile" "$home" || {

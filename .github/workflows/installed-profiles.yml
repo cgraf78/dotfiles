@@ -22,6 +22,20 @@ on:
         description: dotfiles-dev revision installed for the dev profile.
         type: string
         default: main
+      profiles:
+        description: >-
+          Space-separated profiles whose installed `dot test` runs; empty runs
+          base, editor, and dev. Overlay pull requests pass `dev`, the only
+          profile that installs both overlays together.
+        type: string
+        default: ""
+      footprint:
+        description: >-
+          Measure clean profile footprints against the base and editor size
+          budgets. Overlay pull requests turn this off: the budgets are a
+          base-repository concern and the pass reinstalls every profile.
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -96,6 +110,8 @@ jobs:
           DOT_STACK_YQ_BIN: ${{ runner.temp }}/yq-v4.53.6
           DOT_STACK_NVIM_REVISION: ${{ inputs.nvim-revision }}
           DOT_STACK_DEV_REVISION: ${{ inputs.dev-revision }}
+          INSTALLED_PROFILES: ${{ inputs.profiles }}
+          RUN_FOOTPRINT: ${{ inputs.footprint }}
         run: |-
           set -euo pipefail
           # A caller may pass a branch name; the candidate helpers require
@@ -110,9 +126,14 @@ jobs:
           # resolution failure.
           dot_release_tag="$(_dot_release_latest_tag cgraf78/dot)"
           export DOT_STACK_DOT_RELEASE_TAG=$dot_release_tag
-          .local/lib/dotfiles/tests/stack-dot-runtime installed-profile-dot-test -- \
+          # The profile subset applies only to the installed `dot test`;
+          # the footprint pass compares every profile.
+          DOT_STACK_PROFILES=$INSTALLED_PROFILES \
+            .local/lib/dotfiles/tests/stack-dot-runtime installed-profile-dot-test -- \
             .local/lib/dotfiles/tests/run-ci-candidate-home \
-              .local/lib/dotfiles/tests/profile-fixture-integration test
-          .local/lib/dotfiles/tests/stack-dot-runtime profile-footprint-fixtures -- \
-            .local/lib/dotfiles/tests/run-ci-candidate-home \
+            .local/lib/dotfiles/tests/profile-fixture-integration test
+          if [[ $RUN_FOOTPRINT == true ]]; then
+            .local/lib/dotfiles/tests/stack-dot-runtime profile-footprint-fixtures -- \
+              .local/lib/dotfiles/tests/run-ci-candidate-home \
               .local/lib/dotfiles/tests/profile-fixture-integration footprint
+          fi

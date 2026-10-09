@@ -147,6 +147,18 @@ dot_core_test_static() {
     'DOT_STACK_DEV_REVISION: ${{ inputs.dev-revision }}' "$installed_workflow"
   _assert_contains "CI workflow: executes unfiltered installed profile tests" \
     "stack-dot-runtime installed-profile-dot-test" "$installed_workflow"
+  # Overlay callers narrow the run to the dev profile; base CI keeps every
+  # profile and the footprint budgets.
+  # shellcheck disable=SC2016 # Match the literal workflow shell.
+  _assert_contains "installed profiles: narrows only the installed dot test" \
+    'DOT_STACK_PROFILES=$INSTALLED_PROFILES' "$installed_workflow"
+  _assert_not_contains "CI workflow: base runs every installed profile" \
+    "profiles: dev" "$workflow"
+  _assert_not_contains "CI workflow: base keeps the footprint budgets" \
+    "footprint: false" "$workflow"
+  _assert_contains "installed profile gate rejects a profile subset outside test mode" \
+    "DOT_STACK_PROFILES only applies to test mode" \
+    "$(<"$root/.local/lib/dotfiles/tests/profile-fixture-integration")"
   _assert_contains "CI workflow: pins the installed-profile Neovim release" \
     "neovim/releases/download/v0.12.2/nvim-linux-x86_64.tar.gz" "$installed_workflow"
   _assert_contains "CI workflow: verifies the installed-profile Neovim binary" \
