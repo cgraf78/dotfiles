@@ -86,9 +86,13 @@ the `nvim-revision` or `dev-revision` input, so a change that only breaks once
 installed beside the other repositories fails before it lands. They narrow the
 run with the `profiles` input (`DOT_STACK_PROFILES`, accepted only in test
 mode) to the homes their revision changes: `editor dev` for nvim and `dev` for
-dev, and turn `footprint` off because the size budgets are base-owned. Each
-selected profile and the footprint pass run as parallel legs, and the
-`Installed profiles / Result` check summarizes them.
+dev, and turn `footprint` off because the size budgets are base-owned. They
+also turn on `lifecycle` (the upgrade/downgrade update fixture plus `dot
+doctor` in their homes) and `stack` (`run-ci --ci-only`, the cross-repository
+ownership and composition checks), which base CI already runs on every Linux
+platform through its shell job. Each selected profile and each extra check
+runs as a parallel leg, and the `Installed profiles / Result` check
+summarizes them.
 
 The exact candidate checkout, isolated candidate HOME, profile selection, and
 ordinary upgrade/downgrade suites are permanent coverage. The footprint

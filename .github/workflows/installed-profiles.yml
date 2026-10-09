@@ -36,6 +36,21 @@ on:
           base-repository concern and the pass reinstalls every profile.
         type: boolean
         default: true
+      lifecycle:
+        description: >-
+          Also run the profile upgrade/downgrade lifecycle across every
+          profile and `dot doctor` in the selected homes. Base CI already
+          runs both on each Linux platform, so only overlay pull requests,
+          whose content those checks install, turn this on.
+        type: boolean
+        default: false
+      stack:
+        description: >-
+          Also run the CI-only cross-repository stack checks (ownership
+          policy, suite-name uniqueness, composed plugin state) against these
+          revisions. Base CI already runs them on every platform.
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -55,6 +70,8 @@ jobs:
         env:
           INSTALLED_PROFILES: ${{ inputs.profiles }}
           RUN_FOOTPRINT: ${{ inputs.footprint }}
+          RUN_LIFECYCLE: ${{ inputs.lifecycle }}
+          RUN_STACK: ${{ inputs.stack }}
         run: |-
           set -euo pipefail
           # Empty selects every profile. profile-fixture-integration validates
@@ -66,9 +83,18 @@ jobs:
           }
           legs=$(printf '%s\n' "${profiles[@]}" |
             jq -Rnc '[inputs | {name: ., mode: "test", profile: .}]')
-          if [[ $RUN_FOOTPRINT == true ]]; then
-            legs=$(jq -c '. + [{name: "footprint", mode: "footprint", profile: ""}]' <<<"$legs")
+          add_leg() {
+            legs=$(jq -c --arg name "$1" --arg mode "$2" --arg profile "$3" \
+              '. + [{name: $name, mode: $mode, profile: $profile}]' <<<"$legs")
+          }
+          [[ $RUN_FOOTPRINT != true ]] || add_leg footprint footprint ''
+          if [[ $RUN_LIFECYCLE == true ]]; then
+            # The lifecycle chains every profile; doctor checks each selected
+            # home on its own.
+            add_leg update update ''
+            add_leg doctor doctor "${profiles[*]}"
           fi
+          [[ $RUN_STACK != true ]] || add_leg stack stack ''
           printf 'legs=%s\n' "$legs" >>"$GITHUB_OUTPUT"
 
   composition:
@@ -161,13 +187,20 @@ jobs:
           dot_release_tag="$(_dot_release_latest_tag cgraf78/dot)"
           export DOT_STACK_DOT_RELEASE_TAG=$dot_release_tag
           case $LEG_MODE in
-            test)
-              # One installed home per leg; the fixture rejects a profile
-              # subset in every other mode.
+            test | doctor)
+              # The fixture accepts a profile subset only in these modes.
               group=installed-profile-dot-test
+              [[ $LEG_MODE == test ]] || group=profile-doctor
               export DOT_STACK_PROFILES=$LEG_PROFILE
               ;;
+            update) group=profile-fixture-update ;;
             footprint) group=profile-footprint-fixtures ;;
+            stack)
+              .local/lib/dotfiles/tests/stack-dot-runtime control-plane-run-ci -- \
+                .local/lib/dotfiles/tests/run-ci-candidate-home \
+                .local/lib/dotfiles/tests/run-ci --ci-only
+              exit 0
+              ;;
             *)
               echo "unknown installed-profile leg mode: $LEG_MODE" >&2
               exit 1

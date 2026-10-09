@@ -26,14 +26,15 @@ case $mode in
   *) usage ;;
 esac
 
-# Overlay CI only needs the profile that installs its overlay beside the other
-# one, so test mode accepts a subset through DOT_STACK_PROFILES (empty means
-# all). Update and footprint modes chain or compare every profile, so a subset
-# there would silently drop coverage; reject it instead.
+# Overlay CI only needs the homes that install its overlay, so test and doctor
+# modes, which check each home independently, accept a subset through
+# DOT_STACK_PROFILES (empty means all). Update and footprint modes chain or
+# compare every profile, so a subset there would silently drop coverage;
+# reject it instead.
 profiles=(base editor dev)
 if [[ -n ${DOT_STACK_PROFILES:-} ]]; then
-  [[ $mode == test ]] || {
-    printf 'DOT_STACK_PROFILES only applies to test mode, not %s\n' "$mode" >&2
+  [[ $mode == test || $mode == doctor ]] || {
+    printf 'DOT_STACK_PROFILES only applies to test and doctor modes, not %s\n' "$mode" >&2
     exit 2
   }
   read -ra profiles <<<"$DOT_STACK_PROFILES"

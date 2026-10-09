@@ -127,6 +127,15 @@ if [[ ${1:-} == --validate-only ]]; then
     "${#paths[@]}" "${#ci_only_suites[@]}"
   exit 0
 fi
+# --ci-only runs just the CI-only set. Overlay pull requests use it to run
+# the cross-repository stack checks against their own revision without
+# repeating the top-level suites, which base CI and their own CI already run.
+ci_only=0
+if [[ ${1:-} == --ci-only ]]; then
+  [[ $# -eq 1 ]] || exit 2
+  ci_only=1
+  shift
+fi
 [[ $# -eq 0 ]] || exit 2
 
 export DOT_TEST_DOT_ROOT=$DOT_STACK_DOT_ROOT
@@ -162,7 +171,7 @@ _run_set() {
 # Run both sets even when the first fails so one CI log reports every failing
 # suite, then exit with the first failing status.
 status=0
-if ((${#suites[@]} > 0)); then
+if ((${#suites[@]} > 0 && ci_only == 0)); then
   _run_set "$tests_rel" "${suites[@]}" || status=$?
 fi
 if ((${#ci_only_suites[@]} > 0)); then

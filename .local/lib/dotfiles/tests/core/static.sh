@@ -163,8 +163,16 @@ dot_core_test_static() {
     "profiles: dev" "$workflow"
   _assert_not_contains "CI workflow: base keeps the footprint budgets" \
     "footprint: false" "$workflow"
-  _assert_contains "installed profile gate rejects a profile subset outside test mode" \
-    "DOT_STACK_PROFILES only applies to test mode" \
+  # Base's shell job already runs the lifecycle, doctor, and stack checks on
+  # every Linux platform; only overlay callers add those legs.
+  _assert_not_contains "CI workflow: base does not repeat the lifecycle legs" \
+    "lifecycle: true" "$workflow"
+  _assert_not_contains "CI workflow: base does not repeat the stack leg" \
+    "stack: true" "$workflow"
+  _assert_contains "installed profiles: stack leg runs only the CI-only set" \
+    "run-ci --ci-only" "$installed_workflow"
+  _assert_contains "installed profile gate rejects a profile subset in chained modes" \
+    "DOT_STACK_PROFILES only applies to test and doctor modes" \
     "$(<"$root/.local/lib/dotfiles/tests/profile-fixture-integration")"
   _assert_contains "CI workflow: pins the installed-profile Neovim release" \
     "neovim/releases/download/v0.12.2/nvim-linux-x86_64.tar.gz" "$installed_workflow"
