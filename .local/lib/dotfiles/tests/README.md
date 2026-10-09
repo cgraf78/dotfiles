@@ -78,6 +78,12 @@ update fixture also exercises a dev-to-editor-to-base downgrade, including a
 later retry of an initially unavailable optional overlay, managed-link cleanup,
 shadow restoration, and preservation of cached checkouts and package state.
 
+The gate lives in the reusable `.github/workflows/installed-profiles.yml`.
+This repository runs it against its candidate commit with both overlays at
+`main`; `dotfiles-nvim` and `dotfiles-dev` call it at `@main` with their own
+pull request revision through the `nvim-revision` or `dev-revision` input, so a
+change that only breaks when both overlays are installed fails before it lands.
+
 The exact candidate checkout, isolated candidate HOME, profile selection, and
 ordinary upgrade/downgrade suites are permanent coverage. The footprint
 fixture reports exact checkout, configuration, and control-plane payloads for

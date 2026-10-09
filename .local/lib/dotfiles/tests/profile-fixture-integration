@@ -690,10 +690,13 @@ for profile in base editor dev; do
       else
         _fail "$profile installed dot test log records suite execution"
       fi
-      if grep -Ei 'SKIP:.*(nvim|neovim)|requires Neovim|nvim unavailable' \
-        "$test_log" >/dev/null; then
+      # nvim-test reports a missing plugin cache as "SKIP full-config checks"
+      # and still passes, which would silently drop every full-config check
+      # (including the composed plugin-spec checks this gate exists for).
+      nvim_skip_pattern='SKIP:.*(nvim|neovim)|requires Neovim|nvim unavailable|SKIP full-config|full-config startup skipped'
+      if grep -Ei "$nvim_skip_pattern" "$test_log" >/dev/null; then
         _fail "$profile installed dot test has no Neovim coverage skip"
-        sed -n '/SKIP:/p' "$test_log" >&2
+        grep -Ei "$nvim_skip_pattern" "$test_log" >&2
       else
         _pass "$profile installed dot test has no Neovim coverage skip"
       fi

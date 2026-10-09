@@ -1,0 +1,118 @@
+name: Installed profiles
+
+# Install the base, editor, and dev profiles from real overlay checkouts and
+# run each profile's full `dot test`. Only the composed dev profile loads the
+# editor and dev overlays together, so overlay repositories call this
+# workflow for their pull requests too: a change that is only wrong in
+# combination with the other overlay (for example a dev plugin spec that
+# replaces an editor `init`) fails here instead of after it lands.
+
+on:
+  workflow_call:
+    inputs:
+      dotfiles-ref:
+        description: Base dotfiles revision whose tests and fixtures run.
+        type: string
+        default: main
+      nvim-revision:
+        description: dotfiles-nvim revision installed for the editor and dev profiles.
+        type: string
+        default: main
+      dev-revision:
+        description: dotfiles-dev revision installed for the dev profile.
+        type: string
+        default: main
+
+permissions:
+  contents: read
+
+jobs:
+  composition:
+    name: Composition
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        # Name checkout's throwaway initial branch so Git skips its hint.
+        env:
+          GIT_CONFIG_COUNT: "1"
+          GIT_CONFIG_KEY_0: init.defaultBranch
+          GIT_CONFIG_VALUE_0: main
+        with:
+          repository: cgraf78/dotfiles
+          fetch-depth: 0
+          ref: ${{ inputs.dotfiles-ref }}
+          persist-credentials: false
+
+      - name: Install profile test prerequisites
+        uses: cgraf78/actions/.github/actions/shell-ci-prereqs@e3a25ae946aea8fd57da3bf2ffbf9f94ea84b8d9
+        with:
+          matrix-name: Ubuntu
+          profiles: base,jq,python,zsh,lua,neovim,tmux,openssh-netcat-lsof,procps,cron,fd,ripgrep,shellcheck
+          setup: none
+
+      - name: Install pinned Neovim integration runtime
+        shell: bash
+        run: |-
+          set -euo pipefail
+          install_root="$RUNNER_TEMP/neovim-0.12.2"
+          archive="$RUNNER_TEMP/neovim-0.12.2.tar.gz"
+          mkdir -p "$install_root"
+          curl --fail --location --retry 3 --retry-all-errors \
+            --output "$archive" \
+            https://github.com/neovim/neovim/releases/download/v0.12.2/nvim-linux-x86_64.tar.gz
+          printf '%s  %s\n' \
+            31cf85945cb600d96cdf69f88bc68bec814acbff50863c5546adef3a1bcef260 \
+            "$archive" | sha256sum --check --strict
+          tar -xzf "$archive" --strip-components=1 -C "$install_root"
+          printf '%s  %s\n' \
+            fe333ad1dddfeb4b15169859287369207443477288737d4b94c07df7647ae21e \
+            "$install_root/bin/nvim" | sha256sum --check --strict
+
+      - name: Install pinned yq integration runtime
+        shell: bash
+        run: |-
+          set -euo pipefail
+          yq_bin="$RUNNER_TEMP/yq-v4.53.6"
+          curl --fail --location --retry 3 --retry-all-errors \
+            --output "$yq_bin" \
+            https://github.com/mikefarah/yq/releases/download/v4.53.6/yq_linux_amd64
+          printf '%s  %s\n' \
+            c5f056448f973ae7d39b5401949648a78f2dc1947d6a8eb65be60d5c504b9385 \
+            "$yq_bin" | sha256sum --check --strict
+          chmod +x "$yq_bin"
+
+      - name: Test unfiltered installed profiles
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+          # Let the isolated cross-check install authenticate: shared
+          # runner egress would otherwise exhaust the unauthenticated
+          # api.github.com quota and degrade resolution to cached data.
+          SHDEPS_ALLOW_GH_AUTH_TOKEN: 1
+          DOT_STACK_NVIM_BIN: ${{ runner.temp }}/neovim-0.12.2/bin/nvim
+          DOT_STACK_NVIM_DATA_HOME: ${{ runner.temp }}/dot-profile-nvim-data
+          DOT_STACK_YQ_BIN: ${{ runner.temp }}/yq-v4.53.6
+          DOT_STACK_NVIM_REVISION: ${{ inputs.nvim-revision }}
+          DOT_STACK_DEV_REVISION: ${{ inputs.dev-revision }}
+        run: |-
+          set -euo pipefail
+          # A caller may pass a branch name; the candidate helpers require
+          # the exact commit the checkout above resolved it to.
+          candidate_sha=$(git rev-parse HEAD)
+          export DOTFILES_CANDIDATE_SHA=$candidate_sha
+          .local/lib/dotfiles/tests/checkout-ci-candidate
+          # Same floating release as the Tests workflow's test-command:
+          # resolve once here so both invocations below share the frozen tag.
+          . .local/lib/dotfiles/tests/dot-runtime-resolve.sh
+          # Declare and export separately: `export VAR=$(...)` would mask a
+          # resolution failure.
+          dot_release_tag="$(_dot_release_latest_tag cgraf78/dot)"
+          export DOT_STACK_DOT_RELEASE_TAG=$dot_release_tag
+          .local/lib/dotfiles/tests/stack-dot-runtime installed-profile-dot-test -- \
+            .local/lib/dotfiles/tests/run-ci-candidate-home \
+              .local/lib/dotfiles/tests/profile-fixture-integration test
+          .local/lib/dotfiles/tests/stack-dot-runtime profile-footprint-fixtures -- \
+            .local/lib/dotfiles/tests/run-ci-candidate-home \
+              .local/lib/dotfiles/tests/profile-fixture-integration footprint
