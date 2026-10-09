@@ -67,6 +67,9 @@ editor	nvim	.local/bin/ripgrep-link-host
 editor	nvim	.local/lib/dotfiles/doctor.d/70-nvim.sh
 editor	nvim	.local/lib/dotfiles/doctor.d/lib/nvim.sh
 editor	nvim	.local/lib/dotfiles/merge-hooks.d/nvim.sh
+dev	agent-tooling	.config/agent-rules/playbooks.d/hive-memory/**
+dev	agent-tooling	.config/agent-rules/rules.d/015-hive-memory.md
+dev	agent-tooling	.config/agent-rules/rules.d/025-gstack.md
 dev	agent-tooling	.config/dot/merge-hooks.d/claude/**
 dev	agent-tooling	.config/dot/merge-hooks.d/codex/**
 dev	agent-tooling	.config/dot/merge-hooks.d/gemini/**
@@ -99,6 +102,7 @@ dev	agent-tooling	.local/lib/dotfiles/merge-hooks.d/lib/superpowers-muse-sync
 dev	agent-tooling	.local/lib/dotfiles/merge-hooks.d/muse.sh
 dev	agent-tooling	.local/lib/dotfiles/merge-hooks.d/opencode.sh
 dev	agent-tooling	.local/lib/dotfiles/merge-hooks.d/superpowers.sh
+dev	checkrun	.config/agent-rules/playbooks.d/checkrun/**
 dev	checkrun	.config/checkrun/**
 dev	checkrun	.local/share/checkrun/**
 dev	codex-trust	.local/lib/dotfiles/merge-hooks.d/lib/codex/prune-projects.py

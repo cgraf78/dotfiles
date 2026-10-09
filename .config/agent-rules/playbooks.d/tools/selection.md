@@ -143,8 +143,9 @@ interfaces.
   verification. Prefer it when a repository provides Checkrun policy.
 - `sley`: staged-change and pre-commit safety verification. Let existing hooks
   invoke it; do not bypass failures to force a commit.
-- `hm`: Hive Memory's cross-agent durable context interface. Follow the global
-  memory rules for search, project scoping, and writes.
+- `hm`: Hive Memory's cross-agent durable context interface. Follow the
+  Durable Memory rules installed with it for search, project scoping, and
+  writes.
 - `sysup`: cross-platform system upgrade and post-upgrade health checks. Treat
   package and service mutations as operational work requiring appropriate
   authorization.
