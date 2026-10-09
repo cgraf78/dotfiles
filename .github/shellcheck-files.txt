@@ -59,6 +59,7 @@ program	.local/lib/dotfiles/merge-hooks.d/ignore.sh
 program	.local/lib/dotfiles/merge-hooks.d/iterm2.sh
 program	.local/lib/dotfiles/merge-hooks.d/karabiner.sh
 program	.local/lib/dotfiles/merge-hooks.d/lib/agent-playbooks.sh
+program	.local/lib/dotfiles/merge-hooks.d/lib/agent-rules-budget.sh
 program	.local/lib/dotfiles/merge-hooks.d/lib/compat.sh
 program	.local/lib/dotfiles/merge-hooks.d/lib/cron-list.sh
 program	.local/lib/dotfiles/merge-hooks.d/lib/shdeps-assets.sh
