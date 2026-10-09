@@ -31,14 +31,15 @@ work in the same repository without colliding.
   the current checkout.
 - If setup or baseline tests are required by the repo, run them inside the
   worktree before making changes and report any pre-existing failures.
-- After merge, remove the completed worktree with its merged branch as the
-  GitHub PR lifecycle playbook describes, not with `git worktree remove`
-  alone, which leaves the branch behind. After abandonment, confirm the work
-  is pushed or no longer wanted before removing the worktree and deleting its
-  branch, and prune stale metadata with `git worktree prune` when appropriate,
-  but only after repairing moved worktrees (`git worktree repair <new-path>`
-  from the repository, or `git worktree repair` inside the moved checkout),
-  since prune drops a moved checkout's registration.
+- After merge, remove the completed worktree with its merged branch using the
+  host's landing or cleanup tooling, or the fallback in the GitHub PR lifecycle
+  playbook, not with `git worktree remove` alone, which leaves the branch
+  behind. After abandonment, confirm the work is pushed or no longer wanted
+  before removing the worktree and deleting its branch, and prune stale
+  metadata with `git worktree prune` when appropriate, but only after repairing
+  moved worktrees (`git worktree repair <new-path>` from the repository, or
+  `git worktree repair` inside the moved checkout), since prune drops a moved
+  checkout's registration.
 - Rely on the reflog to undo a rebase or other history rewrite. When an
   explicit restore point is worth keeping, create it with
   `git update-ref refs/backup/<YYYYmmdd-HHMMSS>/<branch> <commit>`, never as a

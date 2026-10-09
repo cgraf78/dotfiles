@@ -21,8 +21,15 @@ class RetirementFailed(Unsafe):
 
 
 def git(common: str, *args: str) -> bytes:
-    """Read Git objects without a checkout index or persistent temporary state."""
-    return subprocess.check_output(["git", "--git-dir=" + common, *args], stderr=subprocess.DEVNULL)
+    """Read Git objects without a checkout index or persistent temporary state.
+
+    DOT_WORKTREE_GC_GIT names the Git the sweep resolved (the real one behind
+    the dotfiles launcher); plain `git` from PATH otherwise.
+    """
+    binary = os.environ.get("DOT_WORKTREE_GC_GIT") or "git"
+    return subprocess.check_output(
+        [binary, "--git-dir=" + common, *args], stderr=subprocess.DEVNULL
+    )
 
 
 def recover(directory: str, pointer_base: str = "") -> tuple[str, bytes]:

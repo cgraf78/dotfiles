@@ -108,6 +108,7 @@ dev	checkrun	.config/checkrun/**
 dev	checkrun	.local/share/checkrun/**
 dev	codex-trust	.local/lib/dotfiles/merge-hooks.d/lib/codex/prune-projects.py
 dev	codex-trust	.local/lib/dotfiles/merge-hooks.d/zz-codex-trust-prune.serial.sh
+dev	dev-toolchain	.config/agent-rules/playbooks.d/git-tools/**
 dev	dev-toolchain	.config/dot/merge-hooks.d/mise/**
 dev	dev-toolchain	.config/direnv/**
 dev	dev-toolchain	.config/mise/**

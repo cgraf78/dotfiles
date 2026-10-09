@@ -7,13 +7,18 @@ _test_prefer_system_git || exit 1
 _test_hermetic_git core.hooksPath "$(_tmpdir)"
 # The proof runs inside the sweep library, which owns the batch helper every
 # remote-reaching command goes through; load it the way the sweep does.
+# A missing or broken library fails the suite outright: a stand-in that
+# always refuses would let every "is retained" assertion pass vacuously.
 LIB=${BASH_SOURCE[0]%/*}/../worktree-gc.sh
-if [[ -f $LIB ]]; then
-  # shellcheck source=../worktree-gc.sh
-  . "$LIB"
-else
-  _worktree_gc_actions_superseded() { return 1; }
-fi
+# shellcheck source=../worktree-gc.sh
+. "$LIB" || {
+  echo "worktree-gc-actions-test: cannot load $LIB" >&2
+  exit 1
+}
+declare -F _worktree_gc_actions_superseded >/dev/null || {
+  echo "worktree-gc-actions-test: $LIB defines no _worktree_gc_actions_superseded" >&2
+  exit 1
+}
 old=1111111111111111111111111111111111111111
 pin=2222222222222222222222222222222222222222
 current=3333333333333333333333333333333333333333
