@@ -2,11 +2,10 @@
 
 <!-- agent-rule-id: global-on-demand-playbooks -->
 
-Detailed guidance lives in agent-agnostic Markdown playbooks under
-`~/.config/agent-rules/playbooks.d/`, against which the paths below resolve.
-Before the first affected action, read each playbook whose trigger matches the
-task. Do not load unrelated playbooks. Repository-local instructions take
-precedence when they are more specific.
+Detailed guidance lives in agent-agnostic playbooks; the paths below resolve
+under `~/.config/agent-rules/playbooks.d/`. Before the first affected action,
+read each playbook whose trigger matches the task. Do not load unrelated
+playbooks. More specific repository-local instructions take precedence.
 
 <!-- agent-rules-sync-playbook-index -->
 
