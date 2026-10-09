@@ -70,18 +70,19 @@ explicit and verifiable.
   is part of the repository's established policy and the requested work includes
   landing.
 - After merge, remove the completed worktree together with its merged local
-  branch. `git pr-land` does both when run from the main checkout. From the
-  pull request's own worktree, or when the PR merged any other way, run
-  `git cleanup-repo --no-update-base --worktree <completed-worktree> --min-age 1`
-  from the main checkout instead. It also deletes the repository's other
-  proven-merged branches that have no checkout, and keeps a branch landed by
-  a merge commit or fast-forward until it is a day old; while it keeps that
-  branch, it keeps the selected worktree too, so rerun the cleanup later.
-  Run it with the shell's working directory outside the completed worktree:
-  a process whose working directory is inside it, including the shell
-  running the cleanup, keeps the worktree in use. Never run an unscoped
-  `--remove-worktrees`: it would also remove other clean worktrees, including
-  ones concurrent agents just created.
+  branch, using the host's landing or cleanup tooling scoped to that one
+  worktree (an on-demand playbook names it when it is installed), with the
+  shell's working directory outside the worktree: cleanup that checks for
+  processes using a worktree keeps one a shell is parked in. Without such
+  tooling, first run `git -C <path> status --ignored --short`: if it lists
+  anything, keep the worktree and report what it holds, since
+  `git worktree remove` silently deletes ignored files (a local `.env`, say).
+  Otherwise run `git worktree remove <path>` (never `--force`) from outside
+  the worktree, then `git branch -d <branch>`, which refuses an unmerged
+  branch; if it refuses (after a squash or rebase landing, say), leave the
+  branch and report it. Never run an unscoped worktree removal: it would also
+  remove other clean worktrees, including ones concurrent agents just
+  created.
 - Do not treat a successful local push, stale pull-request page, or queued CI as
   proof that the requested remote state has been reached; query the authoritative
   remote state before reporting completion.
@@ -91,7 +92,7 @@ explicit and verifiable.
 - If a landing command fails, query pull-request state before retrying. The
   remote merge may have completed before local synchronization or cleanup
   failed.
-- Delete merged local branches with `git cleanup-repo`, which proves squash,
-  rebase, and stacked landings exactly. Do not force-delete with
-  `git branch -D` on the strength of a tree comparison or a merged pull request
-  page.
+- Delete merged local branches only with tooling that proves squash, rebase,
+  and stacked landings exactly, or with `git branch -d`. Do not force-delete
+  with `git branch -D` on the strength of a tree comparison or a merged pull
+  request page.

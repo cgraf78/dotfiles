@@ -935,7 +935,7 @@ _assert_contains "batched: a prefix-named merged branch warns" \
 _assert_not_contains "batched: its unmerged longer sibling stays silent" \
   "mb-x-y" "$batch_result"
 _assert_contains "batched: an unlisted moved checkout falls back" \
-  "mb-moved-away (merged into origin/main)" "$batch_result"
+  "mb-moved-away (merged into origin/main, moved without repair" "$batch_result"
 _assert_not_contains "batched: unmerged checkout stays silent" \
   "mb-unmerged" "$batch_result"
 _assert_not_contains "batched: detached checkout stays silent" \
@@ -1033,8 +1033,65 @@ _assert_not_contains "scope: tracking skips the main clone's branch" \
   "refs/heads/main" "$scope_tracking"
 _assert_not_contains "scope: tracking skips young checkouts" \
   "refs/heads/sc-young" "$scope_tracking"
-_assert_eq "scope: no base ref resolves without a mergeable branch" "0" \
+_assert_eq "scope: no merge probe runs without a mergeable branch" "0" \
+  "$(grep -c -- '--merged=' "$scope_git_log")"
+# Two symbolic-refs: the gone-default check (a gone upstream that was the
+# remote's recorded default is a rename, not a landing) and one base lookup,
+# which tells whether the gc could prove anything there at all.
+_assert_eq "scope: a gone upstream costs one HEAD check and one base lookup" "2" \
   "$(grep -c 'symbolic-ref' "$scope_git_log")"
+
+echo ""
+echo "=== A gone default upstream is a rename, not a landing ==="
+
+# git-tools never retires a checkout on a gone upstream that was a default
+# branch (main, master, trunk, or the remote's recorded HEAD target): the
+# upstream renamed it. The doctor must not call such a checkout stale either.
+rename_home=$(_tmpdir)
+rename_origin=$(_tmpdir)/origin.git
+_seed_origin "$rename_origin"
+_clone_worktree "$rename_origin" "$rename_home/git/alpha"
+rename_main=$rename_home/git/alpha
+for rename_branch in master develop feat-gone; do
+  git -C "$rename_main" worktree add --quiet "$rename_home/.worktrees/$rename_branch" \
+    -b "$rename_branch" 2>/dev/null
+  _git_set_test_identity git -C "$rename_home/.worktrees/$rename_branch"
+  _commit_file "$rename_home/.worktrees/$rename_branch" "$rename_branch.txt"
+  git -C "$rename_home/.worktrees/$rename_branch" push --quiet -u origin "$rename_branch" 2>/dev/null
+done
+# The remote's recorded default names develop, then every branch is deleted
+# upstream (develop's HEAD symref is left dangling, as after a rename).
+git -C "$rename_main" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/develop
+for rename_branch in master develop feat-gone; do
+  git -C "$rename_main" push --quiet origin --delete "$rename_branch" 2>/dev/null
+done
+git -C "$rename_main" fetch --quiet --prune origin
+for rename_branch in master develop feat-gone; do
+  _make_old "$rename_home/.worktrees/$rename_branch"
+done
+result=$(HOME="$rename_home" DOTFILES="$rename_home/.dotfiles" \
+  _doctor_records _dr_check_worktrees)
+_assert_contains "rename: an ordinary gone upstream is stale" \
+  "feat-gone (upstream origin/feat-gone is gone)" "$result"
+_assert_not_contains "rename: a gone master upstream is not stale" \
+  "master (upstream origin/master is gone)" "$result"
+_assert_not_contains "rename: a gone recorded-default upstream is not stale" \
+  "develop (upstream origin/develop is gone)" "$result"
+# The per-checkout probe (used when the batched rows cannot place a checkout)
+# applies the same rule.
+rename_reasons=$(
+  HOME="$rename_home"
+  for rename_branch in master develop feat-gone; do
+    _dr_worktree_stale_reason "$rename_home/.worktrees/$rename_branch"
+    printf '%s=%s\n' "$rename_branch" "$REPLY"
+  done
+)
+_assert_contains "rename: the per-checkout probe calls a gone feature branch stale" \
+  "feat-gone=upstream origin/feat-gone is gone" "$rename_reasons"
+_assert_not_contains "rename: the per-checkout probe keeps a gone master" \
+  "master=upstream" "$rename_reasons"
+_assert_not_contains "rename: the per-checkout probe keeps a gone recorded default" \
+  "develop=upstream" "$rename_reasons"
 
 echo ""
 echo "=== Activity signals, not folder mtime ==="
@@ -1068,7 +1125,11 @@ _assert_contains "activity: the idle clone and the gc'd worktree are stale" \
   $'warn\t2 stale worktrees' "$result"
 _assert_contains "activity: idle checkout is listed" "act-idle" "$result"
 _assert_contains "activity: a clone gc does not refresh its worktrees" \
-  "act-linked (merged into origin/main)" "$result"
+  "act-linked (merged into origin/main" "$result"
+# An expired (emptied) reflog is dated by the tip commit, so the gc can
+# still remove the checkout: it is offered, not marked.
+_assert_not_contains "activity: a branch with an expired reflog is not marked" \
+  "act-linked (merged into origin/main," "$result"
 _assert_not_contains "activity: a fresh HEAD keeps a checkout active" \
   "act-head" "$result"
 _assert_not_contains "activity: a fresh index keeps a checkout active" \
@@ -1081,6 +1142,290 @@ _assert_contains "activity: mixed rows send worktrees to the gc and clones by ha
 _assert_contains "activity: the clone is listed first, marked for removal by hand" \
   $'warn\t2 stale worktrees (older than 14 days): 2 merged\t~/.worktrees/act-idle (merged into origin/main, standalone clone, delete by hand); ~/.worktrees/act-linked (merged into origin/main); run ' \
   "$result"
+
+echo ""
+echo "=== Stale checkouts the gc keeps are marked ==="
+
+# The stale row offers dot-worktree-gc only for checkouts it can remove: one
+# whose repository is bare (nowhere to run git-tools from), one holding a
+# populated submodule (Git refuses to remove it), and one whose repository
+# has no resolvable remote base are marked for handling by hand.
+keep_home=$(_tmpdir)
+keep_origin_root=$(_tmpdir)
+keep_origin=$keep_origin_root/origin.git
+_seed_origin "$keep_origin"
+mkdir -p "$keep_home/.worktrees" "$keep_home/elsewhere"
+# Bare owner with remote-tracking refs, so the checkout is merged into a base.
+git clone --quiet --bare "$keep_origin" "$keep_home/elsewhere/bare.git" 2>/dev/null
+git --git-dir="$keep_home/elsewhere/bare.git" config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
+git --git-dir="$keep_home/elsewhere/bare.git" fetch --quiet origin
+git --git-dir="$keep_home/elsewhere/bare.git" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
+git --git-dir="$keep_home/elsewhere/bare.git" worktree add --quiet "$keep_home/.worktrees/bare-wt" \
+  -b bare-wt origin/main 2>/dev/null
+# A populated submodule, committed on the base so the checkout is merged.
+keep_sub=$keep_origin_root/sub
+git init --quiet "$keep_sub"
+_git_set_test_identity git -C "$keep_sub"
+_commit_file "$keep_sub" sub.txt
+keep_sub_oid=$(git -C "$keep_sub" rev-parse HEAD)
+_clone_worktree "$keep_origin" "$keep_home/git/alpha"
+printf '[submodule "sub"]\n\tpath = sub\n\turl = %s\n' "$keep_sub" >"$keep_home/git/alpha/.gitmodules"
+git -C "$keep_home/git/alpha" add .gitmodules
+git -C "$keep_home/git/alpha" update-index --add --cacheinfo "160000,$keep_sub_oid,sub"
+git -C "$keep_home/git/alpha" commit --quiet -m submodule
+git -C "$keep_home/git/alpha" push --quiet origin main
+git -C "$keep_home/git/alpha" worktree add --quiet "$keep_home/.worktrees/sub-wt" -b sub-wt origin/main 2>/dev/null
+rmdir "$keep_home/.worktrees/sub-wt/sub" 2>/dev/null || true
+git clone --quiet "$keep_sub" "$keep_home/.worktrees/sub-wt/sub" 2>/dev/null
+# No resolvable base: a lone remote without a HEAD symref and no
+# main/master/trunk branch; the branch's own upstream is gone.
+keep_odd_origin=$keep_origin_root/odd.git
+git init --quiet --bare "$keep_odd_origin"
+git clone --quiet "$keep_odd_origin" "$keep_home/git/odd" 2>/dev/null
+_git_set_test_identity git -C "$keep_home/git/odd"
+git -C "$keep_home/git/odd" checkout --quiet -b dev
+_commit_file "$keep_home/git/odd" odd.txt
+git -C "$keep_home/git/odd" push --quiet -u origin dev
+git -C "$keep_home/git/odd" worktree add --quiet "$keep_home/.worktrees/nobase-wt" -b nobase 2>/dev/null
+git -C "$keep_home/.worktrees/nobase-wt" push --quiet -u origin nobase
+git -C "$keep_home/git/odd" push --quiet origin --delete nobase
+git -C "$keep_home/git/odd" fetch --quiet --prune origin
+git -C "$keep_home/git/odd" symbolic-ref --delete refs/remotes/origin/HEAD 2>/dev/null || true
+for keep_wt in bare-wt sub-wt nobase-wt; do
+  _make_old "$keep_home/.worktrees/$keep_wt"
+done
+result=$(HOME="$keep_home" DOTFILES="$keep_home/.dotfiles" _doctor_records _dr_check_worktrees)
+_assert_contains "gc keeps: a bare repository's checkout is marked" \
+  "bare-wt (merged into origin/main, its repository is bare, delete by hand)" "$result"
+_assert_contains "gc keeps: a checkout with a populated submodule is marked" \
+  "sub-wt (merged into origin/main, holds a submodule directory with content, delete by hand)" "$result"
+_assert_contains "gc keeps: a checkout whose repository has no base is marked" \
+  "nobase-wt (upstream origin/nobase is gone, no remote base branch, delete by hand)" "$result"
+_assert_contains "gc keeps: an all-manual row never offers the gc" \
+  "delete them by hand once reviewed: dot-worktree-gc keeps them" "$result"
+# The bare check costs one Git process per bare repository per run, and
+# none for a common directory named .git (inside its work tree).
+git --git-dir="$keep_home/elsewhere/bare.git" worktree add --quiet "$keep_home/.worktrees/bare-wt2" \
+  -b bare-wt2 origin/main 2>/dev/null
+_make_old "$keep_home/.worktrees/bare-wt2"
+keep_git_log=$(_tmpfile)
+keep_shim=$(_tmpdir)/git-shim
+cat >"$keep_shim" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >>"$keep_git_log"
+exec "$batch_real_git" "\$@"
+SH
+chmod +x "$keep_shim"
+HOME="$keep_home" DOTFILES="$keep_home/.dotfiles" DOT_DOCTOR_GIT="$keep_shim" \
+  _doctor_records _dr_check_worktrees >/dev/null
+# The bare check runs once per repository: two checkouts of the bare one
+# share it, and the two other repositories (alpha, odd) cost one each.
+_assert_eq "gc keeps: one bare check for two checkouts of one bare repository" 1 \
+  "$(grep -c -F -e "--git-dir=$keep_home/elsewhere/bare.git rev-parse --is-bare-repository" "$keep_git_log")"
+_assert_eq "gc keeps: one bare check per repository" 3 \
+  "$(grep -c 'rev-parse --is-bare-repository' "$keep_git_log")"
+
+# A --separate-git-dir repository whose clone root is gone has no main
+# checkout the gc could run from; a copied checkout is not called moved.
+keep2_home=$(_tmpdir)
+keep2_origin=$(_tmpdir)/origin.git
+_seed_origin "$keep2_origin"
+mkdir -p "$keep2_home/git" "$keep2_home/elsewhere" "$keep2_home/.worktrees"
+git clone --quiet --separate-git-dir="$keep2_home/elsewhere/sep.git" "$keep2_origin" \
+  "$keep2_home/git/sep" 2>/dev/null
+git -C "$keep2_home/git/sep" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
+git -C "$keep2_home/git/sep" worktree add --quiet "$keep2_home/.worktrees/sep-wt" -b sep-wt origin/main 2>/dev/null
+rm -rf "$keep2_home/git/sep"
+_clone_worktree "$keep2_origin" "$keep2_home/git/alpha"
+git -C "$keep2_home/git/alpha" worktree add --quiet "$keep2_home/.worktrees/orig-wt" -b orig-wt origin/main 2>/dev/null
+cp -a "$keep2_home/.worktrees/orig-wt" "$keep2_home/.worktrees/copy-wt"
+# A bare repository cloned into foo/.git is bare whatever its name says.
+git clone --quiet --bare "$keep2_origin" "$keep2_home/git/barefoo/.git" 2>/dev/null
+git --git-dir="$keep2_home/git/barefoo/.git" config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
+git --git-dir="$keep2_home/git/barefoo/.git" fetch --quiet origin
+git --git-dir="$keep2_home/git/barefoo/.git" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
+git --git-dir="$keep2_home/git/barefoo/.git" config core.logAllRefUpdates true
+git --git-dir="$keep2_home/git/barefoo/.git" worktree add --quiet "$keep2_home/.worktrees/barefoo-wt" \
+  -b barefoo-wt origin/main 2>/dev/null
+for keep_wt in sep-wt orig-wt copy-wt barefoo-wt; do
+  _make_old "$keep2_home/.worktrees/$keep_wt"
+done
+result=$(HOME="$keep2_home" DOTFILES="$keep2_home/.dotfiles" _doctor_records _dr_check_worktrees)
+_assert_contains "gc keeps: a lost --separate-git-dir checkout's worktree is marked" \
+  "sep-wt (merged into origin/main, its main checkout is gone, delete by hand)" "$result"
+_assert_contains "gc keeps: a bare repository named .git is marked" \
+  "stale-entry	~/.worktrees/barefoo-wt (merged into origin/main, its repository is bare)" "$result"
+_assert_not_contains "gc keeps: a copied checkout is never called moved" \
+  "copy-wt (merged into origin/main, moved without repair" "$result"
+
+echo ""
+echo "=== Gc-keeps marks: guards, live owners, and full rows ==="
+
+# The base client is never called bare: the gc sweeps even a legacy bare
+# client (core.bare=true) from HOME, so its stale checkout is offered.
+lb_home=$(_tmpdir)
+lb_origin=$(_tmpdir)/origin.git
+_seed_origin "$lb_origin"
+git clone --quiet --bare "$lb_origin" "$lb_home/.dotfiles" 2>/dev/null
+git --git-dir="$lb_home/.dotfiles" config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
+git --git-dir="$lb_home/.dotfiles" fetch --quiet origin
+git --git-dir="$lb_home/.dotfiles" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
+# A bare repository logs no ref updates by default, and a branch never
+# logged is marked for its unknown age; log it so only bareness is at issue.
+git --git-dir="$lb_home/.dotfiles" config core.logAllRefUpdates true
+git --git-dir="$lb_home/.dotfiles" worktree add --quiet "$lb_home/.worktrees/lb-wt" -b lb-wt origin/main 2>/dev/null
+_make_old "$lb_home/.worktrees/lb-wt"
+result=$(HOME="$lb_home" DOTFILES="$lb_home/.dotfiles" _doctor_records _dr_check_worktrees)
+_assert_contains "gc keeps: a legacy bare base client's checkout is offered to the gc" \
+  "lb-wt (merged into origin/main)" "$result"
+_assert_not_contains "gc keeps: the base client is never called bare" "its repository is bare" "$result"
+
+# A live --separate-git-dir clone, and one whose .git is a symlink, have a
+# main checkout the gc runs from: their stale checkouts are offered.
+live_home=$(_tmpdir)
+live_origin=$(_tmpdir)/origin.git
+_seed_origin "$live_origin"
+mkdir -p "$live_home/git" "$live_home/elsewhere" "$live_home/.worktrees"
+git clone --quiet --separate-git-dir="$live_home/elsewhere/sep.git" "$live_origin" \
+  "$live_home/git/sep" 2>/dev/null
+git -C "$live_home/git/sep" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
+git -C "$live_home/git/sep" worktree add --quiet "$live_home/.worktrees/sep-live" -b sep-live origin/main 2>/dev/null
+_clone_worktree "$live_origin" "$live_home/git/linked"
+mv "$live_home/git/linked/.git" "$live_home/elsewhere/linked.git"
+ln -s "$live_home/elsewhere/linked.git" "$live_home/git/linked/.git"
+git -C "$live_home/git/linked" worktree add --quiet "$live_home/.worktrees/linked-live" -b linked-live origin/main 2>/dev/null
+# An unpopulated submodule (gitlink, empty directory) blocks nothing.
+live_sub=$(_tmpdir)/sub
+git init --quiet "$live_sub"
+_git_set_test_identity git -C "$live_sub"
+_commit_file "$live_sub" sub.txt
+git -C "$live_home/git/linked" update-index --add --cacheinfo "160000,$(git -C "$live_sub" rev-parse HEAD),sub"
+printf '[submodule "sub"]\n\tpath = sub\n\turl = %s\n' "$live_sub" >"$live_home/git/linked/.gitmodules"
+git -C "$live_home/git/linked" add .gitmodules
+git -C "$live_home/git/linked" commit --quiet -m submodule
+git -C "$live_home/git/linked" push --quiet origin main
+git -C "$live_home/git/linked" worktree add --quiet "$live_home/.worktrees/sub-empty" -b sub-empty origin/main 2>/dev/null
+# A branch never logged has an unknown age, so git-tools keeps it and its
+# checkout; an emptied (expired) reflog is dated by the tip instead.
+git -C "$live_home/git/linked" worktree add --quiet "$live_home/.worktrees/never-logged" -b never-logged origin/main 2>/dev/null
+rm -f "$live_home/elsewhere/linked.git/logs/refs/heads/never-logged"
+# The same with its own upstream gone: the row's reason is the gone upstream,
+# but git-tools tries ancestry first and still cannot date the branch.
+git -C "$live_home/git/linked" worktree add --quiet "$live_home/.worktrees/gone-never" -b gone-never origin/main 2>/dev/null
+git -C "$live_home/.worktrees/gone-never" push --quiet -u origin gone-never 2>/dev/null
+git -C "$live_home/git/linked" push --quiet origin --delete gone-never 2>/dev/null
+git -C "$live_home/git/linked" fetch --quiet --prune origin
+rm -f "$live_home/elsewhere/linked.git/logs/refs/heads/gone-never"
+# Files in an unpopulated submodule's directory are invisible to status,
+# and git-tools keeps the checkout rather than delete them.
+git -C "$live_home/git/linked" worktree add --quiet "$live_home/.worktrees/sub-files" -b sub-files origin/main 2>/dev/null
+printf 'notes\n' >"$live_home/.worktrees/sub-files/sub/notes.txt"
+# Hidden files alone count too.
+git -C "$live_home/git/linked" worktree add --quiet "$live_home/.worktrees/sub-hidden" -b sub-hidden origin/main 2>/dev/null
+printf 'notes\n' >"$live_home/.worktrees/sub-hidden/sub/.notes"
+for live_wt in sep-live linked-live sub-empty never-logged gone-never sub-files sub-hidden; do
+  _make_old "$live_home/.worktrees/$live_wt"
+done
+result=$(HOME="$live_home" DOTFILES="$live_home/.dotfiles" _doctor_records _dr_check_worktrees)
+_assert_contains "gc keeps: a live --separate-git-dir clone's checkout is offered" \
+  "sep-live (merged into origin/main)" "$result"
+_assert_contains "gc keeps: a symlinked-.git clone's checkout is offered" \
+  "linked-live (merged into origin/main)" "$result"
+_assert_contains "gc keeps: an unpopulated submodule blocks nothing" \
+  "sub-empty (merged into origin/main)" "$result"
+_assert_contains "gc keeps: a never-logged branch is marked" \
+  "never-logged (merged into origin/main, its branch was never logged, so git-tools cannot date it, delete by hand)" "$result"
+_assert_contains "gc keeps: a never-logged branch whose upstream is gone is marked" \
+  "gone-never (upstream origin/gone-never is gone, its branch was never logged, so git-tools cannot date it, delete by hand)" "$result"
+_assert_contains "gc keeps: hidden files alone in an unpopulated submodule directory are marked" \
+  "stale-entry	~/.worktrees/sub-hidden (merged into origin/main, holds a submodule directory with content)" "$result"
+_assert_contains "gc keeps: files in an unpopulated submodule directory are marked" \
+  "sub-files (merged into origin/main, holds a submodule directory with content, delete by hand)" "$result"
+_assert_not_contains "gc keeps: a live owner's main checkout is never called gone" \
+  "its main checkout is gone" "$result"
+
+# Full rows for moved checkouts: alone the row sends the reader to repair it;
+# mixed with a checkout the gc removes, the hint covers both.
+repair_home=$(_tmpdir)
+repair_origin=$(_tmpdir)/origin.git
+_seed_origin "$repair_origin"
+_clone_worktree "$repair_origin" "$repair_home/git/alpha"
+mkdir -p "$repair_home/.worktrees"
+git -C "$repair_home/git/alpha" worktree add --quiet "$repair_home/.worktrees/before" -b moved origin/main 2>/dev/null
+mv "$repair_home/.worktrees/before" "$repair_home/.worktrees/moved-away"
+_make_old "$repair_home/.worktrees/moved-away"
+result=$(HOME="$repair_home" DOTFILES="$repair_home/.dotfiles" _doctor_records _dr_check_worktrees)
+# shellcheck disable=SC2088 # Rows carry tilde display paths.
+_assert_contains "repair: a lone moved checkout's row says to repair it" \
+  $'warn\t1 stale worktree (older than 14 days): 1 merged\t~/.worktrees/moved-away (merged into origin/main, moved without repair, run \'git worktree repair\' in it); handle it by hand as its entry says: dot-worktree-gc keeps it' \
+  "$result"
+# A plain directory recreated at the old path leaves the registration dead
+# (Git judges it by the old path's .git): still a move.
+git -C "$repair_home/git/alpha" worktree add --quiet "$repair_home/.worktrees/refill-src" -b refill origin/main 2>/dev/null
+mv "$repair_home/.worktrees/refill-src" "$repair_home/.worktrees/refill-dst"
+mkdir "$repair_home/.worktrees/refill-src"
+_make_old "$repair_home/.worktrees/refill-dst"
+result=$(HOME="$repair_home" DOTFILES="$repair_home/.dotfiles" _doctor_records _dr_check_worktrees)
+_assert_contains "repair: a move whose old path was recreated is still marked for repair" \
+  "refill-dst (merged into origin/main, moved without repair, run 'git worktree repair' in it)" "$result"
+git -C "$repair_home/.worktrees/refill-dst" worktree repair >/dev/null 2>&1
+rmdir "$repair_home/.worktrees/refill-src"
+git -C "$repair_home/git/alpha" worktree remove "$repair_home/.worktrees/refill-dst" >/dev/null 2>&1
+git -C "$repair_home/git/alpha" worktree add --quiet "$repair_home/.worktrees/plain" -b plain origin/main 2>/dev/null
+_make_old "$repair_home/.worktrees/plain"
+result=$(HOME="$repair_home" DOTFILES="$repair_home/.dotfiles" _doctor_records _dr_check_worktrees)
+# shellcheck disable=SC2088 # Rows carry tilde display paths.
+_assert_contains "repair: a mixed row lists the repair entry first and hints both" \
+  $'warn\t2 stale worktrees (older than 14 days): 2 merged\t~/.worktrees/moved-away (merged into origin/main, moved without repair, run \'git worktree repair\' in it); ~/.worktrees/plain (merged into origin/main); run \'dot-worktree-gc\' (dry run; also lists merged branches across clones), then \'dot-worktree-gc --apply\' (deletes those branches too; untracked or ignored content other than tagged caches and cleanupRepo.worktreePrunePath entries keeps a checkout); repair those marked for \'git worktree repair\' first' \
+  "$result"
+# The quarantine and newline rows still appear beside real worktrees.
+mkdir -p "$repair_home/.worktrees/.dot-worktree-gc-quarantine-r1"
+result=$(HOME="$repair_home" DOTFILES="$repair_home/.dotfiles" _doctor_records _dr_check_worktrees)
+_assert_contains "odd: a quarantine row appears beside real worktrees" \
+  $'warn\t1 quarantine left by a failed orphan cleanup' "$result"
+
+# A reftable repository keeps reflogs inside its tables, where git-tools
+# cannot read the HEAD history it protects: it keeps every such worktree
+# whose reflog has entries (uninspectable), so the doctor marks it for
+# handling by hand. No file check can say its branch was never logged.
+if git init --quiet --ref-format=reftable "$(_tmpdir)/probe" 2>/dev/null; then
+  rt_home=$(_tmpdir)
+  rt_origin=$(_tmpdir)/origin.git
+  _seed_origin "$rt_origin"
+  git clone --quiet --ref-format=reftable "$rt_origin" "$rt_home/git/alpha" 2>/dev/null
+  git -C "$rt_home/git/alpha" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
+  mkdir -p "$rt_home/.worktrees"
+  git -C "$rt_home/git/alpha" worktree add --quiet "$rt_home/.worktrees/rt-wt" -b rt-wt origin/main 2>/dev/null
+  _make_old "$rt_home/.worktrees/rt-wt"
+  # Its table directory is an activity signal too.
+  touch -t 202001010000 "$rt_home/git/alpha/.git/worktrees/rt-wt/reftable"
+  result=$(HOME="$rt_home" DOTFILES="$rt_home/.dotfiles" _doctor_records _dr_check_worktrees)
+  _assert_contains "reftable: a reftable checkout is marked for handling by hand" \
+    "rt-wt (merged into origin/main, its reflogs are in reftable, which git-tools cannot inspect, delete by hand)" "$result"
+  _assert_not_contains "reftable: a reftable checkout is never offered to the gc" \
+    "rt-wt (merged into origin/main)" "$result"
+  _assert_not_contains "reftable: a reftable checkout is never noted for a missing reflog" \
+    "never logged" "$result"
+  # git-tools asks Git for the HEAD reflog's entries: one whose reflogs all
+  # expired has nothing it cannot inspect, so it can go and is offered.
+  rtx_home=$(_tmpdir)
+  git clone --quiet --ref-format=reftable "$rt_origin" "$rtx_home/git/alpha" 2>/dev/null
+  git -C "$rtx_home/git/alpha" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
+  mkdir -p "$rtx_home/.worktrees"
+  git -C "$rtx_home/git/alpha" worktree add --quiet "$rtx_home/.worktrees/rt-expired" -b rt-expired origin/main 2>/dev/null
+  # --single-worktree keeps the main checkout's HEAD reflog, so only a
+  # query of the checkout itself (not its repository) finds it empty.
+  git -C "$rtx_home/.worktrees/rt-expired" reflog expire --expire=now --expire-unreachable=now --all --single-worktree
+  _make_old "$rtx_home/.worktrees/rt-expired"
+  touch -t 202001010000 "$rtx_home/git/alpha/.git/worktrees/rt-expired/reftable"
+  result=$(HOME="$rtx_home" DOTFILES="$rtx_home/.dotfiles" _doctor_records _dr_check_worktrees)
+  _assert_contains "reftable: a checkout whose reflogs expired is offered to the gc" \
+    "rt-expired (merged into origin/main)" "$result"
+  _assert_not_contains "reftable: a checkout whose reflogs expired gets no reftable mark" \
+    "rt-expired (merged into origin/main, its reflogs are in reftable" "$result"
+else
+  echo '  - skipping reftable case: this Git has no reftable support'
+fi
 
 echo ""
 echo "=== Dirty inactive worktrees ==="
@@ -1237,6 +1582,57 @@ _assert_contains "gitfile root: its registered checkout is reported" \
   "across 1 worktree" "$result"
 _assert_eq "gitfile root: resolved once per doctor run" 1 \
   "$(grep -c 'rev-parse --git-dir --git-common-dir' "$sep_git_log")"
+
+# Quarantines a failed orphan cleanup left and checkouts whose path holds a
+# newline are named on their own rows; a registered newline path is live,
+# never a prunable entry (its gitdir pointer spans two lines).
+odd_home=$(_tmpdir)
+odd_origin=$(_tmpdir)/origin.git
+git init --quiet --bare "$odd_origin"
+git clone --quiet "$odd_origin" "$odd_home/git/alpha" 2>/dev/null
+_git_set_test_identity git -C "$odd_home/git/alpha"
+git -C "$odd_home/git/alpha" commit --quiet --allow-empty -m seed
+mkdir -p "$odd_home/shared" "$odd_home/.worktrees/.dot-worktree-gc-quarantine-q1/checkout"
+git -C "$odd_home/git/alpha" worktree add --quiet "$odd_home/shared/nl"$'\n'"wt" -b nl 2>/dev/null
+result=$(HOME="$odd_home" DOTFILES="$odd_home/.dotfiles" _doctor_records _dr_check_worktrees)
+_assert_contains "odd: a quarantine gets its own row" \
+  $'warn\t1 quarantine left by a failed orphan cleanup' "$result"
+# shellcheck disable=SC2088 # Rows carry tilde display paths.
+_assert_contains "odd: the quarantine is named" \
+  "~/.worktrees/.dot-worktree-gc-quarantine-q1" "$result"
+_assert_contains "odd: a newline path gets its own row" \
+  $'warn\t1 worktree path with a newline (not checked)' "$result"
+_assert_not_contains "odd: a newline path is never prunable" "prunable" "$result"
+# A symlink in a swept root whose target path holds a newline is named on
+# the same row, never split into a path outside the roots.
+oddl_home=$(_tmpdir)
+oddl_tgt=$(_tmpdir)
+mkdir -p "$oddl_home/.worktrees" "$oddl_tgt/real"$'\n'"x" "$oddl_tgt/real"
+ln -s "$oddl_tgt/real"$'\n'"x" "$oddl_home/.worktrees/link"
+result=$(HOME="$oddl_home" DOTFILES="$oddl_home/.dotfiles" _doctor_records _dr_check_worktrees)
+_assert_contains "odd: a symlink with a newline target gets the newline row" \
+  $'warn\t1 worktree path with a newline (not checked)' "$result"
+_assert_not_contains "odd: a newline target's outside half is never reported" \
+  "$oddl_tgt/real" "$result"
+
+# Two ~/git entries reaching one repository through a symlink read its admin
+# area once: one prunable entry is one, not two.
+alias_home=$(_tmpdir)
+alias_origin=$(_tmpdir)/origin.git
+git init --quiet --bare "$alias_origin"
+git clone --quiet "$alias_origin" "$alias_home/git/repo" 2>/dev/null
+_git_set_test_identity git -C "$alias_home/git/repo"
+git -C "$alias_home/git/repo" commit --quiet --allow-empty -m seed
+git -C "$alias_home/git/repo" worktree add --quiet "$alias_home/shared/gone" -b gone 2>/dev/null
+rm -rf "$alias_home/shared/gone"
+ln -s "$alias_home/git/repo" "$alias_home/git/alias"
+result=$(HOME="$alias_home" DOTFILES="$alias_home/.dotfiles" _doctor_records _dr_check_worktrees)
+_assert_contains "alias: a symlinked clone's admin entry counts once" \
+  $'warn\t1 prunable worktree entry' "$result"
+mkdir -p "$alias_home/git/repo/.worktrees/.dot-worktree-gc-quarantine-a1"
+result=$(HOME="$alias_home" DOTFILES="$alias_home/.dotfiles" _doctor_records _dr_check_worktrees)
+_assert_contains "alias: a quarantine reached through an aliased clone counts once" \
+  $'warn\t1 quarantine left by a failed orphan cleanup' "$result"
 
 # Locked checkouts are reported once, in the locked row, even when stale;
 # a stale linked worktree alone points at the gc.

@@ -15,13 +15,13 @@ _worktree_gc_actions_superseded() (
   [[ ${_WORKTREE_GC_NO_FETCH:-0} != 1 ]] || return 1
   command -v gh >/dev/null 2>&1 || return 1
   command -v jq >/dev/null 2>&1 || return 1
-  ancestor=$(_worktree_gc_batch git -C "$dir" merge-base "$target" "$base" 2>/dev/null) || return 1
-  old=$(_worktree_gc_batch git -C "$dir" show "$ancestor:.github/cgraf78-actions.lock" 2>/dev/null) || return 1
-  pin=$(_worktree_gc_batch git -C "$dir" show "$target:.github/cgraf78-actions.lock" 2>/dev/null) || return 1
-  current=$(_worktree_gc_batch git -C "$dir" show "$base:.github/cgraf78-actions.lock" 2>/dev/null) || return 1
+  ancestor=$(_worktree_gc_batch _dr_git -C "$dir" merge-base "$target" "$base" 2>/dev/null) || return 1
+  old=$(_worktree_gc_batch _dr_git -C "$dir" show "$ancestor:.github/cgraf78-actions.lock" 2>/dev/null) || return 1
+  pin=$(_worktree_gc_batch _dr_git -C "$dir" show "$target:.github/cgraf78-actions.lock" 2>/dev/null) || return 1
+  current=$(_worktree_gc_batch _dr_git -C "$dir" show "$base:.github/cgraf78-actions.lock" 2>/dev/null) || return 1
   [[ $old =~ ^[0-9a-f]{40}$ && $pin =~ ^[0-9a-f]{40}$ && $current =~ ^[0-9a-f]{40}$ ]] || return 1
   [[ $old != "$pin" ]] || return 1
-  files=$(_worktree_gc_batch git -C "$dir" diff --name-only "$ancestor" "$target" 2>/dev/null) || return 1
+  files=$(_worktree_gc_batch _dr_git -C "$dir" diff --name-only "$ancestor" "$target" 2>/dev/null) || return 1
   [[ -n $files ]] || return 1
   while IFS= read -r file; do
     case $file in
@@ -31,12 +31,12 @@ _worktree_gc_actions_superseded() (
     [[ $file == .github/cgraf78-actions.lock || ${file#.github/workflows/} != */* ]] || return 1
     # Bash cannot represent NUL bytes. Reject binary diffs before capturing
     # blobs so removing those bytes cannot disguise an independent edit.
-    counts=$(_worktree_gc_batch git -C "$dir" diff --numstat "$ancestor" "$target" -- "$file" 2>/dev/null) || return 1
+    counts=$(_worktree_gc_batch _dr_git -C "$dir" diff --numstat "$ancestor" "$target" -- "$file" 2>/dev/null) || return 1
     [[ $counts =~ ^[0-9]+$'\t'[0-9]+$'\t' ]] || return 1
     # Additions, removals, symlinks and executable-mode changes are independent
     # work. Only ordinary pre-existing provider reference files qualify.
     for oid in "$ancestor" "$target"; do
-      entry=$(_worktree_gc_batch git -C "$dir" ls-tree "$oid" -- "$file" 2>/dev/null) || return 1
+      entry=$(_worktree_gc_batch _dr_git -C "$dir" ls-tree "$oid" -- "$file" 2>/dev/null) || return 1
       [[ $entry == '100644 blob '* ]] || return 1
     done
     if [[ $file == .github/cgraf78-actions.lock ]]; then
@@ -48,8 +48,8 @@ _worktree_gc_actions_superseded() (
     fi
     # Explicitly check producer statuses. A sentinel preserves trailing newlines
     # through command substitution so whole-file comparison remains exact.
-    source=$(if _worktree_gc_batch git -C "$dir" show "$ancestor:$file" 2>/dev/null; then printf '.'; else return 1; fi) || return 1
-    content=$(if _worktree_gc_batch git -C "$dir" show "$target:$file" 2>/dev/null; then printf '.'; else return 1; fi) || return 1
+    source=$(if _worktree_gc_batch _dr_git -C "$dir" show "$ancestor:$file" 2>/dev/null; then printf '.'; else return 1; fi) || return 1
+    content=$(if _worktree_gc_batch _dr_git -C "$dir" show "$target:$file" 2>/dev/null; then printf '.'; else return 1; fi) || return 1
     expected=$(if printf '%s' "${source%.}" | sed "$expression"; then printf '.'; else return 1; fi) || return 1
     [[ $expected == "$content" ]] || return 1
   done <<<"$files"

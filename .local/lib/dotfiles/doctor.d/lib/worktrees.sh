@@ -162,10 +162,38 @@ _dr_worktree_human_bytes() {
   fi
 }
 
+# Set _DR_WORKTREE_RESOLVED to the physical path of directory DIR, exactly,
+# or fail when it cannot be resolved. Command substitution strips trailing
+# newlines, which a path may end with (a symlink to "/ext/foo<NL>" would
+# read as /ext/foo), so a sentinel follows pwd's output and only pwd's own
+# newline is removed. A dedicated variable, not REPLY, since callers print
+# paths in the middle of functions that use REPLY.
+_DR_WORKTREE_RESOLVED=
+_dr_worktree_resolve() {
+  _DR_WORKTREE_RESOLVED=$(cd -- "$1" 2>/dev/null && pwd -P 2>/dev/null && printf x) || {
+    _DR_WORKTREE_RESOLVED=
+    return 1
+  }
+  _DR_WORKTREE_RESOLVED=${_DR_WORKTREE_RESOLVED%x}
+  _DR_WORKTREE_RESOLVED=${_DR_WORKTREE_RESOLVED%$'\n'}
+}
+
+# Like _dr_worktree_resolve, but a path holding a newline anywhere counts
+# as unresolvable: callers print paths one per line, and a symlink whose
+# target name holds a newline would otherwise split into a path outside the
+# roots and a relative tail, or (a trailing newline) pass for a different
+# directory (_dr_worktree_odd_entries reports such links). Callers already
+# inside a command substitution use this directly to save a fork.
+_dr_worktree_resolve_line() {
+  _dr_worktree_resolve "$1" || return 1
+  [[ $_DR_WORKTREE_RESOLVED != *$'\n'* ]]
+}
+
 # Print the physical path of a candidate checkout, or nothing when it cannot
-# be resolved. Never fails.
+# be resolved (see _dr_worktree_resolve_line). Never fails.
 _dr_worktree_physical() {
-  (cd -- "$1" 2>/dev/null && pwd -P 2>/dev/null) || true
+  _dr_worktree_resolve_line "$1" || return 0
+  printf '%s\n' "$_DR_WORKTREE_RESOLVED"
 }
 
 # Report the base client's separate Git directory via REPLY: DOTFILES when
@@ -289,17 +317,35 @@ _dr_worktree_clone_roots_load() {
 # only the base client's, which is the registered scope dot-worktree-gc
 # sweeps. Never fails.
 _dr_worktree_clone_commons() {
-  local common base
+  local common checkout base seen
+  local -a printed=() aliased=()
 
   _dr_worktree_base_gitdir
   base=$REPLY
   if [[ -n $base && -d $base ]]; then
     printf '%s\n' "$base"
+    printed+=("$base")
   fi
   [[ ${1:-} != base ]] || return 0
-  while IFS=$'\t' read -r common _; do
-    printf '%s\n' "$common"
+  # Two entries can reach one repository through a symlink (~/git/alias ->
+  # ~/git/repo, or a .git that is a symlink), and its admin entries would be
+  # counted twice. Only an entry reached through a symlink can repeat
+  # another, so only those are compared by identity, after the rest.
+  while IFS=$'\t' read -r common checkout; do
+    if [[ -L $checkout || -L $common || $common != "$checkout/.git" ]]; then
+      aliased+=("$common")
+    else
+      printf '%s\n' "$common"
+      printed+=("$common")
+    fi
   done < <(_dr_worktree_clone_roots)
+  for common in ${aliased[@]+"${aliased[@]}"}; do
+    for seen in ${printed[@]+"${printed[@]}"}; do
+      [[ ! $common -ef $seen ]] || continue 2
+    done
+    printf '%s\n' "$common"
+    printed+=("$common")
+  done
   return 0
 }
 
@@ -338,7 +384,11 @@ _dr_worktree_admin_scan() {
       id=${admin##*/}
       target=
       if [[ -f $admin/gitdir ]]; then
-        IFS= read -r target 2>/dev/null <"$admin/gitdir" || true
+        # The whole file minus Git's one trailing newline: a checkout path
+        # may itself hold a newline, and its first line alone would name a
+        # missing path and call a live checkout prunable.
+        IFS= read -r -d '' target 2>/dev/null <"$admin/gitdir" || true
+        target=${target%$'\n'}
       fi
       case $target in
         '' | /*) ;;
@@ -392,6 +442,9 @@ _dr_worktree_root_children() {
   for child in "$root"/*/; do
     child=${child%/}
     [[ -d $child ]] || continue
+    # One path per line cannot hold a name with a newline;
+    # _dr_worktree_odd_entries reports those instead.
+    [[ $child != *$'\n'* ]] || continue
     if [[ -L $child ]]; then
       [[ ${_DR_WORKTREE_SKIP_SYMLINK_CANDIDATES:-0} != 1 ]] || continue
       phys=$(_dr_worktree_physical "$child")
@@ -403,7 +456,7 @@ _dr_worktree_root_children() {
     [[ $mode == group && ! -e $child/.git ]] || continue
     for nested in "$child"/*/; do
       nested=${nested%/}
-      [[ -e $nested/.git ]] || continue
+      [[ -e $nested/.git && $nested != *$'\n'* ]] || continue
       if [[ -L $nested ]]; then
         [[ ${_DR_WORKTREE_SKIP_SYMLINK_CANDIDATES:-0} != 1 ]] || continue
         _dr_worktree_physical "$nested"
@@ -438,6 +491,28 @@ _dr_worktree_root_children() {
 # doctor call intentionally passes none.
 # shellcheck disable=SC2120
 _dr_worktree_candidates() {
+  local home=${HOME:-} dir mode root
+
+  [[ -n $home && -d $home ]] || return 0
+
+  _dr_worktree_admin_scan base
+  for dir in ${_DR_WORKTREE_ADMIN_LIVE[@]+"${_DR_WORKTREE_ADMIN_LIVE[@]}"}; do
+    [[ -d $dir && $dir != *$'\n'* ]] || continue
+    _dr_worktree_physical "$dir"
+  done
+
+  while IFS=$'\t' read -r mode root; do
+    _dr_worktree_root_children "$root" "$mode"
+  done < <(_dr_worktree_root_dirs "$@")
+  return 0
+}
+
+# Print "mode<TAB>dir" for every root whose children _dr_worktree_candidates
+# enumerates (sources 2-5 below): `group` for a shared root, whose grouping
+# folders count one level deeper, and `plain` for every other. The one list
+# the candidate enumeration and _dr_worktree_odd_entries walk. Never fails.
+# shellcheck disable=SC2120 # extra roots come from dot-worktree-gc
+_dr_worktree_root_dirs() {
   local home=${HOME:-} root dir extra common checkout
   local -a managed=()
 
@@ -446,18 +521,12 @@ _dr_worktree_candidates() {
   _dr_worktree_base_gitdir
   [[ -z $REPLY || ! -d $REPLY ]] || managed+=("$REPLY")
 
-  _dr_worktree_admin_scan base
-  for dir in ${_DR_WORKTREE_ADMIN_LIVE[@]+"${_DR_WORKTREE_ADMIN_LIVE[@]}"}; do
-    [[ -d $dir ]] || continue
-    _dr_worktree_physical "$dir"
-  done
-
   for root in "${_DR_WORKTREE_SHARED_ROOTS[@]}"; do
     # Only a root under ~/git can be a clone root itself; a stray .git in
     # ~/worktrees or ~/.worktrees (an old `git init`) must not hide the
     # checkouts parked there.
     [[ $root == git/* && -e $home/$root/.git ]] && continue
-    _dr_worktree_root_children "$home/$root" group
+    printf 'group\t%s\n' "$home/$root"
   done
 
   # Only clone roots' own .worktrees: globbing every ~/git/* entry would
@@ -465,7 +534,7 @@ _dr_worktree_candidates() {
   # checkouts belong to a repository the sweep does not manage, and sweeping
   # one would bring that repository's branches in after all.
   while IFS=$'\t' read -r common checkout; do
-    _dr_worktree_root_children "$checkout/.worktrees"
+    printf 'plain\t%s\n' "$checkout/.worktrees"
     managed+=("$common")
   done < <(_dr_worktree_clone_roots)
   # A linked worktree parked under ~/git whose repository is ~/.dotfiles or a
@@ -475,15 +544,79 @@ _dr_worktree_candidates() {
   while IFS=$'\t' read -r common root; do
     for dir in ${managed[@]+"${managed[@]}"}; do
       if [[ $common -ef $dir ]]; then
-        _dr_worktree_root_children "$root/.worktrees"
+        printf 'plain\t%s\n' "$root/.worktrees"
         break
       fi
     done
   done < <(_dr_worktree_parked_roots)
 
   for extra in "$@"; do
-    _dr_worktree_root_children "$extra"
+    printf 'plain\t%s\n' "$extra"
   done
+  return 0
+}
+
+# Set _DR_WORKTREE_ESCAPED to FIELD with backslash, tab, and newline escaped
+# as \\, \t, and \n (git-tools' porcelain escaping), for one-per-line
+# output. A dedicated variable, not REPLY: callers print records in the
+# middle of functions that return their own result through REPLY.
+_DR_WORKTREE_ESCAPED=
+_dr_worktree_escape() {
+  local value=$1
+  value=${value//\\/\\\\}
+  value=${value//$'\t'/\\t}
+  _DR_WORKTREE_ESCAPED=${value//$'\n'/\\n}
+}
+
+# Print "kind<TAB>escaped-path" (see _dr_worktree_escape) for entries in the
+# swept roots that the candidate list cannot carry: `quarantine` for a
+# private container a failed orphan cleanup left behind (hidden, so never a
+# candidate, yet holding files someone must inspect), `newline` for a child
+# whose name holds a newline, and `newline-target` for a symlinked child
+# whose target path holds one. Grouping folders of shared roots are searched
+# too. Never fails.
+# shellcheck disable=SC2120 # extra roots come from dot-worktree-gc
+_dr_worktree_odd_entries() {
+  local mode root dir child seen kind target
+  local -a dirs=() printed=()
+  while IFS=$'\t' read -r mode root; do
+    [[ -d $root ]] || continue
+    dirs=("$root")
+    if [[ $mode == group ]]; then
+      for child in "$root"/*/; do
+        child=${child%/}
+        [[ -d $child && ! -L $child && ! -e $child/.git ]] && dirs+=("$child")
+      done
+    fi
+    for dir in "${dirs[@]}"; do
+      for child in "$dir"/.dot-worktree-gc-quarantine-*/ "$dir"/*/; do
+        child=${child%/}
+        [[ -d $child ]] || continue
+        case ${child##*/} in
+          .dot-worktree-gc-quarantine-*) kind=quarantine ;;
+          *$'\n'*) kind=newline ;;
+          *)
+            # A symlink whose target path holds a newline: the enumeration
+            # refuses its physical path (_dr_worktree_physical), so it is
+            # named here instead. Only links pay the resolving subshell.
+            [[ -L $child ]] || continue
+            _dr_worktree_resolve "$child" || continue
+            target=$_DR_WORKTREE_RESOLVED
+            [[ $target == *$'\n'* ]] || continue
+            kind=newline-target
+            ;;
+        esac
+        # A root reached twice (an aliased clone root, an overlapping
+        # --root) must not list one entry twice.
+        for seen in ${printed[@]+"${printed[@]}"}; do
+          [[ ! $child -ef $seen ]] || continue 2
+        done
+        printed+=("$child")
+        _dr_worktree_escape "$child"
+        printf '%s\t%s\n' "$kind" "$_DR_WORKTREE_ESCAPED"
+      done
+    done
+  done < <(_dr_worktree_root_dirs "$@")
   return 0
 }
 
@@ -493,7 +626,7 @@ _dr_worktree_registered() {
   local dir
   _dr_worktree_admin_scan
   for dir in ${_DR_WORKTREE_ADMIN_LIVE[@]+"${_DR_WORKTREE_ADMIN_LIVE[@]}"}; do
-    [[ -d $dir ]] || continue
+    [[ -d $dir && $dir != *$'\n'* ]] || continue
     _dr_worktree_physical "$dir"
   done
   return 0
@@ -524,7 +657,8 @@ _dr_worktree_tagged_candidates() {
 _dr_worktree_repo_key() {
   local dir=$1 gitpath=$1/.git first target phys parent
   if [[ -d $gitpath ]]; then
-    (cd -- "$gitpath" 2>/dev/null && pwd -P 2>/dev/null) || return 1
+    _dr_worktree_resolve_line "$gitpath" || return 1
+    printf '%s\n' "$_DR_WORKTREE_RESOLVED"
     return 0
   fi
   [[ -f $gitpath ]] || return 1
@@ -536,9 +670,10 @@ _dr_worktree_repo_key() {
   esac
   [[ -n $target ]] || return 1
   case $target in
-    /*) phys=$(cd -- "$target" 2>/dev/null && pwd -P 2>/dev/null) || return 1 ;;
-    *) phys=$(cd -- "$dir/$target" 2>/dev/null && pwd -P 2>/dev/null) || return 1 ;;
+    /*) _dr_worktree_resolve_line "$target" || return 1 ;;
+    *) _dr_worktree_resolve_line "$dir/$target" || return 1 ;;
   esac
+  phys=$_DR_WORKTREE_RESOLVED
   parent=${phys%/*}
   case $parent in
     */worktrees) printf '%s\n' "${parent%/*}" ;;
@@ -643,11 +778,40 @@ _dr_worktree_base_ref_ensure() {
 # some other branch (a base it was cut from, or a local branch) proves
 # nothing when that one goes, and may hold commits no remote ever saw. The
 # structured fields keep remote names with slashes from blurring the split.
-# dot-worktree-gc applies the same rule before it removes a checkout on a
-# gone upstream alone. Git without these atoms fails the query, which reads
-# as no upstream: never stale on that ground, never removed.
+# A gone upstream that was a default branch (main, master, trunk, or what the
+# remote's recorded HEAD, given as its full symref target, names) suggests a
+# rename, not a landing, so it does not count either. git-tools applies the
+# same rule (_gone_upstream_is_evidence) before dot-worktree-gc retires a
+# checkout on a gone upstream alone, so the doctor never calls stale what
+# the gc keeps. Git without these atoms fails the query, which reads as no
+# upstream: never stale on that ground, never removed.
 _dr_worktree_own_upstream() {
-  [[ -n $1 && $1 != . && $2 == "refs/heads/$3" ]]
+  local remote=$1 ref=$2 branch=$3 head=${4:-}
+  [[ -n $remote && $remote != . && $ref == "refs/heads/$branch" ]] || return 1
+  case $ref in
+    refs/heads/main | refs/heads/master | refs/heads/trunk) return 1 ;;
+  esac
+  [[ -z $head || $ref != "refs/heads/${head#refs/remotes/"$remote"/}" ]]
+}
+
+# Report via REPLY the full target of REMOTE's recorded HEAD symref in the
+# repository at DIR (refs/remotes/<remote>/<branch>), or "". Asked only for a
+# gone upstream, where the answer matters; symbolic-ref reads a HEAD left
+# dangling by that very deletion, which for-each-ref would omit. Cached per
+# repository and remote for the run (_dr_check_worktrees resets it).
+_DR_WORKTREE_REMOTE_HEADS=$'\n'
+_dr_worktree_remote_head() {
+  local dir=$1 remote=$2 key entry
+  key=$dir$'\t'$remote$'\t'
+  case $_DR_WORKTREE_REMOTE_HEADS in
+    *$'\n'"$key"*)
+      entry=${_DR_WORKTREE_REMOTE_HEADS#*$'\n'"$key"}
+      REPLY=${entry%%$'\n'*}
+      return 0
+      ;;
+  esac
+  REPLY=$(_dr_git -C "$dir" symbolic-ref -q "refs/remotes/$remote/HEAD" 2>/dev/null) || REPLY=
+  _DR_WORKTREE_REMOTE_HEADS+=$key$REPLY$'\n'
 }
 
 # Report why an old checkout counts as stale (its branch is merged into
@@ -681,7 +845,8 @@ _dr_worktree_stale_reason() {
     "refs/heads/$branch" 2>/dev/null) || return 0
   IFS=$'\t' read -r upstream_short upstream_track remote_name remote_ref <<<"$upstream_info"
   if [[ $upstream_track == "t=[gone]" ]] &&
-    _dr_worktree_own_upstream "${remote_name#r=}" "${remote_ref#f=}" "$branch"; then
+    _dr_worktree_remote_head "$dir" "${remote_name#r=}" &&
+    _dr_worktree_own_upstream "${remote_name#r=}" "${remote_ref#f=}" "$branch" "$REPLY"; then
     REPLY="upstream ${upstream_short#u=} is gone"
     return 0
   fi
@@ -853,7 +1018,8 @@ _dr_worktree_repo_stale_rows() {
           # A branch whose own-name upstream is gone needs no base.
           [[ -n $name ]] || continue
           if [[ $track != "t=[gone]" ]] ||
-            ! _dr_worktree_own_upstream "${rname#r=}" "${rref#f=}" "${name#refs/heads/}"; then
+            ! _dr_worktree_remote_head "$dir" "${rname#r=}" ||
+            ! _dr_worktree_own_upstream "${rname#r=}" "${rref#f=}" "${name#refs/heads/}" "$REPLY"; then
             need_base=1
           fi
           ;;
@@ -893,7 +1059,8 @@ _dr_worktree_repo_stale_rows() {
         [[ $name == "$ref" ]] || continue
         short=${short#u=}
         if [[ $track == "t=[gone]" ]] &&
-          _dr_worktree_own_upstream "${rname#r=}" "${rref#f=}" "${ref#refs/heads/}"; then
+          _dr_worktree_remote_head "$dir" "${rname#r=}" &&
+          _dr_worktree_own_upstream "${rname#r=}" "${rref#f=}" "${ref#refs/heads/}" "$REPLY"; then
           reason="upstream $short is gone"
         fi
         break
@@ -1329,6 +1496,168 @@ _dr_worktree_is_linked() {
   IFS= read -r first 2>/dev/null <"$1/.git" || return 1
   first=${first%$'\r'}
   [[ $first == 'gitdir: '*/worktrees/?* ]]
+}
+
+# Succeed when a linked checkout was moved without `git worktree repair`: its
+# `.git` names an admin entry that exists but points back at another path,
+# and that path's .git is gone. Git cannot speak for it from either side, so
+# dot-worktree-gc keeps it (and labels it so) and a prune would orphan it.
+# A copy (the registered path's .git still exists) is not moved: repairing
+# from the copy would steal the original's registration. Reports the
+# registered path via REPLY. File reads only.
+_dr_worktree_moved() {
+  local dir=$1 admin target
+  _dr_worktree_pointer "$dir" || return 1
+  admin=$REPLY
+  REPLY=
+  [[ -f $admin/gitdir ]] || return 1
+  IFS= read -r -d '' target 2>/dev/null <"$admin/gitdir" || true
+  target=${target%$'\n'}
+  [[ -n $target ]] || return 1
+  case $target in
+    /*) ;;
+    *) target=$admin/$target ;;
+  esac
+  # The registered path's .git file, as Git and the admin scan judge it: a
+  # plain directory recreated at the old path does not make the registration
+  # live, while a copy (whose .git came along) still exists and is no move.
+  [[ ! -e $target ]] || return 1
+  REPLY=${target%/.git}
+}
+
+# Succeed when the repository with common Git directory COMMON is bare.
+# Asked once per repository per run and cached (_dr_check_worktrees and
+# worktree_gc_main reset it), since several stale checkouts usually share
+# one repository. The name proves nothing: `git clone --bare repo foo/.git`
+# makes a bare repository called .git.
+_DR_WORKTREE_BARE=$'\n'
+_dr_worktree_bare() {
+  local common=$1 answer
+  case $_DR_WORKTREE_BARE in
+    *$'\n'"$common"$'\t'true$'\n'*) return 0 ;;
+    *$'\n'"$common"$'\t'false$'\n'*) return 1 ;;
+  esac
+  answer=$(_dr_git --git-dir="$common" rev-parse --is-bare-repository 2>/dev/null) || answer=
+  [[ $answer == true ]] || answer=false
+  _DR_WORKTREE_BARE+=$common$'\t'$answer$'\n'
+  [[ $answer == true ]]
+}
+
+# Succeed when some clone root (_dr_worktree_clone_roots) has COMMON as its
+# common Git directory.
+_dr_worktree_clone_root_of() {
+  local want=$1 common checkout
+  while IFS=$'\t' read -r common checkout; do
+    [[ ! $common -ef $want ]] || return 0
+  done < <(_dr_worktree_clone_roots)
+  return 1
+}
+
+# Report via REPLY why dot-worktree-gc keeps a clean stale linked checkout
+# in its swept roots that the stale row would otherwise offer for the sweep
+# (", <why>"), or "": its repository is bare or lost its main checkout (no
+# checkout to run git-tools from), keeps its HEAD reflog, with entries, in
+# reftable (git-tools cannot inspect it), it was moved without repair, it
+# holds a
+# submodule directory with content (populated, which Git refuses to remove,
+# or holding files status does not show, which git-tools keeps), its branch
+# is merged by ancestry and was never logged (git-tools cannot date it, so
+# keeps it), or its repository has no resolvable remote base (only an
+# upstream-gone reason can show that). These approximate the gc's and
+# git-tools' gates from cheap signals (the submodule check reads only
+# gitlinks of a checkout with a .gitmodules, not the admin modules/ area),
+# so a checkout they miss is still kept by the gc, never removed wrongly.
+# Must run in the main shell (base-ref cache).
+_dr_worktree_gc_keeps() {
+  local dir=$1 reason=$2 common base line mode path
+  REPLY=
+  if _dr_worktree_moved "$dir"; then
+    REPLY=", moved without repair"
+    return 0
+  fi
+  _dr_worktree_pointer "$dir" || return 0
+  common=${REPLY%/worktrees/*}
+  REPLY=
+  _dr_worktree_base_gitdir
+  base=$REPLY
+  REPLY=
+  if [[ -z $base || ! $common -ef $base ]]; then
+    if _dr_worktree_bare "$common"; then
+      REPLY=", its repository is bare"
+      return 0
+    fi
+    # A repository whose Git directory is not inside its checkout (made
+    # with --separate-git-dir) has a main checkout only Git's clone-root
+    # discovery can name; with that root gone, the gc has nowhere to run.
+    if [[ $common != */.git ]] && ! _dr_worktree_clone_root_of "$common"; then
+      REPLY=", its main checkout is gone"
+      return 0
+    fi
+  fi
+  # git-tools reads a worktree's HEAD reflog from its file to find commits
+  # only that history holds. Reftable keeps no such file, so git-tools keeps
+  # a worktree whose HEAD reflog still has entries (uninspectable), which is
+  # most linked worktrees; one whose reflog expired or was never written
+  # can go. The same query git-tools makes decides, asked only of reftable
+  # repositories (after the bare check, which names the likelier cause).
+  if [[ -e $common/reftable && -n $(_dr_git -C "$dir" log -g -n 1 \
+    --no-show-signature --format=%H HEAD -- 2>/dev/null) ]]; then
+    REPLY=", its reflogs are in reftable, which git-tools cannot inspect"
+    return 0
+  fi
+  if [[ -f $dir/.gitmodules ]]; then
+    while IFS= read -r line; do
+      mode=${line%% *}
+      path=${line#*$'\t'}
+      if [[ $mode == 160000 ]] && _dr_worktree_has_entries "$dir/$path"; then
+        REPLY=", holds a submodule directory with content"
+        return 0
+      fi
+    done < <(_dr_git -C "$dir" ls-files -s 2>/dev/null)
+  fi
+  if [[ $reason == upstream\ * ]] && ! _dr_worktree_base_ref_ensure "$dir"; then
+    REPLY=", no remote base branch"
+    return 0
+  fi
+  # git-tools tries the ancestry proof first, so a branch the base contains
+  # is held to the age rule even when the row's reason is its gone upstream
+  # (the doctor checks that before ancestry); the file check comes first so
+  # only a never-logged branch costs the ancestry probe.
+  if _dr_worktree_never_logged "$dir" &&
+    { [[ $reason == merged\ * ]] ||
+      { [[ $reason == upstream\ * ]] && _dr_worktree_base_ref_ensure "$dir" &&
+        _dr_git -C "$dir" merge-base --is-ancestor HEAD "$REPLY" 2>/dev/null; }; }; then
+    REPLY=", its branch was never logged, so git-tools cannot date it"
+    return 0
+  fi
+  REPLY=
+}
+
+# Succeed when DIR is a directory holding anything, hidden entries included.
+# The subshell keeps the glob options from leaking.
+_dr_worktree_has_entries() (
+  shopt -s nullglob dotglob
+  local entries=("$1"/*)
+  ((${#entries[@]} > 0))
+)
+
+# Succeed when a linked checkout's branch has no reflog at all. A branch
+# proven merged only by ancestry must be a day old before git-tools deletes
+# it, dated by its newest reflog entry or, once the reflog expired (an
+# emptied log), by its tip commit; a branch never logged (created while
+# core.logAllRefUpdates was false, the default in a bare repository) has an
+# unknown age and git-tools keeps it with its checkout. File reads only, so
+# a reftable repository (reflogs inside its tables) or a detached HEAD never
+# matches.
+_dr_worktree_never_logged() {
+  local dir=$1 admin head common
+  _dr_worktree_pointer "$dir" || return 1
+  admin=$REPLY
+  common=${admin%/worktrees/*}
+  [[ -f $admin/HEAD && ! -e $common/reftable ]] || return 1
+  IFS= read -r head 2>/dev/null <"$admin/HEAD" || return 1
+  [[ $head == 'ref: refs/heads/'?* ]] || return 1
+  [[ ! -e $common/logs/${head#ref: } ]]
 }
 
 # Succeed when a linked checkout is locked, whichever repository owns it:
@@ -1837,6 +2166,56 @@ _dr_worktree_report_orphans() {
     "${items[@]}"
 }
 
+# Report what the swept roots hold that no other row can name
+# (_dr_worktree_odd_entries): quarantines a failed orphan cleanup left
+# behind, whose files are otherwise never mentioned again, and checkouts
+# whose path holds a newline, which the one-path-per-line enumeration skips
+# (registered ones too, from the admin scan of this run).
+_dr_worktree_report_odd() {
+  local kind path dir label seen
+  local -a quarantines=() newlines=()
+  local -a listed=()
+  # Paths are displayed in their escaped form (a newline shows as \n), the
+  # same spelling the gc's records use.
+  while IFS=$'\t' read -r kind path; do
+    case $kind in
+      quarantine) _dr_worktree_label "$path" && quarantines+=("$REPLY") ;;
+      newline | newline-target)
+        _dr_worktree_label "$path" && newlines+=("$REPLY")
+        listed+=("$path")
+        ;;
+    esac
+  done < <(_dr_worktree_odd_entries)
+  # Registered checkouts anywhere, unless the swept-root scan above already
+  # named the same one.
+  for dir in ${_DR_WORKTREE_ADMIN_LIVE[@]+"${_DR_WORKTREE_ADMIN_LIVE[@]}"}; do
+    [[ $dir == *$'\n'* ]] || continue
+    _dr_worktree_escape "$dir"
+    path=$_DR_WORKTREE_ESCAPED
+    for seen in ${listed[@]+"${listed[@]}"}; do
+      [[ $seen != "$path" ]] || continue 2
+    done
+    _dr_worktree_label "$path"
+    newlines+=("$REPLY")
+  done
+  if ((${#quarantines[@]} > 0)); then
+    label="${#quarantines[@]} quarantine"
+    ((${#quarantines[@]} == 1)) || label+="s"
+    label+=" left by a failed orphan cleanup"
+    _dr_list_row warn "$label" \
+      "inspect each, recover any files you need, then remove it by hand" \
+      "${quarantines[@]}"
+  fi
+  if ((${#newlines[@]} > 0)); then
+    label="${#newlines[@]} worktree path"
+    ((${#newlines[@]} == 1)) || label+="s"
+    label+=" with a newline (not checked)"
+    _dr_list_row warn "$label" "rename it so the path holds no newline" \
+      "${newlines[@]}"
+  fi
+  return 0
+}
+
 _dr_check_worktrees() {
   _dr_section "Worktrees"
 
@@ -1845,6 +2224,8 @@ _dr_check_worktrees() {
   _DR_WORKTREE_FACT_KEYS=()
   _DR_WORKTREE_FACT_ROWS=()
   _DR_WORKTREE_STALE_ENTRIES=()
+  _DR_WORKTREE_REMOTE_HEADS=$'\n'
+  _DR_WORKTREE_BARE=$'\n'
   _dr_worktree_resolve_git
   _dr_worktree_clone_roots_load
 
@@ -1852,13 +2233,14 @@ _dr_check_worktrees() {
   local home_phys dotfiles_phys dotfiles dir
   local -a dirs=()
 
-  home_phys=$(cd -- "$home" 2>/dev/null && pwd -P 2>/dev/null) || home_phys=$home
+  home_phys=$(_dr_worktree_physical "$home")
+  [[ -n $home_phys ]] || home_phys=$home
   _DR_WORKTREE_HOME_PHYS=$home_phys
   dotfiles_phys=
   _dr_worktree_base_gitdir
   dotfiles=$REPLY
   if [[ -n $dotfiles && -d $dotfiles ]]; then
-    dotfiles_phys=$(cd -- "$dotfiles" 2>/dev/null && pwd -P 2>/dev/null) || dotfiles_phys=
+    dotfiles_phys=$(_dr_worktree_physical "$dotfiles")
   fi
 
   # Swept candidates plus every checkout a clone registered; only the swept
@@ -1903,6 +2285,7 @@ _dr_check_worktrees() {
   local count=${#dirs[@]}
   if ((count == 0)); then
     _dr_ok "no worktrees found"
+    _dr_worktree_report_odd
     _dr_worktree_report_admin
     return 0
   fi
@@ -1934,7 +2317,7 @@ _dr_check_worktrees() {
   # young ones cost nothing beyond the single find pass.
   _dr_worktree_old_checkouts "$_DR_WORKTREE_STALE_DAYS" ${live[@]+"${live[@]}"}
 
-  local stale_count=0 dirty_count=0 manual_count=0 reason changed i hint
+  local stale_count=0 dirty_count=0 manual_count=0 repair_count=0 reason changed i hint
   local merged_count=0 gone_count=0 entry manual label
   local -a dirty_items=() hit_dirs=() hit_reasons=()
   local -a manual_items=() auto_items=() opaque=() opaque_items=() stale_dirs=()
@@ -1989,13 +2372,24 @@ _dr_check_worktrees() {
         entry=", outside the swept roots"
       elif [[ $all == *$'\n'"$dir"/* ]]; then
         entry=", contains another checkout"
+      else
+        # Checkouts the gc's own gates keep, so its dry run never offers
+        # them either.
+        _dr_worktree_gc_keeps "$dir" "$reason"
+        entry=$REPLY
       fi
       manual=$entry
       stale_dirs+=("$dir")
       _DR_WORKTREE_STALE_ENTRIES+=("$dir"$'\t'"$reason$manual")
       if [[ -n $manual ]]; then
         manual_count=$((manual_count + 1))
-        manual_items+=("$label ($reason$manual, delete by hand)")
+        # A moved checkout needs repairing, not deleting.
+        if [[ $manual == ", moved without repair" ]]; then
+          repair_count=$((repair_count + 1))
+          manual_items+=("$label ($reason$manual, run 'git worktree repair' in it)")
+        else
+          manual_items+=("$label ($reason$manual, delete by hand)")
+        fi
       else
         auto_items+=("$label ($reason)")
       fi
@@ -2029,14 +2423,19 @@ _dr_check_worktrees() {
     ((gone_count == 0)) || hint+="${hint:+, }$gone_count with upstream gone"
     label+=": $hint"
     hint=
-    if ((manual_count == 1 && stale_count == 1)); then
+    if ((repair_count > 0 && manual_count == stale_count)); then
+      hint="handle them by hand as each entry says: dot-worktree-gc keeps them"
+      ((stale_count > 1)) || hint="handle it by hand as its entry says: dot-worktree-gc keeps it"
+    elif ((manual_count == 1 && stale_count == 1)); then
       hint="delete it by hand once reviewed: dot-worktree-gc keeps it"
     elif ((manual_count == stale_count)); then
       hint="delete them by hand once reviewed: dot-worktree-gc keeps them"
     else
       hint="run 'dot-worktree-gc' (dry run; also lists merged branches across clones), then 'dot-worktree-gc --apply' (deletes those branches too; untracked or ignored content other than tagged caches and cleanupRepo.worktreePrunePath entries keeps a checkout)"
-      ((manual_count == 0)) ||
+      ((manual_count == repair_count)) ||
         hint+="; delete those marked 'delete by hand' yourself"
+      ((repair_count == 0)) ||
+        hint+="; repair those marked for 'git worktree repair' first"
     fi
     _dr_list_row warn "$label" "$hint" \
       ${manual_items[@]+"${manual_items[@]}"} ${auto_items[@]+"${auto_items[@]}"}
@@ -2066,6 +2465,7 @@ _dr_check_worktrees() {
     [[ -n ${swept["$dir"]+x} ]] || _DR_WORKTREE_ORPHANS_UNSWEPT+=("$dir")
   done
   _dr_worktree_report_orphans ${orphans[@]+"${orphans[@]}"}
+  _dr_worktree_report_odd
   _dr_worktree_report_admin ${live[@]+"${live[@]}"}
   return 0
 }

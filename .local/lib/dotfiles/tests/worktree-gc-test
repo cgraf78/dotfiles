@@ -234,7 +234,7 @@ _gc_build_matrix() {
 }
 
 # A git-tools root whose git-cleanup-repo is a stub. It logs every call and
-# answers --interface-version with STUB_VERSION (default 1), or rejects the
+# answers --interface-version with STUB_VERSION (default 2), or rejects the
 # flag under STUB_OLD, as a git-tools without it would. It writes
 # STUB_STDERR to stderr. With STUB_RECORDS it prints that file (only in the
 # repository at STUB_RECORDS_ONLY when that is set, nothing elsewhere);
@@ -250,7 +250,7 @@ _gc_stub_root() {
 #!/usr/bin/env bash
 if [[ $* == --interface-version ]]; then
   [[ -n ${STUB_OLD:-} ]] && exit 2
-  printf '%s\n' "${STUB_VERSION-1}"
+  printf '%s\n' "${STUB_VERSION-2}"
   exit 0
 fi
 {
@@ -304,7 +304,15 @@ STUB
 
 # Print a real git-tools root that supports porcelain cleanup, or fail.
 _gc_real_git_tools() {
-  local host_home=${DOT_TEST_HOST_HOME:-$HOME} candidate version
+  local host_home=${DOT_TEST_HOST_HOME:-$HOME} candidate version min
+  # The sweep's own minimum, so the e2e cases never drive a git-tools the
+  # sweep itself would refuse.
+  min=$(
+    # shellcheck source=../worktree-gc.sh
+    . "$ROOT/.local/lib/dotfiles/worktree-gc.sh" && printf '%s' "$_WORKTREE_GC_INTERFACE_MIN"
+  ) || return 1
+  # A renamed constant must fail loudly, not compare against an empty minimum.
+  [[ $min =~ ^[0-9]+$ ]] || return 1
   # The install root rather than asking shdeps, so a fresh development clone
   # is not picked up before `dot update` links it; DOT_TEST_GIT_TOOLS_ROOT
   # names a checkout deliberately.
@@ -313,7 +321,7 @@ _gc_real_git_tools() {
     [[ -n $candidate && -x $candidate/bin/git-cleanup-repo ]] || continue
     version=$("$candidate/bin/git-cleanup-repo" --interface-version 2>/dev/null) || continue
     [[ $version =~ ^[0-9]+$ ]] || continue
-    ((version >= 1)) || continue
+    ((version >= min)) || continue
     (cd -P -- "$candidate" && pwd -P)
     return 0
   done
@@ -356,6 +364,32 @@ _assert_exit "usage: both modes exits 1" 1 "$status"
 result=$(HOME="$usage_home" DOTFILES="$usage_home/.dotfiles" "$GC" extra-positional 2>&1)
 status=$?
 _assert_exit "usage: positional argument exits 1" 1 "$status"
+
+# Ages are decimal whatever the leading zeros; zero in any spelling is not an
+# age.
+for usage_age in 0 00 0d 000d 9999999999; do
+  HOME="$usage_home" DOTFILES="$usage_home/.dotfiles" "$GC" --older-than "$usage_age" >/dev/null 2>&1
+  _assert_exit "usage: --older-than $usage_age is refused" 1 "$?"
+done
+for usage_age in 08 09 010d; do
+  result=$(HOME="$usage_home" DOTFILES="$usage_home/.dotfiles" "$GC" --older-than "$usage_age" 2>&1)
+  _assert_exit "usage: --older-than $usage_age is a decimal age" 0 "$?"
+  _assert_not_contains "usage: --older-than $usage_age is not read as octal" "value too great" "$result"
+done
+
+# Run as `bash dot-worktree-gc` from its own directory, or through a link
+# whose target has no directory part, the entry point still finds its
+# library.
+usage_links=$(_gc_tmpdir)
+ln -s "$GC" "$usage_links/gc"
+ln -s gc "$usage_links/gc-short"
+for usage_link in gc gc-short; do
+  result=$(cd -- "$usage_links" && HOME="$usage_home" bash "$usage_link" --help 2>&1)
+  _assert_exit "usage: bash $usage_link from its directory finds the library" 0 "$?"
+  _assert_contains "usage: bash $usage_link from its directory prints usage" "usage:" "$result"
+done
+result=$(cd -- "${GC%/*}" && HOME="$usage_home" bash "${GC##*/}" --help 2>&1)
+_assert_exit "usage: bash dot-worktree-gc from its own directory finds the library" 0 "$?"
 
 result=$(env -u HOME DOTFILES="$usage_home/.dotfiles" "$GC" 2>&1)
 status=$?
@@ -416,7 +450,8 @@ _assert_not_contains "provider: the notice no longer promises a release" \
 
 # The porcelain contract is versioned as a whole; only an integer at or above
 # the required interface counts, never the mere presence of some options.
-for prov_version in 0 v2 '' ' 1' 1.0 $'1\n2'; do
+# Interface 1 lacks the unique-commits and unpublished gates, so it is too old.
+for prov_version in 0 1 01 v2 '' ' 2' 2.0 $'2\n3'; do
   prov_label=${prov_version//$'\n'/\\n}
   result=$(HOME="$prov_home" DOTFILES="$prov_home/.dotfiles" GIT_TOOLS_ROOT="$STUB_ROOT" \
     STUB_VERSION="$prov_version" "$GC" 2>"$prov_home/stderr.txt")
@@ -427,6 +462,10 @@ for prov_version in 0 v2 '' ' 1' 1.0 $'1\n2'; do
 done
 result=$(HOME="$prov_home" DOTFILES="$prov_home/.dotfiles" GIT_TOOLS_ROOT="$STUB_ROOT" \
   STUB_VERSION=2 "$GC" 2>/dev/null)
+_assert_contains "provider: interface version 2 is driven" \
+  "$(printf 'would-remove\t%s\tmerged' "$prov_home/.worktrees/old-merged")" "$result"
+result=$(HOME="$prov_home" DOTFILES="$prov_home/.dotfiles" GIT_TOOLS_ROOT="$STUB_ROOT" \
+  STUB_VERSION=3 "$GC" 2>/dev/null)
 _assert_contains "provider: a newer interface version is driven" \
   "$(printf 'would-remove\t%s\tmerged' "$prov_home/.worktrees/old-merged")" "$result"
 
@@ -752,14 +791,28 @@ _assert_contains "map: a failed removal is a failure" \
   "$(printf 'failed\t%s\tremoval failed' "$map_home/.worktrees/failing")" "$result"
 _assert_contains "map: a selected checkout without a record is still reported" \
   "$(printf 'skipped\t%s\tno cleanup decision' "$map_home/.worktrees/silent")" "$result"
-_assert_contains "map: the tally counts unlisted and retired-checkout kept branches" \
-  "2 branches kept" "$(cat "$map_home/stderr.txt")"
+# Anchored on "kept ": a bare "2 branches kept" would also match 12.
+_assert_contains "map: the tally counts unlisted and retired-checkout kept branches by reason" \
+  "kept 2 branches (1 merge unproven, 1 upstream gone)" "$(cat "$map_home/stderr.txt")"
+_assert_contains "map: a dry run's tally says what it would do" \
+  "done (dry run): would remove 2 checkouts and delete 1 branch;" "$(cat "$map_home/stderr.txt")"
+# One young checkout and one branch an open PR keeps, in the singular.
+git -C "$map_main" worktree add "$map_home/.worktrees/young-map" -b young-map >/dev/null 2>&1
+printf 'keep-branch\tfeat-open\topen-pr\t12\n' >"$map_home/young-records"
+HOME="$map_home" DOTFILES="$map_home/.dotfiles" GIT_TOOLS_ROOT="$STUB_ROOT" \
+  STUB_RECORDS="$map_home/young-records" "$GC" >/dev/null 2>"$map_home/stderr.txt"
+_assert_contains "map: the tally labels an open-PR branch and one young checkout" \
+  "kept 1 branch (1 open PR) and 1 young checkout;" "$(cat "$map_home/stderr.txt")"
 printf 'would-remove-worktree\t%s\\tname/wt\tmerged\tfeat-tab\n' "$map_home/.worktrees/tab" \
   >"$map_records"
 result=$(HOME="$map_home" DOTFILES="$map_home/.dotfiles" GIT_TOOLS_ROOT="$STUB_ROOT" \
   STUB_RECORDS="$map_records" "$GC" 2>/dev/null)
-_assert_contains "map: escaped porcelain paths are unescaped" \
-  "$(printf 'would-remove\t%s\tmerged' "$map_home/.worktrees/tab"$'\t'"name/wt")" "$result"
+# The provider's escaped path is decoded to match the checkout, and the
+# record escapes it again, so the tab cannot split the record's fields.
+_assert_contains "map: escaped porcelain paths are matched and re-escaped" \
+  "$(printf 'would-remove\t%s\\tname/wt\tmerged' "$map_home/.worktrees/tab")" "$result"
+_assert_eq "map: a record keeps exactly three fields" 3 \
+  "$(grep -F 'tab\tname/wt' <<<"$result" | awk -F '\t' '{ print NF }')"
 
 # A failed ref deletion, a pull request lookup that could not be read, and a
 # repository with no checkout to run from are each reported for what they are.
@@ -785,6 +838,27 @@ _gc_make_old "$bare_home/.worktrees/old-bare"
 result=$(HOME="$bare_home" DOTFILES="$bare_home/.dotfiles" GIT_TOOLS_ROOT="$STUB_ROOT" "$GC" 2>/dev/null)
 _assert_contains "map: a bare repository's checkout waits for a main checkout" \
   "$(printf 'skipped\t%s\trepository has no main checkout' "$bare_home/.worktrees/old-bare")" "$result"
+# A bare repository cloned into foo/.git looks like foo's checkout by path,
+# but git-tools refuses to run in a bare repository: it is skipped the same
+# way, never handed to git-tools (which failed every sweep with exit 2).
+git clone --quiet --bare "$bare_origin_root/origin.git" "$bare_home/git/foo/.git" 2>/dev/null
+# Remote-tracking refs and origin/HEAD, so a base resolves and only the
+# bare check stands between the repository and git-tools.
+git --git-dir="$bare_home/git/foo/.git" config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
+git --git-dir="$bare_home/git/foo/.git" fetch --quiet origin 2>/dev/null
+git --git-dir="$bare_home/git/foo/.git" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
+git --git-dir="$bare_home/git/foo/.git" branch side main
+git --git-dir="$bare_home/git/foo/.git" worktree add --quiet --detach \
+  "$bare_home/.worktrees/old-bare-dotgit" main 2>/dev/null
+_gc_make_old "$bare_home/.worktrees/old-bare-dotgit"
+bare_log=$(_tmpdir)/stub.log
+result=$(HOME="$bare_home" DOTFILES="$bare_home/.dotfiles" GIT_TOOLS_ROOT="$STUB_ROOT" \
+  STUB_LOG="$bare_log" "$GC" 2>/dev/null)
+_assert_exit "map: a bare repository named .git does not fail the sweep" 0 "$?"
+_assert_contains "map: a bare repository named .git has no main checkout" \
+  "$(printf 'skipped\t%s\trepository has no main checkout' "$bare_home/.worktrees/old-bare-dotgit")" "$result"
+_assert_not_contains "map: a bare repository named .git is never handed to git-tools" \
+  "$(printf 'cwd=%s\t' "$bare_home/git/foo")" "$(cat "$bare_log" 2>/dev/null)"
 
 echo ""
 echo "=== A fetch failure falls back to local refs; a failure is reported ==="
@@ -885,8 +959,32 @@ _assert_not_contains "discovery: a plain directory never pulls in its enclosing 
   "$(printf 'cwd=%s\t' "$rt_main")" "$(cat "$rt_log")"
 result=$(HOME="$rt_home" DOTFILES="$rt_home/.dotfiles" GIT_TOOLS_ROOT="$STUB_ROOT" \
   "$GC" --root "$rt_home/does-not-exist" 2>"$rt_home/stderr.txt")
-_assert_exit "discovery: a missing root does not fail the sweep" 0 "$?"
-_assert_contains "discovery: a missing root warns" "no such root" "$(cat "$rt_home/stderr.txt")"
+# A mistyped --root is a usage error (exit 1), not a quiet sweep of nothing.
+_assert_exit "discovery: a missing root is a usage error" 1 "$?"
+_assert_contains "discovery: a missing root is named" "no such root" "$(cat "$rt_home/stderr.txt")"
+_assert_eq "discovery: a missing root sweeps nothing" "" "$result"
+# Roots travel one per line, tab-separated: a root holding a newline would
+# split into a directory nobody named (here the relative "nlroot", swept
+# from the starting directory) and a trailing tab would be stripped onto a
+# sibling. Both are refused before anything is swept.
+rt_cwd=$(_gc_tmpdir)
+mkdir -p "$rt_cwd/nlroot/e1" "$rt_cwd/nlroot"$'\n'"x" "$rt_cwd/tabroot/e2" "$rt_cwd/tabroot"$'\t'
+_gc_make_old "$rt_cwd/nlroot/e1"
+_gc_make_old "$rt_cwd/tabroot/e2"
+for rt_root in "nlroot"$'\n'"x" "$rt_cwd/tabroot"$'\t'; do
+  rt_label=${rt_root//$'\n'/\\n}
+  rt_label=${rt_label//$'\t'/\\t}
+  result=$(cd -- "$rt_cwd" && HOME="$rt_home" DOTFILES="$rt_home/.dotfiles" GIT_TOOLS_ROOT="$STUB_ROOT" \
+    "$GC" --apply --root "$rt_root" 2>"$rt_home/stderr.txt")
+  _assert_exit "discovery: root '$rt_label' is a usage error" 1 "$?"
+  _assert_contains "discovery: root '$rt_label' is refused by name" \
+    "root holds a newline or tab" "$(cat "$rt_home/stderr.txt")"
+  _assert_eq "discovery: root '$rt_label' sweeps nothing" "" "$result"
+done
+if [[ -d $rt_cwd/nlroot/e1 ]]; then rt_status=0; else rt_status=1; fi
+_assert_exit "discovery: a newline root never sweeps the split-off name" 0 "$rt_status"
+if [[ -d $rt_cwd/tabroot/e2 ]]; then rt_status=0; else rt_status=1; fi
+_assert_exit "discovery: a tab root never sweeps its stripped sibling" 0 "$rt_status"
 
 # The shared roots and their grouping folders, one level deep; orphans are
 # listed whatever their age.
@@ -909,6 +1007,43 @@ for grp_wt in worktrees/g-top git/.worktrees/g-hidden git/worktrees/batch/g-nest
     "$(printf 'would-remove\t%s\tmerged' "$grp_home/$grp_wt")" "$result"
 done
 _assert_not_contains "discovery: grouping reaches one level only" "g-deep" "$result"
+# A checkout moved without repair is labelled for what it is, not as an
+# orphan.
+_gc_merged_worktree "$grp_main" "$grp_home/worktrees/g-before-move" feat-g-move
+mv "$grp_home/worktrees/g-before-move" "$grp_home/worktrees/g-moved"
+_gc_make_old "$grp_home/worktrees/g-moved"
+# A reason naming a path with a tab is escaped like the path field.
+_gc_merged_worktree "$grp_main" "$grp_home/worktrees/g-tab"$'\t'"old" feat-g-tab
+mv "$grp_home/worktrees/g-tab"$'\t'"old" "$grp_home/worktrees/g-tab-moved"
+_gc_make_old "$grp_home/worktrees/g-tab-moved"
+grp_tab_result=$(HOME="$grp_home" DOTFILES="$grp_home/.dotfiles" GIT_TOOLS_ROOT="$STUB_ROOT" "$GC" 2>/dev/null)
+_assert_contains "discovery: a moved checkout's old tab path is escaped in its reason" \
+  "$(printf 'registered at %s\\told)' "$grp_home/worktrees/g-tab")" "$grp_tab_result"
+_assert_eq "discovery: that record keeps exactly three fields" 3 \
+  "$(grep -F 'g-tab-moved' <<<"$grp_tab_result" | awk -F '\t' '{ print NF }')"
+_assert_contains "discovery: a moved checkout is labelled for repair" \
+  "$(printf "skipped\t%s\tmoved worktree not repaired (registered at %s): run 'git worktree repair' in it" "$grp_home/worktrees/g-moved" "$grp_home/worktrees/g-before-move")" \
+  "$(HOME="$grp_home" DOTFILES="$grp_home/.dotfiles" GIT_TOOLS_ROOT="$STUB_ROOT" "$GC" 2>/dev/null)"
+# A plain directory recreated at the old path does not make the registration
+# live (Git judges the old path by its .git): still a move.
+_gc_merged_worktree "$grp_main" "$grp_home/worktrees/g-refill-src" feat-g-refill
+mv "$grp_home/worktrees/g-refill-src" "$grp_home/worktrees/g-refill-dst"
+mkdir "$grp_home/worktrees/g-refill-src"
+_gc_make_old "$grp_home/worktrees/g-refill-dst"
+_assert_contains "discovery: a move whose old path was recreated is still labelled for repair" \
+  "$(printf "skipped\t%s\tmoved worktree not repaired (registered at %s)" "$grp_home/worktrees/g-refill-dst" "$grp_home/worktrees/g-refill-src")" \
+  "$(HOME="$grp_home" DOTFILES="$grp_home/.dotfiles" GIT_TOOLS_ROOT="$STUB_ROOT" "$GC" 2>/dev/null)"
+# A copy is not a move: its registered original still exists, and repairing
+# from the copy would steal that registration.
+_gc_merged_worktree "$grp_main" "$grp_home/worktrees/g-orig" feat-g-orig
+cp -a "$grp_home/worktrees/g-orig" "$grp_home/worktrees/g-copy"
+_gc_make_old "$grp_home/worktrees/g-copy"
+result=$(HOME="$grp_home" DOTFILES="$grp_home/.dotfiles" GIT_TOOLS_ROOT="$STUB_ROOT" "$GC" 2>/dev/null)
+_assert_contains "discovery: a copied checkout is not called moved" \
+  "$(printf 'skipped\t%s\torphan (not in any worktree list)' "$grp_home/worktrees/g-copy")" "$result"
+# The grouping folder itself is neither a checkout nor a leftover.
+_assert_not_contains "discovery: a grouping folder gets no record" \
+  "$(printf '\t%s\t' "$grp_home/git/worktrees/batch")" "$result"
 _assert_contains "discovery: a young orphan is listed as an orphan" \
   "$(printf 'skipped\t%s\tbroken git pointer' "$grp_home/worktrees/g-young-orphan")" "$result"
 
@@ -995,7 +1130,7 @@ cause_home=$(_gc_tmpdir)
 cause_origin_root=$(_tmpdir)
 _gc_seed_origin "$cause_origin_root/origin.git"
 _gc_clone_main "$cause_origin_root/origin.git" "$cause_home/git/alpha"
-for cause_name in failing pruning subs young-ref no-reflog closed aliased left reserved deleted; do
+for cause_name in failing pruning subs young-ref no-reflog unpub unique closed aliased aliased2 left reserved deleted; do
   _gc_merged_worktree "$cause_home/git/alpha" "$cause_home/.worktrees/$cause_name" "feat-$cause_name"
 done
 cause_records=$(_tmpdir)/records
@@ -1005,8 +1140,12 @@ cause_records=$(_tmpdir)/records
   printf 'keep-worktree\t%s\tsubmodule\t%s\n' "$cause_home/.worktrees/subs" "$cause_home/.worktrees/subs"
   printf 'keep-worktree\t%s\ttoo-new\t%s\n' "$cause_home/.worktrees/young-ref" 1791500000
   printf 'keep-worktree\t%s\ttoo-new\t\n' "$cause_home/.worktrees/no-reflog"
+  printf 'keep-worktree\t%s\tunpublished\tfeat-unpub\n' "$cause_home/.worktrees/unpub"
+  printf 'keep-worktree\t%s\tunique-commits\t%s\n' "$cause_home/.worktrees/unique" 1111111111111111111111111111111111111111
   printf 'keep-worktree\t%s\tclosed-pr\tfeat-closed\n' "$cause_home/.worktrees/closed"
   printf 'keep-worktree\t%s\tsymref\tfeat-aliased\n' "$cause_home/.worktrees/aliased"
+  printf 'keep-branch\tfeat-aliased2\tsymref\tmaster old-main\n'
+  printf 'keep-worktree\t%s\tsymref\tfeat-aliased2\n' "$cause_home/.worktrees/aliased2"
 } >"$cause_records"
 result=$(HOME="$cause_home" DOTFILES="$cause_home/.dotfiles" GIT_TOOLS_ROOT="$STUB_ROOT" \
   STUB_RECORDS="$cause_records" \
@@ -1018,16 +1157,24 @@ _assert_contains "cause: a failure no diagnostic names is still a failure" \
   "$(printf 'failed\t%s\tremoval failed' "$cause_home/.worktrees/pruning")" "$result"
 _assert_not_contains "cause: another checkout's diagnostic is never borrowed" \
   "$(printf 'failed\t%s\tremoval failed:' "$cause_home/.worktrees/pruning")" "$result"
-_assert_contains "cause: a populated submodule is named" \
-  "$(printf 'skipped\t%s\tpopulated submodule (Git cannot remove it)' "$cause_home/.worktrees/subs")" "$result"
+_assert_contains "cause: a submodule directory with content is named" \
+  "$(printf 'skipped\t%s\tholds a submodule directory with content (Git cannot remove it safely)' "$cause_home/.worktrees/subs")" "$result"
+# The date may be the newest reflog entry or, once the reflog expired, the
+# tip's commit time; the text covers both.
 _assert_contains "cause: a young branch says how young" \
-  "$(printf 'skipped\t%s\tmerged by ancestry only, but created or moved within 1 day' "$cause_home/.worktrees/young-ref")" "$result"
+  "$(printf 'skipped\t%s\tmerged by ancestry only, but its reflog or tip commit is under 1 day old' "$cause_home/.worktrees/young-ref")" "$result"
 _assert_contains "cause: a checkout kept for its closed PR says how to retire it" \
   "$(printf 'skipped\t%s\tclosed unmerged PR; --include-closed retires it' "$cause_home/.worktrees/closed")" "$result"
 _assert_contains "cause: a checkout whose branch has an alias says so" \
   "$(printf 'skipped\t%s\ta branch alias points at its branch' "$cause_home/.worktrees/aliased")" "$result"
-_assert_contains "cause: a branch without a reflog says so" \
-  "$(printf 'skipped\t%s\tmerged by ancestry only, and no reflog dates the branch' "$cause_home/.worktrees/no-reflog")" "$result"
+_assert_contains "cause: a checkout whose branch's aliases are known names them" \
+  "$(printf 'skipped\t%s\tits branch is kept: aliases (master old-main) point at it' "$cause_home/.worktrees/aliased2")" "$result"
+_assert_contains "cause: an unpublished branch's checkout says so" \
+  "$(printf 'skipped\t%s\tupstream gone, but GitHub never saw its tip (unpushed commits)' "$cause_home/.worktrees/unpub")" "$result"
+_assert_contains "cause: a checkout holding unreachable commits names one" \
+  "$(printf "skipped\t%s\tcommits only this worktree's history or own refs hold (such as %s)" "$cause_home/.worktrees/unique" 1111111111111111111111111111111111111111)" "$result"
+_assert_contains "cause: a branch never logged says its age is unknown" \
+  "$(printf 'skipped\t%s\tmerged by ancestry only, and its age is unknown (a branch never logged, say)' "$cause_home/.worktrees/no-reflog")" "$result"
 
 printf 'keep-worktree\t%s\tremove-failed\t%s\n' "$cause_home/.worktrees/failing" \
   "$cause_home/.worktrees/failing" >"$cause_home/sibling-records"
@@ -1092,7 +1239,9 @@ _assert_contains "kept branch: a removed checkout's branch checked out again is 
 _assert_not_contains "kept branch: a deleted branch is not also listed as kept" \
   $'skipped-branch\tfeat-deleted' "$result"
 _assert_contains "kept branch: the tally counts each listed kept branch" \
-  "2 branches kept" "$(cat "$cause_home/stderr.txt")"
+  "kept 2 branches (" "$(cat "$cause_home/stderr.txt")"
+_assert_contains "kept branch: an applied tally says what it did" \
+  "done: removed 3 checkouts and deleted 1 branch;" "$(cat "$cause_home/stderr.txt")"
 printf 'would-remove-worktree\t%s\tmerged\tfeat-left\nkeep-branch\tfeat-left\tbranch-changed\t\n' \
   "$cause_home/.worktrees/left" >"$cause_records"
 result=$(HOME="$cause_home" DOTFILES="$cause_home/.dotfiles" GIT_TOOLS_ROOT="$STUB_ROOT" \
@@ -1100,9 +1249,10 @@ result=$(HOME="$cause_home" DOTFILES="$cause_home/.dotfiles" GIT_TOOLS_ROOT="$ST
 _assert_contains "kept branch: a dry run lists it as would-skip-branch" \
   $'would-skip-branch\tfeat-left\tchanged during cleanup' "$result"
 _assert_contains "kept branch: one kept branch reads in the singular" \
-  "1 branch kept" "$(cat "$cause_home/stderr.txt")"
+  "kept 1 branch (" "$(cat "$cause_home/stderr.txt")"
 
-# Failed pull request lookups are noted once per repository, so a broken gh
+# Failed pull request lookups are noted once for the repository (one line
+# for all affected repositories at the end of the sweep), so a broken gh
 # setup is visible instead of reading as nothing merged.
 {
   printf 'keep-branch\tunproven-1\tpr-unknown\t\n'
@@ -1136,6 +1286,15 @@ _assert_eq "pr-unknown: only the repository whose lookups failed is noted" 1 \
   "$(grep -c 'pull request lookups failed' "$pr_home/stderr.txt")"
 _assert_contains "pr-unknown: the note names that repository" \
   "$pr_home/git/alpha/.git: pull request lookups failed" "$(cat "$pr_home/stderr.txt")"
+# A globally broken gh setup fails every repository's lookups: one line
+# lists them all instead of one notice per clone.
+HOME="$pr_home" DOTFILES="$pr_home/.dotfiles" GIT_TOOLS_ROOT="$STUB_ROOT" \
+  STUB_RECORDS="$pr_home/records" "$GC" >/dev/null 2>"$pr_home/stderr.txt"
+_assert_eq "pr-unknown: failures across repositories share one line" 1 \
+  "$(grep -c 'pull request lookups failed' "$pr_home/stderr.txt")"
+_assert_contains "pr-unknown: the shared line names every repository" \
+  "pull request lookups failed in 2 repositories (check 'gh auth status'); merged-PR evidence was not used: $pr_home/git/alpha/.git $pr_home/git/beta/.git" \
+  "$(cat "$pr_home/stderr.txt")"
 
 # A tag that shares a branch's name makes `--short` answer heads/<name>; the
 # selected checkout's branch must still match git-tools' records.
@@ -1153,7 +1312,7 @@ tag_records=$(_tmpdir)/records
 HOME="$tag_home" DOTFILES="$tag_home/.dotfiles" GIT_TOOLS_ROOT="$STUB_ROOT" \
   STUB_RECORDS="$tag_records" "$GC" >/dev/null 2>"$tag_home/stderr.txt"
 _assert_contains "tag: a checkout's branch named like a tag is still its own" \
-  "0 branches kept" "$(cat "$tag_home/stderr.txt")"
+  "kept 0 branches and" "$(cat "$tag_home/stderr.txt")"
 
 # A local branch named like a remote-tracking one makes `--short` answer
 # remotes/origin/<name> for origin/HEAD; the remote must still be origin.
@@ -1173,6 +1332,362 @@ result=$(HOME="$tag_home" DOTFILES="$tag_home/.dotfiles" GIT_TOOLS_ROOT="$STUB_R
 _assert_contains "age: a one-day limit reads in the singular" \
   "$(printf 'kept\t%s\tyounger than 1 day' "$tag_home/.worktrees/dup")" "$result"
 _assert_not_contains "age: never 1 days" "1 days" "$result"
+
+echo ""
+echo "=== A superseded Actions pin retires its checkout ==="
+
+# A checkout whose only change repins cgraf78/actions to a revision the base
+# has since moved past is retired on the sweep's own evidence: it reaches
+# git-tools as --retire-worktree, comes back as `requested`, and its branch
+# is listed as kept. Offline, nothing can rule out an open PR, so the retry
+# after an unreachable remote passes plain --worktree selections.
+if command -v jq >/dev/null 2>&1; then
+  pin_home=$(_gc_tmpdir)
+  pin_origin_root=$(_tmpdir)
+  _gc_seed_origin "$pin_origin_root/origin.git"
+  _gc_clone_main "$pin_origin_root/origin.git" "$pin_home/git/alpha"
+  pin_main=$pin_home/git/alpha
+  pin_old=1111111111111111111111111111111111111111
+  pin_new=2222222222222222222222222222222222222222
+  pin_cur=3333333333333333333333333333333333333333
+  _gc_set_pin() {
+    mkdir -p "$1/.github/workflows"
+    printf '%s\n' "$2" >"$1/.github/cgraf78-actions.lock"
+    printf 'jobs:\n  ci:\n    uses: cgraf78/actions/.github/workflows/shell-ci.yml@%s\n' "$2" \
+      >"$1/.github/workflows/ci.yml"
+    git -C "$1" add .github >/dev/null 2>&1
+    git -C "$1" commit -m "pin $2" >/dev/null 2>&1
+  }
+  _gc_set_pin "$pin_main" "$pin_old"
+  git -C "$pin_main" push origin main >/dev/null 2>&1
+  git -C "$pin_main" worktree add "$pin_home/.worktrees/repin" -b repin >/dev/null 2>&1
+  _git_set_test_identity git -C "$pin_home/.worktrees/repin"
+  _gc_set_pin "$pin_home/.worktrees/repin" "$pin_new"
+  _gc_set_pin "$pin_main" "$pin_cur"
+  git -C "$pin_main" push origin main >/dev/null 2>&1
+  _gc_make_old "$pin_home/.worktrees/repin"
+  pin_bin=$(_tmpdir)
+  cat >"$pin_bin/gh" <<GH
+#!/usr/bin/env bash
+[[ \$1 == api && \$4 == "repos/cgraf78/actions/compare/$pin_new...$pin_cur" ]] || exit 1
+printf '{"status":"ahead","base_commit":{"sha":"%s"},"merge_base_commit":{"sha":"%s"}}\n' $pin_new $pin_new
+GH
+  chmod +x "$pin_bin/gh"
+  pin_log=$(_tmpdir)/stub.log
+  result=$(HOME="$pin_home" DOTFILES="$pin_home/.dotfiles" GIT_TOOLS_ROOT="$STUB_ROOT" \
+    PATH="$pin_bin:$PATH" STUB_LOG="$pin_log" "$GC" 2>/dev/null)
+  _assert_contains "pin: a superseded pin is requested for retirement" \
+    "$(printf 'arg\t--retire-worktree\narg\t%s' "$pin_home/.worktrees/repin")" "$(cat "$pin_log")"
+  _assert_contains "pin: the retired checkout carries the requested reason" \
+    "$(printf 'would-remove\t%s\tActions pin superseded (branch kept)' "$pin_home/.worktrees/repin")" "$result"
+  _assert_contains "pin: its branch is listed as kept" \
+    $'would-skip-branch\trepin\tActions pin superseded (branch kept)' "$result"
+  # A detached checkout has no branch to keep: the pin never retires it.
+  git -C "$pin_main" worktree add --detach "$pin_home/.worktrees/repin-detached" repin >/dev/null 2>&1
+  _gc_make_old "$pin_home/.worktrees/repin-detached"
+  : >"$pin_log"
+  HOME="$pin_home" DOTFILES="$pin_home/.dotfiles" GIT_TOOLS_ROOT="$STUB_ROOT" \
+    PATH="$pin_bin:$PATH" STUB_LOG="$pin_log" "$GC" >/dev/null 2>&1
+  _assert_contains "pin: a detached checkout is selected plainly" \
+    "$(printf 'arg\t--worktree\narg\t%s' "$pin_home/.worktrees/repin-detached")" "$(cat "$pin_log")"
+  _assert_not_contains "pin: a detached checkout is never requested for retirement" \
+    "$(printf 'arg\t--retire-worktree\narg\t%s' "$pin_home/.worktrees/repin-detached")" "$(cat "$pin_log")"
+  : >"$pin_log"
+  HOME="$pin_home" DOTFILES="$pin_home/.dotfiles" GIT_TOOLS_ROOT="$STUB_ROOT" \
+    PATH="$pin_bin:$PATH" STUB_LOG="$pin_log" STUB_FAIL_FETCH=1 "$GC" >/dev/null 2>&1
+  _assert_contains "pin: the offline retry selects the checkout plainly" \
+    "$(printf 'arg\t--no-fetch\narg\t--worktree\narg\t%s' "$pin_home/.worktrees/repin")" \
+    "$(awk '/^call/ { n++ } n == 2' "$pin_log")"
+  _assert_not_contains "pin: the offline retry never requests retirement" \
+    "--retire-worktree" "$(awk '/^call/ { n++ } n == 2' "$pin_log")"
+else
+  echo '  - skipping Actions pin retirement: no jq on this host'
+fi
+
+echo ""
+echo "=== The sweep's own Git probes skip the dotfiles launcher ==="
+
+# The PATH launcher pays a shell startup per call and a sweep makes hundreds;
+# the sweep resolves the real Git behind it once, as the doctor does. The
+# provider still runs with PATH as it is.
+launch_home=$(_gc_tmpdir)
+launch_origin_root=$(_tmpdir)
+_gc_seed_origin "$launch_origin_root/origin.git"
+_gc_clone_main "$launch_origin_root/origin.git" "$launch_home/git/alpha"
+git -C "$launch_home/git/alpha" branch side
+_gc_merged_worktree "$launch_home/git/alpha" "$launch_home/.worktrees/old-l" feat-l
+launch_bin=$(_tmpdir)
+launch_log=$(_tmpdir)/launcher.log
+launch_real_git=$(command -v git)
+cat >"$launch_bin/git" <<LAUNCH
+#!/usr/bin/env bash
+# Dotfiles-aware launcher for Git.
+printf '%s\n' "\$*" >>"$launch_log"
+exec "$launch_real_git" "\$@"
+LAUNCH
+chmod +x "$launch_bin/git"
+result=$(HOME="$launch_home" DOTFILES="$launch_home/.dotfiles" GIT_TOOLS_ROOT="$STUB_ROOT" \
+  PATH="$launch_bin:$PATH" "$GC" 2>/dev/null)
+# Any launcher call other than the two expected ones (dropping inherited Git
+# variables before the real Git is known, and the stub provider's own
+# branch lookup, which runs with PATH as it is) is a probe that slipped
+# through.
+_gc_launcher_strays() {
+  grep -v -x -e 'rev-parse --local-env-vars' -e '-C .* symbolic-ref -q --short HEAD' \
+    "$launch_log" 2>/dev/null || true
+}
+_assert_contains "launcher: the sweep still decides through the real Git" \
+  "$(printf 'would-remove\t%s\tmerged' "$launch_home/.worktrees/old-l")" "$result"
+_assert_eq "launcher: the sweep's probes never go through the launcher" "" "$(_gc_launcher_strays)"
+# An orphan proof (the Python helper's reads, and the base fetch an applied
+# sweep makes) uses the resolved Git too.
+if [[ -d /proc/self/cwd ]] && command -v python3 >/dev/null 2>&1; then
+  git -C "$launch_home/git/alpha" worktree add --quiet -b launch-orphan \
+    "$launch_home/.worktrees/launch-orphan" main 2>/dev/null
+  rm -r -- "$(git -C "$launch_home/.worktrees/launch-orphan" rev-parse --git-dir)"
+  _gc_make_old "$launch_home/.worktrees/launch-orphan"
+  : >"$launch_log"
+  result=$(HOME="$launch_home" DOTFILES="$launch_home/.dotfiles" GIT_TOOLS_ROOT="$STUB_ROOT" \
+    PATH="$launch_bin:$PATH" "$GC" --apply 2>/dev/null)
+  _assert_contains "launcher: an applied orphan proof still runs" \
+    "$(printf 'removed\t%s\torphaned checkout matches merged commit' "$launch_home/.worktrees/launch-orphan")" "$result"
+  _assert_eq "launcher: the orphan proof and its fetch skip the launcher" "" "$(_gc_launcher_strays)"
+else
+  echo '  - skipping launcher orphan case: python3 or readable /proc unavailable'
+fi
+# The Actions-pin proof's Git reads (from the pin fixture above) do too.
+if [[ -n ${pin_home:-} ]]; then
+  : >"$launch_log"
+  result=$(HOME="$pin_home" DOTFILES="$pin_home/.dotfiles" GIT_TOOLS_ROOT="$STUB_ROOT" \
+    PATH="$launch_bin:$pin_bin:$PATH" "$GC" 2>/dev/null)
+  _assert_contains "launcher: the pin proof still retires through the real Git" \
+    "$(printf 'would-remove\t%s\tActions pin superseded (branch kept)' "$pin_home/.worktrees/repin")" "$result"
+  _assert_eq "launcher: the pin proof skips the launcher" "" "$(_gc_launcher_strays)"
+fi
+
+# Registrations and working directories are read once for a preview;
+# applying rereads them right before each removal.
+gate_counts=$(
+  # shellcheck source=../worktree-gc.sh
+  . "$ROOT/.local/lib/dotfiles/worktree-gc.sh" || exit 1
+  gate_loads=0 gate_cwds=0
+  # shellcheck disable=SC2329 # called by _worktree_gc_refresh_gates
+  _worktree_gc_load_live() { gate_loads=$((gate_loads + 1)); }
+  # shellcheck disable=SC2329 # called by _worktree_gc_refresh_gates and _worktree_gc_in_use
+  _worktree_gc_load_cwds() {
+    gate_cwds=$((gate_cwds + 1))
+    _WORKTREE_GC_CWDS_LOADED=1
+  }
+  for gate_apply in 0 1; do
+    _WORKTREE_GC_APPLY=$gate_apply
+    _WORKTREE_GC_CWDS_LOADED=0
+    gate_loads=0 gate_cwds=0
+    for _ in 1 2 3; do
+      _worktree_gc_refresh_gates
+      _worktree_gc_in_use /nonexistent || true
+    done
+    printf '%s=%s/%s ' "$gate_apply" "$gate_loads" "$gate_cwds"
+  done
+)
+_assert_eq "gates: a dry run loads once; apply rereads registrations and cwds each time" \
+  "0=0/1 1=3/3 " "$gate_counts"
+# Both removal paths go through the gate refresh before deciding.
+gate_dir=$(_tmpdir)/empty-candidate
+mkdir -p "$gate_dir"
+gate_calls=$(
+  # shellcheck source=../worktree-gc.sh
+  . "$ROOT/.local/lib/dotfiles/worktree-gc.sh" || exit 1
+  gate_refreshes=0
+  # shellcheck disable=SC2329 # called by the removal paths
+  _worktree_gc_refresh_gates() { gate_refreshes=$((gate_refreshes + 1)); }
+  # shellcheck disable=SC2329 # called by the removal paths
+  _worktree_gc_in_use() { return 0; }
+  # shellcheck disable=SC2329 # stands in for the orphan helper's owner lookup
+  python3() { printf '%s\n' /nonexistent/common.git; }
+  _WORKTREE_GC_APPLY=1
+  _WORKTREE_GC_DIRECT=("$gate_dir")
+  _worktree_gc_remove_empty "$gate_dir" >/dev/null
+  printf 'empty=%s ' "$gate_refreshes"
+  gate_refreshes=0
+  _worktree_gc_remove_orphan "$gate_dir" >/dev/null
+  printf 'orphan=%s' "$gate_refreshes"
+)
+_assert_eq "gates: empty and orphan removals refresh their gates first" \
+  "empty=1 orphan=1" "$gate_calls"
+
+echo ""
+echo "=== Classification names only real owners ==="
+
+# A record printed while classifying must not leak into the repository the
+# candidate names: a young or empty directory names none, a bare repository
+# parked in a worktree root is never swept, and a standalone clone parked
+# there is still swept as its own repository.
+own_home=$(_gc_tmpdir)
+own_origin_root=$(_tmpdir)
+_gc_seed_origin "$own_origin_root/origin.git"
+_gc_clone_main "$own_origin_root/origin.git" "$own_home/git/alpha"
+_gc_clone_main "$own_origin_root/origin.git" "$own_home/.worktrees/solo"
+git -C "$own_home/.worktrees/solo" branch side
+_gc_make_old "$own_home/.worktrees/solo"
+git clone --quiet --bare "$own_origin_root/origin.git" "$own_home/.worktrees/stray.git" 2>/dev/null
+git --git-dir="$own_home/.worktrees/stray.git" branch side main
+touch -t 202001010000 "$own_home/.worktrees/stray.git"
+mkdir -p "$own_home/.worktrees/young-dir" "$own_home/.worktrees/old-dir"
+_gc_make_old "$own_home/.worktrees/old-dir"
+own_shim=$(_tmpdir)/git-shim
+own_git_log=$(_tmpdir)/git.log
+own_real_git=$(command -v git)
+cat >"$own_shim" <<SHIM
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >>"$own_git_log"
+exec "$own_real_git" "\$@"
+SHIM
+chmod +x "$own_shim"
+own_log=$(_tmpdir)/stub.log
+HOME="$own_home" DOTFILES="$own_home/.dotfiles" GIT_TOOLS_ROOT="$STUB_ROOT" \
+  DOT_DOCTOR_GIT="$own_shim" STUB_LOG="$own_log" "$GC" >/dev/null 2>"$own_home/stderr.txt"
+_assert_contains "owner: a standalone clone in a worktree root is still swept" \
+  "$(printf 'cwd=%s\t' "$own_home/.worktrees/solo")" "$(cat "$own_log")"
+for own_dir in young-dir old-dir stray.git; do
+  _assert_not_contains "owner: $own_dir names no repository to sweep" \
+    "--git-dir=$own_home/.worktrees/$own_dir " "$(cat "$own_git_log")"
+done
+# Nor does any other value a record or helper left behind (a day count, an
+# escaped path): every repository-level probe names one of the two clones.
+_assert_eq "owner: repository probes name only the real repositories" "" \
+  "$(grep -F -e '--git-dir=' "$own_git_log" |
+    grep -v -F -e "--git-dir=$own_home/git/alpha/.git " -e "--git-dir=$own_home/.worktrees/solo/.git ")"
+_assert_contains "owner: the tally names empty directories apart from checkouts" \
+  "would remove 0 checkouts, 1 empty directory, and delete 0 branches" "$(cat "$own_home/stderr.txt")"
+_assert_contains "owner: the tally names young directories apart from checkouts" \
+  "0 young checkouts and 1 young directory" "$(cat "$own_home/stderr.txt")"
+
+# Grouping folders are found by marking ancestors, so a checkout nested any
+# depth below a plain folder still makes it a grouping folder.
+group_cands=$(
+  # shellcheck source=../worktree-gc.sh
+  . "$ROOT/.local/lib/dotfiles/worktree-gc.sh" || exit 1
+  cands=(/nonexistent/root/batch /nonexistent/root/batch/a/b/wt /nonexistent/root/solo)
+  _worktree_gc_drop_groupings
+  printf '%s ' "${cands[@]}"
+)
+_assert_eq "groupings: only folders holding other candidates are dropped" \
+  "/nonexistent/root/batch/a/b/wt /nonexistent/root/solo " "$group_cands"
+# A path without a slash has no parent: it is never taken for a grouping
+# folder of itself (which once hid a split newline name's relative tail).
+group_cands=$(
+  # shellcheck source=../worktree-gc.sh
+  . "$ROOT/.local/lib/dotfiles/worktree-gc.sh" || exit 1
+  cands=(tail /nonexistent/root/solo)
+  _worktree_gc_drop_groupings
+  printf '%s ' "${cands[@]}"
+)
+_assert_eq "groupings: a slash-less path is not its own grouping folder" \
+  "tail /nonexistent/root/solo " "$group_cands"
+
+echo ""
+echo "=== Quarantines and newline names are reported ==="
+
+# A failed orphan cleanup's quarantine is hidden, so never a candidate; it is
+# still reported every sweep until someone inspects it. A name holding a
+# newline cannot travel one per line; it is reported safely, escaped.
+odd_home=$(_gc_tmpdir)
+mkdir -p "$odd_home/.worktrees/.dot-worktree-gc-quarantine-abc123/checkout" \
+  "$odd_home/worktrees/batch/.dot-worktree-gc-quarantine-def456" \
+  "$odd_home/.worktrees/nl"$'\n'"name"
+printf 'kept\n' >"$odd_home/.worktrees/.dot-worktree-gc-quarantine-abc123/checkout/file"
+# Symlinks whose target path holds a newline, one directly in a root and
+# one (a checkout, with .git) inside a grouping folder: resolving them would
+# split into a path outside the roots and a relative tail.
+odd_tgt=$(_gc_tmpdir)
+mkdir -p "$odd_tgt/real"$'\n'"x" "$odd_tgt/greal"$'\n'"gx" "$odd_tgt/real" "$odd_tgt/greal"
+printf 'gitdir: %s\n' "$odd_tgt/nowhere" >"$odd_tgt/greal"$'\n'"gx/.git"
+ln -s "$odd_tgt/real"$'\n'"x" "$odd_home/.worktrees/link"
+ln -s "$odd_tgt/greal"$'\n'"gx" "$odd_home/worktrees/batch/glink"
+# A target ending in a newline: command substitution would strip it and
+# resolve the link to the old empty sibling without one.
+mkdir -p "$odd_tgt/trail"$'\n' "$odd_tgt/trail"
+_gc_make_old "$odd_tgt/trail"
+ln -s "$odd_tgt/trail"$'\n' "$odd_home/.worktrees/trail"
+# A name holding a backslash and a "t": escaped as \\t, never read as a tab.
+mkdir -p "$odd_home/.worktrees/back\\tslash"
+_gc_make_old "$odd_home/.worktrees/back\\tslash"
+result=$(HOME="$odd_home" DOTFILES="$odd_home/.dotfiles" GIT_TOOLS_ROOT="$STUB_ROOT" \
+  "$GC" --apply 2>/dev/null)
+_assert_contains "odd: a symlink whose target holds a newline is reported" \
+  "$(printf 'skipped\t%s\tsymlink target holds a newline; not swept' "$odd_home/.worktrees/link")" "$result"
+_assert_contains "odd: such a symlink in a grouping folder is reported" \
+  "$(printf 'skipped\t%s\tsymlink target holds a newline; not swept' "$odd_home/worktrees/batch/glink")" "$result"
+_assert_contains "odd: a symlink whose target ends in a newline is reported" \
+  "$(printf 'skipped\t%s\tsymlink target holds a newline; not swept' "$odd_home/.worktrees/trail")" "$result"
+_assert_not_contains "odd: no record names a newline target's outside half" "$odd_tgt" "$result"
+_assert_contains "odd: a backslash in a path is escaped" \
+  "$(printf 'removed\t%s\tempty directory' "$odd_home/.worktrees/back\\\\tslash")" "$result"
+_assert_contains "odd: a quarantine is reported" \
+  "$(printf 'skipped\t%s\tquarantine left by a failed orphan cleanup' "$odd_home/.worktrees/.dot-worktree-gc-quarantine-abc123")" "$result"
+_assert_contains "odd: a quarantine in a grouping folder is reported" \
+  "$(printf 'skipped\t%s\tquarantine' "$odd_home/worktrees/batch/.dot-worktree-gc-quarantine-def456")" "$result"
+_assert_file_exists "odd: a quarantine's files are never touched" \
+  "$odd_home/.worktrees/.dot-worktree-gc-quarantine-abc123/checkout/file"
+_assert_contains "odd: a name with a newline is reported escaped" \
+  "$(printf 'skipped\t%s\\nname\tname holds a newline' "$odd_home/.worktrees/nl")" "$result"
+_assert_eq "odd: every record stays on one line" "" \
+  "$(grep -v $'^[a-z-]*\t' <<<"$result")"
+# A root reached twice (here an overlapping --root) lists a quarantine once.
+result=$(HOME="$odd_home" DOTFILES="$odd_home/.dotfiles" GIT_TOOLS_ROOT="$STUB_ROOT" \
+  "$GC" --root "$odd_home/.worktrees" 2>/dev/null)
+_assert_eq "odd: an overlapping --root lists a quarantine once" 1 \
+  "$(grep -c 'quarantine-abc123' <<<"$result")"
+if [[ -d "$odd_home/.worktrees/nl"$'\n'"name" ]]; then odd_status=0; else odd_status=1; fi
+_assert_exit "odd: a newline-named directory is never removed" 0 "$odd_status"
+# A newline name split across lines would leave a relative tail ("name")
+# that resolves against the working directory; run from one holding an old
+# empty directory of that name (and of a base-registered checkout's tail).
+git init --quiet --bare "$odd_home/.dotfiles"
+git --git-dir="$odd_home/.dotfiles" config core.bare false
+git --git-dir="$odd_home/.dotfiles" config core.worktree "$odd_home"
+_git_set_test_identity git --git-dir="$odd_home/.dotfiles" --work-tree="$odd_home"
+git --git-dir="$odd_home/.dotfiles" --work-tree="$odd_home" commit --quiet --allow-empty -m base
+mkdir -p "$odd_home/elsewhere"
+git --git-dir="$odd_home/.dotfiles" --work-tree="$odd_home" worktree add --quiet --detach \
+  "$odd_home/elsewhere/b-nl"$'\n'"tail" 2>/dev/null
+# And a newline-named checkout inside a grouping folder, whose tail the
+# nested enumeration must not print either.
+git --git-dir="$odd_home/.dotfiles" --work-tree="$odd_home" worktree add --quiet --detach \
+  "$odd_home/worktrees/batch/g-nl"$'\n'"gtail" 2>/dev/null
+odd_cwd=$(_gc_tmpdir)
+mkdir -p "$odd_cwd/name" "$odd_cwd/tail"
+_gc_make_old "$odd_cwd/name"
+_gc_make_old "$odd_cwd/tail"
+result=$(cd -- "$odd_cwd" && HOME="$odd_home" DOTFILES="$odd_home/.dotfiles" \
+  GIT_TOOLS_ROOT="$STUB_ROOT" "$GC" --apply 2>/dev/null)
+if [[ -d $odd_cwd/name ]]; then odd_status=0; else odd_status=1; fi
+_assert_exit "odd: a newline name's tail never resolves against the cwd" 0 "$odd_status"
+if [[ -d $odd_cwd/tail ]]; then odd_status=0; else odd_status=1; fi
+_assert_exit "odd: a base-registered newline path's tail never resolves against the cwd" 0 "$odd_status"
+_assert_not_contains "odd: no record names a relative tail" $'\tname\t' "$result"
+_assert_not_contains "odd: no record names a base-registered tail" $'\ttail\t' "$result"
+# The enumeration itself never yields a relative path (what a split name
+# leaves): the sweep's later steps must not be what hides one.
+_odd_enumerate() {
+  _dr_worktree_resolve_git
+  _dr_worktree_clone_roots_load
+  _dr_worktree_candidates
+}
+odd_cands=$(
+  cd -- "$odd_cwd" || exit 1
+  # shellcheck source=../worktree-gc.sh
+  . "$ROOT/.local/lib/dotfiles/worktree-gc.sh" || exit 1
+  HOME=$odd_home DOTFILES=$odd_home/.dotfiles _odd_enumerate
+)
+# Guard against a vacuous pass: the enumeration did run and list the
+# grouping folder.
+_assert_contains "odd: candidate enumeration runs" "$odd_home/worktrees/batch" "$odd_cands"
+_assert_eq "odd: candidate enumeration yields only absolute paths" "" \
+  "$(grep -v '^/' <<<"$odd_cands")"
+_assert_not_contains "odd: a nested newline checkout is not enumerated" "g-nl" "$odd_cands"
+_assert_not_contains "odd: a top-level newline name is not enumerated" "/nl" "$odd_cands"
+_assert_not_contains "odd: a newline symlink target is never enumerated" "$odd_tgt" "$odd_cands"
 
 echo ""
 echo "=== Clones with nothing to decide, no base, or a gitfile ==="
@@ -1203,6 +1718,12 @@ git clone --quiet --separate-git-dir="$skip_home/elsewhere/sep.git" \
   "$skip_origin_root/origin.git" "$skip_home/git/sep" 2>/dev/null
 git -C "$skip_home/git/sep" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
 git -C "$skip_home/git/sep" branch side
+# A clone whose .git is a symlink to its Git directory kept elsewhere: Git
+# lists that directory as the main worktree.
+_gc_clone_main "$skip_origin_root/origin.git" "$skip_home/git/linked-gitdir"
+git -C "$skip_home/git/linked-gitdir" branch side
+mv "$skip_home/git/linked-gitdir/.git" "$skip_home/elsewhere/linked.git"
+ln -s "$skip_home/elsewhere/linked.git" "$skip_home/git/linked-gitdir/.git"
 # A linked worktree parked among the clones speaks for its owning clone.
 _gc_clone_main "$skip_origin_root/origin.git" "$skip_home/elsewhere/owner"
 git -C "$skip_home/elsewhere/owner" branch side
@@ -1225,6 +1746,8 @@ _assert_not_contains "skip: a clone without remotes is not announced" \
   "$skip_home/git/local/.git: no remote base branch" "$(cat "$skip_home/stderr.txt")"
 _assert_contains "gitfile: a --separate-git-dir clone is swept from its checkout" \
   "$(printf 'cwd=%s\t' "$skip_home/git/sep")" "$skip_calls"
+_assert_contains "gitfile: a clone whose .git is a symlink is swept from its checkout" \
+  "$(printf 'cwd=%s\t' "$skip_home/git/linked-gitdir")" "$skip_calls"
 _assert_not_contains "gitfile: a linked worktree parked among the clones never brings in its owner" \
   "$(printf 'cwd=%s\t' "$skip_home/elsewhere/owner")" "$skip_calls"
 _assert_not_contains "gitfile: a parked worktree's own .worktrees is not swept" \
@@ -1323,9 +1846,22 @@ else
   git -C "$e2e_main" switch --quiet main
   git -C "$e2e_main" merge --quiet --no-ff no-checkout -m "merge no-checkout"
   git -C "$e2e_main" push --quiet origin main
+  # A detached checkout back on the base, whose HEAD reflog alone still
+  # names a commit made there: removing it would drop that commit.
+  git -C "$e2e_main" worktree add --quiet --detach "$e2e_home/.worktrees/old-reflog-only" origin/main
+  _gc_commit_file "$e2e_home/.worktrees/old-reflog-only" reflog-only.txt
+  e2e_reflog_oid=$(git -C "$e2e_home/.worktrees/old-reflog-only" rev-parse HEAD)
+  git -C "$e2e_home/.worktrees/old-reflog-only" checkout --quiet --detach origin/main
   unset GIT_COMMITTER_DATE
+  # A branch created just now on the old base whose reflog then expired:
+  # git-tools (interface 2) dates it by its three-day-old tip instead of
+  # keeping it as too-new, so the doctor offers such a checkout to the gc.
+  git -C "$e2e_main" worktree add --quiet "$e2e_home/.worktrees/old-expired" -b feat-expired origin/main
+  git -C "$e2e_main" reflog expire --expire=now refs/heads/feat-expired
   # Its age reads the main repository this setup just touched.
   _gc_make_old "$e2e_home/.worktrees/fake-orphan"
+  _gc_make_old "$e2e_home/.worktrees/old-reflog-only"
+  _gc_make_old "$e2e_home/.worktrees/old-expired"
 
   result=$(HOME="$e2e_home" DOTFILES="$e2e_home/.dotfiles" GIT_TOOLS_ROOT="$gc_real_root" \
     "$GC" 2>"$e2e_home/stderr.txt")
@@ -1348,6 +1884,10 @@ else
     "$(printf 'skipped\t%s\tlocked' "$e2e_home/git/worktrees/old-locked")" "$result"
   _assert_contains "e2e: a young checkout stays" \
     "$(printf 'kept\t%s\tyounger than 14 days' "$e2e_home/.worktrees/young-merged")" "$result"
+  _assert_contains "e2e: a branch whose reflog expired is dated by its tip and goes" \
+    "$(printf 'would-remove\t%s\tmerged' "$e2e_home/.worktrees/old-expired")" "$result"
+  _assert_contains "e2e: a checkout whose reflog alone holds a commit stays, naming it" \
+    "$(printf "skipped\t%s\tcommits only this worktree's history or own refs hold (such as %s)" "$e2e_home/.worktrees/old-reflog-only" "$e2e_reflog_oid")" "$result"
   _assert_contains "e2e: a main checkout stays" \
     "$(printf 'skipped\t%s\tmain checkout' "$e2e_home/.worktrees/plain-clone")" "$result"
   _assert_contains "e2e: a remote-less repository's checkout stays" \
@@ -1364,6 +1904,40 @@ else
   _assert_exit "e2e: the unmerged branch survives" 0 "$?"
   _assert_file_exists "e2e: the dirty checkout survives" "$e2e_home/.worktrees/old-dirty/feat-c.txt"
   _assert_file_exists "e2e: the locked checkout survives" "$e2e_home/git/worktrees/old-locked/feat-d.txt"
+  _assert_file_exists "e2e: the reflog-only checkout survives" "$e2e_home/.worktrees/old-reflog-only/.git"
+
+  # A reftable repository keeps the HEAD reflog in its tables, where
+  # git-tools cannot look for commits only that history holds: it keeps the
+  # checkout as uninspectable, and the reason says why that is likely.
+  if git init --quiet --ref-format=reftable "$(_tmpdir)/probe" 2>/dev/null; then
+    rtb_home=$(_gc_tmpdir)
+    export GIT_COMMITTER_DATE="@$(($(date +%s) - 3 * 86400)) +0000"
+    git clone --quiet --ref-format=reftable "$e2e_origin_root/origin.git" "$rtb_home/git/alpha" 2>/dev/null
+    git -C "$rtb_home/git/alpha" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
+    mkdir -p "$rtb_home/.worktrees"
+    git -C "$rtb_home/git/alpha" worktree add --quiet "$rtb_home/.worktrees/old-rt" -b old-rt origin/main 2>/dev/null
+    unset GIT_COMMITTER_DATE
+    _gc_make_old "$rtb_home/.worktrees/old-rt"
+    touch -t 202001010000 "$rtb_home/git/alpha/.git/worktrees/old-rt/reftable"
+    result=$(HOME="$rtb_home" DOTFILES="$rtb_home/.dotfiles" GIT_TOOLS_ROOT="$gc_real_root" \
+      "$GC" 2>/dev/null)
+    _assert_contains "e2e: a reftable checkout is kept and the reason names reftable" \
+      "$(printf 'skipped\t%s\tcannot inspect (unreadable Git state, or a HEAD reflog in reftable)' "$rtb_home/.worktrees/old-rt")" "$result"
+    # With every reflog expired, nothing is left that git-tools cannot
+    # inspect, and the old merged checkout goes, as the doctor offers it.
+    # --single-worktree keeps the main checkout's HEAD reflog non-empty, so
+    # only the checkout's own reflog is what decides.
+    git -C "$rtb_home/.worktrees/old-rt" reflog expire --expire=now --expire-unreachable=now --all --single-worktree
+    # Expiry rewrites the tables, which reads as activity; age them again.
+    _gc_make_old "$rtb_home/.worktrees/old-rt"
+    touch -t 202001010000 "$rtb_home/git/alpha/.git/worktrees/old-rt/reftable"
+    result=$(HOME="$rtb_home" DOTFILES="$rtb_home/.dotfiles" GIT_TOOLS_ROOT="$gc_real_root" \
+      "$GC" 2>/dev/null)
+    _assert_contains "e2e: a reftable checkout whose reflogs expired goes" \
+      "$(printf 'would-remove\t%s\tmerged' "$rtb_home/.worktrees/old-rt")" "$result"
+  else
+    echo '  - skipping reftable e2e case: this Git has no reftable support'
+  fi
 
   # A legacy bare base client (core.bare=true, HOME as its work tree only
   # through the environment) is swept like a fresh one, not refused as bare.

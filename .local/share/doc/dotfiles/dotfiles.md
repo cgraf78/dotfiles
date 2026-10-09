@@ -282,18 +282,23 @@ the doctor's stale window). Age uses the newest checkout-directory, Git HEAD,
 index, and reftable activity signal; the current `find -mtime +N` threshold
 requires N+1 full days, and a tool that refreshes a checkout's index makes it
 look active again. A clone root whose `.git` is a file counts too when it is
-its repository's main checkout (a clone made with `--separate-git-dir`). A
-linked worktree parked under `~/git` (or a `~/.dotfiles-*` root that is a
-linked worktree) is not a clone root: its own `.worktrees` is swept only when
-its repository is `~/.dotfiles` or a `~/git/*` or `~/.dotfiles-*` clone, so
-parking alone never brings a repository into the sweep. If `~/git/worktrees` is
-itself a clone, it is swept as a clone, not as a worktree root (a clone at
+its repository's main checkout (a clone made with `--separate-git-dir`), and so
+does one whose `.git` is a symlink to a Git directory kept elsewhere. A linked
+worktree parked under `~/git` (or a `~/.dotfiles-*` root that is a linked
+worktree) is not a clone root: its own `.worktrees` is swept only when its
+repository is `~/.dotfiles` or a `~/git/*` or `~/.dotfiles-*` clone, so parking
+alone never brings a repository into the sweep. If `~/git/worktrees` is itself
+a clone, it is swept as a clone, not as a worktree root (a clone at
 `~/git/.worktrees` is not swept at all); `~/worktrees` and `~/.worktrees` stay
 worktree roots even with a stray `.git`. The command needs Bash 4 or newer, and
 it ignores repository-selecting Git variables such as `GIT_DIR` it inherits
 from an alias, hook, or launcher, while keeping environment-injected
 configuration (`GIT_CONFIG_COUNT` entries such as `url.<base>.insteadOf`
-rewrites).
+rewrites). Its own Git probes skip the dotfiles `git` launcher for the real Git
+behind it (or `DOT_DOCTOR_GIT`); git-tools runs with `PATH` as it is.
+`--older-than` takes a decimal day count (leading zeros allowed, zero refused),
+and a `--root` that does not exist, or whose path holds a newline or tab, is a
+usage error (exit 1).
 
 Every per-repository decision comes from `git cleanup-repo` in git-tools, run
 with `--no-update-base --porcelain`, so the sweep never moves a local base and
@@ -301,22 +306,39 @@ shares one set of merge proofs and removal gates with every other git-tools
 command. A branch goes when Git ancestry, exact content-merge evidence, a
 branch tree that landed on the base after its branch point, or (with `gh` and
 `jq`) a merged pull request containing its tip proves it; a branch proven only
-by ancestry must also be at least a day old by its reflog, and an open pull
-request keeps a branch that no local proof covers. An old checkout goes with
-its proven branch, or alone, keeping the branch, when its detached HEAD is
-proven merged, its own-name upstream is gone, an unpublished
-`.github/cgraf78-actions.lock` repin was superseded on the base, or, with
-`--include-closed`, only a closed unmerged pull request contains it. Main,
-current, locked, dirty, mid-operation, mid-checkout, and in-use checkouts stay,
-as do checkouts with a populated submodule and ones holding untracked or
+by ancestry must also be at least a day old by its reflog (or by its tip
+commit's date once the reflog has expired; a branch that was never logged has
+an unknown age and stays with its checkout, which the doctor marks), and an
+open pull request keeps a branch that no local proof covers. A branch whose own
+upstream is gone but whose tip GitHub never saw holds unpushed commits and
+stays (`unpublished`), as does its checkout; so does one whose pull requests
+could not be looked up (`pr-unknown`). An old checkout goes with its proven
+branch, or alone, keeping the branch, when its detached HEAD is proven merged,
+its own-name upstream is gone (unless that upstream was a default branch,
+`main`, `master`, `trunk`, or the remote's recorded `HEAD` target, which a
+rename removes, not a landing; the doctor applies the same rule), an
+unpublished `.github/cgraf78-actions.lock` repin was superseded on the base,
+or, with `--include-closed`, only a closed unmerged pull request contains it.
+Main, current, locked, dirty, mid-operation, mid-checkout, and in-use checkouts
+stay, as do checkouts with a submodule directory holding content (populated, or
+files in an unpopulated one, which status does not show), ones whose HEAD
+reflog or own refs (`refs/worktree`, `refs/bisect`, `refs/rewritten`) hold a
+commit no branch, tag, remote branch, or the stash reaches (`unique-commits`:
+removing the checkout would drop that history; git-tools excuses commits that
+were replaced, such as one an amend superseded, as its README details), ones
+whose HEAD reflog still has entries in a repository that keeps reflogs in
+reftable (git-tools cannot read the history it protects there, so it keeps them
+as `uninspectable`; the doctor marks them), and ones holding untracked or
 ignored content other than cache-tagged (`CACHEDIR.TAG`) directories or a
 repository's configured `cleanupRepo.worktreePrunePath` entries, which are
-pruned first. A failed removal reports git-tools' diagnostic when one names
-that checkout. A kept branch is listed only when its checkout was removed
-without it, whether retired on its own evidence or kept after the removal
-because it was checked out again, moved, or a checkout was in flight; other
-kept branches are counted in the tally. A clone with no selected checkout and
-at most its checked-out branch is skipped without running git-tools. Any
+pruned first. A checkout moved without `git worktree repair` is labelled for
+repair, never as an orphan, and a grouping folder that only holds other
+checkouts gets no record. A failed removal reports git-tools' diagnostic when
+one names that checkout. A kept branch is listed only when its checkout was
+removed without it, whether retired on its own evidence or kept after the
+removal because it was checked out again, moved, or a checkout was in flight;
+other kept branches are counted in the tally. A clone with no selected checkout
+and at most its checked-out branch is skipped without running git-tools. Any
 proven-merged local branch other than the base goes, including a stale local
 `master` in a repository whose base is `main`; its commits remain reachable
 from the base. The exception is a clone whose `origin/HEAD` still names a
@@ -330,8 +352,12 @@ without updating remote-tracking refs, and an orphaned checkout's base is
 fetched only with `--apply`, so a dry run proves orphans against the refs
 already fetched and `--apply` can retire one the preview kept. When pull
 request lookups fail (for example, `gh` is not authenticated), the sweep says
-so once per repository; merged-PR evidence is then missing and those branches
-stay. The sweep never asks for HTTPS credentials, even through an editor's
+so in one line listing every affected repository; merged-PR evidence is then
+missing and those branches stay. The closing tally says what a dry run would
+remove and delete, counts checkouts apart from empty leftover directories and
+branches, and breaks kept branches down by reason; record fields escape
+backslash, tab, and newline as `\\`, `\t`, and `\n`, so every record stays on
+one line. The sweep never asks for HTTPS credentials, even through an editor's
 askpass helper: a remote that wants them (a deleted or private repository)
 counts as unreachable, while configured credential helpers still answer; SSH
 passphrase and host-key prompts are left to your SSH setup. A base read from a
@@ -347,9 +373,10 @@ git-tools is not part of the base profile: the dotfiles-dev overlay installs it
 through Shdeps as a checkout of its main branch, the sweep asks Shdeps where it
 lives (a development clone under `~/git` wins over the install root), and
 `GIT_TOOLS_ROOT` can name another checkout. A missing git-tools, or one older
-than porcelain interface version 1 (`git cleanup-repo --interface-version`),
-skips repository cleanup with a notice; run `dot update` with the dev profile
-enabled to bring it current.
+than porcelain interface version 2 (`git cleanup-repo --interface-version`;
+version 2 brings the `unique-commits` and `unpublished` gates), skips
+repository cleanup with a notice; run `dot update` with the dev profile enabled
+to bring it current.
 
 Old empty directories discovered directly under the worktree roots are also
 eligible for removal with `rmdir`. Hidden files count as contents, and a file
@@ -375,11 +402,13 @@ Applied orphan cleanup moves the verified directory into a private sibling
 quarantine, checks it again, and removes individually verified entries with
 `unlink` and `rmdir`. A change or removal failure stops cleanup and reports the
 quarantine path; inspect that path before recovering any remaining files.
-Quarantines are excluded from subsequent sweeps. This is not a filesystem
-transaction: a process holding an already-open file can still write between the
-last check and removal, so stop writers before cleaning an orphan checkout.
-Nonempty directories without `.git` and pointers that cannot establish this
-proof still require separate inspection.
+Quarantines are never swept again, but every sweep and the doctor report each
+one until it is removed. A checkout whose path holds a newline is reported,
+never swept. This is not a filesystem transaction: a process holding an
+already-open file can still write between the last check and removal, so stop
+writers before cleaning an orphan checkout. Nonempty directories without `.git`
+and pointers that cannot establish this proof still require separate
+inspection.
 
 ## Dependency Docs
 
