@@ -363,6 +363,36 @@ if command -v tmux >/dev/null 2>&1; then
       _assert_not_contains "tmux: runtime removes retired key $retired_key" \
         "bind-key -T root $retired_key " "$root_keys"
     done
+
+    # Attach a second configured server's client from inside a pane of the
+    # first, the way `ssh host` from a tmux pane nests tmux. The nested client
+    # must still negotiate extended keys, or the outer tmux collapses Ctrl-Shift
+    # chords to their plain Ctrl form before the nested pane sees them.
+    nested_socket=$(_tmux_socket) || exit 1
+    CLEANUP_DIRS+=("${nested_socket%/*}")
+    nested_cmd() {
+      "${TMUX_FIXTURE_ENV[@]}" tmux -S "$nested_socket" "$@"
+    }
+    if nested_cmd -f /dev/null new-session -d -s dot-tmux-nested \
+      'sleep 60' >/dev/null 2>&1; then
+      nested_cmd source-file "$tmux_config" >/dev/null 2>&1 || true
+      tmux_cmd new-window -d -t dot-tmux-syntax \
+        "env TERM=tmux-256color tmux -S '$nested_socket' attach-session -t dot-tmux-nested"
+      nested_client=''
+      for _ in $(seq 1 40); do
+        nested_client=$(nested_cmd list-clients \
+          -F '#{client_termname} #{client_termfeatures}' 2>/dev/null)
+        [[ -n $nested_client ]] && break
+        sleep 0.1
+      done
+      _assert_contains 'tmux: nested client attaches with a tmux terminal' \
+        'tmux-256color ' "$nested_client"
+      _assert_contains 'tmux: nested client negotiates extended keys' \
+        'extkeys' "$nested_client"
+      nested_cmd kill-server >/dev/null 2>&1 || true
+    else
+      _fail "tmux: nested test server starts"
+    fi
     tmux_cmd kill-server >/dev/null 2>&1 || true
   else
     _fail "tmux: test server starts"
