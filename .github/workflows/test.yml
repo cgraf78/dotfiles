@@ -136,7 +136,7 @@ jobs:
         shell: bash
         env:
           # Shdeps authenticates with GH_TOKEN itself, and nothing on this
-          # path scrubs it. The installed-profiles job sets
+          # path scrubs it. installed-profiles.yml sets
           # SHDEPS_ALLOW_GH_AUTH_TOKEN because its test harness strips
           # tokens unless that flag is set; beyond that, the flag only
           # lets Shdeps fall back to `gh auth token`. This job needs
