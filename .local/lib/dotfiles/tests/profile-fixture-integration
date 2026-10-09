@@ -26,6 +26,33 @@ case $mode in
   *) usage ;;
 esac
 
+# Overlay CI only needs the homes that install its overlay, so test and doctor
+# modes, which check each home independently, accept a subset through
+# DOT_STACK_PROFILES (empty means all). Update and footprint modes chain or
+# compare every profile, so a subset there would silently drop coverage;
+# reject it instead.
+profiles=(base editor dev)
+if [[ -n ${DOT_STACK_PROFILES:-} ]]; then
+  [[ $mode == test || $mode == doctor ]] || {
+    printf 'DOT_STACK_PROFILES only applies to test and doctor modes, not %s\n' "$mode" >&2
+    exit 2
+  }
+  read -ra profiles <<<"$DOT_STACK_PROFILES"
+  ((${#profiles[@]} > 0)) || {
+    printf 'DOT_STACK_PROFILES selects no profile\n' >&2
+    exit 2
+  }
+  for profile in "${profiles[@]}"; do
+    case $profile in
+      base | editor | dev) ;;
+      *)
+        printf 'DOT_STACK_PROFILES names an unknown profile: %s\n' "$profile" >&2
+        exit 2
+        ;;
+    esac
+  done
+fi
+
 dot_sha=${DOT_STACK_DOT_SHA:-}
 agent_rules_sha=${DOT_STACK_AGENT_RULES_SYNC_SHA:-}
 dot_runtime_ok=0
@@ -610,7 +637,7 @@ base_footprint=
 editor_footprint=
 dev_footprint=
 
-for profile in base editor dev; do
+for profile in "${profiles[@]}"; do
   home=$fixture_root/home-$profile
   update_log=$fixture_root/update-$profile.log
   prepare_home "$profile" "$home" || {
@@ -690,10 +717,13 @@ for profile in base editor dev; do
       else
         _fail "$profile installed dot test log records suite execution"
       fi
-      if grep -Ei 'SKIP:.*(nvim|neovim)|requires Neovim|nvim unavailable' \
-        "$test_log" >/dev/null; then
+      # nvim-test reports a missing plugin cache as "SKIP full-config checks"
+      # and still passes, which would silently drop every full-config check
+      # (including the composed plugin-spec checks this gate exists for).
+      nvim_skip_pattern='SKIP:.*(nvim|neovim)|requires Neovim|nvim unavailable|SKIP full-config|full-config startup skipped'
+      if grep -Ei "$nvim_skip_pattern" "$test_log" >/dev/null; then
         _fail "$profile installed dot test has no Neovim coverage skip"
-        sed -n '/SKIP:/p' "$test_log" >&2
+        grep -Ei "$nvim_skip_pattern" "$test_log" >&2
       else
         _pass "$profile installed dot test has no Neovim coverage skip"
       fi
