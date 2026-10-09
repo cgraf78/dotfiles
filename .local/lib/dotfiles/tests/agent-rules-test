@@ -451,11 +451,20 @@ for retired_route in memory/hygiene.md dotfiles/schema-associations.md; do
   fi
 done
 
+# The budget is shared with dot doctor's live-target warning; read it from
+# the hook's library rather than restating it here.
 core_bytes=$(printf '%s\n' "$rendered_rules" | wc -c)
-if ((core_bytes <= 20000)); then
-  _pass "agent rules: rendered always-loaded rules are $core_bytes / 20000 bytes"
+core_bytes=${core_bytes//[[:space:]]/}
+if declare -F _dot_agent_rules_budget_bytes >/dev/null 2>&1 &&
+  _dot_agent_rules_budget_bytes && [[ $REPLY =~ ^[1-9][0-9]*$ ]]; then
+  core_budget=$REPLY
+  if ((core_bytes <= core_budget)); then
+    _pass "agent rules: rendered always-loaded rules are $core_bytes / $core_budget bytes"
+  else
+    _fail "agent rules: rendered always-loaded rules are $core_bytes bytes (limit: $core_budget)"
+  fi
 else
-  _fail "agent rules: rendered always-loaded rules are $core_bytes bytes (limit: 20000)"
+  _fail "agent rules: the hook provides the always-loaded byte budget"
 fi
 
 echo "=== playbook discovery ==="

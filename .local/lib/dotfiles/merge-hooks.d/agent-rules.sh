@@ -1,5 +1,6 @@
 # shellcheck shell=bash
 dot_hook_source merge-hooks.d/lib/compat.sh || return
+dot_hook_source merge-hooks.d/lib/agent-rules-budget.sh || return
 
 # shellcheck shell=bash
 # Resolve dotfiles-owned rule policy for the standalone agent-rules-sync provider.
@@ -159,6 +160,20 @@ _dot_agent_rules_write_manifest() {
     return 1
   }
   REPLY="$manifest"
+}
+
+# List the targets the installed manifest records, one per line, so doctor
+# measures exactly the files the last update rendered.
+_dot_agent_rules_installed_targets() {
+  local manifest kind target
+
+  _dot_agent_rules_manifest_path || return 1
+  manifest="$REPLY"
+  [[ -r "$manifest" ]] || return 1
+  while IFS=$'\t' read -r kind target _ || [[ -n "$kind" ]]; do
+    [[ "$kind" == target-file && -n "$target" ]] || continue
+    printf '%s\n' "$target"
+  done <"$manifest"
 }
 
 # Report whether the installed manifest and targets match current policy for
