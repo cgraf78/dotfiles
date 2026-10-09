@@ -1,7 +1,7 @@
 # GitHub Branch and Pull Request Lifecycle
 
 <!-- agent-rule-id: git-github-pr-lifecycle -->
-<!-- agent-rule-trigger: Pushing a branch to GitHub or creating, updating, landing, or cleaning up a GitHub pull request -->
+<!-- agent-rule-trigger: Pushing a branch to GitHub, creating, updating, landing, or cleaning up a GitHub pull request, or monitoring its checks -->
 
 Use the repository's established contribution and CI conventions. Keep one
 logical change per pull request and make every local-to-remote transition
@@ -64,11 +64,33 @@ explicit and verifiable.
   when they are material. Omit empty boilerplate and keep secrets or
   inappropriate private detail out of public repositories.
 
+## Monitor checks to green
+
+A pull request is not done, and must not be reported green, until its checks
+pass on the commit you pushed.
+
+- After creating the pull request and after every push, watch its checks in
+  the background with a watcher that wakes you when it ends:
+  `gh pr checks <pr> --repo <owner/repo> --watch --fail-fast --interval 60`.
+  `--fail-fast` ends the watch at the first failure so you can start fixing
+  while the rest of the matrix runs.
+- First confirm `gh pr view <pr> --repo <owner/repo> --json headRefOid` shows
+  the commit you pushed; right after a push it can still show the old head.
+- Judge the result with `gh pr checks <pr> --repo <owner/repo> --json name,bucket`,
+  not the exit status. Green means at least one check and every `bucket` is
+  `pass` or `skipping`; `cancel` is not green.
+- On a failure, read the log (`gh run view <run-id> --repo <owner/repo>
+  --log-failed`), fix it, push, and watch again.
+- If no checks appear: with no workflow for the branch, say the local tests
+  are the only verification; if checks should run but none appear within
+  about five minutes, find out why.
+- If you must stop first, report the pull request as pending, not green.
+
 ## Land and clean up
 
-- Monitor required checks and review feedback. Enable auto-merge only when it
-  is part of the repository's established policy and the requested work includes
-  landing.
+- Monitor checks as described above and review feedback. Enable auto-merge
+  only when it is part of the repository's established policy and the requested
+  work includes landing.
 - After merge, remove the completed worktree together with its merged local
   branch, using the host's landing or cleanup tooling scoped to that one
   worktree (an on-demand playbook names it when it is installed), with the

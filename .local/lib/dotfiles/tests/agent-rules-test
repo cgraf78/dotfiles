@@ -247,7 +247,7 @@ _assert_file_exists "agent rules: GitHub lifecycle playbook exists" \
 if [[ -f "$GITHUB_PLAYBOOK" ]]; then
   GITHUB_PLAYBOOK_TEXT=$(cat "$GITHUB_PLAYBOOK")
   _assert_contains "agent rules: GitHub lifecycle playbook has a routed trigger" \
-    "agent-rule-trigger: Pushing a branch to GitHub or creating, updating, landing, or cleaning up a GitHub pull request" \
+    "agent-rule-trigger: Pushing a branch to GitHub, creating, updating, landing, or cleaning up a GitHub pull request, or monitoring its checks" \
     "$GITHUB_PLAYBOOK_TEXT"
   _assert_contains "agent rules: branch pushes name the destination" \
     'git push <remote> <source>:refs/heads/<destination>' \
