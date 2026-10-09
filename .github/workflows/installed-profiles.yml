@@ -41,10 +41,45 @@ permissions:
   contents: read
 
 jobs:
+  # Each selected profile, and the footprint pass, is its own leg so they run
+  # in parallel: the gate takes as long as its slowest home, not their sum.
+  plan:
+    name: Plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      legs: ${{ steps.legs.outputs.legs }}
+    steps:
+      - id: legs
+        shell: bash
+        env:
+          INSTALLED_PROFILES: ${{ inputs.profiles }}
+          RUN_FOOTPRINT: ${{ inputs.footprint }}
+        run: |-
+          set -euo pipefail
+          # Empty selects every profile. profile-fixture-integration validates
+          # the names, so a typo fails its leg instead of being dropped here.
+          read -ra profiles <<<"${INSTALLED_PROFILES:-base editor dev}"
+          ((${#profiles[@]} > 0)) || {
+            echo 'profiles input selects no profile' >&2
+            exit 1
+          }
+          legs=$(printf '%s\n' "${profiles[@]}" |
+            jq -Rnc '[inputs | {name: ., mode: "test", profile: .}]')
+          if [[ $RUN_FOOTPRINT == true ]]; then
+            legs=$(jq -c '. + [{name: "footprint", mode: "footprint", profile: ""}]' <<<"$legs")
+          fi
+          printf 'legs=%s\n' "$legs" >>"$GITHUB_OUTPUT"
+
   composition:
-    name: Composition
+    name: Composition (${{ matrix.leg.name }})
+    needs: plan
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        leg: ${{ fromJSON(needs.plan.outputs.legs) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         # Name checkout's throwaway initial branch so Git skips its hint.
@@ -96,7 +131,7 @@ jobs:
             "$yq_bin" | sha256sum --check --strict
           chmod +x "$yq_bin"
 
-      - name: Test unfiltered installed profiles
+      - name: Test installed profile leg
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -110,8 +145,8 @@ jobs:
           DOT_STACK_YQ_BIN: ${{ runner.temp }}/yq-v4.53.6
           DOT_STACK_NVIM_REVISION: ${{ inputs.nvim-revision }}
           DOT_STACK_DEV_REVISION: ${{ inputs.dev-revision }}
-          INSTALLED_PROFILES: ${{ inputs.profiles }}
-          RUN_FOOTPRINT: ${{ inputs.footprint }}
+          LEG_MODE: ${{ matrix.leg.mode }}
+          LEG_PROFILE: ${{ matrix.leg.profile }}
         run: |-
           set -euo pipefail
           # A caller may pass a branch name; the candidate helpers require
@@ -119,21 +154,42 @@ jobs:
           candidate_sha=$(git rev-parse HEAD)
           export DOTFILES_CANDIDATE_SHA=$candidate_sha
           .local/lib/dotfiles/tests/checkout-ci-candidate
-          # Same floating release as the Tests workflow's test-command:
-          # resolve once here so both invocations below share the frozen tag.
+          # Same floating release as the Tests workflow's test-command.
           . .local/lib/dotfiles/tests/dot-runtime-resolve.sh
           # Declare and export separately: `export VAR=$(...)` would mask a
           # resolution failure.
           dot_release_tag="$(_dot_release_latest_tag cgraf78/dot)"
           export DOT_STACK_DOT_RELEASE_TAG=$dot_release_tag
-          # The profile subset applies only to the installed `dot test`;
-          # the footprint pass compares every profile.
-          DOT_STACK_PROFILES=$INSTALLED_PROFILES \
-            .local/lib/dotfiles/tests/stack-dot-runtime installed-profile-dot-test -- \
+          case $LEG_MODE in
+            test)
+              # One installed home per leg; the fixture rejects a profile
+              # subset in every other mode.
+              group=installed-profile-dot-test
+              export DOT_STACK_PROFILES=$LEG_PROFILE
+              ;;
+            footprint) group=profile-footprint-fixtures ;;
+            *)
+              echo "unknown installed-profile leg mode: $LEG_MODE" >&2
+              exit 1
+              ;;
+          esac
+          .local/lib/dotfiles/tests/stack-dot-runtime "$group" -- \
             .local/lib/dotfiles/tests/run-ci-candidate-home \
-            .local/lib/dotfiles/tests/profile-fixture-integration test
-          if [[ $RUN_FOOTPRINT == true ]]; then
-            .local/lib/dotfiles/tests/stack-dot-runtime profile-footprint-fixtures -- \
-              .local/lib/dotfiles/tests/run-ci-candidate-home \
-              .local/lib/dotfiles/tests/profile-fixture-integration footprint
-          fi
+            .local/lib/dotfiles/tests/profile-fixture-integration "$LEG_MODE"
+
+  # One stable check name for branch protection, whatever legs ran.
+  result:
+    name: Result
+    needs: [plan, composition]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - shell: bash
+        env:
+          PLAN_RESULT: ${{ needs.plan.result }}
+          COMPOSITION_RESULT: ${{ needs.composition.result }}
+        run: |-
+          set -euo pipefail
+          printf 'plan=%s composition=%s\n' "$PLAN_RESULT" "$COMPOSITION_RESULT"
+          [[ $PLAN_RESULT == success && $COMPOSITION_RESULT == success ]]

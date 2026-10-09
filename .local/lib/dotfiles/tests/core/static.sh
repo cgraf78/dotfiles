@@ -146,12 +146,19 @@ dot_core_test_static() {
   _assert_contains "installed profiles: installs the requested dev revision" \
     'DOT_STACK_DEV_REVISION: ${{ inputs.dev-revision }}' "$installed_workflow"
   _assert_contains "CI workflow: executes unfiltered installed profile tests" \
-    "stack-dot-runtime installed-profile-dot-test" "$installed_workflow"
-  # Overlay callers narrow the run to the dev profile; base CI keeps every
-  # profile and the footprint budgets.
+    "group=installed-profile-dot-test" "$installed_workflow"
+  # Each profile and the footprint pass run as parallel legs; overlay
+  # callers narrow the legs, base CI keeps every profile and the budgets.
   # shellcheck disable=SC2016 # Match the literal workflow shell.
-  _assert_contains "installed profiles: narrows only the installed dot test" \
-    'DOT_STACK_PROFILES=$INSTALLED_PROFILES' "$installed_workflow"
+  _assert_contains "installed profiles: one installed home per leg" \
+    'export DOT_STACK_PROFILES=$LEG_PROFILE' "$installed_workflow"
+  # shellcheck disable=SC2016 # Match the literal workflow expression.
+  _assert_contains "installed profiles: legs run in parallel" \
+    'leg: ${{ fromJSON(needs.plan.outputs.legs) }}' "$installed_workflow"
+  _assert_contains "installed profiles: one leg failure does not cancel the rest" \
+    "fail-fast: false" "$installed_workflow"
+  _assert_contains "installed profiles: one stable result check" \
+    "name: Result" "$installed_workflow"
   _assert_not_contains "CI workflow: base runs every installed profile" \
     "profiles: dev" "$workflow"
   _assert_not_contains "CI workflow: base keeps the footprint budgets" \
