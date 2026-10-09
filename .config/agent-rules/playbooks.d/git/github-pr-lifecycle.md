@@ -71,7 +71,9 @@ pass on the commit you pushed.
 
 - After creating the pull request and after every push, watch its checks in
   the background with a watcher that wakes you when it ends:
-  `gh pr checks <pr> --repo <owner/repo> --watch --interval 60`.
+  `gh pr checks <pr> --repo <owner/repo> --watch --fail-fast --interval 60`.
+  `--fail-fast` ends the watch at the first failure so you can start fixing
+  while the rest of the matrix runs.
 - First confirm `gh pr view <pr> --repo <owner/repo> --json headRefOid` shows
   the commit you pushed; right after a push it can still show the old head.
 - Judge the result with `gh pr checks <pr> --repo <owner/repo> --json name,bucket`,
