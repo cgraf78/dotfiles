@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # agent-rules-adapter-test — dotfiles policy and provider activation boundary.
 
-# shellcheck disable=SC1090,SC1091,SC2016,SC2030,SC2031,SC2329
+# shellcheck disable=SC1090,SC1091,SC2016,SC2030,SC2031,SC2088,SC2329
+# Doctor rows display targets as literal HOME-relative tilde paths.
 set -o pipefail
 export NO_COLOR=1
 
@@ -165,6 +166,8 @@ _run_doctor_check() {
     _test_load_dot_doctor_api "$source_home"
     source "$doctor_lib"
     [[ "$force_check" == 1 ]] || export DOT_TEST=0
+    # Doctor workers run extensions under errexit; so does this one.
+    set -e
     DOT_AGENT_RULES_HOOK="$hook" _dr_check_agent_rules
   )
 }
@@ -413,5 +416,101 @@ mv "$manifest.away" "$manifest"
 _doctor_with 0
 _assert_contains "agent rules doctor: accepts current installed policy" \
   $'ok\tgenerated policy is current' "$doctor_rows"
+
+# Live-target size budget. Read the budget and the warning share from their
+# owners so these cases follow any future change to either value.
+budget_lib="$source_home/.local/lib/dotfiles/merge-hooks.d/lib/agent-rules-budget.sh"
+budget=$(. "$budget_lib" && _dot_agent_rules_budget_bytes && printf '%s' "$REPLY")
+warn_percent=$(. "$doctor_lib" && printf '%s' "${_DR_AGENT_RULES_BUDGET_WARN_PERCENT:-}")
+_assert_eq "agent rules doctor: the budget is a positive byte count" \
+  0 "$([[ $budget =~ ^[1-9][0-9]*$ ]] && echo 0 || echo 1)"
+_assert_eq "agent rules doctor: the warning share is a percentage below 100" \
+  0 "$([[ $warn_percent =~ ^[1-9][0-9]?$ ]] && echo 0 || echo 1)"
+warn_limit=$((budget * warn_percent / 100))
+claude_target="$fixture_home/.claude/CLAUDE.md"
+codex_target="$fixture_home/.codex/AGENTS.md"
+mkdir -p "${claude_target%/*}" "${codex_target%/*}"
+_write_bytes() {
+  head -c "$2" /dev/zero | tr '\0' x >"$1"
+}
+
+rm -rf "$claude_target" "$codex_target"
+_doctor_with 0
+_assert_not_contains "agent rules doctor: no live target files means no size row" \
+  "budget" "$doctor_rows"
+
+_write_bytes "$claude_target" 1000
+_doctor_with 0
+_assert_contains "agent rules doctor: a small target is within the budget" \
+  $'ok\tgenerated policy is within its size budget\tlargest: 1000 / '"$budget bytes" \
+  "$doctor_rows"
+
+_write_bytes "$codex_target" "$warn_limit"
+_doctor_with 0
+_assert_contains "agent rules doctor: a target exactly at the warning line is ok" \
+  $'ok\tgenerated policy is within its size budget\tlargest: '"$warn_limit / $budget bytes" \
+  "$doctor_rows"
+
+_write_bytes "$codex_target" "$((warn_limit + 1))"
+_doctor_with 0
+_assert_contains "agent rules doctor: a target past the warning line warns" \
+  $'warn\tgenerated policy is near its '"$budget-byte budget" "$doctor_rows"
+_assert_contains "agent rules doctor: the near-budget warning names the target" \
+  "~/.codex/AGENTS.md: $((warn_limit + 1)) / $budget bytes" "$doctor_rows"
+_assert_not_contains "agent rules doctor: a target under the line is not listed" \
+  "~/.claude/CLAUDE.md:" "$doctor_rows"
+_assert_contains "agent rules doctor: the near-budget warning names the fix" \
+  "tighten the always-loaded rules" "$doctor_rows"
+_assert_not_contains "agent rules doctor: a near-budget target never fails" \
+  $'fail\t' "$doctor_rows"
+
+_write_bytes "$claude_target" "$budget"
+_doctor_with 0
+_assert_contains "agent rules doctor: a target exactly at the budget is near, not over" \
+  $'warn\tgenerated policy is near its '"$budget-byte budget" "$doctor_rows"
+_assert_not_contains "agent rules doctor: a target at the budget is not reported over" \
+  "exceeds" "$doctor_rows"
+
+_write_bytes "$claude_target" "$((budget + 1))"
+_doctor_with 0
+_assert_contains "agent rules doctor: a target over the budget says so" \
+  $'warn\tgenerated policy exceeds its '"$budget-byte budget" "$doctor_rows"
+_assert_contains "agent rules doctor: an over-budget warning lists every large target" \
+  "~/.claude/CLAUDE.md: $((budget + 1)) / $budget bytes, 1 over" "$doctor_rows"
+_assert_contains "agent rules doctor: an over-budget warning keeps the near target" \
+  "~/.codex/AGENTS.md: $((warn_limit + 1)) / $budget bytes" "$doctor_rows"
+_assert_not_contains "agent rules doctor: an over-budget target still only warns" \
+  $'fail\t' "$doctor_rows"
+
+# A non-file target is the currency check's to report, not a size.
+rm -f "$claude_target" "$codex_target"
+mkdir -p "$codex_target"
+_doctor_with 0
+_assert_not_contains "agent rules doctor: a non-file target is not measured" \
+  "budget" "$doctor_rows"
+rmdir "$codex_target"
+
+# Without a readable hook doctor cannot know the budget; it reports no size.
+_write_bytes "$claude_target" "$((budget + 1))"
+real_hook=$hook
+hook="$work/no-such-hook.sh"
+_doctor_with 0
+hook=$real_hook
+_assert_not_contains "agent rules doctor: an unreadable hook skips the size check" \
+  "budget" "$doctor_rows"
+
+mv "$manifest" "$manifest.away"
+_doctor_with 0
+mv "$manifest.away" "$manifest"
+_assert_not_contains "agent rules doctor: a missing manifest reports no size" \
+  "budget" "$doctor_rows"
+
+printf '%s\n' '# shellcheck shell=bash' >"$work/old-hook.sh"
+hook="$work/old-hook.sh"
+_doctor_with 0
+hook=$real_hook
+_assert_not_contains "agent rules doctor: a hook without the budget helpers reports no size" \
+  "budget" "$doctor_rows"
+rm -f "$claude_target"
 
 _test_summary

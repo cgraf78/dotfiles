@@ -7,12 +7,10 @@
   invariants, tradeoffs, performance decisions, hardware behaviors, workarounds,
   regulatory/compliance requirements, complex algorithms, surprising
   constraints, and cross-system assumptions. Don't restate WHAT the code does,
-  and large blocks of code with no comments are discouraged.
-- **Docstrings** for classes, public methods, and non-trivial private methods.
-  Skip simple getters/setters and obvious helpers. Use the language-native
-  documentation syntax and follow the applicable language playbook for exact
+  and large uncommented blocks are discouraged.
+- **Docstrings** for classes, public methods, and non-trivial private methods,
+  in language-native syntax; skip simple getters/setters and obvious helpers.
+- Also follow any applicable language playbook, including its exact docstring
   conventions.
-- Follow any applicable language playbook referenced by the on-demand index in
-  addition to these global style rules.
 - **Keep code tidy** - delete dead comments, commented-out code, and debugging
   leftovers.

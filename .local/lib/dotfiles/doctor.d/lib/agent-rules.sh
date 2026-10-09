@@ -19,6 +19,73 @@ _dr_agent_rules_installed_status() {
   )
 }
 
+# Warn once a live target passes this share of the shared byte budget, so
+# the next rule lands as a deliberate trim instead of a failed rule test.
+_DR_AGENT_RULES_BUDGET_WARN_PERCENT=95
+
+# Print the shared budget, then each installed target, one per line. Like the
+# currency check, this goes through the merge hook, so doctor measures the
+# same targets against the same budget the hook and the rule test use.
+_dr_agent_rules_budget_inputs() {
+  local hook=${DOT_AGENT_RULES_HOOK:-$DOT_EXTENSIONS_DIR/merge-hooks.d/agent-rules.sh}
+
+  [[ -r "$hook" ]] || return 1
+  (
+    _dr_hook_runtime_source || exit 1
+    # shellcheck source=/dev/null
+    . "$hook" || exit 1
+    # An older hook may lack either helper; then there is nothing to measure.
+    declare -F _dot_agent_rules_budget_bytes >/dev/null || exit 1
+    declare -F _dot_agent_rules_installed_targets >/dev/null || exit 1
+    _dot_agent_rules_budget_bytes
+    printf '%s\n' "$REPLY"
+    _dot_agent_rules_installed_targets
+  )
+}
+
+# Measure each live target against the budget. The whole file counts because
+# that is what the agent loads, including any text outside the managed block.
+# A target that is missing or unreadable is the currency check's to report,
+# so it is skipped here, and so is a doctor that cannot read the inputs.
+_dr_check_agent_rules_budget() {
+  local inputs budget limit target size largest=0 over=0
+  local -a near=()
+
+  inputs=$(_dr_agent_rules_budget_inputs) || return 0
+  {
+    IFS= read -r budget || return 0
+    [[ $budget =~ ^[1-9][0-9]*$ ]] || return 0
+    limit=$((budget * _DR_AGENT_RULES_BUDGET_WARN_PERCENT / 100))
+    while IFS= read -r target; do
+      [[ -n "$target" && -f "$target" && -r "$target" ]] || continue
+      size=$(wc -c <"$target") || continue
+      size=${size//[[:space:]]/}
+      [[ $size =~ ^[0-9]+$ ]] || continue
+      ((size <= largest)) || largest=$size
+      ((size <= budget)) || over=1
+      ((size > limit)) || continue
+      if ((size > budget)); then
+        near+=("$(_dr_tilde "$target"): $size / $budget bytes, $((size - budget)) over")
+      else
+        near+=("$(_dr_tilde "$target"): $size / $budget bytes")
+      fi
+    done
+  } <<<"$inputs"
+
+  if ((${#near[@]} == 0)); then
+    ((largest > 0)) || return 0
+    _dr_ok "generated policy is within its size budget" "largest: $largest / $budget bytes"
+  elif ((over)); then
+    _dr_list_row warn "generated policy exceeds its $budget-byte budget" \
+      "tighten the always-loaded rules.d fragments (base or overlay), move task-specific detail to a playbook, or trim text outside the generated block in a listed file, then run 'dot update -f'" \
+      "${near[@]}"
+  else
+    _dr_list_row warn "generated policy is near its $budget-byte budget (over $_DR_AGENT_RULES_BUDGET_WARN_PERCENT%)" \
+      "tighten the always-loaded rules.d fragments (base or overlay), or trim text outside the generated block in a listed file, before adding more rules" \
+      "${near[@]}"
+  fi
+}
+
 _dr_check_agent_rules() {
   local account_home
 
@@ -116,5 +183,6 @@ _dr_check_agent_rules_installed() {
           ;;
       esac
     fi
+    _dr_check_agent_rules_budget
   fi
 }

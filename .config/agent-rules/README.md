@@ -28,6 +28,10 @@ Every rule fragment must declare at least one globally unique identifier:
 
 Keep task-specific procedures out of this always-loaded budget. Put them in a
 playbook and add a concise trigger to the generated routing index instead.
+The byte budget for one rendered target lives in
+`~/.local/lib/dotfiles/merge-hooks.d/lib/agent-rules-budget.sh`: the
+agent-rules test fails a composed aggregate above it, and `dot doctor` warns
+as a live target nears it.
 
 ## On-Demand Playbooks
 

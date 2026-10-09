@@ -11,6 +11,6 @@
   give details; prefer bulleted lists for details, lowercase start
 - Testing: bulleted list of what was verified
 - Blank line between title, Summary, and Testing sections
-- For messages with backticks or other shell-sensitive characters, don't use
-  shell-quoted `git commit -m ...`; write the message to a temp file with the
-  runtime-approved file-writing mechanism and commit with `git commit -F`.
+- For messages with backticks or other shell-sensitive characters, write the
+  message to a temp file with the runtime-approved file-writing mechanism and
+  commit with `git commit -F`, not shell-quoted `git commit -m ...`.

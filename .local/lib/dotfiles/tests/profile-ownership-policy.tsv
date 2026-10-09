@@ -25,6 +25,7 @@ base	agent-rules	.local/lib/dotfiles/doctor.d/41-agent-rules.sh
 base	agent-rules	.local/lib/dotfiles/doctor.d/lib/agent-rules.sh
 base	agent-rules	.local/lib/dotfiles/merge-hooks.d/agent-rules.sh
 base	agent-rules	.local/lib/dotfiles/merge-hooks.d/lib/agent-playbooks.sh
+base	agent-rules	.local/lib/dotfiles/merge-hooks.d/lib/agent-rules-budget.sh
 base	cron	.config/dot/merge-hooks.d/cron/**
 base	cron	.local/lib/dotfiles/merge-hooks.d/cron.sh
 base	ignore	.config/dot/merge-hooks.d/ignore/**
