@@ -2,9 +2,12 @@
 # worktree-gc.sh — multi-repo branch and worktree garbage collection.
 #
 # Library for the `dot-worktree-gc` entry point. Nothing here runs on
-# source except loading the doctor enumeration helpers; the entry point
-# calls `worktree_gc_main "$@"`. Written for `set -u` with no `-e`;
-# every fallible step handles its own failure explicitly.
+# source except loading the doctor enumeration and Shdeps helpers; the entry
+# point calls `worktree_gc_main "$@"`, which also drops any
+# repository-selecting Git variables the process inherited (GIT_DIR and the
+# like, but not environment-injected configuration). Needs Bash 4 (the entry
+# point checks). Written for `set -u` with no `-e`; every fallible step
+# handles its own failure explicitly.
 #
 # Division of labor: this file owns discovery (which repositories and
 # checkouts the sweep covers), the age policy, and retiring directories no
@@ -14,8 +17,12 @@
 # `git cleanup-repo` from git-tools, driven through its porcelain records
 # with --no-update-base, so the sweep never moves a local base and shares
 # one set of merge proofs and removal gates with every other git-tools
-# command. The git-tools root comes from GIT_TOOLS_ROOT when set, otherwise
-# from shdeps, which owns where the dependency lives.
+# command. The git-tools root comes from GIT_TOOLS_ROOT when set (relative
+# to the starting directory), otherwise from shdeps, which owns where the
+# dependency lives (a ~/git development clone wins over the install root);
+# it must report porcelain interface version 1 or newer.
+# A repository with no selected checkout and at most its checked-out branch
+# is not handed to git-tools at all: there is nothing to decide.
 #
 # Stdout contract (tab-separated, one record per line, stable):
 #   would-remove\t<path>\t<reason>        dry run (the default)
@@ -30,12 +37,17 @@
 #   failed-branch\t<branch>\t<reason>
 # Branch records cover every proven-merged local branch in a swept
 # repository, not only branches of swept checkouts. A kept branch is listed
-# only when its checkout was retired without it; other kept branches are
-# counted in the tally. Cache entries pruned inside a checkout are reported
-# on stderr. Diagnostics and
-# the final tally go to stderr; stdout carries records only. Exit 0: clean
-# sweep; 1: usage or environment error; 2: a removal, branch deletion, or
-# repository cleanup failed.
+# only when its checkout was removed without it: retired on the checkout's
+# own evidence, or kept by git-tools after the removal (checked out again,
+# moved, or a checkout in flight); other kept branches are counted in the
+# tally. A failed removal's reason carries git-tools' diagnostic when a
+# diagnostic names that checkout. Cache entries pruned inside a checkout are
+# reported on stderr, as are a clone with something to decide but remotes
+# and no resolvable base branch, and a repository whose pull request lookups
+# failed (once each). Diagnostics and the final tally go to stderr; stdout
+# carries records only. Exit 0: clean sweep; 1: usage or
+# environment error; 2: a removal, branch deletion, or repository cleanup
+# failed.
 #
 # Safety rules (all enforced, none optional):
 # - never `rm -rf` and never `git worktree remove --force`, here or in
@@ -45,15 +57,18 @@
 #   a landed tree, or a merged pull request), and a branch proven only by
 #   ancestry must also be at least a day old by its reflog
 # - git-tools keeps a checkout that is the main or current one, locked,
-#   dirty, holding untracked or ignored content other than tagged caches,
-#   mid-operation or mid-checkout, or a process's working directory, and
-#   never forces a removal
+#   dirty, holding untracked or ignored content other than tagged caches
+#   and cleanupRepo.worktreePrunePath entries, holding a populated
+#   submodule, mid-operation or mid-checkout, or a process's working
+#   directory, and never forces a removal
 # - checkout-only proofs keep the branch: a gone own-name upstream, a
 #   closed pull request (--include-closed), or a superseded Actions pin
 # - metadata-orphaned checkouts require an exact merged-history snapshot;
 #   removal uses a private quarantine and checked unlink/rmdir, never refs
 # - old, empty directories with no known registration, directly under
 #   roots, are removed with rmdir only; symlink targets and in-use dirs stay
+# - a dry run fetches nothing itself (git-tools fetches its base without
+#   moving remote-tracking refs), so previewing changes no refs
 # - a missing or older git-tools skips repository cleanup with a notice;
 #   empty and orphaned directories are still handled
 #
@@ -65,8 +80,6 @@
 #   count as activity, and any tool whose `git status` refreshes the index
 #   makes a checkout look active again (both err toward keeping)
 
-_WORKTREE_GC_AGE_DAYS_DEFAULT=14
-
 _WORKTREE_GC_DIR=${BASH_SOURCE[0]%/*}
 if [[ -z ${_DR_WORKTREE_WARN_BYTES_DEFAULT:-} ]]; then
   # shellcheck source=doctor.d/lib/worktrees.sh
@@ -76,19 +89,26 @@ fi
 # shellcheck source=shdeps-assets.sh
 . "$_WORKTREE_GC_DIR/shdeps-assets.sh" || return 1
 
+# The minimum branch age, in days, git-tools requires of a branch proven
+# merged only by ancestry (--min-age): a branch just created from the base
+# and not yet committed to is an ancestor of the base too, and must survive
+# the sweep. Rendered in the too-new reason, so both stay in step.
+_WORKTREE_GC_MIN_AGE_DAYS=1
+
 # The superseded Actions-pin proof is specific to cgraf78/actions consumers,
 # so it stays here and reaches git-tools as an explicit retirement request.
 # shellcheck source=worktree-gc-actions.sh
 . "$_WORKTREE_GC_DIR/worktree-gc-actions.sh" || return 1
 
 # --- shared sweep state (initialized by worktree_gc_main) ---
-_WORKTREE_GC_AGE=$_WORKTREE_GC_AGE_DAYS_DEFAULT
+# The default age limit is the doctor's stale window, so the doctor never
+# calls a checkout stale that the default sweep would still keep for age.
+_WORKTREE_GC_AGE=$_DR_WORKTREE_STALE_DAYS
 _WORKTREE_GC_APPLY=0
 _WORKTREE_GC_NO_FETCH=0
 _WORKTREE_GC_INCLUDE_CLOSED=0
 _WORKTREE_GC_CLEANUP=
 _WORKTREE_GC_FETCHED=$'\n'
-_WORKTREE_GC_FRESH=$'\n'
 # Per-repo caches, keyed by common git dir: one `worktree list` per repo
 # serves every checkout's registration and main-checkout lookups. Parallel
 # indexed arrays (no associative arrays) keep the file on its existing shell
@@ -105,6 +125,15 @@ _WORKTREE_GC_SEL_DIR=()
 _WORKTREE_GC_SEL_REG=()
 _WORKTREE_GC_SEL_BRANCH=()
 _WORKTREE_GC_SEL_DONE=()
+# 1 while a selected checkout is removed but its branch has no record yet:
+# git-tools can still keep that branch afterwards (see
+# _worktree_gc_map_record), and the sweep promises to list it then.
+_WORKTREE_GC_SEL_PENDING=()
+# Main checkouts Git cannot name: a ~/git/* or ~/.dotfiles-* clone made with
+# --separate-git-dir lists its Git directory as its main worktree, so the
+# clone root found by discovery is remembered per common Git directory.
+_WORKTREE_GC_ROOT_COMMONS=()
+_WORKTREE_GC_ROOT_DIRS=()
 # Physical live registered checkouts and process working directories, loaded
 # once per sweep for the empty-directory and orphan gates.
 _WORKTREE_GC_LIVE=()
@@ -119,22 +148,33 @@ _WORKTREE_GC_N_BRANCHES_KEPT=0
 _WORKTREE_GC_N_KEPT=0
 _WORKTREE_GC_N_SKIPPED=0
 _WORKTREE_GC_N_FAILED=0
+# Set when any record of the repository being swept says pull request
+# lookups failed (pr-unknown).
+_WORKTREE_GC_PR_UNKNOWN=0
 
 _worktree_gc_err() { printf 'dot-worktree-gc: %s\n' "$*" >&2; }
 
+# The heredoc expands only the default age (single-sourced on the doctor's
+# stale window); backticks in the text are escaped.
 _worktree_gc_usage() {
-  cat >&2 <<'USAGE'
+  cat >&2 <<USAGE
 usage: dot-worktree-gc [--older-than N[d]] [--dry-run|--apply] [--no-fetch] [--include-closed]
                        [--root DIR]...
   Delete proven-merged local branches in every repo the sweep covers, and
-  remove worktrees with no Git activity for over N days (default 14) whose
-  work landed or was superseded. Repos covered: ~/.dotfiles, every ~/git/*
-  and ~/.dotfiles-* clone, and the owner of every discovered checkout.
+  remove worktrees with no Git activity for over N days
+  (default $_DR_WORKTREE_STALE_DAYS) whose work landed or was superseded.
+  Repos covered: ~/.dotfiles, every ~/git/* and ~/.dotfiles-* clone, and the
+  owner of every discovered checkout.
   Checkouts swept: ~/.worktrees, ~/git/worktrees, ~/worktrees and
-  ~/git/.worktrees (one grouping folder deep), the .worktrees of every
-  ~/git/* and ~/.dotfiles-* clone, and checkouts the base dotfiles repo
-  registered anywhere.
-  Per-repo decisions come from `git cleanup-repo` (git-tools): merge
+  ~/git/.worktrees (one grouping folder deep; a ~/git/worktrees that is
+  itself a clone is swept as that clone instead, and a clone at
+  ~/git/.worktrees is not swept), the .worktrees of every ~/git/* and
+  ~/.dotfiles-* clone, and checkouts the base dotfiles repo registered
+  anywhere. A linked worktree parked under ~/git (or as a ~/.dotfiles-*
+  root) is not treated as a clone; its own .worktrees is swept only when
+  its repository is ~/.dotfiles or a ~/git/* or ~/.dotfiles-* clone, so
+  parking alone never brings a repository into the sweep.
+  Per-repo decisions come from \`git cleanup-repo\` (git-tools): merge
   proofs, open-PR protection, and the removal gates. A checkout holding
   untracked or ignored content other than cache-tagged directories (and the
   repo's cleanupRepo.worktreePrunePath entries, which are pruned) stays.
@@ -145,7 +185,9 @@ usage: dot-worktree-gc [--older-than N[d]] [--dry-run|--apply] [--no-fetch] [--i
   Dry run is the default; --apply performs removals.
   --root adds a worktree root (its children only) to the sweep and may
   repeat.
-  --no-fetch proves against local refs without touching the network.
+  --no-fetch proves against local refs without touching the network. A dry
+  run moves no refs: git-tools fetches the remote base without updating
+  remote-tracking refs.
   --include-closed also removes checkouts belonging to closed unmerged PRs,
   retaining their branches. An open PR keeps a branch, and its checkout,
   that no local proof covers.
@@ -164,6 +206,15 @@ _worktree_gc_parse_age() {
     '' | *[!0-9]* | 0) return 1 ;;
   esac
   printf '%s\n' "$num"
+}
+
+# Report "COUNT NOUN" via REPLY, with the singular noun only for 1.
+_worktree_gc_plural() {
+  if (($1 == 1)); then
+    REPLY="$1 $2"
+  else
+    REPLY="$1 $3"
+  fi
 }
 
 # Print one stdout record and tally it. Branch records share the shape
@@ -332,26 +383,44 @@ _worktree_gc_batch() {
   GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=never GIT_ASKPASS='' "$@" </dev/null
 }
 
-# Fetch the base branch for one repo, at most once per sweep. Never
-# fails the sweep: a fetch failure degrades to local refs with a
-# notice. Proving against stale refs only withholds proof (fewer
-# removals), never fabricates it.
+# Report via REPLY the remote base ref (short form, e.g. origin/main) of the
+# repository with common Git directory COMMON, run from REPO_DIR (see
+# _worktree_gc_repo_dir; COMMON itself when it has no checkout), or fail.
+# Every caller resolves through here so the sweep, the orphan proof, and its
+# fetch agree on one base. A directory without its own .git -- the base
+# client's HOME, or a bare Git directory -- names COMMON through GIT_DIR:
+# otherwise Git would find no repository there, or only through a PATH
+# launcher (the dotfiles `git` maps directories under HOME without a work
+# tree to the base client) that may answer for the wrong one.
+_worktree_gc_base_ref() {
+  local repo_dir=$1 common=$2
+  if [[ -e $repo_dir/.git ]]; then
+    _dr_worktree_base_ref_ensure "$repo_dir"
+  else
+    GIT_DIR=$common _dr_worktree_base_ref_ensure "$repo_dir"
+  fi
+}
+
+# Fetch the base branch for one repo, at most once per sweep, and only when
+# applying: a dry run proves against the refs it finds, so previewing never
+# moves remote-tracking refs. Never fails the sweep: a fetch failure degrades
+# to local refs with a notice. Proving against stale refs only withholds
+# proof (fewer removals), never fabricates it.
 _worktree_gc_fetch_base() {
   local dir=$1 common=$2
   local ref remote branch err
-  ((_WORKTREE_GC_NO_FETCH == 1)) && return 0
+  ((_WORKTREE_GC_NO_FETCH == 0 && _WORKTREE_GC_APPLY == 1)) || return 0
   case $'\n'"$_WORKTREE_GC_FETCHED"$'\n' in
     *$'\n'"$common"$'\n'*) return 0 ;;
   esac
   _WORKTREE_GC_FETCHED+="$common"$'\n'
-  _dr_worktree_base_ref_ensure "$dir" || return 0
+  _worktree_gc_base_ref "$dir" "$common" || return 0
   ref=$REPLY
   remote=${ref%%/*}
   branch=${ref#*/}
   [[ -n $remote && -n $branch && $branch != "$ref" ]] || return 0
   if err=$(_worktree_gc_batch git --git-dir="$common" fetch --quiet --no-tags \
     "$remote" "$branch" 2>&1); then
-    _WORKTREE_GC_FRESH+="$common"$'\n'
     return 0
   fi
   err=${err%%$'\n'*}
@@ -520,13 +589,12 @@ _worktree_gc_remove_orphan() {
     _worktree_gc_record skipped "$dir" "in use (a process's working directory)"
     return 0
   fi
-  # Resolve through a checkout, not the bare Git directory (see
-  # _worktree_gc_sweep_repo): a PATH launcher can reroute Git run there.
+  # Prove against the same base the repository's own sweep uses.
   repo_dir=$common
   _worktree_gc_ensure_repo "$common" && _worktree_gc_repo_dir "$common" &&
     repo_dir=$REPLY
   _worktree_gc_fetch_base "$repo_dir" "$common"
-  if ! _dr_worktree_base_ref_ensure "$repo_dir"; then
+  if ! _worktree_gc_base_ref "$repo_dir" "$common"; then
     _worktree_gc_record skipped "$dir" "orphaned checkout has no base ref"
     return 0
   fi
@@ -564,6 +632,15 @@ _worktree_gc_remove_orphan() {
   return 0
 }
 
+# The oldest `git cleanup-repo --interface-version` the sweep can drive. It
+# names the porcelain contract as a whole (options, records, codes, exit
+# statuses) and grows whenever that contract gains or changes something;
+# the contract arrived over several git-tools changes, so no single
+# option's presence can stand in for it. Only a bare integer counts. 1:
+# exit status 3; pr-unknown, closed-pr, symref, and submodule codes;
+# following a renamed remote default; symref and ignored-file safety.
+_WORKTREE_GC_INTERFACE_MIN=1
+
 # Locate the git-tools cleanup provider. GIT_TOOLS_ROOT names a root
 # explicitly (tests and provider development). Otherwise ask shdeps, which
 # owns the dependency's location: for repository installs a development clone
@@ -571,32 +648,40 @@ _worktree_gc_remove_orphan() {
 # declare git-tools gets no answer even if an old install lingers. Anything
 # missing or too old leaves _WORKTREE_GC_CLEANUP empty with one notice; the
 # sweep still handles empty and orphaned directories, which need no
-# repository decision.
+# repository decision. git-tools is not part of the base profile: the
+# dotfiles-dev overlay declares it, so the notices point there.
 _worktree_gc_load_provider() {
-  local root bin
+  local root bin version
+  local hint="git-tools comes from the dev profile: run 'dot update' with it enabled, or set GIT_TOOLS_ROOT"
   _WORKTREE_GC_CLEANUP=
   if [[ -n ${GIT_TOOLS_ROOT:-} ]]; then
     root=$GIT_TOOLS_ROOT
+    # Every repository's run starts in that repository's directory, so a
+    # relative root must be pinned to where the sweep started.
+    [[ $root == /* ]] || root=$PWD/$root
     bin=$root/bin/git-cleanup-repo
   else
     bin=$(dot_shdeps_dep_file cgraf78/git-tools bin/git-cleanup-repo 2>/dev/null) || bin=
     if [[ -z $bin ]]; then
-      _worktree_gc_err "git-tools not found: shdeps did not resolve cgraf78/git-tools; branch and checkout cleanup skipped"
+      _worktree_gc_err "git-tools not found: shdeps did not resolve cgraf78/git-tools; branch and checkout cleanup skipped ($hint)"
       return 0
     fi
     root=${bin%/bin/git-cleanup-repo}
   fi
   if [[ ! -x $bin ]]; then
-    _worktree_gc_err "git-tools not found at $root; branch and checkout cleanup skipped"
+    _worktree_gc_err "git-tools not found at $root; branch and checkout cleanup skipped ($hint)"
     return 0
   fi
-  # A release predating the porcelain interface rejects these options before
-  # it reaches --help, so the exit status answers without parsing usage text.
-  # The interface shipped as one git-tools release, so these options also
-  # imply its unreachable-remote status and pull request lookup guard.
-  if ! "$bin" --porcelain --no-update-base --worktree . --retire-worktree . \
-    --include-closed --min-age 1 --help >/dev/null 2>&1; then
-    _worktree_gc_err "git-tools at $root predates porcelain cleanup; run 'dot update' to clean branches and checkouts"
+  # A git-tools without the flag rejects it as an unknown option (or, older
+  # still, prints something that is not a version); either way the answer is
+  # not an integer and the provider is treated as too old. No repository is
+  # needed, and stdin is closed so nothing can wait on the terminal.
+  version=$("$bin" --interface-version 2>/dev/null </dev/null) || version=
+  case $version in
+    '' | *[!0-9]*) version=0 ;;
+  esac
+  if ((10#$version < _WORKTREE_GC_INTERFACE_MIN)); then
+    _worktree_gc_err "git-tools at $root predates porcelain cleanup interface $_WORKTREE_GC_INTERFACE_MIN; branch and checkout cleanup skipped ($hint)"
     return 0
   fi
   _WORKTREE_GC_CLEANUP=$bin
@@ -616,13 +701,34 @@ _worktree_gc_reason() {
     requested) printf 'Actions pin superseded (branch kept)' ;;
     merge-unproven) printf 'merge unproven' ;;
     open-pr) printf 'open PR #%s' "$detail" ;;
-    too-new) printf 'branch created or moved within a day' ;;
+    # Proven only by ancestry, which a branch fresh off the base also passes;
+    # the detail is its reflog time, empty when no reflog dates it at all.
+    too-new)
+      if [[ -z $detail ]]; then
+        printf 'merged by ancestry only, and no reflog dates the branch'
+      else
+        _worktree_gc_plural "$_WORKTREE_GC_MIN_AGE_DAYS" day days
+        printf 'merged by ancestry only, but created or moved within %s' "$REPLY"
+      fi
+      ;;
     current-worktree) printf 'current checkout' ;;
     main-worktree) printf 'main checkout' ;;
     locked) printf 'locked' ;;
     dirty) printf 'dirty (uncommitted changes)' ;;
     hidden) printf 'untracked or ignored local content' ;;
     operation) printf 'active %s' "$detail" ;;
+    submodule) printf 'populated submodule (Git cannot remove it)' ;;
+    # A symbolic ref under refs/heads (master -> main, say) points at the
+    # branch; on keep-branch the detail is the aliases' short names,
+    # space-separated (keep-worktree carries the branch instead; see
+    # _worktree_gc_map_record).
+    symref)
+      if [[ $detail == *' '* ]]; then
+        printf 'aliases (%s) point at it' "$detail"
+      else
+        printf 'an alias (%s) points at it' "$detail"
+      fi
+      ;;
     in-use) printf "in use (a process's working directory)" ;;
     checkout-in-flight) printf 'a Git command is running there' ;;
     missing) printf 'directory gone' ;;
@@ -654,61 +760,93 @@ _worktree_gc_unescape() {
   REPLY=$out$value
 }
 
-# Run git-tools cleanup for one repository with the given arguments, filling
-# _WORKTREE_GC_OUT with its records and _WORKTREE_GC_ERRLINE with its last
-# diagnostic, which is the fatal one on failure (earlier lines are notes,
-# such as a followed default branch). The base client's work tree is HOME,
-# so it runs from HOME with GIT_DIR and GIT_WORK_TREE naming both, as the
-# `git` launcher does: a fresh client records HOME in core.worktree, but a
-# legacy bare client (core.bare=true) only gets a work tree from the
-# environment, and Git alone would call it bare. Any other repository runs
-# from its main checkout. Credential prompts are off (_worktree_gc_batch), so
-# a remote that wants credentials reads as unreachable and falls back to
-# local refs. Returns the provider's status, or 125 when the repository has
-# no checkout to run from.
-_worktree_gc_run_cleanup() {
-  local common=$1 base main err line status=0
-  shift
-  _WORKTREE_GC_OUT=
-  _WORKTREE_GC_ERRLINE=
-  err=$(mktemp) || return 1
+# Succeed when COMMON is the base client's separate Git directory, whose
+# work tree is HOME.
+_worktree_gc_is_base() {
+  local common=$1 base
   _dr_worktree_base_gitdir
   base=$REPLY
-  if [[ -n $base && -d $base && $common -ef $base ]]; then
-    _WORKTREE_GC_OUT=$(cd -- "$HOME" &&
-      GIT_DIR=$common GIT_WORK_TREE=$HOME \
+  [[ -n $base && -d $base && $common -ef $base ]]
+}
+
+# Run git-tools cleanup for one repository with the given arguments, filling
+# _WORKTREE_GC_OUT with its records, _WORKTREE_GC_ERRTEXT with every line of
+# its stderr, and _WORKTREE_GC_ERRLINE with the last one, which is the fatal
+# one on failure (earlier lines are notes, such as a followed default
+# branch). Stderr is kept whatever the exit status: in porcelain mode a
+# failed removal still exits 0, and only Git's own refusal on stderr says
+# why. The base client's work tree is HOME, so it runs from HOME with
+# GIT_DIR and GIT_WORK_TREE naming both, as the `git` launcher does: a fresh
+# client records HOME in core.worktree, but a legacy bare client
+# (core.bare=true) only gets a work tree from the environment, and Git alone
+# would call it bare. Any other repository runs from its main checkout.
+# Credential prompts are off (_worktree_gc_batch), so a remote that wants
+# credentials reads as unreachable and falls back to local refs. Returns the
+# provider's status, or 125 when the repository has no checkout to run from.
+_worktree_gc_run_cleanup() {
+  local common=$1 dir err line status=0
+  shift
+  _WORKTREE_GC_OUT=
+  _WORKTREE_GC_ERRTEXT=
+  _WORKTREE_GC_ERRLINE=
+  _worktree_gc_repo_dir "$common" || return 125
+  dir=$REPLY
+  err=$(mktemp) || return 1
+  if _worktree_gc_is_base "$common"; then
+    _WORKTREE_GC_OUT=$(cd -- "$dir" &&
+      GIT_DIR=$common GIT_WORK_TREE=$dir \
         _worktree_gc_batch "$_WORKTREE_GC_CLEANUP" "$@" 2>"$err") || status=$?
   else
-    main=$(_worktree_gc_cached_main "$common") || main=
-    if [[ -z $main || ! -e $main/.git ]]; then
-      rm -f -- "$err"
-      return 125
-    fi
-    _WORKTREE_GC_OUT=$(cd -- "$main" &&
+    _WORKTREE_GC_OUT=$(cd -- "$dir" &&
       _worktree_gc_batch "$_WORKTREE_GC_CLEANUP" "$@" 2>"$err") || status=$?
   fi
   while IFS= read -r line || [[ -n $line ]]; do
-    [[ -z $line ]] || _WORKTREE_GC_ERRLINE=$line
+    [[ -n $line ]] || continue
+    _WORKTREE_GC_ERRTEXT+=$line$'\n'
+    _WORKTREE_GC_ERRLINE=$line
   done <"$err"
   rm -f -- "$err"
   return "$status"
 }
 
+# Report via REPLY the provider diagnostic that explains a failed removal of
+# the checkout registered at PATH: the last stderr line naming it, quoted as
+# Git's own refusal does ('PATH') or as the directory of an entry inside it
+# (PATH/...), else nothing. Display only. No line of a run that failed
+# several removals, or added notes, may be pinned on a checkout it does not
+# name, and a sibling such as PATH-2 must not match.
+_worktree_gc_failure_cause() {
+  local path=$1 line
+  REPLY=
+  while IFS= read -r line; do
+    [[ $line == *"'$path'"* || $line == *"$path/"* ]] && REPLY=$line
+  done <<<"$_WORKTREE_GC_ERRTEXT"
+  return 0
+}
+
 # Report via REPLY the directory to run Git for a repository from: HOME for
-# the base client, whose work tree it is, else its main checkout. Fails when
-# the repository has no checkout.
+# the base client, whose work tree it is, else its main checkout. A clone
+# made with --separate-git-dir lists its Git directory as the main worktree,
+# so discovery's clone root stands in for it. Fails when the repository has
+# no checkout.
 _worktree_gc_repo_dir() {
-  local common=$1 base main
-  REPLY=
-  _dr_worktree_base_gitdir
-  base=$REPLY
-  REPLY=
-  if [[ -n $base && -d $base && $common -ef $base ]]; then
+  local common=$1 main i
+  if _worktree_gc_is_base "$common"; then
     REPLY=$HOME
     return 0
   fi
-  main=$(_worktree_gc_cached_main "$common") || return 1
-  [[ -n $main && -e $main/.git ]] || return 1
+  REPLY=
+  main=$(_worktree_gc_cached_main "$common") || main=
+  if [[ -z $main || ! -e $main/.git ]]; then
+    main=
+    for ((i = 0; i < ${#_WORKTREE_GC_ROOT_COMMONS[@]}; i++)); do
+      if [[ ${_WORKTREE_GC_ROOT_COMMONS[$i]} == "$common" ]]; then
+        main=${_WORKTREE_GC_ROOT_DIRS[$i]}
+        break
+      fi
+    done
+    [[ -n $main && -e $main/.git ]] || return 1
+  fi
   REPLY=$main
 }
 
@@ -726,10 +864,26 @@ _worktree_gc_sel_index() {
   return 1
 }
 
+# Print the branch record for a branch a removed checkout leaves behind.
+# Those are listed, unlike the many unproven branches the tally only counts:
+# the checkout's own record no longer speaks for its branch.
+_worktree_gc_record_kept_branch() {
+  local branch=$1 reason=$2
+  if ((_WORKTREE_GC_APPLY == 1)); then
+    _worktree_gc_record skipped-branch "$branch" "$reason"
+  else
+    _worktree_gc_record would-skip-branch "$branch" "$reason"
+  fi
+}
+
 # Render one git-tools record for repository COMMON as sweep records.
 _worktree_gc_map_record() {
   local common=$1 event=$2 subject=$3 code=$4 detail=$5 reason idx dir
   reason=$(_worktree_gc_reason "$code" "$detail")
+  # A failed pull request lookup is a repository-wide condition (gh is not
+  # authenticated, or the API is down), noted once per repository by
+  # _worktree_gc_sweep_repo rather than per branch.
+  [[ $code != pr-unknown ]] || _WORKTREE_GC_PR_UNKNOWN=1
   case $event in
     delete-branch | would-delete-branch)
       if ((_WORKTREE_GC_APPLY == 1)); then
@@ -744,11 +898,19 @@ _worktree_gc_map_record() {
         return 0
       fi
       # A selected checkout's branch is accounted for by that checkout's own
-      # record; any other kept branch is counted, not listed, since a
-      # repository can hold hundreds of unproven branches.
+      # record, unless git-tools removed the checkout and only then kept the
+      # branch (checked out again, moved, or a checkout in flight by the time
+      # it came to delete it): that branch is listed like any other a retired
+      # checkout leaves behind. Any other kept branch is counted, not listed,
+      # since a repository can hold hundreds of unproven branches.
       for ((idx = 0; idx < ${#_WORKTREE_GC_SEL_BRANCH[@]}; idx++)); do
         [[ ${_WORKTREE_GC_SEL_COMMON[$idx]} == "$common" &&
-          ${_WORKTREE_GC_SEL_BRANCH[$idx]} == "$subject" ]] && return 0
+          ${_WORKTREE_GC_SEL_BRANCH[$idx]} == "$subject" ]] || continue
+        if [[ ${_WORKTREE_GC_SEL_PENDING[$idx]} == 1 ]]; then
+          _WORKTREE_GC_SEL_PENDING[idx]=0
+          _worktree_gc_record_kept_branch "$subject" "$reason"
+        fi
+        return 0
       done
       _WORKTREE_GC_N_BRANCHES_KEPT=$((_WORKTREE_GC_N_BRANCHES_KEPT + 1))
       ;;
@@ -767,7 +929,19 @@ _worktree_gc_map_record() {
         keep-worktree)
           case $code in
             remove-failed | prune-failed)
-              _worktree_gc_record failed "$dir" "removal failed"
+              # The record's detail is only the path; the cause is on stderr.
+              _worktree_gc_failure_cause "$subject"
+              _worktree_gc_record failed "$dir" "$reason${REPLY:+: $REPLY}"
+              ;;
+            # The reason text above is written for a retired checkout; one
+            # kept for its closed PR stays only because --include-closed was
+            # not given.
+            closed-pr)
+              _worktree_gc_record skipped "$dir" "closed unmerged PR; --include-closed retires it"
+              ;;
+            # Its detail is the branch, not the aliases.
+            symref)
+              _worktree_gc_record skipped "$dir" "a branch alias points at its branch"
               ;;
             *) _worktree_gc_record skipped "$dir" "$reason" ;;
           esac
@@ -775,16 +949,13 @@ _worktree_gc_map_record() {
           ;;
       esac
       # A checkout retired on its own evidence keeps its branch; say so,
-      # matching the branch records of earlier sweeps.
+      # matching the branch records of earlier sweeps. One removed with a
+      # proven branch waits for that branch's own record (see keep-branch).
       case $code in
         upstream-gone | closed-pr | requested)
-          [[ -z $detail ]] && return 0
-          if ((_WORKTREE_GC_APPLY == 1)); then
-            _worktree_gc_record skipped-branch "$detail" "$reason"
-          else
-            _worktree_gc_record would-skip-branch "$detail" "$reason"
-          fi
+          [[ -z $detail ]] || _worktree_gc_record_kept_branch "$detail" "$reason"
           ;;
+        *) [[ -z $detail ]] || _WORKTREE_GC_SEL_PENDING[idx]=1 ;;
       esac
       ;;
   esac
@@ -792,25 +963,47 @@ _worktree_gc_map_record() {
 }
 
 # Print REMOTE's HEAD symref as a short <remote>/<branch> name, or nothing.
-# The base client's HOME has no .git of its own, so it names its Git
-# directory, as base resolution does.
+# --git-dir reads it straight from the repository, so the base client's
+# HOME (no .git of its own) needs no special case. The refs/remotes/ prefix
+# is stripped by hand: `--short` turns to remotes/<remote>/<branch> when a
+# local branch or tag shares the short name, and would never match.
 _worktree_gc_head_symref() {
-  local repo_dir=$1 common=$2 remote=$3
-  if [[ $repo_dir == "$HOME" ]]; then
-    git --git-dir="$common" symbolic-ref -q --short "refs/remotes/$remote/HEAD" 2>/dev/null
-  else
-    git -C "$repo_dir" symbolic-ref -q --short "refs/remotes/$remote/HEAD" 2>/dev/null
-  fi
+  local common=$1 remote=$2 ref
+  ref=$(git --git-dir="$common" symbolic-ref -q "refs/remotes/$remote/HEAD" 2>/dev/null) ||
+    return 0
+  [[ $ref != refs/remotes/* ]] || printf '%s\n' "${ref#refs/remotes/}"
   return 0
+}
+
+# Succeed when the sweep selected any old checkout of repository COMMON.
+_worktree_gc_selects() {
+  local common=$1 i
+  for ((i = 0; i < ${#_WORKTREE_GC_SEL_COMMON[@]}; i++)); do
+    [[ ${_WORKTREE_GC_SEL_COMMON[$i]} != "$common" ]] || return 0
+  done
+  return 1
 }
 
 # Sweep one repository: delete its proven-merged branches and decide every
 # selected old checkout it owns, in one git-tools run.
 _worktree_gc_sweep_repo() {
-  local common=$1 repo_dir base_ref remote i dir reg tip base_oid status
+  local common=$1 repo_dir base_ref remote i dir reg tip base_oid status heads
   local event subject code detail rec
-  local -a args=(--no-update-base --porcelain --min-age 1) selections=() offline=()
+  local -a args=(--no-update-base --porcelain --min-age "$_WORKTREE_GC_MIN_AGE_DAYS")
+  local -a selections=() offline=()
 
+  # Without a selected checkout, a repository holding no local branch, or
+  # only the one its main checkout has out (which git-tools always keeps),
+  # leaves nothing to decide: skip the provider and its network round trips,
+  # which most idle clones would otherwise pay on every sweep. --git-dir
+  # names the repository, so the base client reads the same way; the common
+  # directory's HEAD is the main checkout's (the base client's own).
+  if ! _worktree_gc_selects "$common" &&
+    heads=$(git --git-dir="$common" for-each-ref --count=2 \
+      --format='%(HEAD)%(refname)' refs/heads/ 2>/dev/null) &&
+    [[ -z $heads || ($heads != *$'\n'* && $heads == '*'*) ]]; then
+    return 0
+  fi
   # A bare repository, or one whose main checkout is gone, has nowhere to run
   # cleanup from; its selected checkouts stay.
   if ! _worktree_gc_repo_dir "$common"; then
@@ -818,20 +1011,18 @@ _worktree_gc_sweep_repo() {
     return 0
   fi
   repo_dir=$REPLY
-  # Resolve from a checkout: Git run inside a bare Git directory can be
-  # rerouted by a PATH launcher (the dotfiles `git` maps directories under
-  # HOME without a work tree to the base client) and answer for the wrong
-  # repository. The base client's HOME has no .git of its own; name its Git
-  # directory instead.
   base_ref=
-  if [[ $repo_dir == "$HOME" ]]; then
-    GIT_DIR=$common _dr_worktree_base_ref_ensure "$repo_dir" && base_ref=$REPLY
-  else
-    _dr_worktree_base_ref_ensure "$repo_dir" && base_ref=$REPLY
-  fi
+  _worktree_gc_base_ref "$repo_dir" "$common" && base_ref=$REPLY
   # Without a resolvable remote base there is nothing to prove against.
   if [[ -z $base_ref ]]; then
     _worktree_gc_skip_selected "$common" "no remote base branch"
+    # A repository with remotes would otherwise be left alone silently:
+    # several remotes, none named origin; a remote name with a slash; or no
+    # origin/HEAD and a default other than main, master, or trunk. Without
+    # remotes there is nothing to prove against, which needs no notice.
+    if [[ -n $(git --git-dir="$common" remote 2>/dev/null) ]]; then
+      _worktree_gc_err "$common: no remote base branch (wants origin/HEAD, origin/main, origin/master, origin/trunk, or a sole remote's HEAD); branch and checkout cleanup skipped"
+    fi
     return 0
   fi
   # A base read from <remote>/HEAD can be stale: Git records it at clone time,
@@ -843,7 +1034,7 @@ _worktree_gc_sweep_repo() {
   # passed explicitly, so both tools keep proving against the same branch.
   remote=${base_ref%%/*}
   args+=(--remote "$remote")
-  if [[ $(_worktree_gc_head_symref "$repo_dir" "$common" "$remote") != "$base_ref" ]]; then
+  if [[ $(_worktree_gc_head_symref "$common" "$remote") != "$base_ref" ]]; then
     args+=(--base "${base_ref#*/}")
   fi
   ((_WORKTREE_GC_APPLY == 1)) || args+=(--dry-run)
@@ -886,6 +1077,7 @@ _worktree_gc_sweep_repo() {
         ${offline[@]+"${offline[@]}"} || status=$?
     fi
   fi
+  _WORKTREE_GC_PR_UNKNOWN=0
   while IFS= read -r rec; do
     [[ -n $rec ]] || continue
     # Split by hand: `read` with a TAB IFS would merge an empty field into
@@ -903,6 +1095,12 @@ _worktree_gc_sweep_repo() {
     detail=$REPLY
     _worktree_gc_map_record "$common" "$event" "$subject" "$code" "$detail"
   done <<<"$_WORKTREE_GC_OUT"
+  # Each branch kept as pr-unknown reads like any unproven one; say once why
+  # merged-PR proofs were missing, so a broken gh setup does not pass for a
+  # repository with nothing merged.
+  if ((_WORKTREE_GC_PR_UNKNOWN == 1)); then
+    _worktree_gc_err "$common: pull request lookups failed (check 'gh auth status'); merged-PR evidence was not used"
+  fi
   if ((status != 0)); then
     _worktree_gc_record failed "$common" "git cleanup-repo failed: ${_WORKTREE_GC_ERRLINE:-exit $status}"
   fi
@@ -927,7 +1125,7 @@ _worktree_gc_skip_selected() {
 # for their repository's git-tools run. Prints COMMON for selected and
 # registered candidates via REPLY so the caller can sweep that repository.
 _worktree_gc_classify() {
-  local dir=$1 old=$2 common registered main_phys git_dir
+  local dir=$1 old=$2 common registered main_phys git_dir branch
   REPLY=
   # List young broken pointers as orphans, as the doctor's row promises,
   # without permitting age to authorize cleanup.
@@ -936,7 +1134,8 @@ _worktree_gc_classify() {
     return 0
   fi
   if ((old == 0)); then
-    _worktree_gc_record kept "$dir" "younger than $_WORKTREE_GC_AGE days"
+    _worktree_gc_plural "$_WORKTREE_GC_AGE" day days
+    _worktree_gc_record kept "$dir" "younger than $REPLY"
     # Only a checkout names its repository: Git would walk up from a plain
     # directory to whatever repository encloses it.
     if [[ -e $dir/.git ]] && common=$(_worktree_gc_common_dir "$dir"); then
@@ -971,14 +1170,49 @@ _worktree_gc_classify() {
   _WORKTREE_GC_SEL_COMMON+=("$common")
   _WORKTREE_GC_SEL_DIR+=("$dir")
   _WORKTREE_GC_SEL_REG+=("$registered")
-  _WORKTREE_GC_SEL_BRANCH+=("$(git -C "$dir" symbolic-ref -q --short HEAD 2>/dev/null)")
+  # The full ref, stripped by hand: `--short` answers heads/<name> when a tag
+  # shares the branch name, which would never match git-tools' records.
+  branch=$(git -C "$dir" symbolic-ref -q HEAD 2>/dev/null) || branch=
+  [[ $branch == refs/heads/* ]] || branch=
+  _WORKTREE_GC_SEL_BRANCH+=("${branch#refs/heads/}")
   _WORKTREE_GC_SEL_DONE+=(0)
+  _WORKTREE_GC_SEL_PENDING+=(0)
+}
+
+# Unset the repository-selecting Git variables the sweep inherited. A Git
+# alias or hook, or the dotfiles `git` launcher, can export one repository's
+# GIT_DIR, GIT_WORK_TREE, GIT_INDEX_FILE, and the like; every probe here
+# names its repository with -C or --git-dir, which those variables override,
+# so the whole sweep would collapse onto that one repository. Git lists its
+# repository-local variables itself (--local-env-vars); the injected
+# configuration among them (GIT_CONFIG_PARAMETERS, and GIT_CONFIG_COUNT with
+# its KEY_n/VALUE_n pairs, which Git does not list) stays. It selects no
+# repository, and a host can
+# inject settings the sweep needs that way, such as url.<base>.insteadOf
+# rewrites without which git-tools cannot reach a remote. (git-tools clears
+# the full list only around its per-worktree reads, never around fetching.)
+# The base client's run sets its own GIT_DIR and GIT_WORK_TREE. The sweep is
+# its own process, so nothing outside it loses them.
+_worktree_gc_drop_local_env() {
+  local name
+  while IFS= read -r name; do
+    case $name in
+      # GIT_CONFIG (one config file for every repository) is dropped:
+      # git-tools' own `git config --local` reads would fail under it.
+      '' | GIT_CONFIG_PARAMETERS | GIT_CONFIG_COUNT) ;;
+      *) unset "$name" ;;
+    esac
+  done < <(git rev-parse --local-env-vars 2>/dev/null)
+  return 0
 }
 
 _worktree_gc_tally() {
-  local mode=applied
+  local mode=applied deleted
   ((_WORKTREE_GC_APPLY == 0)) && mode="dry run"
-  _worktree_gc_err "done: $_WORKTREE_GC_N_REMOVED removed, $_WORKTREE_GC_N_BRANCHES branches deleted, $_WORKTREE_GC_N_BRANCHES_KEPT branches kept, $_WORKTREE_GC_N_KEPT kept, $_WORKTREE_GC_N_SKIPPED skipped, $_WORKTREE_GC_N_FAILED failed ($mode)"
+  _worktree_gc_plural "$_WORKTREE_GC_N_BRANCHES" branch branches
+  deleted=$REPLY
+  _worktree_gc_plural "$_WORKTREE_GC_N_BRANCHES_KEPT" branch branches
+  _worktree_gc_err "done: $_WORKTREE_GC_N_REMOVED removed, $deleted deleted, $REPLY kept, $_WORKTREE_GC_N_KEPT kept, $_WORKTREE_GC_N_SKIPPED skipped, $_WORKTREE_GC_N_FAILED failed ($mode)"
 }
 
 # Sweep entry point. Parses argv, enumerates candidates once, gates on age
@@ -990,10 +1224,10 @@ worktree_gc_main() {
   _WORKTREE_GC_APPLY=0
   _WORKTREE_GC_NO_FETCH=0
   _WORKTREE_GC_INCLUDE_CLOSED=0
-  local age=$_WORKTREE_GC_AGE_DAYS_DEFAULT
+  local age=$_DR_WORKTREE_STALE_DAYS
   local saw_dry=0 saw_apply=0
   local -a extra_roots=()
-  local arg root old_list dir old common
+  local arg root old_list dir old common checkout
   local -a cands=() repos=()
 
   while (($# > 0)); do
@@ -1060,6 +1294,7 @@ worktree_gc_main() {
     _worktree_gc_err "git is not on PATH"
     return 1
   }
+  _worktree_gc_drop_local_env
 
   local i
   for ((i = 0; i < ${#extra_roots[@]}; i++)); do
@@ -1071,7 +1306,6 @@ worktree_gc_main() {
 
   _WORKTREE_GC_AGE=$age
   _WORKTREE_GC_FETCHED=$'\n'
-  _WORKTREE_GC_FRESH=$'\n'
   _WORKTREE_GC_LIST_COMMONS=()
   _WORKTREE_GC_LIST_TEXTS=()
   _WORKTREE_GC_LIST_MAINS=()
@@ -1083,6 +1317,9 @@ worktree_gc_main() {
   _WORKTREE_GC_SEL_REG=()
   _WORKTREE_GC_SEL_BRANCH=()
   _WORKTREE_GC_SEL_DONE=()
+  _WORKTREE_GC_SEL_PENDING=()
+  _WORKTREE_GC_ROOT_COMMONS=()
+  _WORKTREE_GC_ROOT_DIRS=()
   _DR_WORKTREE_BASE_KEYS=()
   _DR_WORKTREE_BASE_REFS=()
   _WORKTREE_GC_N_REMOVED=0
@@ -1092,6 +1329,9 @@ worktree_gc_main() {
   _WORKTREE_GC_N_SKIPPED=0
   _WORKTREE_GC_N_FAILED=0
   _worktree_gc_load_provider
+  # Every admin scan of the sweep (one per empty or orphan candidate) reads
+  # the same clone roots; resolve gitfile roots once.
+  _dr_worktree_clone_roots_load
   _worktree_gc_load_live
   _WORKTREE_GC_CWDS=()
   _WORKTREE_GC_CWDS_LOADED=0
@@ -1109,11 +1349,21 @@ worktree_gc_main() {
 
   # Every managed clone gets branch cleanup, whether or not it owns a
   # discovered checkout: most merged branches have no checkout left.
-  while IFS= read -r common; do
-    [[ -n $common ]] || continue
-    common=$(_dr_worktree_physical "$common")
+  _dr_worktree_base_gitdir
+  if [[ -n $REPLY && -d $REPLY ]]; then
+    common=$(_dr_worktree_physical "$REPLY")
     [[ -n $common ]] && repos+=("$common")
-  done < <(_dr_worktree_clone_commons)
+  fi
+  while IFS=$'\t' read -r common checkout; do
+    common=$(_dr_worktree_physical "$common")
+    [[ -n $common ]] || continue
+    repos+=("$common")
+    # Only a --separate-git-dir clone's main checkout is unknown to Git.
+    if [[ ! -d $checkout/.git ]]; then
+      _WORKTREE_GC_ROOT_COMMONS+=("$common")
+      _WORKTREE_GC_ROOT_DIRS+=("$checkout")
+    fi
+  done < <(_dr_worktree_clone_roots)
 
   old_list=
   if ((${#cands[@]} > 0)); then

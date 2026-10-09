@@ -5,9 +5,11 @@ set -o pipefail
 . "${BASH_SOURCE[0]%/*}/helpers.sh"
 _test_prefer_system_git || exit 1
 _test_hermetic_git core.hooksPath "$(_tmpdir)"
-LIB=${BASH_SOURCE[0]%/*}/../worktree-gc-actions.sh
+# The proof runs inside the sweep library, which owns the batch helper every
+# remote-reaching command goes through; load it the way the sweep does.
+LIB=${BASH_SOURCE[0]%/*}/../worktree-gc.sh
 if [[ -f $LIB ]]; then
-  # shellcheck source=../worktree-gc-actions.sh
+  # shellcheck source=../worktree-gc.sh
   . "$LIB"
 else
   _worktree_gc_actions_superseded() { return 1; }
@@ -36,6 +38,9 @@ printf '%s\n' "$current" >"$fixture/.github/cgraf78-actions.lock"
 git -C "$fixture" commit -qam current
 base=$(git -C "$fixture" rev-parse HEAD)
 gh() {
+  [[ -z ${GH_ENV_LOG:-} ]] ||
+    printf 'gh prompt=%s askpass=%s stdin=%s\n' "${GIT_TERMINAL_PROMPT-unset}" \
+      "${GIT_ASKPASS-unset}" "$([[ -t 0 ]] && echo tty || echo none)" >>"$GH_ENV_LOG"
   [[ $1 == api && $2 == --hostname && $3 == github.com && $4 == "repos/cgraf78/actions/compare/$pin...$current" ]] || return 1
   [[ ${response:-ahead} != failure ]] || return 1
   printf '{"status":"%s","base_commit":{"sha":"%s"},"merge_base_commit":{"sha":"%s"}}\n' "${response:-ahead}" "$pin" "${proof_ancestor:-$pin}"
@@ -45,6 +50,27 @@ gh() {
 _worktree_gc_actions_superseded "$fixture" "$target" "$base"
 result=$?
 _assert_exit 'descendant provider repin is superseded' 0 "$result"
+# A blobless or partial clone fetches missing objects on demand, so every
+# Git read and the GitHub query must run without credential prompts.
+real_git=$(command -v git)
+env_bin=$(_tmpdir)
+env_log=$(_tmpdir)/env.log
+cat >"$env_bin/git" <<STUB
+#!/usr/bin/env bash
+printf 'git prompt=%s askpass=%s stdin=%s\n' "\${GIT_TERMINAL_PROMPT-unset}" \
+  "\${GIT_ASKPASS-unset}" "\$([[ -t 0 ]] && echo tty || echo none)" >>"$env_log"
+exec "$real_git" "\$@"
+STUB
+chmod +x "$env_bin/git"
+GIT_ASKPASS=/bin/false GIT_TERMINAL_PROMPT=1 GH_ENV_LOG=$env_log PATH="$env_bin:$PATH" \
+  _worktree_gc_actions_superseded "$fixture" "$target" "$base"
+result=$?
+_assert_exit 'the proof still holds through the batch helper' 0 "$result"
+_assert_contains 'Git reads run without credential prompts' \
+  'git prompt=0 askpass= stdin=none' "$(cat "$env_log")"
+_assert_not_contains 'no Git read can prompt' 'git prompt=1' "$(cat "$env_log")"
+_assert_contains 'the GitHub query runs without prompts' \
+  'gh prompt=0 askpass= stdin=none' "$(cat "$env_log")"
 response=behind
 _worktree_gc_actions_superseded "$fixture" "$target" "$base"
 result=$?

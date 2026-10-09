@@ -8,11 +8,12 @@
 # A checkout is stale when it shows no Git activity for the stale window and
 # its branch is merged or its own-name upstream is gone; a stale checkout with
 # uncommitted changes is reported as dirty instead, because dot-worktree-gc
-# will refuse it. Clone roots' worktree admin areas are read directly, so
-# checkouts registered anywhere count, and prunable or locked admin entries
-# are reported. A checkout whose `.git` pointer names a repository or admin
-# entry that no longer exists is an orphan: Git cannot inspect it, so it is
-# reported on its own row and never probed.
+# keeps it (unless all it holds untracked is a cache the gc may prune). Clone
+# roots' worktree admin areas are read directly, so checkouts registered
+# anywhere count, and prunable or locked admin entries are reported. A
+# checkout whose `.git` pointer names a repository or admin entry that no
+# longer exists is an orphan: Git cannot inspect it, so it is reported on its
+# own row and never probed.
 #
 # The disk threshold defaults to 10 GiB and is overridable with
 # DOT_WORKTREE_WARN_BYTES (plain integer bytes; anything else falls back to
@@ -175,13 +176,120 @@ _dr_worktree_base_gitdir() {
   REPLY=${DOTFILES:-${DOT_CLIENT_GIT_DIR:-${HOME:-}/.dotfiles}}
 }
 
-# Print the common Git directory of every clone root whose worktree admin
-# area the scan reads: the base client's separate Git directory, every
-# ~/git/* clone, and the ~/.dotfiles-* overlay clones. With `base`, only the
-# base client's, which is the registered scope dot-worktree-gc sweeps.
+# The clone roots and parked linked worktrees of the current run (see
+# _dr_worktree_clone_roots and _dr_worktree_parked_roots), cached by
+# _dr_worktree_clone_roots_load so a gitfile root costs one Git process per
+# run, not one per admin scan; subshells read the same cache. Keyed by
+# the HOME it was computed for, so a later caller with another HOME (a test,
+# a sourcing tool) never reads roots that are not its own.
+_DR_WORKTREE_CLONE_ROOTS=
+_DR_WORKTREE_PARKED_ROOTS=
+_DR_WORKTREE_CLONE_ROOTS_HOME=
+_DR_WORKTREE_CLONE_ROOTS_LOADED=0
+
+# Print one tagged line per ~/git/* and ~/.dotfiles-* root with a .git:
+# "C<TAB>common<TAB>root" for a clone root, which is its repository's main
+# checkout, and "P<TAB>common<TAB>root" for a linked worktree parked among
+# them. A root whose .git is a directory is a clone root with no process; a
+# gitfile root asks Git where it points once, which answers both questions.
+# A root Git cannot read is left out. Never fails.
+_dr_worktree_scan_roots() {
+  local home=${HOME:-} gitpath root out gitdir common
+  for gitpath in "$home"/git/*/.git "$home"/.dotfiles-*/.git; do
+    root=${gitpath%/.git}
+    if [[ -d $gitpath ]]; then
+      printf 'C\t%s\t%s\n' "$gitpath" "$root"
+      continue
+    fi
+    [[ -f $gitpath ]] || continue
+    out=$(_dr_git -C "$root" rev-parse --git-dir --git-common-dir 2>/dev/null) || continue
+    gitdir=${out%%$'\n'*}
+    common=${out#*$'\n'}
+    [[ -n $gitdir && -n $common && $common != "$out" ]] || continue
+    [[ $gitdir == /* ]] || gitdir=$root/$gitdir
+    [[ $common == /* ]] || common=$root/$common
+    [[ -d $common ]] || continue
+    if [[ $gitdir -ef $common ]]; then
+      printf 'C\t%s\t%s\n' "$common" "$root"
+    else
+      printf 'P\t%s\t%s\n' "$common" "$root"
+    fi
+  done
+  return 0
+}
+
+# Print the TAG entries of _dr_worktree_scan_roots, untagged, from the run's
+# cache once loaded for this HOME, else from a fresh scan.
+_dr_worktree_roots_tagged() {
+  local tag=$1 line
+  if ((_DR_WORKTREE_CLONE_ROOTS_LOADED == 1)) &&
+    [[ $_DR_WORKTREE_CLONE_ROOTS_HOME == "${HOME:-}" ]]; then
+    if [[ $tag == C ]]; then
+      [[ -z $_DR_WORKTREE_CLONE_ROOTS ]] || printf '%s' "$_DR_WORKTREE_CLONE_ROOTS"
+    else
+      [[ -z $_DR_WORKTREE_PARKED_ROOTS ]] || printf '%s' "$_DR_WORKTREE_PARKED_ROOTS"
+    fi
+    return 0
+  fi
+  while IFS= read -r line; do
+    [[ $line == "$tag"$'\t'* ]] && printf '%s\n' "${line#?$'\t'}"
+  done < <(_dr_worktree_scan_roots)
+  return 0
+}
+
+# Print "common<TAB>checkout" for every ~/git/* and ~/.dotfiles-* clone
+# root: its common Git directory and the root, its main checkout. A gitfile
+# root counts only when it is that repository's main checkout (a clone made
+# with --separate-git-dir). A linked worktree parked among the clones is not
+# a clone root: its owner may live anywhere (another tool's workspace,
+# /tmp), and parking a checkout under ~/git must not bring that repository's
+# branches into the sweep or its admin area into the doctor; the owner is
+# covered only if it is ~/.dotfiles or a clone root itself (see
+# _dr_worktree_parked_roots). A ~/.dotfiles-* root that is a linked worktree
+# is treated as parked too.
+# Uses the run's cache once loaded. Never fails.
+_dr_worktree_clone_roots() {
+  _dr_worktree_roots_tagged C
+}
+
+# Print "common<TAB>root" for every linked worktree parked under ~/git or as
+# a ~/.dotfiles-* root. Only one whose repository is ~/.dotfiles or a clone
+# root lends its .worktrees to the sweep (_dr_worktree_candidates); parking
+# alone never brings a repository in. Uses the run's cache once loaded.
 # Never fails.
+_dr_worktree_parked_roots() {
+  _dr_worktree_roots_tagged P
+}
+
+# Scan the roots once for this run and cache both lists for every later
+# _dr_worktree_clone_roots and _dr_worktree_parked_roots call, in this shell
+# and its subshells: a gitfile root then costs one Git process per run, not
+# one per admin scan. Callers (the doctor check, the gc sweep) load at the
+# start of each run, so a new run always rescans. Must run in the main
+# shell.
+_dr_worktree_clone_roots_load() {
+  local scan line
+  _DR_WORKTREE_CLONE_ROOTS_LOADED=0
+  _DR_WORKTREE_CLONE_ROOTS=
+  _DR_WORKTREE_PARKED_ROOTS=
+  scan=$(_dr_worktree_scan_roots)
+  while IFS= read -r line; do
+    case $line in
+      C$'\t'*) _DR_WORKTREE_CLONE_ROOTS+=${line#C$'\t'}$'\n' ;;
+      P$'\t'*) _DR_WORKTREE_PARKED_ROOTS+=${line#P$'\t'}$'\n' ;;
+    esac
+  done <<<"$scan"
+  _DR_WORKTREE_CLONE_ROOTS_HOME=${HOME:-}
+  _DR_WORKTREE_CLONE_ROOTS_LOADED=1
+}
+
+# Print the common Git directory of every clone root whose worktree admin
+# area the scan reads: the base client's separate Git directory, then every
+# ~/git/* and ~/.dotfiles-* clone (_dr_worktree_clone_roots). With `base`,
+# only the base client's, which is the registered scope dot-worktree-gc
+# sweeps. Never fails.
 _dr_worktree_clone_commons() {
-  local home=${HOME:-} common base
+  local common base
 
   _dr_worktree_base_gitdir
   base=$REPLY
@@ -189,9 +297,9 @@ _dr_worktree_clone_commons() {
     printf '%s\n' "$base"
   fi
   [[ ${1:-} != base ]] || return 0
-  for common in "$home"/git/*/.git "$home"/.dotfiles-*/.git; do
-    [[ -d $common ]] && printf '%s\n' "$common"
-  done
+  while IFS=$'\t' read -r common _; do
+    printf '%s\n' "$common"
+  done < <(_dr_worktree_clone_roots)
   return 0
 }
 
@@ -257,7 +365,13 @@ _dr_worktree_admin_scan() {
 # The shared worktree roots under HOME, the one list the doctor's report and
 # dot-worktree-gc's sweep both read. Their children are checkouts, and a
 # child without a `.git` of its own is a grouping folder (a batch of
-# checkouts made together), whose checkout children count too.
+# checkouts made together), whose checkout children count too. A root under
+# ~/git that is itself a checkout (a clone that happens to be named
+# `worktrees`) is not one: its children are that repository's own files,
+# and an empty one would read as a leftover directory to remove. A clone at
+# ~/git/worktrees is still covered as a clone root; one at ~/git/.worktrees
+# is not (the ~/git/* clone glob skips hidden names), and neither is swept
+# as a worktree root.
 _DR_WORKTREE_SHARED_ROOTS=(.worktrees git/worktrees worktrees git/.worktrees)
 
 # Print the physical path of every child of ROOT. With `group`, a child that
@@ -307,9 +421,13 @@ _dr_worktree_root_children() {
 #      they live,
 #   2. children of the shared worktree roots (every repo, plus orphaned
 #      checkouts git no longer tracks), one grouping level deep,
-#   3. repo-local .worktrees children under every clone root: ~/git plus
-#      the ~/.dotfiles-* overlay clones, which are repos like any other,
-#   4. children of any extra roots passed as arguments (--root).
+#   3. repo-local .worktrees children under every clone root
+#      (_dr_worktree_clone_roots): ~/git plus the ~/.dotfiles-* overlay
+#      clones, which are repos like any other,
+#   4. repo-local .worktrees children of every parked linked worktree
+#      (_dr_worktree_parked_roots) whose repository is ~/.dotfiles or one of
+#      those clone roots,
+#   5. children of any extra roots passed as arguments (--root).
 # Repo-local and extra roots take children only: they are a repository's or
 # the caller's own layout, not a shared batch area. Checkouts other clones
 # registered elsewhere (tool workspaces, agent worktrees inside a
@@ -320,9 +438,13 @@ _dr_worktree_root_children() {
 # doctor call intentionally passes none.
 # shellcheck disable=SC2120
 _dr_worktree_candidates() {
-  local home=${HOME:-} root dir extra
+  local home=${HOME:-} root dir extra common checkout
+  local -a managed=()
 
   [[ -n $home && -d $home ]] || return 0
+
+  _dr_worktree_base_gitdir
+  [[ -z $REPLY || ! -d $REPLY ]] || managed+=("$REPLY")
 
   _dr_worktree_admin_scan base
   for dir in ${_DR_WORKTREE_ADMIN_LIVE[@]+"${_DR_WORKTREE_ADMIN_LIVE[@]}"}; do
@@ -331,12 +453,33 @@ _dr_worktree_candidates() {
   done
 
   for root in "${_DR_WORKTREE_SHARED_ROOTS[@]}"; do
+    # Only a root under ~/git can be a clone root itself; a stray .git in
+    # ~/worktrees or ~/.worktrees (an old `git init`) must not hide the
+    # checkouts parked there.
+    [[ $root == git/* && -e $home/$root/.git ]] && continue
     _dr_worktree_root_children "$home/$root" group
   done
 
-  for dir in "$home"/git/*/.worktrees "$home"/.dotfiles-*/.worktrees; do
-    _dr_worktree_root_children "$dir"
-  done
+  # Only clone roots' own .worktrees: globbing every ~/git/* entry would
+  # also read the .worktrees of a linked worktree parked there, whose
+  # checkouts belong to a repository the sweep does not manage, and sweeping
+  # one would bring that repository's branches in after all.
+  while IFS=$'\t' read -r common checkout; do
+    _dr_worktree_root_children "$checkout/.worktrees"
+    managed+=("$common")
+  done < <(_dr_worktree_clone_roots)
+  # A linked worktree parked under ~/git whose repository is ~/.dotfiles or a
+  # clone root is that repository's checkout like any other, so its own
+  # .worktrees counts too; any other owner's stays out. Compared by identity:
+  # Git may spell a common directory physically where HOME is a symlink.
+  while IFS=$'\t' read -r common root; do
+    for dir in ${managed[@]+"${managed[@]}"}; do
+      if [[ $common -ef $dir ]]; then
+        _dr_worktree_root_children "$root/.worktrees"
+        break
+      fi
+    done
+  done < <(_dr_worktree_parked_roots)
 
   for extra in "$@"; do
     _dr_worktree_root_children "$extra"
@@ -415,7 +558,14 @@ _dr_worktree_repo_key() {
 _dr_worktree_base_ref() {
   local dir=$1 ref head_info default_ref candidate
   local -a remotes=()
-  ref=$(_dr_git -C "$dir" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null) || ref=
+  # The full ref, stripped by hand: `--short` answers remotes/origin/<name>
+  # when a local branch or tag shares the short name, which would then split
+  # into a remote called `remotes`.
+  ref=$(_dr_git -C "$dir" symbolic-ref -q refs/remotes/origin/HEAD 2>/dev/null) || ref=
+  case $ref in
+    refs/remotes/*) ref=${ref#refs/remotes/} ;;
+    *) ref= ;;
+  esac
   if [[ $ref == */* ]] &&
     _dr_git -C "$dir" rev-parse --verify -q "$ref^{commit}" >/dev/null 2>&1; then
     printf '%s\n' "$ref"
@@ -1203,8 +1353,12 @@ _dr_worktree_is_locked() {
 # inherits and which would hide new files from the porcelain output.
 # `normal` lists an untracked directory as one entry, which is all a
 # clean-or-dirty verdict needs.
-# The same `status --porcelain` view dot-worktree-gc uses to refuse a dirty
-# checkout, so doctor never suggests a sweep the gc will decline.
+# This is not the view dot-worktree-gc's removal gate uses: git-tools reads
+# `--ignored=matching --untracked-files=all` and first prunes cache-tagged
+# (CACHEDIR.TAG) directories and cleanupRepo.worktreePrunePath entries. So
+# the gc can still keep a checkout counted clean here for its ignored files,
+# and remove one counted dirty here only for a disposable cache; the dirty
+# row's hint says what the gc keeps rather than promising the same verdict.
 # --no-optional-locks keeps the probe from refreshing the index, which
 # would both write into the checkout and reset its activity signal, and
 # fsmonitor stays off so no watcher daemon starts per checkout.
@@ -1692,6 +1846,7 @@ _dr_check_worktrees() {
   _DR_WORKTREE_FACT_ROWS=()
   _DR_WORKTREE_STALE_ENTRIES=()
   _dr_worktree_resolve_git
+  _dr_worktree_clone_roots_load
 
   local home=${HOME:-}
   local home_phys dotfiles_phys dotfiles dir
@@ -1720,7 +1875,8 @@ _dr_check_worktrees() {
     mapfile -t dirs < <(printf '%s\n' "${!seen[@]}" | LC_ALL=C sort)
   fi
   # The enumeration above ran in a subshell; rescan the admin areas here
-  # (file reads only) so the prunable and locked lists reach the report.
+  # (file reads plus the clone roots cached at the start of this run) so the
+  # prunable and locked lists reach the report.
   _dr_worktree_admin_scan
 
   # A checkout nested inside another candidate is measured through that
@@ -1878,7 +2034,7 @@ _dr_check_worktrees() {
     elif ((manual_count == stale_count)); then
       hint="delete them by hand once reviewed: dot-worktree-gc keeps them"
     else
-      hint="run 'dot-worktree-gc' (dry run; also lists merged branches across clones), then 'dot-worktree-gc --apply' (deletes those branches too; untracked or ignored content keeps a checkout)"
+      hint="run 'dot-worktree-gc' (dry run; also lists merged branches across clones), then 'dot-worktree-gc --apply' (deletes those branches too; untracked or ignored content other than tagged caches and cleanupRepo.worktreePrunePath entries keeps a checkout)"
       ((manual_count == 0)) ||
         hint+="; delete those marked 'delete by hand' yourself"
     fi
@@ -1892,7 +2048,7 @@ _dr_check_worktrees() {
       label="$dirty_count inactive worktrees have uncommitted changes"
     fi
     _dr_list_row warn "$label" \
-      "commit or discard them first: dot-worktree-gc skips dirty checkouts" "${dirty_items[@]}"
+      "commit or discard them first: dot-worktree-gc keeps them (it prunes only tagged caches and cleanupRepo.worktreePrunePath entries)" "${dirty_items[@]}"
   fi
   if ((${#opaque[@]} > 0)); then
     if ((${#opaque[@]} == 1)); then

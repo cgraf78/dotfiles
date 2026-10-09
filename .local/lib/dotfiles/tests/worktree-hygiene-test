@@ -384,6 +384,8 @@ _make_old "$wt"
 # Old checkout sitting on the synced default branch in a repo-local root:
 # fully merged, so warns.
 mkdir -p "$stale_home/git/old-main-repo/.worktrees"
+# Only a clone root's .worktrees is enumerated, so the parent is a repo.
+git init --quiet "$stale_home/git/old-main-repo"
 _clone_worktree "$stale_origin" "$stale_home/git/old-main-repo/.worktrees/old-main"
 _make_old "$stale_home/git/old-main-repo/.worktrees/old-main"
 
@@ -579,6 +581,7 @@ echo "=== Overlay clone worktrees ==="
 
 overlay_home=$(_tmpdir)
 mkdir -p "$overlay_home/.dotfiles-dev/.worktrees/wt1"
+git init --quiet "$overlay_home/.dotfiles-dev"
 # Old and non-git: counted for disk, silent for staleness.
 _make_old "$overlay_home/.dotfiles-dev/.worktrees/wt1"
 
@@ -1073,7 +1076,7 @@ _assert_not_contains "activity: a fresh index keeps a checkout active" \
 _assert_contains "activity: a standalone clone is labelled" \
   "act-idle (merged into origin/main, standalone clone)" "$result"
 _assert_contains "activity: mixed rows send worktrees to the gc and clones by hand" \
-  "run 'dot-worktree-gc' (dry run; also lists merged branches across clones), then 'dot-worktree-gc --apply' (deletes those branches too; untracked or ignored content keeps a checkout); delete those marked 'delete by hand' yourself" \
+  "run 'dot-worktree-gc' (dry run; also lists merged branches across clones), then 'dot-worktree-gc --apply' (deletes those branches too; untracked or ignored content other than tagged caches and cleanupRepo.worktreePrunePath entries keeps a checkout); delete those marked 'delete by hand' yourself" \
   "$result"
 _assert_contains "activity: the clone is listed first, marked for removal by hand" \
   $'warn\t2 stale worktrees (older than 14 days): 2 merged\t~/.worktrees/act-idle (merged into origin/main, standalone clone, delete by hand); ~/.worktrees/act-linked (merged into origin/main); run ' \
@@ -1114,8 +1117,8 @@ _assert_contains "dirty: untracked files are counted" \
   "dirty-untracked (1 uncommitted, merged into origin/main)" "$result"
 _assert_not_contains "dirty: a dirty checkout is never called stale" \
   "dirty-modified (merged" "$result"
-_assert_contains "dirty: the row says the gc skips it" \
-  "dot-worktree-gc skips dirty checkouts" "$result"
+_assert_contains "dirty: the row says the gc keeps it" \
+  "commit or discard them first: dot-worktree-gc keeps them (it prunes only tagged caches and cleanupRepo.worktreePrunePath entries)" "$result"
 _assert_contains "dirty: clone-only stale rows say clones go by hand" \
   $'warn\t1 stale worktree (older than 14 days): 1 merged\t' "$result"
 _assert_contains "dirty: clone-only stale rows name no gc command" \
@@ -1205,6 +1208,35 @@ _assert_not_contains "registered: the admin scan spawns no worktree listing" \
 _assert_eq "registered: odd admin entries print nothing to stderr" "" \
   "$(HOME="$reg_home" DOTFILES="$reg_home/.dotfiles" \
     _doctor_records _dr_check_worktrees 2>&1 >/dev/null)"
+
+# A clone root whose .git is a gitfile (--separate-git-dir) needs one Git
+# process to find its admin area. The check scans admin areas more than once
+# (in its enumeration subshell and again for the report), so the roots are
+# resolved once per run and cached.
+sep_home=$(_tmpdir)
+sep_origin=$(_tmpdir)/origin.git
+git init --quiet --bare "$sep_origin"
+git clone --quiet "$sep_origin" "$(_tmpdir)/seed" 2>/dev/null
+mkdir -p "$sep_home/git" "$sep_home/elsewhere"
+git clone --quiet --separate-git-dir="$sep_home/elsewhere/sep.git" "$sep_origin" \
+  "$sep_home/git/sep" 2>/dev/null
+_git_set_test_identity git -C "$sep_home/git/sep"
+git -C "$sep_home/git/sep" commit --quiet --allow-empty -m seed
+git -C "$sep_home/git/sep" worktree add --quiet "$sep_home/shared/sep-wt" -b sep-wt 2>/dev/null
+sep_git_log=$(_tmpfile)
+sep_shim_bin=$(_tmpdir)
+cat >"$sep_shim_bin/git" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >>"$sep_git_log"
+exec "$batch_real_git" "\$@"
+SH
+chmod +x "$sep_shim_bin/git"
+result=$(HOME="$sep_home" DOTFILES="$sep_home/.dotfiles" \
+  PATH="$sep_shim_bin:$PATH" _doctor_records _dr_check_worktrees)
+_assert_contains "gitfile root: its registered checkout is reported" \
+  "across 1 worktree" "$result"
+_assert_eq "gitfile root: resolved once per doctor run" 1 \
+  "$(grep -c 'rev-parse --git-dir --git-common-dir' "$sep_git_log")"
 
 # Locked checkouts are reported once, in the locked row, even when stale;
 # a stale linked worktree alone points at the gc.
@@ -1524,7 +1556,7 @@ grp_row=$(grep $'^warn\t3 stale worktrees' <<<"$result")
 _assert_contains "groups: the stale row counts by reason" \
   $'warn\t3 stale worktrees (older than 14 days): 3 merged\t' "$grp_row"
 _assert_contains "groups: the stale row ends with the gc commands" \
-  "; run 'dot-worktree-gc' (dry run; also lists merged branches across clones), then 'dot-worktree-gc --apply' (deletes those branches too; untracked or ignored content keeps a checkout)" \
+  "; run 'dot-worktree-gc' (dry run; also lists merged branches across clones), then 'dot-worktree-gc --apply' (deletes those branches too; untracked or ignored content other than tagged caches and cleanupRepo.worktreePrunePath entries keeps a checkout)" \
   "$grp_row"
 # Every stale checkout is an item; a Dot with list items folds the tail
 # itself, and the hint is a separate next-step line.
@@ -1535,7 +1567,7 @@ _assert_contains "groups: list items name every stale checkout" \
     $'item\t~/git/.worktrees/g-hidden (merged into origin/main)\t' \
     $'item\t~/git/worktrees/batch/g-nested (merged into origin/main)\t' \
     $'item\t~/worktrees/g-top (merged into origin/main)\t' \
-    $'hint\trun \'dot-worktree-gc\' (dry run; also lists merged branches across clones), then \'dot-worktree-gc --apply\' (deletes those branches too; untracked or ignored content keeps a checkout)\t')" \
+    $'hint\trun \'dot-worktree-gc\' (dry run; also lists merged branches across clones), then \'dot-worktree-gc --apply\' (deletes those branches too; untracked or ignored content other than tagged caches and cleanupRepo.worktreePrunePath entries keeps a checkout)\t')" \
   "$result"
 
 # A grouping folder whose every checkout is stale counts whole toward the

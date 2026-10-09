@@ -75,7 +75,11 @@ explicit and verifiable.
   `git cleanup-repo --no-update-base --worktree <completed-worktree> --min-age 1`
   from the main checkout instead. It also deletes the repository's other
   proven-merged branches that have no checkout, and keeps a branch landed by
-  a merge commit or fast-forward until it is a day old. Never run an unscoped
+  a merge commit or fast-forward until it is a day old; while it keeps that
+  branch, it keeps the selected worktree too, so rerun the cleanup later.
+  Run it with the shell's working directory outside the completed worktree:
+  a process whose working directory is inside it, including the shell
+  running the cleanup, keeps the worktree in use. Never run an unscoped
   `--remove-worktrees`: it would also remove other clean worktrees, including
   ones concurrent agents just created.
 - Do not treat a successful local push, stale pull-request page, or queued CI as
