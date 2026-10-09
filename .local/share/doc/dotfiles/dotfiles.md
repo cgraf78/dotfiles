@@ -277,10 +277,23 @@ state have a safe retirement path.
 `dot-worktree-gc --older-than 1d` previews cleanup across every managed clone
 (`~/.dotfiles`, `~/git/*`, `~/.dotfiles-*`, and the owner of any discovered
 checkout). Add `--apply` to act. It deletes local branches proven merged and
-removes worktrees whose Git activity is older than the limit (default 14
-days). Age uses the newest checkout-directory, Git HEAD, index, and reftable
-activity signal; the current `find -mtime +N` threshold requires N+1 full
-days, and a tool that refreshes a checkout's index makes it look active again.
+removes worktrees whose Git activity is older than the limit (default 14 days,
+the doctor's stale window). Age uses the newest checkout-directory, Git HEAD,
+index, and reftable activity signal; the current `find -mtime +N` threshold
+requires N+1 full days, and a tool that refreshes a checkout's index makes it
+look active again. A clone root whose `.git` is a file counts too when it is
+its repository's main checkout (a clone made with `--separate-git-dir`). A
+linked worktree parked under `~/git` (or a `~/.dotfiles-*` root that is a
+linked worktree) is not a clone root: its own `.worktrees` is swept only when
+its repository is `~/.dotfiles` or a `~/git/*` or `~/.dotfiles-*` clone, so
+parking alone never brings a repository into the sweep. If `~/git/worktrees` is
+itself a clone, it is swept as a clone, not as a worktree root (a clone at
+`~/git/.worktrees` is not swept at all); `~/worktrees` and `~/.worktrees` stay
+worktree roots even with a stray `.git`. The command needs Bash 4 or newer, and
+it ignores repository-selecting Git variables such as `GIT_DIR` it inherits
+from an alias, hook, or launcher, while keeping environment-injected
+configuration (`GIT_CONFIG_COUNT` entries such as `url.<base>.insteadOf`
+rewrites).
 
 Every per-repository decision comes from `git cleanup-repo` in git-tools, run
 with `--no-update-base --porcelain`, so the sweep never moves a local base and
@@ -295,29 +308,48 @@ proven merged, its own-name upstream is gone, an unpublished
 `.github/cgraf78-actions.lock` repin was superseded on the base, or, with
 `--include-closed`, only a closed unmerged pull request contains it. Main,
 current, locked, dirty, mid-operation, mid-checkout, and in-use checkouts stay,
-and so does one holding untracked or ignored content other than cache-tagged
-(`CACHEDIR.TAG`) directories or a repository's configured
-`cleanupRepo.worktreePrunePath` entries, which are pruned first. A kept branch
-is listed only when its checkout was retired without it; other kept branches
-are counted in the tally. Any proven-merged local branch other than the base
-goes, including a stale local `master` in a repository whose base is `main`;
-its commits remain reachable from the base. The exception is a clone whose
-`origin/HEAD` still names a branch the upstream renamed: git-tools keeps that
-old default like the base until
-`git fetch origin && git remote set-head origin --auto` refreshes it.
+as do checkouts with a populated submodule and ones holding untracked or
+ignored content other than cache-tagged (`CACHEDIR.TAG`) directories or a
+repository's configured `cleanupRepo.worktreePrunePath` entries, which are
+pruned first. A failed removal reports git-tools' diagnostic when one names
+that checkout. A kept branch is listed only when its checkout was removed
+without it, whether retired on its own evidence or kept after the removal
+because it was checked out again, moved, or a checkout was in flight; other
+kept branches are counted in the tally. A clone with no selected checkout and
+at most its checked-out branch is skipped without running git-tools. Any
+proven-merged local branch other than the base goes, including a stale local
+`master` in a repository whose base is `main`; its commits remain reachable
+from the base. The exception is a clone whose `origin/HEAD` still names a
+branch the upstream renamed: git-tools keeps that old default like the base
+until `git fetch origin && git remote set-head origin --auto` refreshes it.
 `--no-fetch` proves against local refs and skips pull request evidence; an
 unreachable remote falls back to local refs on its own, and then no checkout is
 retired on the superseded-Actions-pin evidence, since no open pull request can
-be ruled out. The sweep never asks for HTTPS credentials, even through an
-editor's askpass helper: a remote that wants them (a deleted or private
-repository) counts as unreachable, while configured credential helpers still
-answer; SSH passphrase and host-key prompts are left to your SSH setup. A base
-read from a clone's `origin/HEAD` is left to git-tools, which on a fetching run
-follows the remote's own default branch when the upstream renamed it. The base
-client, fresh or legacy bare, is swept with `$HOME` as its work tree. A
-`merge unproven` record does not establish that a pull request is unmerged. A
-missing or older git-tools skips repository cleanup with a notice; `dot update`
-installs the current release.
+be ruled out. A dry run moves no refs: git-tools fetches the remote base
+without updating remote-tracking refs, and an orphaned checkout's base is
+fetched only with `--apply`, so a dry run proves orphans against the refs
+already fetched and `--apply` can retire one the preview kept. When pull
+request lookups fail (for example, `gh` is not authenticated), the sweep says
+so once per repository; merged-PR evidence is then missing and those branches
+stay. The sweep never asks for HTTPS credentials, even through an editor's
+askpass helper: a remote that wants them (a deleted or private repository)
+counts as unreachable, while configured credential helpers still answer; SSH
+passphrase and host-key prompts are left to your SSH setup. A base read from a
+clone's `origin/HEAD` is left to git-tools, which on a fetching run follows the
+remote's own default branch when the upstream renamed it. A clone with
+something to decide (a selected checkout, or a branch other than the one its
+main checkout has out) whose remotes yield no base branch (several remotes,
+none named `origin`; a remote name with a slash; or no `origin/HEAD` and a
+default other than `main`, `master`, or `trunk`) is skipped with a notice. The
+base client, fresh or legacy bare, is swept with `$HOME` as its work tree. A
+`merge unproven` record does not establish that a pull request is unmerged.
+git-tools is not part of the base profile: the dotfiles-dev overlay installs it
+through Shdeps as a checkout of its main branch, the sweep asks Shdeps where it
+lives (a development clone under `~/git` wins over the install root), and
+`GIT_TOOLS_ROOT` can name another checkout. A missing git-tools, or one older
+than porcelain interface version 1 (`git cleanup-repo --interface-version`),
+skips repository cleanup with a notice; run `dot update` with the dev profile
+enabled to bring it current.
 
 Old empty directories discovered directly under the worktree roots are also
 eligible for removal with `rmdir`. Hidden files count as contents, and a file

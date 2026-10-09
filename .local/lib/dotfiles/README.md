@@ -17,6 +17,11 @@ those interfaces execute.
 - `worktree-gc.sh` implements the `dot-worktree-gc` command: discovery, the
   age policy, and empty or orphaned directories, with every per-repository
   branch and checkout decision delegated to `git cleanup-repo` (git-tools).
+- `worktree-gc-actions.sh` proves that a checkout's only change is a
+  superseded `cgraf78/actions` pin, the one retirement request
+  `dot-worktree-gc` makes on its own evidence.
+- `worktree-gc-orphans.py` proves and retires checkouts whose Git metadata is
+  gone, by exact match against merged history, without recursive deletion.
 
 Editor and development runtime belongs to `dotfiles-nvim` and `dotfiles-dev`.
 Executable extensions use only Dot's public hook or doctor API.

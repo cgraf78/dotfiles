@@ -6,6 +6,18 @@
 # native command can wrap or absorb it. See that file for the stdout
 # contract, exit codes, and safety rules.
 
+# The library needs Bash 4 or newer (mapfile, and associative arrays in the
+# shared doctor helpers). macOS /bin/bash is 3.2, where it would fail part
+# way through with misleading errors, so refuse up front. POSIX syntax, so
+# that running it with another shell (zsh, dash) reaches this message too.
+case ${BASH_VERSION:-} in
+  '' | [0-3].*)
+    printf 'dot-worktree-gc: requires Bash 4 or newer (this is %s)\n' \
+      "${BASH_VERSION:+Bash }${BASH_VERSION:-not Bash}" >&2
+    exit 1
+    ;;
+esac
+
 set -u
 
 _src=${BASH_SOURCE[0]}
