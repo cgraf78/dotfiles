@@ -12,6 +12,9 @@
 
 set -o pipefail
 export NO_COLOR=1
+# A host may name the probe Git (an overlay sets DOT_DOCTOR_GIT); the sweep
+# must run the Git the suite selected unless a case sets it.
+unset DOT_DOCTOR_GIT
 
 # shellcheck source=helpers.sh
 . "${BASH_SOURCE[0]%/*}/helpers.sh"
@@ -30,6 +33,14 @@ GC=$ROOT/.local/bin/dot-worktree-gc
 _GC_EMPTY_HOOKS_DIR=$(_tmpdir)/empty-hooks
 mkdir -p "$_GC_EMPTY_HOOKS_DIR"
 _test_hermetic_git core.hooksPath "$_GC_EMPTY_HOOKS_DIR"
+# Fixture commits, pushes, and fetches must not start Git's auto
+# maintenance: since Git 2.54 its default strategy prunes worktrees whose
+# registered path is gone and whose index is past gc.worktreePruneExpire,
+# which every aged, moved fixture checkout is, so a later fixture commit in
+# the same repository would turn it into an orphan behind the test's back.
+# Set in the global file, not the environment list, so a case can turn it
+# back on with repository config.
+git config --global maintenance.auto false
 
 # Seed a bare origin with a main branch carrying one commit.
 _gc_seed_origin() {
@@ -730,6 +741,8 @@ chmod +x "$fetch_bin/git"
 _assert_contains "batch: gc's own base fetch never prompts or reads input" \
   "prompt=0 gcm=never askpass= stdin=none args=--git-dir=/nonexistent/repo.git fetch" \
   "$(cat "$fetch_log" 2>/dev/null)"
+_assert_contains "batch: gc's own base fetch never starts Git's auto maintenance" \
+  " --no-auto-gc " "$(cat "$fetch_log" 2>/dev/null)"
 
 # A dry run proves against the refs it finds: previewing never fetches, so
 # it never moves remote-tracking refs.
@@ -2216,6 +2229,33 @@ if [[ -d /proc/self/cwd ]] && command -v python3 >/dev/null 2>&1; then
   result=$(env -u DOTFILES -u DOT_CLIENT_GIT_DIR HOME="$bo_home" "$GC" --no-fetch 2>/dev/null)
   _assert_contains "orphan: a base-client orphan proves against the base client's base" \
     "$(printf 'would-remove\t%s\torphaned checkout matches merged commit' "$bo_orphan")" "$result"
+
+  # An applied orphan proof's base fetch must not start Git's auto
+  # maintenance, which (Git 2.54 and later) would prune the registration of
+  # a moved checkout in the same repository and leave it an orphan the
+  # sweep may remove instead of one to repair. Maintenance runs in the
+  # foreground here, so a prune would land before the sweep returns.
+  mv_home=$(_gc_tmpdir)
+  mkdir -p "$mv_home/git" "$mv_home/.worktrees"
+  _gc_seed_origin "$mv_home/origin.git"
+  mv_owner=$mv_home/git/owner
+  git clone "$mv_home/origin.git" "$mv_owner" >/dev/null 2>&1
+  git -C "$mv_owner" config maintenance.auto true
+  git -C "$mv_owner" config maintenance.autoDetach false
+  git -C "$mv_owner" config gc.autoDetach false
+  mv_orphan=$mv_home/.worktrees/mv-orphan
+  git -C "$mv_owner" worktree add --quiet -b mv-orphan "$mv_orphan" main 2>/dev/null
+  rm -r -- "$(git -C "$mv_orphan" rev-parse --git-dir)"
+  _gc_make_old "$mv_orphan"
+  git -C "$mv_owner" worktree add --quiet -b mv-moved "$mv_home/.worktrees/mv-before" main 2>/dev/null
+  mv -- "$mv_home/.worktrees/mv-before" "$mv_home/.worktrees/mv-after"
+  _gc_make_old "$mv_home/.worktrees/mv-after"
+  HOME="$mv_home" DOTFILES="$mv_home/.dotfiles" "$GC" --apply >/dev/null 2>&1
+  if [[ -d $mv_owner/.git/worktrees/mv-before ]]; then mv_status=0; else mv_status=1; fi
+  _assert_exit "orphan: the base fetch keeps a moved checkout's registration" 0 "$mv_status"
+  _assert_contains "orphan: that moved checkout is still labelled for repair" \
+    "$(printf "skipped\t%s\tmoved worktree not repaired (registered at %s)" "$mv_home/.worktrees/mv-after" "$mv_home/.worktrees/mv-before")" \
+    "$(HOME="$mv_home" DOTFILES="$mv_home/.dotfiles" "$GC" 2>/dev/null)"
 else
   echo '  - skipping orphan retirement case: python3 or readable /proc unavailable'
 fi

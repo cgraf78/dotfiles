@@ -447,7 +447,12 @@ _worktree_gc_base_ref() {
 # applying: a dry run proves against the refs it finds, so previewing never
 # moves remote-tracking refs. Never fails the sweep: a fetch failure degrades
 # to local refs with a notice. Proving against stale refs only withholds
-# proof (fewer removals), never fabricates it.
+# proof (fewer removals), never fabricates it. --no-auto-gc keeps the fetch
+# from starting Git's auto maintenance, which prunes the registration of a
+# worktree whose registered path is gone once its index is older than
+# gc.worktreePruneExpire (by default since Git 2.54, and whenever `gc --auto`
+# decides to collect): a moved checkout the sweep keeps for repair would
+# become an orphan it may remove.
 _worktree_gc_fetch_base() {
   local dir=$1 common=$2
   local ref remote branch err
@@ -462,7 +467,7 @@ _worktree_gc_fetch_base() {
   branch=${ref#*/}
   [[ -n $remote && -n $branch && $branch != "$ref" ]] || return 0
   if err=$(_worktree_gc_batch _dr_git --git-dir="$common" fetch --quiet --no-tags \
-    "$remote" "$branch" 2>&1); then
+    --no-auto-gc "$remote" "$branch" 2>&1); then
     return 0
   fi
   err=${err%%$'\n'*}

@@ -1059,13 +1059,17 @@ for rename_branch in master develop feat-gone; do
   _commit_file "$rename_home/.worktrees/$rename_branch" "$rename_branch.txt"
   git -C "$rename_home/.worktrees/$rename_branch" push --quiet -u origin "$rename_branch" 2>/dev/null
 done
-# The remote's recorded default names develop, then every branch is deleted
-# upstream (develop's HEAD symref is left dangling, as after a rename).
-git -C "$rename_main" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/develop
+# Every branch is deleted upstream, then the remote's recorded default names
+# develop (a HEAD symref left dangling, as after a rename). The symref is
+# pinned after the fetch: Git 2.48+ may refresh origin/HEAD on fetch
+# (remote.<name>.followRemoteHEAD), and macOS CI saw a dangling one replaced.
 for rename_branch in master develop feat-gone; do
   git -C "$rename_main" push --quiet origin --delete "$rename_branch" 2>/dev/null
 done
 git -C "$rename_main" fetch --quiet --prune origin
+git -C "$rename_main" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/develop
+_assert_eq "rename: the fixture records a dangling develop HEAD" \
+  refs/remotes/origin/develop "$(git -C "$rename_main" symbolic-ref -q refs/remotes/origin/HEAD)"
 for rename_branch in master develop feat-gone; do
   _make_old "$rename_home/.worktrees/$rename_branch"
 done
@@ -1219,9 +1223,11 @@ chmod +x "$keep_shim"
 HOME="$keep_home" DOTFILES="$keep_home/.dotfiles" DOT_DOCTOR_GIT="$keep_shim" \
   _doctor_records _dr_check_worktrees >/dev/null
 # The bare check runs once per repository: two checkouts of the bare one
-# share it, and the two other repositories (alpha, odd) cost one each.
+# share it, and the two other repositories (alpha, odd) cost one each. The
+# doctor names the repository by the path Git wrote into each checkout's .git
+# file, which Git resolves through symlinks (/var is /private/var on macOS).
 _assert_eq "gc keeps: one bare check for two checkouts of one bare repository" 1 \
-  "$(grep -c -F -e "--git-dir=$keep_home/elsewhere/bare.git rev-parse --is-bare-repository" "$keep_git_log")"
+  "$(grep -c -F -e "--git-dir=$(_test_realpath "$keep_home/elsewhere/bare.git") rev-parse --is-bare-repository" "$keep_git_log")"
 _assert_eq "gc keeps: one bare check per repository" 3 \
   "$(grep -c 'rev-parse --is-bare-repository' "$keep_git_log")"
 
