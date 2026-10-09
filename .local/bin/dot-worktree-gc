@@ -21,6 +21,10 @@ esac
 set -u
 
 _src=${BASH_SOURCE[0]}
+# Run as `bash dot-worktree-gc` from its own directory, or through a link
+# whose target has no directory part, the path has no slash for the
+# dirname step below to strip; anchor it to the current directory.
+case $_src in */*) ;; *) _src=./$_src ;; esac
 _depth=0
 while [[ -L $_src ]]; do
   _depth=$((_depth + 1))
