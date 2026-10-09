@@ -10,4 +10,5 @@
 - Before pushing a branch to GitHub or creating, updating, landing, or cleaning
   up a GitHub pull request, read
   `~/.config/agent-rules/playbooks.d/git/github-pr-lifecycle.md` and follow its
-  explicit push, remote verification, and post-merge workflow.
+  explicit push, remote verification, check monitoring to green, and
+  post-merge workflow.
