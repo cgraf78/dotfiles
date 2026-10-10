@@ -91,6 +91,18 @@ bell turns orange until selected, and tabs show `[Z]` for a zoomed pane and
 `status-left` with their own host-labelled copy, so shared indicators belong
 in the window tabs rather than in `status-left`.
 
+A pane is pending when its program asked for attention. Agent notification
+hooks call cmdblocks' `term-notify-sound`, which rings the bell and sets the
+pane option `@term_notify_pending`, because tmux records a bell against a
+window, never against the pane that rang it. A pending pane shows an orange `●`
+before its border label, and its window's tab shows `●`, including the current
+window, where the waiting agent is often beside the shell you are typing in.
+The pane you are focused on never shows as pending. `pane-focus-in` and
+`pane-focus-out` hooks clear the option, so visiting a pane acknowledges it,
+and a pane that notified while you were in it does not light up as you leave.
+A nested tmux over SSH marks the remote pane in its own border; the outer layer
+only sees the bell.
+
 `prefix "`, `prefix %`, and `prefix c` open new panes and windows in the
 current pane's directory, and `prefix R` reloads the config.
 

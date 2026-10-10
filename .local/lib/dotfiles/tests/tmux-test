@@ -307,7 +307,7 @@ if command -v tmux >/dev/null 2>&1; then
     _assert_not_contains 'tmux: control client does not publish terminal context' \
       'command: run-shell "\~/.local/bin/termnav tmux context' "$control_messages"
     _assert_eq 'tmux: runtime retains conditional pane labels' \
-      '#{?#{E:@termnav_pane_is_focused_leaf},,#[fg=#898989]} #{E:@pane_label} ' \
+      '#{?#{E:@termnav_pane_is_focused_leaf},,#[fg=#898989]} #{E:@pane_pending_marker}#{E:@pane_label} ' \
       "$pane_border_format"
     # ds strips host literals from pane-border-format to avoid repeating its
     # session host label, so host comparisons must stay in user options.
@@ -565,6 +565,21 @@ SH
     tmux_cmd resize-pane -Z -t "$shell_pane"
     _assert_not_contains 'tmux: tab badges clear with their modes' '[' \
       "$(tmux_cmd -u display-message -p -t "$shell_pane" "$current_format")"
+    # A pane marked by term-notify-sound shows on its border and its tab.
+    # Without an attached client no pane is the focused leaf, so the marker
+    # renders for any pending pane here; the PTY suite covers focus.
+    tmux_cmd set-option -p -t "$agent_pane" @term_notify_pending 1
+    _assert_contains 'tmux: pending pane border leads with a marker' '●' \
+      "$(tmux_cmd -u display-message -p -t "$agent_pane" '#{E:@pane_pending_marker}')"
+    _assert_contains 'tmux: pending pane marks its tab' ' ●' \
+      "$(tmux_cmd -u display-message -p -t "$shell_pane" "$current_format")"
+    tmux_cmd set-option -pu -t "$agent_pane" @term_notify_pending
+    _assert_not_contains 'tmux: tab marker clears with the pane mark' '●' \
+      "$(tmux_cmd -u display-message -p -t "$shell_pane" "$current_format")"
+    for hook in pane-focus-in pane-focus-out; do
+      _assert_contains "tmux: $hook acknowledges a pending pane" \
+        'set-option -pu @term_notify_pending' "$(tmux_cmd show-hooks -g "$hook")"
+    done
     _assert_eq 'tmux: windows rename automatically' on \
       "$(tmux_cmd show-window-options -gv automatic-rename)"
     _assert_eq 'tmux: nested tmux titles its parent pane with host:session' \
@@ -624,7 +639,8 @@ if command -v tmux >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
   for pty_case in \
     test_focus_hooks_are_client_scoped_and_ignore_control_mode \
     test_styles_follow_each_client_and_child_claim \
-    test_terminal_render_paints_the_focused_leaf_night_owl_blue; do
+    test_terminal_render_paints_the_focused_leaf_night_owl_blue \
+    test_pending_panes_are_marked_until_visited; do
     _assert_contains "tmux: PTY runs $pty_case" "$pty_case" "$pty_output"
   done
 else

@@ -256,7 +256,10 @@ class LeafStyleTest(unittest.TestCase):
         return None
 
     def expand(self, tty: str, pane: str, option: str) -> str:
+        # -u keeps UTF-8 labels intact where the suite runs without a UTF-8
+        # locale, as some CI images do.
         return self.tmux(
+            "-u",
             "display-message",
             "-c",
             tty,
@@ -498,6 +501,47 @@ class LeafStyleTest(unittest.TestCase):
             "bg=#010d17",
             self.expand(second.tty, self.inactive, "window-style"),
         )
+
+    def pending(self, pane: str) -> str:
+        return self.tmux("show-options", "-pqv", "-t", pane, "@term_notify_pending").stdout.strip()
+
+    def test_pending_panes_are_marked_until_visited(self) -> None:
+        if not self.supports_hook("pane-focus-in"):
+            self.skipTest("tmux does not expose pane focus hooks")
+        client = Client(self)
+        self.clients.append(client)
+        if not self.supports_client_format_context(client.tty):
+            self.skipTest("tmux does not support client-targeted format expansion")
+        client.set_focus(True)
+        tab = "window-status-current-format"
+
+        # An agent beside the focused pane notified: its border and the
+        # current tab both say so.
+        self.tmux("set-option", "-p", "-t", self.inactive, "@term_notify_pending", "1")
+        self.assertIn("●", self.expand(client.tty, self.inactive, "pane-border-format"))
+        self.assertIn(" ●", self.expand(client.tty, self.active, tab))
+        self.assertNotIn("●", self.expand(client.tty, self.active, "pane-border-format"))
+
+        # Visiting the pane acknowledges it.
+        self.tmux("select-pane", "-t", self.inactive)
+        wait_until(lambda: self.pending(self.inactive) == "", "pending cleared on focus-in")
+        self.assertNotIn("●", self.expand(client.tty, self.inactive, tab))
+
+        # A pane that notified while focused is not advertised, and leaving
+        # it does not light it up.
+        self.tmux("set-option", "-p", "-t", self.inactive, "@term_notify_pending", "1")
+        self.assertNotIn("●", self.expand(client.tty, self.inactive, tab))
+        self.assertNotIn("●", self.expand(client.tty, self.inactive, "pane-border-format"))
+        self.tmux("select-pane", "-t", self.active)
+        wait_until(lambda: self.pending(self.inactive) == "", "pending cleared on focus-out")
+
+        # While the terminal is unfocused the active pane is not being looked
+        # at, so it shows as pending until the terminal regains focus.
+        client.set_focus(False)
+        self.tmux("set-option", "-p", "-t", self.active, "@term_notify_pending", "1")
+        self.assertIn("●", self.expand(client.tty, self.active, "pane-border-format"))
+        client.set_focus(True)
+        wait_until(lambda: self.pending(self.active) == "", "pending cleared on refocus")
 
     def test_terminal_render_paints_the_focused_leaf_night_owl_blue(self) -> None:
         # Remove unrelated status-line and inactive-pane background sequences
