@@ -390,6 +390,18 @@ if command -v tmux >/dev/null 2>&1; then
         _assert_contains "tmux: runtime $direction tab move keeps ${metadata%% *}" \
           "$metadata" "$line"
       done
+      # shellcheck disable=SC2016 # Match the literal shell status reference.
+      _assert_contains "tmux: runtime $direction tab move is quiet at the edge" \
+        '|| { status=$?;' "$line"
+    done
+    # Run the shared fragment through sh exactly as run-shell does: Termnav's
+    # decline (3) at the outermost edge is a no-op, while every real failure
+    # keeps its own status so tmux still reports it.
+    declined_ok=$(sed -n "s/^navigate_declined_ok='\(.*\)'\$/\1/p" "$tmux_base")
+    for case in 0:0 1:1 2:2 3:0; do
+      sh -c "(exit ${case%%:*}) $declined_ok"
+      _assert_exit "tmux: Termnav route status ${case%%:*} reports ${case#*:}" \
+        "${case#*:}" "$?"
     done
     for retired_key in User0 User1 User2 User3 User4 User5 User6 User7; do
       _assert_not_contains "tmux: runtime removes retired key $retired_key" \

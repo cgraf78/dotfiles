@@ -184,6 +184,11 @@ handling stops at the tmux layer when a multi-window tmux session is already at
 the first or last window. A one-window tmux routes outward through the same
 arbitrary-depth Termnav traversal used by pane and tab selection.
 
+When no scope can take a gesture, such as moving a pane past the outermost
+edge, `termnav navigate` exits 3 (declined). Every route ends with base's
+`navigate_declined_ok` so that expected no-op stays quiet while real failures
+still report their status.
+
 Boundary router commands run in tmux's foreground through Termnav's native
 one-shot dispatcher. The Neovim adapter serializes those short jobs and passes
 a bounded continuation token between adjacent gestures, preserving rapid key

@@ -99,6 +99,20 @@ _assert_contains 'tmux composed config retains a base-only relay binding' \
 _assert_contains 'tmux composed config activates an editor-only tab binding' \
   'termnav navigate tab-select next' "$next_tab"
 
+# Termnav declines (exit 3) at an outermost edge, which tmux would otherwise
+# report as an error after every edge press. Each composed route, from either
+# fragment, must end with the shared decline handling. Pair them per binding,
+# so one doubly-wrapped route cannot hide an unwrapped one elsewhere.
+while IFS= read -r binding; do
+  routes=$(grep -o 'termnav navigate [a-z-]* [a-z]*' <<<"$binding" | wc -l)
+  quiet=$(grep -o -- '-eq 3 ] || exit' <<<"$binding" | wc -l)
+  key=$(awk '{ print $4 }' <<<"$binding")
+  _assert_eq "tmux composed $key Termnav routes are quiet at the edge" \
+    "$((routes))" "$((quiet))"
+done < <(grep 'termnav navigate' <<<"$root_keys")
+_assert_contains 'tmux composed config binds Termnav routes' \
+  'termnav navigate pane-select' "$root_keys"
+
 pane_move_directions=(left down up right)
 pane_move_bindings=(
   "$pane_move_left" "$pane_move_down" "$pane_move_up" "$pane_move_right"
