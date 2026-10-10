@@ -397,34 +397,41 @@ if command -v tmux >/dev/null 2>&1; then
     done
 
     # Window names and pane labels derive from what each pane runs. Fake apps
-    # are symlinks to bash, so pane_current_command reports the link name.
-    # bash ignores its invocation name, unlike multi-call sleep binaries
-    # (busybox, coreutils) whose process reports the wrong name, and the
-    # trailing no-op keeps it from exec-ing sleep in its place;
-    # the launcher enables mouse reporting (the interactive-app signal) and
+    # are copies of bash, so pane_current_command reports the copy's name on
+    # every platform: Linux reads argv[0], while macOS reads the executed
+    # file's name, which for a symlink is its target. bash also ignores its
+    # invocation name, unlike multi-call sleep binaries (busybox, coreutils),
+    # and the trailing no-op keeps it from exec-ing sleep in its place. The
+    # launcher enables mouse reporting (the interactive-app signal) and
     # optionally sets an app-chosen title before exec.
+    #
+    # pane_current_path is the canonical path, so canonicalize the fixture
+    # paths it is compared with (macOS temp directories live under a /var
+    # symlink to /private/var).
     labels_dir=$(_tmpdir)
+    labels_dir=$(cd "$labels_dir" && pwd -P)
     mkdir -p "$labels_dir/bin" "$labels_dir/proj-a" "$labels_dir/proj-d" \
       "$labels_dir/proj-z" "$labels_dir/h/sub" "$labels_dir/hx"
     for app_name in agentx ssh zsh; do
-      ln -s "$(command -v bash)" "$labels_dir/bin/$app_name"
+      cp "$(command -v bash)" "$labels_dir/bin/$app_name"
     done
     cat >"$labels_dir/app" <<'SH'
 #!/bin/sh
 printf '\033[?1000h'
 [ -n "${2-}" ] && printf '\033]2;%s\033\\' "$2"
-exec "${0%/*}/bin/$1" -c 'sleep 60; :'
+exec "${0%/*}/bin/$1" -c 'sleep 600; :'
 SH
     # A plain shell pane: the same fake command without mouse reporting.
     cat >"$labels_dir/shell" <<'SH'
 #!/bin/sh
-exec "${0%/*}/bin/zsh" -c 'sleep 60; :'
+exec "${0%/*}/bin/zsh" -c 'sleep 600; :'
 SH
     chmod +x "$labels_dir/app" "$labels_dir/shell"
     app="$labels_dir/app"
     shell="$labels_dir/shell"
     fixture_home=$(tmux_cmd show-environment -g HOME)
-    fixture_home=${fixture_home#HOME=}
+    fixture_home=$(cd "${fixture_home#HOME=}" && pwd -P)
+    tmux_cmd set-environment -g HOME "$fixture_home"
     host_short=$(tmux_cmd display-message -p '#{host_short}')
     long_title=a-very-long-remote-host-name
 
