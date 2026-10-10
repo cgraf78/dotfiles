@@ -398,8 +398,9 @@ if command -v tmux >/dev/null 2>&1; then
 
     # Window names and pane labels derive from what each pane runs. Fake apps
     # are symlinks to bash, so pane_current_command reports the link name.
-    # bash ignores its invocation name, unlike busybox applets such as sleep,
-    # and the trailing no-op keeps it from exec-ing sleep in its place;
+    # bash ignores its invocation name, unlike multi-call sleep binaries
+    # (busybox, coreutils) whose process reports the wrong name, and the
+    # trailing no-op keeps it from exec-ing sleep in its place;
     # the launcher enables mouse reporting (the interactive-app signal) and
     # optionally sets an app-chosen title before exec.
     labels_dir=$(_tmpdir)
@@ -414,8 +415,14 @@ printf '\033[?1000h'
 [ -n "${2-}" ] && printf '\033]2;%s\033\\' "$2"
 exec "${0%/*}/bin/$1" -c 'sleep 60; :'
 SH
-    chmod +x "$labels_dir/app"
+    # A plain shell pane: the same fake command without mouse reporting.
+    cat >"$labels_dir/shell" <<'SH'
+#!/bin/sh
+exec "${0%/*}/bin/zsh" -c 'sleep 60; :'
+SH
+    chmod +x "$labels_dir/app" "$labels_dir/shell"
     app="$labels_dir/app"
+    shell="$labels_dir/shell"
     fixture_home=$(tmux_cmd show-environment -g HOME)
     fixture_home=${fixture_home#HOME=}
     host_short=$(tmux_cmd display-message -p '#{host_short}')
@@ -449,8 +456,8 @@ SH
     # Shells and short-lived commands never name a window: it falls back to
     # the active pane's directory.
     plain_window=$(tmux_cmd new-window -d -P -F '#{window_id}' \
-      -c "$labels_dir/proj-a" 'sleep 60')
-    wait_command "$plain_window" sleep
+      -c "$labels_dir/proj-a" "$shell")
+    wait_command "$plain_window" zsh 0
     _assert_eq 'tmux: shell-only window is named after its directory' \
       proj-a "$(window_name "$plain_window")"
 
@@ -459,16 +466,16 @@ SH
       -c "$fixture_home" "$app agentx 'fix the bug'")
     agent_pane=$(tmux_cmd display-message -p -t "$agent_window" '#{pane_id}')
     shell_pane=$(tmux_cmd split-window -d -P -F '#{pane_id}' -t "$agent_pane" \
-      -c "$fixture_home" 'sleep 60')
+      -c "$fixture_home" "$shell")
     tmux_cmd select-pane -t "$shell_pane"
     wait_command "$agent_pane" agentx 1
-    wait_command "$shell_pane" sleep 0
+    wait_command "$shell_pane" zsh 0
     _assert_eq 'tmux: interactive app names its window regardless of focus' \
       agentx "$(window_name "$agent_window")"
     _assert_eq 'tmux: interactive pane label shows the app title' \
       'agentx · fix the bug' "$(pane_label "$agent_pane")"
     _assert_eq 'tmux: shell pane label shows a home-relative directory' \
-      'sleep · ~' "$(pane_label "$shell_pane")"
+      'zsh · ~' "$(pane_label "$shell_pane")"
 
     # Wrapper processes use the app's own title, unless that title is just
     # tmux's hostname default. Several apps are listed in pane order.
@@ -524,8 +531,8 @@ SH
     tmux_cmd set-environment -g HOME "$labels_dir/h"
     for case in "h:~" "h/sub:~/sub" "hx:$labels_dir/hx"; do
       home_pane=$(tmux_cmd new-window -d -P -F '#{pane_id}' \
-        -c "$labels_dir/${case%%:*}" 'sleep 60')
-      wait_command "$home_pane" sleep
+        -c "$labels_dir/${case%%:*}" "$shell")
+      wait_command "$home_pane" zsh 0
       _assert_eq "tmux: home abbreviation for ${case%%:*}" \
         "${case#*:}" "$(tmux_cmd -u display-message -p -t "$home_pane" '#{E:@pane_dir}')"
     done
