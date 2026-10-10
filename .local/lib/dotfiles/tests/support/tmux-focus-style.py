@@ -639,6 +639,8 @@ class LeafStyleTest(unittest.TestCase):
     def test_prefix_j_and_J_move_panes_between_windows(self) -> None:
         client = Client(self)
         self.clients.append(client)
+        if not self.supports_client_format_context(client.tty):
+            self.skipTest("tmux does not support client-targeted format expansion")
         other = self.tmux("new-window", "-d", "-P", "-F", "#{pane_id}", "sleep 30").stdout.strip()
         home = self.window_of(self.active)
 
