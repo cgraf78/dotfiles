@@ -108,8 +108,17 @@ also clear whatever pane a client selects or returns to.
 A nested tmux over SSH marks the remote pane in its own border; the outer layer
 only sees the bell.
 
+`prefix a` jumps to the first pending pane in the current session, in tab then
+pane order. Arriving acknowledges it, so pressing again moves on to the next;
+with none left it says nothing is waiting.
+
 `prefix "`, `prefix %`, and `prefix c` open new panes and windows in the
 current pane's directory, and `prefix R` reloads the config.
+
+`prefix !` (tmux's default) breaks the current pane out into its own window.
+`prefix j` sends the current pane into a window chosen from a tree, and
+`prefix J` pulls a chosen pane in beside the current one, so a pane can be
+popped out to watch full-size and put back afterwards.
 
 ## Key Handling
 

@@ -341,6 +341,20 @@ if command -v tmux >/dev/null 2>&1; then
         '-c "#{pane_current_path}"' \
         "$(printf '%s\n' "$prefix_keys" | awk -v key="$key" '$4 == key || $4 == "\\" key')"
     done
+    # prefix R and agents reload the config into long-lived servers, so a
+    # reload must replace server list entries rather than append copies.
+    overrides_before=$(tmux_cmd show-options -s terminal-overrides)
+    tmux_cmd source-file "$tmux_config" >/dev/null 2>&1 || true
+    _assert_eq 'tmux: reloading keeps one copy of each terminal override' \
+      "$overrides_before" "$(tmux_cmd show-options -s terminal-overrides)"
+    _assert_contains 'tmux: runtime enables true color for 256-colour terminals' \
+      '*256col*:Tc' "$overrides_before"
+    _assert_contains 'tmux: runtime prefix a jumps to the first pending pane' \
+      '@pending_panes' "$(printf '%s\n' "$prefix_keys" | awk '$4 == "a"')"
+    _assert_contains 'tmux: runtime prefix j sends the pane to a chosen window' \
+      "join-pane -h -t '%%'" "$(printf '%s\n' "$prefix_keys" | awk '$4 == "j"')"
+    _assert_contains 'tmux: runtime prefix J pulls a chosen pane alongside' \
+      "join-pane -h -s '%%'" "$(printf '%s\n' "$prefix_keys" | awk '$4 == "J"')"
     _assert_contains 'tmux: runtime copy mode v begins a selection' \
       'begin-selection' "$(printf '%s\n' "$copy_keys" | awk '$4 == "v"')"
     _assert_contains 'tmux: runtime copy mode y copies through clip' \
