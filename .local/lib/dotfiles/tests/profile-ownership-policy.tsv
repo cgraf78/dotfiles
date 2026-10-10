@@ -146,7 +146,6 @@ dev	git	.local/lib/dotfiles/git-hooks/**
 dev	git	.local/lib/dotfiles/merge-hooks.d/gh.sh
 dev	git	.local/lib/dotfiles/merge-hooks.d/git.sh
 dev	git	.local/lib/dotfiles/merge-hooks.d/sapling.sh
-dev	nvim-dev	.config/nvim/checkrun-editor-metadata.json
 dev	nvim-dev	.config/nvim/lua/config/checkrun-nvim.lua
 dev	nvim-dev	.config/nvim/lua/config/keymaps/workspace-dev.lua
 dev	nvim-dev	.config/nvim/lua/config/language-policy.lua
