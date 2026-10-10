@@ -438,7 +438,11 @@ if command -v tmux >/dev/null 2>&1; then
     labels_dir=$(cd "$labels_dir" && pwd -P)
     mkdir -p "$labels_dir/bin" "$labels_dir/proj-a" "$labels_dir/proj-d" \
       "$labels_dir/proj-z" "$labels_dir/h/sub" "$labels_dir/hx"
-    for app_name in agentx ssh zsh; do
+    # Agent fixture names stay within 15 characters: macOS reports at most
+    # that much of a command name, and muse-bin-1.4.3- is exactly how it
+    # truncates a real muse-bin-1.4.3-R5018.1.
+    for app_name in agentx ssh zsh muse-bin-1.4.3- muse-bin-R6001 \
+      muse-bin museum opencode; do
       cp "$(command -v bash)" "$labels_dir/bin/$app_name"
     done
     cat >"$labels_dir/app" <<'SH'
@@ -452,7 +456,12 @@ SH
 #!/bin/sh
 exec "${0%/*}/bin/zsh" -c 'sleep 600; :'
 SH
-    chmod +x "$labels_dir/app" "$labels_dir/shell"
+    # An inline app: no mouse reporting, like agents that draw without it.
+    cat >"$labels_dir/inline" <<'SH'
+#!/bin/sh
+exec "${0%/*}/bin/$1" -c 'sleep 600; :'
+SH
+    chmod +x "$labels_dir/app" "$labels_dir/shell" "$labels_dir/inline"
     app="$labels_dir/app"
     shell="$labels_dir/shell"
     fixture_home=$(tmux_cmd show-environment -g HOME)
@@ -509,6 +518,40 @@ SH
       'agentx · fix the bug' "$(pane_label "$agent_pane")"
     _assert_eq 'tmux: shell pane label shows a home-relative directory' \
       'zsh · ~' "$(pane_label "$shell_pane")"
+
+    # Known agents name the window even without mouse reporting, and a
+    # versioned binary is named without its version.
+    inline_window=$(tmux_cmd new-window -d -P -F '#{window_id}' \
+      -c "$labels_dir/proj-a" "$labels_dir/inline muse-bin-1.4.3-")
+    inline_pane=$(tmux_cmd display-message -p -t "$inline_window" '#{pane_id}')
+    opencode_pane=$(tmux_cmd split-window -d -P -F '#{pane_id}' -t "$inline_pane" \
+      -c "$labels_dir/proj-a" "$labels_dir/inline opencode")
+    wait_command "$inline_pane" muse-bin-1.4.3- 0
+    wait_command "$opencode_pane" opencode 0
+    _assert_eq 'tmux: known agents name the window without mouse reporting' \
+      'muse opencode' "$(window_name "$inline_window")"
+    _assert_eq 'tmux: a versioned agent binary is labelled without its version' \
+      muse "$(pane_label "$inline_pane")"
+    # The binary name changes with every upgrade; any version-like suffix,
+    # or none, is still the same agent. A lookalike name is not.
+    for binary in muse-bin-R6001 muse-bin; do
+      upgraded_pane=$(tmux_cmd new-window -d -P -F '#{pane_id}' \
+        -c "$labels_dir/proj-a" "$labels_dir/inline $binary")
+      wait_command "$upgraded_pane" "$binary" 0
+      _assert_eq "tmux: $binary is still labelled muse" \
+        muse "$(window_name "$upgraded_pane")"
+    done
+    lookalike_pane=$(tmux_cmd new-window -d -P -F '#{pane_id}' \
+      -c "$labels_dir/proj-a" "$labels_dir/inline museum")
+    wait_command "$lookalike_pane" museum 0
+    _assert_eq 'tmux: a name merely starting with an agent is not an agent' \
+      proj-a "$(window_name "$lookalike_pane")"
+    # Other commands still need the interactive signal to name a window.
+    plain_app_window=$(tmux_cmd new-window -d -P -F '#{window_id}' \
+      -c "$labels_dir/proj-a" "$labels_dir/inline agentx")
+    wait_command "$plain_app_window" agentx 0
+    _assert_eq 'tmux: an unknown command without mouse reporting does not name' \
+      proj-a "$(window_name "$plain_app_window")"
 
     # Wrapper processes use the app's own title, unless that title is just
     # tmux's hostname default. Several apps are listed in pane order.

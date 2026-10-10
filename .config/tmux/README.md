@@ -57,7 +57,11 @@ pane whose foreground app enables mouse reporting (agents, editors, a nested
 tmux over SSH) contributes its name, in pane order; shells and short-lived
 commands such as `git`, `make`, or `less` never do, so tabs do not flicker
 while a side shell works. A window of plain shells falls back to the active
-pane's directory. Sandboxes, SSH transports, and interpreters (`bwrap`,
+pane's directory. The agents AgentGuard integrates (`claude`, `codex`,
+`gemini`, `grok`, `muse`, `opencode`) always count by name, because some,
+such as muse, draw inline without mouse reporting. A versioned binary such
+as `muse-bin-1.4.3-R5018.1`, whose name changes on every upgrade, is shown as
+the bare agent name; names that merely start with one, such as `museum`, are not. Sandboxes, SSH transports, and interpreters (`bwrap`,
 `termnav`, `ssh`, `node`, `python`) report a wrapper process name, so those
 panes use the title the app set itself. tmux's hostname default, or a title
 that only repeats the command or directory, does not count as a title.
