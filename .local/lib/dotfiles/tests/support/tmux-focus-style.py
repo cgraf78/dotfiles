@@ -543,6 +543,41 @@ class LeafStyleTest(unittest.TestCase):
         client.set_focus(True)
         wait_until(lambda: self.pending(self.active) == "", "pending cleared on refocus")
 
+    def test_background_window_agents_mark_their_tab(self) -> None:
+        client = Client(self)
+        self.clients.append(client)
+        if not self.supports_client_format_context(client.tty):
+            self.skipTest("tmux does not support client-targeted format expansion")
+        client.set_focus(True)
+        # An agent alone in a background window is that window's active pane,
+        # which the focused-leaf predicate alone would treat as being looked at.
+        background = self.tmux(
+            "new-window", "-d", "-P", "-F", "#{pane_id}", "sleep 30"
+        ).stdout.strip()
+        self.tmux("set-option", "-p", "-t", background, "@term_notify_pending", "1")
+        self.assertEqual("1", self.expand(client.tty, background, "@pane_pending"))
+        self.assertIn(" ●", self.expand(client.tty, background, "window-status-format"))
+        self.tmux("select-window", "-t", background)
+        wait_until(lambda: self.pending(background) == "", "pending cleared on window visit")
+
+    def test_another_focused_client_does_not_strand_a_mark(self) -> None:
+        if not self.supports_hook("client-focus-in"):
+            self.skipTest("tmux does not expose client focus hooks")
+        first = Client(self)
+        self.clients.append(first)
+        if not self.supports_client_format_context(first.tty):
+            self.skipTest("tmux does not support client-targeted format expansion")
+        # The second client never reports focus, like an idle second machine,
+        # so it keeps the active pane focused server-wide and the first
+        # client's return fires no pane-focus transition.
+        second = Client(self)
+        self.clients.append(second)
+        first.set_focus(False)
+        self.tmux("set-option", "-p", "-t", self.active, "@term_notify_pending", "1")
+        self.assertIn("●", self.expand(first.tty, self.active, "pane-border-format"))
+        first.set_focus(True)
+        wait_until(lambda: self.pending(self.active) == "", "pending cleared on client refocus")
+
     def test_terminal_render_paints_the_focused_leaf_night_owl_blue(self) -> None:
         # Remove unrelated status-line and inactive-pane background sequences
         # so the captured SGR color is the pane body tmux actually painted.

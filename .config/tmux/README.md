@@ -97,9 +97,14 @@ pane option `@term_notify_pending`, because tmux records a bell against a
 window, never against the pane that rang it. A pending pane shows an orange `●`
 before its border label, and its window's tab shows `●`, including the current
 window, where the waiting agent is often beside the shell you are typing in.
-The pane you are focused on never shows as pending. `pane-focus-in` and
-`pane-focus-out` hooks clear the option, so visiting a pane acknowledges it,
-and a pane that notified while you were in it does not light up as you leave.
+The pane you are focused on never shows as pending, but an agent alone in a
+background window, which is that window's active pane, still marks its tab.
+`pane-focus-in` and `pane-focus-out` hooks clear the option, so visiting a pane
+acknowledges it, and a pane that notified while you were in it does not light
+up as you leave. tmux tracks pane focus server-wide, so another attached client
+can hold a pane focused and suppress those transitions; `client-focus-in`,
+`after-select-pane`, `after-select-window`, and `client-session-changed` hooks
+also clear whatever pane a client selects or returns to.
 A nested tmux over SSH marks the remote pane in its own border; the outer layer
 only sees the bell.
 
