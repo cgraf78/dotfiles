@@ -94,8 +94,22 @@ __prompt_precmd() {
     __cmd_time=""
   fi
 }
+# Inside a multiplexer, the terminal title labels the pane: tmux shows it in
+# pane borders and window names. Publish each command line as it starts, so a
+# transport such as `ssh metro` is labelled at once and a title left by an
+# earlier program never outlives it. Apps that set their own title (Neovim, a
+# nested tmux, agents) replace it, and the prompt resets it afterwards.
+__title_preexec() {
+  case $TERM in
+    tmux* | screen*) ;;
+    *) return 0 ;;
+  esac
+  local cmd=${1//[[:cntrl:]]/}
+  print -rn -- $'\e]2;'"${cmd[1,60]}"$'\a'
+}
 autoload -Uz add-zsh-hook
 add-zsh-hook preexec __prompt_preexec
+add-zsh-hook preexec __title_preexec
 add-zsh-hook precmd __prompt_precmd
 add-zsh-hook precmd __git_prompt_async_start
 add-zsh-hook zshexit __git_prompt_pidfile_cleanup
@@ -114,9 +128,10 @@ set_prompt() {
   # Exit code: bold red [N] only on failure; nothing on success.
   # Line 2 colors %# (% for users, # for root) green/red to match.
   PROMPT="%(?.%b%f.%B%F{red}[%?]%f%b )${dim}%n@${host}${nodim}:%B%F{cyan}%~%f%b"'${__git_prompt_result}${__cmd_time}'$'\n''%(?.%B%F{green}.%B%F{red})%#%f%b '
-  # Set terminal title for xterm/rxvt
+  # Set the terminal title at every prompt. Under tmux or screen this also
+  # clears whatever title the last command's program left on the pane.
   case "$TERM" in
-    xterm* | rxvt*)
+    xterm* | rxvt* | tmux* | screen*)
       PROMPT=$'%{\e]0;%n@'"${host}"$': %~\a%}'"$PROMPT"
       ;;
   esac

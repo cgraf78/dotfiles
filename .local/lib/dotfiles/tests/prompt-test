@@ -1178,4 +1178,49 @@ if command -v zsh >/dev/null 2>&1; then
   fi
 fi
 
+echo ""
+echo "=== prompt: multiplexer pane titles ==="
+
+# Under tmux the title labels the pane, so each command line is published as
+# it starts (control characters stripped, 60 columns) and the prompt resets it
+# afterwards. Plain terminals keep their existing prompt-only title.
+TITLE_ZSH="$REAL_HOME/.config/shell/interactive.d/60-prompt.zsh"
+TITLE_BASH="$REAL_HOME/.config/shell/interactive.d/60-prompt.bash"
+long_cmd=$(printf 'x%.0s' {1..80})
+if command -v zsh >/dev/null 2>&1; then
+  # shellcheck disable=SC2016 # $-expansions belong to the zsh -c body.
+  zsh_title=$(TERM=tmux-256color zsh -f -c '. "$1" >/dev/null 2>&1; __title_preexec $'"'"'ssh\tmetro'"'"'' _ "$TITLE_ZSH" | od -An -c | tr -s ' ')
+  _assert_contains "title: zsh publishes the command under tmux" \
+    '033 ] 2 ; s s h m e t r o \a' "$zsh_title"
+  # shellcheck disable=SC2016 # $-expansions belong to the zsh -c body.
+  zsh_long=$(TERM=screen zsh -f -c '. "$1" >/dev/null 2>&1; __title_preexec "$2"' _ "$TITLE_ZSH" "$long_cmd")
+  _assert_eq "title: zsh caps the command at 60 columns" \
+    $'\e]2;'"${long_cmd:0:60}"$'\a' "$zsh_long"
+  # shellcheck disable=SC2016 # $-expansions belong to the zsh -c body.
+  _assert_eq "title: zsh leaves plain terminal titles to the prompt" '' \
+    "$(TERM=xterm-256color zsh -f -c '. "$1" >/dev/null 2>&1; __title_preexec "ssh metro"' _ "$TITLE_ZSH")"
+  # shellcheck disable=SC2016 # $-expansions belong to the zsh -c body.
+  _assert_contains "title: zsh prompt resets the title under tmux" \
+    $'\e]0;' "$(TERM=tmux-256color zsh -f -c '. "$1" >/dev/null 2>&1; print -r -- "$PROMPT"' _ "$TITLE_ZSH")"
+else
+  _pass "title: zsh unavailable, zsh title checks skipped"
+fi
+# shellcheck disable=SC2016 # $-expansions belong to the bash -c body.
+bash_title=$(TERM=tmux-256color bash --norc --noprofile -c '. "$1" >/dev/null 2>&1; __title_preexec $'"'"'ssh\tmetro'"'"'' _ "$TITLE_BASH" | od -An -c | tr -s ' ')
+_assert_contains "title: bash publishes the command under tmux" \
+  '033 ] 2 ; s s h m e t r o \a' "$bash_title"
+# shellcheck disable=SC2016 # $-expansions belong to the bash -c body.
+_assert_eq "title: bash caps the command at 60 columns" \
+  $'\e]2;'"${long_cmd:0:60}"$'\a' \
+  "$(TERM=screen bash --norc --noprofile -c '. "$1" >/dev/null 2>&1; __title_preexec "$2"' _ "$TITLE_BASH" "$long_cmd")"
+# shellcheck disable=SC2016 # $-expansions belong to the bash -c body.
+_assert_eq "title: bash leaves plain terminal titles to the prompt" '' \
+  "$(TERM=xterm-256color bash --norc --noprofile -c '. "$1" >/dev/null 2>&1; __title_preexec "ssh metro"' _ "$TITLE_BASH")"
+# shellcheck disable=SC2016 # $-expansions belong to the bash -c body.
+_assert_contains "title: bash prompt resets the title under tmux" \
+  '\[\e]0;' "$(TERM=tmux-256color bash --norc --noprofile -c '. "$1" >/dev/null 2>&1; printf "%s" "$PS1"' _ "$TITLE_BASH")"
+# shellcheck disable=SC2016 # $-expansions belong to the bash -c body.
+_assert_contains "title: bash registers the title hook once" 'COUNT=1' \
+  "$(bash --norc --noprofile -c '. "$1" >/dev/null 2>&1; . "$1" >/dev/null 2>&1; n=0; for f in "${preexec_functions[@]}"; do [[ $f == __title_preexec ]] && ((n++)); done; echo COUNT=$n' _ "$TITLE_BASH")"
+
 _test_summary

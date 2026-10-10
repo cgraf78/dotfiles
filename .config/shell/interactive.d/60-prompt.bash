@@ -22,6 +22,22 @@ __prompt_precmd() {
 # Guard: raw += accumulates duplicates on re-source (no add-zsh-hook
 # equivalent in bash).  Only append if not already present.
 [[ " ${preexec_functions[*]} " != *" __prompt_preexec "* ]] && preexec_functions+=(__prompt_preexec)
+
+# Inside a multiplexer, the terminal title labels the pane: tmux shows it in
+# pane borders and window names. Publish each command line as it starts, so a
+# transport such as `ssh metro` is labelled at once and a title left by an
+# earlier program never outlives it. Apps that set their own title replace
+# it, and the prompt resets it afterwards. Needs bash-preexec; without it the
+# prompt reset still applies.
+__title_preexec() {
+  case $TERM in
+    tmux* | screen*) ;;
+    *) return 0 ;;
+  esac
+  local cmd=${1//[[:cntrl:]]/}
+  printf '\033]2;%s\007' "${cmd:0:60}"
+}
+[[ " ${preexec_functions[*]} " != *" __title_preexec "* ]] && preexec_functions+=(__title_preexec)
 [[ " ${precmd_functions[*]} " != *" __prompt_precmd "* ]] && precmd_functions+=(__prompt_precmd)
 
 # DEBUG trap: sets __cmd_start at the first command after each prompt.
@@ -51,8 +67,10 @@ set_prompt() {
   # shellcheck disable=SC2016  # PS1 intentionally contains literal command substitutions
   local exit_code='$( (( __cmd_exit )) && printf '"'"'\001\033[1;31m\002[%s]\001\033[0m\002 '"'"' "$__cmd_exit")'
   PS1="${exit_code}"'\[\033[2m\]\u@'"$host"'\[\033[0m\]:\[\033[1;36m\]\w\[\033[0m\]$(__git_prompt)${__cmd_time}\n\[\033[01;$(( __cmd_exit ? 31 : 32 ))m\]\$\[\033[0m\] '
+  # Set the terminal title at every prompt. Under tmux or screen this also
+  # clears whatever title the last command's program left on the pane.
   case "$TERM" in
-    xterm* | rxvt*)
+    xterm* | rxvt* | tmux* | screen*)
       PS1="\[\e]0;\u@$host: \w\a\]$PS1"
       ;;
   esac

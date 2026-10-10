@@ -71,6 +71,13 @@ for that window.
 reached over SSH therefore titles its parent pane, which is how the outer
 layer labels that pane and window with the remote host.
 
+A pane title belongs to whichever program last set it, so the shell prompt
+(`.config/shell/interactive.d/60-prompt.*`) keeps titles current under tmux or
+screen: each command line becomes the title as it starts (`ssh metro`), and
+every prompt resets it. A title left by an exited program, such as a previous
+SSH session's remote tmux, therefore never mislabels the next one. A plain
+SSH shell on a host with these dotfiles titles itself `user@host: dir`.
+
 Pane borders use the same rules: interactive panes show the app and its own
 title (an agent's task, Neovim's file), and shells show a home-relative
 directory. `ds` strips host literals such as `#{host}` from
