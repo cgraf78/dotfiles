@@ -19,8 +19,10 @@ terminal navigation stack. The `dotfiles-nvim` overlay adds
   the current window is not already at the edge, and route one-window
   boundaries through Termnav's native one-shot router. The editor overlay
   rebinds them so Neovim/fzf panes also receive the chord.
-- Copy-mode clipboard piping prefers the dotfiles `clip` command and falls
-  back to platform clipboard tools.
+- Copy-mode clipboard piping uses the dotfiles `clip` command, which falls
+  back to platform clipboard tools. `copy-command` is `clip capture`, so
+  double-click word selection and triple-click line selection join Enter and
+  Ctrl-c.
 
 The editor overlay's `20-editor.conf` adds:
 
