@@ -578,6 +578,14 @@ SH
       "$(tmux_cmd -u display-message -p -t "$shell_pane" "$current_format")"
     for hook in pane-focus-in pane-focus-out client-focus-in after-select-pane \
       after-select-window client-session-changed; do
+      # Older tmux releases lack some of these hooks (client-focus-in arrived
+      # later); probe support rather than failing on a hook tmux cannot run.
+      tmux_cmd set-hook -g "${hook}[999999]" 'display-message -p probe' 2>/dev/null
+      if ! tmux_cmd show-hooks -g "$hook" 2>/dev/null | grep -Fq '[999999]'; then
+        _pass "tmux: $hook unsupported by this tmux, acknowledgement check skipped"
+        continue
+      fi
+      tmux_cmd set-hook -gu "${hook}[999999]"
       _assert_contains "tmux: $hook acknowledges a pending pane" \
         'set-option -pu @term_notify_pending' "$(tmux_cmd show-hooks -g "$hook")"
     done
