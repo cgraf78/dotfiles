@@ -53,7 +53,8 @@ _assert_not_contains "tmux: retired navigation wrapper stays absent" \
 # dependency: editor and dev hosts layer more deps on top, but a base-only host
 # has nothing else to satisfy these keys.
 for dependency in tmux cgraf78/cmdblocks cgraf78/tmux-tools cgraf78/termnav \
-  tmux-plugins/tmux-continuum tmux-plugins/tmux-resurrect tmux-plugins/tpm; do
+  laktak/extrakto tmux-plugins/tmux-continuum tmux-plugins/tmux-resurrect \
+  tmux-plugins/tpm; do
   if awk -v dependency="$dependency" '$1 == dependency { found=1 }
     END { exit found ? 0 : 1 }' <<<"$shdeps_content"; then
     _pass "tmux: base declares $dependency"
@@ -124,7 +125,13 @@ _assert_not_contains 'tmux: retired manual session exporter stays absent' \
 _assert_not_contains 'tmux: retired manual session restorer stays absent' \
   'tmux-restore-session' "$tmux_content"
 _assert_contains 'tmux: reload removes the retired save key' 'unbind S' "$tmux_content"
-_assert_contains 'tmux: reload removes the retired restore key' 'unbind R' "$tmux_content"
+# shellcheck disable=SC2016 # Match the literal HOME reference in the binding.
+_assert_contains 'tmux: prefix R reloads the loader' \
+  'bind R source-file "$HOME/.config/tmux/tmux.conf"' "$tmux_content"
+_assert_contains 'tmux: extrakto loads only when installed' \
+  'test ! -x ~/.local/share/laktak/extrakto/extrakto.tmux ||' "$tmux_content"
+_assert_contains 'tmux: extrakto copies record clipboard history' \
+  "set -g @extrakto_clip_tool 'clip capture &&" "$tmux_content"
 
 plugins=$(awk '/^[[:space:]]*set -g @plugin / { gsub(/'\''/, "", $4); print $4 }' \
   "$tmux_base")
@@ -300,8 +307,14 @@ if command -v tmux >/dev/null 2>&1; then
     _assert_not_contains 'tmux: control client does not publish terminal context' \
       'command: run-shell "\~/.local/bin/termnav tmux context' "$control_messages"
     _assert_eq 'tmux: runtime retains conditional pane labels' \
-      '#{?#{E:@termnav_pane_is_focused_leaf},,#[fg=#898989]} #I.#P (#{pane_id})  #{pane_current_command} ' \
+      '#{?#{E:@termnav_pane_is_focused_leaf},,#[fg=#898989]} #{E:@pane_label} ' \
       "$pane_border_format"
+    # ds strips host literals from pane-border-format to avoid repeating its
+    # session host label, so host comparisons must stay in user options.
+    for host_literal in '#{host' '#H'; do
+      _assert_not_contains "tmux: pane-border-format avoids ds-rewritten $host_literal" \
+        "$host_literal" "$pane_border_format"
+    done
     _assert_eq 'tmux: runtime retains dim inactive borders' 'fg=#333333' \
       "$pane_border_style"
     _assert_contains 'tmux: runtime active border remains cyan' \
@@ -319,8 +332,22 @@ if command -v tmux >/dev/null 2>&1; then
       'clip capture' "$copy_command"
     _assert_not_contains 'tmux: runtime removes the stale manual save key' \
       'bind-key -T prefix S ' "$prefix_keys"
-    _assert_not_contains 'tmux: runtime removes the stale manual restore key' \
-      'bind-key -T prefix R ' "$prefix_keys"
+    _assert_not_contains 'tmux: runtime replaces the stale manual restore key' \
+      'tmux-restore-session' "$prefix_keys"
+    _assert_contains 'tmux: runtime prefix R reloads the config' \
+      'source-file' "$(printf '%s\n' "$prefix_keys" | awk '$4 == "R"')"
+    for key in '"' % c; do
+      _assert_contains "tmux: runtime prefix $key keeps the pane directory" \
+        '-c "#{pane_current_path}"' \
+        "$(printf '%s\n' "$prefix_keys" | awk -v key="$key" '$4 == key || $4 == "\\" key')"
+    done
+    _assert_contains 'tmux: runtime copy mode v begins a selection' \
+      'begin-selection' "$(printf '%s\n' "$copy_keys" | awk '$4 == "v"')"
+    _assert_contains 'tmux: runtime copy mode y copies through clip' \
+      'copy-pipe-and-cancel "clip capture"' \
+      "$(printf '%s\n' "$copy_keys" | awk '$4 == "y"')"
+    _assert_contains 'tmux: runtime copy mode C-v keeps rectangle selection' \
+      'rectangle-toggle' "$(printf '%s\n' "$copy_keys" | awk '$4 == "C-v"')"
     _assert_contains 'tmux: runtime clipboard picker uses the handoff path' \
       'tmux-clip-paste --path' "$prefix_keys"
     for key in User8 User9 User10 User11 User12 User13; do
@@ -368,6 +395,181 @@ if command -v tmux >/dev/null 2>&1; then
       _assert_not_contains "tmux: runtime removes retired key $retired_key" \
         "bind-key -T root $retired_key " "$root_keys"
     done
+
+    # Window names and pane labels derive from what each pane runs. Fake apps
+    # are copies of bash, so pane_current_command reports the copy's name on
+    # every platform: Linux reads argv[0], while macOS reads the executed
+    # file's name, which for a symlink is its target. bash also ignores its
+    # invocation name, unlike multi-call sleep binaries (busybox, coreutils),
+    # and the trailing no-op keeps it from exec-ing sleep in its place. The
+    # launcher enables mouse reporting (the interactive-app signal) and
+    # optionally sets an app-chosen title before exec.
+    #
+    # pane_current_path is the canonical path, so canonicalize the fixture
+    # paths it is compared with (macOS temp directories live under a /var
+    # symlink to /private/var).
+    labels_dir=$(_tmpdir)
+    labels_dir=$(cd "$labels_dir" && pwd -P)
+    mkdir -p "$labels_dir/bin" "$labels_dir/proj-a" "$labels_dir/proj-d" \
+      "$labels_dir/proj-z" "$labels_dir/h/sub" "$labels_dir/hx"
+    for app_name in agentx ssh zsh; do
+      cp "$(command -v bash)" "$labels_dir/bin/$app_name"
+    done
+    cat >"$labels_dir/app" <<'SH'
+#!/bin/sh
+printf '\033[?1000h'
+[ -n "${2-}" ] && printf '\033]2;%s\033\\' "$2"
+exec "${0%/*}/bin/$1" -c 'sleep 600; :'
+SH
+    # A plain shell pane: the same fake command without mouse reporting.
+    cat >"$labels_dir/shell" <<'SH'
+#!/bin/sh
+exec "${0%/*}/bin/zsh" -c 'sleep 600; :'
+SH
+    chmod +x "$labels_dir/app" "$labels_dir/shell"
+    app="$labels_dir/app"
+    shell="$labels_dir/shell"
+    fixture_home=$(tmux_cmd show-environment -g HOME)
+    fixture_home=$(cd "${fixture_home#HOME=}" && pwd -P)
+    tmux_cmd set-environment -g HOME "$fixture_home"
+    host_short=$(tmux_cmd display-message -p '#{host_short}')
+    long_title=a-very-long-remote-host-name
+
+    # wait_command PANE COMMAND [MOUSE] polls until the pane's foreground
+    # command (and optionally its mouse flag) settles, so assertions never
+    # race the launcher's exec.
+    wait_command() {
+      local pane=$1 expected=$2 mouse=${3:-} state=''
+      for _ in $(seq 1 50); do
+        state=$(tmux_cmd display-message -p -t "$pane" \
+          '#{pane_current_command} #{mouse_any_flag}' 2>/dev/null)
+        if [[ ${state% *} == "$expected" && (-z $mouse || ${state##* } == "$mouse") ]]; then
+          return 0
+        fi
+        sleep 0.1
+      done
+      _fail "tmux: pane $pane reached '$expected' (last state: '$state')"
+      return 1
+    }
+    # Labels use UTF-8 separators and ellipses. -u renders them even where the
+    # test runs without a UTF-8 locale, as some CI images do.
+    window_name() {
+      tmux_cmd -u display-message -p -t "$1" '#{E:automatic-rename-format}'
+    }
+    pane_label() {
+      tmux_cmd -u display-message -p -t "$1" '#{E:@pane_label}'
+    }
+
+    # Shells and short-lived commands never name a window: it falls back to
+    # the active pane's directory.
+    plain_window=$(tmux_cmd new-window -d -P -F '#{window_id}' \
+      -c "$labels_dir/proj-a" "$shell")
+    wait_command "$plain_window" zsh 0
+    _assert_eq 'tmux: shell-only window is named after its directory' \
+      proj-a "$(window_name "$plain_window")"
+
+    # An interactive app names the window even while a shell pane has focus.
+    agent_window=$(tmux_cmd new-window -d -P -F '#{window_id}' \
+      -c "$fixture_home" "$app agentx 'fix the bug'")
+    agent_pane=$(tmux_cmd display-message -p -t "$agent_window" '#{pane_id}')
+    shell_pane=$(tmux_cmd split-window -d -P -F '#{pane_id}' -t "$agent_pane" \
+      -c "$fixture_home" "$shell")
+    tmux_cmd select-pane -t "$shell_pane"
+    wait_command "$agent_pane" agentx 1
+    wait_command "$shell_pane" zsh 0
+    _assert_eq 'tmux: interactive app names its window regardless of focus' \
+      agentx "$(window_name "$agent_window")"
+    _assert_eq 'tmux: interactive pane label shows the app title' \
+      'agentx · fix the bug' "$(pane_label "$agent_pane")"
+    _assert_eq 'tmux: shell pane label shows a home-relative directory' \
+      'zsh · ~' "$(pane_label "$shell_pane")"
+
+    # Wrapper processes use the app's own title, unless that title is just
+    # tmux's hostname default. Several apps are listed in pane order.
+    wrapped_window=$(tmux_cmd new-window -d -P -F '#{window_id}' \
+      "$app ssh remote:ds")
+    wrapped_pane=$(tmux_cmd display-message -p -t "$wrapped_window" '#{pane_id}')
+    default_pane=$(tmux_cmd split-window -d -P -F '#{pane_id}' -t "$wrapped_pane" \
+      "$app ssh '$host_short'")
+    wait_command "$wrapped_pane" ssh 1
+    wait_command "$default_pane" ssh 1
+    _assert_eq 'tmux: wrapped apps are named by title, else by command' \
+      'remote:ds ssh' "$(window_name "$wrapped_window")"
+    _assert_eq 'tmux: wrapped pane label is the app title alone' \
+      remote:ds "$(pane_label "$wrapped_pane")"
+    _assert_eq 'tmux: wrapped pane with a default title shows its command' \
+      ssh "$(pane_label "$default_pane")"
+
+    # Long names are capped so one window cannot crowd the tab bar, and a
+    # title that only echoes the pane directory is not repeated.
+    long_window=$(tmux_cmd new-window -d -P -F '#{window_id}' \
+      "$app ssh $long_title")
+    echo_pane=$(tmux_cmd split-window -d -P -F '#{pane_id}' -t "$long_window" \
+      -c "$labels_dir/proj-d" "$app agentx proj-d")
+    wait_command "$long_window" ssh 1
+    wait_command "$echo_pane" agentx 1
+    _assert_eq 'tmux: long window names are truncated with an ellipsis' \
+      'a-very-long-remote-h…' "$(window_name "$long_window")"
+    _assert_eq 'tmux: a title echoing the directory is not repeated' \
+      agentx "$(pane_label "$echo_pane")"
+
+    # A title is untrusted text: style directives must render literally rather
+    # than restyle the tab bar or border.
+    hostile_window=$(tmux_cmd new-window -d -P -F '#{window_id}' \
+      "$app ssh '#[fg=red]evil'")
+    wait_command "$hostile_window" ssh 1
+    _assert_eq 'tmux: window names escape title style directives' \
+      '##[fg=red]evil' "$(window_name "$hostile_window")"
+    _assert_eq 'tmux: pane labels escape title style directives' \
+      '##[fg=red]evil' "$(pane_label "$hostile_window")"
+
+    # Shell widgets such as fzf history search enable mouse reporting while the
+    # shell stays in the foreground; that must not rename the tab.
+    widget_window=$(tmux_cmd new-window -d -P -F '#{window_id}' \
+      -c "$labels_dir/proj-z" "$app zsh")
+    wait_command "$widget_window" zsh 1
+    _assert_eq 'tmux: a mouse-reporting shell does not name its window' \
+      proj-z "$(window_name "$widget_window")"
+    _assert_eq 'tmux: a mouse-reporting shell keeps a directory label' \
+      "zsh · $labels_dir/proj-z" "$(pane_label "$widget_window")"
+
+    # Home abbreviation compares whole path components, and falls back to the
+    # plain path when the server has no HOME.
+    tmux_cmd set-environment -g HOME "$labels_dir/h"
+    for case in "h:~" "h/sub:~/sub" "hx:$labels_dir/hx"; do
+      home_pane=$(tmux_cmd new-window -d -P -F '#{pane_id}' \
+        -c "$labels_dir/${case%%:*}" "$shell")
+      wait_command "$home_pane" zsh 0
+      _assert_eq "tmux: home abbreviation for ${case%%:*}" \
+        "${case#*:}" "$(tmux_cmd -u display-message -p -t "$home_pane" '#{E:@pane_dir}')"
+    done
+    tmux_cmd set-environment -gu HOME
+    _assert_eq 'tmux: no HOME leaves directories unabbreviated' \
+      "$labels_dir/hx" \
+      "$(tmux_cmd -u display-message -p -t "$home_pane" '#{E:@pane_dir}')"
+    tmux_cmd set-environment -g HOME "$fixture_home"
+
+    # Tab badges reflect zoom and copy mode for the window's active pane.
+    current_format=$(tmux_cmd show-window-options -gv window-status-current-format)
+    tmux_cmd resize-pane -Z -t "$shell_pane"
+    tmux_cmd copy-mode -t "$shell_pane"
+    _assert_contains 'tmux: current tab shows zoom' '[Z]' \
+      "$(tmux_cmd -u display-message -p -t "$shell_pane" "$current_format")"
+    _assert_contains 'tmux: current tab shows copy mode' '[COPY]' \
+      "$(tmux_cmd -u display-message -p -t "$shell_pane" "$current_format")"
+    tmux_cmd send-keys -t "$shell_pane" -X cancel
+    tmux_cmd clock-mode -t "$shell_pane"
+    _assert_not_contains 'tmux: other pane modes are not labelled as copy mode' \
+      '[COPY]' "$(tmux_cmd -u display-message -p -t "$shell_pane" "$current_format")"
+    tmux_cmd send-keys -t "$shell_pane" q
+    tmux_cmd resize-pane -Z -t "$shell_pane"
+    _assert_not_contains 'tmux: tab badges clear with their modes' '[' \
+      "$(tmux_cmd -u display-message -p -t "$shell_pane" "$current_format")"
+    _assert_eq 'tmux: windows rename automatically' on \
+      "$(tmux_cmd show-window-options -gv automatic-rename)"
+    _assert_eq 'tmux: nested tmux titles its parent pane with host:session' \
+      '#{?@hostname_alias,#{@hostname_alias},#{host_short}}:#S' \
+      "$(tmux_cmd show-options -gv set-titles-string)"
 
     # Attach a second configured server's client from inside a pane of the
     # first, the way `ssh host` from a tmux pane nests tmux. The nested client

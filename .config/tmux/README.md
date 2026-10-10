@@ -21,8 +21,11 @@ terminal navigation stack. The `dotfiles-nvim` overlay adds
   rebinds them so Neovim/fzf panes also receive the chord.
 - Copy-mode clipboard piping uses the dotfiles `clip` command, which falls
   back to platform clipboard tools. `copy-command` is `clip capture`, so
-  double-click word selection and triple-click line selection join Enter and
-  Ctrl-c.
+  double-click word selection and triple-click line selection join Enter,
+  Ctrl-c, and vi-style `v`/`y`.
+- `prefix Tab` opens extrakto, a shdeps-managed checkout sourced directly
+  rather than through TPM, to fuzzy-pick a path, URL, hash, or word from the
+  pane. Its copies also go through `clip capture` and then OSC 52.
 
 The editor overlay's `20-editor.conf` adds:
 
@@ -46,6 +49,50 @@ The editor overlay's `20-editor.conf` adds:
 Keep generic tmux helper commands in their owning dependency repos. This
 directory should wire those commands into the user's tmux experience, not own
 their implementation.
+
+## Labels and Status
+
+Windows name themselves from what they host, not from the focused pane. Every
+pane whose foreground app enables mouse reporting (agents, editors, a nested
+tmux over SSH) contributes its name, in pane order; shells and short-lived
+commands such as `git`, `make`, or `less` never do, so tabs do not flicker
+while a side shell works. A window of plain shells falls back to the active
+pane's directory. Sandboxes, SSH transports, and interpreters (`bwrap`,
+`termnav`, `ssh`, `node`, `python`) report a wrapper process name, so those
+panes use the title the app set itself. tmux's hostname default, or a title
+that only repeats the command or directory, does not count as a title.
+Titles are untrusted text, so labels escape them and an embedded `#[...]`
+style directive renders literally. Shells and pickers (`zsh`, `fzf`, `less`)
+never name a window even while a widget such as fzf history search turns
+mouse reporting on. A manual rename (`prefix ,`) turns automatic naming off
+for that window.
+
+`set-titles` publishes `host:session` as the terminal title. A nested tmux
+reached over SSH therefore titles its parent pane, which is how the outer
+layer labels that pane and window with the remote host.
+
+A pane title belongs to whichever program last set it, so the shell prompt
+(`.config/shell/interactive.d/60-prompt.*`) keeps titles current under tmux or
+screen: each command line becomes the title as it starts (`ssh metro`), and
+every prompt resets it. A title left by an exited program, such as a previous
+SSH session's remote tmux, therefore never mislabels the next one. A plain
+SSH shell on a host with these dotfiles titles itself `user@host: dir`.
+
+Pane borders use the same rules: interactive panes show the app and its own
+title (an agent's task, Neovim's file), and shells show a home-relative
+directory. `ds` strips host literals such as `#{host}` from
+`pane-border-format`, so host comparisons live in the `@pane_*` user options
+rather than in that option itself.
+
+The status bar has its own background so the window list reads as a tab
+strip. The current tab is highlighted, a background window that rang the
+bell turns orange until selected, and tabs show `[Z]` for a zoomed pane and
+`[COPY]` while the active pane is in copy mode. `ds` sessions replace
+`status-left` with their own host-labelled copy, so shared indicators belong
+in the window tabs rather than in `status-left`.
+
+`prefix "`, `prefix %`, and `prefix c` open new panes and windows in the
+current pane's directory, and `prefix R` reloads the config.
 
 ## Key Handling
 
@@ -155,8 +202,9 @@ Keep the TPM block at the end of `conf.d/10-base.conf` and keep continuum
 last in the plugin list. Continuum injects autosave through `status-right`, so
 a later plugin or status assignment, including one in a later overlay
 fragment, would silently disable periodic saves. The older
-manual save/restore commands and their prefix+S/prefix+R bindings were retired:
-this configuration uses tmux-resurrect as the single persistence mechanism.
+manual save/restore commands and their prefix+S/prefix+R bindings were retired
+(prefix+R now reloads the config): this configuration uses tmux-resurrect as
+the single persistence mechanism.
 
 Upstream continuum normally gives persistence ownership to the first tmux
 server for the user. This config loads continuum with saving and restoring
