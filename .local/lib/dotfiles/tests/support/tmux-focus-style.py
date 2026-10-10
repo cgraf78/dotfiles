@@ -578,6 +578,105 @@ class LeafStyleTest(unittest.TestCase):
         first.set_focus(True)
         wait_until(lambda: self.pending(self.active) == "", "pending cleared on client refocus")
 
+    def current_pane(self, client: Client) -> str:
+        return self.tmux("display-message", "-c", client.tty, "-p", "#{pane_id}").stdout.strip()
+
+    def window_of(self, pane: str) -> str:
+        return self.tmux("display-message", "-p", "-t", pane, "#{window_id}").stdout.strip()
+
+    def press(self, client: Client, keys: bytes) -> None:
+        """Send keys after the default prefix and service the resulting redraw."""
+        client.send(b"\x02" + keys)
+        client.pump(0.1)
+
+    def tree_keys(self, client: Client, *keys: bytes) -> None:
+        """Type into choose-tree one key at a time.
+
+        A cursor-key sequence followed in the same write by another key can be
+        split at the escape-time boundary on a busy host, so tmux sees a bare
+        Escape that closes the tree. Servicing the redraw between keys keeps
+        each sequence whole.
+        """
+        for key in keys:
+            client.send(key)
+            client.pump(0.15)
+
+    def test_prefix_a_visits_pending_panes_in_order(self) -> None:
+        client = Client(self)
+        self.clients.append(client)
+        if not self.supports_client_format_context(client.tty):
+            self.skipTest("tmux does not support client-targeted format expansion")
+        client.set_focus(True)
+        background = self.tmux(
+            "new-window", "-d", "-P", "-F", "#{pane_id}", "sleep 30"
+        ).stdout.strip()
+        for pane in (background, self.inactive):
+            self.tmux("set-option", "-p", "-t", pane, "@term_notify_pending", "1")
+
+        # Tab order wins over the order the panes asked: the pane beside you
+        # in window 1 comes before the one in window 2.
+        self.press(client, b"a")
+        wait_until(
+            lambda: self.current_pane(client) == self.inactive, "jump to the first pending pane"
+        )
+        wait_until(lambda: self.pending(self.inactive) == "", "arrival acknowledges the pane")
+        self.assertEqual("1", self.pending(background))
+
+        self.press(client, b"a")
+        wait_until(
+            lambda: self.current_pane(client) == background, "jump into the background window"
+        )
+        wait_until(lambda: self.pending(background) == "", "arrival acknowledges the window's pane")
+
+        # With nothing pending the key says so and stays put.
+        self.press(client, b"a")
+        wait_until(
+            lambda: "Nothing is waiting" in self.tmux("show-messages").stdout,
+            "empty-queue message",
+        )
+        self.assertEqual(background, self.current_pane(client))
+
+    def test_prefix_j_and_J_move_panes_between_windows(self) -> None:
+        client = Client(self)
+        self.clients.append(client)
+        if not self.supports_client_format_context(client.tty):
+            self.skipTest("tmux does not support client-targeted format expansion")
+        other = self.tmux("new-window", "-d", "-P", "-F", "#{pane_id}", "sleep 30").stdout.strip()
+        home = self.window_of(self.active)
+
+        # Send the current pane into the last window in the tree (End).
+        self.press(client, b"j")
+        wait_until(
+            lambda: (
+                self.tmux("display-message", "-c", client.tty, "-p", "#{pane_mode}").stdout.strip()
+                == "tree-mode"
+            ),
+            "window chooser",
+        )
+        self.tree_keys(client, b"\x1b[F", b"\r")
+        wait_until(
+            lambda: self.window_of(self.active) == self.window_of(other), "pane sent to the window"
+        )
+        self.assertEqual(home, self.window_of(self.inactive))
+
+        # You go with the pane you sent, so you can keep working in it.
+        wait_until(lambda: self.current_pane(client) == self.active, "client follows the sent pane")
+
+        # Pull the pane left behind in the first window back in beside it.
+        self.press(client, b"J")
+        wait_until(
+            lambda: (
+                self.tmux("display-message", "-c", client.tty, "-p", "#{pane_mode}").stdout.strip()
+                == "tree-mode"
+            ),
+            "pane chooser",
+        )
+        # Home is the session row; window 1 sits just below it.
+        self.tree_keys(client, b"\x1bOH", b"\x1b[B", b"\r")
+        wait_until(
+            lambda: self.window_of(self.inactive) == self.window_of(self.active), "pane pulled in"
+        )
+
     def test_terminal_render_paints_the_focused_leaf_night_owl_blue(self) -> None:
         # Remove unrelated status-line and inactive-pane background sequences
         # so the captured SGR color is the pane body tmux actually painted.
