@@ -112,6 +112,8 @@ _assert_contains 'tmux: modified copy selections establish an anchor' \
   'send-keys -X begin-selection' "$tmux_content"
 _assert_contains 'tmux: publishes copy-mode selections through OSC 52' \
   'set -g set-clipboard on' "$tmux_content"
+_assert_contains 'tmux: default copy command records clipboard history' \
+  "set -g copy-command 'clip capture'" "$tmux_content"
 # shellcheck disable=SC2016 # Match the literal command substitution in config.
 _assert_contains 'tmux: clipboard picker uses the isolated handoff path' \
   'clip pick > "$(tmux-clip-paste --path)"' "$tmux_content"
@@ -312,6 +314,9 @@ if command -v tmux >/dev/null 2>&1; then
       '#[fg=#898989]' "$inactive_pane_border"
     _assert_contains 'tmux: runtime copy mode retains Ctrl-c' \
       'copy-pipe-and-cancel' "$copy_keys"
+    copy_command=$(tmux_cmd show-options -gv copy-command)
+    _assert_eq 'tmux: runtime default copy command is clip capture' \
+      'clip capture' "$copy_command"
     _assert_not_contains 'tmux: runtime removes the stale manual save key' \
       'bind-key -T prefix S ' "$prefix_keys"
     _assert_not_contains 'tmux: runtime removes the stale manual restore key' \
