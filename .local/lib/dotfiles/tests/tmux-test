@@ -397,20 +397,22 @@ if command -v tmux >/dev/null 2>&1; then
     done
 
     # Window names and pane labels derive from what each pane runs. Fake apps
-    # are symlinks to sleep, so pane_current_command reports the link name;
+    # are symlinks to bash, so pane_current_command reports the link name.
+    # bash ignores its invocation name, unlike busybox applets such as sleep,
+    # and the trailing no-op keeps it from exec-ing sleep in its place;
     # the launcher enables mouse reporting (the interactive-app signal) and
     # optionally sets an app-chosen title before exec.
     labels_dir=$(_tmpdir)
     mkdir -p "$labels_dir/bin" "$labels_dir/proj-a" "$labels_dir/proj-d" \
       "$labels_dir/proj-z" "$labels_dir/h/sub" "$labels_dir/hx"
     for app_name in agentx ssh zsh; do
-      ln -s "$(command -v sleep)" "$labels_dir/bin/$app_name"
+      ln -s "$(command -v bash)" "$labels_dir/bin/$app_name"
     done
     cat >"$labels_dir/app" <<'SH'
 #!/bin/sh
 printf '\033[?1000h'
 [ -n "${2-}" ] && printf '\033]2;%s\033\\' "$2"
-exec "${0%/*}/bin/$1" 60
+exec "${0%/*}/bin/$1" -c 'sleep 60; :'
 SH
     chmod +x "$labels_dir/app"
     app="$labels_dir/app"
@@ -435,11 +437,13 @@ SH
       _fail "tmux: pane $pane reached '$expected' (last state: '$state')"
       return 1
     }
+    # Labels use UTF-8 separators and ellipses. -u renders them even where the
+    # test runs without a UTF-8 locale, as some CI images do.
     window_name() {
-      tmux_cmd display-message -p -t "$1" '#{E:automatic-rename-format}'
+      tmux_cmd -u display-message -p -t "$1" '#{E:automatic-rename-format}'
     }
     pane_label() {
-      tmux_cmd display-message -p -t "$1" '#{E:@pane_label}'
+      tmux_cmd -u display-message -p -t "$1" '#{E:@pane_label}'
     }
 
     # Shells and short-lived commands never name a window: it falls back to
@@ -523,12 +527,12 @@ SH
         -c "$labels_dir/${case%%:*}" 'sleep 60')
       wait_command "$home_pane" sleep
       _assert_eq "tmux: home abbreviation for ${case%%:*}" \
-        "${case#*:}" "$(tmux_cmd display-message -p -t "$home_pane" '#{E:@pane_dir}')"
+        "${case#*:}" "$(tmux_cmd -u display-message -p -t "$home_pane" '#{E:@pane_dir}')"
     done
     tmux_cmd set-environment -gu HOME
     _assert_eq 'tmux: no HOME leaves directories unabbreviated' \
       "$labels_dir/hx" \
-      "$(tmux_cmd display-message -p -t "$home_pane" '#{E:@pane_dir}')"
+      "$(tmux_cmd -u display-message -p -t "$home_pane" '#{E:@pane_dir}')"
     tmux_cmd set-environment -g HOME "$fixture_home"
 
     # Tab badges reflect zoom and copy mode for the window's active pane.
@@ -536,17 +540,17 @@ SH
     tmux_cmd resize-pane -Z -t "$shell_pane"
     tmux_cmd copy-mode -t "$shell_pane"
     _assert_contains 'tmux: current tab shows zoom' '[Z]' \
-      "$(tmux_cmd display-message -p -t "$shell_pane" "$current_format")"
+      "$(tmux_cmd -u display-message -p -t "$shell_pane" "$current_format")"
     _assert_contains 'tmux: current tab shows copy mode' '[COPY]' \
-      "$(tmux_cmd display-message -p -t "$shell_pane" "$current_format")"
+      "$(tmux_cmd -u display-message -p -t "$shell_pane" "$current_format")"
     tmux_cmd send-keys -t "$shell_pane" -X cancel
     tmux_cmd clock-mode -t "$shell_pane"
     _assert_not_contains 'tmux: other pane modes are not labelled as copy mode' \
-      '[COPY]' "$(tmux_cmd display-message -p -t "$shell_pane" "$current_format")"
+      '[COPY]' "$(tmux_cmd -u display-message -p -t "$shell_pane" "$current_format")"
     tmux_cmd send-keys -t "$shell_pane" q
     tmux_cmd resize-pane -Z -t "$shell_pane"
     _assert_not_contains 'tmux: tab badges clear with their modes' '[' \
-      "$(tmux_cmd display-message -p -t "$shell_pane" "$current_format")"
+      "$(tmux_cmd -u display-message -p -t "$shell_pane" "$current_format")"
     _assert_eq 'tmux: windows rename automatically' on \
       "$(tmux_cmd show-window-options -gv automatic-rename)"
     _assert_eq 'tmux: nested tmux titles its parent pane with host:session' \
