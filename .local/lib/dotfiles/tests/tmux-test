@@ -438,7 +438,10 @@ if command -v tmux >/dev/null 2>&1; then
     labels_dir=$(cd "$labels_dir" && pwd -P)
     mkdir -p "$labels_dir/bin" "$labels_dir/proj-a" "$labels_dir/proj-d" \
       "$labels_dir/proj-z" "$labels_dir/h/sub" "$labels_dir/hx"
-    for app_name in agentx ssh zsh muse-bin-1.4.3-R5018.1 muse-bin-2.0.0-R6001.3 \
+    # Agent fixture names stay within 15 characters: macOS reports at most
+    # that much of a command name, and muse-bin-1.4.3- is exactly how it
+    # truncates a real muse-bin-1.4.3-R5018.1.
+    for app_name in agentx ssh zsh muse-bin-1.4.3- muse-bin-R6001 \
       muse-bin museum opencode; do
       cp "$(command -v bash)" "$labels_dir/bin/$app_name"
     done
@@ -519,11 +522,11 @@ SH
     # Known agents name the window even without mouse reporting, and a
     # versioned binary is named without its version.
     inline_window=$(tmux_cmd new-window -d -P -F '#{window_id}' \
-      -c "$labels_dir/proj-a" "$labels_dir/inline muse-bin-1.4.3-R5018.1")
+      -c "$labels_dir/proj-a" "$labels_dir/inline muse-bin-1.4.3-")
     inline_pane=$(tmux_cmd display-message -p -t "$inline_window" '#{pane_id}')
     opencode_pane=$(tmux_cmd split-window -d -P -F '#{pane_id}' -t "$inline_pane" \
       -c "$labels_dir/proj-a" "$labels_dir/inline opencode")
-    wait_command "$inline_pane" muse-bin-1.4.3-R5018.1 0
+    wait_command "$inline_pane" muse-bin-1.4.3- 0
     wait_command "$opencode_pane" opencode 0
     _assert_eq 'tmux: known agents name the window without mouse reporting' \
       'muse opencode' "$(window_name "$inline_window")"
@@ -531,7 +534,7 @@ SH
       muse "$(pane_label "$inline_pane")"
     # The binary name changes with every upgrade; any version-like suffix,
     # or none, is still the same agent. A lookalike name is not.
-    for binary in muse-bin-2.0.0-R6001.3 muse-bin; do
+    for binary in muse-bin-R6001 muse-bin; do
       upgraded_pane=$(tmux_cmd new-window -d -P -F '#{pane_id}' \
         -c "$labels_dir/proj-a" "$labels_dir/inline $binary")
       wait_command "$upgraded_pane" "$binary" 0
