@@ -146,6 +146,7 @@ dev	git	.local/lib/dotfiles/git-hooks/**
 dev	git	.local/lib/dotfiles/merge-hooks.d/gh.sh
 dev	git	.local/lib/dotfiles/merge-hooks.d/git.sh
 dev	git	.local/lib/dotfiles/merge-hooks.d/sapling.sh
+dev	nvim-dev	.config/dot/merge-hooks.d/checkrun-nvim/**
 dev	nvim-dev	.config/nvim/lua/config/checkrun-nvim.lua
 dev	nvim-dev	.config/nvim/lua/config/keymaps/workspace-dev.lua
 dev	nvim-dev	.config/nvim/lua/config/language-policy.lua
@@ -163,6 +164,8 @@ dev	nvim-dev	.config/nvim/lua/plugins/linting.lua
 dev	nvim-dev	.config/nvim/lua/plugins/sley.lua
 dev	nvim-dev	.local/lib/dotfiles/doctor.d/75-nvim-dev.sh
 dev	nvim-dev	.local/lib/dotfiles/doctor.d/lib/nvim-dev.sh
+dev	nvim-dev	.local/lib/dotfiles/merge-hooks.d/checkrun-nvim.sh
+dev	nvim-dev	.local/lib/dotfiles/merge-hooks.d/lib/checkrun-nvim.sh
 dev	sley	.config/sley/**
 dev	sley	.local/lib/dotfiles/sley-hooks/**
 dev	vscode	.config/dot/merge-hooks.d/vscode/**
