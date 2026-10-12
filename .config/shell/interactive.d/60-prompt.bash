@@ -42,10 +42,11 @@ __title_preexec() {
 # Inside tmux, mark where each command's output starts (OSC 133;C); set_prompt
 # marks where each prompt starts (OSC 133;A). tmux records both on its lines,
 # so copy mode can jump between commands, and consumes them, so they never
-# reach the outer terminal, whose own shell integration (VS Code, WezTerm)
-# is left alone. Only a shell still in a tmux pane marks: TMUX leaks into
-# terminals launched from one (`code .`), whose TERM_PROGRAM differs. tmux releases without prompt marks ignore them. Needs
-# bash-preexec for the output mark; the prompt mark applies regardless.
+# reach the outer terminal, whose own shell integration (VS Code, WezTerm) is
+# left alone. Only a shell still in a tmux pane marks: TMUX leaks into
+# terminals launched from one (`code .`), whose TERM_PROGRAM differs. tmux
+# releases without prompt marks ignore them. Needs bash-preexec for the output
+# mark; the prompt mark applies regardless.
 __prompt_mark_preexec() {
   if [[ -n ${TMUX:-} && ${TERM_PROGRAM:-} == tmux ]]; then
     printf '\033]133;C\007'
