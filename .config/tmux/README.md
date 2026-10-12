@@ -148,6 +148,12 @@ sees a second set. tmux 3.4+ moves between those marks: `prefix k` opens copy
 mode on the last command's prompt, and `[` and `]` in copy mode step to the
 previous or next prompt. Older releases ignore the marks.
 
+`prefix g` opens a throwaway shell in a popup over the current pane, starting
+in its directory, for a quick check without splitting the window; exiting the
+shell closes it. `prefix G` opens `lazygit` there the same way, or says it is
+not installed. Keys typed in a popup go only to the popup, so the navigation
+bindings never reach the pane behind it, and nothing persists afterwards.
+
 `prefix "`, `prefix %`, and `prefix c` open new panes and windows in the
 current pane's directory, and `prefix R` reloads the config.
 
