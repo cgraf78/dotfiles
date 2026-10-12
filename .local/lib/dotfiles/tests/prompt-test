@@ -1304,6 +1304,12 @@ notify_with 1 "a stale focused client on the pane does not silence it" \
   '100 attached,focused,UTF-8 %7\n200 attached,UTF-8 %7\n' "${in_pane[@]}"
 notify_with 1 "a pane the latest client does not show rings" \
   '100 attached,focused,UTF-8 %7\n200 attached,focused,UTF-8 %3\n' "${in_pane[@]}"
+notify_with 0 "a tie for latest with a focused client on the pane stays silent" \
+  '200 attached,UTF-8 %7\n200 attached,focused,UTF-8 %7\n' "${in_pane[@]}"
+notify_with 0 "the tie holds in either listing order" \
+  '200 attached,focused,UTF-8 %7\n200 attached,UTF-8 %7\n' "${in_pane[@]}"
+notify_with 1 "a focused client that is not the latest does not count" \
+  '300 attached,UTF-8 %3\n200 attached,focused,UTF-8 %7\n' "${in_pane[@]}"
 notify_with 1 "a pane id that only prefixes the shown one rings" \
   '200 attached,focused,UTF-8 %70\n' "${in_pane[@]}"
 notify_with 1 "an unreachable tmux server still rings" '' "${in_pane[@]}"

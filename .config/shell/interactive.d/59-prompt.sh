@@ -425,9 +425,14 @@ __cmd_notify_wanted() {
 __cmd_notify() {
   [[ -n "${TMUX:-}" && -n "${TMUX_PANE:-}" && "${TERM_PROGRAM:-}" == tmux ]] || return 0
   __cmd_notify_wanted "$1" "$2" || return 0
+  # Activity is in whole seconds, and moving between two tmux terminals
+  # updates both in the same second, so a tie counts as watched when any of
+  # the tied clients is focused on this pane.
   tmux list-clients -F '#{client_activity} #{client_flags} #{pane_id}' 2>/dev/null |
-    sort -n | tail -n 1 |
-    awk -v pane="$TMUX_PANE" '$2 ~ /(^|,)focused(,|$)/ && $3 == pane { found = 1 } END { exit !found }' &&
+    awk -v pane="$TMUX_PANE" '
+      $1 > newest { newest = $1; watched = 0 }
+      $1 == newest && $2 ~ /(^|,)focused(,|$)/ && $3 == pane { watched = 1 }
+      END { exit !watched }' &&
     return 0
   command -v term-notify-sound >/dev/null 2>&1 || return 0
   term-notify-sound >/dev/null 2>&1 || true
