@@ -83,7 +83,11 @@ every prompt resets it. A title left by an exited program, such as a previous
 SSH session's remote tmux, therefore never mislabels the next one. A plain
 SSH shell on a host with these dotfiles titles itself `user@host: dir`.
 
-Pane borders use the same rules: interactive panes show the app and its own
+Pane borders lead with the pane's command targets, `window.pane` and the stable
+`%pane_id` in parentheses, as in `2.1 (%42)` followed by two spaces, so a pane
+can be named in `tmux` commands at a glance. In a nested tmux over SSH, the
+inner border's targets name panes on the remote server. The rest of the label
+uses the same rules as window names: interactive panes show the app and its own
 title (an agent's task, Neovim's file), and shells show a home-relative
 directory. `ds` strips host literals such as `#{host}` from
 `pane-border-format`, so host comparisons live in the `@pane_*` user options
