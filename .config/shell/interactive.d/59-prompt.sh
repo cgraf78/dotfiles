@@ -390,58 +390,40 @@ __git_prompt() {
 # Inside tmux, a long-running command rings the terminal and marks its pane
 # pending when it finishes, through cmdblocks' term-notify-sound, so a build
 # or test left running in a side pane gets noticed like an agent waiting for
-# you. Shells outside tmux stay silent: a bell there has no pane to mark.
-# PROMPT_NOTIFY_SECONDS sets the threshold in seconds (default 30; 0 turns it
-# off). The prompt hooks in 60-prompt.bash/.zsh call __cmd_notify.
+# you. PROMPT_NOTIFY_SECONDS sets the threshold in seconds (default 30; 0
+# turns it off). The prompt hooks in 60-prompt.bash/.zsh call __cmd_notify.
 
-# Return whether a finished command deserves a notification. It must have run
-# for the threshold and not been interrupted: Ctrl-C exits 130, and whoever
-# pressed it was watching. Interactive programs never count, since their
-# duration is only how long they were in use; a shell or interpreter counts
-# only when it ran something rather than opening a prompt.
-# Args: $1 - elapsed seconds, $2 - exit status, $3 - the command line.
+# Return whether a finished command ran long enough to notify about and ended
+# on its own: Ctrl-C (130) and Ctrl-Z (148) mean someone was at the keyboard.
+# Args: $1 - elapsed seconds, $2 - exit status.
 __cmd_notify_wanted() {
-  local elapsed="$1" rc="$2" line="$3" word threshold="${PROMPT_NOTIFY_SECONDS:-30}"
+  local elapsed="$1" rc="$2" threshold="${PROMPT_NOTIFY_SECONDS:-30}"
   case "$threshold" in
     '' | *[!0-9]*) threshold=30 ;;
   esac
+  # Base 10 explicitly: bash reads a leading zero as octal.
+  threshold=$((10#$threshold))
   ((threshold > 0 && elapsed >= threshold)) || return 1
-  [[ "$rc" != 130 ]] || return 1
-  # The program is the first word after environment assignments, wrappers
-  # that run another command, and their options; a wrapper with nothing
-  # after it (sudo -s) is an interactive shell.
-  line="${line#"${line%%[![:space:]]*}"}"
-  while :; do
-    word="${line%%[[:space:]]*}"
-    [[ -n "$word" ]] || return 1
-    case "$word" in
-      -* | *=* | sudo | command | builtin | exec | env | nice | nohup | time | noglob) ;;
-      *) break ;;
-    esac
-    line="${line#"$word"}"
-    line="${line#"${line%%[![:space:]]*}"}"
-  done
-  line="${line#"$word"}"
-  case "${word##*/}" in
-    vi | vim | nvim | view | vimdiff | emacs | nano | less | more | man | \
-      ssh | sshn | mosh | et | ds | tmux | screen | \
-      claude | codex | muse | gemini | grok | opencode | \
-      top | htop | btop | lazygit | lg | tig | fzf | watch)
-      return 1
-      ;;
-    bash | zsh | sh | fish | python | python3 | ipython | node | irb | lua)
-      [[ -n "${line//[[:space:]]/}" ]] || return 1
-      ;;
-  esac
-  return 0
+  [[ "$rc" != 130 && "$rc" != 148 ]]
 }
 
-# Notify for a finished command when inside tmux and __cmd_notify_wanted
-# agrees. Best effort: without cmdblocks, or with no terminal, nothing happens.
-# Args: as __cmd_notify_wanted.
+# Notify for a finished command when __cmd_notify_wanted agrees, unless you
+# were looking at its pane when it finished: a client whose terminal has
+# focus (tmux focus-events) is showing that pane. Switching to another pane,
+# window, or application before it finishes still notifies. Interactive
+# programs (an editor, a pager, an fzf picker, ssh) are used from the pane
+# you are looking at, so they never notify, without a list of program names
+# to keep current. Only a shell still in a tmux pane counts:
+# TMUX and TMUX_PANE leak into programs launched from one, such as an editor
+# started with `code .`, whose own terminals replace TERM_PROGRAM. Best
+# effort: without tmux, cmdblocks, or a terminal, nothing happens.
+# Args: $1 - elapsed seconds, $2 - exit status.
 __cmd_notify() {
-  [[ -n "${TMUX:-}" ]] || return 0
-  __cmd_notify_wanted "$@" || return 0
+  [[ -n "${TMUX:-}" && -n "${TMUX_PANE:-}" && "${TERM_PROGRAM:-}" == tmux ]] || return 0
+  __cmd_notify_wanted "$1" "$2" || return 0
+  tmux list-clients -F '#{client_flags} #{pane_id}' 2>/dev/null |
+    awk -v pane="$TMUX_PANE" '$1 ~ /(^|,)focused(,|$)/ && $2 == pane { found = 1 } END { exit !found }' &&
+    return 0
   command -v term-notify-sound >/dev/null 2>&1 || return 0
   term-notify-sound >/dev/null 2>&1 || true
 }

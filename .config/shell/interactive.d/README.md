@@ -13,6 +13,7 @@ base layers they depend on.
 The prompt also notifies about long commands. Inside tmux, a command that ran
 for `PROMPT_NOTIFY_SECONDS` (default 30; `0` turns it off) rings the terminal
 and marks its pane pending through cmdblocks' `term-notify-sound`, the same
-`●` an agent waiting for you shows. Interactive programs (editors, pagers,
-remote sessions, agents, REPLs), commands stopped with Ctrl-C, and shells
-outside tmux never notify.
+`●` an agent waiting for you shows, unless you were looking at that pane when
+it finished. Interactive programs (an editor, a pager, an fzf picker, ssh) are
+used from the pane you are looking at, so they do not notify. Commands stopped
+with Ctrl-C or suspended with Ctrl-Z, and shells outside tmux, never notify.

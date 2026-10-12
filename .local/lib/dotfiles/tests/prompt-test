@@ -1226,99 +1226,114 @@ _assert_contains "title: bash registers the title hook once" 'COUNT=1' \
 echo ""
 echo "=== prompt: long-command notification ==="
 
-# A finished command notifies when it ran for the threshold, was not
-# interrupted, and was not an interactive program. The same predicate serves
-# bash and zsh, so run every case in both.
+# A finished command notifies when it ran for the threshold and ended on its
+# own (not Ctrl-C 130 or Ctrl-Z 148). The same predicate serves bash and zsh.
 NOTIFY_SH="$REAL_HOME/.config/shell/interactive.d/59-prompt.sh"
 notify_cases=(
-  '1:45:0:make test:a long build notifies'
-  '1:30:1:make test:exactly the threshold notifies, whatever the exit status'
-  '0:29:0:make test:a short command does not'
-  '0:45:130:tail -f log:an interrupted command does not'
-  '0:45:0:vim notes.md:an editor does not'
-  '0:45:0:/usr/bin/nvim notes.md:an editor by path does not'
-  '0:45:0:FOO=1 nvim x:an editor after an assignment does not'
-  '0:45:0:sudo vim /etc/hosts:an editor under sudo does not'
-  '0:45:0:time less log:a pager under time does not'
-  '0:45:0:ssh metro:a remote session does not'
-  '0:45:0:claude:an agent does not'
-  '0:45:0:python3:an interpreter prompt does not'
-  '0:45:0:bash:a subshell does not'
-  '1:45:0:python3 train.py:an interpreter running a script notifies'
-  '1:45:0:bash build.sh:a shell running a script notifies'
-  '1:45:0:  env CI=1 make:leading space, env, and assignment are skipped'
-  '0:45:0:   :a blank line does not'
-  '0:45:0:sudo -s:a wrapper opening a shell does not'
-  '1:45:0:nice -n 10 make:wrapper options are skipped'
+  ':45:0:1:a long command notifies'
+  ':30:1:1:exactly the threshold notifies, whatever the exit status'
+  ':29:0:0:a short command does not'
+  ':45:130:0:a command stopped with Ctrl-C does not'
+  ':45:148:0:a command suspended with Ctrl-Z does not'
+  '10:12:0:1:a lower threshold notifies sooner'
+  '0:600:0:0:a zero threshold turns it off'
+  'abc:45:0:1:an invalid threshold falls back to 30'
+  '09:10:0:1:a leading zero is decimal, not octal'
+  '010:9:0:0:a leading-zero threshold of 10 waits for 10'
 )
 notify_shells=(bash)
 command -v zsh >/dev/null 2>&1 && notify_shells+=(zsh)
 for notify_shell in "${notify_shells[@]}"; do
   for notify_case in "${notify_cases[@]}"; do
-    IFS=: read -r want elapsed rc line description <<<"$notify_case"
-    # shellcheck disable=SC2016 # $-expansions belong to the child shell.
+    IFS=: read -r threshold elapsed rc want description <<<"$notify_case"
     if [[ $notify_shell == zsh ]]; then
-      got=$(zsh -f -c '. "$1"; __cmd_notify_wanted "$2" "$3" "$4" && echo 1 || echo 0' _ \
-        "$NOTIFY_SH" "$elapsed" "$rc" "$line" 2>&1)
+      notify_run=(zsh -f -c)
     else
-      got=$(bash --norc --noprofile -c '. "$1"; __cmd_notify_wanted "$2" "$3" "$4" && echo 1 || echo 0' _ \
-        "$NOTIFY_SH" "$elapsed" "$rc" "$line" 2>&1)
+      notify_run=(bash --norc --noprofile -c)
     fi
-    _assert_eq "notify ($notify_shell): $description" "$want" "$got"
-  done
-  for threshold_case in '10:12:1:a lower threshold notifies sooner' '0:600:0:a zero threshold turns it off' \
-    'abc:45:1:an invalid threshold falls back to 30'; do
-    IFS=: read -r threshold elapsed want description <<<"$threshold_case"
     # shellcheck disable=SC2016 # $-expansions belong to the child shell.
-    got=$(PROMPT_NOTIFY_SECONDS=$threshold "$notify_shell" -c '. "$1"; __cmd_notify_wanted "$2" 0 "make" && echo 1 || echo 0' _ \
-      "$NOTIFY_SH" "$elapsed" 2>&1)
+    got=$(env -u BASH_ENV PROMPT_NOTIFY_SECONDS="$threshold" "${notify_run[@]}" \
+      '. "$1"; __cmd_notify_wanted "$2" "$3" && echo 1 || echo 0' _ \
+      "$NOTIFY_SH" "$elapsed" "$rc" 2>&1)
     _assert_eq "notify ($notify_shell): $description" "$want" "$got"
   done
 done
 
-# The prompt hooks hand the command line, its exit status, and its duration
-# to the notifier once, then forget the line, so an empty Enter afterwards
-# (no preexec) never notifies for idle time.
+# The notifier rings only for a shell in a tmux pane nobody is looking at:
+# no client with terminal focus is showing it. A stub tmux lists clients
+# (flags and current pane); a stub notifier records each ring.
 notify_bin="$TEST_TMPDIR/notify-bin"
 mkdir -p "$notify_bin"
 cat >"$notify_bin/term-notify-sound" <<'EOF'
 #!/bin/sh
 echo rang >>"$NOTIFY_LOG"
 EOF
-chmod +x "$notify_bin/term-notify-sound"
+cat >"$notify_bin/tmux" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$*" >>"$TMUX_LOG"
+printf '%b' "$TMUX_CLIENTS"
+EOF
+chmod +x "$notify_bin/term-notify-sound" "$notify_bin/tmux"
 notify_log="$TEST_TMPDIR/notify.log"
+tmux_log="$TEST_TMPDIR/notify-tmux.log"
+notify_index=0
+# notify_with WANT DESCRIPTION CLIENTS ENV... runs __cmd_notify 45 0.
+notify_with() {
+  local want=$1 description=$2 clients=$3
+  shift 3
+  notify_index=$((notify_index + 1))
+  rm -f "$notify_log"
+  # shellcheck disable=SC2016 # $-expansions belong to the bash -c body.
+  env -u BASH_ENV NOTIFY_LOG="$notify_log" TMUX_LOG="$tmux_log" TMUX_CLIENTS="$clients" \
+    PATH="$notify_bin:$PATH" "$@" bash --norc --noprofile -c \
+    '. "$1"; __cmd_notify 45 0' _ "$NOTIFY_SH"
+  if [[ $want == 1 ]]; then
+    _assert_file_content "notify: $description" 'rang' "$notify_log"
+  else
+    _assert_file_missing "notify: $description" "$notify_log"
+  fi
+}
+in_pane=(env TMUX=/tmp/notify-test TMUX_PANE=%7 TERM_PROGRAM=tmux)
+notify_with 0 "a pane a focused client shows stays silent" \
+  'attached,UTF-8 %3\nattached,focused,UTF-8 %7\n' "${in_pane[@]}"
+notify_with 1 "a pane shown only by an unfocused client rings" \
+  'attached,UTF-8 %7\nattached,focused,UTF-8 %3\n' "${in_pane[@]}"
+notify_with 1 "a pane no client shows rings" 'attached,focused,UTF-8 %3\n' "${in_pane[@]}"
+notify_with 1 "a pane id that only prefixes the shown one rings" \
+  'attached,focused,UTF-8 %70\n' "${in_pane[@]}"
+notify_with 1 "an unreachable tmux server still rings" '' "${in_pane[@]}"
+notify_with 0 "a shell outside tmux stays silent" '' env -u TMUX -u TMUX_PANE
+notify_with 0 "a leaked tmux env (editor launched from tmux) stays silent" '' \
+  env TMUX=/tmp/notify-test TMUX_PANE=%7 TERM_PROGRAM=vscode
+
+# The prompt hooks hand the duration and exit status to the notifier once
+# per command, then forget it, so an empty Enter afterwards (no preexec)
+# never notifies for idle time; a Ctrl-C'd command never rings.
 # shellcheck disable=SC2016 # $-expansions belong to the bash -c body.
-TMUX=/tmp/notify-test NOTIFY_LOG="$notify_log" PATH="$notify_bin:$PATH" bash --norc --noprofile -c '
-  . "$1"; . "$2" >/dev/null 2>&1
-  __prompt_preexec "make test"; __cmd_start=$((SECONDS - 40))
-  (exit 2); __prompt_precmd
+hook_script_bash='. "$1"; . "$2" >/dev/null 2>&1
+  __prompt_preexec "make test"; __cmd_start=$((SECONDS - 40)); (exit 2); __prompt_precmd
   __prompt_precmd
-' _ "$NOTIFY_SH" "$TITLE_BASH"
-_assert_file_content "notify (bash): the prompt hook notifies once for a long command" \
+  __prompt_preexec "make test"; __cmd_start=$((SECONDS - 40)); (exit 130); __prompt_precmd'
+rm -f "$notify_log"
+env -u BASH_ENV TMUX=/tmp/notify-test TMUX_PANE=%7 TERM_PROGRAM=tmux NOTIFY_LOG="$notify_log" \
+  TMUX_LOG="$tmux_log" TMUX_CLIENTS="" PATH="$notify_bin:$PATH" \
+  bash --norc --noprofile -c "$hook_script_bash" _ "$NOTIFY_SH" "$TITLE_BASH"
+_assert_file_content "notify (bash): the prompt hook rings once, not for Ctrl-C" \
   'rang' "$notify_log"
 if command -v zsh >/dev/null 2>&1; then
-  rm -f "$notify_log"
   # shellcheck disable=SC2016 # $-expansions belong to the zsh -c body.
-  TMUX=/tmp/notify-test NOTIFY_LOG="$notify_log" PATH="$notify_bin:$PATH" zsh -f -c '
-    . "$1"; . "$2" >/dev/null 2>&1
-    __prompt_preexec "make test"; __cmd_start=$((EPOCHSECONDS - 40))
-    (exit 2); __prompt_precmd
+  hook_script_zsh='. "$1"; . "$2" >/dev/null 2>&1; zmodload zsh/datetime
+    __prompt_preexec "make test"; __cmd_start=$((EPOCHSECONDS - 40)); (exit 2); __prompt_precmd
     __prompt_precmd
-    __prompt_preexec "vim x"; __cmd_start=$((EPOCHSECONDS - 40))
-    __prompt_precmd
-  ' _ "$NOTIFY_SH" "$TITLE_ZSH"
-  _assert_file_content "notify (zsh): the prompt hook notifies once for a long command" \
+    __prompt_preexec "make test"; __cmd_start=$((EPOCHSECONDS - 40)); (exit 130); __prompt_precmd'
+  rm -f "$notify_log"
+  env TMUX=/tmp/notify-test TMUX_PANE=%7 TERM_PROGRAM=tmux NOTIFY_LOG="$notify_log" \
+    TMUX_LOG="$tmux_log" TMUX_CLIENTS="" PATH="$notify_bin:$PATH" \
+    zsh -f -c "$hook_script_zsh" _ "$NOTIFY_SH" "$TITLE_ZSH"
+  _assert_file_content "notify (zsh): the prompt hook rings once, not for Ctrl-C" \
     'rang' "$notify_log"
 else
   _pass "notify: zsh unavailable, zsh hook check skipped"
 fi
-
-# Outside tmux a bell has no pane to mark, so nothing rings.
-rm -f "$notify_log"
-# shellcheck disable=SC2016 # $-expansions belong to the bash -c body.
-env -u TMUX NOTIFY_LOG="$notify_log" PATH="$notify_bin:$PATH" bash --norc --noprofile -c '
-  . "$1"; __cmd_notify 45 0 "make test"
-' _ "$NOTIFY_SH"
-_assert_file_missing "notify: a shell outside tmux stays silent" "$notify_log"
 
 _test_summary
