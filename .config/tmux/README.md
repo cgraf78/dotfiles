@@ -167,6 +167,9 @@ bindings never reach the pane behind it, and nothing persists afterwards.
 `prefix "`, `prefix %`, and `prefix c` open new panes and windows in the
 current pane's directory, and `prefix R` reloads the config.
 
+`prefix X` closes the current window and every pane in it after asking, the
+way `prefix x` closes one pane (tmux's own `prefix &` still works too).
+
 `prefix !` (tmux's default) breaks the current pane out into its own window.
 `prefix j` sends the current pane into a window chosen from a tree, and
 `prefix J` pulls a chosen pane in beside the current one, so a pane can be
