@@ -798,7 +798,9 @@ class LeafStyleTest(unittest.TestCase):
         """Press prefix g and G and check what each popup ran, and where.
 
         The popup programs are stand-ins that record their working directory
-        and exit at once, so each popup closes itself.
+        and TMUX_PANE, then exit, so each popup closes itself. tmux gives a
+        popup no TMUX_PANE, while any pane (a split, a window) has one, so
+        an empty TMUX_PANE proves a popup ran it.
         """
         client = Client(self)
         self.clients.append(client)
@@ -812,7 +814,8 @@ class LeafStyleTest(unittest.TestCase):
         shell_marker = self.root / "shell-ran"
         git_marker = self.root / "lazygit-ran"
         shell = stub / "scratch-shell"
-        shell.write_text(f'#!/bin/sh\npwd > "{shell_marker}"\n')
+        record = 'printf "%s %s\\n" "$(pwd)" "${TMUX_PANE:-popup}"'
+        shell.write_text(f'#!/bin/sh\n{record} > "{shell_marker}"\n')
         shell.chmod(0o755)
         pane = self.tmux(
             "new-window", "-P", "-F", "#{pane_id}", "-c", str(work), "sleep 30"
@@ -822,7 +825,7 @@ class LeafStyleTest(unittest.TestCase):
 
         self.press(client, b"g")
         wait_until(shell_marker.exists, "prefix g runs the default shell in a popup")
-        self.assertEqual(str(work), shell_marker.read_text().strip())
+        self.assertEqual(f"{work} popup", shell_marker.read_text().strip())
 
         # Without lazygit on the server's PATH, prefix G only says so.
         path = self.tmux("show-environment", "-g", "PATH", check=False).stdout.strip()
@@ -837,12 +840,12 @@ class LeafStyleTest(unittest.TestCase):
             "prefix G reports a missing lazygit",
         )
         lazygit = stub / "lazygit"
-        lazygit.write_text(f'#!/bin/sh\npwd > "{git_marker}"\n')
+        lazygit.write_text(f'#!/bin/sh\n{record} > "{git_marker}"\n')
         lazygit.chmod(0o755)
         self.tmux("set-environment", "-g", "PATH", f"{stub}:{bare_path}")
         self.press(client, b"G")
         wait_until(git_marker.exists, "prefix G runs lazygit in a popup")
-        self.assertEqual(str(work), git_marker.read_text().strip())
+        self.assertEqual(f"{work} popup", git_marker.read_text().strip())
 
     def test_terminal_render_paints_the_focused_leaf_night_owl_blue(self) -> None:
         # Remove unrelated status-line and inactive-pane background sequences
