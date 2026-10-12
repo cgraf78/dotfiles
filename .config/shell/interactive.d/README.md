@@ -9,3 +9,12 @@ It caches output below `XDG_CACHE_HOME` and keeps an unavailable optional tool
 from preventing a recovery shell. Selected overlays may contribute fragments
 before, between, or after the base fragments, choosing prefixes relative to the
 base layers they depend on.
+
+The prompt also notifies about long commands. Inside tmux, a command that ran
+for `PROMPT_NOTIFY_SECONDS` (default 30; `0` turns it off) rings the terminal
+and marks its pane pending through cmdblocks' `term-notify-sound`, the same
+`●` an agent waiting for you shows, unless you were looking at that pane when
+it finished: your most recently used tmux client shows the pane and its
+terminal has focus. Interactive programs (an editor, a pager, an fzf picker,
+ssh) are normally used from that pane, so they do not notify. Commands stopped
+with Ctrl-C or suspended with Ctrl-Z, and shells outside tmux, never notify.

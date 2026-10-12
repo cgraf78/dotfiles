@@ -1,7 +1,8 @@
 # shellcheck shell=bash
-# Shared git prompt: branch/status/upstream coloring.
-# Numbered 59 so it loads before 60-prompt.bash/.zsh, which depend
-# on __git_prompt and the _PC_* color constants defined here.
+# Shared prompt helpers: git branch/status/upstream coloring and the
+# long-command notification. Numbered 59 so it loads before
+# 60-prompt.bash/.zsh, which depend on __git_prompt, __cmd_notify, and the
+# _PC_* color constants defined here.
 
 # Color constants for __git_prompt output.
 # \001/\002 (ASCII SOH/STX) mark non-printing sequences so readline/ZLE
@@ -384,4 +385,55 @@ __git_prompt() {
   # Escape literal % for zsh PROMPT_SUBST — bare % starts prompt sequences.
   [[ -n "${ZSH_VERSION:-}" ]] && out="${out//'%'/%%}"
   printf '%s' "$out"
+}
+
+# Inside tmux, a long-running command rings the terminal and marks its pane
+# pending when it finishes, through cmdblocks' term-notify-sound, so a build
+# or test left running in a side pane gets noticed like an agent waiting for
+# you. PROMPT_NOTIFY_SECONDS sets the threshold in seconds (default 30; 0
+# turns it off). The prompt hooks in 60-prompt.bash/.zsh call __cmd_notify.
+
+# Return whether a finished command ran long enough to notify about and ended
+# on its own: Ctrl-C (130) and Ctrl-Z (148 on Linux, 146 on macOS, where
+# SIGTSTP is 18) mean someone was at the keyboard.
+# Args: $1 - elapsed seconds, $2 - exit status.
+__cmd_notify_wanted() {
+  local elapsed="$1" rc="$2" threshold="${PROMPT_NOTIFY_SECONDS:-30}"
+  case "$threshold" in
+    '' | *[!0-9]*) threshold=30 ;;
+  esac
+  # Base 10 explicitly: bash reads a leading zero as octal.
+  threshold=$((10#$threshold))
+  ((threshold > 0 && elapsed >= threshold)) || return 1
+  [[ "$rc" != 130 && "$rc" != 146 && "$rc" != 148 ]]
+}
+
+# Notify for a finished command when __cmd_notify_wanted agrees, unless you
+# were looking at its pane when it finished: the most recently active client
+# shows that pane and its terminal has focus (tmux focus-events). Only that
+# client counts because tmux flags every client focused when it attaches and
+# clears the flag only on a focus-out, so a stale attachment (an old editor
+# terminal) can stay "focused" for days. Switching to another pane, window,
+# or application before a command finishes still notifies. Interactive
+# programs (an editor, a pager, an fzf picker, ssh) are normally used from
+# the pane you are looking at, so they do not notify, without a list of
+# program names to keep current. Only a shell still in a tmux pane counts:
+# TMUX and TMUX_PANE leak into programs launched from one, such as an editor
+# started with `code .`, whose own terminals replace TERM_PROGRAM. Best
+# effort: without tmux, cmdblocks, or a terminal, nothing happens.
+# Args: $1 - elapsed seconds, $2 - exit status.
+__cmd_notify() {
+  [[ -n "${TMUX:-}" && -n "${TMUX_PANE:-}" && "${TERM_PROGRAM:-}" == tmux ]] || return 0
+  __cmd_notify_wanted "$1" "$2" || return 0
+  # Activity is in whole seconds, and moving between two tmux terminals
+  # updates both in the same second, so a tie counts as watched when any of
+  # the tied clients is focused on this pane.
+  tmux list-clients -F '#{client_activity} #{client_flags} #{pane_id}' 2>/dev/null |
+    awk -v pane="$TMUX_PANE" '
+      $1 > newest { newest = $1; watched = 0 }
+      $1 == newest && $2 ~ /(^|,)focused(,|$)/ && $3 == pane { watched = 1 }
+      END { exit !watched }' &&
+    return 0
+  command -v term-notify-sound >/dev/null 2>&1 || return 0
+  term-notify-sound >/dev/null 2>&1 || true
 }
