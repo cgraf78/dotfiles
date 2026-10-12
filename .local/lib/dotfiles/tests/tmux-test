@@ -696,138 +696,12 @@ SH
       "$(tmux_cmd -u display-message -p -t "$shell_pane" "$current_format")"
     tmux_cmd set-option -pu -t "$shell_pane" @term_busy
 
-    # prefix A pastes the shell pane's last command output into the window's
-    # agent. Run the installed binding itself (list-keys prints valid config)
-    # from the shell pane, against a fake agent that enables bracketed paste
-    # and records the raw bytes it receives, and a stub output source on the
-    # server PATH that run-shell uses.
-    paste_dir=$(_tmpdir)
-    mkdir -p "$paste_dir/bin"
-    cat >"$paste_dir/bin/tmux-copy-last-output" <<'SH'
-#!/bin/sh
-[ "$1" = --print ] || exit 2
-[ -n "${PASTE_FIXTURE_EMPTY:-}" ] && [ -e "$PASTE_FIXTURE_EMPTY" ] && exit 3
-[ -n "${PASTE_FIXTURE_OLD:-}" ] && [ -e "$PASTE_FIXTURE_OLD" ] && exit 64
-# Name the pane the real script would capture, so the test sees the target.
-printf '%s\n' "% make test (${TMUX_PANE:-no pane})" 'FAIL: widget'
-SH
-    chmod +x "$paste_dir/bin/tmux-copy-last-output"
-    # The agent is a bash copy named codex, so it stays the pane's foreground
-    # command while a builtin loop records each byte; raw mode delivers the
-    # paste unbuffered and unaltered.
-    cp "$(command -v bash)" "$paste_dir/bin/codex"
-    cat >"$paste_dir/agent" <<'SH'
-printf '\033[?2004h'
-stty raw -echo
-while IFS= read -r -d '' -n 1 byte; do
-  printf '%s' "$byte" >>"$1"
-done
-SH
-    paste_log="$paste_dir/received"
-    paste_window=$(tmux_cmd new-window -d -P -F '#{window_id}' \
-      "$paste_dir/bin/codex $paste_dir/agent $paste_log")
-    paste_agent=$(tmux_cmd display-message -p -t "$paste_window" '#{pane_id}')
-    paste_shell=$(tmux_cmd split-window -d -P -F '#{pane_id}' -t "$paste_agent" "$shell")
-    wait_command "$paste_agent" codex
-    wait_command "$paste_shell" zsh 0
-    path_before=$(tmux_cmd show-environment -g PATH 2>/dev/null) || path_before=''
-    tmux_cmd set-environment -g PASTE_FIXTURE_EMPTY "$paste_dir/empty"
-    tmux_cmd set-environment -g PASTE_FIXTURE_OLD "$paste_dir/old"
-    tmux_cmd set-environment -g PATH "$paste_dir/bin:${path_before#PATH=}"
-    paste_binding="$paste_dir/binding.conf"
-    # Take the binding from the whole table: tmux 3.7 shows a single-key
-    # list-keys as a status message instead of printing it.
-    tmux_cmd list-keys -T prefix | awk '$4 == "A"' |
-      sed -E 's/^bind-key +-T +prefix +A +//' >"$paste_binding"
-    _assert_contains 'tmux: prefix A binding is extracted for replay' \
-      'tmux-copy-last-output --print' "$(cat "$paste_binding")"
-    # press_paste PANE runs the binding with PANE as the current pane: with
-    # no attached client, tmux resolves the session's selected pane.
-    press_paste() {
-      tmux_cmd select-window -t "$1"
-      tmux_cmd select-pane -t "$1"
-      tmux_cmd source-file "$paste_binding" >/dev/null 2>&1
-    }
-    # Without an attached client, a job's display-message reaches the message
-    # log only on some tmux releases (older ones report "no current client"),
-    # so message assertions run only where a probe shows it does.
-    tmux_cmd run-shell 'tmux display-message prefix-a-message-probe' >/dev/null 2>&1
-    messages_logged=0
-    tmux_cmd show-messages | grep -q 'prefix-a-message-probe$' && messages_logged=1
-    # wait_pastes N polls until the agent has received N complete pastes.
-    wait_pastes() {
-      local count=0
-      for _ in $(seq 1 50); do
-        received=$(cat "$paste_log" 2>/dev/null)
-        count=$(printf '%s' "$received" | grep -o $'\e\\[201~' | wc -l | tr -d ' ')
-        [[ $count -ge $1 ]] && return 0
-        sleep 0.1
-      done
-      return 1
-    }
-    received=''
-    press_paste "$paste_shell"
-    wait_pastes 1
-    # tmux's line-ending translation inside a paste varies by release, so
-    # compare the content with either line ending normalized.
-    received_lines=${received//$'\r'/$'\n'}
-    _assert_eq 'tmux: prefix A pastes the pressing pane'"'"'s output as one bracketed paste' \
-      $'\e[200~% make test ('"$paste_shell"$')\nFAIL: widget\e[201~' "$received_lines"
-    _assert_eq 'tmux: prefix A focuses the agent' 1 \
-      "$(tmux_cmd display-message -p -t "$paste_agent" '#{pane_active}')"
-    _assert_eq 'tmux: prefix A leaves no paste buffer behind' '' \
-      "$(tmux_cmd list-buffers -F '#{buffer_name}' | grep -Fx agent-paste)"
-    first_paste=$received
-    # No output, a press from the agent pane itself, and a window without an
-    # agent all paste nothing. A final good press is the sentinel: tmux runs
-    # the presses in order, so once its paste lands the others had their turn.
-    : >"$paste_dir/empty"
-    press_paste "$paste_shell"
-    rm -f "$paste_dir/empty"
-    # A cmdblocks without --print (usage status 64) is reported, not silent.
-    : >"$paste_dir/old"
-    press_paste "$paste_shell"
-    rm -f "$paste_dir/old"
-    if [[ $messages_logged == 1 ]]; then
-      _assert_contains 'tmux: prefix A reports a failing output source' \
-        'tmux-copy-last-output --print failed with status 64' \
-        "$(tmux_cmd show-messages)"
-    else
-      _pass 'tmux: prefix A failure message skipped (this tmux logs no clientless messages)'
-    fi
-    press_paste "$paste_agent"
-    # The lone window's pane records its input too, so a paste that missed
-    # the agent and landed in the pressing pane would show.
-    lone_log="$paste_dir/lone-received"
-    lone_window=$(tmux_cmd new-window -d -P -F '#{window_id}' \
-      "$labels_dir/bin/zsh $paste_dir/agent $lone_log")
-    wait_command "$lone_window" zsh
-    press_paste "$lone_window"
-    # An agent pane in copy mode would take the paste as typed lines; the
-    # binding leaves copy mode first, which the sentinel press checks.
-    tmux_cmd copy-mode -t "$paste_agent"
-    press_paste "$paste_shell"
-    wait_pastes 2
-    _assert_eq 'tmux: prefix A without output, from the agent, or with no agent pastes nothing' \
-      "$first_paste$first_paste" "$received"
-    _assert_file_missing 'tmux: prefix A with no agent pastes nowhere' "$lone_log"
-    _assert_eq 'tmux: prefix A leaves the agent out of copy mode' 0 \
-      "$(tmux_cmd display-message -p -t "$paste_agent" '#{pane_in_mode}')"
-    if [[ $messages_logged == 1 ]]; then
-      _assert_eq 'tmux: prefix A reports only real failures' 1 \
-        "$(tmux_cmd show-messages | grep -c 'tmux-copy-last-output --print failed with status [0-9]')"
-    else
-      _pass 'tmux: prefix A failure count skipped (this tmux logs no clientless messages)'
-    fi
-    if [[ -n $path_before ]]; then
-      tmux_cmd set-environment -g PATH "${path_before#PATH=}"
-    else
-      tmux_cmd set-environment -gu PATH
-    fi
-    tmux_cmd set-environment -gu PASTE_FIXTURE_EMPTY
-    tmux_cmd set-environment -gu PASTE_FIXTURE_OLD
-    tmux_cmd kill-window -t "$paste_window"
-    tmux_cmd kill-window -t "$lone_window"
+    # prefix A's end-to-end behavior is pressed through a real client in the
+    # PTY suite below: list-keys does not round-trip its shell snippet on
+    # every release (tmux 3.4 escapes $ as \$), and a clientless replay
+    # cannot show messages on older releases.
+    _assert_contains 'tmux: runtime prefix A pastes the last output into the agent' \
+      'tmux-copy-last-output --print' "$(printf '%s\n' "$prefix_keys" | awk '$4 == "A"')"
     for hook in pane-focus-in pane-focus-out client-focus-in after-select-pane \
       after-select-window client-session-changed; do
       # Older tmux releases lack some of these hooks (client-focus-in arrived
@@ -903,7 +777,8 @@ if command -v tmux >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
     test_terminal_render_paints_the_focused_leaf_night_owl_blue \
     test_pending_panes_are_marked_until_visited \
     test_background_window_agents_mark_their_tab \
-    test_another_focused_client_does_not_strand_a_mark; do
+    test_another_focused_client_does_not_strand_a_mark \
+    test_prefix_A_pastes_the_last_output_into_the_agent; do
     _assert_contains "tmux: PTY runs $pty_case" "$pty_case" "$pty_output"
   done
 else
