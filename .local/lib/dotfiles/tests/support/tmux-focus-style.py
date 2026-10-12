@@ -825,7 +825,8 @@ class LeafStyleTest(unittest.TestCase):
 
         self.press(client, b"g")
         wait_until(shell_marker.exists, "prefix g runs the default shell in a popup")
-        self.assertEqual(f"{work} popup", shell_marker.read_text().strip())
+        # pwd prints the physical path: macOS puts /tmp under /private.
+        self.assertEqual(f"{work.resolve()} popup", shell_marker.read_text().strip())
 
         # Without lazygit on the server's PATH, prefix G only says so.
         path = self.tmux("show-environment", "-g", "PATH", check=False).stdout.strip()
@@ -845,7 +846,7 @@ class LeafStyleTest(unittest.TestCase):
         self.tmux("set-environment", "-g", "PATH", f"{stub}:{bare_path}")
         self.press(client, b"G")
         wait_until(git_marker.exists, "prefix G runs lazygit in a popup")
-        self.assertEqual(f"{work} popup", git_marker.read_text().strip())
+        self.assertEqual(f"{work.resolve()} popup", git_marker.read_text().strip())
 
     def test_terminal_render_paints_the_focused_leaf_night_owl_blue(self) -> None:
         # Remove unrelated status-line and inactive-pane background sequences
