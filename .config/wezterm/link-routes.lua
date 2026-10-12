@@ -1,4 +1,7 @@
 local function source_dir()
+  -- wezterm.lua passes the active config dir through this short-lived global
+  -- because copied WSL wrappers lack debug source paths (see termnav-module.lua).
+  -- selene: allow(global_usage)
   local config_dir = rawget(_G, "dotfiles_wezterm_config_dir")
   if type(config_dir) == "string" and config_dir ~= "" then
     return (config_dir:gsub("\\", "/"))
