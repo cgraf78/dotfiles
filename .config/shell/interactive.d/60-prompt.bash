@@ -38,6 +38,19 @@ __title_preexec() {
   printf '\033]2;%s\007' "${cmd:0:60}"
 }
 [[ " ${preexec_functions[*]} " != *" __title_preexec "* ]] && preexec_functions+=(__title_preexec)
+
+# Inside tmux, mark where each command's output starts (OSC 133;C); set_prompt
+# marks where each prompt starts (OSC 133;A). tmux records both on its lines,
+# so copy mode can jump between commands, and consumes them, so they never
+# reach the outer terminal, whose own shell integration (VS Code, WezTerm)
+# is left alone. tmux releases without prompt marks ignore them. Needs
+# bash-preexec for the output mark; the prompt mark applies regardless.
+__prompt_mark_preexec() {
+  if [[ -n ${TMUX:-} ]]; then
+    printf '\033]133;C\007'
+  fi
+}
+[[ " ${preexec_functions[*]} " != *" __prompt_mark_preexec "* ]] && preexec_functions+=(__prompt_mark_preexec)
 [[ " ${precmd_functions[*]} " != *" __prompt_precmd "* ]] && precmd_functions+=(__prompt_precmd)
 
 # DEBUG trap: sets __cmd_start at the first command after each prompt.
@@ -74,6 +87,11 @@ set_prompt() {
       PS1="\[\e]0;\u@$host: \w\a\]$PS1"
       ;;
   esac
+  # Prompt-start mark for tmux copy mode (see __prompt_mark_preexec), wrapped
+  # in \[...\] so readline counts it as zero-width.
+  if [[ -n ${TMUX:-} ]]; then
+    PS1="\[\e]133;A\a\]$PS1"
+  fi
 }
 
 # Set a hostname alias for the prompt and tmux pane borders.

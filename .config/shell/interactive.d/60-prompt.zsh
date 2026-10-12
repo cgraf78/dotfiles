@@ -107,9 +107,20 @@ __title_preexec() {
   local cmd=${1//[[:cntrl:]]/}
   print -rn -- $'\e]2;'"${cmd[1,60]}"$'\a'
 }
+# Inside tmux, mark where each command's output starts (OSC 133;C); set_prompt
+# marks where each prompt starts (OSC 133;A). tmux records both on its lines,
+# so copy mode can jump between commands, and consumes them, so they never
+# reach the outer terminal, whose own shell integration (VS Code, WezTerm)
+# is left alone. tmux releases without prompt marks ignore them.
+__prompt_mark_preexec() {
+  if [[ -n ${TMUX:-} ]]; then
+    print -rn -- $'\e]133;C\a'
+  fi
+}
 autoload -Uz add-zsh-hook
 add-zsh-hook preexec __prompt_preexec
 add-zsh-hook preexec __title_preexec
+add-zsh-hook preexec __prompt_mark_preexec
 add-zsh-hook precmd __prompt_precmd
 add-zsh-hook precmd __git_prompt_async_start
 add-zsh-hook zshexit __git_prompt_pidfile_cleanup
@@ -135,6 +146,11 @@ set_prompt() {
       PROMPT=$'%{\e]0;%n@'"${host}"$': %~\a%}'"$PROMPT"
       ;;
   esac
+  # Prompt-start mark for tmux copy mode (see __prompt_mark_preexec), wrapped
+  # in %{...%} so ZLE counts it as zero-width.
+  if [[ -n ${TMUX:-} ]]; then
+    PROMPT=$'%{\e]133;A\a%}'"$PROMPT"
+  fi
 }
 
 # Set a hostname alias for the prompt and tmux pane borders.

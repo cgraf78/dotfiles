@@ -377,6 +377,42 @@ if command -v tmux >/dev/null 2>&1; then
         'TMUX_PANE=#{pane_id} tmux-copy-last-output' \
         "$(printf '%s\n' "$prefix_keys" | awk -v key="$key" '$4 == key')"
     done
+    # Prompt marks (OSC 133;A/C from the shell prompt) never show as text,
+    # and tmux 3.4+ moves between them: prefix k opens copy mode on the last
+    # command's prompt, [ and ] step through prompts.
+    _assert_contains 'tmux: runtime prefix k scrolls back to the last command' \
+      'send-keys -X previous-prompt' "$(printf '%s\n' "$prefix_keys" | awk '$4 == "k"')"
+    _assert_contains 'tmux: runtime copy mode [ steps to the previous prompt' \
+      'send-keys -X previous-prompt' "$(printf '%s\n' "$copy_keys" | awk '$4 == "["')"
+    _assert_contains 'tmux: runtime copy mode ] steps to the next prompt' \
+      'send-keys -X next-prompt' "$(printf '%s\n' "$copy_keys" | awk '$4 == "]"')"
+    marks_file=$(_tmpdir)/marked-screen
+    printf '%s' $'\e]133;A\auser@h:~\n% echo one\n\e]133;C\aone\n\e]133;A\auser@h:~/repo\n% echo two\n\e]133;C\atwo\n\e]133;A\auser@h:~\n% ' >"$marks_file"
+    marks_pane=$(tmux_cmd new-window -d -P -F '#{pane_id}' "cat '$marks_file'; sleep 60")
+    for _ in $(seq 1 30); do
+      tmux_cmd capture-pane -p -t "$marks_pane" | grep -q 'echo two' && break
+      sleep 0.1
+    done
+    marks_text=$(tmux_cmd capture-pane -p -t "$marks_pane")
+    _assert_not_contains 'tmux: prompt marks leave no text behind' '133' "$marks_text"
+    _assert_contains 'tmux: prompt-marked output keeps its text' $'user@h:~/repo\n% echo two\ntwo' "$marks_text"
+    tmux_version=$(tmux_cmd -V 2>/dev/null)
+    tmux_version=${tmux_version#tmux }
+    tmux_version=${tmux_version#next-}
+    if [[ ${tmux_version%%.*} =~ ^[0-9]+$ ]] &&
+      { ((${tmux_version%%.*} > 3)) || { ((${tmux_version%%.*} == 3)) && ((${tmux_version#*.} > 3)) 2>/dev/null; }; }; then
+      tmux_cmd copy-mode -t "$marks_pane"
+      tmux_cmd send-keys -t "$marks_pane" -X previous-prompt
+      marks_y=$(tmux_cmd display-message -p -t "$marks_pane" '#{copy_cursor_y}')
+      # From the bottom, tmux 3.4 stops at the current prompt and 3.5+ at the
+      # previous command's, so require a marked prompt line, not which one.
+      _assert_contains 'tmux: previous-prompt lands on a marked prompt line' 'user@h:' \
+        "$(printf '%s\n' "$marks_text" | sed -n "$((marks_y + 1))p")"
+      tmux_cmd send-keys -t "$marks_pane" -X cancel
+    else
+      _pass "tmux: prompt jumps need tmux 3.4+ (have $tmux_version), skipped"
+    fi
+    tmux_cmd kill-pane -t "$marks_pane"
     _assert_contains 'tmux: runtime prefix a jumps to the first pending pane' \
       '@pending_panes' "$(printf '%s\n' "$prefix_keys" | awk '$4 == "a"')"
     _assert_contains 'tmux: runtime prefix j sends the pane to a chosen window' \
