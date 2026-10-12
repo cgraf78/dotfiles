@@ -127,7 +127,7 @@ _assert_not_contains 'tmux: retired manual session restorer stays absent' \
 _assert_contains 'tmux: reload removes the retired save key' 'unbind S' "$tmux_content"
 # shellcheck disable=SC2016 # Match the literal HOME reference in the binding.
 _assert_contains 'tmux: prefix R reloads the loader' \
-  'bind R source-file "$HOME/.config/tmux/tmux.conf"' "$tmux_content"
+  'bind -N "Reload the tmux configuration" R source-file "$HOME/.config/tmux/tmux.conf"' "$tmux_content"
 _assert_contains 'tmux: extrakto loads only when installed' \
   'test ! -x ~/.local/share/laktak/extrakto/extrakto.tmux ||' "$tmux_content"
 _assert_contains 'tmux: extrakto copies record clipboard history' \
@@ -289,6 +289,15 @@ if command -v tmux >/dev/null 2>&1; then
     control_messages=$(tmux_cmd show-messages)
     root_keys=$(tmux_cmd list-keys -T root)
     prefix_keys=$(tmux_cmd list-keys -T prefix)
+    # Verify the actual help view: notes are what makes custom keys discoverable.
+    help_keys=$(tmux_cmd list-keys -N)
+    for description in 'Jump to the next pane needing attention' \
+      'Send this pane to a chosen window' 'Pull a chosen pane into this window' \
+      'Copy the last command output' 'Copy the last N command outputs' \
+      'Pick and paste from clipboard history' 'Reload the tmux configuration' \
+      'Paste from the clipboard'; do
+      _assert_contains "tmux: help shows $description" "$description" "$help_keys"
+    done
     copy_keys=$(tmux_cmd list-keys -T copy-mode-vi)
     client_hook=$(tmux_cmd show-hooks -g client-attached)
     pane_border_format=$(tmux_cmd show-options -gv pane-border-format)
