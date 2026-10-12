@@ -848,14 +848,14 @@ class LeafStyleTest(unittest.TestCase):
         wait_until(git_marker.exists, "prefix G runs lazygit in a popup")
         self.assertEqual(f"{work.resolve()} popup", git_marker.read_text().strip())
 
-    def test_prefix_N_opens_a_task_window(self) -> None:
-        """Press prefix N, pick from the menu, name the window, check the layout.
+    def test_prefix_n_opens_a_task_window(self) -> None:
+        """Press prefix n, pick from the menu, check the layout and the name.
 
         Every pane runs a stand-in shell that records the keys it receives, so
         the test sees what was typed into each pane. The directory name holds a
         quote, which must reach tmux as data, as must the quotes in the typed
-        answers. (Neither directory nor name holds a $: tmux 3.4 itself escapes
-        $ when it expands formats, as prefix c and prefix , show.)
+        command line. (The directory holds no $: tmux 3.4 itself escapes $ when
+        it expands formats, as prefix c shows.)
         """
         client = Client(self)
         self.clients.append(client)
@@ -881,6 +881,12 @@ class LeafStyleTest(unittest.TestCase):
             log = self.root / f"{pane.lstrip('%')}.keys"
             return log.read_text() if log.exists() else ""
 
+        def entered(pane: str, line: str) -> bool:
+            """Whether pane received line and then Enter, and nothing else."""
+            # Enter arrives as \n instead of \r when it beats the stand-in's
+            # stty raw, since the terminal then still maps CR to NL.
+            return keys(pane) in (line + "\r", line + "\n")
+
         def show(window: str, fmt: str) -> str:
             return self.tmux("display-message", "-p", "-t", window, fmt).stdout.strip()
 
@@ -898,9 +904,9 @@ class LeafStyleTest(unittest.TestCase):
         def open_task(menu_key: bytes, *answers: bytes) -> list[str]:
             """Pick menu_key, then submit each answer once its prompt shows."""
             before = set(self.tmux("list-windows", "-F", "#{window_id}").stdout.split())
-            client.send(b"\x02N")
+            client.send(b"\x02n")
             send_when_shown(b"New task window", menu_key)
-            prompts = [b"Command:", b"Window name:"] if menu_key == b"o" else [b"Window name:"]
+            prompts = [b"Command:"] if menu_key == b"o" else []
             self.assertEqual(len(prompts), len(answers), "one answer per prompt")
             # Indexed, not zip(strict=...), which needs Python 3.10.
             for index, prompt in enumerate(prompts):
@@ -912,15 +918,21 @@ class LeafStyleTest(unittest.TestCase):
                 created[:] = [w for w in listed if w not in before]
                 return bool(created)
 
-            wait_until(new_window, "prefix N opens a window")
+            wait_until(new_window, "prefix n opens a window")
             panes = self.tmux("list-panes", "-t", created[0], "-F", "#{pane_id}").stdout.split()
             return [created[0], *panes]
 
-        # codex: a custom name with quotes and command syntax survives intact,
-        # and naming turns automatic renaming off.
-        name = """Bob's "big" task;~"""
-        window, agent, shell = open_task(b"x", b"\x15" + name.encode() + b"\r")
-        self.assertEqual(f"{name} 0", show(window, "#{window_name} #{automatic-rename}"))
+        def named_automatically(window: str) -> None:
+            """The window keeps tmux's automatic name: here, the directory's."""
+            self.assertEqual("1", show(window, "#{automatic-rename}"))
+            wait_until(
+                lambda: show(window, "#{window_name}") == work.name,
+                f"{window} is named after its directory",
+            )
+
+        # codex
+        window, agent, shell = open_task(b"x")
+        named_automatically(window)
 
         def directory(pane: str) -> pathlib.Path:
             return pathlib.Path(show(pane, "#{pane_current_path}")).resolve()
@@ -941,29 +953,32 @@ class LeafStyleTest(unittest.TestCase):
         share = widths[0] / (widths[0] + widths[1] + 1)
         self.assertLess(abs(share - 0.6), 0.05, f"the agent pane takes about 60%: {widths}")
         self.assertEqual(agent, self.current_pane(client), "the agent pane has focus")
-        wait_until(lambda: keys(agent).strip() == "codex", "codex is typed into the agent pane")
+        wait_until(lambda: entered(agent, "codex"), "codex and Enter are typed into the agent pane")
         self.assertEqual("", keys(shell), "nothing is typed into the shell pane")
 
-        # claude: the default name is the directory's.
-        window, agent, shell = open_task(b"c", b"\r")
-        self.assertEqual(work.name, show(window, "#{window_name}"))
-        wait_until(lambda: keys(agent).strip() == "claude", "claude is typed into the agent pane")
+        # claude
+        window, agent, shell = open_task(b"c")
+        named_automatically(window)
+        wait_until(
+            lambda: entered(agent, "claude"), "claude and Enter are typed into the agent pane"
+        )
         self.assertEqual("", keys(shell))
 
         # "shell only" types nothing.
-        window, left, right = open_task(b"s", b"\r")
+        window, left, right = open_task(b"s")
+        named_automatically(window)
         self.assertEqual(("", ""), (keys(left), keys(right)))
 
         # "other" types the command line it is given, quotes and command
-        # syntax included, and names the window from its second prompt.
+        # syntax included.
         line = """codex resume --last 'x' "y;~" $HOME"""
-        window, agent, shell = open_task(b"o", line.encode() + b"\r", b"\x15resume x\r")
+        window, agent, shell = open_task(b"o", line.encode() + b"\r")
+        named_automatically(window)
         wait_until(
-            lambda: keys(agent).strip() == line,
-            "other types its command line into the agent pane",
+            lambda: entered(agent, line),
+            "other types its command line and Enter into the agent pane",
         )
         self.assertEqual("", keys(shell))
-        self.assertEqual("resume x", show(window, "#{window_name}"))
 
     def test_terminal_render_paints_the_focused_leaf_night_owl_blue(self) -> None:
         # Remove unrelated status-line and inactive-pane background sequences

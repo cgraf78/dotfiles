@@ -42,12 +42,15 @@ _assert_contains "tmux: continuum coordination uses the provider command" \
   'tmux-continuum-default-server' "$tmux_content"
 _assert_contains "tmux: last-output copy uses the provider command" \
   'tmux-copy-last-output' "$tmux_content"
-# The PTY test covers one menu entry each and only sees the split race under
-# load, so pin both task-window forms here for every entry.
-_assert_not_contains "tmux: task windows take answers as %1, not %% (3.8 escapes it)" \
-  '-n "%%"' "$tmux_content"
-_assert_not_contains "tmux: task windows split from the agent pane's start path" \
-  'split-window -h -l 40% -c "##{pane_current_path}"' "$tmux_content"
+# The PTY test skips muse and only sees the split race under load, so pin the
+# shape of all five task-window entries here: each opens an automatically
+# named window in the current directory and splits from the agent pane's start.
+_assert_not_contains "tmux: task windows take the command line as %1, not %% (3.8 escapes it)" \
+  '"%%"' "$tmux_content"
+_assert_eq "tmux: every task window opens unnamed in the current directory" 5 \
+  "$(grep -o 'new-window -c "##{pane_current_path}" ;' <<<"$tmux_content" | wc -l | tr -d ' ')"
+_assert_eq "tmux: every task window splits from the agent pane's start path" 5 \
+  "$(grep -o 'split-window -h -l 40% -c "##{pane_start_path}" ; select-pane -L' <<<"$tmux_content" | wc -l | tr -d ' ')"
 _assert_contains "tmux: terminal boundary routing uses Termnav" \
   'termnav navigate' "$tmux_content"
 _assert_not_contains "tmux: retired relay command stays absent" \
@@ -287,6 +290,7 @@ if command -v tmux >/dev/null 2>&1; then
     _assert_eq "tmux: syntax validation is quiet" '' "$output"
     tmux_cmd bind-key -T prefix S run-shell tmux-save-session
     tmux_cmd bind-key -T prefix R run-shell tmux-restore-session
+    tmux_cmd bind-key -T prefix N display-message stale-task-menu
     tmux_cmd source-file "$tmux_config" >/dev/null 2>&1 || true
     mode_keys=$(tmux_cmd show-window-options -gv mode-keys)
     control_output=$(printf 'detach-client\n' |
@@ -362,12 +366,19 @@ if command -v tmux >/dev/null 2>&1; then
     copy_command=$(tmux_cmd show-options -gv copy-command)
     _assert_eq 'tmux: runtime default copy command is clip capture' \
       'clip capture' "$copy_command"
-    _assert_not_contains 'tmux: runtime removes the stale manual save key' \
-      'bind-key -T prefix S ' "$prefix_keys"
+    # Match the key column: list-keys pads between bind-key and -T.
+    _assert_eq 'tmux: runtime removes the stale manual save key' \
+      '' "$(printf '%s\n' "$prefix_keys" | awk '$4 == "S"')"
     _assert_not_contains 'tmux: runtime replaces the stale manual restore key' \
       'tmux-restore-session' "$prefix_keys"
     _assert_contains 'tmux: runtime prefix R reloads the config' \
       'source-file' "$(printf '%s\n' "$prefix_keys" | awk '$4 == "R"')"
+    _assert_eq 'tmux: runtime removes the stale prefix N task menu' \
+      '' "$(printf '%s\n' "$prefix_keys" | awk '$4 == "N"')"
+    _assert_eq "tmux: runtime unbinds prefix p along with prefix n's next-window" \
+      '' "$(printf '%s\n' "$prefix_keys" | awk '$4 == "p"')"
+    _assert_contains 'tmux: runtime prefix n opens the task menu' \
+      'New task window' "$(printf '%s\n' "$prefix_keys" | awk '$4 == "n"')"
     for key in '"' % c; do
       _assert_contains "tmux: runtime prefix $key keeps the pane directory" \
         '-c "#{pane_current_path}"' \
@@ -832,7 +843,7 @@ if command -v tmux >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
     test_another_focused_client_does_not_strand_a_mark \
     test_prefix_A_pastes_the_last_output_into_the_agent \
     test_prefix_g_and_G_open_popups_in_the_pane_directory \
-    test_prefix_N_opens_a_task_window; do
+    test_prefix_n_opens_a_task_window; do
     _assert_contains "tmux: PTY runs $pty_case" "$pty_case" "$pty_output"
   done
 else
