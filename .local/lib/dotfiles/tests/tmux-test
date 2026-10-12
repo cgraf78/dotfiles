@@ -316,8 +316,21 @@ if command -v tmux >/dev/null 2>&1; then
     _assert_not_contains 'tmux: control client does not publish terminal context' \
       'command: run-shell "\~/.local/bin/termnav tmux context' "$control_messages"
     _assert_eq 'tmux: runtime retains conditional pane labels' \
-      '#{?#{E:@termnav_pane_is_focused_leaf},,#[fg=#898989]} #{E:@pane_pending_marker}#{E:@pane_label} ' \
+      '#{?#{E:@termnav_pane_is_focused_leaf},,#[fg=#898989]} #I.#P (#{pane_id})  #{E:@pane_pending_marker}#{E:@pane_label} ' \
       "$pane_border_format"
+    # Labels lead with the window.pane and stable %pane_id command targets,
+    # ahead of the pending marker. Without an attached client no pane is the
+    # focused leaf, so every label starts with the dim style.
+    inactive_targets=$(tmux_cmd display-message -p -t "$inactive_pane" \
+      '#{window_index}.#{pane_index} (#{pane_id})')
+    _assert_eq 'tmux: pane labels lead with their command targets' \
+      "#[fg=#898989] $inactive_targets  " \
+      "${inactive_pane_border:0:$((${#inactive_targets} + 16))}"
+    tmux_cmd set-option -p -t "$inactive_pane" @term_notify_pending 1
+    pending_border=$(tmux_cmd -u display-message -p -t "$inactive_pane" "$pane_border_format")
+    tmux_cmd set-option -pu -t "$inactive_pane" @term_notify_pending
+    _assert_contains 'tmux: pending marker follows the command targets' \
+      "#[fg=#898989] $inactive_targets  #[fg=#f78c6c" "$pending_border"
     # ds strips host literals from pane-border-format to avoid repeating its
     # session host label, so host comparisons must stay in user options.
     for host_literal in '#{host' '#H'; do
