@@ -741,14 +741,19 @@ SH
       sed -E 's/^bind-key +-T +prefix +A +//' >"$paste_binding"
     _assert_contains 'tmux: prefix A binding is extracted for replay' \
       'tmux-copy-last-output --print' "$(cat "$paste_binding")"
-    # press_paste PANE runs the binding with PANE as the current pane, as a
-    # keypress from a client viewing it would. Without an attached client,
-    # which pane tmux treats as current varies by release, so -t names it.
+    # press_paste PANE runs the binding with PANE as the current pane: with
+    # no attached client, tmux resolves the session's selected pane.
     press_paste() {
       tmux_cmd select-window -t "$1"
       tmux_cmd select-pane -t "$1"
-      tmux_cmd source-file -t "$1" "$paste_binding" >/dev/null 2>&1
+      tmux_cmd source-file "$paste_binding" >/dev/null 2>&1
     }
+    # Without an attached client, a job's display-message reaches the message
+    # log only on some tmux releases (older ones report "no current client"),
+    # so message assertions run only where a probe shows it does.
+    tmux_cmd run-shell 'tmux display-message prefix-a-message-probe' >/dev/null 2>&1
+    messages_logged=0
+    tmux_cmd show-messages | grep -q 'prefix-a-message-probe$' && messages_logged=1
     # wait_pastes N polls until the agent has received N complete pastes.
     wait_pastes() {
       local count=0
@@ -783,9 +788,13 @@ SH
     : >"$paste_dir/old"
     press_paste "$paste_shell"
     rm -f "$paste_dir/old"
-    _assert_contains 'tmux: prefix A reports a failing output source' \
-      'tmux-copy-last-output --print failed with status 64' \
-      "$(tmux_cmd show-messages)"
+    if [[ $messages_logged == 1 ]]; then
+      _assert_contains 'tmux: prefix A reports a failing output source' \
+        'tmux-copy-last-output --print failed with status 64' \
+        "$(tmux_cmd show-messages)"
+    else
+      _pass 'tmux: prefix A failure message skipped (this tmux logs no clientless messages)'
+    fi
     press_paste "$paste_agent"
     # The lone window's pane records its input too, so a paste that missed
     # the agent and landed in the pressing pane would show.
@@ -804,8 +813,12 @@ SH
     _assert_file_missing 'tmux: prefix A with no agent pastes nowhere' "$lone_log"
     _assert_eq 'tmux: prefix A leaves the agent out of copy mode' 0 \
       "$(tmux_cmd display-message -p -t "$paste_agent" '#{pane_in_mode}')"
-    _assert_eq 'tmux: prefix A reports only real failures' 1 \
-      "$(tmux_cmd show-messages | grep -c 'tmux-copy-last-output --print failed with status [0-9]')"
+    if [[ $messages_logged == 1 ]]; then
+      _assert_eq 'tmux: prefix A reports only real failures' 1 \
+        "$(tmux_cmd show-messages | grep -c 'tmux-copy-last-output --print failed with status [0-9]')"
+    else
+      _pass 'tmux: prefix A failure count skipped (this tmux logs no clientless messages)'
+    fi
     if [[ -n $path_before ]]; then
       tmux_cmd set-environment -g PATH "${path_before#PATH=}"
     else
