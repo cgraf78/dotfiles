@@ -11,7 +11,8 @@ terminal navigation stack. The `dotfiles-nvim` overlay adds
 - The default-server Continuum coordinator, its cheap save gate, and
   clipboard-history paste use `tmux-tools`.
 - `prefix o` and `prefix O` copy the last one or N command output blocks
-  through `cmdblocks`' `tmux-copy-last-output`.
+  through `cmdblocks`' `tmux-copy-last-output`, and `prefix A` pastes the
+  last block into the window's agent through its `--print` mode.
 - Automatic session persistence uses TPM, `tmux-resurrect`, and
   `tmux-continuum`, installed as shdeps-managed repository checkouts.
 - Alt-Shift-[ and Alt-Shift-] mirror WezTerm tab reordering for tmux windows:
@@ -112,9 +113,30 @@ also clear whatever pane a client selects or returns to.
 A nested tmux over SSH marks the remote pane in its own border; the outer layer
 only sees the bell.
 
+A pane is busy while its agent works on a request. AgentGuard's lifecycle hooks
+set the pane option `@term_busy` through cmdblocks' `term-pane-mark` when a
+prompt is submitted and clear it when the turn ends: on Stop or session end; on
+an Interrupt or failed-request event for runtimes that report one (Codex, Muse,
+OpenCode, and Claude's StopFailure) while AgentGuard telemetry is enabled; and
+on Claude's idle-prompt notification, the only later signal after a Claude
+interrupt. A Gemini or Grok turn cancelled before its Stop stays busy until the
+next turn ends. A busy window's tab shows `⋯`, and a pending `●` takes
+precedence, so the tabs separate agents that need you from agents still working
+and idle ones. Only the pane terminal's foreground agent changes the mark, so
+an agent it launches (a reviewer, a memory classifier), which inherits the pane
+but not its terminal, cannot set or clear it, nor mark the pane pending;
+Codex's transcript-less background sessions are ignored. A pane back at a shell
+prompt never shows as busy, which hides a mark left by an agent killed
+mid-turn; it shows again under the next program in that pane until the next
+agent's turn ends.
+
 `prefix a` jumps to the first pending pane in the current session, in tab then
 pane order. Arriving acknowledges it, so pressing again moves on to the next;
 with none left it says nothing is waiting.
+
+`prefix A`, pressed in a shell pane, pastes that pane's last command and its
+output into the window's agent (its first agent pane) as one bracketed paste
+and focuses the agent, the usual step after a test fails in a side shell.
 
 `prefix "`, `prefix %`, and `prefix c` open new panes and windows in the
 current pane's directory, and `prefix R` reloads the config.
