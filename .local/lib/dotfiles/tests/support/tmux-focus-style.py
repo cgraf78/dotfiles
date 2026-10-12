@@ -853,8 +853,9 @@ class LeafStyleTest(unittest.TestCase):
 
         Every pane runs a stand-in shell that records the keys it receives, so
         the test sees what was typed into each pane. The directory name holds a
-        quote, which must reach tmux as data. (It holds no $: tmux 3.4 itself
-        escapes $ in #{pane_current_path} for new-window -c, as prefix c shows.)
+        quote, which must reach tmux as data, as must the quotes in the typed
+        answers. (Neither directory nor name holds a $: tmux 3.4 itself escapes
+        $ when it expands formats, as prefix c and prefix , show.)
         """
         client = Client(self)
         self.clients.append(client)
@@ -915,13 +916,27 @@ class LeafStyleTest(unittest.TestCase):
             panes = self.tmux("list-panes", "-t", created[0], "-F", "#{pane_id}").stdout.split()
             return [created[0], *panes]
 
-        # codex: a custom name with a space and an apostrophe survives intact,
+        # codex: a custom name with quotes and command syntax survives intact,
         # and naming turns automatic renaming off.
-        window, agent, shell = open_task(b"x", b"\x15Bob's task\r")
-        self.assertEqual("Bob's task 0", show(window, "#{window_name} #{automatic-rename}"))
+        name = """Bob's "big" task;~"""
+        window, agent, shell = open_task(b"x", b"\x15" + name.encode() + b"\r")
+        self.assertEqual(f"{name} 0", show(window, "#{window_name} #{automatic-rename}"))
+
+        def directory(pane: str) -> pathlib.Path:
+            return pathlib.Path(show(pane, "#{pane_current_path}")).resolve()
+
         for pane in (agent, shell):
-            path = pathlib.Path(show(pane, "#{pane_current_path}"))
-            self.assertEqual(work.resolve(), path.resolve())
+            # A new pane's directory can read empty, or the server's, until
+            # its process has started, so wait for it to settle.
+            try:
+                wait_until(
+                    lambda pane=pane: directory(pane) == work.resolve(),
+                    f"{pane} starts in the current pane's directory",
+                )
+            except AssertionError:
+                # Name the directory it settled on rather than only timing out.
+                self.assertEqual(work.resolve(), directory(pane), f"{pane}'s directory")
+                raise
         widths = [int(show(pane, "#{pane_width}")) for pane in (agent, shell)]
         share = widths[0] / (widths[0] + widths[1] + 1)
         self.assertLess(abs(share - 0.6), 0.05, f"the agent pane takes about 60%: {widths}")
@@ -939,11 +954,12 @@ class LeafStyleTest(unittest.TestCase):
         window, left, right = open_task(b"s", b"\r")
         self.assertEqual(("", ""), (keys(left), keys(right)))
 
-        # "other" types the command line it is given, quotes included, and
-        # names the window from its second prompt.
-        window, agent, shell = open_task(b"o", b"codex resume --last 'x'\r", b"\x15resume x\r")
+        # "other" types the command line it is given, quotes and command
+        # syntax included, and names the window from its second prompt.
+        line = """codex resume --last 'x' "y;~" $HOME"""
+        window, agent, shell = open_task(b"o", line.encode() + b"\r", b"\x15resume x\r")
         wait_until(
-            lambda: keys(agent).strip() == "codex resume --last 'x'",
+            lambda: keys(agent).strip() == line,
             "other types its command line into the agent pane",
         )
         self.assertEqual("", keys(shell))

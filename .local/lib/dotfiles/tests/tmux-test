@@ -42,6 +42,12 @@ _assert_contains "tmux: continuum coordination uses the provider command" \
   'tmux-continuum-default-server' "$tmux_content"
 _assert_contains "tmux: last-output copy uses the provider command" \
   'tmux-copy-last-output' "$tmux_content"
+# The PTY test covers one menu entry each and only sees the split race under
+# load, so pin both task-window forms here for every entry.
+_assert_not_contains "tmux: task windows take answers as %1, not %% (3.8 escapes it)" \
+  '-n "%%"' "$tmux_content"
+_assert_not_contains "tmux: task windows split from the agent pane's start path" \
+  'split-window -h -l 40% -c "##{pane_current_path}"' "$tmux_content"
 _assert_contains "tmux: terminal boundary routing uses Termnav" \
   'termnav navigate' "$tmux_content"
 _assert_not_contains "tmux: retired relay command stays absent" \
