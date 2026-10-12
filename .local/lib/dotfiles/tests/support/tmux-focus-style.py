@@ -853,14 +853,15 @@ class LeafStyleTest(unittest.TestCase):
 
         Every pane runs a stand-in shell that records the keys it receives, so
         the test sees what was typed into each pane. The directory name holds a
-        quote and a $, which must reach tmux as data.
+        quote, which must reach tmux as data. (It holds no $: tmux 3.4 itself
+        escapes $ in #{pane_current_path} for new-window -c, as prefix c shows.)
         """
         client = Client(self)
         self.clients.append(client)
         if not self.supports_client_format_context(client.tty):
             self.skipTest("tmux does not support client-targeted format expansion")
         client.set_focus(True)
-        work = self.root / 'task "q" $HOME'
+        work = self.root / 'task "q" dir'
         work.mkdir()
         recorder = self.root / "task-recorder"
         recorder.write_text(
