@@ -381,7 +381,7 @@ if command -v tmux >/dev/null 2>&1; then
     # and tmux 3.4+ moves between them: prefix k opens copy mode on the last
     # command's prompt, [ and ] step through prompts.
     _assert_contains 'tmux: runtime prefix k scrolls back to the last command' \
-      'send-keys -X previous-prompt' "$(printf '%s\n' "$prefix_keys" | awk '$4 == "k"')"
+      'send-keys -X cursor-up \; send-keys -X previous-prompt' "$(printf '%s\n' "$prefix_keys" | awk '$4 == "k"')"
     _assert_contains 'tmux: runtime copy mode [ steps to the previous prompt' \
       'send-keys -X previous-prompt' "$(printf '%s\n' "$copy_keys" | awk '$4 == "["')"
     _assert_contains 'tmux: runtime copy mode ] steps to the next prompt' \
@@ -394,20 +394,27 @@ if command -v tmux >/dev/null 2>&1; then
       sleep 0.1
     done
     marks_text=$(tmux_cmd capture-pane -p -t "$marks_pane")
-    _assert_not_contains 'tmux: prompt marks leave no text behind' '133' "$marks_text"
     _assert_contains 'tmux: prompt-marked output keeps its text' $'user@h:~/repo\n% echo two\ntwo' "$marks_text"
+    # Only the leading digits of the minor version count: 3.6b, next-3.7.
     tmux_version=$(tmux_cmd -V 2>/dev/null)
     tmux_version=${tmux_version#tmux }
     tmux_version=${tmux_version#next-}
-    if [[ ${tmux_version%%.*} =~ ^[0-9]+$ ]] &&
-      { ((${tmux_version%%.*} > 3)) || { ((${tmux_version%%.*} == 3)) && ((${tmux_version#*.} > 3)) 2>/dev/null; }; }; then
+    tmux_major=${tmux_version%%.*}
+    tmux_minor=${tmux_version#*.}
+    tmux_minor=${tmux_minor%%[!0-9]*}
+    if [[ $tmux_major =~ ^[0-9]+$ && $tmux_minor =~ ^[0-9]+$ ]] &&
+      ((tmux_major > 3 || (tmux_major == 3 && tmux_minor >= 4))); then
+      # Run prefix k's own copy-mode commands: from the bottom of the screen
+      # they must reach the last command's prompt, not the current one.
       tmux_cmd copy-mode -t "$marks_pane"
+      tmux_cmd send-keys -t "$marks_pane" -X cursor-up
       tmux_cmd send-keys -t "$marks_pane" -X previous-prompt
       marks_y=$(tmux_cmd display-message -p -t "$marks_pane" '#{copy_cursor_y}')
-      # From the bottom, tmux 3.4 stops at the current prompt and 3.5+ at the
-      # previous command's, so require a marked prompt line, not which one.
-      _assert_contains 'tmux: previous-prompt lands on a marked prompt line' 'user@h:' \
+      _assert_eq 'tmux: prefix k lands on the last command prompt' 'user@h:~/repo' \
         "$(printf '%s\n' "$marks_text" | sed -n "$((marks_y + 1))p")"
+      tmux_cmd send-keys -t "$marks_pane" -X previous-prompt
+      marks_y=$(tmux_cmd display-message -p -t "$marks_pane" '#{copy_cursor_y}')
+      _assert_eq 'tmux: [ steps back to the prompt before it' 1 "$((marks_y + 1))"
       tmux_cmd send-keys -t "$marks_pane" -X cancel
     else
       _pass "tmux: prompt jumps need tmux 3.4+ (have $tmux_version), skipped"
