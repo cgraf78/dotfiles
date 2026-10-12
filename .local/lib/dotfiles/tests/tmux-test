@@ -42,6 +42,12 @@ _assert_contains "tmux: continuum coordination uses the provider command" \
   'tmux-continuum-default-server' "$tmux_content"
 _assert_contains "tmux: last-output copy uses the provider command" \
   'tmux-copy-last-output' "$tmux_content"
+# The PTY test covers one menu entry each and only sees the split race under
+# load, so pin both task-window forms here for every entry.
+_assert_not_contains "tmux: task windows take answers as %1, not %% (3.8 escapes it)" \
+  '-n "%%"' "$tmux_content"
+_assert_not_contains "tmux: task windows split from the agent pane's start path" \
+  'split-window -h -l 40% -c "##{pane_current_path}"' "$tmux_content"
 _assert_contains "tmux: terminal boundary routing uses Termnav" \
   'termnav navigate' "$tmux_content"
 _assert_not_contains "tmux: retired relay command stays absent" \
@@ -296,6 +302,7 @@ if command -v tmux >/dev/null 2>&1; then
       'Copy the last command output' 'Copy the last N command outputs' \
       'Pick and paste from clipboard history' 'Reload the tmux configuration' \
       'Open a scratch shell popup in this directory' \
+      'Open a task window: an agent beside a shell' \
       'Open lazygit in a popup in this directory' \
       'Paste from the clipboard' \
       "Paste the last command output into this window's agent"; do
@@ -824,7 +831,8 @@ if command -v tmux >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
     test_background_window_agents_mark_their_tab \
     test_another_focused_client_does_not_strand_a_mark \
     test_prefix_A_pastes_the_last_output_into_the_agent \
-    test_prefix_g_and_G_open_popups_in_the_pane_directory; do
+    test_prefix_g_and_G_open_popups_in_the_pane_directory \
+    test_prefix_N_opens_a_task_window; do
     _assert_contains "tmux: PTY runs $pty_case" "$pty_case" "$pty_output"
   done
 else
