@@ -5,7 +5,9 @@
 # failing dependency or post hook no longer stops orphan cleanup. A host still
 # on an older dot skips pruning until its next run upgrades dot; set
 # DOT_SHDEPS_PRUNE=never on this line to opt a host out.
-# `--force` bypasses the provider and hook update caches, so every run
-# re-checks every dependency and a new release reaches each host within one
-# cron interval instead of waiting out a cache TTL.
+# `--force` makes the provider and hooks re-check every dependency on each
+# run instead of honoring their per-dependency update caches, so a new release
+# reaches every host within one 30-minute interval. This deliberately reverses
+# #250: it also overrides a `pinned` shdeps_update_policy, so drop it before
+# switching this fleet to `pinned`.
 */30 * * * * dot update --cron --force
