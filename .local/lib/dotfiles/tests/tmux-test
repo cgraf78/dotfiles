@@ -290,11 +290,12 @@ if command -v tmux >/dev/null 2>&1; then
     root_keys=$(tmux_cmd list-keys -T root)
     prefix_keys=$(tmux_cmd list-keys -T prefix)
     # Verify the actual help view: notes are what makes custom keys discoverable.
-    help_keys=$(tmux_cmd list-keys -N -T prefix)
+    help_keys=$(tmux_cmd list-keys -N)
     for description in 'Jump to the next pane needing attention' \
       'Send this pane to a chosen window' 'Pull a chosen pane into this window' \
       'Copy the last command output' 'Copy the last N command outputs' \
-      'Pick and paste from clipboard history' 'Reload the tmux configuration'; do
+      'Pick and paste from clipboard history' 'Reload the tmux configuration' \
+      'Move the tab left across terminal layers' 'Paste from the clipboard'; do
       _assert_contains "tmux: help shows $description" "$description" "$help_keys"
     done
     copy_keys=$(tmux_cmd list-keys -T copy-mode-vi)
