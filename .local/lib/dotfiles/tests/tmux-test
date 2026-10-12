@@ -295,6 +295,8 @@ if command -v tmux >/dev/null 2>&1; then
       'Send this pane to a chosen window' 'Pull a chosen pane into this window' \
       'Copy the last command output' 'Copy the last N command outputs' \
       'Pick and paste from clipboard history' 'Reload the tmux configuration' \
+      'Open a scratch shell popup in this directory' \
+      'Open lazygit in a popup in this directory' \
       'Paste from the clipboard' \
       "Paste the last command output into this window's agent"; do
       _assert_contains "tmux: help shows $description" "$description" "$help_keys"
@@ -778,7 +780,8 @@ if command -v tmux >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
     test_pending_panes_are_marked_until_visited \
     test_background_window_agents_mark_their_tab \
     test_another_focused_client_does_not_strand_a_mark \
-    test_prefix_A_pastes_the_last_output_into_the_agent; do
+    test_prefix_A_pastes_the_last_output_into_the_agent \
+    test_prefix_g_and_G_open_popups_in_the_pane_directory; do
     _assert_contains "tmux: PTY runs $pty_case" "$pty_case" "$pty_output"
   done
 else
