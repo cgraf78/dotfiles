@@ -119,20 +119,20 @@ only sees the bell.
 
 A pane is busy while its agent works on a request. AgentGuard's lifecycle hooks
 set the pane option `@term_busy` through cmdblocks' `term-pane-mark` when a
-prompt is submitted and clear it when the turn ends: on Stop or session end; on
-an Interrupt or failed-request event for runtimes that report one (Codex, Muse,
-OpenCode, and Claude's StopFailure) while AgentGuard telemetry is enabled; and
-on Claude's idle-prompt notification, the only later signal after a Claude
-interrupt. A Gemini or Grok turn cancelled before its Stop stays busy until the
-next turn ends. A busy window's tab shows `⋯`, and a pending `●` takes
-precedence, so the tabs separate agents that need you from agents still working
-and idle ones. Only the pane terminal's foreground agent changes the mark, so
-an agent it launches (a reviewer, a memory classifier), which inherits the pane
-but not its terminal, cannot set or clear it, nor mark the pane pending;
-Codex's transcript-less background sessions are ignored. A pane back at a shell
-prompt never shows as busy, which hides a mark left by an agent killed
-mid-turn; it shows again under the next program in that pane until the next
-agent's turn ends.
+prompt is submitted and clear it when the turn ends: on Stop or session end,
+and on an Interrupt or failed-request event for runtimes that report one
+(Codex, Muse, OpenCode, and Claude's StopFailure) while AgentGuard telemetry is
+enabled. Claude, Gemini, and Grok report no interrupt or other turn-ending
+event, so after an Esc that pane stays busy until its next turn or the session
+ends. A busy window's tab shows `⋯`, and a pending `●` takes precedence, so the
+tabs separate agents that need you from agents still working and idle ones.
+Only the pane terminal's foreground agent changes the mark, so an agent it
+launches (a reviewer, a memory classifier), which inherits the pane but not its
+terminal, cannot set or clear it, nor mark the pane pending; Codex's
+transcript-less background sessions are ignored. A pane back at a shell prompt
+never shows as busy, which hides a mark left by an agent killed mid-turn; it
+shows again under the next program in that pane until the next agent's turn
+ends.
 
 `prefix a` jumps to the first pending pane in the current session, in tab then
 pane order. Arriving acknowledges it, so pressing again moves on to the next;
