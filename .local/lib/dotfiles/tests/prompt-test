@@ -1234,7 +1234,8 @@ notify_cases=(
   ':30:1:1:exactly the threshold notifies, whatever the exit status'
   ':29:0:0:a short command does not'
   ':45:130:0:a command stopped with Ctrl-C does not'
-  ':45:148:0:a command suspended with Ctrl-Z does not'
+  ':45:148:0:a command suspended with Ctrl-Z (Linux) does not'
+  ':45:146:0:a command suspended with Ctrl-Z (macOS) does not'
   '10:12:0:1:a lower threshold notifies sooner'
   '0:600:0:0:a zero threshold turns it off'
   'abc:45:0:1:an invalid threshold falls back to 30'
@@ -1260,8 +1261,9 @@ for notify_shell in "${notify_shells[@]}"; do
 done
 
 # The notifier rings only for a shell in a tmux pane nobody is looking at:
-# no client with terminal focus is showing it. A stub tmux lists clients
-# (flags and current pane); a stub notifier records each ring.
+# the most recently active client is not a focused one showing it. A stub
+# tmux lists clients (activity, flags, current pane); a stub notifier records
+# each ring.
 notify_bin="$TEST_TMPDIR/notify-bin"
 mkdir -p "$notify_bin"
 cat >"$notify_bin/term-notify-sound" <<'EOF'
@@ -1294,13 +1296,16 @@ notify_with() {
   fi
 }
 in_pane=(env TMUX=/tmp/notify-test TMUX_PANE=%7 TERM_PROGRAM=tmux)
-notify_with 0 "a pane a focused client shows stays silent" \
-  'attached,UTF-8 %3\nattached,focused,UTF-8 %7\n' "${in_pane[@]}"
-notify_with 1 "a pane shown only by an unfocused client rings" \
-  'attached,UTF-8 %7\nattached,focused,UTF-8 %3\n' "${in_pane[@]}"
-notify_with 1 "a pane no client shows rings" 'attached,focused,UTF-8 %3\n' "${in_pane[@]}"
+notify_with 0 "a pane the latest client shows with focus stays silent" \
+  '100 attached,UTF-8 %3\n200 attached,focused,UTF-8 %7\n' "${in_pane[@]}"
+notify_with 1 "a pane the latest client shows without focus rings" \
+  '200 attached,UTF-8 %7\n100 attached,focused,UTF-8 %3\n' "${in_pane[@]}"
+notify_with 1 "a stale focused client on the pane does not silence it" \
+  '100 attached,focused,UTF-8 %7\n200 attached,UTF-8 %7\n' "${in_pane[@]}"
+notify_with 1 "a pane the latest client does not show rings" \
+  '100 attached,focused,UTF-8 %7\n200 attached,focused,UTF-8 %3\n' "${in_pane[@]}"
 notify_with 1 "a pane id that only prefixes the shown one rings" \
-  'attached,focused,UTF-8 %70\n' "${in_pane[@]}"
+  '200 attached,focused,UTF-8 %70\n' "${in_pane[@]}"
 notify_with 1 "an unreachable tmux server still rings" '' "${in_pane[@]}"
 notify_with 0 "a shell outside tmux stays silent" '' env -u TMUX -u TMUX_PANE
 notify_with 0 "a leaked tmux env (editor launched from tmux) stays silent" '' \

@@ -394,7 +394,8 @@ __git_prompt() {
 # turns it off). The prompt hooks in 60-prompt.bash/.zsh call __cmd_notify.
 
 # Return whether a finished command ran long enough to notify about and ended
-# on its own: Ctrl-C (130) and Ctrl-Z (148) mean someone was at the keyboard.
+# on its own: Ctrl-C (130) and Ctrl-Z (148 on Linux, 146 on macOS, where
+# SIGTSTP is 18) mean someone was at the keyboard.
 # Args: $1 - elapsed seconds, $2 - exit status.
 __cmd_notify_wanted() {
   local elapsed="$1" rc="$2" threshold="${PROMPT_NOTIFY_SECONDS:-30}"
@@ -404,16 +405,19 @@ __cmd_notify_wanted() {
   # Base 10 explicitly: bash reads a leading zero as octal.
   threshold=$((10#$threshold))
   ((threshold > 0 && elapsed >= threshold)) || return 1
-  [[ "$rc" != 130 && "$rc" != 148 ]]
+  [[ "$rc" != 130 && "$rc" != 146 && "$rc" != 148 ]]
 }
 
 # Notify for a finished command when __cmd_notify_wanted agrees, unless you
-# were looking at its pane when it finished: a client whose terminal has
-# focus (tmux focus-events) is showing that pane. Switching to another pane,
-# window, or application before it finishes still notifies. Interactive
-# programs (an editor, a pager, an fzf picker, ssh) are used from the pane
-# you are looking at, so they never notify, without a list of program names
-# to keep current. Only a shell still in a tmux pane counts:
+# were looking at its pane when it finished: the most recently active client
+# shows that pane and its terminal has focus (tmux focus-events). Only that
+# client counts because tmux flags every client focused when it attaches and
+# clears the flag only on a focus-out, so a stale attachment (an old editor
+# terminal) can stay "focused" for days. Switching to another pane, window,
+# or application before a command finishes still notifies. Interactive
+# programs (an editor, a pager, an fzf picker, ssh) are normally used from
+# the pane you are looking at, so they do not notify, without a list of
+# program names to keep current. Only a shell still in a tmux pane counts:
 # TMUX and TMUX_PANE leak into programs launched from one, such as an editor
 # started with `code .`, whose own terminals replace TERM_PROGRAM. Best
 # effort: without tmux, cmdblocks, or a terminal, nothing happens.
@@ -421,8 +425,9 @@ __cmd_notify_wanted() {
 __cmd_notify() {
   [[ -n "${TMUX:-}" && -n "${TMUX_PANE:-}" && "${TERM_PROGRAM:-}" == tmux ]] || return 0
   __cmd_notify_wanted "$1" "$2" || return 0
-  tmux list-clients -F '#{client_flags} #{pane_id}' 2>/dev/null |
-    awk -v pane="$TMUX_PANE" '$1 ~ /(^|,)focused(,|$)/ && $2 == pane { found = 1 } END { exit !found }' &&
+  tmux list-clients -F '#{client_activity} #{client_flags} #{pane_id}' 2>/dev/null |
+    sort -n | tail -n 1 |
+    awk -v pane="$TMUX_PANE" '$2 ~ /(^|,)focused(,|$)/ && $3 == pane { found = 1 } END { exit !found }' &&
     return 0
   command -v term-notify-sound >/dev/null 2>&1 || return 0
   term-notify-sound >/dev/null 2>&1 || true
