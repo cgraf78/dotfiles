@@ -142,6 +142,12 @@ with none left it says nothing is waiting.
 output into the window's agent (its first agent pane) as one bracketed paste
 and focuses the agent, the usual step after a test fails in a side shell.
 
+The shell prompt marks where each prompt and each command's output start
+(OSC 133), but only inside tmux, so a terminal's own shell integration never
+sees a second set. tmux 3.4+ moves between those marks: `prefix k` opens copy
+mode on the last command's prompt, and `[` and `]` in copy mode step to the
+previous or next prompt. Older releases ignore the marks.
+
 `prefix g` opens a throwaway shell in a popup over the current pane, starting
 in its directory, for a quick check without splitting the window; exiting the
 shell closes it. `prefix G` opens `lazygit` there the same way, or says it is

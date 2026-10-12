@@ -1224,6 +1224,58 @@ _assert_contains "title: bash registers the title hook once" 'COUNT=1' \
   "$(bash --norc --noprofile -c '. "$1" >/dev/null 2>&1; . "$1" >/dev/null 2>&1; n=0; for f in "${preexec_functions[@]}"; do [[ $f == __title_preexec ]] && ((n++)); done; echo COUNT=$n' _ "$TITLE_BASH")"
 
 echo ""
+echo "=== prompt: tmux prompt marks ==="
+
+# Inside tmux the prompt marks where it starts (OSC 133;A) and preexec marks
+# where output starts (OSC 133;C), both zero-width for the line editor. Outside
+# tmux nothing is added, so the outer terminal's own shell integration (VS
+# Code, WezTerm) never sees a second set of marks.
+if command -v zsh >/dev/null 2>&1; then
+  # shellcheck disable=SC2016 # $-expansions belong to the zsh -c body.
+  zsh_marked=$(TMUX=/tmp/mark-test TERM_PROGRAM=tmux TERM=tmux-256color zsh -f -c '. "$1" >/dev/null 2>&1; print -r -- "$PROMPT"' _ "$TITLE_ZSH")
+  _assert_eq "marks: zsh prompt starts with a zero-width prompt mark in tmux" \
+    $'%{\e]133;A\a%}' "${zsh_marked:0:12}"
+  # shellcheck disable=SC2016 # $-expansions belong to the zsh -c body.
+  zsh_plain=$(env -u TMUX TERM=xterm-256color zsh -f -c '. "$1" >/dev/null 2>&1; print -r -- "$PROMPT"' _ "$TITLE_ZSH")
+  _assert_not_contains "marks: zsh prompt outside tmux has no mark" $'\e]133' "$zsh_plain"
+  # shellcheck disable=SC2016 # $-expansions belong to the zsh -c body.
+  zsh_unmarked=$(env -u TMUX TERM=tmux-256color zsh -f -c '. "$1" >/dev/null 2>&1; print -r -- "$PROMPT"' _ "$TITLE_ZSH")
+  _assert_eq "marks: zsh prompt in tmux is otherwise unchanged" \
+    "$zsh_unmarked" \
+    "${zsh_marked:12}"
+  # shellcheck disable=SC2016 # $-expansions belong to the zsh -c body.
+  _assert_eq "marks: zsh preexec marks output start in tmux" $'\e]133;C\a' \
+    "$(TMUX=/tmp/mark-test TERM_PROGRAM=tmux zsh -f -c '. "$1" >/dev/null 2>&1; __prompt_mark_preexec "ls"' _ "$TITLE_ZSH")"
+  # shellcheck disable=SC2016 # $-expansions belong to the zsh -c body.
+  _assert_eq "marks: zsh preexec stays silent outside tmux" '' \
+    "$(env -u TMUX zsh -f -c '. "$1" >/dev/null 2>&1; __prompt_mark_preexec "ls"' _ "$TITLE_ZSH")"
+else
+  _pass "marks: zsh unavailable, zsh mark checks skipped"
+fi
+# shellcheck disable=SC2016 # $-expansions belong to the bash -c body.
+bash_marked=$(TMUX=/tmp/mark-test TERM_PROGRAM=tmux TERM=tmux-256color bash --norc --noprofile -c '. "$1" >/dev/null 2>&1; printf "%s" "$PS1"' _ "$TITLE_BASH")
+_assert_eq "marks: bash prompt starts with a zero-width prompt mark in tmux" \
+  '\[\e]133;A\a\]' "${bash_marked:0:14}"
+# shellcheck disable=SC2016 # $-expansions belong to the bash -c body.
+bash_plain=$(env -u TMUX TERM=tmux-256color bash --norc --noprofile -c '. "$1" >/dev/null 2>&1; printf "%s" "$PS1"' _ "$TITLE_BASH")
+_assert_not_contains "marks: bash prompt outside tmux has no mark" '133;' "$bash_plain"
+_assert_eq "marks: bash prompt in tmux is otherwise unchanged" "$bash_plain" "${bash_marked:14}"
+# shellcheck disable=SC2016 # $-expansions belong to the bash -c body.
+_assert_eq "marks: bash preexec marks output start in tmux" $'\e]133;C\a' \
+  "$(TMUX=/tmp/mark-test TERM_PROGRAM=tmux bash --norc --noprofile -c '. "$1" >/dev/null 2>&1; __prompt_mark_preexec "ls"' _ "$TITLE_BASH")"
+# shellcheck disable=SC2016 # $-expansions belong to the bash -c body.
+_assert_eq "marks: bash preexec stays silent outside tmux" '' \
+  "$(env -u TMUX bash --norc --noprofile -c '. "$1" >/dev/null 2>&1; __prompt_mark_preexec "ls"' _ "$TITLE_BASH")"
+# A terminal launched from a tmux shell (`code .`) inherits TMUX but replaces
+# TERM_PROGRAM; its shells must not send marks to that terminal.
+# shellcheck disable=SC2016 # $-expansions belong to the bash -c body.
+_assert_not_contains "marks: a leaked TMUX in another terminal adds no mark" '133;' \
+  "$(TMUX=/tmp/mark-test TERM_PROGRAM=vscode TERM=xterm-256color bash --norc --noprofile -c '. "$1" >/dev/null 2>&1; printf "%s" "$PS1"; __prompt_mark_preexec ls' _ "$TITLE_BASH")"
+# shellcheck disable=SC2016 # $-expansions belong to the bash -c body.
+_assert_contains "marks: bash registers the mark hook once" 'COUNT=1' \
+  "$(bash --norc --noprofile -c '. "$1" >/dev/null 2>&1; . "$1" >/dev/null 2>&1; n=0; for f in "${preexec_functions[@]}"; do [[ $f == __prompt_mark_preexec ]] && ((n++)); done; echo COUNT=$n' _ "$TITLE_BASH")"
+
+echo ""
 echo "=== prompt: long-command notification ==="
 
 # A finished command notifies when it ran for the threshold and ended on its
