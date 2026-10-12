@@ -8,15 +8,26 @@
 # fallback for systems without bash-preexec; bash-preexec replaces the DEBUG
 # trap on load, so there is no double-counting.
 __cmd_time=""
-__prompt_preexec() { __cmd_start=$SECONDS; }
+# __cmd_line records that a command ran, so __cmd_notify (59-prompt.sh) sees
+# each command once and never an empty Enter. bash-preexec also gives each
+# precmd hook the command's exit status; the DEBUG-trap fallback has no
+# preexec, so it never notifies.
+__prompt_preexec() {
+  __cmd_start=$SECONDS
+  __cmd_line=${1:-}
+}
 __prompt_precmd() {
-  local elapsed=$((SECONDS - ${__cmd_start:-$SECONDS}))
+  local rc=$? elapsed=$((SECONDS - ${__cmd_start:-$SECONDS}))
   __cmd_start=$SECONDS
   if ((elapsed >= 2)); then
     # Pre-color with dim + \001/\002 wrappers so readline counts correctly.
     __cmd_time=$'\001\033[2m\002 '"${elapsed}s"$'\001\033[0m\002'
   else
     __cmd_time=""
+  fi
+  if [[ -n ${__cmd_line:-} ]]; then
+    __cmd_notify "$elapsed" "$rc"
+    __cmd_line=""
   fi
 }
 # Guard: raw += accumulates duplicates on re-source (no add-zsh-hook
