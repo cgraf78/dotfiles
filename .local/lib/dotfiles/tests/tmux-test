@@ -717,10 +717,20 @@ SH
     paste_shell=$(tmux_cmd split-window -d -P -F '#{pane_id}' -t "$paste_agent" "$shell")
     wait_command "$paste_agent" codex
     wait_command "$paste_shell" zsh 0
+    # A server started without PATH in its global environment (as on CI)
+    # runs jobs with the server's own PATH; extend this test's PATH instead,
+    # so run-shell still finds tmux itself.
     path_before=$(tmux_cmd show-environment -g PATH 2>/dev/null) || path_before=''
+    case $path_before in
+      PATH=*) base_path=${path_before#PATH=} ;;
+      *)
+        path_before=''
+        base_path=$PATH
+        ;;
+    esac
     tmux_cmd set-environment -g PASTE_FIXTURE_EMPTY "$paste_dir/empty"
     tmux_cmd set-environment -g PASTE_FIXTURE_OLD "$paste_dir/old"
-    tmux_cmd set-environment -g PATH "$paste_dir/bin:${path_before#PATH=}"
+    tmux_cmd set-environment -g PATH "$paste_dir/bin:$base_path"
     paste_binding="$paste_dir/binding.conf"
     tmux_cmd list-keys -T prefix A | sed -E 's/^bind-key +-T +prefix +A +//' >"$paste_binding"
     # press_paste PANE runs the binding with PANE as the current pane.
