@@ -561,7 +561,7 @@ assert_suite_discovery() {
 }
 
 assert_tmux_composition() {
-  local profile=$1 home=$2 socket keys move left output
+  local profile=$1 home=$2 socket keys prefix_keys move left open_link output
   command -v tmux >/dev/null 2>&1 || return 0
   socket=dot-profile-$profile-$$
   if ! output=$(run_in_home "$home" tmux -L "$socket" -f /dev/null \
@@ -577,20 +577,26 @@ assert_tmux_composition() {
     return
   fi
   keys=$(run_in_home "$home" tmux -L "$socket" list-keys -T root)
+  prefix_keys=$(run_in_home "$home" tmux -L "$socket" list-keys -T prefix)
   run_in_home "$home" tmux -L "$socket" kill-server >/dev/null 2>&1 || true
   move=$(printf '%s\n' "$keys" | grep -F '"M-{"' || true)
   left=$(printf '%s\n' "$keys" |
     awk '$1 == "bind-key" && $2 == "-T" && $3 == "root" && $4 == "C-h"')
+  open_link=$(printf '%s\n' "$prefix_keys" |
+    awk '$1 == "bind-key" && $2 == "-T" && $3 == "prefix" && $4 == "e"')
+  # Base owns pane, tab, and link routing, including handing chords to Vim,
+  # Neovim, and fzf, so every profile has them. Only keys that need Neovim
+  # come from the editor overlay.
   _assert_contains "$profile composed tmux retains base tab movement" \
     'termnav navigate tab-move left' "$move"
+  _assert_contains "$profile composed tmux hands tab moves to editors" 'fzf' "$move"
+  _assert_contains "$profile composed tmux retains base pane navigation" \
+    'termnav navigate pane-select left' "$left"
   if [[ $profile == base ]]; then
-    _assert_not_contains 'base composed tmux excludes editor detection' \
-      'fzf' "$move"
-    _assert_eq 'base composed tmux excludes editor pane navigation' '' "$left"
+    _assert_eq 'base composed tmux excludes the Neovim file opener' '' "$open_link"
   else
-    _assert_contains "$profile composed tmux adds editor detection" 'fzf' "$move"
-    _assert_contains "$profile composed tmux adds editor pane navigation" \
-      'termnav navigate pane-select left' "$left"
+    _assert_contains "$profile composed tmux adds the Neovim file opener" \
+      'termnav nvim open link' "$open_link"
   fi
 }
 
