@@ -113,6 +113,7 @@ program	.local/lib/dotfiles/tests/shell-loader-test
 program	.local/lib/dotfiles/tests/stack-dot-runtime
 program	.local/lib/dotfiles/tests/tmux-continuum-test
 program	.local/lib/dotfiles/tests/tmux-compatibility-test
+program	.local/lib/dotfiles/tests/tmux-navigation-test
 program	.local/lib/dotfiles/tests/tmux-test
 program	.local/lib/dotfiles/tests/tool-init-test
 program	.local/lib/dotfiles/tests/wezterm-test

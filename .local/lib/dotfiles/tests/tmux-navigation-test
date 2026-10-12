@@ -1,0 +1,274 @@
+#!/usr/bin/env bash
+# tmux-navigation-test - pane, tab, and link routing across editor, nested
+# tmux, and remote layers, owned by the base tmux fragment.
+set -u
+export NO_COLOR=1
+
+# shellcheck source=helpers.sh
+. "${BASH_SOURCE[0]%/*}/helpers.sh"
+
+source_home=${DOT_TEST_SOURCE_HOME:-$HOME}
+fragment=$source_home/.config/tmux/conf.d/10-base.conf
+fragment_content=$(<"$fragment")
+
+if ! command -v tmux >/dev/null 2>&1; then
+  _pass 'tmux navigation: binary unavailable, coverage skipped'
+  _test_summary
+  exit
+fi
+socket=$(_tmux_socket) || exit 1
+CLEANUP_DIRS+=("${socket%/*}")
+_tmux_fixture_env "$source_home" || exit 1
+tmux_cmd() {
+  "${TMUX_FIXTURE_ENV[@]}" tmux -S "$socket" "$@"
+}
+# The base fragment's last line starts the continuum coordinator, which the
+# fixture HOME does not install, so source-file reports that one failure after
+# applying everything else. Require the server and the bindings instead.
+if ! tmux_cmd -f /dev/null new-session -d 'exec sleep 300' 2>/dev/null; then
+  _fail 'tmux navigation test server starts'
+  _test_summary
+fi
+tmux_cmd source-file "$fragment" >/dev/null 2>&1 || true
+
+help_keys=$(tmux_cmd list-keys -N)
+for description in 'Navigate left across editor and terminal panes' \
+  'Select the next tab across terminal layers' \
+  'Return to the previous pane or editor split'; do
+  _assert_contains "tmux navigation: help shows $description" "$description" "$help_keys"
+done
+
+root_keys=$(tmux_cmd list-keys -T root | sed -E 's/^bind-key[[:space:]]+-T /bind-key -T /')
+mouse=$(tmux_cmd show-options -gv mouse)
+# Expand a detector from the loaded config with a stand-in foreground command,
+# so these checks exercise the real formats rather than copies of them.
+detect() {
+  local format
+  format=$(tmux_cmd show-environment -g "$1") || return
+  format=${format#*=}
+  tmux_cmd display-message -p "${format//'#{pane_current_command}'/$2}"
+}
+ctrl_tab=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root C-Tab ' || true)
+ctrl_shift_tab=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root C-BTab ' || true)
+pane_left=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root C-h ' || true)
+pane_down=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root C-j ' || true)
+pane_up=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root C-k ' || true)
+pane_right=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root C-l ' || true)
+pane_move_left=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root M-H ' || true)
+pane_move_down=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root M-J ' || true)
+pane_move_up=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root M-K ' || true)
+pane_move_right=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root M-L ' || true)
+backslash=$'\\'
+previous_pane=$(printf '%s\n' "$root_keys" |
+  grep -F "bind-key -T root C-${backslash}${backslash} " || true)
+mouse_down=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root C-MouseDown1Pane ' || true)
+mouse_drag=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root C-MouseDrag1Pane ' || true)
+mouse_up=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root C-MouseUp1Pane ' || true)
+move_tab_left=$(printf '%s\n' "$root_keys" |
+  grep -F 'bind-key -T root "M-{" ' || true)
+move_tab_right=$(printf '%s\n' "$root_keys" |
+  grep -F 'bind-key -T root "M-}" ' || true)
+
+_assert_contains 'tmux navigation runtime forwards Ctrl-Tab to an editor pane' \
+  "send-keys Escape '[9;5u'" "$ctrl_tab"
+_assert_contains 'tmux navigation runtime forwards Ctrl-Shift-Tab to an editor pane' \
+  "send-keys Escape '[9;6u'" "$ctrl_shift_tab"
+_assert_eq 'tmux navigation runtime enables mouse integration' on "$mouse"
+# Pane navigation goes inward for editors and fzf; tab moves also go inward for
+# remote transports. Neither claims a plain shell.
+for owner in nvim vim fzf; do
+  _assert_eq "tmux navigation pane detector hands keys to $owner" 1 \
+    "$(detect is_pane_navigation_native "$owner")"
+  _assert_eq "tmux navigation tab-move detector hands keys to $owner" 1 \
+    "$(detect is_terminal_app_native "$owner")"
+done
+_assert_eq 'tmux navigation tab-move detector hands keys to ssh' 1 \
+  "$(detect is_terminal_app_native ssh)"
+for detector in is_pane_navigation_native is_terminal_app_native; do
+  _assert_eq "tmux navigation $detector leaves shells local" 0 \
+    "$(detect "$detector" bash)"
+done
+_assert_contains 'tmux navigation runtime keeps multi-window next-tab native' \
+  '#{>:#{session_windows},1}' "$ctrl_tab"
+_assert_contains 'tmux navigation runtime keeps multi-window previous-tab native' \
+  '#{>:#{session_windows},1}' "$ctrl_shift_tab"
+_assert_contains 'tmux navigation runtime routes the next tab edge through Termnav' \
+  'termnav navigate tab-select next --parent' "$ctrl_tab"
+_assert_contains 'tmux navigation runtime routes the previous tab edge through Termnav' \
+  'termnav navigate tab-select previous --parent' "$ctrl_shift_tab"
+_assert_contains 'tmux navigation runtime routes the next tab boundary through Termnav' \
+  'termnav navigate tab-select next' "$fragment_content"
+_assert_contains 'tmux navigation runtime routes the previous tab boundary through Termnav' \
+  'termnav navigate tab-select previous' "$fragment_content"
+_assert_not_contains 'tmux navigation runtime retires the old relay wrapper' \
+  'termnav-relay' "$fragment_content"
+_assert_not_contains 'tmux navigation runtime retires the old navigation command' \
+  'termnav-navigate' "$fragment_content"
+route_lines=("$pane_left" "$pane_down" "$pane_up" "$pane_right")
+route_directions=(left down up right)
+route_native=('select-pane -L' 'select-pane -D' 'select-pane -U' 'select-pane -R')
+for route_index in "${!route_lines[@]}"; do
+  line=${route_lines[route_index]}
+  direction=${route_directions[route_index]}
+  native=${route_native[route_index]}
+  _assert_contains "tmux navigation runtime keeps $direction selection native" \
+    "$native" "$line"
+  _assert_contains "tmux navigation runtime routes the $direction boundary through Termnav" \
+    "termnav navigate pane-select $direction --parent" "$line"
+  _assert_not_contains "tmux navigation runtime retires the old $direction router" \
+    'termnav-navigate' "$line"
+  _assert_contains "tmux navigation runtime preserves the source pane for $direction routing" \
+    '--source-pane #{pane_id}' "$line"
+done
+_assert_eq 'tmux navigation runtime has four native pane selections' 4 \
+  "$(printf '%s\n' "${route_lines[@]}" | awk '/select-pane -[LDUR]/ { count++ } END { print count + 0 }')"
+_assert_eq 'tmux navigation runtime has four pane boundary routes' 4 \
+  "$(printf '%s\n' "${route_lines[@]}" | awk '/termnav navigate pane-select/ { count++ } END { print count + 0 }')"
+move_lines=("$pane_move_left" "$pane_move_down" "$pane_move_up" "$pane_move_right")
+move_directions=(left down up right)
+move_keys=(H J K L)
+for move_index in "${!move_lines[@]}"; do
+  line=${move_lines[move_index]}
+  direction=${move_directions[move_index]}
+  key=${move_keys[move_index]}
+  _assert_contains "tmux navigation runtime forwards M-$key into an owning application" \
+    "send-keys Escape '$key'" "$line"
+  _assert_contains "tmux navigation runtime moves the $direction pane through Termnav" \
+    "termnav navigate pane-move $direction" "$line"
+  _assert_not_contains "tmux navigation runtime starts $direction pane movement locally" \
+    '--parent' "$line"
+done
+_assert_contains 'tmux navigation runtime forwards Ctrl-backslash inside navigation-aware panes' \
+  "send-keys C-${backslash}${backslash}${backslash}${backslash}" \
+  "$previous_pane"
+_assert_contains 'tmux navigation runtime keeps previous-pane selection local' \
+  'select-pane -l' "$previous_pane"
+_assert_not_contains 'tmux navigation runtime does not route previous-pane outward' \
+  'termnav navigate' "$previous_pane"
+_assert_contains 'tmux navigation runtime forwards Ctrl-click into mouse-aware panes' \
+  'send-keys -M' "$mouse_down"
+_assert_contains 'tmux navigation runtime keeps Ctrl-drag inside mouse-aware panes' \
+  'send-keys -M' "$mouse_drag"
+_assert_contains 'tmux navigation runtime passes the complete click record to Termnav' \
+  '#{mouse_hyperlink}\\n#{mouse_word}\\n#{mouse_line}\\n#{mouse_x}\\n#{pane_current_path}\\n#{client_tty}\\n#{pane_id}\\n#{mouse_y}\\n#{pane_top}\\n#{pane_left}' \
+  "$mouse_up"
+_assert_contains 'tmux navigation runtime routes clicks through native Termnav' \
+  'termnav tmux follow-click --stdin' "$mouse_up"
+for move_tab in "$move_tab_left" "$move_tab_right"; do
+  _assert_contains 'tmux navigation runtime forwards tab moves through Nvim and fzf' \
+    'view|l?n?vim?x?|fzf' "$move_tab"
+done
+
+for route_line in \
+  "$ctrl_tab" "$ctrl_shift_tab" \
+  "$pane_left" "$pane_down" "$pane_up" "$pane_right" \
+  "$pane_move_left" "$pane_move_down" "$pane_move_up" "$pane_move_right"; do
+  for metadata in \
+    '--client-pid #{client_pid}' \
+    '--client-tty #{q:client_tty}' \
+    '--client-created #{client_created}' \
+    '--source-socket #{q:socket_path}' \
+    '--source-pane #{pane_id}' \
+    '--source-session #{q:session_id}'; do
+    _assert_contains "tmux navigation runtime route keeps ${metadata%% *}" \
+      "$metadata" "$route_line"
+  done
+done
+
+_assert_contains 'tmux navigation detector uses native pane metadata' \
+  '#{pane_current_command}' "$fragment_content"
+_assert_contains 'tmux navigation detector retains the process fallback' \
+  'pgid= -o tpgid=' "$fragment_content"
+_assert_contains 'tmux navigation pane routing requires mouse ownership for transports' \
+  'mouse == 1' "$fragment_content"
+_assert_contains 'tmux navigation pane routing recognizes remote transports' \
+  'ssh|mosh|mosh-client|mosh-server|et' "$fragment_content"
+_assert_contains 'tmux navigation pane routing recognizes nested multiplexers' \
+  'tmux|screen' "$fragment_content"
+_assert_not_contains 'tmux navigation has no terminal-specific VS Code branch' \
+  '#{m:xterm.js*,#{client_termtype}}' "$fragment_content"
+# shellcheck disable=SC2016 # Match the retired literal shell construction.
+_assert_not_contains 'tmux navigation has no inline payload construction' \
+  'payload=$(' "$fragment_content"
+_assert_not_contains 'tmux navigation boundary routes remain foreground-ordered' \
+  "run-shell -b '~/.local/bin/termnav navigate" "$fragment_content"
+for retired in termnav-switch-tab wezterm-switch-tab wezterm-move-tab \
+  wezterm-select-pane DOT_PARENT_SWITCH_TAB DOT_PARENT_MOVE_TAB \
+  DOT_PARENT_SELECT_PANE; do
+  _assert_not_contains "tmux navigation retired route stays absent: $retired" \
+    "$retired" "$fragment_content"
+done
+
+# tmux 3.2 serializes nested commands differently from newer releases. Test
+# the source-owned predicates directly instead of parsing version-specific
+# list-keys display text; the runtime assertions above still prove that tmux
+# accepts and expands the bindings. source_filter pulls the awk program out of
+# a ps-fallback assignment and undoes the config's \$ escaping.
+source_filter() {
+  local line prefix program
+  line=$(printf '%s\n' "$fragment_content" | grep "^$1=" || true)
+  prefix="${line%%\| awk*}| awk -v mouse='#{mouse_any_flag}' '"
+  program=${line#"$prefix"}
+  program=${program%\'\"}
+  printf '%s' "${program//\\\$/\$}"
+}
+pane_filter=$(source_filter is_pane_navigation)
+terminal_filter=$(source_filter is_terminal_app)
+_assert_contains 'tmux navigation source preserves the process fallback predicate' \
+  'END { exit !found }' "$pane_filter"
+# shellcheck disable=SC2016 # Assert that the generated AWK keeps no escaped field token.
+_assert_not_contains 'tmux navigation runtime fallback has no escaped AWK fields' \
+  '\$NF' "$pane_left"
+printf 'S+ bash 39056 39056\nS+ tmux: client 39056 39056\n' |
+  awk -v mouse=1 "$pane_filter"
+_assert_exit 'tmux navigation process fallback identifies a nested focused tmux' 0 "$?"
+printf 'S+ ssh 39056 39056\n' | awk -v mouse=0 "$pane_filter"
+_assert_exit 'tmux navigation keeps a plain SSH shell at the outer layer' 1 "$?"
+printf 'S+ ssh 39056 39056\n' | awk -v mouse=1 "$pane_filter"
+_assert_exit 'tmux navigation forwards into a mouse-aware remote application' 0 "$?"
+printf 'S+ bash 39056 39056\nS ssh 39100 39056\nS tmux: client 39101 39056\n' |
+  awk -v mouse=1 "$pane_filter"
+_assert_exit 'tmux navigation ignores background transports and clients' 1 "$?"
+printf 'S+ fd 39056 39056\nS+ fzf 39056 39056\n' | awk -v mouse=0 "$pane_filter"
+_assert_exit 'tmux navigation process fallback matches fzf behind a pipeline' 0 "$?"
+printf 'S+ nvim 39056 39056\n' | awk -v mouse=0 "$pane_filter"
+_assert_exit 'tmux navigation process fallback hands pane keys to a foreground editor' 0 "$?"
+
+_assert_contains 'tmux navigation tab-move fallback retains terminal-process matching' \
+  'END { exit !found }' "$terminal_filter"
+printf 'S+ bash 39056 39056\nS+ tmux: client 39056 39056\n' |
+  awk -v mouse=1 "$terminal_filter"
+_assert_exit 'tmux navigation tab moves route into a mouse-aware nested client' 0 "$?"
+printf 'S+ bash 39056 39056\nS+ tmux: client 39056 39056\n' |
+  awk -v mouse=0 "$terminal_filter"
+_assert_exit 'tmux navigation tab moves keep a non-mouse nested client local' 1 "$?"
+printf 'S+ bash 39056 39056\nS ssh 39100 39056\n' |
+  awk -v mouse=1 "$terminal_filter"
+_assert_exit 'tmux navigation tab moves keep a background transport local' 1 "$?"
+printf 'S+ nvim 39056 39056\n' | awk -v mouse=0 "$terminal_filter"
+_assert_exit 'tmux navigation tab moves go to a foreground editor' 0 "$?"
+printf 'S+ ssh 39056 39056\n' | awk -v mouse=0 "$terminal_filter"
+_assert_exit 'tmux navigation tab moves go into a foreground transport' 0 "$?"
+
+tmux_cmd kill-server >/dev/null 2>&1 || true
+
+if command -v python3 >/dev/null 2>&1; then
+  # The PTY driver starts its own private servers; share the fixture
+  # environment so their pane commands cannot load live startup files either.
+  if pty_output=$("${TMUX_FIXTURE_ENV[@]}" python3 \
+    "${BASH_SOURCE[0]%/*}/support/tmux-navigation.py" \
+    --config "$fragment" 2>&1); then
+    pty_status=0
+  else
+    pty_status=$?
+  fi
+  printf '%s\n' "$pty_output"
+  _assert_exit 'tmux navigation PTY navigation coverage passes' 0 "$pty_status"
+  _assert_contains 'tmux navigation PTY tests local Ctrl-backslash' \
+    'test_ctrl_backslash_selects_the_local_previous_pane' "$pty_output"
+  _assert_contains 'tmux navigation PTY tests nested Ctrl-backslash' \
+    'test_ctrl_backslash_forwards_through_a_nested_tmux' "$pty_output"
+else
+  _pass 'tmux navigation Python unavailable, PTY coverage skipped'
+fi
+_test_summary

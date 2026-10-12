@@ -23,6 +23,7 @@
 .local/lib/dotfiles/tests/shell-loader-test
 .local/lib/dotfiles/tests/tmux-continuum-test
 .local/lib/dotfiles/tests/tmux-compatibility-test
+.local/lib/dotfiles/tests/tmux-navigation-test
 .local/lib/dotfiles/tests/tmux-test
 .local/lib/dotfiles/tests/tool-init-test
 .local/lib/dotfiles/tests/wezterm-test

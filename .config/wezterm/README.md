@@ -47,9 +47,9 @@ config edit.
 5. WezTerm routes local `file://`, `nvim-open://`, and `lazygit-edit://` links
    to `~/.local/bin/termnav nvim open` when it owns the mouse event.
 6. In tmux/nvim mouse-reporting panes, WezTerm intentionally does not steal
-   Ctrl-click. With `dotfiles-nvim` active, that overlay's tmux config
-   forwards the raw event into nvim so LSP gets the click coordinates, and
-   routes terminal-pane hyperlinks through `termnav tmux follow-click`.
+   Ctrl-click. The base tmux config forwards the raw event into a mouse-aware
+   app such as nvim, so LSP gets the click coordinates, and routes
+   terminal-pane hyperlinks through `termnav tmux follow-click`.
 7. Remote `file://host/path` links call the same helper with the `link` mode
    and `remote` source label. It skips local Neovim sockets, tries an existing
    SSH ControlMaster connection for hosts listed in
