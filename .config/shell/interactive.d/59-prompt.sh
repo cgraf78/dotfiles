@@ -1,7 +1,8 @@
 # shellcheck shell=bash
-# Shared git prompt: branch/status/upstream coloring.
-# Numbered 59 so it loads before 60-prompt.bash/.zsh, which depend
-# on __git_prompt and the _PC_* color constants defined here.
+# Shared prompt helpers: git branch/status/upstream coloring and the
+# long-command notification. Numbered 59 so it loads before
+# 60-prompt.bash/.zsh, which depend on __git_prompt, __cmd_notify, and the
+# _PC_* color constants defined here.
 
 # Color constants for __git_prompt output.
 # \001/\002 (ASCII SOH/STX) mark non-printing sequences so readline/ZLE
@@ -384,4 +385,63 @@ __git_prompt() {
   # Escape literal % for zsh PROMPT_SUBST — bare % starts prompt sequences.
   [[ -n "${ZSH_VERSION:-}" ]] && out="${out//'%'/%%}"
   printf '%s' "$out"
+}
+
+# Inside tmux, a long-running command rings the terminal and marks its pane
+# pending when it finishes, through cmdblocks' term-notify-sound, so a build
+# or test left running in a side pane gets noticed like an agent waiting for
+# you. Shells outside tmux stay silent: a bell there has no pane to mark.
+# PROMPT_NOTIFY_SECONDS sets the threshold in seconds (default 30; 0 turns it
+# off). The prompt hooks in 60-prompt.bash/.zsh call __cmd_notify.
+
+# Return whether a finished command deserves a notification. It must have run
+# for the threshold and not been interrupted: Ctrl-C exits 130, and whoever
+# pressed it was watching. Interactive programs never count, since their
+# duration is only how long they were in use; a shell or interpreter counts
+# only when it ran something rather than opening a prompt.
+# Args: $1 - elapsed seconds, $2 - exit status, $3 - the command line.
+__cmd_notify_wanted() {
+  local elapsed="$1" rc="$2" line="$3" word threshold="${PROMPT_NOTIFY_SECONDS:-30}"
+  case "$threshold" in
+    '' | *[!0-9]*) threshold=30 ;;
+  esac
+  ((threshold > 0 && elapsed >= threshold)) || return 1
+  [[ "$rc" != 130 ]] || return 1
+  # The program is the first word after environment assignments, wrappers
+  # that run another command, and their options; a wrapper with nothing
+  # after it (sudo -s) is an interactive shell.
+  line="${line#"${line%%[![:space:]]*}"}"
+  while :; do
+    word="${line%%[[:space:]]*}"
+    [[ -n "$word" ]] || return 1
+    case "$word" in
+      -* | *=* | sudo | command | builtin | exec | env | nice | nohup | time | noglob) ;;
+      *) break ;;
+    esac
+    line="${line#"$word"}"
+    line="${line#"${line%%[![:space:]]*}"}"
+  done
+  line="${line#"$word"}"
+  case "${word##*/}" in
+    vi | vim | nvim | view | vimdiff | emacs | nano | less | more | man | \
+      ssh | sshn | mosh | et | ds | tmux | screen | \
+      claude | codex | muse | gemini | grok | opencode | \
+      top | htop | btop | lazygit | lg | tig | fzf | watch)
+      return 1
+      ;;
+    bash | zsh | sh | fish | python | python3 | ipython | node | irb | lua)
+      [[ -n "${line//[[:space:]]/}" ]] || return 1
+      ;;
+  esac
+  return 0
+}
+
+# Notify for a finished command when inside tmux and __cmd_notify_wanted
+# agrees. Best effort: without cmdblocks, or with no terminal, nothing happens.
+# Args: as __cmd_notify_wanted.
+__cmd_notify() {
+  [[ -n "${TMUX:-}" ]] || return 0
+  __cmd_notify_wanted "$@" || return 0
+  command -v term-notify-sound >/dev/null 2>&1 || return 0
+  term-notify-sound >/dev/null 2>&1 || true
 }

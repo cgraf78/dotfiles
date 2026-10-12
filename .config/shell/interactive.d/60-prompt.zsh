@@ -83,15 +83,25 @@ __git_prompt_pidfile_cleanup() {
 
 # Command timing via zsh preexec/precmd hooks.
 __cmd_time=""
-__prompt_preexec() { __cmd_start=$EPOCHSECONDS; }
+# The command line is kept for __cmd_notify (59-prompt.sh); an empty Enter
+# runs no preexec, so idle time at the prompt never notifies. zsh hands every
+# precmd hook the command's exit status, whatever hooks ran before.
+__prompt_preexec() {
+  __cmd_start=$EPOCHSECONDS
+  __cmd_line=$1
+}
 __prompt_precmd() {
-  local elapsed=$((EPOCHSECONDS - ${__cmd_start:-$EPOCHSECONDS}))
+  local rc=$? elapsed=$((EPOCHSECONDS - ${__cmd_start:-$EPOCHSECONDS}))
   __cmd_start=$EPOCHSECONDS
   if ((elapsed >= 2)); then
     # Pre-color with dim + \001/\002 wrappers so ZLE counts correctly.
     __cmd_time=$'\001\033[2m\002 '"${elapsed}s"$'\001\033[0m\002'
   else
     __cmd_time=""
+  fi
+  if [[ -n ${__cmd_line:-} ]]; then
+    __cmd_notify "$elapsed" "$rc" "$__cmd_line"
+    __cmd_line=""
   fi
 }
 # Inside a multiplexer, the terminal title labels the pane: tmux shows it in
