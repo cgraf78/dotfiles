@@ -307,6 +307,7 @@ if command -v tmux >/dev/null 2>&1; then
       'Pick and paste from clipboard history' 'Reload the tmux configuration' \
       'Open a scratch shell popup in this directory' \
       'Open a task window: an agent beside a shell' \
+      'Close this window and all its panes' \
       'Open lazygit in a popup in this directory' \
       'Paste from the clipboard' \
       "Paste the last command output into this window's agent"; do
@@ -379,6 +380,9 @@ if command -v tmux >/dev/null 2>&1; then
       '' "$(printf '%s\n' "$prefix_keys" | awk '$4 == "p"')"
     _assert_contains 'tmux: runtime prefix n opens the task menu' \
       'New task window' "$(printf '%s\n' "$prefix_keys" | awk '$4 == "n"')"
+    _assert_contains 'tmux: runtime prefix X confirms, then closes the window' \
+      'confirm-before -p "kill-window #W? (y/n)" kill-window' \
+      "$(printf '%s\n' "$prefix_keys" | awk '$4 == "X"')"
     for key in '"' % c; do
       _assert_contains "tmux: runtime prefix $key keeps the pane directory" \
         '-c "#{pane_current_path}"' \
