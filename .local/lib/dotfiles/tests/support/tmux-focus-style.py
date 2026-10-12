@@ -794,6 +794,60 @@ class LeafStyleTest(unittest.TestCase):
             "only the real failure is reported",
         )
 
+    def test_prefix_g_and_G_open_popups_in_the_pane_directory(self) -> None:
+        """Press prefix g and G and check what each popup ran, and where.
+
+        The popup programs are stand-ins that record their working directory
+        and TMUX_PANE, then exit, so each popup closes itself. tmux gives a
+        popup no TMUX_PANE, while any pane (a split, a window) has one, so
+        an empty TMUX_PANE proves a popup ran it.
+        """
+        client = Client(self)
+        self.clients.append(client)
+        if not self.supports_client_format_context(client.tty):
+            self.skipTest("tmux does not support client-targeted format expansion")
+        client.set_focus(True)
+        work = self.root / "work dir"
+        work.mkdir()
+        stub = self.root / "popup-bin"
+        stub.mkdir()
+        shell_marker = self.root / "shell-ran"
+        git_marker = self.root / "lazygit-ran"
+        shell = stub / "scratch-shell"
+        record = 'printf "%s %s\\n" "$(pwd)" "${TMUX_PANE:-popup}"'
+        shell.write_text(f'#!/bin/sh\n{record} > "{shell_marker}"\n')
+        shell.chmod(0o755)
+        pane = self.tmux(
+            "new-window", "-P", "-F", "#{pane_id}", "-c", str(work), "sleep 30"
+        ).stdout.strip()
+        wait_until(lambda: self.current_pane(client) == pane, "client on the work pane")
+        self.tmux("set-option", "-g", "default-command", str(shell))
+
+        self.press(client, b"g")
+        wait_until(shell_marker.exists, "prefix g runs the default shell in a popup")
+        # pwd prints the physical path: macOS puts /tmp under /private.
+        self.assertEqual(f"{work.resolve()} popup", shell_marker.read_text().strip())
+
+        # Without lazygit on the server's PATH, prefix G only says so.
+        path = self.tmux("show-environment", "-g", "PATH", check=False).stdout.strip()
+        base_path = path.partition("=")[2] if path.startswith("PATH=") else os.environ["PATH"]
+        bare_path = ":".join(
+            d for d in base_path.split(":") if d and not (pathlib.Path(d) / "lazygit").exists()
+        )
+        self.tmux("set-environment", "-g", "PATH", bare_path)
+        self.press(client, b"G")
+        wait_until(
+            lambda: "lazygit is not installed" in self.tmux("show-messages").stdout,
+            "prefix G reports a missing lazygit",
+        )
+        lazygit = stub / "lazygit"
+        lazygit.write_text(f'#!/bin/sh\n{record} > "{git_marker}"\n')
+        lazygit.chmod(0o755)
+        self.tmux("set-environment", "-g", "PATH", f"{stub}:{bare_path}")
+        self.press(client, b"G")
+        wait_until(git_marker.exists, "prefix G runs lazygit in a popup")
+        self.assertEqual(f"{work.resolve()} popup", git_marker.read_text().strip())
+
     def test_terminal_render_paints_the_focused_leaf_night_owl_blue(self) -> None:
         # Remove unrelated status-line and inactive-pane background sequences
         # so the captured SGR color is the pane body tmux actually painted.
