@@ -295,7 +295,8 @@ if command -v tmux >/dev/null 2>&1; then
       'Send this pane to a chosen window' 'Pull a chosen pane into this window' \
       'Copy the last command output' 'Copy the last N command outputs' \
       'Pick and paste from clipboard history' 'Reload the tmux configuration' \
-      'Paste from the clipboard'; do
+      'Paste from the clipboard' \
+      "Paste the last command output into this window's agent"; do
       _assert_contains "tmux: help shows $description" "$description" "$help_keys"
     done
     copy_keys=$(tmux_cmd list-keys -T copy-mode-vi)
@@ -371,6 +372,11 @@ if command -v tmux >/dev/null 2>&1; then
       "$overrides_before" "$(tmux_cmd show-options -s terminal-overrides)"
     _assert_contains 'tmux: runtime enables true color for 256-colour terminals' \
       '*256col*:Tc' "$overrides_before"
+    for key in o O; do
+      _assert_contains "tmux: runtime prefix $key captures the pressing pane" \
+        'TMUX_PANE=#{pane_id} tmux-copy-last-output' \
+        "$(printf '%s\n' "$prefix_keys" | awk -v key="$key" '$4 == key')"
+    done
     _assert_contains 'tmux: runtime prefix a jumps to the first pending pane' \
       '@pending_panes' "$(printf '%s\n' "$prefix_keys" | awk '$4 == "a"')"
     _assert_contains 'tmux: runtime prefix j sends the pane to a chosen window' \
@@ -667,6 +673,35 @@ SH
     tmux_cmd set-option -pu -t "$agent_pane" @term_notify_pending
     _assert_not_contains 'tmux: tab marker clears with the pane mark' '●' \
       "$(tmux_cmd -u display-message -p -t "$shell_pane" "$current_format")"
+    # An agent working on a request (AgentGuard's @term_busy) marks its tab ⋯,
+    # and a pending mark, which needs the user, takes precedence.
+    tmux_cmd set-option -p -t "$agent_pane" @term_busy 1
+    _assert_contains 'tmux: busy pane marks its tab' ' ⋯' \
+      "$(tmux_cmd -u display-message -p -t "$shell_pane" "$current_format")"
+    _assert_contains 'tmux: busy pane marks a background tab too' ' ⋯' \
+      "$(tmux_cmd -u display-message -p -t "$agent_pane" \
+        "$(tmux_cmd show-window-options -gv window-status-format)")"
+    tmux_cmd set-option -p -t "$agent_pane" @term_notify_pending 1
+    busy_and_pending=$(tmux_cmd -u display-message -p -t "$shell_pane" "$current_format")
+    _assert_contains 'tmux: a pending pane outranks a busy one' ' ●' "$busy_and_pending"
+    _assert_not_contains 'tmux: a pending tab hides the busy marker' '⋯' "$busy_and_pending"
+    tmux_cmd set-option -pu -t "$agent_pane" @term_notify_pending
+    tmux_cmd set-option -pu -t "$agent_pane" @term_busy
+    _assert_not_contains 'tmux: busy marker clears with the pane mark' '⋯' \
+      "$(tmux_cmd -u display-message -p -t "$shell_pane" "$current_format")"
+    # A mark left on a pane that is back at a shell prompt (an agent that
+    # crashed before its Stop hook) cannot mean work in progress.
+    tmux_cmd set-option -p -t "$shell_pane" @term_busy 1
+    _assert_not_contains 'tmux: a busy mark on a shell pane is ignored' '⋯' \
+      "$(tmux_cmd -u display-message -p -t "$shell_pane" "$current_format")"
+    tmux_cmd set-option -pu -t "$shell_pane" @term_busy
+
+    # prefix A's end-to-end behavior is pressed through a real client in the
+    # PTY suite below: list-keys does not round-trip its shell snippet on
+    # every release (tmux 3.4 escapes $ as \$), and a clientless replay
+    # cannot show messages on older releases.
+    _assert_contains 'tmux: runtime prefix A pastes the last output into the agent' \
+      'tmux-copy-last-output --print' "$(printf '%s\n' "$prefix_keys" | awk '$4 == "A"')"
     for hook in pane-focus-in pane-focus-out client-focus-in after-select-pane \
       after-select-window client-session-changed; do
       # Older tmux releases lack some of these hooks (client-focus-in arrived
@@ -742,7 +777,8 @@ if command -v tmux >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
     test_terminal_render_paints_the_focused_leaf_night_owl_blue \
     test_pending_panes_are_marked_until_visited \
     test_background_window_agents_mark_their_tab \
-    test_another_focused_client_does_not_strand_a_mark; do
+    test_another_focused_client_does_not_strand_a_mark \
+    test_prefix_A_pastes_the_last_output_into_the_agent; do
     _assert_contains "tmux: PTY runs $pty_case" "$pty_case" "$pty_output"
   done
 else

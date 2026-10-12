@@ -9,6 +9,7 @@ import pathlib
 import pty
 import re
 import select
+import shutil
 import signal
 import subprocess
 import tempfile
@@ -675,6 +676,122 @@ class LeafStyleTest(unittest.TestCase):
         self.tree_keys(client, b"\x1bOH", b"\x1b[B", b"\r")
         wait_until(
             lambda: self.window_of(self.inactive) == self.window_of(self.active), "pane pulled in"
+        )
+
+    def test_prefix_A_pastes_the_last_output_into_the_agent(self) -> None:
+        """Press prefix A from a shell pane and watch the agent receive it.
+
+        The agent is a bash copy named codex, an agent name, so it stays the
+        pane's foreground command while a builtin loop records each byte it
+        receives; raw mode delivers the paste unbuffered. A stub output source
+        names the pane it was asked to capture, and flag files make it report
+        no block (status 3) or behave like a cmdblocks without --print (64).
+        """
+        client = Client(self)
+        self.clients.append(client)
+        if not self.supports_client_format_context(client.tty):
+            self.skipTest("tmux does not support client-targeted format expansion")
+        client.set_focus(True)
+        stub = self.root / "bin"
+        stub.mkdir()
+        source = stub / "tmux-copy-last-output"
+        source.write_text(
+            "#!/bin/sh\n"
+            '[ "$1" = --print ] || exit 2\n'
+            f'[ -e "{self.root}/empty" ] && exit 3\n'
+            f'[ -e "{self.root}/old" ] && exit 64\n'
+            'printf "%s\\n" "% make test ($TMUX_PANE)" "FAIL: widget"\n'
+        )
+        source.chmod(0o755)
+        agent_program = stub / "codex"
+        shutil.copy(shutil.which("bash") or "/bin/bash", agent_program)
+        agent_program.chmod(0o755)
+        recorder = self.root / "recorder"
+        recorder.write_text(
+            "printf '\\033[?2004h'\n"
+            "stty raw -echo\n"
+            "while IFS= read -r -d '' -n 1 byte; do printf '%s' \"$byte\" >>\"$1\"; done\n"
+        )
+        received = self.root / "received"
+        path = self.tmux("show-environment", "-g", "PATH", check=False).stdout.strip()
+        base_path = path.partition("=")[2] if path.startswith("PATH=") else os.environ["PATH"]
+        self.tmux("set-environment", "-g", "PATH", f"{stub}:{base_path}")
+
+        agent = self.tmux(
+            "new-window",
+            "-P",
+            "-F",
+            "#{pane_id}",
+            f"'{agent_program}' '{recorder}' '{received}'",
+        ).stdout.strip()
+        shell = self.tmux(
+            "split-window", "-P", "-F", "#{pane_id}", "-t", agent, "sleep 30"
+        ).stdout.strip()
+        wait_until(
+            lambda: (
+                self.tmux(
+                    "display-message", "-p", "-t", agent, "#{pane_current_command}"
+                ).stdout.strip()
+                == "codex"
+            ),
+            "fake agent running",
+        )
+
+        def pastes() -> str:
+            return received.read_text(errors="replace") if received.exists() else ""
+
+        def press_from(pane: str) -> None:
+            self.tmux("select-window", "-t", pane)
+            self.tmux("select-pane", "-t", pane)
+            wait_until(lambda: self.current_pane(client) == pane, f"client on {pane}")
+            self.press(client, b"A")
+
+        def messages() -> str:
+            return self.tmux("show-messages").stdout
+
+        expected = f"\x1b[200~% make test ({shell})\nFAIL: widget\x1b[201~"
+        press_from(shell)
+        wait_until(lambda: pastes().count("\x1b[201~") == 1, "first paste reaches the agent")
+        # tmux's line-ending translation inside a paste varies by release.
+        self.assertEqual(expected, pastes().replace("\r", "\n"))
+        wait_until(lambda: self.current_pane(client) == agent, "prefix A focuses the agent")
+        self.assertNotIn(
+            "agent-paste", self.tmux("list-buffers", "-F", "#{buffer_name}").stdout.split()
+        )
+
+        # No block pastes nothing and stays quiet; a cmdblocks without --print
+        # is reported; pressing in the agent pane or a window without an
+        # agent only explains why.
+        (self.root / "empty").touch()
+        press_from(shell)
+        (self.root / "empty").unlink()
+        (self.root / "old").touch()
+        press_from(shell)
+        wait_until(
+            lambda: "tmux-copy-last-output --print failed with status 64" in messages(),
+            "failure from an old output source is reported",
+        )
+        (self.root / "old").unlink()
+        press_from(agent)
+        wait_until(lambda: "Press prefix A in a shell pane" in messages(), "agent-pane hint")
+        lone = self.tmux("new-window", "-P", "-F", "#{pane_id}", "sleep 30").stdout.strip()
+        press_from(lone)
+        wait_until(lambda: "No agent in this window" in messages(), "no-agent hint")
+
+        # An agent left in copy mode would take the paste as typed lines; the
+        # binding leaves copy mode first. This press is also the sentinel: once
+        # its paste lands, the presses above had their turn.
+        self.tmux("copy-mode", "-t", agent)
+        press_from(shell)
+        wait_until(lambda: pastes().count("\x1b[201~") == 2, "second paste reaches the agent")
+        self.assertEqual(expected + expected, pastes().replace("\r", "\n"))
+        self.assertEqual(
+            "0", self.tmux("display-message", "-p", "-t", agent, "#{pane_in_mode}").stdout.strip()
+        )
+        self.assertEqual(
+            1,
+            len(re.findall(r"message: .*--print failed with status [0-9]", messages())),
+            "only the real failure is reported",
         )
 
     def test_terminal_render_paints_the_focused_leaf_night_owl_blue(self) -> None:
