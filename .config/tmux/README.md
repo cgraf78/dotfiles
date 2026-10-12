@@ -148,6 +148,13 @@ sees a second set. tmux 3.4+ moves between those marks: `prefix k` opens copy
 mode on the last command's prompt, and `[` and `]` in copy mode step to the
 previous or next prompt. Older releases ignore the marks.
 
+`prefix N` opens a window for a new task in the current pane's directory: a
+menu picks the agent in a fixed order (`c` claude, `x` codex, `m` muse, `s`
+shell only, `o` any other command line, such as `codex resume`), then a prompt
+names the window, prefilled with the directory's name. The agent starts in the
+left pane (60%) beside a shell; it is typed into that pane's shell, so quitting
+it leaves a shell rather than closing the pane.
+
 `prefix g` opens a throwaway shell in a popup over the current pane, starting
 in its directory, for a quick check without splitting the window; exiting the
 shell closes it. `prefix G` opens `lazygit` there the same way, or says it is

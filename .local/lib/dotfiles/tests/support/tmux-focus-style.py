@@ -848,6 +848,106 @@ class LeafStyleTest(unittest.TestCase):
         wait_until(git_marker.exists, "prefix G runs lazygit in a popup")
         self.assertEqual(f"{work.resolve()} popup", git_marker.read_text().strip())
 
+    def test_prefix_N_opens_a_task_window(self) -> None:
+        """Press prefix N, pick from the menu, name the window, check the layout.
+
+        Every pane runs a stand-in shell that records the keys it receives, so
+        the test sees what was typed into each pane. The directory name holds a
+        quote and a $, which must reach tmux as data.
+        """
+        client = Client(self)
+        self.clients.append(client)
+        if not self.supports_client_format_context(client.tty):
+            self.skipTest("tmux does not support client-targeted format expansion")
+        client.set_focus(True)
+        work = self.root / 'task "q" $HOME'
+        work.mkdir()
+        recorder = self.root / "task-recorder"
+        recorder.write_text(
+            "stty raw -echo\n"
+            'log="$1/${TMUX_PANE#%}.keys"; : > "$log"\n'
+            "while IFS= read -r -d '' -n 1 b; do printf '%s' \"$b\" >> \"$log\"; done\n"
+        )
+        stand_in = f"bash '{recorder}' '{self.root}'"
+        self.tmux("set-option", "-g", "default-command", stand_in)
+        start = self.tmux(
+            "new-window", "-P", "-F", "#{pane_id}", "-c", str(work), stand_in
+        ).stdout.strip()
+        wait_until(lambda: self.current_pane(client) == start, "client on the start pane")
+
+        def keys(pane: str) -> str:
+            log = self.root / f"{pane.lstrip('%')}.keys"
+            return log.read_text() if log.exists() else ""
+
+        def show(window: str, fmt: str) -> str:
+            return self.tmux("display-message", "-p", "-t", window, fmt).stdout.strip()
+
+        def send_when_shown(needle: bytes, payload: bytes) -> None:
+            """Wait until the client draws needle, then type payload."""
+            seen = bytearray()
+
+            def shown() -> bool:
+                seen.extend(client.pump(0.1))
+                return needle in seen
+
+            wait_until(shown, f"{needle.decode()} is shown")
+            client.send(payload)
+
+        def open_task(menu_key: bytes, *answers: bytes) -> list[str]:
+            """Pick menu_key, then submit each answer once its prompt shows."""
+            before = set(self.tmux("list-windows", "-F", "#{window_id}").stdout.split())
+            client.send(b"\x02N")
+            send_when_shown(b"New task window", menu_key)
+            prompts = [b"Command:", b"Window name:"] if menu_key == b"o" else [b"Window name:"]
+            self.assertEqual(len(prompts), len(answers), "one answer per prompt")
+            # Indexed, not zip(strict=...), which needs Python 3.10.
+            for index, prompt in enumerate(prompts):
+                send_when_shown(prompt, answers[index])
+            created: list[str] = []
+
+            def new_window() -> bool:
+                listed = self.tmux("list-windows", "-F", "#{window_id}").stdout.split()
+                created[:] = [w for w in listed if w not in before]
+                return bool(created)
+
+            wait_until(new_window, "prefix N opens a window")
+            panes = self.tmux("list-panes", "-t", created[0], "-F", "#{pane_id}").stdout.split()
+            return [created[0], *panes]
+
+        # codex: a custom name with a space and an apostrophe survives intact,
+        # and naming turns automatic renaming off.
+        window, agent, shell = open_task(b"x", b"\x15Bob's task\r")
+        self.assertEqual("Bob's task 0", show(window, "#{window_name} #{automatic-rename}"))
+        for pane in (agent, shell):
+            path = pathlib.Path(show(pane, "#{pane_current_path}"))
+            self.assertEqual(work.resolve(), path.resolve())
+        widths = [int(show(pane, "#{pane_width}")) for pane in (agent, shell)]
+        share = widths[0] / (widths[0] + widths[1] + 1)
+        self.assertLess(abs(share - 0.6), 0.05, f"the agent pane takes about 60%: {widths}")
+        self.assertEqual(agent, self.current_pane(client), "the agent pane has focus")
+        wait_until(lambda: keys(agent).strip() == "codex", "codex is typed into the agent pane")
+        self.assertEqual("", keys(shell), "nothing is typed into the shell pane")
+
+        # claude: the default name is the directory's.
+        window, agent, shell = open_task(b"c", b"\r")
+        self.assertEqual(work.name, show(window, "#{window_name}"))
+        wait_until(lambda: keys(agent).strip() == "claude", "claude is typed into the agent pane")
+        self.assertEqual("", keys(shell))
+
+        # "shell only" types nothing.
+        window, left, right = open_task(b"s", b"\r")
+        self.assertEqual(("", ""), (keys(left), keys(right)))
+
+        # "other" types the command line it is given, quotes included, and
+        # names the window from its second prompt.
+        window, agent, shell = open_task(b"o", b"codex resume --last 'x'\r", b"\x15resume x\r")
+        wait_until(
+            lambda: keys(agent).strip() == "codex resume --last 'x'",
+            "other types its command line into the agent pane",
+        )
+        self.assertEqual("", keys(shell))
+        self.assertEqual("resume x", show(window, "#{window_name}"))
+
     def test_terminal_render_paints_the_focused_leaf_night_owl_blue(self) -> None:
         # Remove unrelated status-line and inactive-pane background sequences
         # so the captured SGR color is the pane body tmux actually painted.
