@@ -46,6 +46,10 @@ explicit and verifiable.
 ## Format the pull request
 
 - Write the description so it can serve as the squash-merge commit body.
+- Never hard-wrap the description: write each paragraph and bullet as one
+  line. GitHub renders single newlines in pull request text as line breaks,
+  and the commit-body column wrap applies to commit messages only, so do not
+  reuse a wrapped commit body verbatim.
 - Use `## Summary` and `## Testing` unless the repository template specifies a
   different structure.
 - Begin `## Summary` with a short paragraph explaining what changed and why.
