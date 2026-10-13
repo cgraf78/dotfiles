@@ -11,6 +11,10 @@ setopt HIST_IGNORE_SPACE
 setopt HIST_FIND_NO_DUPS
 setopt HIST_REDUCE_BLANKS
 setopt AUTO_CD
+# Treat `# ...` as a comment at the prompt, as scripts already do: pasted
+# snippets and lines agents type into tmux panes otherwise pass `#` and the
+# note as arguments (`rm -rf build # clean` also targets `#` and `clean`).
+setopt INTERACTIVE_COMMENTS
 
 # ── Platform ──────────────────────────────────────────────────────────────
 
