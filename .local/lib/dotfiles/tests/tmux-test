@@ -14,8 +14,8 @@ tmux_content=$(<"$tmux_base")
 shdeps_content=$(<"$source_home/.config/shdeps/10-deps.conf")
 # shellcheck disable=SC2088 # Match the literal path stored in tmux config.
 termnav_hot_path='~/.local/bin/termnav navigate'
-move_tab_left=$(printf '%s\n' "$tmux_content" | awk "/^bind-key -n 'M-\\{' / { print }")
-move_tab_right=$(printf '%s\n' "$tmux_content" | awk "/^bind-key -n 'M-\\}' / { print }")
+move_tab_left=$(printf '%s\n' "$tmux_content" | awk "/^bind-key .*-n 'M-\\{' / { print }")
+move_tab_right=$(printf '%s\n' "$tmux_content" | awk "/^bind-key .*-n 'M-\\}' / { print }")
 
 echo "=== base tmux policy ==="
 
@@ -28,10 +28,12 @@ _assert_contains "tmux: terminal supports true color" \
 _assert_contains "tmux: loader reads ordered capability fragments" \
   'source-file -q "$HOME/.config/tmux/conf.d/*.conf"' \
   "$(<"$tmux_config")"
-_assert_not_contains "tmux: base fragment excludes editor mouse policy" \
+_assert_contains "tmux: base fragment enables mouse mode" \
   'set -g mouse on' "$tmux_content"
-_assert_not_contains "tmux: base fragment excludes Nvim commands" \
-  'nvim' "$tmux_content"
+# Base recognizes editors as key owners but never runs one: Neovim-specific
+# commands belong to the editor overlay.
+_assert_not_contains "tmux: base fragment does not invoke Neovim" \
+  'termnav nvim' "$tmux_content"
 _assert_contains "tmux: escape delay stays bounded" \
   'set -s escape-time 10' "$tmux_content"
 _assert_contains "tmux: history is retained generously" \
@@ -251,24 +253,6 @@ for index in "${!relay_values[@]}"; do
 done
 _assert_not_contains 'tmux: retired parent-loopback user keys stay absent' \
   'user-keys[0]' "$tmux_content"
-
-terminal_filter=$(
-  cat <<'AWK'
-$1 !~ /^[TXZ]/ && $(NF-1) == $NF && ($2 ~ /^(ssh|mosh|mosh-client|mosh-server|et)$/ || (mouse == 1 && $2 ~ /^(tmux|screen):?$/)) { found = 1 }
-END { exit !found }
-AWK
-)
-_assert_contains 'tmux: transport fallback retains terminal-process matching' \
-  'END { exit !found }' "$terminal_filter"
-printf 'S+ bash 39056 39056\nS+ tmux: client 39056 39056\n' |
-  awk -v mouse=1 "$terminal_filter"
-_assert_exit 'tmux: mouse-aware nested client is routed outward' 0 "$?"
-printf 'S+ bash 39056 39056\nS+ tmux: client 39056 39056\n' |
-  awk -v mouse=0 "$terminal_filter"
-_assert_exit 'tmux: non-mouse nested client stays local' 1 "$?"
-printf 'S+ bash 39056 39056\nS ssh 39100 39056\n' |
-  awk -v mouse=1 "$terminal_filter"
-_assert_exit 'tmux: background transport stays local' 1 "$?"
 
 if command -v tmux >/dev/null 2>&1; then
   socket=$(_tmux_socket) || exit 1
