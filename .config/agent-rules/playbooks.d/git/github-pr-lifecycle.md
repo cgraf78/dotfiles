@@ -54,7 +54,8 @@ explicit and verifiable.
   different structure.
 - Begin `## Summary` with a short paragraph explaining what changed and why.
   Follow it with compact bullets for behavior, scope, and material constraints
-  when those details help reviewers scan the change.
+  when those details help reviewers scan the change. Always list material
+  behavior changes beyond the stated target.
 - Under `## Testing`, list the exact commands or checks and their relevant
   outcomes. Distinguish passing checks from skips, unavailable checks, and a
   pull request with no GitHub check contexts.
