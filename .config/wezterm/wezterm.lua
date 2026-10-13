@@ -203,6 +203,9 @@ local function prompt_rename_tab(window, pane)
   )
 end
 
+-- JetBrainsMono is installed by the nerd-fonts shdeps hook. FiraCode and
+-- MesloLGM are optional: used only when the host already provides them, and
+-- skipped when missing, so non-ASCII text may render differently per host.
 local font_names = {
   { family = "JetBrainsMono Nerd Font", weight = "Light" },
   "FiraCode Nerd Font",

@@ -1,11 +1,15 @@
 # shellcheck shell=bash
 # Hook for nerd-fonts — patched fonts for terminal/editor icons.
 
+# Only the primary terminal/editor font is guaranteed. FiraCode and MesloLGM
+# stay in the WezTerm and VS Code fallback stacks as opportunistic fallbacks
+# when the host already provides them, but are not installed here: they add
+# ~240 MiB for a few Cyrillic/Greek/IPA glyphs JetBrains Mono lacks, while
+# their Nerd Font icon coverage is identical. Dropping an entry also drops it
+# from `uninstall`, so already-installed copies must be removed by hand.
 _nerd_fonts_entries() {
   printf '%s\n' \
-    "JetBrains Mono Nerd Font|font-jetbrains-mono-nerd-font|ttf-jetbrains-mono-nerd|JetBrainsMono|JetBrainsMono" \
-    "FiraCode Nerd Font|font-fira-code-nerd-font|ttf-firacode-nerd|FiraCode|FiraCode" \
-    "MesloLG Nerd Font|font-meslo-lg-nerd-font|ttf-meslo-nerd|Meslo|Meslo"
+    "JetBrains Mono Nerd Font|font-jetbrains-mono-nerd-font|ttf-jetbrains-mono-nerd|JetBrainsMono|JetBrainsMono"
 }
 
 _nerd_font_installed() {

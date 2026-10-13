@@ -190,8 +190,8 @@ only on selected repositories that already exist.
 
 | Profile | Planning footprint |
 | --- | --- |
-| `base` | about 0.6--0.8 GiB on the Linux GitHub/font-fallback path; the canonical clean fixture measures about 6 MiB of repository/control-plane payload, while the three installed Nerd Font families account for about 463 MiB |
-| `editor` | about 0.8--1.0 GiB cumulative; the current active Nvim executable, config, state, cache, and plugin graph add about 186 MiB |
+| `base` | about 0.35--0.55 GiB on the Linux GitHub/font-fallback path; the canonical clean fixture measures about 6 MiB of repository/control-plane payload, while the installed JetBrains Mono Nerd Font family accounts for about 223 MiB |
+| `editor` | about 0.55--0.75 GiB cumulative; the current active Nvim executable, config, state, cache, and plugin graph add about 186 MiB |
 | `dev` | about 2.5--4.5 GiB cumulative before project build outputs |
 
 The resolved integration fixture measures checkout, configuration, and
@@ -201,11 +201,12 @@ The dev range remains an installation estimate rather than a claimed clean
 measurement. Optional private overlays, host package-manager stores,
 language/package caches, and project build outputs are reported separately or
 excluded so machine history does not distort the profile comparison. The base
-fallback path is an explicit exception to the original 500 MiB target because
-the three retained base-owned font families alone use about 463 MiB. Native
-package-manager paths vary by
-platform and share system stores, so their exact incremental sizes are reported
-as platform context rather than attributed to the profile total.
+fallback path may still exceed the original 500 MiB target because the retained
+base-owned JetBrains Mono Nerd Font family alone uses about 223 MiB; FiraCode
+and MesloLGM remain optional terminal and editor fallbacks that dotfiles do not
+install. Native package-manager paths vary by platform and share system stores,
+so their exact incremental sizes are reported as platform context rather than
+attributed to the profile total.
 
 ## Tool Installation and Ownership
 
