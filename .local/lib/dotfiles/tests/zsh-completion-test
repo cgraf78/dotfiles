@@ -228,11 +228,14 @@ result=$(
     source "$2/.config/shell/interactive.d/70-integrations.zsh"
     source "$2/.config/shell/interactive.d/70-integrations.zsh"
     printf "compinit=%s\n" "${COMPINIT_COUNT:-0}"
-  ' _ "$TEST_TMPDIR" "$HOME"
+    printf "interactivecomments=%s\n" "${options[interactivecomments]}"
+  ' _ "$TEST_TMPDIR" "${DOT_TEST_SOURCE_HOME:-$HOME}"
 )
 
 _assert_contains "zsh completion: re-source keeps compinit single-run" \
   "compinit=1" "$result"
+_assert_contains "zsh interactive: # starts a comment at the prompt" \
+  "interactivecomments=on" "$result"
 
 # shellcheck disable=SC2016 # inner zsh intentionally expands test variables.
 result=$(

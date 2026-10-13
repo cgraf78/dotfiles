@@ -680,6 +680,47 @@ if command -v zsh >/dev/null 2>&1; then
     "common after-unset zsh" "$(awk '{print $1}' "$ENV_LOG" | paste -sd' ' -)"
 fi
 
+if command -v zsh >/dev/null 2>&1; then
+  echo ""
+  echo "=== env.d: agent command shells get bash-like zsh parsing ==="
+
+  # 45-agent-shell.zsh drops EQUALS and NOMATCH only in a non-interactive
+  # `zsh -c` under CLAUDECODE (chiefly the Claude Code Bash tool). Each case runs the
+  # real fragment through the real ~/.zshenv entry point; the fixture's
+  # interactive.d is empty, so interactive shells see only env.d.
+  AGENT_HOME=$TEST_TMPDIR/agent-shell-home
+  cp -R "$ENV_HOME" "$AGENT_HOME"
+  cp "$REAL_HOME/.zshrc" "$AGENT_HOME/.zshrc"
+  cp "$REAL_HOME/.config/shell/env.d/45-agent-shell.zsh" \
+    "$AGENT_HOME/.config/shell/env.d/"
+  agent_run() {
+    env -i HOME="$AGENT_HOME" ZDOTDIR="$AGENT_HOME" PATH="$PATH" \
+      DOT_ENV_TEST_LOG=/dev/null "$@" </dev/null 2>&1
+  }
+  # shellcheck disable=SC2016 # the child zsh expands its own $options.
+  AGENT_OPTS_PROBE='print -r -- "equals=${options[equals]} nomatch=${options[nomatch]}"'
+
+  _assert_eq "agent shell: zsh -c under CLAUDECODE drops EQUALS and NOMATCH" \
+    "equals=off nomatch=off" "$(agent_run CLAUDECODE=1 zsh -c "$AGENT_OPTS_PROBE")"
+  _assert_eq "agent shell: a leading = word is literal" \
+    "=====" "$(agent_run CLAUDECODE=1 zsh -c 'echo =====')"
+  _assert_eq "agent shell: an unmatched glob passes through and the line continues" \
+    "no-such-*.zzz after" \
+    "$(agent_run CLAUDECODE=1 zsh -c 'echo no-such-*.zzz; echo after' | paste -sd' ' -)"
+  # Not NULL_GLOB: an unmatched glob must never vanish from argv.
+  _assert_eq "agent shell: unmatched glob is not dropped from argv" \
+    "1" "$(agent_run CLAUDECODE=1 zsh -c 'set -- no-such-*.zzz; echo $#')"
+  _assert_eq "agent shell: zsh -c without CLAUDECODE keeps zsh defaults" \
+    "equals=on nomatch=on" "$(agent_run zsh -c "$AGENT_OPTS_PROBE")"
+  AGENT_SCRIPT=$TEST_TMPDIR/agent-shell-probe.zsh
+  printf '%s\n' "$AGENT_OPTS_PROBE" >"$AGENT_SCRIPT"
+  _assert_eq "agent shell: zsh script files an agent runs keep zsh defaults" \
+    "equals=on nomatch=on" "$(agent_run CLAUDECODE=1 zsh "$AGENT_SCRIPT")"
+  _assert_eq "agent shell: interactive zsh under CLAUDECODE keeps zsh defaults" \
+    "equals=on nomatch=on" \
+    "$(agent_run CLAUDECODE=1 zsh -ic "$AGENT_OPTS_PROBE" | tail -n 1)"
+fi
+
 echo ""
 echo "=== env-noninteractive: foreign HOME skips env.d quietly ==="
 

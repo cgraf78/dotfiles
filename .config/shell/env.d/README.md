@@ -9,6 +9,10 @@ Export dotfiles-owned values with `_shell_env_set` so non-interactive children
 keep caller overrides; see
 [Environment Ownership](../README.md#environment-ownership).
 
+`45-agent-shell.zsh` is the exception that sets shell options instead of
+exports: it gives agent command shells (non-interactive `zsh -c` under
+`CLAUDECODE`) bash-like handling of `=word` and unmatched globs.
+
 `50-core.sh` owns values needed by downstream fragments, including Shdeps and
 non-interactive shell bootstrapping. Selected overlays may contribute fragments
 before, between, or after the base fragments, choosing prefixes relative to the
