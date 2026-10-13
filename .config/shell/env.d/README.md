@@ -11,7 +11,7 @@ keep caller overrides; see
 
 `45-agent-shell.zsh` is the exception that sets shell options instead of
 exports: it gives agent command shells (non-interactive `zsh -c` under
-`CLAUDECODE`) bash-like handling of `=word` and unmatched globs.
+`CLAUDECODE`) bash-like handling of `=word`.
 
 `50-core.sh` owns values needed by downstream fragments, including Shdeps and
 non-interactive shell bootstrapping. Selected overlays may contribute fragments
