@@ -53,7 +53,7 @@ cold_result=$(
     _git
     mode=$(zstat +mode "$cache_dir/_git.zwc")
     (( (mode & 077) == 0 )) && print cache-private=yes
-  ' _ "$TEST_TMPDIR" "$HOME"
+  ' _ "$TEST_TMPDIR" "${DOT_TEST_SOURCE_HOME:-$HOME}"
 )
 cold_compile_count=$(wc -l <"$TEST_TMPDIR/compile-count" | tr -d ' ')
 
@@ -73,7 +73,7 @@ warm_result=$(
     source "$2/.config/shell/interactive.d/71-zsh-completion-cache.zsh"
     autoload -Uz _git
     _git
-  ' _ "$TEST_TMPDIR" "$HOME"
+  ' _ "$TEST_TMPDIR" "${DOT_TEST_SOURCE_HOME:-$HOME}"
 )
 warm_compile_count=$(wc -l <"$TEST_TMPDIR/compile-count" | tr -d ' ')
 
@@ -105,7 +105,7 @@ changed_result=$(
     source "$2/.config/shell/interactive.d/71-zsh-completion-cache.zsh"
     autoload -Uz _git
     _git
-  ' _ "$TEST_TMPDIR" "$HOME"
+  ' _ "$TEST_TMPDIR" "${DOT_TEST_SOURCE_HOME:-$HOME}"
 )
 changed_compile_count=$(wc -l <"$TEST_TMPDIR/compile-count" | tr -d ' ')
 
@@ -138,7 +138,7 @@ failed_result=$(
     print -r -- "$cache_base"/.git-completion.*(N)
     generations=("$cache_base"/*(N/))
     printf "generation-count=%s\n" "${#generations}"
-  ' _ "$TEST_TMPDIR" "$HOME"
+  ' _ "$TEST_TMPDIR" "${DOT_TEST_SOURCE_HOME:-$HOME}"
 )
 failed_compile_count=$(wc -l <"$TEST_TMPDIR/compile-count" | tr -d ' ')
 
@@ -196,7 +196,7 @@ quiet_result=$(
     source "$2/.config/shell/interactive.d/54-tool-init.sh"
     source "$2/.config/shell/interactive.d/71-zsh-completion-cache.zsh"
     print -r -- "first=${fpath[1]}"
-  ' _ "$git_completion_source" "$HOME" 2>&1
+  ' _ "$git_completion_source" "${DOT_TEST_SOURCE_HOME:-$HOME}" 2>&1
 )
 _assert_eq "zsh completion cache: unwritable cache fails open without noise" \
   "first=$git_completion_source" "$quiet_result"
@@ -251,7 +251,7 @@ result=$(
     printf "manual-at-source=%s\n" "${AUTOSUGGEST_MANUAL_AT_SOURCE:-0}"
     printf "bind-count=%s\n" "${AUTOSUGGEST_BIND_COUNT:-0}"
     printf "remaining-hooks=%s\n" "${precmd_functions[(I)_zsh_autosuggest_start]}"
-  ' _ "$TEST_TMPDIR" "$HOME"
+  ' _ "$TEST_TMPDIR" "${DOT_TEST_SOURCE_HOME:-$HOME}"
 )
 
 _assert_contains "zsh autosuggestions: manual rebind is enabled before plugin load" \
@@ -273,7 +273,7 @@ result=$(
     exec {__git_prompt_fd}< <(:)
     __git_prompt_async_cancel
     printf "stderr-visible\n" >&2
-  ' _ "$HOME" 2>&1
+  ' _ "${DOT_TEST_SOURCE_HOME:-$HOME}" 2>&1
 )
 
 _assert_contains "zsh prompt: async cancel keeps stderr visible" \
@@ -281,7 +281,7 @@ _assert_contains "zsh prompt: async cancel keeps stderr visible" \
 
 echo "=== optional grok integration ==="
 
-source_home=$HOME
+source_home=${DOT_TEST_SOURCE_HOME:-$HOME}
 grok_home="$TEST_TMPDIR/grok-home"
 mkdir -p "$grok_home/.grok/bin" "$grok_home/.grok/completions/zsh" \
   "$grok_home/.grok/completions/bash" "$grok_home/.local/bin"
