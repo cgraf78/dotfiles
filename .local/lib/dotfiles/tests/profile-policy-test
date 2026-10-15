@@ -259,20 +259,43 @@ cp -r "$source_home/.config/dot/config" \
   "$profile_fixture/.config/dot/"
 # The fixture owns its HOME-derived client config. Hosted runners may export
 # unrelated XDG roots; do not let those redirect the engine under test.
-doctor_output=$(env -u XDG_CONFIG_HOME -u XDG_STATE_HOME -u XDG_CACHE_HOME \
-  -u XDG_DATA_HOME -u XDG_RUNTIME_DIR HOME="$profile_fixture" \
-  "$dot_bin" doctor 2>&1) || true
+profile_fixture_doctor() {
+  env -u XDG_CONFIG_HOME -u XDG_STATE_HOME -u XDG_CACHE_HOME \
+    -u XDG_DATA_HOME -u XDG_RUNTIME_DIR HOME="$profile_fixture" \
+    "$dot_bin" doctor 2>&1
+}
+doctor_output=$(profile_fixture_doctor) || true
 # Newer dots fold the profile facts into one `profile NAME (STATE;
 # includes ...; for USER@HOST)` row.
-_assert_contains_either 'engine selects dev from the root-global default selector' \
-  'selected profile (dev' 'profile dev (' "$doctor_output"
-_assert_contains_either 'engine includes the additive dev profile order' \
-  'included profiles (base editor dev)' 'includes base editor dev;' \
+_assert_contains_either 'engine selects editor from the root-global default selector' \
+  'selected profile (editor' 'profile editor (' "$doctor_output"
+_assert_contains_either 'engine includes the additive editor profile order' \
+  'included profiles (base editor)' 'includes base editor;' \
   "$doctor_output"
-_assert_contains 'engine configures the full dev overlay set' \
+_assert_contains 'engine retains all available overlay definitions' \
   'Overlays (4 configured)' "$doctor_output"
-for profile_overlay in personal nvim dev work; do
+for profile_overlay in personal nvim; do
   _assert_contains "engine selects $profile_overlay without a checkout" \
+    "$profile_overlay: selected" "$doctor_output"
+done
+for profile_overlay in dev work; do
+  _assert_contains "engine leaves $profile_overlay unselected by default" \
+    "$profile_overlay: not selected" "$doctor_output"
+done
+
+# A machine-specific development choice must still beat the editor default.
+mkdir -p "$profile_fixture/.config/dot/profile-selectors.local.d"
+chmod 0700 "$profile_fixture/.config/dot/profile-selectors.local.d"
+printf 'version=1\nuser=%s\nprofile=dev\n' "$(id -un)" \
+  >"$profile_fixture/.config/dot/profile-selectors.local.d/10-dev.conf"
+chmod 0600 "$profile_fixture/.config/dot/profile-selectors.local.d/10-dev.conf"
+doctor_output=$(profile_fixture_doctor) || true
+_assert_contains_either 'explicit dev selector overrides the editor default' \
+  'selected profile (dev' 'profile dev (' "$doctor_output"
+_assert_contains_either 'explicit dev selector keeps the full additive graph' \
+  'included profiles (base editor dev)' 'includes base editor dev;' "$doctor_output"
+for profile_overlay in personal nvim dev work; do
+  _assert_contains "explicit dev selector selects $profile_overlay" \
     "$profile_overlay: selected" "$doctor_output"
 done
 

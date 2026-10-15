@@ -23,8 +23,8 @@ dot_core_test_static() {
   _assert_eq "Dot config: keeps the built-in base fallback implicit" 0 \
     "$(awk -F= '$1 == "default_profile" { count++ } END { print count + 0 }' \
       "$root/.config/dot/config")"
-  _assert_eq "profile selectors: root-global default preserves dev" \
-    $'version=1\nprofile=dev' \
+  _assert_eq "profile selectors: root-global default selects editor" \
+    $'version=1\nprofile=editor' \
     "$(<"$root/.config/dot/profile-selectors.d/00-default.conf")"
 
   actions_sha=$(<"$root/.github/cgraf78-actions.lock")
