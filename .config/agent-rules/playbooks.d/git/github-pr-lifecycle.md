@@ -74,6 +74,10 @@ explicit and verifiable.
 A pull request is not done, and must not be reported green, until its checks
 pass on the commit you pushed.
 
+- When an on-demand playbook names this host's pull request watcher, watch
+  and judge with it alone, in place of the head check, `gh` commands, and
+  exit-status rule below; the done criterion above and the failure,
+  no-checks, and report-pending rules still apply.
 - After creating the pull request and after every push, watch its checks in
   the background with a watcher that wakes you when it ends:
   `gh pr checks <pr> --repo <owner/repo> --watch --fail-fast --interval 60`.
