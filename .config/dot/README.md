@@ -9,7 +9,7 @@ target-native config directories.
 
 - `config` enables the dotfiles extension root and optional Shdeps provider.
   The tracked root-global selector in `profile-selectors.d/00-default.conf`
-  makes `dev` the current fleet default. More-specific tracked, local, or
+  makes `editor` the current fleet default. More-specific tracked, local, or
   personal selectors may override it for individual users or hosts.
   This development fleet sets `shdeps_update_policy=latest`, allowing a valid
   user-owned `~/git/shdeps` checkout for `cgraf78/shdeps` to follow its current

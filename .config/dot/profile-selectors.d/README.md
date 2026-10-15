@@ -2,9 +2,8 @@
 
 Dotfiles profiles choose which overlay repositories are active. The tracked
 profiles are `base`, `editor`, and `dev`. `00-default.conf` is a tracked
-root-global selector for `dev`, so a machine without a more-specific selector
-receives the full development environment. A later policy change may replace
-it with an `editor` default while machine-local or personal selectors keep
+root-global selector for `editor`, so a machine without a more-specific selector
+receives the editor environment. Machine-local or personal selectors can keep
 specific accounts on `dev`.
 
 Tracked, non-sensitive selectors may live in this directory. Machine-specific

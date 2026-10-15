@@ -20,7 +20,7 @@ capabilities and environment-specific files.
 - `base` is the smallest profile. `editor` includes `base` plus the public Nvim
   overlay; `dev` includes `editor` plus the public development overlay and the
   optional private work overlay. The optional personal overlay is part of
-  `base`. This repository's root-global selector makes `dev` the default when
+  `base`. This repository's root-global selector makes `editor` the default when
   no more-specific selector matches.
 - `~/.local/lib/dotfiles` is the dotfiles client's executable policy runtime.
   The standalone Dot checkout and its public API remain separate.
@@ -141,9 +141,8 @@ choose different profiles. A combined user-and-host match overrides broader
 user-only or host-only defaults; conflicting matches at the winning specificity
 fail before final overlay mutation. No match uses the root config's
 `default_profile`, which defaults to `base`. This repository currently tracks
-a root-global `dev` selector. A later policy change may replace it with an
-`editor` selector while machine-local or personal records keep selected
-accounts on `dev`. See
+a root-global `editor` selector. Machine-local or personal records can keep
+selected accounts on `dev`. See
 [`profile-selectors.d/README.md`](../../../../.config/dot/profile-selectors.d/README.md)
 for the data format and safe local-file rules.
 

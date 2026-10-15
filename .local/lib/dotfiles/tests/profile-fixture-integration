@@ -835,7 +835,12 @@ EOF
   mkdir -p "$base_seed/.config/git" "$base_seed/.config/nvim"
   printf '%s\n' "$git_shadow" >"$base_seed/.config/git/ignore"
   printf '%s\n' "$nvim_shadow" >"$base_seed/.config/nvim/init.lua"
-  "$git_bin" -C "$base_seed" add .config/git/ignore .config/nvim/init.lua
+  # This lifecycle deliberately exercises restoring dev from a root selector;
+  # keep it independent of the repository's shipped editor default.
+  printf 'version=1\nprofile=dev\n' \
+    >"$base_seed/.config/dot/profile-selectors.d/00-default.conf"
+  "$git_bin" -C "$base_seed" add .config/git/ignore .config/nvim/init.lua \
+    .config/dot/profile-selectors.d/00-default.conf
   "$git_bin" -C "$base_seed" -c user.name=fixture \
     -c user.email=fixture@example.invalid -c core.hooksPath=/dev/null \
     commit --quiet -m 'add lifecycle shadow fixtures'
