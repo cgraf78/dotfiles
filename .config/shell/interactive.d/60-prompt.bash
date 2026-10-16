@@ -8,22 +8,31 @@
 # fallback for systems without bash-preexec; bash-preexec replaces the DEBUG
 # trap on load, so there is no double-counting.
 __cmd_time=""
-# __cmd_line records that a command ran, so __cmd_notify (59-prompt.sh) sees
-# each command once and never an empty Enter. bash-preexec also gives each
-# precmd hook the command's exit status; the DEBUG-trap fallback has no
-# preexec, so it never notifies.
+# __cmd_line records that a command ran, so with bash-preexec __term_restore
+# and __cmd_notify (59-prompt.sh) see each command once and never an empty
+# Enter. bash-preexec also gives each precmd hook the command's exit status.
+# The DEBUG-trap fallback has no preexec: it never notifies, PROMPT_COMMAND
+# (set_prompt) passes it the status as $1, and it hands __term_restore that
+# status at every prompt, an empty Enter included.
 __prompt_preexec() {
   __cmd_start=$SECONDS
   __cmd_line=${1:-}
 }
 __prompt_precmd() {
-  local rc=$? elapsed=$((SECONDS - ${__cmd_start:-$SECONDS}))
+  local rc=${1:-$?} elapsed=$((SECONDS - ${__cmd_start:-$SECONDS}))
   __cmd_start=$SECONDS
   if ((elapsed >= 2)); then
     # Pre-color with dim + \001/\002 wrappers so readline counts correctly.
     __cmd_time=$'\001\033[2m\002 '"${elapsed}s"$'\001\033[0m\002'
   else
     __cmd_time=""
+  fi
+  # Without bash-preexec nothing marks that a command ran, so the restore
+  # keys off the status alone; repeating it on an empty Enter is harmless
+  # because every reset it sends is idempotent.
+  # shellcheck disable=SC2154  # __bp_imported is set by bash-preexec when it loads
+  if [[ -n ${__cmd_line:-} || -z ${__bp_imported:-} ]]; then
+    __term_restore "$rc"
   fi
   if [[ -n ${__cmd_line:-} ]]; then
     __cmd_notify "$elapsed" "$rc"
@@ -84,7 +93,7 @@ set_prompt() {
   # hooks appended by 70-integrations.bash (direnv, zoxide, etc.).
   # shellcheck disable=SC2154  # __bp_imported is set by bash-preexec when it loads
   if [[ -z "${__prompt_cmd_set:-}" ]]; then
-    PROMPT_COMMAND='__cmd_exit=$?; [[ -z ${__bp_imported:-} ]] && { __prompt_precmd; __prompt_started=1; }'
+    PROMPT_COMMAND='__cmd_exit=$?; [[ -z ${__bp_imported:-} ]] && { __prompt_precmd "$__cmd_exit"; __prompt_started=1; }'
     __prompt_cmd_set=1
   fi
   # Exit code: bold red [N] only on failure; nothing on success.

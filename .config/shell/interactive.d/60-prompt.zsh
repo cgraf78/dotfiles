@@ -83,10 +83,10 @@ __git_prompt_pidfile_cleanup() {
 
 # Command timing via zsh preexec/precmd hooks.
 __cmd_time=""
-# __cmd_line records that a command ran, so __cmd_notify (59-prompt.sh) sees
-# each command once; an empty Enter runs no preexec, so idle time at the
-# prompt never notifies. zsh hands every precmd hook the command's exit
-# status, whatever hooks ran before.
+# __cmd_line records that a command ran, so __term_restore and __cmd_notify
+# (59-prompt.sh) see each command once; an empty Enter runs no preexec, so
+# idle time at the prompt never notifies. zsh hands every precmd hook the
+# command's exit status, whatever hooks ran before.
 __prompt_preexec() {
   __cmd_start=$EPOCHSECONDS
   __cmd_line=$1
@@ -101,6 +101,7 @@ __prompt_precmd() {
     __cmd_time=""
   fi
   if [[ -n ${__cmd_line:-} ]]; then
+    __term_restore "$rc"
     __cmd_notify "$elapsed" "$rc"
     __cmd_line=""
   fi

@@ -1,8 +1,8 @@
 # shellcheck shell=bash
-# Shared prompt helpers: git branch/status/upstream coloring and the
-# long-command notification. Numbered 59 so it loads before
-# 60-prompt.bash/.zsh, which depend on __git_prompt, __cmd_notify, and the
-# _PC_* color constants defined here.
+# Shared prompt helpers: git branch/status/upstream coloring, the
+# long-command notification, and the terminal-mode restore. Numbered 59 so it
+# loads before 60-prompt.bash/.zsh, which depend on __git_prompt,
+# __cmd_notify, __term_restore, and the _PC_* color constants defined here.
 
 # Color constants for __git_prompt output.
 # \001/\002 (ASCII SOH/STX) mark non-printing sequences so readline/ZLE
@@ -436,4 +436,105 @@ __cmd_notify() {
     return 0
   command -v term-notify-sound >/dev/null 2>&1 || return 0
   term-notify-sound >/dev/null 2>&1 || true
+}
+
+# Turn off terminal modes a program left on because it died without cleaning
+# up, so the prompt comes back usable. The usual cause is a dropped ssh
+# session (status 255) whose remote tmux had enabled mouse and focus
+# reporting, the alternate screen, and extended keys: every mouse move or
+# pane switch then sends a report that the line editor beeps at, and the
+# screen stays the remote's. A program killed by a signal (status > 128) can
+# leave the same state. Nothing is reset while a job is stopped: `fg`
+# resumes it without resending its modes, so resetting them would break, say,
+# a suspended ssh session's remote tmux. The stop itself has status 128 plus
+# SIGTSTP, SIGSTOP, SIGTTIN, or SIGTTOU, which span 145-150 on Linux and
+# macOS (the other signals in that range, SIGCHLD and SIGCONT, cannot kill a
+# process); a later failure while the job waits is caught by the job check.
+# That check cannot tell a job that restores its own modes on `fg` (a
+# suspended vim) from one that cannot (ssh), so any stopped job defers the
+# reset to the next failure after it ends.
+# Runs from the prompt hook, so the normal path is a single arithmetic test
+# with no fork; it never clears the screen or scrollback, unlike `reset`.
+#
+# The alternate-screen exit matters most. Leaving with 1049 restores the
+# cursor saved on entry, which puts the prompt right below the command that
+# started the session. Where the exit has to be blind, it must not move the
+# cursor when the normal screen is already showing:
+#   - Inside tmux, one query says which screen is showing. tmux keeps the 1049
+#     save apart from DECSC and restores it even on the normal screen, where
+#     it is stale and the prompt would overwrite earlier output, so 1049 is
+#     sent only when the alternate screen is on. The answer counts only when
+#     the pane's tty is the shell's own: a terminal inside the pane (Neovim's
+#     :terminal) or launched from it inherits the pane's variables, but its
+#     screen is not the one tmux reports, so it takes the blind exit.
+#   - Other terminals (xterm, WezTerm, VS Code, Terminal.app, Termux) get
+#     DECSC then 1049: terminals that keep a saved cursor per screen restore
+#     the entry position from the alternate screen and the just-saved one
+#     (no move) from the normal screen; terminals with one shared slot should
+#     end up where the alternate screen's cursor was, as 1047 would.
+#   - A multiplexer that could not be asked (GNU screen, or tmux before 3.2,
+#     which sets no TERM_PROGRAM and may run with an xterm TERM) separates
+#     the saves like tmux, so it gets 1047, which never moves the cursor.
+#
+# Scroll margins: resetting them homes the cursor, so outside the alternate
+# screen the cursor is saved and restored around the reset, on both screens
+# where the exit is blind (a terminal may keep margins per screen). On the
+# alternate screen inside tmux, margins and origin mode reset before the 1049
+# exit restores the cursor. A DECRC can bring back a saved origin mode, which
+# stays inert while the margins span the whole screen; remote tmux never sets
+# it.
+#
+# The rest: mouse tracking (all encodings), focus reporting, theme-change
+# reports (2031, requested by tmux 3.6), synchronized output, left/right
+# margins, mintty's application escape key, modifyOtherKeys back to its
+# default, a kitty keyboard pop on each screen (terminals such as WezTerm
+# keep one stack per screen), cursor visibility, normal cursor keys and
+# keypad, the prompt's blinking block cursor (52-cursor.sh), autowrap,
+# replace mode, attributes, and the ASCII character set in G0 (shifted in).
+# Terminals ignore the sequences they do not implement. Bracketed paste is
+# left alone: the line editor enables it for each line.
+# Args: $1 - exit status of the command that just finished.
+__term_restore() {
+  ((${1:-0} > 128)) || return 0
+  case $1 in
+    14[5-9] | 150) return 0 ;;
+  esac
+  [[ -t 1 ]] || return 0
+  local screen alt="" term=${TERM:-} reply shell_tty
+  case $term in
+    '' | dumb) return 0 ;;
+  esac
+  # zsh reads its job table without a fork; bash needs one, which only this
+  # rare path pays. eval keeps the zsh syntax away from bash's parser.
+  if [[ -n ${ZSH_VERSION:-} ]]; then
+    eval '[[ ${(v)jobstates} != *suspended* ]]' || return 0
+  else
+    [[ -z $(jobs -s) ]] || return 0
+  fi
+  # TMUX leaks into terminals launched from a tmux shell (`code .`), whose
+  # TERM_PROGRAM differs; only a shell still in a tmux pane asks tmux.
+  if [[ -n ${TMUX:-} && -n ${TMUX_PANE:-} && ${TERM_PROGRAM:-} == tmux ]]; then
+    reply=$(tmux display-message -p -t "$TMUX_PANE" '#{alternate_on} #{pane_tty}' 2>/dev/null)
+    # zsh's TTY is its own; bash would take an inherited one, so it asks.
+    if [[ -n ${ZSH_VERSION:-} ]]; then
+      shell_tty=$TTY
+    else
+      shell_tty=$(tty 2>/dev/null)
+    fi
+    if [[ -n $shell_tty && ${reply#* } == "$shell_tty" ]]; then
+      alt=${reply%% *}
+    fi
+  elif [[ -n ${TMUX:-} && -z ${TERM_PROGRAM:-} ]]; then
+    term=tmux
+  fi
+  case $alt:$term in
+    1:*) screen=$'\e[?6l\e[r\e[?1049l' ;;
+    0:*) screen=$'\e7\e[r\e8' ;;
+    *:screen* | *:tmux*) screen=$'\e[?1047l\e7\e[r\e8' ;;
+    *) screen=$'\e7\e[r\e8\e7\e[?1049l\e7\e[r\e8' ;;
+  esac
+  printf '%s' $'\e[<u' "$screen" \
+    $'\e[?9l\e[?1000l\e[?1001l\e[?1002l\e[?1003l\e[?1005l\e[?1006l\e[?1015l\e[?1016l' \
+    $'\e[?1004l\e[?2031l\e[?2026l\e[?69l\e[?7727l\e[>4m\e[<u' \
+    $'\e[?25h\e[?1l\e>\e[1 q\e[?7h\e[4l\e[0m\e(B\017'
 }

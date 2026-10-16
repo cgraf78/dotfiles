@@ -8,6 +8,12 @@
 "\e[1;2C": ""
 "\e[1;2D": ""
 
+# Ignore focus-in/out reports that a program which died without cleaning up
+# (the remote tmux of a dropped ssh session) left enabled; readline would
+# otherwise beep at each one.
+"\e[I": ""
+"\e[O": ""
+
 # Ctrl+arrow word navigation
 "\e[1;5C": forward-word
 "\e[1;5D": backward-word

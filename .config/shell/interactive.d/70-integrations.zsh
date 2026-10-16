@@ -119,3 +119,16 @@ bindkey '\e[1;5D' backward-word
 bindkey '\e[1;5C' forward-word
 bindkey -M vicmd '\e[1;5D' backward-word
 bindkey -M vicmd '\e[1;5C' forward-word
+
+# Swallow focus-in/out reports. A program that dies without cleaning up (the
+# remote tmux of a dropped ssh session) can leave focus reporting on, and the
+# line editor would beep at the report every pane or window switch sends.
+# __term_restore (59-prompt.sh) turns the mode off; this covers the cases it
+# cannot see, such as a remote that exits with an ordinary status.
+__term_ignore_report() { :; }
+zle -N __term_ignore_report
+for _key in '\e[I' '\e[O'; do
+  bindkey "$_key" __term_ignore_report
+  bindkey -M vicmd "$_key" __term_ignore_report
+done
+unset _key
