@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Install the base-owned tmux version from the reviewed tmux-builds archives.
 
+# Pinned to 3.6b: 3.7b busy-looped the server with attached SSH clients (#256).
 _TMUX_VERSION=3.6b
 
 _tmux_root() {
