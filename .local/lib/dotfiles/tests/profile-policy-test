@@ -254,9 +254,14 @@ profile_fixture=$(_tmpdir)
 mkdir -p "$profile_fixture/.config/dot"
 cp -r "$source_home/.config/dot/config" \
   "$source_home/.config/dot/profiles.d" \
-  "$source_home/.config/dot/profile-selectors.d" \
   "$source_home/.config/dot/overlays.d" \
   "$profile_fixture/.config/dot/"
+# Copy only the tracked root-global selector: a live host may hold an
+# untracked selector in this directory (a misplaced machine-local one), and
+# copying it would override the default these checks assert.
+mkdir -p "$profile_fixture/.config/dot/profile-selectors.d"
+cp "$source_home/.config/dot/profile-selectors.d/00-default.conf" \
+  "$profile_fixture/.config/dot/profile-selectors.d/"
 # The fixture owns its HOME-derived client config. Hosted runners may export
 # unrelated XDG roots; do not let those redirect the engine under test.
 profile_fixture_doctor() {
