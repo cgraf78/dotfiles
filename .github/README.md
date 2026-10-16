@@ -17,20 +17,26 @@ want the same workflow for your own files, start from `dot` and its
 
 ## Quick Start
 
+The one-liner installs my config, my tools, and an auto-update cron job. Read
+the notes below it before running it on a machine you care about.
+
 ```bash
 curl -fsSL cgraf78.github.io/d | bash
 source ~/.bashrc  # or: source ~/.zshrc
 ```
 
-Read this before running it on a machine you care about:
-
 - It installs `dot`, then my config into `$HOME`. Conflicting files are
   backed up under `~/.dot-backup/`.
 - It installs a cron job that runs `dot update` every 30 minutes, so the
-  machine keeps pulling and applying this repo's `main`.
+  machine keeps pulling this repo's `main` and updating the installed tools.
 - It installs my tool set (listed in
   [`.config/shdeps/10-deps.conf`](../.config/shdeps/10-deps.conf)) through
-  your system package manager, which may need sudo, and GitHub releases.
+  your system package manager (which may need sudo), GitHub releases and
+  clones, and custom installers such as WezTerm, tmux, and a Nerd Font.
+- It writes my agent rules into a managed block in `~/.claude/CLAUDE.md`,
+  `~/.codex/AGENTS.md`, and other coding agents' global rule files, via
+  [agent-rules-sync](https://github.com/cgraf78/agent-rules-sync). Text
+  outside the block is kept.
 - The default `editor` profile adds the
   [dotfiles-nvim](https://github.com/cgraf78/dotfiles-nvim) overlay. Private
   overlays are optional and are skipped when your key cannot read them.
@@ -41,8 +47,8 @@ Read this before running it on a machine you care about:
     DOTFILES_REPOSITORY=https://github.com/cgraf78/dotfiles.git bash
   ```
 
-It needs `curl` and `git`. macOS requires Bash 4+ (`brew install bash`). The
-system Bash 3.2 is too old.
+It needs `curl` and `git`, plus Homebrew on macOS. macOS also requires Bash
+4+ (`brew install bash`). The system Bash 3.2 is too old.
 
 ## Related repos
 
@@ -75,3 +81,8 @@ dotfiles [operations](../.config/agent-rules/playbooks.d/dotfiles/operations.md)
 [ownership](../.config/agent-rules/playbooks.d/dotfiles/ownership-and-extraction.md)
 playbooks and the [test suite guide](../.local/lib/dotfiles/tests/README.md)
 instead.
+
+CI also runs ShellCheck over every shell program and fails on any that is
+missing from [`shellcheck-files.txt`](shellcheck-files.txt); `dot test` does
+not check this. The check scans untracked files too, so run it from a clean
+clone, never from a live `$HOME`.
