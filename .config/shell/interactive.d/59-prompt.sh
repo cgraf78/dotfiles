@@ -444,13 +444,17 @@ __cmd_notify() {
 # reporting, the alternate screen, and extended keys: every mouse move or
 # pane switch then sends a report that the line editor beeps at, and the
 # screen stays the remote's. A program killed by a signal (status > 128) can
-# leave the same state. A stopped job is skipped: `fg` resumes it without
-# resending its modes, so resetting them would break, say, a suspended ssh
-# session's remote tmux. Its status is 128 plus SIGTSTP, SIGSTOP, SIGTTIN, or
-# SIGTTOU, which span 145-150 on Linux and macOS; the other signals in that
-# range (SIGCHLD, SIGCONT) cannot kill a process. Runs from the prompt hook,
-# so the normal path is a single arithmetic test with no fork; it never
-# clears the screen or scrollback, unlike `reset`.
+# leave the same state. Nothing is reset while a job is stopped: `fg`
+# resumes it without resending its modes, so resetting them would break, say,
+# a suspended ssh session's remote tmux. The stop itself has status 128 plus
+# SIGTSTP, SIGSTOP, SIGTTIN, or SIGTTOU, which span 145-150 on Linux and
+# macOS (the other signals in that range, SIGCHLD and SIGCONT, cannot kill a
+# process); a later failure while the job waits is caught by the job check.
+# That check cannot tell a job that restores its own modes on `fg` (a
+# suspended vim) from one that cannot (ssh), so any stopped job defers the
+# reset to the next failure after it ends.
+# Runs from the prompt hook, so the normal path is a single arithmetic test
+# with no fork; it never clears the screen or scrollback, unlike `reset`.
 #
 # The alternate-screen exit matters most. Leaving with 1049 restores the
 # cursor saved on entry, which puts the prompt right below the command that
@@ -459,7 +463,10 @@ __cmd_notify() {
 #   - Inside tmux, one query says which screen is showing. tmux keeps the 1049
 #     save apart from DECSC and restores it even on the normal screen, where
 #     it is stale and the prompt would overwrite earlier output, so 1049 is
-#     sent only when the alternate screen is on.
+#     sent only when the alternate screen is on. The answer counts only when
+#     the pane's tty is the shell's own: a terminal inside the pane (Neovim's
+#     :terminal) or launched from it inherits the pane's variables, but its
+#     screen is not the one tmux reports, so it takes the blind exit.
 #   - Other terminals (xterm, WezTerm, VS Code, Terminal.app, Termux) get
 #     DECSC then 1049: terminals that keep a saved cursor per screen restore
 #     the entry position from the alternate screen and the just-saved one
@@ -478,12 +485,14 @@ __cmd_notify() {
 # it.
 #
 # The rest: mouse tracking (all encodings), focus reporting, theme-change
-# reports (2031, requested by tmux 3.6), synchronized output, modifyOtherKeys
-# back to its default, one kitty keyboard pop, cursor visibility, normal
-# cursor keys and keypad, the prompt's blinking block cursor (52-cursor.sh),
-# autowrap, replace mode, attributes, and the ASCII character set in G0
-# (shifted in). Terminals ignore the sequences they do not implement.
-# Bracketed paste is left alone: the line editor enables it for each line.
+# reports (2031, requested by tmux 3.6), synchronized output, left/right
+# margins, mintty's application escape key, modifyOtherKeys back to its
+# default, a kitty keyboard pop on each screen (terminals such as WezTerm
+# keep one stack per screen), cursor visibility, normal cursor keys and
+# keypad, the prompt's blinking block cursor (52-cursor.sh), autowrap,
+# replace mode, attributes, and the ASCII character set in G0 (shifted in).
+# Terminals ignore the sequences they do not implement. Bracketed paste is
+# left alone: the line editor enables it for each line.
 # Args: $1 - exit status of the command that just finished.
 __term_restore() {
   ((${1:-0} > 128)) || return 0
@@ -491,14 +500,30 @@ __term_restore() {
     14[5-9] | 150) return 0 ;;
   esac
   [[ -t 1 ]] || return 0
-  local screen alt="" term=${TERM:-}
+  local screen alt="" term=${TERM:-} reply shell_tty
   case $term in
     '' | dumb) return 0 ;;
   esac
+  # zsh reads its job table without a fork; bash needs one, which only this
+  # rare path pays. eval keeps the zsh syntax away from bash's parser.
+  if [[ -n ${ZSH_VERSION:-} ]]; then
+    eval '[[ ${(v)jobstates} != *suspended* ]]' || return 0
+  else
+    [[ -z $(jobs -s) ]] || return 0
+  fi
   # TMUX leaks into terminals launched from a tmux shell (`code .`), whose
   # TERM_PROGRAM differs; only a shell still in a tmux pane asks tmux.
   if [[ -n ${TMUX:-} && -n ${TMUX_PANE:-} && ${TERM_PROGRAM:-} == tmux ]]; then
-    alt=$(tmux display-message -p -t "$TMUX_PANE" '#{alternate_on}' 2>/dev/null)
+    reply=$(tmux display-message -p -t "$TMUX_PANE" '#{alternate_on} #{pane_tty}' 2>/dev/null)
+    # zsh's TTY is its own; bash would take an inherited one, so it asks.
+    if [[ -n ${ZSH_VERSION:-} ]]; then
+      shell_tty=$TTY
+    else
+      shell_tty=$(tty 2>/dev/null)
+    fi
+    if [[ -n $shell_tty && ${reply#* } == "$shell_tty" ]]; then
+      alt=${reply%% *}
+    fi
   elif [[ -n ${TMUX:-} && -z ${TERM_PROGRAM:-} ]]; then
     term=tmux
   fi
@@ -508,7 +533,8 @@ __term_restore() {
     *:screen* | *:tmux*) screen=$'\e[?1047l\e7\e[r\e8' ;;
     *) screen=$'\e7\e[r\e8\e7\e[?1049l\e7\e[r\e8' ;;
   esac
-  printf '%s' "$screen" \
+  printf '%s' $'\e[<u' "$screen" \
     $'\e[?9l\e[?1000l\e[?1001l\e[?1002l\e[?1003l\e[?1005l\e[?1006l\e[?1015l\e[?1016l' \
-    $'\e[?1004l\e[?2031l\e[?2026l\e[>4m\e[<u\e[?25h\e[?1l\e>\e[1 q\e[?7h\e[4l\e[0m\e(B\017'
+    $'\e[?1004l\e[?2031l\e[?2026l\e[?69l\e[?7727l\e[>4m\e[<u' \
+    $'\e[?25h\e[?1l\e>\e[1 q\e[?7h\e[4l\e[0m\e(B\017'
 }

@@ -8,11 +8,12 @@
 # fallback for systems without bash-preexec; bash-preexec replaces the DEBUG
 # trap on load, so there is no double-counting.
 __cmd_time=""
-# __cmd_line records that a command ran, so __term_restore and __cmd_notify
-# (59-prompt.sh) see each command once and never an empty Enter. bash-preexec
-# also gives each precmd hook the command's exit status; the DEBUG-trap
-# fallback has no preexec, so it never notifies, and PROMPT_COMMAND
-# (set_prompt) passes it the status as $1.
+# __cmd_line records that a command ran, so with bash-preexec __term_restore
+# and __cmd_notify (59-prompt.sh) see each command once and never an empty
+# Enter. bash-preexec also gives each precmd hook the command's exit status.
+# The DEBUG-trap fallback has no preexec: it never notifies, PROMPT_COMMAND
+# (set_prompt) passes it the status as $1, and it hands __term_restore that
+# status at every prompt, an empty Enter included.
 __prompt_preexec() {
   __cmd_start=$SECONDS
   __cmd_line=${1:-}

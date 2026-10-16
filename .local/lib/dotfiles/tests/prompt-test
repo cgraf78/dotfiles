@@ -1443,12 +1443,15 @@ done
 
 # Which alternate-screen exit goes out depends on what can be known about the
 # screen. util-linux script(1) supplies a terminal; a stub tmux answers the
-# alternate-screen query. Elsewhere (BSD script) these checks are skipped.
+# alternate-screen query with the pane's tty, the shell's own unless
+# RESTORE_TTY says otherwise. Elsewhere (BSD script) these checks are skipped.
 if env -u BASH_ENV SHELL=/bin/sh script -qec true /dev/null >/dev/null 2>&1; then
   restore_stub="$TEST_TMPDIR/restore-bin"
   mkdir -p "$restore_stub"
-  # shellcheck disable=SC2016 # $RESTORE_ALT belongs to the stub script.
-  printf '#!/bin/sh\nprintf "%%s\\n" "$RESTORE_ALT"\n' >"$restore_stub/tmux"
+  cat >"$restore_stub/tmux" <<'EOF'
+#!/bin/sh
+printf '%s %s\n' "$RESTORE_ALT" "${RESTORE_TTY:-$(tty)}"
+EOF
   chmod +x "$restore_stub/tmux"
   # restore_bytes STATUS ENV... prints what __term_restore STATUS writes.
   restore_bytes() {
@@ -1462,6 +1465,8 @@ if env -u BASH_ENV SHELL=/bin/sh script -qec true /dev/null >/dev/null 2>&1; the
   in_tmux=("TMUX=/tmp/restore-test,1,0" TMUX_PANE=%3 TERM_PROGRAM=tmux TERM=tmux-256color)
   _assert_contains "restore: tmux on the alternate screen leaves it with 1049" \
     $'\e[?6l\e[r\e[?1049l' "$(restore_bytes 255 "${in_tmux[@]}" RESTORE_ALT=1)"
+  _assert_contains "restore: bash asks for its tty instead of trusting an inherited TTY" \
+    $'\e[?6l\e[r\e[?1049l' "$(restore_bytes 255 "${in_tmux[@]}" RESTORE_ALT=1 TTY=/dev/pts/elsewhere)"
   restore_out=$(restore_bytes 255 "${in_tmux[@]}" RESTORE_ALT=0)
   _assert_contains "restore: tmux on the normal screen resets margins in place" \
     $'\e7\e[r\e8\e[?9l' "$restore_out"
@@ -1471,13 +1476,23 @@ if env -u BASH_ENV SHELL=/bin/sh script -qec true /dev/null >/dev/null 2>&1; the
     $'\e[?1047l\e7\e[r\e8' "$(restore_bytes 255 TERM=screen-256color)"
   _assert_contains "restore: tmux without TERM_PROGRAM (before 3.2) gets 1047 too" \
     $'\e[?1047l\e7\e[r\e8' "$(restore_bytes 255 TMUX=/tmp/restore-test TERM=xterm-256color)"
+  # Neovim's :terminal inside a pane inherits TMUX, TMUX_PANE, and
+  # TERM_PROGRAM=tmux but has its own tty: the pane's answer is not its
+  # screen, so it takes the blind exit instead of jumping to a stale cursor.
+  restore_out=$(restore_bytes 255 "${in_tmux[@]}" TERM=xterm-256color RESTORE_ALT=1 RESTORE_TTY=/dev/pts/elsewhere)
+  _assert_not_contains "restore: a terminal inside a tmux pane ignores the pane's screen" \
+    $'\e[?6l' "$restore_out"
+  _assert_contains "restore: a terminal inside a tmux pane takes the blind exit" \
+    $'\e7\e[?1049l' "$restore_out"
   _assert_contains "restore: a leaked TMUX in another terminal is not asked" \
     $'\e7\e[?1049l' "$(restore_bytes 255 "${in_tmux[@]}" TERM_PROGRAM=vscode TERM=xterm-256color RESTORE_ALT=1)"
   restore_out=$(restore_bytes 130 TERM=xterm-256color)
   _assert_contains "restore: a terminal exits 1049 behind a fresh cursor save" \
     $'\e7\e[r\e8\e7\e[?1049l\e7\e[r\e8' "$restore_out"
-  _assert_contains "restore: focus, theme, and mouse reports go off" \
-    $'\e[?1004l\e[?2031l' "$restore_out"
+  _assert_contains "restore: focus, theme, and sync reports and margins go off" \
+    $'\e[?1004l\e[?2031l\e[?2026l\e[?69l\e[?7727l' "$restore_out"
+  _assert_contains "restore: the kitty keyboard pops before the screen exit" \
+    $'\e[<u\e7\e[r\e8\e7\e[?1049l' "$restore_out"
   _assert_contains "restore: mouse tracking goes off" $'\e[?1000l' "$restore_out"
   _assert_contains "restore: the prompt cursor, wrap, attributes, and ASCII come back" \
     $'\e[1 q\e[?7h\e[4l\e[0m\e(B\017' "$restore_out"
@@ -1507,14 +1522,19 @@ if command -v tmux >/dev/null 2>&1; then
   restore_tmux() {
     "${TMUX_FIXTURE_ENV[@]}" HOME="$restore_home" tmux -S "$restore_socket" "$@"
   }
+  # The server and its interactive shells outlive the socket directory, so
+  # an interrupted run must stop them before the EXIT cleanup removes it.
+  trap 'restore_status=$?; restore_tmux kill-server >/dev/null 2>&1; _cleanup_on_exit "$restore_status"' EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
   # Each fixture prompt carries a count its prompt hook bumps (bp1>, bp2>,
   # ...), so waiting for the next number proves the shell finished a command
   # and drew a fresh prompt, on whichever screen is showing.
-  # restore_wait PANE TEXT waits up to 5 s for TEXT on a line of its own
+  # restore_wait PANE TEXT waits up to 15 s for TEXT on a line of its own
   # (ignoring trailing spaces) in the pane, and shows the pane on timeout.
   restore_wait() {
     local i
-    for ((i = 0; i < 100; i++)); do
+    for ((i = 0; i < 300; i++)); do
       restore_tmux capture-pane -p -t "$1" 2>/dev/null |
         awk -v want="$2" '{ sub(/[ \t]+$/, "") } $0 == want { found = 1 } END { exit !found }' &&
         return 0
@@ -1652,6 +1672,10 @@ EOF
       restore_run "$restore_pane" './stop'
       _assert_contains "restore ($restore_shell): a stopped job keeps its modes" \
         'alt=1 mouse=1' "$(restore_tmux display -p -t "$restore_pane" "$restore_flags")"
+      # So does a failure while it waits (Ctrl-C at another command).
+      restore_run "$restore_pane" "sh -c 'exit 130'"
+      _assert_contains "restore ($restore_shell): a failure beside a stopped job keeps its modes" \
+        'alt=1 mouse=1' "$(restore_tmux display -p -t "$restore_pane" "$restore_flags")"
       restore_run "$restore_pane" 'fg'
       restore_run "$restore_pane" './drop'
       # Focus reports at the prompt are swallowed without a bell. The pane's
@@ -1668,6 +1692,8 @@ EOF
     _fail "restore: private tmux server started"
   fi
   restore_tmux kill-server >/dev/null 2>&1 || true
+  trap '_cleanup_on_exit "$?"' EXIT
+  trap - INT TERM
 else
   _pass "restore: tmux unavailable, end-to-end checks skipped"
 fi
