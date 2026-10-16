@@ -1399,4 +1399,277 @@ else
   _pass "notify: zsh unavailable, zsh hook check skipped"
 fi
 
+echo ""
+echo "=== prompt: terminal restore after a dropped session ==="
+
+# The prompt hooks hand each finished command's status to __term_restore
+# once, so an empty Enter afterwards does not repeat it. Without bash-preexec,
+# bash has no preexec to mark a command, so PROMPT_COMMAND hands it the status
+# at every prompt, including an empty Enter, which keeps the last status.
+if command -v zsh >/dev/null 2>&1; then
+  # shellcheck disable=SC2016 # $-expansions belong to the zsh -c body.
+  restore_calls=$(zsh -f -c '. "$1"; . "$2" >/dev/null 2>&1; zmodload zsh/datetime
+    __term_restore() { print -r -- "restore:$1"; }
+    __cmd_notify() { :; }
+    __prompt_preexec "ssh metro"; (exit 255); __prompt_precmd
+    __prompt_precmd
+    __prompt_preexec "true"; (exit 0); __prompt_precmd' _ "$NOTIFY_SH" "$TITLE_ZSH" 2>&1)
+  _assert_eq "restore (zsh): the prompt hook passes each command status once" \
+    $'restore:255\nrestore:0' "$restore_calls"
+else
+  _pass "restore: zsh unavailable, zsh hook check skipped"
+fi
+# shellcheck disable=SC2016 # $-expansions belong to the bash -c body.
+restore_calls=$(env -u BASH_ENV bash --norc --noprofile -c '. "$1"; . "$2" >/dev/null 2>&1
+  __term_restore() { printf "restore:%s\n" "$1"; }
+  __cmd_notify() { :; }
+  __bp_imported=defined
+  __prompt_preexec "ssh metro"; (exit 255); __prompt_precmd
+  __prompt_precmd
+  unset __bp_imported
+  (exit 255); eval "$PROMPT_COMMAND"
+  (exit 255); eval "$PROMPT_COMMAND"' _ "$NOTIFY_SH" "$TITLE_BASH" 2>&1)
+_assert_eq "restore (bash): bash-preexec passes each status once, the fallback every prompt" \
+  $'restore:255\nrestore:255\nrestore:255' "$restore_calls"
+
+# Output that is not a terminal (a captured prompt, a dumb terminal) never
+# receives escape sequences.
+for restore_run_shell in 'bash --norc --noprofile' 'zsh -f'; do
+  command -v "${restore_run_shell%% *}" >/dev/null 2>&1 || continue
+  # shellcheck disable=SC2016,SC2086 # $-expansions belong to the child; split flags.
+  _assert_eq "restore (${restore_run_shell%% *}): stays silent when stdout is not a terminal" '' \
+    "$(env -u BASH_ENV $restore_run_shell -c '. "$1"; __term_restore 255' _ "$NOTIFY_SH" 2>&1)"
+done
+
+# Which alternate-screen exit goes out depends on what can be known about the
+# screen. util-linux script(1) supplies a terminal; a stub tmux answers the
+# alternate-screen query. Elsewhere (BSD script) these checks are skipped.
+if env -u BASH_ENV SHELL=/bin/sh script -qec true /dev/null >/dev/null 2>&1; then
+  restore_stub="$TEST_TMPDIR/restore-bin"
+  mkdir -p "$restore_stub"
+  # shellcheck disable=SC2016 # $RESTORE_ALT belongs to the stub script.
+  printf '#!/bin/sh\nprintf "%%s\\n" "$RESTORE_ALT"\n' >"$restore_stub/tmux"
+  chmod +x "$restore_stub/tmux"
+  # restore_bytes STATUS ENV... prints what __term_restore STATUS writes.
+  restore_bytes() {
+    local status=$1
+    shift
+    # script(1) runs the command with $SHELL; keep it off the login shell's
+    # startup files.
+    env -u BASH_ENV -u TMUX -u TMUX_PANE -u TERM_PROGRAM SHELL=/bin/sh \
+      PATH="$restore_stub:$PATH" "$@" script -qec "bash --norc --noprofile -c '. \"$NOTIFY_SH\"; __term_restore $status'" /dev/null 2>&1
+  }
+  in_tmux=("TMUX=/tmp/restore-test,1,0" TMUX_PANE=%3 TERM_PROGRAM=tmux TERM=tmux-256color)
+  _assert_contains "restore: tmux on the alternate screen leaves it with 1049" \
+    $'\e[?6l\e[r\e[?1049l' "$(restore_bytes 255 "${in_tmux[@]}" RESTORE_ALT=1)"
+  restore_out=$(restore_bytes 255 "${in_tmux[@]}" RESTORE_ALT=0)
+  _assert_contains "restore: tmux on the normal screen resets margins in place" \
+    $'\e7\e[r\e8\e[?9l' "$restore_out"
+  _assert_not_contains "restore: tmux on the normal screen sends no screen exit" \
+    $'\e[?104' "$restore_out"
+  _assert_contains "restore: an unasked multiplexer gets the cursor-keeping 1047" \
+    $'\e[?1047l\e7\e[r\e8' "$(restore_bytes 255 TERM=screen-256color)"
+  _assert_contains "restore: tmux without TERM_PROGRAM (before 3.2) gets 1047 too" \
+    $'\e[?1047l\e7\e[r\e8' "$(restore_bytes 255 TMUX=/tmp/restore-test TERM=xterm-256color)"
+  _assert_contains "restore: a leaked TMUX in another terminal is not asked" \
+    $'\e7\e[?1049l' "$(restore_bytes 255 "${in_tmux[@]}" TERM_PROGRAM=vscode TERM=xterm-256color RESTORE_ALT=1)"
+  restore_out=$(restore_bytes 130 TERM=xterm-256color)
+  _assert_contains "restore: a terminal exits 1049 behind a fresh cursor save" \
+    $'\e7\e[r\e8\e7\e[?1049l\e7\e[r\e8' "$restore_out"
+  _assert_contains "restore: focus, theme, and mouse reports go off" \
+    $'\e[?1004l\e[?2031l' "$restore_out"
+  _assert_contains "restore: mouse tracking goes off" $'\e[?1000l' "$restore_out"
+  _assert_contains "restore: the prompt cursor, wrap, attributes, and ASCII come back" \
+    $'\e[1 q\e[?7h\e[4l\e[0m\e(B\017' "$restore_out"
+  for restore_status in 0 1 128 145 146 147 148 149 150; do
+    _assert_eq "restore: status $restore_status sends nothing" '' \
+      "$(restore_bytes "$restore_status" TERM=xterm-256color)"
+  done
+  _assert_eq "restore: a dumb terminal gets nothing" '' "$(restore_bytes 255 TERM=dumb)"
+  _assert_eq "restore: an unset TERM gets nothing" '' "$(restore_bytes 255 TERM=)"
+else
+  _pass "restore: util-linux script unavailable, byte checks skipped"
+fi
+
+# End to end on a private tmux server: a child that turns on what a remote
+# tmux does (alternate screen with margins and origin mode, mouse and focus
+# reporting, hidden cursor, application keys, modifyOtherKeys, replace mode,
+# no autowrap, the line-drawing character set) and dies with status 255
+# leaves a clean prompt right below the command that started it, with the
+# earlier output intact. A failure at status 128 or a stopped job is left
+# alone. Focus reports never ring the bell at the prompt.
+restore_flags='alt=#{alternate_on} mouse=#{mouse_any_flag} cursor=#{cursor_flag} keys=#{keypad_cursor_flag}#{keypad_flag} wrap=#{wrap_flag} insert=#{insert_flag} origin=#{origin_flag} margins=#{scroll_region_upper}-#{scroll_region_lower}'
+if command -v tmux >/dev/null 2>&1; then
+  restore_socket=$(_tmux_socket) || exit 1
+  CLEANUP_DIRS+=("${restore_socket%/*}")
+  _tmux_fixture_env "$REAL_HOME" || exit 1
+  restore_home=$(_tmpdir)
+  restore_tmux() {
+    "${TMUX_FIXTURE_ENV[@]}" HOME="$restore_home" tmux -S "$restore_socket" "$@"
+  }
+  # Each fixture prompt carries a count its prompt hook bumps (bp1>, bp2>,
+  # ...), so waiting for the next number proves the shell finished a command
+  # and drew a fresh prompt, on whichever screen is showing.
+  # restore_wait PANE TEXT waits up to 5 s for TEXT on a line of its own
+  # (ignoring trailing spaces) in the pane, and shows the pane on timeout.
+  restore_wait() {
+    local i
+    for ((i = 0; i < 100; i++)); do
+      restore_tmux capture-pane -p -t "$1" 2>/dev/null |
+        awk -v want="$2" '{ sub(/[ \t]+$/, "") } $0 == want { found = 1 } END { exit !found }' &&
+        return 0
+      sleep 0.05
+    done
+    echo "  timed out waiting for '$2' in pane $1:" >&2
+    restore_tmux capture-pane -p -t "$1" 2>&1 | sed 's/^/    | /' >&2
+    return 1
+  }
+  # restore_run PANE COMMAND runs COMMAND at prompt $restore_n and waits for
+  # the next prompt. Typing only at a drawn prompt keeps the terminal from
+  # echoing typeahead over the prompt the restore just placed.
+  restore_run() {
+    restore_wait "$1" "$restore_tag$restore_n>" || return 1
+    restore_tmux send-keys -t "$1" -l "$2"
+    restore_tmux send-keys -t "$1" Enter
+    restore_n=$((restore_n + 1))
+    restore_wait "$1" "$restore_tag$restore_n>"
+  }
+  # restore_after PANE COMMAND prints the line after COMMAND's prompt line.
+  restore_after() {
+    restore_tmux capture-pane -p -t "$1" | awk -v cmd="$2" '
+      { sub(/[ \t]+$/, "") } seen { print; exit } $0 ~ /^[bz]p[0-9]+> / && substr($0, index($0, " ") + 1) == cmd { seen = 1 }'
+  }
+  cat >"$restore_home/drop" <<'EOF'
+#!/bin/sh
+# Turn on what a remote tmux does, draw on the alternate screen, and die.
+printf '\033[?1049h\033[5;10r\033[?6h\033[?1000h\033[?1002h\033[?1006h'
+printf '\033[?1004h\033[?25l\033[?1h\033=\033[>4;2m\033[4h\033[?7l\033[5 q'
+printf '\033(0\016remote-screen\r\n'
+exit "${1:-255}"
+EOF
+  cat >"$restore_home/refused" <<'EOF'
+#!/bin/sh
+# A connection that fails before any remote screen: normal-screen modes only.
+printf '\033[?1000h\033[?1006h\033[?1004h\033[?25l\033[?1h\033='
+exit 255
+EOF
+  cat >"$restore_home/stop" <<'EOF'
+#!/bin/sh
+# Turn on remote-tmux modes and stop as Ctrl-Z would; `fg` lets it exit.
+printf '\033[?1049h\033[?1000h\033[?1006hstopped-screen\r\n'
+kill -TSTP $$
+exit 0
+EOF
+  chmod +x "$restore_home/drop" "$restore_home/refused" "$restore_home/stop"
+  mkdir -p "$restore_home/zdot"
+  # A fixed platform keeps macOS terminal integrations (wezterm.sh) out.
+  cat >"$restore_home/zdot/.zshrc" <<EOF
+_UNAME=dot-test
+zmodload zsh/datetime
+_tool_init() { :; }
+. "$REAL_HOME/.config/shell/interactive.d/59-prompt.sh"
+. "$REAL_HOME/.config/shell/interactive.d/60-prompt.zsh"
+. "$REAL_HOME/.config/shell/interactive.d/70-integrations.zsh"
+HISTFILE=/dev/null
+__test_n=0
+__test_count() { ((__test_n++)); }
+add-zsh-hook precmd __test_count
+PROMPT='zp\${__test_n}> '
+EOF
+  cat >"$restore_home/bashrc" <<EOF
+_UNAME=dot-test
+. "$REAL_HOME/.config/shell/interactive.d/59-prompt.sh"
+. "$REAL_HOME/.config/shell/interactive.d/60-prompt.bash"
+HISTFILE=/dev/null
+__test_n=0
+PROMPT_COMMAND="\$PROMPT_COMMAND; ((__test_n++))"
+PS1='bp\${__test_n}> '
+EOF
+  # The same shell with bash-preexec, loaded after the prompt as
+  # 70-integrations.bash does, when the host has it installed.
+  restore_bp="${DOT_TEST_HOST_HOME:-$REAL_HOME}/.local/share/rcaloras/bash-preexec/bash-preexec.sh"
+  {
+    cat "$restore_home/bashrc"
+    printf '. "%s"\n' "$restore_bp"
+  } >"$restore_home/bashrc-bp"
+  restore_cases=("bash:bp:INPUTRC=$REAL_HOME/.inputrc exec bash --noprofile --rcfile ./bashrc -i")
+  if [[ -r $restore_bp ]]; then
+    restore_cases+=("bash-preexec:bp:INPUTRC=$REAL_HOME/.inputrc exec bash --noprofile --rcfile ./bashrc-bp -i")
+  else
+    _pass "restore: bash-preexec not installed, its end-to-end case skipped"
+  fi
+  command -v zsh >/dev/null 2>&1 &&
+    restore_cases+=("zsh:zp:ZDOTDIR=./zdot exec zsh -d -i")
+  restore_baseline="alt=0 mouse=0 cursor=1 keys=00 wrap=1 insert=0 origin=0 margins=0-29"
+  if restore_tmux -f /dev/null new-session -d -s restore -x 100 -y 30 -c "$restore_home" \
+    'sleep 600' >/dev/null 2>&1; then
+    restore_tmux set -g monitor-bell on
+    restore_tmux set -g bell-action any
+    for restore_case in "${restore_cases[@]}"; do
+      IFS=: read -r restore_shell restore_tag restore_start <<<"$restore_case"
+      restore_n=1
+      restore_pane=$(restore_tmux new-window -d -P -F '#{pane_id}' -c "$restore_home" "$restore_start")
+      if [[ ! $restore_pane =~ ^%[0-9]+$ ]]; then
+        _fail "restore ($restore_shell): private tmux pane started"
+        continue
+      fi
+      if ! restore_run "$restore_pane" 'echo before-drop'; then
+        _fail "restore ($restore_shell): shell runs commands at its prompt"
+        continue
+      fi
+      restore_run "$restore_pane" './drop'
+      _assert_contains "restore ($restore_shell): a dropped session leaves no stuck modes" \
+        "$restore_baseline" "$(restore_tmux display -p -t "$restore_pane" "$restore_flags")"
+      restore_keymode=$(restore_tmux display -p -t "$restore_pane" '#{pane_key_mode}')
+      if [[ -n $restore_keymode ]]; then
+        _assert_not_contains "restore ($restore_shell): modifyOtherKeys is off again" \
+          'Ext' "$restore_keymode"
+      else
+        _pass "restore ($restore_shell): tmux before 3.5 hides the key mode, check skipped"
+      fi
+      restore_screen=$(restore_tmux capture-pane -p -t "$restore_pane")
+      _assert_not_contains "restore ($restore_shell): the remote screen is gone" \
+        'remote-screen' "$restore_screen"
+      _assert_contains "restore ($restore_shell): earlier output survives" \
+        "before-drop" "$restore_screen"
+      # The prompt lands right below the command that started the session.
+      _assert_eq "restore ($restore_shell): the prompt returns below the command" \
+        "$restore_tag$restore_n>" "$(restore_after "$restore_pane" './drop')"
+      restore_run "$restore_pane" './refused'
+      _assert_contains "restore ($restore_shell): a refused connection leaves no stuck modes" \
+        "$restore_baseline" "$(restore_tmux display -p -t "$restore_pane" "$restore_flags")"
+      _assert_eq "restore ($restore_shell): a refused connection keeps the prompt in place" \
+        "$restore_tag$restore_n>" "$(restore_after "$restore_pane" './refused')"
+      # Status 128 and below is an ordinary failure, not a drop: its modes
+      # stay until the next one.
+      restore_run "$restore_pane" './drop 128'
+      _assert_contains "restore ($restore_shell): an ordinary failure is left alone" \
+        'alt=1 mouse=1' "$(restore_tmux display -p -t "$restore_pane" "$restore_flags")"
+      restore_run "$restore_pane" './drop 130'
+      _assert_contains "restore ($restore_shell): a signal death (130) is restored" \
+        "$restore_baseline" "$(restore_tmux display -p -t "$restore_pane" "$restore_flags")"
+      # A stopped job keeps its modes for `fg`.
+      restore_run "$restore_pane" './stop'
+      _assert_contains "restore ($restore_shell): a stopped job keeps its modes" \
+        'alt=1 mouse=1' "$(restore_tmux display -p -t "$restore_pane" "$restore_flags")"
+      restore_run "$restore_pane" 'fg'
+      restore_run "$restore_pane" './drop'
+      # Focus reports at the prompt are swallowed without a bell. The pane's
+      # window must not be current for tmux to flag its bell.
+      restore_tmux select-window -t "restore:0"
+      restore_wait "$restore_pane" "$restore_tag$restore_n>"
+      restore_tmux send-keys -t "$restore_pane" -l $'\e[I'
+      restore_tmux send-keys -t "$restore_pane" -l $'\e[O'
+      restore_run "$restore_pane" ':'
+      _assert_eq "restore ($restore_shell): focus reports at the prompt do not ring" \
+        0 "$(restore_tmux display -p -t "$restore_pane" '#{window_bell_flag}')"
+    done
+  else
+    _fail "restore: private tmux server started"
+  fi
+  restore_tmux kill-server >/dev/null 2>&1 || true
+else
+  _pass "restore: tmux unavailable, end-to-end checks skipped"
+fi
+
 _test_summary
