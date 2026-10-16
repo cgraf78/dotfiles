@@ -83,6 +83,7 @@ playbooks and the [test suite guide](../.local/lib/dotfiles/tests/README.md)
 instead.
 
 CI also runs ShellCheck over every shell program and fails on any that is
-missing from [`shellcheck-files.txt`](shellcheck-files.txt); `dot test` does
-not check this. The check scans untracked files too, so run it from a clean
-clone, never from a live `$HOME`.
+missing from [`shellcheck-files.txt`](shellcheck-files.txt) and on stale
+rows; `dot test` does not check this. The check scans untracked files too, so
+run it from a clean clone, never from a live `$HOME`:
+`SHELLCHECK_EXCLUDE_CODES=SC1091 bash <cgraf78/actions at the locked SHA>/.github/actions/shellcheck-inventory/run.sh "$PWD" .github/shellcheck-files.txt`.
