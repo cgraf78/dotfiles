@@ -323,32 +323,31 @@ _assert_contains 'browser-open: a failed loopback URL still names the forward' \
 
 echo "=== env.d: BROWSER selection ==="
 
-# The real loader, core, and platform fragments in a fixture home; a uname
-# stub chooses the platform.
+# The real loader, core, and platform fragments in a fixture home; OSTYPE
+# chooses the platform, since 50-core.sh derives _UNAME from it without
+# running uname on Linux and macOS.
 env_home=$test_root/env-home
 mkdir -p "$env_home/.config/shell/env.d" "$env_home/.local/lib/dotfiles" \
-  "$env_home/.local/bin" "$test_root/uname-bin"
+  "$env_home/.local/bin"
 cp "$source_home/.local/lib/dotfiles/shell-loader.sh" \
   "$env_home/.local/lib/dotfiles/"
 cp "$source_home/.config/shell/env.d/50-core.sh" \
   "$source_home/.config/shell/env.d/70-platform.sh" \
   "$env_home/.config/shell/env.d/"
 cp "$wrapper" "$env_home/.local/bin/browser-open"
-cat >"$test_root/uname-bin/uname" <<'EOF'
-#!/bin/sh
-printf '%s\n' "${BROWSER_OPEN_TEST_UNAME:-Linux}"
-EOF
-chmod +x "$test_root/uname-bin/uname"
 env_wrapper=$env_home/.local/bin/browser-open
 vscode_browser=/vscode-server/bin/helpers/browser.sh
 
 # env_browser SHELL MODE [VAR=value...]: BROWSER after loading env.d.
+# BROWSER_OPEN_TEST_OSTYPE picks the platform (default headless Linux). The
+# child assigns OSTYPE itself because zsh resets an inherited one at startup.
 env_browser() {
   local shell=$1 mode=$2
   shift 2
   # shellcheck disable=SC2016 # expands in the child shell.
-  env -i HOME="$env_home" PATH="$test_root/uname-bin:$PATH" "$@" \
-    "$shell" -c '. "$HOME/.local/lib/dotfiles/shell-loader.sh"
+  env -i HOME="$env_home" PATH="$PATH" "$@" \
+    "$shell" -c 'OSTYPE=${BROWSER_OPEN_TEST_OSTYPE:-linux-gnu}
+      . "$HOME/.local/lib/dotfiles/shell-loader.sh"
       _shell_load_env "$1" "$2"; printf "%s" "${BROWSER-unset}"' \
     _ "${shell##*/}" "$mode" 2>/dev/null
 }
@@ -373,7 +372,7 @@ for env_shell in bash zsh; do
       unset "$(env_browser "$shell_path" authoritative "$desktop")"
   done
   _assert_eq "env.d ($env_shell): macOS keeps open" \
-    unset "$(env_browser "$shell_path" authoritative BROWSER_OPEN_TEST_UNAME=Darwin)"
+    unset "$(env_browser "$shell_path" authoritative BROWSER_OPEN_TEST_OSTYPE=darwin23)"
 done
 chmod -x "$env_wrapper"
 _assert_eq 'env.d: no executable wrapper, no BROWSER' \
