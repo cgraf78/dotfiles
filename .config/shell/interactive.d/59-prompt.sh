@@ -388,7 +388,7 @@ __git_prompt() {
 }
 
 # Inside tmux, a long-running command rings the terminal and marks its pane
-# pending when it finishes, through cmdblocks' term-notify-sound, so a build
+# pending when it finishes, through tmux-tools' term-notify-sound, so a build
 # or test left running in a side pane gets noticed like an agent waiting for
 # you. PROMPT_NOTIFY_SECONDS sets the threshold in seconds (default 30; 0
 # turns it off). The prompt hooks in 60-prompt.bash/.zsh call __cmd_notify.
@@ -420,7 +420,7 @@ __cmd_notify_wanted() {
 # program names to keep current. Only a shell still in a tmux pane counts:
 # TMUX and TMUX_PANE leak into programs launched from one, such as an editor
 # started with `code .`, whose own terminals replace TERM_PROGRAM. Best
-# effort: without tmux, cmdblocks, or a terminal, nothing happens.
+# effort: without tmux, tmux-tools, or a terminal, nothing happens.
 # Args: $1 - elapsed seconds, $2 - exit status.
 __cmd_notify() {
   [[ -n "${TMUX:-}" && -n "${TMUX_PANE:-}" && "${TERM_PROGRAM:-}" == tmux ]] || return 0

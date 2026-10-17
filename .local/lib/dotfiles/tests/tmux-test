@@ -63,7 +63,7 @@ _assert_not_contains "tmux: retired navigation wrapper stays absent" \
 # Every provider command the base fragment binds must come from a base
 # dependency: editor and dev hosts layer more deps on top, but a base-only host
 # has nothing else to satisfy these keys.
-for dependency in tmux cgraf78/cmdblocks cgraf78/tmux-tools cgraf78/termnav \
+for dependency in tmux cgraf78/tmux-tools cgraf78/termnav \
   laktak/extrakto tmux-plugins/tmux-continuum tmux-plugins/tmux-resurrect \
   tmux-plugins/tpm; do
   if awk -v dependency="$dependency" '$1 == dependency { found=1 }
