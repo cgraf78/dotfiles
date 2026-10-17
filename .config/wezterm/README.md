@@ -49,7 +49,9 @@ config edit.
 6. In tmux/nvim mouse-reporting panes, WezTerm intentionally does not steal
    Ctrl-click. The base tmux config forwards the raw event into a mouse-aware
    app such as nvim, so LSP gets the click coordinates, and routes
-   terminal-pane hyperlinks through `termnav tmux follow-click`.
+   terminal-pane hyperlinks through `termnav tmux follow-click`. Agent panes,
+   copy mode, and OSC 8 browser links (tmux 3.4 and later) also go to
+   `termnav tmux follow-click` (see the tmux README's Key Handling section).
 7. Remote `file://host/path` links call the same helper with the `link` mode
    and `remote` source label. It skips local Neovim sockets, tries an existing
    SSH ControlMaster connection for hosts listed in
