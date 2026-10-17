@@ -721,6 +721,96 @@ if command -v zsh >/dev/null 2>&1; then
     "$(agent_run CLAUDECODE=1 zsh -ic "$AGENT_OPTS_PROBE" | tail -n 1)"
 fi
 
+# 50-core.sh loads in every shell, so it derives _UNAME from OSTYPE instead of
+# forking uname, yet must still match `uname -s` exactly. A logging uname shim
+# first on PATH catches any fork and answers ShimOS, so a fork also shows up
+# in the value. The expected value comes from the real uname, so each CI
+# platform (macOS, Alpine, glibc distros) checks its own OSTYPE mapping.
+UNAME_SHIM=$TEST_TMPDIR/uname-shim
+mkdir -p "$UNAME_SHIM"
+cat >"$UNAME_SHIM/uname" <<'EOF'
+#!/bin/sh
+printf 'uname %s\n' "$*" >>"$DOT_UNAME_TEST_LOG"
+printf 'ShimOS\n'
+EOF
+chmod +x "$UNAME_SHIM/uname"
+UNAME_LOG=$TEST_TMPDIR/uname.log
+UNAME_REAL=$(uname -s)
+UNAME_CORE=$REAL_HOME/.config/shell/env.d/50-core.sh
+
+# uname_run SHELL PRELUDE
+# Source the loader and 50-core.sh in SHELL after evaluating PRELUDE (which
+# sets or unsets OSTYPE), with the shim first on PATH. Prints _UNAME, then
+# `|` and the shim's log joined by commas (empty when nothing forked).
+uname_run() {
+  local uname_flags=() uname_out
+  [ "${1##*/}" = zsh ] && uname_flags=(-f)
+  : >"$UNAME_LOG"
+  # shellcheck disable=SC2016 # the child shell expands its own arguments.
+  uname_out=$(env -i HOME="$TEST_TMPDIR" PATH="$UNAME_SHIM:$PATH" \
+    DOT_UNAME_TEST_LOG="$UNAME_LOG" \
+    "$1" ${uname_flags[@]+"${uname_flags[@]}"} -c '
+      eval "$3"
+      . "$1"
+      . "$2"
+      printf "%s" "$_UNAME"
+    ' "$1" "$LOADER" "$UNAME_CORE" "$2" </dev/null 2>&1)
+  printf '%s|%s' "$uname_out" "$(paste -sd, - <"$UNAME_LOG")"
+}
+
+for uname_sh in bash zsh; do
+  uname_sh_bin=$(command -v "$uname_sh") || continue
+  echo ""
+  echo "=== env.d: _UNAME matches uname -s without forking ($uname_sh) ==="
+
+  # The real entry points: BASH_ENV for bash, ~/.zshenv for zsh. Only Linux
+  # and Darwin take the fork-free path; elsewhere (MSYS2, Cygwin, BSD) the
+  # fallback is expected to run uname.
+  case "$UNAME_REAL" in
+    Linux | Darwin)
+      : >"$UNAME_LOG"
+      # shellcheck disable=SC2016 # the child shell expands _UNAME.
+      _assert_eq "uname ($uname_sh): env.d entry point matches uname -s" \
+        "$UNAME_REAL" \
+        "$(own_run PATH="$UNAME_SHIM:$PATH" DOT_UNAME_TEST_LOG="$UNAME_LOG" \
+          "$uname_sh_bin" -c 'printf %s "$_UNAME"')"
+      _assert_eq "uname ($uname_sh): env.d entry point forks no uname" \
+        "" "$(cat "$UNAME_LOG")"
+      ;;
+  esac
+
+  for uname_case in linux-gnu:Linux linux-musl:Linux linux-android:Linux \
+    darwin23:Darwin darwin23.0:Darwin; do
+    _assert_eq "uname ($uname_sh): OSTYPE=${uname_case%%:*} maps to ${uname_case#*:}" \
+      "${uname_case#*:}|" \
+      "$(uname_run "$uname_sh_bin" "OSTYPE=${uname_case%%:*}")"
+  done
+
+  # MSYS2 reports OSTYPE=msys under both MINGW64_NT-* and MSYS_NT-* uname
+  # names, which consumers tell apart, so only uname itself can answer.
+  for uname_ostype in msys cygwin freebsd14.0 ''; do
+    _assert_eq "uname ($uname_sh): OSTYPE='$uname_ostype' falls back to uname -s" \
+      "ShimOS|uname -s" "$(uname_run "$uname_sh_bin" "OSTYPE='$uname_ostype'")"
+  done
+  _assert_eq "uname ($uname_sh): unset OSTYPE falls back to uname -s" \
+    "ShimOS|uname -s" "$(uname_run "$uname_sh_bin" 'unset OSTYPE')"
+done
+
+echo ""
+echo "=== env.d: _UNAME matches uname -s in POSIX sh ==="
+
+# The loader itself needs bash or zsh, but 50-core.sh stays POSIX: where sh
+# is dash or busybox ash (Debian, Ubuntu, Alpine), which set no OSTYPE, this
+# runs the uname fallback; where sh is bash, it takes the OSTYPE path.
+# shellcheck disable=SC2016 # the child shell expands its own arguments.
+_assert_eq "uname (sh): 50-core.sh under sh matches uname -s" \
+  "$UNAME_REAL" \
+  "$(env -i HOME="$TEST_TMPDIR" PATH="$PATH" sh -c '
+    _shell_env_set() { export "$1=$2"; }
+    . "$1"
+    printf "%s" "$_UNAME"
+  ' sh "$UNAME_CORE" </dev/null 2>&1)"
+
 echo ""
 echo "=== env-noninteractive: foreign HOME skips env.d quietly ==="
 
