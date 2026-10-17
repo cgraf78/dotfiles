@@ -41,10 +41,12 @@ Base also owns:
   Termnav's native one-shot router with exact client identity.
 - Ctrl-h/j/k/l, Alt-Shift-H/J/K/L, and Ctrl-backslash pane navigation, with
   the same ownership rules (described below).
-- Ctrl-click routing, which delegates to `termnav tmux follow-click` when the
-  foreground pane is not already handling mouse events: URLs open in the
-  browser, and file paths open in a running Neovim, or Termnav says none is
-  running.
+- Ctrl-click routing, which delegates to `termnav tmux follow-click`: URLs
+  open in the browser on the desktop running the terminal, and file paths open
+  in a running Neovim, or Termnav says it cannot. A pane whose app has mouse
+  reporting on keeps the click, except for a known agent (`@pane_agent`), a
+  pane in a mode such as copy mode, and an OSC 8 `http`, `https`, or `mailto`
+  link under the pointer, which Termnav takes.
 
 The editor overlay's `20-editor.conf` adds only what needs Neovim:
 
@@ -192,8 +194,26 @@ between WezTerm, tmux, Neovim, and remote shells. Be careful changing them:
 some require a fresh tmux server, not just `tmux source-file`.
 
 Mouse bindings should preserve nested behavior. When `#{mouse_any_flag}` is
-set, tmux forwards the event inward with `send-keys -M`; only bare terminal
-panes should be handled by the outer tmux layer.
+set, tmux forwards the event inward with `send-keys -M`, so Neovim, a nested
+tmux, or a remote session decides at its own layer. Ctrl-click makes three
+exceptions, all format-only:
+
+- A known agent (`@pane_agent`) never gets it, so links and file paths in its
+  output behave as in a shell. Codex ignores the click, and Claude opens only
+  URLs, through `$BROWSER` on the host it runs on.
+- A pane in a mode such as copy mode shows tmux's view, not the app's screen.
+- An OSC 8 browser link (`#{mouse_hyperlink}`, tmux 3.4 and later) opens on
+  the same desktop whichever layer resolves it, so the outermost tmux takes it.
+  File links stay with the app, which knows their host and directory.
+
+Ctrl-drag skips the link exception, so a drag that starts off a link is not
+split between tmux and the app as it crosses linked cells; one that starts on
+a link goes to tmux for the press and to the app afterwards. A drag Termnav
+owns does nothing, and a fast second or third press keeps the click's owner.
+When the terminal cannot take a URL, Termnav falls back to `$BROWSER` from its
+run-shell job, which reads tmux's global environment rather than shell
+startup files, so loading the config publishes the value shell startup
+(env.d) chooses there.
 
 The Ctrl-h/j/k/l, Alt-Shift-H/J/K/L, Ctrl-backslash, and Ctrl-Tab bindings
 described below live in `10-base.conf` beside the ancestor relay keys

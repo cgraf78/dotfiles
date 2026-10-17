@@ -149,6 +149,141 @@ _assert_contains 'tmux navigation runtime forwards Ctrl-click into mouse-aware p
   'send-keys -M' "$mouse_down"
 _assert_contains 'tmux navigation runtime keeps Ctrl-drag inside mouse-aware panes' \
   'send-keys -M' "$mouse_drag"
+_assert_contains 'tmux navigation Ctrl-press follows the click rule' \
+  '#{E:@pane_keeps_ctrl_click}' "$mouse_down"
+_assert_contains 'tmux navigation Ctrl-release follows the click rule' \
+  '#{E:@pane_keeps_ctrl_click}' "$mouse_up"
+_assert_contains 'tmux navigation Ctrl-drag ignores links under the pointer' \
+  '#{E:@pane_keeps_ctrl_mouse}' "$mouse_drag"
+# The release's Termnav payload is a contract with Termnav releases already on
+# every host; the click rule changed only its condition.
+click_payload=$(
+  cat <<'PAYLOAD'
+'send-keys -M' 'run-shell -b "~/.local/bin/termnav tmux follow-click --stdin <<\"__DOT_TMUX_CLICK__\"\n#{mouse_hyperlink}\n#{mouse_word}\n#{mouse_line}\n#{mouse_x}\n#{pane_current_path}\n#{client_tty}\n#{pane_id}\n#{mouse_y}\n#{pane_top}\n#{pane_left}\n__DOT_TMUX_CLICK__"'
+PAYLOAD
+)
+_assert_eq 'tmux navigation Ctrl-release keeps its exact Termnav payload' \
+  "bind-key -n C-MouseUp1Pane if-shell -F '#{E:@pane_keeps_ctrl_click}' $click_payload" \
+  "$(grep '^bind-key -n C-MouseUp1Pane ' "$fragment")"
+
+# Evaluate the loaded click rule for one pane state: copy mode, known agent,
+# app mouse reporting, and the OSC 8 target under the pointer. Each input is a
+# user option standing in for the format it replaces, so the real options run
+# unchanged on every tmux release, including those without mouse_hyperlink.
+click_rule() {
+  local option=$1 format
+  tmux_cmd set-option -g @dot_test_mode "$2"
+  tmux_cmd set-option -g @dot_test_agent "$3"
+  tmux_cmd set-option -g @dot_test_mouse "$4"
+  tmux_cmd set-option -g @dot_test_link "$5"
+  format=$(tmux_cmd show-options -gv "$option")
+  format=${format//"#{E:@click_browser_link}"/"$(tmux_cmd show-options -gv @click_browser_link)"}
+  format=${format//"#{E:@pane_keeps_ctrl_mouse}"/"$(tmux_cmd show-options -gv @pane_keeps_ctrl_mouse)"}
+  format=${format//"#{pane_in_mode}"/"#{@dot_test_mode}"}
+  format=${format//"#{E:@pane_agent}"/"#{@dot_test_agent}"}
+  format=${format//"#{mouse_any_flag}"/"#{@dot_test_mouse}"}
+  format=${format//"#{mouse_hyperlink}"/"#{@dot_test_link}"}
+  tmux_cmd display-message -p "$format"
+}
+while IFS='|' read -r expected mode agent mouse link description; do
+  _assert_eq "tmux navigation Ctrl-click: $description" "$expected" \
+    "$(click_rule @pane_keeps_ctrl_click "$mode" "$agent" "$mouse" "$link")"
+done <<'CASES'
+0|0|0|0||a shell pane goes to Termnav
+1|0|0|1||a mouse app such as Neovim keeps it
+0|0|1|1||an agent goes to Termnav
+0|0|1|0||an agent drawing inline goes to Termnav
+0|1|0|1||copy mode goes to Termnav
+0|1|0|0||copy mode over a shell goes to Termnav
+0|0|0|1|https://example.com/a?b=1&c=2|an https link in a mouse app goes to Termnav
+0|0|0|1|http://localhost:3000/|an http link in a mouse app goes to Termnav
+0|0|0|1|mailto:someone@example.com|a mailto link in a mouse app goes to Termnav
+1|0|0|1|file:///etc/hosts|a file link stays with the app
+1|0|0|1|nvim-open://src/main.rs|an editor link stays with the app
+1|0|0|1|xhttps://example.com/|only a leading scheme counts
+CASES
+_assert_eq 'tmux navigation Ctrl-drag: a browser link does not split a drag' 1 \
+  "$(click_rule @pane_keeps_ctrl_mouse 0 0 1 https://example.com/)"
+_assert_eq 'tmux navigation Ctrl-drag: an agent never receives it' 0 \
+  "$(click_rule @pane_keeps_ctrl_mouse 0 1 1 '')"
+while IFS='|' read -r key rule; do
+  _assert_eq "tmux navigation $key follows $rule" \
+    "bind-key -n $key if-shell -F '#{E:$rule}' 'send-keys -M' 'select-pane -t ='" \
+    "$(grep "^bind-key -n $key " "$fragment")"
+done <<'BINDINGS'
+C-MouseDown1Pane|@pane_keeps_ctrl_click
+C-MouseDrag1Pane|@pane_keeps_ctrl_mouse
+C-MouseDragEnd1Pane|@pane_keeps_ctrl_mouse
+C-SecondClick1Pane|@pane_keeps_ctrl_click
+C-TripleClick1Pane|@pane_keeps_ctrl_click
+BINDINGS
+_assert_not_contains 'tmux navigation Ctrl-drag no longer opens an empty view' \
+  'display-message -p' "$mouse_drag"
+
+# Termnav's run-shell fallback reads $BROWSER from tmux's global environment,
+# so loading the config publishes the value shell startup chooses. A stand-in
+# zsh (the config's default-shell when one is on PATH) plays env.d.
+# The directory name has a space: #{q:default-shell} must keep the path whole.
+shell_dir="$(_tmpdir)/default shell"
+mkdir -p "$shell_dir"
+cat >"$shell_dir/zsh" <<'SH'
+#!/bin/sh
+if [ "$1" = -c ]; then
+  : >"$DOT_TEST_SHELL_RAN"
+  [ -n "${DOT_TEST_BANNER-}" ] && printf '%s\n' "$DOT_TEST_BANNER"
+  [ "${DOT_TEST_FAIL-}" = 1 ] && exit 3
+  if [ -n "${DOT_TEST_BROWSER+x}" ]; then BROWSER=$DOT_TEST_BROWSER; export BROWSER; fi
+  exec /bin/sh -c "$2"
+fi
+exec /bin/sh "$@"
+SH
+chmod +x "$shell_dir/zsh"
+fixture_path=$(tmux_cmd show-environment -g PATH)
+fixture_path=${fixture_path#PATH=}
+tmux_cmd set-environment -g PATH "$shell_dir:$fixture_path"
+tmux_cmd set-environment -g DOT_TEST_SHELL_RAN "$shell_dir/ran"
+# publish VAR=value...: reload with a stale BROWSER and the given shell
+# behaviour, wait until the shell ran and BROWSER settles, and print it.
+publish() {
+  local name previous actual=''
+  for name in DOT_TEST_BROWSER DOT_TEST_BANNER DOT_TEST_FAIL; do
+    tmux_cmd set-environment -gu "$name"
+  done
+  for name in "$@"; do
+    tmux_cmd set-environment -g "${name%%=*}" "${name#*=}"
+  done
+  tmux_cmd set-environment -g BROWSER /stale/browser
+  rm -f "$shell_dir/ran"
+  tmux_cmd source-file "$fragment" >/dev/null 2>&1 || true
+  for _ in $(seq 1 50); do
+    [[ -e $shell_dir/ran ]] && break
+    sleep 0.1
+  done
+  # The job sets BROWSER right after the shell exits: poll until it holds
+  # still for half a second.
+  previous='not read yet'
+  for _ in $(seq 1 50); do
+    actual=$(tmux_cmd show-environment -g BROWSER 2>/dev/null)
+    [[ $actual == "$previous" ]] && break
+    previous=$actual
+    sleep 0.5
+  done
+  printf '%s' "$actual"
+}
+_assert_eq 'tmux navigation publishes the BROWSER shell startup chooses' \
+  'BROWSER=open -a "Safari" %s' "$(publish 'DOT_TEST_BROWSER=open -a "Safari" %s')"
+_assert_eq 'tmux navigation keeps startup output out of BROWSER' \
+  BROWSER=/login/browser-open \
+  "$(publish DOT_TEST_BROWSER=/login/browser-open 'DOT_TEST_BANNER=Agent pid 4242')"
+_assert_eq 'tmux navigation unsets BROWSER when shell startup leaves it empty' '' \
+  "$(publish DOT_TEST_BROWSER=)"
+_assert_eq 'tmux navigation keeps BROWSER when the shell fails' \
+  BROWSER=/stale/browser "$(publish DOT_TEST_FAIL=1)"
+for name in DOT_TEST_BROWSER DOT_TEST_BANNER DOT_TEST_FAIL DOT_TEST_SHELL_RAN; do
+  tmux_cmd set-environment -gu "$name"
+done
+tmux_cmd set-environment -g PATH "$fixture_path"
+
 _assert_contains 'tmux navigation runtime passes the complete click record to Termnav' \
   '#{mouse_hyperlink}\\n#{mouse_word}\\n#{mouse_line}\\n#{mouse_x}\\n#{pane_current_path}\\n#{client_tty}\\n#{pane_id}\\n#{mouse_y}\\n#{pane_top}\\n#{pane_left}' \
   "$mouse_up"
@@ -268,6 +403,16 @@ if command -v python3 >/dev/null 2>&1; then
     'test_ctrl_backslash_selects_the_local_previous_pane' "$pty_output"
   _assert_contains 'tmux navigation PTY tests nested Ctrl-backslash' \
     'test_ctrl_backslash_forwards_through_a_nested_tmux' "$pty_output"
+  for click_test in test_an_agent_click_goes_to_termnav \
+    test_an_editor_keeps_a_plain_click test_a_shell_click_goes_to_termnav \
+    test_a_copy_mode_click_goes_to_termnav \
+    test_a_fast_second_click_never_reaches_an_agent \
+    test_a_ctrl_drag_reaches_an_editor_but_never_an_agent \
+    test_a_ctrl_drag_in_copy_mode_stays_in_copy_mode \
+    test_browser_links_go_to_termnav_and_file_links_stay; do
+    _assert_contains "tmux navigation PTY tests Ctrl-click routing: $click_test" \
+      "$click_test" "$pty_output"
+  done
 else
   _pass 'tmux navigation Python unavailable, PTY coverage skipped'
 fi

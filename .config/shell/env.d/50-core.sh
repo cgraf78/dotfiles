@@ -6,7 +6,23 @@
 # children so caller overrides survive. LANG and MANPATH keep their existing
 # fill-if-missing forms in every mode.
 
-_UNAME="$(uname -s)"
+# _UNAME holds the platform exactly as `uname -s` prints it (Linux, Darwin,
+# MINGW64_NT-10.0-19045, ...) for later env.d and interactive.d fragments.
+# env.d loads in every shell, including each non-interactive `bash -c` an
+# agent tool call or script starts, so skip the uname fork (~2 ms) where the
+# shell already knows: bash and zsh set OSTYPE to the OS they were built for
+# (linux-gnu, linux-musl, linux-android on Termux, darwin23), and only the
+# Linux and Darwin kernels run those builds. Other platforms keep `uname -s`
+# because its output there carries detail OSTYPE lacks (MSYS2 reports `msys`
+# for both MINGW* and MSYS* uname names), as does a shell without OSTYPE.
+# zsh always resets OSTYPE at startup; bash keeps an exported one (csh and
+# tcsh export theirs), which matches the host whenever a shell on the same
+# host exported it.
+case "${OSTYPE:-}" in
+  linux*) _UNAME=Linux ;;
+  darwin*) _UNAME=Darwin ;;
+  *) _UNAME="$(uname -s)" ;;
+esac
 
 export LANG="${LANG:-en_US.UTF-8}"
 _shell_env_set DS_SSH_AUTO_ATTACH ds
