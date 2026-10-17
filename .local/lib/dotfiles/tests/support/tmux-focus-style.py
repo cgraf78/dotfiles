@@ -432,11 +432,32 @@ class LeafStyleTest(unittest.TestCase):
             + "\n"
             + self.hook("client-session-changed")
         )
-        for hooks in (start_hooks, stop_hooks):
-            self.assertIn("#{==:#{client_control_mode},0}", hooks)
-            self.assertIn("--tmux-socket #{q:socket_path}", hooks)
-            self.assertIn("--client-pid #{client_pid}", hooks)
-            self.assertIn("--client-tty #{q:client_tty}", hooks)
+        # Notification hooks can expand #{client_*} for another client, so they
+        # name the client that raised them. tmux 3.2 lacks #{hook_client}, so
+        # the exact identity stays as a fallback behind the control-mode guard.
+        client = (
+            "#{?hook_client,--client-name #{q:hook_client},"
+            "--client-pid #{client_pid} --client-tty #{q:client_tty}}"
+        )
+        guard = "#{||:#{hook_client},#{==:#{client_control_mode},0}}"
+        for name in (
+            "client-attached",
+            "client-focus-in",
+            "client-focus-out",
+            "client-detached",
+            "client-session-changed",
+        ):
+            # Check each hook on its own so one reverted hook cannot hide
+            # behind another; client-attached[100] is the separate context hook.
+            hook = "\n".join(line for line in self.hook(name).splitlines() if "tmux focus" in line)
+            with self.subTest(hook=name):
+                self.assertIn(f"--tmux-socket #{{q:socket_path}} {client}", hook)
+                self.assertIn(guard, hook)
+        # Command hooks run with the invoking client, so its identity is exact.
+        command_hooks = self.hook("after-select-pane") + "\n" + self.hook("after-select-window")
+        self.assertIn("#{==:#{client_control_mode},0}", command_hooks)
+        self.assertIn("--client-pid #{client_pid}", command_hooks)
+        self.assertIn("--client-tty #{q:client_tty}", command_hooks)
         self.assertIn("termnav tmux focus watch", start_hooks)
         self.assertIn("termnav tmux focus stop", stop_hooks)
         self.assertIn("termnav tmux focus sync", sync_hooks)
