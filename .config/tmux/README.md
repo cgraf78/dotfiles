@@ -15,7 +15,7 @@ other end.
 - The default-server Continuum coordinator, its cheap save gate, and
   clipboard-history paste use `tmux-tools`.
 - `prefix o` and `prefix O` copy the last one or N command output blocks
-  through `cmdblocks`' `tmux-copy-last-output`, and `prefix A` pastes the
+  through `tmux-tools`' `tmux-copy-last-output`, and `prefix A` pastes the
   last block into the window's agent through its `--print` mode.
 - Automatic session persistence uses TPM, `tmux-resurrect`, and
   `tmux-continuum`, installed as shdeps-managed repository checkouts.
@@ -111,7 +111,7 @@ bell turns orange until selected, and tabs show `[Z]` for a zoomed pane and
 in the window tabs rather than in `status-left`.
 
 A pane is pending when its program asked for attention. Agent notification
-hooks call cmdblocks' `term-notify-sound`, which rings the bell and sets the
+hooks call tmux-tools' `term-notify-sound`, which rings the bell and sets the
 pane option `@term_notify_pending`, because tmux records a bell against a
 window, never against the pane that rang it. A pending pane shows an orange `●`
 before its border label, and its window's tab shows `●`, including the current
@@ -128,7 +128,7 @@ A nested tmux over SSH marks the remote pane in its own border; the outer layer
 only sees the bell.
 
 A pane is busy while its agent works on a request. AgentGuard's lifecycle hooks
-set the pane option `@term_busy` through cmdblocks' `term-pane-mark` when a
+set the pane option `@term_busy` through tmux-tools' `term-pane-mark` when a
 prompt is submitted and clear it when the turn ends: on Stop or session end,
 and on an Interrupt or failed-request event for runtimes that report one
 (Codex, Muse, OpenCode, and Claude's StopFailure) while AgentGuard telemetry is

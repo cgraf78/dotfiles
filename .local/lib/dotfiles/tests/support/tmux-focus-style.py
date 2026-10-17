@@ -685,7 +685,8 @@ class LeafStyleTest(unittest.TestCase):
         pane's foreground command while a builtin loop records each byte it
         receives; raw mode delivers the paste unbuffered. A stub output source
         names the pane it was asked to capture, and flag files make it report
-        no block (status 3) or behave like a cmdblocks without --print (64).
+        no block (status 3) or behave like an older tmux-copy-last-output
+        without --print (64).
         """
         client = Client(self)
         self.clients.append(client)
@@ -759,9 +760,9 @@ class LeafStyleTest(unittest.TestCase):
             "agent-paste", self.tmux("list-buffers", "-F", "#{buffer_name}").stdout.split()
         )
 
-        # No block pastes nothing and stays quiet; a cmdblocks without --print
-        # is reported; pressing in the agent pane or a window without an
-        # agent only explains why.
+        # No block pastes nothing and stays quiet; an older
+        # tmux-copy-last-output without --print is reported; pressing in the
+        # agent pane or a window without an agent only explains why.
         (self.root / "empty").touch()
         press_from(shell)
         (self.root / "empty").unlink()
