@@ -275,7 +275,22 @@ if command -v tmux >/dev/null 2>&1; then
     tmux_cmd bind-key -T prefix S run-shell tmux-save-session
     tmux_cmd bind-key -T prefix R run-shell tmux-restore-session
     tmux_cmd bind-key -T prefix N display-message stale-task-menu
+    # A server started from a VS Code terminal holds VS Code's BROWSER helper.
+    tmux_cmd set-environment -g BROWSER /vscode-server/bin/helpers/browser.sh
+    tmux_cmd set-environment -g VSCODE_IPC_HOOK_CLI /run/vscode-ipc.sock
     tmux_cmd source-file "$tmux_config" >/dev/null 2>&1 || true
+    _assert_eq "tmux: runtime drops VS Code's BROWSER inherited from the starting terminal" \
+      '' "$(tmux_cmd show-environment -g BROWSER 2>/dev/null)"
+    tmux_cmd set-environment -g BROWSER /usr/bin/firefox
+    tmux_cmd source-file "$tmux_config" >/dev/null 2>&1 || true
+    _assert_eq "tmux: runtime keeps a BROWSER that is not VS Code's" \
+      BROWSER=/usr/bin/firefox "$(tmux_cmd show-environment -g BROWSER 2>/dev/null)"
+    tmux_cmd set-environment -gu BROWSER
+    _assert_eq 'tmux: runtime keeps the VS Code IPC socket for code' \
+      VSCODE_IPC_HOOK_CLI=/run/vscode-ipc.sock \
+      "$(tmux_cmd show-environment -g VSCODE_IPC_HOOK_CLI 2>/dev/null)"
+    _assert_contains 'tmux: runtime refreshes the VS Code IPC socket on attach' \
+      VSCODE_IPC_HOOK_CLI "$(tmux_cmd show-options -gv update-environment)"
     mode_keys=$(tmux_cmd show-window-options -gv mode-keys)
     control_output=$(printf 'detach-client\n' |
       tmux_cmd -C attach-session -t dot-tmux-syntax 2>&1)
@@ -802,6 +817,19 @@ SH
       _fail "tmux: nested test server starts"
     fi
     tmux_cmd kill-server >/dev/null 2>&1 || true
+
+    # The leak itself: a server started from a VS Code terminal copies that
+    # terminal's BROWSER before any session exists.
+    vscode_socket=$(_tmux_socket) || exit 1
+    CLEANUP_DIRS+=("${vscode_socket%/*}")
+    "${TMUX_FIXTURE_ENV[@]}" BROWSER=/vscode-server/bin/helpers/browser.sh \
+      tmux -S "$vscode_socket" -f "$tmux_config" new-session -d 'sleep 60' \
+      >/dev/null 2>&1
+    _assert_eq "tmux: a server started from VS Code drops VS Code's BROWSER" '' \
+      "$("${TMUX_FIXTURE_ENV[@]}" tmux -S "$vscode_socket" \
+        show-environment -g BROWSER 2>/dev/null)"
+    "${TMUX_FIXTURE_ENV[@]}" tmux -S "$vscode_socket" kill-server \
+      >/dev/null 2>&1 || true
   else
     _fail "tmux: test server starts"
   fi

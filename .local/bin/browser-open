@@ -1,0 +1,188 @@
+#!/usr/bin/env bash
+# browser-open -- $BROWSER for hosts without a local desktop.
+#
+# Programs that open links themselves (Claude Code's Ctrl-click, `gh --web`,
+# Python's webbrowser, device-code logins) run $BROWSER on the host they run
+# on. On a remote build or lab host that is not where the user sits, so this
+# opener asks for the URL to open on the user's desktop instead, in order:
+#
+#   1. `termnav open-url`, which sends the request back through the terminal
+#      byte stream (tmux, nested tmux, SSH) to WezTerm on the desktop;
+#   2. VS Code's own opener, when a live VS Code window owns this session;
+#   3. a visible message with the URL. Claude Code ignores a failed opener
+#      without telling the user, so failing silently would look like a dead
+#      click.
+#
+# A URL on this host's loopback tries VS Code first, because VS Code forwards
+# the port; through termnav it opens anyway, and the message names the port
+# to forward.
+#
+# env.d sets BROWSER to this script only on Linux hosts without a display.
+#
+# Usage: browser-open URL
+
+set -u
+
+# Re-entry means some opener below reached for $BROWSER again: a fill-only
+# shell child restores BROWSER from env.d even though it is unset here. Stop
+# instead of looping.
+if [[ -n ${BROWSER_OPEN_ACTIVE:-} ]]; then
+  printf 'browser-open: refusing to call itself recursively\n' >&2
+  exit 1
+fi
+export BROWSER_OPEN_ACTIVE=1
+unset BROWSER
+
+# Show a message where the user is looking: tmux's status line when this runs
+# in a tmux pane of an attached session, and stderr always. For a detached
+# session tmux would pick a client of another session, flashing an unrelated
+# URL on someone else's screen. tmux expands both #{...} formats and strftime
+# % sequences in display-message, so double both: a URL's %2F would otherwise
+# print as today's date. -d needs tmux 3.2; retry without it.
+notify() {
+  local message=$1 escaped attached
+  local -a target=()
+  printf 'browser-open: %s\n' "$message" >&2
+  [[ -n ${TMUX:-} ]] && command -v tmux >/dev/null 2>&1 || return 0
+  [[ -n ${TMUX_PANE:-} ]] && target=(-t "$TMUX_PANE")
+  attached=$(tmux display-message -p ${target[@]+"${target[@]}"} \
+    '#{session_attached}' 2>/dev/null)
+  [[ $attached =~ ^[1-9] ]] || return 0
+  escaped=${message//#/##}
+  escaped=${escaped//%/%%}
+  tmux display-message ${target[@]+"${target[@]}"} -d 15000 \
+    "browser-open: $escaped" 2>/dev/null ||
+    tmux display-message ${target[@]+"${target[@]}"} \
+      "browser-open: $escaped" 2>/dev/null || true
+}
+
+# bounded SECONDS COMMAND...: a wedged peer costs a short pause, not a hung
+# click. termnav bounds its own tmux probes, but not a write to a terminal
+# that has stopped reading, such as an SSH session on a dead network. GNU
+# timeout otherwise moves the command out of the terminal's foreground
+# process group, where `stty tostop` would stop termnav's write to
+# /dev/tty; busybox timeout has no --foreground and leaves it in place.
+bounded() {
+  local seconds=$1
+  shift
+  if ! command -v timeout >/dev/null 2>&1; then
+    "$@"
+  elif timeout --foreground 1 true 2>/dev/null; then
+    timeout --foreground "$seconds" "$@"
+  else
+    timeout "$seconds" "$@"
+  fi
+}
+
+# VS Code's terminals point BROWSER at bin/helpers/browser.sh, which forwards
+# to the VS Code window over VSCODE_IPC_HOOK_CLI. tmux panes no longer inherit
+# that BROWSER, but a tmux server started from a VS Code terminal keeps the
+# server's bin/remote-cli directory on PATH, and the helper sits beside it.
+# Require the IPC socket to exist: a pane outliving its VS Code window keeps a
+# path to a socket that is gone.
+vscode_helper() {
+  local dir
+  local -a dirs=()
+  [[ -n ${VSCODE_IPC_HOOK_CLI:-} && -S $VSCODE_IPC_HOOK_CLI ]] || return 1
+  IFS=: read -r -a dirs <<<"$PATH"
+  for dir in ${dirs[@]+"${dirs[@]}"}; do
+    [[ $dir == */bin/remote-cli ]] || continue
+    if [[ -x ${dir%/remote-cli}/helpers/browser.sh ]]; then
+      REPLY=${dir%/remote-cli}/helpers/browser.sh
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Bash 3.2 (macOS /bin/bash) has no ${var,,}.
+lowercase() {
+  printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
+}
+
+# Print the port when the URL names this host's loopback, so it only works on
+# the desktop through a forwarded port: a dev server or notebook URL, or a
+# sign-in whose provider redirects back to localhost:PORT (plain or
+# percent-encoded). Device-code sign-ins (`gh auth login`, `codex login
+# --device-auth`) need nothing.
+loopback_port() {
+  local lower scheme port
+  local host='(localhost|127\.[0-9.]+|\[::1\]|0\.0\.0\.0)(:([0-9]+))?'
+  local direct="^(https?)://$host([/?#]|\$)"
+  local callback="[?&]redirect_uri=(https?)://$host([/?#&]|\$)"
+  lower=$(lowercase "$1")
+  lower=${lower//%3a/:}
+  lower=${lower//%2f//}
+  lower=${lower//%5b/[}
+  lower=${lower//%5d/]}
+  [[ $lower =~ $direct || $lower =~ $callback ]] || return 0
+  scheme=${BASH_REMATCH[1]}
+  port=${BASH_REMATCH[4]}
+  if [[ -z $port && $scheme == https ]]; then
+    port=443
+  elif [[ -z $port ]]; then
+    port=80
+  fi
+  printf '%s' "$port"
+}
+
+# open_vscode: VS Code's helper opened the URL.
+open_vscode() {
+  vscode_helper && bounded 10 "$REPLY" "$url" >/dev/null 2>&1
+}
+
+# Tell the user how to reach loopback PORT on this host from the desktop. A
+# privileged port cannot be bound on the desktop without root, so it is
+# forwarded from an unprivileged one.
+forward_hint() {
+  local port=$1 local_port=$1 host
+  host=$(hostname -s 2>/dev/null || hostname)
+  ((port < 1024)) && local_port=$((port + 8000))
+  REPLY="localhost:$port is on $host: forward it to the desktop (ssh -L $local_port:localhost:$port $host)"
+  ((local_port != port)) && REPLY+=" and open port $local_port there"
+  REPLY+=", or for a sign-in use the app's paste-code or device login"
+}
+
+if [[ $# -ne 1 || -z $1 || $1 == -* ]]; then
+  printf 'usage: browser-open URL\n' >&2
+  exit 2
+fi
+url=$1
+
+# Only browser schemes leave this host. Every opener here acts on another
+# machine, where file: or a custom scheme would name the wrong files or launch
+# local programs. termnav enforces the same list itself.
+case $(lowercase "$url") in
+  http://* | https://* | mailto:*) ;;
+  *)
+    notify "can only open http, https, and mailto links on the desktop: $url"
+    exit 1
+    ;;
+esac
+
+port=$(loopback_port "$url")
+if [[ -n $port ]] && open_vscode; then
+  exit 0
+fi
+
+if command -v termnav >/dev/null 2>&1 &&
+  termnav_error=$(bounded 5 termnav open-url "$url" 2>&1 >/dev/null); then
+  if [[ -n $port ]]; then
+    forward_hint "$port"
+    notify "$REPLY."
+  fi
+  exit 0
+fi
+
+if [[ -z $port ]] && open_vscode; then
+  exit 0
+fi
+
+[[ -n ${termnav_error:-} ]] && printf '%s\n' "$termnav_error" >&2
+message="could not open a browser on the desktop; copy this URL: $url"
+if [[ -n $port ]]; then
+  forward_hint "$port"
+  message+=" ($REPLY)"
+fi
+notify "$message"
+exit 1

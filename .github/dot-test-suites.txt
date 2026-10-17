@@ -1,6 +1,7 @@
 .local/lib/dotfiles/tests/agent-rules-adapter-test
 .local/lib/dotfiles/tests/agent-rules-test
 .local/lib/dotfiles/tests/base-profile-boundary-test
+.local/lib/dotfiles/tests/browser-open-test
 .local/lib/dotfiles/tests/ci-only/overlay-profile-stack-test
 .local/lib/dotfiles/tests/client-extensions-test
 .local/lib/dotfiles/tests/client-paths-test
