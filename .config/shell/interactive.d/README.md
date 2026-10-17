@@ -12,7 +12,7 @@ base layers they depend on.
 
 The prompt also notifies about long commands. Inside tmux, a command that ran
 for `PROMPT_NOTIFY_SECONDS` (default 30; `0` turns it off) rings the terminal
-and marks its pane pending through cmdblocks' `term-notify-sound`, the same
+and marks its pane pending through tmux-tools' `term-notify-sound`, the same
 `●` an agent waiting for you shows, unless you were looking at that pane when
 it finished: your most recently used tmux client shows the pane and its
 terminal has focus. Interactive programs (an editor, a pager, an fzf picker,
