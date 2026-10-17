@@ -1,12 +1,12 @@
 # dotfiles
 
-![Tests](https://github.com/cgraf78/dotfiles/actions/workflows/test.yml/badge.svg)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Bash Version](https://img.shields.io/badge/bash-%3E%3D4.0-blue.svg)](https://www.gnu.org/software/bash/)
-![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20WSL-lightgrey.svg)
+[![Tests](https://github.com/cgraf78/dotfiles/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/cgraf78/dotfiles/actions/workflows/test.yml?query=branch%3Amain)
+[![License](https://img.shields.io/badge/license-MIT-67ac09)](LICENSE)
+[![Bash](https://img.shields.io/badge/bash-%3E%3D4.0-blue)](#quick-start)
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20WSL%20%7C%20Termux-lightgrey)](#quick-start)
 
-My personal shell, tmux, and terminal environment for Linux, macOS, and WSL:
-Bash and Zsh startup, tmux configuration and session tooling, WezTerm,
+My personal shell, tmux, and terminal environment for Linux, macOS, WSL, and
+Termux: Bash and Zsh startup, tmux configuration and session tooling, WezTerm,
 ripgrep, atuin, and the agent rules I use with coding assistants. It is
 managed by [`dot`](https://github.com/cgraf78/dot), which tracks `$HOME`
 directly in Git and layers optional overlay repos on top.
