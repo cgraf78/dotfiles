@@ -1,0 +1,382 @@
+#!/usr/bin/env bash
+# browser-open-test - the $BROWSER wrapper for hosts without a desktop, and
+# the env.d rule that selects it.
+
+set -o pipefail
+export NO_COLOR=1
+
+# shellcheck source=helpers.sh
+. "${BASH_SOURCE[0]%/*}/helpers.sh"
+
+# The live VS Code IPC socket below is a real Unix socket.
+command -v python3 >/dev/null 2>&1 ||
+  _test_skip_suite 'python3 is not installed'
+
+source_home=${DOT_TEST_SOURCE_HOME:-$HOME}
+wrapper=$source_home/.local/bin/browser-open
+test_root=$(_tmpdir)
+stub_bin=$test_root/stubs
+runtime_bin=$test_root/runtime
+log=$test_root/log
+timeout_log=$test_root/timeouts
+mkdir -p "$stub_bin" "$runtime_bin"
+
+# Only the tools the wrapper and the stubs need, so a host's real termnav,
+# tmux, or VS Code CLI can never answer for a stub.
+for tool in bash cat env grep hostname printf sleep tr true; do
+  tool_path=$(type -P "$tool") || continue
+  [[ $tool_path == /* ]] && ln -s "$tool_path" "$runtime_bin/$tool"
+done
+test_path=$stub_bin:$runtime_bin
+
+# Each stub logs its argv and what it inherited, prints noise on stdout (the
+# wrapper must never pass it on), then exits with the status named by its
+# *_STATUS variable.
+write_stub() {
+  local name=$1 status_var=$2
+  cat >"$stub_bin/$name" <<EOF
+#!/usr/bin/env bash
+printf '%s|%s|BROWSER=%s|ACTIVE=%s\n' "$name" "\$*" "\${BROWSER-unset}" \\
+  "\${BROWSER_OPEN_ACTIVE-unset}" >>"\$BROWSER_OPEN_TEST_LOG"
+[[ -n \${BROWSER_OPEN_TEST_STDERR:-} ]] && printf '%s\n' "\$BROWSER_OPEN_TEST_STDERR" >&2
+printf 'stdout noise from $name\n'
+exit "\${$status_var:-0}"
+EOF
+  chmod +x "$stub_bin/$name"
+}
+write_stub termnav TERMNAV_STATUS
+# tmux answers the attached-session query with TMUX_ATTACHED (default 1) and
+# logs everything else.
+cat >"$stub_bin/tmux" <<'EOF'
+#!/usr/bin/env bash
+if [[ $* == *'#{session_attached}'* ]]; then
+  printf '%s\n' "${TMUX_ATTACHED:-1}"
+  exit 0
+fi
+printf 'tmux|%s\n' "$*" >>"$BROWSER_OPEN_TEST_LOG"
+exit "${TMUX_STATUS:-0}"
+EOF
+chmod +x "$stub_bin/tmux"
+# timeout logs its options, bound, and command, then runs the command
+# unbounded.
+cat >"$stub_bin/timeout" <<'EOF'
+#!/usr/bin/env bash
+options=
+[[ $1 == --foreground ]] && options='--foreground ' && shift
+printf '%s%s %s\n' "$options" "$1" "${2##*/}" >>"$BROWSER_OPEN_TEST_TIMEOUT_LOG"
+shift
+exec "$@"
+EOF
+chmod +x "$stub_bin/timeout"
+
+# A VS Code server layout: bin/remote-cli on PATH, bin/helpers/browser.sh.
+vscode_root=$test_root/vscode-server/bin
+mkdir -p "$vscode_root/remote-cli" "$vscode_root/helpers"
+cat >"$vscode_root/helpers/browser.sh" <<'EOF'
+#!/usr/bin/env bash
+printf 'vscode|%s|BROWSER=%s\n' "$*" "${BROWSER-unset}" >>"$BROWSER_OPEN_TEST_LOG"
+printf 'stdout noise from VS Code\n'
+exit "${VSCODE_STATUS:-0}"
+EOF
+chmod +x "$vscode_root/helpers/browser.sh"
+vscode_path=$test_path:$vscode_root/remote-cli
+socket_dir=$(_tmux_socket) || exit 1
+socket_dir=${socket_dir%/*}
+CLEANUP_DIRS+=("$socket_dir")
+live_socket=$socket_dir/ipc.sock
+python3 -c 'import socket, sys; socket.socket(socket.AF_UNIX).bind(sys.argv[1])' \
+  "$live_socket"
+
+# run [VAR=value...] [-- ARG...]: run the wrapper in a clean environment and
+# set out, err, status, and calls.
+run() {
+  local -a vars=()
+  while (($#)) && [[ $1 != -- ]]; do
+    vars+=("$1")
+    shift
+  done
+  (($#)) && shift
+  : >"$log"
+  : >"$timeout_log"
+  out=$(env -i HOME="$test_root" PATH="$test_path" \
+    BROWSER_OPEN_TEST_LOG="$log" BROWSER_OPEN_TEST_TIMEOUT_LOG="$timeout_log" \
+    ${vars[@]+"${vars[@]}"} "$wrapper" "$@" 2>"$test_root/err")
+  status=$?
+  err=$(<"$test_root/err")
+  calls=$(<"$log")
+}
+
+# #S is tmux's session-name format and %2F a strftime conversion, so an
+# unescaped message would print neither as written.
+url='https://example.com/a%2Fb?q=1#Section'
+
+echo "=== browser-open: arguments ==="
+
+run --
+_assert_exit 'browser-open: no URL is a usage error' 2 "$status"
+run -- ''
+_assert_exit 'browser-open: an empty URL is a usage error' 2 "$status"
+run -- "$url" "$url"
+_assert_exit 'browser-open: two URLs are a usage error' 2 "$status"
+run -- --help
+_assert_exit 'browser-open: an option is never treated as a URL' 2 "$status"
+_assert_eq 'browser-open: usage errors open nothing' '' "$calls"
+run TMUX=/tmp/s,1,0 -- file:///etc/passwd
+_assert_exit 'browser-open: a file URL fails' 1 "$status"
+_assert_not_contains 'browser-open: a file URL never reaches termnav' \
+  'termnav|' "$calls"
+_assert_contains 'browser-open: a refused scheme is explained on stderr' \
+  'file:///etc/passwd' "$err"
+_assert_contains 'browser-open: a refused scheme is shown in tmux' \
+  'tmux|display-message' "$calls"
+_assert_eq 'browser-open: a refused scheme writes nothing to stdout' '' "$out"
+run TERMNAV_STATUS=1 VSCODE_IPC_HOOK_CLI="$live_socket" PATH="$vscode_path" \
+  -- 'vscode://file/etc/passwd'
+_assert_eq 'browser-open: a custom scheme never reaches VS Code either' \
+  '' "$(grep -E '^(termnav|vscode)\|' "$log" || true)"
+
+echo "=== browser-open: termnav first ==="
+
+run BROWSER=/vscode/helpers/browser.sh -- "$url"
+_assert_exit 'browser-open: termnav delivery succeeds' 0 "$status"
+_assert_eq 'browser-open: termnav receives exactly the URL' \
+  "termnav|open-url $url|BROWSER=unset|ACTIVE=1" "$calls"
+_assert_eq 'browser-open: termnav output never reaches stdout' '' "$out"
+_assert_contains 'browser-open: termnav is time-limited in the foreground' \
+  '--foreground 5 termnav' "$(<"$timeout_log")"
+run -- MAILTO:someone@example.com
+_assert_eq 'browser-open: schemes match case-insensitively' \
+  'termnav|open-url MAILTO:someone@example.com|BROWSER=unset|ACTIVE=1' "$calls"
+run VSCODE_IPC_HOOK_CLI="$live_socket" PATH="$vscode_path" -- "$url"
+_assert_eq 'browser-open: termnav wins over a live VS Code window' \
+  "termnav|open-url $url|BROWSER=unset|ACTIVE=1" "$calls"
+
+echo "=== browser-open: VS Code fallback ==="
+
+run TERMNAV_STATUS=3 VSCODE_IPC_HOOK_CLI="$live_socket" PATH="$vscode_path" \
+  -- "$url"
+_assert_exit 'browser-open: VS Code opens a declined URL' 0 "$status"
+_assert_contains 'browser-open: VS Code helper receives the URL' \
+  "vscode|$url|BROWSER=unset" "$calls"
+_assert_eq 'browser-open: VS Code output never reaches stdout' '' "$out"
+_assert_contains 'browser-open: the VS Code helper is time-limited' \
+  '--foreground 10 browser.sh' "$(<"$timeout_log")"
+run TERMNAV_STATUS=1 VSCODE_IPC_HOOK_CLI="$test_root/gone.sock" \
+  PATH="$vscode_path" -- "$url"
+_assert_exit 'browser-open: a dead VS Code socket fails' 1 "$status"
+_assert_not_contains 'browser-open: a dead VS Code socket skips the helper' \
+  'vscode|' "$calls"
+: >"$test_root/not-a-socket"
+run TERMNAV_STATUS=1 VSCODE_IPC_HOOK_CLI="$test_root/not-a-socket" \
+  PATH="$vscode_path" -- "$url"
+_assert_not_contains 'browser-open: a regular file is not a VS Code socket' \
+  'vscode|' "$calls"
+run TERMNAV_STATUS=1 VSCODE_IPC_HOOK_CLI="$live_socket" -- "$url"
+_assert_not_contains 'browser-open: no VS Code server on PATH skips the helper' \
+  'vscode|' "$calls"
+run TERMNAV_STATUS=1 VSCODE_IPC_HOOK_CLI="$live_socket" \
+  PATH="$test_path:$test_root/vscode-*/bin/remote-cli" -- "$url"
+_assert_not_contains 'browser-open: PATH entries are not glob patterns' \
+  'vscode|' "$calls"
+_assert_exit 'browser-open: no VS Code server on PATH fails' 1 "$status"
+run TERMNAV_STATUS=1 VSCODE_STATUS=1 VSCODE_IPC_HOOK_CLI="$live_socket" \
+  PATH="$vscode_path" -- "$url"
+_assert_exit 'browser-open: a failing VS Code helper fails' 1 "$status"
+mv "$stub_bin/termnav" "$test_root/termnav.off"
+run VSCODE_IPC_HOOK_CLI="$live_socket" PATH="$vscode_path" -- "$url"
+_assert_exit 'browser-open: without termnav VS Code still opens' 0 "$status"
+run -- "$url"
+_assert_exit 'browser-open: without termnav or VS Code it fails' 1 "$status"
+_assert_contains 'browser-open: without termnav the URL is still reported' \
+  "$url" "$err"
+mv "$test_root/termnav.off" "$stub_bin/termnav"
+
+echo "=== browser-open: visible failure ==="
+
+run TERMNAV_STATUS=3 BROWSER_OPEN_TEST_STDERR='termnav open-url: not WezTerm' \
+  -- "$url"
+_assert_exit 'browser-open: an undeliverable URL fails' 1 "$status"
+_assert_contains 'browser-open: failure prints the URL on stderr' "$url" "$err"
+_assert_contains "browser-open: failure keeps termnav's reason" \
+  'not WezTerm' "$err"
+_assert_eq 'browser-open: failure writes nothing to stdout' '' "$out"
+_assert_not_contains 'browser-open: outside tmux there is no tmux message' \
+  'tmux|' "$calls"
+run TMUX=/tmp/s,1,0 TMUX_PANE=%3 TERMNAV_STATUS=3 -- "$url"
+_assert_contains 'browser-open: failure in tmux shows a message with the URL' \
+  'tmux|display-message -t %3 -d 15000 browser-open: could not open a browser on the desktop; copy this URL: https://example.com/a%%2Fb?q=1##Section' \
+  "$calls"
+run TMUX=/tmp/s,1,0 TERMNAV_STATUS=3 TMUX_STATUS=1 -- "$url"
+_assert_contains 'browser-open: tmux without -d still gets the message' \
+  'tmux|display-message browser-open: could not open' "$calls"
+run TMUX=/tmp/s,1,0 TMUX_PANE=%3 TMUX_ATTACHED=0 TERMNAV_STATUS=3 -- "$url"
+_assert_not_contains "browser-open: a detached session's failure stays off other screens" \
+  'tmux|display-message' "$calls"
+_assert_contains "browser-open: a detached session's failure still reaches stderr" \
+  "$url" "$err"
+
+if command -v tmux >/dev/null 2>&1; then
+  # The real formatter: a stub forwards the wrapper's message to a private
+  # server as display-message -p, whose output is what the status line shows.
+  real_tmux=$(command -v tmux)
+  socket=$(_tmux_socket) || exit 1
+  CLEANUP_DIRS+=("${socket%/*}")
+  _tmux_fixture_env "$source_home" || exit 1
+  "${TMUX_FIXTURE_ENV[@]}" "$real_tmux" -S "$socket" -f /dev/null \
+    new-session -d 'exec sleep 60'
+  fixture_env=$(printf '%q ' "${TMUX_FIXTURE_ENV[@]}")
+  cat >"$stub_bin/tmux" <<EOF
+#!/usr/bin/env bash
+[[ \$* == *'#{session_attached}'* ]] && { echo 1; exit 0; }
+[[ \$1 == display-message ]] || exit 1
+shift
+[[ \$1 == -d ]] && shift 2
+exec $fixture_env "$real_tmux" -S "$socket" display-message -p "\$@" \\
+  >>"$test_root/shown"
+EOF
+  : >"$test_root/shown"
+  run TMUX=/tmp/s,1,0 TERMNAV_STATUS=3 -- "$url"
+  _assert_eq 'browser-open: tmux shows the URL byte for byte' \
+    "browser-open: could not open a browser on the desktop; copy this URL: $url" \
+    "$(<"$test_root/shown")"
+  "${TMUX_FIXTURE_ENV[@]}" "$real_tmux" -S "$socket" kill-server 2>/dev/null
+else
+  _pass 'browser-open: tmux unavailable, real message formatting skipped'
+fi
+write_stub tmux TMUX_STATUS
+
+echo "=== browser-open: recursion ==="
+
+run BROWSER_OPEN_ACTIVE=1 -- "$url"
+_assert_exit 'browser-open: re-entry is refused' 1 "$status"
+_assert_eq 'browser-open: re-entry opens nothing' '' "$calls"
+# termnav standing in for any opener whose shell child restores BROWSER and
+# calls it again: the inner call must refuse, and the outer one must finish.
+# The depth cap keeps a broken guard from recursing until the suite times out.
+cat >"$stub_bin/termnav" <<EOF
+#!/usr/bin/env bash
+printf 'termnav|%s\n' "\$*" >>"\$BROWSER_OPEN_TEST_LOG"
+(( \$(grep -c '^termnav|' "\$BROWSER_OPEN_TEST_LOG") < 3 )) && "$wrapper" "\$2"
+exit 1
+EOF
+chmod +x "$stub_bin/termnav"
+run -- "$url"
+_assert_exit 'browser-open: a looping opener ends in failure' 1 "$status"
+_assert_eq 'browser-open: a looping opener runs once' 1 \
+  "$(grep -c '^termnav|' "$log")"
+_assert_contains 'browser-open: the inner call explains the refusal' \
+  'recursively' "$err"
+write_stub termnav TERMNAV_STATUS
+
+echo "=== browser-open: loopback URLs ==="
+
+oauth='https://claude.ai/oauth/authorize?client_id=x&redirect_uri=http%3A%2F%2Flocalhost%3A54545%2Fcallback&state=y'
+run -- "$oauth"
+_assert_exit 'browser-open: a localhost sign-in still opens' 0 "$status"
+_assert_contains 'browser-open: a localhost sign-in names its port' \
+  'localhost:54545' "$err"
+_assert_contains 'browser-open: a localhost sign-in explains the forward' \
+  'ssh -L 54545:localhost:54545' "$err"
+run -- 'https://auth.example/authorize?redirect_uri=http://127.0.0.1:8085/cb'
+_assert_contains 'browser-open: an unencoded loopback redirect names its port' \
+  'localhost:8085' "$err"
+run -- 'https://auth.example/a?redirect_uri=http%3A%2F%2F%5B%3A%3A1%5D%3A8086%2Fcb'
+_assert_contains 'browser-open: an encoded IPv6 loopback redirect names its port' \
+  'localhost:8086' "$err"
+run -- 'http://localhost:8888/tree?token=abc'
+_assert_contains 'browser-open: a local dev server names its port' \
+  'localhost:8888' "$err"
+run -- 'https://127.0.0.1/'
+_assert_contains 'browser-open: a loopback URL without a port uses the default' \
+  'localhost:443 ' "$err"
+_assert_contains 'browser-open: a privileged port is forwarded from a free one' \
+  'ssh -L 8443:localhost:443' "$err"
+run -- 'http://localhost/'
+_assert_contains 'browser-open: plain http defaults to port 80' \
+  'localhost:80 ' "$err"
+run -- 'http://0.0.0.0:5173/'
+_assert_contains 'browser-open: a wildcard bind address is loopback too' \
+  'localhost:5173 ' "$err"
+for remote in 'https://github.com/login/device' \
+  'https://localhost.example.com/' 'https://example.com/?q=localhost:80' \
+  'https://auth.example/logout?post_logout_redirect_uri=http://localhost:1/'; do
+  run -- "$remote"
+  _assert_eq "browser-open: $remote needs no forwarding hint" '' "$err"
+done
+run VSCODE_IPC_HOOK_CLI="$live_socket" PATH="$vscode_path" -- "$oauth"
+_assert_eq 'browser-open: VS Code takes a loopback URL first' \
+  "vscode|$oauth|BROWSER=unset" "$calls"
+_assert_eq 'browser-open: VS Code forwards ports itself, so no hint' '' "$err"
+run VSCODE_STATUS=1 VSCODE_IPC_HOOK_CLI="$live_socket" PATH="$vscode_path" \
+  -- "$oauth"
+_assert_exit 'browser-open: a loopback URL VS Code fails still opens' 0 "$status"
+_assert_eq 'browser-open: a failed VS Code is not retried' 1 \
+  "$(grep -c '^vscode|' "$log")"
+_assert_contains 'browser-open: a loopback URL through termnav gets the hint' \
+  'localhost:54545' "$err"
+run TERMNAV_STATUS=1 VSCODE_STATUS=1 VSCODE_IPC_HOOK_CLI="$live_socket" \
+  PATH="$vscode_path" -- "$oauth"
+_assert_eq 'browser-open: VS Code is not retried after termnav fails' 1 \
+  "$(grep -c '^vscode|' "$log")"
+_assert_contains 'browser-open: a failed loopback URL still names the forward' \
+  'ssh -L 54545:localhost:54545' "$err"
+
+echo "=== env.d: BROWSER selection ==="
+
+# The real loader, core, and platform fragments in a fixture home; a uname
+# stub chooses the platform.
+env_home=$test_root/env-home
+mkdir -p "$env_home/.config/shell/env.d" "$env_home/.local/lib/dotfiles" \
+  "$env_home/.local/bin" "$test_root/uname-bin"
+cp "$source_home/.local/lib/dotfiles/shell-loader.sh" \
+  "$env_home/.local/lib/dotfiles/"
+cp "$source_home/.config/shell/env.d/50-core.sh" \
+  "$source_home/.config/shell/env.d/70-platform.sh" \
+  "$env_home/.config/shell/env.d/"
+cp "$wrapper" "$env_home/.local/bin/browser-open"
+cat >"$test_root/uname-bin/uname" <<'EOF'
+#!/bin/sh
+printf '%s\n' "${BROWSER_OPEN_TEST_UNAME:-Linux}"
+EOF
+chmod +x "$test_root/uname-bin/uname"
+env_wrapper=$env_home/.local/bin/browser-open
+vscode_browser=/vscode-server/bin/helpers/browser.sh
+
+# env_browser SHELL MODE [VAR=value...]: BROWSER after loading env.d.
+env_browser() {
+  local shell=$1 mode=$2
+  shift 2
+  # shellcheck disable=SC2016 # expands in the child shell.
+  env -i HOME="$env_home" PATH="$test_root/uname-bin:$PATH" "$@" \
+    "$shell" -c '. "$HOME/.local/lib/dotfiles/shell-loader.sh"
+      _shell_load_env "$1" "$2"; printf "%s" "${BROWSER-unset}"' \
+    _ "${shell##*/}" "$mode" 2>/dev/null
+}
+
+for env_shell in bash zsh; do
+  shell_path=$(command -v "$env_shell") || continue
+  _assert_eq "env.d ($env_shell): a headless Linux login replaces a leaked VS Code BROWSER" \
+    "$env_wrapper" "$(env_browser "$shell_path" authoritative BROWSER=$vscode_browser)"
+  _assert_eq "env.d ($env_shell): a headless Linux child gets the wrapper" \
+    "$env_wrapper" "$(env_browser "$shell_path" fill)"
+  _assert_eq "env.d ($env_shell): a child keeps a caller's BROWSER" \
+    /caller/browser "$(env_browser "$shell_path" fill BROWSER=/caller/browser)"
+  _assert_eq "env.d ($env_shell): a VS Code terminal keeps VS Code's BROWSER" \
+    "$vscode_browser" "$(env_browser "$shell_path" authoritative \
+      TERM_PROGRAM=vscode BROWSER=$vscode_browser)"
+  _assert_eq "env.d ($env_shell): a tmux pane is not a VS Code terminal" \
+    "$env_wrapper" "$(env_browser "$shell_path" authoritative \
+      TERM_PROGRAM=tmux BROWSER=$vscode_browser)"
+  for desktop in DISPLAY=:0 WAYLAND_DISPLAY=wayland-0 \
+    WSL_DISTRO_NAME=Ubuntu TERMUX_VERSION=0.118; do
+    _assert_eq "env.d ($env_shell): ${desktop%%=*} keeps the host's opener" \
+      unset "$(env_browser "$shell_path" authoritative "$desktop")"
+  done
+  _assert_eq "env.d ($env_shell): macOS keeps open" \
+    unset "$(env_browser "$shell_path" authoritative BROWSER_OPEN_TEST_UNAME=Darwin)"
+done
+chmod -x "$env_wrapper"
+_assert_eq 'env.d: no executable wrapper, no BROWSER' \
+  unset "$(env_browser "$(command -v bash)" authoritative)"
+
+_test_summary

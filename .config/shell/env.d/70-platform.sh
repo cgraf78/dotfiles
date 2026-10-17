@@ -13,3 +13,16 @@ if [[ "$_UNAME" == "Linux" || "$_UNAME" == MINGW* || "$_UNAME" == MSYS* ]]; then
       ;;
   esac
 fi
+
+# Programs that open links themselves (Claude Code's Ctrl-click, `gh --web`,
+# Python's webbrowser) run $BROWSER where they run. On a Linux host without a
+# display, such as a remote build host reached over SSH or ET, that is not
+# where the user sits, so browser-open forwards the URL to the desktop's
+# terminal. macOS, WSL, Termux, and Linux desktops keep their own openers. A VS Code integrated
+# terminal keeps VS Code's BROWSER, which opens in that VS Code window; inside
+# tmux, TERM_PROGRAM is always tmux, so tmux panes never match this exception.
+if [ "$_UNAME" = Linux ] && [ -z "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] &&
+  [ -z "${WSL_DISTRO_NAME:-}${TERMUX_VERSION:-}" ] &&
+  [ "${TERM_PROGRAM:-}" != vscode ] && [ -x "$HOME/.local/bin/browser-open" ]; then
+  _shell_env_set BROWSER "$HOME/.local/bin/browser-open"
+fi
