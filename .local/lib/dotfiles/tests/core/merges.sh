@@ -331,7 +331,7 @@ TOOL_COMMANDS
 
   tool_gated_hooks=$(
     printf '%s\n' \
-      agent-rules cron grok-rc ignore iterm2 karabiner ssh tmux wezterm
+      agent-rules cron gh-token grok-rc ignore iterm2 karabiner ssh tmux wezterm
   )
   # Root-gated hooks change system state, so the privilege check must precede
   # even the tool probe; ordinary user updates never touch them.
@@ -2139,7 +2139,7 @@ EOF
   echo "=== base merge hook ownership boundary ==="
 
   expected_base_hooks=$(printf '%s\n' \
-    agent-rules cron grok-rc ignore iterm2 karabiner ssh sshd tmux wezterm | LC_ALL=C sort)
+    agent-rules cron gh-token grok-rc ignore iterm2 karabiner ssh sshd tmux wezterm | LC_ALL=C sort)
   actual_hooks=$(_dot_test_merge_hook_names "$REAL_HOME")
   _assert_eq "merge hooks: only base-owned hooks are present" \
     "$expected_base_hooks" "$actual_hooks"

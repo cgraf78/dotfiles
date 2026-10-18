@@ -34,3 +34,8 @@ The paired config tree contains user-editable source fragments. Do not move
 executable helpers back under `.config/dot`: configuration is organized by the
 program consuming it, while code is organized by the repository implementing
 it.
+
+Base's `gh-token` hook owns the optional local GitHub token file independently
+of GitHub CLI preferences. It repairs existing file permissions or seeds a
+missing file using available GitHub CLI credentials. The development overlay's
+`gh` hook owns preferences only; neither hook requires the other to run first.

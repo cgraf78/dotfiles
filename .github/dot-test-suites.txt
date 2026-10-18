@@ -16,6 +16,7 @@
 .local/lib/dotfiles/tests/dot-release-live-test
 .local/lib/dotfiles/tests/dot-runtime-resolve-test
 .local/lib/dotfiles/tests/footprint-test
+.local/lib/dotfiles/tests/github-token-test
 .local/lib/dotfiles/tests/harness-isolation-test
 .local/lib/dotfiles/tests/profile-policy-test
 .local/lib/dotfiles/tests/prompt-test

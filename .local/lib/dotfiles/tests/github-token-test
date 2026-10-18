@@ -1,0 +1,192 @@
+#!/usr/bin/env bash
+# github-token-test — base GitHub credential loading and safe local seeding.
+# shellcheck disable=SC1091 # Shared suite helper resolves beside this file.
+. "${BASH_SOURCE[0]%/*}/helpers.sh"
+SOURCE_HOME=${DOT_TEST_SOURCE_HOME:-${BASH_SOURCE[0]%/.local/lib/dotfiles/tests/*}}
+ENV_FRAGMENT=$SOURCE_HOME/.config/shell/env.d/60-github.sh
+TOKEN_HOOK=$SOURCE_HOME/.local/lib/dotfiles/merge-hooks.d/gh-token.sh
+_assert_file_exists "base owns GitHub environment fragment" "$ENV_FRAGMENT"
+_assert_file_exists "base owns GitHub token seed hook" "$TOKEN_HOOK"
+if [[ ! -f $ENV_FRAGMENT || ! -f $TOKEN_HOOK ]]; then
+  _test_summary
+fi
+
+FIXTURE=$(_tmpdir)
+mkdir -p "$FIXTURE/home/.config/gh" "$FIXTURE/bin"
+PAT=$FIXTURE/home/.config/gh/github-pat
+REAL_CHMOD=$(command -v chmod)
+REAL_MV=$(command -v mv)
+cat >"$FIXTURE/bin/chmod" <<'SH'
+#!/bin/sh
+printf '%s\n' "$*" >>"$CHMOD_LOG"
+exec "$REAL_CHMOD" "$@"
+SH
+chmod +x "$FIXTURE/bin/chmod"
+# Isolate every child from startup hooks and inherited real tokens. The real
+# ownership helper covers Bash/Zsh; POSIX sh uses its documented fallback.
+# shellcheck disable=SC2016
+ENV_PROBE='
+if [ "$3" = sh ]; then
+  _shell_env_set() { export "$1=$2"; }
+else
+  . "$1/.local/lib/dotfiles/shell-loader.sh"
+fi
+case "$4" in
+  fill) _SHELL_ENV_MODE=fill; _SHELL_ENV_OWNED=" " ;;
+esac
+. "$2"
+printf "%s|%s\n" "${GH_TOKEN+set}" "${GH_TOKEN-}"
+'
+_probe_env() {
+  local shell=$1 mode=$2
+  shift 2
+  env -i HOME="$FIXTURE/home" PATH="$FIXTURE/bin:/usr/bin:/bin" \
+    REAL_CHMOD="$REAL_CHMOD" CHMOD_LOG="$FIXTURE/chmod.log" "$@" \
+    "$shell" -c "$ENV_PROBE" _ "$SOURCE_HOME" "$ENV_FRAGMENT" "$shell" "$mode"
+}
+for token_shell in bash zsh sh; do
+  command -v "$token_shell" >/dev/null 2>&1 || continue
+  rm -f "$PAT"
+  _assert_eq "$token_shell missing PAT leaves token unset" '|' "$(_probe_env "$token_shell" normal)"
+  : >"$PAT"
+  _assert_eq "$token_shell empty PAT leaves token unset" '|' "$(_probe_env "$token_shell" normal)"
+  printf '\nsecond-line-token\n' >"$PAT"
+  _assert_eq "$token_shell blank first line does not use later lines" '|' "$(_probe_env "$token_shell" normal)"
+  printf 'fixture-token\nignored-second-line\n' >"$PAT"
+  _assert_eq "$token_shell reads first line" 'set|fixture-token' "$(_probe_env "$token_shell" normal)"
+  _assert_eq "$token_shell preserves nonempty explicit token" 'set|caller-token' \
+    "$(_probe_env "$token_shell" normal GH_TOKEN=caller-token)"
+  if [[ $token_shell != sh ]]; then
+    _assert_eq "$token_shell fill-only respects explicitly empty token" 'set|' \
+      "$(_probe_env "$token_shell" fill GH_TOKEN=)"
+    _assert_eq "$token_shell fill-only fills missing token" 'set|fixture-token' \
+      "$(_probe_env "$token_shell" fill)"
+  fi
+  rm -f "$FIXTURE/chmod.log"
+  chmod 644 "$PAT"
+  _probe_env "$token_shell" normal >/dev/null
+  _assert_file_missing "$token_shell noninteractive token load never chmods" "$FIXTURE/chmod.log"
+  if [[ $token_shell != sh ]]; then
+    shell_args=(-i)
+    [[ $token_shell == bash ]] && shell_args=(--norc --noprofile -i)
+    [[ $token_shell == zsh ]] && shell_args=(-f -i)
+    interactive_output=$(env -i HOME="$FIXTURE/home" PATH="$FIXTURE/bin:/usr/bin:/bin" \
+      REAL_CHMOD="$REAL_CHMOD" CHMOD_LOG="$FIXTURE/chmod.log" \
+      "$token_shell" "${shell_args[@]}" -c "$ENV_PROBE" _ \
+      "$SOURCE_HOME" "$ENV_FRAGMENT" "$token_shell" normal 2>/dev/null </dev/null)
+    _assert_eq "$token_shell interactive load reads token" 'set|fixture-token' "$interactive_output"
+    _assert_file_content "$token_shell interactive load repairs token mode once" "600 $PAT" "$FIXTURE/chmod.log"
+  fi
+done
+
+_test_load_dot_merge_api || exit 1
+dot_hook_source merge-hooks.d/lib/compat.sh || exit 1
+TEST_YQ_BIN=$(_merge_hook_mikefarah_yq 2>/dev/null || true)
+if [[ -z $TEST_YQ_BIN ]]; then
+  # Worktree runs intentionally hide host executables. Reuse the shared host
+  # shdeps mapping for this optional read-only parser, then verify its dialect.
+  host_yq=$(
+    _test_use_host_shdeps
+    printf '%s/yq\n' "$SHDEPS_BIN_DIR"
+  )
+  if [[ -x $host_yq && $("$host_yq" --version 2>/dev/null) == *mikefarah* ]]; then
+    TEST_YQ_BIN=$host_yq
+  fi
+fi
+# Every merge uses isolated writable state and an executable gh trap. Explicitly
+# allowing that double through older credential guards makes accidental keyring
+# access observable rather than letting the test-mode guard hide it.
+cat >"$FIXTURE/bin/gh" <<'SH'
+#!/bin/sh
+printf '%s\n' "$*" >>"$HOME/gh-calls.log"
+exit 97
+SH
+cat >"$FIXTURE/bin/mv" <<'SH'
+#!/bin/sh
+[ "${TEST_PUBLISH_FAIL:-0}" = 0 ] || exit 1
+exec "$REAL_MV" "$@"
+SH
+chmod +x "$FIXTURE/bin/gh" "$FIXTURE/bin/mv"
+_run_merge() (
+  export HOME=$FIXTURE/merge-home PATH="$FIXTURE/bin:$PATH"
+  export XDG_CONFIG_HOME=$HOME/.config XDG_STATE_HOME=$HOME/.local/state
+  export XDG_CACHE_HOME=$HOME/.cache XDG_DATA_HOME=$HOME/.local/share
+  export REAL_CHMOD REAL_MV CHMOD_LOG=$HOME/chmod.log
+  unset GH_TOKEN GITHUB_TOKEN GH_HOST DOT_TEST_GH
+  export DOT_TEST=1
+  mkdir -p "$HOME/.config/gh"
+  # shellcheck source=/dev/null
+  . "$TOKEN_HOOK" || exit
+  # Missing optional YAML tooling must leave credentials untouched.
+  if [[ ${TEST_WITH_YQ:-0} != 1 ]]; then
+    # shellcheck disable=SC2329 # Production merge invokes this resolver.
+    _merge_hook_mikefarah_yq() {
+      printf 'lookup\n' >>"$HOME/yq-lookups.log"
+      return 1
+    }
+  elif [[ -n $TEST_YQ_BIN ]]; then
+    # shellcheck disable=SC2329 # Production merge invokes this resolver.
+    _merge_hook_mikefarah_yq() { printf '%s\n' "$TEST_YQ_BIN"; }
+  fi
+  export DOT_TEST_GH=$FIXTURE/bin/gh
+  merge
+)
+MERGE_HOME=$FIXTURE/merge-home
+MERGE_PAT=$MERGE_HOME/.config/gh/github-pat
+CALLS=$MERGE_HOME/gh-calls.log
+mkdir -p "${MERGE_PAT%/*}"
+_run_merge
+_assert_file_missing 'missing yq leaves PAT absent' "$MERGE_PAT"
+_assert_file_missing 'missing yq never invokes gh' "$CALLS"
+rm -f "$CALLS" "$MERGE_HOME/yq-lookups.log"
+printf 'existing-token\n' >"$MERGE_PAT"
+chmod 644 "$MERGE_PAT"
+_run_merge
+_assert_file_content 'existing PAT is preserved' existing-token "$MERGE_PAT"
+_assert_file_missing 'existing PAT never invokes gh' "$CALLS"
+_assert_file_missing 'existing PAT skips optional parser lookup' "$MERGE_HOME/yq-lookups.log"
+pat_mode=$(stat -c '%a' "$MERGE_PAT" 2>/dev/null || stat -f '%Lp' "$MERGE_PAT" 2>/dev/null)
+_assert_eq 'existing PAT mode is repaired during merge' 600 "$pat_mode"
+rm -f "$MERGE_PAT" "$CALLS"
+
+# Hosts parsing needs the actual mikefarah/yq dialect. Missing-yq safety above
+# remains unconditional on installations without that optional tool.
+if [[ -n $TEST_YQ_BIN ]]; then
+  TEST_WITH_YQ=1 _run_merge
+  _assert_file_missing 'missing hosts leaves PAT absent' "$MERGE_PAT"
+  _assert_file_missing 'missing hosts never invokes gh' "$CALLS"
+  rm -f "$CALLS"
+  printf 'github.com:\n  user: fixture-user\n' >"$MERGE_HOME/.config/gh/hosts.yml"
+  TEST_WITH_YQ=1 _run_merge
+  _assert_file_missing 'tokenless hosts leaves PAT absent' "$MERGE_PAT"
+  _assert_file_missing 'tokenless hosts never invokes gh' "$CALLS"
+  rm -f "$CALLS"
+  printf 'github.com: [invalid YAML\n' >"$MERGE_HOME/.config/gh/hosts.yml"
+  TEST_WITH_YQ=1 _run_merge
+  _assert_file_missing 'invalid hosts leaves PAT absent' "$MERGE_PAT"
+  _assert_file_missing 'invalid hosts never invokes gh' "$CALLS"
+  rm -f "$CALLS"
+  for token_layout in top-level nested; do
+    rm -f "$MERGE_PAT"
+    if [[ $token_layout == top-level ]]; then
+      printf 'github.com:\n  oauth_token: hosts-token\n' >"$MERGE_HOME/.config/gh/hosts.yml"
+    else
+      printf 'github.com:\n  users:\n    fixture-user:\n      oauth_token: hosts-token\n' >"$MERGE_HOME/.config/gh/hosts.yml"
+    fi
+    TEST_WITH_YQ=1 _run_merge
+    _assert_file_content "$token_layout hosts seed supplies PAT" hosts-token "$MERGE_PAT"
+    _assert_file_missing "$token_layout hosts seed never invokes gh" "$CALLS"
+  done
+  rm -f "$MERGE_PAT"
+  TEST_WITH_YQ=1 TEST_PUBLISH_FAIL=1 _run_merge
+  _assert_file_missing 'failed atomic publication leaves PAT absent' "$MERGE_PAT"
+  if compgen -G "$MERGE_HOME/.config/gh/.github-pat.*" >/dev/null; then
+    _fail 'failed atomic publication removes temporary credential'
+  else
+    _pass 'failed atomic publication removes temporary credential'
+  fi
+  _assert_file_missing 'failed atomic publication never invokes gh' "$CALLS"
+else
+  echo '  SKIP: hosts.yml parsing (mikefarah/yq unavailable)'
+fi
+_test_summary

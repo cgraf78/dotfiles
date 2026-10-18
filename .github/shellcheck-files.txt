@@ -13,6 +13,7 @@ program	.config/shdeps/hooks.d/xclip.sh
 program	.config/shell/env-noninteractive.sh
 program	.config/shell/env.d/50-core.sh
 program	.config/shell/env.d/55-homebrew.sh
+program	.config/shell/env.d/60-github.sh
 program	.config/shell/env.d/60-tools.sh
 program	.config/shell/env.d/70-platform.sh
 program	.config/shell/env.d/90-path.sh
@@ -55,6 +56,7 @@ program	.local/lib/dotfiles/doctor.d/lib/worktrees.sh
 program	.local/lib/dotfiles/launcher-real.sh
 program	.local/lib/dotfiles/merge-hooks.d/agent-rules.sh
 program	.local/lib/dotfiles/merge-hooks.d/cron.sh
+program	.local/lib/dotfiles/merge-hooks.d/gh-token.sh
 program	.local/lib/dotfiles/merge-hooks.d/grok-rc.sh
 program	.local/lib/dotfiles/merge-hooks.d/ignore.sh
 program	.local/lib/dotfiles/merge-hooks.d/iterm2.sh
@@ -100,6 +102,7 @@ program	.local/lib/dotfiles/tests/dot-runtime-resolve-test
 program	.local/lib/dotfiles/tests/dot-runtime-resolve.sh
 program	.local/lib/dotfiles/tests/fixtures.sh
 program	.local/lib/dotfiles/tests/footprint-test
+program	.local/lib/dotfiles/tests/github-token-test
 program	.local/lib/dotfiles/tests/harness-isolation-test
 program	.local/lib/dotfiles/tests/helpers.sh
 program	.local/lib/dotfiles/tests/measure-profile-footprint

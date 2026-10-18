@@ -166,6 +166,7 @@ _dot_tool_present() {
   case $tool in
     agent-rules) _dot_tool_any_command agent-rules-sync ;;
     cron) _dot_tool_any_command crontab ;;
+    gh-token) _dot_tool_any_path "$HOME/.config/gh" ;;
     # The hook repairs the thin loaders, not Grok: a vendor block can outlive
     # both the command and ~/.grok, and must still be stripped.
     grok-rc) _dot_tool_any_path "$HOME/.zshrc" "$HOME/.bashrc" ;;

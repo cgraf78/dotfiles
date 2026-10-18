@@ -17,6 +17,28 @@ Files ending in `.sh` are shell-neutral, `.bash` files load only in Bash, and
 `.zsh` files load only in Zsh. Keep startup work cheap and use the shared
 tool-initialization cache for generated shell code.
 
+## GitHub Authentication
+
+Base's `env.d/60-github.sh` reads the first line of the optional local
+`~/.config/gh/github-pat` file and exports it as `GH_TOKEN`. Existing nonempty
+values take precedence; non-interactive children also preserve an explicitly
+empty inherited value through the environment ownership helper. Missing or
+empty files leave the environment unchanged. The file is local credential
+state and must never be committed.
+
+The base `gh-token` merge hook preserves an existing token file and repairs its
+mode to `0600` during `dot update`. When the file is missing, it can seed it
+from GitHub CLI's local `hosts.yml` if Mike Farah's `yq` is available. Missing
+files, missing tokens, unavailable YAML tooling, or parse failures skip seeding
+quietly. Base does not install `gh` or `yq` for this integration, and neither
+shell startup nor the seed hook invokes `gh auth token` or accesses a keyring.
+Shell startup only reads the file; interactive shells also repair its mode,
+while non-interactive shells avoid spawning `chmod` on every command.
+
+The development overlay owns the agent-specific aliases derived from
+`GH_TOKEN` and GitHub CLI preferences. Authentication availability does not
+depend on selecting the development profile.
+
 ## Environment Ownership
 
 `env.d/` loads in two modes. Interactive and login shells are authoritative
