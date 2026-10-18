@@ -451,7 +451,7 @@ TOOL_COMMANDS
     )
     # shellcheck disable=SC2016 # Compare the literal source guard.
     _assert_eq "$hook_name merge: privilege guard is the first operation" \
-      '[[ "$(_sshd_effective_uid)" == 0 ]] || return 0' \
+      '_sshd_can_manage || return 0' \
       "$first_merge_statement"
 
     nonroot_hook_output=$(
@@ -461,6 +461,8 @@ TOOL_COMMANDS
         . "$hook_path"
         # shellcheck disable=SC2329 # Invoked indirectly by merge.
         _sshd_effective_uid() { printf '%s\n' 1000; }
+        # shellcheck disable=SC2329 # Invoked indirectly by the privilege guard.
+        _sshd_is_termux() { return 1; }
         # shellcheck disable=SC2329 # Must prove the root guard skips this.
         _dot_tool_present() {
           printf 'unexpected tool probe\n' >&2
@@ -1317,7 +1319,8 @@ EOF
     # shellcheck disable=SC2329 # Invoked indirectly by merge.
     _dot_tool_present() { return "${SSHD_TOOL_STATUS:-0}"; }
     # shellcheck disable=SC2329 # Invoked indirectly by merge.
-    _sshd_effective_uid() { printf '%s\n' 0; }
+    _sshd_effective_uid() { printf '%s\n' "${SSHD_TEST_UID:-0}"; }
+    _sshd_is_termux() { return "${SSHD_ANDROID_STATUS:-1}"; }
     # shellcheck disable=SC2329 # Invoked indirectly by merge.
     _sshd_config_root() { printf '%s\n' "$SSHD_TEST_ROOT"; }
     # shellcheck disable=SC2329 # Invoked indirectly by merge.
@@ -1621,6 +1624,125 @@ EOF
   _assert_exit "sshd hook: symlink destination is rejected" 1 "$sshd_symlink_status"
   _assert_file_missing "sshd hook: symlink target is never created" \
     "$TEST_HOME/sshd-symlink-target"
+
+  # Exercise the real platform/root/ownership adapters independently of the
+  # installation harness, whose root destination is intentionally redirected.
+  sshd_saved_prefix=${PREFIX-} sshd_had_prefix=${PREFIX+x}
+  sshd_saved_svdir=${SVDIR-} sshd_had_svdir=${SVDIR+x}
+  sshd_termux_adapters=$(
+    # shellcheck source=/dev/null
+    . "$_SSHD_HOOK"
+    # shellcheck disable=SC2329 # Invoked indirectly by platform adapters.
+    dot_hook_platform_match() { [[ "$1" == android ]]; }
+    PREFIX="$TEST_HOME/termux-prefix"
+    mkdir -p "$PREFIX/etc/ssh/sshd_config.d"
+    printf 'Port 8022\n' >"$PREFIX/etc/ssh/sshd_config"
+    _sshd_config_root
+    # shellcheck disable=SC2329 # Invoked indirectly by ownership adapters.
+    chown() {
+      printf 'unexpected-chown\n'
+      return 1
+    }
+    _sshd_set_owner "$PREFIX/etc/ssh/sshd_config" || printf 'owner-failed\n'
+    _sshd_mark_pending "$PREFIX/etc/ssh/pending" || printf 'pending-failed\n'
+    [[ -O "$PREFIX/etc/ssh/pending" ]] || printf 'pending-owner-failed\n'
+    mode=$(stat -c '%a' "$PREFIX/etc/ssh/pending" 2>/dev/null ||
+      stat -f '%Lp' "$PREFIX/etc/ssh/pending")
+    [[ "$mode" == 600 ]] || printf 'pending-mode-failed\n'
+    ln -s sshd_config "$PREFIX/etc/ssh/.60-termnav-relay.reload-pending"
+    _sshd_is_termux && printf 'pending-symlink-accepted\n'
+    rm "$PREFIX/etc/ssh/.60-termnav-relay.reload-pending"
+    ln -s ../sshd_config "$PREFIX/etc/ssh/sshd_config.d/60-termnav-relay.conf"
+    _sshd_is_termux && printf 'fragment-symlink-accepted\n'
+    rm "$PREFIX/etc/ssh/sshd_config.d/60-termnav-relay.conf"
+    mv "$PREFIX/etc/ssh" "$PREFIX/etc/real-ssh"
+    ln -s real-ssh "$PREFIX/etc/ssh"
+    _sshd_is_termux && printf 'symlink-accepted\n'
+    rm "$PREFIX/etc/ssh"
+    mv "$PREFIX/etc/real-ssh" "$PREFIX/etc/ssh"
+    PREFIX=/usr
+    _sshd_is_termux && printf 'foreign-root-accepted\n'
+    PREFIX=relative
+    _sshd_is_termux && printf 'relative-accepted\n'
+    PREFIX=/
+    _sshd_is_termux && printf 'root-accepted\n'
+    unset PREFIX
+    _sshd_is_termux && printf 'empty-accepted\n'
+    true
+  )
+  _assert_eq "sshd hook: Termux uses prefix root and current ownership only" \
+    "$TEST_HOME/termux-prefix/etc/ssh" "$sshd_termux_adapters"
+
+  rm -f "$SSHD_DEST"
+  printf 'AcceptEnv TERMNAV_PARENT_RELAY\n' >"$SSHD_SOURCE"
+  SSHD_TEST_UID=1000 SSHD_ANDROID_STATUS=0
+  PREFIX="$TEST_HOME/termux-prefix"
+  export PREFIX
+  mkdir -p "$PREFIX/var/service/sshd/supervise"
+  printf '%s\n' "$$" >"$PREFIX/var/service/sshd/supervise/pid"
+  # A caller's SVDIR cannot redirect a signal to an unrelated supervisor.
+  SVDIR="$TEST_HOME/unrelated-services"
+  export SVDIR
+  # shellcheck disable=SC2329 # Invoked indirectly by the reload adapter.
+  sv() {
+    printf 'sv:%s\n' "$*" >>"$SSHD_LOG"
+    return "${SSHD_RELOAD_STATUS:-0}"
+  }
+  : >"$SSHD_LOG"
+  _run_sshd_merge >/dev/null 2>&1
+  _assert_file_exists "sshd hook: non-root Termux installs fragment" "$SSHD_DEST"
+  _assert_contains "sshd hook: Termux HUP uses canonical prefix service" \
+    "sv:hup $PREFIX/var/service/sshd" "$(cat "$SSHD_LOG")"
+  _assert_not_contains "sshd hook: Termux never probes host service managers" \
+    'systemctl:' "$(cat "$SSHD_LOG")"
+
+  printf '# changed\nAcceptEnv TERMNAV_PARENT_RELAY\n' >"$SSHD_SOURCE"
+  printf '0\n' >"$PREFIX/var/service/sshd/supervise/pid"
+  : >"$SSHD_LOG"
+  _run_sshd_merge >/dev/null 2>&1
+  _assert_not_contains "sshd hook: stopped Termux service receives no signal" \
+    'sv:' "$(cat "$SSHD_LOG")"
+  _assert_file_missing "sshd hook: stopped Termux service leaves no pending reload" "$SSHD_PENDING"
+
+  printf '# changed again\nAcceptEnv TERMNAV_PARENT_RELAY\n' >"$SSHD_SOURCE"
+  printf 'not-a-pid\n' >"$PREFIX/var/service/sshd/supervise/pid"
+  : >"$SSHD_LOG"
+  _run_sshd_merge >/dev/null 2>&1
+  _assert_not_contains "sshd hook: malformed supervisor PID cannot signal" \
+    'sv:' "$(cat "$SSHD_LOG")"
+  _assert_file_exists "sshd hook: malformed supervisor PID leaves activation pending" "$SSHD_PENDING"
+  rm -f "$PREFIX/var/service/sshd/supervise/pid"
+  : >"$SSHD_LOG"
+  _run_sshd_merge >/dev/null 2>&1
+  _assert_not_contains "sshd hook: missing Termux PID receives no signal" \
+    'sv:' "$(cat "$SSHD_LOG")"
+  _assert_file_missing "sshd hook: missing Termux PID leaves no pending activation" "$SSHD_PENDING"
+
+  printf '# retry\nAcceptEnv TERMNAV_PARENT_RELAY\n' >"$SSHD_SOURCE"
+  printf '%s\n' "$$" >"$PREFIX/var/service/sshd/supervise/pid"
+  SSHD_RELOAD_STATUS=1
+  sshd_termux_status=0
+  _run_sshd_merge >/dev/null 2>&1 || sshd_termux_status=$?
+  _assert_exit "sshd hook: Termux HUP failure propagates" 1 "$sshd_termux_status"
+  _assert_file_exists "sshd hook: Termux HUP failure records pending activation" "$SSHD_PENDING"
+  SSHD_RELOAD_STATUS=0
+  : >"$SSHD_LOG"
+  _run_sshd_merge >/dev/null 2>&1
+  _assert_contains "sshd hook: Termux unchanged pending fragment retries HUP" \
+    "sv:hup $PREFIX/var/service/sshd" "$(cat "$SSHD_LOG")"
+  _assert_file_missing "sshd hook: Termux retry clears pending activation" "$SSHD_PENDING"
+  unset SSHD_TEST_UID SSHD_ANDROID_STATUS
+  if [[ "$sshd_had_prefix" == x ]]; then
+    export PREFIX=$sshd_saved_prefix
+  else
+    unset PREFIX
+  fi
+  if [[ "$sshd_had_svdir" == x ]]; then
+    export SVDIR=$sshd_saved_svdir
+  else
+    unset SVDIR
+  fi
+  unset -f sv _sshd_can_manage _sshd_is_termux
 
   eval "$sshd_tool_present_impl"
   unset SSHD_READY_STATUS SSHD_VALIDATE_STATUS SSHD_SERVICE_STATUS SSH_SERVICE_STATUS

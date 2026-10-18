@@ -10,9 +10,10 @@ dot_hook_source merge-hooks.d/lib/compat.sh || return
 # the fragment (`share/termnav/sshd_config`), so dotfiles resolves it through
 # shdeps instead of carrying a copy.
 #
-# The hook acts only when `dot update` runs as root on a host with an
-# `sshd_config.d` directory. A main config that never Includes that directory
-# fails validation loudly rather than being guessed at.
+# The hook runs as root, or as the Android app user owning a Termux sshd
+# installation, on a host with an `sshd_config.d` directory. A main config
+# that never Includes that directory fails validation loudly rather than being
+# guessed at.
 #
 # No serial barrier, although an overlay hook may also change and reload
 # root's sshd config: this hook only renames an always-valid AcceptEnv fragment
@@ -25,8 +26,36 @@ _sshd_effective_uid() {
   printf '%s\n' "$EUID"
 }
 
+# Android's sshd belongs to the app user, not root. PREFIX alone must not
+# authorize a non-root Linux run, nor redirect writes through a symlink.
+_sshd_is_termux() {
+  local target
+  dot_hook_platform_match android || return 1
+  [[ "${PREFIX:-}" == /* && "$PREFIX" != / ]] || return 1
+  for target in "$PREFIX" "$PREFIX/etc" "$PREFIX/etc/ssh" \
+    "$PREFIX/etc/ssh/sshd_config" "$PREFIX/etc/ssh/sshd_config.d"; do
+    [[ -O "$target" && ! -L "$target" ]] || return 1
+  done
+  # The pending marker is opened before publication; refuse a pre-existing
+  # redirect or foreign-owned fragment before any staging or truncation.
+  for target in "$PREFIX/etc/ssh/sshd_config.d/60-termnav-relay.conf" \
+    "$PREFIX/etc/ssh/.60-termnav-relay.reload-pending"; do
+    [[ -e "$target" || -L "$target" ]] || continue
+    [[ -f "$target" && -O "$target" && ! -L "$target" ]] || return 1
+  done
+}
+
+_sshd_can_manage() {
+  [[ "$(_sshd_effective_uid)" == 0 ]] || _sshd_is_termux
+}
+
 _sshd_config_root() {
-  printf '%s\n' /etc/ssh
+  if dot_hook_platform_match android; then
+    _sshd_is_termux || return 1
+    printf '%s/etc/ssh\n' "${PREFIX%/}"
+  else
+    printf '%s\n' /etc/ssh
+  fi
 }
 
 _sshd_fragment_source() {
@@ -34,7 +63,14 @@ _sshd_fragment_source() {
 }
 
 _sshd_set_owner() {
-  chown 0:0 "$1"
+  if dot_hook_platform_match android; then
+    _sshd_is_termux || return 1
+    # The app cannot chown to root. Newly staged files and pending markers
+    # already belong to it; refuse an unexpected owner instead.
+    [[ -O "$1" ]]
+  else
+    chown 0:0 "$1"
+  fi
 }
 
 _sshd_ready() {
@@ -81,7 +117,32 @@ _sshd_validate() {
 # A stopped server reads the new fragment when it next starts, so having no
 # active service to reload is success, not a pending activation.
 _sshd_reload() {
-  local unit
+  local unit service_dir pid_file pid
+
+  if _sshd_is_termux; then
+    # Use the canonical service rather than caller-controlled SVDIR. runsv's
+    # PID file is a structured interface; `sv status` succeeds even when down.
+    service_dir="${PREFIX%/}/var/service/sshd"
+    pid_file="$service_dir/supervise/pid"
+    [[ -e "$service_dir" ]] || return 0
+    [[ -e "$service_dir/supervise" ]] || return 0
+    [[ -O "$service_dir" && -O "$service_dir/supervise" &&
+      ! -L "$service_dir/supervise" ]] || return 1
+    [[ -e "$pid_file" ]] || return 0
+    [[ -f "$pid_file" && -O "$pid_file" && ! -L "$pid_file" ]] || return 1
+    IFS= read -r pid <"$pid_file" || return 1
+    case "$pid" in
+      '' | *[!0-9]*) return 1 ;;
+      0) return 0 ;;
+    esac
+    [[ "$pid" =~ ^[1-9][0-9]*$ ]] || return 1
+    kill -0 "$pid" 2>/dev/null || return 0
+    command -v sv >/dev/null 2>&1 || return 1
+    # HUP asks the listening sshd to reread policy while established session
+    # children stay alive. The supervisor must never stop/start the service.
+    sv hup "$service_dir"
+    return $?
+  fi
 
   if command -v systemctl >/dev/null 2>&1; then
     for unit in sshd.service ssh.service; do
@@ -175,7 +236,7 @@ _sshd_install() {
 
   # Mark activation pending before the live fragment changes, so a run killed
   # anywhere between here and a successful reload is revalidated and reloaded
-  # by the next root update even though the bytes then match.
+  # by the next update even though the bytes then match.
   [[ -f "$pending" ]] && had_pending=1
   _sshd_mark_pending "$pending" || {
     rm -f "$candidate" "$backup"
@@ -202,13 +263,13 @@ _sshd_install() {
   rm -f "$backup"
 
   # A validated fragment remains installed when reload fails; the pending
-  # marker makes a later root update retry even when the bytes are unchanged.
+  # marker makes a later update retry even when the bytes are unchanged.
   _sshd_reload || return 1
   rm -f "$pending"
 }
 
 merge() {
-  [[ "$(_sshd_effective_uid)" == 0 ]] || return 0
+  _sshd_can_manage || return 0
   _dot_tool_present sshd || return 0
 
   local source root main_config include_dir
@@ -216,7 +277,7 @@ merge() {
   source="$(_sshd_fragment_source)" || return 0
   [[ -f "$source" ]] || return 0
 
-  root="$(_sshd_config_root)"
+  root="$(_sshd_config_root)" || return 0
   main_config="$root/sshd_config"
   include_dir="$root/sshd_config.d"
   [[ -f "$main_config" && -d "$include_dir" ]] || return 0
