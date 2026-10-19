@@ -151,7 +151,7 @@ _run_doctor_check() {
   local force_check="${1:-1}"
   (
     HOME="$fixture_home"
-    PATH="$mock_bin:/usr/bin:/bin"
+    PATH="$mock_bin:$DOT_TEST_SYSTEM_PATH"
     unset XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME
     DOT_TEST_DOT_ROOT="$test_dot_root"
     DOT_TEST_AGENT_RULES_SYNC_LOG="$call_log"
@@ -173,7 +173,7 @@ _run_doctor_check() {
 }
 
 : >"$call_log"
-_run_merge "$mock_bin:/usr/bin:/bin"
+_run_merge "$mock_bin:$DOT_TEST_SYSTEM_PATH"
 
 _assert_file_content "agent rules adapter: invokes provider with private manifest" \
   "--manifest $manifest" "$call_log"
@@ -212,7 +212,7 @@ _check_with() {
   DOT_TEST_AGENT_RULES_SYNC_CHECK_STATUS="$status" \
     DOT_TEST_AGENT_RULES_SYNC_CHECK_STDOUT="$stdout" \
     DOT_TEST_AGENT_RULES_SYNC_CHECK_STDERR="$stderr" \
-    _run_installed_check "$mock_bin:/usr/bin:/bin"
+    _run_installed_check "$mock_bin:$DOT_TEST_SYSTEM_PATH"
   check_status=$?
   check_reply=$(<"$check_reply_file")
 }
@@ -286,7 +286,7 @@ _assert_eq "agent rules adapter: restored policy matches the manifest" "current"
 
 export DOT_TEST_AGENT_RULES_SYNC_STATUS=23
 set +e
-_run_merge "$mock_bin:/usr/bin:/bin"
+_run_merge "$mock_bin:$DOT_TEST_SYSTEM_PATH"
 provider_status=$?
 set -e
 _assert_exit "agent rules adapter: preserves provider failure" 23 "$provider_status"
@@ -298,7 +298,7 @@ last_good=$(_tmpfile)
 cp "$manifest" "$last_good"
 rm -f "$playbook_root/alpha/one.md"
 : >"$call_log"
-if _run_merge "$mock_bin:/usr/bin:/bin" >/dev/null 2>&1; then
+if _run_merge "$mock_bin:$DOT_TEST_SYSTEM_PATH" >/dev/null 2>&1; then
   _fail "agent rules adapter: invalid playbook discovery fails before dispatch"
 else
   _pass "agent rules adapter: invalid playbook discovery fails before dispatch"
@@ -312,7 +312,7 @@ _assert_file_content "agent rules adapter: discovery failure launches no provide
 # executable is visible. The next normal dot update will install it before the
 # merge phase, so this narrow case remains a safe no-op.
 : >"$call_log"
-if _run_merge "/usr/bin:/bin"; then
+if _run_merge "$DOT_TEST_SYSTEM_PATH"; then
   _pass "agent rules adapter: missing provider is a safe no-op"
 else
   _fail "agent rules adapter: missing provider is a safe no-op"
@@ -330,7 +330,7 @@ Alpha private playbook body.
 EOF
 git --git-dir="$fixture_home/.dotfiles" --work-tree="$fixture_home" add \
   .config/agent-rules/playbooks.d/alpha/one.md
-_run_merge "$mock_bin:/usr/bin:/bin"
+_run_merge "$mock_bin:$DOT_TEST_SYSTEM_PATH"
 DOT_DOCTOR_RESULT_FILE="$work/doctor-results.tsv"
 export DOT_DOCTOR_RESULT_FILE
 

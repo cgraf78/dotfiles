@@ -21,6 +21,8 @@ import termios
 import time
 import unittest
 
+from tmux_paths import short_temporary_parent
+
 
 def wait_until(predicate, description: str, timeout: float = 4.0) -> None:
     """Poll authoritative tmux state instead of sleeping for guessed timing."""
@@ -30,17 +32,6 @@ def wait_until(predicate, description: str, timeout: float = 4.0) -> None:
             return
         time.sleep(0.02)
     raise AssertionError(f"timed out waiting for {description}")
-
-
-def short_temporary_parent() -> str | None:
-    """A writable short root for Unix sockets: /tmp, or Termux's $PREFIX/tmp."""
-    roots = [pathlib.Path("/tmp")]
-    if prefix := os.environ.get("PREFIX"):
-        roots.append(pathlib.Path(prefix) / "tmp")
-    return next(
-        (str(root) for root in roots if root.is_dir() and os.access(root, os.W_OK | os.X_OK)),
-        None,
-    )
 
 
 class Client:

@@ -30,22 +30,28 @@ _mock_home
 echo ""
 echo "=== Release platform mapping ==="
 
+# Explicit-argument cases must not see a live Termux PREFIX, which implies
+# Android on its own; the PREFIX case below sets it deliberately.
+platform_for() {
+  PREFIX='' _dot_runtime_release_platform "$@"
+}
+
 _assert_eq 'linux x86_64 maps to musl asset' 'linux-x86_64-musl' \
-  "$(_dot_runtime_release_platform Linux x86_64 GNU/Linux)"
+  "$(platform_for Linux x86_64 GNU/Linux)"
 _assert_eq 'linux aarch64 maps to musl asset' 'linux-aarch64-musl' \
-  "$(_dot_runtime_release_platform Linux aarch64 GNU/Linux)"
+  "$(platform_for Linux aarch64 GNU/Linux)"
 _assert_eq 'linux arm64 aliases to aarch64 asset' 'linux-aarch64-musl' \
-  "$(_dot_runtime_release_platform Linux arm64 GNU/Linux)"
+  "$(platform_for Linux arm64 GNU/Linux)"
 _assert_eq 'macOS x86_64 maps' 'macos-x86_64' \
-  "$(_dot_runtime_release_platform Darwin x86_64 Darwin)"
+  "$(platform_for Darwin x86_64 Darwin)"
 _assert_eq 'macOS arm64 maps' 'macos-aarch64' \
-  "$(_dot_runtime_release_platform Darwin arm64 Darwin)"
+  "$(platform_for Darwin arm64 Darwin)"
 _assert_eq 'macOS aarch64 maps' 'macos-aarch64' \
-  "$(_dot_runtime_release_platform Darwin aarch64 Darwin)"
+  "$(platform_for Darwin aarch64 Darwin)"
 _assert_eq 'Android x86_64 emulator maps' 'android-x86_64' \
-  "$(_dot_runtime_release_platform Linux x86_64 Android)"
+  "$(platform_for Linux x86_64 Android)"
 _assert_eq 'Android aarch64 maps' 'android-aarch64' \
-  "$(_dot_runtime_release_platform Linux aarch64 Android)"
+  "$(platform_for Linux aarch64 Android)"
 _assert_eq 'Termux PREFIX implies Android without uname' 'android-x86_64' \
   "$(PREFIX=/data/data/com.termux/files/usr \
     _dot_runtime_release_platform Linux x86_64 GNU/Linux)"
@@ -54,7 +60,7 @@ if _dot_runtime_release_platform Linux x86_64 GNU/Linux >/dev/null; then
 else
   _fail 'live platform resolves to a supported label'
 fi
-if _dot_runtime_release_platform Plan9 x86_64 foo >/dev/null 2>&1; then
+if platform_for Plan9 x86_64 foo >/dev/null 2>&1; then
   _fail 'unknown kernel fails closed'
 else
   _pass 'unknown kernel fails closed'

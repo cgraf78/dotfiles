@@ -89,6 +89,8 @@ class Orphans(unittest.TestCase):
         with self.assertRaises(m.Unsafe): self.proof()
 
     def test_hardlink(self):
+        # Android forbids hard links in app storage, so Termux's Python omits os.link.
+        if not hasattr(os, "link"): self.skipTest("platform has no hard links")
         os.link(self.checkout / "exec", self.root / "external")
         with self.assertRaises(m.Unsafe): self.proof()
 

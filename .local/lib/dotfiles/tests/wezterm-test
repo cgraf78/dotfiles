@@ -916,8 +916,8 @@ _probe_command() {
   local mode="$1" command_name="$2"
   shift 2
   # shellcheck disable=SC2016 # The inner shell supplies the provider contract.
-  env -i "$@" TERMNAV_TEST_FILE_LINK_MODE="$mode" \
-    HOME="$HOME" PATH="$alias_probe_bin:/usr/bin:/bin" bash -c '
+  _env_clean "$@" TERMNAV_TEST_FILE_LINK_MODE="$mode" \
+    HOME="$HOME" PATH="$alias_probe_bin:$DOT_TEST_SYSTEM_PATH" bash -c '
       termnav_file_links_need_plain_output() {
         [[ "$TERMNAV_TEST_FILE_LINK_MODE" == plain ||
           "${TERMNAV_FILE_LINKS_PLAIN:-}" == 1 ]]
@@ -931,7 +931,7 @@ _probe_command() {
 _probe_prealiased_command() {
   local command_name="$1"
   # shellcheck disable=SC2016 # The inner shell supplies the provider contract.
-  env -i HOME="$HOME" PATH="$alias_probe_bin:/usr/bin:/bin" zsh -f -c '
+  _env_clean HOME="$HOME" PATH="$alias_probe_bin:$DOT_TEST_SYSTEM_PATH" zsh -f -c '
     termnav_file_links_need_plain_output() { return 1; }
     alias ls="ls -G"
     alias rg="rg --hidden"
@@ -949,15 +949,15 @@ prealiased_ls_probe=$(_probe_prealiased_command ls)
 prealiased_rg_probe=$(_probe_prealiased_command rg)
 missing_provider_ls_probe=$(
   # shellcheck disable=SC2016 # The inner shell expands its own source path.
-  env -i HOME="$HOME" PATH="$alias_probe_bin:/usr/bin:/bin" bash -c \
+  _env_clean HOME="$HOME" PATH="$alias_probe_bin:$DOT_TEST_SYSTEM_PATH" bash -c \
     'source "$1"; ls fixture' _ "$HOME/.config/shell/interactive.d/50-aliases.sh"
 )
 explicit_vscode_ls_probe=$(_probe_command rich ls DOT_VSCODE_TERMINAL=1)
 explicit_vscode_rg_probe=$(_probe_command rich rg DOT_VSCODE_TERMINAL=1)
 explicit_vscode_marker=$(
   # shellcheck disable=SC2016 # The child reports the adapter's exported value.
-  env -i DOT_VSCODE_TERMINAL=1 HOME="$HOME" \
-    PATH="$alias_probe_bin:/usr/bin:/bin" bash -c '
+  _env_clean DOT_VSCODE_TERMINAL=1 HOME="$HOME" \
+    PATH="$alias_probe_bin:$DOT_TEST_SYSTEM_PATH" bash -c '
       termnav_file_links_need_plain_output() { return 1; }
       source "$1"
       printf "%s\n" "${TERMNAV_FILE_LINKS_PLAIN:-missing}"

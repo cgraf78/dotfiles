@@ -40,7 +40,7 @@ printf "%s|%s\n" "${GH_TOKEN+set}" "${GH_TOKEN-}"
 _probe_env() {
   local shell=$1 mode=$2
   shift 2
-  env -i HOME="$FIXTURE/home" PATH="$FIXTURE/bin:/usr/bin:/bin" \
+  _env_clean HOME="$FIXTURE/home" PATH="$FIXTURE/bin:$DOT_TEST_SYSTEM_PATH" \
     REAL_CHMOD="$REAL_CHMOD" CHMOD_LOG="$FIXTURE/chmod.log" "$@" \
     "$shell" -c "$ENV_PROBE" _ "$SOURCE_HOME" "$ENV_FRAGMENT" "$shell" "$mode"
 }
@@ -70,7 +70,7 @@ for token_shell in bash zsh sh; do
     shell_args=(-i)
     [[ $token_shell == bash ]] && shell_args=(--norc --noprofile -i)
     [[ $token_shell == zsh ]] && shell_args=(-f -i)
-    interactive_output=$(env -i HOME="$FIXTURE/home" PATH="$FIXTURE/bin:/usr/bin:/bin" \
+    interactive_output=$(_env_clean HOME="$FIXTURE/home" PATH="$FIXTURE/bin:$DOT_TEST_SYSTEM_PATH" \
       REAL_CHMOD="$REAL_CHMOD" CHMOD_LOG="$FIXTURE/chmod.log" \
       "$token_shell" "${shell_args[@]}" -c "$ENV_PROBE" _ \
       "$SOURCE_HOME" "$ENV_FRAGMENT" "$token_shell" normal 2>/dev/null </dev/null)

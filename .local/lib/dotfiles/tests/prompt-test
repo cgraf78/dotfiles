@@ -5,7 +5,7 @@
 . "${BASH_SOURCE[0]%/*}/helpers.sh"
 
 REAL_HOME="${DOT_TEST_SOURCE_HOME:-$HOME}"
-REAL_GIT=$(PATH=/usr/bin:/bin command -v git)
+REAL_GIT=$(PATH=$DOT_TEST_SYSTEM_PATH command -v git)
 TEST_TMPDIR=$(_tmpdir)
 
 echo ""
@@ -155,7 +155,7 @@ case " $* " in
 esac
 EOF
 chmod +x "$RESOLVED_HOME/.local/bin/git" "$RESOLVED_REAL_BIN/git"
-RESOLVED_PATH="$RESOLVED_HOME/.local/bin:$RESOLVED_REAL_BIN:/usr/bin:/bin"
+RESOLVED_PATH="$RESOLVED_HOME/.local/bin:$RESOLVED_REAL_BIN:$DOT_TEST_SYSTEM_PATH"
 printf '%s\n%s\n' "$RESOLVED_REAL_BIN/git" "$RESOLVED_PATH" >"$RESOLVED_CACHE"
 
 resolved_prompt=$(
@@ -534,7 +534,7 @@ case " $* " in
 esac
 EOF
 chmod +x "$COPY_HOME/.local/bin/git" "$COPY_OTHER_BIN/git" "$COPY_REAL_BIN/git"
-COPY_PATH="$COPY_HOME/.local/bin:$COPY_OTHER_BIN:$COPY_REAL_BIN:/usr/bin:/bin"
+COPY_PATH="$COPY_HOME/.local/bin:$COPY_OTHER_BIN:$COPY_REAL_BIN:$DOT_TEST_SYSTEM_PATH"
 copy_prompt=$(
   HOME="$COPY_HOME" \
     BASH_ENV='' \
@@ -690,7 +690,7 @@ if [[ -z "$EQUIV_GIT_B" ]]; then
 else
   equiv_prompt_a=$(
     HOME="$EQUIV_HOME" XDG_CACHE_HOME="$EQUIV_HOME/.cache" \
-      PATH="${EQUIV_GIT_A%/*}:/usr/bin:/bin" \
+      PATH="${EQUIV_GIT_A%/*}:$DOT_TEST_SYSTEM_PATH" \
       bash --noprofile --norc -c '
         cd "$1" || exit 1
         # shellcheck disable=SC1091
@@ -700,7 +700,7 @@ else
   )
   equiv_prompt_b=$(
     HOME="$EQUIV_HOME" XDG_CACHE_HOME="$EQUIV_HOME/.cache" \
-      PATH="${EQUIV_GIT_B%/*}:/usr/bin:/bin" \
+      PATH="${EQUIV_GIT_B%/*}:$DOT_TEST_SYSTEM_PATH" \
       bash --noprofile --norc -c '
         cd "$1" || exit 1
         # shellcheck disable=SC1091
@@ -759,7 +759,7 @@ case " $* " in
 esac
 EOF
 chmod +x "$SYS_HOME/.local/bin/git" "$SYS_REAL_BIN/git" "$SYS_SYS_BIN/git"
-SYS_PATH="$SYS_HOME/.local/bin:$SYS_REAL_BIN:$SYS_SYS_BIN:/usr/bin:/bin"
+SYS_PATH="$SYS_HOME/.local/bin:$SYS_REAL_BIN:$SYS_SYS_BIN:$DOT_TEST_SYSTEM_PATH"
 
 sys_run_prompt() {
   HOME="$SYS_HOME" \
@@ -984,7 +984,7 @@ EOF
 chmod +x "$SYS_BREW_BIN/git"
 SYS_BREW_HOME="$TEST_TMPDIR/sys-brew-home"
 mkdir -p "$SYS_BREW_HOME/.dotfiles" "$SYS_BREW_HOME/.cache"
-SYS_BREW_PATH="$SYS_BREW_BIN:$SYS_SYS_BIN:/usr/bin:/bin"
+SYS_BREW_PATH="$SYS_BREW_BIN:$SYS_SYS_BIN:$DOT_TEST_SYSTEM_PATH"
 SYS_HOMEBREW="$SYS_BREW"
 sys_brew_prompt=$(
   HOME="$SYS_BREW_HOME" \

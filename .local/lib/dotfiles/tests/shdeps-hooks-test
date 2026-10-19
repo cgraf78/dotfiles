@@ -133,7 +133,7 @@ EOF
   shdeps_unlink_extras() { return 0; }
 
   _eza_saved_path=$PATH
-  PATH="$_eza_cargo_bin:/usr/bin:/bin"
+  PATH="$_eza_cargo_bin:$DOT_TEST_SYSTEM_PATH"
   if exists eza; then
     _fail "eza: an unrelated Cargo binary does not satisfy the managed release"
   else
@@ -218,12 +218,12 @@ printf 'brew should not run in CI\n' >&2
 exit 1
 EOF
 chmod +x "$_wezterm_brew/brew"
-if CI=1 PATH="$_wezterm_brew:/usr/bin:/bin" exists "wez/wezterm"; then
+if CI=1 PATH="$_wezterm_brew:$DOT_TEST_SYSTEM_PATH" exists "wez/wezterm"; then
   _pass "wezterm: CI satisfies GUI terminal dependency"
 else
   _fail "wezterm: CI satisfies GUI terminal dependency"
 fi
-if CI=1 PATH="$_wezterm_brew:/usr/bin:/bin" install "wez/wezterm"; then
+if CI=1 PATH="$_wezterm_brew:$DOT_TEST_SYSTEM_PATH" install "wez/wezterm"; then
   _pass "wezterm: CI install path is a no-op"
 else
   _fail "wezterm: CI install path is a no-op"
@@ -545,25 +545,31 @@ EOF
   _assert_contains "eza: prune reports no orphan for the stable identity" \
     "No orphaned deps found." "$_eza_transition_prune_output"
 
-  _eza_transition_update_output=$(
-    HOME="$_eza_transition_home" \
-      PATH="$_eza_transition_tools" \
-      SHDEPS_LIB='' \
-      SHDEPS_CONF_DIR="$_eza_transition_conf" \
-      SHDEPS_HOOKS_DIR="$_eza_transition_hooks" \
-      SHDEPS_STATE_DIR="$_eza_transition_state" \
-      SHDEPS_INSTALL_DIR="$_eza_transition_install" \
-      SHDEPS_BIN_DIR="$_eza_transition_bin" \
-      SHDEPS_GIT_DEV_DIR="$_eza_transition_home/git" \
-      "$SHDEPS_RUST_CLI" -q update 2>&1
-  )
-  _eza_transition_update_rc=$?
-  _assert_exit "eza: DNF provider transition succeeds without prune and retry" \
-    0 "$_eza_transition_update_rc"
-  _assert_not_contains "eza: stable identity avoids an identity-handoff error" \
-    "unsupported dependency identity handoff" "$_eza_transition_update_output"
-  _assert_file_content "eza: update records the same identity with its DNF method" \
-    "eza|custom|eza|" "$_eza_transition_state/manifest"
+  # An Android Shdeps build reports mgr:android whatever PATH offers, so a
+  # DNF host cannot be simulated from Termux.
+  if _test_on_termux; then
+    _pass "eza: DNF provider transition skipped under Termux"
+  else
+    _eza_transition_update_output=$(
+      HOME="$_eza_transition_home" \
+        PATH="$_eza_transition_tools" \
+        SHDEPS_LIB='' \
+        SHDEPS_CONF_DIR="$_eza_transition_conf" \
+        SHDEPS_HOOKS_DIR="$_eza_transition_hooks" \
+        SHDEPS_STATE_DIR="$_eza_transition_state" \
+        SHDEPS_INSTALL_DIR="$_eza_transition_install" \
+        SHDEPS_BIN_DIR="$_eza_transition_bin" \
+        SHDEPS_GIT_DEV_DIR="$_eza_transition_home/git" \
+        "$SHDEPS_RUST_CLI" -q update 2>&1
+    )
+    _eza_transition_update_rc=$?
+    _assert_exit "eza: DNF provider transition succeeds without prune and retry" \
+      0 "$_eza_transition_update_rc"
+    _assert_not_contains "eza: stable identity avoids an identity-handoff error" \
+      "unsupported dependency identity handoff" "$_eza_transition_update_output"
+    _assert_file_content "eza: update records the same identity with its DNF method" \
+      "eza|custom|eza|" "$_eza_transition_state/manifest"
+  fi
 else
   _fail "eza: stable-identity transition fixture is available"
 fi
@@ -907,7 +913,7 @@ EOF
   chmod +x "$_tmux_bridge_tools/apt-get" "$_tmux_bridge_tools/apt-cache"
   : >"$_tmux_bridge_home/package-calls"
   _tmux_bridge_update() {
-    env -i HOME="$_tmux_bridge_home" PATH="$_tmux_bridge_tools" \
+    _env_clean HOME="$_tmux_bridge_home" PATH="$_tmux_bridge_tools" \
       PREFIX="$_tmux_bridge_prefix" TERMUX_VERSION=fixture \
       SHDEPS_PKG_MGR=apt SHDEPS_CONF_DIR="$_tmux_bridge_home/conf" \
       SHDEPS_STATE_DIR="$_tmux_bridge_home/state" \

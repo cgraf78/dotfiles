@@ -154,7 +154,7 @@ sort_run() {
     sort_post='printf "%s|" "$GLOBSORT"'
   fi
   # shellcheck disable=SC2016 # the child shell expands its own arguments.
-  env -i HOME="$TEST_TMPDIR" PATH=/nonexistent-loader-bin "$@" \
+  _env_clean HOME="$TEST_TMPDIR" PATH=/nonexistent-loader-bin "$@" \
     "$sort_shell" ${sort_flags[@]+"${sort_flags[@]}"} -c '
       eval "$5"
       . "$1"
@@ -219,7 +219,7 @@ ENV_BASH_ENV=$ENV_HOME/.config/shell/env-noninteractive.sh
 # and reads ~/.bashrc instead of BASH_ENV; agent and CI runners may hand the
 # suite a socket.
 env_run() {
-  env -i HOME="$ENV_HOME" ZDOTDIR="$ENV_HOME" PATH="$PATH" \
+  _env_clean HOME="$ENV_HOME" ZDOTDIR="$ENV_HOME" PATH="$PATH" \
     BASH_ENV="$ENV_BASH_ENV" DOT_ENV_TEST_LOG="$ENV_LOG" "$@" </dev/null
 }
 
@@ -369,7 +369,7 @@ OWN_BREW_BINS=/opt/homebrew/bin:/opt/homebrew/sbin
 # Like env_run, rooted at the ownership fixture. Interactive shells get a
 # /dev/null stdin as well, so job-control warnings go to stderr only.
 own_run() {
-  env -i HOME="$OWN_HOME" ZDOTDIR="$OWN_HOME" PATH="$PATH" \
+  _env_clean HOME="$OWN_HOME" ZDOTDIR="$OWN_HOME" PATH="$PATH" \
     BASH_ENV="$OWN_HOME/.config/shell/env-noninteractive.sh" "$@" \
     </dev/null 2>/dev/null
 }
@@ -580,7 +580,7 @@ fi
 # fill-only like BASH_ENV; interactive and login shells stay authoritative.
 # The env has no BASH_ENV, as under sshd, so env.d loads only via ~/.bashrc.
 sshd_run() {
-  env -i HOME="$OWN_HOME" ZDOTDIR="$OWN_HOME" "$@" 2>/dev/null
+  _env_clean HOME="$OWN_HOME" ZDOTDIR="$OWN_HOME" "$@" 2>/dev/null
 }
 # Run a command with a connected Unix socket as stdin.
 socket_stdin() {
@@ -604,24 +604,24 @@ echo "=== env ownership: bash reading ~/.bashrc for rshd/sshd commands ==="
 BASH_BIN=$(command -v bash)
 # shellcheck disable=SC2016 # probes expand in the child shells.
 if command -v python3 >/dev/null 2>&1; then
-  socket_probe=$(socket_stdin env -i HOME="$OWN_HOME" PATH=/usr/bin:/bin \
+  socket_probe=$(socket_stdin "${DOT_TEST_ENV_CLEAN[@]}" HOME="$OWN_HOME" PATH=/usr/bin:/bin \
     "$BASH_BIN" -c 'printf %s "${SHDEPS_CONF_DIR-unset}"' 2>/dev/null)
   if [ "$socket_probe" = unset ] && [ "$(uname -s)" != Linux ]; then
     echo "  SKIP: this bash does not read ~/.bashrc for socket-stdin commands"
   else
     _assert_eq "env ownership (bash): socket-stdin bash -c keeps caller values" \
       "/caller/rg|$OWN_HOME/.config/shdeps" \
-      "$(socket_stdin env -i HOME="$OWN_HOME" PATH=/usr/bin:/bin \
+      "$(socket_stdin "${DOT_TEST_ENV_CLEAN[@]}" HOME="$OWN_HOME" PATH=/usr/bin:/bin \
         RIPGREP_CONFIG_PATH=/caller/rg "$BASH_BIN" -c "$PROBE_RSHD" 2>/dev/null)"
     _assert_eq "env ownership (bash): socket-stdin bash -c keeps a caller venv first" \
       "$OWN_VENV:$OWN_HOME/.local/bin:/usr/local/bin:/usr/bin:$OWN_BREW_BINS" \
-      "$(socket_stdin env -i HOME="$OWN_HOME" \
+      "$(socket_stdin "${DOT_TEST_ENV_CLEAN[@]}" HOME="$OWN_HOME" \
         PATH="$OWN_VENV:/usr/local/bin:/usr/bin:$OWN_BREW_BINS" \
         "$BASH_BIN" -c 'printf %s "$PATH"' 2>/dev/null)"
   fi
   _assert_eq "env ownership (bash): socket-stdin login shell stays authoritative" \
     "$OWN_RG" \
-    "$(socket_stdin env -i HOME="$OWN_HOME" PATH=/usr/bin:/bin \
+    "$(socket_stdin "${DOT_TEST_ENV_CLEAN[@]}" HOME="$OWN_HOME" PATH=/usr/bin:/bin \
       RIPGREP_CONFIG_PATH=/stale "$BASH_BIN" -l -c 'printf %s "$RIPGREP_CONFIG_PATH"' 2>/dev/null)"
 else
   echo "  SKIP: socket-stdin cases need python3"
@@ -657,7 +657,7 @@ cat >"$NOUNSET_HOME/.config/shell/env.d/15-unset-ref.sh" <<'EOF'
 printf 'after-unset\n' >>"$DOT_ENV_TEST_LOG"
 EOF
 nounset_run() {
-  env -i HOME="$NOUNSET_HOME" ZDOTDIR="$NOUNSET_HOME" PATH="$PATH" \
+  _env_clean HOME="$NOUNSET_HOME" ZDOTDIR="$NOUNSET_HOME" PATH="$PATH" \
     BASH_ENV="$NOUNSET_HOME/.config/shell/env-noninteractive.sh" \
     DOT_ENV_TEST_LOG="$ENV_LOG" "$@" </dev/null 2>&1
 }
@@ -694,7 +694,7 @@ if command -v zsh >/dev/null 2>&1; then
   cp "$REAL_HOME/.config/shell/env.d/45-agent-shell.zsh" \
     "$AGENT_HOME/.config/shell/env.d/"
   agent_run() {
-    env -i HOME="$AGENT_HOME" ZDOTDIR="$AGENT_HOME" PATH="$PATH" \
+    _env_clean HOME="$AGENT_HOME" ZDOTDIR="$AGENT_HOME" PATH="$PATH" \
       DOT_ENV_TEST_LOG=/dev/null "$@" </dev/null 2>&1
   }
   # shellcheck disable=SC2016 # the child zsh expands its own $options.
@@ -747,7 +747,7 @@ uname_run() {
   [ "${1##*/}" = zsh ] && uname_flags=(-f)
   : >"$UNAME_LOG"
   # shellcheck disable=SC2016 # the child shell expands its own arguments.
-  uname_out=$(env -i HOME="$TEST_TMPDIR" PATH="$UNAME_SHIM:$PATH" \
+  uname_out=$(_env_clean HOME="$TEST_TMPDIR" PATH="$UNAME_SHIM:$PATH" \
     DOT_UNAME_TEST_LOG="$UNAME_LOG" \
     "$1" ${uname_flags[@]+"${uname_flags[@]}"} -c '
       eval "$3"
@@ -805,7 +805,7 @@ echo "=== env.d: _UNAME matches uname -s in POSIX sh ==="
 # shellcheck disable=SC2016 # the child shell expands its own arguments.
 _assert_eq "uname (sh): 50-core.sh under sh matches uname -s" \
   "$UNAME_REAL" \
-  "$(env -i HOME="$TEST_TMPDIR" PATH="$PATH" sh -c '
+  "$(_env_clean HOME="$TEST_TMPDIR" PATH="$PATH" sh -c '
     _shell_env_set() { export "$1=$2"; }
     . "$1"
     printf "%s" "$_UNAME"
@@ -819,7 +819,7 @@ echo "=== env-noninteractive: foreign HOME skips env.d quietly ==="
 BARE_HOME=$TEST_TMPDIR/bare-home
 mkdir -p "$BARE_HOME"
 _assert_eq "env-noninteractive (bash): home without dotfiles loads nothing, silently" \
-  "ran" "$(env -i HOME="$BARE_HOME" PATH="$PATH" BASH_ENV="$ENV_BASH_ENV" \
+  "ran" "$(_env_clean HOME="$BARE_HOME" PATH="$PATH" BASH_ENV="$ENV_BASH_ENV" \
     bash -c 'printf ran' </dev/null 2>&1)"
 
 echo ""

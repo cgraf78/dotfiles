@@ -16,6 +16,8 @@ import tempfile
 import time
 import unittest
 
+from tmux_paths import short_temporary_parent
+
 
 def wait_until(predicate, description: str, timeout: float = 4.0) -> None:
     """Poll authoritative tmux state instead of sleeping for guessed timing."""
@@ -197,10 +199,9 @@ class LeafStyleTest(unittest.TestCase):
         # before tmux starts. Prefer the conventional short temporary root when
         # it exists; Termux and other platforms without /tmp keep their native
         # tempfile location.
-        short_root = pathlib.Path("/tmp")
-        short_root_usable = short_root.is_dir() and os.access(short_root, os.W_OK | os.X_OK)
-        temporary_parent = str(short_root) if short_root_usable else None
-        self.temporary = tempfile.TemporaryDirectory(prefix="dot-focus-", dir=temporary_parent)
+        self.temporary = tempfile.TemporaryDirectory(
+            prefix="dot-focus-", dir=short_temporary_parent()
+        )
         self.root = pathlib.Path(self.temporary.name)
         # The production config interpolates this path into several run-shell
         # commands. Keeping whitespace in the fixture makes every real-client
