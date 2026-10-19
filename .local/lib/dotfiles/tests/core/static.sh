@@ -2,7 +2,7 @@
 # static.sh - base repository policy and portability coverage.
 
 dot_core_test_static() {
-  local root workflow actions_sha tracked_file output
+  local root workflow actions_sha tracked_file output suite_files
   local -a git_cmd
 
   echo "=== Base static policy ==="
@@ -303,9 +303,12 @@ PY
   # helpers.sh owns DOT_TEST_ENV_CLEAN and DOT_TEST_SYSTEM_PATH. A deliberate
   # literal PATH (one a test asserts byte for byte) carries the marker on the
   # line above. ci-only/ runs only on Linux CI runners.
+  # An unlistable tree (for example Git's dubious-ownership refusal in a
+  # container) must fail rather than pass having scanned nothing.
+  suite_files=$("${git_cmd[@]}" -c safe.directory="$root" \
+    ls-files -- .local/lib/dotfiles/tests) || suite_files=''
   output=$(
-    python3 - "$root" \
-      "$("${git_cmd[@]}" ls-files -- .local/lib/dotfiles/tests)" <<'PY'
+    python3 - "$root" "$suite_files" <<'PY'
 import re
 import sys
 from pathlib import Path
@@ -316,6 +319,8 @@ clear_env = re.compile(r"\benv" + r" -i\b")
 system_path = "/usr/bin" + ":/bin"
 marker = "dot-test-portability:" + " literal system PATH"
 owner = ".local/lib/dotfiles/tests/helpers.sh"
+if owner not in sys.argv[2].splitlines():
+    print("could not list the tracked suite files")
 
 for rel in sys.argv[2].splitlines():
     if not rel or "/ci-only/" in rel or rel.endswith((".md", ".tsv", ".py", ".awk")):

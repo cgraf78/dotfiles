@@ -72,8 +72,9 @@ jobs:
               unset XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME XDG_RUNTIME_DIR
               export DOT_VERBOSE=1
               dot_bin_dir=${DOT_STACK_DOT_BIN%/*}
-              DOT_INIT_SKIP_PROVIDER=1 \
-                PATH="$dot_bin_dir:$HOME/.local/bin:$PATH" \
+              # The provider runs, as on a phone: it installs the declared
+              # tools (zsh, jq, fd, ripgrep, cron, tmux) the suites below use.
+              PATH="$dot_bin_dir:$HOME/.local/bin:$PATH" \
                 "$DOT_STACK_DOT_BIN" update
               PATH="$dot_bin_dir:$HOME/.local/bin:$PATH" \
                 bash .local/lib/dotfiles/tests/android-ci-smoke
@@ -85,9 +86,9 @@ jobs:
         set -euo pipefail
         export DOTFILES_CANDIDATE_SHA='${{ github.event.pull_request.head.sha || github.sha }}'
         .local/lib/dotfiles/tests/checkout-ci-candidate
-      # `dot update` installs the declared tools (zsh, jq, fd, ripgrep, cron,
-      # tmux) through Termux pkg, as on a phone. Python is a suite runtime no
-      # dependency declares, so it is a prerequisite here as on Linux.
+      # `dot update` installs the declared tools through Termux pkg. Python is
+      # a suite runtime no dependency declares, so it is a prerequisite here
+      # as on Linux.
       termux-profiles: base,python,tmux,ripgrep,hostname
 
   actions-sync:
