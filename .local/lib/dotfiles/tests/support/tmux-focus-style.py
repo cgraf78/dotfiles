@@ -948,10 +948,21 @@ class LeafStyleTest(unittest.TestCase):
         def named_automatically(window: str) -> None:
             """The window keeps tmux's automatic name: here, the directory's."""
             self.assertEqual("1", show(window, "#{automatic-rename}"))
-            wait_until(
-                lambda: show(window, "#{window_name}") == work.name,
-                f"{window} is named after its directory",
-            )
+            try:
+                wait_until(
+                    lambda: show(window, "#{window_name}") == work.name,
+                    f"{window} is named after its directory",
+                )
+            except AssertionError:
+                # Name what it settled on, and what its panes run, rather than
+                # only timing out: a slow host and a wrong name read the same.
+                panes = self.tmux(
+                    "list-panes", "-t", window, "-F", "#{pane_current_command}"
+                ).stdout.split()
+                self.assertEqual(
+                    work.name, show(window, "#{window_name}"), f"{window}'s name; panes run {panes}"
+                )
+                raise
 
         # codex
         window, agent, shell = open_task(b"x")
