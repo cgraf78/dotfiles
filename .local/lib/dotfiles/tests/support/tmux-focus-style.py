@@ -12,11 +12,29 @@ import select
 import shutil
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
 
 from tmux_paths import short_temporary_parent
+
+
+def termux_tmux_never_renames() -> bool:
+    """Whether automatic rename is known not to run here.
+
+    Under Termux, tmux 3.8 (as packaged in CI's emulator) never marks a task
+    window's active pane changed, even after the pane prints output; its log
+    reads "active pane not changed" on every check, so the rename that output
+    should trigger never runs. The name format itself evaluates correctly, and
+    the same case passes with tmux 3.8 on Linux, so no config change can fix
+    it. Skip only the name wait there; the rest of the case still runs.
+    """
+    if "com.termux" not in os.environ.get("PREFIX", ""):
+        return False
+    version = subprocess.run(["tmux", "-V"], text=True, capture_output=True, check=False).stdout
+    match = re.search(r"(\d+)\.(\d+)", version)
+    return match is not None and (int(match[1]), int(match[2])) >= (3, 8)
 
 
 def wait_until(predicate, description: str, timeout: float = 4.0) -> None:
@@ -948,6 +966,9 @@ class LeafStyleTest(unittest.TestCase):
         def named_automatically(window: str) -> None:
             """The window keeps tmux's automatic name: here, the directory's."""
             self.assertEqual("1", show(window, "#{automatic-rename}"))
+            if termux_tmux_never_renames():
+                print(f"note: {window} name wait skipped (Termux tmux 3.8+)", file=sys.stderr)
+                return
             try:
                 wait_until(
                     lambda: show(window, "#{window_name}") == work.name,
