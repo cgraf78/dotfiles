@@ -230,7 +230,7 @@ _assert_contains 'top-level CI installs hostname for profile selection' \
   'profiles: base,jq,python,zsh,lua,tmux,openssh-netcat-lsof,procps,cron,fd,ripgrep,hostname,shellcheck' \
   "$workflow_content"
 _assert_contains 'Termux CI installs hostname for profile selection' \
-  'termux-profiles: base,tmux,ripgrep,hostname' "$workflow_content"
+  'termux-profiles: base,python,tmux,ripgrep,hostname' "$workflow_content"
 _assert_eq 'cold bootstrap installs hostname for profile selection' 1 \
   "$(grep -Fxc \
     '          profiles: base,jq,python,zsh,lua,tmux,openssh-netcat-lsof,procps,cron,fd,ripgrep,hostname' \
