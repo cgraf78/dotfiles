@@ -970,8 +970,14 @@ class LeafStyleTest(unittest.TestCase):
                     except OSError as error:
                         cwd = f"unreadable ({error.strerror})"
                     panes.append(f"{command} path={path!r} /proc cwd={cwd!r}")
+                version = self.tmux("-V").stdout.strip()
+                evaluated = show(window, "#{E:automatic-rename-format}")
+                apps = show(window, "#{E:@window_apps}")
                 self.assertEqual(
-                    work.name, show(window, "#{window_name}"), f"{window}'s name; panes: {panes}"
+                    work.name,
+                    show(window, "#{window_name}"),
+                    f"{window}'s name ({version}); format evaluates to {evaluated!r}, "
+                    f"apps {apps!r}; panes: {panes}",
                 )
                 raise
 
