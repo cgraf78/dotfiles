@@ -970,6 +970,23 @@ class LeafStyleTest(unittest.TestCase):
                     except OSError as error:
                         cwd = f"unreadable ({error.strerror})"
                     panes.append(f"{command} path={path!r} /proc cwd={cwd!r}")
+                # SIGUSR2 starts the server's log; prompt the pane for output
+                # (automatic rename runs only after it changes) and keep the
+                # log lines for this window, which name each rename decision.
+                server = show(window, "#{pid}")
+                server_cwd = os.readlink(f"/proc/{server}/cwd")
+                os.kill(int(server), signal.SIGUSR2)
+                self.tmux("send-keys", "-t", window, "echo renamed", "Enter")
+                time.sleep(2)
+                os.kill(int(server), signal.SIGUSR2)
+                log_lines = []
+                for log in pathlib.Path(server_cwd).glob(f"tmux-server-{server}.log"):
+                    log_lines = [
+                        line
+                        for line in log.read_text(errors="replace").splitlines()
+                        if f" {window} " in line
+                    ][-15:]
+                    log.unlink()
                 version = self.tmux("-V").stdout.strip()
                 evaluated = show(window, "#{E:automatic-rename-format}")
                 apps = show(window, "#{E:@window_apps}")
@@ -977,7 +994,8 @@ class LeafStyleTest(unittest.TestCase):
                     work.name,
                     show(window, "#{window_name}"),
                     f"{window}'s name ({version}); format evaluates to {evaluated!r}, "
-                    f"apps {apps!r}; panes: {panes}",
+                    f"apps {apps!r}; panes: {panes}; after output the name is "
+                    f"{show(window, '#{window_name}')!r}; server log: {log_lines}",
                 )
                 raise
 
