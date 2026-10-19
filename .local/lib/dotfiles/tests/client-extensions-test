@@ -211,7 +211,7 @@ _client_worker_run_v1() {
     fi
   } >"$context" || return 1
   chmod 0600 "$context" || return 1
-  output=$(PATH=${CLIENT_WORKER_PATH:-/usr/bin:/bin} \
+  output=$(PATH=${CLIENT_WORKER_PATH:-$DOT_TEST_SYSTEM_PATH} \
     "$BASH" "$client_worker_v1" "$mode" "$script" "$result" "$context" \
     2>&1) || rc=$?
   if [[ -n $output ]]; then
@@ -241,7 +241,7 @@ for hook in "$client_root/merge-hooks.d"/*.sh; do
   # the synthetic overlay hook so public base CI still exercises Dot's
   # overlay-owned worker authorization boundary.
   [[ ! -L $hook || ${hook##*/} == test-overlay.sh ]] || continue
-  if CLIENT_WORKER_PATH=/usr/bin:/bin _client_worker_run merge "$hook" none \
+  if CLIENT_WORKER_PATH=$DOT_TEST_SYSTEM_PATH _client_worker_run merge "$hook" none \
     "${client_active_overlay_records[@]+"${client_active_overlay_records[@]}"}"; then
     _pass "client merge hook loads through standalone worker: ${hook##*/}"
   else
@@ -258,7 +258,7 @@ WEZTERM
 chmod +x "$wezterm_worker_bin/wezterm"
 mkdir -p "$fixture_home/.config/wezterm" "$windows_home"
 printf 'return {}\n' >"$fixture_home/.config/wezterm/wezterm.lua"
-if CLIENT_WORKER_PATH="$wezterm_worker_bin:/usr/bin:/bin" \
+if CLIENT_WORKER_PATH="$wezterm_worker_bin:$DOT_TEST_SYSTEM_PATH" \
   WSL_DISTRO_NAME=Ubuntu DOT_TEST_WINDOWS_HOME=$windows_home \
   DOT_TEST_WSL_PAIRED_ACCOUNT=1 DOT_QUIET=1 \
   _client_worker_run merge "$client_root/merge-hooks.d/wezterm.sh" none \

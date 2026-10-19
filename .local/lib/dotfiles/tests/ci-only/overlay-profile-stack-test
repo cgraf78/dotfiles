@@ -216,9 +216,9 @@ _assert_not_contains 'Termux CI excludes source launchers from the client PATH' 
 _assert_not_contains 'Termux CI avoids the checkout-only bin layout' \
   'PATH="$DOT_STACK_DOT_ROOT/bin:' \
   "$workflow_content"
-# The Termux smoke owns final base control-plane and Android behavior. Focused
-# dependency behavior remains covered by the base and capability owner suites.
-_assert_contains 'Termux CI skips dependency installation outside smoke scope' \
+# The Termux leg runs the top-level suites after `dot update`, so the update
+# runs the provider and installs the declared tools as on a phone.
+_assert_not_contains 'Termux CI installs dependencies before the suites' \
   'DOT_INIT_SKIP_PROVIDER=1' "$workflow_content"
 _assert_contains 'top-level CI runs the literal suite inventory' \
   '.local/lib/dotfiles/tests/run-ci' "$workflow_content"
@@ -230,7 +230,7 @@ _assert_contains 'top-level CI installs hostname for profile selection' \
   'profiles: base,jq,python,zsh,lua,tmux,openssh-netcat-lsof,procps,cron,fd,ripgrep,hostname,shellcheck' \
   "$workflow_content"
 _assert_contains 'Termux CI installs hostname for profile selection' \
-  'termux-profiles: base,tmux,ripgrep,hostname' "$workflow_content"
+  'termux-profiles: base,python,tmux,ripgrep,hostname' "$workflow_content"
 _assert_eq 'cold bootstrap installs hostname for profile selection' 1 \
   "$(grep -Fxc \
     '          profiles: base,jq,python,zsh,lua,tmux,openssh-netcat-lsof,procps,cron,fd,ripgrep,hostname' \

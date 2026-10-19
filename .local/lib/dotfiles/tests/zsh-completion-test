@@ -290,7 +290,7 @@ printf 'GROK_BASH_LOADED=1\n' >"$grok_home/.grok/completions/bash/grok.bash"
 # shellcheck disable=SC2030,SC2031  # fixture HOME/PATH stay inside this subshell
 grok_path=$(
   HOME="$grok_home"
-  PATH="/usr/bin:/bin"
+  PATH="$DOT_TEST_SYSTEM_PATH"
   # shellcheck disable=SC1091 # source tree fragment, not the fixture home
   . "$source_home/.config/shell/env.d/90-path.sh"
   printf '%s\n' "$PATH"
@@ -305,7 +305,7 @@ mkdir -p "$missing_grok_home/.local/bin"
 # shellcheck disable=SC2030,SC2031  # fixture HOME/PATH stay inside this subshell
 missing_grok_path=$(
   HOME="$missing_grok_home"
-  PATH="/usr/bin:/bin"
+  PATH="$DOT_TEST_SYSTEM_PATH"
   # shellcheck disable=SC1091 # source tree fragment, not the fixture home
   . "$source_home/.config/shell/env.d/90-path.sh"
   printf '%s\n' "$PATH"

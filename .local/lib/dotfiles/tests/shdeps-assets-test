@@ -37,7 +37,7 @@ ASSETS_SAVED_HOME="$HOME"
 ASSETS_SAVED_PATH="$PATH"
 HOME="$TEST_TMPDIR/mock-home"
 mkdir -p "$HOME"
-PATH="$ASSETS_SHDEPS_BIN:/usr/bin:/bin"
+PATH="$ASSETS_SHDEPS_BIN:$DOT_TEST_SYSTEM_PATH"
 export HOME PATH
 
 assets_out=$(dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh)
@@ -67,7 +67,7 @@ else
   assets_saved_bindir=$SHDEPS_BIN_DIR
 fi
 unset SHDEPS_BIN SHDEPS_BIN_DIR
-PATH="/usr/bin:/bin"
+PATH="$DOT_TEST_SYSTEM_PATH"
 export PATH
 assets_fallback_out=$(dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh)
 assets_fallback_rc=$?
@@ -107,7 +107,7 @@ fi
 echo ""
 echo "=== shdeps-assets: failure passthrough ==="
 
-PATH="$ASSETS_SHDEPS_BIN:/usr/bin:/bin"
+PATH="$ASSETS_SHDEPS_BIN:$DOT_TEST_SYSTEM_PATH"
 export PATH
 ASSETS_SHDEPS_FAIL=3
 export ASSETS_SHDEPS_FAIL
@@ -162,7 +162,7 @@ printf 'cgraf78/termnav  github:repo\n' \
   >"$ASSETS_CACHE_HOME/.config/shdeps/10-deps.conf"
 HOME="$ASSETS_CACHE_HOME"
 export HOME
-PATH="$ASSETS_SHDEPS_BIN:/usr/bin:/bin"
+PATH="$ASSETS_SHDEPS_BIN:$DOT_TEST_SYSTEM_PATH"
 export PATH
 
 assets_fresh_cache() {
@@ -318,36 +318,36 @@ EOF
 chmod +x "$ASSETS_SHDEPS_BIN_B/shdeps"
 export ASSETS_ASSET_B
 assets_fresh_cache
-PATH="$ASSETS_SHDEPS_BIN:$ASSETS_SHDEPS_BIN_B:/usr/bin:/bin"
+PATH="$ASSETS_SHDEPS_BIN:$ASSETS_SHDEPS_BIN_B:$DOT_TEST_SYSTEM_PATH"
 export PATH
 dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
 dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
 _assert_eq "dep cache: reorder hits before change" "1" "$(assets_invocations)"
-PATH="$ASSETS_SHDEPS_BIN_B:$ASSETS_SHDEPS_BIN:/usr/bin:/bin"
+PATH="$ASSETS_SHDEPS_BIN_B:$ASSETS_SHDEPS_BIN:$DOT_TEST_SYSTEM_PATH"
 export PATH
 assets_reorder_second=$(dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh)
 _assert_eq "dep cache: PATH reorder serves the new binary" \
   "$ASSETS_ASSET_B" "$assets_reorder_second"
 _assert_eq "dep cache: PATH reorder invalidates" "2" "$(assets_invocations)"
-PATH="$ASSETS_SHDEPS_BIN:/usr/bin:/bin"
+PATH="$ASSETS_SHDEPS_BIN:$DOT_TEST_SYSTEM_PATH"
 export PATH
 
 # Same-shell PATH change to a disjoint entry: unlike the reorder above, the
 # new PATH shares no shdeps entry with the old one, proving the changed
 # PATH is re-probed rather than the old binary being reused.
 assets_fresh_cache
-PATH="$ASSETS_SHDEPS_BIN:/usr/bin:/bin"
+PATH="$ASSETS_SHDEPS_BIN:$DOT_TEST_SYSTEM_PATH"
 export PATH
 dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
 dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh >/dev/null
 _assert_eq "dep cache: PATH change hits before change" "1" "$(assets_invocations)"
-PATH="$ASSETS_SHDEPS_BIN_B:/usr/bin:/bin"
+PATH="$ASSETS_SHDEPS_BIN_B:$DOT_TEST_SYSTEM_PATH"
 export PATH
 assets_path_change=$(dot_shdeps_dep_file cgraf78/termnav share/termnav/shell.sh)
 _assert_eq "dep cache: PATH change serves the new binary" \
   "$ASSETS_ASSET_B" "$assets_path_change"
 _assert_eq "dep cache: PATH change invalidates" "2" "$(assets_invocations)"
-PATH="$ASSETS_SHDEPS_BIN:/usr/bin:/bin"
+PATH="$ASSETS_SHDEPS_BIN:$DOT_TEST_SYSTEM_PATH"
 export PATH
 
 # Read-only cache dir: the write fallback must fail open — the request
@@ -520,7 +520,7 @@ if command -v zsh >/dev/null 2>&1; then
   assets_fresh_cache
   HOME="$ASSETS_CACHE_HOME" XDG_CACHE_HOME="$XDG_CACHE_HOME" \
     ASSETS_SHDEPS_LOG="$ASSETS_SHDEPS_LOG" ASSETS_ASSET="$ASSETS_ASSET" \
-    PATH="$ASSETS_SHDEPS_BIN:/usr/bin:/bin" REAL_HOME="$REAL_HOME" \
+    PATH="$ASSETS_SHDEPS_BIN:$DOT_TEST_SYSTEM_PATH" REAL_HOME="$REAL_HOME" \
     zsh -f -c '
       # shellcheck disable=SC1091
       . "$REAL_HOME/.local/lib/dotfiles/shdeps-assets.sh"
