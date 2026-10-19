@@ -956,11 +956,22 @@ class LeafStyleTest(unittest.TestCase):
             except AssertionError:
                 # Name what it settled on, and what its panes run, rather than
                 # only timing out: a slow host and a wrong name read the same.
-                panes = self.tmux(
-                    "list-panes", "-t", window, "-F", "#{pane_current_command}"
-                ).stdout.split()
+                panes = []
+                for row in self.tmux(
+                    "list-panes",
+                    "-t",
+                    window,
+                    "-F",
+                    "#{pane_pid}\t#{pane_current_command}\t#{pane_current_path}",
+                ).stdout.splitlines():
+                    pid, command, path = (row.split("\t") + ["", ""])[:3]
+                    try:
+                        cwd = os.readlink(f"/proc/{pid}/cwd")
+                    except OSError as error:
+                        cwd = f"unreadable ({error.strerror})"
+                    panes.append(f"{command} path={path!r} /proc cwd={cwd!r}")
                 self.assertEqual(
-                    work.name, show(window, "#{window_name}"), f"{window}'s name; panes run {panes}"
+                    work.name, show(window, "#{window_name}"), f"{window}'s name; panes: {panes}"
                 )
                 raise
 
