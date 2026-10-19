@@ -33,6 +33,46 @@ export PYTHONDONTWRITEBYTECODE=1
 # still read $HOME/.zshenv, so use a fixture HOME or `zsh -f` where it matters.
 unset BASH_ENV ENV
 
+# Whether the suite runs inside Termux on Android. The PREFIX spelling is the
+# same signal android-ci-smoke and the runtime resolver use.
+_test_on_termux() {
+  [[ ${PREFIX:-} == *com.termux*/usr ]]
+}
+
+# Variables a cleared environment must keep for the platform to exec at all.
+# Termux's Google Play build cannot execute binaries in app data directly:
+# libtermux-exec, loaded through LD_PRELOAD, routes every exec through the
+# system linker. A child started with `env -i` still launches (its parent is
+# preloaded), but each exec it makes fails with EACCES. Only that library is
+# kept, so a caller's own LD_PRELOAD never leaks into a hermetic fixture.
+#
+# DOT_TEST_ENV_CLEAN is the argv prefix to use instead of a bare `env -i`
+# wherever a fixture needs an empty environment. It is a plain argv, not only
+# a function, so launchers such as `os.execvp` and generated stub scripts that
+# `exec` it can use it too.
+DOT_TEST_ENV_CLEAN=(env -i)
+# LD_PRELOAD is a colon- or space-separated list; keep only its exec shim.
+IFS=': ' read -r -a _dot_test_preloads <<<"${LD_PRELOAD:-}"
+for _dot_test_preload in ${_dot_test_preloads[@]+"${_dot_test_preloads[@]}"}; do
+  if [[ $_dot_test_preload == /*/libtermux-exec*.so ]]; then
+    DOT_TEST_ENV_CLEAN+=("LD_PRELOAD=$_dot_test_preload")
+    break
+  fi
+done
+unset _dot_test_preload _dot_test_preloads
+
+# Run "$@" under DOT_TEST_ENV_CLEAN.
+_env_clean() {
+  "${DOT_TEST_ENV_CLEAN[@]}" "$@"
+}
+
+# The system userland a fixture PATH ends with. Termux has no userland of its
+# own under /usr/bin or /bin (/bin is Android's toybox), so its tools live in
+# $PREFIX/bin; Bash searches PATH itself, so libtermux-exec's /usr/bin
+# remapping does not help there.
+DOT_TEST_SYSTEM_PATH=/usr/bin:/bin
+_test_on_termux && DOT_TEST_SYSTEM_PATH=$PREFIX/bin:$DOT_TEST_SYSTEM_PATH
+
 # `dot test` sets DOT_TEST_STYLE=1 for child suites when styled output is
 # appropriate. Individual suites keep exporting NO_COLOR for deterministic tool
 # output, so this opt-in is separate from NO_COLOR and only affects our harness
@@ -541,8 +581,11 @@ _tmux_fixture_env() {
   fixture=$(_tmpdir)
   mkdir -p "$fixture/.config" || return 1
   ln -s "$config_home/.config/tmux" "$fixture/.config/tmux" || return 1
-  TMUX_FIXTURE_ENV=(env -i HOME="$fixture" PATH="$PATH" SHELL=/bin/sh
-    TERM="${TERM:-xterm-256color}" TMPDIR="${TMPDIR:-/tmp}")
+  # PYTHONDONTWRITEBYTECODE survives the clear for the PTY drivers, whose
+  # support-module import would otherwise write __pycache__ into the tree.
+  TMUX_FIXTURE_ENV=("${DOT_TEST_ENV_CLEAN[@]}" HOME="$fixture" PATH="$PATH"
+    SHELL=/bin/sh TERM="${TERM:-xterm-256color}" TMPDIR="${TMPDIR:-/tmp}"
+    PYTHONDONTWRITEBYTECODE=1)
   # tmux needs a UTF-8 locale, and Termux supplies its root through PREFIX.
   for passthrough in LANG LC_ALL LC_CTYPE PREFIX; do
     [[ -n ${!passthrough:-} ]] &&

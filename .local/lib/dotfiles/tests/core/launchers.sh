@@ -61,7 +61,7 @@ EOF
     cd "$TEST_HOME" &&
       GIT_FAST_PROBE_LOG="$_git_fast_probe_log" \
         XDG_CACHE_HOME="$_git_fast_probe_cache" \
-        PATH="$BIN_DIR:$_git_fast_probe_bin:/usr/bin:/bin" \
+        PATH="$BIN_DIR:$_git_fast_probe_bin:$DOT_TEST_SYSTEM_PATH" \
         "$BIN_DIR/git" --version 2>&1
   )
   _assert_contains "git launcher fast path: version reaches real git" \
@@ -103,7 +103,7 @@ EOF
       GIT_HOME_PROBE_HOME="$TEST_HOME" \
         GIT_HOME_PROBE_LOG="$_git_home_probe_log" \
         XDG_CACHE_HOME="$_git_home_probe_cache" \
-        PATH="$BIN_DIR:$_git_home_probe_bin:/usr/bin:/bin" \
+        PATH="$BIN_DIR:$_git_home_probe_bin:$DOT_TEST_SYSTEM_PATH" \
         "$BIN_DIR/git" status 2>&1
   )
   _assert_contains "git launcher HOME root: routes to bare dotfiles" \
@@ -158,7 +158,7 @@ EOF
             GIT_EXACT_ROOT="$_git_exact_root" \
               GIT_EXACT_ROOT_LOG="$_git_exact_root_log" \
               XDG_CACHE_HOME="$_git_exact_root_cache" \
-              PATH="$BIN_DIR:$_git_exact_root_bin:/usr/bin:/bin" \
+              PATH="$BIN_DIR:$_git_exact_root_bin:$DOT_TEST_SYSTEM_PATH" \
               "$BIN_DIR/git" status
         )
         _git_exact_expected="status"
@@ -168,7 +168,7 @@ EOF
             GIT_EXACT_ROOT="$_git_exact_root" \
               GIT_EXACT_ROOT_LOG="$_git_exact_root_log" \
               XDG_CACHE_HOME="$_git_exact_root_cache" \
-              PATH="$BIN_DIR:$_git_exact_root_bin:/usr/bin:/bin" \
+              PATH="$BIN_DIR:$_git_exact_root_bin:$DOT_TEST_SYSTEM_PATH" \
               "$BIN_DIR/git" -C "$_git_exact_root" status
         )
         _git_exact_expected="-C $_git_exact_root status"
@@ -228,7 +228,7 @@ EOF
       GIT_CACHED_PROBE_LOG="$_git_cached_probe_log" \
         GIT_CACHED_PROBE_ROOT="$_git_cached_probe_root" \
         XDG_CACHE_HOME="$_git_cached_probe_cache" \
-        PATH="$BIN_DIR:$_git_cached_probe_bin:/usr/bin:/bin" \
+        PATH="$BIN_DIR:$_git_cached_probe_bin:$DOT_TEST_SYSTEM_PATH" \
         "$BIN_DIR/git" status
   )
   _assert_eq "git launcher nested Git cache: cold call reaches real git" \
@@ -245,7 +245,7 @@ EOF
       GIT_CACHED_PROBE_LOG="$_git_cached_probe_log" \
         GIT_CACHED_PROBE_ROOT="$_git_cached_probe_root" \
         XDG_CACHE_HOME="$_git_cached_probe_cache" \
-        PATH="$BIN_DIR:$_git_cached_probe_bin:/usr/bin:/bin" \
+        PATH="$BIN_DIR:$_git_cached_probe_bin:$DOT_TEST_SYSTEM_PATH" \
         "$BIN_DIR/git" status
   )
   _assert_eq "git launcher nested Git cache: warm call reaches real git" \
@@ -266,7 +266,7 @@ EOF
       GIT_CACHED_PROBE_LOG="$_git_cached_probe_log" \
         GIT_CACHED_PROBE_ROOT="$_git_cached_probe_root" \
         XDG_CACHE_HOME="$_git_cached_probe_cache" \
-        PATH="$BIN_DIR:$_git_cached_probe_bin:/usr/bin:/bin" \
+        PATH="$BIN_DIR:$_git_cached_probe_bin:$DOT_TEST_SYSTEM_PATH" \
         "$BIN_DIR/git" status
   )
   _assert_eq "git launcher nested Git cache: multi-root warm call succeeds" \
@@ -280,7 +280,7 @@ EOF
       GIT_CACHED_PROBE_LOG="$_git_cached_probe_log" \
         GIT_CACHED_PROBE_ROOT="$_git_cached_probe_other" \
         XDG_CACHE_HOME="$_git_cached_probe_cache" \
-        PATH="$BIN_DIR:$_git_cached_probe_bin:/usr/bin:/bin" \
+        PATH="$BIN_DIR:$_git_cached_probe_bin:$DOT_TEST_SYSTEM_PATH" \
         "$BIN_DIR/git" status
   )
   _assert_eq "git launcher nested Git cache: alternate warm root succeeds" \
@@ -299,7 +299,7 @@ EOF
       GIT_CACHED_PROBE_LOG="$_git_cached_probe_log" \
         GIT_CACHED_PROBE_ROOT="$_git_cached_probe_root" \
         XDG_CACHE_HOME="$_git_cached_probe_cache" \
-        PATH="$BIN_DIR:$_git_cached_probe_bin:/usr/bin:/bin" \
+        PATH="$BIN_DIR:$_git_cached_probe_bin:$DOT_TEST_SYSTEM_PATH" \
         "$BIN_DIR/git" status
   )
   _assert_eq "git launcher nested Git cache: malformed cached marker stays Git-owned" \
@@ -316,7 +316,7 @@ EOF
         GIT_CACHED_PROBE_MISS=1 \
         GIT_CACHED_PROBE_ROOT="$_git_cached_probe_root" \
         XDG_CACHE_HOME="$_git_cached_probe_cache" \
-        PATH="$BIN_DIR:$_git_cached_probe_bin:/usr/bin:/bin" \
+        PATH="$BIN_DIR:$_git_cached_probe_bin:$DOT_TEST_SYSTEM_PATH" \
         "$BIN_DIR/git" status
   )
   _assert_eq "git launcher nested Git cache: removed marker falls back to dotfiles" \
@@ -387,7 +387,7 @@ EOF
             GIT_NESTED_PROBE_HOME="$TEST_HOME" \
             GIT_NESTED_PROBE_ROOT="$_git_stale_root" \
             XDG_CACHE_HOME="$_git_stale_cache" \
-            PATH="$BIN_DIR:$_git_nested_probe_bin:/usr/bin:/bin" \
+            PATH="$BIN_DIR:$_git_nested_probe_bin:$DOT_TEST_SYSTEM_PATH" \
             "$BIN_DIR/git" status
       )
       _assert_eq "git launcher nested cache: invalidates stale $_git_stale_marker $_git_stale_mode marker" \
@@ -404,7 +404,7 @@ EOF
         GIT_NESTED_PROBE_HOME="$TEST_HOME" \
         GIT_NESTED_PROBE_ROOT="$_git_nested_probe_root" \
         XDG_CACHE_HOME="$_git_nested_probe_cache" \
-        PATH="$BIN_DIR:$_git_nested_probe_bin:/usr/bin:/bin" \
+        PATH="$BIN_DIR:$_git_nested_probe_bin:$DOT_TEST_SYSTEM_PATH" \
         "$BIN_DIR/git" config --show-scope --get-regexp '^(remote|user|submodule)\.'
   )
   _assert_eq "git launcher SCM config probe: reaches real git" \
@@ -423,7 +423,7 @@ EOF
         GIT_NESTED_PROBE_HOME="$TEST_HOME" \
         GIT_NESTED_PROBE_ROOT="$_git_no_marker_root" \
         XDG_CACHE_HOME="$_git_no_marker_cache" \
-        PATH="$BIN_DIR:$_git_nested_probe_bin:/usr/bin:/bin" \
+        PATH="$BIN_DIR:$_git_nested_probe_bin:$DOT_TEST_SYSTEM_PATH" \
         "$BIN_DIR/git" status
   )
   _assert_eq "git launcher nested probe: no marker falls back to dotfiles" \
@@ -442,7 +442,7 @@ EOF
         GIT_NESTED_PROBE_HOME="$TEST_HOME" \
         GIT_NESTED_PROBE_ROOT="$_git_hg_probe_root" \
         XDG_CACHE_HOME="$_git_hg_probe_cache" \
-        PATH="$BIN_DIR:$_git_nested_probe_bin:/usr/bin:/bin" \
+        PATH="$BIN_DIR:$_git_nested_probe_bin:$DOT_TEST_SYSTEM_PATH" \
         "$BIN_DIR/git" status
   )
   _assert_eq "git launcher nested probe: hg marker reaches real git" \
@@ -457,20 +457,20 @@ EOF
         GIT_NESTED_PROBE_HOME="$TEST_HOME" \
         GIT_NESTED_PROBE_ROOT="$_git_nested_probe_root" \
         XDG_CACHE_HOME="$_git_nested_probe_cache" \
-        PATH="$BIN_DIR:$_git_nested_probe_bin:/usr/bin:/bin" \
+        PATH="$BIN_DIR:$_git_nested_probe_bin:$DOT_TEST_SYSTEM_PATH" \
         "$BIN_DIR/git" status &&
       GIT_NESTED_PROBE_LOG="$_git_nested_probe_log" \
         GIT_NESTED_PROBE_HOME="$TEST_HOME" \
         GIT_NESTED_PROBE_ROOT="$_git_nested_probe_root" \
         XDG_CACHE_HOME="$_git_nested_probe_cache" \
-        PATH="$BIN_DIR:$_git_nested_probe_bin:/usr/bin:/bin" \
+        PATH="$BIN_DIR:$_git_nested_probe_bin:$DOT_TEST_SYSTEM_PATH" \
         "$BIN_DIR/git" status &&
       rm -rf "$_git_nested_probe_root/.sl" &&
       GIT_NESTED_PROBE_LOG="$_git_nested_probe_log" \
         GIT_NESTED_PROBE_HOME="$TEST_HOME" \
         GIT_NESTED_PROBE_ROOT="$_git_nested_probe_root" \
         XDG_CACHE_HOME="$_git_nested_probe_cache" \
-        PATH="$BIN_DIR:$_git_nested_probe_bin:/usr/bin:/bin" \
+        PATH="$BIN_DIR:$_git_nested_probe_bin:$DOT_TEST_SYSTEM_PATH" \
         "$BIN_DIR/git" status
   )
   _assert_eq "git launcher nested repo cache: invalidates stale Sapling root" \
@@ -491,14 +491,14 @@ EOF
         GIT_NESTED_PROBE_HOME="$TEST_HOME" \
         GIT_NESTED_PROBE_ROOT="$_git_nested_probe_outer" \
         XDG_CACHE_HOME="$_git_nested_probe_semantic_cache" \
-        PATH="$BIN_DIR:$_git_nested_probe_bin:/usr/bin:/bin" \
+        PATH="$BIN_DIR:$_git_nested_probe_bin:$DOT_TEST_SYSTEM_PATH" \
         "$BIN_DIR/git" status &&
       mkdir -p "$_git_nested_probe_inner/.sl" &&
       GIT_NESTED_PROBE_LOG="$_git_nested_probe_semantic_log" \
         GIT_NESTED_PROBE_HOME="$TEST_HOME" \
         GIT_NESTED_PROBE_ROOT="$_git_nested_probe_inner" \
         XDG_CACHE_HOME="$_git_nested_probe_semantic_cache" \
-        PATH="$BIN_DIR:$_git_nested_probe_bin:/usr/bin:/bin" \
+        PATH="$BIN_DIR:$_git_nested_probe_bin:$DOT_TEST_SYSTEM_PATH" \
         "$BIN_DIR/git" status
   )
   _assert_eq "git launcher nested repo cache: prefers nearer marker over stale broad root" \
@@ -527,7 +527,7 @@ EOF
     result=$(
       cd "$TEST_HOME" &&
         XDG_CACHE_HOME="$_git_cross_cache" \
-          PATH="$BIN_DIR:$_git_cross_wrapper_bin:$_git_cross_real_bin:/usr/bin:/bin" \
+          PATH="$BIN_DIR:$_git_cross_wrapper_bin:$_git_cross_real_bin:$DOT_TEST_SYSTEM_PATH" \
           "$_git_cross_timeout" 3s "$BIN_DIR/git" --version 2>&1
     )
     _assert_eq "git launcher cross-account path: skips other launcher copies" \
@@ -608,19 +608,19 @@ EOF
       "$BIN_DIR/git" --version 2>&1)
   }
 
-  _git_res_path1="$BIN_DIR:$_git_res_root/link:$_git_res_root/copy:$_git_res_root/a:$_git_res_root/b:/usr/bin:/bin"
+  _git_res_path1="$BIN_DIR:$_git_res_root/link:$_git_res_root/copy:$_git_res_root/a:$_git_res_root/b:$DOT_TEST_SYSTEM_PATH"
   _assert_eq "git launcher resolution: skips launcher symlinks and copies" \
     "real-a" "$(_git_res_run "$_git_res_path1")"
   _assert_file_content "git launcher resolution: publishes the resolved Git" \
     "$(printf '%s\n%s' "$_git_res_root/a/git" "$_git_res_path1")" "$_git_res_file"
 
-  _git_res_path2="$BIN_DIR:$_git_res_root/a:/usr/bin:/bin"
+  _git_res_path2="$BIN_DIR:$_git_res_root/a:$DOT_TEST_SYSTEM_PATH"
   _assert_eq "git launcher resolution: another PATH resolves the same Git" \
     "real-a" "$(_git_res_run "$_git_res_path2")"
   _assert_file_content "git launcher resolution: same Git leaves the cache alone" \
     "$(printf '%s\n%s' "$_git_res_root/a/git" "$_git_res_path1")" "$_git_res_file"
 
-  _git_res_path3="$BIN_DIR:$_git_res_root/b:$_git_res_root/a:/usr/bin:/bin"
+  _git_res_path3="$BIN_DIR:$_git_res_root/b:$_git_res_root/a:$DOT_TEST_SYSTEM_PATH"
   _assert_eq "git launcher resolution: follows a PATH that changes the Git" \
     "real-b" "$(_git_res_run "$_git_res_path3")"
   _assert_file_content "git launcher resolution: republishes a changed Git" \
@@ -634,7 +634,7 @@ EOF
 
   # An empty PATH entry names the current directory, as in command lookup.
   _git_res_cwd_result=$(cd "$_git_res_root/cwd" &&
-    XDG_CACHE_HOME="$_git_res_root/cwd-cache" PATH="$BIN_DIR::/usr/bin:/bin" \
+    XDG_CACHE_HOME="$_git_res_root/cwd-cache" PATH="$BIN_DIR::$DOT_TEST_SYSTEM_PATH" \
       "$BIN_DIR/git" --version 2>&1)
   _assert_eq "git launcher resolution: empty PATH entry is the current directory" \
     "real-cwd" "$_git_res_cwd_result"
@@ -645,7 +645,7 @@ EOF
   # shellcheck disable=SC2147 # The literal tilde is the PATH entry under test.
   _git_res_tilde_result=$(cd "$TEST_HOME" && HOME="$_git_res_root/home" \
     XDG_CACHE_HOME="$_git_res_root/tilde-cache" \
-    PATH="$BIN_DIR:~/bin:$_git_res_root/a:/usr/bin:/bin" \
+    PATH="$BIN_DIR:~/bin:$_git_res_root/a:$DOT_TEST_SYSTEM_PATH" \
     DOT_TEST_HOST_HOME="${DOT_TEST_HOST_HOME:-}" "$BIN_DIR/git" --version 2>&1)
   _assert_eq "git launcher resolution: a literal ~ PATH entry expands" \
     "real-b" "$_git_res_tilde_result"
@@ -742,9 +742,9 @@ EOF
       continue
     fi
     if [[ "$_git_loop_order" == wrapper ]]; then
-      _git_loop_path="$_git_loop_root/stub:$BIN_DIR:/usr/bin:/bin"
+      _git_loop_path="$_git_loop_root/stub:$BIN_DIR:$DOT_TEST_SYSTEM_PATH"
     else
-      _git_loop_path="$BIN_DIR:$_git_loop_root/stub:/usr/bin:/bin"
+      _git_loop_path="$BIN_DIR:$_git_loop_root/stub:$DOT_TEST_SYSTEM_PATH"
     fi
     _git_loop_run "$_git_loop_label" "$_git_loop_cwd" "$_git_loop_path" \
       DOT_GIT_REAL="$_git_loop_real"
@@ -757,7 +757,7 @@ EOF
     # probe's own re-entry skips probing, the launches branch exponentially.
     mkdir -p "$_git_loop_root/bare-home/plain"
     _git_loop_run bare-home "$_git_loop_root/bare-home/plain" \
-      "$BIN_DIR:$_git_loop_root/stub:/usr/bin:/bin" \
+      "$BIN_DIR:$_git_loop_root/stub:$DOT_TEST_SYSTEM_PATH" \
       HOME="$_git_loop_root/bare-home" DOT_TEST_HOST_HOME="${DOT_TEST_HOST_HOME:-}"
     _git_loop_assert_bounded "bare HOME probe" stub 64
 
@@ -765,7 +765,7 @@ EOF
     # about 2^max launches; the budget must stay small enough to finish.
     _git_loop_limit=60s
     _git_loop_run twice "$_git_loop_root" \
-      "$BIN_DIR:$_git_loop_root/twice:/usr/bin:/bin" DOT_GIT_REAL=1
+      "$BIN_DIR:$_git_loop_root/twice:$DOT_TEST_SYSTEM_PATH" DOT_GIT_REAL=1
     _git_loop_limit=
     _git_loop_assert_bounded "two callbacks per level" twice 1024
 
@@ -777,14 +777,14 @@ EOF
     env -u GIT_DIR -u GIT_WORK_TREE git -C "$_git_loop_repo" init -q
     _git_loop_args=(rev-parse --show-toplevel)
     _git_loop_run redispatch "$_git_loop_repo/sub" \
-      "$BIN_DIR:$_git_loop_root/redispatch:/usr/bin:/bin"
+      "$BIN_DIR:$_git_loop_root/redispatch:$DOT_TEST_SYSTEM_PATH"
     _git_loop_args=(check-ref-format --branch main)
     _assert_eq "git launcher re-entry: a re-dispatching wrapper keeps nested repos" \
       "$(cd "$_git_loop_repo" && pwd -P)" "$_git_loop_out"
 
     # Hooks and other Git children that run the launcher again inherit the
     # count, so ordinary nesting and garbage values must still reach real Git.
-    _git_loop_real_path="$BIN_DIR:$_git_loop_root/real:/usr/bin:/bin"
+    _git_loop_real_path="$BIN_DIR:$_git_loop_root/real:$DOT_TEST_SYSTEM_PATH"
     _git_loop_run fresh "$_git_loop_root" "$_git_loop_real_path"
     _assert_eq "git launcher re-entry: real Git sees the first hop" \
       "real-git:1:check-ref-format --branch main" "$_git_loop_out"
@@ -818,7 +818,7 @@ MOCK
     (
       cd "$TEST_HOME" || exit
       XDG_CACHE_HOME="$GIT_PARSE_CACHE" \
-        PATH="$BIN_DIR:$GIT_PARSE_BIN:/usr/bin:/bin" \
+        PATH="$BIN_DIR:$GIT_PARSE_BIN:$DOT_TEST_SYSTEM_PATH" \
         "$BIN_DIR/git" "$@"
     )
   }
