@@ -170,10 +170,7 @@ if [[ $needs_capability_runtime -eq 1 ]]; then
   ln -s "$nvim_bin" "$fixture_bin/nvim"
   ln -s "$yq_bin" "$fixture_bin/yq"
 fi
-fixture_path=$fixture_bin:/usr/bin:/bin
-if [[ -n ${PREFIX:-} ]]; then
-  fixture_path=$fixture_bin:$PREFIX/bin:/usr/bin:/bin
-fi
+fixture_path=$fixture_bin:$DOT_TEST_SYSTEM_PATH
 _pass 'profile fixtures have an isolated system Git'
 
 fixture_root=$(_tmpdir)

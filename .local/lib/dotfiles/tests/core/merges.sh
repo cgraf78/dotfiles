@@ -511,7 +511,7 @@ YQ
   chmod +x "$yq_resolver_path/yq" "$yq_resolver_home/.local/bin/yq"
   _assert_eq "merge hook support: Shdeps yq survives an unrefreshed bootstrap PATH" \
     "$yq_resolver_home/.local/bin/yq" \
-    "$(HOME="$yq_resolver_home" PATH="$yq_resolver_path:/usr/bin:/bin" \
+    "$(HOME="$yq_resolver_home" PATH="$yq_resolver_path:$DOT_TEST_SYSTEM_PATH" \
       _merge_hook_mikefarah_yq 2>/dev/null || true)"
 
   echo "=== tmux merge hook ==="

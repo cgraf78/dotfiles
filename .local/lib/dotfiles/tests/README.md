@@ -13,6 +13,17 @@ discover them. Run one locally
 with `DOT_TEST_TESTS_DIR=~/.local/lib/dotfiles/tests/ci-only dot test`; it
 skips without the resolved runtime.
 
+The Termux leg runs the top-level suites through `run-ci --top-level` with
+`DOT_TEST_JOBS=1`, after `dot update` (which installs the declared tools the
+suites use) and `android-ci-smoke`; a parallel run
+on a real phone gets the whole Termux app killed by Android. CI installs
+Termux's GitHub build, which can execute binaries in app data directly, so it
+cannot reproduce the Google Play build's exec shim. The base static suite
+therefore rejects a bare `env -i` (use `_env_clean` or `DOT_TEST_ENV_CLEAN`)
+and a literal `/usr/bin:/bin` fixture PATH (use `DOT_TEST_SYSTEM_PATH`); a
+PATH a test deliberately asserts byte for byte carries a
+`# dot-test-portability: literal system PATH` marker on the line above.
+
 This repository tests the always-active base substrate and the profile control
 plane: shell startup, Git bootstrap routing, tmux, terminal integration,
 agent-rule aggregation, profile selection, ownership, composition, migration,

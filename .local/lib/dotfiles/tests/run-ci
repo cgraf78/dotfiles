@@ -130,12 +130,22 @@ fi
 # --ci-only runs just the CI-only set. Overlay pull requests use it to run
 # the cross-repository stack checks against their own revision without
 # repeating the top-level suites, which base CI and their own CI already run.
+# --top-level runs just the top-level set. The Termux leg uses it: the CI-only
+# cross-repository stack checks stay on the conventional platform legs.
 ci_only=0
-if [[ ${1:-} == --ci-only ]]; then
-  [[ $# -eq 1 ]] || exit 2
-  ci_only=1
-  shift
-fi
+top_level=0
+case ${1:-} in
+  --ci-only)
+    [[ $# -eq 1 ]] || exit 2
+    ci_only=1
+    shift
+    ;;
+  --top-level)
+    [[ $# -eq 1 ]] || exit 2
+    top_level=1
+    shift
+    ;;
+esac
 [[ $# -eq 0 ]] || exit 2
 
 export DOT_TEST_DOT_ROOT=$DOT_STACK_DOT_ROOT
@@ -174,7 +184,7 @@ status=0
 if ((${#suites[@]} > 0 && ci_only == 0)); then
   _run_set "$tests_rel" "${suites[@]}" || status=$?
 fi
-if ((${#ci_only_suites[@]} > 0)); then
+if ((${#ci_only_suites[@]} > 0 && top_level == 0)); then
   rc=0
   _run_set "$ci_only_rel" "${ci_only_suites[@]}" || rc=$?
   ((status != 0)) || status=$rc

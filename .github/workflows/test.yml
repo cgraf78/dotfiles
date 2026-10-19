@@ -54,8 +54,9 @@ jobs:
                 .local/lib/dotfiles/tests/profile-fixture-integration "$mode"
           done
         fi
-      # Keep this Android smoke on the base-owned payload and run it through
-      # one exact Dot snapshot, resolved once for this job.
+      # Keep the Android smoke and the top-level suites on the base-owned
+      # payload and run them through one exact Dot snapshot, resolved once for
+      # this job. This is the only leg that runs the suites under Termux.
       termux-command: |-
         set -euo pipefail
         export DOTFILES_CANDIDATE_SHA='${{ github.event.pull_request.head.sha || github.sha }}'
@@ -76,12 +77,18 @@ jobs:
                 "$DOT_STACK_DOT_BIN" update
               PATH="$dot_bin_dir:$HOME/.local/bin:$PATH" \
                 bash .local/lib/dotfiles/tests/android-ci-smoke
+              # The top-level suites, one at a time: a parallel run on a
+              # real phone gets the whole Termux app killed by Android.
+              DOT_TEST_JOBS=1 .local/lib/dotfiles/tests/run-ci --top-level
             '
       termux-host-command: |-
         set -euo pipefail
         export DOTFILES_CANDIDATE_SHA='${{ github.event.pull_request.head.sha || github.sha }}'
         .local/lib/dotfiles/tests/checkout-ci-candidate
-      termux-profiles: base,tmux,ripgrep,hostname
+      # `dot update` installs the declared tools (zsh, jq, fd, ripgrep, cron,
+      # tmux) through Termux pkg, as on a phone. Python is a suite runtime no
+      # dependency declares, so it is a prerequisite here as on Linux.
+      termux-profiles: base,python,tmux,ripgrep,hostname
 
   actions-sync:
     name: cgraf78/actions sync

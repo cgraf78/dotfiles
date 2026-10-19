@@ -73,6 +73,8 @@ dot_core_test_static() {
     '.local/lib/dotfiles/tests/checkout-ci-candidate' "$workflow"
   _assert_contains "CI workflow: prepares the exact Termux candidate head" \
     'termux-host-command:' "$workflow"
+  _assert_contains "CI workflow: Termux runs the top-level suites one at a time" \
+    'DOT_TEST_JOBS=1 .local/lib/dotfiles/tests/run-ci --top-level' "$workflow"
   _assert_contains "CI workflow: every Dot invocation enters the resolved wrapper" \
     "stack-dot-runtime control-plane-run-ci" "$workflow"
   _assert_contains "CI workflow: cold bootstrap uses the resolved wrapper" \
@@ -292,6 +294,49 @@ for rel in (".bashrc", ".bash_profile", ".profile", ".zshenv", ".zshrc"):
 PY
   )
   _assert_eq "account portability: shell entry points avoid local usernames" \
+    '' "$output"
+
+  # Termux portability for the suites themselves. A bare `env -i` drops the
+  # libtermux-exec LD_PRELOAD that Termux's Google Play build needs for every
+  # nested exec, and a literal /usr/bin:/bin fixture PATH has no userland
+  # under Termux; CI's Termux build reproduces neither, so guard statically.
+  # helpers.sh owns DOT_TEST_ENV_CLEAN and DOT_TEST_SYSTEM_PATH. A deliberate
+  # literal PATH (one a test asserts byte for byte) carries the marker on the
+  # line above. ci-only/ runs only on Linux CI runners.
+  output=$(
+    python3 - "$root" \
+      "$("${git_cmd[@]}" ls-files -- .local/lib/dotfiles/tests)" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+# Built by concatenation so this scanner never matches its own source.
+clear_env = re.compile(r"\benv" + r" -i\b")
+system_path = "/usr/bin" + ":/bin"
+marker = "dot-test-portability:" + " literal system PATH"
+owner = ".local/lib/dotfiles/tests/helpers.sh"
+
+for rel in sys.argv[2].splitlines():
+    if not rel or "/ci-only/" in rel or rel.endswith((".md", ".tsv", ".py", ".awk")):
+        continue
+    path = root / rel
+    if not path.is_file() or path.is_symlink():
+        continue
+    lines = path.read_text(errors="ignore").splitlines()
+    for number, line in enumerate(lines, 1):
+        code = line.lstrip()
+        if code.startswith("#"):
+            continue
+        if rel == owner and code.startswith(("DOT_TEST_ENV_CLEAN=", "DOT_TEST_SYSTEM_PATH=")):
+            continue
+        if clear_env.search(line):
+            print(f"{rel}:{number}: clears the environment without DOT_TEST_ENV_CLEAN")
+        if system_path in line and not (number > 1 and marker in lines[number - 2]):
+            print(f"{rel}:{number}: literal {system_path}; use DOT_TEST_SYSTEM_PATH")
+PY
+  )
+  _assert_eq "Termux portability: suites use the shared clean env and system PATH" \
     '' "$output"
 
   if command -v zsh >/dev/null 2>&1; then

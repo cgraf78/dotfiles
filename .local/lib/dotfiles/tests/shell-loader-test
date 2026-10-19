@@ -602,16 +602,19 @@ echo "=== env ownership: bash reading ~/.bashrc for rshd/sshd commands ==="
 # skip. Login shells read ~/.bash_profile everywhere. Bash runs by absolute
 # path because the fixture PATHs may lack its dir.
 BASH_BIN=$(command -v bash)
+# rshd and sshd start commands with this default PATH, not the fixture's.
+# dot-test-portability: literal system PATH
+SSHD_DEFAULT_PATH=/usr/bin:/bin
 # shellcheck disable=SC2016 # probes expand in the child shells.
 if command -v python3 >/dev/null 2>&1; then
-  socket_probe=$(socket_stdin "${DOT_TEST_ENV_CLEAN[@]}" HOME="$OWN_HOME" PATH=/usr/bin:/bin \
+  socket_probe=$(socket_stdin "${DOT_TEST_ENV_CLEAN[@]}" HOME="$OWN_HOME" PATH="$SSHD_DEFAULT_PATH" \
     "$BASH_BIN" -c 'printf %s "${SHDEPS_CONF_DIR-unset}"' 2>/dev/null)
   if [ "$socket_probe" = unset ] && [ "$(uname -s)" != Linux ]; then
     echo "  SKIP: this bash does not read ~/.bashrc for socket-stdin commands"
   else
     _assert_eq "env ownership (bash): socket-stdin bash -c keeps caller values" \
       "/caller/rg|$OWN_HOME/.config/shdeps" \
-      "$(socket_stdin "${DOT_TEST_ENV_CLEAN[@]}" HOME="$OWN_HOME" PATH=/usr/bin:/bin \
+      "$(socket_stdin "${DOT_TEST_ENV_CLEAN[@]}" HOME="$OWN_HOME" PATH="$SSHD_DEFAULT_PATH" \
         RIPGREP_CONFIG_PATH=/caller/rg "$BASH_BIN" -c "$PROBE_RSHD" 2>/dev/null)"
     _assert_eq "env ownership (bash): socket-stdin bash -c keeps a caller venv first" \
       "$OWN_VENV:$OWN_HOME/.local/bin:/usr/local/bin:/usr/bin:$OWN_BREW_BINS" \
@@ -621,7 +624,7 @@ if command -v python3 >/dev/null 2>&1; then
   fi
   _assert_eq "env ownership (bash): socket-stdin login shell stays authoritative" \
     "$OWN_RG" \
-    "$(socket_stdin "${DOT_TEST_ENV_CLEAN[@]}" HOME="$OWN_HOME" PATH=/usr/bin:/bin \
+    "$(socket_stdin "${DOT_TEST_ENV_CLEAN[@]}" HOME="$OWN_HOME" PATH="$SSHD_DEFAULT_PATH" \
       RIPGREP_CONFIG_PATH=/stale "$BASH_BIN" -l -c 'printf %s "$RIPGREP_CONFIG_PATH"' 2>/dev/null)"
 else
   echo "  SKIP: socket-stdin cases need python3"
@@ -629,7 +632,7 @@ fi
 
 # Only SSH_SOURCE_BASHRC builds (Fedora/RHEL, Debian) read ~/.bashrc for a
 # bare SSH_CLIENT; elsewhere nothing loads and the filled value stays unset.
-rshd_out=$(sshd_run PATH=/usr/bin:/bin SSH_CLIENT='192.0.2.1 22 22' \
+rshd_out=$(sshd_run PATH="$SSHD_DEFAULT_PATH" SSH_CLIENT='192.0.2.1 22 22' \
   RIPGREP_CONFIG_PATH=/caller/rg "$BASH_BIN" -c "$PROBE_RSHD" </dev/null)
 # shellcheck disable=SC2016 # probes expand in the child shells.
 if [ "$rshd_out" = "/caller/rg|unset" ]; then
@@ -639,7 +642,7 @@ else
     "/caller/rg|$OWN_HOME/.config/shdeps" "$rshd_out"
   _assert_eq "env ownership (bash): sshd login shell stays authoritative" \
     "$OWN_RG" \
-    "$(sshd_run PATH=/usr/bin:/bin SSH_CLIENT='192.0.2.1 22 22' \
+    "$(sshd_run PATH="$SSHD_DEFAULT_PATH" SSH_CLIENT='192.0.2.1 22 22' \
       RIPGREP_CONFIG_PATH=/stale "$BASH_BIN" -l -c 'printf %s "$RIPGREP_CONFIG_PATH"' </dev/null)"
 fi
 
