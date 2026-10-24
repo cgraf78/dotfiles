@@ -390,8 +390,9 @@ __git_prompt() {
 # Inside tmux, a long-running command rings the terminal and marks its pane
 # pending when it finishes, through tmux-tools' term-notify-sound, so a build
 # or test left running in a side pane gets noticed like an agent waiting for
-# you. PROMPT_NOTIFY_SECONDS sets the threshold in seconds (default 30; 0
-# turns it off). The prompt hooks in 60-prompt.bash/.zsh call __cmd_notify.
+# you. Its exit status lets tmux distinguish failure from ordinary attention.
+# PROMPT_NOTIFY_SECONDS sets the threshold in seconds (default 30; 0 turns it
+# off). The prompt hooks in 60-prompt.bash/.zsh call __cmd_notify.
 
 # Return whether a finished command ran long enough to notify about and ended
 # on its own: Ctrl-C (130) and Ctrl-Z (148 on Linux, 146 on macOS, where
@@ -435,7 +436,14 @@ __cmd_notify() {
       END { exit !watched }' &&
     return 0
   command -v term-notify-sound >/dev/null 2>&1 || return 0
-  term-notify-sound >/dev/null 2>&1 || true
+  local notify_status=0
+  term-notify-sound --exit-status "$2" >/dev/null 2>&1 || notify_status=$?
+  # Dotfiles and its provider can update separately. Legacy notifiers reject
+  # the new option before ringing; preserve their original notification path.
+  if [[ $notify_status == 64 ]]; then
+    term-notify-sound >/dev/null 2>&1 || true
+  fi
+  return 0
 }
 
 # Turn off terminal modes a program left on because it died without cleaning
