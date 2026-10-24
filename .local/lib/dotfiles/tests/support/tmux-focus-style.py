@@ -584,6 +584,31 @@ class LeafStyleTest(unittest.TestCase):
         client.set_focus(True)
         wait_until(lambda: self.pending(self.active) == "", "pending cleared on refocus")
 
+        # A failed command in the side pane carries a red status until visited.
+        self.tmux("set-option", "-p", "-t", self.inactive, "@term_notify_exit_status", "2")
+        self.tmux("set-option", "-p", "-t", self.inactive, "@term_notify_pending", "1")
+        self.assertIn("! exit 2", self.expand(client.tty, self.inactive, "pane-border-format"))
+        self.assertIn(" !", self.expand(client.tty, self.active, tab))
+        # Check drawn colors, not just format strings: pop-default alone does
+        # not reset the drawing style, and nested pushes overwrite tmux's own.
+        self.tmux("set-window-option", "window-status-current-style", "fg=#123456,bg=#234567")
+        self.tmux("set-window-option", tab, "BEFORE#{E:@window_marker} AFTER")
+        rendered = client.redraw()
+        suffix = re.search(rb" !(.*?) AFTER", rendered, re.DOTALL)
+        self.assertIsNotNone(suffix, repr(rendered))
+        self.assertRegex(suffix.group(1), rb"\x1b\[38(?:;2;18;52;86|:2::18:52:86)m")
+        self.tmux("select-pane", "-t", self.inactive)
+        wait_until(lambda: self.pending(self.inactive) == "", "failed command acknowledged")
+        wait_until(
+            lambda: (
+                not self.tmux(
+                    "show-options", "-pqv", "-t", self.inactive, "@term_notify_exit_status"
+                ).stdout.strip()
+            ),
+            "acknowledged failure status cleared",
+        )
+        self.assertNotIn("! exit", self.expand(client.tty, self.inactive, "pane-border-format"))
+
     def test_background_window_agents_mark_their_tab(self) -> None:
         client = Client(self)
         self.clients.append(client)

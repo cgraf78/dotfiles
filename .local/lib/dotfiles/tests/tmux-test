@@ -746,6 +746,24 @@ SH
     tmux_cmd set-option -pu -t "$agent_pane" @term_notify_pending
     _assert_not_contains 'tmux: tab marker clears with the pane mark' '●' \
       "$(tmux_cmd -u display-message -p -t "$shell_pane" "$current_format")"
+    # A failed long command is pending attention with an exit status. It
+    # outranks ordinary pending panes, including ones earlier in pane order.
+    tmux_cmd set-option -p -t "$agent_pane" @term_notify_pending 1
+    tmux_cmd set-option -p -t "$shell_pane" @term_notify_pending 1
+    tmux_cmd set-option -p -t "$shell_pane" @term_notify_exit_status 2
+    failure_border=$(tmux_cmd -u display-message -p -t "$shell_pane" '#{E:@pane_pending_marker}')
+    _assert_contains 'tmux: failed command shows its exit code in the border' '! exit 2' "$failure_border"
+    _assert_contains 'tmux: failed command border is red' '#ff5370' "$failure_border"
+    failed_tab=$(tmux_cmd -u display-message -p -t "$shell_pane" "$current_format")
+    _assert_contains 'tmux: a failed command marks its tab with an exclamation' ' !' "$failed_tab"
+    _assert_contains 'tmux: failed command tab is red' '#ff5370' "$failed_tab"
+    _assert_not_contains 'tmux: failure outranks another pending pane' '●' "$failed_tab"
+    tmux_cmd set-option -pu -t "$shell_pane" @term_notify_pending
+    _assert_not_contains 'tmux: exit metadata alone does not mark a pane' '!' \
+      "$(tmux_cmd -u display-message -p -t "$shell_pane" '#{E:@pane_pending_marker}')"
+    tmux_cmd set-option -pu -t "$shell_pane" @term_notify_exit_status
+    tmux_cmd set-option -pu -t "$agent_pane" @term_notify_pending
+
     # An agent working on a request (AgentGuard's @term_busy) marks its tab ⋯,
     # and a pending mark, which needs the user, takes precedence.
     tmux_cmd set-option -p -t "$agent_pane" @term_busy 1
@@ -787,6 +805,8 @@ SH
       tmux_cmd set-hook -gu "${hook}[999999]"
       _assert_contains "tmux: $hook acknowledges a pending pane" \
         'set-option -pu @term_notify_pending' "$(tmux_cmd show-hooks -g "$hook")"
+      _assert_contains "tmux: $hook clears the acknowledged exit status" \
+        'set-option -pu @term_notify_exit_status' "$(tmux_cmd show-hooks -g "$hook")"
     done
     _assert_eq 'tmux: windows rename automatically' on \
       "$(tmux_cmd show-window-options -gv automatic-rename)"

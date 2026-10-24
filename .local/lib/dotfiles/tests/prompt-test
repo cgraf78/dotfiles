@@ -1320,7 +1320,9 @@ notify_bin="$TEST_TMPDIR/notify-bin"
 mkdir -p "$notify_bin"
 cat >"$notify_bin/term-notify-sound" <<'EOF'
 #!/bin/sh
+if [ "${NOTIFY_LEGACY:-0}" = 1 ] && [ "$#" -gt 0 ]; then exit 64; fi
 echo rang >>"$NOTIFY_LOG"
+[ -z "${NOTIFY_ARGS_LOG:-}" ] || printf '%s\n' "$*" >"$NOTIFY_ARGS_LOG"
 EOF
 cat >"$notify_bin/tmux" <<'EOF'
 #!/bin/sh
@@ -1368,6 +1370,32 @@ notify_with 1 "an unreachable tmux server still rings" '' "${in_pane[@]}"
 notify_with 0 "a shell outside tmux stays silent" '' env -u TMUX -u TMUX_PANE
 notify_with 0 "a leaked tmux env (editor launched from tmux) stays silent" '' \
   env TMUX=/tmp/notify-test TMUX_PANE=%7 TERM_PROGRAM=vscode
+
+# Preserve the command outcome through the notifier interface in both shells.
+for notify_shell in "${notify_shells[@]}"; do
+  for notify_rc in 0 2 255; do
+    notify_args_log="$TEST_TMPDIR/notify-args-$notify_shell-$notify_rc.log"
+    # shellcheck disable=SC2016 # Positional parameters belong to the child shell.
+    env -u BASH_ENV -u ENV TMUX=/tmp/notify-test TMUX_PANE=%7 TERM_PROGRAM=tmux \
+      NOTIFY_LOG="$notify_log" NOTIFY_ARGS_LOG="$notify_args_log" TMUX_LOG="$tmux_log" \
+      TMUX_CLIENTS="" PATH="$notify_bin:$PATH" "$notify_shell" -c \
+      '. "$1"; __cmd_notify 45 "$2"' _ "$NOTIFY_SH" "$notify_rc"
+    _assert_file_content "notify ($notify_shell): forwards exit status $notify_rc" \
+      "--exit-status $notify_rc" "$notify_args_log"
+  done
+done
+
+# A provider update may lag the shell config; old notifiers reject the new
+# option with usage status 64 before ringing, so retry their original interface.
+for notify_shell in "${notify_shells[@]}"; do
+  rm -f "$notify_log"
+  # shellcheck disable=SC2016 # Positional parameters belong to the child shell.
+  env -u BASH_ENV -u ENV TMUX=/tmp/notify-test TMUX_PANE=%7 TERM_PROGRAM=tmux \
+    NOTIFY_LOG="$notify_log" NOTIFY_LEGACY=1 TMUX_LOG="$tmux_log" \
+    TMUX_CLIENTS="" PATH="$notify_bin:$PATH" "$notify_shell" -c \
+    '. "$1"; __cmd_notify 45 2' _ "$NOTIFY_SH"
+  _assert_file_content "notify ($notify_shell): legacy notifier still rings once" 'rang' "$notify_log"
+done
 
 # The prompt hooks hand the duration and exit status to the notifier once
 # per command, then forget it, so an empty Enter afterwards (no preexec)

@@ -65,6 +65,15 @@ their implementation.
 
 ## Labels and Status
 
+Long-running shell commands use the existing attention path: successful
+completion shows `●`, while failure shows a red `!` in the window tab and
+`! exit N` in the pane border. Failure takes precedence over ordinary
+attention and busy indicators from other panes in the same window. Visiting
+the pane clears the mark and exit status; `prefix a` reaches failed commands
+through the same pending-pane navigation as agent notifications. The shell
+keeps its existing duration threshold and suppresses notifications for watched
+panes, Ctrl-C, and Ctrl-Z.
+
 Windows name themselves from what they host, not from the focused pane. Every
 pane whose foreground app enables mouse reporting (agents, editors, a nested
 tmux over SSH) contributes its name, in pane order; shells and short-lived
