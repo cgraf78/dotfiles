@@ -494,6 +494,8 @@ return {
 
   -- Appearance
   font = font_with_fallback(font_names),
+  -- Keep commands, paths, URLs, and timestamps visually literal.
+  harfbuzz_features = { "calt=0", "clig=0", "liga=0" },
   font_size = font_size,
   line_height = line_height,
   front_end = front_end,
