@@ -493,7 +493,7 @@ class LeafStyleTest(unittest.TestCase):
         second.set_focus(False)
 
         self.assertEqual(
-            "bg=#011627",
+            "bg=#021c30",
             self.expand(first.tty, self.active, "window-active-style"),
         )
         self.assertEqual(
@@ -506,7 +506,7 @@ class LeafStyleTest(unittest.TestCase):
         )
 
         self.assertEqual(
-            "bg=#011627",
+            "bg=#021c30",
             self.expand(second.tty, self.active, "window-active-style"),
         )
         self.assertEqual(
@@ -535,7 +535,7 @@ class LeafStyleTest(unittest.TestCase):
         self.release_child()
         second.set_focus(True)
         self.assertEqual(
-            "bg=#011627",
+            "bg=#021c30",
             self.expand(second.tty, self.active, "window-active-style"),
         )
         self.assertEqual(
@@ -1109,11 +1109,11 @@ class LeafStyleTest(unittest.TestCase):
         self.sync_client(client)
 
         leaf_render = client.redraw_until_background(
-            (1, 22, 39),
+            (2, 28, 48),
             "focused leaf background",
         )
         self.assertEqual(
-            (1, 22, 39),
+            (2, 28, 48),
             self.rendered_background(leaf_render),
             repr(leaf_render),
         )
@@ -1136,11 +1136,11 @@ class LeafStyleTest(unittest.TestCase):
         client.set_focus(True)
         self.sync_client(client)
         refocused_render = client.redraw_until_background(
-            (1, 22, 39),
+            (2, 28, 48),
             "refocused leaf background",
         )
         self.assertEqual(
-            (1, 22, 39),
+            (2, 28, 48),
             self.rendered_background(refocused_render),
             repr(refocused_render),
         )
@@ -1158,11 +1158,11 @@ class LeafStyleTest(unittest.TestCase):
 
         self.release_child()
         restored_render = client.redraw_until_background(
-            (1, 22, 39),
+            (2, 28, 48),
             "released child background",
         )
         self.assertEqual(
-            (1, 22, 39),
+            (2, 28, 48),
             self.rendered_background(restored_render),
             repr(restored_render),
         )

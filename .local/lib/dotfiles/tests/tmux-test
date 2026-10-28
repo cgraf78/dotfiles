@@ -110,8 +110,8 @@ _assert_contains 'tmux: selection changes repair stale focus state' \
   'termnav tmux focus sync' "$tmux_content"
 _assert_contains 'tmux: inactive panes keep the Night Owl background' \
   "set -g @termnav_inactive_style 'bg=#010d17'" "$tmux_content"
-_assert_contains 'tmux: active panes keep the Night Owl background' \
-  "set -g window-active-style 'bg=#011627'" "$tmux_content"
+_assert_contains 'tmux: active panes use the brighter Night Owl background' \
+  "set -g window-active-style 'bg=#021c30'" "$tmux_content"
 _assert_not_contains 'tmux: focus rendering does not spawn commands' \
   '#(' "$(printf '%s\n' "$tmux_content" | awk '/termnav_pane_is_focused_leaf|window-active-style|pane-active-border-style|pane-border-format/')"
 
