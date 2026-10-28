@@ -256,7 +256,7 @@ install() {
     shdeps_warn '  warning: tmux archive checksum mismatch'
     return 1
   fi
-  if ! tar -xzf "$archive" -C "$candidate" ||
+  if ! tar --no-same-owner -xzf "$archive" -C "$candidate" ||
     [[ ! -x $candidate/tmux || -L $candidate/tmux || -d $candidate/tmux ]]; then
     rm -rf -- "$stage"
     shdeps_warn '  warning: tmux archive layout is invalid'
