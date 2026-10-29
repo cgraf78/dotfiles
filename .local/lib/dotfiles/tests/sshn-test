@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+SOURCE_HOME=${DOT_TEST_SOURCE_HOME:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)}
+SSHN_SOURCE=$SOURCE_HOME/.config/shell/interactive.d/55-ssh.sh
+TEST_TMPDIR=$(mktemp -d)
+trap 'rm -rf "$TEST_TMPDIR"' EXIT
+
+mkdir -p "$TEST_TMPDIR/bin"
+cat >"$TEST_TMPDIR/bin/ssh" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$@" >"$SSHN_CAPTURE"
+EOF
+chmod +x "$TEST_TMPDIR/bin/ssh"
+
+pass=0
+
+check_login() {
+  local shell_name=$1 label=$2
+  shift 2
+
+  # shellcheck disable=SC2016 # The child shell expands the forwarded args.
+  PATH="$TEST_TMPDIR/bin:$PATH" SSHN_SOURCE="$SSHN_SOURCE" \
+    SSHN_CAPTURE="$TEST_TMPDIR/actual" \
+    "$shell_name" -c '. "$SSHN_SOURCE"; sshn "$@"' "$shell_name" "$@"
+
+  printf '%s\n' -t "$@" >"$TEST_TMPDIR/expected"
+  sed '$d' "$TEST_TMPDIR/actual" >"$TEST_TMPDIR/forwarded"
+  if ! diff -u "$TEST_TMPDIR/expected" "$TEST_TMPDIR/forwarded"; then
+    printf '%s: SSH arguments changed\n' "$label" >&2
+    exit 1
+  fi
+
+  case $(tail -n 1 "$TEST_TMPDIR/actual") in
+    "NO_TMUX=1 DS_SSHN_SHELL=$shell_name /bin/sh -lc "*) ;;
+    *)
+      printf '%s: no-tmux login command missing\n' "$label" >&2
+      exit 1
+      ;;
+  esac
+
+  printf '%s: ok\n' "$label"
+  pass=$((pass + 1))
+}
+
+for shell_name in bash zsh; do
+  command -v "$shell_name" >/dev/null 2>&1 || continue
+  check_login "$shell_name" "$shell_name host" host.example
+  check_login "$shell_name" "$shell_name X11 forwarding" -Y host.example
+  check_login "$shell_name" "$shell_name no tty" -T host.example
+  check_login "$shell_name" "$shell_name mixed SSH options" \
+    -J jump.example -p 2222 -o 'ProxyCommand=proxy helper' user@host.example
+  check_login "$shell_name" "$shell_name quoted option value" \
+    -i '/tmp/key with spaces' host.example
+
+  rm -f "$TEST_TMPDIR/actual"
+  # shellcheck disable=SC2016 # The child shell sources the tested function.
+  if PATH="$TEST_TMPDIR/bin:$PATH" SSHN_SOURCE="$SSHN_SOURCE" \
+    SSHN_CAPTURE="$TEST_TMPDIR/actual" \
+    "$shell_name" -c '. "$SSHN_SOURCE"; sshn' "$shell_name" \
+    2>"$TEST_TMPDIR/usage"; then
+    printf '%s: missing host was accepted\n' "$shell_name" >&2
+    exit 1
+  fi
+  if [[ -e $TEST_TMPDIR/actual || ! -s $TEST_TMPDIR/usage ]]; then
+    printf '%s: missing host reached SSH or omitted usage\n' "$shell_name" >&2
+    exit 1
+  fi
+  printf '%s missing host: ok\n' "$shell_name"
+  pass=$((pass + 1))
+done
+
+printf '\nResults: %s passed, 0 failed\n' "$pass"
+[[ -z ${DOT_TEST_REPORTER:-} ]] || "$DOT_TEST_REPORTER" complete "$pass" 0
