@@ -157,3 +157,11 @@ WezTerm, or add a local/overlay-managed
 `~/.config/wezterm/termnav-ssh-control-hosts` file containing a comma-separated
 host list. If neither exists, no remote host is allowlisted for ControlMaster
 reuse.
+
+The shared terminal appearance is declared in `appearance.json` beside
+`wezterm.lua`: primary font, macOS font size, initial dimensions, and the
+Night Owl (Gogh) palette. Both WezTerm and the macOS Terminal merge hook
+consume it. Terminal-specific policy lives under
+`~/.config/dot/merge-hooks.d/terminal/`; its managed Dotfiles profile is selected
+as Terminal's default and startup profile during `dot update`. The WSL hook
+copies the shared appearance beside `.wezterm.lua` before publishing the config.
