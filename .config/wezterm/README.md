@@ -69,9 +69,11 @@ explicit WezTerm config reload also enables them once the provider is updated.
    present. Local listings keep hostless `file://` OSC-8 targets; SSH sessions
    inside tmux rewrite those targets to `file://host/path`.
 2. With `dotfiles-nvim` active, `rg` uses
-   `--hyperlink-format=file://{host}{path}:{line}:{column}` with that overlay's
+   `--hyperlink-format=nvim-remote://{host}{path}:{line}:{column}` with that overlay's
    `ripgrep-link-host` adapter so search results carry absolute local or remote
-   targets while Termnav retains an explicit command grammar.
+   targets while Termnav retains an explicit command grammar. Diagnostic
+   coordinates belong to this editor-link scheme; `file://` targets preserve
+   literal filenames, including a final numeric suffix such as `report:2026`.
 3. tmux advertises `hyperlinks` in `terminal-features` so it re-emits OSC-8
    targets to WezTerm.
 4. Termnav's shell and nvim integrations publish pane-local cwd and tmux context
@@ -85,7 +87,7 @@ explicit WezTerm config reload also enables them once the provider is updated.
    terminal-pane hyperlinks through `termnav tmux follow-click`. Agent panes,
    copy mode, and OSC 8 browser links (tmux 3.4 and later) also go to
    `termnav tmux follow-click` (see the tmux README's Key Handling section).
-7. Remote `file://host/path` links call the same helper with the `link` mode
+7. Remote `file://host/path` links call the same helper with the literal `file` mode
    and `remote` source label. It skips local Neovim sockets and reuses an
    existing SSH ControlMaster connection for hosts listed in
    `TERMNAV_SSH_CONTROL_HOSTS`, or a configured `TERMNAV_REMOTE_OPEN_HELPER`
@@ -164,9 +166,10 @@ overlay's `~/.local/lib/dotfiles/tests/fixtures/nvim-link-routes.tsv` so tests
 can prove those entry points continue to agree without forcing the Lua and
 shell implementations through an awkward shared parser.
 
-`termnav nvim open` has two public modes: `cli` for the local `nvim <file>`
-launcher path, and `link` for hyperlinks, tmux clicks, and WezTerm routes.
-The important `link` source labels are:
+`termnav nvim open` uses `cli` for the local `nvim <file>` launcher path,
+`link` for diagnostic locations, and `file` for literal file-URI targets.
+The corresponding `tmux-link` and `tmux-file` modes report failures inside
+tmux. These modes share the following source labels:
 
 - `terminal`: output came from a local pane; relative paths use the clicked
   pane cwd.
