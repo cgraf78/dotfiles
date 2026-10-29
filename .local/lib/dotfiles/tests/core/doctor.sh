@@ -683,11 +683,47 @@ SH
     _doctor_records _dr_check_tools)
   _assert_contains "doctor health: an unexpected status is an error" \
     $'fail\tshdeps health failed (exit 139)' "$result"
-  # The health call is bounded, with timeout(1) and, where none is
-  # installed, with the builtin watchdog; neither leaves the stub behind.
-  for doctor_mode in timeout watchdog; do
+  # The coordinator owns process isolation; the client must delegate before
+  # resolving external timeout tools, even when an older runner was cached.
+  doctor_status=0
+  result=$(
+    # shellcheck disable=SC2329 # Invoked through the adapter under test.
+    dot_doctor_run_bounded() {
+      printf '%s\n' "$*"
+      return 2
+    }
+    _DR_TIMEOUT_BIN=/not/a/timeout _dr_run_bounded 0.25 printf delegated
+  ) || doctor_status=$?
+  _assert_eq "deadline: the public supervisor receives the original arguments" \
+    '0.25 printf delegated' "$result"
+  _assert_exit "deadline: a real child status 2 survives delegation" 2 "$doctor_status"
+  doctor_status=0
+  result=$(
+    unset -f dot_doctor_run_bounded
+    _DR_TIMEOUT_BIN='' _dr_run_bounded 1 printf should-not-run
+  ) || doctor_status=$?
+  _assert_exit "deadline: no supported supervisor fails closed" 125 "$doctor_status"
+  _assert_eq "deadline: no supervisor never executes the command" '' "$result"
+  doctor_tmp=$(_tmpdir)
+  cat >"$doctor_tmp/timeout" <<'SH'
+#!/bin/sh
+[ "$1" = -k ] && [ "$2" = 2 ] || exit 99
+shift 3
+exec "$@"
+SH
+  chmod +x "$doctor_tmp/timeout"
+  doctor_status=0
+  result=$(
+    unset -f dot_doctor_run_bounded
+    _DR_TIMEOUT_BIN=$doctor_tmp/timeout _dr_run_bounded 5 sh -c 'printf legacy; exit 6'
+  ) || doctor_status=$?
+  _assert_exit "deadline: an older coordinator preserves the coreutils child status" 6 "$doctor_status"
+  _assert_eq "deadline: an older coordinator preserves coreutils output" legacy "$result"
+  # Health probes delegate to the native supervisor, including on hosts
+  # without coreutils timeout; no descendant may outlive the result.
+  for doctor_mode in resolved native; do
     doctor_started=$SECONDS
-    if [[ $doctor_mode == timeout ]]; then
+    if [[ $doctor_mode == resolved ]]; then
       result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$PATH" DOCTOR_HEALTH_MODE=hang \
         _DR_SHDEPS_HEALTH_DEADLINE=1 _doctor_records _dr_check_tools)
     else
@@ -707,9 +743,8 @@ SH
         ps -A -o args= 2>/dev/null | grep -x 'sleep 47' || true
       )"
   done
-  # The builtin watchdog itself: it passes output and status through, a
-  # grandchild cannot hold a capture past the deadline, and quick commands
-  # leave none of its sleeps behind.
+  # The public supervisor passes streams and status through, and a grandchild
+  # cannot hold a capture past the deadline.
   doctor_started=$SECONDS
   doctor_status=0
   result=$(_DR_TIMEOUT_BIN='' _dr_run_bounded 1 bash -c 'sleep 7; echo late') ||
@@ -728,13 +763,9 @@ SH
   _assert_eq "deadline: the command's output passes through" "fine" "$result"
   result=$(printf 'from stdin' | _DR_TIMEOUT_BIN='' _dr_run_bounded 5 cat)
   _assert_eq "deadline: the caller's stdin reaches the command" "from stdin" "$result"
-  # Nothing the watchdog starts outlives the call, on either path: Dot's
-  # supervisor refuses to tear down a suite or doctor worker on macOS
-  # while a live member sits outside the leader's process group. The
-  # stray scan covers the watchdog, which runs in the caller's group; the
-  # command's own group is covered by the straggler cases below. The
-  # commands run long enough for the watchdog to be waiting on its clock,
-  # and each run must also remove its private directory.
+  # Neither normal completion nor a deadline may leave supervisor helpers
+  # outside the target group. Compare live peers before and after, and check
+  # that supervision leaves no temporary clock state behind.
   if [[ $(ps -o pgid= -p "$$" 2>/dev/null) =~ ^[[:space:]]*[0-9]+[[:space:]]*$ ]]; then
     _pass "deadline: ps reports process groups for the leftover checks"
   else
@@ -750,7 +781,7 @@ SH
     [[ -n $(comm -13 <(printf '%s\n' "$doctor_strays") <(_doctor_group_strays)) ]] || break
     sleep 0.05
   done
-  _assert_eq "deadline: no watchdog process outlives the call" "" \
+  _assert_eq "deadline: no supervisor process outlives the call" "" \
     "$(comm -13 <(printf '%s\n' "$doctor_strays") <(_doctor_group_strays))"
   _assert_eq "deadline: the private directory is removed" "" "$(ls -A "$doctor_tmp")"
   # Stragglers in the command's group, from a command that exits on its
@@ -791,38 +822,35 @@ SH
       [[ ! $doctor_stray_pid =~ ^[0-9]+$ ]] || kill -KILL "$doctor_stray_pid" 2>/dev/null
     fi
   done
-  # A TERM to the caller's process group stops the watchdog with it; the
-  # command, in a group of its own, must not be left running without a
-  # deadline. The call runs as its own job so the signal stays off this
-  # shell's group; the command writes its PID before it hangs.
+  # Signal the public executable directly, retaining its PID across exec.
+  # Using shell monitor mode just to launch this fixture would reintroduce
+  # the same dual-setpgid race the production adapter removes.
   doctor_tmp=$(_tmpdir)
   doctor_stray_pid=$(
-    set -m
-    # shellcheck disable=SC2016 # The child expands its own variables.
-    TMPDIR=$doctor_tmp _DR_TIMEOUT_BIN='' _dr_run_bounded 29 \
+    # shellcheck disable=SC2016 # The supervised shell expands its variables.
+    "${DOT_RUN_BOUNDED:-$DOT_SOURCE_ROOT/lib/dot/public/run-bounded-v1}" 29 \
       bash -c 'echo "$$" >"$1"; exec sleep 29' doctor-hang "$doctor_tmp/pid" \
       </dev/null >/dev/null 2>&1 &
     doctor_try=$!
-    set +m
     for ((doctor_i = 0; doctor_i < 100; doctor_i++)); do
       [[ ! -s $doctor_tmp/pid ]] || break
       sleep 0.05
     done
-    kill -TERM -- "-$doctor_try" 2>/dev/null
+    kill -TERM "$doctor_try" 2>/dev/null
     wait "$doctor_try" 2>/dev/null
     cat "$doctor_tmp/pid" 2>/dev/null
   )
   if [[ $doctor_stray_pid =~ ^[0-9]+$ ]] && _doctor_wait_gone "$doctor_stray_pid"; then
-    _pass "deadline: a signal to the caller stops the command"
+    _pass "deadline: a signal to the supervisor stops the command"
   else
-    _fail "deadline: a signal to the caller stops the command (pid ${doctor_stray_pid:-none})"
+    _fail "deadline: a signal to the supervisor stops the command (pid ${doctor_stray_pid:-none})"
     [[ ! $doctor_stray_pid =~ ^[0-9]+$ ]] || kill -KILL "$doctor_stray_pid" 2>/dev/null
   fi
   rm -f "$doctor_tmp/pid"
-  _assert_eq "deadline: a signal to the caller removes the private directory" "" \
+  _assert_eq "deadline: a signal leaves no temporary resources" "" \
     "$(ls -A "$doctor_tmp")"
   # Descriptors the caller passes on reach the command (Dot hands its
-  # session lease to children by number); the watchdog's clock does not.
+  # session lease to children by number).
   doctor_tmp=$(_tmpdir)
   (
     exec 3>"$doctor_tmp/fd3"
@@ -830,43 +858,28 @@ SH
   )
   _assert_eq "deadline: the caller's descriptor 3 reaches the command" "passed" \
     "$(cat "$doctor_tmp/fd3" 2>/dev/null)"
-  # A deadline the watchdog cannot honor fails before the command runs:
-  # a malformed duration, no private directory, or no FIFO.
+  # Malformed durations fail before the command runs; native supervision
+  # needs neither a temporary clock directory nor an external FIFO utility.
   doctor_tmp=$(_tmpdir)
-  printf '%s\n' '#!/bin/sh' 'exit 1' >"$doctor_tmp/mkfifo"
-  chmod +x "$doctor_tmp/mkfifo"
-  for doctor_mode in duration directory fifo; do
-    doctor_status=0
-    case $doctor_mode in
-      duration)
-        _DR_TIMEOUT_BIN='' _dr_run_bounded 5s touch "$doctor_tmp/ran" || doctor_status=$?
-        ;;
-      directory)
-        TMPDIR=$doctor_tmp/missing _DR_TIMEOUT_BIN='' \
-          _dr_run_bounded 5 touch "$doctor_tmp/ran" || doctor_status=$?
-        ;;
-      fifo)
-        PATH="$doctor_tmp:$PATH" TMPDIR=$doctor_tmp _DR_TIMEOUT_BIN='' \
-          _dr_run_bounded 5 touch "$doctor_tmp/ran" || doctor_status=$?
-        ;;
-    esac
-    _assert_exit "deadline: an unusable $doctor_mode returns 125" 125 "$doctor_status"
-    if [[ -e $doctor_tmp/ran ]]; then
-      _fail "deadline: an unusable $doctor_mode does not run the command"
-      rm -f "$doctor_tmp/ran"
-    else
-      _pass "deadline: an unusable $doctor_mode does not run the command"
-    fi
-  done
-  _assert_eq "deadline: a failed FIFO leaves no private directory" "mkfifo" \
+  doctor_status=0
+  _DR_TIMEOUT_BIN='' _dr_run_bounded 5s touch "$doctor_tmp/ran" || doctor_status=$?
+  _assert_exit "deadline: an invalid duration returns 125" 125 "$doctor_status"
+  _assert_eq "deadline: an invalid duration never runs the command" '' \
     "$(ls -A "$doctor_tmp")"
+  doctor_status=0
+  result=$(_DR_TIMEOUT_BIN='' _dr_run_bounded 0 sh -c 'printf no-deadline; exit 2') || doctor_status=$?
+  _assert_exit "deadline: zero preserves child status 2" 2 "$doctor_status"
+  _assert_eq "deadline: zero disables the timer" no-deadline "$result"
+  doctor_status=0
+  _DR_TIMEOUT_BIN='' _dr_run_bounded 0.1 sleep 7 || doctor_status=$?
+  _assert_exit "deadline: decimal durations are supported" 124 "$doctor_status"
   # Only a coreutils timeout(1) is trusted for its 124 status; BusyBox's
-  # reports a deadline as a SIGTERM death, so the watchdog runs instead.
+  # reports a deadline as a SIGTERM death, so the native supervisor runs instead.
   doctor_timeout_bin=$(_tmpdir)
   printf '%s\n' '#!/bin/sh' 'echo "BusyBox v1.37.0 multi-call binary."; exit 1' \
     >"$doctor_timeout_bin/timeout"
   chmod +x "$doctor_timeout_bin/timeout"
-  _assert_eq "deadline: a BusyBox timeout falls back to the watchdog" "" \
+  _assert_eq "deadline: a BusyBox timeout is rejected by the compatibility resolver" "" \
     "$(
       unset _DR_TIMEOUT_BIN
       PATH="$doctor_timeout_bin:$PATH" _dr_timeout_resolve
@@ -882,11 +895,11 @@ SH
     )"
   result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$PATH" DOCTOR_HEALTH_MODE=ok \
     _DR_TIMEOUT_BIN='' _doctor_records _dr_check_tools)
-  _assert_contains "doctor health: a healthy report passes through the watchdog" \
+  _assert_contains "doctor health: a healthy report passes through the native supervisor" \
     $'ok\tshdeps health' "$result"
   result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$PATH" DOCTOR_HEALTH_MODE=gone \
     _DR_TIMEOUT_BIN='' _doctor_records _dr_check_tools)
-  _assert_contains "doctor health: exit 127 is unsupported through the watchdog" \
+  _assert_contains "doctor health: exit 127 is unsupported through the native supervisor" \
     $'warn\tshdeps health unchecked' "$result"
 
   result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$PATH" DOCTOR_HEALTH_MODE=gone \
@@ -1402,11 +1415,11 @@ SH
   rm -f "$TEST_HOME/.config/shell/env.d/95-mode.sh"
 
   # A startup file that hangs is reported, not waited on forever, with
-  # timeout(1) and with the builtin watchdog alike.
+  # timeout(1) and with the native supervisor alike.
   printf '%s\n' 'while :; do :; done' >"$TEST_HOME/.config/shell/env.d/95-hang.sh"
-  for doctor_mode in timeout watchdog; do
+  for doctor_mode in resolved native; do
     doctor_started=$SECONDS
-    if [[ $doctor_mode == timeout ]]; then
+    if [[ $doctor_mode == resolved ]]; then
       result=$(_DR_SHELL_DEADLINE=1 _doctor_shell)
     else
       result=$(_DR_SHELL_DEADLINE=1 _DR_TIMEOUT_BIN='' _doctor_shell)
@@ -1425,11 +1438,8 @@ SH
 
   # A probe whose deadline cannot be set up says nothing about the
   # startup files: the BASH_ENV query must not read as unconfigured.
-  doctor_tmp=$(_tmpdir)
-  printf '%s\n' '#!/bin/sh' 'exit 1' >"$doctor_tmp/mkfifo"
-  chmod +x "$doctor_tmp/mkfifo"
-  result=$(HOME="$TEST_HOME" PATH="$doctor_tmp:$doctor_bin:$TEST_HOME/.local/bin:$PATH" \
-    _DR_TIMEOUT_BIN='' _doctor_records _dr_check_shell)
+  result=$(HOME="$TEST_HOME" _DR_SHELL_DEADLINE=invalid \
+    _doctor_records _dr_check_shell)
   _assert_contains "doctor shell: an unusable deadline fails the BASH_ENV probe" \
     $'fail\tbash -c (BASH_ENV) startup failed' "$result"
   _assert_not_contains "doctor shell: an unusable deadline is not unconfigured BASH_ENV" \
@@ -1555,7 +1565,7 @@ SH
   fi
 
   # An asset that hangs is cut off at the deadline, with timeout(1) and
-  # with the builtin watchdog, and nothing it started outlives the check.
+  # with the native supervisor, and nothing it started outlives the check.
   cp "$integ_home/share/termnav-asset.sh" "$integ_home/share/termnav-asset.sh.ok"
   # A sleep length unique to this run, so the leftover check below cannot
   # match another suite's process.
@@ -1565,9 +1575,9 @@ SH
   HOME=$integ_home
   PATH=$integ_bin:$PATH
   export HOME PATH
-  for doctor_mode in timeout watchdog; do
+  for doctor_mode in resolved native; do
     doctor_started=$SECONDS
-    if [[ $doctor_mode == timeout ]]; then
+    if [[ $doctor_mode == resolved ]]; then
       _DR_TERMNAV_DEADLINE=1 _doctor_records _dr_check_shell_integrations \
         >"$integ_home/hang.txt" 2>/dev/null
     else
@@ -1600,8 +1610,7 @@ SH
   ln -s "$(command -v bash)" "$integ_nz_bin/bash"
   ln -s "$(command -v cat)" "$integ_nz_bin/cat"
   ln -s "$(command -v mktemp)" "$integ_nz_bin/mktemp"
-  # The builtin watchdog bounds the probes where timeout(1) is not on PATH.
-  ln -s "$(command -v mkfifo)" "$integ_nz_bin/mkfifo"
+  # The native supervisor bounds the probes where timeout(1) is not on PATH.
   ln -s "$(command -v rm)" "$integ_nz_bin/rm"
   ln -s "$(command -v sort)" "$integ_nz_bin/sort"
   integ_saved_home=$HOME

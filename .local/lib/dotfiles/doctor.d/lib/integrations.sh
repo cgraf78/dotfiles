@@ -43,9 +43,10 @@ _dr_termnav_probe() {
   printf '%s\n' "$rc" >"$base/status"
 }
 
-# Render one probe's verdict. A probe whose deadline could not be set up
-# (125) did not run. Otherwise only the marker decides: a nonzero exit
-# from a shell that printed it still loaded the asset.
+# Render one probe's verdict. Status 125 can mean failed supervision or
+# the command's own exit status, so it cannot confirm a healthy integration.
+# Otherwise a nonzero exit from a shell that printed the marker still loaded
+# the asset.
 _dr_termnav_report() {
   local shell_name=$1 base=$2 status=1 output=''
   IFS= read -r status 2>/dev/null <"$base/status" || status=1
@@ -57,9 +58,9 @@ _dr_termnav_report() {
         "run 'dot update' to reinstall it"
       ;;
     125)
-      # The builtin watchdog could not create its private FIFO.
       _dr_hint_row warn "termnav $shell_name integration unchecked" \
-        "could not set up the probe's deadline" "$_DR_TMPDIR_HINT"
+        "the probe could not complete (exit 125)" \
+        "run 'dot update' to refresh the supervisor, then test sourcing termnav directly in $shell_name"
       ;;
     *)
       if [[ $output == *"termnav=1"* ]]; then
