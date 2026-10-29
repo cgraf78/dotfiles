@@ -431,6 +431,9 @@ own it:
 | Development capability | [`dotfiles-dev`](https://github.com/cgraf78/dotfiles-dev) |
 | tmux config | [`.config/tmux/README.md`](../../../../.config/tmux/README.md) |
 | WezTerm integration | [`.config/wezterm/README.md`](../../../../.config/wezterm/README.md) |
+| Shared terminal settings and editing workflow | [`.config/terminal/README.md`](../../../../.config/terminal/README.md) |
+| macOS Terminal profile | [`.config/dot/merge-hooks.d/terminal/README.md`](../../../../.config/dot/merge-hooks.d/terminal/README.md) |
+| iTerm2 profile and preferences | [`.config/dot/merge-hooks.d/iterm2/README.md`](../../../../.config/dot/merge-hooks.d/iterm2/README.md) |
 | Command entry points | [`.local/bin/README.md`](../../../../.local/bin/README.md) |
 | Client runtime layout | [`.local/lib/dotfiles/README.md`](../../../../.local/lib/dotfiles/README.md) |
 | Dotfiles documentation index | [`.local/share/doc/dotfiles/README.md`](README.md) |
@@ -485,6 +488,23 @@ link generation and fails the update.
 Base files use `[ -f ]` guards and ordered config directories so overlays can
 contribute extra files without patching base files. Every machine is a peer:
 there is no branch sync protocol and no generated ownership marker system.
+
+## Terminal configuration
+
+WezTerm is the primary terminal and the reference behavior. Start terminal
+configuration work at [the WezTerm editing map](../../../../.config/wezterm/README.md).
+Common font, palette, dimensions, spacing, cursor, history, terminal type, and
+portable escape sequences belong in
+[`~/.config/terminal/settings.json`](../../../../.config/terminal/settings.json).
+Native callbacks and app-specific policy stay in their adapters.
+
+`dot update` applies this source to the managed Dotfiles profiles in macOS
+Terminal and iTerm2 and selects them as defaults. WezTerm reads the same data
+from the real shared source, with a generated copy for Windows/WSL and a
+convenience symlink beside its Lua config.
+The [shared guide](../../../../.config/terminal/README.md) explains where to
+edit each setting, how to add supported fields, how to test and apply changes,
+and which generated files should not be edited directly.
 
 ## Common Workflows
 

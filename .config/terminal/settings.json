@@ -1,0 +1,141 @@
+{
+  "font": {
+    "family": "JetBrainsMono Nerd Font",
+    "weight": "Light",
+    "postscript_name": "JetBrainsMonoNF-Light"
+  },
+  "macos_font_size": 11,
+  "initial_cols": 140,
+  "initial_rows": 36,
+  "color_scheme": "Night Owl (Gogh)",
+  "colors": {
+    "background": "#011627",
+    "foreground": "#d6deeb",
+    "cursor_bg": "#d6deeb",
+    "cursor_border": "#d6deeb",
+    "cursor_fg": "#011627",
+    "ansi": [
+      "#011627",
+      "#ef5350",
+      "#22da6e",
+      "#addb67",
+      "#82aaff",
+      "#c792ea",
+      "#21c7a8",
+      "#ffffff"
+    ],
+    "brights": [
+      "#575656",
+      "#ef5350",
+      "#22da6e",
+      "#ffeb95",
+      "#82aaff",
+      "#c792ea",
+      "#7fdbca",
+      "#ffffff"
+    ]
+  },
+  "spacing": {
+    "horizontal": 1.0,
+    "vertical": 1.0
+  },
+  "cursor": {
+    "shape": "block",
+    "blink": true
+  },
+  "scrollback_lines": 20000,
+  "terminal_type": "xterm-256color",
+  "send_keys": [
+    {
+      "key": "Enter",
+      "mods": "SHIFT",
+      "text": "\u001b[13;2u",
+      "platform": "all"
+    },
+    {
+      "key": "PageUp",
+      "mods": "SHIFT",
+      "text": "\u001b[5;2~",
+      "platform": "all"
+    },
+    {
+      "key": "PageDown",
+      "mods": "SHIFT",
+      "text": "\u001b[6;2~",
+      "platform": "all"
+    },
+    {
+      "key": "PageUp",
+      "mods": "CTRL|SHIFT",
+      "text": "\u001b[5;6~",
+      "platform": "all"
+    },
+    {
+      "key": "PageDown",
+      "mods": "CTRL|SHIFT",
+      "text": "\u001b[6;6~",
+      "platform": "all"
+    },
+    {
+      "key": "UpArrow",
+      "mods": "CTRL|SHIFT",
+      "text": "\u001b[1;6A",
+      "platform": "all"
+    },
+    {
+      "key": "DownArrow",
+      "mods": "CTRL|SHIFT",
+      "text": "\u001b[1;6B",
+      "platform": "all"
+    },
+    {
+      "key": "m",
+      "mods": "CTRL|SHIFT",
+      "text": "\u001b[109;6u",
+      "platform": "all"
+    },
+    {
+      "key": "e",
+      "mods": "CTRL|SHIFT",
+      "text": "\u001b[101;6u",
+      "platform": "all"
+    },
+    {
+      "key": "LeftArrow",
+      "mods": "OPT",
+      "text": "\u001bb",
+      "platform": "macos"
+    },
+    {
+      "key": "RightArrow",
+      "mods": "OPT",
+      "text": "\u001bf",
+      "platform": "macos"
+    },
+    {
+      "key": "LeftArrow",
+      "mods": "CTRL",
+      "text": "\u001b[1;5D",
+      "platform": "macos"
+    },
+    {
+      "key": "RightArrow",
+      "mods": "CTRL",
+      "text": "\u001b[1;5C",
+      "platform": "macos"
+    },
+    {
+      "key": "LeftArrow",
+      "mods": "CTRL|SHIFT",
+      "text": "\u001b[1;6D",
+      "platform": "macos"
+    },
+    {
+      "key": "RightArrow",
+      "mods": "CTRL|SHIFT",
+      "text": "\u001b[1;6C",
+      "platform": "macos"
+    }
+  ],
+  "ligatures": false
+}
