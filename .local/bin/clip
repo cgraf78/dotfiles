@@ -263,8 +263,9 @@ clip_list() {
   _entries || return
   local f preview
   for f in "${ENTRIES[@]:0:20}"; do
-    # `sed l` quotes arbitrary bytes, including terminal control sequences.
-    preview=$(LC_ALL=C head -c 160 "$CLIP_DIR/$f" | LC_ALL=C sed -n l)
+    # `cat -vet` escapes control/high bytes without requiring sed's optional
+    # list command, which some BusyBox builds silently ignore.
+    preview=$(LC_ALL=C head -c 160 "$CLIP_DIR/$f" | LC_ALL=C cat -vet)
     printf '%s  %s\n' "$f" "$preview"
   done
 }
@@ -285,7 +286,7 @@ clip_pick() {
     printf '%s\n' "${ENTRIES[@]:0:$CLIP_MAX}" |
       CLIP_PICK_DIR="$CLIP_DIR" \
         fzf --height 50% --reverse --prompt="clip> " \
-        --preview='LC_ALL=C head -c 16384 "$CLIP_PICK_DIR"/{} | LC_ALL=C sed -n l'
+        --preview='LC_ALL=C head -c 16384 "$CLIP_PICK_DIR"/{} | LC_ALL=C cat -vet'
   ) || return
 
   # Validate the selected opaque ID again: old entries may be pruned while the

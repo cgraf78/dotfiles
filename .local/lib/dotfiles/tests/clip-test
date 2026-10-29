@@ -210,6 +210,15 @@ cat >"$backend_bin/fzf" <<'EOF'
 #!/usr/bin/env bash
 if [[ ${CLIP_TEST_PICK_CANCEL:-0} == 1 ]]; then exit 130; fi
 IFS= read -r selected
+if [[ -n ${CLIP_TEST_PICK_PREVIEW:-} ]]; then
+  for arg in "$@"; do
+    if [[ $arg == --preview=* ]]; then
+      preview=${arg#--preview=}
+      preview=${preview//\{\}/$selected}
+      bash -c "$preview" >"$CLIP_TEST_PICK_PREVIEW"
+    fi
+  done
+fi
 printf '%s\n' "$selected"
 EOF
 chmod +x "$backend_bin/fzf"
@@ -227,6 +236,30 @@ env PATH="$test_path" XDG_DATA_HOME="$binary_data" CLIP_TEST_PICK_CANCEL=1 \
   "$clip" pick >"$test_root/cancelled"
 _assert_exit "picker preserves cancellation status" 130 "$?"
 _assert_eq "cancelled picker emits no payload" 0 "$(wc -c <"$test_root/cancelled" | tr -d ' ')"
+
+# BusyBox configurations can silently ignore sed's unsupported `l` command.
+# Model that behavior: a control-safety assertion alone accepts an empty preview.
+cat >"$backend_bin/sed" <<'EOF'
+#!/usr/bin/env bash
+if [[ "$*" == '-n l' ]]; then cat >/dev/null; exit 0; fi
+exec "$CLIP_TEST_REAL_SED" "$@"
+EOF
+chmod +x "$backend_bin/sed"
+preview_data="$test_root/preview"
+mkdir -p "$preview_data/clip"
+printf 'visible unterminated entry' >"$preview_data/clip/plain"
+preview_output=$(env PATH="$test_path" XDG_DATA_HOME="$preview_data" \
+  CLIP_TEST_REAL_SED="$(command -v sed)" "$clip" list)
+_assert_eq "history list preserves visible unterminated text without sed list support" \
+  'plain  visible unterminated entry' "$preview_output"
+env PATH="$test_path" XDG_DATA_HOME="$preview_data" \
+  CLIP_TEST_REAL_SED="$(command -v sed)" CLIP_TEST_PICK_PREVIEW="$test_root/previewed" \
+  "$clip" pick >"$test_root/preview-picked"
+_assert_file_content "picker preview preserves visible unterminated text without sed list support" \
+  'visible unterminated entry' "$test_root/previewed"
+cmp -s "$preview_data/clip/plain" "$test_root/preview-picked"
+_assert_exit "safe preview leaves selected bytes unchanged" 0 "$?"
+rm -f "$backend_bin/sed"
 
 echo
 echo "=== Clipboard failure and targeting boundaries ==="
