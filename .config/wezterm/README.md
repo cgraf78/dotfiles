@@ -30,6 +30,12 @@ resolved asset with WezTerm's configuration reload watcher so a Termnav update
 cannot leave callbacks using an older in-memory module until the next unrelated
 config edit.
 
+During a normal `dot update`, the base config may reload before the Termnav
+provider finishes updating. With an older provider, ordinary URL rules remain
+available and the new raw file-path fallback rules stay disabled. The provider
+asset watcher reloads the config after installation, enabling those rules; an
+explicit WezTerm config reload also enables them once the provider is updated.
+
 1. Termnav classifies the active terminal or attached tmux client. The shell
    aliases choose plain `eza`/`rg` output when native linkification is required,
    or `termnav eza` and semantic `rg` links when a Termnav-capable router is
@@ -53,10 +59,13 @@ config edit.
    copy mode, and OSC 8 browser links (tmux 3.4 and later) also go to
    `termnav tmux follow-click` (see the tmux README's Key Handling section).
 7. Remote `file://host/path` links call the same helper with the `link` mode
-   and `remote` source label. It skips local Neovim sockets, tries an existing
-   SSH ControlMaster connection for hosts listed in
-   `TERMNAV_SSH_CONTROL_HOSTS`, and otherwise falls back to sending a remote
-   tmux command through an existing host-matched SSH pane.
+   and `remote` source label. It skips local Neovim sockets and reuses an
+   existing SSH ControlMaster connection for hosts listed in
+   `TERMNAV_SSH_CONTROL_HOSTS`, or a configured `TERMNAV_REMOTE_OPEN_HELPER`
+   receiving the exact frontend, socket, and pane identity. It never types
+   guessed prefix keys into an SSH pane or opens a second authenticated
+   connection. An unavailable editor or transport produces bounded visible
+   feedback in the terminal's right status area.
 8. With `dotfiles-nvim` active, its local `nvim` launcher delegates the
    conservative pane-reuse decision to Termnav and retains only real-editor
    discovery. `termnav nvim open` then prefers Neovim RPC sockets published by
@@ -146,8 +155,9 @@ Check whether a configured host has a reusable master:
 ssh -O check example-host
 ```
 
-If this fails, Ctrl-click falls back to the tmux transport. `ControlPersist`
-keeps an authenticated SSH master available after an interactive session exits,
+If this fails, GUI-originated remote clicks require an explicitly configured
+transport helper; clicks handled inside remote tmux can still open there.
+`ControlPersist` keeps an authenticated SSH master available after an interactive session exits,
 which improves ergonomics but extends the window in which local processes can
 reuse that SSH connection.
 
@@ -157,3 +167,31 @@ WezTerm, or add a local/overlay-managed
 `~/.config/wezterm/termnav-ssh-control-hosts` file containing a comma-separated
 host list. If neither exists, no remote host is allowlisted for ControlMaster
 reuse.
+
+## Attention across terminal layers
+
+`attention.lua` renders tmux-tools' bounded `TERM_PANE_STATE` snapshots for
+all panes in each tab. Explicit names remain intact; display-only truncation
+reserves space for `⋯` (working) and `●` (attention) or red `!` (failure).
+Work remains visible when a different activity awaits attention. Switching to
+an outer tab does not acknowledge hidden inner panes; tmux's existing
+selection/focus policy owns acknowledgement. Pane-global acknowledgement by
+one attached client remains acknowledgement for the other clients too.
+
+The stable 2024 WezTerm build is sufficient. Its formatter must stay
+process-free; the status callback only inspects cached mux data. A local
+reception lease hides stale snapshots after a lost publisher, including while
+the terminal is otherwise quiet. Reconnection replays the source state. The
+right-status area is owned by this adapter for transient link errors and
+invisible redraw invalidation on this stable build, which lacks a window
+invalidation API. Compose future right-status content through this module.
+
+Termnav carries nested snapshots through existing parent routes; no SSH
+login is initiated for attention. These are advisory periodically reconciled
+snapshots, not a transaction log or per-client unread counters. The original
+pane marks remain authoritative when transport expires.
+
+The bell callback checks the originating pane's mux window before playing a
+sound, compensating for stable WezTerm's broadcast to unrelated GUI windows.
+The newer terminal checksum-disable setting is absent from this build; the
+configuration does not claim to disable that engine feature.

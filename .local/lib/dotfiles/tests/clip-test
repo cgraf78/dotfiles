@@ -19,7 +19,7 @@ mkdir -p "$backend_bin" "$data_home"
 # Keep each backend case independent of clipboard tools installed by the host.
 # In particular, macOS provides pbcopy/pbpaste in /usr/bin, which must not win
 # while the Wayland, X11, and missing-backend cases are under test.
-for tool in bash cat cut date head ls mkdir rm tail tr wc; do
+for tool in bash cat chmod cmp cut date head ls mkdir mktemp mv rm sed tail tr wc; do
   ln -s "$(command -v "$tool")" "$runtime_bin/$tool"
 done
 test_path="$backend_bin:$runtime_bin"
@@ -140,5 +140,373 @@ paste_rc=0
 env PATH="$runtime_bin" XDG_DATA_HOME="$test_root/no-backend-paste" \
   "$clip" paste >/dev/null 2>&1 || paste_rc=$?
 _assert_exit "clip paste reports when no host clipboard is readable" 1 "$paste_rc"
+
+echo
+echo "=== Clipboard fidelity and private publication ==="
+
+cat >"$backend_bin/pbcopy" <<'EOF'
+#!/usr/bin/env bash
+cat >"$CLIP_TEST_COPY_LOG"
+EOF
+chmod +x "$backend_bin/pbcopy"
+fidelity_data="$test_root/fidelity"
+payload="$test_root/payload"
+printf 'first\nsecond\n\n' >"$payload"
+env PATH="$test_path" XDG_DATA_HOME="$fidelity_data" \
+  CLIP_TEST_COPY_LOG="$copy_log" "$clip" copy <"$payload"
+cmp -s "$payload" "$copy_log"
+_assert_exit "copy preserves every trailing newline" 0 "$?"
+history_files=("$fidelity_data/clip"/*)
+cmp -s "$payload" "${history_files[0]}"
+_assert_exit "history preserves every trailing newline" 0 "$?"
+
+binary_data="$test_root/binary"
+printf 'before\000after\033]52;c;not-a-command\007\n' >"$payload"
+env PATH="$test_path" XDG_DATA_HOME="$binary_data" \
+  CLIP_TEST_COPY_LOG="$copy_log" "$clip" capture <"$payload"
+cmp -s "$payload" "$copy_log"
+_assert_exit "capture preserves NUL and terminal-control bytes" 0 "$?"
+history_files=("$binary_data/clip"/*)
+cmp -s "$payload" "${history_files[0]}"
+_assert_exit "history preserves arbitrary bytes" 0 "$?"
+
+private_data="$test_root/private"
+(
+  umask 000
+  printf 'private' | env PATH="$test_path" \
+    XDG_DATA_HOME="$private_data" CLIP_TEST_COPY_LOG="$copy_log" "$clip" capture
+)
+_clip_mode() {
+  if stat -c '%a' "$1" 2>/dev/null; then return; fi
+  stat -f '%Lp' "$1"
+}
+_assert_eq "history directory is private under permissive umask" 700 \
+  "$(_clip_mode "$private_data/clip")"
+history_files=("$private_data/clip"/*)
+_assert_eq "history entry is private from creation" 600 \
+  "$(_clip_mode "${history_files[0]}")"
+
+unsafe_data="$test_root/unsafe"
+mkdir -p "$unsafe_data" "$test_root/elsewhere"
+ln -s "$test_root/elsewhere" "$unsafe_data/clip"
+printf 'must not escape' | env PATH="$test_path" XDG_DATA_HOME="$unsafe_data" \
+  CLIP_TEST_COPY_LOG="$copy_log" "$clip" capture >/dev/null 2>&1
+_assert_exit "history refuses a symlink directory" 1 "$?"
+escaped_files=("$test_root/elsewhere"/*)
+_assert_eq "unsafe history creates no payload outside its directory" \
+  "$test_root/elsewhere/*" "${escaped_files[0]}"
+
+empty_data="$test_root/empty"
+: >"$payload"
+env PATH="$test_path" XDG_DATA_HOME="$empty_data" \
+  CLIP_TEST_COPY_LOG="$copy_log" "$clip" capture <"$payload"
+history_files=("$empty_data/clip"/*)
+cmp -s "$payload" "${history_files[0]}"
+_assert_exit "an empty capture remains an exact history entry" 0 "$?"
+
+# An fzf substitute selects only the first offered opaque ID. Preview/list
+# output must escape control bytes, but selecting still returns the originals.
+cat >"$backend_bin/fzf" <<'EOF'
+#!/usr/bin/env bash
+if [[ ${CLIP_TEST_PICK_CANCEL:-0} == 1 ]]; then exit 130; fi
+IFS= read -r selected
+printf '%s\n' "$selected"
+EOF
+chmod +x "$backend_bin/fzf"
+env PATH="$test_path" XDG_DATA_HOME="$binary_data" "$clip" list >"$test_root/listed"
+if LC_ALL=C tr -d '\11\12\15\40-\176' <"$test_root/listed" | cmp -s - /dev/null; then
+  _pass "history list never emits raw terminal-control bytes"
+else
+  _fail "history list never emits raw terminal-control bytes"
+fi
+env PATH="$test_path" XDG_DATA_HOME="$binary_data" "$clip" pick >"$test_root/picked"
+history_files=("$binary_data/clip"/*)
+cmp -s "${history_files[0]}" "$test_root/picked"
+_assert_exit "picker emits original arbitrary bytes" 0 "$?"
+env PATH="$test_path" XDG_DATA_HOME="$binary_data" CLIP_TEST_PICK_CANCEL=1 \
+  "$clip" pick >"$test_root/cancelled"
+_assert_exit "picker preserves cancellation status" 130 "$?"
+_assert_eq "cancelled picker emits no payload" 0 "$(wc -c <"$test_root/cancelled" | tr -d ' ')"
+
+echo
+echo "=== Clipboard failure and targeting boundaries ==="
+
+cat >"$backend_bin/tmux-clip-paste" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >"$CLIP_TEST_HANDOFF_ARGS"
+cat >"$CLIP_TEST_HANDOFF"
+EOF
+chmod +x "$backend_bin/tmux-clip-paste"
+env PATH="$test_path" XDG_DATA_HOME="$binary_data" \
+  CLIP_TEST_HANDOFF="$test_root/handoff" CLIP_TEST_HANDOFF_ARGS="$args_log" \
+  "$clip" pick --publish-pane %7
+cmp -s "${history_files[0]}" "$test_root/handoff"
+_assert_exit "picker publishes original bytes through the atomic handoff" 0 "$?"
+_assert_file_content "picker pins the originating pane" '--pane %7 --publish' "$args_log"
+printf 'previous handoff' >"$test_root/handoff"
+env PATH="$test_path" XDG_DATA_HOME="$binary_data" CLIP_TEST_PICK_CANCEL=1 \
+  CLIP_TEST_HANDOFF="$test_root/handoff" CLIP_TEST_HANDOFF_ARGS="$args_log" \
+  "$clip" pick --publish-pane %7 >/dev/null
+_assert_exit "cancelled publication preserves picker status" 130 "$?"
+_assert_file_content "cancellation never truncates the prior handoff" \
+  'previous handoff' "$test_root/handoff"
+
+cat >"$backend_bin/tmux" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$CLIP_TEST_TMUX_LOG"
+case "$1" in
+  display-message)
+    if [[ "$*" == *'#{pane_id}'* ]]; then printf '%s\n' "${CLIP_TEST_PANE:-%7}";
+    else printf '%s\n' "${CLIP_TEST_CLIENT:-/dev/ttys007}"; fi ;;
+  load-buffer) cat >"$CLIP_TEST_COPY_LOG" ;;
+  *) exit 31 ;;
+esac
+EOF
+chmod +x "$backend_bin/tmux"
+printf 'client bytes\n\n' >"$payload"
+env PATH="$test_path" XDG_DATA_HOME="$test_root/client-history" \
+  CLIP_TEST_TMUX_LOG="$test_root/tmux-log" CLIP_TEST_COPY_LOG="$copy_log" \
+  "$clip" copy --client /dev/ttys007 --pane %7 <"$payload"
+_assert_exit "explicit client copy succeeds" 0 "$?"
+cmp -s "$payload" "$copy_log"
+_assert_exit "explicit client transport preserves exact bytes" 0 "$?"
+_assert_contains "explicit client is used for clipboard transport" \
+  'load-buffer -w -t /dev/ttys007 -' "$(cat "$test_root/tmux-log")"
+rm -f "$test_root/tmux-log" "$copy_log"
+env PATH="$test_path" XDG_DATA_HOME="$test_root/client-missing" \
+  CLIP_TEST_TMUX_LOG="$test_root/tmux-log" CLIP_TEST_COPY_LOG="$copy_log" \
+  CLIP_TEST_CLIENT=/dev/ttys008 \
+  "$clip" copy --client /dev/ttys007 --pane %7 <"$payload" >/dev/null 2>&1
+_assert_exit "a different attached client never receives the selection" 1 "$?"
+if [[ ! -e "$copy_log" ]]; then
+  _pass "a missing initiating client triggers no native fallback"
+else
+  _fail "a missing initiating client triggers no native fallback"
+fi
+
+history_files=("$test_root/client-missing/clip"/*)
+cmp -s "$payload" "${history_files[0]}"
+_assert_exit "a detached initiating client leaves a recoverable exact selection" 0 "$?"
+
+rm -f "$copy_log"
+env PATH="$test_path" XDG_DATA_HOME="$test_root/pane-missing" \
+  CLIP_TEST_TMUX_LOG="$test_root/pane-missing-log" CLIP_TEST_COPY_LOG="$copy_log" \
+  CLIP_TEST_PANE=%8 "$clip" copy --client /dev/ttys007 --pane %7 <"$payload" \
+  >/dev/null 2>&1
+_assert_exit "a changed source pane cannot dispatch a stale copy" 1 "$?"
+if [[ ! -e "$copy_log" ]]; then
+  _pass "stale source copy never touches the workstation clipboard"
+else
+  _fail "stale source copy never touches the workstation clipboard"
+fi
+
+printf 'unchanged workstation clipboard' >"$copy_log"
+env PATH="$test_path" XDG_DATA_HOME="$test_root/history-only" \
+  CLIP_TEST_COPY_LOG="$copy_log" "$clip" capture --history-only <"$payload"
+_assert_exit "history-only capture succeeds" 0 "$?"
+_assert_file_content "history-only capture never adds a second clipboard writer" \
+  'unchanged workstation clipboard' "$copy_log"
+history_files=("$test_root/history-only/clip"/*)
+cmp -s "$payload" "${history_files[0]}"
+_assert_exit "history-only capture preserves exact recovery bytes" 0 "$?"
+
+cat >"$backend_bin/pbcopy" <<'EOF'
+#!/usr/bin/env bash
+cat >/dev/null
+exit 17
+EOF
+chmod +x "$backend_bin/pbcopy"
+failed_copy_data="$test_root/failed-copy"
+env PATH="$test_path" XDG_DATA_HOME="$failed_copy_data" \
+  "$clip" copy <"$payload" >/dev/null 2>&1
+_assert_exit "direct copy reports a backend failure" 17 "$?"
+history_files=("$failed_copy_data/clip"/*)
+cmp -s "$payload" "${history_files[0]}"
+_assert_exit "failed copy retains an exact private recovery entry" 0 "$?"
+
+cat >"$backend_bin/cat" <<'EOF'
+#!/usr/bin/env bash
+printf 'partial producer output'
+exit 23
+EOF
+chmod +x "$backend_bin/cat"
+failed_read_data="$test_root/failed-read"
+env PATH="$test_path" XDG_DATA_HOME="$failed_read_data" \
+  "$clip" capture <"$payload" >/dev/null 2>&1
+_assert_exit "capture reports an interrupted producer" 23 "$?"
+rm -f "$backend_bin/cat"
+failed_entries=("$failed_read_data/clip"/* "$failed_read_data/clip"/.[!.]*)
+_assert_eq "failed producer publishes no partial entry" \
+  "$failed_read_data/clip/*" "${failed_entries[0]}"
+_assert_eq "failed producer removes its exact temporary file" \
+  "$failed_read_data/clip/.[!.]*" "${failed_entries[1]}"
+
+cat >"$backend_bin/mv" <<'EOF'
+#!/usr/bin/env bash
+exit 29
+EOF
+chmod +x "$backend_bin/mv"
+before_entry="${history_files[0]}"
+cp "$before_entry" "$test_root/prior"
+env PATH="$test_path" XDG_DATA_HOME="$failed_copy_data" \
+  "$clip" capture <"$payload" >/dev/null 2>&1
+_assert_exit "capture reports failed publication" 29 "$?"
+rm -f "$backend_bin/mv"
+cmp -s "$before_entry" "$test_root/prior"
+_assert_exit "failed publication leaves the prior entry intact" 0 "$?"
+
+cat >"$backend_bin/fzf" <<'EOF'
+#!/usr/bin/env bash
+cat >/dev/null
+printf '../../outside\n'
+EOF
+chmod +x "$backend_bin/fzf"
+env PATH="$test_path" XDG_DATA_HOME="$binary_data" \
+  "$clip" pick >"$test_root/untrusted-pick"
+_assert_exit "picker refuses an arbitrary returned pathname" 1 "$?"
+_assert_eq "an untrusted picker result emits no bytes" 0 \
+  "$(wc -c <"$test_root/untrusted-pick" | tr -d ' ')"
+
+cat >"$backend_bin/pbpaste" <<'EOF'
+#!/usr/bin/env bash
+printf 'native\n\n'
+exit "${CLIP_TEST_PASTE_STATUS:-0}"
+EOF
+chmod +x "$backend_bin/pbpaste"
+env PATH="$test_path" XDG_DATA_HOME="$test_root/paste-handoff" \
+  CLIP_TEST_HANDOFF="$test_root/native-handoff" CLIP_TEST_HANDOFF_ARGS="$args_log" \
+  "$clip" paste --publish-pane %7
+_assert_exit "native paste supports successful atomic publication" 0 "$?"
+printf 'native\n\n' >"$test_root/native-expected"
+cmp -s "$test_root/native-expected" "$test_root/native-handoff"
+_assert_exit "native paste handoff preserves trailing newlines" 0 "$?"
+env PATH="$test_path" XDG_DATA_HOME="$test_root/paste-handoff" \
+  CLIP_TEST_HANDOFF="$test_root/native-handoff" CLIP_TEST_HANDOFF_ARGS="$args_log" \
+  CLIP_TEST_PASTE_STATUS=37 "$clip" paste --publish-pane %7 >/dev/null 2>&1
+_assert_exit "failed native paste retains backend status" 37 "$?"
+cmp -s "$test_root/native-expected" "$test_root/native-handoff"
+_assert_exit "a failed native producer never replaces the prior handoff" 0 "$?"
+
+echo
+echo "=== Concurrent history writers and hostile entries ==="
+concurrent_data="$test_root/concurrent"
+writer_pids=()
+for ((writer = 0; writer < 12; writer++)); do
+  printf 'writer %s\n\n' "$writer" | env PATH="$runtime_bin" \
+    XDG_DATA_HOME="$concurrent_data" "$clip" capture &
+  writer_pids+=("$!")
+done
+writers_ok=0
+for writer_pid in "${writer_pids[@]}"; do
+  wait "$writer_pid" || writers_ok=1
+done
+_assert_exit "concurrent history writers all complete" 0 "$writers_ok"
+history_files=("$concurrent_data/clip"/*)
+_assert_eq "concurrent captures never collide" 12 "${#history_files[@]}"
+for ((writer = 0; writer < 12; writer++)); do
+  printf 'writer %s\n\n' "$writer" >"$test_root/expected-writer"
+  found_writer=0
+  for history_file in "${history_files[@]}"; do
+    if cmp -s "$test_root/expected-writer" "$history_file"; then
+      found_writer=1
+      break
+    fi
+  done
+  _assert_eq "concurrent writer $writer retains its exact payload" 1 "$found_writer"
+done
+printf 'outside fixture content' >"$test_root/outside-entry"
+ln -s "$test_root/outside-entry" "$concurrent_data/clip/untrusted-link"
+env PATH="$test_path" XDG_DATA_HOME="$concurrent_data" \
+  "$clip" list >"$test_root/list-with-symlink"
+if [[ $(cat "$test_root/list-with-symlink") != *'outside fixture content'* ]]; then
+  _pass "history listing never follows an entry symlink"
+else
+  _fail "history listing never follows an entry symlink"
+fi
+chmod 755 "$concurrent_data/clip"
+chmod 644 "${history_files[0]}"
+env PATH="$test_path" XDG_DATA_HOME="$concurrent_data" "$clip" list >/dev/null
+_assert_eq "reading an older history tightens its directory" 700 \
+  "$(_clip_mode "$concurrent_data/clip")"
+_assert_eq "reading an older history tightens existing payloads" 600 \
+  "$(_clip_mode "${history_files[0]}")"
+
+echo
+echo "=== Operation-isolated paste transactions ==="
+cat >"$backend_bin/tmux-clip-paste" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >"$CLIP_TEST_HANDOFF_ARGS"
+if [[ "$1" == --file ]]; then
+  if [[ ${CLIP_TEST_DELIVERY_FAIL:-0} != 0 ]]; then exit 41; fi
+  cat "$2" >"$CLIP_TEST_HANDOFF"
+  rm -f "$2"
+else
+  cat >"$CLIP_TEST_HANDOFF"
+fi
+EOF
+cat >"$backend_bin/pbpaste" <<'EOF'
+#!/usr/bin/env bash
+cat "$CLIP_TEST_NATIVE_FILE"
+EOF
+chmod +x "$backend_bin/tmux-clip-paste" "$backend_bin/pbpaste"
+printf 'first concurrent paste\n\n' >"$test_root/native-one"
+printf 'second concurrent paste\n\n' >"$test_root/native-two"
+paste_pids=()
+for paste_name in one two; do
+  env PATH="$test_path" XDG_DATA_HOME="$test_root/isolated-paste" \
+    CLIP_TEST_NATIVE_FILE="$test_root/native-$paste_name" \
+    CLIP_TEST_HANDOFF="$test_root/delivered-$paste_name" \
+    CLIP_TEST_HANDOFF_ARGS="$test_root/delivery-args-$paste_name" \
+    "$clip" paste --paste-pane %7 &
+  paste_pids+=("$!")
+done
+paste_status=0
+for paste_pid in "${paste_pids[@]}"; do wait "$paste_pid" || paste_status=1; done
+_assert_exit "concurrent same-pane paste transactions complete" 0 "$paste_status"
+for paste_name in one two; do
+  cmp -s "$test_root/native-$paste_name" "$test_root/delivered-$paste_name"
+  _assert_exit "concurrent transaction $paste_name delivers only its own bytes" 0 "$?"
+done
+if [[ $(cat "$test_root/delivery-args-one") != "$(cat "$test_root/delivery-args-two")" ]]; then
+  _pass "same-pane transactions use distinct private handoff paths"
+else
+  _fail "same-pane transactions use distinct private handoff paths"
+fi
+env PATH="$test_path" XDG_DATA_HOME="$test_root/failed-delivery" \
+  CLIP_TEST_NATIVE_FILE="$test_root/native-one" CLIP_TEST_DELIVERY_FAIL=1 \
+  CLIP_TEST_HANDOFF="$test_root/not-delivered" CLIP_TEST_HANDOFF_ARGS="$args_log" \
+  "$clip" paste --paste-pane %7 2>"$test_root/delivery-error"
+_assert_exit "failed isolated paste preserves helper error status" 41 "$?"
+retained_file=$(sed -n 's/^clip: paste failed; private payload retained at: //p' "$test_root/delivery-error")
+cmp -s "$test_root/native-one" "$retained_file"
+_assert_exit "failed isolated paste leaves an actionable exact recovery file" 0 "$?"
+
+: >"$payload"
+env PATH="$test_path" XDG_DATA_HOME="$test_root/empty-client" \
+  CLIP_TEST_TMUX_LOG="$test_root/empty-client-log" CLIP_TEST_COPY_LOG="$copy_log" \
+  "$clip" copy --client /dev/ttys007 --pane %7 <"$payload" \
+  >/dev/null 2>"$test_root/empty-client-error"
+_assert_exit "empty exact-client copy does not falsely claim clipboard clearing" 1 "$?"
+history_files=("$test_root/empty-client/clip"/*)
+cmp -s "$payload" "${history_files[0]}"
+_assert_exit "unsupported empty client clear still preserves exact history" 0 "$?"
+
+echo
+echo "=== Empty picker is an expected no-selection outcome ==="
+env PATH="$test_path" XDG_DATA_HOME="$test_root/absent-picker" \
+  "$clip" pick >"$test_root/no-selection" 2>"$test_root/no-selection-error"
+_assert_exit "absent history reports the distinct no-selection status" 3 "$?"
+_assert_file_content "absent history emits no selection bytes" '' "$test_root/no-selection"
+_assert_file_content "absent history is not displayed as an error" '' "$test_root/no-selection-error"
+mkdir -p "$test_root/empty-picker/clip"
+env PATH="$test_path" XDG_DATA_HOME="$test_root/empty-picker" \
+  "$clip" pick --paste-pane %7 >"$test_root/no-selection" 2>"$test_root/no-selection-error"
+_assert_exit "empty history reports the distinct no-selection status" 3 "$?"
+_assert_file_content "empty history never emits error text" '' "$test_root/no-selection-error"
+mkdir -p "$test_root/invalid-picker"
+printf 'invalid directory fixture' >"$test_root/invalid-picker/clip"
+env PATH="$test_path" XDG_DATA_HOME="$test_root/invalid-picker" \
+  "$clip" pick >"$test_root/no-selection" 2>"$test_root/no-selection-error"
+_assert_exit "an invalid history path remains a genuine error" 1 "$?"
 
 _test_summary
