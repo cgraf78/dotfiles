@@ -3,11 +3,14 @@
 #
 # Usage:
 #   clip save              snapshot current clipboard to history
-#   clip copy [< input]    copy stdin to a host clipboard + history
-#   clip capture [< input] copy when possible, always save to history
+#   clip copy [--client NAME --pane PANE] [< input]
+#                          copy stdin to a host/client clipboard + history
+#   clip capture [--history-only] [< input]
+#                          save history; optionally mirror a native clipboard
 #   clip paste             print the current host clipboard
 #   clip list              show recent entries
-#   clip pick              fzf picker, outputs selection to stdout
+#   clip pick [--publish-pane PANE]
+#                          fzf picker; stdout or atomic tmux handoff
 #   clip clear             clear history
 
 set -euo pipefail
@@ -57,19 +60,84 @@ _paste_cmd() {
 }
 
 _prune() {
-  local count
-  count=$(command ls -1 "$CLIP_DIR" 2>/dev/null | wc -l | tr -d ' ')
-  if ((count > CLIP_MAX)); then
-    command ls -1t "$CLIP_DIR" | tail -n "+$((CLIP_MAX + 1))" |
-      while IFS= read -r old; do rm -f "$CLIP_DIR/$old"; done
+  _entries || return
+  local old
+  for old in "${ENTRIES[@]:$CLIP_MAX}"; do
+    rm -f -- "$CLIP_DIR/$old" || return
+  done
+}
+
+# Clipboard data must never pass through a shell variable: command substitution
+# removes trailing newlines and Bash cannot represent NUL. Private staging also
+# prevents pickers from observing an entry before its producer has finished.
+capture_file=''
+_cleanup() {
+  [[ -z "$capture_file" ]] || rm -f -- "$capture_file"
+}
+trap _cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+_history() {
+  if [[ -e "$CLIP_DIR" || -L "$CLIP_DIR" ]]; then
+    [[ -d "$CLIP_DIR" && ! -L "$CLIP_DIR" && -O "$CLIP_DIR" ]] || {
+      echo 'clip: history must be a non-symlink directory owned by this user' >&2
+      return 1
+    }
+  else
+    (
+      umask 077
+      mkdir -p -- "$CLIP_DIR"
+    ) || return
   fi
+  # Upgrade the privacy of existing installations without changing payloads.
+  chmod 700 "$CLIP_DIR" || return
+}
+
+_entry() {
+  [[ "$1" =~ ^[a-zA-Z0-9][a-zA-Z0-9._-]*$ &&
+    -f "$CLIP_DIR/$1" && ! -L "$CLIP_DIR/$1" && -O "$CLIP_DIR/$1" ]]
+}
+
+_entries() {
+  local listing entry
+  ENTRIES=()
+  listing=$(
+    cd -- "$CLIP_DIR" || exit
+    command ls -1t
+  ) || return
+  while IFS= read -r entry; do
+    if _entry "$entry"; then
+      if ! chmod 600 "$CLIP_DIR/$entry" 2>/dev/null; then
+        # Concurrent pruning can remove an entry after this list was built.
+        [[ -e "$CLIP_DIR/$entry" || -L "$CLIP_DIR/$entry" ]] || continue
+        return 1
+      fi
+      ENTRIES+=("$entry")
+    fi
+  done <<<"$listing"
+}
+
+_temporary() {
+  _history || return
+  capture_file=$(
+    umask 077
+    mktemp "$CLIP_DIR/.capture.XXXXXXXXXX"
+  )
 }
 
 _record() {
-  local content="$1"
-  mkdir -p "$CLIP_DIR"
-  printf '%s' "$content" >"$CLIP_DIR/$(date +%Y%m%d-%H%M%S)-$$"
-  _prune
+  local stamp entry
+  stamp=$(date +%Y%m%d-%H%M%S) || return
+  entry="$CLIP_DIR/$stamp-$$-${capture_file##*.}"
+  # The invocation-unique suffix prevents colliding concurrent writers. Rename
+  # within this directory publishes complete bytes without exposing staging.
+  mv -- "$capture_file" "$entry" || return
+  capture_file=''
+  if ! _prune; then
+    echo 'clip: warning: selection recorded but history pruning failed' >&2
+  fi
 }
 
 clip_save() {
@@ -80,24 +148,52 @@ clip_save() {
     return 1
   }
 
-  local content
-  content=$("${PASTE_CMD[@]}") || return
-  [[ -n "$content" ]] || return 0
-  _record "$content"
+  _temporary || return
+  "${PASTE_CMD[@]}" >"$capture_file" || return
+  _record
 }
 
 clip_copy() {
   local -a CLIP_CMD
-  _clip_cmd
-  [[ ${#CLIP_CMD[@]} -gt 0 ]] || {
-    echo "error: no clipboard tool found" >&2
-    return 1
-  }
-
-  local content
-  content=$(cat)
-  printf '%s' "$content" | "${CLIP_CMD[@]}"
-  _record "$content"
+  local has_content=0
+  if [[ -n "$client" ]]; then
+    CLIP_CMD=(tmux load-buffer -w -t "$client" -)
+  else
+    _clip_cmd
+    [[ ${#CLIP_CMD[@]} -gt 0 ]] || {
+      echo "error: no clipboard tool found" >&2
+      return 1
+    }
+  fi
+  _temporary || return
+  cat >"$capture_file" || return
+  if [[ -s "$capture_file" ]]; then has_content=1; fi
+  exec 3<"$capture_file" || return
+  _record || return
+  # Record before dispatch: a failed clipboard transport must retain a private
+  # recovery copy rather than lose the only copy of the user's selection.
+  if [[ -n "$client" ]]; then
+    # tmux deliberately ignores zero-byte load-buffer input. Report that limit
+    # rather than claim the workstation clipboard was cleared when it was not.
+    if ((has_content == 0)); then
+      echo 'clip: tmux cannot clear an empty client clipboard; empty history retained' >&2
+      return 1
+    fi
+    # Match an exact client name, never a prefix or whichever client happened to
+    # be active most recently. Even a vanished client leaves recoverable bytes.
+    local actual
+    actual=$(tmux display-message -p -c "$client" '#{client_name}') || return
+    [[ "$actual" == "$client" ]] || {
+      echo 'clip: initiating tmux client is no longer attached' >&2
+      return 1
+    }
+    actual=$(tmux display-message -p -t "$pane" '#{pane_id}') || return
+    [[ "$actual" == "$pane" ]] || {
+      echo 'clip: source tmux pane is no longer available; history retained' >&2
+      return 1
+    }
+  fi
+  "${CLIP_CMD[@]}" <&3
 }
 
 # tmux publishes the selection to capable terminals with OSC 52. Capture keeps
@@ -105,12 +201,16 @@ clip_copy() {
 # host without clipboard utilities is still a successful copy operation.
 clip_capture() {
   local -a CLIP_CMD
-  local content
-  _clip_cmd
-  content=$(cat)
-  _record "$content"
+  CLIP_CMD=()
+  # tmux already publishes OSC 52 for copy-pipe. A second asynchronous native
+  # writer can finish out of order and overwrite a newer workstation selection.
+  ((history_only)) || _clip_cmd
+  _temporary || return
+  cat >"$capture_file" || return
+  exec 3<"$capture_file" || return
+  _record || return
   if [[ ${#CLIP_CMD[@]} -gt 0 ]]; then
-    if ! printf '%s' "$content" | "${CLIP_CMD[@]}"; then
+    if ! "${CLIP_CMD[@]}" <&3; then
       echo "warning: host clipboard copy failed; selection remains in clip history" >&2
     fi
   fi
@@ -123,7 +223,34 @@ clip_paste() {
     echo "error: no clipboard tool found" >&2
     return 1
   }
-  "${PASTE_CMD[@]}"
+  if [[ -n "$publish_pane$paste_pane" ]]; then
+    _temporary || return
+    "${PASTE_CMD[@]}" >"$capture_file" || return
+    if [[ -n "$paste_pane" ]]; then
+      _deliver
+    else
+      tmux-clip-paste --pane "$publish_pane" --publish <"$capture_file"
+    fi
+  else
+    "${PASTE_CMD[@]}"
+  fi
+}
+
+_deliver() {
+  local handoff="$capture_file" status
+  # Transfer this unique, complete inode to the paste helper. It owns both
+  # successful removal and failed-delivery recovery from this point, so an
+  # interrupt in this parent must not delete the helper's recovery reference.
+  capture_file=''
+  if tmux-clip-paste --file "$handoff" --pane "$paste_pane"; then
+    return 0
+  else
+    status=$?
+    if [[ -f "$handoff" && ! -L "$handoff" ]]; then
+      printf 'clip: paste failed; private payload retained at: %s\n' "$handoff" >&2
+    fi
+    return "$status"
+  fi
 }
 
 clip_list() {
@@ -132,47 +259,111 @@ clip_list() {
     return
   }
 
-  # Read into an array first: `ls | head` would SIGPIPE ls (exit 141) once head
-  # closes the pipe, and pipefail would turn that into a fatal error under set -e.
-  local -a entries
-  mapfile -t entries < <(command ls -1t "$CLIP_DIR")
+  _history || return
+  _entries || return
   local f preview
-  for f in "${entries[@]:0:20}"; do
-    preview=$(head -1 "$CLIP_DIR/$f" | cut -c1-80)
+  for f in "${ENTRIES[@]:0:20}"; do
+    # `cat -vet` escapes control/high bytes without requiring sed's optional
+    # list command, which some BusyBox builds silently ignore.
+    preview=$(LC_ALL=C head -c 160 "$CLIP_DIR/$f" | LC_ALL=C cat -vet)
     printf '%s  %s\n' "$f" "$preview"
   done
 }
 
 clip_pick() {
-  [[ -d "$CLIP_DIR" ]] || {
-    echo "no clipboard history" >&2
-    return 1
-  }
+  # No history is a normal no-selection outcome, distinct from unsafe paths,
+  # permissions, or transport failures that terminal bindings must not hide.
+  if [[ ! -e "$CLIP_DIR" && ! -L "$CLIP_DIR" ]]; then return 3; fi
 
-  # Read into an array first: `ls | head` would SIGPIPE ls (exit 141) once head
-  # closes the pipe, and pipefail would turn that into a fatal error under set -e.
-  local -a entries
-  mapfile -t entries < <(command ls -1t "$CLIP_DIR")
-  [[ ${#entries[@]} -gt 0 ]] || return
+  _history || return
+  _entries || return
+  [[ ${#ENTRIES[@]} -gt 0 ]] || return 3
 
   local file
+  # fzf runs this preview later; expand the environment in its shell, not here.
+  # shellcheck disable=SC2016
   file=$(
-    printf '%s\n' "${entries[@]:0:$CLIP_MAX}" |
-      fzf --height 50% --reverse --prompt="clip> " \
-        --preview="cat '$CLIP_DIR/{}'"
+    printf '%s\n' "${ENTRIES[@]:0:$CLIP_MAX}" |
+      CLIP_PICK_DIR="$CLIP_DIR" \
+        fzf --height 50% --reverse --prompt="clip> " \
+        --preview='LC_ALL=C head -c 16384 "$CLIP_PICK_DIR"/{} | LC_ALL=C cat -vet'
   ) || return
 
-  [[ -n "$file" ]] || return
-  cat "$CLIP_DIR/$file"
+  # Validate the selected opaque ID again: old entries may be pruned while the
+  # picker is open, and neither arbitrary paths nor symlinks are selections.
+  _entry "$file" || return 1
+  if [[ -n "$paste_pane" ]]; then
+    # Two pickers in the same pane must never consume one another's selection.
+    # A private per-operation file eliminates the shared public handoff name.
+    exec 3<"$CLIP_DIR/$file" || return
+    _temporary || return
+    cat <&3 >"$capture_file" || return
+    _deliver
+  elif [[ -n "$publish_pane" ]]; then
+    tmux-clip-paste --pane "$publish_pane" --publish <"$CLIP_DIR/$file"
+  else
+    cat "$CLIP_DIR/$file"
+  fi
 }
 
 clip_clear() {
   [[ -d "$CLIP_DIR" ]] || return 0
-  rm -f "$CLIP_DIR"/*
+  _history || return
+  _entries || return
+  local entry
+  for entry in "${ENTRIES[@]}"; do rm -f -- "$CLIP_DIR/$entry"; done
   echo "clipboard history cleared"
 }
 
-case "${1:-}" in
+command_name="${1:-}"
+[[ $# == 0 ]] || shift
+client=''
+pane=''
+publish_pane=''
+paste_pane=''
+history_only=0
+while (($#)); do
+  if [[ "$1" == --history-only ]]; then
+    [[ "$command_name" == capture && "$history_only" == 0 ]] || exit 2
+    history_only=1
+    shift
+    continue
+  fi
+  (($# >= 2)) || {
+    echo 'clip: option requires a value' >&2
+    exit 2
+  }
+  case "$1" in
+    --client)
+      [[ "$command_name" == copy ]] || exit 2
+      client="$2"
+      ;;
+    --pane)
+      [[ "$command_name" == copy ]] || exit 2
+      pane="$2"
+      ;;
+    --publish-pane)
+      [[ "$command_name" == pick || "$command_name" == paste ]] || exit 2
+      publish_pane="$2"
+      ;;
+    --paste-pane)
+      [[ "$command_name" == pick || "$command_name" == paste ]] || exit 2
+      paste_pane="$2"
+      ;;
+    *)
+      echo 'clip: unknown option' >&2
+      exit 2
+      ;;
+  esac
+  [[ -n "$2" ]] || exit 2
+  shift 2
+done
+for requested_pane in "$pane" "$publish_pane" "$paste_pane"; do
+  [[ -z "$requested_pane" || "$requested_pane" =~ ^%[0-9]+$ ]] || exit 2
+done
+[[ -z "$paste_pane" || -z "$publish_pane" ]] || exit 2
+[[ -z "$client" || -n "$pane" ]] || exit 2
+case "$command_name" in
   save) clip_save ;;
   copy) clip_copy ;;
   capture) clip_capture ;;
@@ -185,10 +376,17 @@ case "${1:-}" in
 usage: clip {save|copy|capture|paste|list|pick|clear}
   save   snapshot current clipboard to history
   copy   copy stdin to clipboard + history
+         --client NAME --pane PANE targets one initiating tmux client
   capture copy stdin when possible, always save to history
+         --history-only avoids a duplicate clipboard writer after tmux OSC 52
   paste  print the current host clipboard
+         --paste-pane PANE delivers through an isolated private transaction
+         --publish-pane PANE atomically prepares a tmux paste handoff
   list   show recent entries
   pick   fzf picker, outputs selection to stdout
+         --paste-pane PANE delivers through an isolated private transaction
+         --publish-pane PANE atomically prepares a tmux paste handoff
+         exits 3 without output when history is absent or empty
   clear  clear history
 USAGE
     exit 1

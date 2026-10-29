@@ -25,12 +25,16 @@ other end.
   boundaries through Termnav's native one-shot router. Vim, Neovim, and fzf
   panes receive the chord too.
 - Copy-mode clipboard piping uses the dotfiles `clip` command, which falls
-  back to platform clipboard tools. `copy-command` is `clip capture`, so
+  back to platform clipboard tools. `copy-command` is `clip capture --history-only`, so
   double-click word selection and triple-click line selection join Enter,
   Ctrl-c, and vi-style `v`/`y`.
 - `prefix Tab` opens extrakto, a shdeps-managed checkout sourced directly
   rather than through TPM, to fuzzy-pick a path, URL, hash, or word from the
-  pane. Its copies also go through `clip capture` and then OSC 52.
+  pane. Enter uses stock `tmux_osc52` mode to pass the selected text atomically
+  to tmux; Ctrl-t cycles between that and buffer-only mode. These extracted
+  copies bypass `clip` history. Stock extrakto still selects its client
+  implicitly, so it does not have the explicit-client guarantee of last-output
+  copying.
 
 Base also owns:
 
@@ -67,8 +71,8 @@ their implementation.
 
 Long-running shell commands use the existing attention path: successful
 completion shows `●`, while failure shows a red `!` in the window tab and
-`! exit N` in the pane border. Failure takes precedence over ordinary
-attention and busy indicators from other panes in the same window. Visiting
+`! exit N` in the pane border. Failure takes precedence over ordinary attention, while concurrent working
+activities retain their separate `⋯` indicator. Visiting
 the pane clears the mark and exit status; `prefix a` reaches failed commands
 through the same pending-pane navigation as agent notifications. The shell
 keeps its existing duration threshold and suppresses notifications for watched
@@ -135,8 +139,11 @@ up as you leave. tmux tracks pane focus server-wide, so another attached client
 can hold a pane focused and suppress those transitions; `client-focus-in`,
 `after-select-pane`, `after-select-window`, and `client-session-changed` hooks
 also clear whatever pane a client selects or returns to.
-A nested tmux over SSH marks the remote pane in its own border; the outer layer
-only sees the bell.
+The client-scoped snapshot publisher aggregates every window in the attached
+session. Termnav forwards leased child summaries one parent at a time through
+same-host tmux and existing SSH relays. The containing tmux window and
+WezTerm tab therefore reflect background work and attention without parsing
+colored titles or polling each pane in a separate process.
 
 A pane is busy while its agent works on a request. AgentGuard's lifecycle hooks
 set the pane option `@term_busy` through tmux-tools' `term-pane-mark` when a
@@ -145,8 +152,9 @@ and on an Interrupt or failed-request event for runtimes that report one
 (Codex, Muse, OpenCode, and Claude's StopFailure) while AgentGuard telemetry is
 enabled. Claude, Gemini, and Grok report no interrupt or other turn-ending
 event, so after an Esc that pane stays busy until its next turn or the session
-ends. A busy window's tab shows `⋯`, and a pending `●` takes precedence, so the
-tabs separate agents that need you from agents still working and idle ones.
+ends. A busy window's tab shows `⋯`; pending `●` or failed `!` can appear
+alongside it when another activity needs you. The indicators preserve both
+facts rather than hiding ongoing work.
 Only the pane terminal's foreground agent changes the mark, so an agent it
 launches (a reviewer, a memory classifier), which inherits the pane but not its
 terminal, cannot set or clear it, nor mark the pane pending; Codex's
@@ -340,3 +348,37 @@ socket was already running. Additional servers started with `tmux -L` or
 `tmux -S` do not auto-save or auto-restore, and this host-specific snapshot
 directory is not socket-scoped. Use additional servers only for isolated
 temporary work.
+
+## Clipboard fidelity and delivery
+
+`clip` stages exact bytes in owner-only files and atomically publishes history.
+It preserves trailing newlines and empty payloads, escapes picker previews,
+and emits original selected bytes. History files are private and unsafe
+symlink/directory replacements are rejected. Existing history permissions are
+tightened without reading or changing payloads.
+
+For tmux selections, tmux is the single OSC 52 writer and `clip capture
+--history-only` records history without a competing asynchronous native write.
+Explicit `clip copy` and ordinary `clip capture` retain native backend support.
+The frontend owns normal paste across SSH. Deliberate last-output copies carry
+the invoking client and pane and enter history through the same copy API.
+
+`prefix P` uses `clip pick --paste-pane` inside a real popup. Each invocation
+owns a distinct completed handoff and an explicit underlying pane; cancellation
+cannot consume an older handoff and concurrent clients cannot exchange their
+selection files. Native fallback paste uses the same transaction. Failed or
+ambiguous delivery retains recovery bytes and never retries automatically.
+Absent or empty history returns the distinct no-selection status 3; the popup
+binding treats that and explicit cancellation as normal, preserving typing
+and any existing pane modes. Other failures remain errors.
+A zero-byte scoped tmux clipboard clear is rejected explicitly because tmux
+ignores empty clipboard writes; native clipboard clears remain supported.
+
+Extrakto uses its public `tmux_osc52` mode, which supplies the actual selected
+text directly to `tmux set-buffer -w`. Its foreground/background clipboard
+hooks first reread the global buffer, so another client's copy can replace the
+selection between those operations. Those modes are excluded from the default
+cycle and the previous custom pipeline is removed on reload. Extracted copies
+therefore do not enter `clip` history. Upstream's public mode still uses
+implicit client selection; no custom plugin fork or exact-client claim is
+introduced here.

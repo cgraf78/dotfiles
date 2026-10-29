@@ -9,6 +9,7 @@ import pathlib
 import pty
 import re
 import select
+import shlex
 import shutil
 import signal
 import subprocess
@@ -209,6 +210,8 @@ class LeafStyleTest(unittest.TestCase):
 
     config: pathlib.Path
     focus: pathlib.Path | None
+    clip: pathlib.Path | None
+    prompt: pathlib.Path | None
 
     def setUp(self) -> None:
         # macOS limits Unix socket paths to roughly 104 bytes. `dot test`
@@ -226,6 +229,10 @@ class LeafStyleTest(unittest.TestCase):
         # test exercise tmux's q: quoting instead of only checking the common
         # whitespace-free /tmp path.
         self.socket = self.root / "tmux socket.sock"
+        self.clients: list[Client] = []
+        # unittest does not call tearDown when startup fails. Register cleanup
+        # before the server/client launch so a timeout cannot leave fixtures.
+        self.addCleanup(self.cleanup)
         self.environment = os.environ.copy()
         inherited_scope = (
             "TMUX",
@@ -249,13 +256,23 @@ class LeafStyleTest(unittest.TestCase):
         self.inactive = self.tmux(
             "split-window", "-d", "-P", "-F", "#{pane_id}", "sleep 30"
         ).stdout.strip()
-        self.clients: list[Client] = []
 
-    def tearDown(self) -> None:
+    def cleanup(self) -> None:
+        """Release all invocation-owned processes, including partial startup."""
+        errors: list[Exception] = []
         for client in reversed(self.clients):
-            client.close()
-        self.tmux("kill-server", check=False)
-        self.temporary.cleanup()
+            try:
+                client.close()
+            except Exception as error:
+                errors.append(error)
+        try:
+            self.tmux("kill-server", check=False)
+        except Exception as error:
+            errors.append(error)
+        finally:
+            self.temporary.cleanup()
+        if errors:
+            raise AssertionError(f"owned fixture cleanup failed: {errors}")
 
     def tmux(self, *arguments: str, check: bool = True) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
@@ -264,6 +281,7 @@ class LeafStyleTest(unittest.TestCase):
             text=True,
             capture_output=True,
             check=check,
+            timeout=10,
         )
 
     def client_is_focused(self, tty: str) -> bool | None:
@@ -764,8 +782,11 @@ class LeafStyleTest(unittest.TestCase):
         source.write_text(
             "#!/bin/sh\n"
             '[ "$1" = --print ] || exit 2\n'
-            f'[ -e "{self.root}/empty" ] && exit 3\n'
-            f'[ -e "{self.root}/old" ] && exit 64\n'
+            "result=0\n"
+            f'[ -e "{self.root}/empty" ] && result=3\n'
+            f'[ -e "{self.root}/old" ] && result=64\n'
+            f'printf "%s\\n" "$result" >>"{self.root}/calls"\n'
+            '[ "$result" = 0 ] || exit "$result"\n'
             'printf "%s\\n" "% make test ($TMUX_PANE)" "FAIL: widget"\n'
         )
         source.chmod(0o755)
@@ -810,7 +831,14 @@ class LeafStyleTest(unittest.TestCase):
             self.tmux("select-window", "-t", pane)
             self.tmux("select-pane", "-t", pane)
             wait_until(lambda: self.current_pane(client) == pane, f"client on {pane}")
+            calls = self.root / "calls"
+            before = len(calls.read_text().splitlines()) if calls.exists() else 0
             self.press(client, b"A")
+            if pane == shell:
+                wait_until(
+                    lambda: calls.exists() and len(calls.read_text().splitlines()) > before,
+                    "output source observes this invocation before fixture flags change",
+                )
 
         def messages() -> str:
             return self.tmux("show-messages").stdout
@@ -859,6 +887,204 @@ class LeafStyleTest(unittest.TestCase):
             len(re.findall(r"message: .*--print failed with status [0-9]", messages())),
             "only the real failure is reported",
         )
+
+    def test_signal_return_resets_busy_only_for_the_shells_own_pane(self) -> None:
+        """Exercise the consumer's tty proof with a real foreground shell."""
+        if self.prompt is None:
+            self.skipTest("candidate prompt is not supplied")
+        tools = self.root / "reset-bin"
+        tools.mkdir()
+        calls = self.root / "reset-calls"
+        marker = tools / "term-pane-mark"
+        marker.write_text("#!/bin/sh\nprintf '%s\\n' \"$*\" >>" + shlex.quote(str(calls)) + "\n")
+        marker.chmod(0o700)
+        self.tmux("set-environment", "-g", "PATH", f"{tools}:{self.environment['PATH']}")
+        script = self.root / "signal-return"
+        script.write_text(
+            '. "$1"\n'
+            '[ -z "$2" ] || export TMUX_PANE="$2"\n'
+            '__term_restore 137\nprintf "RECOVERED\\n"\n'
+            "while read -r ignored; do :; done\n"
+        )
+        # new-window takes PATH from its invoking command client, which can
+        # override the server's global environment. Pin this fixture's marker
+        # in the actual child invocation rather than accidentally testing the
+        # installed real marker and waiting for a log it never writes.
+        command_prefix = ["env", f"PATH={tools}:{self.environment['PATH']}", "bash"]
+        command = shlex.join([*command_prefix, str(script), str(self.prompt), ""])
+        own = self.tmux("new-window", "-d", "-P", "-F", "#{pane_id}", command).stdout.strip()
+        wait_until(calls.exists, "foreground shell requests a busy reset")
+        self.assertRegex(calls.read_text(), r"^reset busy --owner [1-9][0-9]*\n$")
+        before = calls.read_bytes()
+        other_command = shlex.join([*command_prefix, str(script), str(self.prompt), self.active])
+        other = self.tmux(
+            "new-window", "-d", "-P", "-F", "#{pane_id}", other_command
+        ).stdout.strip()
+        wait_until(
+            lambda: "RECOVERED" in self.tmux("capture-pane", "-p", "-t", other).stdout,
+            "foreign-pane recovery finishes",
+        )
+        self.assertEqual(before, calls.read_bytes(), "inherited foreign pane cannot be reset")
+        self.tmux("kill-pane", "-t", own)
+        self.tmux("kill-pane", "-t", other)
+
+    def test_clipboard_popup_pastes_into_its_explicit_underlying_pane(self) -> None:
+        """Drive the real popup and fzf, preserving trailing newlines."""
+        if self.clip is None or shutil.which("fzf") is None:
+            self.skipTest("clipboard popup requires candidate clip and fzf")
+        helper = shutil.which("tmux-clip-paste")
+        if helper is None:
+            self.skipTest("clipboard popup requires tmux-tools")
+        client = Client(self)
+        self.clients.append(client)
+        client.set_focus(True)
+        data = self.root / "data"
+        environment = dict(self.environment, XDG_DATA_HOME=str(data))
+        payload = b"popup-selected\nline-two\n\n"
+        subprocess.run(
+            [str(self.clip), "capture", "--history-only"],
+            input=payload,
+            env=environment,
+            check=True,
+            timeout=5,
+        )
+        tools = self.root / "clipboard-bin"
+        tools.mkdir()
+        finished = self.root / "picker-finished"
+        wrapper = tools / "clip"
+        wrapper.write_text(
+            "#!/bin/sh\n"
+            + shlex.quote(str(self.clip))
+            + ' "$@"\nresult=$?\n'
+            + 'if [ "$1" = pick ]; then printf "%s:%s\\n" "$$" "$result" >>'
+            + shlex.quote(str(finished))
+            + '; fi\nexit "$result"\n'
+        )
+        wrapper.chmod(0o700)
+        (tools / "tmux-clip-paste").symlink_to(helper)
+        inherited_path = self.environment["PATH"]
+        self.tmux("set-environment", "-g", "PATH", f"{tools}:{inherited_path}")
+        self.tmux("set-environment", "-g", "XDG_DATA_HOME", str(data))
+        recorder = self.root / "clipboard-recorder"
+        recorder.write_text(
+            "stty raw -echo\n"
+            "printf '\\033[?2004hREADY\\n'\n"
+            "while IFS= read -r -d '' -n 1 byte; do printf '%s' \"$byte\" >>\"$1\"; done\n"
+        )
+        received = self.root / "clipboard-received"
+        target = self.tmux(
+            "new-window", "-P", "-F", "#{pane_id}", f"bash '{recorder}' '{received}'"
+        ).stdout.strip()
+        wait_until(
+            lambda: "READY" in self.tmux("capture-pane", "-p", "-t", target).stdout,
+            "clipboard destination ready",
+        )
+        modes_before = self.tmux(
+            "list-panes", "-a", "-F", "#{pane_id}:#{pane_in_mode}"
+        ).stdout.splitlines()
+        self.press(client, b"P")
+        seen = bytearray()
+
+        def picker_visible() -> bool:
+            # The second identical popup can be drawn as a terminal delta that
+            # omits unchanged prompt text. Ask the real client for a complete
+            # render rather than mistaking that optimization for an absent UI.
+            seen.extend(client.redraw())
+            return b"clip>" in seen
+
+        try:
+            wait_until(picker_visible, "real clipboard picker visible")
+        except AssertionError as error:
+            raise AssertionError(
+                f"{error}; client={bytes(seen)!r}; messages={self.tmux('show-messages').stdout}"
+            ) from error
+        client.send(b"\r")
+        wait_until(
+            lambda: received.exists() and b"\x1b[201~" in received.read_bytes(),
+            "popup selection reaches its underlying pane",
+        )
+        expected = b"\x1b[200~" + payload + b"\x1b[201~"
+        self.assertEqual(expected, received.read_bytes().replace(b"\r", b"\n"))
+
+        def picker_reaped(count: int) -> bool:
+            if not finished.exists():
+                return False
+            rows = finished.read_text().splitlines()
+            if len(rows) < count:
+                return False
+            pid = int(rows[count - 1].split(":")[0])
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                return True
+            return False
+
+        wait_until(lambda: picker_reaped(1), "successful popup process reaped")
+        client.pump_until_quiet("successful popup returns to its source pane")
+        before = received.read_bytes()
+        self.press(client, b"P")
+        seen.clear()
+        try:
+            wait_until(picker_visible, "second picker visible")
+        except AssertionError as error:
+            raise AssertionError(
+                f"{error}; client={bytes(seen)!r}; messages={self.tmux('show-messages').stdout}"
+            ) from error
+        client.send(b"\x1b")
+        wait_until(lambda: picker_reaped(2), "cancelled popup process reaped")
+        client.pump_until_quiet("cancelled popup returns to its source pane")
+        self.assertEqual(
+            modes_before,
+            self.tmux("list-panes", "-a", "-F", "#{pane_id}:#{pane_in_mode}").stdout.splitlines(),
+            "cancellation preserves existing modes instead of opening an error view",
+        )
+        # A later sentinel proves the cancellation had its turn; it must not
+        # consume an older handoff or inject any cancelled selection.
+        client.send(b"CANCEL-SENTINEL")
+
+        def sentinel_received() -> bool:
+            # Keep servicing the actual terminal while tmux dispatches input;
+            # a blocking send-keys CLI cannot drain this attached client's PTY.
+            client.pump(0.02)
+            return received.read_bytes().endswith(b"CANCEL-SENTINEL")
+
+        wait_until(sentinel_received, "cancellation sentinel")
+        self.assertEqual(before + b"CANCEL-SENTINEL", received.read_bytes())
+
+        # Empty and absent histories are both normal no-selection outcomes.
+        # Exercise each through the actual binding, not just clip's exit code:
+        # run-shell must not turn them into a view that eats subsequent input.
+        subprocess.run(
+            [str(self.clip), "clear"], env=environment, check=True, capture_output=True, timeout=5
+        )
+        for index, history in enumerate(("empty", "absent"), start=3):
+            with self.subTest(history=history):
+                if history == "absent":
+                    (data / "clip").rmdir()
+                prior = received.read_bytes()
+                self.press(client, b"P")
+
+                def no_selection_finished(expected_count: int = index) -> bool:
+                    client.pump(0.02)
+                    return picker_reaped(expected_count)
+
+                wait_until(no_selection_finished, f"{history} picker exits without a selection")
+                self.assertEqual("3", finished.read_text().splitlines()[index - 1].split(":")[1])
+                self.assertEqual(
+                    modes_before,
+                    self.tmux(
+                        "list-panes", "-a", "-F", "#{pane_id}:#{pane_in_mode}"
+                    ).stdout.splitlines(),
+                )
+                sentinel = f"{history.upper()}-SENTINEL".encode()
+                client.send(sentinel)
+
+                def typed_after_no_selection(expected: bytes = sentinel) -> bool:
+                    client.pump(0.02)
+                    return received.read_bytes().endswith(expected)
+
+                wait_until(typed_after_no_selection, f"typing works after {history} history")
+                self.assertEqual(prior + sentinel, received.read_bytes())
 
     def test_prefix_g_and_G_open_popups_in_the_pane_directory(self) -> None:
         """Press prefix g and G and check what each popup ran, and where.
@@ -1172,9 +1398,13 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True, type=pathlib.Path)
     parser.add_argument("--focus", type=pathlib.Path)
+    parser.add_argument("--clip", type=pathlib.Path)
+    parser.add_argument("--prompt", type=pathlib.Path)
     arguments, unittest_arguments = parser.parse_known_args()
     LeafStyleTest.config = arguments.config
     LeafStyleTest.focus = arguments.focus
+    LeafStyleTest.clip = arguments.clip
+    LeafStyleTest.prompt = arguments.prompt
     program = unittest.main(argv=[__file__, *unittest_arguments], verbosity=2, exit=False)
     return 0 if program.result.wasSuccessful() else 1
 
