@@ -159,7 +159,7 @@ _assert_contains 'tmux navigation Ctrl-drag ignores links under the pointer' \
 # every host; the click rule changed only its condition.
 click_payload=$(
   cat <<'PAYLOAD'
-'send-keys -M' 'run-shell -b "~/.local/bin/termnav tmux follow-click --stdin <<\"__DOT_TMUX_CLICK__\"\n#{mouse_hyperlink}\n#{mouse_word}\n#{mouse_line}\n#{mouse_x}\n#{pane_current_path}\n#{client_tty}\n#{pane_id}\n#{mouse_y}\n#{pane_top}\n#{pane_left}\n__DOT_TMUX_CLICK__"'
+'send-keys -M' 'run-shell -b "~/.local/bin/termnav tmux follow-click --stdin <<\"__DOT_TMUX_CLICK__\"\n#{mouse_hyperlink}\n#{mouse_word}\n#{mouse_line}\n#{mouse_x}\n#{pane_current_path}\n#{client_tty}\n#{pane_id}\n#{mouse_y}\n#{pane_top}\n#{pane_left}\n#{socket_path}\n__DOT_TMUX_CLICK__"'
 PAYLOAD
 )
 _assert_eq 'tmux navigation Ctrl-release keeps its exact Termnav payload' \

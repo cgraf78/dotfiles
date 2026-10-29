@@ -152,7 +152,15 @@ local function apply_hyperlink_rule_extensions(rules)
   end
 end
 
-local termnav_routes = load_config_module("link-routes.lua").new(wezterm)
+local attention = load_config_module("attention.lua")
+local termnav_routes
+termnav_routes = load_config_module("link-routes.lua").new(wezterm, {
+  on_open_error = function(window, pane, reason)
+    if attention.owns(window, pane) then
+      attention.notice(wezterm, window, termnav_routes.open_error_message(reason))
+    end
+  end,
+})
 
 -- Dotfiles owns key policy; termnav owns the pane metadata protocol that tells
 -- us whether the active pane is currently controlled by nvim.
@@ -464,8 +472,16 @@ termnav_routes.setup()
 -- BEL is the portable transport across local shells, SSH, and tmux. Render it
 -- in the GUI client because WezTerm's SystemBeep is silent on Wayland and can
 -- be unavailable on other desktop setups.
-wezterm.on("bell", function()
-  if bell_command then
+wezterm.on("format-tab-title", function(tab, _, _, config, _, max_width)
+  return attention.format(wezterm, tab, config, max_width)
+end)
+
+wezterm.on("update-status", function(window)
+  attention.update(wezterm, window)
+end)
+
+wezterm.on("bell", function(window, pane)
+  if bell_command and attention.owns(window, pane) then
     wezterm.background_child_process(bell_command)
   end
 end)
@@ -580,49 +596,54 @@ return {
     -- slashes or colons and would otherwise look like nvim-open candidates.
     load_config_module("public-link-rules.lua").add_public_link_rules(rules)
 
-    -- Relative file paths (must contain /) with optional :line:col.
-    -- Inserted FIRST so that "src/foo/bar.cpp" is matched in full
-    -- before the absolute rule can grab "/foo/bar.cpp" out of it.
-    -- Tmux pane border glyphs are excluded so regex highlighting has a hard
-    -- stop at common split boundaries even though WezTerm does not know tmux
-    -- pane geometry. Ctrl-click gets a stronger pane-aware path through tmux.
-    -- The quoted variants intentionally avoid ':' before the first slash. That
-    -- keeps "https://..." and friends owned by WezTerm's default URL rules while
-    -- still linking quoted paths that start path-like and contain spaces.
-    table.insert(rules, {
-      -- Examples: "./project dir/src/file.cpp:12", "/tmp/file with spaces.cpp"
-      regex = [["((?:~?/|\.{1,2}/|/|[\w@.+~-]+/)[^"│┃║]+|[\w@.+~-]*\.[-A-Za-z0-9_+]*[A-Za-z_+][-A-Za-z0-9_+]*)((?::\d+){0,2})"]],
-      format = "nvim-open://$1$2",
-    })
+    -- Base config can activate before the tool install during dot update.
+    -- Older Termnav cannot distinguish raw paths from percent-encoded URIs;
+    -- keep URL links available until the provider update enables this API.
+    if type(termnav_routes.raw_link_uri) == "function" then
+      -- Relative file paths (must contain /) with optional :line:col.
+      -- Inserted FIRST so that "src/foo/bar.cpp" is matched in full
+      -- before the absolute rule can grab "/foo/bar.cpp" out of it.
+      -- Tmux pane border glyphs are excluded so regex highlighting has a hard
+      -- stop at common split boundaries even though WezTerm does not know tmux
+      -- pane geometry. Ctrl-click gets a stronger pane-aware path through tmux.
+      -- The quoted variants intentionally avoid ':' before the first slash. That
+      -- keeps "https://..." and friends owned by WezTerm's default URL rules while
+      -- still linking quoted paths that start path-like and contain spaces.
+      table.insert(rules, {
+        -- Examples: "./project dir/src/file.cpp:12", "/tmp/file with spaces.cpp"
+        regex = [["((?:~?/|\.{1,2}/|/|[\w@.+~-]+/)[^"│┃║]+|[\w@.+~-]*\.[-A-Za-z0-9_+]*[A-Za-z_+][-A-Za-z0-9_+]*)((?::\d+){0,2})"]],
+        format = termnav_routes.raw_link_uri("$1$2"),
+      })
 
-    table.insert(rules, {
-      -- Examples: './project dir/src/file.cpp:12', '/tmp/file with spaces.cpp'
-      regex = [[\x27((?:~?/|\.{1,2}/|/|[\w@.+~-]+/)[^\x27│┃║]+|[\w@.+~-]*\.[-A-Za-z0-9_+]*[A-Za-z_+][-A-Za-z0-9_+]*)((?::\d+){0,2})\x27]],
-      format = "nvim-open://$1$2",
-    })
+      table.insert(rules, {
+        -- Examples: './project dir/src/file.cpp:12', '/tmp/file with spaces.cpp'
+        regex = [[\x27((?:~?/|\.{1,2}/|/|[\w@.+~-]+/)[^\x27│┃║]+|[\w@.+~-]*\.[-A-Za-z0-9_+]*[A-Za-z_+][-A-Za-z0-9_+]*)((?::\d+){0,2})\x27]],
+        format = termnav_routes.raw_link_uri("$1$2"),
+      })
 
-    -- Bare filenames are noisy, so only link them when output includes a
-    -- line number, as in compiler/test/grep diagnostics: "file.cpp:42".
-    table.insert(rules, {
-      -- Examples: file.cpp:42, test_output.log:7:2
-      regex = [[(?:^|(?<=[^\w@.+~/'"`-]))([\w@.+~-]+\.[-A-Za-z0-9_+]+(?::\d+){1,2})(?=\s|$|[^\w@+~-])]],
-      format = "nvim-open://$1",
-    })
+      -- Bare filenames are noisy, so only link them when output includes a
+      -- line number, as in compiler/test/grep diagnostics: "file.cpp:42".
+      table.insert(rules, {
+        -- Examples: file.cpp:42, test_output.log:7:2
+        regex = [[(?:^|(?<=[^\w@.+~/'"`-]))([\w@.+~-]+\.[-A-Za-z0-9_+]+(?::\d+){1,2})(?=\s|$|[^\w@+~-])]],
+        format = termnav_routes.raw_link_uri("$1"),
+      })
 
-    table.insert(rules, {
-      -- Examples: src/foo.cpp, pkg/module/file.rs:10:4
-      regex = [[(?:^|(?<=[^\w@.+~/'"`-]))([\w@.+~-]+/[^\s:│┃║]*\w(?::\d+){0,2})(?=\s|$|[^\w@+~-])]],
-      format = "nvim-open://$1",
-    })
+      table.insert(rules, {
+        -- Examples: src/foo.cpp, pkg/module/file.rs:10:4
+        regex = [[(?:^|(?<=[^\w@.+~/'"`-]))([\w@.+~-]+/[^\s:│┃║]*\w(?::\d+){0,2})(?=\s|$|[^\w@+~-])]],
+        format = termnav_routes.raw_link_uri("$1"),
+      })
 
-    -- Absolute file paths with optional :line:col. The `(?!/)` guard prevents
-    -- grabbing the `//host/path` authority from normal URLs; those should remain
-    -- browser links, not nvim-open links.
-    table.insert(rules, {
-      -- Examples: /tmp/foo.cpp, /home/me/project/src/main.rs:42
-      regex = [[(?:^|(?<=[^\w.@+~/'"`-]))(/(?!/)[^\s:│┃║]*\w(?::\d+){0,2})(?=\s|$|[^\w@+~-])]],
-      format = "nvim-open://$1",
-    })
+      -- Absolute file paths with optional :line:col. The `(?!/)` guard prevents
+      -- grabbing the `//host/path` authority from normal URLs; those should remain
+      -- browser links, not nvim-open links.
+      table.insert(rules, {
+        -- Examples: /tmp/foo.cpp, /home/me/project/src/main.rs:42
+        regex = [[(?:^|(?<=[^\w.@+~/'"`-]))(/(?!/)[^\s:│┃║]*\w(?::\d+){0,2})(?=\s|$|[^\w@+~-])]],
+        format = termnav_routes.raw_link_uri("$1"),
+      })
+    end
 
     apply_hyperlink_rule_extensions(rules)
 

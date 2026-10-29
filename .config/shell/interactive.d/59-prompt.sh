@@ -531,6 +531,13 @@ __term_restore() {
     fi
     if [[ -n $shell_tty && ${reply#* } == "$shell_tty" ]]; then
       alt=${reply%% *}
+      # A signal can kill an agent before its Stop hook clears the busy mark.
+      # Reset only after proving this shell returned to the same pane tty;
+      # the marker independently checks foreground ownership. This rare error
+      # path avoids adding a process to every successful interactive prompt.
+      if command -v term-pane-mark >/dev/null 2>&1; then
+        term-pane-mark reset busy --owner "$$" >/dev/null 2>&1 || true
+      fi
     fi
   elif [[ -n ${TMUX:-} && -z ${TERM_PROGRAM:-} ]]; then
     term=tmux
