@@ -32,7 +32,7 @@ _wezterm_lua_supports_hex_escapes() {
 # Standalone Lua has no WezTerm JSON API. Give its API stub the actual parsed
 # appearance fixture; parsing JSON itself belongs to WezTerm, not this test.
 _wezterm_json_parser=$(
-  python3 - "$real_home/.config/wezterm/appearance.json" <<'PYTHON'
+  python3 - "$real_home/.config/wezterm/terminal-settings.json" <<'PYTHON'
 import json
 import sys
 from pathlib import Path
@@ -42,6 +42,8 @@ def lua(value):
         return "{" + ",".join("[" + json.dumps(k) + "]=" + lua(v) for k, v in value.items()) + "}"
     if isinstance(value, list):
         return "{" + ",".join(lua(v) for v in value) + "}"
+    if isinstance(value, str):
+        return '"' + "".join(f"\\{byte:03d}" for byte in value.encode()) + '"'
     return json.dumps(value)
 
 print("local function parse_json(_) return " + lua(json.loads(Path(sys.argv[1]).read_text())) + " end")
@@ -218,9 +220,11 @@ if _wezterm_has_lua_runner; then
   _assert_eq "lua runner parses hex escapes" \
     "1" "$(_wezterm_lua 'print(#"\x1b")')"
 
-  bell_home=$(_tmpdir)
+  bell_root=$(_tmpdir)
+  bell_home="$bell_root/.config/wezterm"
+  mkdir -p "$bell_home" "$bell_root/.config/terminal"
   cp "$config" "$bell_home/wezterm.lua"
-  cp "$real_home/.config/wezterm/appearance.json" "$bell_home/appearance.json"
+  cp "$real_home/.config/wezterm/terminal-settings.json" "$bell_root/.config/terminal/settings.json"
   cp "$link_routes" "$bell_home/link-routes.lua"
   cp "$public_link_rules" "$bell_home/public-link-rules.lua"
   cp "$termnav_module" "$bell_home/termnav-module.lua"
@@ -249,6 +253,7 @@ LUA
 
     HOME="$bell_home/missing-home" _wezterm_lua "
       local handlers = {}
+      local watched = {}
       local spawned = {}
       local fake_action = {
         DisableDefaultAssignment = { action = 'DisableDefaultAssignment' },
@@ -274,7 +279,9 @@ LUA
             return {}
           end,
         json_parse = parse_json,
-        add_to_config_reload_watch_list = function() end,
+        add_to_config_reload_watch_list = function(path)
+          table.insert(watched, path)
+        end,
           font_with_fallback = function(names)
             return names
           end,
@@ -288,7 +295,36 @@ LUA
         }
       end
 
+      local original_parse = parse_json
+      parse_json = function(text)
+        local settings = original_parse(text)
+        settings.spacing.horizontal = 1.25
+        settings.ligatures = true
+        return settings
+      end
       local config_table = dofile('$bell_home/wezterm.lua')
+      local watch_set = {}
+      for _, path in ipairs(watched) do watch_set[path] = true end
+      assert(watch_set['$bell_root/.config/terminal/settings.json'], 'watch real shared file')
+      assert(watch_set['$bell_root/.config/terminal'], 'watch shared directory for replacement')
+      assert(config_table.cell_width == 1.25, 'shared horizontal spacing')
+      assert(#config_table.harfbuzz_features == 0, 'shared ligature setting')
+      local settings = parse_json('')
+      assert(config_table.line_height == settings.spacing.vertical, 'shared vertical spacing')
+      assert(config_table.scrollback_lines == settings.scrollback_lines, 'shared scrollback')
+      for _, binding in ipairs(settings.send_keys) do
+        if binding.platform == 'all' or ('$target_triple'):find('darwin', 1, true) then
+          local found = false
+          for _, key in ipairs(config_table.keys) do
+            if key.key == binding.key and key.mods == binding.mods then
+              assert(key.action.action == 'SendString' and key.action.value == binding.text,
+                'shared encoding differs: ' .. binding.key)
+              found = true
+            end
+          end
+          assert(found, 'missing shared encoding: ' .. binding.key)
+        end
+      end
       print(config_table.audible_bell)
       print(type(handlers.bell))
       if handlers.bell then
@@ -323,6 +359,7 @@ LUA
     local target_triple="$1" adapters="$2"
 
     HOME="$bell_home/missing-home" _wezterm_lua "
+      local watched = {}
       local fake_action = {
         DisableDefaultAssignment = { action = 'DisableDefaultAssignment' },
       }
@@ -345,7 +382,9 @@ LUA
             return {}
           end,
         json_parse = parse_json,
-        add_to_config_reload_watch_list = function() end,
+        add_to_config_reload_watch_list = function(path)
+          table.insert(watched, path)
+        end,
           font_with_fallback = function(names)
             return names
           end,
@@ -362,7 +401,36 @@ LUA
         }
       end
 
+      local original_parse = parse_json
+      parse_json = function(text)
+        local settings = original_parse(text)
+        settings.spacing.horizontal = 1.25
+        settings.ligatures = true
+        return settings
+      end
       local config_table = dofile('$bell_home/wezterm.lua')
+      local watch_set = {}
+      for _, path in ipairs(watched) do watch_set[path] = true end
+      assert(watch_set['$bell_root/.config/terminal/settings.json'], 'watch real shared file')
+      assert(watch_set['$bell_root/.config/terminal'], 'watch shared directory for replacement')
+      assert(config_table.cell_width == 1.25, 'shared horizontal spacing')
+      assert(#config_table.harfbuzz_features == 0, 'shared ligature setting')
+      local settings = parse_json('')
+      assert(config_table.line_height == settings.spacing.vertical, 'shared vertical spacing')
+      assert(config_table.scrollback_lines == settings.scrollback_lines, 'shared scrollback')
+      for _, binding in ipairs(settings.send_keys) do
+        if binding.platform == 'all' or ('$target_triple'):find('darwin', 1, true) then
+          local found = false
+          for _, key in ipairs(config_table.keys) do
+            if key.key == binding.key and key.mods == binding.mods then
+              assert(key.action.action == 'SendString' and key.action.value == binding.text,
+                'shared encoding differs: ' .. binding.key)
+              found = true
+            end
+          end
+          assert(found, 'missing shared encoding: ' .. binding.key)
+        end
+      end
       local adapter = config_table.webgpu_preferred_adapter
       print(tostring(config_table.front_end))
       print(tostring(config_table.webgpu_power_preference))
@@ -407,7 +475,7 @@ LUA
     "$macos_renderer_result"
 
   cp "$config" "$nvim_key_home/.wezterm.lua"
-  cp "$real_home/.config/wezterm/appearance.json" "$nvim_key_home/appearance.json"
+  cp "$real_home/.config/wezterm/terminal-settings.json" "$nvim_key_home/terminal-settings.json"
   cp "$link_routes" "$nvim_key_home/link-routes.lua"
   cp "$public_link_rules" "$nvim_key_home/public-link-rules.lua"
   cp "$termnav_module" "$nvim_key_home/termnav-module.lua"
@@ -663,7 +731,8 @@ LUA
 
   wsl_copy_home=$(_tmpdir)
   cp "$config" "$wsl_copy_home/.wezterm.lua"
-  cp "$real_home/.config/wezterm/appearance.json" "$wsl_copy_home/appearance.json"
+  mkdir -p "$wsl_copy_home/.config/terminal"
+  cp "$real_home/.config/wezterm/terminal-settings.json" "$wsl_copy_home/.config/terminal/settings.json"
   cp "$link_routes" "$wsl_copy_home/link-routes.lua"
   cp "$public_link_rules" "$wsl_copy_home/public-link-rules.lua"
   cp "$termnav_module" "$wsl_copy_home/termnav-module.lua"
@@ -734,7 +803,7 @@ LUA
 
   termnav_hosts_home=$(_tmpdir)
   cp "$config" "$termnav_hosts_home/wezterm.lua"
-  cp "$real_home/.config/wezterm/appearance.json" "$termnav_hosts_home/appearance.json"
+  cp "$real_home/.config/wezterm/terminal-settings.json" "$termnav_hosts_home/terminal-settings.json"
   cp "$link_routes" "$termnav_hosts_home/link-routes.lua"
   cp "$public_link_rules" "$termnav_hosts_home/public-link-rules.lua"
   cp "$termnav_module" "$termnav_hosts_home/termnav-module.lua"
@@ -808,7 +877,7 @@ LUA
 
   termnav_empty_home=$(_tmpdir)
   cp "$config" "$termnav_empty_home/wezterm.lua"
-  cp "$real_home/.config/wezterm/appearance.json" "$termnav_empty_home/appearance.json"
+  cp "$real_home/.config/wezterm/terminal-settings.json" "$termnav_empty_home/terminal-settings.json"
   cp "$link_routes" "$termnav_empty_home/link-routes.lua"
   cp "$public_link_rules" "$termnav_empty_home/public-link-rules.lua"
   cp "$termnav_module" "$termnav_empty_home/termnav-module.lua"

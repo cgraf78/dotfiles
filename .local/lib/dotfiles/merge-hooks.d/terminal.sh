@@ -4,7 +4,7 @@ dot_hook_source merge-hooks.d/lib/compat.sh || return
 # Terminal and WezTerm share the appearance; only macOS has Terminal preferences.
 merge() {
   _dot_tool_present terminal || return 0
-  local appearance="$HOME/.config/wezterm/appearance.json" defaults_command
+  local appearance="$HOME/.config/terminal/settings.json" defaults_command
   local profile="$HOME/.config/dot/merge-hooks.d/terminal/profile.json"
   [[ -f "$appearance" && -f "$profile" ]] || return 0
   command -v python3 >/dev/null 2>&1 || return 1

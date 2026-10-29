@@ -256,9 +256,10 @@ cat >"$wezterm_worker_bin/wezterm" <<'WEZTERM'
 exit 0
 WEZTERM
 chmod +x "$wezterm_worker_bin/wezterm"
-mkdir -p "$fixture_home/.config/wezterm" "$windows_home"
+mkdir -p "$fixture_home/.config/wezterm" "$fixture_home/.config/terminal" "$windows_home"
 printf 'return {}\n' >"$fixture_home/.config/wezterm/wezterm.lua"
-cp "$source_home/.config/wezterm/appearance.json" "$fixture_home/.config/wezterm/appearance.json"
+cp "$source_home/.config/terminal/settings.json" "$fixture_home/.config/terminal/settings.json"
+printf 'legacy companion\n' >"$windows_home/appearance.json"
 if CLIENT_WORKER_PATH="$wezterm_worker_bin:$DOT_TEST_SYSTEM_PATH" \
   WSL_DISTRO_NAME=Ubuntu DOT_TEST_WINDOWS_HOME=$windows_home \
   DOT_TEST_WSL_PAIRED_ACCOUNT=1 DOT_QUIET=1 \
@@ -271,13 +272,15 @@ fi
 _assert_file_content 'client WSL worker copies WezTerm config through public platform API' \
   'return {}' "$windows_home/.wezterm.lua"
 
+_assert_file_missing 'client WSL worker retires legacy appearance copy' \
+  "$windows_home/appearance.json"
 _assert_file_content 'client WSL worker copies shared appearance' \
-  "$(cat "$fixture_home/.config/wezterm/appearance.json")" "$windows_home/appearance.json"
+  "$(cat "$fixture_home/.config/terminal/settings.json")" "$windows_home/.config/terminal/settings.json"
 
 # A failed dependency copy must preserve both the old dependency and main config.
 cp "$windows_home/.wezterm.lua" "$windows_home/main.before"
-cp "$windows_home/appearance.json" "$windows_home/appearance.before"
-mv "$fixture_home/.config/wezterm/appearance.json" "$fixture_home/appearance.parked"
+cp "$windows_home/.config/terminal/settings.json" "$windows_home/appearance.before"
+mv "$fixture_home/.config/terminal/settings.json" "$fixture_home/appearance.parked"
 printf 'return {new_config=true}\n' >"$fixture_home/.config/wezterm/wezterm.lua"
 if CLIENT_WORKER_PATH="$wezterm_worker_bin:$DOT_TEST_SYSTEM_PATH" \
   WSL_DISTRO_NAME=Ubuntu DOT_TEST_WINDOWS_HOME=$windows_home \
@@ -291,8 +294,8 @@ fi
 _assert_file_content 'failed appearance copy preserves main config' \
   "$(cat "$windows_home/main.before")" "$windows_home/.wezterm.lua"
 _assert_file_content 'failed appearance copy preserves published appearance' \
-  "$(cat "$windows_home/appearance.before")" "$windows_home/appearance.json"
-mv "$fixture_home/appearance.parked" "$fixture_home/.config/wezterm/appearance.json"
+  "$(cat "$windows_home/appearance.before")" "$windows_home/.config/terminal/settings.json"
+mv "$fixture_home/appearance.parked" "$fixture_home/.config/terminal/settings.json"
 
 for extension in "$client_root/doctor.d"/[0-9]*.sh; do
   [[ ! -L $extension ]] || continue

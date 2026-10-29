@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# iTerm2 profile rendering and isolated merge lifecycle coverage.
+set -o pipefail
+# shellcheck source=helpers.sh
+. "${BASH_SOURCE[0]%/*}/helpers.sh"
+python3 "${BASH_SOURCE[0]%/*}/iterm2_profile_test.py"
+status=$?
+_assert_eq "iTerm2 profile and hook tests" 0 "$status"
+_test_summary

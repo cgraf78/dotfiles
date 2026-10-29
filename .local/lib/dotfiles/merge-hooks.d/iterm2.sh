@@ -22,12 +22,12 @@ _iterm2_profile_output_name() {
   fi
 }
 
-# Copy dynamic profiles, installing every fragment before reporting. A single
+# Render dynamic profiles, installing every fragment before reporting. A single
 # failed copy must fail the step even when a later copy succeeds. With no
 # fragments declared there is nothing to install, so a missing destination
 # directory is success rather than failure.
 _iterm2_profiles() {
-  local src dst_dir dst
+  local src dst_dir dst tmp guid
   dst_dir="$HOME/Library/Application Support/iTerm2/DynamicProfiles"
 
   local -a fragments=()
@@ -36,23 +36,36 @@ _iterm2_profiles() {
   done < <(dot_hook_family_files_matching iterm2/profiles.d '*.json' '*.replace/*.json')
   ((${#fragments[@]} > 0)) || return 0
 
-  [[ -d "$dst_dir" ]] || return 1
+  command -v python3 >/dev/null 2>&1 || return 1
+  mkdir -p "$dst_dir" || return 1
 
   local status=0
   for src in "${fragments[@]}"; do
     dst="$dst_dir/$(_iterm2_profile_output_name "$src")"
-    # iTerm2 does not follow symlinks for dynamic profiles.
-    if ! dot_config_files_equal "$src" "$dst"; then
-      cp "$src" "$dst" || status=1
+    dot_sibling_tmp_for "$dst_dir/.${dst##*/}" || return 1
+    tmp="$REPLY"
+    if ! guid=$(python3 "${BASH_SOURCE[0]%/*}/lib/iterm2-profile.py" \
+      --source "$src" --settings "$HOME/.config/terminal/settings.json" --output "$tmp"); then
+      rm -f "$tmp"
+      status=1
+      continue
     fi
+    # iTerm2 watches this directory. Hidden staging plus atomic publication
+    # prevents its loader from observing partially written JSON.
+    if dot_config_files_equal "$tmp" "$dst"; then
+      rm -f "$tmp"
+    elif ! dot_commit_tmp "$tmp" "$dst"; then
+      rm -f "$tmp"
+      status=1
+      continue
+    fi
+    [[ -z "$guid" ]] || _iterm2_default_guid="$guid"
   done
   return "$status"
 }
 
 _iterm2_has_profiles() {
-  local src dst_dir
-  dst_dir="$HOME/Library/Application Support/iTerm2/DynamicProfiles"
-  [[ -d "$dst_dir" ]] || return 1
+  local src
 
   while IFS= read -r src; do
     return 0
@@ -79,14 +92,14 @@ _iterm2_write_default() {
     plist) "$defaults_command" write "$domain" "$key" "$value" ;;
     *)
       dot_hook_warn "    warning: unsupported iTerm2 defaults type: $type"
-      return 0
+      return 1
       ;;
   esac
 }
 
 # Write iTerm2 global preferences via declarative TSV fragments.
 _iterm2_defaults() {
-  local source line domain key type value extra defaults_command
+  local source line domain key type value extra defaults_command status=0
 
   _dot_account_scoped_command \
     "iTerm2 defaults" defaults "${DOT_TEST_DEFAULTS:-}" || return 0
@@ -100,13 +113,31 @@ _iterm2_defaults() {
       IFS=$'\t' read -r domain key type value extra <<<"$line"
       if [[ -z "$domain" || -z "$key" || -z "$type" || -z "$value" || -n "$extra" ]]; then
         dot_hook_warn "    warning: malformed iTerm2 defaults row in $source"
+        status=1
         continue
       fi
 
       value="${value//\\n/$'\n'}"
-      _iterm2_write_default "$defaults_command" "$domain" "$key" "$type" "$value"
+      _iterm2_write_default "$defaults_command" "$domain" "$key" "$type" "$value" || status=1
     done <"$source"
   done < <(dot_hook_family_files_matching iterm2/defaults.d '*.tsv' '*.replace/*.tsv')
+  return "$status"
+}
+
+# Select only a successfully published profile, then verify persisted selection.
+_iterm2_select_default() {
+  [[ -n "$_iterm2_default_guid" ]] || return 0
+  local defaults_command current
+  _dot_account_scoped_command \
+    "iTerm2 default profile" defaults "${DOT_TEST_DEFAULTS:-}" || return 0
+  defaults_command="$REPLY"
+  current=$("$defaults_command" read com.googlecode.iterm2 "Default Bookmark Guid" 2>/dev/null) || current=''
+  if [[ "$current" != "$_iterm2_default_guid" ]]; then
+    "$defaults_command" write com.googlecode.iterm2 "Default Bookmark Guid" \
+      -string "$_iterm2_default_guid" || return 1
+  fi
+  current=$("$defaults_command" read com.googlecode.iterm2 "Default Bookmark Guid") || return 1
+  [[ "$current" == "$_iterm2_default_guid" ]]
 }
 
 # Main: copy dynamic profile and apply global preferences.
@@ -122,11 +153,13 @@ merge() {
   # fails. Either failure fails the hook so `dot update` reports it instead
   # of silently leaving the declared profiles uninstalled.
   local profiles_status=0 defaults_status=0
+  _iterm2_default_guid=""
   _iterm2_profiles || profiles_status=$?
   _iterm2_defaults || defaults_status=$?
   if ((profiles_status != 0)); then
     dot_hook_warn "    warning: iTerm2 dynamic profiles failed"
     return 1
   fi
+  _iterm2_select_default || return 1
   return "$defaults_status"
 }

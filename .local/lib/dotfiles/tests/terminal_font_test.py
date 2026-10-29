@@ -5,6 +5,7 @@ import importlib.util
 import json
 import plistlib
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -12,7 +13,8 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[4]
 HELPER = ROOT / ".local/lib/dotfiles/merge-hooks.d/lib/terminal-font.py"
-APPEARANCE = ROOT / ".config/wezterm/appearance.json"
+sys.path.insert(0, str(HELPER.parent))
+APPEARANCE = ROOT / ".config/terminal/settings.json"
 POLICY = ROOT / ".config/dot/merge-hooks.d/terminal/profile.json"
 
 

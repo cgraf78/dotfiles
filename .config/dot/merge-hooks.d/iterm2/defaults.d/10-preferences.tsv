@@ -7,3 +7,4 @@ com.googlecode.iterm2	OnlyWhenMoreTabs	bool	false
 com.googlecode.iterm2	AllowClipboardAccess	bool	true
 com.googlecode.iterm2	PreventEscapeSequenceFromClearingHistory	bool	false
 com.googlecode.iterm2	PointerActions	plist	{\n    "Button,1,1,," = { Action = kContextMenuPointerAction; };\n    "Button,2,1,," = { Action = kPasteFromClipboardPointerAction; };\n    "Gesture,ThreeFingerSwipeDown,," = { Action = kPrevWindowPointerAction; };\n    "Gesture,ThreeFingerSwipeLeft,," = { Action = kPrevTabPointerAction; };\n    "Gesture,ThreeFingerSwipeRight,," = { Action = kNextTabPointerAction; };\n    "Gesture,ThreeFingerSwipeUp,," = { Action = kNextWindowPointerAction; };\n  }
+com.googlecode.iterm2	HideScrollbar	bool	true

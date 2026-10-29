@@ -43,6 +43,9 @@ base	ssh	.local/lib/dotfiles/merge-hooks.d/sshd.sh
 base	shell-tools	.config/ds/README.md
 base	shell-tools	.config/ripgrep/README.md
 base	shell-tools	.config/ripgrep/config
+base	terminal	.config/terminal/**
+base	terminal	.local/lib/dotfiles/merge-hooks.d/lib/terminal_settings.py
+base	terminal	.local/lib/dotfiles/merge-hooks.d/lib/iterm2-profile.py
 base	terminal	.config/dot/merge-hooks.d/terminal/**
 base	terminal	.local/lib/dotfiles/merge-hooks.d/terminal.sh
 base	terminal	.local/lib/dotfiles/merge-hooks.d/lib/terminal-font.py
