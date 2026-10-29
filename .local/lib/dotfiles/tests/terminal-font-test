@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Terminal preference merging is pure Python; fixtures never touch macOS preferences.
+set -o pipefail
+. "${BASH_SOURCE[0]%/*}/helpers.sh"
+python3 "${BASH_SOURCE[0]%/*}/terminal_font_test.py"
+status=$?
+_assert_eq "Terminal font preference tests" 0 "$status"
+_test_summary

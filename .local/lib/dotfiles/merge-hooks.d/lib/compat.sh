@@ -174,6 +174,11 @@ _dot_tool_present() {
     ssh) _dot_tool_any_command ssh ;;
     sshd) _dot_tool_any_command sshd ;;
     tmux) _dot_tool_any_command tmux ;;
+    terminal)
+      platform=$(_dot_tool_platform)
+      [[ $platform == Darwin ]] || return 1
+      _dot_tool_any_path /System/Applications/Utilities/Terminal.app /Applications/Utilities/Terminal.app
+      ;;
     iterm2)
       platform=$(_dot_tool_platform)
       [[ $platform == Darwin ]] || return 1

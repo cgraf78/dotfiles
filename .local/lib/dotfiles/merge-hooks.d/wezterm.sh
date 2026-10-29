@@ -8,26 +8,29 @@ dot_hook_source merge-hooks.d/lib/compat.sh || return
 _wezterm_copy() {
   local src="$1" dest="$2" tmp
 
-  mkdir -p "$(dirname "$dest")"
-
-  if [[ -L "$dest" ]]; then
-    rm -f "$dest"
-  elif [[ -e "$dest" ]] && ! dot_config_files_equal "$src" "$dest"; then
-    mv "$dest" "$dest.bak.$(date +%Y%m%d%H%M%S)"
+  mkdir -p "$(dirname "$dest")" || return 1
+  if [[ ! -L "$dest" && -e "$dest" ]] && dot_config_files_equal "$src" "$dest"; then
+    return 0
   fi
 
-  if [[ ! -e "$dest" ]] || ! dot_config_files_equal "$src" "$dest"; then
-    dot_sibling_tmp_for "$dest" || return 1
-    tmp="$REPLY"
-    cp "$src" "$tmp" || {
+  # Stage the complete replacement before touching the published dependency.
+  # WezTerm may reload the main config while any companion file is copied.
+  dot_sibling_tmp_for "$dest" || return 1
+  tmp="$REPLY"
+  cp "$src" "$tmp" || {
+    rm -f "$tmp"
+    return 1
+  }
+  if [[ ! -L "$dest" && -e "$dest" ]]; then
+    cp -p "$dest" "$dest.bak.$(date +%Y%m%d%H%M%S)" || {
       rm -f "$tmp"
       return 1
     }
-    mv "$tmp" "$dest" || {
-      rm -f "$tmp"
-      return 1
-    }
   fi
+  mv -f "$tmp" "$dest" || {
+    rm -f "$tmp"
+    return 1
+  }
 }
 
 _wezterm_sync_lua_dir() {
@@ -107,6 +110,9 @@ merge() {
   dot_wsl_writable_windows_home || return 0
   winhome="$REPLY"
 
+  # Publish the required appearance declaration before a config that reads it. A
+  # failed dependency copy must leave the previous Windows config usable.
+  _wezterm_copy "$config_dir/appearance.json" "$winhome/appearance.json" || return 1
   _wezterm_copy "$src" "$winhome/.wezterm.lua"
 
   # Windows WezTerm loads ~/.wezterm.lua, so wezterm.config_dir is the Windows

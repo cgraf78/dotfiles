@@ -1,0 +1,14 @@
+{
+  "name": "Dotfiles",
+  "FontAntialias": true,
+  "FontHeightSpacing": 1.0,
+  "FontWidthSpacing": 1.0,
+  "UseBoldFonts": false,
+  "UseBrightBold": false,
+  "CursorType": 0,
+  "CursorBlink": true,
+  "BackgroundBlur": 0.0,
+  "BackgroundBlurInactive": 0.0,
+  "BackgroundSettingsForInactiveWindows": false,
+  "DynamicANSIForegroundColors": false
+}

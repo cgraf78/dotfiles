@@ -8,6 +8,7 @@ export NO_COLOR=1
 . "${BASH_SOURCE[0]%/*}/helpers.sh"
 
 real_home="${DOT_TEST_HOST_HOME:-$HOME}"
+appearance_fixture="$HOME/.config/wezterm/appearance.json"
 config="$HOME/.config/wezterm/wezterm.lua"
 link_routes="$HOME/.config/wezterm/link-routes.lua"
 public_link_rules="$HOME/.config/wezterm/public-link-rules.lua"
@@ -38,8 +39,29 @@ _wezterm_lua_supports_hex_escapes() {
   return 1
 }
 
+# Standalone Lua has no WezTerm JSON API. Give its API stub the actual parsed
+# appearance fixture; parsing JSON itself belongs to WezTerm, not this test.
+_wezterm_json_parser=$(
+  python3 - "$appearance_fixture" <<'PYTHON'
+import json
+import sys
+from pathlib import Path
+
+def lua(value):
+    if isinstance(value, dict):
+        return "{" + ",".join("[" + json.dumps(k) + "]=" + lua(v) for k, v in value.items()) + "}"
+    if isinstance(value, list):
+        return "{" + ",".join(lua(v) for v in value) + "}"
+    return json.dumps(value)
+
+print("local function parse_json(_) return " + lua(json.loads(Path(sys.argv[1]).read_text())) + " end")
+PYTHON
+)
+
 _wezterm_lua() {
-  local code="$1" nvim_bin script
+  local code nvim_bin script
+  code="$_wezterm_json_parser
+$1"
 
   if _wezterm_lua_supports_hex_escapes; then
     "$WEZTERM_LUA_RUNNER" -e "$code"
@@ -349,6 +371,7 @@ if _wezterm_has_lua_runner; then
 
   bell_home=$(_tmpdir)
   cp "$config" "$bell_home/wezterm.lua"
+  cp "$appearance_fixture" "$bell_home/appearance.json"
   cp "$link_routes" "$bell_home/link-routes.lua"
   cp "$public_link_rules" "$bell_home/public-link-rules.lua"
   cp "$termnav_module" "$bell_home/termnav-module.lua"
@@ -403,6 +426,8 @@ LUA
           default_hyperlink_rules = function()
             return {}
           end,
+        json_parse = parse_json,
+        add_to_config_reload_watch_list = function() end,
           font_with_fallback = function(names)
             return names
           end,
@@ -474,6 +499,8 @@ LUA
           default_hyperlink_rules = function()
             return {}
           end,
+        json_parse = parse_json,
+        add_to_config_reload_watch_list = function() end,
           font_with_fallback = function(names)
             return names
           end,
@@ -535,6 +562,7 @@ LUA
     "$macos_renderer_result"
 
   cp "$config" "$nvim_key_home/.wezterm.lua"
+  cp "$appearance_fixture" "$nvim_key_home/appearance.json"
   cp "$link_routes" "$nvim_key_home/link-routes.lua"
   cp "$public_link_rules" "$nvim_key_home/public-link-rules.lua"
   cp "$termnav_module" "$nvim_key_home/termnav-module.lua"
@@ -589,6 +617,8 @@ LUA
         default_hyperlink_rules = function()
           return {}
         end,
+        json_parse = parse_json,
+        add_to_config_reload_watch_list = function() end,
         font_with_fallback = function(names)
           return names
         end,
@@ -790,6 +820,7 @@ LUA
 
   wsl_copy_home=$(_tmpdir)
   cp "$config" "$wsl_copy_home/.wezterm.lua"
+  cp "$appearance_fixture" "$wsl_copy_home/appearance.json"
   cp "$link_routes" "$wsl_copy_home/link-routes.lua"
   cp "$public_link_rules" "$wsl_copy_home/public-link-rules.lua"
   cp "$termnav_module" "$wsl_copy_home/termnav-module.lua"
@@ -838,6 +869,8 @@ LUA
         default_hyperlink_rules = function()
           return { { default_url_rule = true } }
         end,
+        json_parse = parse_json,
+        add_to_config_reload_watch_list = function() end,
         font_with_fallback = function(names)
           return names
         end,
@@ -868,6 +901,7 @@ LUA
 
   termnav_hosts_home=$(_tmpdir)
   cp "$config" "$termnav_hosts_home/wezterm.lua"
+  cp "$appearance_fixture" "$termnav_hosts_home/appearance.json"
   cp "$link_routes" "$termnav_hosts_home/link-routes.lua"
   cp "$public_link_rules" "$termnav_hosts_home/public-link-rules.lua"
   cp "$termnav_module" "$termnav_hosts_home/termnav-module.lua"
@@ -922,6 +956,8 @@ LUA
         default_hyperlink_rules = function()
           return {}
         end,
+        json_parse = parse_json,
+        add_to_config_reload_watch_list = function() end,
         font_with_fallback = function(names)
           return names
         end,
@@ -941,6 +977,7 @@ LUA
 
   termnav_empty_home=$(_tmpdir)
   cp "$config" "$termnav_empty_home/wezterm.lua"
+  cp "$appearance_fixture" "$termnav_empty_home/appearance.json"
   cp "$link_routes" "$termnav_empty_home/link-routes.lua"
   cp "$public_link_rules" "$termnav_empty_home/public-link-rules.lua"
   cp "$termnav_module" "$termnav_empty_home/termnav-module.lua"
@@ -994,6 +1031,8 @@ LUA
         default_hyperlink_rules = function()
           return {}
         end,
+        json_parse = parse_json,
+        add_to_config_reload_watch_list = function() end,
         font_with_fallback = function(names)
           return names
         end,

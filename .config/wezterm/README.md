@@ -124,8 +124,8 @@ selection, while an unselected `Ctrl-C` continues into the pty as interrupt.
 
 Selections made inside tmux copy mode take the other path: tmux stores them in
 its buffer and publishes them to a capable outer terminal with OSC 52. The
-`clip capture` pipe also keeps clipboard history and mirrors to a native
-`pbcopy`, `wl-copy`, or `xclip` backend when tmux is local. Plain `Ctrl-V` in a
+`clip capture --history-only` pipe keeps private clipboard history while tmux
+owns OSC 52 delivery, avoiding a second clipboard writer. Plain `Ctrl-V` in a
 non-WezTerm/non-VS Code local terminal remains supported through `clip paste`.
 
 ## Routing Contracts
@@ -195,3 +195,13 @@ The bell callback checks the originating pane's mux window before playing a
 sound, compensating for stable WezTerm's broadcast to unrelated GUI windows.
 The newer terminal checksum-disable setting is absent from this build; the
 configuration does not claim to disable that engine feature.
+
+## Shared Appearance
+
+The shared terminal appearance is declared in `appearance.json` beside
+`wezterm.lua`: primary font, macOS font size, initial dimensions, and the
+Night Owl (Gogh) palette. Both WezTerm and the macOS Terminal merge hook
+consume it. Terminal-specific policy lives under
+`~/.config/dot/merge-hooks.d/terminal/`; its managed Dotfiles profile is selected
+as Terminal's default and startup profile during `dot update`. The WSL hook
+copies the shared appearance beside `.wezterm.lua` before publishing the config.

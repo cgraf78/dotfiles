@@ -214,8 +214,14 @@ end
 -- JetBrainsMono is installed by the nerd-fonts shdeps hook. FiraCode and
 -- MesloLGM are optional: used only when the host already provides them, and
 -- skipped when missing, so non-ASCII text may render differently per host.
+local appearance_path = wezterm.config_dir .. "/appearance.json"
+wezterm.add_to_config_reload_watch_list(appearance_path)
+local appearance_file = assert(io.open(appearance_path, "r"))
+local appearance = wezterm.json_parse(appearance_file:read("*a"))
+appearance_file:close()
+local primary_font = appearance.font
 local font_names = {
-  { family = "JetBrainsMono Nerd Font", weight = "Light" },
+  { family = primary_font.family, weight = primary_font.weight },
   "FiraCode Nerd Font",
   "MesloLGM Nerd Font Mono",
 }
@@ -239,7 +245,7 @@ local termnav_ssh_control_hosts = os.getenv("TERMNAV_SSH_CONTROL_HOSTS")
 
 if is_macos then
   table.insert(font_names, "Menlo")
-  font_size = 11
+  font_size = appearance.macos_font_size
   tab_font_size = 11.0
   line_height = 1.0
 
@@ -489,9 +495,16 @@ return {
     TERMNAV_SSH_CONTROL_HOSTS = termnav_ssh_control_hosts,
   },
 
-  color_scheme = "Night Owl (Gogh)",
+  color_scheme = appearance.color_scheme,
 
   colors = {
+    background = appearance.colors.background,
+    foreground = appearance.colors.foreground,
+    cursor_bg = appearance.colors.cursor_bg,
+    cursor_fg = appearance.colors.cursor_fg,
+    cursor_border = appearance.colors.cursor_border,
+    ansi = appearance.colors.ansi,
+    brights = appearance.colors.brights,
     tab_bar = {
       inactive_tab = {
         bg_color = "#011627",
@@ -521,8 +534,8 @@ return {
   freetype_render_target = freetype_render_target,
   enable_scroll_bar = false,
   hide_tab_bar_if_only_one_tab = hide_tab_bar_if_only_one_tab,
-  initial_cols = 140,
-  initial_rows = 36,
+  initial_cols = appearance.initial_cols,
+  initial_rows = appearance.initial_rows,
   use_fancy_tab_bar = true,
   tab_bar_at_bottom = false,
   window_frame = {

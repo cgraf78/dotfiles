@@ -258,6 +258,7 @@ WEZTERM
 chmod +x "$wezterm_worker_bin/wezterm"
 mkdir -p "$fixture_home/.config/wezterm" "$windows_home"
 printf 'return {}\n' >"$fixture_home/.config/wezterm/wezterm.lua"
+cp "$source_home/.config/wezterm/appearance.json" "$fixture_home/.config/wezterm/appearance.json"
 if CLIENT_WORKER_PATH="$wezterm_worker_bin:$DOT_TEST_SYSTEM_PATH" \
   WSL_DISTRO_NAME=Ubuntu DOT_TEST_WINDOWS_HOME=$windows_home \
   DOT_TEST_WSL_PAIRED_ACCOUNT=1 DOT_QUIET=1 \
@@ -269,6 +270,29 @@ else
 fi
 _assert_file_content 'client WSL worker copies WezTerm config through public platform API' \
   'return {}' "$windows_home/.wezterm.lua"
+
+_assert_file_content 'client WSL worker copies shared appearance' \
+  "$(cat "$fixture_home/.config/wezterm/appearance.json")" "$windows_home/appearance.json"
+
+# A failed dependency copy must preserve both the old dependency and main config.
+cp "$windows_home/.wezterm.lua" "$windows_home/main.before"
+cp "$windows_home/appearance.json" "$windows_home/appearance.before"
+mv "$fixture_home/.config/wezterm/appearance.json" "$fixture_home/appearance.parked"
+printf 'return {new_config=true}\n' >"$fixture_home/.config/wezterm/wezterm.lua"
+if CLIENT_WORKER_PATH="$wezterm_worker_bin:$DOT_TEST_SYSTEM_PATH" \
+  WSL_DISTRO_NAME=Ubuntu DOT_TEST_WINDOWS_HOME=$windows_home \
+  DOT_TEST_WSL_PAIRED_ACCOUNT=1 DOT_QUIET=1 \
+  _client_worker_run merge "$client_root/merge-hooks.d/wezterm.sh" none \
+  "${client_active_overlay_records[@]+"${client_active_overlay_records[@]}"}" 2>/dev/null; then
+  _fail 'client WSL worker reports failed appearance copy'
+else
+  _pass 'client WSL worker reports failed appearance copy'
+fi
+_assert_file_content 'failed appearance copy preserves main config' \
+  "$(cat "$windows_home/main.before")" "$windows_home/.wezterm.lua"
+_assert_file_content 'failed appearance copy preserves published appearance' \
+  "$(cat "$windows_home/appearance.before")" "$windows_home/appearance.json"
+mv "$fixture_home/appearance.parked" "$fixture_home/.config/wezterm/appearance.json"
 
 for extension in "$client_root/doctor.d"/[0-9]*.sh; do
   [[ ! -L $extension ]] || continue
