@@ -9,7 +9,7 @@ overlay's `config.editor` repeats these defaults and adds:
 
 ```text
 --hostname-bin=ripgrep-link-host
---hyperlink-format=file://{host}{path}:{line}:{column}
+--hyperlink-format=nvim-remote://{host}{path}:{line}:{column}
 ```
 
 The overlay's `env.d/60-editor.sh` points `RIPGREP_CONFIG_PATH` at
@@ -19,6 +19,9 @@ it delegates to the explicit `termnav link-host` interface, which decides
 whether a search result should be local or host-qualified so
 WezTerm/tmux/Neovim click-through behavior opens the right file on local and
 remote hosts.
+
+Diagnostic links use the editor scheme to carry line and column positions.
+`file://` targets preserve literal filenames, including numeric colon suffixes.
 
 Keep route parsing and opener behavior in `termnav`; these files should only
 shape ripgrep output.
