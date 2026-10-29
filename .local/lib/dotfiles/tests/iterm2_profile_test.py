@@ -189,6 +189,15 @@ class Iterm2HookTest(unittest.TestCase):
         )
         script = r"""
 dot_hook_source() { :; }
+. "${1%/*}/lib/compat.sh"
+# Model a minimal image even when the host has diffutils installed.
+if [[ ${ITERM2_WITHOUT_CMP:-0} == 1 ]]; then
+  command() {
+    [[ ${1:-} == -v && ${2:-} == cmp ]] && return 1
+    builtin command "$@"
+  }
+  cmp() { return 127; }
+fi
 _dot_tool_present() { return 0; }
 uname() { printf '%s\n' Darwin; }
 dot_hook_log() { :; }
@@ -204,7 +213,6 @@ dot_sibling_tmp_for() {
   REPLY=$(mktemp "$1.tmp.XXXXXXXX") || return
   [[ ${REPLY##*/} == .* ]] || { printf 'staging must be hidden\n' >&2; return 1; }
 }
-dot_config_files_equal() { cmp -s "$1" "$2"; }
 dot_commit_tmp() {
   [[ ${ITERM2_FAIL_PUBLISH:-0} == 0 ]] || return 1
   mv "$1" "$2"
@@ -231,6 +239,12 @@ merge
         self.assertTrue(prefs["Unrelated"])
         before = self.destination.stat().st_mtime_ns
         self.assertEqual(self.run_hook().returncode, 0)
+        self.assertEqual(self.destination.stat().st_mtime_ns, before)
+
+    def test_repeated_merge_without_cmp_does_not_rewrite(self):
+        self.assertEqual(self.run_hook(ITERM2_WITHOUT_CMP="1").returncode, 0)
+        before = self.destination.stat().st_mtime_ns
+        self.assertEqual(self.run_hook(ITERM2_WITHOUT_CMP="1").returncode, 0)
         self.assertEqual(self.destination.stat().st_mtime_ns, before)
 
     def test_failed_publication_preserves_profile_and_default(self):
