@@ -25,13 +25,15 @@ uses: `_dr_section`, `_dr_ok`, `_dr_warn`, `_dr_fail`, `_dr_skip`, `_dr_info`,
 the shdeps asset adapter it loads. `_dr_info` uses the doctor API's `info`
 kind when the running Dot provides one and renders as an ok row otherwise.
 `_dr_run_bounded SECONDS COMMAND...` runs an external command under a
-deadline (a coreutils timeout(1) or gtimeout where installed, a builtin
-watchdog otherwise, including for BusyBox) and returns 124 when it passes;
-checks that start user programs use it so one hang cannot hold the whole
-run. The watchdog also kills whatever the command leaves in its process
-group once it exits, so nothing it starts outlives the call, and returns
-125 without running the command when the deadline is malformed or its
-private directory and FIFO cannot be created.
+deadline through Dot's public native supervisor and returns 124 when it
+passes; checks that start user programs use it so one hang cannot hold the
+whole run. The supervisor stops descendants before releasing the leader's
+identity. Whole or decimal seconds are accepted; 0 disables the deadline.
+On an older Dot, GNU/coreutils timeout or gtimeout remains supported. With
+neither supervisor available, or an invalid duration, it returns 125 before
+running the command. Native setup or cleanup failure also returns 125;
+ordinary child statuses pass through unchanged. Update Dot or install a
+coreutils timeout when an older coordinator cannot supervise a probe.
 `_dr_list_row LEVEL MESSAGE HINT [ITEM...]` files one row (`ok`, `warn`,
 `fail`, `skip`, or `info`) whose evidence is a list: on a Dot whose doctor
 API has `dot_doctor_item` and `dot_doctor_hint`, each item is an indented
