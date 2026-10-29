@@ -6,10 +6,11 @@ import argparse
 import copy
 import json
 import plistlib
-import re
 import subprocess
 import sys
 from pathlib import Path
+
+from terminal_settings import cursor_type, rgb
 
 DOMAIN = "com.apple.Terminal"
 SETTINGS = "Window Settings"
@@ -53,9 +54,7 @@ def font_archive(name: str, size: float) -> bytes:
 
 def color_archive(color: str) -> bytes:
     """Encode an opaque sRGB NSColor; use the calibrated RGB archive convention."""
-    if not isinstance(color, str) or not re.fullmatch(r"#[0-9a-fA-F]{6}", color):
-        raise ValueError(f"expected a six-digit RGB color, got {color!r}")
-    components = " ".join(f"{int(color[i : i + 2], 16) / 255:.10f}" for i in (1, 3, 5))
+    components = " ".join(f"{component:.10f}" for component in rgb(color))
     return archive(
         [
             {"NSRGB": (components + "\0").encode(), "NSColorSpace": 1, "$class": plistlib.UID(2)},
@@ -94,6 +93,13 @@ def merge(preferences: dict, appearance: dict, policy: dict) -> dict:
             ),
             "columnCount": appearance["initial_cols"],
             "rowCount": appearance["initial_rows"],
+            "CursorType": cursor_type("terminal", appearance["cursor"]["shape"]),
+            "CursorBlink": appearance["cursor"]["blink"],
+            "FontHeightSpacing": appearance["spacing"]["vertical"],
+            "FontWidthSpacing": appearance["spacing"]["horizontal"],
+            "ScrollbackLines": appearance["scrollback_lines"],
+            "UnlimitedScrollback": False,
+            "TerminalType": appearance["terminal_type"],
         }
     )
     colors = appearance["colors"]

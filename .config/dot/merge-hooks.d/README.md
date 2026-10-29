@@ -39,3 +39,10 @@ the owning overlay. Base inputs and hook instances currently cover:
 
 Use native source formats where practical. Never place credentials, private
 hostnames, or machine-local selectors in this public tree.
+
+Terminal settings shared by WezTerm, macOS Terminal, and iTerm2 live in
+[`../../terminal/settings.json`](../../terminal/settings.json) rather than in three
+application exports. Start at [the WezTerm editing map](../../wezterm/README.md)
+or [the shared-settings guide](../../terminal/README.md) before changing these
+profiles. The `terminal` and `iterm2` hooks generate and select native Dotfiles
+profiles; the WSL `wezterm` hook publishes the companion data before the config.

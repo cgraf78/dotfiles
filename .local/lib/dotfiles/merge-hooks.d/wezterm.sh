@@ -110,10 +110,12 @@ merge() {
   dot_wsl_writable_windows_home || return 0
   winhome="$REPLY"
 
-  # Publish the required appearance declaration before a config that reads it. A
+  # Keep the shared settings under the same neutral directory on Windows.
+  # Publish the required declaration before a config that reads it. A
   # failed dependency copy must leave the previous Windows config usable.
-  _wezterm_copy "$config_dir/appearance.json" "$winhome/appearance.json" || return 1
-  _wezterm_copy "$src" "$winhome/.wezterm.lua"
+  _wezterm_copy "$HOME/.config/terminal/settings.json" "$winhome/.config/terminal/settings.json" || return 1
+  _wezterm_copy "$src" "$winhome/.wezterm.lua" || return 1
+  rm -f "$winhome/appearance.json" || return 1
 
   # Windows WezTerm loads ~/.wezterm.lua, so wezterm.config_dir is the Windows
   # home. Keep companion Lua modules beside that file or dofile(config_dir...)

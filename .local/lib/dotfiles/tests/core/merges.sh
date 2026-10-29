@@ -1128,7 +1128,7 @@ EOF
     "$iterm2_home/Applications/iTerm.app" \
     "$iterm2_home/Library/Application Support/iTerm2/DynamicProfiles" \
     "$iterm2_bin"
-  printf '%s\n' '{"Name": "Dotfiles"}' \
+  printf '%s\n' '{"Profiles": [{"Name": "Dotfiles", "Guid": "custom"}]}' \
     >"$iterm2_home/.config/dot/merge-hooks.d/iterm2/profiles.d/10-dotfiles-dyn-profile.json"
   cat >"$iterm2_home/.config/dot/merge-hooks.d/iterm2/defaults.d/10-preferences.tsv" <<'EOF'
 com.googlecode.iterm2	ApplePressAndHoldEnabled	bool	false
@@ -1194,7 +1194,7 @@ EOF
   _assert_exit "iterm2 merge: successful merge reports success" \
     0 "$iterm2_ok_status"
   _assert_file_content "iterm2: dynamic profile copied" \
-    '{"Name": "Dotfiles"}' \
+    '{"Profiles": [{"Name": "Dotfiles", "Guid": "custom"}]}' \
     "$iterm2_home/Library/Application Support/iTerm2/DynamicProfiles/dotfiles-dyn-profile.json"
   iterm2_defaults_output=$(cat "$iterm2_defaults_log")
   _assert_contains "iterm2 defaults: key repeat policy applied" \
@@ -1223,8 +1223,10 @@ EOF
     "$iterm2_fail_home/.config/dot/merge-hooks.d/iterm2/profiles.d" \
     "$iterm2_fail_home/Applications/iTerm.app" \
     "$iterm2_fail_bin"
-  printf '%s\n' '{"Name": "Dotfiles"}' \
+  printf '%s\n' '{"Profiles": [{"Name": "Dotfiles", "Guid": "custom"}]}' \
     >"$iterm2_fail_home/.config/dot/merge-hooks.d/iterm2/profiles.d/10-dotfiles-dyn-profile.json"
+  mkdir -p "$iterm2_fail_home/Library/Application Support/iTerm2"
+  : >"$iterm2_fail_home/Library/Application Support/iTerm2/DynamicProfiles"
   printf '%s\t%s\t%s\t%s\n' 'com.googlecode.iterm2' 'ApplePressAndHoldEnabled' 'bool' 'false' \
     >"$iterm2_fail_home/.config/dot/merge-hooks.d/iterm2/defaults.d/10-preferences.tsv"
   cat >"$iterm2_fail_bin/uname" <<'EOF'

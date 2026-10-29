@@ -6,6 +6,7 @@ optional overlays publish distinct files into this shared namespace.
 
 - [`dotfiles.md`](dotfiles.md) is the main operating guide for initialization,
   updating, overlays, recovery, and common workflows.
+- Terminal configuration work starts at the [WezTerm editing map](../../../../.config/wezterm/README.md); the [shared guide](../../../../.config/terminal/README.md) describes the common source and native profile adapters.
 - Optional overlays may add sibling documents or their own subtrees. The base
   client intentionally leaves those names unowned so composed installations do
   not collide.

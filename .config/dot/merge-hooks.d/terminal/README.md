@@ -6,13 +6,13 @@ both `Default Window Settings` and `Startup Window Settings` to that profile.
 Existing profiles and unrelated application preferences remain unchanged.
 On a fresh account, Apple's bundled profiles are retained alongside Dotfiles.
 
-`~/.config/wezterm/appearance.json` supplies both applications' primary font,
-macOS font size, initial dimensions, and Night Owl (Gogh) colors. The palette
+`~/.config/terminal/settings.json` supplies the font, macOS font size, initial
+dimensions, spacing, cursor, scrollback, terminal type, and Night Owl (Gogh)
+colors shared with WezTerm and iTerm2. The palette
 matches [WezTerm's built-in scheme](https://github.com/wezterm/wezterm/blob/main/config/src/scheme_data.rs).
 The font's family and weight select the WezTerm face; its PostScript name selects
 the same face in Terminal. Keep these fields aligned when changing fonts.
-`profile.json` here owns Terminal-specific settings such as font antialiasing
-and the blinking block cursor. Local changes to the managed profile are
+`profile.json` here owns Terminal-specific settings such as font antialiasing. Local changes to the managed profile are
 replaced on the next update; customize another profile for unmanaged settings.
 
 Preferences are read and written through `defaults`, including readback

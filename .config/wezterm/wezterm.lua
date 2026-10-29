@@ -1,3 +1,6 @@
+-- Editing map: README.md is the entry point. Shared font/colors/cursor/spacing,
+-- history, dimensions, and portable key sequences live in ../terminal/settings.json.
+-- Keep only WezTerm-specific callbacks and native UI behavior in this file.
 local wezterm = require("wezterm")
 local act = wezterm.action
 
@@ -214,9 +217,23 @@ end
 -- JetBrainsMono is installed by the nerd-fonts shdeps hook. FiraCode and
 -- MesloLGM are optional: used only when the host already provides them, and
 -- skipped when missing, so non-ASCII text may render differently per host.
-local appearance_path = wezterm.config_dir .. "/appearance.json"
+-- Watch the real shared file, not the convenience symlink: macOS file events
+-- need the target's directory to see editor/Git atomic replacements reliably.
+local config_dir = wezterm.config_dir:gsub("\\", "/")
+local config_parent = config_dir:match("^(.*)/wezterm$")
+local shared_dir = config_parent and (config_parent .. "/terminal")
+  or (config_dir .. "/.config/terminal")
+local appearance_path = shared_dir .. "/settings.json"
+local appearance_file = io.open(appearance_path, "r")
+if appearance_file then
+  wezterm.add_to_config_reload_watch_list(shared_dir)
+else
+  -- Portable copies may keep their data beside the config. Watch only that
+  -- file, never an entire home directory, to avoid unrelated reload churn.
+  appearance_path = config_dir .. "/terminal-settings.json"
+  appearance_file = assert(io.open(appearance_path, "r"))
+end
 wezterm.add_to_config_reload_watch_list(appearance_path)
-local appearance_file = assert(io.open(appearance_path, "r"))
 local appearance = wezterm.json_parse(appearance_file:read("*a"))
 appearance_file:close()
 local primary_font = appearance.font
@@ -247,7 +264,7 @@ if is_macos then
   table.insert(font_names, "Menlo")
   font_size = appearance.macos_font_size
   tab_font_size = 11.0
-  line_height = 1.0
+  line_height = appearance.spacing.vertical
 
   -- Use the system login shell (set via chsh).
   default_prog = nil
@@ -274,7 +291,7 @@ elseif is_windows then
   table.insert(font_names, "Consolas")
   font_size = 9.0
   tab_font_size = 9.0
-  line_height = 1.0
+  line_height = appearance.spacing.vertical
   -- Prefer the native Windows GPU API instead of accepting WebGPU's first
   -- enumerated backend, which can be Vulkan even when discrete DX12 is ready.
   front_end = "WebGpu"
@@ -293,7 +310,7 @@ elseif is_linux then
   table.insert(font_names, "DejaVu Sans Mono")
   font_size = 9.5
   tab_font_size = 9.5
-  line_height = 1.0
+  line_height = appearance.spacing.vertical
   -- WebGPU uses Vulkan on Linux while retaining automatic adapter selection.
   front_end = "WebGpu"
   bell_command = { "paplay", "/usr/share/sounds/freedesktop/stereo/bell.oga" }
@@ -301,7 +318,7 @@ else
   table.insert(font_names, "monospace")
   font_size = 10.0
   tab_font_size = 10.0
-  line_height = 1.0
+  line_height = appearance.spacing.vertical
 end
 
 if bell_command then
@@ -327,23 +344,7 @@ local keys = {}
 -- macOS-specific escape-sequence workarounds live in the macOS block below so
 -- platform shortcuts stay separated from cross-platform terminal policy.
 append_all(keys, {
-  -- Escape-sequence workarounds for modified keys that terminals do not always
-  -- encode distinctly without help.
-  -- Shift+Enter: send CSI u sequence (kitty keyboard protocol) so TUIs can
-  -- distinguish it from plain Enter. Requires tmux extended-keys passthrough
-  -- (set via terminal-features extkeys in tmux.conf).
-  bind("Enter", "SHIFT", act.SendString("\x1b[13;2u")),
-
-  -- Pass Shift-PageUp/Down to the application (overrides WezTerm scrollback)
-  bind("PageUp", "SHIFT", act.SendString("\x1b[5;2~")),
-  bind("PageDown", "SHIFT", act.SendString("\x1b[6;2~")),
-  bind("PageUp", "CTRL|SHIFT", act.SendString("\x1b[5;6~")),
-  bind("PageDown", "CTRL|SHIFT", act.SendString("\x1b[6;6~")),
-
-  -- Pass Ctrl-Shift-Up/Down to the application (overrides WezTerm scrollback)
-  bind("UpArrow", "CTRL|SHIFT", act.SendString("\x1b[1;6A")),
-  bind("DownArrow", "CTRL|SHIFT", act.SendString("\x1b[1;6B")),
-
+  -- Portable escape sequences come from the shared terminal settings below.
   -- Neovim owns these editor chords in the active terminal pane.
   pass_key(".", "CTRL"), -- nvim: code actions.
   pass_key("/", "CTRL"), -- nvim: toggle comments.
@@ -356,8 +357,6 @@ append_all(keys, {
   -- Preserve these VS Code chords through WezTerm and tmux even where plain
   -- Ctrl-Shift letters would otherwise collapse into Enter or Ctrl-E. The
   -- existing <leader>xx and <leader>fE mappings remain portable fallbacks.
-  bind("m", "CTRL|SHIFT", act.SendString("\x1b[109;6u")),
-  bind("e", "CTRL|SHIFT", act.SendString("\x1b[101;6u")),
   release_key("p", "CTRL|SHIFT"), -- nvim: command palette instead of WezTerm launcher.
 
   -- Conditional ownership: buffers belong to nvim while it is focused, and to
@@ -443,19 +442,14 @@ if is_macos then
     bind("g", "SUPER", act.CopyMode("NextMatch")),
     bind("g", "SUPER|SHIFT", act.CopyMode("PriorMatch")),
     bind("p", "SUPER|SHIFT", act.ActivateCommandPalette),
-
-    -- OPT+arrows: word jump (common in iTerm2/Terminal.app)
-    bind("LeftArrow", "OPT", act.SendString("\x1bb")),
-    bind("RightArrow", "OPT", act.SendString("\x1bf")),
-
-    -- CTRL+arrows: send xterm modifier sequences for word navigation.
-    -- Works correctly in bash/readline and vim. Requires a fresh tmux session
-    -- (not just tmux source) to take effect inside tmux.
-    bind("LeftArrow", "CTRL", act.SendString("\x1b[1;5D")),
-    bind("RightArrow", "CTRL", act.SendString("\x1b[1;5C")),
-    bind("LeftArrow", "CTRL|SHIFT", act.SendString("\x1b[1;6D")),
-    bind("RightArrow", "CTRL|SHIFT", act.SendString("\x1b[1;6C")),
   })
+end
+
+-- Portable encodings are shared with iTerm2; native ownership callbacks stay here.
+for _, binding in ipairs(appearance.send_keys) do
+  if binding.platform == "all" or (binding.platform == "macos" and is_macos) then
+    table.insert(keys, bind(binding.key, binding.mods, act.SendString(binding.text)))
+  end
 end
 
 -- =============================================================================
@@ -507,15 +501,15 @@ return {
     brights = appearance.colors.brights,
     tab_bar = {
       inactive_tab = {
-        bg_color = "#011627",
+        bg_color = appearance.colors.background,
         fg_color = "#5f7e97",
       },
       active_tab = {
         bg_color = "#1d3b53",
-        fg_color = "#d6deeb",
+        fg_color = appearance.colors.foreground,
       },
       new_tab = {
-        bg_color = "#011627",
+        bg_color = appearance.colors.background,
         fg_color = "#5f7e97",
       },
     },
@@ -524,9 +518,10 @@ return {
   -- Appearance
   font = font_with_fallback(font_names),
   -- Keep commands, paths, URLs, and timestamps visually literal.
-  harfbuzz_features = { "calt=0", "clig=0", "liga=0" },
+  harfbuzz_features = appearance.ligatures and {} or { "calt=0", "clig=0", "liga=0" },
   font_size = font_size,
   line_height = line_height,
+  cell_width = appearance.spacing.horizontal,
   front_end = front_end,
   webgpu_power_preference = webgpu_power_preference,
   webgpu_preferred_adapter = webgpu_preferred_adapter,
@@ -540,8 +535,8 @@ return {
   tab_bar_at_bottom = false,
   window_frame = {
     font_size = tab_font_size,
-    active_titlebar_bg = "#011627",
-    inactive_titlebar_bg = "#011627",
+    active_titlebar_bg = appearance.colors.background,
+    inactive_titlebar_bg = appearance.colors.background,
   },
   window_padding = {
     left = 6,
@@ -556,12 +551,14 @@ return {
 
   -- Behavior
   bypass_mouse_reporting_modifiers = "SHIFT",
-  scrollback_lines = 20000,
+  scrollback_lines = appearance.scrollback_lines,
+  term = appearance.terminal_type,
   check_for_updates = false,
   automatically_reload_config = true,
   swallow_mouse_click_on_window_focus = true,
   audible_bell = audible_bell,
-  default_cursor_style = "BlinkingBlock",
+  default_cursor_style = (appearance.cursor.blink and "Blinking" or "Steady")
+    .. ({ block = "Block", underline = "Underline", bar = "Bar" })[appearance.cursor.shape],
 
   keys = keys,
 

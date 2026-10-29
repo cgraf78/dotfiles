@@ -39,3 +39,11 @@ Base's `gh-token` hook owns the optional local GitHub token file independently
 of GitHub CLI preferences. It repairs existing file permissions or seeds a
 missing file using available GitHub CLI credentials. The development overlay's
 `gh` hook owns preferences only; neither hook requires the other to run first.
+
+Terminal profile adapters share `~/.config/terminal/settings.json`, with WezTerm
+as the reference behavior. The user-facing editing map is
+`~/.config/wezterm/README.md`, and the shared-settings workflow is
+`~/.config/terminal/README.md`. Keep native data conversion here and common
+configuration values in that one JSON source. Dynamic Profile publication
+must use a hidden staging basename: the generic sibling-temp helper does not
+make filenames hidden by itself.
