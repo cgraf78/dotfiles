@@ -133,3 +133,5 @@ program	.zprofile
 program	.local/lib/dotfiles/tests/worktree-gc-actions-test
 program	.local/lib/dotfiles/worktree-gc-actions.sh
 program	.local/lib/dotfiles/tests/worktree-gc-orphans-test
+program	.local/lib/dotfiles/merge-hooks.d/terminal.sh
+program	.local/lib/dotfiles/tests/terminal-font-test

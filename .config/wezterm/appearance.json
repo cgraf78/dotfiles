@@ -1,0 +1,38 @@
+{
+  "font": {
+    "family": "JetBrainsMono Nerd Font",
+    "weight": "Light",
+    "postscript_name": "JetBrainsMonoNF-Light"
+  },
+  "macos_font_size": 11,
+  "initial_cols": 140,
+  "initial_rows": 36,
+  "color_scheme": "Night Owl (Gogh)",
+  "colors": {
+    "background": "#011627",
+    "foreground": "#d6deeb",
+    "cursor_bg": "#d6deeb",
+    "cursor_border": "#d6deeb",
+    "cursor_fg": "#011627",
+    "ansi": [
+      "#011627",
+      "#ef5350",
+      "#22da6e",
+      "#addb67",
+      "#82aaff",
+      "#c792ea",
+      "#21c7a8",
+      "#ffffff"
+    ],
+    "brights": [
+      "#575656",
+      "#ef5350",
+      "#22da6e",
+      "#ffeb95",
+      "#82aaff",
+      "#c792ea",
+      "#7fdbca",
+      "#ffffff"
+    ]
+  }
+}
