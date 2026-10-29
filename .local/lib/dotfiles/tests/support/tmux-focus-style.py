@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import errno
 import os
 import pathlib
 import pty
@@ -17,6 +18,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 from tmux_paths import short_temporary_parent
 
@@ -186,23 +188,159 @@ class Client:
         raise AssertionError(f"timed out waiting for {expected} client flag")
 
     def close(self) -> None:
-        try:
-            os.kill(self.pid, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
-        deadline = time.monotonic() + 2
-        while time.monotonic() < deadline:
-            waited, _ = os.waitpid(self.pid, os.WNOHANG)
-            if waited == self.pid:
-                break
-            time.sleep(0.02)
-        else:
+        """Release the terminal before bounded reaping of its owned child."""
+        master, self.master = self.master, -1
+        close_error = None
+        if master >= 0:
             try:
-                os.kill(self.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            os.waitpid(self.pid, 0)
-        os.close(self.master)
+                os.close(master)
+            except OSError as error:
+                if error.errno != errno.EBADF:
+                    close_error = error
+        # On macOS an exiting session leader can wait for tty output to drain.
+        # A publisher may still hold the slave: keeping its undrained master
+        # open while waitpid blocks creates a cleanup deadlock, even after KILL.
+        pid = self.pid
+        if pid is not None:
+
+            def reaped() -> bool:
+                try:
+                    waited, _ = os.waitpid(pid, os.WNOHANG)
+                except ChildProcessError:
+                    waited = pid
+                if waited == pid:
+                    self.pid = None
+                    return True
+                return False
+
+            for action in (signal.SIGTERM, signal.SIGKILL):
+                if reaped():
+                    break
+                try:
+                    os.kill(pid, action)
+                except ProcessLookupError:
+                    pass
+                deadline = time.monotonic() + 2
+                while time.monotonic() < deadline:
+                    if reaped():
+                        break
+                    time.sleep(0.02)
+                if self.pid is None:
+                    break
+            else:
+                if not reaped():
+                    raise AssertionError(f"owned terminal child {pid} did not exit after KILL")
+        if close_error is not None:
+            raise close_error
+
+
+class ClientCloseTest(unittest.TestCase):
+    """Keep teardown bounded even when a terminal's output queue is full."""
+
+    def test_backpressured_pty_closes_before_reaping(self) -> None:
+        ready_read, ready_write = os.pipe()
+        pid, master = pty.fork()
+        if pid == 0:
+            os.close(ready_read)
+            signal.signal(signal.SIGTERM, signal.SIG_IGN)
+            os.set_blocking(1, False)
+            try:
+                while True:
+                    os.write(1, b"x" * 65536)
+            except BlockingIOError:
+                os.write(ready_write, b"ready")
+            os.close(ready_write)
+            os.set_blocking(1, True)
+            try:
+                while True:
+                    os.write(1, b"x" * 65536)
+            except OSError:
+                os._exit(0)
+        os.close(ready_write)
+        client = Client.__new__(Client)
+        client.pid, client.master = pid, master
+        waitpid = os.waitpid
+        try:
+            self.assertTrue(select.select([ready_read], [], [], 4)[0], "PTY never filled")
+            self.assertEqual(b"ready", os.read(ready_read, 5))
+
+            def checked_reap(child: int, options: int) -> tuple[int, int]:
+                # The real saturated PTY reproduces the macOS exit-drain
+                # boundary. Check ordering without hanging older cleanup code.
+                with self.assertRaises(OSError) as closed:
+                    os.fstat(master)
+                self.assertEqual(errno.EBADF, closed.exception.errno)
+                self.assertEqual(os.WNOHANG, options, "every reap must stay bounded")
+                return waitpid(child, options)
+
+            with patch.object(os, "waitpid", side_effect=checked_reap):
+                client.close()
+            self.assertIsNone(client.pid)
+            self.assertEqual(-1, client.master)
+            client.close()
+        finally:
+            os.close(ready_read)
+            if client.master >= 0:
+                os.close(client.master)
+                client.master = -1
+            try:
+                waited, _ = waitpid(pid, os.WNOHANG)
+            except ChildProcessError:
+                waited = pid
+            if waited == 0:
+                os.kill(pid, signal.SIGKILL)
+                wait_until(lambda: waitpid(pid, os.WNOHANG)[0] == pid, "owned PTY reaped")
+
+    def test_already_closed_master_and_reaped_child_are_safe(self) -> None:
+        master, writer = os.pipe()
+        os.close(master)
+        os.close(writer)
+        client = Client.__new__(Client)
+        client.pid, client.master = 42, master
+        with (
+            patch.object(os, "waitpid", side_effect=ChildProcessError),
+            patch.object(os, "kill") as kill,
+        ):
+            client.close()
+            client.close()
+        kill.assert_not_called()
+
+    def test_master_close_error_still_reaps_before_reporting(self) -> None:
+        master, writer = os.pipe()
+        os.close(writer)
+        client = Client.__new__(Client)
+        client.pid, client.master = 42, master
+        try:
+            with (
+                patch.object(os, "close", side_effect=OSError(errno.EIO, "close failed")),
+                patch.object(os, "waitpid", return_value=(42, 0)),
+                patch.object(os, "kill") as kill,
+            ):
+                with self.assertRaises(OSError) as failure:
+                    client.close()
+            self.assertEqual(errno.EIO, failure.exception.errno)
+            self.assertIsNone(client.pid)
+            self.assertEqual(-1, client.master)
+            kill.assert_not_called()
+        finally:
+            os.close(master)
+
+    def test_final_reap_has_a_deadline(self) -> None:
+        master, writer = os.pipe()
+        os.close(writer)
+        client = Client.__new__(Client)
+        client.pid, client.master = 42, master
+        ticks = iter(range(100))
+        with (
+            patch.object(os, "waitpid", return_value=(0, 0)) as reap,
+            patch.object(os, "kill"),
+            patch.object(time, "monotonic", side_effect=lambda: next(ticks)),
+            patch.object(time, "sleep"),
+        ):
+            with self.assertRaisesRegex(AssertionError, "did not exit"):
+                client.close()
+        self.assertTrue(reap.call_args_list)
+        self.assertTrue(all(call.args[1] == os.WNOHANG for call in reap.call_args_list))
 
 
 class LeafStyleTest(unittest.TestCase):
