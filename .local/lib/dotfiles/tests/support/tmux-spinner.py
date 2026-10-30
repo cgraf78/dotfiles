@@ -23,7 +23,19 @@ class SpinnerTest(unittest.TestCase):
     """Check rendered frames without touching the user's tmux server."""
 
     def setUp(self) -> None:
-        tmp_root = Path("/tmp") if Path("/tmp").is_dir() else None
+        # A nested Termux TMPDIR can exceed the Unix socket pathname limit.
+        prefix = os.environ.get("PREFIX")
+        candidates = [Path("/tmp")]
+        if prefix:
+            candidates.append(Path(prefix) / "tmp")
+        tmp_root = next(
+            (
+                path
+                for path in candidates
+                if path.is_absolute() and path.is_dir() and os.access(path, os.W_OK)
+            ),
+            None,
+        )
         self.temp = tempfile.TemporaryDirectory(prefix="tspin.", dir=tmp_root)
         self.addCleanup(self.temp.cleanup)
         root = Path(self.temp.name)
