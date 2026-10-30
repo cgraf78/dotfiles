@@ -152,7 +152,9 @@ and on an Interrupt or failed-request event for runtimes that report one
 (Codex, Muse, OpenCode, and Claude's StopFailure) while AgentGuard telemetry is
 enabled. Claude, Gemini, and Grok report no interrupt or other turn-ending
 event, so after an Esc that pane stays busy until its next turn or the session
-ends. A busy window's tab shows `⋯`; pending `●` or failed `!` can appear
+ends. A busy window's tab shows a Braille spinner, updated about every 150 ms
+by one helper per tmux server. It sleeps while no pane is busy and falls back
+to `⋯` if the helper is unavailable. Pending `●` or failed `!` can appear
 alongside it when another activity needs you. The indicators preserve both
 facts rather than hiding ongoing work.
 Only the pane terminal's foreground agent changes the mark, so an agent it

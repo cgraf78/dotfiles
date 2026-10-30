@@ -940,6 +940,16 @@ if command -v tmux >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
     test_prefix_n_opens_a_task_window; do
     _assert_contains "tmux: PTY runs $pty_case" "$pty_case" "$pty_output"
   done
+  if spinner_output=$("${TMUX_FIXTURE_ENV[@]}" python3 \
+    "${BASH_SOURCE[0]%/*}/support/tmux-spinner.py" "$source_home" 2>&1); then
+    spinner_status=0
+  else
+    spinner_status=$?
+  fi
+  _assert_exit "tmux: working tab spinner lifecycle passes" 0 "$spinner_status"
+  if [[ $spinner_status != 0 ]]; then
+    printf '%s\n' "$spinner_output" >&2
+  fi
 else
   _pass "tmux: Python or tmux unavailable, PTY coverage skipped"
 fi

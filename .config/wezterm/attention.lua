@@ -6,6 +6,43 @@ local received = {}
 local lifetime = 15
 local notices = {}
 local windows = {}
+local frames = {}
+local frame_interval = 0.15
+
+--- Load the shared, single-cell Braille frames.
+function M.setup_frames(path)
+  frames = {}
+  local file = io.open(path, "r")
+  if file then
+    local valid = true
+    for frame in file:lines() do
+      -- Frame text reaches the tab renderer; reject control and multi-cell
+      -- input rather than letting a broken copy change tab layout.
+      if not frame:match("^\226[\160-\163][\128-\191]$") then
+        valid = false
+        break
+      end
+      frames[#frames + 1] = frame
+    end
+    file:close()
+    if not valid or #frames < 2 then
+      frames = {}
+    end
+  end
+end
+
+local function work_mark(wezterm)
+  if #frames < 2 or not wezterm.time or not wezterm.time.now then
+    return "⋯"
+  end
+  local ok, value = pcall(function()
+    return tonumber(wezterm.time.now():format("%s%3f"))
+  end)
+  if not ok or not value then
+    return "⋯"
+  end
+  return frames[math.floor(value / (frame_interval * 1000)) % #frames + 1]
+end
 
 local function count(value)
   return type(value) == "number" and value >= 0 and value <= 100000 and value % 1 == 0
@@ -74,7 +111,8 @@ function M.format(wezterm, tab, config, max_width)
     prefix = tostring(tab.tab_index + (config.tab_and_split_indices_are_zero_based and 0 or 1))
       .. ": "
   end
-  local work_text = working and " ⋯" or ""
+  local mark = working and work_mark(wezterm) or ""
+  local work_text = working and (" " .. mark) or ""
   local alert_text = failed and " !" or (pending and " ●" or "")
   if type(max_width) == "number" then
     max_width = math.max(0, math.floor(max_width))
@@ -82,7 +120,7 @@ function M.format(wezterm, tab, config, max_width)
     if max_width <= suffix_width then
       -- Under severe crowding, retain the actionable badge before the title or
       -- index. Two cells can still show both work and attention without spaces.
-      local compact = (working and "⋯" or "") .. alert_text:gsub(" ", "")
+      local compact = mark .. alert_text:gsub(" ", "")
       if max_width == 1 and alert_text ~= "" then
         compact = alert_text:sub(2)
       end
@@ -137,40 +175,41 @@ local function publish(wezterm, window, state, id)
   -- Stable WezTerm re-arms its status timer only when a status is submitted.
   -- Sending the identical raw string schedules the next tick without rebuilding
   -- titles; omitting it entirely would stop expiry checks once PTYs went quiet.
-  pcall(function()
+  local ok = pcall(function()
     window:set_right_status(status)
   end)
+  return ok
 end
 
---- Recompute expiry even when a disconnected terminal emits no more output.
-function M.update(wezterm, window)
-  local state, id = record(window)
-  if not state then
-    return
-  end
-  local ok, fingerprint = pcall(function()
+local function reconcile(wezterm, window, state, id, redraw)
+  local ok, fingerprint, any_work = pcall(function()
     local parts = {}
+    local working_any = false
     for _, tab in ipairs(window:mux_window():tabs()) do
       local panes = {}
       for _, pane in ipairs(tab:panes()) do
         panes[#panes + 1] = { pane_id = pane:pane_id(), user_vars = pane:get_user_vars() }
       end
       local working, pending, failed = signals(wezterm, panes)
+      working_any = working_any or working
       parts[#parts + 1] = tostring(tab:tab_id())
         .. ":"
         .. (working and "1" or "0")
         .. (pending and "1" or "0")
         .. (failed and "1" or "0")
     end
-    return table.concat(parts, ";")
+    return table.concat(parts, ";"), working_any
   end)
+  state.checked_at = os.time()
   if not ok then
     -- A pane can disappear halfway through this scan. Keep the last semantic
     -- fingerprint and re-arm stable WezTerm's timer so the next tick can heal.
-    publish(wezterm, window, state, id)
-    return
+    -- Stop the fast timer until a successful scan proves work still exists.
+    state.active = false
+    return publish(wezterm, window, state, id)
   end
-  if state.fingerprint ~= fingerprint then
+  state.active = any_work
+  if state.fingerprint ~= fingerprint or redraw then
     state.fingerprint = fingerprint
     -- Stable WezTerm has no window:invalidate(). Its status timer only emits a
     -- Lua event; identical right-status strings do not rebuild cached tab titles.
@@ -179,7 +218,7 @@ function M.update(wezterm, window)
     -- subprocesses. No task is acknowledged or title mutated by this refresh.
     state.toggle = not state.toggle
   end
-  publish(wezterm, window, state, id)
+  local published = publish(wezterm, window, state, id)
   -- Expiry is not eviction: forgetting an alive pane's old snapshot would
   -- make it look newly received after a long sleep and resurrect stale badges.
   -- Only the mux can prove a pane is gone. This lookup stays outside formatting.
@@ -199,6 +238,66 @@ function M.update(wezterm, window)
       windows[window_id] = nil
     end
   end
+  return published
+end
+
+local function arm(wezterm, window, state, id)
+  if state.timer or not state.active or #frames < 2 or not wezterm.time then
+    return
+  end
+  state.timer = true
+  local ok = pcall(wezterm.time.call_after, frame_interval, function()
+    state.timer = false
+    -- Reloaded configs and closed windows can leave a queued callback behind.
+    -- Never touch a stale handle or schedule another timer from it.
+    if
+      wezterm.GLOBAL ~= nil
+      and wezterm.GLOBAL["term_tab_spinner_window_" .. id] ~= state.token
+    then
+      return
+    end
+    if windows[id] ~= state or not state.active then
+      return
+    end
+    local live, window_id = pcall(function()
+      return window:window_id()
+    end)
+    if not live or window_id ~= id then
+      return
+    end
+    state.seen = os.time()
+    local now = os.time()
+    local published
+    if not state.checked_at or now < state.checked_at or now - state.checked_at >= 1 then
+      published = reconcile(wezterm, window, state, id, true)
+    else
+      state.toggle = not state.toggle
+      published = publish(wezterm, window, state, id)
+    end
+    if published then
+      arm(wezterm, window, state, id)
+    end
+  end)
+  if not ok then
+    state.timer = false
+  end
+end
+
+--- Recompute expiry even when a disconnected terminal emits no more output.
+function M.update(wezterm, window)
+  local state, id = record(window)
+  if not state then
+    return
+  end
+  if wezterm.GLOBAL ~= nil and not state.token then
+    -- Validation can evaluate the config after its GUI evaluation. Claim a
+    -- window only when its real status callback runs, not during config load.
+    state.token = tostring({}) .. ":" .. wezterm.time.now():format("%s%9f")
+    wezterm.GLOBAL["term_tab_spinner_window_" .. id] = state.token
+  end
+  if reconcile(wezterm, window, state, id, false) then
+    arm(wezterm, window, state, id)
+  end
 end
 
 --- Show actionable link feedback without relying on macOS toast delivery.
@@ -207,12 +306,12 @@ function M.notice(wezterm, window, message)
   if not state then
     return
   end
-  local generation = { message = message }
-  notices[id] = generation
+  local notice_generation = { message = message }
+  notices[id] = notice_generation
   publish(wezterm, window, state, id)
   wezterm.time.call_after(8, function()
     -- An older notice must not erase a newer one, or touch a closed window.
-    if notices[id] == generation then
+    if notices[id] == notice_generation then
       notices[id] = nil
       pcall(function()
         if window:window_id() == id then

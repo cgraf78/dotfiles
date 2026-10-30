@@ -35,6 +35,7 @@ program	.local/bin/clip
 program	.local/bin/dot-worktree-gc
 program	.local/bin/git
 program	.local/bin/shell-time
+program	.local/bin/term-tab-spinner
 program	.local/lib/dotfiles/doctor.d/10-shell.sh
 program	.local/lib/dotfiles/doctor.d/20-tools.sh
 program	.local/lib/dotfiles/doctor.d/30-shell-integrations.sh

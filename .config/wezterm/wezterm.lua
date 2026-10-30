@@ -223,6 +223,7 @@ local config_dir = wezterm.config_dir:gsub("\\", "/")
 local config_parent = config_dir:match("^(.*)/wezterm$")
 local shared_dir = config_parent and (config_parent .. "/terminal")
   or (config_dir .. "/.config/terminal")
+attention.setup_frames(shared_dir .. "/working-spinner.frames")
 local appearance_path = shared_dir .. "/settings.json"
 local appearance_file = io.open(appearance_path, "r")
 if appearance_file then

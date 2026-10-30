@@ -114,6 +114,7 @@ merge() {
   # Publish the required declaration before a config that reads it. A
   # failed dependency copy must leave the previous Windows config usable.
   _wezterm_copy "$HOME/.config/terminal/settings.json" "$winhome/.config/terminal/settings.json" || return 1
+  _wezterm_copy "$HOME/.config/terminal/working-spinner.frames" "$winhome/.config/terminal/working-spinner.frames" || return 1
   _wezterm_copy "$src" "$winhome/.wezterm.lua" || return 1
   rm -f "$winhome/appearance.json" || return 1
 
