@@ -53,10 +53,17 @@ class SpinnerTest(unittest.TestCase):
             LANG="C.UTF-8",
             LC_ALL="C.UTF-8",
         )
-        self.tmux("-f", "/dev/null", "new-session", "-d", "-s", "spinner", "sleep 30")
+        self.tmux("-f", "/dev/null", "new-session", "-d", "-s", "spinner", "exec sleep 30")
         self.addCleanup(lambda: self.tmux("kill-server", check=False))
         self.tmux("source-file", str(SOURCE / ".config/tmux/conf.d/10-base.conf"))
         self.pane = self.tmux("display-message", "-p", "#{pane_id}").stdout.strip()
+        self.wait_for(
+            "sleep test pane",
+            lambda: (
+                self.tmux("display-message", "-p", "#{pane_current_command}").stdout.strip()
+                == "sleep"
+            ),
+        )
 
     def tmux(self, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
         """Run one command against the invocation-owned server."""
@@ -90,8 +97,12 @@ class SpinnerTest(unittest.TestCase):
             if condition():
                 return
             time.sleep(0.03)
+        command = self.tmux(
+            "display-message", "-p", "#{pane_current_command}", check=False
+        ).stdout.strip()
         self.fail(
-            f"timed out waiting for {description}; frame={self.value('@term_tab_spinner_frame')}"
+            f"timed out waiting for {description}; frame={self.value('@term_tab_spinner_frame')}; "
+            f"pane_command={command}"
         )
 
     @staticmethod
@@ -116,7 +127,9 @@ class SpinnerTest(unittest.TestCase):
         self.assertEqual("⋯", self.value("@term_tab_spinner_frame"))
 
     def test_background_work_keeps_attention_visible(self) -> None:
-        other = self.tmux("new-window", "-d", "-P", "-F", "#{pane_id}", "sleep 30").stdout.strip()
+        other = self.tmux(
+            "new-window", "-d", "-P", "-F", "#{pane_id}", "exec sleep 30"
+        ).stdout.strip()
         self.tmux("set-option", "-p", "-t", self.pane, "@term_busy", "1")
         self.tmux("set-option", "-p", "-t", self.pane, "@term_notify_pending", "1")
         self.wait_for("busy frame", lambda: self.value("@term_tab_spinner_frame") in FRAMES)
