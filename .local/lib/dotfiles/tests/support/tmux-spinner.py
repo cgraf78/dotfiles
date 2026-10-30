@@ -50,6 +50,8 @@ class SpinnerTest(unittest.TestCase):
             XDG_CONFIG_HOME=str(self.home / ".config"),
             PATH=str(self.home / ".local/bin") + os.pathsep + self.env["PATH"],
             TERM="xterm-256color",
+            LANG="C.UTF-8",
+            LC_ALL="C.UTF-8",
         )
         self.tmux("-f", "/dev/null", "new-session", "-d", "-s", "spinner", "sleep 30")
         self.addCleanup(lambda: self.tmux("kill-server", check=False))
