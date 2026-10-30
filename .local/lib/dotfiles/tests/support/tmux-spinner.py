@@ -57,13 +57,13 @@ class SpinnerTest(unittest.TestCase):
         self.addCleanup(lambda: self.tmux("kill-server", check=False))
         self.tmux("source-file", str(SOURCE / ".config/tmux/conf.d/10-base.conf"))
         self.pane = self.tmux("display-message", "-p", "#{pane_id}").stdout.strip()
-        self.wait_for(
-            "sleep test pane",
-            lambda: (
-                self.tmux("display-message", "-p", "#{pane_current_command}").stdout.strip()
-                == "sleep"
-            ),
-        )
+
+        def non_shell_pane() -> bool:
+            # Some distros run sleep through a coreutils multicall executable.
+            command = self.tmux("display-message", "-p", "#{pane_current_command}").stdout.strip()
+            return bool(command) and command not in {"bash", "fish", "sh", "zsh"}
+
+        self.wait_for("non-shell test pane", non_shell_pane)
 
     def tmux(self, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
         """Run one command against the invocation-owned server."""
