@@ -30,6 +30,16 @@ the shared guide for adding settings, changing fonts, and verification.
 `wezterm.lua` is tracked directly. On WSL, `dot update` copies it to the
 Windows home directory so Windows-native WezTerm sees the same config.
 
+## Working Tab Spinner
+
+The working mark uses the Braille frames in
+[`../terminal/working-spinner.frames`](../terminal/working-spinner.frames).
+While a fresh pane snapshot reports work, one 150 ms timer per WezTerm window
+refreshes its tab titles. The normal one-second status scan remains in place for
+idle windows and for snapshot expiry. Pending and failed badges stay visible
+beside the spinner. Missing or invalid frames show a static `⋯` instead. The
+WSL merge hook copies the frames to Windows beside the shared terminal settings.
+
 ## Terminal Bell
 
 Terminal notifications use the standard BEL byte end to end. Local commands,

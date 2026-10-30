@@ -259,6 +259,7 @@ chmod +x "$wezterm_worker_bin/wezterm"
 mkdir -p "$fixture_home/.config/wezterm" "$fixture_home/.config/terminal" "$windows_home"
 printf 'return {}\n' >"$fixture_home/.config/wezterm/wezterm.lua"
 cp "$source_home/.config/terminal/settings.json" "$fixture_home/.config/terminal/settings.json"
+cp "$source_home/.config/terminal/working-spinner.frames" "$fixture_home/.config/terminal/working-spinner.frames"
 printf 'legacy companion\n' >"$windows_home/appearance.json"
 if CLIENT_WORKER_PATH="$wezterm_worker_bin:$DOT_TEST_SYSTEM_PATH" \
   WSL_DISTRO_NAME=Ubuntu DOT_TEST_WINDOWS_HOME=$windows_home \
@@ -276,6 +277,8 @@ _assert_file_missing 'client WSL worker retires legacy appearance copy' \
   "$windows_home/appearance.json"
 _assert_file_content 'client WSL worker copies shared appearance' \
   "$(cat "$fixture_home/.config/terminal/settings.json")" "$windows_home/.config/terminal/settings.json"
+_assert_file_content 'client WSL worker copies shared working frames' \
+  "$(cat "$fixture_home/.config/terminal/working-spinner.frames")" "$windows_home/.config/terminal/working-spinner.frames"
 
 # A failed dependency copy must preserve both the old dependency and main config.
 cp "$windows_home/.wezterm.lua" "$windows_home/main.before"

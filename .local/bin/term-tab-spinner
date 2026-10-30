@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+# Animate the shared tmux working marker without one job per window/client.
+set -u
+
+if [ "$#" -ne 2 ] || [ "$1" != --socket ]; then
+  printf 'usage: term-tab-spinner --socket ABSOLUTE_SOCKET\n' >&2
+  exit 64
+fi
+socket=$2
+case $socket in /*) ;; *) exit 64 ;; esac
+
+frames_file="${BASH_SOURCE[0]%/*}/../../.config/terminal/working-spinner.frames"
+frames=()
+braille_frame() {
+  # A frame is interpolated into a tmux command string after the owner guard.
+  # Accept only one UTF-8 Braille codepoint, with no command syntax bytes.
+  local LC_ALL=C
+  case $1 in
+    $'\342'[$'\240'-$'\243'][$'\200'-$'\277']) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+# Re-sourcing tmux configuration or attaching a client replaces the owner.
+# The server queue checks it again on every write, so the previous process
+# cannot race a newer frame or erase its state during cleanup.
+owner="$$:$RANDOM"
+tmux -S "$socket" set-option -s @term_tab_spinner_owner "$owner" >/dev/null 2>&1 || exit 0
+owned() {
+  [ "$(tmux -S "$socket" show-option -sv @term_tab_spinner_owner 2>/dev/null)" = "$owner" ]
+}
+frame_command() {
+  tmux -S "$socket" if-shell -F "#{==:#{@term_tab_spinner_owner},$owner}" \
+    "set-option -s @term_tab_spinner_frame $1" '' >/dev/null 2>&1
+}
+publish_clients() {
+  # Frequent option changes defer tmux's status-interval #() jobs. Keep the
+  # existing per-client snapshot lease alive at its normal five-second rate.
+  command -v term-pane-state >/dev/null 2>&1 || return 0
+  local clients pid created control name
+  clients=$(tmux -S "$socket" list-clients -F \
+    '#{client_pid} #{client_created} #{client_control_mode} #{client_name}' 2>/dev/null) || return 0
+  while read -r pid created control name; do
+    case $pid in '' | *[!0-9]*) continue ;; esac
+    case $created in '' | *[!0-9]*) continue ;; esac
+    [ "$control" = 0 ] && [ -n "$name" ] || continue
+    term-pane-state --socket "$socket" --client "$name" \
+      --client-pid "$pid" --client-created "$created" >/dev/null 2>&1 || true
+  done <<<"$clients"
+}
+cleanup() {
+  tmux -S "$socket" if-shell -F "#{==:#{@term_tab_spinner_owner},$owner}" \
+    'set-option -s @term_tab_spinner_frame ⋯ ; set-option -su @term_tab_spinner_owner' \
+    '' >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+trap 'exit 0' INT TERM
+
+if [ -r "$frames_file" ]; then
+  while IFS= read -r frame; do
+    braille_frame "$frame" || exit 0
+    frames+=("$frame")
+  done <"$frames_file"
+fi
+[ "${#frames[@]}" -ge 2 ] || exit 0
+
+index=0
+ticks=0
+was_busy=0
+last_publish=$SECONDS
+while :; do
+  publish_due=0
+  if [ "$ticks" -eq 0 ]; then
+    owned || exit 0
+    busy=$(tmux -S "$socket" list-panes -a -F '#{?#{E:@pane_display_busy},1,0}' 2>/dev/null) || exit 0
+    if [[ $busy != *1* ]]; then
+      if [ "$was_busy" -eq 1 ]; then
+        frame_command '⋯' || exit 0
+        was_busy=0
+      fi
+      last_publish=$SECONDS
+      sleep 1
+      continue
+    fi
+    if [ "$was_busy" -eq 0 ] || [ "$((SECONDS - last_publish))" -ge 5 ]; then
+      publish_due=1
+    fi
+    was_busy=1
+  fi
+  frame_command "${frames[index]}" || exit 0
+  index=$(((index + 1) % ${#frames[@]}))
+  ticks=$(((ticks + 1) % 7))
+  if [ "$publish_due" -eq 1 ]; then
+    publish_clients
+    last_publish=$SECONDS
+  fi
+  sleep 0.15
+done

@@ -225,6 +225,14 @@ public_copy_home=$(_tmpdir)
 nvim_key_home=$(_tmpdir)
 
 if _wezterm_has_lua_runner; then
+  spinner_probe="${BASH_SOURCE[0]%/*}/support/wezterm-spinner.lua"
+  spinner_result=$(_wezterm_lua "
+    local probe = dofile('$spinner_probe')
+    probe('$attention_module', '$HOME/.config/terminal/working-spinner.frames')
+  ")
+  _assert_eq 'working tabs animate on one bounded timer per window' \
+    'spinner-timers-and-fallbacks-ok' "$spinner_result"
+
   attention_result=$(_wezterm_lua "
     local attention = dofile('$attention_module')
     local function pane(value) return { user_vars = { TERM_PANE_STATE = value } } end
