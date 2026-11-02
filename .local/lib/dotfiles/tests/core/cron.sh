@@ -123,6 +123,66 @@ EOF
   _assert_contains "has end marker" "dot-managed-cron end" "$result"
   _assert_contains "preserves comments" "comment line" "$result"
 
+  # Without the shared env loader, cron keeps its default shell. Earlier
+  # shards in the same TEST_HOME may have installed a shell tree, so remove
+  # it explicitly rather than assume a clean fixture.
+  rm -rf "$TEST_HOME/.config/shell"
+  _run_cron_merge 2>/dev/null
+  result=$(crontab -l 2>/dev/null)
+  _assert_not_contains "no env loader: cron keeps its default shell" \
+    "BASH_ENV=" "$result"
+
+  # With the shared env loader present, the block sets SHELL and BASH_ENV so
+  # every job loads env.d like agent and script shells (for GH_TOKEN among
+  # others) instead of running in cron's bare /bin/sh environment.
+  mkdir -p "$TEST_HOME/.local/lib/dotfiles" "$TEST_HOME/.config/shell"
+  cp -R "$REAL_HOME/.config/shell/." "$TEST_HOME/.config/shell/"
+  cp "$REAL_HOME/.local/lib/dotfiles/shell-loader.sh" "$TEST_HOME/.local/lib/dotfiles/"
+  _run_cron_merge 2>/dev/null
+  result=$(crontab -l 2>/dev/null)
+  cron_shell=$(printf '%s\n' "$result" | sed -n 's/^SHELL=//p')
+  cron_bash_env=$(printf '%s\n' "$result" | sed -n 's/^BASH_ENV=//p')
+  cron_job_path=$(printf '%s\n' "$result" | sed -n 's/^PATH=//p')
+  _assert_eq "env loader: BASH_ENV is the shared non-interactive loader" \
+    "$TEST_HOME/.config/shell/env-noninteractive.sh" "$cron_bash_env"
+  case "$cron_shell" in
+    /*bash) _pass "env loader: SHELL is an absolute bash" ;;
+    *) _fail "env loader: SHELL is an absolute bash (got '$cron_shell')" ;;
+  esac
+  _assert_eq "env loader: variables precede the jobs" \
+    "SHELL= BASH_ENV= PATH=" \
+    "$(printf '%s\n' "$result" | grep -oE '^(SHELL|BASH_ENV|PATH)=' | tr '\n' ' ' | sed 's/ $//')"
+
+  # Run a job the way cron does with that block: the rendered SHELL with -c,
+  # in a clean environment carrying only the crontab variables. The job must
+  # see GH_TOKEN from the token file and nothing may print, since any output
+  # becomes cron mail.
+  # Most accounts start without a token file (root on a fresh host, say);
+  # the job must still run cleanly, with GH_TOKEN simply unset.
+  rm -rf "$TEST_HOME/.config/gh"
+  # shellcheck disable=SC2016 # The job shell expands GH_TOKEN, not this one.
+  _assert_eq "env loader: no token file leaves GH_TOKEN unset with no output" \
+    "rc=0 token=[] set=" \
+    "$("${DOT_TEST_ENV_CLEAN[@]}" HOME="$TEST_HOME" PATH="$cron_job_path:$DOT_TEST_SYSTEM_PATH" \
+      SHELL="$cron_shell" BASH_ENV="$cron_bash_env" \
+      "$cron_shell" -c 'set -eu; printf "rc=0 token=[%s] set=%s\n" "${GH_TOKEN-}" "${GH_TOKEN+yes}"' 2>&1)"
+  mkdir -p "$TEST_HOME/.config/gh"
+  printf '%s\n' 'ghp_fixture' >"$TEST_HOME/.config/gh/github-pat"
+  # shellcheck disable=SC2016 # The job shell expands GH_TOKEN, not this one.
+  _assert_eq "env loader: a cron job gets GH_TOKEN with no extra output" \
+    "token=[ghp_fixture]" \
+    "$("${DOT_TEST_ENV_CLEAN[@]}" HOME="$TEST_HOME" PATH="$cron_job_path:$DOT_TEST_SYSTEM_PATH" \
+      SHELL="$cron_shell" BASH_ENV="$cron_bash_env" \
+      "$cron_shell" -c 'printf "token=[%s]\n" "${GH_TOKEN-}"' 2>&1)"
+  # shellcheck disable=SC2016 # The job shell expands GH_TOKEN, not this one.
+  _assert_eq "env loader: a GH_TOKEN the job sets itself wins" \
+    "token=[ghp_job]" \
+    "$("${DOT_TEST_ENV_CLEAN[@]}" HOME="$TEST_HOME" PATH="$cron_job_path:$DOT_TEST_SYSTEM_PATH" \
+      SHELL="$cron_shell" BASH_ENV="$cron_bash_env" GH_TOKEN=ghp_job \
+      "$cron_shell" -c 'printf "token=[%s]\n" "${GH_TOKEN-}"' 2>&1)"
+  rm -rf "$TEST_HOME/.config/shell" "$TEST_HOME/.config/gh"
+  unset cron_shell cron_bash_env cron_job_path
+
   # Idempotent — running again doesn't duplicate
   _run_cron_merge 2>/dev/null
   count=$(crontab -l 2>/dev/null | grep -c "dot update --cron" || true)

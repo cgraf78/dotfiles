@@ -26,6 +26,13 @@ empty inherited value through the environment ownership helper. Missing or
 empty files leave the environment unchanged. The file is local credential
 state and must never be committed.
 
+Cron jobs get the same value: the managed crontab block sets `SHELL` to bash
+and `BASH_ENV` to `env-noninteractive.sh` (see Environment Ownership), so every
+job loads `env.d` like other non-interactive shells. Each account reads its own
+file, so root's crontab needs `/root/.config/gh/github-pat`. Without a token,
+scheduled `dot update` runs make anonymous GitHub API calls, which share one
+60-per-hour quota per public IP.
+
 The base `gh-token` merge hook preserves an existing token file and repairs its
 mode to `0600` during `dot update`. When the file is missing, it can seed it
 from GitHub CLI's local `hosts.yml` if Mike Farah's `yq` is available. Missing
@@ -55,6 +62,13 @@ shells) or sshd started it (`ssh host cmd` with bash as the login shell). With
 zsh as the login shell, `ssh host cmd` reads only `~/.zshenv`. Shell-local
 state such as functions, `shopt`/`setopt`, and system rc bootstraps loads in
 every shell regardless of mode.
+
+Cron jobs are fill-only children too. The cron merge hook writes `SHELL` (an
+absolute bash) and `BASH_ENV` (this loader) into the managed crontab block
+ahead of its `PATH`, so jobs see the same `env.d` values as agent and script
+shells instead of cron's bare `/bin/sh` environment. The crontab's `PATH`
+arrives as an inherited value. When bash or the loader is missing, the hook
+leaves cron on its default shell.
 
 Because nested shells load `env.d/` too, the loader suspends `set -u` while
 it runs and restores the caller's setting afterwards: a `bash -u` or

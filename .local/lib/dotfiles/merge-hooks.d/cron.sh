@@ -10,7 +10,8 @@ dot_hook_source merge-hooks.d/lib/cron-list.sh || return
 # choice. `cron.local` remains the last, untracked escape hatch.
 # Replaces all dot-managed entries (between marker lines) on each run.
 # Expands $HOME in cron lines. Sets PATH as a standalone cron variable
-# so tools like git, curl, jq are found in cron's minimal environment.
+# so tools like git, curl, jq are found in cron's minimal environment, and
+# SHELL plus BASH_ENV so jobs load env.d like other non-interactive shells.
 # Idempotent — skips if the installed block already matches.
 
 # Build a clean PATH for cron from declarative path fragments.
@@ -57,6 +58,41 @@ _cron_path() {
   fi
 
   echo "$result"
+}
+
+# Emit the crontab variable lines that make cron jobs load env.d the way
+# agent and script shells do: bash as the job shell, with BASH_ENV pointing at
+# the shared non-interactive loader.
+#
+# Cron otherwise runs every job with a bare /bin/sh environment (dash on Debian,
+# bash in sh mode elsewhere) that never loads env.d, so jobs miss dotfiles
+# values such as GH_TOKEN; Shdeps then makes anonymous GitHub API calls that
+# share one 60-per-hour quota across every host behind the same public IP.
+# Crontab variable lines are literal (no expansion), so both values are
+# resolved to absolute paths here. The job shell only has to source BASH_ENV,
+# so prefer the system bash (Termux keeps it under $PREFIX): a Homebrew, mise,
+# or Shdeps bash earlier on PATH could later be removed, and a missing SHELL
+# fails every job, including the `dot update` that would repair the crontab.
+# Fall back to a PATH lookup only when no system bash exists. When bash or the
+# loader is missing, emit nothing and leave cron on its default shell rather
+# than break every job.
+#
+# Args: $1 cron PATH (may be empty)
+_cron_shell_env() {
+  local cron_path="$1" bash_bin="" candidate
+  local loader="$HOME/.config/shell/env-noninteractive.sh"
+  [[ -r "$loader" ]] || return 0
+  for candidate in /bin/bash /usr/bin/bash ${PREFIX:+"$PREFIX/bin/bash"}; do
+    if [[ -x "$candidate" ]]; then
+      bash_bin=$candidate
+      break
+    fi
+  done
+  if [[ -z "$bash_bin" ]]; then
+    bash_bin=$(PATH="${cron_path:+$cron_path:}$PATH" command -v bash) || return 0
+  fi
+  [[ "$bash_bin" == /* ]] || return 0
+  printf 'SHELL=%s\nBASH_ENV=%s\n' "$bash_bin" "$loader"
 }
 
 # Parse a `# filter:` directive line into the active cron filter state.
@@ -191,7 +227,7 @@ _CRON_MARKER="# dot-managed-cron"
 # installs exactly this text and `dot doctor` compares the live crontab with
 # it, so the two can never disagree about what "current" means.
 _cron_render_block() {
-  local source sources="" cron_path body
+  local source sources="" cron_path body shell_env
 
   _cron_parsed=""
   for source in "${_cron_sources[@]}"; do
@@ -210,6 +246,14 @@ _cron_render_block() {
   body="$_cron_parsed"
   if [[ -n "$cron_path" ]]; then
     body="PATH=$cron_path"$'\n\n'"$body"
+  fi
+  shell_env=$(_cron_shell_env "$cron_path")
+  if [[ -n "$shell_env" ]]; then
+    if [[ -n "$cron_path" ]]; then
+      body="$shell_env"$'\n'"$body"
+    else
+      body="$shell_env"$'\n\n'"$body"
+    fi
   fi
   REPLY=$(dot_managed_block_build "$_CRON_MARKER" "$sources" "$body")
 }
