@@ -13,7 +13,7 @@ dot_core_test_cron() {
   _update_cron_line=$(grep -v '^#' "$REAL_HOME/.config/dot/merge-hooks.d/cron/cron.d/10-update.cron")
   # shellcheck disable=SC2016 # Match the literal crontab text.
   _assert_eq "update cron: dot owns the prune" \
-    '*/30 * * * * GH_TOKEN="${GH_TOKEN:-$(head -n 1 "$HOME/.config/gh/github-pat" 2>/dev/null)}" dot update --cron --force' \
+    '*/30 * * * * dot update --cron --force' \
     "$_update_cron_line"
   _assert_eq "update cron: prune policy stays out of the shared dot config" 0 \
     "$(awk -F= '$1 == "shdeps_prune" { count++ } END { print count + 0 }' \
@@ -29,59 +29,6 @@ dot_core_test_cron() {
     merge
   }
 
-  # Run the update entry exactly as the merge hook renders it into the
-  # crontab (with $HOME already replaced by a literal path, here one that
-  # contains a space) the way cron runs it: POSIX sh in a bare environment.
-  # A stub `dot` reports the GH_TOKEN it received, so the assertions cover the
-  # real expansion, not the text.
-  _update_cron_home="$(_tmpdir)/cron home"
-  mkdir -p "$_update_cron_home"
-  # shellcheck source=/dev/null
-  . "$_CRON_HOOK"
-  _cron_parsed=""
-  HOME="$_update_cron_home" _cron_parse_file \
-    "$REAL_HOME/.config/dot/merge-hooks.d/cron/cron.d/10-update.cron"
-  _update_cron_command=$(printf '%s\n' "$_cron_parsed" | grep -v '^#' | cut -d' ' -f6-)
-  _assert_contains "update cron: rendered entry carries the literal home path" \
-    "$_update_cron_home/.config/gh/github-pat" "$_update_cron_command"
-  _update_cron_bin=$(_tmpdir)
-  cat >"$_update_cron_bin/dot" <<'SH'
-#!/bin/sh
-printf 'token=[%s] set=%s args=%s\n' "${GH_TOKEN-}" "${GH_TOKEN+yes}" "$*"
-SH
-  chmod +x "$_update_cron_bin/dot"
-  _run_update_cron() {
-    "${DOT_TEST_ENV_CLEAN[@]}" HOME="$_update_cron_home" \
-      PATH="$_update_cron_bin:$DOT_TEST_SYSTEM_PATH" \
-      ${1:+GH_TOKEN="$1"} "$2" -c "$_update_cron_command"
-  }
-  # Cron's /bin/sh is dash on Debian guests and bash elsewhere; Termux keeps
-  # sh under $PREFIX. Exercise every POSIX shell the host has.
-  _update_cron_shells=$(PATH=$DOT_TEST_SYSTEM_PATH command -v sh)
-  _update_cron_dash=$(PATH=$DOT_TEST_SYSTEM_PATH command -v dash || true)
-  [[ -n "$_update_cron_dash" ]] && _update_cron_shells="$_update_cron_shells $_update_cron_dash"
-  for _update_cron_shell in $_update_cron_shells; do
-    rm -rf "$_update_cron_home/.config"
-    _assert_eq "update cron ($_update_cron_shell): no token file leaves GH_TOKEN empty" \
-      'token=[] set=yes args=update --cron --force' \
-      "$(_run_update_cron '' "$_update_cron_shell")"
-    mkdir -p "$_update_cron_home/.config/gh"
-    printf '%s\n' 'ghp_fixture' >"$_update_cron_home/.config/gh/github-pat"
-    _assert_eq "update cron ($_update_cron_shell): token file supplies GH_TOKEN" \
-      'token=[ghp_fixture] set=yes args=update --cron --force' \
-      "$(_run_update_cron '' "$_update_cron_shell")"
-    _assert_eq "update cron ($_update_cron_shell): caller GH_TOKEN wins over the file" \
-      'token=[ghp_caller] set=yes args=update --cron --force' \
-      "$(_run_update_cron ghp_caller "$_update_cron_shell")"
-    printf '%s\n' 'ghp_first' 'second line' >"$_update_cron_home/.config/gh/github-pat"
-    _assert_eq "update cron ($_update_cron_shell): only the first line is the token" \
-      'token=[ghp_first] set=yes args=update --cron --force' \
-      "$(_run_update_cron '' "$_update_cron_shell")"
-    : >"$_update_cron_home/.config/gh/github-pat"
-    _assert_eq "update cron ($_update_cron_shell): empty token file leaves GH_TOKEN empty" \
-      'token=[] set=yes args=update --cron --force' \
-      "$(_run_update_cron '' "$_update_cron_shell")"
-  done
   dot_fixture_mock_crontab
   # Every assertion must use the explicit test double. Minimal RPM-family
   # images install a real crontab, and accidentally consulting PATH would test
@@ -175,6 +122,57 @@ EOF
   _assert_contains "has begin marker" "dot-managed-cron begin" "$result"
   _assert_contains "has end marker" "dot-managed-cron end" "$result"
   _assert_contains "preserves comments" "comment line" "$result"
+
+  # Without the shared env loader, cron keeps its default shell. Earlier
+  # shards in the same TEST_HOME may have installed a shell tree, so remove
+  # it explicitly rather than assume a clean fixture.
+  rm -rf "$TEST_HOME/.config/shell"
+  _run_cron_merge 2>/dev/null
+  result=$(crontab -l 2>/dev/null)
+  _assert_not_contains "no env loader: cron keeps its default shell" \
+    "BASH_ENV=" "$result"
+
+  # With the shared env loader present, the block sets SHELL and BASH_ENV so
+  # every job loads env.d like agent and script shells (for GH_TOKEN among
+  # others) instead of running in cron's bare /bin/sh environment.
+  mkdir -p "$TEST_HOME/.local/lib/dotfiles" "$TEST_HOME/.config/shell"
+  cp -R "$REAL_HOME/.config/shell/." "$TEST_HOME/.config/shell/"
+  cp "$REAL_HOME/.local/lib/dotfiles/shell-loader.sh" "$TEST_HOME/.local/lib/dotfiles/"
+  _run_cron_merge 2>/dev/null
+  result=$(crontab -l 2>/dev/null)
+  cron_shell=$(printf '%s\n' "$result" | sed -n 's/^SHELL=//p')
+  cron_bash_env=$(printf '%s\n' "$result" | sed -n 's/^BASH_ENV=//p')
+  cron_job_path=$(printf '%s\n' "$result" | sed -n 's/^PATH=//p')
+  _assert_eq "env loader: BASH_ENV is the shared non-interactive loader" \
+    "$TEST_HOME/.config/shell/env-noninteractive.sh" "$cron_bash_env"
+  case "$cron_shell" in
+    /*bash) _pass "env loader: SHELL is an absolute bash" ;;
+    *) _fail "env loader: SHELL is an absolute bash (got '$cron_shell')" ;;
+  esac
+  _assert_eq "env loader: variables precede the jobs" \
+    "SHELL= BASH_ENV= PATH=" \
+    "$(printf '%s\n' "$result" | grep -oE '^(SHELL|BASH_ENV|PATH)=' | tr '\n' ' ' | sed 's/ $//')"
+
+  # Run a job the way cron does with that block: the rendered SHELL with -c,
+  # in a clean environment carrying only the crontab variables. The job must
+  # see GH_TOKEN from the token file and nothing may print, since any output
+  # becomes cron mail.
+  mkdir -p "$TEST_HOME/.config/gh"
+  printf '%s\n' 'ghp_fixture' >"$TEST_HOME/.config/gh/github-pat"
+  # shellcheck disable=SC2016 # The job shell expands GH_TOKEN, not this one.
+  _assert_eq "env loader: a cron job gets GH_TOKEN with no extra output" \
+    "token=[ghp_fixture]" \
+    "$("${DOT_TEST_ENV_CLEAN[@]}" HOME="$TEST_HOME" PATH="$cron_job_path:$DOT_TEST_SYSTEM_PATH" \
+      SHELL="$cron_shell" BASH_ENV="$cron_bash_env" \
+      "$cron_shell" -c 'printf "token=[%s]\n" "${GH_TOKEN-}"' 2>&1)"
+  # shellcheck disable=SC2016 # The job shell expands GH_TOKEN, not this one.
+  _assert_eq "env loader: a GH_TOKEN the job sets itself wins" \
+    "token=[ghp_job]" \
+    "$("${DOT_TEST_ENV_CLEAN[@]}" HOME="$TEST_HOME" PATH="$cron_job_path:$DOT_TEST_SYSTEM_PATH" \
+      SHELL="$cron_shell" BASH_ENV="$cron_bash_env" GH_TOKEN=ghp_job \
+      "$cron_shell" -c 'printf "token=[%s]\n" "${GH_TOKEN-}"' 2>&1)"
+  rm -rf "$TEST_HOME/.config/shell" "$TEST_HOME/.config/gh"
+  unset cron_shell cron_bash_env cron_job_path
 
   # Idempotent — running again doesn't duplicate
   _run_cron_merge 2>/dev/null

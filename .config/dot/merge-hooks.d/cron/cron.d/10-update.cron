@@ -10,11 +10,4 @@
 # reaches every host within one 30-minute interval. This deliberately reverses
 # #250: it also overrides a `pinned` shdeps_update_policy, so drop it before
 # switching this fleet to `pinned`.
-# Cron starts jobs with a bare /bin/sh environment that never loads env.d, so
-# without this the update would get no GH_TOKEN and Shdeps would fall back to
-# anonymous GitHub API calls. Those share one 60-per-hour quota across every
-# host behind the same public IP, and a rate-limited run reports dependencies
-# as current instead of updating them. Read the same token file that
-# env.d/60-github.sh exports (a plain file read: `gh auth token` from cron
-# once leaked keyring daemons), and keep any GH_TOKEN the caller already set.
-*/30 * * * * GH_TOKEN="${GH_TOKEN:-$(head -n 1 "$HOME/.config/gh/github-pat" 2>/dev/null)}" dot update --cron --force
+*/30 * * * * dot update --cron --force
