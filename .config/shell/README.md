@@ -26,6 +26,13 @@ empty inherited value through the environment ownership helper. Missing or
 empty files leave the environment unchanged. The file is local credential
 state and must never be committed.
 
+Cron jobs start from a bare `/bin/sh` environment that never loads `env.d`, so
+the tracked auto-update entry in `10-update.cron` reads the same first line
+itself and passes it to `dot update` as `GH_TOKEN`. Each account reads its own
+file, so root's crontab needs `/root/.config/gh/github-pat`. Without it, every host's
+scheduled update would make anonymous GitHub API calls, which share one
+60-per-hour quota per public IP.
+
 The base `gh-token` merge hook preserves an existing token file and repairs its
 mode to `0600` during `dot update`. When the file is missing, it can seed it
 from GitHub CLI's local `hosts.yml` if Mike Farah's `yq` is available. Missing
