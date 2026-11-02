@@ -157,6 +157,15 @@ EOF
   # in a clean environment carrying only the crontab variables. The job must
   # see GH_TOKEN from the token file and nothing may print, since any output
   # becomes cron mail.
+  # Most accounts start without a token file (root on a fresh host, say);
+  # the job must still run cleanly, with GH_TOKEN simply unset.
+  rm -rf "$TEST_HOME/.config/gh"
+  # shellcheck disable=SC2016 # The job shell expands GH_TOKEN, not this one.
+  _assert_eq "env loader: no token file leaves GH_TOKEN unset with no output" \
+    "rc=0 token=[] set=" \
+    "$("${DOT_TEST_ENV_CLEAN[@]}" HOME="$TEST_HOME" PATH="$cron_job_path:$DOT_TEST_SYSTEM_PATH" \
+      SHELL="$cron_shell" BASH_ENV="$cron_bash_env" \
+      "$cron_shell" -c 'set -eu; printf "rc=0 token=[%s] set=%s\n" "${GH_TOKEN-}" "${GH_TOKEN+yes}"' 2>&1)"
   mkdir -p "$TEST_HOME/.config/gh"
   printf '%s\n' 'ghp_fixture' >"$TEST_HOME/.config/gh/github-pat"
   # shellcheck disable=SC2016 # The job shell expands GH_TOKEN, not this one.
