@@ -24,6 +24,28 @@
 # untranslated. Any other message or exit status (126 and 127 when crontab
 # cannot run) is a failure, the safe side for both callers.
 _CRON_LIST_ERR=
+
+# The generic block stripper matches substrings. Refuse ambiguous input before
+# using it so an incomplete or lookalike marker cannot consume a user's jobs.
+# Accept zero blocks or exactly one complete pair on lines by themselves.
+_cron_block_valid() {
+  local marker="$1" input="$2" line state=0
+  while IFS= read -r line || [[ -n $line ]]; do
+    case "$line" in
+      "$marker begin")
+        ((state == 0)) || return 1
+        state=1
+        ;;
+      "$marker end")
+        ((state == 1)) || return 1
+        state=2
+        ;;
+      *"$marker begin"* | *"$marker end"*) return 1 ;;
+    esac
+  done <<<"$input"
+  ((state != 1))
+}
+
 _cron_list() {
   local sep=$'\x1f''dot-crontab-list'$'\x1f' captured err status line
   # crontab's stdout goes straight to the outer capture (fd 3), its stderr

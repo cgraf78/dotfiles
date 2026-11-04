@@ -65,8 +65,10 @@ every shell regardless of mode.
 
 Cron jobs are fill-only children too. The cron merge hook writes `SHELL` (an
 absolute bash) and `BASH_ENV` (this loader) into the managed crontab block
-ahead of its `PATH`, so jobs see the same `env.d` values as agent and script
-shells instead of cron's bare `/bin/sh` environment. The crontab's `PATH`
+ahead of its `PATH` at the top of the crontab, so managed and subsequent
+unmanaged jobs see the same `env.d` values as agent and script shells instead
+of cron's bare `/bin/sh` environment. Later unmanaged assignments may override
+these values for subsequent jobs. The crontab's `PATH`
 arrives as an inherited value. When bash or the loader is missing, the hook
 leaves cron on its default shell.
 

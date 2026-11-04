@@ -180,6 +180,36 @@ EOF
     "$("${DOT_TEST_ENV_CLEAN[@]}" HOME="$TEST_HOME" PATH="$cron_job_path:$DOT_TEST_SYSTEM_PATH" \
       SHELL="$cron_shell" BASH_ENV="$cron_bash_env" GH_TOKEN=ghp_job \
       "$cron_shell" -c 'printf "token=[%s]\n" "${GH_TOKEN-}"' 2>&1)"
+  # A top block makes its environment apply to unmanaged jobs too. A later
+  # explicit assignment must remain below the managed default and before its
+  # own job, so the account owner can still override that default.
+  printf '%s\n' '0 1 * * * unmanaged-before-override' \
+    'SHELL=/bin/sh' 'BASH_ENV=/operator/env' 'PATH=/operator/bin' \
+    '0 2 * * * unmanaged-after-override' | crontab -
+  _run_cron_merge 2>/dev/null
+  result=$(crontab -l 2>/dev/null)
+  _assert_eq "unmanaged jobs inherit managed shell, loader and PATH" \
+    'SHELL BASH_ENV PATH' \
+    "$(printf '%s\n' "$result" | awk '
+      /unmanaged-before-override/ { exit }
+      /^SHELL=/ { shell=1 }
+      /^BASH_ENV=/ { env=1 }
+      /^PATH=/ { path=1 }
+      END { if (shell && env && path) print "SHELL BASH_ENV PATH" }
+    ')"
+  _assert_eq "later unmanaged PATH overrides the managed default" \
+    '/operator/bin' \
+    "$(printf '%s\n' "$result" | awk '
+      /^PATH=/ { value=substr($0,6) }
+      /unmanaged-after-override/ { print value; exit }
+    ')"
+  _assert_eq "later unmanaged shell and loader override managed defaults" \
+    '/bin/sh /operator/env' \
+    "$(printf '%s\n' "$result" | awk '
+      /^SHELL=/ { shell=substr($0,7) }
+      /^BASH_ENV=/ { env=substr($0,10) }
+      /unmanaged-after-override/ { print shell, env; exit }
+    ')"
   rm -rf "$TEST_HOME/.config/shell" "$TEST_HOME/.config/gh"
   unset cron_shell cron_bash_env cron_job_path
 
@@ -207,6 +237,95 @@ EOF
   result=$(crontab -l 2>/dev/null)
   _assert_contains "preserves other jobs" "other-job" "$result"
   _assert_contains "installs managed entry" "dot update --cron" "$result"
+  case "$result" in
+    '# dot-managed-cron begin'*) _pass "managed block precedes unmanaged jobs" ;;
+    *) _fail "managed block precedes unmanaged jobs" ;;
+  esac
+
+  # A byte-identical block in the old appended position still needs migration.
+  _legacy_block=$(printf '%s\n' "$result" | awk '
+    /^# dot-managed-cron begin$/ { in_block=1 }
+    in_block { print }
+    /^# dot-managed-cron end$/ { exit }
+  ')
+  printf '%s\n\n%s\n' 'MAILTO=custom@example.invalid' "$_legacy_block" | crontab -
+  _run_cron_merge 2>/dev/null
+  result=$(crontab -l 2>/dev/null)
+  case "$result" in
+    '# dot-managed-cron begin'*) _pass "unchanged legacy block moves to top" ;;
+    *) _fail "unchanged legacy block moves to top" ;;
+  esac
+  _assert_contains "later unmanaged environment remains present" 'MAILTO=custom@example.invalid' "$result"
+  _before_repeat=$result
+  _run_cron_merge 2>/dev/null
+  _assert_eq "top placement is idempotent" "$_before_repeat" "$(crontab -l 2>/dev/null)"
+
+  # A substring-based block stripper must never consume user entries when a
+  # marker is incomplete, duplicated or merely embedded in a command.
+  for _bad_crontab in \
+    $'# dot-managed-cron begin\n0 6 * * * keep-unclosed' \
+    $'# dot-managed-cron end\n0 6 * * * keep-orphan' \
+    $'0 6 * * * echo "# dot-managed-cron begin"\n0 7 * * * keep-embedded' \
+    $'# dot-managed-cron begin\none\n# dot-managed-cron end\n# dot-managed-cron begin\ntwo\n# dot-managed-cron end\n0 7 * * * keep-duplicate'; do
+    printf '%s\n' "$_bad_crontab" | crontab -
+    _bad_status=0
+    _run_cron_merge >/dev/null 2>&1 || _bad_status=$?
+    _assert_eq "malformed marker refuses merge" 1 "$_bad_status"
+    _assert_eq "malformed marker preserves the entire crontab" "$_bad_crontab" "$(crontab -l 2>/dev/null)"
+  done
+  _bad_crontab="$_legacy_block"$'\n# dot-managed-cron begin\n0 8 * * * keep-malformed-tail'
+  printf '%s\n' "$_bad_crontab" | crontab -
+  _bad_status=0
+  _run_cron_merge >/dev/null 2>&1 || _bad_status=$?
+  _assert_eq "valid prefix with malformed tail refuses idempotence" 1 "$_bad_status"
+  _assert_eq "malformed tail remains byte-for-byte" "$_bad_crontab" "$(crontab -l 2>/dev/null)"
+  # The strip-only path is subject to the same protection.
+  printf '%s\n' '# filter: hosts=nonexistent-host-xyz' '0 1 * * * ignored' \
+    >"$TEST_HOME/.config/dot/merge-hooks.d/cron/cron.d/10-base.cron"
+  _bad_crontab=$'# dot-managed-cron begin\n0 6 * * * keep-on-empty'
+  printf '%s\n' "$_bad_crontab" | crontab -
+  _bad_status=0
+  _run_cron_merge >/dev/null 2>&1 || _bad_status=$?
+  _assert_eq "malformed marker refuses empty-source strip" 1 "$_bad_status"
+  _assert_eq "empty-source strip preserves malformed crontab" "$_bad_crontab" "$(crontab -l 2>/dev/null)"
+
+  # Simulate another editor changing the crontab between the first listing
+  # and the final pre-install listing; the merge must not overwrite it.
+  printf '%s\n' '*/30 * * * * dot update --cron' >"$TEST_HOME/.config/dot/merge-hooks.d/cron/cron.d/10-base.cron"
+  _race_bin=$(_mock_bin)
+  _race_state=$(_tmpfile)
+  _race_count=$(_tmpfile)
+  printf '%s\n' '0 1 * * * original' >"$_race_state"
+  : >"$_race_count"
+  cat >"$_race_bin/crontab" <<'SH'
+#!/usr/bin/env bash
+case ${1:-} in
+  -l)
+    if [[ -s $CRON_RACE_COUNT ]]; then
+      printf '%s\n' '0 2 * * * concurrent-edit' >"$CRON_RACE_STATE"
+    else
+      printf '%s\n' seen >"$CRON_RACE_COUNT"
+    fi
+    cat "$CRON_RACE_STATE" ;;
+  -) cat >"$CRON_RACE_STATE" ;;
+  -r) : >"$CRON_RACE_STATE" ;;
+esac
+SH
+  chmod +x "$_race_bin/crontab"
+  _race_status=0
+  DOT_TEST_CRONTAB="$_race_bin/crontab" CRON_RACE_COUNT="$_race_count" \
+    CRON_RACE_STATE="$_race_state" _run_cron_merge >/dev/null 2>&1 || _race_status=$?
+  _assert_eq "concurrent crontab edit refuses install" 1 "$_race_status"
+  _assert_eq "concurrent crontab edit survives" '0 2 * * * concurrent-edit' "$(cat "$_race_state")"
+  printf '%s\n' '# filter: hosts=nonexistent-host-xyz' '0 1 * * * ignored' \
+    >"$TEST_HOME/.config/dot/merge-hooks.d/cron/cron.d/10-base.cron"
+  printf '%s\n' "$_legacy_block" >"$_race_state"
+  : >"$_race_count"
+  _race_status=0
+  DOT_TEST_CRONTAB="$_race_bin/crontab" CRON_RACE_COUNT="$_race_count" \
+    CRON_RACE_STATE="$_race_state" _run_cron_merge >/dev/null 2>&1 || _race_status=$?
+  _assert_eq "concurrent edit refuses strip-only removal" 1 "$_race_status"
+  _assert_eq "concurrent edit survives strip-only removal" '0 2 * * * concurrent-edit' "$(cat "$_race_state")"
 
   # cron.local entries are merged with cron entries
   : >"$MOCK_CRONTAB"
