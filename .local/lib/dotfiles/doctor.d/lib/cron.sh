@@ -188,6 +188,9 @@ _dr_check_cron() {
 
   if [[ -z $marker || -z $mode ]]; then
     _dr_skip "managed cron block unchecked" "the cron merge hook could not load"
+  elif ((listed != 2)) && ! _cron_block_valid "$marker" "$crontab_out"; then
+    _dr_hint_row warn "managed cron block is malformed" \
+      "ambiguous markers leave the crontab unchanged" "inspect and repair its markers manually"
   elif [[ -z $expected ]]; then
     if [[ $crontab_out != *"$marker begin"* ]]; then
       _dr_ok "no tracked cron entries apply to this host"
@@ -204,7 +207,7 @@ _dr_check_cron() {
     # would send the reader round in circles; crontab's message says why.
     _dr_hint_row warn "crontab is not usable by this account" "$_CRON_LIST_ERR" \
       "ask an administrator to allow crontab for this account (cron.allow or cron.deny, PAM, its setuid/setgid bit), then run 'dot update'"
-  elif [[ $crontab_out == *"$expected"* ]]; then
+  elif [[ $crontab_out == "$expected" || $crontab_out == "$expected"$'\n'* ]]; then
     _dr_ok "managed cron block is current"
   elif [[ $crontab_out == *"$marker begin"* ]]; then
     _dr_hint_row warn "managed cron block is stale" "it differs from the tracked entries" \

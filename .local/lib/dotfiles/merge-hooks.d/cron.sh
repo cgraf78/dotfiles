@@ -291,36 +291,45 @@ merge() {
     return 1
   fi
 
-  # No active entries — strip any existing managed block and return.
+  # The block stripper is substring-based. Validate even an unchanged or
+  # strip-only block before it can discard ambiguous user-owned entries.
+  if ! _cron_block_valid "$cron_marker" "$current"; then
+    dot_hook_warn "  warning: cron block markers are malformed; crontab left unchanged"
+    return 1
+  fi
+
+  local filtered new_crontab remove=0
+  # No active entries — strip any existing managed block.
   if [[ -z "$managed_block" ]]; then
-    if [[ "$current" == *"$cron_marker begin"* ]]; then
-      local stripped
-      stripped="$(dot_managed_block_strip "$cron_marker" "$current")"
-      if [[ -n "$stripped" ]]; then
-        echo "$stripped" | "$cron_command" -
-      else
-        "$cron_command" -r 2>/dev/null || true
-      fi
-    fi
-    return 0
-  fi
-
-  # Already installed with same content — nothing to do.
-  if [[ "$current" == *"$managed_block"* ]]; then
-    return 0
-  fi
-
-  # Strip any existing managed block.
-  local filtered
-  filtered="$(dot_managed_block_strip "$cron_marker" "$current")"
-
-  # Append the new managed block.
-  local new_crontab
-  if [[ -n "$filtered" ]]; then
-    new_crontab="$filtered"$'\n\n'"$managed_block"
+    [[ "$current" == *"$cron_marker begin"* ]] || return 0
+    new_crontab="$(dot_managed_block_strip "$cron_marker" "$current")"
+    [[ -n "$new_crontab" ]] || remove=1
   else
-    new_crontab="$managed_block"
+    # Position is part of the contract: a legacy block at the bottom must move.
+    if [[ "$current" == "$managed_block" || "$current" == "$managed_block"$'\n'* ]]; then
+      return 0
+    fi
+    filtered="$(dot_managed_block_strip "$cron_marker" "$current")"
+    # Unmanaged assignments remain in place and can override these defaults.
+    if [[ -n "$filtered" ]]; then
+      new_crontab="$managed_block"$'\n\n'"$filtered"
+    else
+      new_crontab="$managed_block"
+    fi
   fi
 
-  echo "$new_crontab" | "$cron_command" -
+  # A second read narrows the window in which a concurrent edit could be lost.
+  # Crontab has no compare-and-swap, so another writer can still race afterward.
+  local latest latest_status=0
+  _cron_list "$cron_command" || latest_status=$?
+  latest=$REPLY
+  if ((latest_status != listed)) || [[ "$latest" != "$current" ]]; then
+    dot_hook_warn "  warning: crontab changed or could not be re-read; crontab left unchanged"
+    return 1
+  fi
+  if ((remove)); then
+    "$cron_command" -r
+  else
+    printf '%s\n' "$new_crontab" | "$cron_command" -
+  fi
 }

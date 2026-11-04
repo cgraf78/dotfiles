@@ -355,6 +355,22 @@ SH
     _doctor_records _dr_check_cron)
   _assert_contains "doctor cron: a fresh install is current" \
     $'ok\tmanaged cron block is current' "$result"
+  doctor_installed_block=$(cat "$doctor_cron_file")
+  printf '%s\n\n%s\n' '0 1 * * * unmanaged-job' "$doctor_installed_block" >"$doctor_cron_file"
+  result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$PATH" \
+    DOT_TEST_CRONTAB="$doctor_bin/crontab-file" \
+    DOT_TEST_CRONTAB_FILE="$doctor_cron_file" \
+    _doctor_records _dr_check_cron)
+  _assert_contains "doctor cron: unchanged block below unmanaged entries is stale" \
+    $'warn\tmanaged cron block is stale' "$result"
+  printf '%s\n\n%s\n' "$doctor_installed_block" "$doctor_installed_block" >"$doctor_cron_file"
+  result=$(HOME="$TEST_HOME" PATH="$doctor_bin:$PATH" \
+    DOT_TEST_CRONTAB="$doctor_bin/crontab-file" \
+    DOT_TEST_CRONTAB_FILE="$doctor_cron_file" \
+    _doctor_records _dr_check_cron)
+  _assert_contains "doctor cron: duplicate blocks are malformed" \
+    $'warn\tmanaged cron block is malformed' "$result"
+  printf '%s\n' "$doctor_installed_block" >"$doctor_cron_file"
   # The listing keeps crontab's stdout and stderr apart from one run. Each
   # case prints the status, then what was listed (REPLY) or the message.
   cat >"$doctor_bin/crontab-noisy" <<'SH'
