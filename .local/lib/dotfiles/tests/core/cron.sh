@@ -153,6 +153,39 @@ EOF
     "SHELL= BASH_ENV= PATH=" \
     "$(printf '%s\n' "$result" | grep -oE '^(SHELL|BASH_ENV|PATH)=' | tr '\n' ' ' | sed 's/ $//')"
 
+  # Environment-only and job fragments use the same stanza layout. Keep
+  # later assignments in place: earlier jobs must not inherit their values.
+  cat >"$TEST_HOME/.config/dot/merge-hooks.d/cron/cron.d/00-env.cron" <<'EOF'
+MAILTO=fixture@example.invalid
+EOF
+  cat >"$TEST_HOME/.config/dot/merge-hooks.d/cron/cron.d/20-env.cron" <<'EOF'
+MAILTO=later@example.invalid
+EOF
+  cat >"$TEST_HOME/.config/dot/merge-hooks.d/cron/cron.d/30-filtered.cron" <<'EOF'
+# filter: users=nonexistent-user-xyz
+0 1 * * * ignored-job
+EOF
+  cat >"$TEST_HOME/.config/dot/merge-hooks.d/cron/cron.d/40-editor.cron" <<'EOF'
+# vim: set ft=crontab:
+EOF
+  _run_cron_merge 2>/dev/null
+  result=$(crontab -l 2>/dev/null)
+  _assert_contains "environment fragment has its own separated stanza" \
+    "PATH=$cron_job_path"$'\n\n# source: 00-env.cron\nMAILTO=fixture@example.invalid' "$result"
+  _assert_contains "job stanza follows environment stanza with one blank line" \
+    $'MAILTO=fixture@example.invalid\n\n# source: 10-base.cron\n# comment line' "$result"
+  _assert_contains "later assignment remains after the earlier job" \
+    $'dot update --cron\n\n# source: 20-env.cron\nMAILTO=later@example.invalid' "$result"
+  _assert_not_contains "filtered fragment has no source label" '30-filtered.cron' "$result"
+  _assert_not_contains "editor-only fragment has no source label" \
+    "40-editor.cron" "$result"
+  _assert_not_contains "source labels omit the long absolute paths" \
+    "# source: $TEST_HOME/" "$result"
+  rm "$TEST_HOME/.config/dot/merge-hooks.d/cron/cron.d/00-env.cron" \
+    "$TEST_HOME/.config/dot/merge-hooks.d/cron/cron.d/20-env.cron" \
+    "$TEST_HOME/.config/dot/merge-hooks.d/cron/cron.d/30-filtered.cron" \
+    "$TEST_HOME/.config/dot/merge-hooks.d/cron/cron.d/40-editor.cron"
+
   # Run a job the way cron does with that block: the rendered SHELL with -c,
   # in a clean environment carrying only the crontab variables. The job must
   # see GH_TOKEN from the token file and nothing may print, since any output

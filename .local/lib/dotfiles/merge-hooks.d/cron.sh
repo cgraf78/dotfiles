@@ -184,6 +184,9 @@ _cron_parse_file() {
     fi
 
     _cron_filter_match || continue
+    # Editor metadata is stripped by the managed-block builder. Discard it
+    # here too so it cannot create a source label for an otherwise empty stanza.
+    [[ $line =~ ^#[[:space:]]*(vim:|-\*-) ]] && continue
 
     line="${line//\$HOME/$HOME}"
     if [[ -n "$_cron_parsed" ]]; then
@@ -222,40 +225,31 @@ _cron_source_files() {
 # Marker of the managed crontab block; `dot doctor` compares against it.
 _CRON_MARKER="# dot-managed-cron"
 
-# Render the managed crontab block this host should carry from the sources
-# in $_cron_sources, via REPLY ("" when no entry applies here). The merge
-# installs exactly this text and `dot doctor` compares the live crontab with
-# it, so the two can never disagree about what "current" means.
+# Render the managed block for both installation and doctor comparison.
+# Each applicable fragment retains its position and gets a short editing
+# pointer, rather than listing unrelated sources in a single long header.
 _cron_render_block() {
-  local source sources="" cron_path body shell_env
+  local source fragment stanzas="" cron_path body shell_env
 
-  _cron_parsed=""
   for source in "${_cron_sources[@]}"; do
+    _cron_parsed=""
     _cron_parse_file "$source"
+    fragment=${_cron_parsed#"${_cron_parsed%%[![:space:]]*}"}
+    fragment=${fragment%"${fragment##*[![:space:]]}"}
+    [[ -n $fragment ]] || continue
+    stanzas="${stanzas:+$stanzas$'\n\n'}# source: ${source##*/}"$'\n'"$fragment"
   done
-  # Clear REPLY only now: the host filter helpers the parse calls use it as
-  # scratch space.
+  # Filter helpers use REPLY as scratch space, so clear it after parsing.
   REPLY=
-  [[ -n "$_cron_parsed" ]] || return 0
+  [[ -n $stanzas ]] || return 0
 
   cron_path=$(_cron_path)
-  # List source files that contributed entries.
-  for source in "${_cron_sources[@]}"; do
-    sources="${sources:+$sources, }$source"
-  done
-  body="$_cron_parsed"
-  if [[ -n "$cron_path" ]]; then
-    body="PATH=$cron_path"$'\n\n'"$body"
-  fi
   shell_env=$(_cron_shell_env "$cron_path")
-  if [[ -n "$shell_env" ]]; then
-    if [[ -n "$cron_path" ]]; then
-      body="$shell_env"$'\n'"$body"
-    else
-      body="$shell_env"$'\n\n'"$body"
-    fi
-  fi
-  REPLY=$(dot_managed_block_build "$_CRON_MARKER" "$sources" "$body")
+  body=$shell_env
+  [[ -z $cron_path ]] || body="${body:+$body$'\n'}PATH=$cron_path"
+  body="${body:+$body$'\n\n'}$stanzas"
+  REPLY=$(dot_managed_block_build "$_CRON_MARKER" \
+    "cron fragments; see stanza sources below" "$body")
 }
 
 merge() {
