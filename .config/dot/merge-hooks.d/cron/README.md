@@ -10,6 +10,12 @@ are:
 The executable hook implementation lives at
 `~/.local/lib/dotfiles/merge-hooks.d/cron.sh`.
 
+The rendered block groups `SHELL`, `BASH_ENV`, and `PATH` first. Each applicable
+fragment then becomes a stanza with a short source filename and one blank line
+between stanzas. Environment-only fragments use the same layout as job
+fragments, preserving assignment order and scope. Detailed operational history
+belongs in documentation; fragment comments should explain current intent.
+
 The managed block is placed at the top of the account crontab. Its `SHELL`,
 `BASH_ENV`, `PATH`, and any other variable assignments apply to all later jobs,
 including unmanaged jobs. A later unmanaged assignment overrides that value

@@ -1,13 +1,3 @@
-# vim: set ft=crontab:
-# The cron update below prunes orphaned Shdeps dependencies itself: since dot
-# 20261003-182615-26e65791, `dot update --cron` prunes by default, under dot's
-# update lock and only after repository sync and overlay links succeeded, so a
-# failing dependency or post hook no longer stops orphan cleanup. A host still
-# on an older dot skips pruning until its next run upgrades dot; set
-# DOT_SHDEPS_PRUNE=never on this line to opt a host out.
-# `--force` makes the provider and hooks re-check every dependency on each
-# run instead of honoring their per-dependency update caches, so a new release
-# reaches every host within one 30-minute interval. This deliberately reverses
-# #250: it also overrides a `pinned` shdeps_update_policy, so drop it before
-# switching this fleet to `pinned`.
+# Update dependencies every 30 minutes; Dot owns pruning under its update lock.
+# Force checks bypass dependency caches and pins so releases reach this host.
 */30 * * * * dot update --cron --force
