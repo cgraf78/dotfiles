@@ -54,6 +54,32 @@ dot_core_test_merges() {
   _assert_eq "account scope: account HOME resolves" \
     "0" "$account_home_status"
 
+  # dscl output parsing, using the shapes macOS really prints. Root's
+  # two-value line is the case that once made every account-scoped hook
+  # (including the cron merge) skip silently for root on macOS.
+  _dot_dscl_home "NFSHomeDirectory: /Users/chris"
+  _assert_eq "account scope: dscl single home" "/Users/chris" "$REPLY"
+  _dot_dscl_home "NFSHomeDirectory: /var/root /private/var/root"
+  _assert_eq "account scope: dscl takes the first of several homes" \
+    "/var/root" "$REPLY"
+  _dot_dscl_home $'NFSHomeDirectory:\n /Users/with space'
+  _assert_eq "account scope: dscl home containing a space" \
+    "/Users/with space" "$REPLY"
+  _dot_dscl_home $'NFSHomeDirectory:\n /Users/with space\n /private/Users/with space'
+  _assert_eq "account scope: dscl first of several spaced homes" \
+    "/Users/with space" "$REPLY"
+  dscl_status=0
+  _dot_dscl_home "No such key: NFSHomeDirectory" || dscl_status=$?
+  _assert_eq "account scope: dscl without the attribute fails" \
+    "1|" "$dscl_status|$REPLY"
+  dscl_status=0
+  _dot_dscl_home "NFSHomeDirectory:" || dscl_status=$?
+  _assert_eq "account scope: dscl attribute without a value fails" \
+    "1|" "$dscl_status|$REPLY"
+  dscl_status=0
+  _dot_dscl_home "" || dscl_status=$?
+  _assert_eq "account scope: empty dscl output fails" "1|" "$dscl_status|$REPLY"
+
   termux_account_status=0
   termux_account_home=$(dot_fixture_termux_account_home \
     "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/lib/compat.sh" \
