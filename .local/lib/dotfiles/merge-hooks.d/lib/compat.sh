@@ -54,6 +54,31 @@ dot_config_files_equal() {
   [[ "$left_hash" == "$right_hash" ]]
 }
 
+# Set REPLY to the first home directory in `dscl -read ... NFSHomeDirectory`
+# output. dscl puts every value of an attribute on one line separated by
+# spaces, and macOS gives root two (`/var/root /private/var/root`), so the
+# whole line is not a path. A value that itself contains a space is printed
+# on its own indented line after a bare `NFSHomeDirectory:` instead.
+#
+# The doctor runtime cannot load merge-hook code, so doctor.d/lib/compat.sh
+# carries the same definition; a core test keeps the two identical.
+_dot_dscl_home() {
+  local entry=$1 value
+
+  REPLY=
+  case "$entry" in
+    "NFSHomeDirectory: "*)
+      value=${entry#NFSHomeDirectory: }
+      REPLY=${value%% *}
+      ;;
+    "NFSHomeDirectory:"$'\n'" "*)
+      value=${entry#NFSHomeDirectory:$'\n' }
+      REPLY=${value%%$'\n'*}
+      ;;
+  esac
+  [[ -n "$REPLY" ]]
+}
+
 _dot_account_home() {
   local account entry name _password _uid _gid _gecos home _shell
   local candidate id_command="" getent_command=""
@@ -98,9 +123,7 @@ _dot_account_home() {
 
   if [[ -z "$REPLY" && -x /usr/bin/dscl ]]; then
     entry=$(/usr/bin/dscl /Search -read "/Users/$account" NFSHomeDirectory 2>/dev/null) || entry=
-    case "$entry" in
-      "NFSHomeDirectory: "*) REPLY=${entry#NFSHomeDirectory: } ;;
-    esac
+    _dot_dscl_home "$entry" || REPLY=
   fi
 
   if [[ -z "$REPLY" && -r /etc/passwd ]]; then

@@ -84,6 +84,30 @@ dot_core_test_doctor() {
   _assert_eq "doctor account scope: account HOME resolves" \
     "0" "$doctor_account_home_status"
 
+  # The doctor and merge-hook runtimes each carry a copy of the dscl parser
+  # (neither can load the other's code). The parsing cases live in the
+  # merges shard; here, prove the copies are the same function.
+  _dot_dscl_home "NFSHomeDirectory: /var/root /private/var/root"
+  _assert_eq "doctor account scope: dscl takes the first of several homes" \
+    "/var/root" "$REPLY"
+  doctor_dscl_definition() {
+    env BASH_ENV='' "${BASH:-bash}" -s -- "$1" <<'BASH'
+dot_hook_source() { return 0; }
+dot_doctor_source() { return 0; }
+. "$1" || exit
+declare -f _dot_dscl_home
+BASH
+  }
+  doctor_dscl_hook_copy=$(doctor_dscl_definition \
+    "$REAL_HOME/.local/lib/dotfiles/merge-hooks.d/lib/compat.sh")
+  doctor_dscl_doctor_copy=$(doctor_dscl_definition \
+    "$REAL_HOME/.local/lib/dotfiles/doctor.d/lib/compat.sh")
+  # Two copies that both failed to load would compare equal as empty text.
+  _assert_contains "doctor account scope: dscl parser copy loads" \
+    "_dot_dscl_home ()" "$doctor_dscl_doctor_copy"
+  _assert_eq "doctor account scope: dscl parser matches the merge-hook copy" \
+    "$doctor_dscl_hook_copy" "$doctor_dscl_doctor_copy"
+
   doctor_termux_account_status=0
   doctor_termux_account_home=$(dot_fixture_termux_account_home \
     "$REAL_HOME/.local/lib/dotfiles/doctor.d/lib/compat.sh" \
