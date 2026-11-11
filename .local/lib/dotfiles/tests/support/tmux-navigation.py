@@ -796,8 +796,18 @@ class ImagePasteRoutingTest(AppRoutingFixture):
         inner("-f", "/dev/null", "new-session", "-d", "-s", "nested", "sleep 60")
         self.addCleanup(inner, "kill-server", check=False)
         inner("source-file", str(self.config), check=False)
-        inner_pane = inner("display-message", "-p", "#{pane_id}").stdout.strip()
+        # The fixture HOME lacks the Continuum helper the config's last line
+        # runs; tmux 3.4 and older show that failure in view mode over the
+        # first pane, where the binding would rightly decline. Receive in a
+        # window opened after the load, like the outer fixture's apps.
+        inner_pane = inner(
+            "new-window", "-P", "-F", "#{pane_id}", "-t", "nested:", "sleep 60"
+        ).stdout.strip()
         self.assertTrue(inner_pane.startswith("%"), f"no pane id: {inner_pane!r}")
+        self.assertEqual(
+            inner("display-message", "-p", "-t", inner_pane, "#{pane_in_mode}").stdout.strip(),
+            "0",
+        )
         attach = "exec " + shlex.join(
             ["env", "TERM=tmux-256color", "tmux", "-S", str(inner_socket), "attach", "-t", "nested"]
         )
