@@ -101,32 +101,47 @@ supported setup.
    reaches a remote editor or a remote tmux without this configuration is
    typed into the application (see the known limitations). No `ready` comes
    back, so no image data follows.
-3. **Handshake.** The receiver generates a random id and announces
-   `ready:<id>` through termnav's exact-client outward user-variable path
+3. **Handshake.** The receiver generates a random id (16 lowercase hex
+   digits; WezTerm accepts 8 to 64) and announces `ready:<id>` in the user
+   variable `TERMNAV_PASTE_IMAGE` through termnav's exact-client outward user-variable path
    (the one `request_click` uses, given `--client-pid/--client-tty`), never
    the session's most recent client.
-4. **Transfer with flow control.** WezTerm accepts `ready` only for the armed
-   pane, once, before expiry. It sends the header
-   `<id>:<decoded-length>:<sha256-hex>:`, then the single-line base64 PNG,
-   then `!`. At most 4 KiB is in flight before the first acknowledgement;
-   after that at most 512 KiB unacknowledged. The receiver announces
-   `ack:<id>:<offset>` every 128 KiB. Each announcement is a distinct value
-   (WezTerm fires `user-var-changed` only on change). If acknowledgements stop
-   for 5 s, WezTerm sends `!` and abandons the transfer.
+4. **Transfer with flow control.** WezTerm accepts `ready` only from the
+   armed pane, once, before expiry. The transfer is
+   `<id>:<length>:<sha256>:<base64>!`: `<length>` is the decoded PNG size
+   (8 to 16777216, no sign or leading zero), `<sha256>` is 64 lowercase hex
+   digits, and `<base64>` is standard padded base64 on one line. Until the
+   first proven acknowledgement WezTerm types only the header
+   `<id>:<length>:<sha256>:` (at most 139 bytes of digits, hex and colons),
+   never image data. The receiver announces `ack:<id>:<offset>:<proof>` right
+   after the header and then at least every 128 KiB: `<offset>` counts the
+   transfer bytes it accepted from the first id byte and strictly increases,
+   and `<proof>` is the first 16 hex digits of the SHA-256, which only a
+   reader of the typed header can know. WezTerm accepts an acknowledgement
+   only from the transfer's pane, with its id, the proof and an offset it
+   already sent. It keeps at most 512 KiB in flight beyond the last proven
+   acknowledgement and types at most 32 KiB per timer callback. Each
+   announcement is a distinct value (WezTerm fires `user-var-changed` only on
+   change). After 5 s without an acknowledgement WezTerm sends `!` and
+   abandons the transfer.
 5. **Delivery.** The receiver reads its raw stdin, rejects the first byte
    outside the header or base64 grammar, checks id, length, SHA-256, the size
    cap and the PNG signature, writes the image privately, announces
    `done:<id>`, closes the popup and bracket-pastes the absolute path into the
-   target pane. On any failure it announces `cancel:<id>`, keeps reading and
-   discarding until `!` (bounded by the idle limit) so in-flight bytes never
-   reach the pane, shows a message and writes nothing. WezTerm sends `!` as
-   soon as it sees `cancel`.
+   target pane. On any failure it announces `cancel:<id>`, shows a message and
+   writes nothing, and keeps in-flight bytes from reaching the pane: input
+   whose first byte is a hex digit but whose id is wrong is a foreign
+   transfer, drained until `!` or 30 s; any other first byte (Esc, for
+   example) is a user keystroke, and it waits for 1 s of quiet. WezTerm sends
+   `!` as soon as it sees a `cancel` from the transfer's pane, whatever its
+   id.
 6. **Cleanup.** WezTerm deletes the staged file on done, cancel, abandonment
    or expiry; `stage` prunes stale staged files it owns.
 
 Bounds: if focus moves to another pane mid-transfer, at most the current
-window (512 KiB, 4 KiB before the first acknowledgement) can reach that
-pane's application before acknowledgements stop.
+window (512 KiB beyond the last proven acknowledgement) can reach that pane's
+application before acknowledgements stop; before the first proven
+acknowledgement, only the header can.
 
 ### termnav (owns the protocol, both endpoints and the WezTerm module)
 
@@ -136,7 +151,9 @@ pane's application before acknowledgements stop.
   usable, else `xclip -selection clipboard -t image/png -o` when X is usable),
   checks the PNG signature and a 16 MiB cap, writes the header and base64 text
   to a 0600 file in termnav's private runtime directory and prints its path.
-  Exit 3 when the clipboard holds no PNG or also holds text. Hard timeout 2 s.
+  Exit 3 when the clipboard holds no PNG or also holds text. The clipboard
+  reader programs get 5 s in total; encoding and writing are not timed.
+  Staged files older than 10 minutes are pruned.
 - `termnav paste-image receive --target-pane PANE --client-name NAME
   [--client-pid PID --client-tty TTY]`: the popup endpoint described above.
   Writes `clip-<UTC timestamp>-<random>.png` (0600) under
@@ -161,11 +178,13 @@ pane's application before acknowledgements stop.
 The desktop serves nothing on request. A remote process can only cause an
 image to be sent by announcing `ready` while WezTerm is armed for the pane
 that leads to it, which needs the user's Ctrl-V there within the last 10 s,
-and only once. Residual risks, accepted and documented: another visible pane,
-or a same-user process that can write the client tty, can forge `ready`
-during that window. Without acknowledgements from a real receiver, WezTerm
-then types at most the first 4 KiB of header and base64 into whatever has
-focus before abandoning.
+and only once. Another visible pane, or a same-user process that can write
+the client tty, can still forge `ready` during that window, but it gets only
+the header: advancing past it needs the proof, which only a reader of the
+focused pane's input learns. Residual risk, accepted and documented: whatever
+reads the focused pane's input (the real receiver popup, or an application
+the trigger was forwarded into) can obtain the image, which is equivalent to
+a text paste to that host.
 
 ## Requirements
 
@@ -204,11 +223,14 @@ flow only for an image-only clipboard.
 
 **Applies when:** WezTerm receives a `TERMNAV_PASTE_IMAGE` user variable.
 
-**Obligation:** WezTerm MUST send image data only for a `ready` announcement
-from the pane it armed, within 10 s of arming, and at most once per arm.
+**Obligation:** WezTerm MUST start a transfer only for a `ready`
+announcement from the pane it armed, within 10 s of arming, and at most once
+per arm, and MUST type image data only after a proven acknowledgement.
 
 **Acceptance criteria:** Unarmed, expired, repeated or other-pane
-announcements send nothing.
+announcements send nothing. Before the first proven acknowledgement only the
+header is typed. Acknowledgements from another pane, or with a wrong id, a
+wrong proof or an offset not yet sent, are ignored.
 
 **Verification needs:** WezTerm module test with a stubbed pane.
 
@@ -222,8 +244,9 @@ and WezTerm MUST NOT send data before a receiver announced `ready`.
 
 **Acceptance criteria:** A local pane running a shell or an editor, a pane in
 copy mode and a synchronized window receive neither the trigger nor data;
-mosh and mouse-off SSH/ET are declined with a message; data starts only after
-`ready` and stays within the acknowledgement window.
+mosh and mouse-off SSH/ET are declined with a message; the header starts only
+after `ready`, image data only after a proven acknowledgement, and data stays
+within the acknowledgement window.
 
 **Verification needs:** dotfiles tmux routing test on a private server.
 
@@ -232,8 +255,9 @@ mosh and mouse-off SSH/ET are declined with a message; data starts only after
 **Applies when:** Image bytes are staged, received or written.
 
 **Obligation:** termnav MUST enforce the 16 MiB cap, the PNG signature, the
-id, length and SHA-256 header checks and the 30 s idle limit, and MUST write
-only into a private directory with 0600 files.
+id, length and SHA-256 header checks, the 5 s clipboard reader budget and the
+30 s idle limit, and MUST write only into a private directory with 0600
+files.
 
 **Acceptance criteria:** Oversized, non-PNG, truncated or mismatched payloads
 leave no file and announce `cancel`; a non-private output directory is
@@ -249,6 +273,6 @@ refused.
 send on the synchronous key or event path.
 
 **Acceptance criteria:** Staging runs from a scheduled callback; data is sent
-in bounded chunks from timers.
+from timers in chunks of at most 32 KiB.
 
 **Verification needs:** Source inspection and the WezTerm module test.

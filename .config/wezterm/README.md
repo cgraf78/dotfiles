@@ -187,11 +187,14 @@ Windows configs have no copy of the module, and a missing or failing module
 (for example while `dot update` has not yet installed it) leaves `Ctrl-V` as a
 plain text paste until the next WezTerm config reload.
 
-The desktop serves nothing on request: WezTerm sends an image only to the pane
-where `Ctrl-V` was pressed in the last 10 seconds, once, after its receiver
-answered. Another visible pane, or a same-user process that can write the
-client tty, could forge that answer during the window; without a real
-receiver's acknowledgements at most the first 4 KiB reaches whatever has focus.
+The desktop serves nothing on request: WezTerm starts a transfer only for the
+pane where `Ctrl-V` was pressed in the last 10 seconds, once, after its
+receiver answered. Until the receiver proves it read the header (its first
+acknowledgement carries part of the image's SHA-256), WezTerm types only that
+header, never image data, so a forged answer from another pane or process
+gets nothing more. Whatever reads the focused pane's input (the real receiver,
+or an application the trigger was forwarded into) can obtain the image, which
+is equivalent to a text paste to that host.
 
 ## Routing Contracts
 
