@@ -396,8 +396,8 @@ WezTerm's `Ctrl-V` can hand a clipboard image to an agent in a tmux pane
   reaches an application or several panes.
 - SSH, ET, or a nested tmux with mouse reporting on receives it with
   `send-keys -H`, so a remote or nested tmux running this config routes it
-  again. The check has its own predicate: unlike pane navigation, Vim, Neovim,
-  and fzf never receive it.
+  again. The check has its own predicate: unlike pane navigation, a local
+  Vim, Neovim, or fzf pane never receives it.
 - mosh, and SSH or ET with mouse reporting off (no tmux on the far side),
   decline with a message.
 - Otherwise this tmux is innermost: it opens a small popup running
@@ -406,8 +406,18 @@ WezTerm's `Ctrl-V` can hand a clipboard image to an agent in a tmux pane
   `$XDG_CACHE_HOME/termnav/paste-images` on this host and bracket-pastes its
   absolute path into the pane.
 
-That reaches local tmux and one remote hop over SSH or ET. A forwarded trigger
-that lands in a mouse-aware non-tmux program is harmless: no receiver answers,
-so WezTerm sends nothing. The receiver exits 1 after reporting a failure
-itself, so only other statuses open tmux's error view. The existing `C-v`
-fallback binding is unchanged.
+That reaches local tmux and one remote hop over SSH or ET. The receiver exits
+1 after reporting a failure itself, so only other statuses open tmux's error
+view. The existing `C-v` fallback binding is unchanged.
+
+Known limitations, accepted because remote tmux running this config is the
+supported setup:
+
+- Mouse reporting over SSH or ET is the same gate pane navigation uses, and
+  it cannot tell a remote tmux from another mouse-aware program. A trigger
+  forwarded to remote Neovim or Vim is typed into it: Neovim in insert mode
+  inserts a stray character, and Vim inserts one and leaves insert mode. No
+  receiver answers, so no image data follows.
+- A remote or nested tmux that has not reloaded this config yet has no
+  `user-keys[14]` and passes `^[[777010u` to its application. That window
+  closes when the host's scheduled update reloads tmux.

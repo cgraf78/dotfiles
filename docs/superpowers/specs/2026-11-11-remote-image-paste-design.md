@@ -38,6 +38,21 @@ nothing, locally or remotely.
 - VS Code's integrated terminal, which intercepts Ctrl-V itself.
 - Image formats other than PNG.
 
+## Known limitations
+
+Accepted and documented; remote tmux running this configuration is the
+supported setup.
+
+- Forwarding over SSH or Eternal Terminal trusts mouse reporting, the gate
+  pane navigation already uses. When the mouse-aware program on the far side
+  is not tmux, the trigger reaches it as input: remote Neovim in insert mode
+  inserts a stray character, and Vim inserts a stray character and leaves
+  insert mode.
+- A remote or nested tmux that has not yet reloaded this configuration has
+  no `user-keys[14]` and passes the trigger to its application as
+  `^[[777010u`. This is a rollout window that closes when the remote host's
+  scheduled update reloads tmux.
+
 ## Anti-goals
 
 - Any remote process obtaining a desktop clipboard image without a fresh user
@@ -77,12 +92,15 @@ nothing, locally or remotely.
    when its active pane is in a mode (`pane_in_mode`) or panes are
    synchronized. It forwards the trigger inward with `send-keys -H` when the
    active pane runs SSH, Eternal Terminal or tmux with mouse reporting on (a
-   dedicated predicate: unlike pane navigation, editors and fzf never
-   receive it). It declines mosh, and SSH/ET with mouse reporting off.
+   dedicated predicate: unlike pane navigation, a local editor or fzf never
+   receives it). It declines mosh, and SSH/ET with mouse reporting off.
    Otherwise this layer is innermost and opens a small popup running
-   `termnav paste-image receive` for that pane and client. A forwarded
-   trigger that reaches a non-tmux program with mouse reporting (a remote
-   editor) is harmless: no `ready` ever comes back.
+   `termnav paste-image receive` for that pane and client. Mouse reporting
+   over SSH/ET is the same gate pane navigation uses, and it cannot tell a
+   remote tmux from another mouse-aware program: a forwarded trigger that
+   reaches a remote editor or a remote tmux without this configuration is
+   typed into the application (see the known limitations). No `ready` comes
+   back, so no image data follows.
 3. **Handshake.** The receiver generates a random id and announces
    `ready:<id>` through termnav's exact-client outward user-variable path
    (the one `request_click` uses, given `--client-pid/--client-tty`), never
@@ -199,8 +217,8 @@ announcements send nothing.
 **Applies when:** Any tmux layer receives the trigger key or transfer data.
 
 **Obligation:** Routing MUST forward the trigger only into a nested terminal
-that runs tmux, and WezTerm MUST NOT send data before a receiver announced
-`ready`.
+that runs tmux, as far as mouse reporting can tell (see Known limitations),
+and WezTerm MUST NOT send data before a receiver announced `ready`.
 
 **Acceptance criteria:** A local pane running a shell or an editor, a pane in
 copy mode and a synchronized window receive neither the trigger nor data;
