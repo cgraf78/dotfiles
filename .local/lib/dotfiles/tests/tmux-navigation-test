@@ -388,8 +388,15 @@ _assert_exit 'tmux navigation tab moves go into a foreground transport' 0 "$?"
 # Ctrl-V image paste: WezTerm's trigger key routes through each layer to
 # the innermost tmux. The PTY driver below proves the runtime routes; these
 # pin the key, the fallback predicates, and the text-paste binding it leaves.
-_assert_eq 'tmux image paste defines the trigger key' $'\e[777010u' \
-  "$(tmux_cmd show-options -sv 'user-keys[14]')"
+# tmux releases render the stored ESC differently in show-options (a raw
+# byte, \033, _, ...), so pin only the printable part here. The PTY tests
+# below send the raw bytes and prove they reach the User14 binding.
+image_paste_key=$(tmux_cmd show-options -sv 'user-keys[14]')
+_assert_eq 'tmux image paste defines the trigger key' '[777010u' \
+  "${image_paste_key#"${image_paste_key%\[777010u}"}"
+_assert_contains 'tmux image paste PTY tests send the raw trigger bytes' \
+  'IMAGE_PASTE_TRIGGER = b"\x1b[777010u"' \
+  "$(<"${BASH_SOURCE[0]%/*}/support/tmux-navigation.py")"
 image_paste=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root User14 ' || true)
 _assert_contains 'tmux image paste forwards the exact trigger bytes' \
   'send-keys -H 1b 5b 37 37 37 30 31 30 75' "$image_paste"
