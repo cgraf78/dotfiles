@@ -385,6 +385,51 @@ _assert_exit 'tmux navigation tab moves go to a foreground editor' 0 "$?"
 printf 'S+ ssh 39056 39056\n' | awk -v mouse=0 "$terminal_filter"
 _assert_exit 'tmux navigation tab moves go into a foreground transport' 0 "$?"
 
+# Ctrl-V image paste: WezTerm's trigger key routes through each layer to
+# the innermost tmux. The PTY driver below proves the runtime routes; these
+# pin the key, the fallback predicates, and the text-paste binding it leaves.
+_assert_eq 'tmux image paste defines the trigger key' $'\e[777010u' \
+  "$(tmux_cmd show-options -sv 'user-keys[14]')"
+image_paste=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root User14 ' || true)
+_assert_contains 'tmux image paste forwards the exact trigger bytes' \
+  'send-keys -H 1b 5b 37 37 37 30 31 30 75' "$image_paste"
+_assert_contains 'tmux image paste opens the receiver for the exact client' \
+  'termnav paste-image receive --target-pane #{pane_id} --client-name #{q:client_name} --client-pid #{client_pid} --client-tty #{q:client_tty}' \
+  "$image_paste"
+_assert_contains 'tmux image paste keeps the text paste fallback' \
+  "bind -n C-v run 'clip paste --paste-pane #{pane_id}'" "$fragment_content"
+for owner in nvim vim fzf bash; do
+  _assert_eq "tmux image paste keeps the trigger out of $owner" 0 \
+    "$(detect is_image_paste_inward_native "$owner")"
+done
+inward_filter=$(source_filter is_image_paste_inward)
+mosh_filter=$(source_filter is_image_paste_mosh)
+remote_filter=$(source_filter is_image_paste_remote)
+_assert_contains 'tmux image paste source preserves the inward fallback predicate' \
+  'END { exit !found }' "$inward_filter"
+while IFS='|' read -r expected filter mouse lines description; do
+  case $filter in
+    inward) program=$inward_filter ;;
+    mosh) program=$mosh_filter ;;
+    remote) program=$remote_filter ;;
+  esac
+  printf '%b' "$lines" | awk -v mouse="$mouse" "$program"
+  _assert_exit "tmux image paste fallback: $description" "$expected" "$?"
+done <<'CASES'
+0|inward|1|S+ sh 39056 39056\nS+ ssh 39056 39056\n|forwards into a wrapped mouse-aware SSH
+0|inward|1|S+ bash 39056 39056\nS+ tmux: client 39056 39056\n|forwards into a nested focused tmux
+1|inward|0|S+ sh 39056 39056\nS+ ssh 39056 39056\n|keeps a wrapped SSH shell local
+1|inward|1|S+ nvim 39056 39056\n|keeps a foreground editor local
+1|inward|1|S+ fd 39056 39056\nS+ fzf 39056 39056\n|keeps fzf local
+1|inward|1|S+ bash 39056 39056\nS ssh 39100 39056\n|ignores a background transport
+1|inward|1|S+ mosh-client 39056 39056\n|never forwards into mosh
+0|mosh|1|S+ sh 39056 39056\nS+ mosh-client 39056 39056\n|declines a wrapped mosh
+1|mosh|1|S+ bash 39056 39056\nS mosh-client 39100 39056\n|ignores a background mosh
+0|remote|0|S+ sh 39056 39056\nS+ et 39056 39056\n|declines a wrapped ET without a remote tmux
+1|remote|1|S+ sh 39056 39056\nS+ et 39056 39056\n|leaves a mouse-aware ET to forwarding
+1|remote|0|S+ bash 39056 39056\n|leaves a local shell to the receiver
+CASES
+
 tmux_cmd kill-server >/dev/null 2>&1 || true
 
 if command -v python3 >/dev/null 2>&1; then
@@ -412,6 +457,16 @@ if command -v python3 >/dev/null 2>&1; then
     test_browser_links_go_to_termnav_and_file_links_stay; do
     _assert_contains "tmux navigation PTY tests Ctrl-click routing: $click_test" \
       "$click_test" "$pty_output"
+  done
+  for paste_test in test_a_shell_pane_opens_the_receiver \
+    test_an_editor_never_receives_the_trigger test_copy_mode_declines \
+    test_synchronized_panes_decline \
+    test_mouse_aware_transports_forward_the_trigger \
+    test_transports_without_a_remote_tmux_decline test_mosh_declines \
+    test_a_nested_tmux_receives_the_trigger test_a_missing_termnav_says_so \
+    test_only_unreported_receiver_failures_open_a_view; do
+    _assert_contains "tmux navigation PTY tests image paste routing: $paste_test" \
+      "$paste_test" "$pty_output"
   done
 else
   _pass 'tmux navigation Python unavailable, PTY coverage skipped'
