@@ -147,13 +147,20 @@ Sticky bookkeeping:
   the actor matches the tool's actor, clears `--if waiting`.
 - A child's `SubagentStop`/`StopFailure` clears a waiting mark that child
   raised.
-- The actor's `PostToolUse`/`PostToolUseFailure` also clears a waiting mark
-  it raised (one `[ -e flag ]` test when nothing is sticky): the prompted
-  tool cannot return before its prompt is answered.
+- The `PostToolUse`/`PostToolUseFailure` of the prompted tool itself also
+  clears a waiting mark (one `[ -e flag ]` test when nothing is sticky): the
+  prompted tool cannot return before its prompt is answered, but a parallel
+  sibling's result can. Every `PermissionRequest` records
+  `<epoch> <actor> <tool>` in a per-session `attention-request` file, where
+  the tool is its name plus a hash of `tool_input` without `description`,
+  `answers` and `annotations`. A `permission_prompt` whose actor matches a
+  fresh record, or a Codex `PermissionRequest`, raises with that fingerprint
+  in `attention-tool`, and only a result with the same actor and fingerprint
+  clears. A prompt without one (elicitation, Muse question, OpenCode,
+  Gemini, stale record) is not cleared by tool results.
 - Claude's permission Notification names no `agent_id`, even for a subagent.
   Claude's `PermissionRequest`, which carries it and precedes the
-  Notification by about 6 s, records `<epoch> <actor>` in a per-session
-  `attention-request` file and raises nothing. The Notification uses that
+  Notification by about 6 s, is recorded as above and raises nothing. The Notification uses that
   actor when the record is at most 60 s old, else actor `any`, which every
   actor's activity clears (also used for `elicitation_dialog`). Two actors
   requesting within the window can be confused; the newer one wins.
