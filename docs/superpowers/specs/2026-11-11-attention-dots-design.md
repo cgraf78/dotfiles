@@ -130,7 +130,7 @@ matching how busy is hidden today.
 
 | Event | Result |
 | --- | --- |
-| Notification `permission_prompt`, `elicitation_dialog` (either key spelling: `notification_type` / `notificationType`); Codex `PermissionRequest`; OpenCode `permission.ask` | bell, kind `waiting` |
+| Notification `permission_prompt`, `elicitation_dialog` (either key spelling: `notification_type` / `notificationType`); Muse `question_prompt` (its `request_user_input` dialog); Codex `PermissionRequest`; OpenCode `permission.ask` | bell, kind `waiting` |
 | Notification `idle_prompt` | clear `waiting` (Esc at a prompt); bell `done` only if it wins the existing one-bell-per-prompt-cycle claim (backstop for a Stop that did not ring); repair busy as today |
 | Notification `auth_success` | nothing |
 | any other Notification | bell, kind `done` (as today) |
@@ -162,6 +162,8 @@ Sticky bookkeeping:
   clear runs inside the existing attention lock and current-turn check.
 - Sticky sets from Notification also run under the attention fence so a late
   notification cannot overwrite a newer turn's state.
+- Muse runs no tool hooks for `request_user_input`, so an answered
+  question's `waiting` clears at the root's next tool or its Stop.
 - Gemini reports tools as `BeforeTool`, which telemetry does not observe;
   its yellow lasts until the turn ends. Documented limitation.
 
