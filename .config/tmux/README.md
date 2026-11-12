@@ -119,9 +119,9 @@ directory. `ds` strips host literals such as `#{host}` from
 rather than in that option itself.
 
 The status bar has its own background so the window list reads as a tab
-strip. The current tab is highlighted, a background window that rang the
-bell turns orange until selected, and tabs show `[Z]` for a zoomed pane and
-`[COPY]` while the active pane is in copy mode. `ds` sessions replace
+strip. Only the current tab is highlighted; a background window that wants
+attention shows it through its dots, not a tab color. Tabs show `[Z]` for a
+zoomed pane and `[COPY]` while the active pane is in copy mode. `ds` sessions replace
 `status-left` with their own host-labelled copy, so shared indicators belong
 in the window tabs rather than in `status-left`.
 
@@ -138,8 +138,9 @@ changes only when a pane's state changes.
 | green | done | a turn finished and you have not looked | you look |
 | blue | working | a turn is running and nothing else needs you | the turn ends |
 
-The dots follow each tab's label and badges on the status-bar background, so
-the current tab's blue highlight covers only its label and every color stays
+The current tab is shown in bright, bold, underlined text with no fill. The
+dots follow each tab's label and badges on the status-bar background, never
+underlined, so the highlight covers only the label and every color stays
 visible.
 
 A pane needs attention when its program asked for it. Agent notification
