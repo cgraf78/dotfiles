@@ -447,7 +447,7 @@ if command -v tmux >/dev/null 2>&1; then
     session_menu=$(key_line "$root_keys" MouseDown3StatusLeft)
     # The pane menu opens below the pointer, or above it when it does not fit,
     # rather than over it, where the button coming up would close it.
-    pane_menu_y='-y "#{?#{e|<=:#{e|+:#{popup_mouse_y},#{popup_height}},#{client_height}},#{e|+:#{popup_mouse_y},#{popup_height}},#{e|+:#{popup_mouse_y},1}}"'
+    pane_menu_y='-y "#{?#{e|<=:#{e|+:#{e|+:#{pane_top},#{mouse_y}},#{popup_height}},#{window_height}},#{e|+:#{popup_mouse_y},#{popup_height}},#{e|+:#{popup_mouse_y},1}}"'
     _assert_contains 'tmux: runtime pane menu opens beside the pointer' \
       "-x M $pane_menu_y " "$pane_mouse_menu"
     _assert_eq 'tmux: runtime pane menu items are the same by key and by mouse' \
@@ -460,6 +460,8 @@ if command -v tmux >/dev/null 2>&1; then
     _assert_contains 'tmux: runtime right-click selects the pane before its menu' \
       "select-pane -t= ; display-menu -O -t= -x M $pane_menu_y " \
       "$(key_line "$root_keys" MouseDown3Pane | sed 's/\\"/"/g')"
+    _assert_contains 'tmux: runtime right-click selects the tab before its menu' \
+      'select-window -t = \; display-menu -O ' "$window_mouse_menu"
     _assert_contains 'tmux: runtime right-click passes to a program using the mouse' \
       '#{E:@pane_keeps_right_click}' "$(key_line "$root_keys" MouseDown3Pane)"
     for label in 'Go to the top' 'Search for' 'Copy the line' \

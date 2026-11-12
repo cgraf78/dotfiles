@@ -1920,9 +1920,11 @@ class LeafStyleTest(unittest.TestCase):
         # Clicked low in the pane, the menu opens above the pointer rather
         # than over it, where the button coming up would close it or run the
         # item under the pointer: nothing has run when it comes up, and the
-        # menu is still open for the split.
+        # menu is still open for the split. Row 16 leaves room above for the
+        # menu inside the window: since tmux 3.8 a menu cannot cover the
+        # status line, which older versions let it borrow.
         time.sleep(0.6)
-        self.click_pane(client, text, row=14, opens=b"Close the pane")
+        self.click_pane(client, text, row=16, opens=b"Close the pane")
         client.pump(0.3)
         self.assertEqual("1", self.show(text, "#{window_panes}"))
         self.assertEqual(text, self.client_pane(client))
@@ -2028,10 +2030,11 @@ class LeafStyleTest(unittest.TestCase):
         self.wait_drawn(client, b"Move right", "a right-click on a tab opens its window menu")
         client.send(b"r")
         wait_until(lambda: order() == [first, third, second], "the clicked window moves right")
-        self.assertEqual(first, self.tmux("list-clients", "-F", "#{window_id}").stdout.strip())
+        # A right-click selects the tab, as it selects a pane: since tmux 3.8
+        # a background tab's menu would draw on that hidden window.
+        self.assertEqual(second, self.tmux("list-clients", "-F", "#{window_id}").stdout.strip())
 
-        # Renaming selects the tab clicked, starts from its name and renames
-        # it: prompts show the current window's name.
+        # Renaming starts from the clicked window's name and renames it.
         time.sleep(0.6)
         self.right_click(client, 15, 1)
         self.wait_drawn(client, b"Rename...", "the moved tab's menu opens")

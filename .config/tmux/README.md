@@ -274,9 +274,8 @@ Right-click menus replace tmux's defaults:
 - The window menu (right-click a tab, or `prefix <`) moves the window left or
   right, stopping at the ends as Alt-Shift-[ and ] do, renames it, names it
   automatically again, opens a window or task window, opens the palette, and
-  closes the window after asking, as `prefix X` does. Moving a tab or naming
-  it automatically keeps you where you are; renaming, closing, the task menu
-  and the palette select the tab first.
+  closes the window after asking, as `prefix X` does. Right-clicking a tab
+  selects it first, as right-clicking a pane does.
 - The session menu (right-click the session name) stays close to tmux's:
   next and previous session, renumber, rename, new session or window in the
   pane's directory, and the palette.
