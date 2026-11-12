@@ -791,7 +791,9 @@ class LeafStyleTest(unittest.TestCase):
         # background inside the blue current tab, and the reset after it must
         # restore the tab's own style. pop-default alone does not reset the
         # drawing style, and nested pushes overwrite tmux's own.
-        self.tmux("set-window-option", "window-status-current-style", "fg=#123456,bg=#234567")
+        self.tmux(
+            "set-window-option", "window-status-current-style", "fg=#123456,bg=#234567,underscore"
+        )
         self.tmux("set-window-option", tab, "BEFORE#{E:@window_marker} AFTER")
         rendered = client.redraw()
         # A client without a UTF-8 locale (Alpine CI) draws the dot as tmux's
@@ -802,6 +804,10 @@ class LeafStyleTest(unittest.TestCase):
         self.assertRegex(drawn.group(1), rb"\x1b\[(?:[0-9;:]*;)?48(?:;2;11;41;66|:2::11:41:66)")
         self.assertRegex(drawn.group(2), rb"\x1b\[(?:[0-9;:]*;)?38(?:;2;18;52;86|:2::18:52:86)")
         self.assertRegex(drawn.group(2), rb"\x1b\[(?:[0-9;:]*;)?48(?:;2;35;69;103|:2::35:69:103)")
+        # The current tab is underlined but its dots are not: the underline
+        # stops before the dot and resumes for the rest of the tab.
+        self.assertRegex(drawn.group(1), rb"\x1b\[(?:0|24)?m|\x1b\[[0-9;:]*;24m")
+        self.assertRegex(drawn.group(2), rb"\x1b\[(?:[0-9;:]*;)?4(?:;|:|m)")
         self.tmux("select-pane", "-t", self.inactive)
         wait_until(lambda: self.pending(self.inactive) == "", "failed command acknowledged")
         wait_until(
