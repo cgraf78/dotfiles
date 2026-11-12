@@ -11,5 +11,3 @@ These rules are mandatory for every agent:
   `~/.config/agent-rules/rules.d/`; task-specific detail goes in
   `~/.config/agent-rules/playbooks.d/` with an on-demand index trigger. Never
   edit a generated runtime target.
-- **Rule maintenance:** After changing rules or playbooks, run `dot update` and
-  the relevant dotfiles tests.

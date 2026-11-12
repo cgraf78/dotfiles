@@ -5,7 +5,8 @@
 
 The base client uses `~/.dotfiles` as a separate Git directory with `$HOME` as
 its worktree. Active overlays are discovered from
-`~/.config/dot/overlays.d/*.conf` and use ordinary repository worktrees.
+`~/.config/dot/overlays.d/*.conf` and use ordinary repository worktrees. Full
+documentation: `~/.local/share/doc/dotfiles/dotfiles.md`.
 
 ## Select the correct repository
 
