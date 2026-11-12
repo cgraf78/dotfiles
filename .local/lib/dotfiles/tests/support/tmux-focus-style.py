@@ -796,7 +796,7 @@ class LeafStyleTest(unittest.TestCase):
         rendered = client.redraw()
         # A client without a UTF-8 locale (Alpine CI) draws the dot as tmux's
         # "_" placeholder; the colors around it are what this checks.
-        drawn = re.search(rb"BEFORE (.*?)(?:\xe2\x97\x8f|_)(.*?) AFTER", rendered, re.DOTALL)
+        drawn = re.search(rb"BEFORE(.*?)(?:\xe2\x97\x8f|_)(.*?) AFTER", rendered, re.DOTALL)
         self.assertIsNotNone(drawn, repr(rendered))
         self.assertRegex(drawn.group(1), rb"\x1b\[(?:[0-9;:]*;)?38(?:;2;255;83;112|:2::255:83:112)")
         self.assertRegex(drawn.group(1), rb"\x1b\[(?:[0-9;:]*;)?48(?:;2;11;41;66|:2::11:41:66)")

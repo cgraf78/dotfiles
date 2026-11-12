@@ -138,8 +138,9 @@ changes only when a pane's state changes.
 | green | done | a turn finished and you have not looked | you look |
 | blue | working | a turn is running and nothing else needs you | the turn ends |
 
-On the current tab the dots sit on the status-bar background, so every color
-stays visible against the tab's blue.
+The dots follow each tab's label and badges on the status-bar background, so
+the current tab's blue highlight covers only its label and every color stays
+visible.
 
 A pane needs attention when its program asked for it. Agent notification
 hooks call tmux-tools' `term-notify-sound`, which rings the bell and sets the
