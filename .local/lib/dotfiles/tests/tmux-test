@@ -789,6 +789,13 @@ SH
     tmux_cmd resize-pane -Z -t "$shell_pane"
     _assert_not_contains 'tmux: tab badges clear with their modes' '[' \
       "$(tmux_cmd -u display-message -p -t "$shell_pane" "$current_format")"
+    # Dots mark windows that want attention, so a bell does not restyle the
+    # tab: tmux's default status format skips a bell style of "default".
+    _assert_eq 'tmux: a bell leaves the tab style alone' default \
+      "$(tmux_cmd show-window-options -gv window-status-bell-style)"
+    _assert_contains 'tmux: the status format skips a default bell style' \
+      '#{!=:#{E:window-status-bell-style},default}' \
+      "$(tmux_cmd show-options -gv 'status-format[0]')"
     # A pane marked by term-notify-sound shows a dot on its border and its
     # tab, colored by kind. Without an attached client no pane is the focused
     # leaf, so the marker renders for any marked pane here; the PTY suite

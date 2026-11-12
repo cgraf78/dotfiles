@@ -119,9 +119,9 @@ directory. `ds` strips host literals such as `#{host}` from
 rather than in that option itself.
 
 The status bar has its own background so the window list reads as a tab
-strip. The current tab is highlighted, a background window that rang the
-bell turns orange until selected, and tabs show `[Z]` for a zoomed pane and
-`[COPY]` while the active pane is in copy mode. `ds` sessions replace
+strip. Only the current tab is highlighted; a background window that wants
+attention shows it through its dots, not a tab color. Tabs show `[Z]` for a
+zoomed pane and `[COPY]` while the active pane is in copy mode. `ds` sessions replace
 `status-left` with their own host-labelled copy, so shared indicators belong
 in the window tabs rather than in `status-left`.
 
