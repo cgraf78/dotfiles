@@ -12,11 +12,13 @@ appearance_fixture="$HOME/.config/terminal/settings.json"
 config="$HOME/.config/wezterm/wezterm.lua"
 link_routes="$HOME/.config/wezterm/link-routes.lua"
 public_link_rules="$HOME/.config/wezterm/public-link-rules.lua"
+paste_image="$HOME/.config/wezterm/paste-image.lua"
 termnav_module="$HOME/.config/wezterm/termnav-module.lua"
 attention_module="$HOME/.config/wezterm/attention.lua"
 content=$(cat "$config")
 route_wrapper=$(cat "$link_routes")
 public_rule_wrapper=$(cat "$public_link_rules")
+paste_image_wrapper=$(cat "$paste_image")
 termnav_wrapper=$(cat "$termnav_module")
 alias_content=$(cat "$HOME/.config/shell/interactive.d/50-aliases.sh")
 ripgrep_content=$(cat "$HOME/.config/ripgrep/config")
@@ -186,8 +188,14 @@ _assert_contains "wezterm configures bell rendering through platform policy" \
   "audible_bell = audible_bell," "$content"
 _assert_contains "wezterm delegates open-uri routing to termnav wrapper" \
   'load_config_module("link-routes.lua")' "$content"
-_assert_not_contains "wezterm delegates Termnav user-var routing to its provider" \
-  'wezterm.on("user-var-changed"' "$content"
+# The route provider owns its user variables. wezterm.lua registers exactly one
+# handler of its own, which hands every value to Termnav's image-paste module.
+_assert_eq "wezterm registers one user-var handler, for Termnav image paste" 1 \
+  "$(grep -c 'wezterm.on("user-var-changed"' "$config")"
+_assert_contains "wezterm user-var handler delegates to Termnav image paste" \
+  'paste_image.paste:user_var_changed(window, pane, name, value)' "$content"
+_assert_not_contains "wezterm config does not read the image-paste protocol directly" \
+  "TERMNAV_PASTE_IMAGE" "$content"
 _assert_contains "wezterm key callbacks classify pane ownership once" \
   "termnav_routes.terminal_owner" "$content"
 _assert_not_contains "wezterm key callbacks do not repeat nvim classification" \
@@ -219,6 +227,8 @@ _assert_contains "link route wrapper loads termnav route module" \
   "lib/termnav/wezterm/link-routes.lua" "$route_wrapper"
 _assert_contains "public link wrapper loads termnav public link module" \
   "lib/termnav/wezterm/public-link-rules.lua" "$public_rule_wrapper"
+_assert_contains "image paste wrapper loads termnav image paste module" \
+  "lib/termnav/wezterm/paste-image.lua" "$paste_image_wrapper"
 
 route_copy_home=$(_tmpdir)
 public_copy_home=$(_tmpdir)
@@ -890,6 +900,167 @@ LUA
   )
   _assert_eq "wezterm preserves terminal chords and owns client clipboard actions" \
     "$expected" "$nvim_key_result"
+
+  # Ctrl-V belongs to Termnav's image-paste action when its module loads, and
+  # stays a plain text paste when it does not; Cmd-V is always plain text.
+  paste_home=$(_tmpdir)
+  cp "$config" "$paste_home/.wezterm.lua"
+  cp "$appearance_fixture" "$paste_home/terminal-settings.json"
+  cp "$link_routes" "$paste_home/link-routes.lua"
+  cp "$public_link_rules" "$paste_home/public-link-rules.lua"
+  cp "$paste_image" "$paste_home/paste-image.lua"
+  cp "$termnav_module" "$paste_home/termnav-module.lua"
+  cp "$attention_module" "$paste_home/attention.lua"
+  cat >"$paste_home/termnav-link-routes.lua" <<'LUA'
+return {
+  new = function()
+    return {
+      terminal_owner = function(pane)
+        return pane.route
+      end,
+      setup = function() end,
+      raw_link_uri = function(value) return "nvim-open-raw://" .. value end,
+    }
+  end,
+}
+LUA
+  cat >"$paste_home/termnav-public-link-rules.lua" <<'LUA'
+return {
+  add_public_link_rules = function(rules)
+    return rules
+  end,
+}
+LUA
+  cat >"$paste_home/termnav-paste-image.lua" <<'LUA'
+local mode = os.getenv("TEST_PASTE_MODULE")
+if mode == "missing" then
+  error("termnav module not found through shdeps: lib/termnav/wezterm/paste-image.lua")
+end
+return {
+  new = function(wezterm, options)
+    if mode == "broken" then
+      error("paste-image setup failed")
+    end
+    _G.paste_options = options
+    _G.paste_vars = {}
+    local paste = {}
+    function paste:paste_action()
+      self.action = wezterm.action_callback(function() end)
+      return self.action
+    end
+    function paste:user_var_changed(window, pane, name, value)
+      table.insert(_G.paste_vars, table.concat({ window.id, pane.route, name, value }, ":"))
+      return name == "TERMNAV_PASTE_IMAGE"
+    end
+    _G.paste_object = paste
+    return paste
+  end,
+}
+LUA
+  _wezterm_paste_probe() {
+    local target_triple="$1" module_mode="$2"
+
+    HOME="$paste_home/missing-home" TEST_PASTE_MODULE="$module_mode" _wezterm_lua "
+      local handlers = {}
+      local warnings = {}
+      local fake_action = {
+        DisableDefaultAssignment = { action = 'DisableDefaultAssignment' },
+      }
+      setmetatable(fake_action, {
+        __index = function(_, name)
+          return function(value)
+            return { action = name, value = value }
+          end
+        end,
+      })
+      package.preload.wezterm = function()
+        return {
+          action = fake_action,
+          action_callback = function(fn)
+            return { callback = fn }
+          end,
+          config_dir = '$paste_home',
+          default_hyperlink_rules = function()
+            return {}
+          end,
+          json_parse = parse_json,
+          add_to_config_reload_watch_list = function() end,
+          font_with_fallback = function(names)
+            return names
+          end,
+          glob = function()
+            return {}
+          end,
+          log_warn = function(message)
+            table.insert(warnings, message)
+          end,
+          on = function(name, handler)
+            handlers[name] = handler
+          end,
+          target_triple = '$target_triple',
+        }
+      end
+
+      local function find_binding(keys, key, mods)
+        for _, item in ipairs(keys) do
+          if item.key == key and item.mods == mods then
+            return item.action
+          end
+        end
+        return nil
+      end
+
+      local function describe(action)
+        if action == nil then
+          return 'unbound'
+        elseif _G.paste_object and action == _G.paste_object.action then
+          return 'termnav-paste'
+        end
+        return tostring(action.action) .. ':' .. tostring(action.value)
+      end
+
+      local config_table = dofile('$paste_home/.wezterm.lua')
+      print('ctrl-v=' .. describe(find_binding(config_table.keys, 'v', 'CTRL')))
+      print('cmd-v=' .. describe(find_binding(config_table.keys, 'v', 'SUPER')))
+      local user_var = handlers['user-var-changed']
+      print('user-var=' .. type(user_var))
+      if user_var then
+        user_var({ id = 'w1' }, { route = 'tmux' }, 'TERMNAV_PASTE_IMAGE', 'ready:abc')
+        user_var({ id = 'w1' }, { route = 'tmux' }, 'TERMNAV_OPEN_URL', 'https://example.com/')
+        print('vars=' .. table.concat(_G.paste_vars, ','))
+        print('owner=' .. _G.paste_options.routes.terminal_owner({ route = 'nvim' }))
+      end
+      print('warnings=' .. #warnings)
+      if warnings[1] then
+        print('warning-mentions-text-paste=' .. tostring(warnings[1]:find('Ctrl-V pastes text only', 1, true) ~= nil))
+      end
+    "
+  }
+
+  linux_paste_result=$(_wezterm_paste_probe x86_64-unknown-linux-gnu present)
+  _assert_eq "wezterm Ctrl-V runs the Termnav image paste action on Linux" \
+    "$(printf '%s\n' 'ctrl-v=termnav-paste' 'cmd-v=unbound' \
+      'user-var=function' \
+      'vars=w1:tmux:TERMNAV_PASTE_IMAGE:ready:abc,w1:tmux:TERMNAV_OPEN_URL:https://example.com/' \
+      'owner=nvim' 'warnings=0')" \
+    "$linux_paste_result"
+
+  macos_paste_result=$(_wezterm_paste_probe x86_64-apple-darwin present)
+  _assert_eq "wezterm keeps Cmd-V a plain text paste beside Termnav Ctrl-V on macOS" \
+    "$(printf '%s\n' 'ctrl-v=termnav-paste' 'cmd-v=PasteFrom:Clipboard' \
+      'user-var=function' \
+      'vars=w1:tmux:TERMNAV_PASTE_IMAGE:ready:abc,w1:tmux:TERMNAV_OPEN_URL:https://example.com/' \
+      'owner=nvim' 'warnings=0')" \
+    "$macos_paste_result"
+
+  for paste_mode in missing broken; do
+    fallback_paste_result=$(_wezterm_paste_probe x86_64-apple-darwin "$paste_mode")
+    _assert_eq "wezterm falls back to plain Ctrl-V paste when the Termnav module is $paste_mode" \
+      "$(printf '%s\n' 'ctrl-v=PasteFrom:Clipboard' 'cmd-v=PasteFrom:Clipboard' \
+        'user-var=nil' 'warnings=1' \
+        'warning-mentions-text-paste=true')" \
+      "$fallback_paste_result"
+  done
 
   cp "$link_routes" "$route_copy_home/link-routes.lua"
   cp "$termnav_module" "$route_copy_home/termnav-module.lua"

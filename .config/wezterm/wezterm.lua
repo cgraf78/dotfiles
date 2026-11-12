@@ -165,6 +165,31 @@ termnav_routes = load_config_module("link-routes.lua").new(wezterm, {
   end,
 })
 
+-- Ctrl-V image paste belongs to Termnav: its action pastes the text clipboard
+-- immediately and starts the image transfer only for a tmux pane whose
+-- clipboard holds just an image. A config can activate before the provider
+-- update ships the module, and copied native Windows configs have no copy of
+-- it, so a missing or failing module leaves Ctrl-V as plain text paste.
+local function load_paste_image()
+  local ok, result = pcall(function()
+    -- Sharing the route instance keeps one terminal-owner policy.
+    local paste = load_config_module("paste-image.lua").new(wezterm, { routes = termnav_routes })
+    return { action = paste:paste_action(), paste = paste }
+  end)
+  if ok and result.action ~= nil and type(result.paste.user_var_changed) == "function" then
+    return result
+  end
+
+  if type(wezterm.log_warn) == "function" then
+    wezterm.log_warn(
+      "termnav paste-image unavailable; Ctrl-V pastes text only: "
+        .. tostring(ok and "incomplete module" or result)
+    )
+  end
+  return nil
+end
+local paste_image = load_paste_image()
+
 -- Dotfiles owns key policy; termnav owns the pane metadata protocol that tells
 -- us whether the active pane is currently controlled by nvim.
 local function nvim_tmux_or_wezterm(nvim_key, nvim_mods, tmux_key, tmux_mods, wezterm_action)
@@ -394,7 +419,7 @@ append_all(keys, {
   -- Clipboard
   bind("c", "CTRL", wezterm.action_callback(copy_or_interrupt)),
   bind("c", "CTRL|SHIFT", act.CopyTo("Clipboard")),
-  bind("v", "CTRL", act.PasteFrom("Clipboard")),
+  bind("v", "CTRL", paste_image and paste_image.action or act.PasteFrom("Clipboard")),
 
   -- Tabs / windows
   bind("t", "CTRL", act.SpawnTab("DefaultDomain")),
@@ -423,6 +448,7 @@ if is_macos then
 
     -- Clipboard
     bind("c", "SUPER", act.CopyTo("Clipboard")),
+    -- Cmd-V stays a plain text paste; Ctrl-V also carries clipboard images.
     bind("v", "SUPER", act.PasteFrom("Clipboard")),
 
     -- Tabs / windows
@@ -459,6 +485,16 @@ end
 -- only exposes this behavior through GUI click events, which are hard to cover
 -- in the dotfiles test suite.
 termnav_routes.setup()
+
+-- Termnav's image receiver answers through a user variable; its module checks
+-- that the answer comes from the pane Ctrl-V armed. WezTerm runs this and the
+-- route handler from setup() above for every change, and each ignores names
+-- it does not own.
+if paste_image then
+  wezterm.on("user-var-changed", function(window, pane, name, value)
+    paste_image.paste:user_var_changed(window, pane, name, value)
+  end)
+end
 
 -- =============================================================================
 -- Terminal bell

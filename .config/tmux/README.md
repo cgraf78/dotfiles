@@ -413,3 +413,40 @@ cycle and the previous custom pipeline is removed on reload. Extracted copies
 therefore do not enter `clip` history. Upstream's public mode still uses
 implicit client selection; no custom plugin fork or exact-client claim is
 introduced here.
+
+## Image paste
+
+WezTerm's `Ctrl-V` can hand a clipboard image to an agent in a tmux pane
+(see the WezTerm README). It sends the private trigger key `user-keys[14]`
+(`User14`), and every tmux layer routes it once:
+
+- A pane in a mode such as copy mode, or a window with synchronized panes,
+  declines with a message, so neither the trigger nor the transfer behind it
+  reaches an application or several panes.
+- SSH, ET, or a nested tmux with mouse reporting on receives it with
+  `send-keys -H`, so a remote or nested tmux running this config routes it
+  again. The check has its own predicate: unlike pane navigation, a local
+  Vim, Neovim, or fzf pane never receives it.
+- mosh, and SSH or ET with mouse reporting off (no tmux on the far side),
+  decline with a message.
+- Otherwise this tmux is innermost: it opens a small popup running
+  `termnav paste-image receive` for the active pane and this exact client.
+  The receiver saves the image as a private PNG under
+  `$XDG_CACHE_HOME/termnav/paste-images` on this host and bracket-pastes its
+  absolute path into the pane.
+
+That reaches local tmux and one remote hop over SSH or ET. The receiver exits
+1 after reporting a failure itself, so only other statuses open tmux's error
+view. The existing `C-v` fallback binding is unchanged.
+
+Known limitations, accepted because remote tmux running this config is the
+supported setup:
+
+- Mouse reporting over SSH or ET is the same gate pane navigation uses, and
+  it cannot tell a remote tmux from another mouse-aware program. A trigger
+  forwarded to remote Neovim or Vim is typed into it: Neovim in insert mode
+  inserts a stray character, and Vim inserts one and leaves insert mode. No
+  receiver answers, so no image data follows.
+- A remote or nested tmux that has not reloaded this config yet has no
+  `user-keys[14]` and passes `^[[777010u` to its application. That window
+  closes when the host's scheduled update reloads tmux.

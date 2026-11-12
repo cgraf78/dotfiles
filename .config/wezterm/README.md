@@ -177,6 +177,35 @@ its buffer and publishes them to a capable outer terminal with OSC 52. The
 owns OSC 52 delivery, avoiding a second clipboard writer. Plain `Ctrl-V` in a
 non-WezTerm/non-VS Code local terminal remains supported through `clip paste`.
 
+### Image paste
+
+`Ctrl-V` also hands a clipboard image to a coding agent in a tmux pane, which
+attaches an image when its file path is pasted. `paste-image.lua` loads
+Termnav's module through `termnav-module.lua`, like `link-routes.lua`. Its
+action always pastes the text clipboard first, immediately; only when the pane
+is tmux-owned and the clipboard holds an image and no text does it stage the
+image as PNG and send tmux a private trigger key. The innermost tmux (local,
+or one remote hop over SSH or ET) answers from a receiver popup, WezTerm types
+the image into that popup in acknowledged chunks, and the receiver saves it
+privately on that host and pastes its path into the pane. The `user-var-changed`
+handler in `wezterm.lua` passes the receiver's answers to the module.
+
+Mosh, a remote host without tmux, chains with more than one remote hop, and
+non-PNG formats are not supported; a clipboard holding both text and an image
+pastes the text. `Cmd-V` on macOS stays a plain text paste. Copied native
+Windows configs have no copy of the module, and a missing or failing module
+(for example while `dot update` has not yet installed it) leaves `Ctrl-V` as a
+plain text paste until the next WezTerm config reload.
+
+The desktop serves nothing on request: WezTerm starts a transfer only for the
+pane where `Ctrl-V` was pressed in the last 10 seconds, once, after its
+receiver answered. Until the receiver proves it read the header (its first
+acknowledgement carries part of the image's SHA-256), WezTerm types only that
+header, never image data, so a forged answer from another pane or process
+gets nothing more. Whatever reads the focused pane's input (the real receiver,
+or an application the trigger was forwarded into) can obtain the image, which
+is equivalent to a text paste to that host.
+
 ## Routing Contracts
 
 The same link shapes are recognized in three places: WezTerm's Lua
