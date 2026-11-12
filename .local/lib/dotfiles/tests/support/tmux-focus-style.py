@@ -702,6 +702,40 @@ class LeafStyleTest(unittest.TestCase):
     def pending(self, pane: str) -> str:
         return self.tmux("show-options", "-pqv", "-t", pane, "@term_notify_pending").stdout.strip()
 
+    def program_pane(self, name: str, *, window: bool = False) -> str:
+        """Start a pane whose foreground command reports as NAME.
+
+        The program is a copy of bash, so pane_current_command reports the
+        copy's name on every platform, and the trailing no-op keeps bash from
+        exec-ing sleep in its place.
+        """
+        tools = self.root / "programs"
+        tools.mkdir(exist_ok=True)
+        program = tools / name
+        if not program.exists():
+            bash = shutil.which("bash")
+            self.assertIsNotNone(bash, "bash is required for fake programs")
+            shutil.copy2(str(bash), program)
+        command = shlex.join([str(program), "-c", "sleep 30; :"])
+        if window:
+            created = self.tmux("new-window", "-d", "-P", "-F", "#{pane_id}", command)
+        else:
+            created = self.tmux(
+                "split-window", "-d", "-t", self.active, "-P", "-F", "#{pane_id}", command
+            )
+        pane = created.stdout.strip()
+        self.assertRegex(pane, r"^%[0-9]+$", "tmux returned no pane id")
+        wait_until(
+            lambda: (
+                self.tmux(
+                    "display-message", "-p", "-t", pane, "#{pane_current_command}"
+                ).stdout.strip()
+                == name
+            ),
+            f"{name} becomes the pane's foreground command",
+        )
+        return pane
+
     def test_pending_panes_are_marked_until_visited(self) -> None:
         if not self.supports_hook("pane-focus-in"):
             self.skipTest("tmux does not expose pane focus hooks")
@@ -712,12 +746,16 @@ class LeafStyleTest(unittest.TestCase):
         client.set_focus(True)
         tab = "window-status-current-format"
 
-        # An agent beside the focused pane notified: its border and the
-        # current tab both say so.
-        self.tmux("set-option", "-p", "-t", self.inactive, "@term_notify_pending", "1")
-        self.assertIn("●", self.expand(client.tty, self.inactive, "pane-border-format"))
-        self.assertIn(" ●", self.expand(client.tty, self.active, tab))
-        self.assertNotIn("●", self.expand(client.tty, self.active, "pane-border-format"))
+        # An agent beside the focused pane finished a turn: its border and the
+        # current tab both show a green dot. The legacy value 1 means done.
+        for value in ("done", "1"):
+            with self.subTest(value=value):
+                self.tmux("set-option", "-p", "-t", self.inactive, "@term_notify_pending", value)
+                self.assertIn(
+                    "#addb67", self.expand(client.tty, self.inactive, "pane-border-format")
+                )
+                self.assertIn("#addb67]●", self.expand(client.tty, self.active, tab))
+                self.assertNotIn("●", self.expand(client.tty, self.active, "pane-border-format"))
 
         # Visiting the pane acknowledges it.
         self.tmux("select-pane", "-t", self.inactive)
@@ -726,7 +764,7 @@ class LeafStyleTest(unittest.TestCase):
 
         # A pane that notified while focused is not advertised, and leaving
         # it does not light it up.
-        self.tmux("set-option", "-p", "-t", self.inactive, "@term_notify_pending", "1")
+        self.tmux("set-option", "-p", "-t", self.inactive, "@term_notify_pending", "done")
         self.assertNotIn("●", self.expand(client.tty, self.inactive, tab))
         self.assertNotIn("●", self.expand(client.tty, self.inactive, "pane-border-format"))
         self.tmux("select-pane", "-t", self.active)
@@ -735,24 +773,35 @@ class LeafStyleTest(unittest.TestCase):
         # While the terminal is unfocused the active pane is not being looked
         # at, so it shows as pending until the terminal regains focus.
         client.set_focus(False)
-        self.tmux("set-option", "-p", "-t", self.active, "@term_notify_pending", "1")
+        self.tmux("set-option", "-p", "-t", self.active, "@term_notify_pending", "done")
         self.assertIn("●", self.expand(client.tty, self.active, "pane-border-format"))
         client.set_focus(True)
         wait_until(lambda: self.pending(self.active) == "", "pending cleared on refocus")
 
-        # A failed command in the side pane carries a red status until visited.
+        # A failed command in the side pane carries a red dot and its exit
+        # status until visited.
         self.tmux("set-option", "-p", "-t", self.inactive, "@term_notify_exit_status", "2")
-        self.tmux("set-option", "-p", "-t", self.inactive, "@term_notify_pending", "1")
-        self.assertIn("! exit 2", self.expand(client.tty, self.inactive, "pane-border-format"))
-        self.assertIn(" !", self.expand(client.tty, self.active, tab))
-        # Check drawn colors, not just format strings: pop-default alone does
-        # not reset the drawing style, and nested pushes overwrite tmux's own.
+        self.tmux("set-option", "-p", "-t", self.inactive, "@term_notify_pending", "done")
+        self.assertIn(
+            "#ff5370,bold]● exit 2", self.expand(client.tty, self.inactive, "pane-border-format")
+        )
+        self.assertIn("#ff5370]●", self.expand(client.tty, self.active, tab))
+        self.assertNotIn("#addb67", self.expand(client.tty, self.active, tab))
+        # Check drawn colors, not just format strings: the dot sits on the bar
+        # background inside the blue current tab, and the reset after it must
+        # restore the tab's own style. pop-default alone does not reset the
+        # drawing style, and nested pushes overwrite tmux's own.
         self.tmux("set-window-option", "window-status-current-style", "fg=#123456,bg=#234567")
         self.tmux("set-window-option", tab, "BEFORE#{E:@window_marker} AFTER")
         rendered = client.redraw()
-        suffix = re.search(rb" !(.*?) AFTER", rendered, re.DOTALL)
-        self.assertIsNotNone(suffix, repr(rendered))
-        self.assertRegex(suffix.group(1), rb"\x1b\[38(?:;2;18;52;86|:2::18:52:86)m")
+        # A client without a UTF-8 locale (Alpine CI) draws the dot as tmux's
+        # "_" placeholder; the colors around it are what this checks.
+        drawn = re.search(rb"BEFORE (.*?)(?:\xe2\x97\x8f|_)(.*?) AFTER", rendered, re.DOTALL)
+        self.assertIsNotNone(drawn, repr(rendered))
+        self.assertRegex(drawn.group(1), rb"\x1b\[(?:[0-9;:]*;)?38(?:;2;255;83;112|:2::255:83:112)")
+        self.assertRegex(drawn.group(1), rb"\x1b\[(?:[0-9;:]*;)?48(?:;2;11;41;66|:2::11:41:66)")
+        self.assertRegex(drawn.group(2), rb"\x1b\[(?:[0-9;:]*;)?38(?:;2;18;52;86|:2::18:52:86)")
+        self.assertRegex(drawn.group(2), rb"\x1b\[(?:[0-9;:]*;)?48(?:;2;35;69;103|:2::35:69:103)")
         self.tmux("select-pane", "-t", self.inactive)
         wait_until(lambda: self.pending(self.inactive) == "", "failed command acknowledged")
         wait_until(
@@ -763,7 +812,183 @@ class LeafStyleTest(unittest.TestCase):
             ),
             "acknowledged failure status cleared",
         )
-        self.assertNotIn("! exit", self.expand(client.tty, self.inactive, "pane-border-format"))
+        self.assertNotIn("exit", self.expand(client.tty, self.inactive, "pane-border-format"))
+
+    def test_attention_predicates_keep_the_publisher_invariants(self) -> None:
+        """term-pane-state rejects a whole snapshot if a pane breaks these."""
+        client = Client(self)
+        self.clients.append(client)
+        if not self.supports_client_format_context(client.tty):
+            self.skipTest("tmux does not support client-targeted format expansion")
+        client.set_focus(True)
+        shell = self.program_pane("zsh")
+        predicates = "#{E:@pane_pending}#{E:@pane_waiting}#{E:@pane_failed}#{E:@pane_busy}"
+        for pane, seen, at_shell in (
+            (self.active, True, False),
+            (self.inactive, False, False),
+            (shell, False, True),
+        ):
+            for kind in ("", "1", "done", "waiting", "blocked", "later"):
+                for exit_status in ("", "2"):
+                    for busy in ("", "1"):
+                        for option, value in (
+                            ("@term_notify_pending", kind),
+                            ("@term_notify_exit_status", exit_status),
+                            ("@term_busy", busy),
+                        ):
+                            if value:
+                                self.tmux("set-option", "-p", "-t", pane, option, value)
+                            else:
+                                self.tmux("set-option", "-pu", "-t", pane, option)
+                        sticky = kind in ("waiting", "blocked")
+                        marked = bool(kind) and not (sticky and at_shell) and not seen
+                        failed = marked and (
+                            kind == "blocked" or (not sticky and bool(exit_status))
+                        )
+                        waiting = marked and kind == "waiting"
+                        expected = "".join(
+                            "1" if flag else "0"
+                            for flag in (marked, waiting, failed, busy and not at_shell)
+                        )
+                        context = (
+                            f"{pane} seen={seen} shell={at_shell} {kind!r} {exit_status!r} {busy!r}"
+                        )
+                        with self.subTest(context=context):
+                            # The publisher's two views: the client's own
+                            # pane, and list-panes without client context.
+                            self.assertEqual(
+                                expected,
+                                self.tmux(
+                                    "display-message",
+                                    "-c",
+                                    client.tty,
+                                    "-p",
+                                    "-t",
+                                    pane,
+                                    predicates,
+                                ).stdout.strip(),
+                            )
+                            if not seen:
+                                listed = self.tmux(
+                                    "list-panes", "-s", "-F", f"#{{pane_id}} {predicates}"
+                                ).stdout.split()
+                                self.assertEqual(expected, listed[listed.index(pane) + 1])
+            for option in ("@term_notify_pending", "@term_notify_exit_status", "@term_busy"):
+                self.tmux("set-option", "-pu", "-t", pane, option)
+
+    def test_a_glance_keeps_attention_that_needs_an_action(self) -> None:
+        if not self.supports_hook("pane-focus-in"):
+            self.skipTest("tmux does not expose pane focus hooks")
+        client = Client(self)
+        self.clients.append(client)
+        if not self.supports_client_format_context(client.tty):
+            self.skipTest("tmux does not support client-targeted format expansion")
+        client.set_focus(True)
+        tab = "window-status-current-format"
+        agent = self.program_pane("claude")
+        sandboxed = self.program_pane("bwrap")
+
+        # A waiting agent is yellow and a blocked one red, beside the pane you
+        # are in. A visit hides the dot only while you look.
+        for kind, color in (("waiting", "#ffcb6b"), ("blocked", "#ff5370")):
+            with self.subTest(kind=kind):
+                self.tmux("set-option", "-p", "-t", agent, "@term_notify_pending", kind)
+                self.assertIn(
+                    f"{color},bold]●", self.expand(client.tty, agent, "pane-border-format")
+                )
+                self.assertNotIn("exit", self.expand(client.tty, agent, "pane-border-format"))
+                self.assertIn(f"{color}]●", self.expand(client.tty, self.active, tab))
+                self.tmux("select-pane", "-t", agent)
+                wait_until(
+                    lambda: (
+                        self.tmux(
+                            "display-message", "-c", client.tty, "-p", "#{pane_id}"
+                        ).stdout.strip()
+                        == agent
+                    ),
+                    "the agent pane is selected",
+                )
+                client.pump(0.1)
+                self.assertEqual(kind, self.pending(agent))
+                self.assertNotIn("●", self.expand(client.tty, agent, tab))
+                self.assertEqual("0", self.expand(client.tty, agent, "@pane_pending"))
+                self.tmux("select-pane", "-t", self.active)
+                client.pump(0.1)
+                self.assertEqual(kind, self.pending(agent))
+                self.assertIn(f"{color}]●", self.expand(client.tty, self.active, tab))
+
+        # Focus-out acknowledges the pane losing focus, never the one gaining
+        # it: a hook that resolved the wrong pane would leave the done mark
+        # behind and clear the waiting agent instead.
+        self.tmux("set-option", "-p", "-t", agent, "@term_notify_pending", "waiting")
+        self.tmux("set-option", "-p", "-t", self.active, "@term_notify_pending", "done")
+        self.tmux("set-option", "-p", "-t", self.active, "@term_notify_exit_status", "3")
+        self.tmux("select-pane", "-t", agent)
+        wait_until(lambda: self.pending(self.active) == "", "focus-out clears the pane it leaves")
+        wait_until(
+            lambda: (
+                not self.tmux(
+                    "show-options", "-pqv", "-t", self.active, "@term_notify_exit_status"
+                ).stdout.strip()
+            ),
+            "focus-out clears the exit status it leaves",
+        )
+        self.assertEqual("waiting", self.pending(agent))
+        # And focus-in on a done pane clears it while leaving a sticky one.
+        self.tmux("set-option", "-p", "-t", self.active, "@term_notify_pending", "done")
+        self.tmux("select-pane", "-t", self.active)
+        wait_until(lambda: self.pending(self.active) == "", "focus-in clears a done pane")
+        self.assertEqual("waiting", self.pending(agent))
+
+        # A sandboxed agent reports its wrapper's name; its sticky mark stays.
+        self.tmux("set-option", "-p", "-t", sandboxed, "@term_notify_pending", "waiting")
+        self.tmux("select-pane", "-t", sandboxed)
+        self.tmux("select-pane", "-t", self.active)
+        client.pump(0.1)
+        self.assertEqual("waiting", self.pending(sandboxed))
+
+        # Another window's waiting agent survives selecting that window too.
+        background = self.program_pane("codex", window=True)
+        self.tmux("set-option", "-p", "-t", background, "@term_notify_pending", "blocked")
+        self.assertIn("#ff5370]●", self.expand(client.tty, background, "window-status-format"))
+        self.tmux("select-window", "-t", background)
+        self.tmux("last-window")
+        client.pump(0.1)
+        self.assertEqual("blocked", self.pending(background))
+
+    def test_sticky_attention_ends_with_its_agent(self) -> None:
+        if not self.supports_hook("pane-focus-in"):
+            self.skipTest("tmux does not expose pane focus hooks")
+        client = Client(self)
+        self.clients.append(client)
+        if not self.supports_client_format_context(client.tty):
+            self.skipTest("tmux does not support client-targeted format expansion")
+        client.set_focus(True)
+        tab = "window-status-current-format"
+
+        # A pane back at its shell cannot still run the agent that is waiting
+        # or blocked, so the mark shows nothing there, and a visit clears it.
+        shell = self.program_pane("zsh")
+        for kind in ("waiting", "blocked"):
+            with self.subTest(kind=kind):
+                self.tmux("set-option", "-p", "-t", shell, "@term_notify_pending", kind)
+                self.assertNotIn("●", self.expand(client.tty, shell, "pane-border-format"))
+                self.assertNotIn("●", self.expand(client.tty, self.active, tab))
+                self.assertEqual("0", self.expand(client.tty, shell, "@pane_pending"))
+                self.tmux("select-pane", "-t", shell)
+                wait_until(lambda: self.pending(shell) == "", "a visit clears the agent's leftover")
+                self.tmux("select-pane", "-t", self.active)
+
+        # Another program that is not an agent shows a leftover until a visit
+        # clears it; a later vim in that pane shows nothing.
+        program = self.program_pane("vim")
+        self.tmux("set-option", "-p", "-t", program, "@term_notify_pending", "waiting")
+        self.assertIn("#ffcb6b]●", self.expand(client.tty, self.active, tab))
+        self.tmux("select-pane", "-t", program)
+        wait_until(lambda: self.pending(program) == "", "a visit clears a non-agent's mark")
+        self.tmux("select-pane", "-t", self.active)
+        self.assertNotIn("●", self.expand(client.tty, self.active, tab))
+        self.assertNotIn("●", self.expand(client.tty, program, "pane-border-format"))
 
     def test_background_window_agents_mark_their_tab(self) -> None:
         client = Client(self)
@@ -778,9 +1003,20 @@ class LeafStyleTest(unittest.TestCase):
         ).stdout.strip()
         self.tmux("set-option", "-p", "-t", background, "@term_notify_pending", "1")
         self.assertEqual("1", self.expand(client.tty, background, "@pane_pending"))
-        self.assertIn(" ●", self.expand(client.tty, background, "window-status-format"))
+        self.assertIn("#addb67]●", self.expand(client.tty, background, "window-status-format"))
+        # A busy agent there is blue only while it shows no attention.
+        self.tmux("set-option", "-p", "-t", background, "@term_busy", "1")
+        self.assertNotIn("#82aaff", self.expand(client.tty, background, "window-status-format"))
+        self.tmux("set-option", "-p", "-t", background, "@term_notify_pending", "waiting")
+        self.assertEqual("1", self.expand(client.tty, background, "@pane_waiting"))
+        self.assertIn("#ffcb6b]●", self.expand(client.tty, background, "window-status-format"))
+        self.tmux("set-option", "-p", "-t", background, "@term_notify_pending", "1")
         self.tmux("select-window", "-t", background)
         wait_until(lambda: self.pending(background) == "", "pending cleared on window visit")
+        # The visited agent is still working: its own tab now shows blue.
+        self.assertIn(
+            "#82aaff]●", self.expand(client.tty, background, "window-status-current-format")
+        )
 
     def test_another_focused_client_does_not_strand_a_mark(self) -> None:
         if not self.supports_hook("client-focus-in"):
@@ -829,34 +1065,42 @@ class LeafStyleTest(unittest.TestCase):
         if not self.supports_client_format_context(client.tty):
             self.skipTest("tmux does not support client-targeted format expansion")
         client.set_focus(True)
-        background = self.tmux(
-            "new-window", "-d", "-P", "-F", "#{pane_id}", "sleep 30"
+        waiting = self.program_pane("claude")
+        blocked = self.program_pane("codex", window=True)
+        done = self.tmux(
+            "split-window", "-d", "-t", blocked, "-P", "-F", "#{pane_id}", "sleep 30"
         ).stdout.strip()
-        for pane in (background, self.inactive):
-            self.tmux("set-option", "-p", "-t", pane, "@term_notify_pending", "1")
+        self.assertRegex(done, r"^%[0-9]+$", "tmux returned no pane id")
+        self.tmux("set-option", "-p", "-t", waiting, "@term_notify_pending", "waiting")
+        self.tmux("set-option", "-p", "-t", blocked, "@term_notify_pending", "blocked")
+        self.tmux("set-option", "-p", "-t", done, "@term_notify_pending", "done")
 
-        # Tab order wins over the order the panes asked: the pane beside you
-        # in window 1 comes before the one in window 2.
+        def jump(expected: str, description: str) -> None:
+            self.press(client, b"a")
+            wait_until(lambda: self.current_pane(client) == expected, description)
+
+        # Severity wins over tab order: red in window 2 comes before yellow
+        # beside you in window 1, and green comes last.
+        jump(blocked, "jump to the red pane first")
+        self.assertEqual("blocked", self.pending(blocked))
+        jump(waiting, "jump on to the yellow pane")
+        self.assertEqual("waiting", self.pending(waiting))
+        jump(done, "jump on to the green pane")
+        wait_until(lambda: self.pending(done) == "", "arrival acknowledges the green pane")
+        # Sticky panes stay marked, so repeated presses cycle through them
+        # rather than bouncing between the first two.
+        jump(blocked, "wrap around to the red pane")
+        jump(waiting, "cycle on to the yellow pane")
+        jump(blocked, "cycle back to the red pane")
+
+        # With only the current pane left the key says so and stays put.
+        self.tmux("set-option", "-pu", "-t", waiting, "@term_notify_pending")
         self.press(client, b"a")
         wait_until(
-            lambda: self.current_pane(client) == self.inactive, "jump to the first pending pane"
-        )
-        wait_until(lambda: self.pending(self.inactive) == "", "arrival acknowledges the pane")
-        self.assertEqual("1", self.pending(background))
-
-        self.press(client, b"a")
-        wait_until(
-            lambda: self.current_pane(client) == background, "jump into the background window"
-        )
-        wait_until(lambda: self.pending(background) == "", "arrival acknowledges the window's pane")
-
-        # With nothing pending the key says so and stays put.
-        self.press(client, b"a")
-        wait_until(
-            lambda: "Nothing is waiting" in self.tmux("show-messages").stdout,
+            lambda: "Nothing else is waiting" in self.tmux("show-messages").stdout,
             "empty-queue message",
         )
-        self.assertEqual(background, self.current_pane(client))
+        self.assertEqual(blocked, self.current_pane(client))
 
     def test_prefix_j_and_J_move_panes_between_windows(self) -> None:
         client = Client(self)
