@@ -880,8 +880,15 @@ SH
     tmux_cmd set-option -pu -t "$shell_pane" @term_busy
 
     # The containing window must also represent work and attention behind a
-    # nested client, from exactly the leases term-pane-state counts.
-    lease_now=$(tmux_cmd display-message -p '#{T:@child_clock}')
+    # nested client, from exactly the leases term-pane-state counts. The
+    # freshness window has exact one-second edges, so pin the predicate's
+    # clock (a literal has no strftime codes): a live clock can tick between
+    # building a lease and drawing it and move an edge case across the edge.
+    # One live-clock case below proves the real %s clock afterwards.
+    lease_now=1000000000
+    tmux_cmd set-option -g @child_clock "$lease_now"
+    _assert_eq 'tmux: a pinned lease clock reads back exactly' "$lease_now" \
+      "$(tmux_cmd display-message -p '#{E:@child_now}')"
     lease_expiry=$((lease_now + 15))
     child_marker() {
       if [[ -n $2 ]]; then
@@ -902,6 +909,8 @@ SH
       "yellow|$lease_expiry:0:1:0|$lease_expiry:1" \
       "expired|$((lease_now - 1)):2:3:1|$lease_expiry:1" \
       "too far ahead|$((lease_now + 31)):2:3:1|" \
+      "at the far edge|$((lease_now + 30)):0:1:0|" \
+      "expiring now|$lease_now:0:1:0|" \
       "expired waiting|$lease_expiry:2:3:1|$((lease_now - 1)):1" \
       "failed over pending|$lease_expiry:0:1:2|" \
       "malformed|bad:1:1:1|$lease_expiry:1" \
@@ -913,7 +922,7 @@ SH
           ;;
         'all four') expected=" #[bg=#0b2942]$dot_red$dot_yellow$dot_green$dot_blue#[default]" ;;
         'red yellow blue') expected=" #[bg=#0b2942]$dot_red$dot_yellow$dot_blue#[default]" ;;
-        green) expected=" #[bg=#0b2942]$dot_green#[default]" ;;
+        green | 'at the far edge') expected=" #[bg=#0b2942]$dot_green#[default]" ;;
         blue) expected=" #[bg=#0b2942]$dot_blue#[default]" ;;
         yellow) expected=" #[bg=#0b2942]$dot_yellow#[default]" ;;
         *) expected='' ;;
@@ -928,6 +937,18 @@ SH
           "$expected" "$(tab_marker)"
       fi
     done
+    tmux_cmd set-option -g @child_clock '%s'
+    live_now=$(tmux_cmd display-message -p '#{E:@child_now}')
+    # term-pane-state compares leases with date +%s; allow a tick between.
+    clock_skew=$(($(date +%s) - ${live_now:-0}))
+    if ((clock_skew >= 0 && clock_skew <= 2)); then
+      _pass 'tmux: the lease clock is the epoch second'
+    else
+      _fail "tmux: the lease clock is the epoch second (got '$live_now')"
+    fi
+    _assert_eq 'tmux: nested lease (live clock) marks its containing window' \
+      " #[bg=#0b2942]$dot_yellow#[default]" \
+      "$(child_marker "$((live_now + 15)):0:1:0" "$((live_now + 15)):1")"
     tmux_cmd set-option -pu -t "$agent_pane" @termnav_child_attention
     tmux_cmd set-option -pu -t "$agent_pane" @termnav_child_waiting
 
