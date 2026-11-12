@@ -10,7 +10,7 @@ local windows = {}
 local dots = {
   { key = "failed", color = "#ff5370" },
   { key = "waiting", color = "#ffcb6b" },
-  { key = "done", color = "#addb67" },
+  { key = "done", color = "#22da6e" },
   { key = "working", color = "#82aaff" },
 }
 

@@ -38,7 +38,7 @@ attached tmux client: red when any pane failed or is blocked (`failed`),
 yellow when an agent waits for an answer (`waiting`), green for the rest of
 `pending` (done, unseen), and blue for `working`, which counts only panes
 with no attention. A tab shows one dot per state present, most severe first,
-in the night-owl colors `#ff5370`, `#ffcb6b`, `#addb67` and `#82aaff`. When a
+in the night-owl colors `#ff5370`, `#ffcb6b`, `#22da6e` and `#82aaff`. When a
 tab is too narrow, the dots keep their room ahead of the index and title, the
 most severe first. Snapshots from publishers that predate `waiting` omit it,
 which reads as 0; a snapshot whose `failed + waiting` exceeds `pending` is

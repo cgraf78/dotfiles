@@ -396,7 +396,7 @@ if command -v tmux >/dev/null 2>&1; then
     pending_border=$(tmux_cmd -u display-message -p -t "$inactive_pane" "$pane_border_format")
     tmux_cmd set-option -pu -t "$inactive_pane" @term_notify_pending
     _assert_contains 'tmux: pending marker follows the command targets' \
-      "#[fg=#898989] $inactive_targets  #[fg=#addb67" "$pending_border"
+      "#[fg=#898989] $inactive_targets  #[fg=#22da6e" "$pending_border"
     # ds strips host literals from pane-border-format to avoid repeating its
     # session host label, so host comparisons must stay in user options.
     for host_literal in '#{host' '#H'; do
@@ -801,11 +801,11 @@ SH
     # leaf, so the marker renders for any marked pane here; the PTY suite
     # covers focus. The agent fixture runs a program, not a shell.
     dot_red='#[fg=#ff5370]●' dot_yellow='#[fg=#ffcb6b]●'
-    dot_green='#[fg=#addb67]●' dot_blue='#[fg=#82aaff]●'
+    dot_green='#[fg=#22da6e]●' dot_blue='#[fg=#82aaff]●'
     tab_marker() {
       tmux_cmd -u display-message -p -t "$shell_pane" '#{E:@window_marker}'
     }
-    for case in "done:$dot_green:#addb67" "1:$dot_green:#addb67" \
+    for case in "done:$dot_green:#22da6e" "1:$dot_green:#22da6e" \
       "waiting:$dot_yellow:#ffcb6b" "blocked:$dot_red:#ff5370"; do
       kind=${case%%:*} dot=${case#*:} dot=${dot%:*} color=${case##*:}
       tmux_cmd set-option -p -t "$agent_pane" @term_notify_pending "$kind"

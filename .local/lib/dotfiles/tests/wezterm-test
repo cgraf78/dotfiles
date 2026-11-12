@@ -259,7 +259,7 @@ if _wezterm_has_lua_runner; then
       return values[value]
     end}
     -- Spell each dot as its color: R red, Y yellow, G green, B blue.
-    local names = {['#ff5370']='R', ['#ffcb6b']='Y', ['#addb67']='G', ['#82aaff']='B'}
+    local names = {['#ff5370']='R', ['#ffcb6b']='Y', ['#22da6e']='G', ['#82aaff']='B'}
     local function label(tab)
       local result = attention.format(api, tab)
       local text, color = '', nil
