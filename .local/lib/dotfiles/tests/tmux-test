@@ -810,13 +810,14 @@ SH
     done
     # The dots follow the tab's closing space, so the current tab's highlight
     # covers only its label and badges.
+    # One expansion reads the label and the tab together, so automatic window
+    # renaming cannot change the name in between.
     tmux_cmd set-option -p -t "$agent_pane" @term_notify_pending 'done'
-    tab_label=$(tmux_cmd -u display-message -p -t "$shell_pane" '#I:#W')
     for tab_format in window-status-format window-status-current-format; do
+      tab_drawn=$(tmux_cmd -u display-message -p -t "$shell_pane" \
+        "#I:#W|$(tmux_cmd show-window-options -gv "$tab_format")")
       _assert_eq "tmux: $tab_format draws its dots after the tab's closing space" \
-        " $tab_label $(tab_marker)" \
-        "$(tmux_cmd -u display-message -p -t "$shell_pane" \
-          "$(tmux_cmd show-window-options -gv "$tab_format")")"
+        " ${tab_drawn%%|*} $(tab_marker)" "${tab_drawn#*|}"
     done
     tmux_cmd set-option -pu -t "$agent_pane" @term_notify_pending
     _assert_eq 'tmux: tab marker clears with the pane mark' '' "$(tab_marker)"
