@@ -752,9 +752,9 @@ class LeafStyleTest(unittest.TestCase):
             with self.subTest(value=value):
                 self.tmux("set-option", "-p", "-t", self.inactive, "@term_notify_pending", value)
                 self.assertIn(
-                    "#addb67", self.expand(client.tty, self.inactive, "pane-border-format")
+                    "#22da6e", self.expand(client.tty, self.inactive, "pane-border-format")
                 )
-                self.assertIn("#addb67]●", self.expand(client.tty, self.active, tab))
+                self.assertIn("#22da6e]●", self.expand(client.tty, self.active, tab))
                 self.assertNotIn("●", self.expand(client.tty, self.active, "pane-border-format"))
 
         # Visiting the pane acknowledges it.
@@ -786,7 +786,7 @@ class LeafStyleTest(unittest.TestCase):
             "#ff5370,bold]● exit 2", self.expand(client.tty, self.inactive, "pane-border-format")
         )
         self.assertIn("#ff5370]●", self.expand(client.tty, self.active, tab))
-        self.assertNotIn("#addb67", self.expand(client.tty, self.active, tab))
+        self.assertNotIn("#22da6e", self.expand(client.tty, self.active, tab))
         # Check drawn colors, not just format strings: the dot sits on the bar
         # background inside the blue current tab, and the reset after it must
         # restore the tab's own style. pop-default alone does not reset the
@@ -1009,7 +1009,7 @@ class LeafStyleTest(unittest.TestCase):
         ).stdout.strip()
         self.tmux("set-option", "-p", "-t", background, "@term_notify_pending", "1")
         self.assertEqual("1", self.expand(client.tty, background, "@pane_pending"))
-        self.assertIn("#addb67]●", self.expand(client.tty, background, "window-status-format"))
+        self.assertIn("#22da6e]●", self.expand(client.tty, background, "window-status-format"))
         # A busy agent there is blue only while it shows no attention.
         self.tmux("set-option", "-p", "-t", background, "@term_busy", "1")
         self.assertNotIn("#82aaff", self.expand(client.tty, background, "window-status-format"))

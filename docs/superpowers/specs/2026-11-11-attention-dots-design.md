@@ -201,9 +201,10 @@ pane no dot is shown.
   the snapshot counts. Keep the one-second reconciliation and the redraw
   toggle.
 - Colors from the night-owl palette already in use: red `#ff5370`, yellow
-  `#ffcb6b`, green `#addb67`, blue `#82aaff`. On tmux's current-window tab,
-  whose background is `#82aaff`, dots keep the status-bar background so every
-  color stays visible.
+  `#ffcb6b`, blue `#82aaff`; green is Night Owl's terminal green `#22da6e`,
+  which reads apart from the yellow. The current tmux tab is bright
+  underlined text with no fill; the dots follow it on the status-bar
+  background, never underlined.
 - The tmux README's note is made precise: a busy mark clears only when Claude
   emits `idle_prompt` (about 60 s after a turn ends or a prompt is dismissed
   with Esc); after Esc during a running tool no hook fires, so busy stays
