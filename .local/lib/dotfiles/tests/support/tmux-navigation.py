@@ -37,7 +37,7 @@ def wait_until(predicate, description: str, timeout: float = 4.0) -> None:
 class Client:
     """One controllable terminal attachment to the isolated tmux server."""
 
-    def __init__(self, test: NavigationTest | ClickRoutingTest, session: str = "navigation"):
+    def __init__(self, test: NavigationTest | AppRoutingFixture, session: str = "navigation"):
         self.test = test
         self.pid, self.master = pty.fork()
         if self.pid == 0:
@@ -336,13 +336,25 @@ stty raw -echo
 while IFS= read -r -s -n 1 -d '' c; do printf '%s' "$c" >>"$log"; done
 """
 
-# The binding runs ~/.local/bin/termnav; this one appends each click record
-# follow-click would receive, ended by a "--" line, and ignores every other
-# command. One write per record keeps a reader from seeing half of one.
+# The bindings run ~/.local/bin/termnav; this one appends each click record
+# follow-click would receive, and each image receiver's arguments, ended by a
+# "--" line, and ignores every other command. One write per record keeps a
+# reader from seeing half of one. The receiver then stays open (as the real
+# popup does during a transfer) until the test releases it.
 TERMNAV_STUB = r"""#!/bin/sh
 if [ "$1 $2 $3" = "tmux follow-click --stdin" ]; then
   record=$(cat)
   printf '%s\n--\n' "$record" >>"$DOT_TEST_FOLLOW_LOG"
+elif [ "$1 $2" = "paste-image receive" ]; then
+  shift 2
+  record=$(printf '%s\n' "$@")
+  printf '%s\n--\n' "$record" >>"$DOT_TEST_PASTE_LOG"
+  for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+    [ -e "$DOT_TEST_PASTE_RELEASE" ] && break
+    sleep 0.25
+  done
+  : >"$DOT_TEST_PASTE_RELEASE.done"
+  exit "${DOT_TEST_PASTE_STATUS:-0}"
 fi
 """
 
@@ -371,23 +383,30 @@ def tmux_version() -> tuple[int, int]:
     return int(major), int(minor or 0)
 
 
-class ClickRoutingTest(unittest.TestCase):
-    """Check which layer receives a Ctrl-click in an isolated real tmux client."""
+class AppRoutingFixture(unittest.TestCase):
+    """An isolated real tmux server whose windows run fake terminal apps."""
 
     config: pathlib.Path
+    session = "click"
 
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory(
-            prefix="dot-click-", dir=short_temporary_parent()
+            prefix=f"dot-{self.session}-", dir=short_temporary_parent()
         )
         self.addCleanup(self.temporary.cleanup)
         self.root = pathlib.Path(self.temporary.name)
-        self.socket = self.root / "click.sock"
+        self.socket = self.root / f"{self.session}.sock"
         self.home = self.root / "home"
         self.bin = self.root / "bin"
+        # Apps named after programs the fixture itself runs, such as tmux,
+        # stay off PATH.
+        self.apps = self.root / "apps"
         self.follow_log = self.root / "follow.log"
+        self.paste_log = self.root / "paste.log"
+        self.paste_release = self.root / "paste.release"
         (self.home / ".local/bin").mkdir(parents=True)
         self.bin.mkdir()
+        self.apps.mkdir()
         termnav = self.home / ".local/bin/termnav"
         termnav.write_text(TERMNAV_STUB)
         termnav.chmod(0o755)
@@ -397,6 +416,8 @@ class ClickRoutingTest(unittest.TestCase):
         assert bash, "bash is required"
         for name in ("claude", "nvim", "ssh", "sh-shell"):
             shutil.copy(bash, self.bin / name)
+        for name in ("et", "mosh-client", "tmux"):
+            shutil.copy(bash, self.apps / name)
         self.environment = {
             key: value
             for key, value in os.environ.items()
@@ -407,6 +428,8 @@ class ClickRoutingTest(unittest.TestCase):
             XDG_RUNTIME_DIR=str(self.root),
             PATH=f"{self.bin}:{self.environment.get('PATH', '/usr/bin:/bin')}",
             DOT_TEST_FOLLOW_LOG=str(self.follow_log),
+            DOT_TEST_PASTE_LOG=str(self.paste_log),
+            DOT_TEST_PASTE_RELEASE=str(self.paste_release),
         )
         # Start without the config and then load it, as the shell suites do:
         # an option an older tmux lacks is then a load error, not a message
@@ -417,7 +440,7 @@ class ClickRoutingTest(unittest.TestCase):
             "new-session",
             "-d",
             "-s",
-            "click",
+            self.session,
             "-x",
             "100",
             "-y",
@@ -426,10 +449,6 @@ class ClickRoutingTest(unittest.TestCase):
         )
         self.addCleanup(self.tmux, "kill-server", check=False)
         self.tmux("source-file", str(self.config), check=False)
-        # Two presses at one cell within tmux's double-click time (300 ms by
-        # default) make the second a SecondClick event, so each click waits
-        # that long out first.
-        self.double_click_wait = 0.35
         self.client: Client | None = None
 
     def tearDown(self) -> None:
@@ -445,14 +464,20 @@ class ClickRoutingTest(unittest.TestCase):
             check=check,
         )
 
+    def mode(self, pane: str) -> str:
+        return self.tmux("display-message", "-p", "-t", pane, "#{pane_mode}").stdout.strip()
+
     def app(self, name: str, mouse: bool, motion: bool = False) -> tuple[str, pathlib.Path]:
         """Open a window running the fake app and wait until it is drawn."""
         log = self.root / f"{name}-{len(list(self.root.glob('*.input')))}.input"
         log.touch()
         mode = "2" if mouse and motion else "1" if mouse else "0"
-        command = shlex.join([str(self.bin / name), "-c", APP_SCRIPT, name, str(log), mode])
+        program = self.bin / name
+        if not program.exists():
+            program = self.apps / name
+        command = shlex.join([str(program), "-c", APP_SCRIPT, name, str(log), mode])
         pane = self.tmux(
-            "new-window", "-P", "-F", "#{pane_id}", "-t", "click:", f"exec {command}"
+            "new-window", "-P", "-F", "#{pane_id}", "-t", f"{self.session}:", f"exec {command}"
         ).stdout.strip()
         self.assertTrue(pane.startswith("%"), f"no pane id: {pane!r}")
 
@@ -469,9 +494,20 @@ class ClickRoutingTest(unittest.TestCase):
 
         wait_until(drawn, f"{name} drawn")
         if self.client is None:
-            self.client = Client(self, session="click")
+            self.client = Client(self, session=self.session)
         self.client.pump(0.2)
         return pane, log
+
+
+class ClickRoutingTest(AppRoutingFixture):
+    """Check which layer receives a Ctrl-click in an isolated real tmux client."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        # Two presses at one cell within tmux's double-click time (300 ms by
+        # default) make the second a SecondClick event, so each click waits
+        # that long out first.
+        self.double_click_wait = 0.35
 
     def position(self, pane: str, needle: str) -> tuple[int, int]:
         """Return the 1-based client cell of the middle of needle's first row."""
@@ -526,9 +562,6 @@ class ClickRoutingTest(unittest.TestCase):
                 b"\x1b[<", log.read_bytes()[app_before:], "the app must not see termnav's click"
             )
         return layer
-
-    def mode(self, pane: str) -> str:
-        return self.tmux("display-message", "-p", "-t", pane, "#{pane_mode}").stdout.strip()
 
     def test_an_agent_click_goes_to_termnav(self) -> None:
         pane, log = self.app("claude", mouse=True)
@@ -611,12 +644,218 @@ class ClickRoutingTest(unittest.TestCase):
                 self.assertEqual(self.click(pane, "example.com/plain", log), "app")
 
 
+# WezTerm's private image-paste trigger key (user-keys[14]).
+IMAGE_PASTE_TRIGGER = b"\x1b[777010u"
+CSI = re.compile(rb"\x1b\[[0-9;?]*[ -/]*[@-~]")
+
+
+class ImagePasteRoutingTest(AppRoutingFixture):
+    """Check where the Ctrl-V image-paste trigger goes in an isolated real tmux."""
+
+    session = "paste"
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.screen = bytearray()
+
+    def receivers(self) -> list[list[str]]:
+        """Every receiver started so far, as its argument list."""
+        text = self.paste_log.read_text() if self.paste_log.exists() else ""
+        return [chunk.split("\n") for chunk in text.split("\n--\n")[:-1]]
+
+    def shown(self, text: str) -> bool:
+        """Whether the client has drawn text, ignoring control sequences."""
+        assert self.client is not None
+        self.screen.extend(self.client.pump(0.02))
+        return text.encode() in CSI.sub(b"", bytes(self.screen))
+
+    def trigger(self) -> None:
+        assert self.client is not None
+        self.screen.clear()
+        self.client.send(IMAGE_PASTE_TRIGGER)
+
+    def client_identity(self) -> tuple[str, str, str]:
+        name, pid, tty = self.tmux(
+            "list-clients", "-F", "#{client_name} #{client_pid} #{client_tty}"
+        ).stdout.split()
+        return name, pid, tty
+
+    def assert_declined(self, pane: str, log: pathlib.Path, message: str) -> None:
+        self.trigger()
+        wait_until(lambda: self.shown(message), f"decline message {message!r}")
+        self.assertEqual(self.receivers(), [], "a declined trigger must not start a receiver")
+        self.assertNotIn(IMAGE_PASTE_TRIGGER, log.read_bytes(), "the app must not see it")
+
+    def assert_received_here(self, pane: str, log: pathlib.Path) -> None:
+        self.trigger()
+        wait_until(lambda: bool(self.receivers()), "the receiver popup")
+        name, pid, tty = self.client_identity()
+        self.assertEqual(
+            self.receivers(),
+            [
+                [
+                    "--target-pane",
+                    pane,
+                    "--client-name",
+                    name,
+                    "--client-pid",
+                    pid,
+                    "--client-tty",
+                    tty,
+                ]
+            ],
+        )
+        if tmux_version() >= (3, 3):
+            wait_until(lambda: self.shown("Pasting image"), "the popup title")
+        self.paste_release.touch()
+        self.assertNotIn(IMAGE_PASTE_TRIGGER, log.read_bytes(), "the app must not see it")
+
+    def test_a_shell_pane_opens_the_receiver(self) -> None:
+        pane, log = self.app("sh-shell", mouse=False)
+        self.assert_received_here(pane, log)
+
+    def test_an_editor_never_receives_the_trigger(self) -> None:
+        # Unlike pane navigation, an editor is local: this tmux receives.
+        pane, log = self.app("nvim", mouse=True)
+        self.assert_received_here(pane, log)
+
+    def test_copy_mode_declines(self) -> None:
+        pane, log = self.app("claude", mouse=True)
+        self.tmux("copy-mode", "-t", pane)
+        self.assert_declined(pane, log, "Image paste is off in copy mode")
+        self.assertEqual(self.mode(pane), "copy-mode")
+
+    def test_synchronized_panes_decline(self) -> None:
+        pane, log = self.app("claude", mouse=True)
+        self.tmux("set-option", "-w", "-t", pane, "synchronize-panes", "on")
+        self.assert_declined(pane, log, "Image paste is off in copy mode")
+
+    def test_mouse_aware_transports_forward_the_trigger(self) -> None:
+        for name in ("ssh", "et", "tmux"):
+            with self.subTest(app=name):
+                pane, log = self.app(name, mouse=True)
+                self.trigger()
+                wait_until(
+                    lambda log=log: IMAGE_PASTE_TRIGGER in log.read_bytes(),
+                    f"{name} receives the trigger",
+                )
+                self.assertEqual(log.read_bytes(), IMAGE_PASTE_TRIGGER)
+                self.assertEqual(self.receivers(), [])
+
+    def test_transports_without_a_remote_tmux_decline(self) -> None:
+        for name in ("ssh", "et"):
+            with self.subTest(app=name):
+                pane, log = self.app(name, mouse=False)
+                self.assert_declined(pane, log, "Image paste needs tmux on the remote host")
+
+    def test_mosh_declines(self) -> None:
+        pane, log = self.app("mosh-client", mouse=True)
+        self.assert_declined(pane, log, "Image paste does not work over mosh")
+
+    def test_a_missing_termnav_says_so(self) -> None:
+        # Attach first: the attach hooks expect Termnav too.
+        pane, log = self.app("sh-shell", mouse=False)
+        (self.home / ".local/bin/termnav").unlink()
+        self.assert_declined(pane, log, "Image paste needs termnav on this host")
+
+    def test_only_unreported_receiver_failures_open_a_view(self) -> None:
+        # Status 1 means the receiver already said why nothing was pasted.
+        for status, view in (("1", ""), ("130", ""), ("2", "view-mode")):
+            with self.subTest(status=status):
+                self.tmux("set-environment", "-g", "DOT_TEST_PASTE_STATUS", status)
+                self.paste_log.unlink(missing_ok=True)
+                self.paste_release.unlink(missing_ok=True)
+                pathlib.Path(f"{self.paste_release}.done").unlink(missing_ok=True)
+                pane, log = self.app("sh-shell", mouse=False)
+                self.assert_received_here(pane, log)
+                done = pathlib.Path(f"{self.paste_release}.done")
+                wait_until(done.exists, "the receiver exit")
+                if view:
+                    wait_until(
+                        lambda pane=pane, view=view: self.mode(pane) == view,
+                        f"status {status} view",
+                    )
+                else:
+                    # run-shell reports a failure right after the popup closes.
+                    assert self.client is not None
+                    self.client.pump(1.0)
+                    self.assertEqual(self.mode(pane), "")
+
+    def test_a_nested_tmux_receives_the_trigger(self) -> None:
+        inner_socket = self.root / "inner.sock"
+
+        def inner(*arguments: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+            return subprocess.run(
+                ["tmux", "-S", str(inner_socket), *arguments],
+                env=self.environment,
+                text=True,
+                capture_output=True,
+                check=check,
+            )
+
+        inner("-f", "/dev/null", "new-session", "-d", "-s", "nested", "sleep 60")
+        self.addCleanup(inner, "kill-server", check=False)
+        inner("source-file", str(self.config), check=False)
+        # The fixture HOME lacks the Continuum helper the config's last line
+        # runs; tmux 3.4 and older show that failure in view mode over the
+        # first pane, where the binding would rightly decline. Receive in a
+        # window opened after the load, like the outer fixture's apps.
+        inner_pane = inner(
+            "new-window", "-P", "-F", "#{pane_id}", "-t", "nested:", "sleep 60"
+        ).stdout.strip()
+        self.assertTrue(inner_pane.startswith("%"), f"no pane id: {inner_pane!r}")
+        self.assertEqual(
+            inner("display-message", "-p", "-t", inner_pane, "#{pane_in_mode}").stdout.strip(),
+            "0",
+        )
+        attach = "exec " + shlex.join(
+            ["env", "TERM=tmux-256color", "tmux", "-S", str(inner_socket), "attach", "-t", "nested"]
+        )
+        pane = self.tmux(
+            "new-window", "-P", "-F", "#{pane_id}", "-t", f"{self.session}:", attach
+        ).stdout.strip()
+        self.assertTrue(pane.startswith("%"), f"no pane id: {pane!r}")
+        self.client = Client(self, session=self.session)
+
+        def nested_owns_mouse() -> bool:
+            assert self.client is not None
+            self.client.pump(0.02)
+            state = self.tmux(
+                "display-message", "-p", "-t", pane, "#{pane_current_command} #{mouse_any_flag}"
+            ).stdout.split()
+            return state == ["tmux", "1"]
+
+        wait_until(nested_owns_mouse, "nested tmux mouse ownership")
+        self.trigger()
+        wait_until(lambda: bool(self.receivers()), "the nested receiver popup")
+        name, pid, tty = inner(
+            "list-clients", "-F", "#{client_name} #{client_pid} #{client_tty}"
+        ).stdout.split()
+        self.paste_release.touch()
+        self.assertEqual(
+            self.receivers(),
+            [
+                [
+                    "--target-pane",
+                    inner_pane,
+                    "--client-name",
+                    name,
+                    "--client-pid",
+                    pid,
+                    "--client-tty",
+                    tty,
+                ]
+            ],
+            "only the innermost tmux receives",
+        )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True, type=pathlib.Path)
     arguments, unittest_arguments = parser.parse_known_args()
     NavigationTest.config = arguments.config
-    ClickRoutingTest.config = arguments.config
+    AppRoutingFixture.config = arguments.config
     program = unittest.main(argv=[__file__, *unittest_arguments], verbosity=2, exit=False)
     return 0 if program.result.wasSuccessful() else 1
 
