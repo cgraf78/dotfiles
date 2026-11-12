@@ -1,5 +1,7 @@
 # Working tab spinner design
 
+Superseded by 2026-11-11-attention-dots-design.md.
+
 ## Intent
 
 Replace the static working `⋯` in tmux window tabs and WezTerm tabs with a

@@ -70,11 +70,11 @@ their implementation.
 ## Labels and Status
 
 Long-running shell commands use the existing attention path: successful
-completion shows `●`, while failure shows a red `!` in the window tab and
-`! exit N` in the pane border. Failure takes precedence over ordinary attention, while concurrent working
-activities retain their separate `⋯` indicator. Visiting
+completion shows a green dot, while failure shows a red dot in the window tab
+and a red dot followed by `exit N` in the pane border. Each state present in a
+window adds its own dot, so failure never hides other agents' dots. Visiting
 the pane clears the mark and exit status; `prefix a` reaches failed commands
-through the same pending-pane navigation as agent notifications. The shell
+through the same navigation as agent notifications, ahead of other kinds. The shell
 keeps its existing duration threshold and suppresses notifications for watched
 panes, Ctrl-C, and Ctrl-Z.
 
@@ -125,38 +125,63 @@ bell turns orange until selected, and tabs show `[Z]` for a zoomed pane and
 `status-left` with their own host-labelled copy, so shared indicators belong
 in the window tabs rather than in `status-left`.
 
-A pane is pending when its program asked for attention. Agent notification
+Window tabs and pane borders show static colored dots that say what each
+agent needs. A tab shows one dot for each state present among its panes, most
+severe first; a pane's border shows its own dot. Nothing animates: a dot
+changes only when a pane's state changes.
+
+| Dot | State | Meaning | Clears when |
+| --- | --- | --- | --- |
+| red | blocked | an agent turn died (API error, rate limit) | the agent resumes or ends |
+| red | failed | a long shell command failed (`exit N` follows the dot on the border) | you look |
+| yellow | waiting | the agent needs an answer: permission prompt, question, plan approval | the agent resumes or ends |
+| green | done | a turn finished and you have not looked | you look |
+| blue | working | a turn is running and nothing else needs you | the turn ends |
+
+On the current tab the dots sit on the status-bar background, so every color
+stays visible against the tab's blue.
+
+A pane needs attention when its program asked for it. Agent notification
 hooks call tmux-tools' `term-notify-sound`, which rings the bell and sets the
 pane option `@term_notify_pending`, because tmux records a bell against a
-window, never against the pane that rang it. A pending pane shows an orange `●`
-before its border label, and its window's tab shows `●`, including the current
-window, where the waiting agent is often beside the shell you are typing in.
-The pane you are focused on never shows as pending, but an agent alone in a
-background window, which is that window's active pane, still marks its tab.
-`pane-focus-in` and `pane-focus-out` hooks clear the option, so visiting a pane
+window, never against the pane that rang it. The option's value is the kind:
+`done`, `waiting` or `blocked` (the legacy value `1` means `done`), and
+`@term_notify_exit_status` marks a failed shell command. The pane you are
+focused on never shows its own dot, but an agent alone in a background window,
+which is that window's active pane, still marks its tab.
+
+A glance acknowledges only informational dots. `pane-focus-in` and
+`pane-focus-out` hooks clear done and failed marks, so visiting a pane
 acknowledges it, and a pane that notified while you were in it does not light
-up as you leave. tmux tracks pane focus server-wide, so another attached client
-can hold a pane focused and suppress those transitions; `client-focus-in`,
-`after-select-pane`, `after-select-window`, and `client-session-changed` hooks
-also clear whatever pane a client selects or returns to.
+up as you leave. tmux tracks pane focus server-wide, so another attached
+client can hold a pane focused and suppress those transitions;
+`client-focus-in`, `after-select-pane`, `after-select-window`, and
+`client-session-changed` hooks also clear whatever pane a client selects or
+returns to. Waiting and blocked marks need an action, so they stay through a
+visit until AgentGuard clears them on the agent's next activity: a prompt, a
+tool call, a turn that ends, or the session ending. After you answer a
+permission prompt, yellow therefore stays until the agent's next tool call or
+turn end. A sticky mark never outlives its agent: a pane back at a shell
+prompt shows none, and a visit clears it once the pane runs neither a known
+agent nor a wrapper (sandbox, interpreter, SSH) that could host one.
+
 The client-scoped snapshot publisher aggregates every window in the attached
-session. Termnav forwards leased child summaries one parent at a time through
-same-host tmux and existing SSH relays. The containing tmux window and
-WezTerm tab therefore reflect background work and attention without parsing
-colored titles or polling each pane in a separate process.
+session, counting each pane once by its dot. Termnav forwards leased child
+summaries one parent at a time through same-host tmux and existing SSH
+relays, with the waiting count in its own lease beside them. The containing
+tmux window and WezTerm tab therefore show a nested layer's dots without
+parsing colored titles or polling each pane in a separate process.
 
 A pane is busy while its agent works on a request. AgentGuard's lifecycle hooks
 set the pane option `@term_busy` through tmux-tools' `term-pane-mark` when a
 prompt is submitted and clear it when the turn ends: on Stop or session end,
 and on an Interrupt or failed-request event for runtimes that report one
 (Codex, Muse, OpenCode, and Claude's StopFailure) while AgentGuard telemetry is
-enabled. Claude, Gemini, and Grok report no interrupt or other turn-ending
-event, so after an Esc that pane stays busy until its next turn or the session
-ends. A busy window's tab shows a Braille spinner, updated about every 150 ms
-by one helper per tmux server. It sleeps while no pane is busy and falls back
-to `⋯` if the helper is unavailable. Pending `●` or failed `!` can appear
-alongside it when another activity needs you. The indicators preserve both
-facts rather than hiding ongoing work.
+enabled. Claude reports no event for an Esc interrupt, so its idle
+notification, about 60 seconds later, clears the busy mark instead. Gemini and
+Grok report no interrupt or other turn-ending event, so after an Esc their
+panes stay busy until the next turn or the session ends. A busy pane is blue
+only while it shows no other dot.
 Only the pane terminal's foreground agent changes the mark, so an agent it
 launches (a reviewer, a memory classifier), which inherits the pane but not its
 terminal, cannot set or clear it, nor mark the pane pending; Codex's
@@ -165,9 +190,11 @@ never shows as busy, which hides a mark left by an agent killed mid-turn; it
 shows again under the next program in that pane until the next agent's turn
 ends.
 
-`prefix a` jumps to the first pending pane in the current session, in tab then
-pane order. Arriving acknowledges it, so pressing again moves on to the next;
-with none left it says nothing is waiting.
+`prefix a` jumps to the next pane needing attention in the current session,
+most severe first (red, then yellow, then green), each in tab then pane order.
+Arriving acknowledges a done or failed pane; waiting and blocked panes stay
+marked, so repeated presses cycle through them. With nothing else left it says
+nothing else is waiting.
 
 `prefix A`, pressed in a shell pane, pastes that pane's last command and its
 output into the window's agent (its first agent pane) as one bracketed paste

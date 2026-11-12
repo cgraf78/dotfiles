@@ -259,8 +259,9 @@ chmod +x "$wezterm_worker_bin/wezterm"
 mkdir -p "$fixture_home/.config/wezterm" "$fixture_home/.config/terminal" "$windows_home"
 printf 'return {}\n' >"$fixture_home/.config/wezterm/wezterm.lua"
 cp "$source_home/.config/terminal/settings.json" "$fixture_home/.config/terminal/settings.json"
-cp "$source_home/.config/terminal/working-spinner.frames" "$fixture_home/.config/terminal/working-spinner.frames"
 printf 'legacy companion\n' >"$windows_home/appearance.json"
+mkdir -p "$windows_home/.config/terminal"
+printf '\342\240\213\n\342\240\231\n' >"$windows_home/.config/terminal/working-spinner.frames"
 if CLIENT_WORKER_PATH="$wezterm_worker_bin:$DOT_TEST_SYSTEM_PATH" \
   WSL_DISTRO_NAME=Ubuntu DOT_TEST_WINDOWS_HOME=$windows_home \
   DOT_TEST_WSL_PAIRED_ACCOUNT=1 DOT_QUIET=1 \
@@ -277,8 +278,9 @@ _assert_file_missing 'client WSL worker retires legacy appearance copy' \
   "$windows_home/appearance.json"
 _assert_file_content 'client WSL worker copies shared appearance' \
   "$(cat "$fixture_home/.config/terminal/settings.json")" "$windows_home/.config/terminal/settings.json"
-_assert_file_content 'client WSL worker copies shared working frames' \
-  "$(cat "$fixture_home/.config/terminal/working-spinner.frames")" "$windows_home/.config/terminal/working-spinner.frames"
+# Tabs no longer animate, so the hook retires the spinner frames it copied.
+_assert_file_missing 'client WSL worker retires the working-spinner frames copy' \
+  "$windows_home/.config/terminal/working-spinner.frames"
 
 # A failed dependency copy must preserve both the old dependency and main config.
 cp "$windows_home/.wezterm.lua" "$windows_home/main.before"

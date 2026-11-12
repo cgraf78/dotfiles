@@ -30,15 +30,25 @@ the shared guide for adding settings, changing fonts, and verification.
 `wezterm.lua` is tracked directly. On WSL, `dot update` copies it to the
 Windows home directory so Windows-native WezTerm sees the same config.
 
-## Working Tab Spinner
+## Attention Dots
 
-The working mark uses the Braille frames in
-[`../terminal/working-spinner.frames`](../terminal/working-spinner.frames).
-While a fresh pane snapshot reports work, one 150 ms timer per WezTerm window
-refreshes its tab titles. The normal one-second status scan remains in place for
-idle windows and for snapshot expiry. Pending and failed badges stay visible
-beside the spinner. Missing or invalid frames show a static `⋯` instead. The
-WSL merge hook copies the frames to Windows beside the shared terminal settings.
+Tabs show the same static dots as the tmux tabs, from the `TERM_PANE_STATE`
+snapshot that tmux-tools' `term-pane-state` publishes through Termnav for each
+attached tmux client: red when any pane failed or is blocked (`failed`),
+yellow when an agent waits for an answer (`waiting`), green for the rest of
+`pending` (done, unseen), and blue for `working`, which counts only panes
+with no attention. A tab shows one dot per state present, most severe first,
+in the night-owl colors `#ff5370`, `#ffcb6b`, `#addb67` and `#82aaff`. When a
+tab is too narrow, the dots keep their room ahead of the index and title, the
+most severe first. Snapshots from publishers that predate `waiting` omit it,
+which reads as 0; a snapshot whose `failed + waiting` exceeds `pending` is
+ignored.
+
+Acknowledgement stays in tmux (see [`../tmux/README.md`](../tmux/README.md)):
+WezTerm only renders. Nothing animates. The one-second status callback
+expires snapshots that stop arriving and, only when a tab's dots change,
+toggles an invisible reset in the right status so stable WezTerm rebuilds its
+cached tab titles.
 
 ## Terminal Bell
 
@@ -211,9 +221,9 @@ reuse.
 ## Attention across terminal layers
 
 `attention.lua` renders tmux-tools' bounded `TERM_PANE_STATE` snapshots for
-all panes in each tab. Explicit names remain intact; display-only truncation
-reserves space for `⋯` (working) and `●` (attention) or red `!` (failure).
-Work remains visible when a different activity awaits attention. Switching to
+all panes in each tab as the attention dots described above. Explicit names
+remain intact; display-only truncation reserves space for the dots. Work
+remains visible when a different pane awaits attention. Switching to
 an outer tab does not acknowledge hidden inner panes; tmux's existing
 selection/focus policy owns acknowledgement. Pane-global acknowledgement by
 one attached client remains acknowledgement for the other clients too.

@@ -59,6 +59,11 @@ _assert_not_contains "tmux: retired relay command stays absent" \
   'termnav-relay' "$tmux_content"
 _assert_not_contains "tmux: retired navigation wrapper stays absent" \
   'termnav-navigate' "$tmux_content"
+# Tabs show static dots: no helper, frames, or hook redraws them on a timer.
+for retired in term-tab-spinner working-spinner '@term_tab_spinner_frame}'; do
+  _assert_not_contains "tmux: retired working spinner stays absent: $retired" \
+    "$retired" "$tmux_content"
+done
 
 # Every provider command the base fragment binds must come from a base
 # dependency: editor and dev hosts layer more deps on top, but a base-only host
@@ -387,11 +392,11 @@ if command -v tmux >/dev/null 2>&1; then
     _assert_eq 'tmux: pane labels lead with their command targets' \
       "#[fg=#898989] $inactive_targets  " \
       "${inactive_pane_border:0:$((${#inactive_targets} + 16))}"
-    tmux_cmd set-option -p -t "$inactive_pane" @term_notify_pending 1
+    tmux_cmd set-option -p -t "$inactive_pane" @term_notify_pending 'done'
     pending_border=$(tmux_cmd -u display-message -p -t "$inactive_pane" "$pane_border_format")
     tmux_cmd set-option -pu -t "$inactive_pane" @term_notify_pending
     _assert_contains 'tmux: pending marker follows the command targets' \
-      "#[fg=#898989] $inactive_targets  #[fg=#f78c6c" "$pending_border"
+      "#[fg=#898989] $inactive_targets  #[fg=#addb67" "$pending_border"
     # ds strips host literals from pane-border-format to avoid repeating its
     # session host label, so host comparisons must stay in user options.
     for host_literal in '#{host' '#H'; do
@@ -437,7 +442,16 @@ if command -v tmux >/dev/null 2>&1; then
     # prefix R and agents reload the config into long-lived servers, so a
     # reload must replace server list entries rather than append copies.
     overrides_before=$(tmux_cmd show-options -s terminal-overrides)
+    # A reload also retires the spinner helper an older config started: it
+    # exits once its owner option is gone.
+    tmux_cmd set-option -s @term_tab_spinner_owner 123:456
+    tmux_cmd set-option -s @term_tab_spinner_frame '⠋'
+    tmux_cmd set-hook -g 'client-attached[130]' 'set-option -s @term_tab_spinner_frame x'
     tmux_cmd source-file "$tmux_config" >/dev/null 2>&1 || true
+    _assert_eq 'tmux: reloading retires an older spinner helper' '' \
+      "$(tmux_cmd show-options -sqv @term_tab_spinner_owner)$(tmux_cmd show-options -sqv @term_tab_spinner_frame)"
+    _assert_not_contains 'tmux: reloading drops the older spinner attach hook' \
+      'client-attached[130]' "$(tmux_cmd show-hooks -g client-attached)"
     _assert_eq 'tmux: reloading keeps one copy of each terminal override' \
       "$overrides_before" "$(tmux_cmd show-options -s terminal-overrides)"
     _assert_contains 'tmux: runtime enables true color for 256-colour terminals' \
@@ -490,8 +504,8 @@ if command -v tmux >/dev/null 2>&1; then
       _pass "tmux: prompt jumps need tmux 3.4+ (have $tmux_version), skipped"
     fi
     tmux_cmd kill-pane -t "$marks_pane"
-    _assert_contains 'tmux: runtime prefix a jumps to the first pending pane' \
-      '@pending_panes' "$(printf '%s\n' "$prefix_keys" | awk '$4 == "a"')"
+    _assert_contains 'tmux: runtime prefix a jumps to the next pane needing attention' \
+      '@attention_next' "$(printf '%s\n' "$prefix_keys" | awk '$4 == "a"')"
     _assert_contains 'tmux: runtime prefix j sends the pane to a chosen window' \
       "join-pane -h -t '%%'" "$(printf '%s\n' "$prefix_keys" | awk '$4 == "j"')"
     _assert_contains 'tmux: runtime prefix J pulls a chosen pane alongside' \
@@ -775,64 +789,147 @@ SH
     tmux_cmd resize-pane -Z -t "$shell_pane"
     _assert_not_contains 'tmux: tab badges clear with their modes' '[' \
       "$(tmux_cmd -u display-message -p -t "$shell_pane" "$current_format")"
-    # A pane marked by term-notify-sound shows on its border and its tab.
-    # Without an attached client no pane is the focused leaf, so the marker
-    # renders for any pending pane here; the PTY suite covers focus.
-    tmux_cmd set-option -p -t "$agent_pane" @term_notify_pending 1
-    _assert_contains 'tmux: pending pane border leads with a marker' '●' \
-      "$(tmux_cmd -u display-message -p -t "$agent_pane" '#{E:@pane_pending_marker}')"
-    _assert_contains 'tmux: pending pane marks its tab' ' ●' \
-      "$(tmux_cmd -u display-message -p -t "$shell_pane" "$current_format")"
+    # A pane marked by term-notify-sound shows a dot on its border and its
+    # tab, colored by kind. Without an attached client no pane is the focused
+    # leaf, so the marker renders for any marked pane here; the PTY suite
+    # covers focus. The agent fixture runs a program, not a shell.
+    dot_red='#[fg=#ff5370]●' dot_yellow='#[fg=#ffcb6b]●'
+    dot_green='#[fg=#addb67]●' dot_blue='#[fg=#82aaff]●'
+    tab_marker() {
+      tmux_cmd -u display-message -p -t "$shell_pane" '#{E:@window_marker}'
+    }
+    for case in "done:$dot_green:#addb67" "1:$dot_green:#addb67" \
+      "waiting:$dot_yellow:#ffcb6b" "blocked:$dot_red:#ff5370"; do
+      kind=${case%%:*} dot=${case#*:} dot=${dot%:*} color=${case##*:}
+      tmux_cmd set-option -p -t "$agent_pane" @term_notify_pending "$kind"
+      _assert_eq "tmux: a $kind pane marks its tab with one dot on the bar background" \
+        " #[bg=#0b2942]$dot#[default]" "$(tab_marker)"
+      _assert_eq "tmux: a $kind pane border leads with its dot" \
+        "#[fg=$color,bold]●#[fg=#898989,nobold] " \
+        "$(tmux_cmd -u display-message -p -t "$agent_pane" '#{E:@pane_pending_marker}')"
+    done
     tmux_cmd set-option -pu -t "$agent_pane" @term_notify_pending
-    _assert_not_contains 'tmux: tab marker clears with the pane mark' '●' \
+    _assert_eq 'tmux: tab marker clears with the pane mark' '' "$(tab_marker)"
+    # The reset after the dots returns badges to the tab's own style.
+    tmux_cmd set-option -p -t "$agent_pane" @term_notify_pending 'done'
+    tmux_cmd resize-pane -Z -t "$shell_pane"
+    _assert_contains 'tmux: a zoomed current tab keeps its badge after the dots' \
+      "$dot_green#[default] [Z] " \
       "$(tmux_cmd -u display-message -p -t "$shell_pane" "$current_format")"
-    # A failed long command is pending attention with an exit status. It
-    # outranks ordinary pending panes, including ones earlier in pane order.
-    tmux_cmd set-option -p -t "$agent_pane" @term_notify_pending 1
-    tmux_cmd set-option -p -t "$shell_pane" @term_notify_pending 1
+    tmux_cmd resize-pane -Z -t "$shell_pane"
+    tmux_cmd set-option -pu -t "$agent_pane" @term_notify_pending
+    # Waiting and blocked need the agent that set them, so a pane back at its
+    # shell hides them; done stays visible there until you look.
+    for kind in waiting blocked; do
+      tmux_cmd set-option -p -t "$shell_pane" @term_notify_pending "$kind"
+      _assert_eq "tmux: a $kind mark on a shell pane shows nothing" '' "$(tab_marker)"
+      _assert_eq "tmux: a $kind mark on a shell pane is not pending" 0 \
+        "$(tmux_cmd display-message -p -t "$shell_pane" '#{E:@pane_pending}')"
+    done
+    tmux_cmd set-option -p -t "$shell_pane" @term_notify_pending 'done'
+    _assert_eq 'tmux: a done mark on a shell pane stays green' \
+      " #[bg=#0b2942]$dot_green#[default]" "$(tab_marker)"
+    # A failed long command is red with its exit status, and it outranks
+    # other kinds, including panes earlier in pane order; each state present
+    # adds its own dot, most severe first.
+    tmux_cmd set-option -p -t "$agent_pane" @term_notify_pending waiting
     tmux_cmd set-option -p -t "$shell_pane" @term_notify_exit_status 2
     failure_border=$(tmux_cmd -u display-message -p -t "$shell_pane" '#{E:@pane_pending_marker}')
-    _assert_contains 'tmux: failed command shows its exit code in the border' '! exit 2' "$failure_border"
-    _assert_contains 'tmux: failed command border is red' '#ff5370' "$failure_border"
-    failed_tab=$(tmux_cmd -u display-message -p -t "$shell_pane" "$current_format")
-    _assert_contains 'tmux: a failed command marks its tab with an exclamation' ' !' "$failed_tab"
-    _assert_contains 'tmux: failed command tab is red' '#ff5370' "$failed_tab"
-    _assert_not_contains 'tmux: failure outranks another pending pane' '●' "$failed_tab"
+    _assert_eq 'tmux: a failed command border shows a red dot and its exit code' \
+      '#[fg=#ff5370,bold]● exit 2#[fg=#898989,nobold] ' "$failure_border"
+    _assert_eq 'tmux: a tab shows each state present, most severe first' \
+      " #[bg=#0b2942]$dot_red$dot_yellow#[default]" "$(tab_marker)"
+    _assert_eq 'tmux: a failed command counts as failed and pending' 11 \
+      "$(tmux_cmd display-message -p -t "$shell_pane" '#{E:@pane_pending}#{E:@pane_failed}')"
+    _assert_eq 'tmux: a waiting agent counts as waiting and pending, not failed' 110 \
+      "$(tmux_cmd display-message -p -t "$agent_pane" '#{E:@pane_pending}#{E:@pane_waiting}#{E:@pane_failed}')"
+    # Exit status only applies to kind done; a blocked agent shows no code.
+    tmux_cmd set-option -p -t "$agent_pane" @term_notify_pending blocked
+    tmux_cmd set-option -p -t "$agent_pane" @term_notify_exit_status 3
+    _assert_not_contains 'tmux: a blocked agent border shows no exit code' 'exit' \
+      "$(tmux_cmd -u display-message -p -t "$agent_pane" '#{E:@pane_pending_marker}')"
+    tmux_cmd set-option -pu -t "$agent_pane" @term_notify_exit_status
     tmux_cmd set-option -pu -t "$shell_pane" @term_notify_pending
-    _assert_not_contains 'tmux: exit metadata alone does not mark a pane' '!' \
+    _assert_eq 'tmux: exit metadata alone does not mark a pane' '' \
       "$(tmux_cmd -u display-message -p -t "$shell_pane" '#{E:@pane_pending_marker}')"
     tmux_cmd set-option -pu -t "$shell_pane" @term_notify_exit_status
     tmux_cmd set-option -pu -t "$agent_pane" @term_notify_pending
 
-    # An agent working on a request (AgentGuard's @term_busy) marks its tab ⋯,
-    # and attention remains visible alongside concurrent work.
+    # An agent working on a request (AgentGuard's @term_busy) is blue, in a
+    # background tab too, but only while it shows no attention: blue means
+    # work you need not look at.
     tmux_cmd set-option -p -t "$agent_pane" @term_busy 1
-    _assert_contains 'tmux: busy pane marks its tab' ' ⋯' \
-      "$(tmux_cmd -u display-message -p -t "$shell_pane" "$current_format")"
-    _assert_contains 'tmux: busy pane marks a background tab too' ' ⋯' \
+    _assert_eq 'tmux: busy pane marks its tab blue' \
+      " #[bg=#0b2942]$dot_blue#[default]" "$(tab_marker)"
+    _assert_contains 'tmux: busy pane marks a background tab too' "$dot_blue" \
       "$(tmux_cmd -u display-message -p -t "$agent_pane" \
         "$(tmux_cmd show-window-options -gv window-status-format)")"
-    tmux_cmd set-option -p -t "$agent_pane" @term_notify_pending 1
-    busy_and_pending=$(tmux_cmd -u display-message -p -t "$shell_pane" "$current_format")
-    _assert_contains 'tmux: a pending pane outranks a busy one' ' ●' "$busy_and_pending"
-    _assert_contains 'tmux: a pending tab keeps concurrent work visible' '⋯' "$busy_and_pending"
+    _assert_eq 'tmux: busy pane border shows a blue dot' \
+      '#[fg=#82aaff,bold]●#[fg=#898989,nobold] ' \
+      "$(tmux_cmd -u display-message -p -t "$agent_pane" '#{E:@pane_pending_marker}')"
+    tmux_cmd set-option -p -t "$agent_pane" @term_notify_pending waiting
+    _assert_eq 'tmux: attention replaces the busy dot of the same pane' \
+      " #[bg=#0b2942]$dot_yellow#[default]" "$(tab_marker)"
     tmux_cmd set-option -pu -t "$agent_pane" @term_notify_pending
     tmux_cmd set-option -pu -t "$agent_pane" @term_busy
-    _assert_not_contains 'tmux: busy marker clears with the pane mark' '⋯' \
-      "$(tmux_cmd -u display-message -p -t "$shell_pane" "$current_format")"
+    _assert_eq 'tmux: busy marker clears with the pane mark' '' "$(tab_marker)"
     # A mark left on a pane that is back at a shell prompt (an agent that
     # crashed before its Stop hook) cannot mean work in progress.
     tmux_cmd set-option -p -t "$shell_pane" @term_busy 1
-    _assert_not_contains 'tmux: a busy mark on a shell pane is ignored' '⋯' \
-      "$(tmux_cmd -u display-message -p -t "$shell_pane" "$current_format")"
+    _assert_eq 'tmux: a busy mark on a shell pane is ignored' '' "$(tab_marker)"
     tmux_cmd set-option -pu -t "$shell_pane" @term_busy
 
-    # The containing window must also represent work behind a nested client.
-    tmux_cmd set-option -p -t "$agent_pane" @termnav_child_attention '9999999999:2:1:1'
-    nested_marker=$(tmux_cmd -u display-message -p -t "$shell_pane" "$current_format")
-    _assert_contains 'tmux: nested work remains visible in its containing window' '⋯' "$nested_marker"
-    _assert_contains 'tmux: nested failure remains visible alongside work' ' !' "$nested_marker"
+    # The containing window must also represent work and attention behind a
+    # nested client, from exactly the leases term-pane-state counts.
+    lease_now=$(tmux_cmd display-message -p '#{T:@child_clock}')
+    lease_expiry=$((lease_now + 15))
+    child_marker() {
+      if [[ -n $2 ]]; then
+        tmux_cmd set-option -p -t "$agent_pane" @termnav_child_waiting "$2"
+      else
+        tmux_cmd set-option -pu -t "$agent_pane" @termnav_child_waiting
+      fi
+      tmux_cmd set-option -p -t "$agent_pane" @termnav_child_attention "$1"
+      tab_marker
+    }
+    for case in \
+      "red green blue|$lease_expiry:2:3:1|" \
+      "all four|$lease_expiry:2:3:1|$lease_expiry:1" \
+      "red yellow blue|$lease_expiry:2:3:1|$lease_expiry:2" \
+      "waiting over pending - failed|$lease_expiry:2:3:1|$lease_expiry:3" \
+      "green|$lease_expiry:0:1:0|" \
+      "blue|$lease_expiry:1:0:0|" \
+      "yellow|$lease_expiry:0:1:0|$lease_expiry:1" \
+      "expired|$((lease_now - 1)):2:3:1|$lease_expiry:1" \
+      "too far ahead|$((lease_now + 31)):2:3:1|" \
+      "expired waiting|$lease_expiry:2:3:1|$((lease_now - 1)):1" \
+      "failed over pending|$lease_expiry:0:1:2|" \
+      "malformed|bad:1:1:1|$lease_expiry:1" \
+      "waiting lease alone||$lease_expiry:1"; do
+      IFS='|' read -r label attention waiting <<<"$case"
+      case $label in
+        'red green blue' | 'waiting over pending - failed' | 'expired waiting')
+          expected=" #[bg=#0b2942]$dot_red$dot_green$dot_blue#[default]"
+          ;;
+        'all four') expected=" #[bg=#0b2942]$dot_red$dot_yellow$dot_green$dot_blue#[default]" ;;
+        'red yellow blue') expected=" #[bg=#0b2942]$dot_red$dot_yellow$dot_blue#[default]" ;;
+        green) expected=" #[bg=#0b2942]$dot_green#[default]" ;;
+        blue) expected=" #[bg=#0b2942]$dot_blue#[default]" ;;
+        yellow) expected=" #[bg=#0b2942]$dot_yellow#[default]" ;;
+        *) expected='' ;;
+      esac
+      if [[ -n $attention ]]; then
+        _assert_eq "tmux: nested lease ($label) marks its containing window" \
+          "$expected" "$(child_marker "$attention" "$waiting")"
+      else
+        tmux_cmd set-option -pu -t "$agent_pane" @termnav_child_attention
+        tmux_cmd set-option -p -t "$agent_pane" @termnav_child_waiting "$waiting"
+        _assert_eq "tmux: nested lease ($label) marks its containing window" \
+          "$expected" "$(tab_marker)"
+      fi
+    done
     tmux_cmd set-option -pu -t "$agent_pane" @termnav_child_attention
+    tmux_cmd set-option -pu -t "$agent_pane" @termnav_child_waiting
 
     # prefix A's end-to-end behavior is pressed through a real client in the
     # PTY suite below: list-keys does not round-trip its shell snippet on
@@ -852,6 +949,8 @@ SH
       tmux_cmd set-hook -gu "${hook}[999999]"
       _assert_contains "tmux: $hook acknowledges a pending pane" \
         'set-option -pu @term_notify_pending' "$(tmux_cmd show-hooks -g "$hook")"
+      _assert_contains "tmux: $hook keeps a sticky kind its agent still owns" \
+        '#{&&:#{E:@pane_sticky},#{E:@pane_keeps_sticky}}' "$(tmux_cmd show-hooks -g "$hook")"
       _assert_contains "tmux: $hook clears the acknowledged exit status" \
         'set-option -pu @term_notify_exit_status' "$(tmux_cmd show-hooks -g "$hook")"
     done
@@ -933,6 +1032,10 @@ if command -v tmux >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
     test_styles_follow_each_client_and_child_claim \
     test_terminal_render_paints_the_focused_leaf_night_owl_blue \
     test_pending_panes_are_marked_until_visited \
+    test_attention_predicates_keep_the_publisher_invariants \
+    test_a_glance_keeps_attention_that_needs_an_action \
+    test_sticky_attention_ends_with_its_agent \
+    test_prefix_a_visits_pending_panes_in_order \
     test_background_window_agents_mark_their_tab \
     test_another_focused_client_does_not_strand_a_mark \
     test_prefix_A_pastes_the_last_output_into_the_agent \
@@ -940,16 +1043,6 @@ if command -v tmux >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
     test_prefix_n_opens_a_task_window; do
     _assert_contains "tmux: PTY runs $pty_case" "$pty_case" "$pty_output"
   done
-  if spinner_output=$("${TMUX_FIXTURE_ENV[@]}" python3 \
-    "${BASH_SOURCE[0]%/*}/support/tmux-spinner.py" "$source_home" 2>&1); then
-    spinner_status=0
-  else
-    spinner_status=$?
-  fi
-  _assert_exit "tmux: working tab spinner lifecycle passes" 0 "$spinner_status"
-  if [[ $spinner_status != 0 ]]; then
-    printf '%s\n' "$spinner_output" >&2
-  fi
 else
   _pass "tmux: Python or tmux unavailable, PTY coverage skipped"
 fi
