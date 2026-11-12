@@ -177,8 +177,10 @@ set the pane option `@term_busy` through tmux-tools' `term-pane-mark` when a
 prompt is submitted and clear it when the turn ends: on Stop or session end,
 and on an Interrupt or failed-request event for runtimes that report one
 (Codex, Muse, OpenCode, and Claude's StopFailure) while AgentGuard telemetry is
-enabled. Claude reports no event for an Esc interrupt, so its idle
-notification, about 60 seconds later, clears the busy mark instead. Gemini and
+enabled. Claude reports no event for an Esc interrupt. When Esc dismisses a
+prompt, its idle notification about 60 seconds later clears the busy mark; when
+Esc interrupts a running tool, no hook fires at all, so the pane stays busy
+until the next prompt or turn. Gemini and
 Grok report no interrupt or other turn-ending event, so after an Esc their
 panes stay busy until the next turn or the session ends. A busy pane is blue
 only while it shows no other dot.

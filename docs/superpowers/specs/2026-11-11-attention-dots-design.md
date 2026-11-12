@@ -24,8 +24,9 @@ The spinner redraws tmux status about seven times a second and WezTerm tabs on
 a 150 ms timer while any agent works, which makes the cursor flicker. Static
 dots change only on state transitions.
 
-Also stop Claude's `idle_prompt` notification (sent about 60 s after Claude
-goes idle) from ringing the bell and re-raising attention after every turn: it
+Also stop Claude's `idle_prompt` notification (sent about 60 s after a turn
+ends or a prompt is dismissed with Esc, never after Esc interrupts a running
+tool) from ringing the bell and re-raising attention after every turn: it
 fired 992 times in recent telemetry. Its existing role as the repair for a
 turn that ended without `Stop` (Esc) stays.
 
@@ -194,8 +195,10 @@ pane no dot is shown.
   `#ffcb6b`, green `#addb67`, blue `#82aaff`. On tmux's current-window tab,
   whose background is `#82aaff`, dots keep the status-bar background so every
   color stays visible.
-- The tmux README's note that Claude stays busy after Esc is replaced: the
-  idle notification clears it about 60 s later.
+- The tmux README's note is made precise: a busy mark clears only when Claude
+  emits `idle_prompt` (about 60 s after a turn ends or a prompt is dismissed
+  with Esc); after Esc during a running tool no hook fires, so busy stays
+  until the next prompt or turn.
 
 ### Compatibility
 
