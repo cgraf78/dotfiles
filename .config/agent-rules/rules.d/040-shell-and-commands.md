@@ -5,7 +5,8 @@
 - Default to `rg` over `grep` and `fd` over `find` for search.
 - Always follow symlinks when searching (`-L` for `rg`/`fd`, or the equivalent
   flag on other search tools): rule and config trees contain symlinked files
-  that default search silently skips.
+  that default search silently skips. If a rules search returns empty, list
+  the directories.
 - Don't chain separately-permitted commands with `&&`; use individual Bash
   calls to avoid permission prompts, e.g. `git -C <path>` rather than
   `cd <path> && git`.
