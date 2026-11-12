@@ -18,6 +18,8 @@ than editing generated outputs.
   context in the work overlay.
 - Search existing rule IDs, triggers, and prose before adding a new rule.
   Extend the existing owner when the subject already has one.
+- Rule and playbook trees contain symlinked files. If a content search over
+  them returns empty, list the directories directly instead of trusting it.
 
 ## Choose the loading boundary
 
