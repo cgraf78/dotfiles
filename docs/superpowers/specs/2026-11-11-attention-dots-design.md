@@ -146,6 +146,16 @@ Sticky bookkeeping:
   the actor matches the tool's actor, clears `--if waiting`.
 - A child's `SubagentStop`/`StopFailure` clears a waiting mark that child
   raised.
+- The actor's `PostToolUse`/`PostToolUseFailure` also clears a waiting mark
+  it raised (one `[ -e flag ]` test when nothing is sticky): the prompted
+  tool cannot return before its prompt is answered.
+- Claude's permission Notification names no `agent_id`, even for a subagent.
+  Claude's `PermissionRequest`, which carries it and precedes the
+  Notification by about 6 s, records `<epoch> <actor>` in a per-session
+  `attention-request` file and raises nothing. The Notification uses that
+  actor when the record is at most 60 s old, else actor `any`, which every
+  actor's activity clears (also used for `elicitation_dialog`). Two actors
+  requesting within the window can be confused; the newer one wins.
 - Prompt submit, a Stop that does not ring, Interrupt and SessionEnd clear
   `--if sticky` when the flag exists, for foreground activity only. The Stop
   clear runs inside the existing attention lock and current-turn check.
@@ -154,9 +164,10 @@ Sticky bookkeeping:
 - Gemini reports tools as `BeforeTool`, which telemetry does not observe;
   its yellow lasts until the turn ends. Documented limitation.
 
-Known limitation: after you answer a permission prompt, yellow stays until the
-agent's next tool call or turn end, because no hook reports the answer
-itself. While you are focused on that pane no dot is shown.
+Known limitation: after you approve a permission prompt, yellow stays until
+the approved tool returns (or the agent's next tool call or turn end),
+because no hook reports the answer itself. While you are focused on that
+pane no dot is shown.
 
 ### Presentation (base dotfiles)
 
