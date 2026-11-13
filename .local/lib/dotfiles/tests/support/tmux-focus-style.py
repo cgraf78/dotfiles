@@ -1369,10 +1369,13 @@ class LeafStyleTest(unittest.TestCase):
             )
         self.tmux("switch-client", "-c", client.tty, "-t", "focus")
         wait_until(lambda: self.client_view(client)[0] == "focus", "client back home")
-        # The bar renders it, bounded, before the date.
-        self.assertIn(
-            "#{=/36/…:#{E:@other_sessions_attention}} #[fg=#637777]%a",
+        # The bar renders it, bounded, before the date. tmux without a UTF-8
+        # locale (Alpine CI) stores the ellipsis in the option as _.
+        self.assertRegex(
             self.tmux("show-options", "-gv", "status-right").stdout,
+            re.escape("#{=/36/")
+            + "[…_]"
+            + re.escape(":#{E:@other_sessions_attention}} #[fg=#637777]%a"),
         )
         rendered = client.redraw().decode(errors="replace")
         self.assertIn("build", rendered)
