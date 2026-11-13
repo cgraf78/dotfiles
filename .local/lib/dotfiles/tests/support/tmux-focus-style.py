@@ -702,13 +702,8 @@ class LeafStyleTest(unittest.TestCase):
     def pending(self, pane: str) -> str:
         return self.tmux("show-options", "-pqv", "-t", pane, "@term_notify_pending").stdout.strip()
 
-    def program_pane(self, name: str, *, window: bool = False) -> str:
-        """Start a pane whose foreground command reports as NAME.
-
-        The program is a copy of bash, so pane_current_command reports the
-        copy's name on every platform, and the trailing no-op keeps bash from
-        exec-ing sleep in its place.
-        """
+    def program_command(self, name: str) -> str:
+        """Return a command line whose foreground command reports as NAME."""
         tools = self.root / "programs"
         tools.mkdir(exist_ok=True)
         program = tools / name
@@ -716,7 +711,16 @@ class LeafStyleTest(unittest.TestCase):
             bash = shutil.which("bash")
             self.assertIsNotNone(bash, "bash is required for fake programs")
             shutil.copy2(str(bash), program)
-        command = shlex.join([str(program), "-c", "sleep 30; :"])
+        return shlex.join([str(program), "-c", "sleep 30; :"])
+
+    def program_pane(self, name: str, *, window: bool = False) -> str:
+        """Start a pane whose foreground command reports as NAME.
+
+        The program is a copy of bash, so pane_current_command reports the
+        copy's name on every platform, and the trailing no-op keeps bash from
+        exec-ing sleep in its place.
+        """
+        command = self.program_command(name)
         if window:
             created = self.tmux("new-window", "-d", "-P", "-F", "#{pane_id}", command)
         else:
@@ -1212,6 +1216,258 @@ class LeafStyleTest(unittest.TestCase):
             "empty-queue message",
         )
         self.assertEqual(blocked, self.current_pane(client))
+
+    def new_session(self, name: str, program: str = "sleep") -> str:
+        """Start a detached session and return its pane id.
+
+        A PROGRAM other than sleep runs as a fake agent (see program_pane),
+        so a waiting mark survives a visit.
+        """
+        command = "sleep 30"
+        if program != "sleep":
+            command = self.program_command(program)
+        pane = self.tmux(
+            "new-session", "-d", "-s", name, "-P", "-F", "#{pane_id}", command
+        ).stdout.strip()
+        self.assertRegex(pane, r"^%[0-9]+$", "tmux returned no pane id")
+        return pane
+
+    def client_format(self, client: Client, template: str) -> str:
+        """Expand TEMPLATE for CLIENT, its session and its current pane.
+
+        list-clients gives that context on tmux 3.2 too, where
+        display-message -c cannot.
+        """
+        listing = self.tmux("-u", "list-clients", "-F", f"#{{client_tty}}\t{template}").stdout
+        for line in listing.splitlines():
+            tty, _, value = line.partition("\t")
+            if tty == client.tty:
+                return value
+        raise AssertionError(f"client {client.tty} is not attached")
+
+    def client_view(self, client: Client) -> tuple[str, str]:
+        return tuple(self.client_format(client, "#{client_session} #{pane_id}").split(" ", 1))
+
+    def child_lease(self, pane: str, pending: int, failed: int) -> None:
+        """Lease a nested layer's attention on PANE as Termnav would."""
+        expiry = int(time.time()) + 20
+        self.tmux(
+            "set-option",
+            "-p",
+            "-t",
+            pane,
+            "@termnav_child_attention",
+            f"{expiry}:0:{pending}:{failed}",
+        )
+
+    def test_prefix_a_jumps_across_sessions(self) -> None:
+        """Every session's panes join one list, most severe first."""
+        client = Client(self)
+        self.clients.append(client)
+        client.set_focus(True)
+        here = self.program_pane("claude")
+        # tmux lists sessions by name: build, focus (the client's), work.
+        # Waiting marks stay through a visit only beside an agent.
+        build = self.new_session("build", "codex")
+        work = self.new_session("work")
+        work_waiting = self.tmux(
+            "split-window", "-d", "-t", work, "-P", "-F", "#{pane_id}", self.program_command("muse")
+        ).stdout.strip()
+        self.assertRegex(work_waiting, r"^%[0-9]+$", "tmux returned no pane id")
+        self.tmux("set-option", "-p", "-t", here, "@term_notify_pending", "done")
+        self.tmux("set-option", "-p", "-t", build, "@term_notify_pending", "waiting")
+        self.tmux("set-option", "-p", "-t", work_waiting, "@term_notify_pending", "waiting")
+        # A nested tmux's failed pane, leased on its host pane, counts as red.
+        self.child_lease(work, pending=1, failed=1)
+
+        def jump(expected: str, session: str, description: str) -> None:
+            self.press(client, b"a")
+            wait_until(lambda: self.client_view(client) == (session, expected), description)
+
+        jump(work, "work", "jump to the other session's red pane first")
+        jump(build, "build", "then to the first yellow pane, in an earlier session")
+        jump(work_waiting, "work", "then to the next yellow pane")
+        jump(here, "focus", "then to the green pane back in the first session")
+        wait_until(lambda: self.pending(here) == "", "arrival acknowledges the green pane")
+        jump(work, "work", "from a pane no longer listed, back to the first entry")
+
+        # The pane menu's item runs the same command for the client that
+        # opened it, so it switches sessions too.
+        self.tmux("set-option", "-pu", "-t", work, "@termnav_child_attention")
+        self.tmux("set-option", "-pu", "-t", work_waiting, "@term_notify_pending")
+        client.send(b"\x02>")
+        self.wait_drawn(client, b"Jump to the next pane", "the pane menu opens")
+        client.send(b"a")
+        wait_until(
+            lambda: self.client_view(client) == ("build", build),
+            "the pane menu jumps to the pane in the other session",
+        )
+
+        # Sessions sharing windows (a group) list each pane once, so the
+        # successor of a pane is never itself.
+        self.tmux("new-session", "-d", "-t", "build", "-s", "build-peer")
+        self.tmux("set-option", "-p", "-t", work_waiting, "@term_notify_pending", "waiting")
+        listed = self.client_format(client, "#{E:@attention_panes}").split()
+        self.assertEqual([build, work_waiting], listed)
+        jump(work_waiting, "work", "a grouped session does not repeat the pane")
+        jump(build, "build", "and the cycle returns to the grouped window")
+
+    def test_status_names_other_sessions_needing_attention(self) -> None:
+        client = Client(self)
+        self.clients.append(client)
+        client.set_focus(True)
+
+        def indicator() -> str:
+            return self.client_format(client, "#{E:@other_sessions_attention}")
+
+        build = self.new_session("build")
+        self.assertEqual("", indicator(), "nothing shows while no session needs attention")
+        # The client's own session never appears: its tabs show its dots.
+        self.tmux("set-option", "-p", "-t", self.inactive, "@term_notify_pending", "done")
+        self.assertEqual("", indicator())
+        self.tmux("set-option", "-p", "-t", build, "@term_notify_pending", "done")
+        self.assertEqual("#[fg=#8badc1]build#[fg=#22da6e]● ", indicator())
+        self.tmux("set-option", "-p", "-t", build, "@term_notify_pending", "waiting")
+        self.assertEqual("#[fg=#8badc1]build#[fg=#ffcb6b]● ", indicator())
+        # A session shows one dot, in its most severe color, including a
+        # nested layer's leased failure.
+        nested = self.tmux(
+            "new-window", "-d", "-t", "build:", "-P", "-F", "#{pane_id}", "sleep 30"
+        ).stdout.strip()
+        self.assertRegex(nested, r"^%[0-9]+$", "tmux returned no pane id")
+        self.child_lease(nested, pending=2, failed=1)
+        self.assertEqual("#[fg=#8badc1]build#[fg=#ff5370]● ", indicator())
+        # Each session gets its own entry, in the order tmux lists sessions
+        # (by name before tmux 3.8); a # in a name cannot style the bar, and a
+        # long name is cut short.
+        odd = self.new_session("x#[bold]-and-a-long-tail")
+        self.tmux("set-option", "-p", "-t", odd, "@term_notify_pending", "blocked")
+
+        def entries() -> dict[str, str]:
+            shown = indicator()
+            found = re.findall(r"#\[fg=#8badc1\](.*?)#\[fg=(#[0-9a-f]{6})\]● ", shown)
+            self.assertEqual(shown, "".join(f"#[fg=#8badc1]{n}#[fg={c}]● " for n, c in found))
+            return dict(found)
+
+        self.assertEqual({"build": "#ff5370", "x##[bold]-and…": "#ff5370"}, entries())
+        # A grouped peer shares build's windows, so the group shows once, even
+        # after a window opened from the peer lists the peer first...
+        self.tmux("new-session", "-d", "-t", "build", "-s", "build-peer")
+        self.tmux("new-window", "-d", "-t", "build-peer:", "sleep 30")
+        group = {name for name in entries() if name.startswith("build")}
+        self.assertEqual(1, len(group), entries())
+        # ...and not at all while the client looks at those windows from
+        # either session: its own tabs show them.
+        for home in ("build-peer", "build"):
+            self.tmux("switch-client", "-c", client.tty, "-t", home)
+            wait_until(lambda h=home: self.client_view(client)[0] == h, f"client on {home}")
+            # The client's first session is another session now, and shows.
+            self.assertEqual(
+                {"focus": "#22da6e", "x##[bold]-and…": "#ff5370"},
+                entries(),
+                f"a session grouped with {home} never shows its windows",
+            )
+        self.tmux("switch-client", "-c", client.tty, "-t", "focus")
+        wait_until(lambda: self.client_view(client)[0] == "focus", "client back home")
+        # The bar renders it, bounded, before the date.
+        self.assertIn(
+            "#{=/36/…:#{E:@other_sessions_attention}} #[fg=#637777]%a",
+            self.tmux("show-options", "-gv", "status-right").stdout,
+        )
+        rendered = client.redraw().decode(errors="replace")
+        self.assertIn("build", rendered)
+        self.tmux("set-option", "-pu", "-t", build, "@term_notify_pending")
+        self.tmux("set-option", "-pu", "-t", nested, "@termnav_child_attention")
+        self.tmux("set-option", "-pu", "-t", odd, "@term_notify_pending")
+        self.assertEqual("", indicator(), "the entry goes once nothing needs attention")
+
+    def test_ctrl_shift_b_sends_the_prefix_inward(self) -> None:
+        """Ctrl-Shift-B, as WezTerm and VS Code send it, is the inner prefix."""
+        client = Client(self)
+        self.clients.append(client)
+        inner_socket = self.root / "inner.sock"
+
+        def inner(*arguments: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+            return subprocess.run(
+                ["tmux", "-S", str(inner_socket), *arguments],
+                env=self.environment,
+                text=True,
+                capture_output=True,
+                check=check,
+            )
+
+        # The nested tmux asks for extended keys, as this config does, so a
+        # chord this tmux left unbound would reach it as C-S-b, not C-b.
+        inner_config = self.root / "inner.conf"
+        inner_config.write_text(
+            "set -s extended-keys on\n"
+            "set -as terminal-features 'tmux*:extkeys'\n"
+            "set -g default-command 'cat -v'\n"
+        )
+        self.addCleanup(lambda: inner("kill-server", check=False))
+        inner("-f", str(inner_config), "new-session", "-d", "-s", "inner")
+        attach = shlex.join(
+            [
+                "env",
+                "-u",
+                "TMUX",
+                "-u",
+                "TMUX_PANE",
+                "tmux",
+                "-S",
+                str(inner_socket),
+                "attach-session",
+                "-t",
+                "inner",
+            ]
+        )
+        nested = self.tmux("new-window", "-P", "-F", "#{pane_id}", attach).stdout.strip()
+        self.assertRegex(nested, r"^%[0-9]+$", "tmux returned no pane id")
+        wait_until(lambda: inner("list-clients").stdout.strip() != "", "the nested client")
+        wait_until(
+            lambda: self.client_view(client) == ("focus", nested), "the nested pane is current"
+        )
+        outer_windows = self.tmux("display-message", "-p", "-t", nested, "#{session_windows}")
+
+        def inner_windows() -> str:
+            return inner(
+                "display-message", "-p", "-t", "inner", "#{session_windows}"
+            ).stdout.strip()
+
+        # The CSI u form reaches this tmux as C-S-b; the nested tmux gets C-b
+        # and opens a window on the next key, while this tmux opens none.
+        client.send(b"\x1b[98;6u")
+        client.pump(0.1)
+        client.send(b"c")
+        wait_until(lambda: inner_windows() == "2", "the nested tmux opens a window")
+        self.assertEqual(
+            outer_windows.stdout,
+            self.tmux("display-message", "-p", "-t", nested, "#{session_windows}").stdout,
+        )
+        # The xterm modifyOtherKeys form is the same key.
+        client.send(b"\x1b[27;6;98~")
+        client.pump(0.1)
+        client.send(b"c")
+        wait_until(lambda: inner_windows() == "3", "the nested tmux opens another window")
+        # Plain C-b is still this tmux's own prefix.
+        client.send(b"\x02")
+        wait_until(
+            lambda: self.client_format(client, "#{client_prefix}") == "1",
+            "C-b turns this tmux's prefix on",
+        )
+        client.send(b"\x1b")
+        client.pump(0.1)
+        # Unbound, the chord would pass through as itself: the nested tmux
+        # opens nothing, and the typed text reaches its pane.
+        self.tmux("unbind-key", "-n", "C-S-b")
+        client.send(b"\x1b[98;6u")
+        client.pump(0.1)
+        client.send(b"zq\r")
+        wait_until(
+            lambda: "zq" in inner("capture-pane", "-p", "-t", "inner:").stdout,
+            "the text reaches the nested pane",
+        )
+        self.assertEqual("3", inner_windows())
 
     def test_prefix_j_and_J_move_panes_between_windows(self) -> None:
         client = Client(self)

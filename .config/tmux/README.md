@@ -208,11 +208,31 @@ never shows as busy, which hides a mark left by an agent killed mid-turn; it
 shows again under the next program in that pane until the next agent's turn
 ends.
 
-`prefix a` jumps to the next pane needing attention in the current session,
-most severe first (red, then yellow, then green), each in tab then pane order.
-Arriving acknowledges a done or failed pane; waiting and blocked panes stay
-marked, so repeated presses cycle through them. With nothing else left it says
-nothing else is waiting.
+`prefix a` jumps to the next pane needing attention in any session, most
+severe first (red, then yellow, then green), each in session (as tmux lists
+them), tab and pane order, including panes whose nested tmux has attention. A pane in another
+session switches the client to that session, so the pane menu's item and the
+palette entry, which run the same key, jump there too. Arriving acknowledges a
+done or failed pane; waiting and blocked panes stay marked, so repeated
+presses cycle through them. With nothing else left it says nothing else is
+waiting. A window shared by several sessions (grouped or linked) counts once.
+Pure formats find the target without starting a process.
+
+The right of the status bar names each other session with a pane needing
+attention, followed by one dot in that session's most severe color, before
+the date:
+
+```text
+build● notes●  Thu 12 Nov  14:03
+```
+
+The current session never appears there, since its tabs already show their
+dots, and neither do windows it shares with a grouped session; with no other
+session needing attention only the date and time remain. Sessions appear in
+the order tmux lists them, names are cut to 12 columns and the list to 36, so
+it never crowds out the tabs. These dots ignore focus, like `prefix a`,
+because this client is not looking at the other session: a done pane that
+another client is watching stays green here until that client leaves it.
 
 `prefix A`, pressed in a shell pane, pastes that pane's last command and its
 output into the window's agent (its first agent pane) as one bracketed paste
@@ -262,9 +282,10 @@ menus open over that pane. On older tmux the palette turns the prefix on and
 names the key to press. The list leaves out mouse bindings and tmux's
 `Select window 0` to `9`. The palette is `tmux-tools`' `tmux-command-palette`
 and needs fzf. Option-Space needs a terminal that sends Option as Meta:
-WezTerm does for the left Option key, while macOS Terminal, iTerm2 and VS
-Code need their Option-as-Meta setting. Every right-click menu opens the
-palette too.
+WezTerm does for the left Option key, and the dotfiles-dev overlay's VS Code
+keybindings send it from a focused terminal, while macOS Terminal and iTerm2
+need their Option-as-Meta setting. Every right-click menu opens the palette
+too.
 
 The key goes where the other root keys go: into SSH, mosh, ET or a nested
 tmux while it reports mouse, so the innermost tmux opens its own palette, and
@@ -314,6 +335,19 @@ The config intentionally enables extended keys, true color, focus events, OSC
 passthrough, and hyperlink support. Those settings are part of the contract
 between WezTerm, tmux, Neovim, and remote shells. Be careful changing them:
 some require a fresh tmux server, not just `tmux source-file`.
+
+Ctrl-Shift-B is a one-key prefix for a nested tmux, local or over SSH: it
+types this tmux's prefix, `C-b`, into the pane, so the tmux inside takes the
+next key as its own prefix command (Ctrl-Shift-B then `c` opens a window
+there). Elsewhere, such as a shell or an agent, the pane just receives `C-b`.
+tmux sees the chord only when the terminal sends it as an extended key
+distinct from `C-b`, so the shared terminal settings make WezTerm and iTerm2
+send `ESC [ 98 ; 6 u`, and the dotfiles-dev overlay's VS Code keybindings send
+the same from a focused terminal in place of VS Code's Run Build Task. Left
+alone, WezTerm sends `ESC [ 27 ; 5 ; 66 ~` while tmux has extended keys on,
+which tmux 3.4 reads as `C-b` and 3.6 onwards as a separate `C-B`, and plain
+`C-b` otherwise. macOS Terminal sends plain `C-b`, so there the chord is just
+this tmux's own prefix.
 
 Mouse bindings should preserve nested behavior. When `#{mouse_any_flag}` is
 set, tmux forwards the event inward with `send-keys -M`, so Neovim, a nested
