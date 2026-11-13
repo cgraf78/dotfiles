@@ -1137,6 +1137,16 @@ SH
     _assert_contains 'tmux: window switches publish attention at once' \
       'term-pane-state --socket #{q:socket_path} --session #{q:session_id}' \
       "$(tmux_cmd show-hooks -g session-window-changed)"
+    # A nested layer's lease reaches this terminal at once, and only when
+    # its counts change: the hook keys on the lease options' set-option.
+    lease_hook=$(tmux_cmd show-hooks -g after-set-option)
+    _assert_contains "tmux: a child lease's change publishes its session at once" \
+      'term-pane-state --socket #{q:socket_path} --session #{q:session_id}' "$lease_hook"
+    _assert_contains 'tmux: only a child lease set-option can publish' \
+      '#{m/r:(^| )@termnav_child_(attention|waiting)( |$),#{hook_arguments}}' "$lease_hook"
+    _assert_contains 'tmux: a lease renewal with the same counts stays process-free' \
+      '#{!=:#{s/^[0-9]+.//:#{@termnav_child_attention}}/#{s/^[0-9]+.//:#{@termnav_child_waiting}},#{@child_lease_seen}}' \
+      "$lease_hook"
     # Every NAME=value helper in the base fragment is %hidden: a plain one
     # would be exported into every pane's environment.
     leaked=''
@@ -1230,6 +1240,8 @@ if command -v tmux >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
     test_background_window_agents_mark_their_tab \
     test_another_focused_client_does_not_strand_a_mark \
     test_view_changes_publish_their_session_at_once \
+    test_child_lease_changes_publish_their_session_at_once \
+    test_nested_attention_reaches_the_terminal_at_once \
     test_prefix_A_pastes_the_last_output_into_the_agent \
     test_prefix_g_and_G_open_popups_in_the_pane_directory \
     test_prefix_n_opens_a_task_window \
@@ -1238,7 +1250,41 @@ if command -v tmux >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
     test_menu_items_grey_out_where_they_cannot_apply \
     test_the_window_menu_acts_on_the_tab_clicked \
     test_option_space_opens_the_command_palette; do
-    _assert_contains "tmux: PTY runs $pty_case" "$pty_case" "$pty_output"
+    # unittest prints each case's name, its docstring and then "... ok" or
+    # "... skipped 'reason'"; a mention of the name alone proves nothing. A
+    # case that writes to stderr while it runs puts that text after the
+    # "... " and its result on a later line, so read on to the first line
+    # that is a result, and stop at the next case's name.
+    pty_result=$(awk -v name="$pty_case" '
+      function result(text) {
+        if (text ~ /^(ok|FAIL|ERROR|skipped|expected failure|unexpected success)/) {
+          print text
+          exit
+        }
+      }
+      !found && index($0, name " (") == 1 {
+        found = 1
+        if (!/ \.\.\. /) next
+      }
+      !found { next }
+      !started && / \.\.\. / { started = 1; sub(/.* \.\.\. /, ""); result($0); next }
+      /^test_[A-Za-z0-9_]+ \(__main__\./ { exit }
+      started { result($0) }
+    ' <<<"$pty_output")
+    case $pty_result in
+      ok) _pass "tmux: PTY runs $pty_case" ;;
+      skipped*)
+        # The nested relay needs the real Termnav and tmux-tools. Hosts that
+        # install them set DOT_TEST_REQUIRE_TERMNAV=1 so the skip cannot hide.
+        if [[ ${DOT_TEST_REQUIRE_TERMNAV:-} == 1 &&
+          $pty_case == test_nested_attention_reaches_the_terminal_at_once ]]; then
+          _fail "tmux: PTY runs $pty_case (${pty_result#skipped }, but DOT_TEST_REQUIRE_TERMNAV=1)"
+        else
+          printf 'SKIP: tmux: PTY runs %s (%s)\n' "$pty_case" "${pty_result#skipped }"
+        fi
+        ;;
+      *) _fail "tmux: PTY runs $pty_case (${pty_result:-no result})" ;;
+    esac
   done
 else
   _pass "tmux: Python or tmux unavailable, PTY coverage skipped"
